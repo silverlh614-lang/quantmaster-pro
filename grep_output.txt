@@ -1,0 +1,446 @@
+              border-color: rgba(255, 255, 255, 0.1) !important;
+            .text-orange-500 { color: #f97316 !important; }
+            .bg-orange-500 { background-color: #f97316 !important; }
+            .bg-orange-500\\/20 { background-color: rgba(249, 115, 22, 0.2) !important; }
+            .text-blue-500 { color: #3b82f6 !important; }
+            .bg-blue-500 { background-color: #3b82f6 !important; }
+            .bg-blue-500\\/20 { background-color: rgba(59, 130, 246, 0.2) !important; }
+            .text-green-500 { color: #22c55e !important; }
+            .bg-green-500 { background-color: #22c55e !important; }
+            .bg-green-500\\/20 { background-color: rgba(34, 197, 94, 0.2) !important; }
+            .text-red-500 { color: #ef4444 !important; }
+            .bg-red-500 { background-color: #ef4444 !important; }
+            .bg-red-500\\/20 { background-color: rgba(239, 68, 68, 0.2) !important; }
+            .bg-white\\/5 { background-color: rgba(255, 255, 255, 0.05) !important; }
+            .bg-white\\/10 { background-color: rgba(255, 255, 255, 0.1) !important; }
+            .bg-white\\/20 { background-color: rgba(255, 255, 255, 0.2) !important; }
+            .text-white\\/40 { color: rgba(255, 255, 255, 0.4) !important; }
+            .text-white\\/30 { color: rgba(255, 255, 255, 0.3) !important; }
+            .text-white\\/20 { color: rgba(255, 255, 255, 0.2) !important; }
+            .text-white\\/10 { color: rgba(255, 255, 255, 0.1) !important; }
+            [class*="bg-gradient-"] {
+            header [class*="bg-gradient-"] {
+      color: 'text-blue-400'
+      color: 'text-green-400'
+      color: 'text-orange-400'
+    <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-orange-500 selection:text-white">
+            className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm"
+              className="glass-3d rounded-[3rem] p-10 max-w-2xl w-full border border-white/10 shadow-2xl overflow-hidden relative"
+                  <div className="w-12 h-12 bg-orange-500/20 rounded-2xl flex items-center justify-center">
+                    <ShieldCheck className="w-6 h-6 text-orange-500" />
+                    <h3 className="text-2xl font-black text-white tracking-tight">11단계 마스터 체크리스트</h3>
+                    <p className="text-xs font-bold text-white/30 uppercase tracking-[0.2em]">Master Selection System</p>
+                  className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
+                  <div key={i} className="flex gap-6 p-6 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/[0.08] transition-all group">
+                    <div className="text-2xl font-black text-white/10 group-hover:text-orange-500/50 transition-colors shrink-0">
+                      <h4 className="text-base font-black text-white mb-1">{step.title}</h4>
+                      <p className="text-sm text-white/40 font-medium leading-relaxed">{step.desc}</p>
+              <div className="mt-10 pt-8 border-t border-white/10 text-center">
+                <p className="text-xs text-white/30 font-bold leading-relaxed">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/5 blur-[100px] -mr-32 -mt-32" />
+            className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm"
+              className="glass-3d rounded-[3rem] p-10 max-w-lg w-full border border-white/10 shadow-2xl overflow-hidden relative"
+                  <div className="w-12 h-12 bg-blue-500/20 rounded-2xl flex items-center justify-center">
+                    <Settings className="w-6 h-6 text-blue-500" />
+                    <h3 className="text-2xl font-black text-white tracking-tight">설정</h3>
+                    <p className="text-xs font-bold text-white/30 uppercase tracking-[0.2em]">Application Settings</p>
+                  className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
+                  <label className="block text-xs font-black text-white/30 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold text-white placeholder:text-white/10 focus:outline-none focus:border-blue-500/50 transition-all"
+                  <p className="mt-4 text-[10px] text-white/20 font-bold leading-relaxed">
+                      className="text-blue-400 hover:underline inline-flex items-center gap-1 mt-1"
+                  className="w-full py-4 bg-blue-500 hover:bg-blue-600 text-white rounded-2xl font-black text-lg transition-all shadow-[0_10px_30px_rgba(59,130,246,0.2)] active:scale-[0.98]"
+              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 blur-[100px] -mr-32 -mt-32" />
+            className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm"
+              className="glass-3d rounded-[3rem] p-10 max-w-lg w-full border border-white/10 shadow-2xl overflow-hidden relative"
+                  <div className="w-12 h-12 bg-green-500/20 rounded-2xl flex items-center justify-center">
+                    <Mail className="w-6 h-6 text-green-500" />
+                    <h3 className="text-2xl font-black text-white tracking-tight">리포트 전송</h3>
+                    <p className="text-xs font-bold text-white/30 uppercase tracking-[0.2em]">Email Report</p>
+                  className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
+                  <label className="block text-xs font-black text-white/30 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold text-white placeholder:text-white/10 focus:outline-none focus:border-green-500/50 transition-all"
+                  <p className="mt-4 text-[10px] text-white/20 font-bold leading-relaxed">
+                  className="w-full py-4 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white rounded-2xl font-black text-lg transition-all shadow-[0_10px_30px_rgba(34,197,94,0.2)] active:scale-[0.98] flex items-center justify-center gap-3"
+              <div className="absolute top-0 right-0 w-64 h-64 bg-green-500/5 blur-[100px] -mr-32 -mt-32" />
+      <header className="border-b border-white/5 bg-black/40 backdrop-blur-xl sticky top-0 z-50 shadow-[0_1px_10px_rgba(0,0,0,0.5)]">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-orange-400 to-orange-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_4px_15px_rgba(249,115,22,0.4)]">
+              <Zap className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+            <h1 className="text-lg sm:text-2xl font-black tracking-tighter text-glow">오늘의 <span className="text-orange-500">유망주</span></h1>
+            <nav className="flex bg-white/5 p-1 rounded-2xl border border-white/10 shadow-inner">
+                  "px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 transition-all",
+                  view === 'DISCOVER' ? "bg-white/10 text-white shadow-sm" : "text-white/30 hover:text-white/60"
+                  "px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 transition-all",
+                  view === 'WATCHLIST' ? "bg-orange-500 text-white shadow-[0_4px_12px_rgba(249,115,22,0.3)]" : "text-white/30 hover:text-white/60"
+                  <span className="bg-white/20 text-[10px] px-1.5 py-0.5 rounded-full ml-1 font-black">
+                  "px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 transition-all",
+                  view === 'BACKTEST' ? "bg-blue-500 text-white shadow-[0_4px_12px_rgba(59,130,246,0.3)]" : "text-white/30 hover:text-white/60"
+              <span className="text-xs font-bold text-white/20 hidden lg:inline uppercase tracking-widest">
+              className="p-2.5 hover:bg-white/5 rounded-xl transition-all active:scale-90 group"
+              <Settings className="w-6 h-6 text-white/40 group-hover:text-orange-500 transition-colors" />
+            <div className="flex items-center gap-2 sm:gap-3 bg-white/5 px-3 sm:px-4 py-2 rounded-2xl border border-white/10 shadow-inner group transition-all hover:border-white/20" title="글자 크기 조절">
+                <span className="text-[7px] sm:text-[8px] font-black text-white/20 uppercase tracking-[0.2em] mb-0.5 hidden xs:block">Text Scale</span>
+                  <Type className="w-3.5 h-3.5 sm:w-4 h-4 text-white/30 group-hover:text-orange-500 transition-colors" />
+                    className="w-16 xs:w-20 sm:w-24 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                    <span className="text-[9px] sm:text-[10px] font-black text-white/30 w-4 sm:w-5 text-center">{fontSize}</span>
+                      className="text-[6px] sm:text-[7px] font-black text-white/10 hover:text-orange-500 transition-colors uppercase tracking-tighter"
+              className="p-2.5 hover:bg-white/5 rounded-xl transition-all disabled:opacity-50 active:scale-90 group"
+              <Download className={cn("w-6 h-6 text-white/40 group-hover:text-blue-500 transition-colors", isGeneratingPDF && "animate-pulse text-blue-500")} />
+              className="p-2.5 hover:bg-white/5 rounded-xl transition-all disabled:opacity-50 active:scale-90 group"
+              <Mail className={cn("w-6 h-6 text-white/40 group-hover:text-green-500 transition-colors", isSendingEmail && "animate-pulse text-green-500")} />
+              className="p-2.5 hover:bg-white/5 rounded-xl transition-all disabled:opacity-50 active:scale-90"
+              <RefreshCw className={cn("w-6 h-6 text-white/40", loading && "animate-spin text-orange-500")} />
+                    <div className="w-3 h-10 bg-blue-500 rounded-full shadow-[0_0_20px_rgba(59,130,246,0.5)]" />
+                    <h2 className="text-4xl font-black text-white tracking-tighter uppercase">AI Portfolio Backtest</h2>
+                  <p className="text-white/40 font-medium max-w-2xl text-lg">
+                  className="flex items-center gap-4 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-10 py-5 rounded-[2.5rem] font-black text-lg transition-all shadow-[0_10px_40px_rgba(59,130,246,0.3)] active:scale-95"
+                  <div className="glass-3d rounded-[3rem] p-10 border border-white/10 shadow-2xl">
+                        <span className="text-[11px] font-black text-white/20 uppercase tracking-[0.3em]">포트폴리오 구성</span>
+                          <label className="cursor-pointer flex items-center gap-2 text-[10px] font-black text-blue-400 hover:text-blue-300 transition-colors uppercase tracking-widest">
+                        "text-[11px] font-black px-3 py-1.5 rounded-xl",
+                        backtestPortfolioItems.reduce((sum, i) => sum + i.weight, 0) === 100 ? "bg-green-500/20 text-green-400" : "bg-orange-500/20 text-orange-400"
+                        <div className="text-center py-20 border-2 border-dashed border-white/5 rounded-[2.5rem]">
+                          <Plus className="w-12 h-12 text-white/10 mx-auto mb-4" />
+                          <p className="text-sm text-white/20 font-black leading-relaxed">추천 종목이나 검색 결과에서<br/>종목을 추가하세요.</p>
+                          <div key={item.code} className="bg-white/5 rounded-3xl p-6 border border-white/5 flex items-center justify-between gap-6 group hover:bg-white/[0.08] transition-all">
+                              <div className="text-lg font-black text-white mb-1">{item.name}</div>
+                              <div className="text-[11px] font-black text-white/20 uppercase tracking-widest">{item.code}</div>
+                                  className="w-20 bg-black/40 border border-white/10 rounded-2xl px-3 py-2 text-sm font-black text-white text-center focus:outline-none focus:border-blue-500/50 transition-all"
+                                <span className="absolute -right-4 top-1/2 -translate-y-1/2 text-xs font-black text-white/20">%</span>
+                                className="p-3 text-white/10 hover:text-red-400 transition-colors"
+                          { label: '누적 수익률', value: `${backtestResult.cumulativeReturn}%`, icon: TrendingUp, color: 'text-orange-400' },
+                          { label: '샤프 지수', value: backtestResult.sharpeRatio, icon: ShieldCheck, color: 'text-blue-400' },
+                          { label: '최대 낙폭', value: `${backtestResult.maxDrawdown}%`, icon: TrendingDown, color: 'text-red-400' },
+                          { label: '변동성', value: `${backtestResult.volatility}%`, icon: Zap, color: 'text-green-400' },
+                            className="glass-3d rounded-[2.5rem] p-8 border border-white/10 shadow-xl text-center"
+                            <div className="text-[11px] font-black text-white/20 uppercase tracking-[0.2em] mb-2">{stat.label}</div>
+                            <div className={cn("text-2xl font-black tracking-tighter", stat.color)}>{stat.value}</div>
+                      <div className="glass-3d rounded-[3rem] p-10 border border-white/10 shadow-2xl">
+                        <span className="text-[11px] font-black text-white/20 uppercase tracking-[0.3em] block mb-10">수익률 추이 (vs KOSPI)</span>
+                        <div className="glass-3d rounded-[3rem] p-10 border border-white/10 shadow-2xl">
+                            <Lightbulb className="w-6 h-6 text-orange-400" />
+                            <span className="text-[11px] font-black text-white/20 uppercase tracking-[0.3em]">AI 전략 분석</span>
+                          <p className="text-base text-white/70 font-bold leading-relaxed whitespace-pre-wrap">
+                        <div className="glass-3d rounded-[3rem] p-10 border border-white/10 shadow-2xl">
+                            <Target className="w-6 h-6 text-blue-400" />
+                            <span className="text-[11px] font-black text-white/20 uppercase tracking-[0.3em]">포트폴리오 최적화 제안</span>
+                              <div key={i} className="bg-white/5 rounded-[2rem] p-6 border border-white/5 group hover:bg-white/[0.08] transition-all">
+                                  <span className="text-lg font-black text-white">{s.stock}</span>
+                                    "text-[10px] font-black px-3 py-1 rounded-xl uppercase tracking-widest",
+                                    s.action === 'INCREASE' ? "bg-green-500/20 text-green-400" :
+                                    s.action === 'DECREASE' ? "bg-red-500/20 text-red-400" :
+                                    "bg-white/10 text-white/40"
+                                <p className="text-xs text-white/40 font-bold leading-relaxed">{s.reason}</p>
+                    <div className="h-full flex flex-col items-center justify-center py-32 glass-3d rounded-[3rem] border border-white/10 border-dashed">
+                      <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mb-8">
+                        <History className="w-12 h-12 text-white/10" />
+                      <h3 className="text-2xl font-black text-white/20 mb-3">백테스팅 결과가 없습니다</h3>
+                      <p className="text-base text-white/10 font-bold">포트폴리오를 구성하고 시뮬레이션을 시작하세요.</p>
+                    className="mb-8 p-6 bg-red-500/10 border border-red-500/20 rounded-[2rem] flex items-center justify-between gap-4"
+                      <div className="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center">
+                        <AlertTriangle className="w-5 h-5 text-red-400" />
+                        <h4 className="text-sm font-black text-red-400 uppercase tracking-widest mb-1">시스템 오류</h4>
+                        <p className="text-sm text-white/60 font-bold">{error}</p>
+                      className="p-2 text-white/20 hover:text-white/40 transition-colors"
+                <h2 className="text-5xl sm:text-7xl font-black mb-6 leading-[1.1] tracking-tighter text-glow">
+                <span className="text-orange-500 text-glow-orange">오늘의 유망주</span>
+                <p className="text-white/50 max-w-xl text-xl font-black leading-relaxed">
+                  AI 기반 <span className="text-white border-b border-white/20 cursor-help" onClick={() => setShowMasterChecklist(true)}>11단계 마스터 체크리스트</span>를 통과한 주도주 포착 시스템.
+                  className="absolute -right-8 top-0 p-2 text-white/20 hover:text-orange-500 transition-colors"
+                        className="flex items-center gap-3 bg-white/5 px-5 py-3 rounded-2xl border border-white/10 shadow-lg hover:bg-white/10 hover:border-orange-500/30 transition-all cursor-help group/step active:scale-95"
+                        <div className="w-8 h-8 rounded-xl bg-orange-500/10 flex items-center justify-center group-hover/step:bg-orange-500/20 transition-colors">
+                          <step.icon className="w-4 h-4 text-orange-500 group-hover/step:scale-110 transition-transform" />
+                        <span className="text-xs font-black uppercase tracking-tight text-white/40 group-hover/step:text-white/80 transition-colors">
+                className="btn-3d px-10 py-5 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl font-black text-xl flex items-center gap-4 group-hover:scale-[1.02]"
+            <div className="absolute top-0 right-0 w-96 h-96 bg-orange-500/10 blur-[120px] -mr-32 -mt-32 animate-pulse" />
+            <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/5 blur-[100px] -ml-32 -mb-32" />
+              <h3 className="text-xs font-black text-white/30 uppercase tracking-[0.2em] mb-10 flex items-center gap-3">
+                    <span className="text-sm font-black text-white/50 uppercase tracking-tight">삼성 IRI</span>
+                      "text-3xl font-black tracking-tighter",
+                      recommendations[0]?.marketSentiment.iri < 2.0 ? "text-green-500" : "text-red-500"
+                      {recommendations[0]?.marketSentiment.iri || "0.0"}<span className="text-sm ml-1 opacity-50">pt</span>
+                  <div className="h-2 bg-white/5 rounded-full overflow-hidden shadow-inner">
+                        recommendations[0]?.marketSentiment.iri < 2.0 ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.5)]" : "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]"
+                  <p className="text-[10px] font-bold text-white/20 mt-3 uppercase tracking-widest">
+                    <span className="text-sm font-black text-white/50 uppercase tracking-tight">VKOSPI</span>
+                      "text-3xl font-black tracking-tighter",
+                      recommendations[0]?.marketSentiment.vkospi < 20 ? "text-green-500" : "text-red-500"
+                      {recommendations[0]?.marketSentiment.vkospi || "0.0"}<span className="text-sm ml-1 opacity-50">%</span>
+                  <div className="h-2 bg-white/5 rounded-full overflow-hidden shadow-inner">
+                        recommendations[0]?.marketSentiment.vkospi < 20 ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.5)]" : "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]"
+                  <p className="text-[10px] font-bold text-white/20 mt-3 uppercase tracking-widest">
+              "mt-12 p-5 rounded-2xl border-2 flex items-center justify-center gap-4 shadow-lg transition-all group-hover:scale-[1.05]",
+                ? "bg-green-500/10 border-green-500/20 text-green-400 shadow-green-500/10" 
+                : "bg-red-500/10 border-red-500/20 text-red-400 shadow-red-500/10"
+              <div className={cn("w-3 h-3 rounded-full animate-pulse", recommendations[0]?.marketSentiment.iri < 2.0 ? "bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.8)]" : "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]")} />
+              <span className="text-sm font-black uppercase tracking-[0.1em]">
+            <div className="glass-3d rounded-[2.5rem] p-8 border border-white/10 shadow-2xl relative overflow-hidden">
+                    <div className="w-2 h-8 bg-orange-500 rounded-full" />
+                    <h3 className="text-xl font-black text-white uppercase tracking-tighter">실시간 시장 분석 (Market Context)</h3>
+                  <p className="text-white/60 text-lg leading-relaxed font-black">
+                    <div className="bg-white/5 rounded-3xl p-6 border border-white/10 shadow-inner group hover:bg-white/[0.08] transition-all">
+                          <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] block mb-1">KOSPI</span>
+                          <span className="text-2xl font-black text-white tracking-tighter">{marketContext.kospi.index.toLocaleString()}</span>
+                          "px-3 py-1 rounded-full text-xs font-black flex items-center gap-1.5",
+                          marketContext.kospi.change >= 0 ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
+                      <p className="text-xs text-white/50 leading-relaxed font-bold">
+                    <div className="bg-white/5 rounded-3xl p-6 border border-white/10 shadow-inner group hover:bg-white/[0.08] transition-all">
+                          <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] block mb-1">KOSDAQ</span>
+                          <span className="text-2xl font-black text-white tracking-tighter">{marketContext.kosdaq.index.toLocaleString()}</span>
+                          "px-3 py-1 rounded-full text-xs font-black flex items-center gap-1.5",
+                          marketContext.kosdaq.change >= 0 ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
+                      <p className="text-xs text-white/50 leading-relaxed font-bold">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/5 blur-[80px] -mr-20 -mt-20" />
+              <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-500/5 blur-[60px] -ml-16 -mb-16" />
+            <h3 className="text-xl font-bold flex items-center gap-2">
+                  <Search className="w-5 h-5 text-orange-500" />
+                  <Bookmark className="w-5 h-5 text-orange-500" />
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/20 group-focus-within:text-orange-500 transition-colors" />
+                        className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-5 py-3 text-sm font-black text-white placeholder:text-white/20 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.08] transition-all shadow-inner"
+                      className="btn-3d px-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:hover:bg-orange-500 text-white text-sm font-black rounded-2xl transition-all flex items-center gap-2 shrink-0"
+                  <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner">
+                          "px-4 py-2 rounded-xl text-xs font-black transition-all",
+                            ? "bg-orange-500 text-white shadow-[0_4px_10px_rgba(249,115,22,0.3)]" 
+                            : "text-white/30 hover:text-white/60"
+                  <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner">
+                          "px-4 py-2 rounded-xl text-xs font-black transition-all",
+                            ? "bg-blue-500 text-white shadow-[0_4px_10px_rgba(59,130,246,0.3)]" 
+                            : "text-white/30 hover:text-white/60"
+                    className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm font-black text-white/60 focus:outline-none focus:border-orange-500/50 transition-all shadow-inner cursor-pointer"
+                  <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] mr-3">Checklist Filter:</span>
+                        "px-3 py-1.5 rounded-xl text-[10px] font-black border transition-all",
+                          ? "bg-green-500/20 border-green-500/40 text-green-400 shadow-[0_4px_10px_rgba(34,197,94,0.1)]"
+                          : "bg-white/5 border-white/10 text-white/30 hover:border-white/20"
+                      className="text-[10px] font-black text-orange-500 hover:text-orange-400 ml-3 uppercase tracking-widest"
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/20 group-focus-within:text-orange-500 transition-colors" />
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-5 py-3 text-sm font-black text-white placeholder:text-white/20 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.08] transition-all shadow-inner"
+                  <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner">
+                          "px-4 py-2 rounded-xl text-xs font-black transition-all",
+                            ? "bg-orange-500 text-white shadow-[0_4px_10px_rgba(249,115,22,0.3)]" 
+                            : "text-white/30 hover:text-white/60"
+              className="mb-12 bg-white/5 rounded-[2.5rem] p-6 border border-white/10 shadow-inner"
+                <div className="w-1.5 h-6 bg-orange-500 rounded-full shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
+                <span className="text-xs font-black text-white/40 uppercase tracking-[0.2em]">추천 종목 퀵 네비게이션</span>
+                    className="group flex items-center gap-3 bg-white/5 hover:bg-orange-500/10 border border-white/10 hover:border-orange-500/30 px-4 py-2.5 rounded-2xl transition-all active:scale-95"
+                    <span className="text-sm font-black text-white group-hover:text-orange-500 transition-colors">{stock.name}</span>
+                    <span className="text-[10px] font-black text-white/20 group-hover:text-orange-500/40 transition-colors">{stock.code}</span>
+                    <ChevronRight className="w-3 h-3 text-white/10 group-hover:text-orange-500 transition-colors" />
+                <div key={i} className="h-64 bg-white/5 rounded-3xl animate-pulse border border-white/10" />
+                          ? "border-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.15)]" 
+                          : "border-white/10"
+                        <div className="absolute top-0 left-0 right-0 bg-red-500 text-[11px] font-black text-white py-2 px-4 flex items-center justify-center gap-2 z-20 animate-pulse shadow-lg">
+                            <h4 className="text-3xl sm:text-4xl font-black tracking-tighter group-hover:text-orange-500 transition-colors truncate drop-shadow-[0_2px_8px_rgba(255,255,255,0.1)]">{stock.name}</h4>
+                            <span className="text-xs font-black text-white/40 bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 tracking-[0.2em] shadow-inner">
+                              <span className="bg-orange-500/20 text-orange-400 text-[10px] font-black px-2.5 py-1 rounded-full border border-orange-500/30 uppercase tracking-widest">
+                                "text-[10px] font-black px-2.5 py-1 rounded-full border uppercase tracking-widest flex items-center gap-1.5",
+                                stock.confidenceScore >= 90 ? "bg-green-500/20 text-green-400 border-green-500/30 shadow-[0_0_15px_rgba(34,197,94,0.2)]" : "bg-white/5 text-white/40 border-white/10"
+                              "text-[10px] font-black px-2.5 py-1 rounded-full border uppercase tracking-widest",
+                              stock.momentumRank <= 5 ? "bg-red-500/20 text-red-400 border-red-500/30" : "bg-white/5 text-white/40 border-white/10"
+                              "text-[10px] font-black px-2.5 py-1 rounded-full border uppercase tracking-widest",
+                              stock.ichimokuStatus === 'ABOVE_CLOUD' ? "bg-blue-500/20 text-blue-400 border-blue-500/30" : "bg-white/5 text-white/40 border-white/10"
+                            className="p-3 rounded-2xl transition-all border border-white/10 bg-white/5 text-white/20 hover:text-blue-400 hover:border-blue-500/30 active:scale-90"
+                                ? "bg-orange-500 text-white border-orange-400 shadow-[0_4px_12px_rgba(249,115,22,0.4)]" 
+                                : "bg-white/5 border-white/10 text-white/20 hover:text-white/60"
+                            "px-5 py-2.5 rounded-[2rem] text-sm font-black uppercase tracking-[0.3em] border shadow-2xl flex flex-col items-center justify-center min-w-[100px] transition-all group-hover:scale-105",
+                            stock.type === 'BUY' && "bg-red-500 text-white border-red-400 shadow-red-500/20",
+                            stock.type === 'SELL' && "bg-blue-500 text-white border-blue-400 shadow-blue-500/20",
+                            stock.type === 'HOLD' && "bg-amber-500 text-white border-amber-400 shadow-amber-500/20"
+                            <span className="text-[9px] opacity-60 mb-1 tracking-widest">SIGNAL</span>
+                              "text-xs font-black px-3 py-1.5 rounded-xl border transition-all flex items-center gap-2",
+                                ? "bg-orange-500 text-white border-orange-400 shadow-[0_4px_12px_rgba(249,115,22,0.4)]" 
+                                : "text-blue-400 bg-blue-500/10 border-blue-500/20"
+                                className="absolute z-50 top-full left-0 mt-3 w-64 bg-[#111] border border-white/10 rounded-2xl p-4 shadow-2xl backdrop-blur-2xl"
+                                      <div className={cn("text-xs font-black mb-1 uppercase tracking-widest", getRoeDetail(stock.roeType || '')?.color)}>
+                                      <p className="text-[11px] text-white/70 leading-relaxed font-bold">
+                                    <div className="grid grid-cols-1 gap-3 pt-3 border-t border-white/5">
+                                        <span className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-1">역사적 트렌드</span>
+                                        <p className="text-[10px] text-white/50 font-bold">{getRoeDetail(stock.roeType || '')?.trend}</p>
+                                        <span className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-1">핵심 지표</span>
+                                        <p className="text-[10px] text-white/50 font-bold">{getRoeDetail(stock.roeType || '')?.metrics}</p>
+                                        <span className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-1">액션 전략</span>
+                                        <p className="text-[10px] text-orange-400 font-black">{getRoeDetail(stock.roeType || '')?.detailedStrategy}</p>
+                                  <p className="text-xs text-white/30 italic">상세 정보가 없습니다.</p>
+                          <span key={p} className="text-[10px] uppercase tracking-[0.15em] font-black text-white/20 bg-white/5 px-2.5 py-1.5 rounded-xl border border-white/5">
+                        <div className="bg-white/5 rounded-[2rem] p-5 border border-white/10 shadow-inner flex flex-col items-center justify-center group/price hover:border-white/20 transition-all">
+                          <span className="text-[9px] font-black text-white/20 block mb-3 uppercase tracking-[0.2em] flex items-center gap-1.5">
+                            <ArrowDownRight className="w-3 h-3 text-blue-400" /> 매수가
+                              <span className="text-[9px] font-black text-white/30 uppercase">1st</span>
+                              <span className="text-lg font-black text-white tracking-tighter">{stock.entryPrice?.toLocaleString() || stock.currentPrice?.toLocaleString()}</span>
+                                <span className="text-[9px] font-black text-white/30 uppercase">2nd</span>
+                                <span className="text-sm font-black text-white/60 tracking-tighter">{stock.entryPrice2.toLocaleString()}</span>
+                        <div className="bg-green-500/5 rounded-[2rem] p-5 border border-green-500/10 shadow-inner flex flex-col items-center justify-center group/price hover:border-green-500/30 transition-all">
+                          <span className="text-[9px] font-black text-green-500/40 block mb-3 uppercase tracking-[0.2em] flex items-center gap-1.5">
+                            <ArrowUpRight className="w-3 h-3 text-green-400" /> 목표가
+                              <span className="text-[9px] font-black text-green-500/30 uppercase">1st</span>
+                              <span className="text-lg font-black text-green-400 tracking-tighter">{stock.targetPrice?.toLocaleString() || '-'}</span>
+                                <span className="text-[9px] font-black text-green-500/30 uppercase">2nd</span>
+                                <span className="text-sm font-black text-green-400/60 tracking-tighter">{stock.targetPrice2.toLocaleString()}</span>
+                        <div className="bg-red-500/5 rounded-3xl p-4 border border-red-500/10 shadow-inner flex flex-col items-center justify-center">
+                          <span className="text-[9px] font-black text-red-500/40 block mb-2 uppercase tracking-[0.2em]">손절가</span>
+                            <span className="text-sm font-black text-red-400">{stock.stopLoss?.toLocaleString() || '-'}</span>
+                          <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] block mb-2">관련 주도 섹터</span>
+                              <span key={sector} className="text-[11px] font-black text-orange-500/80 bg-orange-500/5 px-3 py-1 rounded-xl border border-orange-500/10 shadow-sm">
+                        <div className="bg-white/5 rounded-[2rem] p-6 border border-white/10 shadow-inner group/moat hover:border-blue-500/30 transition-all relative overflow-hidden">
+                          <span className="text-[10px] font-black text-white/20 block mb-4 uppercase tracking-[0.2em] flex items-center gap-2">
+                            <ShieldCheck className="w-3 h-3 text-blue-400" /> 경제적 해자 (Moat)
+                                "text-xs font-black px-3 py-1.5 rounded-xl shadow-lg",
+                                stock.economicMoat?.type !== 'NONE' ? "bg-blue-500 text-white" : "bg-white/5 text-white/40"
+                              <div className="h-px flex-1 bg-white/5" />
+                            <p className="text-xs text-white/60 font-medium leading-relaxed italic">
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 blur-2xl -mr-12 -mt-12 group-hover/moat:bg-blue-500/10 transition-colors" />
+                          <div className="bg-red-500/5 rounded-[2rem] p-6 border border-red-500/10 shadow-inner group/risk hover:border-red-500/30 transition-all relative overflow-hidden">
+                            <span className="text-[10px] font-black text-red-500/40 block mb-4 uppercase tracking-[0.2em] flex items-center gap-2">
+                              <AlertTriangle className="w-3 h-3 text-red-500" /> 주요 리스크 요인
+                                <span key={risk} className="text-[10px] font-black text-red-400/70 bg-red-500/10 px-3 py-1.5 rounded-xl border border-red-500/10 shadow-sm hover:bg-red-500/20 transition-colors">
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/5 blur-2xl -mr-12 -mt-12 group-hover/risk:bg-red-500/10 transition-colors" />
+                          <div className="bg-white/5 rounded-[2rem] p-6 border border-white/10 shadow-inner group/score hover:border-orange-500/30 transition-all">
+                            <span className="text-[10px] font-black text-white/20 block mb-4 uppercase tracking-[0.2em]">가치+모멘텀 스코어</span>
+                              <div className="flex-1 h-3 bg-white/5 rounded-full overflow-hidden flex shadow-inner border border-white/5">
+                                <div className="h-full bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]" style={{ width: `${(stock.scores?.value || 0) * 10}%` }} />
+                                <div className="h-full bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)]" style={{ width: `${(stock.scores?.momentum || 0) * 10}%` }} />
+                              <span className="text-sm font-black text-white/80 bg-white/5 px-3 py-1 rounded-lg border border-white/5">
+                          <div key={m.label} className="bg-white/5 rounded-2xl p-3 border border-white/5 text-center shadow-inner">
+                            <div className="text-[10px] font-black text-white/20 uppercase mb-1 tracking-widest">{m.label}</div>
+                            <div className="text-sm font-black text-white/80">{m.value || '-'}{m.suffix}</div>
+                          "text-white/70 text-base leading-relaxed mb-4 transition-all duration-300 font-bold",
+                          className="flex items-center gap-1.5 text-xs font-black text-orange-500 hover:text-orange-400 transition-colors mb-8 uppercase tracking-widest"
+                      <div className="bg-white/5 rounded-[2rem] p-6 border border-white/10 mb-6 shadow-inner">
+                        <span className="text-[10px] font-black text-white/20 block mb-4 uppercase tracking-[0.2em]">기술적 보조 지표 (Technical)</span>
+                            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">이평선</span>
+                              "text-sm font-black",
+                              stock.technicalSignals?.maAlignment === 'BULLISH' ? "text-green-400" : "text-white/60"
+                            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">RSI (14)</span>
+                              "text-sm font-black",
+                              (stock.technicalSignals?.rsi || 0) <= 30 ? "text-blue-400" : (stock.technicalSignals?.rsi || 0) >= 70 ? "text-red-400" : "text-white/60"
+                            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">MACD</span>
+                              "text-sm font-black",
+                              stock.technicalSignals?.macdStatus === 'GOLDEN_CROSS' ? "text-green-400" : "text-white/60"
+                            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">거래량</span>
+                              "text-sm font-black",
+                              stock.technicalSignals?.volumeSurge ? "text-orange-400 animate-pulse" : "text-white/60"
+                            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">볼린저</span>
+                              "text-sm font-black",
+                              stock.technicalSignals?.bollingerStatus === 'LOWER_TOUCH' ? "text-blue-400" : 
+                              stock.technicalSignals?.bollingerStatus === 'EXPANSION' ? "text-orange-400" : "text-white/60"
+                            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">스토캐스틱</span>
+                              "text-sm font-black",
+                              stock.technicalSignals?.stochasticStatus === 'OVERSOLD' ? "text-blue-400" : 
+                              stock.technicalSignals?.stochasticStatus === 'OVERBOUGHT' ? "text-red-400" : "text-white/60"
+                            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">이격도 (20)</span>
+                              "text-sm font-black",
+                              (stock.technicalSignals?.disparity20 || 0) <= -15 ? "text-blue-400" : 
+                              (stock.technicalSignals?.disparity20 || 0) >= 15 ? "text-red-400" : "text-white/60"
+                            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">일목균형</span>
+                              "text-sm font-black",
+                              stock.ichimokuStatus === 'ABOVE_CLOUD' ? "text-green-400" : "text-white/60"
+                            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">MACD 히스토</span>
+                              "text-sm font-black",
+                              (stock.technicalSignals?.macdHistogram || 0) > 0 ? "text-green-400" : "text-red-400"
+                            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">BB 폭 (Width)</span>
+                              "text-sm font-black text-white/60"
+                            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Stoch RSI</span>
+                              "text-sm font-black",
+                              (stock.technicalSignals?.stochRsi || 0) <= 0.2 ? "text-blue-400" : (stock.technicalSignals?.stochRsi || 0) >= 0.8 ? "text-red-400" : "text-white/60"
+                        <div className="bg-white/5 rounded-[2rem] p-6 border border-white/10 mb-6 shadow-inner">
+                            <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em]">전략적 통찰 (Strategic Insights)</span>
+                              "px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-widest",
+                              stock.strategicInsight.cyclePosition === 'NEW_LEADER' ? "bg-orange-500/20 text-orange-400 border-orange-500/30" :
+                              stock.strategicInsight.cyclePosition === 'MATURING' ? "bg-blue-500/20 text-blue-400 border-blue-500/30" :
+                              "bg-white/5 text-white/40 border-white/10"
+                                <span className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-1">이익의 질 (Earnings Quality)</span>
+                                <p className="text-xs text-white/70 font-bold leading-relaxed">{stock.strategicInsight.earningsQuality}</p>
+                                <span className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-1">정책적 맥락 (Policy Context)</span>
+                                <p className="text-xs text-white/70 font-bold leading-relaxed">{stock.strategicInsight.policyContext}</p>
+                        <div className="bg-white/5 rounded-[2rem] p-6 border border-white/10 mb-6 shadow-inner">
+                            <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em]">ROE 심층 분석 (DuPont Analysis)</span>
+                            <div className="bg-orange-500/20 px-3 py-1 rounded-full border border-orange-500/30">
+                              <span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Actionable Strategy</span>
+                                <div className="bg-white/5 rounded-2xl p-3 border border-white/5 text-center group hover:border-orange-500/30 transition-colors">
+                                  <span className="text-[9px] font-black text-white/20 uppercase block mb-1">순이익률</span>
+                                  <span className="text-sm font-black text-orange-400">{stock.roeAnalysis.metrics.netProfitMargin}%</span>
+                                <div className="bg-white/5 rounded-2xl p-3 border border-white/5 text-center group hover:border-blue-500/30 transition-colors">
+                                  <span className="text-[9px] font-black text-white/20 uppercase block mb-1">자산회전율</span>
+                                  <span className="text-sm font-black text-blue-400">{stock.roeAnalysis.metrics.assetTurnover}x</span>
+                                <div className="bg-white/5 rounded-2xl p-3 border border-white/5 text-center group hover:border-green-500/30 transition-colors">
+                                  <span className="text-[9px] font-black text-white/20 uppercase block mb-1">레버리지</span>
+                                  <span className="text-sm font-black text-green-400">{stock.roeAnalysis.metrics.equityMultiplier}x</span>
+                                <span className="text-[10px] font-black text-white/30 uppercase tracking-widest block mb-2">성장 동력 (Drivers)</span>
+                                    <span key={driver} className="text-[10px] font-black text-white/60 bg-white/5 px-2.5 py-1 rounded-lg border border-white/5 hover:bg-white/10 transition-colors">
+                              <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                                <span className="text-[10px] font-black text-white/30 uppercase tracking-widest block mb-2">역사적 트렌드 (Historical Trend)</span>
+                                <p className="text-xs text-white/70 font-medium leading-relaxed">{stock.roeAnalysis.historicalTrend}</p>
+                              <div className="bg-orange-500/10 p-5 rounded-2xl border border-orange-500/20 shadow-[0_4px_20px_rgba(249,115,22,0.1)]">
+                                <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest block mb-2">실전 투자 전략 (Action Plan)</span>
+                                <p className="text-sm text-orange-400 font-black leading-relaxed">{stock.roeAnalysis.strategy}</p>
+                        <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/10 mb-8 shadow-inner relative overflow-hidden group/analyst">
+                              <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center">
+                                <Users className="w-5 h-5 text-orange-500" />
+                                <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] block">Analyst Consensus</span>
+                                <h4 className="text-sm font-black text-white/80 uppercase tracking-widest">애널리스트 투자의견</h4>
+                                <span key={source} className="text-[9px] font-black text-white/30 bg-white/5 px-2.5 py-1 rounded-lg border border-white/5 uppercase tracking-tighter">
+                                <span className="text-xs font-black text-white/40 uppercase tracking-tight">컨센서스</span>
+                                  <span className="text-3xl font-black text-orange-500 tracking-tighter">{stock.analystRatings.consensus}</span>
+                                  <span className="text-[10px] font-black text-white/20 uppercase">Rating</span>
+                                <div className="flex h-3 rounded-full overflow-hidden shadow-inner bg-white/5 border border-white/5">
+                                  <div className="h-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]" style={{ width: `${(stock.analystRatings.buy / (stock.analystRatings.buy + stock.analystRatings.hold + stock.analystRatings.sell)) * 100}%` }} />
+                                  <div className="h-full bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.5)]" style={{ width: `${(stock.analystRatings.hold / (stock.analystRatings.buy + stock.analystRatings.hold + stock.analystRatings.sell)) * 100}%` }} />
+                                  <div className="h-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]" style={{ width: `${(stock.analystRatings.sell / (stock.analystRatings.buy + stock.analystRatings.hold + stock.analystRatings.sell)) * 100}%` }} />
+                                <div className="flex justify-between text-[10px] font-black tracking-widest uppercase">
+                                  <span className="text-green-400 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-green-500" /> BUY {stock.analystRatings.buy}</span>
+                                  <span className="text-yellow-400 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-yellow-500" /> HOLD {stock.analystRatings.hold}</span>
+                                  <span className="text-red-400 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-red-500" /> SELL {stock.analystRatings.sell}</span>
+                              <div className="bg-white/5 rounded-3xl p-5 border border-white/5 flex flex-col justify-center items-center group/target hover:bg-white/[0.08] transition-all">
+                                <span className="text-[10px] font-black text-white/20 uppercase mb-3 tracking-widest">평균 목표가</span>
+                                <span className="text-2xl font-black text-white tracking-tighter">{stock.analystRatings.targetPriceAvg.toLocaleString()}</span>
+                                  "mt-2 px-2 py-0.5 rounded-lg text-[10px] font-black flex items-center gap-1",
+                                  stock.analystRatings.targetPriceAvg > stock.currentPrice ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
+                              <div className="bg-white/5 rounded-3xl p-5 border border-white/5 flex flex-col justify-center items-center group/target hover:bg-white/[0.08] transition-all">
+                                <span className="text-[10px] font-black text-white/20 uppercase mb-3 tracking-widest">최고 목표가</span>
+                                <span className="text-2xl font-black text-white/80 tracking-tighter">{stock.analystRatings.targetPriceHigh.toLocaleString()}</span>
+                              <div className="bg-white/5 rounded-3xl p-5 border border-white/5 flex flex-col justify-center items-center group/target hover:bg-white/[0.08] transition-all">
+                                <span className="text-[10px] font-black text-white/20 uppercase mb-3 tracking-widest">최저 목표가</span>
+                                <span className="text-2xl font-black text-white/80 tracking-tighter">{stock.analystRatings.targetPriceLow.toLocaleString()}</span>
+                            <div className="mt-8 pt-8 border-t border-white/5 relative">
+                              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#050505] px-4 py-1">
+                                <MessageSquare className="w-4 h-4 text-white/10" />
+                              <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] block mb-3 text-center">시장 센티먼트 요약</span>
+                              <p className="text-base text-white/60 font-medium leading-relaxed italic text-center max-w-2xl mx-auto">
+                          <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/5 blur-[100px] -mr-32 -mt-32 group-hover/analyst:bg-orange-500/10 transition-colors" />
+                        <div className="flex-1 bg-white/5 rounded-[1.5rem] p-4 border border-white/10 shadow-inner">
+                          <span className="text-[10px] font-black text-white/20 block mb-3 uppercase tracking-widest">수급의 질 (외국인)</span>
+                                <div className={cn("w-2 h-2 rounded-full", stock.supplyQuality?.passive ? "bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]" : "bg-white/10")} />
+                                <span className="text-xs font-black text-white/60 tracking-tight">Passive</span>
+                                <div className={cn("w-2 h-2 rounded-full", stock.supplyQuality?.active ? "bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]" : "bg-white/10")} />
+                                <span className="text-xs font-black text-white/60 tracking-tight">Active</span>
+                              <div className="bg-green-500/20 px-2 py-1 rounded-lg text-[10px] font-black text-green-400 border border-green-500/30 tracking-widest">
+                            ? "bg-red-500/10 border-red-500/30" 
+                            : "bg-white/5 border-white/10"
+                          <span className="text-[10px] font-black text-white/20 block mb-3 uppercase tracking-widest">리스크 (-30% Rule)</span>
+                            <span className="text-xs font-black text-white/60 tracking-tight">고점대비</span>
+                                <AlertTriangle className="w-5 h-5 text-red-500 animate-bounce" />
+                                "text-sm font-black tracking-tight",
+                                stock.peakPrice > 0 && Math.round((stock.currentPrice / stock.peakPrice - 1) * 100) <= -30 ? "text-red-500" : "text-green-500"
+                          <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em]">14-Step Master Selection System</div>
+                            <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">
+                            <div className="w-24 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                className="h-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)] transition-all duration-1000" 
+                                    ? "bg-green-500/10 border-green-500/20 text-green-400 cursor-pointer hover:bg-green-500/20 active:scale-95" 
+                                    : "bg-white/5 border-white/10 text-white/10 cursor-default",
+                                  isActive && "ring-2 ring-green-500/50 bg-green-500/20"
+                                <Icon className={cn("w-5 h-5 transition-transform", isChecked ? "text-green-500 group-hover/check:scale-110" : "text-white/5")} />
+                                <span className="text-[10px] font-black truncate tracking-tight uppercase">{item.label}</span>
+                              <div className="mt-3 p-4 bg-green-500/5 border border-green-500/10 rounded-2xl shadow-inner">
+                                <div className="text-[10px] font-black text-green-500/50 uppercase tracking-widest mb-2">
+                                <p className="text-xs font-medium text-green-400/80 leading-relaxed">
+                      <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/5">
+                          <Flame className="w-4 h-4 text-orange-500" />
+                                  i < stock.hotness ? "bg-orange-500" : "bg-white/10"
+                          <span className="text-[10px] font-bold text-white/40 ml-1">HOTNESS</span>
+                          className="p-2 bg-white/5 hover:bg-orange-500 rounded-xl transition-all group-hover:translate-x-1"
+                    className="col-span-full py-20 text-center border-2 border-dashed border-white/5 rounded-3xl"
+                    <Bookmark className="w-12 h-12 text-white/10 mx-auto mb-4" />
+                    <p className="text-white/40 font-medium mb-4">
+                        className="px-6 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-sm font-bold text-orange-500 transition-all flex items-center gap-2 mx-auto"
+        <footer className="mt-20 pt-8 border-t border-white/10 text-center">
+          <div className="flex items-center justify-center gap-2 text-white/40 text-xs mb-4">
+          <p className="text-white/20 text-[10px] uppercase tracking-[0.2em]">

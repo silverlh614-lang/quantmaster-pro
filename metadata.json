@@ -1,0 +1,7 @@
+{
+  "name": "QuantMaster Pro",
+  "description": "AI 기반 27단계 정밀 검증 시스템, 사용자 정의 정량 필터 스크리너, AI 추천 적중률 추적, 3-Tranche 자동 분할매수 계획을 포함한 초정밀 퀀트 투자 플랫폼.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

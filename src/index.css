@@ -1,0 +1,194 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+  --breakpoint-xs: 480px;
+  
+  --color-theme-bg: var(--bg-app);
+  --color-theme-text: var(--text-primary);
+  --color-theme-text-secondary: var(--text-secondary);
+  --color-theme-text-muted: var(--text-muted);
+  --color-theme-card: var(--card-bg);
+  --color-theme-border: var(--card-border);
+  --color-theme-accent: var(--accent);
+}
+
+@layer base {
+  :root {
+    --bg-app: #050505;
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.7);
+    --text-muted: rgba(255, 255, 255, 0.4);
+    --card-bg: rgba(255, 255, 255, 0.03);
+    --card-border: rgba(255, 255, 255, 0.08);
+    --accent: #f97316;
+  }
+
+  .theme-light {
+    --bg-app: #f8f9fa;
+    --text-primary: #1a1a1a;
+    --text-secondary: rgba(0, 0, 0, 0.7);
+    --text-muted: rgba(0, 0, 0, 0.4);
+    --card-bg: #ffffff;
+    --card-border: rgba(0, 0, 0, 0.1);
+    --accent: #f97316;
+  }
+
+  .theme-high-contrast {
+    --bg-app: #000000;
+    --text-primary: #ffffff;
+    --text-secondary: #ffffff;
+    --text-muted: #ffff00;
+    --card-bg: #000000;
+    --card-border: #ffffff;
+    --accent: #ffff00;
+  }
+
+  html {
+    transition: font-size 0.2s ease-out;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-theme-bg text-theme-text selection:bg-orange-500/30 overflow-x-hidden transition-colors duration-300;
+    font-family: var(--font-sans);
+  }
+}
+
+@layer utilities {
+  .glass-3d {
+    @apply bg-theme-card backdrop-blur-2xl border border-theme-border relative overflow-hidden;
+    box-shadow: 
+      0 10px 30px -10px rgba(0, 0, 0, 0.5),
+      inset 0 1px 1px 0 rgba(255, 255, 255, 0.05);
+  }
+  
+  .card-3d {
+    @apply transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.7)] hover:bg-theme-card/80;
+  }
+
+  .btn-3d {
+    @apply relative overflow-hidden transition-all duration-200 active:scale-95;
+    box-shadow: 
+      0 8px 0 0 rgba(154, 52, 18, 0.8),
+      0 15px 35px -5px rgba(249, 115, 22, 0.6),
+      inset 0 1px 1px 0 rgba(255, 255, 255, 0.3);
+  }
+
+  .btn-3d:active {
+    @apply translate-y-[4px];
+    box-shadow: 
+      0 4px 0 0 rgba(154, 52, 18, 0.8),
+      0 8px 15px -3px rgba(249, 115, 22, 0.5),
+      inset 0 1px 1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .text-glow {
+    text-shadow: 0 0 12px rgba(255, 255, 255, 0.2);
+  }
+
+  .text-glow-orange {
+    text-shadow: 0 0 12px rgba(249, 115, 22, 0.4);
+  }
+
+  /* Responsive Text Handling */
+  .text-responsive-base {
+    @apply text-sm sm:text-base;
+  }
+  
+  .text-responsive-lg {
+    @apply text-base sm:text-lg lg:text-xl;
+  }
+
+  .text-responsive-xl {
+    @apply text-xl sm:text-2xl lg:text-3xl;
+  }
+
+  .safe-padding {
+    @apply px-4 sm:px-6 lg:px-8;
+  }
+
+  .break-word-all {
+    word-break: break-all;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+    overflow: visible !important;
+  }
+
+  /* Force background colors for charts and badges if supported */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Ensure modal content is printable */
+  .print-section {
+    background: white !important;
+    color: black !important;
+    border: none !important;
+    box-shadow: none !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    z-index: 9999 !important;
+  }
+
+  /* Hide scrollbars and other UI elements */
+  ::-webkit-scrollbar {
+    display: none;
+  }
+
+  .text-white {
+    color: black !important;
+  }
+
+  .text-white\/90, .text-white\/80, .text-white\/70, .text-white\/60, .text-white\/50, .text-white\/40, .text-white\/30, .text-white\/20, .text-white\/10 {
+    color: #333 !important;
+  }
+
+  .bg-white\/5, .bg-white\/10, .bg-white\/\[0.03\], .bg-orange-500\/5 {
+    background: #f9f9f9 !important;
+    border-color: #eee !important;
+  }
+
+  /* Handle modal overlay during print */
+  .fixed.inset-0 {
+    background: transparent !important;
+    backdrop-filter: none !important;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
