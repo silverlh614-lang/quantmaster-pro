@@ -521,3 +521,83 @@ export interface SilentAccumulationResult {
   accumulationPhase: 'EARLY' | 'MID' | 'LATE' | 'NONE';
   lastUpdated: string;
 }
+
+// ─── 섹터-테마 역추적 엔진 (Sector-Theme Reverse Tracking) ──────────────────
+
+export interface GlobalMegatrend {
+  keyword: string;               // 글로벌 트렌드 키워드 (e.g., "SMR 소형모듈원자로")
+  source: string;                // 발원지 (e.g., "미국 에너지부 정책")
+  momentum: 'EMERGING' | 'ACCELERATING' | 'MATURE' | 'FADING';
+  globalMarketSize?: string;     // 글로벌 시장 규모 (e.g., "$120B by 2030")
+}
+
+export interface ValueChainLink {
+  company: string;               // 한국 기업명
+  code: string;                  // 종목 코드
+  role: string;                  // 밸류체인 내 역할 (e.g., "열교환기 부품 공급")
+  revenueExposure: number;       // 관련 매출 비중 (0-100%)
+  marketAttention: 'HIDDEN' | 'EMERGING' | 'KNOWN'; // 시장 인지도
+  competitiveEdge: string;       // 경쟁우위 요약
+}
+
+export interface ThemeReverseTrackResult {
+  theme: string;                 // 테마명
+  globalTrend: GlobalMegatrend;
+  koreaValueChain: ValueChainLink[];
+  hiddenGems: ValueChainLink[];  // HIDDEN 종목만 필터
+  totalCompanies: number;
+  avgMarketAttention: number;    // 0-100 (낮을수록 아직 주목 안 됨)
+  investmentTiming: 'TOO_EARLY' | 'OPTIMAL' | 'LATE' | 'MISSED';
+  lastUpdated: string;
+}
+
+// ─── 뉴스 빈도 역지표 (Contrarian News Score) ────────────────────────────────
+
+export interface NewsFrequencyScore {
+  code: string;
+  name: string;
+  newsCount30d: number;          // 최근 30일 뉴스 건수
+  score: number;                 // 0-10 (뉴스 적을수록 고점수)
+  phase: 'SILENT' | 'EARLY' | 'GROWING' | 'CROWDED' | 'OVERHYPED';
+  implication: string;           // 투자 시사점
+}
+
+// ─── 해외 뉴스 멀티소스 집계 (Global Multi-Source Intelligence) ───────────────
+
+export interface GlobalMultiSourceData {
+  fedWatch: {
+    nextMeetingDate: string;
+    holdProbability: number;     // %
+    cutProbability: number;
+    hikeProbability: number;
+  };
+  chinaPmi: {
+    manufacturing: number;       // 50 기준
+    services: number;
+    trend: 'EXPANDING' | 'CONTRACTING' | 'FLAT';
+  };
+  tsmcRevenue: {
+    monthlyRevenueTWD: number;   // 억 대만달러
+    yoyGrowth: number;           // %
+    trend: 'ACCELERATING' | 'STABLE' | 'DECELERATING';
+    implication: string;         // 한국 반도체 섹터 시사점
+  };
+  bojPolicy: {
+    currentRate: number;
+    direction: 'HIKING' | 'HOLDING' | 'CUTTING';
+    yenCarryRisk: 'HIGH' | 'MEDIUM' | 'LOW';
+    implication: string;
+  };
+  usIsm: {
+    manufacturing: number;       // 50 기준
+    services: number;
+    newOrders: number;
+    trend: 'EXPANDING' | 'CONTRACTING' | 'FLAT';
+  };
+  fredData: {
+    usCpi: number;               // % YoY
+    usUnemployment: number;      // %
+    usRetailSales: number;       // % MoM
+  };
+  lastUpdated: string;
+}

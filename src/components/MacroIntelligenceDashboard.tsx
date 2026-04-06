@@ -6,10 +6,12 @@ import {
   Gate0Result, EconomicRegimeData, EconomicRegime, ROEType,
   SmartMoneyData, ExportMomentumData, GeopoliticalRiskData,
   CreditSpreadData, ContrarianSignal,
+  GlobalCorrelationMatrix, GlobalMultiSourceData, ThemeReverseTrackResult,
 } from '../types/quant';
 import {
   getEconomicRegime, getSmartMoneyFlow, getExportMomentum,
   getGeopoliticalRiskScore, getCreditSpreads,
+  getGlobalCorrelationMatrix, getGlobalMultiSourceData, trackThemeToKoreaValueChain,
 } from '../services/stockService';
 import { computeContrarianSignals } from '../services/quantEngine';
 
@@ -171,6 +173,15 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const [creditSpread, setCreditSpread] = useState<CreditSpreadData | null>(null);
   const [creditLoading, setCreditLoading] = useState(false);
 
+  const [globalCorrelation, setGlobalCorrelation] = useState<GlobalCorrelationMatrix | null>(null);
+  const [correlationLoading, setCorrelationLoading] = useState(false);
+
+  const [globalMultiSource, setGlobalMultiSource] = useState<GlobalMultiSourceData | null>(null);
+  const [multiSourceLoading, setMultiSourceLoading] = useState(false);
+
+  const [themeResults, setThemeResults] = useState<ThemeReverseTrackResult[]>([]);
+  const [themeLoading, setThemeLoading] = useState(false);
+
   // 역발상 신호는 gate0Result + marketOverview 기반 순수 계산 (AI 불필요)
   const contrarianSignals: ContrarianSignal[] = useMemo(() => {
     if (!gate0Result) return [];
@@ -222,6 +233,24 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
     setCreditLoading(true);
     try { setCreditSpread(await getCreditSpreads()); }
     finally { setCreditLoading(false); }
+  };
+
+  const loadGlobalCorrelation = async () => {
+    setCorrelationLoading(true);
+    try { setGlobalCorrelation(await getGlobalCorrelationMatrix()); }
+    finally { setCorrelationLoading(false); }
+  };
+
+  const loadGlobalMultiSource = async () => {
+    setMultiSourceLoading(true);
+    try { setGlobalMultiSource(await getGlobalMultiSourceData()); }
+    finally { setMultiSourceLoading(false); }
+  };
+
+  const loadThemeTracking = async () => {
+    setThemeLoading(true);
+    try { setThemeResults(await trackThemeToKoreaValueChain()); }
+    finally { setThemeLoading(false); }
   };
 
   const currentRegime: EconomicRegime = economicRegime?.regime ?? 'EXPANSION';
@@ -1046,6 +1075,220 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
             </div>
           );
         })()}
+      </div>
+
+      {/* ── 글로벌 멀티소스 인텔리전스 (D) ── */}
+      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+            글로벌 멀티소스 인텔리전스 — Fed·China·TSMC·BOJ·ISM
+          </h3>
+          <button onClick={loadGlobalMultiSource} disabled={multiSourceLoading}
+            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-[10px] font-black uppercase disabled:opacity-50">
+            <RefreshCw size={12} className={multiSourceLoading ? 'animate-spin' : ''} />
+            {multiSourceLoading ? '수집 중...' : '글로벌 데이터 수집'}
+          </button>
+        </div>
+        {globalMultiSource ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="p-3 border border-gray-200 bg-gray-50">
+              <p className="text-[8px] font-black uppercase text-gray-400 mb-1">FED WATCH</p>
+              <p className="text-lg font-bold font-mono">{globalMultiSource.fedWatch.cutProbability}%</p>
+              <p className="text-[9px] text-gray-500">금리인하 확률</p>
+              <p className="text-[8px] text-gray-400 mt-1">다음 회의: {globalMultiSource.fedWatch.nextMeetingDate}</p>
+            </div>
+            <div className="p-3 border border-gray-200 bg-gray-50">
+              <p className="text-[8px] font-black uppercase text-gray-400 mb-1">CHINA PMI</p>
+              <p className={`text-lg font-bold font-mono ${globalMultiSource.chinaPmi.manufacturing >= 50 ? 'text-green-700' : 'text-red-700'}`}>
+                {globalMultiSource.chinaPmi.manufacturing}
+              </p>
+              <p className="text-[9px] text-gray-500">제조업 ({globalMultiSource.chinaPmi.trend})</p>
+            </div>
+            <div className="p-3 border border-gray-200 bg-gray-50">
+              <p className="text-[8px] font-black uppercase text-gray-400 mb-1">TSMC REVENUE</p>
+              <p className={`text-lg font-bold font-mono ${globalMultiSource.tsmcRevenue.yoyGrowth > 0 ? 'text-green-700' : 'text-red-700'}`}>
+                {globalMultiSource.tsmcRevenue.yoyGrowth > 0 ? '+' : ''}{globalMultiSource.tsmcRevenue.yoyGrowth}%
+              </p>
+              <p className="text-[9px] text-gray-500">YoY ({globalMultiSource.tsmcRevenue.trend})</p>
+            </div>
+            <div className="p-3 border border-gray-200 bg-gray-50">
+              <p className="text-[8px] font-black uppercase text-gray-400 mb-1">BOJ POLICY</p>
+              <p className="text-lg font-bold font-mono">{globalMultiSource.bojPolicy.currentRate}%</p>
+              <p className={`text-[9px] ${globalMultiSource.bojPolicy.yenCarryRisk === 'HIGH' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
+                캐리리스크: {globalMultiSource.bojPolicy.yenCarryRisk}
+              </p>
+            </div>
+            <div className="p-3 border border-gray-200 bg-gray-50">
+              <p className="text-[8px] font-black uppercase text-gray-400 mb-1">US ISM MFG</p>
+              <p className={`text-lg font-bold font-mono ${globalMultiSource.usIsm.manufacturing >= 50 ? 'text-green-700' : 'text-red-700'}`}>
+                {globalMultiSource.usIsm.manufacturing}
+              </p>
+              <p className="text-[9px] text-gray-500">{globalMultiSource.usIsm.trend}</p>
+            </div>
+            <div className="p-3 border border-gray-200 bg-gray-50">
+              <p className="text-[8px] font-black uppercase text-gray-400 mb-1">US CPI / 실업률</p>
+              <p className="text-lg font-bold font-mono">{globalMultiSource.fredData.usCpi}%</p>
+              <p className="text-[9px] text-gray-500">실업률 {globalMultiSource.fredData.usUnemployment}%</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-[10px] text-gray-400 italic">'글로벌 데이터 수집' 버튼으로 최신 데이터를 불러오세요.</p>
+        )}
+      </div>
+
+      {/* ── 글로벌 상관관계 매트릭스 (C) ── */}
+      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+            글로벌 상관관계 매트릭스 — Decoupling / Synchronization Detector
+          </h3>
+          <button onClick={loadGlobalCorrelation} disabled={correlationLoading}
+            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-[10px] font-black uppercase disabled:opacity-50">
+            <RefreshCw size={12} className={correlationLoading ? 'animate-spin' : ''} />
+            {correlationLoading ? '분석 중...' : '상관관계 분석'}
+          </button>
+        </div>
+        {globalCorrelation ? (
+          <div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              {[
+                { label: 'KOSPI-S&P500', value: globalCorrelation.kospiSp500, normal: '0.6~0.8' },
+                { label: 'KOSPI-닛케이', value: globalCorrelation.kospiNikkei, normal: '0.5~0.7' },
+                { label: 'KOSPI-상해종합', value: globalCorrelation.kospiShanghai, normal: '0.3~0.6' },
+                { label: 'KOSPI-DXY', value: globalCorrelation.kospiDxy, normal: '-0.3~-0.6' },
+              ].map(item => (
+                <div key={item.label} className="p-3 border border-gray-200 bg-gray-50 text-center">
+                  <p className="text-[8px] font-black uppercase text-gray-400 mb-1">{item.label}</p>
+                  <p className={`text-2xl font-bold font-mono ${
+                    Math.abs(item.value) > 0.8 ? 'text-red-600' : Math.abs(item.value) < 0.3 ? 'text-purple-600' : 'text-gray-800'
+                  }`}>
+                    {item.value > 0 ? '+' : ''}{item.value.toFixed(2)}
+                  </p>
+                  <p className="text-[8px] text-gray-400 mt-1">정상: {item.normal}</p>
+                </div>
+              ))}
+            </div>
+            {(globalCorrelation.isDecoupling || globalCorrelation.isGlobalSync) && (
+              <div className={`p-4 border-2 ${globalCorrelation.isDecoupling ? 'border-purple-400 bg-purple-50' : 'border-red-400 bg-red-50'}`}>
+                <p className={`text-sm font-black ${globalCorrelation.isDecoupling ? 'text-purple-700' : 'text-red-700'}`}>
+                  {globalCorrelation.isDecoupling
+                    ? '⚠ 디커플링 감지: KOSPI-S&P500 상관관계 급락. 한국 특수 요인 발생. 27개 조건 재가중치 필요.'
+                    : '⚠ 글로벌 동조화: 상관계수 0.9+. 외부 충격 전이 모드. 미국 시장이 선행지표.'}
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-[10px] text-gray-400 italic">'상관관계 분석' 버튼으로 글로벌 상관관계를 분석하세요.</p>
+        )}
+      </div>
+
+      {/* ── 섹터-테마 역추적 엔진 (H) ── */}
+      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+              섹터-테마 역추적 — Global Theme → Korea Hidden Gems
+            </h3>
+            <p className="text-[8px] text-gray-400 mt-1">글로벌 메가트렌드에서 아직 시장이 연결짓지 못한 한국 숨은 수혜주 발굴</p>
+          </div>
+          <button onClick={loadThemeTracking} disabled={themeLoading}
+            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-[10px] font-black uppercase disabled:opacity-50">
+            <RefreshCw size={12} className={themeLoading ? 'animate-spin' : ''} />
+            {themeLoading ? '역추적 중...' : '테마 역추적 실행'}
+          </button>
+        </div>
+        {themeResults.length > 0 ? (
+          <div className="space-y-6">
+            {themeResults.map((theme, idx) => (
+              <div key={idx} className="border border-gray-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-base font-black">{theme.theme}</span>
+                    <span className={`text-[9px] font-black px-2 py-0.5 border ${
+                      theme.investmentTiming === 'OPTIMAL' ? 'border-green-400 bg-green-50 text-green-700' :
+                      theme.investmentTiming === 'TOO_EARLY' ? 'border-blue-400 bg-blue-50 text-blue-700' :
+                      theme.investmentTiming === 'LATE' ? 'border-amber-400 bg-amber-50 text-amber-700' :
+                      'border-red-400 bg-red-50 text-red-700'
+                    }`}>
+                      {theme.investmentTiming}
+                    </span>
+                    <span className={`text-[9px] font-bold px-2 py-0.5 border ${
+                      theme.globalTrend.momentum === 'ACCELERATING' ? 'border-green-400 text-green-700' :
+                      theme.globalTrend.momentum === 'EMERGING' ? 'border-blue-400 text-blue-700' :
+                      'border-gray-300 text-gray-500'
+                    }`}>
+                      {theme.globalTrend.momentum}
+                    </span>
+                  </div>
+                  {theme.globalTrend.globalMarketSize && (
+                    <span className="text-[9px] font-mono text-gray-500">{theme.globalTrend.globalMarketSize}</span>
+                  )}
+                </div>
+                <p className="text-[10px] text-gray-600 mb-3">{theme.globalTrend.source}</p>
+
+                {/* Hidden Gems 강조 */}
+                {theme.hiddenGems.length > 0 && (
+                  <div className="mb-3 p-3 border-2 border-emerald-300 bg-emerald-50">
+                    <p className="text-[9px] font-black text-emerald-700 uppercase tracking-widest mb-2">
+                      HIDDEN GEMS — 시장 미인지 수혜주
+                    </p>
+                    <div className="space-y-2">
+                      {theme.hiddenGems.map((gem, gIdx) => (
+                        <div key={gIdx} className="flex items-center justify-between">
+                          <div>
+                            <span className="text-sm font-bold text-emerald-800">{gem.company}</span>
+                            <span className="text-[9px] text-gray-500 ml-2">({gem.code})</span>
+                            <span className="text-[9px] text-emerald-600 ml-2">— {gem.role}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[9px] font-mono text-gray-600">매출비중 {gem.revenueExposure}%</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 전체 밸류체인 */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[9px]">
+                    <thead>
+                      <tr className="border-b border-gray-300">
+                        <th className="text-left p-1.5 font-black uppercase">기업</th>
+                        <th className="text-left p-1.5 font-black uppercase">코드</th>
+                        <th className="text-left p-1.5 font-black uppercase">역할</th>
+                        <th className="text-right p-1.5 font-black uppercase">매출비중</th>
+                        <th className="text-center p-1.5 font-black uppercase">인지도</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {theme.koreaValueChain.map((vc, vIdx) => (
+                        <tr key={vIdx} className={`border-b border-gray-100 ${vc.marketAttention === 'HIDDEN' ? 'bg-emerald-50' : ''}`}>
+                          <td className="p-1.5 font-bold">{vc.company}</td>
+                          <td className="p-1.5 font-mono text-gray-500">{vc.code}</td>
+                          <td className="p-1.5 text-gray-600">{vc.role}</td>
+                          <td className="p-1.5 text-right font-mono">{vc.revenueExposure}%</td>
+                          <td className="p-1.5 text-center">
+                            <span className={`px-1.5 py-0.5 text-[8px] font-black ${
+                              vc.marketAttention === 'HIDDEN' ? 'bg-emerald-200 text-emerald-800' :
+                              vc.marketAttention === 'EMERGING' ? 'bg-blue-200 text-blue-800' :
+                              'bg-gray-200 text-gray-600'
+                            }`}>
+                              {vc.marketAttention}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[10px] text-gray-400 italic">'테마 역추적 실행' 버튼으로 글로벌 테마에서 한국 숨은 수혜주를 발굴하세요.</p>
+        )}
       </div>
     </div>
   );
