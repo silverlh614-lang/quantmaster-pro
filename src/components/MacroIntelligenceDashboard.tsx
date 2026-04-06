@@ -1,9 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  TrendingUp, TrendingDown, RefreshCw, ArrowRight,
+  TrendingUp, TrendingDown, RefreshCw, ArrowRight, Globe, Ship, Cpu,
 } from 'lucide-react';
-import { Gate0Result, EconomicRegimeData, EconomicRegime, ROEType } from '../types/quant';
-import { getEconomicRegime } from '../services/stockService';
+import {
+  Gate0Result, EconomicRegimeData, EconomicRegime, ROEType,
+  SmartMoneyData, ExportMomentumData, GeopoliticalRiskData,
+} from '../types/quant';
+import {
+  getEconomicRegime, getSmartMoneyFlow, getExportMomentum, getGeopoliticalRiskScore,
+} from '../services/stockService';
 
 // ─── Fusion Matrix 데이터 (아이디어 8) ──────────────────────────────────────
 
@@ -127,6 +132,15 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [smartMoney, setSmartMoney] = useState<SmartMoneyData | null>(null);
+  const [smartMoneyLoading, setSmartMoneyLoading] = useState(false);
+
+  const [exportMomentum, setExportMomentum] = useState<ExportMomentumData | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
+
+  const [geoRisk, setGeoRisk] = useState<GeopoliticalRiskData | null>(null);
+  const [geoLoading, setGeoLoading] = useState(false);
+
   useEffect(() => {
     if (externalRegime) setEconomicRegime(externalRegime);
   }, [externalRegime]);
@@ -142,6 +156,24 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadSmartMoney = async () => {
+    setSmartMoneyLoading(true);
+    try { setSmartMoney(await getSmartMoneyFlow()); }
+    finally { setSmartMoneyLoading(false); }
+  };
+
+  const loadExportMomentum = async () => {
+    setExportLoading(true);
+    try { setExportMomentum(await getExportMomentum()); }
+    finally { setExportLoading(false); }
+  };
+
+  const loadGeoRisk = async () => {
+    setGeoLoading(true);
+    try { setGeoRisk(await getGeopoliticalRiskScore()); }
+    finally { setGeoLoading(false); }
   };
 
   const currentRegime: EconomicRegime = economicRegime?.regime ?? 'EXPANSION';
@@ -402,6 +434,283 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* ── 아이디어 4: Smart Money Radar ── */}
+      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+              Smart Money Radar — 글로벌 ETF 선행 모니터
+            </h3>
+            {smartMoney && (
+              <p className="text-[9px] font-mono text-gray-400 mt-1">업데이트: {smartMoney.lastUpdated}</p>
+            )}
+          </div>
+          <button
+            onClick={loadSmartMoney}
+            disabled={smartMoneyLoading}
+            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={smartMoneyLoading ? 'animate-spin' : ''} />
+            {smartMoneyLoading ? '조회 중...' : 'Smart Money 조회'}
+          </button>
+        </div>
+
+        {smartMoney ? (
+          <div className="space-y-6">
+            {/* Score + Signal */}
+            <div className="flex items-center gap-6">
+              <div className="text-center p-4 border-2 border-[#141414] w-28">
+                <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">SMF 점수</p>
+                <p className="text-4xl font-black font-mono mt-1">{smartMoney.score}</p>
+                <p className="text-[9px] text-gray-400 font-mono">/10</p>
+              </div>
+              <div className="flex-1 space-y-2">
+                <div className={`inline-flex items-center gap-2 px-4 py-2 font-black text-sm border-2 ${
+                  smartMoney.signal === 'BULLISH' ? 'border-green-600 bg-green-50 text-green-700'
+                  : smartMoney.signal === 'BEARISH' ? 'border-red-600 bg-red-50 text-red-700'
+                  : 'border-gray-400 bg-gray-50 text-gray-600'
+                }`}>
+                  {smartMoney.signal === 'BULLISH' ? <TrendingUp size={14} /> : smartMoney.signal === 'BEARISH' ? <TrendingDown size={14} /> : null}
+                  {smartMoney.signal} — 선행 {smartMoney.leadTimeWeeks}
+                </div>
+                {smartMoney.isEwyMtumBothInflow && (
+                  <div className="px-3 py-1.5 bg-green-700 text-white text-[10px] font-black inline-block">
+                    ★ EWY + MTUM 동시 유입 → Gate 2 기준 9→8 완화 적용
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ETF Cards */}
+            <div className="grid grid-cols-5 gap-3">
+              {smartMoney.etfFlows.map(etf => (
+                <div
+                  key={etf.ticker}
+                  className={`p-3 border-2 text-center ${
+                    etf.flow === 'INFLOW' ? 'border-green-400 bg-green-50'
+                    : etf.flow === 'OUTFLOW' ? 'border-red-400 bg-red-50'
+                    : 'border-gray-200 bg-gray-50'
+                  }`}
+                >
+                  <p className="text-[10px] font-black font-mono">{etf.ticker}</p>
+                  <p className={`text-lg font-black mt-1 font-mono ${
+                    etf.weeklyAumChange >= 0 ? 'text-green-700' : 'text-red-700'
+                  }`}>
+                    {etf.weeklyAumChange >= 0 ? '+' : ''}{etf.weeklyAumChange.toFixed(1)}%
+                  </p>
+                  <p className={`text-[8px] font-black mt-1 ${
+                    etf.flow === 'INFLOW' ? 'text-green-600'
+                    : etf.flow === 'OUTFLOW' ? 'text-red-600'
+                    : 'text-gray-500'
+                  }`}>{etf.flow}</p>
+                  <p className="text-[8px] text-gray-400 mt-1 leading-tight">{etf.significance}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 italic text-center py-4">
+            "Smart Money 조회" 버튼을 눌러 글로벌 ETF 자금 흐름을 분석합니다.
+          </p>
+        )}
+      </div>
+
+      {/* ── 아이디어 5: 수출 모멘텀 엔진 ── */}
+      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+              <Cpu size={12} className="inline mr-1" />
+              수출 모멘텀 섹터 로테이션 엔진
+            </h3>
+            {exportMomentum && (
+              <p className="text-[9px] font-mono text-gray-400 mt-1">업데이트: {exportMomentum.lastUpdated}</p>
+            )}
+          </div>
+          <button
+            onClick={loadExportMomentum}
+            disabled={exportLoading}
+            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={exportLoading ? 'animate-spin' : ''} />
+            {exportLoading ? '조회 중...' : '수출 모멘텀 조회'}
+          </button>
+        </div>
+
+        {exportMomentum ? (
+          <div className="space-y-4">
+            {/* Hot Sector Badges */}
+            {exportMomentum.hotSectors.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {exportMomentum.hotSectors.map(s => (
+                  <span key={s} className="px-3 py-1 bg-amber-100 border-2 border-amber-500 text-amber-800 text-xs font-black">
+                    🔥 {s} +5% 보너스 적용
+                  </span>
+                ))}
+                {exportMomentum.semiconductorGate2Relax && (
+                  <span className="px-3 py-1 bg-blue-100 border-2 border-blue-500 text-blue-800 text-xs font-black">
+                    ★ 반도체 3개월 연속 성장 → Gate 2 완화
+                  </span>
+                )}
+                {exportMomentum.shipyardBonus && (
+                  <span className="px-3 py-1 bg-cyan-100 border-2 border-cyan-500 text-cyan-800 text-xs font-black">
+                    <Ship size={10} className="inline mr-1" />조선 +30% YoY 보너스
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Product Heatmap */}
+            <div className="grid grid-cols-5 gap-3">
+              {exportMomentum.products.map(p => {
+                const hot = p.isHot;
+                const positive = p.yoyGrowth >= 0;
+                return (
+                  <div
+                    key={p.product}
+                    className={`p-4 border-2 text-center ${
+                      hot ? 'border-amber-500 bg-amber-50'
+                      : positive ? 'border-green-300 bg-green-50'
+                      : 'border-red-300 bg-red-50'
+                    }`}
+                  >
+                    <p className="text-[10px] font-black">{p.product}</p>
+                    <p className={`text-2xl font-black font-mono mt-2 ${
+                      positive ? 'text-green-700' : 'text-red-700'
+                    }`}>
+                      {positive ? '+' : ''}{p.yoyGrowth.toFixed(1)}%
+                    </p>
+                    <p className="text-[8px] text-gray-500 mt-1">YoY</p>
+                    {hot && <p className="text-[8px] font-black text-amber-700 mt-1">🔥 HOT</p>}
+                    {p.consecutiveGrowthMonths && (
+                      <p className="text-[8px] text-blue-600 font-black mt-1">{p.consecutiveGrowthMonths}개월 연속↑</p>
+                    )}
+                    <p className="text-[8px] text-gray-400 mt-1 leading-tight">{p.sector}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 italic text-center py-4">
+            "수출 모멘텀 조회" 버튼을 눌러 주요 수출 품목별 YoY 성장률을 분석합니다.
+          </p>
+        )}
+      </div>
+
+      {/* ── 아이디어 7: 지정학 리스크 스코어링 모듈 ── */}
+      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+              <Globe size={12} className="inline mr-1" />
+              지정학 리스크 스코어링 모듈 (GOS)
+            </h3>
+            {geoRisk && (
+              <p className="text-[9px] font-mono text-gray-400 mt-1">업데이트: {geoRisk.lastUpdated}</p>
+            )}
+          </div>
+          <button
+            onClick={loadGeoRisk}
+            disabled={geoLoading}
+            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={geoLoading ? 'animate-spin' : ''} />
+            {geoLoading ? '조회 중...' : '지정학 리스크 조회'}
+          </button>
+        </div>
+
+        {geoRisk ? (
+          <div className="space-y-6">
+            {/* Score + Level */}
+            <div className="flex items-center gap-6">
+              <div className={`text-center p-4 border-2 w-28 ${
+                geoRisk.level === 'OPPORTUNITY' ? 'border-green-600 bg-green-50'
+                : geoRisk.level === 'RISK' ? 'border-red-600 bg-red-50'
+                : 'border-gray-400 bg-gray-50'
+              }`}>
+                <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest">GOS</p>
+                <p className="text-4xl font-black font-mono mt-1">{geoRisk.score}</p>
+                <p className="text-[9px] text-gray-400 font-mono">/10</p>
+              </div>
+              <div className="flex-1 space-y-2">
+                <div className={`inline-flex items-center gap-2 px-4 py-2 font-black text-sm border-2 ${
+                  geoRisk.level === 'OPPORTUNITY' ? 'border-green-600 bg-green-50 text-green-700'
+                  : geoRisk.level === 'RISK' ? 'border-red-600 bg-red-50 text-red-700'
+                  : 'border-gray-400 bg-gray-50 text-gray-600'
+                }`}>
+                  {geoRisk.level === 'OPPORTUNITY' ? '★ 지정학 기회 (방산·조선·원자력 Gate 3 완화)'
+                  : geoRisk.level === 'RISK' ? '⚠ 지정학 리스크 (지정학 섹터 Kelly 30% 축소)'
+                  : '— 중립 구간'}
+                </div>
+                <div className="flex gap-2">
+                  {geoRisk.affectedSectors.map(s => (
+                    <span key={s} className="px-2 py-0.5 text-[9px] font-black border border-gray-300 bg-gray-100">
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* GOS Bar */}
+            <div>
+              <div className="h-3 w-full bg-gray-200 border border-gray-300 relative">
+                <div
+                  className={`h-full transition-all duration-700 ${
+                    geoRisk.score >= 7 ? 'bg-green-600' : geoRisk.score >= 4 ? 'bg-gray-400' : 'bg-red-600'
+                  }`}
+                  style={{ width: `${geoRisk.score * 10}%` }}
+                />
+                {[3, 7].map(t => (
+                  <div
+                    key={t}
+                    className="absolute top-0 bottom-0 w-px bg-[#141414] opacity-40"
+                    style={{ left: `${t * 10}%` }}
+                  />
+                ))}
+              </div>
+              <div className="flex justify-between mt-1">
+                <span className="text-[8px] text-red-500 font-black">0 Kelly축소</span>
+                <span className="text-[8px] text-gray-500 font-black">3↑ 중립 7↑</span>
+                <span className="text-[8px] text-green-600 font-black">Gate3완화 10</span>
+              </div>
+            </div>
+
+            {/* Tone Breakdown */}
+            <div className="grid grid-cols-3 gap-3 text-center">
+              {[
+                { label: '긍정', val: geoRisk.toneBreakdown.positive, color: 'text-green-700 bg-green-50 border-green-300' },
+                { label: '중립', val: geoRisk.toneBreakdown.neutral,  color: 'text-gray-600 bg-gray-50 border-gray-300' },
+                { label: '부정', val: geoRisk.toneBreakdown.negative, color: 'text-red-700 bg-red-50 border-red-300' },
+              ].map(item => (
+                <div key={item.label} className={`p-3 border ${item.color}`}>
+                  <p className="text-[9px] font-black uppercase tracking-widest">{item.label}</p>
+                  <p className="text-2xl font-black font-mono mt-1">{item.val}%</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Headlines */}
+            {geoRisk.headlines.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">주요 뉴스 헤드라인</p>
+                {geoRisk.headlines.map((h, i) => (
+                  <div key={i} className="flex items-start gap-2 p-2 border border-gray-200 bg-gray-50">
+                    <span className="text-[9px] font-black text-gray-400 mt-0.5">{i + 1}.</span>
+                    <p className="text-xs text-gray-700 leading-snug">{h}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 italic text-center py-4">
+            "지정학 리스크 조회" 버튼을 눌러 Gemini AI 기반 GOS를 산출합니다.
+          </p>
+        )}
+      </div>
 
       {/* ── 아이디어 8: 경기사이클 × ROE유형 융합 매트릭스 ── */}
       <div className="border border-[#141414] bg-white shadow-[8px_8px_0px_0px_rgba(20,20,20,1)]">

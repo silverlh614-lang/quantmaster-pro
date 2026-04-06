@@ -59,6 +59,59 @@ export interface Gate0Result {
   };
 }
 
+// ─── 아이디어 4: Smart Money Radar (글로벌 ETF 선행 모니터) ──────────────────
+
+export interface EtfFlowData {
+  ticker: string;          // 'EWY' | 'MTUM' | 'EEMV' | 'IYW' | 'ITA'
+  name: string;            // 'iShares MSCI Korea' 등
+  flow: 'INFLOW' | 'OUTFLOW' | 'NEUTRAL';
+  weeklyAumChange: number; // % AUM 주간 변동
+  priceChange: number;     // % 가격 주간 변동
+  significance: string;    // 한국 증시와의 관계 설명
+}
+
+export interface SmartMoneyData {
+  score: number;                  // 0-10 종합 점수
+  etfFlows: EtfFlowData[];        // 5개 ETF 흐름
+  isEwyMtumBothInflow: boolean;   // Gate 2 완화 트리거
+  leadTimeWeeks: string;          // 예상 선행 주수 (e.g. "2-4주")
+  signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  lastUpdated: string;
+}
+
+// ─── 아이디어 5: 수출 선행지수 섹터 로테이션 엔진 ────────────────────────────
+
+export interface ExportProductData {
+  product: string;                   // '반도체' | '선박' | '자동차' | '석유화학' | '방산'
+  sector: string;                    // 연계 섹터명 (KOSPI 분류)
+  yoyGrowth: number;                 // % YoY 수출 증감률
+  isHot: boolean;                    // 기준치 이상 성장
+  consecutiveGrowthMonths?: number;  // 반도체 연속 성장 개월수
+}
+
+export interface ExportMomentumData {
+  hotSectors: string[];              // 가산점 대상 섹터 목록
+  products: ExportProductData[];     // 주요 수출 품목 데이터
+  shipyardBonus: boolean;            // 선박 +30% YoY 달성
+  semiconductorGate2Relax: boolean;  // 반도체 3개월 연속 증가 → Gate 2 완화
+  lastUpdated: string;
+}
+
+// ─── 아이디어 7: 지정학 리스크 스코어링 모듈 (Geopolitical Risk Engine) ──────
+
+export interface GeopoliticalRiskData {
+  score: number;                    // GOS 0-10
+  level: 'OPPORTUNITY' | 'NEUTRAL' | 'RISK'; // ≥7 / 4-6 / ≤3
+  affectedSectors: string[];        // 방산, 조선, 원자력
+  headlines: string[];              // 검색된 주요 뉴스 헤드라인 (최대 3개)
+  toneBreakdown: {
+    positive: number;               // 0-100
+    neutral: number;
+    negative: number;
+  };
+  lastUpdated: string;
+}
+
 export type StockProfileType = 'A' | 'B' | 'C' | 'D'; // 대형 주도주, 중형 성장주, 소형 모멘텀주, 촉매제 플레이
 
 export interface StockProfile {
@@ -115,7 +168,10 @@ export interface AttributionAnalysis {
 }
 
 export interface EvaluationResult {
-  gate0Result?: Gate0Result;       // Gate 0: 거시 환경 생존 게이트 결과
+  gate0Result?: Gate0Result;
+  smartMoneyData?: SmartMoneyData;
+  exportMomentumData?: ExportMomentumData;
+  geopoliticalRisk?: GeopoliticalRiskData;
   gate1Passed: boolean;
   gate2Passed: boolean;
   gate3Passed: boolean;

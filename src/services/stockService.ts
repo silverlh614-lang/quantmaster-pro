@@ -13,6 +13,9 @@ import {
   BacktestDailyLog,
   Portfolio,
   EconomicRegimeData,
+  SmartMoneyData,
+  ExportMomentumData,
+  GeopoliticalRiskData,
 } from "../types/quant";
 
 import {
@@ -2682,6 +2685,233 @@ export async function getEconomicRegime(): Promise<EconomicRegimeData> {
           oeciCli: "N/A",
           gdpGrowth: "N/A",
         },
+        lastUpdated: requestedAtISO,
+      };
+    }
+  });
+}
+
+// ─── 아이디어 4: Smart Money Radar (글로벌 ETF 선행 모니터) ──────────────────
+
+/**
+ * EWY·MTUM·EEMV·IYW·ITA 5개 ETF의 주간 자금흐름을 분석해
+ * Smart Money Flow Score(0-10)를 산출합니다.
+ * EWY + MTUM 동반 유입 감지 시 → Gate 2 통과 기준 선제 완화 신호를 반환합니다.
+ */
+export async function getSmartMoneyFlow(): Promise<SmartMoneyData> {
+  const requestedAt = new Date();
+  const todayDate = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
+  const requestedAtISO = requestedAt.toISOString();
+
+  const prompt = `
+    현재 날짜: ${todayDate}
+
+    다음 5개 ETF의 가장 최근 주간(7일) 자금 흐름(AUM 변화, 가격 변동)을 구글 검색으로 조회해줘.
+    이 ETF들은 한국 증시를 3-8주 선행하는 스마트머니 지표로 활용된다.
+
+    모니터링 ETF:
+    - EWY (iShares MSCI Korea ETF): 외국인의 한국 직접 베팅 지표
+    - MTUM (iShares MSCI USA Momentum ETF): 글로벌 리스크온 선행 지표
+    - EEMV (iShares MSCI Emerging Markets Min Vol ETF): 신흥국 방어적 진입 신호
+    - IYW (iShares US Technology ETF): 글로벌 테크 사이클 선행
+    - ITA (iShares US Aerospace & Defense ETF): 글로벌 방산 사이클 선행
+
+    각 ETF에 대해:
+    1. 주간 가격 변동률 (%)
+    2. 자금 유입/유출 방향 (INFLOW / OUTFLOW / NEUTRAL)
+    3. AUM 주간 변화율 추정 (%)
+
+    점수 기준 (0-10):
+    - EWY + MTUM 동시 INFLOW: +4점 (핵심 시그널)
+    - EWY INFLOW 단독: +2점
+    - MTUM INFLOW 단독: +1점
+    - EEMV INFLOW: +1점
+    - IYW INFLOW: +1점
+    - ITA INFLOW: +1점
+
+    응답 형식 (JSON only):
+    {
+      "score": 7,
+      "etfFlows": [
+        { "ticker": "EWY", "name": "iShares MSCI Korea", "flow": "INFLOW", "weeklyAumChange": 2.3, "priceChange": 1.8, "significance": "한국 증시 2-4주 선행 직접 지표" },
+        { "ticker": "MTUM", "name": "iShares MSCI USA Momentum", "flow": "INFLOW", "weeklyAumChange": 1.1, "priceChange": 0.9, "significance": "글로벌 리스크온 환경 확인" },
+        { "ticker": "EEMV", "name": "iShares MSCI EM Min Vol", "flow": "OUTFLOW", "weeklyAumChange": -0.5, "priceChange": -0.3, "significance": "신흥국 방어 수요 약화" },
+        { "ticker": "IYW", "name": "iShares US Technology", "flow": "INFLOW", "weeklyAumChange": 1.5, "priceChange": 1.2, "significance": "테크 사이클 선행" },
+        { "ticker": "ITA", "name": "iShares US Aerospace & Defense", "flow": "NEUTRAL", "weeklyAumChange": 0.1, "priceChange": 0.0, "significance": "방산 글로벌 선행" }
+      ],
+      "isEwyMtumBothInflow": true,
+      "leadTimeWeeks": "2-4주",
+      "signal": "BULLISH",
+      "lastUpdated": "${requestedAtISO}"
+    }
+  `;
+
+  const cacheKey = `smart-money-${todayDate}`;
+
+  return getCachedAIResponse<SmartMoneyData>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      return safeJsonParse(text) as SmartMoneyData;
+    } catch (error) {
+      console.error("Error getting smart money flow:", error);
+      return {
+        score: 5,
+        etfFlows: [],
+        isEwyMtumBothInflow: false,
+        leadTimeWeeks: "N/A",
+        signal: 'NEUTRAL',
+        lastUpdated: requestedAtISO,
+      };
+    }
+  });
+}
+
+// ─── 아이디어 5: 수출 선행지수 섹터 로테이션 엔진 ────────────────────────────
+
+/**
+ * 한국 주요 수출 품목(반도체·선박·자동차·석유화학·방산)의 YoY 증감률을 조회해
+ * 수출 모멘텀 섹터를 분류하고 Gate 2 완화·스코어 가산 조건을 반환합니다.
+ */
+export async function getExportMomentum(): Promise<ExportMomentumData> {
+  const requestedAt = new Date();
+  const yearMonth = requestedAt.toISOString().slice(0, 7); // "2026-04"
+  const requestedAtISO = requestedAt.toISOString();
+
+  const prompt = `
+    현재 날짜: ${requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
+
+    한국 산업통상자원부 또는 관세청의 최근 수출 데이터를 구글 검색으로 조회해줘.
+    아래 5개 주요 수출 품목의 전년 동기 대비(YoY) 증감률을 확인해줘.
+
+    품목: 반도체, 선박, 자동차, 석유화학, 방산(무기·방산 수출)
+
+    분류 기준:
+    - isHot = true: YoY 증가율 > 10% 또는 해당 품목 수출이 전체 수출 증가를 주도
+    - shipyardBonus: 선박 수출 YoY ≥ +30%
+    - semiconductorGate2Relax: 반도체 수출 3개월 연속 YoY 증가
+
+    응답 형식 (JSON only):
+    {
+      "hotSectors": ["반도체", "조선"],
+      "products": [
+        { "product": "반도체", "sector": "반도체/IT", "yoyGrowth": 18.5, "isHot": true, "consecutiveGrowthMonths": 4 },
+        { "product": "선박", "sector": "조선", "yoyGrowth": 32.1, "isHot": true },
+        { "product": "자동차", "sector": "자동차/부품", "yoyGrowth": 5.2, "isHot": false },
+        { "product": "석유화학", "sector": "석유화학", "yoyGrowth": -3.1, "isHot": false },
+        { "product": "방산", "sector": "방위산업", "yoyGrowth": 25.0, "isHot": true }
+      ],
+      "shipyardBonus": true,
+      "semiconductorGate2Relax": true,
+      "lastUpdated": "${requestedAtISO}"
+    }
+  `;
+
+  const cacheKey = `export-momentum-${yearMonth}`;
+
+  return getCachedAIResponse<ExportMomentumData>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      return safeJsonParse(text) as ExportMomentumData;
+    } catch (error) {
+      console.error("Error getting export momentum:", error);
+      return {
+        hotSectors: [],
+        products: [],
+        shipyardBonus: false,
+        semiconductorGate2Relax: false,
+        lastUpdated: requestedAtISO,
+      };
+    }
+  });
+}
+
+// ─── 아이디어 7: 지정학 리스크 스코어링 모듈 (Geopolitical Risk Engine) ──────
+
+/**
+ * Gemini Google Search로 지정학 키워드를 분석해
+ * Geopolitical Opportunity Score(GOS 0-10)를 산출합니다.
+ * GOS ≥ 7: 방산·조선·원자력 Gate 3 완화 / GOS ≤ 3: Kelly 30% 하향
+ */
+export async function getGeopoliticalRiskScore(): Promise<GeopoliticalRiskData> {
+  const requestedAt = new Date();
+  const weekKey = `${requestedAt.getFullYear()}-W${Math.ceil(requestedAt.getDate() / 7)}`;
+  const requestedAtISO = requestedAt.toISOString();
+
+  const prompt = `
+    현재 날짜: ${requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
+
+    아래 4가지 지정학 키워드로 최신 뉴스를 구글 검색해줘:
+    1. "한반도 안보 리스크" 또는 "북한 도발" 또는 "한미동맹"
+    2. "NATO 방산 예산" 또는 "유럽 국방비 증액"
+    3. "원자력 에너지 정책" 또는 "SMR 소형원전 수출"
+    4. "한국 조선 수주 잔고" 또는 "LNG선 수주"
+
+    각 키워드의 최신 뉴스 기사 톤을 분석해:
+    - 긍정적 (방산·조선·원자력 섹터 수혜 예상)
+    - 중립적
+    - 부정적 (리스크 증가)
+
+    GOS 점수 기준 (0-10):
+    - 기본 5점
+    - NATO/유럽 방산 예산 증가 뉴스: +2점
+    - 원자력/SMR 수출 기회: +1점
+    - 조선 수주 호조: +1점
+    - 한반도 긴장 고조 (직접 충돌 위협): -2점
+    - 지정학 불확실성 극도로 높음: -3점
+
+    응답 형식 (JSON only):
+    {
+      "score": 7,
+      "level": "OPPORTUNITY",
+      "affectedSectors": ["방위산업", "조선", "원자력"],
+      "headlines": [
+        "NATO, 2025년 국방비 GDP 2% 이상 달성 회원국 18개국으로 증가",
+        "한국 HD현대重, 유럽 LNG선 4척 추가 수주 — 수주잔고 역대 최대",
+        "체코 원전 수주 확정 — 한국수력원자력 2조원 프로젝트 착수"
+      ],
+      "toneBreakdown": { "positive": 70, "neutral": 20, "negative": 10 },
+      "lastUpdated": "${requestedAtISO}"
+    }
+  `;
+
+  const cacheKey = `geo-risk-${weekKey}`;
+
+  return getCachedAIResponse<GeopoliticalRiskData>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      return safeJsonParse(text) as GeopoliticalRiskData;
+    } catch (error) {
+      console.error("Error getting geopolitical risk score:", error);
+      return {
+        score: 5,
+        level: 'NEUTRAL',
+        affectedSectors: ['방위산업', '조선', '원자력'],
+        headlines: [],
+        toneBreakdown: { positive: 33, neutral: 34, negative: 33 },
         lastUpdated: requestedAtISO,
       };
     }

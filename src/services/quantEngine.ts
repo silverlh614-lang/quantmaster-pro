@@ -15,6 +15,9 @@ import {
   Gate0Result,
   RateCycle,
   FXRegime,
+  SmartMoneyData,
+  ExportMomentumData,
+  GeopoliticalRiskData,
 } from '../types/quant';
 
 export const ALL_CONDITIONS: Record<ConditionId, { name: string; baseWeight: number; description: string }> = {
@@ -201,7 +204,12 @@ export function evaluateStock(
   attribution?: AttributionAnalysis,
   isPullbackVolumeLow?: boolean,  // 1순위: 눌림목 거래량 감소 여부
   macroEnv?: MacroEnvironment,    // Gate 0 + FX + Rate Cycle 입력
-  stockExportRatio?: number       // 수출 비중 0-100 (FX 조정용)
+  stockExportRatio?: number,      // 수출 비중 0-100 (FX 조정용)
+  advancedContext?: {
+    smartMoney?: SmartMoneyData;
+    exportMomentum?: ExportMomentumData;
+    geoRisk?: GeopoliticalRiskData;
+  }
 ): EvaluationResult {
   if (!stockData) stockData = {} as any;
   const profile = getStockProfile(profileType);
@@ -224,6 +232,9 @@ export function evaluateStock(
   if (gate0Result?.buyingHalted || emergencyStop) {
     return {
       gate0Result,
+      smartMoneyData: advancedContext?.smartMoney,
+      exportMomentumData: advancedContext?.exportMomentum,
+      geopoliticalRisk: advancedContext?.geoRisk,
       fxAdjustmentFactor,
       gate1Passed: false,
       gate2Passed: false,
@@ -298,6 +309,9 @@ export function evaluateStock(
   if (!gate1Passed) {
     return {
       gate0Result,
+      smartMoneyData: advancedContext?.smartMoney,
+      exportMomentumData: advancedContext?.exportMomentum,
+      geopoliticalRisk: advancedContext?.geoRisk,
       fxAdjustmentFactor,
       gate1Passed: false,
       gate2Passed: false,
@@ -322,18 +336,34 @@ export function evaluateStock(
     };
   }
 
-  // ── Gate 2: 성장 검증 (12개 중 9개 이상 통과) ───────────────────────────
+  // ── Advanced Context 추출 ────────────────────────────────────────────────
+  const { smartMoney, exportMomentum, geoRisk } = advancedContext ?? {};
+  const GEO_SECTORS = ['방산', '조선', '원자력', '방위산업'];
+  const isGeoSector = GEO_SECTORS.some(s => sectorRotation.name.includes(s));
+
+  // ── Gate 2: 성장 검증 ────────────────────────────────────────────────────
+  // Smart Money EWY+MTUM 동시 유입 OR 반도체 수출 3개월 연속 성장 → 9→8 완화
+  const semiconductorRelax = exportMomentum?.semiconductorGate2Relax === true
+    && sectorRotation.name.includes('반도체');
+  const gate2Threshold = (smartMoney?.isEwyMtumBothInflow || semiconductorRelax) ? 8 : 9;
   const gate2PassCount = GATE2_IDS.filter(id => (stockData[id] ?? 0) >= 5).length;
-  const gate2Passed = gate2PassCount >= 9;
+  const gate2Passed = gate2PassCount >= gate2Threshold;
   const gate2Score = calculateScore(GATE2_IDS);
 
-  // ── Gate 3: 정밀 타이밍 (10개 중 7개 이상 통과) ─────────────────────────
+  // ── Gate 3: 정밀 타이밍 ──────────────────────────────────────────────────
+  // 지정학 리스크 GOS ≥ 7 AND 지정학 수혜 섹터 → 7→6 완화
+  const gate3Threshold = (geoRisk && geoRisk.score >= 7 && isGeoSector) ? 6 : 7;
   const gate3PassCount = GATE3_IDS.filter(id => (stockData[id] ?? 0) >= 5).length;
-  const gate3Passed = gate3PassCount >= 7;
+  const gate3Passed = gate3PassCount >= gate3Threshold;
   const gate3Score = calculateScore(GATE3_IDS);
 
   // FX 조정 팩터 반영: 수출주/내수주 비대칭 환율 영향 내재화
-  const finalScore = gate2Score + gate3Score + fxAdjustmentFactor;
+  let finalScore = gate2Score + gate3Score + fxAdjustmentFactor;
+
+  // 수출 모멘텀 Hot Sector +5% 보너스
+  if (exportMomentum?.hotSectors.includes(sectorRotation.name)) {
+    finalScore *= 1.05;
+  }
 
   // 2순위: 대장주 신고가 경신 시 트리거 강화
   const lastTrigger = (stockData[25] >= 8 && stockData[27] >= 8) ||
@@ -393,6 +423,11 @@ export function evaluateStock(
     positionSize *= (1 - gate0Result.kellyReduction);
   }
 
+  // 지정학 리스크 GOS ≤ 3 AND 지정학 섹터 → Kelly 30% 축소
+  if (geoRisk && geoRisk.score <= 3 && isGeoSector) {
+    positionSize *= 0.7;
+  }
+
   positionSize = Math.max(0, positionSize);
 
   // 3-Tranche Scaling Plan
@@ -404,6 +439,9 @@ export function evaluateStock(
 
   return {
     gate0Result,
+    smartMoneyData: smartMoney,
+    exportMomentumData: exportMomentum,
+    geopoliticalRisk: geoRisk,
     fxAdjustmentFactor,
     gate1Passed,
     gate2Passed,
