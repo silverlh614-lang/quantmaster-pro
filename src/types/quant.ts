@@ -16,6 +16,49 @@ export interface MarketRegime {
   samsungIri: number;
 }
 
+// ─── Gate 0: 거시 환경 생존 게이트 ───────────────────────────────────────────
+
+export type RateCycle = 'TIGHTENING' | 'EASING' | 'PAUSE';
+export type FXRegime = 'DOLLAR_STRONG' | 'DOLLAR_WEAK' | 'NEUTRAL';
+
+/** 거시 환경 4개 축 입력 데이터 */
+export interface MacroEnvironment {
+  // 금리 축
+  bokRateDirection: 'HIKING' | 'HOLDING' | 'CUTTING'; // 한국은행 기준금리 방향
+  us10yYield: number;          // 미국 10년 국채 금리 (%)
+  krUsSpread: number;          // 한미 금리 스프레드 (pp, 음수 = 역전)
+  // 유동성 축
+  m2GrowthYoY: number;         // M2 증가율 YoY (%)
+  bankLendingGrowth: number;   // 은행 여신 증가율 (%)
+  nominalGdpGrowth: number;    // 명목 GDP 성장률 (%)
+  // 경기 축
+  oeciCliKorea: number;        // OECD 경기선행지수 한국 (100 기준)
+  exportGrowth3mAvg: number;   // 수출증가율 3개월 이동평균 (%)
+  // 리스크 축
+  vkospi: number;              // VKOSPI
+  samsungIri: number;          // 삼성 IRI (1.0 = 중립, <0.7 = 매도 압력)
+  vix: number;                 // VIX
+  // 환율
+  usdKrw: number;              // 원/달러 환율
+}
+
+/** Gate 0 평가 결과 */
+export interface Gate0Result {
+  passed: boolean;
+  macroHealthScore: number;    // MHS 0-100
+  mhsLevel: 'HIGH' | 'MEDIUM' | 'LOW'; // HIGH ≥70 / MEDIUM 40-69 / LOW <40
+  kellyReduction: number;      // 포지션 축소율: 0=정상, 0.5=50%축소, 1.0=매수중단
+  buyingHalted: boolean;       // MHS < 40 → 전면 매수 중단
+  rateCycle: RateCycle;
+  fxRegime: FXRegime;
+  details: {
+    interestRateScore: number; // 0-25
+    liquidityScore: number;    // 0-25
+    economicScore: number;     // 0-25
+    riskScore: number;         // 0-25
+  };
+}
+
 export type StockProfileType = 'A' | 'B' | 'C' | 'D'; // 대형 주도주, 중형 성장주, 소형 모멘텀주, 촉매제 플레이
 
 export interface StockProfile {
@@ -72,6 +115,7 @@ export interface AttributionAnalysis {
 }
 
 export interface EvaluationResult {
+  gate0Result?: Gate0Result;       // Gate 0: 거시 환경 생존 게이트 결과
   gate1Passed: boolean;
   gate2Passed: boolean;
   gate3Passed: boolean;
@@ -79,6 +123,7 @@ export interface EvaluationResult {
   gate2Score: number;
   gate3Score: number;
   finalScore: number;
+  fxAdjustmentFactor: number;      // FX 조정 팩터 (-3 ~ +3)
   recommendation: '풀 포지션' | '절반 포지션' | '관망' | '매도' | '강력 매도';
   positionSize: number; // % of portfolio
   rrr: number; // Risk-Reward Ratio

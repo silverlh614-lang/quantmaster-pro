@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { 
-  Zap, 
-  Search, 
-  Calculator, 
-  CheckCircle2, 
-  XCircle, 
+import {
+  Zap,
+  Search,
+  Calculator,
+  CheckCircle2,
+  XCircle,
   AlertCircle,
   TrendingUp,
   ShieldCheck,
@@ -12,10 +12,11 @@ import {
   BarChart3,
   ArrowRight,
   Info,
-  Wallet
+  Wallet,
+  Globe,
 } from 'lucide-react';
 import { evaluateStock } from '../services/quantEngine';
-import { ConditionId, MarketRegime, SectorRotation, EvaluationResult } from '../types/quant';
+import { ConditionId, MarketRegime, SectorRotation, EvaluationResult, MacroEnvironment } from '../types/quant';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -45,6 +46,16 @@ export const ManualQuantInput: React.FC<ManualQuantInputProps> = ({ regime, sect
     cycleMatch: true,
     roeGrowth: true,
     marketCap: '1000', // in billions
+  });
+
+  // Gate 0 매크로 환경 입력
+  const [macroInputs, setMacroInputs] = useState({
+    bokRateDirection: 'HOLDING' as 'HIKING' | 'HOLDING' | 'CUTTING',
+    usdKrw: '1320',
+    vkospi: '18',
+    vix: '18',
+    exportGrowth3mAvg: '0',
+    stockExportRatio: '50', // 종목 수출 비중 (0-100%)
   });
 
   const [result, setResult] = useState<EvaluationResult | null>(null);
@@ -79,14 +90,38 @@ export const ManualQuantInput: React.FC<ManualQuantInputProps> = ({ regime, sect
     stockData[26] = (rsiVal > 30 && rsiVal < 70) ? 8 : 3; // 다이버전스/RSI
     stockData[23] = Number(indicators.icr) > 3 ? 9 : Number(indicators.icr) > 1 ? 6 : 2; // 재무 방어력 ICR
 
+    // 매크로 환경 구성 (Gate 0 입력)
+    const macroEnv: MacroEnvironment = {
+      bokRateDirection: macroInputs.bokRateDirection,
+      us10yYield: 4.3,          // 기본값
+      krUsSpread: -1.3,         // 기본값 (한미 금리 역전)
+      m2GrowthYoY: 6.5,         // 기본값
+      bankLendingGrowth: 5.0,   // 기본값
+      nominalGdpGrowth: 4.0,    // 기본값
+      oeciCliKorea: 100,        // 기본값 (중립)
+      exportGrowth3mAvg: Number(macroInputs.exportGrowth3mAvg),
+      vkospi: Number(macroInputs.vkospi),
+      samsungIri: regime.samsungIri,
+      vix: Number(macroInputs.vix),
+      usdKrw: Number(macroInputs.usdKrw),
+    };
+
     const evaluation = evaluateStock(
       stockData as Record<ConditionId, number>,
       regime,
-      'B', // Default profile
+      'B',
       sectorRotation,
-      0, // Euphoria
-      false, // Emergency
-      2.5 // RRR
+      0,
+      false,
+      2.5,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      macroEnv,
+      Number(macroInputs.stockExportRatio)
     );
 
     setResult(evaluation);
@@ -209,8 +244,79 @@ export const ManualQuantInput: React.FC<ManualQuantInputProps> = ({ regime, sect
           </div>
         </div>
 
+        {/* Macro Environment Inputs — Gate 0 */}
+        <div className="mt-8 pt-8 border-t border-white/5 space-y-6">
+          <h3 className="text-sm font-black text-white/40 uppercase tracking-widest flex items-center gap-2">
+            <Globe size={14} /> 매크로 환경 (Gate 0)
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-white/20 uppercase tracking-widest ml-2">한국은행 금리 방향</label>
+              <select
+                className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white font-bold focus:outline-none focus:border-indigo-500/50 transition-all appearance-none"
+                value={macroInputs.bokRateDirection}
+                onChange={(e) => setMacroInputs({ ...macroInputs, bokRateDirection: e.target.value as any })}
+              >
+                <option value="HIKING">인상 (Tightening)</option>
+                <option value="HOLDING">동결 (Pause)</option>
+                <option value="CUTTING">인하 (Easing)</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-white/20 uppercase tracking-widest ml-2">원/달러 환율 (USD/KRW)</label>
+              <input
+                type="number"
+                className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white font-bold focus:outline-none focus:border-indigo-500/50 transition-all"
+                value={macroInputs.usdKrw}
+                onChange={(e) => setMacroInputs({ ...macroInputs, usdKrw: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-white/20 uppercase tracking-widest ml-2">VKOSPI</label>
+              <input
+                type="number"
+                step="0.1"
+                className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white font-bold focus:outline-none focus:border-indigo-500/50 transition-all"
+                value={macroInputs.vkospi}
+                onChange={(e) => setMacroInputs({ ...macroInputs, vkospi: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-white/20 uppercase tracking-widest ml-2">VIX</label>
+              <input
+                type="number"
+                step="0.1"
+                className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white font-bold focus:outline-none focus:border-indigo-500/50 transition-all"
+                value={macroInputs.vix}
+                onChange={(e) => setMacroInputs({ ...macroInputs, vix: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-white/20 uppercase tracking-widest ml-2">수출증가율 3MA (%)</label>
+              <input
+                type="number"
+                step="0.1"
+                className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white font-bold focus:outline-none focus:border-indigo-500/50 transition-all"
+                value={macroInputs.exportGrowth3mAvg}
+                onChange={(e) => setMacroInputs({ ...macroInputs, exportGrowth3mAvg: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-white/20 uppercase tracking-widest ml-2">종목 수출 비중 (%)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white font-bold focus:outline-none focus:border-indigo-500/50 transition-all"
+                value={macroInputs.stockExportRatio}
+                onChange={(e) => setMacroInputs({ ...macroInputs, stockExportRatio: e.target.value })}
+              />
+            </div>
+          </div>
+        </div>
+
         <div className="mt-10 flex justify-center">
-          <button 
+          <button
             onClick={handleCalculate}
             className="group relative px-12 py-4 bg-indigo-500 rounded-2xl overflow-hidden shadow-[0_0_40px_rgba(99,102,241,0.4)] hover:shadow-[0_0_60px_rgba(99,102,241,0.6)] transition-all duration-500"
           >
@@ -251,6 +357,79 @@ export const ManualQuantInput: React.FC<ManualQuantInputProps> = ({ regime, sect
               </div>
             </div>
           </div>
+
+          {/* Gate 0 Result */}
+          {result.gate0Result && (
+            <div className={cn(
+              "p-6 rounded-[2rem] border mb-8",
+              result.gate0Result.mhsLevel === 'HIGH'
+                ? "bg-emerald-500/10 border-emerald-500/30"
+                : result.gate0Result.mhsLevel === 'MEDIUM'
+                  ? "bg-amber-500/10 border-amber-500/30"
+                  : "bg-red-500/10 border-red-500/30"
+            )}>
+              <div className="flex items-center gap-3 mb-4">
+                <Globe size={18} className={
+                  result.gate0Result.mhsLevel === 'HIGH' ? "text-emerald-400"
+                    : result.gate0Result.mhsLevel === 'MEDIUM' ? "text-amber-400"
+                      : "text-red-400"
+                } />
+                <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Gate 0: 거시 환경 생존 게이트</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <p className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-1">MHS 점수</p>
+                  <p className={cn(
+                    "text-3xl font-black tracking-tighter",
+                    result.gate0Result.mhsLevel === 'HIGH' ? "text-emerald-400"
+                      : result.gate0Result.mhsLevel === 'MEDIUM' ? "text-amber-400"
+                        : "text-red-400"
+                  )}>
+                    {result.gate0Result.macroHealthScore}
+                    <span className="text-sm text-white/30 ml-1">/100</span>
+                  </p>
+                  <p className="text-xs font-bold text-white/30 mt-1">
+                    {result.gate0Result.mhsLevel === 'HIGH' ? '✅ 정상 운용'
+                      : result.gate0Result.mhsLevel === 'MEDIUM' ? '⚠️ Kelly 50% 축소'
+                        : '🚫 매수 중단'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-1">금리 사이클</p>
+                  <p className="text-lg font-black text-white tracking-tighter">
+                    {result.gate0Result.rateCycle === 'TIGHTENING' ? '🔺 긴축'
+                      : result.gate0Result.rateCycle === 'EASING' ? '🔻 완화'
+                        : '⏸ 동결'}
+                  </p>
+                  <p className="text-xs font-bold text-white/30 mt-1">
+                    {result.gate0Result.rateCycle === 'TIGHTENING' ? 'ICR 기준 강화'
+                      : result.gate0Result.rateCycle === 'EASING' ? '성장주 가중치 +20%'
+                        : '기본 모드'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-1">환율 레짐</p>
+                  <p className="text-lg font-black text-white tracking-tighter">
+                    {result.gate0Result.fxRegime === 'DOLLAR_STRONG' ? '💵 달러 강세'
+                      : result.gate0Result.fxRegime === 'DOLLAR_WEAK' ? '🌏 달러 약세'
+                        : '〰 중립'}
+                  </p>
+                  <p className="text-xs font-bold text-white/30 mt-1">
+                    FX 조정: {result.fxAdjustmentFactor >= 0 ? '+' : ''}{result.fxAdjustmentFactor.toFixed(2)}pt
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-1">세부 점수</p>
+                  <div className="space-y-0.5 text-[10px] font-bold text-white/40">
+                    <p>금리 {result.gate0Result.details.interestRateScore}/25</p>
+                    <p>유동성 {result.gate0Result.details.liquidityScore}/25</p>
+                    <p>경기 {result.gate0Result.details.economicScore}/25</p>
+                    <p>리스크 {result.gate0Result.details.riskScore}/25</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
             <div className="bg-white/5 p-8 rounded-[2rem] border border-white/5 relative overflow-hidden group">
