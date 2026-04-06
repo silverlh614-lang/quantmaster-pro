@@ -107,6 +107,9 @@ import {
   getGeopoliticalRiskScore,
   getCreditSpreads,
   fetchMacroEnvironment,
+  getExtendedEconomicRegime,
+  getGlobalCorrelationMatrix,
+  getNewsFrequencyScores,
   StockRecommendation,
   MarketContext,
   MarketOverview,
@@ -123,7 +126,7 @@ import { MacroIntelligenceDashboard } from './components/MacroIntelligenceDashbo
 import { ManualQuantInput } from './components/ManualQuantInput';
 import { ConfidenceBadge } from './components/ConfidenceBadge';
 import { evaluateStock, evaluateGate0 } from './services/quantEngine';
-import { MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal, StockProfile, StockProfileType, MacroEnvironment, EconomicRegimeData, SmartMoneyData, ExportMomentumData, GeopoliticalRiskData, CreditSpreadData, ROEType } from './types/quant';
+import { MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal, StockProfile, StockProfileType, MacroEnvironment, EconomicRegimeData, SmartMoneyData, ExportMomentumData, GeopoliticalRiskData, CreditSpreadData, ROEType, ExtendedRegimeData, GlobalCorrelationMatrix, NewsFrequencyScore } from './types/quant';
 import { PortfolioComparison } from './components/PortfolioComparison';
 import { QuantScreener } from './components/QuantScreener';
 import { SectorSubscription } from './components/SectorSubscription';
@@ -410,6 +413,9 @@ export default function App() {
   const [exportMomentumData, setExportMomentumData] = useState<ExportMomentumData | null>(null);
   const [geoRiskData, setGeoRiskData] = useState<GeopoliticalRiskData | null>(null);
   const [creditSpreadData, setCreditSpreadData] = useState<CreditSpreadData | null>(null);
+  const [extendedRegimeData, setExtendedRegimeData] = useState<ExtendedRegimeData | null>(null);
+  const [globalCorrelation, setGlobalCorrelation] = useState<GlobalCorrelationMatrix | null>(null);
+  const [newsFrequencyScores, setNewsFrequencyScores] = useState<NewsFrequencyScore[]>([]);
   const [currentRoeType, setCurrentRoeType] = useState<ROEType>(3);
 
   useEffect(() => {
@@ -421,13 +427,15 @@ export default function App() {
   // ── 어드밴스드 컨텍스트 + 매크로 환경 데이터 수집 (비동기, 마운트 시 1회) ───
   useEffect(() => {
     const loadAdvancedData = async () => {
-      const [macro, regime, smart, exports_, geo, credit] = await Promise.allSettled([
+      const [macro, regime, smart, exports_, geo, credit, extRegime, correlation] = await Promise.allSettled([
         fetchMacroEnvironment(),
         getEconomicRegime(),
         getSmartMoneyFlow(),
         getExportMomentum(),
         getGeopoliticalRiskScore(),
         getCreditSpreads(),
+        getExtendedEconomicRegime(),
+        getGlobalCorrelationMatrix(),
       ]);
       if (macro.status === 'fulfilled') setMacroEnv(macro.value);
       if (regime.status === 'fulfilled') setEconomicRegimeData(regime.value);
@@ -435,6 +443,8 @@ export default function App() {
       if (exports_.status === 'fulfilled') setExportMomentumData(exports_.value);
       if (geo.status === 'fulfilled') setGeoRiskData(geo.value);
       if (credit.status === 'fulfilled') setCreditSpreadData(credit.value);
+      if (extRegime.status === 'fulfilled') setExtendedRegimeData(extRegime.value);
+      if (correlation.status === 'fulfilled') setGlobalCorrelation(correlation.value);
     };
     loadAdvancedData();
   }, []);
@@ -1607,7 +1617,14 @@ export default function App() {
       setRecommendations(diversified);
       setMarketContext(data.marketContext);
       setLastUpdated(new Date().toLocaleTimeString());
-      
+
+      // 뉴스 빈도 역지표 자동 조회 (비동기, 메인 플로우 차단 안 함)
+      if (diversified.length > 0) {
+        getNewsFrequencyScores(diversified.map(s => ({ code: s.code, name: s.name })))
+          .then(scores => setNewsFrequencyScores(scores))
+          .catch(err => console.error('News frequency scoring failed:', err));
+      }
+
       if (diversified.length === 0) {
         toast.info('추천 종목이 없습니다.');
       } else {
@@ -2251,7 +2268,7 @@ export default function App() {
                 <MacroIntelligenceDashboard
                   gate0Result={gate0Result}
                   currentRoeType={currentRoeType}
-                  externalRegime={economicRegimeData ?? undefined}
+                  externalRegime={extendedRegimeData ?? economicRegimeData ?? undefined}
                   marketOverview={marketOverview ? {
                     sectorRotation: (marketOverview.sectorRotation?.topSectors || []).map((s: any) => ({
                       sector: s.sector || s.name || '',
@@ -4809,6 +4826,30 @@ export default function App() {
                         </div>
                       )}
 
+                      {/* News Frequency Contrarian Badge */}
+                      {(() => {
+                        const nfs = newsFrequencyScores.find(n => n.code === stock.code);
+                        if (!nfs) return null;
+                        const phaseColors: Record<string, string> = {
+                          SILENT: 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400',
+                          EARLY: 'bg-cyan-500/20 border-cyan-500/30 text-cyan-400',
+                          GROWING: 'bg-amber-500/20 border-amber-500/30 text-amber-400',
+                          CROWDED: 'bg-orange-500/20 border-orange-500/30 text-orange-400',
+                          OVERHYPED: 'bg-red-500/20 border-red-500/30 text-red-400',
+                        };
+                        const phaseLabels: Record<string, string> = {
+                          SILENT: '미인지', EARLY: '초기', GROWING: '관심↑', CROWDED: '과밀', OVERHYPED: '과열',
+                        };
+                        return (
+                          <div className={`absolute top-3 right-3 z-10 flex items-center gap-1 border px-2 py-1 rounded-lg backdrop-blur-sm ${phaseColors[nfs.phase] || ''}`}>
+                            <Newspaper className="w-2.5 h-2.5" />
+                            <span className="text-[9px] font-black uppercase tracking-widest">
+                              뉴스 {phaseLabels[nfs.phase] || nfs.phase} ({nfs.score})
+                            </span>
+                          </div>
+                        );
+                      })()}
+
                       {/* Card Header */}
                       <div className="p-5 sm:p-8 pb-4 sm:pb-6 bg-gradient-to-b from-white/[0.03] to-transparent">
                         {/* Name and Code Row */}
@@ -5495,10 +5536,16 @@ export default function App() {
                       exportMomentum: exportMomentumData ?? undefined,
                       geoRisk: geoRiskData ?? undefined,
                       creditSpread: creditSpreadData ?? undefined,
-                      economicRegime: economicRegimeData?.regime,
+                      economicRegime: extendedRegimeData?.regime ?? economicRegimeData?.regime,
+                    },
+                    {
+                      kospi60dVolatility: extendedRegimeData?.uncertaintyMetrics?.kospi60dVolatility,
+                      leadingSectorCount: extendedRegimeData?.uncertaintyMetrics?.leadingSectorCount,
+                      foreignFlowDirection: extendedRegimeData?.uncertaintyMetrics?.foreignFlowDirection,
+                      kospiSp500Correlation: globalCorrelation?.kospiSp500,
                     }
                   )}
-                  economicRegime={economicRegimeData ?? undefined}
+                  economicRegime={extendedRegimeData ?? economicRegimeData ?? undefined}
                   currentRoeType={currentRoeType}
                   marketOverview={marketOverview}
                 />
