@@ -253,6 +253,36 @@ export interface BacktestResult {
   };
 }
 
+// ─── 경기 사이클 레짐 분류기 (Idea 2) ────────────────────────────────────────
+
+export type EconomicRegime = 'RECOVERY' | 'EXPANSION' | 'SLOWDOWN' | 'RECESSION';
+
+/**
+ * ROE 5유형
+ * 1: 레버리지 의존형 (부채 기반 자산 확장)
+ * 2: 자본경량형 (무형자산·플랫폼 기반)
+ * 3: 매출·마진 동반 성장형 (최강 알파 유형)
+ * 4: 비용 통제형 (매출 정체, 비용 절감)
+ * 5: 재무 왜곡형 (자사주 매입·자본 축소)
+ */
+export type ROEType = 1 | 2 | 3 | 4 | 5;
+
+/** Gemini 기반 경기 레짐 분류 결과 */
+export interface EconomicRegimeData {
+  regime: EconomicRegime;
+  confidence: number;        // 0-100
+  rationale: string;         // 분류 근거 요약
+  allowedSectors: string[];  // 현재 레짐 허용 섹터 화이트리스트
+  avoidSectors: string[];    // 회피 섹터
+  keyIndicators: {
+    exportGrowth: string;       // 수출 증가율
+    bokRateDirection: string;   // 한국은행 금리 방향
+    oeciCli: string;            // OECD CLI 수치
+    gdpGrowth: string;          // GDP 성장률
+  };
+  lastUpdated: string;
+}
+
 export interface Portfolio {
   id: string;
   name: string;

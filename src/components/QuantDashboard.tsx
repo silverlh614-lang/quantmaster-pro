@@ -1,9 +1,11 @@
-import React from 'react';
-import { EvaluationResult } from '../types/quant';
+import React, { useState } from 'react';
+import { EvaluationResult, EconomicRegimeData, ROEType } from '../types/quant';
 import { ALL_CONDITIONS } from '../services/quantEngine';
-import { Shield, Target, Zap, AlertTriangle, TrendingUp, DollarSign, Activity, Layers, Clock, Skull, Calendar, PieChart, Link2 } from 'lucide-react';
+import { MarketOverview } from '../services/stockService';
+import { Shield, Target, Zap, AlertTriangle, TrendingUp, DollarSign, Activity, Layers, Clock, Skull, Calendar, PieChart, Link2, Globe } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { MacroIntelligenceDashboard } from './MacroIntelligenceDashboard';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -11,9 +13,20 @@ function cn(...inputs: ClassValue[]) {
 
 interface Props {
   result: EvaluationResult;
+  economicRegime?: EconomicRegimeData;
+  currentRoeType?: ROEType;
+  marketOverview?: MarketOverview | null;
 }
 
-export const QuantDashboard: React.FC<Props> = ({ result }) => {
+type DashboardTab = 'QUANT' | 'MACRO';
+
+export const QuantDashboard: React.FC<Props> = ({
+  result,
+  economicRegime,
+  currentRoeType = 3,
+  marketOverview,
+}) => {
+  const [activeTab, setActiveTab] = useState<DashboardTab>('QUANT');
   const getRecommendationColor = (rec: string) => {
     switch (rec) {
       case '풀 포지션': return 'text-green-600 border-green-600';
@@ -25,7 +38,7 @@ export const QuantDashboard: React.FC<Props> = ({ result }) => {
 
   return (
     <div className="p-8 bg-[#E4E3E0] text-[#141414] font-sans min-h-screen">
-      <header className="mb-12 border-b border-[#141414] pb-4 flex justify-between items-end">
+      <header className="mb-8 border-b border-[#141414] pb-4 flex justify-between items-end">
         <div>
           <h1 className="text-4xl font-serif italic tracking-tight">Living Quant System</h1>
           <p className="col-header mt-2">27-Condition Hierarchical Analysis Engine</p>
@@ -35,6 +48,40 @@ export const QuantDashboard: React.FC<Props> = ({ result }) => {
           <p className="data-value text-sm">PROFILE: {result.profile.type}</p>
         </div>
       </header>
+
+      {/* ── Tab Navigation ── */}
+      <div className="flex gap-0 mb-10 border-b-2 border-[#141414]">
+        {([
+          { id: 'QUANT', label: 'QUANT ANALYSIS', icon: <Target size={14} /> },
+          { id: 'MACRO', label: 'MACRO INTELLIGENCE', icon: <Globe size={14} /> },
+        ] as const).map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={cn(
+              'flex items-center gap-2 px-6 py-3 text-[11px] font-black uppercase tracking-widest border-2 border-b-0 transition-all',
+              activeTab === tab.id
+                ? 'bg-[#141414] text-white border-[#141414]'
+                : 'bg-[#E4E3E0] text-[#141414] border-[#141414] hover:bg-white'
+            )}
+          >
+            {tab.icon} {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── MACRO INTELLIGENCE Tab (항상 마운트, 탭 전환 시 hidden으로 상태 보존) ── */}
+      <div className={activeTab !== 'MACRO' ? 'hidden' : ''}>
+        <MacroIntelligenceDashboard
+          gate0Result={result.gate0Result}
+          currentRoeType={currentRoeType}
+          marketOverview={marketOverview}
+          externalRegime={economicRegime}
+        />
+      </div>
+
+      {/* ── QUANT ANALYSIS Tab ── */}
+      <div className={activeTab !== 'QUANT' ? 'hidden' : ''}><>
 
       {/* Main Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
@@ -349,6 +396,8 @@ export const QuantDashboard: React.FC<Props> = ({ result }) => {
         <p className="text-[10px] font-mono">LIVING QUANT SYSTEM V2.0 // SELF-EVOLVING BACKTESTING LOOP ACTIVE</p>
         <p className="text-[10px] font-mono">LAST UPDATED: {new Date().toISOString()}</p>
       </footer>
+
+      </></div>
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import { GoogleGenAI, GenerateContentResponse, ThinkingLevel } from "@google/genai";
-import { 
+import {
   SectorRotation,
   MultiTimeframe,
   TranchePlan,
@@ -11,7 +11,8 @@ import {
   BacktestPosition,
   BacktestPortfolioState,
   BacktestDailyLog,
-  Portfolio
+  Portfolio,
+  EconomicRegimeData,
 } from "../types/quant";
 
 import {
@@ -2596,6 +2597,93 @@ export async function performWalkForwardAnalysis(): Promise<WalkForwardAnalysis 
     } catch (error) {
       console.error("Error performing Walk-Forward Analysis:", error);
       throw error;
+    }
+  });
+}
+
+// ─── 아이디어 2: 경기 레짐 자동 분류기 (Economic Regime Classifier) ──────────
+
+/**
+ * Gemini + Google Search 기반으로 현재 한국 경기 사이클 레짐을 분류합니다.
+ * RECOVERY → EXPANSION → SLOWDOWN → RECESSION 4단계 중 하나를 반환하며,
+ * 현재 레짐에 부합하는 허용 섹터 화이트리스트를 함께 제공합니다.
+ */
+export async function getEconomicRegime(): Promise<EconomicRegimeData> {
+  const requestedAt = new Date();
+  const now = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const todayDate = now.split(' ')[0];
+  const requestedAtISO = requestedAt.toISOString();
+
+  const prompt = `
+    현재 한국 날짜: ${todayDate}
+
+    아래 4가지 경기 사이클 중 현재 한국 경제가 어디에 해당하는지 분류해줘.
+    구글 검색을 통해 최신 실제 데이터를 기반으로 판단해야 해.
+
+    분류 기준:
+    - RECOVERY (회복기): GDP 성장 반등, 수출 증가 시작, 금리 인하 또는 동결, OECD CLI ≥ 100 상승 전환
+    - EXPANSION (확장기): GDP 성장 가속, 수출 호조, 금리 동결 또는 소폭 인상, CLI 상승 지속
+    - SLOWDOWN (둔화기): GDP 성장 둔화, 수출 증가율 감소, 금리 인상 또는 동결, CLI 하락
+    - RECESSION (침체기): GDP 역성장 또는 제로, 수출 급감, CLI 급락, 신용 위기 징후
+
+    조회할 데이터:
+    1. 한국 최근 수출 증가율 (전년 동월 대비, 3개월 이동평균)
+    2. 한국은행 기준금리 현재 수준 및 방향 (인상/동결/인하)
+    3. OECD 경기선행지수(CLI) 한국 최신 수치
+    4. 한국 최근 분기 GDP 성장률
+    5. 현재 레짐에서 강세를 보이는 허용 섹터 (최대 6개)
+    6. 회피해야 할 취약 섹터 (최대 4개)
+
+    응답 형식 (JSON only):
+    {
+      "regime": "EXPANSION",
+      "confidence": 78,
+      "rationale": "수출 YoY +12.3%, CLI 101.2 상승 기조, 기준금리 3연속 동결로 확장기 판단",
+      "allowedSectors": ["반도체", "조선", "방산", "바이오", "AI인프라", "자동차"],
+      "avoidSectors": ["내수소비재", "항공", "음식료"],
+      "keyIndicators": {
+        "exportGrowth": "+12.3% YoY",
+        "bokRateDirection": "동결 (3.50%)",
+        "oeciCli": "101.2",
+        "gdpGrowth": "+2.1% QoQ"
+      },
+      "lastUpdated": "${requestedAtISO}"
+    }
+  `;
+
+  const cacheKey = `economic-regime-${todayDate}`;
+
+  return getCachedAIResponse<EconomicRegimeData>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            temperature: 0.1,
+          },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      return safeJsonParse(text) as EconomicRegimeData;
+    } catch (error) {
+      console.error("Error getting economic regime:", error);
+      return {
+        regime: 'EXPANSION',
+        confidence: 50,
+        rationale: "데이터 조회 실패. 기본값(확장기)으로 설정됨.",
+        allowedSectors: ["반도체", "조선", "방산"],
+        avoidSectors: [],
+        keyIndicators: {
+          exportGrowth: "N/A",
+          bokRateDirection: "N/A",
+          oeciCli: "N/A",
+          gdpGrowth: "N/A",
+        },
+        lastUpdated: requestedAtISO,
+      };
     }
   });
 }
