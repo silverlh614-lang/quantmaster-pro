@@ -89,10 +89,10 @@ import { domToJpeg } from 'modern-screenshot';
 import { jsPDF } from 'jspdf';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
-import { 
-  getStockRecommendations, 
+import {
+  getStockRecommendations,
   StockFilters,
-  searchStock, 
+  searchStock,
   syncStockPrice,
   fetchCurrentPrice,
   backtestPortfolio,
@@ -101,7 +101,12 @@ import {
   getMarketOverview,
   syncMarketOverviewIndices,
   performWalkForwardAnalysis,
-  StockRecommendation, 
+  getEconomicRegime,
+  getSmartMoneyFlow,
+  getExportMomentum,
+  getGeopoliticalRiskScore,
+  getCreditSpreads,
+  StockRecommendation,
   MarketContext,
   MarketOverview,
   BacktestResult,
@@ -116,7 +121,7 @@ import { QuantDashboard } from './components/QuantDashboard';
 import { ManualQuantInput } from './components/ManualQuantInput';
 import { ConfidenceBadge } from './components/ConfidenceBadge';
 import { evaluateStock } from './services/quantEngine';
-import { MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal, StockProfile, StockProfileType } from './types/quant';
+import { MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal, StockProfile, StockProfileType, MacroEnvironment, EconomicRegimeData, SmartMoneyData, ExportMomentumData, GeopoliticalRiskData, CreditSpreadData, ROEType } from './types/quant';
 import { PortfolioComparison } from './components/PortfolioComparison';
 import { QuantScreener } from './components/QuantScreener';
 import { SectorSubscription } from './components/SectorSubscription';
@@ -395,10 +400,43 @@ export default function App() {
     return (localStorage.getItem('k-stock-theme') as any) || 'dark';
   });
 
+  // ── 매크로/어드밴스드 컨텍스트 상태 ───────────────────────────────────────────
+  const [macroEnv, setMacroEnv] = useState<MacroEnvironment | null>(null);
+  const [exportRatio, setExportRatio] = useState<number>(50);
+  const [economicRegimeData, setEconomicRegimeData] = useState<EconomicRegimeData | null>(null);
+  const [smartMoneyData, setSmartMoneyData] = useState<SmartMoneyData | null>(null);
+  const [exportMomentumData, setExportMomentumData] = useState<ExportMomentumData | null>(null);
+  const [geoRiskData, setGeoRiskData] = useState<GeopoliticalRiskData | null>(null);
+  const [creditSpreadData, setCreditSpreadData] = useState<CreditSpreadData | null>(null);
+  const [currentRoeType, setCurrentRoeType] = useState<ROEType>(3);
+
   useEffect(() => {
     if ('Notification' in window && Notification.permission !== 'granted') {
       Notification.requestPermission();
     }
+  }, []);
+
+  // ── 어드밴스드 컨텍스트 데이터 수집 (비동기, 마운트 시 1회) ──────────────────
+  useEffect(() => {
+    const loadAdvancedData = async () => {
+      try {
+        const [regime, smart, exports_, geo, credit] = await Promise.allSettled([
+          getEconomicRegime(),
+          getSmartMoneyFlow(),
+          getExportMomentum(),
+          getGeopoliticalRiskScore(),
+          getCreditSpreads(),
+        ]);
+        if (regime.status === 'fulfilled') setEconomicRegimeData(regime.value);
+        if (smart.status === 'fulfilled') setSmartMoneyData(smart.value);
+        if (exports_.status === 'fulfilled') setExportMomentumData(exports_.value);
+        if (geo.status === 'fulfilled') setGeoRiskData(geo.value);
+        if (credit.status === 'fulfilled') setCreditSpreadData(credit.value);
+      } catch (_) {
+        // 개별 오류는 Promise.allSettled가 처리, 전체 실패 시 무시
+      }
+    };
+    loadAdvancedData();
   }, []);
 
   const checkPriceAlerts = (stocks: StockRecommendation[]) => {
@@ -5385,8 +5423,21 @@ export default function App() {
                     deepAnalysisStock.enemyChecklist,
                     deepAnalysisStock.seasonality,
                     deepAnalysisStock.attribution,
-                    deepAnalysisStock.isPullbackVolumeLow || false
-                  )} />
+                    deepAnalysisStock.isPullbackVolumeLow || false,
+                    macroEnv ?? undefined,
+                    exportRatio,
+                    {
+                      smartMoney: smartMoneyData ?? undefined,
+                      exportMomentum: exportMomentumData ?? undefined,
+                      geoRisk: geoRiskData ?? undefined,
+                      creditSpread: creditSpreadData ?? undefined,
+                      economicRegime: economicRegimeData?.regime,
+                    }
+                  )}
+                  economicRegime={economicRegimeData ?? undefined}
+                  currentRoeType={currentRoeType}
+                  marketOverview={marketOverview}
+                />
                 ) : (
                   <>
                     {/* Modal Header Area */}
