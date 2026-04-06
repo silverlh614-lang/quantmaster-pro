@@ -112,6 +112,28 @@ export interface GeopoliticalRiskData {
   lastUpdated: string;
 }
 
+// ─── 아이디어 9: 크레딧 스프레드 조기 경보 시스템 ────────────────────────────
+
+export interface CreditSpreadData {
+  krCorporateSpread: number;       // 한국 AA- 회사채 스프레드 (bp)
+  usHySpread: number;              // 미국 하이일드 스프레드 (bp)
+  embiSpread: number;              // 신흥국 EMBI+ 스프레드 (bp)
+  isCrisisAlert: boolean;          // AA- ≥ 150bp → 신용 위기 경보
+  isLiquidityExpanding: boolean;   // 스프레드 축소 추세 → 유동성 확장
+  trend: 'WIDENING' | 'NARROWING' | 'STABLE';
+  lastUpdated: string;
+}
+
+// ─── 아이디어 11: 역발상 카운터사이클 알고리즘 ──────────────────────────────
+
+export interface ContrarianSignal {
+  id: string;
+  name: string;
+  active: boolean;
+  bonus: number;       // 발동 시 Gate 3 점수 가산
+  description: string;
+}
+
 export type StockProfileType = 'A' | 'B' | 'C' | 'D'; // 대형 주도주, 중형 성장주, 소형 모멘텀주, 촉매제 플레이
 
 export interface StockProfile {
@@ -172,6 +194,8 @@ export interface EvaluationResult {
   smartMoneyData?: SmartMoneyData;
   exportMomentumData?: ExportMomentumData;
   geopoliticalRisk?: GeopoliticalRiskData;
+  creditSpreadData?: CreditSpreadData;
+  contrarianSignals?: ContrarianSignal[];
   gate1Passed: boolean;
   gate2Passed: boolean;
   gate3Passed: boolean;

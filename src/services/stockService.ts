@@ -16,6 +16,7 @@ import {
   SmartMoneyData,
   ExportMomentumData,
   GeopoliticalRiskData,
+  CreditSpreadData,
 } from "../types/quant";
 
 import {
@@ -2912,6 +2913,82 @@ export async function getGeopoliticalRiskScore(): Promise<GeopoliticalRiskData> 
         affectedSectors: ['방위산업', '조선', '원자력'],
         headlines: [],
         toneBreakdown: { positive: 33, neutral: 34, negative: 33 },
+        lastUpdated: requestedAtISO,
+      };
+    }
+  });
+}
+
+// ─── 아이디어 9: 크레딧 스프레드 조기 경보 시스템 ────────────────────────────
+
+export async function getCreditSpreads(): Promise<CreditSpreadData> {
+  const requestedAt = new Date();
+  const requestedAtISO = requestedAt.toISOString();
+  // 주 1회 캐시 (월요일 기준 주차 키)
+  const weekKey = `${requestedAt.getFullYear()}-W${Math.ceil((requestedAt.getDate() - requestedAt.getDay() + 1) / 7).toString().padStart(2, '0')}`;
+
+  const prompt = `
+    You are a fixed income market analyst. Search for the latest credit spread data and return a JSON object.
+
+    Search for:
+    1. "한국 AA- 회사채 스프레드" or "Korea AA- corporate bond spread basis points 2025"
+    2. "ICE BofA US High Yield OAS spread 2025" or "US HY spread basis points"
+    3. "JPMorgan EMBI+ spread emerging market bond spread 2025"
+
+    Interpret the trend:
+    - WIDENING: spreads increased more than 10bp in past month (credit stress)
+    - NARROWING: spreads decreased more than 10bp in past month (liquidity expanding)
+    - STABLE: within ±10bp range
+
+    isCrisisAlert: true if krCorporateSpread >= 150bp
+    isLiquidityExpanding: true if trend === 'NARROWING' AND krCorporateSpread < 100
+
+    Return ONLY valid JSON (no markdown):
+    {
+      "krCorporateSpread": <number, bp>,
+      "usHySpread": <number, bp>,
+      "embiSpread": <number, bp>,
+      "isCrisisAlert": <boolean>,
+      "isLiquidityExpanding": <boolean>,
+      "trend": "WIDENING" | "NARROWING" | "STABLE",
+      "lastUpdated": "${requestedAtISO}"
+    }
+
+    Example realistic values (search for actual current data):
+    {
+      "krCorporateSpread": 68,
+      "usHySpread": 320,
+      "embiSpread": 380,
+      "isCrisisAlert": false,
+      "isLiquidityExpanding": false,
+      "trend": "STABLE",
+      "lastUpdated": "${requestedAtISO}"
+    }
+  `;
+
+  const cacheKey = `credit-spread-${weekKey}`;
+
+  return getCachedAIResponse<CreditSpreadData>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      return safeJsonParse(text) as CreditSpreadData;
+    } catch (error) {
+      console.error("Error getting credit spreads:", error);
+      return {
+        krCorporateSpread: 70,
+        usHySpread: 330,
+        embiSpread: 390,
+        isCrisisAlert: false,
+        isLiquidityExpanding: false,
+        trend: 'STABLE',
         lastUpdated: requestedAtISO,
       };
     }

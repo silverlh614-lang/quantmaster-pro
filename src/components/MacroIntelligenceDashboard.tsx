@@ -5,10 +5,13 @@ import {
 import {
   Gate0Result, EconomicRegimeData, EconomicRegime, ROEType,
   SmartMoneyData, ExportMomentumData, GeopoliticalRiskData,
+  CreditSpreadData, ContrarianSignal,
 } from '../types/quant';
 import {
-  getEconomicRegime, getSmartMoneyFlow, getExportMomentum, getGeopoliticalRiskScore,
+  getEconomicRegime, getSmartMoneyFlow, getExportMomentum,
+  getGeopoliticalRiskScore, getCreditSpreads,
 } from '../services/stockService';
+import { computeContrarianSignals } from '../services/quantEngine';
 
 // ─── Fusion Matrix 데이터 (아이디어 8) ──────────────────────────────────────
 
@@ -141,6 +144,21 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const [geoRisk, setGeoRisk] = useState<GeopoliticalRiskData | null>(null);
   const [geoLoading, setGeoLoading] = useState(false);
 
+  const [creditSpread, setCreditSpread] = useState<CreditSpreadData | null>(null);
+  const [creditLoading, setCreditLoading] = useState(false);
+
+  // 역발상 신호는 gate0Result + marketOverview 기반 순수 계산 (AI 불필요)
+  const contrarianSignals: ContrarianSignal[] = useMemo(() => {
+    if (!gate0Result) return [];
+    return computeContrarianSignals(
+      undefined, // economicRegime: dashboard에서는 선택적 표시
+      gate0Result.fxRegime,
+      0,  // vix: gate0Result에 직접 노출되지 않으므로 표시용 0
+      0,  // exportGrowth: 표시용
+      '', // sectorName: 전체 시장 뷰에서는 섹터 미지정
+    );
+  }, [gate0Result]);
+
   useEffect(() => {
     if (externalRegime) setEconomicRegime(externalRegime);
   }, [externalRegime]);
@@ -174,6 +192,12 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
     setGeoLoading(true);
     try { setGeoRisk(await getGeopoliticalRiskScore()); }
     finally { setGeoLoading(false); }
+  };
+
+  const loadCreditSpread = async () => {
+    setCreditLoading(true);
+    try { setCreditSpread(await getCreditSpreads()); }
+    finally { setCreditLoading(false); }
   };
 
   const currentRegime: EconomicRegime = economicRegime?.regime ?? 'EXPANSION';
@@ -710,6 +734,188 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
             "지정학 리스크 조회" 버튼을 눌러 Gemini AI 기반 GOS를 산출합니다.
           </p>
         )}
+      </div>
+
+      {/* ── 아이디어 9: 크레딧 스프레드 조기 경보 시스템 ── */}
+      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+              Credit Spread Sentinel — 채권 시장 조기 경보
+            </h3>
+            {creditSpread && (
+              <p className="text-[9px] font-mono text-gray-400 mt-1">업데이트: {creditSpread.lastUpdated}</p>
+            )}
+          </div>
+          <button
+            onClick={loadCreditSpread}
+            disabled={creditLoading}
+            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={creditLoading ? 'animate-spin' : ''} />
+            {creditLoading ? '조회 중...' : '크레딧 스프레드 조회'}
+          </button>
+        </div>
+
+        {creditSpread ? (
+          <div className="space-y-6">
+            {/* Crisis Alert Banner */}
+            {creditSpread.isCrisisAlert && (
+              <div className="p-4 border-2 border-red-600 bg-red-50 text-red-700 font-black text-sm">
+                🚨 신용 위기 경보 — AA- 스프레드 {creditSpread.krCorporateSpread}bp ≥ 150bp 임계치 돌파
+                <p className="text-xs font-normal mt-1">Gate 1 부채비율 ≤50% 조건 자동 발동 · Kelly 전면 50% 하향</p>
+              </div>
+            )}
+            {creditSpread.isLiquidityExpanding && (
+              <div className="p-4 border-2 border-green-500 bg-green-50 text-green-700 font-black text-sm">
+                ★ 유동성 확장 환경 — 스프레드 축소 추세 감지 → Gate 2 통과 조건 완화
+              </div>
+            )}
+
+            {/* Trend Badge */}
+            <div className="flex items-center gap-3">
+              <span className={`px-4 py-1.5 text-xs font-black border-2 ${
+                creditSpread.trend === 'WIDENING'  ? 'border-red-500 bg-red-50 text-red-700'
+                : creditSpread.trend === 'NARROWING' ? 'border-green-500 bg-green-50 text-green-700'
+                : 'border-gray-400 bg-gray-50 text-gray-600'
+              }`}>
+                {creditSpread.trend === 'WIDENING' ? '▲ WIDENING — 신용 스트레스'
+                  : creditSpread.trend === 'NARROWING' ? '▼ NARROWING — 유동성 확장'
+                  : '〰 STABLE — 안정 구간'}
+              </span>
+            </div>
+
+            {/* 3 Spread Cards */}
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                {
+                  label: '한국 AA- 회사채',
+                  sublabel: '국채 대비 스프레드',
+                  val: creditSpread.krCorporateSpread,
+                  danger: creditSpread.krCorporateSpread >= 150,
+                  warn: creditSpread.krCorporateSpread >= 100,
+                },
+                {
+                  label: '미국 하이일드',
+                  sublabel: 'ICE BofA HY OAS',
+                  val: creditSpread.usHySpread,
+                  danger: creditSpread.usHySpread >= 600,
+                  warn: creditSpread.usHySpread >= 400,
+                },
+                {
+                  label: '신흥국 EMBI+',
+                  sublabel: 'JPMorgan EMBI+',
+                  val: creditSpread.embiSpread,
+                  danger: creditSpread.embiSpread >= 600,
+                  warn: creditSpread.embiSpread >= 450,
+                },
+              ].map(item => (
+                <div
+                  key={item.label}
+                  className={`p-5 border-2 text-center ${
+                    item.danger ? 'border-red-600 bg-red-50'
+                    : item.warn ? 'border-amber-500 bg-amber-50'
+                    : 'border-green-400 bg-green-50'
+                  }`}
+                >
+                  <p className="text-[9px] font-black uppercase tracking-widest text-gray-500">{item.label}</p>
+                  <p className="text-[8px] text-gray-400 mt-0.5">{item.sublabel}</p>
+                  <p className={`text-3xl font-black font-mono mt-3 ${
+                    item.danger ? 'text-red-700' : item.warn ? 'text-amber-700' : 'text-green-700'
+                  }`}>{item.val}</p>
+                  <p className="text-[9px] text-gray-400 mt-1">bp</p>
+                  {item.danger && <p className="text-[8px] font-black text-red-600 mt-2">⚠ 위기 임계치 초과</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 italic text-center py-4">
+            "크레딧 스프레드 조회" 버튼을 눌러 채권 시장 조기 경보 신호를 분석합니다.
+          </p>
+        )}
+      </div>
+
+      {/* ── 아이디어 11: 역발상 카운터사이클 알고리즘 ── */}
+      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+        <div className="mb-6">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+            Contrarian Counter-Cycle Engine — 역발상 카운터사이클
+          </h3>
+          <p className="text-[9px] font-mono text-gray-400 mt-1">
+            거시 악재가 특정 섹터의 매수 신호가 되는 역설을 기계적으로 시스템화
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          {[
+            {
+              id: 'RECESSION_DEFENSE',
+              name: '침체기 방산 역발상',
+              description: '경기 RECESSION 레짐 → 정부 방산 예산 확대 기대 → 방산주 Gate 3 +5pt',
+              condition: '경기 레짐: RECESSION + 대상 섹터: 방산·방위산업',
+              bonus: 5,
+              triggerColor: 'border-green-500 bg-green-50 text-green-700',
+              idleColor: 'border-gray-200 bg-gray-50 text-gray-500',
+            },
+            {
+              id: 'DOLLAR_STRONG_HEALTHCARE',
+              name: '달러강세 헬스케어 역발상',
+              description: '달러 강세 + 수출 둔화 → 내수 헬스케어 상대적 수혜 → Gate 3 +3pt',
+              condition: 'FX 레짐: DOLLAR_STRONG + 수출증가율 < 0 + 대상 섹터: 헬스케어·바이오',
+              bonus: 3,
+              triggerColor: 'border-blue-500 bg-blue-50 text-blue-700',
+              idleColor: 'border-gray-200 bg-gray-50 text-gray-500',
+            },
+            {
+              id: 'VIX_FEAR_PEAK',
+              name: 'VIX 공포 극점 역발상',
+              description: 'VIX ≥ 35 공포 극점 → 통계적 과매도 → 전 섹터 Gate 3 +3pt',
+              condition: 'VIX ≥ 35 (공황 수준 공포 지수)',
+              bonus: 3,
+              triggerColor: 'border-purple-500 bg-purple-50 text-purple-700',
+              idleColor: 'border-gray-200 bg-gray-50 text-gray-500',
+            },
+          ].map(signal => {
+            const matched = contrarianSignals.find(s => s.id === signal.id);
+            const isActive = matched?.active ?? false;
+            return (
+              <div
+                key={signal.id}
+                className={`p-5 border-2 ${isActive ? signal.triggerColor : signal.idleColor}`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-[9px] font-black px-2 py-0.5 border ${
+                        isActive ? 'border-current bg-white bg-opacity-50' : 'border-gray-300 bg-white'
+                      }`}>
+                        {isActive ? '▶ 발동' : '— 미발동'}
+                      </span>
+                      <span className="text-xs font-black">{signal.name}</span>
+                    </div>
+                    <p className="text-[10px] leading-relaxed opacity-80">{signal.description}</p>
+                    <p className="text-[9px] font-mono mt-1 opacity-60">조건: {signal.condition}</p>
+                  </div>
+                  <div className="text-center flex-shrink-0">
+                    <p className="text-[9px] font-black opacity-60 uppercase tracking-widest">보너스</p>
+                    <p className={`text-2xl font-black font-mono ${isActive ? '' : 'opacity-30'}`}>
+                      +{signal.bonus}
+                    </p>
+                    <p className="text-[8px] opacity-60">pt</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 p-3 bg-gray-50 border border-gray-200">
+          <p className="text-[9px] text-gray-500 font-mono">
+            ※ 역발상 신호는 종목 평가 시 섹터·VIX·FX 레짐 정보가 입력된 경우 자동 발동됩니다.
+            Macro Intelligence 탭은 현재 게이트 환경만 표시합니다.
+          </p>
+        </div>
       </div>
 
       {/* ── 아이디어 8: 경기사이클 × ROE유형 융합 매트릭스 ── */}

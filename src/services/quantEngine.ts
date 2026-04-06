@@ -18,6 +18,9 @@ import {
   SmartMoneyData,
   ExportMomentumData,
   GeopoliticalRiskData,
+  CreditSpreadData,
+  ContrarianSignal,
+  EconomicRegime,
 } from '../types/quant';
 
 export const ALL_CONDITIONS: Record<ConditionId, { name: string; baseWeight: number; description: string }> = {
@@ -189,6 +192,55 @@ export function getStockProfile(type: StockProfileType): StockProfile {
   }
 }
 
+// ─── 아이디어 11: 역발상 카운터사이클 알고리즘 ──────────────────────────────
+
+/**
+ * 거시 악재가 오히려 특정 섹터의 매수 신호가 되는 역발상 조건 3가지를 판별.
+ * 순수 계산 함수 — AI 호출 없음.
+ */
+export function computeContrarianSignals(
+  economicRegime: EconomicRegime | undefined,
+  fxRegime: 'DOLLAR_STRONG' | 'DOLLAR_WEAK' | 'NEUTRAL',
+  vix: number,
+  exportGrowth3mAvg: number,
+  sectorName: string,
+): ContrarianSignal[] {
+  const GEO_DEFENSE = ['방산', '방위산업', '항공우주'];
+  const HEALTHCARE_DOMESTIC = ['헬스케어', '바이오', '의료기기', '제약'];
+
+  const isDefense = GEO_DEFENSE.some(s => sectorName.includes(s));
+  const isHealthcare = HEALTHCARE_DOMESTIC.some(s => sectorName.includes(s));
+
+  // 신호 1: 경기 침체 → 방산 매수 조건 강화 (예산 확대 기대)
+  const recessionDefense: ContrarianSignal = {
+    id: 'RECESSION_DEFENSE',
+    name: '침체기 방산 역발상',
+    active: economicRegime === 'RECESSION' && isDefense,
+    bonus: 5,
+    description: '경기 침체 시 정부 방산 예산 확대 기대 → 방산주 Gate 3 +5pt 역발상 가산',
+  };
+
+  // 신호 2: 달러 강세 + 수출 둔화 → 내수 헬스케어 Gate 완화
+  const dollarHealthcare: ContrarianSignal = {
+    id: 'DOLLAR_STRONG_HEALTHCARE',
+    name: '달러강세 헬스케어 역발상',
+    active: fxRegime === 'DOLLAR_STRONG' && exportGrowth3mAvg < 0 && isHealthcare,
+    bonus: 3,
+    description: '달러 강세 + 수출 둔화 → 내수 헬스케어 상대적 수혜 → Gate 3 +3pt',
+  };
+
+  // 신호 3: VIX 급등 공포 극점 → Gate 3 역발상 매수 가산점
+  const vixFearPeak: ContrarianSignal = {
+    id: 'VIX_FEAR_PEAK',
+    name: 'VIX 공포 극점 역발상',
+    active: vix >= 35,
+    bonus: 3,
+    description: 'VIX ≥ 35 공포 극점 → 통계적 과매도 → Gate 3 +3pt 역발상 가산',
+  };
+
+  return [recessionDefense, dollarHealthcare, vixFearPeak];
+}
+
 export function evaluateStock(
   stockData: Record<ConditionId, number> = {} as any,
   regime: MarketRegime,
@@ -209,6 +261,8 @@ export function evaluateStock(
     smartMoney?: SmartMoneyData;
     exportMomentum?: ExportMomentumData;
     geoRisk?: GeopoliticalRiskData;
+    creditSpread?: CreditSpreadData;
+    economicRegime?: EconomicRegime;
   }
 ): EvaluationResult {
   if (!stockData) stockData = {} as any;
@@ -235,6 +289,8 @@ export function evaluateStock(
       smartMoneyData: advancedContext?.smartMoney,
       exportMomentumData: advancedContext?.exportMomentum,
       geopoliticalRisk: advancedContext?.geoRisk,
+      creditSpreadData: advancedContext?.creditSpread,
+      contrarianSignals: [],
       fxAdjustmentFactor,
       gate1Passed: false,
       gate2Passed: false,
@@ -312,6 +368,8 @@ export function evaluateStock(
       smartMoneyData: advancedContext?.smartMoney,
       exportMomentumData: advancedContext?.exportMomentum,
       geopoliticalRisk: advancedContext?.geoRisk,
+      creditSpreadData: advancedContext?.creditSpread,
+      contrarianSignals: [],
       fxAdjustmentFactor,
       gate1Passed: false,
       gate2Passed: false,
@@ -337,15 +395,34 @@ export function evaluateStock(
   }
 
   // ── Advanced Context 추출 ────────────────────────────────────────────────
-  const { smartMoney, exportMomentum, geoRisk } = advancedContext ?? {};
+  const { smartMoney, exportMomentum, geoRisk, creditSpread, economicRegime } = advancedContext ?? {};
   const GEO_SECTORS = ['방산', '조선', '원자력', '방위산업'];
   const isGeoSector = GEO_SECTORS.some(s => sectorRotation.name.includes(s));
+
+  // ── 아이디어 9: 크레딧 스프레드 조기 경보 ──────────────────────────────────
+  // 신용 위기 경보(AA- ≥ 150bp) → 추가 Kelly 50% 축소 플래그 (나중에 적용)
+  const creditCrisis = creditSpread?.isCrisisAlert === true;
+  // 유동성 확장(스프레드 축소 추세) → Gate 2 완화 트리거로 합산
+  const creditLiquidityRelax = creditSpread?.isLiquidityExpanding === true;
+
+  // ── 아이디어 11: 역발상 카운터사이클 신호 산출 ──────────────────────────────
+  const contrarianSignals = computeContrarianSignals(
+    economicRegime,
+    fxRegime,
+    macroEnv?.vix ?? 20,
+    macroEnv?.exportGrowth3mAvg ?? 0,
+    sectorRotation.name,
+  );
+  const contrarianGate3Bonus = contrarianSignals
+    .filter(s => s.active)
+    .reduce((sum, s) => sum + s.bonus, 0);
 
   // ── Gate 2: 성장 검증 ────────────────────────────────────────────────────
   // Smart Money EWY+MTUM 동시 유입 OR 반도체 수출 3개월 연속 성장 → 9→8 완화
   const semiconductorRelax = exportMomentum?.semiconductorGate2Relax === true
     && sectorRotation.name.includes('반도체');
-  const gate2Threshold = (smartMoney?.isEwyMtumBothInflow || semiconductorRelax) ? 8 : 9;
+  // Gate 2 완화: Smart Money 동시유입 OR 반도체 연속성장 OR 크레딧 유동성 확장
+  const gate2Threshold = (smartMoney?.isEwyMtumBothInflow || semiconductorRelax || creditLiquidityRelax) ? 8 : 9;
   const gate2PassCount = GATE2_IDS.filter(id => (stockData[id] ?? 0) >= 5).length;
   const gate2Passed = gate2PassCount >= gate2Threshold;
   const gate2Score = calculateScore(GATE2_IDS);
@@ -364,6 +441,9 @@ export function evaluateStock(
   if (exportMomentum?.hotSectors.includes(sectorRotation.name)) {
     finalScore *= 1.05;
   }
+
+  // 역발상 카운터사이클 Gate 3 보너스 (침체기 방산, 달러강세 헬스케어, VIX 공포극점)
+  finalScore += contrarianGate3Bonus;
 
   // 2순위: 대장주 신고가 경신 시 트리거 강화
   const lastTrigger = (stockData[25] >= 8 && stockData[27] >= 8) ||
@@ -428,6 +508,11 @@ export function evaluateStock(
     positionSize *= 0.7;
   }
 
+  // 신용 위기 경보(AA- ≥ 150bp) → Kelly 전면 50% 추가 하향
+  if (creditCrisis) {
+    positionSize *= 0.5;
+  }
+
   positionSize = Math.max(0, positionSize);
 
   // 3-Tranche Scaling Plan
@@ -442,6 +527,8 @@ export function evaluateStock(
     smartMoneyData: smartMoney,
     exportMomentumData: exportMomentum,
     geopoliticalRisk: geoRisk,
+    creditSpreadData: creditSpread,
+    contrarianSignals,
     fxAdjustmentFactor,
     gate1Passed,
     gate2Passed,
