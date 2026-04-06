@@ -17,6 +17,7 @@ import {
   ExportMomentumData,
   GeopoliticalRiskData,
   CreditSpreadData,
+  MacroEnvironment,
 } from "../types/quant";
 
 import {
@@ -2990,6 +2991,85 @@ export async function getCreditSpreads(): Promise<CreditSpreadData> {
         isLiquidityExpanding: false,
         trend: 'STABLE',
         lastUpdated: requestedAtISO,
+      };
+    }
+  });
+}
+
+// ─── 거시 환경 자동 수집 (Gate 0 입력) ────────────────────────────────────────
+export async function fetchMacroEnvironment(): Promise<MacroEnvironment> {
+  const requestedAt = new Date();
+  const now = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const todayDate = now.split(' ')[0];
+  const cacheKey = `macro-environment-${todayDate}`;
+
+  return getCachedAIResponse<MacroEnvironment>(cacheKey, async () => {
+    const prompt = `
+현재 한국 날짜: ${todayDate}
+
+Google 검색으로 아래 12개 거시 지표의 최신 실제 값을 수집하고, JSON 하나만 반환해줘.
+(마크다운, 설명 없이 JSON만)
+
+수집 대상:
+1. 한국은행 기준금리 방향 (최근 결정): "HIKING" | "HOLDING" | "CUTTING"
+2. 미국 10년 국채 금리 (%, 최신)
+3. 한미 금리 스프레드 (한국 기준금리 - 미국 기준금리, 음수 허용)
+4. 한국 M2 통화량 증가율 YoY (%, 최신)
+5. 한국 은행 여신(대출) 증가율 YoY (%, 최신)
+6. 한국 명목 GDP 성장률 YoY (%, 최신 분기)
+7. OECD 경기선행지수 한국 (최신, 100 기준)
+8. 한국 수출 증가율 3개월 이동평균 YoY (%, 최신)
+9. VKOSPI 현재값
+10. 삼성전자 IRI 또는 프로그램 매매 비율 대용값 (0.5~1.5 범위; 중립=1.0)
+11. VIX 현재값
+12. 원달러 환율 현재값
+
+응답 형식 (JSON only, 추정값 사용 가능):
+{
+  "bokRateDirection": "HOLDING",
+  "us10yYield": 4.35,
+  "krUsSpread": -1.25,
+  "m2GrowthYoY": 6.2,
+  "bankLendingGrowth": 5.1,
+  "nominalGdpGrowth": 3.8,
+  "oeciCliKorea": 100.4,
+  "exportGrowth3mAvg": 11.5,
+  "vkospi": 18.2,
+  "samsungIri": 0.92,
+  "vix": 16.8,
+  "usdKrw": 1385.0
+}
+    `.trim();
+
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            temperature: 0.1,
+          },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error('No response from AI');
+      return safeJsonParse(text) as MacroEnvironment;
+    } catch (_) {
+      // 수집 실패 시 보수적 중립 기본값 반환
+      return {
+        bokRateDirection: 'HOLDING',
+        us10yYield: 4.3,
+        krUsSpread: -1.25,
+        m2GrowthYoY: 6.0,
+        bankLendingGrowth: 5.0,
+        nominalGdpGrowth: 3.5,
+        oeciCliKorea: 100.0,
+        exportGrowth3mAvg: 8.0,
+        vkospi: 18.0,
+        samsungIri: 1.0,
+        vix: 18.0,
+        usdKrw: 1380.0,
       };
     }
   });

@@ -106,6 +106,7 @@ import {
   getExportMomentum,
   getGeopoliticalRiskScore,
   getCreditSpreads,
+  fetchMacroEnvironment,
   StockRecommendation,
   MarketContext,
   MarketOverview,
@@ -118,9 +119,10 @@ import { PortfolioManager } from './components/PortfolioManager';
 import { PortfolioPieChart } from './components/PortfolioPieChart';
 import { EventCalendar } from './components/EventCalendar';
 import { QuantDashboard } from './components/QuantDashboard';
+import { MacroIntelligenceDashboard } from './components/MacroIntelligenceDashboard';
 import { ManualQuantInput } from './components/ManualQuantInput';
 import { ConfidenceBadge } from './components/ConfidenceBadge';
-import { evaluateStock } from './services/quantEngine';
+import { evaluateStock, evaluateGate0 } from './services/quantEngine';
 import { MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal, StockProfile, StockProfileType, MacroEnvironment, EconomicRegimeData, SmartMoneyData, ExportMomentumData, GeopoliticalRiskData, CreditSpreadData, ROEType } from './types/quant';
 import { PortfolioComparison } from './components/PortfolioComparison';
 import { QuantScreener } from './components/QuantScreener';
@@ -416,25 +418,23 @@ export default function App() {
     }
   }, []);
 
-  // ── 어드밴스드 컨텍스트 데이터 수집 (비동기, 마운트 시 1회) ──────────────────
+  // ── 어드밴스드 컨텍스트 + 매크로 환경 데이터 수집 (비동기, 마운트 시 1회) ───
   useEffect(() => {
     const loadAdvancedData = async () => {
-      try {
-        const [regime, smart, exports_, geo, credit] = await Promise.allSettled([
-          getEconomicRegime(),
-          getSmartMoneyFlow(),
-          getExportMomentum(),
-          getGeopoliticalRiskScore(),
-          getCreditSpreads(),
-        ]);
-        if (regime.status === 'fulfilled') setEconomicRegimeData(regime.value);
-        if (smart.status === 'fulfilled') setSmartMoneyData(smart.value);
-        if (exports_.status === 'fulfilled') setExportMomentumData(exports_.value);
-        if (geo.status === 'fulfilled') setGeoRiskData(geo.value);
-        if (credit.status === 'fulfilled') setCreditSpreadData(credit.value);
-      } catch (_) {
-        // 개별 오류는 Promise.allSettled가 처리, 전체 실패 시 무시
-      }
+      const [macro, regime, smart, exports_, geo, credit] = await Promise.allSettled([
+        fetchMacroEnvironment(),
+        getEconomicRegime(),
+        getSmartMoneyFlow(),
+        getExportMomentum(),
+        getGeopoliticalRiskScore(),
+        getCreditSpreads(),
+      ]);
+      if (macro.status === 'fulfilled') setMacroEnv(macro.value);
+      if (regime.status === 'fulfilled') setEconomicRegimeData(regime.value);
+      if (smart.status === 'fulfilled') setSmartMoneyData(smart.value);
+      if (exports_.status === 'fulfilled') setExportMomentumData(exports_.value);
+      if (geo.status === 'fulfilled') setGeoRiskData(geo.value);
+      if (credit.status === 'fulfilled') setCreditSpreadData(credit.value);
     };
     loadAdvancedData();
   }, []);
@@ -1218,6 +1218,9 @@ export default function App() {
     setError(null);
     toast.info('화면이 초기화되었습니다.');
   };
+
+  // Gate 0 결과: macroEnv가 채워지면 자동 계산
+  const gate0Result = useMemo(() => macroEnv ? evaluateGate0(macroEnv) : undefined, [macroEnv]);
 
   const triageSummary = useMemo(() => {
     const summary = { gate1: 0, gate2: 0, gate3: 0, total: (recommendations || []).length };
@@ -2225,6 +2228,49 @@ export default function App() {
                   <p className="text-white/30 font-bold">시장 데이터를 불러올 수 없습니다. 다시 시도해 주세요.</p>
                 </div>
               )}
+
+              {/* ── 거시 인텔리전스 대시보드 (Gate 0 독립 뷰) ── */}
+              <div>
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-3 h-10 bg-purple-600 rounded-full shadow-[0_0_20px_rgba(147,51,234,0.5)]" />
+                  <div>
+                    <h2 className="text-2xl font-black text-white tracking-tight uppercase">거시 인텔리전스</h2>
+                    <p className="text-xs font-bold text-white/30 uppercase tracking-[0.2em]">Gate 0 · Macro Intelligence Dashboard</p>
+                  </div>
+                  {!macroEnv && (
+                    <span className="ml-auto text-[10px] font-black text-amber-400/70 uppercase tracking-widest animate-pulse">
+                      데이터 수집 중...
+                    </span>
+                  )}
+                  {macroEnv && gate0Result && (
+                    <span className={`ml-auto text-[10px] font-black uppercase tracking-widest ${gate0Result.buyingHalted ? 'text-red-400' : gate0Result.mhsLevel === 'HIGH' ? 'text-green-400' : 'text-amber-400'}`}>
+                      MHS {gate0Result.macroHealthScore} · {gate0Result.mhsLevel === 'HIGH' ? '정상 매수' : gate0Result.mhsLevel === 'MEDIUM' ? 'Kelly 축소' : '매수 중단'}
+                    </span>
+                  )}
+                </div>
+                <MacroIntelligenceDashboard
+                  gate0Result={gate0Result}
+                  currentRoeType={currentRoeType}
+                  externalRegime={economicRegimeData ?? undefined}
+                  marketOverview={marketOverview ? {
+                    sectorRotation: (marketOverview.sectorRotation?.topSectors || []).map((s: any) => ({
+                      sector: s.sector || s.name || '',
+                      momentum: s.strength ?? s.momentum ?? 0,
+                      flow: s.flow || 'NEUTRAL',
+                    })),
+                    globalEtfMonitoring: (marketOverview.globalEtfMonitoring || []).map((e: any) => ({
+                      name: e.name || e.ticker || '',
+                      flow: e.flow || 'NEUTRAL',
+                      change: e.priceChange ?? e.change ?? 0,
+                    })),
+                    exchangeRates: (marketOverview.exchangeRates || []).map((r: any) => ({
+                      name: r.name || r.currency || '',
+                      value: r.value ?? r.rate ?? 0,
+                      change: r.change ?? 0,
+                    })),
+                  } : undefined}
+                />
+              </div>
             </motion.div>
           ) : view === 'MANUAL_INPUT' ? (
             <motion.div
