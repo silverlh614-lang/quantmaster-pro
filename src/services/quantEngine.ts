@@ -21,6 +21,7 @@ import {
   CreditSpreadData,
   ContrarianSignal,
   EconomicRegime,
+  ExtendedRegimeData,
 } from '../types/quant';
 
 export const ALL_CONDITIONS: Record<ConditionId, { name: string; baseWeight: number; description: string }> = {
@@ -241,6 +242,151 @@ export function computeContrarianSignals(
   return [recessionDefense, dollarHealthcare, vixFearPeak];
 }
 
+// ─── 불확실성 레짐 감지 및 적응형 Gate 시스템 ─────────────────────────────────
+
+/**
+ * Gate 0 결과 + 거시 데이터로부터 확장 레짐(UNCERTAIN/CRISIS/RANGE_BOUND)을 감지.
+ * 기존 4단계(RECOVERY/EXPANSION/SLOWDOWN/RECESSION)에 3개 비정상 레짐을 추가하여
+ * 시스템이 "판단 불능" 상태를 인식하고 방어 모드로 전환할 수 있게 합니다.
+ */
+export function classifyExtendedRegime(
+  gate0: Gate0Result | undefined,
+  macroEnv: MacroEnvironment | undefined,
+  baseRegime: EconomicRegime | undefined,
+  options?: {
+    kospi60dVolatility?: number;      // KOSPI 60일 변동성 (%)
+    leadingSectorCount?: number;      // 명확한 주도 섹터 수
+    foreignFlowDirection?: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING';
+    kospiSp500Correlation?: number;   // KOSPI-S&P500 상관계수
+  }
+): ExtendedRegimeData['systemAction'] {
+  if (!gate0 || !macroEnv) {
+    return {
+      mode: 'NORMAL',
+      cashRatio: 30,
+      gateAdjustment: { gate1Threshold: 5, gate2Required: 9, gate3Required: 7 },
+      message: '거시 데이터 미수집. 기본 모드 유지.',
+    };
+  }
+
+  const { macroHealthScore, mhsLevel } = gate0;
+  const { vkospi, vix, exportGrowth3mAvg } = macroEnv;
+  const kospi60dVol = options?.kospi60dVolatility ?? 0;
+  const leadingSectors = options?.leadingSectorCount ?? 3;
+  const foreignFlow = options?.foreignFlowDirection ?? 'ALTERNATING';
+  const correlation = options?.kospiSp500Correlation ?? 0.7;
+
+  // ── CRISIS 감지: 극단적 공포 + 신용 위기 ──
+  if (vkospi > 35 && vix > 30 && macroHealthScore < 30) {
+    return {
+      mode: 'FULL_STOP',
+      cashRatio: 100,
+      gateAdjustment: { gate1Threshold: 10, gate2Required: 12, gate3Required: 10 },
+      message: `위기 레짐 감지 (VKOSPI ${vkospi}, VIX ${vix}, MHS ${macroHealthScore}). 전량 현금 전환. Gate 평가 사실상 중단.`,
+    };
+  }
+
+  // ── RANGE_BOUND 감지: 낮은 변동성 + 주도주 부재 + 외국인 방향성 없음 ──
+  if (kospi60dVol > 0 && kospi60dVol < 5 && leadingSectors === 0 && foreignFlow === 'ALTERNATING') {
+    return {
+      mode: 'PAIR_TRADE',
+      cashRatio: 60,
+      gateAdjustment: { gate1Threshold: 6, gate2Required: 10, gate3Required: 8 },
+      message: `박스권 횡보 감지 (60일 변동성 ${kospi60dVol}%, 주도섹터 0개). 페어트레이딩/현금 비중 확대 모드. Gate 기준 강화.`,
+    };
+  }
+
+  // ── UNCERTAIN 감지: 신호 혼조 (4축 모두 40~60 밴드 또는 상관관계 붕괴) ──
+  const { interestRateScore, liquidityScore, economicScore, riskScore } = gate0.details;
+  const allMidRange = [interestRateScore, liquidityScore, economicScore, riskScore]
+    .every(s => s >= 8 && s <= 17); // 각 축 0-25 중 중간 밴드
+  const correlationBreakdown = correlation < 0.3;
+
+  if (allMidRange || (correlationBreakdown && mhsLevel === 'MEDIUM')) {
+    return {
+      mode: 'DEFENSIVE',
+      cashRatio: 70,
+      gateAdjustment: { gate1Threshold: 6, gate2Required: 10, gate3Required: 8 },
+      message: `불확실성 레짐 감지 (${allMidRange ? '4축 신호 혼조' : '글로벌 상관관계 이탈'}). 현금 70%, Gate 기준 상향.`,
+    };
+  }
+
+  // ── 회복 초기 감지: 바닥 반등 신호 → Gate 완화 ──
+  if (baseRegime === 'RECOVERY' && macroEnv.bokRateDirection === 'CUTTING' && exportGrowth3mAvg > 0) {
+    return {
+      mode: 'NORMAL',
+      cashRatio: 20,
+      gateAdjustment: { gate1Threshold: 4, gate2Required: 8, gate3Required: 6 },
+      message: `회복 초기 감지 (금리 인하 + 수출 반등). Gate 기준 완화하여 초기 주도주 포착 강화.`,
+    };
+  }
+
+  // ── 정상 시장: 기존 MHS 기반 ──
+  if (mhsLevel === 'HIGH') {
+    return {
+      mode: 'NORMAL',
+      cashRatio: 20,
+      gateAdjustment: { gate1Threshold: 5, gate2Required: 9, gate3Required: 7 },
+      message: '정상 시장. 기본 Gate 기준 적용.',
+    };
+  }
+
+  if (mhsLevel === 'MEDIUM') {
+    return {
+      mode: 'DEFENSIVE',
+      cashRatio: 50,
+      gateAdjustment: { gate1Threshold: 6, gate2Required: 10, gate3Required: 8 },
+      message: `MHS ${macroHealthScore} (중간). 방어적 운용, Gate 기준 상향.`,
+    };
+  }
+
+  // mhsLevel === 'LOW'
+  return {
+    mode: 'CASH_HEAVY',
+    cashRatio: 80,
+    gateAdjustment: { gate1Threshold: 7, gate2Required: 11, gate3Required: 9 },
+    message: `MHS ${macroHealthScore} (낮음). 현금 80%, Gate 기준 대폭 강화.`,
+  };
+}
+
+/**
+ * 확장 레짐 기반으로 기존 EconomicRegime 4단계를 7단계로 재분류.
+ * AI가 반환한 baseRegime + Gate0 수치를 결합하여 최종 판정.
+ */
+export function deriveExtendedRegime(
+  baseRegime: EconomicRegime | undefined,
+  gate0: Gate0Result | undefined,
+  macroEnv: MacroEnvironment | undefined,
+  options?: {
+    kospi60dVolatility?: number;
+    leadingSectorCount?: number;
+    foreignFlowDirection?: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING';
+    kospiSp500Correlation?: number;
+  }
+): EconomicRegime {
+  if (!gate0 || !macroEnv) return baseRegime ?? 'EXPANSION';
+
+  const { macroHealthScore } = gate0;
+  const { vkospi, vix } = macroEnv;
+  const kospi60dVol = options?.kospi60dVolatility ?? 0;
+  const leadingSectors = options?.leadingSectorCount ?? 3;
+  const foreignFlow = options?.foreignFlowDirection ?? 'ALTERNATING';
+  const correlation = options?.kospiSp500Correlation ?? 0.7;
+
+  // CRISIS
+  if (vkospi > 35 && vix > 30 && macroHealthScore < 30) return 'CRISIS';
+
+  // RANGE_BOUND
+  if (kospi60dVol > 0 && kospi60dVol < 5 && leadingSectors === 0 && foreignFlow === 'ALTERNATING') return 'RANGE_BOUND';
+
+  // UNCERTAIN
+  const { interestRateScore, liquidityScore, economicScore, riskScore } = gate0.details;
+  const allMidRange = [interestRateScore, liquidityScore, economicScore, riskScore].every(s => s >= 8 && s <= 17);
+  if (allMidRange || (correlation < 0.3 && gate0.mhsLevel === 'MEDIUM')) return 'UNCERTAIN';
+
+  return baseRegime ?? 'EXPANSION';
+}
+
 export function evaluateStock(
   stockData: Record<ConditionId, number> = {} as any,
   regime: MarketRegime,
@@ -263,6 +409,12 @@ export function evaluateStock(
     geoRisk?: GeopoliticalRiskData;
     creditSpread?: CreditSpreadData;
     economicRegime?: EconomicRegime;
+  },
+  extendedRegimeOptions?: {
+    kospi60dVolatility?: number;
+    leadingSectorCount?: number;
+    foreignFlowDirection?: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING';
+    kospiSp500Correlation?: number;
   }
 ): EvaluationResult {
   if (!stockData) stockData = {} as any;
@@ -281,6 +433,47 @@ export function evaluateStock(
   // FX 조정 팩터 (-3 ~ +3)
   const fxRegime = gate0Result?.fxRegime ?? 'NEUTRAL';
   const fxAdjustmentFactor = getFXAdjustmentFactor(fxRegime, stockExportRatio ?? 50);
+
+  // ── 확장 레짐 감지 (불확실성/위기/박스권) ──────────────────────────────────
+  const extRegimeAction = classifyExtendedRegime(
+    gate0Result, macroEnv, advancedContext?.economicRegime, extendedRegimeOptions
+  );
+  const extRegime = deriveExtendedRegime(
+    advancedContext?.economicRegime, gate0Result, macroEnv, extendedRegimeOptions
+  );
+
+  // CRISIS 레짐 → 전면 매수 중단 (FULL_STOP)
+  if (extRegimeAction.mode === 'FULL_STOP') {
+    return {
+      gate0Result,
+      smartMoneyData: advancedContext?.smartMoney,
+      exportMomentumData: advancedContext?.exportMomentum,
+      geopoliticalRisk: advancedContext?.geoRisk,
+      creditSpreadData: advancedContext?.creditSpread,
+      contrarianSignals: [],
+      fxAdjustmentFactor,
+      gate1Passed: false,
+      gate2Passed: false,
+      gate3Passed: false,
+      gate1Score: 0,
+      gate2Score: 0,
+      gate3Score: 0,
+      finalScore: 0,
+      recommendation: '강력 매도',
+      positionSize: 0,
+      rrr,
+      lastTrigger: false,
+      euphoriaLevel: euphoriaSignals,
+      emergencyStop: true,
+      profile,
+      sellScore: sellSignals.length,
+      sellSignals,
+      multiTimeframe,
+      enemyChecklist,
+      seasonality,
+      attribution,
+    };
+  }
 
   // MHS < 40 또는 비상정지 → 전면 매수 중단
   if (gate0Result?.buyingHalted || emergencyStop) {
@@ -316,8 +509,8 @@ export function evaluateStock(
   }
 
   // ── Gate 1: 생존 필터 ────────────────────────────────────────────────────
-  // MHS 40-69 → Gate 1 통과 기준 강화 (5점 → 6점)
-  const gate1Threshold = gate0Result?.mhsLevel === 'MEDIUM' ? 6 : 5;
+  // 확장 레짐 기반 적응형 Gate 임계값 적용
+  const gate1Threshold = extRegimeAction.gateAdjustment.gate1Threshold;
   const gate1BasePassed = GATE1_IDS.every(id => (stockData[id] ?? 0) >= gate1Threshold);
   // 금리 인상기: ICR(조건23) 추가 임계값 검사
   const icrCheck = rateCycleAdj.gate1IcrMinScore > 5
@@ -406,8 +599,11 @@ export function evaluateStock(
   const creditLiquidityRelax = creditSpread?.isLiquidityExpanding === true;
 
   // ── 아이디어 11: 역발상 카운터사이클 신호 산출 ──────────────────────────────
+  // 확장 레짐(CRISIS/UNCERTAIN 등)도 역발상 판단에 반영
+  const effectiveRegime = extRegime !== 'UNCERTAIN' && extRegime !== 'RANGE_BOUND'
+    ? extRegime : economicRegime;
   const contrarianSignals = computeContrarianSignals(
-    economicRegime,
+    effectiveRegime,
     fxRegime,
     macroEnv?.vix ?? 20,
     macroEnv?.exportGrowth3mAvg ?? 0,
@@ -418,18 +614,23 @@ export function evaluateStock(
     .reduce((sum, s) => sum + s.bonus, 0);
 
   // ── Gate 2: 성장 검증 ────────────────────────────────────────────────────
-  // Smart Money EWY+MTUM 동시 유입 OR 반도체 수출 3개월 연속 성장 → 9→8 완화
+  // 확장 레짐 기반 기본 임계값 (정상: 9, 방어: 10, 위기: 12 등)
+  const gate2BaseThreshold = extRegimeAction.gateAdjustment.gate2Required;
+  // Smart Money EWY+MTUM 동시 유입 OR 반도체 수출 3개월 연속 성장 → -1 완화
   const semiconductorRelax = exportMomentum?.semiconductorGate2Relax === true
     && sectorRotation.name.includes('반도체');
-  // Gate 2 완화: Smart Money 동시유입 OR 반도체 연속성장 OR 크레딧 유동성 확장
-  const gate2Threshold = (smartMoney?.isEwyMtumBothInflow || semiconductorRelax || creditLiquidityRelax) ? 8 : 9;
+  const gate2RelaxBonus = (smartMoney?.isEwyMtumBothInflow || semiconductorRelax || creditLiquidityRelax) ? 1 : 0;
+  const gate2Threshold = Math.max(6, gate2BaseThreshold - gate2RelaxBonus);
   const gate2PassCount = GATE2_IDS.filter(id => (stockData[id] ?? 0) >= 5).length;
   const gate2Passed = gate2PassCount >= gate2Threshold;
   const gate2Score = calculateScore(GATE2_IDS);
 
   // ── Gate 3: 정밀 타이밍 ──────────────────────────────────────────────────
-  // 지정학 리스크 GOS ≥ 7 AND 지정학 수혜 섹터 → 7→6 완화
-  const gate3Threshold = (geoRisk && geoRisk.score >= 7 && isGeoSector) ? 6 : 7;
+  // 확장 레짐 기반 기본 임계값
+  const gate3BaseThreshold = extRegimeAction.gateAdjustment.gate3Required;
+  // 지정학 리스크 GOS ≥ 7 AND 지정학 수혜 섹터 → -1 완화
+  const gate3RelaxBonus = (geoRisk && geoRisk.score >= 7 && isGeoSector) ? 1 : 0;
+  const gate3Threshold = Math.max(4, gate3BaseThreshold - gate3RelaxBonus);
   const gate3PassCount = GATE3_IDS.filter(id => (stockData[id] ?? 0) >= 5).length;
   const gate3Passed = gate3PassCount >= gate3Threshold;
   const gate3Score = calculateScore(GATE3_IDS);
@@ -511,6 +712,18 @@ export function evaluateStock(
   // 신용 위기 경보(AA- ≥ 150bp) → Kelly 전면 50% 추가 하향
   if (creditCrisis) {
     positionSize *= 0.5;
+  }
+
+  // 확장 레짐 현금비중 반영: 권장 현금비중이 높을수록 포지션 축소
+  if (extRegimeAction.cashRatio > 30) {
+    const regimeReduction = 1 - (extRegimeAction.cashRatio - 30) / 100;
+    positionSize *= Math.max(0.1, regimeReduction);
+  }
+
+  // 박스권(PAIR_TRADE) 모드 시 관망 추천 강제
+  if (extRegimeAction.mode === 'PAIR_TRADE' && positionSize > 0) {
+    recommendation = '절반 포지션';
+    positionSize = Math.min(positionSize, 5);
   }
 
   positionSize = Math.max(0, positionSize);

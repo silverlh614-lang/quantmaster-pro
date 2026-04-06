@@ -294,7 +294,7 @@ export default function App() {
     minMarketCap: 1000,
     mode: 'MOMENTUM'
   });
-  const [lastUsedMode, setLastUsedMode] = useState<'MOMENTUM' | 'EARLY_DETECT'>('MOMENTUM');
+  const [lastUsedMode, setLastUsedMode] = useState<'MOMENTUM' | 'EARLY_DETECT' | 'QUANT_SCREEN'>('MOMENTUM');
   const [recommendationHistory, setRecommendationHistory] = useState<{date: string, stocks: string[], hitRate: number, strongBuyHitRate?: number}[]>(() => {
     return safeGet<{date: string, stocks: string[], hitRate: number, strongBuyHitRate?: number}[]>('quant-master-history', []);
   });
@@ -3503,13 +3503,25 @@ export default function App() {
                     onClick={() => setFilters(prev => ({ ...prev, mode: 'EARLY_DETECT' }))}
                     className={cn(
                       "px-6 py-3 rounded-xl text-sm font-black transition-all flex items-center gap-2",
-                      filters.mode === 'EARLY_DETECT' 
-                        ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" 
+                      filters.mode === 'EARLY_DETECT'
+                        ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20"
                         : "text-white/40 hover:text-white/60"
                     )}
                   >
                     <Radar className={cn("w-4 h-4", filters.mode === 'EARLY_DETECT' ? "fill-current" : "")} />
                     미리 볼 종목
+                  </button>
+                  <button
+                    onClick={() => setFilters(prev => ({ ...prev, mode: 'QUANT_SCREEN' }))}
+                    className={cn(
+                      "px-6 py-3 rounded-xl text-sm font-black transition-all flex items-center gap-2",
+                      filters.mode === 'QUANT_SCREEN'
+                        ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/20"
+                        : "text-white/40 hover:text-white/60"
+                    )}
+                  >
+                    <Activity className={cn("w-4 h-4", filters.mode === 'QUANT_SCREEN' ? "fill-current" : "")} />
+                    숨은 종목 발굴
                   </button>
                 </div>
                 
@@ -4788,6 +4800,12 @@ export default function App() {
                         <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-orange-500/20 border border-orange-500/30 px-2 py-1 rounded-lg backdrop-blur-sm">
                           <Zap className="w-2.5 h-2.5 text-orange-400 fill-current" />
                           <span className="text-[9px] font-black text-orange-400 uppercase tracking-widest">모멘텀</span>
+                        </div>
+                      )}
+                      {lastUsedMode === 'QUANT_SCREEN' && (
+                        <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-emerald-500/20 border border-emerald-500/30 px-2 py-1 rounded-lg backdrop-blur-sm">
+                          <Activity className="w-2.5 h-2.5 text-emerald-400" />
+                          <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">정량발굴</span>
                         </div>
                       )}
 

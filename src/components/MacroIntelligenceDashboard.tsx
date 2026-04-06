@@ -53,6 +53,27 @@ const FUSION_MATRIX: Record<EconomicRegime, Record<ROEType, FusionCell>> = {
     4: { phase: '비용절감 한계 직면', signal: 'NEUTRAL', expectedReturn: '-5~+3%', strategy: '유틸리티·필수소비재 중심 극소 포지션 유지.' },
     5: { phase: '즉각 청산 대상', signal: 'STRONG_SELL', expectedReturn: '-50~-25%', strategy: '어떤 신호도 무효. 즉각 전량 청산. 현금 최대화.' },
   },
+  UNCERTAIN: {
+    1: { phase: '레버리지 보류', signal: 'AVOID', expectedReturn: '-10~+5%', strategy: '방향성 불확실 시 부채 의존 종목 진입 금지. 현금 비중 70% 유지.' },
+    2: { phase: '자본경량 관망', signal: 'NEUTRAL', expectedReturn: '-3~+5%', strategy: '플랫폼 기업 방어력 있으나 모멘텀 부재. 기존 포지션 유지, 신규 진입 보류.' },
+    3: { phase: '성장 모멘텀 대기', signal: 'NEUTRAL', expectedReturn: '-5~+8%', strategy: '성장주 수치 확인 후 레짐 전환 시 빠른 진입 준비. 매집 감지 시에만 소규모 진입.' },
+    4: { phase: '비용절감 선호', signal: 'BUY', expectedReturn: '+3~10%', strategy: '불확실성 시 비용 통제 기업의 방어력 부각. 유틸리티·통신 중심 소규모 포지션.' },
+    5: { phase: '재무 왜곡 회피', signal: 'STRONG_SELL', expectedReturn: '-20~-5%', strategy: '불확실 환경에서 재무 왜곡 기업 최우선 청산 대상.' },
+  },
+  CRISIS: {
+    1: { phase: '레버리지 전면 청산', signal: 'STRONG_SELL', expectedReturn: '-50~-25%', strategy: '위기 시 부채 기업 즉각 전량 청산. 현금 100% 전환.' },
+    2: { phase: '자본경량 긴급 축소', signal: 'SELL', expectedReturn: '-15~-5%', strategy: '상대적 방어력 있으나 시장 공포 시 동반 하락. 최소 비중으로 축소.' },
+    3: { phase: '성장주 전면 회피', signal: 'STRONG_SELL', expectedReturn: '-40~-15%', strategy: '위기 시 성장주 밸류에이션 급격 붕괴. Gate 평가 중단, 전량 현금화.' },
+    4: { phase: '방산·유틸리티 역발상', signal: 'BUY', expectedReturn: '+5~15%', strategy: '위기 시 정부 지출 확대 수혜. 방산·유틸리티·필수소비재 중심 역발상 매수.' },
+    5: { phase: '즉시 완전 청산', signal: 'STRONG_SELL', expectedReturn: '-60~-30%', strategy: '위기 시 재무 왜곡 기업 파산 위험. 무조건 즉시 청산.' },
+  },
+  RANGE_BOUND: {
+    1: { phase: '레버리지 제한 진입', signal: 'NEUTRAL', expectedReturn: '-5~+5%', strategy: '박스권 내 레버리지 효과 제한적. 배당 수익 중심 소규모 포지션만.' },
+    2: { phase: '자본경량 페어트레이드', signal: 'BUY', expectedReturn: '+3~8%', strategy: '박스권에서 플랫폼 기업 안정적 매출. 페어트레이딩 또는 배당 전략 활용.' },
+    3: { phase: '매출·마진 구간 매매', signal: 'NEUTRAL', expectedReturn: '-3~+8%', strategy: '박스권 하단 매수, 상단 매도의 단기 트레이딩. 주도주 부재 시 중립.' },
+    4: { phase: '비용절감 안정 수익', signal: 'BUY', expectedReturn: '+5~10%', strategy: '박스권에서 비용 통제 기업의 안정적 이익률 부각. 배당주 전략 최적.' },
+    5: { phase: '재무 왜곡 관망', signal: 'AVOID', expectedReturn: '-10~+2%', strategy: '박스권 내 재무 왜곡 기업 방향성 없음. 진입 불가.' },
+  },
 };
 
 const ROE_TYPE_LABELS: Record<ROEType, string> = {
@@ -64,10 +85,13 @@ const ROE_TYPE_LABELS: Record<ROEType, string> = {
 };
 
 const REGIME_LABELS: Record<EconomicRegime, { ko: string; color: string; bgColor: string; borderColor: string }> = {
-  RECOVERY: { ko: '회복기', color: 'text-blue-700',   bgColor: 'bg-blue-50',   borderColor: 'border-blue-400' },
-  EXPANSION: { ko: '확장기', color: 'text-green-700', bgColor: 'bg-green-50',  borderColor: 'border-green-400' },
-  SLOWDOWN:  { ko: '둔화기', color: 'text-amber-700', bgColor: 'bg-amber-50',  borderColor: 'border-amber-400' },
-  RECESSION: { ko: '침체기', color: 'text-red-700',   bgColor: 'bg-red-50',    borderColor: 'border-red-400' },
+  RECOVERY:    { ko: '회복기',   color: 'text-blue-700',    bgColor: 'bg-blue-50',    borderColor: 'border-blue-400' },
+  EXPANSION:   { ko: '확장기',   color: 'text-green-700',   bgColor: 'bg-green-50',   borderColor: 'border-green-400' },
+  SLOWDOWN:    { ko: '둔화기',   color: 'text-amber-700',   bgColor: 'bg-amber-50',   borderColor: 'border-amber-400' },
+  RECESSION:   { ko: '침체기',   color: 'text-red-700',     bgColor: 'bg-red-50',     borderColor: 'border-red-400' },
+  UNCERTAIN:   { ko: '불확실',   color: 'text-purple-700',  bgColor: 'bg-purple-50',  borderColor: 'border-purple-400' },
+  CRISIS:      { ko: '위기',     color: 'text-rose-700',    bgColor: 'bg-rose-50',    borderColor: 'border-rose-400' },
+  RANGE_BOUND: { ko: '박스권',   color: 'text-slate-700',   bgColor: 'bg-slate-50',   borderColor: 'border-slate-400' },
 };
 
 const SIGNAL_STYLE: Record<AlphaSignal, { label: string; bg: string; text: string }> = {
@@ -210,7 +234,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   );
 
   // ── Fusion Matrix ────────────────────────────────────────────────────────
-  const regimes: EconomicRegime[] = ['RECOVERY', 'EXPANSION', 'SLOWDOWN', 'RECESSION'];
+  const regimes: EconomicRegime[] = ['RECOVERY', 'EXPANSION', 'SLOWDOWN', 'RECESSION', 'UNCERTAIN', 'CRISIS', 'RANGE_BOUND'];
   const roeTypes: ROEType[] = [1, 2, 3, 4, 5];
 
   return (

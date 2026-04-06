@@ -18,6 +18,10 @@ import {
   GeopoliticalRiskData,
   CreditSpreadData,
   MacroEnvironment,
+  QuantScreenResult,
+  DartScreenerResult,
+  SilentAccumulationResult,
+  ExtendedRegimeData,
 } from "../types/quant";
 
 import {
@@ -690,7 +694,7 @@ export interface StockFilters {
   maxPer?: number;
   maxDebtRatio?: number;
   minMarketCap?: number;
-  mode?: 'MOMENTUM' | 'EARLY_DETECT';
+  mode?: 'MOMENTUM' | 'EARLY_DETECT' | 'QUANT_SCREEN';
 }
 
 export async function enrichStockWithRealData(stock: StockRecommendation): Promise<StockRecommendation> {
@@ -827,6 +831,11 @@ export async function getStockRecommendations(filters?: StockFilters): Promise<R
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
   const todayDate = now.split(' ')[0];
   const mode = filters?.mode || 'MOMENTUM';
+
+  // ── QUANT_SCREEN 모드: 정량 스크리닝 → DART 공시 → 조용한 매집 파이프라인 ──
+  if (mode === 'QUANT_SCREEN') {
+    return runQuantScreenPipeline(filters);
+  }
 
   const filterPrompt = filters ? `
       [사용자 정의 정량 필터]
@@ -2991,6 +3000,646 @@ export async function getCreditSpreads(): Promise<CreditSpreadData> {
         isLiquidityExpanding: false,
         trend: 'STABLE',
         lastUpdated: requestedAtISO,
+      };
+    }
+  });
+}
+
+// ─── 정량 스크리닝 엔진 (Quantitative Screening Engine) ──────────────────────
+// 뉴스 의존 없이 순수 수치 데이터로 이상 신호 종목을 발굴합니다.
+// Yahoo Finance OHLCV + KIS 수급 + DART 공시를 결합하여 AI가 모르는 종목도 포착.
+
+/**
+ * 정량 스크리닝: AI 검색 없이 수치 기반으로 이상 신호 종목을 발굴.
+ * 1단계: 전종목 기본 필터 (시총, 거래대금, 관리종목 제외)
+ * 2단계: 이상 신호 감지 (거래량 급증, 외국인/기관 매집, 신고가 근접, VCP 등)
+ * 3단계: AI 정밀 분석 (뉴스가 아니라 "왜 수치가 변했는지" 분석)
+ */
+export async function runQuantitativeScreening(options?: {
+  minMarketCap?: number;     // 최소 시총 (억원, 기본 1000)
+  minTurnover?: number;      // 최소 거래대금 (억원, 기본 10)
+  maxResults?: number;        // 최대 결과 수 (기본 30)
+}): Promise<QuantScreenResult[]> {
+  const requestedAt = new Date();
+  const todayDate = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
+  const requestedAtISO = requestedAt.toISOString();
+
+  const minCap = options?.minMarketCap ?? 1000;
+  const minTurnover = options?.minTurnover ?? 10;
+  const maxResults = options?.maxResults ?? 30;
+
+  const prompt = `
+현재 한국 날짜: ${todayDate}
+
+당신은 정량 스크리너입니다. 뉴스·테마·인기도와 무관하게, 순수 수치 이상 신호만으로 종목을 발굴해야 합니다.
+Google 검색을 통해 아래 조건을 충족하는 종목을 최대 ${maxResults}개 찾아주세요.
+
+[1단계: 기본 필터]
+- 시가총액 > ${minCap}억원
+- 일평균 거래대금(20일) > ${minTurnover}억원
+- 관리종목/투자경고/적자기업 제외
+
+[2단계: 이상 신호 감지 - 다음 중 2개 이상 충족 종목]
+검색 키워드를 활용하여 아래 신호를 감지하라:
+1. "거래량 급증 종목 코스피 코스닥 ${todayDate}" - 20일 평균 대비 300% 이상 거래량 급증
+2. "외국인 기관 동시 순매수 종목 ${todayDate}" - 외국인+기관 3일 이상 연속 순매수 전환
+3. "52주 신고가 근접 종목 한국" - 52주 고가 대비 95% 이상 도달
+4. "볼린저밴드 수축 종목 한국" - VCP 패턴 (변동성 수축 3단계 이상)
+5. "공매도 잔고 급감 종목 한국" - 공매도 비중 20일 전 대비 30% 이상 감소
+6. "자사주 매입 결정 공시 ${todayDate}" - 최근 5일 이내 자사주 취득 공시
+7. "대주주 임원 주식 매수 공시 한국" - 최근 10일 이내 내부자 매수
+8. "대규모 수주 공시 한국 ${todayDate}" - 매출 대비 10% 이상 수주
+9. "대규모 설비투자 유형자산 취득 공시 한국" - 대규모 CAPEX 공시
+
+[핵심 원칙]
+- 뉴스가 많이 나온 인기 종목은 오히려 감점 (newsFrequencyScore 낮게)
+- 뉴스가 거의 없지만 수치적 이상 신호가 있는 종목을 최우선
+- 대형주보다 중소형주에서 이상 신호가 더 의미 있음
+- 이미 최근 1주일 30% 이상 급등한 종목은 제외
+
+[뉴스 빈도 역지표 채점 기준]
+- 최근 30일 뉴스 0~2건: newsFrequencyScore = 10 (Silent Phase → 최고 점수)
+- 최근 30일 뉴스 3~5건: 8 (Early Phase)
+- 최근 30일 뉴스 6~15건: 5 (Growing Attention)
+- 최근 30일 뉴스 16~30건: 3 (Crowded)
+- 최근 30일 뉴스 30건 이상: 1 (Over-hyped → 감점)
+
+응답 형식 (JSON only, 배열):
+[
+  {
+    "code": "005930",
+    "name": "종목명",
+    "marketCap": 5000,
+    "price": 75000,
+    "signals": [
+      { "type": "VOLUME_SURGE", "strength": 8, "description": "20일 평균 대비 450% 거래량 급증" },
+      { "type": "INSTITUTIONAL_ACCUMULATION", "strength": 7, "description": "기관 5일 연속 소량 순매수" }
+    ],
+    "totalSignalScore": 75,
+    "newsFrequencyScore": 9,
+    "silentAccumulationScore": 7,
+    "volumeProfile": {
+      "current": 1500000,
+      "avg20d": 300000,
+      "ratio": 5.0,
+      "trend": "SURGING"
+    },
+    "pricePosition": {
+      "distanceFrom52wHigh": -3.2,
+      "distanceFrom52wLow": 45.5,
+      "aboveMA200": true,
+      "aboveMA60": true
+    },
+    "institutionalFlow": {
+      "foreignNet5d": 25000,
+      "institutionNet5d": 15000,
+      "foreignConsecutive": 3,
+      "isQuietAccumulation": true
+    },
+    "source": "QUANT_SCREEN"
+  }
+]
+  `.trim();
+
+  const cacheKey = `quant-screening-${todayDate}`;
+
+  return getCachedAIResponse<QuantScreenResult[]>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            maxOutputTokens: 8000,
+            temperature: 0.1,
+          },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      const parsed = safeJsonParse(text);
+      return (Array.isArray(parsed) ? parsed : parsed?.results ?? []) as QuantScreenResult[];
+    } catch (error) {
+      console.error("Error in quantitative screening:", error);
+      return [];
+    }
+  });
+}
+
+// ─── DART 공시 Pre-News 스크리너 ────────────────────────────────────────────
+// 뉴스가 되기 전에 DART 공시에서 투자 단서를 선행 포착합니다.
+// 공시 → 뉴스 → 주가 반영의 1~3일 시간차를 활용.
+
+/**
+ * DART 공시 자동 스캔: 최근 주요 공시 중 아직 뉴스화되지 않은 투자 신호를 포착.
+ * 수주/설비투자/자사주/내부자매수/특허 등 핵심 공시를 자동 감지.
+ */
+export async function scanDartDisclosures(options?: {
+  daysBack?: number;          // 최근 N일 공시 스캔 (기본 5)
+  minSignificance?: number;   // 최소 중요도 (기본 5)
+  maxResults?: number;         // 최대 결과 수 (기본 20)
+}): Promise<DartScreenerResult[]> {
+  const requestedAt = new Date();
+  const todayDate = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
+  const requestedAtISO = requestedAt.toISOString();
+
+  const daysBack = options?.daysBack ?? 5;
+  const minSig = options?.minSignificance ?? 5;
+  const maxResults = options?.maxResults ?? 20;
+
+  const prompt = `
+현재 한국 날짜: ${todayDate}
+
+당신은 DART 공시 분석 전문가입니다. 최근 ${daysBack}일 이내 DART에 공시된 내용 중,
+아직 주요 뉴스로 보도되지 않았지만 주가에 큰 영향을 줄 수 있는 공시를 스캔해주세요.
+
+Google 검색 키워드:
+1. "DART 주요사항보고서 수주 ${todayDate}" - 대규모 수주 공시
+2. "DART 유형자산 취득 결정 공시 한국" - 대규모 설비투자
+3. "DART 타법인 주식 출자 공시 한국" - 신사업 진출/M&A
+4. "DART 자기주식 취득 결정 공시 ${todayDate}" - 자사주 매입
+5. "DART 임원 주식변동 매수 공시 한국" - 내부자 매수
+6. "DART 특허 기술이전 계약 공시 한국" - 특허/기술 이전
+7. "DART 전환사채 조건변경 공시 한국" - CB 전환가 변경
+8. "DART 최대주주 변경 공시 한국" - 경영권 변동
+9. "DART 분기보고서 영업이익 전년대비 한국" - 아직 뉴스 안 된 어닝 서프라이즈
+10. "DART 자기주식 소각 결정 공시 한국" - 자사주 소각 (주주환원)
+
+[중요도 채점 기준]
+- 매출 대비 20% 이상 대규모 수주: 10점
+- 매출 대비 10% 이상 설비투자: 8점
+- 대주주/임원 10억원 이상 장내 매수: 9점
+- 자사주 매입 (발행주식 1% 이상): 8점
+- 자사주 소각 결정: 9점
+- 특허 취득/기술이전 계약 (100억 이상): 7점
+- 최대주주 변경 (경영권 인수): 8점
+- 분기 영업이익 전년대비 50% 이상 증가: 9점
+- CB 전환가 하향 조정: 6점
+
+[Pre-News 점수 기준 (0-10)]
+- 공시 후 48시간 이내 & 관련 뉴스 0건: preNewsScore = 10
+- 공시 후 48시간 이내 & 관련 뉴스 1~2건: 7
+- 공시 후 3~5일 & 관련 뉴스 3건 미만: 5
+- 공시 후 5일 초과 또는 뉴스 다수: 2
+
+종목별로 그룹화하여, 최대 ${maxResults}개 종목에 대해 중요도 ${minSig} 이상 공시만 포함.
+
+응답 형식 (JSON only, 배열):
+[
+  {
+    "code": "329180",
+    "name": "종목명",
+    "disclosures": [
+      {
+        "type": "LARGE_ORDER",
+        "title": "단일판매·공급계약체결(자율공시) - 1,200억원 규모",
+        "date": "2026-04-05",
+        "significance": 9,
+        "revenueImpact": 25.3,
+        "description": "연매출 대비 25% 규모의 대형 수주. 수주잔고 역대 최대 갱신.",
+        "dartUrl": ""
+      }
+    ],
+    "totalScore": 85,
+    "preNewsScore": 9,
+    "daysSinceDisclosure": 1,
+    "isActionable": true,
+    "lastUpdated": "${requestedAtISO}"
+  }
+]
+  `.trim();
+
+  const cacheKey = `dart-screener-${todayDate}`;
+
+  return getCachedAIResponse<DartScreenerResult[]>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            maxOutputTokens: 8000,
+            temperature: 0.1,
+          },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      const parsed = safeJsonParse(text);
+      return (Array.isArray(parsed) ? parsed : parsed?.results ?? []) as DartScreenerResult[];
+    } catch (error) {
+      console.error("Error in DART disclosure screening:", error);
+      return [];
+    }
+  });
+}
+
+// ─── 조용한 매집 감지기 (Silent Accumulation Detector) ───────────────────────
+// 주도주가 되기 전 단계의 특징적 패턴을 수치로 포착합니다.
+// VWAP/거래량/기관수급/공매도/내부자 매수 등 복합 신호를 종합.
+
+/**
+ * 특정 종목 리스트에 대해 조용한 매집 패턴을 분석합니다.
+ * 정량 스크리닝 결과 또는 관심 종목에 대해 실행.
+ */
+export async function detectSilentAccumulation(
+  stockCodes: { code: string; name: string }[],
+): Promise<SilentAccumulationResult[]> {
+  if (stockCodes.length === 0) return [];
+
+  const requestedAt = new Date();
+  const todayDate = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
+  const requestedAtISO = requestedAt.toISOString();
+
+  const stockList = stockCodes.map(s => `${s.name}(${s.code})`).join(', ');
+
+  const prompt = `
+현재 한국 날짜: ${todayDate}
+
+다음 종목들에 대해 "조용한 매집" 패턴을 분석해주세요: ${stockList}
+
+각 종목에 대해 Google 검색으로 아래 7가지 매집 신호를 확인하라:
+
+[신호 1: VWAP > 종가 & 거래량 감소 (Dark Pool 패턴)]
+검색: "[종목명] VWAP 거래량 추이"
+- VWAP(거래량가중평균가)이 종가보다 높으면서 거래량이 감소 → 고가에서 조용히 매수 중
+
+[신호 2: 기관 소량 분할 매수]
+검색: "[종목명] 기관 순매수 추이 ${todayDate}"
+- 대량 매매 없이 5일 이상 소량 순매수 지속 → 조용한 매집
+
+[신호 3: 공매도 잔고 감소]
+검색: "[종목명] 공매도 잔고 추이"
+- 공매도 비중이 20일 전 대비 30% 이상 감소 → 하방 베팅 철수
+
+[신호 4: 콜옵션 미결제약정 급증]
+검색: "[종목명] 또는 관련 섹터 ETF 옵션 미결제약정"
+- 콜옵션 OI 급증 → 상승 베팅 증가 (해당 정보 있는 경우만)
+
+[신호 5: 내부자 매수]
+검색: "DART [종목명] 임원 주식변동 매수"
+- 대주주/임원이 장내 직접 매수 → 강력한 확신 신호
+
+[신호 6: 자사주 매입 진행]
+검색: "DART [종목명] 자기주식 취득"
+- 회사가 자기 주식을 매입 중 → 주가 하한선 지지
+
+[신호 7: 하한선 상승 (Price Floor Rising)]
+검색: "[종목명] 주가 추이 저점 ${todayDate}"
+- 최근 20일간 일중 저점(Low)이 점진적으로 상승 → 매수 세력 존재
+
+[종합 점수 계산]
+- 각 신호 0-10점, 총합을 100점 만점으로 정규화
+- 3개 이상 신호 감지: HIGH 확신
+- 2개 신호: MEDIUM
+- 1개 이하: LOW
+
+[매집 단계 판정]
+- EARLY: 거래량 마르면서 저점 형성 (1-2개 신호)
+- MID: 소량 매집 + 공매도 감소 (3-4개 신호)
+- LATE: 내부자 매수 + VWAP 이탈 + 거래량 미세 증가 (5개+ 신호, 곧 돌파 예상)
+- NONE: 신호 없음
+
+응답 형식 (JSON only, 배열):
+[
+  {
+    "code": "005930",
+    "name": "종목명",
+    "signals": [
+      { "type": "INSTITUTIONAL_QUIET_BUY", "strength": 7, "description": "기관 7일 연속 소량 순매수 (일 평균 3,000주)", "daysDetected": 7 },
+      { "type": "SHORT_DECREASE", "strength": 6, "description": "공매도 잔고 20일 전 대비 -42% 감소", "daysDetected": 20 }
+    ],
+    "compositeScore": 65,
+    "confidenceLevel": "MEDIUM",
+    "estimatedAccumulationDays": 15,
+    "priceFloorTrend": "RISING",
+    "volumeTrend": "DRYING",
+    "accumulationPhase": "MID",
+    "lastUpdated": "${requestedAtISO}"
+  }
+]
+  `.trim();
+
+  const cacheKey = `silent-accum-${stockCodes.map(s => s.code).sort().join('-')}-${todayDate}`;
+
+  return getCachedAIResponse<SilentAccumulationResult[]>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            maxOutputTokens: 8000,
+            temperature: 0.1,
+          },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      const parsed = safeJsonParse(text);
+      return (Array.isArray(parsed) ? parsed : parsed?.results ?? []) as SilentAccumulationResult[];
+    } catch (error) {
+      console.error("Error detecting silent accumulation:", error);
+      return [];
+    }
+  });
+}
+
+// ─── 정량 스크리닝 통합 파이프라인 ───────────────────────────────────────────
+// QUANT_SCREEN 모드: 정량 스크리닝 → DART 공시 → 조용한 매집 → AI 정밀 분석
+
+async function runQuantScreenPipeline(filters?: StockFilters): Promise<RecommendationResponse | null> {
+  const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const todayDate = now.split(' ')[0];
+  const requestedAtISO = new Date().toISOString();
+
+  try {
+    // 1단계: 정량 스크리닝 + DART 공시 병렬 실행
+    console.log('[QUANT_SCREEN] 1단계: 정량 스크리닝 + DART 공시 병렬 스캔...');
+    const [quantResults, dartResults] = await Promise.all([
+      runQuantitativeScreening({
+        minMarketCap: filters?.minMarketCap ?? 1000,
+        maxResults: 30,
+      }),
+      scanDartDisclosures({ daysBack: 5, minSignificance: 5, maxResults: 20 }),
+    ]);
+
+    // 2단계: 두 소스에서 종목 통합 및 중복 제거
+    const stockMap = new Map<string, {
+      code: string; name: string;
+      quantScore: number; dartScore: number;
+      newsFreqScore: number; signals: string[];
+    }>();
+
+    for (const q of quantResults) {
+      stockMap.set(q.code, {
+        code: q.code, name: q.name,
+        quantScore: q.totalSignalScore,
+        dartScore: 0,
+        newsFreqScore: q.newsFrequencyScore,
+        signals: q.signals.map(s => s.description),
+      });
+    }
+
+    for (const d of dartResults) {
+      const existing = stockMap.get(d.code);
+      if (existing) {
+        existing.dartScore = d.totalScore;
+        existing.signals.push(...d.disclosures.map(disc => `[공시] ${disc.title}`));
+      } else {
+        stockMap.set(d.code, {
+          code: d.code, name: d.name,
+          quantScore: 0, dartScore: d.totalScore,
+          newsFreqScore: 8, // DART에서만 발견 → 뉴스 적은 편
+          signals: d.disclosures.map(disc => `[공시] ${disc.title}`),
+        });
+      }
+    }
+
+    // 3단계: 종합 점수 계산 및 상위 10개 선별
+    const candidates = Array.from(stockMap.values())
+      .map(s => ({
+        ...s,
+        combinedScore: s.quantScore * 0.4 + s.dartScore * 0.3 + s.newsFreqScore * 3, // 뉴스 적을수록 보너스
+      }))
+      .sort((a, b) => b.combinedScore - a.combinedScore)
+      .slice(0, 10);
+
+    if (candidates.length === 0) {
+      return {
+        marketContext: {
+          kospi: { index: 0, change: 0, changePercent: 0, status: 'NEUTRAL', analysis: '정량 스크리닝 결과 없음' },
+          kosdaq: { index: 0, change: 0, changePercent: 0, status: 'NEUTRAL', analysis: '' },
+        },
+        recommendations: [],
+      };
+    }
+
+    // 4단계: 조용한 매집 감지 (상위 후보에 대해)
+    console.log(`[QUANT_SCREEN] 4단계: 상위 ${candidates.length}개 종목 조용한 매집 분석...`);
+    const accumResults = await detectSilentAccumulation(
+      candidates.map(c => ({ code: c.code, name: c.name }))
+    );
+    const accumMap = new Map(accumResults.map(a => [a.code, a]));
+
+    // 5단계: AI 정밀 분석 — 수치가 변한 이유 분석
+    console.log('[QUANT_SCREEN] 5단계: AI 정밀 분석...');
+    const candidateList = candidates.map(c => {
+      const accum = accumMap.get(c.code);
+      return `${c.name}(${c.code}): 정량점수=${c.quantScore}, 공시점수=${c.dartScore}, 뉴스빈도역점수=${c.newsFreqScore}, 매집단계=${accum?.accumulationPhase ?? 'N/A'}, 신호=[${c.signals.slice(0, 3).join('; ')}]`;
+    }).join('\n');
+
+    const analysisPrompt = `
+현재 한국 시각: ${now}
+
+당신은 정량 스크리닝 결과를 바탕으로 최종 분석을 수행합니다.
+아래 종목들은 뉴스가 아닌 순수 수치 이상 신호와 DART 공시로 발굴된 종목입니다.
+
+[후보 종목]
+${candidateList}
+
+각 종목에 대해:
+1. Google 검색으로 현재가, 시가총액, 기본 재무 데이터를 확인
+2. 수치 변동의 근본 원인을 분석 (뉴스가 아닌 비즈니스 변화 원인)
+3. 27개 체크리스트 항목을 최대한 평가
+4. 기존 getStockRecommendations와 동일한 JSON 형식으로 응답
+
+[핵심 차별점]
+- 이 종목들은 뉴스 인기도가 아닌 수치 이상 신호로 발굴됨
+- "왜 거래량이 변했는가", "왜 기관이 매집하는가", "공시의 실질적 임팩트는 무엇인가"를 분석
+- 뉴스가 아직 없는 종목일수록 더 높은 잠재력을 가진 것으로 평가
+
+응답은 기존 recommendations JSON 형식과 동일하게 작성하되,
+각 종목의 dataSourceType을 "QUANT_SCREEN"으로 설정하라.
+최대 5개까지만 최종 추천하라.
+
+응답 형식: 기존 getStockRecommendations와 동일한 JSON
+    `.trim();
+
+    const response = await withRetry(async () => {
+      return await getAI().models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: analysisPrompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+          maxOutputTokens: 12000,
+          temperature: 0.1,
+        },
+      });
+    }, 2, 2000);
+
+    const text = response.text;
+    if (!text) throw new Error("No response from AI for quant screen analysis");
+    const parsed = safeJsonParse(text);
+
+    if (parsed && !parsed.recommendations) {
+      parsed.recommendations = [];
+    }
+
+    // Enrich with real data
+    if (parsed && parsed.recommendations.length > 0) {
+      console.log(`[QUANT_SCREEN] Enriching ${parsed.recommendations.length} recommendations...`);
+      const enriched = [];
+      for (const stock of parsed.recommendations) {
+        try {
+          // 매집 데이터 주입
+          const accum = accumMap.get(stock.code);
+          if (accum) {
+            stock.anomalyDetection = {
+              type: accum.compositeScore > 50 ? 'SMART_MONEY_ACCUMULATION' : 'NONE',
+              score: accum.compositeScore,
+              description: `매집단계: ${accum.accumulationPhase}, 확신도: ${accum.confidenceLevel}, 추정 매집기간: ${accum.estimatedAccumulationDays}일`,
+            };
+          }
+          stock.dataSourceType = 'QUANT_SCREEN' as any;
+          const enrichedStock = await enrichStockWithRealData(stock);
+          enriched.push(enrichedStock);
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (err) {
+          console.error(`[QUANT_SCREEN] Failed to enrich ${stock.name}:`, err);
+          enriched.push(stock);
+        }
+      }
+      parsed.recommendations = enriched;
+    }
+
+    return parsed;
+  } catch (error) {
+    console.error("[QUANT_SCREEN] Pipeline error:", error);
+    throw error;
+  }
+}
+
+// ─── 확장 레짐 분류기 (Extended Regime Classifier) ───────────────────────────
+// 기존 4단계에 UNCERTAIN/CRISIS/RANGE_BOUND를 추가하여 7단계로 확장.
+// 글로벌 소스 확장 및 상관관계 분석 포함.
+
+/**
+ * 확장 경기 레짐 분류: 기존 getEconomicRegime + 불확실성 메트릭 추가.
+ * 글로벌 소스를 폭넓게 참조하여 한국 시장 특수 상황을 감지합니다.
+ */
+export async function getExtendedEconomicRegime(): Promise<ExtendedRegimeData> {
+  const requestedAt = new Date();
+  const now = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const todayDate = now.split(' ')[0];
+  const requestedAtISO = requestedAt.toISOString();
+
+  const prompt = `
+현재 한국 날짜: ${todayDate}
+
+아래 7가지 경기 사이클 중 현재 한국 경제가 어디에 해당하는지 분류해줘.
+구글 검색을 통해 최신 실제 데이터를 기반으로 판단해야 해.
+
+분류 기준 (확장 7단계):
+- RECOVERY (회복기): GDP 성장 반등, 수출 증가 시작, 금리 인하 또는 동결, OECD CLI ≥ 100 상승 전환
+- EXPANSION (확장기): GDP 성장 가속, 수출 호조, 금리 동결 또는 소폭 인상, CLI 상승 지속
+- SLOWDOWN (둔화기): GDP 성장 둔화, 수출 증가율 감소, 금리 인상 또는 동결, CLI 하락
+- RECESSION (침체기): GDP 역성장 또는 제로, 수출 급감, CLI 급락, 신용 위기 징후
+- UNCERTAIN (불확실): 지표 혼조, 매크로 신호 상충, 방향성 불명확, 주도 섹터 부재
+- CRISIS (위기): VKOSPI > 35, VIX > 30, 외부 충격(전쟁/금융위기), 신용스프레드 급등
+- RANGE_BOUND (박스권): KOSPI 60일 변동성 < 5%, 뚜렷한 주도 섹터 없음, 외국인 매수/매도 교차
+
+조회할 데이터 (기존 + 확장):
+[기존]
+1. 한국 최근 수출 증가율 (전년 동월 대비, 3개월 이동평균)
+2. 한국은행 기준금리 현재 수준 및 방향
+3. OECD 경기선행지수(CLI) 한국 최신
+4. 한국 최근 분기 GDP 성장률
+
+[확장 - 글로벌 소스]
+5. VKOSPI 현재값 및 20일 이동평균
+6. VIX 현재값
+7. KOSPI 60일 변동성 (표준편차 기반)
+8. 최근 5일 주도 섹터 수 (KOSPI 업종별 상승률 상위 3개 섹터가 명확한지)
+9. 외국인 최근 5일 순매수 패턴 (일관된 매수/매도 vs 교차)
+10. KOSPI-S&P500 30일 상관계수 (정상: 0.6-0.8, 디커플링: <0.3, 동조화: >0.9)
+11. CME FedWatch 금리 전망 (다음 FOMC 금리 동결/인하 확률)
+12. 중국 PMI 최신값 (한국 수출 선행지표)
+13. 대만 TSMC 월간 매출 추이 (반도체 사이클 선행)
+14. 일본 BOJ 정책 최신 동향 (엔캐리 리스크)
+15. 미국 ISM 제조업 PMI 최신값
+16. 원/달러 환율 현재값
+
+응답 형식 (JSON only):
+{
+  "regime": "EXPANSION",
+  "confidence": 78,
+  "rationale": "수출 YoY +12.3%, CLI 101.2 상승 기조...",
+  "allowedSectors": ["반도체", "조선", "방산", "바이오", "AI인프라", "자동차"],
+  "avoidSectors": ["내수소비재", "항공", "음식료"],
+  "keyIndicators": {
+    "exportGrowth": "+12.3% YoY",
+    "bokRateDirection": "동결 (3.50%)",
+    "oeciCli": "101.2",
+    "gdpGrowth": "+2.1% QoQ"
+  },
+  "lastUpdated": "${requestedAtISO}",
+  "uncertaintyMetrics": {
+    "regimeClarity": 75,
+    "signalConflict": 25,
+    "kospi60dVolatility": 12.5,
+    "leadingSectorCount": 3,
+    "foreignFlowDirection": "CONSISTENT_BUY",
+    "correlationBreakdown": false
+  },
+  "systemAction": {
+    "mode": "NORMAL",
+    "cashRatio": 20,
+    "gateAdjustment": { "gate1Threshold": 5, "gate2Required": 9, "gate3Required": 7 },
+    "message": "정상 시장. 기본 Gate 기준 적용."
+  }
+}
+  `.trim();
+
+  const cacheKey = `extended-regime-${todayDate}`;
+
+  return getCachedAIResponse<ExtendedRegimeData>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            temperature: 0.1,
+          },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      return safeJsonParse(text) as ExtendedRegimeData;
+    } catch (error) {
+      console.error("Error getting extended economic regime:", error);
+      return {
+        regime: 'EXPANSION',
+        confidence: 50,
+        rationale: "데이터 조회 실패. 기본값(확장기)으로 설정됨.",
+        allowedSectors: ["반도체", "조선", "방산"],
+        avoidSectors: [],
+        keyIndicators: {
+          exportGrowth: "N/A",
+          bokRateDirection: "N/A",
+          oeciCli: "N/A",
+          gdpGrowth: "N/A",
+        },
+        lastUpdated: requestedAtISO,
+        uncertaintyMetrics: {
+          regimeClarity: 50,
+          signalConflict: 50,
+          kospi60dVolatility: 0,
+          leadingSectorCount: 0,
+          foreignFlowDirection: 'ALTERNATING',
+          correlationBreakdown: false,
+        },
+        systemAction: {
+          mode: 'DEFENSIVE',
+          cashRatio: 50,
+          gateAdjustment: { gate1Threshold: 6, gate2Required: 10, gate3Required: 8 },
+          message: '데이터 수집 실패. 방어적 모드로 전환.',
+        },
       };
     }
   });

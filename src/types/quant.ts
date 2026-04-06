@@ -335,7 +335,7 @@ export interface BacktestResult {
 
 // ─── 경기 사이클 레짐 분류기 (Idea 2) ────────────────────────────────────────
 
-export type EconomicRegime = 'RECOVERY' | 'EXPANSION' | 'SLOWDOWN' | 'RECESSION';
+export type EconomicRegime = 'RECOVERY' | 'EXPANSION' | 'SLOWDOWN' | 'RECESSION' | 'UNCERTAIN' | 'CRISIS' | 'RANGE_BOUND';
 
 /**
  * ROE 5유형
@@ -370,4 +370,154 @@ export interface Portfolio {
   createdAt: string;
   description?: string;
   lastBacktestResult?: BacktestResult | null;
+}
+
+// ─── 정량 스크리닝 엔진 (Quantitative Screening Engine) ──────────────────────
+
+/** 정량 스크리닝 1단계: 기본 필터 통과 종목 */
+export interface QuantScreenCandidate {
+  code: string;
+  name: string;
+  marketCap: number;           // 시가총액 (억원)
+  avgTurnover20d: number;      // 20일 평균 거래대금 (억원)
+  price: number;               // 현재가
+  change5d: number;            // 5일 수익률 (%)
+  change20d: number;           // 20일 수익률 (%)
+}
+
+/** 정량 스크리닝 2단계: 이상 신호 감지 결과 */
+export interface AnomalySignal {
+  type: 'VOLUME_SURGE' | 'INSTITUTIONAL_ACCUMULATION' | 'NEW_HIGH_APPROACH' | 'VCP_DETECTED' | 'SHORT_DECREASE' | 'INSIDER_BUY' | 'BUYBACK' | 'LARGE_ORDER' | 'CAPEX_SURGE';
+  strength: number;            // 0-10 신호 강도
+  description: string;
+}
+
+export interface QuantScreenResult {
+  code: string;
+  name: string;
+  marketCap: number;
+  price: number;
+  signals: AnomalySignal[];
+  totalSignalScore: number;    // 0-100 종합 이상 신호 점수
+  newsFrequencyScore: number;  // 0-10 뉴스 빈도 역지표 (뉴스 적을수록 고점수)
+  silentAccumulationScore: number; // 0-10 조용한 매집 점수
+  volumeProfile: {
+    current: number;           // 현재 거래량
+    avg20d: number;            // 20일 평균 거래량
+    ratio: number;             // 현재/평균 비율
+    trend: 'DRYING' | 'NORMAL' | 'SURGING'; // 거래량 추세
+  };
+  pricePosition: {
+    distanceFrom52wHigh: number; // 52주 고가 대비 거리 (%)
+    distanceFrom52wLow: number;  // 52주 저가 대비 거리 (%)
+    aboveMA200: boolean;         // 200일선 위 여부
+    aboveMA60: boolean;          // 60일선 위 여부
+  };
+  institutionalFlow: {
+    foreignNet5d: number;      // 외국인 5일 순매수 (주)
+    institutionNet5d: number;  // 기관 5일 순매수 (주)
+    foreignConsecutive: number;// 외국인 연속 순매수 일수
+    isQuietAccumulation: boolean; // 소량 분할 매수 패턴
+  };
+  source: 'QUANT_SCREEN';     // 데이터 소스 구분
+}
+
+// ─── 불확실성 레짐 확장 (Extended Regime Classification) ──────────────────────
+
+/** 확장 레짐 분류 결과 */
+export interface ExtendedRegimeData extends EconomicRegimeData {
+  regime: EconomicRegime;
+  uncertaintyMetrics?: {
+    regimeClarity: number;       // 0-100 레짐 명확도 (낮을수록 불확실)
+    signalConflict: number;      // 0-100 신호 충돌도 (높을수록 혼조)
+    kospi60dVolatility: number;  // KOSPI 60일 변동성 (%)
+    leadingSectorCount: number;  // 명확한 주도 섹터 수 (0이면 주도주 부재)
+    foreignFlowDirection: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING'; // 외국인 수급 방향
+    correlationBreakdown: boolean; // 글로벌 상관관계 이탈 여부
+  };
+  systemAction: {
+    mode: 'NORMAL' | 'DEFENSIVE' | 'CASH_HEAVY' | 'FULL_STOP' | 'PAIR_TRADE';
+    cashRatio: number;           // 권장 현금 비중 (0-100%)
+    gateAdjustment: {
+      gate1Threshold: number;    // Gate 1 통과 기준 (기본 5)
+      gate2Required: number;     // Gate 2 필요 조건 수 (기본 9)
+      gate3Required: number;     // Gate 3 필요 조건 수 (기본 7)
+    };
+    message: string;             // 시스템 행동 설명
+  };
+}
+
+/** 글로벌 상관관계 매트릭스 */
+export interface GlobalCorrelationMatrix {
+  kospiSp500: number;          // KOSPI-S&P500 상관계수 (-1~1)
+  kospiNikkei: number;         // KOSPI-닛케이225
+  kospiShanghai: number;       // KOSPI-상해종합
+  kospiDxy: number;            // KOSPI-달러인덱스 (보통 음의 상관)
+  isDecoupling: boolean;       // 디커플링 감지 (상관계수 급락)
+  isGlobalSync: boolean;       // 글로벌 동조화 (상관계수 0.9+)
+  lastUpdated: string;
+}
+
+// ─── DART 공시 Pre-News 스크리너 ─────────────────────────────────────────────
+
+export type DartDisclosureType =
+  | 'LARGE_ORDER'        // 대규모 수주
+  | 'CAPEX'              // 유형자산 취득 (대규모 설비투자)
+  | 'INVESTMENT'         // 타법인 출자 (신사업 진출)
+  | 'CB_CHANGE'          // 전환사채 조건 변경
+  | 'OWNERSHIP_CHANGE'   // 최대주주 변경
+  | 'PATENT'             // 특허 취득/기술이전
+  | 'EARNINGS_JUMP'      // 분기 영업이익 급증 (아직 뉴스화 안 됨)
+  | 'BUYBACK'            // 자사주 취득 결정
+  | 'INSIDER_BUY'        // 임원/대주주 장내 매수
+  | 'TREASURY_CANCEL'    // 자사주 소각
+  | 'DIVIDEND_INCREASE'; // 배당 증가 결정
+
+export interface DartDisclosureSignal {
+  type: DartDisclosureType;
+  title: string;              // 공시 제목
+  date: string;               // 공시 일자 (ISO 8601)
+  significance: number;       // 0-10 중요도 점수
+  revenueImpact?: number;     // 매출 대비 영향 (%, 수주/CAPEX의 경우)
+  description: string;        // 공시 요약
+  dartUrl?: string;           // DART 원문 URL
+}
+
+export interface DartScreenerResult {
+  code: string;
+  name: string;
+  disclosures: DartDisclosureSignal[];
+  totalScore: number;          // 0-100 공시 종합 점수
+  preNewsScore: number;        // 0-10 뉴스 선행 점수 (공시 후 아직 뉴스 안 된 정도)
+  daysSinceDisclosure: number; // 가장 최근 주요 공시 이후 경과일
+  isActionable: boolean;       // 즉시 분석 가치 있는지 (48시간 이내 주요 공시)
+  lastUpdated: string;
+}
+
+// ─── 조용한 매집 감지기 (Silent Accumulation Detector) ────────────────────────
+
+export interface SilentAccumulationSignal {
+  type: 'VWAP_ABOVE_CLOSE'          // VWAP > 종가 & 거래량 감소 (Dark Pool 패턴)
+    | 'INSTITUTIONAL_QUIET_BUY'      // 기관 소량 분할 매수 (5일+ 연속)
+    | 'SHORT_DECREASE'               // 공매도 잔고 20일 감소율
+    | 'CALL_OI_SURGE'               // 콜옵션 미결제약정 급증 (섹터 ETF)
+    | 'INSIDER_BUY'                  // 대주주/임원 장내 매수 (DART)
+    | 'BUYBACK_ACTIVE'               // 자사주 매입 진행 중 (DART)
+    | 'PRICE_FLOOR_RISING';          // 하한선 상승 (저점이 점점 높아짐)
+  strength: number;                  // 0-10
+  description: string;
+  daysDetected: number;              // 신호 지속 일수
+}
+
+export interface SilentAccumulationResult {
+  code: string;
+  name: string;
+  signals: SilentAccumulationSignal[];
+  compositeScore: number;            // 0-100 종합 매집 점수
+  confidenceLevel: 'HIGH' | 'MEDIUM' | 'LOW';
+  estimatedAccumulationDays: number; // 추정 매집 기간 (일)
+  priceFloorTrend: 'RISING' | 'FLAT' | 'FALLING';
+  volumeTrend: 'DRYING' | 'STABLE' | 'INCREASING';
+  accumulationPhase: 'EARLY' | 'MID' | 'LATE' | 'NONE';
+  lastUpdated: string;
 }

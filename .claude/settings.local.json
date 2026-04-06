@@ -3,7 +3,10 @@
     "allow": [
       "Bash(npx tsc:*)",
       "Bash(node_modules/.bin/tsc --noEmit)",
-      "Bash(grep -l \"className=\" \"C:\\\\Users\\\\6217822\\\\OneDrive - Hyundai Motor and Kia\\\\바탕 화면\\\\quantmaster-pro\\\\quantmaster-pro-1\\\\src\\\\components\"/*.tsx)"
+      "Bash(grep -l \"className=\" \"C:\\\\Users\\\\6217822\\\\OneDrive - Hyundai Motor and Kia\\\\바탕 화면\\\\quantmaster-pro\\\\quantmaster-pro-1\\\\src\\\\components\"/*.tsx)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(node_modules/.bin/tsc.cmd --noEmit)",
+      "Bash(ls node_modules/.bin/tsc*)"
     ]
   }
 }
