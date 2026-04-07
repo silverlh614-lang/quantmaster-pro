@@ -37,6 +37,10 @@ interface SettingsState {
   setShowMasterChecklist: (show: boolean) => void;
   showEmailModal: boolean;
   setShowEmailModal: (show: boolean) => void;
+
+  // UI Panels
+  isFilterExpanded: boolean;
+  setIsFilterExpanded: (expanded: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -81,6 +85,10 @@ export const useSettingsStore = create<SettingsState>()(
       setShowMasterChecklist: (showMasterChecklist) => set({ showMasterChecklist }),
       showEmailModal: false,
       setShowEmailModal: (showEmailModal) => set({ showEmailModal }),
+
+      // UI Panels
+      isFilterExpanded: true,
+      setIsFilterExpanded: (isFilterExpanded) => set({ isFilterExpanded }),
     }),
     {
       name: 'k-stock-settings',

@@ -1,11 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-
-// Use any for complex external types to avoid circular import issues
-type MarketOverview = any;
-type MarketContext = any;
-type BacktestResult = any;
-type WalkForwardAnalysis = any;
+import type { MarketOverview, MarketContext, WalkForwardAnalysis } from '../services/stockService';
+import type { BacktestResult } from '../types/quant';
 
 interface SyncStatus {
   isSyncing: boolean;

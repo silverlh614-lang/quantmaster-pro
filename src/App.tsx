@@ -123,7 +123,6 @@ import { MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal, Stoc
 import { WalkForwardView } from './components/WalkForwardView';
 import { HeroChecklist } from './components/HeroChecklist';
 import { AnalysisViewToggle, AnalysisViewButtons } from './components/AnalysisViewToggle';
-import { useFilterPanelState } from './hooks/useFilterPanelState';
 import { useCopiedCode } from './hooks/useCopiedCode';
 import { PriceEditCell } from './components/PriceEditCell';
 import { QuantScreener } from './components/QuantScreener';
@@ -362,6 +361,7 @@ export default function App() {
     subscribedSectors, setSubscribedSectors,
     showSettings, setShowSettings,
     showMasterChecklist, setShowMasterChecklist,
+    isFilterExpanded, setIsFilterExpanded,
   } = useSettingsStore();
 
   // ── TanStack Query: 12개 글로벌 인텔리전스 자동 로딩 + 30분 캐시 + 자동 재시도 ──
@@ -381,7 +381,6 @@ export default function App() {
     // Apply a 5% conservative penalty to the average
     return Math.max(0, Math.round((total / itemsWithStrongBuy.length) * 0.95));
   }, [recommendationHistory]);
-  const { isFilterExpanded, setIsFilterExpanded } = useFilterPanelState();
   const analysisReportRef = useRef<HTMLDivElement>(null);
 
   // ── 탭별 동적 페이지 타이틀 ────────────────────────────────────────────────

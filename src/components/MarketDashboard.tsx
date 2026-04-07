@@ -470,7 +470,7 @@ export const MarketDashboard: React.FC<MarketDashboardProps> = ({ data, triageSu
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {data.globalEtfMonitoring?.map((etf, i) => {
               const displayLabel = etf.flow ?? (etf.signal === 'BUY' ? 'INFLOW' : etf.signal === 'SELL' ? 'OUTFLOW' : etf.signal ?? '');
-              const isInflow = displayLabel === 'INFLOW' || displayLabel === 'BUY';
+              const isInflow = displayLabel === 'INFLOW';
               const displayNote = etf.implication ?? etf.reason ?? '';
               return (
                 <div key={i} className="glass-3d p-6 rounded-[2rem] border border-white/10 hover:bg-white/[0.05] transition-all">
