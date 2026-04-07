@@ -16,6 +16,8 @@ interface SyncStatus {
   lastSyncTime: string | null;
 }
 
+type Updater<T> = T | ((prev: T) => T);
+
 interface MarketState {
   // Market Overview
   marketOverview: MarketOverview | null;
@@ -35,7 +37,7 @@ interface MarketState {
 
   // Backtest
   backtestPortfolioItems: { name: string; code: string; weight: number }[];
-  setBacktestPortfolioItems: (items: { name: string; code: string; weight: number }[]) => void;
+  setBacktestPortfolioItems: (v: Updater<{ name: string; code: string; weight: number }[]>) => void;
   addToBacktest: (stock: { name: string; code: string }) => void;
   removeFromBacktest: (code: string) => void;
   updateWeight: (code: string, weight: number) => void;
@@ -56,7 +58,7 @@ interface MarketState {
 
   // Portfolios
   portfolios: Portfolio[];
-  setPortfolios: (portfolios: Portfolio[]) => void;
+  setPortfolios: (v: Updater<Portfolio[]>) => void;
   addPortfolio: (portfolio: Portfolio) => void;
   deletePortfolio: (id: string) => void;
   updatePortfolio: (id: string, updates: Partial<Portfolio>) => void;
@@ -101,7 +103,7 @@ export const useMarketStore = create<MarketState>()(
 
       // Backtest
       backtestPortfolioItems: [],
-      setBacktestPortfolioItems: (backtestPortfolioItems) => set({ backtestPortfolioItems }),
+      setBacktestPortfolioItems: (v) => set((s) => ({ backtestPortfolioItems: typeof v === 'function' ? v(s.backtestPortfolioItems) : v })),
       addToBacktest: (stock) => set((state) => {
         if (state.backtestPortfolioItems.some(i => i.code === stock.code)) return state;
         const totalWeight = state.backtestPortfolioItems.reduce((s, i) => s + i.weight, 0);
@@ -137,7 +139,7 @@ export const useMarketStore = create<MarketState>()(
 
       // Portfolios
       portfolios: [],
-      setPortfolios: (portfolios) => set({ portfolios }),
+      setPortfolios: (v) => set((s) => ({ portfolios: typeof v === 'function' ? v(s.portfolios) : v })),
       addPortfolio: (portfolio) => set((state) => ({ portfolios: [...state.portfolios, portfolio] })),
       deletePortfolio: (id) => set((state) => ({
         portfolios: state.portfolios.filter((p: Portfolio) => p.id !== id),

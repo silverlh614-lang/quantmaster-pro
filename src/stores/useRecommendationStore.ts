@@ -13,27 +13,29 @@ interface StockFilters {
   minMarketCap?: number;
 }
 
+type Updater<T> = T | ((prev: T) => T);
+
 interface RecommendationState {
   // Stock Data
   recommendations: StockRecommendation[];
-  setRecommendations: (stocks: StockRecommendation[]) => void;
+  setRecommendations: (v: Updater<StockRecommendation[]>) => void;
   updateRecommendation: (code: string, updates: Partial<StockRecommendation>) => void;
 
   // Watchlist
   watchlist: StockRecommendation[];
   toggleWatchlist: (stock: StockRecommendation) => void;
-  setWatchlist: (stocks: StockRecommendation[]) => void;
+  setWatchlist: (v: Updater<StockRecommendation[]>) => void;
   isWatched: (code: string) => boolean;
 
   // Search & Screener
   searchResults: StockRecommendation[];
-  setSearchResults: (results: StockRecommendation[]) => void;
+  setSearchResults: (v: Updater<StockRecommendation[]>) => void;
   screenerRecommendations: StockRecommendation[];
-  setScreenerRecommendations: (results: StockRecommendation[]) => void;
+  setScreenerRecommendations: (v: Updater<StockRecommendation[]>) => void;
 
   // Filters
   filters: StockFilters;
-  setFilters: (filters: StockFilters) => void;
+  setFilters: (v: Updater<StockFilters>) => void;
   selectedType: string;
   setSelectedType: (type: string) => void;
   selectedPattern: string;
@@ -41,7 +43,7 @@ interface RecommendationState {
   selectedSentiment: string;
   setSelectedSentiment: (sentiment: string) => void;
   selectedChecklist: string[];
-  setSelectedChecklist: (checklist: string[]) => void;
+  setSelectedChecklist: (v: Updater<string[]>) => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   minPrice: string;
@@ -55,7 +57,7 @@ interface RecommendationState {
 
   // Deep Analysis
   deepAnalysisStock: StockRecommendation | null;
-  setDeepAnalysisStock: (stock: StockRecommendation | null) => void;
+  setDeepAnalysisStock: (v: Updater<StockRecommendation | null>) => void;
   selectedDetailStock: StockRecommendation | null;
   setSelectedDetailStock: (stock: StockRecommendation | null) => void;
   analysisView: 'STANDARD' | 'QUANT';
@@ -63,7 +65,7 @@ interface RecommendationState {
 
   // Trade Journal
   tradeRecords: TradeRecord[];
-  setTradeRecords: (records: TradeRecord[]) => void;
+  setTradeRecords: (v: Updater<TradeRecord[]>) => void;
   recordTrade: (trade: TradeRecord) => void;
   closeTrade: (tradeId: string, sellPrice: number, sellReason: TradeRecord['sellReason']) => void;
   deleteTrade: (tradeId: string) => void;
@@ -71,11 +73,12 @@ interface RecommendationState {
   tradeRecordStock: StockRecommendation | null;
   setTradeRecordStock: (stock: StockRecommendation | null) => void;
   tradeFormData: { buyPrice: string; quantity: string; positionSize: string; followedSystem: boolean };
-  setTradeFormData: (data: { buyPrice: string; quantity: string; positionSize: string; followedSystem: boolean }) => void;
+  setTradeFormData: (v: Updater<{ buyPrice: string; quantity: string; positionSize: string; followedSystem: boolean }>) => void;
 
   // History
-  recommendationHistory: { date: string; stocks: number; hitRate: number; strongBuyHitRate: number }[];
-  addHistoryEntry: (entry: { date: string; stocks: number; hitRate: number; strongBuyHitRate: number }) => void;
+  recommendationHistory: { date: string; stocks: string[]; hitRate: number; strongBuyHitRate?: number }[];
+  setRecommendationHistory: (v: Updater<{ date: string; stocks: string[]; hitRate: number; strongBuyHitRate?: number }[]>) => void;
+  addHistoryEntry: (entry: { date: string; stocks: string[]; hitRate: number; strongBuyHitRate?: number }) => void;
 
   // Loading / metadata
   loading: boolean;
@@ -91,7 +94,7 @@ export const useRecommendationStore = create<RecommendationState>()(
     (set, get) => ({
       // Stock Data
       recommendations: [],
-      setRecommendations: (recommendations) => set({ recommendations }),
+      setRecommendations: (v) => set((s) => ({ recommendations: typeof v === 'function' ? v(s.recommendations) : v })),
       updateRecommendation: (code, updates) => set((state) => ({
         recommendations: state.recommendations.map((s: StockRecommendation) =>
           s.code === code ? { ...s, ...updates } : s
@@ -111,18 +114,18 @@ export const useRecommendationStore = create<RecommendationState>()(
           }],
         };
       }),
-      setWatchlist: (watchlist) => set({ watchlist }),
+      setWatchlist: (v) => set((s) => ({ watchlist: typeof v === 'function' ? v(s.watchlist) : v })),
       isWatched: (code) => get().watchlist.some((s: StockRecommendation) => s.code === code),
 
       // Search & Screener
       searchResults: [],
-      setSearchResults: (searchResults) => set({ searchResults }),
+      setSearchResults: (v) => set((s) => ({ searchResults: typeof v === 'function' ? v(s.searchResults) : v })),
       screenerRecommendations: [],
-      setScreenerRecommendations: (screenerRecommendations) => set({ screenerRecommendations }),
+      setScreenerRecommendations: (v) => set((s) => ({ screenerRecommendations: typeof v === 'function' ? v(s.screenerRecommendations) : v })),
 
       // Filters
       filters: { mode: 'MOMENTUM' },
-      setFilters: (filters) => set({ filters }),
+      setFilters: (v) => set((s) => ({ filters: typeof v === 'function' ? v(s.filters) : v })),
       selectedType: 'ALL',
       setSelectedType: (selectedType) => set({ selectedType }),
       selectedPattern: 'ALL',
@@ -130,7 +133,7 @@ export const useRecommendationStore = create<RecommendationState>()(
       selectedSentiment: 'ALL',
       setSelectedSentiment: (selectedSentiment) => set({ selectedSentiment }),
       selectedChecklist: [],
-      setSelectedChecklist: (selectedChecklist) => set({ selectedChecklist }),
+      setSelectedChecklist: (v) => set((s) => ({ selectedChecklist: typeof v === 'function' ? v(s.selectedChecklist) : v })),
       searchQuery: '',
       setSearchQuery: (searchQuery) => set({ searchQuery }),
       minPrice: '',
@@ -144,7 +147,7 @@ export const useRecommendationStore = create<RecommendationState>()(
 
       // Deep Analysis
       deepAnalysisStock: null,
-      setDeepAnalysisStock: (deepAnalysisStock) => set({ deepAnalysisStock }),
+      setDeepAnalysisStock: (v) => set((s) => ({ deepAnalysisStock: typeof v === 'function' ? v(s.deepAnalysisStock) : v })),
       selectedDetailStock: null,
       setSelectedDetailStock: (selectedDetailStock) => set({ selectedDetailStock }),
       analysisView: 'STANDARD',
@@ -152,7 +155,7 @@ export const useRecommendationStore = create<RecommendationState>()(
 
       // Trade Journal
       tradeRecords: [],
-      setTradeRecords: (tradeRecords) => set({ tradeRecords }),
+      setTradeRecords: (v) => set((s) => ({ tradeRecords: typeof v === 'function' ? v(s.tradeRecords) : v })),
       recordTrade: (trade) => set((state) => ({
         tradeRecords: [...state.tradeRecords, trade],
       })),
@@ -173,10 +176,11 @@ export const useRecommendationStore = create<RecommendationState>()(
       tradeRecordStock: null,
       setTradeRecordStock: (tradeRecordStock) => set({ tradeRecordStock }),
       tradeFormData: { buyPrice: '', quantity: '', positionSize: '10', followedSystem: true },
-      setTradeFormData: (tradeFormData) => set({ tradeFormData }),
+      setTradeFormData: (v) => set((s) => ({ tradeFormData: typeof v === 'function' ? v(s.tradeFormData) : v })),
 
       // History
       recommendationHistory: [],
+      setRecommendationHistory: (v) => set((s) => ({ recommendationHistory: typeof v === 'function' ? v(s.recommendationHistory) : v })),
       addHistoryEntry: (entry) => set((state) => ({
         recommendationHistory: [...state.recommendationHistory.slice(-29), entry],
       })),

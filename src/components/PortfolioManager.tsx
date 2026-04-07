@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { PortfolioPieChart } from './PortfolioPieChart';
-import { 
-  Plus, 
-  Trash2, 
-  Save, 
-  Folder, 
-  BarChart3, 
-  Clock, 
-  Edit2, 
-  X, 
+import { PortfolioComparison } from './PortfolioComparison';
+import {
+  Plus,
+  Trash2,
+  Save,
+  Folder,
+  BarChart3,
+  Clock,
+  Edit2,
+  X,
   Check,
   ArrowRightLeft,
   Layers,
@@ -30,7 +31,6 @@ interface PortfolioManagerProps {
   onSave: (name: string, description?: string) => void;
   onDelete: (id: string) => void;
   onUpdate: (id: string, name: string, description?: string) => void;
-  onCompare: (ids: string[]) => void;
 }
 
 export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
@@ -40,7 +40,6 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
   onSave,
   onDelete,
   onUpdate,
-  onCompare
 }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [newName, setNewName] = useState('');
@@ -50,6 +49,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
   const [editDesc, setEditDesc] = useState('');
   const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
   const [showCompareMode, setShowCompareMode] = useState(false);
+  const [comparingPortfolioIds, setComparingPortfolioIds] = useState<string[] | null>(null);
 
   const handleSave = () => {
     if (!newName.trim()) return;
@@ -294,7 +294,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
           className="fixed bottom-12 left-1/2 -translate-x-1/2 z-50"
         >
           <button
-            onClick={() => onCompare(selectedForCompare)}
+            onClick={() => setComparingPortfolioIds(selectedForCompare)}
             className="flex items-center gap-4 bg-indigo-500 hover:bg-indigo-600 text-white px-12 py-5 rounded-[2.5rem] font-black text-lg transition-all shadow-[0_20px_50px_rgba(99,102,241,0.4)] active:scale-95"
           >
             <BarChart3 className="w-6 h-6" />
@@ -302,6 +302,15 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
           </button>
         </motion.div>
       )}
+
+      <AnimatePresence>
+        {comparingPortfolioIds && (
+          <PortfolioComparison
+            portfolios={(portfolios || []).filter(p => comparingPortfolioIds.includes(p.id))}
+            onClose={() => setComparingPortfolioIds(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
