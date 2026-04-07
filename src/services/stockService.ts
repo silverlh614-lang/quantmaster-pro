@@ -2062,7 +2062,6 @@ export async function syncStockPriceKIS(stock: StockRecommendation): Promise<Sto
     currentPrice,
     dataSourceType: 'REALTIME',
     priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (KIS 실시간)`,
-    lastUpdated: new Date().toISOString(),
   };
 }
 

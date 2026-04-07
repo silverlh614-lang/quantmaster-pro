@@ -275,6 +275,9 @@ const demoStockData: Record<number, number> = {
 };
 
 import { MarketTicker } from './components/MarketTicker';
+import { TradingChecklist } from './components/TradingChecklist';
+import { useShadowTradeStore } from './stores/useShadowTradeStore';
+import { buildShadowTrade } from './services/autoTrading';
 
 // ── Zustand Stores ─────────────────────────────────────────────────────────
 import { useSettingsStore, useGlobalIntelStore, useRecommendationStore, useMarketStore, useTradeStore, useAnalysisStore, usePortfolioStore } from './stores';
@@ -363,6 +366,9 @@ export default function App() {
     showMasterChecklist, setShowMasterChecklist,
     isFilterExpanded, setIsFilterExpanded,
   } = useSettingsStore();
+
+  // Shadow Trading 스토어
+  const { addShadowTrade, shadowTrades, winRate, avgReturn } = useShadowTradeStore();
 
   // ── TanStack Query: 12개 글로벌 인텔리전스 자동 로딩 + 30분 캐시 + 자동 재시도 ──
   const globalIntelQueries = useAllGlobalIntel();
@@ -2240,6 +2246,27 @@ export default function App() {
               <ShieldCheck className="w-3.5 h-3.5" />
               <span className="hidden md:inline">체크리스트</span>
             </button>
+
+            <button
+              onClick={() => { setView('AUTO_TRADE'); setSearchQuery(''); }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap shrink-0",
+                view === 'AUTO_TRADE'
+                  ? "bg-violet-500/20 text-violet-400 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.3)]"
+                  : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+              )}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">자동매매</span>
+              {shadowTrades.length > 0 && (
+                <span className={cn(
+                  "text-[9px] px-1.5 py-0.5 rounded-md font-black",
+                  view === 'AUTO_TRADE' ? "bg-violet-500/30 text-violet-300" : "bg-white/10 text-white/40"
+                )}>
+                  {shadowTrades.length}
+                </span>
+              )}
+            </button>
           </nav>
 
           {/* ── Right: status + settings ── */}
@@ -2413,6 +2440,36 @@ export default function App() {
                   sectorLeaderNewHigh: true
                 }}
               />
+            </motion.div>
+          ) : view === 'AUTO_TRADE' ? (
+            <motion.div
+              key="auto-trade-view"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-black text-white uppercase tracking-tighter">자동매매 센터</h2>
+                  <p className="text-xs text-white/30 mt-1">KIS 모의계좌 연동 · Shadow Trading · OCO 자동 등록</p>
+                </div>
+                <div className="flex gap-3 text-center">
+                  <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-2">
+                    <p className="text-[10px] text-white/30 uppercase tracking-widest">Shadow 건수</p>
+                    <p className="text-xl font-black text-violet-400">{shadowTrades.length}</p>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-2">
+                    <p className="text-[10px] text-white/30 uppercase tracking-widest">적중률</p>
+                    <p className="text-xl font-black text-green-400">{winRate()}%</p>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-2">
+                    <p className="text-[10px] text-white/30 uppercase tracking-widest">평균수익</p>
+                    <p className={cn("text-xl font-black", avgReturn() >= 0 ? "text-green-400" : "text-red-400")}>{avgReturn().toFixed(2)}%</p>
+                  </div>
+                </div>
+              </div>
+              <TradingChecklist />
             </motion.div>
           ) : view === 'TRADE_JOURNAL' ? (
             <motion.div
@@ -4909,6 +4966,27 @@ export default function App() {
                             >
                               <Plus className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
                             </button>
+                            {(stock.type === 'STRONG_BUY' || stock.type === 'BUY') && (
+                              <button
+                                onClick={() => {
+                                  const totalAssets = 100_000_000; // 기본 1억 (모의계좌 초기자금)
+                                  const mockSignal = {
+                                    positionSize: stock.type === 'STRONG_BUY' ? 20 : 10,
+                                    rrr: 2,
+                                    lastTrigger: stock.type === 'STRONG_BUY',
+                                    recommendation: stock.type === 'STRONG_BUY' ? '풀 포지션' : '절반 포지션',
+                                    profile: { stopLoss: -8 },
+                                  } as any;
+                                  const trade = buildShadowTrade(mockSignal, stock.code, stock.name, stock.currentPrice || stock.entryPrice || 0, totalAssets);
+                                  addShadowTrade(trade);
+                                  setView('AUTO_TRADE');
+                                }}
+                                className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-violet-500/30 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 active:scale-90 shadow-sm"
+                                title="Shadow Trading 등록"
+                              >
+                                <Zap className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
 

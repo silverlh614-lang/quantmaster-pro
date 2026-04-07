@@ -128,8 +128,12 @@ export function buildShadowTrade(
     shadowEntryPrice,
     quantity,
     kellyFraction,
-    stopLoss: signal.profile?.stopLoss ?? Math.round(shadowEntryPrice * 0.92),
-    targetPrice: signal.profile?.targetPrice ?? Math.round(shadowEntryPrice * (1 + signal.rrr * 0.08)),
+    // profile.stopLoss는 퍼센트값(-15 → -15%). 없으면 -8% 기본값 사용
+    stopLoss: signal.profile?.stopLoss != null
+      ? Math.round(shadowEntryPrice * (1 + signal.profile.stopLoss / 100))
+      : Math.round(shadowEntryPrice * 0.92),
+    // profile에 targetPrice 없음 → RRR 기반 계산
+    targetPrice: Math.round(shadowEntryPrice * (1 + signal.rrr * 0.08)),
     status: 'PENDING',
   };
 }
@@ -142,6 +146,8 @@ export function resolveShadowTrade(
   trade: ShadowTrade,
   currentPrice: number
 ): Partial<ShadowTrade> {
+  // PENDING → ACTIVE: 다음 tick에 체결 진입으로 간주
+  if (trade.status === 'PENDING') return { status: 'ACTIVE' };
   if (trade.status !== 'ACTIVE') return {};
 
   if (currentPrice >= trade.targetPrice) {

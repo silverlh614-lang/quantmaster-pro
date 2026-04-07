@@ -895,6 +895,7 @@ export function evaluateStock(
     enemyChecklistEnhanced: enemyEnhanced,
     dataReliability,
     signalVerdict,
+    conditionScores: stockData as Record<ConditionId, number>,
   };
 }
 

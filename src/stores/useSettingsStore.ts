@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-type View = 'DISCOVER' | 'WATCHLIST' | 'BACKTEST' | 'MARKET' | 'WALK_FORWARD' | 'MANUAL_INPUT' | 'SCREENER' | 'SUBSCRIPTION' | 'TRADE_JOURNAL';
+type View = 'DISCOVER' | 'WATCHLIST' | 'BACKTEST' | 'MARKET' | 'WALK_FORWARD' | 'MANUAL_INPUT' | 'SCREENER' | 'SUBSCRIPTION' | 'TRADE_JOURNAL' | 'AUTO_TRADE';
 
 interface SettingsState {
   // Navigation

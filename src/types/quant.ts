@@ -305,6 +305,7 @@ export interface EvaluationResult {
   enemyChecklistEnhanced?: EnemyChecklistEnhanced;
   dataReliability?: DataReliability;
   signalVerdict?: SignalVerdict;
+  conditionScores?: Record<ConditionId, number>; // 27조건 점수 스냅샷 (귀인 분석용)
 }
 
 export interface SectorRotation {
