@@ -215,6 +215,125 @@ export async function registerOCOAfterFill(trade: FilledOrder): Promise<{
   return { stopLossOrder, targetOrder };
 }
 
+// ─── 아이디어 2: 체결 확인 루프 (Fill Confirmation Loop) ───────────────────────
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** KIS 체결 내역 조회 → 체결/미체결 수량 반환 */
+async function checkOrderStatus(orderId: string): Promise<{ filled: number; total: number }> {
+  const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+  const data = await kisProxy({
+    path: '/uapi/domestic-stock/v1/trading/inquire-daily-ccld',
+    method: 'GET',
+    headers: { tr_id: isReal() ? 'TTTC8001R' : 'VTTC8001R' },
+    params: {
+      CANO: import.meta.env.VITE_KIS_ACCOUNT_NO ?? '',
+      ACNT_PRDT_CD: import.meta.env.VITE_KIS_ACCOUNT_PROD ?? '01',
+      INQR_STRT_DT: today,
+      INQR_END_DT: today,
+      SLL_BUY_DVSN_CD: '00',
+      INQR_DVSN: '00',
+      PDNO: '',
+      CCLD_DVSN: '00',
+      ORD_GNO_BRNO: '',
+      ODNO: orderId,
+      INQR_DVSN_3: '00',
+      INQR_DVSN_1: '',
+      CTX_AREA_FK100: '',
+      CTX_AREA_NK100: '',
+    },
+  });
+  const record = (data.output1 as any[])?.[0];
+  if (!record) return { filled: 0, total: 0 };
+  return {
+    filled: parseInt(record.tot_ccld_qty ?? '0', 10),
+    total:  parseInt(record.ord_qty       ?? '0', 10),
+  };
+}
+
+/** 미체결 주문 취소 */
+async function cancelOrder(orderId: string, stockCode: string, originalQty: string): Promise<void> {
+  await kisProxy({
+    path: '/uapi/domestic-stock/v1/trading/order-rvsecncl',
+    method: 'POST',
+    headers: { tr_id: isReal() ? 'TTTC0803U' : 'VTTC0803U' },
+    body: {
+      CANO: import.meta.env.VITE_KIS_ACCOUNT_NO ?? '',
+      ACNT_PRDT_CD: import.meta.env.VITE_KIS_ACCOUNT_PROD ?? '01',
+      KRX_FWDG_ORD_ORGNO: '',
+      ORGN_ODNO: orderId,
+      ORD_DVSN: '00',
+      RVSE_CNCL_DVSN_CD: '02', // 02=취소
+      ORD_QTY: originalQty,
+      ORD_UNPR: '0',
+      QTY_ALL_ORD_YN: 'Y',
+      PDNO: stockCode,
+    } as Record<string, string>,
+  });
+  console.log(`[KIS 주문 취소] ODNO: ${orderId}`);
+}
+
+/**
+ * 주문 실행 + 체결 확인 폴링 (아이디어 2)
+ *
+ * 1. 주문 전송 → ODNO 수신
+ * 2. 3초 간격으로 체결 수량 폴링 (최대 maxWaitSeconds)
+ * 3. 완전 체결 → 'FILLED' + OCO 자동 등록
+ * 4. 타임아웃 → 잔량 취소 → 'TIMEOUT'
+ */
+export async function placeAndConfirmOrder(
+  params: KISOrderParams,
+  stockName: string,
+  rrr: number,
+  maxWaitSeconds = 30,
+): Promise<'FILLED' | 'PARTIAL' | 'REJECTED' | 'TIMEOUT'> {
+  const orderResult = await placeKISOrder(params);
+  const orderId = (orderResult as any)?.output?.ODNO as string | undefined;
+
+  if (!orderId) {
+    console.error('[체결확인] ODNO 없음 — 주문 거부 또는 오류:', orderResult);
+    return 'REJECTED';
+  }
+
+  console.log(`[체결확인] 주문 접수 ODNO: ${orderId} — 폴링 시작 (최대 ${maxWaitSeconds}s)`);
+
+  const polls = Math.floor(maxWaitSeconds / 3);
+  let lastFilled = 0;
+
+  for (let i = 0; i < polls; i++) {
+    await sleep(3000);
+    const { filled, total } = await checkOrderStatus(orderId);
+    lastFilled = filled;
+
+    if (total > 0 && filled >= total) {
+      console.log(`[체결확인] ✅ 완전 체결 ${filled}/${total}주 — OCO 등록 시작`);
+      // 체결 직후 손절/목표가 OCO 등록 (아이디어 6)
+      await registerOCOAfterFill({
+        stockCode: params.PDNO,
+        stockName,
+        executedPrice: parseInt(params.ORD_UNPR || '0', 10) || 0,
+        quantity: filled,
+        rrr,
+      }).catch((e) => console.error('[OCO 등록 실패]', e));
+      return 'FILLED';
+    }
+    if (filled > 0) {
+      console.log(`[체결확인] 부분 체결 중 ${filled}/${total}주 ...`);
+    }
+  }
+
+  // 타임아웃 — 잔량 취소
+  if (lastFilled === 0) {
+    await cancelOrder(orderId, params.PDNO, params.ORD_QTY).catch(console.error);
+    console.warn(`[체결확인] ⏱ 타임아웃 — 주문 취소 완료`);
+    return 'TIMEOUT';
+  }
+
+  // 부분 체결 상태에서 타임아웃
+  console.warn(`[체결확인] ⚠ 부분 체결(${lastFilled}주) 후 타임아웃`);
+  return 'PARTIAL';
+}
+
 // ─── 아이디어 7: 장중 타임 필터 + 주문 큐 ──────────────────────────────────────
 
 /** 한국 장 최적 매수 시간대 여부 확인 (KST 10:00~11:30, 13:00~14:00) */

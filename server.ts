@@ -7,6 +7,16 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+import cron from "node-cron";
+import {
+  runAutoSignalScan,
+  refreshKisToken,
+  generateDailyReport,
+  loadWatchlist,
+  saveWatchlist,
+  getShadowTrades,
+  type WatchlistEntry,
+} from "./src/server/autoTradeEngine.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -220,7 +230,7 @@ async function startServer() {
   });
 
   // [KIS-0] 토큰 상태 확인 (체크리스트 Step 1)
-  app.get('/api/kis/token-status', async (req: any, res: any) => {
+  app.get('/api/kis/token-status', async (_req: any, res: any) => {
     if (!process.env.KIS_APP_KEY) return res.json({ valid: false, reason: 'KIS_APP_KEY 미설정' });
     try {
       const token = await getKisToken();
@@ -232,7 +242,7 @@ async function startServer() {
   });
 
   // [KIS-Balance] 모의계좌 잔고 조회 (체크리스트 Step 3)
-  app.get('/api/kis/balance', async (req: any, res: any) => {
+  app.get('/api/kis/balance', async (_req: any, res: any) => {
     if (!process.env.KIS_APP_KEY) return res.status(500).json({ error: 'KIS_APP_KEY 미설정' });
     try {
       const isReal = process.env.KIS_IS_REAL === 'true';
@@ -408,13 +418,87 @@ async function startServer() {
     console.log(`Serving static files from: ${distPath}`);
         
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // 자동매매 워치리스트 REST API
+  // ─────────────────────────────────────────────────────────────
+
+  app.get('/api/auto-trade/watchlist', (_req: Request, res: Response) => {
+    res.json(loadWatchlist());
+  });
+
+  app.post('/api/auto-trade/watchlist', (req: Request, res: Response) => {
+    const entry: WatchlistEntry = req.body;
+    if (!entry.code || !entry.name) {
+      return res.status(400).json({ error: 'code, name 필수' });
+    }
+    const list = loadWatchlist();
+    const idx = list.findIndex((e) => e.code === entry.code);
+    if (idx >= 0) list[idx] = entry; else list.push({ ...entry, addedAt: new Date().toISOString() });
+    saveWatchlist(list);
+    res.json({ ok: true, count: list.length });
+  });
+
+  app.delete('/api/auto-trade/watchlist/:code', (req: Request, res: Response) => {
+    const list = loadWatchlist().filter((e) => e.code !== req.params.code);
+    saveWatchlist(list);
+    res.json({ ok: true, count: list.length });
+  });
+
+  app.get('/api/auto-trade/shadow-trades', (_req: Request, res: Response) => {
+    res.json(getShadowTrades());
+  });
+
+  // 즉시 수동 스캔 트리거 (체크리스트 Step 6 등에서 호출)
+  app.post('/api/auto-trade/scan', async (_req: Request, res: Response) => {
+    if (process.env.AUTO_TRADE_ENABLED !== 'true') {
+      return res.status(403).json({ error: 'AUTO_TRADE_ENABLED=true 필요' });
+    }
+    try {
+      await runAutoSignalScan();
+      res.json({ ok: true, ts: new Date().toISOString() });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+
+    // ─── 아이디어 1: 서버사이드 cron 자동매매 스케줄러 ───────────────────────
+    if (process.env.AUTO_TRADE_ENABLED !== 'true') {
+      console.log('[AutoTrade] 비활성화 상태 (AUTO_TRADE_ENABLED=true 로 켜세요)');
+      return;
+    }
+
+    // 장 시작 전 워밍업 — 08:55 KST (UTC 23:55 전날)
+    cron.schedule('55 23 * * 0-4', async () => {
+      console.log('[AutoTrade] 장 전 워밍업 시작 (KST 08:55)');
+      await refreshKisToken().catch(console.error);
+    }, { timezone: 'UTC' });
+
+    // 장중 신호 스캔 — 평일 09:05 ~ 15:25, 5분 간격 (KST = UTC+9)
+    // UTC 00:05~06:25 → cron: */5 0-6 * * 1-5 (대략, 세밀 제어는 함수 내부에서)
+    cron.schedule('*/5 0-6 * * 1-5', async () => {
+      // KST 타임 계산으로 실제 유효 구간 확인
+      const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+      const h = kst.getUTCHours(), m = kst.getUTCMinutes();
+      const t = h * 100 + m;
+      if (t < 905 || t > 1525) return; // 09:05 ~ 15:25 KST 외 제외
+      await runAutoSignalScan().catch(console.error);
+    }, { timezone: 'UTC' });
+
+    // 장 마감 후 일일 리포트 이메일 — 16:00 KST (UTC 07:00)
+    cron.schedule('0 7 * * 1-5', async () => {
+      console.log('[AutoTrade] 일일 리포트 생성 중 (KST 16:00)');
+      await generateDailyReport().catch(console.error);
+    }, { timezone: 'UTC' });
+
+    console.log('[AutoTrade] 크론 스케줄러 가동 완료 (장중 5분 간격 / 일일 리포트)');
   });
 }
 

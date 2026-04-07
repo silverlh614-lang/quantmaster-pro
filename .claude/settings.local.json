@@ -20,7 +20,8 @@
       "Bash(node_modules/.bin/tsc --noEmit --skipLibCheck)",
       "Bash(sort -t'\\(' -k2 -n)",
       "Bash(grep -v \"^.*//.*useState\")",
-      "Bash(grep -v \"//.*useState\")"
+      "Bash(grep -v \"//.*useState\")",
+      "Bash(grep -v \"^.*//.*req\")"
     ]
   }
 }
