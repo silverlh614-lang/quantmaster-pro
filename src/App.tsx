@@ -5725,6 +5725,10 @@ export default function App() {
                       economicRegime: extendedRegimeData?.regime ?? economicRegimeData?.regime,
                       supplyChain: supplyChainData ?? undefined,
                       financialStress: financialStressData ?? undefined,
+                      // 판단엔진 고도화 입력: 뉴스 빈도 → 사이클 위치
+                      newsPhase: (newsFrequencyScores.find((n: any) => n.code === deepAnalysisStock.code)?.phase) as any ?? undefined,
+                      // 촉매 설명 텍스트 → 촉매 등급 A/B/C
+                      catalystDescription: deepAnalysisStock.reason,
                     },
                     {
                       kospi60dVolatility: extendedRegimeData?.uncertaintyMetrics?.kospi60dVolatility,

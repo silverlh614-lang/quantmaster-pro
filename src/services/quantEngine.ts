@@ -445,6 +445,21 @@ export function evaluateStock(
     economicRegime?: EconomicRegime;
     supplyChain?: SupplyChainIntelligence;
     financialStress?: FinancialStressIndex;
+    // 판단엔진 고도화 입력
+    newsPhase?: 'SILENT' | 'EARLY' | 'GROWING' | 'CROWDED' | 'OVERHYPED';
+    weeklyRsiValues?: number[];           // 최근 3주 RSI [45, 52, 62]
+    institutionalAmounts?: number[];      // 최근 5일 기관 순매수 금액
+    volumeTrend?: 'INCREASING' | 'STABLE' | 'DECREASING';
+    catalystDescription?: string;         // 촉매 설명 텍스트
+    enemyFlags?: Partial<{
+      lockupExpiringSoon: boolean;
+      majorShareholderSelling: boolean;
+      creditBalanceSurge: boolean;
+      shortInterestSurge: boolean;
+      targetPriceDowngrade: boolean;
+      fundMaturityDue: boolean;
+      clientPerformanceWeak: boolean;
+    }>;
   },
   extendedRegimeOptions?: {
     kospi60dVolatility?: number;
@@ -789,20 +804,24 @@ export function evaluateStock(
   // 합치 스코어 (4축)
   const confluence = computeConfluence(stockData, gate0Result, advancedContext);
 
-  // 사이클 위치
+  // 사이클 위치 — newsPhase를 advancedContext에서 가져옴 (없으면 GROWING 기본값)
   const cycleAnalysis = classifyCyclePosition(
     sectorRotation.rank ?? 50,
-    'GROWING',  // 기본값 — 뉴스 빈도 데이터 있을 때 오버라이드
+    advancedContext?.newsPhase ?? 'GROWING',
   );
 
-  // 촉매 등급
-  const catalystAnalysis = gradeCatalyst(stockData[27] ?? 0);
+  // 촉매 등급 — 촉매 설명 텍스트로 A/B/C 분류
+  const catalystAnalysis = gradeCatalyst(stockData[27] ?? 0, advancedContext?.catalystDescription);
 
-  // 모멘텀 가속도 (기본값 — 실데이터 있을 때 오버라이드)
-  const momentumAcc = analyzeMomentumAcceleration([], [], 'STABLE');
+  // 모멘텀 가속도 — 주봉 RSI 3주 추이 + 기관 순매수 금액 추이
+  const momentumAcc = analyzeMomentumAcceleration(
+    advancedContext?.weeklyRsiValues ?? [],
+    advancedContext?.institutionalAmounts ?? [],
+    advancedContext?.volumeTrend ?? 'STABLE',
+  );
 
-  // 강화된 적의 체크리스트
-  const enemyEnhanced = evaluateEnemyChecklist(enemyChecklist, {});
+  // 강화된 적의 체크리스트 — 7항목 역검증 플래그
+  const enemyEnhanced = evaluateEnemyChecklist(enemyChecklist, advancedContext?.enemyFlags ?? {});
 
   // 데이터 신뢰도
   const dataReliability = computeDataReliability(stockData);
