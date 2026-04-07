@@ -137,6 +137,10 @@ import { SectorSubscription } from './components/SectorSubscription';
 import { StockDetailModal } from './components/StockDetailModal';
 import { TradeJournal, computeConditionPerformance } from './components/TradeJournal';
 import { saveEvolutionWeights } from './services/quantEngine';
+import { CandleChart } from './components/CandleChart';
+import { MHSHistoryChart, loadMHSHistory, saveMHSRecord } from './components/MHSHistoryChart';
+import type { MHSRecord } from './components/MHSHistoryChart';
+import { IntelligenceRadar } from './components/IntelligenceRadar';
 import { 
   LineChart, 
   Line, 
@@ -434,6 +438,7 @@ export default function App() {
   });
   const [tradeRecordStock, setTradeRecordStock] = useState<StockRecommendation | null>(null);
   const [tradeFormData, setTradeFormData] = useState({ buyPrice: '', quantity: '', positionSize: '10', followedSystem: true });
+  const [mhsHistory, setMhsHistory] = useState<MHSRecord[]>(() => loadMHSHistory());
 
   useEffect(() => {
     if ('Notification' in window && Notification.permission !== 'granted') {
@@ -470,6 +475,23 @@ export default function App() {
       if (sectorOrder.status === 'fulfilled') setSectorOrderData(sectorOrder.value);
       if (fsi.status === 'fulfilled') setFinancialStressData(fsi.value);
       if (fomc.status === 'fulfilled') setFomcSentimentData(fomc.value);
+
+      // MHS 히스토리 자동 기록 (매일 1회)
+      if (macro.status === 'fulfilled') {
+        const env = macro.value;
+        const g0 = evaluateGate0(env);
+        const today = new Date().toISOString().split('T')[0];
+        const updated = saveMHSRecord({
+          date: today,
+          mhs: g0.macroHealthScore,
+          mhsLevel: g0.mhsLevel,
+          interestRate: g0.details.interestRateScore,
+          liquidity: g0.details.liquidityScore,
+          economic: g0.details.economicScore,
+          risk: g0.details.riskScore,
+        });
+        setMhsHistory(updated);
+      }
     };
     loadAdvancedData();
   }, []);
@@ -2427,6 +2449,23 @@ export default function App() {
                   externalFomcSentiment={fomcSentimentData ?? undefined}
                 />
               </div>
+
+              {/* ── MHS 히스토리 차트 ── */}
+              <MHSHistoryChart records={mhsHistory} height={280} />
+
+              {/* ── 글로벌 인텔리전스 통합 레이더 (A~L) ── */}
+              <IntelligenceRadar
+                gate0={gate0Result}
+                smartMoney={smartMoneyData}
+                exportMomentum={exportMomentumData}
+                geoRisk={geoRiskData}
+                creditSpread={creditSpreadData}
+                correlation={globalCorrelation}
+                supplyChain={supplyChainData}
+                sectorOrders={sectorOrderData}
+                fsi={financialStressData}
+                fomcSentiment={fomcSentimentData}
+              />
             </motion.div>
           ) : view === 'MANUAL_INPUT' ? (
             <motion.div
@@ -5842,6 +5881,20 @@ export default function App() {
                   <p className="text-white/90 text-sm sm:text-base lg:text-lg leading-relaxed font-bold tracking-tight break-words">
                     {deepAnalysisStock.reason}
                   </p>
+                </div>
+
+                {/* Candle Chart with Technical Overlays */}
+                <div className="mb-10">
+                  <CandleChart
+                    stockCode={deepAnalysisStock.code}
+                    stockName={deepAnalysisStock.name}
+                    gateSignals={deepAnalysisStock.type === 'STRONG_BUY' || deepAnalysisStock.type === 'BUY' ? [{
+                      time: new Date().toISOString().split('T')[0],
+                      type: deepAnalysisStock.type === 'STRONG_BUY' ? 'STRONG_BUY' : 'BUY',
+                      label: deepAnalysisStock.type,
+                    }] : []}
+                    height={480}
+                  />
                 </div>
 
                 {/* Radar Chart & Checklist Overview */}

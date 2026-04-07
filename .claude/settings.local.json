@@ -10,7 +10,9 @@
       "Bash(npx vite:*)",
       "Bash(npx -p typescript tsc --noEmit)",
       "Bash(npm ls:*)",
-      "Bash(npx -p typescript@5 tsc --noEmit --pretty)"
+      "Bash(npx -p typescript@5 tsc --noEmit --pretty)",
+      "Bash(find ./src -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -exec grep -l \"lightweight\" {} \\\\;)",
+      "Bash(npx -p typescript@5 tsc --noEmit)"
     ]
   }
 }
