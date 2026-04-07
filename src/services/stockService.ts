@@ -967,7 +967,8 @@ export async function getStockRecommendations(filters?: StockFilters): Promise<R
          - 여러 검색 결과(네이버 증권, 다음 금융, 야후 파이낸스 등)를 비교하여 가장 최신의 데이터를 채택하라. 며칠 전 데이터는 절대 사용하지 마라.
       10. **[트레이딩 전략 수립]** 각 종목에 대해 현재가 기준 최적의 '진입가(entryPrice)', '손절가(stopLoss)', '1차 목표가(targetPrice)', '2차 목표가(targetPrice2)'를 기술적 분석(지지/저항, 피보나치 등)을 통해 산출하라.
       11. **[데이터 출처 명시]** 'dataSource' 필드에 어떤 사이트에서 몇 시에 데이터를 가져왔는지 명시하라.
-      12. **[글로벌 ETF 모니터링]** 'googleSearch'를 사용하여 KODEX 200, TIGER 미국S&P500 등 주요 ETF의 자금 유입/유출 현황을 파악하여 'globalEtfMonitoring' 필드에 반영하라.
+      12. **[글로벌 ETF 모니터링]** 'googleSearch'를 사용하여 KODEX 200(069500), TIGER 미국S&P500(360750), KODEX 레버리지(122630), TIGER 차이나전기차SOLACTIVE(371460) 등 주요 ETF의 현재가, 등락률, 자금 유입/유출 현황을 검색하여 'globalEtfMonitoring' 필드에 반영하라. 각 항목에 반드시 symbol(종목코드), name(ETF명), price(현재가 숫자), change(등락률 숫자 %), flow("INFLOW" 또는 "OUTFLOW"), implication(한글 설명) 필드를 모두 포함하라.
+      12-1. **[환율/국채 데이터 수집]** 'googleSearch'를 사용하여 현재 USD/KRW 환율(숫자)과 한국 국채 10년물 금리(숫자, %)를 검색하라. 이를 각각 'exchangeRate': { "value": 환율숫자, "change": 전일대비변동 } 과 'bondYield': { "value": 금리숫자, "change": 전일대비변동 } 형식으로 반드시 실제 데이터로 채워라. 예시값(0) 사용 금지.
       13. **[장세 전환 감지]** 현재 시장의 주도 섹터가 바뀌고 있는지(Regime Shift)를 판단하여 'regimeShiftDetector' 필드에 반영하라.
       14. **[다중 시계열 분석]** 월봉, 주봉, 일봉의 추세가 일치하는지 확인하여 'multiTimeframe' 필드에 반영하라.
       15. **[눌림목 성격 판단 (Pullback Analysis)]** 주가가 조정(눌림목)을 받을 때 거래량이 감소하는지(건전한 조정) 또는 증가하는지(매도 압력)를 반드시 확인하여 'technicalSignals'의 'volumeSurge' 및 'reason' 필드에 반영하라. 거래량이 줄어들며 지지받는 눌림목을 최우선으로 추천하라.
@@ -1019,7 +1020,8 @@ export async function getStockRecommendations(filters?: StockFilters): Promise<R
         "fearAndGreed": { "value": 0, "status": "..." },
         "iri": 0, "vkospi": 0, 
         "globalEtfMonitoring": [
-          { "name": "ETF명", "flow": "INFLOW", "implication": "..." }
+          { "symbol": "069500", "name": "KODEX 200", "price": 35000, "change": 0.8, "flow": "INFLOW", "implication": "외국인 순매수 유입" },
+          { "symbol": "360750", "name": "TIGER 미국S&P500", "price": 18500, "change": -0.3, "flow": "OUTFLOW", "implication": "미국 증시 조정 반영" }
         ],
         "regimeShiftDetector": {
           "currentRegime": "...",

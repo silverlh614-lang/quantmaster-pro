@@ -3562,8 +3562,8 @@ export default function App() {
                       <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
                         <span className="text-[10px] font-black text-white/20 uppercase tracking-widest block mb-1">환율 (USD/KRW)</span>
                         <div className="text-xl font-black text-white tracking-tighter">
-                          {marketContext.exchangeRate?.value?.toLocaleString() || "0"}
-                          {marketContext.exchangeRate && typeof marketContext.exchangeRate.change === 'number' && (
+                          {marketContext.exchangeRate?.value ? marketContext.exchangeRate.value.toLocaleString() : <span className="text-sm text-white/20">—</span>}
+                          {marketContext.exchangeRate?.value && typeof marketContext.exchangeRate.change === 'number' && (
                             <span className={cn("text-[10px] ml-2", marketContext.exchangeRate.change > 0 ? "text-red-400" : "text-green-400")}>
                               {marketContext.exchangeRate.change > 0 ? '▲' : '▼'} {Math.abs(marketContext.exchangeRate.change)}
                             </span>
@@ -3573,8 +3573,8 @@ export default function App() {
                       <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
                         <span className="text-[10px] font-black text-white/20 uppercase tracking-widest block mb-1">국채 10년물</span>
                         <div className="text-xl font-black text-white tracking-tighter">
-                          {marketContext.bondYield?.value || "0"}%
-                          {marketContext.bondYield && typeof marketContext.bondYield.change === 'number' && (
+                          {marketContext.bondYield?.value ? `${marketContext.bondYield.value}%` : <span className="text-sm text-white/20">—</span>}
+                          {marketContext.bondYield?.value && typeof marketContext.bondYield.change === 'number' && (
                             <span className={cn("text-[10px] ml-2", marketContext.bondYield.change > 0 ? "text-red-400" : "text-green-400")}>
                               {marketContext.bondYield.change > 0 ? '▲' : '▼'} {Math.abs(marketContext.bondYield.change)}
                             </span>
@@ -3948,14 +3948,25 @@ export default function App() {
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {(marketContext.globalEtfMonitoring || []).map((etf, i) => (
-                          <div key={i} className="flex flex-col">
-                            <span className="text-[10px] font-black text-white/30 uppercase tracking-widest">{etf.symbol}</span>
+                          <div key={i} className="flex flex-col gap-1">
+                            <span className="text-[10px] font-black text-white/30 uppercase tracking-widest truncate">{etf.name || etf.symbol}</span>
+                            {etf.symbol && <span className="text-[9px] text-white/20">{etf.symbol}</span>}
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-black text-white">{etf.price?.toLocaleString() || '0'}</span>
-                              <span className={cn("text-[10px] font-bold", etf.change >= 0 ? "text-green-400" : "text-red-400")}>
-                                {etf.change >= 0 ? '+' : ''}{etf.change}%
+                              {etf.price ? (
+                                <span className="text-sm font-black text-white">₩{etf.price.toLocaleString()}</span>
+                              ) : null}
+                              <span className={cn("text-[10px] font-bold", (etf.change || 0) >= 0 ? "text-green-400" : "text-red-400")}>
+                                {(etf.change || 0) >= 0 ? '+' : ''}{etf.change || 0}%
                               </span>
                             </div>
+                            {etf.flow && (
+                              <span className={cn("text-[9px] font-black uppercase tracking-widest", etf.flow === 'INFLOW' ? "text-green-400/60" : "text-red-400/60")}>
+                                {etf.flow === 'INFLOW' ? '▲ 유입' : '▼ 유출'}
+                              </span>
+                            )}
+                            {etf.implication && (
+                              <span className="text-[9px] text-white/20 leading-tight">{etf.implication}</span>
+                            )}
                           </div>
                         ))}
                       </div>
