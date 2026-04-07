@@ -1215,6 +1215,18 @@ export default function App() {
   // Gate 0 결과: macroEnv가 채워지면 자동 계산
   const gate0Result = useMemo(() => macroEnv ? evaluateGate0(macroEnv) : undefined, [macroEnv]);
 
+  const deepAnalysisGateSignals = useMemo(() => {
+    if (!deepAnalysisStock) return [];
+    if (deepAnalysisStock.type === 'STRONG_BUY' || deepAnalysisStock.type === 'BUY') {
+      return [{
+        time: new Date().toISOString().split('T')[0],
+        type: deepAnalysisStock.type === 'STRONG_BUY' ? 'STRONG_BUY' as const : 'BUY' as const,
+        label: deepAnalysisStock.type,
+      }];
+    }
+    return [];
+  }, [deepAnalysisStock?.code, deepAnalysisStock?.type]);
+
   const triageSummary = useMemo(() => {
     const summary = { gate1: 0, gate2: 0, gate3: 0, total: (recommendations || []).length };
     (recommendations || []).forEach(rec => {
@@ -5404,11 +5416,7 @@ export default function App() {
                   <CandleChart
                     stockCode={deepAnalysisStock.code}
                     stockName={deepAnalysisStock.name}
-                    gateSignals={deepAnalysisStock.type === 'STRONG_BUY' || deepAnalysisStock.type === 'BUY' ? [{
-                      time: new Date().toISOString().split('T')[0],
-                      type: deepAnalysisStock.type === 'STRONG_BUY' ? 'STRONG_BUY' : 'BUY',
-                      label: deepAnalysisStock.type,
-                    }] : []}
+                    gateSignals={deepAnalysisGateSignals}
                     height={480}
                   />
                 </div>

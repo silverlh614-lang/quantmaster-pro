@@ -587,12 +587,13 @@ export interface EuphoriaSignal {
 }
 
 export interface GlobalEtfMonitoring {
-  symbol: string;
+  symbol?: string;
   name: string;
-  price: number;
+  price?: number;
   change: number;
-  signal: 'BUY' | 'SELL' | 'HOLD';
-  reason: string;
+  signal?: 'BUY' | 'SELL' | 'HOLD';
+  reason?: string;
+  implication?: string;
   flow?: 'INFLOW' | 'OUTFLOW';
 }
 

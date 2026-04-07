@@ -69,6 +69,8 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
   const mainChartRef = useRef<IChartApi | null>(null);
   const subChartRef = useRef<IChartApi | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const gateSignalsRef = useRef<GateSignal[]>(gateSignals);
+  gateSignalsRef.current = gateSignals;
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -180,8 +182,8 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
         }
 
         // ── Gate Signal Markers ─────────────────────────────────────
-        if (gateSignals.length > 0) {
-          const markers = gateSignals.map(sig => ({
+        if (gateSignalsRef.current.length > 0) {
+          const markers = gateSignalsRef.current.map(sig => ({
             time: sig.time as Time,
             position: sig.type === 'SELL' || sig.type === 'STOP_LOSS' ? 'aboveBar' as const : 'belowBar' as const,
             color: sig.type === 'STRONG_BUY' ? '#22c55e' : sig.type === 'BUY' ? '#3b82f6' : sig.type === 'SELL' ? '#f97316' : '#ef4444',
@@ -191,7 +193,15 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
           createSeriesMarkers(candleSeries, markers);
         }
 
+        // 전체 fitContent 후 최근 120봉으로 좁혀서 가독성 향상
         mainChart.timeScale().fitContent();
+        const totalBars = candleData.length;
+        if (totalBars > 120) {
+          mainChart.timeScale().setVisibleLogicalRange({
+            from: totalBars - 120,
+            to: totalBars - 1,
+          });
+        }
 
         // ── Sub Chart (RSI / MACD) ──────────────────────────────────
         if (subChart !== 'NONE' && subRef.current) {
@@ -275,7 +285,7 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
       if (mainChartRef.current) { mainChartRef.current.remove(); mainChartRef.current = null; }
       if (subChartRef.current) { subChartRef.current.remove(); subChartRef.current = null; }
     };
-  }, [stockCode, range, overlays, subChart, gateSignals, height]);
+  }, [stockCode, range, overlays, subChart, height]);
 
   return (
     <div className="border border-gray-800 bg-[#0a0a0a] rounded-xl overflow-hidden">
