@@ -7,7 +7,9 @@
       "Bash(./node_modules/.bin/tsc --noEmit)",
       "Bash(node_modules/.bin/tsc.cmd --noEmit)",
       "Bash(ls node_modules/.bin/tsc*)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(npx -p typescript tsc --noEmit)",
+      "Bash(npm ls:*)"
     ]
   }
 }

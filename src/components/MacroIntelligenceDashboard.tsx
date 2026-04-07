@@ -151,6 +151,10 @@ interface Props {
     exchangeRates?: Array<{ name: string; value: number; change: number }>;
   };
   externalRegime?: EconomicRegimeData;
+  externalSupplyChain?: SupplyChainIntelligence;
+  externalSectorOrders?: SectorOrderIntelligence;
+  externalFsi?: FinancialStressIndex;
+  externalFomcSentiment?: FomcSentimentAnalysis;
 }
 
 export const MacroIntelligenceDashboard: React.FC<Props> = ({
@@ -158,6 +162,10 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   currentRoeType = 3,
   marketOverview,
   externalRegime,
+  externalSupplyChain,
+  externalSectorOrders,
+  externalFsi,
+  externalFomcSentiment,
 }) => {
   const [economicRegime, setEconomicRegime] = useState<EconomicRegimeData | null>(externalRegime ?? null);
   const [loading, setLoading] = useState(false);
@@ -184,14 +192,14 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const [themeResults, setThemeResults] = useState<ThemeReverseTrackResult[]>([]);
   const [themeLoading, setThemeLoading] = useState(false);
 
-  // 레이어 I~L 상태
-  const [supplyChain, setSupplyChain] = useState<SupplyChainIntelligence | null>(null);
+  // 레이어 I~L 상태 (외부 props 있으면 사용, 없으면 내부 로드)
+  const [supplyChain, setSupplyChain] = useState<SupplyChainIntelligence | null>(externalSupplyChain ?? null);
   const [supplyChainLoading, setSupplyChainLoading] = useState(false);
-  const [sectorOrders, setSectorOrders] = useState<SectorOrderIntelligence | null>(null);
+  const [sectorOrders, setSectorOrders] = useState<SectorOrderIntelligence | null>(externalSectorOrders ?? null);
   const [sectorOrdersLoading, setSectorOrdersLoading] = useState(false);
-  const [fsi, setFsi] = useState<FinancialStressIndex | null>(null);
+  const [fsi, setFsi] = useState<FinancialStressIndex | null>(externalFsi ?? null);
   const [fsiLoading, setFsiLoading] = useState(false);
-  const [fomcSentiment, setFomcSentiment] = useState<FomcSentimentAnalysis | null>(null);
+  const [fomcSentiment, setFomcSentiment] = useState<FomcSentimentAnalysis | null>(externalFomcSentiment ?? null);
   const [fomcLoading, setFomcLoading] = useState(false);
 
   // 역발상 신호는 gate0Result + marketOverview 기반 순수 계산 (AI 불필요)
@@ -209,6 +217,10 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   useEffect(() => {
     if (externalRegime) setEconomicRegime(externalRegime);
   }, [externalRegime]);
+  useEffect(() => { if (externalSupplyChain) setSupplyChain(externalSupplyChain); }, [externalSupplyChain]);
+  useEffect(() => { if (externalSectorOrders) setSectorOrders(externalSectorOrders); }, [externalSectorOrders]);
+  useEffect(() => { if (externalFsi) setFsi(externalFsi); }, [externalFsi]);
+  useEffect(() => { if (externalFomcSentiment) setFomcSentiment(externalFomcSentiment); }, [externalFomcSentiment]);
 
   const loadRegime = async () => {
     setLoading(true);

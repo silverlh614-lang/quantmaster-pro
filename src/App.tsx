@@ -2302,6 +2302,10 @@ export default function App() {
                       change: r.change ?? 0,
                     })),
                   } : undefined}
+                  externalSupplyChain={supplyChainData ?? undefined}
+                  externalSectorOrders={sectorOrderData ?? undefined}
+                  externalFsi={financialStressData ?? undefined}
+                  externalFomcSentiment={fomcSentimentData ?? undefined}
                 />
               </div>
             </motion.div>
@@ -5553,13 +5557,17 @@ export default function App() {
                       geoRisk: geoRiskData ?? undefined,
                       creditSpread: creditSpreadData ?? undefined,
                       economicRegime: extendedRegimeData?.regime ?? economicRegimeData?.regime,
+                      supplyChain: supplyChainData ?? undefined,
+                      financialStress: financialStressData ?? undefined,
                     },
                     {
                       kospi60dVolatility: extendedRegimeData?.uncertaintyMetrics?.kospi60dVolatility,
                       leadingSectorCount: extendedRegimeData?.uncertaintyMetrics?.leadingSectorCount,
                       foreignFlowDirection: extendedRegimeData?.uncertaintyMetrics?.foreignFlowDirection,
                       kospiSp500Correlation: globalCorrelation?.kospiSp500,
-                    }
+                      financialStress: financialStressData ?? undefined,
+                    },
+                    deepAnalysisStock.relatedSectors?.[0],
                   )}
                   economicRegime={extendedRegimeData ?? economicRegimeData ?? undefined}
                   currentRoeType={currentRoeType}
