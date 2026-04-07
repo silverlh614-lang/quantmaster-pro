@@ -6,7 +6,6 @@ type MarketOverview = any;
 type MarketContext = any;
 type BacktestResult = any;
 type WalkForwardAnalysis = any;
-type Portfolio = any;
 
 interface SyncStatus {
   isSyncing: boolean;
@@ -56,35 +55,14 @@ interface MarketState {
   analyzingWalkForward: boolean;
   setAnalyzingWalkForward: (analyzing: boolean) => void;
 
-  // Portfolios
-  portfolios: Portfolio[];
-  setPortfolios: (v: Updater<Portfolio[]>) => void;
-  addPortfolio: (portfolio: Portfolio) => void;
-  deletePortfolio: (id: string) => void;
-  updatePortfolio: (id: string, updates: Partial<Portfolio>) => void;
-  currentPortfolioId: string | null;
-  setCurrentPortfolioId: (id: string | null) => void;
-  comparingPortfolioIds: string[] | null;
-  setComparingPortfolioIds: (ids: string[] | null) => void;
-
   // Loading states
   parsingFile: boolean;
   setParsingFile: (parsing: boolean) => void;
-  isGeneratingPDF: boolean;
-  setIsGeneratingPDF: (generating: boolean) => void;
-  isExportingDeepAnalysis: boolean;
-  setIsExportingDeepAnalysis: (exporting: boolean) => void;
-  isSendingEmail: boolean;
-  setIsSendingEmail: (sending: boolean) => void;
-  isSummarizing: boolean;
-  setIsSummarizing: (summarizing: boolean) => void;
-  reportSummary: string | null;
-  setReportSummary: (summary: string | null) => void;
 }
 
 export const useMarketStore = create<MarketState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       // Market Overview
       marketOverview: null,
       setMarketOverview: (marketOverview) => set({ marketOverview }),
@@ -137,35 +115,9 @@ export const useMarketStore = create<MarketState>()(
       analyzingWalkForward: false,
       setAnalyzingWalkForward: (analyzingWalkForward) => set({ analyzingWalkForward }),
 
-      // Portfolios
-      portfolios: [],
-      setPortfolios: (v) => set((s) => ({ portfolios: typeof v === 'function' ? v(s.portfolios) : v })),
-      addPortfolio: (portfolio) => set((state) => ({ portfolios: [...state.portfolios, portfolio] })),
-      deletePortfolio: (id) => set((state) => ({
-        portfolios: state.portfolios.filter((p: Portfolio) => p.id !== id),
-        currentPortfolioId: state.currentPortfolioId === id ? null : state.currentPortfolioId,
-      })),
-      updatePortfolio: (id, updates) => set((state) => ({
-        portfolios: state.portfolios.map((p: Portfolio) => p.id === id ? { ...p, ...updates } : p),
-      })),
-      currentPortfolioId: null,
-      setCurrentPortfolioId: (currentPortfolioId) => set({ currentPortfolioId }),
-      comparingPortfolioIds: null,
-      setComparingPortfolioIds: (comparingPortfolioIds) => set({ comparingPortfolioIds }),
-
       // Loading states
       parsingFile: false,
       setParsingFile: (parsingFile) => set({ parsingFile }),
-      isGeneratingPDF: false,
-      setIsGeneratingPDF: (isGeneratingPDF) => set({ isGeneratingPDF }),
-      isExportingDeepAnalysis: false,
-      setIsExportingDeepAnalysis: (isExportingDeepAnalysis) => set({ isExportingDeepAnalysis }),
-      isSendingEmail: false,
-      setIsSendingEmail: (isSendingEmail) => set({ isSendingEmail }),
-      isSummarizing: false,
-      setIsSummarizing: (isSummarizing) => set({ isSummarizing }),
-      reportSummary: null,
-      setReportSummary: (reportSummary) => set({ reportSummary }),
     }),
     {
       name: 'k-stock-market-store',
@@ -173,8 +125,6 @@ export const useMarketStore = create<MarketState>()(
         marketOverview: state.marketOverview,
         marketContext: state.marketContext,
         backtestPortfolioItems: state.backtestPortfolioItems,
-        portfolios: state.portfolios,
-        currentPortfolioId: state.currentPortfolioId,
       }),
     }
   )

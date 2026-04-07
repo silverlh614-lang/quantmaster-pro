@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { TradeRecord, ConditionId } from '../types/quant';
 
 // Re-export StockRecommendation type from stockService
 type StockRecommendation = any; // App uses the full type from stockService
@@ -55,26 +54,6 @@ interface RecommendationState {
   lastUsedMode: 'MOMENTUM' | 'EARLY_DETECT' | 'QUANT_SCREEN';
   setLastUsedMode: (mode: 'MOMENTUM' | 'EARLY_DETECT' | 'QUANT_SCREEN') => void;
 
-  // Deep Analysis
-  deepAnalysisStock: StockRecommendation | null;
-  setDeepAnalysisStock: (v: Updater<StockRecommendation | null>) => void;
-  selectedDetailStock: StockRecommendation | null;
-  setSelectedDetailStock: (stock: StockRecommendation | null) => void;
-  analysisView: 'STANDARD' | 'QUANT';
-  setAnalysisView: (view: 'STANDARD' | 'QUANT') => void;
-
-  // Trade Journal
-  tradeRecords: TradeRecord[];
-  setTradeRecords: (v: Updater<TradeRecord[]>) => void;
-  recordTrade: (trade: TradeRecord) => void;
-  closeTrade: (tradeId: string, sellPrice: number, sellReason: TradeRecord['sellReason']) => void;
-  deleteTrade: (tradeId: string) => void;
-  updateTradeMemo: (tradeId: string, memo: string) => void;
-  tradeRecordStock: StockRecommendation | null;
-  setTradeRecordStock: (stock: StockRecommendation | null) => void;
-  tradeFormData: { buyPrice: string; quantity: string; positionSize: string; followedSystem: boolean };
-  setTradeFormData: (v: Updater<{ buyPrice: string; quantity: string; positionSize: string; followedSystem: boolean }>) => void;
-
   // History
   recommendationHistory: { date: string; stocks: string[]; hitRate: number; strongBuyHitRate?: number }[];
   setRecommendationHistory: (v: Updater<{ date: string; stocks: string[]; hitRate: number; strongBuyHitRate?: number }[]>) => void;
@@ -87,6 +66,8 @@ interface RecommendationState {
   setLastUpdated: (date: string | null) => void;
   error: string | null;
   setError: (error: string | null) => void;
+  searchingSpecific: boolean;
+  setSearchingSpecific: (searching: boolean) => void;
 }
 
 export const useRecommendationStore = create<RecommendationState>()(
@@ -145,39 +126,6 @@ export const useRecommendationStore = create<RecommendationState>()(
       lastUsedMode: 'MOMENTUM',
       setLastUsedMode: (lastUsedMode) => set({ lastUsedMode }),
 
-      // Deep Analysis
-      deepAnalysisStock: null,
-      setDeepAnalysisStock: (v) => set((s) => ({ deepAnalysisStock: typeof v === 'function' ? v(s.deepAnalysisStock) : v })),
-      selectedDetailStock: null,
-      setSelectedDetailStock: (selectedDetailStock) => set({ selectedDetailStock }),
-      analysisView: 'STANDARD',
-      setAnalysisView: (analysisView) => set({ analysisView }),
-
-      // Trade Journal
-      tradeRecords: [],
-      setTradeRecords: (v) => set((s) => ({ tradeRecords: typeof v === 'function' ? v(s.tradeRecords) : v })),
-      recordTrade: (trade) => set((state) => ({
-        tradeRecords: [...state.tradeRecords, trade],
-      })),
-      closeTrade: (tradeId, sellPrice, sellReason) => set((state) => ({
-        tradeRecords: state.tradeRecords.map((t: TradeRecord) => {
-          if (t.id !== tradeId) return t;
-          const returnPct = ((sellPrice - t.buyPrice) / t.buyPrice) * 100;
-          const holdingDays = Math.round((Date.now() - new Date(t.buyDate).getTime()) / (1000 * 60 * 60 * 24));
-          return { ...t, sellDate: new Date().toISOString(), sellPrice, sellReason, returnPct: parseFloat(returnPct.toFixed(2)), holdingDays, status: 'CLOSED' as const };
-        }),
-      })),
-      deleteTrade: (tradeId) => set((state) => ({
-        tradeRecords: state.tradeRecords.filter((t: TradeRecord) => t.id !== tradeId),
-      })),
-      updateTradeMemo: (tradeId, memo) => set((state) => ({
-        tradeRecords: state.tradeRecords.map((t: TradeRecord) => t.id === tradeId ? { ...t, memo } : t),
-      })),
-      tradeRecordStock: null,
-      setTradeRecordStock: (tradeRecordStock) => set({ tradeRecordStock }),
-      tradeFormData: { buyPrice: '', quantity: '', positionSize: '10', followedSystem: true },
-      setTradeFormData: (v) => set((s) => ({ tradeFormData: typeof v === 'function' ? v(s.tradeFormData) : v })),
-
       // History
       recommendationHistory: [],
       setRecommendationHistory: (v) => set((s) => ({ recommendationHistory: typeof v === 'function' ? v(s.recommendationHistory) : v })),
@@ -192,6 +140,8 @@ export const useRecommendationStore = create<RecommendationState>()(
       setLastUpdated: (lastUpdated) => set({ lastUpdated }),
       error: null,
       setError: (error) => set({ error }),
+      searchingSpecific: false,
+      setSearchingSpecific: (searchingSpecific) => set({ searchingSpecific }),
     }),
     {
       name: 'k-stock-recommendations-store',
@@ -200,7 +150,6 @@ export const useRecommendationStore = create<RecommendationState>()(
         watchlist: state.watchlist,
         searchResults: state.searchResults,
         screenerRecommendations: state.screenerRecommendations,
-        tradeRecords: state.tradeRecords,
         recommendationHistory: state.recommendationHistory,
         lastUpdated: state.lastUpdated,
         lastUsedMode: state.lastUsedMode,

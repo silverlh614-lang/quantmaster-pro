@@ -15,7 +15,9 @@
       "Bash(npx -p typescript@5 tsc --noEmit)",
       "Bash(npm install:*)",
       "Bash(node -e \"const lc = require\\('lightweight-charts'\\); console.log\\(Object.keys\\(lc\\).filter\\(k => k.includes\\('Series'\\) || k === 'createChart'\\).join\\(', '\\)\\)\")",
-      "Bash(grep -n \"SELL_CONDITIONS\\\\|export const.*SELL\" src/constants/*.ts)"
+      "Bash(grep -n \"SELL_CONDITIONS\\\\|export const.*SELL\" src/constants/*.ts)",
+      "Bash(./node_modules/.bin/tsc --noEmit --skipLibCheck)",
+      "Bash(node_modules/.bin/tsc --noEmit --skipLibCheck)"
     ]
   }
 }

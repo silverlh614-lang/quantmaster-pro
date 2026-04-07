@@ -278,7 +278,7 @@ const demoStockData: Record<number, number> = {
 import { MarketTicker } from './components/MarketTicker';
 
 // ── Zustand Stores ─────────────────────────────────────────────────────────
-import { useSettingsStore, useGlobalIntelStore, useRecommendationStore, useMarketStore } from './stores';
+import { useSettingsStore, useGlobalIntelStore, useRecommendationStore, useMarketStore, useTradeStore, useAnalysisStore, usePortfolioStore } from './stores';
 
 // ── TanStack Query Hooks ───────────────────────────────────────────────────
 import { useAllGlobalIntel } from './hooks';
@@ -307,12 +307,33 @@ export default function App() {
     loading, setLoading,
     lastUpdated, setLastUpdated,
     error, setError,
-    deepAnalysisStock, setDeepAnalysisStock,
-    selectedDetailStock, setSelectedDetailStock,
+    searchingSpecific, setSearchingSpecific,
+  } = useRecommendationStore();
+
+  // useTradeStore
+  const {
     tradeRecords, setTradeRecords,
     tradeRecordStock, setTradeRecordStock,
     tradeFormData, setTradeFormData,
-  } = useRecommendationStore();
+  } = useTradeStore();
+
+  // useAnalysisStore
+  const {
+    deepAnalysisStock, setDeepAnalysisStock,
+    selectedDetailStock, setSelectedDetailStock,
+    weeklyRsiValues, setWeeklyRsiValues,
+    reportSummary, setReportSummary,
+    isSummarizing, setIsSummarizing,
+    isGeneratingPDF, setIsGeneratingPDF,
+    isExportingDeepAnalysis, setIsExportingDeepAnalysis,
+    isSendingEmail, setIsSendingEmail,
+  } = useAnalysisStore();
+
+  // usePortfolioStore
+  const {
+    portfolios, setPortfolios,
+    currentPortfolioId, setCurrentPortfolioId,
+  } = usePortfolioStore();
 
   // useMarketStore
   const {
@@ -327,13 +348,6 @@ export default function App() {
     backtesting, setBacktesting,
     initialEquity, setInitialEquity,
     backtestYears, setBacktestYears,
-    portfolios, setPortfolios,
-    currentPortfolioId, setCurrentPortfolioId,
-    isGeneratingPDF, setIsGeneratingPDF,
-    isExportingDeepAnalysis, setIsExportingDeepAnalysis,
-    isSendingEmail, setIsSendingEmail,
-    isSummarizing, setIsSummarizing,
-    reportSummary, setReportSummary,
     parsingFile, setParsingFile,
   } = useMarketStore();
 
@@ -369,7 +383,6 @@ export default function App() {
   }, [recommendationHistory]);
   const { isFilterExpanded, setIsFilterExpanded } = useFilterPanelState();
   const analysisReportRef = useRef<HTMLDivElement>(null);
-  const [weeklyRsiValues, setWeeklyRsiValues] = useState<number[]>([]);
 
   // ── 매크로/어드밴스드 컨텍스트: Zustand store → 로컬 alias (하위 호환) ────────
   // useState 제거됨 — TanStack Query가 자동 로딩 → Zustand store에 동기화
@@ -1213,7 +1226,6 @@ export default function App() {
   }, [recommendations]);
 
 
-  const [searchingSpecific, setSearchingSpecific] = useState(false);
 
   const scrollToStock = (code: string) => {
     const element = document.getElementById(`stock-${code}`);
