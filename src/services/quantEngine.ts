@@ -22,6 +22,8 @@ import {
   ContrarianSignal,
   EconomicRegime,
   ExtendedRegimeData,
+  FinancialStressIndex,
+  SupplyChainIntelligence,
 } from '../types/quant';
 
 export const ALL_CONDITIONS: Record<ConditionId, { name: string; baseWeight: number; description: string }> = {
@@ -258,6 +260,7 @@ export function classifyExtendedRegime(
     leadingSectorCount?: number;      // 명확한 주도 섹터 수
     foreignFlowDirection?: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING';
     kospiSp500Correlation?: number;   // KOSPI-S&P500 상관계수
+    financialStress?: FinancialStressIndex;  // 레이어 K: 금융시스템 스트레스
   }
 ): ExtendedRegimeData['systemAction'] {
   if (!gate0 || !macroEnv) {
@@ -275,6 +278,27 @@ export function classifyExtendedRegime(
   const leadingSectors = options?.leadingSectorCount ?? 3;
   const foreignFlow = options?.foreignFlowDirection ?? 'ALTERNATING';
   const correlation = options?.kospiSp500Correlation ?? 0.7;
+  const fsi = options?.financialStress;
+
+  // ── FSI CRISIS → Gate 0 buyingHalted 강제 발동, Kelly 0% ──
+  if (fsi && fsi.systemAction === 'CRISIS') {
+    return {
+      mode: 'FULL_STOP',
+      cashRatio: 100,
+      gateAdjustment: { gate1Threshold: 10, gate2Required: 12, gate3Required: 10 },
+      message: `금융시스템 스트레스 위기 (FSI ${fsi.compositeScore}, TED ${fsi.tedSpread.bps}bp, HY ${fsi.usHySpread.bps}bp, MOVE ${fsi.moveIndex.current}). 전량 현금 전환.`,
+    };
+  }
+
+  // ── FSI DEFENSIVE → 방어 모드 강화 ──
+  if (fsi && fsi.systemAction === 'DEFENSIVE') {
+    return {
+      mode: 'CASH_HEAVY',
+      cashRatio: 80,
+      gateAdjustment: { gate1Threshold: 7, gate2Required: 11, gate3Required: 9 },
+      message: `금융시스템 스트레스 경고 (FSI ${fsi.compositeScore}). Gate 기준 대폭 강화.`,
+    };
+  }
 
   // ── CRISIS 감지: 극단적 공포 + 신용 위기 ──
   if (vkospi > 35 && vix > 30 && macroHealthScore < 30) {
@@ -409,13 +433,17 @@ export function evaluateStock(
     geoRisk?: GeopoliticalRiskData;
     creditSpread?: CreditSpreadData;
     economicRegime?: EconomicRegime;
+    supplyChain?: SupplyChainIntelligence;
+    financialStress?: FinancialStressIndex;
   },
   extendedRegimeOptions?: {
     kospi60dVolatility?: number;
     leadingSectorCount?: number;
     foreignFlowDirection?: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING';
     kospiSp500Correlation?: number;
-  }
+    financialStress?: FinancialStressIndex;
+  },
+  stockSector?: string, // 종목 섹터 (조선/반도체 등) — BDI/SEMI Gate 조정용
 ): EvaluationResult {
   if (!stockData) stockData = {} as any;
   const profile = getStockProfile(profileType);
@@ -619,7 +647,15 @@ export function evaluateStock(
   // Smart Money EWY+MTUM 동시 유입 OR 반도체 수출 3개월 연속 성장 → -1 완화
   const semiconductorRelax = exportMomentum?.semiconductorGate2Relax === true
     && sectorRotation.name.includes('반도체');
-  const gate2RelaxBonus = (smartMoney?.isEwyMtumBothInflow || semiconductorRelax || creditLiquidityRelax) ? 1 : 0;
+  // 레이어 I: BDI 3개월 +20% 이상 → 조선섹터 Gate 2 완화 -1
+  const supplyChain = advancedContext?.supplyChain;
+  const SHIPBUILDING_SECTORS = ['조선', '해운', '벌크'];
+  const bdiRelax = supplyChain && supplyChain.bdi.mom3Change >= 20
+    && SHIPBUILDING_SECTORS.some(s => (stockSector ?? sectorRotation.name).includes(s));
+  // 레이어 I: SEMI Book-to-Bill ≥ 1.1 → 반도체섹터 Gate 2 추가 완화
+  const semiRelax = supplyChain && supplyChain.semiBillings.bookToBill >= 1.1
+    && (stockSector ?? sectorRotation.name).includes('반도체');
+  const gate2RelaxBonus = (smartMoney?.isEwyMtumBothInflow || semiconductorRelax || creditLiquidityRelax || bdiRelax || semiRelax) ? 1 : 0;
   const gate2Threshold = Math.max(6, gate2BaseThreshold - gate2RelaxBonus);
   const gate2PassCount = GATE2_IDS.filter(id => (stockData[id] ?? 0) >= 5).length;
   const gate2Passed = gate2PassCount >= gate2Threshold;

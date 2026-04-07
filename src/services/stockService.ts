@@ -4117,3 +4117,295 @@ export async function getNewsFrequencyScores(
     }
   });
 }
+
+// ─── 레이어 I: 공급망 물동량 인텔리전스 (Supply Chain Intelligence) ──────────────
+
+import type { SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex, FomcSentimentAnalysis } from '../types/quant';
+
+export async function getSupplyChainIntelligence(): Promise<SupplyChainIntelligence> {
+  const requestedAt = new Date();
+  const todayDate = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
+  const requestedAtISO = requestedAt.toISOString();
+
+  const prompt = `
+현재 날짜: ${todayDate}
+
+아래 3개 공급망 선행지표의 최신값을 Google 검색으로 수집하고 JSON으로 반환해줘.
+한국 조선·반도체·해운 섹터의 선행지표로 활용됩니다.
+
+[1. Baltic Dry Index (BDI) — 벌크 해운 운임 지수]
+검색: "Baltic Dry Index today ${todayDate}"
+- 현재 BDI 지수
+- 3개월 전 대비 변화율 (%)
+- 추세 판단: SURGING(+20%이상)/RISING(+5~20%)/FLAT(-5~+5%)/FALLING(-5~-20%)/COLLAPSING(-20%이하)
+- 한국 조선/해운 섹터 시사점 (한국어 1줄)
+
+[2. SEMI North America Billings — 반도체 장비 수주]
+검색: "SEMI North America semiconductor equipment billings latest ${todayDate}"
+검색: "SEMI book-to-bill ratio latest"
+- 최근 월 반도체 장비 매출 (십억 달러)
+- 전년동월비 성장률 (%)
+- Book-to-Bill 비율 (수주/매출, 1.0 이상 = 수요 초과)
+- 한국 반도체 시사점 (한국어 1줄)
+
+[3. Global Container Freight Index — 컨테이너 운임]
+검색: "Shanghai containerized freight index SCFI latest ${todayDate}"
+검색: "Drewry World Container Index"
+- 상하이-유럽 운임 ($/40ft)
+- 태평양 횡단 운임 ($/40ft)
+- 추세: RISING/FLAT/FALLING
+
+응답 형식 (JSON only):
+{
+  "bdi": { "current": 1850, "mom3Change": 15.2, "trend": "RISING", "sectorImplication": "BDI 3개월 15% 상승 → 벌크선 발주 증가 기대" },
+  "semiBillings": { "latestBillionUSD": 3.2, "yoyGrowth": 12.5, "bookToBill": 1.15, "implication": "Book-to-Bill 1.15 → 반도체 업사이클 지속" },
+  "gcfi": { "shanghaiEurope": 2800, "transPacific": 3200, "trend": "RISING" },
+  "lastUpdated": "${requestedAtISO}"
+}
+  `.trim();
+
+  const weekKey = `${requestedAt.getFullYear()}-W${Math.ceil(requestedAt.getDate() / 7)}`;
+  const cacheKey = `supply-chain-intel-${weekKey}`;
+
+  return getCachedAIResponse<SupplyChainIntelligence>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      return safeJsonParse(text) as SupplyChainIntelligence;
+    } catch (error) {
+      console.error("Error getting supply chain intelligence:", error);
+      return {
+        bdi: { current: 0, mom3Change: 0, trend: 'FLAT', sectorImplication: 'BDI 데이터 조회 실패' },
+        semiBillings: { latestBillionUSD: 0, yoyGrowth: 0, bookToBill: 1.0, implication: 'SEMI 데이터 조회 실패' },
+        gcfi: { shanghaiEurope: 0, transPacific: 0, trend: 'FLAT' },
+        lastUpdated: requestedAtISO,
+      };
+    }
+  });
+}
+
+// ─── 레이어 J: 섹터별 글로벌 수주 인텔리전스 (Sector Order Intelligence) ────────
+
+export async function getSectorOrderIntelligence(): Promise<SectorOrderIntelligence> {
+  const requestedAt = new Date();
+  const todayDate = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
+  const requestedAtISO = requestedAt.toISOString();
+
+  const prompt = `
+현재 날짜: ${todayDate}
+
+한국 증시 주도주 3대 섹터(조선·방산·원자력)의 글로벌 수주 데이터를 Google 검색으로 수집하고 JSON으로 반환해줘.
+
+[1. 글로벌 방산 예산 트렌드]
+검색: "NATO defense spending GDP percentage ${todayDate}"
+검색: "US defense budget FY2025 FY2026"
+검색: "Korea K2 tank K9 howitzer export contract ${todayDate}"
+- NATO 평균 GDP 대비 국방비 (%)
+- 미국 국방예산 (억달러)
+- 추세: EXPANDING/STABLE/CUTTING
+- 한국 방산 수출 파이프라인 현황 (한국어 1줄)
+
+[2. LNG선 발주 동향]
+검색: "LNG carrier newbuilding orders ${todayDate}"
+검색: "QatarEnergy LNG ship orders"
+검색: "global LNG orderbook months"
+- 당해년도 LNG선 신규 발주 척수
+- 카타르 에너지 발주 상황 (한국어 1줄)
+- 수주잔고 개월수
+- 한국 조선 섹터 시사점 (한국어 1줄)
+
+[3. SMR(소형모듈원자로) 글로벌 계약]
+검색: "SMR small modular reactor NRC approval ${todayDate}"
+검색: "SMR global contract GW capacity"
+검색: "Korea Hyundai Engineering SMR"
+- 미국 NRC 승인 기수
+- 계약 총 용량 (GW)
+- 한국 현대엔지니어링 등 참여 현황 (한국어 1줄)
+- 투자 타이밍: TOO_EARLY/OPTIMAL/LATE
+
+응답 형식 (JSON only):
+{
+  "globalDefense": { "natoGdpAvg": 2.1, "usDefenseBudget": 8860, "trend": "EXPANDING", "koreaExposure": "K2전차 폴란드 1000대 + K9자주포 다국적 수출 파이프라인 확대" },
+  "lngOrders": { "newOrdersYTD": 45, "qatarEnergy": "카타르 NFE 확장 프로젝트 LNG선 발주 지속", "orderBookMonths": 48, "implication": "수주잔고 4년치 → 한국 조선 3사 매출 가시성 최고" },
+  "smrContracts": { "usNrcApprovals": 1, "totalGwCapacity": 12.5, "koreaHyundai": "현대엔지니어링 i-SMR 설계 인가 추진 중", "timing": "TOO_EARLY" },
+  "lastUpdated": "${requestedAtISO}"
+}
+  `.trim();
+
+  const weekKey = `${requestedAt.getFullYear()}-W${Math.ceil(requestedAt.getDate() / 7)}`;
+  const cacheKey = `sector-order-intel-${weekKey}`;
+
+  return getCachedAIResponse<SectorOrderIntelligence>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      return safeJsonParse(text) as SectorOrderIntelligence;
+    } catch (error) {
+      console.error("Error getting sector order intelligence:", error);
+      return {
+        globalDefense: { natoGdpAvg: 0, usDefenseBudget: 0, trend: 'STABLE', koreaExposure: '데이터 조회 실패' },
+        lngOrders: { newOrdersYTD: 0, qatarEnergy: '데이터 조회 실패', orderBookMonths: 0, implication: '데이터 조회 실패' },
+        smrContracts: { usNrcApprovals: 0, totalGwCapacity: 0, koreaHyundai: '데이터 조회 실패', timing: 'TOO_EARLY' },
+        lastUpdated: requestedAtISO,
+      };
+    }
+  });
+}
+
+// ─── 레이어 K: 금융시스템 스트레스 인덱스 (Financial Stress Index) ───────────────
+
+export async function getFinancialStressIndex(): Promise<FinancialStressIndex> {
+  const requestedAt = new Date();
+  const todayDate = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
+  const requestedAtISO = requestedAt.toISOString();
+
+  const prompt = `
+현재 날짜: ${todayDate}
+
+금융시스템 스트레스 조기경보 지표 3개를 Google 검색으로 수집하고 JSON으로 반환해줘.
+이 지표는 한국 증시 Gate 0 (매수 중단) 판단의 핵심 입력입니다.
+
+[1. TED Spread — 은행간 신용리스크]
+검색: "TED spread today ${todayDate}"
+검색: "3-month LIBOR minus T-Bill spread"
+- 현재 bp (정상: 10~50bp, 위험: 100bp+)
+- 알림 수준: NORMAL(~50bp)/ELEVATED(50~100bp)/CRISIS(100bp+)
+
+[2. US High Yield Spread — 기업 크레딧]
+검색: "US high yield bond spread OAS today ${todayDate}"
+검색: "ICE BofA US High Yield Index OAS"
+- 현재 bp (정상: 300~400bp, 위험: 600bp+)
+- 추세: TIGHTENING/STABLE/WIDENING
+
+[3. MOVE Index — 채권시장 변동성 (채권판 VIX)]
+검색: "MOVE index today ${todayDate}"
+검색: "ICE BofA MOVE index"
+- 현재값 (정상: 80~100, 위험: 150+)
+- 알림 수준: NORMAL(~100)/ELEVATED(100~150)/EXTREME(150+)
+
+종합 FSI 계산법:
+- compositeScore = (tedSpread가 CRISIS?40:tedSpread가 ELEVATED?20:0) + (usHySpread>600?40:usHySpread>500?20:0) + (moveIndex>150?20:moveIndex>120?10:0)
+- systemAction: compositeScore>=60→CRISIS, >=40→DEFENSIVE, >=20→CAUTION, else NORMAL
+
+응답 형식 (JSON only):
+{
+  "tedSpread": { "bps": 25, "alert": "NORMAL" },
+  "usHySpread": { "bps": 350, "trend": "STABLE" },
+  "moveIndex": { "current": 95, "alert": "NORMAL" },
+  "compositeScore": 0,
+  "systemAction": "NORMAL",
+  "lastUpdated": "${requestedAtISO}"
+}
+  `.trim();
+
+  const weekKey = `${requestedAt.getFullYear()}-W${Math.ceil(requestedAt.getDate() / 7)}`;
+  const cacheKey = `financial-stress-index-${weekKey}`;
+
+  return getCachedAIResponse<FinancialStressIndex>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      return safeJsonParse(text) as FinancialStressIndex;
+    } catch (error) {
+      console.error("Error getting financial stress index:", error);
+      return {
+        tedSpread: { bps: 0, alert: 'NORMAL' },
+        usHySpread: { bps: 0, trend: 'STABLE' },
+        moveIndex: { current: 0, alert: 'NORMAL' },
+        compositeScore: 0,
+        systemAction: 'NORMAL',
+        lastUpdated: requestedAtISO,
+      };
+    }
+  });
+}
+
+// ─── 레이어 L: FOMC 문서 감성 분석 (FOMC Sentiment Analysis) ────────────────────
+
+export async function getFomcSentimentAnalysis(): Promise<FomcSentimentAnalysis> {
+  const requestedAt = new Date();
+  const todayDate = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
+  const requestedAtISO = requestedAt.toISOString();
+
+  const prompt = `
+현재 날짜: ${todayDate}
+
+최근 FOMC 의사록/성명서/기자회견 텍스트를 분석하여 매파/비둘기파 스코어를 산출해줘.
+이 분석은 한국 증시에 대한 미국 통화정책 영향을 정량화합니다.
+
+[1. 매파/비둘기파 스코어]
+검색: "FOMC statement minutes latest ${todayDate}"
+검색: "Fed hawkish dovish analysis latest"
+- 점수: -10(극비둘기) ~ +10(극매파)
+- 핵심 문구 추출: "higher for longer", "data dependent", "gradual", "patient" 등
+
+[2. 점도표(Dot Plot) 변화 방향]
+검색: "FOMC dot plot median rate projection latest ${todayDate}"
+- 이전 점도표 대비 변화: MORE_CUTS(인하 더 많음)/UNCHANGED/FEWER_CUTS(인하 축소)
+
+[3. 한국 증시 임팩트 판단]
+- BULLISH: 비둘기파(점수 -5 이하) → 달러 약세 → 외국인 유입
+- NEUTRAL: 중립(-5 ~ +5) → 영향 제한적
+- BEARISH: 매파(점수 +5 이상) → 달러 강세 → 외국인 유출
+- 한국 증시 영향 근거 (한국어 1줄)
+
+응답 형식 (JSON only):
+{
+  "hawkDovishScore": 3,
+  "keyPhrases": ["data dependent", "gradual approach", "labor market strong"],
+  "dotPlotShift": "FEWER_CUTS",
+  "kospiImpact": "BEARISH",
+  "rationale": "매파적 전환 → 달러 강세 → 외국인 자금 유출 압력",
+  "lastUpdated": "${requestedAtISO}"
+}
+  `.trim();
+
+  const weekKey = `${requestedAt.getFullYear()}-W${Math.ceil(requestedAt.getDate() / 7)}`;
+  const cacheKey = `fomc-sentiment-${weekKey}`;
+
+  return getCachedAIResponse<FomcSentimentAnalysis>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      return safeJsonParse(text) as FomcSentimentAnalysis;
+    } catch (error) {
+      console.error("Error getting FOMC sentiment analysis:", error);
+      return {
+        hawkDovishScore: 0,
+        keyPhrases: [],
+        dotPlotShift: 'UNCHANGED',
+        kospiImpact: 'NEUTRAL',
+        rationale: 'FOMC 감성 분석 실패. 기본값 적용.',
+        lastUpdated: requestedAtISO,
+      };
+    }
+  });
+}

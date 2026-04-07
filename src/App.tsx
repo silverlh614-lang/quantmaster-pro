@@ -110,6 +110,10 @@ import {
   getExtendedEconomicRegime,
   getGlobalCorrelationMatrix,
   getNewsFrequencyScores,
+  getSupplyChainIntelligence,
+  getSectorOrderIntelligence,
+  getFinancialStressIndex,
+  getFomcSentimentAnalysis,
   StockRecommendation,
   MarketContext,
   MarketOverview,
@@ -126,7 +130,7 @@ import { MacroIntelligenceDashboard } from './components/MacroIntelligenceDashbo
 import { ManualQuantInput } from './components/ManualQuantInput';
 import { ConfidenceBadge } from './components/ConfidenceBadge';
 import { evaluateStock, evaluateGate0 } from './services/quantEngine';
-import { MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal, StockProfile, StockProfileType, MacroEnvironment, EconomicRegimeData, SmartMoneyData, ExportMomentumData, GeopoliticalRiskData, CreditSpreadData, ROEType, ExtendedRegimeData, GlobalCorrelationMatrix, NewsFrequencyScore } from './types/quant';
+import { MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal, StockProfile, StockProfileType, MacroEnvironment, EconomicRegimeData, SmartMoneyData, ExportMomentumData, GeopoliticalRiskData, CreditSpreadData, ROEType, ExtendedRegimeData, GlobalCorrelationMatrix, NewsFrequencyScore, SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex, FomcSentimentAnalysis } from './types/quant';
 import { PortfolioComparison } from './components/PortfolioComparison';
 import { QuantScreener } from './components/QuantScreener';
 import { SectorSubscription } from './components/SectorSubscription';
@@ -416,6 +420,10 @@ export default function App() {
   const [extendedRegimeData, setExtendedRegimeData] = useState<ExtendedRegimeData | null>(null);
   const [globalCorrelation, setGlobalCorrelation] = useState<GlobalCorrelationMatrix | null>(null);
   const [newsFrequencyScores, setNewsFrequencyScores] = useState<NewsFrequencyScore[]>([]);
+  const [supplyChainData, setSupplyChainData] = useState<SupplyChainIntelligence | null>(null);
+  const [sectorOrderData, setSectorOrderData] = useState<SectorOrderIntelligence | null>(null);
+  const [financialStressData, setFinancialStressData] = useState<FinancialStressIndex | null>(null);
+  const [fomcSentimentData, setFomcSentimentData] = useState<FomcSentimentAnalysis | null>(null);
   const [currentRoeType, setCurrentRoeType] = useState<ROEType>(3);
 
   useEffect(() => {
@@ -427,7 +435,7 @@ export default function App() {
   // ── 어드밴스드 컨텍스트 + 매크로 환경 데이터 수집 (비동기, 마운트 시 1회) ───
   useEffect(() => {
     const loadAdvancedData = async () => {
-      const [macro, regime, smart, exports_, geo, credit, extRegime, correlation] = await Promise.allSettled([
+      const [macro, regime, smart, exports_, geo, credit, extRegime, correlation, supplyChain, sectorOrder, fsi, fomc] = await Promise.allSettled([
         fetchMacroEnvironment(),
         getEconomicRegime(),
         getSmartMoneyFlow(),
@@ -436,6 +444,10 @@ export default function App() {
         getCreditSpreads(),
         getExtendedEconomicRegime(),
         getGlobalCorrelationMatrix(),
+        getSupplyChainIntelligence(),
+        getSectorOrderIntelligence(),
+        getFinancialStressIndex(),
+        getFomcSentimentAnalysis(),
       ]);
       if (macro.status === 'fulfilled') setMacroEnv(macro.value);
       if (regime.status === 'fulfilled') setEconomicRegimeData(regime.value);
@@ -445,6 +457,10 @@ export default function App() {
       if (credit.status === 'fulfilled') setCreditSpreadData(credit.value);
       if (extRegime.status === 'fulfilled') setExtendedRegimeData(extRegime.value);
       if (correlation.status === 'fulfilled') setGlobalCorrelation(correlation.value);
+      if (supplyChain.status === 'fulfilled') setSupplyChainData(supplyChain.value);
+      if (sectorOrder.status === 'fulfilled') setSectorOrderData(sectorOrder.value);
+      if (fsi.status === 'fulfilled') setFinancialStressData(fsi.value);
+      if (fomc.status === 'fulfilled') setFomcSentimentData(fomc.value);
     };
     loadAdvancedData();
   }, []);

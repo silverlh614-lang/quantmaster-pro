@@ -601,3 +601,77 @@ export interface GlobalMultiSourceData {
   };
   lastUpdated: string;
 }
+
+// ─── 레이어 I: 공급망 물동량 인텔리전스 ─────────────────────────────────────────
+export interface SupplyChainIntelligence {
+  bdi: {
+    current: number;
+    mom3Change: number;       // 3개월 변화율 (%)
+    trend: 'SURGING' | 'RISING' | 'FLAT' | 'FALLING' | 'COLLAPSING';
+    sectorImplication: string;
+  };
+  semiBillings: {
+    latestBillionUSD: number;
+    yoyGrowth: number;        // %
+    bookToBill: number;       // 1.0 이상 = 수요 > 공급
+    implication: string;
+  };
+  gcfi: {
+    shanghaiEurope: number;   // $/40ft
+    transPacific: number;
+    trend: 'RISING' | 'FLAT' | 'FALLING';
+  };
+  lastUpdated: string;
+}
+
+// ─── 레이어 J: 섹터별 글로벌 수주 인텔리전스 ────────────────────────────────────
+export interface SectorOrderIntelligence {
+  globalDefense: {
+    natoGdpAvg: number;
+    usDefenseBudget: number;  // 억달러
+    trend: 'EXPANDING' | 'STABLE' | 'CUTTING';
+    koreaExposure: string;
+  };
+  lngOrders: {
+    newOrdersYTD: number;
+    qatarEnergy: string;
+    orderBookMonths: number;
+    implication: string;
+  };
+  smrContracts: {
+    usNrcApprovals: number;
+    totalGwCapacity: number;
+    koreaHyundai: string;
+    timing: 'TOO_EARLY' | 'OPTIMAL' | 'LATE';
+  };
+  lastUpdated: string;
+}
+
+// ─── 레이어 K: 금융시스템 스트레스 인덱스 ────────────────────────────────────────
+export interface FinancialStressIndex {
+  tedSpread: {
+    bps: number;
+    alert: 'NORMAL' | 'ELEVATED' | 'CRISIS';
+  };
+  usHySpread: {
+    bps: number;
+    trend: 'TIGHTENING' | 'STABLE' | 'WIDENING';
+  };
+  moveIndex: {
+    current: number;
+    alert: 'NORMAL' | 'ELEVATED' | 'EXTREME';
+  };
+  compositeScore: number;     // 0~100, 높을수록 위험
+  systemAction: 'NORMAL' | 'CAUTION' | 'DEFENSIVE' | 'CRISIS';
+  lastUpdated: string;
+}
+
+// ─── 레이어 L: FOMC 문서 감성 분석 ──────────────────────────────────────────────
+export interface FomcSentimentAnalysis {
+  hawkDovishScore: number;    // -10(극비둘기) ~ +10(극매파)
+  keyPhrases: string[];
+  dotPlotShift: 'MORE_CUTS' | 'UNCHANGED' | 'FEWER_CUTS';
+  kospiImpact: 'BULLISH' | 'NEUTRAL' | 'BEARISH';
+  rationale: string;
+  lastUpdated: string;
+}
