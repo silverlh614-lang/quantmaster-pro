@@ -27,6 +27,80 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
+// ─────────────────────────────────────────────────────────────
+// 아이디어 9: 서버사이드 비상 정지 모듈 (Circuit Breaker)
+// 브라우저를 닫아도 서버 메모리에서 플래그 유지
+// ─────────────────────────────────────────────────────────────
+let EMERGENCY_STOP = false;
+let DAILY_LOSS_PCT  = 0;   // 실시간 누적 손실률 (%)
+
+export function isEmergencyStopped() { return EMERGENCY_STOP; }
+export function setDailyLoss(pct: number) { DAILY_LOSS_PCT = pct; }
+
+// 미체결 주문 전량 취소 — KIS 미체결 조회 후 취소 (서버사이드 직접 호출)
+async function cancelAllPendingOrders(): Promise<void> {
+  if (!process.env.KIS_APP_KEY) return;
+  console.error('[EMERGENCY] KIS 미체결 주문 전량 취소 시작');
+  try {
+    const { refreshKisToken: getToken } = await import('./src/server/autoTradeEngine.js');
+    const token = await getToken();
+    const isReal = process.env.KIS_IS_REAL === 'true';
+    const base   = isReal ? 'https://openapi.koreainvestment.com:9443' : 'https://openapivts.koreainvestment.com:29443';
+    const trId   = isReal ? 'TTTC0688R' : 'VTTC0688R'; // 미체결 조회
+
+    const res = await fetch(
+      `${base}/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?` +
+      new URLSearchParams({
+        CANO: process.env.KIS_ACCOUNT_NO ?? '',
+        ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
+        CTX_AREA_FK100: '', CTX_AREA_NK100: '',
+        INQR_DVSN_1: '0', INQR_DVSN_2: '0',
+      }),
+      { headers: {
+        Authorization: `Bearer ${token}`,
+        appkey: process.env.KIS_APP_KEY!, appsecret: process.env.KIS_APP_SECRET!,
+        tr_id: trId, custtype: 'P', 'Content-Type': 'application/json',
+      }}
+    );
+    const data = await res.json() as { output?: { odno: string; pdno: string; ord_qty: string }[] };
+    const orders = data.output ?? [];
+    console.error(`[EMERGENCY] 미체결 주문 ${orders.length}건 취소 처리`);
+
+    const cancelTrId = isReal ? 'TTTC0803U' : 'VTTC0803U';
+    for (const o of orders) {
+      await fetch(`${base}/uapi/domestic-stock/v1/trading/order-rvsecncl`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          appkey: process.env.KIS_APP_KEY!, appsecret: process.env.KIS_APP_SECRET!,
+          tr_id: cancelTrId, custtype: 'P', 'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          CANO: process.env.KIS_ACCOUNT_NO ?? '',
+          ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
+          KRX_FWDG_ORD_ORGNO: '', ORGN_ODNO: o.odno,
+          ORD_DVSN: '00', RVSE_CNCL_DVSN_CD: '02',
+          ORD_QTY: o.ord_qty, ORD_UNPR: '0', QTY_ALL_ORD_YN: 'Y', PDNO: o.pdno,
+        }),
+      }).catch((e) => console.error(`[EMERGENCY] 취소 실패 ODNO ${o.odno}:`, e));
+    }
+    console.error('[EMERGENCY] 미체결 전량 취소 완료');
+  } catch (e) {
+    console.error('[EMERGENCY] cancelAllPendingOrders 실패:', e);
+  }
+}
+
+async function checkDailyLossLimit(): Promise<void> {
+  const limit = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
+  if (DAILY_LOSS_PCT >= limit && !EMERGENCY_STOP) {
+    EMERGENCY_STOP = true;
+    console.error(`[EMERGENCY] 일일 손실 한도 도달 (${DAILY_LOSS_PCT.toFixed(2)}% ≥ ${limit}%) — 자동매매 중단`);
+    await cancelAllPendingOrders();
+    const { generateDailyReport } = await import('./src/server/autoTradeEngine.js');
+    await generateDailyReport().catch(console.error);
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
@@ -428,6 +502,60 @@ async function startServer() {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // 아이디어 7: Health Check + Keep-Alive
+  // ─────────────────────────────────────────────────────────────
+  const serverStart = new Date().toISOString();
+
+  app.get('/api/health', (_req: Request, res: Response) => {
+    res.json({
+      status: 'ok',
+      emergencyStop: EMERGENCY_STOP,
+      dailyLossPct: DAILY_LOSS_PCT,
+      autoTradeEnabled: process.env.AUTO_TRADE_ENABLED === 'true',
+      mode: process.env.AUTO_TRADE_MODE ?? 'SHADOW',
+      kisIsReal: process.env.KIS_IS_REAL === 'true',
+      uptime: process.uptime(),
+      startedAt: serverStart,
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 아이디어 9: 비상 정지 API
+  // ─────────────────────────────────────────────────────────────
+
+  app.get('/api/emergency-status', (_req: Request, res: Response) => {
+    res.json({ emergencyStop: EMERGENCY_STOP, dailyLossPct: DAILY_LOSS_PCT });
+  });
+
+  app.post('/api/emergency-stop', async (_req: Request, res: Response) => {
+    EMERGENCY_STOP = true;
+    console.error('[EMERGENCY] 수동 비상 정지 발동!');
+    await cancelAllPendingOrders().catch(console.error);
+    res.json({ status: 'STOPPED', stoppedAt: new Date().toISOString() });
+  });
+
+  app.post('/api/emergency-reset', (req: Request, res: Response) => {
+    const secret = process.env.EMERGENCY_RESET_SECRET;
+    if (secret && req.body?.secret !== secret) {
+      return res.status(403).json({ error: '인증 실패' });
+    }
+    EMERGENCY_STOP = false;
+    DAILY_LOSS_PCT  = 0;
+    console.log('[EMERGENCY] 비상 정지 해제 — 자동매매 재개');
+    res.json({ status: 'RESUMED' });
+  });
+
+  // 일일 손실 외부 업데이트 (프론트엔드에서 Shadow 결과 집계 후 호출)
+  app.post('/api/daily-loss', (req: Request, res: Response) => {
+    const { pct } = req.body;
+    if (typeof pct === 'number') {
+      DAILY_LOSS_PCT = pct;
+      checkDailyLossLimit().catch(console.error);
+    }
+    res.json({ ok: true, dailyLossPct: DAILY_LOSS_PCT });
+  });
+
+  // ─────────────────────────────────────────────────────────────
   // 자동매매 워치리스트 REST API
   // ─────────────────────────────────────────────────────────────
 
@@ -518,12 +646,18 @@ async function startServer() {
     // 장중 신호 스캔 — 평일 09:05 ~ 15:25, 5분 간격 (KST = UTC+9)
     // UTC 00:05~06:25 → cron: */5 0-6 * * 1-5 (대략, 세밀 제어는 함수 내부에서)
     cron.schedule('*/5 0-6 * * 1-5', async () => {
+      // 아이디어 9: 비상 정지 플래그 선체크
+      if (EMERGENCY_STOP) {
+        console.warn('[AutoTrade] 비상 정지 중 — 스캔 건너뜀');
+        return;
+      }
       // KST 타임 계산으로 실제 유효 구간 확인
       const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
       const h = kst.getUTCHours(), m = kst.getUTCMinutes();
       const t = h * 100 + m;
       if (t < 905 || t > 1525) return; // 09:05 ~ 15:25 KST 외 제외
       await runAutoSignalScan().catch(console.error);
+      await checkDailyLossLimit().catch(console.error); // 아이디어 9: 손실 한도 체크
     }, { timezone: 'UTC' });
 
     // 아이디어 6: DART 공시 30분 폴링 — 장중 08:30~18:00 KST (UTC 23:30~09:00)
@@ -538,6 +672,17 @@ async function startServer() {
     }, { timezone: 'UTC' });
 
     console.log('[AutoTrade] 크론 스케줄러 가동 완료 (장중 5분 간격 / 일일 리포트)');
+
+    // 아이디어 7-A: 14분 간격 자가 핑 — Railway 슬립 방지
+    const selfUrl = process.env.RAILWAY_STATIC_URL ?? `http://localhost:${PORT}`;
+    setInterval(async () => {
+      try {
+        await fetch(`${selfUrl}/api/health`);
+      } catch {
+        // 핑 실패는 무시 (서버 자체가 살아있으면 다음 핑에서 회복)
+      }
+    }, 14 * 60 * 1000);
+    console.log(`[KeepAlive] 14분 간격 자가 핑 시작 → ${selfUrl}/api/health`);
   });
 }
 
