@@ -454,7 +454,7 @@ export const MarketDashboard: React.FC<MarketDashboardProps> = ({ data, triageSu
           <h3 className="text-xl font-black text-white uppercase tracking-tighter">주요 시장 지수</h3>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {data.indices?.map((idx, i) => (
+          {data.indices?.map((idx: MarketDataPoint, i: number) => (
             <MarketCard key={`${idx.name}-${i}`} item={idx} />
           ))}
         </div>

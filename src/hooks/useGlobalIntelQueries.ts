@@ -31,6 +31,22 @@ import { evaluateGate0 } from '../services/quantEngine';
 const THIRTY_MINUTES = 30 * 60 * 1000;
 const ONE_HOUR = 60 * 60 * 1000;
 
+/**
+ * 모듈 레벨 레이트 리미터.
+ * Gemini 무료 티어 RPM 초과 방지 — 연속 AI 호출 사이에 최소 2초 간격 보장.
+ * TanStack Query가 12개 쿼리를 동시에 마운트해도 실제 API 호출은 순차적으로 분산됨.
+ */
+let lastGeminiCallTime = 0;
+const GEMINI_CALL_INTERVAL = 2000; // ms between calls
+
+async function rateLimited<T>(fn: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const wait = GEMINI_CALL_INTERVAL - (now - lastGeminiCallTime);
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  lastGeminiCallTime = Date.now();
+  return fn();
+}
+
 /** Core macro environment — Gate 0 input */
 export function useMacroEnvironment() {
   const setMacroEnv = useGlobalIntelStore(s => s.setMacroEnv);
@@ -39,7 +55,7 @@ export function useMacroEnvironment() {
   return useQuery({
     queryKey: ['macro-environment'],
     queryFn: async () => {
-      const data = await fetchMacroEnvironment();
+      const data = await rateLimited(() => fetchMacroEnvironment());
       setMacroEnv(data);
 
       // Auto-record MHS history
@@ -68,7 +84,7 @@ export function useEconomicRegime() {
   const setData = useGlobalIntelStore(s => s.setEconomicRegimeData);
   return useQuery({
     queryKey: ['economic-regime'],
-    queryFn: async () => { const d = await getEconomicRegime(); setData(d); return d; },
+    queryFn: async () => { const d = await rateLimited(() => getEconomicRegime()); setData(d); return d; },
     staleTime: THIRTY_MINUTES, retry: 2,
   });
 }
@@ -78,7 +94,7 @@ export function useExtendedRegime() {
   const setData = useGlobalIntelStore(s => s.setExtendedRegimeData);
   return useQuery({
     queryKey: ['extended-regime'],
-    queryFn: async () => { const d = await getExtendedEconomicRegime(); setData(d); return d; },
+    queryFn: async () => { const d = await rateLimited(() => getExtendedEconomicRegime()); setData(d); return d; },
     staleTime: THIRTY_MINUTES, retry: 2,
   });
 }
@@ -88,7 +104,7 @@ export function useSmartMoney() {
   const setData = useGlobalIntelStore(s => s.setSmartMoneyData);
   return useQuery({
     queryKey: ['smart-money'],
-    queryFn: async () => { const d = await getSmartMoneyFlow(); setData(d); return d; },
+    queryFn: async () => { const d = await rateLimited(() => getSmartMoneyFlow()); setData(d); return d; },
     staleTime: THIRTY_MINUTES, retry: 2,
   });
 }
@@ -98,7 +114,7 @@ export function useExportMomentum() {
   const setData = useGlobalIntelStore(s => s.setExportMomentumData);
   return useQuery({
     queryKey: ['export-momentum'],
-    queryFn: async () => { const d = await getExportMomentum(); setData(d); return d; },
+    queryFn: async () => { const d = await rateLimited(() => getExportMomentum()); setData(d); return d; },
     staleTime: THIRTY_MINUTES, retry: 2,
   });
 }
@@ -108,7 +124,7 @@ export function useGeoRisk() {
   const setData = useGlobalIntelStore(s => s.setGeoRiskData);
   return useQuery({
     queryKey: ['geo-risk'],
-    queryFn: async () => { const d = await getGeopoliticalRiskScore(); setData(d); return d; },
+    queryFn: async () => { const d = await rateLimited(() => getGeopoliticalRiskScore()); setData(d); return d; },
     staleTime: THIRTY_MINUTES, retry: 2,
   });
 }
@@ -118,7 +134,7 @@ export function useCreditSpreads() {
   const setData = useGlobalIntelStore(s => s.setCreditSpreadData);
   return useQuery({
     queryKey: ['credit-spreads'],
-    queryFn: async () => { const d = await getCreditSpreads(); setData(d); return d; },
+    queryFn: async () => { const d = await rateLimited(() => getCreditSpreads()); setData(d); return d; },
     staleTime: THIRTY_MINUTES, retry: 2,
   });
 }
@@ -128,7 +144,7 @@ export function useGlobalCorrelation() {
   const setData = useGlobalIntelStore(s => s.setGlobalCorrelation);
   return useQuery({
     queryKey: ['global-correlation'],
-    queryFn: async () => { const d = await getGlobalCorrelationMatrix(); setData(d); return d; },
+    queryFn: async () => { const d = await rateLimited(() => getGlobalCorrelationMatrix()); setData(d); return d; },
     staleTime: THIRTY_MINUTES, retry: 2,
   });
 }
@@ -138,7 +154,7 @@ export function useSupplyChain() {
   const setData = useGlobalIntelStore(s => s.setSupplyChainData);
   return useQuery({
     queryKey: ['supply-chain'],
-    queryFn: async () => { const d = await getSupplyChainIntelligence(); setData(d); return d; },
+    queryFn: async () => { const d = await rateLimited(() => getSupplyChainIntelligence()); setData(d); return d; },
     staleTime: THIRTY_MINUTES, retry: 2,
   });
 }
@@ -148,7 +164,7 @@ export function useSectorOrders() {
   const setData = useGlobalIntelStore(s => s.setSectorOrderData);
   return useQuery({
     queryKey: ['sector-orders'],
-    queryFn: async () => { const d = await getSectorOrderIntelligence(); setData(d); return d; },
+    queryFn: async () => { const d = await rateLimited(() => getSectorOrderIntelligence()); setData(d); return d; },
     staleTime: THIRTY_MINUTES, retry: 2,
   });
 }
@@ -158,7 +174,7 @@ export function useFinancialStress() {
   const setData = useGlobalIntelStore(s => s.setFinancialStressData);
   return useQuery({
     queryKey: ['financial-stress'],
-    queryFn: async () => { const d = await getFinancialStressIndex(); setData(d); return d; },
+    queryFn: async () => { const d = await rateLimited(() => getFinancialStressIndex()); setData(d); return d; },
     staleTime: THIRTY_MINUTES, retry: 2,
   });
 }
@@ -168,7 +184,7 @@ export function useFomcSentiment() {
   const setData = useGlobalIntelStore(s => s.setFomcSentimentData);
   return useQuery({
     queryKey: ['fomc-sentiment'],
-    queryFn: async () => { const d = await getFomcSentimentAnalysis(); setData(d); return d; },
+    queryFn: async () => { const d = await rateLimited(() => getFomcSentimentAnalysis()); setData(d); return d; },
     staleTime: THIRTY_MINUTES, retry: 2,
   });
 }

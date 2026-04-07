@@ -3479,6 +3479,15 @@ export default function App() {
               </h3>
               
               <div className="space-y-8">
+                {!marketContext && (
+                  <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
+                    <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center">
+                      <BarChart3 className="w-7 h-7 text-white/20" />
+                    </div>
+                    <p className="text-sm font-bold text-white/25 uppercase tracking-widest">데이터 없음</p>
+                    <p className="text-xs text-white/15 max-w-[200px] leading-relaxed">시장 분석을 실행하면<br/>센티멘트 지표가 표시됩니다</p>
+                  </div>
+                )}
                 {marketContext && (
                   <>
                     {marketContext.fearAndGreed && (
@@ -3636,7 +3645,7 @@ export default function App() {
         </section>
 
         {/* Today's Top 3 Section */}
-        {(recommendations || []).length > 0 && (
+        {(recommendations || []).filter(s => (s.aiConvictionScore?.totalScore || 0) > 0 && Number.isFinite(Number(s.currentPrice)) && Number(s.currentPrice) > 0).length > 0 && (
           <section className="mb-16">
             <div className="flex items-center justify-between mb-8 px-4">
               <div className="flex items-center gap-4">
@@ -3656,6 +3665,7 @@ export default function App() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               {[...(recommendations || [])]
+                .filter(s => (s.aiConvictionScore?.totalScore || 0) > 0 && Number.isFinite(Number(s.currentPrice)) && Number(s.currentPrice) > 0)
                 .sort((a, b) => (b.aiConvictionScore?.totalScore || 0) - (a.aiConvictionScore?.totalScore || 0))
                 .slice(0, 3)
                 .map((stock, idx) => (
@@ -3715,7 +3725,10 @@ export default function App() {
                       </div>
                       <div className="flex items-center gap-2 text-green-400 font-black text-sm">
                         <ArrowUpRight className="w-4 h-4" />
-                        +{Math.round(((stock.targetPrice || 0) / (stock.currentPrice || 1) - 1) * 100)}%
+                        {(() => {
+                          const upside = Math.round(((Number(stock.targetPrice) || 0) / (Number(stock.currentPrice) || 1) - 1) * 100);
+                          return Number.isFinite(upside) && upside > 0 ? `+${upside}%` : 'N/A';
+                        })()}
                       </div>
                     </div>
 
