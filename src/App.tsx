@@ -1721,22 +1721,25 @@ export default function App() {
 
   const allPatterns = Array.from(new Set((recommendations || []).flatMap(r => r.patterns || [])));
   
+  const searchResultCodes = new Set((searchResults || []).map(s => s.code));
+
   const filteredRecommendations = [...(recommendations || []), ...(searchResults || [])].filter(stock => {
     const typeMatch = selectedType === 'ALL' || stock.type === selectedType;
     const patternMatch = selectedPattern === 'ALL' || (stock.patterns || []).includes(selectedPattern);
-    
-    const sentimentMatch = selectedSentiment === 'ALL' || 
+
+    const sentimentMatch = selectedSentiment === 'ALL' ||
       (selectedSentiment === 'RISK_ON' && (stock.marketSentiment?.iri ?? 0) < 2.0) ||
       (selectedSentiment === 'RISK_OFF' && (stock.marketSentiment?.iri ?? 0) >= 2.0);
-    
-    const checklistMatch = selectedChecklist.length === 0 || 
+
+    const checklistMatch = selectedChecklist.length === 0 ||
       selectedChecklist.every(item => stock.checklist?.[item as keyof typeof stock.checklist]);
 
     const minP = minPrice === '' ? 0 : parseInt(minPrice);
     const maxP = maxPrice === '' ? Infinity : parseInt(maxPrice);
     const priceMatch = (stock.currentPrice ?? 0) >= minP && (stock.currentPrice ?? 0) <= maxP;
 
-    const searchMatch = searchQuery === '' || 
+    // searchResults는 AI가 이미 의미론적으로 검색어에 매칭한 결과이므로 텍스트 필터 생략
+    const searchMatch = searchResultCodes.has(stock.code) || searchQuery === '' ||
       (stock.name?.toLowerCase().includes(searchQuery?.toLowerCase() || '') ?? false) ||
       (stock.code?.includes(searchQuery || '') ?? false);
 
