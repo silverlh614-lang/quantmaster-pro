@@ -365,6 +365,7 @@ export interface StockRecommendation {
     institutionNet: number;
     individualNet: number;
     foreignConsecutive: number;
+    institutionalDailyAmounts?: number[];
     isPassiveAndActive: boolean;
     dataSource: string;
   };
@@ -1164,8 +1165,11 @@ async function fetchKisSupply(code: string) {
       if (parseInt(r.frgn_ntby_qty || '0') > 0) foreignConsecutive++;
       else break;
     }
+    // 기관 일별 순매수 수량 시계열 (최신→과거 → reverse로 과거→최신)
+    const institutionalDailyAmounts = rows.map(r => parseInt(r.orgn_ntby_qty || '0')).reverse();
     const result = {
       foreignNet, institutionNet, individualNet, foreignConsecutive,
+      institutionalDailyAmounts,
       isPassiveAndActive: foreignNet > 0 && institutionNet > 0,
       dataSource: 'KIS',
     };
@@ -1298,16 +1302,16 @@ async function fetchDartFinancials(corpCode: string) {
   }
 }
 
-export async function fetchHistoricalData(code: string, range: string = '1y'): Promise<any> {
+export async function fetchHistoricalData(code: string, range: string = '1y', interval: string = '1d'): Promise<any> {
   // Try .KS (KOSPI) first, then .KQ (KOSDAQ) if it looks like a Korean stock code
   // Handle cases where code might already have a suffix or be just 6 digits
   const baseCodeMatch = code.match(/^(\d{6})(\.(KS|KQ))?$/);
   const baseCode = baseCodeMatch ? baseCodeMatch[1] : null;
-  
+
   const symbols = baseCode ? [`${baseCode}.KS`, `${baseCode}.KQ`] : [code];
-  
+
   for (const symbol of symbols) {
-    const url = `/api/historical-data?symbol=${symbol}&range=${range}&interval=1d`;
+    const url = `/api/historical-data?symbol=${symbol}&range=${range}&interval=${interval}`;
     try {
       const data = await withRetry(async () => {
         const response = await fetch(url);

@@ -119,6 +119,8 @@ import { MacroIntelligenceDashboard } from './components/MacroIntelligenceDashbo
 import { ManualQuantInput } from './components/ManualQuantInput';
 import { ConfidenceBadge } from './components/ConfidenceBadge';
 import { evaluateStock, evaluateGate0 } from './services/quantEngine';
+import { fetchHistoricalData } from './services/stockService';
+import { calculateRSIMomentumAcceleration } from './utils/indicators';
 import { MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal, StockProfile, StockProfileType, MacroEnvironment, EconomicRegimeData, SmartMoneyData, ExportMomentumData, GeopoliticalRiskData, CreditSpreadData, ROEType, ExtendedRegimeData, GlobalCorrelationMatrix, NewsFrequencyScore, SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex, FomcSentimentAnalysis, TradeRecord, ConditionId } from './types/quant';
 import { PortfolioComparison } from './components/PortfolioComparison';
 import { QuantScreener } from './components/QuantScreener';
@@ -393,6 +395,7 @@ export default function App() {
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [reportSummary, setReportSummary] = useState<string | null>(null);
   const [deepAnalysisStock, setDeepAnalysisStock] = useState<StockRecommendation | null>(null);
+  const [weeklyRsiValues, setWeeklyRsiValues] = useState<number[]>([]);
   const [selectedDetailStock, setSelectedDetailStock] = useState<StockRecommendation | null>(null);
   const [syncingStock, setSyncingStock] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<{
@@ -455,6 +458,23 @@ export default function App() {
       Notification.requestPermission();
     }
   }, []);
+
+  // ── Gap 2a: 주봉 RSI 3주 추이 계산 ──────────────────────────────────────────
+  useEffect(() => {
+    if (!deepAnalysisStock) { setWeeklyRsiValues([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchHistoricalData(deepAnalysisStock.code, '6mo', '1wk');
+        if (cancelled || !data?.indicators?.quote?.[0]) return;
+        const closes = (data.indicators.quote[0].close as (number | null)[]).filter((v): v is number => v !== null);
+        if (closes.length < 17) return; // RSI 14 + 3주
+        const { values } = calculateRSIMomentumAcceleration(closes, 3);
+        if (!cancelled) setWeeklyRsiValues(values);
+      } catch { /* 실패 시 기본값 유지 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [deepAnalysisStock?.code]);
 
   // ── 어드밴스드 컨텍스트 + 매크로 환경 데이터 수집 ───────────────────────────
   // TanStack Query (useAllGlobalIntel)로 대체됨:
@@ -5729,6 +5749,10 @@ export default function App() {
                       newsPhase: (newsFrequencyScores.find((n: any) => n.code === deepAnalysisStock.code)?.phase) as any ?? undefined,
                       // 촉매 설명 텍스트 → 촉매 등급 A/B/C
                       catalystDescription: deepAnalysisStock.reason,
+                      // Gap 2a: 주봉 RSI 3주 추이
+                      weeklyRsiValues: weeklyRsiValues.length > 0 ? weeklyRsiValues : undefined,
+                      // Gap 2b: 기관 일별 순매수 수량 시계열 (supplyData에서 추출)
+                      institutionalAmounts: deepAnalysisStock.supplyData?.institutionalDailyAmounts ?? undefined,
                     },
                     {
                       kospi60dVolatility: extendedRegimeData?.uncertaintyMetrics?.kospi60dVolatility,
