@@ -675,3 +675,87 @@ export interface FomcSentimentAnalysis {
   rationale: string;
   lastUpdated: string;
 }
+
+// ─── 실전 성과 관리 시스템 ──────────────────────────────────────────────────────
+
+/** ① 매매 일지 개별 기록 */
+export interface TradeRecord {
+  id: string;                       // uuid
+  stockCode: string;
+  stockName: string;
+  sector: string;
+
+  // 매수
+  buyDate: string;                  // ISO date
+  buyPrice: number;
+  quantity: number;
+  positionSize: number;             // % of portfolio at entry
+
+  // 매도 (완료 시 채움)
+  sellDate?: string;
+  sellPrice?: number;
+  sellReason?: 'TARGET_HIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'SELL_SIGNAL' | 'MANUAL';
+
+  // 시스템 신호 스냅샷 (매수 시점)
+  systemSignal: 'STRONG_BUY' | 'BUY' | 'NEUTRAL' | 'SELL';
+  recommendation: EvaluationResult['recommendation'];
+  gate1Score: number;
+  gate2Score: number;
+  gate3Score: number;
+  finalScore: number;
+  conditionScores: Record<ConditionId, number>;  // 27조건 스냅샷
+
+  // 시스템 vs 직관
+  followedSystem: boolean;          // true=기계적 매수, false=직감 매수
+
+  // 결과 (매도 후 계산)
+  returnPct?: number;               // 수익률 (%)
+  holdingDays?: number;             // 보유 일수
+  status: 'OPEN' | 'CLOSED' | 'PARTIAL';
+
+  // 현재가 추적 (OPEN 상태)
+  currentPrice?: number;
+  unrealizedPct?: number;           // 미실현 수익률 (%)
+  lastSyncAt?: string;
+
+  memo?: string;                    // 자유 메모
+}
+
+/** ② 27조건 실전 승률 누적 */
+export interface ConditionPerformance {
+  conditionId: ConditionId;
+  conditionName: string;
+
+  // 누적 통계
+  totalTrades: number;              // 해당 조건 ≥ 5 였던 매매 수
+  winTrades: number;                // 수익 종료된 매매 수
+  lossTrades: number;
+  avgReturnWhenHigh: number;        // 해당 조건 ≥ 7 일 때 평균 수익률
+  avgReturnWhenLow: number;         // 해당 조건 < 5 일 때 평균 수익률
+
+  // 동적 가중치 (실전 데이터 기반)
+  evolutionWeight: number;          // 1.0 = 기본, > 1.0 = 실전 강화
+  lastUpdated: string;
+}
+
+/** ③ 시스템 vs 직관 대결 요약 */
+export interface SystemVsIntuitionStats {
+  // 시스템 매수 (followedSystem = true)
+  systemTrades: number;
+  systemWins: number;
+  systemAvgReturn: number;          // %
+  systemMaxDrawdown: number;        // %
+
+  // 직관 매수 (followedSystem = false)
+  intuitionTrades: number;
+  intuitionWins: number;
+  intuitionAvgReturn: number;
+  intuitionMaxDrawdown: number;
+
+  // 종합 비교
+  systemWinRate: number;            // %
+  intuitionWinRate: number;         // %
+  systemEdge: number;               // 시스템 승률 - 직관 승률 (양수=시스템 우위)
+
+  lastUpdated: string;
+}

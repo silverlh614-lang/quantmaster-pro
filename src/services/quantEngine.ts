@@ -551,10 +551,13 @@ export function evaluateStock(
   const growthMultiplier = regime.vKospi < 15 ? 1.5 : 1.0;
 
   // Self-Evolution Layer: 과거 성과 기반 가중치
+  // 실전 데이터 기반 동적 가중치 (10건 이상 누적 시 자동 업데이트)
+  // 기본값 + localStorage 실전 데이터로 오버라이드
   const EVOLUTION_WEIGHTS: Record<ConditionId, number> = {
-    1: 1.1,  // 주도주 사이클 — 안정적 성과
-    10: 0.9, // 기술적 정배열 — 최근 후행
-    25: 1.2, // VCP — 현 레짐에서 신뢰도 높음
+    1: 1.1,  // 주도주 사이클 — 안정적 성과 (기본값)
+    10: 0.9, // 기술적 정배열 — 최근 후행 (기본값)
+    25: 1.2, // VCP — 현 레짐에서 신뢰도 높음 (기본값)
+    ...getEvolutionWeightsFromPerformance(),
   };
 
   const calculateScore = (ids: ConditionId[]) => {
@@ -801,4 +804,46 @@ export function evaluateStock(
     seasonality,
     attribution,
   };
+}
+
+// ─── 실전 성과 기반 동적 EVOLUTION_WEIGHTS ──────────────────────────────────────
+
+const EVOLUTION_WEIGHTS_KEY = 'k-stock-evolution-weights';
+
+/**
+ * localStorage에서 실전 데이터 기반 가중치를 읽어옵니다.
+ * TradeJournal의 computeConditionPerformance()가 계산한 결과를
+ * saveEvolutionWeights()로 저장하면 다음 evaluateStock() 호출 시 반영.
+ */
+export function getEvolutionWeightsFromPerformance(): Record<number, number> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(EVOLUTION_WEIGHTS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    // string key → number key 변환
+    const result: Record<number, number> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      const numKey = parseInt(k, 10);
+      if (!isNaN(numKey) && typeof v === 'number' && v >= 0.5 && v <= 1.5) {
+        result[numKey] = v;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * 실전 성과 데이터에서 계산된 가중치를 localStorage에 저장합니다.
+ * TradeJournal에서 매매 종료 시 호출됩니다.
+ */
+export function saveEvolutionWeights(weights: Record<number, number>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(EVOLUTION_WEIGHTS_KEY, JSON.stringify(weights));
+  } catch (e) {
+    console.error('Failed to save evolution weights:', e);
+  }
 }

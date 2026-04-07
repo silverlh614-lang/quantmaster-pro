@@ -130,11 +130,13 @@ import { MacroIntelligenceDashboard } from './components/MacroIntelligenceDashbo
 import { ManualQuantInput } from './components/ManualQuantInput';
 import { ConfidenceBadge } from './components/ConfidenceBadge';
 import { evaluateStock, evaluateGate0 } from './services/quantEngine';
-import { MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal, StockProfile, StockProfileType, MacroEnvironment, EconomicRegimeData, SmartMoneyData, ExportMomentumData, GeopoliticalRiskData, CreditSpreadData, ROEType, ExtendedRegimeData, GlobalCorrelationMatrix, NewsFrequencyScore, SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex, FomcSentimentAnalysis } from './types/quant';
+import { MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal, StockProfile, StockProfileType, MacroEnvironment, EconomicRegimeData, SmartMoneyData, ExportMomentumData, GeopoliticalRiskData, CreditSpreadData, ROEType, ExtendedRegimeData, GlobalCorrelationMatrix, NewsFrequencyScore, SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex, FomcSentimentAnalysis, TradeRecord, ConditionId } from './types/quant';
 import { PortfolioComparison } from './components/PortfolioComparison';
 import { QuantScreener } from './components/QuantScreener';
 import { SectorSubscription } from './components/SectorSubscription';
 import { StockDetailModal } from './components/StockDetailModal';
+import { TradeJournal, computeConditionPerformance } from './components/TradeJournal';
+import { saveEvolutionWeights } from './services/quantEngine';
 import { 
   LineChart, 
   Line, 
@@ -337,7 +339,7 @@ export default function App() {
   const [watchlist, setWatchlist] = useState<StockRecommendation[]>(() => {
     return safeGet<StockRecommendation[]>('k-stock-watchlist', []);
   });
-  const [view, setView] = useState<'DISCOVER' | 'WATCHLIST' | 'BACKTEST' | 'MARKET' | 'WALK_FORWARD' | 'MANUAL_INPUT' | 'SCREENER' | 'SUBSCRIPTION'>('DISCOVER');
+  const [view, setView] = useState<'DISCOVER' | 'WATCHLIST' | 'BACKTEST' | 'MARKET' | 'WALK_FORWARD' | 'MANUAL_INPUT' | 'SCREENER' | 'SUBSCRIPTION' | 'TRADE_JOURNAL'>('DISCOVER');
   const [marketOverview, setMarketOverview] = useState<MarketOverview | null>(() => {
     return safeGet<MarketOverview | null>('k-stock-market-overview', null);
   });
@@ -425,6 +427,13 @@ export default function App() {
   const [financialStressData, setFinancialStressData] = useState<FinancialStressIndex | null>(null);
   const [fomcSentimentData, setFomcSentimentData] = useState<FomcSentimentAnalysis | null>(null);
   const [currentRoeType, setCurrentRoeType] = useState<ROEType>(3);
+
+  // ── 실전 성과 관리 시스템 ─────────────────────────────────────────────────────
+  const [tradeRecords, setTradeRecords] = useState<TradeRecord[]>(() => {
+    return safeGet<TradeRecord[]>('k-stock-trade-records', []);
+  });
+  const [tradeRecordStock, setTradeRecordStock] = useState<StockRecommendation | null>(null);
+  const [tradeFormData, setTradeFormData] = useState({ buyPrice: '', quantity: '', positionSize: '10', followedSystem: true });
 
   useEffect(() => {
     if ('Notification' in window && Notification.permission !== 'granted') {
@@ -666,13 +675,31 @@ export default function App() {
         }
       }
 
-      setSyncStatus(prev => ({ 
-        ...prev, 
-        isSyncing: false, 
-        currentStock: null, 
-        lastSyncTime: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) 
+      // ── OPEN 매매 현재가 자동 갱신 ──
+      setTradeRecords((prev: TradeRecord[]) => {
+        const updatedRecs = prev.map((t: TradeRecord) => {
+          if (t.status !== 'OPEN') return t;
+          // watchlist에서 동기화된 최신 가격 반영
+          const synced = watchlistRef.current.find((s: StockRecommendation) => s.code === t.stockCode);
+          const newPrice = synced?.currentPrice ?? t.currentPrice;
+          if (!newPrice || newPrice === t.currentPrice) return t;
+          return {
+            ...t,
+            currentPrice: newPrice,
+            unrealizedPct: parseFloat(((newPrice - t.buyPrice) / t.buyPrice * 100).toFixed(2)),
+            lastSyncAt: new Date().toISOString(),
+          };
+        });
+        return updatedRecs;
+      });
+
+      setSyncStatus(prev => ({
+        ...prev,
+        isSyncing: false,
+        currentStock: null,
+        lastSyncTime: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
       }));
-      
+
       setNextSyncCountdown(300); // Wait 5 minutes between full cycles
       timeoutId = setTimeout(runSyncCycle, 300000);
     };
@@ -1304,6 +1331,83 @@ export default function App() {
       localStorage.setItem('k-stock-last-updated', lastUpdated);
     }
   }, [lastUpdated]);
+
+  // ── 매매 기록 관리 ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    localStorage.setItem('k-stock-trade-records', JSON.stringify(tradeRecords));
+    // 매매 종료 시 EVOLUTION_WEIGHTS 자동 업데이트
+    const closed = tradeRecords.filter(t => t.status === 'CLOSED');
+    if (closed.length >= 10) {
+      const condPerf = computeConditionPerformance(closed);
+      const weights: Record<number, number> = {};
+      condPerf.forEach((c: { conditionId: number; totalTrades: number; evolutionWeight: number }) => {
+        if (c.totalTrades >= 10 && c.evolutionWeight !== 1.0) {
+          weights[c.conditionId] = c.evolutionWeight;
+        }
+      });
+      if (Object.keys(weights).length > 0) {
+        saveEvolutionWeights(weights);
+      }
+    }
+  }, [tradeRecords]);
+
+  const recordTrade = (
+    stock: StockRecommendation,
+    buyPrice: number,
+    quantity: number,
+    positionSize: number,
+    followedSystem: boolean,
+    conditionScores: Record<ConditionId, number>,
+    gateScores: { g1: number; g2: number; g3: number; final: number },
+  ) => {
+    const newTrade: TradeRecord = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      stockCode: stock.code,
+      stockName: stock.name,
+      sector: stock.relatedSectors?.[0] ?? 'Unknown',
+      buyDate: new Date().toISOString(),
+      buyPrice,
+      quantity,
+      positionSize,
+      systemSignal: stock.type === 'STRONG_BUY' ? 'STRONG_BUY' : stock.type === 'BUY' ? 'BUY' : stock.type === 'SELL' || stock.type === 'STRONG_SELL' ? 'SELL' : 'NEUTRAL',
+      recommendation: gateScores.final >= 200 ? '풀 포지션' : gateScores.final >= 150 ? '절반 포지션' : '관망',
+      gate1Score: gateScores.g1,
+      gate2Score: gateScores.g2,
+      gate3Score: gateScores.g3,
+      finalScore: gateScores.final,
+      conditionScores,
+      followedSystem,
+      status: 'OPEN',
+      currentPrice: stock.currentPrice,
+      unrealizedPct: 0,
+    };
+    setTradeRecords(prev => [...prev, newTrade]);
+  };
+
+  const closeTrade = (tradeId: string, sellPrice: number, sellReason: TradeRecord['sellReason']) => {
+    setTradeRecords((prev: TradeRecord[]) => prev.map((t: TradeRecord) => {
+      if (t.id !== tradeId) return t;
+      const returnPct = ((sellPrice - t.buyPrice) / t.buyPrice) * 100;
+      const holdingDays = Math.round((Date.now() - new Date(t.buyDate).getTime()) / (1000 * 60 * 60 * 24));
+      return {
+        ...t,
+        sellDate: new Date().toISOString(),
+        sellPrice,
+        sellReason,
+        returnPct: parseFloat(returnPct.toFixed(2)),
+        holdingDays,
+        status: 'CLOSED' as const,
+      };
+    }));
+  };
+
+  const deleteTrade = (tradeId: string) => {
+    setTradeRecords((prev: TradeRecord[]) => prev.filter((t: TradeRecord) => t.id !== tradeId));
+  };
+
+  const updateTradeMemo = (tradeId: string, memo: string) => {
+    setTradeRecords((prev: TradeRecord[]) => prev.map((t: TradeRecord) => t.id === tradeId ? { ...t, memo } : t));
+  };
 
   const toggleWatchlist = (stock: StockRecommendation) => {
     setWatchlist(prev => {
@@ -2193,6 +2297,21 @@ export default function App() {
                 <Calculator className="w-4 h-4" />
                 <span className="hidden xs:inline">수동 퀀트</span>
               </button>
+              <button
+                onClick={() => { setView('TRADE_JOURNAL'); setSearchQuery(''); }}
+                className={cn(
+                  "px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 transition-all",
+                  view === 'TRADE_JOURNAL' ? "bg-emerald-500 text-white shadow-[0_4px_12px_rgba(16,185,129,0.3)]" : "text-white/30 hover:text-white/60"
+                )}
+              >
+                <TrendingUp className="w-4 h-4" />
+                <span className="hidden xs:inline">매매일지</span>
+                {tradeRecords.filter((t: TradeRecord) => t.status === 'OPEN').length > 0 && (
+                  <span className="ml-1 text-[9px] bg-emerald-400/30 px-1.5 py-0.5 rounded font-mono">
+                    {tradeRecords.filter((t: TradeRecord) => t.status === 'OPEN').length}
+                  </span>
+                )}
+              </button>
               <div className="w-px h-6 bg-white/10 mx-1 self-center" />
               <button 
                 onClick={() => setShowMasterChecklist(true)}
@@ -2342,6 +2461,30 @@ export default function App() {
                   isLeading: true,
                   sectorLeaderNewHigh: true
                 }}
+              />
+            </motion.div>
+          ) : view === 'TRADE_JOURNAL' ? (
+            <motion.div
+              key="trade-journal-view"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-12"
+            >
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-3 h-10 bg-emerald-500 rounded-full shadow-[0_0_20px_rgba(16,185,129,0.5)]" />
+                  <div>
+                    <h2 className="text-2xl font-black text-white tracking-tight uppercase">실전 성과 관리</h2>
+                    <p className="text-xs font-bold text-white/30 uppercase tracking-[0.2em]">Trade Journal · Condition Performance · System vs Intuition</p>
+                  </div>
+                </div>
+              </div>
+              <TradeJournal
+                trades={tradeRecords}
+                onCloseTrade={closeTrade}
+                onDeleteTrade={deleteTrade}
+                onUpdateMemo={updateTradeMemo}
               />
             </motion.div>
           ) : view === 'SCREENER' ? (
@@ -5021,6 +5164,16 @@ export default function App() {
                             >
                               <Bookmark className={cn("w-4 h-4 sm:w-4.5 sm:h-4.5", isWatched(stock.code) && "fill-current")} />
                             </button>
+                            <button
+                              onClick={() => {
+                                setTradeRecordStock(stock);
+                                setTradeFormData({ buyPrice: String(stock.currentPrice || ''), quantity: '', positionSize: '10', followedSystem: true });
+                              }}
+                              className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/10 bg-white/5 text-white/30 hover:text-emerald-400 hover:border-emerald-500/30 hover:bg-emerald-500/5 active:scale-90 shadow-sm"
+                              title="매수 기록"
+                            >
+                              <Plus className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                            </button>
                           </div>
                         </div>
 
@@ -7237,10 +7390,89 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <StockDetailModal 
+      <StockDetailModal
         stock={selectedDetailStock}
         onClose={() => setSelectedDetailStock(null)}
       />
+
+      {/* ── 매수 기록 모달 ──────────────────────────────────────────── */}
+      {tradeRecordStock && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm"
+          onClick={() => setTradeRecordStock(null)}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+            className="glass-3d rounded-[2rem] p-8 max-w-md w-full border border-white/10 shadow-2xl"
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-xl font-black text-white">{tradeRecordStock.name} 매수 기록</h3>
+                <p className="text-xs text-white/40 font-mono">{tradeRecordStock.code} · {tradeRecordStock.type}</p>
+              </div>
+              <button onClick={() => setTradeRecordStock(null)} className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10">
+                <X className="w-4 h-4 text-white/50" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest">매수가 (원)</label>
+                <input type="number" value={tradeFormData.buyPrice} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTradeFormData(p => ({ ...p, buyPrice: e.target.value }))}
+                  className="w-full mt-1 p-3 bg-white/5 border border-white/10 text-white text-sm rounded-xl" placeholder={String(tradeRecordStock.currentPrice)} />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest">수량 (주)</label>
+                <input type="number" value={tradeFormData.quantity} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTradeFormData(p => ({ ...p, quantity: e.target.value }))}
+                  className="w-full mt-1 p-3 bg-white/5 border border-white/10 text-white text-sm rounded-xl" placeholder="100" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest">포트폴리오 비중 (%)</label>
+                <input type="number" value={tradeFormData.positionSize} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTradeFormData(p => ({ ...p, positionSize: e.target.value }))}
+                  className="w-full mt-1 p-3 bg-white/5 border border-white/10 text-white text-sm rounded-xl" />
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest">매수 방식</label>
+                <div className="flex gap-2">
+                  <button onClick={() => setTradeFormData(p => ({ ...p, followedSystem: true }))}
+                    className={`text-xs px-4 py-2 rounded-xl font-bold border transition-all ${tradeFormData.followedSystem ? 'bg-indigo-500 text-white border-indigo-400' : 'bg-white/5 text-white/40 border-white/10'}`}>
+                    SYSTEM
+                  </button>
+                  <button onClick={() => setTradeFormData(p => ({ ...p, followedSystem: false }))}
+                    className={`text-xs px-4 py-2 rounded-xl font-bold border transition-all ${!tradeFormData.followedSystem ? 'bg-amber-500 text-white border-amber-400' : 'bg-white/5 text-white/40 border-white/10'}`}>
+                    INTUITION
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                const bp = parseFloat(tradeFormData.buyPrice) || tradeRecordStock.currentPrice;
+                const qty = parseInt(tradeFormData.quantity) || 1;
+                const ps = parseFloat(tradeFormData.positionSize) || 10;
+                recordTrade(
+                  tradeRecordStock, bp, qty, ps,
+                  tradeFormData.followedSystem,
+                  {},  // conditionScores — 수동 입력 시 빈 객체
+                  { g1: 0, g2: 0, g3: 0, final: 0 },
+                );
+                setTradeRecordStock(null);
+              }}
+              disabled={!tradeFormData.quantity}
+              className="w-full mt-6 py-3 bg-emerald-500 text-white font-black rounded-xl text-sm uppercase tracking-widest hover:bg-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-[0_8px_30px_rgba(16,185,129,0.3)]"
+            >
+              매수 기록 저장
+            </button>
+          </motion.div>
+        </motion.div>
+      )}
 
       </div>
     </div>
