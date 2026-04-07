@@ -28,8 +28,11 @@ import {
 import { useGlobalIntelStore } from '../stores';
 import { evaluateGate0 } from '../services/quantEngine';
 
-const THIRTY_MINUTES = 30 * 60 * 1000;
-const ONE_HOUR = 60 * 60 * 1000;
+const FOUR_HOURS = 4 * 60 * 60 * 1000;
+// 거시경제 데이터(금리·환율·지정학·수급)는 4시간 이내 급변 드묾
+// → staleTime 4h + refetchInterval 4h 로 AI 호출 횟수 약 87% 절감
+const _THIRTY_MINUTES = 30 * 60 * 1000; // legacy — 더 이상 직접 사용 안 함
+const _ONE_HOUR = 60 * 60 * 1000;       // legacy
 
 /**
  * 모듈 레벨 레이트 리미터.
@@ -73,8 +76,9 @@ export function useMacroEnvironment() {
 
       return data;
     },
-    staleTime: THIRTY_MINUTES,
-    refetchInterval: ONE_HOUR,
+    staleTime: FOUR_HOURS,
+    refetchInterval: FOUR_HOURS,
+    refetchOnWindowFocus: false,
     retry: 2,
   });
 }
@@ -85,7 +89,7 @@ export function useEconomicRegime() {
   return useQuery({
     queryKey: ['economic-regime'],
     queryFn: async () => { const d = await rateLimited(() => getEconomicRegime()); setData(d); return d; },
-    staleTime: THIRTY_MINUTES, retry: 2,
+    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -95,7 +99,7 @@ export function useExtendedRegime() {
   return useQuery({
     queryKey: ['extended-regime'],
     queryFn: async () => { const d = await rateLimited(() => getExtendedEconomicRegime()); setData(d); return d; },
-    staleTime: THIRTY_MINUTES, retry: 2,
+    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -105,7 +109,7 @@ export function useSmartMoney() {
   return useQuery({
     queryKey: ['smart-money'],
     queryFn: async () => { const d = await rateLimited(() => getSmartMoneyFlow()); setData(d); return d; },
-    staleTime: THIRTY_MINUTES, retry: 2,
+    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -115,7 +119,7 @@ export function useExportMomentum() {
   return useQuery({
     queryKey: ['export-momentum'],
     queryFn: async () => { const d = await rateLimited(() => getExportMomentum()); setData(d); return d; },
-    staleTime: THIRTY_MINUTES, retry: 2,
+    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -125,7 +129,7 @@ export function useGeoRisk() {
   return useQuery({
     queryKey: ['geo-risk'],
     queryFn: async () => { const d = await rateLimited(() => getGeopoliticalRiskScore()); setData(d); return d; },
-    staleTime: THIRTY_MINUTES, retry: 2,
+    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -135,7 +139,7 @@ export function useCreditSpreads() {
   return useQuery({
     queryKey: ['credit-spreads'],
     queryFn: async () => { const d = await rateLimited(() => getCreditSpreads()); setData(d); return d; },
-    staleTime: THIRTY_MINUTES, retry: 2,
+    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -145,7 +149,7 @@ export function useGlobalCorrelation() {
   return useQuery({
     queryKey: ['global-correlation'],
     queryFn: async () => { const d = await rateLimited(() => getGlobalCorrelationMatrix()); setData(d); return d; },
-    staleTime: THIRTY_MINUTES, retry: 2,
+    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -155,7 +159,7 @@ export function useSupplyChain() {
   return useQuery({
     queryKey: ['supply-chain'],
     queryFn: async () => { const d = await rateLimited(() => getSupplyChainIntelligence()); setData(d); return d; },
-    staleTime: THIRTY_MINUTES, retry: 2,
+    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -165,7 +169,7 @@ export function useSectorOrders() {
   return useQuery({
     queryKey: ['sector-orders'],
     queryFn: async () => { const d = await rateLimited(() => getSectorOrderIntelligence()); setData(d); return d; },
-    staleTime: THIRTY_MINUTES, retry: 2,
+    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -175,7 +179,7 @@ export function useFinancialStress() {
   return useQuery({
     queryKey: ['financial-stress'],
     queryFn: async () => { const d = await rateLimited(() => getFinancialStressIndex()); setData(d); return d; },
-    staleTime: THIRTY_MINUTES, retry: 2,
+    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -185,7 +189,7 @@ export function useFomcSentiment() {
   return useQuery({
     queryKey: ['fomc-sentiment'],
     queryFn: async () => { const d = await rateLimited(() => getFomcSentimentAnalysis()); setData(d); return d; },
-    staleTime: THIRTY_MINUTES, retry: 2,
+    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
   });
 }
 

@@ -70,21 +70,87 @@ const getAI = () => {
   return new GoogleGenAI({ apiKey });
 };
 
-// Simple in-memory cache for AI responses to improve consistency and reduce API calls
+// ─── AI 응답 캐시 (메모리 + localStorage 이중 계층) ─────────────────────────────
+//
+// 계층 1: 메모리 캐시 — 같은 세션 내 즉각 응답 (무한 TTL → 탭 닫으면 소멸)
+// 계층 2: localStorage — 새로고침/탭 재오픈 후에도 유지 (4시간 TTL)
+//
+// 효과: 앱 시작 시 12개 AI 쿼리 → 첫 실행 1회 후 새로고침해도 localStorage 히트
 const aiCache: Record<string, { data: any; timestamp: number }> = {};
-const CACHE_TTL = 1000 * 60 * 30; // 30 minutes
+const AI_CACHE_TTL    = 4 * 60 * 60 * 1000; // 4시간 (기존 30분 → 8배 연장)
+const LS_CACHE_PREFIX = 'qm:ai:';            // localStorage 키 네임스페이스
+const LS_MAX_KEYS     = 30;                  // 최대 보관 키 수 (용량 제한)
+
+/** localStorage 안전 읽기 (SSR / 용량 초과 대비) */
+function lsGet(key: string): { data: any; timestamp: number } | null {
+  try {
+    const raw = localStorage.getItem(LS_CACHE_PREFIX + key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/** localStorage 안전 쓰기 (QuotaExceededError 대비: 가장 오래된 항목 제거 후 재시도) */
+function lsSet(key: string, value: { data: any; timestamp: number }): void {
+  try {
+    localStorage.setItem(LS_CACHE_PREFIX + key, JSON.stringify(value));
+  } catch {
+    // 용량 초과 시: LS_CACHE_PREFIX 키 중 가장 오래된 것 제거
+    try {
+      const allKeys = Object.keys(localStorage)
+        .filter((k) => k.startsWith(LS_CACHE_PREFIX))
+        .map((k) => ({ k, ts: (() => { try { return JSON.parse(localStorage.getItem(k)!).timestamp; } catch { return 0; } })() }))
+        .sort((a, b) => a.ts - b.ts);
+      // 오래된 항목 절반 제거
+      allKeys.slice(0, Math.max(1, Math.floor(allKeys.length / 2))).forEach((e) => localStorage.removeItem(e.k));
+      localStorage.setItem(LS_CACHE_PREFIX + key, JSON.stringify(value));
+    } catch {
+      // localStorage 쓰기 완전 실패 → 무시 (메모리 캐시만 사용)
+    }
+  }
+}
+
+/** localStorage 키 수가 LS_MAX_KEYS 초과 시 오래된 것부터 정리 */
+function lsEvictIfNeeded(): void {
+  try {
+    const keys = Object.keys(localStorage).filter((k) => k.startsWith(LS_CACHE_PREFIX));
+    if (keys.length <= LS_MAX_KEYS) return;
+    keys
+      .map((k) => ({ k, ts: (() => { try { return JSON.parse(localStorage.getItem(k)!).timestamp; } catch { return 0; } })() }))
+      .sort((a, b) => a.ts - b.ts)
+      .slice(0, keys.length - LS_MAX_KEYS)
+      .forEach((e) => localStorage.removeItem(e.k));
+  } catch {
+    // localStorage 접근 불가 시 무시
+  }
+}
 
 async function getCachedAIResponse<T>(cacheKey: string, fetchFn: () => Promise<T>): Promise<T> {
-  const cached = aiCache[cacheKey];
   const now = Date.now();
-  
-  if (cached && (now - cached.timestamp < CACHE_TTL)) {
-    console.log(`Using cached AI response for: ${cacheKey.substring(0, 50)}...`);
-    return cached.data as T;
+
+  // 1) 메모리 캐시 확인 (TTL 무제한 — 탭 생존 기간 동안 유효)
+  const memHit = aiCache[cacheKey];
+  if (memHit) {
+    console.log(`[AI캐시] 메모리 히트: ${cacheKey.substring(0, 50)}...`);
+    return memHit.data as T;
   }
-  
+
+  // 2) localStorage 캐시 확인 (4시간 TTL)
+  const lsHit = lsGet(cacheKey);
+  if (lsHit && now - lsHit.timestamp < AI_CACHE_TTL) {
+    console.log(`[AI캐시] localStorage 히트 (${Math.floor((now - lsHit.timestamp) / 60000)}분 전 캐시): ${cacheKey.substring(0, 50)}...`);
+    aiCache[cacheKey] = lsHit; // 메모리에도 복사 → 이후 즉각 응답
+    return lsHit.data as T;
+  }
+
+  // 3) AI API 실제 호출
   const data = await fetchFn();
-  aiCache[cacheKey] = { data, timestamp: now };
+  const entry = { data, timestamp: now };
+  aiCache[cacheKey] = entry;
+  lsEvictIfNeeded();
+  lsSet(cacheKey, entry);
   return data;
 }
 
