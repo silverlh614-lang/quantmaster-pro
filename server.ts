@@ -1,4 +1,5 @@
-import express from "express";
+/// <reference types="node" />
+import express, { Request, Response } from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -20,7 +21,7 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
 
   // API routes
-  app.get("/api/historical-data", async (req, res) => {
+  app.get("/api/historical-data", async (req: Request, res: Response) => {
     const { symbol, range, interval } = req.query;
     if (!symbol) return res.status(400).json({ error: "Symbol is required" });
     
@@ -219,7 +220,7 @@ async function startServer() {
   });
 
   // DART API Proxy
-  app.get('/api/dart', async (req, res) => {
+  app.get('/api/dart', async (req: Request, res: Response) => {
     const { corp_code, bsns_year, reprt_code, fs_div } = req.query;
     if (!process.env.DART_API_KEY) {
       return res.status(500).json({ error: "DART_API_KEY is not set" });
@@ -240,7 +241,7 @@ async function startServer() {
   });
 
   // DART 법인코드 검색 프록시
-  app.get('/api/dart/company', async (req, res) => {
+  app.get('/api/dart/company', async (req: Request, res: Response) => {
     const { stock_code } = req.query;
     if (!process.env.DART_API_KEY) {
       return res.status(500).json({ error: "DART_API_KEY is not set" });
@@ -258,7 +259,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/send-email", async (req, res) => {
+  app.post("/api/send-email", async (req: Request, res: Response) => {
     const { email, subject, text, pdfBase64, filename } = req.body;
 
     if (!email || !pdfBase64) {

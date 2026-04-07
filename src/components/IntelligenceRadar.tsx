@@ -198,7 +198,7 @@ export const IntelligenceRadar: React.FC<Props> = (props) => {
               />
               <Tooltip
                 contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', fontSize: 11, fontWeight: 700 }}
-                formatter={(value: number) => [`${value}/100`, 'Score']}
+                formatter={(value: any) => [`${value}/100`, 'Score']}
               />
             </RadarChart>
           </ResponsiveContainer>

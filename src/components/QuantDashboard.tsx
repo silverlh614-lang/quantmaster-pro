@@ -75,7 +75,7 @@ export const QuantDashboard: React.FC<Props> = ({
         <MacroIntelligenceDashboard
           gate0Result={result.gate0Result}
           currentRoeType={currentRoeType}
-          marketOverview={marketOverview}
+          marketOverview={marketOverview as any}
           externalRegime={economicRegime}
         />
       </div>

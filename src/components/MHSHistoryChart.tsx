@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useMemo } from 'react';
-import { createChart, IChartApi, Time, LineData, HistogramData } from 'lightweight-charts';
+import { createChart, createSeriesMarkers, LineSeries, HistogramSeries, IChartApi, Time, LineData, HistogramData } from 'lightweight-charts';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -70,7 +70,7 @@ export const MHSHistoryChart: React.FC<Props> = ({ records, height = 280 }) => {
     chartInstance.current = chart;
 
     // MHS Line
-    const mhsSeries = chart.addLineSeries({
+    const mhsSeries = chart.addSeries(LineSeries,{
       color: '#f59e0b',
       lineWidth: 2,
       priceLineVisible: false,
@@ -81,13 +81,13 @@ export const MHSHistoryChart: React.FC<Props> = ({ records, height = 280 }) => {
     })) as LineData[]);
 
     // 40/70 threshold lines
-    const line40 = chart.addLineSeries({ color: 'rgba(239,68,68,0.4)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
-    const line70 = chart.addLineSeries({ color: 'rgba(34,197,94,0.4)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
+    const line40 = chart.addSeries(LineSeries,{ color: 'rgba(239,68,68,0.4)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
+    const line70 = chart.addSeries(LineSeries,{ color: 'rgba(34,197,94,0.4)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
     line40.setData(sortedRecords.map(r => ({ time: r.date as Time, value: 40 })) as LineData[]);
     line70.setData(sortedRecords.map(r => ({ time: r.date as Time, value: 70 })) as LineData[]);
 
     // 4-axis breakdown as stacked area (histogram)
-    const axisSeries = chart.addHistogramSeries({
+    const axisSeries = chart.addSeries(HistogramSeries,{
       priceFormat: { type: 'volume' },
       priceScaleId: 'axis',
     });
@@ -126,7 +126,7 @@ export const MHSHistoryChart: React.FC<Props> = ({ records, height = 280 }) => {
         });
       }
     }
-    if (markers.length > 0) mhsSeries.setMarkers(markers);
+    if (markers.length > 0) createSeriesMarkers(mhsSeries, markers);
 
     chart.timeScale().fitContent();
 

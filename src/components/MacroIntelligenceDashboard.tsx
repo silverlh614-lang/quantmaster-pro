@@ -1102,15 +1102,18 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
 
         {/* 현재 위치 전략 하이라이트 */}
         {(() => {
-          const currentCell = FUSION_MATRIX[currentRegime][currentRoeType];
-          const style = SIGNAL_STYLE[currentCell.signal];
+          const regimeRow = FUSION_MATRIX[currentRegime] as Record<number, FusionCell> | undefined;
+          const currentCell = regimeRow?.[currentRoeType as number];
+          if (!currentCell) return null;
+          const style = SIGNAL_STYLE[currentCell.signal as AlphaSignal];
+          if (!style) return null;
           return (
             <div className={`p-6 border-t border-[#141414] ${style.bg}`}>
               <div className="flex items-start gap-4">
                 <ArrowRight size={20} className={`flex-shrink-0 mt-0.5 ${style.text}`} />
                 <div>
                   <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${style.text}`}>
-                    현재 위치: {REGIME_LABELS[currentRegime].ko} + {ROE_TYPE_LABELS[currentRoeType]} → {currentCell.phase}
+                    현재 위치: {REGIME_LABELS[currentRegime]?.ko} + {(ROE_TYPE_LABELS as Record<number, string>)[currentRoeType as number]} → {currentCell.phase}
                   </p>
                   <p className={`text-sm font-bold leading-relaxed ${style.text}`}>
                     {currentCell.strategy}

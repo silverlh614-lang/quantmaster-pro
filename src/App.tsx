@@ -3506,26 +3506,29 @@ export default function App() {
                   <div className="glass-3d rounded-[3rem] p-10 border border-white/10 shadow-2xl">
                     <span className="text-[11px] font-black text-white/20 uppercase tracking-[0.3em] block mb-10">성과 지표 비교 (IS vs OOS)</span>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                      {Object.entries(walkForwardAnalysis.metrics).map(([key, value]) => (
+                      {Object.entries(walkForwardAnalysis.metrics).map(([key, value]) => {
+                        const v = value as { inSample: string | number; outOfSample: string | number };
+                        return (
                         <div key={key} className="bg-white/5 rounded-2xl p-6 border border-white/5">
                           <div className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-4">
-                            {key === 'sharpeRatio' ? 'Sharpe Ratio' : 
-                             key === 'maxDrawdown' ? 'Max Drawdown' : 
+                            {key === 'sharpeRatio' ? 'Sharpe Ratio' :
+                             key === 'maxDrawdown' ? 'Max Drawdown' :
                              key === 'winRate' ? 'Win Rate' : key}
                           </div>
                           <div className="flex items-center justify-between">
                             <div>
                               <div className="text-[9px] font-black text-white/10 uppercase mb-1">In-Sample (2025)</div>
-                              <div className="text-lg font-black text-white">{value.inSample}</div>
+                              <div className="text-lg font-black text-white">{v.inSample}</div>
                             </div>
                             <div className="w-px h-8 bg-white/10" />
                             <div className="text-right">
                               <div className="text-[9px] font-black text-white/10 uppercase mb-1">Out-of-Sample (2026 Q1)</div>
-                              <div className="text-lg font-black text-purple-400">{value.outOfSample}</div>
+                              <div className="text-lg font-black text-purple-400">{v.outOfSample}</div>
                             </div>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

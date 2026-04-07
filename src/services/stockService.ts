@@ -50,7 +50,7 @@ const getAI = () => {
   // Check for user-provided key in localStorage first
   const userKey = typeof window !== 'undefined' ? localStorage.getItem('k-stock-api-key') : null;
   // Fallback to platform-provided keys
-  const apiKey = userKey || process.env.API_KEY || process.env.GEMINI_API_KEY;
+  const apiKey = userKey || (typeof process !== 'undefined' ? (process.env.API_KEY || process.env.GEMINI_API_KEY) : undefined);
   
   if (!apiKey) {
     throw new Error("API Key is missing. Please provide an API key in settings.");

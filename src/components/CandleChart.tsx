@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, CandlestickData, LineData, HistogramData, Time } from 'lightweight-charts';
+import { createChart, createSeriesMarkers, CandlestickSeries, LineSeries, HistogramSeries, IChartApi, CandlestickData, LineData, HistogramData, Time } from 'lightweight-charts';
 import { calculateEMA, calculateRSI, calculateBollingerBands } from '../utils/indicators';
 import { fetchHistoricalData } from '../services/stockService';
 
@@ -135,7 +135,7 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
         });
         mainChartRef.current = mainChart;
 
-        const candleSeries = mainChart.addCandlestickSeries({
+        const candleSeries = mainChart.addSeries(CandlestickSeries,{
           upColor: '#ef4444', downColor: '#3b82f6',
           borderUpColor: '#ef4444', borderDownColor: '#3b82f6',
           wickUpColor: '#ef4444', wickDownColor: '#3b82f6',
@@ -143,7 +143,7 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
         candleSeries.setData(candleData);
 
         // Volume
-        const volumeSeries = mainChart.addHistogramSeries({
+        const volumeSeries = mainChart.addSeries(HistogramSeries,{
           priceFormat: { type: 'volume' },
           priceScaleId: 'vol',
         });
@@ -160,19 +160,19 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
         // ── Overlays ────────────────────────────────────────────────
         if (overlays.has('EMA20')) {
           const ema20 = calculateEMA(validCloses, 20);
-          const ema20Series = mainChart.addLineSeries({ color: '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          const ema20Series = mainChart.addSeries(LineSeries,{ color: '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
           ema20Series.setData(ema20.map((v, i) => ({ time: validTimes[i], value: v })) as LineData[]);
         }
         if (overlays.has('EMA60')) {
           const ema60 = calculateEMA(validCloses, 60);
-          const ema60Series = mainChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          const ema60Series = mainChart.addSeries(LineSeries,{ color: '#8b5cf6', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
           ema60Series.setData(ema60.map((v, i) => ({ time: validTimes[i], value: v })) as LineData[]);
         }
         if (overlays.has('BB')) {
           const bb = computeBBSeries(validCloses);
-          const bbUpper = mainChart.addLineSeries({ color: 'rgba(147,51,234,0.4)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-          const bbLower = mainChart.addLineSeries({ color: 'rgba(147,51,234,0.4)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-          const bbMid = mainChart.addLineSeries({ color: 'rgba(147,51,234,0.2)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
+          const bbUpper = mainChart.addSeries(LineSeries,{ color: 'rgba(147,51,234,0.4)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          const bbLower = mainChart.addSeries(LineSeries,{ color: 'rgba(147,51,234,0.4)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          const bbMid = mainChart.addSeries(LineSeries,{ color: 'rgba(147,51,234,0.2)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
           bbUpper.setData(bb.upper.map((v, i) => v !== null ? { time: validTimes[i], value: v } : null).filter(Boolean) as LineData[]);
           bbLower.setData(bb.lower.map((v, i) => v !== null ? { time: validTimes[i], value: v } : null).filter(Boolean) as LineData[]);
           bbMid.setData(bb.middle.map((v, i) => v !== null ? { time: validTimes[i], value: v } : null).filter(Boolean) as LineData[]);
@@ -187,7 +187,7 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
             shape: sig.type === 'SELL' || sig.type === 'STOP_LOSS' ? 'arrowDown' as const : 'arrowUp' as const,
             text: sig.label,
           }));
-          candleSeries.setMarkers(markers);
+          createSeriesMarkers(candleSeries, markers);
         }
 
         mainChart.timeScale().fitContent();
@@ -207,20 +207,20 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
 
           if (subChart === 'RSI') {
             const rsiVals = computeRSISeries(validCloses);
-            const rsiSeries = sub.addLineSeries({ color: '#f59e0b', lineWidth: 1.5, priceLineVisible: false });
+            const rsiSeries = sub.addSeries(LineSeries,{ color: '#f59e0b', lineWidth: 2, priceLineVisible: false });
             rsiSeries.setData(rsiVals.map((v, i) => ({ time: validTimes[i], value: v })) as LineData[]);
             // 30/70 lines
-            const line30 = sub.addLineSeries({ color: 'rgba(34,197,94,0.3)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
-            const line70 = sub.addLineSeries({ color: 'rgba(239,68,68,0.3)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
+            const line30 = sub.addSeries(LineSeries,{ color: 'rgba(34,197,94,0.3)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
+            const line70 = sub.addSeries(LineSeries,{ color: 'rgba(239,68,68,0.3)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
             line30.setData(validTimes.map(t => ({ time: t, value: 30 })) as LineData[]);
             line70.setData(validTimes.map(t => ({ time: t, value: 70 })) as LineData[]);
           }
 
           if (subChart === 'MACD') {
             const macd = computeMACDSeries(validCloses);
-            const macdSeries = sub.addLineSeries({ color: '#3b82f6', lineWidth: 1.5, priceLineVisible: false });
-            const sigSeries = sub.addLineSeries({ color: '#ef4444', lineWidth: 1, priceLineVisible: false });
-            const histSeries = sub.addHistogramSeries({ priceLineVisible: false });
+            const macdSeries = sub.addSeries(LineSeries,{ color: '#3b82f6', lineWidth: 2, priceLineVisible: false });
+            const sigSeries = sub.addSeries(LineSeries,{ color: '#ef4444', lineWidth: 1, priceLineVisible: false });
+            const histSeries = sub.addSeries(HistogramSeries,{ priceLineVisible: false });
             macdSeries.setData(macd.macdLine.map((v, i) => ({ time: validTimes[i], value: v })) as LineData[]);
             sigSeries.setData(macd.signalLine.map((v, i) => ({ time: validTimes[i], value: v })) as LineData[]);
             histSeries.setData(macd.histogram.map((v, i) => ({
