@@ -219,6 +219,49 @@ async function startServer() {
     }
   });
 
+  // [KIS-Generic] 범용 KIS API 프록시 — App Secret은 서버 메모리에서만 존재
+  app.post('/api/kis/proxy', async (req: any, res: any) => {
+    if (!process.env.KIS_APP_KEY) return res.status(500).json({ error: 'KIS_APP_KEY 미설정' });
+    try {
+      const token = await getKisToken();
+      const isReal = process.env.KIS_IS_REAL === 'true';
+      const base = isReal
+        ? 'https://openapi.koreainvestment.com:9443'
+        : 'https://openapivts.koreainvestment.com:29443';
+      const { path, method = 'GET', headers = {}, body, params } = req.body;
+
+      let url = `${base}${path}`;
+      if (params && Object.keys(params).length > 0) {
+        url += `?${new URLSearchParams(params)}`;
+      }
+
+      const kisRes = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          appkey: process.env.KIS_APP_KEY!,
+          appsecret: process.env.KIS_APP_SECRET!,
+          ...headers,
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+
+      const text = await kisRes.text();
+      if (!text || text.trim() === '') {
+        return res.json({ rt_cd: '1', msg1: '빈 응답 (장 외 시간일 수 있음)' });
+      }
+      try {
+        res.json(JSON.parse(text));
+      } catch {
+        res.status(502).json({ error: 'KIS 응답 파싱 실패', raw: text.substring(0, 200) });
+      }
+    } catch (e: any) {
+      console.error('KIS proxy error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // DART API Proxy
   app.get('/api/dart', async (req: Request, res: Response) => {
     const { corp_code, bsns_year, reprt_code, fs_div } = req.query;

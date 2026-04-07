@@ -1935,7 +1935,16 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
     }
   }
 
-  // Original AI-only fallback if Yahoo Finance fails
+  // KIS 실시간 가격 시도 (Yahoo Finance 실패 시 1차 폴백)
+  try {
+    const kisResult = await syncStockPriceKIS(stock);
+    console.log(`KIS 실시간 가격 동기화 성공: ${stock.name} ${kisResult.currentPrice}원`);
+    return await enrichStockWithRealData(kisResult);
+  } catch (kisErr: any) {
+    console.warn(`KIS 가격 조회 실패, AI 폴백 사용: ${kisErr.message}`);
+  }
+
+  // AI 폴백 (Yahoo + KIS 모두 실패 시)
   const prompt = `
     현재 한국 시각은 ${now}입니다. (오늘 날짜: ${todayDate})
     종목명: ${stock.name} (${stock.code})
@@ -2025,6 +2034,36 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
     console.error("Price sync failed:", error);
     throw error;
   }
+}
+
+// KIS 실시간 현재가로 syncStockPrice 대체 — dataSourceType을 'REALTIME'으로 설정
+export async function syncStockPriceKIS(stock: StockRecommendation): Promise<StockRecommendation> {
+  const res = await fetch('/api/kis/proxy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      path: '/uapi/domestic-stock/v1/quotations/inquire-price',
+      method: 'GET',
+      headers: {
+        'tr_id': 'FHKST01010100',
+        'custtype': 'P',
+      },
+      params: {
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_INPUT_ISCD: stock.code,
+      },
+    }),
+  });
+  const data = await res.json();
+  const currentPrice = parseInt(data.output?.stck_prpr || '0', 10);
+  if (!currentPrice) throw new Error(`KIS 가격 조회 실패: ${JSON.stringify(data)}`);
+  return {
+    ...stock,
+    currentPrice,
+    dataSourceType: 'REALTIME',
+    priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (KIS 실시간)`,
+    lastUpdated: new Date().toISOString(),
+  };
 }
 
 const searchCache = new Map<string, { data: StockRecommendation[]; timestamp: number }>();
