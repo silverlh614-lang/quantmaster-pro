@@ -327,6 +327,208 @@ ${closed.map((s) => `  ${s.status === 'HIT_TARGET' ? '✅' : '❌'} ${s.stockNam
   console.log('[AutoTrade] 일일 리포트 이메일 발송 완료 →', process.env.REPORT_EMAIL ?? process.env.EMAIL_USER);
 }
 
+// ─── 아이디어 4: 서버사이드 전종목 사전 스크리너 ───────────────────────────────
+
+export interface ScreenedStock {
+  code: string;
+  name: string;
+  currentPrice: number;
+  changeRate: number;     // 등락률 (%)
+  volume: number;
+  turnoverRate: number;   // 회전율 (%)
+  per: number;
+  foreignNetBuy: number;  // 외국인 순매수량 (당일)
+  screenedAt: string;
+}
+
+const SCREENER_FILE = path.join(DATA_DIR, 'screener-cache.json');
+
+export function getScreenerCache(): ScreenedStock[] {
+  ensureDataDir();
+  if (!fs.existsSync(SCREENER_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(SCREENER_FILE, 'utf-8')); } catch { return []; }
+}
+
+/**
+ * 아이디어 4: 장 전 사전 스크리너
+ *
+ * 1단계: KIS 거래량 상위 종목 수집 (FHPST01710000)
+ * 2단계: 정량 필터 — 가격·회전율·PER·외국인 순매수
+ * 3단계: 상위 30개만 캐시 저장 → AI 분석 시 이 풀에서만 선택
+ */
+export async function preScreenStocks(): Promise<ScreenedStock[]> {
+  if (!process.env.KIS_APP_KEY) return [];
+
+  try {
+    // 거래량 상위 종목 (최대 30개 반환)
+    const volData = await kisGet(
+      'FHPST01710000',
+      '/uapi/domestic-stock/v1/ranking/volume',
+      {
+        fid_cond_mrkt_div_code: 'J',
+        fid_cond_scr_div_code:  '20171',
+        fid_input_iscd:         '0000',   // 전체
+        fid_div_cls_code:       '0',
+        fid_blng_cls_code:      '0',
+        fid_trgt_cls_code:      '111111111',
+        fid_trgt_exls_cls_code: '000000',
+        fid_input_price_1:      '5000',   // 5,000원 이상
+        fid_input_price_2:      '500000', // 50만원 이하
+        fid_vol_cnt:            '100000', // 거래량 10만 이상
+        fid_input_date_1:       '',
+      }
+    ) as { output?: Record<string, string>[] } | null;
+
+    const raw = volData?.output ?? [];
+    const now = new Date().toISOString();
+
+    const candidates: ScreenedStock[] = raw.map((s) => ({
+      code:          s.stck_shrn_iscd ?? '',
+      name:          s.hts_kor_isnm   ?? '',
+      currentPrice:  parseInt(s.stck_prpr   ?? '0', 10),
+      changeRate:    parseFloat(s.prdy_ctrt ?? '0'),
+      volume:        parseInt(s.acml_vol    ?? '0', 10),
+      turnoverRate:  parseFloat(s.acml_tr_pbmn ?? '0'),
+      per:           parseFloat(s.per         ?? '999'),
+      foreignNetBuy: parseInt(s.frgn_ntby_qty ?? '0', 10),
+      screenedAt:    now,
+    })).filter((s) =>
+      s.code &&
+      s.currentPrice > 0 &&
+      s.per > 0 && s.per < 40 &&       // PER 0~40
+      s.foreignNetBuy >= 0 &&           // 외국인 순매수 유지
+      s.changeRate > -3                 // 급락 제외
+    );
+
+    // 거래량 기준 상위 30개
+    const top30 = candidates
+      .sort((a, b) => b.volume - a.volume)
+      .slice(0, 30);
+
+    ensureDataDir();
+    fs.writeFileSync(SCREENER_FILE, JSON.stringify(top30, null, 2));
+    console.log(`[Screener] 사전 스크리닝 완료 — ${raw.length}개 → 필터 후 ${candidates.length}개 → 상위 ${top30.length}개`);
+    return top30;
+  } catch (e: unknown) {
+    console.error('[Screener] 실패:', e instanceof Error ? e.message : e);
+    return [];
+  }
+}
+
+// ─── 아이디어 6: DART 공시 폴링 + 이메일 알림 ─────────────────────────────────
+
+const DART_ALERTS_FILE = path.join(DATA_DIR, 'dart-alerts.json');
+
+export interface DartAlert {
+  corp_name: string;
+  stock_code: string;
+  report_nm: string;
+  rcept_dt: string;      // 접수일자 YYYYMMDD
+  rcept_no: string;
+  sentiment: 'MAJOR_POSITIVE' | 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE';
+  alertedAt: string;
+}
+
+function loadDartAlerts(): DartAlert[] {
+  ensureDataDir();
+  if (!fs.existsSync(DART_ALERTS_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(DART_ALERTS_FILE, 'utf-8')); } catch { return []; }
+}
+
+function saveDartAlerts(alerts: DartAlert[]): void {
+  ensureDataDir();
+  fs.writeFileSync(DART_ALERTS_FILE, JSON.stringify(alerts.slice(-200), null, 2));
+}
+
+export function getDartAlerts(): DartAlert[] { return loadDartAlerts(); }
+
+/** 공시 제목 키워드 기반 감성 분류 */
+function classifyDisclosure(reportName: string): DartAlert['sentiment'] {
+  const pos = ['수주', '계약', '영업이익', '흑자', '특허', '신약', '승인', '상장', '유상증자 철회'];
+  const major = ['대규모 수주', '영업이익 서프라이즈', '임상 성공', '최대 실적'];
+  const neg = ['유상증자', '전환사채', '소송', '적자', '손실', '부도', '상장폐지', '횡령'];
+
+  if (major.some((k) => reportName.includes(k))) return 'MAJOR_POSITIVE';
+  if (pos.some((k)   => reportName.includes(k))) return 'POSITIVE';
+  if (neg.some((k)   => reportName.includes(k))) return 'NEGATIVE';
+  return 'NEUTRAL';
+}
+
+/**
+ * 아이디어 6: DART 공시 폴링
+ * - 30분마다 신규 공시 수집
+ * - MAJOR_POSITIVE + 워치리스트 종목 → 이메일 알림
+ */
+export async function pollDartDisclosures(): Promise<void> {
+  if (!process.env.DART_API_KEY) {
+    console.warn('[DART] DART_API_KEY 미설정 — 건너뜀');
+    return;
+  }
+
+  const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+  const url = `https://opendart.fss.or.kr/api/list.json` +
+    `?crtfc_key=${process.env.DART_API_KEY}&bgn_de=${today}&sort=date&sort_mth=desc&page_no=1&page_count=40`;
+
+  let disclosures: Record<string, string>[] = [];
+  try {
+    const res = await fetch(url);
+    const data = await res.json() as { status: string; list?: Record<string, string>[] };
+    if (data.status !== '000' || !data.list) return;
+    disclosures = data.list;
+  } catch (e: unknown) {
+    console.error('[DART] 공시 조회 실패:', e instanceof Error ? e.message : e);
+    return;
+  }
+
+  const existing = loadDartAlerts();
+  const existingNos = new Set(existing.map((a) => a.rcept_no));
+  const watchlist = loadWatchlist();
+  const watchCodes = new Set(watchlist.map((w) => w.code.padStart(6, '0')));
+
+  const newAlerts: DartAlert[] = [];
+
+  for (const d of disclosures) {
+    if (existingNos.has(d.rcept_no)) continue; // 이미 처리됨
+
+    const sentiment = classifyDisclosure(d.report_nm ?? '');
+    const alert: DartAlert = {
+      corp_name:  d.corp_name  ?? '',
+      stock_code: d.stock_code ?? '',
+      report_nm:  d.report_nm  ?? '',
+      rcept_dt:   d.rcept_dt   ?? today,
+      rcept_no:   d.rcept_no   ?? '',
+      sentiment,
+      alertedAt:  new Date().toISOString(),
+    };
+    newAlerts.push(alert);
+
+    // 워치리스트 종목 + MAJOR_POSITIVE → 이메일 알림
+    if (sentiment === 'MAJOR_POSITIVE' && watchCodes.has(d.stock_code?.padStart(6, '0') ?? '')) {
+      await sendDartAlert(alert).catch(console.error);
+    }
+  }
+
+  if (newAlerts.length > 0) {
+    saveDartAlerts([...existing, ...newAlerts]);
+    console.log(`[DART] 신규 공시 ${newAlerts.length}건 수집`);
+  }
+}
+
+async function sendDartAlert(alert: DartAlert): Promise<void> {
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return;
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+  });
+  await transporter.sendMail({
+    from: process.env.EMAIL_USER,
+    to: process.env.REPORT_EMAIL ?? process.env.EMAIL_USER,
+    subject: `📢 [QuantMaster] 공시 알림: ${alert.corp_name} — ${alert.report_nm}`,
+    text: `종목코드: ${alert.stock_code}\n공시명: ${alert.report_nm}\n접수일: ${alert.rcept_dt}\n\nDART 바로가기: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${alert.rcept_no}`,
+  });
+  console.log(`[DART] 📧 알림 발송: ${alert.corp_name} — ${alert.report_nm}`);
+}
+
 // ─── Shadow Trades REST용 공개 조회 ────────────────────────────────────────────
 
 export function getShadowTrades() { return loadShadowTrades(); }

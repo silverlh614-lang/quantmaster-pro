@@ -1,4 +1,4 @@
-import { GoogleGenAI, GenerateContentResponse, ThinkingLevel } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import {
   SectorRotation,
   MultiTimeframe,
@@ -496,8 +496,8 @@ export interface StockRecommendation {
     catalysts: string[];
     riskFactors: string[];
   };
-  dataSource?: string; 
-  dataSourceType?: 'AI' | 'REALTIME'; // Added field
+  dataSource?: string;
+  dataSourceType?: 'AI' | 'REALTIME' | 'YAHOO' | 'STALE'; // 신뢰도 계층
   priceUpdatedAt?: string; 
   financialUpdatedAt?: string; // Added field for DART data
   historicalAnalogy: {
@@ -1355,15 +1355,11 @@ export async function backtestPortfolio(
   initialEquity: number = 100000000,
   years: number = 1
 ): Promise<BacktestResult> {
-  const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
   const endDate = new Date().toISOString().split('T')[0];
   const startDate = new Date(Date.now() - years * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   
   try {
     // 1. Fetch real historical data for each stock and benchmark
-    const historicalDataPromises = portfolio.map(p => fetchHistoricalData(p.code, `${years + 1}y`));
-    const benchmarkPromise = fetchHistoricalData('^KS11', `${years + 1}y`);
-    
     const [historicalResults, benchmarkData] = await (async () => {
       const results = [];
       for (const p of portfolio) {
@@ -1867,173 +1863,52 @@ export async function fetchCurrentPrice(code: string): Promise<number | null> {
   }
 }
 
+/**
+ * syncStockPrice — 가격 신뢰도 계층 (AI 추정 완전 배제)
+ *
+ * 1순위: KIS 실시간  → dataSourceType: 'REALTIME'
+ * 2순위: Yahoo Finance 서버 프록시 → dataSourceType: 'YAHOO'
+ * 3순위: 마지막 알려진 가격 유지   → dataSourceType: 'STALE'
+ */
 export async function syncStockPrice(stock: StockRecommendation): Promise<StockRecommendation> {
-  const ai = getAI();
-  const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
-  const todayDate = now.split(' ')[0];
-  
-  // Try real-time API first (Yahoo Finance)
-  const realTimePrice = await fetchCurrentPrice(stock.code);
-  
-  if (realTimePrice) {
-    // If we have a real-time price, we can still use AI to update the strategy/news
-    // but we provide the real price to the AI to ensure accuracy
-    const prompt = `
-      현재 한국 시각은 ${now}입니다. (오늘 날짜: ${todayDate})
-      종목명: ${stock.name} (${stock.code})
-      **실시간 현재가: ${realTimePrice.toLocaleString()}원** (Yahoo Finance 확인됨)
-      
-      [기존 데이터]
-      - 기존 기록된 가격: ${stock.currentPrice}
-      - 기존 엔트리가격: ${stock.entryPrice}
-      - 기존 타겟가격: ${stock.targetPrice}
-      - 기존 손절가: ${stock.stopLoss}
-
-      [필수 작업]
-      1. 실시간 현재가(${realTimePrice}원)를 기반으로 엔트리, 타겟, 손절가를 재산출하라.
-      2. 'googleSearch'를 사용하여 최신 뉴스 5개와 수급 현황을 검색하라.
-      3. 현재가와 기술적 지표 변화를 바탕으로 'type'을 STRONG_BUY, BUY, STRONG_SELL, SELL 중 하나로 업데이트하라.
-      4. 'priceUpdatedAt' 필드에 "${new Date().toLocaleTimeString('ko-KR')} (Yahoo Finance)" 라고 명시하라.
-
-      응답은 반드시 다음 JSON 형식으로만 해줘:
-      {
-        "currentPrice": ${realTimePrice},
-        "entryPrice": 0,
-        "targetPrice": 0,
-        "stopLoss": 0,
-        "type": "STRONG_BUY",
-        "priceUpdatedAt": "...",
-        "recentNews": ["..."],
-        "supplyDemand": "...",
-        "analysis": "..."
-      }
-    `;
-
-    try {
-      const response = await withRetry(async () => {
-        return await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: prompt,
-          config: {
-            tools: [{ googleSearch: {} }],
-            toolConfig: { includeServerSideToolInvocations: true },
-            temperature: 0,
-            maxOutputTokens: 8192,
-          }
-        });
-      }, 2, 2000);
-      const text = response.text;
-      const parsed = safeJsonParse(text);
-      const updatedStock = { ...stock, ...parsed, currentPrice: realTimePrice };
-      
-      // Enrich with real technical indicators
-      return await enrichStockWithRealData(updatedStock);
-    } catch (e) {
-      // Fallback if AI fails but we have the price
-      const fallbackStock = { ...stock, currentPrice: realTimePrice, priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (Yahoo Finance)` };
-      return await enrichStockWithRealData(fallbackStock);
-    }
-  }
-
-  // KIS 실시간 가격 시도 (Yahoo Finance 실패 시 1차 폴백)
+  // 1순위: KIS 실시간
   try {
     const kisResult = await syncStockPriceKIS(stock);
-    console.log(`KIS 실시간 가격 동기화 성공: ${stock.name} ${kisResult.currentPrice}원`);
+    console.log(`[가격동기화] KIS 실시간 성공: ${stock.name} ${kisResult.currentPrice}원`);
     return await enrichStockWithRealData(kisResult);
   } catch (kisErr: any) {
-    console.warn(`KIS 가격 조회 실패, AI 폴백 사용: ${kisErr.message}`);
+    console.warn(`[가격동기화] KIS 실패 → Yahoo 시도: ${kisErr.message}`);
   }
 
-  // AI 폴백 (Yahoo + KIS 모두 실패 시)
-  const prompt = `
-    현재 한국 시각은 ${now}입니다. (오늘 날짜: ${todayDate})
-    종목명: ${stock.name} (${stock.code})
-    
-    [기존 데이터 (참고용 - 절대 이 가격을 그대로 사용하지 마라)]
-    - 기존 기록된 가격: ${stock.currentPrice}
-    - 기존 엔트리가격: ${stock.entryPrice}
-    - 기존 타겟가격: ${stock.targetPrice}
-    - 기존 손절가: ${stock.stopLoss}
-
-    [필수 작업 - 초정밀 실시간 가격 동기화]
-    1. 'googleSearch'를 사용하여 다음 쿼리들을 각각 검색하여 최신 정보를 확보하라:
-       - '네이버 증권 ${stock.name}' (가장 권장되는 출처)
-       - '${todayDate} ${stock.name} 현재가'
-       - 'KRX:${stock.code} 실시간 주가'
-    2. **[가격 검증 및 채택 원칙]** 
-       - 검색 결과에서 '1분 전', '5분 전', '방금 전' 또는 오늘 날짜(${todayDate})가 명시된 가격만 채택하라.
-       - 만약 오늘이 주말/공휴일이라면 '가장 최근 거래일(예: ${todayDate} 이전의 금요일) 종가'를 사용하고, 반드시 "03-27 종가(휴장)"와 같이 명시하라.
-       - **절대 주의**: 과거의 블로그 포스트, 며칠 전 뉴스, 혹은 AI의 내부 학습 데이터에 의존하지 마라. 오직 검색 결과의 '실시간' 데이터만 믿어라.
-    3. **[시가총액 교차 검증]** 
-       - 해당 종목의 '현재 시가총액'을 반드시 검색하여 확인하라.
-       - [현재가 * 발행주식수 = 시가총액] 공식이 성립하는지 확인하여 가격의 자릿수 오류(예: 37만 vs 133만)를 원천 차단하라.
-       - 만약 검색된 가격이 시가총액과 맞지 않는다면(예: 3배 이상 차이), 다른 출처를 다시 검색하라.
-    4. **[가격 전략 재산출]** 검색된 최신 현재가를 기반으로, 기존의 엔트리가격, 타겟가격, 손절가를 현재 시장 상황에 맞게 재산출하라.
-       - **타겟가격(Target):** 다음 주요 저항선 또는 현재가 대비 10~20% 수익 구간 중 기술적으로 타당한 지점을 설정하라.
-       - **손절가(Stop-Loss):** 직전 저점(Swing Low) 또는 주요 이평선 지지선, 혹은 진입가 대비 -5~8% 이내에서 리스크-리워드 비율(최소 1:2)을 고려하여 설정하라.
-    5. **[뉴스 및 수급 업데이트]** 해당 종목의 가장 최신 뉴스 5개와 최근 3일간의 기관/외인 수급 현황을 검색하여 반영하라.
-    6. **[판단 재평가]** 현재가와 기술적 지표 변화를 바탕으로 'type'을 STRONG_BUY, BUY, STRONG_SELL, SELL 중 하나로 업데이트하라.
-    7. **[출처 및 시각 명시]** 'priceUpdatedAt' 필드에 가격 확인 시각과 출처를 명시하라 (예: "15:30 (네이버증권)").
-
-    응답은 반드시 다음 JSON 형식으로만 해줘:
-    {
-      "currentPrice": 숫자,
-      "type": "STRONG_BUY/BUY/STRONG_SELL/SELL",
-      "entryPrice": 숫자,
-      "entryPrice2": 숫자 또는 null,
-      "targetPrice": 숫자,
-      "targetPrice2": 숫자 또는 null,
-      "stopLoss": 숫자,
-      "latestNews": [
-        { "headline": "뉴스 제목", "date": "${todayDate}", "url": "https://..." }
-      ],
-      "technicalSignals": { 
-        "maAlignment": "BULLISH", "rsi": 0, "macdStatus": "GOLDEN_CROSS", "bollingerStatus": "NEUTRAL", "stochasticStatus": "NEUTRAL", "volumeSurge": true, "disparity20": 0, "macdHistogram": 0, "bbWidth": 0, "stochRsi": 0,
-        "macdHistogramDetail": { "status": "BULLISH", "implication": "..." },
-        "bbWidthDetail": { "status": "SQUEEZE", "implication": "..." },
-        "stochRsiDetail": { "status": "OVERSOLD", "implication": "..." }
-      },
-      "priceUpdatedAt": "시각(예: 15:30)"
-    }
-  `;
-
+  // 2순위: Yahoo Finance (/api/historical-data 서버 프록시)
   try {
-    const result = await withRetry(async () => {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-          tools: [{ googleSearch: {} }],
-          toolConfig: { includeServerSideToolInvocations: true },
-          maxOutputTokens: 1024,
-          temperature: 0,
-        }
-      });
-      const text = response.text;
-      if (!text) {
-        console.error("Full AI Response:", JSON.stringify(response, null, 2));
-        throw new Error("No response from AI");
+    const symbol = `${stock.code}.KS`;
+    const res = await fetch(`/api/historical-data?symbol=${symbol}&range=1d&interval=1m`);
+    if (res.ok) {
+      const data = await res.json();
+      const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice as number | undefined;
+      if (price && price > 0) {
+        console.log(`[가격동기화] Yahoo Finance 성공: ${stock.name} ${price}원`);
+        const updated: StockRecommendation = {
+          ...stock,
+          currentPrice: Math.round(price),
+          dataSourceType: 'YAHOO',
+          priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (Yahoo Finance)`,
+        };
+        return await enrichStockWithRealData(updated);
       }
-      return safeJsonParse(text);
-    }, 2, 2000);
-
-    return {
-      ...stock,
-      currentPrice: result.currentPrice,
-      type: result.type || stock.type,
-      entryPrice: result.entryPrice,
-      entryPrice2: result.entryPrice2 || stock.entryPrice2,
-      targetPrice: result.targetPrice,
-      targetPrice2: result.targetPrice2 || stock.targetPrice2,
-      stopLoss: result.stopLoss,
-      latestNews: result.latestNews || stock.latestNews,
-      technicalSignals: result.technicalSignals || stock.technicalSignals,
-      priceUpdatedAt: `${now.split(' ')[0]} ${result.priceUpdatedAt || now.split(' ')[1]}`
-    };
-  } catch (error) {
-    console.error("Price sync failed:", error);
-    throw error;
+    }
+  } catch (yahooErr: any) {
+    console.warn(`[가격동기화] Yahoo 실패 → STALE 유지: ${yahooErr.message}`);
   }
+
+  // 3순위: 마지막 알려진 가격 유지 (AI 추정 없음)
+  console.warn(`[가격동기화] 모든 소스 실패 — STALE 유지: ${stock.name}`);
+  return {
+    ...stock,
+    dataSourceType: 'STALE',
+    priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (가격 업데이트 실패)`,
+  };
 }
 
 // KIS 실시간 현재가로 syncStockPrice 대체 — dataSourceType을 'REALTIME'으로 설정
@@ -3080,10 +2955,7 @@ export async function runQuantitativeScreening(options?: {
   minTurnover?: number;      // 최소 거래대금 (억원, 기본 10)
   maxResults?: number;        // 최대 결과 수 (기본 30)
 }): Promise<QuantScreenResult[]> {
-  const requestedAt = new Date();
-  const todayDate = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
-  const requestedAtISO = requestedAt.toISOString();
-
+  const todayDate = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
   const minCap = options?.minMarketCap ?? 1000;
   const minTurnover = options?.minTurnover ?? 10;
   const maxResults = options?.maxResults ?? 30;
@@ -3413,8 +3285,6 @@ export async function detectSilentAccumulation(
 
 async function runQuantScreenPipeline(filters?: StockFilters): Promise<RecommendationResponse | null> {
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
-  const todayDate = now.split(' ')[0];
-  const requestedAtISO = new Date().toISOString();
 
   try {
     // 1단계: 정량 스크리닝 + DART 공시 병렬 실행

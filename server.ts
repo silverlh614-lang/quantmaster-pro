@@ -15,6 +15,10 @@ import {
   loadWatchlist,
   saveWatchlist,
   getShadowTrades,
+  getScreenerCache,
+  preScreenStocks,
+  getDartAlerts,
+  pollDartDisclosures,
   type WatchlistEntry,
 } from "./src/server/autoTradeEngine.js";
 
@@ -466,6 +470,34 @@ async function startServer() {
     }
   });
 
+  // [아이디어 4] 스크리너 캐시 조회 + 수동 실행
+  app.get('/api/auto-trade/screener', (_req: Request, res: Response) => {
+    res.json(getScreenerCache());
+  });
+
+  app.post('/api/auto-trade/screener/run', async (_req: Request, res: Response) => {
+    try {
+      const results = await preScreenStocks();
+      res.json({ ok: true, count: results.length, stocks: results });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // [아이디어 6] DART 공시 알림 조회 + 수동 폴링
+  app.get('/api/auto-trade/dart-alerts', (_req: Request, res: Response) => {
+    res.json(getDartAlerts());
+  });
+
+  app.post('/api/auto-trade/dart-alerts/poll', async (_req: Request, res: Response) => {
+    try {
+      await pollDartDisclosures();
+      res.json({ ok: true, alerts: getDartAlerts().slice(-20) });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
 
@@ -476,9 +508,11 @@ async function startServer() {
     }
 
     // 장 시작 전 워밍업 — 08:55 KST (UTC 23:55 전날)
+    // + 아이디어 4: 전종목 사전 스크리닝
     cron.schedule('55 23 * * 0-4', async () => {
       console.log('[AutoTrade] 장 전 워밍업 시작 (KST 08:55)');
       await refreshKisToken().catch(console.error);
+      await preScreenStocks().catch(console.error);   // 아이디어 4
     }, { timezone: 'UTC' });
 
     // 장중 신호 스캔 — 평일 09:05 ~ 15:25, 5분 간격 (KST = UTC+9)
@@ -490,6 +524,11 @@ async function startServer() {
       const t = h * 100 + m;
       if (t < 905 || t > 1525) return; // 09:05 ~ 15:25 KST 외 제외
       await runAutoSignalScan().catch(console.error);
+    }, { timezone: 'UTC' });
+
+    // 아이디어 6: DART 공시 30분 폴링 — 장중 08:30~18:00 KST (UTC 23:30~09:00)
+    cron.schedule('*/30 23,0,1,2,3,4,5,6,7,8,9 * * 1-5', async () => {
+      await pollDartDisclosures().catch(console.error);
     }, { timezone: 'UTC' });
 
     // 장 마감 후 일일 리포트 이메일 — 16:00 KST (UTC 07:00)
