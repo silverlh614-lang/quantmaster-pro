@@ -5478,6 +5478,9 @@ export default function App() {
                   economicRegime={extendedRegimeData ?? economicRegimeData ?? undefined}
                   currentRoeType={currentRoeType}
                   marketOverview={marketOverview}
+                  stockCode={deepAnalysisStock?.code}
+                  stockName={deepAnalysisStock?.name}
+                  currentPrice={deepAnalysisStock?.currentPrice}
                 />
                 ) : (
                   <>

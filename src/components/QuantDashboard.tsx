@@ -16,6 +16,9 @@ interface Props {
   economicRegime?: EconomicRegimeData;
   currentRoeType?: ROEType;
   marketOverview?: MarketOverview | null;
+  stockCode?: string;
+  stockName?: string;
+  currentPrice?: number;
 }
 
 type DashboardTab = 'QUANT' | 'MACRO';
@@ -25,6 +28,9 @@ export const QuantDashboard: React.FC<Props> = ({
   economicRegime,
   currentRoeType = 3,
   marketOverview,
+  stockCode,
+  stockName,
+  currentPrice,
 }) => {
   const [activeTab, setActiveTab] = useState<DashboardTab>('QUANT');
   const getRecommendationColor = (rec: string) => {
