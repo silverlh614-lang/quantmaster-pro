@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-
-type StockRecommendation = any;
+import type { StockRecommendation } from '../services/stockService';
 type Updater<T> = T | ((prev: T) => T);
 
 interface AnalysisState {

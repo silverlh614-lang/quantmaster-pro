@@ -1,8 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { TradeRecord } from '../types/quant';
-
-type StockRecommendation = any;
+import type { StockRecommendation } from '../services/stockService';
 type Updater<T> = T | ((prev: T) => T);
 
 interface TradeState {

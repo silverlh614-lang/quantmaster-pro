@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-
-// Re-export StockRecommendation type from stockService
-type StockRecommendation = any; // App uses the full type from stockService
+import type { StockRecommendation } from '../services/stockService';
 
 interface StockFilters {
   mode: 'MOMENTUM' | 'EARLY_DETECT' | 'QUANT_SCREEN';

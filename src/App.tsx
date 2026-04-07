@@ -602,8 +602,8 @@ export default function App() {
 
   // Auto-sync logic with improved cycle management
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    let countdownInterval: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let countdownInterval: ReturnType<typeof setInterval>;
 
     const runSyncCycle = async () => {
       if (!autoSyncEnabledRef.current || syncStatus.isSyncing) {

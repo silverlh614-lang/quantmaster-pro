@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-
-type Portfolio = any;
+import type { Portfolio } from '../types/quant';
 type Updater<T> = T | ((prev: T) => T);
 
 interface PortfolioState {
