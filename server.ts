@@ -315,13 +315,16 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // In production, the static files are either in 'dist' (if running from root)
-    // or in the same directory (if running from inside 'dist')
-    const distPath = fs.existsSync(path.join(__dirname, 'dist', 'index.html'))
-      ? path.join(__dirname, 'dist')
-      : fs.existsSync(path.join(__dirname, 'index.html'))
-        ? __dirname
-        : path.join(process.cwd(), 'dist');
+    // vite.config.ts outDir: 'build' 기준으로 탐색, dist도 폴백으로 확인
+    const candidates = [
+      path.join(__dirname, 'build'),
+      path.join(process.cwd(), 'build'),
+      path.join(__dirname, 'dist'),
+      path.join(process.cwd(), 'dist'),
+      __dirname,
+    ];
+    const distPath = candidates.find(p => fs.existsSync(path.join(p, 'index.html'))) ?? candidates[0];
+    console.log(`Serving static files from: ${distPath}`);
         
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
