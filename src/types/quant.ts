@@ -807,6 +807,73 @@ export interface TradeRecord {
   memo?: string;                    // 자유 메모
 }
 
+// ─── 자동매매 엔진 타입 ──────────────────────────────────────────────────────────
+
+/** KIS 주문 파라미터 (현금 매수/매도 공통) */
+export interface KISOrderParams {
+  PDNO: string;      // 종목코드 (6자리)
+  ORD_DVSN: string;  // 주문구분 (00=지정가, 01=시장가)
+  ORD_QTY: string;   // 주문수량
+  ORD_UNPR: string;  // 주문단가 (시장가=0)
+}
+
+/** Shadow Trading 1건 — 실제 체결 없이 가상 시뮬레이션 */
+export interface ShadowTrade {
+  id: string;
+  signalTime: string;          // ISO
+  stockCode: string;
+  stockName: string;
+  signalPrice: number;         // 신호 발생 시점 가격
+  shadowEntryPrice: number;    // 신호가 + 0.3% 슬리피지 가정
+  quantity: number;
+  kellyFraction: number;
+  stopLoss: number;
+  targetPrice: number;
+  status: 'PENDING' | 'ACTIVE' | 'HIT_TARGET' | 'HIT_STOP';
+  exitPrice?: number;
+  exitTime?: string;
+  returnPct?: number;
+}
+
+/** 체결 완료된 주문 — OCO 등록 트리거용 */
+export interface FilledOrder {
+  stockCode: string;
+  stockName: string;
+  executedPrice: number;
+  quantity: number;
+  rrr: number;              // Risk-Reward Ratio (EvaluationResult.rrr)
+  stopLossPct?: number;     // 손절 비율 (기본 0.08 = 8%)
+}
+
+/** 큐에 보관 중인 미실행 주문 (타임 필터 대기) */
+export interface PendingOrder {
+  id: string;
+  params: KISOrderParams;
+  stockName: string;
+  queuedAt: string;          // ISO
+  reason: string;
+}
+
+/** 슬리피지 측정 기록 1건 */
+export interface SlippageRecord {
+  id: string;
+  stockCode: string;
+  signalTime: string;
+  theoreticalPrice: number;  // 신호 발생 시점 가격
+  executedPrice: number;     // 실제 KIS 체결가
+  slippagePct: number;       // (executed - theoretical) / theoretical
+  orderType: 'MARKET' | 'LIMIT';
+  volume: number;            // 당시 거래량 (상관관계 분석용)
+}
+
+/** Gate 조건별 수익 귀인 누적 엔트리 */
+export interface AttributionEntry {
+  conditionId: ConditionId;
+  winContrib: number;        // 승리 거래에서 이 조건의 점수 합계
+  lossContrib: number;       // 손실 거래에서 이 조건의 점수 합계
+  count: number;             // 분석된 거래 수
+}
+
 /** ② 27조건 실전 승률 누적 */
 export interface ConditionPerformance {
   conditionId: ConditionId;

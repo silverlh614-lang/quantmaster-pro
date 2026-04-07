@@ -219,6 +219,44 @@ async function startServer() {
     }
   });
 
+  // [KIS-0] 토큰 상태 확인 (체크리스트 Step 1)
+  app.get('/api/kis/token-status', async (req: any, res: any) => {
+    if (!process.env.KIS_APP_KEY) return res.json({ valid: false, reason: 'KIS_APP_KEY 미설정' });
+    try {
+      const token = await getKisToken();
+      const remaining = kisToken ? Math.floor((kisToken.expiry - Date.now()) / 1000 / 60 / 60) : 0;
+      res.json({ valid: !!token, expiresIn: `${remaining}h` });
+    } catch (e: any) {
+      res.json({ valid: false, reason: e.message });
+    }
+  });
+
+  // [KIS-Balance] 모의계좌 잔고 조회 (체크리스트 Step 3)
+  app.get('/api/kis/balance', async (req: any, res: any) => {
+    if (!process.env.KIS_APP_KEY) return res.status(500).json({ error: 'KIS_APP_KEY 미설정' });
+    try {
+      const isReal = process.env.KIS_IS_REAL === 'true';
+      const trId = isReal ? 'TTTC8434R' : 'VTTC8434R';
+      const data = await kisGet(trId, '/uapi/domestic-stock/v1/trading/inquire-balance', {
+        CANO: process.env.KIS_ACCOUNT_NO ?? '',
+        ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
+        AFHR_FLPR_YN: 'N',
+        OFL_YN: '',
+        INQR_DVSN: '02',
+        UNPR_DVSN: '01',
+        FUND_STTL_ICLD_YN: 'N',
+        FNCG_AMT_AUTO_RDPT_YN: 'N',
+        PRCS_DVSN: '01',
+        CTX_AREA_FK100: '',
+        CTX_AREA_NK100: '',
+      });
+      res.json(data);
+    } catch (e: any) {
+      console.error('KIS balance error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // [KIS-Generic] 범용 KIS API 프록시 — App Secret은 서버 메모리에서만 존재
   app.post('/api/kis/proxy', async (req: any, res: any) => {
     if (!process.env.KIS_APP_KEY) return res.status(500).json({ error: 'KIS_APP_KEY 미설정' });
