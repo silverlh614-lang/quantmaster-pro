@@ -13,13 +13,24 @@ import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR  = path.resolve(process.cwd(), 'data');
+// Railway Volume 마운트 경로 우선, 미설정 시 기본 data/
+const DATA_DIR  = process.env.PERSIST_DATA_DIR
+  ? path.resolve(process.env.PERSIST_DATA_DIR)
+  : path.resolve(process.cwd(), 'data');
 const WATCHLIST_FILE    = path.join(DATA_DIR, 'watchlist.json');
 const SHADOW_FILE       = path.join(DATA_DIR, 'shadow-trades.json');
 const SHADOW_LOG_FILE   = path.join(DATA_DIR, 'shadow-log.json');
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  // Railway 배포 시 파일시스템 초기화 경고
+  if (process.env.RAILWAY_STATIC_URL && !process.env.PERSIST_DATA_DIR) {
+    console.warn(
+      '[AutoTrade] ⚠️  Railway 감지됨 — PERSIST_DATA_DIR 미설정. ' +
+      '배포마다 data/ 가 초기화됩니다. Railway Volume을 /app/data에 마운트한 뒤 ' +
+      'PERSIST_DATA_DIR=/app/data 를 환경변수에 추가하세요.'
+    );
+  }
 }
 
 // ─── 워치리스트 파일 I/O ────────────────────────────────────────────────────────
@@ -389,6 +400,15 @@ export function getScreenerCache(): ScreenedStock[] {
  */
 export async function preScreenStocks(): Promise<ScreenedStock[]> {
   if (!process.env.KIS_APP_KEY) return [];
+
+  // FHPST01710000 (거래량 순위)은 실계좌 전용 TR — VTS에서 미지원
+  if (!KIS_IS_REAL) {
+    console.warn(
+      '[Screener] 모의투자(VTS) 모드 — 거래량 순위 TR(FHPST01710000) 미지원. ' +
+      '캐시된 스크리너 결과를 반환합니다. 실계좌 전환(KIS_IS_REAL=true) 후 사용 가능.'
+    );
+    return getScreenerCache();
+  }
 
   try {
     // 거래량 상위 종목 (최대 30개 반환)
