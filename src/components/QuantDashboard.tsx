@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { EvaluationResult, EconomicRegimeData, ROEType } from '../types/quant';
 import { ALL_CONDITIONS } from '../services/quantEngine';
 import { MarketOverview } from '../services/stockService';
-import { Shield, Target, Zap, AlertTriangle, TrendingUp, DollarSign, Activity, Layers, Clock, Skull, Calendar, PieChart, Link2, Globe } from 'lucide-react';
+import { Shield, Target, Zap, AlertTriangle, TrendingUp, DollarSign, Activity, Layers, Clock, Skull, Calendar, PieChart, Link2, Globe, PlayCircle } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { MacroIntelligenceDashboard } from './MacroIntelligenceDashboard';
@@ -19,6 +19,7 @@ interface Props {
   stockCode?: string;
   stockName?: string;
   currentPrice?: number;
+  onShadowTrade?: (stockCode: string, stockName: string, currentPrice: number) => void;
 }
 
 type DashboardTab = 'QUANT' | 'MACRO';
@@ -31,6 +32,7 @@ export const QuantDashboard: React.FC<Props> = ({
   stockCode,
   stockName,
   currentPrice,
+  onShadowTrade,
 }) => {
   const [activeTab, setActiveTab] = useState<DashboardTab>('QUANT');
   const getRecommendationColor = (rec: string) => {
@@ -227,6 +229,36 @@ export const QuantDashboard: React.FC<Props> = ({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── Shadow Trading Action Bar ── */}
+      {stockCode && stockName && currentPrice && currentPrice > 0 && (
+        <div className="mb-12 p-6 border-2 border-dashed border-violet-400 bg-violet-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-black text-violet-500 uppercase tracking-widest mb-1">SHADOW TRADING</p>
+            <p className="text-sm font-bold text-[#141414]">
+              {stockName} ({stockCode}) — {currentPrice.toLocaleString()}원
+            </p>
+            <p className="text-[10px] text-gray-500 mt-1">
+              {result.recommendation === '풀 포지션' || result.recommendation === '절반 포지션'
+                ? 'Kelly ' + result.positionSize + '% · RRR ' + result.rrr.toFixed(1) + ' — 신호 조건 충족'
+                : '관망/매도 신호 — Shadow 기록만 가능'}
+            </p>
+          </div>
+          <button
+            onClick={() => onShadowTrade?.(stockCode, stockName, currentPrice)}
+            disabled={!onShadowTrade}
+            className={cn(
+              "flex items-center gap-2 px-6 py-3 font-black text-sm uppercase tracking-widest border-2 transition-all",
+              onShadowTrade
+                ? "border-violet-500 bg-violet-500 text-white hover:bg-violet-600 active:scale-95"
+                : "border-gray-300 bg-gray-200 text-gray-400 cursor-not-allowed"
+            )}
+          >
+            <PlayCircle className="w-4 h-4" />
+            모의계좌 실행 / Shadow 기록
+          </button>
         </div>
       )}
 
