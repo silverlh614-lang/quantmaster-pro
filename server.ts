@@ -19,6 +19,11 @@ import {
   preScreenStocks,
   getDartAlerts,
   pollDartDisclosures,
+  addRecommendation,
+  getRecommendations,
+  getMonthlyStats,
+  evaluateRecommendations,
+  sendTelegramAlert,
   type WatchlistEntry,
 } from "./src/server/autoTradeEngine.js";
 
@@ -626,6 +631,49 @@ async function startServer() {
     }
   });
 
+  // ─────────────────────────────────────────────────────────────
+  // 아이디어 10: 추천 적중률 자기학습 — 이력 조회 + 수동 평가 트리거
+  // ─────────────────────────────────────────────────────────────
+
+  app.get('/api/auto-trade/recommendations', (_req: Request, res: Response) => {
+    res.json(getRecommendations());
+  });
+
+  app.get('/api/auto-trade/recommendations/stats', (_req: Request, res: Response) => {
+    res.json(getMonthlyStats());
+  });
+
+  // 수동 평가 트리거 (테스트 / 장 마감 후 즉시 확인 용도)
+  app.post('/api/auto-trade/recommendations/evaluate', async (_req: Request, res: Response) => {
+    try {
+      await evaluateRecommendations();
+      res.json({ ok: true, stats: getMonthlyStats() });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 아이디어 12: Telegram 알림 테스트
+  // ─────────────────────────────────────────────────────────────
+
+  app.post('/api/telegram/test', async (_req: Request, res: Response) => {
+    if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
+      return res.status(400).json({ error: 'TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 미설정' });
+    }
+    try {
+      await sendTelegramAlert(
+        `✅ <b>[QuantMaster Pro] Telegram 연결 테스트</b>\n` +
+        `서버 시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST\n` +
+        `모드: ${process.env.KIS_IS_REAL === 'true' ? '🔴 실거래' : '🟡 모의투자'}\n` +
+        `비상정지: ${EMERGENCY_STOP ? '🛑 활성' : '✅ 해제'}`
+      );
+      res.json({ ok: true, message: 'Telegram 메시지 전송 완료' });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
 
@@ -671,7 +719,21 @@ async function startServer() {
       await generateDailyReport().catch(console.error);
     }, { timezone: 'UTC' });
 
-    console.log('[AutoTrade] 크론 스케줄러 가동 완료 (장중 5분 간격 / 일일 리포트)');
+    // 아이디어 10: 추천 적중률 자기학습 — 16:30 KST (UTC 07:30)
+    cron.schedule('30 7 * * 1-5', async () => {
+      console.log('[자기학습] 일일 추천 평가 시작 (KST 16:30)');
+      await evaluateRecommendations().catch(console.error);
+    }, { timezone: 'UTC' });
+
+    console.log('[AutoTrade] 크론 스케줄러 가동 완료 (장중 5분 간격 / 일일 리포트 / 자기학습)');
+
+    // 아이디어 12: 서버 기동 시 Telegram 알림 (fire-and-forget)
+    sendTelegramAlert(
+      `🟢 <b>[QuantMaster Pro] 서버 기동</b>\n` +
+      `시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST\n` +
+      `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? '🟡 Shadow' : '🔴 LIVE'}\n` +
+      `KIS: ${process.env.KIS_IS_REAL === 'true' ? '실거래' : '모의투자'}`
+    ).catch(console.error);
 
     // 아이디어 7-A: 14분 간격 자가 핑 — Railway 슬립 방지
     const selfUrl = process.env.RAILWAY_STATIC_URL ?? `http://localhost:${PORT}`;

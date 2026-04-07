@@ -232,10 +232,32 @@ export async function runAutoSignalScan(): Promise<void> {
         status: 'PENDING',
       };
 
+      // 아이디어 10: 추천 기록 — 신호 발생 즉시 저장 (WIN/LOSS 추후 평가)
+      addRecommendation({
+        stockCode:        stock.code,
+        stockName:        stock.name,
+        signalTime:       new Date().toISOString(),
+        priceAtRecommend: currentPrice,
+        stopLoss:         stock.stopLoss,
+        targetPrice:      stock.targetPrice,
+        kellyPct:         10,
+        gateScore:        0, // 서버사이드 간이 스캔 — 정밀 점수 없음
+        signalType:       'BUY',
+      });
+
       if (shadowMode) {
         shadows.push(trade);
         console.log(`[AutoTrade SHADOW] ${stock.name}(${stock.code}) 신호 등록 @${currentPrice}`);
         appendShadowLog({ event: 'SIGNAL', ...trade });
+
+        // 아이디어 12: Telegram 알림
+        await sendTelegramAlert(
+          `⚡ <b>[Shadow] 매수 신호</b>\n` +
+          `종목: ${stock.name} (${stock.code})\n` +
+          `현재가: ${currentPrice.toLocaleString()}원\n` +
+          `손절: ${stock.stopLoss.toLocaleString()}원 | 목표: ${stock.targetPrice.toLocaleString()}원\n` +
+          `모드: Shadow (가상매매)`
+        ).catch(console.error);
       } else {
         // LIVE 모드: 실제 주문
         const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
@@ -253,6 +275,15 @@ export async function runAutoSignalScan(): Promise<void> {
         const ordNo = orderData?.output?.ODNO;
         console.log(`[AutoTrade LIVE] ${stock.name} 매수 주문 완료 — ODNO: ${ordNo}`);
         appendShadowLog({ event: 'ORDER', code: stock.code, price: currentPrice, ordNo });
+
+        // 아이디어 12: Telegram 알림 (실매매)
+        await sendTelegramAlert(
+          `🚀 <b>[LIVE] 매수 주문 체결</b>\n` +
+          `종목: ${stock.name} (${stock.code})\n` +
+          `체결가: ${currentPrice.toLocaleString()}원\n` +
+          `주문번호: ${ordNo ?? 'N/A'}\n` +
+          `손절: ${stock.stopLoss.toLocaleString()}원 | 목표: ${stock.targetPrice.toLocaleString()}원`
+        ).catch(console.error);
       }
     } catch (err: unknown) {
       console.error(`[AutoTrade] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
@@ -417,7 +448,8 @@ export async function preScreenStocks(): Promise<ScreenedStock[]> {
 
 // ─── 아이디어 6: DART 공시 폴링 + 이메일 알림 ─────────────────────────────────
 
-const DART_ALERTS_FILE = path.join(DATA_DIR, 'dart-alerts.json');
+const DART_ALERTS_FILE        = path.join(DATA_DIR, 'dart-alerts.json');
+const RECOMMENDATIONS_FILE    = path.join(DATA_DIR, 'recommendations.json');
 
 export interface DartAlert {
   corp_name: string;
@@ -502,9 +534,21 @@ export async function pollDartDisclosures(): Promise<void> {
     };
     newAlerts.push(alert);
 
-    // 워치리스트 종목 + MAJOR_POSITIVE → 이메일 알림
+    // 워치리스트 종목 + MAJOR_POSITIVE → 이메일 + Telegram 알림
     if (sentiment === 'MAJOR_POSITIVE' && watchCodes.has(d.stock_code?.padStart(6, '0') ?? '')) {
       await sendDartAlert(alert).catch(console.error);
+    }
+    // NEGATIVE 공시도 Telegram으로 즉시 경고
+    if ((sentiment === 'NEGATIVE' || sentiment === 'MAJOR_POSITIVE') &&
+        watchCodes.has(d.stock_code?.padStart(6, '0') ?? '')) {
+      const emoji = sentiment === 'MAJOR_POSITIVE' ? '📢' : '⚠️';
+      await sendTelegramAlert(
+        `${emoji} <b>[DART 공시] ${alert.corp_name}</b>\n` +
+        `${alert.report_nm}\n` +
+        `접수일: ${alert.rcept_dt}\n` +
+        `감성: ${sentiment}\n` +
+        `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${alert.rcept_no}`
+      ).catch(console.error);
     }
   }
 
@@ -527,6 +571,185 @@ async function sendDartAlert(alert: DartAlert): Promise<void> {
     text: `종목코드: ${alert.stock_code}\n공시명: ${alert.report_nm}\n접수일: ${alert.rcept_dt}\n\nDART 바로가기: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${alert.rcept_no}`,
   });
   console.log(`[DART] 📧 알림 발송: ${alert.corp_name} — ${alert.report_nm}`);
+}
+
+// ─── 아이디어 12: Telegram Bot 알림 ────────────────────────────────────────────
+
+/**
+ * Telegram Bot API를 통해 즉시 모바일 알림 전송
+ * Railway 환경변수: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+ */
+export async function sendTelegramAlert(message: string): Promise<void> {
+  const token  = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return; // 미설정 시 조용히 패스
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('[Telegram] 전송 실패:', err.slice(0, 200));
+    }
+  } catch (e: unknown) {
+    console.error('[Telegram] 오류:', e instanceof Error ? e.message : e);
+  }
+}
+
+// ─── 아이디어 10: 추천 적중률 자기학습 루프 ─────────────────────────────────────
+
+export interface RecommendationRecord {
+  id: string;
+  stockCode: string;
+  stockName: string;
+  signalTime: string;        // ISO — 신호 발생 시각
+  priceAtRecommend: number;  // 추천 당시 현재가
+  stopLoss: number;          // 절대가 손절선
+  targetPrice: number;       // 목표가
+  kellyPct: number;          // 포지션 비율 (%)
+  gateScore: number;         // Gate 통과 점수 (0~27, 서버스캔 시 0)
+  signalType: 'STRONG_BUY' | 'BUY';
+  status: 'PENDING' | 'WIN' | 'LOSS' | 'EXPIRED';
+  actualReturn?: number;     // 실현 수익률 (%)
+  resolvedAt?: string;       // ISO
+}
+
+export interface MonthlyStats {
+  month: string;         // "2026-04"
+  total: number;         // 결산 완료 건수
+  wins: number;
+  losses: number;
+  expired: number;
+  winRate: number;       // %
+  avgReturn: number;     // %
+  strongBuyWinRate: number; // STRONG_BUY만 필터
+}
+
+function loadRecommendations(): RecommendationRecord[] {
+  ensureDataDir();
+  if (!fs.existsSync(RECOMMENDATIONS_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(RECOMMENDATIONS_FILE, 'utf-8')); } catch { return []; }
+}
+
+function saveRecommendations(recs: RecommendationRecord[]): void {
+  ensureDataDir();
+  // 최근 1000건만 보관 (오래된 것부터 제거)
+  fs.writeFileSync(RECOMMENDATIONS_FILE, JSON.stringify(recs.slice(-1000), null, 2));
+}
+
+export function addRecommendation(rec: Omit<RecommendationRecord, 'id' | 'status'>): void {
+  const recs = loadRecommendations();
+  // 같은 종목의 PENDING 중복 방지
+  const alreadyPending = recs.some(
+    (r) => r.stockCode === rec.stockCode && r.status === 'PENDING'
+  );
+  if (alreadyPending) return;
+
+  recs.push({ ...rec, id: `rec_${Date.now()}_${rec.stockCode}`, status: 'PENDING' });
+  saveRecommendations(recs);
+  console.log(`[자기학습] 추천 기록 추가: ${rec.stockName}(${rec.stockCode}) @${rec.priceAtRecommend.toLocaleString()}`);
+}
+
+export function getRecommendations(): RecommendationRecord[] {
+  return loadRecommendations();
+}
+
+/**
+ * 아이디어 10: 매일 장 마감 후 16:30 실행 — PENDING 추천 결과 평가
+ * 손절가/목표가 도달 여부 확인 → WIN/LOSS 기록 → 월간 통계 출력
+ */
+export async function evaluateRecommendations(): Promise<void> {
+  const recs    = loadRecommendations();
+  const pending = recs.filter((r) => r.status === 'PENDING');
+
+  if (pending.length === 0) {
+    console.log('[자기학습] 평가할 PENDING 추천 없음');
+    return;
+  }
+
+  console.log(`[자기학습] PENDING 추천 ${pending.length}건 평가 시작`);
+  let changed = false;
+
+  for (const rec of pending) {
+    try {
+      const currentPrice = await fetchCurrentPrice(rec.stockCode);
+      if (!currentPrice) continue;
+
+      const returnPct = ((currentPrice - rec.priceAtRecommend) / rec.priceAtRecommend) * 100;
+      const ageMs     = Date.now() - new Date(rec.signalTime).getTime();
+      const EXPIRE_MS = 30 * 24 * 60 * 60 * 1000; // 30일 (≈20 거래일)
+
+      if (currentPrice <= rec.stopLoss) {
+        rec.status       = 'LOSS';
+        rec.actualReturn = parseFloat((((rec.stopLoss - rec.priceAtRecommend) / rec.priceAtRecommend) * 100).toFixed(2));
+        rec.resolvedAt   = new Date().toISOString();
+        changed = true;
+        console.log(`[자기학습] ❌ LOSS: ${rec.stockName} ${rec.actualReturn}%`);
+      } else if (currentPrice >= rec.targetPrice) {
+        rec.status       = 'WIN';
+        rec.actualReturn = parseFloat((((rec.targetPrice - rec.priceAtRecommend) / rec.priceAtRecommend) * 100).toFixed(2));
+        rec.resolvedAt   = new Date().toISOString();
+        changed = true;
+        console.log(`[자기학습] ✅ WIN: ${rec.stockName} +${rec.actualReturn}%`);
+      } else if (ageMs > EXPIRE_MS) {
+        rec.status       = 'EXPIRED';
+        rec.actualReturn = parseFloat(returnPct.toFixed(2));
+        rec.resolvedAt   = new Date().toISOString();
+        changed = true;
+        console.log(`[자기학습] ⏱ EXPIRED: ${rec.stockName} ${rec.actualReturn}%`);
+      }
+    } catch (e: unknown) {
+      console.error(`[자기학습] ${rec.stockCode} 평가 실패:`, e instanceof Error ? e.message : e);
+    }
+  }
+
+  if (changed) saveRecommendations(recs);
+
+  // 월간 통계 계산 + 출력
+  const stats = getMonthlyStats();
+  console.log(
+    `[자기학습] ${stats.month} 통계 — 전체 WIN률: ${stats.winRate.toFixed(1)}% ` +
+    `| STRONG_BUY: ${stats.strongBuyWinRate.toFixed(1)}% ` +
+    `| 평균 수익: ${stats.avgReturn.toFixed(2)}%`
+  );
+
+  // Telegram으로 월간 요약 발송
+  await sendTelegramAlert(
+    `📊 <b>[QuantMaster] ${stats.month} 자기학습 일일 평가</b>\n` +
+    `결산: ${stats.total}건 (승 ${stats.wins} / 패 ${stats.losses} / 만료 ${stats.expired})\n` +
+    `WIN률: <b>${stats.winRate.toFixed(1)}%</b> | 평균 수익: ${stats.avgReturn.toFixed(2)}%\n` +
+    `STRONG_BUY 적중률: <b>${stats.strongBuyWinRate.toFixed(1)}%</b>`
+  ).catch(console.error);
+}
+
+export function getMonthlyStats(): MonthlyStats {
+  const all      = loadRecommendations();
+  const month    = new Date().toISOString().slice(0, 7); // "2026-04"
+  const monthly  = all.filter((r) => r.signalTime.startsWith(month) && r.status !== 'PENDING');
+  const wins     = monthly.filter((r) => r.status === 'WIN');
+  const losses   = monthly.filter((r) => r.status === 'LOSS');
+  const expired  = monthly.filter((r) => r.status === 'EXPIRED');
+  const total    = monthly.length;
+  const avgReturn = total > 0
+    ? monthly.reduce((s, r) => s + (r.actualReturn ?? 0), 0) / total
+    : 0;
+
+  const sbMonthly = monthly.filter((r) => r.signalType === 'STRONG_BUY');
+  const sbWins    = sbMonthly.filter((r) => r.status === 'WIN');
+
+  return {
+    month,
+    total,
+    wins:    wins.length,
+    losses:  losses.length,
+    expired: expired.length,
+    winRate: total > 0 ? (wins.length / total) * 100 : 0,
+    avgReturn,
+    strongBuyWinRate: sbMonthly.length > 0 ? (sbWins.length / sbMonthly.length) * 100 : 0,
+  };
 }
 
 // ─── Shadow Trades REST용 공개 조회 ────────────────────────────────────────────
