@@ -175,6 +175,83 @@ export interface EnemyChecklist {
   counterArguments: string[];
 }
 
+// ─── 판단엔진 고도화: 합치 스코어, 사이클, 촉매, 신호 계층 ─────────────────────
+
+/** 합치(Confluence) 스코어 — 4개 독립 축의 동시 방향 확인 */
+export interface ConfluenceScore {
+  technical: 'BULLISH' | 'NEUTRAL' | 'BEARISH';   // 축1: RSI·MACD·BB·일목·VCP (실계산)
+  supply: 'BULLISH' | 'NEUTRAL' | 'BEARISH';      // 축2: 기관·외인 수급 (실데이터)
+  fundamental: 'BULLISH' | 'NEUTRAL' | 'BEARISH';  // 축3: ROE·OCF·ICR·마진 (실데이터)
+  macro: 'BULLISH' | 'NEUTRAL' | 'BEARISH';        // 축4: MHS·FSI·BDI·FOMC (글로벌인텔)
+  bullishCount: number;  // 0-4
+  confirmed: boolean;    // 4/4 = true
+}
+
+/** 섹터 사이클 위치 — 진입 품질 결정 */
+export type CyclePosition = 'EARLY' | 'MID' | 'LATE';
+
+export interface CycleAnalysis {
+  position: CyclePosition;
+  sectorRsRank: number;        // 섹터 RS 순위 (% 상위)
+  sectorRsTrend: 'ACCELERATING' | 'STABLE' | 'DECELERATING';
+  newsPhase: 'SILENT' | 'EARLY' | 'GROWING' | 'CROWDED' | 'OVERHYPED';
+  foreignFlowPhase: 'NONE' | 'ACTIVE_ONLY' | 'ACTIVE_PASSIVE' | 'PASSIVE_ONLY';
+  kellyMultiplier: number;     // EARLY=1.0, MID=0.7, LATE=0
+}
+
+/** 촉매 품질 등급 */
+export type CatalystGrade = 'A' | 'B' | 'C';
+
+export interface CatalystAnalysis {
+  grade: CatalystGrade;
+  type: string;              // "구조적 수주잔고" / "실적 서프라이즈" / "테마 뉴스"
+  durability: 'STRUCTURAL' | 'CYCLICAL' | 'TEMPORARY';
+  description: string;
+  strongBuyAllowed: boolean; // A=true, B=false(BUY만), C=false(HOLD)
+}
+
+/** 모멘텀 가속도 — 추세 방향보다 가속이 더 중요 */
+export interface MomentumAcceleration {
+  rsiTrend: number[];            // 최근 3주 RSI 값 [45, 52, 62]
+  rsiAccelerating: boolean;      // 3주 연속 상승
+  institutionalTrend: number[];  // 최근 5일 기관 순매수 금액
+  institutionalAccelerating: boolean;
+  volumeTrend: 'INCREASING' | 'STABLE' | 'DECREASING';
+  overallAcceleration: boolean;  // rsi + institutional 모두 가속
+}
+
+/** 강화된 적의 체크리스트 — STRONG BUY 전 역검증 7항목 */
+export interface EnemyChecklistEnhanced extends EnemyChecklist {
+  lockupExpiringSoon: boolean;      // 1. 보호예수 60일 이내 해제
+  majorShareholderSelling: boolean; // 2. 최대주주 장내 매도
+  creditBalanceSurge: boolean;      // 3. 신용잔고 1개월 급증
+  shortInterestSurge: boolean;      // 4. 공매도 잔고 2주 30%↑
+  targetPriceDowngrade: boolean;    // 5. 증권사 목표가 하향
+  fundMaturityDue: boolean;         // 6. 보호예수 펀드 만기
+  clientPerformanceWeak: boolean;   // 7. 주요 고객사 실적 악화
+  blockedCount: number;             // 위 7개 중 YES 개수
+  strongBuyBlocked: boolean;        // 2개 이상이면 true
+}
+
+/** 데이터 신뢰도 추적 */
+export interface DataReliability {
+  realDataCount: number;      // 실계산 기반 조건 수
+  aiEstimateCount: number;    // AI 추정 기반 조건 수
+  reliabilityPct: number;     // 실데이터 비율 (%)
+  degraded: boolean;          // AI 추정 비율 > 50%이면 BUY로 강등
+}
+
+/** 신호 계층 (재정의) */
+export type SignalGrade = 'CONFIRMED_STRONG_BUY' | 'STRONG_BUY' | 'BUY' | 'WATCH' | 'HOLD';
+
+export interface SignalVerdict {
+  grade: SignalGrade;
+  kellyPct: number;           // 100 / 70 / 50 / 0 / 0
+  positionRule: string;       // "풀 포지션, 자동매매 허용" 등
+  passedConditions: string[]; // 통과한 상위 조건 목록
+  failedConditions: string[]; // 미달 조건 목록
+}
+
 export interface SeasonalityData {
   month: number;
   historicalPerformance: number;
@@ -219,6 +296,15 @@ export interface EvaluationResult {
   seasonality?: SeasonalityData;
   attribution?: AttributionAnalysis;
   correlationScore?: number; // Correlation with existing portfolio
+
+  // ── 판단엔진 고도화 필드 ──────────────────────────────────────────────────
+  confluence?: ConfluenceScore;
+  cycleAnalysis?: CycleAnalysis;
+  catalystAnalysis?: CatalystAnalysis;
+  momentumAcceleration?: MomentumAcceleration;
+  enemyChecklistEnhanced?: EnemyChecklistEnhanced;
+  dataReliability?: DataReliability;
+  signalVerdict?: SignalVerdict;
 }
 
 export interface SectorRotation {

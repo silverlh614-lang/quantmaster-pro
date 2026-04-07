@@ -68,6 +68,7 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
   const subRef = useRef<HTMLDivElement>(null);
   const mainChartRef = useRef<IChartApi | null>(null);
   const subChartRef = useRef<IChartApi | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -230,16 +231,24 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
           }
 
           sub.timeScale().fitContent();
-          // Sync crosshair
+          // Sync crosshair (guard flag로 피드백 루프 방지)
+          let syncing = false;
           mainChart.timeScale().subscribeVisibleLogicalRangeChange((r: any) => {
-            if (r) sub.timeScale().setVisibleLogicalRange(r);
+            if (syncing || !r) return;
+            syncing = true;
+            sub.timeScale().setVisibleLogicalRange(r);
+            syncing = false;
           });
           sub.timeScale().subscribeVisibleLogicalRangeChange((r: any) => {
-            if (r) mainChart.timeScale().setVisibleLogicalRange(r);
+            if (syncing || !r) return;
+            syncing = true;
+            mainChart.timeScale().setVisibleLogicalRange(r);
+            syncing = false;
           });
         }
 
-        // Resize handler
+        // Resize handler (ref로 관리하여 cleanup 시 disconnect)
+        if (resizeObserverRef.current) resizeObserverRef.current.disconnect();
         const ro = new ResizeObserver(() => {
           if (mainRef.current && mainChartRef.current) {
             mainChartRef.current.applyOptions({ width: mainRef.current.clientWidth });
@@ -248,6 +257,7 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
             subChartRef.current.applyOptions({ width: subRef.current.clientWidth });
           }
         });
+        resizeObserverRef.current = ro;
         if (mainRef.current) ro.observe(mainRef.current);
 
       } catch (e: any) {
@@ -261,6 +271,7 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
 
     return () => {
       cancelled = true;
+      if (resizeObserverRef.current) { resizeObserverRef.current.disconnect(); resizeObserverRef.current = null; }
       if (mainChartRef.current) { mainChartRef.current.remove(); mainChartRef.current = null; }
       if (subChartRef.current) { subChartRef.current.remove(); subChartRef.current = null; }
     };

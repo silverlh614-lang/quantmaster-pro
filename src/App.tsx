@@ -433,7 +433,8 @@ export default function App() {
   const geoRiskData = globalIntelStore.geoRiskData;
   const creditSpreadData = globalIntelStore.creditSpreadData;
   const globalCorrelation = globalIntelStore.globalCorrelation;
-  const [newsFrequencyScores, setNewsFrequencyScores] = useState<NewsFrequencyScore[]>([]);
+  const newsFrequencyScores = globalIntelStore.newsFrequencyScores;
+  const setNewsFrequencyScores = globalIntelStore.setNewsFrequencyScores;
   const supplyChainData = globalIntelStore.supplyChainData;
   const sectorOrderData = globalIntelStore.sectorOrderData;
   const financialStressData = globalIntelStore.financialStressData;

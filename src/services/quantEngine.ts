@@ -24,6 +24,16 @@ import {
   ExtendedRegimeData,
   FinancialStressIndex,
   SupplyChainIntelligence,
+  ConfluenceScore,
+  CycleAnalysis,
+  CyclePosition,
+  CatalystAnalysis,
+  CatalystGrade,
+  MomentumAcceleration,
+  EnemyChecklistEnhanced,
+  DataReliability,
+  SignalVerdict,
+  SignalGrade,
 } from '../types/quant';
 
 export const ALL_CONDITIONS: Record<ConditionId, { name: string; baseWeight: number; description: string }> = {
@@ -774,6 +784,62 @@ export function evaluateStock(
     tranche3: { size: positionSize * 0.4, trigger: '추세 강화 확인', status: 'PENDING' },
   } : undefined;
 
+  // ── 판단엔진 고도화 ────────────────────────────────────────────────────────
+
+  // 합치 스코어 (4축)
+  const confluence = computeConfluence(stockData, gate0Result, advancedContext);
+
+  // 사이클 위치
+  const cycleAnalysis = classifyCyclePosition(
+    sectorRotation.rank ?? 50,
+    'GROWING',  // 기본값 — 뉴스 빈도 데이터 있을 때 오버라이드
+  );
+
+  // 촉매 등급
+  const catalystAnalysis = gradeCatalyst(stockData[27] ?? 0);
+
+  // 모멘텀 가속도 (기본값 — 실데이터 있을 때 오버라이드)
+  const momentumAcc = analyzeMomentumAcceleration([], [], 'STABLE');
+
+  // 강화된 적의 체크리스트
+  const enemyEnhanced = evaluateEnemyChecklist(enemyChecklist, {});
+
+  // 데이터 신뢰도
+  const dataReliability = computeDataReliability(stockData);
+
+  // 최종 신호 판정 (7조건)
+  const signalVerdict = computeSignalVerdict(
+    gate1Passed, gate2Passed, gate3Passed,
+    recommendation, rrr,
+    confluence, multiTimeframe,
+    catalystAnalysis, enemyEnhanced, cycleAnalysis, momentumAcc, dataReliability,
+  );
+
+  // 신호 등급에 따른 포지션 사이즈 최종 조정
+  // 주의: CONFIRMED_STRONG_BUY라도 Gate 0 매수중단/비상정지/크레딧위기를 무시하면 안됨
+  const gate0Blocked = gate0Result?.buyingHalted || emergencyStop || creditCrisis;
+  if (signalVerdict.grade === 'CONFIRMED_STRONG_BUY' && !gate0Blocked && positionSize > 0) {
+    positionSize = Math.max(positionSize, 20);
+  } else if (signalVerdict.grade === 'WATCH' || signalVerdict.grade === 'HOLD') {
+    positionSize = 0;
+    if (recommendation === '풀 포지션' || recommendation === '절반 포지션') {
+      recommendation = '관망';
+    }
+  }
+
+  // 사이클 LATE → 신규 진입 금지
+  if (cycleAnalysis.position === 'LATE' && positionSize > 0) {
+    positionSize = 0;
+    recommendation = '관망';
+  }
+
+  // 데이터 신뢰도 강등
+  if (dataReliability.degraded && recommendation === '풀 포지션') {
+    recommendation = '절반 포지션';
+  }
+
+  positionSize = Math.max(0, positionSize);
+
   return {
     gate0Result,
     smartMoneyData: smartMoney,
@@ -803,6 +869,13 @@ export function evaluateStock(
     enemyChecklist,
     seasonality,
     attribution,
+    confluence,
+    cycleAnalysis,
+    catalystAnalysis,
+    momentumAcceleration: momentumAcc,
+    enemyChecklistEnhanced: enemyEnhanced,
+    dataReliability,
+    signalVerdict,
   };
 }
 
@@ -846,4 +919,283 @@ export function saveEvolutionWeights(weights: Record<number, number>): void {
   } catch (e) {
     console.error('Failed to save evolution weights:', e);
   }
+}
+
+// ─── 판단엔진 고도화 함수 ──────────────────────────────────────────────────────
+
+// 실계산 기반 조건 ID (indicators.ts / KIS API / DART API)
+const REAL_DATA_CONDITIONS: ConditionId[] = [2, 6, 10, 11, 18, 19, 20, 21, 25, 26]; // 모멘텀·일목·골든크로스·거래량·RS·VCP 등
+const AI_ESTIMATE_CONDITIONS: ConditionId[] = [1, 3, 4, 5, 7, 8, 9, 12, 13, 14, 15, 16, 17, 22, 23, 24, 27];
+
+/**
+ * 합치(Confluence) 스코어 — 4개 독립 축의 방향 동시 확인
+ */
+export function computeConfluence(
+  stockData: Record<ConditionId, number>,
+  gate0: Gate0Result | undefined,
+  advancedContext?: {
+    smartMoney?: SmartMoneyData;
+    exportMomentum?: ExportMomentumData;
+    creditSpread?: CreditSpreadData;
+    financialStress?: FinancialStressIndex;
+  },
+): ConfluenceScore {
+  // 축1: 기술적 (RSI·MACD·BB·일목·VCP — 조건 2,6,10,18,20,25,26)
+  const techIds: ConditionId[] = [2, 6, 10, 18, 20, 25, 26];
+  const techScore = techIds.reduce((s, id) => s + (stockData[id] ?? 0), 0) / techIds.length;
+  const technical = techScore >= 7 ? 'BULLISH' as const : techScore >= 4 ? 'NEUTRAL' as const : 'BEARISH' as const;
+
+  // 축2: 수급 (기관·외인·수급질 — 조건 4,11,12)
+  const supplyIds: ConditionId[] = [4, 11, 12];
+  const supplyScore = supplyIds.reduce((s, id) => s + (stockData[id] ?? 0), 0) / supplyIds.length;
+  const supply = supplyScore >= 7 ? 'BULLISH' as const : supplyScore >= 4 ? 'NEUTRAL' as const : 'BEARISH' as const;
+
+  // 축3: 펀더멘털 (ROE·OCF·ICR·마진 — 조건 3,15,21,22,23)
+  const fundIds: ConditionId[] = [3, 15, 21, 22, 23];
+  const fundScore = fundIds.reduce((s, id) => s + (stockData[id] ?? 0), 0) / fundIds.length;
+  const fundamental = fundScore >= 7 ? 'BULLISH' as const : fundScore >= 4 ? 'NEUTRAL' as const : 'BEARISH' as const;
+
+  // 축4: 매크로 (Gate0 MHS + FSI + 크레딧)
+  let macroScore = 0;
+  if (gate0?.mhsLevel === 'HIGH') macroScore += 3;
+  else if (gate0?.mhsLevel === 'MEDIUM') macroScore += 1;
+  if (advancedContext?.financialStress?.systemAction === 'NORMAL') macroScore += 2;
+  else if (advancedContext?.financialStress?.systemAction === 'CAUTION') macroScore += 1;
+  if (advancedContext?.creditSpread?.isLiquidityExpanding) macroScore += 2;
+  if (advancedContext?.smartMoney?.isEwyMtumBothInflow) macroScore += 1;
+  const macro = macroScore >= 6 ? 'BULLISH' as const : macroScore >= 3 ? 'NEUTRAL' as const : 'BEARISH' as const;
+
+  const axes = [technical, supply, fundamental, macro];
+  const bullishCount = axes.filter(a => a === 'BULLISH').length;
+
+  return { technical, supply, fundamental, macro, bullishCount, confirmed: bullishCount === 4 };
+}
+
+/**
+ * 사이클 위치 분류 — EARLY / MID / LATE
+ */
+export function classifyCyclePosition(
+  sectorRsRank: number,        // 상위 % (0=최상, 100=최하)
+  newsPhase: 'SILENT' | 'EARLY' | 'GROWING' | 'CROWDED' | 'OVERHYPED',
+  weeklyRsi?: number,
+): CycleAnalysis {
+  let position: CyclePosition = 'MID';
+  let kellyMultiplier = 0.7;
+
+  // EARLY: RS 상위 2~20% 진입 초기 + 뉴스 SILENT/EARLY
+  if (sectorRsRank <= 20 && sectorRsRank >= 2 && (newsPhase === 'SILENT' || newsPhase === 'EARLY')) {
+    position = 'EARLY';
+    kellyMultiplier = 1.0;
+  }
+  // LATE: RS 상위 1% 과열 OR 뉴스 CROWDED/OVERHYPED OR 주봉 RSI 80+
+  else if (sectorRsRank < 2 || newsPhase === 'CROWDED' || newsPhase === 'OVERHYPED' || (weeklyRsi && weeklyRsi >= 80)) {
+    position = 'LATE';
+    kellyMultiplier = 0;
+  }
+
+  const sectorRsTrend = sectorRsRank <= 5 ? 'ACCELERATING' as const
+    : sectorRsRank <= 20 ? 'STABLE' as const : 'DECELERATING' as const;
+
+  return {
+    position,
+    sectorRsRank,
+    sectorRsTrend,
+    newsPhase,
+    foreignFlowPhase: 'ACTIVE_ONLY', // 기본값 — 실제 데이터 있을 때 오버라이드
+    kellyMultiplier,
+  };
+}
+
+/**
+ * 촉매 품질 등급화 — A(구조적) / B(사이클) / C(단기)
+ * AI가 추정한 촉매 점수(0-10)와 설명 텍스트에서 판별
+ */
+export function gradeCatalyst(
+  catalystScore: number,       // 조건27 점수 (0-10)
+  catalystDesc?: string,       // AI 설명 텍스트
+): CatalystAnalysis {
+  const desc = (catalystDesc ?? '').toLowerCase();
+
+  // Grade A: 구조적 변화 키워드
+  const gradeAKeywords = ['수주잔고', '법제화', '장기계약', '정부정책', 'nrc승인', '10년', '대규모', '구조적'];
+  const isGradeA = catalystScore >= 8 && gradeAKeywords.some(k => desc.includes(k));
+
+  // Grade C: 단기 재료 키워드
+  const gradeCKeywords = ['테마', '소문', '단기', '루머', '공시', '일회성'];
+  const isGradeC = catalystScore < 5 || gradeCKeywords.some(k => desc.includes(k));
+
+  if (isGradeA) {
+    return { grade: 'A', type: '구조적 변화', durability: 'STRUCTURAL', description: catalystDesc ?? '', strongBuyAllowed: true };
+  }
+  if (isGradeC) {
+    return { grade: 'C', type: '단기 재료', durability: 'TEMPORARY', description: catalystDesc ?? '', strongBuyAllowed: false };
+  }
+  return { grade: 'B', type: '사이클 모멘텀', durability: 'CYCLICAL', description: catalystDesc ?? '', strongBuyAllowed: false };
+}
+
+/**
+ * 모멘텀 가속도 분석
+ */
+export function analyzeMomentumAcceleration(
+  rsiValues: number[],                   // 최근 3주 RSI [45, 52, 62]
+  institutionalAmounts: number[],        // 최근 5일 기관 순매수 금액
+  volumeTrend: 'INCREASING' | 'STABLE' | 'DECREASING',
+): MomentumAcceleration {
+  const rsiAccelerating = rsiValues.length >= 3
+    && rsiValues.every((v, i) => i === 0 || v > rsiValues[i - 1]);
+  const institutionalAccelerating = institutionalAmounts.length >= 3
+    && institutionalAmounts.every((v, i) => i === 0 || v > institutionalAmounts[i - 1]);
+
+  return {
+    rsiTrend: rsiValues,
+    rsiAccelerating,
+    institutionalTrend: institutionalAmounts,
+    institutionalAccelerating,
+    volumeTrend,
+    overallAcceleration: rsiAccelerating && institutionalAccelerating,
+  };
+}
+
+/**
+ * 강화된 적의 체크리스트 — 7항목 역검증
+ */
+export function evaluateEnemyChecklist(
+  base: EnemyChecklist | undefined,
+  flags: Partial<{
+    lockupExpiringSoon: boolean;
+    majorShareholderSelling: boolean;
+    creditBalanceSurge: boolean;
+    shortInterestSurge: boolean;
+    targetPriceDowngrade: boolean;
+    fundMaturityDue: boolean;
+    clientPerformanceWeak: boolean;
+  }>,
+): EnemyChecklistEnhanced {
+  const f = {
+    lockupExpiringSoon: flags.lockupExpiringSoon ?? false,
+    majorShareholderSelling: flags.majorShareholderSelling ?? false,
+    creditBalanceSurge: flags.creditBalanceSurge ?? false,
+    shortInterestSurge: flags.shortInterestSurge ?? false,
+    targetPriceDowngrade: flags.targetPriceDowngrade ?? false,
+    fundMaturityDue: flags.fundMaturityDue ?? false,
+    clientPerformanceWeak: flags.clientPerformanceWeak ?? false,
+  };
+  const blockedCount = Object.values(f).filter(Boolean).length;
+
+  return {
+    bearCase: base?.bearCase ?? '',
+    riskFactors: base?.riskFactors ?? [],
+    counterArguments: base?.counterArguments ?? [],
+    ...f,
+    blockedCount,
+    strongBuyBlocked: blockedCount >= 2,
+  };
+}
+
+/**
+ * 데이터 신뢰도 추적
+ */
+export function computeDataReliability(stockData: Record<ConditionId, number>): DataReliability {
+  const realCount = REAL_DATA_CONDITIONS.filter(id => (stockData[id] ?? 0) > 0).length;
+  const aiCount = AI_ESTIMATE_CONDITIONS.filter(id => (stockData[id] ?? 0) > 0).length;
+  const total = realCount + aiCount;
+  const reliabilityPct = total > 0 ? Math.round((realCount / total) * 100) : 0;
+
+  return {
+    realDataCount: realCount,
+    aiEstimateCount: aiCount,
+    reliabilityPct,
+    degraded: reliabilityPct < 50,
+  };
+}
+
+/**
+ * 최종 신호 판정 — CONFIRMED STRONG BUY 7개 조건 검증
+ *
+ * ① 기존 6개 조건 (25/27, RS, 기관, RRR, 일목, VKOSPI)
+ * ② 합치 4/4축 BULLISH
+ * ③ 멀티타임프레임 월봉+주봉 BULLISH
+ * ④ 촉매 등급 A
+ * ⑤ 역검증 통과 (blockedCount < 2)
+ * ⑥ 사이클 EARLY
+ * ⑦ 모멘텀 가속 확인
+ */
+export function computeSignalVerdict(
+  gate1Passed: boolean,
+  gate2Passed: boolean,
+  gate3Passed: boolean,
+  recommendation: EvaluationResult['recommendation'],
+  rrr: number,
+  confluence: ConfluenceScore,
+  multiTimeframe: MultiTimeframe | undefined,
+  catalystAnalysis: CatalystAnalysis,
+  enemyEnhanced: EnemyChecklistEnhanced,
+  cycleAnalysis: CycleAnalysis,
+  momentumAcc: MomentumAcceleration,
+  dataReliability: DataReliability,
+): SignalVerdict {
+  const passed: string[] = [];
+  const failed: string[] = [];
+
+  // ① 기존 Gate 1~3 통과 + 풀 포지션
+  const gatesOk = gate1Passed && gate2Passed && gate3Passed && recommendation === '풀 포지션';
+  if (gatesOk) passed.push('Gate 1~3 통과 + 풀 포지션');
+  else failed.push('Gate 미달 또는 관망/매도');
+
+  // ② 합치 4/4
+  if (confluence.confirmed) passed.push(`합치 4/4 (${confluence.bullishCount}/4 BULLISH)`);
+  else failed.push(`합치 ${confluence.bullishCount}/4 (미확인)`);
+
+  // ③ 멀티타임프레임
+  const mtfOk = multiTimeframe?.monthly === 'BULLISH' && multiTimeframe?.weekly === 'BULLISH';
+  if (mtfOk) passed.push('월봉+주봉 BULLISH');
+  else failed.push('멀티타임프레임 미달');
+
+  // ④ 촉매 A등급
+  if (catalystAnalysis.grade === 'A') passed.push(`촉매 A등급 (${catalystAnalysis.type})`);
+  else failed.push(`촉매 ${catalystAnalysis.grade}등급`);
+
+  // ⑤ 역검증 통과
+  if (!enemyEnhanced.strongBuyBlocked) passed.push('역검증 통과');
+  else failed.push(`역검증 실패 (${enemyEnhanced.blockedCount}개 위험)`);
+
+  // ⑥ 사이클 EARLY
+  if (cycleAnalysis.position === 'EARLY') passed.push('사이클 EARLY');
+  else failed.push(`사이클 ${cycleAnalysis.position}`);
+
+  // ⑦ 모멘텀 가속
+  if (momentumAcc.overallAcceleration) passed.push('모멘텀 가속 확인');
+  else failed.push('모멘텀 비가속');
+
+  // 데이터 신뢰도 강등
+  if (dataReliability.degraded) failed.push(`데이터 신뢰도 ${dataReliability.reliabilityPct}% (AI 의존 과다)`);
+
+  // 등급 결정
+  let grade: SignalGrade;
+  let kellyPct: number;
+  let positionRule: string;
+
+  if (passed.length === 7 && !dataReliability.degraded) {
+    grade = 'CONFIRMED_STRONG_BUY';
+    kellyPct = 100;
+    positionRule = '풀 포지션, 자동매매 허용';
+  } else if (gatesOk && rrr >= 3.0) {
+    grade = 'STRONG_BUY';
+    kellyPct = 70;
+    positionRule = '수동 매매, 교차검증 후 진입';
+  } else if (gate1Passed && gate2Passed && rrr >= 2.0) {
+    grade = 'BUY';
+    kellyPct = 50;
+    positionRule = '분할 매수';
+  } else if (gate1Passed && gate2Passed) {
+    grade = 'WATCH';
+    kellyPct = 0;
+    positionRule = '관심 종목, 진입 대기';
+  } else {
+    grade = 'HOLD';
+    kellyPct = 0;
+    positionRule = '포지션 없음';
+  }
+
+  return { grade, kellyPct, positionRule, passedConditions: passed, failedConditions: failed };
 }

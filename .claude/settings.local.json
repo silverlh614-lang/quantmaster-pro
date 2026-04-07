@@ -14,7 +14,8 @@
       "Bash(find ./src -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -exec grep -l \"lightweight\" {} \\\\;)",
       "Bash(npx -p typescript@5 tsc --noEmit)",
       "Bash(npm install:*)",
-      "Bash(node -e \"const lc = require\\('lightweight-charts'\\); console.log\\(Object.keys\\(lc\\).filter\\(k => k.includes\\('Series'\\) || k === 'createChart'\\).join\\(', '\\)\\)\")"
+      "Bash(node -e \"const lc = require\\('lightweight-charts'\\); console.log\\(Object.keys\\(lc\\).filter\\(k => k.includes\\('Series'\\) || k === 'createChart'\\).join\\(', '\\)\\)\")",
+      "Bash(grep -n \"SELL_CONDITIONS\\\\|export const.*SELL\" src/constants/*.ts)"
     ]
   }
 }

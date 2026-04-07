@@ -216,3 +216,72 @@ export function calculateDisparity(closes: number[], period = 20): number {
   const lastClose = closes[closes.length - 1];
   return (lastClose / lastSMA) * 100;
 }
+
+// ─── 멀티타임프레임 확인 함수 ─────────────────────────────────────────────────
+
+/**
+ * 월봉: 12개월 EMA 위에서 우상향 중인지 확인
+ * @param monthlyCloses - 최근 24개월 이상 월봉 종가
+ */
+export function isAboveMonthlyEMA12(monthlyCloses: number[]): boolean {
+  if (monthlyCloses.length < 13) return false;
+  const ema12 = calculateEMA(monthlyCloses, 12);
+  const lastClose = monthlyCloses[monthlyCloses.length - 1];
+  const lastEma = ema12[ema12.length - 1];
+  const prevEma = ema12[ema12.length - 2];
+  return lastClose > lastEma && lastEma > prevEma; // 위에 있고 + EMA 우상향
+}
+
+/**
+ * 주봉: 일목 구름대 위 안착 확인
+ * @param weeklyHighs/Lows/Closes - 최근 52주 이상 주봉 데이터
+ */
+export function isWeeklyAboveCloud(weeklyHighs: number[], weeklyLows: number[], weeklyCloses: number[]): boolean {
+  const ichimoku = calculateIchimoku(weeklyHighs, weeklyLows, weeklyCloses);
+  return ichimoku.status === 'ABOVE_CLOUD';
+}
+
+/**
+ * 멀티타임프레임 종합 판단
+ */
+export function evaluateMultiTimeframe(
+  monthlyCloses: number[],
+  weeklyHighs: number[], weeklyLows: number[], weeklyCloses: number[],
+  dailyHighs: number[], dailyLows: number[], dailyCloses: number[],
+): { monthly: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; weekly: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; daily: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; consistency: boolean } {
+  // 월봉
+  const monthlyBull = isAboveMonthlyEMA12(monthlyCloses);
+  const monthly = monthlyBull ? 'BULLISH' as const : monthlyCloses.length >= 13 ? 'BEARISH' as const : 'NEUTRAL' as const;
+
+  // 주봉
+  const weeklyBull = isWeeklyAboveCloud(weeklyHighs, weeklyLows, weeklyCloses);
+  const weekly = weeklyBull ? 'BULLISH' as const : weeklyCloses.length >= 52 ? 'BEARISH' as const : 'NEUTRAL' as const;
+
+  // 일봉
+  const dailyIchimoku = calculateIchimoku(dailyHighs, dailyLows, dailyCloses);
+  const dailyMACD = calculateMACD(dailyCloses);
+  const dailyRSI = calculateRSI(dailyCloses);
+  const dailyBull = dailyIchimoku.status === 'ABOVE_CLOUD' && dailyMACD.status !== 'DEAD_CROSS' && dailyRSI > 40 && dailyRSI < 75;
+  const dailyBear = dailyIchimoku.status === 'BELOW_CLOUD' || dailyMACD.status === 'DEAD_CROSS' || dailyRSI < 30;
+  const daily = dailyBull ? 'BULLISH' as const : dailyBear ? 'BEARISH' as const : 'NEUTRAL' as const;
+
+  const consistency = monthly === 'BULLISH' && weekly === 'BULLISH' && daily === 'BULLISH';
+
+  return { monthly, weekly, daily, consistency };
+}
+
+/**
+ * RSI 모멘텀 가속도 — 최근 n주간 RSI 추이
+ * @param weeklyCloses - 주봉 종가 배열 (최소 20주)
+ * @param weeks - 확인할 주 수 (기본 3)
+ */
+export function calculateRSIMomentumAcceleration(weeklyCloses: number[], weeks = 3): { values: number[]; accelerating: boolean } {
+  if (weeklyCloses.length < 14 + weeks) return { values: [], accelerating: false };
+  const values: number[] = [];
+  for (let i = weeks - 1; i >= 0; i--) {
+    const slice = weeklyCloses.slice(0, weeklyCloses.length - i); // 주봉 데이터이므로 1주 단위
+    if (slice.length >= 14) values.push(calculateRSI(slice));
+  }
+  const accelerating = values.length >= 3 && values.every((v, i) => i === 0 || v > values[i - 1]);
+  return { values, accelerating };
+}
