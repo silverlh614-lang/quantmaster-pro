@@ -384,6 +384,22 @@ export default function App() {
   const { isFilterExpanded, setIsFilterExpanded } = useFilterPanelState();
   const analysisReportRef = useRef<HTMLDivElement>(null);
 
+  // ── 탭별 동적 페이지 타이틀 ────────────────────────────────────────────────
+  useEffect(() => {
+    const viewLabels: Record<string, string> = {
+      DISCOVER: '탐색',
+      WATCHLIST: '관심 목록',
+      SCREENER: '스크리너',
+      SUBSCRIPTION: '섹터 구독',
+      BACKTEST: '백테스트',
+      MARKET: '시장 대시보드',
+      WALK_FORWARD: '워크포워드',
+      MANUAL_INPUT: '수동 퀀트',
+      TRADE_JOURNAL: '매매일지',
+    };
+    document.title = `${viewLabels[view] ?? view} · QuantMaster Pro`;
+  }, [view]);
+
   // ── 매크로/어드밴스드 컨텍스트: Zustand store → 로컬 alias (하위 호환) ────────
   // useState 제거됨 — TanStack Query가 자동 로딩 → Zustand store에 동기화
   // 기존 코드에서 사용하는 변수명 유지를 위한 alias
@@ -2052,131 +2068,200 @@ export default function App() {
       </AnimatePresence>
 
       {/* Header */}
-      <header className="border-b border-white/5 bg-black/40 backdrop-blur-xl sticky top-0 z-50 shadow-[0_1px_10px_rgba(0,0,0,0.5)] no-print">
-        <div className="max-w-6xl mx-auto px-4 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-orange-400 to-orange-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_4px_15px_rgba(249,115,22,0.4)]">
-              <Zap className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+      <header className="border-b border-white/[0.06] bg-[#050505]/80 backdrop-blur-2xl sticky top-0 z-50 shadow-[0_2px_30px_rgba(0,0,0,0.7)] no-print">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-[60px] flex items-center justify-between gap-4">
+
+          {/* ── Brand ── */}
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="relative">
+              <div className="w-9 h-9 bg-gradient-to-br from-orange-400 via-orange-500 to-red-600 rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(249,115,22,0.5)]">
+                <Zap className="w-5 h-5 text-white" />
+              </div>
+              {syncStatus.isSyncing && (
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-green-400 rounded-full border-2 border-[#050505] animate-pulse" />
+              )}
             </div>
+            <div className="hidden sm:flex flex-col leading-none">
+              <span className="text-[13px] font-black text-white tracking-tight">QuantMaster <span className="text-orange-500">Pro</span></span>
+              <span className="text-[9px] font-bold text-white/25 uppercase tracking-[0.18em] mt-0.5">AI · Quant · Engine</span>
+            </div>
+            <div className="hidden lg:block w-px h-7 bg-white/[0.08] mx-1" />
           </div>
-          
-          <div className="flex items-center gap-6">
-            <nav className="flex bg-white/5 p-1 rounded-2xl border border-white/10 shadow-inner">
-              <button 
-                onClick={() => { setView('DISCOVER'); setSearchQuery(''); }}
-                className={cn(
-                  "px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 transition-all",
-                  view === 'DISCOVER' ? "bg-white/10 text-white shadow-sm" : "text-white/30 hover:text-white/60"
-                )}
-              >
-                <LayoutGrid className="w-4 h-4" />
-                <span className="hidden xs:inline">탐색</span>
-              </button>
-              <button 
-                onClick={() => { setView('WATCHLIST'); setSearchQuery(''); }}
-                className={cn(
-                  "px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 transition-all",
-                  view === 'WATCHLIST' ? "bg-orange-500 text-white shadow-[0_4px_12px_rgba(249,115,22,0.3)]" : "text-white/30 hover:text-white/60"
-                )}
-              >
-                <Bookmark className="w-4 h-4" />
-                <span className="hidden xs:inline">관심 목록</span>
-                {(watchlist || []).length > 0 && (
-                  <span className="bg-white/20 text-[10px] px-1.5 py-0.5 rounded-full ml-1 font-black">
-                    {(watchlist || []).length}
-                  </span>
-                )}
-              </button>
-              <button 
-                onClick={() => { setView('SCREENER'); setSearchQuery(''); }}
-                className={cn(
-                  "px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 transition-all",
-                  view === 'SCREENER' ? "bg-blue-600 text-white shadow-[0_4px_12px_rgba(37,99,235,0.3)]" : "text-white/30 hover:text-white/60"
-                )}
-              >
-                <Filter className="w-4 h-4" />
-                <span className="hidden xs:inline">스크리너</span>
-              </button>
-              <button 
-                onClick={() => { setView('SUBSCRIPTION'); setSearchQuery(''); }}
-                className={cn(
-                  "px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 transition-all",
-                  view === 'SUBSCRIPTION' ? "bg-amber-500 text-white shadow-[0_4px_12px_rgba(245,158,11,0.3)]" : "text-white/30 hover:text-white/60"
-                )}
-              >
-                <Radar className="w-4 h-4" />
-                <span className="hidden xs:inline">구독</span>
-              </button>
-              <button 
-                onClick={() => { setView('BACKTEST'); setSearchQuery(''); }}
-                className={cn(
-                  "px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 transition-all",
-                  view === 'BACKTEST' ? "bg-blue-500 text-white shadow-[0_4px_12px_rgba(59,130,246,0.3)]" : "text-white/30 hover:text-white/60"
-                )}
-              >
-                <History className="w-4 h-4" />
-                <span className="hidden xs:inline">백테스트</span>
-              </button>
-              <button 
-                onClick={() => { setView('MARKET'); setSearchQuery(''); }}
-                className={cn(
-                  "px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 transition-all",
-                  view === 'MARKET' ? "bg-indigo-500 text-white shadow-[0_4px_12px_rgba(79,70,229,0.3)]" : "text-white/30 hover:text-white/60"
-                )}
-              >
-                <Activity className="w-4 h-4" />
-                <span className="hidden xs:inline">시장 대시보드</span>
-              </button>
-              <button 
-                onClick={() => { setView('WALK_FORWARD'); setSearchQuery(''); }}
-                className={cn(
-                  "px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 transition-all",
-                  view === 'WALK_FORWARD' ? "bg-purple-500 text-white shadow-[0_4px_12px_rgba(168,85,247,0.3)]" : "text-white/30 hover:text-white/60"
-                )}
-              >
-                <Shield className="w-4 h-4" />
-                <span className="hidden xs:inline">Walk-Forward</span>
-              </button>
-              <button 
-                onClick={() => { setView('MANUAL_INPUT'); setSearchQuery(''); }}
-                className={cn(
-                  "px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 transition-all",
-                  view === 'MANUAL_INPUT' ? "bg-indigo-600 text-white shadow-[0_4px_12px_rgba(79,70,229,0.3)]" : "text-white/30 hover:text-white/60"
-                )}
-              >
-                <Calculator className="w-4 h-4" />
-                <span className="hidden xs:inline">수동 퀀트</span>
-              </button>
-              <button
-                onClick={() => { setView('TRADE_JOURNAL'); setSearchQuery(''); }}
-                className={cn(
-                  "px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 transition-all",
-                  view === 'TRADE_JOURNAL' ? "bg-emerald-500 text-white shadow-[0_4px_12px_rgba(16,185,129,0.3)]" : "text-white/30 hover:text-white/60"
-                )}
-              >
-                <TrendingUp className="w-4 h-4" />
-                <span className="hidden xs:inline">매매일지</span>
-                {tradeRecords.filter((t: TradeRecord) => t.status === 'OPEN').length > 0 && (
-                  <span className="ml-1 text-[9px] bg-emerald-400/30 px-1.5 py-0.5 rounded font-mono">
-                    {tradeRecords.filter((t: TradeRecord) => t.status === 'OPEN').length}
-                  </span>
-                )}
-              </button>
-              <div className="w-px h-6 bg-white/10 mx-1 self-center" />
-              <button 
-                onClick={() => setShowMasterChecklist(true)}
-                className="px-3 sm:px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 text-white/30 hover:text-white/60 transition-all"
-              >
-                <ShieldCheck className="w-4 h-4 text-orange-500/50" />
-                <span className="hidden xs:inline">체크리스트</span>
-              </button>
-            </nav>
+
+          {/* ── Navigation ── */}
+          <nav className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
+
+            {/* 탐색 & 관심 */}
+            <button
+              onClick={() => { setView('DISCOVER'); setSearchQuery(''); }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap shrink-0",
+                view === 'DISCOVER'
+                  ? "bg-orange-500/20 text-orange-400 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.3)]"
+                  : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+              )}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">탐색</span>
+            </button>
+
+            <button
+              onClick={() => { setView('WATCHLIST'); setSearchQuery(''); }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap shrink-0",
+                view === 'WATCHLIST'
+                  ? "bg-orange-500/20 text-orange-400 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.3)]"
+                  : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+              )}
+            >
+              <Bookmark className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">관심 목록</span>
+              {(watchlist || []).length > 0 && (
+                <span className={cn(
+                  "text-[9px] px-1.5 py-0.5 rounded-md font-black",
+                  view === 'WATCHLIST' ? "bg-orange-500/30 text-orange-300" : "bg-white/10 text-white/40"
+                )}>
+                  {(watchlist || []).length}
+                </span>
+              )}
+            </button>
+
+            <div className="w-px h-4 bg-white/[0.08] mx-1 shrink-0" />
+
+            {/* 분석 그룹 */}
+            <button
+              onClick={() => { setView('SCREENER'); setSearchQuery(''); }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap shrink-0",
+                view === 'SCREENER'
+                  ? "bg-blue-500/20 text-blue-400 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]"
+                  : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+              )}
+            >
+              <Filter className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">스크리너</span>
+            </button>
+
+            <button
+              onClick={() => { setView('SUBSCRIPTION'); setSearchQuery(''); }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap shrink-0",
+                view === 'SUBSCRIPTION'
+                  ? "bg-amber-500/20 text-amber-400 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.3)]"
+                  : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+              )}
+            >
+              <Radar className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">구독</span>
+            </button>
+
+            <button
+              onClick={() => { setView('MANUAL_INPUT'); setSearchQuery(''); }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap shrink-0",
+                view === 'MANUAL_INPUT'
+                  ? "bg-indigo-500/20 text-indigo-400 shadow-[inset_0_0_0_1px_rgba(99,102,241,0.3)]"
+                  : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+              )}
+            >
+              <Calculator className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">수동 퀀트</span>
+            </button>
+
+            <div className="w-px h-4 bg-white/[0.08] mx-1 shrink-0" />
+
+            {/* 전략 그룹 */}
+            <button
+              onClick={() => { setView('BACKTEST'); setSearchQuery(''); }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap shrink-0",
+                view === 'BACKTEST'
+                  ? "bg-blue-600/20 text-blue-300 shadow-[inset_0_0_0_1px_rgba(37,99,235,0.3)]"
+                  : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+              )}
+            >
+              <History className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">백테스트</span>
+            </button>
+
+            <button
+              onClick={() => { setView('WALK_FORWARD'); setSearchQuery(''); }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap shrink-0",
+                view === 'WALK_FORWARD'
+                  ? "bg-purple-500/20 text-purple-400 shadow-[inset_0_0_0_1px_rgba(168,85,247,0.3)]"
+                  : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+              )}
+            >
+              <Shield className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">워크포워드</span>
+            </button>
+
+            <button
+              onClick={() => { setView('MARKET'); setSearchQuery(''); }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap shrink-0",
+                view === 'MARKET'
+                  ? "bg-indigo-500/20 text-indigo-400 shadow-[inset_0_0_0_1px_rgba(99,102,241,0.3)]"
+                  : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+              )}
+            >
+              <Activity className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">시장</span>
+            </button>
+
+            <div className="w-px h-4 bg-white/[0.08] mx-1 shrink-0" />
+
+            {/* 저널 & 체크 */}
+            <button
+              onClick={() => { setView('TRADE_JOURNAL'); setSearchQuery(''); }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap shrink-0",
+                view === 'TRADE_JOURNAL'
+                  ? "bg-emerald-500/20 text-emerald-400 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.3)]"
+                  : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+              )}
+            >
+              <TrendingUp className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">매매일지</span>
+              {tradeRecords.filter((t: TradeRecord) => t.status === 'OPEN').length > 0 && (
+                <span className={cn(
+                  "text-[9px] px-1.5 py-0.5 rounded-md font-black",
+                  view === 'TRADE_JOURNAL' ? "bg-emerald-500/30 text-emerald-300" : "bg-white/10 text-white/40"
+                )}>
+                  {tradeRecords.filter((t: TradeRecord) => t.status === 'OPEN').length}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setShowMasterChecklist(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black text-white/30 hover:text-orange-400 hover:bg-orange-500/[0.08] transition-all whitespace-nowrap shrink-0"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">체크리스트</span>
+            </button>
+          </nav>
+
+          {/* ── Right: status + settings ── */}
+          <div className="flex items-center gap-2 shrink-0">
             {lastUpdated && (
-              <span className="text-xs font-bold text-white/20 hidden lg:inline uppercase tracking-widest">
-                Updated: {lastUpdated}
-              </span>
+              <div className="hidden lg:flex flex-col items-end leading-none gap-0.5">
+                <span className="text-[8px] font-black text-white/20 uppercase tracking-[0.15em]">마지막 업데이트</span>
+                <span className="text-[10px] font-black text-white/40 tabular-nums">
+                  {new Date(lastUpdated).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
             )}
+            <button
+              onClick={() => setShowSettings(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-xl text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition-all border border-transparent hover:border-white/[0.08]"
+              title="설정"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
           </div>
+
         </div>
       </header>
       <MarketTicker 
