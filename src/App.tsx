@@ -101,19 +101,8 @@ import {
   getMarketOverview,
   syncMarketOverviewIndices,
   performWalkForwardAnalysis,
-  getEconomicRegime,
-  getSmartMoneyFlow,
-  getExportMomentum,
-  getGeopoliticalRiskScore,
-  getCreditSpreads,
-  fetchMacroEnvironment,
-  getExtendedEconomicRegime,
-  getGlobalCorrelationMatrix,
   getNewsFrequencyScores,
-  getSupplyChainIntelligence,
-  getSectorOrderIntelligence,
-  getFinancialStressIndex,
-  getFomcSentimentAnalysis,
+  // 12개 글로벌 인텔 함수는 TanStack Query hooks로 이관됨 (src/hooks/useGlobalIntelQueries.ts)
   StockRecommendation,
   MarketContext,
   MarketOverview,
@@ -138,8 +127,7 @@ import { StockDetailModal } from './components/StockDetailModal';
 import { TradeJournal, computeConditionPerformance } from './components/TradeJournal';
 import { saveEvolutionWeights } from './services/quantEngine';
 import { CandleChart } from './components/CandleChart';
-import { MHSHistoryChart, loadMHSHistory, saveMHSRecord } from './components/MHSHistoryChart';
-import type { MHSRecord } from './components/MHSHistoryChart';
+import { MHSHistoryChart } from './components/MHSHistoryChart';
 import { IntelligenceRadar } from './components/IntelligenceRadar';
 import { 
   LineChart, 
@@ -286,7 +274,23 @@ import { MarketTicker } from './components/MarketTicker';
 
 import { safeGet } from './utils/storage';
 
+// ── Zustand Stores ─────────────────────────────────────────────────────────
+import { useSettingsStore, useGlobalIntelStore, useRecommendationStore, useMarketStore } from './stores';
+
+// ── TanStack Query Hooks ───────────────────────────────────────────────────
+import { useAllGlobalIntel } from './hooks';
+
 export default function App() {
+  // ── Zustand Store Subscriptions ──────────────────────────────────────────────
+  const settingsStore = useSettingsStore();
+  const globalIntelStore = useGlobalIntelStore();
+  const recStore = useRecommendationStore();
+  const marketStore = useMarketStore();
+
+  // ── TanStack Query: 12개 글로벌 인텔리전스 자동 로딩 + 30분 캐시 + 자동 재시도 ──
+  const globalIntelQueries = useAllGlobalIntel();
+
+  // ── 기존 로컬 상태 (점진적 마이그레이션 — 아직 store로 이관하지 않은 것들) ──────
   const [recommendations, setRecommendations] = useState<StockRecommendation[]>(() => {
     return safeGet<StockRecommendation[]>('k-stock-recommendations', []);
   });
@@ -415,22 +419,27 @@ export default function App() {
     return (localStorage.getItem('k-stock-theme') as any) || 'dark';
   });
 
-  // ── 매크로/어드밴스드 컨텍스트 상태 ───────────────────────────────────────────
-  const [macroEnv, setMacroEnv] = useState<MacroEnvironment | null>(null);
-  const [exportRatio, setExportRatio] = useState<number>(50);
-  const [economicRegimeData, setEconomicRegimeData] = useState<EconomicRegimeData | null>(null);
-  const [smartMoneyData, setSmartMoneyData] = useState<SmartMoneyData | null>(null);
-  const [exportMomentumData, setExportMomentumData] = useState<ExportMomentumData | null>(null);
-  const [geoRiskData, setGeoRiskData] = useState<GeopoliticalRiskData | null>(null);
-  const [creditSpreadData, setCreditSpreadData] = useState<CreditSpreadData | null>(null);
-  const [extendedRegimeData, setExtendedRegimeData] = useState<ExtendedRegimeData | null>(null);
-  const [globalCorrelation, setGlobalCorrelation] = useState<GlobalCorrelationMatrix | null>(null);
+  // ── 매크로/어드밴스드 컨텍스트: Zustand store → 로컬 alias (하위 호환) ────────
+  // useState 제거됨 — TanStack Query가 자동 로딩 → Zustand store에 동기화
+  // 기존 코드에서 사용하는 변수명 유지를 위한 alias
+  const macroEnv = globalIntelStore.macroEnv;
+  const setMacroEnv = globalIntelStore.setMacroEnv;
+  const exportRatio = globalIntelStore.exportRatio;
+  const setExportRatio = globalIntelStore.setExportRatio;
+  const economicRegimeData = globalIntelStore.economicRegimeData;
+  const extendedRegimeData = globalIntelStore.extendedRegimeData;
+  const smartMoneyData = globalIntelStore.smartMoneyData;
+  const exportMomentumData = globalIntelStore.exportMomentumData;
+  const geoRiskData = globalIntelStore.geoRiskData;
+  const creditSpreadData = globalIntelStore.creditSpreadData;
+  const globalCorrelation = globalIntelStore.globalCorrelation;
   const [newsFrequencyScores, setNewsFrequencyScores] = useState<NewsFrequencyScore[]>([]);
-  const [supplyChainData, setSupplyChainData] = useState<SupplyChainIntelligence | null>(null);
-  const [sectorOrderData, setSectorOrderData] = useState<SectorOrderIntelligence | null>(null);
-  const [financialStressData, setFinancialStressData] = useState<FinancialStressIndex | null>(null);
-  const [fomcSentimentData, setFomcSentimentData] = useState<FomcSentimentAnalysis | null>(null);
-  const [currentRoeType, setCurrentRoeType] = useState<ROEType>(3);
+  const supplyChainData = globalIntelStore.supplyChainData;
+  const sectorOrderData = globalIntelStore.sectorOrderData;
+  const financialStressData = globalIntelStore.financialStressData;
+  const fomcSentimentData = globalIntelStore.fomcSentimentData;
+  const currentRoeType = globalIntelStore.currentRoeType;
+  const setCurrentRoeType = globalIntelStore.setCurrentRoeType;
 
   // ── 실전 성과 관리 시스템 ─────────────────────────────────────────────────────
   const [tradeRecords, setTradeRecords] = useState<TradeRecord[]>(() => {
@@ -438,7 +447,7 @@ export default function App() {
   });
   const [tradeRecordStock, setTradeRecordStock] = useState<StockRecommendation | null>(null);
   const [tradeFormData, setTradeFormData] = useState({ buyPrice: '', quantity: '', positionSize: '10', followedSystem: true });
-  const [mhsHistory, setMhsHistory] = useState<MHSRecord[]>(() => loadMHSHistory());
+  const mhsHistory = globalIntelStore.mhsHistory;
 
   useEffect(() => {
     if ('Notification' in window && Notification.permission !== 'granted') {
@@ -446,55 +455,16 @@ export default function App() {
     }
   }, []);
 
-  // ── 어드밴스드 컨텍스트 + 매크로 환경 데이터 수집 (비동기, 마운트 시 1회) ───
-  useEffect(() => {
-    const loadAdvancedData = async () => {
-      const [macro, regime, smart, exports_, geo, credit, extRegime, correlation, supplyChain, sectorOrder, fsi, fomc] = await Promise.allSettled([
-        fetchMacroEnvironment(),
-        getEconomicRegime(),
-        getSmartMoneyFlow(),
-        getExportMomentum(),
-        getGeopoliticalRiskScore(),
-        getCreditSpreads(),
-        getExtendedEconomicRegime(),
-        getGlobalCorrelationMatrix(),
-        getSupplyChainIntelligence(),
-        getSectorOrderIntelligence(),
-        getFinancialStressIndex(),
-        getFomcSentimentAnalysis(),
-      ]);
-      if (macro.status === 'fulfilled') setMacroEnv(macro.value);
-      if (regime.status === 'fulfilled') setEconomicRegimeData(regime.value);
-      if (smart.status === 'fulfilled') setSmartMoneyData(smart.value);
-      if (exports_.status === 'fulfilled') setExportMomentumData(exports_.value);
-      if (geo.status === 'fulfilled') setGeoRiskData(geo.value);
-      if (credit.status === 'fulfilled') setCreditSpreadData(credit.value);
-      if (extRegime.status === 'fulfilled') setExtendedRegimeData(extRegime.value);
-      if (correlation.status === 'fulfilled') setGlobalCorrelation(correlation.value);
-      if (supplyChain.status === 'fulfilled') setSupplyChainData(supplyChain.value);
-      if (sectorOrder.status === 'fulfilled') setSectorOrderData(sectorOrder.value);
-      if (fsi.status === 'fulfilled') setFinancialStressData(fsi.value);
-      if (fomc.status === 'fulfilled') setFomcSentimentData(fomc.value);
+  // ── 어드밴스드 컨텍스트 + 매크로 환경 데이터 수집 ───────────────────────────
+  // TanStack Query (useAllGlobalIntel)로 대체됨:
+  // - 12개 글로벌 인텔리전스 데이터 자동 병렬 로딩
+  // - 30분 staleTime 캐시 (getCachedAIResponse 대체)
+  // - 실패 시 자동 2회 재시도 (withRetry 대체)
+  // - 1시간 간격 백그라운드 리프레시
+  // - 각 쿼리가 성공 시 Zustand globalIntelStore에 자동 동기화
+  // - MHS 히스토리 자동 기록 (useMacroEnvironment 내부)
 
-      // MHS 히스토리 자동 기록 (매일 1회)
-      if (macro.status === 'fulfilled') {
-        const env = macro.value;
-        const g0 = evaluateGate0(env);
-        const today = new Date().toISOString().split('T')[0];
-        const updated = saveMHSRecord({
-          date: today,
-          mhs: g0.macroHealthScore,
-          mhsLevel: g0.mhsLevel,
-          interestRate: g0.details.interestRateScore,
-          liquidity: g0.details.liquidityScore,
-          economic: g0.details.economicScore,
-          risk: g0.details.riskScore,
-        });
-        setMhsHistory(updated);
-      }
-    };
-    loadAdvancedData();
-  }, []);
+  // (직접 alias는 위 "매크로/어드밴스드 컨텍스트" 섹션에서 선언됨)
 
   const checkPriceAlerts = (stocks: StockRecommendation[]) => {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;

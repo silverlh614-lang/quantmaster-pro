@@ -1,0 +1,206 @@
+/**
+ * TanStack Query hooks for Global Intelligence data fetching.
+ * Replaces manual getCachedAIResponse + withRetry + useEffect patterns.
+ *
+ * Benefits:
+ * - 30분 자동 캐시 (staleTime)
+ * - 실패 시 자동 재시도 (retry: 2)
+ * - 백그라운드 갱신 (refetchInterval)
+ * - 컴포넌트 마운트 시 자동 실행
+ * - 로딩/에러 상태 자동 관리
+ */
+
+import { useQuery } from '@tanstack/react-query';
+import {
+  fetchMacroEnvironment,
+  getEconomicRegime,
+  getSmartMoneyFlow,
+  getExportMomentum,
+  getGeopoliticalRiskScore,
+  getCreditSpreads,
+  getExtendedEconomicRegime,
+  getGlobalCorrelationMatrix,
+  getSupplyChainIntelligence,
+  getSectorOrderIntelligence,
+  getFinancialStressIndex,
+  getFomcSentimentAnalysis,
+} from '../services/stockService';
+import { useGlobalIntelStore } from '../stores';
+import { evaluateGate0 } from '../services/quantEngine';
+
+const THIRTY_MINUTES = 30 * 60 * 1000;
+const ONE_HOUR = 60 * 60 * 1000;
+
+/** Core macro environment — Gate 0 input */
+export function useMacroEnvironment() {
+  const setMacroEnv = useGlobalIntelStore(s => s.setMacroEnv);
+  const addMhsRecord = useGlobalIntelStore(s => s.addMhsRecord);
+
+  return useQuery({
+    queryKey: ['macro-environment'],
+    queryFn: async () => {
+      const data = await fetchMacroEnvironment();
+      setMacroEnv(data);
+
+      // Auto-record MHS history
+      const g0 = evaluateGate0(data);
+      const today = new Date().toISOString().split('T')[0];
+      addMhsRecord({
+        date: today,
+        mhs: g0.macroHealthScore,
+        mhsLevel: g0.mhsLevel,
+        interestRate: g0.details.interestRateScore,
+        liquidity: g0.details.liquidityScore,
+        economic: g0.details.economicScore,
+        risk: g0.details.riskScore,
+      });
+
+      return data;
+    },
+    staleTime: THIRTY_MINUTES,
+    refetchInterval: ONE_HOUR,
+    retry: 2,
+  });
+}
+
+/** Economic regime classification */
+export function useEconomicRegime() {
+  const setData = useGlobalIntelStore(s => s.setEconomicRegimeData);
+  return useQuery({
+    queryKey: ['economic-regime'],
+    queryFn: async () => { const d = await getEconomicRegime(); setData(d); return d; },
+    staleTime: THIRTY_MINUTES, retry: 2,
+  });
+}
+
+/** Extended regime (7-type) */
+export function useExtendedRegime() {
+  const setData = useGlobalIntelStore(s => s.setExtendedRegimeData);
+  return useQuery({
+    queryKey: ['extended-regime'],
+    queryFn: async () => { const d = await getExtendedEconomicRegime(); setData(d); return d; },
+    staleTime: THIRTY_MINUTES, retry: 2,
+  });
+}
+
+/** Smart Money ETF flows */
+export function useSmartMoney() {
+  const setData = useGlobalIntelStore(s => s.setSmartMoneyData);
+  return useQuery({
+    queryKey: ['smart-money'],
+    queryFn: async () => { const d = await getSmartMoneyFlow(); setData(d); return d; },
+    staleTime: THIRTY_MINUTES, retry: 2,
+  });
+}
+
+/** Export momentum */
+export function useExportMomentum() {
+  const setData = useGlobalIntelStore(s => s.setExportMomentumData);
+  return useQuery({
+    queryKey: ['export-momentum'],
+    queryFn: async () => { const d = await getExportMomentum(); setData(d); return d; },
+    staleTime: THIRTY_MINUTES, retry: 2,
+  });
+}
+
+/** Geopolitical risk score */
+export function useGeoRisk() {
+  const setData = useGlobalIntelStore(s => s.setGeoRiskData);
+  return useQuery({
+    queryKey: ['geo-risk'],
+    queryFn: async () => { const d = await getGeopoliticalRiskScore(); setData(d); return d; },
+    staleTime: THIRTY_MINUTES, retry: 2,
+  });
+}
+
+/** Credit spreads */
+export function useCreditSpreads() {
+  const setData = useGlobalIntelStore(s => s.setCreditSpreadData);
+  return useQuery({
+    queryKey: ['credit-spreads'],
+    queryFn: async () => { const d = await getCreditSpreads(); setData(d); return d; },
+    staleTime: THIRTY_MINUTES, retry: 2,
+  });
+}
+
+/** Global correlation matrix */
+export function useGlobalCorrelation() {
+  const setData = useGlobalIntelStore(s => s.setGlobalCorrelation);
+  return useQuery({
+    queryKey: ['global-correlation'],
+    queryFn: async () => { const d = await getGlobalCorrelationMatrix(); setData(d); return d; },
+    staleTime: THIRTY_MINUTES, retry: 2,
+  });
+}
+
+/** Layer I: Supply chain intelligence */
+export function useSupplyChain() {
+  const setData = useGlobalIntelStore(s => s.setSupplyChainData);
+  return useQuery({
+    queryKey: ['supply-chain'],
+    queryFn: async () => { const d = await getSupplyChainIntelligence(); setData(d); return d; },
+    staleTime: THIRTY_MINUTES, retry: 2,
+  });
+}
+
+/** Layer J: Sector order intelligence */
+export function useSectorOrders() {
+  const setData = useGlobalIntelStore(s => s.setSectorOrderData);
+  return useQuery({
+    queryKey: ['sector-orders'],
+    queryFn: async () => { const d = await getSectorOrderIntelligence(); setData(d); return d; },
+    staleTime: THIRTY_MINUTES, retry: 2,
+  });
+}
+
+/** Layer K: Financial stress index */
+export function useFinancialStress() {
+  const setData = useGlobalIntelStore(s => s.setFinancialStressData);
+  return useQuery({
+    queryKey: ['financial-stress'],
+    queryFn: async () => { const d = await getFinancialStressIndex(); setData(d); return d; },
+    staleTime: THIRTY_MINUTES, retry: 2,
+  });
+}
+
+/** Layer L: FOMC sentiment */
+export function useFomcSentiment() {
+  const setData = useGlobalIntelStore(s => s.setFomcSentimentData);
+  return useQuery({
+    queryKey: ['fomc-sentiment'],
+    queryFn: async () => { const d = await getFomcSentimentAnalysis(); setData(d); return d; },
+    staleTime: THIRTY_MINUTES, retry: 2,
+  });
+}
+
+/**
+ * Master hook — fires all 12 queries in parallel on mount.
+ * Components can use this single hook or individual hooks for granular control.
+ */
+export function useAllGlobalIntel() {
+  const macro = useMacroEnvironment();
+  const regime = useEconomicRegime();
+  const extRegime = useExtendedRegime();
+  const smart = useSmartMoney();
+  const exports_ = useExportMomentum();
+  const geo = useGeoRisk();
+  const credit = useCreditSpreads();
+  const correlation = useGlobalCorrelation();
+  const supplyChain = useSupplyChain();
+  const sectorOrders = useSectorOrders();
+  const fsi = useFinancialStress();
+  const fomc = useFomcSentiment();
+
+  const isLoading = [macro, regime, extRegime, smart, exports_, geo, credit, correlation, supplyChain, sectorOrders, fsi, fomc]
+    .some(q => q.isLoading);
+  const loadedCount = [macro, regime, extRegime, smart, exports_, geo, credit, correlation, supplyChain, sectorOrders, fsi, fomc]
+    .filter(q => q.isSuccess).length;
+
+  return {
+    isLoading,
+    loadedCount,
+    totalCount: 12,
+    macro, regime, extRegime, smart, exports: exports_, geo, credit,
+    correlation, supplyChain, sectorOrders, fsi, fomc,
+  };
+}

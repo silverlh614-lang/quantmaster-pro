@@ -1,0 +1,15 @@
+export {
+  useMacroEnvironment,
+  useEconomicRegime,
+  useExtendedRegime,
+  useSmartMoney,
+  useExportMomentum,
+  useGeoRisk,
+  useCreditSpreads,
+  useGlobalCorrelation,
+  useSupplyChain,
+  useSectorOrders,
+  useFinancialStress,
+  useFomcSentiment,
+  useAllGlobalIntel,
+} from './useGlobalIntelQueries';
