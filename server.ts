@@ -25,7 +25,10 @@ import {
   getMonthlyStats,
   evaluateRecommendations,
   sendTelegramAlert,
+  loadMacroState,
+  saveMacroState,
   type WatchlistEntry,
+  type MacroState,
 } from "./src/server/autoTradeEngine.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -662,6 +665,29 @@ async function startServer() {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 아이디어 8: Macro State API (MHS 저장/조회 — 서버 Gate 연동)
+  // ─────────────────────────────────────────────────────────────
+
+  app.get('/api/macro/state', (_req: Request, res: Response) => {
+    const state = loadMacroState();
+    if (!state) return res.json({ mhs: null, regime: 'UNKNOWN', updatedAt: null });
+    res.json(state);
+  });
+
+  app.post('/api/macro/state', (req: Request, res: Response) => {
+    const { mhs, regime } = req.body;
+    if (typeof mhs !== 'number' || mhs < 0 || mhs > 100) {
+      return res.status(400).json({ error: 'mhs는 0~100 사이 숫자여야 합니다' });
+    }
+    const validRegimes = ['GREEN', 'YELLOW', 'RED'];
+    const finalRegime = validRegimes.includes(regime) ? regime : (mhs >= 60 ? 'GREEN' : mhs >= 30 ? 'YELLOW' : 'RED');
+    const state: MacroState = { mhs, regime: finalRegime, updatedAt: new Date().toISOString() };
+    saveMacroState(state);
+    console.log(`[Macro] MHS 업데이트: ${mhs} (${finalRegime})`);
+    res.json({ ok: true, ...state });
   });
 
   // ─────────────────────────────────────────────────────────────

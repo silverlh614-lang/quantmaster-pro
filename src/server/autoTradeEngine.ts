@@ -25,6 +25,10 @@ const DATA_DIR  = process.env.PERSIST_DATA_DIR
 const WATCHLIST_FILE    = path.join(DATA_DIR, 'watchlist.json');
 const SHADOW_FILE       = path.join(DATA_DIR, 'shadow-trades.json');
 const SHADOW_LOG_FILE   = path.join(DATA_DIR, 'shadow-log.json');
+const MACRO_STATE_FILE  = path.join(DATA_DIR, 'macro-state.json');
+
+// 아이디어 7: 동시 최대 보유 종목 수 (환경변수로 오버라이드 가능)
+const MAX_CONCURRENT_POSITIONS = Number(process.env.MAX_CONCURRENT_POSITIONS || 5);
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -63,6 +67,25 @@ export function loadWatchlist(): WatchlistEntry[] {
 export function saveWatchlist(list: WatchlistEntry[]): void {
   ensureDataDir();
   fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list, null, 2));
+}
+
+// ─── 아이디어 8: Macro State 파일 I/O ──────────────────────────────────────────
+
+export interface MacroState {
+  mhs: number;        // Macro Health Score (0~100)
+  regime: string;     // 'GREEN' | 'YELLOW' | 'RED'
+  updatedAt: string;  // ISO
+}
+
+export function loadMacroState(): MacroState | null {
+  ensureDataDir();
+  if (!fs.existsSync(MACRO_STATE_FILE)) return null;
+  try { return JSON.parse(fs.readFileSync(MACRO_STATE_FILE, 'utf-8')); } catch { return null; }
+}
+
+export function saveMacroState(state: MacroState): void {
+  ensureDataDir();
+  fs.writeFileSync(MACRO_STATE_FILE, JSON.stringify(state, null, 2));
 }
 
 // ─── Shadow Trade 파일 I/O ──────────────────────────────────────────────────────
@@ -237,7 +260,41 @@ export async function runAutoSignalScan(): Promise<void> {
 
   const shadows = loadShadowTrades();
 
+  // ── 아이디어 8: Macro Gate — MHS RED 구간 시 신규 진입 차단 ──
+  const macroState = loadMacroState();
+  if (macroState && macroState.mhs < 30) {
+    console.warn(
+      `[AutoTrade] 매크로 RED (MHS=${macroState.mhs}) — 신규 진입 차단, 기존 포지션 모니터링만 수행`
+    );
+    // 기존 ACTIVE 포지션 결과 업데이트만 실행 (아래 for-loop skip → shadow 업데이트로 jump)
+    await updateShadowResults(shadows);
+    saveShadowTrades(shadows);
+    return;
+  }
+
+  // ── 아이디어 7: 동시 최대 보유 종목 제한 ──
+  const activeCount = shadows.filter(
+    (s) => s.status === 'PENDING' || s.status === 'ACTIVE'
+  ).length;
+  if (activeCount >= MAX_CONCURRENT_POSITIONS) {
+    console.log(
+      `[AutoTrade] 최대 동시 포지션 도달 (${activeCount}/${MAX_CONCURRENT_POSITIONS}) — 신규 진입 스킵`
+    );
+    await updateShadowResults(shadows);
+    saveShadowTrades(shadows);
+    return;
+  }
+
   for (const stock of watchlist) {
+    // 아이디어 7: 루프 내에서도 포지션 수 재확인 (같은 스캔 중 복수 진입 방지)
+    const currentActive = shadows.filter(
+      (s) => s.status === 'PENDING' || s.status === 'ACTIVE'
+    ).length;
+    if (currentActive >= MAX_CONCURRENT_POSITIONS) {
+      console.log(`[AutoTrade] 최대 포지션 도달 (${currentActive}/${MAX_CONCURRENT_POSITIONS}) — 나머지 종목 스킵`);
+      break;
+    }
+
     try {
       const currentPrice = await fetchCurrentPrice(stock.code);
       if (!currentPrice) continue;
@@ -348,7 +405,12 @@ export async function runAutoSignalScan(): Promise<void> {
     }
   }
 
-  // Shadow 진행 중 거래 결과 업데이트
+  await updateShadowResults(shadows);
+  saveShadowTrades(shadows);
+}
+
+/** Shadow 진행 중 거래 결과 업데이트 — Macro/포지션 제한 시에도 재사용 */
+async function updateShadowResults(shadows: ServerShadowTrade[]): Promise<void> {
   for (const shadow of shadows) {
     if (shadow.status === 'PENDING') {
       // 신규 등록(4분 이내)은 건너뜀 — 다음 스캔에서 ACTIVE 전환
@@ -359,14 +421,12 @@ export async function runAutoSignalScan(): Promise<void> {
       const currentPrice = await fetchCurrentPrice(shadow.stockCode).catch(() => null);
       if (!currentPrice) continue;
       if (currentPrice >= shadow.targetPrice) {
-        // 목표가 돌파: 현재가로 체결 (목표가보다 높을 수 있음 — 유리한 슬리피지)
         const actualExit = currentPrice;
         const returnPct = ((actualExit - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
         Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: actualExit, exitTime: new Date().toISOString(), returnPct });
         appendShadowLog({ event: 'HIT_TARGET', ...shadow });
         console.log(`[AutoTrade SHADOW] ✅ ${shadow.stockName} 목표가 달성 +${returnPct.toFixed(2)}% (체결 ${actualExit.toLocaleString()})`);
       } else if (currentPrice <= shadow.stopLoss) {
-        // 손절: 현재가로 체결 (갭다운 시 손절가보다 낮을 수 있음 — 불리한 슬리피지)
         const actualExit = currentPrice;
         const returnPct = ((actualExit - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
         Object.assign(shadow, { status: 'HIT_STOP', exitPrice: actualExit, exitTime: new Date().toISOString(), returnPct });
@@ -375,8 +435,6 @@ export async function runAutoSignalScan(): Promise<void> {
       }
     }
   }
-
-  saveShadowTrades(shadows);
 }
 
 // ─── 아이디어 3: 일일 리포트 이메일 ────────────────────────────────────────────
