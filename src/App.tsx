@@ -382,6 +382,16 @@ export default function App() {
       .catch(() => {}); // 실패 시 기본값 유지
   }, []);
 
+  // 서버 자동매매 데이터: shadow-trades, 추천 통계, DART 공시
+  const [serverShadowTrades, setServerShadowTrades] = useState<any[]>([]);
+  const [serverRecStats, setServerRecStats] = useState<{ month?: string; winRate?: number; avgReturn?: number; strongBuyWinRate?: number; total?: number } | null>(null);
+  const [dartAlerts, setDartAlerts] = useState<{ corp_name: string; stock_code: string; report_nm: string; rcept_dt: string; sentiment: string }[]>([]);
+  useEffect(() => {
+    fetch('/api/auto-trade/shadow-trades').then(r => r.json()).then(setServerShadowTrades).catch(() => {});
+    fetch('/api/auto-trade/recommendations/stats').then(r => r.json()).then(setServerRecStats).catch(() => {});
+    fetch('/api/auto-trade/dart-alerts').then(r => r.json()).then(setDartAlerts).catch(() => {});
+  }, []);
+
   // ── TanStack Query: 12개 글로벌 인텔리전스 자동 로딩 + 30분 캐시 + 자동 재시도 ──
   const globalIntelQueries = useAllGlobalIntel();
 
@@ -2545,6 +2555,66 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {/* 서버 자기학습 추천 통계 */}
+              {serverRecStats && serverRecStats.total != null && serverRecStats.total > 0 && (
+                <div className="p-5 rounded-2xl bg-white/5 border border-white/10">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Activity className="w-4 h-4 text-amber-400" />
+                    <span className="text-xs font-black text-white/40 uppercase tracking-widest">서버 자기학습 통계 ({serverRecStats.month})</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-4 text-center">
+                    <div>
+                      <p className="text-[10px] text-white/30 uppercase">결산 건수</p>
+                      <p className="text-lg font-black text-white">{serverRecStats.total}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-white/30 uppercase">WIN률</p>
+                      <p className="text-lg font-black text-green-400">{serverRecStats.winRate?.toFixed(1)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-white/30 uppercase">평균 수익</p>
+                      <p className={cn("text-lg font-black", (serverRecStats.avgReturn ?? 0) >= 0 ? "text-green-400" : "text-red-400")}>{serverRecStats.avgReturn?.toFixed(2)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-white/30 uppercase">STRONG_BUY</p>
+                      <p className="text-lg font-black text-amber-400">{serverRecStats.strongBuyWinRate?.toFixed(1)}%</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 서버 Shadow Trades (서버 cron 생성분) */}
+              {serverShadowTrades.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-black text-white/40 uppercase tracking-widest">서버 자동 Shadow Trades ({serverShadowTrades.length}건)</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {serverShadowTrades.slice(0, 10).map((t: any, i: number) => (
+                      <div key={t.id ?? i} className={cn(
+                        "p-4 rounded-xl border backdrop-blur-md text-sm",
+                        t.status === 'HIT_TARGET' ? "bg-green-500/10 border-green-500/20" :
+                        t.status === 'HIT_STOP' ? "bg-red-500/10 border-red-500/20" :
+                        "bg-white/5 border-white/10"
+                      )}>
+                        <div className="flex justify-between items-center">
+                          <span className="font-black text-white">{t.stockName} <span className="text-white/30 text-xs">{t.stockCode}</span></span>
+                          <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded",
+                            t.status === 'HIT_TARGET' ? "bg-green-500/20 text-green-400" :
+                            t.status === 'HIT_STOP' ? "bg-red-500/20 text-red-400" :
+                            t.status === 'ACTIVE' ? "bg-violet-500/20 text-violet-400" : "bg-white/10 text-white/40"
+                          )}>{t.status}</span>
+                        </div>
+                        <div className="flex justify-between mt-2 text-xs text-white/30">
+                          <span>진입 {t.shadowEntryPrice?.toLocaleString()}</span>
+                          <span>손절 {t.stopLoss?.toLocaleString()}</span>
+                          <span>목표 {t.targetPrice?.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <TradingChecklist />
 
               {/* Shadow Trade 목록 */}
@@ -4983,6 +5053,14 @@ export default function App() {
                                   <span className="text-[10px] sm:text-[12px] font-black text-white/60 bg-white/10 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl border border-white/20 tracking-[0.15em] uppercase shrink-0 shadow-lg backdrop-blur-sm">
                                     {stock.code}
                                   </span>
+                                  {dartAlerts.some(a => a.stock_code === stock.code) && (
+                                    <div className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border bg-amber-500/20 text-amber-400 border-amber-500/30 shadow-lg backdrop-blur-md flex items-center gap-1"
+                                      title={dartAlerts.filter(a => a.stock_code === stock.code).map(a => a.report_nm).join(', ')}
+                                    >
+                                      <FileText className="w-3 h-3" />
+                                      DART
+                                    </div>
+                                  )}
                                   {stock.gate && (
                                     <div className={cn(
                                       "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-lg backdrop-blur-md",

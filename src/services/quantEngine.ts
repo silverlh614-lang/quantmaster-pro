@@ -649,7 +649,7 @@ export function evaluateStock(
   const isGeoSector = GEO_SECTORS.some(s => sectorRotation.name.includes(s));
 
   // ── 아이디어 9: 크레딧 스프레드 조기 경보 ──────────────────────────────────
-  // 신용 위기 경보(AA- ≥ 150bp) → 추가 Kelly 50% 축소 플래그 (나중에 적용)
+  // 신용 위기 경보(AA- ≥ 150bp) → Kelly 50% 축소 (아래 positionSize *= 0.5 에서 적용)
   const creditCrisis = creditSpread?.isCrisisAlert === true;
   // 유동성 확장(스프레드 축소 추세) → Gate 2 완화 트리거로 합산
   const creditLiquidityRelax = creditSpread?.isLiquidityExpanding === true;
