@@ -2048,50 +2048,51 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="glass-3d rounded-[3rem] p-10 max-w-lg w-full border border-white/10 shadow-2xl overflow-y-auto max-h-[90vh] relative"
+              className="glass-3d rounded-[3rem] max-w-lg w-full border border-theme-border shadow-2xl max-h-[90vh] relative flex flex-col"
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between mb-10">
+              <div className="p-6 sm:p-10 pb-0 flex items-center justify-between mb-6">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 bg-blue-500/20 rounded-2xl flex items-center justify-center">
                     <Settings className="w-6 h-6 text-blue-500" />
                   </div>
                   <div>
-                    <h3 className="text-2xl font-black text-white tracking-tight">설정</h3>
-                    <p className="text-xs font-bold text-white/30 uppercase tracking-[0.2em]">Application Settings</p>
+                    <h3 className="text-2xl font-black text-theme-text tracking-tight">설정</h3>
+                    <p className="text-xs font-bold text-theme-text-muted uppercase tracking-[0.2em]">Application Settings</p>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => setShowSettings(false)}
-                  className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors relative z-[110]"
+                  className="w-10 h-10 rounded-full bg-theme-card flex items-center justify-center hover:bg-theme-border transition-colors relative z-[110]"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
+              <div className="flex-1 overflow-y-auto px-6 sm:px-10 pb-6 sm:pb-10 custom-scrollbar">
               <div className="space-y-8">
                 <div>
-                  <label className="block text-xs font-black text-white/30 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                  <label className="block text-xs font-black text-theme-text-muted uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
                     <Key className="w-3 h-3" />
                     Gemini API Key
                   </label>
                   <div className="relative">
-                    <input 
+                    <input
                       type="password"
                       value={userApiKey}
                       onChange={(e) => setUserApiKey(e.target.value)}
                       placeholder="AI 기능을 사용하려면 API 키를 입력하세요"
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold text-white placeholder:text-white/10 focus:outline-none focus:border-blue-500/50 transition-all"
+                      className="w-full bg-theme-card border border-theme-border rounded-2xl px-6 py-4 text-sm font-bold text-theme-text placeholder:text-theme-text-muted focus:outline-none focus:border-blue-500/50 transition-all"
                     />
                   </div>
-                  <p className="mt-4 text-[10px] text-white/20 font-bold leading-relaxed">
+                  <p className="mt-4 text-[10px] text-theme-text-muted font-bold leading-relaxed">
                     입력하신 API 키는 브라우저의 로컬 스토리지에만 안전하게 저장되며, 서버로 전송되지 않습니다.
                     <br />
                     <span className="text-orange-500/60">※ 현재 할당량 절약을 위해 Gemini 3.1 Flash Lite 모델을 사용 중입니다.</span>
                     <br />
-                    <a 
-                      href="https://aistudio.google.com/app/apikey" 
-                      target="_blank" 
+                    <a
+                      href="https://aistudio.google.com/app/apikey"
+                      target="_blank"
                       rel="noopener noreferrer"
                       className="text-blue-400 hover:underline inline-flex items-center gap-1 mt-1"
                     >
@@ -2103,7 +2104,7 @@ export default function App() {
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <Sun className="w-4 h-4 text-orange-500" />
-                    <span className="text-xs font-black text-white/40 uppercase tracking-widest">UI 테마 설정</span>
+                    <span className="text-xs font-black text-theme-text-muted uppercase tracking-widest">UI 테마 설정</span>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
                     {[
@@ -2116,9 +2117,9 @@ export default function App() {
                         onClick={() => setTheme(t.id as any)}
                         className={cn(
                           "flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all",
-                          theme === t.id 
-                            ? "bg-orange-500/20 border-orange-500 text-orange-500" 
-                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10"
+                          theme === t.id
+                            ? "bg-orange-500/20 border-orange-500 text-orange-500"
+                            : "bg-theme-card border-theme-border text-theme-text-muted hover:bg-theme-border"
                         )}
                       >
                         <t.icon className="w-5 h-5" />
@@ -2132,7 +2133,7 @@ export default function App() {
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <Zap className="w-4 h-4 text-violet-500" />
-                    <span className="text-xs font-black text-white/40 uppercase tracking-widest">자동매매 설정 검증</span>
+                    <span className="text-xs font-black text-theme-text-muted uppercase tracking-widest">자동매매 설정 검증</span>
                   </div>
                   <TradingChecklist />
                 </div>
@@ -2152,16 +2153,17 @@ export default function App() {
                       localStorage.removeItem('k-stock-search-results');
                       window.location.reload();
                     }}
-                    className="w-full py-4 bg-white/5 hover:bg-red-500/20 text-white/40 hover:text-red-400 rounded-2xl font-black text-sm transition-all border border-white/10 hover:border-red-500/50 active:scale-[0.98] flex items-center justify-center gap-2"
+                    className="w-full py-4 bg-theme-card hover:bg-red-500/20 text-theme-text-muted hover:text-red-400 rounded-2xl font-black text-sm transition-all border border-theme-border hover:border-red-500/50 active:scale-[0.98] flex items-center justify-center gap-2"
                   >
                     <Trash2 className="w-4 h-4" />
                     캐시 데이터 초기화 (과거 데이터 삭제)
                   </button>
                 </div>
               </div>
+              </div>
 
               {/* Decorative background */}
-              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 blur-[100px] -mr-32 -mt-32" />
+              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 blur-[100px] -mr-32 -mt-32 pointer-events-none" />
             </motion.div>
           </motion.div>
         )}
