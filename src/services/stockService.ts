@@ -2298,8 +2298,6 @@ export async function parsePortfolioFile(content: string): Promise<{ name: strin
         model: "gemini-3-flash-preview",
         contents: prompt,
         config: {
-          tools: [{ googleSearch: {} }],
-          toolConfig: { includeServerSideToolInvocations: true },
           maxOutputTokens: 1024,
           temperature: 0,
         },

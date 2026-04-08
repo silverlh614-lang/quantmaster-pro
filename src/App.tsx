@@ -941,18 +941,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Fetch on mount if not exists or stale
-    const shouldFetch = !marketOverview || (() => {
-      const last = new Date(marketOverview.lastUpdated).getTime();
-      const now = new Date().getTime();
-      const diff = (now - last) / (1000 * 60); // minutes
-      return diff >= 5;
-    })();
-
-    if (shouldFetch) {
+    // 앱 최초 마운트 시 1회만 fetch (캐시 없을 때만)
+    if (!marketOverview) {
       handleFetchMarketOverview();
     }
-  }, [view]);
+  }, []); // view 의존성 제거 — 탭 전환마다 재호출 방지
 
   const handleSaveApiKey = () => {
     setShowSettings(false);
@@ -1761,12 +1754,8 @@ export default function App() {
       setMarketContext(data.marketContext);
       setLastUpdated(new Date().toLocaleTimeString());
 
-      // 뉴스 빈도 역지표 자동 조회 (비동기, 메인 플로우 차단 안 함)
-      if (diversified.length > 0) {
-        getNewsFrequencyScores(diversified.map(s => ({ code: s.code, name: s.name })))
-          .then(scores => setNewsFrequencyScores(scores))
-          .catch(err => console.error('News frequency scoring failed:', err));
-      }
+      // 뉴스 빈도 역지표: 자동 연쇄 제거 — UI "뉴스 분석" 버튼에서 수동 실행
+      // getNewsFrequencyScores는 별도 API 비용이 발생하므로 사용자가 필요할 때만 호출
 
       if (diversified.length === 0) {
         toast.info('추천 종목이 없습니다.');

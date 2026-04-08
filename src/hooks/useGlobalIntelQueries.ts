@@ -76,8 +76,8 @@ export function useMacroEnvironment() {
 
       return data;
     },
-    staleTime: FOUR_HOURS,
-    refetchInterval: FOUR_HOURS,
+    staleTime: Infinity,
+    refetchInterval: false,
     refetchOnWindowFocus: false,
     retry: 2,
   });
@@ -89,7 +89,7 @@ export function useEconomicRegime() {
   return useQuery({
     queryKey: ['economic-regime'],
     queryFn: async () => { const d = await rateLimited(() => getEconomicRegime()); setData(d); return d; },
-    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
+    staleTime: Infinity, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -99,7 +99,7 @@ export function useExtendedRegime() {
   return useQuery({
     queryKey: ['extended-regime'],
     queryFn: async () => { const d = await rateLimited(() => getExtendedEconomicRegime()); setData(d); return d; },
-    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
+    staleTime: Infinity, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -109,7 +109,7 @@ export function useSmartMoney() {
   return useQuery({
     queryKey: ['smart-money'],
     queryFn: async () => { const d = await rateLimited(() => getSmartMoneyFlow()); setData(d); return d; },
-    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
+    staleTime: Infinity, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -119,7 +119,7 @@ export function useExportMomentum() {
   return useQuery({
     queryKey: ['export-momentum'],
     queryFn: async () => { const d = await rateLimited(() => getExportMomentum()); setData(d); return d; },
-    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
+    staleTime: Infinity, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -129,7 +129,7 @@ export function useGeoRisk() {
   return useQuery({
     queryKey: ['geo-risk'],
     queryFn: async () => { const d = await rateLimited(() => getGeopoliticalRiskScore()); setData(d); return d; },
-    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
+    staleTime: Infinity, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -139,7 +139,7 @@ export function useCreditSpreads() {
   return useQuery({
     queryKey: ['credit-spreads'],
     queryFn: async () => { const d = await rateLimited(() => getCreditSpreads()); setData(d); return d; },
-    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
+    staleTime: Infinity, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -149,7 +149,7 @@ export function useGlobalCorrelation() {
   return useQuery({
     queryKey: ['global-correlation'],
     queryFn: async () => { const d = await rateLimited(() => getGlobalCorrelationMatrix()); setData(d); return d; },
-    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
+    staleTime: Infinity, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -159,7 +159,7 @@ export function useSupplyChain() {
   return useQuery({
     queryKey: ['supply-chain'],
     queryFn: async () => { const d = await rateLimited(() => getSupplyChainIntelligence()); setData(d); return d; },
-    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
+    staleTime: Infinity, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -169,7 +169,7 @@ export function useSectorOrders() {
   return useQuery({
     queryKey: ['sector-orders'],
     queryFn: async () => { const d = await rateLimited(() => getSectorOrderIntelligence()); setData(d); return d; },
-    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
+    staleTime: Infinity, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -179,7 +179,7 @@ export function useFinancialStress() {
   return useQuery({
     queryKey: ['financial-stress'],
     queryFn: async () => { const d = await rateLimited(() => getFinancialStressIndex()); setData(d); return d; },
-    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
+    staleTime: Infinity, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
@@ -189,7 +189,7 @@ export function useFomcSentiment() {
   return useQuery({
     queryKey: ['fomc-sentiment'],
     queryFn: async () => { const d = await rateLimited(() => getFomcSentimentAnalysis()); setData(d); return d; },
-    staleTime: FOUR_HOURS, refetchOnWindowFocus: false, retry: 2,
+    staleTime: Infinity, refetchOnWindowFocus: false, retry: 2,
   });
 }
 
