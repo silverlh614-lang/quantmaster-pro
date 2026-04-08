@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   TrendingUp, TrendingDown, Crown, Search, Filter, HelpCircle, RefreshCw,
   Flame, BarChart3, Info, ChevronRight, ExternalLink, Target, CheckCircle2,
@@ -37,7 +37,9 @@ import {
   useAnalysisStore, useTradeStore, useGlobalIntelStore
 } from '../stores';
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
+import { fetchHistoricalData } from '../services/stockService';
 import type { StockRecommendation } from '../services/stockService';
+import { calculateRSIMomentumAcceleration } from '../utils/indicators';
 import type {
   MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal,
   StockProfile, StockProfileType, ROEType, Gate0Result, NewsFrequencyScore,
@@ -173,7 +175,7 @@ export function DiscoverWatchlistPage({
   const { marketOverview, marketContext, syncStatus, syncingStock, nextSyncCountdown } = useMarketStore();
   const {
     deepAnalysisStock, setDeepAnalysisStock, setSelectedDetailStock,
-    weeklyRsiValues, reportSummary, setReportSummary,
+    weeklyRsiValues, setWeeklyRsiValues, reportSummary, setReportSummary,
     isSummarizing, isGeneratingPDF, isExportingDeepAnalysis, isSendingEmail
   } = useAnalysisStore();
   const {
@@ -186,6 +188,23 @@ export function DiscoverWatchlistPage({
   const exportRatio = globalIntelStore.exportRatio;
   const { addShadowTrade } = useShadowTradeStore();
   const { copiedCode, handleCopy } = useCopiedCode();
+
+  // ── 주봉 RSI 3주 추이 계산 (deepAnalysisStock 변경 시) ──────────────────────
+  useEffect(() => {
+    if (!deepAnalysisStock) { setWeeklyRsiValues([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchHistoricalData(deepAnalysisStock.code, '6mo', '1wk');
+        if (cancelled || !data?.indicators?.quote?.[0]) return;
+        const closes = (data.indicators.quote[0].close as (number | null)[]).filter((v): v is number => v !== null);
+        if (closes.length < 17) return; // RSI 14 + 3주
+        const { values } = calculateRSIMomentumAcceleration(closes, 3);
+        if (!cancelled) setWeeklyRsiValues(values);
+      } catch { /* 실패 시 기본값 유지 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [deepAnalysisStock?.code]);
 
   const gate0Result = useMemo(() => macroEnv ? evaluateGate0(macroEnv) : undefined, [macroEnv]);
 
