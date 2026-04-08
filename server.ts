@@ -665,6 +665,79 @@ async function startServer() {
   });
 
   // ─────────────────────────────────────────────────────────────
+  // 아이디어 3: Shadow 성과 대시보드 API (실거래 전환 판단 기준)
+  // ─────────────────────────────────────────────────────────────
+
+  app.get('/api/shadow/performance', (_req: Request, res: Response) => {
+    const shadows = getShadowTrades();
+    const closed = shadows.filter(
+      (s: any) => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP'
+    );
+
+    if (closed.length === 0) {
+      return res.json({
+        total: 0, winRate: 0, avgReturn: 0, avgWin: 0, avgLoss: 0,
+        profitFactor: 0, sharpeRatio: 0, mdd: 0, avgHoldingDays: 0,
+        readyForLive: false, reason: '결산 데이터 없음',
+      });
+    }
+
+    const returns = closed.map((s: any) => s.returnPct ?? 0);
+    const wins = returns.filter((r: number) => r > 0);
+    const losses = returns.filter((r: number) => r <= 0);
+
+    const avgReturn = returns.reduce((a: number, b: number) => a + b, 0) / returns.length;
+    const stdDev = Math.sqrt(
+      returns.map((r: number) => Math.pow(r - avgReturn, 2))
+             .reduce((a: number, b: number) => a + b, 0) / returns.length
+    );
+
+    // 최대낙폭 (MDD) 계산
+    let peak = 0, mdd = 0, cumReturn = 0;
+    for (const r of returns) {
+      cumReturn += r;
+      peak = Math.max(peak, cumReturn);
+      mdd = Math.min(mdd, cumReturn - peak);
+    }
+
+    // 평균 보유기간 (일)
+    const holdingDays = closed
+      .filter((s: any) => s.exitTime && s.signalTime)
+      .map((s: any) => {
+        const ms = new Date(s.exitTime).getTime() - new Date(s.signalTime).getTime();
+        return ms / (1000 * 60 * 60 * 24);
+      });
+    const avgHoldingDays = holdingDays.length > 0
+      ? holdingDays.reduce((a: number, b: number) => a + b, 0) / holdingDays.length
+      : 0;
+
+    const winRate = (wins.length / closed.length) * 100;
+    const totalWin = wins.length > 0 ? wins.reduce((a: number, b: number) => a + b, 0) : 0;
+    const totalLoss = losses.length > 0 ? losses.reduce((a: number, b: number) => a + b, 0) : 0;
+
+    // 실거래 전환 가이드: 최소 20건 결산 & 승률 55% 이상 & MDD -10% 이내
+    const readyForLive = closed.length >= 20 && winRate >= 55 && mdd > -10;
+    const reasons: string[] = [];
+    if (closed.length < 20)  reasons.push(`결산 ${closed.length}건 < 20건`);
+    if (winRate < 55)        reasons.push(`승률 ${winRate.toFixed(1)}% < 55%`);
+    if (mdd <= -10)          reasons.push(`MDD ${mdd.toFixed(2)}% ≤ -10%`);
+
+    res.json({
+      total: closed.length,
+      winRate: parseFloat(winRate.toFixed(1)),
+      avgReturn: parseFloat(avgReturn.toFixed(2)),
+      avgWin: wins.length > 0 ? parseFloat((totalWin / wins.length).toFixed(2)) : 0,
+      avgLoss: losses.length > 0 ? parseFloat((totalLoss / losses.length).toFixed(2)) : 0,
+      profitFactor: parseFloat(Math.abs(totalWin / (totalLoss || 1)).toFixed(2)),
+      sharpeRatio: parseFloat((stdDev > 0 ? avgReturn / stdDev : 0).toFixed(2)),
+      mdd: parseFloat(mdd.toFixed(2)),
+      avgHoldingDays: parseFloat(avgHoldingDays.toFixed(1)),
+      readyForLive,
+      reason: readyForLive ? '실거래 전환 조건 충족' : reasons.join(' / '),
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
   // 아이디어 12: Telegram 알림 테스트
   // ─────────────────────────────────────────────────────────────
 

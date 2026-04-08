@@ -15,6 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
+import { evaluateServerGate } from './serverQuantFilter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Railway Volume 마운트 경로 우선, 미설정 시 기본 data/
@@ -641,11 +642,25 @@ const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = [
   { symbol: '099190.KQ', code: '099190', name: '아이센스' },
 ];
 
-async function fetchYahooQuote(symbol: string): Promise<{
-  price: number; changePercent: number; volume: number; avgVolume: number;
-} | null> {
+// 아이디어 5: 확장된 Yahoo 시세 인터페이스 (MA/고가/ATR 포함)
+export interface YahooQuoteExtended {
+  price: number;
+  changePercent: number;
+  volume: number;
+  avgVolume: number;
+  ma5: number;           // 5일 이동평균
+  ma20: number;          // 20일 이동평균
+  ma60: number;          // 60일 이동평균
+  high20d: number;       // 20일 최고가
+  atr: number;           // 최근 14일 ATR (Average True Range)
+  atr20avg: number;      // 20일 ATR 평균 (VCP 판단용)
+  per: number;           // PER (Yahoo 제공 시)
+}
+
+async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtended | null> {
   try {
-    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=5d&interval=1d`;
+    // 아이디어 5: range를 60d로 확장하여 MA/ATR 계산에 필요한 데이터 확보
+    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=60d&interval=1d`;
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
     });
@@ -655,19 +670,71 @@ async function fetchYahooQuote(symbol: string): Promise<{
     if (!result) return null;
 
     const meta = result.meta;
-    const closes = result.indicators?.quote?.[0]?.close ?? [];
-    const volumes: number[] = result.indicators?.quote?.[0]?.volume ?? [];
+    const rawCloses: (number | null)[] = result.indicators?.quote?.[0]?.close ?? [];
+    const rawHighs: (number | null)[]  = result.indicators?.quote?.[0]?.high ?? [];
+    const rawLows: (number | null)[]   = result.indicators?.quote?.[0]?.low ?? [];
+    const rawVolumes: (number | null)[] = result.indicators?.quote?.[0]?.volume ?? [];
+
+    // null 값 제거한 유효 데이터
+    const closes  = rawCloses.filter((v): v is number => v != null && v > 0);
+    const highs   = rawHighs.filter((v): v is number => v != null && v > 0);
+    const lows    = rawLows.filter((v): v is number => v != null && v > 0);
+    const volumes = rawVolumes.filter((v): v is number => v != null && v > 0);
+
+    if (closes.length < 5) return null;
+
     const price = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 0;
     const prevClose = meta.chartPreviousClose ?? closes[closes.length - 2] ?? price;
     const changePercent = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
     const volume = volumes[volumes.length - 1] ?? 0;
+
     // 5일 평균 거래량 (당일 제외)
-    const pastVolumes = volumes.slice(0, -1).filter((v: number) => v > 0);
+    const pastVolumes = volumes.slice(0, -1);
     const avgVolume = pastVolumes.length > 0
-      ? pastVolumes.reduce((s: number, v: number) => s + v, 0) / pastVolumes.length
+      ? pastVolumes.reduce((s, v) => s + v, 0) / pastVolumes.length
       : volume;
 
-    return { price: Math.round(price), changePercent, volume, avgVolume };
+    // 이동평균 계산
+    const avg = (arr: number[], n: number) => {
+      const slice = arr.slice(-n);
+      return slice.length >= n ? slice.reduce((a, b) => a + b, 0) / n : 0;
+    };
+    const ma5  = avg(closes, 5);
+    const ma20 = avg(closes, 20);
+    const ma60 = avg(closes, 60);
+
+    // 20일 최고가
+    const high20d = highs.length >= 20
+      ? Math.max(...highs.slice(-20))
+      : Math.max(...highs);
+
+    // ATR (Average True Range) 계산 — 14일 기준
+    const trueRanges: number[] = [];
+    const minLen = Math.min(closes.length, highs.length, lows.length);
+    for (let i = 1; i < minLen; i++) {
+      const tr = Math.max(
+        highs[i] - lows[i],
+        Math.abs(highs[i] - closes[i - 1]),
+        Math.abs(lows[i] - closes[i - 1]),
+      );
+      trueRanges.push(tr);
+    }
+    const atr = trueRanges.length >= 14
+      ? trueRanges.slice(-14).reduce((a, b) => a + b, 0) / 14
+      : trueRanges.length > 0
+        ? trueRanges.reduce((a, b) => a + b, 0) / trueRanges.length
+        : 0;
+    const atr20avg = trueRanges.length >= 20
+      ? trueRanges.slice(-20).reduce((a, b) => a + b, 0) / 20
+      : atr;
+
+    // PER — Yahoo meta에서 제공 시 사용
+    const per = parseFloat(meta.trailingPE ?? '999');
+
+    return {
+      price: Math.round(price), changePercent, volume, avgVolume,
+      ma5, ma20, ma60, high20d, atr, atr20avg, per,
+    };
   } catch {
     return null;
   }
@@ -708,7 +775,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
     }
   }
 
-  // VTS 및 공통: Yahoo Finance 기반 모멘텀 스캔
+  // VTS 및 공통: Yahoo Finance 기반 모멘텀 스캔 + 서버사이드 Gate 평가 (아이디어 2)
   for (const stock of STOCK_UNIVERSE) {
     if (existingCodes.has(stock.code)) continue;
 
@@ -718,6 +785,13 @@ export async function autoPopulateWatchlist(): Promise<number> {
     // 필터: +1.5% 이상 상승 + 거래량이 5일 평균의 1.5배 이상 (상대 기준)
     if (quote.changePercent < 1.5 || quote.volume < quote.avgVolume * 1.5) continue;
 
+    // 아이디어 2: 서버사이드 Gate 평가 — SKIP 종목 제외
+    const gate = evaluateServerGate(quote);
+    if (gate.signalType === 'SKIP') {
+      console.log(`[AutoPopulate] SKIP: ${stock.name}(${stock.code}) gateScore=${gate.gateScore}/8`);
+      continue;
+    }
+
     watchlist.push({
       code: stock.code,
       name: stock.name,
@@ -725,12 +799,14 @@ export async function autoPopulateWatchlist(): Promise<number> {
       stopLoss: Math.round(quote.price * 0.92),
       targetPrice: Math.round(quote.price * 1.15),
       addedAt: new Date().toISOString(),
+      gateScore: gate.gateScore,
     });
     existingCodes.add(stock.code);
     added++;
     console.log(
       `[AutoPopulate] Yahoo → 워치리스트: ${stock.name}(${stock.code}) ` +
-      `@${quote.price.toLocaleString()} (+${quote.changePercent.toFixed(1)}% / ${(quote.volume / 10000).toFixed(0)}만주)`
+      `@${quote.price.toLocaleString()} (+${quote.changePercent.toFixed(1)}% / ${(quote.volume / 10000).toFixed(0)}만주) ` +
+      `gate=${gate.gateScore}/8 [${gate.signalType}] ${gate.details.join(', ')}`
     );
 
     // Yahoo rate limit 방지
