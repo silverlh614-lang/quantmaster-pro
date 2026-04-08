@@ -11,14 +11,9 @@ import {
   CheckCircle2,
   RefreshCw
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { StockFilters, StockRecommendation } from '../services/stockService';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface QuantScreenerProps {
   onScreen: (filters: StockFilters) => Promise<void>;
@@ -69,7 +64,6 @@ export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading,
             <input
               type="number"
               name="minRoe"
-              value={localFilters.minRoe}
               onChange={handleInputChange}
               className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500/50 transition-colors"
               placeholder="예: 15"
@@ -80,7 +74,6 @@ export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading,
             <input
               type="number"
               name="maxPer"
-              value={localFilters.maxPer}
               onChange={handleInputChange}
               className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500/50 transition-colors"
               placeholder="예: 20"
@@ -91,7 +84,6 @@ export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading,
             <input
               type="number"
               name="maxDebtRatio"
-              value={localFilters.maxDebtRatio}
               onChange={handleInputChange}
               className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500/50 transition-colors"
               placeholder="예: 100"
@@ -102,7 +94,6 @@ export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading,
             <input
               type="number"
               name="minMarketCap"
-              value={localFilters.minMarketCap}
               onChange={handleInputChange}
               className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500/50 transition-colors"
               placeholder="예: 1000"
@@ -114,13 +105,12 @@ export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading,
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">분석 모드</label>
                 <select
                   name="mode"
-                  value={localFilters.mode}
                   onChange={handleInputChange}
                   className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500/50 transition-colors appearance-none"
                 >
-                  <option value="MOMENTUM">모멘텀 추종 (주도주 포착)</option>
-                  <option value="EARLY_DETECT">선행 신호 탐색 (급등 전 포착)</option>
-                  <option value="QUANT_SCREEN">숨은 종목 발굴 (정량+공시+매집)</option>
+                  <option>모멘텀 추종 (주도주 포착)</option>
+                  <option>선행 신호 탐색 (급등 전 포착)</option>
+                  <option>숨은 종목 발굴 (정량+공시+매집)</option>
                 </select>
              </div>
              <button
@@ -173,11 +163,8 @@ export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading,
           ) : recommendations.length > 0 ? (
             <div className="grid grid-cols-1 gap-4">
               {recommendations.map((stock, idx) => (
-                <motion.div
+                <div
                   key={stock.code}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.1 }}
                   onClick={() => onStockClick?.(stock)}
                   className="bg-[#151619] border border-white/10 rounded-xl p-5 hover:border-purple-500/30 transition-all group cursor-pointer"
                 >
@@ -228,7 +215,7 @@ export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading,
                       <div className="text-sm font-medium text-white">{(stock.marketCap / 10000).toFixed(1)}조</div>
                     </div>
                   </div>
-                </motion.div>
+                </div>
               ))}
             </div>
           ) : (

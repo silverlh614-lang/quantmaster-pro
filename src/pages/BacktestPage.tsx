@@ -6,20 +6,15 @@ import {
   AlertTriangle, Lightbulb, Sparkles, Layers, ArrowRightLeft,
   Calendar as CalendarIcon
 } from 'lucide-react';
-import { motion, AnimatePresence, Reorder } from 'motion/react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend
 } from 'recharts';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { PortfolioManager } from '../components/PortfolioManager';
 import { PortfolioPieChart } from '../components/PortfolioPieChart';
 import { useMarketStore, usePortfolioStore } from '../stores';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface BacktestPageProps {
   onRunBacktest: () => Promise<void>;
@@ -49,11 +44,8 @@ export function BacktestPage({
   const { portfolios, currentPortfolioId } = usePortfolioStore();
 
   return (
-            <motion.div
+            <div
               key="backtest-view"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
               className="space-y-12"
             >
               <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
@@ -107,8 +99,7 @@ export function BacktestPage({
                         <label className="text-[10px] font-black text-white/40 uppercase tracking-widest block">초기 자본금 (Initial Equity)</label>
                         <div className="relative">
                           <input 
-                            type="number" 
-                            value={initialEquity}
+                            type="number"
                             onChange={(e) => setInitialEquity(parseInt(e.target.value) || 0)}
                             className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-lg font-black text-white focus:outline-none focus:border-blue-500/50 transition-all"
                           />
@@ -166,26 +157,14 @@ export function BacktestPage({
                           Total: {(backtestPortfolioItems || []).reduce((sum, i) => sum + i.weight, 0)}%
                         </span>
                         <div className="w-32 h-1 bg-white/5 rounded-full overflow-hidden">
-                          <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ 
-                              width: `${Math.min(100, (backtestPortfolioItems || []).reduce((sum, i) => sum + i.weight, 0))}%`,
-                              backgroundColor: (backtestPortfolioItems || []).reduce((sum, i) => sum + i.weight, 0) === 100 
-                                ? '#22c55e' 
-                                : (backtestPortfolioItems || []).reduce((sum, i) => sum + i.weight, 0) > 100 
-                                  ? '#ef4444' 
-                                  : '#f97316'
-                            }}
+                          <div
                             className="h-full transition-colors duration-500"
                           />
                         </div>
                       </div>
                     </div>
 
-                    <Reorder.Group 
-                      axis="y" 
-                      values={backtestPortfolioItems || []} 
-                      onReorder={onReorderPortfolioItems}
+                    <div
                       className="space-y-5"
                     >
                       {(backtestPortfolioItems || []).length === 0 ? (
@@ -200,9 +179,8 @@ export function BacktestPage({
                           const isMediumRisk = riskyStock?.riskLevel === 'MEDIUM';
 
                           return (
-                            <Reorder.Item 
-                              key={item.code} 
-                              value={item}
+                            <div 
+                              key={item.code}
                               className={cn(
                                 "bg-white/5 rounded-3xl p-6 border flex items-center justify-between gap-6 group hover:bg-white/[0.08] transition-all cursor-grab active:cursor-grabbing",
                                 isHighRisk ? "border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.1)]" : 
@@ -234,18 +212,15 @@ export function BacktestPage({
                                       </div>
                                     )}
                                   </div>
-                                  <AnimatePresence>
+                                  <>
                                     {copiedCode === item.code && (
-                                      <motion.span
-                                        initial={{ opacity: 0, y: 10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0 }}
+                                      <span
                                         className="absolute -top-6 left-0 text-[8px] font-black text-green-400 uppercase tracking-widest bg-green-500/20 backdrop-blur-md px-2 py-0.5 rounded-lg border border-green-500/30 z-30"
                                       >
                                         Copied!
-                                      </motion.span>
+                                      </span>
                                     )}
-                                  </AnimatePresence>
+                                  </>
                                   <div className="text-[11px] font-black text-white/20 uppercase tracking-widest">{item.code}</div>
                                 </div>
                               </div>
@@ -253,7 +228,6 @@ export function BacktestPage({
                                 <div className="relative">
                                   <input
                                     type="number"
-                                    value={item.weight}
                                     onChange={(e) => onUpdateWeight(item.code, parseInt(e.target.value) || 0)}
                                     className={cn(
                                       "w-20 bg-black/40 border rounded-2xl px-3 py-2 text-sm font-black text-white text-center focus:outline-none transition-all",
@@ -269,11 +243,11 @@ export function BacktestPage({
                                   <Trash2 className="w-5 h-5" />
                                 </button>
                               </div>
-                            </Reorder.Item>
+                            </div>
                           );
                         })
                       )}
-                    </Reorder.Group>
+                    </div>
                   </div>
                 </div>
 
@@ -283,9 +257,7 @@ export function BacktestPage({
                     <>
                       {/* High Risk Alert Banner */}
                       {backtestResult.riskyStocks && backtestResult.riskyStocks.some((s: any) => s.riskLevel === 'HIGH') && (
-                        <motion.div 
-                          initial={{ opacity: 0, scale: 0.95 }}
-                          animate={{ opacity: 1, scale: 1 }}
+                        <div
                           className="bg-red-500/10 border border-red-500/20 rounded-[2.5rem] p-8 mb-10 flex items-center gap-6 relative overflow-hidden group"
                         >
                           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
@@ -300,7 +272,7 @@ export function BacktestPage({
                               포트폴리오 내에 AI가 분석한 고위험 종목이 포함되어 있습니다. 아래 리스크 관리 섹션을 확인하여 비중 조절 또는 정리를 고려하십시오.
                             </p>
                           </div>
-                        </motion.div>
+                        </div>
                       )}
 
                       {/* Summary Metrics */}
@@ -347,11 +319,8 @@ export function BacktestPage({
                             }
                           },
                         ].map((stat: any, i: number) => (
-                          <motion.div
+                          <div
                             key={stat.label}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: i * 0.1 }}
                             className="glass-3d rounded-[2.5rem] p-8 border border-white/10 shadow-xl text-center group/stat relative"
                           >
                             <div className="absolute top-4 right-4 opacity-0 group-hover/stat:opacity-100 transition-opacity cursor-help">
@@ -375,7 +344,7 @@ export function BacktestPage({
                             <stat.icon className={cn("w-6 h-6 mx-auto mb-4", stat.color)} />
                             <div className="text-[11px] font-black text-white/20 uppercase tracking-[0.2em] mb-2">{stat.label}</div>
                             <div className={cn("text-2xl font-black tracking-tighter", stat.color)}>{stat.value}</div>
-                          </motion.div>
+                          </div>
                         ))}
                       </div>
 
@@ -423,11 +392,8 @@ export function BacktestPage({
                             }
                           },
                         ].map((stat, i) => (
-                          <motion.div
+                          <div
                             key={stat.label}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: i * 0.1 + 0.4 }}
                             className="glass-3d rounded-[2.5rem] p-8 border border-white/10 shadow-xl text-center group/stat relative"
                           >
                             <div className="absolute top-4 right-4 opacity-0 group-hover/stat:opacity-100 transition-opacity cursor-help">
@@ -451,7 +417,7 @@ export function BacktestPage({
                             <stat.icon className={cn("w-6 h-6 mx-auto mb-4", stat.color)} />
                             <div className="text-[11px] font-black text-white/20 uppercase tracking-[0.2em] mb-2">{stat.label}</div>
                             <div className={cn("text-2xl font-black tracking-tighter", stat.color)}>{stat.value}</div>
-                          </motion.div>
+                          </div>
                         ))}
                       </div>
 
@@ -489,11 +455,8 @@ export function BacktestPage({
                             }
                           },
                         ].map((stat: any, i: number) => (
-                          <motion.div
+                          <div
                             key={stat.label}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: i * 0.1 + 0.8 }}
                             className="glass-3d rounded-[2.5rem] p-8 border border-white/10 shadow-xl text-center group/stat relative"
                           >
                             <div className="absolute top-4 right-4 opacity-0 group-hover/stat:opacity-100 transition-opacity cursor-help">
@@ -517,7 +480,7 @@ export function BacktestPage({
                             <stat.icon className={cn("w-6 h-6 mx-auto mb-4", stat.color)} />
                             <div className="text-[11px] font-black text-white/20 uppercase tracking-[0.2em] mb-2">{stat.label}</div>
                             <div className={cn("text-2xl font-black tracking-tighter", stat.color)}>{stat.value}</div>
-                          </motion.div>
+                          </div>
                         ))}
                       </div>
 
@@ -692,18 +655,15 @@ export function BacktestPage({
                                   >
                                     {s.stock}
                                     <Copy className="w-3.5 h-3.5 opacity-0 group-hover/copy:opacity-50 transition-opacity" />
-                                    <AnimatePresence>
+                                    <>
                                       {copiedCode === `opt-${i}` && (
-                                        <motion.span
-                                          initial={{ opacity: 0, y: 10 }}
-                                          animate={{ opacity: 1, y: 0 }}
-                                          exit={{ opacity: 0 }}
+                                        <span
                                           className="absolute -top-6 left-0 text-[8px] font-black text-green-400 uppercase tracking-widest bg-green-500/20 backdrop-blur-md px-2 py-0.5 rounded-lg border border-green-500/30 z-30"
                                         >
                                           Copied!
-                                        </motion.span>
+                                        </span>
                                       )}
-                                    </AnimatePresence>
+                                    </>
                                   </div>
                                   <div className="flex items-center gap-3">
                                     <div className="flex flex-col items-end">
@@ -830,6 +790,6 @@ export function BacktestPage({
                   )}
                 </div>
               </div>
-            </motion.div>
+            </div>
   );
 }

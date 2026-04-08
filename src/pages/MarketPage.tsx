@@ -1,8 +1,5 @@
 import React, { useMemo } from 'react';
-import { motion } from 'motion/react';
 import { RefreshCw, Activity } from 'lucide-react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { MarketDashboard } from '../components/MarketDashboard';
 import { EventCalendar } from '../components/EventCalendar';
 import { MacroIntelligenceDashboard } from '../components/MacroIntelligenceDashboard';
@@ -10,10 +7,8 @@ import { MHSHistoryChart } from '../components/MHSHistoryChart';
 import { IntelligenceRadar } from '../components/IntelligenceRadar';
 import { useMarketStore, useGlobalIntelStore, useRecommendationStore } from '../stores';
 import { evaluateGate0 } from '../services/quantEngine';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface MarketPageProps {
   onFetchMarketOverview: (force?: boolean) => Promise<void>;
@@ -52,11 +47,8 @@ export function MarketPage({ onFetchMarketOverview }: MarketPageProps) {
   }, [recommendations]);
 
   return (
-    <motion.div
+    <div
       key="market-view"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
       className="space-y-12"
     >
       <div className="flex items-center justify-between">
@@ -158,6 +150,6 @@ export function MarketPage({ onFetchMarketOverview }: MarketPageProps) {
         fsi={financialStressData}
         fomcSentiment={fomcSentimentData}
       />
-    </motion.div>
+    </div>
   );
 }

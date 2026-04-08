@@ -15,14 +15,9 @@ import {
   Layers,
   PieChart as PieChartIcon
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { Portfolio } from '../services/stockService';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface PortfolioManagerProps {
   portfolios: Portfolio[];
@@ -101,12 +96,9 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
         </div>
       </div>
 
-      <AnimatePresence>
+      <>
         {isSaving && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
+          <div
             className="overflow-hidden"
           >
             <div className="glass-3d rounded-[2rem] p-8 border border-white/10 space-y-6 bg-indigo-500/5">
@@ -115,7 +107,6 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                   <label className="text-[10px] font-black text-white/20 uppercase tracking-widest ml-1">Portfolio Name</label>
                   <input
                     type="text"
-                    value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     placeholder="e.g., Growth Tech 2026"
                     className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-3 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50 transition-all"
@@ -125,7 +116,6 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                   <label className="text-[10px] font-black text-white/20 uppercase tracking-widest ml-1">Description (Optional)</label>
                   <input
                     type="text"
-                    value={newDesc}
                     onChange={(e) => setNewDesc(e.target.value)}
                     placeholder="Strategy notes..."
                     className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-3 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50 transition-all"
@@ -149,9 +139,9 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                 </button>
               </div>
             </div>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
+      </>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {!portfolios || portfolios.length === 0 ? (
@@ -161,9 +151,8 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
           </div>
         ) : (
           portfolios.map((portfolio) => (
-            <motion.div
+            <div
               key={portfolio.id}
-              layout
               className={cn(
                 "group relative glass-3d rounded-[2.5rem] p-8 border transition-all cursor-pointer",
                 currentPortfolioId === portfolio.id 
@@ -230,12 +219,10 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                     <input
                       autoFocus
                       type="text"
-                      value={editName}
                       onChange={(e) => setEditName(e.target.value)}
                       className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50"
                     />
                     <textarea
-                      value={editDesc}
                       onChange={(e) => setEditDesc(e.target.value)}
                       className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-xs font-medium text-white/60 focus:outline-none focus:border-indigo-500/50 h-20 resize-none"
                     />
@@ -282,15 +269,13 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </div>
           ))
         )}
       </div>
 
       {showCompareMode && selectedForCompare.length >= 2 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+        <div
           className="fixed bottom-12 left-1/2 -translate-x-1/2 z-50"
         >
           <button
@@ -300,17 +285,17 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
             <BarChart3 className="w-6 h-6" />
             <span>Compare {selectedForCompare.length} Portfolios</span>
           </button>
-        </motion.div>
+        </div>
       )}
 
-      <AnimatePresence>
+      <>
         {comparingPortfolioIds && (
           <PortfolioComparison
             portfolios={(portfolios || []).filter(p => comparingPortfolioIds.includes(p.id))}
             onClose={() => setComparingPortfolioIds(null)}
           />
         )}
-      </AnimatePresence>
+      </>
     </div>
   );
 };

@@ -1,12 +1,7 @@
 import React, { useState } from 'react';
 import { ShieldCheck, ChevronDown } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface ChecklistStep {
   key: string;
@@ -34,12 +29,9 @@ export const HeroChecklist: React.FC<HeroChecklistProps> = ({ steps, onShowCheck
         <ChevronDown className={cn("w-4 h-4 text-white/20 group-hover/toggle:text-orange-500 transition-transform", expanded ? "rotate-180" : "")} />
       </button>
 
-      <AnimatePresence>
+      <>
         {expanded && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
+          <div
             className="overflow-hidden"
           >
             <div className="flex flex-wrap gap-4 pb-6">
@@ -58,9 +50,9 @@ export const HeroChecklist: React.FC<HeroChecklistProps> = ({ steps, onShowCheck
                 </div>
               ))}
             </div>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
+      </>
     </div>
   );
 };

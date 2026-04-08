@@ -21,14 +21,9 @@ import {
   Globe,
   MessageSquare
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { StockRecommendation } from '../services/stockService';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface StockDetailModalProps {
   stock: StockRecommendation | null;
@@ -39,22 +34,16 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({ stock, onClo
   if (!stock) return null;
 
   return (
-    <AnimatePresence>
+    <>
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 lg:p-8">
         {/* Backdrop */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+        <div
           onClick={onClose}
           className="absolute inset-0 bg-black/80 backdrop-blur-xl"
         />
 
         {/* Modal Content */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        <div
           className="relative w-full max-w-5xl max-h-[90vh] bg-theme-bg border border-theme-border rounded-[2.5rem] shadow-[0_0_100px_rgba(0,0,0,0.3)] overflow-hidden flex flex-col"
         >
           {/* Header */}
@@ -303,8 +292,8 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({ stock, onClo
               </button>
             </div>
           </div>
-        </motion.div>
+        </div>
       </div>
-    </AnimatePresence>
+    </>
   );
 };

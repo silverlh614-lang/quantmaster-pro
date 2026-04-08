@@ -1,14 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
 import { Activity } from 'lucide-react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { TradingChecklist } from '../components/TradingChecklist';
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 export function AutoTradePage() {
   const { shadowTrades, winRate, avgReturn } = useShadowTradeStore();
@@ -28,11 +23,8 @@ export function AutoTradePage() {
   }, []);
 
   return (
-    <motion.div
+    <div
       key="auto-trade-view"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
       className="space-y-6"
     >
       <div className="flex items-center justify-between">
@@ -181,6 +173,6 @@ export function AutoTradePage() {
           </div>
         </div>
       )}
-    </motion.div>
+    </div>
   );
 }

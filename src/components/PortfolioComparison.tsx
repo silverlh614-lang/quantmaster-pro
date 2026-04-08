@@ -9,7 +9,6 @@ import {
   ArrowDownRight,
   ArrowRightLeft
 } from 'lucide-react';
-import { motion } from 'motion/react';
 import { Portfolio } from '../services/stockService';
 import { 
   BarChart, 
@@ -21,12 +20,8 @@ import {
   ResponsiveContainer, 
   Cell
 } from 'recharts';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface PortfolioComparisonProps {
   portfolios: Portfolio[];
@@ -47,18 +42,12 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 md:p-12">
-      <motion.div 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
+      <div
         className="absolute inset-0 bg-black/80 backdrop-blur-xl"
         onClick={onClose}
       />
       
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.9, y: 20 }}
+      <div
         className="relative w-full max-w-7xl h-full max-h-[90vh] glass-3d rounded-[4rem] border border-white/10 overflow-hidden flex flex-col shadow-[0_50px_100px_rgba(0,0,0,0.5)]"
       >
         <div className="p-4 sm:p-10 border-b border-white/5 flex items-center justify-between">
@@ -221,7 +210,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
             </table>
           </div>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 };

@@ -87,7 +87,6 @@ import {
 } from 'lucide-react';
 import { domToJpeg } from 'modern-screenshot';
 import { jsPDF } from 'jspdf';
-import { motion, AnimatePresence, Reorder } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import {
   getStockRecommendations,
@@ -156,12 +155,7 @@ import {
   PolarAngleAxis,
   PolarRadiusAxis
 } from 'recharts';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 import { MASTER_CHECKLIST_STEPS, SELL_CHECKLIST_STEPS, getMarketPhaseInfo } from './constants/checklist';
 
@@ -253,6 +247,7 @@ import { usePortfolioOps } from './hooks/usePortfolioOps';
 import { useStockSearch } from './hooks/useStockSearch';
 import { useTradeOps } from './hooks/useTradeOps';
 import { useReportExport } from './hooks/useReportExport';
+import { cn } from './utils/cn';
 
 export default function App() {
   // ── Zustand Store Subscriptions ──────────────────────────────────────────────
@@ -658,19 +653,13 @@ export default function App() {
       <Toaster position="top-center" expand={false} richColors theme="dark" />
       <div className="max-w-screen-2xl mx-auto relative">
       {/* Master Checklist Modal */}
-      <AnimatePresence>
+      <>
         {showMasterChecklist && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+          <div
             className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm"
             onClick={() => setShowMasterChecklist(false)}
           >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+            <div
               className="glass-3d rounded-[3rem] p-10 max-w-2xl w-full border border-white/10 shadow-2xl overflow-hidden relative"
               onClick={e => e.stopPropagation()}
             >
@@ -760,25 +749,19 @@ export default function App() {
 
               {/* Decorative background */}
               <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/5 blur-[100px] -mr-32 -mt-32" />
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
         )}
-      </AnimatePresence>
+      </>
 
       {/* Settings Modal */}
-      <AnimatePresence>
+      <>
         {showSettings && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+          <div
             className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm"
             onClick={() => setShowSettings(false)}
           >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+            <div
               className="glass-3d rounded-[3rem] max-w-lg w-full border border-theme-border shadow-2xl max-h-[90vh] relative flex flex-col"
               onClick={e => e.stopPropagation()}
             >
@@ -810,7 +793,6 @@ export default function App() {
                   <div className="relative">
                     <input
                       type="password"
-                      value={userApiKey}
                       onChange={(e) => setUserApiKey(e.target.value)}
                       placeholder="AI 기능을 사용하려면 API 키를 입력하세요"
                       className="w-full bg-theme-card border border-theme-border rounded-2xl px-6 py-4 text-sm font-bold text-theme-text placeholder:text-theme-text-muted focus:outline-none focus:border-blue-500/50 transition-all"
@@ -895,10 +877,10 @@ export default function App() {
 
               {/* Decorative background */}
               <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 blur-[100px] -mr-32 -mt-32 pointer-events-none" />
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
         )}
-      </AnimatePresence>
+      </>
 
       {/* Header */}
       <header className="border-b border-theme-border bg-theme-bg/80 backdrop-blur-2xl sticky top-0 z-50 shadow-[0_2px_30px_rgba(0,0,0,0.3)] no-print">
@@ -1125,7 +1107,7 @@ export default function App() {
       />
 
       <main id="report-content" className="max-w-6xl mx-auto px-4 py-8 no-print">
-        <AnimatePresence mode="wait">
+        <>
           {view === 'MARKET' ? (
             <MarketPage onFetchMarketOverview={handleFetchMarketOverview} />
           ) : view === 'MANUAL_INPUT' ? (
@@ -1188,7 +1170,7 @@ export default function App() {
               onRecordTrade={recordTrade}
             />
           )}
-        </AnimatePresence>
+        </>
 
         {/* Disclaimer */}
         <footer className="mt-20 pt-12 pb-20 border-t border-white/5 text-center bg-black/20">
@@ -1212,17 +1194,11 @@ export default function App() {
 
       {/* ── 매수 기록 모달 ──────────────────────────────────────────── */}
       {tradeRecordStock && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+        <div
           className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm"
           onClick={() => setTradeRecordStock(null)}
         >
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0, y: 20 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+          <div
             className="glass-3d rounded-[2rem] p-8 max-w-md w-full border border-white/10 shadow-2xl"
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
@@ -1239,17 +1215,17 @@ export default function App() {
             <div className="space-y-4">
               <div>
                 <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest">매수가 (원)</label>
-                <input type="number" value={tradeFormData.buyPrice} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTradeFormData(p => ({ ...p, buyPrice: e.target.value }))}
+                <input type="number" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTradeFormData(p => ({ ...p, buyPrice: e.target.value }))}
                   className="w-full mt-1 p-3 bg-white/5 border border-white/10 text-white text-sm rounded-xl" placeholder={String(tradeRecordStock.currentPrice)} />
               </div>
               <div>
                 <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest">수량 (주)</label>
-                <input type="number" value={tradeFormData.quantity} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTradeFormData(p => ({ ...p, quantity: e.target.value }))}
+                <input type="number" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTradeFormData(p => ({ ...p, quantity: e.target.value }))}
                   className="w-full mt-1 p-3 bg-white/5 border border-white/10 text-white text-sm rounded-xl" placeholder="100" />
               </div>
               <div>
                 <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest">포트폴리오 비중 (%)</label>
-                <input type="number" value={tradeFormData.positionSize} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTradeFormData(p => ({ ...p, positionSize: e.target.value }))}
+                <input type="number" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTradeFormData(p => ({ ...p, positionSize: e.target.value }))}
                   className="w-full mt-1 p-3 bg-white/5 border border-white/10 text-white text-sm rounded-xl" />
               </div>
               <div className="flex items-center gap-4">
@@ -1285,8 +1261,8 @@ export default function App() {
             >
               매수 기록 저장
             </button>
-          </motion.div>
-        </motion.div>
+          </div>
+        </div>
       )}
 
       </div>

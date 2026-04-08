@@ -1,5 +1,4 @@
 import React from 'react';
-import { motion } from 'motion/react';
 import { QuantScreener } from '../components/QuantScreener';
 import { useRecommendationStore, useAnalysisStore } from '../stores';
 import type { StockFilters, StockRecommendation } from '../services/stockService';
@@ -13,11 +12,8 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
   const { setSelectedDetailStock } = useAnalysisStore();
 
   return (
-    <motion.div
+    <div
       key="screener-view"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
       className="space-y-12"
     >
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
@@ -37,6 +33,6 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
         recommendations={screenerRecommendations}
         onStockClick={(stock: StockRecommendation) => setSelectedDetailStock(stock)}
       />
-    </motion.div>
+    </div>
   );
 }

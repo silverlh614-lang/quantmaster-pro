@@ -25,7 +25,6 @@ import {
   Brain,
   Copy
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { 
   LineChart, 
   Line, 
@@ -41,13 +40,9 @@ import {
   Bar,
   Cell
 } from 'recharts';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { StockRecommendation, MarketContext, runAdvancedAnalysis, AdvancedAnalysisResult } from '../services/stockService';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 export function AnalysisDashboard() {
   const [activeTab, setActiveTab] = useState<'BACKTEST' | 'WALK_FORWARD' | 'PAPER_TRADING'>('BACKTEST');
@@ -119,13 +114,10 @@ export function AnalysisDashboard() {
         ))}
       </div>
 
-      <AnimatePresence mode="wait">
+      <>
         {activeTab === 'BACKTEST' && (
-          <motion.div
+          <div
             key="backtest"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
             className="space-y-6"
           >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -312,9 +304,7 @@ export function AnalysisDashboard() {
                         </div>
                         <div className="flex items-center gap-2">
                           <div className="w-32 h-2 bg-white/10 rounded-full overflow-hidden">
-                            <motion.div 
-                              initial={{ width: 0 }}
-                              animate={{ width: `${item.weight}%` }}
+                            <div
                               className="h-full bg-green-500"
                             />
                           </div>
@@ -342,15 +332,12 @@ export function AnalysisDashboard() {
                 </div>
               </div>
             )}
-          </motion.div>
+          </div>
         )}
 
         {activeTab === 'WALK_FORWARD' && (
-          <motion.div
+          <div
             key="walk_forward"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
             className="bg-white/5 rounded-[2.5rem] p-8 border border-white/10"
           >
             <div className="max-w-3xl mx-auto text-center space-y-8">
@@ -496,15 +483,12 @@ export function AnalysisDashboard() {
                 </>
               )}
             </div>
-          </motion.div>
+          </div>
         )}
 
         {activeTab === 'PAPER_TRADING' && (
-          <motion.div
+          <div
             key="paper_trading"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
             className="space-y-6"
           >
             <div className="flex justify-between items-center">
@@ -612,9 +596,9 @@ export function AnalysisDashboard() {
                 </div>
               ))}
             </div>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
+      </>
     </div>
   );
 }

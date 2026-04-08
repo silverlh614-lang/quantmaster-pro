@@ -17,14 +17,9 @@ import {
   Globe,
   Brain
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { StockRecommendation } from '../services/stockService';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface SectorSubscriptionProps {
   subscribedSectors: string[];
@@ -98,7 +93,6 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
             <form onSubmit={handleAdd} className="relative">
               <input
                 type="text"
-                value={newSector}
                 onChange={(e) => setNewSector(e.target.value)}
                 placeholder="섹터 추가..."
                 className="bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-amber-500/50 w-32"
@@ -146,11 +140,8 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
           ) : filteredRecommendations.length > 0 ? (
             <div className="grid grid-cols-1 gap-4">
               {filteredRecommendations.map((stock, idx) => (
-                <motion.div
+                <div
                   key={stock.code}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.1 }}
                   className="bg-[#151619] border border-white/10 rounded-xl p-5 hover:border-amber-500/30 transition-all group relative overflow-hidden"
                 >
                   <div className="absolute top-0 right-0 p-2">
@@ -199,7 +190,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
                       상세 분석 보기 <ChevronRight className="w-3 h-3" />
                     </button>
                   </div>
-                </motion.div>
+                </div>
               ))}
             </div>
           ) : (
@@ -240,9 +231,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
                   <span>AI 분석 가동 중</span>
                 </div>
                 <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: '85%' }}
+                  <div
                     className="h-full bg-blue-500"
                   />
                 </div>

@@ -3,13 +3,9 @@ import { EvaluationResult, EconomicRegimeData, ROEType } from '../types/quant';
 import { ALL_CONDITIONS } from '../services/quantEngine';
 import { MarketOverview } from '../services/stockService';
 import { Shield, Target, Zap, AlertTriangle, TrendingUp, DollarSign, Activity, Layers, Clock, Skull, Calendar, PieChart, Link2, Globe, PlayCircle } from 'lucide-react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { MacroIntelligenceDashboard } from './MacroIntelligenceDashboard';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface Props {
   result: EvaluationResult;

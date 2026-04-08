@@ -1,11 +1,7 @@
 import React, { useState } from 'react';
 import { Check, X, RefreshCw, Edit2 } from 'lucide-react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface PriceEditCellProps {
   stockCode: string;

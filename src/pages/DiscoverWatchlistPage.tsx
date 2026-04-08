@@ -11,15 +11,12 @@ import {
   Wallet, Percent, Maximize2, ArrowRightLeft, Flag, ShieldAlert, ArrowUpDown,
   Layers, Sun, Moon, Contrast, GripVertical, Calculator, ArrowRight
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, Radar as RechartsRadar, RadarChart,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { QuantDashboard } from '../components/QuantDashboard';
 import { ConfidenceBadge } from '../components/ConfidenceBadge';
 import { PriceEditCell } from '../components/PriceEditCell';
@@ -45,10 +42,8 @@ import type {
   StockProfile, StockProfileType, ROEType, Gate0Result, NewsFrequencyScore,
   ConditionId, TradeRecord
 } from '../types/quant';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 const checklistLabels: Record<keyof StockRecommendation['checklist'], { label: string; description: string; gate: 1 | 2 | 3 }> = {
   cycleVerified: { label: "주도주 사이클 부합 (New Leader)", description: "현재 시장의 주도 섹터 및 테마에 부합하며 새로운 상승 사이클의 초입에 있는지 검증", gate: 1 },
@@ -264,12 +259,9 @@ export function DiscoverWatchlistPage({
   return (
     <>
               {/* Sync Status Bar */}
-              <AnimatePresence>
+              <>
                 {syncStatus.isSyncing && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
+                  <div
                     className="mb-8 overflow-hidden"
                   >
                     <div className="bg-white/5 rounded-[2rem] border border-white/10 p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
@@ -286,9 +278,7 @@ export function DiscoverWatchlistPage({
                       </div>
                       <div className="flex-1 max-w-md w-full">
                         <div className="h-2 bg-white/5 rounded-full overflow-hidden mb-2">
-                          <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: `${(syncStatus.progress / syncStatus.total) * 100}%` }}
+                          <div
                             className="h-full bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)] transition-all duration-500"
                           />
                         </div>
@@ -298,17 +288,14 @@ export function DiscoverWatchlistPage({
                         </div>
                       </div>
                     </div>
-                  </motion.div>
+                  </div>
                 )}
-              </AnimatePresence>
+              </>
 
               {/* Error Alert */}
-              <AnimatePresence>
+              <>
                 {error && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
+                  <div
                     className="mb-8 p-6 bg-red-500/10 border border-red-500/20 rounded-[2rem] flex items-center justify-between gap-4"
                   >
                     <div className="flex items-center gap-4">
@@ -326,15 +313,13 @@ export function DiscoverWatchlistPage({
                     >
                       <X className="w-5 h-5" />
                     </button>
-                  </motion.div>
+                  </div>
                 )}
-              </AnimatePresence>
+              </>
 
               {/* Market Sentiment & Hero Section */}
               <section className="mb-16 grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+          <div
             className="lg:col-span-2 glass-3d rounded-[2.5rem] p-10 sm:p-14 relative overflow-hidden group"
           >
             <div className="relative z-10">
@@ -449,12 +434,10 @@ export function DiscoverWatchlistPage({
             {/* Decorative elements */}
             <div className="absolute top-0 right-0 w-96 h-96 bg-orange-500/10 blur-[120px] -mr-32 -mt-32 animate-pulse" />
             <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/5 blur-[100px] -ml-32 -mb-32" />
-          </motion.div>
+          </div>
 
           {/* Market Sentiment Card */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
+          <div
             className="glass-3d rounded-[2.5rem] p-10 flex flex-col justify-between group"
           >
             <div>
@@ -487,9 +470,7 @@ export function DiscoverWatchlistPage({
                           </span>
                         </div>
                         <div className="h-2 bg-white/5 rounded-full overflow-hidden shadow-inner">
-                          <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: `${marketContext.fearAndGreed.value || 0}%` }}
+                          <div
                             className={cn(
                               "h-full transition-all duration-1000",
                               (marketContext.fearAndGreed.value || 0) < 70 ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.5)]" : "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]"
@@ -510,9 +491,7 @@ export function DiscoverWatchlistPage({
                         </span>
                       </div>
                       <div className="h-2 bg-white/5 rounded-full overflow-hidden shadow-inner">
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: `${Math.min((marketContext.iri || 0) * 25, 100)}%` }}
+                        <div
                           className={cn(
                             "h-full transition-all duration-1000",
                             (marketContext.iri || 0) < 2.0 ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.5)]" : "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]"
@@ -532,9 +511,7 @@ export function DiscoverWatchlistPage({
                         </span>
                       </div>
                       <div className="h-2 bg-white/5 rounded-full overflow-hidden shadow-inner">
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: `${Math.min((marketContext.vkospi || 0) * 2.5, 100)}%` }}
+                        <div
                           className={cn(
                             "h-full transition-all duration-1000",
                             (marketContext.vkospi || 0) < 20 ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.5)]" : "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]"
@@ -626,7 +603,7 @@ export function DiscoverWatchlistPage({
                 AI Report Summary
               </button>
             </div>
-          </motion.div>
+          </div>
         </section>
 
         {/* Today's Top 3 Section */}
@@ -654,11 +631,8 @@ export function DiscoverWatchlistPage({
                 .sort((a, b) => (b.aiConvictionScore?.totalScore || 0) - (a.aiConvictionScore?.totalScore || 0))
                 .slice(0, 3)
                 .map((stock, idx) => (
-                  <motion.div
+                  <div
                     key={stock.code}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.1 }}
                     onClick={() => setDeepAnalysisStock(stock)}
                     className="glass-3d rounded-[3rem] p-8 border border-white/10 relative overflow-hidden group cursor-pointer hover:border-orange-500/50 transition-all"
                   >
@@ -718,7 +692,7 @@ export function DiscoverWatchlistPage({
                     </div>
 
                     <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-orange-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </motion.div>
+                  </div>
                 ))}
             </div>
           </section>
@@ -726,9 +700,7 @@ export function DiscoverWatchlistPage({
 
         {/* Market Context Section */}
         {marketContext && (
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+          <section
             className="mb-12"
           >
             <div className="glass-3d rounded-[2.5rem] p-8 border border-theme-border shadow-2xl relative overflow-hidden">
@@ -738,9 +710,7 @@ export function DiscoverWatchlistPage({
                     <div className="w-2 h-8 bg-orange-500 rounded-full" />
                     <h3 className="text-xl font-black text-theme-text uppercase tracking-tighter">실시간 시장 분석 (Market Context)</h3>
                     {marketContext.upcomingEvents && marketContext.upcomingEvents.some(e => e.impact === 'HIGH' && e.dDay <= 5) && (
-                      <motion.div 
-                        initial={{ opacity: 0, y: -20 }}
-                        animate={{ opacity: 1, y: 0 }}
+                      <div
                         className="w-full bg-red-500/10 border border-red-500/20 rounded-3xl p-6 flex flex-col md:flex-row items-center gap-6 relative overflow-hidden group mt-4"
                       >
                         <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
@@ -768,7 +738,7 @@ export function DiscoverWatchlistPage({
                           상세 분석 보기
                           <ArrowRight className="w-4 h-4" />
                         </button>
-                      </motion.div>
+                      </div>
                     )}
                     {marketContext.marketPhase && (
                       <div className={cn(
@@ -1005,16 +975,13 @@ export function DiscoverWatchlistPage({
               <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/5 blur-[80px] -mr-20 -mt-20" />
               <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-500/5 blur-[60px] -ml-16 -mb-16" />
             </div>
-          </motion.section>
+          </section>
         )}
 
         {/* AI Report Summary Section */}
-        <AnimatePresence>
+        <>
           {reportSummary && (
-            <motion.section
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
+            <section
               className="mb-12 overflow-hidden"
             >
               <div className="glass-3d rounded-[2.5rem] p-8 border border-orange-500/20 shadow-2xl relative overflow-hidden bg-gradient-to-br from-orange-500/5 to-transparent">
@@ -1045,9 +1012,9 @@ export function DiscoverWatchlistPage({
                 {/* Decorative background */}
                 <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/10 blur-[80px] -mr-20 -mt-20 animate-pulse" />
               </div>
-            </motion.section>
+            </section>
           )}
-        </AnimatePresence>
+        </>
         <section>
           <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
             <div className="flex items-center gap-2 sm:gap-4 overflow-x-auto no-scrollbar pb-1">
@@ -1179,7 +1146,6 @@ export function DiscoverWatchlistPage({
                       <input
                         type="text"
                         placeholder="종목명 또는 코드를 입력하여 검색..."
-                        value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && onMarketSearch()}
                         className="w-full bg-black/40 border-2 border-white/5 rounded-2xl pl-12 pr-6 py-3.5 text-base font-black text-white placeholder:text-white/20 placeholder:text-sm focus:outline-none focus:border-orange-500/50 focus:ring-4 focus:ring-orange-500/10 focus:bg-black/60 transition-all shadow-inner relative z-0"
@@ -1213,13 +1179,12 @@ export function DiscoverWatchlistPage({
                   <div className="relative group">
                     <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30 group-focus-within:text-orange-500 transition-colors pointer-events-none" />
                     <select
-                      value={sortBy}
                       onChange={(e) => setSortBy(e.target.value as any)}
                       className="w-full bg-white/10 border-2 border-white/10 rounded-2xl pl-12 pr-10 py-4 text-base font-black text-white appearance-none focus:outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 focus:bg-white/[0.15] transition-all shadow-2xl cursor-pointer h-[60px]"
                     >
-                      <option value="NAME">이름순 (가나다)</option>
-                      <option value="CODE">종목코드순</option>
-                      <option value="PERFORMANCE">수익률/성과순</option>
+                      <option>이름순 (가나다)</option>
+                      <option>종목코드순</option>
+                      <option>수익률/성과순</option>
                     </select>
                     <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30 pointer-events-none" />
                   </div>
@@ -1265,7 +1230,6 @@ export function DiscoverWatchlistPage({
                             <input 
                               type="number" 
                               placeholder="최소 ROE (%)" 
-                              value={filters.minRoe || ''} 
                               onChange={e => setFilters({...filters, minRoe: Number(e.target.value)})} 
                               className="p-2.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm focus:border-orange-500/50 focus:outline-none transition-all" 
                             />
@@ -1276,7 +1240,6 @@ export function DiscoverWatchlistPage({
                             <input 
                               type="number" 
                               placeholder="최대 PER" 
-                              value={filters.maxPer || ''} 
                               onChange={e => setFilters({...filters, maxPer: Number(e.target.value)})} 
                               className="p-2.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm focus:border-orange-500/50 focus:outline-none transition-all" 
                             />
@@ -1287,7 +1250,6 @@ export function DiscoverWatchlistPage({
                             <input 
                               type="number" 
                               placeholder="최대 부채비율 (%)" 
-                              value={filters.maxDebtRatio || ''} 
                               onChange={e => setFilters({...filters, maxDebtRatio: Number(e.target.value)})} 
                               className="p-2.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm focus:border-orange-500/50 focus:outline-none transition-all" 
                             />
@@ -1298,7 +1260,6 @@ export function DiscoverWatchlistPage({
                             <input 
                               type="number" 
                               placeholder="최소 시총 (억)" 
-                              value={filters.minMarketCap || ''} 
                               onChange={e => setFilters({...filters, minMarketCap: Number(e.target.value)})} 
                               className="p-2.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm focus:border-orange-500/50 focus:outline-none transition-all" 
                             />
@@ -1312,14 +1273,10 @@ export function DiscoverWatchlistPage({
               </div>
             </div>
           </div>
-                  <AnimatePresence>
+                  <>
                     {isFilterExpanded || view !== 'DISCOVER' ? (
-                      <motion.div
+                      <div
                         key="filter-content"
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.3, ease: 'easeInOut' }}
                         className="flex flex-col gap-6 overflow-hidden"
                       >
                         {view === 'DISCOVER' ? (
@@ -1373,14 +1330,13 @@ export function DiscoverWatchlistPage({
                             {/* Pattern Filter */}
                             <div className="flex flex-col gap-2">
                               <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] px-1">기술적 패턴</span>
-                              <select 
-                                value={selectedPattern}
+                              <select
                                 onChange={(e) => setSelectedPattern(e.target.value)}
                                 className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm font-black text-white/60 focus:outline-none focus:border-orange-500/50 transition-all shadow-inner cursor-pointer h-[52px]"
                               >
-                                <option value="ALL">모든 패턴</option>
+                                <option>모든 패턴</option>
                                 {allPatterns.map(pattern => (
-                                  <option key={pattern} value={pattern}>{pattern}</option>
+                                  <option key={pattern}>{pattern}</option>
                                 ))}
                               </select>
                             </div>
@@ -1392,7 +1348,6 @@ export function DiscoverWatchlistPage({
                                 <input 
                                   type="number"
                                   placeholder="최소"
-                                  value={minPrice}
                                   onChange={(e) => setMinPrice(e.target.value)}
                                   className="w-20 bg-transparent border-none text-xs font-black text-white placeholder:text-white/20 focus:outline-none px-2"
                                 />
@@ -1400,7 +1355,6 @@ export function DiscoverWatchlistPage({
                                 <input 
                                   type="number"
                                   placeholder="최대"
-                                  value={maxPrice}
                                   onChange={(e) => setMaxPrice(e.target.value)}
                                   className="w-20 bg-transparent border-none text-xs font-black text-white placeholder:text-white/20 focus:outline-none px-2"
                                 />
@@ -1461,12 +1415,10 @@ export function DiscoverWatchlistPage({
                             </p>
                           </div>
                         
-                      </motion.div>
+                      </div>
                     ) : (
-                      <motion.div
+                      <div
                         key="filter-collapsed"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
                         className="bg-white/[0.02] p-4 rounded-2xl border border-white/5 flex items-center justify-between"
                       >
                         <div className="flex items-center gap-4">
@@ -1490,14 +1442,12 @@ export function DiscoverWatchlistPage({
                         >
                           필터 펼치기
                         </button>
-                      </motion.div>
+                      </div>
                     )}
-                  </AnimatePresence>
+                  </>
 
 
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+          <div
             className="mb-8 sm:mb-12 bg-white/5 rounded-[1.5rem] sm:rounded-[2.5rem] p-4 sm:p-6 border border-white/10 shadow-inner"
           >
             <div className="flex items-center gap-3 mb-4">
@@ -1517,7 +1467,7 @@ export function DiscoverWatchlistPage({
                 </button>
               ))}
             </div>
-          </motion.div>
+          </div>
 
           {view === 'DISCOVER' && (
             <div className="mb-8 grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -1644,17 +1594,13 @@ export function DiscoverWatchlistPage({
               )}
               
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                <AnimatePresence mode="popLayout">
+                <>
                 {displayList.length > 0 ? (
                   displayList.map((stock, idx) => (
-                    <motion.div
+                    <div
                       key={stock.code}
                       id={`stock-${stock.code}`}
                       data-stock-code={stock.code}
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      transition={{ delay: idx * 0.05 }}
                       onClick={() => setSelectedDetailStock(stock)}
                       className={cn(
                         "glass-3d card-3d rounded-[2.5rem] p-0 transition-all duration-500 relative overflow-hidden flex flex-col h-full group border-white/5 hover:border-white/20 cursor-pointer",
@@ -1766,18 +1712,15 @@ export function DiscoverWatchlistPage({
                                       {stock.name}
                                       <Copy className="w-4 h-4 opacity-0 group-hover/copy:opacity-50 transition-opacity" />
                                     </h4>
-                                    <AnimatePresence>
+                                    <>
                                       {copiedCode === stock.code && (
-                                        <motion.span
-                                          initial={{ opacity: 0, y: 10 }}
-                                          animate={{ opacity: 1, y: 0 }}
-                                          exit={{ opacity: 0 }}
+                                        <span
                                           className="absolute -top-10 left-0 text-[10px] font-black text-green-400 uppercase tracking-widest bg-green-500/20 backdrop-blur-md px-2 py-1 rounded-lg border border-green-500/30 z-30"
                                         >
                                           Copied!
-                                        </motion.span>
+                                        </span>
                                       )}
-                                    </AnimatePresence>
+                                    </>
                                   </div>
                                   <span className="text-[10px] sm:text-[12px] font-black text-white/60 bg-white/10 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl border border-white/20 tracking-[0.15em] uppercase shrink-0 shadow-lg backdrop-blur-sm">
                                     {stock.code}
@@ -2261,14 +2204,11 @@ export function DiscoverWatchlistPage({
                           )}
                         </div>
                       </div>
-                    </motion.div>
+                    </div>
                   ))
                 ) : (
-                  <motion.div 
+                  <div 
                     key="empty-state"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
                     className="col-span-full py-24 text-center border-2 border-dashed border-white/5 rounded-[3rem] bg-white/[0.01]"
                   >
                     <div className="relative inline-block mb-6">
@@ -2294,9 +2234,9 @@ export function DiscoverWatchlistPage({
                         </button>
                       </div>
                     )}
-                  </motion.div>
+                  </div>
                 )}
-              </AnimatePresence>
+              </>
             </div>
           </div>
         )}

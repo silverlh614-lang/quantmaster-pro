@@ -17,12 +17,8 @@ import {
 } from 'lucide-react';
 import { evaluateStock } from '../services/quantEngine';
 import { ConditionId, MarketRegime, SectorRotation, EvaluationResult, MacroEnvironment } from '../types/quant';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface ManualQuantInputProps {
   regime: MarketRegime;

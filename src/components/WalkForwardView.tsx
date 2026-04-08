@@ -3,15 +3,10 @@ import {
   Info, RefreshCw, ShieldCheck, HelpCircle, Zap, TrendingUp,
   Target, CheckCircle2, Shield
 } from 'lucide-react';
-import { motion } from 'motion/react';
 import { performWalkForwardAnalysis, WalkForwardAnalysis } from '../services/stockService';
 import { toast } from 'sonner';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 export const WalkForwardView: React.FC = () => {
   const [walkForwardAnalysis, setWalkForwardAnalysis] = useState<WalkForwardAnalysis | null>(null);
@@ -47,11 +42,8 @@ export const WalkForwardView: React.FC = () => {
   };
 
   return (
-    <motion.div
+    <div
       key="walk-forward-view"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
       className="space-y-12"
     >
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
@@ -252,6 +244,6 @@ export const WalkForwardView: React.FC = () => {
           <p className="text-base text-white/10 font-bold">상단의 '분석 실행' 버튼을 눌러 Walk-Forward 분석을 시작하세요.</p>
         </div>
       )}
-    </motion.div>
+    </div>
   );
 };

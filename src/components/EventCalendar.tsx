@@ -11,14 +11,9 @@ import {
   Target,
   ShieldAlert
 } from 'lucide-react';
-import { motion } from 'motion/react';
 import { MacroEvent } from '../types/quant';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface EventCalendarProps {
   events: MacroEvent[];
@@ -61,11 +56,8 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({ events }) => {
 
       <div className="grid grid-cols-1 gap-4">
         {sortedEvents.map((event, idx) => (
-          <motion.div
+          <div
             key={event.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.1 }}
             className={cn(
               "relative overflow-hidden bg-[#151619] border rounded-2xl p-5 transition-all group",
               event.impact === 'HIGH' ? "border-red-500/30 hover:border-red-500/50" : 
@@ -149,7 +141,7 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({ events }) => {
                 </button>
               </div>
             </div>
-          </motion.div>
+          </div>
         ))}
       </div>
 

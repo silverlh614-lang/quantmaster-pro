@@ -9,13 +9,10 @@ import {
   Percent, Maximize2, ArrowRightLeft, ShieldAlert, Flame, Crown,
   CheckSquare
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import {
   Radar as RechartsRadar, RadarChart, PolarGrid,
   PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer
 } from 'recharts';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { QuantDashboard } from './QuantDashboard';
 import { ConfidenceBadge } from './ConfidenceBadge';
 import { CandleChart } from './CandleChart';
@@ -30,10 +27,8 @@ import type {
   MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal,
   StockProfile, Gate0Result
 } from '../types/quant';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 const demoRegime: MarketRegime = { type: '상승초기', weightMultipliers: { 1: 3.0, 2: 2.5, 3: 2.0 }, vKospi: 15.5, samsungIri: 0.85 };
 const demoSectorRotation: SectorRotation = { name: '반도체', rank: 1, strength: 85, isLeading: true, sectorLeaderNewHigh: false, leadingSectors: ['반도체', 'AI'] };
@@ -102,20 +97,14 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
   if (!stock) return null;
 
   return (
-    <AnimatePresence>
+    <>
       {stock && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+          <div
             className="fixed inset-0 z-[150] flex items-center justify-center p-4 md:p-6 bg-black/90 backdrop-blur-md"
             onClick={() => onClose()}
           >
-            <motion.div
+            <div
               ref={analysisReportRef}
-              initial={{ scale: 0.95, opacity: 0, y: 30 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 30 }}
               className="glass-3d rounded-[3rem] w-full max-w-[1600px] max-h-[94vh] border border-white/10 shadow-2xl overflow-hidden relative flex flex-col print-section"
               onClick={e => e.stopPropagation()}
             >
@@ -801,9 +790,7 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
                             </div>
                           </div>
                           <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                            <motion.div
-                              initial={{ width: 0 }}
-                              animate={{ width: `${stock.tenbaggerDNA.similarity}%` }}
+                            <div
                               className="h-full bg-gradient-to-r from-blue-600 to-blue-400"
                             />
                           </div>
@@ -1697,9 +1684,7 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
                           <span className="text-xl text-green-400/30">/27</span>
                         </div>
                         <div className="flex-1 h-3 bg-white/5 rounded-full overflow-hidden border border-white/5">
-                          <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: `${(Object.values(stock?.checklist || {}).filter(Boolean).length / 27) * 100}%` }}
+                          <div
                             className="h-full bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]"
                           />
                         </div>
@@ -1825,9 +1810,9 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
                   </div>
                 </div>
               </div>
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
       )}
-    </AnimatePresence>
+    </>
   );
 }

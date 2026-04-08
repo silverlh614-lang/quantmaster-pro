@@ -9,12 +9,8 @@ import {
   Layers
 } from 'lucide-react';
 import { SectorRotation } from '../types/quant';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface SectorHeatmapProps {
   sectors: SectorRotation[];

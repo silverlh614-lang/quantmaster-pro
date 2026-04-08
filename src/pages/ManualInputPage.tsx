@@ -1,5 +1,4 @@
 import React from 'react';
-import { motion } from 'motion/react';
 import { ManualQuantInput } from '../components/ManualQuantInput';
 import { useMarketStore } from '../stores';
 
@@ -7,11 +6,8 @@ export function ManualInputPage() {
   const { marketOverview } = useMarketStore();
 
   return (
-    <motion.div
+    <div
       key="manual-input-view"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
       className="space-y-12"
     >
       <ManualQuantInput
@@ -40,6 +36,6 @@ export function ManualInputPage() {
           sectorLeaderNewHigh: true
         }}
       />
-    </motion.div>
+    </div>
   );
 }

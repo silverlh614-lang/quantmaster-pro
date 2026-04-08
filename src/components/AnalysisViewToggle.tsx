@@ -1,10 +1,6 @@
 import React, { useState } from 'react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../utils/cn';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 type AnalysisView = 'STANDARD' | 'QUANT';
 

@@ -1,5 +1,4 @@
 import React from 'react';
-import { motion } from 'motion/react';
 import { SectorSubscription } from '../components/SectorSubscription';
 import { useSettingsStore, useRecommendationStore } from '../stores';
 
@@ -13,11 +12,8 @@ export function SubscriptionPage({ onAddSector, onRemoveSector }: SubscriptionPa
   const { recommendations, loading } = useRecommendationStore();
 
   return (
-    <motion.div
+    <div
       key="subscription-view"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
       className="space-y-12"
     >
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
@@ -38,6 +34,6 @@ export function SubscriptionPage({ onAddSector, onRemoveSector }: SubscriptionPa
         recommendations={recommendations}
         loading={loading}
       />
-    </motion.div>
+    </div>
   );
 }

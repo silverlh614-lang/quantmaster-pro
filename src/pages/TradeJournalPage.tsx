@@ -1,5 +1,4 @@
 import React from 'react';
-import { motion } from 'motion/react';
 import { TradeJournal } from '../components/TradeJournal';
 import { useTradeStore } from '../stores';
 import type { TradeRecord } from '../types/quant';
@@ -14,11 +13,8 @@ export function TradeJournalPage({ onCloseTrade, onDeleteTrade, onUpdateMemo }: 
   const { tradeRecords } = useTradeStore();
 
   return (
-    <motion.div
+    <div
       key="trade-journal-view"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
       className="space-y-12"
     >
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
@@ -36,6 +32,6 @@ export function TradeJournalPage({ onCloseTrade, onDeleteTrade, onUpdateMemo }: 
         onDeleteTrade={onDeleteTrade}
         onUpdateMemo={onUpdateMemo}
       />
-    </motion.div>
+    </div>
   );
 }
