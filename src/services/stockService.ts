@@ -182,19 +182,30 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 2000): Pr
       message = errObj;
     }
 
+    const msgLower = message.toLowerCase();
     const isRateLimit = message.includes('429') || status === 429 || code === 429 || status === 'RESOURCE_EXHAUSTED' || message.includes('quota');
-    const isServerError = message.includes('500') || message.includes('502') || message.includes('503') || message.includes('504') || 
-                        status === 500 || status === 502 || status === 503 || status === 504 || 
-                        code === 500 || code === 502 || code === 503 || code === 504 || 
+    const isServerError = message.includes('500') || message.includes('502') || message.includes('503') || message.includes('504') ||
+                        status === 500 || status === 502 || status === 503 || status === 504 ||
+                        code === 500 || code === 502 || code === 503 || code === 504 ||
                         status === 'UNKNOWN' || status === 'Internal Server Error' || (typeof status === 'string' && status.includes('500'));
-    const isXhrError = message.toLowerCase().includes('xhr error') || message.toLowerCase().includes('rpc failed') || 
-                      message.toLowerCase().includes('failed to fetch') || message.toLowerCase().includes('networkerror') ||
-                      message.toLowerCase().includes('aborted') || message.toLowerCase().includes('timeout') ||
-                      message.toLowerCase().includes('deadline exceeded');
+    const isXhrError = msgLower.includes('xhr error') || msgLower.includes('rpc failed') ||
+                      msgLower.includes('failed to fetch') || msgLower.includes('networkerror') ||
+                      msgLower.includes('aborted') || msgLower.includes('timeout') ||
+                      msgLower.includes('deadline exceeded');
     const isAiError = message.includes('No response from AI') || message.includes('Failed to parse AI response');
-    
+    const isInvalidArg = message.includes('400') || status === 400 || code === 400 ||
+                        status === 'INVALID_ARGUMENT' || msgLower.includes('invalid') ||
+                        msgLower.includes('not found') || msgLower.includes('not supported');
+    const isGroundingError = msgLower.includes('grounding') || msgLower.includes('google_search') ||
+                            msgLower.includes('googlesearch') || msgLower.includes('search tool');
+
     if (isRateLimit) {
       throw new Error('API 할당량 초과. 잠시 후 다시 시도해주세요.');
+    }
+
+    if (isInvalidArg || isGroundingError) {
+      console.error(`API 설정 오류 (${message || status || code}). 모델 또는 도구 설정을 확인해주세요.`);
+      throw new Error(`API 호출 오류: ${message || '잘못된 요청 설정입니다. API 키와 모델 설정을 확인해주세요.'}`);
     }
 
     if ((isServerError || isXhrError || isAiError) && retries > 0) {
@@ -2238,9 +2249,8 @@ export async function searchStock(query: string, filters?: {
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }],
-          toolConfig: { includeServerSideToolInvocations: true },
           maxOutputTokens: 8192,
-          temperature: 0,
+          temperature: 0.1,
         },
       });
       const text = response.text;
@@ -2298,8 +2308,6 @@ export async function parsePortfolioFile(content: string): Promise<{ name: strin
         model: "gemini-3-flash-preview",
         contents: prompt,
         config: {
-          tools: [{ googleSearch: {} }],
-          toolConfig: { includeServerSideToolInvocations: true },
           maxOutputTokens: 1024,
           temperature: 0,
         },
@@ -2868,7 +2876,7 @@ export async function getGeopoliticalRiskScore(): Promise<GeopoliticalRiskData> 
   const prompt = `
     현재 날짜: ${requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
 
-    아래 4가지 지정학 키워드로 최신 뉴스를 구글 검색해줘:
+    아래 4가지 지정학 키워드에 대한 최신 뉴스 동향을 분석해줘:
     1. "한반도 안보 리스크" 또는 "북한 도발" 또는 "한미동맹"
     2. "NATO 방산 예산" 또는 "유럽 국방비 증액"
     3. "원자력 에너지 정책" 또는 "SMR 소형원전 수출"
@@ -3651,7 +3659,7 @@ export async function fetchMacroEnvironment(): Promise<MacroEnvironment> {
     const prompt = `
 현재 한국 날짜: ${todayDate}
 
-Google 검색으로 아래 12개 거시 지표의 최신 실제 값을 수집하고, JSON 하나만 반환해줘.
+아래 12개 거시 지표의 최신 실제 값을 당신의 학습 데이터 기반으로 추정하여 JSON 하나만 반환해줘.
 (마크다운, 설명 없이 JSON만)
 
 수집 대상:
@@ -3918,7 +3926,7 @@ export async function getGlobalMultiSourceData(): Promise<GlobalMultiSourceData>
   const prompt = `
 현재 날짜: ${todayDate}
 
-아래 6개 글로벌 데이터 소스의 최신값을 Google 검색으로 수집하고 JSON으로 반환해줘.
+아래 6개 글로벌 데이터 소스의 최신값을 추정하여 JSON으로 반환해줘.
 이 데이터는 한국 증시의 선행지표로 활용됩니다.
 
 [1. CME FedWatch - 미국 금리 전망]
@@ -4046,7 +4054,7 @@ export async function getNewsFrequencyScores(
   const prompt = `
 현재 한국 날짜: ${todayDate}
 
-다음 종목들의 최근 30일간 뉴스 빈도를 Google 검색으로 조사해주세요: ${stockList}
+다음 종목들의 최근 30일간 뉴스 빈도를 추정해주세요: ${stockList}
 
 각 종목에 대해:
 1. "[종목명] 뉴스 최근" 검색
@@ -4116,7 +4124,7 @@ export async function getSupplyChainIntelligence(): Promise<SupplyChainIntellige
   const prompt = `
 현재 날짜: ${todayDate}
 
-아래 3개 공급망 선행지표의 최신값을 Google 검색으로 수집하고 JSON으로 반환해줘.
+아래 3개 공급망 선행지표의 최신값을 추정하여 JSON으로 반환해줘.
 한국 조선·반도체·해운 섹터의 선행지표로 활용됩니다.
 
 [1. Baltic Dry Index (BDI) — 벌크 해운 운임 지수]
@@ -4187,7 +4195,7 @@ export async function getSectorOrderIntelligence(): Promise<SectorOrderIntellige
   const prompt = `
 현재 날짜: ${todayDate}
 
-한국 증시 주도주 3대 섹터(조선·방산·원자력)의 글로벌 수주 데이터를 Google 검색으로 수집하고 JSON으로 반환해줘.
+한국 증시 주도주 3대 섹터(조선·방산·원자력)의 글로벌 수주 데이터를 추정하여 JSON으로 반환해줘.
 
 [1. 글로벌 방산 예산 트렌드]
 검색: "NATO defense spending GDP percentage ${todayDate}"
@@ -4262,7 +4270,7 @@ export async function getFinancialStressIndex(): Promise<FinancialStressIndex> {
   const prompt = `
 현재 날짜: ${todayDate}
 
-금융시스템 스트레스 조기경보 지표 3개를 Google 검색으로 수집하고 JSON으로 반환해줘.
+금융시스템 스트레스 조기경보 지표 3개를 추정하여 JSON으로 반환해줘.
 이 지표는 한국 증시 Gate 0 (매수 중단) 판단의 핵심 입력입니다.
 
 [1. TED Spread — 은행간 신용리스크]
