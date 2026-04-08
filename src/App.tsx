@@ -347,6 +347,7 @@ export default function App() {
   const { fetchStocks, handleMarketSearch, handleScreener, handleFetchNewsScores, loadingNews } = useStockSearch();
   const { toggleWatchlist, recordTrade, closeTrade, deleteTrade, updateTradeMemo, handleAddSector, handleRemoveSector } = useTradeOps();
   const { generatePDF, handleExportDeepAnalysisPDF, handleGenerateSummary, sendEmail, analysisReportRef } = useReportExport();
+  const { copiedCode, handleCopy } = useCopiedCode();
 
   // KIS 모의계좌 잔고 — 자동매매 투자금 기준
   const [kisBalance, setKisBalance] = useState<number>(100_000_000);
