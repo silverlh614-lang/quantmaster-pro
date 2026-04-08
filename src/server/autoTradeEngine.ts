@@ -52,6 +52,11 @@ export interface WatchlistEntry {
   targetPrice: number;   // 목표가
   addedAt: string;       // ISO
   gateScore?: number;    // 스크리닝 신뢰도 점수 (0~27)
+  // 아이디어 6: 진입 근거 메모 & 메타데이터
+  addedBy: 'AUTO' | 'MANUAL';     // 자동 발굴 vs 수동 추가
+  memo?: string;                   // 진입 근거 ("외국인 5일 연속 순매수, 52주 신고가 돌파")
+  sector?: string;                 // 섹터 정보 (섹터별 성과 분석용)
+  rrr?: number;                    // Risk-Reward Ratio (목표가-진입가) / (진입가-손절가)
 }
 
 export function loadWatchlist(): WatchlistEntry[] {
@@ -819,13 +824,17 @@ export async function autoPopulateWatchlist(): Promise<number> {
       if (existingCodes.has(s.code)) continue;
       if (s.changeRate < 2 || s.foreignNetBuy < 0) continue; // +2% 이상 & 외국인 순매수
 
+      const sl = Math.round(s.currentPrice * 0.92);
+      const tp = Math.round(s.currentPrice * 1.15);
       watchlist.push({
         code: s.code,
         name: s.name,
         entryPrice: s.currentPrice,
-        stopLoss: Math.round(s.currentPrice * 0.92),
-        targetPrice: Math.round(s.currentPrice * 1.15),
+        stopLoss: sl,
+        targetPrice: tp,
         addedAt: new Date().toISOString(),
+        addedBy: 'AUTO',
+        rrr: parseFloat(((tp - s.currentPrice) / (s.currentPrice - sl || 1)).toFixed(2)),
       });
       existingCodes.add(s.code);
       added++;
@@ -850,14 +859,19 @@ export async function autoPopulateWatchlist(): Promise<number> {
       continue;
     }
 
+    const sl = Math.round(quote.price * 0.92);
+    const tp = Math.round(quote.price * 1.15);
     watchlist.push({
       code: stock.code,
       name: stock.name,
       entryPrice: quote.price,
-      stopLoss: Math.round(quote.price * 0.92),
-      targetPrice: Math.round(quote.price * 1.15),
+      stopLoss: sl,
+      targetPrice: tp,
       addedAt: new Date().toISOString(),
       gateScore: gate.gateScore,
+      addedBy: 'AUTO',
+      memo: `${gate.signalType} gate=${gate.gateScore}/8 ${gate.details.join(', ')}`,
+      rrr: parseFloat(((tp - quote.price) / (quote.price - sl || 1)).toFixed(2)),
     });
     existingCodes.add(stock.code);
     added++;
@@ -1159,7 +1173,7 @@ export async function evaluateRecommendations(): Promise<void> {
     `STRONG_BUY 적중률: <b>${stats.strongBuyWinRate.toFixed(1)}%</b>`
   ).catch(console.error);
 
-  // ── 아이디어 10: 실거래 전환 자동 판단 + Telegram 가이드 ──
+  // ── 아이디어 4+10: 실거래 전환 체크리스트 자동화 (6개 조건) ──
   const shadows = loadShadowTrades();
   const closedShadows = shadows.filter(
     (s) => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP'
@@ -1179,32 +1193,75 @@ export async function evaluateRecommendations(): Promise<void> {
   const totalLoss = Math.abs(shadowReturns.filter((r) => r <= 0).reduce((a, b) => a + b, 0));
   const profitFactor = totalLoss > 0 ? totalWin / totalLoss : totalWin > 0 ? Infinity : 0;
 
+  // 아이디어 4: 평균 보유기간 (거래일 기준)
+  const holdingDays = closedShadows
+    .filter((s) => s.exitTime && s.signalTime)
+    .map((s) => {
+      const ms = new Date(s.exitTime!).getTime() - new Date(s.signalTime).getTime();
+      return ms / (1000 * 60 * 60 * 24);
+    });
+  const avgHoldingDays = holdingDays.length > 0
+    ? holdingDays.reduce((a, b) => a + b, 0) / holdingDays.length
+    : 0;
+
+  // 아이디어 4: 연속 손절 최대 횟수 계산
+  let maxConsecLoss = 0, currentStreak = 0;
+  for (const s of closedShadows) {
+    if (s.status === 'HIT_STOP') {
+      currentStreak++;
+      maxConsecLoss = Math.max(maxConsecLoss, currentStreak);
+    } else {
+      currentStreak = 0;
+    }
+  }
+
+  // 아이디어 4: 6개 전환 요건 체크리스트
+  const closedCount = closedShadows.length;
+  const winRate = closedCount > 0 ? (closedShadows.filter(s => s.status === 'HIT_TARGET').length / closedCount) * 100 : 0;
+
   const readyChecks = {
-    sampleSize:   stats.total >= 30,
-    winRate:      stats.winRate >= 55,
-    profitFactor: profitFactor >= 1.5,
-    mddSafe:     mdd > -10,
+    sampleSize:     closedCount >= 30,                          // ≥ 30건
+    winRate:        winRate >= 55,                               // ≥ 55%
+    profitFactor:   profitFactor >= 1.5,                         // ≥ 1.5
+    mddSafe:        mdd > -10,                                  // > -10%
+    holdingPeriod:  avgHoldingDays >= 3 && avgHoldingDays <= 15, // 3~15 거래일
+    consecLoss:     maxConsecLoss <= 3,                          // 연속 손절 ≤ 3회
   };
 
   const passCount  = Object.values(readyChecks).filter(Boolean).length;
   const totalChecks = Object.keys(readyChecks).length;
 
+  // 프로그레스 바 생성 헬퍼
+  const progressBar = (current: number, target: number, width = 10): string => {
+    const ratio = Math.min(current / (target || 1), 1);
+    const filled = Math.round(ratio * width);
+    return '▓'.repeat(filled) + '░'.repeat(width - filled) + ` ${Math.round(ratio * 100)}%`;
+  };
+
   if (passCount === totalChecks) {
     await sendTelegramAlert(
       `🎯 <b>[QuantMaster] 실거래 전환 가능!</b>\n` +
-      `Shadow ${stats.total}건 검증 완료\n` +
-      `승률: ${stats.winRate.toFixed(1)}% ✅\n` +
-      `PF: ${profitFactor.toFixed(2)} ✅ | MDD: ${mdd.toFixed(2)}% ✅\n` +
+      `Shadow ${closedCount}건 검증 완료 — 모든 조건 충족\n` +
+      `✅ 건수: ${closedCount}/30\n` +
+      `✅ 승률: ${winRate.toFixed(1)}%\n` +
+      `✅ PF: ${profitFactor.toFixed(2)}\n` +
+      `✅ MDD: ${mdd.toFixed(2)}%\n` +
+      `✅ 보유기간: ${avgHoldingDays.toFixed(1)}일\n` +
+      `✅ 연속손절: 최대 ${maxConsecLoss}회\n` +
       `→ KIS_IS_REAL=true 전환 검토하세요`
     ).catch(console.error);
     console.log('[자기학습] 🎯 실거래 전환 조건 모두 충족!');
   } else {
+    const remaining = 30 - closedCount;
     await sendTelegramAlert(
-      `📊 <b>[전환 진행률] ${passCount}/${totalChecks} 조건 충족</b>\n` +
-      `건수: ${stats.total}/30 ${readyChecks.sampleSize ? '✅' : '⏳'}\n` +
-      `승률: ${stats.winRate.toFixed(1)}%/55% ${readyChecks.winRate ? '✅' : '❌'}\n` +
+      `📊 <b>[실거래 전환 진행률] ${passCount}/${totalChecks} 조건 충족</b>\n` +
+      `건수: ${closedCount}/30 ${progressBar(closedCount, 30)} ${readyChecks.sampleSize ? '✅' : '⏳'}\n` +
+      `승률: ${winRate.toFixed(1)}%/55% ${readyChecks.winRate ? '✅' : '❌'}\n` +
       `PF: ${profitFactor.toFixed(2)}/1.5 ${readyChecks.profitFactor ? '✅' : '❌'}\n` +
-      `MDD: ${mdd.toFixed(2)}%/-10% ${readyChecks.mddSafe ? '✅' : '❌'}`
+      `MDD: ${mdd.toFixed(2)}%/-10% ${readyChecks.mddSafe ? '✅' : '❌'}\n` +
+      `보유기간: ${avgHoldingDays.toFixed(1)}일/3~15일 ${readyChecks.holdingPeriod ? '✅' : '❌'}\n` +
+      `연속손절: ${maxConsecLoss}회/≤3회 ${readyChecks.consecLoss ? '✅' : '❌'}` +
+      (remaining > 0 ? `\n→ ${remaining}건 더 쌓이면 전환 검토 가능` : '')
     ).catch(console.error);
     console.log(`[자기학습] 전환 진행률: ${passCount}/${totalChecks}`);
   }

@@ -577,6 +577,14 @@ async function startServer() {
     if (!entry.code || !entry.name) {
       return res.status(400).json({ error: 'code, name 필수' });
     }
+    // 아이디어 6: 수동 추가 시 기본값 설정
+    if (!entry.addedBy) entry.addedBy = 'MANUAL';
+    if (entry.entryPrice && entry.stopLoss && entry.targetPrice && !entry.rrr) {
+      const denom = entry.entryPrice - entry.stopLoss;
+      entry.rrr = denom > 0
+        ? parseFloat(((entry.targetPrice - entry.entryPrice) / denom).toFixed(2))
+        : 0;
+    }
     const list = loadWatchlist();
     const idx = list.findIndex((e) => e.code === entry.code);
     if (idx >= 0) list[idx] = entry; else list.push({ ...entry, addedAt: new Date().toISOString() });
@@ -741,12 +749,27 @@ async function startServer() {
     const totalWin = wins.length > 0 ? wins.reduce((a: number, b: number) => a + b, 0) : 0;
     const totalLoss = losses.length > 0 ? losses.reduce((a: number, b: number) => a + b, 0) : 0;
 
-    // 실거래 전환 가이드: 최소 20건 결산 & 승률 55% 이상 & MDD -10% 이내
-    const readyForLive = closed.length >= 20 && winRate >= 55 && mdd > -10;
-    const reasons: string[] = [];
-    if (closed.length < 20)  reasons.push(`결산 ${closed.length}건 < 20건`);
-    if (winRate < 55)        reasons.push(`승률 ${winRate.toFixed(1)}% < 55%`);
-    if (mdd <= -10)          reasons.push(`MDD ${mdd.toFixed(2)}% ≤ -10%`);
+    // 아이디어 4: 연속 손절 최대 횟수
+    let maxConsecLoss = 0, streak = 0;
+    for (const s of closed) {
+      if ((s as any).status === 'HIT_STOP') { streak++; maxConsecLoss = Math.max(maxConsecLoss, streak); }
+      else { streak = 0; }
+    }
+
+    const pf = parseFloat(Math.abs(totalWin / (totalLoss || 1)).toFixed(2));
+
+    // 아이디어 4: 6개 전환 요건 체크리스트
+    const checklist = {
+      sampleSize:    { pass: closed.length >= 30,                             label: `건수 ${closed.length}/30` },
+      winRate:       { pass: winRate >= 55,                                   label: `승률 ${winRate.toFixed(1)}%/55%` },
+      profitFactor:  { pass: pf >= 1.5,                                       label: `PF ${pf}/1.5` },
+      mdd:           { pass: mdd > -10,                                       label: `MDD ${mdd.toFixed(2)}%/-10%` },
+      holdingPeriod: { pass: avgHoldingDays >= 3 && avgHoldingDays <= 15,     label: `보유 ${avgHoldingDays.toFixed(1)}일/3~15일` },
+      consecLoss:    { pass: maxConsecLoss <= 3,                              label: `연속손절 ${maxConsecLoss}회/≤3회` },
+    };
+    const passCount = Object.values(checklist).filter(c => c.pass).length;
+    const readyForLive = passCount === Object.keys(checklist).length;
+    const reasons = Object.values(checklist).filter(c => !c.pass).map(c => c.label);
 
     res.json({
       total: closed.length,
@@ -754,12 +777,14 @@ async function startServer() {
       avgReturn: parseFloat(avgReturn.toFixed(2)),
       avgWin: wins.length > 0 ? parseFloat((totalWin / wins.length).toFixed(2)) : 0,
       avgLoss: losses.length > 0 ? parseFloat((totalLoss / losses.length).toFixed(2)) : 0,
-      profitFactor: parseFloat(Math.abs(totalWin / (totalLoss || 1)).toFixed(2)),
+      profitFactor: pf,
       sharpeRatio: parseFloat((stdDev > 0 ? avgReturn / stdDev : 0).toFixed(2)),
       mdd: parseFloat(mdd.toFixed(2)),
       avgHoldingDays: parseFloat(avgHoldingDays.toFixed(1)),
+      maxConsecLoss,
+      checklist,
       readyForLive,
-      reason: readyForLive ? '실거래 전환 조건 충족' : reasons.join(' / '),
+      reason: readyForLive ? '실거래 전환 조건 충족 ✅' : reasons.join(' / '),
     });
   });
 

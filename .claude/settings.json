@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npx --no-install tsc --noEmit --pretty)",
-      "Bash(node -e \"require\\('typescript'\\)\")"
+      "Bash(node -e \"require\\('typescript'\\)\")",
+      "Bash(npm run:*)"
     ]
   }
 }
