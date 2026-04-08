@@ -277,7 +277,7 @@ const demoStockData: Record<number, number> = {
 import { MarketTicker } from './components/MarketTicker';
 import { TradingChecklist } from './components/TradingChecklist';
 import { useShadowTradeStore } from './stores/useShadowTradeStore';
-import { buildShadowTrade } from './services/autoTrading';
+import { buildShadowTrade, resolveShadowTrade } from './services/autoTrading';
 
 // ── Zustand Stores ─────────────────────────────────────────────────────────
 import { useSettingsStore, useGlobalIntelStore, useRecommendationStore, useMarketStore, useTradeStore, useAnalysisStore, usePortfolioStore } from './stores';
@@ -368,7 +368,19 @@ export default function App() {
   } = useSettingsStore();
 
   // Shadow Trading 스토어
-  const { addShadowTrade, shadowTrades, winRate, avgReturn } = useShadowTradeStore();
+  const { addShadowTrade, updateShadowTrade, shadowTrades, winRate, avgReturn } = useShadowTradeStore();
+
+  // KIS 모의계좌 잔고 — 자동매매 투자금 기준
+  const [kisBalance, setKisBalance] = useState<number>(100_000_000);
+  useEffect(() => {
+    fetch('/api/kis/balance')
+      .then(res => res.json())
+      .then(data => {
+        const cash = Number(data.output2?.[0]?.dnca_tot_amt ?? data.output?.dnca_tot_amt ?? 0);
+        if (cash > 0) setKisBalance(cash);
+      })
+      .catch(() => {}); // 실패 시 기본값 유지
+  }, []);
 
   // ── TanStack Query: 12개 글로벌 인텔리전스 자동 로딩 + 30분 캐시 + 자동 재시도 ──
   const globalIntelQueries = useAllGlobalIntel();
@@ -500,6 +512,36 @@ export default function App() {
 
   useEffect(() => {
     watchlistRef.current = watchlist;
+  }, [watchlist]);
+
+  // 서버 자동매매 워치리스트 동기화 — 클라이언트 watchlist 변경 시 서버에 반영
+  const prevWatchlistCodesRef = useRef<string[]>([]);
+  useEffect(() => {
+    const currentCodes = (watchlist || []).map(s => s.code);
+    const prevCodes = prevWatchlistCodesRef.current;
+    prevWatchlistCodesRef.current = currentCodes;
+
+    // 추가된 종목 → POST
+    const added = (watchlist || []).filter(s => !prevCodes.includes(s.code));
+    for (const stock of added) {
+      fetch('/api/auto-trade/watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: stock.code,
+          name: stock.name,
+          entryPrice: stock.entryPrice ?? stock.currentPrice ?? 0,
+          stopLoss: stock.stopLoss ?? 0,
+          targetPrice: stock.targetPrice ?? 0,
+        }),
+      }).catch(() => {});
+    }
+
+    // 제거된 종목 → DELETE
+    const removed = prevCodes.filter(code => !currentCodes.includes(code));
+    for (const code of removed) {
+      fetch(`/api/auto-trade/watchlist/${code}`, { method: 'DELETE' }).catch(() => {});
+    }
   }, [watchlist]);
 
   useEffect(() => {
@@ -763,6 +805,31 @@ export default function App() {
     const interval = setInterval(syncPrices, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [recommendations.length]); // Only re-run if the list changes
+
+  // Shadow Trade resolution — 5분마다 PENDING/ACTIVE 거래의 현재가를 확인하여 결과 갱신
+  useEffect(() => {
+    const activeTrades = shadowTrades.filter(t => t.status === 'PENDING' || t.status === 'ACTIVE');
+    if (activeTrades.length === 0) return;
+
+    const resolveTrades = async () => {
+      for (const trade of activeTrades) {
+        try {
+          const price = await fetchCurrentPrice(trade.stockCode);
+          if (!price) continue;
+          const updates = resolveShadowTrade(trade, price);
+          if (updates && Object.keys(updates).length > 0) {
+            updateShadowTrade(trade.id, updates);
+          }
+        } catch (e) {
+          console.error(`[Shadow] ${trade.stockCode} resolve 실패:`, e);
+        }
+      }
+    };
+
+    resolveTrades();
+    const interval = setInterval(resolveTrades, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [shadowTrades.filter(t => t.status === 'PENDING' || t.status === 'ACTIVE').length]);
 
   // Initial app start sync for top indices
   useEffect(() => {
@@ -2479,6 +2546,71 @@ export default function App() {
                 </div>
               </div>
               <TradingChecklist />
+
+              {/* Shadow Trade 목록 */}
+              {shadowTrades.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-black text-white/60 uppercase tracking-widest">Shadow Trades</h3>
+                    <span className="text-xs text-white/30">{shadowTrades.filter(t => t.status === 'ACTIVE' || t.status === 'PENDING').length}건 진행 중</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {shadowTrades.map(trade => (
+                      <div
+                        key={trade.id}
+                        className={cn(
+                          "p-5 rounded-2xl border backdrop-blur-md",
+                          trade.status === 'HIT_TARGET' ? "bg-green-500/10 border-green-500/30" :
+                          trade.status === 'HIT_STOP' ? "bg-red-500/10 border-red-500/30" :
+                          trade.status === 'ACTIVE' ? "bg-violet-500/10 border-violet-500/30" :
+                          "bg-white/5 border-white/10"
+                        )}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-black text-white">{trade.stockName}</span>
+                            <span className="text-[10px] text-white/40 font-bold">{trade.stockCode}</span>
+                          </div>
+                          <span className={cn(
+                            "text-[10px] font-black uppercase px-2 py-1 rounded-lg",
+                            trade.status === 'HIT_TARGET' ? "bg-green-500/20 text-green-400" :
+                            trade.status === 'HIT_STOP' ? "bg-red-500/20 text-red-400" :
+                            trade.status === 'ACTIVE' ? "bg-violet-500/20 text-violet-400" :
+                            "bg-white/10 text-white/40"
+                          )}>
+                            {trade.status === 'HIT_TARGET' ? 'TARGET HIT' :
+                             trade.status === 'HIT_STOP' ? 'STOP HIT' :
+                             trade.status === 'ACTIVE' ? 'ACTIVE' : 'PENDING'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3 text-center">
+                          <div>
+                            <p className="text-[9px] text-white/30 uppercase">진입가</p>
+                            <p className="text-sm font-bold text-white">{trade.shadowEntryPrice.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] text-white/30 uppercase">손절</p>
+                            <p className="text-sm font-bold text-red-400">{trade.stopLoss.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] text-white/30 uppercase">목표</p>
+                            <p className="text-sm font-bold text-green-400">{trade.targetPrice.toLocaleString()}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/5">
+                          <span className="text-[10px] text-white/20">{trade.quantity}주 · Kelly {(trade.kellyFraction * 100).toFixed(0)}%</span>
+                          {trade.returnPct != null && (
+                            <span className={cn("text-sm font-black", trade.returnPct >= 0 ? "text-green-400" : "text-red-400")}>
+                              {trade.returnPct >= 0 ? '+' : ''}{trade.returnPct.toFixed(2)}%
+                            </span>
+                          )}
+                          <span className="text-[10px] text-white/20">{new Date(trade.signalTime).toLocaleDateString('ko-KR')}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </motion.div>
           ) : view === 'TRADE_JOURNAL' ? (
             <motion.div
@@ -4978,7 +5110,7 @@ export default function App() {
                             {(stock.type === 'STRONG_BUY' || stock.type === 'BUY') && (
                               <button
                                 onClick={() => {
-                                  const totalAssets = 100_000_000; // 기본 1억 (모의계좌 초기자금)
+                                  const totalAssets = kisBalance;
                                   const mockSignal = {
                                     positionSize: stock.type === 'STRONG_BUY' ? 20 : 10,
                                     rrr: 2,
@@ -5491,7 +5623,7 @@ export default function App() {
                   stockName={deepAnalysisStock?.name}
                   currentPrice={deepAnalysisStock?.currentPrice}
                   onShadowTrade={(code, name, price) => {
-                    const totalAssets = 100_000_000;
+                    const totalAssets = kisBalance;
                     const mockSignal = {
                       positionSize: deepAnalysisStock?.confidenceScore && deepAnalysisStock.confidenceScore >= 80 ? 20 : 10,
                       rrr: 2,
