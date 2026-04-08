@@ -701,19 +701,11 @@ async function startServer() {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
 
-    // ─── 아이디어 1: 서버사이드 cron 자동매매 스케줄러 ───────────────────────
-    if (process.env.AUTO_TRADE_ENABLED !== 'true') {
-      console.log('[AutoTrade] 비활성화 상태 (AUTO_TRADE_ENABLED=true 로 켜세요)');
-      return;
-    }
-
-    // 장 시작 전 워밍업 — 08:55 KST (UTC 23:55 전날)
-    // + 아이디어 4: 전종목 사전 스크리닝
+    // ─── 종목 자동 발굴 (AUTO_TRADE_ENABLED 무관, 항상 실행) ────────────────
     cron.schedule('55 23 * * 0-4', async () => {
-      console.log('[AutoTrade] 장 전 워밍업 시작 (KST 08:55)');
+      console.log('[AutoPopulate] 장 전 종목 자동 발굴 (KST 08:55)');
       await refreshKisToken().catch(console.error);
       await preScreenStocks().catch(console.error);
-      // preScreenStocks 결과 + Yahoo Finance 모멘텀 → 워치리스트 자동 채우기
       const added = await autoPopulateWatchlist().catch(() => 0);
       if (added && added > 0) {
         await sendTelegramAlert(
@@ -721,6 +713,12 @@ async function startServer() {
         ).catch(console.error);
       }
     }, { timezone: 'UTC' });
+
+    // ─── 아이디어 1: 서버사이드 cron 자동매매 스케줄러 ───────────────────────
+    if (process.env.AUTO_TRADE_ENABLED !== 'true') {
+      console.log('[AutoTrade] 비활성화 상태 — 종목 발굴만 실행됩니다');
+      return;
+    }
 
     // 장중 신호 스캔 — 평일 09:05 ~ 15:25, 5분 간격 (KST = UTC+9)
     // UTC 00:05~06:25 → cron: */5 0-6 * * 1-5 (대략, 세밀 제어는 함수 내부에서)

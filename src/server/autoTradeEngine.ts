@@ -539,7 +539,7 @@ const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = [
 ];
 
 async function fetchYahooQuote(symbol: string): Promise<{
-  price: number; changePercent: number; volume: number;
+  price: number; changePercent: number; volume: number; avgVolume: number;
 } | null> {
   try {
     const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=5d&interval=1d`;
@@ -553,13 +553,18 @@ async function fetchYahooQuote(symbol: string): Promise<{
 
     const meta = result.meta;
     const closes = result.indicators?.quote?.[0]?.close ?? [];
-    const volumes = result.indicators?.quote?.[0]?.volume ?? [];
+    const volumes: number[] = result.indicators?.quote?.[0]?.volume ?? [];
     const price = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 0;
     const prevClose = meta.chartPreviousClose ?? closes[closes.length - 2] ?? price;
     const changePercent = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
     const volume = volumes[volumes.length - 1] ?? 0;
+    // 5일 평균 거래량 (당일 제외)
+    const pastVolumes = volumes.slice(0, -1).filter((v: number) => v > 0);
+    const avgVolume = pastVolumes.length > 0
+      ? pastVolumes.reduce((s: number, v: number) => s + v, 0) / pastVolumes.length
+      : volume;
 
-    return { price: Math.round(price), changePercent, volume };
+    return { price: Math.round(price), changePercent, volume, avgVolume };
   } catch {
     return null;
   }
@@ -607,8 +612,8 @@ export async function autoPopulateWatchlist(): Promise<number> {
     const quote = await fetchYahooQuote(stock.symbol);
     if (!quote || quote.price <= 0) continue;
 
-    // 필터: +2% 이상 상승 + 거래량 50만주 이상
-    if (quote.changePercent < 2 || quote.volume < 500_000) continue;
+    // 필터: +1.5% 이상 상승 + 거래량이 5일 평균의 1.5배 이상 (상대 기준)
+    if (quote.changePercent < 1.5 || quote.volume < quote.avgVolume * 1.5) continue;
 
     watchlist.push({
       code: stock.code,
