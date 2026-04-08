@@ -183,6 +183,27 @@ async function fetchCurrentPrice(code: string): Promise<number | null> {
   return price > 0 ? price : null;
 }
 
+// ─── 계좌 잔고 조회 ──────────────────────────────────────────────────────────────
+
+async function fetchAccountBalance(): Promise<number | null> {
+  const trId = KIS_IS_REAL ? 'TTTC8434R' : 'VTTC8434R';
+  const data = await kisGet(trId, '/uapi/domestic-stock/v1/trading/inquire-balance', {
+    CANO: process.env.KIS_ACCOUNT_NO ?? '',
+    ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
+    AFHR_FLPR_YN: 'N',
+    OFL_YN: '',
+    INQR_DVSN: '02',
+    UNPR_DVSN: '01',
+    FUND_STTL_ICLD_YN: 'N',
+    FNCG_AMT_AUTO_RDPT_YN: 'N',
+    PRCS_DVSN: '01',
+    CTX_AREA_FK100: '',
+    CTX_AREA_NK100: '',
+  });
+  const cash = Number(data?.output2?.[0]?.dnca_tot_amt ?? 0);
+  return cash > 0 ? cash : null;
+}
+
 // ─── 아이디어 1: 신호 스캔 ──────────────────────────────────────────────────────
 
 /**
@@ -201,9 +222,16 @@ export async function runAutoSignalScan(): Promise<void> {
   if (watchlist.length === 0) return;
 
   const shadowMode = process.env.AUTO_TRADE_MODE !== 'LIVE'; // 기본 Shadow 모드
-  const totalAssets = Number(process.env.AUTO_TRADE_ASSETS ?? 100_000_000);
 
-  console.log(`[AutoTrade] 스캔 시작 — ${watchlist.length}개 종목 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'}`);
+  // 투자 총자산: KIS 계좌 잔고 → 환경변수 → 기본값 순으로 결정
+  let totalAssets = Number(process.env.AUTO_TRADE_ASSETS || 0);
+  if (!totalAssets) {
+    const balance = await fetchAccountBalance().catch(() => null);
+    totalAssets = balance ?? 30_000_000; // 모의계좌 기본 3천만원
+    console.log(`[AutoTrade] 계좌 잔고 조회 → ${totalAssets.toLocaleString()}원`);
+  }
+
+  console.log(`[AutoTrade] 스캔 시작 — ${watchlist.length}개 종목 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'} / 총자산: ${totalAssets.toLocaleString()}원`);
 
   const shadows = loadShadowTrades();
 
