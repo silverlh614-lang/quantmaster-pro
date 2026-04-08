@@ -46,6 +46,7 @@ export interface WatchlistEntry {
   stopLoss: number;      // 절대가 손절선
   targetPrice: number;   // 목표가
   addedAt: string;       // ISO
+  gateScore?: number;    // 스크리닝 신뢰도 점수 (0~27)
 }
 
 export function loadWatchlist(): WatchlistEntry[] {
@@ -249,15 +250,23 @@ export async function runAutoSignalScan(): Promise<void> {
 
       if (!(nearEntry || breakout) || !aboveStop) continue;
 
-      // 이미 동일 종목 ACTIVE 신호 있으면 중복 방지
-      const alreadyActive = shadows.some(
-        (s) => s.stockCode === stock.code && (s.status === 'PENDING' || s.status === 'ACTIVE')
+      // 버그 6 수정: 당일 재진입 방지 — PENDING/ACTIVE 및 당일 이미 거래한 종목 제외
+      const today = new Date().toISOString().split('T')[0];
+      const alreadyTraded = shadows.some(
+        (s) => s.stockCode === stock.code &&
+        (s.status === 'PENDING' || s.status === 'ACTIVE' ||
+         s.signalTime.startsWith(today))
       );
-      if (alreadyActive) continue;
+      if (alreadyTraded) continue;
 
       const slippage = 0.003;
       const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));
-      const positionPct = 0.10; // 기본 10% Kelly
+      // 버그 5 수정: Gate 점수 기반 간이 Kelly 포지션 사이징
+      const gateScore = stock.gateScore ?? 0;
+      const positionPct = gateScore >= 25 ? 0.12
+                        : gateScore >= 20 ? 0.08
+                        : gateScore >= 15 ? 0.05
+                        : 0.03;
       const quantity = Math.floor((totalAssets * positionPct) / shadowEntryPrice);
 
       if (quantity < 1) continue;
@@ -276,6 +285,7 @@ export async function runAutoSignalScan(): Promise<void> {
       };
 
       // 아이디어 10: 추천 기록 — 신호 발생 즉시 저장 (WIN/LOSS 추후 평가)
+      // 버그 4 수정: gateScore·signalType을 워치리스트 entry에서 가져와 자기학습 통계 정상화
       addRecommendation({
         stockCode:        stock.code,
         stockName:        stock.name,
@@ -283,9 +293,9 @@ export async function runAutoSignalScan(): Promise<void> {
         priceAtRecommend: currentPrice,
         stopLoss:         stock.stopLoss,
         targetPrice:      stock.targetPrice,
-        kellyPct:         10,
-        gateScore:        0, // 서버사이드 간이 스캔 — 정밀 점수 없음
-        signalType:       'BUY',
+        kellyPct:         Math.round(positionPct * 100),
+        gateScore:        gateScore,
+        signalType:       gateScore >= 25 ? 'STRONG_BUY' : 'BUY',
       });
 
       if (shadowMode) {
@@ -511,38 +521,124 @@ export async function preScreenStocks(): Promise<ScreenedStock[]> {
 
 // ─── 자동 워치리스트 채우기 (Yahoo Finance 기반 — VTS 호환) ─────────────────────
 
-// KOSPI/KOSDAQ 주요 종목 풀 — Yahoo Finance 심볼
+// 버그 7 수정: KOSPI/KOSDAQ 주요 종목 풀 확장 (30 → 120개) — 스크리닝 다양성 확보
 const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = [
+  // ── KOSPI 대형주 (시총 상위) ──
   { symbol: '005930.KS', code: '005930', name: '삼성전자' },
   { symbol: '000660.KS', code: '000660', name: 'SK하이닉스' },
-  { symbol: '035420.KS', code: '035420', name: 'NAVER' },
-  { symbol: '035720.KS', code: '035720', name: '카카오' },
-  { symbol: '051910.KS', code: '051910', name: 'LG화학' },
-  { symbol: '006400.KS', code: '006400', name: '삼성SDI' },
-  { symbol: '003670.KS', code: '003670', name: '포스코퓨처엠' },
-  { symbol: '068270.KS', code: '068270', name: '셀트리온' },
+  { symbol: '373220.KS', code: '373220', name: 'LG에너지솔루션' },
   { symbol: '207940.KS', code: '207940', name: '삼성바이오로직스' },
   { symbol: '005380.KS', code: '005380', name: '현대차' },
   { symbol: '000270.KS', code: '000270', name: '기아' },
-  { symbol: '012330.KS', code: '012330', name: '현대모비스' },
-  { symbol: '055550.KS', code: '055550', name: '신한지주' },
+  { symbol: '068270.KS', code: '068270', name: '셀트리온' },
+  { symbol: '035420.KS', code: '035420', name: 'NAVER' },
+  { symbol: '006400.KS', code: '006400', name: '삼성SDI' },
+  { symbol: '051910.KS', code: '051910', name: 'LG화학' },
+  { symbol: '035720.KS', code: '035720', name: '카카오' },
   { symbol: '105560.KS', code: '105560', name: 'KB금융' },
-  { symbol: '086790.KS', code: '086790', name: '하나금융지주' },
+  { symbol: '055550.KS', code: '055550', name: '신한지주' },
+  { symbol: '012330.KS', code: '012330', name: '현대모비스' },
   { symbol: '066570.KS', code: '066570', name: 'LG전자' },
+  { symbol: '086790.KS', code: '086790', name: '하나금융지주' },
   { symbol: '003550.KS', code: '003550', name: 'LG' },
   { symbol: '034730.KS', code: '034730', name: 'SK' },
   { symbol: '028260.KS', code: '028260', name: '삼성물산' },
   { symbol: '032830.KS', code: '032830', name: '삼성생명' },
   { symbol: '009150.KS', code: '009150', name: '삼성전기' },
+  { symbol: '000810.KS', code: '000810', name: '삼성화재' },
+  { symbol: '017670.KS', code: '017670', name: 'SK텔레콤' },
   { symbol: '010130.KS', code: '010130', name: '고려아연' },
   { symbol: '047050.KS', code: '047050', name: '포스코인터내셔널' },
-  { symbol: '373220.KS', code: '373220', name: 'LG에너지솔루션' },
+  { symbol: '003670.KS', code: '003670', name: '포스코퓨처엠' },
+  // ── KOSPI 중형주 ──
+  { symbol: '096770.KS', code: '096770', name: 'SK이노베이션' },
+  { symbol: '015760.KS', code: '015760', name: '한국전력' },
+  { symbol: '034020.KS', code: '034020', name: '두산에너빌리티' },
+  { symbol: '011200.KS', code: '011200', name: 'HMM' },
+  { symbol: '036570.KS', code: '036570', name: '엔씨소프트' },
+  { symbol: '009540.KS', code: '009540', name: '한국조선해양' },
+  { symbol: '010950.KS', code: '010950', name: 'S-Oil' },
+  { symbol: '018260.KS', code: '018260', name: '삼성에스디에스' },
+  { symbol: '011170.KS', code: '011170', name: '롯데케미칼' },
+  { symbol: '030200.KS', code: '030200', name: 'KT' },
+  { symbol: '033780.KS', code: '033780', name: 'KT&G' },
+  { symbol: '000720.KS', code: '000720', name: '현대건설' },
+  { symbol: '011070.KS', code: '011070', name: 'LG이노텍' },
+  { symbol: '010620.KS', code: '010620', name: '현대미포조선' },
+  { symbol: '042660.KS', code: '042660', name: '한화오션' },
+  { symbol: '267260.KS', code: '267260', name: '현대일렉트릭' },
+  { symbol: '352820.KS', code: '352820', name: '하이브' },
+  { symbol: '009830.KS', code: '009830', name: '한화솔루션' },
+  { symbol: '024110.KS', code: '024110', name: '기업은행' },
+  { symbol: '316140.KS', code: '316140', name: '우리금융지주' },
+  { symbol: '138930.KS', code: '138930', name: 'BNK금융지주' },
+  { symbol: '139480.KS', code: '139480', name: '이마트' },
+  { symbol: '004020.KS', code: '004020', name: '현대제철' },
+  { symbol: '005490.KS', code: '005490', name: 'POSCO홀딩스' },
+  { symbol: '000100.KS', code: '000100', name: '유한양행' },
+  { symbol: '326030.KS', code: '326030', name: 'SK바이오팜' },
+  { symbol: '161390.KS', code: '161390', name: '한국타이어앤테크놀로지' },
+  { symbol: '036460.KS', code: '036460', name: '한국가스공사' },
+  { symbol: '006800.KS', code: '006800', name: '미래에셋증권' },
+  { symbol: '003490.KS', code: '003490', name: '대한항공' },
+  { symbol: '180640.KS', code: '180640', name: '한진칼' },
+  { symbol: '002790.KS', code: '002790', name: '아모레G' },
+  { symbol: '090430.KS', code: '090430', name: '아모레퍼시픽' },
+  { symbol: '251270.KS', code: '251270', name: '넷마블' },
+  { symbol: '323410.KS', code: '323410', name: '카카오뱅크' },
+  { symbol: '377300.KS', code: '377300', name: '카카오페이' },
+  { symbol: '035250.KS', code: '035250', name: '강원랜드' },
+  { symbol: '271560.KS', code: '271560', name: '오리온' },
+  { symbol: '004170.KS', code: '004170', name: '신세계' },
+  { symbol: '021240.KS', code: '021240', name: '코웨이' },
+  { symbol: '006260.KS', code: '006260', name: 'LS' },
+  { symbol: '078930.KS', code: '078930', name: 'GS' },
+  { symbol: '069500.KS', code: '069500', name: 'KODEX 200' },
+  { symbol: '003410.KS', code: '003410', name: '쌍용C&E' },
+  { symbol: '051900.KS', code: '051900', name: 'LG생활건강' },
+  { symbol: '259960.KS', code: '259960', name: '크래프톤' },
+  { symbol: '402340.KS', code: '402340', name: 'SK스퀘어' },
+  // ── KOSDAQ 주요 종목 ──
   { symbol: '247540.KS', code: '247540', name: '에코프로비엠' },
   { symbol: '086520.KS', code: '086520', name: '에코프로' },
   { symbol: '042700.KS', code: '042700', name: '한미반도체' },
   { symbol: '196170.KS', code: '196170', name: '알테오젠' },
-  { symbol: '000810.KS', code: '000810', name: '삼성화재' },
-  { symbol: '017670.KS', code: '017670', name: 'SK텔레콤' },
+  { symbol: '403870.KQ', code: '403870', name: 'HPSP' },
+  { symbol: '328130.KQ', code: '328130', name: '루닛' },
+  { symbol: '145020.KQ', code: '145020', name: '휴젤' },
+  { symbol: '293490.KQ', code: '293490', name: '카카오게임즈' },
+  { symbol: '263750.KQ', code: '263750', name: '펄어비스' },
+  { symbol: '112040.KQ', code: '112040', name: '위메이드' },
+  { symbol: '357780.KQ', code: '357780', name: '솔브레인' },
+  { symbol: '035900.KQ', code: '035900', name: 'JYP Ent.' },
+  { symbol: '041510.KQ', code: '041510', name: 'SM' },
+  { symbol: '091990.KQ', code: '091990', name: '셀트리온헬스케어' },
+  { symbol: '067630.KQ', code: '067630', name: 'HLB생명과학' },
+  { symbol: '028300.KQ', code: '028300', name: 'HLB' },
+  { symbol: '141080.KQ', code: '141080', name: '레고켐바이오' },
+  { symbol: '039030.KQ', code: '039030', name: '이오테크닉스' },
+  { symbol: '095340.KQ', code: '095340', name: 'ISC' },
+  { symbol: '336260.KQ', code: '336260', name: '두산테스나' },
+  { symbol: '240810.KQ', code: '240810', name: '원익IPS' },
+  { symbol: '058470.KQ', code: '058470', name: '리노공업' },
+  { symbol: '078600.KQ', code: '078600', name: '대주전자재료' },
+  { symbol: '006580.KQ', code: '006580', name: '대양전기공업' },
+  { symbol: '214150.KQ', code: '214150', name: '클래시스' },
+  { symbol: '298380.KQ', code: '298380', name: '에이비엘바이오' },
+  { symbol: '383310.KQ', code: '383310', name: '에코프로에이치엔' },
+  { symbol: '222160.KQ', code: '222160', name: 'NPX반도체' },
+  { symbol: '060310.KQ', code: '060310', name: '3S' },
+  { symbol: '253450.KQ', code: '253450', name: '스튜디오드래곤' },
+  { symbol: '036930.KQ', code: '036930', name: '주성엔지니어링' },
+  { symbol: '067160.KQ', code: '067160', name: '아프리카TV' },
+  { symbol: '298020.KQ', code: '298020', name: '효성티앤씨' },
+  { symbol: '950160.KQ', code: '950160', name: '코오롱티슈진' },
+  { symbol: '108860.KQ', code: '108860', name: '셀바스AI' },
+  { symbol: '257720.KQ', code: '257720', name: '실리콘투' },
+  { symbol: '039200.KQ', code: '039200', name: '오스코텍' },
+  { symbol: '122870.KQ', code: '122870', name: '와이지엔터테인먼트' },
+  { symbol: '041920.KQ', code: '041920', name: '메디아나' },
+  { symbol: '099190.KQ', code: '099190', name: '아이센스' },
 ];
 
 async function fetchYahooQuote(symbol: string): Promise<{
