@@ -502,6 +502,143 @@ export async function preScreenStocks(): Promise<ScreenedStock[]> {
   }
 }
 
+// ─── 자동 워치리스트 채우기 (Yahoo Finance 기반 — VTS 호환) ─────────────────────
+
+// KOSPI/KOSDAQ 주요 종목 풀 — Yahoo Finance 심볼
+const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = [
+  { symbol: '005930.KS', code: '005930', name: '삼성전자' },
+  { symbol: '000660.KS', code: '000660', name: 'SK하이닉스' },
+  { symbol: '035420.KS', code: '035420', name: 'NAVER' },
+  { symbol: '035720.KS', code: '035720', name: '카카오' },
+  { symbol: '051910.KS', code: '051910', name: 'LG화학' },
+  { symbol: '006400.KS', code: '006400', name: '삼성SDI' },
+  { symbol: '003670.KS', code: '003670', name: '포스코퓨처엠' },
+  { symbol: '068270.KS', code: '068270', name: '셀트리온' },
+  { symbol: '207940.KS', code: '207940', name: '삼성바이오로직스' },
+  { symbol: '005380.KS', code: '005380', name: '현대차' },
+  { symbol: '000270.KS', code: '000270', name: '기아' },
+  { symbol: '012330.KS', code: '012330', name: '현대모비스' },
+  { symbol: '055550.KS', code: '055550', name: '신한지주' },
+  { symbol: '105560.KS', code: '105560', name: 'KB금융' },
+  { symbol: '086790.KS', code: '086790', name: '하나금융지주' },
+  { symbol: '066570.KS', code: '066570', name: 'LG전자' },
+  { symbol: '003550.KS', code: '003550', name: 'LG' },
+  { symbol: '034730.KS', code: '034730', name: 'SK' },
+  { symbol: '028260.KS', code: '028260', name: '삼성물산' },
+  { symbol: '032830.KS', code: '032830', name: '삼성생명' },
+  { symbol: '009150.KS', code: '009150', name: '삼성전기' },
+  { symbol: '010130.KS', code: '010130', name: '고려아연' },
+  { symbol: '047050.KS', code: '047050', name: '포스코인터내셔널' },
+  { symbol: '373220.KS', code: '373220', name: 'LG에너지솔루션' },
+  { symbol: '247540.KS', code: '247540', name: '에코프로비엠' },
+  { symbol: '086520.KS', code: '086520', name: '에코프로' },
+  { symbol: '042700.KS', code: '042700', name: '한미반도체' },
+  { symbol: '196170.KS', code: '196170', name: '알테오젠' },
+  { symbol: '000810.KS', code: '000810', name: '삼성화재' },
+  { symbol: '017670.KS', code: '017670', name: 'SK텔레콤' },
+];
+
+async function fetchYahooQuote(symbol: string): Promise<{
+  price: number; changePercent: number; volume: number;
+} | null> {
+  try {
+    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=5d&interval=1d`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const result = data.chart?.result?.[0];
+    if (!result) return null;
+
+    const meta = result.meta;
+    const closes = result.indicators?.quote?.[0]?.close ?? [];
+    const volumes = result.indicators?.quote?.[0]?.volume ?? [];
+    const price = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 0;
+    const prevClose = meta.chartPreviousClose ?? closes[closes.length - 2] ?? price;
+    const changePercent = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
+    const volume = volumes[volumes.length - 1] ?? 0;
+
+    return { price: Math.round(price), changePercent, volume };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Yahoo Finance 기반 자동 워치리스트 채우기
+ *
+ * - KIS 실계좌: preScreenStocks() 결과를 워치리스트로 승격
+ * - VTS/모의계좌: Yahoo Finance로 KOSPI 주요 종목 스캔, 상승 모멘텀 종목 자동 추가
+ *
+ * 선정 기준: 전일 대비 +2% 이상 상승 + 거래량 50만주 이상
+ * 손절: 현재가 -8%, 목표: 현재가 +15%
+ */
+export async function autoPopulateWatchlist(): Promise<number> {
+  const watchlist = loadWatchlist();
+  const existingCodes = new Set(watchlist.map(w => w.code));
+  let added = 0;
+
+  // 실계좌: preScreenStocks 결과 → 워치리스트 승격
+  if (KIS_IS_REAL) {
+    const screened = getScreenerCache();
+    for (const s of screened) {
+      if (existingCodes.has(s.code)) continue;
+      if (s.changeRate < 2 || s.foreignNetBuy < 0) continue; // +2% 이상 & 외국인 순매수
+
+      watchlist.push({
+        code: s.code,
+        name: s.name,
+        entryPrice: s.currentPrice,
+        stopLoss: Math.round(s.currentPrice * 0.92),
+        targetPrice: Math.round(s.currentPrice * 1.15),
+        addedAt: new Date().toISOString(),
+      });
+      existingCodes.add(s.code);
+      added++;
+      console.log(`[AutoPopulate] 스크리너 → 워치리스트: ${s.name}(${s.code}) @${s.currentPrice.toLocaleString()}`);
+    }
+  }
+
+  // VTS 및 공통: Yahoo Finance 기반 모멘텀 스캔
+  for (const stock of STOCK_UNIVERSE) {
+    if (existingCodes.has(stock.code)) continue;
+
+    const quote = await fetchYahooQuote(stock.symbol);
+    if (!quote || quote.price <= 0) continue;
+
+    // 필터: +2% 이상 상승 + 거래량 50만주 이상
+    if (quote.changePercent < 2 || quote.volume < 500_000) continue;
+
+    watchlist.push({
+      code: stock.code,
+      name: stock.name,
+      entryPrice: quote.price,
+      stopLoss: Math.round(quote.price * 0.92),
+      targetPrice: Math.round(quote.price * 1.15),
+      addedAt: new Date().toISOString(),
+    });
+    existingCodes.add(stock.code);
+    added++;
+    console.log(
+      `[AutoPopulate] Yahoo → 워치리스트: ${stock.name}(${stock.code}) ` +
+      `@${quote.price.toLocaleString()} (+${quote.changePercent.toFixed(1)}% / ${(quote.volume / 10000).toFixed(0)}만주)`
+    );
+
+    // Yahoo rate limit 방지
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  if (added > 0) {
+    saveWatchlist(watchlist);
+    console.log(`[AutoPopulate] 워치리스트 자동 추가 완료 — ${added}개 신규 (총 ${watchlist.length}개)`);
+  } else {
+    console.log('[AutoPopulate] 조건 충족 종목 없음 — 워치리스트 변동 없음');
+  }
+
+  return added;
+}
+
 // ─── 아이디어 6: DART 공시 폴링 + 이메일 알림 ─────────────────────────────────
 
 const DART_ALERTS_FILE        = path.join(DATA_DIR, 'dart-alerts.json');
