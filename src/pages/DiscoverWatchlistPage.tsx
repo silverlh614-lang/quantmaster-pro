@@ -1758,8 +1758,8 @@ export function DiscoverWatchlistPage({
                               <div className="flex items-center justify-between gap-3 min-w-0 mb-2">
                                 <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                                   <div className="relative group/copy">
-                                    <h4 
-                                      onClick={() => handleCopy(stock.name, stock.code)}
+                                    <h4
+                                      onClick={(e) => { e.stopPropagation(); handleCopy(stock.name, stock.code); }}
                                       className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tighter text-white group-hover:text-orange-500 transition-all duration-300 truncate leading-tight cursor-pointer flex items-center gap-2 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]"
                                       title="종목명 복사"
                                     >
@@ -1886,26 +1886,27 @@ export function DiscoverWatchlistPage({
 
                           {/* Action Buttons */}
                           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                            <button 
-                              onClick={() => onAddToBacktest(stock)}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onAddToBacktest(stock); }}
                               className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/10 bg-white/5 text-white/30 hover:text-blue-400 hover:border-blue-500/30 hover:bg-blue-500/5 active:scale-90 shadow-sm"
                               title="Add to Backtest"
                             >
                               <History className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
                             </button>
-                            <button 
-                              onClick={() => onToggleWatchlist(stock)}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onToggleWatchlist(stock); }}
                               className={cn(
                                 "p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border active:scale-90 shadow-sm",
-                                isWatched(stock.code) 
-                                  ? "bg-orange-500 text-white border-orange-400 shadow-[0_8px_20px_rgba(249,115,22,0.4)]" 
+                                isWatched(stock.code)
+                                  ? "bg-orange-500 text-white border-orange-400 shadow-[0_8px_20px_rgba(249,115,22,0.4)]"
                                   : "bg-white/5 border-white/10 text-white/30 hover:text-white/70 hover:bg-white/10"
                               )}
                             >
                               <Bookmark className={cn("w-4 h-4 sm:w-4.5 sm:h-4.5", isWatched(stock.code) && "fill-current")} />
                             </button>
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 setTradeRecordStock(stock);
                                 setTradeFormData({ buyPrice: String(stock.currentPrice || ''), quantity: '', positionSize: '10', followedSystem: true });
                               }}
@@ -1916,7 +1917,8 @@ export function DiscoverWatchlistPage({
                             </button>
                             {(stock.type === 'STRONG_BUY' || stock.type === 'BUY') && (
                               <button
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   const totalAssets = kisBalance;
                                   const mockSignal = {
                                     positionSize: stock.type === 'STRONG_BUY' ? 20 : 10,
@@ -1959,7 +1961,7 @@ export function DiscoverWatchlistPage({
                           </div>
                           
                           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-                            <a 
+                            <a
                               href={(() => {
                                 const cleanCode = String(stock.code).replace(/[^0-9]/g, '');
                                 return cleanCode.length === 6
@@ -1968,6 +1970,7 @@ export function DiscoverWatchlistPage({
                               })()}
                               target="_blank"
                               rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
                               className="flex items-center gap-1.5 sm:gap-2.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-white/5 hover:bg-orange-500 hover:text-white border border-white/10 rounded-lg sm:rounded-xl transition-all group/link shadow-sm active:scale-95"
                             >
                               <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest">Chart</span>
@@ -2239,11 +2242,12 @@ export function DiscoverWatchlistPage({
                                 <span className="text-[9px] sm:text-[10px] font-black text-white/20 uppercase tracking-[0.15em] sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Latest News</span>
                                 <div className="space-y-2">
                                   {(stock.latestNews || []).slice(0, 5).map((news, i) => (
-                                    <a 
+                                    <a
                                       key={i}
                                       href={`https://www.google.com/search?q=${encodeURIComponent((news.headline || '') + ' ' + (stock.name || ''))}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
                                       className="flex flex-col gap-1 p-2 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl transition-all group/news-item cursor-pointer"
                                     >
                                       <div className="flex items-center justify-between gap-2">

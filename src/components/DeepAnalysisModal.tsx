@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import {
   TrendingUp, TrendingDown, Search, RefreshCw, BarChart3, Info,
   ChevronRight, ExternalLink, Target, CheckCircle2, AlertTriangle,
@@ -99,19 +99,29 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
     });
   };
 
-  if (!stock) return null;
+  // Prevent ghost clicks from immediately closing the modal on mobile
+  const canCloseRef = useRef(false);
+  useEffect(() => {
+    if (!stock) { canCloseRef.current = false; return; }
+    const timer = setTimeout(() => { canCloseRef.current = true; }, 300);
+    return () => { clearTimeout(timer); canCloseRef.current = false; };
+  }, [stock?.code]);
 
   return (
     <AnimatePresence>
       {stock && (
           <motion.div
+            key="deep-analysis-backdrop"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[150] flex items-center justify-center p-4 md:p-6 bg-black/90 backdrop-blur-md"
-            onClick={() => onClose()}
+            onClick={(e: React.MouseEvent) => {
+              if (e.target === e.currentTarget && canCloseRef.current) onClose();
+            }}
           >
             <motion.div
+              key="deep-analysis-content"
               ref={analysisReportRef}
               initial={{ scale: 0.95, opacity: 0, y: 30 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
