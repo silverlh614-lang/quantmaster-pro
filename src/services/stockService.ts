@@ -2834,7 +2834,7 @@ export async function getExportMomentum(): Promise<ExportMomentumData> {
         return await getAI().models.generateContent({
           model: "gemini-3-flash-preview",
           contents: prompt,
-          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+          config: { temperature: 0.1 },
         });
       }, 2, 2000);
       const text = response.text;
@@ -2910,7 +2910,7 @@ export async function getGeopoliticalRiskScore(): Promise<GeopoliticalRiskData> 
         return await getAI().models.generateContent({
           model: "gemini-3-flash-preview",
           contents: prompt,
-          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+          config: { temperature: 0.1 },
         });
       }, 2, 2000);
       const text = response.text;
@@ -2985,7 +2985,7 @@ export async function getCreditSpreads(): Promise<CreditSpreadData> {
         return await getAI().models.generateContent({
           model: "gemini-3-flash-preview",
           contents: prompt,
-          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+          config: { temperature: 0.1 },
         });
       }, 2, 2000);
       const text = response.text;
@@ -3599,7 +3599,6 @@ export async function getExtendedEconomicRegime(): Promise<ExtendedRegimeData> {
           model: "gemini-3-flash-preview",
           contents: prompt,
           config: {
-            tools: [{ googleSearch: {} }],
             temperature: 0.1,
           },
         });
@@ -3692,7 +3691,6 @@ Google 검색으로 아래 12개 거시 지표의 최신 실제 값을 수집하
           model: 'gemini-3-flash-preview',
           contents: prompt,
           config: {
-            tools: [{ googleSearch: {} }],
             temperature: 0.1,
           },
         });
@@ -3812,7 +3810,6 @@ ${themeSection}
           model: "gemini-3-flash-preview",
           contents: prompt,
           config: {
-            tools: [{ googleSearch: {} }],
             maxOutputTokens: 10000,
             temperature: 0.2,
           },
@@ -3885,7 +3882,6 @@ export async function getGlobalCorrelationMatrix(): Promise<GlobalCorrelationMat
           model: "gemini-3-flash-preview",
           contents: prompt,
           config: {
-            tools: [{ googleSearch: {} }],
             temperature: 0.1,
           },
         });
@@ -4009,7 +4005,6 @@ export async function getGlobalMultiSourceData(): Promise<GlobalMultiSourceData>
           model: "gemini-3-flash-preview",
           contents: prompt,
           config: {
-            tools: [{ googleSearch: {} }],
             temperature: 0.1,
           },
         });
@@ -4087,7 +4082,6 @@ export async function getNewsFrequencyScores(
           model: "gemini-3-flash-preview",
           contents: prompt,
           config: {
-            tools: [{ googleSearch: {} }],
             temperature: 0.1,
           },
         });
@@ -4165,7 +4159,7 @@ export async function getSupplyChainIntelligence(): Promise<SupplyChainIntellige
         return await getAI().models.generateContent({
           model: "gemini-3-flash-preview",
           contents: prompt,
-          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+          config: { temperature: 0.1 },
         });
       }, 2, 2000);
       const text = response.text;
@@ -4240,7 +4234,7 @@ export async function getSectorOrderIntelligence(): Promise<SectorOrderIntellige
         return await getAI().models.generateContent({
           model: "gemini-3-flash-preview",
           contents: prompt,
-          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+          config: { temperature: 0.1 },
         });
       }, 2, 2000);
       const text = response.text;
@@ -4313,7 +4307,7 @@ export async function getFinancialStressIndex(): Promise<FinancialStressIndex> {
         return await getAI().models.generateContent({
           model: "gemini-3-flash-preview",
           contents: prompt,
-          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+          config: { temperature: 0.1 },
         });
       }, 2, 2000);
       const text = response.text;
@@ -4382,7 +4376,7 @@ export async function getFomcSentimentAnalysis(): Promise<FomcSentimentAnalysis>
         return await getAI().models.generateContent({
           model: "gemini-3-flash-preview",
           contents: prompt,
-          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+          config: { temperature: 0.1 },
         });
       }, 2, 2000);
       const text = response.text;
