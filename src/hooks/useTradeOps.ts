@@ -1,0 +1,75 @@
+import { useEffect } from 'react';
+import { toast } from 'sonner';
+import { useRecommendationStore, useTradeStore, useSettingsStore } from '../stores';
+import { computeConditionPerformance } from '../components/TradeJournal';
+import { saveEvolutionWeights } from '../services/quantEngine';
+import type { StockRecommendation } from '../services/stockService';
+import type { TradeRecord, ConditionId } from '../types/quant';
+
+export function useTradeOps() {
+  const { watchlist, setWatchlist } = useRecommendationStore();
+  const { tradeRecords, setTradeRecords } = useTradeStore();
+  const { subscribedSectors, setSubscribedSectors } = useSettingsStore();
+
+  const toggleWatchlist = (stock: StockRecommendation) => {
+    setWatchlist((prev: StockRecommendation[]) => {
+      const current = prev || [];
+      const exists = current.find(s => s.code === stock.code);
+      if (exists) return current.filter(s => s.code !== stock.code);
+      return [...current, { ...stock, watchedPrice: stock.currentPrice, watchedAt: new Date().toLocaleDateString('ko-KR') }];
+    });
+  };
+
+  const recordTrade = (stock: StockRecommendation, buyPrice: number, quantity: number, positionSize: number, followedSystem: boolean, conditionScores: Record<ConditionId, number>, gateScores: { g1: number; g2: number; g3: number; final: number }) => {
+    const newTrade: TradeRecord = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      stockCode: stock.code, stockName: stock.name, sector: stock.relatedSectors?.[0] ?? 'Unknown',
+      buyDate: new Date().toISOString(), buyPrice, quantity, positionSize,
+      systemSignal: stock.type === 'STRONG_BUY' ? 'STRONG_BUY' : stock.type === 'BUY' ? 'BUY' : stock.type === 'SELL' || stock.type === 'STRONG_SELL' ? 'SELL' : 'NEUTRAL',
+      recommendation: gateScores.final >= 200 ? '풀 포지션' : gateScores.final >= 150 ? '절반 포지션' : '관망',
+      gate1Score: gateScores.g1, gate2Score: gateScores.g2, gate3Score: gateScores.g3, finalScore: gateScores.final,
+      conditionScores, followedSystem, status: 'OPEN', currentPrice: stock.currentPrice, unrealizedPct: 0,
+    };
+    setTradeRecords((prev: TradeRecord[]) => [...prev, newTrade]);
+  };
+
+  const closeTrade = (tradeId: string, sellPrice: number, sellReason: TradeRecord['sellReason']) => {
+    setTradeRecords((prev: TradeRecord[]) => prev.map((t: TradeRecord) => {
+      if (t.id !== tradeId) return t;
+      const returnPct = ((sellPrice - t.buyPrice) / t.buyPrice) * 100;
+      const holdingDays = Math.round((Date.now() - new Date(t.buyDate).getTime()) / (1000 * 60 * 60 * 24));
+      return { ...t, sellDate: new Date().toISOString(), sellPrice, sellReason, returnPct: parseFloat(returnPct.toFixed(2)), holdingDays, status: 'CLOSED' as const };
+    }));
+  };
+
+  const deleteTrade = (tradeId: string) => {
+    setTradeRecords((prev: TradeRecord[]) => prev.filter((t: TradeRecord) => t.id !== tradeId));
+  };
+
+  const updateTradeMemo = (tradeId: string, memo: string) => {
+    setTradeRecords((prev: TradeRecord[]) => prev.map((t: TradeRecord) => t.id === tradeId ? { ...t, memo } : t));
+  };
+
+  const handleAddSector = (sector: string) => {
+    if (!subscribedSectors.includes(sector)) { setSubscribedSectors([...subscribedSectors, sector]); toast.success(`${sector} 섹터가 구독되었습니다.`); }
+  };
+
+  const handleRemoveSector = (sector: string) => {
+    setSubscribedSectors(subscribedSectors.filter((s: string) => s !== sector)); toast.success(`${sector} 섹터 구독이 해제되었습니다.`);
+  };
+
+  // Evolution weights auto-update
+  useEffect(() => {
+    const closed = tradeRecords.filter((t: TradeRecord) => t.status === 'CLOSED');
+    if (closed.length >= 10) {
+      const condPerf = computeConditionPerformance(closed);
+      const weights: Record<number, number> = {};
+      condPerf.forEach((c: { conditionId: number; totalTrades: number; evolutionWeight: number }) => {
+        if (c.totalTrades >= 10 && c.evolutionWeight !== 1.0) weights[c.conditionId] = c.evolutionWeight;
+      });
+      if (Object.keys(weights).length > 0) saveEvolutionWeights(weights);
+    }
+  }, [tradeRecords]);
+
+  return { toggleWatchlist, recordTrade, closeTrade, deleteTrade, updateTradeMemo, handleAddSector, handleRemoveSector };
+}

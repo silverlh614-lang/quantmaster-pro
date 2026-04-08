@@ -13,3 +13,8 @@ export {
   useFomcSentiment,
   useAllGlobalIntel,
 } from './useGlobalIntelQueries';
+export { useStockSync } from './useStockSync';
+export { usePortfolioOps } from './usePortfolioOps';
+export { useStockSearch } from './useStockSearch';
+export { useTradeOps } from './useTradeOps';
+export { useReportExport } from './useReportExport';
