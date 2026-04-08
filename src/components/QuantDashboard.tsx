@@ -45,10 +45,10 @@ export const QuantDashboard: React.FC<Props> = ({
   };
 
   return (
-    <div className="p-8 bg-[#E4E3E0] text-[#141414] font-sans min-h-screen">
-      <header className="mb-8 border-b border-[#141414] pb-4 flex justify-between items-end">
+    <div className="p-4 sm:p-8 bg-theme-bg text-theme-text font-sans min-h-screen">
+      <header className="mb-8 border-b border-theme-border pb-4 flex justify-between items-end">
         <div>
-          <h1 className="text-4xl font-serif italic tracking-tight">Living Quant System</h1>
+          <h1 className="text-fluid-4xl font-serif italic tracking-tight">Living Quant System</h1>
           <p className="col-header mt-2">27-Condition Hierarchical Analysis Engine</p>
         </div>
         <div className="text-right">
@@ -58,7 +58,7 @@ export const QuantDashboard: React.FC<Props> = ({
       </header>
 
       {/* ── Tab Navigation ── */}
-      <div className="flex gap-0 mb-10 border-b-2 border-[#141414]">
+      <div className="flex gap-0 mb-10 border-b-2 border-theme-text">
         {([
           { id: 'QUANT', label: 'QUANT ANALYSIS', icon: <Target size={14} /> },
           { id: 'MACRO', label: 'MACRO INTELLIGENCE', icon: <Globe size={14} /> },
@@ -69,8 +69,8 @@ export const QuantDashboard: React.FC<Props> = ({
             className={cn(
               'flex items-center gap-2 px-6 py-3 text-[11px] font-black uppercase tracking-widest border-2 border-b-0 transition-all',
               activeTab === tab.id
-                ? 'bg-[#141414] text-white border-[#141414]'
-                : 'bg-[#E4E3E0] text-[#141414] border-[#141414] hover:bg-white'
+                ? 'bg-theme-text text-theme-bg border-theme-text'
+                : 'bg-theme-bg text-theme-text border-theme-text hover:bg-theme-card'
             )}
           >
             {tab.icon} {tab.label}
@@ -93,16 +93,16 @@ export const QuantDashboard: React.FC<Props> = ({
 
       {/* Main Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
-        <div className="p-6 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+        <div className="p-6 border border-theme-text bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
           <div className="flex items-center gap-2 mb-2">
             <Target className="w-4 h-4" />
             <h2 className="col-header">FINAL SCORE</h2>
           </div>
-          <p className="text-5xl font-bold font-mono tracking-tighter">{result.finalScore.toFixed(0)}</p>
+          <p className="text-fluid-5xl font-bold font-mono tracking-tighter">{result.finalScore.toFixed(0)}</p>
           <p className="text-xs opacity-50 mt-1">MAX: 270.0</p>
         </div>
 
-        <div className={`p-6 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${getRecommendationColor(result.recommendation)}`}>
+        <div className={`p-6 border border-theme-text bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${getRecommendationColor(result.recommendation)}`}>
           <div className="flex items-center gap-2 mb-2">
             <Activity className="w-4 h-4" />
             <h2 className="col-header">RECOMMENDATION</h2>
@@ -111,21 +111,21 @@ export const QuantDashboard: React.FC<Props> = ({
           <p className="text-xs opacity-50 mt-1">DYNAMIC SCORING APPLIED</p>
         </div>
 
-        <div className="p-6 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+        <div className="p-6 border border-theme-text bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
           <div className="flex items-center gap-2 mb-2">
             <DollarSign className="w-4 h-4" />
             <h2 className="col-header">POSITION SIZE</h2>
           </div>
-          <p className="text-5xl font-bold font-mono tracking-tighter">{result.positionSize}%</p>
+          <p className="text-fluid-5xl font-bold font-mono tracking-tighter">{result.positionSize}%</p>
           <p className="text-xs opacity-50 mt-1">KELLY CRITERION ADJUSTED</p>
         </div>
 
-        <div className="p-6 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+        <div className="p-6 border border-theme-text bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="w-4 h-4" />
             <h2 className="col-header">RRR (RISK-REWARD)</h2>
           </div>
-          <p className="text-5xl font-bold font-mono tracking-tighter">{result.rrr.toFixed(1)}</p>
+          <p className="text-fluid-5xl font-bold font-mono tracking-tighter">{result.rrr.toFixed(1)}</p>
           <p className="text-xs opacity-50 mt-1">MIN THRESHOLD: 2.0</p>
         </div>
       </div>
@@ -172,7 +172,7 @@ export const QuantDashboard: React.FC<Props> = ({
           </div>
 
           {/* Confluence + Cycle + Catalyst + Reliability Row */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {/* Confluence */}
             {result.confluence && (
               <div className="border border-gray-200 p-4">
@@ -237,7 +237,7 @@ export const QuantDashboard: React.FC<Props> = ({
         <div className="mb-12 p-6 border-2 border-dashed border-violet-400 bg-violet-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <p className="text-[10px] font-black text-violet-500 uppercase tracking-widest mb-1">SHADOW TRADING</p>
-            <p className="text-sm font-bold text-[#141414]">
+            <p className="text-sm font-bold text-theme-text">
               {stockName} ({stockCode}) — {currentPrice.toLocaleString()}원
             </p>
             <p className="text-[10px] text-gray-500 mt-1">
@@ -265,48 +265,48 @@ export const QuantDashboard: React.FC<Props> = ({
       {/* 3-Gate Pyramid Visualization */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
         {/* Gate 1 */}
-        <div className={`p-8 border border-[#141414] relative ${result.gate1Passed ? 'bg-white' : 'bg-red-50'}`}>
-          <div className="absolute -top-3 left-4 bg-[#E4E3E0] px-2 text-[10px] font-black uppercase tracking-widest">Gate 1: Survival</div>
+        <div className={`p-8 border border-theme-text relative ${result.gate1Passed ? 'bg-white' : 'bg-red-50'}`}>
+          <div className="absolute -top-3 left-4 bg-theme-bg px-2 text-[10px] font-black uppercase tracking-widest">Gate 1: Survival</div>
           <div className="flex justify-between items-center mb-6">
             <Shield className={`w-8 h-8 ${result.gate1Passed ? 'text-green-600' : 'text-red-600'}`} />
             <span className="data-value text-2xl font-bold">{result.gate1Passed ? 'PASSED' : 'FAILED'}</span>
           </div>
           <div className="space-y-4">
             <p className="text-xs italic opacity-70">"살아있는 종목의 최소 조건"</p>
-            <div className="h-2 w-full bg-gray-200 border border-[#141414]">
-              <div className="h-full bg-[#141414]" style={{ width: result.gate1Passed ? '100%' : '40%' }}></div>
+            <div className="h-2 w-full bg-gray-200 border border-theme-text">
+              <div className="h-full bg-theme-text" style={{ width: result.gate1Passed ? '100%' : '40%' }}></div>
             </div>
             <p className="text-[10px] font-mono">SCORE: {result.gate1Score.toFixed(1)}</p>
           </div>
         </div>
 
         {/* Gate 2 */}
-        <div className={`p-8 border border-[#141414] relative ${result.gate2Passed ? 'bg-white' : 'bg-gray-100 opacity-50'}`}>
-          <div className="absolute -top-3 left-4 bg-[#E4E3E0] px-2 text-[10px] font-black uppercase tracking-widest">Gate 2: Growth</div>
+        <div className={`p-8 border border-theme-text relative ${result.gate2Passed ? 'bg-white' : 'bg-gray-100 opacity-50'}`}>
+          <div className="absolute -top-3 left-4 bg-theme-bg px-2 text-[10px] font-black uppercase tracking-widest">Gate 2: Growth</div>
           <div className="flex justify-between items-center mb-6">
             <Layers className="w-8 h-8 text-blue-600" />
             <span className="data-value text-2xl font-bold">{result.gate2Passed ? 'VERIFIED' : 'PENDING'}</span>
           </div>
           <div className="space-y-4">
             <p className="text-xs italic opacity-70">"성장성 및 펀더멘털 검증"</p>
-            <div className="h-2 w-full bg-gray-200 border border-[#141414]">
-              <div className="h-full bg-[#141414]" style={{ width: `${Math.min(100, (result.gate2Score / 100) * 100)}%` }}></div>
+            <div className="h-2 w-full bg-gray-200 border border-theme-text">
+              <div className="h-full bg-theme-text" style={{ width: `${Math.min(100, (result.gate2Score / 100) * 100)}%` }}></div>
             </div>
             <p className="text-[10px] font-mono">SCORE: {result.gate2Score.toFixed(1)}</p>
           </div>
         </div>
 
         {/* Gate 3 */}
-        <div className={`p-8 border border-[#141414] relative ${result.gate3Passed ? 'bg-white' : 'bg-gray-100 opacity-50'}`}>
-          <div className="absolute -top-3 left-4 bg-[#E4E3E0] px-2 text-[10px] font-black uppercase tracking-widest">Gate 3: Timing</div>
+        <div className={`p-8 border border-theme-text relative ${result.gate3Passed ? 'bg-white' : 'bg-gray-100 opacity-50'}`}>
+          <div className="absolute -top-3 left-4 bg-theme-bg px-2 text-[10px] font-black uppercase tracking-widest">Gate 3: Timing</div>
           <div className="flex justify-between items-center mb-6">
             <Zap className={`w-8 h-8 ${result.lastTrigger ? 'text-orange-500 animate-pulse' : 'text-gray-400'}`} />
             <span className="data-value text-2xl font-bold">{result.lastTrigger ? 'TRIGGERED' : 'WAITING'}</span>
           </div>
           <div className="space-y-4">
             <p className="text-xs italic opacity-70">"정밀 진입 타이밍 및 배팅 사이즈"</p>
-            <div className="h-2 w-full bg-gray-200 border border-[#141414]">
-              <div className="h-full bg-[#141414]" style={{ width: `${Math.min(100, (result.gate3Score / 100) * 100)}%` }}></div>
+            <div className="h-2 w-full bg-gray-200 border border-theme-text">
+              <div className="h-full bg-theme-text" style={{ width: `${Math.min(100, (result.gate3Score / 100) * 100)}%` }}></div>
             </div>
             <p className="text-[10px] font-mono">SCORE: {result.gate3Score.toFixed(1)}</p>
           </div>
@@ -317,14 +317,14 @@ export const QuantDashboard: React.FC<Props> = ({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
         {/* 3-Tranche Plan */}
         {result.tranchePlan && (
-          <div className="p-8 border border-[#141414] bg-white shadow-[8px_8px_0px_0px_rgba(20,20,20,1)]">
+          <div className="p-8 border border-theme-text bg-white shadow-[8px_8px_0px_0px_rgba(20,20,20,1)]">
             <div className="flex items-center gap-3 mb-6">
               <Layers className="w-6 h-6 text-orange-500" />
               <h3 className="text-xl font-black uppercase tracking-tight">3-Tranche Scaling Plan</h3>
             </div>
             <div className="space-y-4">
               {[result.tranchePlan.tranche1, result.tranchePlan.tranche2, result.tranchePlan.tranche3].map((t, i) => (
-                <div key={i} className="flex items-center justify-between p-4 border border-[#141414] bg-[#f9f9f9]">
+                <div key={i} className="flex items-center justify-between p-4 border border-theme-text bg-[#f9f9f9]">
                   <div>
                     <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Tranche {i + 1}</span>
                     <span className="text-sm font-bold">{t?.trigger || '-'}</span>
@@ -341,17 +341,17 @@ export const QuantDashboard: React.FC<Props> = ({
 
         {/* Multi-Timeframe Analysis */}
         {result.multiTimeframe && (
-          <div className="p-8 border border-[#141414] bg-white shadow-[8px_8px_0px_0px_rgba(20,20,20,1)]">
+          <div className="p-8 border border-theme-text bg-white shadow-[8px_8px_0px_0px_rgba(20,20,20,1)]">
             <div className="flex items-center gap-3 mb-6">
               <Clock className="w-6 h-6 text-blue-500" />
               <h3 className="text-xl font-black uppercase tracking-tight">Multi-Timeframe Sync</h3>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {Object.entries(result.multiTimeframe).filter(([k]) => k !== 'consistency').map(([tf, status]) => (
-                <div key={tf} className="p-4 border border-[#141414] text-center">
+                <div key={tf} className="p-4 border border-theme-text text-center">
                   <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">{tf}</span>
                   <span className={cn(
-                    "text-xs font-black px-2 py-1 border border-[#141414]",
+                    "text-xs font-black px-2 py-1 border border-theme-text",
                     status === 'BULLISH' ? 'bg-green-100 text-green-700' : 
                     status === 'BEARISH' ? 'bg-red-100 text-red-700' : 'bg-gray-100'
                   )}>
@@ -360,7 +360,7 @@ export const QuantDashboard: React.FC<Props> = ({
                 </div>
               ))}
             </div>
-            <div className="mt-6 p-4 bg-[#141414] text-white text-center">
+            <div className="mt-6 p-4 bg-theme-text text-white text-center">
               <span className="text-[10px] font-black uppercase tracking-widest">Trend Consistency: </span>
               <span className="text-sm font-bold">{result.multiTimeframe.consistency ? 'SYNCHRONIZED' : 'DIVERGED'}</span>
             </div>
@@ -371,7 +371,7 @@ export const QuantDashboard: React.FC<Props> = ({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
         {/* Enemy's Checklist */}
         {result.enemyChecklist && (
-          <div className="p-8 border border-[#141414] bg-[#141414] text-white shadow-[8px_8px_0px_0px_rgba(249,115,22,1)]">
+          <div className="p-8 border border-theme-text bg-theme-text text-white shadow-[8px_8px_0px_0px_rgba(249,115,22,1)]">
             <div className="flex items-center gap-3 mb-6">
               <Skull className="w-6 h-6 text-orange-500" />
               <h3 className="text-xl font-black uppercase tracking-tight">Enemy's Checklist (Bear Case)</h3>
@@ -410,7 +410,7 @@ export const QuantDashboard: React.FC<Props> = ({
         {/* Seasonality & Attribution */}
         <div className="grid grid-cols-1 gap-8">
           {result.seasonality && (
-            <div className="p-8 border border-[#141414] bg-white">
+            <div className="p-8 border border-theme-text bg-white">
               <div className="flex items-center gap-3 mb-6">
                 <Calendar className="w-6 h-6 text-purple-500" />
                 <h3 className="text-xl font-black uppercase tracking-tight">Seasonality Layer</h3>
@@ -442,7 +442,7 @@ export const QuantDashboard: React.FC<Props> = ({
           )}
 
           {result.attribution && (
-            <div className="p-8 border border-[#141414] bg-white">
+            <div className="p-8 border border-theme-text bg-white">
               <div className="flex items-center gap-3 mb-6">
                 <PieChart className="w-6 h-6 text-green-500" />
                 <h3 className="text-xl font-black uppercase tracking-tight">Yield Attribution Analysis</h3>
@@ -459,7 +459,7 @@ export const QuantDashboard: React.FC<Props> = ({
                       <span>{item.label}</span>
                       <span>{item.value}%</span>
                     </div>
-                    <div className="h-1.5 w-full bg-gray-100 border border-[#141414]">
+                    <div className="h-1.5 w-full bg-gray-100 border border-theme-text">
                       <div className={`h-full ${item.color}`} style={{ width: `${item.value}%` }}></div>
                     </div>
                   </div>
@@ -471,16 +471,16 @@ export const QuantDashboard: React.FC<Props> = ({
       </div>
 
       {/* Portfolio Correlation */}
-      <div className="mb-12 p-8 border border-[#141414] bg-white">
+      <div className="mb-12 p-8 border border-theme-text bg-white">
         <div className="flex items-center gap-3 mb-6">
           <Link2 className="w-6 h-6 text-gray-500" />
           <h3 className="text-xl font-black uppercase tracking-tight">Portfolio Correlation</h3>
         </div>
         <div className="flex items-center gap-8">
           <div className="flex-1">
-            <div className="h-4 w-full bg-gray-100 border border-[#141414] relative">
+            <div className="h-4 w-full bg-gray-100 border border-theme-text relative">
               <div 
-                className="absolute top-0 bottom-0 w-1 bg-[#141414]" 
+                className="absolute top-0 bottom-0 w-1 bg-theme-text" 
                 style={{ left: `${(result.correlationScore || 0.5) * 100}%` }} 
               />
               <div className="absolute -top-6 left-0 text-[8px] font-black text-gray-400">LOW (-1.0)</div>
@@ -499,7 +499,7 @@ export const QuantDashboard: React.FC<Props> = ({
 
       {/* Risk & Alert Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="p-6 border border-[#141414] bg-white">
+        <div className="p-6 border border-theme-text bg-white">
           <div className="flex items-center gap-2 mb-6">
             <AlertTriangle className="w-5 h-5 text-orange-500" />
             <h2 className="col-header">EUPHORIA DETECTOR</h2>
@@ -508,7 +508,7 @@ export const QuantDashboard: React.FC<Props> = ({
             {[1, 2, 3, 4, 5].map(i => (
               <div 
                 key={i} 
-                className={`h-8 flex-1 border border-[#141414] ${i <= result.euphoriaLevel ? 'bg-orange-500' : 'bg-gray-100'}`}
+                className={`h-8 flex-1 border border-theme-text ${i <= result.euphoriaLevel ? 'bg-orange-500' : 'bg-gray-100'}`}
               ></div>
             ))}
           </div>
@@ -517,7 +517,7 @@ export const QuantDashboard: React.FC<Props> = ({
           </p>
         </div>
 
-        <div className={`p-6 border border-[#141414] ${result.emergencyStop ? 'bg-red-600 text-white' : 'bg-white'}`}>
+        <div className={`p-6 border border-theme-text ${result.emergencyStop ? 'bg-red-600 text-white' : 'bg-white'}`}>
           <div className="flex items-center gap-2 mb-6">
             <AlertTriangle className={`w-5 h-5 ${result.emergencyStop ? 'text-white' : 'text-red-600'}`} />
             <h2 className={`col-header ${result.emergencyStop ? 'text-white' : ''}`}>EMERGENCY STOP</h2>
@@ -532,7 +532,7 @@ export const QuantDashboard: React.FC<Props> = ({
       </div>
 
       {/* Footer / Meta */}
-      <footer className="mt-12 pt-8 border-t border-[#141414] flex justify-between items-center opacity-50">
+      <footer className="mt-12 pt-8 border-t border-theme-text flex justify-between items-center opacity-50">
         <p className="text-[10px] font-mono">LIVING QUANT SYSTEM V2.0 // SELF-EVOLVING BACKTESTING LOOP ACTIVE</p>
         <p className="text-[10px] font-mono">LAST UPDATED: {new Date().toISOString()}</p>
       </footer>

@@ -55,7 +55,7 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({ stock, onClo
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative w-full max-w-5xl max-h-[90vh] bg-[#0d0e12] border border-white/10 rounded-[2.5rem] shadow-[0_0_100px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
+          className="relative w-full max-w-5xl max-h-[90vh] bg-theme-bg border border-theme-border rounded-[2.5rem] shadow-[0_0_100px_rgba(0,0,0,0.3)] overflow-hidden flex flex-col"
         >
           {/* Header */}
           <div className="p-6 sm:p-8 border-b border-white/5 flex items-center justify-between bg-gradient-to-r from-white/[0.02] to-transparent">
@@ -65,7 +65,7 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({ stock, onClo
               </div>
               <div>
                 <div className="flex items-center gap-3 mb-1">
-                  <h2 className="text-3xl font-black text-white tracking-tighter">{stock.name}</h2>
+                  <h2 className="text-fluid-3xl font-black text-white tracking-tighter">{stock.name}</h2>
                   <span className="text-sm font-mono text-white/30 bg-white/5 px-2 py-1 rounded-lg border border-white/5">{stock.code}</span>
                   {stock.isLeadingSector && (
                     <span className="text-[10px] font-black bg-amber-500/10 text-amber-500 px-2 py-1 rounded-full border border-amber-500/20 uppercase tracking-widest">

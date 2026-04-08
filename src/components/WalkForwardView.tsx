@@ -58,7 +58,7 @@ export const WalkForwardView: React.FC = () => {
         <div>
           <div className="flex items-center gap-4 mb-6">
             <div className="w-3 h-10 bg-purple-500 rounded-full shadow-[0_0_20px_rgba(168,85,247,0.5)]" />
-            <h2 className="text-4xl font-black text-white tracking-tighter uppercase">Walk-Forward Analysis</h2>
+            <h2 className="text-fluid-4xl font-black text-white tracking-tighter uppercase">Walk-Forward Analysis</h2>
           </div>
           <div className="flex flex-col gap-4">
             <p className="text-white/40 font-medium max-w-2xl text-lg leading-relaxed">

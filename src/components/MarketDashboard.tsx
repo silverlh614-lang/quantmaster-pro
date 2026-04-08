@@ -106,7 +106,7 @@ const SnsSentimentCard = ({ sentiment }: { sentiment: SnsSentiment }) => {
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-5xl font-black text-white tracking-tighter">{sentiment.score}</span>
+            <span className="text-fluid-5xl font-black text-white tracking-tighter">{sentiment.score}</span>
             <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] mt-1">Sentiment</span>
           </div>
         </div>
@@ -149,7 +149,7 @@ const MarketCard = ({ item }: { item: MarketDataPoint }) => {
           {isPositive ? '+' : ''}{item.changePercent}%
         </div>
       </div>
-      <div className="text-3xl font-black text-white tracking-tighter mb-6">
+      <div className="text-fluid-3xl font-black text-white tracking-tighter mb-6">
         {item.value?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
       </div>
       {item.history && (
@@ -280,7 +280,7 @@ export const MarketDashboard: React.FC<MarketDashboardProps> = ({ data, triageSu
             </div>
             <div className="relative z-10">
               <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] mb-4 block">전체 분석 종목</span>
-              <div className="text-4xl font-black text-white tracking-tighter">{triageSummary.total}</div>
+              <div className="text-fluid-4xl font-black text-white tracking-tighter">{triageSummary.total}</div>
               <p className="text-[9px] font-bold text-white/40 mt-2 uppercase tracking-widest">Total Monitored Assets</p>
             </div>
           </div>
@@ -291,7 +291,7 @@ export const MarketDashboard: React.FC<MarketDashboardProps> = ({ data, triageSu
             </div>
             <div className="relative z-10">
               <span className="text-[10px] font-black text-red-400/60 uppercase tracking-[0.2em] mb-4 block">Gate 1: 생존 필터 통과</span>
-              <div className="text-4xl font-black text-red-400 tracking-tighter">{triageSummary.gate1}</div>
+              <div className="text-fluid-4xl font-black text-red-400 tracking-tighter">{triageSummary.gate1}</div>
               <div className="h-1.5 bg-white/5 rounded-full mt-4 overflow-hidden">
                 <div className="h-full bg-red-500" style={{ width: `${(triageSummary.gate1 / triageSummary.total) * 100}%` }} />
               </div>
@@ -304,7 +304,7 @@ export const MarketDashboard: React.FC<MarketDashboardProps> = ({ data, triageSu
             </div>
             <div className="relative z-10">
               <span className="text-[10px] font-black text-orange-400/60 uppercase tracking-[0.2em] mb-4 block">Gate 2: 성장 검증 통과</span>
-              <div className="text-4xl font-black text-orange-400 tracking-tighter">{triageSummary.gate2}</div>
+              <div className="text-fluid-4xl font-black text-orange-400 tracking-tighter">{triageSummary.gate2}</div>
               <div className="h-1.5 bg-white/5 rounded-full mt-4 overflow-hidden">
                 <div className="h-full bg-orange-500" style={{ width: `${(triageSummary.gate2 / triageSummary.total) * 100}%` }} />
               </div>
@@ -317,7 +317,7 @@ export const MarketDashboard: React.FC<MarketDashboardProps> = ({ data, triageSu
             </div>
             <div className="relative z-10">
               <span className="text-[10px] font-black text-indigo-400/60 uppercase tracking-[0.2em] mb-4 block">Gate 3: 정밀 타이밍 통과</span>
-              <div className="text-4xl font-black text-indigo-400 tracking-tighter">{triageSummary.gate3}</div>
+              <div className="text-fluid-4xl font-black text-indigo-400 tracking-tighter">{triageSummary.gate3}</div>
               <div className="h-1.5 bg-white/5 rounded-full mt-4 overflow-hidden">
                 <div className="h-full bg-indigo-500" style={{ width: `${(triageSummary.gate3 / triageSummary.total) * 100}%` }} />
               </div>
@@ -367,7 +367,7 @@ export const MarketDashboard: React.FC<MarketDashboardProps> = ({ data, triageSu
             <span className="text-[11px] font-black text-white/20 uppercase tracking-[0.3em]">Euphoria Detector</span>
           </div>
           <div className="flex items-center gap-6 mb-8">
-            <div className="text-5xl font-black text-white tracking-tighter">{data.euphoriaSignals?.score || 0}</div>
+            <div className="text-fluid-5xl font-black text-white tracking-tighter">{data.euphoriaSignals?.score || 0}</div>
             <div className="flex-1">
               <div className="h-3 bg-white/5 rounded-full overflow-hidden border border-white/5">
                 <div 
@@ -519,7 +519,7 @@ export const MarketDashboard: React.FC<MarketDashboardProps> = ({ data, triageSu
             <Globe className="w-5 h-5 text-emerald-400" />
             거시 지표 및 환율
           </h3>
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             {data.exchangeRates?.slice(0, 2).map((idx, i) => (
               <div key={`${idx.name}-${i}`} className="bg-white/5 p-4 rounded-2xl border border-white/5">
                 <span className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-1">{idx.name}</span>

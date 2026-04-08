@@ -76,7 +76,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-3">
           <div className="w-2 h-8 bg-indigo-500 rounded-full shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
-          <h3 className="text-2xl font-black text-white tracking-tight uppercase">Portfolio Vault</h3>
+          <h3 className="text-2xl font-black text-theme-text tracking-tight uppercase">Portfolio Vault</h3>
         </div>
         <div className="flex items-center gap-3">
           <button

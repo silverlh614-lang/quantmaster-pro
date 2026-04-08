@@ -94,17 +94,34 @@
     text-shadow: 0 0 12px rgba(249, 115, 22, 0.4);
   }
 
-  /* Responsive Text Handling */
+  /* Responsive Text Handling — fluid typography via clamp() */
   .text-responsive-base {
     @apply text-sm sm:text-base;
   }
-  
+
   .text-responsive-lg {
     @apply text-base sm:text-lg lg:text-xl;
   }
 
   .text-responsive-xl {
     @apply text-xl sm:text-2xl lg:text-3xl;
+  }
+
+  /* Fluid heading sizes: shrink gracefully on mobile */
+  .text-fluid-6xl {
+    font-size: clamp(1.875rem, 5vw, 3.75rem); /* 30px → 60px */
+  }
+  .text-fluid-5xl {
+    font-size: clamp(1.5rem, 4vw, 3rem); /* 24px → 48px */
+  }
+  .text-fluid-4xl {
+    font-size: clamp(1.25rem, 3.5vw, 2.25rem); /* 20px → 36px */
+  }
+  .text-fluid-3xl {
+    font-size: clamp(1.125rem, 3vw, 1.875rem); /* 18px → 30px */
+  }
+  .text-fluid-2xl {
+    font-size: clamp(1rem, 2.5vw, 1.5rem); /* 16px → 24px */
   }
 
   .safe-padding {
@@ -174,7 +191,7 @@
   }
 }
 
-/* Custom Scrollbar */
+/* Custom Scrollbar — theme-aware */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -185,10 +202,10 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--text-muted);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--text-secondary);
 }

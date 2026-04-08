@@ -335,7 +335,7 @@ export const ManualQuantInput: React.FC<ManualQuantInputProps> = ({ regime, sect
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-8 mb-12">
             <div>
               <div className="flex items-center gap-3 mb-2">
-                <h3 className="text-4xl font-black text-white tracking-tighter">{stockInfo.name || '분석 종목'}</h3>
+                <h3 className="text-fluid-4xl font-black text-white tracking-tighter">{stockInfo.name || '분석 종목'}</h3>
                 <span className="text-sm font-black text-white/20 uppercase tracking-[0.3em]">{stockInfo.code}</span>
               </div>
               <p className="text-sm font-bold text-white/40 uppercase tracking-widest">Quant Engine Evaluation Result</p>
@@ -344,7 +344,7 @@ export const ManualQuantInput: React.FC<ManualQuantInputProps> = ({ regime, sect
             <div className="flex items-center gap-6">
               <div className="text-right">
                 <span className="text-[10px] font-black text-white/20 uppercase tracking-widest block mb-1">Final Score</span>
-                <div className="text-5xl font-black text-indigo-400 tracking-tighter">{result.finalScore.toFixed(1)}</div>
+                <div className="text-fluid-5xl font-black text-indigo-400 tracking-tighter">{result.finalScore.toFixed(1)}</div>
               </div>
               <div className={cn(
                 "px-8 py-4 rounded-3xl border-2 flex flex-col items-center justify-center min-w-[160px]",
@@ -380,7 +380,7 @@ export const ManualQuantInput: React.FC<ManualQuantInputProps> = ({ regime, sect
                 <div>
                   <p className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-1">MHS 점수</p>
                   <p className={cn(
-                    "text-3xl font-black tracking-tighter",
+                    "text-fluid-3xl font-black tracking-tighter",
                     result.gate0Result.mhsLevel === 'HIGH' ? "text-emerald-400"
                       : result.gate0Result.mhsLevel === 'MEDIUM' ? "text-amber-400"
                         : "text-red-400"
@@ -479,7 +479,7 @@ export const ManualQuantInput: React.FC<ManualQuantInputProps> = ({ regime, sect
                 <h4 className="text-sm font-black text-white uppercase tracking-widest">Kelly Criterion Position Sizing</h4>
               </div>
               <div className="flex items-end gap-4 mb-4">
-                <div className="text-6xl font-black text-white tracking-tighter">
+                <div className="text-fluid-6xl font-black text-white tracking-tighter">
                   {(result.gate1Passed && result.gate2Passed && result.gate3Passed) ? result.positionSize.toFixed(1) : '0.0'}%
                 </div>
                 <span className="text-sm font-bold text-white/40 uppercase tracking-widest mb-2">Recommended Weight</span>

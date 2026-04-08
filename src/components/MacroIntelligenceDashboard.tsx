@@ -95,16 +95,16 @@ const REGIME_LABELS: Record<EconomicRegime, { ko: string; color: string; bgColor
   RECESSION:   { ko: '침체기',   color: 'text-red-700',     bgColor: 'bg-red-50',     borderColor: 'border-red-400' },
   UNCERTAIN:   { ko: '불확실',   color: 'text-purple-700',  bgColor: 'bg-purple-50',  borderColor: 'border-purple-400' },
   CRISIS:      { ko: '위기',     color: 'text-rose-700',    bgColor: 'bg-rose-50',    borderColor: 'border-rose-400' },
-  RANGE_BOUND: { ko: '박스권',   color: 'text-slate-700',   bgColor: 'bg-slate-50',   borderColor: 'border-slate-400' },
+  RANGE_BOUND: { ko: '박스권',   color: 'text-theme-text-secondary',   bgColor: 'bg-theme-bg',   borderColor: 'border-theme-border' },
 };
 
 const SIGNAL_STYLE: Record<AlphaSignal, { label: string; bg: string; text: string }> = {
   STRONG_BUY:  { label: '★ 최강 매수', bg: 'bg-green-700',  text: 'text-white' },
   BUY:         { label: '▲ 매수',      bg: 'bg-green-100',  text: 'text-green-800' },
-  NEUTRAL:     { label: '— 관망',      bg: 'bg-gray-100',   text: 'text-gray-600' },
+  NEUTRAL:     { label: '— 관망',      bg: 'bg-theme-card',   text: 'text-theme-text-secondary' },
   SELL:        { label: '▼ 매도',      bg: 'bg-red-100',    text: 'text-red-700' },
   STRONG_SELL: { label: '▼▼ 즉시청산', bg: 'bg-red-700',    text: 'text-white' },
-  AVOID:       { label: '✕ 진입금지',  bg: 'bg-gray-800',   text: 'text-gray-200' },
+  AVOID:       { label: '✕ 진입금지',  bg: 'bg-theme-text',   text: 'text-theme-text-muted' },
 };
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
@@ -115,10 +115,10 @@ function MHSBar({ score }: { score: number }) {
   return (
     <div>
       <div className="flex justify-between items-center mb-2">
-        <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Macro Health Score (MHS)</span>
+        <span className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">Macro Health Score (MHS)</span>
         <span className="text-sm font-black font-mono">{score} / 100 — {label}</span>
       </div>
-      <div className="h-4 w-full bg-gray-200 border border-[#141414] relative">
+      <div className="h-4 w-full bg-theme-card border border-theme-text relative">
         <div
           className={`h-full ${color} transition-all duration-700`}
           style={{ width: `${Math.min(100, score)}%` }}
@@ -126,7 +126,7 @@ function MHSBar({ score }: { score: number }) {
         {[40, 70].map(threshold => (
           <div
             key={threshold}
-            className="absolute top-0 bottom-0 w-px bg-[#141414] opacity-40"
+            className="absolute top-0 bottom-0 w-px bg-theme-text opacity-40"
             style={{ left: `${threshold}%` }}
           />
         ))}
@@ -321,14 +321,14 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-black uppercase tracking-tight">Macro Intelligence</h2>
-          <p className="text-[10px] font-mono text-gray-500 mt-1">
+          <p className="text-[10px] font-mono text-theme-text-muted mt-1">
             거시경제 컨트롤 타워 — 경기 레짐 · MHS · ETF 자금흐름 · FX 임팩트
           </p>
         </div>
         <button
           onClick={loadRegime}
           disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-sm font-black uppercase tracking-widest disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-sm font-black uppercase tracking-widest disabled:opacity-50"
         >
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           {loading ? 'AI 조회 중...' : '레짐 분류 실행'}
@@ -345,8 +345,8 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
         {/* 경기 레짐 게이지 */}
-        <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-6">
+        <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted mb-6">
             경기 레짐 게이지 — Economic Regime Classifier
           </h3>
           <div className="flex gap-2 mb-6">
@@ -359,11 +359,11 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                   className={`flex-1 p-3 border-2 text-center transition-all ${
                     isActive
                       ? `${meta.bgColor} ${meta.borderColor} ${meta.color}`
-                      : 'border-gray-200 text-gray-400 bg-gray-50'
+                      : 'border-theme-border text-theme-text-muted bg-theme-bg'
                   }`}
                 >
                   <p className="text-[9px] font-black uppercase tracking-widest">{r}</p>
-                  <p className={`text-base font-black mt-1 ${isActive ? meta.color : 'text-gray-300'}`}>
+                  <p className={`text-base font-black mt-1 ${isActive ? meta.color : 'text-theme-text-muted'}`}>
                     {meta.ko}
                   </p>
                   {isActive && economicRegime && (
@@ -376,11 +376,11 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
 
           {economicRegime ? (
             <div className="space-y-4">
-              <p className="text-xs italic text-gray-600 leading-relaxed">"{economicRegime.rationale}"</p>
+              <p className="text-xs italic text-theme-text-secondary leading-relaxed">"{economicRegime.rationale}"</p>
               <div className="grid grid-cols-2 gap-3">
                 {Object.entries(economicRegime.keyIndicators).map(([k, v]) => (
-                  <div key={k} className="p-3 bg-gray-50 border border-gray-200">
-                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
+                  <div key={k} className="p-3 bg-theme-bg border border-theme-border">
+                    <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">
                       {k === 'exportGrowth' ? '수출증가율' : k === 'bokRateDirection' ? '기준금리' : k === 'oeciCli' ? 'OECD CLI' : 'GDP 성장률'}
                     </p>
                     <p className="text-sm font-black font-mono mt-1">{v}</p>
@@ -389,7 +389,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
               </div>
             </div>
           ) : (
-            <p className="text-xs text-gray-400 italic text-center py-4">
+            <p className="text-xs text-theme-text-muted italic text-center py-4">
               "레짐 분류 실행" 버튼을 눌러 Gemini AI로 현재 경기 사이클을 자동 분류합니다.
             </p>
           )}
@@ -399,19 +399,19 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
         <div className="space-y-6">
 
           {/* MHS 바 */}
-          <div className="p-6 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+          <div className="p-6 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
             <MHSBar score={mhs} />
             {gate0Result && (
-              <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+              <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                 {[
                   { label: '금리', v: gate0Result.details.interestRateScore },
                   { label: '유동성', v: gate0Result.details.liquidityScore },
                   { label: '경기', v: gate0Result.details.economicScore },
                   { label: '리스크', v: gate0Result.details.riskScore },
                 ].map(item => (
-                  <div key={item.label} className="p-2 border border-gray-200 bg-gray-50">
-                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{item.label}</p>
-                    <p className="text-lg font-black font-mono">{item.v}<span className="text-[9px] text-gray-400">/25</span></p>
+                  <div key={item.label} className="p-2 border border-theme-border bg-theme-bg">
+                    <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">{item.label}</p>
+                    <p className="text-lg font-black font-mono">{item.v}<span className="text-[9px] text-theme-text-muted">/25</span></p>
                   </div>
                 ))}
               </div>
@@ -420,13 +420,13 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
 
           {/* FX + 금리 사이클 인디케이터 */}
           {gate0Result && (
-            <div className="p-6 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-4">
+            <div className="p-6 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted mb-4">
                 FX · Rate Cycle 임팩트
               </h3>
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 border border-gray-200">
-                  <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">환율 레짐</p>
+                <div className="p-4 border border-theme-border">
+                  <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-2">환율 레짐</p>
                   <p className="text-lg font-black">
                     {gate0Result.fxRegime === 'DOLLAR_STRONG'
                       ? '💵 달러 강세'
@@ -434,7 +434,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                         ? '🌏 달러 약세'
                         : '〰 중립 구간'}
                   </p>
-                  <p className="text-[10px] text-gray-500 mt-1">
+                  <p className="text-[10px] text-theme-text-muted mt-1">
                     {gate0Result.fxRegime === 'DOLLAR_STRONG'
                       ? '수출주 +3pt / 내수주 -3pt'
                       : gate0Result.fxRegime === 'DOLLAR_WEAK'
@@ -442,8 +442,8 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                         : 'FX 조정 없음'}
                   </p>
                 </div>
-                <div className="p-4 border border-gray-200">
-                  <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">금리 사이클</p>
+                <div className="p-4 border border-theme-border">
+                  <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-2">금리 사이클</p>
                   <p className="text-lg font-black">
                     {gate0Result.rateCycle === 'TIGHTENING'
                       ? '🔺 긴축기'
@@ -451,7 +451,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                         ? '🔻 완화기'
                         : '⏸ 동결기'}
                   </p>
-                  <p className="text-[10px] text-gray-500 mt-1">
+                  <p className="text-[10px] text-theme-text-muted mt-1">
                     {gate0Result.rateCycle === 'TIGHTENING'
                       ? 'ICR 기준 강화 · 레버리지 페널티'
                       : gate0Result.rateCycle === 'EASING'
@@ -468,8 +468,8 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
       {/* ── 허용 섹터 화이트리스트 ── */}
       {economicRegime && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-4">
+          <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted mb-4">
               허용 섹터 화이트리스트 ({currentRegime} · {regimeMeta.ko})
             </h3>
             <div className="flex flex-wrap gap-2">
@@ -480,8 +480,8 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
               ))}
             </div>
           </div>
-          <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-4">
+          <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted mb-4">
               회피 섹터 블랙리스트
             </h3>
             <div className="flex flex-wrap gap-2">
@@ -492,7 +492,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                   </span>
                 ))
               ) : (
-                <span className="text-xs text-gray-400 italic">현재 특별 회피 섹터 없음</span>
+                <span className="text-xs text-theme-text-muted italic">현재 특별 회피 섹터 없음</span>
               )}
             </div>
           </div>
@@ -501,8 +501,8 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
 
       {/* ── Global ETF 자금 흐름 히트맵 ── */}
       {marketOverview?.globalEtfMonitoring && (
-        <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-6">
+        <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted mb-6">
             글로벌 ETF 자금 흐름 히트맵
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -515,7 +515,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                     isInflow ? 'border-green-400 bg-green-50' : 'border-red-400 bg-red-50'
                   }`}
                 >
-                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">{etf.name}</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">{etf.name}</p>
                   <div className={`mt-2 flex items-center justify-center gap-1 font-black ${isInflow ? 'text-green-700' : 'text-red-700'}`}>
                     {isInflow ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                     <span className="text-sm">{isInflow ? '+' : ''}{etf.change?.toFixed(2) ?? '—'}%</span>
@@ -532,8 +532,8 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
 
       {/* ── 수출 모멘텀 섹터 랭킹 ── */}
       {marketOverview?.sectorRotation && (
-        <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-6">
+        <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted mb-6">
             섹터 모멘텀 랭킹 (수출·자금흐름 기준)
           </h3>
           <div className="space-y-3">
@@ -541,9 +541,9 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                 const isInflow = s.flow === 'INFLOW';
                 return (
                   <div key={s.sector} className="flex items-center gap-4">
-                    <span className="text-[10px] font-black text-gray-400 w-4 text-right">{i + 1}</span>
+                    <span className="text-[10px] font-black text-theme-text-muted w-4 text-right">{i + 1}</span>
                     <span className="text-sm font-black w-20">{s.sector}</span>
-                    <div className="flex-1 h-3 bg-gray-100 border border-gray-200 relative">
+                    <div className="flex-1 h-3 bg-theme-card border border-theme-border relative">
                       <div
                         className={`h-full ${isInflow ? 'bg-green-600' : 'bg-red-500'}`}
                         style={{ width: `${s.momentum}%` }}
@@ -561,20 +561,20 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
       )}
 
       {/* ── 아이디어 4: Smart Money Radar ── */}
-      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+      <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
               Smart Money Radar — 글로벌 ETF 선행 모니터
             </h3>
             {smartMoney && (
-              <p className="text-[9px] font-mono text-gray-400 mt-1">업데이트: {smartMoney.lastUpdated}</p>
+              <p className="text-[9px] font-mono text-theme-text-muted mt-1">업데이트: {smartMoney.lastUpdated}</p>
             )}
           </div>
           <button
             onClick={loadSmartMoney}
             disabled={smartMoneyLoading}
-            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
           >
             <RefreshCw size={12} className={smartMoneyLoading ? 'animate-spin' : ''} />
             {smartMoneyLoading ? '조회 중...' : 'Smart Money 조회'}
@@ -585,16 +585,16 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
           <div className="space-y-6">
             {/* Score + Signal */}
             <div className="flex items-center gap-6">
-              <div className="text-center p-4 border-2 border-[#141414] w-28">
-                <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">SMF 점수</p>
-                <p className="text-4xl font-black font-mono mt-1">{smartMoney.score}</p>
-                <p className="text-[9px] text-gray-400 font-mono">/10</p>
+              <div className="text-center p-4 border-2 border-theme-text w-28">
+                <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">SMF 점수</p>
+                <p className="text-fluid-4xl font-black font-mono mt-1">{smartMoney.score}</p>
+                <p className="text-[9px] text-theme-text-muted font-mono">/10</p>
               </div>
               <div className="flex-1 space-y-2">
                 <div className={`inline-flex items-center gap-2 px-4 py-2 font-black text-sm border-2 ${
                   smartMoney.signal === 'BULLISH' ? 'border-green-600 bg-green-50 text-green-700'
                   : smartMoney.signal === 'BEARISH' ? 'border-red-600 bg-red-50 text-red-700'
-                  : 'border-gray-400 bg-gray-50 text-gray-600'
+                  : 'border-gray-400 bg-theme-bg text-theme-text-secondary'
                 }`}>
                   {smartMoney.signal === 'BULLISH' ? <TrendingUp size={14} /> : smartMoney.signal === 'BEARISH' ? <TrendingDown size={14} /> : null}
                   {smartMoney.signal} — 선행 {smartMoney.leadTimeWeeks}
@@ -608,14 +608,14 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
             </div>
 
             {/* ETF Cards */}
-            <div className="grid grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
               {smartMoney.etfFlows.map(etf => (
                 <div
                   key={etf.ticker}
                   className={`p-3 border-2 text-center ${
                     etf.flow === 'INFLOW' ? 'border-green-400 bg-green-50'
                     : etf.flow === 'OUTFLOW' ? 'border-red-400 bg-red-50'
-                    : 'border-gray-200 bg-gray-50'
+                    : 'border-theme-border bg-theme-bg'
                   }`}
                 >
                   <p className="text-[10px] font-black font-mono">{etf.ticker}</p>
@@ -627,36 +627,36 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                   <p className={`text-[8px] font-black mt-1 ${
                     etf.flow === 'INFLOW' ? 'text-green-600'
                     : etf.flow === 'OUTFLOW' ? 'text-red-600'
-                    : 'text-gray-500'
+                    : 'text-theme-text-muted'
                   }`}>{etf.flow}</p>
-                  <p className="text-[8px] text-gray-400 mt-1 leading-tight">{etf.significance}</p>
+                  <p className="text-[8px] text-theme-text-muted mt-1 leading-tight">{etf.significance}</p>
                 </div>
               ))}
             </div>
           </div>
         ) : (
-          <p className="text-xs text-gray-400 italic text-center py-4">
+          <p className="text-xs text-theme-text-muted italic text-center py-4">
             "Smart Money 조회" 버튼을 눌러 글로벌 ETF 자금 흐름을 분석합니다.
           </p>
         )}
       </div>
 
       {/* ── 아이디어 5: 수출 모멘텀 엔진 ── */}
-      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+      <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
               <Cpu size={12} className="inline mr-1" />
               수출 모멘텀 섹터 로테이션 엔진
             </h3>
             {exportMomentum && (
-              <p className="text-[9px] font-mono text-gray-400 mt-1">업데이트: {exportMomentum.lastUpdated}</p>
+              <p className="text-[9px] font-mono text-theme-text-muted mt-1">업데이트: {exportMomentum.lastUpdated}</p>
             )}
           </div>
           <button
             onClick={loadExportMomentum}
             disabled={exportLoading}
-            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
           >
             <RefreshCw size={12} className={exportLoading ? 'animate-spin' : ''} />
             {exportLoading ? '조회 중...' : '수출 모멘텀 조회'}
@@ -687,7 +687,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
             )}
 
             {/* Product Heatmap */}
-            <div className="grid grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
               {exportMomentum.products.map(p => {
                 const hot = p.isHot;
                 const positive = p.yoyGrowth >= 0;
@@ -706,40 +706,40 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                     }`}>
                       {positive ? '+' : ''}{p.yoyGrowth.toFixed(1)}%
                     </p>
-                    <p className="text-[8px] text-gray-500 mt-1">YoY</p>
+                    <p className="text-[8px] text-theme-text-muted mt-1">YoY</p>
                     {hot && <p className="text-[8px] font-black text-amber-700 mt-1">🔥 HOT</p>}
                     {p.consecutiveGrowthMonths && (
                       <p className="text-[8px] text-blue-600 font-black mt-1">{p.consecutiveGrowthMonths}개월 연속↑</p>
                     )}
-                    <p className="text-[8px] text-gray-400 mt-1 leading-tight">{p.sector}</p>
+                    <p className="text-[8px] text-theme-text-muted mt-1 leading-tight">{p.sector}</p>
                   </div>
                 );
               })}
             </div>
           </div>
         ) : (
-          <p className="text-xs text-gray-400 italic text-center py-4">
+          <p className="text-xs text-theme-text-muted italic text-center py-4">
             "수출 모멘텀 조회" 버튼을 눌러 주요 수출 품목별 YoY 성장률을 분석합니다.
           </p>
         )}
       </div>
 
       {/* ── 아이디어 7: 지정학 리스크 스코어링 모듈 ── */}
-      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+      <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
               <Globe size={12} className="inline mr-1" />
               지정학 리스크 스코어링 모듈 (GOS)
             </h3>
             {geoRisk && (
-              <p className="text-[9px] font-mono text-gray-400 mt-1">업데이트: {geoRisk.lastUpdated}</p>
+              <p className="text-[9px] font-mono text-theme-text-muted mt-1">업데이트: {geoRisk.lastUpdated}</p>
             )}
           </div>
           <button
             onClick={loadGeoRisk}
             disabled={geoLoading}
-            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
           >
             <RefreshCw size={12} className={geoLoading ? 'animate-spin' : ''} />
             {geoLoading ? '조회 중...' : '지정학 리스크 조회'}
@@ -753,17 +753,17 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
               <div className={`text-center p-4 border-2 w-28 ${
                 geoRisk.level === 'OPPORTUNITY' ? 'border-green-600 bg-green-50'
                 : geoRisk.level === 'RISK' ? 'border-red-600 bg-red-50'
-                : 'border-gray-400 bg-gray-50'
+                : 'border-gray-400 bg-theme-bg'
               }`}>
-                <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest">GOS</p>
-                <p className="text-4xl font-black font-mono mt-1">{geoRisk.score}</p>
-                <p className="text-[9px] text-gray-400 font-mono">/10</p>
+                <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">GOS</p>
+                <p className="text-fluid-4xl font-black font-mono mt-1">{geoRisk.score}</p>
+                <p className="text-[9px] text-theme-text-muted font-mono">/10</p>
               </div>
               <div className="flex-1 space-y-2">
                 <div className={`inline-flex items-center gap-2 px-4 py-2 font-black text-sm border-2 ${
                   geoRisk.level === 'OPPORTUNITY' ? 'border-green-600 bg-green-50 text-green-700'
                   : geoRisk.level === 'RISK' ? 'border-red-600 bg-red-50 text-red-700'
-                  : 'border-gray-400 bg-gray-50 text-gray-600'
+                  : 'border-gray-400 bg-theme-bg text-theme-text-secondary'
                 }`}>
                   {geoRisk.level === 'OPPORTUNITY' ? '★ 지정학 기회 (방산·조선·원자력 Gate 3 완화)'
                   : geoRisk.level === 'RISK' ? '⚠ 지정학 리스크 (지정학 섹터 Kelly 30% 축소)'
@@ -771,7 +771,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                 </div>
                 <div className="flex gap-2">
                   {geoRisk.affectedSectors.map(s => (
-                    <span key={s} className="px-2 py-0.5 text-[9px] font-black border border-gray-300 bg-gray-100">
+                    <span key={s} className="px-2 py-0.5 text-[9px] font-black border border-theme-border bg-theme-card">
                       {s}
                     </span>
                   ))}
@@ -781,33 +781,33 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
 
             {/* GOS Bar */}
             <div>
-              <div className="h-3 w-full bg-gray-200 border border-gray-300 relative">
+              <div className="h-3 w-full bg-theme-card border border-theme-border relative">
                 <div
                   className={`h-full transition-all duration-700 ${
-                    geoRisk.score >= 7 ? 'bg-green-600' : geoRisk.score >= 4 ? 'bg-gray-400' : 'bg-red-600'
+                    geoRisk.score >= 7 ? 'bg-green-600' : geoRisk.score >= 4 ? 'bg-theme-text-muted' : 'bg-red-600'
                   }`}
                   style={{ width: `${geoRisk.score * 10}%` }}
                 />
                 {[3, 7].map(t => (
                   <div
                     key={t}
-                    className="absolute top-0 bottom-0 w-px bg-[#141414] opacity-40"
+                    className="absolute top-0 bottom-0 w-px bg-theme-text opacity-40"
                     style={{ left: `${t * 10}%` }}
                   />
                 ))}
               </div>
               <div className="flex justify-between mt-1">
                 <span className="text-[8px] text-red-500 font-black">0 Kelly축소</span>
-                <span className="text-[8px] text-gray-500 font-black">3↑ 중립 7↑</span>
+                <span className="text-[8px] text-theme-text-muted font-black">3↑ 중립 7↑</span>
                 <span className="text-[8px] text-green-600 font-black">Gate3완화 10</span>
               </div>
             </div>
 
             {/* Tone Breakdown */}
-            <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
               {[
                 { label: '긍정', val: geoRisk.toneBreakdown.positive, color: 'text-green-700 bg-green-50 border-green-300' },
-                { label: '중립', val: geoRisk.toneBreakdown.neutral,  color: 'text-gray-600 bg-gray-50 border-gray-300' },
+                { label: '중립', val: geoRisk.toneBreakdown.neutral,  color: 'text-theme-text-secondary bg-theme-bg border-theme-border' },
                 { label: '부정', val: geoRisk.toneBreakdown.negative, color: 'text-red-700 bg-red-50 border-red-300' },
               ].map(item => (
                 <div key={item.label} className={`p-3 border ${item.color}`}>
@@ -820,38 +820,38 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
             {/* Headlines */}
             {geoRisk.headlines.length > 0 && (
               <div className="space-y-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">주요 뉴스 헤드라인</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-theme-text-muted">주요 뉴스 헤드라인</p>
                 {geoRisk.headlines.map((h, i) => (
-                  <div key={i} className="flex items-start gap-2 p-2 border border-gray-200 bg-gray-50">
-                    <span className="text-[9px] font-black text-gray-400 mt-0.5">{i + 1}.</span>
-                    <p className="text-xs text-gray-700 leading-snug">{h}</p>
+                  <div key={i} className="flex items-start gap-2 p-2 border border-theme-border bg-theme-bg">
+                    <span className="text-[9px] font-black text-theme-text-muted mt-0.5">{i + 1}.</span>
+                    <p className="text-xs text-theme-text leading-snug">{h}</p>
                   </div>
                 ))}
               </div>
             )}
           </div>
         ) : (
-          <p className="text-xs text-gray-400 italic text-center py-4">
+          <p className="text-xs text-theme-text-muted italic text-center py-4">
             "지정학 리스크 조회" 버튼을 눌러 Gemini AI 기반 GOS를 산출합니다.
           </p>
         )}
       </div>
 
       {/* ── 아이디어 9: 크레딧 스프레드 조기 경보 시스템 ── */}
-      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+      <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
               Credit Spread Sentinel — 채권 시장 조기 경보
             </h3>
             {creditSpread && (
-              <p className="text-[9px] font-mono text-gray-400 mt-1">업데이트: {creditSpread.lastUpdated}</p>
+              <p className="text-[9px] font-mono text-theme-text-muted mt-1">업데이트: {creditSpread.lastUpdated}</p>
             )}
           </div>
           <button
             onClick={loadCreditSpread}
             disabled={creditLoading}
-            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
           >
             <RefreshCw size={12} className={creditLoading ? 'animate-spin' : ''} />
             {creditLoading ? '조회 중...' : '크레딧 스프레드 조회'}
@@ -878,7 +878,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
               <span className={`px-4 py-1.5 text-xs font-black border-2 ${
                 creditSpread.trend === 'WIDENING'  ? 'border-red-500 bg-red-50 text-red-700'
                 : creditSpread.trend === 'NARROWING' ? 'border-green-500 bg-green-50 text-green-700'
-                : 'border-gray-400 bg-gray-50 text-gray-600'
+                : 'border-gray-400 bg-theme-bg text-theme-text-secondary'
               }`}>
                 {creditSpread.trend === 'WIDENING' ? '▲ WIDENING — 신용 스트레스'
                   : creditSpread.trend === 'NARROWING' ? '▼ NARROWING — 유동성 확장'
@@ -887,7 +887,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
             </div>
 
             {/* 3 Spread Cards */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {[
                 {
                   label: '한국 AA- 회사채',
@@ -919,31 +919,31 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                     : 'border-green-400 bg-green-50'
                   }`}
                 >
-                  <p className="text-[9px] font-black uppercase tracking-widest text-gray-500">{item.label}</p>
-                  <p className="text-[8px] text-gray-400 mt-0.5">{item.sublabel}</p>
-                  <p className={`text-3xl font-black font-mono mt-3 ${
+                  <p className="text-[9px] font-black uppercase tracking-widest text-theme-text-muted">{item.label}</p>
+                  <p className="text-[8px] text-theme-text-muted mt-0.5">{item.sublabel}</p>
+                  <p className={`text-fluid-3xl font-black font-mono mt-3 ${
                     item.danger ? 'text-red-700' : item.warn ? 'text-amber-700' : 'text-green-700'
                   }`}>{item.val}</p>
-                  <p className="text-[9px] text-gray-400 mt-1">bp</p>
+                  <p className="text-[9px] text-theme-text-muted mt-1">bp</p>
                   {item.danger && <p className="text-[8px] font-black text-red-600 mt-2">⚠ 위기 임계치 초과</p>}
                 </div>
               ))}
             </div>
           </div>
         ) : (
-          <p className="text-xs text-gray-400 italic text-center py-4">
+          <p className="text-xs text-theme-text-muted italic text-center py-4">
             "크레딧 스프레드 조회" 버튼을 눌러 채권 시장 조기 경보 신호를 분석합니다.
           </p>
         )}
       </div>
 
       {/* ── 아이디어 11: 역발상 카운터사이클 알고리즘 ── */}
-      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+      <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="mb-6">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
             Contrarian Counter-Cycle Engine — 역발상 카운터사이클
           </h3>
-          <p className="text-[9px] font-mono text-gray-400 mt-1">
+          <p className="text-[9px] font-mono text-theme-text-muted mt-1">
             거시 악재가 특정 섹터의 매수 신호가 되는 역설을 기계적으로 시스템화
           </p>
         </div>
@@ -957,7 +957,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
               condition: '경기 레짐: RECESSION + 대상 섹터: 방산·방위산업',
               bonus: 5,
               triggerColor: 'border-green-500 bg-green-50 text-green-700',
-              idleColor: 'border-gray-200 bg-gray-50 text-gray-500',
+              idleColor: 'border-theme-border bg-theme-bg text-theme-text-muted',
             },
             {
               id: 'DOLLAR_STRONG_HEALTHCARE',
@@ -966,7 +966,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
               condition: 'FX 레짐: DOLLAR_STRONG + 수출증가율 < 0 + 대상 섹터: 헬스케어·바이오',
               bonus: 3,
               triggerColor: 'border-blue-500 bg-blue-50 text-blue-700',
-              idleColor: 'border-gray-200 bg-gray-50 text-gray-500',
+              idleColor: 'border-theme-border bg-theme-bg text-theme-text-muted',
             },
             {
               id: 'VIX_FEAR_PEAK',
@@ -975,7 +975,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
               condition: 'VIX ≥ 35 (공황 수준 공포 지수)',
               bonus: 3,
               triggerColor: 'border-purple-500 bg-purple-50 text-purple-700',
-              idleColor: 'border-gray-200 bg-gray-50 text-gray-500',
+              idleColor: 'border-theme-border bg-theme-bg text-theme-text-muted',
             },
           ].map(signal => {
             const matched = contrarianSignals.find(s => s.id === signal.id);
@@ -989,7 +989,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <span className={`text-[9px] font-black px-2 py-0.5 border ${
-                        isActive ? 'border-current bg-white bg-opacity-50' : 'border-gray-300 bg-white'
+                        isActive ? 'border-current bg-theme-card bg-opacity-50' : 'border-theme-border bg-theme-card'
                       }`}>
                         {isActive ? '▶ 발동' : '— 미발동'}
                       </span>
@@ -1011,8 +1011,8 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
           })}
         </div>
 
-        <div className="mt-4 p-3 bg-gray-50 border border-gray-200">
-          <p className="text-[9px] text-gray-500 font-mono">
+        <div className="mt-4 p-3 bg-theme-bg border border-theme-border">
+          <p className="text-[9px] text-theme-text-muted font-mono">
             ※ 역발상 신호는 종목 평가 시 섹터·VIX·FX 레짐 정보가 입력된 경우 자동 발동됩니다.
             Macro Intelligence 탭은 현재 게이트 환경만 표시합니다.
           </p>
@@ -1020,12 +1020,12 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
       </div>
 
       {/* ── 아이디어 8: 경기사이클 × ROE유형 융합 매트릭스 ── */}
-      <div className="border border-[#141414] bg-white shadow-[8px_8px_0px_0px_rgba(20,20,20,1)]">
-        <div className="p-8 border-b border-[#141414]">
+      <div className="border border-theme-text bg-theme-card shadow-[8px_8px_0px_0px_rgba(128,128,128,0.3)]">
+        <div className="p-8 border-b border-theme-text">
           <h3 className="text-xl font-black uppercase tracking-tight">
             Macro-Micro Fusion Matrix
           </h3>
-          <p className="text-[10px] font-mono text-gray-500 mt-1">
+          <p className="text-[10px] font-mono text-theme-text-muted mt-1">
             경기사이클 4단계 × ROE 5유형 → 20개 투자 국면 알파 지도
           </p>
         </div>
@@ -1034,17 +1034,17 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
           <table className="w-full text-xs font-mono border-collapse">
             <thead>
               <tr>
-                <th className="p-3 border border-gray-200 bg-gray-50 text-[9px] font-black uppercase tracking-widest text-left w-36">
+                <th className="p-3 border border-theme-border bg-theme-bg text-[9px] font-black uppercase tracking-widest text-left w-36">
                   ROE 유형 ↓ / 레짐 →
                 </th>
                 {regimes.map(r => (
                   <th
                     key={r}
-                    className={`p-3 border border-gray-200 text-[9px] font-black uppercase tracking-widest text-center ${
-                      r === currentRegime ? REGIME_LABELS[r].bgColor : 'bg-gray-50'
+                    className={`p-3 border border-theme-border text-[9px] font-black uppercase tracking-widest text-center ${
+                      r === currentRegime ? REGIME_LABELS[r].bgColor : 'bg-theme-bg'
                     }`}
                   >
-                    <span className={r === currentRegime ? REGIME_LABELS[r].color : 'text-gray-400'}>
+                    <span className={r === currentRegime ? REGIME_LABELS[r].color : 'text-theme-text-muted'}>
                       {r === currentRegime ? '▶ ' : ''}{REGIME_LABELS[r].ko}
                     </span>
                   </th>
@@ -1055,8 +1055,8 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
               {roeTypes.map(roeType => (
                 <tr key={roeType}>
                   <td
-                    className={`p-3 border border-gray-200 text-[9px] font-black ${
-                      roeType === currentRoeType ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-600'
+                    className={`p-3 border border-theme-border text-[9px] font-black ${
+                      roeType === currentRoeType ? 'bg-theme-text text-white' : 'bg-theme-bg text-theme-text-secondary'
                     }`}
                   >
                     {roeType === currentRoeType ? '▶ ' : ''}{ROE_TYPE_LABELS[roeType]}
@@ -1070,8 +1070,8 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                         key={regime}
                         className={`p-3 border-2 transition-all ${
                           isCurrentPosition
-                            ? 'border-[#141414] ring-2 ring-inset ring-[#141414]'
-                            : 'border-gray-200'
+                            ? 'border-theme-text ring-2 ring-inset ring-[#141414]'
+                            : 'border-theme-border'
                         } ${style.bg}`}
                         title={cell.strategy}
                       >
@@ -1108,7 +1108,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
           const style = SIGNAL_STYLE[currentCell.signal as AlphaSignal];
           if (!style) return null;
           return (
-            <div className={`p-6 border-t border-[#141414] ${style.bg}`}>
+            <div className={`p-6 border-t border-theme-text ${style.bg}`}>
               <div className="flex items-start gap-4">
                 <ArrowRight size={20} className={`flex-shrink-0 mt-0.5 ${style.text}`} />
                 <div>
@@ -1129,72 +1129,72 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
       </div>
 
       {/* ── 글로벌 멀티소스 인텔리전스 (D) ── */}
-      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+      <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
             글로벌 멀티소스 인텔리전스 — Fed·China·TSMC·BOJ·ISM
           </h3>
           <button onClick={loadGlobalMultiSource} disabled={multiSourceLoading}
-            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-[10px] font-black uppercase disabled:opacity-50">
+            className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-[10px] font-black uppercase disabled:opacity-50">
             <RefreshCw size={12} className={multiSourceLoading ? 'animate-spin' : ''} />
             {multiSourceLoading ? '수집 중...' : '글로벌 데이터 수집'}
           </button>
         </div>
         {globalMultiSource ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <div className="p-3 border border-gray-200 bg-gray-50">
-              <p className="text-[8px] font-black uppercase text-gray-400 mb-1">FED WATCH</p>
+            <div className="p-3 border border-theme-border bg-theme-bg">
+              <p className="text-[8px] font-black uppercase text-theme-text-muted mb-1">FED WATCH</p>
               <p className="text-lg font-bold font-mono">{globalMultiSource.fedWatch.cutProbability}%</p>
-              <p className="text-[9px] text-gray-500">금리인하 확률</p>
-              <p className="text-[8px] text-gray-400 mt-1">다음 회의: {globalMultiSource.fedWatch.nextMeetingDate}</p>
+              <p className="text-[9px] text-theme-text-muted">금리인하 확률</p>
+              <p className="text-[8px] text-theme-text-muted mt-1">다음 회의: {globalMultiSource.fedWatch.nextMeetingDate}</p>
             </div>
-            <div className="p-3 border border-gray-200 bg-gray-50">
-              <p className="text-[8px] font-black uppercase text-gray-400 mb-1">CHINA PMI</p>
+            <div className="p-3 border border-theme-border bg-theme-bg">
+              <p className="text-[8px] font-black uppercase text-theme-text-muted mb-1">CHINA PMI</p>
               <p className={`text-lg font-bold font-mono ${globalMultiSource.chinaPmi.manufacturing >= 50 ? 'text-green-700' : 'text-red-700'}`}>
                 {globalMultiSource.chinaPmi.manufacturing}
               </p>
-              <p className="text-[9px] text-gray-500">제조업 ({globalMultiSource.chinaPmi.trend})</p>
+              <p className="text-[9px] text-theme-text-muted">제조업 ({globalMultiSource.chinaPmi.trend})</p>
             </div>
-            <div className="p-3 border border-gray-200 bg-gray-50">
-              <p className="text-[8px] font-black uppercase text-gray-400 mb-1">TSMC REVENUE</p>
+            <div className="p-3 border border-theme-border bg-theme-bg">
+              <p className="text-[8px] font-black uppercase text-theme-text-muted mb-1">TSMC REVENUE</p>
               <p className={`text-lg font-bold font-mono ${globalMultiSource.tsmcRevenue.yoyGrowth > 0 ? 'text-green-700' : 'text-red-700'}`}>
                 {globalMultiSource.tsmcRevenue.yoyGrowth > 0 ? '+' : ''}{globalMultiSource.tsmcRevenue.yoyGrowth}%
               </p>
-              <p className="text-[9px] text-gray-500">YoY ({globalMultiSource.tsmcRevenue.trend})</p>
+              <p className="text-[9px] text-theme-text-muted">YoY ({globalMultiSource.tsmcRevenue.trend})</p>
             </div>
-            <div className="p-3 border border-gray-200 bg-gray-50">
-              <p className="text-[8px] font-black uppercase text-gray-400 mb-1">BOJ POLICY</p>
+            <div className="p-3 border border-theme-border bg-theme-bg">
+              <p className="text-[8px] font-black uppercase text-theme-text-muted mb-1">BOJ POLICY</p>
               <p className="text-lg font-bold font-mono">{globalMultiSource.bojPolicy.currentRate}%</p>
-              <p className={`text-[9px] ${globalMultiSource.bojPolicy.yenCarryRisk === 'HIGH' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
+              <p className={`text-[9px] ${globalMultiSource.bojPolicy.yenCarryRisk === 'HIGH' ? 'text-red-600 font-bold' : 'text-theme-text-muted'}`}>
                 캐리리스크: {globalMultiSource.bojPolicy.yenCarryRisk}
               </p>
             </div>
-            <div className="p-3 border border-gray-200 bg-gray-50">
-              <p className="text-[8px] font-black uppercase text-gray-400 mb-1">US ISM MFG</p>
+            <div className="p-3 border border-theme-border bg-theme-bg">
+              <p className="text-[8px] font-black uppercase text-theme-text-muted mb-1">US ISM MFG</p>
               <p className={`text-lg font-bold font-mono ${globalMultiSource.usIsm.manufacturing >= 50 ? 'text-green-700' : 'text-red-700'}`}>
                 {globalMultiSource.usIsm.manufacturing}
               </p>
-              <p className="text-[9px] text-gray-500">{globalMultiSource.usIsm.trend}</p>
+              <p className="text-[9px] text-theme-text-muted">{globalMultiSource.usIsm.trend}</p>
             </div>
-            <div className="p-3 border border-gray-200 bg-gray-50">
-              <p className="text-[8px] font-black uppercase text-gray-400 mb-1">US CPI / 실업률</p>
+            <div className="p-3 border border-theme-border bg-theme-bg">
+              <p className="text-[8px] font-black uppercase text-theme-text-muted mb-1">US CPI / 실업률</p>
               <p className="text-lg font-bold font-mono">{globalMultiSource.fredData.usCpi}%</p>
-              <p className="text-[9px] text-gray-500">실업률 {globalMultiSource.fredData.usUnemployment}%</p>
+              <p className="text-[9px] text-theme-text-muted">실업률 {globalMultiSource.fredData.usUnemployment}%</p>
             </div>
           </div>
         ) : (
-          <p className="text-[10px] text-gray-400 italic">'글로벌 데이터 수집' 버튼으로 최신 데이터를 불러오세요.</p>
+          <p className="text-[10px] text-theme-text-muted italic">'글로벌 데이터 수집' 버튼으로 최신 데이터를 불러오세요.</p>
         )}
       </div>
 
       {/* ── 글로벌 상관관계 매트릭스 (C) ── */}
-      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+      <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
             글로벌 상관관계 매트릭스 — Decoupling / Synchronization Detector
           </h3>
           <button onClick={loadGlobalCorrelation} disabled={correlationLoading}
-            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-[10px] font-black uppercase disabled:opacity-50">
+            className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-[10px] font-black uppercase disabled:opacity-50">
             <RefreshCw size={12} className={correlationLoading ? 'animate-spin' : ''} />
             {correlationLoading ? '분석 중...' : '상관관계 분석'}
           </button>
@@ -1208,14 +1208,14 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                 { label: 'KOSPI-상해종합', value: globalCorrelation.kospiShanghai, normal: '0.3~0.6' },
                 { label: 'KOSPI-DXY', value: globalCorrelation.kospiDxy, normal: '-0.3~-0.6' },
               ].map(item => (
-                <div key={item.label} className="p-3 border border-gray-200 bg-gray-50 text-center">
-                  <p className="text-[8px] font-black uppercase text-gray-400 mb-1">{item.label}</p>
+                <div key={item.label} className="p-3 border border-theme-border bg-theme-bg text-center">
+                  <p className="text-[8px] font-black uppercase text-theme-text-muted mb-1">{item.label}</p>
                   <p className={`text-2xl font-bold font-mono ${
-                    Math.abs(item.value) > 0.8 ? 'text-red-600' : Math.abs(item.value) < 0.3 ? 'text-purple-600' : 'text-gray-800'
+                    Math.abs(item.value) > 0.8 ? 'text-red-600' : Math.abs(item.value) < 0.3 ? 'text-purple-600' : 'text-theme-text'
                   }`}>
                     {item.value > 0 ? '+' : ''}{item.value.toFixed(2)}
                   </p>
-                  <p className="text-[8px] text-gray-400 mt-1">정상: {item.normal}</p>
+                  <p className="text-[8px] text-theme-text-muted mt-1">정상: {item.normal}</p>
                 </div>
               ))}
             </div>
@@ -1230,21 +1230,21 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
             )}
           </div>
         ) : (
-          <p className="text-[10px] text-gray-400 italic">'상관관계 분석' 버튼으로 글로벌 상관관계를 분석하세요.</p>
+          <p className="text-[10px] text-theme-text-muted italic">'상관관계 분석' 버튼으로 글로벌 상관관계를 분석하세요.</p>
         )}
       </div>
 
       {/* ── 섹터-테마 역추적 엔진 (H) ── */}
-      <div className="p-8 border border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+      <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
               섹터-테마 역추적 — Global Theme → Korea Hidden Gems
             </h3>
-            <p className="text-[8px] text-gray-400 mt-1">글로벌 메가트렌드에서 아직 시장이 연결짓지 못한 한국 숨은 수혜주 발굴</p>
+            <p className="text-[8px] text-theme-text-muted mt-1">글로벌 메가트렌드에서 아직 시장이 연결짓지 못한 한국 숨은 수혜주 발굴</p>
           </div>
           <button onClick={loadThemeTracking} disabled={themeLoading}
-            className="flex items-center gap-2 px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#141414] hover:text-white transition-colors text-[10px] font-black uppercase disabled:opacity-50">
+            className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-[10px] font-black uppercase disabled:opacity-50">
             <RefreshCw size={12} className={themeLoading ? 'animate-spin' : ''} />
             {themeLoading ? '역추적 중...' : '테마 역추적 실행'}
           </button>
@@ -1252,7 +1252,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
         {themeResults.length > 0 ? (
           <div className="space-y-6">
             {themeResults.map((theme, idx) => (
-              <div key={idx} className="border border-gray-200 p-4">
+              <div key={idx} className="border border-theme-border p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <span className="text-base font-black">{theme.theme}</span>
@@ -1267,16 +1267,16 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                     <span className={`text-[9px] font-bold px-2 py-0.5 border ${
                       theme.globalTrend.momentum === 'ACCELERATING' ? 'border-green-400 text-green-700' :
                       theme.globalTrend.momentum === 'EMERGING' ? 'border-blue-400 text-blue-700' :
-                      'border-gray-300 text-gray-500'
+                      'border-theme-border text-theme-text-muted'
                     }`}>
                       {theme.globalTrend.momentum}
                     </span>
                   </div>
                   {theme.globalTrend.globalMarketSize && (
-                    <span className="text-[9px] font-mono text-gray-500">{theme.globalTrend.globalMarketSize}</span>
+                    <span className="text-[9px] font-mono text-theme-text-muted">{theme.globalTrend.globalMarketSize}</span>
                   )}
                 </div>
-                <p className="text-[10px] text-gray-600 mb-3">{theme.globalTrend.source}</p>
+                <p className="text-[10px] text-theme-text-secondary mb-3">{theme.globalTrend.source}</p>
 
                 {/* Hidden Gems 강조 */}
                 {theme.hiddenGems.length > 0 && (
@@ -1289,11 +1289,11 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                         <div key={gIdx} className="flex items-center justify-between">
                           <div>
                             <span className="text-sm font-bold text-emerald-800">{gem.company}</span>
-                            <span className="text-[9px] text-gray-500 ml-2">({gem.code})</span>
+                            <span className="text-[9px] text-theme-text-muted ml-2">({gem.code})</span>
                             <span className="text-[9px] text-emerald-600 ml-2">— {gem.role}</span>
                           </div>
                           <div className="text-right">
-                            <span className="text-[9px] font-mono text-gray-600">매출비중 {gem.revenueExposure}%</span>
+                            <span className="text-[9px] font-mono text-theme-text-secondary">매출비중 {gem.revenueExposure}%</span>
                           </div>
                         </div>
                       ))}
@@ -1305,7 +1305,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                 <div className="overflow-x-auto">
                   <table className="w-full text-[9px]">
                     <thead>
-                      <tr className="border-b border-gray-300">
+                      <tr className="border-b border-theme-border">
                         <th className="text-left p-1.5 font-black uppercase">기업</th>
                         <th className="text-left p-1.5 font-black uppercase">코드</th>
                         <th className="text-left p-1.5 font-black uppercase">역할</th>
@@ -1315,16 +1315,16 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                     </thead>
                     <tbody>
                       {theme.koreaValueChain.map((vc, vIdx) => (
-                        <tr key={vIdx} className={`border-b border-gray-100 ${vc.marketAttention === 'HIDDEN' ? 'bg-emerald-50' : ''}`}>
+                        <tr key={vIdx} className={`border-b border-theme-border ${vc.marketAttention === 'HIDDEN' ? 'bg-emerald-50' : ''}`}>
                           <td className="p-1.5 font-bold">{vc.company}</td>
-                          <td className="p-1.5 font-mono text-gray-500">{vc.code}</td>
-                          <td className="p-1.5 text-gray-600">{vc.role}</td>
+                          <td className="p-1.5 font-mono text-theme-text-muted">{vc.code}</td>
+                          <td className="p-1.5 text-theme-text-secondary">{vc.role}</td>
                           <td className="p-1.5 text-right font-mono">{vc.revenueExposure}%</td>
                           <td className="p-1.5 text-center">
                             <span className={`px-1.5 py-0.5 text-[8px] font-black ${
                               vc.marketAttention === 'HIDDEN' ? 'bg-emerald-200 text-emerald-800' :
                               vc.marketAttention === 'EMERGING' ? 'bg-blue-200 text-blue-800' :
-                              'bg-gray-200 text-gray-600'
+                              'bg-theme-card text-theme-text-secondary'
                             }`}>
                               {vc.marketAttention}
                             </span>
@@ -1338,16 +1338,16 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
             ))}
           </div>
         ) : (
-          <p className="text-[10px] text-gray-400 italic">'테마 역추적 실행' 버튼으로 글로벌 테마에서 한국 숨은 수혜주를 발굴하세요.</p>
+          <p className="text-[10px] text-theme-text-muted italic">'테마 역추적 실행' 버튼으로 글로벌 테마에서 한국 숨은 수혜주를 발굴하세요.</p>
         )}
       </div>
 
       {/* ════════════════════════════════════════════════════════════════════
           레이어 I: 공급망 물동량 인텔리전스
          ════════════════════════════════════════════════════════════════════ */}
-      <div className="border border-gray-200 p-5">
+      <div className="border border-theme-border p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xs font-black uppercase tracking-widest text-gray-700">
+          <h3 className="text-xs font-black uppercase tracking-widest text-theme-text">
             I. 공급망 물동량 인텔리전스
           </h3>
           <button onClick={loadSupplyChain} disabled={supplyChainLoading}
@@ -1356,16 +1356,16 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
           </button>
         </div>
         {supplyChain ? (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {/* BDI */}
-            <div className="border border-gray-100 p-3">
-              <p className="text-[9px] font-black uppercase text-gray-500 mb-2">Baltic Dry Index</p>
+            <div className="border border-theme-border p-3">
+              <p className="text-[9px] font-black uppercase text-theme-text-muted mb-2">Baltic Dry Index</p>
               <p className="text-xl font-black">{supplyChain.bdi.current.toLocaleString()}</p>
               <div className="flex items-center gap-2 mt-1">
                 <span className={`text-[9px] font-bold px-2 py-0.5 border ${
                   supplyChain.bdi.trend === 'SURGING' || supplyChain.bdi.trend === 'RISING' ? 'border-green-400 text-green-700 bg-green-50' :
                   supplyChain.bdi.trend === 'FALLING' || supplyChain.bdi.trend === 'COLLAPSING' ? 'border-red-400 text-red-700 bg-red-50' :
-                  'border-gray-300 text-gray-500'
+                  'border-theme-border text-theme-text-muted'
                 }`}>{supplyChain.bdi.trend}</span>
                 <span className={`text-[10px] font-mono ${supplyChain.bdi.mom3Change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   3M {supplyChain.bdi.mom3Change >= 0 ? '+' : ''}{supplyChain.bdi.mom3Change.toFixed(1)}%
@@ -1374,53 +1374,53 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
               {supplyChain.bdi.mom3Change >= 20 && (
                 <p className="text-[8px] mt-1 px-2 py-0.5 bg-green-100 text-green-800 font-bold">Gate 연동: 조선섹터 Gate 2 완화 -1</p>
               )}
-              <p className="text-[9px] text-gray-500 mt-2">{supplyChain.bdi.sectorImplication}</p>
+              <p className="text-[9px] text-theme-text-muted mt-2">{supplyChain.bdi.sectorImplication}</p>
             </div>
             {/* SEMI Billings */}
-            <div className="border border-gray-100 p-3">
-              <p className="text-[9px] font-black uppercase text-gray-500 mb-2">SEMI N.A. Billings</p>
+            <div className="border border-theme-border p-3">
+              <p className="text-[9px] font-black uppercase text-theme-text-muted mb-2">SEMI N.A. Billings</p>
               <p className="text-xl font-black">${supplyChain.semiBillings.latestBillionUSD.toFixed(1)}B</p>
               <div className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] font-mono text-gray-600">YoY {supplyChain.semiBillings.yoyGrowth >= 0 ? '+' : ''}{supplyChain.semiBillings.yoyGrowth.toFixed(1)}%</span>
+                <span className="text-[10px] font-mono text-theme-text-secondary">YoY {supplyChain.semiBillings.yoyGrowth >= 0 ? '+' : ''}{supplyChain.semiBillings.yoyGrowth.toFixed(1)}%</span>
                 <span className={`text-[9px] font-bold px-2 py-0.5 border ${
                   supplyChain.semiBillings.bookToBill >= 1.1 ? 'border-green-400 text-green-700 bg-green-50' :
                   supplyChain.semiBillings.bookToBill >= 1.0 ? 'border-blue-400 text-blue-700 bg-blue-50' :
                   'border-red-400 text-red-700 bg-red-50'
                 }`}>B/B {supplyChain.semiBillings.bookToBill.toFixed(2)}</span>
               </div>
-              <p className="text-[9px] text-gray-500 mt-2">{supplyChain.semiBillings.implication}</p>
+              <p className="text-[9px] text-theme-text-muted mt-2">{supplyChain.semiBillings.implication}</p>
             </div>
             {/* GCFI */}
-            <div className="border border-gray-100 p-3">
-              <p className="text-[9px] font-black uppercase text-gray-500 mb-2">Container Freight</p>
+            <div className="border border-theme-border p-3">
+              <p className="text-[9px] font-black uppercase text-theme-text-muted mb-2">Container Freight</p>
               <div className="space-y-1">
                 <div className="flex justify-between">
-                  <span className="text-[9px] text-gray-500">상하이→유럽</span>
+                  <span className="text-[9px] text-theme-text-muted">상하이→유럽</span>
                   <span className="text-sm font-bold">${supplyChain.gcfi.shanghaiEurope.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-[9px] text-gray-500">태평양 횡단</span>
+                  <span className="text-[9px] text-theme-text-muted">태평양 횡단</span>
                   <span className="text-sm font-bold">${supplyChain.gcfi.transPacific.toLocaleString()}</span>
                 </div>
               </div>
               <span className={`text-[9px] font-bold px-2 py-0.5 border mt-2 inline-block ${
                 supplyChain.gcfi.trend === 'RISING' ? 'border-red-400 text-red-700 bg-red-50' :
                 supplyChain.gcfi.trend === 'FALLING' ? 'border-green-400 text-green-700 bg-green-50' :
-                'border-gray-300 text-gray-500'
+                'border-theme-border text-theme-text-muted'
               }`}>{supplyChain.gcfi.trend}</span>
             </div>
           </div>
         ) : (
-          <p className="text-[10px] text-gray-400 italic">BDI·SEMI·컨테이너 운임 데이터를 수집하여 조선·반도체 섹터 선행지표를 확인하세요.</p>
+          <p className="text-[10px] text-theme-text-muted italic">BDI·SEMI·컨테이너 운임 데이터를 수집하여 조선·반도체 섹터 선행지표를 확인하세요.</p>
         )}
       </div>
 
       {/* ════════════════════════════════════════════════════════════════════
           레이어 J: 섹터별 글로벌 수주 인텔리전스
          ════════════════════════════════════════════════════════════════════ */}
-      <div className="border border-gray-200 p-5">
+      <div className="border border-theme-border p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xs font-black uppercase tracking-widest text-gray-700">
+          <h3 className="text-xs font-black uppercase tracking-widest text-theme-text">
             J. 섹터별 글로벌 수주 인텔리전스
           </h3>
           <button onClick={loadSectorOrders} disabled={sectorOrdersLoading}
@@ -1429,32 +1429,32 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
           </button>
         </div>
         {sectorOrders ? (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {/* 방산 */}
-            <div className="border border-gray-100 p-3">
-              <p className="text-[9px] font-black uppercase text-gray-500 mb-2">글로벌 방산</p>
+            <div className="border border-theme-border p-3">
+              <p className="text-[9px] font-black uppercase text-theme-text-muted mb-2">글로벌 방산</p>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-sm font-black">NATO GDP {sectorOrders.globalDefense.natoGdpAvg.toFixed(1)}%</span>
                 <span className={`text-[9px] font-bold px-2 py-0.5 border ${
                   sectorOrders.globalDefense.trend === 'EXPANDING' ? 'border-green-400 text-green-700 bg-green-50' :
                   sectorOrders.globalDefense.trend === 'CUTTING' ? 'border-red-400 text-red-700 bg-red-50' :
-                  'border-gray-300 text-gray-500'
+                  'border-theme-border text-theme-text-muted'
                 }`}>{sectorOrders.globalDefense.trend}</span>
               </div>
-              <p className="text-[10px] text-gray-600">미국 국방예산: ${sectorOrders.globalDefense.usDefenseBudget.toLocaleString()}억</p>
-              <p className="text-[9px] text-gray-500 mt-1">{sectorOrders.globalDefense.koreaExposure}</p>
+              <p className="text-[10px] text-theme-text-secondary">미국 국방예산: ${sectorOrders.globalDefense.usDefenseBudget.toLocaleString()}억</p>
+              <p className="text-[9px] text-theme-text-muted mt-1">{sectorOrders.globalDefense.koreaExposure}</p>
             </div>
             {/* LNG */}
-            <div className="border border-gray-100 p-3">
-              <p className="text-[9px] font-black uppercase text-gray-500 mb-2">LNG 발주</p>
-              <p className="text-xl font-black">{sectorOrders.lngOrders.newOrdersYTD}<span className="text-xs font-normal text-gray-500 ml-1">척 (YTD)</span></p>
-              <p className="text-[10px] text-gray-600 mt-1">수주잔고: {sectorOrders.lngOrders.orderBookMonths}개월</p>
-              <p className="text-[9px] text-gray-500 mt-1">{sectorOrders.lngOrders.qatarEnergy}</p>
+            <div className="border border-theme-border p-3">
+              <p className="text-[9px] font-black uppercase text-theme-text-muted mb-2">LNG 발주</p>
+              <p className="text-xl font-black">{sectorOrders.lngOrders.newOrdersYTD}<span className="text-xs font-normal text-theme-text-muted ml-1">척 (YTD)</span></p>
+              <p className="text-[10px] text-theme-text-secondary mt-1">수주잔고: {sectorOrders.lngOrders.orderBookMonths}개월</p>
+              <p className="text-[9px] text-theme-text-muted mt-1">{sectorOrders.lngOrders.qatarEnergy}</p>
               <p className="text-[9px] text-blue-600 mt-1 font-bold">{sectorOrders.lngOrders.implication}</p>
             </div>
             {/* SMR */}
-            <div className="border border-gray-100 p-3">
-              <p className="text-[9px] font-black uppercase text-gray-500 mb-2">SMR 원자력</p>
+            <div className="border border-theme-border p-3">
+              <p className="text-[9px] font-black uppercase text-theme-text-muted mb-2">SMR 원자력</p>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-sm font-black">{sectorOrders.smrContracts.totalGwCapacity} GW</span>
                 <span className={`text-[9px] font-bold px-2 py-0.5 border ${
@@ -1463,21 +1463,21 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                   'border-amber-400 text-amber-700 bg-amber-50'
                 }`}>{sectorOrders.smrContracts.timing}</span>
               </div>
-              <p className="text-[10px] text-gray-600">NRC 승인: {sectorOrders.smrContracts.usNrcApprovals}기</p>
-              <p className="text-[9px] text-gray-500 mt-1">{sectorOrders.smrContracts.koreaHyundai}</p>
+              <p className="text-[10px] text-theme-text-secondary">NRC 승인: {sectorOrders.smrContracts.usNrcApprovals}기</p>
+              <p className="text-[9px] text-theme-text-muted mt-1">{sectorOrders.smrContracts.koreaHyundai}</p>
             </div>
           </div>
         ) : (
-          <p className="text-[10px] text-gray-400 italic">방산·LNG·SMR 글로벌 수주 데이터를 수집하여 조·방·원 주도주 사이클을 검증하세요.</p>
+          <p className="text-[10px] text-theme-text-muted italic">방산·LNG·SMR 글로벌 수주 데이터를 수집하여 조·방·원 주도주 사이클을 검증하세요.</p>
         )}
       </div>
 
       {/* ════════════════════════════════════════════════════════════════════
           레이어 K: 금융시스템 스트레스 인덱스
          ════════════════════════════════════════════════════════════════════ */}
-      <div className="border border-gray-200 p-5">
+      <div className="border border-theme-border p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xs font-black uppercase tracking-widest text-gray-700">
+          <h3 className="text-xs font-black uppercase tracking-widest text-theme-text">
             K. 금융시스템 스트레스 인덱스 (FSI)
           </h3>
           <button onClick={loadFsi} disabled={fsiLoading}
@@ -1490,21 +1490,21 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
             {/* 종합 스코어 바 */}
             <div className="mb-4">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[9px] font-bold text-gray-500">종합 FSI</span>
+                <span className="text-[9px] font-bold text-theme-text-muted">종합 FSI</span>
                 <span className={`text-sm font-black ${
                   fsi.compositeScore >= 60 ? 'text-red-600' : fsi.compositeScore >= 40 ? 'text-amber-600' : fsi.compositeScore >= 20 ? 'text-yellow-600' : 'text-green-600'
                 }`}>{fsi.compositeScore}/100</span>
               </div>
-              <div className="w-full h-3 bg-gray-100 overflow-hidden">
+              <div className="w-full h-3 bg-theme-card overflow-hidden">
                 <div className={`h-full transition-all ${
                   fsi.compositeScore >= 60 ? 'bg-red-500' : fsi.compositeScore >= 40 ? 'bg-amber-500' : fsi.compositeScore >= 20 ? 'bg-yellow-400' : 'bg-green-400'
                 }`} style={{ width: `${fsi.compositeScore}%` }} />
               </div>
               <div className="flex justify-between mt-1">
-                <span className="text-[8px] text-gray-400">NORMAL</span>
-                <span className="text-[8px] text-gray-400">CAUTION</span>
-                <span className="text-[8px] text-gray-400">DEFENSIVE</span>
-                <span className="text-[8px] text-gray-400">CRISIS</span>
+                <span className="text-[8px] text-theme-text-muted">NORMAL</span>
+                <span className="text-[8px] text-theme-text-muted">CAUTION</span>
+                <span className="text-[8px] text-theme-text-muted">DEFENSIVE</span>
+                <span className="text-[8px] text-theme-text-muted">CRISIS</span>
               </div>
             </div>
             <div className={`text-center py-2 mb-4 font-black text-xs ${
@@ -1518,27 +1518,27 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                fsi.systemAction === 'CAUTION' ? '주의 모드 · 신규 매수 축소' :
                '정상 · 금융시스템 안정'}
             </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="border border-gray-100 p-3 text-center">
-                <p className="text-[9px] font-black uppercase text-gray-500 mb-1">TED Spread</p>
-                <p className="text-lg font-black">{fsi.tedSpread.bps}<span className="text-[9px] font-normal text-gray-500 ml-1">bp</span></p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="border border-theme-border p-3 text-center">
+                <p className="text-[9px] font-black uppercase text-theme-text-muted mb-1">TED Spread</p>
+                <p className="text-lg font-black">{fsi.tedSpread.bps}<span className="text-[9px] font-normal text-theme-text-muted ml-1">bp</span></p>
                 <span className={`text-[9px] font-bold px-2 py-0.5 border ${
                   fsi.tedSpread.alert === 'CRISIS' ? 'border-red-400 text-red-700 bg-red-50' :
                   fsi.tedSpread.alert === 'ELEVATED' ? 'border-amber-400 text-amber-700 bg-amber-50' :
                   'border-green-400 text-green-700 bg-green-50'
                 }`}>{fsi.tedSpread.alert}</span>
               </div>
-              <div className="border border-gray-100 p-3 text-center">
-                <p className="text-[9px] font-black uppercase text-gray-500 mb-1">US HY Spread</p>
-                <p className="text-lg font-black">{fsi.usHySpread.bps}<span className="text-[9px] font-normal text-gray-500 ml-1">bp</span></p>
+              <div className="border border-theme-border p-3 text-center">
+                <p className="text-[9px] font-black uppercase text-theme-text-muted mb-1">US HY Spread</p>
+                <p className="text-lg font-black">{fsi.usHySpread.bps}<span className="text-[9px] font-normal text-theme-text-muted ml-1">bp</span></p>
                 <span className={`text-[9px] font-bold px-2 py-0.5 border ${
                   fsi.usHySpread.trend === 'WIDENING' ? 'border-red-400 text-red-700 bg-red-50' :
                   fsi.usHySpread.trend === 'TIGHTENING' ? 'border-green-400 text-green-700 bg-green-50' :
-                  'border-gray-300 text-gray-500'
+                  'border-theme-border text-theme-text-muted'
                 }`}>{fsi.usHySpread.trend}</span>
               </div>
-              <div className="border border-gray-100 p-3 text-center">
-                <p className="text-[9px] font-black uppercase text-gray-500 mb-1">MOVE Index</p>
+              <div className="border border-theme-border p-3 text-center">
+                <p className="text-[9px] font-black uppercase text-theme-text-muted mb-1">MOVE Index</p>
                 <p className="text-lg font-black">{fsi.moveIndex.current}</p>
                 <span className={`text-[9px] font-bold px-2 py-0.5 border ${
                   fsi.moveIndex.alert === 'EXTREME' ? 'border-red-400 text-red-700 bg-red-50' :
@@ -1549,16 +1549,16 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
             </div>
           </div>
         ) : (
-          <p className="text-[10px] text-gray-400 italic">TED Spread·HY Spread·MOVE Index를 수집하여 금융위기 조기경보를 확인하세요.</p>
+          <p className="text-[10px] text-theme-text-muted italic">TED Spread·HY Spread·MOVE Index를 수집하여 금융위기 조기경보를 확인하세요.</p>
         )}
       </div>
 
       {/* ════════════════════════════════════════════════════════════════════
           레이어 L: FOMC 문서 감성 분석
          ════════════════════════════════════════════════════════════════════ */}
-      <div className="border border-gray-200 p-5">
+      <div className="border border-theme-border p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xs font-black uppercase tracking-widest text-gray-700">
+          <h3 className="text-xs font-black uppercase tracking-widest text-theme-text">
             L. FOMC 감성 분석
           </h3>
           <button onClick={loadFomcSentiment} disabled={fomcLoading}
@@ -1572,7 +1572,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
             <div className="mb-4">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[9px] font-bold text-blue-500">극비둘기 -10</span>
-                <span className="text-[9px] font-bold text-gray-500">HAWK/DOVE SCORE</span>
+                <span className="text-[9px] font-bold text-theme-text-muted">HAWK/DOVE SCORE</span>
                 <span className="text-[9px] font-bold text-red-500">극매파 +10</span>
               </div>
               <div className="relative w-full h-4 bg-gradient-to-r from-blue-200 via-gray-200 to-red-200 overflow-hidden">
@@ -1580,41 +1580,41 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
               </div>
               <p className="text-center text-lg font-black mt-2">
                 {fomcSentiment.hawkDovishScore > 0 ? '+' : ''}{fomcSentiment.hawkDovishScore}
-                <span className="text-xs font-normal text-gray-500 ml-2">
+                <span className="text-xs font-normal text-theme-text-muted ml-2">
                   {fomcSentiment.hawkDovishScore >= 5 ? '매파적' : fomcSentiment.hawkDovishScore <= -5 ? '비둘기파적' : '중립'}
                 </span>
               </p>
             </div>
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div className="border border-gray-100 p-3 text-center">
-                <p className="text-[9px] font-black uppercase text-gray-500 mb-1">점도표 변화</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+              <div className="border border-theme-border p-3 text-center">
+                <p className="text-[9px] font-black uppercase text-theme-text-muted mb-1">점도표 변화</p>
                 <span className={`text-xs font-bold px-3 py-1 border ${
                   fomcSentiment.dotPlotShift === 'MORE_CUTS' ? 'border-green-400 text-green-700 bg-green-50' :
                   fomcSentiment.dotPlotShift === 'FEWER_CUTS' ? 'border-red-400 text-red-700 bg-red-50' :
-                  'border-gray-300 text-gray-500'
+                  'border-theme-border text-theme-text-muted'
                 }`}>{fomcSentiment.dotPlotShift}</span>
               </div>
-              <div className="border border-gray-100 p-3 text-center">
-                <p className="text-[9px] font-black uppercase text-gray-500 mb-1">KOSPI 임팩트</p>
+              <div className="border border-theme-border p-3 text-center">
+                <p className="text-[9px] font-black uppercase text-theme-text-muted mb-1">KOSPI 임팩트</p>
                 <span className={`text-xs font-bold px-3 py-1 border ${
                   fomcSentiment.kospiImpact === 'BULLISH' ? 'border-green-400 text-green-700 bg-green-50' :
                   fomcSentiment.kospiImpact === 'BEARISH' ? 'border-red-400 text-red-700 bg-red-50' :
-                  'border-gray-300 text-gray-500'
+                  'border-theme-border text-theme-text-muted'
                 }`}>{fomcSentiment.kospiImpact}</span>
               </div>
-              <div className="border border-gray-100 p-3">
-                <p className="text-[9px] font-black uppercase text-gray-500 mb-1">핵심 문구</p>
+              <div className="border border-theme-border p-3">
+                <p className="text-[9px] font-black uppercase text-theme-text-muted mb-1">핵심 문구</p>
                 <div className="flex flex-wrap gap-1">
                   {fomcSentiment.keyPhrases.map((phrase, i) => (
-                    <span key={i} className="text-[8px] px-1.5 py-0.5 bg-gray-100 text-gray-600 border border-gray-200">{phrase}</span>
+                    <span key={i} className="text-[8px] px-1.5 py-0.5 bg-theme-card text-theme-text-secondary border border-theme-border">{phrase}</span>
                   ))}
                 </div>
               </div>
             </div>
-            <p className="text-[10px] text-gray-600 italic">{fomcSentiment.rationale}</p>
+            <p className="text-[10px] text-theme-text-secondary italic">{fomcSentiment.rationale}</p>
           </div>
         ) : (
-          <p className="text-[10px] text-gray-400 italic">FOMC 의사록/성명서 매파·비둘기파 분석으로 한국 증시 영향을 정량화하세요.</p>
+          <p className="text-[10px] text-theme-text-muted italic">FOMC 의사록/성명서 매파·비둘기파 분석으로 한국 증시 영향을 정량화하세요.</p>
         )}
       </div>
     </div>
