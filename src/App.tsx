@@ -916,17 +916,9 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Fetch on mount if not exists or stale
-    const shouldFetch = !marketOverview || (() => {
-      const last = new Date(marketOverview.lastUpdated).getTime();
-      const now = new Date().getTime();
-      const diff = (now - last) / (1000 * 60); // minutes
-      return diff >= 5;
-    })();
-
-    if (shouldFetch) {
-      handleFetchMarketOverview();
-    }
+    // 자동 fetch 제거 — 이미 캐시된 데이터가 있으면 재호출하지 않음
+    // 수동 "시장 개요" 버튼 클릭 시에만 갱신 (API 절감: 하루 ~17,400 토큰)
+    if (!marketOverview) return;
   }, [view]);
 
   const handleSaveApiKey = () => {
@@ -1736,12 +1728,8 @@ export default function App() {
       setMarketContext(data.marketContext);
       setLastUpdated(new Date().toLocaleTimeString());
 
-      // 뉴스 빈도 역지표 자동 조회 (비동기, 메인 플로우 차단 안 함)
-      if (diversified.length > 0) {
-        getNewsFrequencyScores(diversified.map(s => ({ code: s.code, name: s.name })))
-          .then(scores => setNewsFrequencyScores(scores))
-          .catch(err => console.error('News frequency scoring failed:', err));
-      }
+      // 뉴스 빈도 역지표 — 자동 연쇄 호출 제거 (API 절감)
+      // 사용자가 별도 "뉴스 분석" 버튼 클릭 시에만 수동 호출
 
       if (diversified.length === 0) {
         toast.info('추천 종목이 없습니다.');
@@ -1765,6 +1753,22 @@ export default function App() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const [loadingNews, setLoadingNews] = useState(false);
+  const handleFetchNewsScores = async () => {
+    if (recommendations.length === 0) return;
+    setLoadingNews(true);
+    try {
+      const scores = await getNewsFrequencyScores(recommendations.map(s => ({ code: s.code, name: s.name })));
+      setNewsFrequencyScores(scores);
+      toast.success('뉴스 빈도 분석 완료');
+    } catch (err) {
+      console.error('News frequency scoring failed:', err);
+      toast.error('뉴스 분석 실패');
+    } finally {
+      setLoadingNews(false);
     }
   };
 
@@ -4352,13 +4356,25 @@ export default function App() {
                   </>
                 )}
               </h3>
-              <button 
+              <button
                 onClick={fetchStocks}
                 disabled={loading}
                 className="p-2 bg-theme-card hover:bg-orange-500/20 border border-theme-border rounded-xl transition-all group/refresh active:scale-90"
                 title="실시간 시세 새로고침"
               >
                 <RefreshCw className={cn("w-4 h-4 text-theme-text-muted group-hover/refresh:text-orange-500", loading && "animate-spin")} />
+              </button>
+
+              <button
+                onClick={handleFetchNewsScores}
+                disabled={loadingNews || recommendations.length === 0}
+                className="flex items-center gap-1.5 px-3 py-2 bg-theme-card hover:bg-cyan-500/20 border border-theme-border rounded-xl transition-all text-xs font-bold active:scale-90"
+                title="뉴스 빈도 역지표 분석"
+              >
+                <Newspaper className={cn("w-3.5 h-3.5 text-theme-text-muted", loadingNews && "animate-pulse text-cyan-400")} />
+                <span className={cn("text-theme-text-muted", loadingNews && "text-cyan-400")}>
+                  {loadingNews ? '분석중...' : '뉴스 분석'}
+                </span>
               </button>
 
               <button
