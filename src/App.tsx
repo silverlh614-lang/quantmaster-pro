@@ -117,8 +117,6 @@ import { MacroIntelligenceDashboard } from './components/MacroIntelligenceDashbo
 import { ManualQuantInput } from './components/ManualQuantInput';
 import { ConfidenceBadge } from './components/ConfidenceBadge';
 import { evaluateStock, evaluateGate0 } from './services/quantEngine';
-import { fetchHistoricalData } from './services/stockService';
-import { calculateRSIMomentumAcceleration } from './utils/indicators';
 import { MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal, StockProfile, StockProfileType, MacroEnvironment, EconomicRegimeData, SmartMoneyData, ExportMomentumData, GeopoliticalRiskData, CreditSpreadData, ROEType, ExtendedRegimeData, GlobalCorrelationMatrix, NewsFrequencyScore, SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex, FomcSentimentAnalysis, TradeRecord, ConditionId } from './types/quant';
 import { WalkForwardView } from './components/WalkForwardView';
 import { HeroChecklist } from './components/HeroChecklist';
@@ -292,14 +290,7 @@ export default function App() {
 
   // useAnalysisStore
   const {
-    deepAnalysisStock, setDeepAnalysisStock,
     selectedDetailStock, setSelectedDetailStock,
-    weeklyRsiValues, setWeeklyRsiValues,
-    reportSummary, setReportSummary,
-    isSummarizing, setIsSummarizing,
-    isGeneratingPDF, setIsGeneratingPDF,
-    isExportingDeepAnalysis, setIsExportingDeepAnalysis,
-    isSendingEmail, setIsSendingEmail,
   } = useAnalysisStore();
 
   // usePortfolioStore
@@ -437,23 +428,6 @@ export default function App() {
       Notification.requestPermission();
     }
   }, []);
-
-  // ── Gap 2a: 주봉 RSI 3주 추이 계산 ──────────────────────────────────────────
-  useEffect(() => {
-    if (!deepAnalysisStock) { setWeeklyRsiValues([]); return; }
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await fetchHistoricalData(deepAnalysisStock.code, '6mo', '1wk');
-        if (cancelled || !data?.indicators?.quote?.[0]) return;
-        const closes = (data.indicators.quote[0].close as (number | null)[]).filter((v): v is number => v !== null);
-        if (closes.length < 17) return; // RSI 14 + 3주
-        const { values } = calculateRSIMomentumAcceleration(closes, 3);
-        if (!cancelled) setWeeklyRsiValues(values);
-      } catch { /* 실패 시 기본값 유지 */ }
-    })();
-    return () => { cancelled = true; };
-  }, [deepAnalysisStock?.code]);
 
   // ── 어드밴스드 컨텍스트 + 매크로 환경 데이터 수집 ───────────────────────────
   // TanStack Query (useAllGlobalIntel)로 대체됨:
