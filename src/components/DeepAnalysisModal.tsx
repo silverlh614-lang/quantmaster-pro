@@ -6,12 +6,13 @@ import {
   ArrowDownRight, ShieldCheck, Lightbulb, X, Shield, Cloud, Activity,
   ArrowUpCircle, XCircle, DollarSign, Download, Award, FileText,
   Clock, Globe, Brain, Sparkles, Newspaper, Radar, Copy, Wallet,
-  Percent, Maximize2, ArrowRightLeft, ShieldAlert, Flame, Crown
+  Percent, Maximize2, ArrowRightLeft, ShieldAlert, Flame, Crown,
+  CheckSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Radar as RechartsRadar, RadarChart, PolarGrid,
-  PolarAngleAxis, PolarRadiusAxis
+  PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer
 } from 'recharts';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -20,7 +21,10 @@ import { ConfidenceBadge } from './ConfidenceBadge';
 import { CandleChart } from './CandleChart';
 import { AnalysisViewToggle, AnalysisViewButtons } from './AnalysisViewToggle';
 import { evaluateStock, evaluateGate0 } from '../services/quantEngine';
-import { useGlobalIntelStore, useMarketStore, useAnalysisStore } from '../stores';
+import { useGlobalIntelStore, useMarketStore, useAnalysisStore, useRecommendationStore, useSettingsStore } from '../stores';
+import { useShadowTradeStore } from '../stores/useShadowTradeStore';
+import { buildShadowTrade } from '../services/autoTrading';
+import { MASTER_CHECKLIST_STEPS, SELL_CHECKLIST_STEPS, getMarketPhaseInfo } from '../constants/checklist';
 import type { StockRecommendation } from '../services/stockService';
 import type {
   MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal,
@@ -52,7 +56,23 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
   const macroEnv = globalIntelStore.macroEnv;
   const exportRatio = globalIntelStore.exportRatio;
   const currentRoeType = globalIntelStore.currentRoeType;
+  const economicRegimeData = globalIntelStore.economicRegimeData;
+  const extendedRegimeData = globalIntelStore.extendedRegimeData;
+  const smartMoneyData = globalIntelStore.smartMoneyData;
+  const exportMomentumData = globalIntelStore.exportMomentumData;
+  const geoRiskData = globalIntelStore.geoRiskData;
+  const creditSpreadData = globalIntelStore.creditSpreadData;
+  const globalCorrelation = globalIntelStore.globalCorrelation;
+  const newsFrequencyScores = globalIntelStore.newsFrequencyScores;
+  const supplyChainData = globalIntelStore.supplyChainData;
+  const financialStressData = globalIntelStore.financialStressData;
   const { marketOverview } = useMarketStore();
+  const { watchlist, setWatchlist } = useRecommendationStore();
+  const { setView } = useSettingsStore();
+  const { addShadowTrade } = useShadowTradeStore();
+
+  // KIS 잔고 기본값 (App.tsx에서 조회하지만 DeepAnalysisModal에서는 기본값 사용)
+  const kisBalance = 100_000_000;
 
   const gate0Result = useMemo(() => macroEnv ? evaluateGate0(macroEnv) : undefined, [macroEnv]);
 

@@ -165,49 +165,7 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-const getMarketPhaseInfo = (phase?: string) => {
-  const p = phase?.toUpperCase() || 'NEUTRAL';
-  switch (p) {
-    case 'RISK_ON':
-    case 'BULL':
-      return { 
-        label: '강세장 (Bull)', 
-        description: '시장이 상승 추세에 있으며 투자 심리가 긍정적입니다.',
-        recommendation: '적극 매수 및 수익 극대화 전략',
-        color: 'text-green-400'
-      };
-    case 'RISK_OFF':
-    case 'BEAR':
-      return { 
-        label: '약세장 (Bear)', 
-        description: '시장이 하락 추세에 있으며 투자 심리가 위축되어 있습니다.',
-        recommendation: '현금 비중 확대 및 보수적 관망',
-        color: 'text-red-400'
-      };
-    case 'SIDEWAYS':
-      return { 
-        label: '횡보장 (Sideways)', 
-        description: '시장이 뚜렷한 방향성 없이 박스권에서 움직이고 있습니다.',
-        recommendation: '박스권 매매 및 개별 종목 장세 대응',
-        color: 'text-blue-400'
-      };
-    case 'TRANSITION':
-      return { 
-        label: '전환기 (Transition)', 
-        description: '시장의 추세가 변하고 있는 중요한 시점입니다.',
-        recommendation: '주도주 교체 확인 및 분할 매수 준비',
-        color: 'text-purple-400'
-      };
-    case 'NEUTRAL':
-    default:
-      return { 
-        label: '중립 (Neutral)', 
-        description: '시장 상황을 분석 중이며 관망세가 짙습니다.',
-        recommendation: '시장 방향성 확인 후 진입 결정',
-        color: 'text-gray-400'
-      };
-  }
-};
+import { MASTER_CHECKLIST_STEPS, SELL_CHECKLIST_STEPS, getMarketPhaseInfo } from './constants/checklist';
 
 const checklistLabels: Record<keyof StockRecommendation['checklist'], { label: string; description: string; gate: 1 | 2 | 3 }> = {
   cycleVerified: { label: "주도주 사이클 부합 (New Leader)", description: "현재 시장의 주도 섹터 및 테마에 부합하며 새로운 상승 사이클의 초입에 있는지 검증", gate: 1 },
