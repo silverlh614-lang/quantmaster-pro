@@ -1,0 +1,8 @@
+export { TradeJournalPage } from './TradeJournalPage';
+export { ScreenerPage } from './ScreenerPage';
+export { SubscriptionPage } from './SubscriptionPage';
+export { ManualInputPage } from './ManualInputPage';
+export { AutoTradePage } from './AutoTradePage';
+export { MarketPage } from './MarketPage';
+export { BacktestPage } from './BacktestPage';
+export { DiscoverWatchlistPage } from './DiscoverWatchlistPage';
