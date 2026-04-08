@@ -674,8 +674,21 @@ async function startServer() {
     }
   });
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+
+    // ─── Graceful shutdown (Railway SIGTERM 대응) ─────────────────────────
+    const shutdown = (signal: string) => {
+      console.log(`[Server] ${signal} 수신 — graceful shutdown 시작`);
+      server.close(() => {
+        console.log('[Server] HTTP 서버 종료 완료');
+        process.exit(0);
+      });
+      // 10초 내 종료되지 않으면 강제 종료
+      setTimeout(() => { process.exit(0); }, 10_000);
+    };
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
 
     // ─── 아이디어 1: 서버사이드 cron 자동매매 스케줄러 ───────────────────────
     if (process.env.AUTO_TRADE_ENABLED !== 'true') {
