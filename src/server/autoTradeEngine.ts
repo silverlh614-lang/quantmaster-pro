@@ -340,20 +340,27 @@ export async function runAutoSignalScan(): Promise<void> {
   // Shadow 진행 중 거래 결과 업데이트
   for (const shadow of shadows) {
     if (shadow.status === 'PENDING') {
+      // 신규 등록(4분 이내)은 건너뜀 — 다음 스캔에서 ACTIVE 전환
+      const ageMs = Date.now() - new Date(shadow.signalTime).getTime();
+      if (ageMs < 4 * 60 * 1000) continue;
       shadow.status = 'ACTIVE';
     } else if (shadow.status === 'ACTIVE') {
       const currentPrice = await fetchCurrentPrice(shadow.stockCode).catch(() => null);
       if (!currentPrice) continue;
       if (currentPrice >= shadow.targetPrice) {
-        const returnPct = ((shadow.targetPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
-        Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: shadow.targetPrice, exitTime: new Date().toISOString(), returnPct });
+        // 목표가 돌파: 현재가로 체결 (목표가보다 높을 수 있음 — 유리한 슬리피지)
+        const actualExit = currentPrice;
+        const returnPct = ((actualExit - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
+        Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: actualExit, exitTime: new Date().toISOString(), returnPct });
         appendShadowLog({ event: 'HIT_TARGET', ...shadow });
-        console.log(`[AutoTrade SHADOW] ✅ ${shadow.stockName} 목표가 달성 +${returnPct.toFixed(2)}%`);
+        console.log(`[AutoTrade SHADOW] ✅ ${shadow.stockName} 목표가 달성 +${returnPct.toFixed(2)}% (체결 ${actualExit.toLocaleString()})`);
       } else if (currentPrice <= shadow.stopLoss) {
-        const returnPct = ((shadow.stopLoss - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
-        Object.assign(shadow, { status: 'HIT_STOP', exitPrice: shadow.stopLoss, exitTime: new Date().toISOString(), returnPct });
+        // 손절: 현재가로 체결 (갭다운 시 손절가보다 낮을 수 있음 — 불리한 슬리피지)
+        const actualExit = currentPrice;
+        const returnPct = ((actualExit - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
+        Object.assign(shadow, { status: 'HIT_STOP', exitPrice: actualExit, exitTime: new Date().toISOString(), returnPct });
         appendShadowLog({ event: 'HIT_STOP', ...shadow });
-        console.log(`[AutoTrade SHADOW] ❌ ${shadow.stockName} 손절 ${returnPct.toFixed(2)}%`);
+        console.log(`[AutoTrade SHADOW] ❌ ${shadow.stockName} 손절 ${returnPct.toFixed(2)}% (체결 ${actualExit.toLocaleString()})`);
       }
     }
   }

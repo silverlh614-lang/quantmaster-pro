@@ -173,21 +173,27 @@ export function resolveShadowTrade(
   trade: ShadowTrade,
   currentPrice: number
 ): Partial<ShadowTrade> {
-  // PENDING → ACTIVE: 다음 tick에 체결 진입으로 간주
-  if (trade.status === 'PENDING') return { status: 'ACTIVE' };
+  // PENDING → ACTIVE: 최소 1사이클(4분) 유예 후 전환
+  if (trade.status === 'PENDING') {
+    const ageMs = Date.now() - new Date(trade.signalTime).getTime();
+    if (ageMs < 4 * 60 * 1000) return {};
+    return { status: 'ACTIVE' };
+  }
   if (trade.status !== 'ACTIVE') return {};
 
   if (currentPrice >= trade.targetPrice) {
+    // 현재가로 체결 (목표가보다 높을 수 있음)
     const returnPct = parseFloat(
-      (((trade.targetPrice - trade.shadowEntryPrice) / trade.shadowEntryPrice) * 100).toFixed(2)
+      (((currentPrice - trade.shadowEntryPrice) / trade.shadowEntryPrice) * 100).toFixed(2)
     );
-    return { status: 'HIT_TARGET', exitPrice: trade.targetPrice, exitTime: new Date().toISOString(), returnPct };
+    return { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct };
   }
   if (currentPrice <= trade.stopLoss) {
+    // 현재가로 체결 (갭다운 시 손절가보다 낮을 수 있음)
     const returnPct = parseFloat(
-      (((trade.stopLoss - trade.shadowEntryPrice) / trade.shadowEntryPrice) * 100).toFixed(2)
+      (((currentPrice - trade.shadowEntryPrice) / trade.shadowEntryPrice) * 100).toFixed(2)
     );
-    return { status: 'HIT_STOP', exitPrice: trade.stopLoss, exitTime: new Date().toISOString(), returnPct };
+    return { status: 'HIT_STOP', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct };
   }
   return {};
 }
