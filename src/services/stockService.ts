@@ -1957,26 +1957,30 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
     console.warn(`[가격동기화] KIS 실패 → Yahoo 시도: ${kisErr.message}`);
   }
 
-  // 2순위: Yahoo Finance (/api/historical-data 서버 프록시)
-  try {
-    const symbol = `${stock.code}.KS`;
-    const res = await fetch(`/api/historical-data?symbol=${symbol}&range=1d&interval=1m`);
-    if (res.ok) {
-      const data = await res.json();
-      const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice as number | undefined;
-      if (price && price > 0) {
-        console.log(`[가격동기화] Yahoo Finance 성공: ${stock.name} ${price}원`);
-        const updated: StockRecommendation = {
-          ...stock,
-          currentPrice: Math.round(price),
-          dataSourceType: 'YAHOO',
-          priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (Yahoo Finance)`,
-        };
-        return await enrichStockWithRealData(updated);
+  // 2순위: Yahoo Finance (/api/historical-data 서버 프록시) — .KS와 .KQ 모두 시도
+  const baseCode = stock.code.replace(/\.(KS|KQ)$/, '');
+  const suffixes = ['.KS', '.KQ'];
+  for (const suffix of suffixes) {
+    try {
+      const symbol = `${baseCode}${suffix}`;
+      const res = await fetch(`/api/historical-data?symbol=${symbol}&range=1d&interval=1m`);
+      if (res.ok) {
+        const data = await res.json();
+        const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice as number | undefined;
+        if (price && price > 0) {
+          console.log(`[가격동기화] Yahoo Finance 성공 (${symbol}): ${stock.name} ${price}원`);
+          const updated: StockRecommendation = {
+            ...stock,
+            currentPrice: Math.round(price),
+            dataSourceType: 'YAHOO',
+            priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (Yahoo Finance)`,
+          };
+          return await enrichStockWithRealData(updated);
+        }
       }
+    } catch (yahooErr: any) {
+      console.warn(`[가격동기화] Yahoo ${baseCode}${suffix} 실패: ${yahooErr.message}`);
     }
-  } catch (yahooErr: any) {
-    console.warn(`[가격동기화] Yahoo 실패 → STALE 유지: ${yahooErr.message}`);
   }
 
   // 3순위: 마지막 알려진 가격 유지 (AI 추정 없음)
@@ -2396,32 +2400,33 @@ export async function generateReportSummary(recommendations: StockRecommendation
 }
 
 export async function syncMarketOverviewIndices(overview: MarketOverview): Promise<MarketOverview> {
-  const indexMap: Record<string, string> = {
-    'KOSPI': '^KS11',
-    'KOSDAQ': '^KQ11',
-    'S&P 500': '^GSPC',
-    'NASDAQ': '^IXIC',
-    'DOW JONES': '^DJI',
-    'NIKKEI 225': '^N225',
-    'CSI 300': '000300.SS',
-  };
+  const indexPatterns: { pattern: RegExp; symbol: string }[] = [
+    { pattern: /kospi|코스피/i, symbol: '^KS11' },
+    { pattern: /kosdaq|코스닥/i, symbol: '^KQ11' },
+    { pattern: /s\s*&?\s*p\s*500|spx/i, symbol: '^GSPC' },
+    { pattern: /nasdaq|나스닥/i, symbol: '^IXIC' },
+    { pattern: /dow\s*jones|다우/i, symbol: '^DJI' },
+    { pattern: /nikkei|닛케이/i, symbol: '^N225' },
+    { pattern: /csi\s*300/i, symbol: '000300.SS' },
+  ];
 
   const updatedIndices = await Promise.all(
     (overview.indices || []).map(async (idx) => {
-      const nameUpper = idx.name.toUpperCase();
-      const symbol = indexMap[nameUpper] || 
-                     (idx.name.includes('코스피') ? '^KS11' : 
-                      idx.name.includes('코스닥') ? '^KQ11' : null);
+      const matched = indexPatterns.find(p => p.pattern.test(idx.name));
+      const symbol = matched?.symbol ?? null;
       
       if (symbol) {
         try {
           const data = await fetchHistoricalData(symbol, '1d');
-          if (data && data.meta) {
+          if (data?.meta?.regularMarketPrice) {
             const price = data.meta.regularMarketPrice;
-            const prevClose = data.meta.previousClose;
-            const change = price - prevClose;
-            const changePercent = Number(((change / prevClose) * 100).toFixed(2));
-            return { ...idx, value: price, change, changePercent };
+            const prevClose = data.meta.previousClose || data.meta.chartPreviousClose;
+            if (prevClose && prevClose > 0) {
+              const change = Number((price - prevClose).toFixed(2));
+              const changePercent = Number(((change / prevClose) * 100).toFixed(2));
+              return { ...idx, value: price, change, changePercent };
+            }
+            return { ...idx, value: price };
           }
         } catch (e) {
           console.error(`Failed to sync index ${idx.name}`, e);
