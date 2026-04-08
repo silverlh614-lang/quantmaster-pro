@@ -1923,7 +1923,7 @@ export default function App() {
   })();
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-orange-500 selection:text-white antialiased">
+    <div className="min-h-screen bg-theme-bg text-theme-text font-sans selection:bg-orange-500 selection:text-white antialiased">
       <Toaster position="top-center" expand={false} richColors theme="dark" />
       <div className="max-w-screen-2xl mx-auto relative">
       {/* Master Checklist Modal */}
@@ -2168,7 +2168,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Header */}
-      <header className="border-b border-white/[0.06] bg-[#050505]/80 backdrop-blur-2xl sticky top-0 z-50 shadow-[0_2px_30px_rgba(0,0,0,0.7)] no-print">
+      <header className="border-b border-theme-border bg-theme-bg/80 backdrop-blur-2xl sticky top-0 z-50 shadow-[0_2px_30px_rgba(0,0,0,0.3)] no-print">
         <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-[60px] flex items-center justify-between gap-4">
 
           {/* ── Brand ── */}
@@ -3077,7 +3077,7 @@ export default function App() {
                             <div className="absolute top-4 right-4 opacity-0 group-hover/stat:opacity-100 transition-opacity cursor-help">
                               <div className="relative group/info">
                                 <Info className="w-4 h-4 text-white/20 hover:text-orange-500 transition-colors" />
-                                <div className="absolute right-0 top-6 w-56 p-4 bg-black/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none text-left">
+                                <div className="absolute right-0 top-6 w-56 max-h-[300px] overflow-y-auto p-4 bg-black/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none text-left">
                                   <h4 className="text-[10px] font-black text-orange-500 mb-2 uppercase tracking-widest">{stat.label} 상세 정보</h4>
                                   <div className="space-y-3">
                                     <div className="flex flex-col gap-1">
@@ -3153,7 +3153,7 @@ export default function App() {
                             <div className="absolute top-4 right-4 opacity-0 group-hover/stat:opacity-100 transition-opacity cursor-help">
                               <div className="relative group/info">
                                 <Info className="w-4 h-4 text-white/20 hover:text-orange-500 transition-colors" />
-                                <div className="absolute right-0 top-6 w-56 p-4 bg-black/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none text-left">
+                                <div className="absolute right-0 top-6 w-56 max-h-[300px] overflow-y-auto p-4 bg-black/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none text-left">
                                   <h4 className="text-[10px] font-black text-orange-500 mb-2 uppercase tracking-widest">{stat.label} 상세 정보</h4>
                                   <div className="space-y-3">
                                     <div className="flex flex-col gap-1">
@@ -3219,7 +3219,7 @@ export default function App() {
                             <div className="absolute top-4 right-4 opacity-0 group-hover/stat:opacity-100 transition-opacity cursor-help">
                               <div className="relative group/info">
                                 <Info className="w-4 h-4 text-white/20 hover:text-orange-500 transition-colors" />
-                                <div className="absolute right-0 top-6 w-56 p-4 bg-black/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none text-left">
+                                <div className="absolute right-0 top-6 w-56 max-h-[300px] overflow-y-auto p-4 bg-black/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none text-left">
                                   <h4 className="text-[10px] font-black text-orange-500 mb-2 uppercase tracking-widest">{stat.label} 상세 정보</h4>
                                   <div className="space-y-3">
                                     <div className="flex flex-col gap-1">
@@ -4421,7 +4421,7 @@ export default function App() {
                       <span className="text-base font-black text-white uppercase tracking-tight">종목 검색 및 실시간 필터</span>
                       <div className="relative group/info">
                         <Info className="w-3.5 h-3.5 text-white/20 hover:text-orange-500 transition-colors cursor-help" />
-                        <div className="absolute left-0 top-6 w-80 p-4 bg-black/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none">
+                        <div className="absolute left-0 top-6 w-80 max-h-[350px] overflow-y-auto p-4 bg-black/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none">
                           <h4 className="text-xs font-black text-orange-500 mb-2 uppercase tracking-widest">빈칸 검색 추천 기준 (Top 10)</h4>
                           <ul className="space-y-2">
                             {[
@@ -4829,7 +4829,7 @@ export default function App() {
                 </div>
                 
                 {/* Tooltip */}
-                <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 p-4 bg-[#1a1a1a] backdrop-blur-xl border border-white/10 rounded-2xl opacity-0 group-hover/stat-1:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-2xl scale-95 group-hover/stat-1:scale-100 origin-top">
+                <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 max-h-[250px] overflow-y-auto p-4 bg-theme-card backdrop-blur-xl border border-theme-border rounded-2xl opacity-0 group-hover/stat-1:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-2xl scale-95 group-hover/stat-1:scale-100 origin-top">
                   <div className="flex items-center gap-2 mb-2">
                     <div className="w-1 h-3 bg-orange-500 rounded-full" />
                     <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">산출 기준</span>
@@ -4853,7 +4853,7 @@ export default function App() {
                 </div>
 
                 {/* Tooltip */}
-                <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 p-4 bg-[#1a1a1a] backdrop-blur-xl border border-white/10 rounded-2xl opacity-0 group-hover/stat-2:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-2xl scale-95 group-hover/stat-2:scale-100 origin-top">
+                <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 max-h-[250px] overflow-y-auto p-4 bg-theme-card backdrop-blur-xl border border-theme-border rounded-2xl opacity-0 group-hover/stat-2:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-2xl scale-95 group-hover/stat-2:scale-100 origin-top">
                   <div className="flex items-center gap-2 mb-2">
                     <div className="w-1 h-3 bg-indigo-500 rounded-full" />
                     <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">산출 기준</span>

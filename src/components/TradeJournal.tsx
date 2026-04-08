@@ -160,7 +160,7 @@ export const TradeJournal: React.FC<Props> = ({
   return (
     <div className="space-y-6">
       {/* ── Header KPIs ──────────────────────────────────────────── */}
-      <div className="grid grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
         {[
           { label: '총 매매', value: `${closedTrades.length + openTrades.length}건`, sub: `OPEN ${openTrades.length} · CLOSED ${closedTrades.length}` },
           { label: '승률', value: `${totalStats.winRate.toFixed(1)}%`, sub: `${totalStats.wins}W / ${totalStats.total - totalStats.wins}L` },
@@ -258,7 +258,7 @@ export const TradeJournal: React.FC<Props> = ({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-5 gap-3 mt-3 text-[9px]">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mt-3 text-[9px]">
                       <div>
                         <span className="text-gray-400">매수가</span>
                         <p className="font-bold">{trade.buyPrice.toLocaleString()}원</p>
@@ -441,10 +441,10 @@ export const TradeJournal: React.FC<Props> = ({
           ) : (
             <div className="space-y-6">
               {/* 대결 헤더 */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className={`border-2 p-5 text-center ${sysVsInt.systemEdge > 0 ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200'}`}>
                   <p className="text-[9px] font-black uppercase text-indigo-500 tracking-widest">SYSTEM</p>
-                  <p className="text-3xl font-black mt-1">{sysVsInt.systemWinRate}%</p>
+                  <p className="text-fluid-3xl font-black mt-1">{sysVsInt.systemWinRate}%</p>
                   <p className="text-[9px] text-gray-500">{sysVsInt.systemTrades}건 중 {sysVsInt.systemWins}승</p>
                   <p className={`text-sm font-bold mt-1 ${sysVsInt.systemAvgReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     평균 {sysVsInt.systemAvgReturn >= 0 ? '+' : ''}{sysVsInt.systemAvgReturn}%
@@ -453,7 +453,7 @@ export const TradeJournal: React.FC<Props> = ({
 
                 <div className="flex flex-col items-center justify-center">
                   <p className="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2">EDGE</p>
-                  <p className={`text-4xl font-black ${
+                  <p className={`text-fluid-4xl font-black ${
                     sysVsInt.systemEdge > 0 ? 'text-indigo-600' : sysVsInt.systemEdge < 0 ? 'text-amber-600' : 'text-gray-400'
                   }`}>
                     {sysVsInt.systemEdge > 0 ? '+' : ''}{sysVsInt.systemEdge}%p
@@ -471,7 +471,7 @@ export const TradeJournal: React.FC<Props> = ({
 
                 <div className={`border-2 p-5 text-center ${sysVsInt.systemEdge < 0 ? 'border-amber-400 bg-amber-50' : 'border-gray-200'}`}>
                   <p className="text-[9px] font-black uppercase text-amber-500 tracking-widest">INTUITION</p>
-                  <p className="text-3xl font-black mt-1">{sysVsInt.intuitionWinRate}%</p>
+                  <p className="text-fluid-3xl font-black mt-1">{sysVsInt.intuitionWinRate}%</p>
                   <p className="text-[9px] text-gray-500">{sysVsInt.intuitionTrades}건 중 {sysVsInt.intuitionWins}승</p>
                   <p className={`text-sm font-bold mt-1 ${sysVsInt.intuitionAvgReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     평균 {sysVsInt.intuitionAvgReturn >= 0 ? '+' : ''}{sysVsInt.intuitionAvgReturn}%
