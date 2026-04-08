@@ -387,9 +387,14 @@ export default function App() {
   const [serverRecStats, setServerRecStats] = useState<{ month?: string; winRate?: number; avgReturn?: number; strongBuyWinRate?: number; total?: number } | null>(null);
   const [dartAlerts, setDartAlerts] = useState<{ corp_name: string; stock_code: string; report_nm: string; rcept_dt: string; sentiment: string }[]>([]);
   useEffect(() => {
-    fetch('/api/auto-trade/shadow-trades').then(r => r.json()).then(setServerShadowTrades).catch(() => {});
-    fetch('/api/auto-trade/recommendations/stats').then(r => r.json()).then(setServerRecStats).catch(() => {});
-    fetch('/api/auto-trade/dart-alerts').then(r => r.json()).then(setDartAlerts).catch(() => {});
+    const fetchServerData = () => {
+      fetch('/api/auto-trade/shadow-trades').then(r => r.json()).then(setServerShadowTrades).catch(() => {});
+      fetch('/api/auto-trade/recommendations/stats').then(r => r.json()).then(setServerRecStats).catch(() => {});
+      fetch('/api/auto-trade/dart-alerts').then(r => r.json()).then(setDartAlerts).catch(() => {});
+    };
+    fetchServerData();
+    const interval = setInterval(fetchServerData, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   // ── TanStack Query: 12개 글로벌 인텔리전스 자동 로딩 + 30분 캐시 + 자동 재시도 ──
@@ -5053,9 +5058,9 @@ export default function App() {
                                   <span className="text-[10px] sm:text-[12px] font-black text-white/60 bg-white/10 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl border border-white/20 tracking-[0.15em] uppercase shrink-0 shadow-lg backdrop-blur-sm">
                                     {stock.code}
                                   </span>
-                                  {dartAlerts.some(a => a.stock_code === stock.code) && (
+                                  {dartAlerts.some(a => a.stock_code.replace(/^A/, '') === stock.code) && (
                                     <div className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border bg-amber-500/20 text-amber-400 border-amber-500/30 shadow-lg backdrop-blur-md flex items-center gap-1"
-                                      title={dartAlerts.filter(a => a.stock_code === stock.code).map(a => a.report_nm).join(', ')}
+                                      title={dartAlerts.filter(a => a.stock_code.replace(/^A/, '') === stock.code).map(a => a.report_nm).join(', ')}
                                     >
                                       <FileText className="w-3 h-3" />
                                       DART
