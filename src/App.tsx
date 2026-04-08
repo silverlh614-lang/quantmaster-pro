@@ -279,6 +279,17 @@ import { TradingChecklist } from './components/TradingChecklist';
 import { useShadowTradeStore } from './stores/useShadowTradeStore';
 import { buildShadowTrade, resolveShadowTrade } from './services/autoTrading';
 
+function createShadowSignal(type: string, confidenceScore?: number) {
+  const isStrong = type === 'STRONG_BUY' || (confidenceScore != null && confidenceScore >= 80);
+  return {
+    positionSize: isStrong ? 20 : 10,
+    rrr: 2,
+    lastTrigger: type === 'STRONG_BUY',
+    recommendation: type === 'STRONG_BUY' ? '풀 포지션' : '절반 포지션',
+    profile: { stopLoss: -8 },
+  } as any;
+}
+
 // ── Zustand Stores ─────────────────────────────────────────────────────────
 import { useSettingsStore, useGlobalIntelStore, useRecommendationStore, useMarketStore, useTradeStore, useAnalysisStore, usePortfolioStore } from './stores';
 
@@ -386,6 +397,16 @@ export default function App() {
   const [serverShadowTrades, setServerShadowTrades] = useState<any[]>([]);
   const [serverRecStats, setServerRecStats] = useState<{ month?: string; winRate?: number; avgReturn?: number; strongBuyWinRate?: number; total?: number } | null>(null);
   const [dartAlerts, setDartAlerts] = useState<{ corp_name: string; stock_code: string; report_nm: string; rcept_dt: string; sentiment: string }[]>([]);
+  const dartAlertsByCode = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const a of dartAlerts) {
+      const code = a.stock_code.replace(/^A/, '');
+      const list = map.get(code) ?? [];
+      list.push(a.report_nm);
+      map.set(code, list);
+    }
+    return map;
+  }, [dartAlerts]);
   useEffect(() => {
     const fetchServerData = () => {
       fetch('/api/auto-trade/shadow-trades').then(r => r.json()).then(setServerShadowTrades).catch(() => {});
@@ -822,15 +843,19 @@ export default function App() {
   }, [recommendations.length]); // Only re-run if the list changes
 
   // Shadow Trade resolution — 5분마다 PENDING/ACTIVE 거래의 현재가를 확인하여 결과 갱신
+  const activeShadowCount = useMemo(
+    () => shadowTrades.filter(t => t.status === 'PENDING' || t.status === 'ACTIVE').length,
+    [shadowTrades]
+  );
   useEffect(() => {
-    const activeTrades = shadowTrades.filter(t => t.status === 'PENDING' || t.status === 'ACTIVE');
-    if (activeTrades.length === 0) return;
+    if (activeShadowCount === 0) return;
 
     const resolveTrades = async () => {
-      for (const trade of activeTrades) {
+      const active = shadowTrades.filter(t => t.status === 'PENDING' || t.status === 'ACTIVE');
+      const results = await Promise.all(active.map(async (trade) => {
         try {
           const price = await fetchCurrentPrice(trade.stockCode);
-          if (!price) continue;
+          if (!price) return;
           const updates = resolveShadowTrade(trade, price);
           if (updates && Object.keys(updates).length > 0) {
             updateShadowTrade(trade.id, updates);
@@ -838,13 +863,13 @@ export default function App() {
         } catch (e) {
           console.error(`[Shadow] ${trade.stockCode} resolve 실패:`, e);
         }
-      }
+      }));
     };
 
     resolveTrades();
     const interval = setInterval(resolveTrades, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [shadowTrades.filter(t => t.status === 'PENDING' || t.status === 'ACTIVE').length]);
+  }, [activeShadowCount]);
 
   // Initial app start sync for top indices
   useEffect(() => {
@@ -5058,9 +5083,9 @@ export default function App() {
                                   <span className="text-[10px] sm:text-[12px] font-black text-white/60 bg-white/10 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl border border-white/20 tracking-[0.15em] uppercase shrink-0 shadow-lg backdrop-blur-sm">
                                     {stock.code}
                                   </span>
-                                  {dartAlerts.some(a => a.stock_code.replace(/^A/, '') === stock.code) && (
+                                  {dartAlertsByCode.has(stock.code) && (
                                     <div className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border bg-amber-500/20 text-amber-400 border-amber-500/30 shadow-lg backdrop-blur-md flex items-center gap-1"
-                                      title={dartAlerts.filter(a => a.stock_code.replace(/^A/, '') === stock.code).map(a => a.report_nm).join(', ')}
+                                      title={dartAlertsByCode.get(stock.code)!.join(', ')}
                                     >
                                       <FileText className="w-3 h-3" />
                                       DART
@@ -5193,15 +5218,7 @@ export default function App() {
                             {(stock.type === 'STRONG_BUY' || stock.type === 'BUY') && (
                               <button
                                 onClick={() => {
-                                  const totalAssets = kisBalance;
-                                  const mockSignal = {
-                                    positionSize: stock.type === 'STRONG_BUY' ? 20 : 10,
-                                    rrr: 2,
-                                    lastTrigger: stock.type === 'STRONG_BUY',
-                                    recommendation: stock.type === 'STRONG_BUY' ? '풀 포지션' : '절반 포지션',
-                                    profile: { stopLoss: -8 },
-                                  } as any;
-                                  const trade = buildShadowTrade(mockSignal, stock.code, stock.name, stock.currentPrice || stock.entryPrice || 0, totalAssets);
+                                  const trade = buildShadowTrade(createShadowSignal(stock.type), stock.code, stock.name, stock.currentPrice || stock.entryPrice || 0, kisBalance);
                                   addShadowTrade(trade);
                                   setView('AUTO_TRADE');
                                 }}
@@ -5706,15 +5723,7 @@ export default function App() {
                   stockName={deepAnalysisStock?.name}
                   currentPrice={deepAnalysisStock?.currentPrice}
                   onShadowTrade={(code, name, price) => {
-                    const totalAssets = kisBalance;
-                    const mockSignal = {
-                      positionSize: deepAnalysisStock?.confidenceScore && deepAnalysisStock.confidenceScore >= 80 ? 20 : 10,
-                      rrr: 2,
-                      lastTrigger: deepAnalysisStock?.type === 'STRONG_BUY',
-                      recommendation: deepAnalysisStock?.type === 'STRONG_BUY' ? '풀 포지션' : '절반 포지션',
-                      profile: { stopLoss: -8 },
-                    } as any;
-                    const trade = buildShadowTrade(mockSignal, code, name, price, totalAssets);
+                    const trade = buildShadowTrade(createShadowSignal(deepAnalysisStock?.type ?? '', deepAnalysisStock?.confidenceScore), code, name, price, kisBalance);
                     addShadowTrade(trade);
                     setView('AUTO_TRADE');
                   }}

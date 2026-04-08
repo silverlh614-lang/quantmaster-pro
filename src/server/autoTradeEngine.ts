@@ -25,9 +25,10 @@ const WATCHLIST_FILE    = path.join(DATA_DIR, 'watchlist.json');
 const SHADOW_FILE       = path.join(DATA_DIR, 'shadow-trades.json');
 const SHADOW_LOG_FILE   = path.join(DATA_DIR, 'shadow-log.json');
 
+let _dataDirReady = false;
 function ensureDataDir() {
+  if (_dataDirReady) return;
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  // Railway 배포 시 파일시스템 초기화 경고
   if (process.env.RAILWAY_STATIC_URL && !process.env.PERSIST_DATA_DIR) {
     console.warn(
       '[AutoTrade] ⚠️  Railway 감지됨 — PERSIST_DATA_DIR 미설정. ' +
@@ -35,6 +36,7 @@ function ensureDataDir() {
       'PERSIST_DATA_DIR=/app/data 를 환경변수에 추가하세요.'
     );
   }
+  _dataDirReady = true;
 }
 
 // ─── 워치리스트 파일 I/O ────────────────────────────────────────────────────────
@@ -511,38 +513,38 @@ export async function preScreenStocks(): Promise<ScreenedStock[]> {
 
 // ─── 자동 워치리스트 채우기 (Yahoo Finance 기반 — VTS 호환) ─────────────────────
 
-// KOSPI/KOSDAQ 주요 종목 풀 — Yahoo Finance 심볼
-const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = [
-  { symbol: '005930.KS', code: '005930', name: '삼성전자' },
-  { symbol: '000660.KS', code: '000660', name: 'SK하이닉스' },
-  { symbol: '035420.KS', code: '035420', name: 'NAVER' },
-  { symbol: '035720.KS', code: '035720', name: '카카오' },
-  { symbol: '051910.KS', code: '051910', name: 'LG화학' },
-  { symbol: '006400.KS', code: '006400', name: '삼성SDI' },
-  { symbol: '003670.KS', code: '003670', name: '포스코퓨처엠' },
-  { symbol: '068270.KS', code: '068270', name: '셀트리온' },
-  { symbol: '207940.KS', code: '207940', name: '삼성바이오로직스' },
-  { symbol: '005380.KS', code: '005380', name: '현대차' },
-  { symbol: '000270.KS', code: '000270', name: '기아' },
-  { symbol: '012330.KS', code: '012330', name: '현대모비스' },
-  { symbol: '055550.KS', code: '055550', name: '신한지주' },
-  { symbol: '105560.KS', code: '105560', name: 'KB금융' },
-  { symbol: '086790.KS', code: '086790', name: '하나금융지주' },
-  { symbol: '066570.KS', code: '066570', name: 'LG전자' },
-  { symbol: '003550.KS', code: '003550', name: 'LG' },
-  { symbol: '034730.KS', code: '034730', name: 'SK' },
-  { symbol: '028260.KS', code: '028260', name: '삼성물산' },
-  { symbol: '032830.KS', code: '032830', name: '삼성생명' },
-  { symbol: '009150.KS', code: '009150', name: '삼성전기' },
-  { symbol: '010130.KS', code: '010130', name: '고려아연' },
-  { symbol: '047050.KS', code: '047050', name: '포스코인터내셔널' },
-  { symbol: '373220.KS', code: '373220', name: 'LG에너지솔루션' },
-  { symbol: '247540.KS', code: '247540', name: '에코프로비엠' },
-  { symbol: '086520.KS', code: '086520', name: '에코프로' },
-  { symbol: '042700.KS', code: '042700', name: '한미반도체' },
-  { symbol: '196170.KS', code: '196170', name: '알테오젠' },
-  { symbol: '000810.KS', code: '000810', name: '삼성화재' },
-  { symbol: '017670.KS', code: '017670', name: 'SK텔레콤' },
+// KOSPI 주요 종목 풀 (symbol은 code + '.KS'로 자동 파생)
+const STOCK_UNIVERSE: { code: string; name: string }[] = [
+  { code: '005930', name: '삼성전자' },
+  { code: '000660', name: 'SK하이닉스' },
+  { code: '035420', name: 'NAVER' },
+  { code: '035720', name: '카카오' },
+  { code: '051910', name: 'LG화학' },
+  { code: '006400', name: '삼성SDI' },
+  { code: '003670', name: '포스코퓨처엠' },
+  { code: '068270', name: '셀트리온' },
+  { code: '207940', name: '삼성바이오로직스' },
+  { code: '005380', name: '현대차' },
+  { code: '000270', name: '기아' },
+  { code: '012330', name: '현대모비스' },
+  { code: '055550', name: '신한지주' },
+  { code: '105560', name: 'KB금융' },
+  { code: '086790', name: '하나금융지주' },
+  { code: '066570', name: 'LG전자' },
+  { code: '003550', name: 'LG' },
+  { code: '034730', name: 'SK' },
+  { code: '028260', name: '삼성물산' },
+  { code: '032830', name: '삼성생명' },
+  { code: '009150', name: '삼성전기' },
+  { code: '010130', name: '고려아연' },
+  { code: '047050', name: '포스코인터내셔널' },
+  { code: '373220', name: 'LG에너지솔루션' },
+  { code: '247540', name: '에코프로비엠' },
+  { code: '086520', name: '에코프로' },
+  { code: '042700', name: '한미반도체' },
+  { code: '196170', name: '알테오젠' },
+  { code: '000810', name: '삼성화재' },
+  { code: '017670', name: 'SK텔레콤' },
 ];
 
 async function fetchYahooQuote(symbol: string): Promise<{
@@ -612,33 +614,37 @@ export async function autoPopulateWatchlist(): Promise<number> {
     }
   }
 
-  // VTS 및 공통: Yahoo Finance 기반 모멘텀 스캔
-  for (const stock of STOCK_UNIVERSE) {
-    if (existingCodes.has(stock.code)) continue;
+  // VTS 및 공통: Yahoo Finance 기반 모멘텀 스캔 (5개씩 병렬 요청)
+  const candidates = STOCK_UNIVERSE.filter(s => !existingCodes.has(s.code));
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
+    const batch = candidates.slice(i, i + BATCH_SIZE);
+    const quotes = await Promise.all(batch.map(s => fetchYahooQuote(`${s.code}.KS`)));
 
-    const quote = await fetchYahooQuote(stock.symbol);
-    if (!quote || quote.price <= 0) continue;
+    for (let j = 0; j < batch.length; j++) {
+      const stock = batch[j];
+      const quote = quotes[j];
+      if (!quote || quote.price <= 0) continue;
+      if (quote.changePercent < 1.5 || quote.volume < quote.avgVolume * 1.5) continue;
 
-    // 필터: +1.5% 이상 상승 + 거래량이 5일 평균의 1.5배 이상 (상대 기준)
-    if (quote.changePercent < 1.5 || quote.volume < quote.avgVolume * 1.5) continue;
+      watchlist.push({
+        code: stock.code,
+        name: stock.name,
+        entryPrice: quote.price,
+        stopLoss: Math.round(quote.price * 0.92),
+        targetPrice: Math.round(quote.price * 1.15),
+        addedAt: new Date().toISOString(),
+      });
+      existingCodes.add(stock.code);
+      added++;
+      console.log(
+        `[AutoPopulate] Yahoo → 워치리스트: ${stock.name}(${stock.code}) ` +
+        `@${quote.price.toLocaleString()} (+${quote.changePercent.toFixed(1)}% / ${(quote.volume / 10000).toFixed(0)}만주)`
+      );
+    }
 
-    watchlist.push({
-      code: stock.code,
-      name: stock.name,
-      entryPrice: quote.price,
-      stopLoss: Math.round(quote.price * 0.92),
-      targetPrice: Math.round(quote.price * 1.15),
-      addedAt: new Date().toISOString(),
-    });
-    existingCodes.add(stock.code);
-    added++;
-    console.log(
-      `[AutoPopulate] Yahoo → 워치리스트: ${stock.name}(${stock.code}) ` +
-      `@${quote.price.toLocaleString()} (+${quote.changePercent.toFixed(1)}% / ${(quote.volume / 10000).toFixed(0)}만주)`
-    );
-
-    // Yahoo rate limit 방지
-    await new Promise(r => setTimeout(r, 300));
+    // Yahoo rate limit 방지 (배치 간 300ms)
+    if (i + BATCH_SIZE < candidates.length) await new Promise(r => setTimeout(r, 300));
   }
 
   if (added > 0) {
