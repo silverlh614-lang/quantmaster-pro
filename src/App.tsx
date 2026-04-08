@@ -1810,13 +1810,27 @@ export default function App() {
       const status = errObj?.status || err?.status;
       const code = errObj?.code || err?.code;
 
-      const isRateLimit = message.includes('429') || status === 429 || code === 429 || status === 'RESOURCE_EXHAUSTED' || message.includes('quota');
+      const msgLower = (message || '').toLowerCase();
+      const isRateLimit = message.includes('429') || status === 429 || code === 429 || status === 'RESOURCE_EXHAUSTED' || message.includes('quota') || message.includes('할당량');
+      const isInvalidArg = message.includes('400') || status === 400 || code === 400 || status === 'INVALID_ARGUMENT' || msgLower.includes('invalid');
+      const isNetworkError = msgLower.includes('failed to fetch') || msgLower.includes('networkerror') || msgLower.includes('timeout');
+      const isApiKeyError = msgLower.includes('api key') || msgLower.includes('api_key') || msgLower.includes('unauthorized') || status === 401 || code === 401;
+
       if (isRateLimit) {
         setError('API 할당량이 초과되었습니다. 잠시 후 다시 시도하거나 설정에서 유료 API 키를 등록해 주세요.');
         toast.error('API 할당량 초과: 잠시 후 다시 시도해 주세요.');
+      } else if (isApiKeyError) {
+        setError('API 키가 유효하지 않습니다. 설정에서 올바른 Gemini API 키를 입력해 주세요.');
+        toast.error('API 키 오류');
+      } else if (isInvalidArg) {
+        setError('API 요청 설정 오류입니다. 잠시 후 다시 시도해 주세요.');
+        toast.error('API 설정 오류');
+      } else if (isNetworkError) {
+        setError('네트워크 연결에 실패했습니다. 인터넷 연결을 확인해 주세요.');
+        toast.error('네트워크 오류');
       } else {
-        setError(message || '종목 검색 중 오류가 발생했습니다.');
-        toast.error('검색 실패');
+        setError(message || '종목 검색 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+        toast.error('검색 실패: 잠시 후 다시 시도해 주세요.');
       }
     } finally {
       setSearchingSpecific(false);
