@@ -1962,7 +1962,7 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="glass-3d rounded-[3rem] p-10 max-w-lg w-full border border-white/10 shadow-2xl overflow-hidden relative"
+              className="glass-3d rounded-[3rem] p-10 max-w-lg w-full border border-white/10 shadow-2xl overflow-y-auto max-h-[90vh] relative"
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-10">
@@ -2040,6 +2040,15 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* ── 자동매매 설정 체크리스트 ── */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-violet-500" />
+                    <span className="text-xs font-black text-white/40 uppercase tracking-widest">자동매매 설정 검증</span>
+                  </div>
+                  <TradingChecklist />
                 </div>
 
                 <div className="flex flex-col gap-4">
@@ -5481,6 +5490,19 @@ export default function App() {
                   stockCode={deepAnalysisStock?.code}
                   stockName={deepAnalysisStock?.name}
                   currentPrice={deepAnalysisStock?.currentPrice}
+                  onShadowTrade={(code, name, price) => {
+                    const totalAssets = 100_000_000;
+                    const mockSignal = {
+                      positionSize: deepAnalysisStock?.confidenceScore && deepAnalysisStock.confidenceScore >= 80 ? 20 : 10,
+                      rrr: 2,
+                      lastTrigger: deepAnalysisStock?.type === 'STRONG_BUY',
+                      recommendation: deepAnalysisStock?.type === 'STRONG_BUY' ? '풀 포지션' : '절반 포지션',
+                      profile: { stopLoss: -8 },
+                    } as any;
+                    const trade = buildShadowTrade(mockSignal, code, name, price, totalAssets);
+                    addShadowTrade(trade);
+                    setView('AUTO_TRADE');
+                  }}
                 />
                 ) : (
                   <>

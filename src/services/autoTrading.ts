@@ -1,12 +1,22 @@
 /**
- * autoTrading.ts — 신호-주문 자동 변환 엔진
+ * autoTrading.ts — 클라이언트사이드 수동 트리거 전용
  *
- * 아이디어 4: Kelly% → 실제 KIS 주문 수량 변환
- * 아이디어 5: Shadow Trading 모드 (가상 시뮬레이션)
- * 아이디어 6: OCO 자동 등록 (매수 체결 즉시 손절/목표가 주문)
- * 아이디어 7: 장중 타임 필터 + 주문 큐
- * 아이디어 8: 슬리피지 측정 & 보정 Kelly
- * 아이디어 9: Gate별 수익 귀인 분석
+ * ⚠️  역할 분리: 이 모듈은 UI에서 사용자가 직접 트리거하는 수동 매매 전용입니다.
+ *     24시간 자동매매는 서버사이드 autoTradeEngine.ts가 단독으로 담당합니다.
+ *     서버 자동매매(AUTO_TRADE_ENABLED=true)가 활성화되면
+ *     이 모듈의 실주문 함수는 중복 방지를 위해 실행을 차단합니다.
+ *
+ * 제공 기능 (수동 전용):
+ * - Shadow Trading 모드 (가상 시뮬레이션) — buildShadowTrade, resolveShadowTrade
+ * - 슬리피지 측정 & 보정 Kelly — measureSlippage, adjustedKelly
+ * - Gate별 수익 귀인 분석 — runAttributionAnalysis
+ *
+ * 수동 실주문 (서버 자동매매 OFF일 때만 작동):
+ * - Kelly% → KIS 주문 변환 — convertSignalToOrder
+ * - KIS 매수/매도 주문 — placeKISOrder
+ * - OCO 자동 등록 — registerOCOAfterFill
+ * - 장중 타임 필터 + 주문 큐 — placeKISOrderWithFilter
+ * - 분할매수 트랜치 플랜 — executeTranchePlan
  */
 
 import type {
@@ -44,6 +54,14 @@ const isReal = () => import.meta.env.VITE_KIS_IS_REAL === 'true';
 const BUY_TR  = () => (isReal() ? 'TTTC0802U' : 'VTTC0802U');
 const SELL_TR = () => (isReal() ? 'TTTC0801U' : 'VTTC0801U');
 
+/**
+ * 서버 자동매매가 활성화되어 있으면 true.
+ * true일 때 클라이언트 실주문은 중복 방지를 위해 차단됩니다.
+ */
+function isServerAutoTradeActive(): boolean {
+  return import.meta.env.VITE_AUTO_TRADE_ENABLED === 'true';
+}
+
 // ─── 아이디어 4: 신호-주문 변환 ────────────────────────────────────────────────
 
 /**
@@ -74,12 +92,21 @@ export function convertSignalToOrder(
 }
 
 /**
- * KIS 현금 매수 주문 실행
+ * KIS 현금 매수 주문 실행 (수동 트리거 전용)
+ *
+ * 서버 자동매매(AUTO_TRADE_ENABLED)가 켜져 있으면 중복 주문 방지를 위해 차단됩니다.
  * @returns KIS 응답 (ORD_NO 등 포함)
+ * @throws 서버 자동매매 활성 시 Error
  */
 export async function placeKISOrder(
   params: KISOrderParams
 ): Promise<Record<string, unknown>> {
+  if (isServerAutoTradeActive()) {
+    throw new Error(
+      '[중복 방지] 서버 자동매매(AUTO_TRADE_ENABLED=true)가 활성 상태입니다. ' +
+      '클라이언트 실주문은 차단됩니다. 주문은 서버 autoTradeEngine이 단독 실행합니다.'
+    );
+  }
   const data = await kisProxy({
     path: '/uapi/domestic-stock/v1/trading/order-cash',
     method: 'POST',

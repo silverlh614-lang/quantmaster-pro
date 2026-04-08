@@ -1,5 +1,9 @@
 /**
- * autoTradeEngine.ts — 서버사이드 24시간 자동매매 엔진
+ * autoTradeEngine.ts — 서버사이드 24시간 자동매매 엔진 (주문 집행 메인 채널)
+ *
+ * ⚠️  역할 분리: 이 모듈이 실주문 집행의 유일한 채널입니다.
+ *     클라이언트사이드 autoTrading.ts는 수동 Shadow Trading + 분석 전용이며,
+ *     AUTO_TRADE_ENABLED=true일 때 클라이언트 실주문은 자동 차단됩니다.
  *
  * Railway에서 브라우저 없이 실행됩니다.
  * - process.env 사용 (import.meta.env 없음)
@@ -286,6 +290,10 @@ export async function runAutoSignalScan(): Promise<void> {
         const ordNo = orderData?.output?.ODNO;
         console.log(`[AutoTrade LIVE] ${stock.name} 매수 주문 완료 — ODNO: ${ordNo}`);
         appendShadowLog({ event: 'ORDER', code: stock.code, price: currentPrice, ordNo });
+
+        // LIVE 주문도 shadows에 등록 → 다음 스캔 시 alreadyActive로 중복 주문 방지
+        trade.status = 'ACTIVE';
+        shadows.push(trade);
 
         // 아이디어 12: Telegram 알림 (실매매)
         await sendTelegramAlert(
