@@ -1100,6 +1100,56 @@ export async function evaluateRecommendations(): Promise<void> {
     `WIN률: <b>${stats.winRate.toFixed(1)}%</b> | 평균 수익: ${stats.avgReturn.toFixed(2)}%\n` +
     `STRONG_BUY 적중률: <b>${stats.strongBuyWinRate.toFixed(1)}%</b>`
   ).catch(console.error);
+
+  // ── 아이디어 10: 실거래 전환 자동 판단 + Telegram 가이드 ──
+  const shadows = loadShadowTrades();
+  const closedShadows = shadows.filter(
+    (s) => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP'
+  );
+  const shadowReturns = closedShadows.map((s) => s.returnPct ?? 0);
+
+  // MDD 계산
+  let peak = 0, mdd = 0, cumReturn = 0;
+  for (const r of shadowReturns) {
+    cumReturn += r;
+    peak = Math.max(peak, cumReturn);
+    mdd = Math.min(mdd, cumReturn - peak);
+  }
+
+  // Profit Factor 계산
+  const totalWin  = shadowReturns.filter((r) => r > 0).reduce((a, b) => a + b, 0);
+  const totalLoss = Math.abs(shadowReturns.filter((r) => r <= 0).reduce((a, b) => a + b, 0));
+  const profitFactor = totalLoss > 0 ? totalWin / totalLoss : totalWin > 0 ? Infinity : 0;
+
+  const readyChecks = {
+    sampleSize:   stats.total >= 30,
+    winRate:      stats.winRate >= 55,
+    profitFactor: profitFactor >= 1.5,
+    mddSafe:     mdd > -10,
+  };
+
+  const passCount  = Object.values(readyChecks).filter(Boolean).length;
+  const totalChecks = Object.keys(readyChecks).length;
+
+  if (passCount === totalChecks) {
+    await sendTelegramAlert(
+      `🎯 <b>[QuantMaster] 실거래 전환 가능!</b>\n` +
+      `Shadow ${stats.total}건 검증 완료\n` +
+      `승률: ${stats.winRate.toFixed(1)}% ✅\n` +
+      `PF: ${profitFactor.toFixed(2)} ✅ | MDD: ${mdd.toFixed(2)}% ✅\n` +
+      `→ KIS_IS_REAL=true 전환 검토하세요`
+    ).catch(console.error);
+    console.log('[자기학습] 🎯 실거래 전환 조건 모두 충족!');
+  } else {
+    await sendTelegramAlert(
+      `📊 <b>[전환 진행률] ${passCount}/${totalChecks} 조건 충족</b>\n` +
+      `건수: ${stats.total}/30 ${readyChecks.sampleSize ? '✅' : '⏳'}\n` +
+      `승률: ${stats.winRate.toFixed(1)}%/55% ${readyChecks.winRate ? '✅' : '❌'}\n` +
+      `PF: ${profitFactor.toFixed(2)}/1.5 ${readyChecks.profitFactor ? '✅' : '❌'}\n` +
+      `MDD: ${mdd.toFixed(2)}%/-10% ${readyChecks.mddSafe ? '✅' : '❌'}`
+    ).catch(console.error);
+    console.log(`[자기학습] 전환 진행률: ${passCount}/${totalChecks}`);
+  }
 }
 
 export function getMonthlyStats(): MonthlyStats {
