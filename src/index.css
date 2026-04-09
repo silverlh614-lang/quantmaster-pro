@@ -12,6 +12,8 @@
   --color-theme-card: var(--card-bg);
   --color-theme-border: var(--card-border);
   --color-theme-accent: var(--accent);
+  --color-theme-surface: var(--surface-bg);
+  --color-theme-input: var(--input-bg);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -28,6 +30,8 @@
     --card-bg: rgba(255, 255, 255, 0.03);
     --card-border: rgba(255, 255, 255, 0.08);
     --accent: #f97316;
+    --surface-bg: rgba(255, 255, 255, 0.05);
+    --input-bg: rgba(0, 0, 0, 0.4);
 
     /* ── Spacing Scale (4px base) ── */
     --space-1: 4px;
@@ -85,9 +89,12 @@
     --card-bg: #ffffff;
     --card-border: rgba(0, 0, 0, 0.1);
     --accent: #f97316;
+    --surface-bg: rgba(0, 0, 0, 0.03);
+    --input-bg: rgba(0, 0, 0, 0.04);
     --shadow-card: 0 4px 20px -4px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
     --shadow-card-hover: 0 12px 30px -8px rgba(0, 0, 0, 0.12);
     --shadow-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    color-scheme: light;
   }
 
   .theme-high-contrast {
@@ -98,6 +105,8 @@
     --card-bg: #000000;
     --card-border: #ffffff;
     --accent: #ffff00;
+    --surface-bg: rgba(255, 255, 255, 0.1);
+    --input-bg: rgba(255, 255, 255, 0.1);
   }
 
   html {

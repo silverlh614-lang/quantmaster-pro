@@ -75,7 +75,7 @@ export function ModalHeader({ children, onClose, icon, subtitle, className }: Mo
     <div className={cn('flex items-center justify-between p-5 sm:p-6 pb-0 shrink-0', className)}>
       <div className="flex items-center gap-3 sm:gap-4 min-w-0">
         {icon && (
-          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 bg-white/5">
+          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 bg-theme-surface">
             {icon}
           </div>
         )}
@@ -88,7 +88,7 @@ export function ModalHeader({ children, onClose, icon, subtitle, className }: Mo
       </div>
       <button
         onClick={onClose}
-        className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors shrink-0 ml-3"
+        className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-theme-surface flex items-center justify-center hover:bg-theme-border transition-colors shrink-0 ml-3"
       >
         <X className="w-4 h-4 sm:w-5 sm:h-5" />
       </button>
