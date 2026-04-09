@@ -19,7 +19,6 @@ import {
   autoPopulateWatchlist,
   getDartAlerts,
   pollDartDisclosures,
-  addRecommendation,
   getRecommendations,
   getMonthlyStats,
   evaluateRecommendations,
@@ -29,6 +28,8 @@ import {
   fillMonitor,
   tradingOrchestrator,
   fastDartCheck,
+  trancheExecutor,
+  isRealTradeReady,
   type WatchlistEntry,
   type MacroState,
 } from "./src/server/autoTradeEngine.js";
@@ -1016,6 +1017,25 @@ async function startServer() {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ─── 아이디어 8: 분할 매수 트랜치 조회 + 수동 실행 ─────────────────────────────
+  app.get('/api/auto-trade/tranches', (_req: Request, res: Response) => {
+    res.json(trancheExecutor.getPendingTranches());
+  });
+
+  app.post('/api/auto-trade/tranches/run', async (_req: Request, res: Response) => {
+    try {
+      await trancheExecutor.checkPendingTranches();
+      res.json({ ok: true, pending: trancheExecutor.getPendingTranches() });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ─── 아이디어 10: 실거래 전환 준비 상태 조회 ─────────────────────────────────
+  app.get('/api/real-trade/status', (_req: Request, res: Response) => {
+    res.json({ ready: isRealTradeReady(), kisIsReal: process.env.KIS_IS_REAL === 'true' });
   });
 
   // ─────────────────────────────────────────────────────────────

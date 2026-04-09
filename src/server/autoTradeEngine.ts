@@ -85,6 +85,8 @@ function saveConditionWeights(w: ConditionWeights): void {
 
 // 아이디어 7: 동시 최대 보유 종목 수 (환경변수로 오버라이드 가능)
 const MAX_CONCURRENT_POSITIONS = Number(process.env.MAX_CONCURRENT_POSITIONS || 5);
+// 아이디어 4: 동일 섹터 최대 동시 보유 수 (Correlation Guard)
+const MAX_SECTOR_CONCENTRATION = Number(process.env.MAX_SECTOR_CONCENTRATION || 2);
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -390,6 +392,29 @@ export async function runAutoSignalScan(): Promise<void> {
       );
       if (alreadyTraded) continue;
 
+      // ── 아이디어 4: 섹터 집중도 가드 (Correlation Guard) ──
+      if (stock.sector) {
+        const activeSectorCodes = watchlist
+          .filter(w => shadows.some(
+            s => s.stockCode === w.code && (s.status === 'PENDING' || s.status === 'ACTIVE')
+          ))
+          .map(w => w.sector)
+          .filter(Boolean);
+        const sectorCount = activeSectorCodes.filter(s => s === stock.sector).length;
+        if (sectorCount >= MAX_SECTOR_CONCENTRATION) {
+          console.log(
+            `[CorrelationGuard] ${stock.name}(${stock.sector}) 진입 보류 — ` +
+            `동일 섹터 ${sectorCount}/${MAX_SECTOR_CONCENTRATION}개 포화`
+          );
+          await sendTelegramAlert(
+            `🚧 <b>[가드] ${stock.name} 진입 보류</b>\n` +
+            `섹터: ${stock.sector}\n` +
+            `동일 섹터 보유 ${sectorCount}/${MAX_SECTOR_CONCENTRATION}개 → 분산 한도 초과`
+          ).catch(console.error);
+          continue;
+        }
+      }
+
       const slippage = 0.003;
       const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));
       // 버그 5 수정: Gate 점수 기반 간이 Kelly 포지션 사이징
@@ -412,6 +437,10 @@ export async function runAutoSignalScan(): Promise<void> {
 
       if (quantity < 1) continue;
 
+      // 아이디어 8: STRONG_BUY → 분할 매수 1차 진입 (전체 수량의 50%)
+      // 잔여 30%·20%는 trancheExecutor가 3일·7일 후 실행
+      const execQty = isStrongBuy ? Math.max(1, Math.floor(quantity * 0.5)) : quantity;
+
       const trade: ServerShadowTrade = {
         id: `srv_${Date.now()}_${stock.code}`,
         stockCode: stock.code,
@@ -419,7 +448,7 @@ export async function runAutoSignalScan(): Promise<void> {
         signalTime: new Date().toISOString(),
         signalPrice: currentPrice,
         shadowEntryPrice,
-        quantity,
+        quantity: execQty,
         stopLoss: stock.stopLoss,
         targetPrice: stock.targetPrice,
         status: 'PENDING',
@@ -440,27 +469,27 @@ export async function runAutoSignalScan(): Promise<void> {
         conditionKeys:    stock.conditionKeys ?? [],
       });
 
+      const trancheLabel = isStrongBuy ? ` (1차/${execQty}주, 총${quantity}주)` : '';
+
       if (shadowMode) {
         shadows.push(trade);
-        console.log(`[AutoTrade SHADOW] ${stock.name}(${stock.code}) 신호 등록 @${currentPrice}`);
+        console.log(`[AutoTrade SHADOW] ${stock.name}(${stock.code}) 신호 등록 @${currentPrice}${trancheLabel}`);
         appendShadowLog({ event: 'SIGNAL', ...trade });
 
-        // 아이디어 12: Telegram 알림
         await sendTelegramAlert(
-          `⚡ <b>[Shadow] 매수 신호</b>\n` +
+          `⚡ <b>[Shadow] 매수 신호${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
           `종목: ${stock.name} (${stock.code})\n` +
-          `현재가: ${currentPrice.toLocaleString()}원\n` +
-          `손절: ${stock.stopLoss.toLocaleString()}원 | 목표: ${stock.targetPrice.toLocaleString()}원\n` +
-          `모드: Shadow (가상매매)`
+          `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
+          `손절: ${stock.stopLoss.toLocaleString()}원 | 목표: ${stock.targetPrice.toLocaleString()}원`
         ).catch(console.error);
       } else {
-        // LIVE 모드: 실제 주문
+        // LIVE 모드: 실제 주문 (1차 수량만)
         const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
           CANO: process.env.KIS_ACCOUNT_NO ?? '',
           ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
           PDNO: stock.code.padStart(6, '0'),
           ORD_DVSN: '01', // 시장가
-          ORD_QTY: quantity.toString(),
+          ORD_QTY: execQty.toString(),
           ORD_UNPR: '0',
           SLL_BUY_DVSN_CD: '02',
           CTAC_TLNO: '',
@@ -468,34 +497,45 @@ export async function runAutoSignalScan(): Promise<void> {
           ORD_SVR_DVSN_CD: '0',
         });
         const ordNo = orderData?.output?.ODNO;
-        console.log(`[AutoTrade LIVE] ${stock.name} 매수 주문 완료 — ODNO: ${ordNo}`);
-        appendShadowLog({ event: 'ORDER', code: stock.code, price: currentPrice, ordNo });
+        console.log(`[AutoTrade LIVE] ${stock.name} 매수 주문 완료 — ODNO: ${ordNo}${trancheLabel}`);
+        appendShadowLog({ event: 'ORDER', code: stock.code, price: currentPrice, ordNo, tranche: isStrongBuy ? 1 : 0 });
 
-        // 아이디어 3: FillMonitor에 주문 등록 → 체결 폴링 시작
         if (ordNo) {
           fillMonitor.addOrder({
             ordNo,
-            stockCode: stock.code,
-            stockName: stock.name,
-            quantity,
-            orderPrice: shadowEntryPrice,
-            placedAt: new Date().toISOString(),
+            stockCode:      stock.code,
+            stockName:      stock.name,
+            quantity:       execQty,
+            orderPrice:     shadowEntryPrice,
+            placedAt:       new Date().toISOString(),
             relatedTradeId: trade.id,
           });
         }
 
-        // LIVE 주문도 shadows에 등록 → 다음 스캔 시 alreadyActive로 중복 주문 방지
         trade.status = 'ACTIVE';
         shadows.push(trade);
 
-        // 아이디어 12: Telegram 알림 (실매매)
         await sendTelegramAlert(
-          `🚀 <b>[LIVE] 매수 주문 체결</b>\n` +
+          `🚀 <b>[LIVE] 매수 주문${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
           `종목: ${stock.name} (${stock.code})\n` +
-          `체결가: ${currentPrice.toLocaleString()}원\n` +
+          `체결가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
           `주문번호: ${ordNo ?? 'N/A'}\n` +
           `손절: ${stock.stopLoss.toLocaleString()}원 | 목표: ${stock.targetPrice.toLocaleString()}원`
         ).catch(console.error);
+      }
+
+      // 아이디어 8: STRONG_BUY → 2·3차 분할 매수 스케줄 등록
+      if (isStrongBuy && quantity > 1) {
+        trancheExecutor.scheduleTranches({
+          parentTradeId: trade.id,
+          stockCode:     stock.code,
+          stockName:     stock.name,
+          totalQuantity: quantity,
+          firstQuantity: execQty,
+          entryPrice:    shadowEntryPrice,
+          stopLoss:      stock.stopLoss,
+          targetPrice:   stock.targetPrice,
+        });
       }
     } catch (err: unknown) {
       console.error(`[AutoTrade] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
@@ -1386,16 +1426,24 @@ export async function evaluateRecommendations(): Promise<void> {
   };
 
   if (passCount === totalChecks) {
+    // 아이디어 10: 전환 준비 완료 플래그 생성 + Telegram 단계별 안내
+    const curStats = getMonthlyStats();
+    writeRealTradeFlag(curStats);
     await sendTelegramAlert(
-      `🎯 <b>[QuantMaster] 실거래 전환 가능!</b>\n` +
-      `Shadow ${closedCount}건 검증 완료 — 모든 조건 충족\n` +
+      `🎯 <b>[QuantMaster] 실거래 전환 준비 완료!</b>\n\n` +
+      `Shadow ${closedCount}건 검증 완료 — 6개 조건 모두 충족 ✅\n\n` +
       `✅ 건수: ${closedCount}/30\n` +
       `✅ 승률: ${winRate.toFixed(1)}%\n` +
       `✅ PF: ${profitFactor.toFixed(2)}\n` +
       `✅ MDD: ${mdd.toFixed(2)}%\n` +
       `✅ 보유기간: ${avgHoldingDays.toFixed(1)}일\n` +
-      `✅ 연속손절: 최대 ${maxConsecLoss}회\n` +
-      `→ KIS_IS_REAL=true 전환 검토하세요`
+      `✅ 연속손절: 최대 ${maxConsecLoss}회\n\n` +
+      `📋 <b>전환 절차 (반자동):</b>\n` +
+      `1️⃣ Railway 대시보드 → Variables\n` +
+      `2️⃣ KIS_IS_REAL = true 설정\n` +
+      `3️⃣ 재배포(Redeploy) 클릭\n` +
+      `4️⃣ 다음 장 시작 시 자동 실거래 전환\n\n` +
+      `⚠️ data/real-trade-ready.flag 생성됨`
     ).catch(console.error);
     console.log('[자기학습] 🎯 실거래 전환 조건 모두 충족!');
   } else {
@@ -1780,6 +1828,207 @@ export async function fastDartCheck(): Promise<void> {
   if (changed) saveFastSeenNos(seen);
 }
 
+// ─── 아이디어 10: Shadow → Real 전환 준비 플래그 ─────────────────────────────────
+
+const REAL_TRADE_FLAG_FILE = path.join(DATA_DIR, 'real-trade-ready.flag');
+
+export function isRealTradeReady(): boolean {
+  return fs.existsSync(REAL_TRADE_FLAG_FILE);
+}
+
+function writeRealTradeFlag(stats: ReturnType<typeof getMonthlyStats>): void {
+  ensureDataDir();
+  fs.writeFileSync(REAL_TRADE_FLAG_FILE, JSON.stringify({
+    createdAt:       new Date().toISOString(),
+    month:           stats.month,
+    total:           stats.total,
+    winRate:         stats.winRate,
+    avgReturn:       stats.avgReturn,
+    strongBuyWinRate: stats.strongBuyWinRate,
+  }, null, 2));
+  console.log('[RealTrade] real-trade-ready.flag 생성');
+}
+
+// ─── 아이디어 8: TrancheExecutor — 분할 매수 자동화 ─────────────────────────────
+
+export interface TrancheSchedule {
+  id: string;
+  parentTradeId: string;
+  stockCode: string;
+  stockName: string;
+  trancheNumber: 2 | 3;
+  scheduledDate: string;   // YYYY-MM-DD KST — 이 날짜 이후 첫 장 개시에 실행
+  quantity: number;
+  entryPrice: number;      // 1차 진입가 (기준가)
+  stopLoss: number;
+  targetPrice: number;
+  status: 'PENDING' | 'EXECUTED' | 'CANCELLED';
+  executedAt?: string;
+  cancelReason?: string;
+}
+
+const TRANCHE_FILE = path.join(DATA_DIR, 'tranche-schedule.json');
+
+function loadTranches(): TrancheSchedule[] {
+  ensureDataDir();
+  if (!fs.existsSync(TRANCHE_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(TRANCHE_FILE, 'utf-8')); } catch { return []; }
+}
+
+function saveTranches(list: TrancheSchedule[]): void {
+  ensureDataDir();
+  // PENDING만 무제한, 완료·취소는 최근 200건 보관
+  const active  = list.filter(t => t.status === 'PENDING');
+  const history = list.filter(t => t.status !== 'PENDING').slice(-200);
+  fs.writeFileSync(TRANCHE_FILE, JSON.stringify([...active, ...history], null, 2));
+}
+
+/** KST 날짜 문자열 (YYYY-MM-DD) 반환 */
+function kstDateStr(offsetDays = 0): string {
+  const d = new Date(Date.now() + 9 * 60 * 60 * 1000 + offsetDays * 86400_000);
+  return d.toISOString().slice(0, 10);
+}
+
+export class TrancheExecutor {
+  /**
+   * STRONG_BUY 1차 진입 직후 호출.
+   * 2차(+3 영업일, 30%)·3차(+7 영업일, 20%) 스케줄 등록.
+   */
+  scheduleTranches(opts: {
+    parentTradeId: string;
+    stockCode: string;
+    stockName: string;
+    totalQuantity: number;
+    firstQuantity: number;
+    entryPrice: number;
+    stopLoss: number;
+    targetPrice: number;
+  }): void {
+    const remaining = opts.totalQuantity - opts.firstQuantity;
+    if (remaining < 1) return;
+
+    const qty2 = Math.max(1, Math.floor(opts.totalQuantity * 0.30));
+    const qty3 = Math.max(1, opts.totalQuantity - opts.firstQuantity - qty2);
+
+    const list = loadTranches();
+    const base: Omit<TrancheSchedule, 'id' | 'trancheNumber' | 'scheduledDate' | 'quantity'> = {
+      parentTradeId: opts.parentTradeId,
+      stockCode:     opts.stockCode,
+      stockName:     opts.stockName,
+      entryPrice:    opts.entryPrice,
+      stopLoss:      opts.stopLoss,
+      targetPrice:   opts.targetPrice,
+      status:        'PENDING',
+    };
+    list.push({ ...base, id: `tr2_${Date.now()}_${opts.stockCode}`, trancheNumber: 2, scheduledDate: kstDateStr(3),  quantity: qty2 });
+    list.push({ ...base, id: `tr3_${Date.now()}_${opts.stockCode}`, trancheNumber: 3, scheduledDate: kstDateStr(7),  quantity: qty3 });
+    saveTranches(list);
+    console.log(`[Tranche] 스케줄 등록: ${opts.stockName}(${opts.stockCode}) 2차 ${qty2}주(+3일) / 3차 ${qty3}주(+7일)`);
+  }
+
+  /**
+   * 장 전 OPENING_AUCTION 핸들러에서 호출.
+   * scheduledDate <= 오늘 이고 PENDING인 트랜치를 실행 or 취소.
+   * 가드: 현재가가 기준가(entryPrice) 대비 -3% 이하 → 해당 parentTradeId 전체 취소.
+   */
+  async checkPendingTranches(): Promise<void> {
+    if (!process.env.KIS_APP_KEY) return;
+    const list = loadTranches();
+    const today = kstDateStr();
+    const pending = list.filter(t => t.status === 'PENDING' && t.scheduledDate <= today);
+    if (pending.length === 0) return;
+
+    console.log(`[Tranche] 실행 대상 ${pending.length}건 점검`);
+    const isLive = process.env.AUTO_TRADE_MODE === 'LIVE';
+    let changed = false;
+
+    // parentTradeId별로 취소 여부를 캐싱 (현재가는 한 번만 조회)
+    const cancelledParents = new Set<string>();
+    const priceCache: Record<string, number | null> = {};
+
+    for (const t of pending) {
+      // 이미 같은 parentTrade가 취소된 경우 연쇄 취소
+      if (cancelledParents.has(t.parentTradeId)) {
+        t.status = 'CANCELLED';
+        t.cancelReason = '동일 포지션 취소 연쇄';
+        changed = true;
+        continue;
+      }
+
+      // 현재가 조회 (캐시 활용)
+      if (!(t.stockCode in priceCache)) {
+        priceCache[t.stockCode] = await fetchCurrentPrice(t.stockCode).catch(() => null);
+      }
+      const currentPrice = priceCache[t.stockCode];
+
+      if (!currentPrice) {
+        console.warn(`[Tranche] ${t.stockName} 현재가 조회 실패 — 다음 실행으로 연기`);
+        continue;
+      }
+
+      // -3% 가드: 1차 진입가 기준
+      const dropPct = ((currentPrice - t.entryPrice) / t.entryPrice) * 100;
+      if (dropPct <= -3) {
+        t.status = 'CANCELLED';
+        t.cancelReason = `기준가 대비 ${dropPct.toFixed(1)}% 하락`;
+        cancelledParents.add(t.parentTradeId);
+        changed = true;
+        console.warn(`[Tranche] ${t.stockName} ${t.trancheNumber}차 취소 — 손절 가드 (${dropPct.toFixed(1)}%)`);
+        await sendTelegramAlert(
+          `🚫 <b>[분할 매수 ${t.trancheNumber}차 취소]</b> ${t.stockName}(${t.stockCode})\n` +
+          `기준가 ${t.entryPrice.toLocaleString()}원 대비 ${dropPct.toFixed(1)}% 하락`
+        ).catch(console.error);
+        continue;
+      }
+
+      // 실행
+      if (isLive) {
+        const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
+          CANO:         process.env.KIS_ACCOUNT_NO ?? '',
+          ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
+          PDNO:         t.stockCode.padStart(6, '0'),
+          ORD_DVSN:     '01', // 시장가
+          ORD_QTY:      t.quantity.toString(),
+          ORD_UNPR:     '0',
+          SLL_BUY_DVSN_CD: '02',
+          CTAC_TLNO: '', MGCO_APTM_ODNO: '', ORD_SVR_DVSN_CD: '0',
+        }).catch(() => null);
+
+        const ordNo = (orderData as { output?: { ODNO?: string } } | null)?.output?.ODNO;
+        if (ordNo) {
+          fillMonitor.addOrder({
+            ordNo,
+            stockCode:      t.stockCode,
+            stockName:      t.stockName,
+            quantity:       t.quantity,
+            orderPrice:     currentPrice,
+            placedAt:       new Date().toISOString(),
+            relatedTradeId: t.parentTradeId,
+          });
+        }
+        console.log(`[Tranche] LIVE ${t.trancheNumber}차 주문 — ${t.stockName} ${t.quantity}주 ODNO=${ordNo}`);
+      }
+
+      t.status     = 'EXECUTED';
+      t.executedAt = new Date().toISOString();
+      changed = true;
+
+      await sendTelegramAlert(
+        `📈 <b>[분할 매수 ${t.trancheNumber}차${isLive ? '' : ' Shadow'}]</b> ${t.stockName}(${t.stockCode})\n` +
+        `${t.quantity}주 @${currentPrice.toLocaleString()}원 | 기준가 대비 ${dropPct >= 0 ? '+' : ''}${dropPct.toFixed(1)}%`
+      ).catch(console.error);
+    }
+
+    if (changed) saveTranches(list);
+  }
+
+  getPendingTranches(): TrancheSchedule[] {
+    return loadTranches().filter(t => t.status === 'PENDING');
+  }
+}
+
+export const trancheExecutor = new TrancheExecutor();
+
 // ─── 아이디어 2: 동시호가 예약 주문 (08:45 KST) ──────────────────────────────────
 
 /**
@@ -2008,10 +2257,22 @@ export class TradingDayOrchestrator {
 
     switch (state) {
       case 'OPENING_AUCTION': {
-        // 08:45 이후 한 번만: 토큰 갱신 → 사전 스크리닝 → 워치리스트 자동 채우기 → 예약 주문
+        // 08:00 이후 최초 1회: 실거래 전환 플래그 확인 → 아침 리마인더
+        if (!this.hasRan('realTradeReminder') && isRealTradeReady()) {
+          await sendTelegramAlert(
+            `🟡 <b>[전환 대기]</b> real-trade-ready.flag 감지\n` +
+            `오늘 KIS_IS_REAL=true 설정 후 재배포하면 실거래 전환됩니다.\n` +
+            `준비가 됐다면 Railway 대시보드에서 변수 설정 후 Redeploy하세요.`
+          ).catch(console.error);
+          this.markRan('realTradeReminder');
+        }
+
+        // 08:45 이후 한 번만: 토큰 갱신 → 분할 매수 체크 → 사전 스크리닝 → 워치리스트 자동 채우기 → 예약 주문
         if (t >= 845 && !this.hasRan('openAuction')) {
           console.log('[Orchestrator] 장 전 준비 시작 (KST 08:45+)');
           await refreshKisToken().catch(console.error);
+          // 아이디어 8: 분할 매수 대기 트랜치 실행
+          await trancheExecutor.checkPendingTranches().catch(console.error);
           await preScreenStocks().catch(console.error);
           const added = await autoPopulateWatchlist().catch(() => 0) ?? 0;
           if (added > 0) {
