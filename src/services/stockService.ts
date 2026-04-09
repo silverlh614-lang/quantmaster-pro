@@ -32,6 +32,8 @@ import {
   FomcSentimentAnalysis,
 } from "../types/quant";
 
+import { getMacroSnapshot, snapshotToMacroFields } from './ecosService';
+
 import {
   calculateRSI,
   calculateMACD,
@@ -2683,11 +2685,33 @@ export async function getBatchGlobalIntel(): Promise<BatchGlobalIntelResult> {
   const todayDate = now.split(' ')[0];
   const requestedAtISO = requestedAt.toISOString();
 
+  // ── 1단계: ECOS 실데이터 먼저 수집 (무료, Google Search 0회) ──
+  let ecosFields: Partial<{
+    bokRateDirection: 'HIKING' | 'HOLDING' | 'CUTTING';
+    m2GrowthYoY: number;
+    nominalGdpGrowth: number;
+    exportGrowth3mAvg: number;
+    usdKrw: number;
+  }> = {};
+  try {
+    const ecosSnapshot = await getMacroSnapshot();
+    ecosFields = snapshotToMacroFields(ecosSnapshot);
+    console.log('[getBatchGlobalIntel] ECOS 실데이터 수집 완료:', Object.keys(ecosFields));
+  } catch (ecosError) {
+    console.warn('[getBatchGlobalIntel] ECOS 수집 실패, AI로 전체 추정:', ecosError);
+  }
+
+  // ECOS가 제공하는 필드 목록 (AI 추정 불필요)
+  const ecosProvidedInfo = Object.keys(ecosFields).length > 0
+    ? `\n\n★ 아래 필드는 ECOS 한국은행 실데이터로 이미 확보됨 (그대로 사용할 것):\n${JSON.stringify(ecosFields, null, 2)}\n위 필드는 macro에 그대로 포함하고, 나머지 필드만 Google 검색으로 추정하세요.`
+    : '';
+
   const prompt = `
 현재 한국 날짜: ${todayDate}
 
 다음 6가지 분석을 한번에 수행하고 JSON으로 반환하세요.
 Google 검색을 통해 최신 실제 데이터를 기반으로 판단해야 합니다.
+${ecosProvidedInfo}
 
 ━━━ 1. macro: 거시경제 환경 (12개 지표) ━━━
 수집 대상:
@@ -2766,6 +2790,12 @@ ETF 5종(EWY, MTUM, EEMV, IYW, ITA) 주간 자금흐름 분석.
       const text = response.text;
       if (!text) throw new Error("No response from AI");
       const parsed = safeJsonParse(text) as BatchGlobalIntelResult;
+
+      // ── ECOS 실데이터로 macro 필드 오버라이드 (AI 추정값보다 우선) ──
+      if (parsed.macro && Object.keys(ecosFields).length > 0) {
+        parsed.macro = { ...parsed.macro, ...ecosFields };
+        console.log('[getBatchGlobalIntel] ECOS 실데이터로 macro 필드 오버라이드 완료');
+      }
 
       // 개별 캐시에도 저장 → 기존 개별 함수 호출 시 캐시 히트
       const now = Date.now();
