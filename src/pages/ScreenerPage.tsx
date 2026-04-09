@@ -2,6 +2,8 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { QuantScreener } from '../components/QuantScreener';
 import { useRecommendationStore, useAnalysisStore } from '../stores';
+import { PageHeader } from '../ui/page-header';
+import { Stack } from '../layout/Stack';
 import type { StockFilters, StockRecommendation } from '../services/stockService';
 
 interface ScreenerPageProps {
@@ -18,25 +20,23 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      className="space-y-12"
     >
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-        <div>
-          <div className="flex items-center gap-4 mb-6">
-            <div className="w-3 h-10 bg-blue-600 rounded-full shadow-[0_0_20px_rgba(37,99,235,0.5)]" />
-            <h2 className="text-4xl font-black text-white tracking-tighter uppercase">Quant Screener + AI Pipeline</h2>
-          </div>
-          <p className="text-white/40 font-medium max-w-2xl text-lg">
-            정량적 필터로 후보군을 압축하고, AI가 질적 분석을 통해 최종 주도주를 선정하는 2단계 파이프라인입니다.
-          </p>
-        </div>
-      </div>
-      <QuantScreener
-        onScreen={onScreen}
-        loading={loading}
-        recommendations={screenerRecommendations}
-        onStockClick={(stock: StockRecommendation) => setSelectedDetailStock(stock)}
-      />
+      <Stack gap="xl">
+        <PageHeader
+          title="Quant Screener + AI Pipeline"
+          subtitle="정량 필터 → AI 질적 분석"
+          accentColor="bg-blue-600"
+        >
+          정량적 필터로 후보군을 압축하고, AI가 질적 분석을 통해 최종 주도주를 선정하는 2단계 파이프라인입니다.
+        </PageHeader>
+
+        <QuantScreener
+          onScreen={onScreen}
+          loading={loading}
+          recommendations={screenerRecommendations}
+          onStockClick={(stock: StockRecommendation) => setSelectedDetailStock(stock)}
+        />
+      </Stack>
     </motion.div>
   );
 }
