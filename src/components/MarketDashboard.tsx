@@ -31,6 +31,7 @@ import { SectorHeatmap } from './SectorHeatmap';
 import { EventCalendar } from './EventCalendar';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { debugWarn } from '../utils/debug';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -179,7 +180,10 @@ const MarketCard = ({ item }: { item: MarketDataPoint }) => {
 };
 
 const DynamicWeightsCard = ({ weights }: { weights?: Record<number, number> }) => {
-  if (!weights || Object.keys(weights).length === 0) return null;
+  if (!weights || Object.keys(weights).length === 0) {
+    debugWarn('DynamicWeightsCard: weights 데이터 없음');
+    return null;
+  }
 
   const CONDITION_NAMES: Record<number, string> = {
     1: '주도주 사이클', 2: '모멘텀', 3: 'ROE 유형 3', 4: '수급 질', 5: '시장 환경',

@@ -16,6 +16,7 @@ import {
   getSupplyChainIntelligence, getSectorOrderIntelligence, getFinancialStressIndex, getFomcSentimentAnalysis,
 } from '../services/stockService';
 import { computeContrarianSignals } from '../services/quantEngine';
+import { debugWarn } from '../utils/debug';
 
 // ─── Fusion Matrix 데이터 (아이디어 8) ──────────────────────────────────────
 
@@ -238,66 +239,77 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const loadSmartMoney = async () => {
     setSmartMoneyLoading(true);
     try { setSmartMoney(await getSmartMoneyFlow()); }
+    catch (err) { console.error('[ERROR] Smart Money 조회 실패:', err); }
     finally { setSmartMoneyLoading(false); }
   };
 
   const loadExportMomentum = async () => {
     setExportLoading(true);
     try { setExportMomentum(await getExportMomentum()); }
+    catch (err) { console.error('[ERROR] Export Momentum 조회 실패:', err); }
     finally { setExportLoading(false); }
   };
 
   const loadGeoRisk = async () => {
     setGeoLoading(true);
     try { setGeoRisk(await getGeopoliticalRiskScore()); }
+    catch (err) { console.error('[ERROR] Geo Risk 조회 실패:', err); }
     finally { setGeoLoading(false); }
   };
 
   const loadCreditSpread = async () => {
     setCreditLoading(true);
     try { setCreditSpread(await getCreditSpreads()); }
+    catch (err) { console.error('[ERROR] Credit Spread 조회 실패:', err); }
     finally { setCreditLoading(false); }
   };
 
   const loadGlobalCorrelation = async () => {
     setCorrelationLoading(true);
     try { setGlobalCorrelation(await getGlobalCorrelationMatrix()); }
+    catch (err) { console.error('[ERROR] Global Correlation 조회 실패:', err); }
     finally { setCorrelationLoading(false); }
   };
 
   const loadGlobalMultiSource = async () => {
     setMultiSourceLoading(true);
     try { setGlobalMultiSource(await getGlobalMultiSourceData()); }
+    catch (err) { console.error('[ERROR] Multi Source 조회 실패:', err); }
     finally { setMultiSourceLoading(false); }
   };
 
   const loadThemeTracking = async () => {
     setThemeLoading(true);
     try { setThemeResults(await trackThemeToKoreaValueChain()); }
+    catch (err) { console.error('[ERROR] Theme Tracking 조회 실패:', err); }
     finally { setThemeLoading(false); }
   };
 
   const loadSupplyChain = async () => {
     setSupplyChainLoading(true);
     try { setSupplyChain(await getSupplyChainIntelligence()); }
+    catch (err) { console.error('[ERROR] Supply Chain 조회 실패:', err); }
     finally { setSupplyChainLoading(false); }
   };
 
   const loadSectorOrders = async () => {
     setSectorOrdersLoading(true);
     try { setSectorOrders(await getSectorOrderIntelligence()); }
+    catch (err) { console.error('[ERROR] Sector Orders 조회 실패:', err); }
     finally { setSectorOrdersLoading(false); }
   };
 
   const loadFsi = async () => {
     setFsiLoading(true);
     try { setFsi(await getFinancialStressIndex()); }
+    catch (err) { console.error('[ERROR] Financial Stress 조회 실패:', err); }
     finally { setFsiLoading(false); }
   };
 
   const loadFomcSentiment = async () => {
     setFomcLoading(true);
     try { setFomcSentiment(await getFomcSentimentAnalysis()); }
+    catch (err) { console.error('[ERROR] FOMC Sentiment 조회 실패:', err); }
     finally { setFomcLoading(false); }
   };
 
