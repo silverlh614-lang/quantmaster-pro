@@ -26,6 +26,10 @@ import {
   NewsFrequencyScore,
   GlobalMultiSourceData,
   GlobalCorrelationMatrix,
+  SupplyChainIntelligence,
+  SectorOrderIntelligence,
+  FinancialStressIndex,
+  FomcSentimentAnalysis,
 } from "../types/quant";
 
 import {
@@ -2638,6 +2642,374 @@ export async function performWalkForwardAnalysis(): Promise<WalkForwardAnalysis 
   });
 }
 
+// ─── 배치 통합 호출 (12개 → 3개 압축) ─────────────────────────────────────────
+//
+// 기존 12개 개별 AI 호출을 3개 배치 호출로 통합.
+// Google Search 1회로 공유 컨텍스트 기반 응답 → 품질 향상 + 비용 75% 절감.
+//
+// Batch 1: getBatchGlobalIntel()  — macro + regime + extendedRegime + creditSpreads + financialStress + smartMoney
+// Batch 2: getBatchSectorIntel()  — exportMomentum + geoRisk + supplyChain + sectorOrders
+// Batch 3: getBatchMarketIntel()  — globalCorrelation + fomcSentiment
+
+export interface BatchGlobalIntelResult {
+  macro: MacroEnvironment;
+  regime: EconomicRegimeData;
+  extendedRegime: ExtendedRegimeData;
+  creditSpreads: CreditSpreadData;
+  financialStress: FinancialStressIndex;
+  smartMoney: SmartMoneyData;
+}
+
+export interface BatchSectorIntelResult {
+  exportMomentum: ExportMomentumData;
+  geoRisk: GeopoliticalRiskData;
+  supplyChain: SupplyChainIntelligence;
+  sectorOrders: SectorOrderIntelligence;
+}
+
+export interface BatchMarketIntelResult {
+  globalCorrelation: GlobalCorrelationMatrix;
+  fomcSentiment: FomcSentimentAnalysis;
+}
+
+/**
+ * Batch 1: 글로벌 거시경제 인텔리전스 통합 호출.
+ * macro + regime + extendedRegime + creditSpreads + financialStress + smartMoney
+ * 6개 개별 호출 → 1회 Google Search로 통합. 공유 컨텍스트로 응답 일관성 향상.
+ */
+export async function getBatchGlobalIntel(): Promise<BatchGlobalIntelResult> {
+  const requestedAt = new Date();
+  const now = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const todayDate = now.split(' ')[0];
+  const requestedAtISO = requestedAt.toISOString();
+
+  const prompt = `
+현재 한국 날짜: ${todayDate}
+
+다음 6가지 분석을 한번에 수행하고 JSON으로 반환하세요.
+Google 검색을 통해 최신 실제 데이터를 기반으로 판단해야 합니다.
+
+━━━ 1. macro: 거시경제 환경 (12개 지표) ━━━
+수집 대상:
+- bokRateDirection: 한국은행 기준금리 방향 ("HIKING"|"HOLDING"|"CUTTING")
+- us10yYield: 미국 10년 국채 금리 (%)
+- krUsSpread: 한미 금리 스프레드 (한국 기준금리 - 미국 기준금리)
+- m2GrowthYoY: 한국 M2 통화량 증가율 YoY (%)
+- bankLendingGrowth: 한국 은행 여신 증가율 YoY (%)
+- nominalGdpGrowth: 한국 명목 GDP 성장률 YoY (%)
+- oeciCliKorea: OECD 경기선행지수 한국 (100 기준)
+- exportGrowth3mAvg: 한국 수출 증가율 3개월 이동평균 YoY (%)
+- vkospi: VKOSPI 현재값
+- samsungIri: 삼성전자 IRI 대용값 (0.5~1.5, 중립=1.0)
+- vix: VIX 현재값
+- usdKrw: 원달러 환율
+
+━━━ 2. regime: 경기 레짐 분류 (4단계) ━━━
+RECOVERY/EXPANSION/SLOWDOWN/RECESSION 중 분류.
+- regime, confidence(0-100), rationale, allowedSectors(최대6), avoidSectors(최대4)
+- keyIndicators: { exportGrowth, bokRateDirection, oeciCli, gdpGrowth }
+
+━━━ 3. extendedRegime: 확장 7단계 레짐 ━━━
+RECOVERY/EXPANSION/SLOWDOWN/RECESSION/UNCERTAIN/CRISIS/RANGE_BOUND 중 분류.
+- 기본 regime 필드 + uncertaintyMetrics + systemAction
+- uncertaintyMetrics: { regimeClarity(0-100), signalConflict(0-100), kospi60dVolatility, leadingSectorCount, foreignFlowDirection("CONSISTENT_BUY"|"CONSISTENT_SELL"|"ALTERNATING"), correlationBreakdown(boolean) }
+- systemAction: { mode("NORMAL"|"DEFENSIVE"|"CASH_HEAVY"|"FULL_STOP"|"PAIR_TRADE"), cashRatio(0-100), gateAdjustment: { gate1Threshold, gate2Required, gate3Required }, message }
+
+━━━ 4. creditSpreads: 신용 스프레드 ━━━
+- krCorporateSpread: 한국 AA- 회사채 스프레드 (bp)
+- usHySpread: 미국 HY 스프레드 (bp)
+- embiSpread: EMBI+ 스프레드 (bp)
+- isCrisisAlert: krCorporateSpread >= 150bp
+- isLiquidityExpanding: trend=NARROWING AND krCorporateSpread < 100
+- trend: "WIDENING"|"NARROWING"|"STABLE"
+
+━━━ 5. financialStress: 금융 스트레스 지수 ━━━
+- tedSpread: { bps, alert("NORMAL"|"ELEVATED"|"CRISIS") }
+- usHySpread: { bps, trend("TIGHTENING"|"STABLE"|"WIDENING") }
+- moveIndex: { current, alert("NORMAL"|"ELEVATED"|"EXTREME") }
+- compositeScore(0-100), systemAction("NORMAL"|"CAUTION"|"DEFENSIVE"|"CRISIS")
+
+━━━ 6. smartMoney: 스마트머니 ETF 흐름 ━━━
+ETF 5종(EWY, MTUM, EEMV, IYW, ITA) 주간 자금흐름 분석.
+- score(0-10): EWY+MTUM 동시 INFLOW=+4, EWY 단독=+2, MTUM 단독=+1, EEMV/IYW/ITA 각 +1
+- etfFlows: [{ ticker, name, flow("INFLOW"|"OUTFLOW"|"NEUTRAL"), weeklyAumChange(%), priceChange(%), significance }]
+- isEwyMtumBothInflow(boolean), leadTimeWeeks, signal("BULLISH"|"BEARISH"|"NEUTRAL")
+
+모든 lastUpdated는 "${requestedAtISO}"로 설정.
+
+응답 형식 (JSON only, 마크다운 없이):
+{
+  "macro": { "bokRateDirection": "HOLDING", "us10yYield": 4.35, "krUsSpread": -1.25, "m2GrowthYoY": 6.2, "bankLendingGrowth": 5.1, "nominalGdpGrowth": 3.8, "oeciCliKorea": 100.4, "exportGrowth3mAvg": 11.5, "vkospi": 18.2, "samsungIri": 0.92, "vix": 16.8, "usdKrw": 1385.0 },
+  "regime": { "regime": "EXPANSION", "confidence": 78, "rationale": "...", "allowedSectors": [...], "avoidSectors": [...], "keyIndicators": {...}, "lastUpdated": "..." },
+  "extendedRegime": { "regime": "EXPANSION", "confidence": 78, "rationale": "...", "allowedSectors": [...], "avoidSectors": [...], "keyIndicators": {...}, "lastUpdated": "...", "uncertaintyMetrics": {...}, "systemAction": {...} },
+  "creditSpreads": { "krCorporateSpread": 68, "usHySpread": 320, "embiSpread": 380, "isCrisisAlert": false, "isLiquidityExpanding": false, "trend": "STABLE", "lastUpdated": "..." },
+  "financialStress": { "tedSpread": {...}, "usHySpread": {...}, "moveIndex": {...}, "compositeScore": 0, "systemAction": "NORMAL", "lastUpdated": "..." },
+  "smartMoney": { "score": 7, "etfFlows": [...], "isEwyMtumBothInflow": true, "leadTimeWeeks": "2-4주", "signal": "BULLISH", "lastUpdated": "..." }
+}
+  `.trim();
+
+  const cacheKey = `batch-global-intel-${todayDate}`;
+
+  return getCachedAIResponse<BatchGlobalIntelResult>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            temperature: 0.1,
+            maxOutputTokens: 8192,
+          },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      const parsed = safeJsonParse(text) as BatchGlobalIntelResult;
+
+      // 개별 캐시에도 저장 → 기존 개별 함수 호출 시 캐시 히트
+      const now = Date.now();
+      const macroKey = `macro-environment-${todayDate}`;
+      const regimeKey = `economic-regime-${todayDate}`;
+      const extRegimeKey = `extended-regime-${todayDate}`;
+      const weekKey = `${requestedAt.getFullYear()}-W${Math.ceil((requestedAt.getDate() - requestedAt.getDay() + 1) / 7).toString().padStart(2, '0')}`;
+      const creditKey = `credit-spread-${weekKey}`;
+      const fsiKey = `financial-stress-index-${weekKey}`;
+      const smartKey = `smart-money-${todayDate}`;
+
+      if (parsed.macro) { aiCache[macroKey] = { data: parsed.macro, timestamp: now }; lsSet(macroKey, { data: parsed.macro, timestamp: now }); }
+      if (parsed.regime) { aiCache[regimeKey] = { data: parsed.regime, timestamp: now }; lsSet(regimeKey, { data: parsed.regime, timestamp: now }); }
+      if (parsed.extendedRegime) { aiCache[extRegimeKey] = { data: parsed.extendedRegime, timestamp: now }; lsSet(extRegimeKey, { data: parsed.extendedRegime, timestamp: now }); }
+      if (parsed.creditSpreads) { aiCache[creditKey] = { data: parsed.creditSpreads, timestamp: now }; lsSet(creditKey, { data: parsed.creditSpreads, timestamp: now }); }
+      if (parsed.financialStress) { aiCache[fsiKey] = { data: parsed.financialStress, timestamp: now }; lsSet(fsiKey, { data: parsed.financialStress, timestamp: now }); }
+      if (parsed.smartMoney) { aiCache[smartKey] = { data: parsed.smartMoney, timestamp: now }; lsSet(smartKey, { data: parsed.smartMoney, timestamp: now }); }
+
+      return parsed;
+    } catch (error) {
+      console.error("Error in getBatchGlobalIntel:", error);
+      return {
+        macro: {
+          bokRateDirection: 'HOLDING', us10yYield: 4.3, krUsSpread: -1.25,
+          m2GrowthYoY: 6.0, bankLendingGrowth: 5.0, nominalGdpGrowth: 3.5,
+          oeciCliKorea: 100.0, exportGrowth3mAvg: 8.0, vkospi: 18.0,
+          samsungIri: 1.0, vix: 18.0, usdKrw: 1380.0,
+        },
+        regime: {
+          regime: 'EXPANSION', confidence: 50, rationale: '배치 데이터 조회 실패. 기본값 설정.',
+          allowedSectors: ['반도체', '조선', '방산'], avoidSectors: [],
+          keyIndicators: { exportGrowth: 'N/A', bokRateDirection: 'N/A', oeciCli: 'N/A', gdpGrowth: 'N/A' },
+          lastUpdated: requestedAtISO,
+        },
+        extendedRegime: {
+          regime: 'EXPANSION', confidence: 50, rationale: '배치 데이터 조회 실패. 기본값 설정.',
+          allowedSectors: ['반도체', '조선', '방산'], avoidSectors: [],
+          keyIndicators: { exportGrowth: 'N/A', bokRateDirection: 'N/A', oeciCli: 'N/A', gdpGrowth: 'N/A' },
+          lastUpdated: requestedAtISO,
+          uncertaintyMetrics: { regimeClarity: 50, signalConflict: 50, kospi60dVolatility: 0, leadingSectorCount: 0, foreignFlowDirection: 'ALTERNATING', correlationBreakdown: false },
+          systemAction: { mode: 'DEFENSIVE', cashRatio: 50, gateAdjustment: { gate1Threshold: 6, gate2Required: 10, gate3Required: 8 }, message: '배치 수집 실패. 방어 모드.' },
+        },
+        creditSpreads: {
+          krCorporateSpread: 70, usHySpread: 330, embiSpread: 390,
+          isCrisisAlert: false, isLiquidityExpanding: false, trend: 'STABLE', lastUpdated: requestedAtISO,
+        },
+        financialStress: {
+          tedSpread: { bps: 0, alert: 'NORMAL' }, usHySpread: { bps: 0, trend: 'STABLE' },
+          moveIndex: { current: 0, alert: 'NORMAL' }, compositeScore: 0, systemAction: 'NORMAL', lastUpdated: requestedAtISO,
+        },
+        smartMoney: {
+          score: 5, etfFlows: [], isEwyMtumBothInflow: false,
+          leadTimeWeeks: 'N/A', signal: 'NEUTRAL', lastUpdated: requestedAtISO,
+        },
+      };
+    }
+  });
+}
+
+/**
+ * Batch 2: 섹터/무역 인텔리전스 통합 호출.
+ * exportMomentum + geoRisk + supplyChain + sectorOrders
+ * 4개 개별 호출 → 1회 Google Search로 통합.
+ */
+export async function getBatchSectorIntel(): Promise<BatchSectorIntelResult> {
+  const requestedAt = new Date();
+  const now = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const todayDate = now.split(' ')[0];
+  const requestedAtISO = requestedAt.toISOString();
+
+  const prompt = `
+현재 한국 날짜: ${todayDate}
+
+다음 4가지 섹터/무역 분석을 한번에 수행하고 JSON으로 반환하세요.
+Google 검색을 통해 최신 데이터를 기반으로 판단하세요.
+
+━━━ 1. exportMomentum: 수출 모멘텀 ━━━
+한국 5대 수출 품목(반도체, 선박, 자동차, 석유화학, 방산) YoY 증감률 조회.
+- hotSectors: YoY > 10% 품목명 배열
+- products: [{ product, sector, yoyGrowth, isHot(boolean), consecutiveGrowthMonths? }]
+- shipyardBonus: 선박 YoY >= +30%
+- semiconductorGate2Relax: 반도체 3개월 연속 YoY 증가
+
+━━━ 2. geoRisk: 지정학 리스크 스코어 ━━━
+키워드: 한반도 안보, NATO 방산 예산, 원자력/SMR 정책, 한국 조선 수주
+- score(0-10): 기본5, NATO 방산 증가+2, 원자력/SMR 기회+1, 조선 수주 호조+1, 한반도 긴장-2, 극도 불확실-3
+- level: "OPPORTUNITY"|"NEUTRAL"|"RISK"
+- affectedSectors, headlines(주요 뉴스 3개), toneBreakdown: { positive, neutral, negative }
+
+━━━ 3. supplyChain: 공급망 선행지표 ━━━
+- bdi: { current, mom3Change(%), trend("SURGING"|"RISING"|"FLAT"|"FALLING"|"COLLAPSING"), sectorImplication }
+- semiBillings: { latestBillionUSD, yoyGrowth(%), bookToBill, implication }
+- gcfi: { shanghaiEurope($/40ft), transPacific($/40ft), trend("RISING"|"FLAT"|"FALLING") }
+
+━━━ 4. sectorOrders: 글로벌 수주 인텔리전스 ━━━
+- globalDefense: { natoGdpAvg(%), usDefenseBudget(억달러), trend("EXPANDING"|"STABLE"|"CUTTING"), koreaExposure }
+- lngOrders: { newOrdersYTD(척), qatarEnergy(현황), orderBookMonths, implication }
+- smrContracts: { usNrcApprovals, totalGwCapacity(GW), koreaHyundai(현황), timing("TOO_EARLY"|"OPTIMAL"|"LATE") }
+
+모든 lastUpdated는 "${requestedAtISO}"로 설정.
+
+응답 형식 (JSON only):
+{
+  "exportMomentum": { "hotSectors": [...], "products": [...], "shipyardBonus": true, "semiconductorGate2Relax": true, "lastUpdated": "..." },
+  "geoRisk": { "score": 7, "level": "OPPORTUNITY", "affectedSectors": [...], "headlines": [...], "toneBreakdown": {...}, "lastUpdated": "..." },
+  "supplyChain": { "bdi": {...}, "semiBillings": {...}, "gcfi": {...}, "lastUpdated": "..." },
+  "sectorOrders": { "globalDefense": {...}, "lngOrders": {...}, "smrContracts": {...}, "lastUpdated": "..." }
+}
+  `.trim();
+
+  const cacheKey = `batch-sector-intel-${todayDate}`;
+
+  return getCachedAIResponse<BatchSectorIntelResult>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            temperature: 0.1,
+            maxOutputTokens: 8192,
+          },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      const parsed = safeJsonParse(text) as BatchSectorIntelResult;
+
+      // 개별 캐시에도 저장
+      const tsNow = Date.now();
+      const yearMonth = requestedAt.toISOString().slice(0, 7);
+      const weekKey = `${requestedAt.getFullYear()}-W${Math.ceil(requestedAt.getDate() / 7)}`;
+
+      if (parsed.exportMomentum) { const k = `export-momentum-${yearMonth}`; aiCache[k] = { data: parsed.exportMomentum, timestamp: tsNow }; lsSet(k, { data: parsed.exportMomentum, timestamp: tsNow }); }
+      if (parsed.geoRisk) { const k = `geo-risk-${weekKey}`; aiCache[k] = { data: parsed.geoRisk, timestamp: tsNow }; lsSet(k, { data: parsed.geoRisk, timestamp: tsNow }); }
+      if (parsed.supplyChain) { const k = `supply-chain-intel-${weekKey}`; aiCache[k] = { data: parsed.supplyChain, timestamp: tsNow }; lsSet(k, { data: parsed.supplyChain, timestamp: tsNow }); }
+      if (parsed.sectorOrders) { const k = `sector-order-intel-${weekKey}`; aiCache[k] = { data: parsed.sectorOrders, timestamp: tsNow }; lsSet(k, { data: parsed.sectorOrders, timestamp: tsNow }); }
+
+      return parsed;
+    } catch (error) {
+      console.error("Error in getBatchSectorIntel:", error);
+      return {
+        exportMomentum: { hotSectors: [], products: [], shipyardBonus: false, semiconductorGate2Relax: false, lastUpdated: requestedAtISO },
+        geoRisk: { score: 5, level: 'NEUTRAL', affectedSectors: ['방위산업', '조선', '원자력'], headlines: [], toneBreakdown: { positive: 33, neutral: 34, negative: 33 }, lastUpdated: requestedAtISO },
+        supplyChain: {
+          bdi: { current: 0, mom3Change: 0, trend: 'FLAT', sectorImplication: '데이터 조회 실패' },
+          semiBillings: { latestBillionUSD: 0, yoyGrowth: 0, bookToBill: 1.0, implication: '데이터 조회 실패' },
+          gcfi: { shanghaiEurope: 0, transPacific: 0, trend: 'FLAT' }, lastUpdated: requestedAtISO,
+        },
+        sectorOrders: {
+          globalDefense: { natoGdpAvg: 0, usDefenseBudget: 0, trend: 'STABLE', koreaExposure: '데이터 조회 실패' },
+          lngOrders: { newOrdersYTD: 0, qatarEnergy: '데이터 조회 실패', orderBookMonths: 0, implication: '데이터 조회 실패' },
+          smrContracts: { usNrcApprovals: 0, totalGwCapacity: 0, koreaHyundai: '데이터 조회 실패', timing: 'TOO_EARLY' }, lastUpdated: requestedAtISO,
+        },
+      };
+    }
+  });
+}
+
+/**
+ * Batch 3: 시장 상관관계 & 센티먼트 통합 호출.
+ * globalCorrelation + fomcSentiment
+ * 2개 개별 호출 → 1회로 통합.
+ */
+export async function getBatchMarketIntel(): Promise<BatchMarketIntelResult> {
+  const requestedAt = new Date();
+  const now = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const todayDate = now.split(' ')[0];
+  const requestedAtISO = requestedAt.toISOString();
+
+  const prompt = `
+현재 날짜: ${todayDate}
+
+다음 2가지 시장 분석을 한번에 수행하고 JSON으로 반환하세요.
+Google 검색을 통해 최신 데이터를 기반으로 판단하세요.
+
+━━━ 1. globalCorrelation: 글로벌 상관관계 매트릭스 ━━━
+최근 30거래일 상관계수 추정:
+- kospiSp500: KOSPI-S&P500 (정상 0.6~0.8, 디커플링 <0.3, 동조화 >0.9)
+- kospiNikkei: KOSPI-닛케이225 (정상 0.5~0.7)
+- kospiShanghai: KOSPI-상해종합 (정상 0.3~0.6)
+- kospiDxy: KOSPI-달러인덱스 (보통 음의 상관 -0.3~-0.6)
+- isDecoupling: kospiSp500 < 0.3
+- isGlobalSync: kospiSp500 > 0.9
+
+━━━ 2. fomcSentiment: FOMC 감성 분석 ━━━
+최근 FOMC 의사록/성명서 기반:
+- hawkDovishScore: -10(극비둘기) ~ +10(극매파)
+- keyPhrases: 핵심 문구 배열 (예: "data dependent", "higher for longer")
+- dotPlotShift: "MORE_CUTS"|"UNCHANGED"|"FEWER_CUTS"
+- kospiImpact: "BULLISH"(비둘기≤-5)|"NEUTRAL"(-5~+5)|"BEARISH"(매파≥+5)
+- rationale: 한국 증시 영향 근거 (한국어)
+
+모든 lastUpdated는 "${requestedAtISO}"로 설정.
+
+응답 형식 (JSON only):
+{
+  "globalCorrelation": { "kospiSp500": 0.72, "kospiNikkei": 0.58, "kospiShanghai": 0.41, "kospiDxy": -0.45, "isDecoupling": false, "isGlobalSync": false, "lastUpdated": "..." },
+  "fomcSentiment": { "hawkDovishScore": 3, "keyPhrases": [...], "dotPlotShift": "FEWER_CUTS", "kospiImpact": "BEARISH", "rationale": "...", "lastUpdated": "..." }
+}
+  `.trim();
+
+  const weekKey = `${requestedAt.getFullYear()}-W${Math.ceil(requestedAt.getDate() / 7)}`;
+  const cacheKey = `batch-market-intel-${weekKey}`;
+
+  return getCachedAIResponse<BatchMarketIntelResult>(cacheKey, async () => {
+    try {
+      const response = await withRetry(async () => {
+        return await getAI().models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            temperature: 0.1,
+          },
+        });
+      }, 2, 2000);
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      const parsed = safeJsonParse(text) as BatchMarketIntelResult;
+
+      // 개별 캐시에도 저장
+      const tsNow = Date.now();
+      if (parsed.globalCorrelation) { const k = `global-correlation-${weekKey}`; aiCache[k] = { data: parsed.globalCorrelation, timestamp: tsNow }; lsSet(k, { data: parsed.globalCorrelation, timestamp: tsNow }); }
+      if (parsed.fomcSentiment) { const k = `fomc-sentiment-${weekKey}`; aiCache[k] = { data: parsed.fomcSentiment, timestamp: tsNow }; lsSet(k, { data: parsed.fomcSentiment, timestamp: tsNow }); }
+
+      return parsed;
+    } catch (error) {
+      console.error("Error in getBatchMarketIntel:", error);
+      return {
+        globalCorrelation: {
+          kospiSp500: 0.7, kospiNikkei: 0.55, kospiShanghai: 0.4, kospiDxy: -0.45,
+          isDecoupling: false, isGlobalSync: false, lastUpdated: requestedAtISO,
+        },
+        fomcSentiment: {
+          hawkDovishScore: 0, keyPhrases: [], dotPlotShift: 'UNCHANGED',
+          kospiImpact: 'NEUTRAL', rationale: 'FOMC 감성 분석 실패. 기본값 적용.', lastUpdated: requestedAtISO,
+        },
+      };
+    }
+  });
+}
+
 // ─── 아이디어 2: 경기 레짐 자동 분류기 (Economic Regime Classifier) ──────────
 
 /**
@@ -4127,8 +4499,6 @@ export async function getNewsFrequencyScores(
 }
 
 // ─── 레이어 I: 공급망 물동량 인텔리전스 (Supply Chain Intelligence) ──────────────
-
-import type { SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex, FomcSentimentAnalysis } from '../types/quant';
 
 export async function getSupplyChainIntelligence(): Promise<SupplyChainIntelligence> {
   const requestedAt = new Date();
