@@ -2888,10 +2888,25 @@ export interface BatchMarketIntelResult {
   fomcSentiment: FomcSentimentAnalysis;
 }
 
+/** Yahoo Finance 시장 지표 조회 (서버 프록시 경유, CORS 없음) */
+async function fetchMarketIndicators(): Promise<{
+  vix: number | null; us10yYield: number | null;
+  usShortRate: number | null; samsungIri: number | null;
+}> {
+  try {
+    const res = await fetch('/api/market-indicators');
+    if (!res.ok) throw new Error(`market-indicators ${res.status}`);
+    return await res.json();
+  } catch {
+    return { vix: null, us10yYield: null, usShortRate: null, samsungIri: null };
+  }
+}
+
 /**
  * Batch 1: 글로벌 거시경제 인텔리전스 통합 호출.
- * macro + regime + extendedRegime + creditSpreads + financialStress + smartMoney
- * 6개 개별 호출 → 1회 Google Search로 통합. 공유 컨텍스트로 응답 일관성 향상.
+ * Phase A (Search 없음): ECOS + Yahoo → macro 10개 필드 + regime + extendedRegime
+ * Phase B (Search 1회): creditSpreads + financialStress + smartMoney
+ * 비용: 기존 Search 1회(전체) → Phase A 무료 + Phase B Search 1회(3개 지표만)
  */
 export async function getBatchGlobalIntel(): Promise<BatchGlobalIntelResult> {
   const requestedAt = new Date();
@@ -2899,173 +2914,192 @@ export async function getBatchGlobalIntel(): Promise<BatchGlobalIntelResult> {
   const todayDate = now.split(' ')[0];
   const requestedAtISO = requestedAt.toISOString();
 
-  // ── 1단계: ECOS 실데이터 먼저 수집 (무료, Google Search 0회) ──
-  let ecosFields: Partial<{
+  // ── 1단계: 무료 데이터 병렬 수집 (ECOS 한국은행 + Yahoo Finance, Search 0회) ──
+  type EcosF = Partial<{
     bokRateDirection: 'HIKING' | 'HOLDING' | 'CUTTING';
-    m2GrowthYoY: number;
-    nominalGdpGrowth: number;
-    exportGrowth3mAvg: number;
-    usdKrw: number;
-  }> = {};
-  try {
-    const ecosSnapshot = await getMacroSnapshot();
-    ecosFields = snapshotToMacroFields(ecosSnapshot);
-    console.log('[getBatchGlobalIntel] ECOS 실데이터 수집 완료:', Object.keys(ecosFields));
-  } catch (ecosError) {
-    console.warn('[getBatchGlobalIntel] ECOS 수집 실패, AI로 전체 추정:', ecosError);
+    m2GrowthYoY: number; nominalGdpGrowth: number;
+    exportGrowth3mAvg: number; usdKrw: number;
+  }>;
+  let ecosFields: EcosF = {};
+  let yahooFields = { vix: null as number | null, us10yYield: null as number | null,
+                      usShortRate: null as number | null, samsungIri: null as number | null };
+  let bokRateValue: number | null = null;
+
+  const [ecosSnapshotR, yahooR] = await Promise.allSettled([
+    getMacroSnapshot(),
+    fetchMarketIndicators(),
+  ]);
+  if (ecosSnapshotR.status === 'fulfilled') {
+    const snap = ecosSnapshotR.value;
+    ecosFields = snapshotToMacroFields(snap);
+    if (snap.bokRate) bokRateValue = snap.bokRate.rate;
+    console.log('[getBatchGlobalIntel] ECOS 수집 완료:', Object.keys(ecosFields));
+  } else {
+    console.warn('[getBatchGlobalIntel] ECOS 수집 실패:', ecosSnapshotR.reason);
+  }
+  if (yahooR.status === 'fulfilled') {
+    yahooFields = yahooR.value;
+    console.log('[getBatchGlobalIntel] Yahoo 수집 완료: vix=%d us10y=%d', yahooFields.vix, yahooFields.us10yYield);
   }
 
-  // ECOS가 제공하는 필드 목록 (AI 추정 불필요)
-  const ecosProvidedInfo = Object.keys(ecosFields).length > 0
-    ? `\n\n★ 아래 필드는 ECOS 한국은행 실데이터로 이미 확보됨 (그대로 사용할 것):\n${JSON.stringify(ecosFields, null, 2)}\n위 필드는 macro에 그대로 포함하고, 나머지 필드만 Google 검색으로 추정하세요.`
-    : '';
+  // krUsSpread = 한국 기준금리 - 미국 단기금리(^IRX proxy)
+  const krUsSpread = (bokRateValue !== null && yahooFields.usShortRate !== null)
+    ? parseFloat((bokRateValue - yahooFields.usShortRate).toFixed(2))
+    : null;
 
-  const prompt = `
-현재 한국 날짜: ${todayDate}
+  // 사전 확보 필드 조합 (AI Phase A에 전달 → 검색 대체)
+  const preFilledMacro: Record<string, number | string> = {
+    ...(ecosFields.bokRateDirection ? { bokRateDirection: ecosFields.bokRateDirection } : {}),
+    ...(ecosFields.m2GrowthYoY       !== undefined ? { m2GrowthYoY:       ecosFields.m2GrowthYoY }       : {}),
+    ...(ecosFields.nominalGdpGrowth  !== undefined ? { nominalGdpGrowth:  ecosFields.nominalGdpGrowth }  : {}),
+    ...(ecosFields.exportGrowth3mAvg !== undefined ? { exportGrowth3mAvg: ecosFields.exportGrowth3mAvg } : {}),
+    ...(ecosFields.usdKrw            !== undefined ? { usdKrw:            ecosFields.usdKrw }            : {}),
+    ...(yahooFields.vix       !== null ? { vix:        yahooFields.vix }       : {}),
+    ...(yahooFields.us10yYield !== null ? { us10yYield: yahooFields.us10yYield } : {}),
+    ...(yahooFields.samsungIri !== null ? { samsungIri: yahooFields.samsungIri } : {}),
+    ...(krUsSpread             !== null ? { krUsSpread }                          : {}),
+  };
+  const preFilledCount = Object.keys(preFilledMacro).length;
+  console.log(`[getBatchGlobalIntel] 사전 확보 macro 필드 ${preFilledCount}/12`);
 
-다음 6가지 분석을 한번에 수행하고 JSON으로 반환하세요.
-Google 검색을 통해 최신 실제 데이터를 기반으로 판단해야 합니다.
-${ecosProvidedInfo}
+  // ── Phase A 프롬프트: Search 없이 API 수치 기반 해석 (macro 완성 + regime 분류) ──
+  const phaseAPrompt = `현재 한국 날짜: ${todayDate}
 
-━━━ 1. macro: 거시경제 환경 (12개 지표) ━━━
-수집 대상:
-- bokRateDirection: 한국은행 기준금리 방향 ("HIKING"|"HOLDING"|"CUTTING")
-- us10yYield: 미국 10년 국채 금리 (%)
-- krUsSpread: 한미 금리 스프레드 (한국 기준금리 - 미국 기준금리)
-- m2GrowthYoY: 한국 M2 통화량 증가율 YoY (%)
-- bankLendingGrowth: 한국 은행 여신 증가율 YoY (%)
-- nominalGdpGrowth: 한국 명목 GDP 성장률 YoY (%)
-- oeciCliKorea: OECD 경기선행지수 한국 (100 기준)
-- exportGrowth3mAvg: 한국 수출 증가율 3개월 이동평균 YoY (%)
-- vkospi: VKOSPI 현재값
-- samsungIri: 삼성전자 IRI 대용값 (0.5~1.5, 중립=1.0)
-- vix: VIX 현재값
-- usdKrw: 원달러 환율
+아래는 ECOS 한국은행 + Yahoo Finance에서 수집한 실제 수치입니다.
+Google 검색 없이 이 데이터만으로 분석하세요.
 
-━━━ 2. regime: 경기 레짐 분류 (4단계) ━━━
-RECOVERY/EXPANSION/SLOWDOWN/RECESSION 중 분류.
+[확보 실데이터 ${preFilledCount}/12개]
+${JSON.stringify(preFilledMacro, null, 2)}
+
+━━━ 1. macro: 12개 지표 완성 ━━━
+확보된 필드는 그대로 사용. 누락 필드만 주어진 데이터로 추정:
+- vkospi: vix가 있으면 vix×0.85 근사
+- bankLendingGrowth: m2GrowthYoY 기반 추정
+- oeciCliKorea: exportGrowth3mAvg + nominalGdpGrowth 기반 추정
+
+━━━ 2. regime: 경기 레짐 (4단계) ━━━
+RECOVERY/EXPANSION/SLOWDOWN/RECESSION.
 - regime, confidence(0-100), rationale, allowedSectors(최대6), avoidSectors(최대4)
 - keyIndicators: { exportGrowth, bokRateDirection, oeciCli, gdpGrowth }
 
-━━━ 3. extendedRegime: 확장 7단계 레짐 ━━━
-RECOVERY/EXPANSION/SLOWDOWN/RECESSION/UNCERTAIN/CRISIS/RANGE_BOUND 중 분류.
+━━━ 3. extendedRegime: 7단계 레짐 ━━━
+RECOVERY/EXPANSION/SLOWDOWN/RECESSION/UNCERTAIN/CRISIS/RANGE_BOUND.
 - 기본 regime 필드 + uncertaintyMetrics + systemAction
 - uncertaintyMetrics: { regimeClarity(0-100), signalConflict(0-100), kospi60dVolatility, leadingSectorCount, foreignFlowDirection("CONSISTENT_BUY"|"CONSISTENT_SELL"|"ALTERNATING"), correlationBreakdown(boolean) }
 - systemAction: { mode("NORMAL"|"DEFENSIVE"|"CASH_HEAVY"|"FULL_STOP"|"PAIR_TRADE"), cashRatio(0-100), gateAdjustment: { gate1Threshold, gate2Required, gate3Required }, message }
 
-━━━ 4. creditSpreads: 신용 스프레드 ━━━
-- krCorporateSpread: 한국 AA- 회사채 스프레드 (bp)
-- usHySpread: 미국 HY 스프레드 (bp)
-- embiSpread: EMBI+ 스프레드 (bp)
-- isCrisisAlert: krCorporateSpread >= 150bp
-- isLiquidityExpanding: trend=NARROWING AND krCorporateSpread < 100
+모든 lastUpdated: "${requestedAtISO}"
+응답 형식 (JSON only): { "macro": {...}, "regime": {...}, "extendedRegime": {...} }`.trim();
+
+  // ── Phase B 프롬프트: Search 1회, 3개 금융 지표만 ──
+  const phaseBPrompt = `현재 한국 날짜: ${todayDate}
+
+Google 검색으로 아래 3가지 금융시장 지표를 조회하고 JSON으로 반환하세요.
+
+━━━ 1. creditSpreads: 신용 스프레드 ━━━
+- krCorporateSpread(bp), usHySpread(bp), embiSpread(bp)
+- isCrisisAlert: krCorporateSpread>=150, isLiquidityExpanding: NARROWING AND <100
 - trend: "WIDENING"|"NARROWING"|"STABLE"
 
-━━━ 5. financialStress: 금융 스트레스 지수 ━━━
-- tedSpread: { bps, alert("NORMAL"|"ELEVATED"|"CRISIS") }
-- usHySpread: { bps, trend("TIGHTENING"|"STABLE"|"WIDENING") }
-- moveIndex: { current, alert("NORMAL"|"ELEVATED"|"EXTREME") }
+━━━ 2. financialStress: 금융 스트레스 지수 ━━━
+- tedSpread: {bps, alert("NORMAL"|"ELEVATED"|"CRISIS")}
+- usHySpread: {bps, trend("TIGHTENING"|"STABLE"|"WIDENING")}
+- moveIndex: {current, alert("NORMAL"|"ELEVATED"|"EXTREME")}
 - compositeScore(0-100), systemAction("NORMAL"|"CAUTION"|"DEFENSIVE"|"CRISIS")
 
-━━━ 6. smartMoney: 스마트머니 ETF 흐름 ━━━
-ETF 5종(EWY, MTUM, EEMV, IYW, ITA) 주간 자금흐름 분석.
-- score(0-10): EWY+MTUM 동시 INFLOW=+4, EWY 단독=+2, MTUM 단독=+1, EEMV/IYW/ITA 각 +1
-- etfFlows: [{ ticker, name, flow("INFLOW"|"OUTFLOW"|"NEUTRAL"), weeklyAumChange(%), priceChange(%), significance }]
+━━━ 3. smartMoney: 스마트머니 ETF 흐름 ━━━
+EWY/MTUM/EEMV/IYW/ITA 주간 자금흐름.
+- score(0-10): EWY+MTUM 동시=+4, EWY=+2, MTUM=+1, EEMV/IYW/ITA 각+1
+- etfFlows: [{ticker,name,flow("INFLOW"|"OUTFLOW"|"NEUTRAL"),weeklyAumChange(%),priceChange(%),significance}]
 - isEwyMtumBothInflow(boolean), leadTimeWeeks, signal("BULLISH"|"BEARISH"|"NEUTRAL")
 
-모든 lastUpdated는 "${requestedAtISO}"로 설정.
-
-응답 형식 (JSON only, 마크다운 없이):
-{
-  "macro": { "bokRateDirection": "HOLDING", "us10yYield": 4.35, "krUsSpread": -1.25, "m2GrowthYoY": 6.2, "bankLendingGrowth": 5.1, "nominalGdpGrowth": 3.8, "oeciCliKorea": 100.4, "exportGrowth3mAvg": 11.5, "vkospi": 18.2, "samsungIri": 0.92, "vix": 16.8, "usdKrw": 1385.0 },
-  "regime": { "regime": "EXPANSION", "confidence": 78, "rationale": "...", "allowedSectors": [...], "avoidSectors": [...], "keyIndicators": {...}, "lastUpdated": "..." },
-  "extendedRegime": { "regime": "EXPANSION", "confidence": 78, "rationale": "...", "allowedSectors": [...], "avoidSectors": [...], "keyIndicators": {...}, "lastUpdated": "...", "uncertaintyMetrics": {...}, "systemAction": {...} },
-  "creditSpreads": { "krCorporateSpread": 68, "usHySpread": 320, "embiSpread": 380, "isCrisisAlert": false, "isLiquidityExpanding": false, "trend": "STABLE", "lastUpdated": "..." },
-  "financialStress": { "tedSpread": {...}, "usHySpread": {...}, "moveIndex": {...}, "compositeScore": 0, "systemAction": "NORMAL", "lastUpdated": "..." },
-  "smartMoney": { "score": 7, "etfFlows": [...], "isEwyMtumBothInflow": true, "leadTimeWeeks": "2-4주", "signal": "BULLISH", "lastUpdated": "..." }
-}
-  `.trim();
+모든 lastUpdated: "${requestedAtISO}"
+응답 형식 (JSON only): { "creditSpreads": {...}, "financialStress": {...}, "smartMoney": {...} }`.trim();
 
   const cacheKey = `batch-global-intel-${todayDate}`;
 
   return getCachedAIResponse<BatchGlobalIntelResult>(cacheKey, async () => {
-    try {
-      const response = await withRetry(async () => {
-        return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: prompt,
-          config: {
-            tools: [{ googleSearch: {} }],
-            temperature: 0.1,
-            maxOutputTokens: 8192,
-          },
-        });
-      }, 2, 2000);
-      const text = response.text;
-      if (!text) throw new Error("No response from AI");
-      const parsed = safeJsonParse(text) as BatchGlobalIntelResult;
+    // Phase A (Search 없음) + Phase B (Search 1회) 병렬 실행
+    const [phaseARes, phaseBRes] = await Promise.allSettled([
+      withRetry(() => getAI().models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: phaseAPrompt,
+        config: { temperature: 0.1, maxOutputTokens: 4096 },
+      }), 2, 2000),
+      withRetry(() => getAI().models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: phaseBPrompt,
+        config: { tools: [{ googleSearch: {} }], temperature: 0.1, maxOutputTokens: 4096 },
+      }), 2, 2000),
+    ]);
 
-      // ── ECOS 실데이터로 macro 필드 오버라이드 (AI 추정값보다 우선) ──
-      if (parsed.macro && Object.keys(ecosFields).length > 0) {
-        parsed.macro = { ...parsed.macro, ...ecosFields };
-        console.log('[getBatchGlobalIntel] ECOS 실데이터로 macro 필드 오버라이드 완료');
-      }
+    if (phaseARes.status === 'rejected') console.error('[getBatchGlobalIntel] Phase A 실패:', phaseARes.reason);
+    if (phaseBRes.status === 'rejected') console.error('[getBatchGlobalIntel] Phase B 실패:', phaseBRes.reason);
 
-      // 개별 캐시에도 저장 → 기존 개별 함수 호출 시 캐시 히트
-      const now = Date.now();
-      const macroKey = `macro-environment-${todayDate}`;
-      const regimeKey = `economic-regime-${todayDate}`;
-      const extRegimeKey = `extended-regime-${todayDate}`;
-      const weekKey = `${requestedAt.getFullYear()}-W${Math.ceil((requestedAt.getDate() - requestedAt.getDay() + 1) / 7).toString().padStart(2, '0')}`;
-      const creditKey = `credit-spread-${weekKey}`;
-      const fsiKey = `financial-stress-index-${weekKey}`;
-      const smartKey = `smart-money-${todayDate}`;
+    const fallbackMacro = {
+      bokRateDirection: 'HOLDING' as const, us10yYield: 4.3, krUsSpread: -1.25,
+      m2GrowthYoY: 6.0, bankLendingGrowth: 5.0, nominalGdpGrowth: 3.5,
+      oeciCliKorea: 100.0, exportGrowth3mAvg: 8.0, vkospi: 18.0,
+      samsungIri: 1.0, vix: 18.0, usdKrw: 1380.0,
+    };
+    const fallbackRegime = {
+      regime: 'EXPANSION' as const, confidence: 50, rationale: 'Phase A 실패. 기본값.',
+      allowedSectors: ['반도체', '조선', '방산'], avoidSectors: [],
+      keyIndicators: { exportGrowth: 'N/A', bokRateDirection: 'N/A', oeciCli: 'N/A', gdpGrowth: 'N/A' },
+      lastUpdated: requestedAtISO,
+    };
 
-      if (parsed.macro) { aiCache[macroKey] = { data: parsed.macro, timestamp: now }; lsSet(macroKey, { data: parsed.macro, timestamp: now }); }
-      if (parsed.regime) { aiCache[regimeKey] = { data: parsed.regime, timestamp: now }; lsSet(regimeKey, { data: parsed.regime, timestamp: now }); }
-      if (parsed.extendedRegime) { aiCache[extRegimeKey] = { data: parsed.extendedRegime, timestamp: now }; lsSet(extRegimeKey, { data: parsed.extendedRegime, timestamp: now }); }
-      if (parsed.creditSpreads) { aiCache[creditKey] = { data: parsed.creditSpreads, timestamp: now }; lsSet(creditKey, { data: parsed.creditSpreads, timestamp: now }); }
-      if (parsed.financialStress) { aiCache[fsiKey] = { data: parsed.financialStress, timestamp: now }; lsSet(fsiKey, { data: parsed.financialStress, timestamp: now }); }
-      if (parsed.smartMoney) { aiCache[smartKey] = { data: parsed.smartMoney, timestamp: now }; lsSet(smartKey, { data: parsed.smartMoney, timestamp: now }); }
+    const parsedA = (phaseARes.status === 'fulfilled' && phaseARes.value.text)
+      ? safeJsonParse(phaseARes.value.text) as Pick<BatchGlobalIntelResult, 'macro' | 'regime' | 'extendedRegime'>
+      : null;
+    const parsedB = (phaseBRes.status === 'fulfilled' && phaseBRes.value.text)
+      ? safeJsonParse(phaseBRes.value.text) as Pick<BatchGlobalIntelResult, 'creditSpreads' | 'financialStress' | 'smartMoney'>
+      : null;
 
-      return parsed;
-    } catch (error) {
-      console.error("Error in getBatchGlobalIntel:", error);
-      return {
-        macro: {
-          bokRateDirection: 'HOLDING', us10yYield: 4.3, krUsSpread: -1.25,
-          m2GrowthYoY: 6.0, bankLendingGrowth: 5.0, nominalGdpGrowth: 3.5,
-          oeciCliKorea: 100.0, exportGrowth3mAvg: 8.0, vkospi: 18.0,
-          samsungIri: 1.0, vix: 18.0, usdKrw: 1380.0,
-        },
-        regime: {
-          regime: 'EXPANSION', confidence: 50, rationale: '배치 데이터 조회 실패. 기본값 설정.',
-          allowedSectors: ['반도체', '조선', '방산'], avoidSectors: [],
-          keyIndicators: { exportGrowth: 'N/A', bokRateDirection: 'N/A', oeciCli: 'N/A', gdpGrowth: 'N/A' },
-          lastUpdated: requestedAtISO,
-        },
-        extendedRegime: {
-          regime: 'EXPANSION', confidence: 50, rationale: '배치 데이터 조회 실패. 기본값 설정.',
-          allowedSectors: ['반도체', '조선', '방산'], avoidSectors: [],
-          keyIndicators: { exportGrowth: 'N/A', bokRateDirection: 'N/A', oeciCli: 'N/A', gdpGrowth: 'N/A' },
-          lastUpdated: requestedAtISO,
-          uncertaintyMetrics: { regimeClarity: 50, signalConflict: 50, kospi60dVolatility: 0, leadingSectorCount: 0, foreignFlowDirection: 'ALTERNATING', correlationBreakdown: false },
-          systemAction: { mode: 'DEFENSIVE', cashRatio: 50, gateAdjustment: { gate1Threshold: 6, gate2Required: 10, gate3Required: 8 }, message: '배치 수집 실패. 방어 모드.' },
-        },
-        creditSpreads: {
-          krCorporateSpread: 70, usHySpread: 330, embiSpread: 390,
-          isCrisisAlert: false, isLiquidityExpanding: false, trend: 'STABLE', lastUpdated: requestedAtISO,
-        },
-        financialStress: {
-          tedSpread: { bps: 0, alert: 'NORMAL' }, usHySpread: { bps: 0, trend: 'STABLE' },
-          moveIndex: { current: 0, alert: 'NORMAL' }, compositeScore: 0, systemAction: 'NORMAL', lastUpdated: requestedAtISO,
-        },
-        smartMoney: {
-          score: 5, etfFlows: [], isEwyMtumBothInflow: false,
-          leadTimeWeeks: 'N/A', signal: 'NEUTRAL', lastUpdated: requestedAtISO,
-        },
-      };
+    const parsed: BatchGlobalIntelResult = {
+      macro:          parsedA?.macro          ?? fallbackMacro,
+      regime:         parsedA?.regime         ?? fallbackRegime,
+      extendedRegime: parsedA?.extendedRegime ?? {
+        ...fallbackRegime,
+        uncertaintyMetrics: { regimeClarity: 50, signalConflict: 50, kospi60dVolatility: 0, leadingSectorCount: 0, foreignFlowDirection: 'ALTERNATING' as const, correlationBreakdown: false },
+        systemAction: { mode: 'DEFENSIVE' as const, cashRatio: 50, gateAdjustment: { gate1Threshold: 6, gate2Required: 10, gate3Required: 8 }, message: 'Phase A 실패. 방어 모드.' },
+      },
+      creditSpreads:  parsedB?.creditSpreads  ?? { krCorporateSpread: 70, usHySpread: 330, embiSpread: 390, isCrisisAlert: false, isLiquidityExpanding: false, trend: 'STABLE' as const, lastUpdated: requestedAtISO },
+      financialStress:parsedB?.financialStress ?? { tedSpread: { bps: 0, alert: 'NORMAL' as const }, usHySpread: { bps: 0, trend: 'STABLE' as const }, moveIndex: { current: 0, alert: 'NORMAL' as const }, compositeScore: 0, systemAction: 'NORMAL' as const, lastUpdated: requestedAtISO },
+      smartMoney:     parsedB?.smartMoney     ?? { score: 5, etfFlows: [], isEwyMtumBothInflow: false, leadTimeWeeks: 'N/A', signal: 'NEUTRAL' as const, lastUpdated: requestedAtISO },
+    };
+
+    // ── API 실데이터로 macro 오버라이드 (ECOS + Yahoo, AI 추정값보다 우선) ──
+    const apiOverride = {
+      ...ecosFields,
+      ...(yahooFields.vix        !== null ? { vix:        yahooFields.vix }        : {}),
+      ...(yahooFields.us10yYield !== null ? { us10yYield: yahooFields.us10yYield } : {}),
+      ...(yahooFields.samsungIri !== null ? { samsungIri: yahooFields.samsungIri } : {}),
+      ...(krUsSpread             !== null ? { krUsSpread }                          : {}),
+    } as Partial<typeof parsed.macro>;
+    if (Object.keys(apiOverride).length > 0) {
+      parsed.macro = { ...parsed.macro, ...apiOverride };
+      console.log('[getBatchGlobalIntel] API 실데이터 오버라이드:', Object.keys(apiOverride));
     }
+
+    // 개별 캐시 저장 → 기존 개별 함수 호출 시 캐시 히트
+    const nowTs   = Date.now();
+    const macroKey  = `macro-environment-${todayDate}`;
+    const regimeKey = `economic-regime-${todayDate}`;
+    const extRegKey = `extended-regime-${todayDate}`;
+    const weekKey   = `${requestedAt.getFullYear()}-W${Math.ceil((requestedAt.getDate() - requestedAt.getDay() + 1) / 7).toString().padStart(2, '0')}`;
+    const creditKey = `credit-spread-${weekKey}`;
+    const fsiKey    = `financial-stress-index-${weekKey}`;
+    const smartKey  = `smart-money-${todayDate}`;
+
+    if (parsed.macro)           { aiCache[macroKey]  = { data: parsed.macro,           timestamp: nowTs }; lsSet(macroKey,  { data: parsed.macro,           timestamp: nowTs }); }
+    if (parsed.regime)          { aiCache[regimeKey] = { data: parsed.regime,          timestamp: nowTs }; lsSet(regimeKey, { data: parsed.regime,          timestamp: nowTs }); }
+    if (parsed.extendedRegime)  { aiCache[extRegKey] = { data: parsed.extendedRegime,  timestamp: nowTs }; lsSet(extRegKey, { data: parsed.extendedRegime,  timestamp: nowTs }); }
+    if (parsed.creditSpreads)   { aiCache[creditKey] = { data: parsed.creditSpreads,   timestamp: nowTs }; lsSet(creditKey, { data: parsed.creditSpreads,   timestamp: nowTs }); }
+    if (parsed.financialStress) { aiCache[fsiKey]    = { data: parsed.financialStress, timestamp: nowTs }; lsSet(fsiKey,    { data: parsed.financialStress, timestamp: nowTs }); }
+    if (parsed.smartMoney)      { aiCache[smartKey]  = { data: parsed.smartMoney,      timestamp: nowTs }; lsSet(smartKey,  { data: parsed.smartMoney,      timestamp: nowTs }); }
+
+    return parsed;
   });
 }
 

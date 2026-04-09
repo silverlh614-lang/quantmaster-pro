@@ -473,6 +473,59 @@ async function startServer() {
     }
   });
 
+  // ─── Market Indicators — VIX · US10Y · Samsung IRI proxy (Yahoo Finance) ──────
+  // 브라우저 CORS 우회 + 병렬 수집. getBatchGlobalIntel Phase A에서 사용.
+  app.get('/api/market-indicators', async (_req: Request, res: Response) => {
+    const fetchYahoo = async (symbol: string, range = '5d'): Promise<any> => {
+      for (const host of ['query2', 'query1']) {
+        try {
+          const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
+          const r = await fetch(url, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Accept': 'application/json',
+            },
+            signal: AbortSignal.timeout(8000),
+          });
+          if (r.ok) {
+            const data = await r.json();
+            if (data?.chart?.result?.[0]) return data.chart.result[0];
+          }
+        } catch { /* try next host */ }
+      }
+      return null;
+    };
+
+    const [vixR, us10yR, irxR, samsungR] = await Promise.allSettled([
+      fetchYahoo('^VIX'),
+      fetchYahoo('^TNX'),
+      fetchYahoo('^IRX'),          // 13주 T-bill ≈ Fed Funds Rate proxy
+      fetchYahoo('005930.KS', '1mo'),
+    ]);
+
+    const getPrice = (r: PromiseSettledResult<any>): number | null =>
+      r.status === 'fulfilled' && r.value ? (r.value.meta?.regularMarketPrice ?? null) : null;
+
+    // Samsung 30-day return → samsungIri (0.5–1.5, neutral=1.0)
+    let samsungIri: number | null = null;
+    if (samsungR.status === 'fulfilled' && samsungR.value) {
+      const closes: (number | null)[] = samsungR.value.indicators?.quote?.[0]?.close ?? [];
+      const valid = closes.filter((c): c is number => c !== null);
+      if (valid.length >= 2) {
+        const ret = (valid[valid.length - 1] - valid[0]) / valid[0];
+        samsungIri = parseFloat(Math.max(0.5, Math.min(1.5, 1.0 + ret * (0.5 / 0.15))).toFixed(3));
+      }
+    }
+
+    res.json({
+      vix:         getPrice(vixR),
+      us10yYield:  getPrice(us10yR),
+      usShortRate: getPrice(irxR),   // Fed Funds Rate proxy (for krUsSpread 계산)
+      samsungIri,
+      fetchedAt:   new Date().toISOString(),
+    });
+  });
+
   // DART API Proxy
   app.get('/api/dart', async (req: Request, res: Response) => {
     const { corp_code, bsns_year, reprt_code, fs_div } = req.query;
