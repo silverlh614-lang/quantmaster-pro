@@ -10,7 +10,6 @@ import dotenv from "dotenv";
 import cron from "node-cron";
 import {
   runAutoSignalScan,
-  refreshKisToken,
   generateDailyReport,
   loadWatchlist,
   saveWatchlist,
@@ -28,6 +27,7 @@ import {
   loadMacroState,
   saveMacroState,
   fillMonitor,
+  tradingOrchestrator,
   type WatchlistEntry,
   type MacroState,
 } from "./src/server/autoTradeEngine.js";
@@ -1021,6 +1021,11 @@ async function startServer() {
   // 아이디어 8: Macro State API (MHS 저장/조회 — 서버 Gate 연동)
   // ─────────────────────────────────────────────────────────────
 
+  // ─── 아이디어 1: 오케스트레이터 상태 조회 ────────────────────────────────────
+  app.get('/api/orchestrator/state', (_req: Request, res: Response) => {
+    res.json(tradingOrchestrator.getStatus());
+  });
+
   app.get('/api/macro/state', (_req: Request, res: Response) => {
     const state = loadMacroState();
     if (!state) return res.json({ mhs: null, regime: 'UNKNOWN', updatedAt: null });
@@ -1167,71 +1172,33 @@ async function startServer() {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
 
-    // ─── 종목 자동 발굴 (AUTO_TRADE_ENABLED 무관, 항상 실행) ────────────────
-    cron.schedule('55 23 * * 0-4', async () => {
-      console.log('[AutoPopulate] 장 전 종목 자동 발굴 (KST 08:55)');
-      await refreshKisToken().catch(console.error);
-      await preScreenStocks().catch(console.error);
-      const added = await autoPopulateWatchlist().catch(() => 0);
-      if (added && added > 0) {
-        await sendTelegramAlert(
-          `📋 <b>[AutoPopulate] 워치리스트 자동 추가</b>\n신규 ${added}개 종목 추가됨`
-        ).catch(console.error);
+    // ─── 아이디어 1: TradingDayOrchestrator — 장 사이클 State Machine ────────
+    // 두 cron으로 전체 KST 거래일(08:00~17:00)을 커버합니다.
+    // ① UTC 23:xx (= KST Mon-Fri 08:xx, 동시호가/장 전 준비) — Sun-Thu UTC
+    cron.schedule('*/5 23 * * 0-4', async () => {
+      if (EMERGENCY_STOP) { console.warn('[Orchestrator] 비상 정지 — tick 건너뜀'); return; }
+      await tradingOrchestrator.tick().catch(console.error);
+      if (process.env.AUTO_TRADE_ENABLED === 'true') {
+        await checkDailyLossLimit().catch(console.error);
       }
     }, { timezone: 'UTC' });
 
-    // ─── 아이디어 1: 서버사이드 cron 자동매매 스케줄러 ───────────────────────
-    if (process.env.AUTO_TRADE_ENABLED !== 'true') {
-      console.log('[AutoTrade] 비활성화 상태 — 종목 발굴만 실행됩니다');
-      return;
-    }
-
-    // 장중 신호 스캔 — 평일 09:05 ~ 15:25, 5분 간격 (KST = UTC+9)
-    // UTC 00:05~06:25 → cron: */5 0-6 * * 1-5 (대략, 세밀 제어는 함수 내부에서)
-    cron.schedule('*/5 0-6 * * 1-5', async () => {
-      // 아이디어 9: 비상 정지 플래그 선체크
-      if (EMERGENCY_STOP) {
-        console.warn('[AutoTrade] 비상 정지 중 — 스캔 건너뜀');
-        return;
+    // ② UTC 00:xx~08:xx (= KST Mon-Fri 09:xx~17:xx, 장중/마감/리포트) — Mon-Fri UTC
+    cron.schedule('*/5 0-8 * * 1-5', async () => {
+      if (EMERGENCY_STOP) { console.warn('[Orchestrator] 비상 정지 — tick 건너뜀'); return; }
+      await tradingOrchestrator.tick().catch(console.error);
+      if (process.env.AUTO_TRADE_ENABLED === 'true') {
+        await checkDailyLossLimit().catch(console.error);
       }
-      // KST 타임 계산으로 실제 유효 구간 확인
-      const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
-      const h = kst.getUTCHours(), m = kst.getUTCMinutes();
-      const t = h * 100 + m;
-      if (t < 905 || t > 1525) return; // 09:05 ~ 15:25 KST 외 제외
-      await runAutoSignalScan().catch(console.error);
-      await checkDailyLossLimit().catch(console.error); // 아이디어 9: 손실 한도 체크
     }, { timezone: 'UTC' });
 
     // 아이디어 6: DART 공시 30분 폴링 — 장중 08:30~18:00 KST (UTC 23:30~09:00)
+    // 오케스트레이터와 독립 실행 (AUTO_TRADE_ENABLED 무관)
     cron.schedule('*/30 23,0,1,2,3,4,5,6,7,8,9 * * 1-5', async () => {
       await pollDartDisclosures().catch(console.error);
     }, { timezone: 'UTC' });
 
-    // 장 마감 후 일일 리포트 이메일 — 16:00 KST (UTC 07:00)
-    cron.schedule('0 7 * * 1-5', async () => {
-      console.log('[AutoTrade] 일일 리포트 생성 중 (KST 16:00)');
-      await generateDailyReport().catch(console.error);
-    }, { timezone: 'UTC' });
-
-    // 아이디어 10: 추천 적중률 자기학습 — 16:30 KST (UTC 07:30)
-    cron.schedule('30 7 * * 1-5', async () => {
-      console.log('[자기학습] 일일 추천 평가 시작 (KST 16:30)');
-      await evaluateRecommendations().catch(console.error);
-    }, { timezone: 'UTC' });
-
-    // 아이디어 3: FillMonitor 폴링 — 장중 5분 간격 (신호 스캔과 동일 주기)
-    cron.schedule('*/5 0-6 * * 1-5', async () => {
-      await fillMonitor.pollFills().catch(console.error);
-    }, { timezone: 'UTC' });
-
-    // 아이디어 3: 장 마감 10분 전(KST 15:20 = UTC 06:20) 미체결 자동 취소
-    cron.schedule('20 6 * * 1-5', async () => {
-      console.log('[FillMonitor] 장 마감 전 미체결 자동 취소 (KST 15:20)');
-      await fillMonitor.autoCancelAtClose().catch(console.error);
-    }, { timezone: 'UTC' });
-
-    console.log('[AutoTrade] 크론 스케줄러 가동 완료 (장중 5분 간격 / FillMonitor / 일일 리포트 / 자기학습)');
+    console.log('[AutoTrade] 오케스트레이터 + DART 폴링 가동 완료');
 
     // 아이디어 12: 서버 기동 시 Telegram 알림 (fire-and-forget)
     sendTelegramAlert(
