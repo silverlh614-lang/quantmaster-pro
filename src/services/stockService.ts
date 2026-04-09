@@ -2492,7 +2492,7 @@ export async function searchStock(query: string, filters?: {
         model: "gemini-3-flash-preview",
         contents: prompt,
         config: {
-          tools: [{ googleSearch: {} }],
+          // googleSearch 제거: 현재가·수급은 enrichment 단계에서 KIS로 보강됨
           maxOutputTokens: 8192,
           temperature: 0.1,
         },
@@ -2686,14 +2686,36 @@ export async function syncMarketOverviewIndices(overview: MarketOverview): Promi
 export async function getMarketOverview(): Promise<MarketOverview | null> {
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
   const todayDate = now.split(' ')[0];
+
+  // 사전 수집 실데이터 주입 → Search 없이 핵심 지수 확보
+  const [yahooCached] = await Promise.allSettled([fetchMarketIndicators()]);
+  const yahoo = yahooCached.status === 'fulfilled' ? yahooCached.value : null;
+  const macroCached = lsGet(`macro-environment-${todayDate}`)?.data as Record<string, unknown> | undefined;
+
+  const preLines: string[] = [];
+  if (yahoo?.kospi)      preLines.push(`- KOSPI: ${yahoo.kospi.price.toFixed(2)} (변동: ${yahoo.kospi.change >= 0 ? '+' : ''}${yahoo.kospi.change.toFixed(2)}, ${yahoo.kospi.changePct >= 0 ? '+' : ''}${yahoo.kospi.changePct.toFixed(2)}%)`);
+  if (yahoo?.kosdaq)     preLines.push(`- KOSDAQ: ${yahoo.kosdaq.price.toFixed(2)} (변동: ${yahoo.kosdaq.change >= 0 ? '+' : ''}${yahoo.kosdaq.change.toFixed(2)}, ${yahoo.kosdaq.changePct >= 0 ? '+' : ''}${yahoo.kosdaq.changePct.toFixed(2)}%)`);
+  if (yahoo?.vkospi)     preLines.push(`- VKOSPI: ${yahoo.vkospi.toFixed(2)}`);
+  if (yahoo?.vix)        preLines.push(`- VIX: ${yahoo.vix.toFixed(2)}`);
+  if (yahoo?.us10yYield) preLines.push(`- 미국 10년물 금리: ${yahoo.us10yYield.toFixed(2)}%`);
+  if (macroCached?.usdKrw) preLines.push(`- USD/KRW: ${(macroCached.usdKrw as number).toFixed(0)}원`);
+  if (yahoo?.ewyReturn !== null && yahoo?.ewyReturn !== undefined)
+    preLines.push(`- EWY(한국 ETF) 5일 수익률: ${yahoo.ewyReturn >= 0 ? '+' : ''}${yahoo.ewyReturn.toFixed(2)}%`);
+  if (yahoo?.mtumReturn !== null && yahoo?.mtumReturn !== undefined)
+    preLines.push(`- MTUM(모멘텀 ETF) 5일 수익률: ${yahoo.mtumReturn >= 0 ? '+' : ''}${yahoo.mtumReturn.toFixed(2)}%`);
+  const preFilledSection = preLines.length > 0
+    ? `\n[사전 수집 실데이터 — 아래 값은 이미 확보됨. 이 수치를 그대로 JSON에 반영하라]\n${preLines.join('\n')}\n`
+    : '';
+
   const prompt = `
     현재 한국 시각은 ${now}입니다. (오늘 날짜: ${todayDate})
     현재 글로벌 및 국내 주식 시장 상황을 종합적으로 분석해서 시각화에 적합한 JSON 데이터로 제공해줘.
+${preFilledSection}
     다음 항목들을 포함해야 해:
-    1. 주요 지수: KOSPI, KOSDAQ, S&P 500, NASDAQ, Dow Jones, Nikkei 225, CSI 300 등 (지수 이름은 반드시 영문 대문자로 통일할 것)
-    2. 환율: USD/KRW, JPY/KRW, EUR/KRW 등
+    1. 주요 지수: KOSPI/KOSDAQ는 위 사전 수집값 사용. S&P 500, NASDAQ, Dow Jones, Nikkei 225, CSI 300 등은 최신 지식 기반으로 채워라. (지수 이름은 반드시 영문 대문자로 통일할 것)
+    2. 환율: USD/KRW는 위 사전 수집값 사용. JPY/KRW, EUR/KRW는 최신 지식 기반으로 채워라.
     3. 원자재: 금, 국제유가(WTI) 등
-    4. 금리: 미국 10년물 국채 금리, 한국 3년물 국채 금리 등
+    4. 금리: 미국 10년물은 위 사전 수집값 사용. 한국 3년물 등은 최신 지식 기반으로 채워라.
     5. 거시경제 지표: 실업률(Unemployment Rate), 인플레이션(CPI/PCE), 중앙은행 기준금리 결정(Fed/BOK Interest Rate Decisions) 등
     6. SNS 시장 감성 (Sentiment): X(트위터), 네이버 종토방, 텔레그램 등 주요 커뮤니티의 현재 분위기를 분석하여 수치화 (0~100점, 0: 극도의 공포, 100: 극도의 탐욕)
     7. **[신규 퀀트 지표]**:
@@ -2783,8 +2805,8 @@ export async function getMarketOverview(): Promise<MarketOverview | null> {
           model: "gemini-3-flash-preview",
           contents: prompt,
           config: {
-            tools: [{ googleSearch: {} }],
-            temperature: 0.1, // Increased to 0.1 to encourage fresh search
+            // googleSearch 제거: KOSPI/KOSDAQ/VIX/USD/KRW는 사전 수집. 나머지는 AI 지식 기반
+            temperature: 0.1,
           },
         });
       }, 2, 2000);
@@ -2904,13 +2926,18 @@ async function fetchMarketIndicators(): Promise<{
   vix: number | null; us10yYield: number | null;
   usShortRate: number | null; samsungIri: number | null;
   vkospi: number | null;
+  kospi:  { price: number; change: number; changePct: number } | null;
+  kosdaq: { price: number; change: number; changePct: number } | null;
+  ewyReturn:  number | null;
+  mtumReturn: number | null;
 }> {
   try {
     const res = await fetch('/api/market-indicators');
     if (!res.ok) throw new Error(`market-indicators ${res.status}`);
     return await res.json();
   } catch {
-    return { vix: null, us10yYield: null, usShortRate: null, samsungIri: null, vkospi: null };
+    return { vix: null, us10yYield: null, usShortRate: null, samsungIri: null,
+             vkospi: null, kospi: null, kosdaq: null, ewyReturn: null, mtumReturn: null };
   }
 }
 
@@ -3005,26 +3032,64 @@ RECOVERY/EXPANSION/SLOWDOWN/RECESSION/UNCERTAIN/CRISIS/RANGE_BOUND.
 모든 lastUpdated: "${requestedAtISO}"
 응답 형식 (JSON only): { "macro": {...}, "regime": {...}, "extendedRegime": {...} }`.trim();
 
-  // ── Phase B 프롬프트: Search 1회, 3개 금융 지표만 ──
+  // ── Phase B 데이터: FRED API(HY Spread) + Yahoo ETF(스마트머니) → Search 0회 ──
+  const fetchFred = async (seriesId: string): Promise<number | null> => {
+    try {
+      const res = await fetch(`/api/fred?series_id=${seriesId}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      const obs: { value: string }[] = data.observations ?? [];
+      const latest = obs.find(o => o.value !== '.' && o.value !== '');
+      return latest ? parseFloat(latest.value) : null;
+    } catch { return null; }
+  };
+
+  // FRED + Yahoo ETF 병렬 수집 (Search 대체)
+  const [fredHyR, fredSofrR, yahooPhaseB] = await Promise.allSettled([
+    fetchFred('BAMLH0A0HYM2'),  // ICE BofA US HY OAS (%, × 100 = bps)
+    fetchFred('SOFR'),           // SOFR rate (TED spread 근사: SOFR - ^IRX)
+    fetchMarketIndicators(),     // EWY, MTUM 5일 수익률 포함
+  ]);
+
+  const fredHySpread  = fredHyR.status  === 'fulfilled' && fredHyR.value  !== null ? Math.round(fredHyR.value * 100)  : null;
+  const fredSofr      = fredSofrR.status === 'fulfilled' && fredSofrR.value !== null ? fredSofrR.value : null;
+  const yahooB        = yahooPhaseB.status === 'fulfilled' ? yahooPhaseB.value : null;
+  const tedSpreadBps  = (fredSofr !== null && yahooB?.usShortRate !== null && yahooB?.usShortRate !== undefined)
+    ? Math.round((fredSofr - (yahooB.usShortRate ?? 0)) * 100) : null;
+  const ewyRet  = yahooB?.ewyReturn  ?? null;
+  const mtumRet = yahooB?.mtumReturn ?? null;
+
+  // Phase B 프롬프트: 사전 수집 실데이터 주입, Search 없음
+  const phaseBLines: string[] = [];
+  if (fredHySpread !== null) phaseBLines.push(`- US HY Spread (FRED BAMLH0A0HYM2): ${fredHySpread}bp`);
+  if (tedSpreadBps !== null) phaseBLines.push(`- TED Spread 근사 (SOFR-T-bill): ${tedSpreadBps}bp`);
+  if (ewyRet !== null)       phaseBLines.push(`- EWY(한국 ETF) 5일 수익률: ${ewyRet >= 0 ? '+' : ''}${ewyRet}%`);
+  if (mtumRet !== null)      phaseBLines.push(`- MTUM(모멘텀 ETF) 5일 수익률: ${mtumRet >= 0 ? '+' : ''}${mtumRet}%`);
+
   const phaseBPrompt = `현재 한국 날짜: ${todayDate}
 
-Google 검색으로 아래 3가지 금융시장 지표를 조회하고 JSON으로 반환하세요.
+아래 실데이터를 기반으로 3가지 금융시장 지표를 JSON으로 반환하세요. Google 검색 불필요.
+
+[사전 수집 실데이터]
+${phaseBLines.length > 0 ? phaseBLines.join('\n') : '(데이터 수집 실패 — 추정값 사용)'}
 
 ━━━ 1. creditSpreads: 신용 스프레드 ━━━
-- krCorporateSpread(bp), usHySpread(bp), embiSpread(bp)
+위 US HY Spread 실데이터를 usHySpread(bp)에 그대로 사용.
+- krCorporateSpread(bp) 추정: 국내 AA- 회사채 - 국채 3년물 스프레드
+- embiSpread(bp) 추정: 신흥국 EMBI 스프레드
 - isCrisisAlert: krCorporateSpread>=150, isLiquidityExpanding: NARROWING AND <100
 - trend: "WIDENING"|"NARROWING"|"STABLE"
 
 ━━━ 2. financialStress: 금융 스트레스 지수 ━━━
-- tedSpread: {bps, alert("NORMAL"|"ELEVATED"|"CRISIS")}
-- usHySpread: {bps, trend("TIGHTENING"|"STABLE"|"WIDENING")}
-- moveIndex: {current, alert("NORMAL"|"ELEVATED"|"EXTREME")}
+위 TED Spread 근사값을 tedSpread.bps에 그대로 사용.
+위 US HY Spread를 usHySpread.bps에 그대로 사용.
+- moveIndex: {current, alert("NORMAL"|"ELEVATED"|"EXTREME")} — VIX 기반 추정
 - compositeScore(0-100), systemAction("NORMAL"|"CAUTION"|"DEFENSIVE"|"CRISIS")
 
 ━━━ 3. smartMoney: 스마트머니 ETF 흐름 ━━━
-EWY/MTUM/EEMV/IYW/ITA 주간 자금흐름.
-- score(0-10): EWY+MTUM 동시=+4, EWY=+2, MTUM=+1, EEMV/IYW/ITA 각+1
-- etfFlows: [{ticker,name,flow("INFLOW"|"OUTFLOW"|"NEUTRAL"),weeklyAumChange(%),priceChange(%),significance}]
+위 EWY/MTUM 5일 수익률을 priceChange에 그대로 사용. flow: 양수=INFLOW, 음수=OUTFLOW.
+- score(0-10): EWY+MTUM 동시 INFLOW=+4, EWY만=+2, MTUM만=+1
+- etfFlows: [{ticker,name,flow,weeklyAumChange(%),priceChange(%),significance}]
 - isEwyMtumBothInflow(boolean), leadTimeWeeks, signal("BULLISH"|"BEARISH"|"NEUTRAL")
 
 모든 lastUpdated: "${requestedAtISO}"
@@ -3033,7 +3098,7 @@ EWY/MTUM/EEMV/IYW/ITA 주간 자금흐름.
   const cacheKey = `batch-global-intel-${todayDate}`;
 
   return getCachedAIResponse<BatchGlobalIntelResult>(cacheKey, async () => {
-    // Phase A (Search 없음) + Phase B (Search 1회) 병렬 실행
+    // Phase A (Search 없음) + Phase B (Search 없음, FRED+Yahoo 실데이터) 병렬 실행
     const [phaseARes, phaseBRes] = await Promise.allSettled([
       withRetry(() => getAI().models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -3043,7 +3108,7 @@ EWY/MTUM/EEMV/IYW/ITA 주간 자금흐름.
       withRetry(() => getAI().models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: phaseBPrompt,
-        config: { tools: [{ googleSearch: {} }], temperature: 0.1, maxOutputTokens: 4096 },
+        config: { temperature: 0.1, maxOutputTokens: 4096 },  // googleSearch 제거
       }), 2, 2000),
     ]);
 
@@ -3737,40 +3802,47 @@ export async function scanDartDisclosures(options?: {
   const minSig = options?.minSignificance ?? 5;
   const maxResults = options?.maxResults ?? 20;
 
+  // DART API로 직접 공시 목록 수집 (Search 대체)
+  const bgn = new Date(requestedAt.getTime() - daysBack * 86400_000);
+  const fmtDate = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '');
+  let dartListText = '';
+  try {
+    const dartRes = await fetch(`/api/dart/list?bgn_de=${fmtDate(bgn)}&end_de=${fmtDate(requestedAt)}&pblntf_ty=B001`);
+    if (dartRes.ok) {
+      const dartData = await dartRes.json();
+      const items: any[] = dartData.list ?? [];
+      // 핵심 필드만 추출해서 AI에 전달
+      const compact = items.slice(0, 60).map((it: any) =>
+        `[${it.rcept_dt}] ${it.corp_name}(${it.stock_code ?? '?'}) — ${it.report_nm}`
+      ).join('\n');
+      dartListText = compact || '(공시 목록 없음)';
+    }
+  } catch { /* fallback to empty */ }
+
   const prompt = `
 현재 한국 날짜: ${todayDate}
 
-당신은 DART 공시 분석 전문가입니다. 최근 ${daysBack}일 이내 DART에 공시된 내용 중,
-아직 주요 뉴스로 보도되지 않았지만 주가에 큰 영향을 줄 수 있는 공시를 스캔해주세요.
+당신은 DART 공시 분석 전문가입니다. 아래는 DART API에서 직접 수집한 최근 ${daysBack}일 이내 주요사항보고서(B001) 목록입니다.
+Google 검색 없이 이 목록만으로 분석하세요.
 
-Google 검색 키워드:
-1. "DART 주요사항보고서 수주 ${todayDate}" - 대규모 수주 공시
-2. "DART 유형자산 취득 결정 공시 한국" - 대규모 설비투자
-3. "DART 타법인 주식 출자 공시 한국" - 신사업 진출/M&A
-4. "DART 자기주식 취득 결정 공시 ${todayDate}" - 자사주 매입
-5. "DART 임원 주식변동 매수 공시 한국" - 내부자 매수
-6. "DART 특허 기술이전 계약 공시 한국" - 특허/기술 이전
-7. "DART 전환사채 조건변경 공시 한국" - CB 전환가 변경
-8. "DART 최대주주 변경 공시 한국" - 경영권 변동
-9. "DART 분기보고서 영업이익 전년대비 한국" - 아직 뉴스 안 된 어닝 서프라이즈
-10. "DART 자기주식 소각 결정 공시 한국" - 자사주 소각 (주주환원)
+[DART API 실데이터 — 주요사항보고서 목록]
+${dartListText || '(DART API 수집 실패 — AI 지식 기반으로 추정)'}
+
+위 공시 중 주가에 중요한 영향을 줄 수 있는 공시를 골라 아래 기준으로 채점하세요.
 
 [중요도 채점 기준]
-- 매출 대비 20% 이상 대규모 수주: 10점
-- 매출 대비 10% 이상 설비투자: 8점
-- 대주주/임원 10억원 이상 장내 매수: 9점
-- 자사주 매입 (발행주식 1% 이상): 8점
-- 자사주 소각 결정: 9점
-- 특허 취득/기술이전 계약 (100억 이상): 7점
+- 대규모 수주 (매출 대비 20%+): 10점 / 단일판매·공급계약체결: 8점
+- 유형자산 취득 (설비투자, 매출 대비 10%+): 8점
+- 자기주식 취득 결정 (발행주식 1%+): 8점
+- 자기주식 소각 결정: 9점
 - 최대주주 변경 (경영권 인수): 8점
-- 분기 영업이익 전년대비 50% 이상 증가: 9점
+- 타법인 주식 및 출자증권 취득결정 (M&A/신사업): 7점
 - CB 전환가 하향 조정: 6점
 
 [Pre-News 점수 기준 (0-10)]
-- 공시 후 48시간 이내 & 관련 뉴스 0건: preNewsScore = 10
-- 공시 후 48시간 이내 & 관련 뉴스 1~2건: 7
-- 공시 후 3~5일 & 관련 뉴스 3건 미만: 5
-- 공시 후 5일 초과 또는 뉴스 다수: 2
+- 공시 후 48시간 이내: preNewsScore = 9~10
+- 공시 후 3~5일: 5~7
+- 공시 후 5일 초과: 2
 
 종목별로 그룹화하여, 최대 ${maxResults}개 종목에 대해 중요도 ${minSig} 이상 공시만 포함.
 
@@ -3808,7 +3880,7 @@ Google 검색 키워드:
           model: "gemini-3-flash-preview",
           contents: prompt,
           config: {
-            tools: [{ googleSearch: {} }],
+            // googleSearch 제거: DART API 실데이터 직접 주입
             maxOutputTokens: 8000,
             temperature: 0.1,
           },
@@ -3842,54 +3914,66 @@ export async function detectSilentAccumulation(
   const todayDate = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
   const requestedAtISO = requestedAt.toISOString();
 
-  const stockList = stockCodes.map(s => `${s.name}(${s.code})`).join(', ');
+  // KIS 수급 데이터 병렬 수집 → Search 0회
+  const kisResults = await Promise.allSettled(
+    stockCodes.map(s => Promise.all([
+      fetchKisSupply(s.code),
+      fetchKisShortSelling(s.code),
+    ]))
+  );
+
+  // 종목별 KIS 데이터 블록 생성
+  const kisDataBlocks = stockCodes.map((s, i) => {
+    const res = kisResults[i];
+    if (res.status !== 'fulfilled') return `${s.name}(${s.code}): KIS 조회 실패`;
+    const [supply, short] = res.value;
+    const lines: string[] = [`▸ ${s.name}(${s.code})`];
+    if (supply) {
+      lines.push(`  기관 5일 순매수 합계: ${supply.institutionNet.toLocaleString()}주`);
+      lines.push(`  외인 5일 순매수 합계: ${supply.foreignNet.toLocaleString()}주`);
+      lines.push(`  기관 일별 순매수: [${(supply.institutionalDailyAmounts ?? []).join(', ')}]`);
+      lines.push(`  외인+기관 동반매수: ${supply.isPassiveAndActive ? 'YES' : 'NO'}`);
+    } else {
+      lines.push('  KIS 수급 데이터 없음');
+    }
+    if (short) {
+      lines.push(`  공매도 비율: ${(short as any).currentRatio?.toFixed(2) ?? '?'}%`);
+      lines.push(`  공매도 추세: ${(short as any).trend ?? '?'}`);
+    }
+    return lines.join('\n');
+  }).join('\n\n');
 
   const prompt = `
 현재 한국 날짜: ${todayDate}
 
-다음 종목들에 대해 "조용한 매집" 패턴을 분석해주세요: ${stockList}
+다음 종목들에 대해 "조용한 매집" 패턴을 분석해주세요. Google 검색 없이 아래 KIS 실데이터로 분석하세요.
 
-각 종목에 대해 Google 검색으로 아래 7가지 매집 신호를 확인하라:
+[KIS API 실데이터 — 수급 및 공매도]
+${kisDataBlocks}
 
-[신호 1: VWAP > 종가 & 거래량 감소 (Dark Pool 패턴)]
-검색: "[종목명] VWAP 거래량 추이"
-- VWAP(거래량가중평균가)이 종가보다 높으면서 거래량이 감소 → 고가에서 조용히 매수 중
+위 데이터를 기반으로 각 종목의 매집 신호를 평가하세요:
 
-[신호 2: 기관 소량 분할 매수]
-검색: "[종목명] 기관 순매수 추이 ${todayDate}"
-- 대량 매매 없이 5일 이상 소량 순매수 지속 → 조용한 매집
+[신호 1: 기관 소량 분할 매수 (INSTITUTIONAL_QUIET_BUY)]
+- 기관 5일 순매수 합계 > 0 이고, 일별 순매수가 대부분 양수(연속 소량 매수)
+- 가중치: 외인+기관 동반매수(YES)이면 강도 +2
 
-[신호 3: 공매도 잔고 감소]
-검색: "[종목명] 공매도 잔고 추이"
-- 공매도 비중이 20일 전 대비 30% 이상 감소 → 하방 베팅 철수
+[신호 2: 공매도 잔고 감소 (SHORT_DECREASE)]
+- 공매도 추세가 DECREASING이면 감지
 
-[신호 4: 콜옵션 미결제약정 급증]
-검색: "[종목명] 또는 관련 섹터 ETF 옵션 미결제약정"
-- 콜옵션 OI 급증 → 상승 베팅 증가 (해당 정보 있는 경우만)
+[신호 3: 외인 선행 매수 (VWAP_ABOVE_CLOSE 대리)]
+- 외인 5일 순매수 합계 > 0 이고 기관도 순매수이면 Dark Pool 가능성
 
-[신호 5: 내부자 매수]
-검색: "DART [종목명] 임원 주식변동 매수"
-- 대주주/임원이 장내 직접 매수 → 강력한 확신 신호
-
-[신호 6: 자사주 매입 진행]
-검색: "DART [종목명] 자기주식 취득"
-- 회사가 자기 주식을 매입 중 → 주가 하한선 지지
-
-[신호 7: 하한선 상승 (Price Floor Rising)]
-검색: "[종목명] 주가 추이 저점 ${todayDate}"
-- 최근 20일간 일중 저점(Low)이 점진적으로 상승 → 매수 세력 존재
+[신호 4~7: AI 지식 기반 판단]
+- INSIDER_BUY, BUYBACK_ACTIVE: 해당 종목의 최근 DART 공시 지식으로 추정
+- PRICE_FLOOR_RISING: 기관 연속 매수 패턴과 공매도 감소 조합으로 판단
+- CALL_OI_SURGE: 섹터 ETF 옵션 동향 지식으로 추정
 
 [종합 점수 계산]
 - 각 신호 0-10점, 총합을 100점 만점으로 정규화
-- 3개 이상 신호 감지: HIGH 확신
-- 2개 신호: MEDIUM
-- 1개 이하: LOW
+- 3개 이상 신호 감지: HIGH 확신 / 2개: MEDIUM / 1개 이하: LOW
 
 [매집 단계 판정]
-- EARLY: 거래량 마르면서 저점 형성 (1-2개 신호)
-- MID: 소량 매집 + 공매도 감소 (3-4개 신호)
-- LATE: 내부자 매수 + VWAP 이탈 + 거래량 미세 증가 (5개+ 신호, 곧 돌파 예상)
-- NONE: 신호 없음
+- EARLY(1-2개), MID(3-4개), LATE(5개+), NONE(0개)
 
 응답 형식 (JSON only, 배열):
 [
@@ -3920,7 +4004,7 @@ export async function detectSilentAccumulation(
           model: "gemini-3-flash-preview",
           contents: prompt,
           config: {
-            tools: [{ googleSearch: {} }],
+            // googleSearch 제거: KIS 수급 실데이터 직접 주입
             maxOutputTokens: 8000,
             temperature: 0.1,
           },

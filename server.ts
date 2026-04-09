@@ -496,16 +496,41 @@ async function startServer() {
       return null;
     };
 
-    const [vixR, us10yR, irxR, samsungR, vkospiR] = await Promise.allSettled([
+    const [vixR, us10yR, irxR, samsungR, vkospiR, ks11R, kq11R, ewyR, mtumR] = await Promise.allSettled([
       fetchYahoo('^VIX'),
       fetchYahoo('^TNX'),
       fetchYahoo('^IRX'),          // 13주 T-bill ≈ Fed Funds Rate proxy
       fetchYahoo('005930.KS', '1mo'),
       fetchYahoo('^VKOSPI'),       // 한국 변동성 지수 (KOSPI 200 기반)
+      fetchYahoo('^KS11', '1d'),   // KOSPI 지수
+      fetchYahoo('^KQ11', '1d'),   // KOSDAQ 지수
+      fetchYahoo('EWY', '5d'),     // iShares MSCI Korea ETF (스마트머니 프록시)
+      fetchYahoo('MTUM', '5d'),    // iShares MSCI USA Momentum Factor ETF
     ]);
 
     const getPrice = (r: PromiseSettledResult<any>): number | null =>
       r.status === 'fulfilled' && r.value ? (r.value.meta?.regularMarketPrice ?? null) : null;
+
+    // 지수 정보: price + change + changePercent
+    const getQuote = (r: PromiseSettledResult<any>): { price: number; change: number; changePct: number } | null => {
+      if (r.status !== 'fulfilled' || !r.value) return null;
+      const meta = r.value.meta;
+      const price  = meta?.regularMarketPrice ?? null;
+      const prev   = meta?.chartPreviousClose ?? meta?.previousClose ?? null;
+      if (price === null) return null;
+      const change    = prev !== null ? parseFloat((price - prev).toFixed(2)) : 0;
+      const changePct = prev !== null ? parseFloat(((price - prev) / prev * 100).toFixed(2)) : 0;
+      return { price, change, changePct };
+    };
+
+    // ETF 5일 수익률 (스마트머니 흐름 프록시)
+    const getEtfReturn = (r: PromiseSettledResult<any>): number | null => {
+      if (r.status !== 'fulfilled' || !r.value) return null;
+      const closes: (number | null)[] = r.value.indicators?.quote?.[0]?.close ?? [];
+      const valid = closes.filter((c): c is number => c !== null);
+      if (valid.length < 2) return null;
+      return parseFloat(((valid[valid.length - 1] - valid[0]) / valid[0] * 100).toFixed(2));
+    };
 
     // Samsung 30-day return → samsungIri (0.5–1.5, neutral=1.0)
     let samsungIri: number | null = null;
@@ -521,11 +546,52 @@ async function startServer() {
     res.json({
       vix:         getPrice(vixR),
       us10yYield:  getPrice(us10yR),
-      usShortRate: getPrice(irxR),   // Fed Funds Rate proxy (for krUsSpread 계산)
+      usShortRate: getPrice(irxR),
       samsungIri,
-      vkospi:      getPrice(vkospiR), // VKOSPI 실데이터 (null이면 클라이언트에서 vix×0.85 근사)
+      vkospi:      getPrice(vkospiR),
+      kospi:       getQuote(ks11R),   // { price, change, changePct }
+      kosdaq:      getQuote(kq11R),   // { price, change, changePct }
+      ewyReturn:   getEtfReturn(ewyR),  // EWY 5일 수익률 (%)
+      mtumReturn:  getEtfReturn(mtumR), // MTUM 5일 수익률 (%)
       fetchedAt:   new Date().toISOString(),
     });
+  });
+
+  // ─── FRED API Proxy (TED/HY Spread 무료, Search 대체) ─────────────────────────
+  app.get('/api/fred', async (req: Request, res: Response) => {
+    const { series_id } = req.query;
+    if (!series_id) return res.status(400).json({ error: 'series_id required' });
+    const apiKey = process.env.FRED_API_KEY ?? '';
+    const url = `https://api.stlouisfed.org/fred/series/observations` +
+      `?series_id=${series_id}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=3`;
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) return res.status(r.status).json({ error: `FRED ${r.status}` });
+      const data = await r.json();
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: 'FRED fetch failed', details: error.message });
+    }
+  });
+
+  // ─── DART 공시 목록 Proxy (최근 공시 리스트, Search 대체) ──────────────────────
+  app.get('/api/dart/list', async (req: Request, res: Response) => {
+    if (!process.env.DART_API_KEY) {
+      return res.status(500).json({ error: 'DART_API_KEY is not set' });
+    }
+    const { bgn_de, end_de, pblntf_ty = 'B001' } = req.query;
+    if (!bgn_de || !end_de) return res.status(400).json({ error: 'bgn_de, end_de required' });
+    const url = `https://opendart.fss.or.kr/api/list.json` +
+      `?crtfc_key=${process.env.DART_API_KEY}` +
+      `&bgn_de=${bgn_de}&end_de=${end_de}` +
+      `&pblntf_ty=${pblntf_ty}&sort=rcp_dt&sort_mth=desc&page_count=40`;
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      const data = await r.json();
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: 'DART list fetch failed', details: error.message });
+    }
   });
 
   // DART API Proxy
