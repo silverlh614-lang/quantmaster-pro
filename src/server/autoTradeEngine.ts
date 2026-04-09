@@ -63,6 +63,65 @@ const SHADOW_FILE             = path.join(DATA_DIR, 'shadow-trades.json');
 const SHADOW_LOG_FILE         = path.join(DATA_DIR, 'shadow-log.json');
 const MACRO_STATE_FILE        = path.join(DATA_DIR, 'macro-state.json');
 const CONDITION_WEIGHTS_FILE  = path.join(DATA_DIR, 'condition-weights.json');
+const BLACKLIST_FILE          = path.join(DATA_DIR, 'blacklist.json');
+
+// ─── 블랙리스트 (Cascade -30% 진입 금지 목록) ──────────────────────────────────
+
+interface BlacklistEntry {
+  stockCode: string;
+  stockName: string;
+  bannedAt: string;    // ISO — 편입 시각
+  bannedUntil: string; // ISO — 해제 시각 (180일 후)
+  reason: string;      // 예: "Cascade -30%"
+}
+
+function loadBlacklist(): BlacklistEntry[] {
+  ensureDataDir();
+  if (!fs.existsSync(BLACKLIST_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(BLACKLIST_FILE, 'utf-8')); } catch { return []; }
+}
+
+function saveBlacklist(list: BlacklistEntry[]): void {
+  ensureDataDir();
+  fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(list, null, 2));
+}
+
+function addToBlacklist(stockCode: string, stockName: string, reason = 'Cascade -30%'): void {
+  const list = loadBlacklist();
+  const now = new Date();
+  const until = new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000);
+  // 이미 편입된 경우 만료일 연장
+  const existing = list.find(e => e.stockCode === stockCode);
+  if (existing) {
+    existing.bannedUntil = until.toISOString();
+    existing.bannedAt    = now.toISOString();
+    existing.reason      = reason;
+  } else {
+    list.push({ stockCode, stockName, bannedAt: now.toISOString(), bannedUntil: until.toISOString(), reason });
+  }
+  saveBlacklist(list);
+  console.log(`[Blacklist] ${stockName}(${stockCode}) 편입 — 해제: ${until.toISOString().split('T')[0]}`);
+}
+
+function isBlacklisted(stockCode: string): boolean {
+  const list = loadBlacklist();
+  const now = Date.now();
+  // 만료된 항목 자동 정리
+  const active = list.filter(e => new Date(e.bannedUntil).getTime() > now);
+  if (active.length !== list.length) saveBlacklist(active);
+  return active.some(e => e.stockCode === stockCode);
+}
+
+// ─── RRR 필터 (Risk-Reward Ratio) ──────────────────────────────────────────────
+
+const RRR_MIN_THRESHOLD = Number(process.env.RRR_MIN_THRESHOLD || 2.0);
+
+function calcRRR(entryPrice: number, targetPrice: number, stopLoss: number): number {
+  const reward = targetPrice - entryPrice;
+  const risk   = entryPrice - stopLoss;
+  if (risk <= 0) return 0;
+  return reward / risk;
+}
 
 // ─── 아이디어 6: 조건별 가중치 파일 I/O ────────────────────────────────────────
 
@@ -168,8 +227,11 @@ interface ServerShadowTrade {
   exitPrice?: number;
   exitTime?: string;
   returnPct?: number;
-  price7dAgo?: number;      // 과열 탐지 신호 3용 (7일 전 가격)
+  price7dAgo?: number;       // 과열 탐지 신호 3용 (7일 전 가격)
   originalQuantity?: number; // 최초 진입 수량 — EUPHORIA 부분 매도 후 실보유 추적용
+  cascadeStep?: 0 | 1 | 2;  // 0=없음, 1=-7% 경고, 2=-15% 반매도
+  addBuyBlocked?: boolean;   // -7% 이후 추가 매수 차단 플래그
+  halfSoldAt?: string;       // -15% 반매도 시각 (ISO)
 }
 
 export function loadShadowTrades(): ServerShadowTrade[] {
@@ -501,6 +563,30 @@ export async function runAutoSignalScan(): Promise<void> {
       );
       if (alreadyTraded) continue;
 
+      // ── 블랙리스트 확인 (Cascade -30% 편입 종목) ──
+      if (isBlacklisted(stock.code)) {
+        console.log(`[AutoTrade] 🚫 ${stock.name}(${stock.code}) 블랙리스트 — 진입 차단`);
+        continue;
+      }
+
+      // ── 추가 매수 차단 플래그 확인 (Cascade -7% 이후) ──
+      const blockedShadow = shadows.find(
+        s => s.stockCode === stock.code && s.addBuyBlocked === true
+      );
+      if (blockedShadow) {
+        console.log(`[AutoTrade] ⚠️  ${stock.name}(${stock.code}) 추가 매수 차단 중 (Cascade -7%)`);
+        continue;
+      }
+
+      // ── RRR 필터 (Risk-Reward Ratio 최소값 미달 종목 제외) ──
+      const rrr = calcRRR(stock.entryPrice, stock.targetPrice, stock.stopLoss);
+      if (rrr < RRR_MIN_THRESHOLD) {
+        console.log(
+          `[AutoTrade] 📐 ${stock.name}(${stock.code}) RRR ${rrr.toFixed(2)} < ${RRR_MIN_THRESHOLD} — 진입 제외`
+        );
+        continue;
+      }
+
       // ── 아이디어 4: 섹터 집중도 가드 (Correlation Guard) ──
       if (stock.sector) {
         const activeSectorCodes = watchlist
@@ -653,51 +739,105 @@ export async function runAutoSignalScan(): Promise<void> {
 /** Shadow 진행 중 거래 결과 업데이트 — Macro/포지션 제한 시에도 재사용 */
 async function updateShadowResults(shadows: ServerShadowTrade[]): Promise<void> {
   for (const shadow of shadows) {
+    // PENDING: 4분 경과 후 ACTIVE 전환
     if (shadow.status === 'PENDING') {
-      // 신규 등록(4분 이내)은 건너뜀 — 다음 스캔에서 ACTIVE 전환
       const ageMs = Date.now() - new Date(shadow.signalTime).getTime();
       if (ageMs < 4 * 60 * 1000) continue;
       shadow.status = 'ACTIVE';
-    } else if (shadow.status === 'ACTIVE' || shadow.status === 'EUPHORIA_PARTIAL') {
-      const currentPrice = await fetchCurrentPrice(shadow.stockCode).catch(() => null);
-      if (!currentPrice) continue;
+      continue;
+    }
 
-      if (currentPrice >= shadow.targetPrice) {
-        const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
-        Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
-        appendShadowLog({ event: 'HIT_TARGET', ...shadow });
-        console.log(`[AutoTrade] ✅ ${shadow.stockName} 목표가 달성 +${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
-        await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'TAKE_PROFIT');
-      } else if (currentPrice <= shadow.stopLoss) {
-        const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
-        Object.assign(shadow, { status: 'HIT_STOP', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
-        appendShadowLog({ event: 'HIT_STOP', ...shadow });
-        console.log(`[AutoTrade] ❌ ${shadow.stockName} 손절 ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
-        await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
-      } else {
-        // 과열 탐지 — ACTIVE 상태에서만 첫 번째 부분 매도 발동
-        if (shadow.status === 'ACTIVE') {
-          const euphoria = checkEuphoria(shadow, currentPrice);
-          if (euphoria.triggered) {
-            const halfQty = Math.max(1, Math.floor(shadow.quantity / 2));
-            console.log(
-              `[AutoTrade] 🌡️ ${shadow.stockName} 과열 감지 (${euphoria.count}개 신호) — 절반 매도 ${halfQty}주\n  신호: ${euphoria.signals.join(', ')}`
-            );
-            // originalQuantity 보존: EUPHORIA 매도 실패 시 실제 보유 수량 추적용
-            // KIS 매도 실패 → Telegram 긴급 알림 발송됨 (수동 처리 필요)
-            shadow.originalQuantity ??= shadow.quantity;
-            shadow.quantity -= halfQty;
-            shadow.status = 'EUPHORIA_PARTIAL';
-            appendShadowLog({
-              event: 'EUPHORIA_PARTIAL',
-              ...shadow,
-              exitPrice: currentPrice,
-              euphoriaSoldQty: halfQty,
-              originalQuantity: shadow.originalQuantity,
-            });
-            await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'EUPHORIA');
-          }
-        }
+    if (shadow.status !== 'ACTIVE' && shadow.status !== 'EUPHORIA_PARTIAL') continue;
+
+    const currentPrice = await fetchCurrentPrice(shadow.stockCode).catch(() => null);
+    if (!currentPrice) continue;
+
+    const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
+
+    // ① 목표가 달성 → 익절 전량 매도
+    if (currentPrice >= shadow.targetPrice) {
+      Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
+      appendShadowLog({ event: 'HIT_TARGET', ...shadow });
+      console.log(`[AutoTrade] ✅ ${shadow.stockName} 목표가 달성 +${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
+      await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'TAKE_PROFIT');
+      continue;
+    }
+
+    // ② -30% 블랙리스트 편입 / -25% 전량 청산 (Final Exit)
+    if (returnPct <= -25) {
+      const isBlacklistStep = returnPct <= -30;
+      Object.assign(shadow, { status: 'HIT_STOP', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
+      appendShadowLog({ event: isBlacklistStep ? 'CASCADE_STOP_BLACKLIST' : 'CASCADE_STOP_FINAL', ...shadow });
+      console.log(`[AutoTrade] ❌ ${shadow.stockName} Cascade ${returnPct.toFixed(2)}% — 전량 청산${isBlacklistStep ? ' + 블랙리스트 180일' : ''}`);
+      await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
+      if (isBlacklistStep) {
+        addToBlacklist(shadow.stockCode, shadow.stockName, `Cascade ${returnPct.toFixed(1)}%`);
+        await sendTelegramAlert(
+          `🚫 <b>[블랙리스트] ${shadow.stockName} (${shadow.stockCode})</b>\n` +
+          `손실 ${returnPct.toFixed(1)}% → 180일 재진입 금지`
+        ).catch(console.error);
+      }
+      continue;
+    }
+
+    // ③ -15% 반매도 (cascadeStep 2, 1회만)
+    if (returnPct <= -15 && (shadow.cascadeStep ?? 0) < 2) {
+      const halfQty = Math.max(1, Math.floor(shadow.quantity / 2));
+      shadow.cascadeStep = 2;
+      shadow.halfSoldAt  = new Date().toISOString();
+      shadow.originalQuantity ??= shadow.quantity;
+      shadow.quantity -= halfQty;
+      appendShadowLog({ event: 'CASCADE_HALF_SELL', ...shadow, soldQty: halfQty, returnPct });
+      console.log(`[AutoTrade] 🔶 ${shadow.stockName} Cascade -15% — 반매도 ${halfQty}주 (잔여 ${shadow.quantity}주)`);
+      await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'STOP_LOSS');
+      await sendTelegramAlert(
+        `🔶 <b>[Cascade -15%] ${shadow.stockName} (${shadow.stockCode})</b>\n` +
+        `손실 ${returnPct.toFixed(1)}% — 반매도 ${halfQty}주 (잔여 ${shadow.quantity}주)`
+      ).catch(console.error);
+      continue;
+    }
+
+    // ④ -7% 추가 매수 차단 + 경고 (cascadeStep 1, 1회만)
+    if (returnPct <= -7 && (shadow.cascadeStep ?? 0) < 1) {
+      shadow.cascadeStep    = 1;
+      shadow.addBuyBlocked  = true;
+      appendShadowLog({ event: 'CASCADE_WARN', ...shadow, returnPct });
+      console.warn(`[AutoTrade] ⚠️  ${shadow.stockName} Cascade -7% — 추가 매수 차단`);
+      await sendTelegramAlert(
+        `⚠️ <b>[Cascade -7%] ${shadow.stockName} (${shadow.stockCode})</b>\n` +
+        `손실 ${returnPct.toFixed(1)}% — 추가 매수 차단 (모니터링 강화)`
+      ).catch(console.error);
+      continue;
+    }
+
+    // ⑤ 손절선 터치 → 전량 청산
+    if (currentPrice <= shadow.stopLoss) {
+      Object.assign(shadow, { status: 'HIT_STOP', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
+      appendShadowLog({ event: 'HIT_STOP', ...shadow });
+      console.log(`[AutoTrade] ❌ ${shadow.stockName} 손절 ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
+      await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
+      continue;
+    }
+
+    // ⑥ 과열 탐지 — ACTIVE 상태에서만 첫 번째 부분 매도 발동
+    if (shadow.status === 'ACTIVE') {
+      const euphoria = checkEuphoria(shadow, currentPrice);
+      if (euphoria.triggered) {
+        const halfQty = Math.max(1, Math.floor(shadow.quantity / 2));
+        console.log(
+          `[AutoTrade] 🌡️ ${shadow.stockName} 과열 감지 (${euphoria.count}개 신호) — 절반 매도 ${halfQty}주\n  신호: ${euphoria.signals.join(', ')}`
+        );
+        shadow.originalQuantity ??= shadow.quantity;
+        shadow.quantity -= halfQty;
+        shadow.status = 'EUPHORIA_PARTIAL';
+        appendShadowLog({
+          event: 'EUPHORIA_PARTIAL',
+          ...shadow,
+          exitPrice: currentPrice,
+          euphoriaSoldQty: halfQty,
+          originalQuantity: shadow.originalQuantity,
+        });
+        await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'EUPHORIA');
       }
     }
   }
