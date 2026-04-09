@@ -68,7 +68,7 @@ export function AppHeader() {
             )}
           </div>
           <div className="hidden sm:flex flex-col leading-none">
-            <span className="text-xs font-black text-white tracking-tight">QuantMaster</span>
+            <span className="text-xs font-black text-theme-text tracking-tight">QuantMaster</span>
             <span className="text-[10px] font-bold text-orange-400">Pro</span>
           </div>
         </button>
@@ -88,7 +88,7 @@ export function AppHeader() {
                     onClick={() => { setView(item.id as any); setSearchQuery(''); }}
                     className={cn(
                       'flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-black transition-all whitespace-nowrap shrink-0',
-                      isActive ? colors.active : 'text-theme-text-muted hover:text-theme-text-secondary hover:bg-white/[0.04]'
+                      isActive ? colors.active : 'text-theme-text-muted hover:text-theme-text-secondary hover:bg-theme-surface'
                     )}
                   >
                     <Icon className="w-3.5 h-3.5" />
@@ -96,7 +96,7 @@ export function AppHeader() {
                     {item.count != null && item.count > 0 && (
                       <span className={cn(
                         'text-[9px] px-1.5 py-0.5 rounded font-black',
-                        isActive ? colors.badge : 'bg-white/10 text-white/40'
+                        isActive ? colors.badge : 'bg-theme-surface text-theme-text-muted'
                       )}>
                         {item.count}
                       </span>
@@ -129,7 +129,7 @@ export function AppHeader() {
           )}
           <button
             onClick={() => setShowSettings(true)}
-            className="w-8 h-8 flex items-center justify-center rounded-xl text-theme-text-muted hover:text-theme-text-secondary hover:bg-white/[0.06] transition-all border border-transparent hover:border-theme-border"
+            className="w-8 h-8 flex items-center justify-center rounded-xl text-theme-text-muted hover:text-theme-text-secondary hover:bg-theme-surface transition-all border border-transparent hover:border-theme-border"
             title="설정"
           >
             <Settings className="w-4 h-4" />

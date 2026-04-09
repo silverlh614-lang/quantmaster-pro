@@ -347,9 +347,6 @@ export function DiscoverWatchlistPage({
             className="lg:col-span-2 glass-3d rounded-2xl sm:rounded-3xl p-6 sm:p-10 lg:p-14 relative overflow-hidden group"
           >
             <div className="relative z-10">
-                <p className="text-base sm:text-xl lg:text-2xl font-black text-orange-500/80 uppercase tracking-[0.15em] sm:tracking-[0.2em] mb-2">
-                  폭등임박
-                </p>
                 <h2 className="text-3xl sm:text-5xl lg:text-7xl font-bold mb-4 sm:mb-6 leading-[1.1] tracking-tight text-glow">
                 <span className="text-orange-500 text-glow-orange">QuantMaster Pro</span>
               </h2>
@@ -357,12 +354,12 @@ export function DiscoverWatchlistPage({
                 데이터와 사이클 기반 정밀 분석
               </p>
               <div className="relative group/info mb-10">
-                <p className="text-white/50 max-w-xl text-lg sm:text-xl font-medium leading-relaxed">
-                  AI 기반 <span className="text-white border-b border-white/20 cursor-help font-bold" onClick={() => setShowMasterChecklist(true)}>27단계 마스터 체크리스트</span>를 통과한 주도주 포착 시스템.
+                <p className="text-theme-text-muted max-w-xl text-lg sm:text-xl font-medium leading-relaxed">
+                  AI 기반 <span className="text-theme-text border-b border-theme-border cursor-help font-bold" onClick={() => setShowMasterChecklist(true)}>27단계 마스터 체크리스트</span>를 통과한 주도주 포착 시스템.
                 </p>
-                <button 
+                <button
                   onClick={() => setShowMasterChecklist(true)}
-                  className="absolute -right-8 top-0 p-2 text-white/20 hover:text-orange-500 transition-colors"
+                  className="absolute -right-8 top-0 p-2 text-theme-text-muted hover:text-orange-500 transition-colors"
                 >
                   <Info className="w-5 h-5" />
                 </button>
@@ -372,43 +369,60 @@ export function DiscoverWatchlistPage({
 
               <div className="flex flex-col gap-5 mb-12">
                 {/* Filter Buttons Row */}
-                <div className="flex flex-wrap sm:flex-nowrap bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner w-full sm:w-auto">
-                  <button
-                    onClick={() => setFilters(prev => ({ ...prev, mode: 'MOMENTUM' }))}
-                    className={cn(
-                      "px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 whitespace-nowrap",
-                      filters.mode === 'MOMENTUM'
-                        ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
-                        : "text-white/40 hover:text-white/60"
-                    )}
-                  >
-                    <Zap className={cn("w-4 h-4", filters.mode === 'MOMENTUM' ? "fill-current" : "")} />
-                    지금 살 종목
-                  </button>
-                  <button
-                    onClick={() => setFilters(prev => ({ ...prev, mode: 'EARLY_DETECT' }))}
-                    className={cn(
-                      "px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 whitespace-nowrap",
-                      filters.mode === 'EARLY_DETECT'
-                        ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20"
-                        : "text-white/40 hover:text-white/60"
-                    )}
-                  >
-                    <Radar className={cn("w-4 h-4", filters.mode === 'EARLY_DETECT' ? "fill-current" : "")} />
-                    미리 볼 종목
-                  </button>
-                  <button
-                    onClick={() => setFilters(prev => ({ ...prev, mode: 'QUANT_SCREEN' }))}
-                    className={cn(
-                      "px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 whitespace-nowrap",
-                      filters.mode === 'QUANT_SCREEN'
-                        ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/20"
-                        : "text-white/40 hover:text-white/60"
-                    )}
-                  >
-                    <Activity className={cn("w-4 h-4", filters.mode === 'QUANT_SCREEN' ? "fill-current" : "")} />
-                    숨은 종목 발굴
-                  </button>
+                <div className="flex flex-col gap-2 w-full">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 w-full">
+                    <button
+                      onClick={() => setFilters(prev => ({ ...prev, mode: 'MOMENTUM' }))}
+                      className={cn(
+                        "flex flex-col items-start gap-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl transition-all border",
+                        filters.mode === 'MOMENTUM'
+                          ? "bg-orange-500/15 border-orange-500/30 shadow-lg shadow-orange-500/10"
+                          : "bg-white/5 border-white/10 hover:bg-white/10"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Zap className={cn("w-4 h-4", filters.mode === 'MOMENTUM' ? "text-orange-500 fill-current" : "text-white/40")} />
+                        <span className={cn("text-xs sm:text-sm font-black", filters.mode === 'MOMENTUM' ? "text-orange-500" : "text-white/60")}>지금 살 종목</span>
+                      </div>
+                      <span className={cn("text-[10px] font-medium leading-tight", filters.mode === 'MOMENTUM' ? "text-orange-500/60" : "text-white/25")}>
+                        강한 모멘텀과 수급이 집중되는 단기 매수 적기 종목
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => setFilters(prev => ({ ...prev, mode: 'EARLY_DETECT' }))}
+                      className={cn(
+                        "flex flex-col items-start gap-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl transition-all border",
+                        filters.mode === 'EARLY_DETECT'
+                          ? "bg-blue-500/15 border-blue-500/30 shadow-lg shadow-blue-500/10"
+                          : "bg-white/5 border-white/10 hover:bg-white/10"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Radar className={cn("w-4 h-4", filters.mode === 'EARLY_DETECT' ? "text-blue-500 fill-current" : "text-white/40")} />
+                        <span className={cn("text-xs sm:text-sm font-black", filters.mode === 'EARLY_DETECT' ? "text-blue-500" : "text-white/60")}>미리 살 종목</span>
+                      </div>
+                      <span className={cn("text-[10px] font-medium leading-tight", filters.mode === 'EARLY_DETECT' ? "text-blue-500/60" : "text-white/25")}>
+                        급등 전 선행 신호가 포착된 에너지 응축 종목
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => setFilters(prev => ({ ...prev, mode: 'QUANT_SCREEN' }))}
+                      className={cn(
+                        "flex flex-col items-start gap-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl transition-all border",
+                        filters.mode === 'QUANT_SCREEN'
+                          ? "bg-emerald-500/15 border-emerald-500/30 shadow-lg shadow-emerald-500/10"
+                          : "bg-white/5 border-white/10 hover:bg-white/10"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Activity className={cn("w-4 h-4", filters.mode === 'QUANT_SCREEN' ? "text-emerald-500 fill-current" : "text-white/40")} />
+                        <span className={cn("text-xs sm:text-sm font-black", filters.mode === 'QUANT_SCREEN' ? "text-emerald-500" : "text-white/60")}>숨은 종목 발굴</span>
+                      </div>
+                      <span className={cn("text-[10px] font-medium leading-tight", filters.mode === 'QUANT_SCREEN' ? "text-emerald-500/60" : "text-white/25")}>
+                        ROE, PER, 부채비율 등 정량 지표 기반 저평가 종목 스크리닝
+                      </span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Analysis Start Button */}
@@ -644,7 +658,7 @@ export function DiscoverWatchlistPage({
                 ) : (
                   <Sparkles className="w-5 h-5 group-hover/btn:animate-pulse" />
                 )}
-                {isSummarizing ? '리포트 작성중...' : 'AI Report Summary'}
+                {isSummarizing ? '리포트 작성중...' : 'AI 시장분석'}
               </button>
             </div>
           </motion.div>
@@ -659,13 +673,13 @@ export function DiscoverWatchlistPage({
                   <Crown className="w-6 h-6 text-orange-500" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-black text-white tracking-tighter uppercase">오늘의 Top 3 주도주</h3>
-                  <p className="text-sm text-white/30 font-bold">27단계 마스터 체크리스트를 가장 완벽하게 통과한 종목</p>
+                  <h3 className="text-2xl font-black text-theme-text tracking-tighter uppercase">오늘의 Top 3 주도주</h3>
+                  <p className="text-sm text-theme-text-muted font-bold">27단계 마스터 체크리스트를 가장 완벽하게 통과한 종목</p>
                 </div>
               </div>
-              <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl border border-white/10">
+              <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-theme-surface rounded-xl border border-theme-border">
                 <Activity className="w-4 h-4 text-green-400" />
-                <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">실시간 AI 랭킹 시스템 가동 중</span>
+                <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest">실시간 AI 랭킹 시스템 가동 중</span>
               </div>
             </div>
 
@@ -1046,21 +1060,21 @@ export function DiscoverWatchlistPage({
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
                       <div className="w-2 h-8 bg-orange-500 rounded-full" />
-                      <h3 className="text-xl font-black text-white uppercase tracking-tighter flex items-center gap-2">
+                      <h3 className="text-xl font-black text-theme-text uppercase tracking-tighter flex items-center gap-2">
                         <Sparkles className="w-5 h-5 text-orange-500" />
-                        AI Report Summary
+                        AI 시장분석
                       </h3>
                     </div>
-                    <button 
+                    <button
                       onClick={() => setReportSummary(null)}
-                      className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/40 hover:text-white"
+                      className="p-2 hover:bg-theme-surface rounded-full transition-colors text-theme-text-muted hover:text-theme-text"
                     >
                       <X className="w-5 h-5" />
                     </button>
                   </div>
                   
                   <div className="prose prose-invert max-w-none">
-                    <div className="text-white/80 text-lg leading-relaxed font-medium space-y-4">
+                    <div className="text-theme-text-secondary text-lg leading-relaxed font-medium space-y-4">
                       <ReactMarkdown>{reportSummary}</ReactMarkdown>
                     </div>
                   </div>
@@ -1164,8 +1178,8 @@ export function DiscoverWatchlistPage({
                       <div className="w-1.5 h-4 bg-orange-500 rounded-full shadow-[0_0_8px_rgba(249,115,22,0.5)]" />
                       <span className="text-sm sm:text-base font-black text-theme-text uppercase tracking-tight">종목 검색 및 실시간 필터</span>
                       <div className="relative group/info">
-                        <Info className="w-3.5 h-3.5 text-white/20 hover:text-orange-500 transition-colors cursor-help" />
-                        <div className="absolute left-0 top-6 w-80 max-h-[350px] overflow-y-auto p-4 bg-black/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none">
+                        <Info className="w-3.5 h-3.5 text-theme-text-muted hover:text-orange-500 transition-colors cursor-help" />
+                        <div className="absolute left-0 top-6 w-80 max-h-[350px] overflow-y-auto p-4 bg-theme-bg backdrop-blur-xl border border-theme-border rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none">
                           <h4 className="text-xs font-black text-orange-500 mb-2 uppercase tracking-widest">빈칸 검색 추천 기준 (Top 10)</h4>
                           <ul className="space-y-2">
                             {[
@@ -1177,19 +1191,19 @@ export function DiscoverWatchlistPage({
                               { label: "종합 확신도", desc: "27가지 체크리스트 기반 최고 점수 종목 엄선" }
                             ].map((item, i) => (
                               <li key={i} className="flex flex-col gap-0.5">
-                                <span className="text-[10px] font-black text-white/80">{item.label}</span>
-                                <span className="text-[9px] font-medium text-white/40 leading-tight">{item.desc}</span>
+                                <span className="text-[10px] font-black text-theme-text-secondary">{item.label}</span>
+                                <span className="text-[9px] font-medium text-theme-text-muted leading-tight">{item.desc}</span>
                               </li>
                             ))}
                           </ul>
-                          <div className="mt-3 pt-3 border-t border-white/5 space-y-2">
+                          <div className="mt-3 pt-3 border-t border-theme-border space-y-2">
                             <p className="text-[9px] font-bold text-orange-500/60 italic">* 검색어가 없을 경우 AI가 실시간 시장 데이터를 분석하여 가장 유망한 10개 종목을 추천합니다. 시장 상황은 매 순간 변하므로 검색 시마다 결과가 달라질 수 있습니다.</p>
                             <div className="p-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
                               <h5 className="text-[9px] font-black text-blue-400 mb-1 flex items-center gap-1">
                                 <Lightbulb className="w-2.5 h-2.5" />
                                 백테스팅 결과와 다른 이유?
                               </h5>
-                              <p className="text-[8px] text-white/40 font-medium leading-relaxed">
+                              <p className="text-[8px] text-theme-text-muted font-medium leading-relaxed">
                                 추천 종목은 단기 모멘텀에 집중하며, 백테스팅은 장기 안정성과 포트폴리오 조화를 평가합니다. 따라서 추천 종목이 백테스팅에서 리스크로 분류될 수 있습니다.
                               </p>
                             </div>
@@ -1207,10 +1221,10 @@ export function DiscoverWatchlistPage({
                       </button>
                     )}
                   </div>
-                  <div className="flex gap-3">
+                  <div className="flex gap-3 items-stretch">
                     <div className="relative flex-1 group">
-                      <div className="absolute left-4 top-0 bottom-0 flex items-center pointer-events-none z-10">
-                        <Search className="w-5 h-5 text-white/40 group-focus-within:text-orange-500 transition-colors" />
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10">
+                        <Search className="w-4 h-4 text-theme-text-muted group-focus-within:text-orange-500 transition-colors" />
                       </div>
                       <input
                         type="text"
@@ -1218,30 +1232,22 @@ export function DiscoverWatchlistPage({
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && onMarketSearch()}
-                        className="w-full bg-black/40 border-2 border-white/5 rounded-2xl pl-12 pr-6 py-3.5 text-base font-black text-white placeholder:text-white/20 placeholder:text-sm focus:outline-none focus:border-orange-500/50 focus:ring-4 focus:ring-orange-500/10 focus:bg-black/60 transition-all shadow-inner relative z-0"
+                        className="w-full h-full bg-theme-input border-2 border-theme-border rounded-2xl pl-11 pr-6 py-3 text-base font-black text-theme-text placeholder:text-theme-text-muted placeholder:text-sm focus:outline-none focus:border-orange-500/50 focus:ring-4 focus:ring-orange-500/10 transition-all shadow-inner relative z-0"
                       />
                     </div>
-                    <div className="flex flex-col gap-1">
-                      <button
-                        onClick={onMarketSearch}
-                        disabled={searchingSpecific}
-                        className={cn(
-                          "px-6 py-4 text-white text-base font-black rounded-2xl transition-all flex items-center gap-2 shrink-0 h-full whitespace-nowrap",
-                          searchingSpecific
-                            ? "bg-gradient-to-br from-cyan-400 via-blue-500 to-blue-700 shadow-lg shadow-blue-500/30 animate-pulse cursor-not-allowed"
-                            : "btn-3d bg-orange-500 hover:bg-orange-600 shadow-lg shadow-orange-500/20"
-                        )}
-                      >
-                        {searchingSpecific ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Globe className="w-5 h-5" />}
-                        {searchingSpecific ? '검색 중...' : '시장 검색'}
-                      </button>
-                      <div className="flex flex-col gap-0.5 text-center">
-                        <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">전체 시장 데이터 조회</span>
-                        {!searchQuery && (
-                          <span className="text-[8px] font-bold text-orange-500/40 italic animate-pulse">실시간 AI 분석 기반 유동적 추천</span>
-                        )}
-                      </div>
-                    </div>
+                    <button
+                      onClick={onMarketSearch}
+                      disabled={searchingSpecific}
+                      className={cn(
+                        "px-6 text-white text-sm font-black rounded-2xl transition-all flex items-center gap-2 shrink-0 whitespace-nowrap",
+                        searchingSpecific
+                          ? "bg-gradient-to-br from-cyan-400 via-blue-500 to-blue-700 shadow-lg shadow-blue-500/30 animate-pulse cursor-not-allowed"
+                          : "btn-3d bg-orange-500 hover:bg-orange-600 shadow-lg shadow-orange-500/20"
+                      )}
+                    >
+                      {searchingSpecific ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                      {searchingSpecific ? '검색 중...' : '시장 검색'}
+                    </button>
                   </div>
                 </div>
 
@@ -1249,20 +1255,20 @@ export function DiscoverWatchlistPage({
                 <div className="flex flex-col gap-3 min-w-[200px]">
                   <div className="flex items-center gap-2 px-2">
                     <div className="w-1.5 h-4 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-                    <span className="text-xs font-black text-white/60 uppercase tracking-[0.1em]">정렬 기준</span>
+                    <span className="text-xs font-black text-theme-text-muted uppercase tracking-[0.1em]">정렬 기준</span>
                   </div>
                   <div className="relative group">
-                    <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30 group-focus-within:text-orange-500 transition-colors pointer-events-none" />
+                    <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-theme-text-muted group-focus-within:text-orange-500 transition-colors pointer-events-none" />
                     <select
                       value={sortBy}
                       onChange={(e) => setSortBy(e.target.value as any)}
-                      className="w-full bg-white/10 border-2 border-white/10 rounded-2xl pl-12 pr-10 py-4 text-base font-black text-white appearance-none focus:outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 focus:bg-white/[0.15] transition-all shadow-2xl cursor-pointer h-[60px]"
+                      className="w-full bg-theme-surface border-2 border-theme-border rounded-2xl pl-12 pr-10 py-4 text-base font-black text-theme-text appearance-none focus:outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 transition-all shadow-2xl cursor-pointer h-[60px]"
                     >
                       <option value="NAME">이름순 (가나다)</option>
                       <option value="CODE">종목코드순</option>
                       <option value="PERFORMANCE">수익률/성과순</option>
                     </select>
-                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30 pointer-events-none" />
+                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-theme-text-muted pointer-events-none" />
                   </div>
                 </div>
 
@@ -1274,12 +1280,12 @@ export function DiscoverWatchlistPage({
                           onClick={() => setIsFilterExpanded(!isFilterExpanded)}
                           className="flex items-center gap-2 hover:opacity-70 transition-opacity group"
                         >
-                          <Settings className={cn("w-4 h-4 text-white/30 group-hover:text-orange-500 transition-colors", isFilterExpanded && "text-orange-500")} />
-                          <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] group-hover:text-white/60 transition-colors">필터 및 정밀 검증 설정</span>
+                          <Settings className={cn("w-4 h-4 text-theme-text-muted group-hover:text-orange-500 transition-colors", isFilterExpanded && "text-orange-500")} />
+                          <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-[0.2em] group-hover:text-theme-text-secondary transition-colors">필터 및 정밀 검증 설정</span>
                           {isFilterExpanded ? (
-                            <ChevronUp className="w-3 h-3 text-white/20" />
+                            <ChevronUp className="w-3 h-3 text-theme-text-muted" />
                           ) : (
-                            <ChevronDown className="w-3 h-3 text-white/20" />
+                            <ChevronDown className="w-3 h-3 text-theme-text-muted" />
                           )}
                         </button>
                         {(selectedType !== 'ALL' || selectedPattern !== 'ALL' || selectedSentiment !== 'ALL' || selectedChecklist.length > 0 || minPrice !== '' || maxPrice !== '') && (
@@ -1294,56 +1300,56 @@ export function DiscoverWatchlistPage({
                       </div>
                       {isFilterExpanded && (
                         <div className="px-1 mb-2">
-                          <p className="text-[11px] text-white/40 leading-relaxed">
+                          <p className="text-[11px] text-theme-text-muted leading-relaxed">
                             AI 분석 전, 정량적 지표를 통해 1차 스크리닝을 수행합니다. 설정한 조건에 부합하는 종목들 중에서만 AI가 정밀 분석을 진행합니다.
                           </p>
                         </div>
                       )}
                       {isFilterExpanded && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mt-4 p-5 glass-3d rounded-2xl border border-white/10 bg-white/5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mt-4 p-5 glass-3d rounded-2xl border border-theme-border bg-theme-surface">
                           <div className="flex flex-col gap-1.5">
-                            <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Min ROE (%)</label>
-                            <input 
-                              type="number" 
-                              placeholder="최소 ROE (%)" 
-                              value={filters.minRoe || ''} 
-                              onChange={e => setFilters({...filters, minRoe: Number(e.target.value)})} 
-                              className="p-2.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm focus:border-orange-500/50 focus:outline-none transition-all" 
+                            <label className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest ml-1">Min ROE (%)</label>
+                            <input
+                              type="number"
+                              placeholder="최소 ROE (%)"
+                              value={filters.minRoe || ''}
+                              onChange={e => setFilters({...filters, minRoe: Number(e.target.value)})}
+                              className="p-2.5 rounded-xl bg-theme-input border border-theme-border text-theme-text text-sm focus:border-orange-500/50 focus:outline-none transition-all"
                             />
-                            <span className="text-[9px] text-white/20 ml-1">자기자본이익률 (수익성)</span>
+                            <span className="text-[9px] text-theme-text-muted ml-1">자기자본이익률 (수익성)</span>
                           </div>
                           <div className="flex flex-col gap-1.5">
-                            <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Max PER</label>
-                            <input 
-                              type="number" 
-                              placeholder="최대 PER" 
-                              value={filters.maxPer || ''} 
-                              onChange={e => setFilters({...filters, maxPer: Number(e.target.value)})} 
-                              className="p-2.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm focus:border-orange-500/50 focus:outline-none transition-all" 
+                            <label className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest ml-1">Max PER</label>
+                            <input
+                              type="number"
+                              placeholder="최대 PER"
+                              value={filters.maxPer || ''}
+                              onChange={e => setFilters({...filters, maxPer: Number(e.target.value)})}
+                              className="p-2.5 rounded-xl bg-theme-input border border-theme-border text-theme-text text-sm focus:border-orange-500/50 focus:outline-none transition-all"
                             />
-                            <span className="text-[9px] text-white/20 ml-1">주가수익비율 (저평가)</span>
+                            <span className="text-[9px] text-theme-text-muted ml-1">주가수익비율 (저평가)</span>
                           </div>
                           <div className="flex flex-col gap-1.5">
-                            <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Max Debt Ratio (%)</label>
-                            <input 
-                              type="number" 
-                              placeholder="최대 부채비율 (%)" 
-                              value={filters.maxDebtRatio || ''} 
-                              onChange={e => setFilters({...filters, maxDebtRatio: Number(e.target.value)})} 
-                              className="p-2.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm focus:border-orange-500/50 focus:outline-none transition-all" 
+                            <label className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest ml-1">Max Debt Ratio (%)</label>
+                            <input
+                              type="number"
+                              placeholder="최대 부채비율 (%)"
+                              value={filters.maxDebtRatio || ''}
+                              onChange={e => setFilters({...filters, maxDebtRatio: Number(e.target.value)})}
+                              className="p-2.5 rounded-xl bg-theme-input border border-theme-border text-theme-text text-sm focus:border-orange-500/50 focus:outline-none transition-all"
                             />
-                            <span className="text-[9px] text-white/20 ml-1">부채비율 (재무 건전성)</span>
+                            <span className="text-[9px] text-theme-text-muted ml-1">부채비율 (재무 건전성)</span>
                           </div>
                           <div className="flex flex-col gap-1.5">
-                            <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Min Market Cap (억)</label>
-                            <input 
-                              type="number" 
-                              placeholder="최소 시총 (억)" 
-                              value={filters.minMarketCap || ''} 
-                              onChange={e => setFilters({...filters, minMarketCap: Number(e.target.value)})} 
-                              className="p-2.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm focus:border-orange-500/50 focus:outline-none transition-all" 
+                            <label className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest ml-1">Min Market Cap (억)</label>
+                            <input
+                              type="number"
+                              placeholder="최소 시총 (억)"
+                              value={filters.minMarketCap || ''}
+                              onChange={e => setFilters({...filters, minMarketCap: Number(e.target.value)})}
+                              className="p-2.5 rounded-xl bg-theme-input border border-theme-border text-theme-text text-sm focus:border-orange-500/50 focus:outline-none transition-all"
                             />
-                            <span className="text-[9px] text-white/20 ml-1">시가총액 (기업 규모)</span>
+                            <span className="text-[9px] text-theme-text-muted ml-1">시가총액 (기업 규모)</span>
                           </div>
                         </div>
                       )}
@@ -2362,37 +2368,34 @@ export function DiscoverWatchlistPage({
       />
 
         {/* Export Report Section */}
-        <div className="mt-16 mb-8 px-4">
-          <div className="max-w-4xl mx-auto glass-3d rounded-2xl sm:rounded-3xl border border-white/10 p-8 md:p-12 shadow-2xl relative overflow-hidden">
-            <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
-              <div className="text-center md:text-left">
-                <div className="flex items-center justify-center md:justify-start gap-3 mb-4">
-                  <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
-                  <span className="text-xs font-black text-white/40 uppercase tracking-[0.3em]">Export Options</span>
+        <div className="mt-12 mb-8 px-4">
+          <div className="max-w-2xl mx-auto glass-3d rounded-2xl border border-theme-border p-6 sm:p-8 shadow-xl relative overflow-hidden">
+            <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-6">
+              <div className="text-center sm:text-left flex-1 min-w-0">
+                <div className="flex items-center justify-center sm:justify-start gap-2 mb-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
+                  <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-[0.2em]">Export</span>
                 </div>
-                <h2 className="text-xl sm:text-3xl font-black text-white mb-4 tracking-tight uppercase break-keep">분석 리포트 내보내기</h2>
-                <p className="text-sm text-white/40 font-bold leading-relaxed max-w-md">
-                  QuantMaster Pro 분석 결과를 PDF 파일로 저장하거나 이메일로 즉시 전송하여 보관할 수 있습니다.
+                <h2 className="text-lg sm:text-xl font-black text-theme-text mb-2 tracking-tight uppercase break-keep">분석 리포트 내보내기</h2>
+                <p className="text-xs text-theme-text-muted font-bold leading-relaxed">
+                  PDF 저장 또는 이메일 전송
                 </p>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+              <div className="flex items-center gap-3 shrink-0">
                 <button
                   onClick={() => onGeneratePDF()}
                   disabled={isGeneratingPDF || loading}
                   className={cn(
-                    "w-full sm:w-auto flex items-center justify-center gap-4 px-8 py-5 rounded-[1.5rem] transition-all duration-300 disabled:opacity-50 active:scale-95 group/btn border",
+                    "flex items-center gap-3 px-5 py-3 rounded-xl transition-all duration-300 disabled:opacity-50 active:scale-95 group/btn border",
                     isGeneratingPDF
-                      ? "bg-blue-500/20 border-blue-500/30 shadow-[0_0_20px_rgba(59,130,246,0.2)]"
-                      : "bg-white/5 hover:bg-blue-500/20 border-white/5 hover:border-blue-500/30"
+                      ? "bg-blue-500/20 border-blue-500/30"
+                      : "bg-white/5 hover:bg-blue-500/20 border-theme-border hover:border-blue-500/30"
                   )}
                   title="PDF 리포트 다운로드"
                 >
-                  <Download className={cn("w-6 h-6 transition-colors duration-300", isGeneratingPDF ? "animate-pulse text-blue-400" : "text-white/40 group-hover/btn:text-blue-400")} />
-                  <div className="text-left">
-                    <span className={cn("block text-[10px] font-black uppercase tracking-widest transition-colors duration-300", isGeneratingPDF ? "text-blue-400/60" : "text-white/20")}>Download</span>
-                    <span className={cn("text-sm font-black transition-colors duration-300 uppercase tracking-widest", isGeneratingPDF ? "text-blue-400" : "text-white group-hover/btn:text-blue-400")}>{isGeneratingPDF ? 'PDF 생성중...' : 'PDF Report'}</span>
-                  </div>
+                  <Download className={cn("w-5 h-5 transition-colors", isGeneratingPDF ? "animate-pulse text-blue-400" : "text-theme-text-muted group-hover/btn:text-blue-400")} />
+                  <span className={cn("text-sm font-black transition-colors", isGeneratingPDF ? "text-blue-400" : "text-theme-text group-hover/btn:text-blue-400")}>{isGeneratingPDF ? '생성중...' : 'PDF'}</span>
                 </button>
 
                 <button
@@ -2401,7 +2404,6 @@ export function DiscoverWatchlistPage({
                       const email = prompt('리포트를 전송할 이메일 주소를 입력해주세요:', 'silverlh614@gmail.com');
                       if (email) {
                         setEmailAddress(email);
-
                         setTimeout(() => onSendEmail(), 100);
                       }
                     } else {
@@ -2410,25 +2412,18 @@ export function DiscoverWatchlistPage({
                   }}
                   disabled={isSendingEmail || loading}
                   className={cn(
-                    "w-full sm:w-auto flex items-center justify-center gap-4 px-8 py-5 rounded-[1.5rem] transition-all duration-300 disabled:opacity-50 active:scale-95 group/btn border",
+                    "flex items-center gap-3 px-5 py-3 rounded-xl transition-all duration-300 disabled:opacity-50 active:scale-95 group/btn border",
                     isSendingEmail
-                      ? "bg-green-500/20 border-green-500/30 shadow-[0_0_20px_rgba(34,197,94,0.2)]"
-                      : "bg-white/5 hover:bg-green-500/20 border-white/5 hover:border-green-500/30"
+                      ? "bg-green-500/20 border-green-500/30"
+                      : "bg-white/5 hover:bg-green-500/20 border-theme-border hover:border-green-500/30"
                   )}
                   title="이메일로 전송"
                 >
-                  <Mail className={cn("w-6 h-6 transition-colors duration-300", isSendingEmail ? "animate-pulse text-green-400" : "text-white/40 group-hover/btn:text-green-400")} />
-                  <div className="text-left">
-                    <span className={cn("block text-[10px] font-black uppercase tracking-widest transition-colors duration-300", isSendingEmail ? "text-green-400/60" : "text-white/20")}>Send to</span>
-                    <span className={cn("text-sm font-black transition-colors duration-300 uppercase tracking-widest", isSendingEmail ? "text-green-400" : "text-white group-hover/btn:text-green-400")}>{isSendingEmail ? '전송중...' : 'Email'}</span>
-                  </div>
+                  <Mail className={cn("w-5 h-5 transition-colors", isSendingEmail ? "animate-pulse text-green-400" : "text-theme-text-muted group-hover/btn:text-green-400")} />
+                  <span className={cn("text-sm font-black transition-colors", isSendingEmail ? "text-green-400" : "text-theme-text group-hover/btn:text-green-400")}>{isSendingEmail ? '전송중...' : 'Email'}</span>
                 </button>
               </div>
             </div>
-
-            {/* Decorative background elements */}
-            <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/5 blur-[100px] -mr-32 -mt-32" />
-            <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/5 blur-[100px] -ml-32 -mb-32" />
           </div>
         </div>
     </Stack>

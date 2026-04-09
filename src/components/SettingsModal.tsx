@@ -64,7 +64,7 @@ export function SettingsModal() {
                   'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-xs font-black transition-all border',
                   theme === t.id
                     ? 'bg-orange-500/15 text-orange-400 border-orange-500/25'
-                    : 'bg-white/5 text-theme-text-muted border-theme-border hover:bg-white/10'
+                    : 'bg-theme-surface text-theme-text-muted border-theme-border hover:bg-theme-border'
                 )}
               >
                 <t.icon className="w-4 h-4" />
