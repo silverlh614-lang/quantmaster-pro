@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   TrendingUp, TrendingDown, RefreshCw, ArrowRight, Globe, Ship, Cpu, Activity, Shield,
 } from 'lucide-react';
@@ -331,6 +331,14 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const setSectorOverheatInputs = useGlobalIntelStore(s => s.setSectorOverheatInputs);
   const sectorOverheatResult = useGlobalIntelStore(s => s.sectorOverheatResult);
   const setSectorOverheatResult = useGlobalIntelStore(s => s.setSectorOverheatResult);
+
+  const handleSectorOverheatInputsChange = useCallback(
+    (inputs: typeof sectorOverheatInputs) => {
+      setSectorOverheatInputs(inputs);
+      setSectorOverheatResult(evaluateSectorOverheat(inputs));
+    },
+    [setSectorOverheatInputs, setSectorOverheatResult],
+  );
 
   const sortedSectors = useMemo(
     () => [...(marketOverview?.sectorRotation ?? [])].sort((a, b) => b.momentum - a.momentum),
@@ -783,10 +791,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
       {/* ── 아이디어 7: 섹터 과열 감지 + 인버스 ETF 자동 매칭 ── */}
       <SectorOverheatPanel
         inputs={sectorOverheatInputs}
-        onInputsChange={inputs => {
-          setSectorOverheatInputs(inputs);
-          setSectorOverheatResult(evaluateSectorOverheat(inputs));
-        }}
+        onInputsChange={handleSectorOverheatInputsChange}
         result={sectorOverheatResult}
       />
 

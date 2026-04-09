@@ -1167,7 +1167,7 @@ export interface BearScreenerResult {
 export interface SectorOverheatInput {
   /** 섹터명 (예: '반도체', '이차전지', '조선') */
   name: string;
-  /** 섹터 RS 상위 % (0=최상, 100=최하 — 1% 미만이 과열) */
+  /** 섹터 RS 상위 % — 범위 0-100, 0=최상위, 100=최하위. 1 미만(상위 1%)이면 과열 */
   sectorRsRank: number;
   /** 뉴스 빈도 단계 */
   newsPhase: 'SILENT' | 'EARLY' | 'GROWING' | 'CROWDED' | 'OVERHYPED';

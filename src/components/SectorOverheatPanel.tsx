@@ -8,7 +8,7 @@
  *   3. 주봉 RSI 80 이상
  *   4. 외국인 Active 매수 6주 연속 과잉
  */
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Flame, ChevronDown, ChevronUp, TrendingDown, AlertTriangle } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { evaluateSectorOverheat } from '../services/quantEngine';
@@ -235,18 +235,19 @@ export function SectorOverheatPanel({ inputs, onInputsChange, result }: SectorOv
   const [expandedSectors, setExpandedSectors] = useState<Record<string, boolean>>({});
   const [headerExpanded, setHeaderExpanded] = useState(true);
 
-  const computed = result ?? evaluateSectorOverheat(inputs);
+  const fallbackComputed = useMemo(() => evaluateSectorOverheat(inputs), [inputs]);
+  const computed = result ?? fallbackComputed;
   const { overheatedCount, actionMessage, allSectors } = computed;
 
-  const handleInputChange = (idx: number, updated: SectorOverheatInput) => {
+  const handleInputChange = useCallback((idx: number, updated: SectorOverheatInput) => {
     const newInputs = [...inputs];
     newInputs[idx] = updated;
     onInputsChange(newInputs);
-  };
+  }, [inputs, onInputsChange]);
 
-  const toggleSector = (name: string) => {
+  const toggleSector = useCallback((name: string) => {
     setExpandedSectors(prev => ({ ...prev, [name]: !prev[name] }));
-  };
+  }, []);
 
   const headerBorderColor = overheatedCount === 0
     ? 'border-theme-border'

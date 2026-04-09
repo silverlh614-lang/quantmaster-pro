@@ -2016,7 +2016,10 @@ export function evaluateSectorOverheat(
     const overheatScore = Math.round((triggeredCount / 4) * 100);
 
     const etfInfo = SECTOR_INVERSE_ETF_MAP[sector.name];
-    const inverseEtf = etfInfo?.etf ?? `${sector.name} 관련 인버스 ETF`;
+    if (!etfInfo) {
+      console.warn(`[SectorOverheat] ETF 매핑 없음: ${sector.name} — 인버스 ETF 수동 확인 필요`);
+    }
+    const inverseEtf = etfInfo?.etf ?? `${sector.name} 인버스 ETF (수동 확인 필요)`;
     const inverseEtfCode = etfInfo?.code ?? '-';
 
     let recommendation: string;
