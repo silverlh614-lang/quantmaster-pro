@@ -1265,7 +1265,7 @@ export function evaluateBearRegime(
   const cond2: BearRegimeCondition = {
     id: 'VKOSPI_HIGH_RISING',
     name: 'VKOSPI 25% 이상 + 상승 추세',
-    triggered: macroEnv.vkospi >= 25 && !!(macroEnv.vkospiRising !== false),
+    triggered: macroEnv.vkospi >= 25 && macroEnv.vkospiRising === true,
     description: `VKOSPI ${macroEnv.vkospi.toFixed(1)} — 시장 변동성 경보 구간 진입.`,
   };
 

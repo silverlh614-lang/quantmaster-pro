@@ -54,7 +54,7 @@ export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult }: Ma
       className={cn(
         'border-b transition-all duration-500 no-print',
         bannerBase,
-        isBear && 'animate-pulse-slow',
+        isBear && 'animate-pulse',
       )}
       role="alert"
       aria-live="assertive"
