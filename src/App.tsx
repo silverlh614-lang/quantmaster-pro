@@ -28,6 +28,7 @@ import { MasterChecklistModal } from './components/MasterChecklistModal';
 import { TradeRecordModal } from './components/TradeRecordModal';
 import { MarketTicker } from './components/MarketTicker';
 import { MarketRegimeBanner } from './components/MarketRegimeBanner';
+import { MarketNeutralPanel } from './components/MarketNeutralPanel';
 import { resolveShadowTrade } from './services/autoTrading';
 import { cn } from './ui/cn';
 import { AppHeader } from './layout/AppHeader';
@@ -92,6 +93,9 @@ export default function App() {
 
   // ── Inverse Gate 1: 인버스 ETF 스코어링 시스템 (아이디어 2) ────────────────
   const inverseGate1Result = useGlobalIntelStore(s => s.inverseGate1Result);
+
+  // ── Market Neutral 모드 (아이디어 9) ─────────────────────────────────────
+  const marketNeutralResult = useGlobalIntelStore(s => s.marketNeutralResult);
 
   // ── Custom Hooks ────────────────────────────────────────────────────────
   const { handleSyncPrice, handleManualPriceUpdate, handleSyncAll } = useStockSync();
@@ -357,6 +361,9 @@ export default function App() {
           vkospiTriggerResult={vkospiTriggerResult}
           inverseGate1Result={inverseGate1Result}
         />
+
+        {/* ── Market Neutral 모드 패널 (아이디어 9) ── */}
+        <MarketNeutralPanel marketNeutralResult={marketNeutralResult} />
 
         {/* ── Market Ticker ── */}
         <MarketTicker

@@ -17,7 +17,7 @@ import {
   getBatchMarketIntel,
 } from '../services/stockService';
 import { useGlobalIntelStore } from '../stores';
-import { evaluateGate0, evaluateBearRegime, evaluateVkospiTrigger, evaluateInverseGate1 } from '../services/quantEngine';
+import { evaluateGate0, evaluateBearRegime, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral } from '../services/quantEngine';
 import { getStaleTime, PERSIST_GC_TIME } from '../utils/cacheConfig';
 
 /**
@@ -63,6 +63,7 @@ export function useBatchGlobalIntel() {
   const setBearRegimeResult = useGlobalIntelStore(s => s.setBearRegimeResult);
   const setVkospiTriggerResult = useGlobalIntelStore(s => s.setVkospiTriggerResult);
   const setInverseGate1Result = useGlobalIntelStore(s => s.setInverseGate1Result);
+  const setMarketNeutralResult = useGlobalIntelStore(s => s.setMarketNeutralResult);
 
   return useQuery({
     queryKey: ['batch-global-intel'],
@@ -85,13 +86,17 @@ export function useBatchGlobalIntel() {
         });
 
         // Gate -1: Bear Regime Detector (아이디어 1)
-        setBearRegimeResult(evaluateBearRegime(data.macro, g0));
+        const bearResult = evaluateBearRegime(data.macro, g0);
+        setBearRegimeResult(bearResult);
 
         // Inverse Gate 1: 인버스 ETF 스코어링 시스템 (아이디어 2)
         setInverseGate1Result(evaluateInverseGate1(data.macro));
 
         // VKOSPI 트리거 시스템 (아이디어 4)
         setVkospiTriggerResult(evaluateVkospiTrigger(data.macro.vkospi));
+
+        // Market Neutral 모드 (아이디어 9)
+        setMarketNeutralResult(evaluateMarketNeutral(bearResult));
       }
 
       if (data.regime) setEconomicRegimeData(data.regime);
