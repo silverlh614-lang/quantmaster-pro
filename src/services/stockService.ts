@@ -1147,6 +1147,19 @@ export async function getStockRecommendations(filters?: StockFilters): Promise<R
     return runQuantScreenPipeline(filters);
   }
 
+  // ── 사전 수집 실데이터: Yahoo + ECOS 캐시 → Search 횟수 절감 ──
+  const [yahooCached] = await Promise.allSettled([fetchMarketIndicators()]);
+  const yahoo = yahooCached.status === 'fulfilled' ? yahooCached.value : null;
+  const macroCached = lsGet(`macro-environment-${todayDate}`)?.data as Record<string, unknown> | undefined;
+  const cachedVkospi     = yahoo?.vkospi     ?? null;
+  const cachedUs10y      = yahoo?.us10yYield ?? null;
+  const cachedUsdKrw     = (macroCached?.usdKrw as number | undefined) ?? null;
+  const preFilledBlock = [
+    cachedVkospi  !== null ? `- VKOSPI: ${cachedVkospi.toFixed(2)} (Yahoo Finance 실데이터, 검색 불필요)` : '',
+    cachedUs10y   !== null ? `- 미국 10년물 국채 금리: ${cachedUs10y.toFixed(2)}% (Yahoo ^TNX 실데이터, 검색 불필요)` : '',
+    cachedUsdKrw  !== null ? `- USD/KRW 환율: ${cachedUsdKrw.toFixed(0)}원 (ECOS 실데이터, 검색 불필요)` : '',
+  ].filter(Boolean).join('\n');
+
   const filterPrompt = filters ? `
       [사용자 정의 정량 필터]
       - ROE > ${filters.minRoe || 0}%
@@ -1160,11 +1173,7 @@ export async function getStockRecommendations(filters?: StockFilters): Promise<R
     `오늘(${todayDate})의 코스피 지수`,
     `오늘의 코스닥 지수`,
     `코스피 200일 이동평균선(200MA)`,
-    `오늘의 VKOSPI`,
-    `미국 나스닥 지수 실시간`,
-    `S&P 500 실시간`,
-    `다우 지수 실시간`,
-    `필라델피아 반도체 지수(SOX) 실시간`,
+    // VKOSPI·글로벌 지수는 Yahoo/ECOS 실데이터로 사전 수집 → Search 불필요
     `오늘의 한국 주도주`,
     `기관 대량 매수 종목 한국`,
     `외국인 순매수 상위 종목 한국`
@@ -1204,7 +1213,10 @@ export async function getStockRecommendations(filters?: StockFilters): Promise<R
       [절대 원칙: 실시간성 보장 및 과거 데이터 배제]
       현재 한국 시각은 ${now}입니다. (오늘 날짜: ${todayDate})
       추천 모드: ${mode === 'EARLY_DETECT' ? '미리 볼 종목 (Early Detect)' : '지금 살 종목 (Momentum)'}
-      
+
+      [사전 수집 실데이터 — 이 항목들은 검색 없이 바로 사용하라]
+${preFilledBlock || '      (사전 수집 데이터 없음 — 필요 시 검색)'}
+
       ${filterPrompt}
       ${modePrompt}
       당신은 반드시 'googleSearch' 도구를 사용하여 '현재 시점의 실시간 데이터'만을 기반으로 응답해야 합니다.
@@ -1261,7 +1273,7 @@ export async function getStockRecommendations(filters?: StockFilters): Promise<R
       10. **[트레이딩 전략 수립]** 각 종목에 대해 현재가 기준 최적의 '진입가(entryPrice)', '손절가(stopLoss)', '1차 목표가(targetPrice)', '2차 목표가(targetPrice2)'를 기술적 분석(지지/저항, 피보나치 등)을 통해 산출하라.
       11. **[데이터 출처 명시]** 'dataSource' 필드에 어떤 사이트에서 몇 시에 데이터를 가져왔는지 명시하라.
       12. **[글로벌 ETF 모니터링]** 'googleSearch'를 사용하여 KODEX 200(069500), TIGER 미국S&P500(360750), KODEX 레버리지(122630), TIGER 차이나전기차SOLACTIVE(371460) 등 주요 ETF의 현재가, 등락률, 자금 유입/유출 현황을 검색하여 'globalEtfMonitoring' 필드에 반영하라. 각 항목에 반드시 symbol(종목코드), name(ETF명), price(현재가 숫자), change(등락률 숫자 %), flow("INFLOW" 또는 "OUTFLOW"), implication(한글 설명) 필드를 모두 포함하라.
-      12-1. **[환율/국채 데이터 수집]** 'googleSearch'를 사용하여 현재 USD/KRW 환율(숫자)과 한국 국채 10년물 금리(숫자, %)를 검색하라. 이를 각각 'exchangeRate': { "value": 환율숫자, "change": 전일대비변동 } 과 'bondYield': { "value": 금리숫자, "change": 전일대비변동 } 형식으로 반드시 실제 데이터로 채워라. 예시값(0) 사용 금지.
+      12-1. **[환율/국채 데이터]** 프롬프트 상단 '사전 수집 실데이터'에서 USD/KRW 환율과 10년물 금리를 그대로 사용하라. 사전 수집값이 없는 경우에만 'googleSearch'로 검색하라. 각각 'exchangeRate': { "value": 환율숫자, "change": 0 }, 'bondYield': { "value": 금리숫자, "change": 0 } 형식으로 채워라.
       13. **[장세 전환 감지]** 현재 시장의 주도 섹터가 바뀌고 있는지(Regime Shift)를 판단하여 'regimeShiftDetector' 필드에 반영하라.
       14. **[다중 시계열 분석]** 월봉, 주봉, 일봉의 추세가 일치하는지 확인하여 'multiTimeframe' 필드에 반영하라.
       15. **[눌림목 성격 판단 (Pullback Analysis)]** 주가가 조정(눌림목)을 받을 때 거래량이 감소하는지(건전한 조정) 또는 증가하는지(매도 압력)를 반드시 확인하여 'technicalSignals'의 'volumeSurge' 및 'reason' 필드에 반영하라. 거래량이 줄어들며 지지받는 눌림목을 최우선으로 추천하라.
@@ -1394,8 +1406,7 @@ export async function getStockRecommendations(filters?: StockFilters): Promise<R
     [주의: JSON 응답 외에 어떤 텍스트도 포함하지 마라. 반드시 유효한 JSON 형식으로 닫는 중괄호까지 완벽하게 작성하라.]
   `;
 
-  const hour = new Date().getHours();
-  const cacheKey = `recommendations-${JSON.stringify(filters)}-${todayDate}-${hour}`;
+  const cacheKey = `recommendations-${JSON.stringify(filters)}-${todayDate}`;
   
   return getCachedAIResponse(cacheKey, async () => {
     try {
