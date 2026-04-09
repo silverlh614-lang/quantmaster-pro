@@ -7,6 +7,7 @@ import type {
   SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex,
   FomcSentimentAnalysis, BearRegimeResult, VkospiTriggerResult, InverseGate1Result,
   MarketNeutralResult, BearScreenerResult, BearKellyResult,
+  SectorOverheatInput, SectorOverheatResult,
 } from '../types/quant';
 import type { MHSRecord } from '../components/MHSHistoryChart';
 
@@ -74,6 +75,14 @@ interface GlobalIntelState {
   bearKellyEntryDate: string | null;
   setBearKellyEntryDate: (date: string | null) => void;
 
+  // ── 아이디어 7: 섹터 과열 감지 + 인버스 ETF 자동 매칭 ────────────────────
+  /** 섹터별 과열 감지 입력값 (퍼시스트) */
+  sectorOverheatInputs: SectorOverheatInput[];
+  setSectorOverheatInputs: (inputs: SectorOverheatInput[]) => void;
+  /** 섹터 과열 감지 계산 결과 */
+  sectorOverheatResult: SectorOverheatResult | null;
+  setSectorOverheatResult: (data: SectorOverheatResult | null) => void;
+
   // ROE type
   currentRoeType: ROEType;
   setCurrentRoeType: (type: ROEType) => void;
@@ -138,6 +147,15 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       bearKellyEntryDate: null,
       setBearKellyEntryDate: (bearKellyEntryDate) => set({ bearKellyEntryDate }),
 
+      sectorOverheatInputs: [
+        { name: '반도체', sectorRsRank: 10, newsPhase: 'GROWING', weeklyRsi: 65, foreignActiveBuyingWeeks: 3 },
+        { name: '이차전지', sectorRsRank: 10, newsPhase: 'GROWING', weeklyRsi: 65, foreignActiveBuyingWeeks: 3 },
+        { name: '조선', sectorRsRank: 10, newsPhase: 'GROWING', weeklyRsi: 65, foreignActiveBuyingWeeks: 3 },
+      ],
+      setSectorOverheatInputs: (sectorOverheatInputs) => set({ sectorOverheatInputs }),
+      sectorOverheatResult: null,
+      setSectorOverheatResult: (sectorOverheatResult) => set({ sectorOverheatResult }),
+
       currentRoeType: 3,
       setCurrentRoeType: (currentRoeType) => set({ currentRoeType }),
 
@@ -160,6 +178,7 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
         currentRoeType: state.currentRoeType,
         exportRatio: state.exportRatio,
         bearKellyEntryDate: state.bearKellyEntryDate,
+        sectorOverheatInputs: state.sectorOverheatInputs,
       }),
     }
   )
