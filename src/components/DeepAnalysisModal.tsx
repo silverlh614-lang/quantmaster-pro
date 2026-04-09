@@ -1,13 +1,13 @@
 import React, { useMemo } from 'react';
 import {
   TrendingUp, TrendingDown, Search, RefreshCw, BarChart3, Info,
-  ChevronRight, ExternalLink, Target, CheckCircle2, AlertTriangle,
+  ChevronRight, ExternalLink, Target, CheckCircle2, AlertTriangle, AlertCircle,
   Zap, Star, Bookmark, ChevronDown, ChevronUp, History, ArrowUpRight,
   ArrowDownRight, ShieldCheck, Lightbulb, X, Shield, Cloud, Activity,
   ArrowUpCircle, XCircle, DollarSign, Download, Award, FileText,
   Clock, Globe, Brain, Sparkles, Newspaper, Radar, Copy, Wallet,
   Percent, Maximize2, ArrowRightLeft, ShieldAlert, Flame, Crown,
-  CheckSquare
+  CheckSquare, Hash, Layers, Users, Minus
 } from 'lucide-react';
 import {
   Radar as RechartsRadar, RadarChart, PolarGrid,
