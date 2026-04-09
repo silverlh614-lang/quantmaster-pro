@@ -30,6 +30,7 @@ import {
   fastDartCheck,
   trancheExecutor,
   isRealTradeReady,
+  pollBearRegime,
   type WatchlistEntry,
   type MacroState,
 } from "./src/server/autoTradeEngine.js";
@@ -1054,15 +1055,21 @@ async function startServer() {
   });
 
   app.post('/api/macro/state', (req: Request, res: Response) => {
-    const { mhs, regime } = req.body;
+    const { mhs, regime, vkospi, foreignFuturesSellDays, iri } = req.body;
     if (typeof mhs !== 'number' || mhs < 0 || mhs > 100) {
       return res.status(400).json({ error: 'mhs는 0~100 사이 숫자여야 합니다' });
     }
     const validRegimes = ['GREEN', 'YELLOW', 'RED'];
     const finalRegime = validRegimes.includes(regime) ? regime : (mhs >= 60 ? 'GREEN' : mhs >= 30 ? 'YELLOW' : 'RED');
     const state: MacroState = { mhs, regime: finalRegime, updatedAt: new Date().toISOString() };
+    // 아이디어 10: Bear Regime 보조 지표 — 클라이언트에서 전달된 경우 저장
+    if (typeof vkospi === 'number') state.vkospi = vkospi;
+    if (typeof foreignFuturesSellDays === 'number') state.foreignFuturesSellDays = foreignFuturesSellDays;
+    if (typeof iri === 'number') state.iri = iri;
     saveMacroState(state);
     console.log(`[Macro] MHS 업데이트: ${mhs} (${finalRegime})`);
+    // 아이디어 10: Bear Regime 즉시 알림 체크 (비동기, fire-and-forget)
+    pollBearRegime().catch(console.error);
     res.json({ ok: true, ...state });
   });
 
@@ -1228,7 +1235,16 @@ async function startServer() {
       await fastDartCheck().catch(console.error);
     }, { timezone: 'UTC' });
 
-    console.log('[AutoTrade] 오케스트레이터 + DART 폴링 가동 완료');
+    // 아이디어 10: Bear Regime Push 알림 — 15분 간격 폴링, 장중 KST 08:00~17:00
+    // UTC 23:xx (KST 08:xx) + UTC 00-08 (KST 09-17) 커버
+    cron.schedule('*/15 23 * * 0-4', async () => {
+      await pollBearRegime().catch(console.error);
+    }, { timezone: 'UTC' });
+    cron.schedule('*/15 0-8 * * 1-5', async () => {
+      await pollBearRegime().catch(console.error);
+    }, { timezone: 'UTC' });
+
+    console.log('[AutoTrade] 오케스트레이터 + DART 폴링 + Bear Regime 알림 가동 완료');
 
     // 아이디어 12: 서버 기동 시 Telegram 알림 (fire-and-forget)
     sendTelegramAlert(
