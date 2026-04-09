@@ -53,10 +53,7 @@ export function AppHeader() {
     <header className="border-b border-theme-border bg-theme-bg/80 backdrop-blur-2xl sticky top-0 z-50 shadow-[0_2px_30px_rgba(0,0,0,0.3)] no-print">
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-[56px] sm:h-[60px] flex items-center justify-between gap-3 sm:gap-4">
 
-        {/* Brand */}
-        <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
-          <div className="relative">
-            <div className="w-8 h-8 sm:w-9 sm:h-9 bg-gradient-to-br from-orange-400 via-orange-500 to-red-600 rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(249,115,22,0.5)]">
+
               <Zap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
             </div>
             {syncStatus.isSyncing && (
@@ -64,11 +61,6 @@ export function AppHeader() {
             )}
           </div>
           <div className="hidden sm:flex flex-col leading-none">
-            <span className="text-[13px] font-black text-theme-text tracking-tight">QuantMaster <span className="text-orange-500">Pro</span></span>
-            <span className="text-[9px] font-bold text-theme-text-muted uppercase tracking-[0.18em] mt-0.5">AI · Quant · Engine</span>
-          </div>
-          <div className="hidden lg:block w-px h-7 bg-theme-border mx-1" />
-        </div>
 
         {/* Navigation */}
         <nav className="flex items-center gap-0.5 overflow-x-auto no-scrollbar flex-1 justify-center">
