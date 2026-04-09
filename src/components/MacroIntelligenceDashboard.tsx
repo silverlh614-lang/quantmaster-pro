@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   TrendingUp, TrendingDown, RefreshCw, ArrowRight, Globe, Ship, Cpu, Activity, Shield,
 } from 'lucide-react';
@@ -15,9 +15,10 @@ import {
   getGlobalCorrelationMatrix, getGlobalMultiSourceData, trackThemeToKoreaValueChain,
   getSupplyChainIntelligence, getSectorOrderIntelligence, getFinancialStressIndex, getFomcSentimentAnalysis,
 } from '../services/stockService';
-import { computeContrarianSignals } from '../services/quantEngine';
+import { computeContrarianSignals, evaluateSectorOverheat } from '../services/quantEngine';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { BearKellyPanel } from './BearKellyPanel';
+import { SectorOverheatPanel } from './SectorOverheatPanel';
 import { debugWarn } from '../utils/debug';
 
 // ─── Fusion Matrix 데이터 (아이디어 8) ──────────────────────────────────────
@@ -326,6 +327,18 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const bearKellyResult = useGlobalIntelStore(s => s.bearKellyResult);
   const bearKellyEntryDate = useGlobalIntelStore(s => s.bearKellyEntryDate);
   const setBearKellyEntryDate = useGlobalIntelStore(s => s.setBearKellyEntryDate);
+  const sectorOverheatInputs = useGlobalIntelStore(s => s.sectorOverheatInputs);
+  const setSectorOverheatInputs = useGlobalIntelStore(s => s.setSectorOverheatInputs);
+  const sectorOverheatResult = useGlobalIntelStore(s => s.sectorOverheatResult);
+  const setSectorOverheatResult = useGlobalIntelStore(s => s.setSectorOverheatResult);
+
+  const handleSectorOverheatInputsChange = useCallback(
+    (inputs: typeof sectorOverheatInputs) => {
+      setSectorOverheatInputs(inputs);
+      setSectorOverheatResult(evaluateSectorOverheat(inputs));
+    },
+    [setSectorOverheatInputs, setSectorOverheatResult],
+  );
 
   const sortedSectors = useMemo(
     () => [...(marketOverview?.sectorRotation ?? [])].sort((a, b) => b.momentum - a.momentum),
@@ -773,6 +786,13 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
         bearKellyResult={bearKellyResult}
         entryDate={bearKellyEntryDate}
         onSetEntryDate={setBearKellyEntryDate}
+      />
+
+      {/* ── 아이디어 7: 섹터 과열 감지 + 인버스 ETF 자동 매칭 ── */}
+      <SectorOverheatPanel
+        inputs={sectorOverheatInputs}
+        onInputsChange={handleSectorOverheatInputsChange}
+        result={sectorOverheatResult}
       />
 
       {/* ── 허용 섹터 화이트리스트 ── */}
