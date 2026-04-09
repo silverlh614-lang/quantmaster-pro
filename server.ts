@@ -28,6 +28,7 @@ import {
   saveMacroState,
   fillMonitor,
   tradingOrchestrator,
+  fastDartCheck,
   type WatchlistEntry,
   type MacroState,
 } from "./src/server/autoTradeEngine.js";
@@ -1196,6 +1197,15 @@ async function startServer() {
     // 오케스트레이터와 독립 실행 (AUTO_TRADE_ENABLED 무관)
     cron.schedule('*/30 23,0,1,2,3,4,5,6,7,8,9 * * 1-5', async () => {
       await pollDartDisclosures().catch(console.error);
+    }, { timezone: 'UTC' });
+
+    // 아이디어 11: DART 고속 폴링 — 장중 1분 간격, 고영향 키워드 즉시 반응
+    // UTC 23:xx (KST 08:xx) + UTC 00-09 (KST 09-18) 커버
+    cron.schedule('* 23 * * 0-4', async () => {
+      await fastDartCheck().catch(console.error);
+    }, { timezone: 'UTC' });
+    cron.schedule('* 0-9 * * 1-5', async () => {
+      await fastDartCheck().catch(console.error);
     }, { timezone: 'UTC' });
 
     console.log('[AutoTrade] 오케스트레이터 + DART 폴링 가동 완료');

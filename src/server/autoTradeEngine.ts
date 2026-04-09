@@ -15,17 +15,73 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
-import { evaluateServerGate } from './serverQuantFilter.js';
+import { GoogleGenAI } from '@google/genai';
+import {
+  evaluateServerGate,
+  DEFAULT_CONDITION_WEIGHTS,
+  type ConditionWeights,
+} from './serverQuantFilter.js';
+
+// ─── Gemini 서버사이드 헬퍼 ─────────────────────────────────────────────────────
+
+function getGeminiClient(): GoogleGenAI | null {
+  const key = process.env.GEMINI_API_KEY ?? process.env.API_KEY;
+  if (!key) return null;
+  return new GoogleGenAI({ apiKey: key });
+}
+
+/**
+ * Gemini Flash 간단 호출 (서버사이드 전용, googleSearch 없음 — 비용 절감).
+ * API 키 미설정 시 null 반환.
+ */
+async function callGemini(prompt: string): Promise<string | null> {
+  const ai = getGeminiClient();
+  if (!ai) {
+    console.warn('[Gemini] API 키 미설정 — AI 기능 비활성화');
+    return null;
+  }
+  try {
+    const res = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: { temperature: 0.4, maxOutputTokens: 1024 },
+    });
+    return res.text ?? null;
+  } catch (e: unknown) {
+    console.error('[Gemini] 호출 실패:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Railway Volume 마운트 경로 우선, 미설정 시 기본 data/
 const DATA_DIR  = process.env.PERSIST_DATA_DIR
   ? path.resolve(process.env.PERSIST_DATA_DIR)
   : path.resolve(process.cwd(), 'data');
-const WATCHLIST_FILE    = path.join(DATA_DIR, 'watchlist.json');
-const SHADOW_FILE       = path.join(DATA_DIR, 'shadow-trades.json');
-const SHADOW_LOG_FILE   = path.join(DATA_DIR, 'shadow-log.json');
-const MACRO_STATE_FILE  = path.join(DATA_DIR, 'macro-state.json');
+const WATCHLIST_FILE          = path.join(DATA_DIR, 'watchlist.json');
+const SHADOW_FILE             = path.join(DATA_DIR, 'shadow-trades.json');
+const SHADOW_LOG_FILE         = path.join(DATA_DIR, 'shadow-log.json');
+const MACRO_STATE_FILE        = path.join(DATA_DIR, 'macro-state.json');
+const CONDITION_WEIGHTS_FILE  = path.join(DATA_DIR, 'condition-weights.json');
+
+// ─── 아이디어 6: 조건별 가중치 파일 I/O ────────────────────────────────────────
+
+function loadConditionWeights(): ConditionWeights {
+  ensureDataDir();
+  if (!fs.existsSync(CONDITION_WEIGHTS_FILE)) return { ...DEFAULT_CONDITION_WEIGHTS };
+  try {
+    const raw = JSON.parse(fs.readFileSync(CONDITION_WEIGHTS_FILE, 'utf-8')) as Partial<ConditionWeights>;
+    // 누락된 키는 기본값 1.0으로 채움
+    return { ...DEFAULT_CONDITION_WEIGHTS, ...raw };
+  } catch {
+    return { ...DEFAULT_CONDITION_WEIGHTS };
+  }
+}
+
+function saveConditionWeights(w: ConditionWeights): void {
+  ensureDataDir();
+  fs.writeFileSync(CONDITION_WEIGHTS_FILE, JSON.stringify(w, null, 2));
+}
 
 // 아이디어 7: 동시 최대 보유 종목 수 (환경변수로 오버라이드 가능)
 const MAX_CONCURRENT_POSITIONS = Number(process.env.MAX_CONCURRENT_POSITIONS || 5);
@@ -57,6 +113,7 @@ export interface WatchlistEntry {
   memo?: string;                   // 진입 근거 ("외국인 5일 연속 순매수, 52주 신고가 돌파")
   sector?: string;                 // 섹터 정보 (섹터별 성과 분석용)
   rrr?: number;                    // Risk-Reward Ratio (목표가-진입가) / (진입가-손절가)
+  conditionKeys?: string[];        // 아이디어 6: 진입 당시 통과한 Gate 조건 키 목록
 }
 
 export function loadWatchlist(): WatchlistEntry[] {
@@ -380,6 +437,7 @@ export async function runAutoSignalScan(): Promise<void> {
         kellyPct:         Math.round(positionPct * 100),
         gateScore:        gateScore,
         signalType:       isStrongBuy ? 'STRONG_BUY' : 'BUY',
+        conditionKeys:    stock.conditionKeys ?? [],
       });
 
       if (shadowMode) {
@@ -478,46 +536,99 @@ async function updateShadowResults(shadows: ServerShadowTrade[]): Promise<void> 
 
 // ─── 아이디어 3: 일일 리포트 이메일 ────────────────────────────────────────────
 
+/**
+ * 아이디어 9: 일일 리포트 2.0 — Gemini AI 내러티브 리포트
+ * 1. 거래 데이터 + MHS + 월간 통계를 Gemini에 주입 (googleSearch 없음)
+ * 2. 자연어 요약 리포트 생성
+ * 3. Telegram으로 즉시 발송 (이메일은 보조)
+ */
 export async function generateDailyReport(): Promise<void> {
-  const email = process.env.EMAIL_USER;
-  if (!email || !process.env.EMAIL_PASS) {
-    console.warn('[AutoTrade] 이메일 미설정 — 일일 리포트 건너뜀');
-    return;
-  }
-
   const shadows = loadShadowTrades();
-  const today = new Date().toISOString().split('T')[0];
+  const macro   = loadMacroState();
+  const stats   = getMonthlyStats();
+  const today   = new Date().toISOString().split('T')[0];
   const todayTrades = shadows.filter((s) => s.signalTime.startsWith(today));
   const closed = todayTrades.filter((s) => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP');
-  const wins = closed.filter((s) => s.status === 'HIT_TARGET');
+  const wins   = closed.filter((s) => s.status === 'HIT_TARGET');
   const totalReturn = closed.reduce((sum, s) => sum + (s.returnPct ?? 0), 0);
+  const winRate = closed.length > 0 ? Math.round((wins.length / closed.length) * 100) : 0;
+  const watchlist = loadWatchlist();
 
-  const body = `
-[QuantMaster Pro] ${today} 자동매매 일일 리포트
+  // ── 기본 수치 리포트 (이메일 / 폴백용) ────────────────────────────────────────
+  const tradeLines = closed.map((s) =>
+    `  ${s.status === 'HIT_TARGET' ? '✅' : '❌'} ${s.stockName}(${s.stockCode}) ${(s.returnPct ?? 0).toFixed(2)}%`
+  ).join('\n') || '  (결산 없음)';
 
-▶ 당일 신호: ${todayTrades.length}건
-▶ 결산 완료: ${closed.length}건 (승 ${wins.length} / 패 ${closed.length - wins.length})
-▶ 적중률: ${closed.length > 0 ? Math.round((wins.length / closed.length) * 100) : 0}%
-▶ 누적 수익률: ${totalReturn.toFixed(2)}%
+  const baseReport = [
+    `[QuantMaster Pro] ${today} 자동매매 일일 리포트`,
+    '',
+    `▶ 당일 신호: ${todayTrades.length}건`,
+    `▶ 결산 완료: ${closed.length}건 (승 ${wins.length} / 패 ${closed.length - wins.length})`,
+    `▶ 적중률: ${winRate}%  |  일일 P&L: ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%`,
+    `▶ MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})`,
+    `▶ 워치리스트: ${watchlist.length}개`,
+    '',
+    tradeLines,
+    '',
+    `[월간 ${stats.month}] WIN률 ${stats.winRate.toFixed(1)}% | PF ${
+      stats.wins > 0 && stats.losses > 0
+        ? (stats.wins / (stats.losses || 1)).toFixed(2)
+        : 'N/A'
+    } | 평균수익 ${stats.avgReturn.toFixed(2)}%`,
+    `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? 'SHADOW (가상매매)' : 'LIVE (실매매)'}`,
+  ].join('\n');
 
-${closed.map((s) => `  ${s.status === 'HIT_TARGET' ? '✅' : '❌'} ${s.stockName}(${s.stockCode}) ${(s.returnPct ?? 0).toFixed(2)}%`).join('\n')}
+  // ── Gemini AI 내러티브 생성 (googleSearch 없음 — 비용 절감) ─────────────────
+  const dataBlock = [
+    `날짜: ${today} (KST)`,
+    `거래 모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? 'Shadow (가상매매)' : 'LIVE (실매매)'}`,
+    `당일 신호: ${todayTrades.length}건 | 결산 ${closed.length}건 (승 ${wins.length} / 패 ${closed.length - wins.length})`,
+    `일일 P&L: ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%`,
+    `MHS: ${macro?.mhs ?? 'N/A'} | 레짐: ${macro?.regime ?? 'N/A'}`,
+    `워치리스트: ${watchlist.length}개 (${watchlist.slice(0, 5).map(w => w.name).join(', ')}${watchlist.length > 5 ? ' 외' : ''})`,
+    `월간 통계 (${stats.month}): 전체 ${stats.total}건 / WIN률 ${stats.winRate.toFixed(1)}% / 평균수익 ${stats.avgReturn.toFixed(2)}%`,
+    `STRONG_BUY 적중률: ${stats.strongBuyWinRate.toFixed(1)}%`,
+    closed.length > 0 ? `오늘 결산 종목: ${closed.map(s => `${s.stockName} ${(s.returnPct ?? 0).toFixed(2)}%`).join(', ')}` : '',
+  ].filter(Boolean).join('\n');
 
-모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? 'SHADOW (가상매매)' : 'LIVE (실매매)'}
-  `.trim();
+  const geminiPrompt = [
+    '당신은 한국 주식 자동매매 시스템의 일일 리포트 작성 AI입니다.',
+    '아래 오늘의 거래 데이터를 바탕으로 트레이더가 내일 아침 읽을 간결한 한국어 내러티브 리포트를 작성하세요.',
+    '형식: 오늘 요약 2~3문장 + 주목할 점 1~2개 bullet + 내일 주의사항 1~2개 bullet.',
+    '반드시 한국어로, 300자 이내로 작성하세요. 외부 검색은 필요 없습니다.',
+    '',
+    '=== 오늘 데이터 ===',
+    dataBlock,
+  ].join('\n');
 
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-  });
+  const narrative = await callGemini(geminiPrompt);
 
-  await transporter.sendMail({
-    from: process.env.EMAIL_USER,
-    to: process.env.REPORT_EMAIL ?? process.env.EMAIL_USER,
-    subject: `[QuantMaster] ${today} 자동매매 리포트 — 적중률 ${closed.length > 0 ? Math.round((wins.length / closed.length) * 100) : 0}%`,
-    text: body,
-  });
+  // ── Telegram 발송 (메인 채널) ──────────────────────────────────────────────
+  const telegramMsg = narrative
+    ? `📊 <b>[QuantMaster] ${today} 일일 리포트</b>\n\n${narrative}\n\n` +
+      `<i>P&L ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}% | ` +
+      `WIN ${winRate}% (${wins.length}/${closed.length}) | MHS ${macro?.mhs ?? 'N/A'}</i>`
+    : `📊 <b>[QuantMaster] ${today} 일일 리포트</b>\n\n${baseReport}`;
 
-  console.log('[AutoTrade] 일일 리포트 이메일 발송 완료 →', process.env.REPORT_EMAIL ?? process.env.EMAIL_USER);
+  await sendTelegramAlert(telegramMsg).catch(console.error);
+
+  // ── 이메일 발송 (보조 채널, 미설정 시 스킵) ────────────────────────────────
+  if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    const emailBody = narrative ? `${narrative}\n\n---\n${baseReport}` : baseReport;
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+    });
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: process.env.REPORT_EMAIL ?? process.env.EMAIL_USER,
+      subject: `[QuantMaster] ${today} 일일 리포트 — WIN률 ${winRate}%`,
+      text: emailBody,
+    }).catch((e: unknown) => console.error('[AutoTrade] 이메일 발송 실패:', e instanceof Error ? e.message : e));
+    console.log('[AutoTrade] 일일 리포트 이메일 발송 →', process.env.REPORT_EMAIL ?? process.env.EMAIL_USER);
+  }
+
+  console.log('[AutoTrade] 일일 리포트 완료 (Telegram + 이메일)');
 }
 
 // ─── 아이디어 4: 서버사이드 전종목 사전 스크리너 ───────────────────────────────
@@ -887,7 +998,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
     if (quote.changePercent < 1.5 || quote.volume < quote.avgVolume * 1.5) continue;
 
     // 아이디어 2: 서버사이드 Gate 평가 — SKIP 종목 제외
-    const gate = evaluateServerGate(quote);
+    const gate = evaluateServerGate(quote, loadConditionWeights());
     if (gate.signalType === 'SKIP') {
       console.log(`[AutoPopulate] SKIP: ${stock.name}(${stock.code}) gateScore=${gate.gateScore}/8`);
       continue;
@@ -904,8 +1015,9 @@ export async function autoPopulateWatchlist(): Promise<number> {
       addedAt: new Date().toISOString(),
       gateScore: gate.gateScore,
       addedBy: 'AUTO',
-      memo: `${gate.signalType} gate=${gate.gateScore}/8 ${gate.details.join(', ')}`,
+      memo: `${gate.signalType} gate=${gate.gateScore.toFixed(1)}/8 ${gate.details.join(', ')}`,
       rrr: parseFloat(((tp - quote.price) / (quote.price - sl || 1)).toFixed(2)),
+      conditionKeys: gate.conditionKeys,
     });
     existingCodes.add(stock.code);
     added++;
@@ -1095,6 +1207,7 @@ export interface RecommendationRecord {
   kellyPct: number;          // 포지션 비율 (%)
   gateScore: number;         // Gate 통과 점수 (0~27, 서버스캔 시 0)
   signalType: 'STRONG_BUY' | 'BUY';
+  conditionKeys?: string[];        // 아이디어 6: 통과한 Gate 조건 키 목록 (Signal Calibrator용)
   status: 'PENDING' | 'WIN' | 'LOSS' | 'EXPIRED';
   actualReturn?: number;     // 실현 수익률 (%)
   resolvedAt?: string;       // ISO
@@ -1483,6 +1596,190 @@ export class FillMonitor {
 /** 싱글턴 인스턴스 (server.ts에서 import하여 cron 연결) */
 export const fillMonitor = new FillMonitor();
 
+// ─── 아이디어 6: Signal Calibrator — 자기학습 피드백 루프 ──────────────────────────
+
+/**
+ * 월간 추천 통계를 분석하여 조건별 가중치(condition-weights.json)를 자동 조정.
+ * - 각 조건의 WIN률 < 40% → 가중치 10% 감소
+ * - WIN률 > 65% → 가중치 10% 증가
+ * - 가중치 범위: 0.3 ~ 1.8
+ * - Gemini에게 월간 통계 입력 → 오탐 조건 분석 리포트 생성 (googleSearch 없음)
+ */
+export async function calibrateSignalWeights(): Promise<void> {
+  const recs = loadRecommendations();
+  const month = new Date().toISOString().slice(0, 7);
+  const resolved = recs.filter(
+    (r) => r.signalTime.startsWith(month) &&
+    r.status !== 'PENDING' &&
+    r.conditionKeys && r.conditionKeys.length > 0
+  );
+
+  if (resolved.length < 10) {
+    console.log(`[Calibrator] 학습 데이터 부족 (${resolved.length}건 < 10) — 보정 건너뜀`);
+    return;
+  }
+
+  // 조건별 WIN/LOSS 집계
+  const condStats: Record<string, { wins: number; total: number }> = {};
+  for (const rec of resolved) {
+    for (const key of (rec.conditionKeys ?? [])) {
+      if (!condStats[key]) condStats[key] = { wins: 0, total: 0 };
+      condStats[key].total++;
+      if (rec.status === 'WIN') condStats[key].wins++;
+    }
+  }
+
+  const weights = loadConditionWeights();
+  const adjustments: string[] = [];
+
+  for (const [key, stat] of Object.entries(condStats)) {
+    if (stat.total < 3) continue; // 샘플 부족 → 보정 안 함
+    const winRate = stat.wins / stat.total;
+    const prev = weights[key as keyof typeof weights] ?? 1.0;
+
+    if (winRate < 0.40) {
+      weights[key as keyof typeof weights] = parseFloat(Math.max(0.3, prev * 0.9).toFixed(2));
+      adjustments.push(`${key}: ${prev.toFixed(2)} → ${weights[key as keyof typeof weights]} (WIN률 ${(winRate * 100).toFixed(0)}% 낮음)`);
+    } else if (winRate > 0.65) {
+      weights[key as keyof typeof weights] = parseFloat(Math.min(1.8, prev * 1.1).toFixed(2));
+      adjustments.push(`${key}: ${prev.toFixed(2)} → ${weights[key as keyof typeof weights]} (WIN률 ${(winRate * 100).toFixed(0)}% 높음)`);
+    }
+  }
+
+  if (adjustments.length > 0) {
+    saveConditionWeights(weights);
+    console.log(`[Calibrator] 가중치 조정: ${adjustments.join(' | ')}`);
+  } else {
+    console.log('[Calibrator] 가중치 변경 없음 — 현재 설정 유지');
+  }
+
+  // Gemini 메타 분석 (googleSearch 없음)
+  const statsBlock = Object.entries(condStats)
+    .map(([k, v]) => `${k}: ${v.wins}승/${v.total}건 (WIN률 ${((v.wins / v.total) * 100).toFixed(0)}%)`)
+    .join(', ');
+
+  const geminiPrompt = [
+    '당신은 한국 주식 퀀트 시스템의 신호 품질 분석 AI입니다.',
+    `아래는 ${month} 월간 Gate 조건별 적중률 통계입니다.`,
+    '어떤 조건이 오탐을 많이 냈는지 분석하고, 트레이더에게 개선 방향을 1~3문장으로 한국어로 제안하세요.',
+    '외부 검색 불필요. 주어진 데이터만 분석하세요.',
+    '',
+    `=== ${month} 조건별 통계 ===`,
+    statsBlock,
+    `총 해석 가능 추천: ${resolved.length}건`,
+    adjustments.length > 0 ? `자동 조정: ${adjustments.join(' | ')}` : '자동 조정 없음',
+  ].join('\n');
+
+  const analysis = await callGemini(geminiPrompt);
+  if (analysis) {
+    await sendTelegramAlert(
+      `🔬 <b>[Signal Calibrator] ${month} 자기학습 분석</b>\n\n${analysis}\n\n` +
+      `<i>조정: ${adjustments.length > 0 ? adjustments.join(', ') : '없음'}</i>`
+    ).catch(console.error);
+  }
+}
+
+// ─── 아이디어 11: DART 공시 즉시 반응 엔진 (1분 간격 고속 폴링) ─────────────────
+
+// 고영향 공시 키워드 (가격 이동 유발 가능성 높은 공시 유형)
+const FAST_DART_KEYWORDS = [
+  '무상증자', '자사주취득', '자사주소각', '영업이익', '잠정실적',
+  '수주', '흑자전환', '분기실적', '연간실적', '대규모수주',
+];
+
+const DART_FAST_SEEN_FILE = path.join(DATA_DIR, 'dart-fast-seen.json');
+
+function loadFastSeenNos(): Set<string> {
+  ensureDataDir();
+  if (!fs.existsSync(DART_FAST_SEEN_FILE)) return new Set();
+  try {
+    const arr = JSON.parse(fs.readFileSync(DART_FAST_SEEN_FILE, 'utf-8')) as string[];
+    return new Set(arr);
+  } catch { return new Set(); }
+}
+
+function saveFastSeenNos(seen: Set<string>): void {
+  ensureDataDir();
+  // 최근 2000건만 유지 (파일 비대화 방지)
+  const arr = [...seen].slice(-2000);
+  fs.writeFileSync(DART_FAST_SEEN_FILE, JSON.stringify(arr, null, 2));
+}
+
+/**
+ * 아이디어 11: 1분 간격 DART 고속 폴링
+ * - 오늘자 공시 목록에서 고영향 키워드 감지
+ * - 워치리스트 종목 매칭 → Gemini 매수 관련성 판단 → Telegram 즉시 알림
+ * - googleSearch 없음 (DART API 직접 호출 + Gemini 판단)
+ */
+export async function fastDartCheck(): Promise<void> {
+  if (!process.env.DART_API_KEY) return;
+
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const url = `https://opendart.fss.or.kr/api/list.json` +
+    `?crtfc_key=${process.env.DART_API_KEY}` +
+    `&bgn_de=${today}&end_de=${today}` +
+    `&sort=rcp_dt&sort_mth=desc&page_count=20`;
+
+  let disclosures: Record<string, string>[] = [];
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const data = await res.json() as { status: string; list?: Record<string, string>[] };
+    if (data.status !== '000' || !data.list) return;
+    disclosures = data.list;
+  } catch {
+    return; // 타임아웃/네트워크 오류는 조용히 무시 (1분마다 재시도)
+  }
+
+  const seen    = loadFastSeenNos();
+  const watchlist = loadWatchlist();
+  const watchCodes = new Set(watchlist.map(w => w.code.padStart(6, '0')));
+  let changed = false;
+
+  for (const d of disclosures) {
+    const rceptNo  = d.rcept_no  ?? '';
+    const corpName = d.corp_name ?? '';
+    const reportNm = d.report_nm ?? '';
+    const stockCode = (d.stock_code ?? '').padStart(6, '0');
+
+    if (seen.has(rceptNo)) continue;
+    seen.add(rceptNo);
+    changed = true;
+
+    // 고영향 키워드 체크
+    const isHighImpact = FAST_DART_KEYWORDS.some(kw => reportNm.includes(kw));
+    if (!isHighImpact) continue;
+
+    const isWatchlistStock = watchCodes.has(stockCode);
+
+    // Gemini로 매수 관련성 판단 (워치리스트 종목이거나 키워드 매칭 시)
+    const geminiPrompt = [
+      '한국 주식 공시 내용을 보고 단기 매수 관련성을 "긍정", "부정", "중립" 중 하나와 이유 한 문장으로만 답하세요.',
+      `공시: ${reportNm}`,
+      `법인명: ${corpName}`,
+      `워치리스트 종목: ${isWatchlistStock ? '예' : '아니오'}`,
+    ].join('\n');
+
+    const judgment = await callGemini(geminiPrompt).catch(() => null);
+    const isPositive = judgment?.includes('긍정') ?? false;
+
+    // 긍정 판단이거나 워치리스트 종목이면 Telegram 즉시 알림
+    if (isPositive || isWatchlistStock) {
+      const emoji = isPositive ? '🚀' : '📢';
+      await sendTelegramAlert(
+        `${emoji} <b>[DART 즉시 반응] ${corpName}</b>\n` +
+        `${reportNm}\n` +
+        (isWatchlistStock ? `⭐ <b>워치리스트 종목!</b>\n` : '') +
+        `판단: ${judgment ?? '분석 불가'}\n` +
+        `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rceptNo}`
+      ).catch(console.error);
+
+      console.log(`[FastDART] ${emoji} ${corpName} — ${reportNm} (watch=${isWatchlistStock})`);
+    }
+  }
+
+  if (changed) saveFastSeenNos(seen);
+}
+
 // ─── 아이디어 2: 동시호가 예약 주문 (08:45 KST) ──────────────────────────────────
 
 /**
@@ -1521,8 +1818,8 @@ export async function preMarketOrderPrep(): Promise<void> {
         continue;
       }
 
-      // Gate 재평가 (Yahoo 데이터 기반 8개 조건)
-      const gate = evaluateServerGate(quote);
+      // Gate 재평가 (Yahoo 데이터 기반 8개 조건, 자기학습 가중치 적용)
+      const gate = evaluateServerGate(quote, loadConditionWeights());
       if (gate.signalType === 'SKIP') {
         console.log(`[PreMarket] ${stock.name}(${stock.code}) Gate ${gate.gateScore}/8 SKIP — 미달`);
         continue;
@@ -1773,6 +2070,15 @@ export class TradingDayOrchestrator {
           console.log('[Orchestrator] 자기학습 추천 평가 (KST 16:30+)');
           await evaluateRecommendations().catch(console.error);
           this.markRan('evalRecs');
+        }
+        // 월말(28일 이후) 16:45+ 한 번만: Signal Calibrator 가중치 보정
+        {
+          const kstDay = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCDate();
+          if (kstDay >= 28 && t >= 1645 && !this.hasRan('calibrate')) {
+            console.log('[Orchestrator] Signal Calibrator 가중치 보정 (월말)');
+            await calibrateSignalWeights().catch(console.error);
+            this.markRan('calibrate');
+          }
         }
         break;
       }
