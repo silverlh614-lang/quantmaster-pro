@@ -34,7 +34,7 @@ import { CandleChart } from '../components/CandleChart';
 import { HeroChecklist } from '../components/HeroChecklist';
 import { AnalysisViewToggle, AnalysisViewButtons } from '../components/AnalysisViewToggle';
 import { DeepAnalysisModal } from '../components/DeepAnalysisModal';
-import { AnalysisDashboard } from '../components/AnalysisDashboard';
+
 import { useCopiedCode } from '../hooks/useCopiedCode';
 import { evaluateStock, evaluateGate0 } from '../services/quantEngine';
 import { buildShadowTrade } from '../services/autoTrading';
@@ -2328,11 +2328,6 @@ export function DiscoverWatchlistPage({
         onExportPDF={onExportDeepAnalysisPDF}
         isExporting={isExportingDeepAnalysis}
       />
-
-        {/* Advanced Analysis Dashboard (Back-Testing / Walk-Forward / Paper Trading) */}
-        <section className="mt-16 mb-8 px-4">
-          <AnalysisDashboard />
-        </section>
 
         {/* Export Report Section */}
         <div className="mt-16 mb-8 px-4">
