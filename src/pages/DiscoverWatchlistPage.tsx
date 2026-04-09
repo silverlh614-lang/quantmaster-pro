@@ -371,13 +371,13 @@ export function DiscoverWatchlistPage({
               <HeroChecklist steps={MASTER_CHECKLIST_STEPS} onShowChecklist={() => setShowMasterChecklist(true)} />
 
               <div className="flex flex-col sm:flex-row items-center gap-4 mb-12">
-                <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner">
+                <div className="flex flex-wrap sm:flex-nowrap bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner w-full sm:w-auto">
                   <button
                     onClick={() => setFilters(prev => ({ ...prev, mode: 'MOMENTUM' }))}
                     className={cn(
-                      "px-6 py-3 rounded-xl text-sm font-black transition-all flex items-center gap-2",
-                      filters.mode === 'MOMENTUM' 
-                        ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20" 
+                      "px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 whitespace-nowrap",
+                      filters.mode === 'MOMENTUM'
+                        ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
                         : "text-white/40 hover:text-white/60"
                     )}
                   >
@@ -387,7 +387,7 @@ export function DiscoverWatchlistPage({
                   <button
                     onClick={() => setFilters(prev => ({ ...prev, mode: 'EARLY_DETECT' }))}
                     className={cn(
-                      "px-6 py-3 rounded-xl text-sm font-black transition-all flex items-center gap-2",
+                      "px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 whitespace-nowrap",
                       filters.mode === 'EARLY_DETECT'
                         ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20"
                         : "text-white/40 hover:text-white/60"
@@ -399,7 +399,7 @@ export function DiscoverWatchlistPage({
                   <button
                     onClick={() => setFilters(prev => ({ ...prev, mode: 'QUANT_SCREEN' }))}
                     className={cn(
-                      "px-6 py-3 rounded-xl text-sm font-black transition-all flex items-center gap-2",
+                      "px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 whitespace-nowrap",
                       filters.mode === 'QUANT_SCREEN'
                         ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/20"
                         : "text-white/40 hover:text-white/60"
@@ -415,7 +415,7 @@ export function DiscoverWatchlistPage({
                 <button
                   onClick={onFetchStocks}
                   disabled={loading}
-                  className="btn-3d px-12 py-6 bg-gradient-to-br from-orange-400 via-orange-500 to-orange-700 hover:from-orange-300 hover:via-orange-400 hover:to-orange-600 text-white rounded-3xl font-black text-xl flex items-center gap-5 group-hover:scale-[1.05] border-t border-white/40 shadow-[0_20px_50px_rgba(249,115,22,0.4)] transition-all duration-300"
+                  className="btn-3d px-8 sm:px-12 py-4 sm:py-6 bg-gradient-to-br from-orange-400 via-orange-500 to-orange-700 hover:from-orange-300 hover:via-orange-400 hover:to-orange-600 text-white rounded-3xl font-black text-base sm:text-xl flex items-center gap-3 sm:gap-5 group-hover:scale-[1.05] border-t border-white/40 shadow-[0_20px_50px_rgba(249,115,22,0.4)] transition-all duration-300 w-full sm:w-auto justify-center"
                 >
                 {loading ? (
                   <RefreshCw className="w-8 h-8 animate-spin" />
@@ -1341,15 +1341,15 @@ export function DiscoverWatchlistPage({
                             {/* Type Filter */}
                             <div className="flex flex-col gap-2">
                               <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] px-1">추천 유형</span>
-                              <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner">
+                              <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner overflow-x-auto no-scrollbar">
                                 {['ALL', 'STRONG_BUY', 'BUY', 'STRONG_SELL', 'SELL'].map((type) => (
                                   <button
                                     key={type}
                                     onClick={() => setSelectedType(type)}
                                     className={cn(
-                                      "px-4 py-2 rounded-xl text-xs font-black transition-all",
-                                      selectedType === type 
-                                        ? "bg-orange-500 text-white shadow-[0_4px_10px_rgba(249,115,22,0.3)]" 
+                                      "px-3 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-black transition-all whitespace-nowrap shrink-0",
+                                      selectedType === type
+                                        ? "bg-orange-500 text-white shadow-[0_4px_10px_rgba(249,115,22,0.3)]"
                                         : "text-white/30 hover:text-white/60"
                                     )}
                                   >
@@ -1362,7 +1362,7 @@ export function DiscoverWatchlistPage({
                             {/* Sentiment Filter */}
                             <div className="flex flex-col gap-2">
                               <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] px-1">시장 심리</span>
-                              <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner">
+                              <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner overflow-x-auto no-scrollbar">
                                 {[
                                   { id: 'ALL', label: '모든 심리' },
                                   { id: 'RISK_ON', label: 'Risk-On' },
@@ -1372,9 +1372,9 @@ export function DiscoverWatchlistPage({
                                     key={s.id}
                                     onClick={() => setSelectedSentiment(s.id)}
                                     className={cn(
-                                      "px-4 py-2 rounded-xl text-xs font-black transition-all",
-                                      selectedSentiment === s.id 
-                                        ? "bg-blue-500 text-white shadow-[0_4px_10px_rgba(59,130,246,0.3)]" 
+                                      "px-3 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-black transition-all whitespace-nowrap shrink-0",
+                                      selectedSentiment === s.id
+                                        ? "bg-blue-500 text-white shadow-[0_4px_10px_rgba(59,130,246,0.3)]"
                                         : "text-white/30 hover:text-white/60"
                                     )}
                                   >
@@ -1537,7 +1537,7 @@ export function DiscoverWatchlistPage({
             <div className="mb-8 grid grid-cols-1 md:grid-cols-4 gap-6">
               <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-1">
                 <div className="flex items-center gap-1">
-                  <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">AI 추천 적중률 (최근 10회)</span>
+                  <span className="text-[9px] sm:text-[10px] font-black text-white/30 uppercase tracking-[0.1em] sm:tracking-[0.2em] text-center">AI 추천 적중률 (최근 10회)</span>
                   <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
                 </div>
                 <div className="flex items-end gap-2">
@@ -1564,7 +1564,7 @@ export function DiscoverWatchlistPage({
 
               <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-2">
                 <div className="flex items-center gap-1">
-                  <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">Recent 30-day STRONG_BUY hit rate</span>
+                  <span className="text-[9px] sm:text-[10px] font-black text-white/30 uppercase tracking-[0.1em] sm:tracking-[0.2em] text-center">Recent 30-day STRONG_BUY hit rate</span>
                   <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
                 </div>
                 <div className="flex items-end gap-2">
@@ -1630,7 +1630,7 @@ export function DiscoverWatchlistPage({
             <div className="space-y-4">
               {displayList.length > 0 && view === 'DISCOVER' && (
                 <div className={cn(
-                  "flex items-center gap-3 px-5 py-3 rounded-2xl border mb-4 backdrop-blur-sm",
+                  "flex flex-wrap items-center gap-2 sm:gap-3 px-4 sm:px-5 py-3 rounded-2xl border mb-4 backdrop-blur-sm",
                   lastUsedMode === 'MOMENTUM'
                     ? "bg-orange-500/10 border-orange-500/20"
                     : "bg-blue-500/10 border-blue-500/20"
@@ -1649,7 +1649,7 @@ export function DiscoverWatchlistPage({
                   <span className="text-xs text-white/30 font-bold">
                     — {displayList.length}개 종목
                   </span>
-                  <span className="ml-auto text-[10px] text-white/20 font-bold">
+                  <span className="sm:ml-auto text-[10px] text-white/20 font-bold">
                     {lastUsedMode === 'MOMENTUM'
                       ? '현재 강한 모멘텀 · 수급 집중 종목'
                       : '급등 전 선행 신호 · 에너지 응축 종목'}
@@ -1769,16 +1769,16 @@ export function DiscoverWatchlistPage({
                             <div className="absolute -bottom-12 -right-12 w-40 h-40 bg-blue-500/5 blur-[80px] rounded-full group-hover/name-area:bg-blue-500/15 transition-all duration-700" />
                             
                             <div className="relative flex flex-col min-w-0">
-                              <div className="flex items-center justify-between gap-3 min-w-0 mb-2">
-                                <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                                  <div className="relative group/copy">
+                              <div className="flex items-start justify-between gap-2 sm:gap-3 min-w-0 mb-2">
+                                <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
+                                  <div className="relative group/copy min-w-0">
                                     <h4
                                       onClick={(e) => { e.stopPropagation(); handleCopy(stock.name, stock.code); }}
-                                      className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tighter text-white group-hover:text-orange-500 transition-all duration-300 truncate leading-tight cursor-pointer flex items-center gap-2 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+                                      className="text-lg sm:text-2xl lg:text-3xl font-black tracking-tighter text-white group-hover:text-orange-500 transition-all duration-300 leading-tight cursor-pointer flex items-center gap-2 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)] break-keep"
                                       title="종목명 복사"
                                     >
                                       {stock.name}
-                                      <Copy className="w-4 h-4 opacity-0 group-hover/copy:opacity-50 transition-opacity" />
+                                      <Copy className="w-4 h-4 opacity-0 group-hover/copy:opacity-50 transition-opacity shrink-0" />
                                     </h4>
                                     <AnimatePresence>
                                       {copiedCode === stock.code && (
@@ -1797,7 +1797,7 @@ export function DiscoverWatchlistPage({
                                     {stock.code}
                                   </span>
                                   {dartAlerts.some(a => a.stock_code.replace(/^A/, '') === stock.code) && (
-                                    <div className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border bg-amber-500/20 text-amber-400 border-amber-500/30 shadow-lg backdrop-blur-md flex items-center gap-1"
+                                    <div className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border bg-amber-500/20 text-amber-400 border-amber-500/30 shadow-lg backdrop-blur-md flex items-center gap-1 shrink-0"
                                       title={dartAlerts.filter(a => a.stock_code.replace(/^A/, '') === stock.code).map(a => a.report_nm).join(', ')}
                                     >
                                       <FileText className="w-3 h-3" />
@@ -1806,7 +1806,7 @@ export function DiscoverWatchlistPage({
                                   )}
                                   {stock.gate && (
                                     <div className={cn(
-                                      "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-lg backdrop-blur-md",
+                                      "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-lg backdrop-blur-md shrink-0",
                                       stock.gate === 1 ? "bg-red-500/20 text-red-400 border-red-500/30" :
                                       stock.gate === 2 ? "bg-blue-500/20 text-blue-400 border-blue-500/30" :
                                       "bg-green-500/20 text-green-400 border-green-500/30"
@@ -1846,7 +1846,7 @@ export function DiscoverWatchlistPage({
                                 <div className="flex items-center gap-2 mt-1">
                                   <div className="flex items-center gap-2 bg-orange-500/10 px-3 py-1 rounded-full border border-orange-500/20 backdrop-blur-md">
                                     <Sparkles className="w-3.5 h-3.5 text-orange-500 animate-pulse" />
-                                    <span className="text-[10px] sm:text-[11px] font-black text-orange-400 uppercase tracking-[0.1em]">{stock.visualReport.summary}</span>
+                                    <span className="text-[10px] sm:text-[11px] font-black text-orange-400 uppercase tracking-[0.1em] break-keep">{stock.visualReport.summary}</span>
                                   </div>
                                 </div>
                               )}
@@ -2338,7 +2338,7 @@ export function DiscoverWatchlistPage({
                   <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
                   <span className="text-xs font-black text-white/40 uppercase tracking-[0.3em]">Export Options</span>
                 </div>
-                <h2 className="text-3xl font-black text-white mb-4 tracking-tight uppercase">분석 리포트 내보내기</h2>
+                <h2 className="text-xl sm:text-3xl font-black text-white mb-4 tracking-tight uppercase break-keep">분석 리포트 내보내기</h2>
                 <p className="text-sm text-white/40 font-bold leading-relaxed max-w-md">
                   QuantMaster Pro 분석 결과를 PDF 파일로 저장하거나 이메일로 즉시 전송하여 보관할 수 있습니다.
                 </p>
