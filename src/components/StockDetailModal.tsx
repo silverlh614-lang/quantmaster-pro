@@ -25,6 +25,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { StockRecommendation } from '../services/stockService';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { debugWarn } from '../utils/debug';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -36,7 +37,10 @@ interface StockDetailModalProps {
 }
 
 export const StockDetailModal: React.FC<StockDetailModalProps> = ({ stock, onClose }) => {
-  if (!stock) return null;
+  if (!stock) {
+    debugWarn('StockDetailModal: stock is null - modal will not render');
+    return null;
+  }
 
   return (
     <AnimatePresence>

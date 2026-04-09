@@ -11,6 +11,7 @@ import {
 import { SectorRotation } from '../types/quant';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { debugWarn } from '../utils/debug';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -21,7 +22,20 @@ interface SectorHeatmapProps {
 }
 
 export const SectorHeatmap: React.FC<SectorHeatmapProps> = ({ sectors }) => {
-  if (!sectors || sectors.length === 0) return null;
+  if (!sectors || sectors.length === 0) {
+    debugWarn('SectorHeatmap: sectors 데이터 없음');
+    return (
+      <div className="glass-3d p-8 rounded-[2.5rem] border border-white/10 shadow-2xl">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="bg-indigo-500/20 p-3 rounded-2xl border border-indigo-500/30">
+            <Layers size={24} className="text-indigo-400" />
+          </div>
+          <h2 className="text-2xl font-black text-white uppercase tracking-tighter">섹터 로테이션 맵</h2>
+        </div>
+        <p className="text-sm text-white/40 text-center py-8">섹터 데이터가 아직 로드되지 않았습니다.</p>
+      </div>
+    );
+  }
 
   // Sort by strength
   const sortedSectors = [...sectors].sort((a, b) => b.strength - a.strength);

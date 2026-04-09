@@ -19,8 +19,8 @@ export function AutoTradePage() {
 
   useEffect(() => {
     const fetchServerData = () => {
-      fetch('/api/auto-trade/shadow-trades').then(r => r.json()).then(setServerShadowTrades).catch(() => {});
-      fetch('/api/auto-trade/recommendations/stats').then(r => r.json()).then(setServerRecStats).catch(() => {});
+      fetch('/api/auto-trade/shadow-trades').then(r => r.json()).then(setServerShadowTrades).catch((err) => console.error('[ERROR] Shadow trades 조회 실패:', err));
+      fetch('/api/auto-trade/recommendations/stats').then(r => r.json()).then(setServerRecStats).catch((err) => console.error('[ERROR] Recommendation stats 조회 실패:', err));
     };
     fetchServerData();
     const interval = setInterval(fetchServerData, 5 * 60 * 1000);

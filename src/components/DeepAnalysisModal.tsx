@@ -30,6 +30,7 @@ import type {
   MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal,
   StockProfile, Gate0Result
 } from '../types/quant';
+import { debugLog, debugWarn } from '../utils/debug';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -53,9 +54,9 @@ interface DeepAnalysisModalProps {
 
 export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsiValues, onExportPDF, isExporting }: DeepAnalysisModalProps) {
   if (!stock) {
-    console.log("❌ DeepAnalysisModal: stock is null");
+    debugWarn('DeepAnalysisModal: stock is null - modal will not render');
   } else {
-    console.log("✅ DeepAnalysisModal OPEN:", stock.name, stock.code);
+    debugLog('DeepAnalysisModal OPEN', { name: stock.name, code: stock.code });
   }
 
   const globalIntelStore = useGlobalIntelStore();

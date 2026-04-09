@@ -253,6 +253,7 @@ import { usePortfolioOps } from './hooks/usePortfolioOps';
 import { useStockSearch } from './hooks/useStockSearch';
 import { useTradeOps } from './hooks/useTradeOps';
 import { useReportExport } from './hooks/useReportExport';
+import { useDebugWatchers } from './hooks/useDebugWatchers';
 
 export default function App() {
   // ── Zustand Store Subscriptions ──────────────────────────────────────────────
@@ -339,6 +340,7 @@ export default function App() {
   const { toggleWatchlist, recordTrade, closeTrade, deleteTrade, updateTradeMemo, handleAddSector, handleRemoveSector } = useTradeOps();
   const { generatePDF, handleExportDeepAnalysisPDF, handleGenerateSummary, sendEmail, analysisReportRef } = useReportExport();
   const { copiedCode, handleCopy } = useCopiedCode();
+  useDebugWatchers();
 
   // KIS 모의계좌 잔고 — 자동매매 투자금 기준
   const [kisBalance, setKisBalance] = useState<number>(100_000_000);
@@ -349,14 +351,14 @@ export default function App() {
         const cash = Number(data.output2?.[0]?.dnca_tot_amt ?? data.output?.dnca_tot_amt ?? 0);
         if (cash > 0) setKisBalance(cash);
       })
-      .catch(() => {}); // 실패 시 기본값 유지
+      .catch((err) => console.error('[ERROR] KIS 잔고 조회 실패:', err));
   }, []);
 
   // DART 공시 알림 데이터 (DiscoverWatchlistPage에서 사용)
   const [dartAlerts, setDartAlerts] = useState<{ corp_name: string; stock_code: string; report_nm: string; rcept_dt: string; sentiment: string }[]>([]);
   useEffect(() => {
     const fetchDart = () => {
-      fetch('/api/auto-trade/dart-alerts').then(r => r.json()).then(setDartAlerts).catch(() => {});
+      fetch('/api/auto-trade/dart-alerts').then(r => r.json()).then(setDartAlerts).catch((err) => console.error('[ERROR] DART 알림 조회 실패:', err));
     };
     fetchDart();
     const interval = setInterval(fetchDart, 5 * 60 * 1000);
@@ -469,13 +471,13 @@ export default function App() {
           stopLoss: stock.stopLoss ?? 0,
           targetPrice: stock.targetPrice ?? 0,
         }),
-      }).catch(() => {});
+      }).catch((err) => console.error('[ERROR] 워치리스트 동기화 실패:', err));
     }
 
     // 제거된 종목 → DELETE
     const removed = prevCodes.filter(code => !currentCodes.includes(code));
     for (const code of removed) {
-      fetch(`/api/auto-trade/watchlist/${code}`, { method: 'DELETE' }).catch(() => {});
+      fetch(`/api/auto-trade/watchlist/${code}`, { method: 'DELETE' }).catch((err) => console.error('[ERROR] 워치리스트 삭제 실패:', err));
     }
   }, [watchlist]);
 

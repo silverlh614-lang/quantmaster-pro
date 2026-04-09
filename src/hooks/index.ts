@@ -18,3 +18,4 @@ export { usePortfolioOps } from './usePortfolioOps';
 export { useStockSearch } from './useStockSearch';
 export { useTradeOps } from './useTradeOps';
 export { useReportExport } from './useReportExport';
+export { useDebugWatchers } from './useDebugWatchers';

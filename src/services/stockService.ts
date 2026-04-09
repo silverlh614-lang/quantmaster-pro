@@ -1994,31 +1994,40 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
 
 // KIS 실시간 현재가로 syncStockPrice 대체 — dataSourceType을 'REALTIME'으로 설정
 export async function syncStockPriceKIS(stock: StockRecommendation): Promise<StockRecommendation> {
-  const res = await fetch('/api/kis/proxy', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      path: '/uapi/domestic-stock/v1/quotations/inquire-price',
-      method: 'GET',
-      headers: {
-        'tr_id': 'FHKST01010100',
-        'custtype': 'P',
-      },
-      params: {
-        FID_COND_MRKT_DIV_CODE: 'J',
-        FID_INPUT_ISCD: stock.code,
-      },
-    }),
-  });
-  const data = await res.json();
-  const currentPrice = parseInt(data.output?.stck_prpr || '0', 10);
-  if (!currentPrice) throw new Error(`KIS 가격 조회 실패: ${JSON.stringify(data)}`);
-  return {
-    ...stock,
-    currentPrice,
-    dataSourceType: 'REALTIME',
-    priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (KIS 실시간)`,
-  };
+  try {
+    const res = await fetch('/api/kis/proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        path: '/uapi/domestic-stock/v1/quotations/inquire-price',
+        method: 'GET',
+        headers: {
+          'tr_id': 'FHKST01010100',
+          'custtype': 'P',
+        },
+        params: {
+          FID_COND_MRKT_DIV_CODE: 'J',
+          FID_INPUT_ISCD: stock.code,
+        },
+      }),
+    });
+    const data = await res.json();
+    const currentPrice = parseInt(data.output?.stck_prpr || '0', 10);
+    if (!currentPrice) throw new Error(`KIS 가격 조회 실패: ${JSON.stringify(data)}`);
+    return {
+      ...stock,
+      currentPrice,
+      dataSourceType: 'REALTIME',
+      priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (KIS 실시간)`,
+    };
+  } catch (err) {
+    console.error(`[ERROR] syncStockPriceKIS 실패 (${stock.code}):`, err);
+    return {
+      ...stock,
+      dataSourceType: 'STALE',
+      priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (KIS 조회 실패)`,
+    };
+  }
 }
 
 const searchCache = new Map<string, { data: StockRecommendation[]; timestamp: number }>();

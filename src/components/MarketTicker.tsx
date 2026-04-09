@@ -3,6 +3,7 @@ import { MarketOverview } from '../services/stockService';
 import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { debugWarn } from '../utils/debug';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -26,7 +27,14 @@ export const MarketTicker: React.FC<MarketTickerProps> = ({ data, loading, onRef
     );
   }
 
-  if (!data) return null;
+  if (!data) {
+    debugWarn('MarketTicker: market data 없음 - ticker 숨김');
+    return (
+      <div className="h-10 bg-black/60 border-b border-white/5 flex items-center justify-center">
+        <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">시장 데이터 대기 중...</span>
+      </div>
+    );
+  }
 
   const mainIndices = (data.indices || []).filter(idx => 
     ['KOSPI', 'KOSDAQ', 'S&P 500', 'NASDAQ'].includes((idx.name || '').toUpperCase()) ||

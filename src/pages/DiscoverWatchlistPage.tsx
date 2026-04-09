@@ -45,6 +45,7 @@ import type {
   StockProfile, StockProfileType, ROEType, Gate0Result, NewsFrequencyScore,
   ConditionId, TradeRecord
 } from '../types/quant';
+import { debugWarn } from '../utils/debug';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
