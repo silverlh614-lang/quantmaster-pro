@@ -52,6 +52,12 @@ interface DeepAnalysisModalProps {
 }
 
 export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsiValues, onExportPDF, isExporting }: DeepAnalysisModalProps) {
+  if (!stock) {
+    console.log("❌ DeepAnalysisModal: stock is null");
+  } else {
+    console.log("✅ DeepAnalysisModal OPEN:", stock.name, stock.code);
+  }
+
   const globalIntelStore = useGlobalIntelStore();
   const macroEnv = globalIntelStore.macroEnv;
   const exportRatio = globalIntelStore.exportRatio;
