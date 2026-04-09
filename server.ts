@@ -397,6 +397,82 @@ async function startServer() {
     }
   });
 
+  // ─── ECOS (한국은행 경제통계시스템) API 프록시 ─────────────────────────────
+  // API 키를 서버에서만 사용하여 클라이언트 노출을 방지합니다.
+  app.get('/api/ecos', async (req: Request, res: Response) => {
+    const { statCode, period, startDate, endDate, itemCode1, itemCode2 } = req.query;
+
+    if (!process.env.ECOS_API_KEY) {
+      return res.status(500).json({ error: 'ECOS_API_KEY 미설정. .env 파일에 ECOS_API_KEY를 추가하세요.' });
+    }
+    if (!statCode || !period || !startDate || !endDate || !itemCode1) {
+      return res.status(400).json({ error: '필수 파라미터 누락: statCode, period, startDate, endDate, itemCode1' });
+    }
+
+    // ECOS REST URL: /api/StatisticSearch/{KEY}/{format}/{lang}/{startNo}/{endNo}/{statCode}/{period}/{start}/{end}/{item1}/{item2?}
+    const apiKey = process.env.ECOS_API_KEY;
+    const item2Part = itemCode2 ? `/${itemCode2}` : '';
+    const url = `https://ecos.bok.or.kr/api/StatisticSearch/${apiKey}/json/kr/1/1000/${statCode}/${period}/${startDate}/${endDate}/${itemCode1}${item2Part}`;
+
+    try {
+      const response = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+      });
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      console.error('ECOS proxy error:', error.message);
+      res.status(500).json({ error: 'ECOS API 호출 실패', details: error.message });
+    }
+  });
+
+  // ECOS 매크로 스냅샷 — 주요 지표 일괄 조회 (서버사이드 직접 호출)
+  app.get('/api/ecos/snapshot', async (_req: Request, res: Response) => {
+    if (!process.env.ECOS_API_KEY) {
+      return res.status(500).json({ error: 'ECOS_API_KEY 미설정' });
+    }
+
+    const apiKey = process.env.ECOS_API_KEY;
+    const now = new Date();
+    const pad2 = (n: number) => String(n).padStart(2, '0');
+    const today = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`;
+    const thisMonth = `${now.getFullYear()}${pad2(now.getMonth() + 1)}`;
+    const monthAgo6 = (() => { const d = new Date(); d.setMonth(d.getMonth() - 6); return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`; })();
+    const monthAgo6M = (() => { const d = new Date(); d.setMonth(d.getMonth() - 6); return `${d.getFullYear()}${pad2(d.getMonth() + 1)}`; })();
+    const monthAgo24M = (() => { const d = new Date(); d.setMonth(d.getMonth() - 24); return `${d.getFullYear()}${pad2(d.getMonth() + 1)}`; })();
+    const yearAgo3Q = `${now.getFullYear() - 3}Q1`;
+    const thisQ = `${now.getFullYear()}Q${Math.ceil((now.getMonth() + 1) / 3)}`;
+
+    const buildUrl = (stat: string, period: string, start: string, end: string, item1: string, item2?: string) => {
+      const i2 = item2 ? `/${item2}` : '';
+      return `https://ecos.bok.or.kr/api/StatisticSearch/${apiKey}/json/kr/1/500/${stat}/${period}/${start}/${end}/${item1}${i2}`;
+    };
+
+    try {
+      const [bokRes, fxRes, m2Res, gdpRes, expRes, impRes] = await Promise.allSettled([
+        fetch(buildUrl('722Y001', 'D', monthAgo6, today, '0101000')).then(r => r.json()),
+        fetch(buildUrl('731Y003', 'D', monthAgo6, today, '0000001', '0000003')).then(r => r.json()),
+        fetch(buildUrl('101Y003', 'M', monthAgo24M, thisMonth, 'BBGA00')).then(r => r.json()),
+        fetch(buildUrl('111Y002', 'Q', yearAgo3Q, thisQ, '10111')).then(r => r.json()),
+        fetch(buildUrl('403Y003', 'M', monthAgo24M, thisMonth, '000000', '1')).then(r => r.json()),
+        fetch(buildUrl('403Y003', 'M', monthAgo24M, thisMonth, '000000', '2')).then(r => r.json()),
+      ]);
+
+      res.json({
+        bokRate: bokRes.status === 'fulfilled' ? bokRes.value : null,
+        exchangeRate: fxRes.status === 'fulfilled' ? fxRes.value : null,
+        m2: m2Res.status === 'fulfilled' ? m2Res.value : null,
+        gdp: gdpRes.status === 'fulfilled' ? gdpRes.value : null,
+        exports: expRes.status === 'fulfilled' ? expRes.value : null,
+        imports: impRes.status === 'fulfilled' ? impRes.value : null,
+        fetchedAt: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error('ECOS snapshot error:', error.message);
+      res.status(500).json({ error: 'ECOS 스냅샷 조회 실패', details: error.message });
+    }
+  });
+
   // DART API Proxy
   app.get('/api/dart', async (req: Request, res: Response) => {
     const { corp_code, bsns_year, reprt_code, fs_div } = req.query;
