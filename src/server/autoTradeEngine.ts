@@ -168,7 +168,8 @@ interface ServerShadowTrade {
   exitPrice?: number;
   exitTime?: string;
   returnPct?: number;
-  price7dAgo?: number;  // 과열 탐지 신호 3용 (7일 전 가격)
+  price7dAgo?: number;      // 과열 탐지 신호 3용 (7일 전 가격)
+  originalQuantity?: number; // 최초 진입 수량 — EUPHORIA 부분 매도 후 실보유 추적용
 }
 
 export function loadShadowTrades(): ServerShadowTrade[] {
@@ -479,7 +480,7 @@ export async function runAutoSignalScan(): Promise<void> {
     }
 
     try {
-      const currentPrice = await fetchCurrentPrice(stock.code);
+      const currentPrice = await fetchCurrentPrice(stock.code).catch(() => null);
       if (!currentPrice) continue;
 
       // 진입 조건: 현재가가 entryPrice ± 1% 이내로 도달
@@ -551,6 +552,7 @@ export async function runAutoSignalScan(): Promise<void> {
         signalPrice: currentPrice,
         shadowEntryPrice,
         quantity: execQty,
+        originalQuantity: execQty,  // 최초 진입 수량 보존 — EUPHORIA 부분 매도 후 감사용
         stopLoss: stock.stopLoss,
         targetPrice: stock.targetPrice,
         status: 'PENDING',
@@ -681,9 +683,18 @@ async function updateShadowResults(shadows: ServerShadowTrade[]): Promise<void> 
             console.log(
               `[AutoTrade] 🌡️ ${shadow.stockName} 과열 감지 (${euphoria.count}개 신호) — 절반 매도 ${halfQty}주\n  신호: ${euphoria.signals.join(', ')}`
             );
+            // originalQuantity 보존: EUPHORIA 매도 실패 시 실제 보유 수량 추적용
+            // KIS 매도 실패 → Telegram 긴급 알림 발송됨 (수동 처리 필요)
+            shadow.originalQuantity ??= shadow.quantity;
             shadow.quantity -= halfQty;
             shadow.status = 'EUPHORIA_PARTIAL';
-            appendShadowLog({ event: 'EUPHORIA_PARTIAL', ...shadow, exitPrice: currentPrice });
+            appendShadowLog({
+              event: 'EUPHORIA_PARTIAL',
+              ...shadow,
+              exitPrice: currentPrice,
+              euphoriaSoldQty: halfQty,
+              originalQuantity: shadow.originalQuantity,
+            });
             await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'EUPHORIA');
           }
         }
@@ -1880,6 +1891,11 @@ function saveFastSeenNos(seen: Set<string>): void {
 export async function fastDartCheck(): Promise<void> {
   if (!process.env.DART_API_KEY) return;
 
+  // 주말(토·일) 및 장외 시간(KST 08:00 미만 또는 16:30 초과)은 스킵 — 불필요한 API 소모 방지
+  const { dow, t: kstT } = getKstTime();
+  if (dow === 0 || dow === 6) return;
+  if (kstT < 800 || kstT > 1630) return;
+
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const url = `https://opendart.fss.or.kr/api/list.json` +
     `?crtfc_key=${process.env.DART_API_KEY}` +
@@ -2097,6 +2113,24 @@ export class TrancheExecutor {
           `기준가 ${t.entryPrice.toLocaleString()}원 대비 ${dropPct.toFixed(1)}% 하락`
         ).catch(console.error);
         continue;
+      }
+
+      // Gate 1 재검증: 시장 상황 변화 반영 (Yahoo Finance 기반 serverQuantFilter)
+      const reCheckQuote = await fetchYahooQuote(`${t.stockCode}.KS`).catch(() => null)
+                        ?? await fetchYahooQuote(`${t.stockCode}.KQ`).catch(() => null);
+      if (reCheckQuote) {
+        const gate = evaluateServerGate(reCheckQuote, loadConditionWeights());
+        if (gate.signalType === 'SKIP') {
+          t.status = 'CANCELLED';
+          t.cancelReason = `Gate 재검증 실패 (score=${gate.gateScore.toFixed(1)}, SKIP)`;
+          changed = true;
+          console.warn(`[Tranche] ${t.stockName} ${t.trancheNumber}차 취소 — Gate 재검증 실패 (${gate.gateScore.toFixed(1)}/8)`);
+          await sendTelegramAlert(
+            `🚫 <b>[분할 매수 ${t.trancheNumber}차 취소]</b> ${t.stockName}(${t.stockCode})\n` +
+            `Gate 재검증 SKIP (score=${gate.gateScore.toFixed(1)}/8) — 시장 상황 변화`
+          ).catch(console.error);
+          continue;
+        }
       }
 
       // 실행
