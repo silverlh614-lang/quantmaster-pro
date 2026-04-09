@@ -14,7 +14,9 @@
   "dependencies": {
     "@google/genai": "^1.29.0",
     "@tailwindcss/vite": "^4.1.14",
+    "@tanstack/query-sync-storage-persister": "^5.96.2",
     "@tanstack/react-query": "^5.95.2",
+    "@tanstack/react-query-persist-client": "^5.96.2",
     "@vitejs/plugin-react": "^5.0.4",
     "clsx": "^2.1.1",
     "cors": "^2.8.6",
