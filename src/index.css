@@ -4,7 +4,7 @@
 @theme {
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
   --breakpoint-xs: 480px;
-  
+
   --color-theme-bg: var(--bg-app);
   --color-theme-text: var(--text-primary);
   --color-theme-text-secondary: var(--text-secondary);
@@ -14,8 +14,13 @@
   --color-theme-accent: var(--accent);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESIGN TOKENS — Spacing, Radius, Shadows, Typography, Z-Index
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 @layer base {
   :root {
+    /* ── Color Tokens ── */
     --bg-app: #050505;
     --text-primary: #ffffff;
     --text-secondary: rgba(255, 255, 255, 0.7);
@@ -23,6 +28,53 @@
     --card-bg: rgba(255, 255, 255, 0.03);
     --card-border: rgba(255, 255, 255, 0.08);
     --accent: #f97316;
+
+    /* ── Spacing Scale (4px base) ── */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
+
+    /* ── Radius Tokens ── */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 24px;
+    --radius-full: 9999px;
+
+    /* ── Typography Scale ── */
+    --text-page-title: clamp(1.5rem, 3vw, 2rem);       /* 24px → 32px */
+    --text-section-title: clamp(1.125rem, 2.5vw, 1.5rem); /* 18px → 24px */
+    --text-card-title: clamp(0.875rem, 2vw, 1.125rem);  /* 14px → 18px */
+    --text-body: clamp(0.8125rem, 1.5vw, 0.875rem);     /* 13px → 14px */
+    --text-caption: 0.75rem;                             /* 12px */
+    --text-micro: 0.625rem;                              /* 10px */
+
+    /* ── Shadow Tokens ── */
+    --shadow-card: 0 10px 30px -10px rgba(0, 0, 0, 0.5), inset 0 1px 1px 0 rgba(255, 255, 255, 0.05);
+    --shadow-card-hover: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+    --shadow-button: 0 8px 30px -5px rgba(249, 115, 22, 0.25);
+    --shadow-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+    --shadow-glow-orange: 0 0 30px rgba(249, 115, 22, 0.15);
+    --shadow-glow-blue: 0 0 30px rgba(59, 130, 246, 0.15);
+
+    /* ── Z-Index Scale ── */
+    --z-base: 0;
+    --z-dropdown: 10;
+    --z-sticky: 20;
+    --z-header: 50;
+    --z-overlay: 90;
+    --z-modal: 100;
+    --z-toast: 110;
+
+    /* ── Chart Height Tokens ── */
+    --chart-sm: 200px;
+    --chart-md: 280px;
+    --chart-lg: 360px;
   }
 
   .theme-light {
@@ -33,6 +85,9 @@
     --card-bg: #ffffff;
     --card-border: rgba(0, 0, 0, 0.1);
     --accent: #f97316;
+    --shadow-card: 0 4px 20px -4px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
+    --shadow-card-hover: 0 12px 30px -8px rgba(0, 0, 0, 0.12);
+    --shadow-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   }
 
   .theme-high-contrast {
@@ -58,21 +113,30 @@
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   UTILITY CLASSES — Glass, Buttons, Text Effects, Responsive Utils
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 @layer utilities {
+  /* ── Glass & Card Effects ── */
   .glass-3d {
     @apply bg-theme-card backdrop-blur-2xl border border-theme-border relative overflow-hidden;
-    box-shadow: 
-      0 10px 30px -10px rgba(0, 0, 0, 0.5),
-      inset 0 1px 1px 0 rgba(255, 255, 255, 0.05);
-  }
-  
-  .card-3d {
-    @apply transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.7)] hover:bg-theme-card/80;
+    box-shadow: var(--shadow-card);
   }
 
+  .card-3d {
+    @apply transition-all duration-300 hover:-translate-y-1;
+    &:hover {
+      box-shadow: var(--shadow-card-hover);
+      background: var(--card-bg);
+      filter: brightness(1.05);
+    }
+  }
+
+  /* ── Button Effects ── */
   .btn-3d {
     @apply relative overflow-hidden transition-all duration-200 active:scale-95;
-    box-shadow: 
+    box-shadow:
       0 8px 0 0 rgba(154, 52, 18, 0.8),
       0 15px 35px -5px rgba(249, 115, 22, 0.6),
       inset 0 1px 1px 0 rgba(255, 255, 255, 0.3);
@@ -80,12 +144,13 @@
 
   .btn-3d:active {
     @apply translate-y-[4px];
-    box-shadow: 
+    box-shadow:
       0 4px 0 0 rgba(154, 52, 18, 0.8),
       0 8px 15px -3px rgba(249, 115, 22, 0.5),
       inset 0 1px 1px 0 rgba(255, 255, 255, 0.1);
   }
 
+  /* ── Text Effects ── */
   .text-glow {
     text-shadow: 0 0 12px rgba(255, 255, 255, 0.2);
   }
@@ -94,7 +159,38 @@
     text-shadow: 0 0 12px rgba(249, 115, 22, 0.4);
   }
 
-  /* Responsive Text Handling — fluid typography via clamp() */
+  /* ── Unified Typography Classes ── */
+  .text-page-title {
+    font-size: var(--text-page-title);
+    @apply font-black tracking-tight;
+  }
+
+  .text-section-title {
+    font-size: var(--text-section-title);
+    @apply font-black tracking-tight;
+  }
+
+  .text-card-title {
+    font-size: var(--text-card-title);
+    @apply font-black;
+  }
+
+  .text-body {
+    font-size: var(--text-body);
+    @apply font-medium leading-relaxed;
+  }
+
+  .text-caption {
+    font-size: var(--text-caption);
+    @apply font-bold text-theme-text-muted;
+  }
+
+  .text-micro {
+    font-size: var(--text-micro);
+    @apply font-black uppercase tracking-[0.15em] text-theme-text-muted;
+  }
+
+  /* ── Responsive Text — fluid typography via clamp() ── */
   .text-responsive-base {
     @apply text-sm sm:text-base;
   }
@@ -107,23 +203,23 @@
     @apply text-xl sm:text-2xl lg:text-3xl;
   }
 
-  /* Fluid heading sizes: shrink gracefully on mobile */
   .text-fluid-6xl {
-    font-size: clamp(1.875rem, 5vw, 3.75rem); /* 30px → 60px */
+    font-size: clamp(1.875rem, 5vw, 3.75rem);
   }
   .text-fluid-5xl {
-    font-size: clamp(1.5rem, 4vw, 3rem); /* 24px → 48px */
+    font-size: clamp(1.5rem, 4vw, 3rem);
   }
   .text-fluid-4xl {
-    font-size: clamp(1.25rem, 3.5vw, 2.25rem); /* 20px → 36px */
+    font-size: clamp(1.25rem, 3.5vw, 2.25rem);
   }
   .text-fluid-3xl {
-    font-size: clamp(1.125rem, 3vw, 1.875rem); /* 18px → 30px */
+    font-size: clamp(1.125rem, 3vw, 1.875rem);
   }
   .text-fluid-2xl {
-    font-size: clamp(1rem, 2.5vw, 1.5rem); /* 16px → 24px */
+    font-size: clamp(1rem, 2.5vw, 1.5rem);
   }
 
+  /* ── Layout Utilities ── */
   .safe-padding {
     @apply px-4 sm:px-6 lg:px-8;
   }
@@ -131,7 +227,20 @@
   .break-word-all {
     word-break: break-all;
   }
+
+  /* ── Scrollbar Hiding ── */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PRINT STYLES
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 @media print {
   .no-print {
@@ -144,13 +253,11 @@
     overflow: visible !important;
   }
 
-  /* Force background colors for charts and badges if supported */
   * {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  /* Ensure modal content is printable */
   .print-section {
     background: white !important;
     color: black !important;
@@ -166,7 +273,6 @@
     z-index: 9999 !important;
   }
 
-  /* Hide scrollbars and other UI elements */
   ::-webkit-scrollbar {
     display: none;
   }
@@ -184,14 +290,16 @@
     border-color: #eee !important;
   }
 
-  /* Handle modal overlay during print */
   .fixed.inset-0 {
     background: transparent !important;
     backdrop-filter: none !important;
   }
 }
 
-/* Custom Scrollbar — theme-aware */
+/* ═══════════════════════════════════════════════════════════════════════════
+   CUSTOM SCROLLBAR — theme-aware
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
