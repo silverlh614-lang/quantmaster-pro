@@ -40,6 +40,13 @@ export interface MacroEnvironment {
   vix: number;                 // VIX
   // 환율
   usdKrw: number;              // 원/달러 환율
+  // ─── Gate -1 Bear Regime Detector 보조 지표 (optional) ───────────────────
+  kospiBelow120ma?: boolean;         // KOSPI 120일 이동평균선 하회 여부
+  kospiIchimokuBearish?: boolean;    // KOSPI 일목 구름 아래 (하락 추세) 여부
+  vkospiRising?: boolean;            // VKOSPI 상승 중 여부 (추세)
+  samsungIriDelta?: number;          // 삼성 IRI 변화량 (pt, 양수=위험 증가)
+  foreignFuturesSellDays?: number;   // 외국인 선물 연속 순매도 일수
+  mhsTrend?: 'IMPROVING' | 'STABLE' | 'DETERIORATING'; // MHS 추세 방향
 }
 
 /** Gate 0 평가 결과 */
@@ -993,5 +1000,54 @@ export interface SystemVsIntuitionStats {
   intuitionWinRate: number;         // %
   systemEdge: number;               // 시스템 승률 - 직관 승률 (양수=시스템 우위)
 
+  lastUpdated: string;
+}
+
+// ─── 아이디어 1: Gate -1 "Market Regime Detector" — Bull/Bear 자동 판별 게이트 ──
+
+/** 3단계 시장 레짐 유형 */
+export type MarketRegimeDetectorType = 'BULL' | 'TRANSITION' | 'BEAR';
+
+/** Bear Regime 판별 7개 조건 중 하나의 상태 */
+export interface BearRegimeCondition {
+  id: string;
+  name: string;
+  triggered: boolean;
+  description: string;
+}
+
+/** Gate -1 Bear Regime Detector 평가 결과 */
+export interface BearRegimeResult {
+  regime: MarketRegimeDetectorType;
+  conditions: BearRegimeCondition[];
+  triggeredCount: number;         // 7개 중 발동된 조건 수
+  threshold: number;              // Bear 활성화 기준 (기본 5)
+  actionRecommendation: string;   // 투자자 행동 권고
+  cashRatioRecommended: number;   // 권장 현금 비중 (%)
+  defenseMode: boolean;           // 인버스/방어자산 모드 여부
+  lastUpdated: string;
+}
+
+// ─── 아이디어 4: VKOSPI 공포지수 트리거 시스템 ──────────────────────────────────
+
+/** VKOSPI 트리거 단계 */
+export type VkospiTriggerLevel =
+  | 'NORMAL'         // VKOSPI < 25 — 정상 시장
+  | 'WARNING'        // 25 ≤ VKOSPI < 30 — 경계경보, 현금 20% 확보
+  | 'ENTRY_1'        // 30 ≤ VKOSPI < 40 — 인버스 ETF 1차 진입 (30%)
+  | 'ENTRY_2'        // 40 ≤ VKOSPI < 50 — 인버스 ETF 추가 진입 (60%)
+  | 'HISTORICAL_FEAR'; // VKOSPI ≥ 50 — 역사적 공포, 인버스 최대 + V자 반등 준비
+
+/** VKOSPI 트리거 분석 결과 */
+export interface VkospiTriggerResult {
+  level: VkospiTriggerLevel;
+  vkospi: number;
+  cashRatio: number;                  // 권장 현금 비중 (%)
+  inversePosition: number;            // 권장 인버스 ETF 비중 (%)
+  dualPositionActive: boolean;        // VKOSPI ≥ 50: 인버스 보유 + V반등 리스트 병행
+  inverseEtfSuggestions: string[];    // 추천 인버스 ETF 목록
+  vRecoveryStocks?: string[];         // V자 반등 준비 리스트 (HISTORICAL_FEAR 시)
+  description: string;                // 단계 설명
+  actionMessage: string;              // 행동 권고 메시지
   lastUpdated: string;
 }

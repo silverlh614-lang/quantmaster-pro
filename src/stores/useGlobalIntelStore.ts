@@ -5,7 +5,7 @@ import type {
   GeopoliticalRiskData, CreditSpreadData, ExtendedRegimeData,
   GlobalCorrelationMatrix, NewsFrequencyScore, ROEType,
   SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex,
-  FomcSentimentAnalysis,
+  FomcSentimentAnalysis, BearRegimeResult, VkospiTriggerResult,
 } from '../types/quant';
 import type { MHSRecord } from '../components/MHSHistoryChart';
 
@@ -45,6 +45,14 @@ interface GlobalIntelState {
   setFinancialStressData: (data: FinancialStressIndex | null) => void;
   fomcSentimentData: FomcSentimentAnalysis | null;
   setFomcSentimentData: (data: FomcSentimentAnalysis | null) => void;
+
+  // ── 아이디어 1: Gate -1 Bear Regime Detector ────────────────────────────
+  bearRegimeResult: BearRegimeResult | null;
+  setBearRegimeResult: (data: BearRegimeResult | null) => void;
+
+  // ── 아이디어 4: VKOSPI 트리거 시스템 ────────────────────────────────────
+  vkospiTriggerResult: VkospiTriggerResult | null;
+  setVkospiTriggerResult: (data: VkospiTriggerResult | null) => void;
 
   // ROE type
   currentRoeType: ROEType;
@@ -93,6 +101,11 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       setFinancialStressData: (financialStressData) => set({ financialStressData }),
       fomcSentimentData: null,
       setFomcSentimentData: (fomcSentimentData) => set({ fomcSentimentData }),
+
+      bearRegimeResult: null,
+      setBearRegimeResult: (bearRegimeResult) => set({ bearRegimeResult }),
+      vkospiTriggerResult: null,
+      setVkospiTriggerResult: (vkospiTriggerResult) => set({ vkospiTriggerResult }),
 
       currentRoeType: 3,
       setCurrentRoeType: (currentRoeType) => set({ currentRoeType }),

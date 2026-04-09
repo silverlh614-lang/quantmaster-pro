@@ -27,6 +27,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { MasterChecklistModal } from './components/MasterChecklistModal';
 import { TradeRecordModal } from './components/TradeRecordModal';
 import { MarketTicker } from './components/MarketTicker';
+import { MarketRegimeBanner } from './components/MarketRegimeBanner';
 import { resolveShadowTrade } from './services/autoTrading';
 import { cn } from './ui/cn';
 import { AppHeader } from './layout/AppHeader';
@@ -84,6 +85,10 @@ export default function App() {
   } = useSettingsStore();
 
   const { addShadowTrade, updateShadowTrade, shadowTrades } = useShadowTradeStore();
+
+  // ── Gate -1 Bear Regime & VKOSPI Trigger (아이디어 1, 4) ────────────────
+  const bearRegimeResult = useGlobalIntelStore(s => s.bearRegimeResult);
+  const vkospiTriggerResult = useGlobalIntelStore(s => s.vkospiTriggerResult);
 
   // ── Custom Hooks ────────────────────────────────────────────────────────
   const { handleSyncPrice, handleManualPriceUpdate, handleSyncAll } = useStockSync();
@@ -342,6 +347,12 @@ export default function App() {
 
         {/* ── Header ── */}
         <AppHeader />
+
+        {/* ── Gate -1 Market Regime Banner (아이디어 1, 4) ── */}
+        <MarketRegimeBanner
+          bearRegimeResult={bearRegimeResult}
+          vkospiTriggerResult={vkospiTriggerResult}
+        />
 
         {/* ── Market Ticker ── */}
         <MarketTicker
