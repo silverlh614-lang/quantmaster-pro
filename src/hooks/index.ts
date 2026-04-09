@@ -1,4 +1,7 @@
 export {
+  useBatchGlobalIntel,
+  useBatchSectorIntel,
+  useBatchMarketIntel,
   useMacroEnvironment,
   useEconomicRegime,
   useExtendedRegime,
