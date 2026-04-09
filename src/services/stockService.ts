@@ -2249,6 +2249,10 @@ export async function syncStockPriceKIS(stock: StockRecommendation): Promise<Sto
 const searchCache = new Map<string, { data: StockRecommendation[]; timestamp: number }>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
+export function clearSearchCache() {
+  searchCache.clear();
+}
+
 export async function searchStock(query: string, filters?: {
   type?: string;
   pattern?: string;
