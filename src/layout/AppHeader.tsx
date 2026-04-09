@@ -53,7 +53,14 @@ export function AppHeader() {
     <header className="border-b border-theme-border bg-theme-bg/80 backdrop-blur-2xl sticky top-0 z-50 shadow-[0_2px_30px_rgba(0,0,0,0.3)] no-print">
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-[56px] sm:h-[60px] flex items-center justify-between gap-3 sm:gap-4">
 
-
+        {/* Logo */}
+        <button
+          onClick={() => { setView('DISCOVER' as any); setSearchQuery(''); }}
+          className="flex items-center gap-2 shrink-0 group/logo"
+          aria-label="메인화면으로 돌아가기"
+        >
+          <div className="relative">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/20 group-hover/logo:shadow-orange-500/40 transition-all">
               <Zap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
             </div>
             {syncStatus.isSyncing && (
@@ -61,6 +68,10 @@ export function AppHeader() {
             )}
           </div>
           <div className="hidden sm:flex flex-col leading-none">
+            <span className="text-xs font-black text-white tracking-tight">QuantMaster</span>
+            <span className="text-[10px] font-bold text-orange-400">Pro</span>
+          </div>
+        </button>
 
         {/* Navigation */}
         <nav className="flex items-center gap-0.5 overflow-x-auto no-scrollbar flex-1 justify-center">
