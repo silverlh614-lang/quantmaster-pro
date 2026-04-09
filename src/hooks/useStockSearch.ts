@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { getStockRecommendations, searchStock, getNewsFrequencyScores, StockFilters } from '../services/stockService';
+import { getStockRecommendations, searchStock, clearSearchCache, getNewsFrequencyScores, StockFilters } from '../services/stockService';
 import { useRecommendationStore, useMarketStore, useGlobalIntelStore } from '../stores';
 import type { StockRecommendation } from '../services/stockService';
 
@@ -54,7 +54,8 @@ export function useStockSearch() {
   };
 
   const handleMarketSearch = async () => {
-    setSearchingSpecific(true); setError(null);
+    setSearchingSpecific(true); setSearchResults([]); setError(null);
+    clearSearchCache();
     try {
       const results = await searchStock(searchQuery, { type: selectedType, pattern: selectedPattern, sentiment: selectedSentiment, checklist: selectedChecklist, minPrice, maxPrice });
       if (results && results.length > 0) {

@@ -146,7 +146,6 @@ export const useRecommendationStore = create<RecommendationState>()(
       partialize: (state) => ({
         recommendations: state.recommendations,
         watchlist: state.watchlist,
-        searchResults: state.searchResults,
         screenerRecommendations: state.screenerRecommendations,
         recommendationHistory: state.recommendationHistory,
         lastUpdated: state.lastUpdated,
