@@ -17,6 +17,7 @@ import {
 } from '../services/stockService';
 import { computeContrarianSignals } from '../services/quantEngine';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
+import { BearKellyPanel } from './BearKellyPanel';
 import { debugWarn } from '../utils/debug';
 
 // ─── Fusion Matrix 데이터 (아이디어 8) ──────────────────────────────────────
@@ -322,6 +323,9 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const bearRegimeResult = useGlobalIntelStore(s => s.bearRegimeResult);
   const vkospiTriggerResult = useGlobalIntelStore(s => s.vkospiTriggerResult);
   const inverseGate1Result = useGlobalIntelStore(s => s.inverseGate1Result);
+  const bearKellyResult = useGlobalIntelStore(s => s.bearKellyResult);
+  const bearKellyEntryDate = useGlobalIntelStore(s => s.bearKellyEntryDate);
+  const setBearKellyEntryDate = useGlobalIntelStore(s => s.setBearKellyEntryDate);
 
   const sortedSectors = useMemo(
     () => [...(marketOverview?.sectorRotation ?? [])].sort((a, b) => b.momentum - a.momentum),
@@ -763,6 +767,13 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
           )}
         </div>
       )}
+
+      {/* ── 아이디어 6: Bear Mode Kelly Criterion ── */}
+      <BearKellyPanel
+        bearKellyResult={bearKellyResult}
+        entryDate={bearKellyEntryDate}
+        onSetEntryDate={setBearKellyEntryDate}
+      />
 
       {/* ── 허용 섹터 화이트리스트 ── */}
       {economicRegime && (

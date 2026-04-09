@@ -17,7 +17,7 @@ import {
   getBatchMarketIntel,
 } from '../services/stockService';
 import { useGlobalIntelStore } from '../stores';
-import { evaluateGate0, evaluateBearRegime, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener } from '../services/quantEngine';
+import { evaluateGate0, evaluateBearRegime, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener, evaluateBearKelly } from '../services/quantEngine';
 import { getStaleTime, PERSIST_GC_TIME } from '../utils/cacheConfig';
 
 /**
@@ -65,6 +65,8 @@ export function useBatchGlobalIntel() {
   const setInverseGate1Result = useGlobalIntelStore(s => s.setInverseGate1Result);
   const setMarketNeutralResult = useGlobalIntelStore(s => s.setMarketNeutralResult);
   const setBearScreenerResult = useGlobalIntelStore(s => s.setBearScreenerResult);
+  const setBearKellyResult = useGlobalIntelStore(s => s.setBearKellyResult);
+  const bearKellyEntryDate = useGlobalIntelStore(s => s.bearKellyEntryDate);
 
   return useQuery({
     queryKey: ['batch-global-intel'],
@@ -101,6 +103,9 @@ export function useBatchGlobalIntel() {
 
         // Market Neutral 모드 (아이디어 9)
         setMarketNeutralResult(evaluateMarketNeutral(bearResult));
+
+        // Bear Mode Kelly Criterion (아이디어 6)
+        setBearKellyResult(evaluateBearKelly(bearResult, bearKellyEntryDate));
       }
 
       if (data.regime) setEconomicRegimeData(data.regime);

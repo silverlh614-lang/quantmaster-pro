@@ -6,7 +6,7 @@ import type {
   GlobalCorrelationMatrix, NewsFrequencyScore, ROEType,
   SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex,
   FomcSentimentAnalysis, BearRegimeResult, VkospiTriggerResult, InverseGate1Result,
-  MarketNeutralResult, BearScreenerResult,
+  MarketNeutralResult, BearScreenerResult, BearKellyResult,
 } from '../types/quant';
 import type { MHSRecord } from '../components/MHSHistoryChart';
 
@@ -67,6 +67,13 @@ interface GlobalIntelState {
   marketNeutralResult: MarketNeutralResult | null;
   setMarketNeutralResult: (data: MarketNeutralResult | null) => void;
 
+  // ── 아이디어 6: Bear Mode Kelly Criterion ────────────────────────────────
+  bearKellyResult: BearKellyResult | null;
+  setBearKellyResult: (data: BearKellyResult | null) => void;
+  /** 인버스 ETF 포지션 진입일 (ISO 날짜 문자열, null이면 미진입) */
+  bearKellyEntryDate: string | null;
+  setBearKellyEntryDate: (date: string | null) => void;
+
   // ROE type
   currentRoeType: ROEType;
   setCurrentRoeType: (type: ROEType) => void;
@@ -126,6 +133,11 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       marketNeutralResult: null,
       setMarketNeutralResult: (marketNeutralResult) => set({ marketNeutralResult }),
 
+      bearKellyResult: null,
+      setBearKellyResult: (bearKellyResult) => set({ bearKellyResult }),
+      bearKellyEntryDate: null,
+      setBearKellyEntryDate: (bearKellyEntryDate) => set({ bearKellyEntryDate }),
+
       currentRoeType: 3,
       setCurrentRoeType: (currentRoeType) => set({ currentRoeType }),
 
@@ -147,6 +159,7 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
         mhsHistory: state.mhsHistory,
         currentRoeType: state.currentRoeType,
         exportRatio: state.exportRatio,
+        bearKellyEntryDate: state.bearKellyEntryDate,
       }),
     }
   )

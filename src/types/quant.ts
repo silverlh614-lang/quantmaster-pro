@@ -1160,3 +1160,40 @@ export interface BearScreenerResult {
   screeningNote: string;
   lastUpdated: string;
 }
+
+// ─── 아이디어 6: Bear Mode Kelly Criterion — 하락 베팅에 적용하는 켈리 공식 ──
+
+/** Bear Kelly 공식 계산 결과 */
+export interface BearKellyResult {
+  /** Bear Regime 감지 시 활성화 */
+  isActive: boolean;
+  /** Bear 신호 합치 확률 (Gate -1 충족도 기반, 0~1) */
+  p: number;
+  /** 기대 수익률 배수 (인버스 2X ETF ≈ 1.8) */
+  b: number;
+  /** 손실 확률 (1 - p) */
+  q: number;
+  /** 원시 켈리 분수 ((p×b - q) / b, 0~1) */
+  rawKellyFraction: number;
+  /** 전체 켈리 포지션 비중 (%) */
+  kellyPct: number;
+  /** 반 켈리 포지션 비중 (%) — 실전 권고 (시간가치 손실 감안) */
+  halfKellyPct: number;
+  /** 최대 보유 거래일 (Time-Stop 상한, 기본 30일) */
+  maxHoldingDays: number;
+  /** 포지션 진입일 (ISO 날짜 문자열, null이면 미진입) */
+  entryDate: string | null;
+  /** 진입 후 경과 거래일 */
+  tradingDaysElapsed: number;
+  /** 잔여 거래일 */
+  tradingDaysRemaining: number;
+  /** Time-Stop 발동 여부 */
+  timeStopTriggered: boolean;
+  /** 자동 청산 알림 메시지 */
+  timeStopAlert: string;
+  /** 켈리 공식 근거 요약 */
+  formulaNote: string;
+  /** 전체 행동 권고 메시지 */
+  actionMessage: string;
+  lastUpdated: string;
+}
