@@ -6,7 +6,7 @@ import type {
   GlobalCorrelationMatrix, NewsFrequencyScore, ROEType,
   SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex,
   FomcSentimentAnalysis, BearRegimeResult, VkospiTriggerResult, InverseGate1Result,
-  MarketNeutralResult,
+  MarketNeutralResult, BearScreenerResult,
 } from '../types/quant';
 import type { MHSRecord } from '../components/MHSHistoryChart';
 
@@ -54,6 +54,10 @@ interface GlobalIntelState {
   // ── 아이디어 2: Inverse Gate 1 인버스 ETF 스코어링 시스템 ────────────────
   inverseGate1Result: InverseGate1Result | null;
   setInverseGate1Result: (data: InverseGate1Result | null) => void;
+
+  // ── 아이디어 3: Bear Screener — 하락 수혜주 자동 탐색 ───────────────────
+  bearScreenerResult: BearScreenerResult | null;
+  setBearScreenerResult: (data: BearScreenerResult | null) => void;
 
   // ── 아이디어 4: VKOSPI 트리거 시스템 ────────────────────────────────────
   vkospiTriggerResult: VkospiTriggerResult | null;
@@ -115,6 +119,8 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       setBearRegimeResult: (bearRegimeResult) => set({ bearRegimeResult }),
       inverseGate1Result: null,
       setInverseGate1Result: (inverseGate1Result) => set({ inverseGate1Result }),
+      bearScreenerResult: null,
+      setBearScreenerResult: (bearScreenerResult) => set({ bearScreenerResult }),
       vkospiTriggerResult: null,
       setVkospiTriggerResult: (vkospiTriggerResult) => set({ vkospiTriggerResult }),
       marketNeutralResult: null,
@@ -145,3 +151,4 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
     }
   )
 );
+

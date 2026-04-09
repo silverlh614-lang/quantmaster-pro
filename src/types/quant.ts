@@ -1118,3 +1118,45 @@ export interface MarketNeutralResult {
   actionMessage: string;
   lastUpdated: string;
 }
+
+// ─── 아이디어 3: Bear Regime 전용 종목 발굴 — "하락 수혜주" 자동 탐색 ────────
+
+/** Bear Screener 종목 카테고리 */
+export type BearScreenerCategory =
+  | 'DEFENSIVE'              // 방어주 — 음식료·통신·유틸리티
+  | 'COUNTER_CYCLICAL'       // 역주기주 — 채권·금·달러 ETF
+  | 'VALUE_DEPRESSED'        // 숏 수혜주 — 실적 탄탄, 주가만 눌림
+  | 'VOLATILITY_BENEFICIARY'; // 변동성 수혜주 — 보험·금융(NIM 개선)
+
+/** Bear Screener 방어형 15개 조건 중 하나의 상태 */
+export interface BearScreenerCondition {
+  id: string;
+  name: string;
+  passed: boolean;
+  category: BearScreenerCategory;
+  description: string;
+}
+
+/** Gate -1 Bear Regime 감지 시 자동 전환되는 Bear Screener 평가 결과 */
+export interface BearScreenerResult {
+  /** Bear Regime 감지 시 true */
+  isActive: boolean;
+  /** 활성화 사유 */
+  triggerReason: string;
+  /** 15개 방어형 조건 */
+  conditions: BearScreenerCondition[];
+  /** 통과된 조건 수 */
+  passedCount: number;
+  /** 카테고리별 분류 */
+  categories: {
+    defensive: BearScreenerCondition[];
+    counterCyclical: BearScreenerCondition[];
+    valueDepressed: BearScreenerCondition[];
+    volatilityBeneficiary: BearScreenerCondition[];
+  };
+  /** AI 탐색용 쿼리 목록 */
+  searchQueries: string[];
+  /** 스크리닝 방법 요약 */
+  screeningNote: string;
+  lastUpdated: string;
+}
