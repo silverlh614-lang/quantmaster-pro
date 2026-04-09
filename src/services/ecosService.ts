@@ -18,6 +18,7 @@ import type {
   EcosM2Data,
   EcosGdpData,
   EcosTradeData,
+  EcosBankLending,
   EcosMacroSnapshot,
   EcosQueryParams,
 } from '../types/quant';
@@ -37,6 +38,8 @@ export const ECOS_STAT = {
   EXPORT: { code: '403Y003', item1: '000000', item2: '1' },
   /** 수입금액 (통관기준) */
   IMPORT: { code: '403Y003', item1: '000000', item2: '2' },
+  /** 예금은행 원화대출금 (잔액, 월말) — bankLendingGrowth 실데이터 소스 */
+  BANK_LENDING: { code: '104Y015', item1: 'BBGA00' },
 } as const;
 
 // ─── 캐시 설정 ──────────────────────────────────────────────────────────────
@@ -396,6 +399,51 @@ export async function getTradeData(months = 24): Promise<EcosTradeData[]> {
   return result;
 }
 
+/**
+ * 예금은행 원화대출금 조회 (ECOS 104Y015)
+ * YoY 증가율 → MacroEnvironment.bankLendingGrowth 실데이터 소스
+ * @param months 조회할 과거 개월 수 (기본 14개월 — YoY 계산에 13개월치 필요)
+ */
+export async function getBankLendingGrowth(months = 14): Promise<EcosBankLending[]> {
+  const cacheKey = `bankLending:${months}`;
+  const cached = getCached<EcosBankLending[]>(cacheKey);
+  if (cached) return cached;
+
+  const rows = await fetchEcosData({
+    statCode: ECOS_STAT.BANK_LENDING.code,
+    period: 'M',
+    startDate: formatMonth(monthsAgo(months)),
+    endDate: formatMonth(new Date()),
+    itemCode1: ECOS_STAT.BANK_LENDING.item1,
+  });
+
+  if (rows.length === 0) return [];
+
+  const result: EcosBankLending[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const balance = parseFloat(rows[i].DATA_VALUE.replace(/,/g, ''));
+    if (isNaN(balance)) continue;
+
+    // YoY 계산: 12개월 전 잔액 대비 증가율
+    let yoyGrowth = 0;
+    if (i >= 12) {
+      const prev = parseFloat(rows[i - 12].DATA_VALUE.replace(/,/g, ''));
+      if (!isNaN(prev) && prev > 0) {
+        yoyGrowth = ((balance - prev) / prev) * 100;
+      }
+    }
+
+    result.push({
+      date: rows[i].TIME,
+      balance: Math.round(balance / 10000), // 억원 → 조원
+      yoyGrowth: Math.round(yoyGrowth * 100) / 100,
+    });
+  }
+
+  setCache(cacheKey, result);
+  return result;
+}
+
 // ─── 통합 매크로 스냅샷 ─────────────────────────────────────────────────────
 
 /**
@@ -407,12 +455,13 @@ export async function getMacroSnapshot(): Promise<EcosMacroSnapshot> {
   const cached = getCached<EcosMacroSnapshot>(cacheKey);
   if (cached) return cached;
 
-  const [bokRates, exchangeRates, m2Data, gdpData, tradeData] = await Promise.allSettled([
+  const [bokRates, exchangeRates, m2Data, gdpData, tradeData, bankLendingData] = await Promise.allSettled([
     getBokRate(6),
     getExchangeRate(3),
     getM2MoneySupply(13), // 13개월 → YoY 계산 가능
     getGdpGrowth(2),
     getTradeData(13),
+    getBankLendingGrowth(14), // 14개월 → 최신 1개 YoY 계산 가능
   ]);
 
   const snapshot: EcosMacroSnapshot = {
@@ -430,6 +479,9 @@ export async function getMacroSnapshot(): Promise<EcosMacroSnapshot> {
       : null,
     trade: tradeData.status === 'fulfilled' && tradeData.value.length > 0
       ? tradeData.value[tradeData.value.length - 1]
+      : null,
+    bankLending: bankLendingData.status === 'fulfilled' && bankLendingData.value.length > 0
+      ? bankLendingData.value[bankLendingData.value.length - 1]
       : null,
     fetchedAt: new Date().toISOString(),
   };
@@ -452,6 +504,7 @@ export function snapshotToMacroFields(snapshot: EcosMacroSnapshot): Partial<{
   nominalGdpGrowth: number;
   exportGrowth3mAvg: number;
   usdKrw: number;
+  bankLendingGrowth: number; // 104Y015 실데이터
 }> {
   const fields: ReturnType<typeof snapshotToMacroFields> = {};
 
@@ -473,6 +526,10 @@ export function snapshotToMacroFields(snapshot: EcosMacroSnapshot): Partial<{
 
   if (snapshot.exchangeRate) {
     fields.usdKrw = snapshot.exchangeRate.usdKrw;
+  }
+
+  if (snapshot.bankLending) {
+    fields.bankLendingGrowth = snapshot.bankLending.yoyGrowth;
   }
 
   return fields;

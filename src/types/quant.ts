@@ -150,6 +150,13 @@ export interface EcosTradeData {
   exportGrowthYoY: number; // 수출 증가율 YoY (%)
 }
 
+/** ECOS 은행 대출 데이터 (104Y015 — 예금은행 여신) */
+export interface EcosBankLending {
+  date: string;            // YYYYMM
+  balance: number;         // 원화대출금 잔액 (조원)
+  yoyGrowth: number;       // YoY 증가율 (%)
+}
+
 /** ECOS 종합 매크로 데이터 (모든 지표 통합) */
 export interface EcosMacroSnapshot {
   bokRate: EcosBokRate | null;
@@ -157,6 +164,7 @@ export interface EcosMacroSnapshot {
   m2: EcosM2Data | null;
   gdp: EcosGdpData | null;
   trade: EcosTradeData | null;
+  bankLending: EcosBankLending | null; // 104Y015 — 은행 여신 증가율 (bankLendingGrowth 실데이터)
   fetchedAt: string;       // ISO 타임스탬프
 }
 

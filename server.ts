@@ -496,11 +496,12 @@ async function startServer() {
       return null;
     };
 
-    const [vixR, us10yR, irxR, samsungR] = await Promise.allSettled([
+    const [vixR, us10yR, irxR, samsungR, vkospiR] = await Promise.allSettled([
       fetchYahoo('^VIX'),
       fetchYahoo('^TNX'),
       fetchYahoo('^IRX'),          // 13주 T-bill ≈ Fed Funds Rate proxy
       fetchYahoo('005930.KS', '1mo'),
+      fetchYahoo('^VKOSPI'),       // 한국 변동성 지수 (KOSPI 200 기반)
     ]);
 
     const getPrice = (r: PromiseSettledResult<any>): number | null =>
@@ -522,6 +523,7 @@ async function startServer() {
       us10yYield:  getPrice(us10yR),
       usShortRate: getPrice(irxR),   // Fed Funds Rate proxy (for krUsSpread 계산)
       samsungIri,
+      vkospi:      getPrice(vkospiR), // VKOSPI 실데이터 (null이면 클라이언트에서 vix×0.85 근사)
       fetchedAt:   new Date().toISOString(),
     });
   });

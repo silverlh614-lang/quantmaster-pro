@@ -2892,13 +2892,14 @@ export interface BatchMarketIntelResult {
 async function fetchMarketIndicators(): Promise<{
   vix: number | null; us10yYield: number | null;
   usShortRate: number | null; samsungIri: number | null;
+  vkospi: number | null;
 }> {
   try {
     const res = await fetch('/api/market-indicators');
     if (!res.ok) throw new Error(`market-indicators ${res.status}`);
     return await res.json();
   } catch {
-    return { vix: null, us10yYield: null, usShortRate: null, samsungIri: null };
+    return { vix: null, us10yYield: null, usShortRate: null, samsungIri: null, vkospi: null };
   }
 }
 
@@ -2919,10 +2920,12 @@ export async function getBatchGlobalIntel(): Promise<BatchGlobalIntelResult> {
     bokRateDirection: 'HIKING' | 'HOLDING' | 'CUTTING';
     m2GrowthYoY: number; nominalGdpGrowth: number;
     exportGrowth3mAvg: number; usdKrw: number;
+    bankLendingGrowth: number; // 104Y015 실데이터
   }>;
   let ecosFields: EcosF = {};
   let yahooFields = { vix: null as number | null, us10yYield: null as number | null,
-                      usShortRate: null as number | null, samsungIri: null as number | null };
+                      usShortRate: null as number | null, samsungIri: null as number | null,
+                      vkospi: null as number | null };
   let bokRateValue: number | null = null;
 
   const [ecosSnapshotR, yahooR] = await Promise.allSettled([
@@ -2949,14 +2952,16 @@ export async function getBatchGlobalIntel(): Promise<BatchGlobalIntelResult> {
 
   // 사전 확보 필드 조합 (AI Phase A에 전달 → 검색 대체)
   const preFilledMacro: Record<string, number | string> = {
-    ...(ecosFields.bokRateDirection ? { bokRateDirection: ecosFields.bokRateDirection } : {}),
-    ...(ecosFields.m2GrowthYoY       !== undefined ? { m2GrowthYoY:       ecosFields.m2GrowthYoY }       : {}),
-    ...(ecosFields.nominalGdpGrowth  !== undefined ? { nominalGdpGrowth:  ecosFields.nominalGdpGrowth }  : {}),
-    ...(ecosFields.exportGrowth3mAvg !== undefined ? { exportGrowth3mAvg: ecosFields.exportGrowth3mAvg } : {}),
-    ...(ecosFields.usdKrw            !== undefined ? { usdKrw:            ecosFields.usdKrw }            : {}),
+    ...(ecosFields.bokRateDirection    ? { bokRateDirection:    ecosFields.bokRateDirection }    : {}),
+    ...(ecosFields.m2GrowthYoY        !== undefined ? { m2GrowthYoY:        ecosFields.m2GrowthYoY }        : {}),
+    ...(ecosFields.nominalGdpGrowth   !== undefined ? { nominalGdpGrowth:   ecosFields.nominalGdpGrowth }   : {}),
+    ...(ecosFields.exportGrowth3mAvg  !== undefined ? { exportGrowth3mAvg:  ecosFields.exportGrowth3mAvg }  : {}),
+    ...(ecosFields.usdKrw             !== undefined ? { usdKrw:             ecosFields.usdKrw }             : {}),
+    ...(ecosFields.bankLendingGrowth  !== undefined ? { bankLendingGrowth:  ecosFields.bankLendingGrowth }  : {}), // ECOS 104Y015
     ...(yahooFields.vix       !== null ? { vix:        yahooFields.vix }       : {}),
     ...(yahooFields.us10yYield !== null ? { us10yYield: yahooFields.us10yYield } : {}),
     ...(yahooFields.samsungIri !== null ? { samsungIri: yahooFields.samsungIri } : {}),
+    ...(yahooFields.vkospi    !== null ? { vkospi:     yahooFields.vkospi }    : {}), // Yahoo ^VKOSPI 실데이터
     ...(krUsSpread             !== null ? { krUsSpread }                          : {}),
   };
   const preFilledCount = Object.keys(preFilledMacro).length;
@@ -2973,8 +2978,6 @@ ${JSON.stringify(preFilledMacro, null, 2)}
 
 ━━━ 1. macro: 12개 지표 완성 ━━━
 확보된 필드는 그대로 사용. 누락 필드만 주어진 데이터로 추정:
-- vkospi: vix가 있으면 vix×0.85 근사
-- bankLendingGrowth: m2GrowthYoY 기반 추정
 - oeciCliKorea: exportGrowth3mAvg + nominalGdpGrowth 기반 추정
 
 ━━━ 2. regime: 경기 레짐 (4단계) ━━━
@@ -3075,6 +3078,7 @@ EWY/MTUM/EEMV/IYW/ITA 주간 자금흐름.
       ...(yahooFields.vix        !== null ? { vix:        yahooFields.vix }        : {}),
       ...(yahooFields.us10yYield !== null ? { us10yYield: yahooFields.us10yYield } : {}),
       ...(yahooFields.samsungIri !== null ? { samsungIri: yahooFields.samsungIri } : {}),
+      ...(yahooFields.vkospi     !== null ? { vkospi:     yahooFields.vkospi }     : {}),
       ...(krUsSpread             !== null ? { krUsSpread }                          : {}),
     } as Partial<typeof parsed.macro>;
     if (Object.keys(apiOverride).length > 0) {
