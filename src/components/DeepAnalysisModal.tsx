@@ -7,7 +7,7 @@ import {
   ArrowUpCircle, XCircle, DollarSign, Download, Award, FileText,
   Clock, Globe, Brain, Sparkles, Newspaper, Radar, Copy, Wallet,
   Percent, Maximize2, ArrowRightLeft, ShieldAlert, Flame, Crown,
-  CheckSquare
+  CheckSquare, Hash, Layers, AlertCircle, Users, Minus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -433,7 +433,7 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
                           <h5 className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-4 border-b border-white/5 pb-2">{group.label}</h5>
                           {group.keys.map(key => {
                             const step = MASTER_CHECKLIST_STEPS.find(s => s.key === key);
-                            const isPassed = stock.checklist[key as keyof StockRecommendation['checklist']];
+                            const isPassed = stock.checklist?.[key as keyof StockRecommendation['checklist']];
                             return (
                               <div key={key} className="flex items-center gap-3">
                                 <div className={cn(
