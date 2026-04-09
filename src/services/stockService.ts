@@ -2763,7 +2763,7 @@ export async function getMarketOverview(): Promise<MarketOverview | null> {
   `;
 
   const hour = new Date().getHours();
-  const cacheKey = `market-overview-${todayDate}-${hour}`;
+  const cacheKey = `market-overview-${todayDate}-${Math.floor(hour / 6)}`; // 6시간 단위 버킷 (0~3)
   
   return getCachedAIResponse(cacheKey, async () => {
     try {
@@ -3262,82 +3262,12 @@ Google 검색을 통해 최신 데이터를 기반으로 판단하세요.
  * 현재 레짐에 부합하는 허용 섹터 화이트리스트를 함께 제공합니다.
  */
 export async function getEconomicRegime(): Promise<EconomicRegimeData> {
-  const requestedAt = new Date();
-  const now = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
-  const todayDate = now.split(' ')[0];
-  const requestedAtISO = requestedAt.toISOString();
-
-  const prompt = `
-    현재 한국 날짜: ${todayDate}
-
-    아래 4가지 경기 사이클 중 현재 한국 경제가 어디에 해당하는지 분류해줘.
-    구글 검색을 통해 최신 실제 데이터를 기반으로 판단해야 해.
-
-    분류 기준:
-    - RECOVERY (회복기): GDP 성장 반등, 수출 증가 시작, 금리 인하 또는 동결, OECD CLI ≥ 100 상승 전환
-    - EXPANSION (확장기): GDP 성장 가속, 수출 호조, 금리 동결 또는 소폭 인상, CLI 상승 지속
-    - SLOWDOWN (둔화기): GDP 성장 둔화, 수출 증가율 감소, 금리 인상 또는 동결, CLI 하락
-    - RECESSION (침체기): GDP 역성장 또는 제로, 수출 급감, CLI 급락, 신용 위기 징후
-
-    조회할 데이터:
-    1. 한국 최근 수출 증가율 (전년 동월 대비, 3개월 이동평균)
-    2. 한국은행 기준금리 현재 수준 및 방향 (인상/동결/인하)
-    3. OECD 경기선행지수(CLI) 한국 최신 수치
-    4. 한국 최근 분기 GDP 성장률
-    5. 현재 레짐에서 강세를 보이는 허용 섹터 (최대 6개)
-    6. 회피해야 할 취약 섹터 (최대 4개)
-
-    응답 형식 (JSON only):
-    {
-      "regime": "EXPANSION",
-      "confidence": 78,
-      "rationale": "수출 YoY +12.3%, CLI 101.2 상승 기조, 기준금리 3연속 동결로 확장기 판단",
-      "allowedSectors": ["반도체", "조선", "방산", "바이오", "AI인프라", "자동차"],
-      "avoidSectors": ["내수소비재", "항공", "음식료"],
-      "keyIndicators": {
-        "exportGrowth": "+12.3% YoY",
-        "bokRateDirection": "동결 (3.50%)",
-        "oeciCli": "101.2",
-        "gdpGrowth": "+2.1% QoQ"
-      },
-      "lastUpdated": "${requestedAtISO}"
-    }
-  `;
-
+  const todayDate = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
   const cacheKey = `economic-regime-${todayDate}`;
-
+  // 배치 캐시에서 읽음 — 별도 Google Search 없음 (Search 1회 절약)
   return getCachedAIResponse<EconomicRegimeData>(cacheKey, async () => {
-    try {
-      const response = await withRetry(async () => {
-        return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: prompt,
-          config: {
-            tools: [{ googleSearch: {} }],
-            temperature: 0.1,
-          },
-        });
-      }, 2, 2000);
-      const text = response.text;
-      if (!text) throw new Error("No response from AI");
-      return safeJsonParse(text) as EconomicRegimeData;
-    } catch (error) {
-      console.error("Error getting economic regime:", error);
-      return {
-        regime: 'EXPANSION',
-        confidence: 50,
-        rationale: "데이터 조회 실패. 기본값(확장기)으로 설정됨.",
-        allowedSectors: ["반도체", "조선", "방산"],
-        avoidSectors: [],
-        keyIndicators: {
-          exportGrowth: "N/A",
-          bokRateDirection: "N/A",
-          oeciCli: "N/A",
-          gdpGrowth: "N/A",
-        },
-        lastUpdated: requestedAtISO,
-      };
-    }
+    const batch = await getBatchGlobalIntel();
+    return batch.regime;
   });
 }
 
@@ -3349,78 +3279,12 @@ export async function getEconomicRegime(): Promise<EconomicRegimeData> {
  * EWY + MTUM 동반 유입 감지 시 → Gate 2 통과 기준 선제 완화 신호를 반환합니다.
  */
 export async function getSmartMoneyFlow(): Promise<SmartMoneyData> {
-  const requestedAt = new Date();
-  const todayDate = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
-  const requestedAtISO = requestedAt.toISOString();
-
-  const prompt = `
-    현재 날짜: ${todayDate}
-
-    다음 5개 ETF의 가장 최근 주간(7일) 자금 흐름(AUM 변화, 가격 변동)을 구글 검색으로 조회해줘.
-    이 ETF들은 한국 증시를 3-8주 선행하는 스마트머니 지표로 활용된다.
-
-    모니터링 ETF:
-    - EWY (iShares MSCI Korea ETF): 외국인의 한국 직접 베팅 지표
-    - MTUM (iShares MSCI USA Momentum ETF): 글로벌 리스크온 선행 지표
-    - EEMV (iShares MSCI Emerging Markets Min Vol ETF): 신흥국 방어적 진입 신호
-    - IYW (iShares US Technology ETF): 글로벌 테크 사이클 선행
-    - ITA (iShares US Aerospace & Defense ETF): 글로벌 방산 사이클 선행
-
-    각 ETF에 대해:
-    1. 주간 가격 변동률 (%)
-    2. 자금 유입/유출 방향 (INFLOW / OUTFLOW / NEUTRAL)
-    3. AUM 주간 변화율 추정 (%)
-
-    점수 기준 (0-10):
-    - EWY + MTUM 동시 INFLOW: +4점 (핵심 시그널)
-    - EWY INFLOW 단독: +2점
-    - MTUM INFLOW 단독: +1점
-    - EEMV INFLOW: +1점
-    - IYW INFLOW: +1점
-    - ITA INFLOW: +1점
-
-    응답 형식 (JSON only):
-    {
-      "score": 7,
-      "etfFlows": [
-        { "ticker": "EWY", "name": "iShares MSCI Korea", "flow": "INFLOW", "weeklyAumChange": 2.3, "priceChange": 1.8, "significance": "한국 증시 2-4주 선행 직접 지표" },
-        { "ticker": "MTUM", "name": "iShares MSCI USA Momentum", "flow": "INFLOW", "weeklyAumChange": 1.1, "priceChange": 0.9, "significance": "글로벌 리스크온 환경 확인" },
-        { "ticker": "EEMV", "name": "iShares MSCI EM Min Vol", "flow": "OUTFLOW", "weeklyAumChange": -0.5, "priceChange": -0.3, "significance": "신흥국 방어 수요 약화" },
-        { "ticker": "IYW", "name": "iShares US Technology", "flow": "INFLOW", "weeklyAumChange": 1.5, "priceChange": 1.2, "significance": "테크 사이클 선행" },
-        { "ticker": "ITA", "name": "iShares US Aerospace & Defense", "flow": "NEUTRAL", "weeklyAumChange": 0.1, "priceChange": 0.0, "significance": "방산 글로벌 선행" }
-      ],
-      "isEwyMtumBothInflow": true,
-      "leadTimeWeeks": "2-4주",
-      "signal": "BULLISH",
-      "lastUpdated": "${requestedAtISO}"
-    }
-  `;
-
+  const todayDate = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
   const cacheKey = `smart-money-${todayDate}`;
-
+  // 배치 캐시에서 읽음 — 별도 Google Search 없음 (Search 1회 절약)
   return getCachedAIResponse<SmartMoneyData>(cacheKey, async () => {
-    try {
-      const response = await withRetry(async () => {
-        return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: prompt,
-          config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
-        });
-      }, 2, 2000);
-      const text = response.text;
-      if (!text) throw new Error("No response from AI");
-      return safeJsonParse(text) as SmartMoneyData;
-    } catch (error) {
-      console.error("Error getting smart money flow:", error);
-      return {
-        score: 5,
-        etfFlows: [],
-        isEwyMtumBothInflow: false,
-        leadTimeWeeks: "N/A",
-        signal: 'NEUTRAL',
-        lastUpdated: requestedAtISO,
-      };
-    }
+    const batch = await getBatchGlobalIntel();
+    return batch.smartMoney;
   });
 }
 
