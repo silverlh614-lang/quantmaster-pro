@@ -23,7 +23,7 @@ export function useStockSearch() {
   const [loadingNews, setLoadingNews] = useState(false);
 
   const fetchStocks = async () => {
-    setLoading(true); setSearchResults([]); setError(null);
+    setLoading(true); setSearchResults([]); setRecommendations([]); setError(null);
     try {
       const data = await getStockRecommendations(filters);
       if (!data || !data.recommendations) throw new Error("AI 추천 데이터를 불러오지 못했습니다.");

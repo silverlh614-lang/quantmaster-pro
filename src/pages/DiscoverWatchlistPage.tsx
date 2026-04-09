@@ -1225,10 +1225,15 @@ export function DiscoverWatchlistPage({
                       <button
                         onClick={onMarketSearch}
                         disabled={searchingSpecific}
-                        className="btn-3d px-6 py-4 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:hover:bg-orange-500 text-white text-base font-black rounded-2xl transition-all flex items-center gap-2 shrink-0 h-full shadow-lg shadow-orange-500/20 whitespace-nowrap"
+                        className={cn(
+                          "px-6 py-4 text-white text-base font-black rounded-2xl transition-all flex items-center gap-2 shrink-0 h-full whitespace-nowrap",
+                          searchingSpecific
+                            ? "bg-gradient-to-br from-cyan-400 via-blue-500 to-blue-700 shadow-lg shadow-blue-500/30 animate-pulse cursor-not-allowed"
+                            : "btn-3d bg-orange-500 hover:bg-orange-600 shadow-lg shadow-orange-500/20"
+                        )}
                       >
                         {searchingSpecific ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Globe className="w-5 h-5" />}
-                        시장 검색
+                        {searchingSpecific ? '검색 중...' : '시장 검색'}
                       </button>
                       <div className="flex flex-col gap-0.5 text-center">
                         <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">전체 시장 데이터 조회</span>
@@ -2328,10 +2333,15 @@ export function DiscoverWatchlistPage({
                         <button
                           onClick={onMarketSearch}
                           disabled={searchingSpecific}
-                          className="btn-3d px-8 py-4 bg-orange-500 hover:bg-orange-600 text-white font-black rounded-2xl transition-all flex items-center gap-3 shadow-xl"
+                          className={cn(
+                            "px-8 py-4 text-white font-black rounded-2xl transition-all flex items-center gap-3 shadow-xl",
+                            searchingSpecific
+                              ? "bg-gradient-to-br from-cyan-400 via-blue-500 to-blue-700 shadow-blue-500/30 animate-pulse cursor-not-allowed"
+                              : "btn-3d bg-orange-500 hover:bg-orange-600"
+                          )}
                         >
                           {searchingSpecific ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Globe className="w-5 h-5" />}
-                          "{searchQuery}" 전체 시장에서 검색
+                          {searchingSpecific ? '검색 중...' : `"${searchQuery}" 전체 시장에서 검색`}
                         </button>
                       </div>
                     )}

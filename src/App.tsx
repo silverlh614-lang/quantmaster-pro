@@ -95,6 +95,18 @@ export default function App() {
   useDebugWatchers();
   useAllGlobalIntel();
 
+  // ── Stale Recommendation Cleanup (clear previous-day data) ──────────────
+  useEffect(() => {
+    const { lastUpdated, setRecommendations } = useRecommendationStore.getState();
+    if (lastUpdated) {
+      const lastDate = new Date(lastUpdated).toDateString();
+      const today = new Date().toDateString();
+      if (lastDate !== today) {
+        setRecommendations([]);
+      }
+    }
+  }, []);
+
   // ── KIS Balance ─────────────────────────────────────────────────────────
   const [kisBalance, setKisBalance] = useState<number>(100_000_000);
   useEffect(() => {
