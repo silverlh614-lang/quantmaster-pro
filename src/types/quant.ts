@@ -47,6 +47,7 @@ export interface MacroEnvironment {
   samsungIriDelta?: number;          // 삼성 IRI 변화량 (pt, 양수=위험 증가)
   foreignFuturesSellDays?: number;   // 외국인 선물 연속 순매도 일수
   mhsTrend?: 'IMPROVING' | 'STABLE' | 'DETERIORATING'; // MHS 추세 방향
+  dxyBullish?: boolean;              // 달러인덱스(DXY) 강세 전환 여부 (Inverse Gate 1용)
 }
 
 /** Gate 0 평가 결과 */
@@ -1049,5 +1050,32 @@ export interface VkospiTriggerResult {
   vRecoveryStocks?: string[];         // V자 반등 준비 리스트 (HISTORICAL_FEAR 시)
   description: string;                // 단계 설명
   actionMessage: string;              // 행동 권고 메시지
+  lastUpdated: string;
+}
+
+// ─── 아이디어 2: 인버스 ETF 스코어링 시스템 — Inverse Gate 1 ────────────────
+
+/** Inverse Gate 1 시그널 유형 */
+export type InverseGate1SignalType =
+  | 'STRONG_BEAR'  // 5개 조건 전부 충족 — KODEX 인버스 즉시 진입
+  | 'PARTIAL'      // 3~4개 조건 충족 — 대기 상태
+  | 'INACTIVE';    // 2개 이하 — 비활성
+
+/** Inverse Gate 1 조건 하나의 상태 */
+export interface InverseGate1Condition {
+  id: string;
+  name: string;
+  triggered: boolean;
+  description: string;
+}
+
+/** Inverse Gate 1 Bear 필수 조건 5개 평가 결과 */
+export interface InverseGate1Result {
+  signalType: InverseGate1SignalType;
+  conditions: InverseGate1Condition[];
+  triggeredCount: number;          // 5개 중 충족된 조건 수
+  allTriggered: boolean;           // 5개 전부 충족 여부
+  etfRecommendations: string[];    // STRONG_BEAR 시 추천 인버스 ETF
+  actionMessage: string;           // 투자자 행동 권고
   lastUpdated: string;
 }

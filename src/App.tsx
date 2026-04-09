@@ -90,6 +90,9 @@ export default function App() {
   const bearRegimeResult = useGlobalIntelStore(s => s.bearRegimeResult);
   const vkospiTriggerResult = useGlobalIntelStore(s => s.vkospiTriggerResult);
 
+  // ── Inverse Gate 1: 인버스 ETF 스코어링 시스템 (아이디어 2) ────────────────
+  const inverseGate1Result = useGlobalIntelStore(s => s.inverseGate1Result);
+
   // ── Custom Hooks ────────────────────────────────────────────────────────
   const { handleSyncPrice, handleManualPriceUpdate, handleSyncAll } = useStockSync();
   const { addToBacktest, removeFromBacktest, updateWeight, reorderPortfolioItems, applyAIRecommendedWeights, savePortfolio, selectPortfolio, deletePortfolio, updatePortfolio, runBacktest, handleFileUpload } = usePortfolioOps();
@@ -352,6 +355,7 @@ export default function App() {
         <MarketRegimeBanner
           bearRegimeResult={bearRegimeResult}
           vkospiTriggerResult={vkospiTriggerResult}
+          inverseGate1Result={inverseGate1Result}
         />
 
         {/* ── Market Ticker ── */}

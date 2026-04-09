@@ -38,6 +38,9 @@ import {
   BearRegimeCondition,
   VkospiTriggerResult,
   VkospiTriggerLevel,
+  InverseGate1Result,
+  InverseGate1Condition,
+  InverseGate1SignalType,
 } from '../types/quant';
 
 export const ALL_CONDITIONS: Record<ConditionId, { name: string; baseWeight: number; description: string }> = {
@@ -1347,6 +1350,95 @@ export function evaluateBearRegime(
     actionRecommendation,
     cashRatioRecommended,
     defenseMode,
+    lastUpdated: now,
+  };
+}
+
+// ─── 아이디어 2: 인버스 ETF 스코어링 시스템 — Inverse Gate 1 ────────────────
+
+/**
+ * 롱 시스템의 거울상(Mirror System) — 27개 조건의 역전(Inversion)으로 구성된
+ * Inverse Gate 1의 5개 Bear 필수 조건을 평가한다.
+ * 5개 모두 충족 시 → STRONG BEAR 시그널 발동 → KODEX 200선물인버스2X 또는
+ * TIGER 인버스 ETF 즉시 진입 권고.
+ */
+export function evaluateInverseGate1(
+  macroEnv: MacroEnvironment,
+): InverseGate1Result {
+  const now = new Date().toISOString();
+
+  // ── 조건 1: KOSPI 일목 구름 하단 이탈 확인 ──
+  const cond1: InverseGate1Condition = {
+    id: 'KOSPI_ICHIMOKU_BREAK_DOWN',
+    name: '① KOSPI 일목 구름 하단 이탈',
+    triggered: macroEnv.kospiIchimokuBearish === true,
+    description: 'KOSPI가 일목균형표 구름 하단을 이탈한 상태입니다. 롱 시스템의 "구름 위 안착" 조건의 역전 신호.',
+  };
+
+  // ── 조건 2: VKOSPI 20 이상 + 상승 가속 ──
+  const cond2: InverseGate1Condition = {
+    id: 'VKOSPI_20_ACCELERATING',
+    name: '② VKOSPI 20 이상 + 상승 가속',
+    triggered: macroEnv.vkospi >= 20 && macroEnv.vkospiRising === true,
+    description: `VKOSPI ${macroEnv.vkospi.toFixed(1)} — 변동성 가속 구간 진입. 시장 공포 확산 중.`,
+  };
+
+  // ── 조건 3: 외국인 선물 순매도 가속 (3일 연속 증가) ──
+  const sellDays = macroEnv.foreignFuturesSellDays ?? 0;
+  const cond3: InverseGate1Condition = {
+    id: 'FOREIGN_FUTURES_SELL_ACCEL',
+    name: '③ 외국인 선물 순매도 가속 (3일 연속)',
+    triggered: sellDays >= 3,
+    description: `외국인 선물 연속 순매도 ${sellDays}일째 — 외국인 자금 이탈 가속.`,
+  };
+
+  // ── 조건 4: 기준금리 인상 or 동결(긴축 유지) 사이클 ──
+  const cond4: InverseGate1Condition = {
+    id: 'RATE_TIGHTENING_OR_HOLD',
+    name: '④ 기준금리 인상 or 동결 (긴축 유지)',
+    triggered: macroEnv.bokRateDirection === 'HIKING' || macroEnv.bokRateDirection === 'HOLDING',
+    description: `한국은행 기준금리 ${macroEnv.bokRateDirection === 'HIKING' ? '인상' : '동결'} — 긴축 환경 유지. 유동성 수축 압력.`,
+  };
+
+  // ── 조건 5: 달러인덱스(DXY) 강세 전환 확인 ──
+  const cond5: InverseGate1Condition = {
+    id: 'DXY_BULLISH_TURN',
+    name: '⑤ 달러인덱스(DXY) 강세 전환',
+    triggered: macroEnv.dxyBullish === true,
+    description: '달러인덱스 강세 전환 확인 — 신흥국(한국 포함) 자금 이탈 압력 증가.',
+  };
+
+  const allConditions = [cond1, cond2, cond3, cond4, cond5];
+  const triggeredCount = allConditions.filter(c => c.triggered).length;
+  const allTriggered = triggeredCount === 5;
+
+  const INVERSE_ETFS = [
+    'KODEX 200선물인버스2X (233740)',
+    'TIGER 200선물인버스2X (252670)',
+    'KODEX 코스닥150선물인버스 (251340)',
+  ];
+
+  let signalType: InverseGate1SignalType;
+  let actionMessage: string;
+
+  if (allTriggered) {
+    signalType = 'STRONG_BEAR';
+    actionMessage = '🔴 STRONG BEAR 시그널 발동 — Inverse Gate 1 5개 조건 전부 충족. KODEX 200선물인버스2X 또는 TIGER 인버스 즉시 진입 권고. 신규 롱 포지션 전면 중단.';
+  } else if (triggeredCount >= 3) {
+    signalType = 'PARTIAL';
+    actionMessage = `🟠 인버스 ETF 대기 시그널 — ${triggeredCount}/5개 조건 충족. 잔여 조건 확인 후 5개 모두 충족 시 STRONG BEAR 발동. 현금 비중 확대 권고.`;
+  } else {
+    signalType = 'INACTIVE';
+    actionMessage = `🟢 인버스 게이트 비활성 — ${triggeredCount}/5개 조건만 충족. 27조건 롱 시스템 정상 운용 가능.`;
+  }
+
+  return {
+    signalType,
+    conditions: allConditions,
+    triggeredCount,
+    allTriggered,
+    etfRecommendations: allTriggered ? INVERSE_ETFS : [],
+    actionMessage,
     lastUpdated: now,
   };
 }

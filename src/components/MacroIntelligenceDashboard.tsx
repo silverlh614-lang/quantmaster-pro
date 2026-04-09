@@ -321,6 +321,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   // ── Gate -1 & VKOSPI 트리거 (전역 스토어에서 읽기) ───────────────────────
   const bearRegimeResult = useGlobalIntelStore(s => s.bearRegimeResult);
   const vkospiTriggerResult = useGlobalIntelStore(s => s.vkospiTriggerResult);
+  const inverseGate1Result = useGlobalIntelStore(s => s.inverseGate1Result);
 
   const sortedSectors = useMemo(
     () => [...(marketOverview?.sectorRotation ?? [])].sort((a, b) => b.momentum - a.momentum),
@@ -667,6 +668,97 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
                   </ul>
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── 아이디어 2: Inverse Gate 1 — 인버스 ETF 스코어링 시스템 ── */}
+      {inverseGate1Result && (
+        <div className={`p-4 sm:p-6 border-2 bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)] ${
+          inverseGate1Result.signalType === 'STRONG_BEAR' ? 'border-red-600'
+            : inverseGate1Result.signalType === 'PARTIAL' ? 'border-orange-500'
+            : 'border-theme-border'
+        }`}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted flex items-center gap-2">
+              <TrendingDown className="w-3.5 h-3.5" />
+              Inverse Gate 1 · 인버스 ETF 스코어링 시스템
+            </h3>
+            <span className={`text-xs font-black px-3 py-1 rounded border ${
+              inverseGate1Result.signalType === 'STRONG_BEAR'
+                ? 'bg-red-900/50 border-red-500 text-red-200 animate-pulse'
+                : inverseGate1Result.signalType === 'PARTIAL'
+                ? 'bg-orange-900/40 border-orange-500 text-orange-200'
+                : 'bg-theme-bg border-theme-border text-theme-text-muted'
+            }`}>
+              {inverseGate1Result.signalType === 'STRONG_BEAR' ? '🔴 STRONG BEAR'
+                : inverseGate1Result.signalType === 'PARTIAL' ? '🟠 PARTIAL'
+                : '🟢 INACTIVE'}
+            </span>
+          </div>
+
+          {/* Condition progress bar */}
+          <div className="mb-4">
+            <div className="flex justify-between text-[9px] font-black text-theme-text-muted mb-1">
+              <span>Bear 필수 조건 달성</span>
+              <span>{inverseGate1Result.triggeredCount} / {inverseGate1Result.conditions.length} (전부 충족 시 STRONG BEAR)</span>
+            </div>
+            <div className="h-3 bg-theme-bg border border-theme-border relative overflow-hidden">
+              <div
+                className={`h-full transition-all duration-700 ${
+                  inverseGate1Result.signalType === 'STRONG_BEAR' ? 'bg-red-600'
+                    : inverseGate1Result.signalType === 'PARTIAL' ? 'bg-orange-500'
+                    : 'bg-theme-border'
+                }`}
+                style={{ width: `${(inverseGate1Result.triggeredCount / inverseGate1Result.conditions.length) * 100}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Conditions list */}
+          <ul className="space-y-1.5 mb-4">
+            {inverseGate1Result.conditions.map(cond => (
+              <li key={cond.id} className="flex items-start gap-2 text-xs">
+                <span className={`mt-0.5 w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center text-[8px] font-black ${
+                  cond.triggered
+                    ? 'bg-red-500/30 border-red-400 text-red-300'
+                    : 'bg-theme-bg border-theme-border text-theme-text-muted'
+                }`}>
+                  {cond.triggered ? '✓' : '–'}
+                </span>
+                <span className={`leading-snug ${cond.triggered ? 'text-theme-text' : 'text-theme-text-muted'}`}>
+                  <span className="font-bold">{cond.name}</span>
+                  {cond.triggered && (
+                    <span className="opacity-70"> — {cond.description}</span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          {/* Action recommendation */}
+          <div className={`p-3 border text-xs leading-relaxed ${
+            inverseGate1Result.signalType === 'STRONG_BEAR'
+              ? 'border-red-600/40 bg-red-900/20 text-red-200'
+              : inverseGate1Result.signalType === 'PARTIAL'
+              ? 'border-orange-500/40 bg-orange-900/20 text-orange-200'
+              : 'border-theme-border bg-theme-bg text-theme-text-secondary'
+          }`}>
+            {inverseGate1Result.actionMessage}
+          </div>
+
+          {/* ETF Recommendations (STRONG_BEAR only) */}
+          {inverseGate1Result.etfRecommendations.length > 0 && (
+            <div className="mt-4 p-3 border border-red-600/40 bg-red-900/15">
+              <p className="text-[9px] font-black text-red-400 uppercase tracking-widest mb-2">
+                🔴 STRONG BEAR 시그널 — 추천 인버스 ETF
+              </p>
+              <ul className="space-y-1">
+                {inverseGate1Result.etfRecommendations.map(etf => (
+                  <li key={etf} className="text-[10px] text-red-300">• {etf}</li>
+                ))}
+              </ul>
             </div>
           )}
         </div>

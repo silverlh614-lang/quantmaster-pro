@@ -1,15 +1,17 @@
 /**
  * 아이디어 1: Gate -1 "Market Regime Detector" 상단 배너
  * BULL → 투명/숨김 / TRANSITION → 노란색 경고 / BEAR → 붉은 위험 배너
+ * 아이디어 2: Inverse Gate 1 STRONG BEAR 시그널 배지 포함
  */
 import React, { useState } from 'react';
 import { TrendingDown, TrendingUp, AlertTriangle, ChevronDown, ChevronUp, Shield, Activity } from 'lucide-react';
 import { cn } from '../ui/cn';
-import type { BearRegimeResult, VkospiTriggerResult } from '../types/quant';
+import type { BearRegimeResult, VkospiTriggerResult, InverseGate1Result } from '../types/quant';
 
 interface MarketRegimeBannerProps {
   bearRegimeResult: BearRegimeResult | null;
   vkospiTriggerResult: VkospiTriggerResult | null;
+  inverseGate1Result?: InverseGate1Result | null;
 }
 
 const LEVEL_LABELS: Record<string, string> = {
@@ -20,19 +22,21 @@ const LEVEL_LABELS: Record<string, string> = {
   HISTORICAL_FEAR: '역사적공포',
 };
 
-export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult }: MarketRegimeBannerProps) {
+export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult, inverseGate1Result }: MarketRegimeBannerProps) {
   const [expanded, setExpanded] = useState(false);
 
-  // Nothing to show when bull + normal VKOSPI
+  // Nothing to show when bull + normal VKOSPI + no inverse signal
   const regime = bearRegimeResult?.regime ?? 'BULL';
   const vLevel = vkospiTriggerResult?.level ?? 'NORMAL';
+  const isStrongBear = inverseGate1Result?.signalType === 'STRONG_BEAR';
+  const isPartialBear = inverseGate1Result?.signalType === 'PARTIAL';
 
   const isBear = regime === 'BEAR';
   const isTransition = regime === 'TRANSITION';
   const isVkospiAlert = vLevel !== 'NORMAL';
 
-  // Only render banner in TRANSITION or BEAR mode, or when VKOSPI is alerting
-  if (regime === 'BULL' && !isVkospiAlert) return null;
+  // Only render banner in TRANSITION or BEAR mode, when VKOSPI is alerting, or when Inverse Gate 1 signals
+  if (regime === 'BULL' && !isVkospiAlert && !isStrongBear && !isPartialBear) return null;
 
   // Color scheme based on severity
   const bannerBase = isBear
@@ -90,12 +94,26 @@ export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult }: Ma
           </span>
         )}
 
+        {/* Inverse Gate 1 badge */}
+        {inverseGate1Result && (isStrongBear || isPartialBear) && (
+          <span className={cn(
+            'text-[10px] font-black px-2 py-0.5 rounded border uppercase tracking-widest shrink-0',
+            isStrongBear
+              ? 'bg-red-900/70 border-red-500 text-red-100'
+              : 'bg-orange-800/60 border-orange-500/50 text-orange-200',
+          )}>
+            {isStrongBear ? '🔴 STRONG BEAR' : `🟠 인버스대기 ${inverseGate1Result.triggeredCount}/5`}
+          </span>
+        )}
+
         {/* Action summary */}
         <span className="text-xs opacity-80 hidden md:block flex-1 truncate">
           {isBear
             ? '인버스/방어자산 모드 전환 — 신규 롱 포지션 전면 중단'
             : isTransition
             ? '현금 비중 확대 + 헤지 레이어 활성화 권고'
+            : isStrongBear
+            ? 'Inverse Gate 1 STRONG BEAR 시그널 — 인버스 ETF 즉시 진입 권고'
             : `VKOSPI ${vkospiTriggerResult?.vkospi.toFixed(1)} 경보`}
         </span>
 
@@ -175,6 +193,41 @@ export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult }: Ma
                     ))}
                   </ul>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Inverse Gate 1 Detail */}
+          {inverseGate1Result && (isStrongBear || isPartialBear) && (
+            <div>
+              <h4 className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-2 flex items-center gap-1.5">
+                <TrendingDown className="w-3 h-3" /> Inverse Gate 1 ({inverseGate1Result.triggeredCount}/{inverseGate1Result.conditions.length})
+              </h4>
+              <ul className="space-y-1">
+                {inverseGate1Result.conditions.map(cond => (
+                  <li key={cond.id} className="flex items-start gap-2 text-xs">
+                    <span className={cn(
+                      'mt-0.5 w-3.5 h-3.5 rounded-full border flex-shrink-0 flex items-center justify-center text-[8px] font-black',
+                      cond.triggered
+                        ? 'bg-red-500/40 border-red-400 text-red-200'
+                        : 'bg-white/5 border-white/20 text-white/40',
+                    )}>
+                      {cond.triggered ? '✓' : '–'}
+                    </span>
+                    <span className={cn('leading-snug', cond.triggered ? 'opacity-100' : 'opacity-40')}>
+                      <span className="font-bold">{cond.name}</span>
+                      {cond.triggered && <span className="opacity-70"> — {cond.description}</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs opacity-80 leading-relaxed">{inverseGate1Result.actionMessage}</p>
+              {inverseGate1Result.etfRecommendations.length > 0 && (
+                <ul className="mt-2 space-y-0.5">
+                  {inverseGate1Result.etfRecommendations.map(etf => (
+                    <li key={etf} className="text-[10px] opacity-70 text-red-300">• {etf}</li>
+                  ))}
+                </ul>
               )}
             </div>
           )}

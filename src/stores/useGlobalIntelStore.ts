@@ -5,7 +5,7 @@ import type {
   GeopoliticalRiskData, CreditSpreadData, ExtendedRegimeData,
   GlobalCorrelationMatrix, NewsFrequencyScore, ROEType,
   SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex,
-  FomcSentimentAnalysis, BearRegimeResult, VkospiTriggerResult,
+  FomcSentimentAnalysis, BearRegimeResult, VkospiTriggerResult, InverseGate1Result,
 } from '../types/quant';
 import type { MHSRecord } from '../components/MHSHistoryChart';
 
@@ -49,6 +49,10 @@ interface GlobalIntelState {
   // ── 아이디어 1: Gate -1 Bear Regime Detector ────────────────────────────
   bearRegimeResult: BearRegimeResult | null;
   setBearRegimeResult: (data: BearRegimeResult | null) => void;
+
+  // ── 아이디어 2: Inverse Gate 1 인버스 ETF 스코어링 시스템 ────────────────
+  inverseGate1Result: InverseGate1Result | null;
+  setInverseGate1Result: (data: InverseGate1Result | null) => void;
 
   // ── 아이디어 4: VKOSPI 트리거 시스템 ────────────────────────────────────
   vkospiTriggerResult: VkospiTriggerResult | null;
@@ -104,6 +108,8 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
 
       bearRegimeResult: null,
       setBearRegimeResult: (bearRegimeResult) => set({ bearRegimeResult }),
+      inverseGate1Result: null,
+      setInverseGate1Result: (inverseGate1Result) => set({ inverseGate1Result }),
       vkospiTriggerResult: null,
       setVkospiTriggerResult: (vkospiTriggerResult) => set({ vkospiTriggerResult }),
 
