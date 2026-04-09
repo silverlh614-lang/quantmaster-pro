@@ -202,6 +202,7 @@ const KIS_BASE    = KIS_IS_REAL
   ? 'https://openapi.koreainvestment.com:9443'
   : 'https://openapivts.koreainvestment.com:29443';
 const BUY_TR_ID   = KIS_IS_REAL ? 'TTTC0802U' : 'VTTC0802U';
+const SELL_TR_ID  = KIS_IS_REAL ? 'TTTC0801U' : 'VTTC0801U';
 const CCLD_TR_ID  = KIS_IS_REAL ? 'TTTC8001R' : 'VTTC8001R';
 
 let cachedToken: { token: string; expiry: number } | null = null;
@@ -222,6 +223,54 @@ export async function refreshKisToken(): Promise<string> {
   cachedToken = { token: data.access_token, expiry: Date.now() + 23 * 60 * 60 * 1000 };
   console.log('[AutoTrade] KIS 토큰 갱신 완료');
   return cachedToken.token;
+}
+
+// ─── 실제 KIS 매도 주문 ─────────────────────────────────────────────────────────
+async function placeKisSellOrder(
+  stockCode: string,
+  stockName: string,
+  quantity: number,
+  reason: 'STOP_LOSS' | 'TAKE_PROFIT',
+): Promise<void> {
+  if (!process.env.KIS_APP_KEY) {
+    console.warn(`[AutoTrade] KIS 미설정 — ${stockName} 매도 건너뜀`);
+    return;
+  }
+  const emoji = reason === 'STOP_LOSS' ? '🔴' : '🟢';
+  const label = reason === 'STOP_LOSS' ? '손절' : '익절';
+
+  try {
+    console.log(`[AutoTrade SELL] ${emoji} ${stockName}(${stockCode}) ${label} 매도 주문 — ${quantity}주`);
+
+    const orderData = await kisPost(SELL_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
+      CANO:            process.env.KIS_ACCOUNT_NO ?? '',
+      ACNT_PRDT_CD:    process.env.KIS_ACCOUNT_PROD ?? '01',
+      PDNO:            stockCode.padStart(6, '0'),
+      ORD_DVSN:        '01',   // 시장가 (즉시 체결 우선)
+      ORD_QTY:         quantity.toString(),
+      ORD_UNPR:        '0',
+      SLL_BUY_DVSN_CD: '01',  // 01 = 매도
+      CTAC_TLNO:       '',
+      MGCO_APTM_ODNO:  '',
+      ORD_SVR_DVSN_CD: '0',
+    });
+
+    const ordNo = (orderData as { output?: { ODNO?: string } } | null)?.output?.ODNO;
+    console.log(`[AutoTrade SELL] ${emoji} ${stockName} ${label} 완료 — ODNO: ${ordNo}`);
+
+    await sendTelegramAlert(
+      `${emoji} <b>[${label}] ${stockName} (${stockCode})</b>\n` +
+      `수량: ${quantity}주 | 주문번호: ${ordNo ?? 'N/A'}`
+    ).catch(console.error);
+  } catch (err: unknown) {
+    console.error(`[AutoTrade SELL] ${stockName} 매도 실패:`, err instanceof Error ? err.message : err);
+    // 매도 실패는 치명적 → Telegram 긴급 알림
+    await sendTelegramAlert(
+      `🚨 <b>[긴급] ${stockName} ${label} 매도 실패!</b>\n` +
+      `수동으로 즉시 매도하세요!\n` +
+      `오류: ${err instanceof Error ? err.message : String(err)}`
+    ).catch(console.error);
+  }
 }
 
 async function kisGet(trId: string, apiPath: string, params: Record<string, string>) {
@@ -558,17 +607,23 @@ async function updateShadowResults(shadows: ServerShadowTrade[]): Promise<void> 
       const currentPrice = await fetchCurrentPrice(shadow.stockCode).catch(() => null);
       if (!currentPrice) continue;
       if (currentPrice >= shadow.targetPrice) {
-        const actualExit = currentPrice;
-        const returnPct = ((actualExit - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
-        Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: actualExit, exitTime: new Date().toISOString(), returnPct });
+        const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
+        Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
         appendShadowLog({ event: 'HIT_TARGET', ...shadow });
-        console.log(`[AutoTrade SHADOW] ✅ ${shadow.stockName} 목표가 달성 +${returnPct.toFixed(2)}% (체결 ${actualExit.toLocaleString()})`);
+        console.log(`[AutoTrade] ✅ ${shadow.stockName} 목표가 달성 +${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
+        // 실거래 모드에서만 KIS 매도 주문 실행
+        if (KIS_IS_REAL && shadow.quantity > 0) {
+          await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'TAKE_PROFIT');
+        }
       } else if (currentPrice <= shadow.stopLoss) {
-        const actualExit = currentPrice;
-        const returnPct = ((actualExit - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
-        Object.assign(shadow, { status: 'HIT_STOP', exitPrice: actualExit, exitTime: new Date().toISOString(), returnPct });
+        const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
+        Object.assign(shadow, { status: 'HIT_STOP', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
         appendShadowLog({ event: 'HIT_STOP', ...shadow });
-        console.log(`[AutoTrade SHADOW] ❌ ${shadow.stockName} 손절 ${returnPct.toFixed(2)}% (체결 ${actualExit.toLocaleString()})`);
+        console.log(`[AutoTrade] ❌ ${shadow.stockName} 손절 ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
+        // 손절은 더 긴급 — 실거래 모드에서 즉시 KIS 매도
+        if (KIS_IS_REAL && shadow.quantity > 0) {
+          await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
+        }
       }
     }
   }
