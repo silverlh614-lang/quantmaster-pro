@@ -6,6 +6,7 @@ import type {
   GlobalCorrelationMatrix, NewsFrequencyScore, ROEType,
   SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex,
   FomcSentimentAnalysis, BearRegimeResult, VkospiTriggerResult, InverseGate1Result,
+  MarketNeutralResult,
 } from '../types/quant';
 import type { MHSRecord } from '../components/MHSHistoryChart';
 
@@ -57,6 +58,10 @@ interface GlobalIntelState {
   // ── 아이디어 4: VKOSPI 트리거 시스템 ────────────────────────────────────
   vkospiTriggerResult: VkospiTriggerResult | null;
   setVkospiTriggerResult: (data: VkospiTriggerResult | null) => void;
+
+  // ── 아이디어 9: Market Neutral 모드 ─────────────────────────────────────
+  marketNeutralResult: MarketNeutralResult | null;
+  setMarketNeutralResult: (data: MarketNeutralResult | null) => void;
 
   // ROE type
   currentRoeType: ROEType;
@@ -112,6 +117,8 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       setInverseGate1Result: (inverseGate1Result) => set({ inverseGate1Result }),
       vkospiTriggerResult: null,
       setVkospiTriggerResult: (vkospiTriggerResult) => set({ vkospiTriggerResult }),
+      marketNeutralResult: null,
+      setMarketNeutralResult: (marketNeutralResult) => set({ marketNeutralResult }),
 
       currentRoeType: 3,
       setCurrentRoeType: (currentRoeType) => set({ currentRoeType }),

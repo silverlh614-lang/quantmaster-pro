@@ -1079,3 +1079,42 @@ export interface InverseGate1Result {
   actionMessage: string;           // 투자자 행동 권고
   lastUpdated: string;
 }
+
+// ─── 아이디어 9: Market Neutral 모드 — 롱/인버스 동시 보유로 변동성 수익 추구 ──
+
+/** Market Neutral 포트폴리오 레그 유형 */
+export type MarketNeutralLegType = 'LONG' | 'INVERSE' | 'CASH';
+
+/** Market Neutral 포트폴리오의 개별 레그 (롱/인버스/현금) */
+export interface MarketNeutralLeg {
+  type: MarketNeutralLegType;
+  weightPct: number;               // 비중 (%)
+  label: string;                   // 표시 라벨
+  description: string;             // 설명
+  examples: string[];              // 추천 종목/ETF 예시
+}
+
+/** 베타 중립화 시나리오 — 시장 하락 시 손익 시뮬레이션 */
+export interface BetaNeutralScenario {
+  marketReturn: number;            // 시장 수익률 (%)
+  longAlpha: number;               // 롱 종목 시장 대비 초과 수익 (알파, %)
+  inverseReturn: number;           // 인버스 포지션 수익률 (%)
+  totalReturn: number;             // 포트폴리오 전체 수익률 (%)
+  description: string;             // 시나리오 설명
+}
+
+/** Gate -1 Market Neutral 모드 평가 결과 */
+export interface MarketNeutralResult {
+  /** TRANSITION 레짐에서만 활성화 */
+  isActive: boolean;
+  regime: MarketRegimeDetectorType;
+  legs: MarketNeutralLeg[];
+  /** 베타 중립화 시나리오 (기본 예시) */
+  betaNeutralScenario: BetaNeutralScenario;
+  /** 예상 샤프 지수 개선 효과 */
+  sharpeImprovementNote: string;
+  /** 전략 핵심 설명 */
+  strategyDescription: string;
+  actionMessage: string;
+  lastUpdated: string;
+}
