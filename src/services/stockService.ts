@@ -32,7 +32,7 @@ import {
   FomcSentimentAnalysis,
 } from "../types/quant";
 
-import { getMacroSnapshot, snapshotToMacroFields } from './ecosService';
+import { getMacroSnapshot, snapshotToMacroFields, getTradeData } from './ecosService';
 
 import {
   calculateRSI,
@@ -3114,93 +3114,133 @@ export async function getBatchSectorIntel(): Promise<BatchSectorIntelResult> {
   const todayDate = now.split(' ')[0];
   const requestedAtISO = requestedAt.toISOString();
 
-  const prompt = `
-현재 한국 날짜: ${todayDate}
+  // ── 1단계: ECOS 총수출 데이터 수집 (Search 0회) ──
+  let ecosExport: { latestYoY: number; ma3m: number; consecutivePositive: number; monthlyRows: string } | null = null;
+  try {
+    const rows = await getTradeData(4); // 최근 4개월
+    if (rows.length >= 3) {
+      const recent = rows.slice(-4);
+      const latestYoY = recent[recent.length - 1].exportGrowthYoY;
+      const ma3m = parseFloat(
+        (recent.slice(-3).reduce((s, d) => s + d.exportGrowthYoY, 0) / 3).toFixed(2)
+      );
+      // 최신 기준으로 역순 탐색하여 연속 양성 개월 수 계산
+      let consecutivePositive = 0;
+      for (let i = recent.length - 1; i >= 0; i--) {
+        if (recent[i].exportGrowthYoY > 0) consecutivePositive++;
+        else break;
+      }
+      const monthlyRows = recent
+        .map(d => `  ${d.date}: YoY ${d.exportGrowthYoY > 0 ? '+' : ''}${d.exportGrowthYoY.toFixed(1)}%`)
+        .join('\n');
+      ecosExport = { latestYoY, ma3m, consecutivePositive, monthlyRows };
+      console.log('[getBatchSectorIntel] ECOS 수출 수집 완료: 최신YoY=%d% 3MA=%d%', latestYoY, ma3m);
+    }
+  } catch (e) {
+    console.warn('[getBatchSectorIntel] ECOS 수출 수집 실패:', e);
+  }
 
-다음 4가지 섹터/무역 분석을 한번에 수행하고 JSON으로 반환하세요.
-Google 검색을 통해 최신 데이터를 기반으로 판단하세요.
+  // ── Phase A 프롬프트: ECOS 실데이터 → exportMomentum 파생 (Search 없음) ──
+  const phaseAPrompt = ecosExport
+    ? `현재 한국 날짜: ${todayDate}
 
-━━━ 1. exportMomentum: 수출 모멘텀 ━━━
-한국 5대 수출 품목(반도체, 선박, 자동차, 석유화학, 방산) YoY 증감률 조회.
-- hotSectors: YoY > 10% 품목명 배열
-- products: [{ product, sector, yoyGrowth, isHot(boolean), consecutiveGrowthMonths? }]
-- shipyardBonus: 선박 YoY >= +30%
-- semiconductorGate2Relax: 반도체 3개월 연속 YoY 증가
+아래는 ECOS 한국은행 통관 기준 총수출 실데이터입니다. Google 검색 없이 이 수치를 기반으로 분석하세요.
 
-━━━ 2. geoRisk: 지정학 리스크 스코어 ━━━
+[ECOS 총수출 YoY 증감률]
+${ecosExport.monthlyRows}
+- 최신 월 YoY: ${ecosExport.latestYoY > 0 ? '+' : ''}${ecosExport.latestYoY}%
+- 3개월 이동평균: ${ecosExport.ma3m > 0 ? '+' : ''}${ecosExport.ma3m}%
+- 연속 플러스 개월: ${ecosExport.consecutivePositive}개월
+
+위 수치와 한국 수출 구조(반도체 약 20%, 자동차 10%, 선박 9%, 석유화학 8%, 방산 4%)를 바탕으로 exportMomentum을 도출하세요.
+판단 기준:
+- 총수출 3MA > +15% → 반도체 주도 가능성 높음 (hotSector)
+- 총수출 3MA > +20% → 선박/조선 동반 호조 가능성 (shipyardBonus 후보)
+- 연속 플러스 >= 3개월 → semiconductorGate2Relax = true
+- 각 품목 yoyGrowth는 총수출 YoY에서 구성비 기반 추정
+
+응답 형식 (JSON only):
+{ "exportMomentum": { "hotSectors": [...], "products": [{"product":"반도체","sector":"IT/반도체","yoyGrowth":0,"isHot":false,"consecutiveGrowthMonths":0}, ...5개], "shipyardBonus": false, "semiconductorGate2Relax": false, "lastUpdated": "${requestedAtISO}" } }`.trim()
+    : `현재 한국 날짜: ${todayDate}
+ECOS 수출 데이터 수집 실패. 알려진 최근 한국 수출 동향을 바탕으로 exportMomentum을 추정하세요 (검색 없이).
+응답 형식 (JSON only): { "exportMomentum": { "hotSectors": [], "products": [], "shipyardBonus": false, "semiconductorGate2Relax": false, "lastUpdated": "${requestedAtISO}" } }`;
+
+  // ── Phase B 프롬프트: Search 1회, 3개 컴포넌트 ──
+  const phaseBPrompt = `현재 한국 날짜: ${todayDate}
+
+Google 검색으로 아래 3가지 지표를 조회하고 JSON으로 반환하세요.
+
+━━━ 1. geoRisk: 지정학 리스크 스코어 ━━━
 키워드: 한반도 안보, NATO 방산 예산, 원자력/SMR 정책, 한국 조선 수주
 - score(0-10): 기본5, NATO 방산 증가+2, 원자력/SMR 기회+1, 조선 수주 호조+1, 한반도 긴장-2, 극도 불확실-3
 - level: "OPPORTUNITY"|"NEUTRAL"|"RISK"
 - affectedSectors, headlines(주요 뉴스 3개), toneBreakdown: { positive, neutral, negative }
 
-━━━ 3. supplyChain: 공급망 선행지표 ━━━
+━━━ 2. supplyChain: 공급망 선행지표 ━━━
 - bdi: { current, mom3Change(%), trend("SURGING"|"RISING"|"FLAT"|"FALLING"|"COLLAPSING"), sectorImplication }
 - semiBillings: { latestBillionUSD, yoyGrowth(%), bookToBill, implication }
 - gcfi: { shanghaiEurope($/40ft), transPacific($/40ft), trend("RISING"|"FLAT"|"FALLING") }
 
-━━━ 4. sectorOrders: 글로벌 수주 인텔리전스 ━━━
+━━━ 3. sectorOrders: 글로벌 수주 인텔리전스 ━━━
 - globalDefense: { natoGdpAvg(%), usDefenseBudget(억달러), trend("EXPANDING"|"STABLE"|"CUTTING"), koreaExposure }
 - lngOrders: { newOrdersYTD(척), qatarEnergy(현황), orderBookMonths, implication }
 - smrContracts: { usNrcApprovals, totalGwCapacity(GW), koreaHyundai(현황), timing("TOO_EARLY"|"OPTIMAL"|"LATE") }
 
-모든 lastUpdated는 "${requestedAtISO}"로 설정.
-
-응답 형식 (JSON only):
-{
-  "exportMomentum": { "hotSectors": [...], "products": [...], "shipyardBonus": true, "semiconductorGate2Relax": true, "lastUpdated": "..." },
-  "geoRisk": { "score": 7, "level": "OPPORTUNITY", "affectedSectors": [...], "headlines": [...], "toneBreakdown": {...}, "lastUpdated": "..." },
-  "supplyChain": { "bdi": {...}, "semiBillings": {...}, "gcfi": {...}, "lastUpdated": "..." },
-  "sectorOrders": { "globalDefense": {...}, "lngOrders": {...}, "smrContracts": {...}, "lastUpdated": "..." }
-}
-  `.trim();
+모든 lastUpdated: "${requestedAtISO}"
+응답 형식 (JSON only): { "geoRisk": {...}, "supplyChain": {...}, "sectorOrders": {...} }`.trim();
 
   const cacheKey = `batch-sector-intel-${todayDate}`;
 
   return getCachedAIResponse<BatchSectorIntelResult>(cacheKey, async () => {
-    try {
-      const response = await withRetry(async () => {
-        return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: prompt,
-          config: {
-            tools: [{ googleSearch: {} }],
-            temperature: 0.1,
-            maxOutputTokens: 8192,
-          },
-        });
-      }, 2, 2000);
-      const text = response.text;
-      if (!text) throw new Error("No response from AI");
-      const parsed = safeJsonParse(text) as BatchSectorIntelResult;
+    const [phaseARes, phaseBRes] = await Promise.allSettled([
+      withRetry(() => getAI().models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: phaseAPrompt,
+        config: { temperature: 0.1, maxOutputTokens: 2048 },
+      }), 2, 2000),
+      withRetry(() => getAI().models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: phaseBPrompt,
+        config: { tools: [{ googleSearch: {} }], temperature: 0.1, maxOutputTokens: 6144 },
+      }), 2, 2000),
+    ]);
 
-      // 개별 캐시에도 저장
-      const tsNow = Date.now();
-      const yearMonth = requestedAt.toISOString().slice(0, 7);
-      const weekKey = `${requestedAt.getFullYear()}-W${Math.ceil(requestedAt.getDate() / 7)}`;
+    if (phaseARes.status === 'rejected') console.error('[getBatchSectorIntel] Phase A 실패:', phaseARes.reason);
+    if (phaseBRes.status === 'rejected') console.error('[getBatchSectorIntel] Phase B 실패:', phaseBRes.reason);
 
-      if (parsed.exportMomentum) { const k = `export-momentum-${yearMonth}`; aiCache[k] = { data: parsed.exportMomentum, timestamp: tsNow }; lsSet(k, { data: parsed.exportMomentum, timestamp: tsNow }); }
-      if (parsed.geoRisk) { const k = `geo-risk-${weekKey}`; aiCache[k] = { data: parsed.geoRisk, timestamp: tsNow }; lsSet(k, { data: parsed.geoRisk, timestamp: tsNow }); }
-      if (parsed.supplyChain) { const k = `supply-chain-intel-${weekKey}`; aiCache[k] = { data: parsed.supplyChain, timestamp: tsNow }; lsSet(k, { data: parsed.supplyChain, timestamp: tsNow }); }
-      if (parsed.sectorOrders) { const k = `sector-order-intel-${weekKey}`; aiCache[k] = { data: parsed.sectorOrders, timestamp: tsNow }; lsSet(k, { data: parsed.sectorOrders, timestamp: tsNow }); }
+    const parsedA = (phaseARes.status === 'fulfilled' && phaseARes.value.text)
+      ? safeJsonParse(phaseARes.value.text) as { exportMomentum?: ExportMomentumData } : null;
+    const parsedB = (phaseBRes.status === 'fulfilled' && phaseBRes.value.text)
+      ? safeJsonParse(phaseBRes.value.text) as Partial<BatchSectorIntelResult> : null;
 
-      return parsed;
-    } catch (error) {
-      console.error("Error in getBatchSectorIntel:", error);
-      return {
-        exportMomentum: { hotSectors: [], products: [], shipyardBonus: false, semiconductorGate2Relax: false, lastUpdated: requestedAtISO },
-        geoRisk: { score: 5, level: 'NEUTRAL', affectedSectors: ['방위산업', '조선', '원자력'], headlines: [], toneBreakdown: { positive: 33, neutral: 34, negative: 33 }, lastUpdated: requestedAtISO },
-        supplyChain: {
-          bdi: { current: 0, mom3Change: 0, trend: 'FLAT', sectorImplication: '데이터 조회 실패' },
-          semiBillings: { latestBillionUSD: 0, yoyGrowth: 0, bookToBill: 1.0, implication: '데이터 조회 실패' },
-          gcfi: { shanghaiEurope: 0, transPacific: 0, trend: 'FLAT' }, lastUpdated: requestedAtISO,
-        },
-        sectorOrders: {
-          globalDefense: { natoGdpAvg: 0, usDefenseBudget: 0, trend: 'STABLE', koreaExposure: '데이터 조회 실패' },
-          lngOrders: { newOrdersYTD: 0, qatarEnergy: '데이터 조회 실패', orderBookMonths: 0, implication: '데이터 조회 실패' },
-          smrContracts: { usNrcApprovals: 0, totalGwCapacity: 0, koreaHyundai: '데이터 조회 실패', timing: 'TOO_EARLY' }, lastUpdated: requestedAtISO,
-        },
-      };
-    }
+    const fallbackExport: ExportMomentumData = { hotSectors: [], products: [], shipyardBonus: false, semiconductorGate2Relax: false, lastUpdated: requestedAtISO };
+
+    const parsed: BatchSectorIntelResult = {
+      exportMomentum: parsedA?.exportMomentum ?? fallbackExport,
+      geoRisk: parsedB?.geoRisk ?? { score: 5, level: 'NEUTRAL', affectedSectors: ['방위산업', '조선', '원자력'], headlines: [], toneBreakdown: { positive: 33, neutral: 34, negative: 33 }, lastUpdated: requestedAtISO },
+      supplyChain: parsedB?.supplyChain ?? {
+        bdi: { current: 0, mom3Change: 0, trend: 'FLAT', sectorImplication: '데이터 조회 실패' },
+        semiBillings: { latestBillionUSD: 0, yoyGrowth: 0, bookToBill: 1.0, implication: '데이터 조회 실패' },
+        gcfi: { shanghaiEurope: 0, transPacific: 0, trend: 'FLAT' }, lastUpdated: requestedAtISO,
+      },
+      sectorOrders: parsedB?.sectorOrders ?? {
+        globalDefense: { natoGdpAvg: 0, usDefenseBudget: 0, trend: 'STABLE', koreaExposure: '데이터 조회 실패' },
+        lngOrders: { newOrdersYTD: 0, qatarEnergy: '데이터 조회 실패', orderBookMonths: 0, implication: '데이터 조회 실패' },
+        smrContracts: { usNrcApprovals: 0, totalGwCapacity: 0, koreaHyundai: '데이터 조회 실패', timing: 'TOO_EARLY' }, lastUpdated: requestedAtISO,
+      },
+    };
+
+    // 개별 캐시 저장
+    const tsNow = Date.now();
+    const yearMonth = requestedAt.toISOString().slice(0, 7);
+    const weekKey = `${requestedAt.getFullYear()}-W${Math.ceil(requestedAt.getDate() / 7)}`;
+
+    if (parsed.exportMomentum) { const k = `export-momentum-${yearMonth}`; aiCache[k] = { data: parsed.exportMomentum, timestamp: tsNow }; lsSet(k, { data: parsed.exportMomentum, timestamp: tsNow }); }
+    if (parsed.geoRisk)        { const k = `geo-risk-${weekKey}`;           aiCache[k] = { data: parsed.geoRisk,        timestamp: tsNow }; lsSet(k, { data: parsed.geoRisk,        timestamp: tsNow }); }
+    if (parsed.supplyChain)    { const k = `supply-chain-intel-${weekKey}`; aiCache[k] = { data: parsed.supplyChain,    timestamp: tsNow }; lsSet(k, { data: parsed.supplyChain,    timestamp: tsNow }); }
+    if (parsed.sectorOrders)   { const k = `sector-order-intel-${weekKey}`; aiCache[k] = { data: parsed.sectorOrders,   timestamp: tsNow }; lsSet(k, { data: parsed.sectorOrders,   timestamp: tsNow }); }
+
+    return parsed;
   });
 }
 
