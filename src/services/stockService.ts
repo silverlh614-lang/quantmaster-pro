@@ -230,7 +230,7 @@ function safeJsonParse(text: string | undefined): any {
     // 0. Extract JSON from markdown code blocks if present
     const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     let cleaned = jsonMatch ? jsonMatch[1].trim() : text.trim();
-    
+
     // If it's still not starting with [ or {, find the first occurrence
     if (!cleaned.startsWith('[') && !cleaned.startsWith('{')) {
       const firstBracket = cleaned.indexOf('[');
@@ -241,11 +241,23 @@ function safeJsonParse(text: string | undefined): any {
       } else if (firstBrace !== -1) {
         startIndex = firstBrace;
       }
-      
+
       if (startIndex !== -1) {
         cleaned = cleaned.substring(startIndex);
       }
     }
+
+    // 0.5. Remove JavaScript-style comments (outside of strings)
+    cleaned = removeJsonComments(cleaned);
+
+    // 0.6. Fix unquoted property names (e.g., { key: "value" } -> { "key": "value" })
+    cleaned = fixUnquotedKeys(cleaned);
+
+    // 0.7. Replace single-quoted strings with double-quoted strings
+    cleaned = fixSingleQuotes(cleaned);
+
+    // 0.8. Remove control characters (except \n, \r, \t) that break JSON parsing
+    cleaned = cleaned.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
 
     // 1. Handle unclosed strings if truncated
     let isInsideString = false;
@@ -274,7 +286,7 @@ function safeJsonParse(text: string | undefined): any {
       if (keyTrailingMatch) {
         cleaned = cleaned.substring(0, cleaned.length - keyTrailingMatch[0].length);
       }
-      
+
       // Remove trailing comma
       cleaned = cleaned.replace(/,\s*$/, '');
     }
@@ -283,18 +295,18 @@ function safeJsonParse(text: string | undefined): any {
     let stack: string[] = [];
     isInsideString = false;
     escaped = false;
-    
+
     for (let i = 0; i < cleaned.length; i++) {
       const char = cleaned[i];
       if (char === '\\' && !escaped) {
         escaped = true;
         continue;
       }
-      
+
       if (char === '"' && !escaped) {
         isInsideString = !isInsideString;
       }
-      
+
       if (!isInsideString) {
         if (char === '{') stack.push('}');
         else if (char === '[') stack.push(']');
@@ -306,7 +318,7 @@ function safeJsonParse(text: string | undefined): any {
       }
       escaped = false;
     }
-    
+
     const originalCleaned = cleaned;
     if (stack.length > 0) {
       cleaned += stack.reverse().join('');
@@ -324,7 +336,7 @@ function safeJsonParse(text: string | undefined): any {
           while (attempts < 5) {
             const braceIdx = tempCleaned.lastIndexOf('}');
             if (braceIdx === -1) break;
-            
+
             const truncated = tempCleaned.substring(0, braceIdx + 1) + ']';
             try {
               return JSON.parse(truncated);
@@ -334,9 +346,9 @@ function safeJsonParse(text: string | undefined): any {
             }
           }
         }
-        
+
         // Final attempt: aggressive comma cleanup
-        let aggressiveCleaned = cleaned.replace(/,\s*([\]\}])/g, '$1'); 
+        let aggressiveCleaned = cleaned.replace(/,\s*([\]\}])/g, '$1');
         return JSON.parse(aggressiveCleaned);
       } catch (finalError) {
         throw innerError;
@@ -346,6 +358,204 @@ function safeJsonParse(text: string | undefined): any {
     console.error("JSON Parse Error. Original text:", text);
     throw new Error(`Failed to parse AI response as JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
+}
+
+/**
+ * Remove JavaScript-style comments from JSON text while preserving strings.
+ */
+function removeJsonComments(text: string): string {
+  let result = '';
+  let i = 0;
+  let inString = false;
+  let escaped = false;
+
+  while (i < text.length) {
+    const ch = text[i];
+
+    if (inString) {
+      result += ch;
+      if (ch === '\\' && !escaped) {
+        escaped = true;
+      } else if (ch === '"' && !escaped) {
+        inString = false;
+      } else {
+        escaped = false;
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      escaped = false;
+      result += ch;
+      i++;
+    } else if (ch === '/' && i + 1 < text.length && text[i + 1] === '/') {
+      // Single-line comment: skip until end of line
+      i += 2;
+      while (i < text.length && text[i] !== '\n') i++;
+    } else if (ch === '/' && i + 1 < text.length && text[i + 1] === '*') {
+      // Block comment: skip until */
+      i += 2;
+      while (i + 1 < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++;
+      i += 2; // skip closing */
+    } else {
+      result += ch;
+      i++;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Fix unquoted property names in JSON-like text.
+ * Converts { key: "value" } to { "key": "value" }
+ */
+function fixUnquotedKeys(text: string): string {
+  // Match unquoted keys: after { or , followed by optional whitespace, then an identifier, then :
+  // But only outside of strings
+  let result = '';
+  let i = 0;
+  let inString = false;
+  let escaped = false;
+
+  while (i < text.length) {
+    const ch = text[i];
+
+    if (inString) {
+      result += ch;
+      if (ch === '\\' && !escaped) {
+        escaped = true;
+      } else if (ch === '"' && !escaped) {
+        inString = false;
+      } else {
+        escaped = false;
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      escaped = false;
+      result += ch;
+      i++;
+      continue;
+    }
+
+    // Check if we're at a position where an unquoted key could start
+    // (after { or , or start of line, with optional whitespace)
+    if (/[a-zA-Z_$]/.test(ch)) {
+      // Look back to see if this could be a key position
+      const prevNonSpace = result.replace(/\s+$/, '').slice(-1);
+      if (prevNonSpace === '{' || prevNonSpace === ',') {
+        // Capture the identifier
+        let key = '';
+        let j = i;
+        while (j < text.length && /[a-zA-Z0-9_$]/.test(text[j])) {
+          key += text[j];
+          j++;
+        }
+        // Skip whitespace after identifier
+        let k = j;
+        while (k < text.length && /\s/.test(text[k])) k++;
+        // Check if followed by ':'
+        if (k < text.length && text[k] === ':') {
+          // It's an unquoted key — wrap in quotes
+          result += '"' + key + '"';
+          i = j;
+          continue;
+        }
+      }
+    }
+
+    result += ch;
+    i++;
+  }
+
+  return result;
+}
+
+/**
+ * Replace single-quoted strings with double-quoted strings in JSON-like text.
+ * Handles escaped quotes within strings.
+ */
+function fixSingleQuotes(text: string): string {
+  let result = '';
+  let i = 0;
+  let inDouble = false;
+  let escaped = false;
+
+  while (i < text.length) {
+    const ch = text[i];
+
+    if (escaped) {
+      result += ch;
+      escaped = false;
+      i++;
+      continue;
+    }
+
+    if (ch === '\\') {
+      escaped = true;
+      result += ch;
+      i++;
+      continue;
+    }
+
+    if (inDouble) {
+      result += ch;
+      if (ch === '"') {
+        inDouble = false;
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === '"') {
+      inDouble = true;
+      result += ch;
+      i++;
+      continue;
+    }
+
+    if (ch === "'") {
+      // Start of single-quoted string — convert to double-quoted
+      result += '"';
+      i++;
+      while (i < text.length) {
+        const sc = text[i];
+        if (sc === '\\' && i + 1 < text.length) {
+          if (text[i + 1] === "'") {
+            // Escaped single quote -> just output the single quote
+            result += "'";
+            i += 2;
+          } else {
+            result += sc;
+            i++;
+          }
+        } else if (sc === "'") {
+          result += '"';
+          i++;
+          break;
+        } else if (sc === '"') {
+          // Unescaped double quote inside single-quoted string -> escape it
+          result += '\\"';
+          i++;
+        } else {
+          result += sc;
+          i++;
+        }
+      }
+      continue;
+    }
+
+    result += ch;
+    i++;
+  }
+
+  return result;
 }
 
 export interface WalkForwardAnalysis {
