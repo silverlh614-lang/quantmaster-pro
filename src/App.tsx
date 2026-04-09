@@ -319,10 +319,10 @@ export default function App() {
   // RENDER
   // ═══════════════════════════════════════════════════════════════════════════
   return (
-    <div className="min-h-screen bg-theme-bg text-theme-text font-sans selection:bg-orange-500/30 selection:text-white antialiased">
+    <div className="min-h-screen bg-theme-bg text-theme-text font-sans selection:bg-orange-500/30 selection:text-white antialiased overflow-x-hidden">
       <Toaster position="top-center" expand={false} richColors theme="dark" />
 
-      <div className="max-w-screen-2xl mx-auto relative">
+      <div className="max-w-screen-2xl mx-auto relative overflow-x-hidden">
         {/* ── Global Modals ── */}
         <MasterChecklistModal />
         <SettingsModal />

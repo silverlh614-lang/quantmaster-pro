@@ -106,10 +106,13 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     scroll-behavior: smooth;
+    overflow-x: hidden;
+    max-width: 100vw;
   }
   body {
     @apply bg-theme-bg text-theme-text selection:bg-orange-500/30 overflow-x-hidden transition-colors duration-300;
     font-family: var(--font-sans);
+    max-width: 100vw;
   }
 }
 
