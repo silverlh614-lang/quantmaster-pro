@@ -34,6 +34,10 @@ import {
   DataReliability,
   SignalVerdict,
   SignalGrade,
+  BearRegimeResult,
+  BearRegimeCondition,
+  VkospiTriggerResult,
+  VkospiTriggerLevel,
 } from '../types/quant';
 
 export const ALL_CONDITIONS: Record<ConditionId, { name: string; baseWeight: number; description: string }> = {
@@ -1232,4 +1236,201 @@ export function computeSignalVerdict(
   }
 
   return { grade, kellyPct, positionRule, passedConditions: passed, failedConditions: failed };
+}
+
+// ─── 아이디어 1: Gate -1 "Market Regime Detector" — Bull/Bear 자동 판별 게이트 ──
+
+/**
+ * 7개 매크로 조건을 평가하여 시장 레짐을 BULL / TRANSITION / BEAR 3단계로 분류한다.
+ * 5개 이상 조건 충족 시 Bear Mode 자동 활성화.
+ * MacroEnvironment에 이미 포함된 vkospi, samsungIri, bokRateDirection, usdKrw,
+ * mhsLevel 등을 직접 활용하며, 나머지 보조 지표(kospiBelow120ma, foreignFuturesSellDays 등)는
+ * MacroEnvironment의 optional 확장 필드에서 읽는다.
+ */
+export function evaluateBearRegime(
+  macroEnv: MacroEnvironment,
+  gate0: Gate0Result,
+): BearRegimeResult {
+  const now = new Date().toISOString();
+
+  // ── 조건 1: KOSPI 120일 이평선 하회 + 일목 구름 하방 ──
+  const cond1: BearRegimeCondition = {
+    id: 'KOSPI_BELOW_120MA',
+    name: 'KOSPI 120일선 하락 + 일목 구름 하방',
+    triggered: !!(macroEnv.kospiBelow120ma && macroEnv.kospiIchimokuBearish),
+    description: 'KOSPI가 120일 이동평균선 아래에 위치하고 일목균형표 구름 하방에 있습니다.',
+  };
+
+  // ── 조건 2: VKOSPI 25% 이상 + 상승 중 ──
+  const cond2: BearRegimeCondition = {
+    id: 'VKOSPI_HIGH_RISING',
+    name: 'VKOSPI 25% 이상 + 상승 추세',
+    triggered: macroEnv.vkospi >= 25 && !!(macroEnv.vkospiRising !== false),
+    description: `VKOSPI ${macroEnv.vkospi.toFixed(1)} — 시장 변동성 경보 구간 진입.`,
+  };
+
+  // ── 조건 3: 삼성 IRI +3.0pt 이상 급등 ──
+  const iriDelta = macroEnv.samsungIriDelta ?? 0;
+  const cond3: BearRegimeCondition = {
+    id: 'SAMSUNG_IRI_SURGE',
+    name: '삼성 IRI +3.0pt 이상 급등',
+    triggered: iriDelta >= 3.0,
+    description: `삼성 IRI 변화 +${iriDelta.toFixed(1)}pt — 기관 위험회피 심화.`,
+  };
+
+  // ── 조건 4: 외국인 선물 누적 순매도 10일 이상 ──
+  const sellDays = macroEnv.foreignFuturesSellDays ?? 0;
+  const cond4: BearRegimeCondition = {
+    id: 'FOREIGN_FUTURES_SELL',
+    name: '외국인 선물 연속 순매도 10일 이상',
+    triggered: sellDays >= 10,
+    description: `외국인 선물 연속 순매도 ${sellDays}일째.`,
+  };
+
+  // ── 조건 5: MHS GREEN→YELLOW→RED 전환 확인 ──
+  const mhsLevel = gate0.mhsLevel;
+  const mhsTrend = macroEnv.mhsTrend ?? 'STABLE';
+  const cond5: BearRegimeCondition = {
+    id: 'MHS_DETERIORATING',
+    name: 'MHS GREEN→YELLOW→RED 전환',
+    triggered: (mhsLevel === 'LOW') || (mhsLevel === 'MEDIUM' && mhsTrend === 'DETERIORATING'),
+    description: `MHS ${gate0.macroHealthScore} (${mhsLevel}) — ${mhsTrend === 'DETERIORATING' ? '악화 추세' : '매수 중단 수준'}.`,
+  };
+
+  // ── 조건 6: BOK 금리 인상 사이클 진행 중 ──
+  const cond6: BearRegimeCondition = {
+    id: 'BOK_RATE_HIKING',
+    name: 'BOK 금리 인상 사이클',
+    triggered: macroEnv.bokRateDirection === 'HIKING',
+    description: '한국은행 기준금리 인상 사이클 — 유동성 긴축 환경.',
+  };
+
+  // ── 조건 7: USD/KRW 1,350 이상 급등 국면 ──
+  const cond7: BearRegimeCondition = {
+    id: 'USDKRW_SURGE',
+    name: 'USD/KRW 1,350 이상 급등',
+    triggered: macroEnv.usdKrw >= 1350,
+    description: `USD/KRW ${macroEnv.usdKrw.toLocaleString()} — 원화 급약세, 외국인 자금 유출 압력.`,
+  };
+
+  const allConditions = [cond1, cond2, cond3, cond4, cond5, cond6, cond7];
+  const triggeredCount = allConditions.filter(c => c.triggered).length;
+  const BEAR_THRESHOLD = 5;
+
+  let regime: BearRegimeResult['regime'];
+  let actionRecommendation: string;
+  let cashRatioRecommended: number;
+  let defenseMode: boolean;
+
+  if (triggeredCount >= BEAR_THRESHOLD) {
+    regime = 'BEAR';
+    actionRecommendation = '🔴 Bear Mode 활성화 — 인버스/방어자산 선택 모드. 신규 롱 포지션 전면 중단. KODEX 200선물인버스2X 및 방어섹터 재편 권고.';
+    cashRatioRecommended = 70;
+    defenseMode = true;
+  } else if (triggeredCount >= 3) {
+    regime = 'TRANSITION';
+    actionRecommendation = '🟡 Transition Mode — 현금 비중 확대 및 헤지 레이어 활성화. 신규 진입 규모 축소(50%), 기존 포지션 점검.';
+    cashRatioRecommended = 40;
+    defenseMode = false;
+  } else {
+    regime = 'BULL';
+    actionRecommendation = '🟢 Bull Mode — 27조건 롱 시스템 정상 작동. Gate 1→3 표준 기준 적용.';
+    cashRatioRecommended = 20;
+    defenseMode = false;
+  }
+
+  return {
+    regime,
+    conditions: allConditions,
+    triggeredCount,
+    threshold: BEAR_THRESHOLD,
+    actionRecommendation,
+    cashRatioRecommended,
+    defenseMode,
+    lastUpdated: now,
+  };
+}
+
+// ─── 아이디어 4: VKOSPI 공포지수 트리거 시스템 ──────────────────────────────────
+
+/**
+ * VKOSPI 수치를 4단계 트리거 레벨로 평가하여 인버스 ETF 전략 및 현금 비중을 반환한다.
+ * VKOSPI ≥ 50 (역사적 공포) 시 인버스 포지션 최대화 + V자 반등 준비 종목 리스트 병행 생성.
+ */
+export function evaluateVkospiTrigger(vkospi: number): VkospiTriggerResult {
+  const now = new Date().toISOString();
+
+  const INVERSE_ETFS = [
+    'KODEX 200선물인버스2X (233740)',
+    'KODEX 코스닥150선물인버스 (251340)',
+    'TIGER 200선물인버스2X (252670)',
+  ];
+
+  const V_RECOVERY_STOCKS = [
+    '삼성전자 (005930) — 반도체 V반등 선도주',
+    'SK하이닉스 (000660) — HBM 수요 회복 수혜',
+    '현대차 (005380) — 글로벌 수출 정상화',
+    'POSCO홀딩스 (005490) — 철강 수요 반등',
+    'KB금융 (105560) — 금리 안정화 수혜 금융주',
+    'KODEX 200 (069500) — 지수 회복 직접 수혜',
+  ];
+
+  let level: VkospiTriggerLevel;
+  let cashRatio: number;
+  let inversePosition: number;
+  let description: string;
+  let actionMessage: string;
+  let dualPositionActive: boolean;
+  let vRecoveryStocks: string[] | undefined;
+
+  if (vkospi >= 50) {
+    level = 'HISTORICAL_FEAR';
+    cashRatio = 10;
+    inversePosition = 80;
+    dualPositionActive = true;
+    vRecoveryStocks = V_RECOVERY_STOCKS;
+    description = `VKOSPI ${vkospi.toFixed(1)} — 역사적 공포 이벤트 (2008 금융위기·2020 코로나 수준).`;
+    actionMessage = '🚨 역사적 공포 이벤트 — 인버스 ETF 최대 포지션(80%) 유지. 동시에 V자 반등 준비 리스트 자동 생성. 추가 공포 매도 시 분할 역발상 롱 준비.';
+  } else if (vkospi >= 40) {
+    level = 'ENTRY_2';
+    cashRatio = 20;
+    inversePosition = 60;
+    dualPositionActive = false;
+    description = `VKOSPI ${vkospi.toFixed(1)} — 고공포 구간. 인버스 ETF 추가 진입 신호.`;
+    actionMessage = '🔴 인버스 ETF 추가 진입 — 포지션 60%까지 확대. 손절선: VKOSPI 35 하향 복귀 시 절반 청산.';
+  } else if (vkospi >= 30) {
+    level = 'ENTRY_1';
+    cashRatio = 40;
+    inversePosition = 30;
+    dualPositionActive = false;
+    description = `VKOSPI ${vkospi.toFixed(1)} — 공포 구간 진입. 인버스 ETF 1차 진입 적기.`;
+    actionMessage = '🟠 인버스 ETF 1차 진입 — 포지션 30% 구축. 추가 상승 시(VKOSPI 40+) 2차 진입 대기.';
+  } else if (vkospi >= 25) {
+    level = 'WARNING';
+    cashRatio = 20;
+    inversePosition = 0;
+    dualPositionActive = false;
+    description = `VKOSPI ${vkospi.toFixed(1)} — 경계 구간. Bear Mode 경계경보 발령.`;
+    actionMessage = '🟡 Bear Mode 경계경보 — 현금 비중 20% 확보. 신규 롱 포지션 규모 축소. 인버스 ETF 준비 대기.';
+  } else {
+    level = 'NORMAL';
+    cashRatio = 0;
+    inversePosition = 0;
+    dualPositionActive = false;
+    description = `VKOSPI ${vkospi.toFixed(1)} — 정상 시장. Risk-On 최적 환경.`;
+    actionMessage = '🟢 정상 시장 — VKOSPI 20 이하는 Risk-On 최적기. 27조건 롱 시스템 전면 가동.';
+  }
+
+  return {
+    level,
+    vkospi,
+    cashRatio,
+    inversePosition,
+    dualPositionActive,
+    inverseEtfSuggestions: inversePosition > 0 ? INVERSE_ETFS : [],
+    vRecoveryStocks,
+    description,
+    actionMessage,
+    lastUpdated: now,
+  };
 }

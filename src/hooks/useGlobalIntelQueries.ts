@@ -17,7 +17,7 @@ import {
   getBatchMarketIntel,
 } from '../services/stockService';
 import { useGlobalIntelStore } from '../stores';
-import { evaluateGate0 } from '../services/quantEngine';
+import { evaluateGate0, evaluateBearRegime, evaluateVkospiTrigger } from '../services/quantEngine';
 import { getStaleTime, PERSIST_GC_TIME } from '../utils/cacheConfig';
 
 /**
@@ -60,6 +60,8 @@ export function useBatchGlobalIntel() {
   const setCreditSpreadData = useGlobalIntelStore(s => s.setCreditSpreadData);
   const setFinancialStressData = useGlobalIntelStore(s => s.setFinancialStressData);
   const setSmartMoneyData = useGlobalIntelStore(s => s.setSmartMoneyData);
+  const setBearRegimeResult = useGlobalIntelStore(s => s.setBearRegimeResult);
+  const setVkospiTriggerResult = useGlobalIntelStore(s => s.setVkospiTriggerResult);
 
   return useQuery({
     queryKey: ['batch-global-intel'],
@@ -80,6 +82,12 @@ export function useBatchGlobalIntel() {
           economic: g0.details.economicScore,
           risk: g0.details.riskScore,
         });
+
+        // Gate -1: Bear Regime Detector (아이디어 1)
+        setBearRegimeResult(evaluateBearRegime(data.macro, g0));
+
+        // VKOSPI 트리거 시스템 (아이디어 4)
+        setVkospiTriggerResult(evaluateVkospiTrigger(data.macro.vkospi));
       }
 
       if (data.regime) setEconomicRegimeData(data.regime);
