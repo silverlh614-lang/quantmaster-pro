@@ -97,6 +97,79 @@ export interface ExportMomentumData {
   lastUpdated: string;
 }
 
+// ─── ECOS (한국은행 경제통계시스템) 데이터 타입 ─────────────────────────────
+
+/** ECOS API 원시 응답 행 */
+export interface EcosRawRow {
+  STAT_CODE: string;       // 통계표 코드
+  STAT_NAME: string;       // 통계표명
+  ITEM_CODE1: string;      // 통계항목 코드1
+  ITEM_NAME1: string;      // 통계항목명1
+  ITEM_CODE2?: string;     // 통계항목 코드2
+  ITEM_NAME2?: string;     // 통계항목명2
+  UNIT_NAME: string;       // 단위
+  TIME: string;            // 시점 (YYYYMM, YYYYMMDD, YYYY 등)
+  DATA_VALUE: string;      // 데이터 값
+}
+
+/** ECOS 기준금리 데이터 */
+export interface EcosBokRate {
+  date: string;            // YYYYMMDD
+  rate: number;            // 기준금리 (%)
+  direction: 'HIKING' | 'HOLDING' | 'CUTTING'; // 방향
+}
+
+/** ECOS 환율 데이터 */
+export interface EcosExchangeRate {
+  date: string;            // YYYYMMDD
+  usdKrw: number;          // 원/달러 환율
+  change: number;          // 전일 대비 변동
+  changePct: number;       // 전일 대비 변동률 (%)
+}
+
+/** ECOS M2 통화량 데이터 */
+export interface EcosM2Data {
+  date: string;            // YYYYMM
+  amount: number;          // M2 잔액 (조원)
+  yoyGrowth: number;       // 전년동월 대비 증가율 (%)
+}
+
+/** ECOS GDP 데이터 */
+export interface EcosGdpData {
+  quarter: string;         // YYYYQN (예: 2024Q1)
+  realGdpGrowth: number;   // 실질 GDP 성장률 (전기 대비, %)
+  yoyGrowth: number;       // 전년동기 대비 성장률 (%)
+}
+
+/** ECOS 수출입 데이터 */
+export interface EcosTradeData {
+  date: string;            // YYYYMM
+  exports: number;         // 수출액 (백만 달러)
+  imports: number;         // 수입액 (백만 달러)
+  tradeBalance: number;    // 무역수지 (백만 달러)
+  exportGrowthYoY: number; // 수출 증가율 YoY (%)
+}
+
+/** ECOS 종합 매크로 데이터 (모든 지표 통합) */
+export interface EcosMacroSnapshot {
+  bokRate: EcosBokRate | null;
+  exchangeRate: EcosExchangeRate | null;
+  m2: EcosM2Data | null;
+  gdp: EcosGdpData | null;
+  trade: EcosTradeData | null;
+  fetchedAt: string;       // ISO 타임스탬프
+}
+
+/** ECOS 시계열 조회 요청 파라미터 */
+export interface EcosQueryParams {
+  statCode: string;        // 통계표 코드
+  period: 'D' | 'M' | 'Q' | 'A'; // 주기 (일/월/분기/연)
+  startDate: string;       // 시작일 (YYYYMMDD 또는 YYYYMM)
+  endDate: string;         // 종료일
+  itemCode1: string;       // 통계항목 코드1
+  itemCode2?: string;      // 통계항목 코드2
+}
+
 // ─── 아이디어 7: 지정학 리스크 스코어링 모듈 (Geopolitical Risk Engine) ──────
 
 export interface GeopoliticalRiskData {
