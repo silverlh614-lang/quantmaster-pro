@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
-import { 
-  Search, 
-  Filter, 
-  Zap, 
-  Brain, 
-  ChevronRight, 
-  BarChart3, 
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Search,
+  Filter,
+  Zap,
+  Brain,
+  ChevronRight,
+  BarChart3,
   Target,
   AlertCircle,
   CheckCircle2,
@@ -27,6 +27,15 @@ interface QuantScreenerProps {
   onStockClick?: (stock: StockRecommendation) => void;
 }
 
+// ─── 5단계 파이프라인 정의 (QUANT_SCREEN 모드 전용) ──────────────────────────
+const PIPELINE_STAGES = [
+  { label: '정량 스크리닝', desc: '수치 이상 신호 — 거래량·기관·52주 고가 근접', color: 'text-blue-400', border: 'border-blue-500/40' },
+  { label: 'DART 공시 스캔', desc: '수주·설비투자·자사주·내부자매수 탐지', color: 'text-amber-400', border: 'border-amber-500/40' },
+  { label: '종목 통합·점수화', desc: '정량 40% + 공시 30% + 뉴스역점수 30%', color: 'text-green-400', border: 'border-green-500/40' },
+  { label: '조용한 매집 감지', desc: 'VWAP·기관분할매수·공매도 감소 복합 신호', color: 'text-purple-400', border: 'border-purple-500/40' },
+  { label: 'AI 정밀 분석', desc: '수치 변동의 근본 원인 · 27조건 평가', color: 'text-pink-400', border: 'border-pink-500/40' },
+] as const;
+
 export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading, recommendations, onStockClick }) => {
   const [localFilters, setLocalFilters] = useState<StockFilters>({
     minRoe: 15,
@@ -35,6 +44,28 @@ export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading,
     minMarketCap: 1000,
     mode: 'MOMENTUM'
   });
+
+  // ── QUANT_SCREEN 파이프라인 진행 단계 추적 ──────────────────────────────────
+  const [pipelineStage, setPipelineStage] = useState<number>(-1); // -1 = 미시작
+  const pipelineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // loading 상태가 바뀔 때 파이프라인 스테이지 관리
+  useEffect(() => {
+    if (loading && localFilters.mode === 'QUANT_SCREEN') {
+      setPipelineStage(0);
+      // 각 단계는 약 10-15초 간격으로 자동 진행 (실제 완료 시점과 무관한 UI 피드백)
+      const delays = [0, 12000, 22000, 32000, 42000];
+      delays.forEach((delay, idx) => {
+        pipelineTimerRef.current = setTimeout(() => setPipelineStage(idx), delay);
+      });
+    } else {
+      setPipelineStage(-1);
+      if (pipelineTimerRef.current) clearTimeout(pipelineTimerRef.current);
+    }
+    return () => {
+      if (pipelineTimerRef.current) clearTimeout(pipelineTimerRef.current);
+    };
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -144,6 +175,32 @@ export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading,
         </form>
       </div>
 
+      {/* QUANT_SCREEN 모드: 파이프라인 흐름 설명 */}
+      {localFilters.mode === 'QUANT_SCREEN' && !loading && (
+        <div className="bg-[#0f1012] border border-blue-500/20 rounded-xl p-5">
+          <p className="text-xs font-black uppercase tracking-widest text-blue-400 mb-4">5단계 파이프라인 — 숨은 종목 발굴 모드</p>
+          <div className="flex items-start gap-0">
+            {PIPELINE_STAGES.map((stage, idx) => (
+              <React.Fragment key={idx}>
+                <div className="flex flex-col items-center gap-1.5 flex-1">
+                  <div className={`w-8 h-8 rounded-full border-2 ${stage.border} flex items-center justify-center text-[10px] font-black ${stage.color}`}>
+                    {idx + 1}
+                  </div>
+                  <p className={`text-[9px] font-bold text-center leading-tight ${stage.color}`}>{stage.label}</p>
+                  <p className="text-[8px] text-gray-600 text-center leading-tight hidden sm:block">{stage.desc}</p>
+                </div>
+                {idx < PIPELINE_STAGES.length - 1 && (
+                  <div className="w-4 h-0.5 bg-white/10 mt-4 shrink-0" />
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+          <p className="text-[9px] text-gray-600 mt-4 text-center">
+            뉴스 인기도 0% · 수치 이상 신호 100% — AI가 "시끄러운 종목"이 아닌 조용한 초기 주도주를 봅니다
+          </p>
+        </div>
+      )}
+
       {/* Step 2: AI Analysis Preview */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
@@ -160,16 +217,62 @@ export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading,
           </div>
 
           {loading ? (
-            <div className="bg-[#151619] border border-white/5 rounded-xl p-12 flex flex-col items-center justify-center space-y-4">
-              <div className="relative">
-                <div className="w-16 h-16 rounded-full border-4 border-purple-500/20 border-t-purple-500 animate-spin" />
-                <Brain className="w-6 h-6 text-purple-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+            localFilters.mode === 'QUANT_SCREEN' ? (
+              /* ── QUANT_SCREEN: 5단계 파이프라인 진행 표시 ── */
+              <div className="bg-[#151619] border border-white/5 rounded-xl p-8 space-y-5">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-6 h-6 rounded-full border-2 border-blue-500/40 border-t-blue-500 animate-spin" />
+                  <p className="text-white font-bold">2단계 파이프라인 실행 중</p>
+                </div>
+                <div className="space-y-3">
+                  {PIPELINE_STAGES.map((stage, idx) => {
+                    const isDone = pipelineStage > idx;
+                    const isActive = pipelineStage === idx;
+                    return (
+                      <div key={idx} className={cn(
+                        'flex items-start gap-3 p-3 rounded-lg border transition-all duration-500',
+                        isDone ? 'border-green-500/20 bg-green-500/5 opacity-60' :
+                        isActive ? `${stage.border} bg-white/3` :
+                        'border-white/5 opacity-30'
+                      )}>
+                        <div className="mt-0.5 w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-[10px] font-black">
+                          {isDone ? (
+                            <span className="text-green-400">✓</span>
+                          ) : isActive ? (
+                            <div className="w-4 h-4 rounded-full border-2 border-t-current border-white/20 animate-spin" />
+                          ) : (
+                            <span className="text-gray-600">{idx + 1}</span>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <p className={cn('text-sm font-bold', isDone ? 'text-green-400' : isActive ? stage.color : 'text-gray-600')}>
+                            {idx + 1}단계: {stage.label}
+                          </p>
+                          <p className={cn('text-[10px] mt-0.5', isActive ? 'text-gray-400' : 'text-gray-600')}>
+                            {stage.desc}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-gray-600 text-center">
+                  뉴스가 없는 조용한 초기 주도주를 발굴합니다 — 완료까지 약 1-2분 소요
+                </p>
               </div>
-              <div className="text-center">
-                <p className="text-white font-medium">AI가 후보군을 정밀 분석 중입니다...</p>
-                <p className="text-sm text-gray-500 mt-1">현재 주도주 사이클 및 매크로 환경 부합 여부를 검증합니다.</p>
+            ) : (
+              /* ── 일반 모드: 기본 스피너 ── */
+              <div className="bg-[#151619] border border-white/5 rounded-xl p-12 flex flex-col items-center justify-center space-y-4">
+                <div className="relative">
+                  <div className="w-16 h-16 rounded-full border-4 border-purple-500/20 border-t-purple-500 animate-spin" />
+                  <Brain className="w-6 h-6 text-purple-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                </div>
+                <div className="text-center">
+                  <p className="text-white font-medium">AI가 후보군을 정밀 분석 중입니다...</p>
+                  <p className="text-sm text-gray-500 mt-1">현재 주도주 사이클 및 매크로 환경 부합 여부를 검증합니다.</p>
+                </div>
               </div>
-            </div>
+            )
           ) : recommendations.length > 0 ? (
             <div className="grid grid-cols-1 gap-4">
               {recommendations.map((stock, idx) => (

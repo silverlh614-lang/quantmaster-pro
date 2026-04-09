@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
   TradeRecord, ConditionPerformance, SystemVsIntuitionStats, ConditionId,
 } from '../types/quant';
-import { ALL_CONDITIONS } from '../services/quantEngine';
+import { ALL_CONDITIONS, CONDITION_SOURCE_MAP, getEvolutionWeightsFromPerformance } from '../services/quantEngine';
 
 // ─── Helper: 조건별 성과 계산 ────────────────────────────────────────────────────
 
@@ -364,6 +364,120 @@ export const TradeJournal: React.FC<Props> = ({
                   {closedTrades.length >= 10 ? '동적 가중치 활성화됨' : `${10 - closedTrades.length}건 더 필요`}
                 </span>
               </p>
+
+              {/* ── 귀인 분석: 승리 패턴 Top-3 + 자기진화 현황 ── */}
+              {(() => {
+                // 승률 상위 조건 (최소 3건 이상)
+                const topWinners = condPerf
+                  .filter(c => c.totalTrades >= 3)
+                  .map(c => ({ ...c, winRate: c.totalTrades > 0 ? (c.winTrades / c.totalTrades) * 100 : 0 }))
+                  .sort((a, b) => b.winRate - a.winRate)
+                  .slice(0, 3);
+
+                // 자기진화 현황: 기본값(1.0)에서 변경된 조건
+                const savedWeights = getEvolutionWeightsFromPerformance();
+                const boosted = Object.entries(savedWeights).filter(([, w]) => w > 1.05).map(([id]) => Number(id));
+                const reduced = Object.entries(savedWeights).filter(([, w]) => w < 0.95).map(([id]) => Number(id));
+
+                // 가장 성과 좋은 실계산+AI 조건 혼합 패턴 찾기
+                const winningComputedConditions = topWinners
+                  .filter(c => CONDITION_SOURCE_MAP[c.conditionId as ConditionId] === 'COMPUTED')
+                  .slice(0, 2)
+                  .map(c => ALL_CONDITIONS[c.conditionId as ConditionId]?.name ?? `조건${c.conditionId}`);
+                const winningAiConditions = topWinners
+                  .filter(c => CONDITION_SOURCE_MAP[c.conditionId as ConditionId] === 'AI')
+                  .slice(0, 1)
+                  .map(c => ALL_CONDITIONS[c.conditionId as ConditionId]?.name ?? `조건${c.conditionId}`);
+                const patternParts = [...winningComputedConditions, ...winningAiConditions];
+
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                    {/* 승리 패턴 Top-3 */}
+                    <div className="border border-green-200 bg-green-50/50 p-4 rounded-lg">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-green-700 mb-3">
+                        귀인 분석 — 승리 조건 Top-3
+                      </p>
+                      {topWinners.length > 0 ? (
+                        <div className="space-y-2">
+                          {topWinners.map((c, i) => (
+                            <div key={c.conditionId} className="flex items-center gap-2">
+                              <span className="text-[9px] font-black text-gray-400 w-4">{i + 1}</span>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-0.5">
+                                  <span className="text-[10px] font-bold text-gray-800">
+                                    {ALL_CONDITIONS[c.conditionId as ConditionId]?.name ?? `조건${c.conditionId}`}
+                                  </span>
+                                  <span className={`text-[9px] font-black ${c.winRate >= 60 ? 'text-green-600' : 'text-amber-600'}`}>
+                                    {c.winRate.toFixed(0)}%
+                                  </span>
+                                </div>
+                                <div className="h-1 w-full bg-gray-200 rounded">
+                                  <div className={`h-full rounded ${c.winRate >= 60 ? 'bg-green-500' : 'bg-amber-400'}`}
+                                    style={{ width: `${c.winRate}%` }} />
+                                </div>
+                              </div>
+                              <span className={`text-[8px] px-1 py-0.5 border rounded shrink-0 ${
+                                CONDITION_SOURCE_MAP[c.conditionId as ConditionId] === 'COMPUTED'
+                                  ? 'border-green-400 text-green-700' : 'border-red-300 text-red-600'
+                              }`}>
+                                {CONDITION_SOURCE_MAP[c.conditionId as ConditionId] === 'COMPUTED' ? '실계산' : 'AI'}
+                              </span>
+                            </div>
+                          ))}
+                          {patternParts.length >= 2 && (
+                            <p className="text-[9px] text-green-700 font-bold mt-2 pt-2 border-t border-green-200">
+                              현재 핵심 패턴: {patternParts.join(' + ')}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-gray-400">3건 이상 매매된 조건이 없습니다.</p>
+                      )}
+                    </div>
+
+                    {/* 자기진화 현황 */}
+                    <div className="border border-gray-200 bg-gray-50/50 p-4 rounded-lg">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-gray-600 mb-3">
+                        자기진화 현황 — Evolution Weights
+                      </p>
+                      {boosted.length === 0 && reduced.length === 0 ? (
+                        <p className="text-[10px] text-gray-400">
+                          {closedTrades.length >= 10
+                            ? '10건 누적됨 — 가중치가 기본값(1.0)과 동일합니다.'
+                            : `${10 - closedTrades.length}건 더 쌓이면 자동 진화 시작`}
+                        </p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {boosted.length > 0 && (
+                            <div>
+                              <p className="text-[8px] font-black text-green-600 uppercase mb-1">↑ 가중치 상향 ({boosted.length}개)</p>
+                              <div className="flex flex-wrap gap-1">
+                                {boosted.map(id => (
+                                  <span key={id} className="text-[8px] px-1.5 py-0.5 bg-green-100 border border-green-300 text-green-700 rounded font-bold">
+                                    {ALL_CONDITIONS[id as ConditionId]?.name ?? `#${id}`} ×{(savedWeights[id] ?? 1).toFixed(2)}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {reduced.length > 0 && (
+                            <div>
+                              <p className="text-[8px] font-black text-red-500 uppercase mb-1">↓ 가중치 하향 ({reduced.length}개)</p>
+                              <div className="flex flex-wrap gap-1">
+                                {reduced.map(id => (
+                                  <span key={id} className="text-[8px] px-1.5 py-0.5 bg-red-50 border border-red-200 text-red-600 rounded font-bold">
+                                    {ALL_CONDITIONS[id as ConditionId]?.name ?? `#${id}`} ×{(savedWeights[id] ?? 1).toFixed(2)}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="overflow-x-auto">
                 <table className="w-full text-[9px]">
                   <thead>

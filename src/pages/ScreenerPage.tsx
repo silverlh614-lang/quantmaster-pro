@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { QuantScreener } from '../components/QuantScreener';
+import { DartPreNewsPanel } from '../components/DartPreNewsPanel';
 import { useRecommendationStore, useAnalysisStore } from '../stores';
 import { PageHeader } from '../ui/page-header';
 import { Stack } from '../layout/Stack';
@@ -36,6 +37,9 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
           recommendations={screenerRecommendations}
           onStockClick={(stock: StockRecommendation) => setSelectedDetailStock(stock)}
         />
+
+        {/* DART Pre-News 스크리너 — 공시 기반 선행 포착 */}
+        <DartPreNewsPanel />
       </Stack>
     </motion.div>
   );
