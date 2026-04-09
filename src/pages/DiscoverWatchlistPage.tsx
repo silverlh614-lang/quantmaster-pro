@@ -659,7 +659,10 @@ export function DiscoverWatchlistPage({
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.1 }}
-                    onClick={() => setDeepAnalysisStock(stock)}
+                    onClick={() => {
+                      console.log("🔥 Top3 카드 클릭됨:", stock.name, stock.code);
+                      setDeepAnalysisStock(stock);
+                    }}
                     className="glass-3d rounded-[3rem] p-8 border border-white/10 relative overflow-hidden group cursor-pointer hover:border-orange-500/50 transition-all"
                   >
                     <div className="absolute top-0 right-0 p-6">
@@ -1839,9 +1842,10 @@ export function DiscoverWatchlistPage({
                             </div>
                           </div>
 
-                          <button 
+                          <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              console.log("🔥 Deep Analysis 클릭됨:", stock.name, stock.code);
                               setDeepAnalysisStock(stock);
                             }}
                             className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 hover:border-orange-500/50 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black text-orange-500 transition-all uppercase tracking-[0.2em] active:scale-[0.98] shadow-[0_0_20px_rgba(249,115,22,0.05)] hover:shadow-[0_0_25px_rgba(249,115,22,0.15)] group/deep"
