@@ -1517,7 +1517,7 @@ async function getBearScreenerRecommendations(filters?: StockFilters): Promise<R
       [Bear Screener 15개 방어 조건 평가]
       각 추천 종목에 대해 다음 15개 조건을 True/False로 평가하여 'checklist'에 포함하라:
       방어주 조건: dividendYield3pct, essentialConsumerSector, telcoUtilitySector, lowBeta
-      역주기주 조건: bondEtfCandidate, goldEtfHedge, dollarEtfSurge, negativeCorrrelation
+      역주기주 조건: bondEtfCandidate, goldEtfHedge, dollarEtfSurge, negativeCorrelation
       숏 수혜주 조건: roeAbove15, perBelowSectorAvg, shortInterestDeclining, oversoldFundamentalsIntact
       변동성 수혜주 조건: insuranceSector, financialNimImprovement, dollarHedgeExporter
 
@@ -1574,7 +1574,7 @@ async function getBearScreenerRecommendations(filters?: StockFilters): Promise<R
             "tenbaggerDNA": { "similarity": 0, "matchPattern": "", "reason": "..." },
             "checklist": {
               "dividendYield3pct": true, "essentialConsumerSector": true, "telcoUtilitySector": false, "lowBeta": true,
-              "bondEtfCandidate": false, "goldEtfHedge": false, "dollarEtfSurge": false, "negativeCorrrelation": false,
+              "bondEtfCandidate": false, "goldEtfHedge": false, "dollarEtfSurge": false, "negativeCorrelation": false,
               "roeAbove15": true, "perBelowSectorAvg": true, "shortInterestDeclining": true, "oversoldFundamentalsIntact": true,
               "insuranceSector": false, "financialNimImprovement": false, "dollarHedgeExporter": false
             },

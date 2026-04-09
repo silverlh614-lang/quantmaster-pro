@@ -187,7 +187,7 @@ export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading,
                   <option value="MOMENTUM">모멘텀 추종 (주도주 포착)</option>
                   <option value="EARLY_DETECT">선행 신호 탐색 (급등 전 포착)</option>
                   <option value="QUANT_SCREEN">숨은 종목 발굴 (정량+공시+매집)</option>
-                   <option value="BEAR_SCREEN">🔴 Bear Screener (하락 수혜주 탐색)</option>
+                   <option value="BEAR_SCREEN">[Bear] 하락 수혜주 탐색 (Bear Screener)</option>
                 </select>
              </div>
              <button

@@ -98,11 +98,21 @@ export function BearScreenerPanel({
   onStockClick,
 }: BearScreenerPanelProps) {
   const [expanded, setExpanded] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   if (!bearScreenerResult?.isActive) return null;
 
   const { categories, passedCount, conditions, screeningNote, triggerReason } = bearScreenerResult;
   const categoryKeys = Object.keys(CATEGORY_META) as BearScreenerCategory[];
+
+  const handleScan = async () => {
+    setScanError(null);
+    try {
+      await onBearScreen();
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : '탐색 중 오류가 발생했습니다.');
+    }
+  };
 
   return (
     <motion.div
@@ -184,33 +194,41 @@ export function BearScreenerPanel({
       </AnimatePresence>
 
       {/* Scan Button */}
-      <div className="px-5 py-4 border-t border-red-600/20 flex items-center gap-3 flex-wrap">
-        <button
-          onClick={onBearScreen}
-          disabled={loading}
-          className={cn(
-            'flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-sm transition-all',
-            loading
-              ? 'bg-red-900/40 text-red-400 cursor-not-allowed'
-              : 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/40',
-          )}
-        >
-          {loading ? (
-            <>
-              <span className="w-4 h-4 rounded-full border-2 border-red-300 border-t-transparent animate-spin" />
-              Bear Screener 탐색 중...
-            </>
-          ) : (
-            <>
-              <Search className="w-4 h-4" />
-              🔴 하락 수혜주 탐색 실행
-            </>
-          )}
-        </button>
-        <span className="text-xs text-gray-500 flex items-center gap-1">
-          <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-          파생상품 없이 하락장 수익 추구 — 방어주·역주기주·숏 수혜주·변동성 수혜주
-        </span>
+      <div className="px-5 py-4 border-t border-red-600/20 flex flex-col gap-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={handleScan}
+            disabled={loading}
+            className={cn(
+              'flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-sm transition-all',
+              loading
+                ? 'bg-red-900/40 text-red-400 cursor-not-allowed'
+                : 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/40',
+            )}
+          >
+            {loading ? (
+              <>
+                <span className="w-4 h-4 rounded-full border-2 border-red-300 border-t-transparent animate-spin" />
+                Bear Screener 탐색 중...
+              </>
+            ) : (
+              <>
+                <Search className="w-4 h-4" />
+                하락 수혜주 탐색 실행
+              </>
+            )}
+          </button>
+          <span className="text-xs text-gray-500 flex items-center gap-1">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+            파생상품 없이 하락장 수익 추구 — 방어주·역주기주·숏 수혜주·변동성 수혜주
+          </span>
+        </div>
+        {scanError && (
+          <p className="text-xs text-red-400 flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            {scanError}
+          </p>
+        )}
       </div>
 
       {/* Results */}
