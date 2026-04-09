@@ -20,6 +20,13 @@ import {
 } from 'recharts';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { PageHeader } from '../ui/page-header';
+import { Card } from '../ui/card';
+import { Section } from '../ui/section';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { KpiStrip } from '../ui/kpi-strip';
+import { Stack } from '../layout/Stack';
 import { QuantDashboard } from '../components/QuantDashboard';
 import { ConfidenceBadge } from '../components/ConfidenceBadge';
 import { PriceEditCell } from '../components/PriceEditCell';
@@ -263,7 +270,7 @@ export function DiscoverWatchlistPage({
   };
 
   return (
-    <>
+    <Stack gap="lg">
               {/* Sync Status Bar */}
               <AnimatePresence>
                 {syncStatus.isSyncing && (
@@ -271,34 +278,34 @@ export function DiscoverWatchlistPage({
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
-                    className="mb-8 overflow-hidden"
+                    className="overflow-hidden"
                   >
-                    <div className="bg-white/5 rounded-[2rem] border border-white/10 p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-orange-500/20 rounded-full flex items-center justify-center animate-spin">
-                          <RefreshCw className="w-6 h-6 text-orange-500" />
+                    <Card variant="ghost" padding="md" className="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6">
+                      <div className="flex items-center gap-3 sm:gap-4">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-orange-500/15 rounded-xl sm:rounded-2xl flex items-center justify-center">
+                          <RefreshCw className="w-5 h-5 sm:w-6 sm:h-6 text-orange-500 animate-spin" />
                         </div>
                         <div>
-                          <h4 className="text-sm font-black text-white uppercase tracking-widest mb-1">실시간 데이터 동기화 중</h4>
-                          <p className="text-xs text-white/40 font-bold">
+                          <h4 className="text-xs sm:text-sm font-black text-theme-text uppercase tracking-widest mb-0.5">실시간 동기화 중</h4>
+                          <p className="text-[10px] sm:text-xs text-theme-text-muted font-bold">
                             {syncStatus.currentStock} 분석 중... ({syncStatus.progress}/{syncStatus.total})
                           </p>
                         </div>
                       </div>
-                      <div className="flex-1 max-w-md w-full">
-                        <div className="h-2 bg-white/5 rounded-full overflow-hidden mb-2">
-                          <motion.div 
+                      <div className="flex-1 max-w-xs sm:max-w-md w-full">
+                        <div className="h-1.5 sm:h-2 bg-white/5 rounded-full overflow-hidden mb-1.5">
+                          <motion.div
                             initial={{ width: 0 }}
                             animate={{ width: `${(syncStatus.progress / syncStatus.total) * 100}%` }}
                             className="h-full bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)] transition-all duration-500"
                           />
                         </div>
-                        <div className="flex justify-between text-[10px] font-black text-white/20 uppercase tracking-widest">
+                        <div className="flex justify-between text-micro">
                           <span>Progress</span>
                           <span>{Math.round((syncStatus.progress / syncStatus.total) * 100)}%</span>
                         </div>
                       </div>
-                    </div>
+                    </Card>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -310,42 +317,43 @@ export function DiscoverWatchlistPage({
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -20 }}
-                    className="mb-8 p-6 bg-red-500/10 border border-red-500/20 rounded-[2rem] flex items-center justify-between gap-4"
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center">
-                        <AlertTriangle className="w-5 h-5 text-red-400" />
+                    <Card variant="danger" padding="md" className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                        <div className="w-9 h-9 sm:w-10 sm:h-10 bg-red-500/15 rounded-xl flex items-center justify-center shrink-0">
+                          <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="text-xs sm:text-sm font-black text-red-400 uppercase tracking-widest mb-0.5">시스템 오류</h4>
+                          <p className="text-xs sm:text-sm text-theme-text-secondary font-bold truncate">{error}</p>
+                        </div>
                       </div>
-                      <div>
-                        <h4 className="text-sm font-black text-red-400 uppercase tracking-widest mb-1">시스템 오류</h4>
-                        <p className="text-sm text-white/60 font-bold">{error}</p>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={() => setError(null)}
-                      className="p-2 text-white/20 hover:text-white/40 transition-colors"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
+                      <button
+                        onClick={() => setError(null)}
+                        className="p-2 text-theme-text-muted hover:text-theme-text-secondary transition-colors shrink-0"
+                      >
+                        <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </button>
+                    </Card>
                   </motion.div>
                 )}
               </AnimatePresence>
 
               {/* Market Sentiment & Hero Section */}
-              <section className="mb-16 grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <motion.div 
+              <section className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="lg:col-span-2 glass-3d rounded-[2.5rem] p-10 sm:p-14 relative overflow-hidden group"
+            className="lg:col-span-2 glass-3d rounded-2xl sm:rounded-3xl p-6 sm:p-10 lg:p-14 relative overflow-hidden group"
           >
             <div className="relative z-10">
-                <p className="text-xl sm:text-2xl font-black text-orange-500/80 uppercase tracking-[0.2em] mb-2">
+                <p className="text-base sm:text-xl lg:text-2xl font-black text-orange-500/80 uppercase tracking-[0.15em] sm:tracking-[0.2em] mb-2">
                   폭등임박
                 </p>
-                <h2 className="text-5xl sm:text-7xl font-bold mb-6 leading-[1.1] tracking-tight text-glow">
+                <h2 className="text-3xl sm:text-5xl lg:text-7xl font-bold mb-4 sm:mb-6 leading-[1.1] tracking-tight text-glow">
                 <span className="text-orange-500 text-glow-orange">QuantMaster Pro</span>
               </h2>
-              <p className="text-sm sm:text-base font-bold text-white/30 uppercase tracking-[0.2em] mb-10">
+              <p className="text-xs sm:text-sm lg:text-base font-bold text-theme-text-muted uppercase tracking-[0.15em] sm:tracking-[0.2em] mb-6 sm:mb-10">
                 데이터와 사이클 기반 정밀 분석
               </p>
               <div className="relative group/info mb-10">
@@ -456,7 +464,7 @@ export function DiscoverWatchlistPage({
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            className="glass-3d rounded-[2.5rem] p-10 flex flex-col justify-between group"
+            className="glass-3d rounded-2xl sm:rounded-3xl p-10 flex flex-col justify-between group"
           >
             <div>
               <h3 className="text-xs font-black text-white/30 uppercase tracking-[0.2em] mb-10 flex items-center gap-3">
@@ -664,7 +672,7 @@ export function DiscoverWatchlistPage({
                       console.log("🔥 Top3 카드 클릭됨:", stock.name, stock.code);
                       setDeepAnalysisStock(stock);
                     }}
-                    className="glass-3d rounded-[3rem] p-8 border border-white/10 relative overflow-hidden group cursor-pointer hover:border-orange-500/50 transition-all"
+                    className="glass-3d rounded-2xl sm:rounded-3xl p-8 border border-white/10 relative overflow-hidden group cursor-pointer hover:border-orange-500/50 transition-all"
                   >
                     <div className="absolute top-0 right-0 p-6">
                       <div className={cn(
@@ -735,7 +743,7 @@ export function DiscoverWatchlistPage({
             animate={{ opacity: 1, y: 0 }}
             className="mb-12"
           >
-            <div className="glass-3d rounded-[2.5rem] p-8 border border-theme-border shadow-2xl relative overflow-hidden">
+            <div className="glass-3d rounded-2xl sm:rounded-3xl p-8 border border-theme-border shadow-2xl relative overflow-hidden">
               <div className="flex flex-col lg:flex-row gap-8 items-center relative z-10">
                 <div className="flex-1 space-y-6 w-full">
                   <div className="flex flex-wrap items-center gap-3 mb-2">
@@ -1021,7 +1029,7 @@ export function DiscoverWatchlistPage({
               exit={{ opacity: 0, height: 0 }}
               className="mb-12 overflow-hidden"
             >
-              <div className="glass-3d rounded-[2.5rem] p-8 border border-orange-500/20 shadow-2xl relative overflow-hidden bg-gradient-to-br from-orange-500/5 to-transparent">
+              <div className="glass-3d rounded-2xl sm:rounded-3xl p-8 border border-orange-500/20 shadow-2xl relative overflow-hidden bg-gradient-to-br from-orange-500/5 to-transparent">
                 <div className="relative z-10">
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
@@ -1052,18 +1060,20 @@ export function DiscoverWatchlistPage({
             </motion.section>
           )}
         </AnimatePresence>
-        <section>
-          <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+        <Section>
+          <div className="flex flex-col gap-4">
             <div className="flex items-center gap-2 sm:gap-4 overflow-x-auto no-scrollbar pb-1">
-              <h3 className="text-xl sm:text-2xl font-black flex items-center gap-3 whitespace-nowrap shrink-0 text-theme-text">
+              <h3 className="text-lg sm:text-xl lg:text-2xl font-black flex items-center gap-2 sm:gap-3 whitespace-nowrap shrink-0 text-theme-text">
                 {view === 'DISCOVER' ? (
                   <>
-                    <Search className="w-5 h-5 sm:w-6 sm:h-6 text-orange-500" />
+                    <div className="w-1.5 h-7 sm:h-8 bg-orange-500 rounded-full shadow-[0_0_10px_rgba(249,115,22,0.4)]" />
+                    <Search className="w-4 h-4 sm:w-5 sm:h-5 text-orange-500" />
                     종목검색
                   </>
                 ) : (
                   <>
-                    <Bookmark className="w-5 h-5 text-orange-500" />
+                    <div className="w-1.5 h-7 sm:h-8 bg-orange-500 rounded-full shadow-[0_0_10px_rgba(249,115,22,0.4)]" />
+                    <Bookmark className="w-4 h-4 sm:w-5 sm:h-5 text-orange-500" />
                     나의 관심 목록
                   </>
                 )}
@@ -1130,7 +1140,7 @@ export function DiscoverWatchlistPage({
                   <div className="flex items-center justify-between px-2">
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-4 bg-orange-500 rounded-full shadow-[0_0_8px_rgba(249,115,22,0.5)]" />
-                      <span className="text-base font-black text-white uppercase tracking-tight">종목 검색 및 실시간 필터</span>
+                      <span className="text-sm sm:text-base font-black text-theme-text uppercase tracking-tight">종목 검색 및 실시간 필터</span>
                       <div className="relative group/info">
                         <Info className="w-3.5 h-3.5 text-white/20 hover:text-orange-500 transition-colors cursor-help" />
                         <div className="absolute left-0 top-6 w-80 max-h-[350px] overflow-y-auto p-4 bg-black/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none">
@@ -1502,7 +1512,7 @@ export function DiscoverWatchlistPage({
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-8 sm:mb-12 bg-white/5 rounded-[1.5rem] sm:rounded-[2.5rem] p-4 sm:p-6 border border-white/10 shadow-inner"
+            className="mb-8 sm:mb-12 bg-white/5 rounded-[1.5rem] sm:rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-white/10 shadow-inner"
           >
             <div className="flex items-center gap-3 mb-4">
               <div className="w-1.5 h-6 bg-orange-500 rounded-full shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
@@ -1525,7 +1535,7 @@ export function DiscoverWatchlistPage({
 
           {view === 'DISCOVER' && (
             <div className="mb-8 grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="bg-white/5 p-6 rounded-[2rem] border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-1">
+              <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-1">
                 <div className="flex items-center gap-1">
                   <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">AI 추천 적중률 (최근 10회)</span>
                   <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
@@ -1552,7 +1562,7 @@ export function DiscoverWatchlistPage({
                 </div>
               </div>
 
-              <div className="bg-white/5 p-6 rounded-[2rem] border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-2">
+              <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-2">
                 <div className="flex items-center gap-1">
                   <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">Recent 30-day STRONG_BUY hit rate</span>
                   <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
@@ -1576,7 +1586,7 @@ export function DiscoverWatchlistPage({
                 </div>
               </div>
               
-              <div className="md:col-span-2 bg-white/5 p-6 rounded-[2rem] border border-white/10 shadow-inner">
+              <div className="md:col-span-2 bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <History className="w-4 h-4 text-white/30" />
@@ -1661,10 +1671,10 @@ export function DiscoverWatchlistPage({
                       transition={{ delay: idx * 0.05 }}
                       onClick={() => setSelectedDetailStock(stock)}
                       className={cn(
-                        "glass-3d card-3d rounded-[2.5rem] p-0 transition-all duration-500 relative overflow-hidden flex flex-col h-full group border-white/5 hover:border-white/20 cursor-pointer",
-                        stock.peakPrice > 0 && Math.round((stock.currentPrice / stock.peakPrice - 1) * 100) <= -30 
-                          ? "border-red-500/40 shadow-[0_0_40px_rgba(239,68,68,0.15)]" 
-                          : "shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+                        "glass-3d card-3d rounded-2xl sm:rounded-3xl p-0 transition-all duration-500 relative overflow-hidden flex flex-col h-full group border-theme-border hover:border-white/20 cursor-pointer",
+                        stock.peakPrice > 0 && Math.round((stock.currentPrice / stock.peakPrice - 1) * 100) <= -30
+                          ? "!border-red-500/40 shadow-[0_0_40px_rgba(239,68,68,0.15)]"
+                          : "shadow-[0_10px_30px_rgba(0,0,0,0.4)]"
                       )}
                     >
                       {/* 관심종목 추가 시점 대비 등락 배지 */}
@@ -1753,7 +1763,7 @@ export function DiscoverWatchlistPage({
                       <div className="p-5 sm:p-8 pb-4 sm:pb-6 bg-gradient-to-b from-white/[0.03] to-transparent">
                         {/* Name and Code Row */}
                         <div className="flex flex-col mb-4 sm:mb-6 gap-3 min-w-0">
-                          <div className="relative p-4 sm:p-6 bg-white/[0.03] border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden group/name-area shadow-[inset_0_0_20px_rgba(255,255,255,0.02)]">
+                          <div className="relative p-4 sm:p-6 bg-white/[0.03] border border-white/10 rounded-2xl sm:rounded-xl sm:rounded-2xl overflow-hidden group/name-area shadow-[inset_0_0_20px_rgba(255,255,255,0.02)]">
                             {/* Decorative Background Glow */}
                             <div className="absolute -top-12 -left-12 w-40 h-40 bg-orange-500/5 blur-[80px] rounded-full group-hover/name-area:bg-orange-500/15 transition-all duration-700" />
                             <div className="absolute -bottom-12 -right-12 w-40 h-40 bg-blue-500/5 blur-[80px] rounded-full group-hover/name-area:bg-blue-500/15 transition-all duration-700" />
@@ -2278,7 +2288,7 @@ export function DiscoverWatchlistPage({
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="col-span-full py-24 text-center border-2 border-dashed border-white/5 rounded-[3rem] bg-white/[0.01]"
+                    className="col-span-full py-24 text-center border-2 border-dashed border-white/5 rounded-2xl sm:rounded-3xl bg-white/[0.01]"
                   >
                     <div className="relative inline-block mb-6">
                       <div className="absolute inset-0 bg-orange-500/10 blur-2xl rounded-full animate-pulse" />
@@ -2309,7 +2319,7 @@ export function DiscoverWatchlistPage({
             </div>
           </div>
         )}
-      </section>
+      </Section>
       <DeepAnalysisModal
         stock={deepAnalysisStock}
         onClose={() => setDeepAnalysisStock(null)}
@@ -2326,7 +2336,7 @@ export function DiscoverWatchlistPage({
 
         {/* Export Report Section */}
         <div className="mt-16 mb-8 px-4">
-          <div className="max-w-4xl mx-auto glass-3d rounded-[2.5rem] border border-white/10 p-8 md:p-12 shadow-2xl relative overflow-hidden">
+          <div className="max-w-4xl mx-auto glass-3d rounded-2xl sm:rounded-3xl border border-white/10 p-8 md:p-12 shadow-2xl relative overflow-hidden">
             <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
               <div className="text-center md:text-left">
                 <div className="flex items-center justify-center md:justify-start gap-3 mb-4">
@@ -2384,6 +2394,6 @@ export function DiscoverWatchlistPage({
             <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/5 blur-[100px] -ml-32 -mb-32" />
           </div>
         </div>
-    </>
+    </Stack>
   );
 }
