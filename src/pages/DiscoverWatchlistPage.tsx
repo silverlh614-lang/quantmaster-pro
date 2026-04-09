@@ -370,7 +370,8 @@ export function DiscoverWatchlistPage({
 
               <HeroChecklist steps={MASTER_CHECKLIST_STEPS} onShowChecklist={() => setShowMasterChecklist(true)} />
 
-              <div className="flex flex-col sm:flex-row items-center gap-4 mb-12">
+              <div className="flex flex-col gap-5 mb-12">
+                {/* Filter Buttons Row */}
                 <div className="flex flex-wrap sm:flex-nowrap bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner w-full sm:w-auto">
                   <button
                     onClick={() => setFilters(prev => ({ ...prev, mode: 'MOMENTUM' }))}
@@ -409,49 +410,55 @@ export function DiscoverWatchlistPage({
                     숨은 종목 발굴
                   </button>
                 </div>
-                
-                <div className="hidden sm:block h-8 w-px bg-white/10 mx-2" />
 
+                {/* Analysis Start Button */}
                 <button
                   onClick={onFetchStocks}
                   disabled={loading}
-                  className="btn-3d px-8 sm:px-12 py-4 sm:py-6 bg-gradient-to-br from-orange-400 via-orange-500 to-orange-700 hover:from-orange-300 hover:via-orange-400 hover:to-orange-600 text-white rounded-3xl font-black text-base sm:text-xl flex items-center gap-3 sm:gap-5 group-hover:scale-[1.05] border-t border-white/40 shadow-[0_20px_50px_rgba(249,115,22,0.4)] transition-all duration-300 w-full sm:w-auto justify-center"
-                >
-                {loading ? (
-                  <RefreshCw className="w-8 h-8 animate-spin" />
-                ) : (
-                  <Search className="w-8 h-8 group-hover:rotate-12 transition-transform" />
-                )}
-                <span className="tracking-tighter">주도주 분석 시작</span>
-              </button>
-              {lastUpdated && (
-                <div className="mt-6 flex flex-col gap-2">
-                  <p className="text-xs font-bold text-white/20 uppercase tracking-[0.2em] flex items-center gap-2">
-                    <Clock className="w-3 h-3" />
-                    Last Updated: {lastUpdated} (KST)
-                  </p>
-                  {marketContext?.dataSource && (
-                    <p className="text-[10px] font-bold text-green-500/40 uppercase tracking-[0.1em] flex items-center gap-2">
-                      <Globe className="w-2.5 h-2.5" />
-                      Source: {marketContext.dataSource}
-                    </p>
+                  className={cn(
+                    "btn-3d px-8 sm:px-12 py-4 sm:py-5 rounded-2xl font-black text-base sm:text-xl flex items-center gap-3 sm:gap-4 transition-all duration-300 w-full sm:w-auto justify-center border-t",
+                    loading
+                      ? "bg-gradient-to-br from-cyan-400 via-blue-500 to-blue-700 border-cyan-300/40 shadow-[0_12px_40px_rgba(59,130,246,0.5)] text-white animate-pulse"
+                      : "bg-gradient-to-br from-orange-400 via-orange-500 to-orange-700 hover:from-orange-300 hover:via-orange-400 hover:to-orange-600 border-white/40 shadow-[0_12px_40px_rgba(249,115,22,0.4)] text-white"
                   )}
-                  {(() => {
-                    const last = new Date(lastUpdated).getTime();
-                    const now = new Date().getTime();
-                    const diff = (now - last) / (1000 * 60);
-                    if (diff > 30) {
-                      return (
-                        <p className="text-[10px] font-black text-orange-500/60 uppercase tracking-widest flex items-center gap-2 animate-pulse">
-                          <AlertTriangle className="w-2.5 h-2.5" />
-                          Data may be stale. Please refresh for real-time analysis.
-                        </p>
-                      );
-                    }
-                    return null;
-                  })()}
-                </div>
-              )}
+                >
+                  {loading ? (
+                    <RefreshCw className="w-6 h-6 sm:w-7 sm:h-7 animate-spin" />
+                  ) : (
+                    <Search className="w-6 h-6 sm:w-7 sm:h-7" />
+                  )}
+                  <span className="tracking-tighter">{loading ? '분석 진행중...' : '주도주 분석 시작'}</span>
+                </button>
+
+                {/* Last Updated Info */}
+                {lastUpdated && (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-xs font-bold text-white/20 uppercase tracking-[0.2em] flex items-center gap-2">
+                      <Clock className="w-3 h-3" />
+                      Last Updated: {lastUpdated} (KST)
+                    </p>
+                    {marketContext?.dataSource && (
+                      <p className="text-[10px] font-bold text-green-500/40 uppercase tracking-[0.1em] flex items-center gap-2">
+                        <Globe className="w-2.5 h-2.5" />
+                        Source: {marketContext.dataSource}
+                      </p>
+                    )}
+                    {(() => {
+                      const last = new Date(lastUpdated).getTime();
+                      const now = new Date().getTime();
+                      const diff = (now - last) / (1000 * 60);
+                      if (diff > 30) {
+                        return (
+                          <p className="text-[10px] font-black text-orange-500/60 uppercase tracking-widest flex items-center gap-2 animate-pulse">
+                            <AlertTriangle className="w-2.5 h-2.5" />
+                            Data may be stale. Please refresh for real-time analysis.
+                          </p>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                )}
               </div>
             </div>
             
@@ -625,14 +632,19 @@ export function DiscoverWatchlistPage({
               <button
                 onClick={onGenerateSummary}
                 disabled={isSummarizing || (!(recommendations || []).length && !(searchResults || []).length && !marketContext)}
-                className="w-full btn-3d py-4 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 disabled:opacity-50 text-white text-sm font-black rounded-2xl transition-all flex items-center justify-center gap-3 shadow-xl shadow-orange-500/20 group/btn"
+                className={cn(
+                  "w-full btn-3d py-4 disabled:opacity-50 text-white text-sm font-black rounded-2xl transition-all duration-300 flex items-center justify-center gap-3 group/btn",
+                  isSummarizing
+                    ? "bg-gradient-to-r from-cyan-500 to-blue-600 shadow-xl shadow-blue-500/30 animate-pulse"
+                    : "bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 shadow-xl shadow-orange-500/20"
+                )}
               >
                 {isSummarizing ? (
                   <RefreshCw className="w-5 h-5 animate-spin" />
                 ) : (
                   <Sparkles className="w-5 h-5 group-hover/btn:animate-pulse" />
                 )}
-                AI Report Summary
+                {isSummarizing ? '리포트 작성중...' : 'AI Report Summary'}
               </button>
             </div>
           </motion.div>
@@ -1081,20 +1093,30 @@ export function DiscoverWatchlistPage({
               <button
                 onClick={onFetchStocks}
                 disabled={loading}
-                className="p-2 bg-theme-card hover:bg-orange-500/20 border border-theme-border rounded-xl transition-all group/refresh active:scale-90"
+                className={cn(
+                  "p-2 border rounded-xl transition-all duration-300 group/refresh active:scale-90",
+                  loading
+                    ? "bg-blue-500/20 border-blue-500/30 shadow-[0_0_12px_rgba(59,130,246,0.2)]"
+                    : "bg-theme-card hover:bg-orange-500/20 border-theme-border"
+                )}
                 title="실시간 시세 새로고침"
               >
-                <RefreshCw className={cn("w-4 h-4 text-theme-text-muted group-hover/refresh:text-orange-500", loading && "animate-spin")} />
+                <RefreshCw className={cn("w-4 h-4 transition-colors duration-300", loading ? "animate-spin text-blue-400" : "text-theme-text-muted group-hover/refresh:text-orange-500")} />
               </button>
 
               <button
                 onClick={onFetchNewsScores}
                 disabled={loadingNews || recommendations.length === 0}
-                className="flex items-center gap-1.5 px-3 py-2 bg-theme-card hover:bg-cyan-500/20 border border-theme-border rounded-xl transition-all text-xs font-bold active:scale-90"
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 border rounded-xl transition-all duration-300 text-xs font-bold active:scale-90",
+                  loadingNews
+                    ? "bg-cyan-500/20 border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.2)]"
+                    : "bg-theme-card hover:bg-cyan-500/20 border-theme-border"
+                )}
                 title="뉴스 빈도 역지표 분석"
               >
-                <Newspaper className={cn("w-3.5 h-3.5 text-theme-text-muted", loadingNews && "animate-pulse text-cyan-400")} />
-                <span className={cn("text-theme-text-muted", loadingNews && "text-cyan-400")}>
+                <Newspaper className={cn("w-3.5 h-3.5 transition-colors duration-300", loadingNews ? "animate-pulse text-cyan-400" : "text-theme-text-muted")} />
+                <span className={cn("transition-colors duration-300", loadingNews ? "text-cyan-400" : "text-theme-text-muted")}>
                   {loadingNews ? '분석중...' : '뉴스 분석'}
                 </span>
               </button>
@@ -1120,14 +1142,14 @@ export function DiscoverWatchlistPage({
                 onClick={onSyncAll}
                 disabled={syncStatus.isSyncing}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all border whitespace-nowrap shrink-0",
-                  syncStatus.isSyncing 
-                    ? "bg-theme-card border-theme-border text-theme-text-muted cursor-not-allowed"
+                  "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all duration-300 border whitespace-nowrap shrink-0",
+                  syncStatus.isSyncing
+                    ? "bg-blue-500/20 border-blue-500/30 text-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.2)] cursor-not-allowed"
                     : "bg-orange-500/10 border-orange-500/20 text-orange-500 hover:bg-orange-500/20 hover:border-orange-500/40 shadow-sm active:scale-95"
                 )}
                 title="현재 화면의 모든 종목 실시간 동기화"
               >
-                <RefreshCw className={cn("w-3.5 h-3.5", syncStatus.isSyncing && "animate-spin")} />
+                <RefreshCw className={cn("w-3.5 h-3.5", syncStatus.isSyncing && "animate-spin text-blue-400")} />
                 <span>{syncStatus.isSyncing ? "동기화 중..." : "전체 동기화"}</span>
               </button>
             </div>
@@ -2345,20 +2367,25 @@ export function DiscoverWatchlistPage({
               </div>
 
               <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
-                <button 
+                <button
                   onClick={() => onGeneratePDF()}
                   disabled={isGeneratingPDF || loading}
-                  className="w-full sm:w-auto flex items-center justify-center gap-4 px-8 py-5 bg-white/5 hover:bg-blue-500/20 rounded-[1.5rem] transition-all disabled:opacity-50 active:scale-95 group/btn border border-white/5 hover:border-blue-500/30"
+                  className={cn(
+                    "w-full sm:w-auto flex items-center justify-center gap-4 px-8 py-5 rounded-[1.5rem] transition-all duration-300 disabled:opacity-50 active:scale-95 group/btn border",
+                    isGeneratingPDF
+                      ? "bg-blue-500/20 border-blue-500/30 shadow-[0_0_20px_rgba(59,130,246,0.2)]"
+                      : "bg-white/5 hover:bg-blue-500/20 border-white/5 hover:border-blue-500/30"
+                  )}
                   title="PDF 리포트 다운로드"
                 >
-                  <Download className={cn("w-6 h-6 text-white/40 group-hover/btn:text-blue-400 transition-colors", isGeneratingPDF && "animate-pulse text-blue-400")} />
+                  <Download className={cn("w-6 h-6 transition-colors duration-300", isGeneratingPDF ? "animate-pulse text-blue-400" : "text-white/40 group-hover/btn:text-blue-400")} />
                   <div className="text-left">
-                    <span className="block text-[10px] font-black text-white/20 uppercase tracking-widest">Download</span>
-                    <span className="text-sm font-black text-white group-hover/btn:text-blue-400 transition-colors uppercase tracking-widest">PDF Report</span>
+                    <span className={cn("block text-[10px] font-black uppercase tracking-widest transition-colors duration-300", isGeneratingPDF ? "text-blue-400/60" : "text-white/20")}>Download</span>
+                    <span className={cn("text-sm font-black transition-colors duration-300 uppercase tracking-widest", isGeneratingPDF ? "text-blue-400" : "text-white group-hover/btn:text-blue-400")}>{isGeneratingPDF ? 'PDF 생성중...' : 'PDF Report'}</span>
                   </div>
                 </button>
 
-                <button 
+                <button
                   onClick={() => {
                     if (!emailAddress && !localStorage.getItem('k-stock-email')) {
                       const email = prompt('리포트를 전송할 이메일 주소를 입력해주세요:', 'silverlh614@gmail.com');
@@ -2372,13 +2399,18 @@ export function DiscoverWatchlistPage({
                     }
                   }}
                   disabled={isSendingEmail || loading}
-                  className="w-full sm:w-auto flex items-center justify-center gap-4 px-8 py-5 bg-white/5 hover:bg-green-500/20 rounded-[1.5rem] transition-all disabled:opacity-50 active:scale-95 group/btn border border-white/5 hover:border-green-500/30"
+                  className={cn(
+                    "w-full sm:w-auto flex items-center justify-center gap-4 px-8 py-5 rounded-[1.5rem] transition-all duration-300 disabled:opacity-50 active:scale-95 group/btn border",
+                    isSendingEmail
+                      ? "bg-green-500/20 border-green-500/30 shadow-[0_0_20px_rgba(34,197,94,0.2)]"
+                      : "bg-white/5 hover:bg-green-500/20 border-white/5 hover:border-green-500/30"
+                  )}
                   title="이메일로 전송"
                 >
-                  <Mail className={cn("w-6 h-6 text-white/40 group-hover/btn:text-green-400 transition-colors", isSendingEmail && "animate-pulse text-green-400")} />
+                  <Mail className={cn("w-6 h-6 transition-colors duration-300", isSendingEmail ? "animate-pulse text-green-400" : "text-white/40 group-hover/btn:text-green-400")} />
                   <div className="text-left">
-                    <span className="block text-[10px] font-black text-white/20 uppercase tracking-widest">Send to</span>
-                    <span className="text-sm font-black text-white group-hover/btn:text-green-400 transition-colors uppercase tracking-widest">Email</span>
+                    <span className={cn("block text-[10px] font-black uppercase tracking-widest transition-colors duration-300", isSendingEmail ? "text-green-400/60" : "text-white/20")}>Send to</span>
+                    <span className={cn("text-sm font-black transition-colors duration-300 uppercase tracking-widest", isSendingEmail ? "text-green-400" : "text-white group-hover/btn:text-green-400")}>{isSendingEmail ? '전송중...' : 'Email'}</span>
                   </div>
                 </button>
               </div>
