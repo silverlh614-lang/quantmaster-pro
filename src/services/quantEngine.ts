@@ -896,6 +896,7 @@ export function evaluateStock(
     dataReliability,
     signalVerdict,
     conditionScores: stockData as Record<ConditionId, number>,
+    conditionSources: CONDITION_SOURCE_MAP,
   };
 }
 
@@ -943,9 +944,22 @@ export function saveEvolutionWeights(weights: Record<number, number>): void {
 
 // ─── 판단엔진 고도화 함수 ──────────────────────────────────────────────────────
 
-// 실계산 기반 조건 ID (indicators.ts / KIS API / DART API)
-const REAL_DATA_CONDITIONS: ConditionId[] = [2, 6, 10, 11, 18, 19, 20, 21, 25, 26]; // 모멘텀·일목·골든크로스·거래량·RS·VCP 등
-const AI_ESTIMATE_CONDITIONS: ConditionId[] = [1, 3, 4, 5, 7, 8, 9, 12, 13, 14, 15, 16, 17, 22, 23, 24, 27];
+// 실계산 기반 조건 ID (가격/지표 데이터로 직접 계산 가능)
+// 2=모멘텀RS, 6=일목균형표, 7=손절가(사용자설정), 10=기술적정배열, 11=거래량, 18=터틀돌파, 19=피보나치, 24=상대강도RS, 25=VCP
+const REAL_DATA_CONDITIONS: ConditionId[] = [2, 6, 7, 10, 11, 18, 19, 24, 25];
+
+// AI 추정 기반 조건 ID (재무/섹터/거시 해석 필요 — AI가 점수 부여)
+const AI_ESTIMATE_CONDITIONS: ConditionId[] = [1, 3, 4, 5, 8, 9, 12, 13, 14, 15, 16, 17, 20, 21, 22, 23, 26, 27];
+
+/**
+ * 27개 조건별 데이터 출처 분류 맵
+ * 'COMPUTED' = 가격/지표 기반 실계산 (KIS실시간 / DART / 차트)
+ * 'AI'       = AI 추정값 (Gemini 해석 기반)
+ */
+export const CONDITION_SOURCE_MAP: Record<ConditionId, 'COMPUTED' | 'AI'> = Object.fromEntries([
+  ...REAL_DATA_CONDITIONS.map(id => [id, 'COMPUTED' as const]),
+  ...AI_ESTIMATE_CONDITIONS.map(id => [id, 'AI' as const]),
+]) as Record<ConditionId, 'COMPUTED' | 'AI'>;
 
 /**
  * 합치(Confluence) 스코어 — 4개 독립 축의 방향 동시 확인

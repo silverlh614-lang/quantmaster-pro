@@ -379,6 +379,7 @@ export interface EvaluationResult {
   dataReliability?: DataReliability;
   signalVerdict?: SignalVerdict;
   conditionScores?: Record<ConditionId, number>; // 27조건 점수 스냅샷 (귀인 분석용)
+  conditionSources?: Record<ConditionId, 'COMPUTED' | 'AI'>; // 조건별 데이터 출처 (실계산 vs AI추정)
 }
 
 export interface SectorRotation {
