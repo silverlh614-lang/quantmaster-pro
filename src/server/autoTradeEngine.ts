@@ -164,10 +164,11 @@ interface ServerShadowTrade {
   quantity: number;
   stopLoss: number;
   targetPrice: number;
-  status: 'PENDING' | 'ACTIVE' | 'HIT_TARGET' | 'HIT_STOP';
+  status: 'PENDING' | 'ACTIVE' | 'HIT_TARGET' | 'HIT_STOP' | 'EUPHORIA_PARTIAL';
   exitPrice?: number;
   exitTime?: string;
   returnPct?: number;
+  price7dAgo?: number;  // 과열 탐지 신호 3용 (7일 전 가격)
 }
 
 export function loadShadowTrades(): ServerShadowTrade[] {
@@ -230,14 +231,25 @@ async function placeKisSellOrder(
   stockCode: string,
   stockName: string,
   quantity: number,
-  reason: 'STOP_LOSS' | 'TAKE_PROFIT',
+  reason: 'STOP_LOSS' | 'TAKE_PROFIT' | 'EUPHORIA',
 ): Promise<void> {
+  const emoji = reason === 'STOP_LOSS' ? '🔴' : reason === 'TAKE_PROFIT' ? '🟢' : '🌡️';
+  const label = reason === 'STOP_LOSS' ? '손절' : reason === 'TAKE_PROFIT' ? '익절' : '과열부분매도';
+
+  // Shadow 모드: 실주문 없이 로그 + Telegram만
+  if (!KIS_IS_REAL) {
+    console.log(`[AutoTrade SELL Shadow] ${emoji} ${stockName}(${stockCode}) ${label} — ${quantity}주 (Shadow 모드, 실주문 없음)`);
+    await sendTelegramAlert(
+      `${emoji} <b>[Shadow ${label}] ${stockName} (${stockCode})</b>\n` +
+      `수량: ${quantity}주 | Shadow 모드 — 실주문 없음`
+    ).catch(console.error);
+    return;
+  }
+
   if (!process.env.KIS_APP_KEY) {
     console.warn(`[AutoTrade] KIS 미설정 — ${stockName} 매도 건너뜀`);
     return;
   }
-  const emoji = reason === 'STOP_LOSS' ? '🔴' : '🟢';
-  const label = reason === 'STOP_LOSS' ? '손절' : '익절';
 
   try {
     console.log(`[AutoTrade SELL] ${emoji} ${stockName}(${stockCode}) ${label} 매도 주문 — ${quantity}주`);
@@ -271,6 +283,53 @@ async function placeKisSellOrder(
       `오류: ${err instanceof Error ? err.message : String(err)}`
     ).catch(console.error);
   }
+}
+
+// ─── 아이디어 7: 과열 탐지 (Euphoria Detector) ──────────────────────────────────
+interface EuphoriaResult {
+  triggered: boolean;
+  count: number;
+  signals: string[];
+}
+
+function checkEuphoria(shadow: ServerShadowTrade, currentPrice: number): EuphoriaResult {
+  const signals: string[] = [];
+
+  // 신호 1: 목표가 근접 (현재가 ≥ 목표가의 95%)
+  if (shadow.targetPrice > 0 && currentPrice >= shadow.targetPrice * 0.95) {
+    signals.push(`목표가 근접 (${((currentPrice / shadow.targetPrice) * 100).toFixed(1)}%)`);
+  }
+
+  // 신호 2: 수익률 ≥ 30% (RSI 80 대용)
+  const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
+  if (returnPct >= 30) {
+    signals.push(`수익률 ${returnPct.toFixed(1)}% (≥30%)`);
+  }
+
+  // 신호 3: 7일 급등 ≥ 20%
+  if (shadow.price7dAgo && shadow.price7dAgo > 0) {
+    const spike7d = ((currentPrice - shadow.price7dAgo) / shadow.price7dAgo) * 100;
+    if (spike7d >= 20) {
+      signals.push(`7일 급등 +${spike7d.toFixed(1)}%`);
+    }
+  }
+
+  // 신호 4: 30일 보유 + 수익률 ≥ 40%
+  const holdDays = (Date.now() - new Date(shadow.signalTime).getTime()) / (1000 * 60 * 60 * 24);
+  if (holdDays >= 30 && returnPct >= 40) {
+    signals.push(`30일 보유 + 수익률 ${returnPct.toFixed(1)}%`);
+  }
+
+  // 신호 5: 목표가 5% 이상 초과
+  if (shadow.targetPrice > 0 && currentPrice > shadow.targetPrice * 1.05) {
+    signals.push(`목표가 초과 +${(((currentPrice / shadow.targetPrice) - 1) * 100).toFixed(1)}%`);
+  }
+
+  return {
+    triggered: signals.length >= 2,
+    count: signals.length,
+    signals,
+  };
 }
 
 async function kisGet(trId: string, apiPath: string, params: Record<string, string>) {
@@ -390,10 +449,10 @@ export async function runAutoSignalScan(): Promise<void> {
     return;
   }
 
-  // YELLOW: STRONG_BUY만 허용, 포지션 사이즈 50% 축소
+  // YELLOW: 전 종목 포지션 사이즈 50% 축소 (STRONG_BUY 필터 없음)
   const yellowMode = macroRegime === 'YELLOW';
   if (yellowMode) {
-    console.warn(`[AutoTrade] 매크로 YELLOW (MHS=${macroState?.mhs}) — STRONG_BUY만 허용, 포지션 50% 축소`);
+    console.warn(`[AutoTrade] 매크로 YELLOW (MHS=${macroState?.mhs}) — 전 종목 포지션 50% 축소`);
   }
 
   // ── 아이디어 7: 동시 최대 보유 종목 제한 ──
@@ -469,12 +528,6 @@ export async function runAutoSignalScan(): Promise<void> {
       // 버그 5 수정: Gate 점수 기반 간이 Kelly 포지션 사이징
       const gateScore = stock.gateScore ?? 0;
       const isStrongBuy = gateScore >= 25;
-
-      // 아이디어 5: YELLOW 게이트 — STRONG_BUY(gateScore≥25)만 허용
-      if (yellowMode && !isStrongBuy) {
-        console.log(`[AutoTrade] YELLOW Gate — ${stock.name} SKIP (gateScore=${gateScore} < 25, STRONG_BUY 아님)`);
-        continue;
-      }
 
       const rawPositionPct = isStrongBuy       ? 0.12
                            : gateScore >= 20   ? 0.08
@@ -603,26 +656,36 @@ async function updateShadowResults(shadows: ServerShadowTrade[]): Promise<void> 
       const ageMs = Date.now() - new Date(shadow.signalTime).getTime();
       if (ageMs < 4 * 60 * 1000) continue;
       shadow.status = 'ACTIVE';
-    } else if (shadow.status === 'ACTIVE') {
+    } else if (shadow.status === 'ACTIVE' || shadow.status === 'EUPHORIA_PARTIAL') {
       const currentPrice = await fetchCurrentPrice(shadow.stockCode).catch(() => null);
       if (!currentPrice) continue;
+
       if (currentPrice >= shadow.targetPrice) {
         const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
         Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
         appendShadowLog({ event: 'HIT_TARGET', ...shadow });
         console.log(`[AutoTrade] ✅ ${shadow.stockName} 목표가 달성 +${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
-        // 실거래 모드에서만 KIS 매도 주문 실행
-        if (KIS_IS_REAL && shadow.quantity > 0) {
-          await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'TAKE_PROFIT');
-        }
+        await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'TAKE_PROFIT');
       } else if (currentPrice <= shadow.stopLoss) {
         const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
         Object.assign(shadow, { status: 'HIT_STOP', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
         appendShadowLog({ event: 'HIT_STOP', ...shadow });
         console.log(`[AutoTrade] ❌ ${shadow.stockName} 손절 ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
-        // 손절은 더 긴급 — 실거래 모드에서 즉시 KIS 매도
-        if (KIS_IS_REAL && shadow.quantity > 0) {
-          await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
+        await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
+      } else {
+        // 과열 탐지 — ACTIVE 상태에서만 첫 번째 부분 매도 발동
+        if (shadow.status === 'ACTIVE') {
+          const euphoria = checkEuphoria(shadow, currentPrice);
+          if (euphoria.triggered) {
+            const halfQty = Math.max(1, Math.floor(shadow.quantity / 2));
+            console.log(
+              `[AutoTrade] 🌡️ ${shadow.stockName} 과열 감지 (${euphoria.count}개 신호) — 절반 매도 ${halfQty}주\n  신호: ${euphoria.signals.join(', ')}`
+            );
+            shadow.quantity -= halfQty;
+            shadow.status = 'EUPHORIA_PARTIAL';
+            appendShadowLog({ event: 'EUPHORIA_PARTIAL', ...shadow, exitPrice: currentPrice });
+            await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'EUPHORIA');
+          }
         }
       }
     }
