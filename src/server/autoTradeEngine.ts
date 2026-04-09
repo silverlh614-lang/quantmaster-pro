@@ -1580,7 +1580,7 @@ export async function evaluateRecommendations(): Promise<void> {
 
   for (const rec of pending) {
     try {
-      const currentPrice = await fetchCurrentPrice(rec.stockCode);
+      const currentPrice = await fetchCurrentPrice(rec.stockCode).catch(() => null);
       if (!currentPrice) continue;
 
       const returnPct = ((currentPrice - rec.priceAtRecommend) / rec.priceAtRecommend) * 100;
