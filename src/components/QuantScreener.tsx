@@ -9,10 +9,12 @@ import {
   Target,
   AlertCircle,
   CheckCircle2,
-  RefreshCw
+  RefreshCw,
+  ShieldAlert,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { StockFilters, StockRecommendation } from '../services/stockService';
+import type { BearRegimeResult } from '../types/quant';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -25,6 +27,8 @@ interface QuantScreenerProps {
   loading: boolean;
   recommendations: StockRecommendation[];
   onStockClick?: (stock: StockRecommendation) => void;
+  /** Bear Regime 감지 시 Bear Screener 자동 전환 안내용 */
+  bearRegimeResult?: BearRegimeResult | null;
 }
 
 // ─── 5단계 파이프라인 정의 (QUANT_SCREEN 모드 전용) ──────────────────────────
@@ -36,7 +40,9 @@ const PIPELINE_STAGES = [
   { label: 'AI 정밀 분석', desc: '수치 변동의 근본 원인 · 27조건 평가', color: 'text-pink-400', border: 'border-pink-500/40' },
 ] as const;
 
-export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading, recommendations, onStockClick }) => {
+export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading, recommendations, onStockClick, bearRegimeResult }) => {
+  const isBearMode = bearRegimeResult?.regime === 'BEAR';
+
   const [localFilters, setLocalFilters] = useState<StockFilters>({
     minRoe: 15,
     maxPer: 20,
@@ -82,6 +88,35 @@ export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading,
 
   return (
     <div className="space-y-6">
+      {/* Bear Regime 자동 전환 알림 배너 */}
+      {isBearMode && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-red-950/70 border border-red-500/50 rounded-xl px-5 py-4 flex items-start gap-3"
+        >
+          <ShieldAlert className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-black text-red-200">
+              🔴 Bear Regime 감지 — Bear Screener 자동 활성화 권고
+            </p>
+            <p className="text-xs text-red-300/80 mt-1">
+              Gate -1이 Bear Mode를 감지했습니다. 기존 27조건 Bull 스크리너 대신{' '}
+              <strong className="text-red-200">방어형 Bear Screener</strong>를 사용하십시오.
+              스크리닝 페이지 상단의 Bear Screener 패널에서 하락 수혜주를 자동 탐색할 수 있습니다.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onScreen({ ...localFilters, mode: 'BEAR_SCREEN' })}
+            disabled={loading}
+            className="shrink-0 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-colors disabled:opacity-50"
+          >
+            Bear Screener로 전환
+          </button>
+        </motion.div>
+      )}
+
       {/* Step 1: Quant Filter Header */}
       <div className="bg-[#151619] border border-white/10 rounded-xl p-6">
         <div className="flex items-center gap-3 mb-6">
@@ -152,6 +187,7 @@ export const QuantScreener: React.FC<QuantScreenerProps> = ({ onScreen, loading,
                   <option value="MOMENTUM">모멘텀 추종 (주도주 포착)</option>
                   <option value="EARLY_DETECT">선행 신호 탐색 (급등 전 포착)</option>
                   <option value="QUANT_SCREEN">숨은 종목 발굴 (정량+공시+매집)</option>
+                   <option value="BEAR_SCREEN">[Bear] 하락 수혜주 탐색 (Bear Screener)</option>
                 </select>
              </div>
              <button
