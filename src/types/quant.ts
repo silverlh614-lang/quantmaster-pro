@@ -1248,3 +1248,56 @@ export interface BearKellyResult {
   actionMessage: string;
   lastUpdated: string;
 }
+
+// ─── 아이디어 8: Bear Mode 손익 시뮬레이터 ─────────────────────────────────────
+
+/** Bear Mode 시뮬레이터 시나리오 입력 (사용자가 하나 이상 입력 가능) */
+export interface BearModeSimulatorInput {
+  /** 시나리오 레이블 (예: '2024 하락장') */
+  label: string;
+  /** Bear 구간 시작일 (ISO 날짜 문자열, 예: '2024-01-15') */
+  bearStartDate: string;
+  /** Gate -1 Bear 감지일 (ISO 날짜 문자열) */
+  gateDetectionDate: string;
+  /** Bear 구간 종료일 (ISO 날짜 문자열) */
+  bearEndDate: string;
+  /** 이 기간 동안 롱 포트폴리오 수익률 (%, 예: -12.3) */
+  longPortfolioReturn: number;
+  /** 이 기간 동안 KOSPI 시장 수익률 (%, 예: -10.5) */
+  marketReturn: number;
+}
+
+/** Bear Mode 시뮬레이터 시나리오별 계산 결과 */
+export interface BearModeSimulatorScenarioResult {
+  /** 시나리오 레이블 */
+  label: string;
+  /** Bear 구간 시작일 */
+  bearStartDate: string;
+  /** Bear 구간 종료일 */
+  bearEndDate: string;
+  /** Gate -1 감지 D+3 전환 예상일 */
+  switchDate: string;
+  /** 전환 지연 거래일 (3일 고정) */
+  switchDayOffset: number;
+  /** 롱 포트폴리오 수익률 (%) */
+  longReturn: number;
+  /** Bear Mode 전환 시 시뮬레이션 수익률 (%, KODEX 인버스 2X 기준) */
+  bearModeReturn: number;
+  /** 알파 차이 (%p = bearModeReturn - longReturn) */
+  alphaDifference: number;
+  /** 사용된 인버스 ETF 명칭 */
+  inverseEtfName: string;
+  /** 시나리오별 행동 권고 */
+  recommendation: string;
+}
+
+/** Bear Mode 손익 시뮬레이터 전체 결과 */
+export interface BearModeSimulatorResult {
+  /** 시나리오별 계산 결과 목록 */
+  scenarios: BearModeSimulatorScenarioResult[];
+  /** 최고 알파 시나리오 (없으면 null) */
+  bestScenario: BearModeSimulatorScenarioResult | null;
+  /** 전체 결론 메시지 */
+  conclusionMessage: string;
+  lastUpdated: string;
+}

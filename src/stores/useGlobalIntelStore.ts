@@ -8,6 +8,7 @@ import type {
   FomcSentimentAnalysis, BearRegimeResult, VkospiTriggerResult, InverseGate1Result,
   MarketNeutralResult, BearScreenerResult, BearKellyResult,
   SectorOverheatInput, SectorOverheatResult,
+  BearModeSimulatorInput, BearModeSimulatorResult,
 } from '../types/quant';
 import type { MHSRecord } from '../components/MHSHistoryChart';
 
@@ -83,6 +84,14 @@ interface GlobalIntelState {
   sectorOverheatResult: SectorOverheatResult | null;
   setSectorOverheatResult: (data: SectorOverheatResult | null) => void;
 
+  // ── 아이디어 8: Bear Mode 손익 시뮬레이터 ────────────────────────────────
+  /** Bear Mode 시뮬레이터 시나리오 입력값 (퍼시스트) */
+  bearModeSimulatorInputs: BearModeSimulatorInput[];
+  setBearModeSimulatorInputs: (inputs: BearModeSimulatorInput[]) => void;
+  /** Bear Mode 시뮬레이터 계산 결과 */
+  bearModeSimulatorResult: BearModeSimulatorResult | null;
+  setBearModeSimulatorResult: (data: BearModeSimulatorResult | null) => void;
+
   // ROE type
   currentRoeType: ROEType;
   setCurrentRoeType: (type: ROEType) => void;
@@ -156,6 +165,20 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       sectorOverheatResult: null,
       setSectorOverheatResult: (sectorOverheatResult) => set({ sectorOverheatResult }),
 
+      bearModeSimulatorInputs: [
+        {
+          label: '2024 하락장 시뮬레이션',
+          bearStartDate: '2024-07-01',
+          gateDetectionDate: '2024-07-05',
+          bearEndDate: '2024-08-05',
+          longPortfolioReturn: -12.3,
+          marketReturn: -10.5,
+        },
+      ],
+      setBearModeSimulatorInputs: (bearModeSimulatorInputs) => set({ bearModeSimulatorInputs }),
+      bearModeSimulatorResult: null,
+      setBearModeSimulatorResult: (bearModeSimulatorResult) => set({ bearModeSimulatorResult }),
+
       currentRoeType: 3,
       setCurrentRoeType: (currentRoeType) => set({ currentRoeType }),
 
@@ -179,6 +202,7 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
         exportRatio: state.exportRatio,
         bearKellyEntryDate: state.bearKellyEntryDate,
         sectorOverheatInputs: state.sectorOverheatInputs,
+        bearModeSimulatorInputs: state.bearModeSimulatorInputs,
       }),
     }
   )

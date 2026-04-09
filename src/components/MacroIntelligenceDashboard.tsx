@@ -15,10 +15,11 @@ import {
   getGlobalCorrelationMatrix, getGlobalMultiSourceData, trackThemeToKoreaValueChain,
   getSupplyChainIntelligence, getSectorOrderIntelligence, getFinancialStressIndex, getFomcSentimentAnalysis,
 } from '../services/stockService';
-import { computeContrarianSignals, evaluateSectorOverheat } from '../services/quantEngine';
+import { computeContrarianSignals, evaluateSectorOverheat, evaluateBearModeSimulator } from '../services/quantEngine';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { BearKellyPanel } from './BearKellyPanel';
 import { SectorOverheatPanel } from './SectorOverheatPanel';
+import { BearModeSimulatorPanel } from './BearModeSimulatorPanel';
 import { debugWarn } from '../utils/debug';
 
 // ─── Fusion Matrix 데이터 (아이디어 8) ──────────────────────────────────────
@@ -331,6 +332,10 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const setSectorOverheatInputs = useGlobalIntelStore(s => s.setSectorOverheatInputs);
   const sectorOverheatResult = useGlobalIntelStore(s => s.sectorOverheatResult);
   const setSectorOverheatResult = useGlobalIntelStore(s => s.setSectorOverheatResult);
+  const bearModeSimulatorInputs = useGlobalIntelStore(s => s.bearModeSimulatorInputs);
+  const setBearModeSimulatorInputs = useGlobalIntelStore(s => s.setBearModeSimulatorInputs);
+  const bearModeSimulatorResult = useGlobalIntelStore(s => s.bearModeSimulatorResult);
+  const setBearModeSimulatorResult = useGlobalIntelStore(s => s.setBearModeSimulatorResult);
 
   const handleSectorOverheatInputsChange = useCallback(
     (inputs: typeof sectorOverheatInputs) => {
@@ -338,6 +343,14 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
       setSectorOverheatResult(evaluateSectorOverheat(inputs));
     },
     [setSectorOverheatInputs, setSectorOverheatResult],
+  );
+
+  const handleBearModeSimulatorInputsChange = useCallback(
+    (inputs: typeof bearModeSimulatorInputs) => {
+      setBearModeSimulatorInputs(inputs);
+      setBearModeSimulatorResult(evaluateBearModeSimulator(inputs));
+    },
+    [setBearModeSimulatorInputs, setBearModeSimulatorResult],
   );
 
   const sortedSectors = useMemo(
@@ -793,6 +806,13 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
         inputs={sectorOverheatInputs}
         onInputsChange={handleSectorOverheatInputsChange}
         result={sectorOverheatResult}
+      />
+
+      {/* ── 아이디어 8: Bear Mode 손익 시뮬레이터 ── */}
+      <BearModeSimulatorPanel
+        inputs={bearModeSimulatorInputs}
+        onInputsChange={handleBearModeSimulatorInputsChange}
+        result={bearModeSimulatorResult}
       />
 
       {/* ── 허용 섹터 화이트리스트 ── */}
