@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
   TradeRecord, ConditionPerformance, SystemVsIntuitionStats, ConditionId,
 } from '../types/quant';
-import { ALL_CONDITIONS, CONDITION_SOURCE_MAP, getEvolutionWeightsFromPerformance } from '../services/quantEngine';
+import { ALL_CONDITIONS, CONDITION_SOURCE_MAP, getEvolutionWeightsFromPerformance } from '../services/quant/evolutionEngine';
 
 // ─── Helper: 조건별 성과 계산 ────────────────────────────────────────────────────
 

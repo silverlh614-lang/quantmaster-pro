@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { EvaluationResult, EconomicRegimeData, ROEType } from '../types/quant';
-import { ALL_CONDITIONS, CONDITION_SOURCE_MAP } from '../services/quantEngine';
+import { ALL_CONDITIONS, CONDITION_SOURCE_MAP } from '../services/quant/evolutionEngine';
 import { MarketOverview } from '../services/stockService';
 import { Shield, Target, Zap, AlertTriangle, TrendingUp, DollarSign, Activity, Layers, Clock, Skull, Calendar, PieChart, Link2, Globe, PlayCircle } from 'lucide-react';
 import { TMAPanel } from './TMAPanel';
