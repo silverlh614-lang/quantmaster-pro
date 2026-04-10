@@ -32,6 +32,7 @@ import {
   isRealTradeReady,
   pollBearRegime,
   pollMhsMorningAlert,
+  pollIpsAlert,
   generateWeeklyReport,
   sendWatchlistBriefing,
   sendIntradayCheckIn,
@@ -1059,7 +1060,12 @@ async function startServer() {
   });
 
   app.post('/api/macro/state', (req: Request, res: Response) => {
-    const { mhs, regime, vkospi, foreignFuturesSellDays, iri } = req.body;
+    const {
+      mhs, regime, vkospi, foreignFuturesSellDays, iri,
+      // 아이디어 11: IPS 변곡점 엔진 보조 지표
+      vix, mhsTrend, vkospiRising, bearRegimeTriggeredCount, bearDefenseMode,
+      oeciCliKorea, exportGrowth3mAvg, dxyBullish, kospiBelow120ma, ips,
+    } = req.body;
     if (typeof mhs !== 'number' || mhs < 0 || mhs > 100) {
       return res.status(400).json({ error: 'mhs는 0~100 사이 숫자여야 합니다' });
     }
@@ -1070,10 +1076,23 @@ async function startServer() {
     if (typeof vkospi === 'number') state.vkospi = vkospi;
     if (typeof foreignFuturesSellDays === 'number') state.foreignFuturesSellDays = foreignFuturesSellDays;
     if (typeof iri === 'number') state.iri = iri;
+    // 아이디어 11: IPS 변곡점 엔진 보조 지표
+    if (typeof vix === 'number') state.vix = vix;
+    if (mhsTrend === 'IMPROVING' || mhsTrend === 'STABLE' || mhsTrend === 'DETERIORATING') state.mhsTrend = mhsTrend;
+    if (typeof vkospiRising === 'boolean') state.vkospiRising = vkospiRising;
+    if (typeof bearRegimeTriggeredCount === 'number') state.bearRegimeTriggeredCount = bearRegimeTriggeredCount;
+    if (typeof bearDefenseMode === 'boolean') state.bearDefenseMode = bearDefenseMode;
+    if (typeof oeciCliKorea === 'number') state.oeciCliKorea = oeciCliKorea;
+    if (typeof exportGrowth3mAvg === 'number') state.exportGrowth3mAvg = exportGrowth3mAvg;
+    if (typeof dxyBullish === 'boolean') state.dxyBullish = dxyBullish;
+    if (typeof kospiBelow120ma === 'boolean') state.kospiBelow120ma = kospiBelow120ma;
+    if (typeof ips === 'number') state.ips = ips;
     saveMacroState(state);
     console.log(`[Macro] MHS 업데이트: ${mhs} (${finalRegime})`);
     // 아이디어 10: Bear Regime 즉시 알림 체크 (비동기, fire-and-forget)
     pollBearRegime().catch(console.error);
+    // 아이디어 11: IPS 변곡점 즉시 알림 체크 (비동기, fire-and-forget)
+    pollIpsAlert().catch(console.error);
     res.json({ ok: true, ...state });
   });
 
@@ -1248,6 +1267,11 @@ async function startServer() {
       await pollBearRegime().catch(console.error);
     }, { timezone: 'UTC' });
 
+    // 아이디어 11: IPS 변곡점 경보 — 15분 간격 24/7 폴링 (장 외 시간 포함)
+    cron.schedule('*/15 * * * *', async () => {
+      await pollIpsAlert().catch(console.error);
+    }, { timezone: 'UTC' });
+
     // 아이디어 8: MHS 임계값 모닝 알림 — 평일 오전 09:00 KST (UTC 00:00 Mon-Fri)
     // RED 레짐(MHS < 40) 또는 GREEN 레짐 전환(MHS ≥ 70) 시 즉시 Telegram 알림
     cron.schedule('0 0 * * 1-5', async () => {
@@ -1274,7 +1298,7 @@ async function startServer() {
       await sendIntradayCheckIn('preclose').catch(console.error);
     }, { timezone: 'UTC' });
 
-    console.log('[AutoTrade] 오케스트레이터 + DART 폴링 + Bear Regime 알림 + MHS 모닝 알림 가동 완료');
+    console.log('[AutoTrade] 오케스트레이터 + DART 폴링 + Bear Regime 알림 + MHS 모닝 알림 + IPS 변곡점 경보 가동 완료');
 
     // 아이디어 12: 서버 기동 시 Telegram 알림 (fire-and-forget)
     sendTelegramAlert(

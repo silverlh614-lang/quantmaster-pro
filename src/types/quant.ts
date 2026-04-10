@@ -1415,3 +1415,47 @@ export interface BearModeSimulatorResult {
   conclusionMessage: string;
   lastUpdated: string;
 }
+
+// ─── 아이디어 11: IPS 통합 변곡점 확률 엔진 ─────────────────────────────────────
+
+/** IPS 구성 신호 ID */
+export type IpsSignalId = 'THS' | 'VDA' | 'FSS' | 'FBS' | 'TMA' | 'SRR';
+
+/** IPS 개별 신호 평가 결과 */
+export interface IpsSignal {
+  id: IpsSignalId;
+  /** 영문 약어 전체 이름 */
+  name: string;
+  /** 한국어 설명 */
+  nameKo: string;
+  /** 가중치 (0~1, 합계 = 1.0) */
+  weight: number;
+  /** 신호 발동 여부 */
+  triggered: boolean;
+  /** 이번 신호의 IPS 기여분 (weight × 100 if triggered, else 0) */
+  contribution: number;
+  /** 발동 근거 설명 */
+  description: string;
+}
+
+/** IPS 경보 단계 */
+export type IpsLevel = 'NORMAL' | 'WARNING' | 'CRITICAL' | 'EXTREME';
+
+/** IPS 통합 변곡점 확률 엔진 전체 결과 */
+export interface IpsResult {
+  /** 통합 점수 (0~100 %) */
+  ips: number;
+  /** 경보 단계: NORMAL(<60) / WARNING(≥60) / CRITICAL(≥80) / EXTREME(≥90) */
+  level: IpsLevel;
+  /** 6개 신호 평가 목록 */
+  signals: IpsSignal[];
+  /** 발동된 신호 ID 목록 */
+  triggeredSignals: IpsSignalId[];
+  /** 행동 권고 메시지 */
+  actionMessage: string;
+  /** IPS ≥ 80 → 50% 비중 축소 권고 */
+  positionReduceRecommended: boolean;
+  /** IPS ≥ 90 → Pre-Mortem 체크리스트 실행 권고 */
+  preMortemRequired: boolean;
+  lastUpdated: string;
+}
