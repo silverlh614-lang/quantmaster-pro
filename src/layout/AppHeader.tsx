@@ -18,8 +18,8 @@ interface NavItem {
 }
 
 export function AppHeader() {
-  const { view, setView, showSettings, setShowSettings, showMasterChecklist, setShowMasterChecklist, lastUpdated } = useSettingsStore();
-  const { watchlist, setSearchQuery } = useRecommendationStore();
+  const { view, setView, showSettings, setShowSettings, showMasterChecklist, setShowMasterChecklist } = useSettingsStore();
+  const { watchlist, setSearchQuery, lastUpdated } = useRecommendationStore();
   const { tradeRecords } = useTradeStore();
   const { syncStatus } = useMarketStore();
   const { shadowTrades } = useShadowTradeStore();
