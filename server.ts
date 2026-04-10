@@ -28,9 +28,7 @@ import {
 import kisRouter from './server/routes/kisRouter.js';
 import marketDataRouter from './server/routes/marketDataRouter.js';
 import dartRouter from './server/routes/dartRouter.js';
-import autoTradeRouter from './server/routes/autoTradeRouter.js';
-import systemRouter from './server/routes/systemRouter.js';
-import { startScheduler } from './server/scheduler.js';
+
 
 export { isEmergencyStopped, setDailyLoss };
 
@@ -53,6 +51,7 @@ async function startServer() {
   // KIS API Proxy  → server/routes/kisRouter.ts 로 분리
   // ─────────────────────────────────────────────────────────────
   app.use('/api/kis', kisRouter);
+
 
   // ─────────────────────────────────────────────────────────────
   // DART 공시 API  → server/routes/dartRouter.ts 로 분리
