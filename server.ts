@@ -31,6 +31,7 @@ import {
   trancheExecutor,
   isRealTradeReady,
   pollBearRegime,
+  pollMhsMorningAlert,
   type WatchlistEntry,
   type MacroState,
 } from "./src/server/autoTradeEngine.js";
@@ -1244,7 +1245,13 @@ async function startServer() {
       await pollBearRegime().catch(console.error);
     }, { timezone: 'UTC' });
 
-    console.log('[AutoTrade] 오케스트레이터 + DART 폴링 + Bear Regime 알림 가동 완료');
+    // 아이디어 8: MHS 임계값 모닝 알림 — 평일 오전 09:00 KST (UTC 00:00 Mon-Fri)
+    // RED 레짐(MHS < 40) 또는 GREEN 레짐 전환(MHS ≥ 70) 시 즉시 Telegram 알림
+    cron.schedule('0 0 * * 1-5', async () => {
+      await pollMhsMorningAlert().catch(console.error);
+    }, { timezone: 'UTC' });
+
+    console.log('[AutoTrade] 오케스트레이터 + DART 폴링 + Bear Regime 알림 + MHS 모닝 알림 가동 완료');
 
     // 아이디어 12: 서버 기동 시 Telegram 알림 (fire-and-forget)
     sendTelegramAlert(

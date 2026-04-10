@@ -56,6 +56,22 @@ import {
   BearModeSimulatorResult,
   BearModeSimulatorScenarioResult,
 } from '../types/quant';
+import { z } from 'zod';
+
+// ─── 아이디어 9: evaluateStock 입력 유효성 검증 스키마 ────────────────────────────
+
+/** ConditionId(1~27)에 대응하는 단일 조건 점수 스키마 (0~10) */
+const ConditionScoreSchema = z.number().min(0).max(10);
+
+/**
+ * stockData 런타임 검증 스키마.
+ * 키: 1~27 정수(문자열 키도 숫자로 강제 변환), 값: 0~10 숫자.
+ * safeParse 실패 시 evaluateStock은 빈 객체로 대체(fallback).
+ */
+const StockDataSchema = z.record(
+  z.coerce.number().int().min(1).max(27),
+  ConditionScoreSchema,
+);
 
 export const ALL_CONDITIONS: Record<ConditionId, { name: string; baseWeight: number; description: string }> = {
   1: { name: '주도주 사이클', baseWeight: 3.0, description: '현재 시장의 주도 섹터 및 사이클 부합 여부' },
@@ -443,7 +459,7 @@ export function deriveExtendedRegime(
 }
 
 export function evaluateStock(
-  stockData: Record<ConditionId, number> = {} as any,
+  rawStockData: unknown,
   regime: MarketRegime,
   profileType: StockProfileType,
   sectorRotation: SectorRotation,
@@ -491,7 +507,14 @@ export function evaluateStock(
   },
   stockSector?: string, // 종목 섹터 (조선/반도체 등) — BDI/SEMI Gate 조정용
 ): EvaluationResult {
-  if (!stockData) stockData = {} as any;
+  // ── 아이디어 9: Zod 런타임 입력 검증 ──────────────────────────────────────────
+  const parsed = StockDataSchema.safeParse(rawStockData);
+  if (!parsed.success) {
+    console.error('[evaluateStock] Invalid input:', parsed.error.issues);
+  }
+  let stockData: Record<ConditionId, number> = (
+    parsed.success ? parsed.data : {}
+  ) as Record<ConditionId, number>;
   const profile = getStockProfile(profileType);
 
   // ── Gate 0: 거시 환경 생존 게이트 ──────────────────────────────────────────
