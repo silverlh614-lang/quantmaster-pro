@@ -22,3 +22,6 @@ export { useStockSearch } from './useStockSearch';
 export { useTradeOps } from './useTradeOps';
 export { useReportExport } from './useReportExport';
 export { useDebugWatchers } from './useDebugWatchers';
+export { useMarketData } from './useMarketData';
+export { useQuantRecommendations } from './useQuantRecommendations';
+export { usePortfolioState } from './usePortfolioState';
