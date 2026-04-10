@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateStock } from './quantEngine';
+import { evaluateStock, evaluateTMA } from './quantEngine';
 import { AI_MODELS } from '../constants/aiConfig';
 import type {
   ConditionId,
@@ -298,5 +298,60 @@ describe('evaluateStock - Gate Cascade', () => {
 
   it('AI_MODELS.PRIMARY 상수가 gemini-3-flash-preview 와 일치', () => {
     expect(AI_MODELS.PRIMARY).toBe('gemini-3-flash-preview');
+  });
+});
+
+// ─── TMA (추세 모멘텀 가속도 측정기) ─────────────────────────────────────────────
+
+describe('evaluateTMA', () => {
+  it('감속 경보: TMA < 0 → DECELERATION', () => {
+    // 수익률이 줄어드는 종가 시퀀스 (7일: 6개의 수익률)
+    // returns: [+2%, +1.5%, +1%, +0.5%, +0.2%, +0.1%]
+    // TMA = (0.1 - 2.0) / 5 = -0.38 → DECELERATION
+    const closes = [1000, 1020, 1035.3, 1045.66, 1050.89, 1052.99, 1054.05];
+    const result = evaluateTMA(closes);
+    expect(result.tma).toBeLessThan(0);
+    expect(result.alert).toBe('DECELERATION');
+  });
+
+  it('즉각 대응: TMA < -0.5 → IMMEDIATE', () => {
+    // 급격한 감속: 초반 큰 상승 후 하락 전환
+    // returns: [+3%, +2%, +1%, 0%, -1%, -2%]
+    // TMA = (-2 - 3) / 5 = -1.0 → IMMEDIATE
+    const closes = [1000, 1030, 1050.6, 1061.11, 1061.11, 1050.50, 1029.49];
+    const result = evaluateTMA(closes);
+    expect(result.tma).toBeLessThan(-0.5);
+    expect(result.alert).toBe('IMMEDIATE');
+  });
+
+  it('정상: TMA >= 0 → NONE', () => {
+    // 가속 중인 종가 시퀀스
+    // returns: [+0.5%, +1%, +1.5%, +2%, +2.5%, +3%]
+    // TMA = (3.0 - 0.5) / 5 = 0.5 → NONE
+    const closes = [1000, 1005, 1015.05, 1030.28, 1050.89, 1077.16, 1109.47];
+    const result = evaluateTMA(closes);
+    expect(result.tma).toBeGreaterThanOrEqual(0);
+    expect(result.alert).toBe('NONE');
+  });
+
+  it('데이터 부족 시 안전 기본값 반환', () => {
+    const result = evaluateTMA([1000, 1010, 1020]);
+    expect(result.tma).toBe(0);
+    expect(result.alert).toBe('NONE');
+  });
+
+  it('evaluateStock에 dailyCloses 전달 시 tma 결과 포함', () => {
+    const closes = [1000, 1030, 1050.6, 1061.11, 1061.11, 1050.50, 1029.49];
+    const result = evaluateStock(
+      createHighStockData(),
+      createBaseRegime(),
+      'A',
+      createLeadingSector(),
+      0, false, 3, [], undefined, undefined, undefined, undefined, undefined,
+      createHealthyMacroEnv(), 50,
+      { dailyCloses: closes },
+    );
+    expect(result.tma).toBeDefined();
+    expect(result.tma!.alert).toBe('IMMEDIATE');
   });
 });

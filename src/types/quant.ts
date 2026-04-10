@@ -340,6 +340,17 @@ export interface MomentumAcceleration {
   overallAcceleration: boolean;  // rsi + institutional 모두 가속
 }
 
+/** TMA (추세 모멘텀 가속도 측정기) — 수익률의 2차 미분
+ *  가격이 최고점이어도 가속도가 먼저 꺾이는 물리학적 원리 적용.
+ *  가격보다 1~2주 선행하는 수학적 선행 지표. */
+export interface TMAResult {
+  tma: number;              // TMA 값 (수익률 가속도)
+  returnToday: number;      // 오늘 수익률 (%)
+  returnNAgo: number;       // N일 전 수익률 (%)
+  period: number;           // 측정 기간 (기본 5일)
+  alert: 'NONE' | 'DECELERATION' | 'IMMEDIATE'; // NONE / 감속 경보 / 즉각 대응
+}
+
 /** 강화된 적의 체크리스트 — STRONG BUY 전 역검증 7항목 */
 export interface EnemyChecklistEnhanced extends EnemyChecklist {
   lockupExpiringSoon: boolean;      // 1. 보호예수 60일 이내 해제
@@ -422,6 +433,7 @@ export interface EvaluationResult {
   cycleAnalysis?: CycleAnalysis;
   catalystAnalysis?: CatalystAnalysis;
   momentumAcceleration?: MomentumAcceleration;
+  tma?: TMAResult;
   enemyChecklistEnhanced?: EnemyChecklistEnhanced;
   dataReliability?: DataReliability;
   signalVerdict?: SignalVerdict;

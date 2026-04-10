@@ -271,6 +271,45 @@ export function evaluateMultiTimeframe(
 }
 
 /**
+ * TMA (추세 모멘텀 가속도 측정기) — 수익률의 2차 미분(가속도)
+ *
+ * 물리학 원리 적용: 가격이 최고점이어도 가속도(2차 미분)가 먼저 꺾인다.
+ * 가격보다 1~2주 선행하는 수학적 선행 지표.
+ *
+ * TMA = (오늘 수익률 - N일 전 수익률) / N
+ *   TMA < 0   → 감속 경보
+ *   TMA < -0.5 → 즉각 대응
+ *
+ * @param closes - 일봉 종가 배열 (최소 period+2 개)
+ * @param period - 가속도 측정 기간 (기본 5일)
+ * @returns { tma, returns, alert }
+ */
+export function calculateTMA(
+  closes: number[],
+  period = 5,
+): { tma: number; returnToday: number; returnNAgo: number; alert: 'NONE' | 'DECELERATION' | 'IMMEDIATE' } {
+  if (closes.length < period + 2) {
+    return { tma: 0, returnToday: 0, returnNAgo: 0, alert: 'NONE' };
+  }
+
+  // 일별 수익률(%) 계산
+  const returns: number[] = [];
+  for (let i = 1; i < closes.length; i++) {
+    returns.push(((closes[i] - closes[i - 1]) / closes[i - 1]) * 100);
+  }
+
+  const returnToday = returns[returns.length - 1];
+  const returnNAgo = returns[returns.length - 1 - period];
+  const tma = (returnToday - returnNAgo) / period;
+
+  let alert: 'NONE' | 'DECELERATION' | 'IMMEDIATE' = 'NONE';
+  if (tma < -0.5) alert = 'IMMEDIATE';
+  else if (tma < 0) alert = 'DECELERATION';
+
+  return { tma, returnToday, returnNAgo, alert };
+}
+
+/**
  * RSI 모멘텀 가속도 — 최근 n주간 RSI 추이
  * @param weeklyCloses - 주봉 종가 배열 (최소 20주)
  * @param weeks - 확인할 주 수 (기본 3)
