@@ -4,13 +4,16 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
+    "snapshot": "git add -A && git commit -m \"snapshot: $(date '+%Y-%m-%d %H:%M')\" --allow-empty",
+    "dev": "npm run snapshot && tsx server.ts",
     "prebuild": "python3 scripts/validate_gemini_calls.py",
     "build": "vite build",
     "start": "NODE_ENV=production npx tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "validate:gemini": "python3 scripts/validate_gemini_calls.py",
+    "precommit": "npm run validate:gemini && npm run lint"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
