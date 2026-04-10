@@ -61,7 +61,7 @@ function SectorCard({
   expanded: boolean;
   onToggleExpand: () => void;
 }) {
-  const isOverheated = match.triggeredCount >= 2;
+  const isOverheated = match.isFullyOverheated;
   const borderColor = match.isFullyOverheated
     ? 'border-red-500'
     : match.triggeredCount >= 3
@@ -350,7 +350,7 @@ export function SectorOverheatPanel({ inputs, onInputsChange, result }: SectorOv
               ))}
             </div>
             <p className="text-[8px] text-theme-text-muted mt-2">
-              * 2개 이상 조건 충족 시 과열 판정 → 해당 섹터 인버스 ETF 자동 매칭
+              * 4개 조건 모두 충족 시 과열 판정 → 해당 섹터 인버스 ETF 자동 매칭
             </p>
           </div>
         </div>

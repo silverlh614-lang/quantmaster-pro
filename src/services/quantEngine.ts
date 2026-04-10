@@ -2089,7 +2089,7 @@ const SECTOR_INVERSE_ETF_MAP: Record<string, { etf: string; code: string }> = {
  *   3. 주봉 RSI 80 이상
  *   4. 외국인 Active 매수 6주 연속 과잉
  *
- * 2개 이상 조건 충족 시 과열(overheated)로 판정하고, 해당 섹터의 인버스 ETF를 자동 매칭한다.
+ * 4개 조건을 모두 충족할 때 과열(overheated)로 판정하고, 해당 섹터의 인버스 ETF를 자동 매칭한다.
  */
 export function evaluateSectorOverheat(
   sectors: SectorOverheatInput[],
@@ -2139,9 +2139,9 @@ export function evaluateSectorOverheat(
     if (isFullyOverheated) {
       recommendation = `🔴 완전 과열 (4/4) — ${inverseEtf} 즉시 진입 권고. 신규 롱 포지션 중단.`;
     } else if (triggeredCount >= 3) {
-      recommendation = `🟠 강한 과열 신호 (${triggeredCount}/4) — ${inverseEtf} 소규모 진입 검토.`;
+      recommendation = `🟠 과열 임계치 근접 (${triggeredCount}/4) — 과열 확정 전 단계. ${inverseEtf}는 관찰 목록에 유지.`;
     } else if (triggeredCount >= 2) {
-      recommendation = `🟡 과열 주의 (${triggeredCount}/4) — ${inverseEtf} 모니터링 강화.`;
+      recommendation = `🟡 과열 주의 (${triggeredCount}/4) — 과열 조건 미충족. 경보 모니터링 강화.`;
     } else {
       recommendation = `🟢 정상 사이클 (${triggeredCount}/4) — 과열 신호 미충족. 관망 유지.`;
     }
@@ -2158,7 +2158,7 @@ export function evaluateSectorOverheat(
     };
   });
 
-  const overheatedMatches = allSectors.filter(s => s.triggeredCount >= 2);
+  const overheatedMatches = allSectors.filter(s => s.isFullyOverheated);
   const overheatedCount = overheatedMatches.length;
 
   let actionMessage: string;
