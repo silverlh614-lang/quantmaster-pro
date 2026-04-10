@@ -17,7 +17,7 @@ import {
   getBatchMarketIntel,
 } from '../services/stockService';
 import { useGlobalIntelStore } from '../stores';
-import { evaluateGate0, evaluateBearRegime, evaluateBearSeasonality, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener, evaluateBearKelly, evaluateIPS } from '../services/quantEngine';
+import { evaluateGate0, evaluateBearRegime, evaluateBearSeasonality, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener, evaluateBearKelly, evaluateIPS, computeFSS } from '../services/quantEngine';
 import { getStaleTime, PERSIST_GC_TIME } from '../utils/cacheConfig';
 
 /**
@@ -197,6 +197,38 @@ export { useBatchSectorIntel as useSectorOrders };
 export { useBatchMarketIntel as useGlobalCorrelation };
 export { useBatchMarketIntel as useFomcSentiment };
 
+// ── 아이디어 4: FSS 외국인 수급 스코어 쿼리 ───────────────────────
+
+/**
+ * FSS (Foreign Supply Shift Score) 서버 데이터 조회 + 클라이언트 스코어 계산.
+ * /api/fss/records → computeFSS() → store 갱신.
+ * KIS/DART에서 수집된 일별 외국인 수급 데이터 기반.
+ */
+export function useFssScore() {
+  const setFssResult = useGlobalIntelStore(s => s.setFssResult);
+
+  return useQuery({
+    queryKey: ['fss-score'],
+    queryFn: async () => {
+      const res = await fetch('/api/fss/records');
+      if (!res.ok) return null;
+      const records: { date: string; passiveNetBuy: number; activeNetBuy: number }[] = await res.json();
+      if (!records || records.length === 0) {
+        setFssResult(null);
+        return null;
+      }
+      const fssResult = computeFSS(records);
+      setFssResult(fssResult);
+      return fssResult;
+    },
+    staleTime: 5 * 60 * 1000,  // 5분 — 장중 실시간 갱신 대비
+    gcTime: PERSIST_GC_TIME,
+    refetchInterval: false,
+    refetchOnWindowFocus: true, // 탭 전환 시 자동 갱신
+    retry: 1,
+  });
+}
+
 // ── Master hook ─────────────────────────────────────────────────
 
 /**
@@ -208,6 +240,8 @@ export function useAllGlobalIntel() {
   const batch1 = useBatchGlobalIntel();
   const batch2 = useBatchSectorIntel();
   const batch3 = useBatchMarketIntel();
+  // 아이디어 4: FSS 외국인 수급 스코어 (경량 서버 조회 — AI 호출 아님)
+  useFssScore();
 
   const allQueries = [batch1, batch2, batch3];
   const isLoading = allQueries.some(q => q.isLoading);

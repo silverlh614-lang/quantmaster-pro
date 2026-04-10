@@ -1471,3 +1471,46 @@ export interface IpsResult {
   preMortemRequired: boolean;
   lastUpdated: string;
 }
+
+// ─── 아이디어 4: FSS 외국인 수급 방향 전환 스코어 ─────────────────────────────────
+
+/** 외국인 일별 수급 기록 (Passive/Active 분류) */
+export interface ForeignSupplyDayRecord {
+  /** 날짜 (YYYY-MM-DD) */
+  date: string;
+  /** Passive(인덱스 펀드) 순매수 (양수=매수, 음수=매도) — 금액(억원) 또는 주수 */
+  passiveNetBuy: number;
+  /** Active(액티브 펀드) 순매수 (양수=매수, 음수=매도) */
+  activeNetBuy: number;
+}
+
+/** FSS 일별 점수 (당일 수급 분류 결과) */
+export interface FssDailyScore {
+  date: string;
+  /** 당일 점수: -3(동반 순매도) / -1(편방 순매도) / 0(혼합) / +1(편방 순매수) / +3(동반 순매수) */
+  score: number;
+  /** 분류 레이블 */
+  label: 'BOTH_SELL' | 'PARTIAL_SELL' | 'MIXED' | 'PARTIAL_BUY' | 'BOTH_BUY';
+  passiveNetBuy: number;
+  activeNetBuy: number;
+}
+
+/** FSS 경보 단계 */
+export type FssAlertLevel = 'NORMAL' | 'CAUTION' | 'HIGH_ALERT';
+
+/** FSS (Foreign Supply Shift Score) 전체 결과 */
+export interface FssResult {
+  /** 5일 누적 FSS 점수 (범위: -15 ~ +15) */
+  cumulativeScore: number;
+  /** 경보 단계: NORMAL(> -3) / CAUTION(-5 < score ≤ -3) / HIGH_ALERT(≤ -5) */
+  alertLevel: FssAlertLevel;
+  /** 최근 5거래일 일별 점수 내역 */
+  dailyScores: FssDailyScore[];
+  /** 동반 순매도 연속 일수 (현재 스트릭) */
+  consecutiveBothSellDays: number;
+  /** 행동 권고 메시지 */
+  actionMessage: string;
+  /** HIGH_ALERT 시 수급 이탈 방어 모드 권고 */
+  supplyExitDefenseRecommended: boolean;
+  lastUpdated: string;
+}
