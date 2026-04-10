@@ -5,18 +5,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
-import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 import cron from "node-cron";
 import {
-  runAutoSignalScan,
-  generateDailyReport,
-  loadWatchlist,
-  getShadowTrades,
-  getMonthlyStats,
-  sendTelegramAlert,
-  loadMacroState,
-  fillMonitor,
   tradingOrchestrator,
   fastDartCheck,
   pollDartDisclosures,
@@ -26,6 +17,7 @@ import {
   generateWeeklyReport,
   sendWatchlistBriefing,
   sendIntradayCheckIn,
+  sendTelegramAlert,
 } from "./src/server/autoTradeEngine.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,82 +31,19 @@ dotenv.config();
 // → 공유 상태를 server/state.ts로 분리
 // ─────────────────────────────────────────────────────────────
 import {
-  getEmergencyStop, setEmergencyStop,
-  getDailyLossPct, setDailyLoss,
+  getEmergencyStop,
   isEmergencyStopped,
+  setDailyLoss,
 } from './server/state.js';
-import {
-  getKisToken, getKisBase,
-} from './server/clients/kisClient.js';
 import kisRouter from './server/routes/kisRouter.js';
 import marketDataRouter from './server/routes/marketDataRouter.js';
 import dartRouter from './server/routes/dartRouter.js';
 import autoTradeRouter from './server/routes/autoTradeRouter.js';
+import systemRouter from './server/routes/systemRouter.js';
+import { checkDailyLossLimit } from './server/emergency.js';
 
 export { isEmergencyStopped, setDailyLoss };
 
-// 미체결 주문 전량 취소 — KIS 미체결 조회 후 취소 (서버사이드 직접 호출)
-async function cancelAllPendingOrders(): Promise<void> {
-  if (!process.env.KIS_APP_KEY) return;
-  console.error('[EMERGENCY] KIS 미체결 주문 전량 취소 시작');
-  try {
-    const token = await getKisToken();
-    const isReal = process.env.KIS_IS_REAL === 'true';
-    const base   = getKisBase();
-    const trId   = isReal ? 'TTTC0688R' : 'VTTC0688R'; // 미체결 조회
-
-    const res = await fetch(
-      `${base}/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?` +
-      new URLSearchParams({
-        CANO: process.env.KIS_ACCOUNT_NO ?? '',
-        ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
-        CTX_AREA_FK100: '', CTX_AREA_NK100: '',
-        INQR_DVSN_1: '0', INQR_DVSN_2: '0',
-      }),
-      { headers: {
-        Authorization: `Bearer ${token}`,
-        appkey: process.env.KIS_APP_KEY!, appsecret: process.env.KIS_APP_SECRET!,
-        tr_id: trId, custtype: 'P', 'Content-Type': 'application/json',
-      }}
-    );
-    const data = await res.json() as { output?: { odno: string; pdno: string; ord_qty: string }[] };
-    const orders = data.output ?? [];
-    console.error(`[EMERGENCY] 미체결 주문 ${orders.length}건 취소 처리`);
-
-    const cancelTrId = isReal ? 'TTTC0803U' : 'VTTC0803U';
-    for (const o of orders) {
-      await fetch(`${base}/uapi/domestic-stock/v1/trading/order-rvsecncl`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          appkey: process.env.KIS_APP_KEY!, appsecret: process.env.KIS_APP_SECRET!,
-          tr_id: cancelTrId, custtype: 'P', 'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          CANO: process.env.KIS_ACCOUNT_NO ?? '',
-          ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
-          KRX_FWDG_ORD_ORGNO: '', ORGN_ODNO: o.odno,
-          ORD_DVSN: '00', RVSE_CNCL_DVSN_CD: '02',
-          ORD_QTY: o.ord_qty, ORD_UNPR: '0', QTY_ALL_ORD_YN: 'Y', PDNO: o.pdno,
-        }),
-      }).catch((e) => console.error(`[EMERGENCY] 취소 실패 ODNO ${o.odno}:`, e));
-    }
-    console.error('[EMERGENCY] 미체결 전량 취소 완료');
-  } catch (e) {
-    console.error('[EMERGENCY] cancelAllPendingOrders 실패:', e);
-  }
-}
-
-async function checkDailyLossLimit(): Promise<void> {
-  const limit = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
-  if (getDailyLossPct() >= limit && !getEmergencyStop()) {
-    setEmergencyStop(true);
-    console.error(`[EMERGENCY] 일일 손실 한도 도달 (${getDailyLossPct().toFixed(2)}% ≥ ${limit}%) — 자동매매 중단`);
-    await cancelAllPendingOrders();
-    const { generateDailyReport } = await import('./src/server/autoTradeEngine.js');
-    await generateDailyReport().catch(console.error);
-  }
-}
 
 async function startServer() {
   const app = express();
@@ -146,284 +75,17 @@ async function startServer() {
   // ─────────────────────────────────────────────────────────────
   app.use('/api', autoTradeRouter);
 
-  app.post("/api/send-email", async (req: Request, res: Response) => {
-    const { email, subject, text, pdfBase64, filename } = req.body;
-
-    if (!email || !pdfBase64) {
-      return res.status(400).json({ error: "Email and PDF data are required" });
-    }
-
-    try {
-      // Check if environment variables are set
-      if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        console.error("Email credentials missing in environment variables");
-        return res.status(500).json({ 
-          error: "이메일 서버가 설정되지 않았습니다.", 
-          details: "서버의 EMAIL_USER 또는 EMAIL_PASS 환경 변수가 누락되었습니다. AI Studio 설정에서 이를 추가해주세요." 
-        });
-      }
-
-      // Create a transporter
-      const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASS,
-        },
-      });
-
-      const mailOptions = {
-        from: process.env.EMAIL_USER,
-        to: email,
-        subject: subject || "Stock Analysis Report",
-        text: text || "Please find the attached stock analysis report.",
-        attachments: [
-          {
-            filename: filename || "report.pdf",
-            content: pdfBase64.split("base64,")[1],
-            encoding: 'base64'
-          }
-        ]
-      };
-
-      await transporter.sendMail(mailOptions);
-      res.json({ success: true, message: "Email sent successfully" });
-    } catch (error: any) {
-      console.error("Error sending email:", error);
-      res.status(500).json({ error: "Failed to send email", details: error.message });
-    }
-  });
-
   // ─────────────────────────────────────────────────────────────
-  // 아이디어 7: Health Check + Keep-Alive
+  // 시스템 라우터 → server/routes/systemRouter.ts 로 분리
+  // (GET /health, GET /emergency-status, POST /emergency-stop,
+  //  POST /emergency-reset, POST /daily-loss, POST /send-email,
+  //  POST /telegram/webhook, POST /telegram/test)
   // ─────────────────────────────────────────────────────────────
-  const serverStart = new Date().toISOString();
-
-  app.get('/api/health', (_req: Request, res: Response) => {
-    res.json({
-      status: 'ok',
-      emergencyStop: getEmergencyStop(),
-      dailyLossPct: getDailyLossPct(),
-      autoTradeEnabled: process.env.AUTO_TRADE_ENABLED === 'true',
-      mode: process.env.AUTO_TRADE_MODE ?? 'SHADOW',
-      kisIsReal: process.env.KIS_IS_REAL === 'true',
-      uptime: process.uptime(),
-      startedAt: serverStart,
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────
-  // 아이디어 9: 비상 정지 API
-  // ─────────────────────────────────────────────────────────────
-
-  app.get('/api/emergency-status', (_req: Request, res: Response) => {
-    res.json({ emergencyStop: getEmergencyStop(), dailyLossPct: getDailyLossPct() });
-  });
-
-  app.post('/api/emergency-stop', async (_req: Request, res: Response) => {
-    setEmergencyStop(true);
-    console.error('[EMERGENCY] 수동 비상 정지 발동!');
-    await cancelAllPendingOrders().catch(console.error);
-    res.json({ status: 'STOPPED', stoppedAt: new Date().toISOString() });
-  });
-
-  app.post('/api/emergency-reset', (req: Request, res: Response) => {
-    const secret = process.env.EMERGENCY_RESET_SECRET;
-    if (secret && req.body?.secret !== secret) {
-      return res.status(403).json({ error: '인증 실패' });
-    }
-    setEmergencyStop(false);
-    setDailyLoss(0);
-    console.log('[EMERGENCY] 비상 정지 해제 — 자동매매 재개');
-    res.json({ status: 'RESUMED' });
-  });
-
-  // ─── 아이디어 7: Telegram 양방향 봇 Webhook ────────────────────────────────────
-  // Railway 엔드포인트 등록: POST /api/telegram/webhook
-  // Telegram Bot API에서 setWebhook → https://<RAILWAY_URL>/api/telegram/webhook
-  app.post('/api/telegram/webhook', async (req: Request, res: Response) => {
-    res.sendStatus(200); // Telegram에 즉시 200 응답 (재전송 방지)
-
-    const msg = req.body?.message;
-    if (!msg?.text) return;
-
-    const chatId = String(msg.chat?.id ?? '');
-    const allowedId = process.env.TELEGRAM_CHAT_ID ?? '';
-    // 등록된 채팅방만 허용 (타인의 봇 접근 차단)
-    if (allowedId && chatId !== allowedId) {
-      console.warn(`[TelegramBot] 허가되지 않은 채팅 ID: ${chatId}`);
-      return;
-    }
-
-    const text: string = msg.text.trim();
-    const [cmd, ...args] = text.split(/\s+/);
-
-    const reply = async (message: string) => {
-      await sendTelegramAlert(message).catch(console.error);
-    };
-
-    try {
-      switch (cmd.toLowerCase()) {
-        case '/status': {
-          const macro   = loadMacroState();
-          const shadows = getShadowTrades();
-          const active  = shadows.filter(s => (s as any).status === 'ACTIVE' || (s as any).status === 'PENDING');
-          const today   = new Date().toISOString().split('T')[0];
-          const closed  = shadows.filter(s =>
-            ((s as any).status === 'HIT_TARGET' || (s as any).status === 'HIT_STOP') &&
-            (s as any).signalTime?.startsWith(today)
-          );
-          const pnl = closed.reduce((sum, s) => sum + ((s as any).returnPct ?? 0), 0);
-          await reply(
-            `📊 <b>[시스템 현황]</b>\n` +
-            `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? '🟡 Shadow' : '🔴 LIVE'}\n` +
-            `비상정지: ${getEmergencyStop() ? '🔴 ON' : '🟢 OFF'}\n` +
-            `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n` +
-            `활성 포지션: ${active.length}개\n` +
-            `오늘 결산: ${closed.length}건 (P&L ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%)`
-          );
-          break;
-        }
-
-        case '/stop': {
-          setEmergencyStop(true);
-          console.error('[TelegramBot] Telegram /stop 명령 — 비상 정지 발동');
-          await cancelAllPendingOrders().catch(console.error);
-          await reply('🔴 <b>[비상 정지 발동]</b>\n모든 미체결 주문 취소 완료. /reset 으로 재개 가능.');
-          break;
-        }
-
-        case '/reset': {
-          const secret = process.env.EMERGENCY_RESET_SECRET;
-          const provided = args[0] ?? '';
-          if (secret && provided !== secret) {
-            await reply('❌ 인증 실패 — /reset <비밀번호> 형식으로 입력하세요.');
-            break;
-          }
-          setEmergencyStop(false);
-          setDailyLoss(0);
-          await reply('🟢 <b>비상 정지 해제</b> — 자동매매 재개');
-          break;
-        }
-
-        case '/watchlist': {
-          const wl = loadWatchlist();
-          if (wl.length === 0) { await reply('📋 워치리스트가 비어 있습니다.'); break; }
-          const lines = wl.map(w =>
-            `• ${w.name}(${w.code}) 진입:${w.entryPrice.toLocaleString()} 손절:${w.stopLoss.toLocaleString()} 목표:${w.targetPrice.toLocaleString()}`
-          ).join('\n');
-          await reply(`📋 <b>워치리스트 (${wl.length}개)</b>\n${lines}`);
-          break;
-        }
-
-        case '/buy': {
-          const code = args[0]?.replace(/[^0-9]/g, '').slice(0, 6);
-          if (!code || code.length !== 6) {
-            await reply('❌ 사용법: /buy 005930 (종목코드 6자리)');
-            break;
-          }
-          const wl  = loadWatchlist();
-          const hit = wl.find(w => w.code === code);
-          if (!hit) {
-            await reply(`⚠️ 워치리스트에 ${code} 없음. 먼저 워치리스트에 추가하세요.`);
-            break;
-          }
-          // Shadow 강제 신호 트리거 — runAutoSignalScan() 내 진입 조건 우회
-          await runAutoSignalScan().catch(console.error);
-          await reply(`🔔 <b>${hit.name}(${code})</b> 수동 매수 신호 트리거 완료 (다음 스캔 주기에 체결)`);
-          break;
-        }
-
-        case '/report': {
-          await reply('📄 일일 리포트 생성 중...');
-          await generateDailyReport().catch(console.error);
-          await reply('✅ 리포트 이메일 발송 완료');
-          break;
-        }
-
-        case '/shadow': {
-          const stats = getMonthlyStats();
-          const pending = fillMonitor.getPendingOrders().filter(o => o.status === 'PENDING');
-          await reply(
-            `🎭 <b>[Shadow 성과 현황]</b>\n` +
-            `${stats.month} — 전체 ${stats.total}건\n` +
-            `WIN률: ${stats.winRate.toFixed(1)}% | 평균수익: ${stats.avgReturn.toFixed(2)}%\n` +
-            `STRONG_BUY: ${stats.strongBuyWinRate.toFixed(1)}%\n` +
-            `미체결 모니터링: ${pending.length}건`
-          );
-          break;
-        }
-
-        case '/pending': {
-          const pending = fillMonitor.getPendingOrders().filter(o => o.status === 'PENDING');
-          if (pending.length === 0) { await reply('✅ 미체결 주문 없음'); break; }
-          const lines = pending.map(o =>
-            `• ${o.stockName}(${o.ordNo}) ${o.quantity}주 @${o.orderPrice.toLocaleString()} [${o.pollCount}/${10}회]`
-          ).join('\n');
-          await reply(`⏳ <b>미체결 주문 (${pending.length}건)</b>\n${lines}`);
-          break;
-        }
-
-        default:
-          await reply(
-            `🤖 <b>QuantMaster Pro 봇</b>\n` +
-            `/status — 현황 요약\n` +
-            `/stop — 비상 정지\n` +
-            `/reset [pw] — 비상 정지 해제\n` +
-            `/watchlist — 워치리스트 조회\n` +
-            `/buy 종목코드 — 수동 신호\n` +
-            `/report — 일일 리포트\n` +
-            `/shadow — Shadow 성과\n` +
-            `/pending — 미체결 주문`
-          );
-      }
-    } catch (e) {
-      console.error('[TelegramBot] 명령 처리 실패:', e);
-    }
-  });
-
-  // 일일 손실 외부 업데이트 (프론트엔드에서 Shadow 결과 집계 후 호출)
-  app.post('/api/daily-loss', (req: Request, res: Response) => {
-    const { pct } = req.body;
-    if (typeof pct === 'number') {
-      setDailyLoss(pct);
-      checkDailyLossLimit().catch(console.error);
-    }
-    res.json({ ok: true, dailyLossPct: getDailyLossPct() });
-  });
-
-
-
-  // ─────────────────────────────────────────────────────────────
-  // 아이디어 8: Macro State API (MHS 저장/조회 — 서버 Gate 연동)
-  // ─────────────────────────────────────────────────────────────
+  app.use('/api', systemRouter);
 
   // ─── 아이디어 1: 오케스트레이터 상태 조회 ────────────────────────────────────
   app.get('/api/orchestrator/state', (_req: Request, res: Response) => {
     res.json(tradingOrchestrator.getStatus());
-  });
-
-
-
-  // ─────────────────────────────────────────────────────────────
-  // 아이디어 12: Telegram 알림 테스트
-  // ─────────────────────────────────────────────────────────────
-
-  app.post('/api/telegram/test', async (_req: Request, res: Response) => {
-    if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
-      return res.status(400).json({ error: 'TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 미설정' });
-    }
-    try {
-      await sendTelegramAlert(
-        `✅ <b>[QuantMaster Pro] Telegram 연결 테스트</b>\n` +
-        `서버 시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST\n` +
-        `모드: ${process.env.KIS_IS_REAL === 'true' ? '🔴 실거래' : '🟡 모의투자'}\n` +
-        `비상정지: ${getEmergencyStop() ? '🛑 활성' : '✅ 해제'}`
-      );
-      res.json({ ok: true, message: 'Telegram 메시지 전송 완료' });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
   });
 
   // ─── Vite middleware (dev) / Static file serving (prod) ───────────────────
