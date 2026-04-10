@@ -32,6 +32,9 @@ import {
   isRealTradeReady,
   pollBearRegime,
   pollMhsMorningAlert,
+  generateWeeklyReport,
+  sendWatchlistBriefing,
+  sendIntradayCheckIn,
   type WatchlistEntry,
   type MacroState,
 } from "./src/server/autoTradeEngine.js";
@@ -1249,6 +1252,26 @@ async function startServer() {
     // RED 레짐(MHS < 40) 또는 GREEN 레짐 전환(MHS ≥ 70) 시 즉시 Telegram 알림
     cron.schedule('0 0 * * 1-5', async () => {
       await pollMhsMorningAlert().catch(console.error);
+    }, { timezone: 'UTC' });
+
+    // 주간 리포트 — 매주 금요일 16:30 KST (UTC 07:30)
+    cron.schedule('30 7 * * 5', async () => {
+      await generateWeeklyReport().catch(console.error);
+    }, { timezone: 'UTC' });
+
+    // 장 시작 전 워치리스트 브리핑 — 평일 08:50 KST (UTC 23:50, 일~목 UTC)
+    cron.schedule('50 23 * * 0-4', async () => {
+      await sendWatchlistBriefing().catch(console.error);
+    }, { timezone: 'UTC' });
+
+    // 장중 중간 점검 — 오전 11:30 KST (UTC 02:30, 월~금 UTC)
+    cron.schedule('30 2 * * 1-5', async () => {
+      await sendIntradayCheckIn('midday').catch(console.error);
+    }, { timezone: 'UTC' });
+
+    // 마감 전 점검 — 오후 14:00 KST (UTC 05:00, 월~금 UTC)
+    cron.schedule('0 5 * * 1-5', async () => {
+      await sendIntradayCheckIn('preclose').catch(console.error);
     }, { timezone: 'UTC' });
 
     console.log('[AutoTrade] 오케스트레이터 + DART 폴링 + Bear Regime 알림 + MHS 모닝 알림 가동 완료');

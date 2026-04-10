@@ -237,6 +237,7 @@ interface ServerShadowTrade {
   cascadeStep?: 0 | 1 | 2;  // 0=없음, 1=-7% 경고, 2=-15% 반매도
   addBuyBlocked?: boolean;   // -7% 이후 추가 매수 차단 플래그
   halfSoldAt?: string;       // -15% 반매도 시각 (ISO)
+  stopApproachAlerted?: boolean; // 손절가 5% 이내 접근 경고 발송 여부 (중복 방지)
 }
 
 export function loadShadowTrades(): ServerShadowTrade[] {
@@ -824,7 +825,21 @@ async function updateShadowResults(shadows: ServerShadowTrade[]): Promise<void> 
       continue;
     }
 
-    // ⑥ 과열 탐지 — ACTIVE 상태에서만 첫 번째 부분 매도 발동
+    // ⑥ 손절가 5% 이내 접근 경고 (1회만 발송)
+    if (!shadow.stopApproachAlerted) {
+      const distToStop = (currentPrice - shadow.stopLoss) / shadow.stopLoss * 100;
+      if (distToStop > 0 && distToStop < 5) {
+        shadow.stopApproachAlerted = true;
+        await sendTelegramAlert(
+          `🟡 <b>[손절 접근 경고] ${shadow.stockName} (${shadow.stockCode})</b>\n` +
+          `현재가: ${currentPrice.toLocaleString()}원\n` +
+          `손절까지: -${distToStop.toFixed(1)}%\n` +
+          `손절가: ${shadow.stopLoss.toLocaleString()}원`
+        ).catch(console.error);
+      }
+    }
+
+    // ⑦ 과열 탐지 — ACTIVE 상태에서만 첫 번째 부분 매도 발동
     if (shadow.status === 'ACTIVE') {
       const euphoria = checkEuphoria(shadow, currentPrice);
       if (euphoria.triggered) {
@@ -945,7 +960,120 @@ export async function generateDailyReport(): Promise<void> {
   console.log('[AutoTrade] 일일 리포트 완료 (Telegram + 이메일)');
 }
 
-// ─── 아이디어 4: 서버사이드 전종목 사전 스크리너 ───────────────────────────────
+// ─── 주간 리포트 ────────────────────────────────────────────────────────────────
+
+/**
+ * 주간 성과 리포트 — 매주 금요일 16:30 KST (UTC 07:30) 자동 발송
+ * 직전 7일간의 Shadow 거래 결과를 집계하여 Telegram으로 발송
+ */
+export async function generateWeeklyReport(): Promise<void> {
+  const shadows = loadShadowTrades();
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const week = shadows.filter(s => new Date(s.signalTime).getTime() > weekAgo);
+  const closed = week.filter(s => s.status !== 'ACTIVE' && s.status !== 'PENDING');
+  const wins = closed.filter(s => s.status === 'HIT_TARGET');
+  const winRate = closed.length > 0 ? Math.round(wins.length / closed.length * 100) : 0;
+
+  const msg =
+    `📅 <b>주간 성과 리포트</b>\n` +
+    `━━━━━━━━━━━━━━━━━\n` +
+    `이번 주 신호: ${week.length}건\n` +
+    `결산: ${closed.length}건 (승 ${wins.length} / 패 ${closed.length - wins.length})\n` +
+    `주간 WIN률: ${winRate}%`;
+
+  await sendTelegramAlert(msg).catch(console.error);
+  console.log('[AutoTrade] 주간 리포트 완료');
+}
+
+// ─── 장 시작 전 워치리스트 브리핑 ──────────────────────────────────────────────
+
+/**
+ * 장 시작 전 워치리스트 브리핑 — 평일 08:50 KST (UTC 23:50, 일~목 UTC)
+ * 워치리스트 상위 5개 종목의 목표가/손절가를 요약하여 Telegram 발송
+ */
+export async function sendWatchlistBriefing(): Promise<void> {
+  const list = loadWatchlist();
+  if (list.length === 0) return;
+
+  const lines = list.slice(0, 5).map(w =>
+    `• ${w.name} | 목표 ${w.targetPrice.toLocaleString()} | 손절 ${w.stopLoss.toLocaleString()}`
+  ).join('\n');
+
+  const msg =
+    `🌅 <b>장 시작 브리핑 (09:00)</b>\n` +
+    `━━━━━━━━━━━━━━━━━\n` +
+    `👀 워치리스트 ${list.length}개\n\n${lines}\n\n` +
+    `<i>오늘도 원칙대로 ✊</i>`;
+
+  await sendTelegramAlert(msg).catch(console.error);
+  console.log('[AutoTrade] 워치리스트 브리핑 완료');
+}
+
+// ─── 장중 중간 점검 알림 ────────────────────────────────────────────────────────
+
+/**
+ * 장중 중간 점검 알림 — 포지션 보유 시에만 발송 (포지션 없는 날 생략)
+ * @param type 'midday' | 'preclose
+ *   - 'midday'   : 오전 11:30 KST (UTC 02:30)
+ *   - 'preclose' : 오후 14:00 KST (UTC 05:00)
+ */
+export async function sendIntradayCheckIn(type: 'midday' | 'preclose'): Promise<void> {
+  const shadows = loadShadowTrades();
+  const active = shadows.filter(s => s.status === 'ACTIVE' || s.status === 'EUPHORIA_PARTIAL');
+
+  // 포지션 없는 날은 생략
+  if (active.length === 0) return;
+
+  const macro = loadMacroState();
+  const today = new Date().toISOString().split('T')[0];
+  const todaySignals = shadows.filter(s => s.signalTime.startsWith(today));
+
+  // 각 활성 포지션에 대해 현재가 조회 (병렬)
+  const positionLines: string[] = [];
+  let nearStopLoss = false;
+  let nearTarget = false;
+
+  for (const shadow of active) {
+    const currentPrice = await fetchCurrentPrice(shadow.stockCode).catch(() => null);
+    if (!currentPrice) {
+      positionLines.push(`• ${shadow.stockName} (시세 없음)`);
+      continue;
+    }
+    const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
+    const distToTarget = ((shadow.targetPrice - currentPrice) / currentPrice) * 100;
+    const distToStop   = ((currentPrice - shadow.stopLoss) / shadow.stopLoss) * 100;
+
+    if (distToStop < 5) nearStopLoss = true;
+    if (distToTarget < 3) nearTarget = true;
+
+    const statusEmoji =
+      distToTarget < 3  ? '🟢 목표 근접' :
+      distToStop   < 5  ? '⚠️ 손절 모니터링' :
+      returnPct    >= 0 ? '📈' : '📉';
+
+    positionLines.push(
+      `• ${shadow.stockName} ${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(1)}% ${statusEmoji}`
+    );
+  }
+
+  // 주목할 상황이 없는 날(preclose)은 생략
+  if (type === 'preclose' && !nearStopLoss && !nearTarget) return;
+
+  const header = type === 'midday'
+    ? `📡 <b>[장 중간 현황] 11:30</b>`
+    : `⏰ <b>[마감 2시간 전] 14:00</b>`;
+
+  const msg =
+    `${header}\n` +
+    `━━━━━━━━━━━━━━━\n` +
+    `활성 포지션: ${active.length}개\n` +
+    positionLines.join('\n') + '\n\n' +
+    `오늘 신호: ${todaySignals.length}건\n` +
+    `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})`;
+
+  await sendTelegramAlert(msg).catch(console.error);
+  console.log(`[AutoTrade] 장중 점검 알림 완료 (${type})`);
+}
 
 export interface ScreenedStock {
   code: string;
