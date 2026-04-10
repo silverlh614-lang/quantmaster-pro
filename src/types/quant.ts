@@ -1301,3 +1301,45 @@ export interface BearModeSimulatorResult {
   conclusionMessage: string;
   lastUpdated: string;
 }
+
+// ─── 아이디어 11: 계절성 Bear Calendar ─────────────────────────────────────────
+
+/** 계절성 Bear 패턴 ID */
+export type BearSeasonId = 'SEP_OCT' | 'DEC_JAN' | 'Q1_EARNINGS_PRE' | 'FOMC_WATCH';
+
+/** 개별 계절성 Bear 패턴 상세 */
+export interface BearSeason {
+  /** 패턴 식별자 */
+  id: BearSeasonId;
+  /** 패턴 명칭 */
+  name: string;
+  /** 통계적 근거 설명 */
+  rationale: string;
+  /** 활성 기간 설명 (예: "9~10월") */
+  activePeriod: string;
+  /** 현재 이 시즌이 활성(진행 중) 여부 */
+  isActive: boolean;
+  /** 기본 인버스 진입 확률 가중치 (%) */
+  baseWeight: number;
+  /** VKOSPI 동반 상승 시 추가 가중치 (+20%) */
+  vkospiBonus: number;
+  /** 최종 적용 가중치 (baseWeight + vkospiBonus, VKOSPI 상승 중일 때만 합산) */
+  finalWeight: number;
+}
+
+/** 계절성 Bear Calendar 계산 결과 */
+export interface BearSeasonalCalendarResult {
+  /** 전체 계절 패턴 목록 (활성·비활성 모두) */
+  seasons: BearSeason[];
+  /** 현재 활성 계절 패턴 목록 */
+  activeSeasons: BearSeason[];
+  /** VKOSPI 상승 추세 여부 */
+  vkospiRising: boolean;
+  /** 현재 VKOSPI 값 */
+  vkospiValue: number;
+  /** Gate -1 감도에 더해지는 총 가중치 (활성 시즌 finalWeight 합계, %) */
+  totalWeightBoost: number;
+  /** 전체 행동 권고 메시지 */
+  actionMessage: string;
+  lastUpdated: string;
+}

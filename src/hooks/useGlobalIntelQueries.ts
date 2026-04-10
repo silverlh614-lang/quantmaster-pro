@@ -17,7 +17,7 @@ import {
   getBatchMarketIntel,
 } from '../services/stockService';
 import { useGlobalIntelStore } from '../stores';
-import { evaluateGate0, evaluateBearRegime, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener, evaluateBearKelly } from '../services/quantEngine';
+import { evaluateGate0, evaluateBearRegime, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener, evaluateBearKelly, evaluateBearSeasonalCalendar } from '../services/quantEngine';
 import { getStaleTime, PERSIST_GC_TIME } from '../utils/cacheConfig';
 
 /**
@@ -67,6 +67,8 @@ export function useBatchGlobalIntel() {
   const setBearScreenerResult = useGlobalIntelStore(s => s.setBearScreenerResult);
   const setBearKellyResult = useGlobalIntelStore(s => s.setBearKellyResult);
   const bearKellyEntryDate = useGlobalIntelStore(s => s.bearKellyEntryDate);
+  const setBearSeasonalCalendarResult = useGlobalIntelStore(s => s.setBearSeasonalCalendarResult);
+  const nextFomcDate = useGlobalIntelStore(s => s.nextFomcDate);
 
   return useQuery({
     queryKey: ['batch-global-intel'],
@@ -106,6 +108,9 @@ export function useBatchGlobalIntel() {
 
         // Bear Mode Kelly Criterion (아이디어 6)
         setBearKellyResult(evaluateBearKelly(bearResult, bearKellyEntryDate));
+
+        // 계절성 Bear Calendar (아이디어 11)
+        setBearSeasonalCalendarResult(evaluateBearSeasonalCalendar(data.macro, nextFomcDate));
       }
 
       if (data.regime) setEconomicRegimeData(data.regime);
