@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "prebuild": "python3 scripts/validate_gemini_calls.py",
     "build": "vite build",
     "start": "NODE_ENV=production npx tsx server.ts",
     "preview": "vite preview",
