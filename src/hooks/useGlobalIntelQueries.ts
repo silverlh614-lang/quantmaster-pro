@@ -17,7 +17,7 @@ import {
   getBatchMarketIntel,
 } from '../services/stockService';
 import { useGlobalIntelStore } from '../stores';
-import { evaluateGate0, evaluateBearRegime, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener, evaluateBearKelly } from '../services/quantEngine';
+import { evaluateGate0, evaluateBearRegime, evaluateBearSeasonality, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener, evaluateBearKelly } from '../services/quantEngine';
 import { getStaleTime, PERSIST_GC_TIME } from '../utils/cacheConfig';
 
 /**
@@ -65,6 +65,7 @@ export function useBatchGlobalIntel() {
   const setInverseGate1Result = useGlobalIntelStore(s => s.setInverseGate1Result);
   const setMarketNeutralResult = useGlobalIntelStore(s => s.setMarketNeutralResult);
   const setBearScreenerResult = useGlobalIntelStore(s => s.setBearScreenerResult);
+  const setBearSeasonalityResult = useGlobalIntelStore(s => s.setBearSeasonalityResult);
   const setBearKellyResult = useGlobalIntelStore(s => s.setBearKellyResult);
   const bearKellyEntryDate = useGlobalIntelStore(s => s.bearKellyEntryDate);
 
@@ -88,8 +89,11 @@ export function useBatchGlobalIntel() {
           risk: g0.details.riskScore,
         });
 
+        const bearSeasonalityResult = evaluateBearSeasonality(data.macro);
+        setBearSeasonalityResult(bearSeasonalityResult);
+
         // Gate -1: Bear Regime Detector (아이디어 1)
-        const bearResult = evaluateBearRegime(data.macro, g0);
+        const bearResult = evaluateBearRegime(data.macro, g0, bearSeasonalityResult);
         setBearRegimeResult(bearResult);
 
         // Bear Screener: 하락 수혜주 자동 탐색 (아이디어 3)
@@ -105,7 +109,7 @@ export function useBatchGlobalIntel() {
         setMarketNeutralResult(evaluateMarketNeutral(bearResult));
 
         // Bear Mode Kelly Criterion (아이디어 6)
-        setBearKellyResult(evaluateBearKelly(bearResult, bearKellyEntryDate));
+        setBearKellyResult(evaluateBearKelly(bearResult, bearKellyEntryDate, bearSeasonalityResult.inverseEntryWeightPct));
       }
 
       if (data.regime) setEconomicRegimeData(data.regime);

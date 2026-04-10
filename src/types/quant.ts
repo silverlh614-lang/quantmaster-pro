@@ -1029,6 +1029,33 @@ export interface BearRegimeResult {
   lastUpdated: string;
 }
 
+// ─── 아이디어 11: 계절성 Bear Calendar ───────────────────────────────────────────
+
+export type BearSeasonalityWindowType =
+  | 'AUTUMN_WEAKNESS'
+  | 'YEAR_END_CLEARING'
+  | 'PRE_Q1_EARNINGS'
+  | 'PRE_FOMC';
+
+export interface BearSeasonalityWindow {
+  id: BearSeasonalityWindowType;
+  name: string;
+  active: boolean;
+  description: string;
+  period: string;
+}
+
+export interface BearSeasonalityResult {
+  isBearSeason: boolean;
+  windows: BearSeasonalityWindow[];
+  activeWindowIds: BearSeasonalityWindowType[];
+  gateThresholdAdjustment: number;     // Gate -1 임계치 조정값 (예: -1)
+  inverseEntryWeightPct: number;       // 인버스 진입 확률 가중치 (%)
+  vkospiRisingConfirmed: boolean;      // VKOSPI 동반 상승 여부
+  actionMessage: string;
+  lastUpdated: string;
+}
+
 // ─── 아이디어 4: VKOSPI 공포지수 트리거 시스템 ──────────────────────────────────
 
 /** VKOSPI 트리거 단계 */

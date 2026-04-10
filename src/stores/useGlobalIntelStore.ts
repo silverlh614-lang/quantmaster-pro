@@ -6,7 +6,7 @@ import type {
   GlobalCorrelationMatrix, NewsFrequencyScore, ROEType,
   SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex,
   FomcSentimentAnalysis, BearRegimeResult, VkospiTriggerResult, InverseGate1Result,
-  MarketNeutralResult, BearScreenerResult, BearKellyResult,
+  MarketNeutralResult, BearScreenerResult, BearKellyResult, BearSeasonalityResult,
   SectorOverheatInput, SectorOverheatResult,
   BearModeSimulatorInput, BearModeSimulatorResult,
 } from '../types/quant';
@@ -64,6 +64,10 @@ interface GlobalIntelState {
   // ── 아이디어 4: VKOSPI 트리거 시스템 ────────────────────────────────────
   vkospiTriggerResult: VkospiTriggerResult | null;
   setVkospiTriggerResult: (data: VkospiTriggerResult | null) => void;
+
+  // ── 아이디어 11: 계절성 Bear Calendar ───────────────────────────────────
+  bearSeasonalityResult: BearSeasonalityResult | null;
+  setBearSeasonalityResult: (data: BearSeasonalityResult | null) => void;
 
   // ── 아이디어 9: Market Neutral 모드 ─────────────────────────────────────
   marketNeutralResult: MarketNeutralResult | null;
@@ -148,6 +152,8 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       setBearScreenerResult: (bearScreenerResult) => set({ bearScreenerResult }),
       vkospiTriggerResult: null,
       setVkospiTriggerResult: (vkospiTriggerResult) => set({ vkospiTriggerResult }),
+      bearSeasonalityResult: null,
+      setBearSeasonalityResult: (bearSeasonalityResult) => set({ bearSeasonalityResult }),
       marketNeutralResult: null,
       setMarketNeutralResult: (marketNeutralResult) => set({ marketNeutralResult }),
 
@@ -207,4 +213,3 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
     }
   )
 );
-
