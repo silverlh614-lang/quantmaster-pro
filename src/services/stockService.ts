@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { AI_MODELS } from "../constants/aiConfig";
 import {
   SectorRotation,
   MultiTimeframe,
@@ -1417,7 +1418,7 @@ ${preFilledBlock || '      (사전 수집 데이터 없음 — 필요 시 검색
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             tools: [{ googleSearch: {} }],
@@ -1605,7 +1606,7 @@ async function getBearScreenerRecommendations(filters?: StockFilters): Promise<R
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             tools: [{ googleSearch: {} }],
@@ -2137,7 +2138,7 @@ export async function backtestPortfolio(
 
     const response = await withRetry(async () => {
       return await getAI().models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: AI_MODELS.PRIMARY,
         contents: aiPrompt,
         config: { 
           responseMimeType: "application/json",
@@ -2299,7 +2300,7 @@ export async function runAdvancedAnalysis(type: 'BACKTEST' | 'WALK_FORWARD' | 'P
   try {
     const parsed = await withRetry(async () => {
       const response = await getAI().models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: AI_MODELS.PRIMARY,
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }],
@@ -2670,7 +2671,7 @@ export async function searchStock(query: string, filters?: {
   try {
     const parsed = await withRetry(async () => {
       const response = await getAI().models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: AI_MODELS.PRIMARY,
         contents: prompt,
         config: {
           // googleSearch 제거: 현재가·수급은 enrichment 단계에서 KIS로 보강됨
@@ -2730,7 +2731,7 @@ export async function parsePortfolioFile(content: string): Promise<{ name: strin
   try {
     const parsed = await withRetry(async () => {
       const response = await getAI().models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: AI_MODELS.PRIMARY,
         contents: prompt,
         config: {
           maxOutputTokens: 1024,
@@ -2797,7 +2798,7 @@ export async function generateReportSummary(recommendations: StockRecommendation
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             maxOutputTokens: 2048,
@@ -2983,7 +2984,7 @@ ${preFilledSection}
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             // googleSearch 제거: KOSPI/KOSDAQ/VIX/USD/KRW는 사전 수집. 나머지는 AI 지식 기반
@@ -3051,7 +3052,7 @@ export async function performWalkForwardAnalysis(): Promise<WalkForwardAnalysis 
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             responseMimeType: "application/json",
@@ -3282,12 +3283,12 @@ ${phaseBLines.length > 0 ? phaseBLines.join('\n') : '(데이터 수집 실패 �
     // Phase A (Search 없음) + Phase B (Search 없음, FRED+Yahoo 실데이터) 병렬 실행
     const [phaseARes, phaseBRes] = await Promise.allSettled([
       withRetry(() => getAI().models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: AI_MODELS.PRIMARY,
         contents: phaseAPrompt,
         config: { temperature: 0.1, maxOutputTokens: 4096 },
       }), 2, 2000),
       withRetry(() => getAI().models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: AI_MODELS.PRIMARY,
         contents: phaseBPrompt,
         config: { temperature: 0.1, maxOutputTokens: 4096 },  // googleSearch 제거
       }), 2, 2000),
@@ -3455,12 +3456,12 @@ Google 검색으로 아래 3가지 지표를 조회하고 JSON으로 반환하�
   return getCachedAIResponse<BatchSectorIntelResult>(cacheKey, async () => {
     const [phaseARes, phaseBRes] = await Promise.allSettled([
       withRetry(() => getAI().models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: AI_MODELS.PRIMARY,
         contents: phaseAPrompt,
         config: { temperature: 0.1, maxOutputTokens: 2048 },
       }), 2, 2000),
       withRetry(() => getAI().models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: AI_MODELS.PRIMARY,
         contents: phaseBPrompt,
         config: { tools: [{ googleSearch: {} }], temperature: 0.1, maxOutputTokens: 6144 },
       }), 2, 2000),
@@ -3555,7 +3556,7 @@ Google 검색을 통해 최신 데이터를 기반으로 판단하세요.
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             tools: [{ googleSearch: {} }],
@@ -3669,7 +3670,7 @@ export async function getExportMomentum(): Promise<ExportMomentumData> {
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: { temperature: 0.1 },
         });
@@ -3745,7 +3746,7 @@ export async function getGeopoliticalRiskScore(): Promise<GeopoliticalRiskData> 
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: { temperature: 0.1 },
         });
@@ -3820,7 +3821,7 @@ export async function getCreditSpreads(): Promise<CreditSpreadData> {
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: { temperature: 0.1 },
         });
@@ -3942,7 +3943,7 @@ Google 검색을 통해 아래 조건을 충족하는 종목을 최대 ${maxResu
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             tools: [{ googleSearch: {} }],
@@ -4058,7 +4059,7 @@ ${dartListText || '(DART API 수집 실패 — AI 지식 기반으로 추정)'}
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             // googleSearch 제거: DART API 실데이터 직접 주입
@@ -4182,7 +4183,7 @@ ${kisDataBlocks}
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             // googleSearch 제거: KIS 수급 실데이터 직접 주입
@@ -4313,7 +4314,7 @@ ${candidateList}
 
     const response = await withRetry(async () => {
       return await getAI().models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: AI_MODELS.PRIMARY,
         contents: analysisPrompt,
         config: {
           tools: [{ googleSearch: {} }],
@@ -4452,7 +4453,7 @@ export async function getExtendedEconomicRegime(): Promise<ExtendedRegimeData> {
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             temperature: 0.1,
@@ -4544,7 +4545,7 @@ export async function fetchMacroEnvironment(): Promise<MacroEnvironment> {
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: 'gemini-3-flash-preview',
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             temperature: 0.1,
@@ -4663,7 +4664,7 @@ ${themeSection}
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             maxOutputTokens: 10000,
@@ -4735,7 +4736,7 @@ export async function getGlobalCorrelationMatrix(): Promise<GlobalCorrelationMat
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             temperature: 0.1,
@@ -4858,7 +4859,7 @@ export async function getGlobalMultiSourceData(): Promise<GlobalMultiSourceData>
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             temperature: 0.1,
@@ -4935,7 +4936,7 @@ export async function getNewsFrequencyScores(
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
             temperature: 0.1,
@@ -5011,7 +5012,7 @@ export async function getSupplyChainIntelligence(): Promise<SupplyChainIntellige
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: { temperature: 0.1 },
         });
@@ -5086,7 +5087,7 @@ export async function getSectorOrderIntelligence(): Promise<SectorOrderIntellige
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: { temperature: 0.1 },
         });
@@ -5159,7 +5160,7 @@ export async function getFinancialStressIndex(): Promise<FinancialStressIndex> {
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: { temperature: 0.1 },
         });
@@ -5228,7 +5229,7 @@ export async function getFomcSentimentAnalysis(): Promise<FomcSentimentAnalysis>
     try {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: { temperature: 0.1 },
         });

@@ -16,6 +16,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 import { GoogleGenAI } from '@google/genai';
+import { AI_MODELS } from '../constants/aiConfig.js';
 import {
   evaluateServerGate,
   DEFAULT_CONDITION_WEIGHTS,
@@ -42,7 +43,7 @@ async function callGemini(prompt: string): Promise<string | null> {
   }
   try {
     const res = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: AI_MODELS.SERVER_SIDE,
       contents: prompt,
       config: { temperature: 0.4, maxOutputTokens: 1024 },
     });
