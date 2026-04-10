@@ -30,6 +30,7 @@ import {
   CatalystAnalysis,
   CatalystGrade,
   MomentumAcceleration,
+  TMAResult,
   EnemyChecklistEnhanced,
   DataReliability,
   SignalVerdict,
@@ -493,6 +494,7 @@ export function evaluateStock(
     institutionalAmounts?: number[];      // 최근 5일 기관 순매수 금액
     volumeTrend?: 'INCREASING' | 'STABLE' | 'DECREASING';
     catalystDescription?: string;         // 촉매 설명 텍스트
+    dailyCloses?: number[];               // 최근 7일+ 일봉 종가 (TMA 계산용)
     enemyFlags?: Partial<{
       lockupExpiringSoon: boolean;
       majorShareholderSelling: boolean;
@@ -869,6 +871,11 @@ export function evaluateStock(
     advancedContext?.volumeTrend ?? 'STABLE',
   );
 
+  // TMA (추세 모멘텀 가속도) — 수익률 2차 미분으로 감속 선행 감지
+  const tmaResult = advancedContext?.dailyCloses
+    ? evaluateTMA(advancedContext.dailyCloses)
+    : undefined;
+
   // 강화된 적의 체크리스트 — 7항목 역검증 플래그
   const enemyEnhanced = evaluateEnemyChecklist(enemyChecklist, advancedContext?.enemyFlags ?? {});
 
@@ -941,6 +948,7 @@ export function evaluateStock(
     cycleAnalysis,
     catalystAnalysis,
     momentumAcceleration: momentumAcc,
+    tma: tmaResult,
     enemyChecklistEnhanced: enemyEnhanced,
     dataReliability,
     signalVerdict,
@@ -1137,6 +1145,36 @@ export function analyzeMomentumAcceleration(
     volumeTrend,
     overallAcceleration: rsiAccelerating && institutionalAccelerating,
   };
+}
+
+/**
+ * TMA (추세 모멘텀 가속도 측정기) — 수익률의 2차 미분
+ *
+ * 가격이 최고점이어도 가속도(2차 미분)가 먼저 꺾인다는 물리학적 원리를 시장에 적용.
+ * TMA = (오늘 수익률 - N일전 수익률) / N
+ *   TMA < 0   → 감속 경보
+ *   TMA < -0.5 → 즉각 대응
+ */
+export function evaluateTMA(dailyCloses: number[], period = 5): TMAResult {
+  if (dailyCloses.length < period + 2) {
+    return { tma: 0, returnToday: 0, returnNAgo: 0, period, alert: 'NONE' };
+  }
+
+  // 일별 수익률(%) 계산
+  const returns: number[] = [];
+  for (let i = 1; i < dailyCloses.length; i++) {
+    returns.push(((dailyCloses[i] - dailyCloses[i - 1]) / dailyCloses[i - 1]) * 100);
+  }
+
+  const returnToday = returns[returns.length - 1];
+  const returnNAgo = returns[returns.length - 1 - period];
+  const tma = (returnToday - returnNAgo) / period;
+
+  let alert: TMAResult['alert'] = 'NONE';
+  if (tma < -0.5) alert = 'IMMEDIATE';
+  else if (tma < 0) alert = 'DECELERATION';
+
+  return { tma, returnToday, returnNAgo, period, alert };
 }
 
 /**
