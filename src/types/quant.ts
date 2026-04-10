@@ -86,7 +86,7 @@ export interface Gate0Result {
   passed: boolean;
   macroHealthScore: number;    // MHS 0-100
   mhsLevel: 'HIGH' | 'MEDIUM' | 'LOW'; // HIGH ≥70 / MEDIUM 40-69 / LOW <40
-  kellyReduction: number;      // 포지션 축소율: 0=정상, 0.5=50%축소, 1.0=매수중단
+  kellyReduction: number;      // MAPC 포지션 축소율: 1 − (MHS/100). MHS<40 → 1.0(매수중단), MHS=50 → 0.5, MHS=100 → 0.0
   buyingHalted: boolean;       // MHS < 40 → 전면 매수 중단
   rateCycle: RateCycle;
   fxRegime: FXRegime;

@@ -518,10 +518,11 @@ export async function runAutoSignalScan(): Promise<void> {
     return;
   }
 
-  // YELLOW: 전 종목 포지션 사이즈 50% 축소 (STRONG_BUY 필터 없음)
-  const yellowMode = macroRegime === 'YELLOW';
-  if (yellowMode) {
-    console.warn(`[AutoTrade] 매크로 YELLOW (MHS=${macroState?.mhs}) — 전 종목 포지션 50% 축소`);
+  // 아이디어 9: MAPC — 조정 켈리 = 기본 켈리 × (MHS / 100), 최소 30% 유지
+  const mapcMhs = macroState?.mhs ?? 100;
+  const mapcFactor = Math.max(0.30, mapcMhs / 100);
+  if (mapcFactor < 1) {
+    console.warn(`[AutoTrade] MAPC 적용 (MHS=${mapcMhs}) — 포지션 ${Math.round(mapcFactor * 100)}% 수준으로 자동 조절`);
   }
 
   // ── 아이디어 7: 동시 최대 보유 종목 제한 ──
@@ -626,8 +627,8 @@ export async function runAutoSignalScan(): Promise<void> {
                            : gateScore >= 20   ? 0.08
                            : gateScore >= 15   ? 0.05
                            : 0.03;
-      // 아이디어 5: YELLOW 구간 포지션 50% 축소
-      const positionPct = yellowMode ? rawPositionPct * 0.5 : rawPositionPct;
+      // 아이디어 9: MAPC — 조정 켈리 = 기본 켈리 × (MHS / 100)
+      const positionPct = rawPositionPct * mapcFactor;
       const quantity = Math.floor((totalAssets * positionPct) / shadowEntryPrice);
 
       if (quantity < 1) continue;

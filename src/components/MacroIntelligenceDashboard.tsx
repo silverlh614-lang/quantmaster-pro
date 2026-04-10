@@ -116,7 +116,7 @@ const SIGNAL_STYLE: Record<AlphaSignal, { label: string; bg: string; text: strin
 
 function MHSBar({ score }: { score: number }) {
   const color = score >= 70 ? 'bg-green-600' : score >= 40 ? 'bg-amber-500' : 'bg-red-600';
-  const label = score >= 70 ? '정상 운용' : score >= 40 ? 'Kelly 50% 축소' : '매수 중단';
+  const label = score >= 70 ? '정상 운용' : score >= 40 ? `MAPC Kelly ${score}% 운용` : '매수 중단';
   return (
     <div>
       <div className="flex justify-between items-center mb-2">
