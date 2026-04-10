@@ -28,8 +28,9 @@ import { MASTER_CHECKLIST_STEPS, SELL_CHECKLIST_STEPS, getMarketPhaseInfo } from
 import type { StockRecommendation } from '../services/stockService';
 import type {
   MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal,
-  StockProfile, Gate0Result
+  StockProfile, Gate0Result, ChecklistKey
 } from '../types/quant';
+import { CHECKLIST_KEY_TO_CONDITION_ID } from '../types/quant';
 import { debugLog, debugWarn } from '../utils/debug';
 
 function cn(...inputs: ClassValue[]) {
@@ -169,15 +170,7 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
                   <QuantDashboard result={evaluateStock(
                     Object.fromEntries(
                       MASTER_CHECKLIST_STEPS.map(step => [
-                        {
-                          'cycleVerified': 1, 'roeType3': 3, 'riskOnEnvironment': 5, 'mechanicalStop': 7, 'notPreviousLeader': 9,
-                          'supplyInflow': 4, 'ichimokuBreakout': 6, 'economicMoatVerified': 8, 'technicalGoldenCross': 10,
-                          'volumeSurgeVerified': 11, 'institutionalBuying': 12, 'consensusTarget': 13, 'earningsSurprise': 14,
-                          'performanceReality': 15, 'policyAlignment': 16, 'ocfQuality': 17, 'relativeStrength': 18,
-                          'momentumRanking': 2, 'psychologicalObjectivity': 19, 'turtleBreakout': 20, 'fibonacciLevel': 21,
-                          'elliottWaveVerified': 22, 'marginAcceleration': 23, 'interestCoverage': 24, 'vcpPattern': 25,
-                          'divergenceCheck': 26, 'catalystAnalysis': 27
-                        }[step.key], 
+                        CHECKLIST_KEY_TO_CONDITION_ID[step.key as ChecklistKey], 
                         stock?.checklist?.[step.key as keyof typeof stock.checklist] ? 10 : 0
                       ])
                     ) as Record<number, number>,

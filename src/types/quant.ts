@@ -1,5 +1,36 @@
 export type ConditionId = number;
 
+// ─── 체크리스트 키 ↔ 조건 ID 양방향 매핑 ──────────────────────────────────────
+
+/** 27개 마스터 체크리스트 항목의 키 유니온 타입 */
+export type ChecklistKey =
+  | 'cycleVerified' | 'roeType3' | 'riskOnEnvironment' | 'mechanicalStop' | 'notPreviousLeader'
+  | 'supplyInflow' | 'ichimokuBreakout' | 'economicMoatVerified' | 'technicalGoldenCross'
+  | 'volumeSurgeVerified' | 'institutionalBuying' | 'consensusTarget' | 'earningsSurprise'
+  | 'performanceReality' | 'policyAlignment' | 'ocfQuality' | 'relativeStrength'
+  | 'momentumRanking' | 'psychologicalObjectivity' | 'turtleBreakout' | 'fibonacciLevel'
+  | 'elliottWaveVerified' | 'marginAcceleration' | 'interestCoverage' | 'vcpPattern'
+  | 'divergenceCheck' | 'catalystAnalysis';
+
+/** 체크리스트 키 → ConditionId 매핑 (단일 진실 공급원) */
+export const CHECKLIST_KEY_TO_CONDITION_ID: Readonly<Record<ChecklistKey, ConditionId>> = {
+  cycleVerified: 1, roeType3: 3, riskOnEnvironment: 5, mechanicalStop: 7, notPreviousLeader: 9,
+  supplyInflow: 4, ichimokuBreakout: 6, economicMoatVerified: 8, technicalGoldenCross: 10,
+  volumeSurgeVerified: 11, institutionalBuying: 12, consensusTarget: 13, earningsSurprise: 14,
+  performanceReality: 15, policyAlignment: 16, ocfQuality: 17, relativeStrength: 18,
+  momentumRanking: 2, psychologicalObjectivity: 19, turtleBreakout: 20, fibonacciLevel: 21,
+  elliottWaveVerified: 22, marginAcceleration: 23, interestCoverage: 24, vcpPattern: 25,
+  divergenceCheck: 26, catalystAnalysis: 27,
+} as const;
+
+/** ConditionId → 체크리스트 키 역방향 매핑
+ *  참고: 런타임에서 Object.fromEntries는 문자열 키를 생성하지만,
+ *  TypeScript의 Record<number, V> 색인은 암묵적으로 숫자↔문자열 변환을 처리합니다.
+ */
+export const CONDITION_ID_TO_CHECKLIST_KEY: Readonly<Record<ConditionId, ChecklistKey>> = Object.fromEntries(
+  (Object.entries(CHECKLIST_KEY_TO_CONDITION_ID) as [ChecklistKey, ConditionId][]).map(([k, v]) => [v, k])
+) as Readonly<Record<ConditionId, ChecklistKey>>;
+
 export interface Condition {
   id: ConditionId;
   name: string;
