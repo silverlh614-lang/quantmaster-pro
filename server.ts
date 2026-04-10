@@ -62,6 +62,7 @@ import {
 } from './server/clients/kisClient.js';
 import kisRouter from './server/routes/kisRouter.js';
 import marketDataRouter from './server/routes/marketDataRouter.js';
+import dartRouter from './server/routes/dartRouter.js';
 
 export { isEmergencyStopped, setDailyLoss };
 
@@ -147,6 +148,11 @@ async function startServer() {
   // ─────────────────────────────────────────────────────────────
   app.use('/api/kis', kisRouter);
 
+  // ─────────────────────────────────────────────────────────────
+  // DART 공시 API  → server/routes/dartRouter.ts 로 분리
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/dart', dartRouter);
+
   // ─── 아이디어 4: FSS 외국인 수급 방향 전환 스코어 API ──────────────────────
   // GET  /api/fss/records  — 저장된 일별 외국인 수급 기록 조회
   // POST /api/fss/records  — 일별 외국인 수급 기록 추가/갱신
@@ -197,66 +203,6 @@ async function startServer() {
     }
     res.json({ cumulativeScore: cum, alertLevel, dailyScores: sorted });
   });
-  // ─── DART 공시 목록 Proxy (최근 공시 리스트, Search 대체) ──────────────────────
-  app.get('/api/dart/list', async (req: Request, res: Response) => {
-    if (!process.env.DART_API_KEY) {
-      return res.status(500).json({ error: 'DART_API_KEY is not set' });
-    }
-    const { bgn_de, end_de, pblntf_ty = 'B001' } = req.query;
-    if (!bgn_de || !end_de) return res.status(400).json({ error: 'bgn_de, end_de required' });
-    const url = `https://opendart.fss.or.kr/api/list.json` +
-      `?crtfc_key=${process.env.DART_API_KEY}` +
-      `&bgn_de=${bgn_de}&end_de=${end_de}` +
-      `&pblntf_ty=${pblntf_ty}&sort=rcp_dt&sort_mth=desc&page_count=40`;
-    try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-      const data = await r.json();
-      res.json(data);
-    } catch (error: any) {
-      res.status(500).json({ error: 'DART list fetch failed', details: error.message });
-    }
-  });
-
-  // DART API Proxy
-  app.get('/api/dart', async (req: Request, res: Response) => {
-    const { corp_code, bsns_year, reprt_code, fs_div } = req.query;
-    if (!process.env.DART_API_KEY) {
-      return res.status(500).json({ error: "DART_API_KEY is not set" });
-    }
-    const url = `https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json` +
-      `?crtfc_key=${process.env.DART_API_KEY}` +
-      `&corp_code=${corp_code}&bsns_year=${bsns_year}` +
-      `&reprt_code=${reprt_code}&fs_div=${fs_div}`;
-    
-    try {
-      const response = await fetch(url);
-      const data = await response.json();
-      res.json(data);
-    } catch (error: any) {
-      console.error("DART Proxy Error:", error);
-      res.status(500).json({ error: "Failed to fetch from DART", details: error.message });
-    }
-  });
-
-  // DART 법인코드 검색 프록시
-  app.get('/api/dart/company', async (req: Request, res: Response) => {
-    const { stock_code } = req.query;
-    if (!process.env.DART_API_KEY) {
-      return res.status(500).json({ error: "DART_API_KEY is not set" });
-    }
-    const url = `https://opendart.fss.or.kr/api/company.json` +
-      `?crtfc_key=${process.env.DART_API_KEY}&stock_code=${stock_code}`;
-    
-    try {
-      const response = await fetch(url);
-      const data = await response.json();
-      res.json(data);
-    } catch (error: any) {
-      console.error("DART Company Proxy Error:", error);
-      res.status(500).json({ error: "Failed to fetch company info from DART", details: error.message });
-    }
-  });
-
   app.post("/api/send-email", async (req: Request, res: Response) => {
     const { email, subject, text, pdfBase64, filename } = req.body;
 
