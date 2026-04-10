@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useRecommendationStore, useSettingsStore } from '../stores';
 import type { StockRecommendation } from '../services/stockService';
 
+type HistoryEntry = { date: string; stocks: string[]; hitRate: number; strongBuyHitRate?: number };
+
 export function useQuantRecommendations() {
   const {
     recommendations,
@@ -26,12 +28,11 @@ export function useQuantRecommendations() {
 
   // ── Stale Recommendation Cleanup (clear previous-day data) ──────────────
   useEffect(() => {
-    const { lastUpdated: lu, setRecommendations: setRec } = useRecommendationStore.getState();
-    if (lu) {
-      const lastDate = new Date(lu).toDateString();
+    if (lastUpdated) {
+      const lastDate = new Date(lastUpdated).toDateString();
       const today = new Date().toDateString();
       if (lastDate !== today) {
-        setRec([]);
+        setRecommendations([]);
       }
     }
   }, []);
@@ -65,14 +66,14 @@ export function useQuantRecommendations() {
   // ── Computed Hit Rates ──────────────────────────────────────────────────
   const averageHitRate = useMemo(() => {
     if (recommendationHistory.length === 0) return 0;
-    return Math.round(recommendationHistory.reduce((acc: number, curr: any) => acc + curr.hitRate, 0) / recommendationHistory.length);
+    return Math.round(recommendationHistory.reduce((acc: number, curr: HistoryEntry) => acc + curr.hitRate, 0) / recommendationHistory.length);
   }, [recommendationHistory]);
 
   const strongBuyHitRate = useMemo(() => {
     if (recommendationHistory.length === 0) return 68;
-    const itemsWithStrongBuy = (recommendationHistory || []).filter((item: any) => item.strongBuyHitRate !== undefined);
+    const itemsWithStrongBuy = (recommendationHistory || []).filter((item: HistoryEntry) => item.strongBuyHitRate !== undefined);
     if (itemsWithStrongBuy.length === 0) return 68;
-    return Math.max(0, Math.round((itemsWithStrongBuy.reduce((acc: number, curr: any) => acc + (curr.strongBuyHitRate || 0), 0) / itemsWithStrongBuy.length) * 0.95));
+    return Math.max(0, Math.round((itemsWithStrongBuy.reduce((acc: number, curr: HistoryEntry) => acc + (curr.strongBuyHitRate || 0), 0) / itemsWithStrongBuy.length) * 0.95));
   }, [recommendationHistory]);
 
   // ── Filtered & Sorted Display List ──────────────────────────────────────

@@ -41,9 +41,10 @@ export function usePortfolioState() {
   }, []);
 
   // ── Shadow Trade Resolution ─────────────────────────────────────────────
+  const activeTradeCount = shadowTrades.filter((t: ShadowTrade) => t.status === 'PENDING' || t.status === 'ACTIVE').length;
   useEffect(() => {
+    if (activeTradeCount === 0) return;
     const activeTrades = shadowTrades.filter((t: ShadowTrade) => t.status === 'PENDING' || t.status === 'ACTIVE');
-    if (activeTrades.length === 0) return;
 
     const resolveTrades = async () => {
       for (const trade of activeTrades) {
@@ -61,7 +62,7 @@ export function usePortfolioState() {
     resolveTrades();
     const interval = setInterval(resolveTrades, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [shadowTrades.filter((t: ShadowTrade) => t.status === 'PENDING' || t.status === 'ACTIVE').length]);
+  }, [activeTradeCount]);
 
   return {
     tradeRecords,
