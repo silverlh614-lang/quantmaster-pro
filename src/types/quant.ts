@@ -543,6 +543,7 @@ export interface EvaluationResult {
   tma?: TMAResult;
   srr?: SRRResult;
   mapc?: MAPCResult;
+  roeTransition?: ROETransitionResult;
   enemyChecklistEnhanced?: EnemyChecklistEnhanced;
   dataReliability?: DataReliability;
   signalVerdict?: SignalVerdict;
@@ -675,6 +676,25 @@ export type EconomicRegime = 'RECOVERY' | 'EXPANSION' | 'SLOWDOWN' | 'RECESSION'
  * 5: 재무 왜곡형 (자사주 매입·자본 축소)
  */
 export type ROEType = 1 | 2 | 3 | 4 | 5;
+
+// ─── IDEA 3: ROE 유형 전이 감지기 ────────────────────────────────────────────
+
+/** ROE 유형 전이 감지 결과 */
+export interface ROETransitionResult {
+  detected: boolean;
+  /** 감지에 사용된 최근 N분기 이력 */
+  pattern: ROEType[];
+  /** 전이 유형 */
+  transitionType: 'TYPE3_TO_4' | 'ASSET_TURNOVER_DROP' | 'BOTH' | 'NONE';
+  /** 연속 Type 4 분기 수 */
+  consecutiveType4Count: number;
+  /** 총자산회전율 QoQ 하락률 (%), 양수 = 하락 */
+  assetTurnoverDropPct: number;
+  /** NONE=정상 / WATCH=1분기 Type4 감지 / PENALTY=Gate1 자동 패널티 */
+  alert: 'NONE' | 'WATCH' | 'PENALTY';
+  penaltyApplied: boolean;
+  actionMessage: string;
+}
 
 /** Gemini 기반 경기 레짐 분류 결과 */
 export interface EconomicRegimeData {
