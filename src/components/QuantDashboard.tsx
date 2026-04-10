@@ -5,6 +5,7 @@ import { MarketOverview } from '../services/stockService';
 import { Shield, Target, Zap, AlertTriangle, TrendingUp, DollarSign, Activity, Layers, Clock, Skull, Calendar, PieChart, Link2, Globe, PlayCircle } from 'lucide-react';
 import { TMAPanel } from './TMAPanel';
 import { SRRPanel } from './SRRPanel';
+import { MAPCPanel } from './MAPCPanel';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { MacroIntelligenceDashboard } from './MacroIntelligenceDashboard';
@@ -500,6 +501,13 @@ export const QuantDashboard: React.FC<Props> = ({
           </div>
         )}
       </div>
+
+      {/* ── MAPC 포지션 자동 조절기 (IDEA 9) ── */}
+      {result.mapc && (
+        <div className="mb-8">
+          <MAPCPanel mapcResult={result.mapc} stockName={stockName} />
+        </div>
+      )}
 
       {/* ── TMA 추세 모멘텀 가속도 측정기 (IDEA 7) ── */}
       {result.tma && (

@@ -362,6 +362,64 @@ export interface TMAResult {
   tmaDecelerating: boolean;
 }
 
+/** MAPC 개별 축 상태
+ *  금리·유동성·경기·리스크 4개 축 각각의 현재값과 기여 점수 */
+export interface MAPCFactor {
+  id: 'interest' | 'liquidity' | 'economy' | 'risk';
+  /** 한국어 축 이름 */
+  nameKo: string;
+  /** 현재 핵심 지표 문자열 */
+  currentValue: string;
+  /** 이 축의 현재 기여 점수 (0-25) */
+  score: number;
+  /** 상태: RISK_ON(≥18) / NEUTRAL(10-17) / RISK_OFF(≤9) */
+  status: 'RISK_ON' | 'NEUTRAL' | 'RISK_OFF';
+  /** 핵심 신호 설명 */
+  keySignal: string;
+}
+
+/** MAPC (Macro-Adaptive Position Controller)
+ *
+ * 조정 켈리 = 기본 켈리 × (MHS / 100)
+ *
+ *   MHS 90 → 기본 켈리의 90% 집행
+ *   MHS 40 → 기본 켈리의 40% 집행
+ *   MHS < 40 → 전면 매수 중단
+ *
+ * 4개 축(금리·유동성·경기·리스크) 실시간 모니터링으로
+ * 인간이 판단하기 전에 시스템이 먼저 베팅 크기를 줄인다. */
+export interface MAPCResult {
+  /** 기본 켈리 (Gate 2 점수 기반 원본 포지션 크기, %) */
+  baseKellyPct: number;
+  /** MHS 0-100 */
+  mhsScore: number;
+  /** 전면 매수 중단 여부 (MHS < 40) */
+  buyingHalted: boolean;
+  /** 4개 축 상세 */
+  factors: MAPCFactor[];
+  /** MHS 배율 (MHS/100, 0.0-1.0) */
+  mhsMultiplier: number;
+  /** 조정 켈리 (baseKellyPct × mhsMultiplier, %) */
+  adjustedKellyPct: number;
+  /** 축소 절대치 (baseKellyPct - adjustedKellyPct, %) */
+  reductionAmt: number;
+  /** 축소율 (reductionAmt / baseKellyPct × 100, %) — 기본 켈리 대비 몇 % 줄었나 */
+  reductionPct: number;
+  /** 실시간 모니터링 스냅샷 */
+  snapshot: {
+    bokRate: 'HIKING' | 'HOLDING' | 'CUTTING';
+    usdKrw: number;
+    vix: number;
+    vkospi: number;
+  };
+  /** GREEN(MHS≥70) / YELLOW(40-70) / RED(<40) */
+  alert: 'GREEN' | 'YELLOW' | 'RED';
+  /** 경보 이유 */
+  alertReason: string;
+  /** 행동 권고 */
+  actionMessage: string;
+}
+
 /** SRR (섹터 내 상대강도 역전 감지)
  *
  * 종목 RS Ratio = 종목 20일 수익률 / 섹터ETF 20일 수익률
@@ -484,6 +542,7 @@ export interface EvaluationResult {
   momentumAcceleration?: MomentumAcceleration;
   tma?: TMAResult;
   srr?: SRRResult;
+  mapc?: MAPCResult;
   enemyChecklistEnhanced?: EnemyChecklistEnhanced;
   dataReliability?: DataReliability;
   signalVerdict?: SignalVerdict;

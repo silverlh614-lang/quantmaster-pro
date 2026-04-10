@@ -15,7 +15,7 @@ import {
   getGlobalCorrelationMatrix, getGlobalMultiSourceData, trackThemeToKoreaValueChain,
   getSupplyChainIntelligence, getSectorOrderIntelligence, getFinancialStressIndex, getFomcSentimentAnalysis,
 } from '../services/stockService';
-import { computeContrarianSignals, evaluateSectorOverheat, evaluateBearModeSimulator } from '../services/quantEngine';
+import { computeContrarianSignals, evaluateSectorOverheat, evaluateBearModeSimulator, evaluateMAPCResult } from '../services/quantEngine';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { BearKellyPanel } from './BearKellyPanel';
 import { SectorOverheatPanel } from './SectorOverheatPanel';
@@ -23,6 +23,7 @@ import { BearModeSimulatorPanel } from './BearModeSimulatorPanel';
 import { IPSPanel } from './IPSPanel';
 import { FSSPanel } from './FSSPanel';
 import { MIPDashboard } from './MIPDashboard';
+import { MAPCPanel } from './MAPCPanel';
 import { debugWarn } from '../utils/debug';
 
 // ─── Fusion Matrix 데이터 (아이디어 8) ──────────────────────────────────────
@@ -342,6 +343,14 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const setBearModeSimulatorResult = useGlobalIntelStore(s => s.setBearModeSimulatorResult);
   const ipsResult = useGlobalIntelStore(s => s.ipsResult);
   const fssResult = useGlobalIntelStore(s => s.fssResult);
+  const macroEnv = useGlobalIntelStore(s => s.macroEnv);
+
+  // ── MAPC: 매크로 포지션 자동 조절 (gate0Result + macroEnv → mapcResult) ───
+  const mapcResult = useMemo(() => {
+    if (!gate0Result || !macroEnv) return null;
+    // MacroIntelligenceDashboard는 종목 무관 → 기본 켈리 15% 가정 (중간값)
+    return evaluateMAPCResult(gate0Result, macroEnv, 15);
+  }, [gate0Result, macroEnv]);
 
   const handleSectorOverheatInputsChange = useCallback(
     (inputs: typeof sectorOverheatInputs) => {
@@ -891,6 +900,9 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
         onInputsChange={handleBearModeSimulatorInputsChange}
         result={bearModeSimulatorResult}
       />
+
+      {/* ── 아이디어 9: MAPC 매크로 임계값 연동 포지션 자동 조절기 ── */}
+      <MAPCPanel mapcResult={mapcResult} />
 
       {/* ── 아이디어 11: IPS 통합 변곡점 확률 엔진 ── */}
       <IPSPanel ipsResult={ipsResult} />
