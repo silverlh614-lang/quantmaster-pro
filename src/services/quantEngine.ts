@@ -1154,31 +1154,70 @@ export function analyzeMomentumAcceleration(
 /**
  * TMA (추세 모멘텀 가속도 측정기) — 수익률의 2차 미분
  *
- * 가격이 최고점이어도 가속도(2차 미분)가 먼저 꺾인다는 물리학적 원리를 시장에 적용.
- * TMA = (오늘 수익률 - N일전 수익률) / N
- *   TMA < 0   → 감속 경보
- *   TMA < -0.5 → 즉각 대응
+ * 물리학 원리: 포물선 운동에서 최고점 도달 전에 이미 가속도는 0이 된다.
+ * 가격이 최고점이어도 TMA가 음수 전환 시 1~2주 먼저 변곡점을 포착한다.
+ *
+ * TMA = (오늘 수익률 - N일전 수익률) / N  [단위: %/일]
+ *
+ * 단계 분류:
+ *   ACCELERATING          — TMA>0 & 상승 추세 (속도·가속 모두 양)
+ *   DECELERATING_POSITIVE — TMA>0 이지만 감소 추세 → 경계 구간
+ *   DECELERATING_NEGATIVE — TMA<0 → 감속 진입 → 변곡 경보
+ *   CRASHED               — TMA<-0.5 → 급격한 감속 → 즉각 대응
+ *
+ * @param dailyCloses - 일봉 종가 (오래된 순, 최소 period+2 개)
+ * @param period      - 가속도 측정 기간 (기본 5일)
+ * @param historyLen  - 스파크라인 이력 길이 (기본 15)
  */
-export function evaluateTMA(dailyCloses: number[], period = 5): TMAResult {
-  if (dailyCloses.length < period + 2) {
-    return { tma: 0, returnToday: 0, returnNAgo: 0, period, alert: 'NONE' };
-  }
+export function evaluateTMA(dailyCloses: number[], period = 5, historyLen = 15): TMAResult {
+  const empty: TMAResult = {
+    tma: 0, returnToday: 0, returnNAgo: 0, period, alert: 'NONE',
+    phase: 'ACCELERATING', tmaHistory: [], tmaDecelerating: false,
+  };
+  if (dailyCloses.length < period + 2) return empty;
 
-  // 일별 수익률(%) 계산
+  // 1. 일별 수익률(%) 계산
   const returns: number[] = [];
   for (let i = 1; i < dailyCloses.length; i++) {
     returns.push(((dailyCloses[i] - dailyCloses[i - 1]) / dailyCloses[i - 1]) * 100);
   }
 
-  const returnToday = returns[returns.length - 1];
-  const returnNAgo = returns[returns.length - 1 - period];
-  const tma = (returnToday - returnNAgo) / period;
+  // 2. 롤링 TMA 시계열 — returns[period] 부터 끝까지
+  const tmaHistory: number[] = [];
+  for (let i = period; i < returns.length; i++) {
+    tmaHistory.push((returns[i] - returns[i - period]) / period);
+  }
 
+  if (tmaHistory.length === 0) return empty;
+
+  const tma = tmaHistory[tmaHistory.length - 1];
+  const prevTma = tmaHistory.length >= 2 ? tmaHistory[tmaHistory.length - 2] : tma;
+
+  // 3. 경보 단계
   let alert: TMAResult['alert'] = 'NONE';
   if (tma < -0.5) alert = 'IMMEDIATE';
   else if (tma < 0) alert = 'DECELERATION';
 
-  return { tma, returnToday, returnNAgo, period, alert };
+  // 4. TMA가 양수이지만 직전 대비 하락 중 (경계 신호)
+  const tmaDecelerating = tma > 0 && tma < prevTma;
+
+  // 5. 단계 분류
+  let phase: TMAResult['phase'];
+  if (tma < -0.5)              phase = 'CRASHED';
+  else if (tma < 0)            phase = 'DECELERATING_NEGATIVE';
+  else if (tmaDecelerating)    phase = 'DECELERATING_POSITIVE';
+  else                         phase = 'ACCELERATING';
+
+  return {
+    tma,
+    returnToday: returns[returns.length - 1],
+    returnNAgo: returns[returns.length - 1 - period],
+    period,
+    alert,
+    phase,
+    tmaHistory: tmaHistory.slice(-historyLen),
+    tmaDecelerating,
+  };
 }
 
 /**

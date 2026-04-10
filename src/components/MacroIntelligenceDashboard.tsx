@@ -22,6 +22,7 @@ import { SectorOverheatPanel } from './SectorOverheatPanel';
 import { BearModeSimulatorPanel } from './BearModeSimulatorPanel';
 import { IPSPanel } from './IPSPanel';
 import { FSSPanel } from './FSSPanel';
+import { MIPDashboard } from './MIPDashboard';
 import { debugWarn } from '../utils/debug';
 
 // ─── Fusion Matrix 데이터 (아이디어 8) ──────────────────────────────────────
@@ -896,6 +897,13 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
 
       {/* ── 아이디어 4: FSS 외국인 수급 방향 전환 스코어 ── */}
       <FSSPanel fssResult={fssResult} />
+
+      {/* ── 아이디어 5: MIPD 다차원 변곡점 예측 대시보드 ── */}
+      <MIPDashboard
+        gate0={gate0Result}
+        ipsResult={ipsResult}
+        fssResult={fssResult}
+      />
 
       {/* ── 허용 섹터 화이트리스트 ── */}
       {economicRegime && (

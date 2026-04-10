@@ -342,13 +342,24 @@ export interface MomentumAcceleration {
 
 /** TMA (추세 모멘텀 가속도 측정기) — 수익률의 2차 미분
  *  가격이 최고점이어도 가속도가 먼저 꺾이는 물리학적 원리 적용.
+ *  TMA = (오늘 수익률 - N일전 수익률) / N
  *  가격보다 1~2주 선행하는 수학적 선행 지표. */
 export interface TMAResult {
-  tma: number;              // TMA 값 (수익률 가속도)
+  tma: number;              // 현재 TMA 값 (수익률 가속도 %/일)
   returnToday: number;      // 오늘 수익률 (%)
   returnNAgo: number;       // N일 전 수익률 (%)
   period: number;           // 측정 기간 (기본 5일)
   alert: 'NONE' | 'DECELERATION' | 'IMMEDIATE'; // NONE / 감속 경보 / 즉각 대응
+  /** 가속 단계 분류
+   *  ACCELERATING           — TMA>0 & 상승 추세 (속도·가속 모두 양)
+   *  DECELERATING_POSITIVE  — TMA>0 이지만 감소 추세 (속도는 있으나 가속 멈춤 → 경계)
+   *  DECELERATING_NEGATIVE  — TMA<0 (감속 진입 → 변곡 경보)
+   *  CRASHED                — TMA<-0.5 (급격한 감속 → 즉각 대응) */
+  phase: 'ACCELERATING' | 'DECELERATING_POSITIVE' | 'DECELERATING_NEGATIVE' | 'CRASHED';
+  /** 최근 historyLen 개 TMA 시계열 (스파크라인용) */
+  tmaHistory: number[];
+  /** TMA > 0 이지만 직전 대비 하락 중 (경계 구간 진입 신호) */
+  tmaDecelerating: boolean;
 }
 
 /** 강화된 적의 체크리스트 — STRONG BUY 전 역검증 7항목 */

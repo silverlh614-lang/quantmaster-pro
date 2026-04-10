@@ -3,6 +3,7 @@ import { EvaluationResult, EconomicRegimeData, ROEType } from '../types/quant';
 import { ALL_CONDITIONS, CONDITION_SOURCE_MAP } from '../services/quantEngine';
 import { MarketOverview } from '../services/stockService';
 import { Shield, Target, Zap, AlertTriangle, TrendingUp, DollarSign, Activity, Layers, Clock, Skull, Calendar, PieChart, Link2, Globe, PlayCircle } from 'lucide-react';
+import { TMAPanel } from './TMAPanel';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { MacroIntelligenceDashboard } from './MacroIntelligenceDashboard';
@@ -498,6 +499,13 @@ export const QuantDashboard: React.FC<Props> = ({
           </div>
         )}
       </div>
+
+      {/* ── TMA 추세 모멘텀 가속도 측정기 (IDEA 7) ── */}
+      {result.tma && (
+        <div className="mb-8">
+          <TMAPanel tmaResult={result.tma} stockName={stockName} />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
         {/* Enemy's Checklist */}
