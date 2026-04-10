@@ -9,7 +9,8 @@ import {
   XCircle, Edit2, Check, DollarSign, Lock, Download, Award, Mail, FileText,
   Clock, Globe, Brain, Shell, Hash, Sparkles, Newspaper, Minus, Radar, Copy,
   Wallet, Percent, Maximize2, ArrowRightLeft, Flag, ShieldAlert, ArrowUpDown,
-  Layers, Sun, Moon, Contrast, GripVertical, Calculator, ArrowRight
+  Layers, Sun, Moon, Contrast, GripVertical, Calculator, ArrowRight,
+  Calendar as CalendarIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';

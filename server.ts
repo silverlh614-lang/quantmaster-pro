@@ -691,31 +691,6 @@ async function startServer() {
     }
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    // vite.config.ts outDir: 'build' 기준으로 탐색, dist도 폴백으로 확인
-    const candidates = [
-      path.join(__dirname, 'build'),
-      path.join(process.cwd(), 'build'),
-      path.join(__dirname, 'dist'),
-      path.join(process.cwd(), 'dist'),
-      __dirname,
-    ];
-    const distPath = candidates.find(p => fs.existsSync(path.join(p, 'index.html'))) ?? candidates[0];
-    console.log(`Serving static files from: ${distPath}`);
-        
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
-
   // ─────────────────────────────────────────────────────────────
   // 아이디어 7: Health Check + Keep-Alive
   // ─────────────────────────────────────────────────────────────
@@ -1206,6 +1181,33 @@ async function startServer() {
       res.status(500).json({ error: e.message });
     }
   });
+
+  // ─── Vite middleware (dev) / Static file serving (prod) ───────────────────
+  // IMPORTANT: This must come AFTER all API routes so the catch-all '*'
+  // doesn't intercept /api/* requests in production.
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    // vite.config.ts outDir: 'build' 기준으로 탐색, dist도 폴백으로 확인
+    const candidates = [
+      path.join(__dirname, 'build'),
+      path.join(process.cwd(), 'build'),
+      path.join(__dirname, 'dist'),
+      path.join(process.cwd(), 'dist'),
+      __dirname,
+    ];
+    const distPath = candidates.find(p => fs.existsSync(path.join(p, 'index.html'))) ?? candidates[0];
+    console.log(`Serving static files from: ${distPath}`);
+
+    app.use(express.static(distPath));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
 
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);

@@ -11,7 +11,7 @@
 import React, { useState } from 'react';
 import { Activity, ChevronDown, ChevronUp, AlertTriangle, Zap, Target } from 'lucide-react';
 import type { IpsResult, IpsSignalId } from '../types/quant';
-import { cn } from '../utils/cn';
+import { cn } from '../ui/cn';
 
 interface IPSPanelProps {
   ipsResult: IpsResult | null;
