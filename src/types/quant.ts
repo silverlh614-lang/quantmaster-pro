@@ -886,6 +886,58 @@ export interface FomcSentimentAnalysis {
 
 // ─── 실전 성과 관리 시스템 ──────────────────────────────────────────────────────
 
+// ─── IDEA 10: Pre-Mortem 무효화 조건 ─────────────────────────────────────────────
+
+/** Pre-Mortem 무효화 조건 하나 */
+export interface PreMortemItem {
+  id: string;              // 고유 ID (e.g., 'FUNDAMENTAL', 'SUPPLY_DEMAND', ...)
+  scenario: string;        // 시나리오 (e.g., '펀더멘털 훼손')
+  trigger: string;         // 무효화 조건 (e.g., 'ROE 유형 3→4 전이')
+  action: string;          // 자동 행동 (e.g., '50% 청산')
+  actionPct?: number;      // 청산 비율 (50=50%, 30=30%, 100=전량, undefined=금지)
+  triggered: boolean;      // 발동 여부
+  triggeredAt?: string;    // 발동 시점 ISO date
+}
+
+/** 매수 시 기본 제공되는 5개 Pre-Mortem 조건 */
+export const DEFAULT_PRE_MORTEMS: Omit<PreMortemItem, 'triggered' | 'triggeredAt'>[] = [
+  {
+    id: 'FUNDAMENTAL',
+    scenario: '펀더멘털 훼손',
+    trigger: 'ROE 유형 3→4 전이',
+    action: '50% 청산',
+    actionPct: 50,
+  },
+  {
+    id: 'SUPPLY_DEMAND',
+    scenario: '수급 이탈',
+    trigger: '외국인 5일 연속 순매도',
+    action: '30% 청산',
+    actionPct: 30,
+  },
+  {
+    id: 'TECHNICAL',
+    scenario: '기술적 붕괴',
+    trigger: '60일선 데드크로스',
+    action: '전량 청산',
+    actionPct: 100,
+  },
+  {
+    id: 'MACRO',
+    scenario: '매크로 악화',
+    trigger: 'MHS RED 전환',
+    action: '신규 매수 금지',
+    actionPct: undefined,
+  },
+  {
+    id: 'DRAWDOWN',
+    scenario: '고점 대비 낙폭',
+    trigger: '-30% 초과',
+    action: '기계적 손절',
+    actionPct: 100,
+  },
+];
+
 /** ① 매매 일지 개별 기록 */
 export interface TradeRecord {
   id: string;                       // uuid
@@ -927,6 +979,10 @@ export interface TradeRecord {
   lastSyncAt?: string;
 
   memo?: string;                    // 자유 메모
+
+  // IDEA 10: Pre-Mortem 무효화 조건 (매수 시점에 사전 명시)
+  preMortems?: PreMortemItem[];     // 무효화 조건 목록
+  peakPrice?: number;               // 최고가 (고점 대비 낙폭 추적용)
 }
 
 // ─── 자동매매 엔진 타입 ──────────────────────────────────────────────────────────

@@ -88,6 +88,7 @@ interface Props {
   onCloseTrade: (tradeId: string, sellPrice: number, sellReason: TradeRecord['sellReason']) => void;
   onDeleteTrade: (tradeId: string) => void;
   onUpdateMemo: (tradeId: string, memo: string) => void;
+  onTriggerPreMortem?: (tradeId: string, preMortemId: string) => void;
 }
 
 export const TradeJournal: React.FC<Props> = ({
@@ -95,6 +96,7 @@ export const TradeJournal: React.FC<Props> = ({
   onCloseTrade,
   onDeleteTrade,
   onUpdateMemo,
+  onTriggerPreMortem,
 }) => {
   const [tab, setTab] = useState<Tab>('JOURNAL');
   const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'CLOSED'>('ALL');
@@ -297,6 +299,44 @@ export const TradeJournal: React.FC<Props> = ({
                         </div>
                       ))}
                     </div>
+
+                    {/* Pre-Mortem 무효화 조건 체크리스트 */}
+                    {trade.preMortems && trade.preMortems.length > 0 && (
+                      <div className="mt-3 border border-gray-200 rounded p-2">
+                        <p className="text-[8px] font-black uppercase tracking-widest text-gray-400 mb-1.5">🧨 Pre-Mortem 무효화 조건</p>
+                        <div className="space-y-1">
+                          {trade.preMortems.map(pm => (
+                            <div key={pm.id} className={`flex items-center justify-between text-[8px] px-2 py-1 rounded ${pm.triggered ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-100'}`}>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className={pm.triggered ? 'text-red-500' : 'text-gray-300'}>
+                                  {pm.triggered ? '🔴' : '⚪'}
+                                </span>
+                                <span className={`font-bold ${pm.triggered ? 'text-red-600' : 'text-gray-600'}`}>{pm.scenario}</span>
+                                <span className={`${pm.triggered ? 'text-red-400' : 'text-gray-400'}`}>→ {pm.trigger}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                <span className={`font-black px-1 py-0.5 rounded text-[7px] ${
+                                  pm.actionPct === 100 ? 'bg-red-100 text-red-600' :
+                                  pm.actionPct !== undefined ? 'bg-amber-100 text-amber-600' :
+                                  'bg-slate-100 text-slate-500'
+                                }`}>{pm.action}</span>
+                                {trade.status === 'OPEN' && !pm.triggered && onTriggerPreMortem && (
+                                  <button
+                                    onClick={() => onTriggerPreMortem(trade.id, pm.id)}
+                                    className="text-[7px] px-1.5 py-0.5 border border-red-300 text-red-500 hover:bg-red-50 font-bold rounded"
+                                  >
+                                    발동
+                                  </button>
+                                )}
+                                {pm.triggered && pm.triggeredAt && (
+                                  <span className="text-[7px] text-red-400 font-mono">{pm.triggeredAt.split('T')[0]}</span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* 매도 / 메모 / 삭제 버튼 */}
                     <div className="flex items-center gap-2 mt-3">

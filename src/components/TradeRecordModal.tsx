@@ -1,10 +1,12 @@
-import React from 'react';
-import { X } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '../ui/cn';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { useTradeStore } from '../stores';
+import { DEFAULT_PRE_MORTEMS } from '../types/quant';
+import type { PreMortemItem } from '../types/quant';
 import type { StockRecommendation } from '../services/stockService';
 
 interface TradeRecordModalProps {
@@ -15,12 +17,26 @@ interface TradeRecordModalProps {
     positionSize: number,
     followedSystem: boolean,
     conditionScores: {},
-    scores: { g1: number; g2: number; g3: number; final: number }
+    scores: { g1: number; g2: number; g3: number; final: number },
+    preMortems: PreMortemItem[],
   ) => void;
 }
 
 export function TradeRecordModal({ onRecordTrade }: TradeRecordModalProps) {
   const { tradeRecordStock, setTradeRecordStock, tradeFormData, setTradeFormData } = useTradeStore();
+  const [showPreMortem, setShowPreMortem] = useState(false);
+  const [selectedPreMortems, setSelectedPreMortems] = useState<Set<string>>(
+    () => new Set(DEFAULT_PRE_MORTEMS.map(p => p.id))
+  );
+
+  const togglePreMortem = (id: string) => {
+    setSelectedPreMortems(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   if (!tradeRecordStock) return null;
 
@@ -36,7 +52,7 @@ export function TradeRecordModal({ onRecordTrade }: TradeRecordModalProps) {
         initial={{ scale: 0.95, opacity: 0, y: 12 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.95, opacity: 0, y: 12 }}
-        className="glass-3d rounded-2xl sm:rounded-3xl p-5 sm:p-8 max-w-md w-full border border-theme-border shadow-2xl"
+        className="glass-3d rounded-2xl sm:rounded-3xl p-5 sm:p-8 max-w-md w-full border border-theme-border shadow-2xl overflow-y-auto max-h-[90vh]"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-5 sm:mb-6">
@@ -93,6 +109,54 @@ export function TradeRecordModal({ onRecordTrade }: TradeRecordModalProps) {
               </button>
             </div>
           </div>
+
+          {/* ── Pre-Mortem 무효화 조건 ──────────────────────────────── */}
+          <div className="border border-theme-border rounded-xl overflow-hidden">
+            <button
+              className="w-full flex items-center justify-between px-4 py-3 text-xs font-bold text-theme-text-muted hover:bg-white/5 transition-all"
+              onClick={() => setShowPreMortem(v => !v)}
+            >
+              <span>🧨 Pre-Mortem 무효화 조건 ({selectedPreMortems.size}/{DEFAULT_PRE_MORTEMS.length})</span>
+              {showPreMortem ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+            {showPreMortem && (
+              <div className="px-4 pb-4 space-y-2 border-t border-theme-border">
+                <p className="text-[10px] text-theme-text-muted pt-3">매수 시점에 무효화 조건을 사전 명시합니다. 발동 시 심리 없이 기계적으로 실행합니다.</p>
+                {DEFAULT_PRE_MORTEMS.map(pm => (
+                  <label
+                    key={pm.id}
+                    className={cn(
+                      'flex items-start gap-3 p-2.5 rounded-lg border cursor-pointer transition-all',
+                      selectedPreMortems.has(pm.id)
+                        ? 'border-rose-500/50 bg-rose-500/10'
+                        : 'border-theme-border bg-white/2 opacity-50'
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedPreMortems.has(pm.id)}
+                      onChange={() => togglePreMortem(pm.id)}
+                      className="mt-0.5 accent-rose-500 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold text-theme-text">{pm.scenario}</span>
+                        <span className="text-[9px] text-rose-400 font-mono">→ {pm.trigger}</span>
+                      </div>
+                      <span className={cn(
+                        'inline-block mt-0.5 text-[9px] font-black px-1.5 py-0.5 rounded',
+                        pm.actionPct === 100 ? 'bg-red-500/20 text-red-400' :
+                        pm.actionPct !== undefined ? 'bg-amber-500/20 text-amber-400' :
+                        'bg-slate-500/20 text-slate-400'
+                      )}>
+                        {pm.action}
+                      </span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <Button
@@ -102,11 +166,15 @@ export function TradeRecordModal({ onRecordTrade }: TradeRecordModalProps) {
             const bp = parseFloat(tradeFormData.buyPrice) || tradeRecordStock.currentPrice;
             const qty = parseInt(tradeFormData.quantity) || 1;
             const ps = parseFloat(tradeFormData.positionSize) || 10;
+            const preMortems: PreMortemItem[] = DEFAULT_PRE_MORTEMS
+              .filter(pm => selectedPreMortems.has(pm.id))
+              .map(pm => ({ ...pm, triggered: false }));
             onRecordTrade(
               tradeRecordStock, bp, qty, ps,
               tradeFormData.followedSystem,
               {},
               { g1: 0, g2: 0, g3: 0, final: 0 },
+              preMortems,
             );
             setTradeRecordStock(null);
           }}

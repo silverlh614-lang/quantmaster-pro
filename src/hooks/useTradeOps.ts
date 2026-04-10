@@ -4,7 +4,7 @@ import { useRecommendationStore, useTradeStore, useSettingsStore } from '../stor
 import { computeConditionPerformance } from '../components/TradeJournal';
 import { saveEvolutionWeights } from '../services/quantEngine';
 import type { StockRecommendation } from '../services/stockService';
-import type { TradeRecord, ConditionId } from '../types/quant';
+import type { TradeRecord, ConditionId, PreMortemItem } from '../types/quant';
 
 export function useTradeOps() {
   const { watchlist, setWatchlist } = useRecommendationStore();
@@ -20,7 +20,7 @@ export function useTradeOps() {
     });
   };
 
-  const recordTrade = (stock: StockRecommendation, buyPrice: number, quantity: number, positionSize: number, followedSystem: boolean, conditionScores: Record<ConditionId, number>, gateScores: { g1: number; g2: number; g3: number; final: number }) => {
+  const recordTrade = (stock: StockRecommendation, buyPrice: number, quantity: number, positionSize: number, followedSystem: boolean, conditionScores: Record<ConditionId, number>, gateScores: { g1: number; g2: number; g3: number; final: number }, preMortems?: PreMortemItem[]) => {
     const newTrade: TradeRecord = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       stockCode: stock.code, stockName: stock.name, sector: stock.relatedSectors?.[0] ?? 'Unknown',
@@ -29,6 +29,8 @@ export function useTradeOps() {
       recommendation: gateScores.final >= 200 ? '풀 포지션' : gateScores.final >= 150 ? '절반 포지션' : '관망',
       gate1Score: gateScores.g1, gate2Score: gateScores.g2, gate3Score: gateScores.g3, finalScore: gateScores.final,
       conditionScores, followedSystem, status: 'OPEN', currentPrice: stock.currentPrice, unrealizedPct: 0,
+      preMortems: preMortems ?? [],
+      peakPrice: buyPrice,
     };
     setTradeRecords((prev: TradeRecord[]) => [...prev, newTrade]);
   };
@@ -48,6 +50,16 @@ export function useTradeOps() {
 
   const updateTradeMemo = (tradeId: string, memo: string) => {
     setTradeRecords((prev: TradeRecord[]) => prev.map((t: TradeRecord) => t.id === tradeId ? { ...t, memo } : t));
+  };
+
+  const triggerPreMortem = (tradeId: string, preMortemId: string) => {
+    setTradeRecords((prev: TradeRecord[]) => prev.map((t: TradeRecord) => {
+      if (t.id !== tradeId) return t;
+      const preMortems = (t.preMortems ?? []).map((pm: PreMortemItem) =>
+        pm.id === preMortemId ? { ...pm, triggered: true, triggeredAt: new Date().toISOString() } : pm
+      );
+      return { ...t, preMortems };
+    }));
   };
 
   const handleAddSector = (sector: string) => {
@@ -71,5 +83,5 @@ export function useTradeOps() {
     }
   }, [tradeRecords]);
 
-  return { toggleWatchlist, recordTrade, closeTrade, deleteTrade, updateTradeMemo, handleAddSector, handleRemoveSector };
+  return { toggleWatchlist, recordTrade, closeTrade, deleteTrade, updateTradeMemo, triggerPreMortem, handleAddSector, handleRemoveSector };
 }

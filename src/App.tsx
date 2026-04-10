@@ -66,7 +66,7 @@ export default function App() {
   const { handleSyncPrice, handleManualPriceUpdate, handleSyncAll } = useStockSync();
   const { addToBacktest, removeFromBacktest, updateWeight, reorderPortfolioItems, applyAIRecommendedWeights, savePortfolio, selectPortfolio, deletePortfolio, updatePortfolio, runBacktest, handleFileUpload } = usePortfolioOps();
   const { fetchStocks, handleMarketSearch, handleScreener, handleFetchNewsScores, loadingNews } = useStockSearch();
-  const { toggleWatchlist, recordTrade, closeTrade, deleteTrade, updateTradeMemo, handleAddSector, handleRemoveSector } = useTradeOps();
+  const { toggleWatchlist, recordTrade, closeTrade, deleteTrade, updateTradeMemo, triggerPreMortem, handleAddSector, handleRemoveSector } = useTradeOps();
   const { generatePDF, handleExportDeepAnalysisPDF, handleGenerateSummary, sendEmail, analysisReportRef } = useReportExport();
   const { copiedCode, handleCopy } = useCopiedCode();
   useDebugWatchers();
@@ -146,6 +146,7 @@ export default function App() {
                 onCloseTrade={closeTrade}
                 onDeleteTrade={deleteTrade}
                 onUpdateMemo={updateTradeMemo}
+                onTriggerPreMortem={triggerPreMortem}
               />
             ) : view === 'SCREENER' ? (
               <ScreenerPage onScreen={handleScreener} />

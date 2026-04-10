@@ -10,9 +10,10 @@ interface TradeJournalPageProps {
   onCloseTrade: (tradeId: string, sellPrice: number, sellReason: TradeRecord['sellReason']) => void;
   onDeleteTrade: (tradeId: string) => void;
   onUpdateMemo: (tradeId: string, memo: string) => void;
+  onTriggerPreMortem: (tradeId: string, preMortemId: string) => void;
 }
 
-export function TradeJournalPage({ onCloseTrade, onDeleteTrade, onUpdateMemo }: TradeJournalPageProps) {
+export function TradeJournalPage({ onCloseTrade, onDeleteTrade, onUpdateMemo, onTriggerPreMortem }: TradeJournalPageProps) {
   const { tradeRecords } = useTradeStore();
 
   return (
@@ -34,6 +35,7 @@ export function TradeJournalPage({ onCloseTrade, onDeleteTrade, onUpdateMemo }: 
           onCloseTrade={onCloseTrade}
           onDeleteTrade={onDeleteTrade}
           onUpdateMemo={onUpdateMemo}
+          onTriggerPreMortem={onTriggerPreMortem}
         />
       </Stack>
     </motion.div>
