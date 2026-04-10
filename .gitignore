@@ -4,5 +4,9 @@ coverage/
 data/
 .DS_Store
 *.log
+*.debug.txt
+*.debug.log
+grep_output.txt
+debug_*.txt
 .env*
 !.env.example
