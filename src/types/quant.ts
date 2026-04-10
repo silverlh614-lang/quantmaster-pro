@@ -1228,7 +1228,7 @@ export interface OverheatedSectorMatch {
 
 /** 섹터 과열 감지 + 인버스 ETF 자동 매칭 전체 결과 */
 export interface SectorOverheatResult {
-  /** 과열 감지된 섹터 목록 (조건 2개 이상 충족) */
+  /** 과열 감지된 섹터 목록 (조건 4개 모두 충족) */
   overheatedMatches: OverheatedSectorMatch[];
   /** 전체 평가 섹터 목록 */
   allSectors: OverheatedSectorMatch[];
