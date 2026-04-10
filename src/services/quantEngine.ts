@@ -54,6 +54,9 @@ import {
   BearModeSimulatorInput,
   BearModeSimulatorResult,
   BearModeSimulatorScenarioResult,
+  BearSeasonId,
+  BearSeason,
+  BearSeasonalCalendarResult,
 } from '../types/quant';
 
 export const ALL_CONDITIONS: Record<ConditionId, { name: string; baseWeight: number; description: string }> = {
@@ -2167,6 +2170,160 @@ export function evaluateBearModeSimulator(
     scenarios,
     bestScenario,
     conclusionMessage,
+    lastUpdated: now,
+  };
+}
+
+// ─── 아이디어 11: 계절성 Bear Calendar ─────────────────────────────────────────
+
+/** VKOSPI 동반 상승 시 인버스 진입 확률 추가 가중치 (pp) */
+const BEAR_SEASON_VKOSPI_BONUS = 20;
+
+/** 계절별 기본 인버스 진입 확률 가중치 (pp) */
+const BEAR_SEASON_BASE_WEIGHTS: Record<BearSeasonId, number> = {
+  SEP_OCT: 15,
+  DEC_JAN: 12,
+  Q1_EARNINGS_PRE: 10,
+  FOMC_WATCH: 10,
+};
+
+/**
+ * 주어진 날짜(ISO 문자열)를 기준으로 각 계절 패턴이 활성인지 판별한다.
+ * 참고일 dateStr이 없으면 오늘 날짜를 사용한다.
+ */
+function isBearSeasonActive(id: BearSeasonId, dateStr: string, nextFomcDate?: string | null): boolean {
+  const d = new Date(dateStr);
+  const month = d.getMonth() + 1; // 1-based
+  const day = d.getDate();
+
+  switch (id) {
+    case 'SEP_OCT':
+      // 9~10월 전체
+      return month === 9 || month === 10;
+
+    case 'DEC_JAN':
+      // 12월 15일 이후 ~ 1월 10일 이전
+      return (month === 12 && day >= 15) || (month === 1 && day <= 10);
+
+    case 'Q1_EARNINGS_PRE':
+      // 1분기 실적 발표 직전: 3월 20일 ~ 4월 10일
+      return (month === 3 && day >= 20) || (month === 4 && day <= 10);
+
+    case 'FOMC_WATCH': {
+      // Fed FOMC 발표일 7 캘린더일 전부터 당일까지
+      if (!nextFomcDate) return false;
+      const fomcMs = new Date(nextFomcDate).getTime();
+      const nowMs = d.getTime();
+      const diffDays = (fomcMs - nowMs) / (1000 * 60 * 60 * 24);
+      return diffDays >= 0 && diffDays <= 7;
+    }
+
+    default:
+      return false;
+  }
+}
+
+/**
+ * 아이디어 11: 계절성 Bear Calendar
+ *
+ * 한국 증시의 통계적 약세 시즌을 감지하고, VKOSPI 동반 상승 시
+ * Gate -1 인버스 진입 확률에 +20%p 가중치를 자동 부여한다.
+ *
+ * Bear 계절성 패턴 4종:
+ *   1. SEP_OCT       — 9~10월: 셀 인 메이 후 여름 랠리 소진 + 외국인 연말 리밸런싱
+ *   2. DEC_JAN       — 12월 중순~1월 초: 기관 윈도우 드레싱 후 청산 압력
+ *   3. Q1_EARNINGS_PRE — 1Q 발표 직전(3월 하순~4월 초): 어닝 쇼크 우려 선반영 매도
+ *   4. FOMC_WATCH    — Fed FOMC 7일 전: 불확실성 리스크 오프
+ *
+ * VKOSPI 동반 상승 시 활성 시즌의 인버스 진입 확률 가중치 +20%p 추가.
+ *
+ * @param macroEnv    현재 거시 환경 (VKOSPI 값 및 추세 포함)
+ * @param nextFomcDate FOMC_WATCH용 다음 FOMC 날짜 (ISO 날짜 문자열, 없으면 null)
+ * @param referenceDate 기준일 (테스트용, 없으면 오늘)
+ */
+export function evaluateBearSeasonalCalendar(
+  macroEnv: MacroEnvironment,
+  nextFomcDate: string | null = null,
+  referenceDate?: string,
+): BearSeasonalCalendarResult {
+  const now = new Date().toISOString();
+  const today = referenceDate ?? now.split('T')[0];
+
+  const vkospiRising = !!(macroEnv.vkospiRising);
+  const vkospiValue = macroEnv.vkospi;
+
+  const seasonDefs: Array<{
+    id: BearSeasonId;
+    name: string;
+    rationale: string;
+    activePeriod: string;
+  }> = [
+    {
+      id: 'SEP_OCT',
+      name: '9~10월 외국인 리밸런싱',
+      rationale: '셀 인 메이 후 여름 랠리 소진 → 외국인 연말 리밸런싱 물량 출회. 역사적으로 KOSPI 하락 확률이 높은 시즌.',
+      activePeriod: '9월 1일 ~ 10월 31일',
+    },
+    {
+      id: 'DEC_JAN',
+      name: '12월 중순~1월 초 기관 청산',
+      rationale: '기관 윈도우 드레싱 종료 후 청산 압력. 연초 포트폴리오 재편 전 현금화 수요.',
+      activePeriod: '12월 15일 ~ 1월 10일',
+    },
+    {
+      id: 'Q1_EARNINGS_PRE',
+      name: '1Q 실적 시즌 직전 선반영',
+      rationale: '1분기 실적 발표 직전 어닝 쇼크 우려 매도 선반영. 기대치 대비 실제 EPS 하회 시 급락 위험.',
+      activePeriod: '3월 20일 ~ 4월 10일',
+    },
+    {
+      id: 'FOMC_WATCH',
+      name: 'Fed FOMC 직전 리스크 오프',
+      rationale: 'FOMC 결정 불확실성으로 글로벌 리스크 오프. 매파적 서프라이즈 가능성 시 신흥국 자금 이탈.',
+      activePeriod: nextFomcDate ? `${nextFomcDate} 7일 전 ~ 당일` : 'FOMC 날짜 미설정',
+    },
+  ];
+
+  const seasons: BearSeason[] = seasonDefs.map(def => {
+    const isActive = isBearSeasonActive(def.id, today, nextFomcDate);
+    const baseWeight = BEAR_SEASON_BASE_WEIGHTS[def.id];
+    // VKOSPI 보너스는 활성 시즌에서 VKOSPI가 상승 중일 때만 적용
+    const vkospiBonus = isActive && vkospiRising ? BEAR_SEASON_VKOSPI_BONUS : 0;
+    const finalWeight = isActive ? baseWeight + vkospiBonus : 0;
+
+    return {
+      id: def.id,
+      name: def.name,
+      rationale: def.rationale,
+      activePeriod: def.activePeriod,
+      isActive,
+      baseWeight,
+      vkospiBonus,
+      finalWeight,
+    };
+  });
+
+  const activeSeasons = seasons.filter(s => s.isActive);
+  const totalWeightBoost = activeSeasons.reduce((sum, s) => sum + s.finalWeight, 0);
+
+  let actionMessage: string;
+  if (activeSeasons.length === 0) {
+    actionMessage = '🟢 계절성 약세 시즌 없음 — 현재 통계적 하락 위험 시기가 아닙니다. Gate -1 표준 감도 유지.';
+  } else if (totalWeightBoost >= 30) {
+    actionMessage = `🔴 복합 계절 리스크 — ${activeSeasons.map(s => s.name).join(' + ')} 동시 활성. Gate -1 감도 +${totalWeightBoost}%p. 인버스 포지션 적극 검토 권고.`;
+  } else if (vkospiRising && activeSeasons.length > 0) {
+    actionMessage = `🟠 계절 Bear + VKOSPI 상승 경보 — ${activeSeasons.map(s => s.name).join(', ')} 활성. VKOSPI 동반 상승으로 Gate -1 감도 +${totalWeightBoost}%p 가중. 인버스 진입 검토.`;
+  } else {
+    actionMessage = `🟡 계절성 약세 시즌 진입 — ${activeSeasons.map(s => s.name).join(', ')} 활성. Gate -1 감도 +${totalWeightBoost}%p. VKOSPI 추세 상승 시 인버스 진입 신호 강화.`;
+  }
+
+  return {
+    seasons,
+    activeSeasons,
+    vkospiRising,
+    vkospiValue,
+    totalWeightBoost,
+    actionMessage,
     lastUpdated: now,
   };
 }

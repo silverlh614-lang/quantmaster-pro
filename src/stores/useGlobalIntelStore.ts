@@ -9,6 +9,7 @@ import type {
   MarketNeutralResult, BearScreenerResult, BearKellyResult,
   SectorOverheatInput, SectorOverheatResult,
   BearModeSimulatorInput, BearModeSimulatorResult,
+  BearSeasonalCalendarResult,
 } from '../types/quant';
 import type { MHSRecord } from '../components/MHSHistoryChart';
 
@@ -91,6 +92,14 @@ interface GlobalIntelState {
   /** Bear Mode 시뮬레이터 계산 결과 */
   bearModeSimulatorResult: BearModeSimulatorResult | null;
   setBearModeSimulatorResult: (data: BearModeSimulatorResult | null) => void;
+
+  // ── 아이디어 11: 계절성 Bear Calendar ──────────────────────────────────────
+  /** 계절성 Bear Calendar 계산 결과 */
+  bearSeasonalCalendarResult: BearSeasonalCalendarResult | null;
+  setBearSeasonalCalendarResult: (data: BearSeasonalCalendarResult | null) => void;
+  /** FOMC_WATCH 시즌 활성화용 다음 FOMC 날짜 (ISO 날짜 문자열, 없으면 null, 퍼시스트) */
+  nextFomcDate: string | null;
+  setNextFomcDate: (date: string | null) => void;
 
   // ROE type
   currentRoeType: ROEType;
@@ -179,6 +188,11 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       bearModeSimulatorResult: null,
       setBearModeSimulatorResult: (bearModeSimulatorResult) => set({ bearModeSimulatorResult }),
 
+      bearSeasonalCalendarResult: null,
+      setBearSeasonalCalendarResult: (bearSeasonalCalendarResult) => set({ bearSeasonalCalendarResult }),
+      nextFomcDate: null,
+      setNextFomcDate: (nextFomcDate) => set({ nextFomcDate }),
+
       currentRoeType: 3,
       setCurrentRoeType: (currentRoeType) => set({ currentRoeType }),
 
@@ -203,6 +217,7 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
         bearKellyEntryDate: state.bearKellyEntryDate,
         sectorOverheatInputs: state.sectorOverheatInputs,
         bearModeSimulatorInputs: state.bearModeSimulatorInputs,
+        nextFomcDate: state.nextFomcDate,
       }),
     }
   )
