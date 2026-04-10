@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { useRecommendationStore, useTradeStore, useSettingsStore } from '../stores';
 import { computeConditionPerformance } from '../components/TradeJournal';
-import { saveEvolutionWeights } from '../services/quantEngine';
+import { saveEvolutionWeights } from '../services/quant/evolutionEngine';
 import type { StockRecommendation } from '../services/stockService';
 import type { TradeRecord, ConditionId, PreMortemItem } from '../types/quant';
 
