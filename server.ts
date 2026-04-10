@@ -57,6 +57,9 @@ import {
   getDailyLossPct, setDailyLoss,
   isEmergencyStopped,
 } from './server/state.js';
+import {
+  getKisToken, getKisBase, kisGet, getKisTokenRemainingHours,
+} from './server/clients/kisClient.js';
 
 export { isEmergencyStopped, setDailyLoss };
 
@@ -65,10 +68,9 @@ async function cancelAllPendingOrders(): Promise<void> {
   if (!process.env.KIS_APP_KEY) return;
   console.error('[EMERGENCY] KIS 미체결 주문 전량 취소 시작');
   try {
-    const { refreshKisToken: getToken } = await import('./src/server/autoTradeEngine.js');
-    const token = await getToken();
+    const token = await getKisToken();
     const isReal = process.env.KIS_IS_REAL === 'true';
-    const base   = isReal ? 'https://openapi.koreainvestment.com:9443' : 'https://openapivts.koreainvestment.com:29443';
+    const base   = getKisBase();
     const trId   = isReal ? 'TTTC0688R' : 'VTTC0688R'; // 미체결 조회
 
     const res = await fetch(
@@ -202,61 +204,8 @@ async function startServer() {
   });
 
   // ─────────────────────────────────────────────────────────────
-  // KIS API Proxy
+  // KIS API Proxy  (구현: server/clients/kisClient.ts)
   // ─────────────────────────────────────────────────────────────
-  let kisToken: { token: string; expiry: number } | null = null;
-
-  async function getKisToken(): Promise<string> {
-    if (kisToken && Date.now() < kisToken.expiry) return kisToken.token;
-    const isReal = process.env.KIS_IS_REAL === 'true';
-    const base = isReal
-      ? 'https://openapi.koreainvestment.com:9443'
-      : 'https://openapivts.koreainvestment.com:29443';
-    const res = await fetch(`${base}/oauth2/tokenP`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        grant_type: 'client_credentials',
-        appkey: process.env.KIS_APP_KEY,
-        appsecret: process.env.KIS_APP_SECRET,
-      }),
-    });
-    const data = await res.json();
-    if (!data.access_token) throw new Error(`KIS 토큰 발급 실패: ${JSON.stringify(data)}`);
-    kisToken = { token: data.access_token, expiry: Date.now() + 23 * 60 * 60 * 1000 };
-    console.log('KIS 토큰 발급 완료');
-    return kisToken.token;
-  }
-
-  async function kisGet(trId: string, path: string, params: Record<string, string>) {
-    const isReal = process.env.KIS_IS_REAL === 'true';
-    const base = isReal
-      ? 'https://openapi.koreainvestment.com:9443'
-      : 'https://openapivts.koreainvestment.com:29443';
-    const token = await getKisToken();
-    const url = `${base}${path}?${new URLSearchParams(params)}`;
-    const res = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        'appkey': process.env.KIS_APP_KEY!,
-        'appsecret': process.env.KIS_APP_SECRET!,
-        'tr_id': trId,
-        'custtype': 'P',
-      },
-    });
-    const text = await res.text();
-    if (!text || text.trim() === '') {
-      console.warn(`KIS ${trId} 빈 응답 (장 외 시간일 수 있음)`);
-      return { rt_cd: '1', msg1: '빈 응답 (장 외 시간일 수 있음)', output: [] };
-    }
-    try {
-      return JSON.parse(text);
-    } catch {
-      console.error(`KIS ${trId} JSON 파싱 실패:`, text.substring(0, 200));
-      return { rt_cd: '1', msg1: 'JSON 파싱 실패', output: [] };
-    }
-  }
 
   // [KIS-1] 외국인/기관 수급
   app.get('/api/kis/supply', async (req: any, res: any) => {
@@ -386,7 +335,7 @@ async function startServer() {
     if (!process.env.KIS_APP_KEY) return res.json({ valid: false, reason: 'KIS_APP_KEY 미설정' });
     try {
       const token = await getKisToken();
-      const remaining = kisToken ? Math.floor((kisToken.expiry - Date.now()) / 1000 / 60 / 60) : 0;
+      const remaining = getKisTokenRemainingHours();
       res.json({ valid: !!token, expiresIn: `${remaining}h` });
     } catch (e: any) {
       res.json({ valid: false, reason: e.message });
@@ -424,10 +373,7 @@ async function startServer() {
     if (!process.env.KIS_APP_KEY) return res.status(500).json({ error: 'KIS_APP_KEY 미설정' });
     try {
       const token = await getKisToken();
-      const isReal = process.env.KIS_IS_REAL === 'true';
-      const base = isReal
-        ? 'https://openapi.koreainvestment.com:9443'
-        : 'https://openapivts.koreainvestment.com:29443';
+      const base = getKisBase();
       const { path, method = 'GET', headers = {}, body, params } = req.body;
 
       let url = `${base}${path}`;
