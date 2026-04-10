@@ -20,6 +20,7 @@ import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { BearKellyPanel } from './BearKellyPanel';
 import { SectorOverheatPanel } from './SectorOverheatPanel';
 import { BearModeSimulatorPanel } from './BearModeSimulatorPanel';
+import { IPSPanel } from './IPSPanel';
 import { debugWarn } from '../utils/debug';
 
 // ─── Fusion Matrix 데이터 (아이디어 8) ──────────────────────────────────────
@@ -337,6 +338,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const setBearModeSimulatorInputs = useGlobalIntelStore(s => s.setBearModeSimulatorInputs);
   const bearModeSimulatorResult = useGlobalIntelStore(s => s.bearModeSimulatorResult);
   const setBearModeSimulatorResult = useGlobalIntelStore(s => s.setBearModeSimulatorResult);
+  const ipsResult = useGlobalIntelStore(s => s.ipsResult);
 
   const handleSectorOverheatInputsChange = useCallback(
     (inputs: typeof sectorOverheatInputs) => {
@@ -886,6 +888,9 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
         onInputsChange={handleBearModeSimulatorInputsChange}
         result={bearModeSimulatorResult}
       />
+
+      {/* ── 아이디어 11: IPS 통합 변곡점 확률 엔진 ── */}
+      <IPSPanel ipsResult={ipsResult} />
 
       {/* ── 허용 섹터 화이트리스트 ── */}
       {economicRegime && (

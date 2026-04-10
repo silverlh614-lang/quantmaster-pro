@@ -17,7 +17,7 @@ import {
   getBatchMarketIntel,
 } from '../services/stockService';
 import { useGlobalIntelStore } from '../stores';
-import { evaluateGate0, evaluateBearRegime, evaluateBearSeasonality, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener, evaluateBearKelly } from '../services/quantEngine';
+import { evaluateGate0, evaluateBearRegime, evaluateBearSeasonality, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener, evaluateBearKelly, evaluateIPS } from '../services/quantEngine';
 import { getStaleTime, PERSIST_GC_TIME } from '../utils/cacheConfig';
 
 /**
@@ -68,6 +68,7 @@ export function useBatchGlobalIntel() {
   const setBearSeasonalityResult = useGlobalIntelStore(s => s.setBearSeasonalityResult);
   const setBearKellyResult = useGlobalIntelStore(s => s.setBearKellyResult);
   const bearKellyEntryDate = useGlobalIntelStore(s => s.bearKellyEntryDate);
+  const setIpsResult = useGlobalIntelStore(s => s.setIpsResult);
 
   return useQuery({
     queryKey: ['batch-global-intel'],
@@ -110,6 +111,9 @@ export function useBatchGlobalIntel() {
 
         // Bear Mode Kelly Criterion (아이디어 6)
         setBearKellyResult(evaluateBearKelly(bearResult, bearKellyEntryDate, bearSeasonalityResult.inverseEntryWeightPct));
+
+        // IPS 통합 변곡점 확률 엔진 (아이디어 11)
+        setIpsResult(evaluateIPS(data.macro, g0, bearResult));
       }
 
       if (data.regime) setEconomicRegimeData(data.regime);
