@@ -36,6 +36,8 @@ import {
   generateWeeklyReport,
   sendWatchlistBriefing,
   sendIntradayCheckIn,
+  loadFssRecords,
+  upsertFssRecord,
   type WatchlistEntry,
   type MacroState,
 } from "./src/server/autoTradeEngine.js";
@@ -305,6 +307,57 @@ async function startServer() {
       console.error('KIS short-selling error:', e.message);
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ─── 아이디어 4: FSS 외국인 수급 방향 전환 스코어 API ──────────────────────
+  // GET  /api/fss/records  — 저장된 일별 외국인 수급 기록 조회
+  // POST /api/fss/records  — 일별 외국인 수급 기록 추가/갱신
+  // GET  /api/fss/score    — 현재 FSS 점수 계산 결과 반환
+
+  app.get('/api/fss/records', (_req: Request, res: Response) => {
+    const records = loadFssRecords();
+    res.json(records);
+  });
+
+  app.post('/api/fss/records', (req: Request, res: Response) => {
+    const { date, passiveNetBuy, activeNetBuy } = req.body;
+    if (!date || typeof passiveNetBuy !== 'number' || typeof activeNetBuy !== 'number') {
+      return res.status(400).json({
+        error: 'date(YYYY-MM-DD), passiveNetBuy(number), activeNetBuy(number) 필수',
+      });
+    }
+    const updated = upsertFssRecord({ date, passiveNetBuy, activeNetBuy });
+    res.json({ ok: true, records: updated });
+  });
+
+  app.get('/api/fss/score', (_req: Request, res: Response) => {
+    const records = loadFssRecords();
+    if (records.length === 0) {
+      return res.json({ cumulativeScore: null, alertLevel: null, message: 'FSS 데이터 없음' });
+    }
+    // 최근 5일만 추출하여 점수 계산 (클라이언트 computeFSS와 동일 로직)
+    const sorted = [...records].sort((a, b) => a.date.localeCompare(b.date)).slice(-5);
+    const dailyScores: number[] = sorted.map(r => {
+      const ps = r.passiveNetBuy < 0;
+      const as_ = r.activeNetBuy < 0;
+      const pb = r.passiveNetBuy > 0;
+      const ab = r.activeNetBuy > 0;
+      if (ps && as_) return -3;
+      if (pb && ab) return 3;
+      if (ps || as_) return -1;
+      if (pb || ab) return 1;
+      return 0;
+    });
+    const cum = dailyScores.reduce((s, v) => s + v, 0);
+    const alertLevel = cum <= -5 ? 'HIGH_ALERT' : cum <= -3 ? 'CAUTION' : 'NORMAL';
+    // MacroState에 캐싱
+    const macro = loadMacroState();
+    if (macro) {
+      macro.fss = cum;
+      macro.fssAlertLevel = alertLevel;
+      saveMacroState(macro);
+    }
+    res.json({ cumulativeScore: cum, alertLevel, dailyScores: sorted });
   });
 
   // [KIS-3] 현재가 (Yahoo 폴백용)
@@ -1062,6 +1115,10 @@ async function startServer() {
     if (typeof dxyBullish === 'boolean') state.dxyBullish = dxyBullish;
     if (typeof kospiBelow120ma === 'boolean') state.kospiBelow120ma = kospiBelow120ma;
     if (typeof ips === 'number') state.ips = ips;
+    // 아이디어 4: FSS 외국인 수급 캐시
+    const { fss: fssVal, fssAlertLevel: fssAlert } = req.body;
+    if (typeof fssVal === 'number') state.fss = fssVal;
+    if (fssAlert === 'NORMAL' || fssAlert === 'CAUTION' || fssAlert === 'HIGH_ALERT') state.fssAlertLevel = fssAlert;
     saveMacroState(state);
     console.log(`[Macro] MHS 업데이트: ${mhs} (${finalRegime})`);
     // 아이디어 10: Bear Regime 즉시 알림 체크 (비동기, fire-and-forget)

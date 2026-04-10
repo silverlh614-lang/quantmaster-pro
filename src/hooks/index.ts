@@ -15,6 +15,7 @@ export {
   useFinancialStress,
   useFomcSentiment,
   useAllGlobalIntel,
+  useFssScore,
 } from './useGlobalIntelQueries';
 export { useStockSync } from './useStockSync';
 export { usePortfolioOps } from './usePortfolioOps';

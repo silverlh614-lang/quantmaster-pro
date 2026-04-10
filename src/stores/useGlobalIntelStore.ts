@@ -10,6 +10,7 @@ import type {
   SectorOverheatInput, SectorOverheatResult,
   BearModeSimulatorInput, BearModeSimulatorResult,
   IpsResult,
+  FssResult,
 } from '../types/quant';
 import type { MHSRecord } from '../components/MHSHistoryChart';
 
@@ -100,6 +101,10 @@ interface GlobalIntelState {
   // ── 아이디어 11: IPS 통합 변곡점 확률 엔진 ──────────────────────────────
   ipsResult: IpsResult | null;
   setIpsResult: (data: IpsResult | null) => void;
+
+  // ── 아이디어 4: FSS 외국인 수급 방향 전환 스코어 ───────────────────────
+  fssResult: FssResult | null;
+  setFssResult: (data: FssResult | null) => void;
 
   // ROE type
   currentRoeType: ROEType;
@@ -192,6 +197,9 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
 
       ipsResult: null,
       setIpsResult: (ipsResult) => set({ ipsResult }),
+
+      fssResult: null,
+      setFssResult: (fssResult) => set({ fssResult }),
 
       currentRoeType: 3,
       setCurrentRoeType: (currentRoeType) => set({ currentRoeType }),

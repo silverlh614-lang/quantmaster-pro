@@ -65,6 +65,7 @@ const SHADOW_LOG_FILE         = path.join(DATA_DIR, 'shadow-log.json');
 const MACRO_STATE_FILE        = path.join(DATA_DIR, 'macro-state.json');
 const CONDITION_WEIGHTS_FILE  = path.join(DATA_DIR, 'condition-weights.json');
 const BLACKLIST_FILE          = path.join(DATA_DIR, 'blacklist.json');
+const FSS_RECORDS_FILE        = path.join(DATA_DIR, 'fss-records.json');
 
 // ─── 블랙리스트 (Cascade -30% 진입 금지 목록) ──────────────────────────────────
 
@@ -85,6 +86,38 @@ function loadBlacklist(): BlacklistEntry[] {
 function saveBlacklist(list: BlacklistEntry[]): void {
   ensureDataDir();
   fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(list, null, 2));
+}
+
+// ─── 아이디어 4: FSS 외국인 수급 일별 기록 I/O ────────────────────────────────────
+
+interface FssRecordRow {
+  date: string;           // YYYY-MM-DD
+  passiveNetBuy: number;  // Passive 순매수 (억원)
+  activeNetBuy: number;   // Active 순매수 (억원)
+}
+
+export function loadFssRecords(): FssRecordRow[] {
+  ensureDataDir();
+  if (!fs.existsSync(FSS_RECORDS_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(FSS_RECORDS_FILE, 'utf-8')); } catch { return []; }
+}
+
+export function saveFssRecords(records: FssRecordRow[]): void {
+  ensureDataDir();
+  // 최근 30거래일만 보관
+  const trimmed = records
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-30);
+  fs.writeFileSync(FSS_RECORDS_FILE, JSON.stringify(trimmed, null, 2));
+}
+
+export function upsertFssRecord(record: FssRecordRow): FssRecordRow[] {
+  const records = loadFssRecords();
+  const idx = records.findIndex(r => r.date === record.date);
+  if (idx >= 0) records[idx] = record;
+  else records.push(record);
+  saveFssRecords(records);
+  return loadFssRecords();
 }
 
 function addToBlacklist(stockCode: string, stockName: string, reason = 'Cascade -30%'): void {
@@ -214,6 +247,8 @@ export interface MacroState {
   dxyBullish?: boolean;             // DXY 달러 강세 여부
   kospiBelow120ma?: boolean;        // KOSPI 120일선 하회 여부
   ips?: number;                     // 마지막 IPS 점수 (캐시)
+  fss?: number;                     // 마지막 FSS 누적 점수 (캐시)
+  fssAlertLevel?: 'NORMAL' | 'CAUTION' | 'HIGH_ALERT'; // FSS 경보 단계
 }
 
 export function loadMacroState(): MacroState | null {
