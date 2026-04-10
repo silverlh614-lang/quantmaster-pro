@@ -26,10 +26,7 @@ import { useShadowTradeStore } from '../stores/useShadowTradeStore';
 import { buildShadowTrade } from '../services/autoTrading';
 import { MASTER_CHECKLIST_STEPS, SELL_CHECKLIST_STEPS, getMarketPhaseInfo } from '../constants/checklist';
 import type { StockRecommendation } from '../services/stockService';
-import type {
-  MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal,
-  StockProfile, Gate0Result, ChecklistKey
-} from '../types/quant';
+import type { Gate0Result, ChecklistKey } from '../types/quant';
 import { CHECKLIST_KEY_TO_CONDITION_ID } from '../types/quant';
 import { debugLog, debugWarn } from '../utils/debug';
 
@@ -37,12 +34,6 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-const demoRegime: MarketRegime = { type: '상승초기', weightMultipliers: { 1: 3.0, 2: 2.5, 3: 2.0 }, vKospi: 15.5, samsungIri: 0.85 };
-const demoSectorRotation: SectorRotation = { name: '반도체', rank: 1, strength: 85, isLeading: true, sectorLeaderNewHigh: false, leadingSectors: ['반도체', 'AI'] };
-const demoEuphoria: EuphoriaSignal = { id: 'E1', name: '과열 신호', active: false };
-const demoEmergency: EmergencyStopSignal = { id: 'S1', name: '긴급 중단', triggered: false };
-const demoProfile: StockProfile = { type: 'A', monitoringCycle: 'DAILY', stopLoss: 7, executionDelay: 0 };
-const demoStockData: Record<number, number> = { 1: 9, 3: 8, 5: 9, 7: 10, 9: 8, 2: 7, 4: 8, 6: 9, 8: 7, 10: 8, 11: 9, 13: 8, 15: 7, 17: 9, 19: 8, 21: 9, 23: 8, 25: 7, 27: 9 };
 
 interface DeepAnalysisModalProps {
   stock: StockRecommendation | null;
