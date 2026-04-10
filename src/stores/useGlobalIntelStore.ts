@@ -109,6 +109,12 @@ interface GlobalIntelState {
   // ROE type
   currentRoeType: ROEType;
   setCurrentRoeType: (type: ROEType) => void;
+  /** 최근 분기 ROE 유형 이력 (오래된→최신, 최대 8분기) */
+  roeTypeHistory: ROEType[];
+  setRoeTypeHistory: (history: ROEType[]) => void;
+  /** 총자산회전율 이력 (오래된→최신, 최대 8분기) */
+  assetTurnoverHistory: number[];
+  setAssetTurnoverHistory: (history: number[]) => void;
 
   // MHS history
   mhsHistory: MHSRecord[];
@@ -203,6 +209,10 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
 
       currentRoeType: 3,
       setCurrentRoeType: (currentRoeType) => set({ currentRoeType }),
+      roeTypeHistory: [3, 3, 3],
+      setRoeTypeHistory: (roeTypeHistory) => set({ roeTypeHistory: roeTypeHistory.slice(-8) }),
+      assetTurnoverHistory: [],
+      setAssetTurnoverHistory: (assetTurnoverHistory) => set({ assetTurnoverHistory: assetTurnoverHistory.slice(-8) }),
 
       mhsHistory: [],
       setMhsHistory: (mhsHistory) => set({ mhsHistory }),
@@ -221,6 +231,8 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       partialize: (state) => ({
         mhsHistory: state.mhsHistory,
         currentRoeType: state.currentRoeType,
+        roeTypeHistory: state.roeTypeHistory,
+        assetTurnoverHistory: state.assetTurnoverHistory,
         exportRatio: state.exportRatio,
         bearKellyEntryDate: state.bearKellyEntryDate,
         sectorOverheatInputs: state.sectorOverheatInputs,

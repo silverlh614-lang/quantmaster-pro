@@ -6,6 +6,9 @@ import { Shield, Target, Zap, AlertTriangle, TrendingUp, DollarSign, Activity, L
 import { TMAPanel } from './TMAPanel';
 import { SRRPanel } from './SRRPanel';
 import { MAPCPanel } from './MAPCPanel';
+import { ROETransitionPanel } from './ROETransitionPanel';
+import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
+import { detectROETransition } from '../services/quantEngine';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { MacroIntelligenceDashboard } from './MacroIntelligenceDashboard';
@@ -38,6 +41,13 @@ export const QuantDashboard: React.FC<Props> = ({
   onShadowTrade,
 }) => {
   const [activeTab, setActiveTab] = useState<DashboardTab>('QUANT');
+
+  // ROE 전이 감지 (스토어 이력 기반 실시간 재계산)
+  const roeTypeHistory = useGlobalIntelStore(s => s.roeTypeHistory);
+  const assetTurnoverHistory = useGlobalIntelStore(s => s.assetTurnoverHistory);
+  const setRoeTypeHistory = useGlobalIntelStore(s => s.setRoeTypeHistory);
+  const setAssetTurnoverHistory = useGlobalIntelStore(s => s.setAssetTurnoverHistory);
+  const roeTransitionLive = detectROETransition(roeTypeHistory, assetTurnoverHistory);
   const getRecommendationColor = (rec: string) => {
     switch (rec) {
       case '풀 포지션': return 'text-green-600 border-green-600';
@@ -522,6 +532,18 @@ export const QuantDashboard: React.FC<Props> = ({
           <SRRPanel srrResult={result.srr} stockName={stockName} />
         </div>
       )}
+
+      {/* ── ROE 유형 전이 감지기 (IDEA 3) ── */}
+      <div className="mb-8">
+        <ROETransitionPanel
+          roeTransition={result.roeTransition ?? roeTransitionLive}
+          roeTypeHistory={roeTypeHistory}
+          assetTurnoverHistory={assetTurnoverHistory}
+          stockName={stockName}
+          onRoeTypeHistoryChange={setRoeTypeHistory}
+          onAssetTurnoverHistoryChange={setAssetTurnoverHistory}
+        />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
         {/* Enemy's Checklist */}
