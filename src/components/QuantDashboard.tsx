@@ -4,6 +4,7 @@ import { ALL_CONDITIONS, CONDITION_SOURCE_MAP } from '../services/quantEngine';
 import { MarketOverview } from '../services/stockService';
 import { Shield, Target, Zap, AlertTriangle, TrendingUp, DollarSign, Activity, Layers, Clock, Skull, Calendar, PieChart, Link2, Globe, PlayCircle } from 'lucide-react';
 import { TMAPanel } from './TMAPanel';
+import { SRRPanel } from './SRRPanel';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { MacroIntelligenceDashboard } from './MacroIntelligenceDashboard';
@@ -504,6 +505,13 @@ export const QuantDashboard: React.FC<Props> = ({
       {result.tma && (
         <div className="mb-8">
           <TMAPanel tmaResult={result.tma} stockName={stockName} />
+        </div>
+      )}
+
+      {/* ── SRR 섹터 내 상대강도 역전 감지 (IDEA 8) ── */}
+      {result.srr && (
+        <div className="mb-8">
+          <SRRPanel srrResult={result.srr} stockName={stockName} />
         </div>
       )}
 

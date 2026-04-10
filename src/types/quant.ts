@@ -362,6 +362,44 @@ export interface TMAResult {
   tmaDecelerating: boolean;
 }
 
+/** SRR (섹터 내 상대강도 역전 감지)
+ *
+ * 종목 RS Ratio = 종목 20일 수익률 / 섹터ETF 20일 수익률
+ *   RS < 1.0  3주 연속 → 주도주 지위 상실 경보
+ *   RS < 0.8  5주 연속 → 즉각 교체 매매 검토
+ *
+ * Gate 3 연동: 매수 시 상위 5%이던 RS가 상위 20% 밖으로 이탈 → 자동 경보 */
+export interface SRRResult {
+  /** 현재 RS Ratio (종목 20일 수익률 ÷ 섹터ETF 20일 수익률) */
+  rsRatio: number;
+  /** 종목 20일 수익률 (%) */
+  stockReturn20d: number;
+  /** 섹터 ETF 20일 수익률 (%) */
+  sectorReturn20d: number;
+  /** 주간 RS Ratio 이력 (오래된 순, 최소 5주) */
+  weeklyRsRatios: number[];
+  /** RS Ratio < 1.0 연속 주수 */
+  consecutiveBelowOne: number;
+  /** RS Ratio < 0.8 연속 주수 */
+  consecutiveBelowEight: number;
+  /** 매수 시점 RS 순위 (%, 낮을수록 우수 — e.g., 3 = 상위 3%) */
+  entryRsRank: number;
+  /** 현재 RS 순위 (%) */
+  currentRsRank: number;
+  /** 순위 이탈 폭 = currentRsRank − entryRsRank (양수 = 악화) */
+  rankDrift: number;
+  /** 주도주 지위 상실 (3주 연속 RS Ratio < 1.0) */
+  leadingStockLost: boolean;
+  /** 즉각 교체 검토 (5주 연속 RS Ratio < 0.8) */
+  replaceSignal: boolean;
+  /** 매수 시 상위 5%이었으나 현재 상위 20% 밖으로 이탈 */
+  rankBandBreached: boolean;
+  /** 경보 단계 */
+  alert: 'NORMAL' | 'WATCH' | 'WARNING' | 'CRITICAL';
+  /** 행동 권고 메시지 */
+  actionMessage: string;
+}
+
 /** 강화된 적의 체크리스트 — STRONG BUY 전 역검증 7항목 */
 export interface EnemyChecklistEnhanced extends EnemyChecklist {
   lockupExpiringSoon: boolean;      // 1. 보호예수 60일 이내 해제
@@ -445,6 +483,7 @@ export interface EvaluationResult {
   catalystAnalysis?: CatalystAnalysis;
   momentumAcceleration?: MomentumAcceleration;
   tma?: TMAResult;
+  srr?: SRRResult;
   enemyChecklistEnhanced?: EnemyChecklistEnhanced;
   dataReliability?: DataReliability;
   signalVerdict?: SignalVerdict;

@@ -31,6 +31,7 @@ import {
   CatalystGrade,
   MomentumAcceleration,
   TMAResult,
+  SRRResult,
   EnemyChecklistEnhanced,
   DataReliability,
   SignalVerdict,
@@ -499,6 +500,12 @@ export function evaluateStock(
     volumeTrend?: 'INCREASING' | 'STABLE' | 'DECREASING';
     catalystDescription?: string;         // 촉매 설명 텍스트
     dailyCloses?: number[];               // 최근 7일+ 일봉 종가 (TMA 계산용)
+    // SRR 입력
+    weeklyRsRatios?: number[];           // 주간 RS Ratio 이력 (SRR 계산용)
+    entryRsRank?: number;                // 매수 시점 RS 순위 (%, 기본 5)
+    currentRsRank?: number;              // 현재 RS 순위 (%)
+    stockReturn20d?: number;             // 종목 20일 수익률 (%)
+    sectorReturn20d?: number;            // 섹터 ETF 20일 수익률 (%)
     enemyFlags?: Partial<{
       lockupExpiringSoon: boolean;
       majorShareholderSelling: boolean;
@@ -880,6 +887,19 @@ export function evaluateStock(
     ? evaluateTMA(advancedContext.dailyCloses)
     : undefined;
 
+  // SRR (섹터 내 상대강도 역전 감지) — Gate 3 모멘텀 조건 실시간 추적
+  const srrResult =
+    advancedContext?.stockReturn20d !== undefined &&
+    advancedContext?.sectorReturn20d !== undefined
+      ? evaluateSRR(
+          advancedContext.weeklyRsRatios ?? [],
+          advancedContext.entryRsRank ?? cycleAnalysis.sectorRsRank,
+          advancedContext.currentRsRank ?? cycleAnalysis.sectorRsRank,
+          advancedContext.stockReturn20d,
+          advancedContext.sectorReturn20d,
+        )
+      : undefined;
+
   // 강화된 적의 체크리스트 — 7항목 역검증 플래그
   const enemyEnhanced = evaluateEnemyChecklist(enemyChecklist, advancedContext?.enemyFlags ?? {});
 
@@ -953,6 +973,7 @@ export function evaluateStock(
     catalystAnalysis,
     momentumAcceleration: momentumAcc,
     tma: tmaResult,
+    srr: srrResult,
     enemyChecklistEnhanced: enemyEnhanced,
     dataReliability,
     signalVerdict,
@@ -1217,6 +1238,102 @@ export function evaluateTMA(dailyCloses: number[], period = 5, historyLen = 15):
     phase,
     tmaHistory: tmaHistory.slice(-historyLen),
     tmaDecelerating,
+  };
+}
+
+/**
+ * SRR (섹터 내 상대강도 역전 감지)
+ *
+ * RS Ratio = 종목 20일 수익률 / 섹터ETF 20일 수익률
+ *
+ * 경보 단계:
+ *   NORMAL   — RS Ratio ≥ 1.0 유지, 순위 유지
+ *   WATCH    — RS Ratio < 1.0 진입 (1~2주) 또는 순위 이탈 임박
+ *   WARNING  — RS Ratio < 1.0 → 3주 연속 (주도주 지위 상실)
+ *   CRITICAL — RS Ratio < 0.8 → 5주 연속 (즉각 교체 매매 검토)
+ *
+ * Gate 3 연동: 매수 시 상위 5% → 현재 상위 20% 이탈 → rankBandBreached 경보
+ *
+ * @param weeklyRsRatios  주간 RS Ratio 이력 (오래된 순, 최소 1주)
+ * @param entryRsRank     매수 시점 RS 순위 (%, 0~100, 낮을수록 우수)
+ * @param currentRsRank   현재 RS 순위 (%)
+ * @param stockReturn20d  종목 최근 20일 수익률 (%)
+ * @param sectorReturn20d 섹터 ETF 최근 20일 수익률 (%)
+ */
+export function evaluateSRR(
+  weeklyRsRatios: number[],
+  entryRsRank: number,
+  currentRsRank: number,
+  stockReturn20d: number,
+  sectorReturn20d: number,
+): SRRResult {
+  // ── 현재 RS Ratio ────────────────────────────────────────────────────────
+  // sectorReturn20d가 0에 가까우면 분모 보정 (±0.001 미만 → 1.0으로 취급)
+  const rsRatio = Math.abs(sectorReturn20d) < 0.001
+    ? (stockReturn20d >= 0 ? 1.5 : 0.5)
+    : stockReturn20d / sectorReturn20d;
+
+  // ── 연속 위반 주수 계산 ───────────────────────────────────────────────────
+  // 최근부터 역방향으로 연속 위반 주수를 셈
+  function countConsecutiveTail(ratios: number[], threshold: number): number {
+    let count = 0;
+    for (let i = ratios.length - 1; i >= 0; i--) {
+      if (ratios[i] < threshold) count++;
+      else break;
+    }
+    return count;
+  }
+
+  const allRatios = [...weeklyRsRatios, rsRatio];
+  const consecutiveBelowOne = countConsecutiveTail(allRatios, 1.0);
+  const consecutiveBelowEight = countConsecutiveTail(allRatios, 0.8);
+
+  // ── 주도주 지위 상실 / 교체 신호 ─────────────────────────────────────────
+  const leadingStockLost = consecutiveBelowOne >= 3;
+  const replaceSignal = consecutiveBelowEight >= 5;
+
+  // ── 순위 이탈 (Gate 3 연동) ───────────────────────────────────────────────
+  const rankDrift = currentRsRank - entryRsRank;
+  // 매수 시 상위 5% 이었으나 현재 상위 20% 밖으로 이탈
+  const rankBandBreached = entryRsRank <= 5 && currentRsRank > 20;
+
+  // ── 경보 단계 ────────────────────────────────────────────────────────────
+  let alert: SRRResult['alert'];
+  let actionMessage: string;
+
+  if (replaceSignal) {
+    alert = 'CRITICAL';
+    actionMessage = `RS Ratio < 0.8 → ${consecutiveBelowEight}주 연속 — 즉각 교체 매매 검토. 섹터 내 주도주 지위 완전 상실.`;
+  } else if (leadingStockLost || rankBandBreached) {
+    alert = 'WARNING';
+    actionMessage = leadingStockLost
+      ? `RS Ratio < 1.0 → ${consecutiveBelowOne}주 연속 — 주도주 지위 상실 경보. 비중 축소 준비.`
+      : `매수 시 RS 상위 ${entryRsRank.toFixed(1)}% → 현재 ${currentRsRank.toFixed(1)}% — 상위 20% 이탈. 사이클 후반 진입 신호.`;
+  } else if (consecutiveBelowOne >= 1 || rankDrift > 10) {
+    alert = 'WATCH';
+    actionMessage = consecutiveBelowOne >= 1
+      ? `RS Ratio < 1.0 진입 (${consecutiveBelowOne}주) — 3주 지속 시 주도주 지위 상실 경보 발동.`
+      : `RS 순위 +${rankDrift.toFixed(1)}%p 이탈 — 섹터 내 상대 강도 약화 주시.`;
+  } else {
+    alert = 'NORMAL';
+    actionMessage = `RS Ratio ${rsRatio.toFixed(2)} — 섹터 내 상대 강도 유지. 주도주 지위 정상.`;
+  }
+
+  return {
+    rsRatio,
+    stockReturn20d,
+    sectorReturn20d,
+    weeklyRsRatios: allRatios.slice(-8),   // 최근 8주만 보관
+    consecutiveBelowOne,
+    consecutiveBelowEight,
+    entryRsRank,
+    currentRsRank,
+    rankDrift,
+    leadingStockLost,
+    replaceSignal,
+    rankBandBreached,
+    alert,
+    actionMessage,
   };
 }
 
