@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  TrendingUp, TrendingDown, RefreshCw, ArrowRight, Globe, Ship, Cpu, Activity, Shield,
+  TrendingUp, TrendingDown, RefreshCw, ArrowRight, Globe, Ship, Cpu, Activity, Shield, CalendarDays,
 } from 'lucide-react';
 import {
   Gate0Result, EconomicRegimeData, EconomicRegime, ROEType,
@@ -324,6 +324,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   // ── Gate -1 & VKOSPI 트리거 (전역 스토어에서 읽기) ───────────────────────
   const bearRegimeResult = useGlobalIntelStore(s => s.bearRegimeResult);
   const vkospiTriggerResult = useGlobalIntelStore(s => s.vkospiTriggerResult);
+  const bearSeasonalityResult = useGlobalIntelStore(s => s.bearSeasonalityResult);
   const inverseGate1Result = useGlobalIntelStore(s => s.inverseGate1Result);
   const bearKellyResult = useGlobalIntelStore(s => s.bearKellyResult);
   const bearKellyEntryDate = useGlobalIntelStore(s => s.bearKellyEntryDate);
@@ -700,6 +701,77 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── 아이디어 11: 계절성 Bear Calendar ── */}
+      {bearSeasonalityResult && (
+        <div className={`p-4 sm:p-6 border-2 bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)] ${
+          bearSeasonalityResult.isBearSeason ? 'border-red-500' : 'border-theme-border'
+        }`}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted flex items-center gap-2">
+              <CalendarDays className="w-3.5 h-3.5" />
+              Bear Calendar · 계절성 약세 레이어
+            </h3>
+            <span className={`text-xs font-black px-3 py-1 rounded border ${
+              bearSeasonalityResult.isBearSeason
+                ? 'bg-red-900/40 border-red-500 text-red-300'
+                : 'bg-theme-bg border-theme-border text-theme-text-muted'
+            }`}>
+              {bearSeasonalityResult.isBearSeason ? '🔴 HIGH RISK WINDOW' : '🟢 NORMAL WINDOW'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+            {bearSeasonalityResult.windows.map(window => (
+              <div
+                key={window.id}
+                className={`p-3 border ${
+                  window.active
+                    ? 'border-red-500/40 bg-red-900/15'
+                    : 'border-theme-border bg-theme-bg'
+                }`}
+              >
+                <p className={`text-[10px] font-black uppercase tracking-widest ${window.active ? 'text-red-300' : 'text-theme-text-muted'}`}>
+                  {window.name}
+                </p>
+                <p className="text-[9px] text-theme-text-muted mt-0.5">{window.period}</p>
+                <p className={`text-[10px] mt-1.5 leading-relaxed ${window.active ? 'text-theme-text' : 'text-theme-text-secondary'}`}>
+                  {window.description}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+            <div className="p-3 border border-theme-border bg-theme-bg text-center">
+              <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">Gate -1 임계치 조정</p>
+              <p className={`text-xl font-black font-mono ${bearSeasonalityResult.gateThresholdAdjustment < 0 ? 'text-red-400' : 'text-theme-text-secondary'}`}>
+                {bearSeasonalityResult.gateThresholdAdjustment < 0 ? `${bearSeasonalityResult.gateThresholdAdjustment}` : '0'}
+              </p>
+            </div>
+            <div className="p-3 border border-theme-border bg-theme-bg text-center">
+              <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">인버스 확률 가중치</p>
+              <p className={`text-xl font-black font-mono ${bearSeasonalityResult.inverseEntryWeightPct > 0 ? 'text-red-300' : 'text-theme-text-secondary'}`}>
+                +{bearSeasonalityResult.inverseEntryWeightPct}%
+              </p>
+            </div>
+            <div className="p-3 border border-theme-border bg-theme-bg text-center">
+              <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">VKOSPI 동반 상승</p>
+              <p className={`text-sm font-black ${bearSeasonalityResult.vkospiRisingConfirmed ? 'text-red-300' : 'text-theme-text-secondary'}`}>
+                {bearSeasonalityResult.vkospiRisingConfirmed ? '확인됨' : '미확인'}
+              </p>
+            </div>
+          </div>
+
+          <div className={`p-3 border text-xs leading-relaxed ${
+            bearSeasonalityResult.isBearSeason
+              ? 'border-red-500/40 bg-red-900/20 text-red-200'
+              : 'border-theme-border bg-theme-bg text-theme-text-secondary'
+          }`}>
+            {bearSeasonalityResult.actionMessage}
+          </div>
         </div>
       )}
 
