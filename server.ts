@@ -50,12 +50,15 @@ dotenv.config();
 // ─────────────────────────────────────────────────────────────
 // 아이디어 9: 서버사이드 비상 정지 모듈 (Circuit Breaker)
 // 브라우저를 닫아도 서버 메모리에서 플래그 유지
+// → 공유 상태를 server/state.ts로 분리
 // ─────────────────────────────────────────────────────────────
-let EMERGENCY_STOP = false;
-let DAILY_LOSS_PCT  = 0;   // 실시간 누적 손실률 (%)
+import {
+  getEmergencyStop, setEmergencyStop,
+  getDailyLossPct, setDailyLoss,
+  isEmergencyStopped,
+} from './server/state.js';
 
-export function isEmergencyStopped() { return EMERGENCY_STOP; }
-export function setDailyLoss(pct: number) { DAILY_LOSS_PCT = pct; }
+export { isEmergencyStopped, setDailyLoss };
 
 // 미체결 주문 전량 취소 — KIS 미체결 조회 후 취소 (서버사이드 직접 호출)
 async function cancelAllPendingOrders(): Promise<void> {
@@ -112,9 +115,9 @@ async function cancelAllPendingOrders(): Promise<void> {
 
 async function checkDailyLossLimit(): Promise<void> {
   const limit = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
-  if (DAILY_LOSS_PCT >= limit && !EMERGENCY_STOP) {
-    EMERGENCY_STOP = true;
-    console.error(`[EMERGENCY] 일일 손실 한도 도달 (${DAILY_LOSS_PCT.toFixed(2)}% ≥ ${limit}%) — 자동매매 중단`);
+  if (getDailyLossPct() >= limit && !getEmergencyStop()) {
+    setEmergencyStop(true);
+    console.error(`[EMERGENCY] 일일 손실 한도 도달 (${getDailyLossPct().toFixed(2)}% ≥ ${limit}%) — 자동매매 중단`);
     await cancelAllPendingOrders();
     const { generateDailyReport } = await import('./src/server/autoTradeEngine.js');
     await generateDailyReport().catch(console.error);
@@ -752,8 +755,8 @@ async function startServer() {
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({
       status: 'ok',
-      emergencyStop: EMERGENCY_STOP,
-      dailyLossPct: DAILY_LOSS_PCT,
+      emergencyStop: getEmergencyStop(),
+      dailyLossPct: getDailyLossPct(),
       autoTradeEnabled: process.env.AUTO_TRADE_ENABLED === 'true',
       mode: process.env.AUTO_TRADE_MODE ?? 'SHADOW',
       kisIsReal: process.env.KIS_IS_REAL === 'true',
@@ -767,11 +770,11 @@ async function startServer() {
   // ─────────────────────────────────────────────────────────────
 
   app.get('/api/emergency-status', (_req: Request, res: Response) => {
-    res.json({ emergencyStop: EMERGENCY_STOP, dailyLossPct: DAILY_LOSS_PCT });
+    res.json({ emergencyStop: getEmergencyStop(), dailyLossPct: getDailyLossPct() });
   });
 
   app.post('/api/emergency-stop', async (_req: Request, res: Response) => {
-    EMERGENCY_STOP = true;
+    setEmergencyStop(true);
     console.error('[EMERGENCY] 수동 비상 정지 발동!');
     await cancelAllPendingOrders().catch(console.error);
     res.json({ status: 'STOPPED', stoppedAt: new Date().toISOString() });
@@ -782,8 +785,8 @@ async function startServer() {
     if (secret && req.body?.secret !== secret) {
       return res.status(403).json({ error: '인증 실패' });
     }
-    EMERGENCY_STOP = false;
-    DAILY_LOSS_PCT  = 0;
+    setEmergencyStop(false);
+    setDailyLoss(0);
     console.log('[EMERGENCY] 비상 정지 해제 — 자동매매 재개');
     res.json({ status: 'RESUMED' });
   });
@@ -827,7 +830,7 @@ async function startServer() {
           await reply(
             `📊 <b>[시스템 현황]</b>\n` +
             `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? '🟡 Shadow' : '🔴 LIVE'}\n` +
-            `비상정지: ${EMERGENCY_STOP ? '🔴 ON' : '🟢 OFF'}\n` +
+            `비상정지: ${getEmergencyStop() ? '🔴 ON' : '🟢 OFF'}\n` +
             `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n` +
             `활성 포지션: ${active.length}개\n` +
             `오늘 결산: ${closed.length}건 (P&L ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%)`
@@ -836,7 +839,7 @@ async function startServer() {
         }
 
         case '/stop': {
-          EMERGENCY_STOP = true;
+          setEmergencyStop(true);
           console.error('[TelegramBot] Telegram /stop 명령 — 비상 정지 발동');
           await cancelAllPendingOrders().catch(console.error);
           await reply('🔴 <b>[비상 정지 발동]</b>\n모든 미체결 주문 취소 완료. /reset 으로 재개 가능.');
@@ -850,8 +853,8 @@ async function startServer() {
             await reply('❌ 인증 실패 — /reset <비밀번호> 형식으로 입력하세요.');
             break;
           }
-          EMERGENCY_STOP = false;
-          DAILY_LOSS_PCT  = 0;
+          setEmergencyStop(false);
+          setDailyLoss(0);
           await reply('🟢 <b>비상 정지 해제</b> — 자동매매 재개');
           break;
         }
@@ -936,10 +939,10 @@ async function startServer() {
   app.post('/api/daily-loss', (req: Request, res: Response) => {
     const { pct } = req.body;
     if (typeof pct === 'number') {
-      DAILY_LOSS_PCT = pct;
+      setDailyLoss(pct);
       checkDailyLossLimit().catch(console.error);
     }
-    res.json({ ok: true, dailyLossPct: DAILY_LOSS_PCT });
+    res.json({ ok: true, dailyLossPct: getDailyLossPct() });
   });
 
   // ─────────────────────────────────────────────────────────────
@@ -1231,7 +1234,7 @@ async function startServer() {
         `✅ <b>[QuantMaster Pro] Telegram 연결 테스트</b>\n` +
         `서버 시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST\n` +
         `모드: ${process.env.KIS_IS_REAL === 'true' ? '🔴 실거래' : '🟡 모의투자'}\n` +
-        `비상정지: ${EMERGENCY_STOP ? '🛑 활성' : '✅ 해제'}`
+        `비상정지: ${getEmergencyStop() ? '🛑 활성' : '✅ 해제'}`
       );
       res.json({ ok: true, message: 'Telegram 메시지 전송 완료' });
     } catch (e: any) {
@@ -1286,7 +1289,7 @@ async function startServer() {
     // 두 cron으로 전체 KST 거래일(08:00~17:00)을 커버합니다.
     // ① UTC 23:xx (= KST Mon-Fri 08:xx, 동시호가/장 전 준비) — Sun-Thu UTC
     cron.schedule('*/5 23 * * 0-4', async () => {
-      if (EMERGENCY_STOP) { console.warn('[Orchestrator] 비상 정지 — tick 건너뜀'); return; }
+      if (getEmergencyStop()) { console.warn('[Orchestrator] 비상 정지 — tick 건너뜀'); return; }
       await tradingOrchestrator.tick().catch(console.error);
       if (process.env.AUTO_TRADE_ENABLED === 'true') {
         await checkDailyLossLimit().catch(console.error);
@@ -1295,7 +1298,7 @@ async function startServer() {
 
     // ② UTC 00:xx~08:xx (= KST Mon-Fri 09:xx~17:xx, 장중/마감/리포트) — Mon-Fri UTC
     cron.schedule('*/5 0-8 * * 1-5', async () => {
-      if (EMERGENCY_STOP) { console.warn('[Orchestrator] 비상 정지 — tick 건너뜀'); return; }
+      if (getEmergencyStop()) { console.warn('[Orchestrator] 비상 정지 — tick 건너뜀'); return; }
       await tradingOrchestrator.tick().catch(console.error);
       if (process.env.AUTO_TRADE_ENABLED === 'true') {
         await checkDailyLossLimit().catch(console.error);
