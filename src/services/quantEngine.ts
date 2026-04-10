@@ -170,7 +170,8 @@ export function evaluateGate0(env: MacroEnvironment): Gate0Result {
     macroHealthScore >= 70 ? 'HIGH' : macroHealthScore >= 40 ? 'MEDIUM' : 'LOW';
 
   const buyingHalted = macroHealthScore < 40;
-  const kellyReduction = macroHealthScore >= 70 ? 0 : macroHealthScore >= 40 ? 0.5 : 1.0;
+  // MAPC: 조정 켈리 = 기본 켈리 × (MHS / 100); MHS < 40 은 buyingHalted 로 차단
+  const kellyReduction = macroHealthScore < 40 ? 1.0 : 1 - (macroHealthScore / 100);
 
   const rateCycle: RateCycle =
     env.bokRateDirection === 'HIKING' ? 'TIGHTENING' :
@@ -807,7 +808,7 @@ export function evaluateStock(
     recommendation = '관망';
   }
 
-  // Gate 0 Kelly 축소 적용 (MHS 40-69 → 50% 축소)
+  // MAPC: 조정 켈리 = 기본 켈리 × (MHS / 100)
   if (gate0Result && gate0Result.kellyReduction > 0) {
     positionSize *= (1 - gate0Result.kellyReduction);
   }

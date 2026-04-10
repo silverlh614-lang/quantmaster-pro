@@ -390,7 +390,7 @@ export const ManualQuantInput: React.FC<ManualQuantInputProps> = ({ regime, sect
                   </p>
                   <p className="text-xs font-bold text-white/30 mt-1">
                     {result.gate0Result.mhsLevel === 'HIGH' ? '✅ 정상 운용'
-                      : result.gate0Result.mhsLevel === 'MEDIUM' ? '⚠️ Kelly 50% 축소'
+                      : result.gate0Result.mhsLevel === 'MEDIUM' ? `⚠️ MAPC Kelly ${Math.round((1 - result.gate0Result.kellyReduction) * 100)}% 운용`
                         : '🚫 매수 중단'}
                   </p>
                 </div>
