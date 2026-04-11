@@ -1,6 +1,6 @@
 import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, withRetry, safeJsonParse } from './aiClient';
-import { enrichStockWithRealData } from './priceSync';
+import { enrichStockWithRealData } from './enrichment';
 import type { StockRecommendation } from './types';
 
 const searchCache = new Map<string, { data: StockRecommendation[]; timestamp: number }>();
