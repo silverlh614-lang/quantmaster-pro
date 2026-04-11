@@ -10,7 +10,7 @@ import {
   getDailyLossPct, setDailyLoss,
 } from '../state.js';
 import { cancelAllPendingOrders, checkDailyLossLimit } from '../emergency.js';
-import { sendTelegramAlert } from '../../src/server/autoTradeEngine.js';
+import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { handleTelegramWebhook } from '../telegram/webhookHandler.js';
 
 const router = Router();

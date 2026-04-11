@@ -2,30 +2,18 @@
 // 자동매매 라우터 — server.ts에서 분리
 // 포함 대상: /api/auto-trade/*, /api/macro/*, /api/shadow/*, /api/real-trade/*, /api/fss/*
 import { Router } from 'express';
-import {
-  loadWatchlist,
-  saveWatchlist,
-  getShadowTrades,
-  getScreenerCache,
-  preScreenStocks,
-  autoPopulateWatchlist,
-  getDartAlerts,
-  pollDartDisclosures,
-  getRecommendations,
-  getMonthlyStats,
-  evaluateRecommendations,
-  loadMacroState,
-  saveMacroState,
-  trancheExecutor,
-  isRealTradeReady,
-  pollBearRegime,
-  pollIpsAlert,
-  loadFssRecords,
-  upsertFssRecord,
-  runAutoSignalScan,
-  type WatchlistEntry,
-  type MacroState,
-} from '../../src/server/autoTradeEngine.js';
+import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
+import { loadMacroState, saveMacroState, type MacroState } from '../persistence/macroStateRepo.js';
+import { getDartAlerts } from '../persistence/dartRepo.js';
+import { loadFssRecords, upsertFssRecord } from '../persistence/fssRepo.js';
+import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
+import { getScreenerCache, preScreenStocks, autoPopulateWatchlist } from '../screener/stockScreener.js';
+import { getRecommendations, getMonthlyStats, evaluateRecommendations, isRealTradeReady } from '../learning/recommendationTracker.js';
+import { pollDartDisclosures } from '../alerts/dartPoller.js';
+import { pollBearRegime } from '../alerts/bearRegimeAlert.js';
+import { pollIpsAlert } from '../alerts/ipsAlert.js';
+import { trancheExecutor } from '../trading/trancheExecutor.js';
+import { runAutoSignalScan } from '../trading/signalScanner.js';
 
 const router = Router();
 

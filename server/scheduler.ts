@@ -2,17 +2,16 @@
 // server.ts에서 분리: 13개 cron 작업을 한 곳에서 관리
 import cron from 'node-cron';
 import { getEmergencyStop } from './state.js';
+import { tradingOrchestrator } from './orchestrator/tradingOrchestrator.js';
+import { pollDartDisclosures, fastDartCheck } from './alerts/dartPoller.js';
+import { pollBearRegime } from './alerts/bearRegimeAlert.js';
+import { pollIpsAlert } from './alerts/ipsAlert.js';
+import { pollMhsMorningAlert } from './alerts/mhsAlert.js';
 import {
-  tradingOrchestrator,
-  pollDartDisclosures,
-  fastDartCheck,
-  pollBearRegime,
-  pollIpsAlert,
-  pollMhsMorningAlert,
   generateWeeklyReport,
   sendWatchlistBriefing,
   sendIntradayCheckIn,
-} from '../src/server/autoTradeEngine.js';
+} from './alerts/reportGenerator.js';
 import { checkDailyLossLimit } from './emergency.js';
 
 export function startScheduler() {
