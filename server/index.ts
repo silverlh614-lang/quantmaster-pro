@@ -4,6 +4,7 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import { createHash } from "crypto";
 import dotenv from "dotenv";
 import { tradingOrchestrator } from "./orchestrator/tradingOrchestrator.js";
 import { sendTelegramAlert } from "./alerts/telegramClient.js";
@@ -28,6 +29,7 @@ import dartRouter from './routes/dartRouter.js';
 import autoTradeRouter from './routes/autoTradeRouter.js';
 import systemRouter from './routes/systemRouter.js';
 import { startScheduler } from './scheduler.js';
+import { resolveStaticAssetsPath } from './staticAssets.js';
 
 
 export { isEmergencyStopped, setDailyLoss };
@@ -88,20 +90,44 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // vite.config.ts outDir: 'build' 기준으로 탐색, dist도 폴백으로 확인
-    const candidates = [
-      path.join(__dirname, '..', 'build'),
-      path.join(process.cwd(), 'build'),
-      path.join(__dirname, '..', 'dist'),
-      path.join(process.cwd(), 'dist'),
-    ];
-    const distPath = candidates.find(p => fs.existsSync(path.join(p, 'index.html'))) ?? candidates[0];
+    const { distPath, hasIndexHtml } = resolveStaticAssetsPath(__dirname, process.cwd());
     console.log(`Serving static files from: ${distPath}`);
 
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    const registerFallbackRoot = () => {
+      console.warn('[Static] index.html not found. API routes remain available; root path returns status message.');
+      app.get('/', (_req, res) => {
+        res
+          .status(200)
+          .type('text/plain')
+          .send('QuantMaster Pro server is running. Frontend build files are missing.');
+      });
+    };
+
+    if (hasIndexHtml) {
+      try {
+        const indexHtmlPath = path.join(distPath, 'index.html');
+        const [indexHtml, indexStats] = await Promise.all([
+          fs.promises.readFile(indexHtmlPath, 'utf8'),
+          fs.promises.stat(indexHtmlPath),
+        ]);
+        const indexEtag = `"${createHash('sha1').update(indexHtml).digest('hex')}"`;
+        const indexLastModified = indexStats.mtime.toUTCString();
+        app.use(express.static(distPath));
+        app.get('*', (req, res) => {
+          if (req.headers['if-none-match'] === indexEtag) {
+            return res.status(304).end();
+          }
+          res.set('ETag', indexEtag);
+          res.set('Last-Modified', indexLastModified);
+          res.type('html').send(indexHtml);
+        });
+      } catch (error) {
+        console.warn('[Static] index.html became unavailable during startup. Serving fallback root.', error);
+        registerFallbackRoot();
+      }
+    } else {
+      registerFallbackRoot();
+    }
   }
 
   const server = app.listen(PORT, "0.0.0.0", () => {
