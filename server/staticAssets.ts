@@ -14,10 +14,17 @@ export function resolveStaticAssetsPath(baseDir: string, cwd: string): StaticAss
     path.join(cwd, 'dist'),
   ];
 
-  const resolved = candidates.find((candidate) => fs.existsSync(path.join(candidate, 'index.html'))) ?? candidates[0];
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, 'index.html'))) {
+      return {
+        distPath: candidate,
+        hasIndexHtml: true,
+      };
+    }
+  }
 
   return {
-    distPath: resolved,
-    hasIndexHtml: fs.existsSync(path.join(resolved, 'index.html')),
+    distPath: candidates[0],
+    hasIndexHtml: false,
   };
 }

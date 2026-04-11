@@ -3,6 +3,8 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
+import { createHash } from "crypto";
 import dotenv from "dotenv";
 import { tradingOrchestrator } from "./orchestrator/tradingOrchestrator.js";
 import { sendTelegramAlert } from "./alerts/telegramClient.js";
@@ -91,19 +93,40 @@ async function startServer() {
     const { distPath, hasIndexHtml } = resolveStaticAssetsPath(__dirname, process.cwd());
     console.log(`Serving static files from: ${distPath}`);
 
-    if (hasIndexHtml) {
-      app.use(express.static(distPath));
-      app.get('*', (_req, res) => {
-        res.sendFile(path.join(distPath, 'index.html'));
-      });
-    } else {
-      console.warn('[Static] index.html not found. Serving API-only fallback at /');
+    const registerFallbackRoot = () => {
+      console.warn('[Static] index.html not found. API routes remain available; root path returns status message.');
       app.get('/', (_req, res) => {
         res
           .status(200)
           .type('text/plain')
           .send('QuantMaster Pro server is running. Frontend build files are missing.');
       });
+    };
+
+    if (hasIndexHtml) {
+      try {
+        const indexHtmlPath = path.join(distPath, 'index.html');
+        const [indexHtml, indexStats] = await Promise.all([
+          fs.promises.readFile(indexHtmlPath, 'utf8'),
+          fs.promises.stat(indexHtmlPath),
+        ]);
+        const indexEtag = `"${createHash('sha1').update(indexHtml).digest('hex')}"`;
+        const indexLastModified = indexStats.mtime.toUTCString();
+        app.use(express.static(distPath));
+        app.get('*', (req, res) => {
+          if (req.headers['if-none-match'] === indexEtag) {
+            return res.status(304).end();
+          }
+          res.set('ETag', indexEtag);
+          res.set('Last-Modified', indexLastModified);
+          res.type('html').send(indexHtml);
+        });
+      } catch (error) {
+        console.warn('[Static] index.html became unavailable during startup. Serving fallback root.', error);
+        registerFallbackRoot();
+      }
+    } else {
+      registerFallbackRoot();
     }
   }
 
