@@ -4,7 +4,6 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
-import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { tradingOrchestrator } from "./orchestrator/tradingOrchestrator.js";
 import { sendTelegramAlert } from "./alerts/telegramClient.js";
@@ -82,6 +81,7 @@ async function startServer() {
   // IMPORTANT: This must come AFTER all API routes so the catch-all '*'
   // doesn't intercept /api/* requests in production.
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -146,4 +146,7 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch((error) => {
+  console.error('[Server] Failed to start:', error);
+  process.exit(1);
+});
