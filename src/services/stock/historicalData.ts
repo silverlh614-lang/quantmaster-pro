@@ -10,6 +10,9 @@ import type {
   AdvancedAnalysisResult,
   WalkForwardAnalysis,
 } from './types';
+import type { RegimeLevel, StockProfileType } from '../../types/quant';
+import { REGIME_CONFIGS } from '../quant/regimeEngine';
+import { PROFIT_TARGETS } from '../quant/sellEngine';
 
 export async function fetchHistoricalData(code: string, range: string = '1y', interval: string = '1d'): Promise<any> {
   // Try .KS (KOSPI) first, then .KQ (KOSDAQ) if it looks like a Korean stock code
@@ -46,7 +49,9 @@ export async function fetchHistoricalData(code: string, range: string = '1y', in
 export async function backtestPortfolio(
   portfolio: { name: string; code: string; weight: number }[],
   initialEquity: number = 100000000,
-  years: number = 1
+  years: number = 1,
+  regime: RegimeLevel = 'R2_BULL',
+  profileType: StockProfileType = 'B',
 ): Promise<BacktestResult> {
   const endDate = new Date().toISOString().split('T')[0];
   const startDate = new Date(Date.now() - years * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -118,8 +123,40 @@ export async function backtestPortfolio(
     let peak = initialEquity;
     let mdd = 0;
 
-    const BUY_COST_RATIO = 1.00115;
+    const BUY_COST_RATIO  = 1.00115;
     const SELL_COST_RATIO = 0.99655;
+
+    // ── 레짐·프로파일 설정 연결 ──────────────────────────────────────────────
+    const profileKey    = `profile${profileType}` as keyof typeof REGIME_CONFIGS[typeof regime]['stopLoss'];
+    const stopLossRate  = REGIME_CONFIGS[regime].stopLoss[profileKey]; // e.g., -0.10
+    const limitTranches = PROFIT_TARGETS[regime].filter(t => t.type === 'LIMIT' && t.trigger !== null);
+    const trailPct      = PROFIT_TARGETS[regime].find(t => t.type === 'TRAILING')?.trailPct ?? 0.10;
+
+    /** 포지션 생성 헬퍼 — 레짐 config 기반 손절·익절 설정 주입 */
+    const makePosition = (
+      code: string, name: string,
+      entryPrice: number, quantity: number,
+      date: string, currentPrice: number,
+    ): BacktestPosition => ({
+      stockCode:  code,
+      stockName:  name,
+      entryPrice,
+      quantity,
+      originalQuantity: quantity,
+      entryDate:  date,
+      stopLoss:   entryPrice * (1 + stopLossRate),   // e.g., *0.90 for -10%
+      takeProfit: Infinity,                            // 단일 목표가 미사용 (profitTranches 대체)
+      currentPrice,
+      unrealizedReturn: 0,
+      profitTranches: limitTranches.map(t => ({
+        price:  entryPrice * (1 + t.trigger!),
+        ratio:  t.ratio,
+        taken:  false,
+      })),
+      trailingHighWaterMark: entryPrice,
+      trailPct,
+      trailingEnabled: false,
+    });
 
     const closedTrades: { profit: number; isWin: boolean }[] = [];
 
@@ -127,23 +164,13 @@ export async function backtestPortfolio(
     portfolio.forEach(p => {
       const openPrice = openPriceMap[firstDate]?.[p.code] || priceMap[firstDate]?.[p.code];
       if (openPrice) {
-        const targetValue = initialEquity * (p.weight / 100);
+        const targetValue  = initialEquity * (p.weight / 100);
         const realBuyPrice = openPrice * BUY_COST_RATIO;
-        const quantity = Math.floor(targetValue / realBuyPrice);
-        const cost = quantity * realBuyPrice;
+        const quantity     = Math.floor(targetValue / realBuyPrice);
+        const cost         = quantity * realBuyPrice;
 
         if (quantity > 0 && state.cash >= cost) {
-          state.positions.push({
-            stockCode: p.code,
-            stockName: p.name,
-            entryPrice: realBuyPrice,
-            quantity,
-            entryDate: firstDate,
-            stopLoss: realBuyPrice * 0.85,
-            takeProfit: realBuyPrice * 1.5,
-            currentPrice: openPrice,
-            unrealizedReturn: 0
-          });
+          state.positions.push(makePosition(p.code, p.name, realBuyPrice, quantity, firstDate, openPrice));
           state.cash -= cost;
         }
       }
@@ -197,20 +224,15 @@ export async function backtestPortfolio(
             if (buyQty > 0 && state.cash >= buyQty * openPrice * BUY_COST_RATIO) {
               state.cash -= buyQty * openPrice * BUY_COST_RATIO;
               if (existingPos) {
-                existingPos.quantity += buyQty;
-                existingPos.entryPrice = (existingPos.entryPrice * (existingPos.quantity - buyQty) + openPrice * buyQty) / existingPos.quantity;
+                const prevQty  = existingPos.quantity;
+                const newEntry = (existingPos.entryPrice * prevQty + openPrice * buyQty) / (prevQty + buyQty);
+                existingPos.entryPrice        = newEntry;
+                existingPos.quantity         += buyQty;
+                existingPos.originalQuantity += buyQty;
+                existingPos.stopLoss          = newEntry * (1 + stopLossRate);
               } else {
-                state.positions.push({
-                  stockCode: target.code,
-                  stockName: target.name,
-                  entryPrice: openPrice * BUY_COST_RATIO,
-                  quantity: buyQty,
-                  entryDate: date,
-                  stopLoss: openPrice * 0.85,
-                  takeProfit: openPrice * 1.5,
-                  currentPrice: openPrice,
-                  unrealizedReturn: 0
-                });
+                const buyPrice = openPrice * BUY_COST_RATIO;
+                state.positions.push(makePosition(target.code, target.name, buyPrice, buyQty, date, openPrice));
               }
             }
           }
@@ -244,24 +266,56 @@ export async function backtestPortfolio(
         benchmarkValue: (benchmarkVal / firstBenchmark) * 100
       });
 
+      // 트레일링 고점 갱신 (종가 기준, 매도 루프 전에 실행)
+      state.positions.forEach(pos => {
+        if (pos.currentPrice > pos.trailingHighWaterMark) {
+          pos.trailingHighWaterMark = pos.currentPrice;
+        }
+      });
+
       const remainingPositions: BacktestPosition[] = [];
       state.positions.forEach((pos: BacktestPosition) => {
-        const lowPrice = lowPriceMap[date]?.[pos.stockCode] || pos.currentPrice;
+        const lowPrice  = lowPriceMap[date]?.[pos.stockCode]  || pos.currentPrice;
         const highPrice = highPriceMap[date]?.[pos.stockCode] || pos.currentPrice;
 
+        // L1: 하드 손절 (일중 저가 기준 — 최우선)
         if (lowPrice <= pos.stopLoss) {
           const exitPrice = pos.stopLoss * SELL_COST_RATIO;
-          const profit = (exitPrice - pos.entryPrice) * pos.quantity;
           state.cash += pos.quantity * exitPrice;
-          closedTrades.push({ profit, isWin: false });
-        } else if (highPrice >= pos.takeProfit) {
-          const exitPrice = pos.takeProfit * SELL_COST_RATIO;
-          const profit = (exitPrice - pos.entryPrice) * pos.quantity;
-          state.cash += pos.quantity * exitPrice;
-          closedTrades.push({ profit, isWin: true });
-        } else {
-          remainingPositions.push(pos);
+          closedTrades.push({ profit: (exitPrice - pos.entryPrice) * pos.quantity, isWin: false });
+          return; // 전량 청산
         }
+
+        // L3: 분할 익절 (일중 고가 기준, originalQuantity 비율 적용)
+        for (const tranche of pos.profitTranches) {
+          if (tranche.taken || highPrice < tranche.price) continue;
+          const targetQty = Math.round(pos.originalQuantity * tranche.ratio);
+          const sellQty   = Math.min(targetQty, pos.quantity);
+          if (sellQty <= 0) continue;
+          const exitPrice = tranche.price * SELL_COST_RATIO;
+          state.cash += sellQty * exitPrice;
+          closedTrades.push({ profit: (exitPrice - pos.entryPrice) * sellQty, isWin: true });
+          pos.quantity -= sellQty;
+          tranche.taken = true;
+        }
+
+        // 모든 LIMIT 트랜치 완료 → 트레일링 활성화
+        if (!pos.trailingEnabled && pos.profitTranches.length > 0 && pos.profitTranches.every(t => t.taken)) {
+          pos.trailingEnabled = true;
+        }
+
+        // L3: 트레일링 스톱 (일중 저가 기준)
+        if (pos.trailingEnabled && pos.quantity > 0) {
+          const trailTrigger = pos.trailingHighWaterMark * (1 - pos.trailPct);
+          if (lowPrice <= trailTrigger) {
+            const exitPrice = trailTrigger * SELL_COST_RATIO;
+            state.cash += pos.quantity * exitPrice;
+            closedTrades.push({ profit: (exitPrice - pos.entryPrice) * pos.quantity, isWin: exitPrice > pos.entryPrice });
+            return; // 잔여 전량 청산
+          }
+        }
+
+        if (pos.quantity > 0) remainingPositions.push(pos);
       });
       state.positions = remainingPositions;
     });

@@ -4,16 +4,29 @@ import type { ConditionId, EvaluationResult } from './core';
 
 // ─── 백테스트 ────────────────────────────────────────────────────────────────
 
+/** 분할 익절 트랜치 — 백테스트 포지션 단위로 저장 */
+export interface BacktestProfitTranche {
+  price:  number;   // 절대 익절 가격
+  ratio:  number;   // 이 트랜치에서 청산할 비율 (0~1)
+  taken:  boolean;  // 이미 실행됐으면 true
+}
+
 export interface BacktestPosition {
   stockCode: string;
   stockName: string;
   entryPrice: number;
   quantity: number;
   entryDate: string;
-  stopLoss: number;
-  takeProfit: number;
+  stopLoss: number;                       // 절대 손절가
+  takeProfit: number;                     // 단일 목표가 (레거시 — profitTranches 사용 시 Infinity)
   currentPrice: number;
   unrealizedReturn: number;
+  // ── 분할 익절 · 트레일링 스톱 (REGIME_CONFIGS 연결 후 사용) ──────────────
+  originalQuantity:        number;        // 최초 매수 수량 — 트랜치 비율 기준값
+  profitTranches:          BacktestProfitTranche[];
+  trailingHighWaterMark:   number;        // 매수가로 초기화, 신고가마다 갱신
+  trailPct:                number;        // 고점 대비 허용 하락 폭 (e.g., 0.08)
+  trailingEnabled:         boolean;       // 마지막 LIMIT 트랜치 실행 후 true
 }
 
 export interface BacktestPortfolioState {
