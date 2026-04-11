@@ -5,3 +5,4 @@ export * from './sector';
 export * from './bear';
 export * from './core';
 export * from './portfolio';
+export * from './sell';

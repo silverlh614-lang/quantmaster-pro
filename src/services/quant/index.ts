@@ -6,3 +6,4 @@ export * from './sectorEngine';
 export * from './ipsEngine';
 export * from './fssEngine';
 export * from './regimeEngine';
+export * from './sellEngine';
