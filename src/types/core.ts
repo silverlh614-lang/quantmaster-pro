@@ -50,11 +50,11 @@ export interface Condition {
 
 export type MarketRegimeType = '상승초기' | '변동성' | '횡보' | '하락';
 
-// ─── 자동매매 레짐 4단계 ──────────────────────────────────────────────────────
+// ─── 자동매매 레짐 체계 ───────────────────────────────────────────────────────
 
 /**
- * 자동매매 공격성 레벨을 결정하는 4단계 레짐.
- * MHS + VKOSPI 조합으로 실시간 분류 → getRegimeConfig()가 Gate 임계값·Kelly 상한을 반환.
+ * 자동매매 공격성 레벨 (MHS + VKOSPI 기반 4단계).
+ * Gate0Result.tradeRegime에 기록. 상세 분류는 RegimeLevel(6단계) 사용.
  */
 export type TradeRegime =
   | 'BULL_AGGRESSIVE'   // MHS ≥ 70 + VKOSPI < 20: 최대 공격
@@ -62,12 +62,113 @@ export type TradeRegime =
   | 'NEUTRAL'           // MHS 30~50: 신중 매수 (STRONG_BUY만 허용)
   | 'DEFENSE';          // MHS < 30 또는 블랙스완: 매수 전면 중단
 
-/** getRegimeConfig()가 반환하는 레짐별 Gate·Kelly 설정 */
+/**
+ * 6단계 정밀 레짐 레벨 (classifyRegime() 반환값).
+ * REGIME_CONFIGS[level]로 완전한 트레이딩 설정을 조회한다.
+ *
+ * R1 TURBO   — 최적 상승 사이클: 공격 모드 MAX
+ * R2 BULL    — 상승 추세 확인: 적극 매수
+ * R3 EARLY   — 상승 초기 선행 신호: 소규모 선취매 (수익률 최고 구간)
+ * R4 NEUTRAL — 중립 횡보: 선택적 진입
+ * R5 CAUTION — 약세 징조: 방어 우선
+ * R6 DEFENSE — 하락/블랙스완: 매수 차단
+ */
+export type RegimeLevel =
+  | 'R1_TURBO'
+  | 'R2_BULL'
+  | 'R3_EARLY'
+  | 'R4_NEUTRAL'
+  | 'R5_CAUTION'
+  | 'R6_DEFENSE';
+
+// ─── 7축 레짐 판단 변수 ──────────────────────────────────────────────────────
+
+/** classifyRegime()의 입력 — 7개 축 실시간 데이터 */
+export interface RegimeVariables {
+  // ① 변동성 축
+  vkospi: number;            // 한국 공포지수 (절대값)
+  vkospi5dTrend: number;     // 5일 변화율 % (음수 = 안정화 중)
+  vkospiDayChange: number;   // 단일일 변화율 % (블랙스완 감지용)
+
+  // ② 매크로 축
+  mhsScore: number;          // Macro Health Score 0~100
+  usdKrw: number;            // 원달러 환율
+  usdKrw20dChange: number;   // 20일 변화율 % (양수 = 달러강세 = 악재)
+  usdKrwDayChange: number;   // 단일일 변화율 % (블랙스완 감지용)
+
+  // ③ 수급 축
+  foreignNetBuy5d: number;   // 외국인 5일 누적 순매수 (억원)
+  passiveActiveBoth: boolean; // Passive + Active 동반 순매수 여부
+
+  // ④ 지수 기술적 축
+  kospiAbove20MA: boolean;   // KOSPI 20일 이동평균선 위
+  kospiAbove60MA: boolean;   // KOSPI 60일 이동평균선 위
+  kospi20dReturn: number;    // KOSPI 20일 수익률 %
+  kospiDayReturn: number;    // KOSPI 단일일 수익률 % (블랙스완 감지용)
+
+  // ⑤ 사이클 축
+  leadingSectorRS: number;                              // 주도 섹터 RS 점수 0~100
+  sectorCycleStage: 'EARLY' | 'MID' | 'LATE' | 'TURNING';
+
+  // ⑥ 신용/심리 축
+  marginBalance5dChange: number; // 신용잔고 5일 변화율 %
+  shortSellingRatio: number;     // 공매도 비율 %
+
+  // ⑦ 글로벌 선행 축
+  spx20dReturn: number;    // S&P500 20일 수익률 %
+  vix: number;             // VIX (미국 공포지수)
+  dxy5dChange: number;     // 달러 인덱스 5일 변화율 %
+}
+
+// ─── 레짐별 트레이딩 설정 타입 ───────────────────────────────────────────────
+
+/** 프로파일(A/B/C/D)별 손절 비율 (음수, e.g., -0.12 = -12%) */
+export interface StopLossConfig {
+  profileA: number;  // 대형 주도주
+  profileB: number;  // 중형 성장주
+  profileC: number;  // 소형 모멘텀
+  profileD: number;  // 촉매 플레이
+}
+
+/** 단계적 익절 트랜치 설정 */
+export interface TakeProfitTranche {
+  trigger: number;   // 수익률 임계값 (e.g., 0.15 = +15%)
+  ratio: number;     // 해당 시점 청산 비율 (e.g., 0.3 = 30%)
+}
+
+/** 레짐별 완전 트레이딩 설정 — REGIME_CONFIGS[RegimeLevel]로 조회 */
+export interface FullRegimeConfig {
+  // Gate 통과 기준
+  gate2Required: number;       // Gate 2 최소 통과 조건 수 (12개 기준)
+  gate3Required: number;       // Gate 3 최소 통과 조건 수 (10개 기준)
+
+  // 포지션 공격성
+  kellyMultiplier: number;     // baseKelly × kellyMultiplier = 실효 Kelly
+  maxPositions: number;        // 동시 보유 최대 종목 수 (0 = 매수 차단)
+  allowedSignals: string[];    // 허용 신호 등급 (빈 배열 = 매수 전면 차단)
+  trancheStrategy: string;     // 분할 매수 전략 설명
+
+  // 손익 관리
+  stopLoss: StopLossConfig;
+  takeProfitPartial: {
+    first: TakeProfitTranche;
+    second: TakeProfitTranche;
+    third: TakeProfitTranche | string | null;  // null = 없음, string = 트레일링
+  };
+  dailyLossLimit: number;      // 일일 손실 한도 (e.g., -0.03 = -3%)
+  weeklyLossLimit: number;     // 주간 손실 한도
+
+  // R6 전용
+  emergencyExit?: string;      // 블랙스완 시 즉시 청산 방식
+  cooldown?: string;           // 매수 재개 전 냉각 기간
+}
+
+/** getRegimeConfig()가 반환하는 경량 Gate·Kelly 설정 (서버 autoTradeEngine 호환용) */
 export interface RegimeConfig {
-  gate2PassCount: number;      // Gate 2 통과 최소 조건 수 (GATE2_IDS 12개 기준)
-  gate3PassCount: number;      // Gate 3 통과 최소 조건 수 (GATE3_IDS 10개 기준)
+  gate2PassCount: number;      // Gate 2 통과 최소 조건 수
+  gate3PassCount: number;      // Gate 3 통과 최소 조건 수
   maxPositionKelly: number;    // Kelly 상한 (0~1)
-  allowedSignals: string[];    // 허용 신호 등급 ([] = 매수 차단)
+  allowedSignals: string[];    // 허용 신호 등급
 }
 
 export interface MarketRegime {
