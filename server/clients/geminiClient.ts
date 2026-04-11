@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { AI_MODELS } from '../../../server/constants.js';
+import { AI_MODELS } from '../constants.js';
 
 export function getGeminiClient(): GoogleGenAI | null {
   const key = process.env.GEMINI_API_KEY ?? process.env.API_KEY;

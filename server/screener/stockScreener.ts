@@ -2,7 +2,7 @@ import fs from 'fs';
 import { SCREENER_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
-import { evaluateServerGate } from '../../../server/quantFilter.js';
+import { evaluateServerGate } from '../quantFilter.js';
 import { kisGet, KIS_IS_REAL } from '../clients/kisClient.js';
 
 export interface ScreenedStock {
