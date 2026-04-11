@@ -3,7 +3,6 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
-import fs from "fs";
 import dotenv from "dotenv";
 import { tradingOrchestrator } from "./orchestrator/tradingOrchestrator.js";
 import { sendTelegramAlert } from "./alerts/telegramClient.js";
@@ -28,6 +27,7 @@ import dartRouter from './routes/dartRouter.js';
 import autoTradeRouter from './routes/autoTradeRouter.js';
 import systemRouter from './routes/systemRouter.js';
 import { startScheduler } from './scheduler.js';
+import { resolveStaticAssetsPath } from './staticAssets.js';
 
 
 export { isEmergencyStopped, setDailyLoss };
@@ -88,20 +88,23 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // vite.config.ts outDir: 'build' 기준으로 탐색, dist도 폴백으로 확인
-    const candidates = [
-      path.join(__dirname, '..', 'build'),
-      path.join(process.cwd(), 'build'),
-      path.join(__dirname, '..', 'dist'),
-      path.join(process.cwd(), 'dist'),
-    ];
-    const distPath = candidates.find(p => fs.existsSync(path.join(p, 'index.html'))) ?? candidates[0];
+    const { distPath, hasIndexHtml } = resolveStaticAssetsPath(__dirname, process.cwd());
     console.log(`Serving static files from: ${distPath}`);
 
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    if (hasIndexHtml) {
+      app.use(express.static(distPath));
+      app.get('*', (_req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    } else {
+      console.warn('[Static] index.html not found. Serving API-only fallback at /');
+      app.get('/', (_req, res) => {
+        res
+          .status(200)
+          .type('text/plain')
+          .send('QuantMaster Pro server is running. Frontend build files are missing.');
+      });
+    }
   }
 
   const server = app.listen(PORT, "0.0.0.0", () => {
