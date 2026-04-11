@@ -18,6 +18,7 @@ import {
 } from '../services/stockService';
 import { useGlobalIntelStore } from '../stores';
 import { evaluateGate0, evaluateBearRegime, evaluateBearSeasonality, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener, evaluateBearKelly, evaluateIPS, computeFSS } from '../services/quantEngine';
+import { syncGate0ToServer } from '../services/autoTrading';
 import { getStaleTime, PERSIST_GC_TIME } from '../utils/cacheConfig';
 
 /**
@@ -114,6 +115,9 @@ export function useBatchGlobalIntel() {
 
         // IPS 통합 변곡점 확률 엔진 (아이디어 11)
         setIpsResult(evaluateIPS(data.macro, g0, bearResult));
+
+        // 서버 MacroState 동기화 — classifyRegime() 파이프라인 공급
+        syncGate0ToServer(data.macro, g0).catch(console.warn);
       }
 
       if (data.regime) setEconomicRegimeData(data.regime);

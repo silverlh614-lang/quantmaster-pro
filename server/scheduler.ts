@@ -13,6 +13,7 @@ import {
   sendIntradayCheckIn,
 } from './alerts/reportGenerator.js';
 import { checkDailyLossLimit } from './emergency.js';
+import { refreshMarketRegimeVars } from './trading/marketDataRefresh.js';
 
 export function startScheduler() {
   // ─── 아이디어 1: TradingDayOrchestrator — 장 사이클 State Machine ────────
@@ -75,6 +76,15 @@ export function startScheduler() {
     await generateWeeklyReport().catch(console.error);
   }, { timezone: 'UTC' });
 
+  // 시장 지표 자동 갱신 — 평일 08:40 KST (UTC 23:40, 일~목) + 장 마감 후 15:30 KST (UTC 06:30, 월~금)
+  // KOSPI/SPX/DXY/USD-KRW Yahoo Finance → classifyRegime() 7축 갱신
+  cron.schedule('40 23 * * 0-4', async () => {
+    await refreshMarketRegimeVars().catch(console.error);
+  }, { timezone: 'UTC' });
+  cron.schedule('30 6 * * 1-5', async () => {
+    await refreshMarketRegimeVars().catch(console.error);
+  }, { timezone: 'UTC' });
+
   // 장 시작 전 워치리스트 브리핑 — 평일 08:50 KST (UTC 23:50, 일~목 UTC)
   cron.schedule('50 23 * * 0-4', async () => {
     await sendWatchlistBriefing().catch(console.error);
@@ -90,5 +100,5 @@ export function startScheduler() {
     await sendIntradayCheckIn('preclose').catch(console.error);
   }, { timezone: 'UTC' });
 
-  console.log('[Scheduler] 13개 cron 작업 등록 완료');
+  console.log('[Scheduler] 15개 cron 작업 등록 완료');
 }

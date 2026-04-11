@@ -21,7 +21,9 @@ export function buildRegimeVars(macroState: MacroState): RegimeVariables {
     // ① 변동성
     vkospi:          macroState.vkospi          ?? 20,
     vkospiDayChange: macroState.vkospiDayChange  ?? 0,
-    vkospi5dTrend:   macroState.vkospi5dTrend   ?? 0,
+    // vkospi5dTrend: 직접 값 없으면 vkospiRising boolean을 방향 힌트로 대용
+    vkospi5dTrend:   macroState.vkospi5dTrend   ??
+      (macroState.vkospiRising === false ? -1 : macroState.vkospiRising === true ? 1 : 0),
 
     // ② 거시 (MHS·환율)
     mhsScore:        macroState.mhs              ?? 50,

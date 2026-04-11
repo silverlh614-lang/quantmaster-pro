@@ -13,6 +13,7 @@ import { pollDartDisclosures } from '../alerts/dartPoller.js';
 import { pollBearRegime } from '../alerts/bearRegimeAlert.js';
 import { pollIpsAlert } from '../alerts/ipsAlert.js';
 import { trancheExecutor } from '../trading/trancheExecutor.js';
+import { refreshMarketRegimeVars } from '../trading/marketDataRefresh.js';
 import { runAutoSignalScan } from '../trading/signalScanner.js';
 
 const router = Router();
@@ -208,43 +209,75 @@ router.get('/macro/state', (_req: any, res: any) => {
   res.json(state);
 });
 
+/** 시장 지표 자동 갱신 — KOSPI/SPX/DXY/USD-KRW Yahoo Finance + FSS 수급 계산 */
+router.get('/macro/refresh', async (_req: any, res: any) => {
+  try {
+    const computed = await refreshMarketRegimeVars();
+    res.json({ ok: true, computed, updatedAt: new Date().toISOString() });
+  } catch (err) {
+    console.error('[MacroRefresh] 오류:', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 router.post('/macro/state', (req: any, res: any) => {
-  const {
-    mhs, regime, vkospi, foreignFuturesSellDays, iri,
-    // 아이디어 11: IPS 변곡점 엔진 보조 지표
-    vix, mhsTrend, vkospiRising, bearRegimeTriggeredCount, bearDefenseMode,
-    oeciCliKorea, exportGrowth3mAvg, dxyBullish, kospiBelow120ma, ips,
-  } = req.body;
-  if (typeof mhs !== 'number' || mhs < 0 || mhs > 100) {
+  const b = req.body;
+  if (typeof b.mhs !== 'number' || b.mhs < 0 || b.mhs > 100) {
     return res.status(400).json({ error: 'mhs는 0~100 사이 숫자여야 합니다' });
   }
   const validRegimes = ['GREEN', 'YELLOW', 'RED'];
-  const finalRegime = validRegimes.includes(regime) ? regime : (mhs >= 60 ? 'GREEN' : mhs >= 30 ? 'YELLOW' : 'RED');
-  const state: MacroState = { mhs, regime: finalRegime, updatedAt: new Date().toISOString() };
-  // 아이디어 10: Bear Regime 보조 지표 — 클라이언트에서 전달된 경우 저장
-  if (typeof vkospi === 'number') state.vkospi = vkospi;
-  if (typeof foreignFuturesSellDays === 'number') state.foreignFuturesSellDays = foreignFuturesSellDays;
-  if (typeof iri === 'number') state.iri = iri;
-  // 아이디어 11: IPS 변곡점 엔진 보조 지표
-  if (typeof vix === 'number') state.vix = vix;
-  if (mhsTrend === 'IMPROVING' || mhsTrend === 'STABLE' || mhsTrend === 'DETERIORATING') state.mhsTrend = mhsTrend;
-  if (typeof vkospiRising === 'boolean') state.vkospiRising = vkospiRising;
-  if (typeof bearRegimeTriggeredCount === 'number') state.bearRegimeTriggeredCount = bearRegimeTriggeredCount;
-  if (typeof bearDefenseMode === 'boolean') state.bearDefenseMode = bearDefenseMode;
-  if (typeof oeciCliKorea === 'number') state.oeciCliKorea = oeciCliKorea;
-  if (typeof exportGrowth3mAvg === 'number') state.exportGrowth3mAvg = exportGrowth3mAvg;
-  if (typeof dxyBullish === 'boolean') state.dxyBullish = dxyBullish;
-  if (typeof kospiBelow120ma === 'boolean') state.kospiBelow120ma = kospiBelow120ma;
-  if (typeof ips === 'number') state.ips = ips;
-  // 아이디어 4: FSS 외국인 수급 캐시
-  const { fss: fssVal, fssAlertLevel: fssAlert } = req.body;
-  if (typeof fssVal === 'number') state.fss = fssVal;
-  if (fssAlert === 'NORMAL' || fssAlert === 'CAUTION' || fssAlert === 'HIGH_ALERT') state.fssAlertLevel = fssAlert;
+  const finalRegime = validRegimes.includes(b.regime) ? b.regime
+    : (b.mhs >= 60 ? 'GREEN' : b.mhs >= 30 ? 'YELLOW' : 'RED');
+
+  // ── 기존 상태와 MERGE — 서버 시장데이터 갱신 결과를 프론트 POST로 덮어쓰지 않음 ──
+  const existing = loadMacroState() ?? {} as MacroState;
+  const state: MacroState = { ...existing, mhs: b.mhs, regime: finalRegime, updatedAt: new Date().toISOString() };
+
+  // ─── Bear Regime / IPS 보조 지표 ─────────────────────────────────────────
+  const num  = (k: string) => typeof b[k] === 'number';
+  const bool = (k: string) => typeof b[k] === 'boolean';
+  if (num('vkospi'))                 state.vkospi                 = b.vkospi;
+  if (num('foreignFuturesSellDays')) state.foreignFuturesSellDays = b.foreignFuturesSellDays;
+  if (num('iri'))                    state.iri                    = b.iri;
+  if (num('vix'))                    state.vix                    = b.vix;
+  if (num('oeciCliKorea'))           state.oeciCliKorea           = b.oeciCliKorea;
+  if (num('exportGrowth3mAvg'))      state.exportGrowth3mAvg      = b.exportGrowth3mAvg;
+  if (num('bearRegimeTriggeredCount')) state.bearRegimeTriggeredCount = b.bearRegimeTriggeredCount;
+  if (num('ips'))                    state.ips                    = b.ips;
+  if (bool('vkospiRising'))          state.vkospiRising           = b.vkospiRising;
+  if (bool('bearDefenseMode'))       state.bearDefenseMode        = b.bearDefenseMode;
+  if (bool('dxyBullish'))            state.dxyBullish             = b.dxyBullish;
+  if (bool('kospiBelow120ma'))       state.kospiBelow120ma        = b.kospiBelow120ma;
+  if (b.mhsTrend === 'IMPROVING' || b.mhsTrend === 'STABLE' || b.mhsTrend === 'DETERIORATING')
+    state.mhsTrend = b.mhsTrend;
+  if (b.fssAlertLevel === 'NORMAL' || b.fssAlertLevel === 'CAUTION' || b.fssAlertLevel === 'HIGH_ALERT')
+    state.fssAlertLevel = b.fssAlertLevel;
+  if (num('fss')) state.fss = b.fss;
+
+  // ─── RegimeVariables 7축 — classifyRegime()이 필요로 하는 필드 ────────────
+  if (num('vkospiDayChange'))        state.vkospiDayChange        = b.vkospiDayChange;
+  if (num('vkospi5dTrend'))          state.vkospi5dTrend          = b.vkospi5dTrend;
+  if (num('usdKrw'))                 state.usdKrw                 = b.usdKrw;
+  if (num('usdKrw20dChange'))        state.usdKrw20dChange        = b.usdKrw20dChange;
+  if (num('usdKrwDayChange'))        state.usdKrwDayChange        = b.usdKrwDayChange;
+  if (num('foreignNetBuy5d'))        state.foreignNetBuy5d        = b.foreignNetBuy5d;
+  if (bool('passiveActiveBoth'))     state.passiveActiveBoth      = b.passiveActiveBoth;
+  if (bool('kospiAbove20MA'))        state.kospiAbove20MA         = b.kospiAbove20MA;
+  if (bool('kospiAbove60MA'))        state.kospiAbove60MA         = b.kospiAbove60MA;
+  if (num('kospi20dReturn'))         state.kospi20dReturn         = b.kospi20dReturn;
+  if (num('kospiDayReturn'))         state.kospiDayReturn         = b.kospiDayReturn;
+  if (num('leadingSectorRS'))        state.leadingSectorRS        = b.leadingSectorRS;
+  if (b.sectorCycleStage === 'EARLY' || b.sectorCycleStage === 'MID' ||
+      b.sectorCycleStage === 'LATE'  || b.sectorCycleStage === 'TURNING')
+    state.sectorCycleStage = b.sectorCycleStage;
+  if (num('marginBalance5dChange'))  state.marginBalance5dChange  = b.marginBalance5dChange;
+  if (num('shortSellingRatio'))      state.shortSellingRatio      = b.shortSellingRatio;
+  if (num('spx20dReturn'))           state.spx20dReturn           = b.spx20dReturn;
+  if (num('dxy5dChange'))            state.dxy5dChange            = b.dxy5dChange;
+
   saveMacroState(state);
-  console.log(`[Macro] MHS 업데이트: ${mhs} (${finalRegime})`);
-  // 아이디어 10: Bear Regime 즉시 알림 체크 (비동기, fire-and-forget)
+  console.log(`[Macro] MHS 업데이트: ${b.mhs} (${finalRegime})`);
   pollBearRegime().catch(console.error);
-  // 아이디어 11: IPS 변곡점 즉시 알림 체크 (비동기, fire-and-forget)
   pollIpsAlert().catch(console.error);
   res.json({ ok: true, ...state });
 });
