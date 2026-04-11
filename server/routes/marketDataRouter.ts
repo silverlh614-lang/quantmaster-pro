@@ -226,7 +226,9 @@ router.get('/market-indicators', async (_req: Request, res: Response) => {
     us10yYield:  getPrice(us10yR),
     usShortRate: getPrice(irxR),
     samsungIri,
-    vkospi:      getPrice(vkospiR),
+    vkospi:          getPrice(vkospiR),
+    vkospiDayChange: getQuote(vkospiR)?.changePct ?? null,  // VKOSPI 당일 변화율 (%)
+    vkospi5dTrend:   getEtfReturn(vkospiR),                 // VKOSPI 5일 추세 (%)
     kospi:       getQuote(ks11R),   // { price, change, changePct }
     kosdaq:      getQuote(kq11R),   // { price, change, changePct }
     ewyReturn:   getEtfReturn(ewyR),  // EWY 5일 수익률 (%)

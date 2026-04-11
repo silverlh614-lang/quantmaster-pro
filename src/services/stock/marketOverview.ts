@@ -8,6 +8,8 @@ export async function fetchMarketIndicators(): Promise<{
   vix: number | null; us10yYield: number | null;
   usShortRate: number | null; samsungIri: number | null;
   vkospi: number | null;
+  vkospiDayChange: number | null;   // VKOSPI 당일 변화율 (%)
+  vkospi5dTrend: number | null;     // VKOSPI 5일 추세 (%)
   kospi:  { price: number; change: number; changePct: number } | null;
   kosdaq: { price: number; change: number; changePct: number } | null;
   ewyReturn:  number | null;
@@ -19,7 +21,8 @@ export async function fetchMarketIndicators(): Promise<{
     return await res.json();
   } catch {
     return { vix: null, us10yYield: null, usShortRate: null, samsungIri: null,
-             vkospi: null, kospi: null, kosdaq: null, ewyReturn: null, mtumReturn: null };
+             vkospi: null, vkospiDayChange: null, vkospi5dTrend: null,
+             kospi: null, kosdaq: null, ewyReturn: null, mtumReturn: null };
   }
 }
 

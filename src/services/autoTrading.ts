@@ -756,6 +756,9 @@ export async function syncGate0ToServer(
     dxyBullish:           macro.dxyBullish,
     kospiBelow120ma:      macro.kospiBelow120ma,
     samsungIriDelta:      macro.samsungIriDelta,
+    // VKOSPI 파생 — 클라이언트 Yahoo Finance → 서버 MacroState 전송
+    vkospiDayChange:      macro.vkospiDayChange,
+    vkospi5dTrend:        macro.vkospi5dTrend,
   };
 
   try {

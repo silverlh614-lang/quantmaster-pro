@@ -63,7 +63,9 @@ export async function getBatchGlobalIntel(): Promise<BatchGlobalIntelResult> {
   let ecosFields: EcosF = {};
   let yahooFields = { vix: null as number | null, us10yYield: null as number | null,
                       usShortRate: null as number | null, samsungIri: null as number | null,
-                      vkospi: null as number | null };
+                      vkospi: null as number | null,
+                      vkospiDayChange: null as number | null,
+                      vkospi5dTrend: null as number | null };
   let bokRateValue: number | null = null;
 
   const [ecosSnapshotR, yahooR] = await Promise.allSettled([
@@ -243,11 +245,13 @@ ${phaseBLines.length > 0 ? phaseBLines.join('\n') : '(데이터 수집 실패 �
 
     const apiOverride = {
       ...ecosFields,
-      ...(yahooFields.vix        !== null ? { vix:        yahooFields.vix }        : {}),
-      ...(yahooFields.us10yYield !== null ? { us10yYield: yahooFields.us10yYield } : {}),
-      ...(yahooFields.samsungIri !== null ? { samsungIri: yahooFields.samsungIri } : {}),
-      ...(yahooFields.vkospi     !== null ? { vkospi:     yahooFields.vkospi }     : {}),
-      ...(krUsSpread             !== null ? { krUsSpread }                          : {}),
+      ...(yahooFields.vix             !== null ? { vix:             yahooFields.vix }             : {}),
+      ...(yahooFields.us10yYield      !== null ? { us10yYield:      yahooFields.us10yYield }      : {}),
+      ...(yahooFields.samsungIri      !== null ? { samsungIri:      yahooFields.samsungIri }      : {}),
+      ...(yahooFields.vkospi          !== null ? { vkospi:          yahooFields.vkospi }          : {}),
+      ...(yahooFields.vkospiDayChange !== null ? { vkospiDayChange: yahooFields.vkospiDayChange } : {}),
+      ...(yahooFields.vkospi5dTrend   !== null ? { vkospi5dTrend:   yahooFields.vkospi5dTrend }   : {}),
+      ...(krUsSpread                  !== null ? { krUsSpread }                                    : {}),
     } as Partial<typeof parsed.macro>;
     if (Object.keys(apiOverride).length > 0) {
       parsed.macro = { ...parsed.macro, ...apiOverride };

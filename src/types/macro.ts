@@ -26,6 +26,9 @@ export interface MacroEnvironment {
   vix: number;                 // VIX
   // 환율
   usdKrw: number;              // 원/달러 환율
+  // ─── VKOSPI 파생 (클라이언트 전송 → 서버 MacroState 동기화) ─────────────
+  vkospiDayChange?: number;          // VKOSPI 당일 변화율 (%)
+  vkospi5dTrend?: number;            // VKOSPI 5일 추세 변화율 (%)
   // ─── Gate -1 Bear Regime Detector 보조 지표 (optional) ───────────────────
   kospiBelow120ma?: boolean;         // KOSPI 120일 이동평균선 하회 여부
   kospiIchimokuBearish?: boolean;    // KOSPI 일목 구름 아래 (하락 추세) 여부
