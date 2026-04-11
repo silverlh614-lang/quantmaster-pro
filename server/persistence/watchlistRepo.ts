@@ -15,6 +15,7 @@ export interface WatchlistEntry {
   sector?: string;                 // 섹터 정보 (섹터별 성과 분석용)
   rrr?: number;                    // Risk-Reward Ratio (목표가-진입가) / (진입가-손절가)
   conditionKeys?: string[];        // 아이디어 6: 진입 당시 통과한 Gate 조건 키 목록
+  profileType?: 'A' | 'B' | 'C' | 'D'; // 종목 프로파일 (A=대형주도 B=중형성장 C=소형모멘텀 D=촉매)
 }
 
 export function loadWatchlist(): WatchlistEntry[] {

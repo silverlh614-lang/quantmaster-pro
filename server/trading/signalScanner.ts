@@ -18,6 +18,7 @@ import {
 import { getLiveRegime } from './regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
+import type { RegimeLevel } from '../../src/types/core.js';
 import { addRecommendation } from '../learning/recommendationTracker.js';
 import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
@@ -62,7 +63,7 @@ export async function runAutoSignalScan(): Promise<void> {
       `MHS: ${macroState?.mhs ?? 'N/A'} | 블랙스완 감지 — 기존 포지션 모니터링만 수행`
     ).catch(console.error);
     console.warn(`[AutoTrade] R6_DEFENSE (MHS=${macroState?.mhs}) — 신규 진입 전면 차단`);
-    await updateShadowResults(shadows);
+    await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return;
   }
@@ -80,7 +81,7 @@ export async function runAutoSignalScan(): Promise<void> {
     console.log(
       `[AutoTrade] 최대 동시 포지션 도달 (${activeCount}/${regimeConfig.maxPositions}, 레짐 ${regime}) — 신규 진입 스킵`
     );
-    await updateShadowResults(shadows);
+    await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return;
   }
@@ -184,6 +185,14 @@ export async function runAutoSignalScan(): Promise<void> {
       // 잔여 30%·20%는 trancheExecutor가 3일·7일 후 실행
       const execQty = isStrongBuy ? Math.max(1, Math.floor(quantity * 0.5)) : quantity;
 
+      // ─── ① 레짐 손절가 계산 — max(워치리스트 고정값, 레짐 계산값) ──────────
+      const profile    = stock.profileType ?? 'B';
+      const profileKey = `profile${profile}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
+      const regimeStopRate  = REGIME_CONFIGS[regime].stopLoss[profileKey]; // 음수 비율 (e.g., -0.10)
+      const regimeStopPrice = shadowEntryPrice * (1 + regimeStopRate);
+      // 더 높은 가격(더 촘촘한 손절)을 채택
+      const effectiveStopLoss = Math.max(stock.stopLoss, regimeStopPrice);
+
       // L3 분할 익절 타겟 — PROFIT_TARGETS[regime]에서 LIMIT 트랜치 추출
       const limitTranches = PROFIT_TARGETS[regime].filter(
         (t) => t.type === 'LIMIT' && t.trigger !== null
@@ -199,11 +208,12 @@ export async function runAutoSignalScan(): Promise<void> {
         shadowEntryPrice,
         quantity: execQty,
         originalQuantity: execQty,
-        stopLoss: stock.stopLoss,
+        stopLoss: effectiveStopLoss,       // 레짐 보정 손절가
         targetPrice: stock.targetPrice,
         status: 'PENDING',
         // ─── 레짐 연결 ──────────────────────────────────────────────────────
         entryRegime: regime,
+        profileType: profile,
         profitTranches: limitTranches.map((t) => ({
           price: shadowEntryPrice * (1 + (t.trigger as number)),
           ratio: t.ratio,
@@ -221,7 +231,7 @@ export async function runAutoSignalScan(): Promise<void> {
         stockName:        stock.name,
         signalTime:       new Date().toISOString(),
         priceAtRecommend: currentPrice,
-        stopLoss:         stock.stopLoss,
+        stopLoss:         effectiveStopLoss,
         targetPrice:      stock.targetPrice,
         kellyPct:         Math.round(positionPct * 100),
         gateScore:        gateScore,
@@ -302,12 +312,12 @@ export async function runAutoSignalScan(): Promise<void> {
     }
   }
 
-  await updateShadowResults(shadows);
+  await updateShadowResults(shadows, regime);
   saveShadowTrades(shadows);
 }
 
 /** Shadow 진행 중 거래 결과 업데이트 — Macro/포지션 제한 시에도 재사용 */
-async function updateShadowResults(shadows: ServerShadowTrade[]): Promise<void> {
+async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: RegimeLevel): Promise<void> {
   for (const shadow of shadows) {
     // PENDING: 4분 경과 후 ACTIVE 전환
     if (shadow.status === 'PENDING') {
@@ -323,6 +333,23 @@ async function updateShadowResults(shadows: ServerShadowTrade[]): Promise<void> 
     if (!currentPrice) continue;
 
     const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
+
+    // ─── R6 긴급 청산 30% (블랙스완 — 1회만) ────────────────────────────────
+    if (currentRegime === 'R6_DEFENSE' && !shadow.r6EmergencySold && shadow.quantity > 0) {
+      const emergencyQty = Math.max(1, Math.floor(shadow.quantity * 0.30));
+      shadow.r6EmergencySold = true;
+      shadow.quantity -= emergencyQty;
+      shadow.originalQuantity ??= shadow.quantity + emergencyQty;
+      appendShadowLog({ event: 'R6_EMERGENCY_EXIT', ...shadow, soldQty: emergencyQty, returnPct });
+      console.log(`[AutoTrade] 🔴 ${shadow.stockName} R6 긴급 청산 30% (${emergencyQty}주) @${currentPrice.toLocaleString()}`);
+      await placeKisSellOrder(shadow.stockCode, shadow.stockName, emergencyQty, 'STOP_LOSS');
+      await sendTelegramAlert(
+        `🔴 <b>[R6 긴급 청산]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+        `블랙스완 감지 — 30% 즉시 청산 ${emergencyQty}주 @${currentPrice.toLocaleString()}원\n` +
+        `수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}% | 잔여: ${shadow.quantity}주`
+      ).catch(console.error);
+      if (shadow.quantity <= 0) continue; // 잔여 없으면 종료 처리 생략
+    }
 
     // ─── L3-a: 트레일링 고점 갱신 ────────────────────────────────────────────
     if (shadow.trailingEnabled && currentPrice > (shadow.trailingHighWaterMark ?? 0)) {

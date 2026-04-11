@@ -23,10 +23,12 @@ export interface ServerShadowTrade {
   stopApproachAlerted?: boolean; // 손절가 5% 이내 접근 경고 발송 여부 (중복 방지)
   // ─── 레짐 연결 필드 (regimeBridge 연결 후 신규 거래부터 기록) ──────────────
   entryRegime?: string;          // 진입 시점 RegimeLevel (예: 'R2_BULL')
+  profileType?: 'A' | 'B' | 'C' | 'D'; // 종목 프로파일 (A=대형주도 B=중형성장 C=소형모멘텀 D=촉매)
   profitTranches?: { price: number; ratio: number; taken: boolean }[]; // L3 분할 익절 타겟
   trailingHighWaterMark?: number; // 트레일링 스톱 고점 기준
   trailPct?: number;              // 트레일링 스톱 낙폭 비율 (예: 0.10 = 10%)
   trailingEnabled?: boolean;      // 전체 LIMIT 트랜치 완료 후 트레일링 활성화
+  r6EmergencySold?: boolean;      // R6_DEFENSE 30% 긴급 청산 완료 여부 (중복 방지)
 }
 
 export function loadShadowTrades(): ServerShadowTrade[] {
