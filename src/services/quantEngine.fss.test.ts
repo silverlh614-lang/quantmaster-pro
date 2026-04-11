@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyForeignSupplyDay, computeFSS } from './quantEngine';
+import { classifyForeignSupplyDay, computeFSS } from './quant/fssEngine';
 import type { ForeignSupplyDayRecord } from '../types/quant';
 
 // ─── classifyForeignSupplyDay 단위 테스트 ─────────────────────────────────────

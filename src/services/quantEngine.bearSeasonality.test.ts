@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateBearRegime, evaluateBearSeasonality, evaluateGate0 } from './quantEngine';
+import { evaluateBearRegime, evaluateBearSeasonality } from './quant/bearEngine';
+import { evaluateGate0 } from './quant/gateEngine';
 import type { MacroEnvironment } from '../types/quant';
 
 function createMacroEnv(partial: Partial<MacroEnvironment> = {}): MacroEnvironment {

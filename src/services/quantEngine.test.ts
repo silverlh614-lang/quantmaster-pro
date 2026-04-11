@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateStock, evaluateTMA } from './quantEngine';
+import { evaluateStock } from './quant/gateEngine';
+import { evaluateTMA } from './quant/technicalEngine';
 import { AI_MODELS } from '../constants/aiConfig';
 import type {
   ConditionId,

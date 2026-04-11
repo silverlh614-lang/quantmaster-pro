@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateSectorOverheat } from './quantEngine';
+import { evaluateSectorOverheat } from './quant/sectorEngine';
 import type { SectorOverheatInput } from '../types/quant';
 
 describe('Sector overheat detection', () => {
