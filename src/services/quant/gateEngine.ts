@@ -39,6 +39,7 @@ import {
   SignalGrade,
   ROEType,
   ROETransitionResult,
+  EarlyBullEntryResult,
 } from '../../types/quant';
 import { z } from 'zod';
 import {
@@ -371,10 +372,52 @@ export function computeContrarianSignals(
 
 // ─── 불확실성 레짐 감지 및 적응형 Gate 시스템 ─────────────────────────────────
 
+// ─── 상승 초기 선취매 조건 평가 ─────────────────────────────────────────────────
+
+/**
+ * Bull Regime 상승 초기에 Gate 3 미달이어도 BUY 50% 허용하는 세 가지 조건 평가.
+ *
+ * ① ROE 유형 3 확인 (조건 id=3, Gate 1 전제조건 — 절대 우회 불가)
+ * ② 외국인 Passive + Active 동반 순매수 3일 이상
+ * ③ RS(상대강도) 섹터 내 상위 20% 이내 + KOSPI 대비 1개월 아웃퍼폼
+ *
+ * 세 조건 전부 충족 시 `triggered = true` → 호출자가 BUY 50% 포지션 부여.
+ * 이후 Gate 3 조건 충족되면 나머지 50% 추가 진입.
+ */
+export function evaluateEarlyBullEntry(
+  stockData: Record<ConditionId, number>,
+  foreignPassiveActiveDays: number,    // 외국인 Passive+Active 동반 순매수 일수
+  rsPercentileInSector: number,        // 섹터 내 RS 백분위 (0=최상위, 100=최하위)
+  outperformsKospi1M: boolean,         // 최근 1개월 KOSPI 대비 아웃퍼폼 여부
+): EarlyBullEntryResult {
+  // ① ROE 유형 3 (조건 id=3) — Gate 1 기본값(≥5)과 동일 기준 적용
+  const roeType3Confirmed = (stockData[3] ?? 0) >= 5;
+
+  // ② 외국인 Passive+Active 동반 3일 이상
+  const foreignCobuySatisfied = foreignPassiveActiveDays >= 3;
+
+  // ③ RS 섹터 내 상위 20% + KOSPI 1개월 아웃퍼폼
+  const rsConditionSatisfied = rsPercentileInSector <= 20 && outperformsKospi1M;
+
+  const triggered = roeType3Confirmed && foreignCobuySatisfied && rsConditionSatisfied;
+
+  const reasons: string[] = [];
+  if (roeType3Confirmed)     reasons.push('ROE 유형 3 확인 (Gate 1 전제조건 유지)');
+  if (foreignCobuySatisfied) reasons.push(`외국인 Passive+Active 동반매수 ${foreignPassiveActiveDays}일 연속`);
+  if (rsConditionSatisfied)  reasons.push(`RS 섹터 내 상위 ${rsPercentileInSector}% + KOSPI 1개월 아웃퍼폼`);
+
+  return { triggered, roeType3Confirmed, foreignCobuySatisfied, rsConditionSatisfied, reasons };
+}
+
+// ─── 불확실성 레짐 감지 및 적응형 Gate 시스템 ─────────────────────────────────
+
 /**
  * Gate 0 결과 + 거시 데이터로부터 확장 레짐(UNCERTAIN/CRISIS/RANGE_BOUND)을 감지.
  * 기존 4단계(RECOVERY/EXPANSION/SLOWDOWN/RECESSION)에 3개 비정상 레짐을 추가하여
  * 시스템이 "판단 불능" 상태를 인식하고 방어 모드로 전환할 수 있게 합니다.
+ *
+ * Bull Regime 추가: KOSPI 20일선 위 + VKOSPI < 20 + MHS ≥ 70
+ * → Gate 2: 9→7, Gate 3: 7→5 완화 (Gate 1은 절대 완화 금지)
  */
 export function classifyExtendedRegime(
   gate0: Gate0Result | undefined,
@@ -386,6 +429,7 @@ export function classifyExtendedRegime(
     foreignFlowDirection?: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING';
     kospiSp500Correlation?: number;   // KOSPI-S&P500 상관계수
     financialStress?: FinancialStressIndex;  // 레이어 K: 금융시스템 스트레스
+    kospiAboveMa20?: boolean;         // KOSPI 20일 이동평균선 위 여부 (Bull Regime 판단용)
   }
 ): ExtendedRegimeData['systemAction'] {
   if (!gate0 || !macroEnv) {
@@ -470,6 +514,17 @@ export function classifyExtendedRegime(
     };
   }
 
+  // ── Bull Regime: KOSPI 20일선 위 + VKOSPI < 20 + MHS ≥ 70 → 공격 참여 기준 완화 ──
+  // Gate 1 (생존 5개) 는 절대 완화 금지. Gate 2/3만 완화하여 상승 초기 참여 강화.
+  if (options?.kospiAboveMa20 && vkospi < 20 && macroHealthScore >= 70) {
+    return {
+      mode: 'NORMAL',
+      cashRatio: 15,
+      gateAdjustment: { gate1Threshold: 5, gate2Required: 7, gate3Required: 5 },
+      message: `Bull Regime 선언 (KOSPI 20일선 위, VKOSPI ${vkospi.toFixed(1)}, MHS ${macroHealthScore}). Gate 2: 9→7, Gate 3: 7→5 완화. Gate 1은 유지.`,
+    };
+  }
+
   // ── 정상 시장: 기존 MHS 기반 ──
   if (mhsLevel === 'HIGH') {
     return {
@@ -511,6 +566,7 @@ export function deriveExtendedRegime(
     leadingSectorCount?: number;
     foreignFlowDirection?: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING';
     kospiSp500Correlation?: number;
+    kospiAboveMa20?: boolean;
   }
 ): EconomicRegime {
   if (!gate0 || !macroEnv) return baseRegime ?? 'EXPANSION';
@@ -664,6 +720,10 @@ export function evaluateStock(
     // ROE 유형 전이 감지 입력
     roeTypeHistory?: ROEType[];          // 최근 분기 ROE 유형 배열 (오래된→최신)
     assetTurnoverHistory?: number[];     // 최근 2개 분기 총자산회전율 (오래된→최신)
+    // 상승 초기 선취매 조건 입력 (Step 3)
+    foreignPassiveActiveDays?: number;   // 외국인 Passive+Active 동반 순매수 일수
+    rsPercentileInSector?: number;       // 섹터 내 RS 백분위 (0=최상, 100=최하)
+    outperformsKospi1M?: boolean;        // 최근 1개월 KOSPI 대비 아웃퍼폼 여부
     enemyFlags?: Partial<{
       lockupExpiringSoon: boolean;
       majorShareholderSelling: boolean;
@@ -680,6 +740,7 @@ export function evaluateStock(
     foreignFlowDirection?: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING';
     kospiSp500Correlation?: number;
     financialStress?: FinancialStressIndex;
+    kospiAboveMa20?: boolean;            // Bull Regime 판단용 (Step 1)
   },
   stockSector?: string, // 종목 섹터 (조선/반도체 등) — BDI/SEMI Gate 조정용
 ): EvaluationResult {
@@ -967,12 +1028,25 @@ export function evaluateStock(
   // 데이터 신뢰도
   const dataReliability = computeDataReliability(stockData);
 
-  // 최종 신호 판정 (7조건)
+  // ── 상승 초기 선취매 조건 평가 (Step 3) ─────────────────────────────────────
+  const earlyBullEntryResult = gate1Passed
+    ? evaluateEarlyBullEntry(
+        stockData,
+        advancedContext?.foreignPassiveActiveDays ?? 0,
+        advancedContext?.rsPercentileInSector ?? 100,
+        advancedContext?.outperformsKospi1M ?? false,
+      )
+    : undefined;
+
+  // 최종 신호 판정 (4단계 개편 + 상승 초기 선취매)
+  const isBullRegime = extRegimeAction.gateAdjustment.gate2Required < 9;
   const signalVerdict = computeSignalVerdict(
     gate1Passed, gate2Passed, gate3Passed,
     recommendation, rrr,
     confluence, multiTimeframe,
     catalystAnalysis, enemyEnhanced, cycleAnalysis, momentumAcc, dataReliability,
+    earlyBullEntryResult?.triggered ?? false,
+    isBullRegime,
   );
 
   // 신호 등급에 따른 포지션 사이즈 최종 조정
@@ -980,6 +1054,10 @@ export function evaluateStock(
   const gate0Blocked = gate0Result?.buyingHalted || emergencyStop || creditCrisis;
   if (signalVerdict.grade === 'CONFIRMED_STRONG_BUY' && !gate0Blocked && positionSize > 0) {
     positionSize = Math.max(positionSize, 20);
+  } else if (signalVerdict.grade === 'BUY' && signalVerdict.isEarlyBullEntry && !gate3Passed) {
+    // 상승 초기 선취매: Gate 3 미달이어도 BUY 50% 포지션 허용
+    positionSize = Math.max(positionSize, 10);
+    recommendation = '절반 포지션';
   } else if (signalVerdict.grade === 'WATCH' || signalVerdict.grade === 'HOLD') {
     positionSize = 0;
     if (recommendation === '풀 포지션' || recommendation === '절반 포지션') {
@@ -1042,6 +1120,7 @@ export function evaluateStock(
     enemyChecklistEnhanced: enemyEnhanced,
     dataReliability,
     signalVerdict,
+    earlyBullEntry: earlyBullEntryResult,
     conditionScores: stockData as Record<ConditionId, number>,
     conditionSources: CONDITION_SOURCE_MAP,
   };

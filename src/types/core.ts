@@ -256,15 +256,29 @@ export interface DataReliability {
   degraded: boolean;          // AI 추정 비율 > 50%이면 BUY로 강등
 }
 
-/** 신호 계층 (재정의) */
+/** 신호 계층 — 4단계 (STRONG_BUY는 하위 호환성 유지를 위해 type에 잔류하나 미발급) */
 export type SignalGrade = 'CONFIRMED_STRONG_BUY' | 'STRONG_BUY' | 'BUY' | 'WATCH' | 'HOLD';
 
 export interface SignalVerdict {
   grade: SignalGrade;
-  kellyPct: number;           // 100 / 70 / 50 / 0 / 0
-  positionRule: string;       // "풀 포지션, 자동매매 허용" 등
-  passedConditions: string[]; // 통과한 상위 조건 목록
-  failedConditions: string[]; // 미달 조건 목록
+  kellyPct: number;              // CONFIRMED_STRONG_BUY=100 / BUY=50 / WATCH=0 / HOLD=0
+  positionRule: string;          // "풀 포지션, 자동매매 허용" 등
+  passedConditions: string[];    // 통과한 상위 조건 목록
+  failedConditions: string[];    // 미달 조건 목록
+  isBullRegime?: boolean;        // Bull Regime 완화 적용 여부
+  isEarlyBullEntry?: boolean;    // 상승 초기 선취매 조건으로 BUY 허용 여부
+}
+
+/**
+ * 상승 초기 선취매 조건 평가 결과
+ * Gate 3 미달이어도 BUY 50% 포지션을 허용하는 세 가지 조건의 충족 상태
+ */
+export interface EarlyBullEntryResult {
+  triggered: boolean;               // 세 조건 전부 충족 → BUY 50% 허용
+  roeType3Confirmed: boolean;       // ① ROE 유형 3 확인 (Gate 1 전제조건)
+  foreignCobuySatisfied: boolean;   // ② 외국인 Passive+Active 동반 순매수 3일 이상
+  rsConditionSatisfied: boolean;    // ③ RS 섹터 내 상위 20% + KOSPI 1개월 아웃퍼폼
+  reasons: string[];                // 충족된 조건 설명 목록
 }
 
 export interface SeasonalityData {
@@ -326,6 +340,7 @@ export interface EvaluationResult {
   enemyChecklistEnhanced?: EnemyChecklistEnhanced;
   dataReliability?: DataReliability;
   signalVerdict?: SignalVerdict;
+  earlyBullEntry?: EarlyBullEntryResult;         // 상승 초기 선취매 조건 평가 결과
   conditionScores?: Record<ConditionId, number>; // 27조건 점수 스냅샷 (귀인 분석용)
   conditionSources?: Record<ConditionId, 'COMPUTED' | 'AI'>; // 조건별 데이터 출처 (실계산 vs AI추정)
 }

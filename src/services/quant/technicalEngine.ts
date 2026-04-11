@@ -369,6 +369,17 @@ export function computeDataReliability(stockData: Record<ConditionId, number>): 
  * ⑥ 사이클 EARLY
  * ⑦ 모멘텀 가속 확인
  */
+/**
+ * 최종 신호 판정 — 4단계 체계
+ *
+ * CONFIRMED_STRONG_BUY : 7/7 고급 조건 + 데이터 신뢰도 정상 → Kelly 100%, 자동매매 허용
+ * BUY                  : Gate 1~3 전부 통과 + RRR ≥ 2.0 → Kelly 50%, 분할 1차 진입
+ *                        (또는 상승 초기 선취매 조건 3개 충족 → Gate 3 미달이어도 BUY 50%)
+ * WATCH                : Gate 1~2 통과, Gate 3 미달 → Kelly 0%, 알림 대기
+ * HOLD                 : Gate 1만 통과 또는 전부 미달 → Kelly 0%, 관망
+ *
+ * ※ STRONG_BUY 등급은 하위 호환성을 위해 타입에 유지하나 이 함수에서는 발급하지 않음.
+ */
 export function computeSignalVerdict(
   gate1Passed: boolean,
   gate2Passed: boolean,
@@ -382,11 +393,13 @@ export function computeSignalVerdict(
   cycleAnalysis: CycleAnalysis,
   momentumAcc: MomentumAcceleration,
   dataReliability: DataReliability,
+  earlyBullEntryOk: boolean = false,   // Step 3: 상승 초기 선취매 조건 충족 여부
+  isBullRegime: boolean = false,        // Step 1: Bull Regime 완화 적용 중 여부
 ): SignalVerdict {
   const passed: string[] = [];
   const failed: string[] = [];
 
-  // ① 기존 Gate 1~3 통과 + 풀 포지션
+  // ① Gate 1~3 전부 통과 + 풀 포지션
   const gatesOk = gate1Passed && gate2Passed && gate3Passed && recommendation === '풀 포지션';
   if (gatesOk) passed.push('Gate 1~3 통과 + 풀 포지션');
   else failed.push('Gate 미달 또는 관망/매도');
@@ -416,35 +429,52 @@ export function computeSignalVerdict(
   if (momentumAcc.overallAcceleration) passed.push('모멘텀 가속 확인');
   else failed.push('모멘텀 비가속');
 
-  // 데이터 신뢰도 강등
+  // 데이터 신뢰도 경고
   if (dataReliability.degraded) failed.push(`데이터 신뢰도 ${dataReliability.reliabilityPct}% (AI 의존 과다)`);
 
-  // 등급 결정
+  // ── 4단계 등급 결정 ────────────────────────────────────────────────────────
   let grade: SignalGrade;
   let kellyPct: number;
   let positionRule: string;
+  let isEarlyBullEntry = false;
 
   if (passed.length === 7 && !dataReliability.degraded) {
+    // ─ CONFIRMED STRONG BUY: 7/7 고급 조건 전부 충족
     grade = 'CONFIRMED_STRONG_BUY';
     kellyPct = 100;
     positionRule = '풀 포지션, 자동매매 허용';
-  } else if (gatesOk && rrr >= 3.0) {
-    grade = 'STRONG_BUY';
-    kellyPct = 70;
-    positionRule = '수동 매매, 교차검증 후 진입';
-  } else if (gate1Passed && gate2Passed && rrr >= 2.0) {
+  } else if (gate1Passed && gate2Passed && gate3Passed && rrr >= 2.0) {
+    // ─ BUY: Gate 1~3 전부 통과 + RRR ≥ 2.0 → Kelly 50% 분할 1차 진입
     grade = 'BUY';
     kellyPct = 50;
-    positionRule = '분할 매수';
+    positionRule = 'Gate 1~3 통과 + RRR≥2.0 — 분할 1차 진입';
+  } else if (gate1Passed && gate2Passed && !gate3Passed && earlyBullEntryOk) {
+    // ─ BUY (선취매): Gate 3 미달이어도 상승 초기 3조건 충족 → BUY 50%
+    //   이후 Gate 3 충족 시 나머지 50% 추가
+    grade = 'BUY';
+    kellyPct = 50;
+    positionRule = '상승 초기 선취매 (Gate 3 미달) — Gate 3 충족 후 나머지 50% 추가';
+    isEarlyBullEntry = true;
   } else if (gate1Passed && gate2Passed) {
+    // ─ WATCH: Gate 1+2 통과, Gate 3 미달 → 알림 대기, 트리거 시 진입
     grade = 'WATCH';
     kellyPct = 0;
-    positionRule = '관심 종목, 진입 대기';
+    positionRule = '알림 대기 — Gate 3 충족 또는 선취매 조건 확인 시 진입';
+    if (isBullRegime) positionRule += ' (Bull Regime 완화 적용 중)';
   } else {
+    // ─ HOLD: Gate 1만 통과 또는 전부 미달
     grade = 'HOLD';
     kellyPct = 0;
-    positionRule = '포지션 없음';
+    positionRule = '관망 — Gate 1' + (gate1Passed ? '만 통과' : ' 미달');
   }
 
-  return { grade, kellyPct, positionRule, passedConditions: passed, failedConditions: failed };
+  return {
+    grade,
+    kellyPct,
+    positionRule,
+    passedConditions: passed,
+    failedConditions: failed,
+    isBullRegime,
+    isEarlyBullEntry,
+  };
 }
