@@ -2,8 +2,6 @@ import { enrichStockWithRealData } from './enrichment';
 import { fetchHistoricalData } from './historicalData';
 import type { StockRecommendation } from './types';
 
-export { enrichStockWithRealData } from './enrichment';
-
 export async function fetchCurrentPrice(code: string): Promise<number | null> {
   try {
     const data = await fetchHistoricalData(code, '1d');

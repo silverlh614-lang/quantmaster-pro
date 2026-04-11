@@ -203,7 +203,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
                     <td className="px-3 sm:px-8 py-3 sm:py-8 font-black text-red-400 text-xl">{p.lastBacktestResult?.maxDrawdown || 0}%</td>
                     <td className="px-3 sm:px-8 py-3 sm:py-8">
                       <div className="flex flex-wrap gap-2 max-w-xs">
-                        {p.items?.slice(0, 3).map(item => (
+                        {p.items?.slice(0, 3).map((item: { name: string; code: string; weight: number }) => (
                           <span key={item.code} className="px-3 py-1 bg-white/5 rounded-lg text-[10px] font-black text-white/40 uppercase tracking-widest border border-white/5">
                             {item.name} {item.weight}%
                           </span>
