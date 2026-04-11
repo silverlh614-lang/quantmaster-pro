@@ -6,10 +6,8 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import {
-  tradingOrchestrator,
-  sendTelegramAlert,
-} from "./src/server/autoTradeEngine.js";
+import { tradingOrchestrator } from "./orchestrator/tradingOrchestrator.js";
+import { sendTelegramAlert } from "./alerts/telegramClient.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,13 +22,13 @@ dotenv.config();
 import {
   isEmergencyStopped,
   setDailyLoss,
-} from './server/state.js';
-import kisRouter from './server/routes/kisRouter.js';
-import marketDataRouter from './server/routes/marketDataRouter.js';
-import dartRouter from './server/routes/dartRouter.js';
-import autoTradeRouter from './server/routes/autoTradeRouter.js';
-import systemRouter from './server/routes/systemRouter.js';
-import { startScheduler } from './server/scheduler.js';
+} from './state.js';
+import kisRouter from './routes/kisRouter.js';
+import marketDataRouter from './routes/marketDataRouter.js';
+import dartRouter from './routes/dartRouter.js';
+import autoTradeRouter from './routes/autoTradeRouter.js';
+import systemRouter from './routes/systemRouter.js';
+import { startScheduler } from './scheduler.js';
 
 
 export { isEmergencyStopped, setDailyLoss };
@@ -92,11 +90,10 @@ async function startServer() {
   } else {
     // vite.config.ts outDir: 'build' 기준으로 탐색, dist도 폴백으로 확인
     const candidates = [
-      path.join(__dirname, 'build'),
+      path.join(__dirname, '..', 'build'),
       path.join(process.cwd(), 'build'),
-      path.join(__dirname, 'dist'),
+      path.join(__dirname, '..', 'dist'),
       path.join(process.cwd(), 'dist'),
-      __dirname,
     ];
     const distPath = candidates.find(p => fs.existsSync(path.join(p, 'index.html'))) ?? candidates[0];
     console.log(`Serving static files from: ${distPath}`);
