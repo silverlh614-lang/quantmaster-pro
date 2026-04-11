@@ -1,5 +1,6 @@
 import { enrichStockWithRealData } from './enrichment';
 import { fetchHistoricalData } from './historicalData';
+import { debugLog } from '../../utils/debug';
 import type { StockRecommendation } from './types';
 
 export async function fetchCurrentPrice(code: string): Promise<number | null> {
@@ -61,7 +62,7 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
   // 1순위: KIS 실시간
   try {
     const kisResult = await syncStockPriceKIS(stock);
-    console.log(`[가격동기화] KIS 실시간 성공: ${stock.name} ${kisResult.currentPrice}원`);
+    debugLog(`[가격동기화] KIS 실시간 성공: ${stock.name} ${kisResult.currentPrice}원`);
     return await enrichStockWithRealData(kisResult);
   } catch (kisErr: any) {
     console.warn(`[가격동기화] KIS 실패 → Yahoo 시도: ${kisErr.message}`);
@@ -78,7 +79,7 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
         const data = await res.json();
         const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice as number | undefined;
         if (price && price > 0) {
-          console.log(`[가격동기화] Yahoo Finance 성공 (${symbol}): ${stock.name} ${price}원`);
+          debugLog(`[가격동기화] Yahoo Finance 성공 (${symbol}): ${stock.name} ${price}원`);
           const updated: StockRecommendation = {
             ...stock,
             currentPrice: Math.round(price),

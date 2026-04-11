@@ -8,7 +8,7 @@ import { SRRPanel } from './SRRPanel';
 import { MAPCPanel } from './MAPCPanel';
 import { ROETransitionPanel } from './ROETransitionPanel';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
-import { detectROETransition } from '../services/quantEngine';
+import { detectROETransition } from '../services/quant/gateEngine';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { MacroIntelligenceDashboard } from './MacroIntelligenceDashboard';

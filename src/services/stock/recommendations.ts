@@ -3,6 +3,7 @@ import { getAI, lsGet, withRetry, safeJsonParse, getCachedAIResponse } from './a
 import { enrichStockWithRealData } from './enrichment';
 import { fetchMarketIndicators } from './marketOverview';
 import { runQuantitativeScreening, scanDartDisclosures, detectSilentAccumulation } from './quantScreener';
+import { debugLog } from '../../utils/debug';
 import type { StockFilters, RecommendationResponse } from './types';
 
 export async function getStockRecommendations(filters?: StockFilters): Promise<RecommendationResponse | null> {
@@ -300,7 +301,7 @@ ${preFilledBlock || '      (사전 수집 데이터 없음 — 필요 시 검색
       }
 
       if (parsed && parsed.recommendations.length > 0) {
-        console.log(`Enriching ${parsed.recommendations.length} recommendations with real data (sequentially)...`);
+        debugLog(`Enriching ${parsed.recommendations.length} recommendations with real data (sequentially)`);
         const enrichedRecommendations = [];
         for (const stock of parsed.recommendations) {
           try {
@@ -503,7 +504,7 @@ async function runQuantScreenPipeline(filters?: StockFilters): Promise<Recommend
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
 
   try {
-    console.log('[QUANT_SCREEN] 1단계: 정량 스크리닝 + DART 공시 병렬 스캔...');
+    debugLog('[QUANT_SCREEN] 1단계: 정량 스크리닝 + DART 공시 병렬 스캔');
     const [quantResults, dartResults] = await Promise.all([
       runQuantitativeScreening({
         minMarketCap: filters?.minMarketCap ?? 1000,
@@ -561,13 +562,13 @@ async function runQuantScreenPipeline(filters?: StockFilters): Promise<Recommend
       };
     }
 
-    console.log(`[QUANT_SCREEN] 4단계: 상위 ${candidates.length}개 종목 조용한 매집 분석...`);
+    debugLog(`[QUANT_SCREEN] 4단계: 상위 ${candidates.length}개 종목 조용한 매집 분석`);
     const accumResults = await detectSilentAccumulation(
       candidates.map(c => ({ code: c.code, name: c.name }))
     );
     const accumMap = new Map(accumResults.map(a => [a.code, a]));
 
-    console.log('[QUANT_SCREEN] 5단계: AI 정밀 분석...');
+    debugLog('[QUANT_SCREEN] 5단계: AI 정밀 분석');
     const candidateList = candidates.map(c => {
       const accum = accumMap.get(c.code);
       return `${c.name}(${c.code}): 정량점수=${c.quantScore}, 공시점수=${c.dartScore}, 뉴스빈도역점수=${c.newsFreqScore}, 매집단계=${accum?.accumulationPhase ?? 'N/A'}, 신호=[${c.signals.slice(0, 3).join('; ')}]`;
@@ -621,7 +622,7 @@ ${candidateList}
     }
 
     if (parsed && parsed.recommendations.length > 0) {
-      console.log(`[QUANT_SCREEN] Enriching ${parsed.recommendations.length} recommendations...`);
+      debugLog(`[QUANT_SCREEN] Enriching ${parsed.recommendations.length} recommendations`);
       const enriched = [];
       for (const stock of parsed.recommendations) {
         try {

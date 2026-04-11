@@ -1,6 +1,7 @@
 import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, withRetry, safeJsonParse } from './aiClient';
 import { enrichStockWithRealData } from './enrichment';
+import { debugLog } from '../../utils/debug';
 import type { StockRecommendation } from './types';
 
 const searchCache = new Map<string, { data: StockRecommendation[]; timestamp: number }>();
@@ -165,7 +166,7 @@ export async function searchStock(query: string, filters?: {
 
     const results = Array.isArray(parsed) ? parsed : [parsed];
 
-    console.log(`Enriching ${results.length} search results with real data (sequentially)...`);
+    debugLog(`Enriching ${results.length} search results with real data (sequentially)`);
     const enrichedResults = [];
     for (const stock of results) {
       try {

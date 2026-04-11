@@ -7,7 +7,7 @@ import { MacroIntelligenceDashboard } from '../components/MacroIntelligenceDashb
 import { MHSHistoryChart } from '../components/MHSHistoryChart';
 import { IntelligenceRadar } from '../components/IntelligenceRadar';
 import { useMarketStore, useGlobalIntelStore, useRecommendationStore } from '../stores';
-import { evaluateGate0 } from '../services/quantEngine';
+import { evaluateGate0 } from '../services/quant/gateEngine';
 import { PageHeader } from '../ui/page-header';
 import { Button } from '../ui/button';
 import { Section } from '../ui/section';

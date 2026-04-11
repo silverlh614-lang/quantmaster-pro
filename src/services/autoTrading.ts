@@ -30,6 +30,7 @@ import type {
 } from '../types/quant';
 import type { Gate0Result } from '../types/core';
 import type { MacroEnvironment } from '../types/macro';
+import { debugLog, debugWarn } from '../utils/debug';
 
 // ─── 상시 가동 안전장치 상수 ───────────────────────────────────────────────────
 
@@ -131,7 +132,7 @@ export async function placeKISOrder(
       ORD_SVR_DVSN_CD: '0',
     } as Record<string, string>,
   });
-  console.log('[KIS 매수 체결]', params.PDNO, `${params.ORD_QTY}주 @`, params.ORD_UNPR || '시장가');
+  debugLog('[KIS 매수 체결]', { code: params.PDNO, qty: params.ORD_QTY, price: params.ORD_UNPR || '시장가' });
   return data;
 }
 
@@ -236,9 +237,7 @@ export async function registerOCOAfterFill(trade: FilledOrder): Promise<{
     ORD_DVSN: '00',          // 지정가
   } as Record<string, string>;
 
-  console.log(
-    `[OCO 등록] ${trade.stockName} — 손절: ${stopLossPrice.toLocaleString()}원 / 목표: ${targetPrice.toLocaleString()}원`
-  );
+  debugLog(`[OCO 등록] ${trade.stockName} — 손절: ${stopLossPrice.toLocaleString()}원 / 목표: ${targetPrice.toLocaleString()}원`);
 
   const [stopLossOrder, targetOrder] = await Promise.all([
     kisProxy({
@@ -313,7 +312,7 @@ async function cancelOrder(orderId: string, stockCode: string, originalQty: stri
       PDNO: stockCode,
     } as Record<string, string>,
   });
-  console.log(`[KIS 주문 취소] ODNO: ${orderId}`);
+  debugLog(`[KIS 주문 취소] ODNO: ${orderId}`);
 }
 
 /**
@@ -338,7 +337,7 @@ export async function placeAndConfirmOrder(
     return 'REJECTED';
   }
 
-  console.log(`[체결확인] 주문 접수 ODNO: ${orderId} — 폴링 시작 (최대 ${maxWaitSeconds}s)`);
+  debugLog(`[체결확인] 주문 접수 ODNO: ${orderId} — 폴링 시작 (최대 ${maxWaitSeconds}s)`);
 
   const polls = Math.floor(maxWaitSeconds / 3);
   let lastFilled = 0;
@@ -349,7 +348,7 @@ export async function placeAndConfirmOrder(
     lastFilled = filled;
 
     if (total > 0 && filled >= total) {
-      console.log(`[체결확인] ✅ 완전 체결 ${filled}/${total}주 — OCO 등록 시작`);
+      debugLog(`[체결확인] 완전 체결 ${filled}/${total}주 — OCO 등록 시작`);
       // 체결 직후 손절/목표가 OCO 등록 (아이디어 6)
       await registerOCOAfterFill({
         stockCode: params.PDNO,
@@ -361,7 +360,7 @@ export async function placeAndConfirmOrder(
       return 'FILLED';
     }
     if (filled > 0) {
-      console.log(`[체결확인] 부분 체결 중 ${filled}/${total}주 ...`);
+      debugLog(`[체결확인] 부분 체결 중 ${filled}/${total}주 ...`);
     }
   }
 
@@ -490,7 +489,7 @@ export async function flushPendingOrders(): Promise<void> {
   for (const order of toProcess) {
     try {
       await placeKISOrder(order.params);
-      console.log(`[큐 처리 완료] ${order.stockName}`);
+      debugLog(`[큐 처리 완료] ${order.stockName}`);
     } catch (e: unknown) {
       console.error(`[큐 처리 실패] ${order.stockName}:`, e instanceof Error ? e.message : e);
       pendingOrderQueue.push(order); // 실패 시 재큐
@@ -594,14 +593,12 @@ export async function checkConditionalOrders(
     order.executed = true;
     const qty = Math.floor(order.investAmount / currentPrice);
     if (qty < 1) {
-      console.warn(`[트랜치] ${order.stockName} 수량 부족 (${qty}주) — 건너뜀`);
+      debugWarn(`[트랜치] ${order.stockName} 수량 부족 (${qty}주) — 건너뜀`);
       continue;
     }
 
     const label = order.type === 'SUPPORT' ? '2차 눌림목' : '3차 브레이크아웃';
-    console.log(
-      `[트랜치 ${label}] ${order.stockName} @${currentPrice.toLocaleString()}원 ${qty}주 시장가 매수`
-    );
+    debugLog(`[트랜치 ${label}] ${order.stockName} @${currentPrice.toLocaleString()}원 ${qty}주 시장가 매수`);
 
     await placeKISOrder({
       PDNO: stockCode.padStart(6, '0'),
@@ -647,10 +644,7 @@ export async function executeTranchePlan(
   const t1Qty    = Math.floor(t1Amount / currentPrice);
 
   if (t1Qty >= 1) {
-    console.log(
-      `[트랜치 1차] ${stockName} — ${t1Qty}주 즉시 매수 @${currentPrice.toLocaleString()}원 ` +
-      `(${tranche1.size}% / ${t1Amount.toLocaleString()}원)`
-    );
+    debugLog(`[트랜치 1차] ${stockName} — ${t1Qty}주 즉시 매수 @${currentPrice.toLocaleString()}원 (${tranche1.size}% / ${t1Amount.toLocaleString()}원)`);
     await placeKISOrder({
       PDNO: stockCode.padStart(6, '0'),
       ORD_DVSN: '01',
@@ -672,10 +666,7 @@ export async function executeTranchePlan(
     registeredAt: new Date().toISOString(),
     executed:     false,
   });
-  console.log(
-    `[트랜치 2차] ${stockName} — Fib38.2% 눌림목 대기 ` +
-    `@${fibSupport.toLocaleString()}원 (${tranche2.size}% / ${t2Amount.toLocaleString()}원)`
-  );
+  debugLog(`[트랜치 2차] ${stockName} — Fib38.2% 눌림목 대기 @${fibSupport.toLocaleString()}원 (${tranche2.size}% / ${t2Amount.toLocaleString()}원)`);
 
   // ── 3차: +3% 돌파 모멘텀 추격 (tranche3.size %) ───────────────────────────
   const breakoutPrice = Math.round(currentPrice * 1.03);
@@ -690,16 +681,9 @@ export async function executeTranchePlan(
     registeredAt: new Date().toISOString(),
     executed:     false,
   });
-  console.log(
-    `[트랜치 3차] ${stockName} — +3% 브레이크아웃 대기 ` +
-    `@${breakoutPrice.toLocaleString()}원 (${tranche3.size}% / ${t3Amount.toLocaleString()}원)`
-  );
+  debugLog(`[트랜치 3차] ${stockName} — +3% 브레이크아웃 대기 @${breakoutPrice.toLocaleString()}원 (${tranche3.size}% / ${t3Amount.toLocaleString()}원)`);
 
-  console.log(
-    `[트랜치 플랜 완료] ${stockName} — ` +
-    `1차 즉시:${tranche1.size}% / 2차 Fib눌림목:${tranche2.size}% @${fibSupport.toLocaleString()} / ` +
-    `3차 브레이크:${tranche3.size}% @${breakoutPrice.toLocaleString()}`
-  );
+  debugLog(`[트랜치 플랜 완료] ${stockName} — 1차 즉시:${tranche1.size}% / 2차 Fib눌림목:${tranche2.size}% @${fibSupport.toLocaleString()} / 3차 브레이크:${tranche3.size}% @${breakoutPrice.toLocaleString()}`);
 }
 
 // ─── 아이디어 9: Gate별 수익 귀인 분석 ─────────────────────────────────────────
@@ -718,9 +702,7 @@ export function runAttributionAnalysis(
 ): void {
   const isWin = pnlPct > 0;
   accumulate(conditionScores, isWin);
-  console.log(
-    `[귀인 분석] ${isWin ? '✅ WIN' : '❌ LOSS'} (${pnlPct.toFixed(2)}%) — ${Object.keys(conditionScores).length}개 조건 누적`
-  );
+  debugLog(`[귀인 분석] ${isWin ? 'WIN' : 'LOSS'} (${pnlPct.toFixed(2)}%) — ${Object.keys(conditionScores).length}개 조건 누적`);
 }
 
 // ─── 레짐 파이프라인 동기화 ──────────────────────────────────────────────────────

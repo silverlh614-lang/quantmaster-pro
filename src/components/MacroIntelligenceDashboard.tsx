@@ -4,7 +4,9 @@ import {
   EconomicRegimeData, SupplyChainIntelligence, SectorOrderIntelligence,
   FinancialStressIndex, FomcSentimentAnalysis,
 } from '../types/quant';
-import { evaluateSectorOverheat, evaluateBearModeSimulator, evaluateMAPCResult } from '../services/quantEngine';
+import { evaluateSectorOverheat } from '../services/quant/sectorEngine';
+import { evaluateBearModeSimulator } from '../services/quant/bearEngine';
+import { evaluateMAPCResult } from '../services/quant/gateEngine';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { BearKellyPanel } from './BearKellyPanel';
 import { SectorOverheatPanel } from './SectorOverheatPanel';

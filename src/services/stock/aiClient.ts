@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { debugLog } from '../../utils/debug';
 
 // ─── AI Client & 유틸리티 ──────────────────────────────────────────────────────
 // stockService.ts에서 추출된 AI 클라이언트, 캐시, 재시도, JSON 파서 모듈
@@ -90,14 +91,14 @@ export async function getCachedAIResponse<T>(cacheKey: string, fetchFn: () => Pr
   // 1) 메모리 캐시 확인 (TTL 무제한 — 탭 생존 기간 동안 유효)
   const memHit = aiCache[cacheKey];
   if (memHit) {
-    console.log(`[AI캐시] 메모리 히트: ${cacheKey.substring(0, 50)}...`);
+    debugLog(`[AI캐시] 메모리 히트: ${cacheKey.substring(0, 50)}...`);
     return memHit.data as T;
   }
 
   // 2) localStorage 캐시 확인 (4시간 TTL)
   const lsHit = lsGet(cacheKey);
   if (lsHit && now - lsHit.timestamp < AI_CACHE_TTL) {
-    console.log(`[AI캐시] localStorage 히트 (${Math.floor((now - lsHit.timestamp) / 60000)}분 전 캐시): ${cacheKey.substring(0, 50)}...`);
+    debugLog(`[AI캐시] localStorage 히트 (${Math.floor((now - lsHit.timestamp) / 60000)}분 전 캐시): ${cacheKey.substring(0, 50)}...`);
     aiCache[cacheKey] = lsHit; // 메모리에도 복사 → 이후 즉각 응답
     return lsHit.data as T;
   }
