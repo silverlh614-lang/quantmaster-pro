@@ -15,9 +15,8 @@ import fs from 'fs';
 import nodemailer from 'nodemailer';
 import { evaluateServerGate } from './serverQuantFilter.js';
 import {
-  DATA_DIR, WATCHLIST_FILE, SHADOW_FILE, SHADOW_LOG_FILE,
-  MACRO_STATE_FILE, RECOMMENDATIONS_FILE,
-  SCREENER_FILE, PENDING_ORDERS_FILE, BEAR_ALERT_FILE,
+  RECOMMENDATIONS_FILE,
+  SCREENER_FILE, BEAR_ALERT_FILE,
   MHS_MORNING_ALERT_FILE, IPS_ALERT_FILE, REAL_TRADE_FLAG_FILE,
   DART_FAST_SEEN_FILE, ORCHESTRATOR_STATE_FILE, TRANCHE_FILE,
   ensureDataDir,
@@ -35,6 +34,17 @@ import {
   loadDartAlerts, saveDartAlerts,
 } from './persistence/dartRepo.js';
 import { callGemini } from './clients/geminiClient.js';
+import {
+  KIS_IS_REAL, BUY_TR_ID,
+  refreshKisToken, kisGet, kisPost,
+  fetchCurrentPrice, fetchAccountBalance, placeKisSellOrder,
+} from './clients/kisClient.js';
+import { sendTelegramAlert } from './alerts/telegramClient.js';
+import {
+  RRR_MIN_THRESHOLD, MAX_CONCURRENT_POSITIONS, MAX_SECTOR_CONCENTRATION,
+  calcRRR, checkEuphoria,
+} from './trading/riskManager.js';
+import { fillMonitor } from './trading/fillMonitor.js';
 
 
 // ─── 블랙리스트 (Cascade -30% 진입 금지 목록) ──────────────────────────────────
@@ -45,24 +55,11 @@ export { loadBlacklist, saveBlacklist, addToBlacklist, isBlacklisted } from './p
 export type { FssRecordRow } from './persistence/fssRepo.js';
 export { loadFssRecords, saveFssRecords, upsertFssRecord } from './persistence/fssRepo.js';
 
-// ─── RRR 필터 (Risk-Reward Ratio) ──────────────────────────────────────────────
-
-const RRR_MIN_THRESHOLD = Number(process.env.RRR_MIN_THRESHOLD || 2.0);
-
-function calcRRR(entryPrice: number, targetPrice: number, stopLoss: number): number {
-  const reward = targetPrice - entryPrice;
-  const risk   = entryPrice - stopLoss;
-  if (risk <= 0) return 0;
-  return reward / risk;
-}
+// ─── RRR + 리스크 상수 ──────────────────────────────────────────────────────────
+export { calcRRR, checkEuphoria, RRR_MIN_THRESHOLD, MAX_CONCURRENT_POSITIONS, MAX_SECTOR_CONCENTRATION } from './trading/riskManager.js';
 
 // ─── 아이디어 6: 조건별 가중치 파일 I/O ────────────────────────────────────────
 export { loadConditionWeights, saveConditionWeights } from './persistence/conditionWeightsRepo.js';
-
-// 아이디어 7: 동시 최대 보유 종목 수 (환경변수로 오버라이드 가능)
-const MAX_CONCURRENT_POSITIONS = Number(process.env.MAX_CONCURRENT_POSITIONS || 5);
-// 아이디어 4: 동일 섹터 최대 동시 보유 수 (Correlation Guard)
-const MAX_SECTOR_CONCENTRATION = Number(process.env.MAX_SECTOR_CONCENTRATION || 2);
 
 
 
@@ -81,209 +78,7 @@ export type { ServerShadowTrade } from './persistence/shadowTradeRepo.js';
 export { loadShadowTrades, saveShadowTrades, appendShadowLog } from './persistence/shadowTradeRepo.js';
 
 // ─── KIS API 헬퍼 (서버사이드 전용) ────────────────────────────────────────────
-
-const KIS_IS_REAL = process.env.KIS_IS_REAL === 'true';
-const KIS_BASE    = KIS_IS_REAL
-  ? 'https://openapi.koreainvestment.com:9443'
-  : 'https://openapivts.koreainvestment.com:29443';
-const BUY_TR_ID   = KIS_IS_REAL ? 'TTTC0802U' : 'VTTC0802U';
-const SELL_TR_ID  = KIS_IS_REAL ? 'TTTC0801U' : 'VTTC0801U';
-const CCLD_TR_ID  = KIS_IS_REAL ? 'TTTC8001R' : 'VTTC8001R';
-
-let cachedToken: { token: string; expiry: number } | null = null;
-
-export async function refreshKisToken(): Promise<string> {
-  if (cachedToken && Date.now() < cachedToken.expiry) return cachedToken.token;
-  const res = await fetch(`${KIS_BASE}/oauth2/tokenP`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'client_credentials',
-      appkey: process.env.KIS_APP_KEY,
-      appsecret: process.env.KIS_APP_SECRET,
-    }),
-  });
-  const data = await res.json() as { access_token?: string };
-  if (!data.access_token) throw new Error(`KIS 토큰 갱신 실패: ${JSON.stringify(data)}`);
-  cachedToken = { token: data.access_token, expiry: Date.now() + 23 * 60 * 60 * 1000 };
-  console.log('[AutoTrade] KIS 토큰 갱신 완료');
-  return cachedToken.token;
-}
-
-// ─── 실제 KIS 매도 주문 ─────────────────────────────────────────────────────────
-async function placeKisSellOrder(
-  stockCode: string,
-  stockName: string,
-  quantity: number,
-  reason: 'STOP_LOSS' | 'TAKE_PROFIT' | 'EUPHORIA',
-): Promise<void> {
-  const emoji = reason === 'STOP_LOSS' ? '🔴' : reason === 'TAKE_PROFIT' ? '🟢' : '🌡️';
-  const label = reason === 'STOP_LOSS' ? '손절' : reason === 'TAKE_PROFIT' ? '익절' : '과열부분매도';
-
-  // Shadow 모드: 실주문 없이 로그 + Telegram만
-  if (!KIS_IS_REAL) {
-    console.log(`[AutoTrade SELL Shadow] ${emoji} ${stockName}(${stockCode}) ${label} — ${quantity}주 (Shadow 모드, 실주문 없음)`);
-    await sendTelegramAlert(
-      `${emoji} <b>[Shadow ${label}] ${stockName} (${stockCode})</b>\n` +
-      `수량: ${quantity}주 | Shadow 모드 — 실주문 없음`
-    ).catch(console.error);
-    return;
-  }
-
-  if (!process.env.KIS_APP_KEY) {
-    console.warn(`[AutoTrade] KIS 미설정 — ${stockName} 매도 건너뜀`);
-    return;
-  }
-
-  try {
-    console.log(`[AutoTrade SELL] ${emoji} ${stockName}(${stockCode}) ${label} 매도 주문 — ${quantity}주`);
-
-    const orderData = await kisPost(SELL_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
-      CANO:            process.env.KIS_ACCOUNT_NO ?? '',
-      ACNT_PRDT_CD:    process.env.KIS_ACCOUNT_PROD ?? '01',
-      PDNO:            stockCode.padStart(6, '0'),
-      ORD_DVSN:        '01',   // 시장가 (즉시 체결 우선)
-      ORD_QTY:         quantity.toString(),
-      ORD_UNPR:        '0',
-      SLL_BUY_DVSN_CD: '01',  // 01 = 매도
-      CTAC_TLNO:       '',
-      MGCO_APTM_ODNO:  '',
-      ORD_SVR_DVSN_CD: '0',
-    });
-
-    const ordNo = (orderData as { output?: { ODNO?: string } } | null)?.output?.ODNO;
-    console.log(`[AutoTrade SELL] ${emoji} ${stockName} ${label} 완료 — ODNO: ${ordNo}`);
-
-    await sendTelegramAlert(
-      `${emoji} <b>[${label}] ${stockName} (${stockCode})</b>\n` +
-      `수량: ${quantity}주 | 주문번호: ${ordNo ?? 'N/A'}`
-    ).catch(console.error);
-  } catch (err: unknown) {
-    console.error(`[AutoTrade SELL] ${stockName} 매도 실패:`, err instanceof Error ? err.message : err);
-    // 매도 실패는 치명적 → Telegram 긴급 알림
-    await sendTelegramAlert(
-      `🚨 <b>[긴급] ${stockName} ${label} 매도 실패!</b>\n` +
-      `수동으로 즉시 매도하세요!\n` +
-      `오류: ${err instanceof Error ? err.message : String(err)}`
-    ).catch(console.error);
-  }
-}
-
-// ─── 아이디어 7: 과열 탐지 (Euphoria Detector) ──────────────────────────────────
-interface EuphoriaResult {
-  triggered: boolean;
-  count: number;
-  signals: string[];
-}
-
-function checkEuphoria(shadow: ServerShadowTrade, currentPrice: number): EuphoriaResult {
-  const signals: string[] = [];
-
-  // 신호 1: 목표가 근접 (현재가 ≥ 목표가의 95%)
-  if (shadow.targetPrice > 0 && currentPrice >= shadow.targetPrice * 0.95) {
-    signals.push(`목표가 근접 (${((currentPrice / shadow.targetPrice) * 100).toFixed(1)}%)`);
-  }
-
-  // 신호 2: 수익률 ≥ 30% (RSI 80 대용)
-  const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
-  if (returnPct >= 30) {
-    signals.push(`수익률 ${returnPct.toFixed(1)}% (≥30%)`);
-  }
-
-  // 신호 3: 7일 급등 ≥ 20%
-  if (shadow.price7dAgo && shadow.price7dAgo > 0) {
-    const spike7d = ((currentPrice - shadow.price7dAgo) / shadow.price7dAgo) * 100;
-    if (spike7d >= 20) {
-      signals.push(`7일 급등 +${spike7d.toFixed(1)}%`);
-    }
-  }
-
-  // 신호 4: 30일 보유 + 수익률 ≥ 40%
-  const holdDays = (Date.now() - new Date(shadow.signalTime).getTime()) / (1000 * 60 * 60 * 24);
-  if (holdDays >= 30 && returnPct >= 40) {
-    signals.push(`30일 보유 + 수익률 ${returnPct.toFixed(1)}%`);
-  }
-
-  // 신호 5: 목표가 5% 이상 초과
-  if (shadow.targetPrice > 0 && currentPrice > shadow.targetPrice * 1.05) {
-    signals.push(`목표가 초과 +${(((currentPrice / shadow.targetPrice) - 1) * 100).toFixed(1)}%`);
-  }
-
-  return {
-    triggered: signals.length >= 2,
-    count: signals.length,
-    signals,
-  };
-}
-
-async function kisGet(trId: string, apiPath: string, params: Record<string, string>) {
-  const token = await refreshKisToken();
-  const url = `${KIS_BASE}${apiPath}?${new URLSearchParams(params)}`;
-  const res = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      appkey: process.env.KIS_APP_KEY!,
-      appsecret: process.env.KIS_APP_SECRET!,
-      tr_id: trId,
-      custtype: 'P',
-    },
-  });
-  const text = await res.text();
-  if (!text.trim()) return null;
-  try { return JSON.parse(text); } catch { return null; }
-}
-
-async function kisPost(trId: string, apiPath: string, body: Record<string, string>) {
-  const token = await refreshKisToken();
-  const res = await fetch(`${KIS_BASE}${apiPath}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      appkey: process.env.KIS_APP_KEY!,
-      appsecret: process.env.KIS_APP_SECRET!,
-      tr_id: trId,
-      custtype: 'P',
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  if (!text.trim()) return null;
-  try { return JSON.parse(text); } catch { return null; }
-}
-
-// ─── 현재가 조회 ────────────────────────────────────────────────────────────────
-
-async function fetchCurrentPrice(code: string): Promise<number | null> {
-  const data = await kisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
-    FID_COND_MRKT_DIV_CODE: 'J',
-    FID_INPUT_ISCD: code,
-  });
-  const price = parseInt(data?.output?.stck_prpr ?? '0', 10);
-  return price > 0 ? price : null;
-}
-
-// ─── 계좌 잔고 조회 ──────────────────────────────────────────────────────────────
-
-async function fetchAccountBalance(): Promise<number | null> {
-  const trId = KIS_IS_REAL ? 'TTTC8434R' : 'VTTC8434R';
-  const data = await kisGet(trId, '/uapi/domestic-stock/v1/trading/inquire-balance', {
-    CANO: process.env.KIS_ACCOUNT_NO ?? '',
-    ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
-    AFHR_FLPR_YN: 'N',
-    OFL_YN: '',
-    INQR_DVSN: '02',
-    UNPR_DVSN: '01',
-    FUND_STTL_ICLD_YN: 'N',
-    FNCG_AMT_AUTO_RDPT_YN: 'N',
-    PRCS_DVSN: '01',
-    CTX_AREA_FK100: '',
-    CTX_AREA_NK100: '',
-  });
-  const cash = Number(data?.output2?.[0]?.dnca_tot_amt ?? 0);
-  return cash > 0 ? cash : null;
-}
+export { refreshKisToken, KIS_IS_REAL } from './clients/kisClient.js';
 
 // ─── 아이디어 1: 신호 스캔 ──────────────────────────────────────────────────────
 
@@ -1404,30 +1199,7 @@ async function sendDartAlert(alert: DartAlert): Promise<void> {
 }
 
 // ─── 아이디어 12: Telegram Bot 알림 ────────────────────────────────────────────
-
-/**
- * Telegram Bot API를 통해 즉시 모바일 알림 전송
- * Railway 환경변수: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
- */
-export async function sendTelegramAlert(message: string): Promise<void> {
-  const token  = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return; // 미설정 시 조용히 패스
-
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      console.error('[Telegram] 전송 실패:', err.slice(0, 200));
-    }
-  } catch (e: unknown) {
-    console.error('[Telegram] 오류:', e instanceof Error ? e.message : e);
-  }
-}
+export { sendTelegramAlert } from './alerts/telegramClient.js';
 
 // ─── 아이디어 10: 추천 적중률 자기학습 루프 ─────────────────────────────────────
 
@@ -1690,153 +1462,8 @@ export function getShadowTrades() { return loadShadowTrades(); }
 export function getWatchlist()    { return loadWatchlist(); }
 
 // ─── 아이디어 3: FillMonitor — 체결 확인 폴링 루프 ─────────────────────────────
-
-const FILL_POLL_MAX = 10; // 최대 폴링 횟수 (cron 5분 간격 × 10 = 최대 50분 모니터링)
-
-export interface PendingOrder {
-  ordNo: string;           // KIS 주문번호 (ODNO)
-  stockCode: string;
-  stockName: string;
-  quantity: number;
-  orderPrice: number;
-  placedAt: string;        // ISO
-  pollCount: number;       // 현재까지 조회 횟수
-  status: 'PENDING' | 'FILLED' | 'PARTIAL' | 'CANCELLED' | 'EXPIRED';
-  fillPrice?: number;
-  fillQty?: number;
-  filledAt?: string;
-  relatedTradeId?: string; // shadow trade ID (연관 포지션)
-}
-
-function loadPendingOrders(): PendingOrder[] {
-  ensureDataDir();
-  if (!fs.existsSync(PENDING_ORDERS_FILE)) return [];
-  try { return JSON.parse(fs.readFileSync(PENDING_ORDERS_FILE, 'utf-8')); } catch { return []; }
-}
-
-function savePendingOrders(orders: PendingOrder[]): void {
-  ensureDataDir();
-  // 완료/취소된 주문은 최근 100건만 보관
-  const active  = orders.filter(o => o.status === 'PENDING' || o.status === 'PARTIAL');
-  const history = orders.filter(o => o.status !== 'PENDING' && o.status !== 'PARTIAL').slice(-100);
-  fs.writeFileSync(PENDING_ORDERS_FILE, JSON.stringify([...active, ...history], null, 2));
-}
-
-export class FillMonitor {
-  /** LIVE 주문 후 호출 — pending-orders.json에 추가 */
-  addOrder(order: Omit<PendingOrder, 'pollCount' | 'status'>): void {
-    const orders = loadPendingOrders();
-    if (orders.some(o => o.ordNo === order.ordNo)) return; // 중복 방지
-    orders.push({ ...order, pollCount: 0, status: 'PENDING' });
-    savePendingOrders(orders);
-    console.log(`[FillMonitor] 주문 등록: ${order.stockName}(${order.stockCode}) ODNO=${order.ordNo}`);
-  }
-
-  /** 5분 간격 cron에서 호출 — 모든 PENDING 주문의 체결 여부 확인 */
-  async pollFills(): Promise<void> {
-    if (!process.env.KIS_APP_KEY) return;
-    const orders = loadPendingOrders();
-    const pending = orders.filter(o => o.status === 'PENDING' || o.status === 'PARTIAL');
-    if (pending.length === 0) return;
-
-    console.log(`[FillMonitor] 미체결 조회 — ${pending.length}건`);
-    const trId = KIS_IS_REAL ? 'TTTC0688R' : 'VTTC0688R';
-
-    let data: { output?: { odno: string; ord_qty: string; tot_ccld_qty: string; avg_prvs: string; pdno: string }[] } | null = null;
-    try {
-      data = await kisGet(trId, '/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl', {
-        CANO: process.env.KIS_ACCOUNT_NO ?? '',
-        ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
-        CTX_AREA_FK100: '', CTX_AREA_NK100: '',
-        INQR_DVSN_1: '0', INQR_DVSN_2: '0',
-      });
-    } catch (e) {
-      console.error('[FillMonitor] KIS 미체결 조회 실패:', e instanceof Error ? e.message : e);
-      return;
-    }
-
-    const unfilledOdnoSet = new Set((data?.output ?? []).map(o => o.odno));
-    let changed = false;
-
-    for (const order of pending) {
-      order.pollCount++;
-
-      if (!unfilledOdnoSet.has(order.ordNo)) {
-        // KIS 미체결 목록에 없음 → 체결 완료
-        const fillPrice = await fetchCurrentPrice(order.stockCode).catch(() => null) ?? order.orderPrice;
-        Object.assign(order, {
-          status: 'FILLED', fillPrice, fillQty: order.quantity,
-          filledAt: new Date().toISOString(),
-        });
-        changed = true;
-        console.log(`[FillMonitor] ✅ 체결 확인: ${order.stockName} @${fillPrice.toLocaleString()}원 (ODNO=${order.ordNo})`);
-        await sendTelegramAlert(
-          `✅ <b>[체결 확인]</b>\n` +
-          `종목: ${order.stockName} (${order.stockCode})\n` +
-          `체결가: ${fillPrice.toLocaleString()}원\n` +
-          `수량: ${order.quantity}주\n` +
-          `주문번호: ${order.ordNo}`
-        ).catch(console.error);
-      } else if (order.pollCount >= FILL_POLL_MAX) {
-        // 10회 폴링 초과 → 만료 처리 (장 마감 취소와 별도)
-        order.status = 'EXPIRED';
-        changed = true;
-        console.warn(`[FillMonitor] ⏱ 폴링 만료 (${FILL_POLL_MAX}회): ${order.stockName} ODNO=${order.ordNo}`);
-        await sendTelegramAlert(
-          `⏱ <b>[미체결 만료]</b> ${order.stockName}(${order.ordNo}) — 폴링 ${FILL_POLL_MAX}회 초과`
-        ).catch(console.error);
-      } else {
-        console.log(`[FillMonitor] 미체결 유지 (${order.pollCount}/${FILL_POLL_MAX}): ${order.stockName} ODNO=${order.ordNo}`);
-      }
-    }
-
-    if (changed) savePendingOrders(orders);
-  }
-
-  /**
-   * 장 마감 10분 전(15:20) cron에서 호출 — PENDING 주문 전량 자동 취소.
-   * Railway cron 설정: '20 6 * * 1-5' (UTC 기준 15:20 KST)
-   */
-  async autoCancelAtClose(): Promise<void> {
-    if (!process.env.KIS_APP_KEY) return;
-    const orders = loadPendingOrders();
-    const pending = orders.filter(o => o.status === 'PENDING' || o.status === 'PARTIAL');
-    if (pending.length === 0) return;
-
-    console.warn(`[FillMonitor] 장 마감 전 미체결 취소 — ${pending.length}건`);
-    const cancelTrId = KIS_IS_REAL ? 'TTTC0803U' : 'VTTC0803U';
-
-    for (const order of pending) {
-      try {
-        await kisPost(cancelTrId, '/uapi/domestic-stock/v1/trading/order-rvsecncl', {
-          CANO: process.env.KIS_ACCOUNT_NO ?? '',
-          ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
-          KRX_FWDG_ORD_ORGNO: '', ORGN_ODNO: order.ordNo,
-          ORD_DVSN: '00', RVSE_CNCL_DVSN_CD: '02',
-          ORD_QTY: order.quantity.toString(), ORD_UNPR: '0',
-          QTY_ALL_ORD_YN: 'Y', PDNO: order.stockCode.padStart(6, '0'),
-        });
-        order.status = 'CANCELLED';
-        console.log(`[FillMonitor] 취소 완료: ${order.stockName} ODNO=${order.ordNo}`);
-        await sendTelegramAlert(
-          `🚫 <b>[장마감 자동 취소]</b> ${order.stockName}(${order.stockCode})\n` +
-          `주문번호: ${order.ordNo} | 미체결 ${order.quantity}주`
-        ).catch(console.error);
-      } catch (e) {
-        console.error(`[FillMonitor] 취소 실패 ODNO=${order.ordNo}:`, e instanceof Error ? e.message : e);
-      }
-    }
-
-    savePendingOrders(orders);
-  }
-
-  getPendingOrders(): PendingOrder[] {
-    return loadPendingOrders();
-  }
-}
-
-/** 싱글턴 인스턴스 (server.ts에서 import하여 cron 연결) */
-export const fillMonitor = new FillMonitor();
+export type { PendingOrder } from './trading/fillMonitor.js';
+export { FillMonitor, fillMonitor } from './trading/fillMonitor.js';
 
 // ─── 아이디어 6: Signal Calibrator — 자기학습 피드백 루프 ──────────────────────────
 

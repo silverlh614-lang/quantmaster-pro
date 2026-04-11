@@ -1,8 +1,5 @@
 import path from 'path';
-import { fileURLToPath } from 'url';
 import fs from 'fs';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Railway Volume 마운트 경로 우선, 미설정 시 기본 data/
 export const DATA_DIR = process.env.PERSIST_DATA_DIR
