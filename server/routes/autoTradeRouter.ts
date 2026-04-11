@@ -233,47 +233,32 @@ router.post('/macro/state', (req: any, res: any) => {
   const existing = loadMacroState() ?? {} as MacroState;
   const state: MacroState = { ...existing, mhs: b.mhs, regime: finalRegime, updatedAt: new Date().toISOString() };
 
-  // ─── Bear Regime / IPS 보조 지표 ─────────────────────────────────────────
-  const num  = (k: string) => typeof b[k] === 'number';
-  const bool = (k: string) => typeof b[k] === 'boolean';
-  if (num('vkospi'))                 state.vkospi                 = b.vkospi;
-  if (num('foreignFuturesSellDays')) state.foreignFuturesSellDays = b.foreignFuturesSellDays;
-  if (num('iri'))                    state.iri                    = b.iri;
-  if (num('vix'))                    state.vix                    = b.vix;
-  if (num('oeciCliKorea'))           state.oeciCliKorea           = b.oeciCliKorea;
-  if (num('exportGrowth3mAvg'))      state.exportGrowth3mAvg      = b.exportGrowth3mAvg;
-  if (num('bearRegimeTriggeredCount')) state.bearRegimeTriggeredCount = b.bearRegimeTriggeredCount;
-  if (num('ips'))                    state.ips                    = b.ips;
-  if (bool('vkospiRising'))          state.vkospiRising           = b.vkospiRising;
-  if (bool('bearDefenseMode'))       state.bearDefenseMode        = b.bearDefenseMode;
-  if (bool('dxyBullish'))            state.dxyBullish             = b.dxyBullish;
-  if (bool('kospiBelow120ma'))       state.kospiBelow120ma        = b.kospiBelow120ma;
-  if (b.mhsTrend === 'IMPROVING' || b.mhsTrend === 'STABLE' || b.mhsTrend === 'DETERIORATING')
-    state.mhsTrend = b.mhsTrend;
-  if (b.fssAlertLevel === 'NORMAL' || b.fssAlertLevel === 'CAUTION' || b.fssAlertLevel === 'HIGH_ALERT')
-    state.fssAlertLevel = b.fssAlertLevel;
-  if (num('fss')) state.fss = b.fss;
+  // ─── 선언적 필드 병합 — number / boolean / enum 타입별 일괄 처리 ───────────
+  const numKeys: (keyof MacroState)[] = [
+    // Bear / IPS 보조
+    'vkospi', 'foreignFuturesSellDays', 'iri', 'vix',
+    'oeciCliKorea', 'exportGrowth3mAvg', 'bearRegimeTriggeredCount', 'ips', 'fss',
+    // RegimeVariables 7축
+    'vkospiDayChange', 'vkospi5dTrend',
+    'usdKrw', 'usdKrw20dChange', 'usdKrwDayChange',
+    'foreignNetBuy5d', 'kospi20dReturn', 'kospiDayReturn',
+    'leadingSectorRS', 'marginBalance5dChange', 'shortSellingRatio',
+    'spx20dReturn', 'dxy5dChange',
+  ];
+  const boolKeys: (keyof MacroState)[] = [
+    'vkospiRising', 'bearDefenseMode', 'dxyBullish', 'kospiBelow120ma',
+    'passiveActiveBoth', 'kospiAbove20MA', 'kospiAbove60MA',
+  ];
+  for (const k of numKeys)  if (typeof b[k] === 'number')  (state as any)[k] = b[k];
+  for (const k of boolKeys) if (typeof b[k] === 'boolean') (state as any)[k] = b[k];
 
-  // ─── RegimeVariables 7축 — classifyRegime()이 필요로 하는 필드 ────────────
-  if (num('vkospiDayChange'))        state.vkospiDayChange        = b.vkospiDayChange;
-  if (num('vkospi5dTrend'))          state.vkospi5dTrend          = b.vkospi5dTrend;
-  if (num('usdKrw'))                 state.usdKrw                 = b.usdKrw;
-  if (num('usdKrw20dChange'))        state.usdKrw20dChange        = b.usdKrw20dChange;
-  if (num('usdKrwDayChange'))        state.usdKrwDayChange        = b.usdKrwDayChange;
-  if (num('foreignNetBuy5d'))        state.foreignNetBuy5d        = b.foreignNetBuy5d;
-  if (bool('passiveActiveBoth'))     state.passiveActiveBoth      = b.passiveActiveBoth;
-  if (bool('kospiAbove20MA'))        state.kospiAbove20MA         = b.kospiAbove20MA;
-  if (bool('kospiAbove60MA'))        state.kospiAbove60MA         = b.kospiAbove60MA;
-  if (num('kospi20dReturn'))         state.kospi20dReturn         = b.kospi20dReturn;
-  if (num('kospiDayReturn'))         state.kospiDayReturn         = b.kospiDayReturn;
-  if (num('leadingSectorRS'))        state.leadingSectorRS        = b.leadingSectorRS;
-  if (b.sectorCycleStage === 'EARLY' || b.sectorCycleStage === 'MID' ||
-      b.sectorCycleStage === 'LATE'  || b.sectorCycleStage === 'TURNING')
+  // enum 필드 — 허용 값 화이트리스트
+  if (['IMPROVING', 'STABLE', 'DETERIORATING'].includes(b.mhsTrend))
+    state.mhsTrend = b.mhsTrend;
+  if (['NORMAL', 'CAUTION', 'HIGH_ALERT'].includes(b.fssAlertLevel))
+    state.fssAlertLevel = b.fssAlertLevel;
+  if (['EARLY', 'MID', 'LATE', 'TURNING'].includes(b.sectorCycleStage))
     state.sectorCycleStage = b.sectorCycleStage;
-  if (num('marginBalance5dChange'))  state.marginBalance5dChange  = b.marginBalance5dChange;
-  if (num('shortSellingRatio'))      state.shortSellingRatio      = b.shortSellingRatio;
-  if (num('spx20dReturn'))           state.spx20dReturn           = b.spx20dReturn;
-  if (num('dxy5dChange'))            state.dxy5dChange            = b.dxy5dChange;
 
   saveMacroState(state);
   console.log(`[Macro] MHS 업데이트: ${b.mhs} (${finalRegime})`);

@@ -18,33 +18,7 @@
 
 import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js';
 import { loadFssRecords } from '../persistence/fssRepo.js';
-
-const YF_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-  'Accept': 'application/json',
-};
-
-/** Yahoo Finance에서 OHLCV close 배열 반환. 실패 시 null. */
-async function fetchCloses(symbol: string, range: string): Promise<number[] | null> {
-  const urls = [
-    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`,
-    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`,
-  ];
-  for (const url of urls) {
-    try {
-      const ctrl = new AbortController();
-      const tid  = setTimeout(() => ctrl.abort(), 12000);
-      const res  = await fetch(url, { headers: YF_HEADERS, signal: ctrl.signal });
-      clearTimeout(tid);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const closes: (number | null)[] = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
-      const valid = closes.filter((v): v is number => v !== null && isFinite(v));
-      if (valid.length > 0) return valid;
-    } catch { /* retry next url */ }
-  }
-  return null;
-}
+import { fetchCloses } from '../lib/yahooFinance.js';
 
 /** 이동평균 계산 */
 function sma(prices: number[], n: number): number {

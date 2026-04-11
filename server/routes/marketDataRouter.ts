@@ -2,6 +2,7 @@
 // 외부 시장 데이터 라우터 — server.ts에서 분리
 // ECOS(한국은행), FRED, Yahoo Finance 프록시, 시장지표 일괄 조회
 import { Router, Request, Response } from 'express';
+import { fetchYahooChart, extractCloses, getPrice, getQuote, getPeriodReturn } from '../lib/yahooFinance.js';
 
 const router = Router();
 
@@ -154,71 +155,27 @@ router.get('/ecos/snapshot', async (_req: Request, res: Response) => {
 // ─── Market Indicators — VIX · US10Y · Samsung IRI proxy (Yahoo Finance) ──────
 // 브라우저 CORS 우회 + 병렬 수집. getBatchGlobalIntel Phase A에서 사용.
 router.get('/market-indicators', async (_req: Request, res: Response) => {
-  const fetchYahoo = async (symbol: string, range = '5d'): Promise<any> => {
-    for (const host of ['query2', 'query1']) {
-      try {
-        const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
-        const r = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json',
-          },
-          signal: AbortSignal.timeout(8000),
-        });
-        if (r.ok) {
-          const data = await r.json();
-          if (data?.chart?.result?.[0]) return data.chart.result[0];
-        }
-      } catch { /* try next host */ }
-    }
-    return null;
-  };
+  // ── Yahoo Finance 병렬 수집 (공유 유틸리티 사용) ──────────────────────────
+  const yf = (symbol: string, range = '5d') => fetchYahooChart(symbol, range, 8000);
 
-  const [vixR, us10yR, irxR, samsungR, vkospiR, ks11R, kq11R, ewyR, mtumR] = await Promise.allSettled([
-    fetchYahoo('^VIX'),
-    fetchYahoo('^TNX'),
-    fetchYahoo('^IRX'),          // 13주 T-bill ≈ Fed Funds Rate proxy
-    fetchYahoo('005930.KS', '1mo'),
-    fetchYahoo('^VKOSPI'),       // 한국 변동성 지수 (KOSPI 200 기반)
-    fetchYahoo('^KS11', '1d'),   // KOSPI 지수
-    fetchYahoo('^KQ11', '1d'),   // KOSDAQ 지수
-    fetchYahoo('EWY', '5d'),     // iShares MSCI Korea ETF (스마트머니 프록시)
-    fetchYahoo('MTUM', '5d'),    // iShares MSCI USA Momentum Factor ETF
+  const [vixR, us10yR, irxR, samsungR, vkospiR, ks11R, kq11R, ewyR, mtumR] = await Promise.all([
+    yf('^VIX'),
+    yf('^TNX'),
+    yf('^IRX'),              // 13주 T-bill ≈ Fed Funds Rate proxy
+    yf('005930.KS', '1mo'),
+    yf('^VKOSPI'),           // 한국 변동성 지수 (KOSPI 200 기반)
+    yf('^KS11', '1d'),       // KOSPI 지수
+    yf('^KQ11', '1d'),       // KOSDAQ 지수
+    yf('EWY', '5d'),         // iShares MSCI Korea ETF (스마트머니 프록시)
+    yf('MTUM', '5d'),        // iShares MSCI USA Momentum Factor ETF
   ]);
-
-  const getPrice = (r: PromiseSettledResult<any>): number | null =>
-    r.status === 'fulfilled' && r.value ? (r.value.meta?.regularMarketPrice ?? null) : null;
-
-  // 지수 정보: price + change + changePercent
-  const getQuote = (r: PromiseSettledResult<any>): { price: number; change: number; changePct: number } | null => {
-    if (r.status !== 'fulfilled' || !r.value) return null;
-    const meta = r.value.meta;
-    const price  = meta?.regularMarketPrice ?? null;
-    const prev   = meta?.chartPreviousClose ?? meta?.previousClose ?? null;
-    if (price === null) return null;
-    const change    = prev !== null ? parseFloat((price - prev).toFixed(2)) : 0;
-    const changePct = prev !== null ? parseFloat(((price - prev) / prev * 100).toFixed(2)) : 0;
-    return { price, change, changePct };
-  };
-
-  // ETF 5일 수익률 (스마트머니 흐름 프록시)
-  const getEtfReturn = (r: PromiseSettledResult<any>): number | null => {
-    if (r.status !== 'fulfilled' || !r.value) return null;
-    const closes: (number | null)[] = r.value.indicators?.quote?.[0]?.close ?? [];
-    const valid = closes.filter((c): c is number => c !== null);
-    if (valid.length < 2) return null;
-    return parseFloat(((valid[valid.length - 1] - valid[0]) / valid[0] * 100).toFixed(2));
-  };
 
   // Samsung 30-day return → samsungIri (0.5–1.5, neutral=1.0)
   let samsungIri: number | null = null;
-  if (samsungR.status === 'fulfilled' && samsungR.value) {
-    const closes: (number | null)[] = samsungR.value.indicators?.quote?.[0]?.close ?? [];
-    const valid = closes.filter((c): c is number => c !== null);
-    if (valid.length >= 2) {
-      const ret = (valid[valid.length - 1] - valid[0]) / valid[0];
-      samsungIri = parseFloat(Math.max(0.5, Math.min(1.5, 1.0 + ret * (0.5 / 0.15))).toFixed(3));
-    }
+  const samsungCloses = extractCloses(samsungR);
+  if (samsungCloses.length >= 2) {
+    const ret = (samsungCloses[samsungCloses.length - 1] - samsungCloses[0]) / samsungCloses[0];
+    samsungIri = parseFloat(Math.max(0.5, Math.min(1.5, 1.0 + ret * (0.5 / 0.15))).toFixed(3));
   }
 
   res.json({
@@ -228,11 +185,11 @@ router.get('/market-indicators', async (_req: Request, res: Response) => {
     samsungIri,
     vkospi:          getPrice(vkospiR),
     vkospiDayChange: getQuote(vkospiR)?.changePct ?? null,  // VKOSPI 당일 변화율 (%)
-    vkospi5dTrend:   getEtfReturn(vkospiR),                 // VKOSPI 5일 추세 (%)
-    kospi:       getQuote(ks11R),   // { price, change, changePct }
-    kosdaq:      getQuote(kq11R),   // { price, change, changePct }
-    ewyReturn:   getEtfReturn(ewyR),  // EWY 5일 수익률 (%)
-    mtumReturn:  getEtfReturn(mtumR), // MTUM 5일 수익률 (%)
+    vkospi5dTrend:   getPeriodReturn(vkospiR),              // VKOSPI 5일 추세 (%)
+    kospi:       getQuote(ks11R),       // { price, change, changePct }
+    kosdaq:      getQuote(kq11R),       // { price, change, changePct }
+    ewyReturn:   getPeriodReturn(ewyR),   // EWY 5일 수익률 (%)
+    mtumReturn:  getPeriodReturn(mtumR),  // MTUM 5일 수익률 (%)
     fetchedAt:   new Date().toISOString(),
   });
 });
