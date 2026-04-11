@@ -1,20 +1,46 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Gate0Result, EconomicRegime, EconomicRegimeData } from '../../types/quant';
+import { getEconomicRegime } from '../../services/stockService';
+import { useGlobalIntelStore } from '../../stores/useGlobalIntelStore';
 import { REGIME_LABELS } from './constants';
 import { MHSBar } from './MHSBar';
 
 interface Props {
   gate0Result?: Gate0Result;
-  economicRegime: EconomicRegimeData | null;
-  loading: boolean;
-  error: string | null;
-  onLoadRegime: () => void;
+  externalRegime?: EconomicRegimeData;
 }
 
 const REGIMES: EconomicRegime[] = ['RECOVERY', 'EXPANSION', 'SLOWDOWN', 'RECESSION', 'UNCERTAIN', 'CRISIS', 'RANGE_BOUND'];
 
-export function RegimeGaugeSection({ gate0Result, economicRegime, loading, error, onLoadRegime }: Props) {
+export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
+  const setEconomicRegimeData = useGlobalIntelStore(s => s.setEconomicRegimeData);
+
+  const [economicRegime, setEconomicRegime] = useState<EconomicRegimeData | null>(externalRegime ?? null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (externalRegime) {
+      setEconomicRegime(externalRegime);
+      setEconomicRegimeData(externalRegime);
+    }
+  }, [externalRegime, setEconomicRegimeData]);
+
+  const loadRegime = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getEconomicRegime();
+      setEconomicRegime(data);
+      setEconomicRegimeData(data);
+    } catch (e: any) {
+      setError(e?.message ?? '경기 레짐 조회 실패');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const currentRegime: EconomicRegime = economicRegime?.regime ?? 'EXPANSION';
   const mhs = gate0Result?.macroHealthScore ?? 0;
 
@@ -29,7 +55,7 @@ export function RegimeGaugeSection({ gate0Result, economicRegime, loading, error
           </p>
         </div>
         <button
-          onClick={onLoadRegime}
+          onClick={loadRegime}
           disabled={loading}
           className="flex items-center gap-2 px-4 py-2 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-sm font-black uppercase tracking-widest disabled:opacity-50"
         >

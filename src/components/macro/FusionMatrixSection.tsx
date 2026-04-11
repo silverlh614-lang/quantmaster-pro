@@ -1,17 +1,19 @@
 import React from 'react';
 import { ArrowRight } from 'lucide-react';
 import { EconomicRegime, ROEType } from '../../types/quant';
+import { useGlobalIntelStore } from '../../stores/useGlobalIntelStore';
 import { FUSION_MATRIX, ROE_TYPE_LABELS, REGIME_LABELS, SIGNAL_STYLE, FusionCell, AlphaSignal } from './constants';
 
 interface Props {
-  currentRegime: EconomicRegime;
   currentRoeType: ROEType;
 }
 
 const REGIMES: EconomicRegime[] = ['RECOVERY', 'EXPANSION', 'SLOWDOWN', 'RECESSION', 'UNCERTAIN', 'CRISIS', 'RANGE_BOUND'];
 const ROE_TYPES: ROEType[] = [1, 2, 3, 4, 5];
 
-export function FusionMatrixSection({ currentRegime, currentRoeType }: Props) {
+export function FusionMatrixSection({ currentRoeType }: Props) {
+  const economicRegimeData = useGlobalIntelStore(s => s.economicRegimeData);
+  const currentRegime: EconomicRegime = economicRegimeData?.regime ?? 'EXPANSION';
   return (
     <div className="border border-theme-text bg-theme-card shadow-[8px_8px_0px_0px_rgba(128,128,128,0.3)]">
       <div className="p-8 border-b border-theme-text">

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
-import { EconomicRegime, EconomicRegimeData } from '../../types/quant';
+import { EconomicRegime } from '../../types/quant';
+import { useGlobalIntelStore } from '../../stores/useGlobalIntelStore';
 import { REGIME_LABELS } from './constants';
 
 interface Props {
@@ -9,10 +10,10 @@ interface Props {
     globalEtfMonitoring?: Array<{ name: string; flow: string; change: number }>;
     exchangeRates?: Array<{ name: string; value: number; change: number }>;
   };
-  economicRegime?: EconomicRegimeData | null;
 }
 
-export function MarketOverviewSection({ marketOverview, economicRegime }: Props) {
+export function MarketOverviewSection({ marketOverview }: Props) {
+  const economicRegime = useGlobalIntelStore(s => s.economicRegimeData);
   const currentRegime: EconomicRegime = economicRegime?.regime ?? 'EXPANSION';
   const regimeMeta = REGIME_LABELS[currentRegime];
 

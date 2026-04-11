@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import {
   GlobalCorrelationMatrix, GlobalMultiSourceData, ThemeReverseTrackResult,
@@ -9,14 +9,7 @@ import {
   getSupplyChainIntelligence, getSectorOrderIntelligence, getFinancialStressIndex, getFomcSentimentAnalysis,
 } from '../../services/stockService';
 
-interface Props {
-  externalSupplyChain?: SupplyChainIntelligence;
-  externalSectorOrders?: SectorOrderIntelligence;
-  externalFsi?: FinancialStressIndex;
-  externalFomcSentiment?: FomcSentimentAnalysis;
-}
-
-export function GlobalIntelSection({ externalSupplyChain, externalSectorOrders, externalFsi, externalFomcSentiment }: Props) {
+export function GlobalIntelSection() {
   const [globalMultiSource, setGlobalMultiSource] = useState<GlobalMultiSourceData | null>(null);
   const [multiSourceLoading, setMultiSourceLoading] = useState(false);
 
@@ -26,20 +19,14 @@ export function GlobalIntelSection({ externalSupplyChain, externalSectorOrders, 
   const [themeResults, setThemeResults] = useState<ThemeReverseTrackResult[]>([]);
   const [themeLoading, setThemeLoading] = useState(false);
 
-  // 레이어 I~L 상태 (외부 props 있으면 사용, 없으면 내부 로드)
-  const [supplyChain, setSupplyChain] = useState<SupplyChainIntelligence | null>(externalSupplyChain ?? null);
+  const [supplyChain, setSupplyChain] = useState<SupplyChainIntelligence | null>(null);
   const [supplyChainLoading, setSupplyChainLoading] = useState(false);
-  const [sectorOrders, setSectorOrders] = useState<SectorOrderIntelligence | null>(externalSectorOrders ?? null);
+  const [sectorOrders, setSectorOrders] = useState<SectorOrderIntelligence | null>(null);
   const [sectorOrdersLoading, setSectorOrdersLoading] = useState(false);
-  const [fsi, setFsi] = useState<FinancialStressIndex | null>(externalFsi ?? null);
+  const [fsi, setFsi] = useState<FinancialStressIndex | null>(null);
   const [fsiLoading, setFsiLoading] = useState(false);
-  const [fomcSentiment, setFomcSentiment] = useState<FomcSentimentAnalysis | null>(externalFomcSentiment ?? null);
+  const [fomcSentiment, setFomcSentiment] = useState<FomcSentimentAnalysis | null>(null);
   const [fomcLoading, setFomcLoading] = useState(false);
-
-  useEffect(() => { if (externalSupplyChain) setSupplyChain(externalSupplyChain); }, [externalSupplyChain]);
-  useEffect(() => { if (externalSectorOrders) setSectorOrders(externalSectorOrders); }, [externalSectorOrders]);
-  useEffect(() => { if (externalFsi) setFsi(externalFsi); }, [externalFsi]);
-  useEffect(() => { if (externalFomcSentiment) setFomcSentiment(externalFomcSentiment); }, [externalFomcSentiment]);
 
   const loadGlobalMultiSource = async () => {
     setMultiSourceLoading(true);
