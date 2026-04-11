@@ -12,9 +12,12 @@ import {
 } from '../persistence/shadowTradeRepo.js';
 import { addToBlacklist, isBlacklisted } from '../persistence/blacklistRepo.js';
 import {
-  RRR_MIN_THRESHOLD, MAX_CONCURRENT_POSITIONS, MAX_SECTOR_CONCENTRATION,
+  RRR_MIN_THRESHOLD, MAX_SECTOR_CONCENTRATION,
   calcRRR, checkEuphoria,
 } from './riskManager.js';
+import { getLiveRegime } from './regimeBridge.js';
+import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
+import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
 import { addRecommendation } from '../learning/recommendationTracker.js';
 import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
@@ -48,37 +51,34 @@ export async function runAutoSignalScan(): Promise<void> {
 
   const shadows = loadShadowTrades();
 
-  // ── 아이디어 5: MHS 하드 게이트 (서버사이드 매크로 브레이커) ──
+  // ── 레짐 분류 (classifyRegime — backtestPortfolio와 동일 로직) ──────────────
   const macroState = loadMacroState();
-  const macroRegime = macroState?.regime ?? (
-    macroState ? (macroState.mhs < 30 ? 'RED' : macroState.mhs < 60 ? 'YELLOW' : 'GREEN') : 'GREEN'
-  );
+  const regime      = getLiveRegime(macroState);
+  const regimeConfig = REGIME_CONFIGS[regime];
 
-  if (macroRegime === 'RED') {
+  if (regime === 'R6_DEFENSE') {
     await sendTelegramAlert(
-      `🔴 <b>[매크로 RED] 신규 진입 전면 차단</b>\n` +
-      `MHS: ${macroState?.mhs ?? 'N/A'} | 기존 포지션 모니터링만 수행`
+      `🔴 <b>[R6_DEFENSE] 신규 진입 전면 차단</b>\n` +
+      `MHS: ${macroState?.mhs ?? 'N/A'} | 블랙스완 감지 — 기존 포지션 모니터링만 수행`
     ).catch(console.error);
-    console.warn(`[AutoTrade] 매크로 RED (MHS=${macroState?.mhs}) — 신규 진입 전면 차단`);
+    console.warn(`[AutoTrade] R6_DEFENSE (MHS=${macroState?.mhs}) — 신규 진입 전면 차단`);
     await updateShadowResults(shadows);
     saveShadowTrades(shadows);
     return;
   }
 
-  // 아이디어 9: MAPC — 조정 켈리 = 기본 켈리 × (MHS / 100), 최소 30% 유지
-  const mapcMhs = macroState?.mhs ?? 100;
-  const mapcFactor = Math.max(0.30, mapcMhs / 100);
-  if (mapcFactor < 1) {
-    console.warn(`[AutoTrade] MAPC 적용 (MHS=${mapcMhs}) — 포지션 ${Math.round(mapcFactor * 100)}% 수준으로 자동 조절`);
+  const kellyMultiplier = regimeConfig.kellyMultiplier; // 레짐 Kelly 배율 (0~1.0)
+  if (kellyMultiplier < 1) {
+    console.log(`[AutoTrade] 레짐 ${regime} — Kelly ×${kellyMultiplier} (${Math.round(kellyMultiplier * 100)}% 수준)`);
   }
 
-  // ── 아이디어 7: 동시 최대 보유 종목 제한 ──
+  // ── 동시 최대 보유 종목 (regimeConfig.maxPositions) ─────────────────────────
   const activeCount = shadows.filter(
     (s) => s.status === 'PENDING' || s.status === 'ACTIVE'
   ).length;
-  if (activeCount >= MAX_CONCURRENT_POSITIONS) {
+  if (activeCount >= regimeConfig.maxPositions) {
     console.log(
-      `[AutoTrade] 최대 동시 포지션 도달 (${activeCount}/${MAX_CONCURRENT_POSITIONS}) — 신규 진입 스킵`
+      `[AutoTrade] 최대 동시 포지션 도달 (${activeCount}/${regimeConfig.maxPositions}, 레짐 ${regime}) — 신규 진입 스킵`
     );
     await updateShadowResults(shadows);
     saveShadowTrades(shadows);
@@ -90,8 +90,8 @@ export async function runAutoSignalScan(): Promise<void> {
     const currentActive = shadows.filter(
       (s) => s.status === 'PENDING' || s.status === 'ACTIVE'
     ).length;
-    if (currentActive >= MAX_CONCURRENT_POSITIONS) {
-      console.log(`[AutoTrade] 최대 포지션 도달 (${currentActive}/${MAX_CONCURRENT_POSITIONS}) — 나머지 종목 스킵`);
+    if (currentActive >= regimeConfig.maxPositions) {
+      console.log(`[AutoTrade] 최대 포지션 도달 (${currentActive}/${regimeConfig.maxPositions}, 레짐 ${regime}) — 나머지 종목 스킵`);
       break;
     }
 
@@ -174,8 +174,8 @@ export async function runAutoSignalScan(): Promise<void> {
                            : gateScore >= 20   ? 0.08
                            : gateScore >= 15   ? 0.05
                            : 0.03;
-      // 아이디어 9: MAPC — 조정 켈리 = 기본 켈리 × (MHS / 100)
-      const positionPct = rawPositionPct * mapcFactor;
+      // 레짐 Kelly 배율 적용 (R1=1.0, R2=0.8, R3=0.6, R4=0.5, R5=0.3)
+      const positionPct = rawPositionPct * kellyMultiplier;
       const quantity = Math.floor((totalAssets * positionPct) / shadowEntryPrice);
 
       if (quantity < 1) continue;
@@ -183,6 +183,12 @@ export async function runAutoSignalScan(): Promise<void> {
       // 아이디어 8: STRONG_BUY → 분할 매수 1차 진입 (전체 수량의 50%)
       // 잔여 30%·20%는 trancheExecutor가 3일·7일 후 실행
       const execQty = isStrongBuy ? Math.max(1, Math.floor(quantity * 0.5)) : quantity;
+
+      // L3 분할 익절 타겟 — PROFIT_TARGETS[regime]에서 LIMIT 트랜치 추출
+      const limitTranches = PROFIT_TARGETS[regime].filter(
+        (t) => t.type === 'LIMIT' && t.trigger !== null
+      );
+      const trailTarget = PROFIT_TARGETS[regime].find((t) => t.type === 'TRAILING');
 
       const trade: ServerShadowTrade = {
         id: `srv_${Date.now()}_${stock.code}`,
@@ -192,10 +198,20 @@ export async function runAutoSignalScan(): Promise<void> {
         signalPrice: currentPrice,
         shadowEntryPrice,
         quantity: execQty,
-        originalQuantity: execQty,  // 최초 진입 수량 보존 — EUPHORIA 부분 매도 후 감사용
+        originalQuantity: execQty,
         stopLoss: stock.stopLoss,
         targetPrice: stock.targetPrice,
         status: 'PENDING',
+        // ─── 레짐 연결 ──────────────────────────────────────────────────────
+        entryRegime: regime,
+        profitTranches: limitTranches.map((t) => ({
+          price: shadowEntryPrice * (1 + (t.trigger as number)),
+          ratio: t.ratio,
+          taken: false,
+        })),
+        trailingHighWaterMark: shadowEntryPrice,
+        trailPct: trailTarget?.trailPct ?? 0.10,
+        trailingEnabled: false,
       };
 
       // 아이디어 10: 추천 기록 — 신호 발생 즉시 저장 (WIN/LOSS 추후 평가)
@@ -308,7 +324,64 @@ async function updateShadowResults(shadows: ServerShadowTrade[]): Promise<void> 
 
     const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
 
-    // ① 목표가 달성 → 익절 전량 매도
+    // ─── L3-a: 트레일링 고점 갱신 ────────────────────────────────────────────
+    if (shadow.trailingEnabled && currentPrice > (shadow.trailingHighWaterMark ?? 0)) {
+      shadow.trailingHighWaterMark = currentPrice;
+    }
+
+    // ─── L3-b: LIMIT 트랜치 분할 익절 ────────────────────────────────────────
+    if (shadow.profitTranches && shadow.profitTranches.length > 0 && !shadow.trailingEnabled) {
+      let trancheFired = false;
+      for (const t of shadow.profitTranches) {
+        if (!t.taken && currentPrice >= t.price) {
+          const baseQty  = shadow.originalQuantity ?? shadow.quantity;
+          const sellQty  = Math.min(Math.max(1, Math.round(baseQty * t.ratio)), shadow.quantity);
+          shadow.quantity -= sellQty;
+          t.taken = true;
+          trancheFired = true;
+          appendShadowLog({ event: 'PROFIT_TRANCHE', ...shadow, soldQty: sellQty, tranchePrice: t.price, returnPct });
+          console.log(`[AutoTrade] 📈 ${shadow.stockName} L3 분할 익절 ${(t.ratio * 100).toFixed(0)}% (${sellQty}주) @${currentPrice.toLocaleString()}`);
+          await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
+          await sendTelegramAlert(
+            `📈 <b>[L3 분할 익절]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+            `트랜치: ${(t.ratio * 100).toFixed(0)}% × ${sellQty}주 @${currentPrice.toLocaleString()}원\n` +
+            `수익률: +${returnPct.toFixed(2)}% | 잔여: ${shadow.quantity}주`
+          ).catch(console.error);
+        }
+      }
+      // 모든 LIMIT 트랜치 소화 → 트레일링 활성화
+      if (trancheFired && shadow.profitTranches.every((t) => t.taken)) {
+        shadow.trailingEnabled = true;
+        shadow.trailingHighWaterMark = currentPrice;
+        appendShadowLog({ event: 'TRAILING_ACTIVATED', ...shadow });
+        console.log(`[AutoTrade] 🔁 ${shadow.stockName} 트레일링 스톱 활성화 @${currentPrice.toLocaleString()}`);
+      }
+      // 전량 소진 시 종료
+      if (shadow.quantity <= 0) {
+        Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
+        appendShadowLog({ event: 'FULLY_CLOSED_TRANCHES', ...shadow });
+        continue;
+      }
+    }
+
+    // ─── L3-c: 트레일링 스톱 ─────────────────────────────────────────────────
+    if (shadow.trailingEnabled && shadow.trailingHighWaterMark !== undefined && shadow.quantity > 0) {
+      const trailFloor = shadow.trailingHighWaterMark * (1 - (shadow.trailPct ?? 0.10));
+      if (currentPrice <= trailFloor) {
+        Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
+        appendShadowLog({ event: 'TRAILING_STOP', ...shadow });
+        console.log(`[AutoTrade] 📉 ${shadow.stockName} L3 트레일링 스톱 (HWM×${(1 - (shadow.trailPct ?? 0.10)).toFixed(2)}) @${currentPrice.toLocaleString()}`);
+        await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'TAKE_PROFIT');
+        await sendTelegramAlert(
+          `📉 <b>[L3 트레일링 스톱]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+          `고점: ${shadow.trailingHighWaterMark.toLocaleString()}원 → 청산: ${currentPrice.toLocaleString()}원\n` +
+          `최종 수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}%`
+        ).catch(console.error);
+        continue;
+      }
+    }
+
+    // ① 목표가 달성 → 익절 전량 매도 (트랜치 미설정 구형 포지션 fallback)
     if (currentPrice >= shadow.targetPrice) {
       Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
       appendShadowLog({ event: 'HIT_TARGET', ...shadow });

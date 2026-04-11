@@ -22,6 +22,24 @@ export interface MacroState {
   ips?: number;                     // 마지막 IPS 점수 (캐시)
   fss?: number;                     // 마지막 FSS 누적 점수 (캐시)
   fssAlertLevel?: 'NORMAL' | 'CAUTION' | 'HIGH_ALERT'; // FSS 경보 단계
+  // ─── RegimeVariables 7축 매핑용 (optional — 클라이언트 전달 시 저장) ──────
+  vkospiDayChange?: number;         // VKOSPI 당일 변화율
+  vkospi5dTrend?: number;           // VKOSPI 5일 추세 (양수=상승)
+  usdKrw?: number;                  // 원달러 환율
+  usdKrw20dChange?: number;         // 원달러 20일 변화율
+  usdKrwDayChange?: number;         // 원달러 당일 변화율
+  foreignNetBuy5d?: number;         // 외국인 순매수 5일 누적 (억원)
+  passiveActiveBoth?: boolean;      // 패시브+액티브 동시 외국인 순매수
+  kospiAbove20MA?: boolean;         // KOSPI 20일선 위
+  kospiAbove60MA?: boolean;         // KOSPI 60일선 위
+  kospi20dReturn?: number;          // KOSPI 20일 수익률
+  kospiDayReturn?: number;          // KOSPI 당일 수익률
+  leadingSectorRS?: number;         // 선행 섹터 상대강도 (0~100)
+  sectorCycleStage?: 'EARLY' | 'MID' | 'LATE' | 'TURNING'; // 섹터 사이클
+  marginBalance5dChange?: number;   // 신용잔고 5일 변화율
+  shortSellingRatio?: number;       // 공매도 비율 (%)
+  spx20dReturn?: number;            // S&P500 20일 수익률
+  dxy5dChange?: number;             // 달러인덱스 5일 변화율
 }
 
 export function loadMacroState(): MacroState | null {
