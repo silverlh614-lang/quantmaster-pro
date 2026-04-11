@@ -4,6 +4,7 @@ import { domToJpeg } from 'modern-screenshot';
 import { jsPDF } from 'jspdf';
 import { generateReportSummary } from '../services/stockService';
 import { useRecommendationStore, useMarketStore, useAnalysisStore, useSettingsStore } from '../stores';
+import { debugLog } from '../utils/debug';
 
 export function useReportExport() {
   const { recommendations, searchResults } = useRecommendationStore();
@@ -20,7 +21,7 @@ export function useReportExport() {
 
   const generatePDF = async (shouldDownload = true): Promise<string | null> => {
     setIsGeneratingPDF(true);
-    console.log('PDF 생성 시작 (modern-screenshot 사용)...');
+    debugLog('PDF 생성 시작 (modern-screenshot 사용)...');
     const originalStyles = new Map<HTMLElement, any>();
     const originalScrollY = window.scrollY;
     try {
@@ -57,17 +58,17 @@ export function useReportExport() {
       const fullHeight = element.scrollHeight;
       const fullWidth = element.scrollWidth;
       
-      console.log(`리포트 크기: ${fullWidth}x${fullHeight}`);
+      debugLog(`리포트 크기: ${fullWidth}x${fullHeight}`);
 
       // Cap scale if height is too large to avoid browser canvas limits (approx 32k)
       // Most browsers have a limit around 32,767px for canvas dimensions
       let captureScale = 1.5;
       if (fullHeight * captureScale > 30000) {
         captureScale = Math.max(1, 30000 / fullHeight);
-        console.log(`높이가 너무 커서 스케일을 ${captureScale.toFixed(2)}로 조정합니다.`);
+        debugLog(`높이가 너무 커서 스케일을 ${captureScale.toFixed(2)}로 조정합니다.`);
       }
 
-      console.log('domToJpeg 호출 중...');
+      debugLog('domToJpeg 호출 중...');
       // modern-screenshot supports modern CSS like oklch/oklab
       // We force height auto and overflow visible to ensure full capture
       const imgData = await domToJpeg(element, {
@@ -87,7 +88,7 @@ export function useReportExport() {
         }
       });
 
-      console.log('이미지 생성 완료, PDF 변환 중...');
+      debugLog('이미지 생성 완료, PDF 변환 중...');
       
       // Create a temporary image to get dimensions
       const img = new Image();
@@ -105,11 +106,11 @@ export function useReportExport() {
       
       const filename = `stock-analysis-${new Date().toISOString().split('T')[0]}.pdf`;
       if (shouldDownload) {
-        console.log('PDF 다운로드 시작...');
+        debugLog('PDF 다운로드 시작...');
         pdf.save(filename);
       }
 
-      console.log('PDF 생성 완료');
+      debugLog('PDF 생성 완료');
       return pdf.output('datauristring');
     } catch (err: any) {
       console.error('PDF 생성 실패:', err);
@@ -228,7 +229,7 @@ export function useReportExport() {
     
     setIsSummarizing(true);
     try {
-      console.log('AI 요약 생성 중...');
+      debugLog('AI 요약 생성 중...');
       // 추천 종목과 검색 결과를 합쳐서 요약 대상으로 전달
       const allStocks = [...(recommendations || []), ...(searchResults || [])];
       const summary = await generateReportSummary(allStocks, marketContext);
@@ -263,17 +264,17 @@ export function useReportExport() {
       let summary = reportSummary;
       if (!summary) {
         setIsSummarizing(true);
-        console.log('AI 요약 생성 중...');
+        debugLog('AI 요약 생성 중...');
         summary = await generateReportSummary(recommendations, marketContext);
         setReportSummary(summary);
         setIsSummarizing(false);
       }
       
-      console.log('PDF 생성 중...');
+      debugLog('PDF 생성 중...');
       const pdfBase64 = await generatePDF(false);
       if (!pdfBase64) return;
 
-      console.log('이메일 전송 중...');
+      debugLog('이메일 전송 중...');
       const response = await fetch('/api/send-email', {
         method: 'POST',
         headers: {

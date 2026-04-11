@@ -11,7 +11,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Flame, ChevronDown, ChevronUp, TrendingDown, AlertTriangle } from 'lucide-react';
 import { cn } from '../ui/cn';
-import { evaluateSectorOverheat } from '../services/quantEngine';
+import { evaluateSectorOverheat } from '../services/quant/sectorEngine';
 import type { SectorOverheatInput, SectorOverheatResult, OverheatedSectorMatch } from '../types/quant';
 
 const NEWS_PHASE_OPTIONS: SectorOverheatInput['newsPhase'][] = [

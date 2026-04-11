@@ -2,6 +2,7 @@ import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, aiCache, lsSet, withRetry, safeJsonParse, getCachedAIResponse } from './aiClient';
 import { fetchMarketIndicators } from './marketOverview';
 import { getMacroSnapshot, snapshotToMacroFields, getTradeData } from '../ecosService';
+import { debugLog, debugWarn } from '../../utils/debug';
 import type {
   MacroEnvironment,
   EconomicRegimeData,
@@ -76,13 +77,13 @@ export async function getBatchGlobalIntel(): Promise<BatchGlobalIntelResult> {
     const snap = ecosSnapshotR.value;
     ecosFields = snapshotToMacroFields(snap);
     if (snap.bokRate) bokRateValue = snap.bokRate.rate;
-    console.log('[getBatchGlobalIntel] ECOS 수집 완료:', Object.keys(ecosFields));
+    debugLog('[getBatchGlobalIntel] ECOS 수집 완료', Object.keys(ecosFields));
   } else {
-    console.warn('[getBatchGlobalIntel] ECOS 수집 실패:', ecosSnapshotR.reason);
+    debugWarn('[getBatchGlobalIntel] ECOS 수집 실패', ecosSnapshotR.reason);
   }
   if (yahooR.status === 'fulfilled') {
     yahooFields = yahooR.value;
-    console.log('[getBatchGlobalIntel] Yahoo 수집 완료: vix=%d us10y=%d', yahooFields.vix, yahooFields.us10yYield);
+    debugLog('[getBatchGlobalIntel] Yahoo 수집 완료', { vix: yahooFields.vix, us10y: yahooFields.us10yYield });
   }
 
   const krUsSpread = (bokRateValue !== null && yahooFields.usShortRate !== null)
@@ -103,7 +104,7 @@ export async function getBatchGlobalIntel(): Promise<BatchGlobalIntelResult> {
     ...(krUsSpread             !== null ? { krUsSpread }                          : {}),
   };
   const preFilledCount = Object.keys(preFilledMacro).length;
-  console.log(`[getBatchGlobalIntel] 사전 확보 macro 필드 ${preFilledCount}/12`);
+  debugLog(`[getBatchGlobalIntel] 사전 확보 macro 필드 ${preFilledCount}/12`);
 
   const phaseAPrompt = `현재 한국 날짜: ${todayDate}
 
@@ -255,7 +256,7 @@ ${phaseBLines.length > 0 ? phaseBLines.join('\n') : '(데이터 수집 실패 �
     } as Partial<typeof parsed.macro>;
     if (Object.keys(apiOverride).length > 0) {
       parsed.macro = { ...parsed.macro, ...apiOverride };
-      console.log('[getBatchGlobalIntel] API 실데이터 오버라이드:', Object.keys(apiOverride));
+      debugLog('[getBatchGlobalIntel] API 실데이터 오버라이드', Object.keys(apiOverride));
     }
 
     const nowTs   = Date.now();
@@ -306,7 +307,7 @@ export async function getBatchSectorIntel(): Promise<BatchSectorIntelResult> {
         .map(d => `  ${d.date}: YoY ${d.exportGrowthYoY > 0 ? '+' : ''}${d.exportGrowthYoY.toFixed(1)}%`)
         .join('\n');
       ecosExport = { latestYoY, ma3m, consecutivePositive, monthlyRows };
-      console.log('[getBatchSectorIntel] ECOS 수출 수집 완료: 최신YoY=%d% 3MA=%d%', latestYoY, ma3m);
+      debugLog('[getBatchSectorIntel] ECOS 수출 수집 완료', { latestYoY, ma3m });
     }
   } catch (e) {
     console.warn('[getBatchSectorIntel] ECOS 수출 수집 실패:', e);

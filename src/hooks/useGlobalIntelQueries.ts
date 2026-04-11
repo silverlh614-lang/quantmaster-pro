@@ -17,7 +17,10 @@ import {
   getBatchMarketIntel,
 } from '../services/stockService';
 import { useGlobalIntelStore } from '../stores';
-import { evaluateGate0, evaluateBearRegime, evaluateBearSeasonality, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener, evaluateBearKelly, evaluateIPS, computeFSS } from '../services/quantEngine';
+import { evaluateGate0 } from '../services/quant/gateEngine';
+import { evaluateBearRegime, evaluateBearSeasonality, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener, evaluateBearKelly } from '../services/quant/bearEngine';
+import { evaluateIPS } from '../services/quant/ipsEngine';
+import { computeFSS } from '../services/quant/fssEngine';
 import { syncGate0ToServer } from '../services/autoTrading';
 import { getStaleTime, PERSIST_GC_TIME } from '../utils/cacheConfig';
 

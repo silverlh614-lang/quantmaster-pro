@@ -20,7 +20,7 @@ import { QuantDashboard } from './QuantDashboard';
 import { ConfidenceBadge } from './ConfidenceBadge';
 import { CandleChart } from './CandleChart';
 import { AnalysisViewToggle, AnalysisViewButtons } from './AnalysisViewToggle';
-import { evaluateStock, evaluateGate0 } from '../services/quantEngine';
+import { evaluateStock, evaluateGate0 } from '../services/quant/gateEngine';
 import { useGlobalIntelStore, useMarketStore, useAnalysisStore, useRecommendationStore, useSettingsStore } from '../stores';
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
 import { buildShadowTrade } from '../services/autoTrading';

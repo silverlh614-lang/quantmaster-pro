@@ -23,7 +23,7 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { cn } from '../ui/cn';
-import { evaluateBearModeSimulator } from '../services/quantEngine';
+import { evaluateBearModeSimulator } from '../services/quant/bearEngine';
 import type { BearModeSimulatorInput, BearModeSimulatorResult } from '../types/quant';
 
 // ── 기본 시나리오 팩토리 ──────────────────────────────────────────────────────

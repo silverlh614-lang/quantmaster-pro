@@ -15,7 +15,7 @@ import {
   Wallet,
   Globe,
 } from 'lucide-react';
-import { evaluateStock } from '../services/quantEngine';
+import { evaluateStock } from '../services/quant/gateEngine';
 import { ConditionId, MarketRegime, SectorRotation, EvaluationResult, MacroEnvironment } from '../types/quant';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';

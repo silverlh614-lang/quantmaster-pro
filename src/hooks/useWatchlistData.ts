@@ -5,8 +5,9 @@ import {
 } from '../stores';
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
 import { useCopiedCode } from './useCopiedCode';
-import { evaluateGate0 } from '../services/quantEngine';
+import { evaluateGate0 } from '../services/quant/gateEngine';
 import { fetchHistoricalData } from '../services/stockService';
+import { debugWarn } from '../utils/debug';
 import type { StockRecommendation } from '../services/stockService';
 import { calculateRSIMomentumAcceleration } from '../utils/indicators';
 
@@ -56,7 +57,7 @@ export function useWatchlistData() {
         if (closes.length < 17) return;
         const { values } = calculateRSIMomentumAcceleration(closes, 3);
         if (!cancelled) setWeeklyRsiValues(values);
-      } catch { /* 실패 시 기본값 유지 */ }
+      } catch (err) { debugWarn(`[RSI 계산] ${deepAnalysisStock.code} 실패`, err); }
     })();
     return () => { cancelled = true; };
   }, [deepAnalysisStock?.code]);

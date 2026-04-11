@@ -37,7 +37,7 @@ import { AnalysisViewToggle, AnalysisViewButtons } from '../components/AnalysisV
 import { DeepAnalysisModal } from '../components/DeepAnalysisModal';
 
 import { useCopiedCode } from '../hooks/useCopiedCode';
-import { evaluateStock, evaluateGate0 } from '../services/quantEngine';
+import { evaluateStock, evaluateGate0 } from '../services/quant/gateEngine';
 import { buildShadowTrade } from '../services/autoTrading';
 import { MASTER_CHECKLIST_STEPS, CHECKLIST_LABELS, getMarketPhaseInfo } from '../constants/checklist';
 import {
@@ -135,7 +135,7 @@ export function DiscoverWatchlistPage({
         if (closes.length < 17) return; // RSI 14 + 3주
         const { values } = calculateRSIMomentumAcceleration(closes, 3);
         if (!cancelled) setWeeklyRsiValues(values);
-      } catch { /* 실패 시 기본값 유지 */ }
+      } catch { /* RSI 계산 실패 시 기본값([]) 유지 — 비필수 보조 지표 */ }
     })();
     return () => { cancelled = true; };
   }, [deepAnalysisStock?.code]);
@@ -621,7 +621,6 @@ export function DiscoverWatchlistPage({
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.1 }}
                     onClick={() => {
-                      console.log("🔥 Top3 카드 클릭됨:", stock.name, stock.code);
                       setDeepAnalysisStock(stock);
                     }}
                     className="glass-3d rounded-2xl sm:rounded-3xl p-8 border border-white/10 relative overflow-hidden group cursor-pointer hover:border-orange-500/50 transition-all"
@@ -1815,7 +1814,6 @@ export function DiscoverWatchlistPage({
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              console.log("🔥 Deep Analysis 클릭됨:", stock.name, stock.code);
                               setDeepAnalysisStock(stock);
                             }}
                             className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 hover:border-orange-500/50 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black text-orange-500 transition-all uppercase tracking-[0.2em] active:scale-[0.98] shadow-[0_0_20px_rgba(249,115,22,0.05)] hover:shadow-[0_0_25px_rgba(249,115,22,0.15)] group/deep"
