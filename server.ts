@@ -28,6 +28,9 @@ import {
 import kisRouter from './server/routes/kisRouter.js';
 import marketDataRouter from './server/routes/marketDataRouter.js';
 import dartRouter from './server/routes/dartRouter.js';
+import autoTradeRouter from './server/routes/autoTradeRouter.js';
+import systemRouter from './server/routes/systemRouter.js';
+import { startScheduler } from './server/scheduler.js';
 
 
 export { isEmergencyStopped, setDailyLoss };
