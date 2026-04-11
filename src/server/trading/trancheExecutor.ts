@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { TRANCHE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
-import { evaluateServerGate } from '../serverQuantFilter.js';
+import { evaluateServerGate } from '../../../server/quantFilter.js';
 import { kisPost, BUY_TR_ID, fetchCurrentPrice } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fillMonitor } from './fillMonitor.js';
