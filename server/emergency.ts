@@ -66,7 +66,7 @@ export async function checkDailyLossLimit(): Promise<void> {
     setEmergencyStop(true);
     console.error(`[EMERGENCY] 일일 손실 한도 도달 (${getDailyLossPct().toFixed(2)}% ≥ ${limit}%) — 자동매매 중단`);
     await cancelAllPendingOrders();
-    const { generateDailyReport } = await import('../src/server/autoTradeEngine.js');
+    const { generateDailyReport } = await import('./alerts/reportGenerator.js');
     await generateDailyReport().catch(console.error);
   }
 }

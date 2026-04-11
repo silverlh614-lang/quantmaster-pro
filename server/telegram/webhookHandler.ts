@@ -8,16 +8,14 @@ import {
   setDailyLoss,
 } from '../state.js';
 import { cancelAllPendingOrders } from '../emergency.js';
-import {
-  loadWatchlist,
-  getShadowTrades,
-  getMonthlyStats,
-  sendTelegramAlert,
-  loadMacroState,
-  fillMonitor,
-  runAutoSignalScan,
-  generateDailyReport,
-} from '../../src/server/autoTradeEngine.js';
+import { loadWatchlist } from '../persistence/watchlistRepo.js';
+import { loadMacroState } from '../persistence/macroStateRepo.js';
+import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
+import { getMonthlyStats } from '../learning/recommendationTracker.js';
+import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { fillMonitor } from '../trading/fillMonitor.js';
+import { runAutoSignalScan } from '../trading/signalScanner.js';
+import { generateDailyReport } from '../alerts/reportGenerator.js';
 
 export async function handleTelegramWebhook(req: Request, res: Response): Promise<void> {
   res.sendStatus(200); // Telegram에 즉시 200 응답 (재전송 방지)

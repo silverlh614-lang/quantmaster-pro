@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "snapshot": "git add -A && git commit -m \"snapshot: $(date '+%Y-%m-%d %H:%M')\" --allow-empty",
-    "dev": "npm run snapshot && tsx server.ts",
+    "dev": "npm run snapshot && tsx server/index.ts",
     "prebuild": "python3 scripts/validate_gemini_calls.py",
     "build": "vite build",
-    "start": "NODE_ENV=production npx tsx server.ts",
+    "start": "NODE_ENV=production npx tsx server/index.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
