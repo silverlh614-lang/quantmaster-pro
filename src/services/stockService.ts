@@ -4,7 +4,7 @@ import { fetchHistoricalData, backtestPortfolio, runAdvancedAnalysis, performWal
 import { enrichStockWithRealData, fetchCurrentPrice, syncStockPrice, syncStockPriceKIS } from './stock/priceSync';
 import { clearSearchCache, searchStock } from './stock/stockSearch';
 import { parsePortfolioFile, generateReportSummary } from './stock/reportUtils';
-import { syncMarketOverviewIndices, getMarketOverview } from './stock/marketOverview';
+import { syncMarketOverviewIndices, getMarketOverview, fetchMarketIndicators } from './stock/marketOverview';
 import {
   BacktestResult,
   BacktestPosition,
@@ -633,26 +633,6 @@ export interface BatchSectorIntelResult {
 export interface BatchMarketIntelResult {
   globalCorrelation: GlobalCorrelationMatrix;
   fomcSentiment: FomcSentimentAnalysis;
-}
-
-/** Yahoo Finance 시장 지표 조회 (서버 프록시 경유, CORS 없음) */
-async function fetchMarketIndicators(): Promise<{
-  vix: number | null; us10yYield: number | null;
-  usShortRate: number | null; samsungIri: number | null;
-  vkospi: number | null;
-  kospi:  { price: number; change: number; changePct: number } | null;
-  kosdaq: { price: number; change: number; changePct: number } | null;
-  ewyReturn:  number | null;
-  mtumReturn: number | null;
-}> {
-  try {
-    const res = await fetch('/api/market-indicators');
-    if (!res.ok) throw new Error(`market-indicators ${res.status}`);
-    return await res.json();
-  } catch {
-    return { vix: null, us10yYield: null, usShortRate: null, samsungIri: null,
-             vkospi: null, kospi: null, kosdaq: null, ewyReturn: null, mtumReturn: null };
-  }
 }
 
 /**

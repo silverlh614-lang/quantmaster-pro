@@ -4,7 +4,7 @@ import { fetchHistoricalData } from './historicalData';
 import type { MarketOverview } from './types';
 
 /** Yahoo Finance 시장 지표 조회 (서버 프록시 경유, CORS 없음) */
-async function fetchMarketIndicators(): Promise<{
+export async function fetchMarketIndicators(): Promise<{
   vix: number | null; us10yYield: number | null;
   usShortRate: number | null; samsungIri: number | null;
   vkospi: number | null;
