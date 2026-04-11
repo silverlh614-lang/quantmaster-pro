@@ -14,8 +14,7 @@ import {
   Radar as RechartsRadar, RadarChart, PolarGrid,
   PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer
 } from 'recharts';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../ui/cn';
 import { QuantDashboard } from './QuantDashboard';
 import { ConfidenceBadge } from './ConfidenceBadge';
 import { CandleChart } from './CandleChart';
@@ -25,14 +24,11 @@ import { useGlobalIntelStore, useMarketStore, useAnalysisStore, useRecommendatio
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
 import { buildShadowTrade } from '../services/autoTrading';
 import { MASTER_CHECKLIST_STEPS, SELL_CHECKLIST_STEPS, getMarketPhaseInfo } from '../constants/checklist';
+import { getRadarData } from '../utils/radarData';
 import type { StockRecommendation } from '../services/stockService';
 import type { Gate0Result, ChecklistKey } from '../types/quant';
 import { CHECKLIST_KEY_TO_CONDITION_ID } from '../types/quant';
 import { debugLog, debugWarn } from '../utils/debug';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 
 interface DeepAnalysisModalProps {
@@ -82,21 +78,6 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
     }
     return [];
   }, [stock?.code, stock?.type]);
-
-  const getRadarData = (s: StockRecommendation) => {
-    const categories = [
-      { name: '기본적 분석', keys: ['roeType3', 'earningsSurprise', 'performanceReality', 'ocfQuality', 'marginAcceleration', 'interestCoverage', 'economicMoatVerified'] },
-      { name: '기술적 분석', keys: ['momentumRanking', 'ichimokuBreakout', 'technicalGoldenCross', 'volumeSurgeVerified', 'turtleBreakout', 'fibonacciLevel', 'elliottWaveVerified', 'vcpPattern', 'divergenceCheck'] },
-      { name: '수급 분석', keys: ['supplyInflow', 'institutionalBuying', 'consensusTarget'] },
-      { name: '시장 주도력', keys: ['cycleVerified', 'riskOnEnvironment', 'notPreviousLeader', 'policyAlignment'] },
-      { name: '전략/심리', keys: ['mechanicalStop', 'psychologicalObjectivity', 'catalystAnalysis'] }
-    ];
-    return categories.map(cat => {
-      const passed = cat.keys.filter(key => s.checklist ? s.checklist[key as keyof StockRecommendation['checklist']] : 0).length;
-      const total = cat.keys.length;
-      return { subject: cat.name, A: Math.round((passed / total) * 100), fullMark: 100 };
-    });
-  };
 
   // Prevent ghost clicks from immediately closing the modal on mobile
   const canCloseRef = useRef(false);

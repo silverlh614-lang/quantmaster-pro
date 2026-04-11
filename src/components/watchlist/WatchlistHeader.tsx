@@ -6,17 +6,12 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../../ui/cn';
 import { HeroChecklist } from '../HeroChecklist';
 import { ConfidenceBadge } from '../ConfidenceBadge';
 import { MASTER_CHECKLIST_STEPS, getMarketPhaseInfo } from '../../constants/checklist';
 import type { StockRecommendation, MarketContext } from '../../services/stockService';
 import type { StockFilters } from '../../services/stockService';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 export interface WatchlistHeaderProps {
   filters: StockFilters;

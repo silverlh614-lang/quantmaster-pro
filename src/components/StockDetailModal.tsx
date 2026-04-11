@@ -23,13 +23,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { StockRecommendation } from '../services/stockService';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../ui/cn';
 import { debugWarn } from '../utils/debug';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface StockDetailModalProps {
   stock: StockRecommendation | null;

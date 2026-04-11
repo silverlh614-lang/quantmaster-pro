@@ -41,13 +41,8 @@ import {
   Bar,
   Cell
 } from 'recharts';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { StockRecommendation, MarketContext, runAdvancedAnalysis, AdvancedAnalysisResult } from '../services/stockService';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { cn } from '../ui/cn';
 
 export function AnalysisDashboard() {
   const [activeTab, setActiveTab] = useState<'BACKTEST' | 'WALK_FORWARD' | 'PAPER_TRADING'>('BACKTEST');

@@ -1,13 +1,8 @@
 import React from 'react';
 import { MarketOverview } from '../services/stockService';
 import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { debugWarn } from '../utils/debug';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { cn } from '../ui/cn';
 
 interface MarketTickerProps {
   data: MarketOverview | null;

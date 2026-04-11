@@ -6,12 +6,7 @@ import {
 import { motion } from 'motion/react';
 import { performWalkForwardAnalysis, WalkForwardAnalysis } from '../services/stockService';
 import { toast } from 'sonner';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { cn } from '../ui/cn';
 
 export const WalkForwardView: React.FC = () => {
   const [walkForwardAnalysis, setWalkForwardAnalysis] = useState<WalkForwardAnalysis | null>(null);

@@ -29,13 +29,8 @@ import {
 import { MarketOverview, MarketDataPoint, SnsSentiment } from '../services/stockService';
 import { SectorHeatmap } from './SectorHeatmap';
 import { EventCalendar } from './EventCalendar';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { debugWarn } from '../utils/debug';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { cn } from '../ui/cn';
 
 interface MarketDashboardProps {
   data: MarketOverview;

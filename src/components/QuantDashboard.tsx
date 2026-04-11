@@ -9,13 +9,8 @@ import { MAPCPanel } from './MAPCPanel';
 import { ROETransitionPanel } from './ROETransitionPanel';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { detectROETransition } from '../services/quantEngine';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../ui/cn';
 import { MacroIntelligenceDashboard } from './MacroIntelligenceDashboard';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface Props {
   result: EvaluationResult;

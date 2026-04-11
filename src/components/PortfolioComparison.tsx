@@ -21,12 +21,7 @@ import {
   ResponsiveContainer, 
   Cell
 } from 'recharts';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { cn } from '../ui/cn';
 
 interface PortfolioComparisonProps {
   portfolios: Portfolio[];
