@@ -50,6 +50,26 @@ export interface Condition {
 
 export type MarketRegimeType = '상승초기' | '변동성' | '횡보' | '하락';
 
+// ─── 자동매매 레짐 4단계 ──────────────────────────────────────────────────────
+
+/**
+ * 자동매매 공격성 레벨을 결정하는 4단계 레짐.
+ * MHS + VKOSPI 조합으로 실시간 분류 → getRegimeConfig()가 Gate 임계값·Kelly 상한을 반환.
+ */
+export type TradeRegime =
+  | 'BULL_AGGRESSIVE'   // MHS ≥ 70 + VKOSPI < 20: 최대 공격
+  | 'BULL_NORMAL'       // MHS 50~70: 정상 매수
+  | 'NEUTRAL'           // MHS 30~50: 신중 매수 (STRONG_BUY만 허용)
+  | 'DEFENSE';          // MHS < 30 또는 블랙스완: 매수 전면 중단
+
+/** getRegimeConfig()가 반환하는 레짐별 Gate·Kelly 설정 */
+export interface RegimeConfig {
+  gate2PassCount: number;      // Gate 2 통과 최소 조건 수 (GATE2_IDS 12개 기준)
+  gate3PassCount: number;      // Gate 3 통과 최소 조건 수 (GATE3_IDS 10개 기준)
+  maxPositionKelly: number;    // Kelly 상한 (0~1)
+  allowedSignals: string[];    // 허용 신호 등급 ([] = 매수 차단)
+}
+
 export interface MarketRegime {
   type: MarketRegimeType;
   weightMultipliers: Record<ConditionId, number>;
@@ -63,9 +83,10 @@ export interface MarketRegime {
 export interface Gate0Result {
   passed: boolean;
   macroHealthScore: number;    // MHS 0-100
-  mhsLevel: 'HIGH' | 'MEDIUM' | 'LOW'; // HIGH ≥70 / MEDIUM 40-69 / LOW <40
-  kellyReduction: number;      // MAPC 포지션 축소율: 1 − (MHS/100). MHS<40 → 1.0(매수중단), MHS=50 → 0.5, MHS=100 → 0.0
-  buyingHalted: boolean;       // MHS < 40 → 전면 매수 중단
+  mhsLevel: 'HIGH' | 'MEDIUM' | 'LOW'; // HIGH ≥70 / MEDIUM 50-69 / LOW 30-49
+  tradeRegime: TradeRegime;    // 자동매매 4단계 레짐 (getRegimeConfig() 입력)
+  kellyReduction: number;      // MAPC 포지션 축소율: 1 − (MHS/100). MHS<30 → 1.0(매수중단)
+  buyingHalted: boolean;       // MHS < 30 → 전면 매수 중단 (기존 40에서 완화)
   rateCycle: RateCycle;
   fxRegime: FXRegime;
   details: {

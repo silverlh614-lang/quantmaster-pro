@@ -40,6 +40,8 @@ import {
   ROEType,
   ROETransitionResult,
   EarlyBullEntryResult,
+  TradeRegime,
+  RegimeConfig,
 } from '../../types/quant';
 import { z } from 'zod';
 import {
@@ -119,11 +121,19 @@ export function evaluateGate0(env: MacroEnvironment): Gate0Result {
     + details.economicScore + details.riskScore;
 
   const mhsLevel: Gate0Result['mhsLevel'] =
-    macroHealthScore >= 70 ? 'HIGH' : macroHealthScore >= 40 ? 'MEDIUM' : 'LOW';
+    macroHealthScore >= 70 ? 'HIGH' : macroHealthScore >= 50 ? 'MEDIUM' : 'LOW';
 
-  const buyingHalted = macroHealthScore < 40;
-  // MAPC: 조정 켈리 = 기본 켈리 × (MHS / 100); MHS < 40 은 buyingHalted 로 차단
-  const kellyReduction = macroHealthScore < 40 ? 1.0 : 1 - (macroHealthScore / 100);
+  // DEFENSE: MHS < 30 (기존 40 → 30으로 완화 — MHS 30~50은 NEUTRAL로 제한적 매수 허용)
+  const buyingHalted = macroHealthScore < 30;
+  // MAPC: 조정 켈리 = 기본 켈리 × (MHS / 100); MHS < 30 은 buyingHalted 로 차단
+  const kellyReduction = macroHealthScore < 30 ? 1.0 : 1 - (macroHealthScore / 100);
+
+  // 4단계 자동매매 레짐 결정
+  const tradeRegime: TradeRegime =
+    buyingHalted                                 ? 'DEFENSE' :
+    macroHealthScore >= 70 && env.vkospi < 20   ? 'BULL_AGGRESSIVE' :
+    macroHealthScore >= 50                       ? 'BULL_NORMAL' :
+                                                   'NEUTRAL';
 
   const rateCycle: RateCycle =
     env.bokRateDirection === 'HIKING' ? 'TIGHTENING' :
@@ -137,11 +147,59 @@ export function evaluateGate0(env: MacroEnvironment): Gate0Result {
     passed: !buyingHalted,
     macroHealthScore,
     mhsLevel,
+    tradeRegime,
     kellyReduction,
     buyingHalted,
     rateCycle,
     fxRegime,
     details,
+  };
+}
+
+// ─── 레짐별 Gate·Kelly 설정 ────────────────────────────────────────────────────
+
+/**
+ * MHS + VKOSPI → 자동매매 레짐 설정 반환.
+ *
+ * 자동매매 엔진(autoTradeEngine.ts)이 매 사이클마다 호출하여
+ * Gate 통과 기준과 허용 신호 등급을 동적으로 결정한다.
+ *
+ * Gate 2: GATE2_IDS 12개 기준 / Gate 3: GATE3_IDS 10개 기준
+ */
+export function getRegimeConfig(mhs: number, vkospi: number): RegimeConfig {
+  // BULL_AGGRESSIVE: MHS ≥ 70 + VKOSPI < 20
+  if (mhs >= 70 && vkospi < 20) {
+    return {
+      gate2PassCount: 7,   // 12개 중 7개 (기존 9에서 완화)
+      gate3PassCount: 5,   // 10개 중 5개 (기존 7에서 완화)
+      maxPositionKelly: 1.0,
+      allowedSignals: ['CONFIRMED_STRONG_BUY', 'STRONG_BUY', 'BUY', 'WATCH'],
+    };
+  }
+  // BULL_NORMAL: MHS 50~70
+  if (mhs >= 50) {
+    return {
+      gate2PassCount: 8,
+      gate3PassCount: 6,
+      maxPositionKelly: 0.7,
+      allowedSignals: ['CONFIRMED_STRONG_BUY', 'STRONG_BUY', 'BUY'],
+    };
+  }
+  // NEUTRAL: MHS 30~50
+  if (mhs >= 30) {
+    return {
+      gate2PassCount: 9,   // 기존 기준 유지
+      gate3PassCount: 7,
+      maxPositionKelly: 0.5,
+      allowedSignals: ['CONFIRMED_STRONG_BUY', 'STRONG_BUY'],
+    };
+  }
+  // DEFENSE: MHS < 30 → 매수 전면 차단
+  return {
+    gate2PassCount: 99,
+    gate3PassCount: 99,
+    maxPositionKelly: 0,
+    allowedSignals: [],  // 방어 모드: 매도 신호만 처리
   };
 }
 
@@ -525,31 +583,35 @@ export function classifyExtendedRegime(
     };
   }
 
-  // ── 정상 시장: 기존 MHS 기반 ──
+  // ── 정상 시장: 4단계 TradeRegime 기반 ──
   if (mhsLevel === 'HIGH') {
+    // BULL_AGGRESSIVE는 Bull Regime 블록에서 이미 처리됨 (gate2:7, gate3:5)
+    // 여기는 BULL_NORMAL 진입 직전 (MHS≥70 + VKOSPI≥20): 기본 기준 적용
     return {
       mode: 'NORMAL',
       cashRatio: 20,
       gateAdjustment: { gate1Threshold: 5, gate2Required: 9, gate3Required: 7 },
-      message: '정상 시장. 기본 Gate 기준 적용.',
+      message: '정상 Bull 시장. 기본 Gate 기준 적용.',
     };
   }
 
   if (mhsLevel === 'MEDIUM') {
+    // BULL_NORMAL (MHS 50~69): 기존 DEFENSIVE(gate2:10)에서 완화
     return {
-      mode: 'DEFENSIVE',
-      cashRatio: 50,
-      gateAdjustment: { gate1Threshold: 6, gate2Required: 10, gate3Required: 8 },
-      message: `MHS ${macroHealthScore} (중간). 방어적 운용, Gate 기준 상향.`,
+      mode: 'NORMAL',
+      cashRatio: 30,
+      gateAdjustment: { gate1Threshold: 5, gate2Required: 8, gate3Required: 6 },
+      message: `BULL_NORMAL (MHS ${macroHealthScore}). Gate 2: 8, Gate 3: 6. Kelly 70% 상한.`,
     };
   }
 
-  // mhsLevel === 'LOW'
+  // mhsLevel === 'LOW' → NEUTRAL (MHS 30~49)
+  // MHS < 30은 buyingHalted로 이미 차단됨 — 여기는 30~49 구간
   return {
-    mode: 'CASH_HEAVY',
-    cashRatio: 80,
-    gateAdjustment: { gate1Threshold: 7, gate2Required: 11, gate3Required: 9 },
-    message: `MHS ${macroHealthScore} (낮음). 현금 80%, Gate 기준 대폭 강화.`,
+    mode: 'DEFENSIVE',
+    cashRatio: 50,
+    gateAdjustment: { gate1Threshold: 5, gate2Required: 9, gate3Required: 7 },
+    message: `NEUTRAL (MHS ${macroHealthScore}). 기본 Gate 기준, STRONG_BUY만 허용. Kelly 50% 상한.`,
   };
 }
 
