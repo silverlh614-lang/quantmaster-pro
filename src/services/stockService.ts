@@ -1,11 +1,7 @@
 import { AI_MODELS } from "../constants/aiConfig";
 import { getAI, aiCache, lsGet, lsSet, getCachedAIResponse, withRetry, safeJsonParse } from './stock/aiClient';
-import { fetchHistoricalData, backtestPortfolio, runAdvancedAnalysis, performWalkForwardAnalysis } from './stock/historicalData';
 import { enrichStockWithRealData } from './stock/enrichment';
-import { fetchCurrentPrice, syncStockPrice, syncStockPriceKIS } from './stock/priceSync';
-import { clearSearchCache, searchStock } from './stock/stockSearch';
-import { parsePortfolioFile, generateReportSummary } from './stock/reportUtils';
-import { syncMarketOverviewIndices, getMarketOverview, fetchMarketIndicators } from './stock/marketOverview';
+import { fetchMarketIndicators } from './stock/marketOverview';
 import {
   BacktestResult,
   BacktestPosition,
