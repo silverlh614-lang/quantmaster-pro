@@ -536,6 +536,93 @@ export function deriveExtendedRegime(
   return baseRegime ?? 'EXPANSION';
 }
 
+// ─── Position Sizing 계산기 ─────────────────────────────────────────────────
+
+/** evaluateStock 에서 분리된 기본 포지션 사이즈 + 추천 등급 결정 로직 */
+function computeBasePositionSize(ctx: {
+  finalScore: number;
+  stockData: Record<ConditionId, number>;
+  regimeType: string;
+  euphoriaSignals: number;
+  sellSignalCount: number;
+  rrr: number;
+  isLeadingSector: boolean;
+  kellyReduction: number;
+  geoRiskScore?: number;
+  isGeoSector: boolean;
+  creditCrisis: boolean;
+  cashRatio: number;
+  isPairTradeMode: boolean;
+}): { positionSize: number; recommendation: EvaluationResult['recommendation'] } {
+  let recommendation: EvaluationResult['recommendation'] = '관망';
+  let positionSize = 0;
+
+  const scorePercentage = (ctx.finalScore / 270) * 100;
+  if (scorePercentage >= 90) positionSize = 20;
+  else if (scorePercentage >= 80) positionSize = 15;
+  else if (scorePercentage >= 70) positionSize = 10;
+  else if (scorePercentage >= 60) positionSize = 5;
+
+  // Conflict Signal Priority
+  const fundamentalScore = (ctx.stockData[3] ?? 0) + (ctx.stockData[15] ?? 0) + (ctx.stockData[21] ?? 0);
+  const technicalScore = (ctx.stockData[2] ?? 0) + (ctx.stockData[10] ?? 0) + (ctx.stockData[18] ?? 0);
+
+  if (ctx.regimeType === '하락' && technicalScore < 15 && fundamentalScore > 20) {
+    positionSize *= 0.7;
+  } else if (ctx.regimeType === '상승초기' && technicalScore > 20 && fundamentalScore < 15) {
+    positionSize *= 1.2;
+  }
+
+  if (positionSize > 0) {
+    recommendation = positionSize >= 15 ? '풀 포지션' : '절반 포지션';
+  }
+
+  if (!ctx.isLeadingSector) positionSize *= 0.5;
+
+  if (ctx.euphoriaSignals >= 3) {
+    recommendation = '매도';
+    positionSize *= 0.5;
+  }
+
+  if (ctx.sellSignalCount >= 5) {
+    recommendation = '강력 매도';
+    positionSize = 0;
+  } else if (ctx.sellSignalCount >= 3) {
+    recommendation = '매도';
+    positionSize *= 0.3;
+  }
+
+  if (ctx.rrr < 2.0) {
+    positionSize = 0;
+    recommendation = '관망';
+  }
+
+  if (ctx.kellyReduction > 0) {
+    positionSize *= (1 - ctx.kellyReduction);
+  }
+
+  if (ctx.geoRiskScore !== undefined && ctx.geoRiskScore <= 3 && ctx.isGeoSector) {
+    positionSize *= 0.7;
+  }
+
+  if (ctx.creditCrisis) {
+    positionSize *= 0.5;
+  }
+
+  if (ctx.cashRatio > 30) {
+    const regimeReduction = 1 - (ctx.cashRatio - 30) / 100;
+    positionSize *= Math.max(0.1, regimeReduction);
+  }
+
+  if (ctx.isPairTradeMode && positionSize > 0) {
+    recommendation = '절반 포지션';
+    positionSize = Math.min(positionSize, 5);
+  }
+
+  positionSize = Math.max(0, positionSize);
+  return { positionSize, recommendation };
+}
+
 export function evaluateStock(
   rawStockData: unknown,
   regime: MarketRegime,
@@ -620,6 +707,41 @@ export function evaluateStock(
   const fxRegime = gate0Result?.fxRegime ?? 'NEUTRAL';
   const fxAdjustmentFactor = getFXAdjustmentFactor(fxRegime, stockExportRatio ?? 50);
 
+  // ── 조기 종료 헬퍼 (Gate 평가 중단 시 공통 반환값) ──────────────────────────
+  const earlyExit = (overrides: {
+    gate1Score?: number;
+    recommendation: EvaluationResult['recommendation'];
+    emergencyStop: boolean;
+  }): EvaluationResult => ({
+    gate0Result,
+    smartMoneyData: advancedContext?.smartMoney,
+    exportMomentumData: advancedContext?.exportMomentum,
+    geopoliticalRisk: advancedContext?.geoRisk,
+    creditSpreadData: advancedContext?.creditSpread,
+    contrarianSignals: [],
+    fxAdjustmentFactor,
+    gate1Passed: false,
+    gate2Passed: false,
+    gate3Passed: false,
+    gate1Score: overrides.gate1Score ?? 0,
+    gate2Score: 0,
+    gate3Score: 0,
+    finalScore: 0,
+    recommendation: overrides.recommendation,
+    positionSize: 0,
+    rrr,
+    lastTrigger: false,
+    euphoriaLevel: euphoriaSignals,
+    emergencyStop: overrides.emergencyStop,
+    profile,
+    sellScore: sellSignals.length,
+    sellSignals,
+    multiTimeframe,
+    enemyChecklist,
+    seasonality,
+    attribution,
+  });
+
   // ── 확장 레짐 감지 (불확실성/위기/박스권) ──────────────────────────────────
   const extRegimeAction = classifyExtendedRegime(
     gate0Result, macroEnv, advancedContext?.economicRegime, extendedRegimeOptions
@@ -630,68 +752,12 @@ export function evaluateStock(
 
   // CRISIS 레짐 → 전면 매수 중단 (FULL_STOP)
   if (extRegimeAction.mode === 'FULL_STOP') {
-    return {
-      gate0Result,
-      smartMoneyData: advancedContext?.smartMoney,
-      exportMomentumData: advancedContext?.exportMomentum,
-      geopoliticalRisk: advancedContext?.geoRisk,
-      creditSpreadData: advancedContext?.creditSpread,
-      contrarianSignals: [],
-      fxAdjustmentFactor,
-      gate1Passed: false,
-      gate2Passed: false,
-      gate3Passed: false,
-      gate1Score: 0,
-      gate2Score: 0,
-      gate3Score: 0,
-      finalScore: 0,
-      recommendation: '강력 매도',
-      positionSize: 0,
-      rrr,
-      lastTrigger: false,
-      euphoriaLevel: euphoriaSignals,
-      emergencyStop: true,
-      profile,
-      sellScore: sellSignals.length,
-      sellSignals,
-      multiTimeframe,
-      enemyChecklist,
-      seasonality,
-      attribution,
-    };
+    return earlyExit({ recommendation: '강력 매도', emergencyStop: true });
   }
 
   // MHS < 40 또는 비상정지 → 전면 매수 중단
   if (gate0Result?.buyingHalted || emergencyStop) {
-    return {
-      gate0Result,
-      smartMoneyData: advancedContext?.smartMoney,
-      exportMomentumData: advancedContext?.exportMomentum,
-      geopoliticalRisk: advancedContext?.geoRisk,
-      creditSpreadData: advancedContext?.creditSpread,
-      contrarianSignals: [],
-      fxAdjustmentFactor,
-      gate1Passed: false,
-      gate2Passed: false,
-      gate3Passed: false,
-      gate1Score: 0,
-      gate2Score: 0,
-      gate3Score: 0,
-      finalScore: 0,
-      recommendation: '관망',
-      positionSize: 0,
-      rrr,
-      lastTrigger: false,
-      euphoriaLevel: euphoriaSignals,
-      emergencyStop,
-      profile,
-      sellScore: sellSignals.length,
-      sellSignals,
-      multiTimeframe,
-      enemyChecklist,
-      seasonality,
-      attribution,
-    };
+    return earlyExit({ recommendation: '관망', emergencyStop });
   }
 
   // ── IDEA 3: ROE 유형 전이 감지 — Gate 1 패널티 적용 ─────────────────────────
@@ -757,35 +823,7 @@ export function evaluateStock(
   const gate1Score = calculateScore(GATE1_IDS);
 
   if (!gate1Passed) {
-    return {
-      gate0Result,
-      smartMoneyData: advancedContext?.smartMoney,
-      exportMomentumData: advancedContext?.exportMomentum,
-      geopoliticalRisk: advancedContext?.geoRisk,
-      creditSpreadData: advancedContext?.creditSpread,
-      contrarianSignals: [],
-      fxAdjustmentFactor,
-      gate1Passed: false,
-      gate2Passed: false,
-      gate3Passed: false,
-      gate1Score,
-      gate2Score: 0,
-      gate3Score: 0,
-      finalScore: 0,
-      recommendation: '관망',
-      positionSize: 0,
-      rrr,
-      lastTrigger: false,
-      euphoriaLevel: euphoriaSignals,
-      emergencyStop,
-      profile,
-      sellScore: sellSignals.length,
-      sellSignals,
-      multiTimeframe,
-      enemyChecklist,
-      seasonality,
-      attribution,
-    };
+    return earlyExit({ gate1Score, recommendation: '관망', emergencyStop });
   }
 
   // ── Advanced Context 추출 ────────────────────────────────────────────────
@@ -859,83 +897,23 @@ export function evaluateStock(
   const lastTrigger = (stockData[25] >= 8 && stockData[27] >= 8) ||
     (sectorRotation.sectorLeaderNewHigh && stockData[2] >= 8);
 
-  let recommendation: EvaluationResult['recommendation'] = '관망';
-  let positionSize = 0;
-
   // ── Position Sizing ──────────────────────────────────────────────────────
-  const scorePercentage = (finalScore / 270) * 100;
-  if (scorePercentage >= 90) positionSize = 20;
-  else if (scorePercentage >= 80) positionSize = 15;
-  else if (scorePercentage >= 70) positionSize = 10;
-  else if (scorePercentage >= 60) positionSize = 5;
-
-  // Conflict Signal Priority
-  const fundamentalScore = (stockData[3] ?? 0) + (stockData[15] ?? 0) + (stockData[21] ?? 0);
-  const technicalScore = (stockData[2] ?? 0) + (stockData[10] ?? 0) + (stockData[18] ?? 0);
-
-  if (regime.type === '하락' && technicalScore < 15 && fundamentalScore > 20) {
-    positionSize *= 0.7;
-  } else if (regime.type === '상승초기' && technicalScore > 20 && fundamentalScore < 15) {
-    positionSize *= 1.2;
-  }
-
-  if (positionSize > 0) {
-    recommendation = positionSize >= 15 ? '풀 포지션' : '절반 포지션';
-  }
-
-  // Sector Rotation
-  if (!sectorRotation.isLeading) positionSize *= 0.5;
-
-  // Euphoria Detector
-  if (euphoriaSignals >= 3) {
-    recommendation = '매도';
-    positionSize *= 0.5;
-  }
-
-  // Sell Checklist
   const sellScore = sellSignals.length;
-  if (sellScore >= 5) {
-    recommendation = '강력 매도';
-    positionSize = 0;
-  } else if (sellScore >= 3) {
-    recommendation = '매도';
-    positionSize *= 0.3;
-  }
-
-  // RRR Filter
-  if (rrr < 2.0) {
-    positionSize = 0;
-    recommendation = '관망';
-  }
-
-  // MAPC: 조정 켈리 = 기본 켈리 × (MHS / 100)
-  if (gate0Result && gate0Result.kellyReduction > 0) {
-    positionSize *= (1 - gate0Result.kellyReduction);
-  }
-
-  // 지정학 리스크 GOS ≤ 3 AND 지정학 섹터 → Kelly 30% 축소
-  if (geoRisk && geoRisk.score <= 3 && isGeoSector) {
-    positionSize *= 0.7;
-  }
-
-  // 신용 위기 경보(AA- ≥ 150bp) → Kelly 전면 50% 추가 하향
-  if (creditCrisis) {
-    positionSize *= 0.5;
-  }
-
-  // 확장 레짐 현금비중 반영: 권장 현금비중이 높을수록 포지션 축소
-  if (extRegimeAction.cashRatio > 30) {
-    const regimeReduction = 1 - (extRegimeAction.cashRatio - 30) / 100;
-    positionSize *= Math.max(0.1, regimeReduction);
-  }
-
-  // 박스권(PAIR_TRADE) 모드 시 관망 추천 강제
-  if (extRegimeAction.mode === 'PAIR_TRADE' && positionSize > 0) {
-    recommendation = '절반 포지션';
-    positionSize = Math.min(positionSize, 5);
-  }
-
-  positionSize = Math.max(0, positionSize);
+  let { positionSize, recommendation } = computeBasePositionSize({
+    finalScore,
+    stockData,
+    regimeType: regime.type,
+    euphoriaSignals,
+    sellSignalCount: sellScore,
+    rrr,
+    isLeadingSector: sectorRotation.isLeading,
+    kellyReduction: gate0Result?.kellyReduction ?? 0,
+    geoRiskScore: geoRisk?.score,
+    isGeoSector,
+    creditCrisis,
+    cashRatio: extRegimeAction.cashRatio,
+    isPairTradeMode: extRegimeAction.mode === 'PAIR_TRADE',
+  });
 
   // 3-Tranche Scaling Plan
   const tranchePlan: TranchePlan | undefined = positionSize > 0 ? {
