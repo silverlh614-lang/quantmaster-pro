@@ -446,13 +446,3 @@ export interface StockFilters {
   mode?: 'MOMENTUM' | 'EARLY_DETECT' | 'QUANT_SCREEN' | 'BEAR_SCREEN';
 }
 
-export function calculateTranchePlan(currentPrice: number, stopLoss: number, targetPrice: number): TranchePlan {
-  const risk = currentPrice - stopLoss;
-  const reward = targetPrice - currentPrice;
-
-  return {
-    tranche1: { size: 30, trigger: `${currentPrice.toLocaleString()} (즉시)`, status: 'PENDING' },
-    tranche2: { size: 40, trigger: `${Math.round(currentPrice - (risk * 0.382)).toLocaleString()} (피보나치 38.2%)`, status: 'PENDING' },
-    tranche3: { size: 30, trigger: `${Math.round(currentPrice + (reward * 0.1)).toLocaleString()} (모멘텀 가속)`, status: 'PENDING' }
-  };
-}

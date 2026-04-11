@@ -1,7 +1,8 @@
 import { AI_MODELS } from "../constants/aiConfig";
 import { getAI, aiCache, lsGet, lsSet, getCachedAIResponse, withRetry, safeJsonParse } from './stock/aiClient';
 import { fetchHistoricalData, backtestPortfolio, runAdvancedAnalysis, performWalkForwardAnalysis } from './stock/historicalData';
-import { enrichStockWithRealData, fetchCurrentPrice, syncStockPrice, syncStockPriceKIS } from './stock/priceSync';
+import { enrichStockWithRealData } from './stock/enrichment';
+import { fetchCurrentPrice, syncStockPrice, syncStockPriceKIS } from './stock/priceSync';
 import { clearSearchCache, searchStock } from './stock/stockSearch';
 import { parsePortfolioFile, generateReportSummary } from './stock/reportUtils';
 import { syncMarketOverviewIndices, getMarketOverview, fetchMarketIndicators } from './stock/marketOverview';
@@ -54,7 +55,6 @@ export type {
 };
 
 export {
-  calculateTranchePlan,
   type WalkForwardAnalysis,
   type NewsArticle,
   type ChartPattern,
@@ -82,9 +82,10 @@ import type {
   MarketDataPoint,
   WalkForwardAnalysis,
 } from './stock/types';
-// ─── Step 4–6 추출 모듈 re-export ──────────────────────────────────────────
+// ─── Step 4–7 추출 모듈 re-export ──────────────────────────────────────────
 export { fetchHistoricalData, backtestPortfolio, runAdvancedAnalysis, performWalkForwardAnalysis } from './stock/historicalData';
-export { enrichStockWithRealData, fetchCurrentPrice, syncStockPrice, syncStockPriceKIS } from './stock/priceSync';
+export { calculateTranchePlan, enrichStockWithRealData } from './stock/enrichment';
+export { fetchCurrentPrice, syncStockPrice, syncStockPriceKIS } from './stock/priceSync';
 export { clearSearchCache, searchStock } from './stock/stockSearch';
 export { parsePortfolioFile, generateReportSummary } from './stock/reportUtils';
 export { syncMarketOverviewIndices, getMarketOverview } from './stock/marketOverview';
