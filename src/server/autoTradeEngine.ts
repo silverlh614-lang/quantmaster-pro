@@ -12,139 +12,38 @@
  */
 
 import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
-import { GoogleGenAI } from '@google/genai';
-import { AI_MODELS } from '../constants/aiConfig.js';
+import { evaluateServerGate } from './serverQuantFilter.js';
 import {
-  evaluateServerGate,
-  DEFAULT_CONDITION_WEIGHTS,
-  type ConditionWeights,
-} from './serverQuantFilter.js';
+  DATA_DIR, WATCHLIST_FILE, SHADOW_FILE, SHADOW_LOG_FILE,
+  MACRO_STATE_FILE, RECOMMENDATIONS_FILE,
+  SCREENER_FILE, PENDING_ORDERS_FILE, BEAR_ALERT_FILE,
+  MHS_MORNING_ALERT_FILE, IPS_ALERT_FILE, REAL_TRADE_FLAG_FILE,
+  DART_FAST_SEEN_FILE, ORCHESTRATOR_STATE_FILE, TRANCHE_FILE,
+  ensureDataDir,
+} from './persistence/paths.js';
+import { loadWatchlist, saveWatchlist } from './persistence/watchlistRepo.js';
+import { type MacroState, loadMacroState } from './persistence/macroStateRepo.js';
+import {
+  type ServerShadowTrade,
+  loadShadowTrades, saveShadowTrades, appendShadowLog,
+} from './persistence/shadowTradeRepo.js';
+import { addToBlacklist, isBlacklisted } from './persistence/blacklistRepo.js';
+import { loadConditionWeights, saveConditionWeights } from './persistence/conditionWeightsRepo.js';
+import {
+  type DartAlert,
+  loadDartAlerts, saveDartAlerts,
+} from './persistence/dartRepo.js';
+import { callGemini } from './clients/geminiClient.js';
 
-// ─── Gemini 서버사이드 헬퍼 ─────────────────────────────────────────────────────
-
-function getGeminiClient(): GoogleGenAI | null {
-  const key = process.env.GEMINI_API_KEY ?? process.env.API_KEY;
-  if (!key) return null;
-  return new GoogleGenAI({ apiKey: key });
-}
-
-/**
- * Gemini Flash 간단 호출 (서버사이드 전용, googleSearch 없음 — 비용 절감).
- * API 키 미설정 시 null 반환.
- */
-async function callGemini(prompt: string): Promise<string | null> {
-  const ai = getGeminiClient();
-  if (!ai) {
-    console.warn('[Gemini] API 키 미설정 — AI 기능 비활성화');
-    return null;
-  }
-  try {
-    const res = await ai.models.generateContent({
-      model: AI_MODELS.SERVER_SIDE,
-      contents: prompt,
-      config: { temperature: 0.4, maxOutputTokens: 1024 },
-    });
-    return res.text ?? null;
-  } catch (e: unknown) {
-    console.error('[Gemini] 호출 실패:', e instanceof Error ? e.message : e);
-    return null;
-  }
-}
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Railway Volume 마운트 경로 우선, 미설정 시 기본 data/
-const DATA_DIR  = process.env.PERSIST_DATA_DIR
-  ? path.resolve(process.env.PERSIST_DATA_DIR)
-  : path.resolve(process.cwd(), 'data');
-const WATCHLIST_FILE          = path.join(DATA_DIR, 'watchlist.json');
-const SHADOW_FILE             = path.join(DATA_DIR, 'shadow-trades.json');
-const SHADOW_LOG_FILE         = path.join(DATA_DIR, 'shadow-log.json');
-const MACRO_STATE_FILE        = path.join(DATA_DIR, 'macro-state.json');
-const CONDITION_WEIGHTS_FILE  = path.join(DATA_DIR, 'condition-weights.json');
-const BLACKLIST_FILE          = path.join(DATA_DIR, 'blacklist.json');
-const FSS_RECORDS_FILE        = path.join(DATA_DIR, 'fss-records.json');
 
 // ─── 블랙리스트 (Cascade -30% 진입 금지 목록) ──────────────────────────────────
-
-interface BlacklistEntry {
-  stockCode: string;
-  stockName: string;
-  bannedAt: string;    // ISO — 편입 시각
-  bannedUntil: string; // ISO — 해제 시각 (180일 후)
-  reason: string;      // 예: "Cascade -30%"
-}
-
-function loadBlacklist(): BlacklistEntry[] {
-  ensureDataDir();
-  if (!fs.existsSync(BLACKLIST_FILE)) return [];
-  try { return JSON.parse(fs.readFileSync(BLACKLIST_FILE, 'utf-8')); } catch { return []; }
-}
-
-function saveBlacklist(list: BlacklistEntry[]): void {
-  ensureDataDir();
-  fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(list, null, 2));
-}
+export type { BlacklistEntry } from './persistence/blacklistRepo.js';
+export { loadBlacklist, saveBlacklist, addToBlacklist, isBlacklisted } from './persistence/blacklistRepo.js';
 
 // ─── 아이디어 4: FSS 외국인 수급 일별 기록 I/O ────────────────────────────────────
-
-interface FssRecordRow {
-  date: string;           // YYYY-MM-DD
-  passiveNetBuy: number;  // Passive 순매수 (억원)
-  activeNetBuy: number;   // Active 순매수 (억원)
-}
-
-export function loadFssRecords(): FssRecordRow[] {
-  ensureDataDir();
-  if (!fs.existsSync(FSS_RECORDS_FILE)) return [];
-  try { return JSON.parse(fs.readFileSync(FSS_RECORDS_FILE, 'utf-8')); } catch { return []; }
-}
-
-export function saveFssRecords(records: FssRecordRow[]): void {
-  ensureDataDir();
-  // 최근 30거래일만 보관
-  const trimmed = records
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(-30);
-  fs.writeFileSync(FSS_RECORDS_FILE, JSON.stringify(trimmed, null, 2));
-}
-
-export function upsertFssRecord(record: FssRecordRow): FssRecordRow[] {
-  const records = loadFssRecords();
-  const idx = records.findIndex(r => r.date === record.date);
-  if (idx >= 0) records[idx] = record;
-  else records.push(record);
-  saveFssRecords(records);
-  return loadFssRecords();
-}
-
-function addToBlacklist(stockCode: string, stockName: string, reason = 'Cascade -30%'): void {
-  const list = loadBlacklist();
-  const now = new Date();
-  const until = new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000);
-  // 이미 편입된 경우 만료일 연장
-  const existing = list.find(e => e.stockCode === stockCode);
-  if (existing) {
-    existing.bannedUntil = until.toISOString();
-    existing.bannedAt    = now.toISOString();
-    existing.reason      = reason;
-  } else {
-    list.push({ stockCode, stockName, bannedAt: now.toISOString(), bannedUntil: until.toISOString(), reason });
-  }
-  saveBlacklist(list);
-  console.log(`[Blacklist] ${stockName}(${stockCode}) 편입 — 해제: ${until.toISOString().split('T')[0]}`);
-}
-
-function isBlacklisted(stockCode: string): boolean {
-  const list = loadBlacklist();
-  const now = Date.now();
-  // 만료된 항목 자동 정리
-  const active = list.filter(e => new Date(e.bannedUntil).getTime() > now);
-  if (active.length !== list.length) saveBlacklist(active);
-  return active.some(e => e.stockCode === stockCode);
-}
+export type { FssRecordRow } from './persistence/fssRepo.js';
+export { loadFssRecords, saveFssRecords, upsertFssRecord } from './persistence/fssRepo.js';
 
 // ─── RRR 필터 (Risk-Reward Ratio) ──────────────────────────────────────────────
 
@@ -158,158 +57,28 @@ function calcRRR(entryPrice: number, targetPrice: number, stopLoss: number): num
 }
 
 // ─── 아이디어 6: 조건별 가중치 파일 I/O ────────────────────────────────────────
-
-function loadConditionWeights(): ConditionWeights {
-  ensureDataDir();
-  if (!fs.existsSync(CONDITION_WEIGHTS_FILE)) return { ...DEFAULT_CONDITION_WEIGHTS };
-  try {
-    const raw = JSON.parse(fs.readFileSync(CONDITION_WEIGHTS_FILE, 'utf-8')) as Partial<ConditionWeights>;
-    // 누락된 키는 기본값 1.0으로 채움
-    return { ...DEFAULT_CONDITION_WEIGHTS, ...raw };
-  } catch {
-    return { ...DEFAULT_CONDITION_WEIGHTS };
-  }
-}
-
-function saveConditionWeights(w: ConditionWeights): void {
-  ensureDataDir();
-  fs.writeFileSync(CONDITION_WEIGHTS_FILE, JSON.stringify(w, null, 2));
-}
+export { loadConditionWeights, saveConditionWeights } from './persistence/conditionWeightsRepo.js';
 
 // 아이디어 7: 동시 최대 보유 종목 수 (환경변수로 오버라이드 가능)
 const MAX_CONCURRENT_POSITIONS = Number(process.env.MAX_CONCURRENT_POSITIONS || 5);
 // 아이디어 4: 동일 섹터 최대 동시 보유 수 (Correlation Guard)
 const MAX_SECTOR_CONCENTRATION = Number(process.env.MAX_SECTOR_CONCENTRATION || 2);
 
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  // Railway 배포 시 파일시스템 초기화 경고
-  if (process.env.RAILWAY_STATIC_URL && !process.env.PERSIST_DATA_DIR) {
-    console.warn(
-      '[AutoTrade] ⚠️  Railway 감지됨 — PERSIST_DATA_DIR 미설정. ' +
-      '배포마다 data/ 가 초기화됩니다. Railway Volume을 /app/data에 마운트한 뒤 ' +
-      'PERSIST_DATA_DIR=/app/data 를 환경변수에 추가하세요.'
-    );
-  }
-}
+
 
 // ─── 워치리스트 파일 I/O ────────────────────────────────────────────────────────
+export type { WatchlistEntry } from './persistence/watchlistRepo.js';
+export { loadWatchlist, saveWatchlist } from './persistence/watchlistRepo.js';
 
-export interface WatchlistEntry {
-  code: string;          // 종목코드 6자리
-  name: string;
-  entryPrice: number;    // 관심 진입가
-  stopLoss: number;      // 절대가 손절선
-  targetPrice: number;   // 목표가
-  addedAt: string;       // ISO
-  gateScore?: number;    // 스크리닝 신뢰도 점수 (0~27)
-  // 아이디어 6: 진입 근거 메모 & 메타데이터
-  addedBy: 'AUTO' | 'MANUAL';     // 자동 발굴 vs 수동 추가
-  memo?: string;                   // 진입 근거 ("외국인 5일 연속 순매수, 52주 신고가 돌파")
-  sector?: string;                 // 섹터 정보 (섹터별 성과 분석용)
-  rrr?: number;                    // Risk-Reward Ratio (목표가-진입가) / (진입가-손절가)
-  conditionKeys?: string[];        // 아이디어 6: 진입 당시 통과한 Gate 조건 키 목록
-}
 
-export function loadWatchlist(): WatchlistEntry[] {
-  ensureDataDir();
-  if (!fs.existsSync(WATCHLIST_FILE)) return [];
-  try {
-    return JSON.parse(fs.readFileSync(WATCHLIST_FILE, 'utf-8'));
-  } catch {
-    return [];
-  }
-}
-
-export function saveWatchlist(list: WatchlistEntry[]): void {
-  ensureDataDir();
-  fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list, null, 2));
-}
 
 // ─── 아이디어 8: Macro State 파일 I/O ──────────────────────────────────────────
-
-export interface MacroState {
-  mhs: number;        // Macro Health Score (0~100)
-  regime: string;     // 'GREEN' | 'YELLOW' | 'RED'
-  updatedAt: string;  // ISO
-  // 아이디어 10: Bear Regime 보조 지표 (optional — 클라이언트에서 전달 시 저장)
-  vkospi?: number;                  // 한국 변동성 지수
-  foreignFuturesSellDays?: number;  // 외국인 선물 연속 순매도 일수
-  iri?: number;                     // IRI 위험 지표 델타 (pt)
-  // 아이디어 11: IPS 변곡점 엔진 보조 지표 (optional)
-  vix?: number;                     // VIX 공포지수
-  mhsTrend?: 'IMPROVING' | 'STABLE' | 'DETERIORATING'; // MHS 추세
-  vkospiRising?: boolean;           // VKOSPI 상승 추세
-  bearRegimeTriggeredCount?: number; // Bear Regime 발동 조건 수
-  bearDefenseMode?: boolean;        // Bear 방어 모드 여부
-  oeciCliKorea?: number;            // OECD 경기선행지수 한국
-  exportGrowth3mAvg?: number;       // 수출 증가율 3개월 이동평균 (%)
-  dxyBullish?: boolean;             // DXY 달러 강세 여부
-  kospiBelow120ma?: boolean;        // KOSPI 120일선 하회 여부
-  ips?: number;                     // 마지막 IPS 점수 (캐시)
-  fss?: number;                     // 마지막 FSS 누적 점수 (캐시)
-  fssAlertLevel?: 'NORMAL' | 'CAUTION' | 'HIGH_ALERT'; // FSS 경보 단계
-}
-
-export function loadMacroState(): MacroState | null {
-  ensureDataDir();
-  if (!fs.existsSync(MACRO_STATE_FILE)) return null;
-  try { return JSON.parse(fs.readFileSync(MACRO_STATE_FILE, 'utf-8')); } catch { return null; }
-}
-
-export function saveMacroState(state: MacroState): void {
-  ensureDataDir();
-  fs.writeFileSync(MACRO_STATE_FILE, JSON.stringify(state, null, 2));
-}
+export type { MacroState } from './persistence/macroStateRepo.js';
+export { loadMacroState, saveMacroState } from './persistence/macroStateRepo.js';
 
 // ─── Shadow Trade 파일 I/O ──────────────────────────────────────────────────────
-
-interface ServerShadowTrade {
-  id: string;
-  stockCode: string;
-  stockName: string;
-  signalTime: string;
-  signalPrice: number;
-  shadowEntryPrice: number;
-  quantity: number;
-  stopLoss: number;
-  targetPrice: number;
-  status: 'PENDING' | 'ACTIVE' | 'HIT_TARGET' | 'HIT_STOP' | 'EUPHORIA_PARTIAL';
-  exitPrice?: number;
-  exitTime?: string;
-  returnPct?: number;
-  price7dAgo?: number;       // 과열 탐지 신호 3용 (7일 전 가격)
-  originalQuantity?: number; // 최초 진입 수량 — EUPHORIA 부분 매도 후 실보유 추적용
-  cascadeStep?: 0 | 1 | 2;  // 0=없음, 1=-7% 경고, 2=-15% 반매도
-  addBuyBlocked?: boolean;   // -7% 이후 추가 매수 차단 플래그
-  halfSoldAt?: string;       // -15% 반매도 시각 (ISO)
-  stopApproachAlerted?: boolean; // 손절가 5% 이내 접근 경고 발송 여부 (중복 방지)
-}
-
-export function loadShadowTrades(): ServerShadowTrade[] {
-  ensureDataDir();
-  if (!fs.existsSync(SHADOW_FILE)) return [];
-  try {
-    return JSON.parse(fs.readFileSync(SHADOW_FILE, 'utf-8'));
-  } catch {
-    return [];
-  }
-}
-
-function saveShadowTrades(trades: ServerShadowTrade[]): void {
-  ensureDataDir();
-  fs.writeFileSync(SHADOW_FILE, JSON.stringify(trades, null, 2));
-}
-
-function appendShadowLog(entry: Record<string, unknown>): void {
-  ensureDataDir();
-  const logs: unknown[] = fs.existsSync(SHADOW_LOG_FILE)
-    ? JSON.parse(fs.readFileSync(SHADOW_LOG_FILE, 'utf-8'))
-    : [];
-  logs.push({ ...entry, ts: new Date().toISOString() });
-  // 최근 500건만 보관
-  fs.writeFileSync(SHADOW_LOG_FILE, JSON.stringify(logs.slice(-500), null, 2));
-}
+export type { ServerShadowTrade } from './persistence/shadowTradeRepo.js';
+export { loadShadowTrades, saveShadowTrades, appendShadowLog } from './persistence/shadowTradeRepo.js';
 
 // ─── KIS API 헬퍼 (서버사이드 전용) ────────────────────────────────────────────
 
@@ -1134,7 +903,6 @@ export interface ScreenedStock {
   screenedAt: string;
 }
 
-const SCREENER_FILE = path.join(DATA_DIR, 'screener-cache.json');
 
 export function getScreenerCache(): ScreenedStock[] {
   ensureDataDir();
@@ -1532,31 +1300,9 @@ export async function autoPopulateWatchlist(): Promise<number> {
 
 // ─── 아이디어 6: DART 공시 폴링 + 이메일 알림 ─────────────────────────────────
 
-const DART_ALERTS_FILE        = path.join(DATA_DIR, 'dart-alerts.json');
-const RECOMMENDATIONS_FILE    = path.join(DATA_DIR, 'recommendations.json');
 
-export interface DartAlert {
-  corp_name: string;
-  stock_code: string;
-  report_nm: string;
-  rcept_dt: string;      // 접수일자 YYYYMMDD
-  rcept_no: string;
-  sentiment: 'MAJOR_POSITIVE' | 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE';
-  alertedAt: string;
-}
-
-function loadDartAlerts(): DartAlert[] {
-  ensureDataDir();
-  if (!fs.existsSync(DART_ALERTS_FILE)) return [];
-  try { return JSON.parse(fs.readFileSync(DART_ALERTS_FILE, 'utf-8')); } catch { return []; }
-}
-
-function saveDartAlerts(alerts: DartAlert[]): void {
-  ensureDataDir();
-  fs.writeFileSync(DART_ALERTS_FILE, JSON.stringify(alerts.slice(-200), null, 2));
-}
-
-export function getDartAlerts(): DartAlert[] { return loadDartAlerts(); }
+export type { DartAlert } from './persistence/dartRepo.js';
+export { getDartAlerts } from './persistence/dartRepo.js';
 
 /** 공시 제목 키워드 기반 감성 분류 */
 function classifyDisclosure(reportName: string): DartAlert['sentiment'] {
@@ -1945,7 +1691,6 @@ export function getWatchlist()    { return loadWatchlist(); }
 
 // ─── 아이디어 3: FillMonitor — 체결 확인 폴링 루프 ─────────────────────────────
 
-const PENDING_ORDERS_FILE = path.join(DATA_DIR, 'pending-orders.json');
 const FILL_POLL_MAX = 10; // 최대 폴링 횟수 (cron 5분 간격 × 10 = 최대 50분 모니터링)
 
 export interface PendingOrder {
@@ -2184,7 +1929,6 @@ const FAST_DART_KEYWORDS = [
   '수주', '흑자전환', '분기실적', '연간실적', '대규모수주',
 ];
 
-const DART_FAST_SEEN_FILE = path.join(DATA_DIR, 'dart-fast-seen.json');
 
 function loadFastSeenNos(): Set<string> {
   ensureDataDir();
@@ -2288,7 +2032,6 @@ export async function fastDartCheck(): Promise<void> {
  * Bear Regime 감지 → 중복 알림 방지를 위한 마지막 알림 시각 저장 파일.
  * BEAR 구간에서 최소 4시간 간격으로 한 번만 Telegram 알림 발송.
  */
-const BEAR_ALERT_FILE = path.join(DATA_DIR, 'bear-alert-state.json');
 
 /** Bear 알림 재발송 최소 간격 (밀리초): 4시간 */
 const BEAR_ALERT_COOLDOWN_MS = 4 * 60 * 60 * 1000;
@@ -2380,7 +2123,6 @@ export async function pollBearRegime(): Promise<void> {
  * MHS 모닝 알림 상태 — 레짐 전환 감지용 이전 MHS 값 보존.
  * 매일 09:00 KST 실행 후 갱신.
  */
-const MHS_MORNING_ALERT_FILE = path.join(DATA_DIR, 'mhs-morning-alert-state.json');
 
 interface MhsMorningAlertState {
   prevMhs: number;   // 직전 알림 시점의 MHS
@@ -2456,7 +2198,6 @@ export async function pollMhsMorningAlert(): Promise<void> {
  * IPS 변곡점 경보 알림 상태 파일.
  * 마지막 알림 발송 시각 + 단계를 저장하여 중복 알림 억제.
  */
-const IPS_ALERT_FILE = path.join(DATA_DIR, 'ips-alert-state.json');
 
 /** IPS 알림 단계별 재발송 최소 간격 */
 const IPS_ALERT_COOLDOWN_MS: Record<string, number> = {
@@ -2607,7 +2348,6 @@ export async function pollIpsAlert(): Promise<void> {
 
 // ─── 아이디어 10: Shadow → Real 전환 준비 플래그 ─────────────────────────────────
 
-const REAL_TRADE_FLAG_FILE = path.join(DATA_DIR, 'real-trade-ready.flag');
 
 export function isRealTradeReady(): boolean {
   return fs.existsSync(REAL_TRADE_FLAG_FILE);
@@ -2644,7 +2384,6 @@ export interface TrancheSchedule {
   cancelReason?: string;
 }
 
-const TRANCHE_FILE = path.join(DATA_DIR, 'tranche-schedule.json');
 
 function loadTranches(): TrancheSchedule[] {
   ensureDataDir();
@@ -2952,7 +2691,6 @@ interface OrchestratorState {
   handlerRanAt: Record<string, string>; // handler key → ISO timestamp
 }
 
-const ORCHESTRATOR_STATE_FILE = path.join(DATA_DIR, 'orchestrator-state.json');
 
 function getKstTime(): { h: number; m: number; t: number; dow: number; dateStr: string } {
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
