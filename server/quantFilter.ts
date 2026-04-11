@@ -7,7 +7,7 @@
  * 아이디어 6: ConditionWeights — 자기학습 피드백으로 조건별 가중치 조정 지원.
  */
 
-import type { YahooQuoteExtended } from '../src/server/screener/stockScreener.js';
+import type { YahooQuoteExtended } from './screener/stockScreener.js';
 
 export interface ServerGateResult {
   gateScore: number;                          // 가중치 적용 점수 (float, 최대 ~8)
