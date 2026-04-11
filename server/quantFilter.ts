@@ -1,5 +1,5 @@
 /**
- * serverQuantFilter.ts — 서버사이드 경량 Gate 평가
+ * quantFilter.ts — 서버사이드 경량 Gate 평가
  *
  * 전체 27조건 중 Yahoo Finance 데이터만으로 평가 가능한 8개 조건을 서버에서 계산.
  * 나머지 19개는 UI에서 수동 입력 시 반영되는 구조 유지.
@@ -7,7 +7,7 @@
  * 아이디어 6: ConditionWeights — 자기학습 피드백으로 조건별 가중치 조정 지원.
  */
 
-import type { YahooQuoteExtended } from './autoTradeEngine.js';
+import type { YahooQuoteExtended } from '../src/server/screener/stockScreener.js';
 
 export interface ServerGateResult {
   gateScore: number;                          // 가중치 적용 점수 (float, 최대 ~8)

@@ -3,7 +3,7 @@ import { CONDITION_WEIGHTS_FILE, ensureDataDir } from './paths.js';
 import {
   DEFAULT_CONDITION_WEIGHTS,
   type ConditionWeights,
-} from '../serverQuantFilter.js';
+} from '../../../server/quantFilter.js';
 
 export type { ConditionWeights };
 
