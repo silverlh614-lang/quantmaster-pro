@@ -143,13 +143,13 @@ export async function trackPendingRecords(): Promise<void> {
 
     // T+1: 1~2 거래일 경과
     if (elapsed >= 1 && r.t1EwyChange === undefined) {
-      r.t1EwyChange = await fetchNDayChange('EWY', elapsed).catch(() => undefined);
+      r.t1EwyChange = (await fetchNDayChange('EWY', elapsed).catch(() => undefined)) ?? undefined;
       if (r.t1EwyChange !== undefined) updated++;
     }
 
     // T+3: 3~4 거래일 경과
     if (elapsed >= 3 && r.t3EwyChange === undefined) {
-      r.t3EwyChange = await fetchNDayChange('EWY', elapsed).catch(() => undefined);
+      r.t3EwyChange = (await fetchNDayChange('EWY', elapsed).catch(() => undefined)) ?? undefined;
       if (r.t3EwyChange !== undefined) updated++;
     }
 
