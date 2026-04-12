@@ -33,12 +33,23 @@ export const NIKKEI_KOSPI_SECTOR_CORRELATION_TABLE: NikkeiKospiSectorCorrelation
   { nikkeiSector: 'BANK', kospiSector: '금융', correlation: 0.90, beta: 0.70 },
 ];
 
+const NIKKEI_COLLECTION_TIME_KST = '08:30';
+const KOSPI_PREOPEN_ALERT_TIME_KST = '09:00';
+
+const NIKKEI_KOSPI_CORRELATION_MAP = NIKKEI_KOSPI_SECTOR_CORRELATION_TABLE.reduce<
+Record<string, NikkeiKospiSectorCorrelation[]>
+>((acc, row) => {
+  if (!acc[row.nikkeiSector]) acc[row.nikkeiSector] = [];
+  acc[row.nikkeiSector].push(row);
+  return acc;
+}, {});
+
 function normalizeSectorKey(sector: string): string {
   return sector.trim().toUpperCase().replace(/\s+/g, '_');
 }
 
 /**
- * 닛케이 30분 선행 섹터 강도 기반으로 KOSPI 개장 이론 GAP 산출.
+ * 닛케이 5분봉 기반 섹터 강도로 KOSPI 개장 이론 GAP 산출.
  * Gemini 수집(08:30) 결과를 입력받아 09:00 개장 전 알림 메시지에 사용한다.
  */
 export function evaluateNikkeiLeadAlpha(input: NikkeiLeadAlphaInput): NikkeiLeadAlphaResult {
@@ -47,8 +58,7 @@ export function evaluateNikkeiLeadAlpha(input: NikkeiLeadAlphaInput): NikkeiLead
 
   for (const strength of input.nikkeiSectorStrengths) {
     const key = normalizeSectorKey(strength.sector);
-    const matches = NIKKEI_KOSPI_SECTOR_CORRELATION_TABLE
-      .filter((row) => row.nikkeiSector === key);
+    const matches = NIKKEI_KOSPI_CORRELATION_MAP[key] ?? [];
 
     if (matches.length === 0) {
       unmatchedNikkeiSectors.push(strength.sector);
@@ -85,8 +95,8 @@ export function evaluateNikkeiLeadAlpha(input: NikkeiLeadAlphaInput): NikkeiLead
     : '닛케이 섹터 데이터 매칭 없음 — 이론 GAP 산출 불가';
 
   return {
-    collectionTimeKst: '08:30',
-    alertTimeKst: '09:00',
+    collectionTimeKst: NIKKEI_COLLECTION_TIME_KST,
+    alertTimeKst: KOSPI_PREOPEN_ALERT_TIME_KST,
     collectedAt: input.collectedAt ?? new Date().toISOString(),
     predictiveConfidencePct,
     alertLevel,

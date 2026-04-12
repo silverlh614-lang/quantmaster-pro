@@ -388,7 +388,7 @@ describe('evaluateMAPCResult — MAPC 포지션 자동 조절기', () => {
   });
 });
 
-describe('evaluateNikkeiLeadAlpha — 닛케이 30분 선행 알파', () => {
+describe('evaluateNikkeiLeadAlpha — 닛케이 5분봉 선행 알파', () => {
   it('닛케이 방산 상승을 KOSPI 방산 이론 GAP으로 환산한다', () => {
     const result = evaluateNikkeiLeadAlpha({
       collectedAt: '2026-04-12T23:30:00.000Z',
