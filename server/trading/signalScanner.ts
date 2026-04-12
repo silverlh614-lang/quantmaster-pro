@@ -2,7 +2,7 @@
  * signalScanner.ts — 장중 자동 신호 스캔 오케스트레이터
  *
  * 세부 로직은 다음 서브모듈로 분리됨:
- *   entryEngine.ts — 진입 검증 유틸리티 (buildStopLossPlan, calculateOrderQuantity, evaluateEntryRevalidation)
+ *   entryEngine.ts — 진입 검증 유틸리티 (EXIT_RULE_PRIORITY_TABLE, buildStopLossPlan, calculateOrderQuantity, evaluateEntryRevalidation, isOpenShadowStatus)
  *   exitEngine.ts  — 포지션 모니터링 및 청산 엔진 (updateShadowResults)
  */
 
