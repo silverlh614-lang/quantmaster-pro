@@ -5,6 +5,7 @@ import { Router, Request, Response } from 'express';
 import { loadGlobalScanReport } from '../alerts/globalScanAgent.js';
 import { analyzeNewsSupplyPatterns, loadNewsSupplyRecords } from '../learning/newsSupplyLogger.js';
 import { getFomcProximity, generateFomcIcs, FOMC_DATES } from '../trading/fomcCalendar.js';
+import { runBacktest } from '../learning/backtestEngine.js';
 
 const router = Router();
 
@@ -291,6 +292,27 @@ router.get('/fred', async (req: Request, res: Response) => {
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: 'FRED fetch failed', details: error.message });
+  }
+});
+
+// ─── OHLCV 기반 백테스트 결과 조회 / 실행 ─────────────────────────────────────
+// GET  /api/market/backtest — 즉시 실행 + 결과 반환 (처음 호출 or 갱신 필요 시)
+// POST /api/market/backtest — 수동 강제 재실행
+router.get('/market/backtest', async (_req: Request, res: Response) => {
+  try {
+    const summary = await runBacktest();
+    res.json(summary);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/market/backtest', async (_req: Request, res: Response) => {
+  try {
+    const summary = await runBacktest();
+    res.json(summary);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 });
 

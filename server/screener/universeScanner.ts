@@ -27,7 +27,9 @@ import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { getGeminiClient } from '../clients/geminiClient.js';
 import { AI_MODELS } from '../constants.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { kisGet, KIS_IS_REAL } from '../clients/kisClient.js';
+import { kisGet, KIS_IS_REAL, fetchKisInvestorFlow } from '../clients/kisClient.js';
+import { getDartFinancials } from '../clients/dartFinancialClient.js';
+import { calcReliabilityScore, sourcesFromGateKeys, formatReliabilityBadge } from '../learning/reliabilityScorer.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -46,6 +48,18 @@ interface CandidateStock {
   gateCondKeys?:    string[];   // 실계산 통과 조건 키
   sectorBonus?:     number;
   stage2Score?:     number;
+  // 실데이터 수급 (KIS API — Stage 2)
+  kisFlow?: {
+    foreignNetBuy:      number;  // 외국인 당일 순매수량
+    institutionalNetBuy: number; // 기관 당일 순매수량
+  };
+  // 실데이터 펀더멘털 (DART API — Stage 3)
+  dartFin?: {
+    roe:       number | null;
+    opm:       number | null;
+    debtRatio: number | null;
+    ocfRatio:  number | null;
+  };
 }
 
 interface GeminiScreenResult {
@@ -182,38 +196,50 @@ function buildScreeningPrompt(
   macroState: MacroState | null,
 ): string {
   const stockLines = candidates.map((c) => {
-    const q = c.quote;
+    const q          = c.quote;
     const techPassed = c.gateDetails?.join('|') ?? '';
+
+    // DART 실데이터 포함 (있을 경우)
+    const dartStr = c.dartFin
+      ? `ROE:${c.dartFin.roe?.toFixed(1) ?? 'N/A'}% OPM:${c.dartFin.opm?.toFixed(1) ?? 'N/A'}% DR:${c.dartFin.debtRatio?.toFixed(0) ?? 'N/A'}%`
+      : 'DART:미수집';
+
+    // KIS 수급 실데이터 (있을 경우)
+    const kisStr = c.kisFlow
+      ? `외인${c.kisFlow.foreignNetBuy >= 0 ? '+' : ''}${(c.kisFlow.foreignNetBuy / 1000).toFixed(0)}천주 기관${c.kisFlow.institutionalNetBuy >= 0 ? '+' : ''}${(c.kisFlow.institutionalNetBuy / 1000).toFixed(0)}천주`
+      : 'KIS:미수집';
+
     return (
       `${c.name}(${c.code}): ${q.price.toLocaleString()}원 ` +
       `등락${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(1)}% ` +
       `RSI${q.rsi14.toFixed(0)} MACD${q.macdHistogram >= 0 ? '↑' : '↓'} ` +
       `정배열:${q.price > q.ma5 && q.ma5 > q.ma20 ? 'Y' : 'N'} ` +
-      `20일신고가:${q.price >= q.high20d * 0.98 ? 'Y' : 'N'} ` +
       `VCP:${q.atr > 0 && q.atr < q.atr20avg * 0.7 ? 'Y' : 'N'} ` +
       `섹터:${c.sector} ` +
-      `[서버Gate ${c.gateScore?.toFixed(1) ?? '?'}/10: ${techPassed}]`
+      `[서버Gate ${c.gateScore?.toFixed(1) ?? '?'}/10: ${techPassed}] ` +
+      `[${dartStr}] [${kisStr}]`
     );
   }).join('\n');
 
   return (
     `당신은 한국 주식 퀀트 시스템의 종목 선별 AI입니다.\n` +
     `현재 레짐: ${regime} | MHS: ${macroState?.mhs ?? 'N/A'} | VKOSPI: ${macroState?.vkospi ?? 'N/A'}\n\n` +
-    `[이미 서버에서 실계산 완료된 기술적 조건]\n` +
-    `RSI(14), MACD, 정배열, 거래량배수, VCP, 터틀, 상대강도, PER → 서버Gate(0~10)에 반영됨.\n` +
-    `이 조건들은 재평가하지 말고 서버Gate 점수를 그대로 사용하세요.\n\n` +
-    `[당신이 평가할 질적 조건 (17개)]\n` +
-    `1.주도주사이클 2.ROE유형 3.시장환경부합 4.신규주도주여부 5.수급질개선\n` +
-    `6.일목균형표구름대 7.경제적해자 8.목표가여력(애널) 9.실적서프라이즈가능성\n` +
-    `10.실적펀더멘털 11.정책/매크로부합 12.이익의질(OCF) 13.심리적객관성\n` +
-    `14.피보나치레벨 15.엘리엇파동위치 16.마진가속도 17.촉매제유무\n\n` +
-    `[종목 데이터]\n${stockLines}\n\n` +
-    `각 종목에 대해 JSON 배열로만 응답 (추가 텍스트 금지):\n` +
+    `[서버 실계산 완료 — 재평가 금지]\n` +
+    `RSI(14)/MACD/정배열/거래량/VCP/터틀/상대강도/PER → 서버Gate(0~10)에 반영 완료.\n` +
+    `ROE/OPM/부채비율 → DART API 실데이터. 수급 → KIS API 실데이터.\n` +
+    `위 데이터들은 사실 그대로 해석만 하세요 (재추정 금지).\n\n` +
+    `[당신이 평가할 순수 질적 조건]\n` +
+    `1.주도주사이클적합성 2.시장환경부합(레짐) 3.신규주도주여부\n` +
+    `4.경제적해자(Moat) 5.목표가여력(애널리스트) 6.실적서프라이즈가능성\n` +
+    `7.정책/매크로부합 8.심리적객관성 9.피보나치/엘리엇위치\n` +
+    `10.촉매제유무 11.이익모멘텀가속도 12.기타구조적강점\n\n` +
+    `[종목 데이터 (실계산 포함)]\n${stockLines}\n\n` +
+    `JSON 배열로만 응답 (추가 텍스트 금지):\n` +
     `[{"code":"","name":"","signal":"STRONG_BUY|BUY|SKIP",` +
     `"qualScore":0,"totalGateScore":0,` +
     `"profile":"A|B|C|D","sector":"","topReasons":[""],"passedConditionKeys":[""]}]\n` +
-    `qualScore: 질적 조건 17개 중 통과 수 (0~17)\n` +
-    `totalGateScore: 서버Gate점수×2.7+qualScore 반올림 (0~27)`
+    `qualScore: 질적 조건 12개 중 통과 추정 수 (0~12)\n` +
+    `totalGateScore: 서버Gate점수×1.5+qualScore (0~27 범위 클램프)`
   );
 }
 
@@ -377,15 +403,35 @@ export async function stage2SectorGateFilter(
     });
   }
 
-  const result = results
+  const top15 = results
     .sort((a, b) => (b.stage2Score ?? 0) - (a.stage2Score ?? 0))
     .slice(0, 15);
 
+  // ── KIS 투자자 수급 실데이터 조회 (실계좌 모드, 상위 15개만) ─────────────────
+  if (KIS_IS_REAL) {
+    for (const c of top15) {
+      const flow = await fetchKisInvestorFlow(c.code).catch(() => null);
+      if (flow) {
+        c.kisFlow = {
+          foreignNetBuy:       flow.foreignNetBuy,
+          institutionalNetBuy: flow.institutionalNetBuy,
+        };
+        // 외국인 순매수 보너스: stage2Score에 반영
+        const flowBonus = (flow.foreignNetBuy > 0 ? 0.3 : 0) +
+                          (flow.institutionalNetBuy > 0 ? 0.2 : 0);
+        c.stage2Score = (c.stage2Score ?? 0) + flowBonus;
+      }
+      await new Promise(r => setTimeout(r, 100));
+    }
+    // KIS 수급 보너스 반영 후 재정렬
+    top15.sort((a, b) => (b.stage2Score ?? 0) - (a.stage2Score ?? 0));
+  }
+
   console.log(
     `[Pipeline/Stage2] Gate통과 ${results.length}개 (macroState=${macroState ? 'OK' : 'null'})` +
-    ` → 상위 ${result.length}개`,
+    ` → 상위 ${top15.length}개 (KIS수급=${KIS_IS_REAL ? '조회' : '생략'})`,
   );
-  return result;
+  return top15;
 }
 
 // ── Stage 3 ───────────────────────────────────────────────────────────────────
@@ -399,6 +445,19 @@ export async function stage3AIScreenAndRegister(
   regime: RegimeLevel,
 ): Promise<number> {
   if (candidates.length === 0) return 0;
+
+  // ── DART 펀더멘털 실데이터 병렬 조회 ────────────────────────────────────────
+  await Promise.all(
+    candidates.map(async (c) => {
+      const fin = await getDartFinancials(c.code).catch(() => null);
+      if (fin) {
+        c.dartFin = {
+          roe: fin.roe, opm: fin.opm,
+          debtRatio: fin.debtRatio, ocfRatio: fin.ocfRatio,
+        };
+      }
+    }),
+  );
 
   const macroState = loadMacroState();
   const prompt     = buildScreeningPrompt(candidates, regime, macroState);
@@ -446,6 +505,26 @@ export async function stage3AIScreenAndRegister(
     const realKeys = candidate?.gateCondKeys ?? [];
     const qualKeys = (result.passedConditionKeys ?? []).filter(k => !realKeys.includes(k));
 
+    // DART OPM 음수 → 적자기업 경고 (SKIP하지는 않지만 profile 강제 강등)
+    const dartOPMNeg = candidate?.dartFin?.opm !== undefined &&
+                       candidate.dartFin.opm !== null &&
+                       candidate.dartFin.opm < 0;
+    const finalProfile = dartOPMNeg && profile === 'A' ? 'B' : profile;
+
+    // 신뢰도 스코어 계산
+    const reliability = calcReliabilityScore(
+      sourcesFromGateKeys(realKeys, {
+        hasForeignNetBuy:      (candidate?.kisFlow?.foreignNetBuy ?? 0) !== 0,
+        hasInstitutionalNetBuy: (candidate?.kisFlow?.institutionalNetBuy ?? 0) !== 0,
+        hasDartROE:       candidate?.dartFin?.roe   != null,
+        hasDartOPM:       candidate?.dartFin?.opm   != null,
+        hasDartDebtRatio: candidate?.dartFin?.debtRatio != null,
+        hasDartOCFRatio:  candidate?.dartFin?.ocfRatio  != null,
+        hasGeminiProfile: true,
+        hasGeminiQual:    true,
+      }),
+    );
+
     watchlist.push({
       code:          result.code,
       name:          result.name,
@@ -456,10 +535,10 @@ export async function stage3AIScreenAndRegister(
       addedAt:       new Date().toISOString(),
       addedBy:       'AUTO',
       entryRegime:   regime,
-      profileType:   profile,
+      profileType:   finalProfile,
       gateScore:     result.totalGateScore,
       sector:        result.sector || candidate?.sector,
-      memo:          `AI파이프라인 | ${result.topReasons.slice(0, 2).join(', ')}`,
+      memo:          `${formatReliabilityBadge(reliability)} | ${result.topReasons.slice(0, 2).join(', ')}`,
       expiresAt:     addBusinessDays(new Date(), 5).toISOString(),
       conditionKeys: [...realKeys, ...qualKeys],
     });
@@ -469,15 +548,18 @@ export async function stage3AIScreenAndRegister(
 
   if (added > 0) {
     saveWatchlist(watchlist);
-    const summary = results
-      .filter((r) => r.signal !== 'SKIP' && !existingCodes.has(r.code))
-      .slice(0, 8)
-      .map((r) => `  • ${r.name}(${r.code}) Gate ${r.totalGateScore}/27 | ${r.sector}`)
+    // Telegram 알림 — 신뢰도 배지 포함
+    const registered = watchlist.filter(w =>
+      results.some(r => r.code === w.code) && !existingCodes.has(w.code)
+    ).slice(0, 8);
+    const summary = registered
+      .map(w => `  • ${w.name}(${w.code}) Gate ${w.gateScore}/27 | ${w.memo ?? ''}`)
       .join('\n');
 
     await sendTelegramAlert(
       `🔍 <b>[AI 파이프라인] 신규 워치리스트 ${added}개 등록</b>\n` +
       `레짐: ${regime} | 후보 ${candidates.length}개 → 등록 ${added}개\n` +
+      `데이터: Yahoo OHLCV✅ DART재무${candidates.some(c => c.dartFin) ? '✅' : '⚠️'} KIS수급${candidates.some(c => c.kisFlow) ? '✅' : '⚠️'}\n` +
       summary,
     ).catch(console.error);
   }

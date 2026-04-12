@@ -87,6 +87,41 @@ export async function kisPost(trId: string, apiPath: string, body: Record<string
 
 // ─── 현재가 조회 ────────────────────────────────────────────────────────────
 
+// ─── 종목별 투자자 수급 조회 ─────────────────────────────────────────────────
+
+export interface KisInvestorFlow {
+  foreignNetBuy:      number;  // 외국인 당일 순매수량 (주)
+  institutionalNetBuy: number; // 기관 당일 순매수량 (주)
+  individualNetBuy:   number;  // 개인 당일 순매수량 (주)
+  source: 'KIS_API';
+}
+
+/**
+ * FHKST01010300 — 주식현재가 투자자별 순매수 조회.
+ * KIS_APP_KEY 미설정 시 null 반환. 실계좌/VTS 모두 지원.
+ */
+export async function fetchKisInvestorFlow(code: string): Promise<KisInvestorFlow | null> {
+  if (!process.env.KIS_APP_KEY) return null;
+  try {
+    const data = await kisGet(
+      'FHKST01010300',
+      '/uapi/domestic-stock/v1/quotations/inquire-investor',
+      {
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_INPUT_ISCD: code.padStart(6, '0'),
+      },
+    );
+    const out = (data as { output?: Record<string, string> } | null)?.output;
+    if (!out) return null;
+    return {
+      foreignNetBuy:       parseInt(out.frgn_ntby_qty ?? '0', 10),
+      institutionalNetBuy: parseInt(out.orgn_ntby_qty  ?? '0', 10),
+      individualNetBuy:    parseInt(out.prsn_ntby_qty  ?? '0', 10),
+      source: 'KIS_API',
+    };
+  } catch { return null; }
+}
+
 export async function fetchCurrentPrice(code: string): Promise<number | null> {
   const data = await kisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
     FID_COND_MRKT_DIV_CODE: 'J',

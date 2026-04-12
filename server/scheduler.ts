@@ -21,6 +21,7 @@ import { cleanupWatchlist } from './screener/watchlistManager.js';
 import { runGlobalScanAgent } from './alerts/globalScanAgent.js';
 import { trackPendingRecords } from './learning/newsSupplyLogger.js';
 import { checkFomcProximityAlert } from './trading/fomcCalendar.js';
+import { runBacktest } from './learning/backtestEngine.js';
 
 export function startScheduler() {
   // ─── TradingDayOrchestrator — 장 사이클 State Machine ──────────────────
@@ -136,5 +137,11 @@ export function startScheduler() {
     await trackPendingRecords().catch(console.error);
   }, { timezone: 'UTC' });
 
-  console.log('[Scheduler] 19개 cron 작업 등록 완료');
+  // OHLCV 기반 백테스트 — 매주 토요일 KST 08:00 (UTC 23:00 금요일)
+  // 전체 추천 이력을 Yahoo 일봉으로 재검증: Sharpe·MDD·WIN률 실계산 + Telegram 발송
+  cron.schedule('0 23 * * 5', async () => {
+    await runBacktest().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  console.log('[Scheduler] 20개 cron 작업 등록 완료');
 }
