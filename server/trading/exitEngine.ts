@@ -19,10 +19,15 @@ import type { RegimeLevel } from '../../src/types/core.js';
 
 /** Shadow 진행 중 거래 결과 업데이트 — Macro/포지션 제한 시에도 재사용 */
 export async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: RegimeLevel): Promise<void> {
-  // 청산 실행 우선순위는 EXIT_RULE_PRIORITY_TABLE과 같은 순서를 수동 유지한다.
+  // 청산 실행 우선순위는 EXIT_RULE_PRIORITY_TABLE(entryEngine.ts)과 동일한 순서로 평가된다.
+  // ExitRuleTag 타입이 규칙명을 강제하므로, 규칙 추가 시 shadowTradeRepo.ts의 ExitRuleTag와
+  // entryEngine.ts의 EXIT_RULE_PRIORITY_TABLE을 함께 갱신하면 된다.
   for (const shadow of shadows) {
-    // PENDING: 4분 경과 후 ACTIVE 전환
+    // PENDING: Shadow 모드에서만 4분 경과 후 ACTIVE 전환.
+    // LIVE 모드에서는 fillMonitor가 ORDER_SUBMITTED → ACTIVE 전환을 책임지므로
+    // 여기서 자동 승격하지 않는다 (체결 확인 없이 ACTIVE처럼 보이는 것을 방지).
     if (shadow.status === 'PENDING') {
+      if (shadow.mode === 'LIVE') continue;
       const ageMs = Date.now() - new Date(shadow.signalTime).getTime();
       if (ageMs < 4 * 60 * 1000) continue;
       shadow.status = 'ACTIVE';

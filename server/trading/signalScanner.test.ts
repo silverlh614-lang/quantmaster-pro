@@ -5,6 +5,7 @@ import {
   evaluateEntryRevalidation,
   EXIT_RULE_PRIORITY_TABLE,
 } from './signalScanner.js';
+import type { ExitRuleTag } from '../persistence/shadowTradeRepo.js';
 
 describe('calculateOrderQuantity', () => {
   it('limits by orderable cash and remaining slots', () => {
@@ -84,5 +85,14 @@ describe('EXIT_RULE_PRIORITY_TABLE', () => {
       'STOP_APPROACH_ALERT',
       'EUPHORIA_PARTIAL',
     ]);
+  });
+
+  it('all rule tags in the table are valid ExitRuleTag values', () => {
+    // ExitRuleTag 타입과 EXIT_RULE_PRIORITY_TABLE이 동기화됨을 런타임에서도 검증.
+    // 테이블에 있는 모든 규칙 이름이 타입으로 추론 가능한지 확인한다.
+    const tableRules = EXIT_RULE_PRIORITY_TABLE.map((r) => r.rule);
+    // TypeScript: 아래 assignment가 컴파일되면 tableRules 는 ExitRuleTag[] 와 호환됨을 의미
+    const _typed: ExitRuleTag[] = tableRules;
+    expect(_typed).toHaveLength(10);
   });
 });

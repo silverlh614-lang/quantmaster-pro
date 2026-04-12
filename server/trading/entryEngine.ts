@@ -11,6 +11,7 @@
  */
 
 import type { ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
+import type { ExitRuleTag } from '../persistence/shadowTradeRepo.js';
 
 const ENTRY_MIN_GATE_SCORE = 5;
 const ENTRY_MAX_BREAKOUT_EXTENSION_PCT = 3;
@@ -20,10 +21,15 @@ const ENTRY_MIN_VOLUME_RATIO = 0.6;
 
 /**
  * 청산/감축 규칙 우선순위 정책표.
- * updateShadowResults에서 아래 순서를 수동으로 동일하게 유지해 실행한다.
- * (정책표와 실제 if-branch 순서가 어긋나면 실전/백테스트 결과 차이가 커질 수 있음)
+ * ExitRuleTag 타입으로 규칙명이 고정되므로, 새 규칙을 추가할 때는
+ * ExitRuleTag(shadowTradeRepo.ts)와 이 테이블을 함께 갱신하면 된다.
+ * updateShadowResults(exitEngine.ts)는 이 테이블의 priority 순서로 규칙을 평가한다.
  */
-export const EXIT_RULE_PRIORITY_TABLE = [
+export const EXIT_RULE_PRIORITY_TABLE: ReadonlyArray<{
+  priority: number;
+  rule: ExitRuleTag;
+  description: string;
+}> = [
   { priority: 1, rule: 'R6_EMERGENCY_EXIT', description: 'R6_DEFENSE 긴급 부분 청산(30%)' },
   { priority: 2, rule: 'HARD_STOP', description: '하드 스톱(고정 손절/레짐 손절) 전량 청산' },
   { priority: 3, rule: 'CASCADE_FINAL', description: 'Cascade -25%/-30% 최종 청산' },

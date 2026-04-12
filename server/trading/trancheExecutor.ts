@@ -9,6 +9,7 @@ import { fetchYahooQuote } from '../screener/stockScreener.js';
 import { loadShadowTrades, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getLiveRegime } from './regimeBridge.js';
+import { KRX_HOLIDAYS } from './krxHolidays.js';
 
 export interface TrancheSchedule {
   id: string;
@@ -41,13 +42,7 @@ function saveTranches(list: TrancheSchedule[]): void {
 }
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
-// NOTE: KRX 휴장일은 해마다 변동되므로 연 단위 점검/갱신 필요.
-const DEFAULT_KRX_HOLIDAYS = new Set<string>([
-  '2026-01-01', '2026-02-16', '2026-02-17', '2026-02-18', '2026-03-01', '2026-05-05', '2026-05-25',
-  '2026-06-06', '2026-08-15', '2026-09-24', '2026-09-25', '2026-09-26', '2026-10-03', '2026-10-09', '2026-12-25',
-  '2027-01-01', '2027-02-06', '2027-02-07', '2027-02-08', '2027-03-01', '2027-05-05', '2027-05-12',
-  '2027-06-06', '2027-08-15', '2027-09-14', '2027-09-15', '2027-09-16', '2027-10-03', '2027-10-09', '2027-12-25',
-]);
+const DEFAULT_KRX_HOLIDAYS = KRX_HOLIDAYS;
 const TRANCHE_MAX_DROP_PCT = -3;
 const REGIME_BLOCK_SET = new Set(['R5_BEAR', 'R6_DEFENSE']);
 

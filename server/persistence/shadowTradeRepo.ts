@@ -1,6 +1,23 @@
 import fs from 'fs';
 import { SHADOW_FILE, SHADOW_LOG_FILE, ensureDataDir } from './paths.js';
 
+/**
+ * 청산/감축 규칙 태그 (EXIT_RULE_PRIORITY_TABLE 규칙명과 1:1 대응).
+ * exitRuleTag 필드에 사용되며, EXIT_RULE_PRIORITY_TABLE 우선순위 순서로 평가된다.
+ * 새 규칙 추가 시 이 타입과 EXIT_RULE_PRIORITY_TABLE을 함께 갱신해야 한다.
+ */
+export type ExitRuleTag =
+  | 'R6_EMERGENCY_EXIT'          // priority 1
+  | 'HARD_STOP'                  // priority 2
+  | 'CASCADE_FINAL'              // priority 3
+  | 'LIMIT_TRANCHE_TAKE_PROFIT'  // priority 4
+  | 'TRAILING_PROTECTIVE_STOP'   // priority 5
+  | 'TARGET_EXIT'                // priority 6
+  | 'CASCADE_HALF_SELL'          // priority 7
+  | 'CASCADE_WARN_BLOCK'         // priority 8
+  | 'STOP_APPROACH_ALERT'        // priority 9
+  | 'EUPHORIA_PARTIAL';          // priority 10
+
 export interface ServerShadowTrade {
   id: string;
   stockCode: string;
@@ -20,8 +37,10 @@ export interface ServerShadowTrade {
   regimeStopLoss?: number;
   hardStopLoss?: number;
   stopLossExitType?: 'INITIAL' | 'REGIME' | 'INITIAL_AND_REGIME' | 'PROFIT_PROTECTION';
-  exitRuleTag?: string;
+  exitRuleTag?: ExitRuleTag;
   targetPrice: number;
+  /** 거래 모드: 'LIVE' = 실주문, 'SHADOW' = 가상 추적 */
+  mode?: 'LIVE' | 'SHADOW';
   status: 'PENDING' | 'ORDER_SUBMITTED' | 'PARTIALLY_FILLED' | 'ACTIVE' | 'REJECTED' | 'HIT_TARGET' | 'HIT_STOP' | 'EUPHORIA_PARTIAL';
   exitPrice?: number;
   exitTime?: string;
