@@ -15,6 +15,7 @@ import { evaluateSectorEnergy } from '../services/quant/sectorEnergyEngine';
 import { evaluateFlowPrediction } from '../services/quant/flowPredictionEngine';
 import { evaluateSatelliteCascader } from '../services/quant/satelliteCascaderEngine';
 import { evaluateBehavioralMirror } from '../services/quant/behavioralMirrorEngine';
+import { checkSystemInterference } from '../services/quant/systemInterferenceChecker';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { useTradeStore } from '../stores/useTradeStore';
 import { getEvolutionWeightsFromPerformance } from '../services/quant/evolutionEngine';
@@ -35,6 +36,7 @@ import { AntiFailurePanel } from './AntiFailurePanel';
 import { FlowPredictionPanel } from './FlowPredictionPanel';
 import { SatelliteCascaderPanel } from './SatelliteCascaderPanel';
 import { BehavioralMirrorPanel } from './BehavioralMirrorPanel';
+import { SystemInterferencePanel } from './SystemInterferencePanel';
 import { RegimeGaugeSection } from './macro/RegimeGaugeSection';
 import { BearRegimeSection } from './macro/BearRegimeSection';
 import { MarketOverviewSection } from './macro/MarketOverviewSection';
@@ -124,11 +126,15 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const satelliteCascaderResult = useGlobalIntelStore(s => s.satelliteCascaderResult);
   const setSatelliteCascaderResult = useGlobalIntelStore(s => s.setSatelliteCascaderResult);
 
-  // ── 투자자 행동 교정 미러 대시보드 ──────────────────────────────────────────
+  // ── 투자자 행동 교정 미러 대시보드 ──────────────────────────────────────
   const behavioralMirrorInput = useGlobalIntelStore(s => s.behavioralMirrorInput);
   const setBehavioralMirrorInput = useGlobalIntelStore(s => s.setBehavioralMirrorInput);
   const behavioralMirrorResult = useGlobalIntelStore(s => s.behavioralMirrorResult);
   const setBehavioralMirrorResult = useGlobalIntelStore(s => s.setBehavioralMirrorResult);
+
+  // ── 시스템 상호간섭 파라미터 충돌 감지 ──────────────────────────────────
+  const systemInterferenceResult = useGlobalIntelStore(s => s.systemInterferenceResult);
+  const setSystemInterferenceResult = useGlobalIntelStore(s => s.setSystemInterferenceResult);
 
   const mapcResult = useMemo(() => {
     if (!gate0Result || !macroEnv) return null;
@@ -158,9 +164,11 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const handleMarketRegimeClassifierInputsChange = useCallback(
     (inputs: typeof marketRegimeClassifierInput) => {
       setMarketRegimeClassifierInput(inputs);
-      setMarketRegimeClassifierResult(evaluateMarketRegimeClassifier(inputs));
+      const newResult = evaluateMarketRegimeClassifier(inputs);
+      setMarketRegimeClassifierResult(newResult);
+      setSystemInterferenceResult(checkSystemInterference(newResult, dynamicStopInput));
     },
-    [setMarketRegimeClassifierInput, setMarketRegimeClassifierResult],
+    [setMarketRegimeClassifierInput, setMarketRegimeClassifierResult, setSystemInterferenceResult, dynamicStopInput],
   );
 
   const handleBearModeSimulatorInputsChange = useCallback(
@@ -183,8 +191,9 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
     (inputs: typeof dynamicStopInput) => {
       setDynamicStopInput(inputs);
       setDynamicStopResult(evaluateDynamicStop(inputs));
+      setSystemInterferenceResult(checkSystemInterference(marketRegimeClassifierResult, inputs));
     },
-    [setDynamicStopInput, setDynamicStopResult],
+    [setDynamicStopInput, setDynamicStopResult, setSystemInterferenceResult, marketRegimeClassifierResult],
   );
 
   const handleSectorEnergyInputsChange = useCallback(
@@ -247,6 +256,12 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
     setBehavioralMirrorResult(evaluateBehavioralMirror(closed, behavioralMirrorInput));
   }, [tradeRecords, behavioralMirrorInput, setBehavioralMirrorResult]);
 
+  // Run system interference check on mount and whenever regime or dynamic stop changes
+  React.useEffect(() => {
+    setSystemInterferenceResult(checkSystemInterference(marketRegimeClassifierResult, dynamicStopInput));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marketRegimeClassifierResult, dynamicStopInput]);
+
   return (
     <div className="space-y-10">
 
@@ -275,6 +290,9 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
         inputs={dynamicStopInput}
         onInputsChange={handleDynamicStopInputsChange}
       />
+
+      {/* 시스템 상호간섭 파라미터 충돌 감지 — 레짐 분류기 ↔ 동적 손절 ↔ 포지션 생애주기 */}
+      <SystemInterferencePanel result={systemInterferenceResult} />
 
       <BearRegimeSection />
 
