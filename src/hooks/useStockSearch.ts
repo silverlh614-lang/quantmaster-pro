@@ -39,7 +39,7 @@ export function useStockSearch() {
         else if (current.confidenceScore > existingInSector.confidenceScore) { const index = acc.indexOf(existingInSector); acc[index] = { ...current, isSectorTopPick: true }; }
         return acc;
       }, []);
-      const lastMode = filters.mode === 'BEAR_SCREEN' ? 'QUANT_SCREEN' : (filters.mode || 'MOMENTUM');
+      const lastMode = filters.mode === 'BEAR_SCREEN' || filters.mode === 'SMALL_MID_CAP' ? 'QUANT_SCREEN' : (filters.mode || 'MOMENTUM');
       setLastUsedMode(lastMode);
       setRecommendations(diversified);
       setMarketContext(data.marketContext);
