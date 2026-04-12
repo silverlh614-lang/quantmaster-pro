@@ -33,6 +33,11 @@ const ENTRY_MAX_BREAKOUT_EXTENSION_PCT = 3;
 const ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT = -2;
 const ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT = 4;
 const ENTRY_MIN_VOLUME_RATIO = 0.6;
+/**
+ * 청산/감축 규칙 우선순위 정책표.
+ * updateShadowResults에서 아래 순서를 수동으로 동일하게 유지해 실행한다.
+ * (정책표와 실제 if-branch 순서가 어긋나면 실전/백테스트 결과 차이가 커질 수 있음)
+ */
 export const EXIT_RULE_PRIORITY_TABLE = [
   { priority: 1, rule: 'R6_EMERGENCY_EXIT', description: 'R6_DEFENSE 긴급 부분 청산(30%)' },
   { priority: 2, rule: 'HARD_STOP', description: '하드 스톱(고정 손절/레짐 손절) 전량 청산' },
@@ -61,8 +66,11 @@ interface StopLossPlanInput {
 }
 
 export interface StopLossPlan {
+  /** 진입 구조 훼손 기준의 고정 손절 */
   initialStopLoss: number;
+  /** 시장 레짐 악화 기준의 레짐 손절 */
   regimeStopLoss: number;
+  /** 실제 강제 청산 기준(더 높은 가격의 촘촘한 손절 = max(initialStopLoss, regimeStopLoss)) */
   hardStopLoss: number;
 }
 
@@ -75,6 +83,10 @@ export function buildStopLossPlan(input: StopLossPlanInput): StopLossPlan {
     regimeStopLoss,
     hardStopLoss,
   };
+}
+
+function formatStopLossBreakdown(plan: StopLossPlan): string {
+  return `${plan.hardStopLoss.toLocaleString()}원 (고정 ${plan.initialStopLoss.toLocaleString()} / 레짐 ${plan.regimeStopLoss.toLocaleString()})`;
 }
 
 export interface PositionSizingInput {
@@ -466,7 +478,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
           `⚡ <b>[Shadow] 매수 신호${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
           `종목: ${stock.name} (${stock.code})\n` +
           `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
-          `손절: ${stopLossPlan.hardStopLoss.toLocaleString()}원 (고정 ${stopLossPlan.initialStopLoss.toLocaleString()} / 레짐 ${Math.round(stopLossPlan.regimeStopLoss).toLocaleString()}) | 목표: ${stock.targetPrice.toLocaleString()}원`
+          `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`
         ).catch(console.error);
       } else {
         // LIVE 모드: 실제 주문 (1차 수량만)
@@ -509,7 +521,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
           `주문상태: ${ordNo ? 'ORDER_SUBMITTED' : 'REJECTED'}\n` +
           `주문가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
           `주문번호: ${ordNo ?? 'N/A'}\n` +
-          `손절: ${stopLossPlan.hardStopLoss.toLocaleString()}원 (고정 ${stopLossPlan.initialStopLoss.toLocaleString()} / 레짐 ${Math.round(stopLossPlan.regimeStopLoss).toLocaleString()}) | 목표: ${stock.targetPrice.toLocaleString()}원`
+          `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`
         ).catch(console.error);
       }
 
@@ -541,7 +553,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
 
 /** Shadow 진행 중 거래 결과 업데이트 — Macro/포지션 제한 시에도 재사용 */
 async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: RegimeLevel): Promise<void> {
-  // 청산 실행 우선순위는 EXIT_RULE_PRIORITY_TABLE 순서를 코드에 그대로 반영한다.
+  // 청산 실행 우선순위는 EXIT_RULE_PRIORITY_TABLE과 같은 순서를 수동 유지한다.
   for (const shadow of shadows) {
     // PENDING: 4분 경과 후 ACTIVE 전환
     if (shadow.status === 'PENDING') {
@@ -581,7 +593,8 @@ async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: 
 
     // ─── 하드 스톱 (고정 손절/레짐 손절) ───────────────────────────────────────
     if (currentPrice <= hardStopLoss) {
-      const stopLossExitType = initialStopLoss === regimeStopLoss
+      const stopGap = Math.abs(initialStopLoss - regimeStopLoss);
+      const stopLossExitType = stopGap < 0.5
         ? 'INITIAL_AND_REGIME'
         : (initialStopLoss > regimeStopLoss ? 'INITIAL' : 'REGIME');
       Object.assign(shadow, {
