@@ -24,12 +24,15 @@ import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
 
 /**
- * 아이디어 1: 장중 5분 간격 자동 신호 스캔
+ * 아이디어 1: 장중 자동 신호 스캔
  * - 관심 종목 현재가 조회
  * - 진입 조건 판정: 현재가 ≥ entryPrice AND 손절선 이상
  * - 조건 충족 시 Shadow 또는 실 주문 실행
+ *
+ * options.sellOnly: true → 신규 매수 없이 기존 포지션 모니터링만 실행
+ *   (VKOSPI 급등·R6_DEFENSE·마감 급변 시 adaptiveScanScheduler가 호출)
  */
-export async function runAutoSignalScan(): Promise<void> {
+export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promise<void> {
   if (!process.env.KIS_APP_KEY) {
     console.warn('[AutoTrade] KIS_APP_KEY 미설정 — 스캔 건너뜀');
     return;
@@ -56,6 +59,15 @@ export async function runAutoSignalScan(): Promise<void> {
   const macroState = loadMacroState();
   const regime      = getLiveRegime(macroState);
   const regimeConfig = REGIME_CONFIGS[regime];
+
+  // SELL_ONLY 모드: 신규 매수 없이 기존 포지션 모니터링만 실행
+  // (adaptiveScanScheduler — VKOSPI 급등·R6_DEFENSE·마감 급변 구간 호출)
+  if (options?.sellOnly) {
+    console.log('[AutoTrade] SELL_ONLY 모드 — 포지션 모니터링 전용');
+    await updateShadowResults(shadows, regime);
+    saveShadowTrades(shadows);
+    return;
+  }
 
   if (regime === 'R6_DEFENSE') {
     await sendTelegramAlert(

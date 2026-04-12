@@ -20,10 +20,10 @@ import { runFullDiscoveryPipeline } from './screener/universeScanner.js';
 import { cleanupWatchlist } from './screener/watchlistManager.js';
 
 export function startScheduler() {
-  // ─── 아이디어 1: TradingDayOrchestrator — 장 사이클 State Machine ────────
-  // 두 cron으로 전체 KST 거래일(08:00~17:00)을 커버합니다.
+  // ─── TradingDayOrchestrator — 장 사이클 State Machine ──────────────────
+  // cron은 1분 간격 — INTRADAY 실제 스캔 빈도는 adaptiveScanScheduler가 결정.
   // ① UTC 23:xx (= KST Mon-Fri 08:xx, 동시호가/장 전 준비) — Sun-Thu UTC
-  cron.schedule('*/5 23 * * 0-4', async () => {
+  cron.schedule('*/1 23 * * 0-4', async () => {
     if (getEmergencyStop()) { console.warn('[Orchestrator] 비상 정지 — tick 건너뜀'); return; }
     await tradingOrchestrator.tick().catch(console.error);
     if (process.env.AUTO_TRADE_ENABLED === 'true') {
@@ -32,7 +32,7 @@ export function startScheduler() {
   }, { timezone: 'UTC' });
 
   // ② UTC 00:xx~08:xx (= KST Mon-Fri 09:xx~17:xx, 장중/마감/리포트) — Mon-Fri UTC
-  cron.schedule('*/5 0-8 * * 1-5', async () => {
+  cron.schedule('*/1 0-8 * * 1-5', async () => {
     if (getEmergencyStop()) { console.warn('[Orchestrator] 비상 정지 — tick 건너뜀'); return; }
     await tradingOrchestrator.tick().catch(console.error);
     if (process.env.AUTO_TRADE_ENABLED === 'true') {

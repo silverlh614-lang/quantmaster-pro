@@ -16,6 +16,7 @@ import { runAutoSignalScan } from '../trading/signalScanner.js';
 import { fetchYahooQuote, preScreenStocks, autoPopulateWatchlist } from '../screener/stockScreener.js';
 import { generateDailyReport } from '../alerts/reportGenerator.js';
 import { evaluateRecommendations, isRealTradeReady } from '../learning/recommendationTracker.js';
+import { decideScan } from './adaptiveScanScheduler.js';
 import { calibrateSignalWeights } from '../learning/signalCalibrator.js';
 import { calibrateByRegime } from '../learning/regimeAwareCalibrator.js';
 import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
@@ -305,11 +306,23 @@ export class TradingDayOrchestrator {
       }
 
       case 'INTRADAY': {
-        // 매 tick(5분): 신호 스캔 + 체결 확인
-        if (enabled) {
-          await runAutoSignalScan().catch(console.error);
-          await fillMonitor.pollFills().catch(console.error);
+        if (!enabled) break;
+
+        const decision = decideScan();
+
+        if (!decision.shouldScan) {
+          // 1분 tick이지만 인터벌 미충족 — 조용히 스킵
+          break;
         }
+
+        console.log(`[Orchestrator] 스캔 실행: ${decision.reason}`);
+
+        if (decision.priority === 'SELL_ONLY') {
+          await runAutoSignalScan({ sellOnly: true }).catch(console.error);
+        } else {
+          await runAutoSignalScan().catch(console.error);
+        }
+        await fillMonitor.pollFills().catch(console.error);
         break;
       }
 
