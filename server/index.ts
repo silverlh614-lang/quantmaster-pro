@@ -28,6 +28,7 @@ import marketDataRouter from './routes/marketDataRouter.js';
 import dartRouter from './routes/dartRouter.js';
 import autoTradeRouter from './routes/autoTradeRouter.js';
 import systemRouter from './routes/systemRouter.js';
+import failurePatternRouter from './routes/failurePatternRouter.js';
 import { startScheduler } from './scheduler.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 
@@ -73,6 +74,13 @@ async function startServer() {
   //  POST /telegram/webhook, POST /telegram/test)
   // ─────────────────────────────────────────────────────────────
   app.use('/api', systemRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // 반실패 패턴 DB → server/routes/failurePatternRouter.ts 로 분리
+  // (GET /api/failure-patterns, POST /api/failure-patterns/check,
+  //  POST /api/failure-patterns/save)
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/failure-patterns', failurePatternRouter);
 
   // ─── 아이디어 1: 오케스트레이터 상태 조회 ────────────────────────────────────
   app.get('/api/orchestrator/state', (_req: Request, res: Response) => {

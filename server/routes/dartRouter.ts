@@ -2,6 +2,7 @@
 // DART 공시 API 프록시 라우터 — server.ts에서 분리
 // 공시 목록, 재무제표, 법인코드 검색
 import { Router, Request, Response } from 'express';
+import { getDartAlerts } from '../persistence/dartRepo.js';
 
 const router = Router();
 
@@ -60,6 +61,17 @@ router.get('/company', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("DART Company Proxy Error:", error);
     res.status(500).json({ error: error.message === 'DART_API_KEY 미설정' ? 'DART_API_KEY is not set' : 'Failed to fetch company info from DART', details: error.message });
+  }
+});
+
+// ─── DART LLM 인텔리전스 결과 조회 ──────────────────────────────────────────
+// LLM 임팩트 분류, 내부자 매수 감지, 악재 소화 완료 포함한 최근 공시 반환
+router.get('/intel', (_req: Request, res: Response) => {
+  try {
+    const alerts = getDartAlerts();
+    res.json(alerts);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to load DART intel', details: error.message });
   }
 });
 
