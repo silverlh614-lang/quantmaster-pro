@@ -39,6 +39,8 @@ export const CONDITION_AUDIT_FILE    = path.join(DATA_DIR, 'condition-audit.json
 export const ANOMALY_STATE_FILE      = path.join(DATA_DIR, 'anomaly-state.json');
 /** 귀인 분석 — 클라이언트에서 전송된 거래 종료 기록 (최근 500건) */
 export const ATTRIBUTION_FILE        = path.join(DATA_DIR, 'attribution-records.json');
+/** 글로벌 스캔 에이전트 — 매일 KST 06:00 간밤 시장 분석 결과 */
+export const GLOBAL_SCAN_FILE        = path.join(DATA_DIR, 'global-scan-report.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

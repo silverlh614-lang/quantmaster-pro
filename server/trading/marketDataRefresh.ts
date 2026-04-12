@@ -25,7 +25,7 @@ const YF_HEADERS = {
 };
 
 /** Yahoo Finance에서 OHLCV close 배열 반환. 실패 시 null. */
-async function fetchCloses(symbol: string, range: string): Promise<number[] | null> {
+export async function fetchCloses(symbol: string, range: string): Promise<number[] | null> {
   const urls = [
     `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`,
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`,

@@ -2,6 +2,7 @@
 // 외부 시장 데이터 라우터 — server.ts에서 분리
 // ECOS(한국은행), FRED, Yahoo Finance 프록시, 시장지표 일괄 조회
 import { Router, Request, Response } from 'express';
+import { loadGlobalScanReport } from '../alerts/globalScanAgent.js';
 
 const router = Router();
 
@@ -235,6 +236,13 @@ router.get('/market-indicators', async (_req: Request, res: Response) => {
     mtumReturn:  getEtfReturn(mtumR), // MTUM 5일 수익률 (%)
     fetchedAt:   new Date().toISOString(),
   });
+});
+
+// ─── 글로벌 스캔 보고서 — KST 06:00 자동 생성 결과 조회 ──────────────────────
+router.get('/market/global-scan', (_req: Request, res: Response) => {
+  const report = loadGlobalScanReport();
+  if (!report) return res.status(404).json({ error: '글로벌 스캔 보고서 없음 — KST 06:00 이후 생성됩니다' });
+  res.json(report);
 });
 
 // ─── FRED API Proxy (TED/HY Spread 무료, Search 대체) ─────────────────────────

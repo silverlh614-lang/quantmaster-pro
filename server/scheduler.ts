@@ -18,6 +18,7 @@ import { loadMacroState } from './persistence/macroStateRepo.js';
 import { getLiveRegime } from './trading/regimeBridge.js';
 import { runFullDiscoveryPipeline } from './screener/universeScanner.js';
 import { cleanupWatchlist } from './screener/watchlistManager.js';
+import { runGlobalScanAgent } from './alerts/globalScanAgent.js';
 
 export function startScheduler() {
   // ─── TradingDayOrchestrator — 장 사이클 State Machine ──────────────────
@@ -118,5 +119,12 @@ export function startScheduler() {
     await cleanupWatchlist().catch(console.error);
   }, { timezone: 'UTC' });
 
-  console.log('[Scheduler] 17개 cron 작업 등록 완료');
+  // 새벽 글로벌 스캔 에이전트 — 매일 KST 06:00 (UTC 21:00, 일~목)
+  // S&P500·나스닥·다우·VIX·EWY·ITA·SOXX 수집 + Gemini 요약 + Telegram 알림
+  // VIX 갱신 → MacroState.vix + vixHistory → 장중 VIX 게이팅에 반영
+  cron.schedule('0 21 * * 0-4', async () => {
+    await runGlobalScanAgent().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  console.log('[Scheduler] 18개 cron 작업 등록 완료');
 }

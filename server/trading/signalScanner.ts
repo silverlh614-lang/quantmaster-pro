@@ -22,6 +22,7 @@ import type { RegimeLevel } from '../../src/types/core.js';
 import { addRecommendation } from '../learning/recommendationTracker.js';
 import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
+import { getVixGating } from './vixGating.js';
 
 /**
  * 아이디어 1: 장중 자동 신호 스캔
@@ -80,9 +81,27 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
     return;
   }
 
-  const kellyMultiplier = regimeConfig.kellyMultiplier; // 레짐 Kelly 배율 (0~1.0)
-  if (kellyMultiplier < 1) {
-    console.log(`[AutoTrade] 레짐 ${regime} — Kelly ×${kellyMultiplier} (${Math.round(kellyMultiplier * 100)}% 수준)`);
+  // ── VIX 게이팅 — 레짐 Kelly와 교차 적용 ──────────────────────────────────
+  const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
+  if (vixGating.noNewEntry) {
+    console.warn(`[AutoTrade] VIX 게이팅 — 신규 진입 중단: ${vixGating.reason}`);
+    await sendTelegramAlert(
+      `🚨 <b>[VIX 게이팅] 신규 진입 차단</b>\n` +
+      `${vixGating.reason}\n` +
+      `포지션 모니터링만 수행합니다.`
+    ).catch(console.error);
+    await updateShadowResults(shadows, regime);
+    saveShadowTrades(shadows);
+    return;
+  }
+
+  // 레짐 Kelly × VIX Kelly → 유효 배율
+  const kellyMultiplier = regimeConfig.kellyMultiplier * vixGating.kellyMultiplier;
+  if (vixGating.kellyMultiplier < 1) {
+    console.log(`[AutoTrade] VIX 게이팅 적용 — ${vixGating.reason}`);
+  }
+  if (kellyMultiplier < regimeConfig.kellyMultiplier) {
+    console.log(`[AutoTrade] 레짐 ${regime} × VIX — Kelly ×${kellyMultiplier.toFixed(2)} (${Math.round(kellyMultiplier * 100)}% 수준)`);
   }
 
   // ── 동시 최대 보유 종목 (regimeConfig.maxPositions) ─────────────────────────
