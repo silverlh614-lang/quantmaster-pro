@@ -13,6 +13,8 @@ import { evaluateDynamicStop } from '../services/quant/dynamicStopEngine';
 import { evaluateFeedbackLoop } from '../services/quant/feedbackLoopEngine';
 import { evaluateSectorEnergy } from '../services/quant/sectorEnergyEngine';
 import { evaluateFlowPrediction } from '../services/quant/flowPredictionEngine';
+import { evaluateSatelliteCascader } from '../services/quant/satelliteCascaderEngine';
+import { evaluateBehavioralMirror } from '../services/quant/behavioralMirrorEngine';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { useTradeStore } from '../stores/useTradeStore';
 import { getEvolutionWeightsFromPerformance } from '../services/quant/evolutionEngine';
@@ -31,6 +33,8 @@ import { SectorEnergyPanel } from './SectorEnergyPanel';
 import { DartIntelPanel } from './DartIntelPanel';
 import { AntiFailurePanel } from './AntiFailurePanel';
 import { FlowPredictionPanel } from './FlowPredictionPanel';
+import { SatelliteCascaderPanel } from './SatelliteCascaderPanel';
+import { BehavioralMirrorPanel } from './BehavioralMirrorPanel';
 import { RegimeGaugeSection } from './macro/RegimeGaugeSection';
 import { BearRegimeSection } from './macro/BearRegimeSection';
 import { MarketOverviewSection } from './macro/MarketOverviewSection';
@@ -114,6 +118,18 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const flowPredictionResult = useGlobalIntelStore(s => s.flowPredictionResult);
   const setFlowPredictionResult = useGlobalIntelStore(s => s.setFlowPredictionResult);
 
+  // ── 위성 종목 연쇄 추적 시스템 ──────────────────────────────────────────────
+  const satelliteCascaderInput = useGlobalIntelStore(s => s.satelliteCascaderInput);
+  const setSatelliteCascaderInput = useGlobalIntelStore(s => s.setSatelliteCascaderInput);
+  const satelliteCascaderResult = useGlobalIntelStore(s => s.satelliteCascaderResult);
+  const setSatelliteCascaderResult = useGlobalIntelStore(s => s.setSatelliteCascaderResult);
+
+  // ── 투자자 행동 교정 미러 대시보드 ──────────────────────────────────────────
+  const behavioralMirrorInput = useGlobalIntelStore(s => s.behavioralMirrorInput);
+  const setBehavioralMirrorInput = useGlobalIntelStore(s => s.setBehavioralMirrorInput);
+  const behavioralMirrorResult = useGlobalIntelStore(s => s.behavioralMirrorResult);
+  const setBehavioralMirrorResult = useGlobalIntelStore(s => s.setBehavioralMirrorResult);
+
   const mapcResult = useMemo(() => {
     if (!gate0Result || !macroEnv) return null;
     return evaluateMAPCResult(gate0Result, macroEnv, 15);
@@ -187,6 +203,23 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
     [setFlowPredictionInput, setFlowPredictionResult],
   );
 
+  const handleSatelliteCascaderInputChange = useCallback(
+    (input: typeof satelliteCascaderInput) => {
+      setSatelliteCascaderInput(input);
+      setSatelliteCascaderResult(input ? evaluateSatelliteCascader(input) : null);
+    },
+    [setSatelliteCascaderInput, setSatelliteCascaderResult],
+  );
+
+  const handleBehavioralMirrorInputChange = useCallback(
+    (input: typeof behavioralMirrorInput) => {
+      setBehavioralMirrorInput(input);
+      const closed = tradeRecords.filter(t => t.status === 'CLOSED');
+      setBehavioralMirrorResult(evaluateBehavioralMirror(closed, input));
+    },
+    [setBehavioralMirrorInput, setBehavioralMirrorResult, tradeRecords],
+  );
+
   // Compute sector energy on mount and whenever inputs change
   React.useEffect(() => {
     if (sectorEnergyInputs.length > 0 && !sectorEnergyResult) {
@@ -200,6 +233,19 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
       setFlowPredictionResult(evaluateFlowPrediction(flowPredictionInput));
     }
   }, [flowPredictionInput, flowPredictionResult, setFlowPredictionResult]);
+
+  // Recompute satellite cascader whenever input changes
+  React.useEffect(() => {
+    if (satelliteCascaderInput && !satelliteCascaderResult) {
+      setSatelliteCascaderResult(evaluateSatelliteCascader(satelliteCascaderInput));
+    }
+  }, [satelliteCascaderInput, satelliteCascaderResult, setSatelliteCascaderResult]);
+
+  // Recompute behavioral mirror whenever trade records change
+  React.useEffect(() => {
+    const closed = tradeRecords.filter(t => t.status === 'CLOSED');
+    setBehavioralMirrorResult(evaluateBehavioralMirror(closed, behavioralMirrorInput));
+  }, [tradeRecords, behavioralMirrorInput, setBehavioralMirrorResult]);
 
   return (
     <div className="space-y-10">
@@ -288,6 +334,20 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
         result={flowPredictionResult}
         input={flowPredictionInput}
         onInputChange={handleFlowPredictionInputChange}
+      />
+
+      {/* 위성 종목 연쇄 추적 시스템 — 주도주 이후 동일 섹터 지연 반응 종목 포착 */}
+      <SatelliteCascaderPanel
+        result={satelliteCascaderResult}
+        input={satelliteCascaderInput}
+        onInputChange={handleSatelliteCascaderInputChange}
+      />
+
+      {/* 투자자 행동 교정 미러 대시보드 — 행동 편향을 데이터로 교정 */}
+      <BehavioralMirrorPanel
+        result={behavioralMirrorResult}
+        input={behavioralMirrorInput}
+        onInputChange={handleBehavioralMirrorInputChange}
       />
 
       <GlobalIntelSection />
