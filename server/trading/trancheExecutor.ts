@@ -41,6 +41,7 @@ function saveTranches(list: TrancheSchedule[]): void {
 }
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+// NOTE: KRX 휴장일은 해마다 변동되므로 연 단위 점검/갱신 필요.
 const DEFAULT_KRX_HOLIDAYS = new Set<string>([
   '2026-01-01', '2026-02-16', '2026-02-17', '2026-02-18', '2026-03-01', '2026-05-05', '2026-05-25',
   '2026-06-06', '2026-08-15', '2026-09-24', '2026-09-25', '2026-09-26', '2026-10-03', '2026-10-09', '2026-12-25',
@@ -109,33 +110,38 @@ export function evaluateTrancheRevalidation(input: {
   entryRegime?: string;
   cascadeStep?: 0 | 1 | 2;
   addBuyBlocked?: boolean;
-}): { ok: boolean; reason?: string } {
+}): { ok: boolean; reason?: string; dropPct: number } {
+  const dropPct = ((input.currentPrice - input.entryPrice) / input.entryPrice) * 100;
+
   if (input.currentPrice <= input.stopLoss) {
-    return { ok: false, reason: '1차 포지션 손절선 하회' };
+    return { ok: false, reason: '1차 포지션 손절선 하회', dropPct };
   }
 
   if (input.currentPrice < input.entryPrice) {
-    return { ok: false, reason: '상승형 피라미딩 조건 미충족 (기준가 하회)' };
+    return { ok: false, reason: '상승형 피라미딩 조건 미충족 (기준가 하회)', dropPct };
   }
 
-  const dropPct = ((input.currentPrice - input.entryPrice) / input.entryPrice) * 100;
   if (dropPct <= TRANCHE_MAX_DROP_PCT) {
-    return { ok: false, reason: `기준가 대비 ${dropPct.toFixed(1)}% 하락` };
+    return { ok: false, reason: `기준가 대비 ${dropPct.toFixed(1)}% 하락`, dropPct };
   }
 
-  if ((input.cascadeStep ?? 0) > 0 || input.addBuyBlocked) {
-    return { ok: false, reason: `Cascade 단계 진입(cascadeStep=${input.cascadeStep ?? 0})` };
+  if (input.addBuyBlocked) {
+    const stepTag = (input.cascadeStep ?? 0) > 0 ? ` (cascadeStep=${input.cascadeStep})` : '';
+    return { ok: false, reason: `추가매수 차단 플래그 활성화${stepTag}`, dropPct };
+  }
+  if ((input.cascadeStep ?? 0) > 0) {
+    return { ok: false, reason: `Cascade 단계 진입(cascadeStep=${input.cascadeStep ?? 0})`, dropPct };
   }
 
   if (REGIME_BLOCK_SET.has(input.currentRegime)) {
-    return { ok: false, reason: `레짐 악화(${input.currentRegime})` };
+    return { ok: false, reason: `레짐 악화(${input.currentRegime})`, dropPct };
   }
 
   if (regimeRiskRank(input.currentRegime) > regimeRiskRank(input.entryRegime)) {
-    return { ok: false, reason: `진입 레짐(${input.entryRegime ?? 'N/A'}) 대비 악화(${input.currentRegime})` };
+    return { ok: false, reason: `진입 레짐(${input.entryRegime ?? 'N/A'}) 대비 악화(${input.currentRegime})`, dropPct };
   }
 
-  return { ok: true };
+  return { ok: true, dropPct };
 }
 
 export class TrancheExecutor {
@@ -249,12 +255,11 @@ export class TrancheExecutor {
         });
         if (!revalidation.ok) {
           cancelParentPending(t.parentTradeId, revalidation.reason ?? '2·3차 재검증 실패');
-          const dropPct = ((currentPrice - t.entryPrice) / t.entryPrice) * 100;
           console.warn(`[Tranche] ${t.stockName} ${t.trancheNumber}차 취소 — ${revalidation.reason}`);
           await sendTelegramAlert(
             `🚫 <b>[분할 매수 ${t.trancheNumber}차 취소]</b> ${t.stockName}(${t.stockCode})\n` +
             `${revalidation.reason}\n` +
-            `현재가 ${currentPrice.toLocaleString()}원 | 기준가 대비 ${dropPct.toFixed(1)}%`
+            `현재가 ${currentPrice.toLocaleString()}원 | 기준가 대비 ${revalidation.dropPct.toFixed(1)}%`
           ).catch(console.error);
           continue;
         }
@@ -309,10 +314,9 @@ export class TrancheExecutor {
         t.executedAt = new Date().toISOString();
         changed = true;
 
-        const dropPct = ((currentPrice - t.entryPrice) / t.entryPrice) * 100;
         await sendTelegramAlert(
           `📈 <b>[분할 매수 ${t.trancheNumber}차${isLive ? '' : ' Shadow'}]</b> ${t.stockName}(${t.stockCode})\n` +
-          `${t.quantity}주 @${currentPrice.toLocaleString()}원 | 기준가 대비 ${dropPct >= 0 ? '+' : ''}${dropPct.toFixed(1)}%`
+          `${t.quantity}주 @${currentPrice.toLocaleString()}원 | 기준가 대비 ${revalidation.dropPct >= 0 ? '+' : ''}${revalidation.dropPct.toFixed(1)}%`
         ).catch(console.error);
       } catch (e) {
         console.error(`[Tranche] ${t.stockName}(${t.stockCode}) 오류:`, e instanceof Error ? e.message : e);

@@ -31,7 +31,7 @@ describe('evaluateTrancheRevalidation', () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.reason).toContain('Cascade 단계 진입');
+    expect(result.reason).toContain('차단');
   });
 
   it('rejects tranche when regime has deteriorated from entry', () => {
