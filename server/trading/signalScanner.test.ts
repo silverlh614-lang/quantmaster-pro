@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { calculateOrderQuantity, evaluateEntryRevalidation } from './signalScanner.js';
+import {
+  buildStopLossPlan,
+  calculateOrderQuantity,
+  evaluateEntryRevalidation,
+  EXIT_RULE_PRIORITY_TABLE,
+} from './signalScanner.js';
 
 describe('calculateOrderQuantity', () => {
   it('limits by orderable cash and remaining slots', () => {
@@ -48,5 +53,36 @@ describe('evaluateEntryRevalidation', () => {
 
     expect(result.ok).toBe(true);
     expect(result.reasons).toHaveLength(0);
+  });
+});
+
+describe('buildStopLossPlan', () => {
+  it('separates fixed/regime stop and keeps the tighter one as hard stop', () => {
+    const plan = buildStopLossPlan({
+      entryPrice: 100_000,
+      fixedStopLoss: 90_000,
+      regimeStopRate: -0.05,
+    });
+
+    expect(plan.initialStopLoss).toBe(90_000);
+    expect(plan.regimeStopLoss).toBe(95_000);
+    expect(plan.hardStopLoss).toBe(95_000);
+  });
+});
+
+describe('EXIT_RULE_PRIORITY_TABLE', () => {
+  it('keeps liquidation priority policy fixed in code order', () => {
+    expect(EXIT_RULE_PRIORITY_TABLE.map((r) => r.rule)).toEqual([
+      'R6_EMERGENCY_EXIT',
+      'HARD_STOP',
+      'CASCADE_FINAL',
+      'LIMIT_TRANCHE_TAKE_PROFIT',
+      'TRAILING_PROTECTIVE_STOP',
+      'TARGET_EXIT',
+      'CASCADE_HALF_SELL',
+      'CASCADE_WARN_BLOCK',
+      'STOP_APPROACH_ALERT',
+      'EUPHORIA_PARTIAL',
+    ]);
   });
 });
