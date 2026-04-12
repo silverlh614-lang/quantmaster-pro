@@ -37,6 +37,7 @@ import { AnalysisViewToggle, AnalysisViewButtons } from '../components/AnalysisV
 import { DeepAnalysisModal } from '../components/DeepAnalysisModal';
 
 import { useCopiedCode } from '../hooks/useCopiedCode';
+import { useWatchlistFilters } from '../hooks/useWatchlistFilters';
 import { evaluateStock, evaluateGate0 } from '../services/quant/gateEngine';
 import { buildShadowTrade } from '../services/autoTrading';
 import { MASTER_CHECKLIST_STEPS, CHECKLIST_LABELS, getMarketPhaseInfo } from '../constants/checklist';
@@ -136,16 +137,20 @@ export function DiscoverWatchlistPage({
 }: DiscoverWatchlistPageProps) {
   // Zustand stores
   const {
-    recommendations, watchlist, searchResults, filters, setFilters,
-    selectedType, setSelectedType, selectedPattern, setSelectedPattern,
-    selectedSentiment, setSelectedSentiment, selectedChecklist, setSelectedChecklist,
-    searchQuery, setSearchQuery, minPrice, setMinPrice, maxPrice, setMaxPrice,
-    sortBy, setSortBy, lastUsedMode, recommendationHistory, loading,
+    recommendations, watchlist, lastUsedMode, recommendationHistory, loading,
     lastUpdated, error, setError, searchingSpecific
   } = useRecommendationStore();
   const {
+    filters, setFilters,
+    selectedType, setSelectedType, selectedPattern, setSelectedPattern,
+    selectedSentiment, setSelectedSentiment, selectedChecklist, setSelectedChecklist,
+    searchQuery, setSearchQuery, minPrice, setMinPrice, maxPrice, setMaxPrice,
+    sortBy, setSortBy, searchResults, isFilterExpanded, setIsFilterExpanded,
+    handleResetScreen,
+  } = useWatchlistFilters();
+  const {
     view, setView, autoSyncEnabled, setAutoSyncEnabled,
-    showMasterChecklist, setShowMasterChecklist, isFilterExpanded, setIsFilterExpanded,
+    showMasterChecklist, setShowMasterChecklist,
     emailAddress, setEmailAddress
   } = useSettingsStore();
   const { marketOverview, marketContext, syncStatus, syncingStock, nextSyncCountdown } = useMarketStore();
@@ -188,19 +193,6 @@ export function DiscoverWatchlistPage({
     (code: string) => watchlist.some(s => s.code === code),
     [watchlist],
   );
-
-  const handleResetScreen = React.useCallback(() => {
-    useRecommendationStore.getState().setSearchResults([]);
-    setSearchQuery('');
-    setSelectedType('ALL');
-    setSelectedPattern('ALL');
-    setSelectedSentiment('ALL');
-    setSelectedChecklist([]);
-    setMinPrice('');
-    setMaxPrice('');
-    setFilters({ minRoe: 15, maxPer: 20, maxDebtRatio: 100, minMarketCap: 1000, mode: 'MOMENTUM' });
-    setError(null);
-  }, [setSearchQuery, setSelectedType, setSelectedPattern, setSelectedSentiment, setSelectedChecklist, setMinPrice, setMaxPrice, setFilters, setError]);
 
   return (
     <Stack gap="lg">
