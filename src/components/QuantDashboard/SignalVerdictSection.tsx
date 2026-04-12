@@ -1,6 +1,13 @@
 import React from 'react';
 import type { EvaluationResult } from '../../types/quant';
 
+const CONFLUENCE_LABELS: Record<'technical' | 'supply' | 'fundamental' | 'macro', string> = {
+  technical: 'TECH',
+  supply: 'SUPL',
+  fundamental: 'FUND',
+  macro: 'MACR',
+};
+
 interface Props {
   result: EvaluationResult;
 }
@@ -61,7 +68,7 @@ export function SignalVerdictSection({ result }: Props) {
                   result.confluence![axis] === 'BULLISH' ? 'border-green-300 text-green-700 bg-green-50' :
                   result.confluence![axis] === 'BEARISH' ? 'border-red-300 text-red-700 bg-red-50' :
                   'border-gray-200 text-gray-500'
-                }`}>{axis.slice(0, 4).toUpperCase()}</span>
+                }`}>{CONFLUENCE_LABELS[axis]}</span>
               ))}
             </div>
           </div>
