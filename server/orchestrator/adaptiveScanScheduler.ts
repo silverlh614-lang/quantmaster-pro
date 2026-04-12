@@ -81,7 +81,7 @@ export function decideScan(): ScanDecision {
   const shadows    = loadShadowTrades();
 
   const activePositions = shadows.filter(
-    (s) => s.status === 'PENDING' || s.status === 'ACTIVE',
+    (s) => s.status === 'PENDING' || s.status === 'ORDER_SUBMITTED' || s.status === 'PARTIALLY_FILLED' || s.status === 'ACTIVE' || s.status === 'EUPHORIA_PARTIAL',
   ).length;
   const maxPositions = REGIME_CONFIGS[regime]?.maxPositions ?? 4;
 
