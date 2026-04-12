@@ -155,7 +155,9 @@ export async function sendWatchlistBriefing(): Promise<void> {
  */
 export async function sendIntradayCheckIn(type: 'midday' | 'preclose'): Promise<void> {
   const shadows = loadShadowTrades();
-  const active = shadows.filter(s => s.status === 'ACTIVE' || s.status === 'EUPHORIA_PARTIAL');
+  const active = shadows.filter(
+    s => s.status === 'ORDER_SUBMITTED' || s.status === 'PARTIALLY_FILLED' || s.status === 'ACTIVE' || s.status === 'EUPHORIA_PARTIAL'
+  );
 
   // 포지션 없는 날은 생략
   if (active.length === 0) return;

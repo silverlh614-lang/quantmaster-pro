@@ -11,7 +11,7 @@ export interface ServerShadowTrade {
   quantity: number;
   stopLoss: number;
   targetPrice: number;
-  status: 'PENDING' | 'ACTIVE' | 'HIT_TARGET' | 'HIT_STOP' | 'EUPHORIA_PARTIAL';
+  status: 'PENDING' | 'ORDER_SUBMITTED' | 'PARTIALLY_FILLED' | 'ACTIVE' | 'REJECTED' | 'HIT_TARGET' | 'HIT_STOP' | 'EUPHORIA_PARTIAL';
   exitPrice?: number;
   exitTime?: string;
   returnPct?: number;

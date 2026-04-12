@@ -20,10 +20,98 @@ import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 import { addRecommendation } from '../learning/recommendationTracker.js';
+import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
+import { evaluateServerGate } from '../quantFilter.js';
+import { fetchYahooQuote } from '../screener/stockScreener.js';
 import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
 import { getVixGating } from './vixGating.js';
 import { getFomcProximity } from './fomcCalendar.js';
+
+const ENTRY_MIN_GATE_SCORE = 5;
+const ENTRY_MAX_BREAKOUT_EXTENSION_PCT = 3;
+const ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT = -2;
+const ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT = 4;
+const ENTRY_MIN_VOLUME_RATIO = 0.6;
+const OPEN_SHADOW_STATUSES = new Set<ServerShadowTrade['status']>([
+  'PENDING',
+  'ORDER_SUBMITTED',
+  'PARTIALLY_FILLED',
+  'ACTIVE',
+  'EUPHORIA_PARTIAL',
+]);
+
+export interface PositionSizingInput {
+  totalAssets: number;
+  orderableCash: number;
+  positionPct: number;
+  price: number;
+  remainingSlots: number;
+}
+
+export function calculateOrderQuantity(input: PositionSizingInput): { quantity: number; effectiveBudget: number } {
+  if (input.price <= 0 || input.remainingSlots <= 0 || input.orderableCash <= 0) {
+    return { quantity: 0, effectiveBudget: 0 };
+  }
+  const targetBudget = Math.max(0, input.totalAssets * input.positionPct);
+  const slotBudget = input.orderableCash / input.remainingSlots;
+  const effectiveBudget = Math.max(0, Math.min(input.orderableCash, targetBudget, slotBudget));
+  return {
+    quantity: Math.floor(effectiveBudget / input.price),
+    effectiveBudget,
+  };
+}
+
+interface EntryRevalidationInput {
+  currentPrice: number;
+  entryPrice: number;
+  quoteGateScore?: number;
+  quoteSignalType?: 'STRONG' | 'NORMAL' | 'SKIP';
+  dayOpen?: number;
+  prevClose?: number;
+  volume?: number;
+  avgVolume?: number;
+}
+
+export function evaluateEntryRevalidation(input: EntryRevalidationInput): { ok: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+
+  if (input.quoteSignalType === 'SKIP' || (input.quoteGateScore ?? ENTRY_MIN_GATE_SCORE) < ENTRY_MIN_GATE_SCORE) {
+    reasons.push(`Gate 재검증 미달 (${(input.quoteGateScore ?? 0).toFixed(1)}/${ENTRY_MIN_GATE_SCORE})`);
+  }
+
+  const extensionPct = ((input.currentPrice - input.entryPrice) / input.entryPrice) * 100;
+  if (input.currentPrice >= input.entryPrice && extensionPct > ENTRY_MAX_BREAKOUT_EXTENSION_PCT) {
+    reasons.push(`돌파 이탈 과열 (+${extensionPct.toFixed(1)}%)`);
+  }
+
+  if (input.dayOpen && input.dayOpen > 0) {
+    const dropFromOpenPct = ((input.currentPrice - input.dayOpen) / input.dayOpen) * 100;
+    if (input.currentPrice < input.dayOpen && dropFromOpenPct <= ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT) {
+      reasons.push(`시가 대비 급락 (${dropFromOpenPct.toFixed(1)}%)`);
+    }
+  }
+
+  if (input.prevClose && input.prevClose > 0 && input.dayOpen && input.dayOpen > 0) {
+    const openGapPct = ((input.dayOpen - input.prevClose) / input.prevClose) * 100;
+    if (openGapPct >= ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT) {
+      reasons.push(`장초반 갭 과열 (+${openGapPct.toFixed(1)}%)`);
+    }
+  }
+
+  if (input.avgVolume && input.avgVolume > 0 && input.volume !== undefined) {
+    const volumeRatio = input.volume / input.avgVolume;
+    if (volumeRatio < ENTRY_MIN_VOLUME_RATIO) {
+      reasons.push(`거래량 급감 (${volumeRatio.toFixed(2)}x)`);
+    }
+  }
+
+  return { ok: reasons.length === 0, reasons };
+}
+
+function isOpenShadowStatus(status: ServerShadowTrade['status']): boolean {
+  return OPEN_SHADOW_STATUSES.has(status);
+}
 
 /**
  * 아이디어 1: 장중 자동 신호 스캔
@@ -45,17 +133,24 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
 
   const shadowMode = process.env.AUTO_TRADE_MODE !== 'LIVE'; // 기본 Shadow 모드
 
-  // 투자 총자산: KIS 계좌 잔고 → 환경변수 → 기본값 순으로 결정
+  // 투자 총자산: 환경변수 → KIS 계좌 주문가능현금+기본값 순으로 결정
   let totalAssets = Number(process.env.AUTO_TRADE_ASSETS || 0);
-  if (!totalAssets) {
-    const balance = await fetchAccountBalance().catch(() => null);
-    totalAssets = balance ?? 30_000_000; // 모의계좌 기본 3천만원
-    console.log(`[AutoTrade] 계좌 잔고 조회 → ${totalAssets.toLocaleString()}원`);
-  }
+  const balance = await fetchAccountBalance().catch(() => null);
+  if (!totalAssets) totalAssets = balance ?? 30_000_000; // 모의계좌 기본 3천만원
+  let orderableCash = balance ?? totalAssets;
+  const conditionWeights = loadConditionWeights();
 
-  console.log(`[AutoTrade] 스캔 시작 — ${watchlist.length}개 종목 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'} / 총자산: ${totalAssets.toLocaleString()}원`);
+  console.log(
+    `[AutoTrade] 스캔 시작 — ${watchlist.length}개 종목 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'} / 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원`
+  );
 
   const shadows = loadShadowTrades();
+  if (balance === null) {
+    const activeHoldingValue = shadows
+      .filter((s) => isOpenShadowStatus(s.status))
+      .reduce((sum, s) => sum + (s.shadowEntryPrice * s.quantity), 0);
+    orderableCash = Math.max(0, totalAssets - activeHoldingValue);
+  }
 
   // ── 레짐 분류 (classifyRegime — backtestPortfolio와 동일 로직) ──────────────
   const macroState = loadMacroState();
@@ -127,7 +222,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
 
   // ── 동시 최대 보유 종목 (regimeConfig.maxPositions) ─────────────────────────
   const activeCount = shadows.filter(
-    (s) => s.status === 'PENDING' || s.status === 'ACTIVE'
+    (s) => isOpenShadowStatus(s.status)
   ).length;
   if (activeCount >= regimeConfig.maxPositions) {
     console.log(
@@ -141,7 +236,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
   for (const stock of watchlist) {
     // 아이디어 7: 루프 내에서도 포지션 수 재확인 (같은 스캔 중 복수 진입 방지)
     const currentActive = shadows.filter(
-      (s) => s.status === 'PENDING' || s.status === 'ACTIVE'
+      (s) => isOpenShadowStatus(s.status)
     ).length;
     if (currentActive >= regimeConfig.maxPositions) {
       console.log(`[AutoTrade] 최대 포지션 도달 (${currentActive}/${regimeConfig.maxPositions}, 레짐 ${regime}) — 나머지 종목 스킵`);
@@ -165,7 +260,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
       const today = new Date().toISOString().split('T')[0];
       const alreadyTraded = shadows.some(
         (s) => s.stockCode === stock.code &&
-        (s.status === 'PENDING' || s.status === 'ACTIVE' ||
+        (isOpenShadowStatus(s.status) ||
          s.signalTime.startsWith(today))
       );
       if (alreadyTraded) continue;
@@ -198,7 +293,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
       if (stock.sector) {
         const activeSectorCodes = watchlist
           .filter(w => shadows.some(
-            s => s.stockCode === w.code && (s.status === 'PENDING' || s.status === 'ACTIVE')
+            s => s.stockCode === w.code && isOpenShadowStatus(s.status)
           ))
           .map(w => w.sector)
           .filter(Boolean);
@@ -223,13 +318,40 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
       const gateScore = stock.gateScore ?? 0;
       const isStrongBuy = gateScore >= 25;
 
+      const reCheckQuote = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
+                        ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null);
+      const reCheckGate = reCheckQuote
+        ? evaluateServerGate(reCheckQuote, conditionWeights, macroState?.kospiDayReturn)
+        : null;
+      const entryRevalidation = evaluateEntryRevalidation({
+        currentPrice,
+        entryPrice: stock.entryPrice,
+        quoteGateScore: reCheckGate?.gateScore,
+        quoteSignalType: reCheckGate?.signalType,
+        dayOpen: reCheckQuote?.dayOpen,
+        prevClose: reCheckQuote?.prevClose,
+        volume: reCheckQuote?.volume,
+        avgVolume: reCheckQuote?.avgVolume,
+      });
+      if (!entryRevalidation.ok) {
+        console.log(`[AutoTrade] ${stock.name} 진입 직전 재검증 탈락: ${entryRevalidation.reasons.join(', ')}`);
+        continue;
+      }
+
       const rawPositionPct = isStrongBuy       ? 0.12
                            : gateScore >= 20   ? 0.08
                            : gateScore >= 15   ? 0.05
                            : 0.03;
       // 레짐 Kelly 배율 적용 (R1=1.0, R2=0.8, R3=0.6, R4=0.5, R5=0.3)
       const positionPct = rawPositionPct * kellyMultiplier;
-      const quantity = Math.floor((totalAssets * positionPct) / shadowEntryPrice);
+      const remainingSlots = Math.max(1, regimeConfig.maxPositions - currentActive);
+      const { quantity, effectiveBudget } = calculateOrderQuantity({
+        totalAssets,
+        orderableCash,
+        positionPct,
+        price: shadowEntryPrice,
+        remainingSlots,
+      });
 
       if (quantity < 1) continue;
 
@@ -333,22 +455,29 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
             placedAt:       new Date().toISOString(),
             relatedTradeId: trade.id,
           });
+          trade.status = 'ORDER_SUBMITTED';
+        } else {
+          trade.status = 'REJECTED';
         }
 
-        trade.status = 'ACTIVE';
         shadows.push(trade);
 
         await sendTelegramAlert(
           `🚀 <b>[LIVE] 매수 주문${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
           `종목: ${stock.name} (${stock.code})\n` +
-          `체결가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
+          `주문상태: ${ordNo ? 'ORDER_SUBMITTED' : 'REJECTED'}\n` +
+          `주문가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
           `주문번호: ${ordNo ?? 'N/A'}\n` +
           `손절: ${stock.stopLoss.toLocaleString()}원 | 목표: ${stock.targetPrice.toLocaleString()}원`
         ).catch(console.error);
       }
 
+      if (trade.status !== 'REJECTED') {
+        orderableCash = Math.max(0, orderableCash - effectiveBudget);
+      }
+
       // 아이디어 8: STRONG_BUY → 2·3차 분할 매수 스케줄 등록
-      if (isStrongBuy && quantity > 1) {
+      if (isStrongBuy && quantity > 1 && trade.status !== 'REJECTED') {
         trancheExecutor.scheduleTranches({
           parentTradeId: trade.id,
           stockCode:     stock.code,
@@ -380,7 +509,7 @@ async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: 
       continue;
     }
 
-    if (shadow.status !== 'ACTIVE' && shadow.status !== 'EUPHORIA_PARTIAL') continue;
+    if (shadow.status !== 'ACTIVE' && shadow.status !== 'PARTIALLY_FILLED' && shadow.status !== 'EUPHORIA_PARTIAL') continue;
 
     const currentPrice = await fetchCurrentPrice(shadow.stockCode).catch(() => null);
     if (!currentPrice) continue;
@@ -541,7 +670,7 @@ async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: 
     }
 
     // ⑦ 과열 탐지 — ACTIVE 상태에서만 첫 번째 부분 매도 발동
-    if (shadow.status === 'ACTIVE') {
+    if (shadow.status === 'ACTIVE' || shadow.status === 'PARTIALLY_FILLED') {
       const euphoria = checkEuphoria(shadow, currentPrice);
       if (euphoria.triggered) {
         const halfQty = Math.max(1, Math.floor(shadow.quantity / 2));

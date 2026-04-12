@@ -1,5 +1,6 @@
 import fs from 'fs';
 import { PENDING_ORDERS_FILE, ensureDataDir } from '../persistence/paths.js';
+import { loadShadowTrades, saveShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 
@@ -34,6 +35,31 @@ function savePendingOrders(orders: PendingOrder[]): void {
   fs.writeFileSync(PENDING_ORDERS_FILE, JSON.stringify([...active, ...history], null, 2));
 }
 
+function updateRelatedTradeStatus(
+  relatedTradeId: string | undefined,
+  status: 'ORDER_SUBMITTED' | 'PARTIALLY_FILLED' | 'ACTIVE' | 'REJECTED',
+  opts?: { fillPrice?: number; fillQty?: number },
+): void {
+  if (!relatedTradeId) return;
+  const shadows = loadShadowTrades();
+  const trade = shadows.find((s) => s.id === relatedTradeId);
+  if (!trade) return;
+
+  if (status === 'ORDER_SUBMITTED' && trade.status !== 'PENDING') return;
+  if (status === 'PARTIALLY_FILLED' && trade.status !== 'ORDER_SUBMITTED' && trade.status !== 'PARTIALLY_FILLED') return;
+  if (status === 'ACTIVE' && trade.status === 'REJECTED') return;
+  if (status === 'REJECTED' && (trade.status === 'HIT_TARGET' || trade.status === 'HIT_STOP')) return;
+
+  trade.status = status;
+  if (opts?.fillPrice !== undefined && opts.fillPrice > 0) trade.shadowEntryPrice = opts.fillPrice;
+  if (opts?.fillQty !== undefined && opts.fillQty > 0) {
+    trade.quantity = opts.fillQty;
+    trade.originalQuantity = Math.max(trade.originalQuantity ?? 0, opts.fillQty);
+  }
+
+  saveShadowTrades(shadows);
+}
+
 export class FillMonitor {
   /** LIVE 주문 후 호출 — pending-orders.json에 추가 */
   addOrder(order: Omit<PendingOrder, 'pollCount' | 'status'>): void {
@@ -41,6 +67,7 @@ export class FillMonitor {
     if (orders.some(o => o.ordNo === order.ordNo)) return; // 중복 방지
     orders.push({ ...order, pollCount: 0, status: 'PENDING' });
     savePendingOrders(orders);
+    updateRelatedTradeStatus(order.relatedTradeId, 'ORDER_SUBMITTED');
     console.log(`[FillMonitor] 주문 등록: ${order.stockName}(${order.stockCode}) ODNO=${order.ordNo}`);
   }
 
@@ -67,18 +94,24 @@ export class FillMonitor {
       return;
     }
 
-    const unfilledOdnoSet = new Set((data?.output ?? []).map(o => o.odno));
+    const unfilledMap = new Map((data?.output ?? []).map(o => [o.odno, o]));
     let changed = false;
 
     for (const order of pending) {
       order.pollCount++;
 
-      if (!unfilledOdnoSet.has(order.ordNo)) {
+      const unfilled = unfilledMap.get(order.ordNo);
+
+      if (!unfilled) {
         // KIS 미체결 목록에 없음 → 체결 완료
-        const fillPrice = await fetchCurrentPrice(order.stockCode).catch(() => null) ?? order.orderPrice;
+        const fillPrice = await fetchCurrentPrice(order.stockCode).catch(() => null) ?? order.fillPrice ?? order.orderPrice;
         Object.assign(order, {
           status: 'FILLED', fillPrice, fillQty: order.quantity,
           filledAt: new Date().toISOString(),
+        });
+        updateRelatedTradeStatus(order.relatedTradeId, 'ACTIVE', {
+          fillPrice,
+          fillQty: order.quantity,
         });
         changed = true;
         console.log(`[FillMonitor] ✅ 체결 확인: ${order.stockName} @${fillPrice.toLocaleString()}원 (ODNO=${order.ordNo})`);
@@ -89,9 +122,21 @@ export class FillMonitor {
           `수량: ${order.quantity}주\n` +
           `주문번호: ${order.ordNo}`
         ).catch(console.error);
+      } else if (Number(unfilled.tot_ccld_qty ?? 0) > 0) {
+        const fillQty = Math.min(order.quantity, Number(unfilled.tot_ccld_qty ?? 0));
+        const fillPrice = Number(unfilled.avg_prvs ?? 0) || order.fillPrice || order.orderPrice;
+        Object.assign(order, {
+          status: 'PARTIAL',
+          fillPrice,
+          fillQty,
+        });
+        updateRelatedTradeStatus(order.relatedTradeId, 'PARTIALLY_FILLED', { fillPrice, fillQty });
+        changed = true;
+        console.log(`[FillMonitor] ◐ 부분 체결: ${order.stockName} ${fillQty}/${order.quantity}주 (ODNO=${order.ordNo})`);
       } else if (order.pollCount >= FILL_POLL_MAX) {
         // 10회 폴링 초과 → 만료 처리 (장 마감 취소와 별도)
         order.status = 'EXPIRED';
+        updateRelatedTradeStatus(order.relatedTradeId, 'REJECTED');
         changed = true;
         console.warn(`[FillMonitor] ⏱ 폴링 만료 (${FILL_POLL_MAX}회): ${order.stockName} ODNO=${order.ordNo}`);
         await sendTelegramAlert(
@@ -129,6 +174,7 @@ export class FillMonitor {
           QTY_ALL_ORD_YN: 'Y', PDNO: order.stockCode.padStart(6, '0'),
         });
         order.status = 'CANCELLED';
+        updateRelatedTradeStatus(order.relatedTradeId, 'REJECTED');
         console.log(`[FillMonitor] 취소 완료: ${order.stockName} ODNO=${order.ordNo}`);
         await sendTelegramAlert(
           `🚫 <b>[장마감 자동 취소]</b> ${order.stockName}(${order.stockCode})\n` +

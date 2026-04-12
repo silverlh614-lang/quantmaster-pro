@@ -43,7 +43,13 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       case '/status': {
         const macro   = loadMacroState();
         const shadows = getShadowTrades();
-        const active  = shadows.filter(s => (s as any).status === 'ACTIVE' || (s as any).status === 'PENDING');
+        const active  = shadows.filter(s =>
+          (s as any).status === 'PENDING' ||
+          (s as any).status === 'ORDER_SUBMITTED' ||
+          (s as any).status === 'PARTIALLY_FILLED' ||
+          (s as any).status === 'ACTIVE' ||
+          (s as any).status === 'EUPHORIA_PARTIAL'
+        );
         const today   = new Date().toISOString().split('T')[0];
         const closed  = shadows.filter(s =>
           ((s as any).status === 'HIT_TARGET' || (s as any).status === 'HIT_STOP') &&
@@ -119,7 +125,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
       case '/shadow': {
         const stats = getMonthlyStats();
-        const pending = fillMonitor.getPendingOrders().filter(o => o.status === 'PENDING');
+        const pending = fillMonitor.getPendingOrders().filter(o => o.status === 'PENDING' || o.status === 'PARTIAL');
         await reply(
           `🎭 <b>[Shadow 성과 현황]</b>\n` +
           `${stats.month} — 전체 ${stats.total}건\n` +
@@ -131,7 +137,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       }
 
       case '/pending': {
-        const pending = fillMonitor.getPendingOrders().filter(o => o.status === 'PENDING');
+        const pending = fillMonitor.getPendingOrders().filter(o => o.status === 'PENDING' || o.status === 'PARTIAL');
         if (pending.length === 0) { await reply('✅ 미체결 주문 없음'); break; }
         const lines = pending.map(o =>
           `• ${o.stockName}(${o.ordNo}) ${o.quantity}주 @${o.orderPrice.toLocaleString()} [${o.pollCount}/${10}회]`

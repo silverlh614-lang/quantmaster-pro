@@ -21,6 +21,8 @@ export interface ScreenedStock {
 // 아이디어 5: 확장된 Yahoo 시세 인터페이스 (MA/고가/ATR/RSI/MACD + 가속도 포함)
 export interface YahooQuoteExtended {
   price: number;
+  dayOpen: number;         // 당일 시가
+  prevClose: number;       // 전일 종가
   changePercent: number;
   volume: number;
   avgVolume: number;
@@ -316,6 +318,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
 
     const price = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 0;
     const prevClose = meta.chartPreviousClose ?? closes[closes.length - 2] ?? price;
+    const dayOpen = meta.regularMarketOpen ?? price;
     const changePercent = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
     const volume = volumes[volumes.length - 1] ?? 0;
 
@@ -389,6 +392,8 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
 
     return {
       price: Math.round(price), changePercent, volume, avgVolume,
+      dayOpen: Math.round(dayOpen),
+      prevClose: Math.round(prevClose),
       ma5, ma20, ma60, high20d, atr, atr20avg, per,
       rsi14: parseFloat(rsi14.toFixed(1)),
       macd:  parseFloat(macd.toFixed(2)),
