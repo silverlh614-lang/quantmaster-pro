@@ -444,7 +444,7 @@ export function runConfluenceEngine(input: ConfluenceInput): ConfluenceResult {
   const technicalAxis   = calcTechnicalScore(q);
   const supplyAxis      = calcSupplyScore(kisFlow, q, kospiDayReturn);
   const fundamentalAxis = calcFundamentalScore(dartFin, q.per, regime);
-  const macroAxis       = calcMacroScore(macroState, regime);
+  const macroAxis       = calcMacroScore(macroState ?? null, regime);
 
   const axes = [technicalAxis, supplyAxis, fundamentalAxis, macroAxis];
   const bullishAxes = axes.filter(a => a.status === 'BULLISH').length;
