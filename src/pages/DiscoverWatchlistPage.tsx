@@ -174,8 +174,8 @@ export function DiscoverWatchlistPage({
 
       {/* Market Sentiment & Hero / Top 3 / Market Context / AI Summary */}
       <WatchlistHeader
-        filters={filters as any}
-        setFilters={setFilters as any}
+        filters={filters}
+        setFilters={setFilters}
         setShowMasterChecklist={setShowMasterChecklist}
         onFetchStocks={onFetchStocks}
         loading={loading}
@@ -187,7 +187,7 @@ export function DiscoverWatchlistPage({
         onGenerateSummary={onGenerateSummary}
         reportSummary={reportSummary}
         setReportSummary={setReportSummary}
-        setView={(v) => setView(v as any)}
+        setView={setView}
         onDeepAnalysis={setDeepAnalysisStock}
       />
 
@@ -201,8 +201,8 @@ export function DiscoverWatchlistPage({
           recommendations={recommendations}
           searchResults={searchResults}
           allPatterns={allPatterns}
-          filters={filters as any}
-          setFilters={setFilters as any}
+          filters={filters}
+          setFilters={setFilters}
           selectedType={selectedType}
           setSelectedType={setSelectedType}
           selectedPattern={selectedPattern}
@@ -230,7 +230,7 @@ export function DiscoverWatchlistPage({
           autoSyncEnabled={autoSyncEnabled}
           setAutoSyncEnabled={setAutoSyncEnabled}
           nextSyncCountdown={nextSyncCountdown}
-          syncStatus={{ ...syncStatus, currentStock: syncStatus.currentStock ?? '' }}
+          syncStatus={syncStatus}
         />
 
         {/* Quick Navigation */}
@@ -406,7 +406,7 @@ export function DiscoverWatchlistPage({
                         setTradeFormData({ buyPrice: String(s.currentPrice || ''), quantity: '', positionSize: '10', followedSystem: true });
                       }}
                       onAddShadowTrade={addShadowTrade}
-                      onSetView={(v) => setView(v as any)}
+                      onSetView={setView}
                       onSyncPrice={onSyncPrice}
                       onManualPriceUpdate={onManualPriceUpdate}
                     />

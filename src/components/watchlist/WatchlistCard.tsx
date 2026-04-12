@@ -13,6 +13,7 @@ import { PriceEditCell } from '../PriceEditCell';
 import type { StockRecommendation } from '../../services/stockService';
 import type { NewsFrequencyScore } from '../../types/quant';
 import type { ConditionId } from '../../types/quant';
+import type { View } from '../../stores/useSettingsStore';
 import { buildShadowTrade } from '../../services/autoTrading';
 
 function cn(...inputs: ClassValue[]) {
@@ -37,7 +38,7 @@ export interface WatchlistCardProps {
   onAddToBacktest: (stock: StockRecommendation) => void;
   onSetTradeRecord: (stock: StockRecommendation) => void;
   onAddShadowTrade: (trade: any) => void;
-  onSetView: (view: string) => void;
+  onSetView: (view: View) => void;
   onSyncPrice: (stock: StockRecommendation) => Promise<StockRecommendation | null>;
   onManualPriceUpdate: (stock: StockRecommendation, newPrice: number) => void;
 }

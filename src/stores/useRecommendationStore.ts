@@ -1,14 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { StockRecommendation } from '../services/stockService';
-
-interface StockFilters {
-  mode: 'MOMENTUM' | 'EARLY_DETECT' | 'QUANT_SCREEN';
-  minRoe?: number;
-  maxPer?: number;
-  maxDebtRatio?: number;
-  minMarketCap?: number;
-}
+import type { StockRecommendation, StockFilters } from '../services/stockService';
 
 type Updater<T> = T | ((prev: T) => T);
 
