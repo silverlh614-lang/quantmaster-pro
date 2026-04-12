@@ -17,6 +17,7 @@ import { fetchYahooQuote, preScreenStocks, autoPopulateWatchlist } from '../scre
 import { generateDailyReport } from '../alerts/reportGenerator.js';
 import { evaluateRecommendations, isRealTradeReady } from '../learning/recommendationTracker.js';
 import { calibrateSignalWeights } from '../learning/signalCalibrator.js';
+import { calibrateByRegime } from '../learning/regimeAwareCalibrator.js';
 
 // ─── 편의 조회 래퍼 ────────────────────────────────────────────────────────────
 export function getShadowTrades() { return loadShadowTrades(); }
@@ -327,7 +328,8 @@ export class TradingDayOrchestrator {
           const kstDay = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCDate();
           if (kstDay >= 28 && t >= 1645 && !this.hasRan('calibrate')) {
             console.log('[Orchestrator] Signal Calibrator 가중치 보정 (월말)');
-            await calibrateSignalWeights().catch(console.error);
+            await calibrateSignalWeights().catch(console.error);  // 아이디어 2+3: 전역 시간감쇠+Sharpe
+            await calibrateByRegime().catch(console.error);       // 아이디어 1: 레짐별 독립 가중치
             this.markRan('calibrate');
           }
         }

@@ -237,6 +237,7 @@ export async function runAutoSignalScan(): Promise<void> {
         gateScore:        gateScore,
         signalType:       isStrongBuy ? 'STRONG_BUY' : 'BUY',
         conditionKeys:    stock.conditionKeys ?? [],
+        entryRegime:      regime,  // 레짐별 캘리브레이션용 (아이디어 1)
       });
 
       const trancheLabel = isStrongBuy ? ` (1차/${execQty}주, 총${quantity}주)` : '';

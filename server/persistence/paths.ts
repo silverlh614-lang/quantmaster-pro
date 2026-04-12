@@ -7,6 +7,13 @@ export const DATA_DIR = process.env.PERSIST_DATA_DIR
   : path.resolve(process.cwd(), 'data');
 
 export const WATCHLIST_FILE          = path.join(DATA_DIR, 'watchlist.json');
+
+/** 레짐별 가중치 파일 경로 (예: data/condition-weights-R2_BULL.json) */
+export function conditionWeightsRegimeFile(regime: string): string {
+  // 파일명 안전 처리: 영숫자·_만 허용
+  const safe = regime.replace(/[^A-Za-z0-9_]/g, '_');
+  return path.join(DATA_DIR, `condition-weights-${safe}.json`);
+}
 export const SHADOW_FILE             = path.join(DATA_DIR, 'shadow-trades.json');
 export const SHADOW_LOG_FILE         = path.join(DATA_DIR, 'shadow-log.json');
 export const MACRO_STATE_FILE        = path.join(DATA_DIR, 'macro-state.json');

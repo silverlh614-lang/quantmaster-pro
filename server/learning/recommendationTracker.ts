@@ -16,6 +16,8 @@ export interface RecommendationRecord {
   gateScore: number;
   signalType: 'STRONG_BUY' | 'BUY';
   conditionKeys?: string[];
+  /** 신호 발생 시점 레짐 레벨 (예: 'R2_BULL') — 레짐별 가중치 캘리브레이션에 사용 */
+  entryRegime?: string;
   status: 'PENDING' | 'WIN' | 'LOSS' | 'EXPIRED';
   actualReturn?: number;
   resolvedAt?: string;
