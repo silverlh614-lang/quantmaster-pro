@@ -148,6 +148,8 @@ interface OrchestratorState {
   lastTransition: string;   // ISO
   tradingDate: string;      // YYYY-MM-DD (KST 기준)
   handlerRanAt: Record<string, string>; // handler key → ISO timestamp
+  /** 마지막으로 월간 캘리브레이션이 완료된 월 (YYYY-MM). catch-up 판단 기준. */
+  lastCalibratedMonth: string;
 }
 
 function getKstTime(): { h: number; m: number; t: number; dow: number; dateStr: string } {
@@ -186,14 +188,22 @@ export class TradingDayOrchestrator {
     ensureDataDir();
     if (fs.existsSync(ORCHESTRATOR_STATE_FILE)) {
       try {
-        return JSON.parse(fs.readFileSync(ORCHESTRATOR_STATE_FILE, 'utf-8')) as OrchestratorState;
+        const saved = JSON.parse(fs.readFileSync(ORCHESTRATOR_STATE_FILE, 'utf-8')) as Partial<OrchestratorState>;
+        return {
+          currentState:        saved.currentState        ?? 'PRE_MARKET',
+          lastTransition:      saved.lastTransition      ?? new Date().toISOString(),
+          tradingDate:         saved.tradingDate         ?? '',
+          handlerRanAt:        saved.handlerRanAt        ?? {},
+          lastCalibratedMonth: saved.lastCalibratedMonth ?? '',
+        };
       } catch { /* fallthrough */ }
     }
     return {
-      currentState:  'PRE_MARKET',
-      lastTransition: new Date().toISOString(),
-      tradingDate:    '',
-      handlerRanAt:   {},
+      currentState:        'PRE_MARKET',
+      lastTransition:      new Date().toISOString(),
+      tradingDate:         '',
+      handlerRanAt:        {},
+      lastCalibratedMonth: '',
     };
   }
 
@@ -329,7 +339,9 @@ export class TradingDayOrchestrator {
         }
         // 월말(28일 이후) 16:45+ 한 번만: 자기진화 루프 전체 실행
         {
-          const kstDay = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCDate();
+          const kstNow    = new Date(Date.now() + 9 * 60 * 60 * 1000);
+          const kstDay    = kstNow.getUTCDate();
+          const kstMonth  = kstNow.toISOString().slice(0, 7); // YYYY-MM
           if (kstDay >= 28 && t >= 1645 && !this.hasRan('calibrate')) {
             console.log('[Orchestrator] 자기진화 루프 시작 (월말)');
             // 1단계: 워크포워드 검증 — 과최적화 감지 시 이후 캘리브레이션 동결
@@ -340,14 +352,45 @@ export class TradingDayOrchestrator {
             await calibrateByRegime().catch(console.error);
             // 4단계: 조건 감사 + 신규 조건 후보 발굴 (항상 실행)
             await runConditionAudit().catch(console.error);
-            this.markRan('calibrate');
+            // 완료 기록 — PRE_MARKET catch-up 판단 기준
+            this.orch.lastCalibratedMonth = kstMonth;
+            this.markRan('calibrate'); // save() 포함
           }
         }
         break;
       }
 
+      case 'PRE_MARKET': {
+        // ── 월말 캘리브레이션 catch-up ──────────────────────────────────────
+        // KST 17:00+ PRE_MARKET에서 실행됨 (UTC 08:xx 크론).
+        // 조건: 이번 달 캘리브레이션 미완료 & 28일 이후 & 오늘 정상/catch-up 모두 미실행
+        const kstNow   = new Date(Date.now() + 9 * 60 * 60 * 1000);
+        const kstDay   = kstNow.getUTCDate();
+        const kstMonth = kstNow.toISOString().slice(0, 7);
+        const catchupNeeded =
+          kstDay >= 28 &&
+          this.orch.lastCalibratedMonth !== kstMonth &&
+          !this.hasRan('calibrate') &&
+          !this.hasRan('catchupCalibrate');
+
+        if (catchupNeeded) {
+          console.log('[Orchestrator] 월말 캘리브레이션 누락 감지 — catch-up 실행 (KST 17:00+)');
+          await sendTelegramAlert(
+            `⚠️ <b>[Calibrator Catch-up]</b> 16:45 구간 누락 감지\n` +
+            `${kstMonth} 캘리브레이션을 17:00+ catch-up으로 실행합니다.`
+          ).catch(console.error);
+          await runWalkForwardValidation().catch(console.error);
+          await calibrateSignalWeights().catch(console.error);
+          await calibrateByRegime().catch(console.error);
+          await runConditionAudit().catch(console.error);
+          this.orch.lastCalibratedMonth = kstMonth;
+          this.markRan('catchupCalibrate'); // save() 포함
+        }
+        break;
+      }
+
       default:
-        // PRE_MARKET, POST_MARKET, WEEKEND — 대기
+        // POST_MARKET, WEEKEND — 대기
         break;
     }
   }
