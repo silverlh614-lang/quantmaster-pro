@@ -22,6 +22,7 @@ import type { SectorEnergyInput, SectorEnergyResult } from '../types/sectorEnerg
 import type { FlowPredictionInput, FlowPredictionResult } from '../types/flowPrediction';
 import type { SatelliteCascaderInput, SatelliteCascaderResult } from '../types/satellite';
 import type { BehavioralMirrorInput, BehavioralMirrorResult } from '../types/behavioralMirror';
+import type { SystemInterferenceResult } from '../types/interference';
 
 interface GlobalIntelState {
   // Core macro
@@ -195,6 +196,11 @@ interface GlobalIntelState {
   /** 행동 교정 미러 계산 결과 */
   behavioralMirrorResult: BehavioralMirrorResult | null;
   setBehavioralMirrorResult: (data: BehavioralMirrorResult | null) => void;
+
+  // ── 시스템 상호간섭 파라미터 충돌 감지 (System Interference Checker) ──────
+  /** 파라미터 충돌 감지 결과 */
+  systemInterferenceResult: SystemInterferenceResult | null;
+  setSystemInterferenceResult: (data: SystemInterferenceResult | null) => void;
 
   // Bulk setter for initial load
   setAllMacroData: (data: Partial<GlobalIntelState>) => void;
@@ -396,6 +402,10 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       setBehavioralMirrorInput: (behavioralMirrorInput) => set({ behavioralMirrorInput }),
       behavioralMirrorResult: null,
       setBehavioralMirrorResult: (behavioralMirrorResult) => set({ behavioralMirrorResult }),
+
+      // ── 시스템 상호간섭 파라미터 충돌 감지
+      systemInterferenceResult: null,
+      setSystemInterferenceResult: (systemInterferenceResult) => set({ systemInterferenceResult }),
 
       setAllMacroData: (data) => set(data as any),
     }),
