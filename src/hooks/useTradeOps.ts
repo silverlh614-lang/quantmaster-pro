@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { useRecommendationStore, useTradeStore, useSettingsStore } from '../stores';
+import { useAttributionStore } from '../stores/useAttributionStore';
 import { computeConditionPerformance } from '../components/TradeJournal';
 import { saveEvolutionWeights } from '../services/quant/evolutionEngine';
+import { runAttributionAnalysis, pushAttributionToServer } from '../services/autoTrading';
 import type { StockRecommendation } from '../services/stockService';
 import type { TradeRecord, ConditionId, PreMortemItem } from '../types/quant';
 
@@ -36,12 +38,32 @@ export function useTradeOps() {
   };
 
   const closeTrade = (tradeId: string, sellPrice: number, sellReason: TradeRecord['sellReason']) => {
+    const trade = tradeRecords.find((t: TradeRecord) => t.id === tradeId);
+
     setTradeRecords((prev: TradeRecord[]) => prev.map((t: TradeRecord) => {
       if (t.id !== tradeId) return t;
       const returnPct = ((sellPrice - t.buyPrice) / t.buyPrice) * 100;
       const holdingDays = Math.round((Date.now() - new Date(t.buyDate).getTime()) / (1000 * 60 * 60 * 24));
       return { ...t, sellDate: new Date().toISOString(), sellPrice, sellReason, returnPct: parseFloat(returnPct.toFixed(2)), holdingDays, status: 'CLOSED' as const };
     }));
+
+    if (trade && trade.conditionScores && Object.keys(trade.conditionScores).length > 0) {
+      const returnPct = ((sellPrice - trade.buyPrice) / trade.buyPrice) * 100;
+      const holdingDays = Math.round((Date.now() - new Date(trade.buyDate).getTime()) / (1000 * 60 * 60 * 24));
+      const { accumulate } = useAttributionStore.getState();
+      runAttributionAnalysis(trade.conditionScores, returnPct, accumulate);
+      void pushAttributionToServer({
+        tradeId: trade.id,
+        stockCode: trade.stockCode,
+        stockName: trade.stockName,
+        closedAt: new Date().toISOString(),
+        returnPct: parseFloat(returnPct.toFixed(2)),
+        isWin: returnPct > 0,
+        conditionScores: trade.conditionScores,
+        holdingDays,
+        sellReason: sellReason ?? undefined,
+      });
+    }
   };
 
   const deleteTrade = (tradeId: string) => {

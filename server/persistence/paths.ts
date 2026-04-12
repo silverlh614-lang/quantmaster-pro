@@ -37,6 +37,8 @@ export const WALK_FORWARD_STATE_FILE = path.join(DATA_DIR, 'walk-forward-state.j
 export const CONDITION_AUDIT_FILE    = path.join(DATA_DIR, 'condition-audit.json');
 /** 아이디어 6: 이상 감지 — 마지막 경보 상태 저장 (중복 알림 억제) */
 export const ANOMALY_STATE_FILE      = path.join(DATA_DIR, 'anomaly-state.json');
+/** 귀인 분석 — 클라이언트에서 전송된 거래 종료 기록 (최근 500건) */
+export const ATTRIBUTION_FILE        = path.join(DATA_DIR, 'attribution-records.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

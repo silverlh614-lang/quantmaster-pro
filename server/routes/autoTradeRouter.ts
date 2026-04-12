@@ -15,6 +15,11 @@ import { pollIpsAlert } from '../alerts/ipsAlert.js';
 import { trancheExecutor } from '../trading/trancheExecutor.js';
 import { refreshMarketRegimeVars } from '../trading/marketDataRefresh.js';
 import { runAutoSignalScan } from '../trading/signalScanner.js';
+import {
+  appendAttributionRecord,
+  computeAttributionStats,
+  type ServerAttributionRecord,
+} from '../persistence/attributionRepo.js';
 
 const router = Router();
 
@@ -370,6 +375,33 @@ router.get('/shadow/performance', (_req: any, res: any) => {
     readyForLive,
     reason: readyForLive ? '실거래 전환 조건 충족 ✅' : reasons.join(' / '),
   });
+});
+
+// ─── 귀인 분석 API ────────────────────────────────────────────────────────────
+// POST /api/attribution/record — 거래 종료 시 클라이언트가 27조건 스냅샷을 저장
+// GET  /api/attribution/stats  — 조건별 승률·평균 수익률 집계 반환
+
+router.post('/attribution/record', (req: any, res: any) => {
+  try {
+    const record = req.body as ServerAttributionRecord;
+    if (!record.tradeId || !record.conditionScores) {
+      return res.status(400).json({ error: 'tradeId, conditionScores 필수' });
+    }
+    appendAttributionRecord(record);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[Attribution] record 저장 실패:', e);
+    res.status(500).json({ error: 'internal' });
+  }
+});
+
+router.get('/attribution/stats', (_req: any, res: any) => {
+  try {
+    res.json(computeAttributionStats());
+  } catch (e) {
+    console.error('[Attribution] stats 계산 실패:', e);
+    res.status(500).json({ error: 'internal' });
+  }
 });
 
 export default router;
