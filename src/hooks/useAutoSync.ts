@@ -17,11 +17,22 @@ export interface GlobalSymbolResult {
   changePct: number | null;
 }
 
+export interface SectorAlert {
+  symbol:       string;
+  label:        string;
+  changePct:    number;
+  direction:    'BULLISH' | 'BEARISH';
+  koreaSectors: string;
+  leadDays:     string;
+  alertType:    'EWY_FOREIGN' | 'SECTOR_FLOW';  // Layer 13 | Layer 14
+}
+
 export interface GlobalScanReport {
-  createdAt: string;
-  symbols:   GlobalSymbolResult[];
-  vix:       number | null;
-  aiSummary: string | null;
+  createdAt:    string;
+  symbols:      GlobalSymbolResult[];
+  vix:          number | null;
+  aiSummary:    string | null;
+  sectorAlerts: SectorAlert[];  // Layer 13·14 경보 목록
 }
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10분 간격 폴링

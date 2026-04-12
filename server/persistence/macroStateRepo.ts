@@ -40,8 +40,9 @@ export interface MacroState {
   shortSellingRatio?: number;       // 공매도 비율 (%)
   spx20dReturn?: number;            // S&P500 20일 수익률
   dxy5dChange?: number;             // 달러인덱스 5일 변화율
-  // ─── VIX 이력 (글로벌 스캔 에이전트 — 최근 5거래일) ──────────────────────
-  vixHistory?: number[];            // VIX 일별 종가 이력 (최신 → 인덱스 마지막)
+  // ─── 글로벌 스캔 에이전트 선행 레이어 필드 ──────────────────────────────────
+  vixHistory?: number[];            // VIX 일별 종가 이력 (최신 → 인덱스 마지막, 최대 5개)
+  ewyDayChange?: number;            // EWY 전일 대비 변화율 (%) — Layer 13 외국인 수급 선행
 }
 
 export function loadMacroState(): MacroState | null {
