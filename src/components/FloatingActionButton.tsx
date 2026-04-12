@@ -82,7 +82,7 @@ export function FloatingActionButton({ onRefresh, onSearch, onExportPDF, isRefre
           'w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition-all duration-300',
           isOpen
             ? 'bg-white/10 border border-white/20 backdrop-blur-xl rotate-45'
-            : 'bg-orange-500 shadow-orange-500/40 hover:bg-orange-600'
+            : 'bg-gradient-to-br from-blue-500 to-indigo-600 shadow-blue-500/40 hover:shadow-blue-500/60'
         )}
       >
         {isOpen ? (
