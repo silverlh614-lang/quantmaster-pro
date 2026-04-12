@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings, Sun, Moon, Contrast, Key, Trash2, ExternalLink } from 'lucide-react';
+import { Settings, Sun, Moon, Contrast, Key, Trash2, ExternalLink, Waves, Leaf } from 'lucide-react';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '../ui/modal';
 import { Button } from '../ui/button';
 import { cn } from '../ui/cn';
@@ -16,6 +16,8 @@ export function SettingsModal() {
     { id: 'dark' as const, label: '다크', icon: Moon },
     { id: 'light' as const, label: '라이트', icon: Sun },
     { id: 'high-contrast' as const, label: '고대비', icon: Contrast },
+    { id: 'ocean' as const, label: '오션', icon: Waves },
+    { id: 'forest' as const, label: '포레스트', icon: Leaf },
   ];
 
   return (
@@ -55,7 +57,7 @@ export function SettingsModal() {
         {/* Theme */}
         <div className="space-y-2">
           <label className="text-xs font-black text-theme-text-muted uppercase tracking-widest">테마</label>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {themes.map((t) => (
               <button
                 key={t.id}

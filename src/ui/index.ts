@@ -8,5 +8,6 @@ export { PageHeader } from './page-header';
 export { Section } from './section';
 export { EmptyState } from './empty-state';
 export { LoadingState } from './loading-state';
+export { Spinner } from './spinner';
 export { Tabs } from './tabs';
 export { KpiStrip } from './kpi-strip';

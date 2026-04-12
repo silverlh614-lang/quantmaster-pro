@@ -164,6 +164,34 @@
     --input-bg: rgba(255, 255, 255, 0.1);
   }
 
+  .theme-ocean {
+    --bg-app: #031526;
+    --bg-elevated: #08213a;
+    --bg-surface: #0d2a44;
+    --text-primary: #e8f5ff;
+    --text-secondary: rgba(232, 245, 255, 0.76);
+    --text-muted: rgba(232, 245, 255, 0.48);
+    --card-bg: rgba(7, 36, 60, 0.72);
+    --card-border: rgba(125, 211, 252, 0.24);
+    --accent: #38bdf8;
+    --surface-bg: rgba(56, 189, 248, 0.1);
+    --input-bg: rgba(7, 36, 60, 0.75);
+  }
+
+  .theme-forest {
+    --bg-app: #07150d;
+    --bg-elevated: #0b2014;
+    --bg-surface: #112a1b;
+    --text-primary: #ebfff3;
+    --text-secondary: rgba(235, 255, 243, 0.75);
+    --text-muted: rgba(235, 255, 243, 0.45);
+    --card-bg: rgba(12, 36, 24, 0.72);
+    --card-border: rgba(74, 222, 128, 0.22);
+    --accent: #22c55e;
+    --surface-bg: rgba(34, 197, 94, 0.1);
+    --input-bg: rgba(12, 36, 24, 0.78);
+  }
+
   html {
     transition: font-size 0.2s ease-out;
     text-rendering: optimizeLegibility;

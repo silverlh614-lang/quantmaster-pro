@@ -5,7 +5,7 @@
 
 import React, { useEffect } from 'react';
 import { Toaster } from 'sonner';
-import { AnimatePresence } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { MarketPage } from './pages/MarketPage';
 import { ManualInputPage } from './pages/ManualInputPage';
 import { AutoTradePage } from './pages/AutoTradePage';
@@ -89,7 +89,7 @@ export default function App() {
   // -- Theme Application --
   useEffect(() => {
     const body = document.body;
-    body.classList.remove('theme-light', 'theme-dark', 'theme-high-contrast');
+    body.classList.remove('theme-light', 'theme-dark', 'theme-high-contrast', 'theme-ocean', 'theme-forest');
     if (theme !== 'dark') body.classList.add(`theme-${theme}`);
   }, [theme]);
 
@@ -155,69 +155,77 @@ export default function App() {
           <div className="flex-1 min-w-0">
             <PageContainer size="full" className="no-print">
               <AnimatePresence mode="wait">
-                {view === 'MARKET' ? (
-                  <MarketPage onFetchMarketOverview={handleFetchMarketOverview} />
-                ) : view === 'MANUAL_INPUT' ? (
-                  <ManualInputPage />
-                ) : view === 'AUTO_TRADE' ? (
-                  <AutoTradePage />
-                ) : view === 'TRADE_JOURNAL' ? (
-                  <TradeJournalPage
-                    onCloseTrade={closeTrade}
-                    onDeleteTrade={deleteTrade}
-                    onUpdateMemo={updateTradeMemo}
-                    onTriggerPreMortem={triggerPreMortem}
-                  />
-                ) : view === 'SCREENER' ? (
-                  <ScreenerPage onScreen={handleScreener} />
-                ) : view === 'SUBSCRIPTION' ? (
-                  <SubscriptionPage
-                    onAddSector={handleAddSector}
-                    onRemoveSector={handleRemoveSector}
-                  />
-                ) : view === 'BACKTEST' ? (
-                  <BacktestPage
-                    onRunBacktest={runBacktest}
-                    onFileUpload={handleFileUpload}
-                    onRemoveFromBacktest={removeFromBacktest}
-                    onUpdateWeight={updateWeight}
-                    onReorderPortfolioItems={reorderPortfolioItems}
-                    onApplyAIRecommendedWeights={applyAIRecommendedWeights}
-                    onSelectPortfolio={selectPortfolio}
-                    onSavePortfolio={savePortfolio}
-                    onDeletePortfolio={deletePortfolio}
-                    onUpdatePortfolio={updatePortfolio}
-                    onCopy={handleCopy}
-                    copiedCode={copiedCode}
-                  />
-                ) : view === 'WALK_FORWARD' ? (
-                  <WalkForwardView />
-                ) : (
-                  <DiscoverWatchlistPage
-                    displayList={displayList}
-                    filteredRecommendations={filteredRecommendations}
-                    allPatterns={allPatterns}
-                    averageHitRate={averageHitRate}
-                    strongBuyHitRate={strongBuyHitRate}
-                    loadingNews={loadingNews}
-                    dartAlerts={dartAlerts}
-                    kisBalance={kisBalance}
-                    analysisReportRef={analysisReportRef}
-                    onFetchStocks={fetchStocks}
-                    onSyncAll={handleSyncAll}
-                    onSyncPrice={handleSyncPrice}
-                    onManualPriceUpdate={handleManualPriceUpdate}
-                    onToggleWatchlist={toggleWatchlist}
-                    onAddToBacktest={addToBacktest}
-                    onMarketSearch={handleMarketSearch}
-                    onFetchNewsScores={handleFetchNewsScores}
-                    onGenerateSummary={handleGenerateSummary}
-                    onGeneratePDF={generatePDF}
-                    onExportDeepAnalysisPDF={handleExportDeepAnalysisPDF}
-                    onSendEmail={sendEmail}
-                    onRecordTrade={recordTrade}
-                  />
-                )}
+                <motion.div
+                  key={view}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -12 }}
+                  transition={{ duration: 0.2, ease: 'easeOut' }}
+                >
+                  {view === 'MARKET' ? (
+                    <MarketPage onFetchMarketOverview={handleFetchMarketOverview} />
+                  ) : view === 'MANUAL_INPUT' ? (
+                    <ManualInputPage />
+                  ) : view === 'AUTO_TRADE' ? (
+                    <AutoTradePage />
+                  ) : view === 'TRADE_JOURNAL' ? (
+                    <TradeJournalPage
+                      onCloseTrade={closeTrade}
+                      onDeleteTrade={deleteTrade}
+                      onUpdateMemo={updateTradeMemo}
+                      onTriggerPreMortem={triggerPreMortem}
+                    />
+                  ) : view === 'SCREENER' ? (
+                    <ScreenerPage onScreen={handleScreener} />
+                  ) : view === 'SUBSCRIPTION' ? (
+                    <SubscriptionPage
+                      onAddSector={handleAddSector}
+                      onRemoveSector={handleRemoveSector}
+                    />
+                  ) : view === 'BACKTEST' ? (
+                    <BacktestPage
+                      onRunBacktest={runBacktest}
+                      onFileUpload={handleFileUpload}
+                      onRemoveFromBacktest={removeFromBacktest}
+                      onUpdateWeight={updateWeight}
+                      onReorderPortfolioItems={reorderPortfolioItems}
+                      onApplyAIRecommendedWeights={applyAIRecommendedWeights}
+                      onSelectPortfolio={selectPortfolio}
+                      onSavePortfolio={savePortfolio}
+                      onDeletePortfolio={deletePortfolio}
+                      onUpdatePortfolio={updatePortfolio}
+                      onCopy={handleCopy}
+                      copiedCode={copiedCode}
+                    />
+                  ) : view === 'WALK_FORWARD' ? (
+                    <WalkForwardView />
+                  ) : (
+                    <DiscoverWatchlistPage
+                      displayList={displayList}
+                      filteredRecommendations={filteredRecommendations}
+                      allPatterns={allPatterns}
+                      averageHitRate={averageHitRate}
+                      strongBuyHitRate={strongBuyHitRate}
+                      loadingNews={loadingNews}
+                      dartAlerts={dartAlerts}
+                      kisBalance={kisBalance}
+                      analysisReportRef={analysisReportRef}
+                      onFetchStocks={fetchStocks}
+                      onSyncAll={handleSyncAll}
+                      onSyncPrice={handleSyncPrice}
+                      onManualPriceUpdate={handleManualPriceUpdate}
+                      onToggleWatchlist={toggleWatchlist}
+                      onAddToBacktest={addToBacktest}
+                      onMarketSearch={handleMarketSearch}
+                      onFetchNewsScores={handleFetchNewsScores}
+                      onGenerateSummary={handleGenerateSummary}
+                      onGeneratePDF={generatePDF}
+                      onExportDeepAnalysisPDF={handleExportDeepAnalysisPDF}
+                      onSendEmail={sendEmail}
+                      onRecordTrade={recordTrade}
+                    />
+                  )}
+                </motion.div>
               </AnimatePresence>
 
               {/* Footer */}

@@ -32,6 +32,18 @@ function scrollToStock(code: string) {
   }
 }
 
+function formatCurrency(value?: number) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '-';
+  return `₩${Math.round(value).toLocaleString('ko-KR')}`;
+}
+
+function formatWatchDate(value?: string) {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('ko-KR');
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 
 interface DiscoverWatchlistPageProps {
@@ -233,30 +245,113 @@ export function DiscoverWatchlistPage({
           syncStatus={syncStatus}
         />
 
+        {view === 'WATCHLIST' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            className="mb-8 sm:mb-10 rounded-3xl border border-blue-500/20 bg-gradient-to-b from-blue-500/[0.08] to-transparent p-4 sm:p-6 shadow-[0_20px_60px_rgba(37,99,235,0.15)]"
+          >
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-400/70" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400/70" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400/70" />
+                </div>
+                <span className="text-[11px] sm:text-xs font-black text-blue-200/80 uppercase tracking-[0.2em]">관심종목 전용 창</span>
+              </div>
+              <span className="text-[10px] sm:text-xs font-bold text-theme-text-muted">총 {displayList.length}개</span>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-white/10 bg-black/20">
+              <table className="w-full min-w-[760px]">
+                <thead className="bg-white/5 border-b border-white/10">
+                  <tr className="text-left">
+                    <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-theme-text-muted">종목</th>
+                    <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-theme-text-muted">추가일</th>
+                    <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-theme-text-muted">추가 금액</th>
+                    <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-theme-text-muted">현재 금액</th>
+                    <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-theme-text-muted">변동률</th>
+                    <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-theme-text-muted">액션</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayList.length > 0 ? (
+                    displayList.map((stock) => {
+                      const basePrice = stock.watchedPrice ?? 0;
+                      const currentPrice = stock.currentPrice ?? 0;
+                      const rate = basePrice > 0 ? ((currentPrice - basePrice) / basePrice) * 100 : 0;
+                      const isPositive = rate >= 0;
+                      return (
+                        <tr key={`watch-window-${stock.code}`} className="border-b border-white/5 last:border-none">
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={() => setSelectedDetailStock(stock)}
+                              className="flex flex-col text-left hover:opacity-80 transition-opacity"
+                            >
+                              <span className="text-sm font-black text-theme-text">{stock.name}</span>
+                              <span className="text-[11px] font-bold text-theme-text-muted">{stock.code}</span>
+                            </button>
+                          </td>
+                          <td className="px-4 py-3 text-xs font-bold text-theme-text-secondary">{formatWatchDate(stock.watchedAt)}</td>
+                          <td className="px-4 py-3 text-xs font-bold text-theme-text-secondary font-num">{formatCurrency(stock.watchedPrice)}</td>
+                          <td className="px-4 py-3 text-xs font-bold text-theme-text-secondary font-num">{formatCurrency(stock.currentPrice)}</td>
+                          <td className={cn(
+                            "px-4 py-3 text-xs font-black font-num",
+                            isPositive ? "text-green-400" : "text-red-400"
+                          )}>
+                            {basePrice > 0 ? `${isPositive ? '+' : ''}${rate.toFixed(2)}%` : '-'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={() => onToggleWatchlist(stock)}
+                              className="text-[11px] font-black px-2.5 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors"
+                            >
+                              제거
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-10 text-center text-sm font-bold text-theme-text-muted">
+                        관심 목록이 비어 있습니다.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
+        )}
+
         {/* Quick Navigation */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8 sm:mb-12 bg-white/5 rounded-[1.5rem] sm:rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-white/10 shadow-inner"
-        >
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-1.5 h-6 bg-orange-500 rounded-full shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
-            <span className="text-[10px] sm:text-xs font-black text-white/40 uppercase tracking-[0.2em]">종목 검색 퀵 네비게이션</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {displayList.map((stock) => (
-              <button
-                key={`nav-${stock.code}`}
-                onClick={() => scrollToStock(stock.code)}
-                className="group flex items-center gap-2 sm:gap-3 bg-white/5 hover:bg-orange-500/10 border border-white/10 hover:border-orange-500/30 px-3 py-1.5 sm:px-4 sm:py-2.5 rounded-xl sm:rounded-2xl transition-all active:scale-95"
-              >
-                <span className="text-[10px] sm:text-xs font-black text-white group-hover:text-orange-500 transition-colors truncate max-w-[80px] sm:max-w-none">{stock.name}</span>
-                <span className="text-[8px] sm:text-[10px] font-black text-white/20 group-hover:text-orange-500/40 transition-colors">{stock.code}</span>
-                <ChevronRight className="w-3 h-3 text-white/10 group-hover:text-orange-500 transition-colors shrink-0" />
-              </button>
-            ))}
-          </div>
-        </motion.div>
+        {view === 'DISCOVER' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8 sm:mb-12 bg-white/5 rounded-[1.5rem] sm:rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-white/10 shadow-inner"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-1.5 h-6 bg-orange-500 rounded-full shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
+              <span className="text-[10px] sm:text-xs font-black text-white/40 uppercase tracking-[0.2em]">종목 검색 퀵 네비게이션</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {displayList.map((stock) => (
+                <button
+                  key={`nav-${stock.code}`}
+                  onClick={() => scrollToStock(stock.code)}
+                  className="group flex items-center gap-2 sm:gap-3 bg-white/5 hover:bg-orange-500/10 border border-white/10 hover:border-orange-500/30 px-3 py-1.5 sm:px-4 sm:py-2.5 rounded-xl sm:rounded-2xl transition-all active:scale-95"
+                >
+                  <span className="text-[10px] sm:text-xs font-black text-white group-hover:text-orange-500 transition-colors truncate max-w-[80px] sm:max-w-none">{stock.name}</span>
+                  <span className="text-[8px] sm:text-[10px] font-black text-white/20 group-hover:text-orange-500/40 transition-colors">{stock.code}</span>
+                  <ChevronRight className="w-3 h-3 text-white/10 group-hover:text-orange-500 transition-colors shrink-0" />
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
 
         {/* Stats (DISCOVER view only) */}
         {view === 'DISCOVER' && (
@@ -343,7 +438,7 @@ export function DiscoverWatchlistPage({
         )}
 
         {/* Stock List */}
-        {loading && view === 'DISCOVER' ? (
+        {view === 'DISCOVER' && (loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {[1, 2, 3, 4].map((i) => (
               <div key={i} className="h-64 bg-white/5 rounded-3xl animate-pulse border border-white/10" />
@@ -424,7 +519,7 @@ export function DiscoverWatchlistPage({
                       <Search className="w-16 h-16 text-white/10 relative z-10" />
                     </div>
                     <p className="text-white/40 font-black text-lg mb-6 uppercase tracking-widest">
-                      {view === 'WATCHLIST' ? '관심 목록이 비어 있습니다.' : (recommendations || []).length === 0 ? '검색된 종목이 없습니다.' : '조건에 맞는 종목이 없습니다.'}
+                      {(recommendations || []).length === 0 ? '검색된 종목이 없습니다.' : '조건에 맞는 종목이 없습니다.'}
                     </p>
                     {searchQuery && (
                       <div className="flex flex-col items-center gap-4">
@@ -452,7 +547,7 @@ export function DiscoverWatchlistPage({
               </AnimatePresence>
             </div>
           </div>
-        )}
+        ))}
       </Section>
 
       <DeepAnalysisModal
