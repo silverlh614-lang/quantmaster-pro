@@ -267,7 +267,7 @@ export function DiscoverWatchlistPage({
                 <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
               </div>
               <div className="flex items-end gap-2">
-                <span className="text-4xl font-black text-orange-500 tracking-tighter">{averageHitRate}%</span>
+                <span className="text-4xl font-black text-orange-500 tracking-tighter font-num">{averageHitRate}%</span>
                 <div className={cn(
                   "mb-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest",
                   averageHitRate >= 85 ? "bg-green-500/20 text-green-400" : "bg-blue-500/20 text-blue-400"
@@ -292,7 +292,7 @@ export function DiscoverWatchlistPage({
                 <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
               </div>
               <div className="flex items-end gap-2">
-                <span className="text-4xl font-black text-indigo-400 tracking-tighter">{strongBuyHitRate}%</span>
+                <span className="text-4xl font-black text-indigo-400 tracking-tighter font-num">{strongBuyHitRate}%</span>
                 <div className="mb-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest bg-indigo-500/20 text-indigo-400">
                   High Precision
                 </div>

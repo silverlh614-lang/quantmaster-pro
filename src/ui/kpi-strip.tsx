@@ -23,7 +23,7 @@ export function KpiStrip({ items, className }: KpiStripProps) {
         >
           <p className="text-[9px] sm:text-[10px] text-theme-text-muted uppercase tracking-widest font-bold truncate">{item.label}</p>
           <p className={cn(
-            'text-lg sm:text-xl font-black mt-1 tabular-nums',
+            'text-lg sm:text-xl font-black mt-1 font-num',
             item.trend === 'up' ? 'text-green-400' :
             item.trend === 'down' ? 'text-red-400' :
             'text-theme-text'

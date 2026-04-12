@@ -1,3 +1,7 @@
+/**
+ * Idea 10: Dark Glassmorphism Card with 3-layer depth system
+ * Cards have inset highlight line at top for depth perception.
+ */
 import React from 'react';
 import { cn } from './cn';
 
@@ -13,7 +17,7 @@ const variantClasses: Record<CardVariant, string> = {
   default: 'glass-3d',
   accent: 'glass-3d border-orange-500/20 shadow-[0_0_30px_rgba(249,115,22,0.08)]',
   danger: 'glass-3d border-red-500/20 shadow-[0_0_30px_rgba(239,68,68,0.08)]',
-  ghost: 'bg-white/[0.02] border border-white/5',
+  ghost: 'border border-theme-border',
 };
 
 const paddingClasses = {
@@ -30,6 +34,7 @@ export function Card({ variant = 'default', padding = 'md', hover = false, class
         variantClasses[variant],
         paddingClasses[padding],
         hover && 'card-3d cursor-pointer',
+        variant === 'ghost' && 'bg-[var(--bg-surface)]',
         className
       )}
       {...props}

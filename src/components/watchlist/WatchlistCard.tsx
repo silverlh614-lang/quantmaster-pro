@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { ConfidenceBadge } from '../ConfidenceBadge';
+import { SignalBadge } from '../../ui/badge';
 import { PriceEditCell } from '../PriceEditCell';
 import type { StockRecommendation } from '../../services/stockService';
 import type { NewsFrequencyScore } from '../../types/quant';
@@ -220,7 +221,7 @@ export function WatchlistCard({
                   <div className="flex flex-col items-end shrink-0">
                     <span className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-0.5">Score</span>
                     <span className={cn(
-                      "text-lg sm:text-xl font-black tracking-tighter",
+                      "text-lg sm:text-xl font-black tracking-tighter font-num",
                       stock.aiConvictionScore.totalScore >= 80 ? "text-orange-500" :
                       stock.aiConvictionScore.totalScore >= 60 ? "text-blue-400" : "text-white/60"
                     )}>
@@ -265,20 +266,64 @@ export function WatchlistCard({
           </button>
         </div>
 
+        {/* 3-Gate Visualization Bar (Idea 2) */}
+        {stock.aiConvictionScore && (() => {
+          const factors = stock.aiConvictionScore.factors || [];
+          const total = stock.aiConvictionScore.totalScore;
+          // Distribute factors across 3 gates: first ~33%, next ~33%, rest
+          const g1Count = Math.max(1, Math.ceil(factors.length / 3));
+          const g2Count = Math.max(1, Math.ceil(factors.length / 3));
+          const g1 = factors.slice(0, g1Count).reduce((sum, f) => sum + f.score, 0);
+          const g2 = factors.slice(g1Count, g1Count + g2Count).reduce((sum, f) => sum + f.score, 0);
+          const g3 = factors.slice(g1Count + g2Count).reduce((sum, f) => sum + f.score, 0);
+          const g1Max = g1Count * 10;
+          const g2Max = g2Count * 10;
+          const g3Max = Math.max(1, factors.length - g1Count - g2Count) * 10;
+          return (
+            <div className="mb-4 sm:mb-6">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">Gate Score</span>
+                <span className="text-[11px] font-black text-white/70 font-num">
+                  {total}/100
+                </span>
+              </div>
+              <div className="gate-bar">
+                <div
+                  className="gate-bar-g1 rounded-l-full"
+                  style={{ width: `${Math.min(g1 / g1Max * 33.3, 33.3)}%` }}
+                  title={`G1: ${g1}/${g1Max}`}
+                />
+                <div
+                  className="gate-bar-g2"
+                  style={{ width: `${Math.min(g2 / g2Max * 33.3, 33.3)}%` }}
+                  title={`G2: ${g2}/${g2Max}`}
+                />
+                <div
+                  className="gate-bar-g3 rounded-r-full"
+                  style={{ width: `${Math.min(g3 / g3Max * 33.4, 33.4)}%` }}
+                  title={`G3: ${g3}/${g3Max}`}
+                />
+              </div>
+              <div className="flex justify-between mt-1">
+                <span className="text-[8px] font-black font-num" style={{ color: 'var(--gate-1)' }}>
+                  G1 {g1}/{g1Max}
+                </span>
+                <span className="text-[8px] font-black font-num" style={{ color: 'var(--gate-2)' }}>
+                  G2 {g2}/{g2Max}
+                </span>
+                <span className="text-[8px] font-black font-num" style={{ color: 'var(--gate-3)' }}>
+                  G3 {g3}/{g3Max}
+                </span>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Signal and Action Row */}
         <div className="flex justify-between items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
           <div className="flex flex-wrap gap-2 sm:gap-3 items-center min-w-0">
-            {/* Signal Badge */}
-            <div className={cn(
-              "px-3 py-1 sm:px-4 sm:py-1.5 rounded-lg sm:rounded-xl text-[9px] sm:text-[11px] font-black uppercase tracking-[0.1em] sm:tracking-[0.2em] border shadow-xl flex items-center gap-1.5 sm:gap-2 transition-all transform group-hover:scale-105 shrink-0 whitespace-nowrap",
-              stock.type === 'STRONG_BUY' && "bg-red-600 text-white border-red-400/50 shadow-red-600/40 ring-2 ring-red-500/20",
-              stock.type === 'BUY' && "bg-red-500 text-white border-red-400/50 shadow-red-500/20",
-              stock.type === 'STRONG_SELL' && "bg-blue-600 text-white border-blue-400/50 shadow-blue-600/40 ring-2 ring-blue-500/20",
-              stock.type === 'SELL' && "bg-blue-500 text-white border-blue-400/50 shadow-blue-500/20"
-            )}>
-              <span className="opacity-50 text-[7px] sm:text-[8px] font-bold">SIGNAL</span>
-              {(stock.type || '').replace('_', ' ')}
-            </div>
+            {/* Signal Badge (Idea 3: Pulsing Dot + Color Glow) */}
+            <SignalBadge signal={stock.type || 'NEUTRAL'} />
 
             {stock.isLeadingSector && (
               <span className="bg-orange-500 text-white text-[9px] sm:text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest shadow-[0_4px_15px_rgba(249,115,22,0.4)] flex items-center gap-1 sm:gap-1.5 shrink-0 whitespace-nowrap">
@@ -530,7 +575,7 @@ export function WatchlistCard({
             <div className="flex flex-col items-center min-w-0">
               <div className="flex items-baseline gap-0.5 sm:gap-1 min-w-0">
                 <span className="text-[8px] sm:text-[10px] font-black text-blue-400/30 uppercase shrink-0">1st</span>
-                <span className="text-xs sm:text-base font-black text-white tracking-tighter truncate">
+                <span className="text-xs sm:text-base font-black text-white tracking-tighter truncate font-num">
                   {stock.entryPrice && stock.entryPrice > 0
                     ? `₩${stock.entryPrice?.toLocaleString() || '0'}`
                     : stock.currentPrice > 0
@@ -551,7 +596,7 @@ export function WatchlistCard({
             <div className="flex flex-col items-center min-w-0">
               <div className="flex items-baseline gap-0.5 sm:gap-1 min-w-0">
                 <span className="text-[8px] sm:text-[10px] font-black text-green-400/30 uppercase shrink-0">1st</span>
-                <span className="text-xs sm:text-base font-black text-green-400 tracking-tighter truncate">₩{stock.targetPrice?.toLocaleString() || '-'}</span>
+                <span className="text-xs sm:text-base font-black text-green-400 tracking-tighter truncate font-num">₩{stock.targetPrice?.toLocaleString() || '-'}</span>
               </div>
               {stock.targetPrice2 && stock.targetPrice2 > 0 && (
                 <div className="flex items-baseline gap-1 opacity-60">
@@ -563,7 +608,7 @@ export function WatchlistCard({
           </div>
           <div className="bg-red-500/5 rounded-2xl sm:rounded-3xl p-3 sm:p-5 border border-red-500/10 flex flex-col items-center justify-center gap-1 sm:gap-1.5 group/price hover:bg-red-500/10 transition-all shadow-sm min-w-0">
             <span className="text-[7px] sm:text-[9px] font-black text-red-400/50 uppercase tracking-widest truncate w-full text-center">Stop</span>
-            <span className="text-xs sm:text-base font-black text-red-400 tracking-tighter truncate">₩{stock.stopLoss?.toLocaleString() || '-'}</span>
+            <span className="text-xs sm:text-base font-black text-red-400 tracking-tighter truncate font-num">₩{stock.stopLoss?.toLocaleString() || '-'}</span>
           </div>
         </div>
       </div>
@@ -630,15 +675,15 @@ export function WatchlistCard({
               <div className="grid grid-cols-3 gap-2 sm:gap-3">
                 <div className="bg-white/5 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-white/5 shadow-inner min-w-0">
                   <span className="text-[7px] sm:text-[9px] font-black text-white/10 uppercase block mb-0.5 sm:mb-1 tracking-tighter truncate">P/E</span>
-                  <span className="text-xs sm:text-sm font-black text-white/80 truncate block">{stock.valuation?.per || 'N/A'}x</span>
+                  <span className="text-xs sm:text-sm font-black text-white/80 truncate block font-num">{stock.valuation?.per || 'N/A'}x</span>
                 </div>
                 <div className="bg-white/5 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-white/5 shadow-inner min-w-0">
                   <span className="text-[7px] sm:text-[9px] font-black text-white/10 uppercase block mb-0.5 sm:mb-1 tracking-tighter truncate">P/B</span>
-                  <span className="text-xs sm:text-sm font-black text-white/80 truncate block">{stock.valuation?.pbr || 'N/A'}x</span>
+                  <span className="text-xs sm:text-sm font-black text-white/80 truncate block font-num">{stock.valuation?.pbr || 'N/A'}x</span>
                 </div>
                 <div className="bg-white/5 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-white/5 shadow-inner min-w-0">
                   <span className="text-[7px] sm:text-[9px] font-black text-white/10 uppercase block mb-0.5 sm:mb-1 tracking-tighter truncate">EPS</span>
-                  <span className="text-xs sm:text-sm font-black text-green-400 truncate block">+{stock.valuation?.epsGrowth || '0'}%</span>
+                  <span className="text-xs sm:text-sm font-black text-green-400 truncate block font-num">+{stock.valuation?.epsGrowth || '0'}%</span>
                 </div>
               </div>
             </div>
