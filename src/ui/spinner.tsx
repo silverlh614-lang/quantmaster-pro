@@ -16,13 +16,19 @@ const sizeClasses: Record<SpinnerSize, string> = {
   lg: 'w-6 h-6',
 };
 
+const dotSizeClasses: Record<SpinnerSize, string> = {
+  sm: 'w-1 h-1',
+  md: 'w-1.5 h-1.5',
+  lg: 'w-2 h-2',
+};
+
 export function Spinner({ variant = 'ring', size = 'md', className }: SpinnerProps) {
   if (variant === 'dots') {
     return (
       <span className={cn('inline-flex items-center gap-1', className)}>
-        <span className={cn('rounded-full bg-current animate-bounce [animation-delay:-0.3s]', size === 'sm' ? 'w-1 h-1' : size === 'md' ? 'w-1.5 h-1.5' : 'w-2 h-2')} />
-        <span className={cn('rounded-full bg-current animate-bounce [animation-delay:-0.15s]', size === 'sm' ? 'w-1 h-1' : size === 'md' ? 'w-1.5 h-1.5' : 'w-2 h-2')} />
-        <span className={cn('rounded-full bg-current animate-bounce', size === 'sm' ? 'w-1 h-1' : size === 'md' ? 'w-1.5 h-1.5' : 'w-2 h-2')} />
+        <span className={cn('rounded-full bg-current animate-bounce [animation-delay:-0.3s]', dotSizeClasses[size])} />
+        <span className={cn('rounded-full bg-current animate-bounce [animation-delay:-0.15s]', dotSizeClasses[size])} />
+        <span className={cn('rounded-full bg-current animate-bounce', dotSizeClasses[size])} />
       </span>
     );
   }
