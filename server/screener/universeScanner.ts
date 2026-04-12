@@ -30,6 +30,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { kisGet, KIS_IS_REAL, fetchKisInvestorFlow } from '../clients/kisClient.js';
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { calcReliabilityScore, sourcesFromGateKeys, formatReliabilityBadge } from '../learning/reliabilityScorer.js';
+import { runConfluenceEngine, type ConfluenceResult } from '../trading/confluenceEngine.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -60,6 +61,8 @@ interface CandidateStock {
     debtRatio: number | null;
     ocfRatio:  number | null;
   };
+  // Phase 2 컨플루언스 결과 (Stage 2 → Stage 3 전달)
+  confluenceResult?: ConfluenceResult;
 }
 
 interface GeminiScreenResult {
@@ -198,6 +201,7 @@ function buildScreeningPrompt(
   const stockLines = candidates.map((c) => {
     const q          = c.quote;
     const techPassed = c.gateDetails?.join('|') ?? '';
+    const cf         = c.confluenceResult;
 
     // DART 실데이터 포함 (있을 경우)
     const dartStr = c.dartFin
@@ -209,15 +213,20 @@ function buildScreeningPrompt(
       ? `외인${c.kisFlow.foreignNetBuy >= 0 ? '+' : ''}${(c.kisFlow.foreignNetBuy / 1000).toFixed(0)}천주 기관${c.kisFlow.institutionalNetBuy >= 0 ? '+' : ''}${(c.kisFlow.institutionalNetBuy / 1000).toFixed(0)}천주`
       : 'KIS:미수집';
 
+    // 컨플루언스 요약
+    const cfStr = cf
+      ? `[컨플루언스 ${cf.signal} ${cf.bullishAxes}/4축 기술${cf.technicalAxis.score}·수급${cf.supplyAxis.score}·펀더${cf.fundamentalAxis.score}·매크로${cf.macroAxis.score} ${cf.cyclePosition}사이클 촉매${cf.catalystGrade}]`
+      : '';
+
     return (
       `${c.name}(${c.code}): ${q.price.toLocaleString()}원 ` +
       `등락${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(1)}% ` +
-      `RSI${q.rsi14.toFixed(0)} MACD${q.macdHistogram >= 0 ? '↑' : '↓'} ` +
+      `RSI${q.rsi14.toFixed(0)}(5일전${q.rsi5dAgo.toFixed(0)}) MACD${q.macdHistogram >= 0 ? '↑' : '↓'} ` +
       `정배열:${q.price > q.ma5 && q.ma5 > q.ma20 ? 'Y' : 'N'} ` +
       `VCP:${q.atr > 0 && q.atr < q.atr20avg * 0.7 ? 'Y' : 'N'} ` +
       `섹터:${c.sector} ` +
       `[서버Gate ${c.gateScore?.toFixed(1) ?? '?'}/10: ${techPassed}] ` +
-      `[${dartStr}] [${kisStr}]`
+      `[${dartStr}] [${kisStr}] ${cfStr}`
     );
   }).join('\n');
 
@@ -427,11 +436,30 @@ export async function stage2SectorGateFilter(
     top15.sort((a, b) => (b.stage2Score ?? 0) - (a.stage2Score ?? 0));
   }
 
+  // ── Phase 2 컨플루언스 스코어링 ────────────────────────────────────────────
+  // DART는 Stage 3에서 조회하므로 여기선 null 전달 (기술·수급·매크로 3축 평가)
+  for (const c of top15) {
+    c.confluenceResult = runConfluenceEngine({
+      quote:         c.quote,
+      kisFlow:       c.kisFlow ?? null,
+      dartFin:       null,   // Stage 3에서 DART 조회 후 재평가
+      macroState,
+      regime,
+      gateScore:     c.gateScore ?? 0,
+      kospiDayReturn: macroState?.kospiDayReturn,
+    });
+  }
+
+  // HOLD 신호 제거 (3축 미만 BULLISH) — Gemini 호출 전 사전 필터링
+  const confluenceFiltered = top15.filter(c => c.confluenceResult?.signal !== 'HOLD');
+  const holdCount = top15.length - confluenceFiltered.length;
+
   console.log(
     `[Pipeline/Stage2] Gate통과 ${results.length}개 (macroState=${macroState ? 'OK' : 'null'})` +
-    ` → 상위 ${top15.length}개 (KIS수급=${KIS_IS_REAL ? '조회' : '생략'})`,
+    ` → 상위 ${top15.length}개 (KIS수급=${KIS_IS_REAL ? '조회' : '생략'})` +
+    ` → 컨플루언스 HOLD ${holdCount}개 제거 → ${confluenceFiltered.length}개`,
   );
-  return top15;
+  return confluenceFiltered;
 }
 
 // ── Stage 3 ───────────────────────────────────────────────────────────────────
@@ -460,6 +488,19 @@ export async function stage3AIScreenAndRegister(
   );
 
   const macroState = loadMacroState();
+
+  // ── DART 조회 후 컨플루언스 재평가 (4축 완전체) ───────────────────────────
+  for (const c of candidates) {
+    c.confluenceResult = runConfluenceEngine({
+      quote:          c.quote,
+      kisFlow:        c.kisFlow ?? null,
+      dartFin:        c.dartFin ?? null,
+      macroState,
+      regime,
+      gateScore:      c.gateScore ?? 0,
+      kospiDayReturn: macroState?.kospiDayReturn,
+    });
+  }
   const prompt     = buildScreeningPrompt(candidates, regime, macroState);
   const response   = await callGeminiForScreening(prompt);
 
@@ -525,6 +566,13 @@ export async function stage3AIScreenAndRegister(
       }),
     );
 
+    // 컨플루언스 신호 레이블
+    const cf          = candidate?.confluenceResult;
+    const cfSignal    = cf ? `${cf.signal} ${cf.bullishAxes}/4축` : '';
+    const cycleEmoji  = cf?.cyclePosition === 'EARLY' ? '🌱' : cf?.cyclePosition === 'LATE' ? '⚠️' : '📈';
+    const catalystTag = cf ? `촉매${cf.catalystGrade}` : '';
+    const confPart    = cf ? `${cfSignal} ${cycleEmoji}${cf.cyclePosition} ${catalystTag}` : '';
+
     watchlist.push({
       code:          result.code,
       name:          result.name,
@@ -538,7 +586,7 @@ export async function stage3AIScreenAndRegister(
       profileType:   finalProfile,
       gateScore:     result.totalGateScore,
       sector:        result.sector || candidate?.sector,
-      memo:          `${formatReliabilityBadge(reliability)} | ${result.topReasons.slice(0, 2).join(', ')}`,
+      memo:          `${formatReliabilityBadge(reliability)} | ${confPart} | ${result.topReasons.slice(0, 2).join(', ')}`,
       expiresAt:     addBusinessDays(new Date(), 5).toISOString(),
       conditionKeys: [...realKeys, ...qualKeys],
     });

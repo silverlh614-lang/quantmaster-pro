@@ -18,45 +18,51 @@ export interface ScreenedStock {
   screenedAt: string;
 }
 
-// 아이디어 5: 확장된 Yahoo 시세 인터페이스 (MA/고가/ATR/RSI/MACD 포함)
+// 아이디어 5: 확장된 Yahoo 시세 인터페이스 (MA/고가/ATR/RSI/MACD + 가속도 포함)
 export interface YahooQuoteExtended {
   price: number;
   changePercent: number;
   volume: number;
   avgVolume: number;
-  ma5: number;           // 5일 이동평균
-  ma20: number;          // 20일 이동평균
-  ma60: number;          // 60일 이동평균
-  high20d: number;       // 20일 최고가
-  atr: number;           // 최근 14일 ATR (Average True Range)
-  atr20avg: number;      // 20일 ATR 평균 (VCP 판단용)
-  per: number;           // PER (Yahoo 제공 시)
-  rsi14: number;         // RSI(14) — Wilder 평활화 실계산
-  macd: number;          // MACD 라인 (EMA12 − EMA26)
-  macdSignal: number;    // Signal 라인 (MACD의 EMA9)
-  macdHistogram: number; // MACD − Signal (양수 = 상승 압력)
+  ma5: number;             // 5일 이동평균
+  ma20: number;            // 20일 이동평균
+  ma60: number;            // 60일 이동평균
+  high20d: number;         // 20일 최고가
+  atr: number;             // 최근 14일 ATR (Average True Range)
+  atr20avg: number;        // 20일 ATR 평균 (VCP 판단용)
+  per: number;             // PER (Yahoo 제공 시)
+  rsi14: number;           // RSI(14) — Wilder 평활화 실계산
+  macd: number;            // MACD 라인 (EMA12 − EMA26)
+  macdSignal: number;      // Signal 라인 (MACD의 EMA9)
+  macdHistogram: number;   // MACD − Signal (양수 = 상승 압력)
+  // Phase 2 컨플루언스 가속도 지표
+  rsi5dAgo: number;        // RSI(14) 5일 전 값 (RSI 가속도 계산용)
+  weeklyRSI: number;       // 주봉 RSI(9) — 5영업일 다운샘플
+  ma60TrendUp: boolean;    // MA60 상승 추세 (현재 > 5일 전 MA60)
+  macd5dHistAgo: number;   // MACD 히스토그램 5일 전 (MACD 가속도 계산용)
 }
 
 // ── 기술적 지표 계산 유틸 ─────────────────────────────────────────────────────
 
-/** Wilder 평활화 RSI(14). 60일 데이터 기준. */
-function calcRSI14(closes: number[]): number {
-  if (closes.length < 15) return 50;
+/** Wilder 평활화 RSI — period 파라미터화. */
+function calcRSI(closes: number[], period: number): number {
+  if (closes.length < period + 1) return 50;
   const deltas: number[] = [];
   for (let i = 1; i < closes.length; i++) deltas.push(closes[i] - closes[i - 1]);
-  // 첫 14봉: 단순 평균으로 시드
-  let avgGain = deltas.slice(0, 14).filter(d => d > 0).reduce((s, d) => s + d, 0) / 14;
-  let avgLoss = deltas.slice(0, 14).filter(d => d < 0).reduce((s, d) => s - d, 0) / 14;
-  // Wilder 평활화 (이후 봉)
-  for (let i = 14; i < deltas.length; i++) {
+  let avgGain = deltas.slice(0, period).filter(d => d > 0).reduce((s, d) => s + d, 0) / period;
+  let avgLoss = deltas.slice(0, period).filter(d => d < 0).reduce((s, d) => s - d, 0) / period;
+  for (let i = period; i < deltas.length; i++) {
     const gain = deltas[i] > 0 ? deltas[i] : 0;
     const loss = deltas[i] < 0 ? -deltas[i] : 0;
-    avgGain = (avgGain * 13 + gain) / 14;
-    avgLoss = (avgLoss * 13 + loss) / 14;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
   }
   if (avgLoss === 0) return 100;
   return 100 - 100 / (1 + avgGain / avgLoss);
 }
+
+/** RSI(14) — 하위 호환 래퍼. */
+function calcRSI14(closes: number[]): number { return calcRSI(closes, 14); }
 
 /** EMA 배열 반환. */
 function calcEMAArr(values: number[], period: number): number[] {
@@ -284,8 +290,8 @@ export async function preScreenStocks(): Promise<ScreenedStock[]> {
 
 export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtended | null> {
   try {
-    // 아이디어 5: range를 60d로 확장하여 MA/ATR 계산에 필요한 데이터 확보
-    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=60d&interval=1d`;
+    // range=90d — MA60 추세 + 가속도 지표(5일 전 RSI/MACD)에 충분한 데이터 확보
+    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=90d&interval=1d`;
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
     });
@@ -360,6 +366,27 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const rsi14 = calcRSI14(closes);
     const { macd, signal: macdSignal, histogram: macdHistogram } = calcMACD(closes);
 
+    // ── Phase 2 가속도 지표 ──
+    // RSI 5일 전 (현재에서 마지막 5봉 제거)
+    const closes5dAgo   = closes.length > 5 ? closes.slice(0, -5) : closes;
+    const rsi5dAgo      = parseFloat(calcRSI14(closes5dAgo).toFixed(1));
+
+    // MACD 히스토그램 5일 전
+    const macdPast      = calcMACD(closes5dAgo);
+    const macd5dHistAgo = parseFloat(macdPast.histogram.toFixed(2));
+
+    // MA60 상승 추세 (현재 MA60 > 5일 전 MA60)
+    const avgFn = (arr: number[], n: number) => {
+      const s = arr.slice(-n); return s.length >= n ? s.reduce((a, b) => a + b, 0) / n : 0;
+    };
+    const ma60Before  = avgFn(closes5dAgo, 60);
+    const ma60TrendUp = ma60 > 0 && ma60Before > 0 && ma60 > ma60Before;
+
+    // 주봉 RSI(9) — 5영업일마다 다운샘플
+    const weeklyCloses: number[] = [];
+    for (let i = 4; i < closes.length; i += 5) weeklyCloses.push(closes[i]);
+    const weeklyRSI = parseFloat(calcRSI(weeklyCloses, 9).toFixed(1));
+
     return {
       price: Math.round(price), changePercent, volume, avgVolume,
       ma5, ma20, ma60, high20d, atr, atr20avg, per,
@@ -367,6 +394,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       macd:  parseFloat(macd.toFixed(2)),
       macdSignal: parseFloat(macdSignal.toFixed(2)),
       macdHistogram: parseFloat(macdHistogram.toFixed(2)),
+      rsi5dAgo, weeklyRSI, ma60TrendUp, macd5dHistAgo,
     };
   } catch {
     return null;
