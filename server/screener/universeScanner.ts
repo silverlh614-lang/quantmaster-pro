@@ -213,20 +213,20 @@ function buildScreeningPrompt(
       ? `외인${c.kisFlow.foreignNetBuy >= 0 ? '+' : ''}${(c.kisFlow.foreignNetBuy / 1000).toFixed(0)}천주 기관${c.kisFlow.institutionalNetBuy >= 0 ? '+' : ''}${(c.kisFlow.institutionalNetBuy / 1000).toFixed(0)}천주`
       : 'KIS:미수집';
 
-    // 컨플루언스 요약
+    // 컨플루언스 요약 — 대괄호 금지(JSON 파서 충돌 방지): 소괄호 사용
     const cfStr = cf
-      ? `[컨플루언스 ${cf.signal} ${cf.bullishAxes}/4축 기술${cf.technicalAxis.score}·수급${cf.supplyAxis.score}·펀더${cf.fundamentalAxis.score}·매크로${cf.macroAxis.score} ${cf.cyclePosition}사이클 촉매${cf.catalystGrade}]`
+      ? `컨플루언스:${cf.signal} ${cf.bullishAxes}/4축 기술${cf.technicalAxis.score}·수급${cf.supplyAxis.score}·펀더${cf.fundamentalAxis.score}·매크로${cf.macroAxis.score} ${cf.cyclePosition}사이클 촉매${cf.catalystGrade}`
       : '';
 
     return (
       `${c.name}(${c.code}): ${q.price.toLocaleString()}원 ` +
       `등락${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(1)}% ` +
-      `RSI${q.rsi14.toFixed(0)}(5일전${q.rsi5dAgo.toFixed(0)}) MACD${q.macdHistogram >= 0 ? '↑' : '↓'} ` +
+      `RSI${q.rsi14.toFixed(0)}(5일전${q.rsi5dAgo.toFixed(0)}) MACD${q.macdHistogram >= 0 ? '상승' : '하락'} ` +
       `정배열:${q.price > q.ma5 && q.ma5 > q.ma20 ? 'Y' : 'N'} ` +
       `VCP:${q.atr > 0 && q.atr < q.atr20avg * 0.7 ? 'Y' : 'N'} ` +
       `섹터:${c.sector} ` +
-      `[서버Gate ${c.gateScore?.toFixed(1) ?? '?'}/10: ${techPassed}] ` +
-      `[${dartStr}] [${kisStr}] ${cfStr}`
+      `Gate:${c.gateScore?.toFixed(1) ?? '?'}/10 ${techPassed} ` +
+      `${dartStr} ${kisStr} ${cfStr}`
     );
   }).join('\n');
 
@@ -253,10 +253,27 @@ function buildScreeningPrompt(
 }
 
 function parseScreeningResponse(text: string): GeminiScreenResult[] {
-  const match = text.match(/\[[\s\S]*\]/);
-  if (!match) return [];
+  // '[{' 로 시작하는 JSON 배열 탐색 — 대괄호가 포함된 앞 텍스트(프롬프트 echo 등)에 의한
+  // 그리디 오매칭 방지. 못 찾으면 첫 '[' fallback.
+  const arrayStart = (() => {
+    const idx = text.indexOf('[{');
+    if (idx !== -1) return idx;
+    const idx2 = text.indexOf('[');
+    return idx2 !== -1 ? idx2 : -1;
+  })();
+  if (arrayStart === -1) return [];
+
+  // 괄호 깊이 추적으로 짝이 맞는 ']' 찾기
+  let depth = 0;
+  let arrayEnd = -1;
+  for (let i = arrayStart; i < text.length; i++) {
+    if (text[i] === '[') depth++;
+    else if (text[i] === ']') { depth--; if (depth === 0) { arrayEnd = i; break; } }
+  }
+  if (arrayEnd === -1) return [];
+
   try {
-    const parsed = JSON.parse(match[0]) as unknown[];
+    const parsed = JSON.parse(text.slice(arrayStart, arrayEnd + 1)) as unknown[];
     return parsed.filter(
       (item): item is GeminiScreenResult =>
         typeof item === 'object' &&
@@ -264,7 +281,8 @@ function parseScreeningResponse(text: string): GeminiScreenResult[] {
         typeof (item as GeminiScreenResult).code === 'string' &&
         typeof (item as GeminiScreenResult).signal === 'string',
     );
-  } catch {
+  } catch (e) {
+    console.warn('[Pipeline/Stage3] JSON 파싱 실패:', e instanceof Error ? e.message : e);
     return [];
   }
 }
