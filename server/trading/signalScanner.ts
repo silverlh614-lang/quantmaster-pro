@@ -44,11 +44,13 @@ import {
 import { updateShadowResults } from './exitEngine.js';
 
 // ── 서브모듈 re-export (하위 호환성 유지) ──────────────────────────────────────
+export type {
+  StopLossPlan,
+  PositionSizingInput,
+} from './entryEngine.js';
 export {
   EXIT_RULE_PRIORITY_TABLE,
-  StopLossPlan,
   buildStopLossPlan,
-  PositionSizingInput,
   calculateOrderQuantity,
   evaluateEntryRevalidation,
 } from './entryEngine.js';
