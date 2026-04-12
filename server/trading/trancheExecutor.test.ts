@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { addBusinessDaysFromKstDate, evaluateTrancheRevalidation } from './trancheExecutor.js';
+import { KRX_HOLIDAYS } from './krxHolidays.js';
 
 describe('addBusinessDaysFromKstDate', () => {
   it('skips weekends when calculating tranche dates', () => {
@@ -60,5 +61,25 @@ describe('evaluateTrancheRevalidation', () => {
 
     expect(result.ok).toBe(true);
     expect(result.reason).toBeUndefined();
+  });
+});
+
+describe('KRX_HOLIDAYS', () => {
+  it('covers known 2026 national holidays', () => {
+    expect(KRX_HOLIDAYS.has('2026-01-01')).toBe(true); // 신정
+    expect(KRX_HOLIDAYS.has('2026-09-25')).toBe(true); // 추석
+    expect(KRX_HOLIDAYS.has('2026-12-25')).toBe(true); // 성탄절
+  });
+
+  it('covers known 2027 national holidays', () => {
+    expect(KRX_HOLIDAYS.has('2027-01-01')).toBe(true); // 신정
+    expect(KRX_HOLIDAYS.has('2027-09-15')).toBe(true); // 추석
+    expect(KRX_HOLIDAYS.has('2027-12-25')).toBe(true); // 성탄절
+  });
+
+  it('skips KRX holidays when calculating business days', () => {
+    // 2026-05-04 (Mon) + 3영업일: 05-05는 어린이날(KRX 휴장), 건너뛰어야 함
+    const result = addBusinessDaysFromKstDate('2026-05-04', 3, KRX_HOLIDAYS);
+    expect(result).toBe('2026-05-08'); // 05-05(휴장), 06(수), 07(목), 08(금)
   });
 });

@@ -330,6 +330,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
         hardStopLoss: stopLossPlan.hardStopLoss,
         targetPrice: stock.targetPrice,
         status: 'PENDING',
+        mode: shadowMode ? 'SHADOW' : 'LIVE',
         // ─── 레짐 연결 ──────────────────────────────────────────────────────
         entryRegime: regime,
         profileType: profile,
