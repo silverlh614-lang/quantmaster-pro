@@ -143,14 +143,20 @@ export async function trackPendingRecords(): Promise<void> {
 
     // T+1: 1~2 거래일 경과
     if (elapsed >= 1 && r.t1EwyChange === undefined) {
-      r.t1EwyChange = (await fetchNDayChange('EWY', elapsed).catch(() => undefined)) ?? undefined;
-      if (r.t1EwyChange !== undefined) updated++;
+      const t1EwyChange = await fetchNDayChange('EWY', elapsed).catch(() => undefined);
+      if (t1EwyChange !== null && t1EwyChange !== undefined) {
+        r.t1EwyChange = t1EwyChange;
+        updated++;
+      }
     }
 
     // T+3: 3~4 거래일 경과
     if (elapsed >= 3 && r.t3EwyChange === undefined) {
-      r.t3EwyChange = (await fetchNDayChange('EWY', elapsed).catch(() => undefined)) ?? undefined;
-      if (r.t3EwyChange !== undefined) updated++;
+      const t3EwyChange = await fetchNDayChange('EWY', elapsed).catch(() => undefined);
+      if (t3EwyChange !== null && t3EwyChange !== undefined) {
+        r.t3EwyChange = t3EwyChange;
+        updated++;
+      }
     }
 
     // T+5: 5+ 거래일 경과 → 개별 종목 추적 + 완료 처리
