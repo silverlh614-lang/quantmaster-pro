@@ -4,6 +4,7 @@ import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { kisGet, KIS_IS_REAL } from '../clients/kisClient.js';
+import { loadMacroState } from '../persistence/macroStateRepo.js';
 
 export interface ScreenedStock {
   code: string;
@@ -17,7 +18,7 @@ export interface ScreenedStock {
   screenedAt: string;
 }
 
-// 아이디어 5: 확장된 Yahoo 시세 인터페이스 (MA/고가/ATR 포함)
+// 아이디어 5: 확장된 Yahoo 시세 인터페이스 (MA/고가/ATR/RSI/MACD 포함)
 export interface YahooQuoteExtended {
   price: number;
   changePercent: number;
@@ -30,6 +31,54 @@ export interface YahooQuoteExtended {
   atr: number;           // 최근 14일 ATR (Average True Range)
   atr20avg: number;      // 20일 ATR 평균 (VCP 판단용)
   per: number;           // PER (Yahoo 제공 시)
+  rsi14: number;         // RSI(14) — Wilder 평활화 실계산
+  macd: number;          // MACD 라인 (EMA12 − EMA26)
+  macdSignal: number;    // Signal 라인 (MACD의 EMA9)
+  macdHistogram: number; // MACD − Signal (양수 = 상승 압력)
+}
+
+// ── 기술적 지표 계산 유틸 ─────────────────────────────────────────────────────
+
+/** Wilder 평활화 RSI(14). 60일 데이터 기준. */
+function calcRSI14(closes: number[]): number {
+  if (closes.length < 15) return 50;
+  const deltas: number[] = [];
+  for (let i = 1; i < closes.length; i++) deltas.push(closes[i] - closes[i - 1]);
+  // 첫 14봉: 단순 평균으로 시드
+  let avgGain = deltas.slice(0, 14).filter(d => d > 0).reduce((s, d) => s + d, 0) / 14;
+  let avgLoss = deltas.slice(0, 14).filter(d => d < 0).reduce((s, d) => s - d, 0) / 14;
+  // Wilder 평활화 (이후 봉)
+  for (let i = 14; i < deltas.length; i++) {
+    const gain = deltas[i] > 0 ? deltas[i] : 0;
+    const loss = deltas[i] < 0 ? -deltas[i] : 0;
+    avgGain = (avgGain * 13 + gain) / 14;
+    avgLoss = (avgLoss * 13 + loss) / 14;
+  }
+  if (avgLoss === 0) return 100;
+  return 100 - 100 / (1 + avgGain / avgLoss);
+}
+
+/** EMA 배열 반환. */
+function calcEMAArr(values: number[], period: number): number[] {
+  if (values.length === 0) return [];
+  const k = 2 / (period + 1);
+  const out: number[] = [values[0]];
+  for (let i = 1; i < values.length; i++) out.push(values[i] * k + out[out.length - 1] * (1 - k));
+  return out;
+}
+
+/** MACD(12, 26, 9) — 최종 봉의 라인/신호/히스토그램. */
+function calcMACD(closes: number[]): { macd: number; signal: number; histogram: number } {
+  const zero = { macd: 0, signal: 0, histogram: 0 };
+  if (closes.length < 27) return zero;
+  const ema12 = calcEMAArr(closes, 12);
+  const ema26 = calcEMAArr(closes, 26);
+  const macdLine = ema12.slice(25).map((v, i) => v - ema26[25 + i]);
+  if (macdLine.length < 9) return zero;
+  const signalLine = calcEMAArr(macdLine, 9);
+  const last  = macdLine[macdLine.length - 1];
+  const sig   = signalLine[signalLine.length - 1];
+  return { macd: last, signal: sig, histogram: last - sig };
 }
 
 // 버그 7 수정: KOSPI/KOSDAQ 주요 종목 풀 확장 (30 → 120개) — 스크리닝 다양성 확보
@@ -307,9 +356,17 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     // PER — Yahoo meta에서 제공 시 사용
     const per = parseFloat(meta.trailingPE ?? '999');
 
+    // RSI14 + MACD — 실데이터 계산
+    const rsi14 = calcRSI14(closes);
+    const { macd, signal: macdSignal, histogram: macdHistogram } = calcMACD(closes);
+
     return {
       price: Math.round(price), changePercent, volume, avgVolume,
       ma5, ma20, ma60, high20d, atr, atr20avg, per,
+      rsi14: parseFloat(rsi14.toFixed(1)),
+      macd:  parseFloat(macd.toFixed(2)),
+      macdSignal: parseFloat(macdSignal.toFixed(2)),
+      macdHistogram: parseFloat(macdHistogram.toFixed(2)),
     };
   } catch {
     return null;
@@ -366,9 +423,10 @@ export async function autoPopulateWatchlist(): Promise<number> {
     if (quote.changePercent < 1.5 || quote.volume < quote.avgVolume * 1.5) continue;
 
     // 아이디어 2: 서버사이드 Gate 평가 — SKIP 종목 제외
-    const gate = evaluateServerGate(quote, loadConditionWeights());
+    const macroState = loadMacroState();
+    const gate = evaluateServerGate(quote, loadConditionWeights(), macroState?.kospiDayReturn);
     if (gate.signalType === 'SKIP') {
-      console.log(`[AutoPopulate] SKIP: ${stock.name}(${stock.code}) gateScore=${gate.gateScore}/8`);
+      console.log(`[AutoPopulate] SKIP: ${stock.name}(${stock.code}) gateScore=${gate.gateScore}/10`);
       continue;
     }
 
@@ -383,7 +441,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
       addedAt: new Date().toISOString(),
       gateScore: gate.gateScore,
       addedBy: 'AUTO',
-      memo: `${gate.signalType} gate=${gate.gateScore.toFixed(1)}/8 ${gate.details.join(', ')}`,
+      memo: `${gate.signalType} gate=${gate.gateScore.toFixed(1)}/10 ${gate.details.join(', ')}`,
       rrr: parseFloat(((tp - quote.price) / (quote.price - sl || 1)).toFixed(2)),
       conditionKeys: gate.conditionKeys,
     });

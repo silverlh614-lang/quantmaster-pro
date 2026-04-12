@@ -40,18 +40,20 @@ interface CandidateStock {
   quote:       YahooQuoteExtended;
   stage1Score: number;
   // Stage 2 이후 추가
-  gateScore?:  number;
-  gateSignal?: string;
-  sectorBonus?: number;
-  stage2Score?: number;
+  gateScore?:       number;
+  gateSignal?:      string;
+  gateDetails?:     string[];   // 실계산 통과 조건 레이블 (Gemini에 전달)
+  gateCondKeys?:    string[];   // 실계산 통과 조건 키
+  sectorBonus?:     number;
+  stage2Score?:     number;
 }
 
 interface GeminiScreenResult {
   code:               string;
   name:               string;
   signal:             'STRONG_BUY' | 'BUY' | 'SKIP';
-  gate1Score:         number;   // 0~5
-  totalGateScore:     number;   // 0~27
+  qualScore:          number;   // 0~17 (Gemini가 평가한 질적 조건 점수)
+  totalGateScore:     number;   // 0~27 (실계산 gate + qualScore 합산)
   profile:            'A' | 'B' | 'C' | 'D';
   sector:             string;
   topReasons:         string[];
@@ -181,27 +183,37 @@ function buildScreeningPrompt(
 ): string {
   const stockLines = candidates.map((c) => {
     const q = c.quote;
+    const techPassed = c.gateDetails?.join('|') ?? '';
     return (
       `${c.name}(${c.code}): ${q.price.toLocaleString()}원 ` +
-      `등락+${q.changePercent.toFixed(1)}% ` +
-      `거래량${(q.volume / Math.max(q.avgVolume, 1)).toFixed(1)}배 ` +
+      `등락${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(1)}% ` +
+      `RSI${q.rsi14.toFixed(0)} MACD${q.macdHistogram >= 0 ? '↑' : '↓'} ` +
       `정배열:${q.price > q.ma5 && q.ma5 > q.ma20 ? 'Y' : 'N'} ` +
       `20일신고가:${q.price >= q.high20d * 0.98 ? 'Y' : 'N'} ` +
       `VCP:${q.atr > 0 && q.atr < q.atr20avg * 0.7 ? 'Y' : 'N'} ` +
-      `섹터:${c.sector} Gate:${c.gateScore?.toFixed(1) ?? '?'}/8`
+      `섹터:${c.sector} ` +
+      `[서버Gate ${c.gateScore?.toFixed(1) ?? '?'}/10: ${techPassed}]`
     );
   }).join('\n');
 
   return (
     `당신은 한국 주식 퀀트 시스템의 종목 선별 AI입니다.\n` +
-    `현재 레짐: ${regime}\n` +
-    `MHS: ${macroState?.mhs ?? 'N/A'} | VKOSPI: ${macroState?.vkospi ?? 'N/A'}\n\n` +
-    `아래 ${candidates.length}개 종목의 27단계 Gate 평가를 수행하세요.\n` +
-    `각 종목의 현재 가격, 기술적 지표, 수급 데이터를 기반으로 평가합니다.\n\n` +
+    `현재 레짐: ${regime} | MHS: ${macroState?.mhs ?? 'N/A'} | VKOSPI: ${macroState?.vkospi ?? 'N/A'}\n\n` +
+    `[이미 서버에서 실계산 완료된 기술적 조건]\n` +
+    `RSI(14), MACD, 정배열, 거래량배수, VCP, 터틀, 상대강도, PER → 서버Gate(0~10)에 반영됨.\n` +
+    `이 조건들은 재평가하지 말고 서버Gate 점수를 그대로 사용하세요.\n\n` +
+    `[당신이 평가할 질적 조건 (17개)]\n` +
+    `1.주도주사이클 2.ROE유형 3.시장환경부합 4.신규주도주여부 5.수급질개선\n` +
+    `6.일목균형표구름대 7.경제적해자 8.목표가여력(애널) 9.실적서프라이즈가능성\n` +
+    `10.실적펀더멘털 11.정책/매크로부합 12.이익의질(OCF) 13.심리적객관성\n` +
+    `14.피보나치레벨 15.엘리엇파동위치 16.마진가속도 17.촉매제유무\n\n` +
     `[종목 데이터]\n${stockLines}\n\n` +
-    `각 종목에 대해 JSON 배열로만 응답하세요 (추가 텍스트 금지):\n` +
-    `[{"code":"","name":"","signal":"STRONG_BUY|BUY|SKIP","gate1Score":0,"totalGateScore":0,` +
-    `"profile":"A|B|C|D","sector":"","topReasons":[""],"passedConditionKeys":[""]}]`
+    `각 종목에 대해 JSON 배열로만 응답 (추가 텍스트 금지):\n` +
+    `[{"code":"","name":"","signal":"STRONG_BUY|BUY|SKIP",` +
+    `"qualScore":0,"totalGateScore":0,` +
+    `"profile":"A|B|C|D","sector":"","topReasons":[""],"passedConditionKeys":[""]}]\n` +
+    `qualScore: 질적 조건 17개 중 통과 수 (0~17)\n` +
+    `totalGateScore: 서버Gate점수×2.7+qualScore 반올림 (0~27)`
   );
 }
 
@@ -345,8 +357,10 @@ export async function stage2SectorGateFilter(
   const weights  = loadConditionWeights();
   const results: CandidateStock[] = [];
 
+  const kospiDayReturn = macroState?.kospiDayReturn;
+
   for (const c of candidates) {
-    const gate = evaluateServerGate(c.quote, weights);
+    const gate = evaluateServerGate(c.quote, weights, kospiDayReturn);
     if (gate.signalType === 'SKIP') continue;
 
     const sectorBonus = leadingSectors.some((s) => c.sector.includes(s)) ? 1.5 : 1.0;
@@ -354,8 +368,10 @@ export async function stage2SectorGateFilter(
 
     results.push({
       ...c,
-      gateScore:   gate.gateScore,
-      gateSignal:  gate.signalType,
+      gateScore:    gate.gateScore,
+      gateSignal:   gate.signalType,
+      gateDetails:  gate.details,
+      gateCondKeys: gate.conditionKeys,
       sectorBonus,
       stage2Score,
     });
@@ -406,13 +422,16 @@ export async function stage3AIScreenAndRegister(
   let added = 0;
 
   for (const result of results) {
-    if (result.signal === 'SKIP')          continue;
-    if (result.gate1Score < 4)             continue;
-    if (existingCodes.has(result.code))    continue;
+    if (result.signal === 'SKIP') continue;
+    if (existingCodes.has(result.code)) continue;
 
     const candidate    = candidates.find((c) => c.code === result.code);
     const currentPrice = candidate?.quote.price ?? 0;
     if (currentPrice <= 0) continue;
+
+    // 실계산 gate 점수로 필터 (Gemini 추정값 불사용)
+    const realGateScore = candidate?.gateScore ?? 0;
+    if (realGateScore < 5) continue; // 10조건 기준 NORMAL 이상
 
     const profile    = (['A','B','C','D'].includes(result.profile) ? result.profile : 'B') as 'A'|'B'|'C'|'D';
     const stopRate   = stopMap[profile]   ?? -0.10;
@@ -422,6 +441,10 @@ export async function stage3AIScreenAndRegister(
     const tp  = Math.round(currentPrice * (1 + targetRate));
     const rrr = (tp - currentPrice) / Math.max(currentPrice - sl, 1);
     if (rrr < 2.0) continue;
+
+    // 실계산 conditionKeys + Gemini 질적 조건 키 병합
+    const realKeys = candidate?.gateCondKeys ?? [];
+    const qualKeys = (result.passedConditionKeys ?? []).filter(k => !realKeys.includes(k));
 
     watchlist.push({
       code:          result.code,
@@ -438,7 +461,7 @@ export async function stage3AIScreenAndRegister(
       sector:        result.sector || candidate?.sector,
       memo:          `AI파이프라인 | ${result.topReasons.slice(0, 2).join(', ')}`,
       expiresAt:     addBusinessDays(new Date(), 5).toISOString(),
-      conditionKeys: result.passedConditionKeys,
+      conditionKeys: [...realKeys, ...qualKeys],
     });
     existingCodes.add(result.code);
     added++;
@@ -447,7 +470,7 @@ export async function stage3AIScreenAndRegister(
   if (added > 0) {
     saveWatchlist(watchlist);
     const summary = results
-      .filter((r) => r.signal !== 'SKIP' && r.gate1Score >= 4 && !existingCodes.has(r.code))
+      .filter((r) => r.signal !== 'SKIP' && !existingCodes.has(r.code))
       .slice(0, 8)
       .map((r) => `  • ${r.name}(${r.code}) Gate ${r.totalGateScore}/27 | ${r.sector}`)
       .join('\n');

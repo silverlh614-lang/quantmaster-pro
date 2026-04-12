@@ -27,6 +27,8 @@ export const CONDITION_KEYS = {
   RELATIVE_STRENGTH: 'relative_strength',
   VCP:               'vcp',
   VOLUME_SURGE:      'volume_surge',
+  RSI_ZONE:          'rsi_zone',   // RSI(14) 40~70 건강구간 (실계산)
+  MACD_BULL:         'macd_bull',  // MACD 히스토그램 > 0 (실계산)
 } as const;
 
 export type ConditionKey = (typeof CONDITION_KEYS)[keyof typeof CONDITION_KEYS];
@@ -43,24 +45,30 @@ export const DEFAULT_CONDITION_WEIGHTS: ConditionWeights = {
   relative_strength: 1.0,
   vcp:               1.0,
   volume_surge:      1.0,
+  rsi_zone:          1.0,
+  macd_bull:         1.0,
 };
 
 /**
- * Yahoo Finance 확장 시세 데이터로 8개 Gate 조건 평가.
+ * Yahoo Finance 확장 시세 데이터로 10개 Gate 조건 평가.
  * weights 인수로 아이디어 6(Signal Calibrator) 자기학습 가중치를 반영.
+ * kospiDayReturn 인수로 상대강도를 실계산 (미전달 시 절대 기준 1.5% 사용).
  *
  * 조건 2:  모멘텀 (+2% 이상)
  * 조건 10: 정배열 (5일선 > 20일선 > 60일선)
  * 조건 11: 거래량 돌파 (5일 평균 2배 이상)
  * 조건 13: PER 밸류에이션 (< 20)
  * 조건 18: 터틀 돌파 (20일 신고가)
- * 조건 24: 상대강도 (코스피 대비 초과 수익 — 간이: +1.5% 초과)
+ * 조건 24: 상대강도 (종목 일간 수익 − KOSPI 당일 수익 > 1.0%p, 실계산)
  * 조건 25: VCP 변동성 축소 (ATR < 20일 ATR 평균의 70%)
  * 조건 27: 거래량 급증 + 상승 (거래량 3배 이상 & +1% 이상)
+ * [신규] RSI(14) 건강구간 40~70 (실계산)
+ * [신규] MACD 히스토그램 > 0 (실계산)
  */
 export function evaluateServerGate(
   quote: YahooQuoteExtended,
   weights: ConditionWeights = DEFAULT_CONDITION_WEIGHTS,
+  kospiDayReturn?: number,   // 실계산 상대강도용 — undefined 시 절대 기준 사용
 ): ServerGateResult {
   let score = 0;
   const details: string[] = [];
@@ -105,10 +113,16 @@ export function evaluateServerGate(
     conditionKeys.push('turtle_high');
   }
 
-  // 조건 24: 상대강도 (간이: 전일 대비 +1.5% 초과 상승)
-  if (quote.changePercent > 1.5) {
+  // 조건 24: 상대강도 — kospiDayReturn 제공 시 실계산, 미제공 시 절대 기준
+  const relStrengthGap = quote.changePercent - (kospiDayReturn ?? 0);
+  const relStrengthThreshold = kospiDayReturn !== undefined ? 1.0 : 1.5;
+  if (relStrengthGap > relStrengthThreshold) {
     score += w('relative_strength');
-    details.push('상대강도 우위');
+    details.push(
+      kospiDayReturn !== undefined
+        ? `상대강도 +${relStrengthGap.toFixed(1)}%p (KOSPI ${kospiDayReturn.toFixed(1)}%)`
+        : `상대강도 +${quote.changePercent.toFixed(1)}%`
+    );
     conditionKeys.push('relative_strength');
   }
 
@@ -126,13 +140,28 @@ export function evaluateServerGate(
     conditionKeys.push('volume_surge');
   }
 
-  // 신호 분류 및 포지션 사이징 (가중치 적용 후 점수 기준)
-  const signalType = score >= 6 ? 'STRONG' as const
-                   : score >= 4 ? 'NORMAL' as const
+  // [신규] RSI(14) 건강구간: 40~70 (과매도 탈출 후 과매수 미달 — 실계산)
+  if (quote.rsi14 >= 40 && quote.rsi14 <= 70) {
+    score += w('rsi_zone');
+    details.push(`RSI ${quote.rsi14.toFixed(0)}`);
+    conditionKeys.push('rsi_zone');
+  }
+
+  // [신규] MACD 상승압력: 히스토그램 > 0 (실계산)
+  if (quote.macdHistogram > 0) {
+    score += w('macd_bull');
+    details.push(`MACD +${quote.macdHistogram.toFixed(2)}`);
+    conditionKeys.push('macd_bull');
+  }
+
+  // 신호 분류 및 포지션 사이징
+  // 최대 점수 ~10 (조건 10개 × 1.0), STRONG ≥ 7, NORMAL ≥ 5 (이전 8조건 대비 기준 조정)
+  const signalType = score >= 7 ? 'STRONG' as const
+                   : score >= 5 ? 'NORMAL' as const
                    : 'SKIP' as const;
 
-  const positionPct = score >= 6 ? 0.12
-                    : score >= 4 ? 0.08
+  const positionPct = score >= 7 ? 0.12
+                    : score >= 5 ? 0.08
                     : 0.03;
 
   return { gateScore: score, signalType, positionPct, details, conditionKeys };
