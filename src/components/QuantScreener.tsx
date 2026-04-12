@@ -15,12 +15,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { StockFilters, StockRecommendation } from '../services/stockService';
 import type { BearRegimeResult } from '../types/quant';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { cn } from '../ui/cn';
 
 interface QuantScreenerProps {
   onScreen: (filters: StockFilters) => Promise<void>;
