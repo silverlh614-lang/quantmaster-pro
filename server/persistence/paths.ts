@@ -31,6 +31,10 @@ export const REAL_TRADE_FLAG_FILE    = path.join(DATA_DIR, 'real-trade-ready.fla
 export const DART_FAST_SEEN_FILE     = path.join(DATA_DIR, 'dart-fast-seen.json');
 export const ORCHESTRATOR_STATE_FILE = path.join(DATA_DIR, 'orchestrator-state.json');
 export const TRANCHE_FILE            = path.join(DATA_DIR, 'tranche-schedule.json');
+/** 아이디어 4: 워크포워드 검증 — 과최적화 감지 시 동결 상태 저장 */
+export const WALK_FORWARD_STATE_FILE = path.join(DATA_DIR, 'walk-forward-state.json');
+/** 아이디어 5: 조건 감사 — 조건별 ACTIVE/PROBATION/SUSPENDED 이력 저장 */
+export const CONDITION_AUDIT_FILE    = path.join(DATA_DIR, 'condition-audit.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
