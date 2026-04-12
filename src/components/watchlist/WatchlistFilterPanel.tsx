@@ -6,8 +6,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import type { StockRecommendation } from '../../services/stockService';
-import type { StockFilters } from '../../services/stockService';
+import type { StockRecommendation, StockFilters } from '../../services/stockService';
+import type { View } from '../../stores/useSettingsStore';
 import { CHECKLIST_LABELS } from '../../constants/checklist';
 
 function cn(...inputs: ClassValue[]) {
@@ -15,7 +15,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export interface WatchlistFilterPanelProps {
-  view: string;
+  view: View | string;
   loading: boolean;
   loadingNews: boolean;
   searchingSpecific: boolean;
@@ -53,7 +53,7 @@ export interface WatchlistFilterPanelProps {
   autoSyncEnabled: boolean;
   setAutoSyncEnabled: (v: boolean) => void;
   nextSyncCountdown: number;
-  syncStatus: { isSyncing: boolean; progress: number; total: number; currentStock: string };
+  syncStatus: { isSyncing: boolean; progress: number; total: number; currentStock: string | null };
 }
 
 export function WatchlistFilterPanel({

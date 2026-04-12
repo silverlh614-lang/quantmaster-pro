@@ -11,8 +11,8 @@ import { twMerge } from 'tailwind-merge';
 import { HeroChecklist } from '../HeroChecklist';
 import { ConfidenceBadge } from '../ConfidenceBadge';
 import { MASTER_CHECKLIST_STEPS, getMarketPhaseInfo } from '../../constants/checklist';
-import type { StockRecommendation, MarketContext } from '../../services/stockService';
-import type { StockFilters } from '../../services/stockService';
+import type { StockRecommendation, MarketContext, StockFilters } from '../../services/stockService';
+import type { View } from '../../stores/useSettingsStore';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -32,7 +32,7 @@ export interface WatchlistHeaderProps {
   onGenerateSummary: () => Promise<void>;
   reportSummary: string | null;
   setReportSummary: (v: string | null) => void;
-  setView: (v: string) => void;
+  setView: (v: View) => void;
   onDeepAnalysis: (stock: StockRecommendation) => void;
 }
 
