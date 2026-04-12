@@ -43,6 +43,12 @@ export interface MacroState {
   // ─── 글로벌 스캔 에이전트 선행 레이어 필드 ──────────────────────────────────
   vixHistory?: number[];            // VIX 일별 종가 이력 (최신 → 인덱스 마지막, 최대 5개)
   ewyDayChange?: number;            // EWY 전일 대비 변화율 (%) — Layer 13 외국인 수급 선행
+  // ─── FRED 거시 지표 (marketDataRefresh.ts 자동 갱신) ────────────────────────
+  yieldCurve10y2y?: number;         // T10Y2Y: 장단기 금리차 (%) — 음수 시 침체 6~18개월 선행
+  hySpread?: number;                // BAMLH0A0HYM2: US HY 스프레드 (%) — 신용 위험 프록시
+  sofr?: number;                    // SOFR: 달러 단기 기준금리 프록시 (%)
+  financialStress?: number;         // STLFSI4: 세인트루이스 금융스트레스 지수 (0 기준, 양수 = 스트레스)
+  wtiCrude?: number;                // DCOILWTICO: WTI 유가 (USD/배럴) — 수출주/정유 영향
 }
 
 export function loadMacroState(): MacroState | null {

@@ -23,6 +23,7 @@ import { addRecommendation } from '../learning/recommendationTracker.js';
 import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
 import { getVixGating } from './vixGating.js';
+import { getFomcProximity } from './fomcCalendar.js';
 
 /**
  * 아이디어 1: 장중 자동 신호 스캔
@@ -95,13 +96,33 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
     return;
   }
 
-  // 레짐 Kelly × VIX Kelly → 유효 배율
-  const kellyMultiplier = regimeConfig.kellyMultiplier * vixGating.kellyMultiplier;
+  // ── FOMC 게이팅 ───────────────────────────────────────────────────────────
+  const fomcProximity = getFomcProximity();
+  if (fomcProximity.noNewEntry) {
+    console.warn(`[AutoTrade] FOMC 게이팅 — 신규 진입 차단: ${fomcProximity.description}`);
+    await sendTelegramAlert(
+      `📅 <b>[FOMC 게이팅] 신규 진입 차단</b>\n` +
+      `${fomcProximity.description}\n` +
+      `포지션 모니터링만 수행합니다.`
+    ).catch(console.error);
+    await updateShadowResults(shadows, regime);
+    saveShadowTrades(shadows);
+    return;
+  }
+
+  // 레짐 Kelly × VIX Kelly × FOMC Kelly → 유효 배율
+  const kellyMultiplier = Math.min(
+    1.5,  // 상한 캡 (POST 부스트 구간에서도 최대 1.5배)
+    regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier,
+  );
   if (vixGating.kellyMultiplier < 1) {
     console.log(`[AutoTrade] VIX 게이팅 적용 — ${vixGating.reason}`);
   }
-  if (kellyMultiplier < regimeConfig.kellyMultiplier) {
-    console.log(`[AutoTrade] 레짐 ${regime} × VIX — Kelly ×${kellyMultiplier.toFixed(2)} (${Math.round(kellyMultiplier * 100)}% 수준)`);
+  if (fomcProximity.kellyMultiplier !== 1) {
+    console.log(`[AutoTrade] FOMC 게이팅 적용 — ${fomcProximity.description}`);
+  }
+  if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
+    console.log(`[AutoTrade] 레짐 ${regime} × VIX × FOMC — Kelly ×${kellyMultiplier.toFixed(2)}`);
   }
 
   // ── 동시 최대 보유 종목 (regimeConfig.maxPositions) ─────────────────────────

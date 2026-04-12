@@ -20,6 +20,7 @@ import { runFullDiscoveryPipeline } from './screener/universeScanner.js';
 import { cleanupWatchlist } from './screener/watchlistManager.js';
 import { runGlobalScanAgent } from './alerts/globalScanAgent.js';
 import { trackPendingRecords } from './learning/newsSupplyLogger.js';
+import { checkFomcProximityAlert } from './trading/fomcCalendar.js';
 
 export function startScheduler() {
   // ─── TradingDayOrchestrator — 장 사이클 State Machine ──────────────────
@@ -92,8 +93,10 @@ export function startScheduler() {
   }, { timezone: 'UTC' });
 
   // 장 시작 전 워치리스트 브리핑 — 평일 08:50 KST (UTC 23:50, 일~목 UTC)
+  // FOMC 근접도 경보도 함께 발송 (하루 1회, NORMAL 구간이면 스킵)
   cron.schedule('50 23 * * 0-4', async () => {
     await sendWatchlistBriefing().catch(console.error);
+    await checkFomcProximityAlert().catch(console.error);
   }, { timezone: 'UTC' });
 
   // 장중 중간 점검 — 오전 11:30 KST (UTC 02:30, 월~금 UTC)

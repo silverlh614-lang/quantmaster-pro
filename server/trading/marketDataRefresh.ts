@@ -19,6 +19,29 @@
 import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js';
 import { loadFssRecords } from '../persistence/fssRepo.js';
 
+/**
+ * FRED API — 최신 유효 관측값 조회 (최근 5건 중 '.' 제외 첫 번째).
+ * FRED_API_KEY 미설정 시 null 반환.
+ */
+async function fetchFred(series: string): Promise<number | null> {
+  const apiKey = process.env.FRED_API_KEY;
+  if (!apiKey) return null;
+  const url =
+    `https://api.stlouisfed.org/fred/series/observations` +
+    `?series_id=${series}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=5`;
+  try {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 8000);
+    const r    = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
+    if (!r.ok) return null;
+    const data: { observations?: Array<{ value: string }> } = await r.json();
+    const obs  = data?.observations ?? [];
+    const valid = obs.find(o => o.value && o.value !== '.');
+    return valid ? parseFloat(valid.value) : null;
+  } catch { return null; }
+}
+
 const YF_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
   'Accept': 'application/json',
@@ -139,6 +162,26 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   computed.foreignNetBuy5d  = fssVars.foreignNetBuy5d;
   computed.passiveActiveBoth = fssVars.passiveActiveBoth;
   console.log(`[MarketRefresh] 수급: foreignNetBuy5d=${fssVars.foreignNetBuy5d.toFixed(0)}억, passiveActiveBoth=${fssVars.passiveActiveBoth}`);
+
+  // ── ⑧ FRED 거시 지표 (병렬 조회) ────────────────────────────────────────
+  // T10Y2Y: 음수 전환 → 경기침체 6~18개월 선행 / STLFSI4 > 0 = 금융 스트레스
+  const [t10y2y, hySpread, sofr, fsi, wti] = await Promise.all([
+    fetchFred('T10Y2Y'),        // 장단기 금리차 (10년-2년)
+    fetchFred('BAMLH0A0HYM2'), // US HY 스프레드
+    fetchFred('SOFR'),          // SOFR 기준금리
+    fetchFred('STLFSI4'),       // 세인트루이스 금융스트레스 지수
+    fetchFred('DCOILWTICO'),    // WTI 유가 (USD/배럴)
+  ]);
+  if (t10y2y !== null) { computed.yieldCurve10y2y = t10y2y; }
+  if (hySpread !== null) { computed.hySpread = hySpread; }
+  if (sofr !== null) { computed.sofr = sofr; }
+  if (fsi !== null) { computed.financialStress = fsi; }
+  if (wti !== null) { computed.wtiCrude = wti; }
+  console.log(
+    `[MarketRefresh] FRED: T10Y2Y=${t10y2y?.toFixed(2) ?? 'N/A'}% | ` +
+    `HY=${hySpread?.toFixed(2) ?? 'N/A'}% | SOFR=${sofr?.toFixed(2) ?? 'N/A'}% | ` +
+    `FSI=${fsi?.toFixed(2) ?? 'N/A'} | WTI=$${wti?.toFixed(1) ?? 'N/A'}`
+  );
 
   // ── MacroState에 MERGE 저장 ───────────────────────────────────────────────
   const updated = { ...existing, ...computed, updatedAt: new Date().toISOString() };

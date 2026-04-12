@@ -4,6 +4,7 @@
 import { Router, Request, Response } from 'express';
 import { loadGlobalScanReport } from '../alerts/globalScanAgent.js';
 import { analyzeNewsSupplyPatterns, loadNewsSupplyRecords } from '../learning/newsSupplyLogger.js';
+import { getFomcProximity, generateFomcIcs, FOMC_DATES } from '../trading/fomcCalendar.js';
 
 const router = Router();
 
@@ -258,6 +259,22 @@ router.get('/market/news-supply-patterns', (_req: Request, res: Response) => {
     pendingCount:    records.filter(r => !r.isComplete).length,
     updatedAt:       new Date().toISOString(),
   });
+});
+
+// ─── FOMC 캘린더 ─────────────────────────────────────────────────────────────
+// GET /api/market/fomc — 현재 근접도 + 전체 일정
+router.get('/market/fomc', (_req: Request, res: Response) => {
+  res.json({
+    proximity: getFomcProximity(),
+    dates:     FOMC_DATES,
+  });
+});
+
+// GET /api/market/fomc-calendar.ics — Google Calendar 임포트용 iCalendar 파일
+router.get('/market/fomc-calendar.ics', (_req: Request, res: Response) => {
+  res.set('Content-Type', 'text/calendar; charset=utf-8');
+  res.set('Content-Disposition', 'attachment; filename="fomc-2025-2026.ics"');
+  res.send(generateFomcIcs());
 });
 
 // ─── FRED API Proxy (TED/HY Spread 무료, Search 대체) ─────────────────────────
