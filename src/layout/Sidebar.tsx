@@ -66,13 +66,14 @@ export function Sidebar() {
   return (
     <aside className="app-sidebar no-scrollbar no-print">
       {/* Logo */}
-      <div className="h-16 flex items-center gap-3 px-5 border-b border-theme-border shrink-0">
+      <div className="h-16 flex items-center gap-3 px-5 border-b border-white/[0.04] shrink-0 relative">
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-500/[0.03] to-transparent pointer-events-none" />
         <button
           onClick={() => { setView('DISCOVER' as any); setSearchQuery(''); }}
-          className="flex items-center gap-3 group/logo"
+          className="flex items-center gap-3 group/logo relative z-[1]"
         >
           <div className="relative">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/20 group-hover/logo:shadow-orange-500/40 transition-all">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 via-indigo-500 to-purple-500 flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover/logo:shadow-blue-500/40 transition-all group-hover/logo:scale-105">
               <Zap className="w-5 h-5 text-white" />
             </div>
             {syncStatus.isSyncing && (
@@ -81,7 +82,7 @@ export function Sidebar() {
           </div>
           <div className="flex flex-col leading-none">
             <span className="text-sm font-black text-theme-text tracking-tight">QuantMaster</span>
-            <span className="text-[10px] font-bold text-orange-400">Pro</span>
+            <span className="text-[10px] font-bold text-gradient-blue">Pro</span>
           </div>
         </button>
       </div>
@@ -104,20 +105,23 @@ export function Sidebar() {
                     key={item.id}
                     onClick={() => { setView(item.id as any); setSearchQuery(''); }}
                     className={cn(
-                      'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold transition-all group/nav',
+                      'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold transition-all group/nav relative',
                       isActive
-                        ? 'bg-orange-500/15 text-orange-400 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.2)]'
-                        : 'text-theme-text-secondary hover:text-theme-text hover:bg-theme-surface'
+                        ? 'bg-gradient-to-r from-blue-500/[0.12] to-indigo-500/[0.06] text-blue-300 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.15)]'
+                        : 'text-theme-text-secondary hover:text-theme-text hover:bg-white/[0.04]'
                     )}
                   >
-                    <Icon className={cn('w-4 h-4 shrink-0', isActive ? 'text-orange-400' : 'text-theme-text-muted group-hover/nav:text-theme-text-secondary')} />
+                    {isActive && (
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-gradient-to-b from-blue-400 to-indigo-500" />
+                    )}
+                    <Icon className={cn('w-4 h-4 shrink-0', isActive ? 'text-blue-400' : 'text-theme-text-muted group-hover/nav:text-theme-text-secondary')} />
                     <span className="truncate">{item.label}</span>
                     {item.count != null && item.count > 0 && (
                       <span className={cn(
                         'ml-auto text-[10px] font-black px-1.5 py-0.5 rounded-md font-num',
                         isActive
-                          ? 'bg-orange-500/25 text-orange-300'
-                          : 'bg-theme-surface text-theme-text-muted'
+                          ? 'bg-blue-500/20 text-blue-300'
+                          : 'bg-white/[0.04] text-theme-text-muted'
                       )}>
                         {item.count}
                       </span>
@@ -131,17 +135,17 @@ export function Sidebar() {
       </nav>
 
       {/* Bottom Actions */}
-      <div className="border-t border-theme-border p-3 space-y-1 shrink-0">
+      <div className="border-t border-white/[0.04] p-3 space-y-1 shrink-0">
         <button
           onClick={() => setShowMasterChecklist(true)}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold text-theme-text-muted hover:text-orange-400 hover:bg-orange-500/[0.06] transition-all"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold text-theme-text-muted hover:text-blue-300 hover:bg-blue-500/[0.06] transition-all"
         >
           <ShieldCheck className="w-4 h-4" />
           <span>체크리스트</span>
         </button>
         <button
           onClick={() => setShowSettings(true)}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold text-theme-text-muted hover:text-theme-text-secondary hover:bg-theme-surface transition-all"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold text-theme-text-muted hover:text-theme-text-secondary hover:bg-white/[0.04] transition-all"
         >
           <Settings className="w-4 h-4" />
           <span>설정</span>

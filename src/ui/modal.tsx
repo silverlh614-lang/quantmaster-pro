@@ -38,7 +38,7 @@ export function Modal({ open, onClose, children, size = 'md', className }: Modal
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-sm"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-md"
           onClick={onClose}
         >
           <motion.div
@@ -47,11 +47,12 @@ export function Modal({ open, onClose, children, size = 'md', className }: Modal
             exit={{ scale: 0.95, opacity: 0, y: 12 }}
             transition={{ type: 'spring', duration: 0.3, bounce: 0.1 }}
             className={cn(
-              'glass-3d rounded-2xl sm:rounded-3xl w-full border border-theme-border shadow-2xl',
+              'glass-gradient rounded-2xl sm:rounded-3xl w-full shadow-2xl',
               'max-h-[85vh] flex flex-col overflow-hidden',
               sizeClasses[size],
               className
             )}
+            style={{ boxShadow: 'var(--shadow-modal)' }}
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
             {children}
@@ -75,7 +76,7 @@ export function ModalHeader({ children, onClose, icon, subtitle, className }: Mo
     <div className={cn('flex items-center justify-between p-5 sm:p-6 pb-0 shrink-0', className)}>
       <div className="flex items-center gap-3 sm:gap-4 min-w-0">
         {icon && (
-          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 bg-theme-surface">
+          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 bg-gradient-to-br from-blue-500/10 to-indigo-500/10 border border-blue-500/10">
             {icon}
           </div>
         )}

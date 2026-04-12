@@ -19,7 +19,7 @@ export function KpiStrip({ items, className }: KpiStripProps) {
       {items.map((item, i) => (
         <div
           key={i}
-          className="bg-white/[0.03] border border-theme-border rounded-xl sm:rounded-2xl p-3 sm:p-4 text-center"
+          className="bg-white/[0.02] border border-white/[0.05] rounded-xl sm:rounded-2xl p-3 sm:p-4 text-center hover:bg-white/[0.04] hover:border-blue-500/10 transition-all"
         >
           <p className="text-[9px] sm:text-[10px] text-theme-text-muted uppercase tracking-widest font-bold truncate">{item.label}</p>
           <p className={cn(

@@ -5,7 +5,7 @@
 import React from 'react';
 import { cn } from './cn';
 
-type CardVariant = 'default' | 'accent' | 'danger' | 'ghost';
+type CardVariant = 'default' | 'accent' | 'danger' | 'ghost' | 'gradient';
 
 interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   variant?: CardVariant;
@@ -18,6 +18,7 @@ const variantClasses: Record<CardVariant, string> = {
   accent: 'glass-3d border-orange-500/20 shadow-[0_0_30px_rgba(249,115,22,0.08)]',
   danger: 'glass-3d border-red-500/20 shadow-[0_0_30px_rgba(239,68,68,0.08)]',
   ghost: 'border border-theme-border',
+  gradient: 'glass-gradient',
 };
 
 const paddingClasses = {
@@ -60,7 +61,7 @@ interface CardTitleProps extends React.HTMLAttributes<HTMLHeadingElement> {
 
 export function CardTitle({ as: Tag = 'h3', className, children, ...props }: CardTitleProps) {
   return (
-    <Tag className={cn('text-base sm:text-lg font-black text-theme-text tracking-tight', className)} {...props}>
+    <Tag className={cn('text-base sm:text-lg font-black text-theme-text tracking-tight leading-snug', className)} {...props}>
       {children}
     </Tag>
   );

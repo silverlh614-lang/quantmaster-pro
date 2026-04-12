@@ -17,7 +17,7 @@ interface TabsProps {
 
 export function Tabs({ tabs, value, onChange, className }: TabsProps) {
   return (
-    <div className={cn('flex items-center gap-1 p-1 bg-white/[0.03] rounded-xl border border-theme-border', className)}>
+    <div className={cn('flex items-center gap-1 p-1 bg-white/[0.02] rounded-xl border border-white/[0.05]', className)}>
       {tabs.map(tab => (
         <button
           key={tab.id}
@@ -25,8 +25,8 @@ export function Tabs({ tabs, value, onChange, className }: TabsProps) {
           className={cn(
             'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap',
             value === tab.id
-              ? 'bg-orange-500/15 text-orange-400 shadow-sm'
-              : 'text-theme-text-muted hover:text-theme-text-secondary hover:bg-white/5'
+              ? 'bg-gradient-to-r from-blue-500/[0.12] to-indigo-500/[0.08] text-blue-300 shadow-sm shadow-blue-500/10'
+              : 'text-theme-text-muted hover:text-theme-text-secondary hover:bg-white/[0.04]'
           )}
         >
           {tab.icon}
@@ -34,7 +34,7 @@ export function Tabs({ tabs, value, onChange, className }: TabsProps) {
           {tab.count != null && tab.count > 0 && (
             <span className={cn(
               'text-[9px] px-1.5 py-0.5 rounded font-black',
-              value === tab.id ? 'bg-orange-500/25 text-orange-300' : 'bg-white/10 text-white/40'
+              value === tab.id ? 'bg-blue-500/20 text-blue-300' : 'bg-white/[0.06] text-white/40'
             )}>
               {tab.count}
             </span>

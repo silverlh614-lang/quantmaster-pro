@@ -60,11 +60,12 @@ export function WatchlistHeader({
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="lg:col-span-2 glass-3d rounded-2xl sm:rounded-3xl p-6 sm:p-10 lg:p-14 relative overflow-hidden group"
+          className="lg:col-span-2 glass-gradient rounded-2xl sm:rounded-3xl p-6 sm:p-10 lg:p-14 relative overflow-hidden group"
         >
           <div className="relative z-10">
-            <h2 className="text-3xl sm:text-5xl lg:text-7xl font-bold mb-4 sm:mb-6 leading-[1.1] tracking-tight text-glow">
-              <span className="text-orange-500 text-glow-orange">QuantMaster Pro</span>
+            <h2 className="text-3xl sm:text-5xl lg:text-7xl font-bold mb-4 sm:mb-6 leading-[1.1] tracking-tight">
+              <span className="text-gradient-blue">QuantMaster</span>{' '}
+              <span className="text-gradient-accent">Pro</span>
             </h2>
             <p className="text-xs sm:text-sm lg:text-base font-bold text-theme-text-muted uppercase tracking-[0.15em] sm:tracking-[0.2em] mb-6 sm:mb-10">
               데이터와 사이클 기반 정밀 분석
@@ -75,7 +76,7 @@ export function WatchlistHeader({
               </p>
               <button
                 onClick={() => setShowMasterChecklist(true)}
-                className="absolute -right-8 top-0 p-2 text-theme-text-muted hover:text-orange-500 transition-colors"
+                className="absolute -right-8 top-0 p-2 text-theme-text-muted hover:text-blue-400 transition-colors"
               >
                 <Info className="w-5 h-5" />
               </button>
@@ -192,16 +193,17 @@ export function WatchlistHeader({
             </div>
           </div>
 
-          {/* Decorative elements */}
-          <div className="absolute top-0 right-0 w-96 h-96 bg-orange-500/10 blur-[120px] -mr-32 -mt-32 animate-pulse" />
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/5 blur-[100px] -ml-32 -mb-32" />
+          {/* Decorative gradient orbs */}
+          <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/[0.08] blur-[120px] -mr-32 -mt-32" />
+          <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-500/[0.06] blur-[100px] -ml-32 -mb-32" />
+          <div className="absolute top-1/2 right-1/4 w-48 h-48 bg-cyan-500/[0.04] blur-[80px]" />
         </motion.div>
 
         {/* Market Sentiment Card */}
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
-          className="glass-3d rounded-2xl sm:rounded-3xl p-10 flex flex-col justify-between group"
+          className="glass-gradient rounded-2xl sm:rounded-3xl p-10 flex flex-col justify-between group"
         >
           <div>
             <h3 className="text-xs font-black text-white/30 uppercase tracking-[0.2em] mb-10 flex items-center gap-3">
@@ -290,7 +292,7 @@ export function WatchlistHeader({
                   </div>
 
                   <div className="grid grid-cols-2 gap-6">
-                    <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                    <div className="bg-white/[0.03] p-4 rounded-2xl border border-white/[0.05] hover:border-blue-500/10 transition-all">
                       <span className="text-[10px] font-black text-white/20 uppercase tracking-widest block mb-1">환율 (USD/KRW)</span>
                       <div className="text-xl font-black text-white tracking-tighter">
                         {marketContext.exchangeRate?.value ? marketContext.exchangeRate.value.toLocaleString() : <span className="text-sm text-white/20">—</span>}
@@ -301,7 +303,7 @@ export function WatchlistHeader({
                         )}
                       </div>
                     </div>
-                    <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                    <div className="bg-white/[0.03] p-4 rounded-2xl border border-white/[0.05] hover:border-blue-500/10 transition-all">
                       <span className="text-[10px] font-black text-white/20 uppercase tracking-widest block mb-1">국채 10년물</span>
                       <div className="text-xl font-black text-white tracking-tighter">
                         {marketContext.bondYield?.value ? `${marketContext.bondYield.value}%` : <span className="text-sm text-white/20">—</span>}
