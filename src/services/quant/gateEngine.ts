@@ -1,3 +1,17 @@
+/**
+ * gateEngine.ts — 퀀트 Gate 평가 엔진 (메인 오케스트레이터)
+ *
+ * evaluateStock() 함수를 통해 Gate 1→2→3 단계 평가를 수행하고
+ * EvaluationResult를 반환한다.
+ *
+ * 세부 로직은 다음 서브모듈로 분리됨:
+ *   macroEngine.ts         — Gate 0, RegimeConfig, MAPC
+ *   fxRateCycleEngine.ts   — FX 조정 팩터, 금리 사이클 역가중치
+ *   contrarianEngine.ts    — 역발상 카운터사이클 알고리즘
+ *   extendedRegimeEngine.ts — 확장 레짐 감지, 상승 초기 선취매
+ *   roeEngine.ts           — ROE 유형 전이 감지
+ */
+
 import {
   ConditionId,
   EvaluationResult,
@@ -13,35 +27,13 @@ import {
   MacroEnvironment,
   Gate0Result,
   RateCycle,
-  FXRegime,
   SmartMoneyData,
   ExportMomentumData,
   GeopoliticalRiskData,
   CreditSpreadData,
-  ContrarianSignal,
   EconomicRegime,
-  ExtendedRegimeData,
   FinancialStressIndex,
   SupplyChainIntelligence,
-  ConfluenceScore,
-  CycleAnalysis,
-  CyclePosition,
-  CatalystAnalysis,
-  CatalystGrade,
-  MomentumAcceleration,
-  TMAResult,
-  SRRResult,
-  MAPCResult,
-  MAPCFactor,
-  EnemyChecklistEnhanced,
-  DataReliability,
-  SignalVerdict,
-  SignalGrade,
-  ROEType,
-  ROETransitionResult,
-  EarlyBullEntryResult,
-  TradeRegime,
-  RegimeConfig,
 } from '../../types/quant';
 import { z } from 'zod';
 import {
@@ -54,8 +46,21 @@ import {
   analyzeMomentumAcceleration, evaluateTMA, evaluateSRR,
   evaluateEnemyChecklist, computeDataReliability, computeSignalVerdict,
 } from './technicalEngine';
-import { MHS, VKOSPI, VIX, FX, MACRO_AXIS_MAX, US10Y, KR_US_SPREAD } from '../../constants/thresholds';
-import { clamp } from '../../utils/math';
+import { VKOSPI } from '../../constants/thresholds';
+
+// ── 서브모듈 re-export (외부 코드가 gateEngine 경유로 import 할 수 있도록 유지) ──
+export { evaluateGate0, getRegimeConfig, evaluateMAPCResult } from './macroEngine';
+export { getFXAdjustmentFactor, getRateCycleAdjustment } from './fxRateCycleEngine';
+export { computeContrarianSignals } from './contrarianEngine';
+export { evaluateEarlyBullEntry, classifyExtendedRegime, deriveExtendedRegime } from './extendedRegimeEngine';
+export { detectROETransition } from './roeEngine';
+
+// ── 서브모듈 직접 import (evaluateStock 내부에서 사용) ───────────────────────
+import { evaluateGate0, evaluateMAPCResult } from './macroEngine';
+import { getFXAdjustmentFactor, getRateCycleAdjustment } from './fxRateCycleEngine';
+import { computeContrarianSignals } from './contrarianEngine';
+import { evaluateEarlyBullEntry, classifyExtendedRegime, deriveExtendedRegime } from './extendedRegimeEngine';
+import { detectROETransition } from './roeEngine';
 
 // ─── 아이디어 9: evaluateStock 입력 유효성 검증 스키마 ────────────────────────────
 
@@ -76,301 +81,7 @@ const GATE1_IDS: ConditionId[] = [1, 3, 5, 7, 9];
 const GATE2_IDS: ConditionId[] = [4, 6, 8, 10, 11, 12, 13, 14, 15, 16, 21, 24];
 const GATE3_IDS: ConditionId[] = [2, 17, 18, 19, 20, 22, 23, 25, 26, 27];
 
-// ─── Gate 0: 거시 환경 생존 게이트 ──────────────────────────────────────────
-
-/** MHS 세부 점수 계산 (4개 축, 각 0-25) */
-function computeMacroScoreDetails(env: MacroEnvironment) {
-  // 금리 축 (0-MACRO_AXIS_MAX): 금리 인하 유리, 인상 불리
-  let interestRateScore = 20;
-  if (env.bokRateDirection === 'HIKING') interestRateScore -= 10;
-  else if (env.bokRateDirection === 'CUTTING') interestRateScore += 5;
-  if (env.us10yYield > US10Y.HIGH) interestRateScore -= 5;
-  if (env.krUsSpread < KR_US_SPREAD.INVERSION) interestRateScore -= 5;
-  interestRateScore = clamp(interestRateScore, 0, MACRO_AXIS_MAX);
-
-  // 유동성 축 (0-MACRO_AXIS_MAX): M2 > 명목GDP → Risk-On
-  let liquidityScore = 15;
-  if (env.m2GrowthYoY > env.nominalGdpGrowth) liquidityScore += 10;
-  else liquidityScore -= 5;
-  if (env.bankLendingGrowth > 5) liquidityScore += 3;
-  else if (env.bankLendingGrowth < 0) liquidityScore -= 5;
-  liquidityScore = clamp(liquidityScore, 0, MACRO_AXIS_MAX);
-
-  // 경기 축 (0-MACRO_AXIS_MAX): 수출 + OECD CLI
-  let economicScore = 15;
-  if (env.oeciCliKorea > 101) economicScore += 5;
-  else if (env.oeciCliKorea < 99) economicScore -= 5;
-  if (env.exportGrowth3mAvg > 5) economicScore += 5;
-  else if (env.exportGrowth3mAvg < -5) economicScore -= 10;
-  economicScore = clamp(economicScore, 0, MACRO_AXIS_MAX);
-
-  // 리스크 축 (0-MACRO_AXIS_MAX): VKOSPI + VIX + 삼성IRI
-  let riskScore = MACRO_AXIS_MAX;
-  if (env.vkospi > VKOSPI.ELEVATED) riskScore -= 12;
-  else if (env.vkospi > VKOSPI.CALM) riskScore -= 6;
-  if (env.vix > VIX.FEAR) riskScore -= 10;
-  else if (env.vix > VIX.ELEVATED) riskScore -= 5;
-  if (env.samsungIri < 0.7) riskScore -= 5;
-  riskScore = clamp(riskScore, 0, MACRO_AXIS_MAX);
-
-  return { interestRateScore, liquidityScore, economicScore, riskScore };
-}
-
-/** Gate 0 전체 평가 */
-export function evaluateGate0(env: MacroEnvironment): Gate0Result {
-  const details = computeMacroScoreDetails(env);
-  const macroHealthScore = details.interestRateScore + details.liquidityScore
-    + details.economicScore + details.riskScore;
-
-  const mhsLevel: Gate0Result['mhsLevel'] =
-    macroHealthScore >= MHS.BULL ? 'HIGH' : macroHealthScore >= MHS.NEUTRAL ? 'MEDIUM' : 'LOW';
-
-  // DEFENSE: MHS < 30 (기존 40 → 30으로 완화 — MHS 30~50은 NEUTRAL로 제한적 매수 허용)
-  const buyingHalted = macroHealthScore < MHS.DEFENSE;
-  // MAPC: 조정 켈리 = 기본 켈리 × (MHS / 100); MHS < 30 은 buyingHalted 로 차단
-  const kellyReduction = macroHealthScore < MHS.DEFENSE ? 1.0 : 1 - (macroHealthScore / 100);
-
-  // 4단계 자동매매 레짐 결정
-  const tradeRegime: TradeRegime =
-    buyingHalted                                              ? 'DEFENSE' :
-    macroHealthScore >= MHS.BULL && env.vkospi < VKOSPI.CALM ? 'BULL_AGGRESSIVE' :
-    macroHealthScore >= MHS.NEUTRAL                           ? 'BULL_NORMAL' :
-                                                                'NEUTRAL';
-
-  const rateCycle: RateCycle =
-    env.bokRateDirection === 'HIKING' ? 'TIGHTENING' :
-    env.bokRateDirection === 'CUTTING' ? 'EASING' : 'PAUSE';
-
-  const fxRegime: FXRegime =
-    env.usdKrw >= FX.DOLLAR_STRONG ? 'DOLLAR_STRONG' :
-    env.usdKrw <= FX.DOLLAR_WEAK ? 'DOLLAR_WEAK' : 'NEUTRAL';
-
-  return {
-    passed: !buyingHalted,
-    macroHealthScore,
-    mhsLevel,
-    tradeRegime,
-    kellyReduction,
-    buyingHalted,
-    rateCycle,
-    fxRegime,
-    details,
-  };
-}
-
-// ─── 레짐별 Gate·Kelly 설정 ────────────────────────────────────────────────────
-
-/**
- * MHS + VKOSPI → 자동매매 레짐 설정 반환.
- *
- * 자동매매 엔진(autoTradeEngine.ts)이 매 사이클마다 호출하여
- * Gate 통과 기준과 허용 신호 등급을 동적으로 결정한다.
- *
- * Gate 2: GATE2_IDS 12개 기준 / Gate 3: GATE3_IDS 10개 기준
- */
-export function getRegimeConfig(mhs: number, vkospi: number): RegimeConfig {
-  // BULL_AGGRESSIVE: MHS ≥ 70 + VKOSPI < 20
-  if (mhs >= MHS.BULL && vkospi < VKOSPI.CALM) {
-    return {
-      gate2PassCount: 7,   // 12개 중 7개 (기존 9에서 완화)
-      gate3PassCount: 5,   // 10개 중 5개 (기존 7에서 완화)
-      maxPositionKelly: 1.0,
-      allowedSignals: ['CONFIRMED_STRONG_BUY', 'STRONG_BUY', 'BUY', 'WATCH'],
-    };
-  }
-  // BULL_NORMAL: MHS 50~70
-  if (mhs >= MHS.NEUTRAL) {
-    return {
-      gate2PassCount: 8,
-      gate3PassCount: 6,
-      maxPositionKelly: 0.7,
-      allowedSignals: ['CONFIRMED_STRONG_BUY', 'STRONG_BUY', 'BUY'],
-    };
-  }
-  // NEUTRAL: MHS 30~50
-  if (mhs >= MHS.DEFENSE) {
-    return {
-      gate2PassCount: 9,   // 기존 기준 유지
-      gate3PassCount: 7,
-      maxPositionKelly: 0.5,
-      allowedSignals: ['CONFIRMED_STRONG_BUY', 'STRONG_BUY'],
-    };
-  }
-  // DEFENSE: MHS < 30 → 매수 전면 차단
-  return {
-    gate2PassCount: 99,
-    gate3PassCount: 99,
-    maxPositionKelly: 0,
-    allowedSignals: [],  // 방어 모드: 매도 신호만 처리
-  };
-}
-
-// ─── MAPC: Macro-Adaptive Position Controller ────────────────────────────────
-
-/**
- * MAPC (매크로 임계값 연동 포지션 자동 조절기)
- *
- * 조정 켈리 = 기본 켈리 × (MHS / 100)
- *
- * BOK 금리·USD/KRW·VIX·VKOSPI를 실시간 모니터링하여
- * 매크로 환경 악화 시 인간의 판단 전에 시스템이 먼저 포지션 크기를 수축시킨다.
- *
- * 4개 축(금리·유동성·경기·리스크) 각각의 기여 점수로 MHS를 분해 →
- * 어떤 축이 켈리를 얼마나 끌어내리는지 실시간 추적 가능.
- *
- * @param gate0        Gate 0 평가 결과 (MHS + 4축 세부 점수)
- * @param env          실시간 매크로 환경 데이터
- * @param baseKellyPct Gate 2에서 산출된 원본 포지션 크기 (%)
- */
-export function evaluateMAPCResult(
-  gate0: Gate0Result,
-  env: MacroEnvironment,
-  baseKellyPct: number,
-): MAPCResult {
-  const { interestRateScore, liquidityScore, economicScore, riskScore } = gate0.details;
-
-  // ── 4개 축 팩터 구성 ──────────────────────────────────────────────────────
-  const factorStatus = (score: number): MAPCFactor['status'] =>
-    score >= 18 ? 'RISK_ON' : score >= 10 ? 'NEUTRAL' : 'RISK_OFF';
-
-  const factors: MAPCFactor[] = [
-    {
-      id: 'interest',
-      nameKo: '금리·채권',
-      currentValue: `BOK ${env.bokRateDirection === 'HIKING' ? '인상' : env.bokRateDirection === 'CUTTING' ? '인하' : '동결'} / US10Y ${env.us10yYield.toFixed(2)}%`,
-      score: interestRateScore,
-      status: factorStatus(interestRateScore),
-      keySignal: env.bokRateDirection === 'HIKING'
-        ? 'BOK 기준금리 인상 → Kelly 압박'
-        : env.bokRateDirection === 'CUTTING'
-          ? 'BOK 금리 인하 사이클 → Risk-On 지지'
-          : `US10Y ${env.us10yYield.toFixed(2)}% / KR-US 스프레드 ${env.krUsSpread.toFixed(2)}pp`,
-    },
-    {
-      id: 'liquidity',
-      nameKo: '유동성',
-      currentValue: `M2 YoY ${env.m2GrowthYoY.toFixed(1)}% / 여신 ${env.bankLendingGrowth.toFixed(1)}%`,
-      score: liquidityScore,
-      status: factorStatus(liquidityScore),
-      keySignal: env.m2GrowthYoY > env.nominalGdpGrowth
-        ? `M2(${env.m2GrowthYoY.toFixed(1)}%) > GDP(${env.nominalGdpGrowth.toFixed(1)}%) → 유동성 잉여`
-        : `M2(${env.m2GrowthYoY.toFixed(1)}%) ≤ GDP(${env.nominalGdpGrowth.toFixed(1)}%) → 유동성 긴축`,
-    },
-    {
-      id: 'economy',
-      nameKo: '경기',
-      currentValue: `OECD CLI ${env.oeciCliKorea.toFixed(1)} / 수출 ${env.exportGrowth3mAvg >= 0 ? '+' : ''}${env.exportGrowth3mAvg.toFixed(1)}%`,
-      score: economicScore,
-      status: factorStatus(economicScore),
-      keySignal: env.oeciCliKorea >= 101
-        ? `OECD CLI ${env.oeciCliKorea.toFixed(1)} — 경기 확장 국면`
-        : env.oeciCliKorea < 99
-          ? `OECD CLI ${env.oeciCliKorea.toFixed(1)} — 경기 수축 경보`
-          : `수출 증가율 3M 평균 ${env.exportGrowth3mAvg >= 0 ? '+' : ''}${env.exportGrowth3mAvg.toFixed(1)}%`,
-    },
-    {
-      id: 'risk',
-      nameKo: '리스크',
-      currentValue: `VIX ${env.vix.toFixed(1)} / VKOSPI ${env.vkospi.toFixed(1)} / USD/KRW ${env.usdKrw}`,
-      score: riskScore,
-      status: factorStatus(riskScore),
-      keySignal: env.vix > 30 || env.vkospi > 30
-        ? `VIX ${env.vix.toFixed(1)} · VKOSPI ${env.vkospi.toFixed(1)} — 공포지수 급등`
-        : env.vix > 22 || env.vkospi > 22
-          ? `공포지수 경계 (VIX ${env.vix.toFixed(1)} / VKOSPI ${env.vkospi.toFixed(1)})`
-          : `공포지수 안정 / USD/KRW ${env.usdKrw}`,
-    },
-  ];
-
-  // ── 조정 켈리 계산 ────────────────────────────────────────────────────────
-  const mhsMultiplier = gate0.buyingHalted ? 0 : gate0.macroHealthScore / 100;
-  const adjustedKellyPct = +(baseKellyPct * mhsMultiplier).toFixed(2);
-  const reductionAmt = +(baseKellyPct - adjustedKellyPct).toFixed(2);
-  const reductionPct = baseKellyPct > 0
-    ? +((reductionAmt / baseKellyPct) * 100).toFixed(1)
-    : 0;
-
-  // ── 경보 단계 ────────────────────────────────────────────────────────────
-  let alert: MAPCResult['alert'];
-  let alertReason: string;
-  let actionMessage: string;
-
-  if (gate0.buyingHalted) {
-    alert = 'RED';
-    alertReason = `MHS ${gate0.macroHealthScore}/100 — 매수 중단 임계(40) 하회`;
-    actionMessage = '전면 매수 중단. 기존 포지션 방어 우선. 현금 보유 극대화.';
-  } else if (gate0.mhsLevel === 'MEDIUM') {
-    alert = 'YELLOW';
-    const weakFactors = factors.filter(f => f.status === 'RISK_OFF').map(f => f.nameKo);
-    alertReason = `MHS ${gate0.macroHealthScore}/100 — 매크로 환경 취약${weakFactors.length ? ` (${weakFactors.join('·')} 약세)` : ''}`;
-    actionMessage = `기본 켈리의 ${(mhsMultiplier * 100).toFixed(0)}%만 집행. 신규 매수 신중히.`;
-  } else {
-    alert = 'GREEN';
-    alertReason = `MHS ${gate0.macroHealthScore}/100 — 매크로 환경 건전`;
-    actionMessage = `기본 켈리의 ${(mhsMultiplier * 100).toFixed(0)}% 집행. 정상 포지셔닝 가능.`;
-  }
-
-  return {
-    baseKellyPct,
-    mhsScore: gate0.macroHealthScore,
-    buyingHalted: gate0.buyingHalted,
-    factors,
-    mhsMultiplier,
-    adjustedKellyPct,
-    reductionAmt,
-    reductionPct,
-    snapshot: {
-      bokRate: env.bokRateDirection,
-      usdKrw: env.usdKrw,
-      vix: env.vix,
-      vkospi: env.vkospi,
-    },
-    alert,
-    alertReason,
-    actionMessage,
-  };
-}
-
-// ─── 환율 반응 함수 (FX Impact Module) ──────────────────────────────────────
-
-/**
- * 종목의 수출 비중(0-100)과 FX 레짐에 따라 ±3점 조정 팩터를 반환.
- * exportRatio=100: 순수 수출주 / exportRatio=0: 순수 내수주
- */
-export function getFXAdjustmentFactor(fxRegime: FXRegime, exportRatio: number): number {
-  if (fxRegime === 'NEUTRAL') return 0;
-  // -1~+1 정규화: (수출비중 - 내수비중) / 100
-  const bias = (exportRatio - (100 - exportRatio)) / 100; // -1 to +1
-  const direction = fxRegime === 'DOLLAR_STRONG' ? 1 : -1;
-  return parseFloat((bias * direction * 3).toFixed(2)); // -3 ~ +3
-}
-
-// ─── 금리 사이클 역가중치 시스템 (Rate Cycle Inverter) ───────────────────────
-
-/** 금리 사이클에 따른 Gate 조건 파라미터 반환 */
-export function getRateCycleAdjustment(rateCycle: RateCycle): {
-  gate1IcrMinScore: number;      // 재무방어력 ICR(조건23) 최소 통과 점수
-  gate2GrowthWeightBoost: number; // Gate2 성장성 조건 가중치 부스트 배율
-} {
-  switch (rateCycle) {
-    case 'TIGHTENING':
-      return {
-        gate1IcrMinScore: 7,       // ICR 조건 강화: 5 → 7
-        gate2GrowthWeightBoost: 1.0,
-      };
-    case 'EASING':
-      return {
-        gate1IcrMinScore: 5,       // 기본값 유지
-        gate2GrowthWeightBoost: 1.2, // 성장성 조건 20% 상향
-      };
-    case 'PAUSE':
-    default:
-      return {
-        gate1IcrMinScore: 5,
-        gate2GrowthWeightBoost: 1.0,
-      };
-  }
-}
+// ─── Stock Profile ──────────────────────────────────────────────────────────
 
 export function getStockProfile(type: StockProfileType): StockProfile {
   switch (type) {
@@ -379,281 +90,6 @@ export function getStockProfile(type: StockProfileType): StockProfile {
     case 'C': return { type: 'C', monitoringCycle: 'REALTIME', stopLoss: -8, executionDelay: 0 };
     case 'D': return { type: 'D', monitoringCycle: 'REALTIME', stopLoss: -5, executionDelay: 0 };
   }
-}
-
-// ─── 아이디어 11: 역발상 카운터사이클 알고리즘 ──────────────────────────────
-
-/**
- * 거시 악재가 오히려 특정 섹터의 매수 신호가 되는 역발상 조건 3가지를 판별.
- * 순수 계산 함수 — AI 호출 없음.
- */
-export function computeContrarianSignals(
-  economicRegime: EconomicRegime | undefined,
-  fxRegime: 'DOLLAR_STRONG' | 'DOLLAR_WEAK' | 'NEUTRAL',
-  vix: number,
-  exportGrowth3mAvg: number,
-  sectorName: string,
-): ContrarianSignal[] {
-  const GEO_DEFENSE = ['방산', '방위산업', '항공우주'];
-  const HEALTHCARE_DOMESTIC = ['헬스케어', '바이오', '의료기기', '제약'];
-
-  const isDefense = GEO_DEFENSE.some(s => sectorName.includes(s));
-  const isHealthcare = HEALTHCARE_DOMESTIC.some(s => sectorName.includes(s));
-
-  // 신호 1: 경기 침체 → 방산 매수 조건 강화 (예산 확대 기대)
-  const recessionDefense: ContrarianSignal = {
-    id: 'RECESSION_DEFENSE',
-    name: '침체기 방산 역발상',
-    active: economicRegime === 'RECESSION' && isDefense,
-    bonus: 5,
-    description: '경기 침체 시 정부 방산 예산 확대 기대 → 방산주 Gate 3 +5pt 역발상 가산',
-  };
-
-  // 신호 2: 달러 강세 + 수출 둔화 → 내수 헬스케어 Gate 완화
-  const dollarHealthcare: ContrarianSignal = {
-    id: 'DOLLAR_STRONG_HEALTHCARE',
-    name: '달러강세 헬스케어 역발상',
-    active: fxRegime === 'DOLLAR_STRONG' && exportGrowth3mAvg < 0 && isHealthcare,
-    bonus: 3,
-    description: '달러 강세 + 수출 둔화 → 내수 헬스케어 상대적 수혜 → Gate 3 +3pt',
-  };
-
-  // 신호 3: VIX 급등 공포 극점 → Gate 3 역발상 매수 가산점
-  const vixFearPeak: ContrarianSignal = {
-    id: 'VIX_FEAR_PEAK',
-    name: 'VIX 공포 극점 역발상',
-    active: vix >= VIX.CONTRARIAN,
-    bonus: 3,
-    description: `VIX ≥ ${VIX.CONTRARIAN} 공포 극점 → 통계적 과매도 → Gate 3 +3pt 역발상 가산`,
-  };
-
-  return [recessionDefense, dollarHealthcare, vixFearPeak];
-}
-
-// ─── 불확실성 레짐 감지 및 적응형 Gate 시스템 ─────────────────────────────────
-
-// ─── 상승 초기 선취매 조건 평가 ─────────────────────────────────────────────────
-
-/**
- * Bull Regime 상승 초기에 Gate 3 미달이어도 BUY 50% 허용하는 세 가지 조건 평가.
- *
- * ① ROE 유형 3 확인 (조건 id=3, Gate 1 전제조건 — 절대 우회 불가)
- * ② 외국인 Passive + Active 동반 순매수 3일 이상
- * ③ RS(상대강도) 섹터 내 상위 20% 이내 + KOSPI 대비 1개월 아웃퍼폼
- *
- * 세 조건 전부 충족 시 `triggered = true` → 호출자가 BUY 50% 포지션 부여.
- * 이후 Gate 3 조건 충족되면 나머지 50% 추가 진입.
- */
-export function evaluateEarlyBullEntry(
-  stockData: Record<ConditionId, number>,
-  foreignPassiveActiveDays: number,    // 외국인 Passive+Active 동반 순매수 일수
-  rsPercentileInSector: number,        // 섹터 내 RS 백분위 (0=최상위, 100=최하위)
-  outperformsKospi1M: boolean,         // 최근 1개월 KOSPI 대비 아웃퍼폼 여부
-): EarlyBullEntryResult {
-  // ① ROE 유형 3 (조건 id=3) — Gate 1 기본값(≥5)과 동일 기준 적용
-  const roeType3Confirmed = (stockData[3] ?? 0) >= 5;
-
-  // ② 외국인 Passive+Active 동반 3일 이상
-  const foreignCobuySatisfied = foreignPassiveActiveDays >= 3;
-
-  // ③ RS 섹터 내 상위 20% + KOSPI 1개월 아웃퍼폼
-  const rsConditionSatisfied = rsPercentileInSector <= 20 && outperformsKospi1M;
-
-  const triggered = roeType3Confirmed && foreignCobuySatisfied && rsConditionSatisfied;
-
-  const reasons: string[] = [];
-  if (roeType3Confirmed)     reasons.push('ROE 유형 3 확인 (Gate 1 전제조건 유지)');
-  if (foreignCobuySatisfied) reasons.push(`외국인 Passive+Active 동반매수 ${foreignPassiveActiveDays}일 연속`);
-  if (rsConditionSatisfied)  reasons.push(`RS 섹터 내 상위 ${rsPercentileInSector}% + KOSPI 1개월 아웃퍼폼`);
-
-  return { triggered, roeType3Confirmed, foreignCobuySatisfied, rsConditionSatisfied, reasons };
-}
-
-// ─── 불확실성 레짐 감지 및 적응형 Gate 시스템 ─────────────────────────────────
-
-/**
- * Gate 0 결과 + 거시 데이터로부터 확장 레짐(UNCERTAIN/CRISIS/RANGE_BOUND)을 감지.
- * 기존 4단계(RECOVERY/EXPANSION/SLOWDOWN/RECESSION)에 3개 비정상 레짐을 추가하여
- * 시스템이 "판단 불능" 상태를 인식하고 방어 모드로 전환할 수 있게 합니다.
- *
- * Bull Regime 추가: KOSPI 20일선 위 + VKOSPI < 20 + MHS ≥ 70
- * → Gate 2: 9→7, Gate 3: 7→5 완화 (Gate 1은 절대 완화 금지)
- */
-export function classifyExtendedRegime(
-  gate0: Gate0Result | undefined,
-  macroEnv: MacroEnvironment | undefined,
-  baseRegime: EconomicRegime | undefined,
-  options?: {
-    kospi60dVolatility?: number;      // KOSPI 60일 변동성 (%)
-    leadingSectorCount?: number;      // 명확한 주도 섹터 수
-    foreignFlowDirection?: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING';
-    kospiSp500Correlation?: number;   // KOSPI-S&P500 상관계수
-    financialStress?: FinancialStressIndex;  // 레이어 K: 금융시스템 스트레스
-    kospiAboveMa20?: boolean;         // KOSPI 20일 이동평균선 위 여부 (Bull Regime 판단용)
-  }
-): ExtendedRegimeData['systemAction'] {
-  if (!gate0 || !macroEnv) {
-    return {
-      mode: 'NORMAL',
-      cashRatio: 30,
-      gateAdjustment: { gate1Threshold: 5, gate2Required: 9, gate3Required: 7 },
-      message: '거시 데이터 미수집. 기본 모드 유지.',
-    };
-  }
-
-  const { macroHealthScore, mhsLevel } = gate0;
-  const { vkospi, vix, exportGrowth3mAvg } = macroEnv;
-  const kospi60dVol = options?.kospi60dVolatility ?? 0;
-  const leadingSectors = options?.leadingSectorCount ?? 3;
-  const foreignFlow = options?.foreignFlowDirection ?? 'ALTERNATING';
-  const correlation = options?.kospiSp500Correlation ?? 0.7;
-  const fsi = options?.financialStress;
-
-  // ── FSI CRISIS → Gate 0 buyingHalted 강제 발동, Kelly 0% ──
-  if (fsi && fsi.systemAction === 'CRISIS') {
-    return {
-      mode: 'FULL_STOP',
-      cashRatio: 100,
-      gateAdjustment: { gate1Threshold: 10, gate2Required: 12, gate3Required: 10 },
-      message: `금융시스템 스트레스 위기 (FSI ${fsi.compositeScore}, TED ${fsi.tedSpread.bps}bp, HY ${fsi.usHySpread.bps}bp, MOVE ${fsi.moveIndex.current}). 전량 현금 전환.`,
-    };
-  }
-
-  // ── FSI DEFENSIVE → 방어 모드 강화 ──
-  if (fsi && fsi.systemAction === 'DEFENSIVE') {
-    return {
-      mode: 'CASH_HEAVY',
-      cashRatio: 80,
-      gateAdjustment: { gate1Threshold: 7, gate2Required: 11, gate3Required: 9 },
-      message: `금융시스템 스트레스 경고 (FSI ${fsi.compositeScore}). Gate 기준 대폭 강화.`,
-    };
-  }
-
-  // ── CRISIS 감지: 극단적 공포 + 신용 위기 ──
-  if (vkospi > VKOSPI.EXTREME && vix > VIX.FEAR && macroHealthScore < MHS.DEFENSE) {
-    return {
-      mode: 'FULL_STOP',
-      cashRatio: 100,
-      gateAdjustment: { gate1Threshold: 10, gate2Required: 12, gate3Required: 10 },
-      message: `위기 레짐 감지 (VKOSPI ${vkospi}, VIX ${vix}, MHS ${macroHealthScore}). 전량 현금 전환. Gate 평가 사실상 중단.`,
-    };
-  }
-
-  // ── RANGE_BOUND 감지: 낮은 변동성 + 주도주 부재 + 외국인 방향성 없음 ──
-  if (kospi60dVol > 0 && kospi60dVol < 5 && leadingSectors === 0 && foreignFlow === 'ALTERNATING') {
-    return {
-      mode: 'PAIR_TRADE',
-      cashRatio: 60,
-      gateAdjustment: { gate1Threshold: 6, gate2Required: 10, gate3Required: 8 },
-      message: `박스권 횡보 감지 (60일 변동성 ${kospi60dVol}%, 주도섹터 0개). 페어트레이딩/현금 비중 확대 모드. Gate 기준 강화.`,
-    };
-  }
-
-  // ── UNCERTAIN 감지: 신호 혼조 (4축 모두 40~60 밴드 또는 상관관계 붕괴) ──
-  const { interestRateScore, liquidityScore, economicScore, riskScore } = gate0.details;
-  const allMidRange = [interestRateScore, liquidityScore, economicScore, riskScore]
-    .every(s => s >= 8 && s <= 17); // 각 축 0-25 중 중간 밴드
-  const correlationBreakdown = correlation < 0.3;
-
-  if (allMidRange || (correlationBreakdown && mhsLevel === 'MEDIUM')) {
-    return {
-      mode: 'DEFENSIVE',
-      cashRatio: 70,
-      gateAdjustment: { gate1Threshold: 6, gate2Required: 10, gate3Required: 8 },
-      message: `불확실성 레짐 감지 (${allMidRange ? '4축 신호 혼조' : '글로벌 상관관계 이탈'}). 현금 70%, Gate 기준 상향.`,
-    };
-  }
-
-  // ── 회복 초기 감지: 바닥 반등 신호 → Gate 완화 ──
-  if (baseRegime === 'RECOVERY' && macroEnv.bokRateDirection === 'CUTTING' && exportGrowth3mAvg > 0) {
-    return {
-      mode: 'NORMAL',
-      cashRatio: 20,
-      gateAdjustment: { gate1Threshold: 4, gate2Required: 8, gate3Required: 6 },
-      message: `회복 초기 감지 (금리 인하 + 수출 반등). Gate 기준 완화하여 초기 주도주 포착 강화.`,
-    };
-  }
-
-  // ── Bull Regime: KOSPI 20일선 위 + VKOSPI < 20 + MHS ≥ 70 → 공격 참여 기준 완화 ──
-  // Gate 1 (생존 5개) 는 절대 완화 금지. Gate 2/3만 완화하여 상승 초기 참여 강화.
-  if (options?.kospiAboveMa20 && vkospi < VKOSPI.CALM && macroHealthScore >= MHS.BULL) {
-    return {
-      mode: 'NORMAL',
-      cashRatio: 15,
-      gateAdjustment: { gate1Threshold: 5, gate2Required: 7, gate3Required: 5 },
-      message: `Bull Regime 선언 (KOSPI 20일선 위, VKOSPI ${vkospi.toFixed(1)}, MHS ${macroHealthScore}). Gate 2: 9→7, Gate 3: 7→5 완화. Gate 1은 유지.`,
-    };
-  }
-
-  // ── 정상 시장: 4단계 TradeRegime 기반 ──
-  if (mhsLevel === 'HIGH') {
-    // BULL_AGGRESSIVE는 Bull Regime 블록에서 이미 처리됨 (gate2:7, gate3:5)
-    // 여기는 BULL_NORMAL 진입 직전 (MHS≥70 + VKOSPI≥20): 기본 기준 적용
-    return {
-      mode: 'NORMAL',
-      cashRatio: 20,
-      gateAdjustment: { gate1Threshold: 5, gate2Required: 9, gate3Required: 7 },
-      message: '정상 Bull 시장. 기본 Gate 기준 적용.',
-    };
-  }
-
-  if (mhsLevel === 'MEDIUM') {
-    // BULL_NORMAL (MHS 50~69): 기존 DEFENSIVE(gate2:10)에서 완화
-    return {
-      mode: 'NORMAL',
-      cashRatio: 30,
-      gateAdjustment: { gate1Threshold: 5, gate2Required: 8, gate3Required: 6 },
-      message: `BULL_NORMAL (MHS ${macroHealthScore}). Gate 2: 8, Gate 3: 6. Kelly 70% 상한.`,
-    };
-  }
-
-  // mhsLevel === 'LOW' → NEUTRAL (MHS 30~49)
-  // MHS < 30은 buyingHalted로 이미 차단됨 — 여기는 30~49 구간
-  return {
-    mode: 'DEFENSIVE',
-    cashRatio: 50,
-    gateAdjustment: { gate1Threshold: 5, gate2Required: 9, gate3Required: 7 },
-    message: `NEUTRAL (MHS ${macroHealthScore}). 기본 Gate 기준, STRONG_BUY만 허용. Kelly 50% 상한.`,
-  };
-}
-
-/**
- * 확장 레짐 기반으로 기존 EconomicRegime 4단계를 7단계로 재분류.
- * AI가 반환한 baseRegime + Gate0 수치를 결합하여 최종 판정.
- */
-export function deriveExtendedRegime(
-  baseRegime: EconomicRegime | undefined,
-  gate0: Gate0Result | undefined,
-  macroEnv: MacroEnvironment | undefined,
-  options?: {
-    kospi60dVolatility?: number;
-    leadingSectorCount?: number;
-    foreignFlowDirection?: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING';
-    kospiSp500Correlation?: number;
-    kospiAboveMa20?: boolean;
-  }
-): EconomicRegime {
-  if (!gate0 || !macroEnv) return baseRegime ?? 'EXPANSION';
-
-  const { macroHealthScore } = gate0;
-  const { vkospi, vix } = macroEnv;
-  const kospi60dVol = options?.kospi60dVolatility ?? 0;
-  const leadingSectors = options?.leadingSectorCount ?? 3;
-  const foreignFlow = options?.foreignFlowDirection ?? 'ALTERNATING';
-  const correlation = options?.kospiSp500Correlation ?? 0.7;
-
-  // CRISIS
-  if (vkospi > VKOSPI.EXTREME && vix > VIX.FEAR && macroHealthScore < MHS.DEFENSE) return 'CRISIS';
-
-  // RANGE_BOUND
-  if (kospi60dVol > 0 && kospi60dVol < 5 && leadingSectors === 0 && foreignFlow === 'ALTERNATING') return 'RANGE_BOUND';
-
-  // UNCERTAIN
-  const { interestRateScore, liquidityScore, economicScore, riskScore } = gate0.details;
-  const allMidRange = [interestRateScore, liquidityScore, economicScore, riskScore].every(s => s >= 8 && s <= 17);
-  if (allMidRange || (correlation < 0.3 && gate0.mhsLevel === 'MEDIUM')) return 'UNCERTAIN';
-
-  return baseRegime ?? 'EXPANSION';
 }
 
 // ─── Position Sizing 계산기 ─────────────────────────────────────────────────
@@ -743,6 +179,8 @@ function computeBasePositionSize(ctx: {
   return { positionSize, recommendation };
 }
 
+// ─── Main Evaluation Function ────────────────────────────────────────────────
+
 export function evaluateStock(
   rawStockData: unknown,
   regime: MarketRegime,
@@ -782,7 +220,7 @@ export function evaluateStock(
     sectorReturn20d?: number;            // 섹터 ETF 20일 수익률 (%)
     macroEnv?: MacroEnvironment;         // 실시간 매크로 환경 (MAPC 계산용)
     // ROE 유형 전이 감지 입력
-    roeTypeHistory?: ROEType[];          // 최근 분기 ROE 유형 배열 (오래된→최신)
+    roeTypeHistory?: import('../../types/quant').ROEType[];          // 최근 분기 ROE 유형 배열 (오래된→최신)
     assetTurnoverHistory?: number[];     // 최근 2개 분기 총자산회전율 (오래된→최신)
     // 상승 초기 선취매 조건 입력 (Step 3)
     foreignPassiveActiveDays?: number;   // 외국인 Passive+Active 동반 순매수 일수
@@ -819,7 +257,7 @@ export function evaluateStock(
   const profile = getStockProfile(profileType);
 
   // ── Gate 0: 거시 환경 생존 게이트 ──────────────────────────────────────────
-  const gate0Result = macroEnv ? evaluateGate0(macroEnv) : undefined;
+  const gate0Result: Gate0Result | undefined = macroEnv ? evaluateGate0(macroEnv) : undefined;
 
   // 금리 사이클 도출
   const rateCycle: RateCycle = macroEnv
@@ -1187,81 +625,5 @@ export function evaluateStock(
     earlyBullEntry: earlyBullEntryResult,
     conditionScores: stockData as Record<ConditionId, number>,
     conditionSources: CONDITION_SOURCE_MAP,
-  };
-}
-
-// ─── IDEA 3: ROE 유형 전이 감지기 ────────────────────────────────────────────
-
-/**
- * ROE 유형 전이 감지
- *
- * 규칙 A — [3,3,3,4] 패턴: 최근 4분기 중 마지막이 Type 4 → Gate 1 패널티
- * 규칙 B — 총자산회전율 QoQ 하락 5% 이상: Type 3→4 전이 경보
- *
- * @param roeTypeHistory  최근 분기 ROE 유형 배열 (오래된 것→최신 순)
- * @param assetTurnoverHistory  최근 2개 분기 총자산회전율 (오래된 것→최신 순, 없으면 [])
- */
-export function detectROETransition(
-  roeTypeHistory: ROEType[],
-  assetTurnoverHistory: number[] = [],
-): ROETransitionResult {
-  const pattern = roeTypeHistory.slice(-4);
-  const len = pattern.length;
-
-  // 규칙 A: [3,3,3,4] 패턴 — 최근 분기가 4이고 직전 3개 이상이 3
-  const latestIsType4 = len >= 1 && pattern[len - 1] === 4;
-  const prev3AllType3 = len >= 4 && pattern.slice(0, len - 1).every(t => t === 3);
-  const ruleA = latestIsType4 && prev3AllType3;
-
-  // 연속 Type 4 카운트 (끝에서 역순)
-  let consecutiveType4Count = 0;
-  for (let i = pattern.length - 1; i >= 0; i--) {
-    if (pattern[i] === 4) consecutiveType4Count++;
-    else break;
-  }
-
-  // 규칙 B: 총자산회전율 QoQ 하락 5% 이상
-  let assetTurnoverDropPct = 0;
-  if (assetTurnoverHistory.length >= 2) {
-    const prev = assetTurnoverHistory[assetTurnoverHistory.length - 2];
-    const curr = assetTurnoverHistory[assetTurnoverHistory.length - 1];
-    if (prev > 0) assetTurnoverDropPct = ((prev - curr) / prev) * 100;
-  }
-  const ruleB = assetTurnoverDropPct >= 5;
-
-  const detected = ruleA || ruleB;
-
-  let transitionType: ROETransitionResult['transitionType'] = 'NONE';
-  if (ruleA && ruleB) transitionType = 'BOTH';
-  else if (ruleA) transitionType = 'TYPE3_TO_4';
-  else if (ruleB) transitionType = 'ASSET_TURNOVER_DROP';
-
-  // alert 수준: PENALTY(Gate 1 패널티) / WATCH(1분기만 감지) / NONE
-  let alert: ROETransitionResult['alert'] = 'NONE';
-  if (ruleA || (ruleB && latestIsType4)) alert = 'PENALTY';
-  else if (latestIsType4 || ruleB) alert = 'WATCH';
-
-  const penaltyApplied = alert === 'PENALTY';
-
-  let actionMessage = '이상 없음 — ROE 유형 안정적';
-  if (transitionType === 'BOTH') {
-    actionMessage = '⛔ ROE 유형 3→4 전이 확인 + 총자산회전율 QoQ 하락 — Gate 1 패널티 자동 적용';
-  } else if (transitionType === 'TYPE3_TO_4') {
-    actionMessage = '⛔ [3,3,3,4] 패턴 감지 — 매출 성장 동력 소실, Gate 1 패널티 자동 적용';
-  } else if (transitionType === 'ASSET_TURNOVER_DROP') {
-    actionMessage = `⚠️ 총자산회전율 QoQ ${assetTurnoverDropPct.toFixed(1)}% 하락 — Type 3→4 전이 경보`;
-  } else if (alert === 'WATCH') {
-    actionMessage = `⚠️ Type 4 분기 감지 (연속 ${consecutiveType4Count}분기) — 추가 분기 확인 필요`;
-  }
-
-  return {
-    detected,
-    pattern,
-    transitionType,
-    consecutiveType4Count,
-    assetTurnoverDropPct,
-    alert,
-    penaltyApplied,
-    actionMessage,
   };
 }
