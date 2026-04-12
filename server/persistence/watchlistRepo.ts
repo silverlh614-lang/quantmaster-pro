@@ -16,6 +16,8 @@ export interface WatchlistEntry {
   rrr?: number;                    // Risk-Reward Ratio (목표가-진입가) / (진입가-손절가)
   conditionKeys?: string[];        // 아이디어 6: 진입 당시 통과한 Gate 조건 키 목록
   profileType?: 'A' | 'B' | 'C' | 'D'; // 종목 프로파일 (A=대형주도 B=중형성장 C=소형모멘텀 D=촉매)
+  entryRegime?: string;   // 진입 시 레짐 (AI 파이프라인 메타)
+  expiresAt?: string;     // 자동 만료 시각 ISO — AI 파이프라인 추가 항목만 설정
 }
 
 export function loadWatchlist(): WatchlistEntry[] {

@@ -14,6 +14,10 @@ import {
 } from './alerts/reportGenerator.js';
 import { checkDailyLossLimit } from './emergency.js';
 import { refreshMarketRegimeVars } from './trading/marketDataRefresh.js';
+import { loadMacroState } from './persistence/macroStateRepo.js';
+import { getLiveRegime } from './trading/regimeBridge.js';
+import { runFullDiscoveryPipeline } from './screener/universeScanner.js';
+import { cleanupWatchlist } from './screener/watchlistManager.js';
 
 export function startScheduler() {
   // ─── 아이디어 1: TradingDayOrchestrator — 장 사이클 State Machine ────────
@@ -100,5 +104,19 @@ export function startScheduler() {
     await sendIntradayCheckIn('preclose').catch(console.error);
   }, { timezone: 'UTC' });
 
-  console.log('[Scheduler] 15개 cron 작업 등록 완료');
+  // 자동 발굴 파이프라인 — 평일 08:35 KST (UTC 23:35, 일~목)
+  // Stage1(Yahoo스캔) → Stage2(Gate+섹터) → Stage3(Gemini배치) → 워치리스트 등록
+  cron.schedule('35 23 * * 0-4', async () => {
+    const macroState = loadMacroState();
+    const regime     = getLiveRegime(macroState);
+    await runFullDiscoveryPipeline(regime, macroState).catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // 워치리스트 자동 정리 — 평일 16:00 KST (UTC 07:00, 월~금)
+  // expiresAt 초과 항목 제거 + 최대 20개 유지
+  cron.schedule('0 7 * * 1-5', async () => {
+    await cleanupWatchlist().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  console.log('[Scheduler] 17개 cron 작업 등록 완료');
 }
