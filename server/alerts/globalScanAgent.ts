@@ -252,7 +252,7 @@ export async function runGlobalScanAgent(): Promise<void> {
     `3. 주요 리스크 또는 회피할 섹터\n\n` +
     `JSON·마크다운 없이 순수 텍스트만 출력하라.`;
 
-  const aiSummary = await callGemini(prompt).catch(() => null);
+  const aiSummary = await callGemini(prompt, 'global-scan').catch(() => null);
 
   // ── 5. 보고서 저장 ───────────────────────────────────────────────────────
   const report: GlobalScanReport = {

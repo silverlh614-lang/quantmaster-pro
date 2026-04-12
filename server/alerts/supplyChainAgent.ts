@@ -247,7 +247,7 @@ export async function runSupplyChainScan(): Promise<void> {
     `"significance": "HIGH|MEDIUM|LOW"}]\n` +
     `뉴스가 없으면 빈 배열 []을 반환하라. JSON 외 텍스트는 출력하지 마라.`;
 
-  const raw = await callGeminiWithSearch(prompt).catch(() => null);
+  const raw = await callGeminiWithSearch(prompt, 'supply-chain').catch(() => null);
   if (!raw) {
     console.warn('[SupplyChain] Gemini Search 응답 없음 — 스킵');
     return;

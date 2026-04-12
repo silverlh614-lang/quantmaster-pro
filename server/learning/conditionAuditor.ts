@@ -231,7 +231,7 @@ async function proposeNewConditions(winTrades: RecommendationRecord[]): Promise<
     '외부 검색 불필요. 제공된 데이터만 분석하세요.',
   ].join('\n');
 
-  const suggestion = await callGemini(prompt);
+  const suggestion = await callGemini(prompt, 'condition-auditor');
   if (suggestion) {
     await sendTelegramAlert(
       `💡 <b>[Condition Auditor] 신규 조건 후보 제안</b>\n\n${suggestion}`,

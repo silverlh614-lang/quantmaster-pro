@@ -72,7 +72,7 @@ export async function generateDailyReport(): Promise<void> {
     dataBlock,
   ].join('\n');
 
-  const narrative = await callGemini(geminiPrompt);
+  const narrative = await callGemini(geminiPrompt, 'report-generator');
 
   // ── Telegram 발송 (메인 채널) ──────────────────────────────────────────────
   const telegramMsg = narrative
