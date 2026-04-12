@@ -20,6 +20,8 @@ import type { FeedbackLoopResult } from '../types/portfolio';
 import type { MHSRecord } from '../components/MHSHistoryChart';
 import type { SectorEnergyInput, SectorEnergyResult } from '../types/sectorEnergy';
 import type { FlowPredictionInput, FlowPredictionResult } from '../types/flowPrediction';
+import type { SatelliteCascaderInput, SatelliteCascaderResult } from '../types/satellite';
+import type { BehavioralMirrorInput, BehavioralMirrorResult } from '../types/behavioralMirror';
 
 interface GlobalIntelState {
   // Core macro
@@ -177,6 +179,22 @@ interface GlobalIntelState {
   /** 수급 예측 선행 모델 계산 결과 */
   flowPredictionResult: FlowPredictionResult | null;
   setFlowPredictionResult: (data: FlowPredictionResult | null) => void;
+
+  // ── 위성 종목 연쇄 추적 시스템 (Satellite Stock Cascader) ────────────────
+  /** 위성 종목 추적 입력값 (퍼시스트) */
+  satelliteCascaderInput: SatelliteCascaderInput | null;
+  setSatelliteCascaderInput: (input: SatelliteCascaderInput | null) => void;
+  /** 위성 종목 추적 계산 결과 */
+  satelliteCascaderResult: SatelliteCascaderResult | null;
+  setSatelliteCascaderResult: (data: SatelliteCascaderResult | null) => void;
+
+  // ── 투자자 행동 교정 미러 대시보드 (Behavioral Mirror Dashboard) ─────────
+  /** 행동 교정 미러 입력값 (퍼시스트) */
+  behavioralMirrorInput: BehavioralMirrorInput;
+  setBehavioralMirrorInput: (input: BehavioralMirrorInput) => void;
+  /** 행동 교정 미러 계산 결과 */
+  behavioralMirrorResult: BehavioralMirrorResult | null;
+  setBehavioralMirrorResult: (data: BehavioralMirrorResult | null) => void;
 
   // Bulk setter for initial load
   setAllMacroData: (data: Partial<GlobalIntelState>) => void;
@@ -363,6 +381,22 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       flowPredictionResult: null,
       setFlowPredictionResult: (flowPredictionResult) => set({ flowPredictionResult }),
 
+      // ── 위성 종목 연쇄 추적 시스템
+      satelliteCascaderInput: null,
+      setSatelliteCascaderInput: (satelliteCascaderInput) => set({ satelliteCascaderInput }),
+      satelliteCascaderResult: null,
+      setSatelliteCascaderResult: (satelliteCascaderResult) => set({ satelliteCascaderResult }),
+
+      // ── 투자자 행동 교정 미러 대시보드
+      behavioralMirrorInput: {
+        currentRegime: 'BULL',
+        openPositions: [],
+        upcomingEvents: [],
+      },
+      setBehavioralMirrorInput: (behavioralMirrorInput) => set({ behavioralMirrorInput }),
+      behavioralMirrorResult: null,
+      setBehavioralMirrorResult: (behavioralMirrorResult) => set({ behavioralMirrorResult }),
+
       setAllMacroData: (data) => set(data as any),
     }),
     {
@@ -381,6 +415,8 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
         dynamicStopInput: state.dynamicStopInput,
         sectorEnergyInputs: state.sectorEnergyInputs,
         flowPredictionInput: state.flowPredictionInput,
+        satelliteCascaderInput: state.satelliteCascaderInput,
+        behavioralMirrorInput: state.behavioralMirrorInput,
       }),
     }
   )
