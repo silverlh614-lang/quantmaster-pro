@@ -7,6 +7,7 @@ import {
 import { evaluateSectorOverheat } from '../services/quant/sectorEngine';
 import { evaluateBearModeSimulator } from '../services/quant/bearEngine';
 import { evaluateMAPCResult } from '../services/quant/gateEngine';
+import { evaluateMarketRegimeClassifier } from '../services/quant/marketRegimeClassifier';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { BearKellyPanel } from './BearKellyPanel';
 import { SectorOverheatPanel } from './SectorOverheatPanel';
@@ -14,6 +15,8 @@ import { BearModeSimulatorPanel } from './BearModeSimulatorPanel';
 import { IPSPanel } from './IPSPanel';
 import { FSSPanel } from './FSSPanel';
 import { MAPCPanel } from './MAPCPanel';
+import { MarketRegimeClassifierPanel } from './MarketRegimeClassifierPanel';
+import { PositionLifecyclePanel } from './PositionLifecyclePanel';
 import { RegimeGaugeSection } from './macro/RegimeGaugeSection';
 import { BearRegimeSection } from './macro/BearRegimeSection';
 import { MarketOverviewSection } from './macro/MarketOverviewSection';
@@ -63,6 +66,10 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const ipsResult = useGlobalIntelStore(s => s.ipsResult);
   const fssResult = useGlobalIntelStore(s => s.fssResult);
   const macroEnv = useGlobalIntelStore(s => s.macroEnv);
+  const marketRegimeClassifierInput = useGlobalIntelStore(s => s.marketRegimeClassifierInput);
+  const setMarketRegimeClassifierInput = useGlobalIntelStore(s => s.setMarketRegimeClassifierInput);
+  const marketRegimeClassifierResult = useGlobalIntelStore(s => s.marketRegimeClassifierResult);
+  const setMarketRegimeClassifierResult = useGlobalIntelStore(s => s.setMarketRegimeClassifierResult);
 
   const mapcResult = useMemo(() => {
     if (!gate0Result || !macroEnv) return null;
@@ -77,6 +84,14 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
     [setSectorOverheatInputs, setSectorOverheatResult],
   );
 
+  const handleMarketRegimeClassifierInputsChange = useCallback(
+    (inputs: typeof marketRegimeClassifierInput) => {
+      setMarketRegimeClassifierInput(inputs);
+      setMarketRegimeClassifierResult(evaluateMarketRegimeClassifier(inputs));
+    },
+    [setMarketRegimeClassifierInput, setMarketRegimeClassifierResult],
+  );
+
   const handleBearModeSimulatorInputsChange = useCallback(
     (inputs: typeof bearModeSimulatorInputs) => {
       setBearModeSimulatorInputs(inputs);
@@ -89,6 +104,16 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
     <div className="space-y-10">
 
       <RegimeGaugeSection gate0Result={gate0Result} externalRegime={externalRegime} />
+
+      {/* 시장 레짐 자동 분류기 — Gate 임계값 마스터 컨트롤 엔진 */}
+      <MarketRegimeClassifierPanel
+        result={marketRegimeClassifierResult}
+        inputs={marketRegimeClassifierInput}
+        onInputsChange={handleMarketRegimeClassifierInputsChange}
+      />
+
+      {/* 포지션 생애주기 완전 자동화 — 5단계 매도 체계 */}
+      <PositionLifecyclePanel />
 
       <BearRegimeSection />
 

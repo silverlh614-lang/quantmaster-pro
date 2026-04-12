@@ -11,6 +11,8 @@ import type {
   BearModeSimulatorInput, BearModeSimulatorResult,
   IpsResult,
   FssResult,
+  MarketRegimeClassifierInput,
+  MarketRegimeClassifierResult,
 } from '../types/quant';
 import type { MHSRecord } from '../components/MHSHistoryChart';
 
@@ -105,6 +107,14 @@ interface GlobalIntelState {
   // ── 아이디어 4: FSS 외국인 수급 방향 전환 스코어 ───────────────────────
   fssResult: FssResult | null;
   setFssResult: (data: FssResult | null) => void;
+
+  // ── 시장 레짐 자동 분류기 (Market Regime Classifier) ─────────────────
+  /** 시장 레짐 분류기 입력값 (퍼시스트) */
+  marketRegimeClassifierInput: MarketRegimeClassifierInput;
+  setMarketRegimeClassifierInput: (input: MarketRegimeClassifierInput) => void;
+  /** 시장 레짐 분류기 계산 결과 */
+  marketRegimeClassifierResult: MarketRegimeClassifierResult | null;
+  setMarketRegimeClassifierResult: (data: MarketRegimeClassifierResult | null) => void;
 
   // ROE type
   currentRoeType: ROEType;
@@ -207,6 +217,16 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       fssResult: null,
       setFssResult: (fssResult) => set({ fssResult }),
 
+      marketRegimeClassifierInput: {
+        vkospi: 20,
+        foreignNetBuy4wTrend: 0,
+        kospiAbove200MA: true,
+        dxyDirection: 'FLAT',
+      },
+      setMarketRegimeClassifierInput: (marketRegimeClassifierInput) => set({ marketRegimeClassifierInput }),
+      marketRegimeClassifierResult: null,
+      setMarketRegimeClassifierResult: (marketRegimeClassifierResult) => set({ marketRegimeClassifierResult }),
+
       currentRoeType: 3,
       setCurrentRoeType: (currentRoeType) => set({ currentRoeType }),
       roeTypeHistory: [3, 3, 3],
@@ -237,6 +257,7 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
         bearKellyEntryDate: state.bearKellyEntryDate,
         sectorOverheatInputs: state.sectorOverheatInputs,
         bearModeSimulatorInputs: state.bearModeSimulatorInputs,
+        marketRegimeClassifierInput: state.marketRegimeClassifierInput,
       }),
     }
   )

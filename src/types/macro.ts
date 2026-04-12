@@ -357,3 +357,76 @@ export interface FssResult {
   supplyExitDefenseRecommended: boolean;
   lastUpdated: string;
 }
+
+// ─── 시장 레짐 자동 분류기 (Market Regime Classifier) ────────────────────────────
+
+/**
+ * 4개 변수 기반 시장 레짐 4단계 분류.
+ *
+ * RISK_ON_BULL     — Gate 2 완화(9→8/12), 공격적 포지션 허용
+ * RISK_ON_EARLY    — 표준 기준 유지, 주도주 초기 신호 포착
+ * RISK_OFF_CORRECTION — Gate 1 강화, 포지션 50% 제한
+ * RISK_OFF_CRISIS  — Gate 1 3개 이상 미충족 시 신규 매수 전면 중단, 현금 70%+
+ */
+export type MarketRegimeClassification =
+  | 'RISK_ON_BULL'
+  | 'RISK_ON_EARLY'
+  | 'RISK_OFF_CORRECTION'
+  | 'RISK_OFF_CRISIS';
+
+/** evaluateMarketRegimeClassifier()의 입력 — 4개 핵심 변수 */
+export interface MarketRegimeClassifierInput {
+  /** VKOSPI 현재값 (한국 공포지수) */
+  vkospi: number;
+  /** 외국인 순매수 4주 누적 (억원, 양수=순매수, 음수=순매도) */
+  foreignNetBuy4wTrend: number;
+  /** KOSPI 200일 이동평균선 위 여부 */
+  kospiAbove200MA: boolean;
+  /** 달러 인덱스 5일 방향 */
+  dxyDirection: 'UP' | 'DOWN' | 'FLAT';
+}
+
+/** 시장 레짐 자동 분류기 평가 결과 */
+export interface MarketRegimeClassifierResult {
+  /** 분류된 레짐 */
+  classification: MarketRegimeClassification;
+
+  /**
+   * Gate 2 통과 기준 오버라이드 (12개 기준).
+   * null이면 기존 기준 유지.
+   * RISK_ON_BULL: 8 (9→8 완화)
+   */
+  gate2RequiredOverride: number | null;
+
+  /** Gate 1 강화 여부 (RISK_OFF_CORRECTION 이상) */
+  gate1Strengthened: boolean;
+
+  /**
+   * 포지션 사이즈 허용 한도 (0~100%).
+   * 100 = 제한 없음, 50 = 50% 제한.
+   */
+  positionSizeLimitPct: number;
+
+  /** 신규 매수 전면 중단 여부 */
+  buyingHalted: boolean;
+
+  /**
+   * 현금 비중 최소 유지 비율 (0~100%).
+   * 0 = 무제한, 70 = 70% 이상 현금 유지.
+   */
+  cashRatioMinPct: number;
+
+  /** Gate 1 위반 최소 개수 기준 (RISK_OFF_CRISIS에서 3개 이상) */
+  gate1BreachThreshold: number;
+
+  /** 평가에 사용된 입력값 (투명성/로깅용) */
+  inputs: MarketRegimeClassifierInput;
+
+  /** 레짐 설명 메시지 */
+  description: string;
+
+  /** 운용 지침 메시지 */
+  actionMessage: string;
+
+  lastUpdated: string;
+}

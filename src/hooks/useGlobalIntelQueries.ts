@@ -21,6 +21,7 @@ import { evaluateGate0 } from '../services/quant/gateEngine';
 import { evaluateBearRegime, evaluateBearSeasonality, evaluateVkospiTrigger, evaluateInverseGate1, evaluateMarketNeutral, evaluateBearScreener, evaluateBearKelly } from '../services/quant/bearEngine';
 import { evaluateIPS } from '../services/quant/ipsEngine';
 import { computeFSS } from '../services/quant/fssEngine';
+import { evaluateMarketRegimeClassifier } from '../services/quant/marketRegimeClassifier';
 import { syncGate0ToServer } from '../services/autoTrading';
 import { getStaleTime, PERSIST_GC_TIME } from '../utils/cacheConfig';
 
@@ -73,6 +74,8 @@ export function useBatchGlobalIntel() {
   const setBearKellyResult = useGlobalIntelStore(s => s.setBearKellyResult);
   const bearKellyEntryDate = useGlobalIntelStore(s => s.bearKellyEntryDate);
   const setIpsResult = useGlobalIntelStore(s => s.setIpsResult);
+  const setMarketRegimeClassifierResult = useGlobalIntelStore(s => s.setMarketRegimeClassifierResult);
+  const marketRegimeClassifierInput = useGlobalIntelStore(s => s.marketRegimeClassifierInput);
 
   return useQuery({
     queryKey: ['batch-global-intel'],
@@ -118,6 +121,13 @@ export function useBatchGlobalIntel() {
 
         // IPS 통합 변곡점 확률 엔진 (아이디어 11)
         setIpsResult(evaluateIPS(data.macro, g0, bearResult));
+
+        // 시장 레짐 자동 분류기 — VKOSPI 기반으로 자동 보완하여 계산
+        const classifierInput = {
+          ...marketRegimeClassifierInput,
+          vkospi: data.macro.vkospi,
+        };
+        setMarketRegimeClassifierResult(evaluateMarketRegimeClassifier(classifierInput));
 
         // 서버 MacroState 동기화 — classifyRegime() 파이프라인 공급
         syncGate0ToServer(data.macro, g0).catch(console.warn);
