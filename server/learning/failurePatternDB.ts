@@ -82,6 +82,14 @@ export interface FailureWarning {
     similarity: number;
     returnPct: number;
     exitDate: string;
+    /** Gate 2 통과 조건 수 (12개 기준) */
+    gate2PassCount?: number | null;
+    /** RS 상위 백분위 (%) */
+    rsPercentile?: number | null;
+    /** VKOSPI 수치 */
+    vkospi?: number | null;
+    /** 섹터명 */
+    sector?: string | null;
   }>;
 }
 
@@ -126,6 +134,10 @@ export function checkFailurePattern(
     similarity: parseFloat((m.similarity * 100).toFixed(1)),
     returnPct: m.entry.returnPct,
     exitDate: m.entry.exitDate.slice(0, 10),
+    gate2PassCount: m.entry.gate2PassCount ?? null,
+    rsPercentile: m.entry.rsPercentile ?? null,
+    vkospi: m.entry.vkospi ?? null,
+    sector: m.entry.sector ?? null,
   }));
 
   const hasWarning = matches.length > 0;
@@ -135,10 +147,17 @@ export function checkFailurePattern(
     message = `실패 패턴 DB ${db.length}건 중 유사 패턴 없음 — 진입 패턴 안전.`;
   } else {
     const topMatch = topMatches[0];
+    // 컨텍스트 정보 포함 (있는 경우만 추가)
+    const contextParts: string[] = [];
+    if (topMatch.gate2PassCount != null) contextParts.push(`Gate 2: ${topMatch.gate2PassCount}/12`);
+    if (topMatch.rsPercentile != null) contextParts.push(`RS: 상위 ${topMatch.rsPercentile}%`);
+    if (topMatch.vkospi != null) contextParts.push(`VKOSPI: ${topMatch.vkospi}`);
+    if (topMatch.sector) contextParts.push(`섹터: ${topMatch.sector}`);
+    const contextStr = contextParts.length > 0 ? ` [${contextParts.join(' / ')}]` : '';
     message =
-      `⚠️ 이 진입 패턴은 과거 ${db.length}건 중 ${matches.length}건 손절됨 ` +
-      `(최고 유사도 ${topMatch.similarity}%). ` +
-      `최근 사례: ${topMatch.stockName} (${topMatch.returnPct.toFixed(1)}% 손절, ${topMatch.exitDate})`;
+      `⚠️ 이 진입 패턴 과거 ${matches.length}회 중 ${matches.length}회 손절됨 ` +
+      `(유사도 ${topMatch.similarity}%)${contextStr}. ` +
+      `최근: ${topMatch.stockName} (${topMatch.returnPct.toFixed(1)}%, ${topMatch.exitDate})`;
   }
 
   return {

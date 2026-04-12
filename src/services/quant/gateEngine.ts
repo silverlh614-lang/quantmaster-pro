@@ -54,6 +54,8 @@ export { getFXAdjustmentFactor, getRateCycleAdjustment } from './fxRateCycleEngi
 export { computeContrarianSignals } from './contrarianEngine';
 export { evaluateEarlyBullEntry, classifyExtendedRegime, deriveExtendedRegime } from './extendedRegimeEngine';
 export { detectROETransition } from './roeEngine';
+export { detectContradictions } from './contradictionDetector';
+export { evaluateTimingSync, tradingDaysBetween } from './timingSyncEngine';
 
 // ── 서브모듈 직접 import (evaluateStock 내부에서 사용) ───────────────────────
 import { evaluateGate0, evaluateMAPCResult } from './macroEngine';
@@ -61,6 +63,8 @@ import { getFXAdjustmentFactor, getRateCycleAdjustment } from './fxRateCycleEngi
 import { computeContrarianSignals } from './contrarianEngine';
 import { evaluateEarlyBullEntry, classifyExtendedRegime, deriveExtendedRegime } from './extendedRegimeEngine';
 import { detectROETransition } from './roeEngine';
+import { detectContradictions } from './contradictionDetector';
+import { evaluateTimingSync } from './timingSyncEngine';
 
 // ─── 아이디어 9: evaluateStock 입력 유효성 검증 스키마 ────────────────────────────
 
@@ -245,6 +249,7 @@ export function evaluateStock(
     kospiAboveMa20?: boolean;            // Bull Regime 판단용 (Step 1)
   },
   stockSector?: string, // 종목 섹터 (조선/반도체 등) — BDI/SEMI Gate 조정용
+  conditionPassTimestamps?: Partial<Record<ConditionId, string>>, // 조건 통과 시점 ISO 문자열 (Timing Sync 계산용)
 ): EvaluationResult {
   // ── 아이디어 9: Zod 런타임 입력 검증 ──────────────────────────────────────────
   const parsed = StockDataSchema.safeParse(rawStockData);
@@ -443,7 +448,12 @@ export function evaluateStock(
   const gate3Threshold = Math.max(4, gate3BaseThreshold - gate3RelaxBonus);
   const gate3PassCount = GATE3_IDS.filter(id => (stockData[id] ?? 0) >= 5).length;
   const gate3Passed = gate3PassCount >= gate3Threshold;
-  const gate3Score = calculateScore(GATE3_IDS);
+  const gate3ScoreRaw = calculateScore(GATE3_IDS);
+
+  // ── 상충 감지기 (Contradiction Detector) ──────────────────────────────────
+  const contradictionDetection = detectContradictions(stockData);
+  // 상충 쌍 감지 시 Gate 3 점수 -20% 패널티 적용
+  const gate3Score = gate3ScoreRaw * contradictionDetection.gate3PenaltyMultiplier;
 
   // FX 조정 팩터 반영: 수출주/내수주 비대칭 환율 영향 내재화
   let finalScore = gate2Score + gate3Score + fxAdjustmentFactor;
@@ -555,7 +565,13 @@ export function evaluateStock(
   // 주의: CONFIRMED_STRONG_BUY라도 Gate 0 매수중단/비상정지/크레딧위기를 무시하면 안됨
   const gate0Blocked = gate0Result?.buyingHalted || emergencyStop || creditCrisis;
   if (signalVerdict.grade === 'CONFIRMED_STRONG_BUY' && !gate0Blocked && positionSize > 0) {
-    positionSize = Math.max(positionSize, 20);
+    // 상충 감지 시 CONFIRMED_STRONG_BUY 등급 금지 — 포지션 축소
+    if (contradictionDetection.strongBuyBlocked) {
+      positionSize = Math.min(positionSize, 10); // 최대 10%로 제한
+      recommendation = '절반 포지션';
+    } else {
+      positionSize = Math.max(positionSize, 20);
+    }
   } else if (signalVerdict.grade === 'BUY' && signalVerdict.isEarlyBullEntry && !gate3Passed) {
     // 상승 초기 선취매: Gate 3 미달이어도 BUY 50% 포지션 허용
     positionSize = Math.max(positionSize, 10);
@@ -579,6 +595,12 @@ export function evaluateStock(
   }
 
   positionSize = Math.max(0, positionSize);
+
+  // ── Timing Sync Score ────────────────────────────────────────────────────
+  const timingSync = evaluateTimingSync(
+    stockData as Record<ConditionId, number>,
+    conditionPassTimestamps ?? {},
+  );
 
   return {
     gate0Result,
@@ -625,5 +647,7 @@ export function evaluateStock(
     earlyBullEntry: earlyBullEntryResult,
     conditionScores: stockData as Record<ConditionId, number>,
     conditionSources: CONDITION_SOURCE_MAP,
+    contradictionDetection,
+    timingSync,
   };
 }

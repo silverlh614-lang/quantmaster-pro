@@ -5,6 +5,8 @@ import { TMAPanel } from './TMAPanel';
 import { SRRPanel } from './SRRPanel';
 import { MAPCPanel } from './MAPCPanel';
 import { ROETransitionPanel } from './ROETransitionPanel';
+import { ContradictionDetectorPanel } from './ContradictionDetectorPanel';
+import { TimingSyncPanel } from './TimingSyncPanel';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { detectROETransition } from '../services/quant/gateEngine';
 import { MacroIntelligenceDashboard } from './MacroIntelligenceDashboard';
@@ -116,6 +118,20 @@ export const QuantDashboard: React.FC<Props> = ({
             onAssetTurnoverHistoryChange={setAssetTurnoverHistory}
           />
         </div>
+
+        {/* 조건 간 상충 감지기 */}
+        {result.contradictionDetection && (
+          <div className="mb-8">
+            <ContradictionDetectorPanel result={result.contradictionDetection} />
+          </div>
+        )}
+
+        {/* 조건 통과 시점 동기화 스코어 */}
+        {result.timingSync && (
+          <div className="mb-8">
+            <TimingSyncPanel result={result.timingSync} />
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
           <EnemyChecklistSection result={result} />
