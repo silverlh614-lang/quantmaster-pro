@@ -28,13 +28,16 @@ const SIMILARITY_THRESHOLD = 0.85; // 85% 이상이면 경고
 
 // ─── 벡터 연산 ────────────────────────────────────────────────────────────────
 
+/** 27조건 고정 벡터 차원 */
+const CONDITION_VECTOR_SIZE = 27;
+
 /**
  * conditionScores Record를 고정 차원 벡터로 변환 (조건 ID 1~27).
  * 없는 조건은 0으로 채운다.
  */
 function toVector(scores: Record<number, number>): number[] {
   const vec: number[] = [];
-  for (let id = 1; id <= 27; id++) {
+  for (let id = 1; id <= CONDITION_VECTOR_SIZE; id++) {
     vec.push(scores[id] ?? 0);
   }
   return vec;
@@ -43,11 +46,14 @@ function toVector(scores: Record<number, number>): number[] {
 /**
  * 두 벡터의 코사인 유사도를 계산한다.
  * 영벡터가 포함되면 0을 반환한다.
+ * 입력 벡터는 CONDITION_VECTOR_SIZE(27) 차원으로 잘린다 (루프 경계 고정).
  */
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) return 0;
   let dot = 0, normA = 0, normB = 0;
-  for (let i = 0; i < a.length; i++) {
+  // 고정 차원 경계(27)로 루프 제한 — user-controlled 길이에 의존하지 않음
+  const len = Math.min(a.length, b.length, CONDITION_VECTOR_SIZE);
+  for (let i = 0; i < len; i++) {
     dot += a[i] * b[i];
     normA += a[i] * a[i];
     normB += b[i] * b[i];
