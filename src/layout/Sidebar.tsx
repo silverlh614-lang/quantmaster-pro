@@ -72,7 +72,7 @@ export function Sidebar() {
           className="flex items-center gap-3 group/logo"
         >
           <div className="relative">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/20 group-hover/logo:shadow-orange-500/40 transition-all">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/25 group-hover/logo:shadow-blue-500/40 transition-all">
               <Zap className="w-5 h-5 text-white" />
             </div>
             {syncStatus.isSyncing && (
@@ -81,7 +81,7 @@ export function Sidebar() {
           </div>
           <div className="flex flex-col leading-none">
             <span className="text-sm font-black text-theme-text tracking-tight">QuantMaster</span>
-            <span className="text-[10px] font-bold text-orange-400">Pro</span>
+            <span className="text-[10px] font-bold text-blue-400">Pro</span>
           </div>
         </button>
       </div>
@@ -106,17 +106,17 @@ export function Sidebar() {
                     className={cn(
                       'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold transition-all group/nav',
                       isActive
-                        ? 'bg-orange-500/15 text-orange-400 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.2)]'
+                        ? 'bg-blue-500/12 text-blue-400 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.15)]'
                         : 'text-theme-text-secondary hover:text-theme-text hover:bg-theme-surface'
                     )}
                   >
-                    <Icon className={cn('w-4 h-4 shrink-0', isActive ? 'text-orange-400' : 'text-theme-text-muted group-hover/nav:text-theme-text-secondary')} />
+                    <Icon className={cn('w-4 h-4 shrink-0', isActive ? 'text-blue-400' : 'text-theme-text-muted group-hover/nav:text-theme-text-secondary')} />
                     <span className="truncate">{item.label}</span>
                     {item.count != null && item.count > 0 && (
                       <span className={cn(
                         'ml-auto text-[10px] font-black px-1.5 py-0.5 rounded-md font-num',
                         isActive
-                          ? 'bg-orange-500/25 text-orange-300'
+                          ? 'bg-blue-500/20 text-blue-300'
                           : 'bg-theme-surface text-theme-text-muted'
                       )}>
                         {item.count}
@@ -134,7 +134,7 @@ export function Sidebar() {
       <div className="border-t border-theme-border p-3 space-y-1 shrink-0">
         <button
           onClick={() => setShowMasterChecklist(true)}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold text-theme-text-muted hover:text-orange-400 hover:bg-orange-500/[0.06] transition-all"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold text-theme-text-muted hover:text-blue-400 hover:bg-blue-500/[0.06] transition-all"
         >
           <ShieldCheck className="w-4 h-4" />
           <span>체크리스트</span>

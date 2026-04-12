@@ -107,7 +107,7 @@ export default function App() {
   // RENDER — Sidebar + Main Content Layout
   // =========================================================================
   return (
-    <div className="min-h-screen bg-theme-bg text-theme-text font-sans selection:bg-orange-500/30 selection:text-white antialiased overflow-x-hidden">
+    <div className="min-h-screen bg-theme-bg text-theme-text font-sans selection:bg-blue-500/30 selection:text-white antialiased overflow-x-hidden ambient-glow">
       <Toaster position="top-center" expand={false} richColors theme="dark" />
 
       {/* Global Modals */}

@@ -62,12 +62,23 @@ export function WatchlistHeader({
           animate={{ opacity: 1, y: 0 }}
           className="lg:col-span-2 glass-3d rounded-2xl sm:rounded-3xl p-6 sm:p-10 lg:p-14 relative overflow-hidden group"
         >
+          {/* Ambient glow orbs inside card */}
+          <div className="absolute -top-32 -left-32 w-80 h-80 bg-blue-500/[0.07] blur-[120px] rounded-full pointer-events-none" />
+          <div className="absolute -bottom-32 -right-32 w-80 h-80 bg-violet-500/[0.05] blur-[120px] rounded-full pointer-events-none" />
+
           <div className="relative z-10">
-            <h2 className="text-3xl sm:text-5xl lg:text-7xl font-bold mb-4 sm:mb-6 leading-[1.1] tracking-tight text-glow">
-              <span className="text-orange-500 text-glow-orange">QuantMaster Pro</span>
+            {/* Pill badge like reference */}
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-blue-500/20 bg-blue-500/[0.06] mb-6">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+              <span className="text-[10px] sm:text-[11px] font-bold text-blue-400 uppercase tracking-widest">AI-Powered Analysis</span>
+            </div>
+
+            <h2 className="text-3xl sm:text-5xl lg:text-6xl font-bold mb-4 sm:mb-6 leading-[1.1] tracking-tight">
+              <span className="text-theme-text">데이터 기반</span><br />
+              <span className="text-gradient-blue text-glow-blue">정밀 주도주 포착</span>
             </h2>
-            <p className="text-xs sm:text-sm lg:text-base font-bold text-theme-text-muted uppercase tracking-[0.15em] sm:tracking-[0.2em] mb-6 sm:mb-10">
-              데이터와 사이클 기반 정밀 분석
+            <p className="text-sm sm:text-base font-medium text-theme-text-secondary max-w-lg mb-6 sm:mb-10 leading-relaxed">
+              27단계 마스터 체크리스트와 Gate 시스템으로 검증된 AI 투자 분석 엔진
             </p>
             <div className="relative group/info mb-10">
               <p className="text-theme-text-muted max-w-xl text-lg sm:text-xl font-medium leading-relaxed">
@@ -149,7 +160,7 @@ export function WatchlistHeader({
                   "btn-3d px-8 sm:px-12 py-4 sm:py-5 rounded-2xl font-black text-base sm:text-xl flex items-center gap-3 sm:gap-4 transition-all duration-300 w-full sm:w-auto justify-center border-t",
                   loading
                     ? "bg-gradient-to-br from-cyan-400 via-blue-500 to-blue-700 border-cyan-300/40 shadow-[0_12px_40px_rgba(59,130,246,0.5)] text-white animate-pulse"
-                    : "bg-gradient-to-br from-orange-400 via-orange-500 to-orange-700 hover:from-orange-300 hover:via-orange-400 hover:to-orange-600 border-white/40 shadow-[0_12px_40px_rgba(249,115,22,0.4)] text-white"
+                    : "bg-gradient-to-br from-blue-400 via-blue-500 to-blue-700 hover:from-blue-300 hover:via-blue-400 hover:to-blue-600 border-blue-300/30 shadow-[0_12px_40px_rgba(59,130,246,0.35)] text-white"
                 )}
               >
                 {loading ? (

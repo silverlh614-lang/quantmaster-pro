@@ -93,14 +93,14 @@ export function BottomNav() {
                         className={cn(
                           'flex flex-col items-center gap-2 p-4 rounded-xl transition-all',
                           isActive
-                            ? 'bg-orange-500/15 text-orange-400'
+                            ? 'bg-blue-500/15 text-blue-400'
                             : 'text-theme-text-secondary hover:bg-theme-surface'
                         )}
                       >
                         <div className="relative">
                           <Icon className="w-5 h-5" />
                           {item.count != null && item.count > 0 && (
-                            <span className="absolute -top-1.5 -right-2 text-[8px] font-black bg-orange-500 text-white w-4 h-4 rounded-full flex items-center justify-center font-num">
+                            <span className="absolute -top-1.5 -right-2 text-[8px] font-black bg-blue-500 text-white w-4 h-4 rounded-full flex items-center justify-center font-num">
                               {item.count}
                             </span>
                           )}
@@ -115,7 +115,7 @@ export function BottomNav() {
                 <div className="border-t border-theme-border p-3 flex gap-2">
                   <button
                     onClick={() => { setShowMasterChecklist(true); setShowMore(false); }}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[11px] font-bold text-theme-text-muted hover:text-orange-400 hover:bg-orange-500/[0.06] transition-all border border-theme-border"
+                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[11px] font-bold text-theme-text-muted hover:text-blue-400 hover:bg-blue-500/[0.06] transition-all border border-theme-border"
                   >
                     <ShieldCheck className="w-4 h-4" />
                     체크리스트
@@ -146,16 +146,16 @@ export function BottomNav() {
                 onClick={() => handleNavClick(item.id)}
                 className={cn(
                   'flex-1 flex flex-col items-center justify-center gap-1 transition-colors relative',
-                  isActive ? 'text-orange-400' : 'text-theme-text-muted'
+                  isActive ? 'text-blue-400' : 'text-theme-text-muted'
                 )}
               >
                 {isActive && (
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-orange-400" />
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-blue-400" />
                 )}
                 <div className="relative">
                   <Icon className="w-5 h-5" />
                   {item.count != null && item.count > 0 && (
-                    <span className="absolute -top-1 -right-2 text-[7px] font-black bg-orange-500 text-white w-3.5 h-3.5 rounded-full flex items-center justify-center font-num">
+                    <span className="absolute -top-1 -right-2 text-[7px] font-black bg-blue-500 text-white w-3.5 h-3.5 rounded-full flex items-center justify-center font-num">
                       {item.count > 9 ? '9+' : item.count}
                     </span>
                   )}
@@ -170,11 +170,11 @@ export function BottomNav() {
             onClick={() => setShowMore(prev => !prev)}
             className={cn(
               'flex-1 flex flex-col items-center justify-center gap-1 transition-colors relative',
-              showMore || isMoreActive ? 'text-orange-400' : 'text-theme-text-muted'
+              showMore || isMoreActive ? 'text-blue-400' : 'text-theme-text-muted'
             )}
           >
             {isMoreActive && !showMore && (
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-orange-400" />
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-blue-400" />
             )}
             <MoreHorizontal className="w-5 h-5" />
             <span className="text-[10px] font-bold">더보기</span>

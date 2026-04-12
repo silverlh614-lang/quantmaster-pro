@@ -48,7 +48,7 @@ export function StickyMiniHeader() {
         'border-b border-theme-border backdrop-blur-xl',
         'animate-fade-slide-up no-print'
       )}
-      style={{ background: 'rgba(8, 11, 15, 0.85)' }}
+      style={{ background: 'rgba(6, 9, 14, 0.9)' }}
     >
       <div className="flex items-center gap-4 overflow-x-auto no-scrollbar">
         {/* Stock Count */}
