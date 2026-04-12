@@ -505,3 +505,45 @@ export interface IpsResult {
   preMortemRequired: boolean;
   lastUpdated: string;
 }
+
+// ─── 피드백 폐쇄 루프 (Feedback Closed Loop) ────────────────────────────────────
+
+/** 단일 조건의 실전 학습 결과 */
+export interface ConditionCalibration {
+  conditionId: ConditionId;
+  conditionName: string;
+  /** 기여 거래 수 (해당 조건 ≥ 5인 거래) */
+  tradeCount: number;
+  /** 승률 (0~1) */
+  winRate: number;
+  /** 평균 수익률 (%) */
+  avgReturn: number;
+  /** 이전 가중치 */
+  prevWeight: number;
+  /** 새 가중치 (실전 데이터 반영 후) */
+  newWeight: number;
+  /** 가중치 변화 방향 */
+  direction: 'UP' | 'DOWN' | 'STABLE';
+  /** 변화량 */
+  delta: number;
+}
+
+/** 피드백 폐쇄 루프 캘리브레이션 결과 */
+export interface FeedbackLoopResult {
+  /** 총 누적 종료 거래 수 */
+  closedTradeCount: number;
+  /** 30거래 달성 여부 (캘리브레이션 활성화 기준) */
+  calibrationActive: boolean;
+  /** 30거래 달성 진척도 (0~1) */
+  calibrationProgress: number;
+  /** 조건별 캘리브레이션 결과 (calibrationActive=true 일 때만 채워짐) */
+  calibrations: ConditionCalibration[];
+  /** 상향 조정된 조건 수 */
+  boostedCount: number;
+  /** 하향 조정된 조건 수 */
+  reducedCount: number;
+  /** 마지막 캘리브레이션 시각 (ISO) */
+  lastCalibratedAt: string | null;
+  /** 요약 메시지 */
+  summary: string;
+}
