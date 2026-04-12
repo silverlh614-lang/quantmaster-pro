@@ -8,7 +8,12 @@ import { evaluateSectorOverheat } from '../services/quant/sectorEngine';
 import { evaluateBearModeSimulator } from '../services/quant/bearEngine';
 import { evaluateMAPCResult } from '../services/quant/gateEngine';
 import { evaluateMarketRegimeClassifier } from '../services/quant/marketRegimeClassifier';
+import { evaluateMTFConfluence } from '../services/quant/mtfEngine';
+import { evaluateDynamicStop } from '../services/quant/dynamicStopEngine';
+import { evaluateFeedbackLoop } from '../services/quant/feedbackLoopEngine';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
+import { useTradeStore } from '../stores/useTradeStore';
+import { getEvolutionWeightsFromPerformance } from '../services/quant/evolutionEngine';
 import { BearKellyPanel } from './BearKellyPanel';
 import { SectorOverheatPanel } from './SectorOverheatPanel';
 import { BearModeSimulatorPanel } from './BearModeSimulatorPanel';
@@ -17,6 +22,9 @@ import { FSSPanel } from './FSSPanel';
 import { MAPCPanel } from './MAPCPanel';
 import { MarketRegimeClassifierPanel } from './MarketRegimeClassifierPanel';
 import { PositionLifecyclePanel } from './PositionLifecyclePanel';
+import { MTFConfluencePanel } from './MTFConfluencePanel';
+import { DynamicStopPanel } from './DynamicStopPanel';
+import { FeedbackLoopPanel } from './FeedbackLoopPanel';
 import { RegimeGaugeSection } from './macro/RegimeGaugeSection';
 import { BearRegimeSection } from './macro/BearRegimeSection';
 import { MarketOverviewSection } from './macro/MarketOverviewSection';
@@ -71,10 +79,39 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const marketRegimeClassifierResult = useGlobalIntelStore(s => s.marketRegimeClassifierResult);
   const setMarketRegimeClassifierResult = useGlobalIntelStore(s => s.setMarketRegimeClassifierResult);
 
+  // ── MTF Confluence ──────────────────────────────────────────────────────────
+  const mtfConfluenceInput = useGlobalIntelStore(s => s.mtfConfluenceInput);
+  const setMtfConfluenceInput = useGlobalIntelStore(s => s.setMtfConfluenceInput);
+  const mtfConfluenceResult = useGlobalIntelStore(s => s.mtfConfluenceResult);
+  const setMtfConfluenceResult = useGlobalIntelStore(s => s.setMtfConfluenceResult);
+
+  // ── Dynamic Stop ────────────────────────────────────────────────────────────
+  const dynamicStopInput = useGlobalIntelStore(s => s.dynamicStopInput);
+  const setDynamicStopInput = useGlobalIntelStore(s => s.setDynamicStopInput);
+  const dynamicStopResult = useGlobalIntelStore(s => s.dynamicStopResult);
+  const setDynamicStopResult = useGlobalIntelStore(s => s.setDynamicStopResult);
+
+  // ── Feedback Loop ────────────────────────────────────────────────────────────
+  const feedbackLoopResult = useGlobalIntelStore(s => s.feedbackLoopResult);
+  const setFeedbackLoopResult = useGlobalIntelStore(s => s.setFeedbackLoopResult);
+  const tradeRecords = useTradeStore(s => s.tradeRecords);
+
   const mapcResult = useMemo(() => {
     if (!gate0Result || !macroEnv) return null;
     return evaluateMAPCResult(gate0Result, macroEnv, 15);
   }, [gate0Result, macroEnv]);
+
+  // Compute feedback loop from closed trades
+  const computedFeedbackLoop = useMemo(() => {
+    const closed = tradeRecords.filter(t => t.status === 'CLOSED');
+    const weights = getEvolutionWeightsFromPerformance();
+    return evaluateFeedbackLoop(closed, weights);
+  }, [tradeRecords]);
+
+  // Sync feedback loop result to store whenever it changes
+  React.useEffect(() => {
+    setFeedbackLoopResult(computedFeedbackLoop);
+  }, [computedFeedbackLoop, setFeedbackLoopResult]);
 
   const handleSectorOverheatInputsChange = useCallback(
     (inputs: typeof sectorOverheatInputs) => {
@@ -100,6 +137,22 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
     [setBearModeSimulatorInputs, setBearModeSimulatorResult],
   );
 
+  const handleMtfInputsChange = useCallback(
+    (inputs: typeof mtfConfluenceInput) => {
+      setMtfConfluenceInput(inputs);
+      setMtfConfluenceResult(evaluateMTFConfluence(inputs));
+    },
+    [setMtfConfluenceInput, setMtfConfluenceResult],
+  );
+
+  const handleDynamicStopInputsChange = useCallback(
+    (inputs: typeof dynamicStopInput) => {
+      setDynamicStopInput(inputs);
+      setDynamicStopResult(evaluateDynamicStop(inputs));
+    },
+    [setDynamicStopInput, setDynamicStopResult],
+  );
+
   return (
     <div className="space-y-10">
 
@@ -112,8 +165,22 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
         onInputsChange={handleMarketRegimeClassifierInputsChange}
       />
 
+      {/* MTF 합치 스코어 — 4개 시간 프레임 계층 통합 노이즈 필터 */}
+      <MTFConfluencePanel
+        result={mtfConfluenceResult}
+        inputs={mtfConfluenceInput}
+        onInputsChange={handleMtfInputsChange}
+      />
+
       {/* 포지션 생애주기 완전 자동화 — 5단계 매도 체계 */}
       <PositionLifecyclePanel />
+
+      {/* 변동성 적응형 동적 손절 — ATR 기반 손절가 자동 조정 */}
+      <DynamicStopPanel
+        result={dynamicStopResult}
+        inputs={dynamicStopInput}
+        onInputsChange={handleDynamicStopInputsChange}
+      />
 
       <BearRegimeSection />
 
@@ -151,6 +218,9 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
       <ContrarianSection gate0Result={gate0Result} />
 
       <FusionMatrixSection currentRoeType={currentRoeType} />
+
+      {/* 피드백 폐쇄 루프 — 30거래 누적 후 27조건 자동 가중치 교정 */}
+      <FeedbackLoopPanel result={feedbackLoopResult} />
 
       <GlobalIntelSection />
 

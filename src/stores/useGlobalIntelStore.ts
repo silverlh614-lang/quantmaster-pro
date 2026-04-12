@@ -14,6 +14,9 @@ import type {
   MarketRegimeClassifierInput,
   MarketRegimeClassifierResult,
 } from '../types/quant';
+import type { MTFConfluenceInput, MTFConfluenceResult } from '../types/technical';
+import type { DynamicStopInput, DynamicStopResult } from '../types/sell';
+import type { FeedbackLoopResult } from '../types/portfolio';
 import type { MHSRecord } from '../components/MHSHistoryChart';
 
 interface GlobalIntelState {
@@ -131,6 +134,27 @@ interface GlobalIntelState {
   setMhsHistory: (records: MHSRecord[]) => void;
   addMhsRecord: (record: MHSRecord) => void;
 
+  // ── MTF Confluence Score (다중 시간 프레임 합치 스코어) ─────────────────────
+  /** MTF 입력값 (퍼시스트) */
+  mtfConfluenceInput: MTFConfluenceInput;
+  setMtfConfluenceInput: (input: MTFConfluenceInput) => void;
+  /** MTF 계산 결과 */
+  mtfConfluenceResult: MTFConfluenceResult | null;
+  setMtfConfluenceResult: (data: MTFConfluenceResult | null) => void;
+
+  // ── Dynamic Stop (변동성 적응형 동적 손절) ─────────────────────────────────
+  /** 동적 손절 입력값 (퍼시스트) */
+  dynamicStopInput: DynamicStopInput;
+  setDynamicStopInput: (input: DynamicStopInput) => void;
+  /** 동적 손절 계산 결과 */
+  dynamicStopResult: DynamicStopResult | null;
+  setDynamicStopResult: (data: DynamicStopResult | null) => void;
+
+  // ── Feedback Closed Loop (피드백 폐쇄 루프) ────────────────────────────────
+  /** 피드백 루프 캘리브레이션 결과 */
+  feedbackLoopResult: FeedbackLoopResult | null;
+  setFeedbackLoopResult: (data: FeedbackLoopResult | null) => void;
+
   // Bulk setter for initial load
   setAllMacroData: (data: Partial<GlobalIntelState>) => void;
 }
@@ -244,6 +268,38 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
         return { mhsHistory: updated.slice(-365) };
       }),
 
+      // ── MTF Confluence
+      mtfConfluenceInput: {
+        monthlyAboveMa60: true,
+        monthlyMa60TrendUp: true,
+        weeklyRsi: 55,
+        weeklyMacdHistogramPositive: true,
+        weeklyBreakoutConfirmed: false,
+        dailyGoldenCross: true,
+        dailyRsiHealthy: true,
+        dailyGateSignal: false,
+        h60MomentumUp: true,
+        h60VolumeSurge: false,
+      },
+      setMtfConfluenceInput: (mtfConfluenceInput) => set({ mtfConfluenceInput }),
+      mtfConfluenceResult: null,
+      setMtfConfluenceResult: (mtfConfluenceResult) => set({ mtfConfluenceResult }),
+
+      // ── Dynamic Stop
+      dynamicStopInput: {
+        entryPrice: 50000,
+        atr14: 1500,
+        regime: 'RISK_ON',
+        currentPrice: 50000,
+      },
+      setDynamicStopInput: (dynamicStopInput) => set({ dynamicStopInput }),
+      dynamicStopResult: null,
+      setDynamicStopResult: (dynamicStopResult) => set({ dynamicStopResult }),
+
+      // ── Feedback Loop
+      feedbackLoopResult: null,
+      setFeedbackLoopResult: (feedbackLoopResult) => set({ feedbackLoopResult }),
+
       setAllMacroData: (data) => set(data as any),
     }),
     {
@@ -258,6 +314,8 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
         sectorOverheatInputs: state.sectorOverheatInputs,
         bearModeSimulatorInputs: state.bearModeSimulatorInputs,
         marketRegimeClassifierInput: state.marketRegimeClassifierInput,
+        mtfConfluenceInput: state.mtfConfluenceInput,
+        dynamicStopInput: state.dynamicStopInput,
       }),
     }
   )

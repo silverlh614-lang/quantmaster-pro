@@ -90,6 +90,62 @@ export interface MAPCResult {
   actionMessage: string;
 }
 
+// ─── MTF Confluence Score (다중 시간 프레임 합치 스코어) ────────────────────────
+
+export type MTFSignal = 'STRONG_BUY' | 'BUY' | 'WATCH' | 'IDLE';
+
+/** 단일 시간 프레임 스코어 */
+export interface MTFTimeframeScore {
+  timeframe: 'MONTHLY' | 'WEEKLY' | 'DAILY' | 'H60';
+  /** 원시 점수 0~100 */
+  score: number;
+  /** 가중치 (월봉 0.35 / 주봉 0.30 / 일봉 0.25 / 60분봉 0.10) */
+  weight: number;
+  /** score × weight */
+  weightedScore: number;
+  signal: 'BULLISH' | 'NEUTRAL' | 'BEARISH';
+  detail: string;
+}
+
+/** evaluateMTFConfluence()에 주입하는 입력 데이터 */
+export interface MTFConfluenceInput {
+  /** 월봉: MA60 위 여부 */
+  monthlyAboveMa60: boolean;
+  /** 월봉: MA60 상승 추세 여부 */
+  monthlyMa60TrendUp: boolean;
+  /** 주봉: RSI (40~70 건강구간) */
+  weeklyRsi: number;
+  /** 주봉: MACD 히스토그램 양수 여부 */
+  weeklyMacdHistogramPositive: boolean;
+  /** 주봉: 저항 돌파 or 지지 확인 */
+  weeklyBreakoutConfirmed: boolean;
+  /** 일봉: 골든크로스 정배열 (price > MA5 > MA20) */
+  dailyGoldenCross: boolean;
+  /** 일봉: RSI 건강구간 (40~70) */
+  dailyRsiHealthy: boolean;
+  /** 일봉: Gate 신호 통과 여부 (Gate 1 or 2) */
+  dailyGateSignal: boolean;
+  /** 60분봉: 모멘텀 상승 */
+  h60MomentumUp: boolean;
+  /** 60분봉: 거래량 서지 동반 */
+  h60VolumeSurge: boolean;
+}
+
+/** evaluateMTFConfluence() 반환 결과 */
+export interface MTFConfluenceResult {
+  monthly: MTFTimeframeScore;
+  weekly: MTFTimeframeScore;
+  daily: MTFTimeframeScore;
+  h60: MTFTimeframeScore;
+  /** 최종 MTF 합치 스코어 0~100 */
+  mtfScore: number;
+  /** 신호: STRONG_BUY(≥85) / BUY(75~84) / WATCH(65~74) / IDLE(<65) */
+  signal: MTFSignal;
+  /** 포지션 비율: 1.0 / 0.70 / 0 / 0 */
+  positionRatio: number;
+  summary: string;
+}
+
 /** SRR (섹터 내 상대강도 역전 감지)
  *
  * 종목 RS Ratio = 종목 20일 수익률 / 섹터ETF 20일 수익률
