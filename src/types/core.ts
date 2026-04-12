@@ -465,6 +465,55 @@ export interface EvaluationResult {
   earlyBullEntry?: EarlyBullEntryResult;         // 상승 초기 선취매 조건 평가 결과
   conditionScores?: Record<ConditionId, number>; // 27조건 점수 스냅샷 (귀인 분석용)
   conditionSources?: Record<ConditionId, 'COMPUTED' | 'AI'>; // 조건별 데이터 출처 (실계산 vs AI추정)
+  contradictionDetection?: ContradictionDetectionResult; // 상충 감지기
+  timingSync?: TimingSyncResult; // 조건 통과 시점 동기화 스코어
+}
+
+// ─── 상충 감지기 타입 ────────────────────────────────────────────────────────
+
+/** 단일 상충 쌍의 감지 결과 */
+export interface ContradictionPairResult {
+  id: string;
+  name: string;
+  conditionA: { id: ConditionId; name: string; score: number; warnWhen: 'LOW' | 'HIGH' };
+  conditionB: { id: ConditionId; name: string; score: number; warnWhen: 'LOW' | 'HIGH' };
+  detected: boolean;
+  description: string;
+}
+
+/** 조건 간 상충 감지 전체 결과 */
+export interface ContradictionDetectionResult {
+  contradictionPairs: ContradictionPairResult[];
+  detectedCount: number;
+  hasContradiction: boolean;
+  /** Gate 3 점수 패널티 배율 (상충 없음=1.0, 있음=0.8) */
+  gate3PenaltyMultiplier: number;
+  /** STRONG BUY / CONFIRMED_STRONG_BUY 등급 금지 여부 */
+  strongBuyBlocked: boolean;
+  message: string;
+}
+
+// ─── Timing Sync Score 타입 ──────────────────────────────────────────────────
+
+/** Timing Sync Score 계산 결과 */
+export interface TimingSyncResult {
+  /** Sync Score (0~100) */
+  syncScore: number;
+  level: 'HIGH' | 'MEDIUM' | 'LOW';
+  /** 최근 5거래일 이내 통과된 조건 수 */
+  recentConditionCount: number;
+  /** 전체 통과 조건 수 */
+  totalPassedCount: number;
+  freshnessWeightedScore: number;
+  conditionFreshness: Array<{
+    conditionId: ConditionId;
+    passedAt: string;
+    tradingDaysAgo: number;
+    isFresh: boolean;
+    weight: number;
+  }>;
+  message: string;
+  interpretation: string;
 }
 
 // ─── 기타 핵심 타입 ────────────────────────────────────────────────────────────

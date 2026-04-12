@@ -25,6 +25,12 @@ export interface FailurePatternEntry {
   gate2Score: number;
   gate3Score: number;
   finalScore: number;
+  /** Gate 2 통과 조건 수 (12개 기준) */
+  gate2PassCount?: number | null;
+  /** RS 상위 백분위 (%) — 낮을수록 강함, 예: 8 = 상위 8% */
+  rsPercentile?: number | null;
+  /** VKOSPI 수치 */
+  vkospi?: number | null;
   /** MTF 스코어 (0-100, 없으면 null) */
   mtfScore?: number | null;
   /** 시장 레짐 문자열 (예: 'R2_BULL') */

@@ -103,7 +103,7 @@ describe('checkFailurePattern', () => {
     const entry = makeEntry();
     const result = checkFailurePattern(entry.conditionScores, [entry]);
     expect(result.message).toContain('삼성전자');
-    expect(result.message).toContain('1건');
+    expect(result.message).toContain('1회');
   });
 
   it('topMatches contains similarity percentage', () => {

@@ -2,14 +2,27 @@ import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { useRecommendationStore, useTradeStore, useSettingsStore } from '../stores';
 import { useAttributionStore } from '../stores/useAttributionStore';
+import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { computeConditionPerformance } from '../components/TradeJournal';
 import { saveEvolutionWeights } from '../services/quant/evolutionEngine';
 import { runAttributionAnalysis, pushAttributionToServer } from '../services/autoTrading';
 import type { StockRecommendation } from '../services/stockService';
 import type { TradeRecord, ConditionId, PreMortemItem } from '../types/quant';
 
+// Gate 2 조건 ID 목록 (gate2PassCount 계산용)
+const GATE2_IDS = [4, 6, 8, 10, 11, 12, 13, 14, 15, 16, 21, 24];
+
 /** 손절 종료 시 반실패 패턴 DB에 스냅샷을 저장한다 */
-async function pushFailurePatternToServer(trade: TradeRecord, returnPct: number): Promise<void> {
+async function pushFailurePatternToServer(
+  trade: TradeRecord,
+  returnPct: number,
+  vkospi?: number | null,
+  rsPercentile?: number | null,
+): Promise<void> {
+  const conditionScores = trade.conditionScores ?? {};
+  // Gate 2 통과 조건 수: conditionScores에서 직접 계산
+  const gate2PassCount = GATE2_IDS.filter(id => (conditionScores[id as ConditionId] ?? 0) >= 5).length;
+
   try {
     await fetch('/api/failure-patterns/save', {
       method: 'POST',
@@ -21,11 +34,14 @@ async function pushFailurePatternToServer(trade: TradeRecord, returnPct: number)
         entryDate: trade.buyDate,
         exitDate: new Date().toISOString(),
         returnPct,
-        conditionScores: trade.conditionScores ?? {},
+        conditionScores,
         gate1Score: trade.gate1Score,
         gate2Score: trade.gate2Score,
         gate3Score: trade.gate3Score,
         finalScore: trade.finalScore,
+        gate2PassCount,
+        rsPercentile: rsPercentile ?? null,
+        vkospi: vkospi ?? null,
         sector: trade.sector ?? null,
         savedAt: new Date().toISOString(),
       }),
@@ -93,7 +109,13 @@ export function useTradeOps() {
 
       // 손절(returnPct < 0) 시 반실패 패턴 DB에 스냅샷 저장
       if (returnPct < 0) {
-        void pushFailurePatternToServer(trade, parseFloat(returnPct.toFixed(2)));
+        const macroEnv = useGlobalIntelStore.getState().macroEnv;
+        void pushFailurePatternToServer(
+          trade,
+          parseFloat(returnPct.toFixed(2)),
+          macroEnv?.vkospi ?? null,
+          null,  // rsPercentile: 현재 TradeRecord에 미포함
+        );
       }
     }
   };
