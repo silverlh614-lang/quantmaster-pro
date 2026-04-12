@@ -35,6 +35,8 @@ export const TRANCHE_FILE            = path.join(DATA_DIR, 'tranche-schedule.jso
 export const WALK_FORWARD_STATE_FILE = path.join(DATA_DIR, 'walk-forward-state.json');
 /** 아이디어 5: 조건 감사 — 조건별 ACTIVE/PROBATION/SUSPENDED 이력 저장 */
 export const CONDITION_AUDIT_FILE    = path.join(DATA_DIR, 'condition-audit.json');
+/** 아이디어 6: 이상 감지 — 마지막 경보 상태 저장 (중복 알림 억제) */
+export const ANOMALY_STATE_FILE      = path.join(DATA_DIR, 'anomaly-state.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

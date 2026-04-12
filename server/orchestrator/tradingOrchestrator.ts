@@ -18,6 +18,9 @@ import { generateDailyReport } from '../alerts/reportGenerator.js';
 import { evaluateRecommendations, isRealTradeReady } from '../learning/recommendationTracker.js';
 import { calibrateSignalWeights } from '../learning/signalCalibrator.js';
 import { calibrateByRegime } from '../learning/regimeAwareCalibrator.js';
+import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
+import { runConditionAudit } from '../learning/conditionAuditor.js';
+import { detectPerformanceAnomaly } from '../learning/anomalyDetector.js';
 
 // ─── 편의 조회 래퍼 ────────────────────────────────────────────────────────────
 export function getShadowTrades() { return loadShadowTrades(); }
@@ -317,19 +320,26 @@ export class TradingDayOrchestrator {
           await generateDailyReport().catch(console.error);
           this.markRan('dailyReport');
         }
-        // 16:30+ 한 번만: 자기학습 추천 평가
+        // 16:30+ 한 번만: 자기학습 추천 평가 + 이상 감지
         if (t >= 1630 && !this.hasRan('evalRecs')) {
           console.log('[Orchestrator] 자기학습 추천 평가 (KST 16:30+)');
           await evaluateRecommendations().catch(console.error);
+          await detectPerformanceAnomaly().catch(console.error); // 아이디어 6
           this.markRan('evalRecs');
         }
-        // 월말(28일 이후) 16:45+ 한 번만: Signal Calibrator 가중치 보정
+        // 월말(28일 이후) 16:45+ 한 번만: 자기진화 루프 전체 실행
         {
           const kstDay = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCDate();
           if (kstDay >= 28 && t >= 1645 && !this.hasRan('calibrate')) {
-            console.log('[Orchestrator] Signal Calibrator 가중치 보정 (월말)');
-            await calibrateSignalWeights().catch(console.error);  // 아이디어 2+3: 전역 시간감쇠+Sharpe
-            await calibrateByRegime().catch(console.error);       // 아이디어 1: 레짐별 독립 가중치
+            console.log('[Orchestrator] 자기진화 루프 시작 (월말)');
+            // 1단계: 워크포워드 검증 — 과최적화 감지 시 이후 캘리브레이션 동결
+            await runWalkForwardValidation().catch(console.error);
+            // 2단계: 전역 가중치 보정 (동결 상태면 내부에서 skip)
+            await calibrateSignalWeights().catch(console.error);
+            // 3단계: 레짐별 독립 가중치 보정
+            await calibrateByRegime().catch(console.error);
+            // 4단계: 조건 감사 + 신규 조건 후보 발굴 (항상 실행)
+            await runConditionAudit().catch(console.error);
             this.markRan('calibrate');
           }
         }

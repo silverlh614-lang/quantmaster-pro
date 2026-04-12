@@ -2,6 +2,7 @@ import { getRecommendations } from './recommendationTracker.js';
 import { loadConditionWeights, saveConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { callGemini } from '../clients/geminiClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { loadWalkForwardState } from './walkForwardValidator.js';
 
 /**
  * 월간 추천 통계를 분석하여 조건별 가중치(condition-weights.json)를 자동 조정.
@@ -18,6 +19,13 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
  * 가중치 범위: 0.3 ~ 1.8
  */
 export async function calibrateSignalWeights(): Promise<void> {
+  // 아이디어 4: 워크포워드 과최적화 동결 상태 확인
+  const wfState = loadWalkForwardState();
+  if (wfState) {
+    console.log(`[Calibrator] 워크포워드 동결 중 — 조정 건너뜀 (사유: ${wfState.reason})`);
+    return;
+  }
+
   const recs = getRecommendations();
   const month = new Date().toISOString().slice(0, 7);
   const resolved = recs.filter(
