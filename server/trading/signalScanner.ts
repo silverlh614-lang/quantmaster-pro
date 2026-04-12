@@ -581,7 +581,9 @@ async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: 
 
     // ─── 하드 스톱 (고정 손절/레짐 손절) ───────────────────────────────────────
     if (currentPrice <= hardStopLoss) {
-      const stopLossExitType = initialStopLoss >= regimeStopLoss ? 'INITIAL' : 'REGIME';
+      const stopLossExitType = initialStopLoss === regimeStopLoss
+        ? 'INITIAL_AND_REGIME'
+        : (initialStopLoss > regimeStopLoss ? 'INITIAL' : 'REGIME');
       Object.assign(shadow, {
         status: 'HIT_STOP',
         exitPrice: currentPrice,
