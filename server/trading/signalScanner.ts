@@ -33,6 +33,24 @@ const ENTRY_MAX_BREAKOUT_EXTENSION_PCT = 3;
 const ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT = -2;
 const ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT = 4;
 const ENTRY_MIN_VOLUME_RATIO = 0.6;
+/**
+ * 청산/감축 규칙 우선순위 정책표.
+ * updateShadowResults에서 아래 순서를 수동으로 동일하게 유지해 실행한다.
+ * (정책표와 실제 if-branch 순서가 어긋나면 실전/백테스트 결과 차이가 커질 수 있음)
+ */
+export const EXIT_RULE_PRIORITY_TABLE = [
+  { priority: 1, rule: 'R6_EMERGENCY_EXIT', description: 'R6_DEFENSE 긴급 부분 청산(30%)' },
+  { priority: 2, rule: 'HARD_STOP', description: '하드 스톱(고정 손절/레짐 손절) 전량 청산' },
+  { priority: 3, rule: 'CASCADE_FINAL', description: 'Cascade -25%/-30% 최종 청산' },
+  { priority: 4, rule: 'LIMIT_TRANCHE_TAKE_PROFIT', description: 'LIMIT 분할 익절' },
+  { priority: 5, rule: 'TRAILING_PROTECTIVE_STOP', description: '트레일링 기반 이익보호 손절' },
+  { priority: 6, rule: 'TARGET_EXIT', description: '목표가 전량 청산(레거시 fallback)' },
+  { priority: 7, rule: 'CASCADE_HALF_SELL', description: 'Cascade -15% 반매도' },
+  { priority: 8, rule: 'CASCADE_WARN_BLOCK', description: 'Cascade -7% 경고/추가매수 차단' },
+  { priority: 9, rule: 'STOP_APPROACH_ALERT', description: '손절 접근 경고(알림)' },
+  { priority: 10, rule: 'EUPHORIA_PARTIAL', description: '과열 탐지 부분 매도' },
+] as const;
+
 const OPEN_SHADOW_STATUSES = new Set<ServerShadowTrade['status']>([
   'PENDING',
   'ORDER_SUBMITTED',
@@ -40,6 +58,36 @@ const OPEN_SHADOW_STATUSES = new Set<ServerShadowTrade['status']>([
   'ACTIVE',
   'EUPHORIA_PARTIAL',
 ]);
+
+interface StopLossPlanInput {
+  entryPrice: number;
+  fixedStopLoss: number;
+  regimeStopRate: number;
+}
+
+export interface StopLossPlan {
+  /** 진입 구조 훼손 기준의 고정 손절 */
+  initialStopLoss: number;
+  /** 시장 레짐 악화 기준의 레짐 손절 */
+  regimeStopLoss: number;
+  /** 실제 강제 청산 기준(더 높은 가격의 촘촘한 손절 = max(initialStopLoss, regimeStopLoss)) */
+  hardStopLoss: number;
+}
+
+export function buildStopLossPlan(input: StopLossPlanInput): StopLossPlan {
+  const regimeStopLoss = input.entryPrice * (1 + input.regimeStopRate);
+  const initialStopLoss = input.fixedStopLoss;
+  const hardStopLoss = Math.max(initialStopLoss, regimeStopLoss);
+  return {
+    initialStopLoss,
+    regimeStopLoss,
+    hardStopLoss,
+  };
+}
+
+function formatStopLossBreakdown(plan: StopLossPlan): string {
+  return `${plan.hardStopLoss.toLocaleString()}원 (고정 ${plan.initialStopLoss.toLocaleString()} / 레짐 ${plan.regimeStopLoss.toLocaleString()})`;
+}
 
 export interface PositionSizingInput {
   totalAssets: number;
@@ -359,13 +407,15 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
       // 잔여 30%·20%는 trancheExecutor가 3일·7일 후 실행
       const execQty = isStrongBuy ? Math.max(1, Math.floor(quantity * 0.5)) : quantity;
 
-      // ─── ① 레짐 손절가 계산 — max(워치리스트 고정값, 레짐 계산값) ──────────
+      // ─── ① 손절 정책 분리: 고정 손절 / 레짐 손절 / 하드 스톱 ───────────────
       const profile    = stock.profileType ?? 'B';
       const profileKey = `profile${profile}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
       const regimeStopRate  = REGIME_CONFIGS[regime].stopLoss[profileKey]; // 음수 비율 (e.g., -0.10)
-      const regimeStopPrice = shadowEntryPrice * (1 + regimeStopRate);
-      // 더 높은 가격(더 촘촘한 손절)을 채택
-      const effectiveStopLoss = Math.max(stock.stopLoss, regimeStopPrice);
+      const stopLossPlan = buildStopLossPlan({
+        entryPrice: shadowEntryPrice,
+        fixedStopLoss: stock.stopLoss,
+        regimeStopRate,
+      });
 
       // L3 분할 익절 타겟 — PROFIT_TARGETS[regime]에서 LIMIT 트랜치 추출
       const limitTranches = PROFIT_TARGETS[regime].filter(
@@ -382,7 +432,10 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
         shadowEntryPrice,
         quantity: execQty,
         originalQuantity: execQty,
-        stopLoss: effectiveStopLoss,       // 레짐 보정 손절가
+        stopLoss: stopLossPlan.hardStopLoss,
+        initialStopLoss: stopLossPlan.initialStopLoss,
+        regimeStopLoss: stopLossPlan.regimeStopLoss,
+        hardStopLoss: stopLossPlan.hardStopLoss,
         targetPrice: stock.targetPrice,
         status: 'PENDING',
         // ─── 레짐 연결 ──────────────────────────────────────────────────────
@@ -405,7 +458,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
         stockName:        stock.name,
         signalTime:       new Date().toISOString(),
         priceAtRecommend: currentPrice,
-        stopLoss:         effectiveStopLoss,
+        stopLoss:         stopLossPlan.hardStopLoss,
         targetPrice:      stock.targetPrice,
         kellyPct:         Math.round(positionPct * 100),
         gateScore:        gateScore,
@@ -425,7 +478,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
           `⚡ <b>[Shadow] 매수 신호${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
           `종목: ${stock.name} (${stock.code})\n` +
           `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
-          `손절: ${stock.stopLoss.toLocaleString()}원 | 목표: ${stock.targetPrice.toLocaleString()}원`
+          `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`
         ).catch(console.error);
       } else {
         // LIVE 모드: 실제 주문 (1차 수량만)
@@ -468,7 +521,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
           `주문상태: ${ordNo ? 'ORDER_SUBMITTED' : 'REJECTED'}\n` +
           `주문가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
           `주문번호: ${ordNo ?? 'N/A'}\n` +
-          `손절: ${stock.stopLoss.toLocaleString()}원 | 목표: ${stock.targetPrice.toLocaleString()}원`
+          `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`
         ).catch(console.error);
       }
 
@@ -485,7 +538,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
           totalQuantity: quantity,
           firstQuantity: execQty,
           entryPrice:    shadowEntryPrice,
-          stopLoss:      stock.stopLoss,
+          stopLoss:      stopLossPlan.hardStopLoss,
           targetPrice:   stock.targetPrice,
         });
       }
@@ -500,6 +553,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
 
 /** Shadow 진행 중 거래 결과 업데이트 — Macro/포지션 제한 시에도 재사용 */
 async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: RegimeLevel): Promise<void> {
+  // 청산 실행 우선순위는 EXIT_RULE_PRIORITY_TABLE과 같은 순서를 수동 유지한다.
   for (const shadow of shadows) {
     // PENDING: 4분 경과 후 ACTIVE 전환
     if (shadow.status === 'PENDING') {
@@ -515,10 +569,14 @@ async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: 
     if (!currentPrice) continue;
 
     const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
+    const initialStopLoss = shadow.initialStopLoss ?? shadow.stopLoss;
+    const regimeStopLoss = shadow.regimeStopLoss ?? shadow.stopLoss;
+    const hardStopLoss = shadow.hardStopLoss ?? shadow.stopLoss;
 
     // ─── R6 긴급 청산 30% (블랙스완 — 1회만) ────────────────────────────────
     if (currentRegime === 'R6_DEFENSE' && !shadow.r6EmergencySold && shadow.quantity > 0) {
       const emergencyQty = Math.max(1, Math.floor(shadow.quantity * 0.30));
+      shadow.exitRuleTag = 'R6_EMERGENCY_EXIT';
       shadow.r6EmergencySold = true;
       shadow.quantity -= emergencyQty;
       shadow.originalQuantity ??= shadow.quantity + emergencyQty;
@@ -531,6 +589,43 @@ async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: 
         `수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}% | 잔여: ${shadow.quantity}주`
       ).catch(console.error);
       if (shadow.quantity <= 0) continue; // 잔여 없으면 종료 처리 생략
+    }
+
+    // ─── 하드 스톱 (고정 손절/레짐 손절) ───────────────────────────────────────
+    if (currentPrice <= hardStopLoss) {
+      const stopGap = Math.abs(initialStopLoss - regimeStopLoss);
+      const stopLossExitType = stopGap < 0.5
+        ? 'INITIAL_AND_REGIME'
+        : (initialStopLoss > regimeStopLoss ? 'INITIAL' : 'REGIME');
+      Object.assign(shadow, {
+        status: 'HIT_STOP',
+        exitPrice: currentPrice,
+        exitTime: new Date().toISOString(),
+        returnPct,
+        stopLossExitType,
+        exitRuleTag: 'HARD_STOP',
+      });
+      appendShadowLog({ event: 'HIT_STOP', ...shadow, stopLossExitType });
+      console.log(`[AutoTrade] ❌ ${shadow.stockName} 하드 스톱(${stopLossExitType}) ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
+      await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
+      continue;
+    }
+
+    // ② -30% 블랙리스트 편입 / -25% 전량 청산 (Final Exit)
+    if (returnPct <= -25) {
+      const isBlacklistStep = returnPct <= -30;
+      Object.assign(shadow, { status: 'HIT_STOP', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct, exitRuleTag: 'CASCADE_FINAL' });
+      appendShadowLog({ event: isBlacklistStep ? 'CASCADE_STOP_BLACKLIST' : 'CASCADE_STOP_FINAL', ...shadow });
+      console.log(`[AutoTrade] ❌ ${shadow.stockName} Cascade ${returnPct.toFixed(2)}% — 전량 청산${isBlacklistStep ? ' + 블랙리스트 180일' : ''}`);
+      await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
+      if (isBlacklistStep) {
+        addToBlacklist(shadow.stockCode, shadow.stockName, `Cascade ${returnPct.toFixed(1)}%`);
+        await sendTelegramAlert(
+          `🚫 <b>[블랙리스트] ${shadow.stockName} (${shadow.stockCode})</b>\n` +
+          `손실 ${returnPct.toFixed(1)}% → 180일 재진입 금지`
+        ).catch(console.error);
+      }
+      continue;
     }
 
     // ─── L3-a: 트레일링 고점 갱신 ────────────────────────────────────────────
@@ -548,6 +643,7 @@ async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: 
           shadow.quantity -= sellQty;
           t.taken = true;
           trancheFired = true;
+          shadow.exitRuleTag = 'LIMIT_TRANCHE_TAKE_PROFIT';
           appendShadowLog({ event: 'PROFIT_TRANCHE', ...shadow, soldQty: sellQty, tranchePrice: t.price, returnPct });
           console.log(`[AutoTrade] 📈 ${shadow.stockName} L3 분할 익절 ${(t.ratio * 100).toFixed(0)}% (${sellQty}주) @${currentPrice.toLocaleString()}`);
           await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
@@ -573,11 +669,18 @@ async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: 
       }
     }
 
-    // ─── L3-c: 트레일링 스톱 ─────────────────────────────────────────────────
+    // ─── L3-c: 트레일링 스톱 (이익보호 손절) ──────────────────────────────────
     if (shadow.trailingEnabled && shadow.trailingHighWaterMark !== undefined && shadow.quantity > 0) {
       const trailFloor = shadow.trailingHighWaterMark * (1 - (shadow.trailPct ?? 0.10));
       if (currentPrice <= trailFloor) {
-        Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
+        Object.assign(shadow, {
+          status: 'HIT_TARGET',
+          exitPrice: currentPrice,
+          exitTime: new Date().toISOString(),
+          returnPct,
+          stopLossExitType: 'PROFIT_PROTECTION',
+          exitRuleTag: 'TRAILING_PROTECTIVE_STOP',
+        });
         appendShadowLog({ event: 'TRAILING_STOP', ...shadow });
         console.log(`[AutoTrade] 📉 ${shadow.stockName} L3 트레일링 스톱 (HWM×${(1 - (shadow.trailPct ?? 0.10)).toFixed(2)}) @${currentPrice.toLocaleString()}`);
         await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'TAKE_PROFIT');
@@ -592,27 +695,10 @@ async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: 
 
     // ① 목표가 달성 → 익절 전량 매도 (트랜치 미설정 구형 포지션 fallback)
     if (currentPrice >= shadow.targetPrice) {
-      Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
+      Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct, exitRuleTag: 'TARGET_EXIT' });
       appendShadowLog({ event: 'HIT_TARGET', ...shadow });
       console.log(`[AutoTrade] ✅ ${shadow.stockName} 목표가 달성 +${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
       await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'TAKE_PROFIT');
-      continue;
-    }
-
-    // ② -30% 블랙리스트 편입 / -25% 전량 청산 (Final Exit)
-    if (returnPct <= -25) {
-      const isBlacklistStep = returnPct <= -30;
-      Object.assign(shadow, { status: 'HIT_STOP', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
-      appendShadowLog({ event: isBlacklistStep ? 'CASCADE_STOP_BLACKLIST' : 'CASCADE_STOP_FINAL', ...shadow });
-      console.log(`[AutoTrade] ❌ ${shadow.stockName} Cascade ${returnPct.toFixed(2)}% — 전량 청산${isBlacklistStep ? ' + 블랙리스트 180일' : ''}`);
-      await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
-      if (isBlacklistStep) {
-        addToBlacklist(shadow.stockCode, shadow.stockName, `Cascade ${returnPct.toFixed(1)}%`);
-        await sendTelegramAlert(
-          `🚫 <b>[블랙리스트] ${shadow.stockName} (${shadow.stockCode})</b>\n` +
-          `손실 ${returnPct.toFixed(1)}% → 180일 재진입 금지`
-        ).catch(console.error);
-      }
       continue;
     }
 
@@ -623,6 +709,7 @@ async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: 
       shadow.halfSoldAt  = new Date().toISOString();
       shadow.originalQuantity ??= shadow.quantity;
       shadow.quantity -= halfQty;
+      shadow.exitRuleTag = 'CASCADE_HALF_SELL';
       appendShadowLog({ event: 'CASCADE_HALF_SELL', ...shadow, soldQty: halfQty, returnPct });
       console.log(`[AutoTrade] 🔶 ${shadow.stockName} Cascade -15% — 반매도 ${halfQty}주 (잔여 ${shadow.quantity}주)`);
       await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'STOP_LOSS');
@@ -637,6 +724,7 @@ async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: 
     if (returnPct <= -7 && (shadow.cascadeStep ?? 0) < 1) {
       shadow.cascadeStep    = 1;
       shadow.addBuyBlocked  = true;
+      shadow.exitRuleTag = 'CASCADE_WARN_BLOCK';
       appendShadowLog({ event: 'CASCADE_WARN', ...shadow, returnPct });
       console.warn(`[AutoTrade] ⚠️  ${shadow.stockName} Cascade -7% — 추가 매수 차단`);
       await sendTelegramAlert(
@@ -646,25 +734,17 @@ async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: 
       continue;
     }
 
-    // ⑤ 손절선 터치 → 전량 청산
-    if (currentPrice <= shadow.stopLoss) {
-      Object.assign(shadow, { status: 'HIT_STOP', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
-      appendShadowLog({ event: 'HIT_STOP', ...shadow });
-      console.log(`[AutoTrade] ❌ ${shadow.stockName} 손절 ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
-      await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
-      continue;
-    }
-
     // ⑥ 손절가 5% 이내 접근 경고 (1회만 발송)
     if (!shadow.stopApproachAlerted) {
-      const distToStop = (currentPrice - shadow.stopLoss) / shadow.stopLoss * 100;
+      const distToStop = (currentPrice - hardStopLoss) / hardStopLoss * 100;
       if (distToStop > 0 && distToStop < 5) {
         shadow.stopApproachAlerted = true;
+        shadow.exitRuleTag = 'STOP_APPROACH_ALERT';
         await sendTelegramAlert(
           `🟡 <b>[손절 접근 경고] ${shadow.stockName} (${shadow.stockCode})</b>\n` +
           `현재가: ${currentPrice.toLocaleString()}원\n` +
           `손절까지: -${distToStop.toFixed(1)}%\n` +
-          `손절가: ${shadow.stopLoss.toLocaleString()}원`
+          `손절가: ${hardStopLoss.toLocaleString()}원`
         ).catch(console.error);
       }
     }
@@ -680,6 +760,7 @@ async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: 
         shadow.originalQuantity ??= shadow.quantity;
         shadow.quantity -= halfQty;
         shadow.status = 'EUPHORIA_PARTIAL';
+        shadow.exitRuleTag = 'EUPHORIA_PARTIAL';
         appendShadowLog({
           event: 'EUPHORIA_PARTIAL',
           ...shadow,

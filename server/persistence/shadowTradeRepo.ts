@@ -10,6 +10,17 @@ export interface ServerShadowTrade {
   shadowEntryPrice: number;
   quantity: number;
   stopLoss: number;
+  /**
+   * stopLoss 분해 기록:
+   * - initialStopLoss: 진입 구조 훼손 기준의 고정 손절
+   * - regimeStopLoss: 시장 레짐 악화 기준의 레짐 손절
+   * - hardStopLoss: 실제 강제 청산 기준 (= 두 값 중 더 높은 가격, 즉 더 촘촘한 손절)
+   */
+  initialStopLoss?: number;
+  regimeStopLoss?: number;
+  hardStopLoss?: number;
+  stopLossExitType?: 'INITIAL' | 'REGIME' | 'INITIAL_AND_REGIME' | 'PROFIT_PROTECTION';
+  exitRuleTag?: string;
   targetPrice: number;
   status: 'PENDING' | 'ORDER_SUBMITTED' | 'PARTIALLY_FILLED' | 'ACTIVE' | 'REJECTED' | 'HIT_TARGET' | 'HIT_STOP' | 'EUPHORIA_PARTIAL';
   exitPrice?: number;
