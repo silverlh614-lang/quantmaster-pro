@@ -12,6 +12,7 @@ import { evaluateMTFConfluence } from '../services/quant/mtfEngine';
 import { evaluateDynamicStop } from '../services/quant/dynamicStopEngine';
 import { evaluateFeedbackLoop } from '../services/quant/feedbackLoopEngine';
 import { evaluateSectorEnergy } from '../services/quant/sectorEnergyEngine';
+import { evaluateFlowPrediction } from '../services/quant/flowPredictionEngine';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { useTradeStore } from '../stores/useTradeStore';
 import { getEvolutionWeightsFromPerformance } from '../services/quant/evolutionEngine';
@@ -29,6 +30,7 @@ import { FeedbackLoopPanel } from './FeedbackLoopPanel';
 import { SectorEnergyPanel } from './SectorEnergyPanel';
 import { DartIntelPanel } from './DartIntelPanel';
 import { AntiFailurePanel } from './AntiFailurePanel';
+import { FlowPredictionPanel } from './FlowPredictionPanel';
 import { RegimeGaugeSection } from './macro/RegimeGaugeSection';
 import { BearRegimeSection } from './macro/BearRegimeSection';
 import { MarketOverviewSection } from './macro/MarketOverviewSection';
@@ -106,6 +108,12 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const sectorEnergyResult = useGlobalIntelStore(s => s.sectorEnergyResult);
   const setSectorEnergyResult = useGlobalIntelStore(s => s.setSectorEnergyResult);
 
+  // ── 수급 예측 선행 모델 ──────────────────────────────────────────────────────
+  const flowPredictionInput = useGlobalIntelStore(s => s.flowPredictionInput);
+  const setFlowPredictionInput = useGlobalIntelStore(s => s.setFlowPredictionInput);
+  const flowPredictionResult = useGlobalIntelStore(s => s.flowPredictionResult);
+  const setFlowPredictionResult = useGlobalIntelStore(s => s.setFlowPredictionResult);
+
   const mapcResult = useMemo(() => {
     if (!gate0Result || !macroEnv) return null;
     return evaluateMAPCResult(gate0Result, macroEnv, 15);
@@ -171,12 +179,27 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
     [setSectorEnergyInputs, setSectorEnergyResult],
   );
 
+  const handleFlowPredictionInputChange = useCallback(
+    (input: typeof flowPredictionInput) => {
+      setFlowPredictionInput(input);
+      setFlowPredictionResult(evaluateFlowPrediction(input));
+    },
+    [setFlowPredictionInput, setFlowPredictionResult],
+  );
+
   // Compute sector energy on mount and whenever inputs change
   React.useEffect(() => {
     if (sectorEnergyInputs.length > 0 && !sectorEnergyResult) {
       setSectorEnergyResult(evaluateSectorEnergy(sectorEnergyInputs));
     }
   }, [sectorEnergyInputs, sectorEnergyResult, setSectorEnergyResult]);
+
+  // Compute flow prediction on mount and whenever inputs change
+  React.useEffect(() => {
+    if (!flowPredictionResult) {
+      setFlowPredictionResult(evaluateFlowPrediction(flowPredictionInput));
+    }
+  }, [flowPredictionInput, flowPredictionResult, setFlowPredictionResult]);
 
   return (
     <div className="space-y-10">
@@ -259,6 +282,13 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
 
       {/* 반실패 학습 패턴 DB */}
       <AntiFailurePanel />
+
+      {/* 수급 예측 선행 모델 — Gate 필터보다 1~3일 앞서 진입 시점 포착 */}
+      <FlowPredictionPanel
+        result={flowPredictionResult}
+        input={flowPredictionInput}
+        onInputChange={handleFlowPredictionInputChange}
+      />
 
       <GlobalIntelSection />
 

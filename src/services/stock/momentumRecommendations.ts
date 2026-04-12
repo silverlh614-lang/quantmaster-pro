@@ -60,7 +60,22 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
     `섹터 ETF 순자산 증가 종목`
   ];
 
-  const searchQueries = mode === 'EARLY_DETECT' ? earlyDetectSearchQueries : momentumSearchQueries;
+  const smallMidCapSearchQueries = [
+    `코스닥 중소형주 급등 후보 ${todayDate}`,
+    `코스닥 소형주 거래량 급증 종목 한국`,
+    `코스피 중형주 기관 매집 종목 한국`,
+    `시가총액 1000억~5000억 성장주 한국`,
+    `중소형주 52주 신고가 근접 종목 코스닥`,
+    `코스닥 테마 주도주 후발주 한국`,
+    `중소형 바이오 실적 개선 종목`,
+    `코스닥 반도체 장비 소재 중소형주`,
+    `중소형 방산 수혜주 한국 ${todayDate}`
+  ];
+
+  const searchQueries =
+    mode === 'EARLY_DETECT'    ? earlyDetectSearchQueries :
+    mode === 'SMALL_MID_CAP'  ? smallMidCapSearchQueries :
+    momentumSearchQueries;
 
   const modePrompt = mode === 'EARLY_DETECT' ? `
       [선행 신호 우선 탐색 - 급등 전 종목 포착 모드]
@@ -72,6 +87,21 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
       5. 섹터 조건: 해당 섹터 대장주가 이미 신고가를 경신했으나, 해당 종목은 아직 대장주 대비 상승률이 30% 이상 뒤처진 상태
 
       위 조건을 충족할수록 높은 confidenceScore를 부여하고, 이미 단기 급등(5일 기준 +15% 이상)한 종목은 추천에서 제외하라.
+  ` : mode === 'SMALL_MID_CAP' ? `
+      [중소형주 주도주 포착 모드 - 시가총액 1,000억~3조원 범위 확장]
+      대형주 위주의 주도주 탐색을 중소형주까지 확대한다. 다음 조건에 집중하라:
+      1. 시가총액: 코스피/코스닥 중형주 (1,000억~3조원) 또는 소형주 (300억~1,000억원) 우선
+         - 대형주(시총 3조 이상)는 기본 MOMENTUM 모드에서 다루므로 이 모드에서는 비중을 줄인다.
+      2. 주도 테마 후발주: 현재 대형주 주도 테마(반도체, 방산, 조선, 바이오 등)에서 아직 급등하지 않은 중소형 연관 종목
+         - 대장주가 이미 신고가 경신 → 해당 섹터 중소형주 중 아직 상승률이 30% 이상 뒤처진 종목
+      3. 코스닥 집중: 코스닥 시장의 중소형 성장주를 우선 탐색한다.
+         - 영업이익 턴어라운드, 신사업 진입, 정부 정책 수혜 등 실체적 성장 촉매 보유 종목
+      4. 수급 이상 신호: 시총 대비 이례적으로 많은 거래량 발생(거래량 20일 평균 대비 200% 이상)
+      5. 기술적 조건: 장기 하락 후 첫 상승 구간 진입(골든크로스 발생 이내 10거래일)
+      6. 중소형주 특성상 변동성이 크므로 손절선을 타이트하게(-5~-7%) 설정하라.
+
+      [중요] 코스닥 상장 종목, 코스피 중소형주를 반드시 포함시켜라. 삼성전자, SK하이닉스 등 초대형주는 이 모드에서 제외하라.
+      위 조건을 충족할수록 높은 confidenceScore를 부여하고, 이미 단기 급등(5일 기준 +20% 이상)한 종목은 추천에서 제외하라.
   ` : `
       [모멘텀 추종 - 현재 주도주 포착 모드]
       현재 시장에서 가장 강력한 상승 모멘텀을 가진 주도주를 선정하라.
@@ -81,7 +111,7 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
   const prompt = `
       [절대 원칙: 실시간성 보장 및 과거 데이터 배제]
       현재 한국 시각은 ${now}입니다. (오늘 날짜: ${todayDate})
-      추천 모드: ${mode === 'EARLY_DETECT' ? '미리 볼 종목 (Early Detect)' : '지금 살 종목 (Momentum)'}
+      추천 모드: ${mode === 'EARLY_DETECT' ? '미리 볼 종목 (Early Detect)' : mode === 'SMALL_MID_CAP' ? '중소형주 주도주 (Small/Mid-Cap)' : '지금 살 종목 (Momentum)'}
 
       [사전 수집 실데이터 — 이 항목들은 검색 없이 바로 사용하라]
 ${preFilledBlock || '      (사전 수집 데이터 없음 — 필요 시 검색)'}
@@ -118,7 +148,7 @@ ${preFilledBlock || '      (사전 수집 데이터 없음 — 필요 시 검색
          - 하락 반전: 브로드닝 탑, 더블 탑(쌍봉), 트리플 탑, 헤드 앤 숄더(H&S), 라운드 탑, 다이아몬드 탑
       7. **[뉴스 데이터 확보]** 각 종목에 대해 가장 최근의 뉴스 기사 3개를 찾아 'latestNews' 필드에 [헤드라인, 날짜, URL] 형식으로 포함하라.
       7. **[판단 기준 - STRONG_BUY, BUY, STRONG_SELL, SELL]**
-         - ${mode === 'EARLY_DETECT' ? 'EARLY_DETECT 모드에서는 거래량 마름과 횡보 후 돌파 직전 신호를 가장 높게 평가하라.' : 'MOMENTUM 모드에서는 강력한 수급과 추세 강도를 가장 높게 평가하라.'}
+         - ${mode === 'EARLY_DETECT' ? 'EARLY_DETECT 모드에서는 거래량 마름과 횡보 후 돌파 직전 신호를 가장 높게 평가하라.' : mode === 'SMALL_MID_CAP' ? 'SMALL_MID_CAP 모드에서는 코스닥 중소형주의 거래량 급증과 섹터 후발주 특성을 가장 높게 평가하라.' : 'MOMENTUM 모드에서는 강력한 수급과 추세 강도를 가장 높게 평가하라.'}
          [BUY/STRONG_BUY 발동 전 필수 선결 조건 - 하나라도 미충족 시 즉시 HOLD]
         ① Gate 1 전부 통과 필수: cycleVerified, roeType3, riskOnEnvironment, mechanicalStop, notPreviousLeader 중 하나라도 False이면 HOLD.
         ② RRR 최소 기준 필수: BUY 2.0 이상, STRONG_BUY 3.0 이상. 미충족 시 HOLD.

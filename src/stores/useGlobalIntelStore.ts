@@ -19,6 +19,7 @@ import type { DynamicStopInput, DynamicStopResult } from '../types/sell';
 import type { FeedbackLoopResult } from '../types/portfolio';
 import type { MHSRecord } from '../components/MHSHistoryChart';
 import type { SectorEnergyInput, SectorEnergyResult } from '../types/sectorEnergy';
+import type { FlowPredictionInput, FlowPredictionResult } from '../types/flowPrediction';
 
 interface GlobalIntelState {
   // Core macro
@@ -168,6 +169,14 @@ interface GlobalIntelState {
   /** 현재 스크리닝 종목에 대한 반실패 경고 문자열 (null = 경고 없음) */
   antiFailureWarning: string | null;
   setAntiFailureWarning: (warning: string | null) => void;
+
+  // ── 수급 예측 선행 모델 (Flow Prediction Engine) ─────────────────────────────
+  /** 수급 예측 선행 모델 입력값 (퍼시스트) */
+  flowPredictionInput: FlowPredictionInput;
+  setFlowPredictionInput: (input: FlowPredictionInput) => void;
+  /** 수급 예측 선행 모델 계산 결과 */
+  flowPredictionResult: FlowPredictionResult | null;
+  setFlowPredictionResult: (data: FlowPredictionResult | null) => void;
 
   // Bulk setter for initial load
   setAllMacroData: (data: Partial<GlobalIntelState>) => void;
@@ -337,6 +346,23 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       antiFailureWarning: null,
       setAntiFailureWarning: (antiFailureWarning) => set({ antiFailureWarning }),
 
+      // ── 수급 예측 선행 모델
+      flowPredictionInput: {
+        recentVolume5dAvg: 500000,
+        avgVolume20d: 1000000,
+        bidAskSpreadRatio: 0.002,
+        programNonArbitrageNetBuy: 50,
+        foreignOwnershipRatio: 12,
+        foreignOwnershipThreshold: 15,
+        foreignNetBuy5d: 100000,
+        institutionalNetBuy5d: 50000,
+        fundamentalScore: 70,
+        distortionSchedules: [],
+      },
+      setFlowPredictionInput: (flowPredictionInput) => set({ flowPredictionInput }),
+      flowPredictionResult: null,
+      setFlowPredictionResult: (flowPredictionResult) => set({ flowPredictionResult }),
+
       setAllMacroData: (data) => set(data as any),
     }),
     {
@@ -354,6 +380,7 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
         mtfConfluenceInput: state.mtfConfluenceInput,
         dynamicStopInput: state.dynamicStopInput,
         sectorEnergyInputs: state.sectorEnergyInputs,
+        flowPredictionInput: state.flowPredictionInput,
       }),
     }
   )
