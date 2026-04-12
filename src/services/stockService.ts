@@ -6,6 +6,7 @@ export * from './stock/enrichment';
 export * from './stock/priceSync';
 export * from './stock/stockSearch';
 export * from './stock/historicalData';
+export * from './stock/backtestService';
 export * from './stock/reportUtils';
 export * from './stock/marketOverview';
 export * from './stock/quantScreener';
