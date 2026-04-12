@@ -145,6 +145,12 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
   );
 
   const shadows = loadShadowTrades();
+  if (balance === null) {
+    const activeHoldingValue = shadows
+      .filter((s) => isOpenShadowStatus(s.status))
+      .reduce((sum, s) => sum + (s.shadowEntryPrice * s.quantity), 0);
+    orderableCash = Math.max(0, totalAssets - activeHoldingValue);
+  }
 
   // ── 레짐 분류 (classifyRegime — backtestPortfolio와 동일 로직) ──────────────
   const macroState = loadMacroState();
@@ -338,14 +344,10 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
                            : 0.03;
       // 레짐 Kelly 배율 적용 (R1=1.0, R2=0.8, R3=0.6, R4=0.5, R5=0.3)
       const positionPct = rawPositionPct * kellyMultiplier;
-      const currentHoldingValue = shadows
-        .filter((s) => isOpenShadowStatus(s.status))
-        .reduce((sum, s) => sum + (s.shadowEntryPrice * s.quantity), 0);
-      const spendableCash = balance !== null ? orderableCash : Math.max(0, totalAssets - currentHoldingValue);
       const remainingSlots = Math.max(1, regimeConfig.maxPositions - currentActive);
       const { quantity, effectiveBudget } = calculateOrderQuantity({
         totalAssets,
-        orderableCash: spendableCash,
+        orderableCash,
         positionPct,
         price: shadowEntryPrice,
         remainingSlots,
@@ -459,9 +461,6 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
         }
 
         shadows.push(trade);
-        if (ordNo) {
-          orderableCash = Math.max(0, spendableCash - effectiveBudget);
-        }
 
         await sendTelegramAlert(
           `🚀 <b>[LIVE] 매수 주문${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
@@ -471,6 +470,10 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
           `주문번호: ${ordNo ?? 'N/A'}\n` +
           `손절: ${stock.stopLoss.toLocaleString()}원 | 목표: ${stock.targetPrice.toLocaleString()}원`
         ).catch(console.error);
+      }
+
+      if (trade.status !== 'REJECTED') {
+        orderableCash = Math.max(0, orderableCash - effectiveBudget);
       }
 
       // 아이디어 8: STRONG_BUY → 2·3차 분할 매수 스케줄 등록

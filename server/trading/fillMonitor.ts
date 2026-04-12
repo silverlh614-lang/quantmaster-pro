@@ -46,6 +46,9 @@ function updateRelatedTradeStatus(
   if (!trade) return;
 
   if (status === 'ORDER_SUBMITTED' && trade.status !== 'PENDING') return;
+  if (status === 'PARTIALLY_FILLED' && trade.status !== 'ORDER_SUBMITTED' && trade.status !== 'PARTIALLY_FILLED') return;
+  if (status === 'ACTIVE' && trade.status === 'REJECTED') return;
+  if (status === 'REJECTED' && (trade.status === 'HIT_TARGET' || trade.status === 'HIT_STOP')) return;
 
   trade.status = status;
   if (opts?.fillPrice !== undefined && opts.fillPrice > 0) trade.shadowEntryPrice = opts.fillPrice;
