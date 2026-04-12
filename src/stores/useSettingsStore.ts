@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export type View = 'DISCOVER' | 'WATCHLIST' | 'BACKTEST' | 'MARKET' | 'WALK_FORWARD' | 'MANUAL_INPUT' | 'SCREENER' | 'SUBSCRIPTION' | 'TRADE_JOURNAL' | 'AUTO_TRADE';
+export type ThemeMode = 'dark' | 'light' | 'high-contrast' | 'ocean' | 'forest';
 
 interface SettingsState {
   // Navigation
@@ -9,8 +10,8 @@ interface SettingsState {
   setView: (view: View) => void;
 
   // Theme & Display
-  theme: 'dark' | 'light' | 'high-contrast';
-  setTheme: (theme: 'dark' | 'light' | 'high-contrast') => void;
+  theme: ThemeMode;
+  setTheme: (theme: ThemeMode) => void;
   fontSize: number;
   setFontSize: (size: number) => void;
 

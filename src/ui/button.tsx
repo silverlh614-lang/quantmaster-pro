@@ -1,5 +1,6 @@
 import React from 'react';
 import { cn } from './cn';
+import { Spinner, type SpinnerSize, type SpinnerVariant } from './spinner';
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'accent';
 type ButtonSize = 'sm' | 'md' | 'lg';
@@ -9,6 +10,9 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   size?: ButtonSize;
   icon?: React.ReactNode;
   loading?: boolean;
+  loadingText?: string;
+  spinnerVariant?: SpinnerVariant;
+  spinnerSize?: SpinnerSize;
 }
 
 const variantClasses: Record<ButtonVariant, string> = {
@@ -25,7 +29,19 @@ const sizeClasses: Record<ButtonSize, string> = {
   lg: 'px-6 py-3.5 text-base gap-3 rounded-2xl',
 };
 
-export function Button({ variant = 'primary', size = 'md', icon, loading, className, children, disabled, ...props }: ButtonProps) {
+export function Button({
+  variant = 'primary',
+  size = 'md',
+  icon,
+  loading,
+  loadingText,
+  spinnerVariant = 'ring',
+  spinnerSize = 'md',
+  className,
+  children,
+  disabled,
+  ...props
+}: ButtonProps) {
   return (
     <button
       className={cn(
@@ -39,11 +55,11 @@ export function Button({ variant = 'primary', size = 'md', icon, loading, classN
       {...props}
     >
       {loading ? (
-        <span className="w-4 h-4 border-2 border-current/20 border-t-current rounded-full animate-spin" />
+        <Spinner variant={spinnerVariant} size={spinnerSize} />
       ) : icon ? (
         <span className="shrink-0">{icon}</span>
       ) : null}
-      {children}
+      {loading && loadingText ? loadingText : children}
     </button>
   );
 }
