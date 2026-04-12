@@ -462,24 +462,6 @@ export async function fastDartCheck(): Promise<void> {
   console.log(`[FastDART] 배치 분석: ${toAnalyze.length}건 → Gemini 1회 호출`);
 }
 
-
-// ── 인메모리 중복 방지 캐시 (서버 재시작 시 초기화 — 의도적) ─────────────────
-// 파일 기반 seen Set(DART_FAST_SEEN_FILE)에 더해 메모리 캐시로 중복 Gemini 호출을 차단.
-// 4시간 TTL: 당일 재반복 공시 방어 + 메모리 누수 방지.
-const _processedIds     = new Set<string>();
-const _PROCESSED_TTL_MS = 4 * 60 * 60 * 1000; // 4시간
-
-function markProcessed(id: string): void {
-  _processedIds.add(id);
-  setTimeout(() => _processedIds.delete(id), _PROCESSED_TTL_MS);
-}
-
-// 고영향 공시 키워드 (가격 이동 유발 가능성 높은 공시 유형)
-export const FAST_DART_KEYWORDS = [
-  '무상증자', '자사주취득', '자사주소각', '영업이익', '잠정실적',
-  '수주', '흑자전환', '분기실적', '연간실적', '대규모수주',
-];
-
 function loadFastSeenNos(): Set<string> {
   ensureDataDir();
   if (!fs.existsSync(DART_FAST_SEEN_FILE)) return new Set();
