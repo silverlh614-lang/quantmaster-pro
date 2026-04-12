@@ -1,0 +1,95 @@
+/**
+ * Idea 8: Scroll-aware sticky mini header
+ * Shows context bar when scrolling down: stock count, watchlist count, avg gate score, last update time.
+ */
+import React, { useState, useEffect } from 'react';
+import { RefreshCw } from 'lucide-react';
+import { cn } from '../ui/cn';
+import { useRecommendationStore, useMarketStore } from '../stores';
+
+export function StickyMiniHeader() {
+  const [isVisible, setIsVisible] = useState(false);
+  const { recommendations, watchlist, lastUpdated } = useRecommendationStore();
+  const { syncStatus } = useMarketStore();
+
+  useEffect(() => {
+    let prevScrollY = 0;
+    const handleScroll = () => {
+      const scrollY = window.scrollY;
+      // Show after scrolling past 200px
+      setIsVisible(scrollY > 200);
+      prevScrollY = scrollY;
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  if (!isVisible) return null;
+
+  const totalCount = (recommendations || []).length;
+  const watchlistCount = (watchlist || []).length;
+
+  // Calculate average gate score
+  const scores = (recommendations || [])
+    .map(r => r.aiConvictionScore?.totalScore)
+    .filter((s): s is number => s != null);
+  const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+
+  const updateTime = lastUpdated
+    ? new Date(lastUpdated).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+    : '--:--';
+
+  return (
+    <div
+      className={cn(
+        'fixed top-0 left-0 right-0 z-[45] lg:left-[var(--sidebar-width)]',
+        'h-10 flex items-center justify-between px-4 gap-4',
+        'border-b border-theme-border backdrop-blur-xl',
+        'animate-fade-slide-up no-print'
+      )}
+      style={{ background: 'rgba(8, 11, 15, 0.85)' }}
+    >
+      <div className="flex items-center gap-4 overflow-x-auto no-scrollbar">
+        {/* Stock Count */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">AI추천</span>
+          <span className="text-[11px] font-black text-orange-400 font-num">{totalCount}건</span>
+        </div>
+
+        <div className="w-px h-3.5 bg-theme-border shrink-0" />
+
+        {/* Watchlist */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">관심</span>
+          <span className="text-[11px] font-black text-blue-400 font-num">{watchlistCount}</span>
+        </div>
+
+        <div className="w-px h-3.5 bg-theme-border shrink-0" />
+
+        {/* Average Score */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">Gate평균</span>
+          <span className={cn(
+            'text-[11px] font-black font-num',
+            avgScore >= 80 ? 'text-green-400' : avgScore >= 60 ? 'text-amber-400' : 'text-theme-text-secondary'
+          )}>
+            {avgScore}
+          </span>
+        </div>
+
+        <div className="w-px h-3.5 bg-theme-border shrink-0" />
+
+        {/* Last Update */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {syncStatus.isSyncing ? (
+            <RefreshCw className="w-3 h-3 text-orange-400 animate-spin" />
+          ) : (
+            <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">&#8634;</span>
+          )}
+          <span className="text-[11px] font-black text-theme-text-secondary font-num">{updateTime}</span>
+        </div>
+      </div>
+    </div>
+  );
+}

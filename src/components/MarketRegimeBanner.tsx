@@ -1,7 +1,7 @@
 /**
- * 아이디어 1: Gate -1 "Market Regime Detector" 상단 배너
- * BULL → 투명/숨김 / TRANSITION → 노란색 경고 / BEAR → 붉은 위험 배너
- * 아이디어 2: Inverse Gate 1 STRONG BEAR 시그널 배지 포함
+ * Idea 5: Compact one-line Market Regime Banner
+ * RISK-ON/OFF state + VKOSPI chip + Foreign flow chip — readable in 10 seconds.
+ * Expandable for full detail on click.
  */
 import React, { useState } from 'react';
 import { TrendingDown, TrendingUp, AlertTriangle, ChevronDown, ChevronUp, Shield, Activity } from 'lucide-react';
@@ -25,7 +25,6 @@ const LEVEL_LABELS: Record<string, string> = {
 export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult, inverseGate1Result }: MarketRegimeBannerProps) {
   const [expanded, setExpanded] = useState(false);
 
-  // Nothing to show when bull + normal VKOSPI + no inverse signal
   const regime = bearRegimeResult?.regime ?? 'BULL';
   const vLevel = vkospiTriggerResult?.level ?? 'NORMAL';
   const isStrongBear = inverseGate1Result?.signalType === 'STRONG_BEAR';
@@ -35,104 +34,96 @@ export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult, inve
   const isTransition = regime === 'TRANSITION';
   const isVkospiAlert = vLevel !== 'NORMAL';
 
-  // Only render banner in TRANSITION or BEAR mode, when VKOSPI is alerting, or when Inverse Gate 1 signals
+  // Only render banner in non-BULL or alert states
   if (regime === 'BULL' && !isVkospiAlert && !isStrongBear && !isPartialBear) return null;
-
-  // Color scheme based on severity
-  const bannerBase = isBear
-    ? 'bg-red-950/90 border-red-600/60 text-red-100'
-    : isTransition
-    ? 'bg-amber-950/90 border-amber-600/60 text-amber-100'
-    : 'bg-orange-950/90 border-orange-600/60 text-orange-100';
-
-  const iconColor = isBear ? 'text-red-400' : isTransition ? 'text-amber-400' : 'text-orange-400';
-
-  const regimeLabel = isBear ? '🔴 BEAR MODE' : isTransition ? '🟡 TRANSITION' : '🟢 BULL';
-  const RegimeIcon = isBear ? TrendingDown : isTransition ? AlertTriangle : TrendingUp;
 
   const triggeredCount = bearRegimeResult?.triggeredCount ?? 0;
   const threshold = bearRegimeResult?.threshold ?? 5;
 
+  // Determine risk state
+  const isRiskOff = isBear || isStrongBear;
+  const riskLabel = isRiskOff ? 'RISK-OFF' : 'RISK-ON';
+  const riskColor = isRiskOff ? 'text-red-400' : isTransition ? 'text-amber-400' : 'text-orange-400';
+  const dotColor = isRiskOff ? 'bg-red-500' : isTransition ? 'bg-amber-500' : 'bg-orange-500';
+  const borderColor = isRiskOff ? 'border-red-500/30' : isTransition ? 'border-amber-500/30' : 'border-orange-500/30';
+  const bgColor = isRiskOff ? 'bg-red-950/60' : isTransition ? 'bg-amber-950/60' : 'bg-orange-950/60';
+
   return (
-    <div
-      className={cn(
-        'border-b transition-all duration-500 no-print',
-        bannerBase,
-        isBear && 'animate-pulse',
-      )}
-      role="alert"
-      aria-live="assertive"
-    >
-      {/* Main row */}
-      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-2 flex items-center gap-3 flex-wrap">
-        {/* Regime label */}
-        <div className="flex items-center gap-2 font-black text-sm shrink-0">
-          <RegimeIcon className={cn('w-4 h-4', iconColor)} />
-          <span className={cn('uppercase tracking-widest text-xs', iconColor)}>{regimeLabel}</span>
+    <div className={cn('no-print', borderColor, bgColor, 'border-b')} role="alert" aria-live="assertive">
+      {/* Compact One-Line Banner (Idea 5) */}
+      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-10 flex items-center gap-3">
+        {/* Pulsing Risk State */}
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={cn('signal-dot', isRiskOff ? 'signal-dot-strong-sell' : 'signal-dot-neutral')} style={{ width: '8px', height: '8px' }} />
+          <span className={cn('text-[11px] font-black uppercase tracking-[0.15em]', riskColor)}>
+            {riskLabel}
+          </span>
         </div>
 
-        {/* Condition count badge */}
-        {bearRegimeResult && (
-          <span className={cn(
-            'text-[10px] font-black px-2 py-0.5 rounded border uppercase tracking-widest shrink-0',
-            isBear ? 'bg-red-800/60 border-red-500/50 text-red-200' : 'bg-amber-800/60 border-amber-500/50 text-amber-200',
-          )}>
-            {triggeredCount}/{threshold} 조건
-          </span>
-        )}
+        <div className="w-px h-4 bg-white/10 shrink-0" />
 
-        {/* VKOSPI trigger badge */}
+        {/* Regime Chip */}
+        <span className={cn(
+          'text-[10px] font-black px-2 py-0.5 rounded-md border uppercase tracking-widest shrink-0 font-num',
+          isBear ? 'bg-red-500/20 border-red-500/30 text-red-300'
+            : isTransition ? 'bg-amber-500/20 border-amber-500/30 text-amber-300'
+            : 'bg-orange-500/20 border-orange-500/30 text-orange-300'
+        )}>
+          {isBear ? 'BEAR' : isTransition ? 'TRANSITION' : 'WATCH'} {triggeredCount}/{threshold}
+        </span>
+
+        {/* VKOSPI Chip */}
         {vkospiTriggerResult && isVkospiAlert && (
-          <span className={cn(
-            'text-[10px] font-black px-2 py-0.5 rounded border uppercase tracking-widest shrink-0',
-            vLevel === 'HISTORICAL_FEAR' ? 'bg-red-800/60 border-red-500/50 text-red-200'
-              : vLevel === 'ENTRY_2' ? 'bg-red-700/50 border-red-500/40 text-red-200'
-              : vLevel === 'ENTRY_1' ? 'bg-orange-800/60 border-orange-500/50 text-orange-200'
-              : 'bg-amber-800/60 border-amber-500/50 text-amber-200',
-          )}>
-            VKOSPI {vkospiTriggerResult.vkospi.toFixed(1)} · {LEVEL_LABELS[vLevel]}
-          </span>
+          <>
+            <div className="w-px h-4 bg-white/10 shrink-0" />
+            <span className={cn(
+              'text-[10px] font-black px-2 py-0.5 rounded-md border uppercase tracking-widest shrink-0 font-num',
+              vLevel === 'HISTORICAL_FEAR' || vLevel === 'ENTRY_2'
+                ? 'bg-red-500/20 border-red-500/30 text-red-300'
+                : 'bg-amber-500/20 border-amber-500/30 text-amber-300'
+            )}>
+              VKOSPI {vkospiTriggerResult.vkospi.toFixed(1)}
+            </span>
+          </>
         )}
 
-        {/* Inverse Gate 1 badge */}
+        {/* Inverse Gate 1 Chip */}
         {inverseGate1Result && (isStrongBear || isPartialBear) && (
-          <span className={cn(
-            'text-[10px] font-black px-2 py-0.5 rounded border uppercase tracking-widest shrink-0',
-            isStrongBear
-              ? 'bg-red-900/70 border-red-500 text-red-100'
-              : 'bg-orange-800/60 border-orange-500/50 text-orange-200',
-          )}>
-            {isStrongBear ? '🔴 STRONG BEAR' : `🟠 인버스대기 ${inverseGate1Result.triggeredCount}/5`}
-          </span>
+          <>
+            <div className="w-px h-4 bg-white/10 shrink-0" />
+            <span className={cn(
+              'text-[10px] font-black px-2 py-0.5 rounded-md border uppercase tracking-widest shrink-0',
+              isStrongBear
+                ? 'bg-red-500/20 border-red-500/30 text-red-300'
+                : 'bg-orange-500/20 border-orange-500/30 text-orange-300'
+            )}>
+              {isStrongBear ? 'INV BEAR' : `INV ${inverseGate1Result.triggeredCount}/5`}
+            </span>
+          </>
         )}
 
-        {/* Action summary */}
-        <span className="text-xs opacity-80 hidden md:block flex-1 truncate">
-          {isBear
-            ? '인버스/방어자산 모드 전환 — 신규 롱 포지션 전면 중단'
-            : isTransition
-            ? '현금 비중 확대 + 헤지 레이어 활성화 권고'
-            : isStrongBear
-            ? 'Inverse Gate 1 STRONG BEAR 시그널 — 인버스 ETF 즉시 진입 권고'
+        {/* Action Summary (desktop only) */}
+        <span className="text-[10px] text-white/40 font-medium hidden md:block flex-1 truncate ml-1">
+          {isBear ? '인버스 모드 — 롱 중단'
+            : isTransition ? '현금 확대 + 헤지 활성화'
+            : isStrongBear ? 'Inverse Gate STRONG BEAR'
             : `VKOSPI ${vkospiTriggerResult?.vkospi.toFixed(1)} 경보`}
         </span>
 
         {/* Expand toggle */}
         <button
           onClick={() => setExpanded(v => !v)}
-          className="ml-auto flex items-center gap-1 text-[10px] font-black uppercase tracking-widest opacity-70 hover:opacity-100 transition-opacity shrink-0"
+          className="ml-auto flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-white/60 transition-opacity shrink-0"
           aria-expanded={expanded}
           aria-label="상세 정보 보기"
         >
           {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-          <span className="hidden sm:inline">{expanded ? '접기' : '상세'}</span>
         </button>
       </div>
 
       {/* Expanded detail panel */}
       {expanded && (
         <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 pb-3 grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-white/10 mt-1 pt-3">
-
           {/* Bear Regime Conditions */}
           {bearRegimeResult && (
             <div>
@@ -148,11 +139,11 @@ export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult, inve
                         ? 'bg-red-500/40 border-red-400 text-red-200'
                         : 'bg-white/5 border-white/20 text-white/40',
                     )}>
-                      {cond.triggered ? '✓' : '–'}
+                      {cond.triggered ? '\u2713' : '\u2013'}
                     </span>
                     <span className={cn('leading-snug', cond.triggered ? 'opacity-100' : 'opacity-40')}>
                       <span className="font-bold">{cond.name}</span>
-                      {cond.triggered && <span className="opacity-70"> — {cond.description}</span>}
+                      {cond.triggered && <span className="opacity-70"> \u2014 {cond.description}</span>}
                     </span>
                   </li>
                 ))}
@@ -169,7 +160,7 @@ export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult, inve
               </h4>
               <p className="text-xs font-bold mb-1">{vkospiTriggerResult.description}</p>
               <p className="text-xs opacity-80 leading-relaxed mb-2">{vkospiTriggerResult.actionMessage}</p>
-              <div className="flex gap-3 text-[10px] font-black">
+              <div className="flex gap-3 text-[10px] font-black font-num">
                 <span>현금 {vkospiTriggerResult.cashRatio}%</span>
                 {vkospiTriggerResult.inversePosition > 0 && (
                   <span>인버스 {vkospiTriggerResult.inversePosition}%</span>
@@ -178,18 +169,16 @@ export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult, inve
               {vkospiTriggerResult.inverseEtfSuggestions.length > 0 && (
                 <ul className="mt-2 space-y-0.5">
                   {vkospiTriggerResult.inverseEtfSuggestions.map(etf => (
-                    <li key={etf} className="text-[10px] opacity-70">• {etf}</li>
+                    <li key={etf} className="text-[10px] opacity-70">{etf}</li>
                   ))}
                 </ul>
               )}
               {vkospiTriggerResult.dualPositionActive && vkospiTriggerResult.vRecoveryStocks && (
                 <div className="mt-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1.5">
-                    V자 반등 준비 리스트
-                  </p>
+                  <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1.5">V자 반등 준비 리스트</p>
                   <ul className="space-y-0.5">
                     {vkospiTriggerResult.vRecoveryStocks.map(s => (
-                      <li key={s} className="text-[10px] opacity-70">• {s}</li>
+                      <li key={s} className="text-[10px] opacity-70">{s}</li>
                     ))}
                   </ul>
                 </div>
@@ -212,11 +201,11 @@ export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult, inve
                         ? 'bg-red-500/40 border-red-400 text-red-200'
                         : 'bg-white/5 border-white/20 text-white/40',
                     )}>
-                      {cond.triggered ? '✓' : '–'}
+                      {cond.triggered ? '\u2713' : '\u2013'}
                     </span>
                     <span className={cn('leading-snug', cond.triggered ? 'opacity-100' : 'opacity-40')}>
                       <span className="font-bold">{cond.name}</span>
-                      {cond.triggered && <span className="opacity-70"> — {cond.description}</span>}
+                      {cond.triggered && <span className="opacity-70"> \u2014 {cond.description}</span>}
                     </span>
                   </li>
                 ))}
@@ -225,7 +214,7 @@ export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult, inve
               {inverseGate1Result.etfRecommendations.length > 0 && (
                 <ul className="mt-2 space-y-0.5">
                   {inverseGate1Result.etfRecommendations.map(etf => (
-                    <li key={etf} className="text-[10px] opacity-70 text-red-300">• {etf}</li>
+                    <li key={etf} className="text-[10px] opacity-70 text-red-300">{etf}</li>
                   ))}
                 </ul>
               )}

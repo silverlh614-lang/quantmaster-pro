@@ -65,13 +65,13 @@ export const MarketTicker: React.FC<MarketTickerProps> = ({ data, loading, onRef
               return (
                 <div key={`${i}-${j}`} className="flex items-center gap-3">
                   <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{idx.name}</span>
-                  <span className="text-xs font-black text-white tracking-tighter">{idx.value?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="text-xs font-black text-white tracking-tighter font-num">{idx.value?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   <div className={cn(
                     "flex items-center text-[10px] font-black",
                     isPositive ? "text-red-400" : "text-blue-400"
                   )}>
                     {isPositive ? <TrendingUp size={10} className="mr-0.5" /> : <TrendingDown size={10} className="mr-0.5" />}
-                    {isPositive ? '+' : ''}{idx.changePercent}%
+                    <span className="font-num">{isPositive ? '+' : ''}{idx.changePercent}%</span>
                   </div>
                 </div>
               );
@@ -79,7 +79,7 @@ export const MarketTicker: React.FC<MarketTickerProps> = ({ data, loading, onRef
             {data.exchangeRates?.slice(0, 1).map((rate, j) => (
               <div key={`rate-${i}-${j}`} className="flex items-center gap-3">
                 <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{rate.name}</span>
-                <span className="text-xs font-black text-white tracking-tighter">{rate.value?.toLocaleString()}</span>
+                <span className="text-xs font-black text-white tracking-tighter font-num">{rate.value?.toLocaleString()}</span>
                 <div className={cn(
                   "flex items-center text-[10px] font-black",
                   rate.change >= 0 ? "text-red-400" : "text-blue-400"
@@ -93,8 +93,8 @@ export const MarketTicker: React.FC<MarketTickerProps> = ({ data, loading, onRef
       </div>
       
       {/* Gradient overlays for fade effect */}
-      <div className="absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-[#050505] to-transparent z-10" />
-      <div className="absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-[#050505] to-transparent z-10" />
+      <div className="absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-[#080B0F] to-transparent z-10" />
+      <div className="absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-[#080B0F] to-transparent z-10" />
       
       <style>{`
         @keyframes marquee {

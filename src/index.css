@@ -3,9 +3,12 @@
 
 @theme {
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", "Cascadia Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --breakpoint-xs: 480px;
 
   --color-theme-bg: var(--bg-app);
+  --color-theme-bg-elevated: var(--bg-elevated);
+  --color-theme-bg-surface: var(--bg-surface);
   --color-theme-text: var(--text-primary);
   --color-theme-text-secondary: var(--text-secondary);
   --color-theme-text-muted: var(--text-muted);
@@ -16,24 +19,50 @@
   --color-theme-input: var(--input-bg);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   DESIGN TOKENS — Spacing, Radius, Shadows, Typography, Z-Index
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* =============================================================================
+   DESIGN TOKENS — 3-Layer Background System, Spacing, Radius, Shadows
+   ============================================================================= */
 
 @layer base {
   :root {
-    /* ── Color Tokens ── */
-    --bg-app: #050505;
-    --text-primary: #ffffff;
-    --text-secondary: rgba(255, 255, 255, 0.7);
-    --text-muted: rgba(255, 255, 255, 0.4);
-    --card-bg: rgba(255, 255, 255, 0.03);
-    --card-border: rgba(255, 255, 255, 0.08);
+    /* -- 3-Layer Background System (Idea 10) -- */
+    --bg-app: #080B0F;
+    --bg-elevated: #0D1117;
+    --bg-surface: #111822;
+
+    /* -- Text Colors -- */
+    --text-primary: #E6EDF3;
+    --text-secondary: rgba(230, 237, 243, 0.7);
+    --text-muted: rgba(230, 237, 243, 0.4);
+
+    /* -- Card & Surface -- */
+    --card-bg: rgba(17, 24, 34, 0.6);
+    --card-border: rgba(230, 237, 243, 0.08);
+    --card-highlight: rgba(255, 255, 255, 0.05);
+
+    /* -- Accent Colors -- */
     --accent: #f97316;
-    --surface-bg: rgba(255, 255, 255, 0.05);
+    --surface-bg: rgba(255, 255, 255, 0.04);
     --input-bg: rgba(0, 0, 0, 0.4);
 
-    /* ── Spacing Scale (4px base) ── */
+    /* -- Signal Colors -- */
+    --signal-strong-buy: #22c55e;
+    --signal-buy: #4ade80;
+    --signal-neutral: #94a3b8;
+    --signal-sell: #f87171;
+    --signal-strong-sell: #ef4444;
+
+    /* -- Gate Colors (Idea 2) -- */
+    --gate-1: #ef4444;
+    --gate-2: #f59e0b;
+    --gate-3: #22c55e;
+
+    /* -- Sidebar -- */
+    --sidebar-width: 220px;
+    --sidebar-collapsed-width: 64px;
+    --bottom-nav-height: 64px;
+
+    /* -- Spacing Scale (4px base) -- */
     --space-1: 4px;
     --space-2: 8px;
     --space-3: 12px;
@@ -43,39 +72,45 @@
     --space-10: 40px;
     --space-12: 48px;
 
-    /* ── Radius Tokens ── */
+    /* -- Radius Tokens -- */
     --radius-sm: 8px;
     --radius-md: 12px;
     --radius-lg: 16px;
     --radius-xl: 24px;
     --radius-full: 9999px;
 
-    /* ── Typography Scale ── */
-    --text-page-title: clamp(1.5rem, 3vw, 2rem);       /* 24px → 32px */
-    --text-section-title: clamp(1.125rem, 2.5vw, 1.5rem); /* 18px → 24px */
-    --text-card-title: clamp(0.875rem, 2vw, 1.125rem);  /* 14px → 18px */
-    --text-body: clamp(0.8125rem, 1.5vw, 0.875rem);     /* 13px → 14px */
-    --text-caption: 0.75rem;                             /* 12px */
-    --text-micro: 0.625rem;                              /* 10px */
+    /* -- Typography Scale -- */
+    --text-page-title: clamp(1.5rem, 3vw, 2rem);
+    --text-section-title: clamp(1.125rem, 2.5vw, 1.5rem);
+    --text-card-title: clamp(0.875rem, 2vw, 1.125rem);
+    --text-body: clamp(0.8125rem, 1.5vw, 0.875rem);
+    --text-caption: 0.75rem;
+    --text-micro: 0.625rem;
 
-    /* ── Shadow Tokens ── */
-    --shadow-card: 0 10px 30px -10px rgba(0, 0, 0, 0.5), inset 0 1px 1px 0 rgba(255, 255, 255, 0.05);
-    --shadow-card-hover: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+    /* -- Shadow Tokens -- */
+    --shadow-card: 0 10px 30px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+    --shadow-card-hover: 0 20px 40px -15px rgba(0, 0, 0, 0.7), inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
     --shadow-button: 0 8px 30px -5px rgba(249, 115, 22, 0.25);
     --shadow-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+    --shadow-glow-green: 0 0 20px rgba(34, 197, 94, 0.3);
+    --shadow-glow-red: 0 0 20px rgba(239, 68, 68, 0.3);
     --shadow-glow-orange: 0 0 30px rgba(249, 115, 22, 0.15);
     --shadow-glow-blue: 0 0 30px rgba(59, 130, 246, 0.15);
+    --shadow-sidebar: 4px 0 24px -4px rgba(0, 0, 0, 0.5);
 
-    /* ── Z-Index Scale ── */
+    /* -- Z-Index Scale -- */
     --z-base: 0;
     --z-dropdown: 10;
     --z-sticky: 20;
+    --z-sidebar: 40;
     --z-header: 50;
+    --z-fab: 60;
     --z-overlay: 90;
     --z-modal: 100;
     --z-toast: 110;
+    --z-slide-panel: 95;
 
-    /* ── Chart Height Tokens ── */
+    /* -- Chart Height Tokens -- */
     --chart-sm: 200px;
     --chart-md: 280px;
     --chart-lg: 360px;
@@ -83,27 +118,34 @@
 
   .theme-light {
     --bg-app: #f8f9fa;
+    --bg-elevated: #ffffff;
+    --bg-surface: #f0f2f5;
     --text-primary: #1a1a1a;
     --text-secondary: rgba(0, 0, 0, 0.7);
     --text-muted: rgba(0, 0, 0, 0.4);
     --card-bg: #ffffff;
     --card-border: rgba(0, 0, 0, 0.1);
+    --card-highlight: rgba(0, 0, 0, 0.03);
     --accent: #f97316;
     --surface-bg: rgba(0, 0, 0, 0.03);
     --input-bg: rgba(0, 0, 0, 0.04);
     --shadow-card: 0 4px 20px -4px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
     --shadow-card-hover: 0 12px 30px -8px rgba(0, 0, 0, 0.12);
     --shadow-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    --shadow-sidebar: 4px 0 24px -4px rgba(0, 0, 0, 0.1);
     color-scheme: light;
   }
 
   .theme-high-contrast {
     --bg-app: #000000;
+    --bg-elevated: #0a0a0a;
+    --bg-surface: #141414;
     --text-primary: #ffffff;
     --text-secondary: #ffffff;
     --text-muted: #ffff00;
     --card-bg: #000000;
     --card-border: #ffffff;
+    --card-highlight: rgba(255, 255, 255, 0.15);
     --accent: #ffff00;
     --surface-bg: rgba(255, 255, 255, 0.1);
     --input-bg: rgba(255, 255, 255, 0.1);
@@ -125,25 +167,45 @@
   }
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
+/* =============================================================================
    UTILITY CLASSES — Glass, Buttons, Text Effects, Responsive Utils
-   ═══════════════════════════════════════════════════════════════════════════ */
+   ============================================================================= */
 
 @layer utilities {
-  /* ── Glass & Card Effects ── */
+  /* -- Glass & Card Effects (Idea 10: 3-layer depth) -- */
   .glass-3d {
-    @apply bg-theme-card backdrop-blur-2xl border border-theme-border relative overflow-hidden;
+    @apply backdrop-blur-2xl relative overflow-hidden;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
     box-shadow: var(--shadow-card);
+  }
+  .glass-3d::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--card-highlight);
+    z-index: 1;
+  }
+
+  .surface-elevated {
+    background: var(--bg-elevated);
+  }
+  .surface-raised {
+    background: var(--bg-surface);
   }
 
   .card-3d {
-    @apply transition-all duration-300 hover:-translate-y-1;
+    @apply transition-all duration-300 hover:-translate-y-0.5;
     &:hover {
       box-shadow: var(--shadow-card-hover);
+      border-color: rgba(255, 255, 255, 0.12);
     }
   }
 
-  /* ── Button Effects ── */
+  /* -- Button Effects -- */
   .btn-3d {
     @apply relative overflow-hidden transition-all duration-200 active:scale-95;
     box-shadow:
@@ -160,7 +222,7 @@
       inset 0 1px 1px 0 rgba(255, 255, 255, 0.1);
   }
 
-  /* ── Text Effects ── */
+  /* -- Text Effects -- */
   .text-glow {
     text-shadow: 0 0 12px rgba(255, 255, 255, 0.2);
   }
@@ -169,7 +231,14 @@
     text-shadow: 0 0 12px rgba(249, 115, 22, 0.4);
   }
 
-  /* ── Unified Typography Classes ── */
+  /* -- Monospace Numeric (Idea 6) -- */
+  .font-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  /* -- Unified Typography Classes -- */
   .text-page-title {
     font-size: var(--text-page-title);
     @apply font-black tracking-tight;
@@ -200,7 +269,7 @@
     @apply font-black uppercase tracking-[0.15em] text-theme-text-muted;
   }
 
-  /* ── Responsive Text — fluid typography via clamp() ── */
+  /* -- Responsive Text -- */
   .text-responsive-base {
     @apply text-sm sm:text-base;
   }
@@ -229,7 +298,7 @@
     font-size: clamp(1rem, 2.5vw, 1.5rem);
   }
 
-  /* ── Layout Utilities ── */
+  /* -- Layout Utilities -- */
   .safe-padding {
     @apply px-4 sm:px-6 lg:px-8;
   }
@@ -238,7 +307,7 @@
     word-break: break-all;
   }
 
-  /* ── Scrollbar Hiding ── */
+  /* -- Scrollbar Hiding -- */
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
@@ -246,11 +315,177 @@
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+
+  /* -- Pulsing Signal Dot (Idea 3) -- */
+  .signal-dot {
+    @apply relative inline-block w-2.5 h-2.5 rounded-full;
+  }
+  .signal-dot::after {
+    content: '';
+    @apply absolute inset-0 rounded-full animate-ping;
+    background: inherit;
+    opacity: 0.4;
+  }
+  .signal-dot-strong-buy {
+    background: var(--signal-strong-buy);
+    box-shadow: 0 0 8px var(--signal-strong-buy), 0 0 16px rgba(34, 197, 94, 0.3);
+  }
+  .signal-dot-buy {
+    background: var(--signal-buy);
+    box-shadow: 0 0 6px var(--signal-buy);
+  }
+  .signal-dot-neutral {
+    background: var(--signal-neutral);
+    box-shadow: none;
+  }
+  .signal-dot-neutral::after {
+    display: none;
+  }
+  .signal-dot-sell {
+    background: var(--signal-sell);
+    box-shadow: 0 0 6px var(--signal-sell);
+  }
+  .signal-dot-strong-sell {
+    background: var(--signal-strong-sell);
+    box-shadow: 0 0 8px var(--signal-strong-sell), 0 0 16px rgba(239, 68, 68, 0.3);
+  }
+
+  /* -- Gate Progress Bar (Idea 2) -- */
+  .gate-bar {
+    @apply flex h-2 rounded-full overflow-hidden;
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .gate-bar-g1 {
+    background: var(--gate-1);
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .gate-bar-g2 {
+    background: var(--gate-2);
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.1s;
+  }
+  .gate-bar-g3 {
+    background: var(--gate-3);
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.2s;
+  }
+
+  /* -- Sidebar Layout -- */
+  .app-layout {
+    display: flex;
+    min-height: 100vh;
+  }
+
+  .app-sidebar {
+    width: var(--sidebar-width);
+    flex-shrink: 0;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: var(--z-sidebar);
+    background: var(--bg-elevated);
+    border-right: 1px solid var(--card-border);
+    box-shadow: var(--shadow-sidebar);
+    overflow-y: auto;
+    overflow-x: hidden;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .app-main {
+    flex: 1;
+    margin-left: var(--sidebar-width);
+    min-width: 0;
+    transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @media (max-width: 1023px) {
+    .app-sidebar {
+      display: none;
+    }
+    .app-main {
+      margin-left: 0;
+      padding-bottom: var(--bottom-nav-height);
+    }
+  }
+
+  /* -- Slide-in Detail Panel (Idea 7) -- */
+  .detail-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(480px, 100vw - var(--sidebar-width));
+    z-index: var(--z-slide-panel);
+    background: var(--bg-elevated);
+    border-left: 1px solid var(--card-border);
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.4);
+    overflow-y: auto;
+    transform: translateX(100%);
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .detail-panel.open {
+    transform: translateX(0);
+  }
+
+  @media (max-width: 1023px) {
+    .detail-panel {
+      width: 100vw;
+    }
+  }
+
+  /* -- FAB (Idea 9) -- */
+  .fab-container {
+    @apply fixed z-[60] lg:hidden;
+    bottom: calc(var(--bottom-nav-height) + 16px);
+    right: 16px;
+  }
+
+  /* -- Sector Bar (Idea 4) -- */
+  .sector-bar {
+    @apply h-3 rounded-full transition-all duration-500;
+    min-width: 4px;
+  }
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
+/* =============================================================================
+   ANIMATIONS
+   ============================================================================= */
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slide-out-right {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+
+@keyframes fan-out {
+  from { transform: scale(0) rotate(-45deg); opacity: 0; }
+  to { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+@keyframes fade-slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-fade-slide-up {
+  animation: fade-slide-up 0.3s ease-out;
+}
+
+/* =============================================================================
    PRINT STYLES
-   ═══════════════════════════════════════════════════════════════════════════ */
+   ============================================================================= */
 
 @media print {
   .no-print {
@@ -306,9 +541,9 @@
   }
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
+/* =============================================================================
    CUSTOM SCROLLBAR — theme-aware
-   ═══════════════════════════════════════════════════════════════════════════ */
+   ============================================================================= */
 
 ::-webkit-scrollbar {
   width: 6px;
