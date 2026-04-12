@@ -14,9 +14,87 @@ import type {
   RegimeConfig,
   MAPCResult,
   MAPCFactor,
+  NikkeiLeadAlphaInput,
+  NikkeiLeadAlphaResult,
+  NikkeiKospiSectorCorrelation,
+  NikkeiLeadGapResult,
 } from '../../types/quant';
 import { MHS, VKOSPI, VIX, FX, MACRO_AXIS_MAX, US10Y, KR_US_SPREAD } from '../../constants/thresholds';
 import { clamp } from '../../utils/math';
+
+// ─── 닛케이 5분봉 선행 지수화 (Nikkei → KOSPI) ─────────────────────────────────
+
+export const NIKKEI_KOSPI_SECTOR_CORRELATION_TABLE: NikkeiKospiSectorCorrelation[] = [
+  { nikkeiSector: 'DEFENSE', kospiSector: 'K-방산', correlation: 0.93, beta: 0.82 },
+  { nikkeiSector: 'SEMICONDUCTOR', kospiSector: '반도체', correlation: 0.92, beta: 0.88 },
+  { nikkeiSector: 'AUTOMOBILE', kospiSector: '자동차', correlation: 0.91, beta: 0.80 },
+  { nikkeiSector: 'SHIPBUILDING', kospiSector: '조선', correlation: 0.90, beta: 0.76 },
+  { nikkeiSector: 'ENERGY', kospiSector: '에너지', correlation: 0.90, beta: 0.74 },
+  { nikkeiSector: 'BANK', kospiSector: '금융', correlation: 0.90, beta: 0.70 },
+];
+
+function normalizeSectorKey(sector: string): string {
+  return sector.trim().toUpperCase().replace(/\s+/g, '_');
+}
+
+/**
+ * 닛케이 30분 선행 섹터 강도 기반으로 KOSPI 개장 이론 GAP 산출.
+ * Gemini 수집(08:30) 결과를 입력받아 09:00 개장 전 알림 메시지에 사용한다.
+ */
+export function evaluateNikkeiLeadAlpha(input: NikkeiLeadAlphaInput): NikkeiLeadAlphaResult {
+  const gapResults: NikkeiLeadGapResult[] = [];
+  const unmatchedNikkeiSectors: string[] = [];
+
+  for (const strength of input.nikkeiSectorStrengths) {
+    const key = normalizeSectorKey(strength.sector);
+    const matches = NIKKEI_KOSPI_SECTOR_CORRELATION_TABLE
+      .filter((row) => row.nikkeiSector === key);
+
+    if (matches.length === 0) {
+      unmatchedNikkeiSectors.push(strength.sector);
+      continue;
+    }
+
+    matches.forEach((row) => {
+      const theoreticalGapPct = +(strength.changePct * row.beta).toFixed(2);
+      gapResults.push({
+        nikkeiSector: row.nikkeiSector,
+        kospiSector: row.kospiSector,
+        nikkeiChangePct: strength.changePct,
+        theoreticalGapPct,
+        correlation: row.correlation,
+        beta: row.beta,
+      });
+    });
+  }
+
+  gapResults.sort((a, b) => Math.abs(b.theoreticalGapPct) - Math.abs(a.theoreticalGapPct));
+
+  const topGap = gapResults[0];
+  const maxAbsGap = topGap ? Math.abs(topGap.theoreticalGapPct) : 0;
+  const avgCorrelation = gapResults.length > 0
+    ? gapResults.reduce((sum, g) => sum + g.correlation, 0) / gapResults.length
+    : 0;
+  const predictiveConfidencePct = Math.round(avgCorrelation * 100);
+
+  const alertLevel: NikkeiLeadAlphaResult['alertLevel'] =
+    maxAbsGap >= 2.0 ? 'HIGH' : maxAbsGap >= 1.0 ? 'MEDIUM' : 'LOW';
+
+  const summary = topGap
+    ? `닛케이 선행 ${topGap.nikkeiSector} ${topGap.nikkeiChangePct >= 0 ? '+' : ''}${topGap.nikkeiChangePct.toFixed(2)}% → KOSPI ${topGap.kospiSector} 이론 GAP ${topGap.theoreticalGapPct >= 0 ? '+' : ''}${topGap.theoreticalGapPct.toFixed(2)}% (신뢰도 ${predictiveConfidencePct}%)`
+    : '닛케이 섹터 데이터 매칭 없음 — 이론 GAP 산출 불가';
+
+  return {
+    collectionTimeKst: '08:30',
+    alertTimeKst: '09:00',
+    collectedAt: input.collectedAt ?? new Date().toISOString(),
+    predictiveConfidencePct,
+    alertLevel,
+    summary,
+    gapResults,
+    unmatchedNikkeiSectors,
+  };
+}
 
 // ─── Gate 0: 거시 환경 생존 게이트 ──────────────────────────────────────────
 

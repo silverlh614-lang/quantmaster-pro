@@ -39,6 +39,50 @@ export interface MacroEnvironment {
   dxyBullish?: boolean;              // 달러인덱스(DXY) 강세 전환 여부 (Inverse Gate 1용)
 }
 
+// ─── 닛케이 5분봉 선행 지수화 (Nikkei → KOSPI) ─────────────────────────────────
+
+/** 닛케이 섹터 5분봉 변화율 입력 */
+export interface NikkeiSectorStrength {
+  sector: string;
+  changePct: number;
+}
+
+/** 닛케이↔KOSPI 섹터 상관 계수 테이블 항목 */
+export interface NikkeiKospiSectorCorrelation {
+  nikkeiSector: string;
+  kospiSector: string;
+  correlation: number; // 0~1
+  beta: number;        // 이론 프리미엄 배율
+}
+
+/** 닛케이 선행 알파 엔진 입력 */
+export interface NikkeiLeadAlphaInput {
+  nikkeiSectorStrengths: NikkeiSectorStrength[];
+  collectedAt?: string; // Gemini 수집 시각 (기본: now)
+}
+
+/** KOSPI 섹터별 이론 GAP 산출 결과 */
+export interface NikkeiLeadGapResult {
+  nikkeiSector: string;
+  kospiSector: string;
+  nikkeiChangePct: number;
+  theoreticalGapPct: number;
+  correlation: number;
+  beta: number;
+}
+
+/** 09:00 개장 전 브리핑 결과 */
+export interface NikkeiLeadAlphaResult {
+  collectionTimeKst: string; // 기본 08:30
+  alertTimeKst: string;      // 기본 09:00
+  collectedAt: string;
+  predictiveConfidencePct: number;
+  alertLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  summary: string;
+  gapResults: NikkeiLeadGapResult[];
+  unmatchedNikkeiSectors: string[];
+}
+
 // ─── 아이디어 4: Smart Money Radar (글로벌 ETF 선행 모니터) ──────────────────
 
 export interface EtfFlowData {

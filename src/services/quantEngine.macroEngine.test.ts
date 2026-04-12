@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateGate0, getRegimeConfig, evaluateMAPCResult } from './quant/macroEngine';
+import { evaluateGate0, getRegimeConfig, evaluateMAPCResult, evaluateNikkeiLeadAlpha } from './quant/macroEngine';
 import type { MacroEnvironment } from '../types/macro';
 
 // ─── 헬퍼 ────────────────────────────────────────────────────────────────────
@@ -385,5 +385,48 @@ describe('evaluateMAPCResult — MAPC 포지션 자동 조절기', () => {
     expect(result.snapshot.vix).toBe(25);
     expect(result.snapshot.vkospi).toBe(28);
     expect(result.snapshot.bokRate).toBe('CUTTING');
+  });
+});
+
+describe('evaluateNikkeiLeadAlpha — 닛케이 30분 선행 알파', () => {
+  it('닛케이 방산 상승을 KOSPI 방산 이론 GAP으로 환산한다', () => {
+    const result = evaluateNikkeiLeadAlpha({
+      collectedAt: '2026-04-12T23:30:00.000Z',
+      nikkeiSectorStrengths: [{ sector: 'defense', changePct: 3.0 }],
+    });
+
+    expect(result.collectionTimeKst).toBe('08:30');
+    expect(result.alertTimeKst).toBe('09:00');
+    expect(result.predictiveConfidencePct).toBeGreaterThanOrEqual(90);
+    expect(result.gapResults).toHaveLength(1);
+    expect(result.gapResults[0].kospiSector).toBe('K-방산');
+    expect(result.gapResults[0].theoreticalGapPct).toBe(2.46);
+    expect(result.alertLevel).toBe('HIGH');
+    expect(result.summary).toContain('KOSPI K-방산');
+  });
+
+  it('매칭되지 않는 닛케이 섹터는 unmatchedNikkeiSectors에 기록한다', () => {
+    const result = evaluateNikkeiLeadAlpha({
+      nikkeiSectorStrengths: [{ sector: 'RETAIL', changePct: 1.2 }],
+    });
+
+    expect(result.gapResults).toHaveLength(0);
+    expect(result.unmatchedNikkeiSectors).toEqual(['RETAIL']);
+    expect(result.alertLevel).toBe('LOW');
+  });
+
+  it('여러 섹터 입력 시 절대 GAP 기준으로 정렬된다', () => {
+    const result = evaluateNikkeiLeadAlpha({
+      nikkeiSectorStrengths: [
+        { sector: 'bank', changePct: -1.0 },
+        { sector: 'semiconductor', changePct: 1.5 },
+      ],
+    });
+
+    expect(result.gapResults).toHaveLength(2);
+    expect(result.gapResults[0].nikkeiSector).toBe('SEMICONDUCTOR');
+    expect(Math.abs(result.gapResults[0].theoreticalGapPct)).toBeGreaterThanOrEqual(
+      Math.abs(result.gapResults[1].theoreticalGapPct)
+    );
   });
 });
