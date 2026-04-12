@@ -23,8 +23,12 @@ export const CacheTTL = {
 // ── queryKey → 계층 매핑 ────────────────────────────────────────
 const QUARTERLY_KEYS = ['macro-environment', 'extended-regime'];
 const WEEKLY_KEYS    = ['economic-regime', 'credit-spreads', 'supply-chain', 'sector-orders', 'financial-stress'];
-const DAILY_KEYS     = ['smart-money', 'export-momentum', 'global-correlation'];
-const REALTIME_KEYS  = ['geo-risk', 'fomc-sentiment'];
+const DAILY_KEYS     = [
+  'smart-money', 'export-momentum', 'global-correlation',
+  'geo-risk',       // 2h → 6h: 지정학 리스크는 시간 단위로 변하지 않음
+  'fomc-sentiment', // 2h → 6h: FOMC는 수주 단위 이슈
+];
+const REALTIME_KEYS: string[]  = []; // 현재 실시간 필요 쿼리 없음 (필요 시 재활성화)
 
 function getTierTTL(queryKey: string): number {
   if (QUARTERLY_KEYS.includes(queryKey)) return CacheTTL.QUARTERLY;

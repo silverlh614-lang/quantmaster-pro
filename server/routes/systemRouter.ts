@@ -12,6 +12,7 @@ import {
 import { cancelAllPendingOrders, checkDailyLossLimit } from '../emergency.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { handleTelegramWebhook } from '../telegram/webhookHandler.js';
+import { getApiUsageStats } from '../clients/geminiClient.js';
 
 const router = Router();
 
@@ -141,6 +142,17 @@ router.post('/telegram/test', async (_req: Request, res: Response) => {
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ─── Gemini API 일별 사용량 통계 ─────────────────────────────────────────────
+// GET /api/system/api-usage — caller별 호출 횟수 + 토큰 수 (당일 기준)
+router.get('/system/api-usage', (_req: Request, res: Response) => {
+  const stats = getApiUsageStats();
+  const total = Object.values(stats).reduce(
+    (acc, s) => ({ count: acc.count + s.count, tokens: acc.tokens + s.tokens }),
+    { count: 0, tokens: 0 }
+  );
+  res.json({ date: new Date().toISOString().slice(0, 10), total, byCallers: stats });
 });
 
 export default router;

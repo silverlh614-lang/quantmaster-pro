@@ -6,6 +6,17 @@ import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { callGemini } from '../clients/geminiClient.js';
 import { sendTelegramAlert } from './telegramClient.js';
 
+// ── 인메모리 중복 방지 캐시 (서버 재시작 시 초기화 — 의도적) ─────────────────
+// 파일 기반 seen Set(DART_FAST_SEEN_FILE)에 더해 메모리 캐시로 중복 Gemini 호출을 차단.
+// 4시간 TTL: 당일 재반복 공시 방어 + 메모리 누수 방지.
+const _processedIds     = new Set<string>();
+const _PROCESSED_TTL_MS = 4 * 60 * 60 * 1000; // 4시간
+
+function markProcessed(id: string): void {
+  _processedIds.add(id);
+  setTimeout(() => _processedIds.delete(id), _PROCESSED_TTL_MS);
+}
+
 // 고영향 공시 키워드 (가격 이동 유발 가능성 높은 공시 유형)
 export const FAST_DART_KEYWORDS = [
   '무상증자', '자사주취득', '자사주소각', '영업이익', '잠정실적',
@@ -159,52 +170,86 @@ export async function fastDartCheck(): Promise<void> {
     return; // 타임아웃/네트워크 오류는 조용히 무시 (1분마다 재시도)
   }
 
-  const seen    = loadFastSeenNos();
-  const watchlist = loadWatchlist();
+  const seen       = loadFastSeenNos();
+  const watchlist  = loadWatchlist();
   const watchCodes = new Set(watchlist.map(w => w.code.padStart(6, '0')));
-  let changed = false;
+  let changed      = false;
+
+  // ── 1단계: seen·processedIds 필터링 → 배치 대상 수집 ──────────────────────
+  type Candidate = {
+    rceptNo: string; corpName: string; reportNm: string;
+    stockCode: string; isWatchlist: boolean;
+  };
+  const toAnalyze: Candidate[] = [];
 
   for (const d of disclosures) {
-    const rceptNo  = d.rcept_no  ?? '';
-    const corpName = d.corp_name ?? '';
-    const reportNm = d.report_nm ?? '';
+    const rceptNo   = d.rcept_no  ?? '';
+    const corpName  = d.corp_name ?? '';
+    const reportNm  = d.report_nm ?? '';
     const stockCode = (d.stock_code ?? '').padStart(6, '0');
 
     if (seen.has(rceptNo)) continue;
     seen.add(rceptNo);
     changed = true;
 
-    // 고영향 키워드 체크
+    // 고영향 키워드 체크 + 인메모리 중복 방지
     const isHighImpact = FAST_DART_KEYWORDS.some(kw => reportNm.includes(kw));
     if (!isHighImpact) continue;
 
-    const isWatchlistStock = watchCodes.has(stockCode);
+    const id = `${rceptNo}_${stockCode}`;
+    if (_processedIds.has(id)) continue; // 4시간 내 이미 Gemini 처리됨 → 스킵
+    markProcessed(id);
 
-    // Gemini로 매수 관련성 판단 (워치리스트 종목이거나 키워드 매칭 시)
-    const geminiPrompt = [
-      '한국 주식 공시 내용을 보고 단기 매수 관련성을 "긍정", "부정", "중립" 중 하나와 이유 한 문장으로만 답하세요.',
-      `공시: ${reportNm}`,
-      `법인명: ${corpName}`,
-      `워치리스트 종목: ${isWatchlistStock ? '예' : '아니오'}`,
-    ].join('\n');
-
-    const judgment = await callGemini(geminiPrompt).catch(() => null);
-    const isPositive = judgment?.includes('긍정') ?? false;
-
-    // 긍정 판단이거나 워치리스트 종목이면 Telegram 즉시 알림
-    if (isPositive || isWatchlistStock) {
-      const emoji = isPositive ? '🚀' : '📢';
-      await sendTelegramAlert(
-        `${emoji} <b>[DART 즉시 반응] ${corpName}</b>\n` +
-        `${reportNm}\n` +
-        (isWatchlistStock ? `⭐ <b>워치리스트 종목!</b>\n` : '') +
-        `판단: ${judgment ?? '분석 불가'}\n` +
-        `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rceptNo}`
-      ).catch(console.error);
-
-      console.log(`[FastDART] ${emoji} ${corpName} — ${reportNm} (watch=${isWatchlistStock})`);
-    }
+    toAnalyze.push({
+      rceptNo, corpName, reportNm,
+      stockCode, isWatchlist: watchCodes.has(stockCode),
+    });
   }
 
   if (changed) saveFastSeenNos(seen);
+
+  if (toAnalyze.length === 0) return;
+
+  // ── 2단계: 배치 Gemini 호출 (N개 → 1회 호출로 절감) ──────────────────────
+  const batchLines = toAnalyze.map((c, i) =>
+    `${i}. [${c.corpName}] ${c.reportNm} (워치리스트: ${c.isWatchlist ? '예' : '아니오'})`
+  ).join('\n');
+
+  const batchPrompt =
+    `한국 주식 공시 목록의 단기 매수 관련성을 분석하라.\n` +
+    `각 항목에 "긍정", "부정", "중립" 중 하나와 이유 한 문장을 JSON 배열로 응답하라.\n` +
+    `형식: [{"i":0,"s":"긍정","r":"이유"}, ...]\n\n` +
+    `공시 목록:\n${batchLines}`;
+
+  interface BatchItem { i: number; s: string; r: string }
+  let batchResults: BatchItem[] = [];
+  try {
+    const raw = await callGemini(batchPrompt, 'dart-fast');
+    if (raw) {
+      const match = raw.match(/\[[\s\S]*?\]/);
+      if (match) batchResults = JSON.parse(match[0]) as BatchItem[];
+    }
+  } catch { /* Gemini 실패 시 빈 결과 — 아래 루프에서 기본값 처리 */ }
+
+  // ── 3단계: 결과 처리 + Telegram 알림 ─────────────────────────────────────
+  for (let i = 0; i < toAnalyze.length; i++) {
+    const c       = toAnalyze[i];
+    const result  = batchResults.find(r => r.i === i);
+    const judgment   = result ? `${result.s}: ${result.r}` : null;
+    const isPositive = result?.s === '긍정';
+
+    if (isPositive || c.isWatchlist) {
+      const emoji = isPositive ? '🚀' : '📢';
+      await sendTelegramAlert(
+        `${emoji} <b>[DART 즉시 반응] ${c.corpName}</b>\n` +
+        `${c.reportNm}\n` +
+        (c.isWatchlist ? `⭐ <b>워치리스트 종목!</b>\n` : '') +
+        `판단: ${judgment ?? '분석 불가'}\n` +
+        `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${c.rceptNo}`
+      ).catch(console.error);
+      console.log(`[FastDART] ${emoji} ${c.corpName} — ${c.reportNm} (watch=${c.isWatchlist})`);
+    }
+  }
+
+  console.log(`[FastDART] 배치 분석: ${toAnalyze.length}건 → Gemini 1회 호출`);
 }
