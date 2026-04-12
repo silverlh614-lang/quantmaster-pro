@@ -1,22 +1,25 @@
-import { getRecommendations } from './recommendationTracker.js';
 import { loadConditionWeights, saveConditionWeights } from '../persistence/conditionWeightsRepo.js';
-import { callGemini } from '../clients/geminiClient.js';
+import { loadAttributionRecords } from '../persistence/attributionRepo.js';
+import { analyzeAttribution, serverConditionKey } from './attributionAnalyzer.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { loadWalkForwardState } from './walkForwardValidator.js';
 
 /**
- * 월간 추천 통계를 분석하여 조건별 가중치(condition-weights.json)를 자동 조정.
+ * 월간 귀인 분석 기반 캘리브레이션.
+ *
+ * 기존(추천 트래커 conditionKeys 기반) → 교체:
+ *   attributionRepo 의 ServerAttributionRecord (conditionScores 1~27) 를 읽어
+ *   analyzeAttribution() 로 완전 분석 후 서버 condition-weights.json 조정.
  *
  * 아이디어 2 — 시간 감쇠 (Temporal Decay):
- *   최근 거래일수록 높은 가중치 부여. 60일 반감기 지수 감쇠.
- *   기존 단순 wins/total → Σ(timeWeight × isWin) / Σ(timeWeight)
+ *   analyzeAttribution 내부에서 최근 30일/이전 30일 분리로 추이 반영.
  *
  * 아이디어 3 — Sharpe 기반 캘리브레이션:
- *   WIN률 단독 판단 대신 조건별 위험 조정 수익률(Sharpe)을 1차 기준으로 사용.
- *   Sharpe > 1.0 → 상향 / Sharpe < 0.3 → 하향
- *   Sharpe가 중간 구간이면 시간 가중 WIN률로 보조 판단.
+ *   INCREASE_WEIGHT: WR > 65% & Sharpe > 1.2
+ *   DECREASE_WEIGHT: WR < 45% or Sharpe < 0.5
+ *   SUSPEND:         WR < 35% & Sharpe < 0.3
  *
- * 가중치 범위: 0.3 ~ 1.8
+ * 가중치 범위: 0.1 ~ 1.8
  */
 export async function calibrateSignalWeights(): Promise<void> {
   // 아이디어 4: 워크포워드 과최적화 동결 상태 확인
@@ -26,56 +29,44 @@ export async function calibrateSignalWeights(): Promise<void> {
     return;
   }
 
-  const recs = getRecommendations();
-  const month = new Date().toISOString().slice(0, 7);
-  const resolved = recs.filter(
-    (r) => r.signalTime.startsWith(month) &&
-    r.status !== 'PENDING' &&
-    r.conditionKeys && r.conditionKeys.length > 0
-  );
+  const records = loadAttributionRecords();
 
-  if (resolved.length < 10) {
-    console.log(`[Calibrator] 학습 데이터 부족 (${resolved.length}건 < 10) — 보정 건너뜀`);
+  if (records.length < 10) {
+    console.log(`[Calibrator] 귀인 레코드 부족 (${records.length}건 < 10) — 보정 건너뜀`);
     return;
   }
 
-  // 조건별 시간 가중 WIN 집계 + 수익률 배열 수집
-  const condStats: Record<string, { wWins: number; wTotal: number; returns: number[] }> = {};
-  for (const rec of resolved) {
-    const tw = timeWeight(rec.signalTime);
-    for (const key of rec.conditionKeys ?? []) {
-      if (!condStats[key]) condStats[key] = { wWins: 0, wTotal: 0, returns: [] };
-      condStats[key].wTotal += tw;
-      if (rec.status === 'WIN') condStats[key].wWins += tw;
-      if (rec.actualReturn !== undefined) condStats[key].returns.push(rec.actualReturn);
-    }
-  }
-
-  const weights = loadConditionWeights();
+  const analysis = analyzeAttribution(records);
+  const weights  = loadConditionWeights();
   const adjustments: string[] = [];
 
-  for (const [key, stat] of Object.entries(condStats)) {
-    if (stat.wTotal < 1) continue; // 유효 샘플 없음
+  for (const attr of analysis) {
+    const key = serverConditionKey(attr.conditionId);
+    if (!key) continue; // 서버 가중치 미매핑 조건은 분석만, 조정 제외
 
-    const winRate = stat.wWins / stat.wTotal;          // 시간 가중 WIN률
-    const sharpe  = calcConditionSharpe(stat.returns); // 조건별 Sharpe
-    const prev    = weights[key as keyof typeof weights] ?? 1.0;
+    const prev = weights[key] ?? 1.0;
+    let   next = prev;
 
-    let next = prev;
-
-    if (sharpe > 1.0 || winRate > 0.65) {
-      // 고성과: Sharpe 우수 또는 WIN률 높음 → 상향
-      next = parseFloat(Math.min(1.8, prev * 1.1).toFixed(2));
-    } else if (sharpe < 0.3 || winRate < 0.40) {
-      // 저성과: Sharpe 불량 또는 WIN률 낮음 → 하향
-      next = parseFloat(Math.max(0.3, prev * 0.9).toFixed(2));
+    switch (attr.recommendation) {
+      case 'INCREASE_WEIGHT':
+        next = Math.min(1.8, prev * 1.15);   // 최대 15% 상향
+        break;
+      case 'DECREASE_WEIGHT':
+        next = Math.max(0.3, prev * 0.87);   // 최대 13% 하향
+        break;
+      case 'SUSPEND':
+        next = 0.1;                           // 사실상 비활성화
+        break;
+      case 'MAINTAIN':
+      default:
+        break;
     }
 
-    if (next !== prev) {
-      weights[key as keyof typeof weights] = next;
+    if (Math.abs(next - prev) > 0.01) {
+      weights[key] = parseFloat(next.toFixed(2));
       adjustments.push(
-        `${key}: ${prev.toFixed(2)}→${next} ` +
-        `(WR:${(winRate * 100).toFixed(0)}% SR:${sharpe.toFixed(2)})`
+        `${attr.conditionName}: ${prev.toFixed(2)}→${next.toFixed(2)} ` +
+        `(WIN률 ${(attr.winRate * 100).toFixed(0)}%, Sharpe ${attr.sharpe.toFixed(2)}, ${attr.recentTrend})`,
       );
     }
   }
@@ -87,40 +78,57 @@ export async function calibrateSignalWeights(): Promise<void> {
     console.log('[Calibrator] 가중치 변경 없음 — 현재 설정 유지');
   }
 
-  // Gemini 메타 분석
-  const statsBlock = Object.entries(condStats)
-    .map(([k, v]) => {
-      const wr = v.wTotal > 0 ? ((v.wWins / v.wTotal) * 100).toFixed(0) : '0';
-      const sr = calcConditionSharpe(v.returns).toFixed(2);
-      return `${k}: WR ${wr}% / Sharpe ${sr} (유효샘플 ${v.wTotal.toFixed(1)})`;
-    })
-    .join(', ');
+  // ── 텔레그램 월간 리포트 ──
+  const month = new Date().toISOString().slice(0, 7);
 
-  const geminiPrompt = [
-    '당신은 한국 주식 퀀트 시스템의 신호 품질 분석 AI입니다.',
-    `아래는 ${month} 월간 Gate 조건별 시간 가중 적중률(WR) 및 Sharpe 비율 통계입니다.`,
-    '어떤 조건이 오탐을 많이 냈는지 분석하고, 트레이더에게 개선 방향을 1~3문장으로 한국어로 제안하세요.',
-    '외부 검색 불필요. 주어진 데이터만 분석하세요.',
-    '',
-    `=== ${month} 조건별 통계 (시간 감쇠 적용) ===`,
-    statsBlock,
-    `총 해석 가능 추천: ${resolved.length}건`,
-    adjustments.length > 0 ? `자동 조정: ${adjustments.join(' | ')}` : '자동 조정 없음',
-  ].join('\n');
+  // 전체 27조건 중 샘플이 있는 것만 필터링하여 상위/하위 3개 선별
+  const withSamples = analysis.filter((a) => a.totalTrades >= 3);
+  const topWin  = [...withSamples].sort((a, b) => b.winRate - a.winRate).slice(0, 3);
+  const topLoss = [...withSamples].sort((a, b) => a.winRate - b.winRate).slice(0, 3);
 
-  const analysis = await callGemini(geminiPrompt);
-  if (analysis) {
-    await sendTelegramAlert(
-      `🔬 <b>[Signal Calibrator] ${month} 자기학습 분석</b>\n\n${analysis}\n\n` +
-      `<i>조정: ${adjustments.length > 0 ? adjustments.join(', ') : '없음'}</i>`
-    ).catch(console.error);
-  }
+  // 레짐별 최강 조건 (가장 높은 단일 레짐 winRate 기준)
+  const regimeStar = withSamples
+    .flatMap((a) =>
+      Object.entries(a.byRegime)
+        .filter(([, v]) => v.count >= 3)
+        .map(([regime, v]) => ({ conditionName: a.conditionName, regime, ...v })),
+    )
+    .sort((a, b) => b.winRate - a.winRate)
+    .slice(0, 3);
+
+  const regimeStarText = regimeStar.length > 0
+    ? regimeStar
+        .map((r) => `  • [${r.regime}] ${r.conditionName}: WIN ${(r.winRate * 100).toFixed(0)}% (${r.count}건)`)
+        .join('\n')
+    : '  데이터 부족';
+
+  const trendChanges = withSamples
+    .filter((a) => a.recentTrend !== 'STABLE')
+    .map((a) => `  • ${a.conditionName}: ${a.recentTrend} (최근 ${(a.recentWinRate * 100).toFixed(0)}% vs 이전 ${(a.historicalWinRate * 100).toFixed(0)}%)`)
+    .join('\n');
+
+  await sendTelegramAlert(
+    `🔬 <b>[귀인 분석 월간 리포트] ${month}</b>\n\n` +
+    `📊 분석 레코드: ${records.length}건\n\n` +
+    `📈 <b>최고 기여 조건 Top 3</b>\n` +
+    topWin.map((c) =>
+      `  • ${c.conditionName}: WIN ${(c.winRate * 100).toFixed(0)}%, Sharpe ${c.sharpe.toFixed(2)} (${c.totalTrades}건)`
+    ).join('\n') + '\n\n' +
+    `📉 <b>허위신호 조건 Top 3</b>\n` +
+    topLoss.map((c) =>
+      `  • ${c.conditionName}: WIN ${(c.winRate * 100).toFixed(0)}%, 권고: ${c.recommendation}`
+    ).join('\n') + '\n\n' +
+    `🏆 <b>레짐별 최강 조건</b>\n${regimeStarText}\n\n` +
+    (trendChanges ? `📊 <b>추이 변화 감지</b>\n${trendChanges}\n\n` : '') +
+    `⚙️ <b>가중치 조정 ${adjustments.length}건</b>\n` +
+    (adjustments.length > 0 ? adjustments.slice(0, 5).join('\n') : '  변경 없음')
+  ).catch(console.error);
 }
 
 // ── 공유 유틸 ────────────────────────────────────────────────────────────────
 
 /**
- * 아이디어 2: 시간 감쇠 가중치.
+ * 시간 감쇠 가중치 (regimeAwareCalibrator / conditionAuditor 에서도 사용).
  * 60일 반감기 지수 감쇠 — 최근 거래가 6개월 전보다 약 3배 높은 영향.
  */
 export function timeWeight(signalTime: string): number {
@@ -129,14 +137,13 @@ export function timeWeight(signalTime: string): number {
 }
 
 /**
- * 아이디어 3: 조건별 Sharpe 비율.
+ * 조건별 Sharpe 비율.
  * mean / std(returns). 수익률이 2개 미만이면 0 반환.
- * Sharpe > 1.0 → 상향 / Sharpe < 0.3 → 하향
  */
 export function calcConditionSharpe(returns: number[]): number {
   if (returns.length < 2) return 0;
-  const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-  const variance = returns.reduce((a, b) => a + (b - mean) ** 2, 0) / returns.length;
-  const std = Math.sqrt(variance);
-  return std > 0 ? mean / std : 0;
+  const m        = returns.reduce((a, b) => a + b, 0) / returns.length;
+  const variance = returns.reduce((a, b) => a + (b - m) ** 2, 0) / returns.length;
+  const std      = Math.sqrt(variance);
+  return std > 0 ? m / std : 0;
 }
