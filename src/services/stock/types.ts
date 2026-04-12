@@ -443,6 +443,6 @@ export interface StockFilters {
   maxPer?: number;
   maxDebtRatio?: number;
   minMarketCap?: number;
-  mode?: 'MOMENTUM' | 'EARLY_DETECT' | 'QUANT_SCREEN' | 'BEAR_SCREEN';
+  mode?: 'MOMENTUM' | 'EARLY_DETECT' | 'QUANT_SCREEN' | 'BEAR_SCREEN' | 'SMALL_MID_CAP';
 }
 
