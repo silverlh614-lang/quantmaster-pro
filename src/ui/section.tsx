@@ -15,7 +15,7 @@ export function Section({ title, subtitle, actions, compact = false, className, 
         <div className="flex items-center justify-between gap-4">
           <div>
             {title && (
-              <h3 className="text-sm sm:text-base font-black text-theme-text uppercase tracking-wider">{title}</h3>
+              <h3 className="text-sm sm:text-base font-black text-theme-text uppercase tracking-wider leading-snug">{title}</h3>
             )}
             {subtitle && (
               <p className="text-[10px] sm:text-xs text-theme-text-muted font-medium mt-0.5">{subtitle}</p>

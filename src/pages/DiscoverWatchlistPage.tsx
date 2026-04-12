@@ -113,10 +113,10 @@ export function DiscoverWatchlistPage({
             exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden"
           >
-            <Card variant="ghost" padding="md" className="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6">
+            <Card variant="ghost" padding="md" className="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6 !border-blue-500/10 !bg-blue-500/[0.03]">
               <div className="flex items-center gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-orange-500/15 rounded-xl sm:rounded-2xl flex items-center justify-center">
-                  <RefreshCw className="w-5 h-5 sm:w-6 sm:h-6 text-orange-500 animate-spin" />
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-500/10 rounded-xl sm:rounded-2xl flex items-center justify-center">
+                  <RefreshCw className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400 animate-spin" />
                 </div>
                 <div>
                   <h4 className="text-xs sm:text-sm font-black text-theme-text uppercase tracking-widest mb-0.5">실시간 동기화 중</h4>
@@ -130,7 +130,7 @@ export function DiscoverWatchlistPage({
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: `${(syncStatus.progress / syncStatus.total) * 100}%` }}
-                    className="h-full bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)] transition-all duration-500"
+                    className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 shadow-[0_0_15px_rgba(59,130,246,0.5)] transition-all duration-500"
                   />
                 </div>
                 <div className="flex justify-between text-micro">
