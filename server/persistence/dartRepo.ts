@@ -9,6 +9,14 @@ export interface DartAlert {
   rcept_no: string;
   sentiment: 'MAJOR_POSITIVE' | 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE';
   alertedAt: string;
+  /** LLM 5단계 임팩트 점수: -2/−1/0/+1/+2 */
+  llmImpact?: number;
+  /** LLM 임팩트 분류 근거 */
+  llmReason?: string;
+  /** 내부자 매수(대주주/임원 장내매수) 감지 여부 */
+  insiderBuy?: boolean;
+  /** 악재 소화 완료 신호: 부정 공시 후 주가 미하락 종목 */
+  badNewsAbsorbed?: boolean;
 }
 
 export function loadDartAlerts(): DartAlert[] {

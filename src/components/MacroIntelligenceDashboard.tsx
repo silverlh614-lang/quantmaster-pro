@@ -11,6 +11,7 @@ import { evaluateMarketRegimeClassifier } from '../services/quant/marketRegimeCl
 import { evaluateMTFConfluence } from '../services/quant/mtfEngine';
 import { evaluateDynamicStop } from '../services/quant/dynamicStopEngine';
 import { evaluateFeedbackLoop } from '../services/quant/feedbackLoopEngine';
+import { evaluateSectorEnergy } from '../services/quant/sectorEnergyEngine';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { useTradeStore } from '../stores/useTradeStore';
 import { getEvolutionWeightsFromPerformance } from '../services/quant/evolutionEngine';
@@ -25,6 +26,9 @@ import { PositionLifecyclePanel } from './PositionLifecyclePanel';
 import { MTFConfluencePanel } from './MTFConfluencePanel';
 import { DynamicStopPanel } from './DynamicStopPanel';
 import { FeedbackLoopPanel } from './FeedbackLoopPanel';
+import { SectorEnergyPanel } from './SectorEnergyPanel';
+import { DartIntelPanel } from './DartIntelPanel';
+import { AntiFailurePanel } from './AntiFailurePanel';
 import { RegimeGaugeSection } from './macro/RegimeGaugeSection';
 import { BearRegimeSection } from './macro/BearRegimeSection';
 import { MarketOverviewSection } from './macro/MarketOverviewSection';
@@ -96,6 +100,12 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const setFeedbackLoopResult = useGlobalIntelStore(s => s.setFeedbackLoopResult);
   const tradeRecords = useTradeStore(s => s.tradeRecords);
 
+  // ── 섹터 에너지 맵 ───────────────────────────────────────────────────────────
+  const sectorEnergyInputs = useGlobalIntelStore(s => s.sectorEnergyInputs);
+  const setSectorEnergyInputs = useGlobalIntelStore(s => s.setSectorEnergyInputs);
+  const sectorEnergyResult = useGlobalIntelStore(s => s.sectorEnergyResult);
+  const setSectorEnergyResult = useGlobalIntelStore(s => s.setSectorEnergyResult);
+
   const mapcResult = useMemo(() => {
     if (!gate0Result || !macroEnv) return null;
     return evaluateMAPCResult(gate0Result, macroEnv, 15);
@@ -152,6 +162,21 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
     },
     [setDynamicStopInput, setDynamicStopResult],
   );
+
+  const handleSectorEnergyInputsChange = useCallback(
+    (inputs: typeof sectorEnergyInputs) => {
+      setSectorEnergyInputs(inputs);
+      setSectorEnergyResult(evaluateSectorEnergy(inputs));
+    },
+    [setSectorEnergyInputs, setSectorEnergyResult],
+  );
+
+  // Compute sector energy on mount and whenever inputs change
+  React.useEffect(() => {
+    if (sectorEnergyInputs.length > 0 && !sectorEnergyResult) {
+      setSectorEnergyResult(evaluateSectorEnergy(sectorEnergyInputs));
+    }
+  }, [sectorEnergyInputs, sectorEnergyResult, setSectorEnergyResult]);
 
   return (
     <div className="space-y-10">
@@ -221,6 +246,19 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
 
       {/* 피드백 폐쇄 루프 — 30거래 누적 후 27조건 자동 가중치 교정 */}
       <FeedbackLoopPanel result={feedbackLoopResult} />
+
+      {/* 섹터 에너지 맵 & 로테이션 마스터 게이트 */}
+      <SectorEnergyPanel
+        result={sectorEnergyResult}
+        inputs={sectorEnergyInputs}
+        onInputsChange={handleSectorEnergyInputsChange}
+      />
+
+      {/* DART 공시 LLM 인텔리전스 필터 */}
+      <DartIntelPanel />
+
+      {/* 반실패 학습 패턴 DB */}
+      <AntiFailurePanel />
 
       <GlobalIntelSection />
 

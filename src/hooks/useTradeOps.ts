@@ -8,6 +8,33 @@ import { runAttributionAnalysis, pushAttributionToServer } from '../services/aut
 import type { StockRecommendation } from '../services/stockService';
 import type { TradeRecord, ConditionId, PreMortemItem } from '../types/quant';
 
+/** 손절 종료 시 반실패 패턴 DB에 스냅샷을 저장한다 */
+async function pushFailurePatternToServer(trade: TradeRecord, returnPct: number): Promise<void> {
+  try {
+    await fetch('/api/failure-patterns/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: `fp_${trade.id}`,
+        stockCode: trade.stockCode,
+        stockName: trade.stockName,
+        entryDate: trade.buyDate,
+        exitDate: new Date().toISOString(),
+        returnPct,
+        conditionScores: trade.conditionScores ?? {},
+        gate1Score: trade.gate1Score,
+        gate2Score: trade.gate2Score,
+        gate3Score: trade.gate3Score,
+        finalScore: trade.finalScore,
+        sector: trade.sector ?? null,
+        savedAt: new Date().toISOString(),
+      }),
+    });
+  } catch {
+    // 네트워크 오류 무시 — 백그라운드 작업
+  }
+}
+
 export function useTradeOps() {
   const { watchlist, setWatchlist } = useRecommendationStore();
   const { tradeRecords, setTradeRecords } = useTradeStore();
@@ -63,6 +90,11 @@ export function useTradeOps() {
         holdingDays,
         sellReason: sellReason ?? undefined,
       });
+
+      // 손절(returnPct < 0) 시 반실패 패턴 DB에 스냅샷 저장
+      if (returnPct < 0) {
+        void pushFailurePatternToServer(trade, parseFloat(returnPct.toFixed(2)));
+      }
     }
   };
 

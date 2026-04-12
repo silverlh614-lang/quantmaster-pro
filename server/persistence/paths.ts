@@ -43,6 +43,10 @@ export const ATTRIBUTION_FILE        = path.join(DATA_DIR, 'attribution-records.
 export const GLOBAL_SCAN_FILE        = path.join(DATA_DIR, 'global-scan-report.json');
 /** 뉴스-수급 시차 학습 DB — 공급망/ETF 경보 이벤트 + T+1·T+3·T+5 추적 결과 */
 export const NEWS_SUPPLY_FILE        = path.join(DATA_DIR, 'news-supply-log.json');
+/** 반실패 패턴 DB — 손절된 포지션 진입 스냅샷 (코사인 유사도 경고 기반) */
+export const FAILURE_PATTERN_FILE    = path.join(DATA_DIR, 'failure-patterns.json');
+/** DART LLM 임팩트 상태 — 악재 소화 완료 종목 캐시 */
+export const DART_LLM_STATE_FILE     = path.join(DATA_DIR, 'dart-llm-state.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

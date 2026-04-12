@@ -18,6 +18,7 @@ import type { MTFConfluenceInput, MTFConfluenceResult } from '../types/technical
 import type { DynamicStopInput, DynamicStopResult } from '../types/sell';
 import type { FeedbackLoopResult } from '../types/portfolio';
 import type { MHSRecord } from '../components/MHSHistoryChart';
+import type { SectorEnergyInput, SectorEnergyResult } from '../types/sectorEnergy';
 
 interface GlobalIntelState {
   // Core macro
@@ -154,6 +155,19 @@ interface GlobalIntelState {
   /** 피드백 루프 캘리브레이션 결과 */
   feedbackLoopResult: FeedbackLoopResult | null;
   setFeedbackLoopResult: (data: FeedbackLoopResult | null) => void;
+
+  // ── 섹터 에너지 맵 & 로테이션 마스터 게이트 ─────────────────────────────────
+  /** 섹터 에너지 입력값 (퍼시스트) */
+  sectorEnergyInputs: SectorEnergyInput[];
+  setSectorEnergyInputs: (inputs: SectorEnergyInput[]) => void;
+  /** 섹터 에너지 계산 결과 */
+  sectorEnergyResult: SectorEnergyResult | null;
+  setSectorEnergyResult: (data: SectorEnergyResult | null) => void;
+
+  // ── 반실패 패턴 경고 ──────────────────────────────────────────────────────
+  /** 현재 스크리닝 종목에 대한 반실패 경고 문자열 (null = 경고 없음) */
+  antiFailureWarning: string | null;
+  setAntiFailureWarning: (warning: string | null) => void;
 
   // Bulk setter for initial load
   setAllMacroData: (data: Partial<GlobalIntelState>) => void;
@@ -300,6 +314,29 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       feedbackLoopResult: null,
       setFeedbackLoopResult: (feedbackLoopResult) => set({ feedbackLoopResult }),
 
+      // ── 섹터 에너지 맵
+      sectorEnergyInputs: [
+        { name: '반도체',          return4w: 5.0, volumeChangePct: 10.0, foreignConcentration: 60 },
+        { name: '이차전지',        return4w: 2.0, volumeChangePct: 5.0,  foreignConcentration: 40 },
+        { name: '바이오/헬스케어', return4w: 3.0, volumeChangePct: 8.0,  foreignConcentration: 35 },
+        { name: '인터넷/플랫폼',   return4w: 1.0, volumeChangePct: 3.0,  foreignConcentration: 30 },
+        { name: '자동차',          return4w: 4.0, volumeChangePct: 6.0,  foreignConcentration: 50 },
+        { name: '조선',            return4w: 6.0, volumeChangePct: 12.0, foreignConcentration: 45 },
+        { name: '방산',            return4w: 7.0, volumeChangePct: 15.0, foreignConcentration: 55 },
+        { name: '금융',            return4w: 0.5, volumeChangePct: 2.0,  foreignConcentration: 25 },
+        { name: '유통/소비재',     return4w: -1.0, volumeChangePct: -5.0, foreignConcentration: 15 },
+        { name: '건설/부동산',     return4w: -2.0, volumeChangePct: -8.0, foreignConcentration: 10 },
+        { name: '에너지/화학',     return4w: 1.5, volumeChangePct: 4.0,  foreignConcentration: 28 },
+        { name: '통신/유틸리티',   return4w: -0.5, volumeChangePct: 1.0, foreignConcentration: 20 },
+      ],
+      setSectorEnergyInputs: (sectorEnergyInputs) => set({ sectorEnergyInputs }),
+      sectorEnergyResult: null,
+      setSectorEnergyResult: (sectorEnergyResult) => set({ sectorEnergyResult }),
+
+      // ── 반실패 패턴
+      antiFailureWarning: null,
+      setAntiFailureWarning: (antiFailureWarning) => set({ antiFailureWarning }),
+
       setAllMacroData: (data) => set(data as any),
     }),
     {
@@ -316,6 +353,7 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
         marketRegimeClassifierInput: state.marketRegimeClassifierInput,
         mtfConfluenceInput: state.mtfConfluenceInput,
         dynamicStopInput: state.dynamicStopInput,
+        sectorEnergyInputs: state.sectorEnergyInputs,
       }),
     }
   )
