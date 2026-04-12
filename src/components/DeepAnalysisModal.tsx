@@ -5,12 +5,11 @@ import {
   Radar as RechartsRadar, RadarChart, PolarGrid,
   PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer
 } from 'recharts';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../ui/cn';
 import { QuantDashboard } from './QuantDashboard';
 import { CandleChart } from './CandleChart';
 import { AnalysisViewToggle, AnalysisViewButtons } from './AnalysisViewToggle';
-import { evaluateStock, evaluateGate0 } from '../services/quant/gateEngine';
+import { evaluateStock } from '../services/quant/gateEngine';
 import { useGlobalIntelStore, useMarketStore, useRecommendationStore, useSettingsStore } from '../stores';
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
 import { buildShadowTrade } from '../services/autoTrading';
@@ -32,10 +31,6 @@ import { FundamentalsColumn } from './DeepAnalysisModal/FundamentalsColumn';
 import { SentimentSection } from './DeepAnalysisModal/SentimentSection';
 import { RiskChecklistSection } from './DeepAnalysisModal/RiskChecklistSection';
 import { ModalFooter } from './DeepAnalysisModal/ModalFooter';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface DeepAnalysisModalProps {
   stock: StockRecommendation | null;
@@ -73,8 +68,6 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
   const { addShadowTrade } = useShadowTradeStore();
 
   const kisBalance = 100_000_000;
-
-  const gate0Result = useMemo(() => macroEnv ? evaluateGate0(macroEnv) : undefined, [macroEnv]);
 
   const deepAnalysisGateSignals = useMemo(() => {
     if (!stock) return [];
