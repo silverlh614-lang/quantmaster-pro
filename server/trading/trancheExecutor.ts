@@ -6,6 +6,9 @@ import { kisPost, BUY_TR_ID, fetchCurrentPrice } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fillMonitor } from './fillMonitor.js';
 import { fetchYahooQuote } from '../screener/stockScreener.js';
+import { loadShadowTrades, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
+import { loadMacroState } from '../persistence/macroStateRepo.js';
+import { getLiveRegime } from './regimeBridge.js';
 
 export interface TrancheSchedule {
   id: string;
@@ -37,10 +40,102 @@ function saveTranches(list: TrancheSchedule[]): void {
   fs.writeFileSync(TRANCHE_FILE, JSON.stringify([...active, ...history], null, 2));
 }
 
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const DEFAULT_KRX_HOLIDAYS = new Set<string>([
+  '2026-01-01', '2026-02-16', '2026-02-17', '2026-02-18', '2026-03-01', '2026-05-05', '2026-05-25',
+  '2026-06-06', '2026-08-15', '2026-09-24', '2026-09-25', '2026-09-26', '2026-10-03', '2026-10-09', '2026-12-25',
+  '2027-01-01', '2027-02-06', '2027-02-07', '2027-02-08', '2027-03-01', '2027-05-05', '2027-05-12',
+  '2027-06-06', '2027-08-15', '2027-09-14', '2027-09-15', '2027-09-16', '2027-10-03', '2027-10-09', '2027-12-25',
+]);
+const TRANCHE_MAX_DROP_PCT = -3;
+const REGIME_BLOCK_SET = new Set(['R5_BEAR', 'R6_DEFENSE']);
+
+function formatKstYmd(kstDate: Date): string {
+  const y = kstDate.getUTCFullYear();
+  const m = `${kstDate.getUTCMonth() + 1}`.padStart(2, '0');
+  const d = `${kstDate.getUTCDate()}`.padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function kstTodayYmd(nowMs = Date.now()): string {
+  return formatKstYmd(new Date(nowMs + KST_OFFSET_MS));
+}
+
+function isKrxBusinessDay(ymd: string, holidays = DEFAULT_KRX_HOLIDAYS): boolean {
+  const d = new Date(`${ymd}T00:00:00.000Z`);
+  const dow = d.getUTCDay();
+  if (dow === 0 || dow === 6) return false;
+  return !holidays.has(ymd);
+}
+
+export function addBusinessDaysFromKstDate(baseYmd: string, businessDays: number, holidays = DEFAULT_KRX_HOLIDAYS): string {
+  if (businessDays <= 0) return baseYmd;
+  const d = new Date(`${baseYmd}T00:00:00.000Z`);
+  let added = 0;
+  while (added < businessDays) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    const ymd = formatKstYmd(d);
+    if (isKrxBusinessDay(ymd, holidays)) added += 1;
+  }
+  return formatKstYmd(d);
+}
+
 /** KST 날짜 문자열 (YYYY-MM-DD) 반환 */
 function kstDateStr(offsetDays = 0): string {
-  const d = new Date(Date.now() + 9 * 60 * 60 * 1000 + offsetDays * 86400_000);
-  return d.toISOString().slice(0, 10);
+  if (offsetDays <= 0) return kstTodayYmd();
+  return addBusinessDaysFromKstDate(kstTodayYmd(), offsetDays);
+}
+
+function regimeRiskRank(regime: string | undefined): number {
+  if (!regime) return 4;
+  const m = regime.match(/^R([1-6])_/);
+  if (!m) return 4;
+  return Number(m[1]);
+}
+
+function isOpenShadowStatus(status: ServerShadowTrade['status']): boolean {
+  return status === 'PENDING'
+    || status === 'ORDER_SUBMITTED'
+    || status === 'PARTIALLY_FILLED'
+    || status === 'ACTIVE'
+    || status === 'EUPHORIA_PARTIAL';
+}
+
+export function evaluateTrancheRevalidation(input: {
+  currentPrice: number;
+  entryPrice: number;
+  stopLoss: number;
+  currentRegime: string;
+  entryRegime?: string;
+  cascadeStep?: 0 | 1 | 2;
+  addBuyBlocked?: boolean;
+}): { ok: boolean; reason?: string } {
+  if (input.currentPrice <= input.stopLoss) {
+    return { ok: false, reason: '1차 포지션 손절선 하회' };
+  }
+
+  if (input.currentPrice < input.entryPrice) {
+    return { ok: false, reason: '상승형 피라미딩 조건 미충족 (기준가 하회)' };
+  }
+
+  const dropPct = ((input.currentPrice - input.entryPrice) / input.entryPrice) * 100;
+  if (dropPct <= TRANCHE_MAX_DROP_PCT) {
+    return { ok: false, reason: `기준가 대비 ${dropPct.toFixed(1)}% 하락` };
+  }
+
+  if ((input.cascadeStep ?? 0) > 0 || input.addBuyBlocked) {
+    return { ok: false, reason: `Cascade 단계 진입(cascadeStep=${input.cascadeStep ?? 0})` };
+  }
+
+  if (REGIME_BLOCK_SET.has(input.currentRegime)) {
+    return { ok: false, reason: `레짐 악화(${input.currentRegime})` };
+  }
+
+  if (regimeRiskRank(input.currentRegime) > regimeRiskRank(input.entryRegime)) {
+    return { ok: false, reason: `진입 레짐(${input.entryRegime ?? 'N/A'}) 대비 악화(${input.currentRegime})` };
+  }
+
+  return { ok: true };
 }
 
 export class TrancheExecutor {
@@ -77,7 +172,7 @@ export class TrancheExecutor {
     list.push({ ...base, id: `tr2_${Date.now()}_${opts.stockCode}`, trancheNumber: 2, scheduledDate: kstDateStr(3),  quantity: qty2 });
     list.push({ ...base, id: `tr3_${Date.now()}_${opts.stockCode}`, trancheNumber: 3, scheduledDate: kstDateStr(7),  quantity: qty3 });
     saveTranches(list);
-    console.log(`[Tranche] 스케줄 등록: ${opts.stockName}(${opts.stockCode}) 2차 ${qty2}주(+3일) / 3차 ${qty3}주(+7일)`);
+    console.log(`[Tranche] 스케줄 등록: ${opts.stockName}(${opts.stockCode}) 2차 ${qty2}주(+3영업일) / 3차 ${qty3}주(+7영업일)`);
   }
 
   /**
@@ -95,10 +190,25 @@ export class TrancheExecutor {
     console.log(`[Tranche] 실행 대상 ${pending.length}건 점검`);
     const isLive = process.env.AUTO_TRADE_MODE === 'LIVE';
     let changed = false;
+    const shadowsById = new Map(loadShadowTrades().map((s) => [s.id, s]));
+    const currentRegime = getLiveRegime(loadMacroState());
 
     // parentTradeId별로 취소 여부를 캐싱 (현재가는 한 번만 조회)
     const cancelledParents = new Set<string>();
     const priceCache: Record<string, number | null> = {};
+    const cancelParentPending = (parentTradeId: string, reason: string): void => {
+      let updated = false;
+      for (const item of list) {
+        if (item.parentTradeId !== parentTradeId || item.status !== 'PENDING') continue;
+        item.status = 'CANCELLED';
+        item.cancelReason = reason;
+        updated = true;
+      }
+      if (updated) {
+        cancelledParents.add(parentTradeId);
+        changed = true;
+      }
+    };
 
     for (const t of pending) {
       try {
@@ -107,6 +217,12 @@ export class TrancheExecutor {
           t.status = 'CANCELLED';
           t.cancelReason = '동일 포지션 취소 연쇄';
           changed = true;
+          continue;
+        }
+
+        const parentTrade = shadowsById.get(t.parentTradeId);
+        if (!parentTrade || !isOpenShadowStatus(parentTrade.status)) {
+          cancelParentPending(t.parentTradeId, `1차 포지션 비활성(${parentTrade?.status ?? 'NOT_FOUND'})`);
           continue;
         }
 
@@ -121,17 +237,24 @@ export class TrancheExecutor {
           continue;
         }
 
-        // -3% 가드: 1차 진입가 기준
-        const dropPct = ((currentPrice - t.entryPrice) / t.entryPrice) * 100;
-        if (dropPct <= -3) {
-          t.status = 'CANCELLED';
-          t.cancelReason = `기준가 대비 ${dropPct.toFixed(1)}% 하락`;
-          cancelledParents.add(t.parentTradeId);
-          changed = true;
-          console.warn(`[Tranche] ${t.stockName} ${t.trancheNumber}차 취소 — 손절 가드 (${dropPct.toFixed(1)}%)`);
+        // 2·3차 실행 전 엄격 재검증 (손절선, 캐스케이드, 레짐 악화, 상승형 피라미딩)
+        const revalidation = evaluateTrancheRevalidation({
+          currentPrice,
+          entryPrice: t.entryPrice,
+          stopLoss: t.stopLoss,
+          currentRegime,
+          entryRegime: parentTrade.entryRegime,
+          cascadeStep: parentTrade.cascadeStep,
+          addBuyBlocked: parentTrade.addBuyBlocked,
+        });
+        if (!revalidation.ok) {
+          cancelParentPending(t.parentTradeId, revalidation.reason ?? '2·3차 재검증 실패');
+          const dropPct = ((currentPrice - t.entryPrice) / t.entryPrice) * 100;
+          console.warn(`[Tranche] ${t.stockName} ${t.trancheNumber}차 취소 — ${revalidation.reason}`);
           await sendTelegramAlert(
             `🚫 <b>[분할 매수 ${t.trancheNumber}차 취소]</b> ${t.stockName}(${t.stockCode})\n` +
-            `기준가 ${t.entryPrice.toLocaleString()}원 대비 ${dropPct.toFixed(1)}% 하락`
+            `${revalidation.reason}\n` +
+            `현재가 ${currentPrice.toLocaleString()}원 | 기준가 대비 ${dropPct.toFixed(1)}%`
           ).catch(console.error);
           continue;
         }
@@ -186,6 +309,7 @@ export class TrancheExecutor {
         t.executedAt = new Date().toISOString();
         changed = true;
 
+        const dropPct = ((currentPrice - t.entryPrice) / t.entryPrice) * 100;
         await sendTelegramAlert(
           `📈 <b>[분할 매수 ${t.trancheNumber}차${isLive ? '' : ' Shadow'}]</b> ${t.stockName}(${t.stockCode})\n` +
           `${t.quantity}주 @${currentPrice.toLocaleString()}원 | 기준가 대비 ${dropPct >= 0 ? '+' : ''}${dropPct.toFixed(1)}%`
