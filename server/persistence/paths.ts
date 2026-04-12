@@ -41,6 +41,8 @@ export const ANOMALY_STATE_FILE      = path.join(DATA_DIR, 'anomaly-state.json')
 export const ATTRIBUTION_FILE        = path.join(DATA_DIR, 'attribution-records.json');
 /** 글로벌 스캔 에이전트 — 매일 KST 06:00 간밤 시장 분석 결과 */
 export const GLOBAL_SCAN_FILE        = path.join(DATA_DIR, 'global-scan-report.json');
+/** 뉴스-수급 시차 학습 DB — 공급망/ETF 경보 이벤트 + T+1·T+3·T+5 추적 결과 */
+export const NEWS_SUPPLY_FILE        = path.join(DATA_DIR, 'news-supply-log.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

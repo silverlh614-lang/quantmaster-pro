@@ -28,6 +28,8 @@ import { callGemini } from '../clients/geminiClient.js';
 import { sendTelegramAlert } from './telegramClient.js';
 import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js';
 import { GLOBAL_SCAN_FILE, ensureDataDir } from '../persistence/paths.js';
+import { runSupplyChainScan } from './supplyChainAgent.js';
+import { logNewsSupplyEvent } from '../learning/newsSupplyLogger.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -340,6 +342,25 @@ export async function runGlobalScanAgent(): Promise<void> {
       ).catch(console.error);
     }
   }
+
+  // ── 10. Layer 13·14 경보를 NewsSupplyLogger에 기록 (T+1·T+3·T+5 추적 시작) ─
+  for (const alert of sectorAlerts) {
+    logNewsSupplyEvent({
+      newsType:         alert.alertType === 'EWY_FOREIGN' ? 'EWY경보' : `섹터ETF경보_${alert.symbol}`,
+      source:           alert.alertType,
+      sector:           alert.koreaSectors,
+      koreanStockCodes: [],  // ETF 경보는 개별 코드 없음 — EWY 프록시로 추적
+      koreanNames:      [alert.koreaSectors],
+      detectedAt:       new Date().toISOString(),
+      newsHeadline:     `${alert.label} ${alert.changePct >= 0 ? '+' : ''}${alert.changePct.toFixed(2)}% (임계값 ±${alert.alertType === 'EWY_FOREIGN' ? 1.5 : 2.0}%)`,
+      significance:     Math.abs(alert.changePct) >= 3 ? 'HIGH' : 'MEDIUM',
+    });
+  }
+
+  // ── 11. 공급망 역추적 스캔 (Gemini Search — 비용 절감을 위해 fire-and-forget) ─
+  runSupplyChainScan().catch(e =>
+    console.error('[GlobalScan] 공급망 스캔 오류:', e instanceof Error ? e.message : e)
+  );
 
   const alertSummary = sectorAlerts.length > 0
     ? `경보 ${sectorAlerts.length}건 (${sectorAlerts.map(a => a.symbol).join(', ')})`

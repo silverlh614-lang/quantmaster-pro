@@ -3,6 +3,7 @@
 // ECOS(한국은행), FRED, Yahoo Finance 프록시, 시장지표 일괄 조회
 import { Router, Request, Response } from 'express';
 import { loadGlobalScanReport } from '../alerts/globalScanAgent.js';
+import { analyzeNewsSupplyPatterns, loadNewsSupplyRecords } from '../learning/newsSupplyLogger.js';
 
 const router = Router();
 
@@ -243,6 +244,20 @@ router.get('/market/global-scan', (_req: Request, res: Response) => {
   const report = loadGlobalScanReport();
   if (!report) return res.status(404).json({ error: '글로벌 스캔 보고서 없음 — KST 06:00 이후 생성됩니다' });
   res.json(report);
+});
+
+// ─── 뉴스-수급 시차 학습 DB ─────────────────────────────────────────────────
+// GET /api/market/news-supply-patterns — newsType별 T+1·T+3·T+5 평균 패턴
+router.get('/market/news-supply-patterns', (_req: Request, res: Response) => {
+  const patterns = analyzeNewsSupplyPatterns();
+  const records  = loadNewsSupplyRecords();
+  res.json({
+    patterns,
+    totalRecords:    records.length,
+    completedCount:  records.filter(r => r.isComplete).length,
+    pendingCount:    records.filter(r => !r.isComplete).length,
+    updatedAt:       new Date().toISOString(),
+  });
 });
 
 // ─── FRED API Proxy (TED/HY Spread 무료, Search 대체) ─────────────────────────
