@@ -11,8 +11,10 @@ import { CandleChart } from './CandleChart';
 import { AnalysisViewToggle, AnalysisViewButtons } from './AnalysisViewToggle';
 import { evaluateStock } from '../services/quant/gateEngine';
 import { useGlobalIntelStore, useMarketStore, useRecommendationStore, useSettingsStore } from '../stores';
+import { useAnalysisStore } from '../stores';
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
 import { buildShadowTrade } from '../services/autoTrading';
+import { syncStockPrice } from '../services/stockService';
 import { MASTER_CHECKLIST_STEPS } from '../constants/checklist';
 import type { StockRecommendation } from '../services/stockService';
 import type { ChecklistKey } from '../types/quant';
@@ -47,6 +49,26 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
   } else {
     debugLog('DeepAnalysisModal OPEN', { name: stock.name, code: stock.code });
   }
+
+  const { setDeepAnalysisStock } = useAnalysisStore();
+
+  // Auto-sync price when modal opens with a new stock
+  useEffect(() => {
+    if (!stock) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const updated = await syncStockPrice(stock);
+        if (!cancelled && updated.currentPrice !== stock.currentPrice) {
+          debugLog('DeepAnalysisModal: price synced', { name: stock.name, old: stock.currentPrice, new: updated.currentPrice });
+          setDeepAnalysisStock(updated);
+        }
+      } catch (err) {
+        debugWarn('DeepAnalysisModal: price sync failed', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [stock?.code]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const globalIntelStore = useGlobalIntelStore();
   const macroEnv = globalIntelStore.macroEnv;

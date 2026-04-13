@@ -92,7 +92,7 @@ export function MarketPage({ onFetchMarketOverview }: MarketPageProps) {
         ) : marketOverview ? (
           <PageGrid columns="2-1" gap="md">
             <MarketDashboard data={marketOverview} triageSummary={triageSummary} />
-            <EventCalendar events={marketContext?.upcomingEvents || []} />
+            <EventCalendar events={marketOverview?.upcomingEvents || marketContext?.upcomingEvents || []} />
           </PageGrid>
         ) : (
           <EmptyState
