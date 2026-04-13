@@ -2,7 +2,7 @@
  * dartPoller.ownership.test.ts
  * 지분 공시 필터 및 룰 기반 수급 분석 테스트
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   IGNORE_DISCLOSURES,
   isOwnershipDisclosure,
@@ -13,6 +13,10 @@ import {
 // GEMINI_API_KEY 없는 환경에서 동작을 보장한다.
 beforeEach(() => {
   delete process.env.GEMINI_API_KEY;
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 // ── IGNORE_DISCLOSURES 상수 ────────────────────────────────────────────────
@@ -98,5 +102,36 @@ describe('analyzeOwnershipChange', () => {
     const neu = await analyzeOwnershipChange('C', '소유상황보고서');
     expect(typeof neu.reason).toBe('string');
     expect(neu.reason.length).toBeGreaterThan(0);
+  });
+
+  describe('LLM fallback path (GEMINI_API_KEY set, rule-based result is NEUTRAL)', () => {
+    it('returns POSITIVE when LLM reports positive impact', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      const geminiClient = await import('../clients/geminiClient.js');
+      vi.spyOn(geminiClient, 'callGemini').mockResolvedValue('{"impact":1,"reason":"임원 대규모 취득"}');
+
+      const result = await analyzeOwnershipChange('테스트', '임원ㆍ주요주주특정증권등소유상황보고서');
+      expect(result.sentiment).toBe('POSITIVE');
+      expect(result.reason).toBe('임원 대규모 취득');
+    });
+
+    it('returns NEGATIVE when LLM reports negative impact', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      const geminiClient = await import('../clients/geminiClient.js');
+      vi.spyOn(geminiClient, 'callGemini').mockResolvedValue('{"impact":-1,"reason":"대주주 지분 축소"}');
+
+      const result = await analyzeOwnershipChange('테스트', '임원ㆍ주요주주특정증권등소유상황보고서');
+      expect(result.sentiment).toBe('NEGATIVE');
+      expect(result.reason).toBe('대주주 지분 축소');
+    });
+
+    it('falls back to NEUTRAL when LLM throws an error', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      const geminiClient = await import('../clients/geminiClient.js');
+      vi.spyOn(geminiClient, 'callGemini').mockRejectedValue(new Error('network error'));
+
+      const result = await analyzeOwnershipChange('테스트', '임원ㆍ주요주주특정증권등소유상황보고서');
+      expect(result.sentiment).toBe('NEUTRAL');
+    });
   });
 });

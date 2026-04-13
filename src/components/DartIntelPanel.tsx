@@ -48,8 +48,14 @@ function ImpactBadge({ impact }: { impact: number | undefined }) {
 
 // ─── 공시 카드 ────────────────────────────────────────────────────────────────
 
+/** ownershipSignal이 실제 수급 이벤트(POSITIVE/NEGATIVE)인지 확인 */
+function isActiveOwnershipSignal(alert: DartAlertView): boolean {
+  return !!alert.ownershipSignal && alert.ownershipSignal.sentiment !== 'NEUTRAL';
+}
+
 function AlertCard({ alert }: { alert: DartAlertView }) {
   const dartUrl = `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${alert.rcept_no}`;
+  const hasOwnershipEvent = isActiveOwnershipSignal(alert);
 
   return (
     <div className={cn(
@@ -82,14 +88,14 @@ function AlertCard({ alert }: { alert: DartAlertView }) {
                 🔄 악재 소화 완료
               </span>
             )}
-            {alert.ownershipSignal && alert.ownershipSignal.sentiment !== 'NEUTRAL' && (
+            {hasOwnershipEvent && (
               <span className={cn(
                 'text-xs rounded-full px-1.5 py-0.5 border',
-                alert.ownershipSignal.sentiment === 'POSITIVE'
+                alert.ownershipSignal!.sentiment === 'POSITIVE'
                   ? 'bg-emerald-900/60 text-emerald-300 border-emerald-700/50'
                   : 'bg-red-900/60 text-red-300 border-red-700/50',
               )}>
-                {alert.ownershipSignal.sentiment === 'POSITIVE' ? '📈 수급 매수' : '📉 수급 매도'}
+                {alert.ownershipSignal!.sentiment === 'POSITIVE' ? '📈 수급 매수' : '📉 수급 매도'}
               </span>
             )}
           </div>
@@ -155,7 +161,7 @@ export const DartIntelPanel: React.FC = () => {
     if (filter === 'ABSORBED')   return a.badNewsAbsorbed;
     if (filter === 'POSITIVE')   return (a.llmImpact ?? 0) >= 1;
     if (filter === 'NEGATIVE')   return (a.llmImpact ?? 0) <= -1;
-    if (filter === 'OWNERSHIP')  return !!a.ownershipSignal && a.ownershipSignal.sentiment !== 'NEUTRAL';
+    if (filter === 'OWNERSHIP')  return isActiveOwnershipSignal(a);
     return true;
   });
 
@@ -163,7 +169,7 @@ export const DartIntelPanel: React.FC = () => {
   const absorbedCount   = alerts.filter(a => a.badNewsAbsorbed).length;
   const positiveCount   = alerts.filter(a => (a.llmImpact ?? 0) >= 1).length;
   const negativeCount   = alerts.filter(a => (a.llmImpact ?? 0) <= -1).length;
-  const ownershipCount  = alerts.filter(a => !!a.ownershipSignal && a.ownershipSignal.sentiment !== 'NEUTRAL').length;
+  const ownershipCount  = alerts.filter(isActiveOwnershipSignal).length;
 
   return (
     <div className="rounded-xl border border-indigo-800/40 bg-gray-900/50 px-5 py-4 space-y-4">
