@@ -22,6 +22,17 @@ interface MarketDashboardProps {
 }
 
 export const MarketDashboard: React.FC<MarketDashboardProps> = ({ data, triageSummary }) => {
+  // Defensive: handle sectorRotation being a flat array (legacy/stale persisted data)
+  const topSectors = Array.isArray(data.sectorRotation)
+    ? (data.sectorRotation as any[]).map((s: any, i: number) => ({
+        name: s.sector || s.name || '',
+        rank: s.rank ?? i + 1,
+        strength: s.momentum ?? s.strength ?? 0,
+        isLeading: s.isLeading ?? (s.flow === 'INFLOW'),
+        sectorLeaderNewHigh: s.sectorLeaderNewHigh ?? false,
+      }))
+    : data.sectorRotation?.topSectors;
+
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-1000">
       {/* AI Market Summary */}
@@ -41,8 +52,8 @@ export const MarketDashboard: React.FC<MarketDashboardProps> = ({ data, triageSu
       <DynamicWeightsSection weights={data.dynamicWeights} />
 
       {/* Sector Rotation Heatmap */}
-      {data.sectorRotation?.topSectors && (
-        <SectorHeatmap sectors={data.sectorRotation.topSectors} />
+      {topSectors && topSectors.length > 0 && (
+        <SectorHeatmap sectors={topSectors} />
       )}
 
       {/* Market Phase & Quant Indicators */}
@@ -54,8 +65,8 @@ export const MarketDashboard: React.FC<MarketDashboardProps> = ({ data, triageSu
       />
 
       {/* Sector Rotation */}
-      {data.sectorRotation?.topSectors && (
-        <SectorRotationSection topSectors={data.sectorRotation.topSectors} />
+      {topSectors && topSectors.length > 0 && (
+        <SectorRotationSection topSectors={topSectors} />
       )}
 
       {/* Major Indices */}

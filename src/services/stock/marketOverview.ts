@@ -167,10 +167,47 @@ ${preFilledSection}
         console.error("Full AI Response:", JSON.stringify(response, null, 2));
         throw new Error("No response from AI");
       }
-      return safeJsonParse(text);
+      const raw = safeJsonParse(text) as Record<string, any>;
+      return normalizeMarketOverview(raw);
     } catch (error) {
       console.error("Error getting market overview:", error);
       throw error;
     }
   });
+}
+
+/** Normalize the AI response to match the MarketOverview interface. */
+function normalizeMarketOverview(raw: Record<string, any>): MarketOverview {
+  // sectorRotation: AI returns flat array, but type expects { topSectors: [...] }
+  let sectorRotation = raw.sectorRotation;
+  if (Array.isArray(sectorRotation)) {
+    sectorRotation = {
+      topSectors: sectorRotation.map((s: any, i: number) => ({
+        name: s.sector || s.name || '',
+        rank: s.rank ?? i + 1,
+        strength: s.momentum ?? s.strength ?? 0,
+        isLeading: s.isLeading ?? (s.flow === 'INFLOW'),
+        sectorLeaderNewHigh: s.sectorLeaderNewHigh ?? false,
+        flow: s.flow,
+      })),
+    };
+  }
+
+  // regimeShiftDetector: AI returns { current, probability, signal }
+  // but type expects { currentRegime, shiftProbability, leadingIndicator }
+  const rsd = raw.regimeShiftDetector;
+  const regimeShiftDetector = rsd
+    ? {
+        currentRegime: rsd.currentRegime || rsd.current || 'Stable',
+        shiftProbability: rsd.shiftProbability ?? (typeof rsd.probability === 'number' ? rsd.probability / 100 : 0),
+        leadingIndicator: rsd.leadingIndicator || rsd.signal || '',
+        isShiftDetected: rsd.isShiftDetected ?? false,
+      }
+    : undefined;
+
+  return {
+    ...raw,
+    sectorRotation,
+    regimeShiftDetector,
+  } as MarketOverview;
 }

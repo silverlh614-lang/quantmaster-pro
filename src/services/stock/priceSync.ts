@@ -3,6 +3,40 @@ import { fetchHistoricalData } from './historicalData';
 import { debugLog } from '../../utils/debug';
 import type { StockRecommendation } from './types';
 
+/**
+ * Recalculate targetPrice and stopLoss proportionally when currentPrice changes.
+ * Preserves the original percentage gaps relative to the price the AI used.
+ */
+function recalculatePriceLevels(stock: StockRecommendation, newPrice: number): Partial<StockRecommendation> {
+  const oldPrice = stock.currentPrice;
+  if (!oldPrice || oldPrice <= 0 || !newPrice || newPrice <= 0 || oldPrice === newPrice) return {};
+
+  const result: Partial<StockRecommendation> = {};
+
+  if (stock.targetPrice && stock.targetPrice > 0) {
+    const targetPct = (stock.targetPrice - oldPrice) / oldPrice;
+    result.targetPrice = Math.round(newPrice * (1 + targetPct));
+  }
+  if (stock.targetPrice2 && stock.targetPrice2 > 0) {
+    const target2Pct = (stock.targetPrice2 - oldPrice) / oldPrice;
+    result.targetPrice2 = Math.round(newPrice * (1 + target2Pct));
+  }
+  if (stock.stopLoss && stock.stopLoss > 0) {
+    const stopPct = (stock.stopLoss - oldPrice) / oldPrice;
+    result.stopLoss = Math.round(newPrice * (1 + stopPct));
+  }
+  if (stock.entryPrice && stock.entryPrice > 0) {
+    const entryPct = (stock.entryPrice - oldPrice) / oldPrice;
+    result.entryPrice = Math.round(newPrice * (1 + entryPct));
+  }
+  if (stock.entryPrice2 && stock.entryPrice2 > 0) {
+    const entry2Pct = (stock.entryPrice2 - oldPrice) / oldPrice;
+    result.entryPrice2 = Math.round(newPrice * (1 + entry2Pct));
+  }
+
+  return result;
+}
+
 export async function fetchCurrentPrice(code: string): Promise<number | null> {
   try {
     const data = await fetchHistoricalData(code, '1d');
@@ -36,8 +70,10 @@ export async function syncStockPriceKIS(stock: StockRecommendation): Promise<Sto
     const data = await res.json();
     const currentPrice = parseInt(data.output?.stck_prpr || '0', 10);
     if (!currentPrice) throw new Error(`KIS 가격 조회 실패: ${JSON.stringify(data)}`);
+    const priceLevels = recalculatePriceLevels(stock, currentPrice);
     return {
       ...stock,
+      ...priceLevels,
       currentPrice,
       dataSourceType: 'REALTIME',
       priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (KIS 실시간)`,
@@ -79,10 +115,13 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
         const data = await res.json();
         const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice as number | undefined;
         if (price && price > 0) {
-          debugLog(`[가격동기화] Yahoo Finance 성공 (${symbol}): ${stock.name} ${price}원`);
+          const roundedPrice = Math.round(price);
+          debugLog(`[가격동기화] Yahoo Finance 성공 (${symbol}): ${stock.name} ${roundedPrice}원`);
+          const priceLevels = recalculatePriceLevels(stock, roundedPrice);
           const updated: StockRecommendation = {
             ...stock,
-            currentPrice: Math.round(price),
+            ...priceLevels,
+            currentPrice: roundedPrice,
             dataSourceType: 'YAHOO',
             priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (Yahoo Finance)`,
           };
