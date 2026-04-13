@@ -56,6 +56,10 @@ export { evaluateEarlyBullEntry, classifyExtendedRegime, deriveExtendedRegime } 
 export { detectROETransition } from './roeEngine';
 export { detectContradictions } from './contradictionDetector';
 export { evaluateTimingSync, tradingDaysBetween } from './timingSyncEngine';
+export { evaluateFibonacciTimeZone } from './fibonacciTimeZoneEngine';
+export type { FibonacciTimeZoneResult, FibTimeZone, SpaceTimeConfluence } from './fibonacciTimeZoneEngine';
+export { detectInstitutionalFootprint } from './institutionalFootprintEngine';
+export type { InstitutionalFootprintResult, DailyCandle, FootprintSignature } from './institutionalFootprintEngine';
 export {
   computeHybridZone, assignPercentileZones, isStrongBuyQualified, normalizeScore,
   FINAL_SCORE_MAX,
@@ -70,6 +74,9 @@ import { evaluateEarlyBullEntry, classifyExtendedRegime, deriveExtendedRegime } 
 import { detectROETransition } from './roeEngine';
 import { detectContradictions } from './contradictionDetector';
 import { evaluateTimingSync } from './timingSyncEngine';
+import { evaluateFibonacciTimeZone } from './fibonacciTimeZoneEngine';
+import { detectInstitutionalFootprint } from './institutionalFootprintEngine';
+import type { DailyCandle } from './institutionalFootprintEngine';
 import { normalizeScore } from './percentileClassifier';
 
 // ─── 아이디어 9: evaluateStock 입력 유효성 검증 스키마 ────────────────────────────
@@ -249,6 +256,15 @@ export function evaluateStock(
       fundMaturityDue: boolean;
       clientPerformanceWeak: boolean;
     }>;
+    // 피보나치 타임존 입력
+    swingLowDate?: string;            // 직전 주요 저점 날짜 (ISO)
+    swingHighDate?: string;           // 직전 주요 고점 날짜 (ISO)
+    swingHigh?: number;               // 고점 가격
+    swingLow?: number;                // 저점 가격
+    currentPrice?: number;            // 현재 가격
+    // 기관 매집 발자국 입력
+    dailyCandles?: DailyCandle[];     // 최근 20일+ 일봉 OHLCV (오래된→최신)
+    indexDailyReturns?: number[];     // 동기간 지수 일간 수익률 배열 (베타 분리용)
   },
   extendedRegimeOptions?: {
     kospi60dVolatility?: number;
@@ -568,6 +584,42 @@ export function evaluateStock(
   // 데이터 신뢰도
   const dataReliability = computeDataReliability(stockData);
 
+  // ── 피보나치 타임존 — 시간축 피보나치로 변곡점 예측 ──────────────────────────
+  const fibTimeZoneResult =
+    advancedContext?.swingLowDate && advancedContext?.swingHighDate &&
+    advancedContext?.swingHigh && advancedContext?.swingLow && advancedContext?.currentPrice
+      ? evaluateFibonacciTimeZone(
+          advancedContext.swingLowDate,
+          advancedContext.swingHighDate,
+          new Date(),
+          advancedContext.swingHigh,
+          advancedContext.swingLow,
+          advancedContext.currentPrice,
+          stockData[21] ?? 0, // 기존 피보나치 조건 점수 (fibonacciLevel → conditionId 21)
+        )
+      : undefined;
+
+  // 시공간 피보나치 교점 발생 시 finalScore 보너스
+  if (fibTimeZoneResult?.buySignalBoost) {
+    finalScore += 8; // 시공간 교점 = 최고 확률 매수 타점 → 강력 가산
+  } else if (fibTimeZoneResult && fibTimeZoneResult.activeZoneCount > 0) {
+    finalScore += 3; // 타임존 활성 (가격 미합치) → 소폭 가산
+  }
+
+  // ── 기관 매집 발자국 탐지 ─────────────────────────────────────────────────
+  const institutionalFootprintResult =
+    advancedContext?.dailyCandles && advancedContext.dailyCandles.length >= 5
+      ? detectInstitutionalFootprint(
+          advancedContext.dailyCandles,
+          advancedContext.indexDailyReturns ?? [],
+        )
+      : undefined;
+
+  // 기관 매집 판정 시 Gate 3 보너스 + finalScore 가산
+  if (institutionalFootprintResult) {
+    finalScore += institutionalFootprintResult.gate3Bonus;
+  }
+
   // ── 상승 초기 선취매 조건 평가 (Step 3) ─────────────────────────────────────
   const earlyBullEntryResult = gate1Passed
     ? evaluateEarlyBullEntry(
@@ -644,6 +696,16 @@ export function evaluateStock(
     positionSize = Math.min(positionSize, 10);
   }
 
+  // ── 기관 매집 발자국 → 매수 우선순위 격상 ─────────────────────────────────
+  // institutionalAccumulation = true 시 포지션 사이즈 20% 상향 (최대 25%)
+  // + 시공간 피보나치 교점 동시 발생 시 추가 10% 상향
+  if (institutionalFootprintResult?.priorityElevation && positionSize > 0) {
+    positionSize = Math.min(25, positionSize * 1.2);
+    if (fibTimeZoneResult?.buySignalBoost) {
+      positionSize = Math.min(25, positionSize * 1.1);
+    }
+  }
+
   positionSize = Math.max(0, positionSize);
 
   // ── Timing Sync Score ────────────────────────────────────────────────────
@@ -699,5 +761,7 @@ export function evaluateStock(
     conditionSources: CONDITION_SOURCE_MAP,
     contradictionDetection,
     timingSync,
+    fibonacciTimeZone: fibTimeZoneResult,
+    institutionalFootprint: institutionalFootprintResult,
   };
 }

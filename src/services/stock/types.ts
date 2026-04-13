@@ -7,6 +7,8 @@ import type {
   AttributionAnalysis,
   MacroEvent,
 } from "../../types/quant";
+import type { FibonacciTimeZoneResult } from "../quant/fibonacciTimeZoneEngine";
+import type { InstitutionalFootprintResult } from "../quant/institutionalFootprintEngine";
 
 export interface WalkForwardAnalysis {
   period: string;
@@ -274,6 +276,8 @@ export interface StockRecommendation {
   sellSignals?: { condition: string; reason: string }[];
   watchedPrice?: number;   // 관심종목 추가 시점 가격
   watchedAt?: string;      // 추가 날짜
+  fibonacciTimeZone?: FibonacciTimeZoneResult;          // 피보나치 타임존 분석 결과
+  institutionalFootprint?: InstitutionalFootprintResult; // 기관 매집 발자국 분석 결과
 }
 
 export interface AdvancedAnalysisResult {
