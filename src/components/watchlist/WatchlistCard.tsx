@@ -66,6 +66,12 @@ export function WatchlistCard({
   onSyncPrice,
   onManualPriceUpdate,
 }: WatchlistCardProps) {
+  const isAllGatesPassed =
+    stock.gateEvaluation?.isPassed === true ||
+    (stock.gateEvaluation?.gate1Passed === true &&
+      stock.gateEvaluation?.gate2Passed === true &&
+      stock.gateEvaluation?.gate3Passed === true);
+
   return (
     <motion.div
       key={stock.code}
@@ -80,9 +86,19 @@ export function WatchlistCard({
         "glass-3d card-3d rounded-2xl sm:rounded-3xl p-0 transition-all duration-500 relative overflow-hidden flex flex-col h-full group border-theme-border hover:border-white/20 cursor-pointer",
         stock.peakPrice > 0 && Math.round((stock.currentPrice / stock.peakPrice - 1) * 100) <= -30
           ? "!border-red-500/40 shadow-[0_0_40px_rgba(239,68,68,0.15)]"
-          : "shadow-[0_10px_30px_rgba(0,0,0,0.4)]"
+          : isAllGatesPassed
+            ? "!border-yellow-400/60 shadow-[0_0_40px_rgba(250,204,21,0.2)]"
+            : "shadow-[0_10px_30px_rgba(0,0,0,0.4)]"
       )}
     >
+      {/* All-Gates-Passed Golden Banner */}
+      {isAllGatesPassed && (
+        <div className="bg-gradient-to-r from-yellow-500/90 to-amber-400/90 backdrop-blur-md text-[10px] font-black text-black py-2 px-4 flex items-center justify-center gap-2 z-20 uppercase tracking-[0.2em]">
+          <Crown className="w-3.5 h-3.5" />
+          BEST · 전 Gate 통과
+        </div>
+      )}
+
       {/* 관심종목 추가 시점 대비 등락 배지 */}
       {view === 'WATCHLIST' && stock.watchedPrice && stock.watchedPrice > 0 && (() => {
         const diff = stock.currentPrice - stock.watchedPrice;
@@ -213,6 +229,12 @@ export function WatchlistCard({
                       "bg-green-500/20 text-green-400 border-green-500/30"
                     )}>
                       Gate {stock.gate}
+                    </div>
+                  )}
+                  {isAllGatesPassed && (
+                    <div className="flex items-center gap-1 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-lg backdrop-blur-md shrink-0 bg-yellow-400/20 text-yellow-400 border-yellow-400/40">
+                      <Crown className="w-3 h-3" />
+                      BEST
                     </div>
                   )}
                 </div>
