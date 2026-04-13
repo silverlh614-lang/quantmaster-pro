@@ -31,6 +31,7 @@ import { kisGet, KIS_IS_REAL, fetchKisInvestorFlow } from '../clients/kisClient.
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { calcReliabilityScore, sourcesFromGateKeys, formatReliabilityBadge } from '../learning/reliabilityScorer.js';
 import { runConfluenceEngine } from '../trading/confluenceEngine.js';
+import { evaluateRegretAsymmetry } from '../trading/regretAsymmetryFilter.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 import {
   type CandidateStock,
@@ -352,6 +353,10 @@ export async function stage3AIScreenAndRegister(
     const catalystTag = cf ? `촉매${cf.catalystGrade}` : '';
     const confPart    = cf ? `${cfSignal} ${cycleEmoji}${cf.cyclePosition} ${catalystTag}` : '';
 
+    // ── Regret Asymmetry Filter — 직전 5거래일 급등 시 쿨다운 설정 ────────────
+    const return5d = candidate?.quote.return5d ?? 0;
+    const regretFilter = evaluateRegretAsymmetry(return5d, currentPrice);
+
     watchlist.push({
       code:          result.code,
       name:          result.name,
@@ -368,9 +373,17 @@ export async function stage3AIScreenAndRegister(
       memo:          `${formatReliabilityBadge(reliability)} | ${confPart} | ${result.topReasons.slice(0, 2).join(', ')}`,
       expiresAt:     addBusinessDays(new Date(), 5).toISOString(),
       conditionKeys: [...realKeys, ...qualKeys],
+      ...(regretFilter.isCooldown && {
+        cooldownUntil: regretFilter.cooldownUntil,
+        recentHigh:    regretFilter.recentHigh,
+      }),
     });
     existingCodes.add(result.code);
     added++;
+
+    if (regretFilter.isCooldown) {
+      console.log(`[Regret Asymmetry] ${result.name}(${result.code}) ${regretFilter.reason}`);
+    }
   }
 
   if (added > 0) {

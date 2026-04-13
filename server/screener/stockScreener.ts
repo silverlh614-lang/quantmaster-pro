@@ -42,6 +42,8 @@ export interface YahooQuoteExtended {
   weeklyRSI: number;       // 주봉 RSI(9) — 5영업일 다운샘플
   ma60TrendUp: boolean;    // MA60 상승 추세 (현재 > 5일 전 MA60)
   macd5dHistAgo: number;   // MACD 히스토그램 5일 전 (MACD 가속도 계산용)
+  // Regret Asymmetry Filter 용
+  return5d: number;        // 직전 5거래일 수익률 (%) — FOMO 쿨다운 판단
 }
 
 // ── 기술적 지표 계산 유틸 ─────────────────────────────────────────────────────
@@ -390,6 +392,10 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     for (let i = 4; i < closes.length; i += 5) weeklyCloses.push(closes[i]);
     const weeklyRSI = parseFloat(calcRSI(weeklyCloses, 9).toFixed(1));
 
+    // 직전 5거래일 수익률 — Regret Asymmetry Filter용
+    const close5dAgo = closes.length > 5 ? closes[closes.length - 6] : closes[0];
+    const return5d = close5dAgo > 0 ? ((price - close5dAgo) / close5dAgo) * 100 : 0;
+
     return {
       price: Math.round(price), changePercent, volume, avgVolume,
       dayOpen: Math.round(dayOpen),
@@ -400,6 +406,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       macdSignal: parseFloat(macdSignal.toFixed(2)),
       macdHistogram: parseFloat(macdHistogram.toFixed(2)),
       rsi5dAgo, weeklyRSI, ma60TrendUp, macd5dHistAgo,
+      return5d: parseFloat(return5d.toFixed(2)),
     };
   } catch {
     return null;

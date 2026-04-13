@@ -38,6 +38,7 @@ function makeQuote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteExten
     weeklyRSI:          60,
     ma60TrendUp:      true,
     macd5dHistAgo:      10,
+    return5d:            8,
     ...overrides,
   };
 }

@@ -49,6 +49,8 @@ import {
   evaluateEntryRevalidation,
 } from './entryEngine.js';
 import { updateShadowResults } from './exitEngine.js';
+import { checkCooldownRelease } from './regretAsymmetryFilter.js';
+import { checkVolumeClockWindow } from './volumeClock.js';
 
 // ── 서브모듈 re-export (하위 호환성 유지) ──────────────────────────────────────
 export type {
@@ -189,6 +191,19 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
     return;
   }
 
+  // ── Volume Clock — 발주 허용 시간대 확인 ──────────────────────────────────
+  const volumeClock = checkVolumeClockWindow();
+  if (!volumeClock.allowEntry) {
+    console.log(volumeClock.reason);
+    // 시간대 차단 시에도 포지션 모니터링(청산)은 계속 수행
+    await updateShadowResults(shadows, regime);
+    saveShadowTrades(shadows);
+    return;
+  }
+  if (volumeClock.scoreBonus > 0) {
+    console.log(volumeClock.reason);
+  }
+
   for (const stock of buyList) {
     // 아이디어 7: 루프 내에서도 포지션 수 재확인 (같은 스캔 중 복수 진입 방지)
     const currentActive = shadows.filter(
@@ -220,6 +235,28 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
          s.signalTime.startsWith(today))
       );
       if (alreadyTraded) continue;
+
+      // ── Regret Asymmetry Filter — 쿨다운 종목 진입 보류/해제 판단 ────────────
+      if (stock.cooldownUntil) {
+        const released = checkCooldownRelease(
+          stock.cooldownUntil,
+          stock.recentHigh ?? stock.entryPrice,
+          currentPrice,
+        );
+        if (released) {
+          // 쿨다운 해제 — 플래그 제거 후 진입 허용
+          stock.cooldownUntil = undefined;
+          stock.recentHigh    = undefined;
+          watchlistMutated = true;
+          console.log(`[Regret Asymmetry] ${stock.name}(${stock.code}) 쿨다운 해제 — 진입 재허용`);
+        } else {
+          console.log(
+            `[Regret Asymmetry] ${stock.name}(${stock.code}) 쿨다운 유지` +
+            ` (until ${stock.cooldownUntil}, high ${(stock.recentHigh ?? 0).toLocaleString()}원)`,
+          );
+          continue;
+        }
+      }
 
       // ── 블랙리스트 확인 (Cascade -30% 진입 금지 목록) ──
       if (isBlacklisted(stock.code)) {
@@ -271,7 +308,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
       const slippage = 0.003;
       const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));
       // 버그 5 수정: Gate 점수 기반 간이 Kelly 포지션 사이징
-      const gateScore = stock.gateScore ?? 0;
+      // Volume Clock 보너스: 10:00~11:00 KST 집행 시 +2점 (기관 알고리즘 집중 구간)
+      const gateScore = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
       const isStrongBuy = gateScore >= 25;
 
       const reCheckQuote = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
