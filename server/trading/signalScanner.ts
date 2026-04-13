@@ -51,6 +51,7 @@ import {
 import { updateShadowResults } from './exitEngine.js';
 import { checkCooldownRelease } from './regretAsymmetryFilter.js';
 import { checkVolumeClockWindow } from './volumeClock.js';
+import { detectPreBreakoutAccumulation } from './preBreakoutAccumulationDetector.js';
 
 // ── 서브모듈 re-export (하위 호환성 유지) ──────────────────────────────────────
 export type {
@@ -218,6 +219,128 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
       const currentPrice = await fetchCurrentPrice(stock.code).catch(() => null);
       if (!currentPrice) continue;
 
+      // 당일 날짜 (재진입 방지 + PRE_BREAKOUT 추종 중복 방지 공통 사용)
+      const today = new Date().toISOString().split('T')[0];
+
+      // ── Pre-Breakout: 선취매 포지션 확인 → 돌파 추종 실행 ──────────────────
+      const activePreBreakout = shadows.find(
+        s => s.stockCode === stock.code &&
+             s.watchlistSource === 'PRE_BREAKOUT' &&
+             isOpenShadowStatus(s.status)
+      );
+
+      if (activePreBreakout) {
+        if (currentPrice >= stock.entryPrice) {
+          // 돌파 확인! 나머지 70% 추종 매수 실행
+          const followAlreadyDone = shadows.some(
+            s => s.stockCode === stock.code &&
+                 s.watchlistSource === 'PRE_BREAKOUT_FOLLOWTHROUGH' &&
+                 (isOpenShadowStatus(s.status) || s.signalTime.startsWith(today))
+          );
+          if (!followAlreadyDone && !isBlacklisted(stock.code)) {
+            const slippage = 0.003;
+            const followEntryPrice = Math.round(currentPrice * (1 + slippage));
+            const gateScoreFollow = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
+            const isStrongBuyFollow = gateScoreFollow >= 25;
+            const rawPctFollow = isStrongBuyFollow ? 0.12
+                               : gateScoreFollow >= 20 ? 0.08
+                               : gateScoreFollow >= 15 ? 0.05
+                               : 0.03;
+            const posPctFollow = rawPctFollow * kellyMultiplier;
+            const remSlots = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status)).length);
+            const { quantity: fullQty } = calculateOrderQuantity({
+              totalAssets, orderableCash, positionPct: posPctFollow,
+              price: followEntryPrice, remainingSlots: remSlots,
+            });
+            const followQty = Math.max(1, Math.ceil(fullQty * 0.7));
+            const profile    = stock.profileType ?? 'B';
+            const profileKey = `profile${profile}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
+            const regimeStopRate = REGIME_CONFIGS[regime].stopLoss[profileKey];
+            const stopLossPlan = buildStopLossPlan({
+              entryPrice:    followEntryPrice,
+              fixedStopLoss: stock.stopLoss,
+              regimeStopRate,
+            });
+            const limitTranches = PROFIT_TARGETS[regime].filter(t => t.type === 'LIMIT' && t.trigger !== null);
+            const trailTarget   = PROFIT_TARGETS[regime].find(t => t.type === 'TRAILING');
+            const followTrade: ServerShadowTrade = {
+              id:                    `srv_pbf_${Date.now()}_${stock.code}`,
+              stockCode:             stock.code,
+              stockName:             stock.name,
+              signalTime:            new Date().toISOString(),
+              signalPrice:           currentPrice,
+              shadowEntryPrice:      followEntryPrice,
+              quantity:              followQty,
+              originalQuantity:      followQty,
+              stopLoss:              stopLossPlan.hardStopLoss,
+              initialStopLoss:       stopLossPlan.initialStopLoss,
+              regimeStopLoss:        stopLossPlan.regimeStopLoss,
+              hardStopLoss:          stopLossPlan.hardStopLoss,
+              targetPrice:           stock.targetPrice,
+              status:                'PENDING',
+              mode:                  shadowMode ? 'SHADOW' : 'LIVE',
+              entryRegime:           regime,
+              profileType:           profile,
+              watchlistSource:       'PRE_BREAKOUT_FOLLOWTHROUGH',
+              profitTranches:        limitTranches.map(t => ({
+                price: followEntryPrice * (1 + (t.trigger as number)),
+                ratio: t.ratio,
+                taken: false,
+              })),
+              trailingHighWaterMark: followEntryPrice,
+              trailPct:              trailTarget?.trailPct ?? 0.10,
+              trailingEnabled:       false,
+            };
+
+            shadows.push(followTrade);
+            appendShadowLog({ event: 'PRE_BREAKOUT_FOLLOWTHROUGH', ...followTrade });
+            orderableCash = Math.max(0, orderableCash - followQty * followEntryPrice);
+
+            const alertMsg =
+              `🚀 <b>[선취매 추종] ${stock.name} (${stock.code})</b>\n` +
+              `돌파 확인 @${currentPrice.toLocaleString()}원 — 나머지 70% 집행\n` +
+              `주문가: ${followEntryPrice.toLocaleString()}원 × ${followQty}주\n` +
+              `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`;
+
+            if (shadowMode) {
+              console.log(`[PreBreakout SHADOW] ${stock.name}(${stock.code}) 추종 매수 @${currentPrice}`);
+              await sendTelegramAlert(alertMsg).catch(console.error);
+            } else {
+              const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
+                CANO: process.env.KIS_ACCOUNT_NO ?? '',
+                ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
+                PDNO: stock.code.padStart(6, '0'),
+                ORD_DVSN: '01',
+                ORD_QTY: followQty.toString(),
+                ORD_UNPR: '0',
+                SLL_BUY_DVSN_CD: '02',
+                CTAC_TLNO: '',
+                MGCO_APTM_ODNO: '',
+                ORD_SVR_DVSN_CD: '0',
+              });
+              const ordNo = orderData?.output?.ODNO;
+              console.log(`[PreBreakout LIVE] ${stock.name} 추종 매수 — ODNO: ${ordNo}`);
+              if (ordNo) {
+                fillMonitor.addOrder({
+                  ordNo, stockCode: stock.code, stockName: stock.name,
+                  quantity: followQty, orderPrice: followEntryPrice,
+                  placedAt: new Date().toISOString(), relatedTradeId: followTrade.id,
+                });
+                followTrade.status = 'ORDER_SUBMITTED';
+              } else {
+                followTrade.status = 'REJECTED';
+              }
+              await sendTelegramAlert(alertMsg).catch(console.error);
+            }
+          } else {
+            console.log(`[PreBreakout] ${stock.name}(${stock.code}) 추종 매수 이미 실행됨 — 스킵`);
+          }
+        } else {
+          console.log(`[PreBreakout] ${stock.name}(${stock.code}) 선취매 보유 중 @${activePreBreakout.shadowEntryPrice.toLocaleString()} — 돌파 대기`);
+        }
+        continue; // 선취매 포지션이 있으면 일반 진입 로직 건너뜀
+      }
+
       // 진입 조건: 현재가가 entryPrice ± 1% 이내로 도달
       const nearEntry = Math.abs(currentPrice - stock.entryPrice) / stock.entryPrice <= 0.01;
       // 손절 상향: 아직 손절선 위에 있어야 함
@@ -225,10 +348,137 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
       // 상승 모멘텀: 현재가가 entry 이상
       const breakout = currentPrice >= stock.entryPrice;
 
-      if (!(nearEntry || breakout) || !aboveStop) continue;
+      // ── Pre-Breakout 매집 감지 (진입가 미도달 + 손절선 위) ─────────────────
+      if (!nearEntry && !breakout && aboveStop) {
+        const reCheckQuotePb = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
+                            ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null);
+        if (
+          reCheckQuotePb != null &&
+          (reCheckQuotePb.recentCloses10d?.length ?? 0) >= 5 &&
+          (reCheckQuotePb.recentVolumes10d?.length ?? 0) >= 4 &&
+          (reCheckQuotePb.recentHighs10d?.length ?? 0) >= 6 &&
+          (reCheckQuotePb.recentLows10d?.length ?? 0) >= 6
+        ) {
+          const accumResult = detectPreBreakoutAccumulation({
+            recentCloses:         reCheckQuotePb.recentCloses10d!,
+            recentVolumes:        reCheckQuotePb.recentVolumes10d!,
+            avgVolume20d:         reCheckQuotePb.avgVolume,
+            recentHighs:          reCheckQuotePb.recentHighs10d!,
+            recentLows:           reCheckQuotePb.recentLows10d!,
+            atrRatio:             reCheckQuotePb.price > 0 ? reCheckQuotePb.atr / reCheckQuotePb.price : 0.02,
+            foreignNetBuy5d:      macroState?.foreignNetBuy5d ?? 0,
+            institutionalNetBuy5d: 0,
+          });
 
-      // 버그 6 수정: 당일 재진입 방지 — PENDING/ACTIVE 및 당일 이미 거래한 종목 제외
-      const today = new Date().toISOString().split('T')[0];
+          if (accumResult.isAccumulating) {
+            // 당일 이미 선취매 진행 여부 확인
+            const pbAlreadyToday = shadows.some(
+              s => s.stockCode === stock.code &&
+                   s.watchlistSource === 'PRE_BREAKOUT' &&
+                   s.signalTime.startsWith(today)
+            );
+            if (!pbAlreadyToday && !isBlacklisted(stock.code)) {
+              const slippage = 0.003;
+              const pbEntryPrice = Math.round(currentPrice * (1 + slippage));
+              const gateScorePb = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
+              const isStrongPb  = gateScorePb >= 25;
+              const rawPctPb    = isStrongPb ? 0.12 : gateScorePb >= 20 ? 0.08 : gateScorePb >= 15 ? 0.05 : 0.03;
+              const posPctPb    = rawPctPb * kellyMultiplier;
+              const remSlotsPb  = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status)).length);
+              const { quantity: fullPbQty, effectiveBudget: pbBudget } = calculateOrderQuantity({
+                totalAssets, orderableCash, positionPct: posPctPb,
+                price: pbEntryPrice, remainingSlots: remSlotsPb,
+              });
+              const pbQty = Math.max(1, Math.floor(fullPbQty * 0.3)); // 30% 선취매
+
+              if (pbQty >= 1) {
+                const profilePb = stock.profileType ?? 'B';
+                const profileKeyPb = `profile${profilePb}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
+                const regimeStopRatePb = REGIME_CONFIGS[regime].stopLoss[profileKeyPb];
+                const stopLossPlanPb = buildStopLossPlan({
+                  entryPrice:    pbEntryPrice,
+                  fixedStopLoss: stock.stopLoss,
+                  regimeStopRate: regimeStopRatePb,
+                });
+                const limitTranchesPb = PROFIT_TARGETS[regime].filter(t => t.type === 'LIMIT' && t.trigger !== null);
+                const trailTargetPb   = PROFIT_TARGETS[regime].find(t => t.type === 'TRAILING');
+                const pbTrade: ServerShadowTrade = {
+                  id:                    `srv_pb_${Date.now()}_${stock.code}`,
+                  stockCode:             stock.code,
+                  stockName:             stock.name,
+                  signalTime:            new Date().toISOString(),
+                  signalPrice:           currentPrice,
+                  shadowEntryPrice:      pbEntryPrice,
+                  quantity:              pbQty,
+                  originalQuantity:      fullPbQty,
+                  stopLoss:              stopLossPlanPb.hardStopLoss,
+                  initialStopLoss:       stopLossPlanPb.initialStopLoss,
+                  regimeStopLoss:        stopLossPlanPb.regimeStopLoss,
+                  hardStopLoss:          stopLossPlanPb.hardStopLoss,
+                  targetPrice:           stock.targetPrice,
+                  status:                'PENDING',
+                  mode:                  shadowMode ? 'SHADOW' : 'LIVE',
+                  entryRegime:           regime,
+                  profileType:           profilePb,
+                  watchlistSource:       'PRE_BREAKOUT',
+                  profitTranches:        limitTranchesPb.map(t => ({
+                    price: pbEntryPrice * (1 + (t.trigger as number)),
+                    ratio: t.ratio,
+                    taken: false,
+                  })),
+                  trailingHighWaterMark: pbEntryPrice,
+                  trailPct:              trailTargetPb?.trailPct ?? 0.10,
+                  trailingEnabled:       false,
+                };
+
+                shadows.push(pbTrade);
+                appendShadowLog({ event: 'PRE_BREAKOUT_ENTRY', ...pbTrade });
+                orderableCash = Math.max(0, orderableCash - pbBudget * 0.3);
+
+                console.log(`[PreBreakout] ${stock.name}(${stock.code}) 매집 감지 — 30% 선취매 @${pbEntryPrice} (${pbQty}주/${fullPbQty}주)`);
+                console.log(`[PreBreakout] ${accumResult.summary}`);
+
+                await sendTelegramAlert(
+                  `🔍 <b>[선취매 진입] ${stock.name} (${stock.code})</b>\n` +
+                  `매집 감지 — ${accumResult.summary}\n` +
+                  `현재가: ${currentPrice.toLocaleString()}원 × ${pbQty}주 (30% / 총 ${fullPbQty}주)\n` +
+                  `손절: ${formatStopLossBreakdown(stopLossPlanPb)} | 목표: ${stock.targetPrice.toLocaleString()}원\n` +
+                  `⚡ 돌파 확인 시 나머지 70%(${fullPbQty - pbQty}주) 추가 집행`
+                ).catch(console.error);
+
+                if (!shadowMode) {
+                  const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
+                    CANO: process.env.KIS_ACCOUNT_NO ?? '',
+                    ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
+                    PDNO: stock.code.padStart(6, '0'),
+                    ORD_DVSN: '01',
+                    ORD_QTY: pbQty.toString(),
+                    ORD_UNPR: '0',
+                    SLL_BUY_DVSN_CD: '02',
+                    CTAC_TLNO: '',
+                    MGCO_APTM_ODNO: '',
+                    ORD_SVR_DVSN_CD: '0',
+                  });
+                  const ordNo = orderData?.output?.ODNO;
+                  if (ordNo) {
+                    fillMonitor.addOrder({
+                      ordNo, stockCode: stock.code, stockName: stock.name,
+                      quantity: pbQty, orderPrice: pbEntryPrice,
+                      placedAt: new Date().toISOString(), relatedTradeId: pbTrade.id,
+                    });
+                    pbTrade.status = 'ORDER_SUBMITTED';
+                  } else {
+                    pbTrade.status = 'REJECTED';
+                  }
+                }
+              }
+            }
+          }
+        }
+        continue; // 진입가 미도달 — 일반 진입 로직 건너뜀
+      }
+
+      if (!aboveStop) continue;
       const alreadyTraded = shadows.some(
         (s) => s.stockCode === stock.code &&
         (isOpenShadowStatus(s.status) ||
