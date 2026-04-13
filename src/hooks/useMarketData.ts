@@ -3,7 +3,6 @@ import { toast } from 'sonner';
 import {
   getMarketOverview,
   syncMarketOverviewIndices,
-  type MarketOverview,
 } from '../services/stockService';
 import { useMarketStore } from '../stores';
 
@@ -15,16 +14,17 @@ export function useMarketData() {
   } = useMarketStore();
 
   // ── Initial Market Sync ─────────────────────────────────────────────────
+  // If marketOverview is already hydrated from zustand persist, refresh indices.
+  // If no data exists at all, trigger a full fetch automatically.
   useEffect(() => {
     const initialSync = async () => {
-      const stored = localStorage.getItem('k-stock-market-overview');
-      if (stored) {
+      const currentOverview = useMarketStore.getState().marketOverview;
+      if (currentOverview) {
         try {
-          const overview = JSON.parse(stored) as MarketOverview;
-          const updated = await syncMarketOverviewIndices(overview);
+          const updated = await syncMarketOverviewIndices(currentOverview);
           setMarketOverview(updated);
         } catch (e) {
-          console.error('Failed to parse stored market overview', e);
+          console.error('Failed to sync market indices on startup', e);
         }
       }
     };

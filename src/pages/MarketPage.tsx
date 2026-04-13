@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { RefreshCw, Activity } from 'lucide-react';
 import { MarketDashboard } from '../components/MarketDashboard';
@@ -25,6 +25,13 @@ export function MarketPage({ onFetchMarketOverview }: MarketPageProps) {
   const { marketOverview, marketContext, loadingMarket } = useMarketStore();
   const globalIntelStore = useGlobalIntelStore();
   const { recommendations } = useRecommendationStore();
+
+  // Auto-fetch market data on page load when no data is available
+  useEffect(() => {
+    if (!marketOverview && !loadingMarket) {
+      onFetchMarketOverview();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const macroEnv = globalIntelStore.macroEnv;
   const currentRoeType = globalIntelStore.currentRoeType;
