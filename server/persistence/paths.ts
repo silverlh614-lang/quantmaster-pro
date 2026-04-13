@@ -7,6 +7,7 @@ export const DATA_DIR = process.env.PERSIST_DATA_DIR
   : path.resolve(process.cwd(), 'data');
 
 export const WATCHLIST_FILE          = path.join(DATA_DIR, 'watchlist.json');
+export const INTRADAY_WATCHLIST_FILE = path.join(DATA_DIR, 'watchlist-intraday.json');
 
 /** 레짐별 가중치 파일 경로 (예: data/condition-weights-R2_BULL.json) */
 export function conditionWeightsRegimeFile(regime: string): string {

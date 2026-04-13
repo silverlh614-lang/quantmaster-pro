@@ -13,6 +13,7 @@ import {
 } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
+import { loadIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import {
   type ServerShadowTrade,
@@ -34,6 +35,12 @@ import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
 import { getVixGating } from './vixGating.js';
 import { getFomcProximity } from './fomcCalendar.js';
+import {
+  MAX_INTRADAY_POSITIONS,
+  INTRADAY_POSITION_PCT_FACTOR,
+  INTRADAY_STOP_LOSS_PCT,
+  INTRADAY_TARGET_PCT,
+} from '../screener/intradayScanner.js';
 import {
   isOpenShadowStatus,
   buildStopLossPlan,
@@ -77,6 +84,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
   const buyList = watchlist.filter((w) => w.isFocus === true || w.addedBy === 'MANUAL');
   let watchlistMutated = false;
 
+  // 장중 워치리스트: intradayReady=true 항목만 진입 후보
+  const intradayBuyList = loadIntradayWatchlist().filter(w => w.intradayReady === true);
+
   const shadowMode = process.env.AUTO_TRADE_MODE !== 'LIVE'; // 기본 Shadow 모드
 
   // 투자 총자산: 환경변수 → KIS 계좌 주문가능현금+기본값 순으로 결정
@@ -87,7 +97,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
   const conditionWeights = loadConditionWeights();
 
   console.log(
-    `[AutoTrade] 스캔 시작 — 워치리스트 ${watchlist.length}개 / Focus+MANUAL ${buyList.length}개 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'} / 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원`
+    `[AutoTrade] 스캔 시작 — 워치리스트 ${watchlist.length}개 / Focus+MANUAL ${buyList.length}개 / Intraday Ready ${intradayBuyList.length}개 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'} / 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원`
   );
 
   const shadows = loadShadowTrades();
@@ -448,6 +458,187 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
       }
     } catch (err: unknown) {
       console.error(`[AutoTrade] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
+    }
+  }
+
+  // ── 장중 Watchlist 처리 — intradayReady 항목에 대해 진입 시도 ───────────────
+  // 즉시 매수 금지: intradayReady=true (30분 경과 + 재검증 통과)인 항목만 대상
+  // 위험 관리: maxIntradayPositions(2개) / 포지션 비중 50% 축소 / 빠른 손절(-5%)
+  if (!options?.sellOnly && intradayBuyList.length > 0) {
+    const activeIntradayCount = shadows.filter(
+      (s) => isOpenShadowStatus(s.status) && s.watchlistSource === 'INTRADAY',
+    ).length;
+
+    if (activeIntradayCount >= MAX_INTRADAY_POSITIONS) {
+      console.log(
+        `[AutoTrade/Intraday] 최대 장중 포지션 도달 (${activeIntradayCount}/${MAX_INTRADAY_POSITIONS}) — 진입 스킵`,
+      );
+    } else {
+      const today = new Date().toISOString().split('T')[0];
+
+      for (const stock of intradayBuyList) {
+        // 포지션 수 재확인
+        const currentIntradayActive = shadows.filter(
+          (s) => isOpenShadowStatus(s.status) && s.watchlistSource === 'INTRADAY',
+        ).length;
+        if (currentIntradayActive >= MAX_INTRADAY_POSITIONS) {
+          console.log(`[AutoTrade/Intraday] 최대 포지션 도달 (${currentIntradayActive}/${MAX_INTRADAY_POSITIONS}) — 나머지 스킵`);
+          break;
+        }
+
+        try {
+          const currentPrice = await fetchCurrentPrice(stock.code).catch(() => null);
+          if (!currentPrice) continue;
+
+          // 진입 조건: 현재가가 entryPrice ± 1% 이내 or 돌파
+          const nearEntry = Math.abs(currentPrice - stock.entryPrice) / stock.entryPrice <= 0.01;
+          const breakout  = currentPrice >= stock.entryPrice;
+          const aboveStop = currentPrice > stock.stopLoss;
+
+          if (!(nearEntry || breakout) || !aboveStop) continue;
+
+          // 당일 재진입 금지 — Intraday는 더 엄격하게: 오늘 진입한 동일 종목 완전 차단
+          const alreadyTraded = shadows.some(
+            (s) => s.stockCode === stock.code &&
+              s.watchlistSource === 'INTRADAY' &&
+              s.signalTime.startsWith(today),
+          );
+          if (alreadyTraded) {
+            console.log(`[AutoTrade/Intraday] ${stock.name}(${stock.code}) 당일 재진입 금지`);
+            continue;
+          }
+
+          // 블랙리스트 확인
+          if (isBlacklisted(stock.code)) {
+            console.log(`[AutoTrade/Intraday] 🚫 ${stock.name}(${stock.code}) 블랙리스트 — 진입 차단`);
+            continue;
+          }
+
+          const slippage         = 0.003;
+          const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));
+
+          // 장중 손절: -5% 고정 (레짐 손절보다 빠른 손절)
+          const intradayStop   = Math.round(shadowEntryPrice * (1 - INTRADAY_STOP_LOSS_PCT));
+          const intradayTarget = stock.targetPrice > 0
+            ? stock.targetPrice
+            : Math.round(shadowEntryPrice * (1 + INTRADAY_TARGET_PCT));
+
+          // 포지션 사이징: gateScore 없으므로 기본 5% × 레짐 Kelly × 50% 축소
+          const rawPositionPct  = 0.05; // Intraday 기본 포지션
+          const positionPct     = rawPositionPct * kellyMultiplier * INTRADAY_POSITION_PCT_FACTOR;
+          const remainingSlots  = Math.max(1, MAX_INTRADAY_POSITIONS - currentIntradayActive);
+          const { quantity, effectiveBudget } = calculateOrderQuantity({
+            totalAssets,
+            orderableCash,
+            positionPct,
+            price: shadowEntryPrice,
+            remainingSlots,
+          });
+
+          if (quantity < 1) continue;
+
+          const trade: ServerShadowTrade = {
+            id:                  `srv_intraday_${Date.now()}_${stock.code}`,
+            stockCode:           stock.code,
+            stockName:           stock.name,
+            signalTime:          new Date().toISOString(),
+            signalPrice:         currentPrice,
+            shadowEntryPrice,
+            quantity,
+            originalQuantity:    quantity,
+            stopLoss:            intradayStop,
+            initialStopLoss:     intradayStop,
+            hardStopLoss:        intradayStop,
+            targetPrice:         intradayTarget,
+            status:              'PENDING',
+            mode:                shadowMode ? 'SHADOW' : 'LIVE',
+            entryRegime:         regime,
+            profileType:         'C', // 장중 발굴 종목 — 소형모멘텀 프로파일
+            watchlistSource:     'INTRADAY',
+            trailingHighWaterMark: shadowEntryPrice,
+            trailPct:             0.05, // 장중: 5% 트레일링 (더 빠른 익절 보호)
+            trailingEnabled:      false,
+          };
+
+          addRecommendation({
+            stockCode:        stock.code,
+            stockName:        stock.name,
+            signalTime:       new Date().toISOString(),
+            priceAtRecommend: currentPrice,
+            stopLoss:         intradayStop,
+            targetPrice:      intradayTarget,
+            kellyPct:         Math.round(positionPct * 100),
+            gateScore:        0,
+            signalType:       'BUY',
+            conditionKeys:    ['INTRADAY_STRONG'],
+            entryRegime:      regime,
+          });
+
+          if (shadowMode) {
+            shadows.push(trade);
+            console.log(`[AutoTrade/Intraday SHADOW] ${stock.name}(${stock.code}) 장중 진입 @${currentPrice}`);
+            appendShadowLog({ event: 'INTRADAY_SIGNAL', ...trade });
+
+            await sendTelegramAlert(
+              `📈 <b>[Shadow] 장중 매수 신호</b>\n` +
+              `종목: ${stock.name} (${stock.code})\n` +
+              `현재가: ${currentPrice.toLocaleString()}원 × ${quantity}주\n` +
+              `손절: ${intradayStop.toLocaleString()} (-5%) | 목표: ${intradayTarget.toLocaleString()}\n` +
+              `⚡ Intraday 포지션 ${currentIntradayActive + 1}/${MAX_INTRADAY_POSITIONS}`,
+            ).catch(console.error);
+          } else {
+            // LIVE 모드: 실제 시장가 주문
+            const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
+              CANO:              process.env.KIS_ACCOUNT_NO ?? '',
+              ACNT_PRDT_CD:      process.env.KIS_ACCOUNT_PROD ?? '01',
+              PDNO:              stock.code.padStart(6, '0'),
+              ORD_DVSN:          '01', // 시장가
+              ORD_QTY:           quantity.toString(),
+              ORD_UNPR:          '0',
+              SLL_BUY_DVSN_CD:   '02',
+              CTAC_TLNO:         '',
+              MGCO_APTM_ODNO:    '',
+              ORD_SVR_DVSN_CD:   '0',
+            });
+            const ordNo = orderData?.output?.ODNO;
+            console.log(`[AutoTrade/Intraday LIVE] ${stock.name} 매수 주문 — ODNO: ${ordNo}`);
+            appendShadowLog({ event: 'INTRADAY_ORDER', code: stock.code, price: currentPrice, ordNo });
+
+            if (ordNo) {
+              fillMonitor.addOrder({
+                ordNo,
+                stockCode:      stock.code,
+                stockName:      stock.name,
+                quantity,
+                orderPrice:     shadowEntryPrice,
+                placedAt:       new Date().toISOString(),
+                relatedTradeId: trade.id,
+              });
+              trade.status = 'ORDER_SUBMITTED';
+            } else {
+              trade.status = 'REJECTED';
+            }
+
+            shadows.push(trade);
+
+            await sendTelegramAlert(
+              `🚀 <b>[LIVE] 장중 매수 주문</b>\n` +
+              `종목: ${stock.name} (${stock.code})\n` +
+              `주문상태: ${ordNo ? 'ORDER_SUBMITTED' : 'REJECTED'}\n` +
+              `주문가: ${currentPrice.toLocaleString()}원 × ${quantity}주\n` +
+              `주문번호: ${ordNo ?? 'N/A'}\n` +
+              `손절: ${intradayStop.toLocaleString()} (-5%) | 목표: ${intradayTarget.toLocaleString()}\n` +
+              `⚡ Intraday 포지션 ${currentIntradayActive + 1}/${MAX_INTRADAY_POSITIONS}`,
+            ).catch(console.error);
+          }
+
+          if (trade.status !== 'REJECTED') {
+            orderableCash = Math.max(0, orderableCash - effectiveBudget);
+          }
+        } catch (err: unknown) {
+          console.error(`[AutoTrade/Intraday] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
+        }
+      }
     }
   }
 

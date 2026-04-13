@@ -22,6 +22,8 @@ import { calibrateByRegime } from '../learning/regimeAwareCalibrator.js';
 import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
 import { runConditionAudit } from '../learning/conditionAuditor.js';
 import { detectPerformanceAnomaly } from '../learning/anomalyDetector.js';
+import { scanAndUpdateIntradayWatchlist } from '../screener/intradayScanner.js';
+import { clearIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 
 // ─── 편의 조회 래퍼 ────────────────────────────────────────────────────────────
 export function getShadowTrades() { return loadShadowTrades(); }
@@ -308,6 +310,9 @@ export class TradingDayOrchestrator {
       case 'INTRADAY': {
         if (!enabled) break;
 
+        // 장중 Watchlist 발굴·갱신 (10분 내부 쓰로틀 — 1분 tick마다 호출 안전)
+        await scanAndUpdateIntradayWatchlist().catch(console.error);
+
         const decision = decideScan();
 
         if (!decision.shouldScan) {
@@ -402,9 +407,16 @@ export class TradingDayOrchestrator {
         break;
       }
 
-      default:
-        // POST_MARKET, WEEKEND — 대기
+      default: {
+        // POST_MARKET: 15:30 이후 한 번만 — 당일 장중 워치리스트 초기화
+        if (state === 'POST_MARKET' && !this.hasRan('clearIntradayWatchlist')) {
+          console.log('[Orchestrator] 장 마감 — 장중 워치리스트 초기화 (KST 15:30+)');
+          clearIntradayWatchlist();
+          this.markRan('clearIntradayWatchlist');
+        }
+        // WEEKEND — 대기
         break;
+      }
     }
   }
 }

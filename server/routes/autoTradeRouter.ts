@@ -3,6 +3,7 @@
 // 포함 대상: /api/auto-trade/*, /api/macro/*, /api/shadow/*, /api/real-trade/*, /api/fss/*
 import { Router } from 'express';
 import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
+import { loadIntradayWatchlist, saveIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { loadMacroState, saveMacroState, type MacroState } from '../persistence/macroStateRepo.js';
 import { getDartAlerts } from '../persistence/dartRepo.js';
 import { loadFssRecords, upsertFssRecord } from '../persistence/fssRepo.js';
@@ -105,6 +106,22 @@ router.post('/auto-trade/watchlist', (req: any, res: any) => {
 router.delete('/auto-trade/watchlist/:code', (req: any, res: any) => {
   const list = loadWatchlist().filter((e) => e.code !== req.params.code);
   saveWatchlist(list);
+  res.json({ ok: true, count: list.length });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 장중(Intraday) 워치리스트 REST API
+// ─────────────────────────────────────────────────────────────
+
+/** GET /api/auto-trade/watchlist/intraday — 장중 워치리스트 전체 조회 */
+router.get('/auto-trade/watchlist/intraday', (_req: any, res: any) => {
+  res.json(loadIntradayWatchlist());
+});
+
+/** DELETE /api/auto-trade/watchlist/intraday/:code — 특정 종목 장중 워치리스트 제거 */
+router.delete('/auto-trade/watchlist/intraday/:code', (req: any, res: any) => {
+  const list = loadIntradayWatchlist().filter((e) => e.code !== req.params.code);
+  saveIntradayWatchlist(list);
   res.json({ ok: true, count: list.length });
 });
 
