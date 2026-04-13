@@ -5,7 +5,7 @@ import {
 } from '../stores';
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
 import { useCopiedCode } from './useCopiedCode';
-import { evaluateGate0 } from '../services/quant/gateEngine';
+import { evaluateGate0 } from '../services/quant/macroEngine';
 import { fetchHistoricalData } from '../services/stockService';
 import { debugWarn } from '../utils/debug';
 import type { StockRecommendation } from '../services/stockService';

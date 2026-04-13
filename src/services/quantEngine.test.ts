@@ -124,25 +124,19 @@ describe('evaluateStock - Gate Cascade', () => {
       lastUpdated: new Date().toISOString(),
     };
 
-    const result = evaluateStock(
-      createHighStockData(),
-      createBaseRegime(),
-      'A',
-      createLeadingSector(),
-      0,
-      false,
-      3.0,
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      false,
-      createHealthyMacroEnv(),
-      50,
-      undefined,
-      { financialStress: fsiFsi },
-    );
+    const result = evaluateStock({
+      rawStockData: createHighStockData(),
+      regime: createBaseRegime(),
+      profileType: 'A',
+      sectorRotation: createLeadingSector(),
+      euphoriaSignals: 0,
+      emergencyStop: false,
+      rrr: 3.0,
+      isPullbackVolumeLow: false,
+      macroEnv: createHealthyMacroEnv(),
+      stockExportRatio: 50,
+      extendedRegimeOptions: { financialStress: fsiFsi },
+    });
 
     expect(result.gate1Passed).toBe(false);
     expect(result.gate2Passed).toBe(false);
@@ -153,22 +147,17 @@ describe('evaluateStock - Gate Cascade', () => {
   });
 
   it('FULL_STOP: VKOSPI>35 + VIX>30 + MHS<30 위기 레짐에서 모든 게이트 차단', () => {
-    const result = evaluateStock(
-      createHighStockData(),
-      createBaseRegime(),
-      'A',
-      createLeadingSector(),
-      0,
-      false,
-      3.0,
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      false,
-      createCrisisMacroEnv(),
-    );
+    const result = evaluateStock({
+      rawStockData: createHighStockData(),
+      regime: createBaseRegime(),
+      profileType: 'A',
+      sectorRotation: createLeadingSector(),
+      euphoriaSignals: 0,
+      emergencyStop: false,
+      rrr: 3.0,
+      isPullbackVolumeLow: false,
+      macroEnv: createCrisisMacroEnv(),
+    });
 
     expect(result.gate1Passed).toBe(false);
     expect(result.positionSize).toBe(0);
@@ -176,15 +165,15 @@ describe('evaluateStock - Gate Cascade', () => {
   });
 
   it('emergencyStop=true: 비상정지 시 모든 게이트 차단 + positionSize=0', () => {
-    const result = evaluateStock(
-      createHighStockData(),
-      createBaseRegime(),
-      'A',
-      createLeadingSector(),
-      0,
-      true,   // emergencyStop
-      3.0,
-    );
+    const result = evaluateStock({
+      rawStockData: createHighStockData(),
+      regime: createBaseRegime(),
+      profileType: 'A',
+      sectorRotation: createLeadingSector(),
+      euphoriaSignals: 0,
+      emergencyStop: true,
+      rrr: 3.0,
+    });
 
     expect(result.gate1Passed).toBe(false);
     expect(result.positionSize).toBe(0);
@@ -192,22 +181,17 @@ describe('evaluateStock - Gate Cascade', () => {
   });
 
   it('buyingHalted: MHS<40 거시 환경에서 매수 중단 + positionSize=0', () => {
-    const result = evaluateStock(
-      createHighStockData(),
-      createBaseRegime(),
-      'A',
-      createLeadingSector(),
-      0,
-      false,
-      3.0,
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      false,
-      createBuyingHaltedMacroEnv(),
-    );
+    const result = evaluateStock({
+      rawStockData: createHighStockData(),
+      regime: createBaseRegime(),
+      profileType: 'A',
+      sectorRotation: createLeadingSector(),
+      euphoriaSignals: 0,
+      emergencyStop: false,
+      rrr: 3.0,
+      isPullbackVolumeLow: false,
+      macroEnv: createBuyingHaltedMacroEnv(),
+    });
 
     expect(result.gate1Passed).toBe(false);
     expect(result.positionSize).toBe(0);
@@ -215,15 +199,15 @@ describe('evaluateStock - Gate Cascade', () => {
   });
 
   it('Gate 1 실패: GATE1_IDS 조건이 임계값 미달일 때 후속 게이트 미평가', () => {
-    const result = evaluateStock(
-      createZeroStockData(),
-      createBaseRegime(),
-      'A',
-      createLeadingSector(),
-      0,
-      false,
-      3.0,
-    );
+    const result = evaluateStock({
+      rawStockData: createZeroStockData(),
+      regime: createBaseRegime(),
+      profileType: 'A',
+      sectorRotation: createLeadingSector(),
+      euphoriaSignals: 0,
+      emergencyStop: false,
+      rrr: 3.0,
+    });
 
     expect(result.gate1Passed).toBe(false);
     expect(result.gate2Passed).toBe(false);
@@ -234,15 +218,15 @@ describe('evaluateStock - Gate Cascade', () => {
   });
 
   it('전체 통과: 높은 스코어에서 Gate 1/2/3 모두 통과 + 양수 positionSize', () => {
-    const result = evaluateStock(
-      createHighStockData(),
-      createBaseRegime(),
-      'A',
-      createLeadingSector(),
-      0,
-      false,
-      3.0,
-    );
+    const result = evaluateStock({
+      rawStockData: createHighStockData(),
+      regime: createBaseRegime(),
+      profileType: 'A',
+      sectorRotation: createLeadingSector(),
+      euphoriaSignals: 0,
+      emergencyStop: false,
+      rrr: 3.0,
+    });
 
     expect(result.gate1Passed).toBe(true);
     expect(result.gate2Passed).toBe(true);
@@ -251,31 +235,31 @@ describe('evaluateStock - Gate Cascade', () => {
   });
 
   it('RRR < 2.0: RRR 필터 미달 시 positionSize=0 + 관망 권고', () => {
-    const result = evaluateStock(
-      createHighStockData(),
-      createBaseRegime(),
-      'A',
-      createLeadingSector(),
-      0,
-      false,
-      1.5,   // rrr < 2.0
-    );
+    const result = evaluateStock({
+      rawStockData: createHighStockData(),
+      regime: createBaseRegime(),
+      profileType: 'A',
+      sectorRotation: createLeadingSector(),
+      euphoriaSignals: 0,
+      emergencyStop: false,
+      rrr: 1.5,
+    });
 
     expect(result.positionSize).toBe(0);
     expect(result.recommendation).toBe('관망');
   });
 
   it('매도 신호 ≥5: 강력 매도 + positionSize=0', () => {
-    const result = evaluateStock(
-      createHighStockData(),
-      createBaseRegime(),
-      'A',
-      createLeadingSector(),
-      0,
-      false,
-      3.0,
-      [1, 2, 3, 4, 5],  // sellSignals 5개
-    );
+    const result = evaluateStock({
+      rawStockData: createHighStockData(),
+      regime: createBaseRegime(),
+      profileType: 'A',
+      sectorRotation: createLeadingSector(),
+      euphoriaSignals: 0,
+      emergencyStop: false,
+      rrr: 3.0,
+      sellSignals: [1, 2, 3, 4, 5],
+    });
 
     expect(result.recommendation).toBe('강력 매도');
     expect(result.positionSize).toBe(0);
@@ -283,15 +267,15 @@ describe('evaluateStock - Gate Cascade', () => {
   });
 
   it('과열 신호 ≥3: 유포리아 감지 시 매도 권고로 전환', () => {
-    const result = evaluateStock(
-      createHighStockData(),
-      createBaseRegime(),
-      'A',
-      createLeadingSector(),
-      3,     // euphoriaSignals ≥ 3
-      false,
-      3.0,
-    );
+    const result = evaluateStock({
+      rawStockData: createHighStockData(),
+      regime: createBaseRegime(),
+      profileType: 'A',
+      sectorRotation: createLeadingSector(),
+      euphoriaSignals: 3,
+      emergencyStop: false,
+      rrr: 3.0,
+    });
 
     expect(result.recommendation).toBe('매도');
     expect(result.euphoriaLevel).toBe(3);
@@ -343,15 +327,18 @@ describe('evaluateTMA', () => {
 
   it('evaluateStock에 dailyCloses 전달 시 tma 결과 포함', () => {
     const closes = [1000, 1030, 1050.6, 1061.11, 1061.11, 1050.50, 1029.49];
-    const result = evaluateStock(
-      createHighStockData(),
-      createBaseRegime(),
-      'A',
-      createLeadingSector(),
-      0, false, 3, [], undefined, undefined, undefined, undefined, undefined,
-      createHealthyMacroEnv(), 50,
-      { dailyCloses: closes },
-    );
+    const result = evaluateStock({
+      rawStockData: createHighStockData(),
+      regime: createBaseRegime(),
+      profileType: 'A',
+      sectorRotation: createLeadingSector(),
+      euphoriaSignals: 0,
+      emergencyStop: false,
+      rrr: 3,
+      macroEnv: createHealthyMacroEnv(),
+      stockExportRatio: 50,
+      advancedContext: { dailyCloses: closes },
+    });
     expect(result.tma).toBeDefined();
     expect(result.tma!.alert).toBe('IMMEDIATE');
   });

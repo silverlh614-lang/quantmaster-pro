@@ -34,7 +34,84 @@ import {
   EconomicRegime,
   FinancialStressIndex,
   SupplyChainIntelligence,
+  type ROEType,
 } from '../../types/quant';
+import type { DailyCandle } from './institutionalFootprintEngine';
+
+// ─── evaluateStock 입력 인터페이스 ──────────────────────────────────────────
+export interface EvaluateStockAdvancedContext {
+  smartMoney?: SmartMoneyData;
+  exportMomentum?: ExportMomentumData;
+  geoRisk?: GeopoliticalRiskData;
+  creditSpread?: CreditSpreadData;
+  economicRegime?: EconomicRegime;
+  supplyChain?: SupplyChainIntelligence;
+  financialStress?: FinancialStressIndex;
+  newsPhase?: 'SILENT' | 'EARLY' | 'GROWING' | 'CROWDED' | 'OVERHYPED';
+  weeklyRsiValues?: number[];
+  institutionalAmounts?: number[];
+  volumeTrend?: 'INCREASING' | 'STABLE' | 'DECREASING';
+  catalystDescription?: string;
+  dailyCloses?: number[];
+  weeklyRsRatios?: number[];
+  entryRsRank?: number;
+  currentRsRank?: number;
+  stockReturn20d?: number;
+  sectorReturn20d?: number;
+  macroEnv?: MacroEnvironment;
+  roeTypeHistory?: ROEType[];
+  assetTurnoverHistory?: number[];
+  foreignPassiveActiveDays?: number;
+  rsPercentileInSector?: number;
+  outperformsKospi1M?: boolean;
+  enemyFlags?: Partial<{
+    lockupExpiringSoon: boolean;
+    majorShareholderSelling: boolean;
+    creditBalanceSurge: boolean;
+    shortInterestSurge: boolean;
+    targetPriceDowngrade: boolean;
+    fundMaturityDue: boolean;
+    clientPerformanceWeak: boolean;
+  }>;
+  swingLowDate?: string;
+  swingHighDate?: string;
+  swingHigh?: number;
+  swingLow?: number;
+  currentPrice?: number;
+  dailyCandles?: DailyCandle[];
+  indexDailyReturns?: number[];
+}
+
+export interface EvaluateStockExtendedRegimeOptions {
+  kospi60dVolatility?: number;
+  leadingSectorCount?: number;
+  foreignFlowDirection?: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING';
+  kospiSp500Correlation?: number;
+  financialStress?: FinancialStressIndex;
+  kospiAboveMa20?: boolean;
+}
+
+export interface EvaluateStockInput {
+  rawStockData: unknown;
+  regime: MarketRegime;
+  profileType: StockProfileType;
+  sectorRotation: SectorRotation;
+  euphoriaSignals: number;
+  emergencyStop: boolean;
+  rrr: number;
+  sellSignals?: number[];
+  multiTimeframe?: MultiTimeframe;
+  enemyChecklist?: EnemyChecklist;
+  seasonality?: SeasonalityData;
+  attribution?: AttributionAnalysis;
+  isPullbackVolumeLow?: boolean;
+  macroEnv?: MacroEnvironment;
+  stockExportRatio?: number;
+  advancedContext?: EvaluateStockAdvancedContext;
+  extendedRegimeOptions?: EvaluateStockExtendedRegimeOptions;
+  stockSector?: string;
+  conditionPassTimestamps?: Partial<Record<ConditionId, string>>;
+}
 import { z } from 'zod';
 import {
   ALL_CONDITIONS,
@@ -48,25 +125,7 @@ import {
 } from './technicalEngine';
 import { VKOSPI } from '../../constants/thresholds';
 
-// ── 서브모듈 re-export (외부 코드가 gateEngine 경유로 import 할 수 있도록 유지) ──
-export { evaluateGate0, getRegimeConfig, evaluateMAPCResult } from './macroEngine';
-export { getFXAdjustmentFactor, getRateCycleAdjustment } from './fxRateCycleEngine';
-export { computeContrarianSignals } from './contrarianEngine';
-export { evaluateEarlyBullEntry, classifyExtendedRegime, deriveExtendedRegime } from './extendedRegimeEngine';
-export { detectROETransition } from './roeEngine';
-export { detectContradictions } from './contradictionDetector';
-export { evaluateTimingSync, tradingDaysBetween } from './timingSyncEngine';
-export { evaluateFibonacciTimeZone } from './fibonacciTimeZoneEngine';
-export type { FibonacciTimeZoneResult, FibTimeZone, SpaceTimeConfluence } from './fibonacciTimeZoneEngine';
-export { detectInstitutionalFootprint } from './institutionalFootprintEngine';
-export type { InstitutionalFootprintResult, DailyCandle, FootprintSignature } from './institutionalFootprintEngine';
-export {
-  computeHybridZone, assignPercentileZones, isStrongBuyQualified, normalizeScore,
-  FINAL_SCORE_MAX,
-} from './percentileClassifier';
-export type { PercentileZone, ScoredEntry, ZonedEntry, StrongBuyQualificationCriteria } from './percentileClassifier';
-
-// ── 서브모듈 직접 import (evaluateStock 내부에서 사용) ───────────────────────
+// ── 서브모듈 import (evaluateStock 내부에서 사용) ────────────────────────────
 import { evaluateGate0, evaluateMAPCResult } from './macroEngine';
 import { getFXAdjustmentFactor, getRateCycleAdjustment } from './fxRateCycleEngine';
 import { computeContrarianSignals } from './contrarianEngine';
@@ -76,7 +135,6 @@ import { detectContradictions } from './contradictionDetector';
 import { evaluateTimingSync } from './timingSyncEngine';
 import { evaluateFibonacciTimeZone } from './fibonacciTimeZoneEngine';
 import { detectInstitutionalFootprint } from './institutionalFootprintEngine';
-import type { DailyCandle } from './institutionalFootprintEngine';
 import { normalizeScore } from './percentileClassifier';
 
 // ─── 아이디어 9: evaluateStock 입력 유효성 검증 스키마 ────────────────────────────
@@ -202,81 +260,28 @@ function computeBasePositionSize(ctx: {
 
 // ─── Main Evaluation Function ────────────────────────────────────────────────
 
-export function evaluateStock(
-  rawStockData: unknown,
-  regime: MarketRegime,
-  profileType: StockProfileType,
-  sectorRotation: SectorRotation,
-  euphoriaSignals: number, // 0-5
-  emergencyStop: boolean,
-  rrr: number,
-  sellSignals: number[] = [],
-  multiTimeframe?: MultiTimeframe,
-  enemyChecklist?: EnemyChecklist,
-  seasonality?: SeasonalityData,
-  attribution?: AttributionAnalysis,
-  isPullbackVolumeLow?: boolean,  // 1순위: 눌림목 거래량 감소 여부
-  macroEnv?: MacroEnvironment,    // Gate 0 + FX + Rate Cycle 입력
-  stockExportRatio?: number,      // 수출 비중 0-100 (FX 조정용)
-  advancedContext?: {
-    smartMoney?: SmartMoneyData;
-    exportMomentum?: ExportMomentumData;
-    geoRisk?: GeopoliticalRiskData;
-    creditSpread?: CreditSpreadData;
-    economicRegime?: EconomicRegime;
-    supplyChain?: SupplyChainIntelligence;
-    financialStress?: FinancialStressIndex;
-    // 판단엔진 고도화 입력
-    newsPhase?: 'SILENT' | 'EARLY' | 'GROWING' | 'CROWDED' | 'OVERHYPED';
-    weeklyRsiValues?: number[];           // 최근 3주 RSI [45, 52, 62]
-    institutionalAmounts?: number[];      // 최근 5일 기관 순매수 금액
-    volumeTrend?: 'INCREASING' | 'STABLE' | 'DECREASING';
-    catalystDescription?: string;         // 촉매 설명 텍스트
-    dailyCloses?: number[];               // 최근 7일+ 일봉 종가 (TMA 계산용)
-    // SRR 입력
-    weeklyRsRatios?: number[];           // 주간 RS Ratio 이력 (SRR 계산용)
-    entryRsRank?: number;                // 매수 시점 RS 순위 (%, 기본 5)
-    currentRsRank?: number;              // 현재 RS 순위 (%)
-    stockReturn20d?: number;             // 종목 20일 수익률 (%)
-    sectorReturn20d?: number;            // 섹터 ETF 20일 수익률 (%)
-    macroEnv?: MacroEnvironment;         // 실시간 매크로 환경 (MAPC 계산용)
-    // ROE 유형 전이 감지 입력
-    roeTypeHistory?: import('../../types/quant').ROEType[];          // 최근 분기 ROE 유형 배열 (오래된→최신)
-    assetTurnoverHistory?: number[];     // 최근 2개 분기 총자산회전율 (오래된→최신)
-    // 상승 초기 선취매 조건 입력 (Step 3)
-    foreignPassiveActiveDays?: number;   // 외국인 Passive+Active 동반 순매수 일수
-    rsPercentileInSector?: number;       // 섹터 내 RS 백분위 (0=최상, 100=최하)
-    outperformsKospi1M?: boolean;        // 최근 1개월 KOSPI 대비 아웃퍼폼 여부
-    enemyFlags?: Partial<{
-      lockupExpiringSoon: boolean;
-      majorShareholderSelling: boolean;
-      creditBalanceSurge: boolean;
-      shortInterestSurge: boolean;
-      targetPriceDowngrade: boolean;
-      fundMaturityDue: boolean;
-      clientPerformanceWeak: boolean;
-    }>;
-    // 피보나치 타임존 입력
-    swingLowDate?: string;            // 직전 주요 저점 날짜 (ISO)
-    swingHighDate?: string;           // 직전 주요 고점 날짜 (ISO)
-    swingHigh?: number;               // 고점 가격
-    swingLow?: number;                // 저점 가격
-    currentPrice?: number;            // 현재 가격
-    // 기관 매집 발자국 입력
-    dailyCandles?: DailyCandle[];     // 최근 20일+ 일봉 OHLCV (오래된→최신)
-    indexDailyReturns?: number[];     // 동기간 지수 일간 수익률 배열 (베타 분리용)
-  },
-  extendedRegimeOptions?: {
-    kospi60dVolatility?: number;
-    leadingSectorCount?: number;
-    foreignFlowDirection?: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING';
-    kospiSp500Correlation?: number;
-    financialStress?: FinancialStressIndex;
-    kospiAboveMa20?: boolean;            // Bull Regime 판단용 (Step 1)
-  },
-  stockSector?: string, // 종목 섹터 (조선/반도체 등) — BDI/SEMI Gate 조정용
-  conditionPassTimestamps?: Partial<Record<ConditionId, string>>, // 조건 통과 시점 ISO 문자열 (Timing Sync 계산용)
-): EvaluationResult {
+export function evaluateStock(input: EvaluateStockInput): EvaluationResult {
+  const {
+    rawStockData,
+    regime,
+    profileType,
+    sectorRotation,
+    euphoriaSignals,
+    emergencyStop,
+    rrr,
+    sellSignals = [],
+    multiTimeframe,
+    enemyChecklist,
+    seasonality,
+    attribution,
+    isPullbackVolumeLow,
+    macroEnv,
+    stockExportRatio,
+    advancedContext,
+    extendedRegimeOptions,
+    stockSector,
+    conditionPassTimestamps,
+  } = input;
   // ── 아이디어 9: Zod 런타임 입력 검증 ──────────────────────────────────────────
   const parsed = StockDataSchema.safeParse(rawStockData);
   if (!parsed.success) {

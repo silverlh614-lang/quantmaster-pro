@@ -6,7 +6,7 @@ import {
 } from '../types/quant';
 import { evaluateSectorOverheat } from '../services/quant/sectorEngine';
 import { evaluateBearModeSimulator } from '../services/quant/bearEngine';
-import { evaluateMAPCResult } from '../services/quant/gateEngine';
+import { evaluateMAPCResult } from '../services/quant/macroEngine';
 import { evaluateMarketRegimeClassifier } from '../services/quant/marketRegimeClassifier';
 import { evaluateMTFConfluence } from '../services/quant/mtfEngine';
 import { evaluateDynamicStop } from '../services/quant/dynamicStopEngine';
