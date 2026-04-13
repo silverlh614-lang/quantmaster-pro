@@ -8,6 +8,7 @@
  */
 
 import type { YahooQuoteExtended } from './screener/stockScreener.js';
+import { isPullbackSetup } from './screener/pipelineHelpers.js';
 
 export interface ServerGateResult {
   gateScore: number;                          // 가중치 적용 점수 (float, 최대 ~10)
@@ -31,6 +32,7 @@ export const CONDITION_KEYS = {
   VOLUME_SURGE:      'volume_surge',
   RSI_ZONE:          'rsi_zone',   // RSI(14) 40~70 건강구간 (실계산)
   MACD_BULL:         'macd_bull',  // MACD 히스토그램 > 0 (실계산)
+  PULLBACK:          'pullback',  // 눌림목 셋업 (고점대비 조정 + 압축 + 추세유지)
 } as const;
 
 export type ConditionKey = (typeof CONDITION_KEYS)[keyof typeof CONDITION_KEYS];
@@ -49,6 +51,7 @@ export const DEFAULT_CONDITION_WEIGHTS: ConditionWeights = {
   volume_surge:      1.0,
   rsi_zone:          1.0,
   macd_bull:         1.0,
+  pullback:          1.0,
 };
 
 /**
@@ -136,6 +139,7 @@ function calculateMTAS(quote: YahooQuoteExtended): number {
  * 조건 27: 거래량 급증 + 상승 (거래량 3배 이상 & +1% 이상)
  * [신규] RSI(14) 건강구간 40~70 (실계산)
  * [신규] MACD 히스토그램 > 0 (실계산)
+ * [신규] 눌림목 셋업 (고점대비 3~20% 조정 + VCP/거래량마름 + MA60위 + RSI중립)
  */
 export function evaluateServerGate(
   quote: YahooQuoteExtended,
@@ -237,6 +241,14 @@ export function evaluateServerGate(
     score += w('macd_bull');
     details.push(`MACD +${quote.macdHistogram.toFixed(2)}`);
     conditionKeys.push('macd_bull');
+  }
+
+  // [신규] 눌림목 셋업: 고점 대비 조정 + 변동성 축소 + 장기 추세 유지
+  if (isPullbackSetup(quote)) {
+    const drawdown = quote.high60d > 0 ? (quote.high60d - quote.price) / quote.high60d * 100 : 0;
+    score += w('pullback');
+    details.push(`눌림목 (고점대비 -${drawdown.toFixed(1)}%)`);
+    conditionKeys.push('pullback');
   }
 
   // MTAS — 멀티타임프레임 정렬도 (타임프레임 불일치 역방향 진입 구조적 차단)

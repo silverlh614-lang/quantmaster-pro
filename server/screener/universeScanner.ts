@@ -41,6 +41,7 @@ import {
   TARGET_RATES,
   addBusinessDays,
   calcStage1Score,
+  isPullbackSetup,
   getLeadingSectors,
   callGeminiForScreening,
   buildScreeningPrompt,
@@ -103,12 +104,15 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
         (await fetchYahooQuote(`${code}.KS`).catch(() => null)) ??
         (await fetchYahooQuote(`${code}.KQ`).catch(() => null));
       if (!quote || quote.price < 3000) continue;
-      if (quote.changePercent < 0)                     continue; // 음봉 제외 (기존 +1% → 0%로 완화)
       if (quote.changePercent >= 8)                    continue; // 당일 +8% 이상 과열 제외
+      const kisPullback = isPullbackSetup(quote);
+      // 눌림목: changePercent -2%까지 허용, 일반: 0% 이상만
+      if (quote.changePercent < 0 && !kisPullback)     continue; // 음봉 제외 (눌림목은 통과)
+      if (quote.changePercent < -2)                    continue; // 눌림목이라도 -2% 이상 하락은 제외
       const kisVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
-      if (quote.volume < quote.avgVolume * 1.2 && !kisVCP) continue; // VCP면 거래량 마름 허용
+      if (quote.volume < quote.avgVolume * 1.2 && !kisVCP && !kisPullback) continue; // 눌림목/VCP면 거래량 마름 허용
       if (quote.per > 0 && quote.per > 60)             continue;
-      if (quote.ma20 > 0 && quote.price < quote.ma20)  continue;
+      if (quote.ma20 > 0 && quote.price < quote.ma20 && !kisPullback) continue; // 눌림목: MA20 아래 허용 (MA60 위는 isPullbackSetup에서 검증)
       if (quote.return5d > 15)                         continue; // 5일 +15% 초과 → 이미 급등
 
       seenCodes.add(code);
@@ -130,13 +134,16 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
     const quote = await fetchYahooQuote(stock.symbol).catch(() => null);
     if (!quote || quote.price <= 0) continue;
 
-    if (quote.changePercent < 0)                     continue; // 음봉 제외 (기존 +1% → 0%로 완화)
     if (quote.changePercent >= 8)                    continue; // 당일 +8% 이상 과열 제외
+    const yahooPullback = isPullbackSetup(quote);
+    // 눌림목: changePercent -2%까지 허용, 일반: 0% 이상만
+    if (quote.changePercent < 0 && !yahooPullback)   continue; // 음봉 제외 (눌림목은 통과)
+    if (quote.changePercent < -2)                    continue; // 눌림목이라도 -2% 이상 하락은 제외
     const yahooVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
-    if (quote.volume < quote.avgVolume * 1.2 && !yahooVCP) continue; // VCP면 거래량 마름 허용
+    if (quote.volume < quote.avgVolume * 1.2 && !yahooVCP && !yahooPullback) continue; // 눌림목/VCP면 거래량 마름 허용
     if (quote.price < 3000)                          continue;
     if (quote.per > 0 && quote.per > 60)             continue;
-    if (quote.ma20 > 0 && quote.price < quote.ma20)  continue;
+    if (quote.ma20 > 0 && quote.price < quote.ma20 && !yahooPullback) continue; // 눌림목: MA20 아래 허용
     if (quote.return5d > 15)                         continue; // 5일 +15% 초과 → 이미 급등
 
     seenCodes.add(stock.code);
