@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { MarketOverview } from '../services/stockService';
+import { SectionErrorBoundary } from './SectionErrorBoundary';
 import { SectorHeatmap } from './SectorHeatmap';
 import { AiMarketSummarySection } from './MarketDashboard/AiMarketSummarySection';
 import { TriageSummarySection } from './MarketDashboard/TriageSummarySection';
@@ -8,8 +9,6 @@ import { MarketPhaseSection } from './MarketDashboard/MarketPhaseSection';
 import { SectorRotationSection } from './MarketDashboard/SectorRotationSection';
 import { IndicesSection } from './MarketDashboard/IndicesSection';
 import { GlobalEtfSection } from './MarketDashboard/GlobalEtfSection';
-import { SentimentMacroSection } from './MarketDashboard/SentimentMacroSection';
-import { GlobalTrendChart } from './MarketDashboard/GlobalTrendChart';
 
 interface MarketDashboardProps {
   data: MarketOverview;
@@ -23,69 +22,78 @@ interface MarketDashboardProps {
 
 export const MarketDashboard: React.FC<MarketDashboardProps> = ({ data, triageSummary }) => {
   // Defensive: handle sectorRotation being a flat array (legacy/stale persisted data)
-  const topSectors = Array.isArray(data.sectorRotation)
-    ? (data.sectorRotation as any[]).map((s: any, i: number) => ({
-        name: s.sector || s.name || '',
-        rank: s.rank ?? i + 1,
-        strength: s.momentum ?? s.strength ?? 0,
-        isLeading: s.isLeading ?? (s.flow === 'INFLOW'),
-        sectorLeaderNewHigh: s.sectorLeaderNewHigh ?? false,
-      }))
-    : data.sectorRotation?.topSectors;
+  const topSectors = useMemo(() =>
+    Array.isArray(data.sectorRotation)
+      ? (data.sectorRotation as any[]).map((s: any, i: number) => ({
+          name: s.sector || s.name || '',
+          rank: s.rank ?? i + 1,
+          strength: s.momentum ?? s.strength ?? 0,
+          isLeading: s.isLeading ?? (s.flow === 'INFLOW'),
+          sectorLeaderNewHigh: s.sectorLeaderNewHigh ?? false,
+        }))
+      : data.sectorRotation?.topSectors,
+    [data.sectorRotation]
+  );
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-1000">
       {/* AI Market Summary */}
-      <AiMarketSummarySection summary={data.summary} lastUpdated={data.lastUpdated} />
+      <SectionErrorBoundary sectionName="AI 시장 요약">
+        <AiMarketSummarySection summary={data.summary} lastUpdated={data.lastUpdated} />
+      </SectionErrorBoundary>
 
       {/* 3-Gate Market Triage Summary */}
       {triageSummary && (
-        <TriageSummarySection
-          gate1={triageSummary.gate1}
-          gate2={triageSummary.gate2}
-          gate3={triageSummary.gate3}
-          total={triageSummary.total}
-        />
+        <SectionErrorBoundary sectionName="3-Gate 트리아지">
+          <TriageSummarySection
+            gate1={triageSummary.gate1}
+            gate2={triageSummary.gate2}
+            gate3={triageSummary.gate3}
+            total={triageSummary.total}
+          />
+        </SectionErrorBoundary>
       )}
 
       {/* AI Dynamic Weighting Strategy */}
-      <DynamicWeightsSection weights={data.dynamicWeights} />
+      <SectionErrorBoundary sectionName="동적 가중치">
+        <DynamicWeightsSection weights={data.dynamicWeights} />
+      </SectionErrorBoundary>
 
       {/* Sector Rotation Heatmap */}
       {topSectors && topSectors.length > 0 && (
-        <SectorHeatmap sectors={topSectors} />
+        <SectionErrorBoundary sectionName="섹터 히트맵">
+          <SectorHeatmap sectors={topSectors} />
+        </SectionErrorBoundary>
       )}
 
       {/* Market Phase & Quant Indicators */}
-      <MarketPhaseSection
-        marketPhase={data.marketPhase}
-        activeStrategy={data.activeStrategy}
-        euphoriaSignals={data.euphoriaSignals}
-        regimeShiftDetector={data.regimeShiftDetector}
-      />
+      <SectionErrorBoundary sectionName="시장 페이즈">
+        <MarketPhaseSection
+          marketPhase={data.marketPhase}
+          activeStrategy={data.activeStrategy}
+          euphoriaSignals={data.euphoriaSignals}
+          regimeShiftDetector={data.regimeShiftDetector}
+        />
+      </SectionErrorBoundary>
 
       {/* Sector Rotation */}
       {topSectors && topSectors.length > 0 && (
-        <SectorRotationSection topSectors={topSectors} />
+        <SectionErrorBoundary sectionName="섹터 로테이션">
+          <SectorRotationSection topSectors={topSectors} />
+        </SectionErrorBoundary>
       )}
 
       {/* Major Indices */}
-      <IndicesSection indices={data.indices ?? []} />
+      <SectionErrorBoundary sectionName="주요 지수">
+        <IndicesSection indices={data.indices ?? []} />
+      </SectionErrorBoundary>
 
       {/* Global ETF Monitoring */}
       {data.globalEtfMonitoring && data.globalEtfMonitoring.length > 0 && (
-        <GlobalEtfSection etfs={data.globalEtfMonitoring} />
+        <SectionErrorBoundary sectionName="글로벌 ETF">
+          <GlobalEtfSection etfs={data.globalEtfMonitoring} />
+        </SectionErrorBoundary>
       )}
-
-      {/* Sentiment & Macro */}
-      <SentimentMacroSection
-        snsSentiment={data.snsSentiment}
-        exchangeRates={data.exchangeRates}
-        commodities={data.commodities}
-      />
-
-      {/* Global Trend Chart */}
-      <GlobalTrendChart indices={data.indices} />
     </div>
   );
 };

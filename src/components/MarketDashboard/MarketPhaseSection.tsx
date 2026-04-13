@@ -22,7 +22,7 @@ interface MarketPhaseSectionProps {
   };
 }
 
-export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = ({
+export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(({
   marketPhase,
   activeStrategy,
   euphoriaSignals,
@@ -110,4 +110,4 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = ({
       </div>
     </div>
   </div>
-);
+));

@@ -21,7 +21,7 @@ interface DynamicWeightsSectionProps {
   weights?: Record<number, number>;
 }
 
-export const DynamicWeightsSection: React.FC<DynamicWeightsSectionProps> = ({ weights }) => {
+export const DynamicWeightsSection: React.FC<DynamicWeightsSectionProps> = React.memo(({ weights }) => {
   if (!weights || Object.keys(weights).length === 0) {
     debugWarn('DynamicWeightsSection: weights 데이터 없음');
     return null;
@@ -75,4 +75,4 @@ export const DynamicWeightsSection: React.FC<DynamicWeightsSectionProps> = ({ we
       </div>
     </div>
   );
-};
+});

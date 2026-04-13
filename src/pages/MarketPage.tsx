@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, Suspense, lazy } from 'react';
 import { motion } from 'motion/react';
 import { RefreshCw, Activity } from 'lucide-react';
 import { MarketDashboard } from '../components/MarketDashboard';
@@ -6,6 +6,7 @@ import { EventCalendar } from '../components/EventCalendar';
 import { MacroIntelligenceDashboard } from '../components/MacroIntelligenceDashboard';
 import { MHSHistoryChart } from '../components/MHSHistoryChart';
 import { IntelligenceRadar } from '../components/IntelligenceRadar';
+import { SectionErrorBoundary } from '../components/SectionErrorBoundary';
 import { useMarketStore, useGlobalIntelStore, useRecommendationStore } from '../stores';
 import { evaluateGate0 } from '../services/quant/gateEngine';
 import { PageHeader } from '../ui/page-header';
@@ -16,6 +17,13 @@ import { EmptyState } from '../ui/empty-state';
 import { Badge } from '../ui/badge';
 import { Stack } from '../layout/Stack';
 import { PageGrid } from '../layout/PageGrid';
+
+const LazySentimentMacroSection = lazy(() =>
+  import('../components/MarketDashboard/SentimentMacroSection').then(m => ({ default: m.SentimentMacroSection }))
+);
+const LazyGlobalTrendChart = lazy(() =>
+  import('../components/MarketDashboard/GlobalTrendChart').then(m => ({ default: m.GlobalTrendChart }))
+);
 
 interface MarketPageProps {
   onFetchMarketOverview: (force?: boolean) => Promise<void>;
@@ -90,10 +98,29 @@ export function MarketPage({ onFetchMarketOverview }: MarketPageProps) {
         {loadingMarket && !marketOverview ? (
           <LoadingState message="AI가 실시간 시장 데이터를 분석 중입니다..." />
         ) : marketOverview ? (
-          <PageGrid columns="2-1" gap="md">
-            <MarketDashboard data={marketOverview} triageSummary={triageSummary} />
-            <EventCalendar events={marketOverview?.upcomingEvents || marketContext?.upcomingEvents || []} />
-          </PageGrid>
+          <>
+            <PageGrid columns="2-1" gap="md">
+              <MarketDashboard data={marketOverview} triageSummary={triageSummary} />
+              <EventCalendar events={marketOverview?.upcomingEvents || marketContext?.upcomingEvents || []} />
+            </PageGrid>
+
+            {/* Distributed heavy sections - moved out of MarketDashboard for load balancing */}
+            <SectionErrorBoundary sectionName="센티먼트 & 매크로">
+              <Suspense fallback={<LoadingState message="센티먼트 데이터 로딩 중..." />}>
+                <LazySentimentMacroSection
+                  snsSentiment={marketOverview.snsSentiment}
+                  exchangeRates={marketOverview.exchangeRates}
+                  commodities={marketOverview.commodities}
+                />
+              </Suspense>
+            </SectionErrorBoundary>
+
+            <SectionErrorBoundary sectionName="글로벌 추이 차트">
+              <Suspense fallback={<LoadingState message="차트 로딩 중..." />}>
+                <LazyGlobalTrendChart indices={marketOverview.indices} />
+              </Suspense>
+            </SectionErrorBoundary>
+          </>
         ) : (
           <EmptyState
             icon={<Activity className="w-8 h-8" />}

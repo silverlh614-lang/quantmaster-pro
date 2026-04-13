@@ -107,7 +107,7 @@ const SnsSentimentCard = ({ sentiment }: { sentiment: SnsSentiment }) => (
   </div>
 );
 
-export const SentimentMacroSection: React.FC<SentimentMacroSectionProps> = ({
+export const SentimentMacroSection: React.FC<SentimentMacroSectionProps> = React.memo(({
   snsSentiment,
   exchangeRates,
   commodities,
@@ -146,4 +146,4 @@ export const SentimentMacroSection: React.FC<SentimentMacroSectionProps> = ({
       </div>
     </div>
   </div>
-);
+));

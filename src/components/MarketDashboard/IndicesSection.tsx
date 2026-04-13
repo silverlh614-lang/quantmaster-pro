@@ -63,7 +63,7 @@ const MarketCard = ({ item }: { item: MarketDataPoint }) => {
   );
 };
 
-export const IndicesSection: React.FC<IndicesSectionProps> = ({ indices }) => (
+export const IndicesSection: React.FC<IndicesSectionProps> = React.memo(({ indices }) => (
   <section>
     <div className="flex items-center gap-4 mb-8">
       <div className="w-2 h-8 bg-indigo-500 rounded-full" />
@@ -75,4 +75,4 @@ export const IndicesSection: React.FC<IndicesSectionProps> = ({ indices }) => (
       ))}
     </div>
   </section>
-);
+));

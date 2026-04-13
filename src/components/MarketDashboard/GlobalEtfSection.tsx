@@ -22,7 +22,7 @@ interface GlobalEtfSectionProps {
   etfs: GlobalEtfMonitoring[];
 }
 
-export const GlobalEtfSection: React.FC<GlobalEtfSectionProps> = ({ etfs }) => (
+export const GlobalEtfSection: React.FC<GlobalEtfSectionProps> = React.memo(({ etfs }) => (
   <section>
     <div className="flex items-center gap-4 mb-8">
       <Globe className="w-6 h-6 text-indigo-400" />
@@ -68,4 +68,4 @@ export const GlobalEtfSection: React.FC<GlobalEtfSectionProps> = ({ etfs }) => (
       })}
     </div>
   </section>
-);
+));
