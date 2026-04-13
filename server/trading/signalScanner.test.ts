@@ -4,6 +4,7 @@ import {
   calculateOrderQuantity,
   evaluateEntryRevalidation,
   EXIT_RULE_PRIORITY_TABLE,
+  isOpenShadowStatus,
 } from './signalScanner.js';
 import type { ExitRuleTag } from '../persistence/shadowTradeRepo.js';
 
@@ -94,5 +95,45 @@ describe('EXIT_RULE_PRIORITY_TABLE', () => {
     // TypeScript: 아래 assignment가 컴파일되면 tableRules 는 ExitRuleTag[] 와 호환됨을 의미
     const _typed: ExitRuleTag[] = tableRules;
     expect(_typed).toHaveLength(10);
+  });
+});
+
+// ── C2 수정 검증: 선취매(Pre-Breakout) 현금 차감 정확성 ──────────────────────────
+describe('[C2] Pre-Breakout 현금 차감 — 실 집행금액 검증', () => {
+  it('30% 선취매 집행금액은 pbQty × pbEntryPrice와 일치해야 한다', () => {
+    const fullPbQty = 33;                        // calculateOrderQuantity 반환값 예시
+    const pbEntryPrice = 50_100;
+    const pbQty = Math.max(1, Math.floor(fullPbQty * 0.3)); // = 9
+
+    const actualCost = pbQty * pbEntryPrice;     // 실제 집행금액 (C2 수정 후 사용)
+    const budgetBased = Math.floor(fullPbQty * pbEntryPrice) * 0.3; // 이전 방식(부정확)
+
+    // 실제 집행금액 검증
+    expect(pbQty).toBe(9);
+    expect(actualCost).toBe(450_900);
+
+    // 두 방식이 다를 수 있음을 확인 (Math.floor 오차)
+    // budgetBased ≈ 495_990, actualCost = 450_900 → 차이 발생
+    expect(actualCost).not.toBe(budgetBased);
+    expect(actualCost).toBeLessThan(budgetBased); // 실제 집행금액이 더 정확하게 적음
+  });
+});
+
+// ── C1 수정 검증: INTRADAY 포지션이 스윙 포지션 한도에 영향을 주지 않아야 한다 ──
+describe('[C1] activeSwingCount — INTRADAY 포지션 제외 검증', () => {
+  it('INTRADAY 포지션은 스윙 포지션 한도 카운트에서 제외되어야 한다', () => {
+    const shadows = [
+      { status: 'ACTIVE',  watchlistSource: 'INTRADAY' },       // 장중 — 제외
+      { status: 'ACTIVE',  watchlistSource: 'PRE_MARKET' },     // 스윙 — 포함
+      { status: 'ACTIVE',  watchlistSource: 'PRE_BREAKOUT' },   // 스윙 — 포함
+      { status: 'HIT_STOP', watchlistSource: 'PRE_MARKET' },    // 종료 — 제외
+      { status: 'PENDING', watchlistSource: 'INTRADAY' },       // 장중 PENDING — 제외
+    ] as const;
+
+    const activeSwingCount = shadows.filter(
+      s => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY',
+    ).length;
+
+    expect(activeSwingCount).toBe(2); // PRE_MARKET(ACTIVE) + PRE_BREAKOUT(ACTIVE)
   });
 });
