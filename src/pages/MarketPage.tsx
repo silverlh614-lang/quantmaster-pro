@@ -130,63 +130,69 @@ export function MarketPage({ onFetchMarketOverview }: MarketPageProps) {
         )}
 
         {/* Macro Intelligence */}
-        <Section
-          title="거시 인텔리전스"
-          subtitle="Gate 0 · Macro Intelligence Dashboard"
-          actions={
-            macroEnv && gate0Result ? (
-              <Badge variant={gate0Result.buyingHalted ? 'danger' : gate0Result.mhsLevel === 'HIGH' ? 'success' : 'warning'}>
-                MHS {gate0Result.macroHealthScore} · {gate0Result.mhsLevel === 'HIGH' ? '정상 매수' : gate0Result.mhsLevel === 'MEDIUM' ? 'Kelly 축소' : '매수 중단'}
-              </Badge>
-            ) : !macroEnv ? (
-              <span className="text-micro text-amber-400/70 animate-pulse">데이터 수집 중...</span>
-            ) : null
-          }
-        >
-          <MacroIntelligenceDashboard
-            gate0Result={gate0Result}
-            currentRoeType={currentRoeType}
-            externalRegime={extendedRegimeData ?? economicRegimeData ?? undefined}
-            marketOverview={marketOverview ? {
-              sectorRotation: (marketOverview.sectorRotation?.topSectors || []).map((s: any) => ({
-                sector: s.sector || s.name || '',
-                momentum: s.strength ?? s.momentum ?? 0,
-                flow: s.flow || 'NEUTRAL',
-              })),
-              globalEtfMonitoring: (marketOverview.globalEtfMonitoring || []).map((e: any) => ({
-                name: e.name || e.ticker || '',
-                flow: e.flow || 'NEUTRAL',
-                change: e.priceChange ?? e.change ?? 0,
-              })),
-              exchangeRates: (marketOverview.exchangeRates || []).map((r: any) => ({
-                name: r.name || r.currency || '',
-                value: r.value ?? r.rate ?? 0,
-                change: r.change ?? 0,
-              })),
-            } : undefined}
-            externalSupplyChain={supplyChainData ?? undefined}
-            externalSectorOrders={sectorOrderData ?? undefined}
-            externalFsi={financialStressData ?? undefined}
-            externalFomcSentiment={fomcSentimentData ?? undefined}
-          />
-        </Section>
+        <SectionErrorBoundary sectionName="거시 인텔리전스">
+          <Section
+            title="거시 인텔리전스"
+            subtitle="Gate 0 · Macro Intelligence Dashboard"
+            actions={
+              macroEnv && gate0Result ? (
+                <Badge variant={gate0Result.buyingHalted ? 'danger' : gate0Result.mhsLevel === 'HIGH' ? 'success' : 'warning'}>
+                  MHS {gate0Result.macroHealthScore} · {gate0Result.mhsLevel === 'HIGH' ? '정상 매수' : gate0Result.mhsLevel === 'MEDIUM' ? 'Kelly 축소' : '매수 중단'}
+                </Badge>
+              ) : !macroEnv ? (
+                <span className="text-micro text-amber-400/70 animate-pulse">데이터 수집 중...</span>
+              ) : null
+            }
+          >
+            <MacroIntelligenceDashboard
+              gate0Result={gate0Result}
+              currentRoeType={currentRoeType}
+              externalRegime={extendedRegimeData ?? economicRegimeData ?? undefined}
+              marketOverview={marketOverview ? {
+                sectorRotation: (marketOverview.sectorRotation?.topSectors || []).map((s: any) => ({
+                  sector: s.sector || s.name || '',
+                  momentum: s.strength ?? s.momentum ?? 0,
+                  flow: s.flow || 'NEUTRAL',
+                })),
+                globalEtfMonitoring: (marketOverview.globalEtfMonitoring || []).map((e: any) => ({
+                  name: e.name || e.ticker || '',
+                  flow: e.flow || 'NEUTRAL',
+                  change: e.priceChange ?? e.change ?? 0,
+                })),
+                exchangeRates: (marketOverview.exchangeRates || []).map((r: any) => ({
+                  name: r.name || r.currency || '',
+                  value: r.value ?? r.rate ?? 0,
+                  change: r.change ?? 0,
+                })),
+              } : undefined}
+              externalSupplyChain={supplyChainData ?? undefined}
+              externalSectorOrders={sectorOrderData ?? undefined}
+              externalFsi={financialStressData ?? undefined}
+              externalFomcSentiment={fomcSentimentData ?? undefined}
+            />
+          </Section>
+        </SectionErrorBoundary>
 
         {/* MHS History */}
-        <MHSHistoryChart records={mhsHistory} height={280} />
+        <SectionErrorBoundary sectionName="MHS 히스토리">
+          <MHSHistoryChart records={mhsHistory} height={280} />
+        </SectionErrorBoundary>
 
         {/* Intelligence Radar */}
-        <IntelligenceRadar
-          gate0={gate0Result}
-          smartMoney={smartMoneyData}
-          exportMomentum={exportMomentumData}
-          geoRisk={geoRiskData}
-          creditSpread={creditSpreadData}
-          correlation={globalCorrelation}
-          supplyChain={supplyChainData}
-          sectorOrders={sectorOrderData}
-          fsi={financialStressData}
-          fomcSentiment={fomcSentimentData}
-        />
+        <SectionErrorBoundary sectionName="글로벌 인텔리전스 레이더">
+          <IntelligenceRadar
+            gate0={gate0Result}
+            smartMoney={smartMoneyData}
+            exportMomentum={exportMomentumData}
+            geoRisk={geoRiskData}
+            creditSpread={creditSpreadData}
+            correlation={globalCorrelation}
+            supplyChain={supplyChainData}
+            sectorOrders={sectorOrderData}
+            fsi={financialStressData}
+            fomcSentiment={fomcSentimentData}
+          />
+        </SectionErrorBoundary>
       </Stack>
     </motion.div>
   );

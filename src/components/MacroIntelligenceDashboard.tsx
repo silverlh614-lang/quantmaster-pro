@@ -143,7 +143,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
 
   // Compute feedback loop from closed trades
   const computedFeedbackLoop = useMemo(() => {
-    const closed = tradeRecords.filter(t => t.status === 'CLOSED');
+    const closed = (tradeRecords ?? []).filter(t => t.status === 'CLOSED');
     const weights = getEvolutionWeightsFromPerformance();
     return evaluateFeedbackLoop(closed, weights);
   }, [tradeRecords]);
@@ -223,7 +223,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   const handleBehavioralMirrorInputChange = useCallback(
     (input: typeof behavioralMirrorInput) => {
       setBehavioralMirrorInput(input);
-      const closed = tradeRecords.filter(t => t.status === 'CLOSED');
+      const closed = (tradeRecords ?? []).filter(t => t.status === 'CLOSED');
       setBehavioralMirrorResult(evaluateBehavioralMirror(closed, input));
     },
     [setBehavioralMirrorInput, setBehavioralMirrorResult, tradeRecords],
@@ -252,7 +252,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
 
   // Recompute behavioral mirror whenever trade records change
   React.useEffect(() => {
-    const closed = tradeRecords.filter(t => t.status === 'CLOSED');
+    const closed = (tradeRecords ?? []).filter(t => t.status === 'CLOSED');
     setBehavioralMirrorResult(evaluateBehavioralMirror(closed, behavioralMirrorInput));
   }, [tradeRecords, behavioralMirrorInput, setBehavioralMirrorResult]);
 
