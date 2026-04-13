@@ -103,10 +103,13 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
         (await fetchYahooQuote(`${code}.KS`).catch(() => null)) ??
         (await fetchYahooQuote(`${code}.KQ`).catch(() => null));
       if (!quote || quote.price < 3000) continue;
-      if (quote.changePercent < 1.0)                   continue;
-      if (quote.volume < quote.avgVolume * 1.2)        continue;
+      if (quote.changePercent < 0)                     continue; // 음봉 제외 (기존 +1% → 0%로 완화)
+      if (quote.changePercent >= 8)                    continue; // 당일 +8% 이상 과열 제외
+      const kisVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
+      if (quote.volume < quote.avgVolume * 1.2 && !kisVCP) continue; // VCP면 거래량 마름 허용
       if (quote.per > 0 && quote.per > 60)             continue;
       if (quote.ma20 > 0 && quote.price < quote.ma20)  continue;
+      if (quote.return5d > 15)                         continue; // 5일 +15% 초과 → 이미 급등
 
       seenCodes.add(code);
       candidates.push({
@@ -127,11 +130,14 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
     const quote = await fetchYahooQuote(stock.symbol).catch(() => null);
     if (!quote || quote.price <= 0) continue;
 
-    if (quote.changePercent < 1.0)                   continue;
-    if (quote.volume < quote.avgVolume * 1.2)        continue;
+    if (quote.changePercent < 0)                     continue; // 음봉 제외 (기존 +1% → 0%로 완화)
+    if (quote.changePercent >= 8)                    continue; // 당일 +8% 이상 과열 제외
+    const yahooVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
+    if (quote.volume < quote.avgVolume * 1.2 && !yahooVCP) continue; // VCP면 거래량 마름 허용
     if (quote.price < 3000)                          continue;
     if (quote.per > 0 && quote.per > 60)             continue;
     if (quote.ma20 > 0 && quote.price < quote.ma20)  continue;
+    if (quote.return5d > 15)                         continue; // 5일 +15% 초과 → 이미 급등
 
     seenCodes.add(stock.code);
     candidates.push({

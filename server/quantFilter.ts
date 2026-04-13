@@ -149,10 +149,16 @@ export function evaluateServerGate(
   const w = (key: ConditionKey): number =>
     Math.max(0.1, Math.min(2.0, weights[key] ?? 1.0));
 
-  // 조건 2: 모멘텀 (+2% 이상)
+  // 조건 2: 모멘텀 — 당일 상승률 또는 RSI 가속으로 충족 가능
+  const rsiAccel = (quote.rsi14 - quote.rsi5dAgo) >= 3;
   if (quote.changePercent >= 2) {
     score += w('momentum');
     details.push(`모멘텀 +${quote.changePercent.toFixed(1)}%`);
+    conditionKeys.push('momentum');
+  } else if (quote.changePercent >= 0.5 && rsiAccel && quote.return5d < 8) {
+    // 당일 소폭 상승이라도 RSI 가속 + 5일 과급등 아니면 모멘텀 인정
+    score += w('momentum') * 0.7;
+    details.push(`모멘텀(RSI가속) +${quote.changePercent.toFixed(1)}% RSI${quote.rsi14.toFixed(0)}`);
     conditionKeys.push('momentum');
   }
 

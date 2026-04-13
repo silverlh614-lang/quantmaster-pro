@@ -149,11 +149,14 @@ export function addBusinessDays(date: Date, days: number): Date {
 
 export function calcStage1Score(q: YahooQuoteExtended): number {
   let score = 0;
-  score += Math.min(q.changePercent / 5, 2);                             // 상승률 (최대 2점)
+  score += Math.min(q.changePercent / 10, 1);                            // 상승률 비중 축소 (최대 1점, 기존 2점)
   score += Math.min(q.volume / Math.max(q.avgVolume, 1) - 1, 2);        // 거래량 배수 (최대 2점)
   score += q.price >= q.ma5 ? 0.5 : 0;                                  // 5일선 위
   score += q.price >= q.high20d * 0.98 ? 1 : 0;                         // 20일 신고가 근접
   score += q.atr > 0 && q.atr20avg > 0 && q.atr < q.atr20avg * 0.7 ? 1 : 0; // VCP
+  score += q.rsi14 >= 40 && q.rsi14 <= 65 ? 1 : 0;                     // RSI 건강구간 (과열 제외)
+  score += (q.rsi14 - q.rsi5dAgo) >= 3 ? 1 : 0;                        // RSI 가속 (추세 초기 신호)
+  score += q.return5d < 8 ? 0.5 : 0;                                    // 5일 과급등 아닌 종목 우대
   return score;
 }
 
