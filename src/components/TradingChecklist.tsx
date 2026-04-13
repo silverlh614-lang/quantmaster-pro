@@ -54,34 +54,10 @@ const STEPS: Step[] = [
     label: '소액 주문 테스트 — 삼성전자 1주 시장가 매수',
     description: 'KIS order-cash (VTS) → 체결 주문번호 수신',
     run: async () => {
-      const priceRes = await fetch('/api/kis/price?code=005930');
-      const priceData = await priceRes.json();
-      const currentPrice = priceData.output?.stck_prpr ?? '0';
-
-      const res = await fetch('/api/kis/proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          path: '/uapi/domestic-stock/v1/trading/order-cash',
-          method: 'POST',
-          headers: { tr_id: 'VTTC0802U' },
-          body: {
-            CANO: import.meta.env.VITE_KIS_ACCOUNT_NO ?? '',
-            ACNT_PRDT_CD: import.meta.env.VITE_KIS_ACCOUNT_PROD ?? '01',
-            PDNO: '005930',
-            ORD_DVSN: '01',       // 시장가
-            ORD_QTY: '1',
-            ORD_UNPR: '0',
-            SLL_BUY_DVSN_CD: '02',
-            CTAC_TLNO: '',
-            MGCO_APTM_ODNO: '',
-            ORD_SVR_DVSN_CD: '0',
-          },
-        }),
-      });
+      const res = await fetch('/api/kis/order/test', { method: 'POST' });
       const data = await res.json();
-      if (data.rt_cd !== '0') throw new Error(data.msg1 ?? '주문 실패');
-      return `체결 완료 — 주문번호 ${data.output?.ORD_NO ?? '(수신됨)'}  /  이론가 ${Number(currentPrice).toLocaleString()}원`;
+      if (data.rt_cd !== '0') throw new Error(data.msg1 ?? data.error ?? '주문 실패');
+      return `체결 완료 — 주문번호 ${data.output?.ORD_NO ?? '(수신됨)'}  /  이론가 ${Number(data.currentPrice).toLocaleString()}원`;
     },
   },
   {
@@ -89,34 +65,9 @@ const STEPS: Step[] = [
     label: '슬리피지 계산',
     description: '위 주문의 체결가 vs 이론가 차이 자동 계산',
     run: async () => {
-      // 체결 내역 조회
-      const res = await fetch('/api/kis/proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          path: '/uapi/domestic-stock/v1/trading/inquire-daily-ccld',
-          method: 'GET',
-          headers: { tr_id: 'VTTC8001R' },
-          params: {
-            CANO: import.meta.env.VITE_KIS_ACCOUNT_NO ?? '',
-            ACNT_PRDT_CD: import.meta.env.VITE_KIS_ACCOUNT_PROD ?? '01',
-            INQR_STRT_DT: new Date().toISOString().split('T')[0].replace(/-/g, ''),
-            INQR_END_DT:  new Date().toISOString().split('T')[0].replace(/-/g, ''),
-            SLL_BUY_DVSN_CD: '00',
-            INQR_DVSN: '00',
-            PDNO: '005930',
-            CCLD_DVSN: '00',
-            ORD_GNO_BRNO: '',
-            ODNO: '',
-            INQR_DVSN_3: '00',
-            INQR_DVSN_1: '',
-            CTX_AREA_FK100: '',
-            CTX_AREA_NK100: '',
-          },
-        }),
-      });
-      const data = await res.json();
-      const fill = data.output1?.[0];
+      const res = await fetch('/api/kis/fills/today?code=005930');
+      const fills = await res.json();
+      const fill = Array.isArray(fills) ? fills[0] : null;
       if (!fill) return '체결 내역 없음 (장 외 시간 또는 조회 지연)';
       const exec = Number(fill.avg_prvs ?? fill.ord_unpr ?? 0);
       const theory = Number(fill.ord_unpr ?? 0);

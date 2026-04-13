@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Activity } from 'lucide-react';
+import { Activity, Eye, Briefcase } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { PageHeader } from '../ui/page-header';
 import { KpiStrip } from '../ui/kpi-strip';
@@ -12,16 +12,47 @@ import { PageGrid } from '../layout/PageGrid';
 import { TradingChecklist } from '../components/TradingChecklist';
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
 
+interface WatchlistEntry {
+  code: string;
+  name: string;
+  entryPrice: number;
+  stopLoss: number;
+  targetPrice: number;
+  addedAt: string;
+  gateScore?: number;
+  addedBy: 'AUTO' | 'MANUAL';
+  isFocus?: boolean;
+  rrr?: number;
+  sector?: string;
+}
+
+interface KisHolding {
+  pdno: string;       // 종목코드
+  prdt_name: string;  // 종목명
+  hldg_qty: string;   // 보유수량
+  pchs_avg_pric: string; // 매입평균가격
+  prpr: string;          // 현재가
+  evlu_pfls_rt: string;  // 평가손익율
+  evlu_pfls_amt: string; // 평가손익금액
+}
+
 export function AutoTradePage() {
   const { shadowTrades, winRate, avgReturn } = useShadowTradeStore();
 
   const [serverShadowTrades, setServerShadowTrades] = useState<any[]>([]);
   const [serverRecStats, setServerRecStats] = useState<{ month?: string; winRate?: number; avgReturn?: number; strongBuyWinRate?: number; total?: number } | null>(null);
+  const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([]);
+  const [holdings, setHoldings] = useState<KisHolding[]>([]);
+  const [portfolioTab, setPortfolioTab] = useState<'watchlist' | 'holdings'>('watchlist');
 
   useEffect(() => {
     const fetchServerData = () => {
       fetch('/api/auto-trade/shadow-trades').then(r => r.json()).then(setServerShadowTrades).catch((err) => console.error('[ERROR] Shadow trades 조회 실패:', err));
       fetch('/api/auto-trade/recommendations/stats').then(r => r.json()).then(setServerRecStats).catch((err) => console.error('[ERROR] Recommendation stats 조회 실패:', err));
+      fetch('/api/auto-trade/watchlist').then(r => r.json()).then(setWatchlist).catch((err) => console.error('[ERROR] 워치리스트 조회 실패:', err));
+      fetch('/api/kis/holdings').then(r => r.json()).then((data) => {
+        if (Array.isArray(data)) setHoldings(data);
+      }).catch((err) => console.error('[ERROR] 보유종목 조회 실패:', err));
     };
     fetchServerData();
     const interval = setInterval(fetchServerData, 5 * 60 * 1000);
@@ -48,6 +79,97 @@ export function AutoTradePage() {
           { label: '적중률', value: `${winRate()}%`, trend: winRate() >= 50 ? 'up' : 'down' },
           { label: '평균수익', value: `${avgReturn().toFixed(2)}%`, trend: avgReturn() >= 0 ? 'up' : 'down' },
         ]} />
+
+        {/* Watchlist & Holdings Panel */}
+        <Card padding="md">
+          {/* Tab Header */}
+          <div className="flex items-center gap-4 mb-4 border-b border-theme-border/40 pb-3">
+            <button
+              onClick={() => setPortfolioTab('watchlist')}
+              className={cn(
+                'flex items-center gap-1.5 text-sm font-bold pb-1 border-b-2 transition-colors',
+                portfolioTab === 'watchlist'
+                  ? 'border-violet-400 text-violet-300'
+                  : 'border-transparent text-theme-text-muted hover:text-theme-text'
+              )}
+            >
+              <Eye className="w-4 h-4" />
+              워치리스트 <span className="text-xs opacity-70">({watchlist.length})</span>
+            </button>
+            <button
+              onClick={() => setPortfolioTab('holdings')}
+              className={cn(
+                'flex items-center gap-1.5 text-sm font-bold pb-1 border-b-2 transition-colors',
+                portfolioTab === 'holdings'
+                  ? 'border-amber-400 text-amber-300'
+                  : 'border-transparent text-theme-text-muted hover:text-theme-text'
+              )}
+            >
+              <Briefcase className="w-4 h-4" />
+              보유종목 <span className="text-xs opacity-70">({holdings.length})</span>
+            </button>
+          </div>
+
+          {portfolioTab === 'watchlist' && (
+            <>
+              {watchlist.length === 0 ? (
+                <p className="text-micro text-center py-6">워치리스트가 비어 있습니다.</p>
+              ) : (
+                <div className="space-y-2">
+                  {watchlist.map((w) => (
+                    <div key={w.code} className="flex items-center justify-between gap-3 py-2 border-b border-theme-border/20 last:border-0">
+                      <div className="min-w-0">
+                        <span className="text-sm font-bold text-theme-text truncate">{w.name}</span>
+                        <span className="text-micro ml-2">{w.code}</span>
+                        {w.isFocus && (
+                          <Badge variant="violet" size="sm" className="ml-2">FOCUS</Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs shrink-0">
+                        {w.gateScore != null && (
+                          <span className="text-theme-text-muted">G{w.gateScore}</span>
+                        )}
+                        <span className="text-theme-text-muted">{w.entryPrice.toLocaleString()}</span>
+                        <Badge variant={w.addedBy === 'AUTO' ? 'success' : 'default'} size="sm">
+                          {w.addedBy}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {portfolioTab === 'holdings' && (
+            <>
+              {holdings.length === 0 ? (
+                <p className="text-micro text-center py-6">보유 중인 종목이 없습니다.</p>
+              ) : (
+                <div className="space-y-2">
+                  {holdings.map((h) => {
+                    const pfRate = parseFloat(h.evlu_pfls_rt ?? '0');
+                    return (
+                      <div key={h.pdno} className="flex items-center justify-between gap-3 py-2 border-b border-theme-border/20 last:border-0">
+                        <div className="min-w-0">
+                          <span className="text-sm font-bold text-theme-text truncate">{h.prdt_name}</span>
+                          <span className="text-micro ml-2">{h.pdno}</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs shrink-0">
+                          <span className="text-theme-text-muted">{Number(h.hldg_qty).toLocaleString()}주</span>
+                          <span className="text-theme-text-muted">평단 {Number(h.pchs_avg_pric).toLocaleString()}</span>
+                          <span className={cn('font-bold', pfRate >= 0 ? 'text-green-400' : 'text-red-400')}>
+                            {pfRate >= 0 ? '+' : ''}{pfRate.toFixed(2)}%
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </Card>
 
         {/* Server Learning Stats */}
         {serverRecStats && serverRecStats.total != null && serverRecStats.total > 0 && (
