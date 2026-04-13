@@ -56,6 +56,11 @@ export { evaluateEarlyBullEntry, classifyExtendedRegime, deriveExtendedRegime } 
 export { detectROETransition } from './roeEngine';
 export { detectContradictions } from './contradictionDetector';
 export { evaluateTimingSync, tradingDaysBetween } from './timingSyncEngine';
+export {
+  computeHybridZone, assignPercentileZones, isStrongBuyQualified, normalizeScore,
+  FINAL_SCORE_MAX,
+} from './percentileClassifier';
+export type { PercentileZone, ScoredEntry, ZonedEntry, StrongBuyQualificationCriteria } from './percentileClassifier';
 
 // ── 서브모듈 직접 import (evaluateStock 내부에서 사용) ───────────────────────
 import { evaluateGate0, evaluateMAPCResult } from './macroEngine';
@@ -65,6 +70,7 @@ import { evaluateEarlyBullEntry, classifyExtendedRegime, deriveExtendedRegime } 
 import { detectROETransition } from './roeEngine';
 import { detectContradictions } from './contradictionDetector';
 import { evaluateTimingSync } from './timingSyncEngine';
+import { normalizeScore } from './percentileClassifier';
 
 // ─── 아이디어 9: evaluateStock 입력 유효성 검증 스키마 ────────────────────────────
 
@@ -466,6 +472,23 @@ export function evaluateStock(
   // 역발상 카운터사이클 Gate 3 보너스 (침체기 방산, 달러강세 헬스케어, VIX 공포극점)
   finalScore += contrarianGate3Bonus;
 
+  // ── 하락 추세 / 고변동성 패널티 (점수를 날카롭게 차별화) ─────────────────────
+  // 하락 추세: 기술적 정배열(10) + 모멘텀(2) 모두 낮은데 레짐이 하락
+  const isDowntrend = regime.type === '하락' &&
+    (stockData[10] ?? 0) < 4 && (stockData[2] ?? 0) < 4;
+  if (isDowntrend) {
+    finalScore -= 20;
+  }
+
+  // 고변동성: vKospi 기반 — macroEnv?.vkospi > VKOSPI.ELEVATED(25)
+  const isHighVolatility = (macroEnv?.vkospi ?? 0) > VKOSPI.ELEVATED;
+  if (isHighVolatility) {
+    finalScore -= 15;
+  }
+
+  // finalScore 음수 방지 (최소 0)
+  finalScore = Math.max(0, finalScore);
+
   // 2순위: 대장주 신고가 경신 시 트리거 강화
   const lastTrigger = (stockData[25] >= 8 && stockData[27] >= 8) ||
     (sectorRotation.sectorLeaderNewHigh && stockData[2] >= 8);
@@ -550,8 +573,13 @@ export function evaluateStock(
       )
     : undefined;
 
-  // 최종 신호 판정 (4단계 개편 + 상승 초기 선취매)
+  // 최종 신호 판정 (4단계 개편 + 상승 초기 선취매 + 퍼센타일 하이브리드)
   const isBullRegime = extRegimeAction.gateAdjustment.gate2Required < 9;
+  const normalizedFinalScore = normalizeScore(finalScore);
+  // volumeTrend: advancedContext.volumeTrend (INCREASING/STABLE/DECREASING)
+  const volumeIncreasing = advancedContext?.volumeTrend === 'INCREASING';
+  // noDrawdown: 기술적 정배열(10) 점수 ≥ 5 이면 drawdown 없음으로 간주
+  const noDrawdown = (stockData[10] ?? 0) >= 5;
   const signalVerdict = computeSignalVerdict(
     gate1Passed, gate2Passed, gate3Passed,
     recommendation, rrr,
@@ -559,6 +587,9 @@ export function evaluateStock(
     catalystAnalysis, enemyEnhanced, cycleAnalysis, momentumAcc, dataReliability,
     earlyBullEntryResult?.triggered ?? false,
     isBullRegime,
+    undefined, // percentile: 배치 맥락에서 제공 시 외부에서 주입, 개별 평가 시 undefined
+    normalizedFinalScore,
+    { volumeIncreasing, noDrawdown, regime: regime.type },
   );
 
   // 신호 등급에 따른 포지션 사이즈 최종 조정

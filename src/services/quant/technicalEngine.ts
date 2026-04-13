@@ -8,6 +8,7 @@ import {
   CreditSpreadData, FinancialStressIndex, MultiTimeframe, EvaluationResult,
 } from '../../types/quant';
 import { REAL_DATA_CONDITIONS, AI_ESTIMATE_CONDITIONS } from './evolutionEngine';
+import { computeHybridZone, isStrongBuyQualified, normalizeScore } from './percentileClassifier';
 
 // ─── 판단엔진 고도화 함수 ──────────────────────────────────────────────────────
 
@@ -370,10 +371,12 @@ export function computeDataReliability(stockData: Record<ConditionId, number>): 
  * ⑦ 모멘텀 가속 확인
  */
 /**
- * 최종 신호 판정 — 4단계 체계
+ * 최종 신호 판정 — 4단계 체계 + 퍼센타일 기반 하이브리드 분류
  *
- * CONFIRMED_STRONG_BUY : 7/7 고급 조건 + 데이터 신뢰도 정상 → Kelly 100%, 자동매매 허용
- * BUY                  : Gate 1~3 전부 통과 + RRR ≥ 2.0 → Kelly 50%, 분할 1차 진입
+ * CONFIRMED_STRONG_BUY : 7/7 고급 조건 + 데이터 신뢰도 정상 + 6개 Strong Buy 조건 충족
+ *                         + (퍼센타일 제공 시) 상위 10% AND 정규화점수≥85 → Kelly 100%
+ * BUY                  : Gate 1~3 전부 통과 + RRR ≥ 2.0
+ *                         + (퍼센타일 제공 시) 상위 30% AND 정규화점수≥75 → Kelly 50%
  *                        (또는 상승 초기 선취매 조건 3개 충족 → Gate 3 미달이어도 BUY 50%)
  * WATCH                : Gate 1~2 통과, Gate 3 미달 → Kelly 0%, 알림 대기
  * HOLD                 : Gate 1만 통과 또는 전부 미달 → Kelly 0%, 관망
@@ -395,6 +398,16 @@ export function computeSignalVerdict(
   dataReliability: DataReliability,
   earlyBullEntryOk: boolean = false,   // Step 3: 상승 초기 선취매 조건 충족 여부
   isBullRegime: boolean = false,        // Step 1: Bull Regime 완화 적용 중 여부
+  /** 배치 퍼센타일 (0=최상위 ~ 1=최하위). 제공 시 하이브리드 등급 보정에 사용. */
+  percentile?: number,
+  /** 정규화 점수(0~100). 배치 퍼센타일과 함께 제공 시 하이브리드 판정 활성화. */
+  normalizedFinalScore?: number,
+  /** Strong Buy 6개 조건 충족 여부 (isStrongBuyQualified 입력) */
+  strongBuyQualCriteria?: {
+    volumeIncreasing: boolean;
+    noDrawdown: boolean;
+    regime: string;
+  },
 ): SignalVerdict {
   const passed: string[] = [];
   const failed: string[] = [];
@@ -438,16 +451,55 @@ export function computeSignalVerdict(
   let positionRule: string;
   let isEarlyBullEntry = false;
 
+  // ── 퍼센타일 하이브리드 등급 판정 (배치 퍼센타일 제공 시 추가 검증) ──────────
+  const hybridZone =
+    percentile !== undefined && normalizedFinalScore !== undefined
+      ? computeHybridZone(normalizedFinalScore, percentile)
+      : null;
+
+  // Strong Buy 6개 조건 충족 여부 (isStrongBuyQualified)
+  const strongBuyOk =
+    strongBuyQualCriteria !== undefined
+      ? isStrongBuyQualified({
+          gatePassed: gate1Passed && gate2Passed && gate3Passed,
+          rrr,
+          confluenceBullishAxes: confluence.bullishCount,
+          regime: strongBuyQualCriteria.regime,
+          volumeIncreasing: strongBuyQualCriteria.volumeIncreasing,
+          noDrawdown: strongBuyQualCriteria.noDrawdown,
+        })
+      : true; // criteria 미제공 시 기존 동작 유지
+
   if (passed.length === 7 && !dataReliability.degraded) {
     // ─ CONFIRMED STRONG BUY: 7/7 고급 조건 전부 충족
-    grade = 'CONFIRMED_STRONG_BUY';
-    kellyPct = 100;
-    positionRule = '풀 포지션, 자동매매 허용';
+    // 퍼센타일 제공 시 상위 10% + 정규화점수 85+ + Strong Buy 6개 조건 필수
+    const percentileOk = hybridZone === null || (hybridZone === 'STRONG_BUY' && strongBuyOk);
+    if (percentileOk) {
+      grade = 'CONFIRMED_STRONG_BUY';
+      kellyPct = 100;
+      positionRule = '풀 포지션, 자동매매 허용';
+      if (hybridZone === 'STRONG_BUY') positionRule += ` (퍼센타일 상위 10% / 정규화점수 ${normalizedFinalScore?.toFixed(1)})`;
+    } else {
+      // 7/7 달성했으나 퍼센타일 또는 Strong Buy 6개 조건 미충족 → BUY로 강등
+      grade = 'BUY';
+      kellyPct = 50;
+      positionRule = 'Gate 1~3 통과 + RRR≥2.0 — 분할 1차 진입 (퍼센타일 미달로 강등)';
+    }
   } else if (gate1Passed && gate2Passed && gate3Passed && rrr >= 2.0) {
     // ─ BUY: Gate 1~3 전부 통과 + RRR ≥ 2.0 → Kelly 50% 분할 1차 진입
-    grade = 'BUY';
-    kellyPct = 50;
-    positionRule = 'Gate 1~3 통과 + RRR≥2.0 — 분할 1차 진입';
+    // 퍼센타일 제공 시 상위 30% + 정규화점수 75+ 이면 BUY, 그 외 WATCH로 강등
+    const percentileBuyOk = hybridZone === null || hybridZone === 'STRONG_BUY' || hybridZone === 'BUY';
+    if (percentileBuyOk) {
+      grade = 'BUY';
+      kellyPct = 50;
+      positionRule = 'Gate 1~3 통과 + RRR≥2.0 — 분할 1차 진입';
+      if (hybridZone === 'BUY') positionRule += ` (퍼센타일 상위 30% / 정규화점수 ${normalizedFinalScore?.toFixed(1)})`;
+    } else {
+      // Gate 1+2+3 통과했으나 퍼센타일 하위권 → WATCH
+      grade = 'WATCH';
+      kellyPct = 0;
+      positionRule = `알림 대기 — 퍼센타일(${hybridZone}) 기준 미달`;
+    }
   } else if (gate1Passed && gate2Passed && !gate3Passed && earlyBullEntryOk) {
     // ─ BUY (선취매): Gate 3 미달이어도 상승 초기 3조건 충족 → BUY 50%
     //   이후 Gate 3 충족 시 나머지 50% 추가
