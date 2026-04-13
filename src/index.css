@@ -123,6 +123,8 @@
     --chart-sm: 200px;
     --chart-md: 280px;
     --chart-lg: 360px;
+
+    color-scheme: dark;
   }
 
   .theme-light {
@@ -162,6 +164,7 @@
     --accent: #ffff00;
     --surface-bg: rgba(255, 255, 255, 0.1);
     --input-bg: rgba(255, 255, 255, 0.1);
+    color-scheme: dark;
   }
 
   .theme-ocean {
@@ -176,6 +179,7 @@
     --accent: #38bdf8;
     --surface-bg: rgba(56, 189, 248, 0.1);
     --input-bg: rgba(7, 36, 60, 0.75);
+    color-scheme: dark;
   }
 
   .theme-forest {
@@ -190,6 +194,7 @@
     --accent: #22c55e;
     --surface-bg: rgba(34, 197, 94, 0.1);
     --input-bg: rgba(12, 36, 24, 0.78);
+    color-scheme: dark;
   }
 
   html {

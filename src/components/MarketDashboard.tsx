@@ -572,17 +572,17 @@ export const MarketDashboard: React.FC<MarketDashboardProps> = ({ data, triageSu
         <div className="h-96 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={(() => {
-              const kospi = data.indices.find(idx => 
+              const kospi = data.indices?.find(idx => 
                 (idx.name || '').toUpperCase().includes('KOSPI') || (idx.name || '').includes('코스피')
               );
-              const nasdaq = data.indices.find(idx => 
+              const nasdaq = data.indices?.find(idx => 
                 (idx.name || '').toUpperCase().includes('NASDAQ') || (idx.name || '').includes('나스닥')
               );
-              const sp500 = data.indices.find(idx => 
+              const sp500 = data.indices?.find(idx => 
                 (idx.name || '').toUpperCase().includes('S&P 500') || (idx.name || '').toUpperCase().includes('SP500') || (idx.name || '').includes('S&P500')
               );
 
-              const baseIndex = kospi || nasdaq || sp500 || data.indices[0];
+              const baseIndex = kospi || nasdaq || sp500 || data.indices?.[0];
               if (!baseIndex || !baseIndex.history) return [];
 
               return baseIndex.history?.map((h, i) => ({
