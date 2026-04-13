@@ -4,15 +4,10 @@ import {
   Activity,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../../ui/cn';
 import { WatchlistCard, type WatchlistCardProps } from './WatchlistCard';
 import type { StockRecommendation } from '../../services/stockService';
 import type { NewsFrequencyScore, RecommendationHistory } from '../../types/quant';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface RecommendationHistoryItem {
   date: string;

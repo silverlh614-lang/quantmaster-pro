@@ -4,15 +4,10 @@ import {
   ShieldCheck, ChevronDown, ChevronUp, ArrowUpDown, Bookmark, Lightbulb,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../../ui/cn';
 import type { StockRecommendation, StockFilters } from '../../services/stockService';
 import type { View } from '../../stores/useSettingsStore';
 import { CHECKLIST_LABELS } from '../../constants/checklist';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 export interface WatchlistFilterPanelProps {
   view: View | string;

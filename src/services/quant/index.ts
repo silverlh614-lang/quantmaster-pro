@@ -13,3 +13,7 @@ export * from './fssEngine';
 export * from './regimeEngine';
 export * from './sellEngine';
 export * from './percentileClassifier';
+export * from './contradictionDetector';
+export * from './timingSyncEngine';
+export * from './fibonacciTimeZoneEngine';
+export * from './institutionalFootprintEngine';

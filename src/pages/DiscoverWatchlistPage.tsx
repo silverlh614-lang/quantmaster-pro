@@ -4,8 +4,7 @@ import {
   History, Zap, Radar, Search, Globe, Download, Mail,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../ui/cn';
 import { Card } from '../ui/card';
 import { Section } from '../ui/section';
 import { Stack } from '../layout/Stack';
@@ -17,10 +16,6 @@ import { useWatchlistFilters } from '../hooks/useWatchlistFilters';
 import { useWatchlistData } from '../hooks/useWatchlistData';
 import type { StockRecommendation } from '../services/stockService';
 import type { ConditionId } from '../types/quant';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 function scrollToStock(code: string) {
   const element = document.getElementById(`stock-${code}`);

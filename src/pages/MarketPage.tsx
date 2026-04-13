@@ -8,7 +8,7 @@ import { MHSHistoryChart } from '../components/MHSHistoryChart';
 import { IntelligenceRadar } from '../components/IntelligenceRadar';
 import { SectionErrorBoundary } from '../components/SectionErrorBoundary';
 import { useMarketStore, useGlobalIntelStore, useRecommendationStore } from '../stores';
-import { evaluateGate0 } from '../services/quant/gateEngine';
+import { evaluateGate0 } from '../services/quant/macroEngine';
 import { PageHeader } from '../ui/page-header';
 import { Button } from '../ui/button';
 import { Section } from '../ui/section';

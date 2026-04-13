@@ -6,8 +6,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../../ui/cn';
 import { ConfidenceBadge } from '../ConfidenceBadge';
 import { SignalBadge } from '../../ui/badge';
 import { PriceEditCell } from '../PriceEditCell';
@@ -16,10 +15,6 @@ import type { NewsFrequencyScore } from '../../types/quant';
 import type { ConditionId } from '../../types/quant';
 import type { View } from '../../stores/useSettingsStore';
 import { buildShadowTrade } from '../../services/autoTrading';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 export interface WatchlistCardProps {
   stock: StockRecommendation;

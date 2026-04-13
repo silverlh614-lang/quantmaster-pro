@@ -1,12 +1,7 @@
 import React from 'react';
 import { Zap, Info } from 'lucide-react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { cn } from '../../ui/cn';
 import { debugWarn } from '../../utils/debug';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 const CONDITION_NAMES: Record<number, string> = {
   1: '주도주 사이클', 2: '모멘텀', 3: 'ROE 유형 3', 4: '수급 질', 5: '시장 환경',

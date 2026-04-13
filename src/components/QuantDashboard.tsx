@@ -8,7 +8,7 @@ import { ROETransitionPanel } from './ROETransitionPanel';
 import { ContradictionDetectorPanel } from './ContradictionDetectorPanel';
 import { TimingSyncPanel } from './TimingSyncPanel';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
-import { detectROETransition } from '../services/quant/gateEngine';
+import { detectROETransition } from '../services/quant/roeEngine';
 import { MacroIntelligenceDashboard } from './MacroIntelligenceDashboard';
 
 // Sub-components

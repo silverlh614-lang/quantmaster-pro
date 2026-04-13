@@ -173,14 +173,14 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
             {/* Modal Body */}
             <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar">
               {analysisView === 'QUANT' ? (
-                <QuantDashboard result={evaluateStock(
-                  Object.fromEntries(
+                <QuantDashboard result={evaluateStock({
+                  rawStockData: Object.fromEntries(
                     MASTER_CHECKLIST_STEPS.map(step => [
                       CHECKLIST_KEY_TO_CONDITION_ID[step.key as ChecklistKey],
                       stock?.checklist?.[step.key as keyof typeof stock.checklist] ? 10 : 0
                     ])
                   ) as Record<number, number>,
-                  {
+                  regime: {
                     type: (['BULL', 'RISK_ON'].includes(stock.aiConvictionScore?.marketPhase || '') ? '상승초기' :
                            ['BEAR', 'RISK_OFF'].includes(stock.aiConvictionScore?.marketPhase || '') ? '하락' :
                            stock.aiConvictionScore?.marketPhase === 'SIDEWAYS' ? '횡보' : '변동성'),
@@ -188,28 +188,28 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
                     vKospi: stock.marketSentiment?.vkospi || 15,
                     samsungIri: stock.marketSentiment?.iri || 3.5
                   },
-                  stock.marketCapCategory === 'LARGE' ? 'A' : 'B',
-                  {
+                  profileType: stock.marketCapCategory === 'LARGE' ? 'A' : 'B',
+                  sectorRotation: {
                     name: stock.relatedSectors?.[0] || 'Unknown',
                     rank: 1,
                     strength: stock.confidenceScore || 0,
                     isLeading: stock.isSectorTopPick || false,
                     sectorLeaderNewHigh: stock.sectorLeaderNewHigh || false
                   },
-                  0, // euphoriaSignals
-                  false, // emergencyStop
-                  stock.currentPrice > 0 && stock.stopLoss > 0 && stock.targetPrice > stock.currentPrice
+                  euphoriaSignals: 0,
+                  emergencyStop: false,
+                  rrr: stock.currentPrice > 0 && stock.stopLoss > 0 && stock.targetPrice > stock.currentPrice
                     ? (stock.targetPrice - stock.currentPrice) / (stock.currentPrice - stock.stopLoss)
                     : 2.1,
-                  (stock.sellSignals || []).map((_, i) => i),
-                  stock.multiTimeframe,
-                  stock.enemyChecklist,
-                  stock.seasonality,
-                  stock.attribution,
-                  stock.isPullbackVolumeLow || false,
-                  macroEnv ?? undefined,
-                  exportRatio,
-                  {
+                  sellSignals: (stock.sellSignals || []).map((_, i) => i),
+                  multiTimeframe: stock.multiTimeframe,
+                  enemyChecklist: stock.enemyChecklist,
+                  seasonality: stock.seasonality,
+                  attribution: stock.attribution,
+                  isPullbackVolumeLow: stock.isPullbackVolumeLow || false,
+                  macroEnv: macroEnv ?? undefined,
+                  stockExportRatio: exportRatio,
+                  advancedContext: {
                     smartMoney: smartMoneyData ?? undefined,
                     exportMomentum: exportMomentumData ?? undefined,
                     geoRisk: geoRiskData ?? undefined,
@@ -222,15 +222,15 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
                     weeklyRsiValues: weeklyRsiValues.length > 0 ? weeklyRsiValues : undefined,
                     institutionalAmounts: stock.supplyData?.institutionalDailyAmounts ?? undefined,
                   },
-                  {
+                  extendedRegimeOptions: {
                     kospi60dVolatility: extendedRegimeData?.uncertaintyMetrics?.kospi60dVolatility,
                     leadingSectorCount: extendedRegimeData?.uncertaintyMetrics?.leadingSectorCount,
                     foreignFlowDirection: extendedRegimeData?.uncertaintyMetrics?.foreignFlowDirection,
                     kospiSp500Correlation: globalCorrelation?.kospiSp500,
                     financialStress: financialStressData ?? undefined,
                   },
-                  stock.relatedSectors?.[0],
-                )}
+                  stockSector: stock.relatedSectors?.[0],
+                })}
                 economicRegime={extendedRegimeData ?? economicRegimeData ?? undefined}
                 currentRoeType={currentRoeType}
                 marketOverview={marketOverview}

@@ -17,12 +17,7 @@ import {
 } from 'lucide-react';
 import { evaluateStock } from '../services/quant/gateEngine';
 import { ConditionId, MarketRegime, SectorRotation, EvaluationResult, MacroEnvironment } from '../types/quant';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { cn } from '../ui/cn';
 
 interface ManualQuantInputProps {
   regime: MarketRegime;
@@ -106,23 +101,18 @@ export const ManualQuantInput: React.FC<ManualQuantInputProps> = ({ regime, sect
       usdKrw: Number(macroInputs.usdKrw),
     };
 
-    const evaluation = evaluateStock(
-      stockData as Record<ConditionId, number>,
+    const evaluation = evaluateStock({
+      rawStockData: stockData as Record<ConditionId, number>,
       regime,
-      'B',
+      profileType: 'B',
       sectorRotation,
-      0,
-      false,
-      2.5,
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      false,
+      euphoriaSignals: 0,
+      emergencyStop: false,
+      rrr: 2.5,
+      isPullbackVolumeLow: false,
       macroEnv,
-      Number(macroInputs.stockExportRatio)
-    );
+      stockExportRatio: Number(macroInputs.stockExportRatio),
+    });
 
     setResult(evaluation);
   };
