@@ -5,6 +5,7 @@ import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { kisGet, KIS_IS_REAL } from '../clients/kisClient.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
+import { isPullbackSetup } from './pipelineHelpers.js';
 
 export interface ScreenedStock {
   code: string;
@@ -30,6 +31,7 @@ export interface YahooQuoteExtended {
   ma20: number;            // 20일 이동평균
   ma60: number;            // 60일 이동평균
   high20d: number;         // 20일 최고가
+  high60d: number;         // 60일 최고가 (눌림목 판단용)
   atr: number;             // 최근 14일 ATR (Average True Range)
   atr20avg: number;        // 20일 ATR 평균 (VCP 판단용)
   per: number;             // PER (Yahoo 제공 시)
@@ -361,6 +363,11 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       ? Math.max(...highs.slice(-20))
       : Math.max(...highs);
 
+    // 60일 최고가 (눌림목 판단: 고점 대비 조정폭)
+    const high60d = highs.length >= 60
+      ? Math.max(...highs.slice(-60))
+      : Math.max(...highs);
+
     // ATR (Average True Range) 계산 — 14일 기준
     const trueRanges: number[] = [];
     const minLen = Math.min(closes.length, highs.length, lows.length);
@@ -496,7 +503,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       price: Math.round(price), changePercent, volume, avgVolume,
       dayOpen: Math.round(dayOpen),
       prevClose: Math.round(prevClose),
-      ma5, ma20, ma60, high20d, atr, atr20avg, per,
+      ma5, ma20, ma60, high20d, high60d, atr, atr20avg, per,
       rsi14: parseFloat(rsi14.toFixed(1)),
       macd:  parseFloat(macd.toFixed(2)),
       macdSignal: parseFloat(macdSignal.toFixed(2)),
@@ -572,10 +579,13 @@ export async function autoPopulateWatchlist(): Promise<number> {
     const quote = await fetchYahooQuote(stock.symbol);
     if (!quote || quote.price <= 0) continue;
 
-    // 필터: 과열 상단 차단 + VCP/거래량 조건 (당일 상승률 하한 제거)
+    // 필터: 과열 상단 차단 + VCP/거래량 조건 + 눌림목 허용
     const isVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
-    if (quote.changePercent < 0 || quote.changePercent >= 5) continue;  // 음봉·과열 제외
-    if (quote.volume < quote.avgVolume * 1.2 && !isVCP) continue;       // VCP면 거래량 마름도 OK
+    const pullback = isPullbackSetup(quote);
+    if (quote.changePercent >= 5) continue;                              // 과열 제외
+    if (quote.changePercent < 0 && !pullback) continue;                  // 음봉 제외 (눌림목은 통과)
+    if (quote.changePercent < -2) continue;                              // 눌림목이라도 -2% 이상 하락 제외
+    if (quote.volume < quote.avgVolume * 1.2 && !isVCP && !pullback) continue; // 눌림목/VCP면 거래량 마름 OK
     if (quote.return5d > 15) continue;                                   // 5일 +15% 초과 → 급등 완료
 
     // 아이디어 2: 서버사이드 Gate 평가 — SKIP 종목 제외

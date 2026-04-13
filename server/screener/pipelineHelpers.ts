@@ -147,6 +147,26 @@ export function addBusinessDays(date: Date, days: number): Date {
   return result;
 }
 
+/**
+ * 눌림목(Pullback) 셋업 판별.
+ *
+ * 조건:
+ *  1. 60일 고점 대비 3~20% 조정 (적정 눌림, 붕괴 아님)
+ *  2. 가격 > MA60 (장기 추세 유지)
+ *  3. VCP(변동성 축소) 또는 거래량 마름 (에너지 응축)
+ *  4. RSI 35~55 (과매도 아닌 중립 — 반등 여력)
+ */
+export function isPullbackSetup(q: YahooQuoteExtended): boolean {
+  if (q.high60d <= 0) return false;
+  const drawdown = (q.high60d - q.price) / q.high60d * 100;
+  if (drawdown < 3 || drawdown > 20) return false;         // 고점 대비 3~20% 조정
+  if (q.ma60 <= 0 || q.price < q.ma60) return false;       // 장기 추세 유지
+  const isVCP = q.atr > 0 && q.atr20avg > 0 && q.atr < q.atr20avg * 0.75;
+  if (!isVCP && !q.dailyVolumeDrying) return false;         // 압축 또는 거래량 마름
+  if (q.rsi14 < 35 || q.rsi14 > 55) return false;          // 중립 RSI
+  return true;
+}
+
 export function calcStage1Score(q: YahooQuoteExtended): number {
   let score = 0;
   score += Math.min(q.changePercent / 10, 1);                            // 상승률 비중 축소 (최대 1점, 기존 2점)
@@ -157,6 +177,7 @@ export function calcStage1Score(q: YahooQuoteExtended): number {
   score += q.rsi14 >= 40 && q.rsi14 <= 65 ? 1 : 0;                     // RSI 건강구간 (과열 제외)
   score += (q.rsi14 - q.rsi5dAgo) >= 3 ? 1 : 0;                        // RSI 가속 (추세 초기 신호)
   score += q.return5d < 8 ? 0.5 : 0;                                    // 5일 과급등 아닌 종목 우대
+  if (isPullbackSetup(q)) score += 2;                                    // 눌림목 프리미엄 (모멘텀 부족분 보상)
   return score;
 }
 
