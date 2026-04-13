@@ -20,6 +20,9 @@ export interface WatchlistEntry {
   expiresAt?: string;     // 자동 만료 시각 ISO — AI 파이프라인 추가 항목만 설정
   entryFailCount?: number; // 진입 시도 실패 횟수 (임계값 초과 시 자동 제거)
   isFocus?: boolean;      // Focus Watchlist 포함 여부 (상위 8개, 자동 매수 대상)
+  // Regret Asymmetry Filter
+  cooldownUntil?: string; // 쿨다운 종료 시각 ISO — 직전 5일 +15% 초과 급등 시 설정
+  recentHigh?: number;    // 쿨다운 진입 시점의 현재가 — 되돌림(-5~-8%) 판단 기준
 }
 
 export function loadWatchlist(): WatchlistEntry[] {
