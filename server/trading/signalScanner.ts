@@ -12,7 +12,7 @@ import {
   fetchCurrentPrice, fetchAccountBalance,
 } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { loadWatchlist } from '../persistence/watchlistRepo.js';
+import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import {
   type ServerShadowTrade,
@@ -73,6 +73,10 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
   const watchlist = loadWatchlist();
   if (watchlist.length === 0) return;
 
+  // 2단계 워치리스트: Focus 항목(isFocus=true) + MANUAL 항목만 매수 스캔
+  const buyList = watchlist.filter((w) => w.isFocus === true || w.addedBy === 'MANUAL');
+  let watchlistMutated = false;
+
   const shadowMode = process.env.AUTO_TRADE_MODE !== 'LIVE'; // 기본 Shadow 모드
 
   // 투자 총자산: 환경변수 → KIS 계좌 주문가능현금+기본값 순으로 결정
@@ -83,7 +87,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
   const conditionWeights = loadConditionWeights();
 
   console.log(
-    `[AutoTrade] 스캔 시작 — ${watchlist.length}개 종목 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'} / 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원`
+    `[AutoTrade] 스캔 시작 — 워치리스트 ${watchlist.length}개 / Focus+MANUAL ${buyList.length}개 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'} / 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원`
   );
 
   const shadows = loadShadowTrades();
@@ -175,7 +179,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
     return;
   }
 
-  for (const stock of watchlist) {
+  for (const stock of buyList) {
     // 아이디어 7: 루프 내에서도 포지션 수 재확인 (같은 스캔 중 복수 진입 방지)
     const currentActive = shadows.filter(
       (s) => isOpenShadowStatus(s.status)
@@ -277,6 +281,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
       });
       if (!entryRevalidation.ok) {
         console.log(`[AutoTrade] ${stock.name} 진입 직전 재검증 탈락: ${entryRevalidation.reasons.join(', ')}`);
+        // 가격 조건은 맞았으나 재검증 탈락 → 진입 실패 횟수 누적
+        if (stock.addedBy === 'AUTO') {
+          stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
+          watchlistMutated = true;
+        }
         continue;
       }
 
@@ -440,6 +449,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
     } catch (err: unknown) {
       console.error(`[AutoTrade] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
     }
+  }
+
+  // entryFailCount 변경분 영속화
+  if (watchlistMutated) {
+    saveWatchlist(watchlist);
   }
 
   await updateShadowResults(shadows, regime);

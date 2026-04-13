@@ -18,6 +18,8 @@ export interface WatchlistEntry {
   profileType?: 'A' | 'B' | 'C' | 'D'; // 종목 프로파일 (A=대형주도 B=중형성장 C=소형모멘텀 D=촉매)
   entryRegime?: string;   // 진입 시 레짐 (AI 파이프라인 메타)
   expiresAt?: string;     // 자동 만료 시각 ISO — AI 파이프라인 추가 항목만 설정
+  entryFailCount?: number; // 진입 시도 실패 횟수 (임계값 초과 시 자동 제거)
+  isFocus?: boolean;      // Focus Watchlist 포함 여부 (상위 8개, 자동 매수 대상)
 }
 
 export function loadWatchlist(): WatchlistEntry[] {
