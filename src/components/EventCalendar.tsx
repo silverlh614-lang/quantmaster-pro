@@ -25,7 +25,10 @@ interface EventCalendarProps {
 }
 
 export const EventCalendar: React.FC<EventCalendarProps> = ({ events }) => {
-  const safeEvents = Array.isArray(events) ? events : [];
+  // Filter out malformed event objects — require at least date and dDay
+  const safeEvents = (Array.isArray(events) ? events : []).filter(
+    (e): e is MacroEvent => e != null && typeof e.date === 'string' && typeof e.dDay === 'number'
+  );
 
   if (safeEvents.length === 0) {
     return (
