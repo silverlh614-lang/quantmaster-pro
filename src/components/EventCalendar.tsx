@@ -25,7 +25,9 @@ interface EventCalendarProps {
 }
 
 export const EventCalendar: React.FC<EventCalendarProps> = ({ events }) => {
-  if (!events || events.length === 0) {
+  const safeEvents = Array.isArray(events) ? events : [];
+
+  if (safeEvents.length === 0) {
     return (
       <div className="bg-[#151619] border border-white/10 rounded-2xl p-8 flex flex-col items-center justify-center text-center space-y-4">
         <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center">
@@ -39,7 +41,7 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({ events }) => {
     );
   }
 
-  const sortedEvents = [...events].sort((a, b) => a.dDay - b.dDay);
+  const sortedEvents = [...safeEvents].sort((a, b) => a.dDay - b.dDay);
 
   return (
     <div className="space-y-6">
