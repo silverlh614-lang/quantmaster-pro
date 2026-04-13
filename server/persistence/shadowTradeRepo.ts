@@ -50,7 +50,9 @@ export interface ServerShadowTrade {
   cascadeStep?: 0 | 1 | 2;  // 0=없음, 1=-7% 경고, 2=-15% 반매도
   addBuyBlocked?: boolean;   // -7% 이후 추가 매수 차단 플래그
   halfSoldAt?: string;       // -15% 반매도 시각 (ISO)
-  stopApproachAlerted?: boolean; // 손절가 5% 이내 접근 경고 발송 여부 (중복 방지)
+  stopApproachAlerted?: boolean; // 손절가 5% 이내 접근 경고 발송 여부 (레거시 — stopApproachStage로 대체)
+  /** 손절 접근 3단계 경보 단계: 0=없음, 1=접근(-5%), 2=임박(-3%), 3=집행임박(-1%) */
+  stopApproachStage?: 0 | 1 | 2 | 3;
   // ─── 레짐 연결 필드 (regimeBridge 연결 후 신규 거래부터 기록) ──────────────
   entryRegime?: string;          // 진입 시점 RegimeLevel (예: 'R2_BULL')
   profileType?: 'A' | 'B' | 'C' | 'D'; // 종목 프로파일 (A=대형주도 B=중형성장 C=소형모멘텀 D=촉매)
