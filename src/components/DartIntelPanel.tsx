@@ -21,6 +21,10 @@ interface DartAlertView {
   llmReason?: string;
   insiderBuy?: boolean;
   badNewsAbsorbed?: boolean;
+  ownershipSignal?: {
+    sentiment: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
+    reason: string;
+  };
 }
 
 // ─── 임팩트 배지 ──────────────────────────────────────────────────────────────
@@ -44,8 +48,14 @@ function ImpactBadge({ impact }: { impact: number | undefined }) {
 
 // ─── 공시 카드 ────────────────────────────────────────────────────────────────
 
+/** ownershipSignal이 실제 수급 이벤트(POSITIVE/NEGATIVE)인지 확인 */
+function isActiveOwnershipSignal(alert: DartAlertView): boolean {
+  return !!alert.ownershipSignal && alert.ownershipSignal.sentiment !== 'NEUTRAL';
+}
+
 function AlertCard({ alert }: { alert: DartAlertView }) {
   const dartUrl = `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${alert.rcept_no}`;
+  const hasOwnershipEvent = isActiveOwnershipSignal(alert);
 
   return (
     <div className={cn(
@@ -54,6 +64,10 @@ function AlertCard({ alert }: { alert: DartAlertView }) {
         ? 'border-violet-700/50 bg-violet-900/10'
         : alert.badNewsAbsorbed
         ? 'border-amber-700/50 bg-amber-900/10'
+        : alert.ownershipSignal?.sentiment === 'POSITIVE'
+        ? 'border-emerald-700/30 bg-emerald-900/5'
+        : alert.ownershipSignal?.sentiment === 'NEGATIVE'
+        ? 'border-red-700/30 bg-red-900/5'
         : (alert.llmImpact ?? 0) >= 1
         ? 'border-emerald-700/30 bg-emerald-900/5'
         : (alert.llmImpact ?? 0) <= -1
@@ -74,6 +88,16 @@ function AlertCard({ alert }: { alert: DartAlertView }) {
                 🔄 악재 소화 완료
               </span>
             )}
+            {hasOwnershipEvent && (
+              <span className={cn(
+                'text-xs rounded-full px-1.5 py-0.5 border',
+                alert.ownershipSignal!.sentiment === 'POSITIVE'
+                  ? 'bg-emerald-900/60 text-emerald-300 border-emerald-700/50'
+                  : 'bg-red-900/60 text-red-300 border-red-700/50',
+              )}>
+                {alert.ownershipSignal!.sentiment === 'POSITIVE' ? '📈 수급 매수' : '📉 수급 매도'}
+              </span>
+            )}
           </div>
           <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{alert.report_nm}</p>
         </div>
@@ -90,9 +114,9 @@ function AlertCard({ alert }: { alert: DartAlertView }) {
           </a>
         </div>
       </div>
-      {alert.llmReason && (
+      {(alert.llmReason || alert.ownershipSignal?.reason) && (
         <p className="text-xs text-gray-500 leading-relaxed">
-          {alert.llmReason}
+          {alert.ownershipSignal?.reason ?? alert.llmReason}
         </p>
       )}
       <p className="text-xs text-gray-600">{alert.rcept_dt}</p>
@@ -106,7 +130,7 @@ export const DartIntelPanel: React.FC = () => {
   const [alerts, setAlerts] = useState<DartAlertView[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastFetched, setLastFetched] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'ALL' | 'INSIDER' | 'ABSORBED' | 'POSITIVE' | 'NEGATIVE'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'INSIDER' | 'ABSORBED' | 'POSITIVE' | 'NEGATIVE' | 'OWNERSHIP'>('ALL');
 
   const fetchAlerts = async () => {
     setLoading(true);
@@ -133,17 +157,19 @@ export const DartIntelPanel: React.FC = () => {
   }, []);
 
   const filtered = alerts.filter((a) => {
-    if (filter === 'INSIDER')  return a.insiderBuy;
-    if (filter === 'ABSORBED') return a.badNewsAbsorbed;
-    if (filter === 'POSITIVE') return (a.llmImpact ?? 0) >= 1;
-    if (filter === 'NEGATIVE') return (a.llmImpact ?? 0) <= -1;
+    if (filter === 'INSIDER')    return a.insiderBuy;
+    if (filter === 'ABSORBED')   return a.badNewsAbsorbed;
+    if (filter === 'POSITIVE')   return (a.llmImpact ?? 0) >= 1;
+    if (filter === 'NEGATIVE')   return (a.llmImpact ?? 0) <= -1;
+    if (filter === 'OWNERSHIP')  return isActiveOwnershipSignal(a);
     return true;
   });
 
-  const insiderCount  = alerts.filter(a => a.insiderBuy).length;
-  const absorbedCount = alerts.filter(a => a.badNewsAbsorbed).length;
-  const positiveCount = alerts.filter(a => (a.llmImpact ?? 0) >= 1).length;
-  const negativeCount = alerts.filter(a => (a.llmImpact ?? 0) <= -1).length;
+  const insiderCount    = alerts.filter(a => a.insiderBuy).length;
+  const absorbedCount   = alerts.filter(a => a.badNewsAbsorbed).length;
+  const positiveCount   = alerts.filter(a => (a.llmImpact ?? 0) >= 1).length;
+  const negativeCount   = alerts.filter(a => (a.llmImpact ?? 0) <= -1).length;
+  const ownershipCount  = alerts.filter(isActiveOwnershipSignal).length;
 
   return (
     <div className="rounded-xl border border-indigo-800/40 bg-gray-900/50 px-5 py-4 space-y-4">
@@ -171,12 +197,13 @@ export const DartIntelPanel: React.FC = () => {
       </div>
 
       {/* 요약 통계 */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-5 gap-2">
         {[
-          { label: '내부자 매수', count: insiderCount, color: 'text-violet-300', icon: '🕵️' },
-          { label: '악재 소화', count: absorbedCount, color: 'text-amber-300', icon: '🔄' },
-          { label: '긍정 공시', count: positiveCount, color: 'text-emerald-300', icon: '📈' },
-          { label: '부정 공시', count: negativeCount, color: 'text-red-300', icon: '📉' },
+          { label: '내부자 매수', count: insiderCount,   color: 'text-violet-300',  icon: '🕵️' },
+          { label: '악재 소화',   count: absorbedCount,  color: 'text-amber-300',   icon: '🔄' },
+          { label: '긍정 공시',   count: positiveCount,  color: 'text-emerald-300', icon: '📈' },
+          { label: '부정 공시',   count: negativeCount,  color: 'text-red-300',     icon: '📉' },
+          { label: '수급 이벤트', count: ownershipCount, color: 'text-cyan-300',    icon: '🏦' },
         ].map(({ label, count, color, icon }) => (
           <div key={label} className="rounded-lg bg-gray-800/40 p-2 text-center">
             <div className="text-base">{icon}</div>
@@ -189,11 +216,12 @@ export const DartIntelPanel: React.FC = () => {
       {/* 필터 탭 */}
       <div className="flex gap-1 flex-wrap">
         {([
-          ['ALL', '전체'],
-          ['INSIDER', '🕵️ 내부자'],
-          ['ABSORBED', '🔄 악재소화'],
-          ['POSITIVE', '📈 긍정'],
-          ['NEGATIVE', '📉 부정'],
+          ['ALL',       '전체'],
+          ['INSIDER',   '🕵️ 내부자'],
+          ['ABSORBED',  '🔄 악재소화'],
+          ['POSITIVE',  '📈 긍정'],
+          ['NEGATIVE',  '📉 부정'],
+          ['OWNERSHIP', '🏦 수급이벤트'],
         ] as const).map(([key, label]) => (
           <button
             key={key}

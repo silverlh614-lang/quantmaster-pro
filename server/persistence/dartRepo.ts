@@ -17,6 +17,11 @@ export interface DartAlert {
   insiderBuy?: boolean;
   /** 악재 소화 완료 신호: 부정 공시 후 주가 미하락 종목 */
   badNewsAbsorbed?: boolean;
+  /** 지분 공시 룰 기반 수급 분석 결과 (LLM 대신 사용) */
+  ownershipSignal?: {
+    sentiment: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
+    reason: string;
+  };
 }
 
 export function loadDartAlerts(): DartAlert[] {

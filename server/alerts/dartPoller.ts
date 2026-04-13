@@ -23,6 +23,17 @@ export const FAST_DART_KEYWORDS = [
   '수주', '흑자전환', '분기실적', '연간실적', '대규모수주',
 ];
 
+// 지분 공시 무시 키워드 목록 — LLM 분석 대신 룰 기반 수급 분석 적용 대상
+export const IGNORE_DISCLOSURES = [
+  '임원',
+  '주요주주',
+  '소유상황',
+  '특정증권',
+  '지분공시',
+  '주식등의 대량보유',
+  '변동보고서',
+];
+
 // 내부자 매수 감지 키워드 (대주주/임원 장내매수)
 const INSIDER_BUY_KEYWORDS = [
   '임원ㆍ주요주주특정증권등소유상황보고서',
@@ -84,6 +95,48 @@ export function classifyDisclosure(reportName: string): DartAlert['sentiment'] {
  */
 export function detectInsiderBuy(reportName: string): boolean {
   return INSIDER_BUY_KEYWORDS.some((kw) => reportName.includes(kw));
+}
+
+/**
+ * 지분 공시 여부 확인 — true이면 LLM 분석 대신 룰 기반 수급 분석을 사용한다.
+ * 임원/대주주 소유 현황 보고, 대량보유 변동 등 지분 관련 공시가 해당된다.
+ */
+export function isOwnershipDisclosure(title: string): boolean {
+  return IGNORE_DISCLOSURES.some((k) => title.includes(k));
+}
+
+/**
+ * 지분 공시 룰 기반 수급 분석.
+ * LLM보다 룰 기반이 더 정확한 영역 — 매수/매도/소폭변동 3단계로 분류한다.
+ * - 임원·대주주 매수 → POSITIVE (긍정적 수급 신호)
+ * - 임원·대주주 매도 → NEGATIVE (수급 압력)
+ * - 단순 보고·소폭 변동 → NEUTRAL (무시)
+ * NEUTRAL이면서 Gemini API 키가 있으면 LLM fallback을 실행한다.
+ */
+export async function analyzeOwnershipChange(
+  corpName: string,
+  reportNm: string,
+): Promise<{ sentiment: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL'; reason: string }> {
+  const buyPatterns  = ['장내매수', '장내 매수', '취득'];
+  const sellPatterns = ['장내매도', '장내 매도', '처분', '매도'];
+
+  if (buyPatterns.some((k) => reportNm.includes(k))) {
+    return { sentiment: 'POSITIVE', reason: `${corpName} 임원·대주주 매수 — 긍정적 수급 신호` };
+  }
+  if (sellPatterns.some((k) => reportNm.includes(k))) {
+    return { sentiment: 'NEGATIVE', reason: `${corpName} 임원·대주주 매도 — 수급 압력` };
+  }
+
+  // LLM fallback: 패턴으로 판단 불가한 경우 Gemini에 위임
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const result = await classifyImpactWithLlm(corpName, reportNm);
+      if (result.impact > 0) return { sentiment: 'POSITIVE', reason: result.reason };
+      if (result.impact < 0) return { sentiment: 'NEGATIVE', reason: result.reason };
+    } catch { /* fallback to NEUTRAL */ }
+  }
+
+  return { sentiment: 'NEUTRAL', reason: '소폭 변동 또는 단순 보고 — 무시' };
 }
 
 /**
@@ -177,29 +230,38 @@ export async function pollDartDisclosures(): Promise<void> {
   for (const d of disclosures) {
     if (existingNos.has(d.rcept_no)) continue; // 이미 처리됨
 
-    const sentiment = classifyDisclosure(d.report_nm ?? '');
-    const insiderBuy = detectInsiderBuy(d.report_nm ?? '');
-    const stockCode = (d.stock_code ?? '').padStart(6, '0');
+    const reportNm   = d.report_nm ?? '';
+    const corpName   = d.corp_name ?? '';
+    const sentiment  = classifyDisclosure(reportNm);
+    const insiderBuy = detectInsiderBuy(reportNm);
+    const stockCode  = (d.stock_code ?? '').padStart(6, '0');
     const isWatchlist = watchCodes.has(stockCode);
 
-    // LLM 임팩트 분류 — 워치리스트 종목 또는 고영향 공시만 실행 (비용 절감)
+    // ── 지분 공시 → LLM 대신 룰 기반 수급 분석 ──────────────────────────────
     let llmImpact: number | undefined;
     let llmReason: string | undefined;
-    const shouldClassify = isWatchlist ||
-      FAST_DART_KEYWORDS.some(kw => (d.report_nm ?? '').includes(kw)) ||
-      insiderBuy;
+    let ownershipSignal: DartAlert['ownershipSignal'];
 
-    if (shouldClassify && process.env.GEMINI_API_KEY) {
-      const classified = await classifyImpactWithLlm(d.corp_name ?? '', d.report_nm ?? '')
-        .catch(() => ({ impact: 0, reason: '오류' }));
-      llmImpact = classified.impact;
-      llmReason = classified.reason;
+    if (isOwnershipDisclosure(reportNm)) {
+      ownershipSignal = await analyzeOwnershipChange(corpName, reportNm);
+    } else {
+      // LLM 임팩트 분류 — 워치리스트 종목 또는 고영향 공시만 실행 (비용 절감)
+      const shouldClassify = isWatchlist ||
+        FAST_DART_KEYWORDS.some(kw => reportNm.includes(kw)) ||
+        insiderBuy;
+
+      if (shouldClassify && process.env.GEMINI_API_KEY) {
+        const classified = await classifyImpactWithLlm(corpName, reportNm)
+          .catch(() => ({ impact: 0, reason: '오류' }));
+        llmImpact = classified.impact;
+        llmReason = classified.reason;
+      }
     }
 
     const alert: DartAlert = {
-      corp_name:  d.corp_name  ?? '',
+      corp_name:  corpName,
       stock_code: d.stock_code ?? '',
-      report_nm:  d.report_nm  ?? '',
+      report_nm:  reportNm,
       rcept_dt:   d.rcept_dt   ?? today,
       rcept_no:   d.rcept_no   ?? '',
       sentiment,
@@ -207,11 +269,27 @@ export async function pollDartDisclosures(): Promise<void> {
       llmImpact,
       llmReason,
       insiderBuy,
+      ownershipSignal,
     };
     newAlerts.push(alert);
 
+    // ── 지분 공시 수급 이벤트 알림 (긍정/부정만) ────────────────────────────
+    if (ownershipSignal && ownershipSignal.sentiment !== 'NEUTRAL') {
+      const emoji = ownershipSignal.sentiment === 'POSITIVE' ? '📈' : '📉';
+      await sendTelegramAlert(
+        `${emoji} <b>[수급 이벤트] ${alert.corp_name}</b>\n` +
+        `${alert.report_nm}\n` +
+        `접수일: ${alert.rcept_dt}\n` +
+        (isWatchlist ? `⭐ <b>워치리스트 종목!</b>\n` : '') +
+        `수급: ${ownershipSignal.reason}\n` +
+        `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${alert.rcept_no}`
+      ).catch(console.error);
+      console.log(`[DART] ${emoji} 수급이벤트: ${alert.corp_name} (${ownershipSignal.sentiment}) — ${alert.report_nm}`);
+    }
+
     // ── 내부자 매수 → 즉시 특별 Telegram 알림 ─────────────────────────────
-    if (insiderBuy) {
+    // 지분 공시로 이미 수급 이벤트 알림을 보낸 경우(POSITIVE/NEGATIVE)에는 중복 발송하지 않는다.
+    if (insiderBuy && (!ownershipSignal || ownershipSignal.sentiment === 'NEUTRAL')) {
       await sendTelegramAlert(
         `🕵️ <b>[내부자 매수 감지] ${alert.corp_name}</b>\n` +
         `${alert.report_nm}\n` +
@@ -354,6 +432,7 @@ export async function fastDartCheck(): Promise<void> {
   type Candidate = {
     rceptNo: string; corpName: string; reportNm: string;
     stockCode: string; isWatchlist: boolean; insiderBuy: boolean;
+    isOwnership: boolean;
   };
   const toAnalyze: Candidate[] = [];
 
@@ -367,19 +446,26 @@ export async function fastDartCheck(): Promise<void> {
     seen.add(rceptNo);
     changed = true;
 
+    const isOwnership  = isOwnershipDisclosure(reportNm);
     const isHighImpact = FAST_DART_KEYWORDS.some(kw => reportNm.includes(kw));
-    const insiderBuy = detectInsiderBuy(reportNm);
+    const insiderBuy   = detectInsiderBuy(reportNm);
 
-    // 고영향 키워드 OR 내부자 매수 OR 워치리스트 종목만 분석 대상
-    if (!isHighImpact && !insiderBuy && !watchCodes.has(stockCode)) continue;
+    // 지분 공시는 워치리스트 종목에 한해서만 룰 기반 수급 분석을 실행한다.
+    // 비워치리스트 지분 공시는 대부분 단순 보유 현황 보고로 주가 영향이 미미하므로 제외.
+    // 일반 공시 → 고영향 키워드 OR 내부자 매수 OR 워치리스트 종목만 분석 대상
+    const shouldInclude = isOwnership
+      ? watchCodes.has(stockCode)
+      : (isHighImpact || insiderBuy || watchCodes.has(stockCode));
+    if (!shouldInclude) continue;
 
     const id = `${rceptNo}_${stockCode}`;
-    if (_processedIds.has(id)) continue; // 4시간 내 이미 Gemini 처리됨 → 스킵
+    if (_processedIds.has(id)) continue; // 4시간 내 이미 처리됨 → 스킵
     markProcessed(id);
 
     toAnalyze.push({
       rceptNo, corpName, reportNm,
       stockCode, isWatchlist: watchCodes.has(stockCode), insiderBuy,
+      isOwnership,
     });
   }
 
@@ -387,8 +473,34 @@ export async function fastDartCheck(): Promise<void> {
 
   if (toAnalyze.length === 0) return;
 
-  // ── 2단계: 배치 Gemini 5단계 임팩트 분류 (N개 → 1회 호출) ──────────────────
-  const batchLines = toAnalyze.map((c, i) =>
+  // ── 2a단계: 지분 공시 → 룰 기반 수급 분석 (LLM 불필요) ─────────────────────
+  const ownershipCandidates = toAnalyze.filter(c => c.isOwnership);
+  for (const c of ownershipCandidates) {
+    const ownershipSignal = await analyzeOwnershipChange(c.corpName, c.reportNm);
+    if (ownershipSignal.sentiment !== 'NEUTRAL') {
+      const emoji = ownershipSignal.sentiment === 'POSITIVE' ? '📈' : '📉';
+      await sendTelegramAlert(
+        `${emoji} <b>[수급 이벤트] ${c.corpName}</b>\n` +
+        `${c.reportNm}\n` +
+        (c.isWatchlist ? `⭐ <b>워치리스트 종목!</b>\n` : '') +
+        `수급: ${ownershipSignal.reason}\n` +
+        `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${c.rceptNo}`
+      ).catch(console.error);
+      console.log(`[FastDART] ${emoji} 수급이벤트: ${c.corpName} (${ownershipSignal.sentiment}) — ${c.reportNm}`);
+    }
+  }
+
+  // ── 2b단계: 일반 공시 → 배치 Gemini 5단계 임팩트 분류 (N개 → 1회 호출) ────
+  const llmCandidates = toAnalyze.filter(c => !c.isOwnership);
+
+  if (llmCandidates.length === 0) {
+    if (ownershipCandidates.length > 0) {
+      console.log(`[FastDART] 수급 분석: ${ownershipCandidates.length}건 (LLM 없음)`);
+    }
+    return;
+  }
+
+  const batchLines = llmCandidates.map((c, i) =>
     `${i}. [${c.corpName}] ${c.reportNm}` +
     ` (워치리스트:${c.isWatchlist ? '예' : '아니오'}, 내부자매수:${c.insiderBuy ? '예' : '아니오'})`
   ).join('\n');
@@ -414,8 +526,8 @@ export async function fastDartCheck(): Promise<void> {
   let llmStateChanged = false;
 
   // ── 3단계: 결과 처리 + Telegram 알림 ─────────────────────────────────────
-  for (let i = 0; i < toAnalyze.length; i++) {
-    const c       = toAnalyze[i];
+  for (let i = 0; i < llmCandidates.length; i++) {
+    const c       = llmCandidates[i];
     const result  = batchResults.find(r => r.i === i);
     const impact  = result?.impact ?? 0;
     const reason  = result?.r ?? '분석 불가';
@@ -459,6 +571,6 @@ export async function fastDartCheck(): Promise<void> {
 
   if (llmStateChanged) saveDartLlmState(llmState);
 
-  console.log(`[FastDART] 배치 분석: ${toAnalyze.length}건 → Gemini 1회 호출`);
+  console.log(`[FastDART] 배치 분석: ${llmCandidates.length}건 → Gemini 1회 호출`);
 }
 
