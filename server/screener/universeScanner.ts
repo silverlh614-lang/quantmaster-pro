@@ -307,8 +307,10 @@ export async function stage3AIScreenAndRegister(
     if (currentPrice <= 0) continue;
 
     // 실계산 gate 점수로 필터 (Gemini 추정값 불사용)
+    // gateScore 18 이상만 워치리스트 등록: 27조건 기준 약 67% 충족 수준으로
+    // Wide Watchlist 품질을 높여 목표 전환율 12~18%를 달성하기 위한 임계값
     const realGateScore = candidate?.gateScore ?? 0;
-    if (realGateScore < 5) continue; // 10조건 기준 NORMAL 이상
+    if (realGateScore < 18) continue;
 
     const profile    = (['A','B','C','D'].includes(result.profile) ? result.profile : 'B') as 'A'|'B'|'C'|'D';
     const stopRate   = stopMap[profile]   ?? -0.10;
