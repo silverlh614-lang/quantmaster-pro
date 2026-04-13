@@ -49,6 +49,18 @@ export interface YahooQuoteExtended {
   recentHighs10d?: number[];    // 최근 10일 일중 고가 배열
   recentLows10d?: number[];     // 최근 10일 일중 저가 배열
   recentVolumes10d?: number[];  // 최근 10일 거래량 배열
+  // Compression Score 구성 요소
+  bbWidthCurrent: number;       // 현재 BB 폭 비율 (4σ/SMA)
+  bbWidth20dAvg: number;        // 최근 20봉 BB 폭 이동평균
+  vol5dAvg: number;             // 5일 평균 거래량
+  vol20dAvg: number;            // 20일 평균 거래량
+  atr5d: number;                // 5일 ATR
+  // MTAS 구성 요소
+  monthlyAboveEMA12: boolean;   // 월봉: 주가 > 12개월 EMA
+  monthlyEMARising: boolean;    // 월봉: EMA12 우상향 중
+  weeklyAboveCloud: boolean;    // 주봉: 일목균형표 구름대 위
+  weeklyLaggingSpanUp: boolean; // 주봉: 후행스팬 상향
+  dailyVolumeDrying: boolean;   // 일봉: 거래량 마름 (vol5d < vol20d × 0.7)
 }
 
 // ── 기술적 지표 계산 유틸 ─────────────────────────────────────────────────────
@@ -299,8 +311,8 @@ export async function preScreenStocks(): Promise<ScreenedStock[]> {
 
 export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtended | null> {
   try {
-    // range=90d — MA60 추세 + 가속도 지표(5일 전 RSI/MACD)에 충분한 데이터 확보
-    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=90d&interval=1d`;
+    // range=2y — MTAS(월봉/주봉) 계산에 충분한 데이터 확보 (MA60, 가속도 지표 포함)
+    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=2y&interval=1d`;
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
     });
@@ -329,8 +341,8 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const changePercent = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
     const volume = volumes[volumes.length - 1] ?? 0;
 
-    // 5일 평균 거래량 (당일 제외)
-    const pastVolumes = volumes.slice(0, -1);
+    // 평균 거래량 (최근 60거래일, 당일 제외 — 2y 범위에서도 일관성 유지)
+    const pastVolumes = volumes.slice(Math.max(0, volumes.length - 61), -1);
     const avgVolume = pastVolumes.length > 0
       ? pastVolumes.reduce((s, v) => s + v, 0) / pastVolumes.length
       : volume;
@@ -401,6 +413,85 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const close5dAgo = closes.length > 5 ? closes[closes.length - 6] : closes[0];
     const return5d = close5dAgo > 0 ? ((price - close5dAgo) / close5dAgo) * 100 : 0;
 
+    // ── Compression Score 구성 요소 ──────────────────────────────────────────────
+
+    // BB 폭 계산: (4σ / SMA) at a given bar index
+    const calcBBWidthAt = (cs: number[], endIdx: number): number => {
+      if (endIdx < 19 || cs.length <= endIdx) return 0;
+      const slice = cs.slice(endIdx - 19, endIdx + 1);
+      const mean = slice.reduce((a, b) => a + b, 0) / 20;
+      if (mean === 0) return 0;
+      const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / 20;
+      return (4 * Math.sqrt(variance)) / mean;
+    };
+    const bbWidthCurrent = calcBBWidthAt(closes, closes.length - 1);
+    let bbWidthSum = 0, bbWidthCount = 0;
+    for (let i = 0; i < 20 && (closes.length - 1 - i) >= 19; i++) {
+      bbWidthSum += calcBBWidthAt(closes, closes.length - 1 - i);
+      bbWidthCount++;
+    }
+    const bbWidth20dAvg = bbWidthCount > 0 ? bbWidthSum / bbWidthCount : bbWidthCurrent;
+
+    // 거래량 5일/20일 평균
+    const vol5dAvg = volumes.length >= 5
+      ? volumes.slice(-5).reduce((a, b) => a + b, 0) / 5 : volume;
+    const vol20dAvg = volumes.length >= 20
+      ? volumes.slice(-20).reduce((a, b) => a + b, 0) / 20 : avgVolume;
+
+    // ATR 5일
+    const atr5d = trueRanges.length >= 5
+      ? trueRanges.slice(-5).reduce((a, b) => a + b, 0) / 5 : atr;
+
+    // 거래량 마름 판단 (5일 평균 < 20일 평균의 70%)
+    const dailyVolumeDrying = vol20dAvg > 0 && vol5dAvg < vol20dAvg * 0.7;
+
+    // ── MTAS 구성 요소: 월봉/주봉 다운샘플링 ────────────────────────────────────
+
+    // 주봉 다운샘플링 (5거래일 단위)
+    const wCloses: number[] = [], wHighs: number[] = [], wLows: number[] = [];
+    for (let i = 0; i < closes.length; i += 5) {
+      const end = Math.min(i + 5, closes.length);
+      wCloses.push(closes[end - 1]);
+      wHighs.push(Math.max(...highs.slice(i, end)));
+      wLows.push(Math.min(...lows.slice(i, end)));
+    }
+
+    // 월봉 다운샘플링 (~21거래일 단위)
+    const mCloses: number[] = [];
+    for (let i = 0; i < closes.length; i += 21) {
+      const end = Math.min(i + 21, closes.length);
+      mCloses.push(closes[end - 1]);
+    }
+
+    // 월봉: 주가 > 12개월 EMA이고 EMA 우상향
+    let monthlyAboveEMA12 = false, monthlyEMARising = false;
+    if (mCloses.length >= 13) {
+      const mEma12 = calcEMAArr(mCloses, 12);
+      const lastEma = mEma12[mEma12.length - 1];
+      const prevEma = mEma12.length >= 2 ? mEma12[mEma12.length - 2] : lastEma;
+      monthlyAboveEMA12 = price > lastEma;
+      monthlyEMARising = lastEma > prevEma;
+    }
+
+    // 주봉: 일목균형표 구름대 위 + 후행스팬 상향
+    let weeklyAboveCloud = false, weeklyLaggingSpanUp = false;
+    if (wCloses.length >= 78) {
+      const wn = wCloses.length;
+      const refBar = wn - 27; // 구름대는 26봉 전 데이터로 형성
+      const midpoint = (h: number[], l: number[], s: number, e: number): number => {
+        if (s < 0 || e > h.length) return 0;
+        return (Math.max(...h.slice(s, e)) + Math.min(...l.slice(s, e))) / 2;
+      };
+      const tenkanRef = midpoint(wHighs, wLows, refBar - 8, refBar + 1);  // 9봉 중앙값
+      const kijunRef  = midpoint(wHighs, wLows, refBar - 25, refBar + 1); // 26봉 중앙값
+      const spanA = (tenkanRef + kijunRef) / 2;
+      const spanB = midpoint(wHighs, wLows, refBar - 51, refBar + 1);     // 52봉 중앙값
+      const cloudTop = Math.max(spanA, spanB);
+      weeklyAboveCloud = cloudTop > 0 && wCloses[wn - 1] > cloudTop;
+      // 후행스팬: 현재 종가 vs 26주 전 종가
+      weeklyLaggingSpanUp = wCloses[wn - 1] > wCloses[wn - 27];
+    }
+
     return {
       price: Math.round(price), changePercent, volume, avgVolume,
       dayOpen: Math.round(dayOpen),
@@ -416,6 +507,18 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       recentHighs10d:   highs.slice(-10),
       recentLows10d:    lows.slice(-10),
       recentVolumes10d: volumes.slice(-10),
+      // Compression Score 구성 요소
+      bbWidthCurrent: parseFloat(bbWidthCurrent.toFixed(6)),
+      bbWidth20dAvg:  parseFloat(bbWidth20dAvg.toFixed(6)),
+      vol5dAvg: Math.round(vol5dAvg),
+      vol20dAvg: Math.round(vol20dAvg),
+      atr5d: parseFloat(atr5d.toFixed(2)),
+      // MTAS 구성 요소
+      monthlyAboveEMA12,
+      monthlyEMARising,
+      weeklyAboveCloud,
+      weeklyLaggingSpanUp,
+      dailyVolumeDrying,
     };
   } catch {
     return null;

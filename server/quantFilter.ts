@@ -10,11 +10,13 @@
 import type { YahooQuoteExtended } from './screener/stockScreener.js';
 
 export interface ServerGateResult {
-  gateScore: number;                          // 가중치 적용 점수 (float, 최대 ~8)
+  gateScore: number;                          // 가중치 적용 점수 (float, 최대 ~10)
   signalType: 'STRONG' | 'NORMAL' | 'SKIP';
   positionPct: number;                        // Kelly 기반 포지션 비율
   details: string[];                          // 통과한 조건 레이블
   conditionKeys: string[];                    // 통과한 조건 키 (Signal Calibrator용)
+  compressionScore: number;                   // CS (0~1) — 변동성 압축도 정량화 지수
+  mtas: number;                               // MTAS (0~10) — 멀티타임프레임 정렬도
 }
 
 /** 조건 키 상수 — condition-weights.json의 키와 1:1 매핑 */
@@ -48,6 +50,76 @@ export const DEFAULT_CONDITION_WEIGHTS: ConditionWeights = {
   rsi_zone:          1.0,
   macd_bull:         1.0,
 };
+
+/**
+ * Compression Score (CS) — 변동성 압축도 정량화 지수
+ *
+ * CS = (1 - BB폭현재/BB폭20일평균) × 0.4
+ *    + (1 - 거래량5일평균/거래량20일평균) × 0.4
+ *    + (1 - ATR5일/ATR20일) × 0.2
+ *
+ * 범위: 0~1 (1에 가까울수록 강한 압축)
+ * CS ≥ 0.6: 강한 압축 (최대 포지션)
+ * CS 0.4~0.6: 중간 압축 (절반 포지션)
+ * CS < 0.4: 압축 미완 (진입 보류)
+ */
+function calculateCompressionScore(quote: YahooQuoteExtended): number {
+  const bbRatio = quote.bbWidth20dAvg > 0
+    ? quote.bbWidthCurrent / quote.bbWidth20dAvg
+    : 1;
+  const volRatio = quote.vol20dAvg > 0
+    ? quote.vol5dAvg / quote.vol20dAvg
+    : 1;
+  const atrRatio = quote.atr20avg > 0
+    ? quote.atr5d / quote.atr20avg
+    : 1;
+
+  const cs = (1 - bbRatio) * 0.4
+           + (1 - volRatio) * 0.4
+           + (1 - atrRatio) * 0.2;
+
+  return Math.max(0, Math.min(1, cs));
+}
+
+/**
+ * Multi-Timeframe Alignment Score (MTAS) — 타임프레임 정렬도 수치화
+ *
+ * 월봉: 주가 > 12개월 EMA이고 우상향 → +3점
+ * 주봉: 일목균형표 구름대 위 (+1.5) + 후행스팬 상향 (+1.5) → +3점
+ * 일봉: 정배열 (+1.5) + VCP (+1.5) + 거래량 마름 (+1) → +4점 (최대)
+ *
+ * 범위: 0~10
+ * MTAS 10: 최대 포지션 (Gate 3 추가 가중 +15%)
+ * MTAS 7~9: 표준 포지션
+ * MTAS 5~6: 50% 포지션
+ * MTAS ≤ 4: 진입 금지
+ */
+function calculateMTAS(quote: YahooQuoteExtended): number {
+  let mtas = 0;
+
+  // 월봉 판단 (+3점): 주가 > 12개월 EMA이고 우상향
+  if (quote.monthlyAboveEMA12 && quote.monthlyEMARising) {
+    mtas += 3;
+  }
+
+  // 주봉 판단 (+3점): 일목균형표 구름대 위 + 후행스팬 상향
+  if (quote.weeklyAboveCloud) mtas += 1.5;
+  if (quote.weeklyLaggingSpanUp) mtas += 1.5;
+
+  // 일봉 판단 (+4점): 정배열 + VCP + 거래량 마름
+  if (quote.ma5 > 0 && quote.ma20 > 0 && quote.ma60 > 0 &&
+      quote.ma5 > quote.ma20 && quote.ma20 > quote.ma60) {
+    mtas += 1.5;  // 정배열
+  }
+  if (quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.7) {
+    mtas += 1.5;  // VCP 변동성 축소
+  }
+  if (quote.dailyVolumeDrying) {
+    mtas += 1;    // 거래량 마름
+  }
+
+  return mtas;
+}
 
 /**
  * Yahoo Finance 확장 시세 데이터로 10개 Gate 조건 평가.
@@ -126,12 +198,19 @@ export function evaluateServerGate(
     conditionKeys.push('relative_strength');
   }
 
-  // 조건 25: VCP 변동성 축소 (ATR < 20일 ATR 평균의 70%)
-  if (quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.7) {
+  // 조건 25: VCP — Compression Score 기반 정량 평가
+  // '박스권이다' 정성 판단 → '압축도 0.73 강한 에너지 응축' 정량 판단으로 업그레이드
+  const cs = calculateCompressionScore(quote);
+  if (cs >= 0.6) {
     score += w('vcp');
-    details.push(`VCP (ATR ${((quote.atr / quote.atr20avg) * 100).toFixed(0)}%)`);
+    details.push(`VCP 강한압축 (CS=${cs.toFixed(2)})`);
+    conditionKeys.push('vcp');
+  } else if (cs >= 0.4) {
+    score += w('vcp') * 0.5;
+    details.push(`VCP 중간압축 (CS=${cs.toFixed(2)})`);
     conditionKeys.push('vcp');
   }
+  // CS < 0.4: 압축 미완 — VCP 미통과
 
   // 조건 27: 거래량 급증 + 상승 (거래량 3배 이상 & +1% 이상)
   if (quote.avgVolume > 0 && quote.volume >= quote.avgVolume * 3 && quote.changePercent >= 1) {
@@ -154,15 +233,39 @@ export function evaluateServerGate(
     conditionKeys.push('macd_bull');
   }
 
+  // MTAS — 멀티타임프레임 정렬도 (타임프레임 불일치 역방향 진입 구조적 차단)
+  const mtas = calculateMTAS(quote);
+
   // 신호 분류 및 포지션 사이징
-  // 최대 점수 ~10 (조건 10개 × 1.0), STRONG ≥ 7, NORMAL ≥ 5 (이전 8조건 대비 기준 조정)
-  const signalType = score >= 7 ? 'STRONG' as const
-                   : score >= 5 ? 'NORMAL' as const
-                   : 'SKIP' as const;
+  let signalType: 'STRONG' | 'NORMAL' | 'SKIP';
+  let positionPct: number;
 
-  const positionPct = score >= 7 ? 0.12
-                    : score >= 5 ? 0.08
-                    : 0.03;
+  if (mtas <= 4) {
+    // MTAS ≤ 4: 진입 금지 — 타임프레임 불일치
+    signalType = 'SKIP';
+    positionPct = 0;
+    details.push(`MTAS ${mtas.toFixed(1)}/10 진입금지`);
+  } else {
+    // 기존 점수 기반 분류 (최대 점수 ~10)
+    signalType = score >= 7 ? 'STRONG' as const
+               : score >= 5 ? 'NORMAL' as const
+               : 'SKIP' as const;
 
-  return { gateScore: score, signalType, positionPct, details, conditionKeys };
+    positionPct = score >= 7 ? 0.12
+                : score >= 5 ? 0.08
+                : 0.03;
+
+    // MTAS 기반 포지션 조정
+    if (mtas === 10) {
+      positionPct = Math.min(positionPct * 1.15, 0.15);
+      details.push(`MTAS 10/10 최대포지션 (+15%)`);
+    } else if (mtas >= 7) {
+      details.push(`MTAS ${mtas.toFixed(1)}/10 표준`);
+    } else if (mtas >= 5) {
+      positionPct *= 0.5;
+      details.push(`MTAS ${mtas.toFixed(1)}/10 50%포지션`);
+    }
+  }
+
+  return { gateScore: score, signalType, positionPct, details, conditionKeys, compressionScore: cs, mtas };
 }
