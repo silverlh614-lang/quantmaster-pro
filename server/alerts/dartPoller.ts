@@ -288,7 +288,8 @@ export async function pollDartDisclosures(): Promise<void> {
     }
 
     // ── 내부자 매수 → 즉시 특별 Telegram 알림 ─────────────────────────────
-    if (insiderBuy && !ownershipSignal) {
+    // 지분 공시로 이미 수급 이벤트 알림을 보낸 경우(POSITIVE/NEGATIVE)에는 중복 발송하지 않는다.
+    if (insiderBuy && (!ownershipSignal || ownershipSignal.sentiment === 'NEUTRAL')) {
       await sendTelegramAlert(
         `🕵️ <b>[내부자 매수 감지] ${alert.corp_name}</b>\n` +
         `${alert.report_nm}\n` +
@@ -449,7 +450,8 @@ export async function fastDartCheck(): Promise<void> {
     const isHighImpact = FAST_DART_KEYWORDS.some(kw => reportNm.includes(kw));
     const insiderBuy   = detectInsiderBuy(reportNm);
 
-    // 지분 공시 → 워치리스트 종목만 룰 기반 수급 분석 대상으로 포함
+    // 지분 공시는 워치리스트 종목에 한해서만 룰 기반 수급 분석을 실행한다.
+    // 비워치리스트 지분 공시는 대부분 단순 보유 현황 보고로 주가 영향이 미미하므로 제외.
     // 일반 공시 → 고영향 키워드 OR 내부자 매수 OR 워치리스트 종목만 분석 대상
     const shouldInclude = isOwnership
       ? watchCodes.has(stockCode)
