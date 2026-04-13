@@ -544,7 +544,8 @@ export async function autoPopulateWatchlist(): Promise<number> {
     const screened = getScreenerCache();
     for (const s of screened) {
       if (existingCodes.has(s.code)) continue;
-      if (s.changeRate < 2 || s.foreignNetBuy < 0) continue; // +2% 이상 & 외국인 순매수
+      if (s.changeRate < 0 || s.changeRate >= 8) continue;    // 음봉·과열 제외 (기존 +2% → 0%로 완화)
+      if (s.foreignNetBuy < 0) continue;                      // 외국인 순매수
 
       const sl = Math.round(s.currentPrice * 0.92);
       const tp = Math.round(s.currentPrice * 1.15);
@@ -571,8 +572,11 @@ export async function autoPopulateWatchlist(): Promise<number> {
     const quote = await fetchYahooQuote(stock.symbol);
     if (!quote || quote.price <= 0) continue;
 
-    // 필터: +1.5% 이상 상승 + 거래량이 5일 평균의 1.5배 이상 (상대 기준)
-    if (quote.changePercent < 1.5 || quote.volume < quote.avgVolume * 1.5) continue;
+    // 필터: 과열 상단 차단 + VCP/거래량 조건 (당일 상승률 하한 제거)
+    const isVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
+    if (quote.changePercent < 0 || quote.changePercent >= 5) continue;  // 음봉·과열 제외
+    if (quote.volume < quote.avgVolume * 1.2 && !isVCP) continue;       // VCP면 거래량 마름도 OK
+    if (quote.return5d > 15) continue;                                   // 5일 +15% 초과 → 급등 완료
 
     // 아이디어 2: 서버사이드 Gate 평가 — SKIP 종목 제외
     const macroState = loadMacroState();
