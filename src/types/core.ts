@@ -7,6 +7,8 @@ import type {
 import type {
   MomentumAcceleration, TMAResult, MAPCResult, SRRResult,
 } from './technical';
+import type { FibonacciTimeZoneResult } from '../services/quant/fibonacciTimeZoneEngine';
+import type { InstitutionalFootprintResult } from '../services/quant/institutionalFootprintEngine';
 
 // ─── 체크리스트 키 ↔ 조건 ID 양방향 매핑 ──────────────────────────────────────
 
@@ -467,6 +469,8 @@ export interface EvaluationResult {
   conditionSources?: Record<ConditionId, 'COMPUTED' | 'AI'>; // 조건별 데이터 출처 (실계산 vs AI추정)
   contradictionDetection?: ContradictionDetectionResult; // 상충 감지기
   timingSync?: TimingSyncResult; // 조건 통과 시점 동기화 스코어
+  fibonacciTimeZone?: FibonacciTimeZoneResult; // 피보나치 타임존 (시간축 피보나치)
+  institutionalFootprint?: InstitutionalFootprintResult; // 기관 매집 발자국 탐지
 }
 
 // ─── 상충 감지기 타입 ────────────────────────────────────────────────────────
