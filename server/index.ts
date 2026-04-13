@@ -7,7 +7,7 @@ import fs from "fs";
 import { createHash } from "crypto";
 import dotenv from "dotenv";
 import { tradingOrchestrator } from "./orchestrator/tradingOrchestrator.js";
-import { sendTelegramAlert } from "./alerts/telegramClient.js";
+import { sendTelegramAlert, setTelegramBotCommands } from "./alerts/telegramClient.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -158,6 +158,9 @@ async function startServer() {
     startScheduler();
 
     console.log('[AutoTrade] 오케스트레이터 + DART 폴링 + Bear Regime 알림 + MHS 모닝 알림 + IPS 변곡점 경보 가동 완료');
+
+    // Telegram 봇 명령어 메뉴 등록 (fire-and-forget)
+    setTelegramBotCommands().catch(console.error);
 
     // 아이디어 12: 서버 기동 시 Telegram 알림 (fire-and-forget)
     sendTelegramAlert(

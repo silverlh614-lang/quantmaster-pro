@@ -1,7 +1,7 @@
 // server/telegram/webhookHandler.ts
 // Telegram 양방향 봇 Webhook 핸들러 — server.ts에서 분리
 // POST /api/telegram/webhook 엔드포인트에서 호출
-// 지원 명령어: /status, /stop, /reset, /watchlist, /buy, /report, /shadow, /pending
+// 지원 명령어: /help, /status, /market, /stop, /reset, /watchlist, /buy, /report, /shadow, /pending
 import { Request, Response } from 'express';
 import {
   getEmergencyStop, setEmergencyStop,
@@ -15,7 +15,7 @@ import { getMonthlyStats } from '../learning/recommendationTracker.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
 import { runAutoSignalScan } from '../trading/signalScanner.js';
-import { generateDailyReport } from '../alerts/reportGenerator.js';
+import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/reportGenerator.js';
 
 export async function handleTelegramWebhook(req: Request, res: Response): Promise<void> {
   res.sendStatus(200); // Telegram에 즉시 200 응답 (재전송 방지)
@@ -40,6 +40,38 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
   try {
     switch (cmd.toLowerCase()) {
+      case '/help':
+      case '/start': {
+        await reply(
+          `🤖 <b>QuantMaster Pro 봇 명령어</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `📊 <b>조회</b>\n` +
+          `  /status — 시스템 현황 요약\n` +
+          `  /market — 시장상황 요약 레포트\n` +
+          `  /watchlist — 워치리스트 조회\n` +
+          `  /shadow — Shadow 성과 현황\n` +
+          `  /pending — 미체결 주문 조회\n\n` +
+          `📈 <b>매매</b>\n` +
+          `  /buy <code>종목코드</code> — 수동 매수 신호\n` +
+          `  /report — 일일 리포트 생성\n\n` +
+          `🛑 <b>제어</b>\n` +
+          `  /stop — 비상 정지 발동\n` +
+          `  /reset [pw] — 비상 정지 해제\n\n` +
+          `⏰ <b>자동 레포트 스케줄</b>\n` +
+          `  08:30 — 장전 시장 브리핑\n` +
+          `  12:00 — 장중 시장 현황\n` +
+          `  15:35 — 장마감 시장 요약\n\n` +
+          `<i>/help 으로 이 메시지를 다시 볼 수 있습니다.</i>`
+        );
+        break;
+      }
+
+      case '/market': {
+        await reply('📡 시장상황 요약 생성 중...');
+        await sendMarketSummaryOnDemand().catch(console.error);
+        break;
+      }
+
       case '/status': {
         const macro   = loadMacroState();
         const shadows = getShadowTrades();
@@ -148,15 +180,8 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
       default:
         await reply(
-          `🤖 <b>QuantMaster Pro 봇</b>\n` +
-          `/status — 현황 요약\n` +
-          `/stop — 비상 정지\n` +
-          `/reset [pw] — 비상 정지 해제\n` +
-          `/watchlist — 워치리스트 조회\n` +
-          `/buy 종목코드 — 수동 신호\n` +
-          `/report — 일일 리포트\n` +
-          `/shadow — Shadow 성과\n` +
-          `/pending — 미체결 주문`
+          `❓ 알 수 없는 명령어입니다.\n` +
+          `/help 를 입력하면 사용 가능한 명령어 목록을 볼 수 있습니다.`
         );
     }
   } catch (e) {

@@ -6,6 +6,8 @@ import { getMonthlyStats } from '../learning/recommendationTracker.js';
 import { callGemini } from '../clients/geminiClient.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { sendTelegramAlert } from './telegramClient.js';
+import { fetchCloses } from '../trading/marketDataRefresh.js';
+import { loadGlobalScanReport } from './globalScanAgent.js';
 
 /**
  * 아이디어 9: 일일 리포트 2.0 — Gemini AI 내러티브 리포트
@@ -211,4 +213,223 @@ export async function sendIntradayCheckIn(type: 'midday' | 'preclose'): Promise<
 
   await sendTelegramAlert(msg).catch(console.error);
   console.log(`[AutoTrade] 장중 점검 알림 완료 (${type})`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 시장상황 요약 레포트 — 장전 / 장중 / 장마감 자동 송출
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** 변화율 포맷 헬퍼 */
+function fmtPct(v: number | null | undefined): string {
+  if (v === null || v === undefined) return 'N/A';
+  return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+}
+
+/** KOSPI 현재가 + 전일대비 변화율 조회 */
+async function fetchKospiSnapshot(): Promise<{ price: number; changePct: number } | null> {
+  const closes = await fetchCloses('^KS11', '5d').catch(() => null);
+  if (!closes || closes.length < 2) return null;
+  const current = closes[closes.length - 1];
+  const prev    = closes[closes.length - 2];
+  return { price: current, changePct: ((current - prev) / prev) * 100 };
+}
+
+/** USD/KRW 현재 + 전일대비 */
+async function fetchUsdKrwSnapshot(): Promise<{ rate: number; changePct: number } | null> {
+  const closes = await fetchCloses('KRW=X', '5d').catch(() => null);
+  if (!closes || closes.length < 2) return null;
+  const current = closes[closes.length - 1];
+  const prev    = closes[closes.length - 2];
+  return { rate: current, changePct: ((current - prev) / prev) * 100 };
+}
+
+/**
+ * 장전 시장 브리핑 — 평일 08:30 KST
+ * 간밤 글로벌 시장 + 거시 지표 + 오늘 주목할 점을 요약하여 Telegram 발송
+ */
+export async function sendPreMarketReport(): Promise<void> {
+  const macro      = loadMacroState();
+  const watchlist  = loadWatchlist();
+  const globalScan = loadGlobalScanReport();
+
+  // 글로벌 지수 (간밤 globalScanAgent 결과 활용)
+  const sp500   = globalScan?.symbols.find(s => s.symbol === '^GSPC');
+  const ndx     = globalScan?.symbols.find(s => s.symbol === '^IXIC');
+  const vixData = globalScan?.symbols.find(s => s.symbol === '^VIX');
+  const ewy     = globalScan?.symbols.find(s => s.symbol === 'EWY');
+
+  // USD/KRW
+  const usdKrw = await fetchUsdKrwSnapshot();
+
+  // 섹터 경보
+  const alerts = globalScan?.sectorAlerts ?? [];
+  const alertLines = alerts.length > 0
+    ? alerts.map(a => `  ${a.direction === 'BULLISH' ? '🟢' : '🔴'} ${a.label} ${fmtPct(a.changePct)} → ${a.koreaSectors}`).join('\n')
+    : '  없음';
+
+  // Gemini AI 한줄 브리핑
+  const aiPrompt =
+    `오늘 한국 주식시장 장전 브리핑 (1~2문장).\n` +
+    `데이터: S&P500 ${fmtPct(sp500?.changePct)}, 나스닥 ${fmtPct(ndx?.changePct)}, ` +
+    `VIX ${vixData?.price ?? 'N/A'}, EWY ${fmtPct(ewy?.changePct)}, ` +
+    `USD/KRW ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원(${fmtPct(usdKrw?.changePct)}), ` +
+    `MHS ${macro?.mhs ?? 'N/A'}(${macro?.regime ?? 'N/A'}).\n` +
+    `KOSPI 예상 방향 + 핵심 근거를 한국어 2문장으로 답하라.`;
+  const aiOneLiner = await callGemini(aiPrompt, 'pre-market-brief').catch(() => null);
+
+  const msg =
+    `🌅 <b>[장전 브리핑] ${new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })}</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━\n` +
+    `<b>🌏 간밤 글로벌</b>\n` +
+    `  S&P500: ${sp500?.price?.toLocaleString() ?? 'N/A'} (${fmtPct(sp500?.changePct)})\n` +
+    `  나스닥: ${ndx?.price?.toLocaleString() ?? 'N/A'} (${fmtPct(ndx?.changePct)})\n` +
+    `  VIX: ${vixData?.price?.toFixed(1) ?? 'N/A'}\n` +
+    `  EWY: ${fmtPct(ewy?.changePct)}\n\n` +
+    `<b>📊 거시 지표</b>\n` +
+    `  MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n` +
+    `  USD/KRW: ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원 (${fmtPct(usdKrw?.changePct)})\n` +
+    (macro?.yieldCurve10y2y !== undefined ? `  10Y-2Y: ${macro.yieldCurve10y2y.toFixed(2)}%\n` : '') +
+    (macro?.wtiCrude !== undefined ? `  WTI: $${macro.wtiCrude.toFixed(1)}\n` : '') +
+    `\n<b>🔔 섹터 경보</b>\n${alertLines}\n\n` +
+    `<b>📋 워치리스트</b>: ${watchlist.length}개` +
+    (watchlist.length > 0
+      ? ` (${watchlist.slice(0, 5).map(w => w.name).join(', ')}${watchlist.length > 5 ? ' 외' : ''})`
+      : '') + '\n' +
+    (aiOneLiner ? `\n🤖 <b>AI 전망:</b> ${aiOneLiner}` : '');
+
+  await sendTelegramAlert(msg).catch(console.error);
+  console.log('[MarketReport] 장전 브리핑 발송 완료');
+}
+
+/**
+ * 장중 시장 현황 레포트 — 평일 12:00 KST
+ * KOSPI 실시간 + 활성 포지션 + 오전 거래 요약 + 주목 이벤트
+ */
+export async function sendIntradayMarketReport(): Promise<void> {
+  const macro    = loadMacroState();
+  const shadows  = loadShadowTrades();
+  const today    = new Date().toISOString().split('T')[0];
+  const todayTrades = shadows.filter(s => s.signalTime.startsWith(today));
+  const active   = shadows.filter(s =>
+    s.status === 'ORDER_SUBMITTED' || s.status === 'PARTIALLY_FILLED' ||
+    s.status === 'ACTIVE' || s.status === 'EUPHORIA_PARTIAL'
+  );
+
+  // KOSPI 실시간
+  const kospi  = await fetchKospiSnapshot();
+  const usdKrw = await fetchUsdKrwSnapshot();
+
+  // 활성 포지션 현재가 조회
+  const posLines: string[] = [];
+  for (const s of active.slice(0, 8)) {
+    const cur = await fetchCurrentPrice(s.stockCode).catch(() => null);
+    if (cur) {
+      const ret = ((cur - s.shadowEntryPrice) / s.shadowEntryPrice) * 100;
+      posLines.push(`  ${ret >= 0 ? '📈' : '📉'} ${s.stockName} ${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%`);
+    } else {
+      posLines.push(`  • ${s.stockName} (시세 없음)`);
+    }
+  }
+
+  const closed = todayTrades.filter(s => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP');
+  const wins   = closed.filter(s => s.status === 'HIT_TARGET');
+  const pnl    = closed.reduce((sum, s) => sum + (s.returnPct ?? 0), 0);
+
+  const msg =
+    `📡 <b>[장중 시장 현황] 12:00</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━\n` +
+    `<b>📊 KOSPI</b>: ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}\n` +
+    `<b>💱 USD/KRW</b>: ${usdKrw ? `${usdKrw.rate.toFixed(0)}원 (${fmtPct(usdKrw.changePct)})` : 'N/A'}\n` +
+    `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n\n` +
+    `<b>📈 오전 거래 요약</b>\n` +
+    `  오늘 신호: ${todayTrades.length}건\n` +
+    `  결산: ${closed.length}건 (승 ${wins.length} / 패 ${closed.length - wins.length})\n` +
+    `  P&L: ${fmtPct(pnl !== 0 ? pnl : null)}\n\n` +
+    (active.length > 0
+      ? `<b>💼 활성 포지션 (${active.length}개)</b>\n${posLines.join('\n')}\n`
+      : `<b>💼 활성 포지션</b>: 없음\n`);
+
+  await sendTelegramAlert(msg).catch(console.error);
+  console.log('[MarketReport] 장중 시장 현황 발송 완료');
+}
+
+/**
+ * 장마감 시장 요약 레포트 — 평일 15:35 KST
+ * 당일 종합: KOSPI 종가 + 거래 결과 + 포지션 현황 + Gemini AI 내일 전망
+ */
+export async function sendPostMarketReport(): Promise<void> {
+  const macro     = loadMacroState();
+  const shadows   = loadShadowTrades();
+  const watchlist = loadWatchlist();
+  const stats     = getMonthlyStats();
+  const today     = new Date().toISOString().split('T')[0];
+  const todayTrades = shadows.filter(s => s.signalTime.startsWith(today));
+  const active    = shadows.filter(s =>
+    s.status === 'ORDER_SUBMITTED' || s.status === 'PARTIALLY_FILLED' ||
+    s.status === 'ACTIVE' || s.status === 'EUPHORIA_PARTIAL'
+  );
+  const closed = todayTrades.filter(s => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP');
+  const wins   = closed.filter(s => s.status === 'HIT_TARGET');
+  const pnl    = closed.reduce((sum, s) => sum + (s.returnPct ?? 0), 0);
+  const winRate = closed.length > 0 ? Math.round((wins.length / closed.length) * 100) : 0;
+
+  // KOSPI 종가
+  const kospi  = await fetchKospiSnapshot();
+  const usdKrw = await fetchUsdKrwSnapshot();
+
+  // 결산 종목 상세
+  const closedLines = closed.length > 0
+    ? closed.map(s =>
+        `  ${s.status === 'HIT_TARGET' ? '✅' : '❌'} ${s.stockName} ${(s.returnPct ?? 0) >= 0 ? '+' : ''}${(s.returnPct ?? 0).toFixed(2)}%`
+      ).join('\n')
+    : '  (결산 없음)';
+
+  // Gemini AI 내일 전망
+  const aiPrompt =
+    `오늘 한국 주식시장 마감 후 요약 + 내일 전망 (2~3문장).\n` +
+    `데이터: KOSPI ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}, ` +
+    `USD/KRW ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원, MHS ${macro?.mhs ?? 'N/A'}(${macro?.regime ?? 'N/A'}), ` +
+    `오늘 자동매매 결산 ${closed.length}건 WIN률 ${winRate}%.\n` +
+    `오늘 시장을 1문장으로 요약 + 내일 주의사항 1~2개 bullet으로 한국어 답변하라.`;
+  const aiOutlook = await callGemini(aiPrompt, 'post-market-brief').catch(() => null);
+
+  const msg =
+    `🌇 <b>[장마감 요약] ${new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })}</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━\n` +
+    `<b>📊 KOSPI 종가</b>: ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}\n` +
+    `<b>💱 USD/KRW</b>: ${usdKrw ? `${usdKrw.rate.toFixed(0)}원 (${fmtPct(usdKrw.changePct)})` : 'N/A'}\n` +
+    `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n\n` +
+    `<b>📈 당일 거래 결과</b>\n` +
+    `  신호: ${todayTrades.length}건 | 결산: ${closed.length}건\n` +
+    `  WIN률: ${winRate}% | P&L: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%\n` +
+    `${closedLines}\n\n` +
+    `<b>💼 보유 포지션</b>: ${active.length}개\n` +
+    `<b>📋 워치리스트</b>: ${watchlist.length}개\n\n` +
+    `<b>📅 월간 (${stats.month})</b>\n` +
+    `  전체 ${stats.total}건 | WIN률 ${stats.winRate.toFixed(1)}%\n` +
+    `  평균수익 ${stats.avgReturn.toFixed(2)}% | STRONG_BUY ${stats.strongBuyWinRate.toFixed(1)}%\n` +
+    (aiOutlook ? `\n🤖 <b>AI 전망:</b>\n${aiOutlook}` : '');
+
+  await sendTelegramAlert(msg).catch(console.error);
+  console.log('[MarketReport] 장마감 요약 발송 완료');
+}
+
+/**
+ * 온디맨드 시장 요약 — /market 명령어로 즉시 호출
+ * 현재 시간대에 따라 적절한 레포트 유형을 자동 선택
+ */
+export async function sendMarketSummaryOnDemand(): Promise<void> {
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const t   = kst.getUTCHours() * 100 + kst.getUTCMinutes();
+
+  if (t < 900) {
+    // 장전
+    await sendPreMarketReport();
+  } else if (t < 1530) {
+    // 장중
+    await sendIntradayMarketReport();
+  } else {
+    // 장마감 이후
+    await sendPostMarketReport();
+  }
 }
