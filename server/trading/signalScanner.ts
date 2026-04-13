@@ -7,9 +7,7 @@
  */
 
 import {
-  BUY_TR_ID,
-  kisPost,
-  fetchCurrentPrice, fetchAccountBalance,
+  fetchCurrentPrice, fetchAccountBalance, placeKisMarketBuyOrder,
 } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
@@ -60,6 +58,7 @@ export type {
 } from './entryEngine.js';
 export {
   EXIT_RULE_PRIORITY_TABLE,
+  isOpenShadowStatus,
   buildStopLossPlan,
   calculateOrderQuantity,
   evaluateEntryRevalidation,
@@ -180,12 +179,14 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
   }
 
   // ── 동시 최대 보유 종목 (regimeConfig.maxPositions) ─────────────────────────
-  const activeCount = shadows.filter(
-    (s) => isOpenShadowStatus(s.status)
+  // INTRADAY 포지션은 별도 한도(MAX_INTRADAY_POSITIONS)로 관리하므로 제외한다.
+  // 두 카운트를 혼합하면 인트라데이 포지션이 스윙 매수를 의도치 않게 차단하는 모순이 생긴다.
+  const activeSwingCount = shadows.filter(
+    (s) => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY',
   ).length;
-  if (activeCount >= regimeConfig.maxPositions) {
+  if (activeSwingCount >= regimeConfig.maxPositions) {
     console.log(
-      `[AutoTrade] 최대 동시 포지션 도달 (${activeCount}/${regimeConfig.maxPositions}, 레짐 ${regime}) — 신규 진입 스킵`
+      `[AutoTrade] 최대 동시 포지션 도달 (${activeSwingCount}/${regimeConfig.maxPositions}, 레짐 ${regime}) — 신규 진입 스킵`
     );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
@@ -208,7 +209,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
   for (const stock of buyList) {
     // 아이디어 7: 루프 내에서도 포지션 수 재확인 (같은 스캔 중 복수 진입 방지)
     const currentActive = shadows.filter(
-      (s) => isOpenShadowStatus(s.status)
+      (s) => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY',
     ).length;
     if (currentActive >= regimeConfig.maxPositions) {
       console.log(`[AutoTrade] 최대 포지션 도달 (${currentActive}/${regimeConfig.maxPositions}, 레짐 ${regime}) — 나머지 종목 스킵`);
@@ -247,7 +248,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
                                : gateScoreFollow >= 15 ? 0.05
                                : 0.03;
             const posPctFollow = rawPctFollow * kellyMultiplier;
-            const remSlots = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status)).length);
+            const remSlots = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY').length);
             const { quantity: fullQty } = calculateOrderQuantity({
               totalAssets, orderableCash, positionPct: posPctFollow,
               price: followEntryPrice, remainingSlots: remSlots,
@@ -306,19 +307,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
               console.log(`[PreBreakout SHADOW] ${stock.name}(${stock.code}) 추종 매수 @${currentPrice}`);
               await sendTelegramAlert(alertMsg).catch(console.error);
             } else {
-              const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
-                CANO: process.env.KIS_ACCOUNT_NO ?? '',
-                ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
-                PDNO: stock.code.padStart(6, '0'),
-                ORD_DVSN: '01',
-                ORD_QTY: followQty.toString(),
-                ORD_UNPR: '0',
-                SLL_BUY_DVSN_CD: '02',
-                CTAC_TLNO: '',
-                MGCO_APTM_ODNO: '',
-                ORD_SVR_DVSN_CD: '0',
-              });
-              const ordNo = orderData?.output?.ODNO;
+              const ordNo = await placeKisMarketBuyOrder(stock.code, followQty);
               console.log(`[PreBreakout LIVE] ${stock.name} 추종 매수 — ODNO: ${ordNo}`);
               if (ordNo) {
                 fillMonitor.addOrder({
@@ -384,7 +373,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
               const isStrongPb  = gateScorePb >= 25;
               const rawPctPb    = isStrongPb ? 0.12 : gateScorePb >= 20 ? 0.08 : gateScorePb >= 15 ? 0.05 : 0.03;
               const posPctPb    = rawPctPb * kellyMultiplier;
-              const remSlotsPb  = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status)).length);
+              const remSlotsPb  = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY').length);
               const { quantity: fullPbQty, effectiveBudget: pbBudget } = calculateOrderQuantity({
                 totalAssets, orderableCash, positionPct: posPctPb,
                 price: pbEntryPrice, remainingSlots: remSlotsPb,
@@ -433,7 +422,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
 
                 shadows.push(pbTrade);
                 appendShadowLog({ event: 'PRE_BREAKOUT_ENTRY', ...pbTrade });
-                orderableCash = Math.max(0, orderableCash - pbBudget * 0.3);
+                // C2 수정: 실제 집행금액(pbQty × pbEntryPrice)으로 차감
+                // (이전 pbBudget * 0.3 은 Math.floor 오차로 실투자금과 달랐음)
+                orderableCash = Math.max(0, orderableCash - pbQty * pbEntryPrice);
 
                 console.log(`[PreBreakout] ${stock.name}(${stock.code}) 매집 감지 — 30% 선취매 @${pbEntryPrice} (${pbQty}주/${fullPbQty}주)`);
                 console.log(`[PreBreakout] ${accumResult.summary}`);
@@ -447,19 +438,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
                 ).catch(console.error);
 
                 if (!shadowMode) {
-                  const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
-                    CANO: process.env.KIS_ACCOUNT_NO ?? '',
-                    ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
-                    PDNO: stock.code.padStart(6, '0'),
-                    ORD_DVSN: '01',
-                    ORD_QTY: pbQty.toString(),
-                    ORD_UNPR: '0',
-                    SLL_BUY_DVSN_CD: '02',
-                    CTAC_TLNO: '',
-                    MGCO_APTM_ODNO: '',
-                    ORD_SVR_DVSN_CD: '0',
-                  });
-                  const ordNo = orderData?.output?.ODNO;
+                  const ordNo = await placeKisMarketBuyOrder(stock.code, pbQty);
                   if (ordNo) {
                     fillMonitor.addOrder({
                       ordNo, stockCode: stock.code, stockName: stock.name,
@@ -477,6 +456,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
         }
         continue; // 진입가 미도달 — 일반 진입 로직 건너뜀
       }
+
+      // C4 수정: 명시적 진입 조건 체크 (INTRADAY 경로와 동일한 방어 패턴)
+      // (!nearEntry && !breakout) 케이스는 위 pre-breakout 블록이 처리하지만,
+      // 방어적 가드를 명시하여 미래 코드 변경 시 조건 없는 진입을 차단한다.
+      if (!(nearEntry || breakout)) continue;
 
       if (!aboveStop) continue;
       const alreadyTraded = shadows.some(
@@ -684,19 +668,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
         ).catch(console.error);
       } else {
         // LIVE 모드: 실제 주문 (1차 수량만)
-        const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
-          CANO: process.env.KIS_ACCOUNT_NO ?? '',
-          ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
-          PDNO: stock.code.padStart(6, '0'),
-          ORD_DVSN: '01', // 시장가
-          ORD_QTY: execQty.toString(),
-          ORD_UNPR: '0',
-          SLL_BUY_DVSN_CD: '02',
-          CTAC_TLNO: '',
-          MGCO_APTM_ODNO: '',
-          ORD_SVR_DVSN_CD: '0',
-        });
-        const ordNo = orderData?.output?.ODNO;
+        const ordNo = await placeKisMarketBuyOrder(stock.code, execQty);
         console.log(`[AutoTrade LIVE] ${stock.name} 매수 주문 완료 — ODNO: ${ordNo}${trancheLabel}`);
         appendShadowLog({ event: 'ORDER', code: stock.code, price: currentPrice, ordNo, tranche: isStrongBuy ? 1 : 0 });
 
@@ -836,6 +808,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
             originalQuantity:    quantity,
             stopLoss:            intradayStop,
             initialStopLoss:     intradayStop,
+            // C3 수정: regimeStopLoss 필드 누락 → exitEngine의 일관된 손절 계산을 위해 명시 설정
+            regimeStopLoss:      intradayStop,
             hardStopLoss:        intradayStop,
             targetPrice:         intradayTarget,
             status:              'PENDING',
@@ -876,19 +850,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
             ).catch(console.error);
           } else {
             // LIVE 모드: 실제 시장가 주문
-            const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
-              CANO:              process.env.KIS_ACCOUNT_NO ?? '',
-              ACNT_PRDT_CD:      process.env.KIS_ACCOUNT_PROD ?? '01',
-              PDNO:              stock.code.padStart(6, '0'),
-              ORD_DVSN:          '01', // 시장가
-              ORD_QTY:           quantity.toString(),
-              ORD_UNPR:          '0',
-              SLL_BUY_DVSN_CD:   '02',
-              CTAC_TLNO:         '',
-              MGCO_APTM_ODNO:    '',
-              ORD_SVR_DVSN_CD:   '0',
-            });
-            const ordNo = orderData?.output?.ODNO;
+            const ordNo = await placeKisMarketBuyOrder(stock.code, quantity);
             console.log(`[AutoTrade/Intraday LIVE] ${stock.name} 매수 주문 — ODNO: ${ordNo}`);
             appendShadowLog({ event: 'INTRADAY_ORDER', code: stock.code, price: currentPrice, ordNo });
 

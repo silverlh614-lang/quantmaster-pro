@@ -153,6 +153,30 @@ export async function fetchAccountBalance(): Promise<number | null> {
 }
 
 // ─── 실제 KIS 매도 주문 ─────────────────────────────────────────────────────
+/**
+ * KIS 현금 시장가 매수 주문 (서버 자동매매 전용).
+ *
+ * @returns 주문번호(ODNO) 또는 null (Shadow 모드·오류 시)
+ */
+export async function placeKisMarketBuyOrder(
+  stockCode: string,
+  quantity: number,
+): Promise<string | null> {
+  const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
+    CANO:            process.env.KIS_ACCOUNT_NO ?? '',
+    ACNT_PRDT_CD:    process.env.KIS_ACCOUNT_PROD ?? '01',
+    PDNO:            stockCode.padStart(6, '0'),
+    ORD_DVSN:        '01',  // 시장가
+    ORD_QTY:         quantity.toString(),
+    ORD_UNPR:        '0',
+    SLL_BUY_DVSN_CD: '02',
+    CTAC_TLNO:       '',
+    MGCO_APTM_ODNO:  '',
+    ORD_SVR_DVSN_CD: '0',
+  });
+  return (orderData as { output?: { ODNO?: string } } | null)?.output?.ODNO ?? null;
+}
+
 export async function placeKisSellOrder(
   stockCode: string,
   stockName: string,
