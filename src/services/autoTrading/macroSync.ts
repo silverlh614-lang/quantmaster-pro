@@ -45,7 +45,7 @@ export async function syncGate0ToServer(
   };
 
   try {
-    await fetch('/api/auto-trade/macro/state', {
+    await fetch('/api/macro/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
