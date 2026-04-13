@@ -163,21 +163,25 @@ function computeBasePositionSize(ctx: {
     recommendation = '관망';
   }
 
+  // ── 리스크 감쇄: 가산 방식으로 전환 (곱셈 중첩으로 인한 과도 축소 방지) ──
+  // 각 리스크 팩터의 감쇄율을 합산 후 한 번에 적용, 최대 감쇄율 70% (최소 30% 유지)
+  let riskReductionPct = 0;
   if (ctx.kellyReduction > 0) {
-    positionSize *= (1 - ctx.kellyReduction);
+    riskReductionPct += ctx.kellyReduction * 100; // MHS 기반 Kelly 감쇄
   }
-
   if (ctx.geoRiskScore !== undefined && ctx.geoRiskScore <= 3 && ctx.isGeoSector) {
-    positionSize *= 0.7;
+    riskReductionPct += 15; // 지정학 리스크 (기존 30% → 15%로 완화)
   }
-
   if (ctx.creditCrisis) {
-    positionSize *= 0.5;
+    riskReductionPct += 25; // 크레딧 위기 (기존 50% → 25%로 완화)
   }
-
   if (ctx.cashRatio > 30) {
-    const regimeReduction = 1 - (ctx.cashRatio - 30) / 100;
-    positionSize *= Math.max(0.1, regimeReduction);
+    riskReductionPct += Math.min(30, ctx.cashRatio - 30); // 현금 비율 초과분 (최대 30%)
+  }
+  // 최대 감쇄 70% — 최소 포지션 30% 보장 (적극적 매수 지원)
+  const effectiveReduction = Math.min(70, riskReductionPct) / 100;
+  if (effectiveReduction > 0) {
+    positionSize *= (1 - effectiveReduction);
   }
 
   if (ctx.isPairTradeMode && positionSize > 0) {
@@ -409,7 +413,8 @@ export function evaluateStock(
   // 신용 위기 경보(AA- ≥ 150bp) → Kelly 50% 축소 (아래 positionSize *= 0.5 에서 적용)
   const creditCrisis = creditSpread?.isCrisisAlert === true;
   // 유동성 확장(스프레드 축소 추세) → Gate 2 완화 트리거로 합산
-  const creditLiquidityRelax = creditSpread?.isLiquidityExpanding === true;
+  // 단, Credit Crisis 발동 중이면 유동성 확장 신호 무시 (상충 방지: 위기와 완화가 동시 적용되는 고스트 패스 차단)
+  const creditLiquidityRelax = !creditCrisis && creditSpread?.isLiquidityExpanding === true;
 
   // ── 아이디어 11: 역발상 카운터사이클 신호 산출 ──────────────────────────────
   // 확장 레짐(CRISIS/UNCERTAIN 등)도 역발상 판단에 반영
@@ -605,8 +610,14 @@ export function evaluateStock(
     }
   } else if (signalVerdict.grade === 'BUY' && signalVerdict.isEarlyBullEntry && !gate3Passed) {
     // 상승 초기 선취매: Gate 3 미달이어도 BUY 50% 포지션 허용
-    positionSize = Math.max(positionSize, 10);
-    recommendation = '절반 포지션';
+    // 단, RRR 최소 1.5 이상은 확보해야 안전한 선취매 (기본 RRR 2.0보다 완화)
+    if (rrr >= 1.5) {
+      positionSize = Math.max(positionSize, 10);
+      recommendation = '절반 포지션';
+    } else {
+      positionSize = 0;
+      recommendation = '관망';
+    }
   } else if (signalVerdict.grade === 'WATCH' || signalVerdict.grade === 'HOLD') {
     positionSize = 0;
     if (recommendation === '풀 포지션' || recommendation === '절반 포지션') {
@@ -614,15 +625,23 @@ export function evaluateStock(
     }
   }
 
-  // 사이클 LATE → 신규 진입 금지
+  // 사이클 LATE → 신규 진입 금지 (단, Early Bull Entry는 자체 3조건 검증 통과이므로 절반 유지)
   if (cycleAnalysis.position === 'LATE' && positionSize > 0) {
-    positionSize = 0;
-    recommendation = '관망';
+    if (signalVerdict.isEarlyBullEntry) {
+      // Early Bull Entry: ROE유형3 + 외국인동반매수 + RS상위20% 모두 통과한 상태
+      // LATE 사이클이더라도 안전한 절반 포지션 유지
+      positionSize = Math.min(positionSize, 10);
+      recommendation = '절반 포지션';
+    } else {
+      positionSize = 0;
+      recommendation = '관망';
+    }
   }
 
-  // 데이터 신뢰도 강등
+  // 데이터 신뢰도 강등 — recommendation과 positionSize 모두 일관되게 축소
   if (dataReliability.degraded && recommendation === '풀 포지션') {
     recommendation = '절반 포지션';
+    positionSize = Math.min(positionSize, 10);
   }
 
   positionSize = Math.max(0, positionSize);
