@@ -11,6 +11,9 @@ import {
   generateWeeklyReport,
   sendWatchlistBriefing,
   sendIntradayCheckIn,
+  sendPreMarketReport,
+  sendIntradayMarketReport,
+  sendPostMarketReport,
 } from './alerts/reportGenerator.js';
 import { checkDailyLossLimit } from './emergency.js';
 import { refreshMarketRegimeVars } from './trading/marketDataRefresh.js';
@@ -100,6 +103,24 @@ export function startScheduler() {
     await checkFomcProximityAlert().catch(console.error);
   }, { timezone: 'UTC' });
 
+  // 장전 시장 브리핑 — 평일 08:30 KST (UTC 23:30, 일~목 UTC)
+  // 간밤 글로벌 시장 + MHS + USD/KRW + 섹터 경보 + AI 전망 요약
+  cron.schedule('30 23 * * 0-4', async () => {
+    await sendPreMarketReport().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // 장중 시장 현황 레포트 — 평일 12:00 KST (UTC 03:00, 월~금 UTC)
+  // KOSPI 실시간 + 오전 거래 요약 + 활성 포지션 현황
+  cron.schedule('0 3 * * 1-5', async () => {
+    await sendIntradayMarketReport().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // 장마감 시장 요약 레포트 — 평일 15:35 KST (UTC 06:35, 월~금 UTC)
+  // KOSPI 종가 + 당일 거래 결과 + 월간 통계 + AI 내일 전망
+  cron.schedule('35 6 * * 1-5', async () => {
+    await sendPostMarketReport().catch(console.error);
+  }, { timezone: 'UTC' });
+
   // 장중 중간 점검 — 오전 11:30 KST (UTC 02:30, 월~금 UTC)
   cron.schedule('30 2 * * 1-5', async () => {
     await sendIntradayCheckIn('midday').catch(console.error);
@@ -143,5 +164,5 @@ export function startScheduler() {
     await runBacktest().catch(console.error);
   }, { timezone: 'UTC' });
 
-  console.log('[Scheduler] 20개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
+  console.log('[Scheduler] 23개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
 }
