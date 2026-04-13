@@ -21,7 +21,7 @@ interface GlobalTrendChartProps {
   indices?: MarketDataPoint[];
 }
 
-export const GlobalTrendChart: React.FC<GlobalTrendChartProps> = ({ indices }) => {
+export const GlobalTrendChart: React.FC<GlobalTrendChartProps> = React.memo(({ indices }) => {
   const kospi = indices?.find(idx =>
     (idx.name || '').toUpperCase().includes('KOSPI') || (idx.name || '').includes('코스피')
   );
@@ -93,4 +93,4 @@ export const GlobalTrendChart: React.FC<GlobalTrendChartProps> = ({ indices }) =
       </div>
     </div>
   );
-};
+});

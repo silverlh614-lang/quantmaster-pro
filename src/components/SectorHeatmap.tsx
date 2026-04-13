@@ -1,7 +1,7 @@
-import React from 'react';
-import { 
-  TrendingUp, 
-  TrendingDown, 
+import React, { useMemo } from 'react';
+import {
+  TrendingUp,
+  TrendingDown,
   Minus,
   ArrowRight,
   Zap,
@@ -21,7 +21,7 @@ interface SectorHeatmapProps {
   sectors: SectorRotation[];
 }
 
-export const SectorHeatmap: React.FC<SectorHeatmapProps> = ({ sectors }) => {
+export const SectorHeatmap: React.FC<SectorHeatmapProps> = React.memo(({ sectors }) => {
   if (!sectors || sectors.length === 0) {
     debugWarn('SectorHeatmap: sectors 데이터 없음');
     return (
@@ -37,8 +37,11 @@ export const SectorHeatmap: React.FC<SectorHeatmapProps> = ({ sectors }) => {
     );
   }
 
-  // Sort by strength
-  const sortedSectors = [...sectors].sort((a, b) => b.strength - a.strength);
+  // Sort by strength (memoized to avoid re-sorting on every render)
+  const sortedSectors = useMemo(
+    () => [...sectors].sort((a, b) => b.strength - a.strength),
+    [sectors]
+  );
 
   return (
     <div className="glass-3d p-8 rounded-[2.5rem] border border-white/10 shadow-2xl">
@@ -151,4 +154,4 @@ export const SectorHeatmap: React.FC<SectorHeatmapProps> = ({ sectors }) => {
       `}</style>
     </div>
   );
-};
+});
