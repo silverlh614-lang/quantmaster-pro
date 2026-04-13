@@ -44,6 +44,11 @@ export interface YahooQuoteExtended {
   macd5dHistAgo: number;   // MACD 히스토그램 5일 전 (MACD 가속도 계산용)
   // Regret Asymmetry Filter 용
   return5d: number;        // 직전 5거래일 수익률 (%) — FOMO 쿨다운 판단
+  // Pre-Breakout Accumulation Detector 용 (최근 10일 OHLCV 원본 배열)
+  recentCloses10d?: number[];   // 최근 10일 종가 배열
+  recentHighs10d?: number[];    // 최근 10일 일중 고가 배열
+  recentLows10d?: number[];     // 최근 10일 일중 저가 배열
+  recentVolumes10d?: number[];  // 최근 10일 거래량 배열
 }
 
 // ── 기술적 지표 계산 유틸 ─────────────────────────────────────────────────────
@@ -407,6 +412,10 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       macdHistogram: parseFloat(macdHistogram.toFixed(2)),
       rsi5dAgo, weeklyRSI, ma60TrendUp, macd5dHistAgo,
       return5d: parseFloat(return5d.toFixed(2)),
+      recentCloses10d:  closes.slice(-10),
+      recentHighs10d:   highs.slice(-10),
+      recentLows10d:    lows.slice(-10),
+      recentVolumes10d: volumes.slice(-10),
     };
   } catch {
     return null;

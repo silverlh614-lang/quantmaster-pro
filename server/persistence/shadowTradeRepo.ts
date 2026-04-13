@@ -59,8 +59,8 @@ export interface ServerShadowTrade {
   trailPct?: number;              // 트레일링 스톱 낙폭 비율 (예: 0.10 = 10%)
   trailingEnabled?: boolean;      // 전체 LIMIT 트랜치 완료 후 트레일링 활성화
   r6EmergencySold?: boolean;      // R6_DEFENSE 30% 긴급 청산 완료 여부 (중복 방지)
-  /** 워치리스트 출처 — Pre-Market(기본) 또는 Intraday(장중 발굴) */
-  watchlistSource?: 'PRE_MARKET' | 'INTRADAY';
+  /** 워치리스트 출처 — Pre-Market(기본), Intraday(장중 발굴), Pre-Breakout(돌파 전 선취매) */
+  watchlistSource?: 'PRE_MARKET' | 'INTRADAY' | 'PRE_BREAKOUT' | 'PRE_BREAKOUT_FOLLOWTHROUGH';
 }
 
 export function loadShadowTrades(): ServerShadowTrade[] {
