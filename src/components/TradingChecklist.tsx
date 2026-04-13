@@ -153,22 +153,24 @@ export const TradingChecklist: React.FC = () => {
     Object.fromEntries(STEPS.map((s) => [s.id, { status: 'idle', message: '' }]))
   );
 
-  const runStep = async (step: Step) => {
+  const runStep = async (step: Step): Promise<boolean> => {
     setStates((prev) => ({ ...prev, [step.id]: { status: 'running', message: '' } }));
     try {
       const msg = await step.run();
       setStates((prev) => ({ ...prev, [step.id]: { status: 'ok', message: msg } }));
+      return true;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setStates((prev) => ({ ...prev, [step.id]: { status: 'error', message: msg } }));
+      return false;
     }
   };
 
   const runAll = async () => {
     for (const step of STEPS) {
-      await runStep(step);
       // 실패 시 중단 (디버깅 지옥 방지)
-      if (states[step.id]?.status === 'error') break;
+      const ok = await runStep(step);
+      if (!ok) break;
     }
   };
 
