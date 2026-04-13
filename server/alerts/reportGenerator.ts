@@ -8,6 +8,12 @@ import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { sendTelegramAlert } from './telegramClient.js';
 import { fetchCloses } from '../trading/marketDataRefresh.js';
 import { loadGlobalScanReport } from './globalScanAgent.js';
+import { getLiveRegime } from '../trading/regimeBridge.js';
+import { getFomcProximity } from '../trading/fomcCalendar.js';
+import { fetchYahooQuote } from '../screener/stockScreener.js';
+import { evaluateServerGate } from '../quantFilter.js';
+import { loadAttributionRecords } from '../persistence/attributionRepo.js';
+import { analyzeAttribution } from '../learning/attributionAnalyzer.js';
 
 /**
  * 아이디어 9: 일일 리포트 2.0 — Gemini AI 내러티브 리포트
@@ -106,47 +112,189 @@ export async function generateDailyReport(): Promise<void> {
 
 /**
  * 주간 성과 리포트 — 매주 금요일 16:30 KST (UTC 07:30) 자동 발송
- * 직전 7일간의 Shadow 거래 결과를 집계하여 Telegram으로 발송
+ *
+ * 구조화된 주간 리포트:
+ *  ① 거래 건수, WIN/LOSS, WIN률
+ *  ② 평균 수익/손실, RRR 달성
+ *  ③ 최고 기여 조건 TOP3 (attributionAnalyzer 연동)
+ *  ④ 다음주 주의사항 (FOMC 등)
  */
 export async function generateWeeklyReport(): Promise<void> {
   const shadows = loadShadowTrades();
-  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
   const week = shadows.filter(s => new Date(s.signalTime).getTime() > weekAgo);
   const closed = week.filter(s => s.status !== 'ACTIVE' && s.status !== 'PENDING');
   const wins = closed.filter(s => s.status === 'HIT_TARGET');
+  const losses = closed.filter(s => s.status === 'HIT_STOP');
   const winRate = closed.length > 0 ? Math.round(wins.length / closed.length * 100) : 0;
 
+  // 평균 수익/손실
+  const winReturns = wins.map(s => s.returnPct ?? 0);
+  const lossReturns = losses.map(s => s.returnPct ?? 0);
+  const avgWin = winReturns.length > 0
+    ? winReturns.reduce((a, b) => a + b, 0) / winReturns.length : 0;
+  const avgLoss = lossReturns.length > 0
+    ? Math.abs(lossReturns.reduce((a, b) => a + b, 0) / lossReturns.length) : 0;
+  const rrr = avgLoss > 0 ? avgWin / avgLoss : 0;
+
+  // 주간 날짜 범위
+  const weekStart = new Date(weekAgo + 9 * 60 * 60 * 1000);
+  const weekEnd = new Date(now + 9 * 60 * 60 * 1000);
+  const fmtDate = (d: Date) =>
+    `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+
+  // ── 귀인 분석: 최고 기여 조건 TOP3 ──────────────────────────────────────────
+  const attrRecords = loadAttributionRecords();
+  const weeklyAttrRecords = attrRecords.filter(
+    r => new Date(r.closedAt).getTime() > weekAgo
+  );
+  let top3Lines = '';
+  if (weeklyAttrRecords.length >= 3) {
+    const analysis = analyzeAttribution(weeklyAttrRecords);
+    const ranked = analysis
+      .filter(a => a.totalTrades >= 2 && a.avgReturn > 0)
+      .sort((a, b) => (b.avgReturn * b.totalTrades) - (a.avgReturn * a.totalTrades))
+      .slice(0, 3);
+
+    if (ranked.length > 0) {
+      top3Lines = `\n<b>최고 기여 조건 TOP${ranked.length}:</b>\n`;
+      ranked.forEach((a, i) => {
+        const medal = ['🥇', '🥈', '🥉'][i] ?? `${i + 1}위`;
+        top3Lines += `${medal} ${a.conditionName} — 기여 +${a.avgReturn.toFixed(1)}%\n`;
+      });
+    }
+  }
+
+  // ── 다음주 주의사항 (FOMC 등) ────────────────────────────────────────────────
+  const fomc = getFomcProximity();
+  let nextWeekNote = '';
+  if (fomc.nextFomcDate) {
+    const fomcDate = new Date(fomc.nextFomcDate);
+    const daysUntil = fomc.daysUntil ?? 999;
+    if (daysUntil <= 7) {
+      nextWeekNote = `\n⚠️ 다음주 주의: ${fomc.nextFomcDate} FOMC (D-${daysUntil})`;
+    }
+  }
+
+  // ── 메시지 조립 ──────────────────────────────────────────────────────────────
   const msg =
-    `📅 <b>주간 성과 리포트</b>\n` +
-    `━━━━━━━━━━━━━━━━━\n` +
-    `이번 주 신호: ${week.length}건\n` +
-    `결산: ${closed.length}건 (승 ${wins.length} / 패 ${closed.length - wins.length})\n` +
-    `주간 WIN률: ${winRate}%`;
+    `📊 <b>[주간 성과] ${fmtDate(weekStart)}~${fmtDate(weekEnd)}</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `거래 ${closed.length}건: WIN ${wins.length} / LOSS ${losses.length}  (WIN률 ${winRate}%)\n` +
+    `평균 수익: +${avgWin.toFixed(1)}%  평균 손실: -${avgLoss.toFixed(1)}%\n` +
+    `RRR 달성: ${rrr.toFixed(2)} (목표 2.0 ${rrr >= 2.0 ? '✅' : '⚠️'})\n` +
+    `━━━━━━━━━━━━━━━━━━━━` +
+    top3Lines +
+    (top3Lines ? `━━━━━━━━━━━━━━━━━━━━` : '') +
+    nextWeekNote;
 
   await sendTelegramAlert(msg).catch(console.error);
-  console.log('[AutoTrade] 주간 리포트 완료');
+  console.log('[AutoTrade] 주간 리포트 완료 (구조화)');
 }
 
 /**
  * 장 시작 전 워치리스트 브리핑 — 평일 08:50 KST (UTC 23:50, 일~목 UTC)
- * 워치리스트 상위 5개 종목의 목표가/손절가를 요약하여 Telegram 발송
+ *
+ * 구조화된 브리핑:
+ *  ① 레짐 + MHS + VKOSPI 요약
+ *  ② 워치리스트 종목별 CompressionScore, Gap 판정, 진입 상태
+ *  ③ FOMC 근접도 경고 (해당 시)
  */
 export async function sendWatchlistBriefing(): Promise<void> {
   const list = loadWatchlist();
-  if (list.length === 0) return;
+  const macro = loadMacroState();
+  const regime = getLiveRegime(macro);
+  const fomc = getFomcProximity();
 
-  const lines = list.slice(0, 5).map(w =>
-    `• ${w.name} | 목표 ${w.targetPrice.toLocaleString()} | 손절 ${w.stopLoss.toLocaleString()}`
-  ).join('\n');
+  // 레짐 이모지 맵
+  const regimeEmoji: Record<string, string> = {
+    R1_TURBO: '🟢', R2_BULL: '🟢', R3_EARLY: '🟡',
+    R4_NEUTRAL: '⚪', R5_CAUTION: '🟠', R6_DEFENSE: '🔴',
+  };
 
-  const msg =
-    `🌅 <b>장 시작 브리핑 (09:00)</b>\n` +
-    `━━━━━━━━━━━━━━━━━\n` +
-    `👀 워치리스트 ${list.length}개\n\n${lines}\n\n` +
-    `<i>오늘도 원칙대로 ✊</i>`;
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const hh = now.getUTCHours().toString().padStart(2, '0');
+  const mm = now.getUTCMinutes().toString().padStart(2, '0');
+
+  // ── ① 레짐 헤더 ──────────────────────────────────────────────────────────
+  let msg =
+    `🌅 <b>[${hh}:${mm} 장전 브리핑]</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `레짐: <b>${regime}</b> ${regimeEmoji[regime] ?? '⚪'}  ` +
+    `MHS: ${macro?.mhs ?? 'N/A'}  ` +
+    `VKOSPI: ${macro?.vkospi?.toFixed(1) ?? 'N/A'}\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n`;
+
+  // ── ② 워치리스트 종목별 상세 ──────────────────────────────────────────────
+  if (list.length === 0) {
+    msg += `워치리스트 비어있음\n`;
+  } else {
+    msg += `<b>워치리스트 ${list.length}종목</b>\n`;
+    const topItems = list.slice(0, 8);
+    for (const w of topItems) {
+      // Yahoo 시세 조회하여 CS, Gap 판단
+      const quote =
+        (await fetchYahooQuote(`${w.code}.KS`).catch(() => null)) ??
+        (await fetchYahooQuote(`${w.code}.KQ`).catch(() => null));
+
+      if (quote && quote.price > 0) {
+        const gate = evaluateServerGate(quote);
+        const cs = gate.compressionScore;
+
+        // 갭 판단: 시가 vs 전일종가
+        let gapLabel = '';
+        if (quote.prevClose && quote.prevClose > 0 && quote.dayOpen && quote.dayOpen > 0) {
+          const gapPct = ((quote.dayOpen - quote.prevClose) / quote.prevClose) * 100;
+          if (gapPct >= 4) gapLabel = `Gap+${gapPct.toFixed(1)}% 과열`;
+          else if (gapPct >= 1) gapLabel = `Gap+${gapPct.toFixed(1)}%`;
+          else if (gapPct <= -1) gapLabel = `Gap${gapPct.toFixed(1)}%`;
+        }
+
+        // 진입 상태 판단
+        let status: string;
+        if (gate.signalType === 'STRONG') {
+          status = `진입대기 @${w.entryPrice.toLocaleString()}`;
+        } else if (gate.signalType === 'NORMAL') {
+          status = `조건 부분충족 (Score ${gate.gateScore.toFixed(1)})`;
+        } else if (cs >= 0.4) {
+          status = `VCP 압축 중 (CS: ${cs.toFixed(2)})`;
+        } else {
+          status = `조건 미달`;
+          if (gapLabel) status += ` (${gapLabel})`;
+        }
+
+        const focusMark = w.isFocus ? '★ ' : '• ';
+        msg += `${focusMark}${w.name}  ${status}\n`;
+      } else {
+        msg += `• ${w.name}  (시세 조회 실패)\n`;
+      }
+    }
+    if (list.length > 8) {
+      msg += `  <i>... 외 ${list.length - 8}종목</i>\n`;
+    }
+  }
+
+  // ── ③ FOMC / 특이사항 ─────────────────────────────────────────────────────
+  msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+  if (fomc.phase !== 'NORMAL') {
+    msg += `⚠️ 오늘 주의: ${fomc.description}\n`;
+  }
+
+  // Kelly 배율 표시
+  const kellyNote = fomc.kellyMultiplier !== 1.0
+    ? `Kelly ×${fomc.kellyMultiplier.toFixed(2)} 자동 적용`
+    : null;
+  if (kellyNote) {
+    msg += `📌 ${kellyNote}\n`;
+  }
+
+  if (fomc.phase === 'NORMAL' && !kellyNote) {
+    msg += `<i>오늘도 원칙대로 ✊</i>\n`;
+  }
 
   await sendTelegramAlert(msg).catch(console.error);
-  console.log('[AutoTrade] 워치리스트 브리핑 완료');
+  console.log('[AutoTrade] 워치리스트 브리핑 완료 (구조화)');
 }
 
 /**

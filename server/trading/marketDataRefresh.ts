@@ -18,6 +18,7 @@
 
 import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js';
 import { loadFssRecords } from '../persistence/fssRepo.js';
+import { checkAndNotifyRegimeChange } from './regimeBridge.js';
 
 /**
  * FRED API — 최신 유효 관측값 조회 (최근 5건 중 '.' 제외 첫 번째).
@@ -187,5 +188,9 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   const updated = { ...existing, ...computed, updatedAt: new Date().toISOString() };
   saveMacroState(updated as typeof existing);
   console.log(`[MarketRefresh] MacroState 갱신 완료 — ${Object.keys(computed).length}개 필드`);
+
+  // ── 레짐 전환 감지 + 즉시 알림 ─────────────────────────────────────────────
+  await checkAndNotifyRegimeChange(updated as typeof existing).catch(console.error);
+
   return computed;
 }

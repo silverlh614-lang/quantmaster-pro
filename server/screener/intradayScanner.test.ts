@@ -39,6 +39,18 @@ function makeQuote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteExten
     ma60TrendUp:      true,
     macd5dHistAgo:      10,
     return5d:            8,
+    // Compression Score 구성 요소
+    bbWidthCurrent:     0.04,
+    bbWidth20dAvg:      0.06,
+    vol5dAvg:       80_000,
+    vol20dAvg:     100_000,
+    atr5d:             250,
+    // MTAS 구성 요소
+    monthlyAboveEMA12:    true,
+    monthlyEMARising:     true,
+    weeklyAboveCloud:     true,
+    weeklyLaggingSpanUp:  true,
+    dailyVolumeDrying:   false,
     ...overrides,
   };
 }

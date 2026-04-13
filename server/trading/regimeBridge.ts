@@ -6,11 +6,20 @@
  *
  * 효과: backtestPortfolio()와 라이브 signalScanner가 동일한 classifyRegime()를
  *       공유 → 검증한 것과 실행하는 것이 일치하는 시스템.
+ *
+ * 레짐 전환 알림: 레짐이 변경되면 즉시 Telegram으로 구조화된 알림 발송.
  */
 
 import type { RegimeVariables, RegimeLevel } from '../../src/types/core.js';
-import { classifyRegime } from '../../src/services/quant/regimeEngine.js';
+import { classifyRegime, REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
+import { sendTelegramAlert } from '../alerts/telegramClient.js';
+
+// ── 레짐 전환 감지용 모듈 상태 ──────────────────────────────────────────────
+
+let _previousRegime: RegimeLevel | null = null;
+let _previousMhs: number | null = null;
+let _previousVkospi: number | null = null;
 
 /**
  * MacroState → RegimeVariables
@@ -63,4 +72,107 @@ export function buildRegimeVars(macroState: MacroState): RegimeVariables {
 export function getLiveRegime(macroState: MacroState | null): RegimeLevel {
   if (!macroState) return 'R4_NEUTRAL';
   return classifyRegime(buildRegimeVars(macroState));
+}
+
+// ── 레짐 전환 즉시 알림 ──────────────────────────────────────────────────────
+
+/** 레짐 순서 (방어 → 공격) — 다운그레이드/업그레이드 판단용 */
+const REGIME_ORDER: RegimeLevel[] = [
+  'R6_DEFENSE', 'R5_CAUTION', 'R4_NEUTRAL', 'R3_EARLY', 'R2_BULL', 'R1_TURBO',
+];
+
+/**
+ * 레짐 전환 감지 + 즉시 Telegram 알림 발송.
+ *
+ * getLiveRegime() 호출 후 이 함수를 호출하면,
+ * 이전 레짐과 비교하여 변경 시 구조화된 알림을 발송한다.
+ *
+ * 알림 내용:
+ *  ① 전환 방향 (업그레이드/다운그레이드)
+ *  ② MHS, VKOSPI 변화량
+ *  ③ Kelly 배율, 최대 보유, 손절 기준 변경사항
+ *  ④ 보유 포지션 점검 권고
+ */
+export async function checkAndNotifyRegimeChange(
+  macroState: MacroState | null,
+): Promise<void> {
+  const currentRegime = getLiveRegime(macroState);
+  const currentMhs = macroState?.mhs ?? null;
+  const currentVkospi = macroState?.vkospi ?? null;
+
+  // 첫 호출: 이전 레짐 초기화만 수행
+  if (_previousRegime === null) {
+    _previousRegime = currentRegime;
+    _previousMhs = currentMhs;
+    _previousVkospi = currentVkospi;
+    return;
+  }
+
+  // 레짐 변경 없으면 상태만 갱신
+  if (_previousRegime === currentRegime) {
+    _previousMhs = currentMhs;
+    _previousVkospi = currentVkospi;
+    return;
+  }
+
+  // ── 레짐 전환 감지! ──────────────────────────────────────────────────────
+  const prevIdx = REGIME_ORDER.indexOf(_previousRegime);
+  const currIdx = REGIME_ORDER.indexOf(currentRegime);
+  const isDowngrade = currIdx < prevIdx;
+
+  const prevCfg = REGIME_CONFIGS[_previousRegime];
+  const currCfg = REGIME_CONFIGS[currentRegime];
+
+  const dirEmoji = isDowngrade ? '🔴' : '🟢';
+  const dirLabel = isDowngrade ? '방어 강화' : '공격 전환';
+
+  // MHS/VKOSPI 변화량
+  const mhsDelta = (currentMhs != null && _previousMhs != null)
+    ? currentMhs - _previousMhs : null;
+  const vkospiDelta = (currentVkospi != null && _previousVkospi != null)
+    ? currentVkospi - _previousVkospi : null;
+
+  let msg =
+    `⚠️ <b>[레짐 전환]</b> ${_previousRegime} → ${currentRegime} ${dirEmoji}\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n`;
+
+  // MHS / VKOSPI 변화
+  if (mhsDelta !== null) {
+    msg += `MHS: ${_previousMhs} → ${currentMhs} (${mhsDelta >= 0 ? '+' : ''}${mhsDelta}pt)\n`;
+  }
+  if (vkospiDelta !== null) {
+    msg += `VKOSPI: ${_previousVkospi?.toFixed(1)} → ${currentVkospi?.toFixed(1)} ` +
+           `(${vkospiDelta >= 0 ? '+' : ''}${vkospiDelta.toFixed(1)})\n`;
+  }
+
+  // 변경 사항
+  msg += `\n<b>변경사항 (${dirLabel}):</b>\n`;
+  msg += `• Kelly 배율: ×${prevCfg.kellyMultiplier} → ×${currCfg.kellyMultiplier} 자동 적용\n`;
+  msg += `• 신규 진입 한도: ${prevCfg.maxPositions}개 → ${currCfg.maxPositions}개\n`;
+
+  if (isDowngrade) {
+    msg += `• 손절 기준: 강화 모드 전환\n`;
+  } else {
+    msg += `• 손절 기준: 완화 모드 전환\n`;
+  }
+
+  msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+
+  if (isDowngrade) {
+    msg += `📌 현재 보유 포지션 점검 권고`;
+  } else {
+    msg += `📌 신규 진입 기회 탐색 권고`;
+  }
+
+  await sendTelegramAlert(msg, {
+    priority: 'CRITICAL',
+    dedupeKey: `regime-change-${currentRegime}`,
+  }).catch(console.error);
+
+  console.log(`[RegimeBridge] 레짐 전환 알림: ${_previousRegime} → ${currentRegime}`);
+
+  // 상태 갱신
+  _previousRegime = currentRegime;
+  _previousMhs = currentMhs;
+  _previousVkospi = currentVkospi;
 }
