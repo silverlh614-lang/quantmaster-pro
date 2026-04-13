@@ -143,5 +143,5 @@ export function startScheduler() {
     await runBacktest().catch(console.error);
   }, { timezone: 'UTC' });
 
-  console.log('[Scheduler] 20개 cron 작업 등록 완료');
+  console.log('[Scheduler] 20개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
 }
