@@ -14,7 +14,7 @@ export interface MHSRecord {
 }
 
 interface Props {
-  records: MHSRecord[];
+  records?: MHSRecord[] | null;
   height?: number;
 }
 
@@ -49,7 +49,7 @@ export const MHSHistoryChart: React.FC<Props> = ({ records, height = 280 }) => {
   const chartInstance = useRef<IChartApi | null>(null);
 
   const sortedRecords = useMemo(() =>
-    [...records].sort((a, b) => a.date.localeCompare(b.date)),
+    [...(records ?? [])].sort((a, b) => a.date.localeCompare(b.date)),
     [records]
   );
 
