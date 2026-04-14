@@ -1,17 +1,36 @@
 /**
  * quantFilter.ts — 서버사이드 경량 Gate 평가
  *
- * 전체 27조건 중 Yahoo Finance 데이터만으로 평가 가능한 8개 조건을 서버에서 계산.
- * 나머지 19개는 UI에서 수동 입력 시 반영되는 구조 유지.
+ * 전체 27조건 중 서버에서 평가 가능한 조건들을 실계산.
+ * 나머지는 UI에서 수동 입력 시 반영되는 구조 유지.
  *
  * 아이디어 6: ConditionWeights — 자기학습 피드백으로 조건별 가중치 조정 지원.
+ *
+ * 현재 평가 조건 (11개 Yahoo 기반 + 2개 데이터 연동 선택적):
+ *   조건 2:  모멘텀 (+2% 이상 또는 RSI 가속)
+ *   조건 10: 정배열 (MA5 > MA20 > MA60)
+ *   조건 11: 거래량 돌파 (5일 평균 2배 이상)
+ *   조건 13: PER 밸류에이션 (0 < PER < 20)
+ *   조건 18: 터틀 돌파 (20일 신고가)
+ *   조건 24: 상대강도 (종목−KOSPI > 1.0%p)
+ *   조건 25: VCP 변동성 축소 (Compression Score 기반)
+ *   조건 27: 거래량 급증+상승 (3배 & +1%)
+ *   RSI(14) 건강구간 40~70
+ *   MACD 가속 (히스토그램 > 0 AND > 5일 전)
+ *   눌림목 셋업
+ *   MA60 상승 추세 (ma60TrendUp)
+ *   주봉 RSI 건강구간 40~70
+ *   [선택] 수급 합치 — KIS 기관/외인 순매수 (kisFlow 제공 시)
+ *   [선택] OCF 품질 — DART 영업현금흐름 비율 (dartFin 제공 시)
  */
 
 import type { YahooQuoteExtended } from './screener/stockScreener.js';
+import type { DartFinancials } from './clients/dartFinancialClient.js';
+import type { KisInvestorFlow } from './clients/kisClient.js';
 import { isPullbackSetup } from './screener/pipelineHelpers.js';
 
 export interface ServerGateResult {
-  gateScore: number;                          // 가중치 적용 점수 (float, 최대 ~10)
+  gateScore: number;                          // 가중치 적용 점수 (float, 최대 ~15)
   signalType: 'STRONG' | 'NORMAL' | 'SKIP';
   positionPct: number;                        // Kelly 기반 포지션 비율
   details: string[];                          // 통과한 조건 레이블
@@ -30,9 +49,13 @@ export const CONDITION_KEYS = {
   RELATIVE_STRENGTH: 'relative_strength',
   VCP:               'vcp',
   VOLUME_SURGE:      'volume_surge',
-  RSI_ZONE:          'rsi_zone',   // RSI(14) 40~70 건강구간 (실계산)
-  MACD_BULL:         'macd_bull',  // MACD 히스토그램 > 0 (실계산)
-  PULLBACK:          'pullback',  // 눌림목 셋업 (고점대비 조정 + 압축 + 추세유지)
+  RSI_ZONE:          'rsi_zone',          // RSI(14) 40~70 건강구간 (실계산)
+  MACD_BULL:         'macd_bull',         // MACD 히스토그램 > 0 AND 가속 (실계산)
+  PULLBACK:          'pullback',          // 눌림목 셋업
+  MA60_RISING:       'ma60_rising',       // MA60 우상향 추세 (장기 추세 필터)
+  WEEKLY_RSI_ZONE:   'weekly_rsi_zone',   // 주봉 RSI 40~70 (타임프레임 정렬)
+  SUPPLY_CONFLUENCE: 'supply_confluence', // KIS 기관/외인 수급 합치 (신뢰도 HIGH)
+  EARNINGS_QUALITY:  'earnings_quality',  // DART OCF 품질 (분기 데이터)
 } as const;
 
 export type ConditionKey = (typeof CONDITION_KEYS)[keyof typeof CONDITION_KEYS];
@@ -52,6 +75,10 @@ export const DEFAULT_CONDITION_WEIGHTS: ConditionWeights = {
   rsi_zone:          1.0,
   macd_bull:         1.0,
   pullback:          1.0,
+  ma60_rising:       1.0,
+  weekly_rsi_zone:   0.8,  // 일봉보다 낮은 가중치 (타임프레임 보조)
+  supply_confluence: 1.2,  // 허위신호 차단 효과 최대 (신뢰도 HIGH)
+  earnings_quality:  0.7,  // 분기 데이터라 실시간성 없음 — 스크리닝 보조용
 };
 
 /**
@@ -140,33 +167,27 @@ function calculateMTAS(quote: YahooQuoteExtended): { mtas: number; dataInsuffici
 }
 
 /**
- * Yahoo Finance 확장 시세 데이터로 10개 Gate 조건 평가.
- * weights 인수로 아이디어 6(Signal Calibrator) 자기학습 가중치를 반영.
- * kospiDayReturn 인수로 상대강도를 실계산 (미전달 시 절대 기준 1.5% 사용).
+ * Yahoo Finance 확장 시세 데이터로 Gate 조건 평가.
  *
- * 조건 2:  모멘텀 (+2% 이상)
- * 조건 10: 정배열 (5일선 > 20일선 > 60일선)
- * 조건 11: 거래량 돌파 (5일 평균 2배 이상)
- * 조건 13: PER 밸류에이션 (< 20)
- * 조건 18: 터틀 돌파 (20일 신고가)
- * 조건 24: 상대강도 (종목 일간 수익 − KOSPI 당일 수익 > 1.0%p, 실계산)
- * 조건 25: VCP 변동성 축소 (ATR < 20일 ATR 평균의 70%)
- * 조건 27: 거래량 급증 + 상승 (거래량 3배 이상 & +1% 이상)
- * [신규] RSI(14) 건강구간 40~70 (실계산)
- * [신규] MACD 히스토그램 > 0 (실계산)
- * [신규] 눌림목 셋업 (고점대비 3~20% 조정 + VCP/거래량마름 + MA60위 + RSI 30~62)
+ * @param quote          Yahoo 확장 시세 (필수)
+ * @param weights        Signal Calibrator 자기학습 가중치 (기본값 DEFAULT_CONDITION_WEIGHTS)
+ * @param kospiDayReturn KOSPI 당일 수익률 — 상대강도 실계산용 (미전달 시 절대 기준)
+ * @param dartFin        DART 재무 데이터 — 제공 시 OCF 품질 조건 평가 (선택)
+ * @param kisFlow        KIS 투자자 수급 — 제공 시 기관/외인 합치 조건 평가 (선택)
  */
 export function evaluateServerGate(
   quote: YahooQuoteExtended,
   weights: ConditionWeights = DEFAULT_CONDITION_WEIGHTS,
-  kospiDayReturn?: number,   // 실계산 상대강도용 — undefined 시 절대 기준 사용
+  kospiDayReturn?: number,
+  dartFin?: DartFinancials | null,
+  kisFlow?: KisInvestorFlow | null,
 ): ServerGateResult {
   let score = 0;
   const details: string[] = [];
   const conditionKeys: string[] = [];
 
   const w = (key: ConditionKey): number =>
-    Math.max(0.1, Math.min(2.0, weights[key] ?? 1.0));
+    Math.max(0.1, Math.min(2.0, weights[key] ?? DEFAULT_CONDITION_WEIGHTS[key] ?? 1.0));
 
   // 조건 2: 모멘텀 — 당일 상승률 또는 RSI 가속으로 충족 가능
   const rsiAccel = (quote.rsi14 - quote.rsi5dAgo) >= 3;
@@ -251,10 +272,16 @@ export function evaluateServerGate(
     conditionKeys.push('rsi_zone');
   }
 
-  // [신규] MACD 상승압력: 히스토그램 > 0 (실계산)
-  if (quote.macdHistogram > 0) {
+  // [신규] MACD 가속: 히스토그램 > 0 AND 5일 전보다 확대 (방향 + 가속 동시 확인)
+  // 단순 양수(방향만)보다 가속이 더 강한 신호 — 기존 macd_bull에서 업그레이드
+  if (quote.macdHistogram > 0 && quote.macdHistogram > quote.macd5dHistAgo) {
     score += w('macd_bull');
-    details.push(`MACD +${quote.macdHistogram.toFixed(2)}`);
+    details.push(`MACD가속 ${quote.macd5dHistAgo.toFixed(2)}→${quote.macdHistogram.toFixed(2)}`);
+    conditionKeys.push('macd_bull');
+  } else if (quote.macdHistogram > 0) {
+    // 양수이나 가속 미확인 — 부분 점수
+    score += w('macd_bull') * 0.5;
+    details.push(`MACD+ ${quote.macdHistogram.toFixed(2)} (가속미확인)`);
     conditionKeys.push('macd_bull');
   }
 
@@ -264,6 +291,59 @@ export function evaluateServerGate(
     score += w('pullback');
     details.push(`눌림목 (고점대비 -${drawdown.toFixed(1)}%)`);
     conditionKeys.push('pullback');
+  }
+
+  // [신규] MA60 상승 추세: 현재 MA60 > 5일 전 MA60 (대세 하락 중 단기 반등 필터)
+  // 정배열(MA5>MA20>MA60)이지만 MA60이 하락 중인 종목을 추가로 걸러낸다
+  if (quote.ma60TrendUp) {
+    score += w('ma60_rising');
+    details.push('MA60 우상향');
+    conditionKeys.push('ma60_rising');
+  }
+
+  // [신규] 주봉 RSI 건강구간: 40~70 (타임프레임 정렬 — 일봉 RSI와 독립 등록)
+  if (quote.weeklyRSI >= 40 && quote.weeklyRSI <= 70) {
+    score += w('weekly_rsi_zone');
+    details.push(`주봉RSI ${quote.weeklyRSI.toFixed(0)}`);
+    conditionKeys.push('weekly_rsi_zone');
+  }
+
+  // [선택] 수급 합치: KIS 기관/외인 순매수 — kisFlow 제공 시에만 평가
+  // 신뢰도 HIGH — 허위신호 차단 효과 가장 큼
+  if (kisFlow) {
+    const instBuy  = kisFlow.institutionalNetBuy > 0;
+    const foreiBuy = kisFlow.foreignNetBuy > 0;
+    if (instBuy && foreiBuy) {
+      score += w('supply_confluence');
+      details.push(
+        `수급합치 기관+${(kisFlow.institutionalNetBuy / 1000).toFixed(0)}천주 ` +
+        `외인+${(kisFlow.foreignNetBuy / 1000).toFixed(0)}천주`
+      );
+      conditionKeys.push('supply_confluence');
+    } else if (instBuy || foreiBuy) {
+      score += w('supply_confluence') * 0.6;
+      const label = instBuy
+        ? `기관+${(kisFlow.institutionalNetBuy / 1000).toFixed(0)}천주`
+        : `외인+${(kisFlow.foreignNetBuy / 1000).toFixed(0)}천주`;
+      details.push(`수급단독 ${label}`);
+      conditionKeys.push('supply_confluence');
+    }
+  }
+
+  // [선택] OCF 품질: DART 영업현금흐름/매출 비율 — dartFin 제공 시에만 평가
+  // 분기 데이터라 실시간성 없음 — 스크리닝 단계 필터로 사용
+  if (dartFin && dartFin.ocfRatio !== null && dartFin.ocfRatio !== undefined) {
+    if (dartFin.ocfRatio >= 5.0) {
+      // OCF/Revenue >= 5%: 이익의 질 양호 (영업에서 실제 현금 창출)
+      score += w('earnings_quality');
+      details.push(`OCF품질 ${dartFin.ocfRatio.toFixed(1)}%`);
+      conditionKeys.push('earnings_quality');
+    } else if (dartFin.ocfRatio >= 1.0) {
+      // OCF/Revenue 1~5%: 기본 충족
+      score += w('earnings_quality') * 0.5;
+      details.push(`OCF기본 ${dartFin.ocfRatio.toFixed(1)}%`);
+      conditionKeys.push('earnings_quality');
+    }
   }
 
   // MTAS — 멀티타임프레임 정렬도 (타임프레임 불일치 역방향 진입 구조적 차단)
@@ -279,7 +359,7 @@ export function evaluateServerGate(
     positionPct = 0;
     details.push(`MTAS ${mtas.toFixed(1)}/10 진입금지`);
   } else {
-    // 기존 점수 기반 분류 (최대 점수 ~10)
+    // 기존 점수 기반 분류 (최대 점수 ~15)
     signalType = score >= 7 ? 'STRONG' as const
                : score >= 5 ? 'NORMAL' as const
                : 'SKIP' as const;
