@@ -56,6 +56,7 @@ import { checkCooldownRelease } from './regretAsymmetryFilter.js';
 import { checkVolumeClockWindow } from './volumeClock.js';
 import { detectPreBreakoutAccumulation } from './preBreakoutAccumulationDetector.js';
 import { appendScanTraces, type ScanTrace } from './scanTracer.js';
+import { fetchEnemyCheckData } from '../clients/enemyCheckClient.js';
 
 // ── 서브모듈 re-export (하위 호환성 유지) ──────────────────────────────────────
 export type {
@@ -418,11 +419,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               const _ft = followTrade, _fq = followQty, _fep = followEntryPrice;
               const _fCode = stock.code, _fName = stock.name, _fTarget = stock.targetPrice;
               const _fSl = stopLossPlan.hardStopLoss, _fAlert = alertMsg, _fGs = gateScoreFollow;
+              const _fEnemy = await fetchEnemyCheckData(stock.code).catch(() => null);
               liveBuyQueue.push({
                 approvalPromise: requestBuyApproval({
                   tradeId: _ft.id, stockCode: _fCode, stockName: _fName,
                   currentPrice, quantity: _fq, stopLoss: _fSl,
                   targetPrice: _fTarget, mode: 'LIVE', gateScore: _fGs,
+                  enemyCheck: _fEnemy,
                 }),
                 execute: async (approval) => {
                   if (approval !== 'APPROVE') {
@@ -603,11 +606,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                   const _pb = pbTrade, _pbQty = pbQty, _pbEp = pbEntryPrice;
                   const _pbCode = stock.code, _pbName = stock.name, _pbTarget = stock.targetPrice;
                   const _pbSl = stopLossPlanPb.hardStopLoss, _pbGs = gateScorePb;
+                  const _pbEnemy = await fetchEnemyCheckData(stock.code).catch(() => null);
                   liveBuyQueue.push({
                     approvalPromise: requestBuyApproval({
                       tradeId: _pb.id, stockCode: _pbCode, stockName: _pbName,
                       currentPrice, quantity: _pbQty, stopLoss: _pbSl,
                       targetPrice: _pbTarget, mode: 'LIVE', gateScore: _pbGs,
+                      enemyCheck: _pbEnemy,
                     }),
                     execute: async (approval) => {
                       if (approval !== 'APPROVE') {
@@ -958,11 +963,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         const _tLabel = trancheLabel, _rcg = reCheckGate, _lgs = liveGateScore;
         const _slBreakdown = formatStopLossBreakdown(stopLossPlan);
         const _rrr = stock.rrr, _sector = stock.sector;
+        const _enemy = await fetchEnemyCheckData(stock.code).catch(() => null);
         liveBuyQueue.push({
           approvalPromise: requestBuyApproval({
             tradeId: _t.id, stockCode: _code, stockName: _name,
             currentPrice: _cp, quantity: _execQty, stopLoss: _sl,
             targetPrice: _target, mode: 'LIVE', gateScore: _gs,
+            enemyCheck: _enemy,
           }),
           execute: async (approval) => {
             if (approval !== 'APPROVE') {
@@ -1210,11 +1217,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             const _iQty = quantity, _iEp = shadowEntryPrice, _iStop = intradayStop;
             const _iTarget = intradayTarget, _iGs = intradayGateScore, _iCp = currentPrice;
             const _iEb = effectiveBudget, _iLabel = stopLabel, _iSlot = currentIntradayActive + 1;
+            const _iEnemy = await fetchEnemyCheckData(stock.code).catch(() => null);
             intradayLiveBuyQueue.push({
               approvalPromise: requestBuyApproval({
                 tradeId: _it.id, stockCode: _iCode, stockName: _iName,
                 currentPrice: _iCp, quantity: _iQty, stopLoss: _iStop,
                 targetPrice: _iTarget, mode: 'LIVE', gateScore: _iGs,
+                enemyCheck: _iEnemy,
               }),
               execute: async (approval) => {
                 // 포지션 수 재확인 (큐 플러시 시점에 재검증)

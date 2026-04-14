@@ -14,6 +14,7 @@ import {
   editMessageText,
 } from '../alerts/telegramClient.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
+import { formatEnemyCheckSummary, type EnemyCheckResult } from '../clients/enemyCheckClient.js';
 
 /** 자동 승인까지 대기 시간 (ms) — 기본 3분 */
 const AUTO_APPROVE_TIMEOUT_MS = 3 * 60 * 1000;
@@ -53,10 +54,12 @@ export async function requestBuyApproval(params: {
   targetPrice: number;
   mode: 'LIVE' | 'SHADOW';
   gateScore?: number;
+  /** 역검증 참고 데이터 — 자동 감점/차단 없이 표시만 함 */
+  enemyCheck?: EnemyCheckResult | null;
 }): Promise<ApprovalAction> {
   const {
     tradeId, stockCode, stockName,
-    currentPrice, quantity, stopLoss, targetPrice, mode, gateScore,
+    currentPrice, quantity, stopLoss, targetPrice, mode, gateScore, enemyCheck,
   } = params;
 
   const modeEmoji = mode === 'LIVE' ? '🔴' : '⚡';
@@ -64,12 +67,19 @@ export async function requestBuyApproval(params: {
   const rrrRatio = ((targetPrice - currentPrice) / (currentPrice - stopLoss)).toFixed(1);
   const timeoutSec = Math.round(AUTO_APPROVE_TIMEOUT_MS / 1000);
 
+  // 역검증 섹션 (데이터 있을 때만 표시)
+  const enemySummary = enemyCheck ? formatEnemyCheckSummary(enemyCheck) : null;
+  const enemySection = enemySummary
+    ? `━━━━━━━━━━━━━━━━━━━━\n<i>[역검증 참고]\n${enemySummary}</i>\n`
+    : '';
+
   const message =
     `${modeEmoji} <b>[${modeLabel}] ${stockName} 매수 신호</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `현재가: ${currentPrice.toLocaleString()}원 × ${quantity}주\n` +
     `손절: ${stopLoss.toLocaleString()}원 | 목표: ${targetPrice.toLocaleString()}원\n` +
     `RRR: ${rrrRatio} | Gate: ${gateScore ?? 'N/A'}\n` +
+    `${enemySection}` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `<i>${timeoutSec}초 내 미응답 시 자동 승인</i>`;
 
