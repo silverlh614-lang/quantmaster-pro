@@ -8,7 +8,9 @@
 
 import {
   fetchCurrentPrice, fetchAccountBalance, placeKisMarketBuyOrder,
+  fetchKisInvestorFlow,
 } from '../clients/kisClient.js';
+import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelBuySignal } from '../alerts/channelPipeline.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
@@ -332,8 +334,14 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             const reCheckQuoteFollow = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
                                     ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null)
                                     ?? await fetchKisQuoteFallback(stock.code).catch(() => null);
+            const [kisFlowFollow, dartFinFollow] = reCheckQuoteFollow
+              ? await Promise.all([
+                  fetchKisInvestorFlow(stock.code).catch(() => null),
+                  getDartFinancials(stock.code).catch(() => null),
+                ])
+              : [null, null];
             const reCheckGateFollow = reCheckQuoteFollow
-              ? evaluateServerGate(reCheckQuoteFollow, conditionWeights, macroState?.kospiDayReturn)
+              ? evaluateServerGate(reCheckQuoteFollow, conditionWeights, macroState?.kospiDayReturn, dartFinFollow, kisFlowFollow)
               : null;
             let mtasMultiplierFollow = 1.0;
             if (reCheckGateFollow) {
@@ -517,7 +525,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               const isStrongPb  = gateScorePb >= 9;
               const rawPctPb    = isStrongPb ? 0.12 : gateScorePb >= 7 ? 0.08 : gateScorePb >= 5 ? 0.05 : 0.03;
               // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 선취매에도 적용)
-              const reCheckGatePb = evaluateServerGate(reCheckQuotePb, conditionWeights, macroState?.kospiDayReturn);
+              const [kisFlowPb, dartFinPb] = await Promise.all([
+                fetchKisInvestorFlow(stock.code).catch(() => null),
+                getDartFinancials(stock.code).catch(() => null),
+              ]);
+              const reCheckGatePb = evaluateServerGate(reCheckQuotePb, conditionWeights, macroState?.kospiDayReturn, dartFinPb, kisFlowPb);
               let mtasMultiplierPb = 1.0;
               if (reCheckGatePb) {
                 if (reCheckGatePb.mtas === 10) mtasMultiplierPb = 1.15;
@@ -753,8 +765,14 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       const reCheckQuote = reCheckQuoteRaw
         ? await enrichQuoteWithKisMTAS(reCheckQuoteRaw, stock.code)
         : null;
+      const [kisFlow, dartFin] = reCheckQuote
+        ? await Promise.all([
+            fetchKisInvestorFlow(stock.code).catch(() => null),
+            getDartFinancials(stock.code).catch(() => null),
+          ])
+        : [null, null];
       const reCheckGate = reCheckQuote
-        ? evaluateServerGate(reCheckQuote, conditionWeights, macroState?.kospiDayReturn)
+        ? evaluateServerGate(reCheckQuote, conditionWeights, macroState?.kospiDayReturn, dartFin, kisFlow)
         : null;
       const entryRevalidation = evaluateEntryRevalidation({
         currentPrice,
@@ -1170,8 +1188,14 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           const intradayQuote = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
                              ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null)
                              ?? await fetchKisQuoteFallback(stock.code).catch(() => null);
+          const [kisFlowIntraday, dartFinIntraday] = intradayQuote
+            ? await Promise.all([
+                fetchKisInvestorFlow(stock.code).catch(() => null),
+                getDartFinancials(stock.code).catch(() => null),
+              ])
+            : [null, null];
           const intradayGate = intradayQuote
-            ? evaluateServerGate(intradayQuote, conditionWeights, macroState?.kospiDayReturn)
+            ? evaluateServerGate(intradayQuote, conditionWeights, macroState?.kospiDayReturn, dartFinIntraday, kisFlowIntraday)
             : null;
           const intradayGateScore = intradayGate?.gateScore ?? 0;
 
