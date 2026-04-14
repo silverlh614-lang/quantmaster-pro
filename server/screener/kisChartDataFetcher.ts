@@ -111,18 +111,30 @@ async function fetchKisChartData(
 
 // ── MTAS 구성 요소 계산 ──────────────────────────────────────────────────────
 
+/** 당일 MTAS 결과 인메모리 캐시 (서버 재시작 전까지 유효) */
+const _mtasCache = new Map<string, { data: KisMTASData; cachedAt: number }>();
+/** 캐시 TTL: 6시간 — 월봉/주봉은 당일 중 변하지 않으므로 충분 */
+const MTAS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
 /**
  * KIS API 월봉/주봉 데이터로 MTAS 구성 요소를 계산한다.
  *
  * 월봉: 최근 24개월 데이터로 12개월 EMA 계산
  * 주봉: 최근 78주 데이터로 일목균형표 구름대 계산
  *
+ * 캐시: 6시간 TTL 인메모리 캐시 — 13:00 장중 재스캔 시 KIS 호출 0회
  * KIS API 미설정 시 또는 데이터 부족 시 null 반환 → Yahoo 폴백 사용
  */
 export async function fetchKisMTASData(
   code: string,
   currentPrice: number,
 ): Promise<KisMTASData | null> {
+  // 캐시 히트 → 즉시 반환 (KIS API 호출 없음)
+  const cached = _mtasCache.get(code);
+  if (cached && Date.now() - cached.cachedAt < MTAS_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
 
   // 조회 기간: 현재 날짜 기준 2년 전 ~ 오늘
@@ -183,7 +195,7 @@ export async function fetchKisMTASData(
     weeklyLaggingSpanUp = wCloses[wn - 1] > wCloses[wn - 27];
   }
 
-  return {
+  const result: KisMTASData = {
     monthlyAboveEMA12,
     monthlyEMARising,
     weeklyAboveCloud,
@@ -192,6 +204,9 @@ export async function fetchKisMTASData(
     monthlyCandleCount: monthlyCandles.length,
     weeklyCandleCount: weeklyCandles.length,
   };
+  // 캐시 저장 — 이후 6시간 내 동일 종목 재조회 시 KIS 호출 없이 즉시 반환
+  _mtasCache.set(code, { data: result, cachedAt: Date.now() });
+  return result;
 }
 
 // ── 유틸: 날짜 포맷 ──────────────────────────────────────────────────────────

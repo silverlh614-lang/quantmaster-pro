@@ -8,7 +8,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { isPullbackSetup } from './pipelineHelpers.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fetchKisMTASData } from './kisChartDataFetcher.js';
-import { recordGateAuditBatch } from '../persistence/gateAuditRepo.js';
+import { recordGateAudit, flushGateAudit } from '../persistence/gateAuditRepo.js';
 
 // ── 아이디어 5: 워치리스트 탈락 사유 추적 ─────────────────────────────────────
 export interface RejectionEntry {
@@ -893,8 +893,6 @@ export async function autoPopulateWatchlist(): Promise<number> {
 
   // 아이디어 5: 탈락 사유 추적 — 매 실행마다 초기화
   const rejectionLog: RejectionEntry[] = [];
-  // 아이디어 11: Gate 감사 배치 수집 — 루프 종료 후 단일 I/O로 저장
-  const gateAuditBatch: string[][] = [];
 
   // 실계좌: preScreenStocks 결과 → 워치리스트 승격
   if (KIS_IS_REAL) {
@@ -974,8 +972,8 @@ export async function autoPopulateWatchlist(): Promise<number> {
     const macroState = loadMacroState();
     const gate = evaluateServerGate(enrichedQuote, loadConditionWeights(), macroState?.kospiDayReturn);
 
-    // 아이디어 11: Gate 조건 통과/탈락 — 배치 수집 (루프 후 단일 I/O로 저장)
-    gateAuditBatch.push(gate.conditionKeys);
+    // 아이디어 11: Gate 조건 통과/탈락 — 메모리 캐시에만 누적 (루프 후 flushGateAudit으로 파일 저장)
+    recordGateAudit(gate.conditionKeys);
 
     // Track A/B 분류: SKIP이 아닌 종목은 Track B 후보, SKIP은 Track A 유지
     const track: 'A' | 'B' = gate.signalType !== 'SKIP' ? 'B' : 'A';
@@ -1008,8 +1006,8 @@ export async function autoPopulateWatchlist(): Promise<number> {
     await new Promise(r => setTimeout(r, 300));
   }
 
-  // 아이디어 11: Gate 감사 배치 저장 — 루프 종료 후 단일 파일 I/O
-  recordGateAuditBatch(gateAuditBatch);
+  // 아이디어 11: Gate 감사 플러시 — 루프 종료 후 단일 파일 I/O
+  flushGateAudit();
 
   // 아이디어 5: 탈락 로그를 메모리 캐시에 저장 + 상세 JSON 로그 출력
   lastRejectionLog = rejectionLog;

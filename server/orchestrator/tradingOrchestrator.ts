@@ -13,7 +13,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
 import { trancheExecutor } from '../trading/trancheExecutor.js';
 import { runAutoSignalScan } from '../trading/signalScanner.js';
-import { fetchYahooQuote, preScreenStocks, autoPopulateWatchlist } from '../screener/stockScreener.js';
+import { fetchYahooQuote, preScreenStocks, autoPopulateWatchlist, sendWatchlistRejectionReport } from '../screener/stockScreener.js';
 import { generateDailyReport } from '../alerts/reportGenerator.js';
 import { evaluateRecommendations, isRealTradeReady } from '../learning/recommendationTracker.js';
 import { decideScan, recordScanResult } from './adaptiveScanScheduler.js';
@@ -288,6 +288,8 @@ export class TradingDayOrchestrator {
               `📋 <b>[AutoPopulate] 워치리스트 자동 추가</b>\n신규 ${added}개 종목 추가됨`
             ).catch(console.error);
           }
+          // 아이디어 5: 탈락 리포트 — 워치리스트 채운 직후 즉시 발송 (기존 16:10 cron 대체)
+          await sendWatchlistRejectionReport().catch(console.error);
           if (enabled) {
             await preMarketOrderPrep().catch(console.error);
           }

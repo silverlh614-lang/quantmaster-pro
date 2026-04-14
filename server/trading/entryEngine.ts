@@ -20,10 +20,15 @@ export const REGIME_GATE_MIN: Record<string, number> = {
   R1_TURBO:   4,
   R2_BULL:    5,
   R3_EARLY:   5,
-  R4_NEUTRAL: 6,
-  R5_CAUTION: 7,
+  R4_NEUTRAL: 5,
+  R5_CAUTION: 6,
   R6_DEFENSE: 999, // R6는 entryEngine 진입 전 차단되지만 안전망으로 999
 };
+
+/** 레짐 문자열로부터 Gate 최솟값을 반환. 미전달·미지원 레짐 → 기본값 5 */
+export function getMinGateScore(regime?: string): number {
+  return REGIME_GATE_MIN[regime ?? 'R4_NEUTRAL'] ?? 5;
+}
 const ENTRY_MAX_BREAKOUT_EXTENSION_PCT = 3;
 const ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT = -2;
 const ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT = 4;
@@ -130,16 +135,16 @@ interface EntryRevalidationInput {
   prevClose?: number;
   volume?: number;
   avgVolume?: number;
-  /** 아이디어 #7: 현재 레짐 — 레짐별 Gate 최솟값 적용 */
-  regime?: string;
+  /** 아이디어 #7: 레짐 연동 Gate 최솟값 — getMinGateScore(regime)으로 계산 후 전달 */
+  minGateScore?: number;
 }
 
 export function evaluateEntryRevalidation(input: EntryRevalidationInput): { ok: boolean; reasons: string[] } {
   const reasons: string[] = [];
 
-  const minGate = (input.regime && REGIME_GATE_MIN[input.regime]) ?? ENTRY_MIN_GATE_SCORE;
+  const minGate = input.minGateScore ?? ENTRY_MIN_GATE_SCORE;
   if (input.quoteSignalType === 'SKIP' || (input.quoteGateScore ?? minGate) < minGate) {
-    reasons.push(`Gate 재검증 미달 (${(input.quoteGateScore ?? 0).toFixed(1)}/${minGate}, 레짐 ${input.regime ?? 'unknown'})`);
+    reasons.push(`Gate 재검증 미달 (${(input.quoteGateScore ?? 0).toFixed(1)}/${minGate})`);
   }
 
   const extensionPct = ((input.currentPrice - input.entryPrice) / input.entryPrice) * 100;

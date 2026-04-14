@@ -27,7 +27,6 @@ import { checkFomcProximityAlert } from './trading/fomcCalendar.js';
 import { runBacktest } from './learning/backtestEngine.js';
 import { loadShadowTrades, saveShadowTrades } from './persistence/shadowTradeRepo.js';
 import { updateShadowResults } from './trading/exitEngine.js';
-import { sendWatchlistRejectionReport } from './screener/stockScreener.js';
 import { runDynamicUniverseExpansion } from './screener/dynamicUniverseExpander.js';
 
 export function startScheduler() {
@@ -187,11 +186,8 @@ export function startScheduler() {
     }
   }, { timezone: 'UTC' });
 
-  // 아이디어 5: 워치리스트 탈락 사유 일일 리포트 — 평일 16:10 KST (UTC 07:10, 월~금)
-  // autoPopulateWatchlist 실행 후 탈락 사유를 Telegram으로 요약 발송
-  cron.schedule('10 7 * * 1-5', async () => {
-    await sendWatchlistRejectionReport().catch(console.error);
-  }, { timezone: 'UTC' });
+  // 아이디어 5: 탈락 사유 리포트는 tradingOrchestrator openAuction(08:45 KST) 직후 발송으로 이전
+  // (기존 16:10 cron 제거 — autoPopulateWatchlist 완료 직후가 가장 신선한 데이터)
 
   // 아이디어 6: 동적 유니버스 확장 — 매주 토요일 09:00 KST (UTC 00:00 토요일)
   // KIS API 52주 신고가 + 외국인 순매수 상위 → STOCK_UNIVERSE 임시 확장
