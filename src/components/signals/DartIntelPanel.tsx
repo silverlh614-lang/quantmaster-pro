@@ -27,6 +27,44 @@ interface DartAlertView {
   };
 }
 
+// ─── 공시 종합 판정 (Bull / Bear / Neutral) ───────────────────────────────────
+
+function classifyDisclosureSentiment(alert: DartAlertView): 'BULL' | 'BEAR' | 'NEUTRAL' {
+  // 내부자 매수 또는 악재 소화 완료 → BULL
+  if (alert.insiderBuy || alert.badNewsAbsorbed) return 'BULL';
+  // 수급 이벤트
+  if (alert.ownershipSignal?.sentiment === 'POSITIVE') return 'BULL';
+  if (alert.ownershipSignal?.sentiment === 'NEGATIVE') return 'BEAR';
+  // LLM 임팩트 기반
+  if ((alert.llmImpact ?? 0) >= 1) return 'BULL';
+  if ((alert.llmImpact ?? 0) <= -1) return 'BEAR';
+  return 'NEUTRAL';
+}
+
+function SentimentBadge({ sentiment }: { sentiment: 'BULL' | 'BEAR' | 'NEUTRAL' }) {
+  if (sentiment === 'BULL') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-[0_0_8px_rgba(16,185,129,0.15)]">
+        <TrendingUp className="w-3 h-3" />
+        호재
+      </span>
+    );
+  }
+  if (sentiment === 'BEAR') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-md bg-red-500/20 text-red-300 border border-red-500/40 shadow-[0_0_8px_rgba(239,68,68,0.15)]">
+        <TrendingDown className="w-3 h-3" />
+        악재
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-md bg-gray-500/20 text-gray-400 border border-gray-500/30">
+      중립
+    </span>
+  );
+}
+
 // ─── 임팩트 배지 ──────────────────────────────────────────────────────────────
 
 function ImpactBadge({ impact }: { impact: number | undefined }) {
@@ -56,6 +94,7 @@ function isActiveOwnershipSignal(alert: DartAlertView): boolean {
 function AlertCard({ alert }: { alert: DartAlertView }) {
   const dartUrl = `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${alert.rcept_no}`;
   const hasOwnershipEvent = isActiveOwnershipSignal(alert);
+  const sentiment = classifyDisclosureSentiment(alert);
 
   return (
     <div className={cn(
@@ -77,15 +116,16 @@ function AlertCard({ alert }: { alert: DartAlertView }) {
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
+            <SentimentBadge sentiment={sentiment} />
             <span className="text-xs font-semibold text-gray-200">{alert.corp_name}</span>
             {alert.insiderBuy && (
               <span className="text-xs bg-violet-900/60 text-violet-300 rounded-full px-1.5 py-0.5 border border-violet-700/50">
-                🕵️ 내부자 매수
+                내부자 매수
               </span>
             )}
             {alert.badNewsAbsorbed && (
               <span className="text-xs bg-amber-900/60 text-amber-300 rounded-full px-1.5 py-0.5 border border-amber-700/50">
-                🔄 악재 소화 완료
+                악재 소화 완료
               </span>
             )}
             {hasOwnershipEvent && (
@@ -95,7 +135,7 @@ function AlertCard({ alert }: { alert: DartAlertView }) {
                   ? 'bg-emerald-900/60 text-emerald-300 border-emerald-700/50'
                   : 'bg-red-900/60 text-red-300 border-red-700/50',
               )}>
-                {alert.ownershipSignal!.sentiment === 'POSITIVE' ? '📈 수급 매수' : '📉 수급 매도'}
+                {alert.ownershipSignal!.sentiment === 'POSITIVE' ? '수급 매수' : '수급 매도'}
               </span>
             )}
           </div>

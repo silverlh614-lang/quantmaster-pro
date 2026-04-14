@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Activity, Eye, Briefcase, ShieldAlert, BarChart3 } from 'lucide-react';
+import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2 } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { PageHeader } from '../ui/page-header';
 import { KpiStrip } from '../ui/kpi-strip';
@@ -11,6 +11,35 @@ import { Stack } from '../layout/Stack';
 import { PageGrid } from '../layout/PageGrid';
 import { TradingChecklist } from '../components/trading/TradingChecklist';
 import { useShadowTradeStore, useShadowWinRate, useShadowAvgReturn } from '../stores/useShadowTradeStore';
+
+// ─── 조건 키 → 사람이 읽을 수 있는 한국어 레이블 ─────────────────────────────
+const CONDITION_LABELS: Record<string, string> = {
+  momentum:          '모멘텀 (당일 +2% 이상)',
+  ma_alignment:      '정배열 (MA5 > MA20 > MA60)',
+  volume_breakout:   '거래량 돌파 (평균 2배 이상)',
+  per:               'PER 밸류에이션 (0~20 구간)',
+  turtle_high:       '터틀 돌파 (20일 신고가)',
+  relative_strength: '상대강도 (KOSPI 대비 +1%p)',
+  vcp:               '변동성 수축 (VCP 패턴)',
+  volume_surge:      '거래량 급증+상승 (3배 & +1%)',
+  rsi_zone:          'RSI 건강구간 (40~70)',
+  macd_bull:         'MACD 가속 (히스토그램 양수+확대)',
+  pullback:          '눌림목 셋업 (고점 대비 조정)',
+  ma60_rising:       'MA60 우상향 추세 (장기 상승)',
+  weekly_rsi_zone:   '주봉 RSI 건강구간 (40~70)',
+  supply_confluence: '수급 합치 (기관+외인 순매수)',
+  earnings_quality:  '이익 품질 (영업현금흐름 비율)',
+};
+
+// ─── 레짐 코드 → 한국어 레이블 ────────────────────────────────────────────────
+const REGIME_LABELS: Record<string, string> = {
+  R1_TURBO:   'R1 터보 강세',
+  R2_BULL:    'R2 상승장',
+  R3_EARLY:   'R3 초기 회복',
+  R4_NEUTRAL: 'R4 중립',
+  R5_CAUTION: 'R5 주의',
+  R6_DEFENSE: 'R6 방어',
+};
 
 interface WatchlistEntry {
   code: string;
@@ -64,6 +93,13 @@ export function AutoTradePage() {
   const [portfolioTab, setPortfolioTab] = useState<'watchlist' | 'holdings'>('watchlist');
   const [buyAudit, setBuyAudit] = useState<BuyAuditData | null>(null);
   const [gateAudit, setGateAudit] = useState<GateAuditData | null>(null);
+  const [conditionDebug, setConditionDebug] = useState<{
+    globalWeights: Record<string, number>;
+    defaults: Record<string, number>;
+    conditionStats30d: Record<string, { totalAppearances: number; wins: number; losses: number; hitRate: number; avgReturn: number }>;
+    recentRecordsCount: number;
+    period: { from: string; to: string };
+  } | null>(null);
 
   useEffect(() => {
     const fetchServerData = () => {
@@ -75,6 +111,7 @@ export function AutoTradePage() {
       }).catch((err) => console.error('[ERROR] 보유종목 조회 실패:', err));
       fetch('/api/system/buy-audit').then(r => r.json()).then(setBuyAudit).catch((err) => console.error('[ERROR] Buy audit 조회 실패:', err));
       fetch('/api/system/gate-audit').then(r => r.json()).then(setGateAudit).catch((err) => console.error('[ERROR] Gate audit 조회 실패:', err));
+      fetch('/api/auto-trade/condition-weights/debug').then(r => r.json()).then(setConditionDebug).catch((err) => console.error('[ERROR] Condition debug 조회 실패:', err));
     };
     fetchServerData();
     const interval = setInterval(fetchServerData, 60 * 1000); // 1분 간격 polling
@@ -134,29 +171,29 @@ export function AutoTradePage() {
             {/* Gate 상태 표시 */}
             <div className="space-y-2 mb-4">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-theme-text-muted">레짐</span>
+                <span className="text-theme-text-muted">시장 레짐</span>
                 <Badge variant={
                   buyAudit.regime.startsWith('R1') || buyAudit.regime.startsWith('R2') ? 'success' :
                   buyAudit.regime.startsWith('R3') || buyAudit.regime.startsWith('R4') ? 'warning' :
                   'danger'
-                } size="sm">{buyAudit.regime}</Badge>
+                } size="sm">{REGIME_LABELS[buyAudit.regime] ?? buyAudit.regime}</Badge>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-theme-text-muted">VIX Gate</span>
+                <span className="text-theme-text-muted">VIX 공포지수 게이트</span>
                 <Badge variant={buyAudit.vixGating.noNewEntry ? 'danger' : 'success'} size="sm">
-                  {buyAudit.vixGating.noNewEntry ? 'BLOCKED' : `OK (Kelly x${buyAudit.vixGating.kellyMultiplier.toFixed(2)})`}
+                  {buyAudit.vixGating.noNewEntry ? '차단됨' : `정상 (베팅 비율 x${buyAudit.vixGating.kellyMultiplier.toFixed(2)})`}
                 </Badge>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-theme-text-muted">FOMC Gate</span>
+                <span className="text-theme-text-muted">FOMC 금리 발표 게이트</span>
                 <Badge variant={buyAudit.fomcGating.noNewEntry ? 'danger' : 'success'} size="sm">
-                  {buyAudit.fomcGating.noNewEntry ? `BLOCKED (${buyAudit.fomcGating.phase})` : buyAudit.fomcGating.phase}
+                  {buyAudit.fomcGating.noNewEntry ? `차단됨 (${buyAudit.fomcGating.phase})` : buyAudit.fomcGating.phase}
                 </Badge>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-theme-text-muted">비상정지</span>
                 <Badge variant={buyAudit.emergencyStop ? 'danger' : 'success'} size="sm">
-                  {buyAudit.emergencyStop ? 'STOPPED' : 'OFF'}
+                  {buyAudit.emergencyStop ? '정지 중' : '해제'}
                 </Badge>
               </div>
             </div>
@@ -190,7 +227,51 @@ export function AutoTradePage() {
           </Card>
         )}
 
-        {/* 아이디어 11: Gate 조건 통과율 히트맵 */}
+        {/* 자동매매 진입 조건 설정 현황 */}
+        {conditionDebug && (
+          <Card padding="md">
+            <div className="flex items-center gap-2 mb-4">
+              <Settings2 className="w-4 h-4 text-blue-400" />
+              <span className="text-sm font-bold text-theme-text">자동매매 진입 조건 설정 현황</span>
+              {conditionDebug.recentRecordsCount > 0 && (
+                <span className="text-micro ml-auto">
+                  최근 30일 데이터 {conditionDebug.recentRecordsCount}건 ({conditionDebug.period.from} ~ {conditionDebug.period.to})
+                </span>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              {Object.entries(conditionDebug.globalWeights)
+                .sort(([, a], [, b]) => b - a)
+                .map(([key, weight]) => {
+                  const label = CONDITION_LABELS[key] ?? key;
+                  const defaultW = conditionDebug.defaults[key] ?? 1.0;
+                  const stat = conditionDebug.conditionStats30d[key];
+                  const isModified = Math.abs(weight - defaultW) > 0.01;
+                  return (
+                    <div key={key} className="flex items-center gap-2 py-1.5 border-b border-theme-border/10 last:border-0">
+                      <span className="flex-1 text-xs text-theme-text truncate">{label}</span>
+                      <Badge variant={weight >= 1.2 ? 'success' : weight <= 0.5 ? 'danger' : 'default'} size="sm">
+                        가중치 {weight.toFixed(1)}{isModified ? ` (기본 ${defaultW.toFixed(1)})` : ''}
+                      </Badge>
+                      {stat && stat.totalAppearances > 0 && (
+                        <span className={cn('text-[9px] font-bold', stat.hitRate >= 50 ? 'text-green-400' : 'text-red-400')}>
+                          적중 {stat.hitRate}%
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+            <div className="mt-3 rounded-lg bg-white/5 p-2.5 text-micro text-theme-text-muted leading-relaxed">
+              <strong className="text-theme-text">진입 판정 기준:</strong>{' '}
+              Gate 점수 ≥ 7 → STRONG (12% 포지션) · ≥ 5 → NORMAL (8%) · &lt; 5 → SKIP.
+              MTAS(다중시간프레임) ≤ 3이면 진입 금지.
+              가중치는 30일 적중률 기반으로 자동 조정됩니다.
+            </div>
+          </Card>
+        )}
+
+        {/* Gate 조건 통과율 히트맵 */}
         {gateAudit && Object.keys(gateAudit).length > 0 && (
           <Card padding="md">
             <div className="flex items-center gap-2 mb-4">
@@ -208,10 +289,11 @@ export function AutoTradePage() {
                   const total = stats.passed + stats.failed;
                   const rate = total > 0 ? (stats.passed / total) * 100 : 0;
                   const barColor = rate >= 60 ? 'bg-green-500' : rate >= 30 ? 'bg-amber-500' : 'bg-red-500';
+                  const label = CONDITION_LABELS[key] ?? key;
                   return (
                     <div key={key}>
                       <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-theme-text font-bold">{key}</span>
+                        <span className="text-theme-text font-bold">{label}</span>
                         <span className="text-theme-text-muted">
                           {rate.toFixed(0)}% ({stats.passed}/{total})
                         </span>
