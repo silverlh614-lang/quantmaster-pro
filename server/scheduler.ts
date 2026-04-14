@@ -27,6 +27,8 @@ import { checkFomcProximityAlert } from './trading/fomcCalendar.js';
 import { runBacktest } from './learning/backtestEngine.js';
 import { loadShadowTrades, saveShadowTrades } from './persistence/shadowTradeRepo.js';
 import { updateShadowResults } from './trading/exitEngine.js';
+import { sendWatchlistRejectionReport } from './screener/stockScreener.js';
+import { runDynamicUniverseExpansion } from './screener/dynamicUniverseExpander.js';
 
 export function startScheduler() {
   // ─── TradingDayOrchestrator — 장 사이클 State Machine ──────────────────
@@ -185,5 +187,17 @@ export function startScheduler() {
     }
   }, { timezone: 'UTC' });
 
-  console.log('[Scheduler] 24개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
+  // 아이디어 5: 워치리스트 탈락 사유 일일 리포트 — 평일 16:10 KST (UTC 07:10, 월~금)
+  // autoPopulateWatchlist 실행 후 탈락 사유를 Telegram으로 요약 발송
+  cron.schedule('10 7 * * 1-5', async () => {
+    await sendWatchlistRejectionReport().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // 아이디어 6: 동적 유니버스 확장 — 매주 토요일 09:00 KST (UTC 00:00 토요일)
+  // KIS API 52주 신고가 + 외국인 순매수 상위 → STOCK_UNIVERSE 임시 확장
+  cron.schedule('0 0 * * 6', async () => {
+    await runDynamicUniverseExpansion().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  console.log('[Scheduler] 26개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
 }

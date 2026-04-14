@@ -1,0 +1,265 @@
+/**
+ * dynamicUniverseExpander.ts — 아이디어 6: STOCK_UNIVERSE 동적 확장
+ *
+ * 매주 1회 (토요일 KST 09:00) KIS API에서:
+ *   1. 52주 신고가 상위 종목 (FHPST01710000 + 신고가 필터)
+ *   2. 외국인 순매수 상위 종목 (FHPST01710000 + 외국인 필터)
+ * 을 수집하여, STOCK_UNIVERSE에 없는 신흥 주도주를 임시 추가.
+ *
+ * - 동적 확장 종목은 메모리 캐시 + JSON 파일로 영속화
+ * - 2주(14일) 후 자동 만료 → 다음 주 스캔에서 갱신
+ * - 기존 STOCK_UNIVERSE 원본은 수정하지 않음
+ * - getExpandedUniverse()로 정적 + 동적 병합 유니버스 제공
+ */
+
+import fs from 'fs';
+import path from 'path';
+import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
+import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL } from '../clients/kisClient.js';
+import { STOCK_UNIVERSE } from './stockScreener.js';
+import { sendTelegramAlert } from '../alerts/telegramClient.js';
+
+// ── 타입 ──────────────────────────────────────────────────────────────────────
+
+export interface DynamicStock {
+  symbol: string;    // Yahoo Finance 심볼 (예: '005930.KS')
+  code: string;      // 6자리 종목코드
+  name: string;
+  source: '52W_HIGH' | 'FOREIGN_NET_BUY';
+  addedAt: string;   // ISO 8601
+  expiresAt: string; // ISO 8601 — 2주 후 자동 만료
+}
+
+const DYNAMIC_UNIVERSE_FILE = path.join(DATA_DIR, 'dynamic-universe.json');
+const EXPIRY_DAYS = 14;
+
+// ── 영속화 ────────────────────────────────────────────────────────────────────
+
+function loadDynamicUniverse(): DynamicStock[] {
+  ensureDataDir();
+  if (!fs.existsSync(DYNAMIC_UNIVERSE_FILE)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(DYNAMIC_UNIVERSE_FILE, 'utf-8'));
+  } catch {
+    return [];
+  }
+}
+
+function saveDynamicUniverse(stocks: DynamicStock[]): void {
+  ensureDataDir();
+  fs.writeFileSync(DYNAMIC_UNIVERSE_FILE, JSON.stringify(stocks, null, 2));
+}
+
+// ── 만료 정리 ─────────────────────────────────────────────────────────────────
+
+function purgeExpired(stocks: DynamicStock[]): DynamicStock[] {
+  const now = new Date().toISOString();
+  return stocks.filter(s => s.expiresAt > now);
+}
+
+// ── KIS API 수집 ──────────────────────────────────────────────────────────────
+
+/**
+ * KIS 52주 신고가 상위 종목 수집.
+ * FHPST01710000 (거래량 순위) + 52주 신고가 근접 종목 필터.
+ * KIS API에서 직접 52주 신고가 순위를 제공하지 않으므로,
+ * 상승률 상위 종목 중 52주 최고가를 기준으로 필터.
+ */
+async function fetch52WeekHighStocks(): Promise<Omit<DynamicStock, 'addedAt' | 'expiresAt'>[]> {
+  if (!HAS_REAL_DATA_CLIENT && !KIS_IS_REAL) return [];
+
+  try {
+    // 상승률 상위 종목 조회 (KOSPI + KOSDAQ)
+    const results: Omit<DynamicStock, 'addedAt' | 'expiresAt'>[] = [];
+
+    for (const mrktDiv of ['J', 'Q']) {  // J=KOSPI, Q=KOSDAQ
+      const data = await realDataKisGet(
+        'FHPST01700000',
+        '/uapi/domestic-stock/v1/ranking/fluctuation',
+        {
+          fid_cond_mrkt_div_code: mrktDiv,
+          fid_cond_scr_div_code: '20170',
+          fid_input_iscd: '0000',
+          fid_rank_sort_cls_code: '0',          // 상승률 내림차순
+          fid_input_cnt_1: '0',
+          fid_prc_cls_code: '1',                // 52주 신고가
+          fid_input_price_1: '5000',            // 5,000원 이상
+          fid_input_price_2: '',
+          fid_vol_cnt: '10000',                 // 거래량 1만주 이상
+          fid_trgt_cls_code: '0',
+          fid_trgt_exls_cls_code: '0',
+          fid_div_cls_code: '0',
+          fid_rsfl_rate1: '',
+          fid_rsfl_rate2: '',
+        },
+      );
+
+      const output = (data as { output?: Record<string, string>[] } | null)?.output;
+      if (!output || !Array.isArray(output)) continue;
+
+      const suffix = mrktDiv === 'J' ? '.KS' : '.KQ';
+      for (const item of output.slice(0, 15)) {
+        const code = item.mksc_shrn_iscd ?? item.stck_shrn_iscd ?? '';
+        const name = item.hts_kor_isnm ?? '';
+        if (!code || code.length !== 6) continue;
+        results.push({
+          symbol: `${code}${suffix}`,
+          code,
+          name,
+          source: '52W_HIGH',
+        });
+      }
+    }
+
+    console.log(`[DynamicExpander] 52주 신고가 후보: ${results.length}개`);
+    return results;
+  } catch (e) {
+    console.error('[DynamicExpander] 52주 신고가 수집 실패:', e instanceof Error ? e.message : e);
+    return [];
+  }
+}
+
+/**
+ * KIS 외국인 순매수 상위 종목 수집.
+ * FHPST01710000 — 거래량 상위 중 외국인 순매수가 양수인 종목.
+ */
+async function fetchForeignNetBuyStocks(): Promise<Omit<DynamicStock, 'addedAt' | 'expiresAt'>[]> {
+  if (!HAS_REAL_DATA_CLIENT && !KIS_IS_REAL) return [];
+
+  try {
+    const results: Omit<DynamicStock, 'addedAt' | 'expiresAt'>[] = [];
+
+    for (const mrktDiv of ['J', 'Q']) {
+      const data = await realDataKisGet(
+        'FHPST01710000',
+        '/uapi/domestic-stock/v1/ranking/volume',
+        {
+          fid_cond_mrkt_div_code: mrktDiv,
+          fid_cond_scr_div_code: '20171',
+          fid_input_iscd: '0000',
+          fid_div_cls_code: '0',
+          fid_blng_cls_code: '0',
+          fid_trgt_cls_code: '111111111',
+          fid_trgt_exls_cls_code: '000000',
+          fid_input_price_1: '5000',
+          fid_input_price_2: '',
+          fid_vol_cnt: '50000',                 // 거래량 5만주 이상
+          fid_input_date_1: '',
+        },
+      );
+
+      const output = (data as { output?: Record<string, string>[] } | null)?.output;
+      if (!output || !Array.isArray(output)) continue;
+
+      const suffix = mrktDiv === 'J' ? '.KS' : '.KQ';
+      for (const item of output.slice(0, 20)) {
+        const code = item.mksc_shrn_iscd ?? item.stck_shrn_iscd ?? '';
+        const name = item.hts_kor_isnm ?? '';
+        const foreignNet = parseInt(item.frgn_ntby_qty ?? '0', 10);
+        if (!code || code.length !== 6) continue;
+        if (foreignNet <= 0) continue;  // 외국인 순매수 양수만
+
+        results.push({
+          symbol: `${code}${suffix}`,
+          code,
+          name,
+          source: 'FOREIGN_NET_BUY',
+        });
+      }
+    }
+
+    console.log(`[DynamicExpander] 외국인 순매수 후보: ${results.length}개`);
+    return results;
+  } catch (e) {
+    console.error('[DynamicExpander] 외국인 순매수 수집 실패:', e instanceof Error ? e.message : e);
+    return [];
+  }
+}
+
+// ── 메인 확장 로직 ────────────────────────────────────────────────────────────
+
+/**
+ * 주간 동적 유니버스 확장 실행.
+ * 1. 기존 동적 목록에서 만료 종목 제거
+ * 2. KIS API로 52주 신고가 + 외국인 순매수 상위 수집
+ * 3. 정적 STOCK_UNIVERSE에 없는 신규 종목만 추가
+ * 4. 결과를 JSON 파일로 저장 + Telegram 알림
+ */
+export async function runDynamicUniverseExpansion(): Promise<number> {
+  const staticCodes = new Set(STOCK_UNIVERSE.map(s => s.code));
+
+  // 기존 동적 목록 로드 & 만료 정리
+  let dynamicStocks = purgeExpired(loadDynamicUniverse());
+  const existingDynamicCodes = new Set(dynamicStocks.map(s => s.code));
+
+  // KIS API 수집 (병렬)
+  const [highStocks, foreignStocks] = await Promise.all([
+    fetch52WeekHighStocks(),
+    fetchForeignNetBuyStocks(),
+  ]);
+
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + EXPIRY_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const addedAt = now.toISOString();
+  let newCount = 0;
+
+  // 병합: 정적 유니버스에 없고 + 기존 동적 목록에도 없는 종목만 추가
+  const allCandidates = [...highStocks, ...foreignStocks];
+  for (const c of allCandidates) {
+    if (staticCodes.has(c.code)) continue;
+    if (existingDynamicCodes.has(c.code)) continue;
+    dynamicStocks.push({ ...c, addedAt, expiresAt });
+    existingDynamicCodes.add(c.code);
+    newCount++;
+  }
+
+  saveDynamicUniverse(dynamicStocks);
+  console.log(
+    `[DynamicExpander] 완료 — 신규 ${newCount}개 추가, 전체 동적 ${dynamicStocks.length}개 ` +
+    `(정적 ${STOCK_UNIVERSE.length}개 + 동적 = ${STOCK_UNIVERSE.length + dynamicStocks.length}개 유니버스)`,
+  );
+
+  // Telegram 알림
+  if (newCount > 0) {
+    const newStockLines = allCandidates
+      .filter(c => !staticCodes.has(c.code))
+      .slice(0, 15)
+      .map(c => `  ${c.name}(${c.code}) [${c.source === '52W_HIGH' ? '52주신고가' : '외국인순매수'}]`)
+      .join('\n');
+
+    await sendTelegramAlert(
+      `🔭 <b>[동적 유니버스 확장]</b>\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `정적: ${STOCK_UNIVERSE.length}개 | 동적: ${dynamicStocks.length}개 (+${newCount})\n` +
+      `만료: ${EXPIRY_DAYS}일 후 자동 제거\n\n` +
+      `<b>신규 편입 종목:</b>\n${newStockLines}\n` +
+      `━━━━━━━━━━━━━━━━━━━━`,
+      {
+        priority: 'NORMAL',
+        dedupeKey: 'dynamic-universe-weekly',
+        cooldownMs: 6 * 24 * 60 * 60 * 1000,  // 6일 쿨다운 (주 1회)
+      },
+    ).catch(console.error);
+  }
+
+  return newCount;
+}
+
+// ── 확장 유니버스 제공 ────────────────────────────────────────────────────────
+
+/**
+ * 정적 STOCK_UNIVERSE + 동적 확장 종목 병합 반환.
+ * 중복 제거 (코드 기준). 만료 종목은 자동 제외.
+ */
+export function getExpandedUniverse(): { symbol: string; code: string; name: string }[] {
+  const staticCodes = new Set(STOCK_UNIVERSE.map(s => s.code));
+  const dynamicStocks = purgeExpired(loadDynamicUniverse());
+
+  const expanded = [...STOCK_UNIVERSE];
+  for (const d of dynamicStocks) {
+    if (staticCodes.has(d.code)) continue;
+    expanded.push({ symbol: d.symbol, code: d.code, name: d.name });
+  }
+
+  return expanded;
+}

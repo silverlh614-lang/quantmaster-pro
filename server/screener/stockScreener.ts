@@ -6,6 +6,22 @@ import { evaluateServerGate } from '../quantFilter.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL } from '../clients/kisClient.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { isPullbackSetup } from './pipelineHelpers.js';
+import { sendTelegramAlert } from '../alerts/telegramClient.js';
+
+// ── 아이디어 5: 워치리스트 탈락 사유 추적 ─────────────────────────────────────
+export interface RejectionEntry {
+  code: string;
+  name: string;
+  reason: string;
+}
+
+/** 마지막 autoPopulateWatchlist 실행의 탈락 사유 로그 (메모리 캐시) */
+let lastRejectionLog: RejectionEntry[] = [];
+
+/** 탈락 로그 조회 (API·테스트용) */
+export function getLastRejectionLog(): RejectionEntry[] {
+  return lastRejectionLog;
+}
 
 export interface ScreenedStock {
   code: string;
@@ -689,13 +705,22 @@ export async function autoPopulateWatchlist(): Promise<number> {
   const existingCodes = new Set(watchlist.map(w => w.code));
   let added = 0;
 
+  // 아이디어 5: 탈락 사유 추적 — 매 실행마다 초기화
+  const rejectionLog: RejectionEntry[] = [];
+
   // 실계좌: preScreenStocks 결과 → 워치리스트 승격
   if (KIS_IS_REAL) {
     const screened = getScreenerCache();
     for (const s of screened) {
       if (existingCodes.has(s.code)) continue;
-      if (s.changeRate < 0 || s.changeRate >= 8) continue;    // 음봉·과열 제외 (기존 +2% → 0%로 완화)
-      if (s.foreignNetBuy < 0) continue;                      // 외국인 순매수
+      if (s.changeRate < 0 || s.changeRate >= 8) {
+        rejectionLog.push({ code: s.code, name: s.name, reason: s.changeRate < 0 ? `음봉 ${s.changeRate.toFixed(1)}%` : `과열 +${s.changeRate.toFixed(1)}%` });
+        continue;
+      }
+      if (s.foreignNetBuy < 0) {
+        rejectionLog.push({ code: s.code, name: s.name, reason: `외국인순매도 ${s.foreignNetBuy.toLocaleString()}주` });
+        continue;
+      }
 
       const sl = Math.round(s.currentPrice * 0.92);
       const tp = Math.round(s.currentPrice * 1.15);
@@ -716,25 +741,47 @@ export async function autoPopulateWatchlist(): Promise<number> {
   }
 
   // VTS 및 공통: Yahoo Finance 기반 모멘텀 스캔 + 서버사이드 Gate 평가 (아이디어 2)
-  for (const stock of STOCK_UNIVERSE) {
+  // 아이디어 6: 동적 확장 유니버스 사용 (정적 + 주간 52주신고가/외국인순매수)
+  const { getExpandedUniverse } = await import('./dynamicUniverseExpander.js');
+  const scanUniverse = getExpandedUniverse();
+  for (const stock of scanUniverse) {
     if (existingCodes.has(stock.code)) continue;
 
     const quote = await fetchYahooQuote(stock.symbol);
-    if (!quote || quote.price <= 0) continue;
+    if (!quote || quote.price <= 0) {
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: '시세조회실패' });
+      continue;
+    }
 
     // 필터: 과열 상단 차단 + VCP/거래량 조건 + 눌림목 허용
     const isVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
     const pullback = isPullbackSetup(quote);
-    if (quote.changePercent >= 5) continue;                              // 과열 제외
-    if (quote.changePercent < -2 && !pullback) continue;                  // 눌림목 아닌 음봉 -2% 이하 제외
-    if (quote.changePercent < -5) continue;                              // -5% 이하 급락은 눌림목이라도 제외
-    if (quote.volume < quote.avgVolume * 1.2 && !isVCP && !pullback) continue; // 눌림목/VCP면 거래량 마름 OK
-    if (quote.return5d > 15) continue;                                   // 5일 +15% 초과 → 급등 완료
+    if (quote.changePercent >= 5) {
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: `과열 +${quote.changePercent.toFixed(1)}%` });
+      continue;
+    }
+    if (quote.changePercent < -2 && !pullback) {
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: `음봉 ${quote.changePercent.toFixed(1)}% (눌림목아님)` });
+      continue;
+    }
+    if (quote.changePercent < -5) {
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: `급락 ${quote.changePercent.toFixed(1)}%` });
+      continue;
+    }
+    if (quote.volume < quote.avgVolume * 1.2 && !isVCP && !pullback) {
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: `거래량부족 ${(quote.volume / quote.avgVolume).toFixed(1)}배` });
+      continue;
+    }
+    if (quote.return5d > 15) {
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: `5일급등 +${quote.return5d.toFixed(1)}%` });
+      continue;
+    }
 
     // 아이디어 2: 서버사이드 Gate 평가 — SKIP 종목 제외
     const macroState = loadMacroState();
     const gate = evaluateServerGate(quote, loadConditionWeights(), macroState?.kospiDayReturn);
     if (gate.signalType === 'SKIP') {
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: `Gate SKIP (${gate.gateScore.toFixed(1)}/10)` });
       console.log(`[AutoPopulate] SKIP: ${stock.name}(${stock.code}) gateScore=${gate.gateScore}/10`);
       continue;
     }
@@ -766,6 +813,12 @@ export async function autoPopulateWatchlist(): Promise<number> {
     await new Promise(r => setTimeout(r, 300));
   }
 
+  // 아이디어 5: 탈락 로그를 메모리 캐시에 저장 + 상세 JSON 로그 출력
+  lastRejectionLog = rejectionLog;
+  if (rejectionLog.length > 0) {
+    console.log(`[AutoPopulate] 탈락 ${rejectionLog.length}건 — ${JSON.stringify(rejectionLog.slice(0, 10))}`);
+  }
+
   if (added > 0) {
     saveWatchlist(watchlist);
     console.log(`[AutoPopulate] 워치리스트 자동 추가 완료 — ${added}개 신규 (총 ${watchlist.length}개)`);
@@ -774,4 +827,46 @@ export async function autoPopulateWatchlist(): Promise<number> {
   }
 
   return added;
+}
+
+/**
+ * 아이디어 5: 워치리스트 탈락 사유 텔레그램 요약 발송.
+ * 하루 1회 스케줄러에서 호출 — 어느 종목이 어느 필터에서 탈락했는지 가시성 확보.
+ */
+export async function sendWatchlistRejectionReport(): Promise<void> {
+  const log = lastRejectionLog;
+  if (log.length === 0) {
+    console.log('[RejectionReport] 탈락 로그 없음 — 리포트 스킵');
+    return;
+  }
+
+  // 사유별 집계
+  const reasonCounts = new Map<string, number>();
+  for (const entry of log) {
+    // 사유 카테고리 추출 (숫자 제거하여 그룹화)
+    const category = entry.reason.replace(/[+-]?\d+(\.\d+)?[%주배]/g, '').trim() || entry.reason;
+    reasonCounts.set(category, (reasonCounts.get(category) ?? 0) + 1);
+  }
+
+  const sortedReasons = [...reasonCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const reasonLines = sortedReasons.slice(0, 8).map(([r, c]) => `  ${r}: ${c}건`).join('\n');
+
+  // 상위 탈락 종목 (최대 10개)
+  const topRejections = log.slice(0, 10).map(e => `  ${e.name}(${e.code}): ${e.reason}`).join('\n');
+
+  const msg =
+    `📋 <b>[워치리스트 탈락 리포트]</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `스캔 종목: ${STOCK_UNIVERSE.length}개 | 탈락: ${log.length}건\n\n` +
+    `<b>사유별 분포:</b>\n${reasonLines}\n\n` +
+    `<b>탈락 종목 (상위 10):</b>\n${topRejections}\n` +
+    `━━━━━━━━━━━━━━━━━━━━`;
+
+  await sendTelegramAlert(msg, {
+    priority: 'LOW',
+    dedupeKey: 'watchlist-rejection-daily',
+    cooldownMs: 20 * 60 * 60 * 1000,  // 20시간 쿨다운 (하루 1회)
+  }).catch(console.error);
+
+  console.log(`[RejectionReport] 텔레그램 발송 완료 — 탈락 ${log.length}건`);
 }
