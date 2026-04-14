@@ -21,8 +21,8 @@ import { EmptyState } from '../ui/empty-state';
 import { KpiStrip } from '../ui/kpi-strip';
 import { Stack } from '../layout/Stack';
 import { PageGrid } from '../layout/PageGrid';
-import { PortfolioManager } from '../components/PortfolioManager';
-import { PortfolioPieChart } from '../components/PortfolioPieChart';
+import { PortfolioManager } from '../components/portfolio/PortfolioManager';
+import { PortfolioPieChart } from '../components/portfolio/PortfolioPieChart';
 import { useMarketStore, usePortfolioStore } from '../stores';
 
 interface BacktestPageProps {

@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useRecommendationStore, useTradeStore, useSettingsStore } from '../stores';
 import { useAttributionStore } from '../stores/useAttributionStore';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
-import { computeConditionPerformance } from '../components/TradeJournal';
+import { computeConditionPerformance } from '../components/trading/TradeJournal';
 import { saveEvolutionWeights } from '../services/quant/evolutionEngine';
 import { runAttributionAnalysis, pushAttributionToServer } from '../services/autoTrading';
 import type { StockRecommendation } from '../services/stockService';

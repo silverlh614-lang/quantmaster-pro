@@ -17,7 +17,7 @@ import type {
 import type { MTFConfluenceInput, MTFConfluenceResult } from '../types/technical';
 import type { DynamicStopInput, DynamicStopResult } from '../types/sell';
 import type { FeedbackLoopResult } from '../types/portfolio';
-import type { MHSRecord } from '../components/MHSHistoryChart';
+import type { MHSRecord } from '../components/signals/MHSHistoryChart';
 import type { SectorEnergyInput, SectorEnergyResult } from '../types/sectorEnergy';
 import type { FlowPredictionInput, FlowPredictionResult } from '../types/flowPrediction';
 import type { SatelliteCascaderInput, SatelliteCascaderResult } from '../types/satellite';

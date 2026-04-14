@@ -8,7 +8,7 @@ import { cn } from '../ui/cn';
 import { Card } from '../ui/card';
 import { Section } from '../ui/section';
 import { Stack } from '../layout/Stack';
-import { DeepAnalysisModal } from '../components/DeepAnalysisModal';
+import { DeepAnalysisModal } from '../components/analysis/DeepAnalysisModal';
 import { WatchlistHeader } from '../components/watchlist/WatchlistHeader';
 import { WatchlistFilterPanel } from '../components/watchlist/WatchlistFilterPanel';
 import { WatchlistCard } from '../components/watchlist/WatchlistCard';

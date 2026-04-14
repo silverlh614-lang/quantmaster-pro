@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { SectorSubscription } from '../components/SectorSubscription';
+import { SectorSubscription } from '../components/sector/SectorSubscription';
 import { useSettingsStore, useRecommendationStore } from '../stores';
 import { PageHeader } from '../ui/page-header';
 import { Stack } from '../layout/Stack';
