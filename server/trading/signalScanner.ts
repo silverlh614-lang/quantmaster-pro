@@ -37,6 +37,7 @@ import {
   MAX_INTRADAY_POSITIONS,
   INTRADAY_POSITION_PCT_FACTOR,
   INTRADAY_STOP_LOSS_PCT,
+  INTRADAY_PULLBACK_STOP_LOSS_PCT,
   INTRADAY_TARGET_PCT,
 } from '../screener/intradayScanner.js';
 import {
@@ -722,8 +723,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
   }
 
   // ── 장중 Watchlist 처리 — intradayReady 항목에 대해 진입 시도 ───────────────
-  // 즉시 매수 금지: intradayReady=true (30분 경과 + 재검증 통과)인 항목만 대상
-  // 위험 관리: maxIntradayPositions(2개) / 포지션 비중 50% 축소 / 빠른 손절(-5%)
+  // 즉시 매수 금지: intradayReady=true (15분 경과 + 재검증 통과)인 항목만 대상
+  // 위험 관리: maxIntradayPositions(3개) / 포지션 비중 50% 축소 / 경로별 손절(돌파-5%/눌림목-4%)
   if (!options?.sellOnly && intradayBuyList.length > 0) {
     const activeIntradayCount = shadows.filter(
       (s) => isOpenShadowStatus(s.status) && s.watchlistSource === 'INTRADAY',
@@ -777,8 +778,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
           const slippage         = 0.003;
           const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));
 
-          // 장중 손절: -5% 고정 (레짐 손절보다 빠른 손절)
-          const intradayStop   = Math.round(shadowEntryPrice * (1 - INTRADAY_STOP_LOSS_PCT));
+          // 장중 손절: 경로별 차등 — 돌파형 -5% / 수급·눌림목형 -4%
+          const stopPct = (stock.entryPath === 'SUPPLY_DEMAND' || stock.entryPath === 'PULLBACK')
+            ? INTRADAY_PULLBACK_STOP_LOSS_PCT
+            : INTRADAY_STOP_LOSS_PCT;
+          const intradayStop   = Math.round(shadowEntryPrice * (1 - stopPct));
           const intradayTarget = stock.targetPrice > 0
             ? stock.targetPrice
             : Math.round(shadowEntryPrice * (1 + INTRADAY_TARGET_PCT));
@@ -836,6 +840,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
             entryRegime:      regime,
           });
 
+          const stopLabel = stopPct === INTRADAY_PULLBACK_STOP_LOSS_PCT ? '-4%' : '-5%';
+
           if (shadowMode) {
             shadows.push(trade);
             console.log(`[AutoTrade/Intraday SHADOW] ${stock.name}(${stock.code}) 장중 진입 @${currentPrice}`);
@@ -845,7 +851,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
               `📈 <b>[Shadow] 장중 매수 신호</b>\n` +
               `종목: ${stock.name} (${stock.code})\n` +
               `현재가: ${currentPrice.toLocaleString()}원 × ${quantity}주\n` +
-              `손절: ${intradayStop.toLocaleString()} (-5%) | 목표: ${intradayTarget.toLocaleString()}\n` +
+              `손절: ${intradayStop.toLocaleString()} (${stopLabel}) | 목표: ${intradayTarget.toLocaleString()}\n` +
               `⚡ Intraday 포지션 ${currentIntradayActive + 1}/${MAX_INTRADAY_POSITIONS}`,
             ).catch(console.error);
           } else {
@@ -877,7 +883,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
               `주문상태: ${ordNo ? 'ORDER_SUBMITTED' : 'REJECTED'}\n` +
               `주문가: ${currentPrice.toLocaleString()}원 × ${quantity}주\n` +
               `주문번호: ${ordNo ?? 'N/A'}\n` +
-              `손절: ${intradayStop.toLocaleString()} (-5%) | 목표: ${intradayTarget.toLocaleString()}\n` +
+              `손절: ${intradayStop.toLocaleString()} (${stopLabel}) | 목표: ${intradayTarget.toLocaleString()}\n` +
               `⚡ Intraday 포지션 ${currentIntradayActive + 1}/${MAX_INTRADAY_POSITIONS}`,
             ).catch(console.error);
           }

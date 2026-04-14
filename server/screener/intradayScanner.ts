@@ -2,17 +2,25 @@
  * intradayScanner.ts — 장중 Intraday Watchlist 발굴·갱신
  *
  * 장중에 새롭게 조건을 충족하는 종목을 탐색하여 IntradayWatchlistEntry로 등록하고,
- * 이미 등록된 항목에 대해 30분 경과 + 가격 강도 재검증을 수행하여
+ * 이미 등록된 항목에 대해 15분 경과 + 가격 강도 재검증을 수행하여
  * intradayReady 플래그를 갱신한다.
  *
- * 필수 등록 조건 (isIntradayStrong):
- *   ① 거래량 폭발: volume > avgVolume × VOLUME_SURGE_RATIO (3×)
- *   ② 가격 강도: currentPrice > dayOpen AND changeRatePct ≥ MIN_PRICE_CHANGE_PCT (3%)
+ * 2가지 발굴 경로:
+ *
+ * [경로 A — 돌파형] isBreakoutStrong:
+ *   ① 거래량 폭발: volume > avgVolume × BREAKOUT_VOLUME_RATIO (2×)
+ *   ② 가격 강도: currentPrice > dayOpen AND changeRatePct ≥ BREAKOUT_PRICE_CHANGE_PCT (+1.5%)
  *   ③ 고점 돌파: currentPrice > high20d
  *
+ * [경로 B — 수급형] isSupplyDemandStrong:
+ *   ① 거래량 증가: volume > avgVolume × SUPPLY_VOLUME_RATIO (2.5×)
+ *   ② 양봉: currentPrice > dayOpen AND changeRatePct ≥ SUPPLY_PRICE_CHANGE_PCT (0%)
+ *   ③ MA20 위: currentPrice > ma20
+ *   ④ 외국인/기관 매집 또는 눌림목 셋업
+ *
  * intradayReady 전환 조건:
- *   ④ 30분(INTRADAY_MIN_HOLD_MS) 이상 목록 유지
- *   ⑤ 재검증: currentPrice > dayOpen AND changeRatePct ≥ CONFIRM_PRICE_CHANGE_PCT (2.1%)
+ *   ④ 15분(INTRADAY_MIN_HOLD_MS) 이상 목록 유지
+ *   ⑤ 재검증: currentPrice > dayOpen AND changeRatePct ≥ CONFIRM_PRICE_CHANGE_PCT
  *
  * 즉시 매수 금지 — signalScanner는 intradayReady=true 항목만 진입 후보로 처리한다.
  */
@@ -20,35 +28,52 @@
 import { loadIntradayWatchlist, saveIntradayWatchlist, type IntradayWatchlistEntry } from '../persistence/intradayWatchlistRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { isBlacklisted } from '../persistence/blacklistRepo.js';
-import { fetchYahooQuote, getScreenerCache } from './stockScreener.js';
+import { fetchYahooQuote, getScreenerCache, STOCK_UNIVERSE } from './stockScreener.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { isPullbackSetup } from './pipelineHelpers.js';
 import type { YahooQuoteExtended } from './stockScreener.js';
 
 // ── 상수 ───────────────────────────────────────────────────────────────────────
 
-/** 거래량 폭발 최소 배율 (현재 거래량 ÷ 5일 평균 거래량) */
-export const VOLUME_SURGE_RATIO = 3.0;
+// ─ 경로 A: 돌파형 (Breakout) ─
+/** 돌파형 거래량 최소 배율 */
+export const BREAKOUT_VOLUME_RATIO = 2.0;
+/** 돌파형 최소 등락률 (%) */
+export const BREAKOUT_PRICE_CHANGE_PCT = 1.5;
 
-/** 장중 등록 최소 등락률 (%) */
-export const MIN_PRICE_CHANGE_PCT = 3.0;
+// ─ 경로 B: 수급형 (Supply-Demand) ─
+/** 수급형 거래량 최소 배율 */
+export const SUPPLY_VOLUME_RATIO = 2.5;
+/** 수급형 최소 등락률 (%) — 양봉이면 충분 */
+export const SUPPLY_PRICE_CHANGE_PCT = 0.0;
 
-/** intradayReady 전환 재검증 최소 등락률 (%) — 등록 기준의 70% */
-export const CONFIRM_PRICE_CHANGE_PCT = MIN_PRICE_CHANGE_PCT * 0.7;
+/** 하위 호환: 기존 코드/테스트 참조용 — 돌파형 기준값 사용 */
+export const VOLUME_SURGE_RATIO = BREAKOUT_VOLUME_RATIO;
+export const MIN_PRICE_CHANGE_PCT = BREAKOUT_PRICE_CHANGE_PCT;
 
-/** 최소 목록 유지 시간 — 30분 (ms) */
-export const INTRADAY_MIN_HOLD_MS = 30 * 60_000;
+/** intradayReady 전환 재검증 최소 등락률 (%) — 돌파형 기준의 70% */
+export const CONFIRM_PRICE_CHANGE_PCT = BREAKOUT_PRICE_CHANGE_PCT * 0.7;
+
+/** 최소 목록 유지 시간 — 15분 (ms) */
+export const INTRADAY_MIN_HOLD_MS = 15 * 60_000;
 
 /** 동시 장중 포지션 최대 수 */
-export const MAX_INTRADAY_POSITIONS = 2;
+export const MAX_INTRADAY_POSITIONS = 3;
 
 /** 장중 포지션 비중 축소 계수 (기존의 50%) */
 export const INTRADAY_POSITION_PCT_FACTOR = 0.5;
 
-/** 장중 손절 비율 (진입가 대비) */
+/** 장중 손절 비율 — 돌파형 (진입가 대비) */
 export const INTRADAY_STOP_LOSS_PCT = 0.05;
+
+/** 장중 손절 비율 — 눌림목형 (더 타이트한 -4%) */
+export const INTRADAY_PULLBACK_STOP_LOSS_PCT = 0.04;
 
 /** 장중 목표 비율 (진입가 대비) */
 export const INTRADAY_TARGET_PCT = 0.10;
+
+/** 발굴 경로 유형 */
+export type IntradayEntryPath = 'BREAKOUT' | 'SUPPLY_DEMAND' | 'PULLBACK';
 
 /** 발굴 스캔 최소 간격 — 10분 (ms) */
 const DISCOVERY_INTERVAL_MS = 10 * 60_000;
@@ -68,27 +93,66 @@ export function resetIntradayScanState(): void {
 // ── 핵심 판단 함수 ─────────────────────────────────────────────────────────────
 
 /**
- * 주어진 Yahoo 시세가 장중 Watchlist 등록 조건을 충족하는지 판단.
+ * [경로 A — 돌파형] 거래량 터지면서 상승 + 고점 돌파.
  *
  * 조건:
- *   ① volume > avgVolume × VOLUME_SURGE_RATIO
- *   ② price > dayOpen  (시가 대비 강세)
- *   ③ changeRatePct ≥ MIN_PRICE_CHANGE_PCT  (+3% 이상)
- *   ④ price > high20d  (20일 고점 돌파)
+ *   ① volume > avgVolume × BREAKOUT_VOLUME_RATIO (2×)
+ *   ② price > dayOpen (시가 대비 강세)
+ *   ③ changeRatePct ≥ BREAKOUT_PRICE_CHANGE_PCT (+1.5%)
+ *   ④ price > high20d (20일 고점 돌파)
  */
-export function isIntradayStrong(quote: YahooQuoteExtended): boolean {
-  const volumeSurge = quote.avgVolume > 0 && quote.volume > quote.avgVolume * VOLUME_SURGE_RATIO;
+export function isBreakoutStrong(quote: YahooQuoteExtended): boolean {
+  const volumeSurge = quote.avgVolume > 0 && quote.volume > quote.avgVolume * BREAKOUT_VOLUME_RATIO;
   const aboveOpen   = quote.price > quote.dayOpen;
-  const strongGain  = quote.changePercent >= MIN_PRICE_CHANGE_PCT;
+  const strongGain  = quote.changePercent >= BREAKOUT_PRICE_CHANGE_PCT;
   const high20Break = quote.high20d > 0 && quote.price > quote.high20d;
 
   return volumeSurge && aboveOpen && strongGain && high20Break;
 }
 
+/**
+ * [경로 B — 수급형] 외국인 조용히 매집 중이거나 MA20 눌림목 반등 초입.
+ *
+ * 조건:
+ *   ① volume > avgVolume × SUPPLY_VOLUME_RATIO (2.5×)
+ *   ② price > dayOpen AND changeRatePct ≥ SUPPLY_PRICE_CHANGE_PCT (0%)
+ *   ③ price > ma20 (20일선 위)
+ *   ④ 눌림목(pullback) 셋업 감지
+ */
+export function isSupplyDemandStrong(quote: YahooQuoteExtended): boolean {
+  const volumeSurge = quote.avgVolume > 0 && quote.volume > quote.avgVolume * SUPPLY_VOLUME_RATIO;
+  const aboveOpen   = quote.price > quote.dayOpen;
+  const positiveDay = quote.changePercent >= SUPPLY_PRICE_CHANGE_PCT;
+  const aboveMA20   = quote.ma20 > 0 && quote.price > quote.ma20;
+  const pullback    = isPullbackSetup(quote);
+
+  return volumeSurge && aboveOpen && positiveDay && aboveMA20 && pullback;
+}
+
+/**
+ * 통합 장중 강도 판별 — 돌파형(A) 또는 수급형(B) 중 하나 충족 시 true.
+ * 하위 호환: 기존 isIntradayStrong과 동일 시그니처.
+ */
+export function isIntradayStrong(quote: YahooQuoteExtended): boolean {
+  return isBreakoutStrong(quote) || isSupplyDemandStrong(quote);
+}
+
+/**
+ * 발굴 경로 판별 — 종목이 어떤 경로로 발굴되었는지 반환.
+ */
+export function classifyEntryPath(quote: YahooQuoteExtended): IntradayEntryPath {
+  if (isBreakoutStrong(quote)) return 'BREAKOUT';
+  if (isSupplyDemandStrong(quote)) return 'SUPPLY_DEMAND';
+  return 'PULLBACK';
+}
+
 // ── 내부 헬퍼 ─────────────────────────────────────────────────────────────────
 
-function calcIntradayStop(price: number): number {
-  return Math.round(price * (1 - INTRADAY_STOP_LOSS_PCT));
+function calcIntradayStop(price: number, path: IntradayEntryPath = 'BREAKOUT'): number {
+  const pct = (path === 'SUPPLY_DEMAND' || path === 'PULLBACK')
+    ? INTRADAY_PULLBACK_STOP_LOSS_PCT
+    : INTRADAY_STOP_LOSS_PCT;
+  return Math.round(price * (1 - pct));
 }
 
 function calcIntradayTarget(price: number): number {
@@ -98,7 +162,7 @@ function calcIntradayTarget(price: number): number {
 // ── 발굴 스캔 ─────────────────────────────────────────────────────────────────
 
 /**
- * 스크리너 캐시 기반 장중 후보 발굴.
+ * STOCK_UNIVERSE 120개 + screenerCache 이중 소스 기반 장중 후보 발굴.
  * DISCOVERY_INTERVAL_MS(10분) 간격으로만 실행; 이미 목록에 있거나 Pre-Market 목록에 있는 종목은 건너뜀.
  */
 async function discoverIntradayCandidates(): Promise<void> {
@@ -106,38 +170,56 @@ async function discoverIntradayCandidates(): Promise<void> {
   if (now - lastDiscoveryAt < DISCOVERY_INTERVAL_MS) return;
   lastDiscoveryAt = now;
 
-  const screenerCache  = getScreenerCache();
-  if (screenerCache.length === 0) {
-    console.log('[IntradayScan] 스크리너 캐시 없음 — 발굴 스킵');
-    return;
-  }
-
   const intradayList   = loadIntradayWatchlist();
   const preMarketList  = loadWatchlist();
   const intradayCodes  = new Set(intradayList.map(e => e.code));
   const preMarketCodes = new Set(preMarketList.map(e => e.code));
 
-  // 아직 등록되지 않은 후보 (Pre-Market 및 Intraday 중복 제외, 블랙리스트 제외)
-  const candidates = screenerCache
-    .filter(s =>
-      s.code &&
-      !intradayCodes.has(s.code) &&
-      !preMarketCodes.has(s.code) &&
-      !isBlacklisted(s.code),
-    )
-    .slice(0, MAX_YAHOO_CALLS_PER_DISCOVERY);
+  // ── 이중 소스: STOCK_UNIVERSE + screenerCache 병합 (코드 기준 중복 제거) ─
+  const seenCodes = new Set<string>();
+  const mergedCandidates: { code: string; name: string; symbol?: string }[] = [];
 
+  // 소스 1: STOCK_UNIVERSE 120개 (고정 우량주 풀)
+  for (const stock of STOCK_UNIVERSE) {
+    if (!stock.code || seenCodes.has(stock.code)) continue;
+    if (intradayCodes.has(stock.code) || preMarketCodes.has(stock.code)) continue;
+    if (isBlacklisted(stock.code)) continue;
+    seenCodes.add(stock.code);
+    mergedCandidates.push({ code: stock.code, name: stock.name, symbol: stock.symbol });
+  }
+
+  // 소스 2: screenerCache (KIS 거래량 상위 종목 — 실시간 시장 반영)
+  const screenerCache = getScreenerCache();
+  for (const stock of screenerCache) {
+    if (!stock.code || seenCodes.has(stock.code)) continue;
+    if (intradayCodes.has(stock.code) || preMarketCodes.has(stock.code)) continue;
+    if (isBlacklisted(stock.code)) continue;
+    seenCodes.add(stock.code);
+    mergedCandidates.push({ code: stock.code, name: stock.name });
+  }
+
+  if (mergedCandidates.length === 0) {
+    console.log('[IntradayScan] 후보 없음 — 발굴 스킵');
+    return;
+  }
+
+  // Yahoo 호출 수 제한 — 1회당 최대 MAX_YAHOO_CALLS_PER_DISCOVERY개
+  const candidates = mergedCandidates.slice(0, MAX_YAHOO_CALLS_PER_DISCOVERY);
   let newCount = 0;
 
   for (const stock of candidates) {
     try {
-      const quote =
-        (await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)) ??
-        (await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null));
+      const quote = stock.symbol
+        ? (await fetchYahooQuote(stock.symbol).catch(() => null))
+        : (await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)) ??
+          (await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null));
 
       if (!quote || quote.price <= 0) continue;
 
       if (!isIntradayStrong(quote)) continue;
+
+      const entryPath = classifyEntryPath(quote);
+      const pathLabel = entryPath === 'BREAKOUT' ? '돌파형' : entryPath === 'SUPPLY_DEMAND' ? '수급형' : '눌림목형';
 
       const entry: IntradayWatchlistEntry = {
         code:           stock.code,
@@ -149,23 +231,29 @@ async function discoverIntradayCandidates(): Promise<void> {
         volumeRatio:    quote.avgVolume > 0 ? quote.volume / quote.avgVolume : 0,
         changeRatePct:  quote.changePercent,
         entryPrice:     quote.price,
-        stopLoss:       calcIntradayStop(quote.price),
+        stopLoss:       calcIntradayStop(quote.price, entryPath),
         targetPrice:    calcIntradayTarget(quote.price),
         intradayReady:  false,
+        entryPath,
       };
       intradayList.push(entry);
       newCount++;
 
       console.log(
-        `[IntradayScan] 신규 등록: ${stock.name}(${stock.code}) ` +
+        `[IntradayScan] 신규 등록 [${pathLabel}]: ${stock.name}(${stock.code}) ` +
         `@${quote.price.toLocaleString()} Vol×${entry.volumeRatio.toFixed(1)} +${quote.changePercent.toFixed(1)}%`,
       );
 
+      const pathDesc = entryPath === 'BREAKOUT'
+        ? `거래량 배율: ×${entry.volumeRatio.toFixed(1)} | 20일 고점 돌파 ✅`
+        : `거래량 배율: ×${entry.volumeRatio.toFixed(1)} | MA20 위 + 눌림목 셋업 ✅`;
+
       await sendTelegramAlert(
-        `📡 <b>[장중 발굴]</b> ${stock.name} (${stock.code})\n` +
+        `📡 <b>[장중 발굴 — ${pathLabel}]</b> ${stock.name} (${stock.code})\n` +
         `현재가: ${quote.price.toLocaleString()}원 (+${quote.changePercent.toFixed(1)}%)\n` +
-        `거래량 배율: ×${entry.volumeRatio.toFixed(1)} | 20일 고점 돌파 ✅\n` +
-        `⏳ 30분 관찰 후 재검증 → 진입 후보 전환 예정`,
+        `${pathDesc}\n` +
+        `손절: ${entry.stopLoss.toLocaleString()}원 (${entryPath === 'BREAKOUT' ? '-5%' : '-4%'})\n` +
+        `⏳ 15분 관찰 후 재검증 → 진입 후보 전환 예정`,
       ).catch(console.error);
 
       await new Promise(r => setTimeout(r, 300)); // Yahoo rate limit 방지
@@ -226,9 +314,9 @@ async function updateIntradayReadiness(): Promise<void> {
         if (stillStrong) {
           entry.intradayReady  = true;
           entry.confirmedAt    = new Date().toISOString();
-          // 현재 시세로 진입가/손절/목표 갱신
+          // 현재 시세로 진입가/손절/목표 갱신 (경로별 손절 적용)
           entry.entryPrice     = quote.price;
-          entry.stopLoss       = calcIntradayStop(quote.price);
+          entry.stopLoss       = calcIntradayStop(quote.price, entry.entryPath);
           entry.targetPrice    = calcIntradayTarget(quote.price);
           mutated = true;
 
@@ -237,8 +325,9 @@ async function updateIntradayReadiness(): Promise<void> {
             `@${quote.price.toLocaleString()} (30분 경과 + 재검증)`,
           );
 
+          const readyPathLabel = entry.entryPath === 'BREAKOUT' ? '돌파형' : entry.entryPath === 'SUPPLY_DEMAND' ? '수급형' : '눌림목형';
           await sendTelegramAlert(
-            `✅ <b>[장중 진입 준비 완료]</b> ${entry.name} (${entry.code})\n` +
+            `✅ <b>[장중 진입 준비 완료 — ${readyPathLabel}]</b> ${entry.name} (${entry.code})\n` +
             `현재가: ${quote.price.toLocaleString()}원 (+${quote.changePercent.toFixed(1)}%)\n` +
             `진입가: ${entry.entryPrice.toLocaleString()} | 손절: ${entry.stopLoss.toLocaleString()} | 목표: ${entry.targetPrice.toLocaleString()}\n` +
             `📌 장중 포지션 50% 비중 / 최대 ${MAX_INTRADAY_POSITIONS}개 동시 진입 제한`,

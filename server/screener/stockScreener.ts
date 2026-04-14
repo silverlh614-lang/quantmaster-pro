@@ -228,6 +228,34 @@ export const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = 
   { symbol: '122870.KQ', code: '122870', name: '와이지엔터테인먼트' },
   { symbol: '041920.KQ', code: '041920', name: '메디아나' },
   { symbol: '099190.KQ', code: '099190', name: '아이센스' },
+  // ── 작은 거인 (Hidden Champions) — 고성장 중소형주 ──
+  { symbol: '025900.KQ', code: '025900', name: '동화기업' },
+  { symbol: '211050.KQ', code: '211050', name: '인카금융서비스' },
+  { symbol: '322510.KQ', code: '322510', name: '제이엘케이' },
+  { symbol: '352480.KQ', code: '352480', name: '씨이랩' },
+  { symbol: '443060.KQ', code: '443060', name: '유투바이오' },
+  { symbol: '086900.KQ', code: '086900', name: '메디톡스' },
+  { symbol: '099430.KQ', code: '099430', name: '바이오플러스' },
+  { symbol: '348150.KQ', code: '348150', name: 'GRT' },
+  { symbol: '039440.KQ', code: '039440', name: 'STX엔진' },
+  { symbol: '454910.KQ', code: '454910', name: '파두' },
+  { symbol: '226330.KQ', code: '226330', name: '신테카바이오' },
+  // ── KOSPI 방산·원자력·전력기기 ──
+  { symbol: '012450.KS', code: '012450', name: '한화에어로스페이스' },
+  { symbol: '047810.KS', code: '047810', name: '한국항공우주' },
+  { symbol: '064350.KS', code: '064350', name: '현대로템' },
+  { symbol: '042670.KS', code: '042670', name: '두산인프라코어' },
+  { symbol: '298040.KS', code: '298040', name: '효성중공업' },
+  { symbol: '103590.KS', code: '103590', name: '일진전기' },
+  // ── 로봇·AI 소프트웨어 ──
+  { symbol: '454910.KQ', code: '454910', name: '파두' },
+  { symbol: '278990.KQ', code: '278990', name: 'EMB' },
+  { symbol: '272110.KQ', code: '272110', name: '케이엔제이' },
+  { symbol: '080010.KQ', code: '080010', name: '이상네트웍스' },
+  // ── 추가 바이오·헬스케어 ──
+  { symbol: '195940.KQ', code: '195940', name: 'HK이노엔' },
+  { symbol: '326030.KQ', code: '326030', name: 'SK바이오팜' },
+  { symbol: '389030.KQ', code: '389030', name: '지누스' },
 ];
 
 export function getScreenerCache(): ScreenedStock[] {
