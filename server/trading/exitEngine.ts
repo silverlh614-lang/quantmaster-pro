@@ -35,6 +35,9 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       continue;
     }
 
+    // REJECTED·ORDER_SUBMITTED 모두 이 조건으로 스킵됨.
+    // REJECTED는 buyApproval 거부/KIS 주문 실패 시 shadows에 남는 종료 상태이므로 안전.
+    // ORDER_SUBMITTED는 fillMonitor가 체결 확인 후 ACTIVE로 전환할 때까지 exitEngine이 관여하지 않음.
     if (shadow.status !== 'ACTIVE' && shadow.status !== 'PARTIALLY_FILLED' && shadow.status !== 'EUPHORIA_PARTIAL') continue;
 
     const currentPrice = await fetchCurrentPrice(shadow.stockCode).catch(() => null);

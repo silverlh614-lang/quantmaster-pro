@@ -14,6 +14,14 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
+// 설정 불일치 조기 감지: LIVE 모드인데 실계좌 TR ID가 꺼져 있으면 즉시 중단
+if (process.env.AUTO_TRADE_MODE === 'LIVE' && process.env.KIS_IS_REAL !== 'true') {
+  throw new Error(
+    '설정 불일치: AUTO_TRADE_MODE=LIVE 이지만 KIS_IS_REAL이 true가 아닙니다. ' +
+    '모의계좌에 실주문이 나가는 것을 막기 위해 서버를 종료합니다.'
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 // 아이디어 9: 서버사이드 비상 정지 모듈 (Circuit Breaker)
 // 브라우저를 닫아도 서버 메모리에서 플래그 유지

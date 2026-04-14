@@ -51,6 +51,7 @@ import {
   getMinGateScore,
 } from './entryEngine.js';
 import { updateShadowResults } from './exitEngine.js';
+import { requestBuyApproval } from '../telegram/buyApproval.js';
 import { checkCooldownRelease } from './regretAsymmetryFilter.js';
 import { checkVolumeClockWindow } from './volumeClock.js';
 import { detectPreBreakoutAccumulation } from './preBreakoutAccumulationDetector.js';
@@ -370,6 +371,22 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               console.log(`[PreBreakout SHADOW] ${stock.name}(${stock.code}) 추종 매수 @${currentPrice}`);
               await sendTelegramAlert(alertMsg).catch(console.error);
             } else {
+              const followApproval = await requestBuyApproval({
+                tradeId:      followTrade.id,
+                stockCode:    stock.code,
+                stockName:    stock.name,
+                currentPrice,
+                quantity:     followQty,
+                stopLoss:     stopLossPlan.hardStopLoss,
+                targetPrice:  stock.targetPrice,
+                mode:         'LIVE',
+                gateScore:    gateScoreFollow,
+              });
+              if (followApproval !== 'APPROVE') {
+                console.log(`[PreBreakout LIVE] ${stock.name} 추종 매수 ${followApproval} — 건너뜀`);
+                followTrade.status = 'REJECTED';
+                continue;
+              }
               const ordNo = await placeKisMarketBuyOrder(stock.code, followQty);
               console.log(`[PreBreakout LIVE] ${stock.name} 추종 매수 — ODNO: ${ordNo}`);
               if (ordNo) {
@@ -534,16 +551,32 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                 ).catch(console.error);
 
                 if (!shadowMode) {
-                  const ordNo = await placeKisMarketBuyOrder(stock.code, pbQty);
-                  if (ordNo) {
-                    fillMonitor.addOrder({
-                      ordNo, stockCode: stock.code, stockName: stock.name,
-                      quantity: pbQty, orderPrice: pbEntryPrice,
-                      placedAt: new Date().toISOString(), relatedTradeId: pbTrade.id,
-                    });
-                    pbTrade.status = 'ORDER_SUBMITTED';
-                  } else {
+                  const pbApproval = await requestBuyApproval({
+                    tradeId:      pbTrade.id,
+                    stockCode:    stock.code,
+                    stockName:    stock.name,
+                    currentPrice,
+                    quantity:     pbQty,
+                    stopLoss:     stopLossPlanPb.hardStopLoss,
+                    targetPrice:  stock.targetPrice,
+                    mode:         'LIVE',
+                    gateScore:    gateScorePb,
+                  });
+                  if (pbApproval !== 'APPROVE') {
+                    console.log(`[PreBreakout LIVE] ${stock.name} 선취매 ${pbApproval} — 건너뜀`);
                     pbTrade.status = 'REJECTED';
+                  } else {
+                    const ordNo = await placeKisMarketBuyOrder(stock.code, pbQty);
+                    if (ordNo) {
+                      fillMonitor.addOrder({
+                        ordNo, stockCode: stock.code, stockName: stock.name,
+                        quantity: pbQty, orderPrice: pbEntryPrice,
+                        placedAt: new Date().toISOString(), relatedTradeId: pbTrade.id,
+                      });
+                      pbTrade.status = 'ORDER_SUBMITTED';
+                    } else {
+                      pbTrade.status = 'REJECTED';
+                    }
                   }
                 }
 
@@ -846,7 +879,22 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           sector:      stock.sector,
         }).catch(console.error);
       } else {
-        // LIVE 모드: 실제 주문 (1차 수량만)
+        // LIVE 모드: 텔레그램 승인 후 실제 주문 (1차 수량만)
+        const approval = await requestBuyApproval({
+          tradeId:      trade.id,
+          stockCode:    stock.code,
+          stockName:    stock.name,
+          currentPrice,
+          quantity:     execQty,
+          stopLoss:     stopLossPlan.hardStopLoss,
+          targetPrice:  stock.targetPrice,
+          mode:         'LIVE',
+          gateScore,
+        });
+        if (approval !== 'APPROVE') {
+          console.log(`[AutoTrade LIVE] ${stock.name} 매수 ${approval} — 건너뜀`);
+          continue;
+        }
         const ordNo = await placeKisMarketBuyOrder(stock.code, execQty);
         console.log(`[AutoTrade LIVE] ${stock.name} 매수 주문 완료 — ODNO: ${ordNo}${trancheLabel}`);
         appendShadowLog({ event: 'ORDER', code: stock.code, price: currentPrice, ordNo, tranche: isStrongBuy ? 1 : 0 });
@@ -1066,7 +1114,22 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               `⚡ Intraday 포지션 ${currentIntradayActive + 1}/${MAX_INTRADAY_POSITIONS}`,
             ).catch(console.error);
           } else {
-            // LIVE 모드: 실제 시장가 주문
+            // LIVE 모드: 텔레그램 승인 후 실제 시장가 주문
+            const intradayApproval = await requestBuyApproval({
+              tradeId:      trade.id,
+              stockCode:    stock.code,
+              stockName:    stock.name,
+              currentPrice,
+              quantity,
+              stopLoss:     intradayStop,
+              targetPrice:  intradayTarget,
+              mode:         'LIVE',
+              gateScore:    intradayGateScore,
+            });
+            if (intradayApproval !== 'APPROVE') {
+              console.log(`[AutoTrade/Intraday LIVE] ${stock.name} 매수 ${intradayApproval} — 건너뜀`);
+              continue;
+            }
             const ordNo = await placeKisMarketBuyOrder(stock.code, quantity);
             console.log(`[AutoTrade/Intraday LIVE] ${stock.name} 매수 주문 — ODNO: ${ordNo}`);
             appendShadowLog({ event: 'INTRADAY_ORDER', code: stock.code, price: currentPrice, ordNo });

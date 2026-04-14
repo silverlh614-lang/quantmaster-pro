@@ -16,6 +16,7 @@ import { runAutoSignalScan } from '../trading/signalScanner.js';
 import { fetchYahooQuote, preScreenStocks, autoPopulateWatchlist, sendWatchlistRejectionReport } from '../screener/stockScreener.js';
 import { generateDailyReport } from '../alerts/reportGenerator.js';
 import { evaluateRecommendations, isRealTradeReady } from '../learning/recommendationTracker.js';
+import { calculateOrderQuantity, isOpenShadowStatus } from '../trading/entryEngine.js';
 import { decideScan, recordScanResult } from './adaptiveScanScheduler.js';
 import { calibrateSignalWeights } from '../learning/signalCalibrator.js';
 import { calibrateByRegime } from '../learning/regimeAwareCalibrator.js';
@@ -48,6 +49,10 @@ export async function preMarketOrderPrep(): Promise<void> {
   console.log(`[PreMarket] 동시호가 예약 주문 준비 — ${watchlist.length}개 종목`);
   const isLive = process.env.AUTO_TRADE_MODE === 'LIVE';
   const capital = (await fetchAccountBalance().catch(() => null)) ?? 10_000_000;
+  // calculateOrderQuantity와 동일한 사이징 로직 적용: orderableCash를 주문마다 차감
+  const activeCount = loadShadowTrades().filter(s => isOpenShadowStatus(s.status)).length;
+  let orderableCash = capital;
+  let orderedCount = 0;
 
   for (const stock of watchlist) {
     try {
@@ -74,7 +79,14 @@ export async function preMarketOrderPrep(): Promise<void> {
         continue;
       }
 
-      const quantity = Math.floor((capital * gate.positionPct) / stock.entryPrice);
+      const remainingSlots = Math.max(1, watchlist.length - activeCount - orderedCount);
+      const { quantity, effectiveBudget } = calculateOrderQuantity({
+        totalAssets:   capital,
+        orderableCash,
+        positionPct:   gate.positionPct,
+        price:         stock.entryPrice,
+        remainingSlots,
+      });
       if (quantity <= 0) continue;
 
       console.log(
@@ -107,6 +119,8 @@ export async function preMarketOrderPrep(): Promise<void> {
             placedAt:       new Date().toISOString(),
             relatedTradeId: undefined,
           });
+          orderableCash = Math.max(0, orderableCash - effectiveBudget);
+          orderedCount++;
           await sendTelegramAlert(
             `📋 <b>[동시호가 예약 주문]</b>\n` +
             `종목: ${stock.name} (${stock.code})\n` +
@@ -116,7 +130,8 @@ export async function preMarketOrderPrep(): Promise<void> {
           ).catch(console.error);
         }
       } else {
-        // Shadow 모드: Telegram 알림만
+        // Shadow 모드: Telegram 알림만 (현금 차감 없음)
+        orderedCount++;
         await sendTelegramAlert(
           `🎭 <b>[동시호가 Shadow 예약]</b>\n` +
           `종목: ${stock.name} (${stock.code})\n` +

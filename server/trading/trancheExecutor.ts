@@ -7,6 +7,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fillMonitor } from './fillMonitor.js';
 import { fetchYahooQuote } from '../screener/stockScreener.js';
 import { loadShadowTrades, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
+import { requestBuyApproval } from '../telegram/buyApproval.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getLiveRegime } from './regimeBridge.js';
 import { KRX_HOLIDAYS } from './krxHolidays.js';
@@ -277,7 +278,29 @@ export class TrancheExecutor {
           }
         }
 
-        // 실행
+        // 실행 전 승인 요청
+        if (isLive) {
+          const trancheApproval = await requestBuyApproval({
+            tradeId:      `${t.id}_exec`,
+            stockCode:    t.stockCode,
+            stockName:    t.stockName,
+            currentPrice,
+            quantity:     t.quantity,
+            stopLoss:     t.stopLoss,
+            targetPrice:  t.targetPrice,
+            mode:         'LIVE',
+          });
+          if (trancheApproval !== 'APPROVE') {
+            t.status = 'CANCELLED';
+            t.cancelReason = `사용자 ${trancheApproval}`;
+            changed = true;
+            console.log(`[Tranche] LIVE ${t.trancheNumber}차 ${trancheApproval} — 취소: ${t.stockName}`);
+            await sendTelegramAlert(
+              `🚫 <b>[분할 매수 ${t.trancheNumber}차 취소]</b> ${t.stockName}(${t.stockCode})\n사용자 ${trancheApproval}`
+            ).catch(console.error);
+            continue;
+          }
+        }
         if (isLive) {
           const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
             CANO:         process.env.KIS_ACCOUNT_NO ?? '',
