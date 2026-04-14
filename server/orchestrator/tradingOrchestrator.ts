@@ -16,7 +16,7 @@ import { runAutoSignalScan } from '../trading/signalScanner.js';
 import { fetchYahooQuote, preScreenStocks, autoPopulateWatchlist } from '../screener/stockScreener.js';
 import { generateDailyReport } from '../alerts/reportGenerator.js';
 import { evaluateRecommendations, isRealTradeReady } from '../learning/recommendationTracker.js';
-import { decideScan } from './adaptiveScanScheduler.js';
+import { decideScan, recordScanResult } from './adaptiveScanScheduler.js';
 import { calibrateSignalWeights } from '../learning/signalCalibrator.js';
 import { calibrateByRegime } from '../learning/regimeAwareCalibrator.js';
 import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
@@ -322,11 +322,19 @@ export class TradingDayOrchestrator {
 
         console.log(`[Orchestrator] 스캔 실행: ${decision.reason}`);
 
+        // 스캔 전후 shadow 수 비교 → 신호 건수 피드백 (아이디어 5: 피드백 루프)
+        const shadowsBefore = loadShadowTrades().length;
+
         if (decision.priority === 'SELL_ONLY') {
           await runAutoSignalScan({ sellOnly: true }).catch(console.error);
         } else {
           await runAutoSignalScan().catch(console.error);
         }
+
+        const shadowsAfter = loadShadowTrades().length;
+        const newSignals = Math.max(0, shadowsAfter - shadowsBefore);
+        recordScanResult(newSignals);
+
         await fillMonitor.pollFills().catch(console.error);
         break;
       }

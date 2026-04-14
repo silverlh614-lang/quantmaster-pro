@@ -49,6 +49,11 @@ export interface ScanDecision {
 let lastScanAt         = 0;  // ms timestamp
 let lastVkospikSpikeAt = 0;  // ms timestamp
 
+// ── 아이디어 5: 피드백 루프 — 빈 스캔 연속 시 간격 확대 ──────────────────────
+let consecutiveEmptyScans = 0;
+const EMPTY_SCAN_BACKOFF_THRESHOLD = 3;  // 3회 연속 빈 스캔 → 다음 사이클 스킵
+const EMPTY_SCAN_MAX_MULTIPLIER    = 3;  // 최대 3배까지 간격 확대
+
 // ── 레짐 배율 맵 ─────────────────────────────────────────────────────────────
 
 const REGIME_MULTIPLIER: Record<string, number> = {
@@ -139,36 +144,80 @@ export function decideScan(): ScanDecision {
 
   const effectiveInterval = Math.max(1, Math.round(baseInterval * multiplier) + positionAdj);
 
-  // ── 6. 인터벌 미충족 → skip ──────────────────────────────────────────────
+  // ── 6. 피드백 루프: 빈 스캔 연속 시 간격 확대 ───────────────────────────
+  //   3회 연속 빈 스캔 → 다음 사이클 1회 스킵 (Yahoo Finance 레이트 리밋 절약)
+  //   연속 빈 스캔 누적에 따라 점진적 간격 확대 (최대 ×3)
+  const emptyBackoff = consecutiveEmptyScans >= EMPTY_SCAN_BACKOFF_THRESHOLD
+    ? Math.min(EMPTY_SCAN_MAX_MULTIPLIER, 1 + Math.floor(consecutiveEmptyScans / EMPTY_SCAN_BACKOFF_THRESHOLD))
+    : 1;
+
+  const finalInterval = effectiveInterval * emptyBackoff;
+
+  // ── 7. 인터벌 미충족 → skip ──────────────────────────────────────────────
   const elapsedMin = (now - lastScanAt) / 60_000;
-  if (elapsedMin < effectiveInterval) {
+  if (elapsedMin < finalInterval) {
     return {
       shouldScan:      false,
-      intervalMinutes: effectiveInterval,
+      intervalMinutes: finalInterval,
       reason: (
         `${phase} / ${regime}(×${multiplier})` +
-        ` — ${elapsedMin.toFixed(1)}분 경과 (목표: ${effectiveInterval}분)`
+        (emptyBackoff > 1 ? ` / 빈스캔×${emptyBackoff}` : '') +
+        ` — ${elapsedMin.toFixed(1)}분 경과 (목표: ${finalInterval}분)`
       ),
       priority: 'SKIP',
     };
   }
 
-  // ── 7. 스캔 실행 ─────────────────────────────────────────────────────────
+  // ── 8. 스캔 실행 ─────────────────────────────────────────────────────────
   lastScanAt = now;
   return {
     shouldScan:      true,
-    intervalMinutes: effectiveInterval,
+    intervalMinutes: finalInterval,
     reason: (
       `${phase} | ${regime}(×${multiplier})` +
+      (emptyBackoff > 1 ? ` | 빈스캔×${emptyBackoff}` : '') +
       ` | 포지션 ${activePositions}/${maxPositions}` +
-      ` → ${effectiveInterval}분 간격`
+      ` → ${finalInterval}분 간격`
     ),
     priority: 'FULL',
   };
 }
 
+/**
+ * 스캔 결과를 피드백한다 — tradingOrchestrator에서 runAutoSignalScan 완료 후 호출.
+ *
+ * signalCount가 0이면 consecutiveEmptyScans를 1 증가시키고,
+ * 1 이상이면 즉시 0으로 리셋한다.
+ * 3회 연속 빈 스캔이 누적되면 decideScan()이 인터벌을 자동 확대한다.
+ */
+export function recordScanResult(signalCount: number): void {
+  if (signalCount === 0) {
+    consecutiveEmptyScans++;
+    if (consecutiveEmptyScans >= EMPTY_SCAN_BACKOFF_THRESHOLD) {
+      console.log(
+        `[AdaptiveScheduler] 빈 스캔 ${consecutiveEmptyScans}회 연속 — ` +
+        `다음 간격 ×${Math.min(EMPTY_SCAN_MAX_MULTIPLIER, 1 + Math.floor(consecutiveEmptyScans / EMPTY_SCAN_BACKOFF_THRESHOLD))} 확대`,
+      );
+    }
+  } else {
+    if (consecutiveEmptyScans > 0) {
+      console.log(`[AdaptiveScheduler] 신호 ${signalCount}건 발견 — 빈 스캔 카운터 리셋`);
+    }
+    consecutiveEmptyScans = 0;
+  }
+}
+
+/** 현재 피드백 루프 상태 조회 (진단·디버그용) */
+export function getScanFeedbackState(): { consecutiveEmptyScans: number; backoffMultiplier: number } {
+  const backoffMultiplier = consecutiveEmptyScans >= EMPTY_SCAN_BACKOFF_THRESHOLD
+    ? Math.min(EMPTY_SCAN_MAX_MULTIPLIER, 1 + Math.floor(consecutiveEmptyScans / EMPTY_SCAN_BACKOFF_THRESHOLD))
+    : 1;
+  return { consecutiveEmptyScans, backoffMultiplier };
+}
+
 /** 테스트·진단용: 모듈 상태 초기화 */
 export function resetScanState(): void {
-  lastScanAt         = 0;
-  lastVkospikSpikeAt = 0;
+  lastScanAt             = 0;
+  lastVkospikSpikeAt     = 0;
+  consecutiveEmptyScans  = 0;
 }

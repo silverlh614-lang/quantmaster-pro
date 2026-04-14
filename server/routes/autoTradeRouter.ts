@@ -21,6 +21,12 @@ import {
   computeAttributionStats,
   type ServerAttributionRecord,
 } from '../persistence/attributionRepo.js';
+import {
+  loadConditionWeights,
+  loadConditionWeightsByRegime,
+} from '../persistence/conditionWeightsRepo.js';
+import { CONDITION_KEYS, DEFAULT_CONDITION_WEIGHTS, type ConditionKey } from '../quantFilter.js';
+import { getScanFeedbackState } from '../orchestrator/adaptiveScanScheduler.js';
 
 const router = Router();
 
@@ -392,6 +398,100 @@ router.get('/shadow/performance', (_req: any, res: any) => {
     readyForLive,
     reason: readyForLive ? '실거래 전환 조건 충족 ✅' : reasons.join(' / '),
   });
+});
+
+// ─── 아이디어 6: 조건 가중치 디버그 대시보드 ──────────────────────────────────
+// GET /api/auto-trade/condition-weights/debug
+//   — 각 조건의 현재 가중치 + 최근 30일 적중률을 JSON으로 반환
+//   — 블랙박스성 제거를 위한 핵심 투명성 도구
+
+router.get('/auto-trade/condition-weights/debug', (_req: any, res: any) => {
+  try {
+    const globalWeights = loadConditionWeights();
+
+    // 최근 30일 추천 기록에서 조건별 적중률 계산
+    const allRecs = getRecommendations();
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const recentRecs = allRecs.filter(
+      (r) => r.signalTime >= thirtyDaysAgo && r.status !== 'PENDING',
+    );
+
+    const conditionStats: Record<string, {
+      totalAppearances: number;
+      wins: number;
+      losses: number;
+      hitRate: number;
+      avgReturn: number;
+    }> = {};
+
+    // 모든 조건 키를 기본값으로 초기화
+    for (const key of Object.values(CONDITION_KEYS)) {
+      conditionStats[key] = { totalAppearances: 0, wins: 0, losses: 0, hitRate: 0, avgReturn: 0 };
+    }
+
+    // 최근 30일 기록을 순회하며 조건별 집계
+    for (const rec of recentRecs) {
+      for (const key of rec.conditionKeys ?? []) {
+        if (!conditionStats[key]) {
+          conditionStats[key] = { totalAppearances: 0, wins: 0, losses: 0, hitRate: 0, avgReturn: 0 };
+        }
+        conditionStats[key].totalAppearances++;
+        if (rec.status === 'WIN')  conditionStats[key].wins++;
+        if (rec.status === 'LOSS') conditionStats[key].losses++;
+      }
+    }
+
+    // 적중률·평균 수익률 계산
+    for (const key of Object.keys(conditionStats)) {
+      const stat = conditionStats[key];
+      const resolved = stat.wins + stat.losses;
+      stat.hitRate = resolved > 0
+        ? parseFloat(((stat.wins / resolved) * 100).toFixed(1))
+        : 0;
+
+      // 해당 조건이 포함된 거래의 평균 수익률
+      const returns = recentRecs
+        .filter((r) => (r.conditionKeys ?? []).includes(key) && r.actualReturn !== undefined)
+        .map((r) => r.actualReturn!);
+      stat.avgReturn = returns.length > 0
+        ? parseFloat((returns.reduce((a, b) => a + b, 0) / returns.length).toFixed(2))
+        : 0;
+    }
+
+    // 레짐별 가중치도 포함 (존재하는 것만)
+    const regimes = ['R1_TURBO', 'R2_BULL', 'R3_EARLY', 'R4_NEUTRAL', 'R5_CAUTION', 'R6_DEFENSE'];
+    const regimeWeights: Record<string, Record<string, number>> = {};
+    for (const regime of regimes) {
+      const rw = loadConditionWeightsByRegime(regime);
+      // 전역과 동일하면 포함하지 않음 (폴백을 받은 경우)
+      const isDifferent = Object.keys(rw).some(
+        (k) => rw[k as ConditionKey] !== globalWeights[k as ConditionKey],
+      );
+      if (isDifferent) {
+        regimeWeights[regime] = rw;
+      }
+    }
+
+    res.json({
+      globalWeights,
+      defaults: DEFAULT_CONDITION_WEIGHTS,
+      conditionStats30d: conditionStats,
+      recentRecordsCount: recentRecs.length,
+      period: { from: thirtyDaysAgo.slice(0, 10), to: new Date().toISOString().slice(0, 10) },
+      regimeWeights: Object.keys(regimeWeights).length > 0 ? regimeWeights : undefined,
+    });
+  } catch (e: any) {
+    console.error('[ConditionWeightsDebug] 오류:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── 아이디어 5: 스캔 피드백 루프 진단 API ───────────────────────────────────
+// GET /api/auto-trade/scan-feedback
+//   — consecutiveEmptyScans, backoffMultiplier 조회
+
+router.get('/auto-trade/scan-feedback', (_req: any, res: any) => {
+  res.json(getScanFeedbackState());
 });
 
 // ─── 귀인 분석 API ────────────────────────────────────────────────────────────
