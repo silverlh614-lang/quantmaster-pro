@@ -304,10 +304,13 @@ export class TradingDayOrchestrator {
           // 아이디어 8: 분할 매수 대기 트랜치 실행
           await trancheExecutor.checkPendingTranches().catch(console.error);
           await preScreenStocks().catch(console.error);
+          const wlBefore = new Set(loadWatchlist().map(w => w.code));
           const added = await autoPopulateWatchlist().catch(() => 0) ?? 0;
           if (added > 0) {
+            const newEntries = loadWatchlist().filter(w => !wlBefore.has(w.code));
+            const namesList  = newEntries.map(w => `${w.name}(${w.code})`).join('\n');
             await sendTelegramAlert(
-              `📋 <b>[AutoPopulate] 워치리스트 자동 추가</b>\n신규 ${added}개 종목 추가됨`
+              `📋 <b>[AutoPopulate] 워치리스트 자동 추가</b>\n신규 ${added}개:\n${namesList}`
             ).catch(console.error);
           }
           // 아이디어 5: 탈락 리포트 — 워치리스트 채운 직후 즉시 발송 (기존 16:10 cron 대체)
@@ -338,10 +341,13 @@ export class TradingDayOrchestrator {
         // 오전 장 전(08:45) autoPopulate에서 빠진 종목을 장중에 보완
         if (t >= 1300 && t <= 1330 && !this.hasRan('middayRescan')) {
           console.log('[Orchestrator] 장중 워치리스트 재스캔 (KST 13:00)');
+          const wlBeforeMidday = new Set(loadWatchlist().map(w => w.code));
           const added = await autoPopulateWatchlist().catch(() => 0) ?? 0;
           if (added > 0) {
+            const newEntries = loadWatchlist().filter(w => !wlBeforeMidday.has(w.code));
+            const namesList  = newEntries.map(w => `${w.name}(${w.code})`).join('\n');
             await sendTelegramAlert(
-              `📋 <b>[MiddayRescan] 장중 워치리스트 추가</b>\n신규 ${added}개 종목 추가됨`
+              `📋 <b>[MiddayRescan] 장중 워치리스트 추가</b>\n신규 ${added}개:\n${namesList}`
             ).catch(console.error);
           }
           this.markRan('middayRescan');

@@ -17,7 +17,8 @@ import { sendTelegramAlert, answerCallbackQuery } from '../alerts/telegramClient
 import { fillMonitor } from '../trading/fillMonitor.js';
 import { runAutoSignalScan, isOpenShadowStatus } from '../trading/signalScanner.js';
 import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/reportGenerator.js';
-import { fetchCurrentPrice } from '../clients/kisClient.js';
+import { fetchCurrentPrice, fetchStockName } from '../clients/kisClient.js';
+import { STOCK_UNIVERSE } from '../screener/stockScreener.js';
 import { calcRRR } from '../trading/riskManager.js';
 import { handleBuyApprovalCallback } from './buyApproval.js';
 
@@ -291,9 +292,12 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         }
         const sl = Math.round(price * 0.92);       // 기본 -8% 손절
         const tp = Math.round(price * 1.15);       // 기본 +15% 목표
+        // 종목명 조회: STOCK_UNIVERSE → KIS API 순으로 시도
+        const univName = STOCK_UNIVERSE.find(s => s.code === code)?.name;
+        const stockName = univName ?? await fetchStockName(code).catch(() => null) ?? code;
         const newEntry: WatchlistEntry = {
           code,
-          name: code, // 이름은 코드로 임시 설정 (다음 스캔에서 업데이트)
+          name: stockName,
           entryPrice: price,
           stopLoss: sl,
           targetPrice: tp,
@@ -305,7 +309,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         saveWatchlist(wl);
         await reply(
           `✅ <b>워치리스트 추가</b>\n` +
-          `종목: ${code}\n` +
+          `종목: ${stockName} (${code})\n` +
           `진입가: ${price.toLocaleString()}원\n` +
           `손절: ${newEntry.stopLoss.toLocaleString()}원 (-8%)\n` +
           `목표: ${newEntry.targetPrice.toLocaleString()}원 (+15%)\n` +

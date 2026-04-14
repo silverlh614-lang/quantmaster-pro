@@ -199,6 +199,21 @@ export async function fetchCurrentPrice(code: string): Promise<number | null> {
   return price > 0 ? price : null;
 }
 
+/**
+ * KIS FHKST01010100 응답의 hts_kor_isnm 필드로 한국 종목명을 조회한다.
+ * KIS 미설정 시 null 반환 — 호출자가 fallback 처리 필요.
+ */
+export async function fetchStockName(code: string): Promise<string | null> {
+  try {
+    const data = await realDataKisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
+      FID_COND_MRKT_DIV_CODE: 'J',
+      FID_INPUT_ISCD: code.padStart(6, '0'),
+    });
+    const name = (data as { output?: Record<string, string> } | null)?.output?.hts_kor_isnm?.trim();
+    return name && name.length > 0 ? name : null;
+  } catch { return null; }
+}
+
 // ─── 계좌 잔고 조회 ─────────────────────────────────────────────────────────
 
 export async function fetchAccountBalance(): Promise<number | null> {
