@@ -8,6 +8,7 @@ import { loadMacroState, saveMacroState, type MacroState } from '../persistence/
 import { getDartAlerts } from '../persistence/dartRepo.js';
 import { loadFssRecords, upsertFssRecord } from '../persistence/fssRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
+import { loadShadowTrades, saveShadowTrades, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { getScreenerCache, preScreenStocks, autoPopulateWatchlist } from '../screener/stockScreener.js';
 import { getRecommendations, getMonthlyStats, evaluateRecommendations, isRealTradeReady } from '../learning/recommendationTracker.js';
 import { pollDartDisclosures } from '../alerts/dartPoller.js';
@@ -133,6 +134,36 @@ router.delete('/auto-trade/watchlist/intraday/:code', (req: any, res: any) => {
 
 router.get('/auto-trade/shadow-trades', (_req: any, res: any) => {
   res.json(getShadowTrades());
+});
+
+/** POST /api/auto-trade/shadow-trades — 클라이언트에서 생성한 Shadow Trade를 서버에 동기화 */
+router.post('/auto-trade/shadow-trades', (req: any, res: any) => {
+  const trade = req.body;
+  if (!trade || !trade.id || !trade.stockCode) {
+    return res.status(400).json({ error: 'id, stockCode 필수' });
+  }
+  const shadows = loadShadowTrades();
+  // 중복 방지: 같은 id가 이미 있으면 스킵
+  if (shadows.some((s) => s.id === trade.id)) {
+    return res.json({ ok: true, duplicate: true });
+  }
+  const serverTrade: ServerShadowTrade = {
+    id: trade.id,
+    stockCode: trade.stockCode,
+    stockName: trade.stockName ?? '',
+    signalTime: trade.signalTime ?? new Date().toISOString(),
+    signalPrice: trade.signalPrice ?? 0,
+    shadowEntryPrice: trade.shadowEntryPrice ?? 0,
+    quantity: trade.quantity ?? 0,
+    stopLoss: trade.stopLoss ?? 0,
+    targetPrice: trade.targetPrice ?? 0,
+    mode: 'SHADOW',
+    status: trade.status ?? 'PENDING',
+    watchlistSource: 'PRE_MARKET',
+  };
+  shadows.push(serverTrade);
+  saveShadowTrades(shadows);
+  res.json({ ok: true });
 });
 
 // 즉시 수동 스캔 트리거 (체크리스트 Step 6 등에서 호출)

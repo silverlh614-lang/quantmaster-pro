@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { fetchCurrentPrice } from '../services/stockService';
 import { resolveShadowTrade } from '../services/autoTrading';
 import { useTradeStore } from '../stores';
@@ -13,9 +13,24 @@ interface DartAlert {
   sentiment: string;
 }
 
+/** 클라이언트 Shadow Trade를 서버에 동기화 */
+function syncShadowTradeToServer(trade: ShadowTrade): void {
+  fetch('/api/auto-trade/shadow-trades', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(trade),
+  }).catch((err) => console.error('[Shadow] 서버 동기화 실패:', err));
+}
+
 export function usePortfolioState() {
   const { tradeRecords } = useTradeStore();
-  const { addShadowTrade, updateShadowTrade, shadowTrades } = useShadowTradeStore();
+  const { addShadowTrade: storeAddShadowTrade, updateShadowTrade, shadowTrades } = useShadowTradeStore();
+
+  // 서버 동기화를 포함하는 addShadowTrade 래퍼
+  const addShadowTrade = useCallback((trade: ShadowTrade) => {
+    storeAddShadowTrade(trade);
+    syncShadowTradeToServer(trade);
+  }, [storeAddShadowTrade]);
 
   // ── KIS Balance ─────────────────────────────────────────────────────────
   const [kisBalance, setKisBalance] = useState<number>(100_000_000);
@@ -41,6 +56,8 @@ export function usePortfolioState() {
   }, []);
 
   // ── Shadow Trade Resolution ─────────────────────────────────────────────
+  // 서버 스케줄러가 주(主) 청산 루프를 담당하므로, 클라이언트 루프는 보조 역할.
+  // 브라우저 열려 있을 때만 작동하며 서버 루프와 병행해도 안전 (멱등 연산).
   const activeTradeCount = shadowTrades.filter((t: ShadowTrade) => t.status === 'PENDING' || t.status === 'ACTIVE').length;
   useEffect(() => {
     if (activeTradeCount === 0) return;

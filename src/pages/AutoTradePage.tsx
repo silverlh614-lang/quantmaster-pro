@@ -10,7 +10,7 @@ import { Badge } from '../ui/badge';
 import { Stack } from '../layout/Stack';
 import { PageGrid } from '../layout/PageGrid';
 import { TradingChecklist } from '../components/TradingChecklist';
-import { useShadowTradeStore } from '../stores/useShadowTradeStore';
+import { useShadowTradeStore, useShadowWinRate, useShadowAvgReturn } from '../stores/useShadowTradeStore';
 
 interface WatchlistEntry {
   code: string;
@@ -37,7 +37,9 @@ interface KisHolding {
 }
 
 export function AutoTradePage() {
-  const { shadowTrades, winRate, avgReturn } = useShadowTradeStore();
+  const { shadowTrades } = useShadowTradeStore();
+  const winRate = useShadowWinRate();
+  const avgReturn = useShadowAvgReturn();
 
   const [serverShadowTrades, setServerShadowTrades] = useState<any[]>([]);
   const [serverRecStats, setServerRecStats] = useState<{ month?: string; winRate?: number; avgReturn?: number; strongBuyWinRate?: number; total?: number } | null>(null);
@@ -76,8 +78,8 @@ export function AutoTradePage() {
         {/* KPI Strip */}
         <KpiStrip items={[
           { label: 'Shadow 건수', value: shadowTrades.length, trend: 'neutral' },
-          { label: '적중률', value: `${winRate()}%`, trend: winRate() >= 50 ? 'up' : 'down' },
-          { label: '평균수익', value: `${avgReturn().toFixed(2)}%`, trend: avgReturn() >= 0 ? 'up' : 'down' },
+          { label: '적중률', value: `${winRate}%`, trend: winRate >= 50 ? 'up' : 'down' },
+          { label: '평균수익', value: `${avgReturn.toFixed(2)}%`, trend: avgReturn >= 0 ? 'up' : 'down' },
         ]} />
 
         {/* Watchlist & Holdings Panel */}
@@ -199,9 +201,9 @@ export function AutoTradePage() {
           </Card>
         )}
 
-        {/* Server Shadow Trades */}
+        {/* Server Shadow Trades (중복 제거: 서버에 동기화된 클라이언트 trades 포함) */}
         {serverShadowTrades.length > 0 && (
-          <Section title={`서버 자동 Shadow Trades`} subtitle={`${serverShadowTrades.length}건`}>
+          <Section title={`서버 Shadow Trades`} subtitle={`${serverShadowTrades.length}건`}>
             <PageGrid columns="2" gap="sm">
               {serverShadowTrades.slice(0, 10).map((t: any, i: number) => (
                 <Card
@@ -232,14 +234,17 @@ export function AutoTradePage() {
 
         <TradingChecklist />
 
-        {/* Local Shadow Trades */}
-        {shadowTrades.length > 0 && (
+        {/* Local Shadow Trades (서버에 이미 동기화된 항목은 제외) */}
+        {(() => {
+          const serverIds = new Set(serverShadowTrades.map((t: any) => t.id));
+          const localOnly = shadowTrades.filter(t => !serverIds.has(t.id));
+          return localOnly.length > 0 && (
           <Section
-            title="Shadow Trades"
-            actions={<span className="text-xs text-theme-text-muted">{shadowTrades.filter(t => t.status === 'ACTIVE' || t.status === 'PENDING').length}건 진행 중</span>}
+            title="로컬 Shadow Trades"
+            actions={<span className="text-xs text-theme-text-muted">{localOnly.filter(t => t.status === 'ACTIVE' || t.status === 'PENDING').length}건 진행 중</span>}
           >
             <PageGrid columns="2" gap="sm">
-              {shadowTrades.map(trade => (
+              {localOnly.map(trade => (
                 <Card
                   key={trade.id}
                   padding="md"
@@ -289,7 +294,8 @@ export function AutoTradePage() {
               ))}
             </PageGrid>
           </Section>
-        )}
+          );
+        })()}
       </Stack>
     </motion.div>
   );
