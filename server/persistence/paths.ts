@@ -48,6 +48,8 @@ export const NEWS_SUPPLY_FILE        = path.join(DATA_DIR, 'news-supply-log.json
 export const FAILURE_PATTERN_FILE    = path.join(DATA_DIR, 'failure-patterns.json');
 /** DART LLM 임팩트 상태 — 악재 소화 완료 종목 캐시 */
 export const DART_LLM_STATE_FILE     = path.join(DATA_DIR, 'dart-llm-state.json');
+/** 아이디어 11: Gate 조건 통과율 히트맵 — 조건별 passed/failed 누적 */
+export const GATE_AUDIT_FILE         = path.join(DATA_DIR, 'gate-audit.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

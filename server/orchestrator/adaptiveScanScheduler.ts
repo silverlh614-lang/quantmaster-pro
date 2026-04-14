@@ -215,6 +215,11 @@ export function getScanFeedbackState(): { consecutiveEmptyScans: number; backoff
   return { consecutiveEmptyScans, backoffMultiplier };
 }
 
+/** 마지막 스캔 시각 조회 (buy-audit 진단용) — 0이면 아직 미실행 */
+export function getLastScanAt(): number {
+  return lastScanAt;
+}
+
 /** 테스트·진단용: 모듈 상태 초기화 */
 export function resetScanState(): void {
   lastScanAt             = 0;
