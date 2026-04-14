@@ -55,6 +55,7 @@ import { requestBuyApproval, type ApprovalAction } from '../telegram/buyApproval
 import { checkCooldownRelease } from './regretAsymmetryFilter.js';
 import { checkVolumeClockWindow } from './volumeClock.js';
 import { detectPreBreakoutAccumulation } from './preBreakoutAccumulationDetector.js';
+import { appendScanTraces, type ScanTrace } from './scanTracer.js';
 
 // ── 서브모듈 re-export (하위 호환성 유지) ──────────────────────────────────────
 export type {
@@ -130,6 +131,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   let _scanGateMisses = 0;
   let _scanRrrMisses  = 0;
   let _scanEntries    = 0;
+
+  // 파이프라인 트레이서 버퍼 — 스캔 종료 시 일괄 파일 기록 (아이디어 10)
+  const _pendingTraces: ScanTrace[] = [];
 
   // 장중 워치리스트: intradayReady=true 항목만 진입 후보
   const intradayBuyList = loadIntradayWatchlist().filter(w => w.intradayReady === true);
@@ -273,8 +277,17 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     }
 
     try {
+      const stageLog: Record<string, string> = {};
+      const pushTrace = () => _pendingTraces.push({
+        ts: new Date().toISOString().slice(11, 19),
+        stock: stock.code,
+        name:  stock.name,
+        stages: { ...stageLog },
+      });
+
       const currentPrice = await fetchCurrentPrice(stock.code).catch(() => null);
-      if (!currentPrice) continue;
+      if (!currentPrice) { stageLog.price = 'FAIL'; pushTrace(); continue; }
+      stageLog.price = 'PASS';
 
       // 당일 날짜 (재진입 방지 + PRE_BREAKOUT 추종 중복 방지 공통 사용)
       const today = new Date().toISOString().split('T')[0];
@@ -694,8 +707,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           `[AutoTrade] 📐 ${stock.name}(${stock.code}) RRR ${rrr.toFixed(2)} < ${RRR_MIN_THRESHOLD} — 진입 제외`
         );
         _scanRrrMisses++;
+        stageLog.rrr = `FAIL(${rrr.toFixed(2)} < ${RRR_MIN_THRESHOLD})`;
+        pushTrace();
         continue;
       }
+      stageLog.rrr = 'PASS';
 
       // ── 아이디어 4: 섹터 집중도 가드 (Correlation Guard) ──
       if (stock.sector) {
@@ -752,6 +768,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
         watchlistMutated = true;
         _scanGateMisses++;
+        stageLog.gate = `FAIL(${entryRevalidation.reasons.join(',')})`;
+        pushTrace();
         continue;
       }
 
@@ -759,8 +777,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       if (!reCheckGate) {
         console.warn(`[AutoTrade] ${stock.name} Yahoo 조회 실패 — 재검증 불가, 진입 보류`);
         _scanYahooFails++;
+        stageLog.gate = 'FAIL(yahoo_unavailable)';
+        pushTrace();
         continue;
       }
+      stageLog.gate = 'PASS';
 
       // 실시간 gateScore: 재평가 성공 시 실시간 값 우선
       // Volume Clock 보너스: 10:00~11:00 KST 집행 시 +2점 (기관 알고리즘 집중 구간)
@@ -893,6 +914,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         shadows.push(trade);
         _scanEntries++;
         _lastBuySignalAt = Date.now();
+        stageLog.buy = 'SHADOW'; pushTrace();
         console.log(`[AutoTrade SHADOW] ${stock.name}(${stock.code}) 신호 등록 @${currentPrice}${trancheLabel}`);
         appendShadowLog({ event: 'SIGNAL', ...trade });
 
@@ -928,6 +950,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         // LIVE 모드: 병렬 승인 큐에 등록 (루프 후 Promise.allSettled로 일괄 처리)
         _scanEntries++;
         _lastBuySignalAt = Date.now();
+        stageLog.buy = 'LIVE'; pushTrace();
         const _t = trade, _code = stock.code, _name = stock.name;
         const _execQty = execQty, _ep = shadowEntryPrice, _sl = stopLossPlan.hardStopLoss;
         const _target = stock.targetPrice, _gs = gateScore, _cp = currentPrice;
@@ -1257,6 +1280,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // entryFailCount 변경분 영속화
   if (watchlistMutated) {
     saveWatchlist(watchlist);
+  }
+
+  // ── 파이프라인 트레이서 — 스캔 결과 파일 영속화 (아이디어 10) ─────────────────
+  if (!options?.sellOnly && _pendingTraces.length > 0) {
+    appendScanTraces(_pendingTraces);
   }
 
   // ── 침묵 실패 탐지기 (아이디어 3) ────────────────────────────────────────────

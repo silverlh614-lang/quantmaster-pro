@@ -34,6 +34,8 @@ import { getLastScanAt } from './orchestrator/adaptiveScanScheduler.js';
 import { getLastBuySignalAt, getLastScanSummary } from './trading/signalScanner.js';
 import { getKisTokenRemainingHours } from './clients/kisClient.js';
 import { isOpenShadowStatus } from './trading/entryEngine.js';
+import { runPipelineDiagnosis } from './trading/pipelineDiagnosis.js';
+import { cleanupOldTraceFiles } from './trading/scanTracer.js';
 
 export function startScheduler() {
   // ─── TradingDayOrchestrator — 장 사이클 State Machine ──────────────────
@@ -254,5 +256,41 @@ export function startScheduler() {
     }
   }, { timezone: 'UTC' });
 
-  console.log('[Scheduler] 27개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
+  // 새벽 자가진단 — 매일 KST 02:00 (UTC 17:00) 파이프라인 치명 이슈 조기 감지 (아이디어 11)
+  cron.schedule('0 17 * * *', async () => {
+    try {
+      const diagnosis = await runPipelineDiagnosis();
+      if (diagnosis.hasCriticalIssue || diagnosis.warnings.length > 0) {
+        const sections: string[] = [];
+        if (diagnosis.issues.length > 0) {
+          sections.push(
+            `🚨 <b>치명 이슈 (${diagnosis.issues.length}건)</b>\n` +
+            diagnosis.issues.map(i => `• ${i}`).join('\n'),
+          );
+        }
+        if (diagnosis.warnings.length > 0) {
+          sections.push(
+            `⚠️ <b>경고 (${diagnosis.warnings.length}건)</b>\n` +
+            diagnosis.warnings.map(w => `• ${w}`).join('\n'),
+          );
+        }
+        await sendTelegramAlert(
+          `🩺 <b>[새벽 자가진단] ${diagnosis.checkedAt}</b>\n\n` +
+          sections.join('\n\n') +
+          (diagnosis.hasCriticalIssue ? '\n\n→ 오늘 장 시작 전 조치 필요' : ''),
+        ).catch(console.error);
+      } else {
+        console.log('[Scheduler] 새벽 자가진단 이상 없음');
+      }
+    } catch (e) {
+      console.error('[Scheduler] 새벽 자가진단 실패:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  // 스캔 트레이스 파일 정리 — 매주 일요일 KST 03:00 (UTC 18:00 토요일) 7일 이상 된 파일 삭제
+  cron.schedule('0 18 * * 6', async () => {
+    cleanupOldTraceFiles();
+  }, { timezone: 'UTC' });
+
+  console.log('[Scheduler] 29개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
 }

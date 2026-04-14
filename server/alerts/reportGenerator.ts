@@ -15,6 +15,7 @@ import { fetchYahooQuote } from '../screener/stockScreener.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { analyzeAttribution } from '../learning/attributionAnalyzer.js';
+import { loadTodayScanTraces, summarizeScanTraces, formatScanTraceSummary } from '../trading/scanTracer.js';
 
 /**
  * 아이디어 9: 일일 리포트 2.0 — Gemini AI 내러티브 리포트
@@ -591,6 +592,16 @@ export async function sendPostMarketReport(): Promise<void> {
     (aiOutlook ? `\n🤖 <b>AI 전망:</b>\n${aiOutlook}` : '');
 
   await sendTelegramAlert(msg).catch(console.error);
+
+  // 파이프라인 트레이서 — 오늘 의사결정 요약 (아이디어 10)
+  try {
+    const traces = loadTodayScanTraces();
+    if (traces.length > 0) {
+      const traceSummary = summarizeScanTraces(traces);
+      await sendTelegramAlert(formatScanTraceSummary(traceSummary)).catch(console.error);
+    }
+  } catch { /* 트레이서 실패는 리포트를 막지 않음 */ }
+
   console.log('[MarketReport] 장마감 요약 발송 완료');
 }
 

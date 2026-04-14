@@ -17,6 +17,7 @@ import { pollIpsAlert } from '../alerts/ipsAlert.js';
 import { trancheExecutor } from '../trading/trancheExecutor.js';
 import { refreshMarketRegimeVars } from '../trading/marketDataRefresh.js';
 import { runAutoSignalScan } from '../trading/signalScanner.js';
+import { runDryRunScan } from '../trading/dryRunScanner.js';
 import {
   appendAttributionRecord,
   computeAttributionStats,
@@ -174,6 +175,19 @@ router.post('/auto-trade/scan', async (_req: any, res: any) => {
   try {
     await runAutoSignalScan();
     res.json({ ok: true, ts: new Date().toISOString() });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// 아이디어 8: 매수 시뮬레이션 드라이런 — 실제 주문 없이 파이프라인 검증
+// POST /api/auto-trade/dry-run
+// ─────────────────────────────────────────────────────────────
+router.post('/auto-trade/dry-run', async (_req: any, res: any) => {
+  try {
+    const result = await runDryRunScan();
+    res.json(result);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

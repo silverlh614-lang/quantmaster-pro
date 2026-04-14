@@ -32,11 +32,11 @@ export const REAL_TRADE_FLAG_FILE    = path.join(DATA_DIR, 'real-trade-ready.fla
 export const DART_FAST_SEEN_FILE     = path.join(DATA_DIR, 'dart-fast-seen.json');
 export const ORCHESTRATOR_STATE_FILE = path.join(DATA_DIR, 'orchestrator-state.json');
 export const TRANCHE_FILE            = path.join(DATA_DIR, 'tranche-schedule.json');
-/** 아이디어 4: 워크포워드 검증 — 과최적화 감지 시 동결 상태 저장 */
+/**  워크포워드 검증 — 과최적화 감지 시 동결 상태 저장 */
 export const WALK_FORWARD_STATE_FILE = path.join(DATA_DIR, 'walk-forward-state.json');
-/** 아이디어 5: 조건 감사 — 조건별 ACTIVE/PROBATION/SUSPENDED 이력 저장 */
+/** 조건 감사 — 조건별 ACTIVE/PROBATION/SUSPENDED 이력 저장 */
 export const CONDITION_AUDIT_FILE    = path.join(DATA_DIR, 'condition-audit.json');
-/** 아이디어 6: 이상 감지 — 마지막 경보 상태 저장 (중복 알림 억제) */
+/**  이상 감지 — 마지막 경보 상태 저장 (중복 알림 억제) */
 export const ANOMALY_STATE_FILE      = path.join(DATA_DIR, 'anomaly-state.json');
 /** 귀인 분석 — 클라이언트에서 전송된 거래 종료 기록 (최근 500건) */
 export const ATTRIBUTION_FILE        = path.join(DATA_DIR, 'attribution-records.json');
@@ -48,8 +48,12 @@ export const NEWS_SUPPLY_FILE        = path.join(DATA_DIR, 'news-supply-log.json
 export const FAILURE_PATTERN_FILE    = path.join(DATA_DIR, 'failure-patterns.json');
 /** DART LLM 임팩트 상태 — 악재 소화 완료 종목 캐시 */
 export const DART_LLM_STATE_FILE     = path.join(DATA_DIR, 'dart-llm-state.json');
-/** 아이디어 11: Gate 조건 통과율 히트맵 — 조건별 passed/failed 누적 */
+/** Gate 조건 통과율 히트맵 — 조건별 passed/failed 누적 */
 export const GATE_AUDIT_FILE         = path.join(DATA_DIR, 'gate-audit.json');
+/** 파이프라인 트레이서 — 일별 스캔 의사결정 추적 파일 */
+export function scanTraceFile(yyyymmdd: string): string {
+  return path.join(DATA_DIR, `scan_trace_${yyyymmdd}.json`);
+}
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
