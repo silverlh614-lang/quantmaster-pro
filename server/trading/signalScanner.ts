@@ -254,7 +254,20 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
                                : gateScoreFollow >= 20 ? 0.08
                                : gateScoreFollow >= 15 ? 0.05
                                : 0.03;
-            const posPctFollow = rawPctFollow * kellyMultiplier;
+            // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 추종에도 적용)
+            const reCheckQuoteFollow = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
+                                    ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null);
+            const reCheckGateFollow = reCheckQuoteFollow
+              ? evaluateServerGate(reCheckQuoteFollow, conditionWeights, macroState?.kospiDayReturn)
+              : null;
+            let mtasMultiplierFollow = 1.0;
+            if (reCheckGateFollow) {
+              if (reCheckGateFollow.mtas === 10) mtasMultiplierFollow = 1.15;
+              else if (reCheckGateFollow.mtas >= 7) mtasMultiplierFollow = 1.0;
+              else if (reCheckGateFollow.mtas >= 5) mtasMultiplierFollow = 0.5;
+              if (reCheckGateFollow.mtas > 3 && reCheckGateFollow.mtas < 5) mtasMultiplierFollow = 0.5;
+            }
+            const posPctFollow = rawPctFollow * kellyMultiplier * mtasMultiplierFollow;
             const remSlots = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY').length);
             const { quantity: fullQty } = calculateOrderQuantity({
               totalAssets, orderableCash, positionPct: posPctFollow,
@@ -302,6 +315,20 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
 
             shadows.push(followTrade);
             appendShadowLog({ event: 'PRE_BREAKOUT_FOLLOWTHROUGH', ...followTrade });
+
+            addRecommendation({
+              stockCode:        stock.code,
+              stockName:        stock.name,
+              signalTime:       new Date().toISOString(),
+              priceAtRecommend: currentPrice,
+              stopLoss:         stopLossPlan.hardStopLoss,
+              targetPrice:      stock.targetPrice,
+              kellyPct:         Math.round(posPctFollow * 100),
+              gateScore:        gateScoreFollow,
+              signalType:       'BUY',
+              conditionKeys:    ['PRE_BREAKOUT_FOLLOWTHROUGH'],
+              entryRegime:      regime,
+            });
 
             const alertMsg =
               `🚀 <b>[선취매 추종] ${stock.name} (${stock.code})</b>\n` +
@@ -383,7 +410,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
               const gateScorePb = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
               const isStrongPb  = gateScorePb >= 25;
               const rawPctPb    = isStrongPb ? 0.12 : gateScorePb >= 20 ? 0.08 : gateScorePb >= 15 ? 0.05 : 0.03;
-              const posPctPb    = rawPctPb * kellyMultiplier;
+              // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 선취매에도 적용)
+              const reCheckGatePb = evaluateServerGate(reCheckQuotePb, conditionWeights, macroState?.kospiDayReturn);
+              let mtasMultiplierPb = 1.0;
+              if (reCheckGatePb) {
+                if (reCheckGatePb.mtas === 10) mtasMultiplierPb = 1.15;
+                else if (reCheckGatePb.mtas >= 7) mtasMultiplierPb = 1.0;
+                else if (reCheckGatePb.mtas >= 5) mtasMultiplierPb = 0.5;
+                if (reCheckGatePb.mtas > 3 && reCheckGatePb.mtas < 5) mtasMultiplierPb = 0.5;
+              }
+              const posPctPb    = rawPctPb * kellyMultiplier * mtasMultiplierPb;
               const remSlotsPb  = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY').length);
               const { quantity: fullPbQty, effectiveBudget: pbBudget } = calculateOrderQuantity({
                 totalAssets, orderableCash, positionPct: posPctPb,
@@ -433,6 +469,20 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
 
                 shadows.push(pbTrade);
                 appendShadowLog({ event: 'PRE_BREAKOUT_ENTRY', ...pbTrade });
+
+                addRecommendation({
+                  stockCode:        stock.code,
+                  stockName:        stock.name,
+                  signalTime:       new Date().toISOString(),
+                  priceAtRecommend: currentPrice,
+                  stopLoss:         stopLossPlanPb.hardStopLoss,
+                  targetPrice:      stock.targetPrice,
+                  kellyPct:         Math.round(posPctPb * 100),
+                  gateScore:        gateScorePb,
+                  signalType:       'BUY',
+                  conditionKeys:    ['PRE_BREAKOUT'],
+                  entryRegime:      regime,
+                });
 
                 console.log(`[PreBreakout] ${stock.name}(${stock.code}) 매집 감지 — 30% 선취매 @${pbEntryPrice} (${pbQty}주/${fullPbQty}주)`);
                 console.log(`[PreBreakout] ${accumResult.summary}`);
@@ -888,6 +938,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
             entryRegime:         regime,
             profileType:         'C', // 장중 발굴 종목 — 소형모멘텀 프로파일
             watchlistSource:     'INTRADAY',
+            profitTranches:      [], // Intraday는 분할익절 없음 (undefined → exitEngine LIMIT_TRANCHE 스킵 방지)
             trailingHighWaterMark: shadowEntryPrice,
             trailPct:             0.05, // 장중: 5% 트레일링 (더 빠른 익절 보호)
             trailingEnabled:      false,
