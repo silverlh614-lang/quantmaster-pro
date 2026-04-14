@@ -14,6 +14,16 @@ import type { ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import type { ExitRuleTag } from '../persistence/shadowTradeRepo.js';
 
 const ENTRY_MIN_GATE_SCORE = 5;
+
+/** 아이디어 #7: 레짐별 Gate 임계값 — 약세장일수록 기준 강화 */
+export const REGIME_GATE_MIN: Record<string, number> = {
+  R1_TURBO:   4,
+  R2_BULL:    5,
+  R3_EARLY:   5,
+  R4_NEUTRAL: 6,
+  R5_CAUTION: 7,
+  R6_DEFENSE: 999, // R6는 entryEngine 진입 전 차단되지만 안전망으로 999
+};
 const ENTRY_MAX_BREAKOUT_EXTENSION_PCT = 3;
 const ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT = -2;
 const ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT = 4;
@@ -120,13 +130,16 @@ interface EntryRevalidationInput {
   prevClose?: number;
   volume?: number;
   avgVolume?: number;
+  /** 아이디어 #7: 현재 레짐 — 레짐별 Gate 최솟값 적용 */
+  regime?: string;
 }
 
 export function evaluateEntryRevalidation(input: EntryRevalidationInput): { ok: boolean; reasons: string[] } {
   const reasons: string[] = [];
 
-  if (input.quoteSignalType === 'SKIP' || (input.quoteGateScore ?? ENTRY_MIN_GATE_SCORE) < ENTRY_MIN_GATE_SCORE) {
-    reasons.push(`Gate 재검증 미달 (${(input.quoteGateScore ?? 0).toFixed(1)}/${ENTRY_MIN_GATE_SCORE})`);
+  const minGate = (input.regime && REGIME_GATE_MIN[input.regime]) ?? ENTRY_MIN_GATE_SCORE;
+  if (input.quoteSignalType === 'SKIP' || (input.quoteGateScore ?? minGate) < minGate) {
+    reasons.push(`Gate 재검증 미달 (${(input.quoteGateScore ?? 0).toFixed(1)}/${minGate}, 레짐 ${input.regime ?? 'unknown'})`);
   }
 
   const extensionPct = ((input.currentPrice - input.entryPrice) / input.entryPrice) * 100;

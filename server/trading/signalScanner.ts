@@ -665,6 +665,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         prevClose: reCheckQuote?.prevClose,
         volume: reCheckQuote?.volume,
         avgVolume: reCheckQuote?.avgVolume,
+        regime,  // 아이디어 #7: 레짐별 Gate 임계값 적용
       });
       if (!entryRevalidation.ok) {
         console.log(`[AutoTrade] ${stock.name} 진입 직전 재검증 탈락: ${entryRevalidation.reasons.join(', ')}`);
