@@ -142,6 +142,15 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
             `트랜치: ${(t.ratio * 100).toFixed(0)}% × ${sellQty}주 @${currentPrice.toLocaleString()}원\n` +
             `수익률: +${returnPct.toFixed(2)}% | 잔여: ${shadow.quantity}주`
           ).catch(console.error);
+          await channelSellSignal({
+            stockName:   shadow.stockName,
+            stockCode:   shadow.stockCode,
+            exitPrice:   currentPrice,
+            entryPrice:  shadow.shadowEntryPrice,
+            pnlPct:      returnPct,
+            reason:      'TRANCHE',
+            holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+          }).catch(console.error);
         }
       }
       // 모든 LIMIT 트랜치 소화 → 트레일링 활성화
@@ -321,6 +330,15 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           originalQuantity: shadow.originalQuantity,
         });
         await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'EUPHORIA');
+        await channelSellSignal({
+          stockName:   shadow.stockName,
+          stockCode:   shadow.stockCode,
+          exitPrice:   currentPrice,
+          entryPrice:  shadow.shadowEntryPrice,
+          pnlPct:      returnPct,
+          reason:      'EUPHORIA',
+          holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+        }).catch(console.error);
       }
     }
   }

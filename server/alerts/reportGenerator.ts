@@ -6,7 +6,7 @@ import { getMonthlyStats } from '../learning/recommendationTracker.js';
 import { callGemini } from '../clients/geminiClient.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { sendTelegramAlert } from './telegramClient.js';
-import { channelMarketBriefing } from './channelPipeline.js';
+import { channelMarketBriefing, channelPerformance } from './channelPipeline.js';
 import { fetchCloses } from '../trading/marketDataRefresh.js';
 import { loadGlobalScanReport } from './globalScanAgent.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
@@ -191,6 +191,22 @@ export async function generateWeeklyReport(): Promise<void> {
     nextWeekNote;
 
   await sendTelegramAlert(msg).catch(console.error);
+
+  const bestShadow  = wins.length  > 0 ? wins.reduce((a, b)  => (a.returnPct ?? 0) > (b.returnPct ?? 0) ? a : b)  : undefined;
+  const worstShadow = losses.length > 0 ? losses.reduce((a, b) => (a.returnPct ?? 0) < (b.returnPct ?? 0) ? a : b) : undefined;
+  const totalPnlPct = closed.length > 0
+    ? closed.reduce((sum, s) => sum + (s.returnPct ?? 0), 0) / closed.length
+    : 0;
+  await channelPerformance({
+    period:      'WEEKLY',
+    totalTrades: closed.length,
+    winCount:    wins.length,
+    lossCount:   losses.length,
+    totalPnlPct,
+    bestTrade:   bestShadow  ? { name: bestShadow.stockName,  pnlPct: bestShadow.returnPct  ?? 0 } : undefined,
+    worstTrade:  worstShadow ? { name: worstShadow.stockName, pnlPct: worstShadow.returnPct ?? 0 } : undefined,
+  }).catch(console.error);
+
   console.log('[AutoTrade] 주간 리포트 완료 (구조화)');
 }
 

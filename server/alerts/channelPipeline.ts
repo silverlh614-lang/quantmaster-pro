@@ -85,6 +85,7 @@ export async function channelSellSignal(p: ChannelSellSignalParams): Promise<voi
     STOP:     '🛡️ 손절 실행',
     TRAILING: '📉 트레일링 손절',
     EUPHORIA: '🌡️ 과열 부분 청산',
+    TRANCHE:  '📈 분할 익절',
     CASCADE:  '⚠️ 캐스케이드 청산',
     MANUAL:   '👤 수동 청산',
   };
