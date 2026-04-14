@@ -71,6 +71,7 @@ export {
   buildStopLossPlan,
   calculateOrderQuantity,
   evaluateEntryRevalidation,
+  regimeToStopRegime,
 } from './entryEngine.js';
 
 // ── 스캔 진단 상태 (파이프라인 헬스체크 · 침묵 실패 탐지용) ─────────────────────
@@ -360,10 +361,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             const profile    = stock.profileType ?? 'B';
             const profileKey = `profile${profile}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
             const regimeStopRate = REGIME_CONFIGS[regime].stopLoss[profileKey];
+            const followATR14 = reCheckQuoteFollow?.atr ?? 0;
             const stopLossPlan = buildStopLossPlan({
               entryPrice:    followEntryPrice,
               fixedStopLoss: stock.stopLoss,
               regimeStopRate,
+              atr14: followATR14,
+              regime,
             });
             const limitTranches = PROFIT_TARGETS[regime].filter(t => t.type === 'LIMIT' && t.trigger !== null);
             const trailTarget   = PROFIT_TARGETS[regime].find(t => t.type === 'TRAILING');
@@ -394,6 +398,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               trailingHighWaterMark: followEntryPrice,
               trailPct:              trailTarget?.trailPct ?? 0.10,
               trailingEnabled:       false,
+              entryATR14:            followATR14 || undefined,
+              dynamicStopPrice:      stopLossPlan.dynamicStopLoss,
             };
 
             shadows.push(followTrade);
@@ -547,10 +553,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                 const profilePb = stock.profileType ?? 'B';
                 const profileKeyPb = `profile${profilePb}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
                 const regimeStopRatePb = REGIME_CONFIGS[regime].stopLoss[profileKeyPb];
+                const pbATR14 = reCheckQuotePb?.atr ?? 0;
                 const stopLossPlanPb = buildStopLossPlan({
                   entryPrice:    pbEntryPrice,
                   fixedStopLoss: stock.stopLoss,
                   regimeStopRate: regimeStopRatePb,
+                  atr14: pbATR14,
+                  regime,
                 });
                 const limitTranchesPb = PROFIT_TARGETS[regime].filter(t => t.type === 'LIMIT' && t.trigger !== null);
                 const trailTargetPb   = PROFIT_TARGETS[regime].find(t => t.type === 'TRAILING');
@@ -581,6 +590,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                   trailingHighWaterMark: pbEntryPrice,
                   trailPct:              trailTargetPb?.trailPct ?? 0.10,
                   trailingEnabled:       false,
+                  entryATR14:            pbATR14 || undefined,
+                  dynamicStopPrice:      stopLossPlanPb.dynamicStopLoss,
                 };
 
                 shadows.push(pbTrade);
@@ -870,10 +881,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       const profile    = stock.profileType ?? 'B';
       const profileKey = `profile${profile}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
       const regimeStopRate  = REGIME_CONFIGS[regime].stopLoss[profileKey]; // 음수 비율 (e.g., -0.10)
+      const entryATR14 = reCheckQuote?.atr ?? 0;
       const stopLossPlan = buildStopLossPlan({
         entryPrice: shadowEntryPrice,
         fixedStopLoss: stock.stopLoss,
         regimeStopRate,
+        atr14: entryATR14,
+        regime,
       });
 
       // L3 분할 익절 타겟 — PROFIT_TARGETS[regime]에서 LIMIT 트랜치 추출
@@ -909,6 +923,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         trailingHighWaterMark: shadowEntryPrice,
         trailPct: trailTarget?.trailPct ?? 0.10,
         trailingEnabled: false,
+        entryATR14: entryATR14 || undefined,
+        dynamicStopPrice: stopLossPlan.dynamicStopLoss,
       };
 
       // 아이디어 10: 추천 기록 — 신호 발생 즉시 저장 (WIN/LOSS 추후 평가)

@@ -210,6 +210,52 @@ export function detectVCP(closes: number[], volumes: number[]) {
   return isVolumeDrying && isTightening;
 }
 
+/**
+ * ATR (Average True Range) 계산 — 종목 변동성 측정.
+ *
+ * True Range = max(High - Low, |High - PrevClose|, |Low - PrevClose|)
+ * ATR = SMA(True Range, period)
+ *
+ * @param highs  - 일봉 고가 배열 (과거→최신)
+ * @param lows   - 일봉 저가 배열
+ * @param closes - 일봉 종가 배열
+ * @param period - ATR 기간 (기본 14)
+ * @returns 최신 ATR 값 (0 if 데이터 부족)
+ */
+export function calculateATR(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  period = 14,
+): number {
+  const minLen = Math.min(highs.length, lows.length, closes.length);
+  if (minLen < 2) return 0;
+
+  const trueRanges: number[] = [];
+  for (let i = 1; i < minLen; i++) {
+    const tr = Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i] - closes[i - 1]),
+    );
+    trueRanges.push(tr);
+  }
+
+  if (trueRanges.length === 0) return 0;
+
+  if (trueRanges.length < period) {
+    return trueRanges.reduce((a, b) => a + b, 0) / trueRanges.length;
+  }
+
+  // Wilder 평활화 방식: 첫 period개는 SMA, 이후 EMA 방식
+  let atr = trueRanges.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < trueRanges.length; i++) {
+    atr = (atr * (period - 1) + trueRanges[i]) / period;
+  }
+
+  return atr;
+}
+
 export function calculateDisparity(closes: number[], period = 20): number {
   const sma = calculateSMA(closes, period);
   const lastSMA = sma[sma.length - 1];

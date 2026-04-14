@@ -63,6 +63,10 @@ export interface ServerShadowTrade {
   r6EmergencySold?: boolean;      // R6_DEFENSE 30% 긴급 청산 완료 여부 (중복 방지)
   /** 워치리스트 출처 — Pre-Market(기본), Intraday(장중 발굴), Pre-Breakout(돌파 전 선취매) */
   watchlistSource?: 'PRE_MARKET' | 'INTRADAY' | 'PRE_BREAKOUT' | 'PRE_BREAKOUT_FOLLOWTHROUGH';
+  /** 진입 시점 14일 ATR — ATR 기반 동적 손절 계산에 사용 */
+  entryATR14?: number;
+  /** ATR 기반 동적 손절가 — evaluateDynamicStop()으로 계산된 초기 동적 손절 */
+  dynamicStopPrice?: number;
 }
 
 export function loadShadowTrades(): ServerShadowTrade[] {

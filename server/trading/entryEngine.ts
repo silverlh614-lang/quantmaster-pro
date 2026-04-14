@@ -12,6 +12,8 @@
 
 import type { ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import type { ExitRuleTag } from '../persistence/shadowTradeRepo.js';
+import type { DynamicStopRegime } from '../../src/types/sell.js';
+import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.js';
 
 const ENTRY_MIN_GATE_SCORE = 5;
 
@@ -69,12 +71,40 @@ export function isOpenShadowStatus(status: ServerShadowTrade['status']): boolean
   return OPEN_SHADOW_STATUSES.has(status);
 }
 
+// ── RegimeLevel → DynamicStopRegime 매핑 ──────────────────────────────────────
+
+/**
+ * 6단계 시장 레짐을 동적 손절 3단계로 매핑.
+ *   R1_TURBO / R2_BULL     → RISK_ON  (여유 있는 손절, ATR × 2.0)
+ *   R3_EARLY / R4_NEUTRAL  → RISK_OFF (타이트한 손절, ATR × 1.5)
+ *   R5_CAUTION / R6_DEFENSE → CRISIS  (초타이트 손절, ATR × 1.0)
+ */
+export function regimeToStopRegime(regime?: string): DynamicStopRegime {
+  switch (regime) {
+    case 'R1_TURBO':
+    case 'R2_BULL':
+      return 'RISK_ON';
+    case 'R3_EARLY':
+    case 'R4_NEUTRAL':
+      return 'RISK_OFF';
+    case 'R5_CAUTION':
+    case 'R6_DEFENSE':
+      return 'CRISIS';
+    default:
+      return 'RISK_OFF';
+  }
+}
+
 // ── Stop Loss Plan ─────────────────────────────────────────────────────────────
 
 interface StopLossPlanInput {
   entryPrice: number;
   fixedStopLoss: number;
   regimeStopRate: number;
+  /** 14일 ATR — 동적 손절 계산용 (없으면 고정 손절만 사용) */
+  atr14?: number;
+  /** 시장 레짐 (ATR 배수 결정용) */
+  regime?: string;
 }
 
 export interface StopLossPlan {
@@ -82,23 +112,47 @@ export interface StopLossPlan {
   initialStopLoss: number;
   /** 시장 레짐 악화 기준의 레짐 손절 */
   regimeStopLoss: number;
-  /** 실제 강제 청산 기준(더 높은 가격의 촘촘한 손절 = max(initialStopLoss, regimeStopLoss)) */
+  /** ATR 기반 동적 손절 (없으면 undefined) */
+  dynamicStopLoss?: number;
+  /** 실제 강제 청산 기준(가장 촘촘한 손절 = max(initialStopLoss, regimeStopLoss, dynamicStopLoss)) */
   hardStopLoss: number;
 }
 
 export function buildStopLossPlan(input: StopLossPlanInput): StopLossPlan {
   const regimeStopLoss = input.entryPrice * (1 + input.regimeStopRate);
   const initialStopLoss = input.fixedStopLoss;
-  const hardStopLoss = Math.max(initialStopLoss, regimeStopLoss);
+
+  // ATR 기반 동적 손절 — 종목 변동성 반영
+  let dynamicStopLoss: number | undefined;
+  if (input.atr14 && input.atr14 > 0) {
+    const stopRegime = regimeToStopRegime(input.regime);
+    const dynResult = evaluateDynamicStop({
+      entryPrice: input.entryPrice,
+      atr14: input.atr14,
+      regime: stopRegime,
+      currentPrice: input.entryPrice, // 진입 시점이므로 현재가 = 진입가
+    });
+    dynamicStopLoss = dynResult.stopPrice;
+  }
+
+  // 3중 손절 비교 — 가장 높은 가격(가장 촘촘한 손절)을 hardStopLoss로 채택
+  const candidates = [initialStopLoss, regimeStopLoss];
+  if (dynamicStopLoss !== undefined) candidates.push(dynamicStopLoss);
+  const hardStopLoss = Math.max(...candidates);
+
   return {
     initialStopLoss,
     regimeStopLoss,
+    dynamicStopLoss,
     hardStopLoss,
   };
 }
 
 export function formatStopLossBreakdown(plan: StopLossPlan): string {
-  return `${plan.hardStopLoss.toLocaleString()}원 (고정 ${plan.initialStopLoss.toLocaleString()} / 레짐 ${plan.regimeStopLoss.toLocaleString()})`;
+  const dynPart = plan.dynamicStopLoss != null
+    ? ` / ATR ${plan.dynamicStopLoss.toLocaleString()}`
+    : '';
+  return `${plan.hardStopLoss.toLocaleString()}원 (고정 ${plan.initialStopLoss.toLocaleString()} / 레짐 ${plan.regimeStopLoss.toLocaleString()}${dynPart})`;
 }
 
 // ── Position Sizing ────────────────────────────────────────────────────────────
