@@ -282,6 +282,15 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
               fixedStopLoss: stock.stopLoss,
               regimeStopRate,
             });
+            // BUG-08 fix: 추종 매수 시 새로운 진입가 기준 RRR 재검증
+            const followRRR = calcRRR(followEntryPrice, stock.targetPrice, stopLossPlan.hardStopLoss);
+            if (followRRR < RRR_MIN_THRESHOLD) {
+              console.log(
+                `[AutoTrade] 📐 ${stock.name}(${stock.code}) Follow-through RRR ${followRRR.toFixed(2)} < ${RRR_MIN_THRESHOLD} — 추종 매수 제외`
+              );
+              continue;
+            }
+
             const limitTranches = PROFIT_TARGETS[regime].filter(t => t.type === 'LIMIT' && t.trigger !== null);
             const trailTarget   = PROFIT_TARGETS[regime].find(t => t.type === 'TRAILING');
             const followTrade: ServerShadowTrade = {
@@ -624,10 +633,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
       });
       if (!entryRevalidation.ok) {
         console.log(`[AutoTrade] ${stock.name} 진입 직전 재검증 탈락: ${entryRevalidation.reasons.join(', ')}`);
-        if (stock.addedBy === 'AUTO') {
-          stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
-          watchlistMutated = true;
-        }
+        stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
+        watchlistMutated = true;
         continue;
       }
 

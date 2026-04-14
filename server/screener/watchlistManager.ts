@@ -3,7 +3,7 @@
  *
  * 매일 16:00 KST (장마감 후) 실행:
  *   1. expiresAt 초과 항목 자동 제거
- *   2. entryFailCount >= 3인 AUTO 항목 제거 (진입 실패 종목 정리)
+ *   2. entryFailCount >= 3인 항목 제거 (진입 실패 종목 정리, AUTO+MANUAL 공통)
  *   3. isFocus 플래그 갱신 — gateScore 상위 FOCUS_LIST_SIZE개 AUTO 종목
  *   4. AUTO 항목 최대 MAX_WATCHLIST개 유지 (오래된 것부터 제거, MANUAL 보호)
  */
@@ -41,9 +41,9 @@ export async function cleanupWatchlist(): Promise<void> {
     return true;
   });
 
-  // 2. 진입 실패 횟수 초과 AUTO 항목 제거
+  // 2. 진입 실패 횟수 초과 항목 제거 (AUTO + MANUAL 공통)
   const afterFailPrune = afterExpiry.filter((w) => {
-    if (w.addedBy === 'AUTO' && (w.entryFailCount ?? 0) >= MAX_ENTRY_FAIL_COUNT) {
+    if ((w.entryFailCount ?? 0) >= MAX_ENTRY_FAIL_COUNT) {
       console.log(
         `[Watchlist] 진입실패 제거: ${w.name}(${w.code}) (실패 ${w.entryFailCount}회)`,
       );
