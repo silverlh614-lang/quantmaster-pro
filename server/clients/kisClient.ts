@@ -234,3 +234,68 @@ export async function placeKisSellOrder(
     ).catch(console.error);
   }
 }
+
+// ─── OCO 손절 지정가 매도 (체결 즉시 자동 등록) ─────────────────────────────────
+/**
+ * 매수 체결 확인 후 호출 — 손절 지정가 매도를 KIS에 즉시 등록.
+ * exitEngine 주기적 모니터링과 별개로, 거래소 레벨 안전망 역할.
+ *
+ * @returns 주문번호(ODNO) 또는 null (Shadow 모드·오류 시)
+ */
+export async function placeKisStopLossLimitOrder(
+  stockCode: string,
+  stockName: string,
+  quantity: number,
+  stopPrice: number,
+): Promise<string | null> {
+  // Shadow 모드: 실주문 없이 로그 + Telegram만
+  if (!KIS_IS_REAL) {
+    console.log(`[StopLoss OCO] 🛡️ ${stockName}(${stockCode}) 손절 지정가 ${stopPrice.toLocaleString()}원 × ${quantity}주 (Shadow 모드)`);
+    await sendTelegramAlert(
+      `🛡️ <b>[Shadow 손절 등록] ${stockName} (${stockCode})</b>\n` +
+      `손절가: ${stopPrice.toLocaleString()}원 × ${quantity}주 | Shadow 모드 — 실주문 없음`
+    ).catch(console.error);
+    return null;
+  }
+
+  if (!process.env.KIS_APP_KEY) {
+    console.warn(`[StopLoss OCO] KIS 미설정 — ${stockName} 손절 주문 건너뜀`);
+    return null;
+  }
+
+  try {
+    console.log(`[StopLoss OCO] 🛡️ ${stockName}(${stockCode}) 손절 지정가 등록 — ${stopPrice.toLocaleString()}원 × ${quantity}주`);
+
+    const orderData = await kisPost(SELL_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
+      CANO:            process.env.KIS_ACCOUNT_NO ?? '',
+      ACNT_PRDT_CD:    process.env.KIS_ACCOUNT_PROD ?? '01',
+      PDNO:            stockCode.padStart(6, '0'),
+      ORD_DVSN:        '00',   // 지정가
+      ORD_QTY:         quantity.toString(),
+      ORD_UNPR:        stopPrice.toString(),
+      SLL_BUY_DVSN_CD: '01',  // 01 = 매도
+      CTAC_TLNO:       '',
+      MGCO_APTM_ODNO:  '',
+      ORD_SVR_DVSN_CD: '0',
+    });
+
+    const ordNo = (orderData as { output?: { ODNO?: string } } | null)?.output?.ODNO ?? null;
+    console.log(`[StopLoss OCO] 🛡️ ${stockName} 손절 등록 완료 — ${stopPrice.toLocaleString()}원 ODNO: ${ordNo}`);
+
+    await sendTelegramAlert(
+      `🛡️ <b>[손절 주문 등록] ${stockName} (${stockCode})</b>\n` +
+      `손절가: ${stopPrice.toLocaleString()}원 × ${quantity}주\n` +
+      `주문번호: ${ordNo ?? 'N/A'}`
+    ).catch(console.error);
+
+    return ordNo;
+  } catch (err: unknown) {
+    console.error(`[StopLoss OCO] ${stockName} 손절 주문 실패:`, err instanceof Error ? err.message : err);
+    await sendTelegramAlert(
+      `🚨 <b>[긴급] ${stockName} 손절 주문 등록 실패!</b>\n` +
+      `수동으로 손절 주문을 등록하세요!\n` +
+      `오류: ${err instanceof Error ? err.message : String(err)}`
+    ).catch(console.error);
+    return null;
+  }
+}

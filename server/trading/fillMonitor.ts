@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { PENDING_ORDERS_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadShadowTrades, saveShadowTrades } from '../persistence/shadowTradeRepo.js';
-import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL } from '../clients/kisClient.js';
+import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL, placeKisStopLossLimitOrder } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 
 const FILL_POLL_MAX = 10; // 최대 폴링 횟수 (cron 5분 간격 × 10 = 최대 50분 모니터링)
@@ -122,6 +122,25 @@ export class FillMonitor {
           `수량: ${order.quantity}주\n` +
           `주문번호: ${order.ordNo}`
         ).catch(console.error);
+
+        // ── OCO 손절 지정가 즉시 등록 ───────────────────────────────────
+        // exitEngine 주기적 감시와 별개로, 거래소 레벨 안전망 확보.
+        const shadows = loadShadowTrades();
+        const trade = shadows.find(s => s.id === order.relatedTradeId);
+        const stopPrice = trade?.hardStopLoss ?? trade?.stopLoss;
+        if (trade && stopPrice && stopPrice > 0) {
+          const stopOrdNo = await placeKisStopLossLimitOrder(
+            order.stockCode,
+            order.stockName,
+            order.quantity,
+            Math.floor(stopPrice),
+          );
+          if (stopOrdNo) {
+            console.log(`[FillMonitor] 🛡️ OCO 손절 연결: ${order.stockName} 손절가=${Math.floor(stopPrice).toLocaleString()}원 ODNO=${stopOrdNo}`);
+          }
+        } else {
+          console.warn(`[FillMonitor] ⚠️ ${order.stockName} 손절가 미설정 — OCO 미등록 (exitEngine 감시 대체)`);
+        }
       } else if (Number(unfilled.tot_ccld_qty ?? 0) > 0) {
         const fillQty = Math.min(order.quantity, Number(unfilled.tot_ccld_qty ?? 0));
         const fillPrice = Number(unfilled.avg_prvs ?? 0) || order.fillPrice || order.orderPrice;
