@@ -395,75 +395,211 @@ export function getScreenerCache(): ScreenedStock[] {
 }
 
 /**
- * 아이디어 4: 장 전 사전 스크리너
+ * 아이디어 4 확장: 장 전 사전 스크리너 — KIS 4개 TR 병렬 호출
  *
- * 1단계: KIS 거래량 상위 종목 수집 (FHPST01710000)
- * 2단계: 정량 필터 — 가격·회전율·PER·외국인 순매수
- * 3단계: 상위 30개만 캐시 저장 → AI 분석 시 이 풀에서만 선택
+ * 1단계: KIS 순위 TR 4개 병렬 호출
+ *   - 거래량 상위 (FHPST01710000)
+ *   - 상승률 상위 (FHPST01700000)
+ *   - 52주 신고가 (FHPST01760000) — 주도주 포착 핵심
+ *   - 외국인 순매수 상위 (FHPST01600000) — 수급 기반 핵심
+ * 2단계: 결과 통합 + 중복 제거 (복수 TR 등장 종목 우선)
+ * 3단계: 상위 80개 캐시 저장 → Yahoo 기술적 지표 보완 대상
  */
 export async function preScreenStocks(): Promise<ScreenedStock[]> {
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return [];
 
-  // FHPST01710000 (거래량 순위)은 실계좌 전용 TR — VTS에서 미지원
+  // 순위 TR은 실계좌 전용 — VTS에서 미지원
   // 단, 실계좌 데이터 키(KIS_REAL_DATA_APP_KEY) 설정 시 하이브리드 모드로 조회 가능
   if (!KIS_IS_REAL && !HAS_REAL_DATA_CLIENT) {
     console.warn(
-      '[Screener] 모의투자(VTS) 모드 — 거래량 순위 TR(FHPST01710000) 미지원. ' +
+      '[Screener] 모의투자(VTS) 모드 — 순위 TR 미지원. ' +
       '캐시된 스크리너 결과를 반환합니다. 실계좌 데이터 키 또는 KIS_IS_REAL=true 설정 후 사용 가능.'
     );
     return getScreenerCache();
   }
 
   try {
-    // 거래량 상위 종목 (최대 30개 반환)
-    const volData = await realDataKisGet(
-      'FHPST01710000',
-      '/uapi/domestic-stock/v1/ranking/volume',
-      {
+    // ── 병렬로 4개 TR 동시 호출 ────────────────────────────────
+    const [volData, riseData, highData, foreignData] = await Promise.allSettled([
+
+      // 1. 거래량 상위 (기존)
+      realDataKisGet('FHPST01710000', '/uapi/domestic-stock/v1/ranking/volume', {
         fid_cond_mrkt_div_code: 'J',
         fid_cond_scr_div_code:  '20171',
-        fid_input_iscd:         '0000',   // 전체
+        fid_input_iscd:         '0000',
         fid_div_cls_code:       '0',
         fid_blng_cls_code:      '0',
         fid_trgt_cls_code:      '111111111',
         fid_trgt_exls_cls_code: '000000',
-        fid_input_price_1:      '5000',   // 5,000원 이상
-        fid_input_price_2:      '500000', // 50만원 이하
-        fid_vol_cnt:            '100000', // 거래량 10만 이상
+        fid_input_price_1:      '3000',   // 3천원으로 완화
+        fid_input_price_2:      '500000',
+        fid_vol_cnt:            '50000',   // 5만주로 완화
         fid_input_date_1:       '',
-      }
-    ) as { output?: Record<string, string>[] } | null;
+      }),
 
-    const raw = volData?.output ?? [];
+      // 2. 상승률 상위 (신규)
+      realDataKisGet('FHPST01700000', '/uapi/domestic-stock/v1/ranking/fluctuation', {
+        fid_cond_mrkt_div_code: 'J',
+        fid_cond_scr_div_code:  '20170',
+        fid_input_iscd:         '0000',
+        fid_rank_sort_cls_code: '0',       // 상승률 상위
+        fid_input_cnt_1:        '40',
+        fid_prc_cls_code:       '1',
+        fid_input_price_1:      '3000',
+        fid_input_price_2:      '500000',
+        fid_vol_cnt:            '50000',
+        fid_trgt_cls_code:      '0',
+        fid_trgt_exls_cls_code: '0',
+        fid_div_cls_code:       '0',
+        fid_rsfl_rate1:         '1',       // 1% 이상 상승
+        fid_rsfl_rate2:         '15',      // 15% 미만 (과열 제외)
+      }),
+
+      // 3. 52주 신고가 (신규) — 주도주 포착 핵심
+      realDataKisGet('FHPST01760000', '/uapi/domestic-stock/v1/ranking/new-high-low', {
+        fid_cond_mrkt_div_code: 'J',
+        fid_cond_scr_div_code:  '20176',
+        fid_input_iscd:         '0000',
+        fid_rank_sort_cls_code: '0',       // 신고가
+        fid_input_cnt_1:        '40',
+        fid_vol_cnt:            '50000',
+        fid_trgt_cls_code:      '0',
+        fid_trgt_exls_cls_code: '0',
+        fid_div_cls_code:       '0',
+      }),
+
+      // 4. 외국인 순매수 상위 (신규) — 수급 기반 핵심
+      realDataKisGet('FHPST01600000', '/uapi/domestic-stock/v1/ranking/investor', {
+        fid_cond_mrkt_div_code: 'J',
+        fid_cond_scr_div_code:  '20160',
+        fid_input_iscd:         '0000',
+        fid_inqr_dvsn_cls_code: '0',       // 순매수
+        fid_div_cls_code:       '0',
+        fid_rank_sort_cls_code: '1',       // 외국인
+        fid_input_cnt_1:        '40',
+        fid_trgt_cls_code:      '111111111',
+        fid_trgt_exls_cls_code: '000000',
+        fid_vol_cnt:            '50000',
+        fid_input_price_1:      '3000',
+        fid_input_price_2:      '500000',
+      }),
+    ]);
+
     const now = new Date().toISOString();
 
-    const candidates: ScreenedStock[] = raw.map((s) => ({
-      code:          s.stck_shrn_iscd ?? '',
-      name:          s.hts_kor_isnm   ?? '',
-      currentPrice:  parseInt(s.stck_prpr   ?? '0', 10),
-      changeRate:    parseFloat(s.prdy_ctrt ?? '0'),
-      volume:        parseInt(s.acml_vol    ?? '0', 10),
+    // ── 결과 통합 + 중복 제거 ───────────────────────────────────
+    const codeMap = new Map<string, ScreenedStock & { sources: string[] }>();
+
+    const mergeOutput = (
+      result: PromiseSettledResult<unknown>,
+      source: string,
+      mapper: (s: Record<string, string>) => ScreenedStock | null,
+    ) => {
+      if (result.status !== 'fulfilled') return;
+      const raw = (result.value as { output?: Record<string, string>[] })?.output ?? [];
+      for (const s of raw) {
+        const mapped = mapper(s);
+        if (!mapped || !mapped.code) continue;
+        if (codeMap.has(mapped.code)) {
+          codeMap.get(mapped.code)!.sources.push(source);
+        } else {
+          codeMap.set(mapped.code, { ...mapped, sources: [source] });
+        }
+      }
+    };
+
+    // 거래량 상위 매핑
+    mergeOutput(volData, 'VOL', (s) => ({
+      code:          s.stck_shrn_iscd  ?? '',
+      name:          s.hts_kor_isnm    ?? '',
+      currentPrice:  parseInt(s.stck_prpr      ?? '0', 10),
+      changeRate:    parseFloat(s.prdy_ctrt    ?? '0'),
+      volume:        parseInt(s.acml_vol       ?? '0', 10),
       turnoverRate:  parseFloat(s.acml_tr_pbmn ?? '0'),
-      per:           parseFloat(s.per         ?? '999'),
-      foreignNetBuy: parseInt(s.frgn_ntby_qty ?? '0', 10),
+      per:           parseFloat(s.per          ?? '999'),
+      foreignNetBuy: parseInt(s.frgn_ntby_qty  ?? '0', 10),
       screenedAt:    now,
-    })).filter((s) =>
-      s.code &&
-      s.currentPrice > 0 &&
-      s.per > 0 && s.per < 40 &&       // PER 0~40
-      s.foreignNetBuy >= 0 &&           // 외국인 순매수 유지
-      s.changeRate > -3                 // 급락 제외
+    }));
+
+    // 상승률 상위 매핑
+    mergeOutput(riseData, 'RISE', (s) => ({
+      code:          s.stck_shrn_iscd  ?? '',
+      name:          s.hts_kor_isnm    ?? '',
+      currentPrice:  parseInt(s.stck_prpr      ?? '0', 10),
+      changeRate:    parseFloat(s.prdy_ctrt    ?? '0'),
+      volume:        parseInt(s.acml_vol       ?? '0', 10),
+      turnoverRate:  parseFloat(s.acml_tr_pbmn ?? '0'),
+      per:           parseFloat(s.per          ?? '999'),
+      foreignNetBuy: parseInt(s.frgn_ntby_qty  ?? '0', 10),
+      screenedAt:    now,
+    }));
+
+    // 52주 신고가 매핑
+    mergeOutput(highData, 'HIGH52W', (s) => ({
+      code:          s.stck_shrn_iscd  ?? '',
+      name:          s.hts_kor_isnm    ?? '',
+      currentPrice:  parseInt(s.stck_prpr      ?? '0', 10),
+      changeRate:    parseFloat(s.prdy_ctrt    ?? '0'),
+      volume:        parseInt(s.acml_vol       ?? '0', 10),
+      turnoverRate:  0,
+      per:           parseFloat(s.per          ?? '999'),
+      foreignNetBuy: 0,
+      screenedAt:    now,
+    }));
+
+    // 외국인 순매수 상위 매핑
+    mergeOutput(foreignData, 'FOREIGN', (s) => ({
+      code:          s.stck_shrn_iscd  ?? '',
+      name:          s.hts_kor_isnm    ?? '',
+      currentPrice:  parseInt(s.stck_prpr      ?? '0', 10),
+      changeRate:    parseFloat(s.prdy_ctrt    ?? '0'),
+      volume:        parseInt(s.acml_vol       ?? '0', 10),
+      turnoverRate:  0,
+      per:           999,
+      foreignNetBuy: parseInt(s.frgn_ntby_qty  ?? '0', 10),
+      screenedAt:    now,
+    }));
+
+    // ── 복수 TR에 등장한 종목 우선 정렬 ────────────────────────
+    // 거래량+상승률+신고가+외국인 동시에 잡힌 종목 = 최강 후보
+    const getOutputLen = (r: PromiseSettledResult<unknown>): number =>
+      r.status === 'fulfilled'
+        ? ((r.value as { output?: unknown[] })?.output?.length ?? 0)
+        : 0;
+
+    const candidates = Array.from(codeMap.values())
+      .filter(s =>
+        s.code &&
+        s.currentPrice > 0 &&
+        s.changeRate > -5 &&
+        s.changeRate < 20
+      )
+      .sort((a, b) => {
+        // 복수 TR 등장 종목 우선
+        const scoreDiff = b.sources.length - a.sources.length;
+        if (scoreDiff !== 0) return scoreDiff;
+        return b.volume - a.volume;
+      })
+      .slice(0, 80);  // 최대 80개 (Yahoo 보완 대상)
+
+    // sources 필드 제거 후 저장 (ScreenedStock 인터페이스 호환)
+    const toSave: ScreenedStock[] = candidates.map(({ sources: _sources, ...rest }) => rest);
+
+    console.log(
+      `[Screener] KIS 4개 TR 통합 — ` +
+      `거래량:${getOutputLen(volData)} ` +
+      `상승률:${getOutputLen(riseData)} ` +
+      `신고가:${getOutputLen(highData)} ` +
+      `외국인:${getOutputLen(foreignData)} ` +
+      `→ 통합 후 ${codeMap.size}개 → 상위 ${candidates.length}개` +
+      (candidates.filter(c => c.sources.length >= 2).length > 0
+        ? ` (복수TR ${candidates.filter(c => c.sources.length >= 2).length}개)`
+        : '')
     );
 
-    // 거래량 기준 상위 30개
-    const top30 = candidates
-      .sort((a, b) => b.volume - a.volume)
-      .slice(0, 30);
-
     ensureDataDir();
-    fs.writeFileSync(SCREENER_FILE, JSON.stringify(top30, null, 2));
-    console.log(`[Screener] 사전 스크리닝 완료 — ${raw.length}개 → 필터 후 ${candidates.length}개 → 상위 ${top30.length}개`);
-    return top30;
+    fs.writeFileSync(SCREENER_FILE, JSON.stringify(toSave, null, 2));
+    return toSave;
   } catch (e: unknown) {
     console.error('[Screener] 실패:', e instanceof Error ? e.message : e);
     return [];
@@ -789,10 +925,20 @@ export async function autoPopulateWatchlist(): Promise<number> {
     }
   }
 
-  // VTS 및 공통: Yahoo Finance 기반 모멘텀 스캔 + 서버사이드 Gate 평가 (아이디어 2)
-  // 아이디어 6: 동적 확장 유니버스 사용 (정적 + 주간 52주신고가/외국인순매수)
+  // ── Yahoo Finance 기반 기술적 지표 보완 ─────────────────────────────
+  // 실계좌: KIS 4개 TR 스크리닝 결과(캐시) 기반으로 후보군 축소
+  // VTS/폴백: 기존 동적 확장 유니버스 사용
+  const screenerSymbols = getScreenerCache().map(s => ({
+    symbol: `${s.code}.KS`,  // 코스피 기본, Yahoo에서 코스닥도 .KS로 조회 가능
+    code: s.code,
+    name: s.name,
+  }));
   const { getExpandedUniverse } = await import('./dynamicUniverseExpander.js');
-  const scanUniverse = getExpandedUniverse();
+  const scanUniverse = screenerSymbols.length > 0 ? screenerSymbols : getExpandedUniverse();
+  console.log(
+    `[AutoPopulate] 스캔 대상: ${scanUniverse.length}개` +
+    (screenerSymbols.length > 0 ? ' (KIS 스크리너 캐시 기반)' : ' (정적 유니버스 폴백)'),
+  );
   for (const stock of scanUniverse) {
     if (existingCodes.has(stock.code)) continue;
 
@@ -905,7 +1051,7 @@ export async function sendWatchlistRejectionReport(): Promise<void> {
   const msg =
     `📋 <b>[워치리스트 탈락 리포트]</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `스캔 종목: ${STOCK_UNIVERSE.length}개 | 탈락: ${log.length}건\n\n` +
+    `스캔 종목: ${getScreenerCache().length || STOCK_UNIVERSE.length}개 | 탈락: ${log.length}건\n\n` +
     `<b>사유별 분포:</b>\n${reasonLines}\n\n` +
     `<b>탈락 종목 (상위 10):</b>\n${topRejections}\n` +
     `━━━━━━━━━━━━━━━━━━━━`;
