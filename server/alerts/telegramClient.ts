@@ -313,6 +313,49 @@ export async function sendChannelAlert(
 }
 
 /**
+ * 종목 픽 채널에 알림 전송.
+ * TELEGRAM_PICK_CHANNEL_ID 환경변수에 채널 chat_id 설정 필요.
+ * 구독자 전체에게 브로드캐스트 — 쿨다운/다이제스트 없이 즉시 전송.
+ */
+export async function sendPickChannelAlert(
+  message: string,
+  opts?: { disableNotification?: boolean },
+): Promise<number | undefined> {
+  const token     = process.env.TELEGRAM_BOT_TOKEN;
+  const channelId = process.env.TELEGRAM_PICK_CHANNEL_ID;
+  if (!token || !channelId) {
+    console.log('[Telegram] TELEGRAM_PICK_CHANNEL_ID 미설정 — 픽 채널 전송 스킵');
+    return;
+  }
+
+  try {
+    const payload: Record<string, unknown> = {
+      chat_id: channelId,
+      text: message,
+      parse_mode: 'HTML',
+    };
+    if (opts?.disableNotification) {
+      payload.disable_notification = true;
+    }
+
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('[Telegram] 픽 채널 전송 실패:', err.slice(0, 200));
+      return;
+    }
+    const data = await res.json() as { result?: { message_id?: number } };
+    return data.result?.message_id;
+  } catch (e: unknown) {
+    console.error('[Telegram] 픽 채널 전송 오류:', e instanceof Error ? e.message : e);
+  }
+}
+
+/**
  * 개인 채팅 + 채널 동시 전송 (브로드캐스트).
  *
  * - 개인 채팅: 기존 sendTelegramAlert (우선순위 + 쿨다운 적용)

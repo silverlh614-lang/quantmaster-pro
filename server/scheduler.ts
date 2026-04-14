@@ -36,6 +36,7 @@ import { getKisTokenRemainingHours } from './clients/kisClient.js';
 import { isOpenShadowStatus } from './trading/entryEngine.js';
 import { runPipelineDiagnosis } from './trading/pipelineDiagnosis.js';
 import { cleanupOldTraceFiles } from './trading/scanTracer.js';
+import { generateDailyPickReport } from './alerts/stockPickReporter.js';
 
 export function startScheduler() {
   // ─── TradingDayOrchestrator — 장 사이클 State Machine ──────────────────
@@ -96,6 +97,12 @@ export function startScheduler() {
   // 주간 리포트 — 매주 금요일 16:30 KST (UTC 07:30)
   cron.schedule('30 7 * * 5', async () => {
     await generateWeeklyReport().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // 일일 종목 픽 리포트 — 평일 16:30 KST (UTC 07:30, 월~금)
+  // TELEGRAM_PICK_CHANNEL_ID 채널로 발송 (구독자용 픽 채널)
+  cron.schedule('30 7 * * 1-5', async () => {
+    await generateDailyPickReport().catch(console.error);
   }, { timezone: 'UTC' });
 
   // 시장 지표 자동 갱신 — 평일 08:40 KST (UTC 23:40, 일~목) + 장 마감 후 15:30 KST (UTC 06:30, 월~금)
@@ -292,5 +299,5 @@ export function startScheduler() {
     cleanupOldTraceFiles();
   }, { timezone: 'UTC' });
 
-  console.log('[Scheduler] 29개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
+  console.log('[Scheduler] 30개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
 }
