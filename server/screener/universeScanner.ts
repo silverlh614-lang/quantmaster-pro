@@ -415,7 +415,7 @@ export async function stage3AIScreenAndRegister(
       memo:          `${formatReliabilityBadge(reliability)} | ${confPart} | ${result.topReasons.slice(0, 2).join(', ')}`,
       expiresAt:     addBusinessDays(new Date(), 5).toISOString(),
       conditionKeys: [...realKeys, ...qualKeys],
-      track:         result.signal !== 'SKIP' ? 'B' : 'A',  // 아이디어 8: 2-Track
+      track:         result.signal === 'STRONG_BUY' ? 'A' : 'B',  // 아이디어 8: 2-Track (STRONG_BUY=A, BUY=B)
       ...(regretFilter.isCooldown && {
         cooldownUntil: regretFilter.cooldownUntil,
         recentHigh:    regretFilter.recentHigh,

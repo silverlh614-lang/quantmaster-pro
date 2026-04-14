@@ -36,11 +36,11 @@ for i, block in enumerate(blocks[1:], start=1):
     has_search = bool(SEARCH_PATTERN.search(chunk))
     if has_mime and has_search:
         conflicts.append(i)
-        print(f"❌ CONFLICT at block {i}: responseMimeType + googleSearch 혼용 감지")
+        print(f"[CONFLICT] block {i}: responseMimeType + googleSearch 혼용 감지")
 
 if conflicts:
     print(f"\n충돌이 발생한 블록 수: {len(conflicts)}")
     print("수정 방법: 동일 generateContent 호출에서 responseMimeType 또는 googleSearch 중 하나만 사용하세요.")
     sys.exit(1)
 
-print("✅ No Gemini API conflicts")
+print("[OK] No Gemini API conflicts")

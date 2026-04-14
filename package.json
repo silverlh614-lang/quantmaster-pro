@@ -6,13 +6,13 @@
   "scripts": {
     "snapshot": "git add -A && git commit -m \"snapshot: $(date '+%Y-%m-%d %H:%M')\" --allow-empty",
     "dev": "npm run snapshot && tsx server/index.ts",
-    "prebuild": "python3 scripts/validate_gemini_calls.py",
+    "prebuild": "python scripts/validate_gemini_calls.py",
     "build": "vite build",
     "start": "NODE_ENV=production npx tsx server/index.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
-    "validate:gemini": "python3 scripts/validate_gemini_calls.py",
+    "validate:gemini": "python scripts/validate_gemini_calls.py",
     "precommit": "npm run validate:gemini && npm run lint"
   },
   "dependencies": {
