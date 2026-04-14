@@ -8,6 +8,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { isPullbackSetup } from './pipelineHelpers.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fetchKisMTASData } from './kisChartDataFetcher.js';
+import { recordGateAudit } from '../persistence/gateAuditRepo.js';
 
 // ── 아이디어 5: 워치리스트 탈락 사유 추적 ─────────────────────────────────────
 export interface RejectionEntry {
@@ -970,6 +971,9 @@ export async function autoPopulateWatchlist(): Promise<number> {
     // 서버사이드 Gate 평가 — Track A에서는 SKIP이어도 등록 (점수만 기록)
     const macroState = loadMacroState();
     const gate = evaluateServerGate(enrichedQuote, loadConditionWeights(), macroState?.kospiDayReturn);
+
+    // 아이디어 11: Gate 조건 통과/탈락 히트맵 누적 기록
+    recordGateAudit(gate.conditionKeys);
 
     // Track A/B 분류: SKIP이 아닌 종목은 Track B 후보, SKIP은 Track A 유지
     const track: 'A' | 'B' = gate.signalType !== 'SKIP' ? 'B' : 'A';

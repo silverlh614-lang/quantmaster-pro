@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Activity, Eye, Briefcase } from 'lucide-react';
+import { Activity, Eye, Briefcase, ShieldAlert, BarChart3 } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { PageHeader } from '../ui/page-header';
 import { KpiStrip } from '../ui/kpi-strip';
@@ -36,6 +36,22 @@ interface KisHolding {
   evlu_pfls_amt: string; // 평가손익금액
 }
 
+// 아이디어 10: Buy Audit 진단 대시보드
+interface BuyAuditData {
+  watchlistCount: number;
+  focusCount: number;
+  buyListCount: number;
+  regime: string;
+  vixGating: { noNewEntry: boolean; kellyMultiplier: number; reason: string };
+  fomcGating: { noNewEntry: boolean; phase: string; kellyMultiplier: number; description: string };
+  emergencyStop: boolean;
+  lastScanAt: string | null;
+  rejectedStocks: { code: string; name: string; reason: string }[];
+}
+
+// 아이디어 11: Gate 조건 통과율 히트맵
+type GateAuditData = Record<string, { passed: number; failed: number }>;
+
 export function AutoTradePage() {
   const { shadowTrades } = useShadowTradeStore();
   const winRate = useShadowWinRate();
@@ -46,6 +62,8 @@ export function AutoTradePage() {
   const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([]);
   const [holdings, setHoldings] = useState<KisHolding[]>([]);
   const [portfolioTab, setPortfolioTab] = useState<'watchlist' | 'holdings'>('watchlist');
+  const [buyAudit, setBuyAudit] = useState<BuyAuditData | null>(null);
+  const [gateAudit, setGateAudit] = useState<GateAuditData | null>(null);
 
   useEffect(() => {
     const fetchServerData = () => {
@@ -55,9 +73,11 @@ export function AutoTradePage() {
       fetch('/api/kis/holdings').then(r => r.json()).then((data) => {
         if (Array.isArray(data)) setHoldings(data);
       }).catch((err) => console.error('[ERROR] 보유종목 조회 실패:', err));
+      fetch('/api/system/buy-audit').then(r => r.json()).then(setBuyAudit).catch((err) => console.error('[ERROR] Buy audit 조회 실패:', err));
+      fetch('/api/system/gate-audit').then(r => r.json()).then(setGateAudit).catch((err) => console.error('[ERROR] Gate audit 조회 실패:', err));
     };
     fetchServerData();
-    const interval = setInterval(fetchServerData, 5 * 60 * 1000);
+    const interval = setInterval(fetchServerData, 60 * 1000); // 1분 간격 polling
     return () => clearInterval(interval);
   }, []);
 
@@ -81,6 +101,133 @@ export function AutoTradePage() {
           { label: '적중률', value: `${winRate}%`, trend: winRate >= 50 ? 'up' : 'down' },
           { label: '평균수익', value: `${avgReturn.toFixed(2)}%`, trend: avgReturn >= 0 ? 'up' : 'down' },
         ]} />
+
+        {/* 아이디어 10: 매수 차단 원인 진단 패널 */}
+        {buyAudit && (
+          <Card padding="md">
+            <div className="flex items-center gap-2 mb-4">
+              <ShieldAlert className="w-4 h-4 text-amber-400" />
+              <span className="text-sm font-bold text-theme-text">매수 진단 대시보드</span>
+              {buyAudit.lastScanAt && (
+                <span className="text-micro ml-auto">
+                  마지막 스캔: {new Date(buyAudit.lastScanAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+              )}
+            </div>
+
+            {/* Pipeline 카운트 */}
+            <div className="grid grid-cols-3 gap-3 mb-4 text-center">
+              <div className="rounded-lg bg-white/5 p-2">
+                <p className="text-micro">워치리스트</p>
+                <p className="text-lg font-black text-theme-text">{buyAudit.watchlistCount}</p>
+              </div>
+              <div className="rounded-lg bg-white/5 p-2">
+                <p className="text-micro">Focus</p>
+                <p className="text-lg font-black text-violet-400">{buyAudit.focusCount}</p>
+              </div>
+              <div className="rounded-lg bg-white/5 p-2">
+                <p className="text-micro">Buy List</p>
+                <p className="text-lg font-black text-green-400">{buyAudit.buyListCount}</p>
+              </div>
+            </div>
+
+            {/* Gate 상태 표시 */}
+            <div className="space-y-2 mb-4">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-theme-text-muted">레짐</span>
+                <Badge variant={
+                  buyAudit.regime.startsWith('R1') || buyAudit.regime.startsWith('R2') ? 'success' :
+                  buyAudit.regime.startsWith('R3') || buyAudit.regime.startsWith('R4') ? 'warning' :
+                  'danger'
+                } size="sm">{buyAudit.regime}</Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-theme-text-muted">VIX Gate</span>
+                <Badge variant={buyAudit.vixGating.noNewEntry ? 'danger' : 'success'} size="sm">
+                  {buyAudit.vixGating.noNewEntry ? 'BLOCKED' : `OK (Kelly x${buyAudit.vixGating.kellyMultiplier.toFixed(2)})`}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-theme-text-muted">FOMC Gate</span>
+                <Badge variant={buyAudit.fomcGating.noNewEntry ? 'danger' : 'success'} size="sm">
+                  {buyAudit.fomcGating.noNewEntry ? `BLOCKED (${buyAudit.fomcGating.phase})` : buyAudit.fomcGating.phase}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-theme-text-muted">비상정지</span>
+                <Badge variant={buyAudit.emergencyStop ? 'danger' : 'success'} size="sm">
+                  {buyAudit.emergencyStop ? 'STOPPED' : 'OFF'}
+                </Badge>
+              </div>
+            </div>
+
+            {/* 종합 차단 여부 */}
+            {(buyAudit.vixGating.noNewEntry || buyAudit.fomcGating.noNewEntry || buyAudit.emergencyStop) && (
+              <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 mb-4">
+                <p className="text-sm font-bold text-red-400 mb-1">신규 매수 차단 중</p>
+                <ul className="text-xs text-red-300/80 space-y-0.5">
+                  {buyAudit.emergencyStop && <li>- 비상 정지 활성</li>}
+                  {buyAudit.vixGating.noNewEntry && <li>- {buyAudit.vixGating.reason}</li>}
+                  {buyAudit.fomcGating.noNewEntry && <li>- {buyAudit.fomcGating.description}</li>}
+                </ul>
+              </div>
+            )}
+
+            {/* 탈락 종목 리스트 */}
+            {buyAudit.rejectedStocks.length > 0 && (
+              <div>
+                <p className="text-micro mb-2">최근 탈락 종목 ({buyAudit.rejectedStocks.length}건)</p>
+                <div className="max-h-40 overflow-y-auto space-y-1">
+                  {buyAudit.rejectedStocks.slice(0, 20).map((r) => (
+                    <div key={r.code} className="flex items-center justify-between text-xs py-1 border-b border-theme-border/10 last:border-0">
+                      <span className="text-theme-text">{r.name} <span className="text-theme-text-muted">{r.code}</span></span>
+                      <span className="text-red-400 shrink-0 ml-2">{r.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* 아이디어 11: Gate 조건 통과율 히트맵 */}
+        {gateAudit && Object.keys(gateAudit).length > 0 && (
+          <Card padding="md">
+            <div className="flex items-center gap-2 mb-4">
+              <BarChart3 className="w-4 h-4 text-cyan-400" />
+              <span className="text-sm font-bold text-theme-text">Gate 조건 통과율 히트맵</span>
+            </div>
+            <div className="space-y-2">
+              {Object.entries(gateAudit)
+                .sort(([, a], [, b]) => {
+                  const rateA = a.passed + a.failed > 0 ? a.passed / (a.passed + a.failed) : 0;
+                  const rateB = b.passed + b.failed > 0 ? b.passed / (b.passed + b.failed) : 0;
+                  return rateA - rateB; // 통과율 낮은 순 (가장 타이트한 조건 먼저)
+                })
+                .map(([key, stats]) => {
+                  const total = stats.passed + stats.failed;
+                  const rate = total > 0 ? (stats.passed / total) * 100 : 0;
+                  const barColor = rate >= 60 ? 'bg-green-500' : rate >= 30 ? 'bg-amber-500' : 'bg-red-500';
+                  return (
+                    <div key={key}>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="text-theme-text font-bold">{key}</span>
+                        <span className="text-theme-text-muted">
+                          {rate.toFixed(0)}% ({stats.passed}/{total})
+                        </span>
+                      </div>
+                      <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+                        <div
+                          className={cn('h-full rounded-full transition-all', barColor)}
+                          style={{ width: `${rate}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </Card>
+        )}
 
         {/* Watchlist & Holdings Panel */}
         <Card padding="md">

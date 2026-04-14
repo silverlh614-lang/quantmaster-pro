@@ -13,6 +13,15 @@ import { cancelAllPendingOrders, checkDailyLossLimit } from '../emergency.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { handleTelegramWebhook } from '../telegram/webhookHandler.js';
 import { getApiUsageStats } from '../clients/geminiClient.js';
+import { loadWatchlist } from '../persistence/watchlistRepo.js';
+import { computeFocusCodes } from '../screener/watchlistManager.js';
+import { getLastRejectionLog } from '../screener/stockScreener.js';
+import { loadMacroState } from '../persistence/macroStateRepo.js';
+import { getLiveRegime } from '../trading/regimeBridge.js';
+import { getVixGating } from '../trading/vixGating.js';
+import { getFomcProximity } from '../trading/fomcCalendar.js';
+import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
+import { loadGateAudit } from '../persistence/gateAuditRepo.js';
 
 const router = Router();
 
@@ -153,6 +162,55 @@ router.get('/system/api-usage', (_req: Request, res: Response) => {
     { count: 0, tokens: 0 }
   );
   res.json({ date: new Date().toISOString().slice(0, 10), total, byCallers: stats });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 아이디어 10: 실시간 진단 대시보드 — "왜 매수 안 되는가" 엔드포인트
+// ─────────────────────────────────────────────────────────────
+router.get('/system/buy-audit', (_req: Request, res: Response) => {
+  const watchlist = loadWatchlist();
+  const focusCodes = computeFocusCodes(watchlist);
+  const buyList = watchlist.filter(
+    (w) => w.addedBy === 'MANUAL' || focusCodes.has(w.code),
+  );
+
+  const macroState = loadMacroState();
+  const regime = getLiveRegime(macroState);
+  const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory);
+  const fomcGating = getFomcProximity();
+
+  const lastScanTs = getLastScanAt();
+  const lastScanAt = lastScanTs > 0 ? new Date(lastScanTs).toISOString() : null;
+
+  const rejectedStocks = getLastRejectionLog().slice(0, 50);
+
+  res.json({
+    watchlistCount: watchlist.length,
+    focusCount: focusCodes.size,
+    buyListCount: buyList.length,
+    regime,
+    vixGating: {
+      noNewEntry: vixGating.noNewEntry,
+      kellyMultiplier: vixGating.kellyMultiplier,
+      reason: vixGating.reason,
+    },
+    fomcGating: {
+      noNewEntry: fomcGating.noNewEntry,
+      phase: fomcGating.phase,
+      kellyMultiplier: fomcGating.kellyMultiplier,
+      description: fomcGating.description,
+    },
+    emergencyStop: getEmergencyStop(),
+    lastScanAt,
+    rejectedStocks,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 아이디어 11: Gate 조건 통과율 히트맵 — 조건별 passed/failed 누적
+// ─────────────────────────────────────────────────────────────
+router.get('/system/gate-audit', (_req: Request, res: Response) => {
+  res.json(loadGateAudit());
 });
 
 export default router;
