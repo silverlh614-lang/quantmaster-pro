@@ -27,6 +27,7 @@ function makeQuote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteExten
     ma20:           10_000,
     ma60:            9_500,
     high20d:        10_500,  // 현재가(11000) > high20d(10500) → 20일 고점 돌파
+    high60d:        11_500,
     atr:               300,
     atr20avg:          280,
     per:                15,
