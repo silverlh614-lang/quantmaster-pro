@@ -110,7 +110,7 @@ function calcMACD(closes: number[]): { macd: number; signal: number; histogram: 
   return { macd: last, signal: sig, histogram: last - sig };
 }
 
-// 버그 7 수정: KOSPI/KOSDAQ 주요 종목 풀 확장 (30 → 120개) — 스크리닝 다양성 확보
+// KOSPI/KOSDAQ 주요 종목 풀 (175개) — 조방원·전력기기·중소형 모멘텀 확장
 export const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = [
   // ── KOSPI 대형주 (시총 상위) ──
   { symbol: '005930.KS', code: '005930', name: '삼성전자' },
@@ -248,14 +248,64 @@ export const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = 
   { symbol: '298040.KS', code: '298040', name: '효성중공업' },
   { symbol: '103590.KS', code: '103590', name: '일진전기' },
   // ── 로봇·AI 소프트웨어 ──
-  { symbol: '454910.KQ', code: '454910', name: '파두' },
   { symbol: '278990.KQ', code: '278990', name: 'EMB' },
   { symbol: '272110.KQ', code: '272110', name: '케이엔제이' },
   { symbol: '080010.KQ', code: '080010', name: '이상네트웍스' },
   // ── 추가 바이오·헬스케어 ──
   { symbol: '195940.KQ', code: '195940', name: 'HK이노엔' },
-  { symbol: '326030.KQ', code: '326030', name: 'SK바이오팜' },
   { symbol: '389030.KQ', code: '389030', name: '지누스' },
+  // ── 조선·해양 확장 ──
+  { symbol: '010140.KS', code: '010140', name: '삼성중공업' },
+  { symbol: '267250.KS', code: '267250', name: 'HD현대' },
+  { symbol: '082740.KS', code: '082740', name: 'HD현대마린엔진' },
+  { symbol: '044490.KS', code: '044490', name: '태웅' },
+  { symbol: '075580.KS', code: '075580', name: '세진중공업' },
+  // ── 방산 확장 ──
+  { symbol: '079550.KQ', code: '079550', name: 'LIG넥스원' },
+  { symbol: '273640.KS', code: '273640', name: '한화시스템' },
+  { symbol: '000880.KS', code: '000880', name: '한화' },
+  { symbol: '067390.KQ', code: '067390', name: '아스트' },
+  { symbol: '099320.KQ', code: '099320', name: '쎄트렉아이' },
+  { symbol: '101930.KQ', code: '101930', name: '인화정공' },
+  { symbol: '024740.KS', code: '024740', name: '한일단조' },
+  { symbol: '003570.KS', code: '003570', name: 'SNT다이내믹스' },
+  // ── 원자력·SMR 확장 ──
+  { symbol: '052690.KS', code: '052690', name: '한전기술' },
+  { symbol: '015750.KS', code: '015750', name: '한전KPS' },
+  { symbol: '092200.KQ', code: '092200', name: '디아이씨' },
+  { symbol: '064260.KQ', code: '064260', name: '다원시스' },
+  { symbol: '023800.KQ', code: '023800', name: '인지컨트롤스' },
+  // ── 전력기기 확장 ──
+  { symbol: '033100.KQ', code: '033100', name: '제룡전기' },
+  // ── 중소형 모멘텀 — 로봇 ──
+  { symbol: '277810.KQ', code: '277810', name: '레인보우로보틱스' },
+  // ── 중소형 모멘텀 — 반도체 장비·소재 ──
+  { symbol: '089030.KQ', code: '089030', name: '테크윙' },
+  { symbol: '131970.KQ', code: '131970', name: '테스나' },
+  { symbol: '014680.KQ', code: '014680', name: '한솔케미칼' },
+  // ── 중소형 모멘텀 — 2차전지 소재 ──
+  { symbol: '278280.KQ', code: '278280', name: '천보' },
+  { symbol: '121600.KQ', code: '121600', name: '나노신소재' },
+  // ── 중소형 모멘텀 — 바이오·의료 ──
+  { symbol: '950210.KQ', code: '950210', name: '프레스티지바이오파마' },
+  { symbol: '237690.KS', code: '237690', name: '에스티팜' },
+  { symbol: '335890.KQ', code: '335890', name: '비올' },
+  { symbol: '340570.KQ', code: '340570', name: '티앤엘' },
+  { symbol: '043150.KQ', code: '043150', name: '바텍' },
+  // ── 중소형 모멘텀 — AI·소프트웨어 ──
+  { symbol: '039980.KQ', code: '039980', name: '폴라리스오피스' },
+  { symbol: '394280.KQ', code: '394280', name: '오픈엣지테크놀로지' },
+  // ── 중소형 모멘텀 — 화장품·소비재 ──
+  { symbol: '432720.KQ', code: '432720', name: '에이피알' },
+  { symbol: '003230.KS', code: '003230', name: '삼양식품' },
+  // ── 중소형 모멘텀 — 건설·인프라 ──
+  { symbol: '375500.KS', code: '375500', name: 'DL이앤씨' },
+  { symbol: '006360.KS', code: '006360', name: 'GS건설' },
+  // ── 중소형 모멘텀 — 자동차IT ──
+  { symbol: '307950.KS', code: '307950', name: '현대오토에버' },
+  // ── 중소형 모멘텀 — 게임 ──
+  { symbol: '078340.KQ', code: '078340', name: '컴투스' },
+  { symbol: '194480.KQ', code: '194480', name: '데브시스터즈' },
 ];
 
 export function getScreenerCache(): ScreenedStock[] {
