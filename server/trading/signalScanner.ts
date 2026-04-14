@@ -257,7 +257,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     saveShadowTrades(shadows);
     return;
   }
-  if (volumeClock.scoreBonus > 0) {
+  if (volumeClock.scoreBonus !== 0) {
     console.log(volumeClock.reason);
   }
 
