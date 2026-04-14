@@ -13,19 +13,24 @@ import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistenc
 export const MAX_WATCHLIST     = 20;
 export const FOCUS_LIST_SIZE   = 8;
 export const MAX_ENTRY_FAIL_COUNT = 3;
+/** gateScore가 이 값 이상인 AUTO 종목은 상위 8위 밖이어도 buyList에 포함된다. */
+export const FOCUS_GATE_THRESHOLD = 15;
 
 /**
- * AUTO 항목 중 gateScore 상위 FOCUS_LIST_SIZE개의 코드 집합을 반환한다.
- * isFocus 플래그를 갱신하는 데 사용된다.
+ * AUTO 항목 중 매수 스캔 대상 코드 집합을 반환한다.
+ * 선정 기준 (OR):
+ *   1. gateScore 상위 FOCUS_LIST_SIZE(8)개
+ *   2. gateScore >= FOCUS_GATE_THRESHOLD(15) — 상위 8 밖이어도 포함
+ * isFocus 플래그 갱신 및 buyList 필터에 공통 사용된다.
  */
 export function computeFocusCodes(list: WatchlistEntry[]): Set<string> {
-  return new Set(
-    list
-      .filter((w) => w.addedBy === 'AUTO')
-      .sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0))
-      .slice(0, FOCUS_LIST_SIZE)
-      .map((w) => w.code),
-  );
+  const autos = list.filter((w) => w.addedBy === 'AUTO');
+  const sorted = [...autos].sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0));
+  const topN = sorted.slice(0, FOCUS_LIST_SIZE).map((w) => w.code);
+  const aboveThreshold = autos
+    .filter((w) => (w.gateScore ?? 0) >= FOCUS_GATE_THRESHOLD)
+    .map((w) => w.code);
+  return new Set([...topN, ...aboveThreshold]);
 }
 
 export async function cleanupWatchlist(): Promise<void> {

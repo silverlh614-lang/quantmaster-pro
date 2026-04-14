@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   computeFocusCodes,
   FOCUS_LIST_SIZE,
+  FOCUS_GATE_THRESHOLD,
   MAX_ENTRY_FAIL_COUNT,
   MAX_WATCHLIST,
 } from './watchlistManager.js';
@@ -21,6 +22,7 @@ function makeEntry(overrides: Partial<WatchlistEntry> & { code: string }): Watch
 
 describe('computeFocusCodes', () => {
   it('returns top FOCUS_LIST_SIZE AUTO stocks by gateScore', () => {
+    // All gateScores below FOCUS_GATE_THRESHOLD → only top N selected
     const list: WatchlistEntry[] = Array.from({ length: 15 }, (_, i) =>
       makeEntry({ code: `STOCK${String(i).padStart(2, '0')}`, gateScore: i }),
     );
@@ -30,6 +32,31 @@ describe('computeFocusCodes', () => {
     for (let i = 15 - FOCUS_LIST_SIZE; i < 15; i++) {
       expect(codes.has(`STOCK${String(i).padStart(2, '0')}`)).toBe(true);
     }
+  });
+
+  it('includes AUTO stocks above FOCUS_GATE_THRESHOLD even beyond top N', () => {
+    // 12 AUTO stocks: 10 with low scores + 2 with score >= threshold
+    const list: WatchlistEntry[] = [
+      ...Array.from({ length: 10 }, (_, i) =>
+        makeEntry({ code: `LOW${String(i).padStart(2, '0')}`, gateScore: i }),
+      ),
+      makeEntry({ code: 'HIGH_A', gateScore: FOCUS_GATE_THRESHOLD }),
+      makeEntry({ code: 'HIGH_B', gateScore: FOCUS_GATE_THRESHOLD + 5 }),
+    ];
+    const codes = computeFocusCodes(list);
+    // Top 8 by score: HIGH_B(20), HIGH_A(15), LOW09(9), LOW08(8)..LOW04(4)
+    // Above threshold: HIGH_A, HIGH_B — both already in top 8
+    expect(codes.has('HIGH_A')).toBe(true);
+    expect(codes.has('HIGH_B')).toBe(true);
+    // Now add more high-score entries beyond 8
+    const bigList: WatchlistEntry[] = [
+      ...Array.from({ length: 12 }, (_, i) =>
+        makeEntry({ code: `MID${String(i).padStart(2, '0')}`, gateScore: FOCUS_GATE_THRESHOLD + i }),
+      ),
+    ];
+    const bigCodes = computeFocusCodes(bigList);
+    // All 12 have gateScore >= FOCUS_GATE_THRESHOLD → all included
+    expect(bigCodes.size).toBe(12);
   });
 
   it('excludes MANUAL entries from focus computation', () => {
@@ -70,5 +97,10 @@ describe('exported constants', () => {
 
   it('MAX_WATCHLIST >= FOCUS_LIST_SIZE', () => {
     expect(MAX_WATCHLIST).toBeGreaterThanOrEqual(FOCUS_LIST_SIZE);
+  });
+
+  it('FOCUS_GATE_THRESHOLD is positive integer', () => {
+    expect(FOCUS_GATE_THRESHOLD).toBeGreaterThan(0);
+    expect(Number.isInteger(FOCUS_GATE_THRESHOLD)).toBe(true);
   });
 });
