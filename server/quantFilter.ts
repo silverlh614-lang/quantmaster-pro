@@ -131,8 +131,9 @@ function calculateMTAS(quote: YahooQuoteExtended): { mtas: number; dataInsuffici
 
   // 데이터 부족 시 일봉 점수를 10점 만점으로 스케일 (4점 → 10점 스케일)
   // 일봉만으로 평가: dailyScore/4 × 7 (월봉/주봉 중립 가정, 최대 7점)
+  // 최소 4.0 보장: 데이터 부족으로 인한 과도한 진입 차단(mtas<=3 SKIP) 방지
   if (dataInsufficient && dailyScore > 0) {
-    mtas = (dailyScore / 4) * 7;
+    mtas = Math.max(4.0, (dailyScore / 4) * 7);
   }
 
   return { mtas, dataInsufficient };

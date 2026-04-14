@@ -726,8 +726,8 @@ export async function autoPopulateWatchlist(): Promise<number> {
     const isVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
     const pullback = isPullbackSetup(quote);
     if (quote.changePercent >= 5) continue;                              // 과열 제외
-    if (quote.changePercent < 0 && !pullback) continue;                  // 음봉 제외 (눌림목은 통과)
-    if (quote.changePercent < -2) continue;                              // 눌림목이라도 -2% 이상 하락 제외
+    if (quote.changePercent < -2 && !pullback) continue;                  // 눌림목 아닌 음봉 -2% 이하 제외
+    if (quote.changePercent < -5) continue;                              // -5% 이하 급락은 눌림목이라도 제외
     if (quote.volume < quote.avgVolume * 1.2 && !isVCP && !pullback) continue; // 눌림목/VCP면 거래량 마름 OK
     if (quote.return5d > 15) continue;                                   // 5일 +15% 초과 → 급등 완료
 

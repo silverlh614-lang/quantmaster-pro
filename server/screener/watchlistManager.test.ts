@@ -44,7 +44,7 @@ describe('computeFocusCodes', () => {
       makeEntry({ code: 'HIGH_B', gateScore: FOCUS_GATE_THRESHOLD + 5 }),
     ];
     const codes = computeFocusCodes(list);
-    // Top 8 by score: HIGH_B(20), HIGH_A(15), LOW09(9), LOW08(8)..LOW04(4)
+    // Top 8 by score: HIGH_B(13), HIGH_A(8), LOW09(9), LOW08(8)..LOW04(4)
     // Above threshold: HIGH_A, HIGH_B — both already in top 8
     expect(codes.has('HIGH_A')).toBe(true);
     expect(codes.has('HIGH_B')).toBe(true);

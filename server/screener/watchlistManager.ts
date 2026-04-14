@@ -14,13 +14,13 @@ export const MAX_WATCHLIST     = 20;
 export const FOCUS_LIST_SIZE   = 8;
 export const MAX_ENTRY_FAIL_COUNT = 3;
 /** gateScore가 이 값 이상인 AUTO 종목은 상위 8위 밖이어도 buyList에 포함된다. */
-export const FOCUS_GATE_THRESHOLD = 15;
+export const FOCUS_GATE_THRESHOLD = 8; // 수정: 15 → 8 (evaluateServerGate max score ~11)
 
 /**
  * AUTO 항목 중 매수 스캔 대상 코드 집합을 반환한다.
  * 선정 기준 (OR):
  *   1. gateScore 상위 FOCUS_LIST_SIZE(8)개
- *   2. gateScore >= FOCUS_GATE_THRESHOLD(15) — 상위 8 밖이어도 포함
+ *   2. gateScore >= FOCUS_GATE_THRESHOLD(8) — 상위 8 밖이어도 포함
  * isFocus 플래그 갱신 및 buyList 필터에 공통 사용된다.
  */
 export function computeFocusCodes(list: WatchlistEntry[]): Set<string> {
