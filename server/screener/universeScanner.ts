@@ -26,6 +26,7 @@ import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { loadMacroState, type MacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
+import { computeFocusCodes } from './watchlistManager.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, fetchKisInvestorFlow } from '../clients/kisClient.js';
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
@@ -401,7 +402,13 @@ export async function stage3AIScreenAndRegister(
   }
 
   if (added > 0) {
-    saveWatchlist(watchlist);
+    // isFocus 즉시 갱신 — cleanupWatchlist(16:00)까지 기다리지 않고 등록 직후 반영
+    const focusCodes = computeFocusCodes(watchlist);
+    const withFocus = watchlist.map(w => ({
+      ...w,
+      isFocus: focusCodes.has(w.code),
+    }));
+    saveWatchlist(withFocus);
     // Telegram 알림 — 신뢰도 배지 포함
     const registered = watchlist.filter(w =>
       results.some(r => r.code === w.code) && !existingCodes.has(w.code)
