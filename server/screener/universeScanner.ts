@@ -3,7 +3,7 @@
  *
  * Stage 1: 전체 종목 풀 양적 1차 필터 → 상위 60개
  *   - KIS 실계좌: 거래량 상위 + 상승률 상위 병렬 조회
- *   - VTS/공통:  STOCK_UNIVERSE 115개 Yahoo 스캔
+ *   - VTS/공통:  STOCK_UNIVERSE ~220개 Yahoo 5개씩 병렬 배치 스캔
  *   - 5개 수치 관문: 상승률, 거래량배수, 가격, PER, MA20
  *
  * Stage 2: 주도 섹터 우선 + 서버 Gate 8조건 → 상위 15개
@@ -60,6 +60,7 @@ import {
 export async function stage1QuantFilter(): Promise<CandidateStock[]> {
   const candidates: CandidateStock[] = [];
   const seenCodes = new Set<string>();
+  const BATCH_SIZE = 5;  // 병렬 배치 크기 (Yahoo rate limit 고려, 500개 확장 대비)
 
   // ─ KIS 실계좌 데이터: 거래량 + 상승률 순위 병렬 조회 ─
   // 실계좌 데이터 키(KIS_REAL_DATA_APP_KEY) 또는 실계좌 모드(KIS_IS_REAL)일 때 실행
@@ -97,66 +98,86 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
       ...((riseResult.status === 'fulfilled' ? (riseResult.value as KisOutput)?.output  : null) ?? []),
     ];
 
-    for (const row of kisRows.slice(0, 60)) {
-      const code = row.stck_shrn_iscd ?? '';
-      const name = row.hts_kor_isnm  ?? '';
-      if (!code || seenCodes.has(code)) continue;
+    // ─ 5개씩 병렬 배치 처리 (순차 대비 ~5× 속도 향상) ─
+    const kisTop60 = kisRows.slice(0, 60);
+    for (let i = 0; i < kisTop60.length; i += BATCH_SIZE) {
+      const batch = kisTop60.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (row) => {
+          const code = row.stck_shrn_iscd ?? '';
+          const name = row.hts_kor_isnm  ?? '';
+          if (!code || seenCodes.has(code)) return null;
 
-      const quote =
-        (await fetchYahooQuote(`${code}.KS`).catch(() => null)) ??
-        (await fetchYahooQuote(`${code}.KQ`).catch(() => null));
-      if (!quote || quote.price < 3000) continue;
-      if (quote.changePercent >= 8)                    continue; // 당일 +8% 이상 과열 제외
-      const kisPullback = isPullbackSetup(quote);
-      // 눌림목: changePercent -2%까지 허용, 일반: 0% 이상만
-      if (quote.changePercent < 0 && !kisPullback)     continue; // 음봉 제외 (눌림목은 통과)
-      if (quote.changePercent < -2)                    continue; // 눌림목이라도 -2% 이상 하락은 제외
-      const kisVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
-      if (quote.volume < quote.avgVolume * 1.2 && !kisVCP && !kisPullback) continue; // 눌림목/VCP면 거래량 마름 허용
-      if (quote.per > 0 && quote.per > 60)             continue;
-      if (quote.ma20 > 0 && quote.price < quote.ma20 && !kisPullback) continue; // 눌림목: MA20 아래 허용 (MA60 위는 isPullbackSetup에서 검증)
-      if (quote.return5d > 15)                         continue; // 5일 +15% 초과 → 이미 급등
+          const quote =
+            (await fetchYahooQuote(`${code}.KS`).catch(() => null)) ??
+            (await fetchYahooQuote(`${code}.KQ`).catch(() => null));
+          if (!quote || quote.price < 3000) return null;
+          if (quote.changePercent >= 8)                    return null; // 당일 +8% 이상 과열 제외
+          const kisPullback = isPullbackSetup(quote);
+          if (quote.changePercent < 0 && !kisPullback)     return null; // 음봉 제외 (눌림목은 통과)
+          if (quote.changePercent < -2)                    return null; // 눌림목이라도 -2% 이상 하락은 제외
+          const kisVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
+          if (quote.volume < quote.avgVolume * 1.2 && !kisVCP && !kisPullback) return null;
+          if (quote.per > 0 && quote.per > 60)             return null;
+          if (quote.ma20 > 0 && quote.price < quote.ma20 && !kisPullback) return null;
+          if (quote.return5d > 15)                         return null; // 5일 +15% 초과 → 이미 급등
 
-      seenCodes.add(code);
-      candidates.push({
-        code, name,
-        symbol: `${code}.KS`,
-        sector: SECTOR_MAP[code] ?? '미분류',
-        quote,
-        stage1Score: calcStage1Score(quote),
-      });
+          return {
+            code, name,
+            symbol: `${code}.KS`,
+            sector: SECTOR_MAP[code] ?? '미분류',
+            quote,
+            stage1Score: calcStage1Score(quote),
+          } as CandidateStock;
+        }),
+      );
+      for (const r of batchResults) {
+        if (r && !seenCodes.has(r.code)) {
+          seenCodes.add(r.code);
+          candidates.push(r);
+        }
+      }
       await new Promise((r) => setTimeout(r, 200));
     }
   }
 
-  // ─ Yahoo 유니버스 스캔 (VTS 보완 + KIS 미제공 종목) ─
-  for (const stock of STOCK_UNIVERSE) {
-    if (seenCodes.has(stock.code)) continue;
+  // ─ Yahoo 유니버스 스캔 (VTS 보완 + KIS 미제공 종목) — 5개씩 병렬 배치 ─
+  for (let i = 0; i < STOCK_UNIVERSE.length; i += BATCH_SIZE) {
+    const batch = STOCK_UNIVERSE.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map(async (stock) => {
+        if (seenCodes.has(stock.code)) return null;
 
-    const quote = await fetchYahooQuote(stock.symbol).catch(() => null);
-    if (!quote || quote.price <= 0) continue;
+        const quote = await fetchYahooQuote(stock.symbol).catch(() => null);
+        if (!quote || quote.price <= 0) return null;
 
-    if (quote.changePercent >= 8)                    continue; // 당일 +8% 이상 과열 제외
-    const yahooPullback = isPullbackSetup(quote);
-    // 눌림목: changePercent -2%까지 허용, 일반: 0% 이상만
-    if (quote.changePercent < 0 && !yahooPullback)   continue; // 음봉 제외 (눌림목은 통과)
-    if (quote.changePercent < -2)                    continue; // 눌림목이라도 -2% 이상 하락은 제외
-    const yahooVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
-    if (quote.volume < quote.avgVolume * 1.2 && !yahooVCP && !yahooPullback) continue; // 눌림목/VCP면 거래량 마름 허용
-    if (quote.price < 3000)                          continue;
-    if (quote.per > 0 && quote.per > 60)             continue;
-    if (quote.ma20 > 0 && quote.price < quote.ma20 && !yahooPullback) continue; // 눌림목: MA20 아래 허용
-    if (quote.return5d > 15)                         continue; // 5일 +15% 초과 → 이미 급등
+        if (quote.changePercent >= 8)                    return null; // 당일 +8% 이상 과열 제외
+        const yahooPullback = isPullbackSetup(quote);
+        if (quote.changePercent < 0 && !yahooPullback)   return null; // 음봉 제외 (눌림목은 통과)
+        if (quote.changePercent < -2)                    return null; // 눌림목이라도 -2% 이상 하락은 제외
+        const yahooVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
+        if (quote.volume < quote.avgVolume * 1.2 && !yahooVCP && !yahooPullback) return null;
+        if (quote.price < 3000)                          return null;
+        if (quote.per > 0 && quote.per > 60)             return null;
+        if (quote.ma20 > 0 && quote.price < quote.ma20 && !yahooPullback) return null;
+        if (quote.return5d > 15)                         return null; // 5일 +15% 초과 → 이미 급등
 
-    seenCodes.add(stock.code);
-    candidates.push({
-      code:   stock.code,
-      name:   stock.name,
-      symbol: stock.symbol,
-      sector: SECTOR_MAP[stock.code] ?? '미분류',
-      quote,
-      stage1Score: calcStage1Score(quote),
-    });
+        return {
+          code:   stock.code,
+          name:   stock.name,
+          symbol: stock.symbol,
+          sector: SECTOR_MAP[stock.code] ?? '미분류',
+          quote,
+          stage1Score: calcStage1Score(quote),
+        } as CandidateStock;
+      }),
+    );
+    for (const r of batchResults) {
+      if (r && !seenCodes.has(r.code)) {
+        seenCodes.add(r.code);
+        candidates.push(r);
+      }
+    }
     await new Promise((r) => setTimeout(r, 200));
   }
 

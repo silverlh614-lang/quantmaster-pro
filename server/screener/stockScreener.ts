@@ -110,7 +110,7 @@ function calcMACD(closes: number[]): { macd: number; signal: number; histogram: 
   return { macd: last, signal: sig, histogram: last - sig };
 }
 
-// KOSPI/KOSDAQ 주요 종목 풀 (175개) — 조방원·전력기기·중소형 모멘텀 확장
+// KOSPI/KOSDAQ 주요 종목 풀 (~225개) — 조방원·전력기기·중소형 모멘텀 확장 + 추가 중소형 50개
 export const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = [
   // ── KOSPI 대형주 (시총 상위) ──
   { symbol: '005930.KS', code: '005930', name: '삼성전자' },
@@ -306,6 +306,69 @@ export const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = 
   // ── 중소형 모멘텀 — 게임 ──
   { symbol: '078340.KQ', code: '078340', name: '컴투스' },
   { symbol: '194480.KQ', code: '194480', name: '데브시스터즈' },
+  // ── 추가 중소형 모멘텀 — 반도체 장비·소재 2차 확장 ──
+  { symbol: '033640.KQ', code: '033640', name: '네패스' },
+  { symbol: '319660.KQ', code: '319660', name: '피에스케이' },
+  { symbol: '067310.KQ', code: '067310', name: '하나마이크론' },
+  { symbol: '064760.KQ', code: '064760', name: '티씨케이' },
+  { symbol: '084370.KQ', code: '084370', name: '유진테크' },
+  { symbol: '140860.KQ', code: '140860', name: '파크시스템스' },
+  { symbol: '074600.KQ', code: '074600', name: '원익QnC' },
+  { symbol: '183300.KQ', code: '183300', name: '코미코' },
+  { symbol: '094360.KQ', code: '094360', name: '칩스앤미디어' },
+  { symbol: '200710.KQ', code: '200710', name: '에이디테크놀로지' },
+  { symbol: '045390.KQ', code: '045390', name: '태성' },
+  // ── 추가 중소형 모멘텀 — 2차전지 2차 확장 ──
+  { symbol: '066970.KQ', code: '066970', name: '엘앤에프' },
+  { symbol: '005070.KQ', code: '005070', name: '코스모신소재' },
+  { symbol: '336370.KQ', code: '336370', name: '솔루스첨단소재' },
+  // ── 추가 중소형 모멘텀 — 바이오·제약 2차 확장 ──
+  { symbol: '214450.KQ', code: '214450', name: '파마리서치' },
+  { symbol: '293780.KQ', code: '293780', name: '압타바이오' },
+  { symbol: '078160.KQ', code: '078160', name: '메디포스트' },
+  { symbol: '009420.KS', code: '009420', name: '한올바이오파마' },
+  { symbol: '128940.KS', code: '128940', name: '한미약품' },
+  { symbol: '006280.KS', code: '006280', name: '녹십자' },
+  { symbol: '084110.KQ', code: '084110', name: '휴온스글로벌' },
+  // ── 추가 중소형 모멘텀 — 방산 2차 확장 ──
+  { symbol: '082920.KQ', code: '082920', name: '비츠로셀' },
+  { symbol: '357550.KQ', code: '357550', name: '석경에이티' },
+  // ── 추가 중소형 모멘텀 — 전력기기·전자부품 ──
+  { symbol: '010120.KS', code: '010120', name: 'LS일렉트릭' },
+  { symbol: '353200.KQ', code: '353200', name: '대덕전자' },
+  { symbol: '090460.KQ', code: '090460', name: '비에이치' },
+  { symbol: '007660.KS', code: '007660', name: '이수페타시스' },
+  { symbol: '222800.KQ', code: '222800', name: '심텍' },
+  // ── 추가 중소형 모멘텀 — 로봇 2차 확장 ──
+  { symbol: '090360.KQ', code: '090360', name: '로보스타' },
+  { symbol: '348340.KQ', code: '348340', name: '뉴로메카' },
+  // ── 추가 중소형 모멘텀 — AI·IT·보안 ──
+  { symbol: '304100.KQ', code: '304100', name: '솔트룩스' },
+  { symbol: '119860.KQ', code: '119860', name: '다나와' },
+  { symbol: '053800.KQ', code: '053800', name: '안랩' },
+  { symbol: '263860.KQ', code: '263860', name: '지니언스' },
+  { symbol: '022100.KS', code: '022100', name: '포스코DX' },
+  // ── 추가 중소형 모멘텀 — 조선기자재 2차 확장 ──
+  { symbol: '014620.KQ', code: '014620', name: '성광벤드' },
+  { symbol: '017960.KS', code: '017960', name: '한국카본' },
+  { symbol: '238490.KQ', code: '238490', name: 'HRS' },
+  // ── 추가 중소형 모멘텀 — 화장품·소비재 2차 확장 ──
+  { symbol: '192820.KS', code: '192820', name: '코스맥스' },
+  { symbol: '161890.KS', code: '161890', name: '한국콜마' },
+  // ── 추가 중소형 모멘텀 — 게임 2차 확장 ──
+  { symbol: '462870.KS', code: '462870', name: '시프트업' },
+  // ── 추가 중소형 모멘텀 — 자동차부품 ──
+  { symbol: '204320.KS', code: '204320', name: 'HL만도' },
+  { symbol: '011210.KS', code: '011210', name: '현대위아' },
+  { symbol: '064960.KS', code: '064960', name: 'SNT모티브' },
+  { symbol: '005760.KS', code: '005760', name: '에스엘' },
+  // ── 추가 중소형 모멘텀 — 디스플레이·자동화 ──
+  { symbol: '213420.KQ', code: '213420', name: '덕산네오룩스' },
+  { symbol: '056190.KQ', code: '056190', name: '에스에프에이' },
+  // ── 추가 중소형 모멘텀 — 통신장비·원자력·철강 ──
+  { symbol: '189300.KQ', code: '189300', name: '인텔리안테크' },
+  { symbol: '105840.KQ', code: '105840', name: '우진' },
+  { symbol: '001430.KS', code: '001430', name: '세아베스틸지주' },
 ];
 
 export function getScreenerCache(): ScreenedStock[] {
