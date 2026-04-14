@@ -6,6 +6,7 @@ import { getMonthlyStats } from '../learning/recommendationTracker.js';
 import { callGemini } from '../clients/geminiClient.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { sendTelegramAlert } from './telegramClient.js';
+import { channelMarketBriefing } from './channelPipeline.js';
 import { fetchCloses } from '../trading/marketDataRefresh.js';
 import { loadGlobalScanReport } from './globalScanAgent.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
@@ -446,6 +447,21 @@ export async function sendPreMarketReport(): Promise<void> {
     (aiOneLiner ? `\n🤖 <b>AI 전망:</b> ${aiOneLiner}` : '');
 
   await sendTelegramAlert(msg).catch(console.error);
+
+  // 채널: 구독자 대상 간결 브리핑 (자산/잔고 제외)
+  const regime = macro?.regime ?? 'R4_NEUTRAL';
+  const focusCodes = watchlist.filter(w => w.isFocus);
+  await channelMarketBriefing({
+    regime,
+    mhs:            macro?.mhs ?? 0,
+    vkospi:         vixData?.price ?? undefined,
+    kospiChange:    macro?.kospiDayReturn,
+    usdKrw:         usdKrw?.rate,
+    watchlistCount: watchlist.length,
+    focusCount:     focusCodes.length,
+    aiSummary:      aiOneLiner ?? undefined,
+  }).catch(console.error);
+
   console.log('[MarketReport] 장전 브리핑 발송 완료');
 }
 

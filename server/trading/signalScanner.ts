@@ -9,7 +9,8 @@
 import {
   fetchCurrentPrice, fetchAccountBalance, placeKisMarketBuyOrder,
 } from '../clients/kisClient.js';
-import { sendTelegramAlert, sendTelegramBroadcast } from '../alerts/telegramClient.js';
+import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { channelBuySignal } from '../alerts/channelPipeline.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { loadIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
@@ -277,10 +278,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             }
 
             const gateScoreFollow = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
-            const isStrongBuyFollow = gateScoreFollow >= 25;
-            const rawPctFollow = isStrongBuyFollow ? 0.12
-                               : gateScoreFollow >= 20 ? 0.08
-                               : gateScoreFollow >= 15 ? 0.05
+            // 서버 Gate 최대 13점 기준 임계값
+            const isStrongBuyFollow = gateScoreFollow >= 9;
+            const rawPctFollow = isStrongBuyFollow      ? 0.12
+                               : gateScoreFollow >= 7   ? 0.08
+                               : gateScoreFollow >= 5   ? 0.05
                                : 0.03;
             // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 추종에도 적용)
             const reCheckQuoteFollow = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
@@ -443,8 +445,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               const slippage = 0.003;
               const pbEntryPrice = Math.round(currentPrice * (1 + slippage));
               const gateScorePb = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
-              const isStrongPb  = gateScorePb >= 25;
-              const rawPctPb    = isStrongPb ? 0.12 : gateScorePb >= 20 ? 0.08 : gateScorePb >= 15 ? 0.05 : 0.03;
+              // 서버 Gate 최대 13점 기준 임계값
+              const isStrongPb  = gateScorePb >= 9;
+              const rawPctPb    = isStrongPb ? 0.12 : gateScorePb >= 7 ? 0.08 : gateScorePb >= 5 ? 0.05 : 0.03;
               // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 선취매에도 적용)
               const reCheckGatePb = evaluateServerGate(reCheckQuotePb, conditionWeights, macroState?.kospiDayReturn);
               let mtasMultiplierPb = 1.0;
@@ -686,7 +689,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       // Volume Clock 보너스: 10:00~11:00 KST 집행 시 +2점 (기관 알고리즘 집중 구간)
       const liveGateScore = reCheckGate.gateScore ?? (stock.gateScore ?? 0);
       const gateScore = liveGateScore + volumeClock.scoreBonus;
-      const isStrongBuy = gateScore >= 25;
+      // 서버 Gate 최대 13점(11조건 × 1.0 + volumeClock +2) 기준 임계값
+      const isStrongBuy = gateScore >= 9;
 
       // MTAS 기반 진입 차단: 타임프레임 불일치 시 진입 금지
       if (reCheckGate.mtas <= 3) {
@@ -698,9 +702,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
 
       // 포지션 사이징: 실시간 Gate 결과 연동
       // 1) 기본 포지션 비중 결정 (gateScore 기반)
-      const rawPositionPct = isStrongBuy       ? 0.12
-                           : gateScore >= 20   ? 0.08
-                           : gateScore >= 15   ? 0.05
+      const rawPositionPct = isStrongBuy     ? 0.12
+                           : gateScore >= 7  ? 0.08
+                           : gateScore >= 5  ? 0.05
                            : 0.03;
       // 2) MTAS 기반 포지션 조정 (evaluateServerGate의 멀티타임프레임 정렬도 반영)
       let mtasMultiplier = 1.0;
@@ -817,13 +821,30 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           ? `Gate ${liveGateScore.toFixed(1)} | MTAS ${reCheckGate.mtas.toFixed(0)}/10 | CS ${reCheckGate.compressionScore.toFixed(2)}`
           : `Gate ${gateScore} (워치리스트)`;
 
-        await sendTelegramBroadcast(
+        // 개인 채팅: 상세 손절 내역 포함
+        await sendTelegramAlert(
           `⚡ <b>[Shadow] 매수 신호${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
           `종목: ${stock.name} (${stock.code})\n` +
           `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
           `📊 ${gateLabel}\n` +
           `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`
         ).catch(console.error);
+        // 채널: 구독자 대상 포맷팅된 신호
+        await channelBuySignal({
+          mode: 'SHADOW',
+          stockName:   stock.name,
+          stockCode:   stock.code,
+          price:       currentPrice,
+          quantity:    execQty,
+          gateScore:   liveGateScore,
+          mtas:        reCheckGate?.mtas ?? 0,
+          cs:          reCheckGate?.compressionScore ?? 0,
+          stopLoss:    stopLossPlan.hardStopLoss,
+          targetPrice: stock.targetPrice,
+          rrr:         stock.rrr ?? 0,
+          signalType:  isStrongBuy ? 'STRONG_BUY' : 'BUY',
+          sector:      stock.sector,
+        }).catch(console.error);
       } else {
         // LIVE 모드: 실제 주문 (1차 수량만)
         const ordNo = await placeKisMarketBuyOrder(stock.code, execQty);
@@ -851,7 +872,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           ? `Gate ${liveGateScore.toFixed(1)} | MTAS ${reCheckGate.mtas.toFixed(0)}/10 | CS ${reCheckGate.compressionScore.toFixed(2)}`
           : `Gate ${gateScore} (워치리스트)`;
 
-        await sendTelegramBroadcast(
+        // 개인 채팅: 주문번호/상태 상세 포함
+        await sendTelegramAlert(
           `🚀 <b>[LIVE] 매수 주문${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
           `종목: ${stock.name} (${stock.code})\n` +
           `주문상태: ${ordNo ? 'ORDER_SUBMITTED' : 'REJECTED'}\n` +
@@ -860,6 +882,24 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           `📊 ${gateLabelLive}\n` +
           `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`
         ).catch(console.error);
+        // 채널: 구독자 대상 포맷팅된 신호 (주문번호 등 내부 정보 제외)
+        if (trade.status !== 'REJECTED') {
+          await channelBuySignal({
+            mode: 'LIVE',
+            stockName:   stock.name,
+            stockCode:   stock.code,
+            price:       currentPrice,
+            quantity:    execQty,
+            gateScore:   liveGateScore,
+            mtas:        reCheckGate?.mtas ?? 0,
+            cs:          reCheckGate?.compressionScore ?? 0,
+            stopLoss:    stopLossPlan.hardStopLoss,
+            targetPrice: stock.targetPrice,
+            rrr:         stock.rrr ?? 0,
+            signalType:  isStrongBuy ? 'STRONG_BUY' : 'BUY',
+            sector:      stock.sector,
+          }).catch(console.error);
+        }
       }
 
       if (trade.status !== 'REJECTED') {

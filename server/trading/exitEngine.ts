@@ -9,6 +9,7 @@ import {
   fetchCurrentPrice, placeKisSellOrder,
 } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { channelSellSignal } from '../alerts/channelPipeline.js';
 import {
   type ServerShadowTrade,
   appendShadowLog,
@@ -79,6 +80,15 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       appendShadowLog({ event: 'HIT_STOP', ...shadow, stopLossExitType });
       console.log(`[AutoTrade] ❌ ${shadow.stockName} 하드 스톱(${stopLossExitType}) ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
       await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
+      await channelSellSignal({
+        stockName:   shadow.stockName,
+        stockCode:   shadow.stockCode,
+        exitPrice:   currentPrice,
+        entryPrice:  shadow.shadowEntryPrice,
+        pnlPct:      returnPct,
+        reason:      'STOP',
+        holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+      }).catch(console.error);
       continue;
     }
 
@@ -89,6 +99,15 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       appendShadowLog({ event: isBlacklistStep ? 'CASCADE_STOP_BLACKLIST' : 'CASCADE_STOP_FINAL', ...shadow });
       console.log(`[AutoTrade] ❌ ${shadow.stockName} Cascade ${returnPct.toFixed(2)}% — 전량 청산${isBlacklistStep ? ' + 블랙리스트 180일' : ''}`);
       await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
+      await channelSellSignal({
+        stockName:   shadow.stockName,
+        stockCode:   shadow.stockCode,
+        exitPrice:   currentPrice,
+        entryPrice:  shadow.shadowEntryPrice,
+        pnlPct:      returnPct,
+        reason:      'CASCADE',
+        holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+      }).catch(console.error);
       if (isBlacklistStep) {
         addToBlacklist(shadow.stockCode, shadow.stockName, `Cascade ${returnPct.toFixed(1)}%`);
         await sendTelegramAlert(
@@ -160,6 +179,15 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           `고점: ${shadow.trailingHighWaterMark.toLocaleString()}원 → 청산: ${currentPrice.toLocaleString()}원\n` +
           `최종 수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}%`
         ).catch(console.error);
+        await channelSellSignal({
+          stockName:   shadow.stockName,
+          stockCode:   shadow.stockCode,
+          exitPrice:   currentPrice,
+          entryPrice:  shadow.shadowEntryPrice,
+          pnlPct:      returnPct,
+          reason:      'TRAILING',
+          holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+        }).catch(console.error);
         continue;
       }
     }
@@ -170,6 +198,20 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       appendShadowLog({ event: 'HIT_TARGET', ...shadow });
       console.log(`[AutoTrade] ✅ ${shadow.stockName} 목표가 달성 +${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
       await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'TAKE_PROFIT');
+      await sendTelegramAlert(
+        `✅ <b>[목표가 달성]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+        `청산가: ${currentPrice.toLocaleString()}원\n` +
+        `수익률: +${returnPct.toFixed(2)}%`
+      ).catch(console.error);
+      await channelSellSignal({
+        stockName:   shadow.stockName,
+        stockCode:   shadow.stockCode,
+        exitPrice:   currentPrice,
+        entryPrice:  shadow.shadowEntryPrice,
+        pnlPct:      returnPct,
+        reason:      'TARGET',
+        holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+      }).catch(console.error);
       continue;
     }
 

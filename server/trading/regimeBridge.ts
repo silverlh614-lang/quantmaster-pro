@@ -14,6 +14,7 @@ import type { RegimeVariables, RegimeLevel } from '../../src/types/core.js';
 import { classifyRegime, REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { channelRegimeChange } from '../alerts/channelPipeline.js';
 
 // ── 레짐 전환 감지용 모듈 상태 ──────────────────────────────────────────────
 
@@ -168,6 +169,14 @@ export async function checkAndNotifyRegimeChange(
     priority: 'CRITICAL',
     dedupeKey: `regime-change-${currentRegime}`,
   }).catch(console.error);
+
+  // 채널: 레짐 변화 경보 (개인 메시지보다 간결하게)
+  await channelRegimeChange(
+    _previousRegime,
+    currentRegime,
+    currentMhs ?? 0,
+    isDowngrade ? '방어 강화' : '공격 전환',
+  ).catch(console.error);
 
   console.log(`[RegimeBridge] 레짐 전환 알림: ${_previousRegime} → ${currentRegime}`);
 
