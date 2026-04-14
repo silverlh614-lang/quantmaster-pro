@@ -97,7 +97,7 @@ function calculateCompressionScore(quote: YahooQuoteExtended): number {
  * MTAS 5~6: 50% 포지션
  * MTAS ≤ 4: 진입 금지
  */
-function calculateMTAS(quote: YahooQuoteExtended): number {
+function calculateMTAS(quote: YahooQuoteExtended): { mtas: number; dataInsufficient: boolean } {
   let mtas = 0;
 
   // 월봉 판단 (+3점): 주가 > 12개월 EMA이고 우상향
@@ -110,18 +110,32 @@ function calculateMTAS(quote: YahooQuoteExtended): number {
   if (quote.weeklyLaggingSpanUp) mtas += 1.5;
 
   // 일봉 판단 (+4점): 정배열 + VCP + 거래량 마름
+  let dailyScore = 0;
   if (quote.ma5 > 0 && quote.ma20 > 0 && quote.ma60 > 0 &&
       quote.ma5 > quote.ma20 && quote.ma20 > quote.ma60) {
-    mtas += 1.5;  // 정배열
+    dailyScore += 1.5;  // 정배열
   }
   if (quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.7) {
-    mtas += 1.5;  // VCP 변동성 축소
+    dailyScore += 1.5;  // VCP 변동성 축소
   }
   if (quote.dailyVolumeDrying) {
-    mtas += 1;    // 거래량 마름
+    dailyScore += 1;    // 거래량 마름
+  }
+  mtas += dailyScore;
+
+  // 데이터 부족 판단: 월봉/주봉 조건이 모두 false인데 일봉에서만 점수가 있으면
+  // Yahoo 히스토리 미충족일 가능성이 높다.
+  const monthlyWeeklyScore = mtas - dailyScore;
+  const dataInsufficient = monthlyWeeklyScore === 0 && dailyScore > 0 &&
+    !quote.monthlyAboveEMA12 && !quote.weeklyAboveCloud && !quote.weeklyLaggingSpanUp;
+
+  // 데이터 부족 시 일봉 점수를 10점 만점으로 스케일 (4점 → 10점 스케일)
+  // 일봉만으로 평가: dailyScore/4 × 7 (월봉/주봉 중립 가정, 최대 7점)
+  if (dataInsufficient && dailyScore > 0) {
+    mtas = (dailyScore / 4) * 7;
   }
 
-  return mtas;
+  return { mtas, dataInsufficient };
 }
 
 /**
@@ -252,14 +266,14 @@ export function evaluateServerGate(
   }
 
   // MTAS — 멀티타임프레임 정렬도 (타임프레임 불일치 역방향 진입 구조적 차단)
-  const mtas = calculateMTAS(quote);
+  const { mtas, dataInsufficient } = calculateMTAS(quote);
 
   // 신호 분류 및 포지션 사이징
   let signalType: 'STRONG' | 'NORMAL' | 'SKIP';
   let positionPct: number;
 
-  if (mtas <= 4) {
-    // MTAS ≤ 4: 진입 금지 — 타임프레임 불일치
+  if (mtas <= 3) {
+    // MTAS ≤ 3: 진입 금지 — 타임프레임 불일치 (기존 4 → 3으로 완화)
     signalType = 'SKIP';
     positionPct = 0;
     details.push(`MTAS ${mtas.toFixed(1)}/10 진입금지`);
@@ -273,8 +287,12 @@ export function evaluateServerGate(
                 : score >= 5 ? 0.08
                 : 0.03;
 
+    // 데이터 부족 시 포지션 축소 (월봉/주봉 없이 일봉만으로 평가한 경우)
+    if (dataInsufficient) {
+      positionPct *= 0.6;
+      details.push(`MTAS ${mtas.toFixed(1)}/10 데이터부족-일봉평가(60%포지션)`);
     // MTAS 기반 포지션 조정
-    if (mtas === 10) {
+    } else if (mtas === 10) {
       positionPct = Math.min(positionPct * 1.15, 0.15);
       details.push(`MTAS 10/10 최대포지션 (+15%)`);
     } else if (mtas >= 7) {

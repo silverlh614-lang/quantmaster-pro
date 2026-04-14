@@ -481,8 +481,9 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     }
 
     // 주봉: 일목균형표 구름대 위 + 후행스팬 상향
+    // 52주(약 1년)로 완화 — Yahoo Finance 한국 종목 히스토리 부족 대응 (기존 78주)
     let weeklyAboveCloud = false, weeklyLaggingSpanUp = false;
-    if (wCloses.length >= 78) {
+    if (wCloses.length >= 52) {
       const wn = wCloses.length;
       const refBar = wn - 27; // 구름대는 26봉 전 데이터로 형성
       const midpoint = (h: number[], l: number[], s: number, e: number): number => {
