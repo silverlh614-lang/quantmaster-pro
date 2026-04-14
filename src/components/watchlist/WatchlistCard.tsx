@@ -394,14 +394,24 @@ export function WatchlistCard({
                 onClick={(e) => {
                   e.stopPropagation();
                   const totalAssets = kisBalance;
-                  const mockSignal = {
-                    positionSize: stock.type === 'STRONG_BUY' ? 20 : 10,
-                    rrr: 2,
+                  const price = stock.currentPrice || stock.entryPrice || 0;
+                  // 실제 퀀트 엔진 평가 결과 사용, 없으면 보수적 기본값
+                  const ge = stock.gateEvaluation;
+                  const positionSize = ge?.positionSize ?? (stock.type === 'STRONG_BUY' ? 20 : 10);
+                  const stopLossPct = price > 0 && stock.stopLoss > 0
+                    ? ((stock.stopLoss - price) / price) * 100
+                    : -8;
+                  const rrr = price > 0 && stock.stopLoss > 0 && stock.targetPrice > 0
+                    ? (stock.targetPrice - price) / (price - stock.stopLoss)
+                    : 2;
+                  const signal = {
+                    positionSize,
+                    rrr: Math.max(0.5, rrr),
                     lastTrigger: stock.type === 'STRONG_BUY',
-                    recommendation: stock.type === 'STRONG_BUY' ? '풀 포지션' : '절반 포지션',
-                    profile: { stopLoss: -8 },
+                    recommendation: ge?.recommendation ?? (stock.type === 'STRONG_BUY' ? '풀 포지션' : '절반 포지션'),
+                    profile: { stopLoss: Math.min(-1, stopLossPct) },
                   } as any;
-                  const trade = buildShadowTrade(mockSignal, stock.code, stock.name, stock.currentPrice || stock.entryPrice || 0, totalAssets);
+                  const trade = buildShadowTrade(signal, stock.code, stock.name, price, totalAssets);
                   onAddShadowTrade(trade);
                   onSetView('AUTO_TRADE');
                 }}

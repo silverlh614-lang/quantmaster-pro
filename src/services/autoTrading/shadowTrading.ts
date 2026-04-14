@@ -26,6 +26,15 @@ export function buildShadowTrade(
   const shadowEntryPrice = Math.round(currentPrice * (1 + SLIPPAGE));
   const quantity = Math.floor((totalAssets * kellyFraction) / shadowEntryPrice);
 
+  // profile.stopLoss는 퍼센트값(-15 → -15%). 없으면 -8% 기본값 사용
+  const stopLossPct = signal.profile?.stopLoss != null
+    ? signal.profile.stopLoss / 100
+    : -0.08;
+  const stopLoss = Math.round(shadowEntryPrice * (1 + stopLossPct));
+  // RRR 기반 목표가: 실제 손절폭 × RRR 만큼 수익 목표 설정
+  const riskPct = Math.abs(stopLossPct);
+  const targetPrice = Math.round(shadowEntryPrice * (1 + signal.rrr * riskPct));
+
   return {
     id: `shadow_${Date.now()}_${stockCode}`,
     signalTime: new Date().toISOString(),
@@ -35,12 +44,8 @@ export function buildShadowTrade(
     shadowEntryPrice,
     quantity,
     kellyFraction,
-    // profile.stopLoss는 퍼센트값(-15 → -15%). 없으면 -8% 기본값 사용
-    stopLoss: signal.profile?.stopLoss != null
-      ? Math.round(shadowEntryPrice * (1 + signal.profile.stopLoss / 100))
-      : Math.round(shadowEntryPrice * 0.92),
-    // profile에 targetPrice 없음 → RRR 기반 계산
-    targetPrice: Math.round(shadowEntryPrice * (1 + signal.rrr * 0.08)),
+    stopLoss,
+    targetPrice,
     status: 'PENDING',
   };
 }

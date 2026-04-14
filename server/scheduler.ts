@@ -25,6 +25,8 @@ import { runGlobalScanAgent } from './alerts/globalScanAgent.js';
 import { trackPendingRecords } from './learning/newsSupplyLogger.js';
 import { checkFomcProximityAlert } from './trading/fomcCalendar.js';
 import { runBacktest } from './learning/backtestEngine.js';
+import { loadShadowTrades, saveShadowTrades } from './persistence/shadowTradeRepo.js';
+import { updateShadowResults } from './trading/exitEngine.js';
 
 export function startScheduler() {
   // ─── TradingDayOrchestrator — 장 사이클 State Machine ──────────────────
@@ -164,5 +166,24 @@ export function startScheduler() {
     await runBacktest().catch(console.error);
   }, { timezone: 'UTC' });
 
-  console.log('[Scheduler] 23개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
+  // ─── Shadow Trade 자동 청산 — 장중 5분 간격 (브라우저 독립) ──────────────────
+  // 클라이언트 resolveShadowTrade 루프의 서버 측 대응.
+  // AUTO_TRADE_ENABLED 무관하게 항상 동작하여, 브라우저 종료 시에도
+  // Shadow 포지션 목표가/손절가 도달 시 자동 청산 처리.
+  // KST 09:00~15:30 = UTC 00:00~06:30 (Mon-Fri)
+  cron.schedule('*/5 0-6 * * 1-5', async () => {
+    const shadows = loadShadowTrades();
+    const activeShadows = shadows.filter(
+      (s) => s.status === 'PENDING' || s.status === 'ACTIVE'
+    );
+    if (activeShadows.length === 0) return;
+    try {
+      await updateShadowResults(shadows, getLiveRegime(loadMacroState()));
+      saveShadowTrades(shadows);
+    } catch (e) {
+      console.error('[Scheduler] Shadow trade resolution 실패:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  console.log('[Scheduler] 24개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
 }
