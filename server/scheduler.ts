@@ -1,7 +1,7 @@
 // server/scheduler.ts — cron 스케줄러 모듈
 // server.ts에서 분리: 13개 cron 작업을 한 곳에서 관리
 import cron from 'node-cron';
-import { getEmergencyStop } from './state.js';
+import { sendTelegramAlert } from './alerts/telegramClient.js';
 import { tradingOrchestrator } from './orchestrator/tradingOrchestrator.js';
 import { pollDartDisclosures, fastDartCheck } from './alerts/dartPoller.js';
 import { pollBearRegime } from './alerts/bearRegimeAlert.js';
@@ -28,6 +28,12 @@ import { runBacktest } from './learning/backtestEngine.js';
 import { loadShadowTrades, saveShadowTrades } from './persistence/shadowTradeRepo.js';
 import { updateShadowResults } from './trading/exitEngine.js';
 import { runDynamicUniverseExpansion } from './screener/dynamicUniverseExpander.js';
+import { loadWatchlist } from './persistence/watchlistRepo.js';
+import { getEmergencyStop, getDailyLossPct } from './state.js';
+import { getLastScanAt } from './orchestrator/adaptiveScanScheduler.js';
+import { getLastBuySignalAt, getLastScanSummary } from './trading/signalScanner.js';
+import { getKisTokenRemainingHours } from './clients/kisClient.js';
+import { isOpenShadowStatus } from './trading/entryEngine.js';
 
 export function startScheduler() {
   // ─── TradingDayOrchestrator — 장 사이클 State Machine ──────────────────
@@ -195,5 +201,58 @@ export function startScheduler() {
     await runDynamicUniverseExpansion().catch(console.error);
   }, { timezone: 'UTC' });
 
-  console.log('[Scheduler] 26개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
+  // 파이프라인 헬스체크 — 매일 KST 09:05 (UTC 00:05, 월~금) Telegram 자동 전송
+  cron.schedule('5 0 * * 1-5', async () => {
+    try {
+      const watchlist    = loadWatchlist();
+      const shadows      = loadShadowTrades();
+      const emergencyStop = getEmergencyStop();
+      const dailyLossPct  = getDailyLossPct();
+      const dailyLossLimit = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
+      const autoEnabled   = process.env.AUTO_TRADE_ENABLED === 'true';
+      const autoMode      = process.env.AUTO_TRADE_MODE ?? 'SHADOW';
+      const kisHours      = getKisTokenRemainingHours();
+      const lastScanTs    = getLastScanAt();
+      const lastScanAt    = lastScanTs > 0
+        ? new Date(lastScanTs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
+        : '미실행';
+      const lastBuyTs     = getLastBuySignalAt();
+      const lastBuyAt     = lastBuyTs > 0
+        ? new Date(lastBuyTs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
+        : '없음';
+      const scanSummary   = getLastScanSummary();
+      const activeTrades  = shadows.filter(s => isOpenShadowStatus(s.status)).length;
+      const yahooStatus   = !scanSummary || scanSummary.candidates === 0 ? 'UNKNOWN'
+        : scanSummary.yahooFails === scanSummary.candidates ? 'DOWN'
+        : scanSummary.yahooFails > scanSummary.candidates * 0.5 ? 'DEGRADED'
+        : 'OK';
+
+      let verdict: string;
+      if (emergencyStop)                             verdict = '🔴 EMERGENCY_STOP';
+      else if (dailyLossPct >= dailyLossLimit)       verdict = '🔴 DAILY_LOSS_LIMIT';
+      else if (watchlist.length === 0)               verdict = '🔴 WATCHLIST_EMPTY';
+      else if (!autoEnabled)                         verdict = '🟡 AUTO_TRADE_DISABLED';
+      else if (autoMode === 'LIVE' && kisHours === 0) verdict = '🟡 KIS_TOKEN_EXPIRED';
+      else if (!lastScanTs)                          verdict = '🟡 SCANNER_IDLE';
+      else if (yahooStatus === 'DOWN')               verdict = '🟡 YAHOO_DOWN';
+      else                                           verdict = '🟢 OK';
+
+      await sendTelegramAlert(
+        `🩺 <b>[파이프라인 헬스체크] 09:05 KST</b>\n` +
+        `판정: ${verdict}\n` +
+        `─────────────────────\n` +
+        `워치리스트: ${watchlist.length}개 | 활성 포지션: ${activeTrades}개\n` +
+        `자동매매: ${autoEnabled ? '✅ 켜짐' : '❌ 꺼짐'} (${autoMode})\n` +
+        `KIS 토큰: ${kisHours > 0 ? `✅ ${kisHours}시간 남음` : '❌ 만료'}\n` +
+        `Yahoo: ${yahooStatus === 'OK' ? '✅' : yahooStatus === 'DEGRADED' ? '⚠️ 부분장애' : yahooStatus === 'DOWN' ? '❌ 불가' : '?'}\n` +
+        `마지막 스캔: ${lastScanAt} | 마지막 신호: ${lastBuyAt}\n` +
+        `일일손실: ${dailyLossPct.toFixed(1)}% / 한도 ${dailyLossLimit}%\n` +
+        `비상정지: ${emergencyStop ? '🛑 활성' : '✅ 해제'}`
+      ).catch(console.error);
+    } catch (e) {
+      console.error('[Scheduler] 파이프라인 헬스체크 전송 실패:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  console.log('[Scheduler] 27개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
 }

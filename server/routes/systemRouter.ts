@@ -22,6 +22,12 @@ import { getVixGating } from '../trading/vixGating.js';
 import { getFomcProximity } from '../trading/fomcCalendar.js';
 import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { loadGateAudit } from '../persistence/gateAuditRepo.js';
+import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
+import { isOpenShadowStatus } from '../trading/entryEngine.js';
+import { getKisTokenRemainingHours } from '../clients/kisClient.js';
+import { getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
+import { DATA_DIR } from '../persistence/paths.js';
+import fs from 'fs';
 
 const router = Router();
 
@@ -211,6 +217,83 @@ router.get('/system/buy-audit', (_req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────
 router.get('/system/gate-audit', (_req: Request, res: Response) => {
   res.json(loadGateAudit());
+});
+
+// ─────────────────────────────────────────────────────────────
+// 아이디어 1: 전체 파이프라인 자가진단 헬스체크
+// GET /api/health/pipeline
+// ─────────────────────────────────────────────────────────────
+router.get('/health/pipeline', (_req: Request, res: Response) => {
+  const watchlist     = loadWatchlist();
+  const shadows       = loadShadowTrades();
+  const autoEnabled   = process.env.AUTO_TRADE_ENABLED === 'true';
+  const autoMode      = process.env.AUTO_TRADE_MODE ?? 'SHADOW';
+  const emergencyStop = getEmergencyStop();
+  const dailyLossPct  = getDailyLossPct();
+  const dailyLossLimit = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
+  const kisConfigured = !!process.env.KIS_APP_KEY;
+  const kisTokenHours = getKisTokenRemainingHours();
+  const kisTokenValid = kisConfigured && (autoMode !== 'LIVE' || kisTokenHours > 0);
+  const watchlistCount   = watchlist.length;
+  const shadowTradeCount = shadows.filter(s => isOpenShadowStatus(s.status)).length;
+
+  // 볼륨 마운트: PERSIST_DATA_DIR 또는 기본 DATA_DIR 쓰기 가능 여부
+  let railwayVolumeMount = false;
+  try {
+    fs.accessSync(DATA_DIR, fs.constants.W_OK);
+    railwayVolumeMount = true;
+  } catch { /* 쓰기 불가 */ }
+
+  const lastScanTs = getLastScanAt();
+  const lastScanAt = lastScanTs > 0
+    ? new Date(lastScanTs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  const lastBuyTs = getLastBuySignalAt();
+  const lastBuySignalAt = lastBuyTs > 0
+    ? new Date(lastBuyTs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  const scanSummary    = getLastScanSummary();
+  const yahooApiStatus = !scanSummary || scanSummary.candidates === 0
+    ? 'UNKNOWN'
+    : scanSummary.yahooFails === scanSummary.candidates
+      ? 'DOWN'
+      : scanSummary.yahooFails > scanSummary.candidates * 0.5
+        ? 'DEGRADED'
+        : 'OK';
+
+  // verdict: 파이프라인 첫 번째 단절점 반환
+  let verdict: string;
+  if (emergencyStop)                           verdict = '🔴 EMERGENCY_STOP';
+  else if (dailyLossPct >= dailyLossLimit)     verdict = '🔴 DAILY_LOSS_LIMIT';
+  else if (watchlistCount === 0)               verdict = '🔴 WATCHLIST_EMPTY';
+  else if (!autoEnabled)                       verdict = '🟡 AUTO_TRADE_DISABLED';
+  else if (!kisConfigured)                     verdict = '🟡 KIS_NOT_CONFIGURED';
+  else if (autoMode === 'LIVE' && !kisTokenValid) verdict = '🟡 KIS_TOKEN_EXPIRED';
+  else if (!lastScanAt)                        verdict = '🟡 SCANNER_IDLE';
+  else if (yahooApiStatus === 'DOWN')          verdict = '🟡 YAHOO_DOWN';
+  else                                         verdict = '🟢 OK';
+
+  res.json({
+    scheduler:           'OK',
+    watchlistCount,
+    shadowTradeCount,
+    autoTradeEnabled:    autoEnabled,
+    autoTradeMode:       autoMode,
+    kisConfigured,
+    kisTokenValid,
+    kisTokenHoursLeft:   kisTokenHours,
+    yahooApiStatus,
+    railwayVolumeMount,
+    lastScanAt,
+    lastBuySignalAt,
+    dailyLossPct,
+    dailyLossLimitReached: dailyLossPct >= dailyLossLimit,
+    emergencyStop,
+    lastScanSummary:     scanSummary,
+    verdict,
+  });
 });
 
 export default router;
