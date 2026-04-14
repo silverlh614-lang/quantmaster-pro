@@ -21,7 +21,7 @@
  * 도메인 상수 및 유틸리티는 pipelineHelpers.ts 로 분리됨.
  */
 
-import { fetchYahooQuote, STOCK_UNIVERSE } from './stockScreener.js';
+import { fetchYahooQuote, enrichQuoteWithKisMTAS, STOCK_UNIVERSE } from './stockScreener.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { loadMacroState, type MacroState } from '../persistence/macroStateRepo.js';
@@ -212,7 +212,9 @@ export async function stage2SectorGateFilter(
   const kospiDayReturn = macroState?.kospiDayReturn;
 
   for (const c of candidates) {
-    const gate = evaluateServerGate(c.quote, weights, kospiDayReturn);
+    // 아이디어 9: KIS API 월봉/주봉 데이터로 MTAS 보강
+    const enrichedQuote = await enrichQuoteWithKisMTAS(c.quote, c.code);
+    const gate = evaluateServerGate(enrichedQuote, weights, kospiDayReturn);
     if (gate.signalType === 'SKIP') continue;
 
     const sectorBonus = leadingSectors.some((s) => c.sector.includes(s)) ? 1.5 : 1.0;
@@ -220,6 +222,7 @@ export async function stage2SectorGateFilter(
 
     results.push({
       ...c,
+      quote:        enrichedQuote,  // KIS 보강된 quote 사용
       gateScore:    gate.gateScore,
       gateSignal:   gate.signalType,
       gateDetails:  gate.details,
@@ -412,6 +415,7 @@ export async function stage3AIScreenAndRegister(
       memo:          `${formatReliabilityBadge(reliability)} | ${confPart} | ${result.topReasons.slice(0, 2).join(', ')}`,
       expiresAt:     addBusinessDays(new Date(), 5).toISOString(),
       conditionKeys: [...realKeys, ...qualKeys],
+      track:         result.signal !== 'SKIP' ? 'B' : 'A',  // 아이디어 8: 2-Track
       ...(regretFilter.isCooldown && {
         cooldownUntil: regretFilter.cooldownUntil,
         recentHigh:    regretFilter.recentHigh,
@@ -426,12 +430,16 @@ export async function stage3AIScreenAndRegister(
   }
 
   if (added > 0) {
-    // isFocus 즉시 갱신 — cleanupWatchlist(16:00)까지 기다리지 않고 등록 직후 반영
+    // isFocus + track 즉시 갱신 — cleanupWatchlist(16:00)까지 기다리지 않고 등록 직후 반영
     const focusCodes = computeFocusCodes(watchlist);
-    const withFocus = watchlist.map(w => ({
-      ...w,
-      isFocus: focusCodes.has(w.code),
-    }));
+    const withFocus = watchlist.map(w => {
+      const isTrackB = focusCodes.has(w.code);
+      return {
+        ...w,
+        isFocus: isTrackB,
+        track: (w.addedBy === 'MANUAL' ? 'B' : isTrackB ? 'B' : w.track ?? 'A') as 'A' | 'B',
+      };
+    });
     saveWatchlist(withFocus);
     // Telegram 알림 — 신뢰도 배지 포함
     const registered = watchlist.filter(w =>
