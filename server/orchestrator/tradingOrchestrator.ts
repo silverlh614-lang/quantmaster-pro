@@ -310,6 +310,19 @@ export class TradingDayOrchestrator {
       case 'INTRADAY': {
         if (!enabled) break;
 
+        // 장중 워치리스트 재스캔 — 13:00~13:30 KST 사이 한 번
+        // 오전 장 전(08:45) autoPopulate에서 빠진 종목을 장중에 보완
+        if (t >= 1300 && t <= 1330 && !this.hasRan('middayRescan')) {
+          console.log('[Orchestrator] 장중 워치리스트 재스캔 (KST 13:00)');
+          const added = await autoPopulateWatchlist().catch(() => 0) ?? 0;
+          if (added > 0) {
+            await sendTelegramAlert(
+              `📋 <b>[MiddayRescan] 장중 워치리스트 추가</b>\n신규 ${added}개 종목 추가됨`
+            ).catch(console.error);
+          }
+          this.markRan('middayRescan');
+        }
+
         // 장중 Watchlist 발굴·갱신 (10분 내부 쓰로틀 — 1분 tick마다 호출 안전)
         await scanAndUpdateIntradayWatchlist().catch(console.error);
 
