@@ -91,6 +91,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
   const buyList = watchlist.filter(
     (w) => w.addedBy === 'MANUAL' || liveFocusCodes.has(w.code),
   );
+  // 진단 로그: buyList에서 제외된 종목과 사유
+  const excluded = watchlist.filter(
+    (w) => w.addedBy !== 'MANUAL' && !liveFocusCodes.has(w.code),
+  );
+  if (excluded.length > 0) {
+    console.log(
+      `[AutoTrade] buyList 제외 ${excluded.length}개 (AUTO, Focus 미달): ` +
+      excluded.map(w => `${w.name}(${w.code}) gate=${w.gateScore ?? 0}`).join(', '),
+    );
+  }
   let watchlistMutated = false;
 
   // 장중 워치리스트: intradayReady=true 항목만 진입 후보
@@ -207,6 +217,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
   const volumeClock = checkVolumeClockWindow();
   if (!volumeClock.allowEntry) {
     console.log(volumeClock.reason);
+    console.log(
+      `[AutoTrade] 매수 대기 종목 ${buyList.length}개 대기 중 (허용 구간: 10:00~11:30, 14:00~14:50 KST)`,
+    );
     // 시간대 차단 시에도 포지션 모니터링(청산)은 계속 수행
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
@@ -381,8 +394,10 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
         continue; // 선취매 포지션이 있으면 일반 진입 로직 건너뜀
       }
 
-      // 진입 조건: 현재가가 entryPrice ± 1% 이내로 도달
-      const nearEntry = Math.abs(currentPrice - stock.entryPrice) / stock.entryPrice <= 0.01;
+      // 진입 조건: 현재가가 entryPrice 부근 도달
+      // MANUAL 종목은 사용자 확신이 높으므로 ±2%, AUTO 종목은 ±1%
+      const nearEntryThreshold = stock.addedBy === 'MANUAL' ? 0.02 : 0.01;
+      const nearEntry = Math.abs(currentPrice - stock.entryPrice) / stock.entryPrice <= nearEntryThreshold;
       // 손절 상향: 아직 손절선 위에 있어야 함
       const aboveStop = currentPrice > stock.stopLoss;
       // 상승 모멘텀: 현재가가 entry 이상
@@ -390,6 +405,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
 
       // ── Pre-Breakout 매집 감지 (진입가 미도달 + 손절선 위) ─────────────────
       if (!nearEntry && !breakout && aboveStop) {
+        const priceDiffPct = ((currentPrice - stock.entryPrice) / stock.entryPrice * 100).toFixed(1);
+        console.log(
+          `[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달 — ` +
+          `현재가 ${currentPrice.toLocaleString()} vs 진입가 ${stock.entryPrice.toLocaleString()} (${priceDiffPct}%, 기준 ±${(nearEntryThreshold * 100).toFixed(0)}%) → Pre-Breakout 판별`,
+        );
         const reCheckQuotePb = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
                             ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null);
         if (
@@ -538,7 +558,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
       // 방어적 가드를 명시하여 미래 코드 변경 시 조건 없는 진입을 차단한다.
       if (!(nearEntry || breakout)) continue;
 
-      if (!aboveStop) continue;
+      if (!aboveStop) {
+        console.log(
+          `[AutoTrade] ${stock.name}(${stock.code}) 손절선 하회 — ` +
+          `현재가 ${currentPrice.toLocaleString()} ≤ 손절 ${stock.stopLoss.toLocaleString()} → 진입 차단`,
+        );
+        continue;
+      }
       const alreadyTraded = shadows.some(
         (s) => s.stockCode === stock.code &&
         (isOpenShadowStatus(s.status) ||
