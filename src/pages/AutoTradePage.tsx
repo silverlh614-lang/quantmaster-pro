@@ -9,7 +9,7 @@ import { Section } from '../ui/section';
 import { Badge } from '../ui/badge';
 import { Stack } from '../layout/Stack';
 import { PageGrid } from '../layout/PageGrid';
-import { TradingChecklist } from '../components/TradingChecklist';
+import { TradingChecklist } from '../components/trading/TradingChecklist';
 import { useShadowTradeStore, useShadowWinRate, useShadowAvgReturn } from '../stores/useShadowTradeStore';
 
 interface WatchlistEntry {

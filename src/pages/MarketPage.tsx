@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, Suspense, lazy } from 'react';
 import { motion } from 'motion/react';
 import { RefreshCw, Activity } from 'lucide-react';
-import { MarketDashboard } from '../components/MarketDashboard';
-import { EventCalendar } from '../components/EventCalendar';
-import { MacroIntelligenceDashboard } from '../components/MacroIntelligenceDashboard';
-import { MHSHistoryChart } from '../components/MHSHistoryChart';
-import { IntelligenceRadar } from '../components/IntelligenceRadar';
-import { SectionErrorBoundary } from '../components/SectionErrorBoundary';
+import { MarketDashboard } from '../components/market/MarketDashboard';
+import { EventCalendar } from '../components/common/EventCalendar';
+import { MacroIntelligenceDashboard } from '../components/signals/MacroIntelligenceDashboard';
+import { MHSHistoryChart } from '../components/signals/MHSHistoryChart';
+import { IntelligenceRadar } from '../components/analysis/IntelligenceRadar';
+import { SectionErrorBoundary } from '../components/common/SectionErrorBoundary';
 import { useMarketStore, useGlobalIntelStore, useRecommendationStore } from '../stores';
 import { evaluateGate0 } from '../services/quant/macroEngine';
 import { PageHeader } from '../ui/page-header';
@@ -19,10 +19,10 @@ import { Stack } from '../layout/Stack';
 import { PageGrid } from '../layout/PageGrid';
 
 const LazySentimentMacroSection = lazy(() =>
-  import('../components/MarketDashboard/SentimentMacroSection').then(m => ({ default: m.SentimentMacroSection }))
+  import('../components/market/MarketDashboard/SentimentMacroSection').then(m => ({ default: m.SentimentMacroSection }))
 );
 const LazyGlobalTrendChart = lazy(() =>
-  import('../components/MarketDashboard/GlobalTrendChart').then(m => ({ default: m.GlobalTrendChart }))
+  import('../components/market/MarketDashboard/GlobalTrendChart').then(m => ({ default: m.GlobalTrendChart }))
 );
 
 interface MarketPageProps {

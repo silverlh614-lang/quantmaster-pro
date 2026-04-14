@@ -7,9 +7,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../ui/cn';
-import { ConfidenceBadge } from '../ConfidenceBadge';
+import { ConfidenceBadge } from '../common/ConfidenceBadge';
 import { SignalBadge } from '../../ui/badge';
-import { PriceEditCell } from '../PriceEditCell';
+import { PriceEditCell } from '../common/PriceEditCell';
 import type { StockRecommendation } from '../../services/stockService';
 import type { NewsFrequencyScore } from '../../types/quant';
 import type { ConditionId } from '../../types/quant';

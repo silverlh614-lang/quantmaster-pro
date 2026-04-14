@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { ManualQuantInput } from '../components/ManualQuantInput';
+import { ManualQuantInput } from '../components/analysis/ManualQuantInput';
 import { useMarketStore } from '../stores';
 import { PageHeader } from '../ui/page-header';
 import { Stack } from '../layout/Stack';

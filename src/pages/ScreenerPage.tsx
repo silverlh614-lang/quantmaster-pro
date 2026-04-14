@@ -1,8 +1,8 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { QuantScreener } from '../components/QuantScreener';
-import { BearScreenerPanel } from '../components/BearScreenerPanel';
-import { DartPreNewsPanel } from '../components/DartPreNewsPanel';
+import { QuantScreener } from '../components/analysis/QuantScreener';
+import { BearScreenerPanel } from '../components/bear/BearScreenerPanel';
+import { DartPreNewsPanel } from '../components/signals/DartPreNewsPanel';
 import { useRecommendationStore, useAnalysisStore, useGlobalIntelStore } from '../stores';
 import { PageHeader } from '../ui/page-header';
 import { Stack } from '../layout/Stack';

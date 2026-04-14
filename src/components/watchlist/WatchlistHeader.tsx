@@ -7,8 +7,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '../../ui/cn';
-import { HeroChecklist } from '../HeroChecklist';
-import { ConfidenceBadge } from '../ConfidenceBadge';
+import { HeroChecklist } from '../trading/HeroChecklist';
+import { ConfidenceBadge } from '../common/ConfidenceBadge';
 import { MASTER_CHECKLIST_STEPS, getMarketPhaseInfo } from '../../constants/checklist';
 import type { StockRecommendation, MarketContext, StockFilters } from '../../services/stockService';
 import type { View } from '../../stores/useSettingsStore';

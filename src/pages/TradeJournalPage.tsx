@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { TradeJournal } from '../components/TradeJournal';
+import { TradeJournal } from '../components/trading/TradeJournal';
 import { useTradeStore } from '../stores';
 import { PageHeader } from '../ui/page-header';
 import { Stack } from '../layout/Stack';
