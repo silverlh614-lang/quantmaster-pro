@@ -87,7 +87,8 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /remove <code>종목코드</code> — 워치리스트 제거\n\n` +
           `🛑 <b>제어</b>\n` +
           `  /stop — 비상 정지 발동\n` +
-          `  /reset [pw] — 비상 정지 해제\n\n` +
+          `  /reset [pw] — 비상 정지 해제\n` +
+          `  /channel_test — 채널 연결 테스트\n\n` +
           `⏰ <b>자동 레포트 스케줄</b>\n` +
           `  08:30 — 장전 시장 브리핑\n` +
           `  12:00 — 장중 시장 현황\n` +
@@ -405,6 +406,30 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           }
         }
         await reply(`✅ ${code} 미체결 주문 ${pendingOrders.length}건 취소 요청 완료`);
+        break;
+      }
+
+      case '/channel_test': {
+        await reply(
+          `🔍 <b>[채널 테스트]</b>\n` +
+          `CHANNEL_ENABLED: ${process.env.CHANNEL_ENABLED ?? '미설정'}\n` +
+          `TELEGRAM_CHANNEL_ID: ${process.env.TELEGRAM_CHANNEL_ID ?? '미설정'}\n` +
+          `채널로 테스트 메시지를 전송합니다...`
+        );
+        const { sendChannelAlert } = await import('../alerts/telegramClient.js');
+        const kstStr = new Date(Date.now() + 9 * 3_600_000)
+          .toISOString().replace('T', ' ').slice(0, 19);
+        const msgId = await sendChannelAlert(
+          `🧪 <b>[채널 연결 테스트]</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `✅ QuantMaster Pro 채널 연결 성공\n` +
+          `⏰ ${kstStr} KST`
+        ).catch(() => null);
+        await reply(
+          msgId
+            ? `✅ 채널 발송 성공 (message_id: ${msgId})`
+            : `❌ 채널 발송 실패 — TELEGRAM_CHANNEL_ID 또는 봇 권한 확인 필요`
+        );
         break;
       }
 
