@@ -204,31 +204,10 @@ function computeBasePositionSize(ctx: {
     positionSize *= 1.2;
   }
 
-  if (positionSize > 0) {
-    recommendation = positionSize >= 15 ? '풀 포지션' : '절반 포지션';
-  }
-
+  // ── 섹터 필터: 비주도 섹터 50% 감쇄 ──
   if (!ctx.isLeadingSector) positionSize *= 0.5;
 
-  if (ctx.euphoriaSignals >= 3) {
-    recommendation = '매도';
-    positionSize *= 0.5;
-  }
-
-  if (ctx.sellSignalCount >= 5) {
-    recommendation = '강력 매도';
-    positionSize = 0;
-  } else if (ctx.sellSignalCount >= 3) {
-    recommendation = '매도';
-    positionSize *= 0.3;
-  }
-
-  if (ctx.rrr < 2.0) {
-    positionSize = 0;
-    recommendation = '관망';
-  }
-
-  // ── 리스크 감쇄: 가산 방식으로 전환 (곱셈 중첩으로 인한 과도 축소 방지) ──
+  // ── 리스크 감쇄: 가산 방식 (곱셈 중첩으로 인한 과도 축소 방지) ──
   // 각 리스크 팩터의 감쇄율을 합산 후 한 번에 적용, 최대 감쇄율 70% (최소 30% 유지)
   let riskReductionPct = 0;
   if (ctx.kellyReduction > 0) {
@@ -249,12 +228,42 @@ function computeBasePositionSize(ctx: {
     positionSize *= (1 - effectiveReduction);
   }
 
+  // ── 매도 신호: 배타적 계층 구조 (가장 강한 신호 단일 적용, 중첩 방지) ──
+  let sellOverride: EvaluationResult['recommendation'] | null = null;
+  if (ctx.sellSignalCount >= 5) {
+    sellOverride = '강력 매도';
+    positionSize = 0;
+  } else if (ctx.sellSignalCount >= 3) {
+    sellOverride = '매도';
+    positionSize *= 0.3;
+  } else if (ctx.euphoriaSignals >= 3) {
+    sellOverride = '매도';
+    positionSize *= 0.5;
+  }
+
+  // ── RRR 하드 게이트: 리스크/보상 비율 2.0 미달 시 진입 차단 ──
+  if (ctx.rrr < 2.0) {
+    positionSize = 0;
+  }
+
+  // ── 페어 트레이드 모드 ──
   if (ctx.isPairTradeMode && positionSize > 0) {
-    recommendation = '절반 포지션';
     positionSize = Math.min(positionSize, 5);
   }
 
   positionSize = Math.max(0, positionSize);
+
+  // ── 추천 등급: 최종 포지션 사이즈 기반으로 결정 (모든 조정 후) ──
+  if (sellOverride) {
+    recommendation = sellOverride;
+  } else if (positionSize === 0) {
+    recommendation = '관망';
+  } else if (ctx.isPairTradeMode) {
+    recommendation = '절반 포지션';
+  } else {
+    recommendation = positionSize >= 15 ? '풀 포지션' : '절반 포지션';
+  }
+
   return { positionSize, recommendation };
 }
 
@@ -665,8 +674,9 @@ export function evaluateStock(input: EvaluateStockInput): EvaluationResult {
     } else {
       positionSize = Math.max(positionSize, 20);
     }
-  } else if (signalVerdict.grade === 'BUY' && signalVerdict.isEarlyBullEntry && !gate3Passed) {
+  } else if (signalVerdict.grade === 'BUY' && signalVerdict.isEarlyBullEntry && !gate3Passed && !gate0Blocked) {
     // 상승 초기 선취매: Gate 3 미달이어도 BUY 50% 포지션 허용
+    // 단, Gate 0 차단(매수중단/비상정지/크레딧위기) 시 선취매도 불가
     // 단, RRR 최소 1.5 이상은 확보해야 안전한 선취매 (기본 RRR 2.0보다 완화)
     if (rrr >= 1.5) {
       positionSize = Math.max(positionSize, 10);
