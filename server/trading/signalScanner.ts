@@ -302,7 +302,6 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
 
             shadows.push(followTrade);
             appendShadowLog({ event: 'PRE_BREAKOUT_FOLLOWTHROUGH', ...followTrade });
-            orderableCash = Math.max(0, orderableCash - followQty * followEntryPrice);
 
             const alertMsg =
               `🚀 <b>[선취매 추종] ${stock.name} (${stock.code})</b>\n` +
@@ -327,6 +326,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
                 followTrade.status = 'REJECTED';
               }
               await sendTelegramAlert(alertMsg).catch(console.error);
+            }
+
+            // BUG-01 fix: orderableCash 차감은 주문 REJECTED 여부 확인 후 수행
+            if (followTrade.status !== 'REJECTED') {
+              orderableCash = Math.max(0, orderableCash - followQty * followEntryPrice);
             }
           } else {
             console.log(`[PreBreakout] ${stock.name}(${stock.code}) 추종 매수 이미 실행됨 — 스킵`);
@@ -429,9 +433,6 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
 
                 shadows.push(pbTrade);
                 appendShadowLog({ event: 'PRE_BREAKOUT_ENTRY', ...pbTrade });
-                // C2 수정: 실제 집행금액(pbQty × pbEntryPrice)으로 차감
-                // (이전 pbBudget * 0.3 은 Math.floor 오차로 실투자금과 달랐음)
-                orderableCash = Math.max(0, orderableCash - pbQty * pbEntryPrice);
 
                 console.log(`[PreBreakout] ${stock.name}(${stock.code}) 매집 감지 — 30% 선취매 @${pbEntryPrice} (${pbQty}주/${fullPbQty}주)`);
                 console.log(`[PreBreakout] ${accumResult.summary}`);
@@ -456,6 +457,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
                   } else {
                     pbTrade.status = 'REJECTED';
                   }
+                }
+
+                // BUG-01 fix: orderableCash 차감은 주문 REJECTED 여부 확인 후 수행
+                if (pbTrade.status !== 'REJECTED') {
+                  orderableCash = Math.max(0, orderableCash - pbQty * pbEntryPrice);
                 }
               }
             }
@@ -575,14 +581,20 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
         continue;
       }
 
-      // 실시간 gateScore: 재평가 성공 시 실시간 값 우선, 실패 시 워치리스트 값 fallback
+      // BUG-02 fix: Yahoo 실패 시 MTAS 검증 우회 방지 — 재검증 불가 시 진입 보류
+      if (!reCheckGate) {
+        console.warn(`[AutoTrade] ${stock.name} Yahoo 조회 실패 — 재검증 불가, 진입 보류`);
+        continue;
+      }
+
+      // 실시간 gateScore: 재평가 성공 시 실시간 값 우선
       // Volume Clock 보너스: 10:00~11:00 KST 집행 시 +2점 (기관 알고리즘 집중 구간)
-      const liveGateScore = reCheckGate?.gateScore ?? (stock.gateScore ?? 0);
+      const liveGateScore = reCheckGate.gateScore ?? (stock.gateScore ?? 0);
       const gateScore = liveGateScore + volumeClock.scoreBonus;
       const isStrongBuy = gateScore >= 25;
 
       // MTAS 기반 진입 차단: 타임프레임 불일치 시 진입 금지
-      if (reCheckGate && reCheckGate.mtas <= 3) {
+      if (reCheckGate.mtas <= 3) {
         console.log(
           `[AutoTrade] ${stock.name} MTAS ${reCheckGate.mtas.toFixed(1)}/10 진입 금지 — 타임프레임 불일치`
         );
