@@ -75,7 +75,7 @@ export {
  * options.sellOnly: true → 신규 매수 없이 기존 포지션 모니터링만 실행
  *   (VKOSPI 급등·R6_DEFENSE·마감 급변 시 adaptiveScanScheduler가 호출)
  */
-export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promise<void> {
+export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuyCodes?: string[] }): Promise<void> {
   if (!process.env.KIS_APP_KEY) {
     console.warn('[AutoTrade] KIS_APP_KEY 미설정 — 스캔 건너뜀');
     return;
@@ -88,8 +88,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
   // isFocus를 스캔 시점에 실시간 계산 (cleanupWatchlist은 16:00에만 실행되므로
   // 08:35에 추가된 AUTO 종목의 isFocus가 미설정 상태일 수 있음)
   const liveFocusCodes = computeFocusCodes(watchlist);
+  const forceCodes = new Set(options?.forceBuyCodes ?? []);
   const buyList = watchlist.filter(
-    (w) => w.addedBy === 'MANUAL' || liveFocusCodes.has(w.code),
+    (w) => w.addedBy === 'MANUAL' || liveFocusCodes.has(w.code) || forceCodes.has(w.code),
   );
   // 진단 로그: buyList에서 제외된 종목과 사유
   const excluded = watchlist.filter(

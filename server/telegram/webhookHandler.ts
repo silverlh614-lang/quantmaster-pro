@@ -18,6 +18,7 @@ import { fillMonitor } from '../trading/fillMonitor.js';
 import { runAutoSignalScan, isOpenShadowStatus } from '../trading/signalScanner.js';
 import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/reportGenerator.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
+import { calcRRR } from '../trading/riskManager.js';
 import { handleBuyApprovalCallback } from './buyApproval.js';
 
 export async function handleTelegramWebhook(req: Request, res: Response): Promise<void> {
@@ -172,8 +173,8 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           await reply(`⚠️ 워치리스트에 ${code} 없음. 먼저 워치리스트에 추가하세요.`);
           break;
         }
-        // Shadow 강제 신호 트리거 — runAutoSignalScan() 내 진입 조건 우회
-        await runAutoSignalScan().catch(console.error);
+        // Shadow 강제 신호 트리거 — forceBuyCodes로 buyList에 강제 포함
+        await runAutoSignalScan({ forceBuyCodes: [code] }).catch(console.error);
         await reply(`🔔 <b>${hit.name}(${code})</b> 수동 매수 신호 트리거 완료 (다음 스캔 주기에 체결)`);
         break;
       }
@@ -287,12 +288,15 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           await reply(`❌ ${code} 현재가 조회 실패 — 유효한 종목코드인지 확인하세요.`);
           break;
         }
+        const sl = Math.round(price * 0.92);       // 기본 -8% 손절
+        const tp = Math.round(price * 1.15);       // 기본 +15% 목표
         const newEntry: WatchlistEntry = {
           code,
           name: code, // 이름은 코드로 임시 설정 (다음 스캔에서 업데이트)
           entryPrice: price,
-          stopLoss: Math.round(price * 0.92),      // 기본 -8% 손절
-          targetPrice: Math.round(price * 1.15),    // 기본 +15% 목표
+          stopLoss: sl,
+          targetPrice: tp,
+          rrr: parseFloat(calcRRR(price, tp, sl).toFixed(2)),
           addedAt: new Date().toISOString(),
           addedBy: 'MANUAL',
         };
@@ -304,6 +308,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `진입가: ${price.toLocaleString()}원\n` +
           `손절: ${newEntry.stopLoss.toLocaleString()}원 (-8%)\n` +
           `목표: ${newEntry.targetPrice.toLocaleString()}원 (+15%)\n` +
+          `RRR: ${newEntry.rrr}\n` +
           `<i>대시보드에서 진입가/손절/목표를 조정하세요.</i>`
         );
         break;
