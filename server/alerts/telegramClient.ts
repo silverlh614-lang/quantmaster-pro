@@ -22,8 +22,10 @@ export async function setTelegramBotCommands(): Promise<void> {
     { command: 'add',       description: '워치리스트 추가 (예: /add 005380)' },
     { command: 'remove',    description: '워치리스트 제거 (예: /remove 005380)' },
     { command: 'regime',    description: '매크로 레짐 + MHS + VKOSPI 현황' },
+    { command: 'focus',     description: 'Track B 매수 대상 상세 조회' },
     { command: 'scan',      description: '장중 강제 스캔 트리거' },
     { command: 'cancel',    description: '종목 미체결 주문 취소 (예: /cancel 005380)' },
+    { command: 'watchlist_channel', description: '워치리스트 현황 채널 발송' },
   ];
 
   try {

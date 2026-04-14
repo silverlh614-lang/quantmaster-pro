@@ -72,7 +72,8 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `📊 <b>조회</b>\n` +
           `  /status — 시스템 현황 요약\n` +
           `  /market — 시장상황 요약 레포트\n` +
-          `  /watchlist — 워치리스트 조회\n` +
+          `  /watchlist — 워치리스트 전체 조회\n` +
+          `  /focus — Track B 매수 대상 상세 조회\n` +
           `  /shadow — Shadow 성과 현황\n` +
           `  /pending — 미체결 주문 조회\n` +
           `  /pos — 보유 포지션 요약\n` +
@@ -85,7 +86,8 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /report — 일일 리포트 생성\n\n` +
           `📋 <b>워치리스트</b>\n` +
           `  /add <code>종목코드</code> — 워치리스트 추가\n` +
-          `  /remove <code>종목코드</code> — 워치리스트 제거\n\n` +
+          `  /remove <code>종목코드</code> — 워치리스트 제거\n` +
+          `  /watchlist_channel — 워치리스트 채널 발송\n\n` +
           `🛑 <b>제어</b>\n` +
           `  /stop — 비상 정지 발동\n` +
           `  /reset [pw] — 비상 정지 해제\n` +
@@ -155,11 +157,65 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
       case '/watchlist': {
         const wl = loadWatchlist();
-        if (wl.length === 0) { await reply('📋 워치리스트가 비어 있습니다.'); break; }
-        const lines = wl.map(w =>
-          `• ${w.name}(${w.code}) 진입:${w.entryPrice.toLocaleString()} 손절:${w.stopLoss.toLocaleString()} 목표:${w.targetPrice.toLocaleString()}`
-        ).join('\n');
-        await reply(`📋 <b>워치리스트 (${wl.length}개)</b>\n${lines}`);
+        if (wl.length === 0) {
+          await reply(
+            '📋 <b>워치리스트가 비어 있습니다.</b>\n\n' +
+            '💡 <i>/add 005930 으로 종목을 추가하세요.\n' +
+            '자동 스크리너가 발굴한 종목도 여기에 표시됩니다.</i>'
+          );
+          break;
+        }
+
+        const trackB = wl.filter(w => w.track === 'B' || w.addedBy === 'MANUAL');
+        const trackA = wl.filter(w => w.track === 'A' && w.addedBy !== 'MANUAL');
+
+        const formatEntry = (w: WatchlistEntry, showDetail: boolean) => {
+          const focusMark = w.isFocus ? '⭐' : '';
+          const manualMark = w.addedBy === 'MANUAL' ? '👤' : '🤖';
+          const gate = w.gateScore !== undefined ? `Gate ${w.gateScore.toFixed(1)}` : '';
+          const rrr = w.rrr !== undefined ? `RRR 1:${w.rrr.toFixed(1)}` : '';
+          const sector = w.sector ? `${w.sector}` : '';
+          const meta = [gate, rrr, sector].filter(Boolean).join(' · ');
+
+          if (showDetail) {
+            return (
+              `${focusMark}${manualMark} <b>${w.name}</b> (${w.code})\n` +
+              `   💰 진입: ${w.entryPrice.toLocaleString()}원\n` +
+              `   🛡️ 손절: ${w.stopLoss.toLocaleString()}원 → 🎯 목표: ${w.targetPrice.toLocaleString()}원\n` +
+              (meta ? `   📊 ${meta}` : '') +
+              (w.memo ? `\n   💬 ${w.memo}` : '')
+            );
+          }
+          return `  ${manualMark} ${w.name}(${w.code}) ${meta ? `| ${meta}` : ''}`;
+        };
+
+        const parts: string[] = [
+          `📋 <b>[워치리스트] 총 ${wl.length}개</b>`,
+          `━━━━━━━━━━━━━━━━━━━━`,
+        ];
+
+        if (trackB.length > 0) {
+          parts.push(`\n🎯 <b>Track B — 매수 대상 (${trackB.length}개)</b>`);
+          parts.push(...trackB.map(w => formatEntry(w, true)));
+        }
+
+        if (trackA.length > 0) {
+          parts.push(`\n📂 <b>Track A — 후보군 (${trackA.length}개)</b>`);
+          // Track A는 간략하게 표시 (최대 10개, 나머지는 요약)
+          const shown = trackA.slice(0, 10);
+          parts.push(...shown.map(w => formatEntry(w, false)));
+          if (trackA.length > 10) {
+            parts.push(`  ... 외 ${trackA.length - 10}개`);
+          }
+        }
+
+        parts.push(
+          `\n━━━━━━━━━━━━━━━━━━━━`,
+          `⭐=Focus(자동매수대상) 👤=수동 🤖=자동발굴`,
+          `💡 /focus — Track B 상세 조회`
+        );
+
+        await reply(parts.join('\n'));
         break;
       }
 
@@ -410,6 +466,66 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           }
         }
         await reply(`✅ ${code} 미체결 주문 ${pendingOrders.length}건 취소 요청 완료`);
+        break;
+      }
+
+      case '/focus': {
+        const wl = loadWatchlist();
+        const focusList = wl.filter(w => w.track === 'B' || w.addedBy === 'MANUAL');
+        if (focusList.length === 0) {
+          await reply(
+            '🎯 <b>Focus 종목이 없습니다.</b>\n\n' +
+            '💡 <i>Gate Score 상위 종목이 자동 승격되거나,\n' +
+            '/add 로 수동 추가하면 Track B에 포함됩니다.</i>'
+          );
+          break;
+        }
+
+        const lines: string[] = [];
+        for (const w of focusList) {
+          const focusMark = w.isFocus ? '⭐' : '';
+          const manualMark = w.addedBy === 'MANUAL' ? '👤' : '🤖';
+          const gate = w.gateScore !== undefined ? `Gate ${w.gateScore.toFixed(1)}` : 'Gate -';
+          const rrr = w.rrr !== undefined ? `RRR 1:${w.rrr.toFixed(1)}` : '';
+          const sector = w.sector ?? '';
+          const profile = w.profileType ? `[${w.profileType}]` : '';
+          const cooldown = w.cooldownUntil && new Date(w.cooldownUntil) > new Date()
+            ? '🧊 쿨다운중' : '';
+          const addedDate = new Date(w.addedAt).toLocaleDateString('ko-KR', {
+            month: 'short', day: 'numeric', timeZone: 'Asia/Seoul',
+          });
+          const meta = [gate, rrr, sector, profile].filter(Boolean).join(' · ');
+
+          lines.push(
+            `${focusMark}${manualMark} <b>${w.name}</b> (${w.code}) ${cooldown}\n` +
+            `   💰 진입: ${w.entryPrice.toLocaleString()}원\n` +
+            `   🛡️ 손절: ${w.stopLoss.toLocaleString()}원 | 🎯 목표: ${w.targetPrice.toLocaleString()}원\n` +
+            `   📊 ${meta}\n` +
+            `   📅 등록: ${addedDate}` +
+            (w.memo ? ` | 💬 ${w.memo}` : '')
+          );
+        }
+
+        await reply(
+          `🎯 <b>[Track B — 매수 대상] ${focusList.length}개</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          lines.join('\n━━━━━━━━━━━━━━━━━━━━\n') +
+          `\n━━━━━━━━━━━━━━━━━━━━\n` +
+          `⭐=자동매수대상 👤=수동 🤖=자동발굴 🧊=쿨다운\n` +
+          `💡 /buy 종목코드 — 수동 매수 신호 트리거`
+        );
+        break;
+      }
+
+      case '/watchlist_channel': {
+        const { channelWatchlistSummary } = await import('../alerts/channelPipeline.js');
+        const wl = loadWatchlist();
+        if (wl.length === 0) {
+          await reply('📋 워치리스트가 비어 있어 채널 발송할 내용이 없습니다.');
+          break;
+        }
+        await channelWatchlistSummary(wl);
+        await reply(`✅ 워치리스트 ${wl.length}개 종목을 채널에 발송했습니다.`);
         break;
       }
 
