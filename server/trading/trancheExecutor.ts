@@ -278,8 +278,8 @@ export class TrancheExecutor {
           }
         }
 
-        // 실행 전 승인 요청
-        if (isLive) {
+        // 실행 전 승인 요청 (LIVE/Shadow 공통 — 미승인 시 연속 주문 방지)
+        {
           const trancheApproval = await requestBuyApproval({
             tradeId:      `${t.id}_exec`,
             stockCode:    t.stockCode,
@@ -288,13 +288,13 @@ export class TrancheExecutor {
             quantity:     t.quantity,
             stopLoss:     t.stopLoss,
             targetPrice:  t.targetPrice,
-            mode:         'LIVE',
+            mode:         isLive ? 'LIVE' : 'SHADOW',
           });
           if (trancheApproval !== 'APPROVE') {
             t.status = 'CANCELLED';
             t.cancelReason = `사용자 ${trancheApproval}`;
             changed = true;
-            console.log(`[Tranche] LIVE ${t.trancheNumber}차 ${trancheApproval} — 취소: ${t.stockName}`);
+            console.log(`[Tranche] ${isLive ? 'LIVE' : 'SHADOW'} ${t.trancheNumber}차 ${trancheApproval} — 취소: ${t.stockName}`);
             await sendTelegramAlert(
               `🚫 <b>[분할 매수 ${t.trancheNumber}차 취소]</b> ${t.stockName}(${t.stockCode})\n사용자 ${trancheApproval}`
             ).catch(console.error);

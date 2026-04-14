@@ -264,7 +264,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     console.log(volumeClock.reason);
   }
 
-  // LIVE 모드 매수 승인 큐 — 승인 요청을 병렬 발송하고 루프 완료 후 일괄 처리
+  // 매수 승인 큐 (LIVE/Shadow 공통) — 승인 요청을 병렬 발송하고 루프 완료 후 일괄 처리
   // (순차 대기 시 종목당 최대 3분 × N종목 = 총 N×3분 블로킹 방지)
   type LiveBuyTask = { approvalPromise: Promise<ApprovalAction>; execute: (a: ApprovalAction) => Promise<void> };
   const liveBuyQueue: LiveBuyTask[] = [];
@@ -419,39 +419,41 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               `주문가: ${followEntryPrice.toLocaleString()}원 × ${followQty}주\n` +
               `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`;
 
-            if (shadowMode) {
-              console.log(`[PreBreakout SHADOW] ${stock.name}(${stock.code}) 추종 매수 @${currentPrice}`);
-              await sendTelegramAlert(alertMsg).catch(console.error);
-            } else {
-              // 병렬 승인 큐 등록 — 루프 후 Promise.allSettled로 일괄 처리
+            {
+              // 병렬 승인 큐 등록 — Shadow/LIVE 공통 (루프 후 Promise.allSettled로 일괄 처리)
               const _ft = followTrade, _fq = followQty, _fep = followEntryPrice;
               const _fCode = stock.code, _fName = stock.name, _fTarget = stock.targetPrice;
               const _fSl = stopLossPlan.hardStopLoss, _fAlert = alertMsg, _fGs = gateScoreFollow;
+              const _fShadow = shadowMode;
               const _fEnemy = await fetchEnemyCheckData(stock.code).catch(() => null);
               liveBuyQueue.push({
                 approvalPromise: requestBuyApproval({
                   tradeId: _ft.id, stockCode: _fCode, stockName: _fName,
                   currentPrice, quantity: _fq, stopLoss: _fSl,
-                  targetPrice: _fTarget, mode: 'LIVE', gateScore: _fGs,
+                  targetPrice: _fTarget, mode: _fShadow ? 'SHADOW' : 'LIVE', gateScore: _fGs,
                   enemyCheck: _fEnemy,
                 }),
                 execute: async (approval) => {
                   if (approval !== 'APPROVE') {
-                    console.log(`[PreBreakout LIVE] ${_fName} 추종 매수 ${approval} — 건너뜀`);
+                    console.log(`[PreBreakout ${_fShadow ? 'SHADOW' : 'LIVE'}] ${_fName} 추종 매수 ${approval} — 건너뜀`);
                     _ft.status = 'REJECTED';
                     return;
                   }
-                  const ordNo = await placeKisMarketBuyOrder(_fCode, _fq);
-                  console.log(`[PreBreakout LIVE] ${_fName} 추종 매수 — ODNO: ${ordNo}`);
-                  if (ordNo) {
-                    fillMonitor.addOrder({
-                      ordNo, stockCode: _fCode, stockName: _fName,
-                      quantity: _fq, orderPrice: _fep,
-                      placedAt: new Date().toISOString(), relatedTradeId: _ft.id,
-                    });
-                    _ft.status = 'ORDER_SUBMITTED';
+                  if (!_fShadow) {
+                    const ordNo = await placeKisMarketBuyOrder(_fCode, _fq);
+                    console.log(`[PreBreakout LIVE] ${_fName} 추종 매수 — ODNO: ${ordNo}`);
+                    if (ordNo) {
+                      fillMonitor.addOrder({
+                        ordNo, stockCode: _fCode, stockName: _fName,
+                        quantity: _fq, orderPrice: _fep,
+                        placedAt: new Date().toISOString(), relatedTradeId: _ft.id,
+                      });
+                      _ft.status = 'ORDER_SUBMITTED';
+                    } else {
+                      _ft.status = 'REJECTED';
+                    }
                   } else {
-                    _ft.status = 'REJECTED';
+                    console.log(`[PreBreakout SHADOW] ${_fName}(${_fCode}) 추종 매수 @${_fep}`);
                   }
                   await sendTelegramAlert(_fAlert).catch(console.error);
                   if (_ft.status !== 'REJECTED') {
@@ -459,10 +461,6 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                   }
                 },
               });
-            }
-            // Shadow 모드 시에만 현금 차감 (LIVE는 클로저 내부에서 처리)
-            if (shadowMode && followTrade.status !== 'REJECTED') {
-              orderableCash = Math.max(0, orderableCash - followQty * followEntryPrice);
             }
           } else {
             console.log(`[PreBreakout] ${stock.name}(${stock.code}) 추종 매수 이미 실행됨 — 스킵`);
@@ -613,46 +611,44 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                   `⚡ 돌파 확인 시 나머지 70%(${fullPbQty - pbQty}주) 추가 집행`
                 ).catch(console.error);
 
-                if (!shadowMode) {
-                  // 병렬 승인 큐 등록
+                {
+                  // 병렬 승인 큐 등록 — Shadow/LIVE 공통
                   const _pb = pbTrade, _pbQty = pbQty, _pbEp = pbEntryPrice;
                   const _pbCode = stock.code, _pbName = stock.name, _pbTarget = stock.targetPrice;
                   const _pbSl = stopLossPlanPb.hardStopLoss, _pbGs = gateScorePb;
+                  const _pbShadow = shadowMode;
                   const _pbEnemy = await fetchEnemyCheckData(stock.code).catch(() => null);
                   liveBuyQueue.push({
                     approvalPromise: requestBuyApproval({
                       tradeId: _pb.id, stockCode: _pbCode, stockName: _pbName,
                       currentPrice, quantity: _pbQty, stopLoss: _pbSl,
-                      targetPrice: _pbTarget, mode: 'LIVE', gateScore: _pbGs,
+                      targetPrice: _pbTarget, mode: _pbShadow ? 'SHADOW' : 'LIVE', gateScore: _pbGs,
                       enemyCheck: _pbEnemy,
                     }),
                     execute: async (approval) => {
                       if (approval !== 'APPROVE') {
-                        console.log(`[PreBreakout LIVE] ${_pbName} 선취매 ${approval} — 건너뜀`);
+                        console.log(`[PreBreakout ${_pbShadow ? 'SHADOW' : 'LIVE'}] ${_pbName} 선취매 ${approval} — 건너뜀`);
                         _pb.status = 'REJECTED';
                         return;
                       }
-                      const ordNo = await placeKisMarketBuyOrder(_pbCode, _pbQty);
-                      if (ordNo) {
-                        fillMonitor.addOrder({
-                          ordNo, stockCode: _pbCode, stockName: _pbName,
-                          quantity: _pbQty, orderPrice: _pbEp,
-                          placedAt: new Date().toISOString(), relatedTradeId: _pb.id,
-                        });
-                        _pb.status = 'ORDER_SUBMITTED';
-                      } else {
-                        _pb.status = 'REJECTED';
+                      if (!_pbShadow) {
+                        const ordNo = await placeKisMarketBuyOrder(_pbCode, _pbQty);
+                        if (ordNo) {
+                          fillMonitor.addOrder({
+                            ordNo, stockCode: _pbCode, stockName: _pbName,
+                            quantity: _pbQty, orderPrice: _pbEp,
+                            placedAt: new Date().toISOString(), relatedTradeId: _pb.id,
+                          });
+                          _pb.status = 'ORDER_SUBMITTED';
+                        } else {
+                          _pb.status = 'REJECTED';
+                        }
                       }
                       if (_pb.status !== 'REJECTED') {
                         orderableCash = Math.max(0, orderableCash - _pbQty * _pbEp);
                       }
                     },
                   });
-                }
-
-                // Shadow 모드 시에만 현금 차감 (LIVE는 클로저 내부에서 처리)
-                if (shadowMode && pbTrade.status !== 'REJECTED') {
-                  orderableCash = Math.max(0, orderableCash - pbQty * pbEntryPrice);
                 }
               }
             }
@@ -934,41 +930,65 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       const trancheLabel = isStrongBuy ? ` (1차/${execQty}주, 총${quantity}주)` : '';
 
       if (shadowMode) {
-        shadows.push(trade);
+        // SHADOW 모드: 승인 큐에 등록 (텔레그램 승인 후 등록)
         _scanEntries++;
         _lastBuySignalAt = Date.now();
         stageLog.buy = 'SHADOW'; pushTrace();
-        console.log(`[AutoTrade SHADOW] ${stock.name}(${stock.code}) 신호 등록 @${currentPrice}${trancheLabel}`);
-        appendShadowLog({ event: 'SIGNAL', ...trade });
+        const _t = trade, _code = stock.code, _name = stock.name;
+        const _execQty = execQty, _ep = shadowEntryPrice, _sl = stopLossPlan.hardStopLoss;
+        const _target = stock.targetPrice, _gs = gateScore, _cp = currentPrice;
+        const _eb = effectiveBudget, _isStrong = isStrongBuy, _qty = quantity;
+        const _tLabel = trancheLabel, _rcg = reCheckGate, _lgs = liveGateScore;
+        const _slBreakdown = formatStopLossBreakdown(stopLossPlan);
+        const _rrr = stock.rrr, _sector = stock.sector;
+        const _enemy = await fetchEnemyCheckData(stock.code).catch(() => null);
+        liveBuyQueue.push({
+          approvalPromise: requestBuyApproval({
+            tradeId: _t.id, stockCode: _code, stockName: _name,
+            currentPrice: _cp, quantity: _execQty, stopLoss: _sl,
+            targetPrice: _target, mode: 'SHADOW', gateScore: _gs,
+            enemyCheck: _enemy,
+          }),
+          execute: async (approval) => {
+            if (approval !== 'APPROVE') {
+              console.log(`[AutoTrade SHADOW] ${_name} 매수 ${approval} — 건너뜀`);
+              _t.status = 'REJECTED';
+              return;
+            }
+            shadows.push(_t);
+            console.log(`[AutoTrade SHADOW] ${_name}(${_code}) 신호 등록 @${_cp}${_tLabel}`);
+            appendShadowLog({ event: 'SIGNAL', ..._t });
 
-        const gateLabel = reCheckGate
-          ? `Gate ${liveGateScore.toFixed(1)} | MTAS ${reCheckGate.mtas.toFixed(0)}/10 | CS ${reCheckGate.compressionScore.toFixed(2)}`
-          : `Gate ${gateScore} (워치리스트)`;
+            const gateLabel = _rcg
+              ? `Gate ${_lgs.toFixed(1)} | MTAS ${_rcg.mtas.toFixed(0)}/10 | CS ${_rcg.compressionScore.toFixed(2)}`
+              : `Gate ${_gs} (워치리스트)`;
 
-        // 개인 채팅: 상세 손절 내역 포함
-        await sendTelegramAlert(
-          `⚡ <b>[Shadow] 매수 신호${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
-          `종목: ${stock.name} (${stock.code})\n` +
-          `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
-          `📊 ${gateLabel}\n` +
-          `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`
-        ).catch(console.error);
-        // 채널: 구독자 대상 포맷팅된 신호
-        await channelBuySignal({
-          mode: 'SHADOW',
-          stockName:   stock.name,
-          stockCode:   stock.code,
-          price:       currentPrice,
-          quantity:    execQty,
-          gateScore:   liveGateScore,
-          mtas:        reCheckGate?.mtas ?? 0,
-          cs:          reCheckGate?.compressionScore ?? 0,
-          stopLoss:    stopLossPlan.hardStopLoss,
-          targetPrice: stock.targetPrice,
-          rrr:         stock.rrr ?? 0,
-          signalType:  isStrongBuy ? 'STRONG_BUY' : 'BUY',
-          sector:      stock.sector,
-        }).catch(console.error);
+            await sendTelegramAlert(
+              `⚡ <b>[Shadow] 매수 신호${_isStrong ? ' — 분할 1차' : ''}</b>\n` +
+              `종목: ${_name} (${_code})\n` +
+              `현재가: ${_cp.toLocaleString()}원 × ${_execQty}주${_isStrong ? ` (총${_qty}주)` : ''}\n` +
+              `📊 ${gateLabel}\n` +
+              `손절: ${_slBreakdown} | 목표: ${_target.toLocaleString()}원`
+            ).catch(console.error);
+            await channelBuySignal({
+              mode: 'SHADOW', stockName: _name, stockCode: _code,
+              price: _cp, quantity: _execQty, gateScore: _lgs,
+              mtas: _rcg?.mtas ?? 0, cs: _rcg?.compressionScore ?? 0,
+              stopLoss: _sl, targetPrice: _target,
+              rrr: _rrr ?? 0, signalType: _isStrong ? 'STRONG_BUY' : 'BUY',
+              sector: _sector,
+            }).catch(console.error);
+            orderableCash = Math.max(0, orderableCash - _eb);
+            if (_isStrong && _qty > 1) {
+              trancheExecutor.scheduleTranches({
+                parentTradeId: _t.id, stockCode: _code, stockName: _name,
+                totalQuantity: _qty, firstQuantity: _execQty,
+                entryPrice: _ep, stopLoss: _sl, targetPrice: _target,
+              });
+            }
+          },
+        });
+        continue; // 공통 후처리는 execute 클로저 내에서 처리
       } else {
         // LIVE 모드: 병렬 승인 큐에 등록 (루프 후 Promise.allSettled로 일괄 처리)
         _scanEntries++;
@@ -1091,7 +1111,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       );
     } else {
       const today = new Date().toISOString().split('T')[0];
-      // LIVE 모드 Intraday 병렬 승인 큐
+      // Intraday 병렬 승인 큐 (LIVE/Shadow 공통)
       const intradayLiveBuyQueue: LiveBuyTask[] = [];
 
       for (const stock of intradayBuyList) {
@@ -1216,23 +1236,48 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           const stopLabel = stopPct === INTRADAY_PULLBACK_STOP_LOSS_PCT ? '-4%' : '-5%';
 
           if (shadowMode) {
-            shadows.push(trade);
+            // SHADOW 모드: 승인 큐에 등록 (텔레그램 승인 후 등록)
             _scanEntries++;
             _lastBuySignalAt = Date.now();
-            console.log(`[AutoTrade/Intraday SHADOW] ${stock.name}(${stock.code}) 장중 진입 @${currentPrice}`);
-            appendShadowLog({ event: 'INTRADAY_SIGNAL', ...trade });
-
-            await sendTelegramAlert(
-              `📈 <b>[Shadow] 장중 매수 신호</b>\n` +
-              `종목: ${stock.name} (${stock.code})\n` +
-              `현재가: ${currentPrice.toLocaleString()}원 × ${quantity}주\n` +
-              `손절: ${intradayStop.toLocaleString()} (${stopLabel}) | 목표: ${intradayTarget.toLocaleString()}\n` +
-              `⚡ Intraday 포지션 ${currentIntradayActive + 1}/${MAX_INTRADAY_POSITIONS}`,
-            ).catch(console.error);
-
-            if (trade.status !== 'REJECTED') {
-              orderableCash = Math.max(0, orderableCash - effectiveBudget);
-            }
+            const _it = trade, _iCode = stock.code, _iName = stock.name;
+            const _iQty = quantity, _iEp = shadowEntryPrice, _iStop = intradayStop;
+            const _iTarget = intradayTarget, _iGs = intradayGateScore, _iCp = currentPrice;
+            const _iEb = effectiveBudget, _iLabel = stopLabel, _iSlot = currentIntradayActive + 1;
+            const _iEnemy = await fetchEnemyCheckData(stock.code).catch(() => null);
+            intradayLiveBuyQueue.push({
+              approvalPromise: requestBuyApproval({
+                tradeId: _it.id, stockCode: _iCode, stockName: _iName,
+                currentPrice: _iCp, quantity: _iQty, stopLoss: _iStop,
+                targetPrice: _iTarget, mode: 'SHADOW', gateScore: _iGs,
+                enemyCheck: _iEnemy,
+              }),
+              execute: async (approval) => {
+                const shadowIntradayCount = shadows.filter(
+                  (s) => isOpenShadowStatus(s.status) && s.watchlistSource === 'INTRADAY',
+                ).length;
+                if (shadowIntradayCount >= MAX_INTRADAY_POSITIONS) {
+                  console.log(`[AutoTrade/Intraday SHADOW] 최대 포지션 도달 — ${_iName} 건너뜀`);
+                  _it.status = 'REJECTED';
+                  return;
+                }
+                if (approval !== 'APPROVE') {
+                  console.log(`[AutoTrade/Intraday SHADOW] ${_iName} 매수 ${approval} — 건너뜀`);
+                  _it.status = 'REJECTED';
+                  return;
+                }
+                shadows.push(_it);
+                console.log(`[AutoTrade/Intraday SHADOW] ${_iName}(${_iCode}) 장중 진입 @${_iCp}`);
+                appendShadowLog({ event: 'INTRADAY_SIGNAL', ..._it });
+                await sendTelegramAlert(
+                  `📈 <b>[Shadow] 장중 매수 신호</b>\n` +
+                  `종목: ${_iName} (${_iCode})\n` +
+                  `현재가: ${_iCp.toLocaleString()}원 × ${_iQty}주\n` +
+                  `손절: ${_iStop.toLocaleString()} (${_iLabel}) | 목표: ${_iTarget.toLocaleString()}\n` +
+                  `⚡ Intraday 포지션 ${_iSlot}/${MAX_INTRADAY_POSITIONS}`,
+                ).catch(console.error);
+                orderableCash = Math.max(0, orderableCash - _iEb);
+              },
+            });
           } else {
             // LIVE 모드: 병렬 승인 큐에 등록
             _scanEntries++;
