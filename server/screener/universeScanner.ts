@@ -142,8 +142,11 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
   }
 
   // ─ Yahoo 유니버스 스캔 (VTS 보완 + KIS 미제공 종목) — 5개씩 병렬 배치 ─
-  for (let i = 0; i < STOCK_UNIVERSE.length; i += BATCH_SIZE) {
-    const batch = STOCK_UNIVERSE.slice(i, i + BATCH_SIZE);
+  // 아이디어 6: 동적 확장 유니버스 사용 (정적 + 주간 52주신고가/외국인순매수)
+  const { getExpandedUniverse } = await import('./dynamicUniverseExpander.js');
+  const scanUniverse = getExpandedUniverse();
+  for (let i = 0; i < scanUniverse.length; i += BATCH_SIZE) {
+    const batch = scanUniverse.slice(i, i + BATCH_SIZE);
     const batchResults = await Promise.all(
       batch.map(async (stock) => {
         if (seenCodes.has(stock.code)) return null;

@@ -175,12 +175,14 @@ async function discoverIntradayCandidates(): Promise<void> {
   const intradayCodes  = new Set(intradayList.map(e => e.code));
   const preMarketCodes = new Set(preMarketList.map(e => e.code));
 
-  // ── 이중 소스: STOCK_UNIVERSE + screenerCache 병합 (코드 기준 중복 제거) ─
+  // ── 이중 소스: STOCK_UNIVERSE(+동적확장) + screenerCache 병합 (코드 기준 중복 제거) ─
   const seenCodes = new Set<string>();
   const mergedCandidates: { code: string; name: string; symbol?: string }[] = [];
 
-  // 소스 1: STOCK_UNIVERSE 120개 (고정 우량주 풀)
-  for (const stock of STOCK_UNIVERSE) {
+  // 소스 1: 확장 유니버스 (정적 + 동적 주간 확장)
+  const { getExpandedUniverse } = await import('./dynamicUniverseExpander.js');
+  const expandedUniverse = getExpandedUniverse();
+  for (const stock of expandedUniverse) {
     if (!stock.code || seenCodes.has(stock.code)) continue;
     if (intradayCodes.has(stock.code) || preMarketCodes.has(stock.code)) continue;
     if (isBlacklisted(stock.code)) continue;

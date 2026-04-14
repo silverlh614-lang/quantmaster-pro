@@ -241,7 +241,7 @@ export function addBusinessDays(date: Date, days: number): Date {
  *  1. 60일 고점 대비 3~20% 조정 (적정 눌림, 붕괴 아님)
  *  2. 가격 > MA60 (장기 추세 유지)
  *  3. VCP(변동성 축소) 또는 거래량 마름 (에너지 응축)
- *  4. RSI 35~55 (과매도 아닌 중립 — 반등 여력)
+ *  4. RSI 30~62 (완화 — 강한 추세에서 RSI 56~62 첫 눌림 포착)
  */
 export function isPullbackSetup(q: YahooQuoteExtended): boolean {
   if (q.high60d <= 0) return false;
@@ -250,7 +250,7 @@ export function isPullbackSetup(q: YahooQuoteExtended): boolean {
   if (q.ma60 <= 0 || q.price < q.ma60) return false;       // 장기 추세 유지
   const isVCP = q.atr > 0 && q.atr20avg > 0 && q.atr < q.atr20avg * 0.75;
   if (!isVCP && !q.dailyVolumeDrying) return false;         // 압축 또는 거래량 마름
-  if (q.rsi14 < 35 || q.rsi14 > 55) return false;          // 중립 RSI
+  if (q.rsi14 < 30 || q.rsi14 > 62) return false;          // 완화: 강한 추세 첫 눌림 허용
   return true;
 }
 

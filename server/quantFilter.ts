@@ -154,7 +154,7 @@ function calculateMTAS(quote: YahooQuoteExtended): { mtas: number; dataInsuffici
  * 조건 27: 거래량 급증 + 상승 (거래량 3배 이상 & +1% 이상)
  * [신규] RSI(14) 건강구간 40~70 (실계산)
  * [신규] MACD 히스토그램 > 0 (실계산)
- * [신규] 눌림목 셋업 (고점대비 3~20% 조정 + VCP/거래량마름 + MA60위 + RSI중립)
+ * [신규] 눌림목 셋업 (고점대비 3~20% 조정 + VCP/거래량마름 + MA60위 + RSI 30~62)
  */
 export function evaluateServerGate(
   quote: YahooQuoteExtended,
