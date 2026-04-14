@@ -14,6 +14,19 @@ export const CCLD_TR_ID  = KIS_IS_REAL ? 'TTTC8001R' : 'VTTC8001R';
 
 let cachedToken: { token: string; expiry: number } | null = null;
 
+// ─── 실계좌 데이터 전용 클라이언트 설정 ───────────────────────────────────────
+// 모의계좌 앱키 → 자동매매 주문 집행 (안전한 테스트)
+// 실계좌 앱키   → 시장 데이터 조회만 (거래량 순위, 현재가, 투자자 수급 등)
+// 주문은 모의계좌로, 데이터는 실계좌 키로 가져오는 하이브리드 구조
+
+const REAL_DATA_BASE = 'https://openapi.koreainvestment.com:9443';
+
+/** 실계좌 데이터 전용 키가 설정되어 있는지 여부 */
+export const HAS_REAL_DATA_CLIENT =
+  !!(process.env.KIS_REAL_DATA_APP_KEY && process.env.KIS_REAL_DATA_APP_SECRET);
+
+let cachedRealDataToken: { token: string; expiry: number } | null = null;
+
 // ─── 토큰 관리 ──────────────────────────────────────────────────────────────
 
 /** KIS 기본 URL 반환 (기존 server/ 호환) */
@@ -44,6 +57,33 @@ export const getKisToken = refreshKisToken;
 export function getKisTokenRemainingHours(): number {
   if (!cachedToken) return 0;
   return Math.floor((cachedToken.expiry - Date.now()) / 1000 / 60 / 60);
+}
+
+// ─── 실계좌 데이터 전용 토큰 관리 ────────────────────────────────────────────
+
+/** 실계좌 데이터 전용 토큰 갱신. 실계좌 키 미설정 시 에러 */
+async function refreshRealDataToken(): Promise<string> {
+  if (cachedRealDataToken && Date.now() < cachedRealDataToken.expiry) return cachedRealDataToken.token;
+  const res = await fetch(`${REAL_DATA_BASE}/oauth2/tokenP`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'client_credentials',
+      appkey: process.env.KIS_REAL_DATA_APP_KEY,
+      appsecret: process.env.KIS_REAL_DATA_APP_SECRET,
+    }),
+  });
+  const data = await res.json() as { access_token?: string };
+  if (!data.access_token) throw new Error(`KIS 실계좌 데이터 토큰 갱신 실패: ${JSON.stringify(data)}`);
+  cachedRealDataToken = { token: data.access_token, expiry: Date.now() + 23 * 60 * 60 * 1000 };
+  console.log('[KIS-RealData] 실계좌 데이터 전용 토큰 갱신 완료');
+  return cachedRealDataToken.token;
+}
+
+/** 실계좌 데이터 전용 토큰 잔여 시간 */
+export function getRealDataTokenRemainingHours(): number {
+  if (!cachedRealDataToken) return 0;
+  return Math.floor((cachedRealDataToken.expiry - Date.now()) / 1000 / 60 / 60);
 }
 
 // ─── HTTP 헬퍼 ──────────────────────────────────────────────────────────────
@@ -85,6 +125,34 @@ export async function kisPost(trId: string, apiPath: string, body: Record<string
   try { return JSON.parse(text); } catch { return null; }
 }
 
+// ─── 실계좌 데이터 전용 HTTP 헬퍼 ────────────────────────────────────────────
+// 시장 데이터(거래량 순위, 현재가, 투자자 수급 등) 조회 전용.
+// 실계좌 키 미설정 시 모의계좌 kisGet으로 자동 폴백.
+
+/**
+ * 실계좌 데이터 전용 GET 요청.
+ * KIS_REAL_DATA_APP_KEY 설정 시 실계좌 서버로, 미설정 시 기존 kisGet 폴백.
+ */
+export async function realDataKisGet(trId: string, apiPath: string, params: Record<string, string>) {
+  if (!HAS_REAL_DATA_CLIENT) return kisGet(trId, apiPath, params);
+
+  const token = await refreshRealDataToken();
+  const url = `${REAL_DATA_BASE}${apiPath}?${new URLSearchParams(params)}`;
+  const res = await fetch(url, {
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      appkey: process.env.KIS_REAL_DATA_APP_KEY!,
+      appsecret: process.env.KIS_REAL_DATA_APP_SECRET!,
+      tr_id: trId,
+      custtype: 'P',
+    },
+  });
+  const text = await res.text();
+  if (!text.trim()) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
 // ─── 현재가 조회 ────────────────────────────────────────────────────────────
 
 // ─── 종목별 투자자 수급 조회 ─────────────────────────────────────────────────
@@ -101,9 +169,9 @@ export interface KisInvestorFlow {
  * KIS_APP_KEY 미설정 시 null 반환. 실계좌/VTS 모두 지원.
  */
 export async function fetchKisInvestorFlow(code: string): Promise<KisInvestorFlow | null> {
-  if (!process.env.KIS_APP_KEY) return null;
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
   try {
-    const data = await kisGet(
+    const data = await realDataKisGet(
       'FHKST01010300',
       '/uapi/domestic-stock/v1/quotations/inquire-investor',
       {
@@ -123,7 +191,7 @@ export async function fetchKisInvestorFlow(code: string): Promise<KisInvestorFlo
 }
 
 export async function fetchCurrentPrice(code: string): Promise<number | null> {
-  const data = await kisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
+  const data = await realDataKisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
     FID_COND_MRKT_DIV_CODE: 'J',
     FID_INPUT_ISCD: code,
   });

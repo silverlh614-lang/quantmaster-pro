@@ -3,7 +3,7 @@ import { SCREENER_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
-import { kisGet, KIS_IS_REAL } from '../clients/kisClient.js';
+import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL } from '../clients/kisClient.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { isPullbackSetup } from './pipelineHelpers.js';
 
@@ -272,20 +272,21 @@ export function getScreenerCache(): ScreenedStock[] {
  * 3단계: 상위 30개만 캐시 저장 → AI 분석 시 이 풀에서만 선택
  */
 export async function preScreenStocks(): Promise<ScreenedStock[]> {
-  if (!process.env.KIS_APP_KEY) return [];
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return [];
 
   // FHPST01710000 (거래량 순위)은 실계좌 전용 TR — VTS에서 미지원
-  if (!KIS_IS_REAL) {
+  // 단, 실계좌 데이터 키(KIS_REAL_DATA_APP_KEY) 설정 시 하이브리드 모드로 조회 가능
+  if (!KIS_IS_REAL && !HAS_REAL_DATA_CLIENT) {
     console.warn(
       '[Screener] 모의투자(VTS) 모드 — 거래량 순위 TR(FHPST01710000) 미지원. ' +
-      '캐시된 스크리너 결과를 반환합니다. 실계좌 전환(KIS_IS_REAL=true) 후 사용 가능.'
+      '캐시된 스크리너 결과를 반환합니다. 실계좌 데이터 키 또는 KIS_IS_REAL=true 설정 후 사용 가능.'
     );
     return getScreenerCache();
   }
 
   try {
     // 거래량 상위 종목 (최대 30개 반환)
-    const volData = await kisGet(
+    const volData = await realDataKisGet(
       'FHPST01710000',
       '/uapi/domestic-stock/v1/ranking/volume',
       {

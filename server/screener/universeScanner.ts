@@ -27,7 +27,7 @@ import { evaluateServerGate } from '../quantFilter.js';
 import { loadMacroState, type MacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { kisGet, KIS_IS_REAL, fetchKisInvestorFlow } from '../clients/kisClient.js';
+import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, fetchKisInvestorFlow } from '../clients/kisClient.js';
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { calcReliabilityScore, sourcesFromGateKeys, formatReliabilityBadge } from '../learning/reliabilityScorer.js';
 import { runConfluenceEngine } from '../trading/confluenceEngine.js';
@@ -60,10 +60,11 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
   const candidates: CandidateStock[] = [];
   const seenCodes = new Set<string>();
 
-  // ─ KIS 실계좌: 거래량 + 상승률 순위 병렬 조회 ─
-  if (KIS_IS_REAL && process.env.KIS_APP_KEY) {
+  // ─ KIS 실계좌 데이터: 거래량 + 상승률 순위 병렬 조회 ─
+  // 실계좌 데이터 키(KIS_REAL_DATA_APP_KEY) 또는 실계좌 모드(KIS_IS_REAL)일 때 실행
+  if ((HAS_REAL_DATA_CLIENT || KIS_IS_REAL) && (process.env.KIS_REAL_DATA_APP_KEY || process.env.KIS_APP_KEY)) {
     const [volResult, riseResult] = await Promise.allSettled([
-      kisGet('FHPST01710000', '/uapi/domestic-stock/v1/ranking/volume', {
+      realDataKisGet('FHPST01710000', '/uapi/domestic-stock/v1/ranking/volume', {
         fid_cond_mrkt_div_code: 'J',
         fid_cond_scr_div_code:  '20171',
         fid_input_iscd:         '0000',
@@ -76,7 +77,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
         fid_vol_cnt:            '50000',
         fid_input_date_1:       '',
       }),
-      kisGet('FHPST01700000', '/uapi/domestic-stock/v1/ranking/fluctuation', {
+      realDataKisGet('FHPST01700000', '/uapi/domestic-stock/v1/ranking/fluctuation', {
         fid_cond_mrkt_div_code: 'J',
         fid_cond_scr_div_code:  '20170',
         fid_input_iscd:         '0000',
