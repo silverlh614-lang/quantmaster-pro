@@ -1,7 +1,7 @@
 // server/routes/kisRouter.ts
 // KIS (한국투자증권) API 라우터 — server.ts에서 분리
 import { Router } from 'express';
-import { kisGet, kisPost, BUY_TR_ID, CCLD_TR_ID, getKisToken, getKisBase, getKisTokenRemainingHours } from '../clients/kisClient.js';
+import { kisGet, kisPost, realDataKisGet, BUY_TR_ID, CCLD_TR_ID, getKisToken, getKisBase, getKisTokenRemainingHours, HAS_REAL_DATA_CLIENT, getRealDataTokenRemainingHours } from '../clients/kisClient.js';
 
 const router = Router();
 
@@ -14,7 +14,7 @@ router.get('/supply', async (req: any, res: any) => {
     const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
       .toISOString().split('T')[0].replace(/-/g, '');
-    const data = await kisGet(
+    const data = await realDataKisGet(
       'FHKST01010900',
       '/uapi/domestic-stock/v1/quotations/investor',
       {
@@ -40,7 +40,7 @@ router.get('/short-selling', async (req: any, res: any) => {
     const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
     const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString().split('T')[0].replace(/-/g, '');
-    const data = await kisGet(
+    const data = await realDataKisGet(
       'FHKST01010100',
       '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
       {
@@ -65,7 +65,7 @@ router.get('/price', async (req: any, res: any) => {
   if (!process.env.KIS_APP_KEY) return res.status(500).json({ error: 'KIS_APP_KEY 미설정' });
   if (!code) return res.status(400).json({ error: 'code 파라미터 필요' });
   try {
-    const data = await kisGet(
+    const data = await realDataKisGet(
       'FHKST01010100',
       '/uapi/domestic-stock/v1/quotations/inquire-price',
       { FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: code as string }
@@ -83,7 +83,20 @@ router.get('/token-status', async (_req: any, res: any) => {
   try {
     const token = await getKisToken();
     const remaining = getKisTokenRemainingHours();
-    res.json({ valid: !!token, expiresIn: `${remaining}h` });
+    const result: Record<string, unknown> = {
+      valid: !!token,
+      expiresIn: `${remaining}h`,
+    };
+    // 실계좌 데이터 전용 토큰 상태 추가
+    if (HAS_REAL_DATA_CLIENT) {
+      result.realDataClient = {
+        configured: true,
+        tokenExpiresIn: `${getRealDataTokenRemainingHours()}h`,
+      };
+    } else {
+      result.realDataClient = { configured: false };
+    }
+    res.json(result);
   } catch (e: any) {
     res.json({ valid: false, reason: e.message });
   }
