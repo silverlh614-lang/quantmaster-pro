@@ -262,3 +262,76 @@ export async function editMessageText(
     console.error('[Telegram] editMessageText 오류:', e instanceof Error ? e.message : e);
   }
 }
+
+// ─── 채널 알림 (TELEGRAM_CHANNEL_ID) ────────────────────────────────────────
+
+/**
+ * Telegram 채널에 알림 전송.
+ * TELEGRAM_CHANNEL_ID 환경변수에 채널 chat_id 설정 필요.
+ * (공개 채널: "@채널이름", 비공개 채널: "-100xxxxxxxxxx" 형태)
+ *
+ * - 개인 1:1 채팅이 아닌 채널 구독자 전체에게 브로드캐스트
+ * - 쿨다운/다이제스트 없이 즉시 전송 (채널은 구독자가 필터링)
+ * - replyMarkup 미지원 (채널 메시지에는 인라인 키보드 제외)
+ */
+export async function sendChannelAlert(
+  message: string,
+  opts?: { disableNotification?: boolean },
+): Promise<number | undefined> {
+  const token     = process.env.TELEGRAM_BOT_TOKEN;
+  const channelId = process.env.TELEGRAM_CHANNEL_ID;
+  if (!token || !channelId) {
+    console.log('[Telegram] TELEGRAM_CHANNEL_ID 미설정 — 채널 전송 스킵');
+    return;
+  }
+
+  try {
+    const payload: Record<string, unknown> = {
+      chat_id: channelId,
+      text: message,
+      parse_mode: 'HTML',
+    };
+    if (opts?.disableNotification) {
+      payload.disable_notification = true;
+    }
+
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('[Telegram] 채널 전송 실패:', err.slice(0, 200));
+      return;
+    }
+    const data = await res.json() as { result?: { message_id?: number } };
+    return data.result?.message_id;
+  } catch (e: unknown) {
+    console.error('[Telegram] 채널 전송 오류:', e instanceof Error ? e.message : e);
+  }
+}
+
+/**
+ * 개인 채팅 + 채널 동시 전송 (브로드캐스트).
+ *
+ * - 개인 채팅: 기존 sendTelegramAlert (우선순위 + 쿨다운 적용)
+ * - 채널: sendChannelAlert (즉시 전송)
+ * - 채널 전송 실패가 개인 알림에 영향을 주지 않도록 독립 실행
+ *
+ * @returns 개인 채팅 메시지 ID (채널 메시지 ID는 별도 반환하지 않음)
+ */
+export async function sendTelegramBroadcast(
+  message: string,
+  opts?: TelegramAlertOptions & { disableChannelNotification?: boolean },
+): Promise<number | undefined> {
+  const [chatMsgId] = await Promise.all([
+    sendTelegramAlert(message, opts),
+    sendChannelAlert(message, {
+      disableNotification: opts?.disableChannelNotification,
+    }).catch((e: unknown) => {
+      console.error('[Telegram] 브로드캐스트 채널 전송 실패:', e instanceof Error ? e.message : e);
+    }),
+  ]);
+  return chatMsgId;
+}

@@ -9,7 +9,7 @@
 import {
   fetchCurrentPrice, fetchAccountBalance, placeKisMarketBuyOrder,
 } from '../clients/kisClient.js';
-import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { sendTelegramAlert, sendTelegramBroadcast } from '../alerts/telegramClient.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { loadIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
@@ -542,11 +542,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
 
       const slippage = 0.003;
       const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));
-      // 버그 5 수정: Gate 점수 기반 간이 Kelly 포지션 사이징
-      // Volume Clock 보너스: 10:00~11:00 KST 집행 시 +2점 (기관 알고리즘 집중 구간)
-      const gateScore = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
-      const isStrongBuy = gateScore >= 25;
 
+      // ── 실시간 Gate 재평가 (타점 판단 연동) ──────────────────────────────────
+      // 워치리스트 stale gateScore 대신 실시간 evaluateServerGate 결과를 포지션 사이징에 반영
       const reCheckQuote = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
                         ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null);
       const reCheckGate = reCheckQuote
@@ -564,7 +562,6 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
       });
       if (!entryRevalidation.ok) {
         console.log(`[AutoTrade] ${stock.name} 진입 직전 재검증 탈락: ${entryRevalidation.reasons.join(', ')}`);
-        // 가격 조건은 맞았으나 재검증 탈락 → 진입 실패 횟수 누적
         if (stock.addedBy === 'AUTO') {
           stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
           watchlistMutated = true;
@@ -572,12 +569,54 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
         continue;
       }
 
+      // 실시간 gateScore: 재평가 성공 시 실시간 값 우선, 실패 시 워치리스트 값 fallback
+      // Volume Clock 보너스: 10:00~11:00 KST 집행 시 +2점 (기관 알고리즘 집중 구간)
+      const liveGateScore = reCheckGate?.gateScore ?? (stock.gateScore ?? 0);
+      const gateScore = liveGateScore + volumeClock.scoreBonus;
+      const isStrongBuy = gateScore >= 25;
+
+      // MTAS 기반 진입 차단: 타임프레임 불일치 시 진입 금지
+      if (reCheckGate && reCheckGate.mtas <= 3) {
+        console.log(
+          `[AutoTrade] ${stock.name} MTAS ${reCheckGate.mtas.toFixed(1)}/10 진입 금지 — 타임프레임 불일치`
+        );
+        continue;
+      }
+
+      // 포지션 사이징: 실시간 Gate 결과 연동
+      // 1) 기본 포지션 비중 결정 (gateScore 기반)
       const rawPositionPct = isStrongBuy       ? 0.12
                            : gateScore >= 20   ? 0.08
                            : gateScore >= 15   ? 0.05
                            : 0.03;
-      // 레짐 Kelly 배율 적용 (R1=1.0, R2=0.8, R3=0.6, R4=0.5, R5=0.3)
-      const positionPct = rawPositionPct * kellyMultiplier;
+      // 2) MTAS 기반 포지션 조정 (evaluateServerGate의 멀티타임프레임 정렬도 반영)
+      let mtasMultiplier = 1.0;
+      if (reCheckGate) {
+        if (reCheckGate.mtas === 10) {
+          mtasMultiplier = 1.15; // 완벽 정렬 → +15%
+        } else if (reCheckGate.mtas >= 7) {
+          mtasMultiplier = 1.0;  // 표준
+        } else if (reCheckGate.mtas >= 5) {
+          mtasMultiplier = 0.5;  // 약한 정렬 → 50% 축소
+        }
+        // mtas 4 이하: 위에서 이미 차단됨 (≤3)
+        // mtas 4: 경계 구간 — 표준 비중의 50%
+        if (reCheckGate.mtas > 3 && reCheckGate.mtas < 5) {
+          mtasMultiplier = 0.5;
+        }
+      }
+      // 레짐 Kelly 배율 × MTAS 배율 적용
+      const positionPct = rawPositionPct * kellyMultiplier * mtasMultiplier;
+
+      if (reCheckGate) {
+        console.log(
+          `[AutoTrade] ${stock.name} 타점 판단 — ` +
+          `liveGate: ${liveGateScore.toFixed(1)} (stale: ${(stock.gateScore ?? 0)}) | ` +
+          `MTAS: ${reCheckGate.mtas.toFixed(1)}/10 (×${mtasMultiplier}) | ` +
+          `CS: ${reCheckGate.compressionScore.toFixed(2)} | ` +
+          `posPct: ${(positionPct * 100).toFixed(1)}%`
+        );
+      }
       const remainingSlots = Math.max(1, regimeConfig.maxPositions - currentActive);
       const { quantity, effectiveBudget } = calculateOrderQuantity({
         totalAssets,
@@ -661,10 +700,15 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
         console.log(`[AutoTrade SHADOW] ${stock.name}(${stock.code}) 신호 등록 @${currentPrice}${trancheLabel}`);
         appendShadowLog({ event: 'SIGNAL', ...trade });
 
-        await sendTelegramAlert(
+        const gateLabel = reCheckGate
+          ? `Gate ${liveGateScore.toFixed(1)} | MTAS ${reCheckGate.mtas.toFixed(0)}/10 | CS ${reCheckGate.compressionScore.toFixed(2)}`
+          : `Gate ${gateScore} (워치리스트)`;
+
+        await sendTelegramBroadcast(
           `⚡ <b>[Shadow] 매수 신호${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
           `종목: ${stock.name} (${stock.code})\n` +
           `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
+          `📊 ${gateLabel}\n` +
           `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`
         ).catch(console.error);
       } else {
@@ -690,12 +734,17 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
 
         shadows.push(trade);
 
-        await sendTelegramAlert(
+        const gateLabelLive = reCheckGate
+          ? `Gate ${liveGateScore.toFixed(1)} | MTAS ${reCheckGate.mtas.toFixed(0)}/10 | CS ${reCheckGate.compressionScore.toFixed(2)}`
+          : `Gate ${gateScore} (워치리스트)`;
+
+        await sendTelegramBroadcast(
           `🚀 <b>[LIVE] 매수 주문${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
           `종목: ${stock.name} (${stock.code})\n` +
           `주문상태: ${ordNo ? 'ORDER_SUBMITTED' : 'REJECTED'}\n` +
           `주문가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
           `주문번호: ${ordNo ?? 'N/A'}\n` +
+          `📊 ${gateLabelLive}\n` +
           `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`
         ).catch(console.error);
       }
