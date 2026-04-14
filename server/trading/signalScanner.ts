@@ -187,9 +187,12 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
 
   // ── 동시 최대 보유 종목 (regimeConfig.maxPositions) ─────────────────────────
   // INTRADAY 포지션은 별도 한도(MAX_INTRADAY_POSITIONS)로 관리하므로 제외한다.
-  // 두 카운트를 혼합하면 인트라데이 포지션이 스윙 매수를 의도치 않게 차단하는 모순이 생긴다.
+  // BUG-09 fix: PRE_BREAKOUT(30% 선취매)도 제외 — 선취매는 탐색적 소량 포지션이므로
+  // 스윙 한도에 포함하면 같은 종목의 일반 스윙 진입이 이중 차단됨.
   const activeSwingCount = shadows.filter(
-    (s) => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY',
+    (s) => isOpenShadowStatus(s.status) &&
+           s.watchlistSource !== 'INTRADAY' &&
+           s.watchlistSource !== 'PRE_BREAKOUT',
   ).length;
   if (activeSwingCount >= regimeConfig.maxPositions) {
     console.log(
@@ -248,6 +251,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
           if (!followAlreadyDone && !isBlacklisted(stock.code)) {
             const slippage = 0.003;
             const followEntryPrice = Math.round(currentPrice * (1 + slippage));
+
+            // BUG-08 fix: 추종 매수 시 새 진입가 기준 RRR 재검증
+            const followRRR = calcRRR(followEntryPrice, stock.targetPrice, stock.stopLoss);
+            if (followRRR < RRR_MIN_THRESHOLD) {
+              console.log(
+                `[PreBreakout] ${stock.name}(${stock.code}) 추종 RRR ${followRRR.toFixed(2)} < ${RRR_MIN_THRESHOLD} — 추종 매수 제외`
+              );
+              continue;
+            }
+
             const gateScoreFollow = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
             const isStrongBuyFollow = gateScoreFollow >= 25;
             const rawPctFollow = isStrongBuyFollow ? 0.12
@@ -624,10 +637,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
       });
       if (!entryRevalidation.ok) {
         console.log(`[AutoTrade] ${stock.name} 진입 직전 재검증 탈락: ${entryRevalidation.reasons.join(', ')}`);
-        if (stock.addedBy === 'AUTO') {
-          stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
-          watchlistMutated = true;
-        }
+        // BUG-07 fix: MANUAL 종목도 entryFailCount 추적 — 반복 실패 시 자동 제거 대상에 포함
+        stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
+        watchlistMutated = true;
         continue;
       }
 
@@ -944,6 +956,14 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
             trailingEnabled:      false,
           };
 
+          // BUG-10 fix: 실시간 Gate 평가로 Intraday 종목의 gateScore 추정
+          const intradayQuote = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
+                             ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null);
+          const intradayGate = intradayQuote
+            ? evaluateServerGate(intradayQuote, conditionWeights, macroState?.kospiDayReturn)
+            : null;
+          const intradayGateScore = intradayGate?.gateScore ?? 0;
+
           addRecommendation({
             stockCode:        stock.code,
             stockName:        stock.name,
@@ -952,7 +972,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
             stopLoss:         intradayStop,
             targetPrice:      intradayTarget,
             kellyPct:         Math.round(positionPct * 100),
-            gateScore:        0,
+            gateScore:        intradayGateScore,
             signalType:       'BUY',
             conditionKeys:    ['INTRADAY_STRONG'],
             entryRegime:      regime,

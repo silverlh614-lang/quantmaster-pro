@@ -41,11 +41,11 @@ export async function cleanupWatchlist(): Promise<void> {
     return true;
   });
 
-  // 2. 진입 실패 횟수 초과 AUTO 항목 제거
+  // 2. 진입 실패 횟수 초과 항목 제거 (BUG-07 fix: MANUAL 종목도 포함)
   const afterFailPrune = afterExpiry.filter((w) => {
-    if (w.addedBy === 'AUTO' && (w.entryFailCount ?? 0) >= MAX_ENTRY_FAIL_COUNT) {
+    if ((w.entryFailCount ?? 0) >= MAX_ENTRY_FAIL_COUNT) {
       console.log(
-        `[Watchlist] 진입실패 제거: ${w.name}(${w.code}) (실패 ${w.entryFailCount}회)`,
+        `[Watchlist] 진입실패 제거: ${w.name}(${w.code}) [${w.addedBy}] (실패 ${w.entryFailCount}회)`,
       );
       return false;
     }

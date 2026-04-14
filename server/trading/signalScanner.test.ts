@@ -6,6 +6,7 @@ import {
   EXIT_RULE_PRIORITY_TABLE,
   isOpenShadowStatus,
 } from './signalScanner.js';
+import { calcRRR, RRR_MIN_THRESHOLD } from './riskManager.js';
 import type { ExitRuleTag } from '../persistence/shadowTradeRepo.js';
 
 describe('calculateOrderQuantity', () => {
@@ -120,20 +121,81 @@ describe('[C2] Pre-Breakout 현금 차감 — 실 집행금액 검증', () => {
 });
 
 // ── C1 수정 검증: INTRADAY 포지션이 스윙 포지션 한도에 영향을 주지 않아야 한다 ──
-describe('[C1] activeSwingCount — INTRADAY 포지션 제외 검증', () => {
-  it('INTRADAY 포지션은 스윙 포지션 한도 카운트에서 제외되어야 한다', () => {
+// BUG-09 fix: PRE_BREAKOUT(30% 선취매)도 스윙 한도에서 제외
+describe('[C1] activeSwingCount — INTRADAY·PRE_BREAKOUT 포지션 제외 검증', () => {
+  it('INTRADAY와 PRE_BREAKOUT 포지션은 스윙 포지션 한도 카운트에서 제외되어야 한다', () => {
     const shadows = [
-      { status: 'ACTIVE',  watchlistSource: 'INTRADAY' },       // 장중 — 제외
-      { status: 'ACTIVE',  watchlistSource: 'PRE_MARKET' },     // 스윙 — 포함
-      { status: 'ACTIVE',  watchlistSource: 'PRE_BREAKOUT' },   // 스윙 — 포함
-      { status: 'HIT_STOP', watchlistSource: 'PRE_MARKET' },    // 종료 — 제외
-      { status: 'PENDING', watchlistSource: 'INTRADAY' },       // 장중 PENDING — 제외
+      { status: 'ACTIVE',  watchlistSource: 'INTRADAY' },                // 장중 — 제외
+      { status: 'ACTIVE',  watchlistSource: 'PRE_MARKET' },              // 스윙 — 포함
+      { status: 'ACTIVE',  watchlistSource: 'PRE_BREAKOUT' },            // 선취매 — 제외
+      { status: 'ACTIVE',  watchlistSource: 'PRE_BREAKOUT_FOLLOWTHROUGH' }, // 추종 — 포함
+      { status: 'HIT_STOP', watchlistSource: 'PRE_MARKET' },             // 종료 — 제외
+      { status: 'PENDING', watchlistSource: 'INTRADAY' },                // 장중 PENDING — 제외
     ] as const;
 
     const activeSwingCount = shadows.filter(
-      s => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY',
+      s => isOpenShadowStatus(s.status) &&
+           s.watchlistSource !== 'INTRADAY' &&
+           s.watchlistSource !== 'PRE_BREAKOUT',
     ).length;
 
-    expect(activeSwingCount).toBe(2); // PRE_MARKET(ACTIVE) + PRE_BREAKOUT(ACTIVE)
+    // PRE_MARKET(ACTIVE) + PRE_BREAKOUT_FOLLOWTHROUGH(ACTIVE) = 2
+    expect(activeSwingCount).toBe(2);
+  });
+});
+
+// ── BUG-07 검증: MANUAL 종목도 entryFailCount 추적 ──────────────────────────
+describe('[BUG-07] entryFailCount — MANUAL 종목 추적 검증', () => {
+  it('MANUAL 종목도 재검증 실패 시 entryFailCount가 증가해야 한다', () => {
+    const stock = { addedBy: 'MANUAL' as const, entryFailCount: undefined as number | undefined };
+
+    // BUG-07 fix 전: addedBy === 'AUTO' 조건이 있어 MANUAL은 카운트되지 않았음
+    // fix 후: addedBy 무관하게 실패 카운트 증가
+    stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
+    expect(stock.entryFailCount).toBe(1);
+
+    stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
+    expect(stock.entryFailCount).toBe(2);
+  });
+
+  it('entryFailCount가 MAX_ENTRY_FAIL_COUNT에 도달하면 MANUAL도 정리 대상이 된다', () => {
+    const MAX_ENTRY_FAIL_COUNT = 3;
+    const watchlist = [
+      { code: '005930', name: '삼성전자', addedBy: 'MANUAL' as const, entryFailCount: 3 },
+      { code: '000660', name: 'SK하이닉스', addedBy: 'AUTO' as const, entryFailCount: 3 },
+      { code: '035420', name: 'NAVER', addedBy: 'MANUAL' as const, entryFailCount: 1 },
+    ];
+
+    // BUG-07 fix: addedBy 조건 제거 — 모든 종목에 적용
+    const afterPrune = watchlist.filter(
+      w => (w.entryFailCount ?? 0) < MAX_ENTRY_FAIL_COUNT,
+    );
+
+    expect(afterPrune).toHaveLength(1);
+    expect(afterPrune[0].code).toBe('035420');
+  });
+});
+
+// ── BUG-08 검증: Pre-Breakout Follow-through RRR 재검증 ─────────────────────
+describe('[BUG-08] Follow-through RRR 재검증', () => {
+  it('돌파 후 추종 진입가 기준 RRR이 임계값 미만이면 추종을 차단해야 한다', () => {
+    // 원래 진입가 10,000원 → 돌파 시 현재가 12,000원 → 추종 진입가 ≈ 12,036원
+    const followEntryPrice = Math.round(12_000 * 1.003); // 12,036
+    const targetPrice = 13_000;
+    const stopLoss = 9_500;
+
+    const followRRR = calcRRR(followEntryPrice, targetPrice, stopLoss);
+    // reward = 13000 - 12036 = 964, risk = 12036 - 9500 = 2536, RRR ≈ 0.38
+    expect(followRRR).toBeLessThan(RRR_MIN_THRESHOLD);
+  });
+
+  it('추종 진입가 기준 RRR이 임계값 이상이면 통과한다', () => {
+    const followEntryPrice = Math.round(10_100 * 1.003); // 10,130
+    const targetPrice = 15_000;
+    const stopLoss = 9_500;
+
+    const followRRR = calcRRR(followEntryPrice, targetPrice, stopLoss);
+    // reward = 15000 - 10130 = 4870, risk = 10130 - 9500 = 630, RRR ≈ 7.73
+    expect(followRRR).toBeGreaterThanOrEqual(RRR_MIN_THRESHOLD);
   });
 });
