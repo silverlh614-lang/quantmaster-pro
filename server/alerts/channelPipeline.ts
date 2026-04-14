@@ -14,6 +14,7 @@
  */
 
 import { sendChannelAlert } from './telegramClient.js';
+import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
 
 function isChannelEnabled(): boolean {
   return process.env.CHANNEL_ENABLED === 'true';
@@ -180,6 +181,10 @@ export interface ChannelWatchlistStock {
   changePercent: number;
   gateScore: number;
   sector?: string;
+  entryPrice?: number;
+  stopLoss?: number;
+  targetPrice?: number;
+  rrr?: number;
 }
 
 export async function channelWatchlistAdded(
@@ -193,7 +198,17 @@ export async function channelWatchlistAdded(
   const lines = stocks
     .map(s => {
       const changeStr = `${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(1)}%`;
-      return `  • ${s.name}(${s.code}) ${changeStr} | Gate ${s.gateScore.toFixed(1)}${s.sector ? ` | ${s.sector}` : ''}`;
+      const rrrStr = s.rrr ? ` | RRR 1:${s.rrr.toFixed(1)}` : '';
+      const sectorStr = s.sector ? ` | ${s.sector}` : '';
+      const priceInfo = s.entryPrice
+        ? `\n     💰 진입: ${s.entryPrice.toLocaleString()}원` +
+          (s.stopLoss ? ` | 🛡️ 손절: ${s.stopLoss.toLocaleString()}원` : '') +
+          (s.targetPrice ? ` | 🎯 목표: ${s.targetPrice.toLocaleString()}원` : '')
+        : '';
+      return (
+        `  • <b>${s.name}</b>(${s.code}) ${changeStr} | Gate ${s.gateScore.toFixed(1)}${rrrStr}${sectorStr}` +
+        priceInfo
+      );
     })
     .join('\n');
 
@@ -201,9 +216,72 @@ export async function channelWatchlistAdded(
     `📋 <b>[워치리스트 갱신] ${stocks.length}개 추가</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `${lines}\n` +
-    `레짐: ${regime}`;
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `🗺️ 레짐: ${regime}`;
 
   await sendChannelAlert(msg, { disableNotification: true }).catch(console.error);
+}
+
+// ── 5-1. 워치리스트 전체 현황 채널 발송 ─────────────────────────────────────
+
+export async function channelWatchlistSummary(
+  watchlist: WatchlistEntry[],
+): Promise<void> {
+  if (!isChannelEnabled()) return;
+  if (watchlist.length === 0) return;
+
+  const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const hh = kstNow.getUTCHours().toString().padStart(2, '0');
+  const mm = kstNow.getUTCMinutes().toString().padStart(2, '0');
+
+  const trackB = watchlist.filter(w => w.track === 'B' || w.addedBy === 'MANUAL');
+  const trackA = watchlist.filter(w => w.track === 'A' && w.addedBy !== 'MANUAL');
+
+  const parts: string[] = [
+    `📋 <b>[워치리스트 현황] ${hh}:${mm} KST</b>`,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `총 ${watchlist.length}개 (Track B: ${trackB.length} | Track A: ${trackA.length})`,
+  ];
+
+  if (trackB.length > 0) {
+    parts.push('');
+    parts.push('🎯 <b>Track B — 매수 대상</b>');
+    for (const w of trackB) {
+      const focusMark = w.isFocus ? '⭐' : '';
+      const manualMark = w.addedBy === 'MANUAL' ? '👤' : '🤖';
+      const gate = w.gateScore !== undefined ? `G${w.gateScore.toFixed(0)}` : '';
+      const rrr = w.rrr !== undefined ? `R1:${w.rrr.toFixed(1)}` : '';
+      const sector = w.sector ?? '';
+      const meta = [gate, rrr, sector].filter(Boolean).join(' · ');
+      parts.push(
+        `${focusMark}${manualMark} <b>${w.name}</b>(${w.code})` +
+        ` ${w.entryPrice.toLocaleString()}원` +
+        (meta ? ` [${meta}]` : '') +
+        `\n   🛡️${w.stopLoss.toLocaleString()} → 🎯${w.targetPrice.toLocaleString()}`
+      );
+    }
+  }
+
+  if (trackA.length > 0) {
+    parts.push('');
+    parts.push(`📂 <b>Track A — 후보군 (${trackA.length}개)</b>`);
+    const shown = trackA
+      .sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0))
+      .slice(0, 8);
+    for (const w of shown) {
+      const gate = w.gateScore !== undefined ? `G${w.gateScore.toFixed(0)}` : '';
+      parts.push(`  🤖 ${w.name}(${w.code}) ${w.entryPrice.toLocaleString()}원 ${gate}`);
+    }
+    if (trackA.length > 8) {
+      parts.push(`  ... 외 ${trackA.length - 8}개`);
+    }
+  }
+
+  parts.push('');
+  parts.push('━━━━━━━━━━━━━━━━━━━━');
+  parts.push('⭐=자동매수대상 👤=수동 🤖=자동발굴');
+
+  await sendChannelAlert(parts.join('\n'), { disableNotification: true }).catch(console.error);
 }
 
 // ── 6. 글로벌 스캔 핵심 요약 ─────────────────────────────────────────────────
