@@ -7,6 +7,7 @@ import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL } from '../clients/ki
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { isPullbackSetup } from './pipelineHelpers.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { fetchKisMTASData } from './kisChartDataFetcher.js';
 
 // ── 아이디어 5: 워치리스트 탈락 사유 추적 ─────────────────────────────────────
 export interface RejectionEntry {
@@ -692,12 +693,60 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
 }
 
 /**
- * Yahoo Finance 기반 자동 워치리스트 채우기
+ * 아이디어 9: KIS API 월봉/주봉 데이터로 MTAS 구성 요소를 보강한다.
  *
- * - KIS 실계좌: preScreenStocks() 결과를 워치리스트로 승격
- * - VTS/모의계좌: Yahoo Finance로 KOSPI 주요 종목 스캔, 상승 모멘텀 종목 자동 추가
+ * Yahoo Finance 다운샘플링(일봉→월봉/주봉)은 한국 주식 데이터 부족으로
+ * MTAS가 낮게 산출되는 문제가 있다. KIS API (FHKST03010100)로 실제
+ * 월봉/주봉 데이터를 조회하여 정확한 MTAS를 계산한다.
  *
- * 선정 기준: 전일 대비 +2% 이상 상승 + 거래량 50만주 이상
+ * KIS 데이터 조회 성공 시 Yahoo 파생 값을 KIS 값으로 덮어쓴다.
+ * 실패 시 기존 Yahoo 값 유지 (graceful fallback).
+ */
+export async function enrichQuoteWithKisMTAS(
+  quote: YahooQuoteExtended,
+  code: string,
+): Promise<YahooQuoteExtended> {
+  try {
+    const kisMtas = await fetchKisMTASData(code, quote.price);
+    if (!kisMtas || !kisMtas.dataAvailable) return quote;
+
+    // KIS 데이터가 충분한 경우에만 덮어쓰기
+    const enriched = { ...quote };
+
+    if (kisMtas.monthlyCandleCount >= 13) {
+      enriched.monthlyAboveEMA12 = kisMtas.monthlyAboveEMA12;
+      enriched.monthlyEMARising = kisMtas.monthlyEMARising;
+      console.log(
+        `[KisMTAS] ${code} 월봉 KIS 보강: EMA12위=${kisMtas.monthlyAboveEMA12} 상승=${kisMtas.monthlyEMARising} (${kisMtas.monthlyCandleCount}개월)`,
+      );
+    }
+
+    if (kisMtas.weeklyCandleCount >= 52) {
+      enriched.weeklyAboveCloud = kisMtas.weeklyAboveCloud;
+      enriched.weeklyLaggingSpanUp = kisMtas.weeklyLaggingSpanUp;
+      console.log(
+        `[KisMTAS] ${code} 주봉 KIS 보강: 구름대위=${kisMtas.weeklyAboveCloud} 후행스팬=${kisMtas.weeklyLaggingSpanUp} (${kisMtas.weeklyCandleCount}주)`,
+      );
+    }
+
+    return enriched;
+  } catch (err) {
+    console.warn(`[KisMTAS] ${code} KIS 보강 실패 (Yahoo 폴백):`, err instanceof Error ? err.message : err);
+    return quote;
+  }
+}
+
+/**
+ * Yahoo Finance 기반 자동 워치리스트 채우기 — 아이디어 8: 2-Track 구조
+ *
+ * Track A (Candidate Pool): 느슨한 조건으로 후보군 최대한 유지
+ *   - changePercent > -3% (기존 -2%/-5% → -3% 단일 기준)
+ *   - 거래량 조건 없음 (기존 avgVolume*1.2 필터 제거)
+ *   - Gate SKIP 허용 (MTAS만으로 차단되지 않음)
+ *
+ * Track B (Buy Watch): signalScanner에서 Focus 선정 시 승격
+ *   - 기존 Gate Score + FOCUS_LIST_SIZE 기준 적용
+ *
  * 손절: 현재가 -8%, 목표: 현재가 +15%
  */
 export async function autoPopulateWatchlist(): Promise<number> {
@@ -753,38 +802,31 @@ export async function autoPopulateWatchlist(): Promise<number> {
       continue;
     }
 
-    // 필터: 과열 상단 차단 + VCP/거래량 조건 + 눌림목 허용
-    const isVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
-    const pullback = isPullbackSetup(quote);
-    if (quote.changePercent >= 5) {
+    // ── 아이디어 8: Track A (Candidate Pool) 느슨한 필터 ──
+    // 과열 상단만 차단, 하단은 -3% 단일 기준, 거래량 조건 제거
+    if (quote.changePercent >= 8) {
       rejectionLog.push({ code: stock.code, name: stock.name, reason: `과열 +${quote.changePercent.toFixed(1)}%` });
       continue;
     }
-    if (quote.changePercent < -2 && !pullback) {
-      rejectionLog.push({ code: stock.code, name: stock.name, reason: `음봉 ${quote.changePercent.toFixed(1)}% (눌림목아님)` });
+    if (quote.changePercent < -3) {
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: `하락 ${quote.changePercent.toFixed(1)}%` });
       continue;
     }
-    if (quote.changePercent < -5) {
-      rejectionLog.push({ code: stock.code, name: stock.name, reason: `급락 ${quote.changePercent.toFixed(1)}%` });
-      continue;
-    }
-    if (quote.volume < quote.avgVolume * 1.2 && !isVCP && !pullback) {
-      rejectionLog.push({ code: stock.code, name: stock.name, reason: `거래량부족 ${(quote.volume / quote.avgVolume).toFixed(1)}배` });
-      continue;
-    }
-    if (quote.return5d > 15) {
+    // 5일 급등 완화 (Track A: 20% → 기존 15%)
+    if (quote.return5d > 20) {
       rejectionLog.push({ code: stock.code, name: stock.name, reason: `5일급등 +${quote.return5d.toFixed(1)}%` });
       continue;
     }
 
-    // 아이디어 2: 서버사이드 Gate 평가 — SKIP 종목 제외
+    // 아이디어 9: KIS API로 월봉/주봉 MTAS 구성 요소 보강 (Yahoo 폴백)
+    const enrichedQuote = await enrichQuoteWithKisMTAS(quote, stock.code);
+
+    // 서버사이드 Gate 평가 — Track A에서는 SKIP이어도 등록 (점수만 기록)
     const macroState = loadMacroState();
-    const gate = evaluateServerGate(quote, loadConditionWeights(), macroState?.kospiDayReturn);
-    if (gate.signalType === 'SKIP') {
-      rejectionLog.push({ code: stock.code, name: stock.name, reason: `Gate SKIP (${gate.gateScore.toFixed(1)}/10)` });
-      console.log(`[AutoPopulate] SKIP: ${stock.name}(${stock.code}) gateScore=${gate.gateScore}/10`);
-      continue;
-    }
+    const gate = evaluateServerGate(enrichedQuote, loadConditionWeights(), macroState?.kospiDayReturn);
+
+    // Track A/B 분류: SKIP이 아닌 종목은 Track B 후보, SKIP은 Track A 유지
+    const track: 'A' | 'B' = gate.signalType !== 'SKIP' ? 'B' : 'A';
 
     const sl = Math.round(quote.price * 0.92);
     const tp = Math.round(quote.price * 1.15);
@@ -800,13 +842,14 @@ export async function autoPopulateWatchlist(): Promise<number> {
       memo: `${gate.signalType} gate=${gate.gateScore.toFixed(1)}/10 ${gate.details.join(', ')}`,
       rrr: parseFloat(((tp - quote.price) / (quote.price - sl || 1)).toFixed(2)),
       conditionKeys: gate.conditionKeys,
+      track,
     });
     existingCodes.add(stock.code);
     added++;
     console.log(
-      `[AutoPopulate] Yahoo → 워치리스트: ${stock.name}(${stock.code}) ` +
+      `[AutoPopulate] Yahoo → 워치리스트 [Track ${track}]: ${stock.name}(${stock.code}) ` +
       `@${quote.price.toLocaleString()} (+${quote.changePercent.toFixed(1)}% / ${(quote.volume / 10000).toFixed(0)}만주) ` +
-      `gate=${gate.gateScore}/8 [${gate.signalType}] ${gate.details.join(', ')}`
+      `gate=${gate.gateScore}/10 [${gate.signalType}] ${gate.details.join(', ')}`
     );
 
     // Yahoo rate limit 방지
@@ -821,7 +864,12 @@ export async function autoPopulateWatchlist(): Promise<number> {
 
   if (added > 0) {
     saveWatchlist(watchlist);
-    console.log(`[AutoPopulate] 워치리스트 자동 추가 완료 — ${added}개 신규 (총 ${watchlist.length}개)`);
+    const trackACnt = watchlist.filter(w => w.track === 'A').length;
+    const trackBCnt = watchlist.filter(w => w.track === 'B' || !w.track).length;
+    console.log(
+      `[AutoPopulate] 워치리스트 자동 추가 완료 — ${added}개 신규 (총 ${watchlist.length}개, ` +
+      `Track A ${trackACnt}개 / Track B ${trackBCnt}개)`,
+    );
   } else {
     console.log('[AutoPopulate] 조건 충족 종목 없음 — 워치리스트 변동 없음');
   }

@@ -29,7 +29,7 @@ import { addRecommendation } from '../learning/recommendationTracker.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { computeFocusCodes } from '../screener/watchlistManager.js';
-import { fetchYahooQuote } from '../screener/stockScreener.js';
+import { fetchYahooQuote, enrichQuoteWithKisMTAS } from '../screener/stockScreener.js';
 import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
 import { getVixGating } from './vixGating.js';
@@ -84,7 +84,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   const watchlist = loadWatchlist();
   if (watchlist.length === 0) return;
 
-  // 2단계 워치리스트: Focus 항목 + MANUAL 항목만 매수 스캔
+  // 아이디어 8: 2-Track 구조 — Track B(Buy Watch) 항목만 매수 스캔
   // isFocus를 스캔 시점에 실시간 계산 (cleanupWatchlist은 16:00에만 실행되므로
   // 08:35에 추가된 AUTO 종목의 isFocus가 미설정 상태일 수 있음)
   const liveFocusCodes = computeFocusCodes(watchlist);
@@ -92,14 +92,14 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   const buyList = watchlist.filter(
     (w) => w.addedBy === 'MANUAL' || liveFocusCodes.has(w.code) || forceCodes.has(w.code),
   );
-  // 진단 로그: buyList에서 제외된 종목과 사유
-  const excluded = watchlist.filter(
+  // 진단 로그: Track A(후보군) 종목 — 매수 스캔에서 제외
+  const trackA = watchlist.filter(
     (w) => w.addedBy !== 'MANUAL' && !liveFocusCodes.has(w.code),
   );
-  if (excluded.length > 0) {
+  if (trackA.length > 0) {
     console.log(
-      `[AutoTrade] buyList 제외 ${excluded.length}개 (AUTO, Focus 미달): ` +
-      excluded.map(w => `${w.name}(${w.code}) gate=${w.gateScore ?? 0}`).join(', '),
+      `[AutoTrade] Track A 후보군 ${trackA.length}개 (매수 스캔 제외): ` +
+      trackA.map(w => `${w.name}(${w.code}) gate=${w.gateScore ?? 0}`).join(', '),
     );
   }
   let watchlistMutated = false;
@@ -117,7 +117,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   const conditionWeights = loadConditionWeights();
 
   console.log(
-    `[AutoTrade] 스캔 시작 — 워치리스트 ${watchlist.length}개 / Focus+MANUAL ${buyList.length}개 / Intraday Ready ${intradayBuyList.length}개 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'} / 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원`
+    `[AutoTrade] 스캔 시작 — 워치리스트 ${watchlist.length}개 (Track A ${trackA.length}개 / Track B ${buyList.length}개) / Intraday Ready ${intradayBuyList.length}개 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'} / 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원`
   );
 
   const shadows = loadShadowTrades();
@@ -647,8 +647,12 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
 
       // ── 실시간 Gate 재평가 (타점 판단 연동) ──────────────────────────────────
       // 워치리스트 stale gateScore 대신 실시간 evaluateServerGate 결과를 포지션 사이징에 반영
-      const reCheckQuote = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
-                        ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null);
+      // 아이디어 9: KIS API로 MTAS 월봉/주봉 보강 (매수 결정 직전 정확도 향상)
+      const reCheckQuoteRaw = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
+                           ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null);
+      const reCheckQuote = reCheckQuoteRaw
+        ? await enrichQuoteWithKisMTAS(reCheckQuoteRaw, stock.code)
+        : null;
       const reCheckGate = reCheckQuote
         ? evaluateServerGate(reCheckQuote, conditionWeights, macroState?.kospiDayReturn)
         : null;

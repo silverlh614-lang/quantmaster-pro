@@ -23,6 +23,8 @@ export interface WatchlistEntry {
   // Regret Asymmetry Filter
   cooldownUntil?: string; // 쿨다운 종료 시각 ISO — 직전 5일 +15% 초과 급등 시 설정
   recentHigh?: number;    // 쿨다운 진입 시점의 현재가 — 되돌림(-5~-8%) 판단 기준
+  // 아이디어 8: 2-Track 구조 — Track A(후보군) vs Track B(매수 대상)
+  track?: 'A' | 'B';     // A=Candidate Pool(느슨한 조건), B=Buy Watch(타이트한 조건)
 }
 
 export function loadWatchlist(): WatchlistEntry[] {
