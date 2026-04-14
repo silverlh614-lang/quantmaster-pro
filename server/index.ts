@@ -167,6 +167,21 @@ async function startServer() {
 
     console.log('[AutoTrade] 오케스트레이터 + DART 폴링 + Bear Regime 알림 + MHS 모닝 알림 + IPS 변곡점 경보 가동 완료');
 
+    // 아이디어 2 — 워치리스트 부트스트랩: 장 중 재배포 감지 → 긴급 autoPopulate
+    ;(async () => {
+      const { loadWatchlist } = await import('./persistence/watchlistRepo.js');
+      const { autoPopulateWatchlist } = await import('./screener/stockScreener.js');
+      const kst = new Date(Date.now() + 9 * 3_600_000);
+      const h = kst.getUTCHours(), m = kst.getUTCMinutes();
+      const t = h * 100 + m, dow = kst.getUTCDay();
+      const isTradingHour = dow >= 1 && dow <= 5 && t >= 900 && t <= 1530;
+      if (loadWatchlist().length === 0 && isTradingHour) {
+        console.warn('[Bootstrap] 장 중 재배포 감지 — 워치리스트 긴급 복구 시작');
+        await autoPopulateWatchlist().catch(console.error);
+        await sendTelegramAlert('⚠️ 재배포 감지 — 워치리스트 긴급 복구 완료').catch(console.error);
+      }
+    })().catch(console.error);
+
     // Telegram 봇 명령어 메뉴 등록 (fire-and-forget)
     setTelegramBotCommands().catch(console.error);
 

@@ -607,6 +607,54 @@ export async function preScreenStocks(): Promise<ScreenedStock[]> {
   }
 }
 
+/**
+ * Yahoo Finance 실패 시 KIS FHKST01010100으로 현재가·시가·거래량을 조회해
+ * YahooQuoteExtended 형태로 반환하는 폴백 함수.
+ * MA/RSI/MACD/ATR 등 히스토리 기반 지표는 0/false 기본값을 사용하므로
+ * 해당 조건은 Gate에서 통과되지 않는다 — 보수적 평가가 의도된 동작이다.
+ */
+export async function fetchKisQuoteFallback(code: string): Promise<YahooQuoteExtended | null> {
+  if (!HAS_REAL_DATA_CLIENT && !process.env.KIS_APP_KEY) return null;
+  try {
+    const data = await realDataKisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
+      FID_COND_MRKT_DIV_CODE: 'J',
+      FID_INPUT_ISCD: code.padStart(6, '0'),
+    });
+    const out = (data as { output?: Record<string, string> } | null)?.output;
+    if (!out) return null;
+
+    const price      = parseInt(out.stck_prpr ?? '0', 10);
+    if (price <= 0) return null;
+
+    const dayOpen    = parseInt(out.stck_oprc  ?? '0', 10) || price;
+    const volume     = parseInt(out.acml_vol   ?? '0', 10);
+    const prdyVrss   = parseInt(out.stck_prdy_vrss ?? '0', 10);
+    // prdy_vrss_sign: '1'=상한, '2'=상승, '3'=보합, '4'=하한, '5'=하락
+    const signStr    = out.prdy_vrss_sign ?? '3';
+    const prdyChange = signStr === '5' || signStr === '4' ? -Math.abs(prdyVrss) : Math.abs(prdyVrss);
+    const prevClose  = price - prdyChange || price;
+    const changePercent = prevClose > 0 ? (prdyChange / prevClose) * 100 : 0;
+
+    return {
+      price, dayOpen, prevClose, changePercent,
+      volume,
+      // 히스토리 기반 지표 — KIS 단건 조회로는 산출 불가, 보수적 0값
+      avgVolume: 0, ma5: 0, ma20: 0, ma60: 0,
+      high20d: price, high60d: price,
+      atr: 0, atr20avg: 0, per: 0,
+      rsi14: 50, macd: 0, macdSignal: 0, macdHistogram: 0,
+      rsi5dAgo: 50, weeklyRSI: 50,
+      ma60TrendUp: false, macd5dHistAgo: 0,
+      return5d: 0,
+      bbWidthCurrent: 0, bbWidth20dAvg: 0,
+      vol5dAvg: 0, vol20dAvg: 0, atr5d: 0,
+      monthlyAboveEMA12: false, monthlyEMARising: false,
+      weeklyAboveCloud: false, weeklyLaggingSpanUp: false,
+      dailyVolumeDrying: false,
+    };
+  } catch { return null; }
+}
+
 export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtended | null> {
   try {
     // range=2y — MTAS(월봉/주봉) 계산에 충분한 데이터 확보 (MA60, 가속도 지표 포함)

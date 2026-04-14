@@ -231,6 +231,13 @@ export class TradingDayOrchestrator {
   }
 
   private hasRan(key: string): boolean {
+    // 날짜 기반 자동 리셋: tick() 호출 이전이나 재배포 직후에도 안전하게 동작
+    const today = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
+    if (this.orch.tradingDate !== today) {
+      this.orch.tradingDate  = today;
+      this.orch.handlerRanAt = {};
+      this.save();
+    }
     return !!this.orch.handlerRanAt[key];
   }
 
