@@ -28,6 +28,7 @@ import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
 import { addRecommendation } from '../learning/recommendationTracker.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
+import { computeFocusCodes } from '../screener/watchlistManager.js';
 import { fetchYahooQuote } from '../screener/stockScreener.js';
 import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
@@ -83,8 +84,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean }): Promi
   const watchlist = loadWatchlist();
   if (watchlist.length === 0) return;
 
-  // 2단계 워치리스트: Focus 항목(isFocus=true) + MANUAL 항목만 매수 스캔
-  const buyList = watchlist.filter((w) => w.isFocus === true || w.addedBy === 'MANUAL');
+  // 2단계 워치리스트: Focus 항목 + MANUAL 항목만 매수 스캔
+  // isFocus를 스캔 시점에 실시간 계산 (cleanupWatchlist은 16:00에만 실행되므로
+  // 08:35에 추가된 AUTO 종목의 isFocus가 미설정 상태일 수 있음)
+  const liveFocusCodes = computeFocusCodes(watchlist);
+  const buyList = watchlist.filter(
+    (w) => w.addedBy === 'MANUAL' || liveFocusCodes.has(w.code),
+  );
   let watchlistMutated = false;
 
   // 장중 워치리스트: intradayReady=true 항목만 진입 후보
