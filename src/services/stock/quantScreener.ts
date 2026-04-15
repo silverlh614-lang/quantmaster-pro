@@ -6,6 +6,40 @@ import type {
   DartScreenerResult,
   SilentAccumulationResult,
 } from '../../types/quant';
+import type { UniverseConfig } from './types';
+
+// ─── 유니버스 → 프롬프트 문자열 헬퍼 ────────────────────────────────────────
+
+function buildUniversePrompt(universe?: UniverseConfig): string {
+  if (!universe) return '';
+
+  const parts: string[] = [];
+  const marketLabel =
+    universe.market === 'J' ? '코스피(KOSPI)' :
+    universe.market === 'Q' ? '코스닥(KOSDAQ)' : '코스피+코스닥 전체';
+
+  if (universe.preset === 'KOSPI200') {
+    parts.push('- 탐색 범위를 KOSPI 200 구성종목으로 한정하라');
+  } else if (universe.preset === 'KOSDAQ150') {
+    parts.push('- 탐색 범위를 KOSDAQ 150 구성종목으로 한정하라');
+  } else {
+    parts.push(`- 탐색 범위: ${marketLabel} 상장 종목`);
+  }
+
+  if (universe.filters.minMarketCapBillion) {
+    parts.push(`- 시가총액 ${universe.filters.minMarketCapBillion.toLocaleString()}억원 이상`);
+  }
+  if (universe.filters.volumeTopPercent) {
+    parts.push(`- 거래량 상위 ${universe.filters.volumeTopPercent}% 이내 종목만`);
+  }
+  if (universe.filters.foreignOwned) {
+    parts.push('- 외국인 투자 가능 종목(외국인 편입 종목)만');
+  }
+
+  return parts.length > 0
+    ? `\n[Gate-0: 유니버스 제한]\n${parts.join('\n')}\n위 유니버스 조건을 반드시 먼저 적용하라.\n`
+    : '';
+}
 
 // ─── 정량 스크리너 (Quantitative Screener) ───────────────────────────────────
 
@@ -13,18 +47,20 @@ export async function runQuantitativeScreening(options?: {
   minMarketCap?: number;     // 최소 시총 (억원, 기본 1000)
   minTurnover?: number;      // 최소 거래대금 (억원, 기본 10)
   maxResults?: number;        // 최대 결과 수 (기본 30)
+  universe?: UniverseConfig;  // Gate-0 유니버스 설정
 }): Promise<QuantScreenResult[]> {
   const todayDate = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
   const minCap = options?.minMarketCap ?? 1000;
   const minTurnover = options?.minTurnover ?? 10;
   const maxResults = options?.maxResults ?? 30;
+  const universePrompt = buildUniversePrompt(options?.universe);
 
   const prompt = `
 현재 한국 날짜: ${todayDate}
 
 당신은 정량 스크리너입니다. 뉴스·테마·인기도와 무관하게, 순수 수치 이상 신호만으로 종목을 발굴해야 합니다.
 Google 검색을 통해 아래 조건을 충족하는 종목을 최대 ${maxResults}개 찾아주세요.
-
+${universePrompt}
 [1단계: 기본 필터]
 - 시가총액 > ${minCap}억원
 - 일평균 거래대금(20일) > ${minTurnover}억원

@@ -406,8 +406,13 @@ export function getScreenerCache(): ScreenedStock[] {
  * 2단계: 결과 통합 + 중복 제거 (복수 TR 등장 종목 우선)
  * 3단계: 상위 80개 캐시 저장 → Yahoo 기술적 지표 보완 대상
  */
-export async function preScreenStocks(): Promise<ScreenedStock[]> {
+export async function preScreenStocks(options?: {
+  /** KIS 시장 구분 코드: J=KOSPI, Q=KOSDAQ (기본 J) */
+  marketDivCode?: string;
+}): Promise<ScreenedStock[]> {
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return [];
+
+  const marketDiv = options?.marketDivCode ?? 'J';
 
   // 순위 TR은 실계좌 전용 — VTS에서 미지원
   // 단, 실계좌 데이터 키(KIS_REAL_DATA_APP_KEY) 설정 시 하이브리드 모드로 조회 가능
@@ -425,7 +430,7 @@ export async function preScreenStocks(): Promise<ScreenedStock[]> {
 
       // 1. 거래량 상위 (기존)
       realDataKisGet('FHPST01710000', '/uapi/domestic-stock/v1/ranking/volume', {
-        fid_cond_mrkt_div_code: 'J',
+        fid_cond_mrkt_div_code: marketDiv,
         fid_cond_scr_div_code:  '20171',
         fid_input_iscd:         '0000',
         fid_div_cls_code:       '0',
@@ -440,7 +445,7 @@ export async function preScreenStocks(): Promise<ScreenedStock[]> {
 
       // 2. 상승률 상위 (신규)
       realDataKisGet('FHPST01700000', '/uapi/domestic-stock/v1/ranking/fluctuation', {
-        fid_cond_mrkt_div_code: 'J',
+        fid_cond_mrkt_div_code: marketDiv,
         fid_cond_scr_div_code:  '20170',
         fid_input_iscd:         '0000',
         fid_rank_sort_cls_code: '0',       // 상승률 상위
@@ -458,7 +463,7 @@ export async function preScreenStocks(): Promise<ScreenedStock[]> {
 
       // 3. 52주 신고가 (신규) — 주도주 포착 핵심
       realDataKisGet('FHPST01760000', '/uapi/domestic-stock/v1/ranking/new-high-low', {
-        fid_cond_mrkt_div_code: 'J',
+        fid_cond_mrkt_div_code: marketDiv,
         fid_cond_scr_div_code:  '20176',
         fid_input_iscd:         '0000',
         fid_rank_sort_cls_code: '0',       // 신고가
@@ -471,7 +476,7 @@ export async function preScreenStocks(): Promise<ScreenedStock[]> {
 
       // 4. 외국인 순매수 상위 (신규) — 수급 기반 핵심
       realDataKisGet('FHPST01600000', '/uapi/domestic-stock/v1/ranking/investor', {
-        fid_cond_mrkt_div_code: 'J',
+        fid_cond_mrkt_div_code: marketDiv,
         fid_cond_scr_div_code:  '20160',
         fid_input_iscd:         '0000',
         fid_inqr_dvsn_cls_code: '0',       // 순매수
