@@ -147,24 +147,7 @@ export function AutoTradePage() {
 
         {/* Tab Switcher: 대시보드 / 트레이딩 설정 */}
         <div className="flex items-center gap-2 p-1 bg-white/5 rounded-xl border border-theme-border w-fit">
-          {([
-            { key: 'dashboard' as const, icon: <Activity className="w-3.5 h-3.5" />, label: '대시보드' },
-            { key: 'settings' as const, icon: <Sliders className="w-3.5 h-3.5" />, label: '트레이딩 설정' },
-          ]).map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all',
-                activeTab === tab.key
-                  ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30 shadow-[0_0_12px_rgba(139,92,246,0.15)]'
-                  : 'text-theme-text-muted hover:text-theme-text hover:bg-white/5 border border-transparent'
-              )}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
+
         </div>
 
         {/* ── 트레이딩 설정 탭 ─────────────────────────────────────────── */}

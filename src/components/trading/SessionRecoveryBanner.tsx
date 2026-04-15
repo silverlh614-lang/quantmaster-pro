@@ -3,67 +3,43 @@
  * 마지막 저장된 설정 상태를 감지하고, 복구 여부를 사용자에게 안내합니다.
  */
 import React, { useState, useEffect } from 'react';
-import { X, Clock, CheckCircle2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+
 
 interface SessionStateResponse {
   restored: boolean;
   savedAt?: string;
-}
 
-function buildSessionPayload() {
-  return {
-    gateWeights: {},
-    universeSelection: [],
-    initialInvestment: 100000000,
-    tradingSettings: {},
-    savedAt: new Date().toISOString(),
-  };
 }
 
 export function SessionRecoveryBanner() {
   const [session, setSession] = useState<SessionStateResponse | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
-  // 서버에서 세션 상태 복구
   useEffect(() => {
     fetch('/api/session-state')
       .then(r => r.json())
       .then((data: SessionStateResponse) => {
-        if (data.restored && data.savedAt) setSession(data);
+
       })
       .catch(() => {});
   }, []);
 
-  // 자동 저장: 5분 주기 + 페이지 언로드 시
-  useEffect(() => {
-    const save = () => {
-      navigator.sendBeacon(
-        '/api/session-state',
-        new Blob([JSON.stringify(buildSessionPayload())], { type: 'application/json' })
-      );
-    };
 
-    window.addEventListener('beforeunload', save);
     const interval = setInterval(() => {
       fetch('/api/session-state', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildSessionPayload()),
+
       }).catch(() => {});
     }, 5 * 60 * 1000);
 
     return () => {
-      window.removeEventListener('beforeunload', save);
+
       clearInterval(interval);
     };
   }, []);
 
-  if (!session?.restored || dismissed) return null;
 
-  const formattedDate = session.savedAt
-    ? new Date(session.savedAt).toLocaleString('ko-KR', {
-        timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
       })
     : '';
 
