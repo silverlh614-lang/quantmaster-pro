@@ -696,6 +696,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         // 진입가 미도달 → failCount 증가 (3회 누적 시 cleanupWatchlist에서 자동 제거)
         stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
         watchlistMutated = true;
+        console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — failCount=${stock.entryFailCount}`);
         continue; // 진입가 미도달 — 일반 진입 로직 건너뜀
       }
 
@@ -705,6 +706,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       if (!(nearEntry || breakout)) {
         stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
         watchlistMutated = true;
+        console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 이탈 — failCount=${stock.entryFailCount}`);
         continue;
       }
 
@@ -721,6 +723,14 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
          s.signalTime.startsWith(today))
       );
       if (alreadyTraded) continue;
+
+      // 동시호가 중복 주문 방지 — 동시호가 주문 후 9시 스캔에서 같은 종목에 중복 진입 차단
+      const hasPendingPreMarketOrder = fillMonitor.getPendingOrders().some(
+        o => o.stockCode === stock.code &&
+             (o.status === 'PENDING' || o.status === 'PARTIAL') &&
+             o.placedAt.startsWith(today),
+      );
+      if (hasPendingPreMarketOrder) continue;
 
       // ── Regret Asymmetry Filter — 쿨다운 종목 진입 보류/해제 판단 ────────────
       if (stock.cooldownUntil) {
