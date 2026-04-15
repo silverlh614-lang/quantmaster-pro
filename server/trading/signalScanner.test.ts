@@ -174,6 +174,7 @@ describe('EXIT_RULE_PRIORITY_TABLE', () => {
       'TARGET_EXIT',
       'CASCADE_HALF_SELL',
       'CASCADE_WARN_BLOCK',
+      'RRR_COLLAPSE_PARTIAL',
       'STOP_APPROACH_ALERT',
       'EUPHORIA_PARTIAL',
     ]);
@@ -185,7 +186,7 @@ describe('EXIT_RULE_PRIORITY_TABLE', () => {
     const tableRules = EXIT_RULE_PRIORITY_TABLE.map((r) => r.rule);
     // TypeScript: 아래 assignment가 컴파일되면 tableRules 는 ExitRuleTag[] 와 호환됨을 의미
     const _typed: ExitRuleTag[] = tableRules;
-    expect(_typed).toHaveLength(10);
+    expect(_typed).toHaveLength(11);
   });
 });
 

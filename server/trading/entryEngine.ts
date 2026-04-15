@@ -72,8 +72,9 @@ export const EXIT_RULE_PRIORITY_TABLE: ReadonlyArray<{
   { priority: 6, rule: 'TARGET_EXIT', description: '목표가 전량 청산(레거시 fallback)' },
   { priority: 7, rule: 'CASCADE_HALF_SELL', description: 'Cascade -15% 반매도' },
   { priority: 8, rule: 'CASCADE_WARN_BLOCK', description: 'Cascade -7% 경고/추가매수 차단' },
-  { priority: 9, rule: 'STOP_APPROACH_ALERT', description: '손절 접근 경고(알림)' },
-  { priority: 10, rule: 'EUPHORIA_PARTIAL', description: '과열 탐지 부분 매도' },
+  { priority: 9, rule: 'RRR_COLLAPSE_PARTIAL', description: 'RRR 붕괴(<1.0) 50% 익절' },
+  { priority: 10, rule: 'STOP_APPROACH_ALERT', description: '손절 접근 경고(알림)' },
+  { priority: 11, rule: 'EUPHORIA_PARTIAL', description: '과열 탐지 부분 매도' },
 ] as const;
 
 export const OPEN_SHADOW_STATUSES = new Set<ServerShadowTrade['status']>([

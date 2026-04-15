@@ -15,8 +15,9 @@ export type ExitRuleTag =
   | 'TARGET_EXIT'                // priority 6
   | 'CASCADE_HALF_SELL'          // priority 7
   | 'CASCADE_WARN_BLOCK'         // priority 8
-  | 'STOP_APPROACH_ALERT'        // priority 9
-  | 'EUPHORIA_PARTIAL';          // priority 10
+  | 'RRR_COLLAPSE_PARTIAL'       // priority 9
+  | 'STOP_APPROACH_ALERT'        // priority 10
+  | 'EUPHORIA_PARTIAL';          // priority 11
 
 export interface ServerShadowTrade {
   id: string;
@@ -61,6 +62,7 @@ export interface ServerShadowTrade {
   trailPct?: number;              // 트레일링 스톱 낙폭 비율 (예: 0.10 = 10%)
   trailingEnabled?: boolean;      // 전체 LIMIT 트랜치 완료 후 트레일링 활성화
   r6EmergencySold?: boolean;      // R6_DEFENSE 30% 긴급 청산 완료 여부 (중복 방지)
+  rrrCollapsePartialSold?: boolean; // RRR 붕괴 50% 익절 완료 여부 (중복 방지)
   /** 워치리스트 출처 — Pre-Market(기본), Intraday(장중 발굴), Pre-Breakout(돌파 전 선취매) */
   watchlistSource?: 'PRE_MARKET' | 'INTRADAY' | 'PRE_BREAKOUT' | 'PRE_BREAKOUT_FOLLOWTHROUGH';
   /** 진입 시점 14일 ATR — ATR 기반 동적 손절 계산에 사용 */

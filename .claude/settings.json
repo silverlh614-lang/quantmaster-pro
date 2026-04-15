@@ -3,7 +3,8 @@
     "allow": [
       "Bash(npx --no-install tsc --noEmit --pretty)",
       "Bash(node -e \"require\\('typescript'\\)\")",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Read(//c/Users/6217822/OneDrive/ -/ Hyundai/ Motor/ and/ Kia/바탕/ 화면/QMP/quantmaster-pro/server/clients/**)"
     ]
   }
 }

@@ -316,6 +316,45 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       continue;
     }
 
+    // ─── RRR 붕괴 감지 — 잔여 기대값 < 1.0이면 50% 자동 익절 (1회만) ────────
+    // 진입 시 한 번만 계산된 RRR은 주가 상승 시 잔여 upside가 줄면서 실질 RRR이
+    // 1.0 이하로 붕괴할 수 있다. 수익 중인 포지션이라도 잔여 기대값이 마이너스이면
+    // 보유 정당성이 없으므로 50%를 자동 익절하여 "좀비 포지션"을 제거한다.
+    if (!shadow.rrrCollapsePartialSold && shadow.quantity > 0 && currentPrice > shadow.shadowEntryPrice) {
+      const remainingReward = shadow.targetPrice - currentPrice;
+      const remainingRisk   = currentPrice - hardStopLoss;
+      if (remainingRisk > 0) {
+        const liveRRR = remainingReward / remainingRisk;
+        if (liveRRR < 1.0) {
+          const sellQty = Math.max(1, Math.floor(shadow.quantity * 0.5));
+          shadow.rrrCollapsePartialSold = true;
+          shadow.originalQuantity ??= shadow.quantity;
+          shadow.quantity -= sellQty;
+          shadow.exitRuleTag = 'RRR_COLLAPSE_PARTIAL';
+          appendShadowLog({ event: 'RRR_COLLAPSE_PARTIAL', ...shadow, soldQty: sellQty, liveRRR, returnPct });
+          console.log(`[AutoTrade] 📊 ${shadow.stockName} RRR 붕괴 (${liveRRR.toFixed(2)}) — 50% 익절 ${sellQty}주 @${currentPrice.toLocaleString()}`);
+          await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
+          await sendTelegramAlert(
+            `📊 <b>[RRR 붕괴 경보]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+            `잔여 RRR: ${liveRRR.toFixed(2)} (< 1.0) — 좀비 포지션 50% 익절\n` +
+            `${sellQty}주 @${currentPrice.toLocaleString()}원 | 수익: +${returnPct.toFixed(2)}%\n` +
+            `목표: ${shadow.targetPrice.toLocaleString()}원 | 손절: ${hardStopLoss.toLocaleString()}원 | 잔여: ${shadow.quantity}주`,
+            { priority: 'HIGH', dedupeKey: `rrr_collapse:${shadow.stockCode}` },
+          ).catch(console.error);
+          await channelSellSignal({
+            stockName:   shadow.stockName,
+            stockCode:   shadow.stockCode,
+            exitPrice:   currentPrice,
+            entryPrice:  shadow.shadowEntryPrice,
+            pnlPct:      returnPct,
+            reason:      'RRR_COLLAPSE',
+            holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+          }).catch(console.error);
+          if (shadow.quantity <= 0) continue;
+        }
+      }
+    }
+
     // ⑥ 손절가 접근 3단계 경보 (아이디어 5: 단계별 dedupeKey로 중복 방지)
     //   Stage 1: 손절까지 -5% 이내 → 🟡 접근 경고
     //   Stage 2: 손절까지 -3% 이내 → 🟠 임박 경고

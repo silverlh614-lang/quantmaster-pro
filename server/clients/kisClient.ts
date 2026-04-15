@@ -134,6 +134,7 @@ export async function kisPost(trId: string, apiPath: string, body: Record<string
  * KIS_REAL_DATA_APP_KEY 설정 시 실계좌 서버로, 미설정 시 기존 kisGet 폴백.
  */
 export async function realDataKisGet(trId: string, apiPath: string, params: Record<string, string>) {
+  if (_overrides.realDataKisGet) return _overrides.realDataKisGet(trId, apiPath, params);
   if (!HAS_REAL_DATA_CLIENT) return kisGet(trId, apiPath, params);
 
   const token = await refreshRealDataToken();
@@ -164,11 +165,43 @@ export interface KisInvestorFlow {
   source: 'KIS_API';
 }
 
+// ─── Mock 오버라이드 시스템 ──────────────────────────────────────────────────
+// VTS 모드에서 실 API 호출 없이 전체 파이프라인을 테스트할 수 있도록
+// 데이터 조회 함수들을 오버라이드 가능하게 한다.
+// 주문 함수(placeKisSellOrder 등)는 이미 Shadow 모드에서 실주문을 건너뛰므로 제외.
+
+export interface KisClientOverrides {
+  fetchCurrentPrice?: (code: string) => Promise<number | null>;
+  fetchStockName?: (code: string) => Promise<string | null>;
+  fetchAccountBalance?: () => Promise<number | null>;
+  fetchKisInvestorFlow?: (code: string) => Promise<KisInvestorFlow | null>;
+  realDataKisGet?: (trId: string, apiPath: string, params: Record<string, string>) => Promise<unknown>;
+}
+
+let _overrides: KisClientOverrides = {};
+
+/**
+ * KIS 클라이언트 데이터 조회 함수를 mock으로 교체한다.
+ * VTS 모드에서 실 API 호출 없이 전체 파이프라인을 작동시키는 핵심.
+ */
+export function setKisClientOverrides(overrides: KisClientOverrides): void {
+  _overrides = overrides;
+  console.log(`[KIS] 클라이언트 오버라이드 설정 완료: ${Object.keys(overrides).join(', ')}`);
+}
+
+/** 현재 오버라이드 설정 여부 */
+export function hasKisClientOverrides(): boolean {
+  return Object.keys(_overrides).length > 0;
+}
+
+// ─── 데이터 조회 함수 (오버라이드 가능) ────────────────────────────────────────
+
 /**
  * FHKST01010300 — 주식현재가 투자자별 순매수 조회.
  * KIS_APP_KEY 미설정 시 null 반환. 실계좌/VTS 모두 지원.
  */
 export async function fetchKisInvestorFlow(code: string): Promise<KisInvestorFlow | null> {
+  if (_overrides.fetchKisInvestorFlow) return _overrides.fetchKisInvestorFlow(code);
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
   try {
     const data = await realDataKisGet(
@@ -191,6 +224,7 @@ export async function fetchKisInvestorFlow(code: string): Promise<KisInvestorFlo
 }
 
 export async function fetchCurrentPrice(code: string): Promise<number | null> {
+  if (_overrides.fetchCurrentPrice) return _overrides.fetchCurrentPrice(code);
   const data = await realDataKisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
     FID_COND_MRKT_DIV_CODE: 'J',
     FID_INPUT_ISCD: code,
@@ -204,6 +238,7 @@ export async function fetchCurrentPrice(code: string): Promise<number | null> {
  * KIS 미설정 시 null 반환 — 호출자가 fallback 처리 필요.
  */
 export async function fetchStockName(code: string): Promise<string | null> {
+  if (_overrides.fetchStockName) return _overrides.fetchStockName(code);
   try {
     const data = await realDataKisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
       FID_COND_MRKT_DIV_CODE: 'J',
@@ -217,6 +252,7 @@ export async function fetchStockName(code: string): Promise<string | null> {
 // ─── 계좌 잔고 조회 ─────────────────────────────────────────────────────────
 
 export async function fetchAccountBalance(): Promise<number | null> {
+  if (_overrides.fetchAccountBalance) return _overrides.fetchAccountBalance();
   const trId = KIS_IS_REAL ? 'TTTC8434R' : 'VTTC8434R';
   const data = await kisGet(trId, '/uapi/domestic-stock/v1/trading/inquire-balance', {
     CANO: process.env.KIS_ACCOUNT_NO ?? '',

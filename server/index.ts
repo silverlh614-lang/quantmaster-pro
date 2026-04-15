@@ -22,6 +22,18 @@ if (process.env.AUTO_TRADE_MODE === 'LIVE' && process.env.KIS_IS_REAL !== 'true'
   );
 }
 
+// ─── VTS 모드: Mock KIS 클라이언트 주입 ──────────────────────────────────────
+// AUTO_TRADE_MODE === 'VTS'이면 실 KIS API 호출 없이 전체 파이프라인이 작동하도록
+// 가상 데이터를 반환하는 Mock 클라이언트를 주입한다.
+// startServer() 내부에서 스케줄러 기동 전에 await하므로 레이스 컨디션 없음.
+async function initVtsMockIfNeeded(): Promise<void> {
+  if (process.env.AUTO_TRADE_MODE !== 'VTS') return;
+  const { createMockKisOverrides } = await import('./clients/mockKisClient.js');
+  const { setKisClientOverrides } = await import('./clients/kisClient.js');
+  setKisClientOverrides(createMockKisOverrides());
+  console.log('[VTS] Mock KIS 클라이언트 주입 완료 — 실 API 호출 없이 전체 파이프라인 작동');
+}
+
 // ─────────────────────────────────────────────────────────────
 // 아이디어 9: 서버사이드 비상 정지 모듈 (Circuit Breaker)
 // 브라우저를 닫아도 서버 메모리에서 플래그 유지
@@ -145,6 +157,9 @@ async function startServer() {
       registerFallbackRoot();
     }
   }
+
+  // VTS Mock 주입은 HTTP 서버·스케줄러 기동 전에 동기적으로 완료
+  await initVtsMockIfNeeded();
 
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
