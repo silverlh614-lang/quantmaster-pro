@@ -18,16 +18,13 @@ import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
 import { ALL_CONDITIONS, CONDITION_SOURCE_MAP } from '../../services/quant/evolutionEngine';
 import { VKOSPI } from '../../constants/thresholds';
+import { GATE1_IDS, GATE2_IDS } from '../../constants/gateConfig';
 
 // ── Gate assignment map ─────────────────────────────────────────────────────
 
-const GATE1_IDS = [1, 3, 5, 7, 9];
-const GATE2_IDS = [4, 6, 8, 10, 11, 12, 13, 14, 15, 16, 21, 24];
-const GATE3_IDS = [2, 17, 18, 19, 20, 22, 23, 25, 26, 27];
-
 function getGate(id: number): 1 | 2 | 3 {
-  if (GATE1_IDS.includes(id)) return 1;
-  if (GATE2_IDS.includes(id)) return 2;
+  if ((GATE1_IDS as readonly number[]).includes(id)) return 1;
+  if ((GATE2_IDS as readonly number[]).includes(id)) return 2;
   return 3;
 }
 
