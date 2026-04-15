@@ -8,9 +8,10 @@
  * ┌─ 1. 시간대별 기본 간격 ──────────────────────────────────────────┐
  * │  09:00~09:30 :  2분 (시초가 급변)                                │
  * │  09:30~11:30 :  3분 (오전 주도주 형성)                           │
- * │  11:30~13:00 : 10분 (점심 횡보 — 신호 거의 없음)                 │
+ * │  11:30~13:00 : SELL_ONLY 10분 (점심 — Volume Clock 차단 연동)    │
  * │  13:00~14:30 :  5분 (오후 재개장)                                │
- * │  14:30~15:20 :  2분 (마감 전 급변)                               │
+ * │  14:30~14:55 :  2분 (마감 전 급변)                               │
+ * │  14:55~15:20 : SELL_ONLY  2분 (마감 동시호가 — exitEngine 전용)  │
  * └─────────────────────────────────────────────────────────────────┘
  *
  * ┌─ 2. 레짐 배율 ───────────────────────────────────────────────────┐
@@ -51,7 +52,7 @@ let lastVkospikSpikeAt = 0;  // ms timestamp
 
 // ── 아이디어 5: 피드백 루프 — 빈 스캔 연속 시 간격 확대 ──────────────────────
 let consecutiveEmptyScans = 0;
-const EMPTY_SCAN_BACKOFF_THRESHOLD = 3;  // 3회 연속 빈 스캔 → 다음 사이클 스킵
+const EMPTY_SCAN_BACKOFF_THRESHOLD = 5;  // 5회 연속 빈 스캔 → 다음 사이클 스킵 (3→5 완화: Gate 미달 구간 복귀 대응)
 const EMPTY_SCAN_MAX_MULTIPLIER    = 3;  // 최대 3배까지 간격 확대
 
 // ── 레짐 배율 맵 ─────────────────────────────────────────────────────────────
@@ -127,14 +128,18 @@ export function decideScan(): ScanDecision {
   }
 
   // ── 3. 시간대별 기본 간격 ────────────────────────────────────────────────
+  //   Volume Clock과 연동: 11:30~13:00 및 14:55~15:20은 매수 차단 구간이므로
+  //   SELL_ONLY 모드로 exitEngine 포지션 감시만 수행 (Yahoo API 호출 절약)
   let baseInterval: number;
   let phase: string;
+  let forceSellOnly = false;
 
   if      (t < 930)  { baseInterval = 2;  phase = '시초가(급변)'; }
   else if (t < 1130) { baseInterval = 3;  phase = '오전 주도주'; }
-  else if (t < 1300) { baseInterval = 10; phase = '점심 횡보';   }
+  else if (t < 1300) { baseInterval = 10; phase = '점심(SELL_ONLY)'; forceSellOnly = true; }
   else if (t < 1430) { baseInterval = 5;  phase = '오후 재개장'; }
-  else               { baseInterval = 2;  phase = '마감전(급변)'; }
+  else if (t < 1455) { baseInterval = 2;  phase = '마감전(급변)'; }
+  else               { baseInterval = 2;  phase = '마감동시호가(SELL_ONLY)'; forceSellOnly = true; }
 
   // ── 4. 레짐 배율 적용 ────────────────────────────────────────────────────
   const multiplier = REGIME_MULTIPLIER[regime] ?? 1.0;
@@ -145,7 +150,7 @@ export function decideScan(): ScanDecision {
   const effectiveInterval = Math.max(1, Math.round(baseInterval * multiplier) + positionAdj);
 
   // ── 6. 피드백 루프: 빈 스캔 연속 시 간격 확대 ───────────────────────────
-  //   3회 연속 빈 스캔 → 다음 사이클 1회 스킵 (Yahoo Finance 레이트 리밋 절약)
+  //   5회 연속 빈 스캔 → 다음 사이클 1회 스킵 (Yahoo Finance 레이트 리밋 절약)
   //   연속 빈 스캔 누적에 따라 점진적 간격 확대 (최대 ×3)
   const emptyBackoff = consecutiveEmptyScans >= EMPTY_SCAN_BACKOFF_THRESHOLD
     ? Math.min(EMPTY_SCAN_MAX_MULTIPLIER, 1 + Math.floor(consecutiveEmptyScans / EMPTY_SCAN_BACKOFF_THRESHOLD))
@@ -179,7 +184,7 @@ export function decideScan(): ScanDecision {
       ` | 포지션 ${activePositions}/${maxPositions}` +
       ` → ${finalInterval}분 간격`
     ),
-    priority: 'FULL',
+    priority: forceSellOnly ? 'SELL_ONLY' : 'FULL',
   };
 }
 
@@ -188,7 +193,7 @@ export function decideScan(): ScanDecision {
  *
  * signalCount가 0이면 consecutiveEmptyScans를 1 증가시키고,
  * 1 이상이면 즉시 0으로 리셋한다.
- * 3회 연속 빈 스캔이 누적되면 decideScan()이 인터벌을 자동 확대한다.
+ * 5회 연속 빈 스캔이 누적되면 decideScan()이 인터벌을 자동 확대한다.
  */
 export function recordScanResult(signalCount: number): void {
   if (signalCount === 0) {
