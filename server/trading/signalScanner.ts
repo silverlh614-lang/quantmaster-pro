@@ -2,12 +2,13 @@
  * signalScanner.ts — 장중 자동 신호 스캔 오케스트레이터
  *
  * 세부 로직은 다음 서브모듈로 분리됨:
- *   entryEngine.ts — 진입 검증 유틸리티 (EXIT_RULE_PRIORITY_TABLE, buildStopLossPlan, calculateOrderQuantity, evaluateEntryRevalidation, isOpenShadowStatus)
- *   exitEngine.ts  — 포지션 모니터링 및 청산 엔진 (updateShadowResults)
+ *   entryEngine.ts  — 진입 검증 유틸리티 (EXIT_RULE_PRIORITY_TABLE, buildStopLossPlan, calculateOrderQuantity, evaluateEntryRevalidation, isOpenShadowStatus)
+ *   exitEngine.ts   — 포지션 모니터링 및 청산 엔진 (updateShadowResults)
+ *   buyPipeline.ts  — 매수 실행 공통 헬퍼 (MTAS 배수, Gate 조회, Trade 빌더, 승인 큐)
  */
 
 import {
-  fetchCurrentPrice, fetchAccountBalance, placeKisMarketBuyOrder,
+  fetchCurrentPrice, fetchAccountBalance,
   fetchKisInvestorFlow,
 } from '../clients/kisClient.js';
 import { getRealtimePrice, subscribeStock } from '../clients/kisStreamClient.js';
@@ -32,7 +33,7 @@ import { loadIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import {
   type ServerShadowTrade,
-  loadShadowTrades, saveShadowTrades, appendShadowLog,
+  loadShadowTrades, saveShadowTrades,
 } from '../persistence/shadowTradeRepo.js';
 import { isBlacklisted } from '../persistence/blacklistRepo.js';
 import {
@@ -69,12 +70,19 @@ import {
   getKstMarketElapsedMinutes,
 } from './entryEngine.js';
 import { updateShadowResults } from './exitEngine.js';
-import { requestBuyApproval, type ApprovalAction } from '../telegram/buyApproval.js';
+import { type ApprovalAction } from '../telegram/buyApproval.js';
 import { checkCooldownRelease } from './regretAsymmetryFilter.js';
 import { checkVolumeClockWindow } from './volumeClock.js';
 import { detectPreBreakoutAccumulation } from './preBreakoutAccumulationDetector.js';
 import { appendScanTraces, type ScanTrace } from './scanTracer.js';
-import { fetchEnemyCheckData } from '../clients/enemyCheckClient.js';
+import {
+  computeMtasMultiplier,
+  computeRawPositionPct,
+  fetchGateData,
+  buildBuyTrade,
+  createBuyTask,
+  type LiveBuyTask,
+} from './buyPipeline.js';
 
 // ── 서브모듈 re-export (하위 호환성 유지) ──────────────────────────────────────
 export type {
@@ -283,7 +291,6 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
 
   // 매수 승인 큐 (LIVE/Shadow 공통) — 승인 요청을 병렬 발송하고 루프 완료 후 일괄 처리
   // (순차 대기 시 종목당 최대 3분 × N종목 = 총 N×3분 블로킹 방지)
-  type LiveBuyTask = { approvalPromise: Promise<ApprovalAction>; execute: (a: ApprovalAction) => Promise<void> };
   const liveBuyQueue: LiveBuyTask[] = [];
 
   for (const stock of buyList) {
@@ -367,34 +374,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               continue;
             }
 
-            const gateScoreFollow = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
-            // 서버 Gate 최대 13점 기준 임계값
-            const isStrongBuyFollow = gateScoreFollow >= 9;
-            const rawPctFollow = isStrongBuyFollow      ? 0.12
-                               : gateScoreFollow >= 7   ? 0.08
-                               : gateScoreFollow >= 5   ? 0.05
-                               : 0.03;
             // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 추종에도 적용)
-            const reCheckQuoteFollow = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
-                                    ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null)
-                                    ?? await fetchKisQuoteFallback(stock.code).catch(() => null);
-            const [kisFlowFollow, dartFinFollow] = reCheckQuoteFollow
-              ? await Promise.all([
-                  fetchKisInvestorFlow(stock.code).catch(() => null),
-                  getDartFinancials(stock.code).catch(() => null),
-                ])
-              : [null, null];
-            const reCheckGateFollow = reCheckQuoteFollow
-              ? evaluateServerGate(reCheckQuoteFollow, conditionWeights, macroState?.kospiDayReturn, dartFinFollow, kisFlowFollow)
-              : null;
-            let mtasMultiplierFollow = 1.0;
-            if (reCheckGateFollow) {
-              if (reCheckGateFollow.mtas === 10) mtasMultiplierFollow = 1.15;
-              else if (reCheckGateFollow.mtas >= 7) mtasMultiplierFollow = 1.0;
-              else if (reCheckGateFollow.mtas >= 5) mtasMultiplierFollow = 0.5;
-              if (reCheckGateFollow.mtas > 3 && reCheckGateFollow.mtas < 5) mtasMultiplierFollow = 0.5;
-            }
-            const posPctFollow = rawPctFollow * kellyMultiplier * mtasMultiplierFollow;
+            const gateScoreFollow = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
+            const { gate: reCheckGateFollow, quote: reCheckQuoteFollow } = await fetchGateData(stock.code, conditionWeights, macroState?.kospiDayReturn);
+            const mtasFollow = reCheckGateFollow ? computeMtasMultiplier(reCheckGateFollow.mtas) : 1.0;
+            const posPctFollow = computeRawPositionPct(gateScoreFollow) * kellyMultiplier * mtasFollow;
             const remSlots = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY').length);
             const { quantity: fullQty } = calculateOrderQuantity({
               totalAssets, orderableCash, positionPct: posPctFollow,
@@ -406,60 +390,27 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             const regimeStopRate = REGIME_CONFIGS[regime].stopLoss[profileKey];
             const followATR14 = reCheckQuoteFollow?.atr ?? 0;
             const stopLossPlan = buildStopLossPlan({
-              entryPrice:    followEntryPrice,
-              fixedStopLoss: stock.stopLoss,
-              regimeStopRate,
-              atr14: followATR14,
-              regime,
+              entryPrice: followEntryPrice, fixedStopLoss: stock.stopLoss, regimeStopRate, atr14: followATR14, regime,
             });
             const limitTranches = PROFIT_TARGETS[regime].filter(t => t.type === 'LIMIT' && t.trigger !== null);
             const trailTarget   = PROFIT_TARGETS[regime].find(t => t.type === 'TRAILING');
-            const followTrade: ServerShadowTrade = {
-              id:                    `srv_pbf_${Date.now()}_${stock.code}`,
-              stockCode:             stock.code,
-              stockName:             stock.name,
-              signalTime:            new Date().toISOString(),
-              signalPrice:           currentPrice,
-              shadowEntryPrice:      followEntryPrice,
-              quantity:              followQty,
-              originalQuantity:      followQty,
-              stopLoss:              stopLossPlan.hardStopLoss,
-              initialStopLoss:       stopLossPlan.initialStopLoss,
-              regimeStopLoss:        stopLossPlan.regimeStopLoss,
-              hardStopLoss:          stopLossPlan.hardStopLoss,
-              targetPrice:           stock.targetPrice,
-              status:                'PENDING',
-              mode:                  shadowMode ? 'SHADOW' : 'LIVE',
-              entryRegime:           regime,
-              profileType:           profile,
-              watchlistSource:       'PRE_BREAKOUT_FOLLOWTHROUGH',
-              profitTranches:        limitTranches.map(t => ({
-                price: followEntryPrice * (1 + (t.trigger as number)),
-                ratio: t.ratio,
-                taken: false,
-              })),
-              trailingHighWaterMark: followEntryPrice,
-              trailPct:              trailTarget?.trailPct ?? 0.10,
-              trailingEnabled:       false,
-              entryATR14:            followATR14 || undefined,
-              dynamicStopPrice:      stopLossPlan.dynamicStopLoss,
-            };
+            const followTrade = buildBuyTrade({
+              idPrefix: 'srv_pbf', stockCode: stock.code, stockName: stock.name,
+              currentPrice, shadowEntryPrice: followEntryPrice, quantity: followQty,
+              stopLossPlan, targetPrice: stock.targetPrice, shadowMode, regime,
+              profileType: profile, watchlistSource: 'PRE_BREAKOUT_FOLLOWTHROUGH',
+              profitTranches: limitTranches.map(t => ({ price: followEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false })),
+              trailPct: trailTarget?.trailPct ?? 0.10, entryATR14: followATR14,
+            });
 
             shadows.push(followTrade);
-            appendShadowLog({ event: 'PRE_BREAKOUT_FOLLOWTHROUGH', ...followTrade });
 
             addRecommendation({
-              stockCode:        stock.code,
-              stockName:        stock.name,
-              signalTime:       new Date().toISOString(),
-              priceAtRecommend: currentPrice,
-              stopLoss:         stopLossPlan.hardStopLoss,
-              targetPrice:      stock.targetPrice,
-              kellyPct:         Math.round(posPctFollow * 100),
-              gateScore:        gateScoreFollow,
-              signalType:       'BUY',
-              conditionKeys:    ['PRE_BREAKOUT_FOLLOWTHROUGH'],
-              entryRegime:      regime,
+              stockCode: stock.code, stockName: stock.name, signalTime: new Date().toISOString(),
+              priceAtRecommend: currentPrice, stopLoss: stopLossPlan.hardStopLoss,
+              targetPrice: stock.targetPrice, kellyPct: Math.round(posPctFollow * 100),
+              gateScore: gateScoreFollow, signalType: 'BUY',
+              conditionKeys: ['PRE_BREAKOUT_FOLLOWTHROUGH'], entryRegime: regime,
             });
 
             const alertMsg =
@@ -468,49 +419,14 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               `주문가: ${followEntryPrice.toLocaleString()}원 × ${followQty}주\n` +
               `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`;
 
-            {
-              // 병렬 승인 큐 등록 — Shadow/LIVE 공통 (루프 후 Promise.allSettled로 일괄 처리)
-              const _ft = followTrade, _fq = followQty, _fep = followEntryPrice;
-              const _fCode = stock.code, _fName = stock.name, _fTarget = stock.targetPrice;
-              const _fSl = stopLossPlan.hardStopLoss, _fAlert = alertMsg, _fGs = gateScoreFollow;
-              const _fShadow = shadowMode;
-              const _fEnemy = await fetchEnemyCheckData(stock.code).catch(() => null);
-              liveBuyQueue.push({
-                approvalPromise: requestBuyApproval({
-                  tradeId: _ft.id, stockCode: _fCode, stockName: _fName,
-                  currentPrice, quantity: _fq, stopLoss: _fSl,
-                  targetPrice: _fTarget, mode: _fShadow ? 'SHADOW' : 'LIVE', gateScore: _fGs,
-                  enemyCheck: _fEnemy,
-                }),
-                execute: async (approval) => {
-                  if (approval !== 'APPROVE') {
-                    console.log(`[PreBreakout ${_fShadow ? 'SHADOW' : 'LIVE'}] ${_fName} 추종 매수 ${approval} — 건너뜀`);
-                    _ft.status = 'REJECTED';
-                    return;
-                  }
-                  if (!_fShadow) {
-                    const ordNo = await placeKisMarketBuyOrder(_fCode, _fq);
-                    console.log(`[PreBreakout LIVE] ${_fName} 추종 매수 — ODNO: ${ordNo}`);
-                    if (ordNo) {
-                      fillMonitor.addOrder({
-                        ordNo, stockCode: _fCode, stockName: _fName,
-                        quantity: _fq, orderPrice: _fep,
-                        placedAt: new Date().toISOString(), relatedTradeId: _ft.id,
-                      });
-                      _ft.status = 'ORDER_SUBMITTED';
-                    } else {
-                      _ft.status = 'REJECTED';
-                    }
-                  } else {
-                    console.log(`[PreBreakout SHADOW] ${_fName}(${_fCode}) 추종 매수 @${_fep}`);
-                  }
-                  await sendTelegramAlert(_fAlert).catch(console.error);
-                  if (_ft.status !== 'REJECTED') {
-                    orderableCash = Math.max(0, orderableCash - _fq * _fep);
-                  }
-                },
-              });
-            }
+            liveBuyQueue.push(await createBuyTask({
+              trade: followTrade, stockCode: stock.code, stockName: stock.name,
+              currentPrice, quantity: followQty, entryPrice: followEntryPrice,
+              stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
+              gateScore: gateScoreFollow, shadowMode, effectiveBudget: followQty * followEntryPrice,
+              alertMessage: alertMsg, logEvent: 'PRE_BREAKOUT_FOLLOWTHROUGH',
+              onApproved: async () => { orderableCash = Math.max(0, orderableCash - followQty * followEntryPrice); },
+            }));
           } else {
             console.log(`[PreBreakout] ${stock.name}(${stock.code}) 추종 매수 이미 실행됨 — 스킵`);
           }
@@ -568,23 +484,14 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               const slippage = 0.003;
               const pbEntryPrice = Math.round(currentPrice * (1 + slippage));
               const gateScorePb = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
-              // 서버 Gate 최대 13점 기준 임계값
-              const isStrongPb  = gateScorePb >= 9;
-              const rawPctPb    = isStrongPb ? 0.12 : gateScorePb >= 7 ? 0.08 : gateScorePb >= 5 ? 0.05 : 0.03;
               // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 선취매에도 적용)
               const [kisFlowPb, dartFinPb] = await Promise.all([
                 fetchKisInvestorFlow(stock.code).catch(() => null),
                 getDartFinancials(stock.code).catch(() => null),
               ]);
               const reCheckGatePb = evaluateServerGate(reCheckQuotePb, conditionWeights, macroState?.kospiDayReturn, dartFinPb, kisFlowPb);
-              let mtasMultiplierPb = 1.0;
-              if (reCheckGatePb) {
-                if (reCheckGatePb.mtas === 10) mtasMultiplierPb = 1.15;
-                else if (reCheckGatePb.mtas >= 7) mtasMultiplierPb = 1.0;
-                else if (reCheckGatePb.mtas >= 5) mtasMultiplierPb = 0.5;
-                if (reCheckGatePb.mtas > 3 && reCheckGatePb.mtas < 5) mtasMultiplierPb = 0.5;
-              }
-              const posPctPb    = rawPctPb * kellyMultiplier * mtasMultiplierPb;
+              const mtasPb = reCheckGatePb ? computeMtasMultiplier(reCheckGatePb.mtas) : 1.0;
+              const posPctPb    = computeRawPositionPct(gateScorePb) * kellyMultiplier * mtasPb;
               const remSlotsPb  = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY').length);
               const { quantity: fullPbQty } = calculateOrderQuantity({
                 totalAssets, orderableCash, positionPct: posPctPb,
@@ -598,112 +505,47 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                 const regimeStopRatePb = REGIME_CONFIGS[regime].stopLoss[profileKeyPb];
                 const pbATR14 = reCheckQuotePb?.atr ?? 0;
                 const stopLossPlanPb = buildStopLossPlan({
-                  entryPrice:    pbEntryPrice,
-                  fixedStopLoss: stock.stopLoss,
-                  regimeStopRate: regimeStopRatePb,
-                  atr14: pbATR14,
-                  regime,
+                  entryPrice: pbEntryPrice, fixedStopLoss: stock.stopLoss, regimeStopRate: regimeStopRatePb, atr14: pbATR14, regime,
                 });
                 const limitTranchesPb = PROFIT_TARGETS[regime].filter(t => t.type === 'LIMIT' && t.trigger !== null);
                 const trailTargetPb   = PROFIT_TARGETS[regime].find(t => t.type === 'TRAILING');
-                const pbTrade: ServerShadowTrade = {
-                  id:                    `srv_pb_${Date.now()}_${stock.code}`,
-                  stockCode:             stock.code,
-                  stockName:             stock.name,
-                  signalTime:            new Date().toISOString(),
-                  signalPrice:           currentPrice,
-                  shadowEntryPrice:      pbEntryPrice,
-                  quantity:              pbQty,
-                  originalQuantity:      fullPbQty,
-                  stopLoss:              stopLossPlanPb.hardStopLoss,
-                  initialStopLoss:       stopLossPlanPb.initialStopLoss,
-                  regimeStopLoss:        stopLossPlanPb.regimeStopLoss,
-                  hardStopLoss:          stopLossPlanPb.hardStopLoss,
-                  targetPrice:           stock.targetPrice,
-                  status:                'PENDING',
-                  mode:                  shadowMode ? 'SHADOW' : 'LIVE',
-                  entryRegime:           regime,
-                  profileType:           profilePb,
-                  watchlistSource:       'PRE_BREAKOUT',
-                  profitTranches:        limitTranchesPb.map(t => ({
-                    price: pbEntryPrice * (1 + (t.trigger as number)),
-                    ratio: t.ratio,
-                    taken: false,
-                  })),
-                  trailingHighWaterMark: pbEntryPrice,
-                  trailPct:              trailTargetPb?.trailPct ?? 0.10,
-                  trailingEnabled:       false,
-                  entryATR14:            pbATR14 || undefined,
-                  dynamicStopPrice:      stopLossPlanPb.dynamicStopLoss,
-                };
+                const pbTrade = buildBuyTrade({
+                  idPrefix: 'srv_pb', stockCode: stock.code, stockName: stock.name,
+                  currentPrice, shadowEntryPrice: pbEntryPrice, quantity: pbQty, originalQuantity: fullPbQty,
+                  stopLossPlan: stopLossPlanPb, targetPrice: stock.targetPrice, shadowMode, regime,
+                  profileType: profilePb, watchlistSource: 'PRE_BREAKOUT',
+                  profitTranches: limitTranchesPb.map(t => ({ price: pbEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false })),
+                  trailPct: trailTargetPb?.trailPct ?? 0.10, entryATR14: pbATR14,
+                });
 
                 shadows.push(pbTrade);
-                appendShadowLog({ event: 'PRE_BREAKOUT_ENTRY', ...pbTrade });
 
                 addRecommendation({
-                  stockCode:        stock.code,
-                  stockName:        stock.name,
-                  signalTime:       new Date().toISOString(),
-                  priceAtRecommend: currentPrice,
-                  stopLoss:         stopLossPlanPb.hardStopLoss,
-                  targetPrice:      stock.targetPrice,
-                  kellyPct:         Math.round(posPctPb * 100),
-                  gateScore:        gateScorePb,
-                  signalType:       'BUY',
-                  conditionKeys:    ['PRE_BREAKOUT'],
-                  entryRegime:      regime,
+                  stockCode: stock.code, stockName: stock.name, signalTime: new Date().toISOString(),
+                  priceAtRecommend: currentPrice, stopLoss: stopLossPlanPb.hardStopLoss,
+                  targetPrice: stock.targetPrice, kellyPct: Math.round(posPctPb * 100),
+                  gateScore: gateScorePb, signalType: 'BUY',
+                  conditionKeys: ['PRE_BREAKOUT'], entryRegime: regime,
                 });
 
                 console.log(`[PreBreakout] ${stock.name}(${stock.code}) 매집 감지 — 30% 선취매 @${pbEntryPrice} (${pbQty}주/${fullPbQty}주)`);
                 console.log(`[PreBreakout] ${accumResult.summary}`);
 
-                await sendTelegramAlert(
+                const pbAlertMsg =
                   `🔍 <b>[선취매 진입] ${stock.name} (${stock.code})</b>\n` +
                   `매집 감지 — ${accumResult.summary}\n` +
                   `현재가: ${currentPrice.toLocaleString()}원 × ${pbQty}주 (30% / 총 ${fullPbQty}주)\n` +
                   `손절: ${formatStopLossBreakdown(stopLossPlanPb)} | 목표: ${stock.targetPrice.toLocaleString()}원\n` +
-                  `⚡ 돌파 확인 시 나머지 70%(${fullPbQty - pbQty}주) 추가 집행`
-                ).catch(console.error);
+                  `⚡ 돌파 확인 시 나머지 70%(${fullPbQty - pbQty}주) 추가 집행`;
 
-                {
-                  // 병렬 승인 큐 등록 — Shadow/LIVE 공통
-                  const _pb = pbTrade, _pbQty = pbQty, _pbEp = pbEntryPrice;
-                  const _pbCode = stock.code, _pbName = stock.name, _pbTarget = stock.targetPrice;
-                  const _pbSl = stopLossPlanPb.hardStopLoss, _pbGs = gateScorePb;
-                  const _pbShadow = shadowMode;
-                  const _pbEnemy = await fetchEnemyCheckData(stock.code).catch(() => null);
-                  liveBuyQueue.push({
-                    approvalPromise: requestBuyApproval({
-                      tradeId: _pb.id, stockCode: _pbCode, stockName: _pbName,
-                      currentPrice, quantity: _pbQty, stopLoss: _pbSl,
-                      targetPrice: _pbTarget, mode: _pbShadow ? 'SHADOW' : 'LIVE', gateScore: _pbGs,
-                      enemyCheck: _pbEnemy,
-                    }),
-                    execute: async (approval) => {
-                      if (approval !== 'APPROVE') {
-                        console.log(`[PreBreakout ${_pbShadow ? 'SHADOW' : 'LIVE'}] ${_pbName} 선취매 ${approval} — 건너뜀`);
-                        _pb.status = 'REJECTED';
-                        return;
-                      }
-                      if (!_pbShadow) {
-                        const ordNo = await placeKisMarketBuyOrder(_pbCode, _pbQty);
-                        if (ordNo) {
-                          fillMonitor.addOrder({
-                            ordNo, stockCode: _pbCode, stockName: _pbName,
-                            quantity: _pbQty, orderPrice: _pbEp,
-                            placedAt: new Date().toISOString(), relatedTradeId: _pb.id,
-                          });
-                          _pb.status = 'ORDER_SUBMITTED';
-                        } else {
-                          _pb.status = 'REJECTED';
-                        }
-                      }
-                      if (_pb.status !== 'REJECTED') {
-                        orderableCash = Math.max(0, orderableCash - _pbQty * _pbEp);
-                      }
-                    },
-                  });
-                }
+                liveBuyQueue.push(await createBuyTask({
+                  trade: pbTrade, stockCode: stock.code, stockName: stock.name,
+                  currentPrice, quantity: pbQty, entryPrice: pbEntryPrice,
+                  stopLoss: stopLossPlanPb.hardStopLoss, targetPrice: stock.targetPrice,
+                  gateScore: gateScorePb, shadowMode, effectiveBudget: pbQty * pbEntryPrice,
+                  alertMessage: pbAlertMsg, logEvent: 'PRE_BREAKOUT_ENTRY',
+                  onApproved: async () => { orderableCash = Math.max(0, orderableCash - pbQty * pbEntryPrice); },
+                }));
               }
             }
           }
@@ -924,30 +766,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         continue;
       }
 
-      // 포지션 사이징: 실시간 Gate 결과 연동
-      // 1) 기본 포지션 비중 결정 (gateScore 기반)
-      const rawPositionPct = isStrongBuy     ? 0.12
-                           : gateScore >= 7  ? 0.08
-                           : gateScore >= 5  ? 0.05
-                           : 0.03;
-      // 2) MTAS 기반 포지션 조정 (evaluateServerGate의 멀티타임프레임 정렬도 반영)
-      let mtasMultiplier = 1.0;
-      if (reCheckGate) {
-        if (reCheckGate.mtas === 10) {
-          mtasMultiplier = 1.15; // 완벽 정렬 → +15%
-        } else if (reCheckGate.mtas >= 7) {
-          mtasMultiplier = 1.0;  // 표준
-        } else if (reCheckGate.mtas >= 5) {
-          mtasMultiplier = 0.5;  // 약한 정렬 → 50% 축소
-        }
-        // mtas 4 이하: 위에서 이미 차단됨 (≤3)
-        // mtas 4: 경계 구간 — 표준 비중의 50%
-        if (reCheckGate.mtas > 3 && reCheckGate.mtas < 5) {
-          mtasMultiplier = 0.5;
-        }
-      }
-      // 레짐 Kelly 배율 × MTAS 배율 적용
-      const positionPct = rawPositionPct * kellyMultiplier * mtasMultiplier;
+      // 포지션 사이징: 실시간 Gate 결과 연동 (buyPipeline 헬퍼 사용)
+      const mtasMultiplier = computeMtasMultiplier(reCheckGate.mtas);
+      const positionPct = computeRawPositionPct(gateScore) * kellyMultiplier * mtasMultiplier;
 
       if (reCheckGate) {
         console.log(
@@ -976,223 +797,80 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       // ─── ① 손절 정책 분리: 고정 손절 / 레짐 손절 / 하드 스톱 ───────────────
       const profile    = stock.profileType ?? 'B';
       const profileKey = `profile${profile}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
-      const regimeStopRate  = REGIME_CONFIGS[regime].stopLoss[profileKey]; // 음수 비율 (e.g., -0.10)
+      const regimeStopRate  = REGIME_CONFIGS[regime].stopLoss[profileKey];
       const entryATR14 = reCheckQuote?.atr ?? 0;
       const stopLossPlan = buildStopLossPlan({
-        entryPrice: shadowEntryPrice,
-        fixedStopLoss: stock.stopLoss,
-        regimeStopRate,
-        atr14: entryATR14,
-        regime,
+        entryPrice: shadowEntryPrice, fixedStopLoss: stock.stopLoss, regimeStopRate, atr14: entryATR14, regime,
       });
 
       // L3 분할 익절 타겟 — PROFIT_TARGETS[regime]에서 LIMIT 트랜치 추출
-      const limitTranches = PROFIT_TARGETS[regime].filter(
-        (t) => t.type === 'LIMIT' && t.trigger !== null
-      );
+      const limitTranches = PROFIT_TARGETS[regime].filter((t) => t.type === 'LIMIT' && t.trigger !== null);
       const trailTarget = PROFIT_TARGETS[regime].find((t) => t.type === 'TRAILING');
 
-      const trade: ServerShadowTrade = {
-        id: `srv_${Date.now()}_${stock.code}`,
-        stockCode: stock.code,
-        stockName: stock.name,
-        signalTime: new Date().toISOString(),
-        signalPrice: currentPrice,
-        shadowEntryPrice,
-        quantity: execQty,
-        originalQuantity: execQty,
-        stopLoss: stopLossPlan.hardStopLoss,
-        initialStopLoss: stopLossPlan.initialStopLoss,
-        regimeStopLoss: stopLossPlan.regimeStopLoss,
-        hardStopLoss: stopLossPlan.hardStopLoss,
-        targetPrice: stock.targetPrice,
-        status: 'PENDING',
-        mode: shadowMode ? 'SHADOW' : 'LIVE',
-        // ─── 레짐 연결 ──────────────────────────────────────────────────────
-        entryRegime: regime,
-        profileType: profile,
+      const trade = buildBuyTrade({
+        idPrefix: 'srv', stockCode: stock.code, stockName: stock.name,
+        currentPrice, shadowEntryPrice, quantity: execQty,
+        stopLossPlan, targetPrice: stock.targetPrice, shadowMode, regime,
+        profileType: profile, watchlistSource: undefined,
         profitTranches: limitTranches.map((t) => ({
-          price: shadowEntryPrice * (1 + (t.trigger as number)),
-          ratio: t.ratio,
-          taken: false,
+          price: shadowEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false,
         })),
-        trailingHighWaterMark: shadowEntryPrice,
-        trailPct: trailTarget?.trailPct ?? 0.10,
-        trailingEnabled: false,
-        entryATR14: entryATR14 || undefined,
-        dynamicStopPrice: stopLossPlan.dynamicStopLoss,
-      };
-
-      // 아이디어 10: 추천 기록 — 신호 발생 즉시 저장 (WIN/LOSS 추후 평가)
-      // 버그 4 수정: gateScore·signalType을 워치리스트 entry에서 가져와 자기학습 통계 정상화
-      addRecommendation({
-        stockCode:        stock.code,
-        stockName:        stock.name,
-        signalTime:       new Date().toISOString(),
-        priceAtRecommend: currentPrice,
-        stopLoss:         stopLossPlan.hardStopLoss,
-        targetPrice:      stock.targetPrice,
-        kellyPct:         Math.round(positionPct * 100),
-        gateScore:        gateScore,
-        signalType:       isStrongBuy ? 'STRONG_BUY' : 'BUY',
-        conditionKeys:    stock.conditionKeys ?? [],
-        entryRegime:      regime,  // 레짐별 캘리브레이션용 (아이디어 1)
+        trailPct: trailTarget?.trailPct ?? 0.10, entryATR14,
       });
 
+      addRecommendation({
+        stockCode: stock.code, stockName: stock.name, signalTime: new Date().toISOString(),
+        priceAtRecommend: currentPrice, stopLoss: stopLossPlan.hardStopLoss,
+        targetPrice: stock.targetPrice, kellyPct: Math.round(positionPct * 100),
+        gateScore, signalType: isStrongBuy ? 'STRONG_BUY' : 'BUY',
+        conditionKeys: stock.conditionKeys ?? [], entryRegime: regime,
+      });
+
+      // ─── SHADOW/LIVE 통합 승인 큐 등록 ──────────────────────────────────────
+      _scanEntries++;
+      _lastBuySignalAt = Date.now();
+      stageLog.buy = shadowMode ? 'SHADOW' : 'LIVE'; pushTrace();
+
+      const modeEmoji = shadowMode ? '⚡' : '🚀';
+      const modeLabel = shadowMode ? 'Shadow' : 'LIVE';
       const trancheLabel = isStrongBuy ? ` (1차/${execQty}주, 총${quantity}주)` : '';
+      const gateLabel = `Gate ${liveGateScore.toFixed(1)} | MTAS ${reCheckGate.mtas.toFixed(0)}/10 | CS ${reCheckGate.compressionScore.toFixed(2)}`;
+      const slBreakdown = formatStopLossBreakdown(stopLossPlan);
+      const mainAlertMsg =
+        `${modeEmoji} <b>[${modeLabel}] 매수 ${shadowMode ? '신호' : '주문'}${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
+        `종목: ${stock.name} (${stock.code})\n` +
+        `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
+        `📊 ${gateLabel}\n` +
+        `손절: ${slBreakdown} | 목표: ${stock.targetPrice.toLocaleString()}원`;
 
-      if (shadowMode) {
-        // SHADOW 모드: 승인 큐에 등록 (텔레그램 승인 후 등록)
-        _scanEntries++;
-        _lastBuySignalAt = Date.now();
-        stageLog.buy = 'SHADOW'; pushTrace();
-        const _t = trade, _code = stock.code, _name = stock.name;
-        const _execQty = execQty, _ep = shadowEntryPrice, _sl = stopLossPlan.hardStopLoss;
-        const _target = stock.targetPrice, _gs = gateScore, _cp = currentPrice;
-        const _eb = effectiveBudget, _isStrong = isStrongBuy, _qty = quantity;
-        const _tLabel = trancheLabel, _rcg = reCheckGate, _lgs = liveGateScore;
-        const _slBreakdown = formatStopLossBreakdown(stopLossPlan);
-        const _rrr = stock.rrr, _sector = stock.sector;
-        const _enemy = await fetchEnemyCheckData(stock.code).catch(() => null);
-        liveBuyQueue.push({
-          approvalPromise: requestBuyApproval({
-            tradeId: _t.id, stockCode: _code, stockName: _name,
-            currentPrice: _cp, quantity: _execQty, stopLoss: _sl,
-            targetPrice: _target, mode: 'SHADOW', gateScore: _gs,
-            enemyCheck: _enemy,
-          }),
-          execute: async (approval) => {
-            if (approval !== 'APPROVE') {
-              console.log(`[AutoTrade SHADOW] ${_name} 매수 ${approval} — 건너뜀`);
-              _t.status = 'REJECTED';
-              return;
-            }
-            shadows.push(_t);
-            console.log(`[AutoTrade SHADOW] ${_name}(${_code}) 신호 등록 @${_cp}${_tLabel}`);
-            appendShadowLog({ event: 'SIGNAL', ..._t });
-
-            const gateLabel = _rcg
-              ? `Gate ${_lgs.toFixed(1)} | MTAS ${_rcg.mtas.toFixed(0)}/10 | CS ${_rcg.compressionScore.toFixed(2)}`
-              : `Gate ${_gs} (워치리스트)`;
-
-            await sendTelegramAlert(
-              `⚡ <b>[Shadow] 매수 신호${_isStrong ? ' — 분할 1차' : ''}</b>\n` +
-              `종목: ${_name} (${_code})\n` +
-              `현재가: ${_cp.toLocaleString()}원 × ${_execQty}주${_isStrong ? ` (총${_qty}주)` : ''}\n` +
-              `📊 ${gateLabel}\n` +
-              `손절: ${_slBreakdown} | 목표: ${_target.toLocaleString()}원`
-            ).catch(console.error);
-            await channelBuySignal({
-              mode: 'SHADOW', stockName: _name, stockCode: _code,
-              price: _cp, quantity: _execQty, gateScore: _lgs,
-              mtas: _rcg?.mtas ?? 0, cs: _rcg?.compressionScore ?? 0,
-              stopLoss: _sl, targetPrice: _target,
-              rrr: _rrr ?? 0, signalType: _isStrong ? 'STRONG_BUY' : 'BUY',
-              sector: _sector,
-            }).catch(console.error);
-            orderableCash = Math.max(0, orderableCash - _eb);
-            if (_isStrong && _qty > 1) {
-              trancheExecutor.scheduleTranches({
-                parentTradeId: _t.id, stockCode: _code, stockName: _name,
-                totalQuantity: _qty, firstQuantity: _execQty,
-                entryPrice: _ep, stopLoss: _sl, targetPrice: _target,
-              });
-            }
-          },
-        });
-        continue; // 공통 후처리는 execute 클로저 내에서 처리
-      } else {
-        // LIVE 모드: 병렬 승인 큐에 등록 (루프 후 Promise.allSettled로 일괄 처리)
-        _scanEntries++;
-        _lastBuySignalAt = Date.now();
-        stageLog.buy = 'LIVE'; pushTrace();
-        const _t = trade, _code = stock.code, _name = stock.name;
-        const _execQty = execQty, _ep = shadowEntryPrice, _sl = stopLossPlan.hardStopLoss;
-        const _target = stock.targetPrice, _gs = gateScore, _cp = currentPrice;
-        const _eb = effectiveBudget, _isStrong = isStrongBuy, _qty = quantity;
-        const _tLabel = trancheLabel, _rcg = reCheckGate, _lgs = liveGateScore;
-        const _slBreakdown = formatStopLossBreakdown(stopLossPlan);
-        const _rrr = stock.rrr, _sector = stock.sector;
-        const _enemy = await fetchEnemyCheckData(stock.code).catch(() => null);
-        liveBuyQueue.push({
-          approvalPromise: requestBuyApproval({
-            tradeId: _t.id, stockCode: _code, stockName: _name,
-            currentPrice: _cp, quantity: _execQty, stopLoss: _sl,
-            targetPrice: _target, mode: 'LIVE', gateScore: _gs,
-            enemyCheck: _enemy,
-          }),
-          execute: async (approval) => {
-            if (approval !== 'APPROVE') {
-              console.log(`[AutoTrade LIVE] ${_name} 매수 ${approval} — 건너뜀`);
-              _t.status = 'REJECTED';
-              return;
-            }
-            const ordNo = await placeKisMarketBuyOrder(_code, _execQty);
-            console.log(`[AutoTrade LIVE] ${_name} 매수 주문 완료 — ODNO: ${ordNo}${_tLabel}`);
-            appendShadowLog({ event: 'ORDER', code: _code, price: _cp, ordNo, tranche: _isStrong ? 1 : 0 });
-            if (ordNo) {
-              fillMonitor.addOrder({
-                ordNo, stockCode: _code, stockName: _name,
-                quantity: _execQty, orderPrice: _ep,
-                placedAt: new Date().toISOString(), relatedTradeId: _t.id,
-              });
-              _t.status = 'ORDER_SUBMITTED';
-            } else {
-              _t.status = 'REJECTED';
-            }
-            shadows.push(_t);
-            const gateLabelLive = _rcg
-              ? `Gate ${_lgs.toFixed(1)} | MTAS ${_rcg.mtas.toFixed(0)}/10 | CS ${_rcg.compressionScore.toFixed(2)}`
-              : `Gate ${_gs} (워치리스트)`;
-            await sendTelegramAlert(
-              `🚀 <b>[LIVE] 매수 주문${_isStrong ? ' — 분할 1차' : ''}</b>\n` +
-              `종목: ${_name} (${_code})\n` +
-              `주문상태: ${ordNo ? 'ORDER_SUBMITTED' : 'REJECTED'}\n` +
-              `주문가: ${_cp.toLocaleString()}원 × ${_execQty}주${_isStrong ? ` (총${_qty}주)` : ''}\n` +
-              `주문번호: ${ordNo ?? 'N/A'}\n` +
-              `📊 ${gateLabelLive}\n` +
-              `손절: ${_slBreakdown} | 목표: ${_target.toLocaleString()}원`
-            ).catch(console.error);
-            if (_t.status !== 'REJECTED') {
-              await channelBuySignal({
-                mode: 'LIVE', stockName: _name, stockCode: _code,
-                price: _cp, quantity: _execQty, gateScore: _lgs,
-                mtas: _rcg?.mtas ?? 0, cs: _rcg?.compressionScore ?? 0,
-                stopLoss: _sl, targetPrice: _target,
-                rrr: _rrr ?? 0, signalType: _isStrong ? 'STRONG_BUY' : 'BUY',
-                sector: _sector,
-              }).catch(console.error);
-              orderableCash = Math.max(0, orderableCash - _eb);
-              if (_isStrong && _qty > 1) {
-                trancheExecutor.scheduleTranches({
-                  parentTradeId: _t.id, stockCode: _code, stockName: _name,
-                  totalQuantity: _qty, firstQuantity: _execQty,
-                  entryPrice: _ep, stopLoss: _sl, targetPrice: _target,
-                });
-              }
-            }
-          },
-        });
-        continue; // 공통 후처리(orderableCash, tranche)는 execute 클로저 내에서 처리
-      }
-
-      if (trade.status !== 'REJECTED') {
-        orderableCash = Math.max(0, orderableCash - effectiveBudget);
-      }
-
-      // 아이디어 8: STRONG_BUY → 2·3차 분할 매수 스케줄 등록
-      if (isStrongBuy && quantity > 1 && trade.status !== 'REJECTED') {
-        trancheExecutor.scheduleTranches({
-          parentTradeId: trade.id,
-          stockCode:     stock.code,
-          stockName:     stock.name,
-          totalQuantity: quantity,
-          firstQuantity: execQty,
-          entryPrice:    shadowEntryPrice,
-          stopLoss:      stopLossPlan.hardStopLoss,
-          targetPrice:   stock.targetPrice,
-        });
-      }
+      const _rrr = stock.rrr, _sector = stock.sector;
+      liveBuyQueue.push(await createBuyTask({
+        trade, stockCode: stock.code, stockName: stock.name,
+        currentPrice, quantity: execQty, entryPrice: shadowEntryPrice,
+        stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
+        gateScore, shadowMode, effectiveBudget,
+        alertMessage: mainAlertMsg, logEvent: shadowMode ? 'SIGNAL' : 'ORDER',
+        onApproved: async (t) => {
+          shadows.push(t);
+          await channelBuySignal({
+            mode: shadowMode ? 'SHADOW' : 'LIVE', stockName: stock.name, stockCode: stock.code,
+            price: currentPrice, quantity: execQty, gateScore: liveGateScore,
+            mtas: reCheckGate.mtas, cs: reCheckGate.compressionScore,
+            stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
+            rrr: _rrr ?? 0, signalType: isStrongBuy ? 'STRONG_BUY' : 'BUY',
+            sector: _sector,
+          }).catch(console.error);
+          orderableCash = Math.max(0, orderableCash - effectiveBudget);
+          if (isStrongBuy && quantity > 1) {
+            trancheExecutor.scheduleTranches({
+              parentTradeId: t.id, stockCode: stock.code, stockName: stock.name,
+              totalQuantity: quantity, firstQuantity: execQty,
+              entryPrice: shadowEntryPrice, stopLoss: stopLossPlan.hardStopLoss,
+              targetPrice: stock.targetPrice,
+            });
+          }
+        },
+      }));
     } catch (err: unknown) {
       console.error(`[AutoTrade] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
     }
@@ -1290,166 +968,70 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
 
           if (quantity < 1) continue;
 
-          const trade: ServerShadowTrade = {
-            id:                  `srv_intraday_${Date.now()}_${stock.code}`,
-            stockCode:           stock.code,
-            stockName:           stock.name,
-            signalTime:          new Date().toISOString(),
-            signalPrice:         currentPrice,
-            shadowEntryPrice,
-            quantity,
-            originalQuantity:    quantity,
-            stopLoss:            intradayStop,
-            initialStopLoss:     intradayStop,
-            // C3 수정: regimeStopLoss 필드 누락 → exitEngine의 일관된 손절 계산을 위해 명시 설정
-            regimeStopLoss:      intradayStop,
-            hardStopLoss:        intradayStop,
-            targetPrice:         intradayTarget,
-            status:              'PENDING',
-            mode:                shadowMode ? 'SHADOW' : 'LIVE',
-            entryRegime:         regime,
-            profileType:         'C', // 장중 발굴 종목 — 소형모멘텀 프로파일
-            watchlistSource:     'INTRADAY',
-            profitTranches:      [], // Intraday는 분할익절 없음 (undefined → exitEngine LIMIT_TRANCHE 스킵 방지)
-            trailingHighWaterMark: shadowEntryPrice,
-            trailPct:             0.05, // 장중: 5% 트레일링 (더 빠른 익절 보호)
-            trailingEnabled:      false,
-          };
+          // C3 수정: regimeStopLoss = intradayStop → exitEngine 일관된 손절 계산
+          const intradayStopPlan = {
+            initialStopLoss: intradayStop,
+            regimeStopLoss: intradayStop,
+            hardStopLoss: intradayStop,
+          } as const;
+          const trade = buildBuyTrade({
+            idPrefix: 'srv_intraday', stockCode: stock.code, stockName: stock.name,
+            currentPrice, shadowEntryPrice, quantity,
+            stopLossPlan: intradayStopPlan,
+            targetPrice: intradayTarget, shadowMode, regime,
+            profileType: 'C', watchlistSource: 'INTRADAY',
+            profitTranches: [], // Intraday는 분할익절 없음
+            trailPct: 0.05,    // 장중: 5% 트레일링
+          });
 
           // BUG-10 fix: 실시간 Gate 평가로 Intraday 종목의 gateScore 추정
-          const intradayQuote = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
-                             ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null)
-                             ?? await fetchKisQuoteFallback(stock.code).catch(() => null);
-          const [kisFlowIntraday, dartFinIntraday] = intradayQuote
-            ? await Promise.all([
-                fetchKisInvestorFlow(stock.code).catch(() => null),
-                getDartFinancials(stock.code).catch(() => null),
-              ])
-            : [null, null];
-          const intradayGate = intradayQuote
-            ? evaluateServerGate(intradayQuote, conditionWeights, macroState?.kospiDayReturn, dartFinIntraday, kisFlowIntraday)
-            : null;
+          const { gate: intradayGate } = await fetchGateData(stock.code, conditionWeights, macroState?.kospiDayReturn);
           const intradayGateScore = intradayGate?.gateScore ?? 0;
 
           addRecommendation({
-            stockCode:        stock.code,
-            stockName:        stock.name,
-            signalTime:       new Date().toISOString(),
-            priceAtRecommend: currentPrice,
-            stopLoss:         intradayStop,
-            targetPrice:      intradayTarget,
-            kellyPct:         Math.round(positionPct * 100),
-            gateScore:        intradayGateScore,
-            signalType:       'BUY',
-            conditionKeys:    ['INTRADAY_STRONG'],
-            entryRegime:      regime,
+            stockCode: stock.code, stockName: stock.name, signalTime: new Date().toISOString(),
+            priceAtRecommend: currentPrice, stopLoss: intradayStop,
+            targetPrice: intradayTarget, kellyPct: Math.round(positionPct * 100),
+            gateScore: intradayGateScore, signalType: 'BUY',
+            conditionKeys: ['INTRADAY_STRONG'], entryRegime: regime,
           });
 
           const stopLabel = stopPct === INTRADAY_PULLBACK_STOP_LOSS_PCT ? '-4%' : '-5%';
+          const intradaySlotLabel = `${currentIntradayActive + 1}/${MAX_INTRADAY_POSITIONS}`;
 
-          if (shadowMode) {
-            // SHADOW 모드: 승인 큐에 등록 (텔레그램 승인 후 등록)
-            _scanEntries++;
-            _lastBuySignalAt = Date.now();
-            const _it = trade, _iCode = stock.code, _iName = stock.name;
-            const _iQty = quantity, _iEp = shadowEntryPrice, _iStop = intradayStop;
-            const _iTarget = intradayTarget, _iGs = intradayGateScore, _iCp = currentPrice;
-            const _iEb = effectiveBudget, _iLabel = stopLabel, _iSlot = currentIntradayActive + 1;
-            const _iEnemy = await fetchEnemyCheckData(stock.code).catch(() => null);
-            intradayLiveBuyQueue.push({
-              approvalPromise: requestBuyApproval({
-                tradeId: _it.id, stockCode: _iCode, stockName: _iName,
-                currentPrice: _iCp, quantity: _iQty, stopLoss: _iStop,
-                targetPrice: _iTarget, mode: 'SHADOW', gateScore: _iGs,
-                enemyCheck: _iEnemy,
-              }),
-              execute: async (approval) => {
-                const shadowIntradayCount = shadows.filter(
-                  (s) => isOpenShadowStatus(s.status) && s.watchlistSource === 'INTRADAY',
-                ).length;
-                if (shadowIntradayCount >= MAX_INTRADAY_POSITIONS) {
-                  console.log(`[AutoTrade/Intraday SHADOW] 최대 포지션 도달 — ${_iName} 건너뜀`);
-                  _it.status = 'REJECTED';
-                  return;
-                }
-                if (approval !== 'APPROVE') {
-                  console.log(`[AutoTrade/Intraday SHADOW] ${_iName} 매수 ${approval} — 건너뜀`);
-                  _it.status = 'REJECTED';
-                  return;
-                }
-                shadows.push(_it);
-                console.log(`[AutoTrade/Intraday SHADOW] ${_iName}(${_iCode}) 장중 진입 @${_iCp}`);
-                appendShadowLog({ event: 'INTRADAY_SIGNAL', ..._it });
-                await sendTelegramAlert(
-                  `📈 <b>[Shadow] 장중 매수 신호</b>\n` +
-                  `종목: ${_iName} (${_iCode})\n` +
-                  `현재가: ${_iCp.toLocaleString()}원 × ${_iQty}주\n` +
-                  `손절: ${_iStop.toLocaleString()} (${_iLabel}) | 목표: ${_iTarget.toLocaleString()}\n` +
-                  `⚡ Intraday 포지션 ${_iSlot}/${MAX_INTRADAY_POSITIONS}`,
-                ).catch(console.error);
-                orderableCash = Math.max(0, orderableCash - _iEb);
-              },
-            });
-          } else {
-            // LIVE 모드: 병렬 승인 큐에 등록
-            _scanEntries++;
-            _lastBuySignalAt = Date.now();
-            const _it = trade, _iCode = stock.code, _iName = stock.name;
-            const _iQty = quantity, _iEp = shadowEntryPrice, _iStop = intradayStop;
-            const _iTarget = intradayTarget, _iGs = intradayGateScore, _iCp = currentPrice;
-            const _iEb = effectiveBudget, _iLabel = stopLabel, _iSlot = currentIntradayActive + 1;
-            const _iEnemy = await fetchEnemyCheckData(stock.code).catch(() => null);
-            intradayLiveBuyQueue.push({
-              approvalPromise: requestBuyApproval({
-                tradeId: _it.id, stockCode: _iCode, stockName: _iName,
-                currentPrice: _iCp, quantity: _iQty, stopLoss: _iStop,
-                targetPrice: _iTarget, mode: 'LIVE', gateScore: _iGs,
-                enemyCheck: _iEnemy,
-              }),
-              execute: async (approval) => {
-                // 포지션 수 재확인 (큐 플러시 시점에 재검증)
-                const liveIntradayCount = shadows.filter(
-                  (s) => isOpenShadowStatus(s.status) && s.watchlistSource === 'INTRADAY',
-                ).length;
-                if (liveIntradayCount >= MAX_INTRADAY_POSITIONS) {
-                  console.log(`[AutoTrade/Intraday LIVE] 최대 포지션 도달 — ${_iName} 건너뜀`);
-                  _it.status = 'REJECTED';
-                  return;
-                }
-                if (approval !== 'APPROVE') {
-                  console.log(`[AutoTrade/Intraday LIVE] ${_iName} 매수 ${approval} — 건너뜀`);
-                  _it.status = 'REJECTED';
-                  return;
-                }
-                const ordNo = await placeKisMarketBuyOrder(_iCode, _iQty);
-                console.log(`[AutoTrade/Intraday LIVE] ${_iName} 매수 주문 — ODNO: ${ordNo}`);
-                appendShadowLog({ event: 'INTRADAY_ORDER', code: _iCode, price: _iCp, ordNo });
-                if (ordNo) {
-                  fillMonitor.addOrder({
-                    ordNo, stockCode: _iCode, stockName: _iName,
-                    quantity: _iQty, orderPrice: _iEp,
-                    placedAt: new Date().toISOString(), relatedTradeId: _it.id,
-                  });
-                  _it.status = 'ORDER_SUBMITTED';
-                } else {
-                  _it.status = 'REJECTED';
-                }
-                shadows.push(_it);
-                await sendTelegramAlert(
-                  `🚀 <b>[LIVE] 장중 매수 주문</b>\n` +
-                  `종목: ${_iName} (${_iCode})\n` +
-                  `주문상태: ${ordNo ? 'ORDER_SUBMITTED' : 'REJECTED'}\n` +
-                  `주문가: ${_iCp.toLocaleString()}원 × ${_iQty}주\n` +
-                  `주문번호: ${ordNo ?? 'N/A'}\n` +
-                  `손절: ${_iStop.toLocaleString()} (${_iLabel}) | 목표: ${_iTarget.toLocaleString()}\n` +
-                  `⚡ Intraday 포지션 ${_iSlot}/${MAX_INTRADAY_POSITIONS}`,
-                ).catch(console.error);
-                if (_it.status !== 'REJECTED') {
-                  orderableCash = Math.max(0, orderableCash - _iEb);
-                }
-              },
-            });
-          }
+          // SHADOW/LIVE 통합 승인 큐 등록
+          _scanEntries++;
+          _lastBuySignalAt = Date.now();
+
+          const intradayModeEmoji = shadowMode ? '📈' : '🚀';
+          const intradayModeLabel = shadowMode ? 'Shadow' : 'LIVE';
+          const intradayAlertMsg =
+            `${intradayModeEmoji} <b>[${intradayModeLabel}] 장중 매수 ${shadowMode ? '신호' : '주문'}</b>\n` +
+            `종목: ${stock.name} (${stock.code})\n` +
+            `현재가: ${currentPrice.toLocaleString()}원 × ${quantity}주\n` +
+            `손절: ${intradayStop.toLocaleString()} (${stopLabel}) | 목표: ${intradayTarget.toLocaleString()}\n` +
+            `⚡ Intraday 포지션 ${intradaySlotLabel}`;
+
+          intradayLiveBuyQueue.push(await createBuyTask({
+            trade, stockCode: stock.code, stockName: stock.name,
+            currentPrice, quantity, entryPrice: shadowEntryPrice,
+            stopLoss: intradayStop, targetPrice: intradayTarget,
+            gateScore: intradayGateScore, shadowMode, effectiveBudget,
+            alertMessage: intradayAlertMsg, logEvent: shadowMode ? 'INTRADAY_SIGNAL' : 'INTRADAY_ORDER',
+            onApproved: async (t) => {
+              // 포지션 수 재확인 (큐 플러시 시점에 재검증)
+              const latestIntradayCount = shadows.filter(
+                (s) => isOpenShadowStatus(s.status) && s.watchlistSource === 'INTRADAY',
+              ).length;
+              if (latestIntradayCount >= MAX_INTRADAY_POSITIONS) {
+                console.log(`[AutoTrade/Intraday] 최대 포지션 도달 — ${stock.name} 건너뜀`);
+                t.status = 'REJECTED';
+                return;
+              }
+              shadows.push(t);
+              orderableCash = Math.max(0, orderableCash - effectiveBudget);
+            },
+          }));
         } catch (err: unknown) {
           console.error(`[AutoTrade/Intraday] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
         }
