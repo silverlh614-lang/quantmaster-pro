@@ -850,7 +850,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       stageLog.gate = 'PASS';
 
       // 실시간 gateScore: 재평가 성공 시 실시간 값 우선
-      // Volume Clock 보너스: 10:00~11:00 KST 집행 시 +2점 (기관 알고리즘 집중 구간)
+      // Volume Clock 시간대별 점수 조정: -2 ~ +2점 (시간대별 패널티/보너스)
       const liveGateScore = reCheckGate.gateScore ?? (stock.gateScore ?? 0);
       const gateScore = liveGateScore + volumeClock.scoreBonus;
       // 서버 Gate 최대 13점(11조건 × 1.0 + volumeClock +2) 기준 임계값
