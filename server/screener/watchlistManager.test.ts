@@ -2,11 +2,22 @@ import { describe, expect, it } from 'vitest';
 import {
   computeFocusCodes,
   applyEntryPriceDrift,
-  FOCUS_LIST_SIZE,
-  FOCUS_GATE_THRESHOLD,
+  assignSection,
+  SWING_MAX_SIZE,
+  SWING_GATE_THRESHOLD,
   MAX_ENTRY_FAIL_COUNT,
   MAX_WATCHLIST,
   ENTRY_PRICE_DRIFT_PCT,
+  CATALYST_MAX_SIZE,
+  MOMENTUM_MAX_SIZE,
+  CATALYST_POSITION_FACTOR,
+  CATALYST_FIXED_STOP_PCT,
+  SWING_EXPIRE_DAYS,
+  CATALYST_EXPIRE_DAYS,
+  MOMENTUM_EXPIRE_DAYS,
+  // 하위 호환 re-export
+  FOCUS_LIST_SIZE,
+  FOCUS_GATE_THRESHOLD,
 } from './watchlistManager.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
 
@@ -23,41 +34,34 @@ function makeEntry(overrides: Partial<WatchlistEntry> & { code: string }): Watch
 }
 
 describe('computeFocusCodes', () => {
-  it('returns top FOCUS_LIST_SIZE AUTO stocks by gateScore', () => {
-    // All gateScores below FOCUS_GATE_THRESHOLD → only top N selected
+  it('returns top SWING_MAX_SIZE AUTO stocks by gateScore', () => {
     const list: WatchlistEntry[] = Array.from({ length: 15 }, (_, i) =>
       makeEntry({ code: `STOCK${String(i).padStart(2, '0')}`, gateScore: i }),
     );
     const codes = computeFocusCodes(list);
-    expect(codes.size).toBe(FOCUS_LIST_SIZE);
-    // Highest gateScore = 14 → STOCK14, 13 → STOCK13, etc.
-    for (let i = 15 - FOCUS_LIST_SIZE; i < 15; i++) {
+    expect(codes.size).toBe(SWING_MAX_SIZE);
+    for (let i = 15 - SWING_MAX_SIZE; i < 15; i++) {
       expect(codes.has(`STOCK${String(i).padStart(2, '0')}`)).toBe(true);
     }
   });
 
-  it('includes AUTO stocks above FOCUS_GATE_THRESHOLD even beyond top N', () => {
-    // 12 AUTO stocks: 10 with low scores + 2 with score >= threshold
+  it('includes AUTO stocks above SWING_GATE_THRESHOLD even beyond top N', () => {
     const list: WatchlistEntry[] = [
       ...Array.from({ length: 10 }, (_, i) =>
         makeEntry({ code: `LOW${String(i).padStart(2, '0')}`, gateScore: i }),
       ),
-      makeEntry({ code: 'HIGH_A', gateScore: FOCUS_GATE_THRESHOLD }),
-      makeEntry({ code: 'HIGH_B', gateScore: FOCUS_GATE_THRESHOLD + 5 }),
+      makeEntry({ code: 'HIGH_A', gateScore: SWING_GATE_THRESHOLD }),
+      makeEntry({ code: 'HIGH_B', gateScore: SWING_GATE_THRESHOLD + 5 }),
     ];
     const codes = computeFocusCodes(list);
-    // Top 8 by score: HIGH_B(13), HIGH_A(8), LOW09(9), LOW08(8)..LOW04(4)
-    // Above threshold: HIGH_A, HIGH_B — both already in top 8
     expect(codes.has('HIGH_A')).toBe(true);
     expect(codes.has('HIGH_B')).toBe(true);
-    // Now add more high-score entries beyond 8
     const bigList: WatchlistEntry[] = [
       ...Array.from({ length: 12 }, (_, i) =>
-        makeEntry({ code: `MID${String(i).padStart(2, '0')}`, gateScore: FOCUS_GATE_THRESHOLD + i }),
+        makeEntry({ code: `MID${String(i).padStart(2, '0')}`, gateScore: SWING_GATE_THRESHOLD + i }),
       ),
     ];
     const bigCodes = computeFocusCodes(bigList);
-    // All 12 have gateScore >= FOCUS_GATE_THRESHOLD → all included
     expect(bigCodes.size).toBe(12);
   });
 
@@ -72,7 +76,18 @@ describe('computeFocusCodes', () => {
     expect(codes.has('MANUAL01')).toBe(false);
   });
 
-  it('returns fewer than FOCUS_LIST_SIZE when list has fewer AUTO entries', () => {
+  it('excludes CATALYST section entries from SWING focus computation', () => {
+    const list: WatchlistEntry[] = [
+      makeEntry({ code: 'DART01', addedBy: 'DART', section: 'CATALYST', gateScore: 20 }),
+      ...Array.from({ length: 5 }, (_, i) =>
+        makeEntry({ code: `AUTO${String(i).padStart(2, '0')}`, gateScore: i }),
+      ),
+    ];
+    const codes = computeFocusCodes(list);
+    expect(codes.has('DART01')).toBe(false);
+  });
+
+  it('returns fewer than SWING_MAX_SIZE when list has fewer AUTO entries', () => {
     const list: WatchlistEntry[] = [
       makeEntry({ code: 'A01', gateScore: 20 }),
       makeEntry({ code: 'A02', gateScore: 10 }),
@@ -86,10 +101,60 @@ describe('computeFocusCodes', () => {
   });
 });
 
+describe('assignSection', () => {
+  it('assigns SWING to MANUAL entries', () => {
+    const entry = makeEntry({ code: 'M01', addedBy: 'MANUAL' });
+    expect(assignSection(entry, new Set())).toBe('SWING');
+  });
+
+  it('assigns CATALYST to DART entries', () => {
+    const entry = makeEntry({ code: 'D01', addedBy: 'DART' });
+    expect(assignSection(entry, new Set())).toBe('CATALYST');
+  });
+
+  it('assigns CATALYST to entries with section=CATALYST', () => {
+    const entry = makeEntry({ code: 'D01', addedBy: 'AUTO', section: 'CATALYST' });
+    expect(assignSection(entry, new Set())).toBe('CATALYST');
+  });
+
+  it('assigns SWING to AUTO entries in focusCodes', () => {
+    const entry = makeEntry({ code: 'A01', addedBy: 'AUTO' });
+    expect(assignSection(entry, new Set(['A01']))).toBe('SWING');
+  });
+
+  it('assigns MOMENTUM to AUTO entries not in focusCodes', () => {
+    const entry = makeEntry({ code: 'A01', addedBy: 'AUTO' });
+    expect(assignSection(entry, new Set())).toBe('MOMENTUM');
+  });
+});
+
 describe('exported constants', () => {
-  it('FOCUS_LIST_SIZE is positive integer', () => {
-    expect(FOCUS_LIST_SIZE).toBeGreaterThan(0);
-    expect(Number.isInteger(FOCUS_LIST_SIZE)).toBe(true);
+  it('SWING_MAX_SIZE is positive integer', () => {
+    expect(SWING_MAX_SIZE).toBeGreaterThan(0);
+    expect(Number.isInteger(SWING_MAX_SIZE)).toBe(true);
+  });
+
+  it('CATALYST_MAX_SIZE is positive integer', () => {
+    expect(CATALYST_MAX_SIZE).toBeGreaterThan(0);
+    expect(Number.isInteger(CATALYST_MAX_SIZE)).toBe(true);
+  });
+
+  it('MOMENTUM_MAX_SIZE is positive integer', () => {
+    expect(MOMENTUM_MAX_SIZE).toBeGreaterThan(0);
+    expect(Number.isInteger(MOMENTUM_MAX_SIZE)).toBe(true);
+  });
+
+  it('CATALYST_POSITION_FACTOR is 0.6', () => {
+    expect(CATALYST_POSITION_FACTOR).toBe(0.6);
+  });
+
+  it('CATALYST_FIXED_STOP_PCT is -0.05', () => {
+    expect(CATALYST_FIXED_STOP_PCT).toBe(-0.05);
+  });
+
+  it('section expire days are ordered: MOMENTUM < CATALYST < SWING', () => {
+    expect(MOMENTUM_EXPIRE_DAYS).toBeLessThan(CATALYST_EXPIRE_DAYS);
+    expect(CATALYST_EXPIRE_DAYS).toBeLessThan(SWING_EXPIRE_DAYS);
   });
 
   it('MAX_ENTRY_FAIL_COUNT is positive integer', () => {
@@ -97,30 +162,37 @@ describe('exported constants', () => {
     expect(Number.isInteger(MAX_ENTRY_FAIL_COUNT)).toBe(true);
   });
 
-  it('MAX_WATCHLIST >= FOCUS_LIST_SIZE', () => {
-    expect(MAX_WATCHLIST).toBeGreaterThanOrEqual(FOCUS_LIST_SIZE);
+  it('MAX_WATCHLIST >= SWING_MAX_SIZE (backward compat)', () => {
+    expect(MAX_WATCHLIST).toBeGreaterThanOrEqual(SWING_MAX_SIZE);
   });
 
-  it('FOCUS_GATE_THRESHOLD is positive integer', () => {
-    expect(FOCUS_GATE_THRESHOLD).toBeGreaterThan(0);
-    expect(Number.isInteger(FOCUS_GATE_THRESHOLD)).toBe(true);
+  it('SWING_GATE_THRESHOLD is positive integer', () => {
+    expect(SWING_GATE_THRESHOLD).toBeGreaterThan(0);
+    expect(Number.isInteger(SWING_GATE_THRESHOLD)).toBe(true);
   });
 
   it('ENTRY_PRICE_DRIFT_PCT is 10', () => {
     expect(ENTRY_PRICE_DRIFT_PCT).toBe(10);
+  });
+
+  // 하위 호환 상수 검증
+  it('FOCUS_LIST_SIZE equals SWING_MAX_SIZE (backward compat)', () => {
+    expect(FOCUS_LIST_SIZE).toBe(SWING_MAX_SIZE);
+  });
+
+  it('FOCUS_GATE_THRESHOLD equals SWING_GATE_THRESHOLD (backward compat)', () => {
+    expect(FOCUS_GATE_THRESHOLD).toBe(SWING_GATE_THRESHOLD);
   });
 });
 
 describe('applyEntryPriceDrift', () => {
   it('returns KEEP when price is below drift threshold', () => {
     const entry = makeEntry({ code: 'A001', entryPrice: 10_000 });
-    // +9% → below 10% threshold
     expect(applyEntryPriceDrift(entry, 10_900)).toBe('KEEP');
   });
 
   it('returns KEEP when price equals drift threshold boundary', () => {
     const entry = makeEntry({ code: 'A001', entryPrice: 10_000 });
-    // +9.99% → still below
     expect(applyEntryPriceDrift(entry, 10_999)).toBe('KEEP');
   });
 

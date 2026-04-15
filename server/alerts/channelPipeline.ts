@@ -256,19 +256,20 @@ export async function channelWatchlistSummary(
   const hh = kstNow.getUTCHours().toString().padStart(2, '0');
   const mm = kstNow.getUTCMinutes().toString().padStart(2, '0');
 
-  const trackB = watchlist.filter(w => w.track === 'B' || w.addedBy === 'MANUAL');
-  const trackA = watchlist.filter(w => w.track === 'A' && w.addedBy !== 'MANUAL');
+  const swingList    = watchlist.filter(w => w.section === 'SWING' || (!w.section && (w.track === 'B' || w.addedBy === 'MANUAL')));
+  const catalystList = watchlist.filter(w => w.section === 'CATALYST');
+  const momentumList = watchlist.filter(w => w.section === 'MOMENTUM' || (!w.section && w.track === 'A' && w.addedBy !== 'MANUAL'));
 
   const parts: string[] = [
     `📋 <b>[워치리스트 현황] ${hh}:${mm} KST</b>`,
     `━━━━━━━━━━━━━━━━━━━━`,
-    `총 ${watchlist.length}개 (Track B: ${trackB.length} | Track A: ${trackA.length})`,
+    `총 ${watchlist.length}개 (SWING: ${swingList.length} | CATALYST: ${catalystList.length} | MOMENTUM: ${momentumList.length})`,
   ];
 
-  if (trackB.length > 0) {
+  if (swingList.length > 0) {
     parts.push('');
-    parts.push('🎯 <b>Track B — 매수 대상</b>');
-    for (const w of trackB) {
+    parts.push('🎯 <b>SWING — 스윙 매수 대상</b>');
+    for (const w of swingList) {
       const focusMark = w.isFocus ? '⭐' : '';
       const manualMark = w.addedBy === 'MANUAL' ? '👤' : w.addedBy === 'DART' ? '📢' : '🤖';
       const gate = w.gateScore !== undefined ? `G${w.gateScore.toFixed(0)}` : '';
@@ -284,24 +285,36 @@ export async function channelWatchlistSummary(
     }
   }
 
-  if (trackA.length > 0) {
+  if (catalystList.length > 0) {
     parts.push('');
-    parts.push(`📂 <b>Track A — 후보군 (${trackA.length}개)</b>`);
-    const shown = trackA
+    parts.push(`📢 <b>CATALYST — 촉매 단기 (${catalystList.length}개)</b>`);
+    for (const w of catalystList) {
+      const gate = w.gateScore !== undefined ? `G${w.gateScore.toFixed(0)}` : '';
+      parts.push(
+        `  📢 <b>${w.name}</b>(${w.code}) ${w.entryPrice.toLocaleString()}원 ${gate}` +
+        `\n   🛡️${w.stopLoss.toLocaleString()} → 🎯${w.targetPrice.toLocaleString()} (포지션 60%)`
+      );
+    }
+  }
+
+  if (momentumList.length > 0) {
+    parts.push('');
+    parts.push(`📂 <b>MOMENTUM — 관찰 전용 (${momentumList.length}개)</b>`);
+    const shown = momentumList
       .sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0))
       .slice(0, 8);
     for (const w of shown) {
       const gate = w.gateScore !== undefined ? `G${w.gateScore.toFixed(0)}` : '';
       parts.push(`  🤖 ${w.name}(${w.code}) ${w.entryPrice.toLocaleString()}원 ${gate}`);
     }
-    if (trackA.length > 8) {
-      parts.push(`  ... 외 ${trackA.length - 8}개`);
+    if (momentumList.length > 8) {
+      parts.push(`  ... 외 ${momentumList.length - 8}개`);
     }
   }
 
   parts.push('');
   parts.push('━━━━━━━━━━━━━━━━━━━━');
-  parts.push('⭐=자동매수대상 👤=수동 🤖=자동발굴');
+  parts.push('⭐=SWING매수대상 👤=수동 📢=CATALYST 🤖=MOMENTUM');
 
   await sendChannelAlert(parts.join('\n'), { disableNotification: true }).catch(console.error);
 }

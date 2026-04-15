@@ -40,7 +40,9 @@ export async function runPipelineDiagnosis(): Promise<DiagnosisResult> {
     } else {
       const focusCount = watchlist.filter(w => w.isFocus).length;
       if (focusCount === 0) {
-        warnings.push(`📋 워치리스트 ${watchlist.length}개이나 Track B(isFocus) 0개 — 매수 후보 없음`);
+        const swingCount = watchlist.filter(w => w.section === 'SWING').length;
+        const catalystCount = watchlist.filter(w => w.section === 'CATALYST').length;
+        warnings.push(`📋 워치리스트 ${watchlist.length}개이나 SWING/CATALYST 0개 (SWING ${swingCount} / CATALYST ${catalystCount}) — 매수 후보 없음`);
       }
     }
   } catch (e) {

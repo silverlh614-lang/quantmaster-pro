@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { SCREENER_FILE, ensureDataDir } from '../persistence/paths.js';
-import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
+import { loadWatchlist, saveWatchlist, type WatchlistSection } from '../persistence/watchlistRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL } from '../clients/kisClient.js';
@@ -1002,11 +1002,13 @@ export async function autoPopulateWatchlist(): Promise<number> {
         addedAt: new Date().toISOString(),
         addedBy: 'AUTO',
         rrr: parseFloat(((tp - s.currentPrice) / (s.currentPrice - sl || 1)).toFixed(2)),
-        expiresAt: addBusinessDays(new Date(), 5).toISOString(),
+        section: 'MOMENTUM' as WatchlistSection,
+        track: 'A',
+        expiresAt: addBusinessDays(new Date(), 2).toISOString(), // MOMENTUM: 2영업일 만료
       });
       existingCodes.add(s.code);
       added++;
-      console.log(`[AutoPopulate] 스크리너 → 워치리스트: ${s.name}(${s.code}) @${s.currentPrice.toLocaleString()}`);
+      console.log(`[AutoPopulate] 스크리너 → 워치리스트 [MOMENTUM]: ${s.name}(${s.code}) @${s.currentPrice.toLocaleString()}`);
     }
   }
 
@@ -1059,8 +1061,11 @@ export async function autoPopulateWatchlist(): Promise<number> {
     // 아이디어 11: Gate 조건 통과/탈락 — 메모리 캐시에만 누적 (루프 후 flushGateAudit으로 파일 저장)
     recordGateAudit(gate.conditionKeys);
 
-    // Track A/B 분류: SKIP이 아닌 종목은 Track B 후보, SKIP은 Track A 유지
-    const track: 'A' | 'B' = gate.signalType !== 'SKIP' ? 'B' : 'A';
+    // 섹션 분류: SKIP이 아닌 고득점 종목은 SWING 후보, 나머지는 MOMENTUM
+    const section: WatchlistSection = gate.signalType !== 'SKIP' ? 'SWING' : 'MOMENTUM';
+    const track: 'A' | 'B' = section === 'MOMENTUM' ? 'A' : 'B';
+    // 섹션별 만료: SWING 7영업일, MOMENTUM 2영업일
+    const expireDays = section === 'SWING' ? 7 : 2;
 
     const sl = Math.round(quote.price * 0.92);
     const tp = Math.round(quote.price * 1.20);
@@ -1076,13 +1081,14 @@ export async function autoPopulateWatchlist(): Promise<number> {
       memo: `${gate.signalType} gate=${gate.gateScore.toFixed(1)}/10 ${gate.details.join(', ')}`,
       rrr: parseFloat(((tp - quote.price) / (quote.price - sl || 1)).toFixed(2)),
       conditionKeys: gate.conditionKeys,
+      section,
       track,
-      expiresAt: addBusinessDays(new Date(), 5).toISOString(),
+      expiresAt: addBusinessDays(new Date(), expireDays).toISOString(),
     });
     existingCodes.add(stock.code);
     added++;
     console.log(
-      `[AutoPopulate] Yahoo → 워치리스트 [Track ${track}]: ${stock.name}(${stock.code}) ` +
+      `[AutoPopulate] Yahoo → 워치리스트 [${section}]: ${stock.name}(${stock.code}) ` +
       `@${quote.price.toLocaleString()} (+${quote.changePercent.toFixed(1)}% / ${(quote.volume / 10000).toFixed(0)}만주) ` +
       `gate=${gate.gateScore}/10 [${gate.signalType}] ${gate.details.join(', ')}`
     );
@@ -1102,11 +1108,12 @@ export async function autoPopulateWatchlist(): Promise<number> {
 
   if (added > 0) {
     saveWatchlist(watchlist);
-    const trackACnt = watchlist.filter(w => w.track === 'A').length;
-    const trackBCnt = watchlist.filter(w => w.track === 'B' || !w.track).length;
+    const swingCnt    = watchlist.filter(w => w.section === 'SWING').length;
+    const catalystCnt = watchlist.filter(w => w.section === 'CATALYST').length;
+    const momentumCnt = watchlist.filter(w => w.section === 'MOMENTUM' || (!w.section && w.track === 'A')).length;
     console.log(
       `[AutoPopulate] 워치리스트 자동 추가 완료 — ${added}개 신규 (총 ${watchlist.length}개, ` +
-      `Track A ${trackACnt}개 / Track B ${trackBCnt}개)`,
+      `SWING ${swingCnt}개 / CATALYST ${catalystCnt}개 / MOMENTUM ${momentumCnt}개)`,
     );
   } else {
     console.log('[AutoPopulate] 조건 충족 종목 없음 — 워치리스트 변동 없음');
