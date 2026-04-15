@@ -47,7 +47,10 @@ import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
 import { addRecommendation } from '../learning/recommendationTracker.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
-import { computeFocusCodes, applyEntryPriceDrift } from '../screener/watchlistManager.js';
+import {
+  computeFocusCodes, applyEntryPriceDrift, assignSection,
+  CATALYST_POSITION_FACTOR, CATALYST_FIXED_STOP_PCT,
+} from '../screener/watchlistManager.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKisIntraday } from '../screener/stockScreener.js';
 import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
@@ -101,8 +104,12 @@ export {
 // ── 스캔 진단 상태 (파이프라인 헬스체크 · 침묵 실패 탐지용) ─────────────────────
 export interface ScanSummary {
   time: string;          // "HH:MM KST"
-  candidates: number;    // Track B + Intraday 합산
+  candidates: number;    // SWING + CATALYST + Intraday 합산
+  /** @deprecated trackB → swing + catalyst 합산. 하위 호환용. */
   trackB: number;        // buyList.length (main 워치리스트)
+  swing: number;         // SWING 섹션 매수 대상 수
+  catalyst: number;      // CATALYST 섹션 매수 대상 수
+  momentum: number;      // MOMENTUM 섹션 관찰 전용 수
   yahooFails: number;    // Yahoo + KIS fallback 모두 실패한 종목 수
   gateMisses: number;    // entryRevalidation 탈락 수
   rrrMisses: number;     // RRR < 최솟값 탈락 수
@@ -134,22 +141,30 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   const watchlist = loadWatchlist();
   if (watchlist.length === 0) return;
 
-  // 아이디어 8: 2-Track 구조 — Track B(Buy Watch) 항목만 매수 스캔
+  // 3-섹션 구조 — SWING/CATALYST만 매수 스캔, MOMENTUM은 관찰 전용
   // isFocus를 스캔 시점에 실시간 계산 (cleanupWatchlist은 16:00에만 실행되므로
   // 08:35에 추가된 AUTO 종목의 isFocus가 미설정 상태일 수 있음)
   const liveFocusCodes = computeFocusCodes(watchlist);
   const forceCodes = new Set(options?.forceBuyCodes ?? []);
+
+  // 실시간 section 할당
+  for (const w of watchlist) {
+    w.section = assignSection(w, liveFocusCodes);
+  }
+
+  // SWING + CATALYST = 매수 대상, MOMENTUM = 관찰 전용
   const buyList = watchlist.filter(
-    (w) => w.addedBy === 'MANUAL' || liveFocusCodes.has(w.code) || forceCodes.has(w.code),
+    (w) => w.section === 'SWING' || w.section === 'CATALYST' || forceCodes.has(w.code),
   );
-  // 진단 로그: Track A(후보군) 종목 — 매수 스캔에서 제외
-  const trackA = watchlist.filter(
-    (w) => w.addedBy !== 'MANUAL' && !liveFocusCodes.has(w.code),
-  );
-  if (trackA.length > 0) {
+  const swingList    = watchlist.filter((w) => w.section === 'SWING');
+  const catalystList = watchlist.filter((w) => w.section === 'CATALYST');
+  const momentumList = watchlist.filter((w) => w.section === 'MOMENTUM');
+
+  // 진단 로그: MOMENTUM(관찰 전용) 종목 — 매수 스캔에서 제외
+  if (momentumList.length > 0) {
     console.log(
-      `[AutoTrade] Track A 후보군 ${trackA.length}개 (매수 스캔 제외): ` +
-      trackA.map(w => `${w.name}(${w.code}) gate=${w.gateScore ?? 0}`).join(', '),
+      `[AutoTrade] MOMENTUM 관찰 ${momentumList.length}개 (매수 스캔 제외): ` +
+      momentumList.map(w => `${w.name}(${w.code}) gate=${w.gateScore ?? 0}`).join(', '),
     );
   }
   let watchlistMutated = false;
@@ -176,7 +191,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   const conditionWeights = loadConditionWeights();
 
   console.log(
-    `[AutoTrade] 스캔 시작 — 워치리스트 ${watchlist.length}개 (Track A ${trackA.length}개 / Track B ${buyList.length}개) / Intraday Ready ${intradayBuyList.length}개 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'} / 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원`
+    `[AutoTrade] 스캔 시작 — 워치리스트 ${watchlist.length}개 (SWING ${swingList.length}개 / CATALYST ${catalystList.length}개 / MOMENTUM ${momentumList.length}개) / Intraday Ready ${intradayBuyList.length}개 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'} / 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원`
   );
 
   const shadows = loadShadowTrades();
@@ -767,8 +782,10 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       }
 
       // 포지션 사이징: 실시간 Gate 결과 연동 (buyPipeline 헬퍼 사용)
+      // CATALYST 섹션은 표준의 60%로 축소 — 촉매 신호는 단기 고리스크이므로 손실 제한
       const mtasMultiplier = computeMtasMultiplier(reCheckGate.mtas);
-      const positionPct = computeRawPositionPct(gateScore) * kellyMultiplier * mtasMultiplier;
+      const sectionFactor = stock.section === 'CATALYST' ? CATALYST_POSITION_FACTOR : 1.0;
+      const positionPct = computeRawPositionPct(gateScore) * kellyMultiplier * mtasMultiplier * sectionFactor;
 
       if (reCheckGate) {
         console.log(
@@ -795,12 +812,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       const execQty = isStrongBuy ? Math.max(1, Math.floor(quantity * 0.5)) : quantity;
 
       // ─── ① 손절 정책 분리: 고정 손절 / 레짐 손절 / 하드 스톱 ───────────────
+      // CATALYST 섹션: 고정 -5% 타이트 손절 (ATR 동적 손절 비사용)
+      // SWING 섹션: 기존 ATR 동적 손절 + 레짐 손절
       const profile    = stock.profileType ?? 'B';
       const profileKey = `profile${profile}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
-      const regimeStopRate  = REGIME_CONFIGS[regime].stopLoss[profileKey];
-      const entryATR14 = reCheckQuote?.atr ?? 0;
+      const isCatalyst = stock.section === 'CATALYST';
+      const regimeStopRate  = isCatalyst ? CATALYST_FIXED_STOP_PCT : REGIME_CONFIGS[regime].stopLoss[profileKey];
+      const entryATR14 = isCatalyst ? 0 : (reCheckQuote?.atr ?? 0); // CATALYST는 ATR 동적 손절 비사용
+      const catalystFixedStop = isCatalyst ? Math.round(shadowEntryPrice * (1 + CATALYST_FIXED_STOP_PCT)) : stock.stopLoss;
       const stopLossPlan = buildStopLossPlan({
-        entryPrice: shadowEntryPrice, fixedStopLoss: stock.stopLoss, regimeStopRate, atr14: entryATR14, regime,
+        entryPrice: shadowEntryPrice, fixedStopLoss: isCatalyst ? catalystFixedStop : stock.stopLoss, regimeStopRate, atr14: entryATR14, regime,
       });
 
       // L3 분할 익절 타겟 — PROFIT_TARGETS[regime]에서 LIMIT 트랜치 추출
@@ -1068,6 +1089,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       time:       timeLabel,
       candidates: buyList.length + intradayBuyList.length,
       trackB:     buyList.length,
+      swing:      swingList.length,
+      catalyst:   catalystList.length,
+      momentum:   momentumList.length,
       yahooFails: _scanYahooFails,
       gateMisses: _scanGateMisses,
       rrrMisses:  _scanRrrMisses,
@@ -1084,7 +1108,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       _consecutiveZeroScans = 0; // 알림 후 리셋 — 스팸 방지
       await sendTelegramAlert(
         `📊 <b>[스캔 요약]</b> ${timeLabel}\n` +
-        `총 후보: ${_lastScanSummary.candidates}개 | Track B: ${_lastScanSummary.trackB}개\n` +
+        `총 후보: ${_lastScanSummary.candidates}개 | SWING: ${_lastScanSummary.swing}개 | CATALYST: ${_lastScanSummary.catalyst}개 | MOMENTUM: ${_lastScanSummary.momentum}개\n` +
         `- Yahoo 실패: ${_scanYahooFails}개 → 진입 보류\n` +
         `- Gate 미달: ${_scanGateMisses}개\n` +
         `- RRR 미달: ${_scanRrrMisses}개\n` +

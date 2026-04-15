@@ -27,7 +27,7 @@ import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { loadMacroState, type MacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
-import { computeFocusCodes } from './watchlistManager.js';
+import { computeFocusCodes, assignSection } from './watchlistManager.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, fetchKisInvestorFlow } from '../clients/kisClient.js';
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
@@ -405,6 +405,8 @@ export async function stage3AIScreenAndRegister(
     const return5d = candidate?.quote.return5d ?? 0;
     const regretFilter = evaluateRegretAsymmetry(return5d, currentPrice);
 
+    // Discovery Pipeline 종목: STRONG_BUY → SWING(즉시 매수대상), BUY → MOMENTUM(관찰 후 승격 대기)
+    const section = result.signal === 'STRONG_BUY' ? 'SWING' as const : 'MOMENTUM' as const;
     watchlist.push({
       code:          result.code,
       name:          result.name,
@@ -419,9 +421,10 @@ export async function stage3AIScreenAndRegister(
       gateScore:     result.totalGateScore,
       sector:        result.sector || candidate?.sector,
       memo:          `${formatReliabilityBadge(reliability)} | ${confPart} | ${result.topReasons.slice(0, 2).join(', ')}`,
-      expiresAt:     addBusinessDays(new Date(), 5).toISOString(),
+      expiresAt:     addBusinessDays(new Date(), section === 'SWING' ? 7 : 2).toISOString(),
       conditionKeys: [...realKeys, ...qualKeys],
-      track:         result.signal === 'STRONG_BUY' ? 'A' : 'B',  // 아이디어 8: 2-Track (STRONG_BUY=A, BUY=B)
+      section,
+      track:         section === 'MOMENTUM' ? 'A' : 'B',
       ...(regretFilter.isCooldown && {
         cooldownUntil: regretFilter.cooldownUntil,
         recentHigh:    regretFilter.recentHigh,
@@ -436,17 +439,18 @@ export async function stage3AIScreenAndRegister(
   }
 
   if (added > 0) {
-    // isFocus + track 즉시 갱신 — cleanupWatchlist(16:00)까지 기다리지 않고 등록 직후 반영
+    // section + isFocus 즉시 갱신 — cleanupWatchlist(16:00)까지 기다리지 않고 등록 직후 반영
     const focusCodes = computeFocusCodes(watchlist);
-    const withFocus = watchlist.map(w => {
-      const isTrackB = focusCodes.has(w.code);
+    const withSection = watchlist.map(w => {
+      const sec = assignSection(w, focusCodes);
       return {
         ...w,
-        isFocus: isTrackB,
-        track: (w.addedBy === 'MANUAL' ? 'B' : isTrackB ? 'B' : w.track ?? 'A') as 'A' | 'B',
+        section: sec,
+        isFocus: sec === 'SWING',
+        track: (sec === 'MOMENTUM' ? 'A' : 'B') as 'A' | 'B',
       };
     });
-    saveWatchlist(withFocus);
+    saveWatchlist(withSection);
     // Telegram 알림 — 신뢰도 배지 포함
     const registered = watchlist.filter(w =>
       results.some(r => r.code === w.code) && !existingCodes.has(w.code)

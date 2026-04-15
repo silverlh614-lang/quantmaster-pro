@@ -242,17 +242,19 @@ export async function applyDartToWatchlist(params: {
     // gateScore 보너스 + Track B 강제 승격 → 진짜 강한 신호
     const bonus = params.insiderBuy ? 3 : (params.impact >= 2 ? 2 : 1);
     existing.gateScore = (existing.gateScore ?? 0) + bonus;
+    // 내부자 매수 → CATALYST 섹션, 일반 호재 → SWING 승격
+    existing.section = params.insiderBuy ? 'CATALYST' : 'SWING';
     existing.track = 'B';
     existing.isFocus = true;
     existing.memo = `${existing.memo ?? ''} | DART(${params.insiderBuy ? '내부자매수' : `+${params.impact}`}): ${params.reason}`.trim();
     saveWatchlist(watchlist);
     console.log(
-      `[DART→WL] ⬆️ 확인신호 강화: ${params.corpName}(${code}) → Track B (gateScore +${bonus}, 합계 ${existing.gateScore})`,
+      `[DART→WL] ⬆️ 확인신호 강화: ${params.corpName}(${code}) → ${existing.section} (gateScore +${bonus}, 합계 ${existing.gateScore})`,
     );
     await sendTelegramAlert(
       `📊 <b>[DART 확인신호 → 기존 종목 강화]</b> ${params.corpName} (${code})\n` +
       `${params.insiderBuy ? '🕵️ 내부자 매수 감지' : `임팩트: +${params.impact}`} — ${params.reason}\n` +
-      `gateScore: +${bonus} (합계 ${existing.gateScore}) | Track B 강제 승격\n` +
+      `gateScore: +${bonus} (합계 ${existing.gateScore}) | ${existing.section} 승격\n` +
       `전략: 기존 워치리스트 종목에 호재 공시 겹침 → 강한 매수 신호`,
     ).catch(console.error);
   } else if (params.insiderBuy) {
@@ -281,6 +283,7 @@ export async function applyDartToWatchlist(params: {
       targetPrice,
       addedAt: new Date().toISOString(),
       addedBy: 'DART',
+      section: 'CATALYST',
       track: 'B',
       isFocus: true,
       expiresAt,
@@ -291,12 +294,12 @@ export async function applyDartToWatchlist(params: {
     watchlist.push(newEntry);
     saveWatchlist(watchlist);
     console.log(
-      `[DART→WL] ✅ 내부자매수 추가: ${params.corpName}(${code}) [Track B] (만료: 3일)`,
+      `[DART→WL] ✅ 내부자매수 추가: ${params.corpName}(${code}) [CATALYST] (만료: 3일)`,
     );
     await sendTelegramAlert(
       `🕵️ <b>[내부자 매수 → 워치리스트 추가]</b> ${params.corpName} (${code})\n` +
       `${params.reason}\n` +
-      `Track: B (고신뢰 룰 기반 신호) | 만료: 3일\n` +
+      `섹션: CATALYST (고신뢰 룰 기반 신호) | 만료: 3일\n` +
       (entryPrice > 0 ? `진입가: ${entryPrice.toLocaleString()}원 | 손절: ${stopLoss.toLocaleString()}원 | 목표: ${targetPrice.toLocaleString()}원\n` : '⚠️ 시세 미조회 — 다음 스캔에서 갱신 예정\n') +
       `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${params.rceptNo}`,
     ).catch(console.error);

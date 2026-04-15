@@ -166,12 +166,13 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           break;
         }
 
-        const trackB = wl.filter(w => w.track === 'B' || w.addedBy === 'MANUAL');
-        const trackA = wl.filter(w => w.track === 'A' && w.addedBy !== 'MANUAL');
+        const swingList    = wl.filter(w => w.section === 'SWING' || (!w.section && (w.track === 'B' || w.addedBy === 'MANUAL')));
+        const catalystList = wl.filter(w => w.section === 'CATALYST');
+        const momentumList = wl.filter(w => w.section === 'MOMENTUM' || (!w.section && w.track === 'A' && w.addedBy !== 'MANUAL'));
 
         const formatEntry = (w: WatchlistEntry, showDetail: boolean) => {
           const focusMark = w.isFocus ? '⭐' : '';
-          const manualMark = w.addedBy === 'MANUAL' ? '👤' : w.addedBy === 'DART' ? '📢' : '🤖';
+          const sectionMark = w.addedBy === 'MANUAL' ? '👤' : w.addedBy === 'DART' ? '📢' : '🤖';
           const gate = w.gateScore !== undefined ? `Gate ${w.gateScore.toFixed(1)}` : '';
           const rrr = w.rrr !== undefined ? `RRR 1:${w.rrr.toFixed(1)}` : '';
           const sector = w.sector ? `${w.sector}` : '';
@@ -179,14 +180,14 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
           if (showDetail) {
             return (
-              `${focusMark}${manualMark} <b>${w.name}</b> (${w.code})\n` +
+              `${focusMark}${sectionMark} <b>${w.name}</b> (${w.code})\n` +
               `   💰 진입: ${w.entryPrice.toLocaleString()}원\n` +
               `   🛡️ 손절: ${w.stopLoss.toLocaleString()}원 → 🎯 목표: ${w.targetPrice.toLocaleString()}원\n` +
               (meta ? `   📊 ${meta}` : '') +
               (w.memo ? `\n   💬 ${w.memo}` : '')
             );
           }
-          return `  ${manualMark} ${w.name}(${w.code}) ${meta ? `| ${meta}` : ''}`;
+          return `  ${sectionMark} ${w.name}(${w.code}) ${meta ? `| ${meta}` : ''}`;
         };
 
         const parts: string[] = [
@@ -194,25 +195,29 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `━━━━━━━━━━━━━━━━━━━━`,
         ];
 
-        if (trackB.length > 0) {
-          parts.push(`\n🎯 <b>Track B — 매수 대상 (${trackB.length}개)</b>`);
-          parts.push(...trackB.map(w => formatEntry(w, true)));
+        if (swingList.length > 0) {
+          parts.push(`\n🎯 <b>SWING — 스윙 매수 대상 (${swingList.length}개)</b>`);
+          parts.push(...swingList.map(w => formatEntry(w, true)));
         }
 
-        if (trackA.length > 0) {
-          parts.push(`\n📂 <b>Track A — 후보군 (${trackA.length}개)</b>`);
-          // Track A는 간략하게 표시 (최대 10개, 나머지는 요약)
-          const shown = trackA.slice(0, 10);
+        if (catalystList.length > 0) {
+          parts.push(`\n📢 <b>CATALYST — 촉매 단기 (${catalystList.length}개)</b>`);
+          parts.push(...catalystList.map(w => formatEntry(w, true)));
+        }
+
+        if (momentumList.length > 0) {
+          parts.push(`\n📂 <b>MOMENTUM — 관찰 전용 (${momentumList.length}개)</b>`);
+          const shown = momentumList.slice(0, 10);
           parts.push(...shown.map(w => formatEntry(w, false)));
-          if (trackA.length > 10) {
-            parts.push(`  ... 외 ${trackA.length - 10}개`);
+          if (momentumList.length > 10) {
+            parts.push(`  ... 외 ${momentumList.length - 10}개`);
           }
         }
 
         parts.push(
           `\n━━━━━━━━━━━━━━━━━━━━`,
-          `⭐=Focus(자동매수대상) 👤=수동 🤖=자동발굴`,
-          `💡 /focus — Track B 상세 조회`
+          `⭐=SWING매수대상 👤=수동 📢=CATALYST 🤖=MOMENTUM`,
+          `💡 /focus — SWING 상세 조회`
         );
 
         await reply(parts.join('\n'));
@@ -471,12 +476,12 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
       case '/focus': {
         const wl = loadWatchlist();
-        const focusList = wl.filter(w => w.track === 'B' || w.addedBy === 'MANUAL');
+        const focusList = wl.filter(w => w.section === 'SWING' || w.section === 'CATALYST' || (!w.section && (w.track === 'B' || w.addedBy === 'MANUAL')));
         if (focusList.length === 0) {
           await reply(
             '🎯 <b>Focus 종목이 없습니다.</b>\n\n' +
-            '💡 <i>Gate Score 상위 종목이 자동 승격되거나,\n' +
-            '/add 로 수동 추가하면 Track B에 포함됩니다.</i>'
+            '💡 <i>Gate Score 상위 종목이 SWING으로 자동 승격되거나,\n' +
+            '/add 로 수동 추가하면 SWING에 포함됩니다.</i>'
           );
           break;
         }

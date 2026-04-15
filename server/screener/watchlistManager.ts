@@ -1,36 +1,60 @@
 /**
- * watchlistManager.ts — 워치리스트 자동 정리 + 2-Track 구조 관리
+ * watchlistManager.ts — 워치리스트 자동 정리 + 3-섹션 구조 관리
  *
- * 아이디어 8: 워치리스트 등록과 매수 신호 분리 — 2-Track 구조
- *   Track A (Candidate Pool): 느슨한 조건으로 등록된 후보군 (최대 MAX_CANDIDATE_POOL개)
- *   Track B (Buy Watch):      타이트한 조건으로 선별된 매수 대상 (Focus 선정)
+ * 3-섹션 구조 (Track A/B 대체):
+ *   SWING     — 스윙 주도주: Gate 상위 + 임계값 초과 → 실제 매수 대상 (최대 8개)
+ *   CATALYST  — 촉매 기반: DART 공시 / 내부자 매수 (최대 5개)
+ *   MOMENTUM  — 모멘텀 관찰: AUTO 발굴 후보풀 (최대 20개, 매매 안 함)
  *
  * 매일 16:00 KST (장마감 후) 실행:
  *   1. expiresAt 초과 항목 자동 제거
- *   2. entryFailCount >= 3인 AUTO 항목 제거 (진입 실패 종목 정리)
- *   3. Track B 승격: Gate Score 상위 + 임계값 초과 → track='B', isFocus=true
- *   4. 나머지 AUTO 항목 → track='A' (후보군 유지)
- *   5. Track A 최대 MAX_CANDIDATE_POOL개 유지 (오래된 것부터 제거, MANUAL 보호)
+ *   2. entryFailCount >= 3인 항목 제거 (진입 실패 종목 정리)
+ *   3. MOMENTUM → SWING 승격: Gate Score 상위 + 임계값 초과
+ *   4. 섹션별 최대 개수 유지 (오래된 것부터 제거, MANUAL 보호)
  */
 
-import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
+import { loadWatchlist, saveWatchlist, type WatchlistEntry, type WatchlistSection } from '../persistence/watchlistRepo.js';
 
-/** Track A (Candidate Pool) 최대 크기 — 느슨한 조건으로 넓게 유지 */
-export const MAX_CANDIDATE_POOL = 40;
-/** Track B (Buy Watch) 최대 Focus 수 — 실제 매수 스캔 대상 */
-export const FOCUS_LIST_SIZE   = 8;
+// ── 섹션별 상수 ───────────────────────────────────────────────────────────────
+
+/** SWING 섹션 — 최대 매수 대상 수 */
+export const SWING_MAX_SIZE       = 8;
+/** CATALYST 섹션 — 최대 촉매 종목 수 */
+export const CATALYST_MAX_SIZE    = 5;
+/** MOMENTUM 섹션 — 최대 관찰 후보 수 */
+export const MOMENTUM_MAX_SIZE    = 20;
+
+/** CATALYST 포지션 축소 계수 (표준의 60%) */
+export const CATALYST_POSITION_FACTOR = 0.6;
+/** CATALYST 고정 손절 비율 (-5%) */
+export const CATALYST_FIXED_STOP_PCT  = -0.05;
+
+/** SWING → 만료 기간: 7영업일 */
+export const SWING_EXPIRE_DAYS     = 7;
+/** CATALYST → 만료 기간: 3일 */
+export const CATALYST_EXPIRE_DAYS  = 3;
+/** MOMENTUM → 만료 기간: 2영업일 */
+export const MOMENTUM_EXPIRE_DAYS  = 2;
+
+/** SWING 승격 Gate Score 임계값 — 이 점수 이상이면 MOMENTUM에서 SWING으로 승격 */
+export const SWING_GATE_THRESHOLD = 8;
+
 export const MAX_ENTRY_FAIL_COUNT = 3;
-/** gateScore가 이 값 이상인 AUTO 종목은 상위 8위 밖이어도 Track B에 포함된다. */
-export const FOCUS_GATE_THRESHOLD = 8; // 수정: 15 → 8 (evaluateServerGate max score ~11)
+
+/** @deprecated MAX_CANDIDATE_POOL → MOMENTUM_MAX_SIZE 으로 교체. 하위 호환용. */
+export const MAX_CANDIDATE_POOL = MOMENTUM_MAX_SIZE;
+/** @deprecated FOCUS_LIST_SIZE → SWING_MAX_SIZE 으로 교체. 하위 호환용. */
+export const FOCUS_LIST_SIZE   = SWING_MAX_SIZE;
+/** @deprecated FOCUS_GATE_THRESHOLD → SWING_GATE_THRESHOLD 으로 교체. 하위 호환용. */
+export const FOCUS_GATE_THRESHOLD = SWING_GATE_THRESHOLD;
+/** @deprecated MAX_WATCHLIST → MOMENTUM_MAX_SIZE 으로 교체. 하위 호환용. */
+export const MAX_WATCHLIST = MOMENTUM_MAX_SIZE;
 
 /**
  * entryPrice 드리프트 임계값 (%).
  * 현재가가 entryPrice 대비 이 비율 이상 상승했으면 워치리스트 갱신/제거 대상.
  */
 export const ENTRY_PRICE_DRIFT_PCT = 10;
-
-/** @deprecated MAX_WATCHLIST → MAX_CANDIDATE_POOL 으로 교체. 하위 호환용. */
-export const MAX_WATCHLIST = MAX_CANDIDATE_POOL;
 
 /**
  * entryPrice 대비 현재가 드리프트 판정.
@@ -50,20 +74,45 @@ export function applyEntryPriceDrift(
 }
 
 /**
- * AUTO/DART 항목 중 Track B (매수 스캔 대상) 코드 집합을 반환한다.
+ * SWING 섹션에 포함될 종목 코드 집합을 반환한다.
+ * (기존 computeFocusCodes 대체 — 하위 호환 유지)
+ *
  * 선정 기준 (OR):
- *   1. gateScore 상위 FOCUS_LIST_SIZE(8)개
- *   2. gateScore >= FOCUS_GATE_THRESHOLD(8) — 상위 8 밖이어도 포함
- * isFocus 플래그 갱신 및 buyList 필터에 공통 사용된다.
+ *   1. gateScore 상위 SWING_MAX_SIZE(8)개 (AUTO/DART 중)
+ *   2. gateScore >= SWING_GATE_THRESHOLD(8) — 상위 8 밖이어도 포함
+ * MANUAL 항목은 항상 SWING, DART(내부자 매수)는 항상 CATALYST.
  */
 export function computeFocusCodes(list: WatchlistEntry[]): Set<string> {
-  const nonManual = list.filter((w) => w.addedBy !== 'MANUAL');
-  const sorted = [...nonManual].sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0));
-  const topN = sorted.slice(0, FOCUS_LIST_SIZE).map((w) => w.code);
-  const aboveThreshold = nonManual
-    .filter((w) => (w.gateScore ?? 0) >= FOCUS_GATE_THRESHOLD)
+  // DART/CATALYST 종목은 별도 섹션이므로 SWING 후보에서 제외
+  const swingCandidates = list.filter((w) => w.addedBy !== 'MANUAL' && w.section !== 'CATALYST');
+  const sorted = [...swingCandidates].sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0));
+  const topN = sorted.slice(0, SWING_MAX_SIZE).map((w) => w.code);
+  const aboveThreshold = swingCandidates
+    .filter((w) => (w.gateScore ?? 0) >= SWING_GATE_THRESHOLD)
     .map((w) => w.code);
   return new Set([...topN, ...aboveThreshold]);
+}
+
+/**
+ * WatchlistEntry의 section을 결정한다.
+ * - MANUAL → SWING
+ * - DART (또는 addedBy==='DART') → CATALYST
+ * - AUTO + SWING 후보(focusCodes) → SWING
+ * - 나머지 AUTO → MOMENTUM
+ */
+export function assignSection(
+  entry: WatchlistEntry,
+  focusCodes: Set<string>,
+): WatchlistSection {
+  if (entry.addedBy === 'MANUAL') return 'SWING';
+  if (entry.addedBy === 'DART' || entry.section === 'CATALYST') return 'CATALYST';
+  if (focusCodes.has(entry.code)) return 'SWING';
+  return 'MOMENTUM';
+}
+
+/** section → 하위 호환 track 매핑 */
+function sectionToTrack(section: WatchlistSection): 'A' | 'B' {
+  return section === 'MOMENTUM' ? 'A' : 'B';
 }
 
 export async function cleanupWatchlist(): Promise<void> {
@@ -79,7 +128,7 @@ export async function cleanupWatchlist(): Promise<void> {
     return true;
   });
 
-  // 2. 진입 실패 횟수 초과 항목 제거 (BUG-07 fix: MANUAL 종목도 포함)
+  // 2. 진입 실패 횟수 초과 항목 제거
   const afterFailPrune = afterExpiry.filter((w) => {
     if ((w.entryFailCount ?? 0) >= MAX_ENTRY_FAIL_COUNT) {
       console.log(
@@ -90,48 +139,63 @@ export async function cleanupWatchlist(): Promise<void> {
     return true;
   });
 
-  // 3. 아이디어 8: 2-Track 갱신 — Track B(매수 대상) + Track A(후보군)
+  // 3. 3-섹션 갱신: SWING(매수대상) / CATALYST(촉매단기) / MOMENTUM(관찰전용)
   const focusCodes = computeFocusCodes(afterFailPrune);
-  const withTrack = afterFailPrune.map((w) => {
-    const isTrackB = focusCodes.has(w.code);
+  const withSection = afterFailPrune.map((w) => {
+    const section = assignSection(w, focusCodes);
     return {
       ...w,
-      isFocus: isTrackB,
-      track: (w.addedBy === 'MANUAL' ? 'B' : isTrackB ? 'B' : 'A') as 'A' | 'B',
+      section,
+      isFocus: section === 'SWING',
+      track: sectionToTrack(section),
     };
   });
 
-  const trackACount = withTrack.filter((w) => w.track === 'A').length;
-  const trackBCount = withTrack.filter((w) => w.track === 'B').length;
+  const swingCount    = withSection.filter((w) => w.section === 'SWING').length;
+  const catalystCount = withSection.filter((w) => w.section === 'CATALYST').length;
+  const momentumCount = withSection.filter((w) => w.section === 'MOMENTUM').length;
 
-  // 4. Track A 최대 개수 초과 시 오래된 것부터 제거 (MANUAL 보호, Track B 보호)
-  let cleaned = withTrack;
-  if (cleaned.length > MAX_CANDIDATE_POOL) {
-    const protected_ = cleaned.filter((w) => w.addedBy === 'MANUAL' || w.track === 'B');
-    const trackA = cleaned
-      .filter((w) => w.addedBy !== 'MANUAL' && w.track === 'A')
-      .sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime())
-      .slice(0, Math.max(0, MAX_CANDIDATE_POOL - protected_.length));
-    cleaned = [...protected_, ...trackA];
-    console.log(`[Watchlist] 초과 제거: ${withTrack.length}개 → ${cleaned.length}개`);
+  // 4. 섹션별 최대 개수 초과 시 오래된 것부터 제거 (MANUAL 보호)
+  let cleaned = withSection;
+
+  // CATALYST 섹션 초과 시 오래된 것부터 제거
+  const catalystEntries = cleaned.filter((w) => w.section === 'CATALYST');
+  if (catalystEntries.length > CATALYST_MAX_SIZE) {
+    const catalystSorted = [...catalystEntries].sort(
+      (a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime(),
+    );
+    const catalystKeep = new Set(catalystSorted.slice(0, CATALYST_MAX_SIZE).map(w => w.code));
+    cleaned = cleaned.filter((w) => w.section !== 'CATALYST' || catalystKeep.has(w.code));
+    console.log(`[Watchlist] CATALYST 초과 제거: ${catalystEntries.length}개 → ${CATALYST_MAX_SIZE}개`);
+  }
+
+  // MOMENTUM 섹션 초과 시 오래된 것부터 제거
+  const momentumEntries = cleaned.filter((w) => w.section === 'MOMENTUM');
+  if (momentumEntries.length > MOMENTUM_MAX_SIZE) {
+    const momentumSorted = [...momentumEntries].sort(
+      (a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime(),
+    );
+    const momentumKeep = new Set(momentumSorted.slice(0, MOMENTUM_MAX_SIZE).map(w => w.code));
+    cleaned = cleaned.filter((w) => w.section !== 'MOMENTUM' || momentumKeep.has(w.code));
+    console.log(`[Watchlist] MOMENTUM 초과 제거: ${momentumEntries.length}개 → ${MOMENTUM_MAX_SIZE}개`);
   }
 
   if (
     cleaned.length !== watchlist.length ||
     cleaned.some((w) => {
       const orig = watchlist.find((o) => o.code === w.code);
-      return orig === undefined || orig.isFocus !== w.isFocus || orig.track !== w.track;
+      return orig === undefined || orig.isFocus !== w.isFocus || orig.section !== w.section;
     })
   ) {
     saveWatchlist(cleaned);
     console.log(
       `[Watchlist] 정리 완료: ${watchlist.length}개 → ${cleaned.length}개 ` +
-      `(Track A ${trackACount}개 / Track B ${trackBCount}개 / Focus ${focusCodes.size}개)`,
+      `(SWING ${swingCount}개 / CATALYST ${catalystCount}개 / MOMENTUM ${momentumCount}개)`,
     );
   } else {
     console.log(
       `[Watchlist] 정리 불필요 (${watchlist.length}개 유지, ` +
-      `Track A ${trackACount}개 / Track B ${trackBCount}개 / Focus ${focusCodes.size}개)`,
+      `SWING ${swingCount}개 / CATALYST ${catalystCount}개 / MOMENTUM ${momentumCount}개)`,
     );
   }
 }

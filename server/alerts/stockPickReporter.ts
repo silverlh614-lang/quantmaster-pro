@@ -82,7 +82,7 @@ export async function generateDailyPickReport(): Promise<void> {
       rrr?: number;
     }> = [];
 
-    const trackBEntries = watchlist.filter(e => e.track === 'B');
+    const trackBEntries = watchlist.filter(e => e.section === 'SWING' || e.section === 'CATALYST' || (!e.section && e.track === 'B'));
 
     for (const entry of trackBEntries) {
       try {
