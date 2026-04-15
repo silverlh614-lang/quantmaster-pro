@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2, Sliders, Power, Zap, TrendingUp, Wallet, Timer, Shield } from 'lucide-react';
+import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2, Sliders, Power, Zap, TrendingUp, Wallet, Timer, Shield, Clock, ArrowUpDown } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { cn } from '../ui/cn';
 import { PageHeader } from '../ui/page-header';
 import { KpiStrip } from '../ui/kpi-strip';
@@ -96,6 +97,25 @@ interface EngineStatus {
   todayStats: { scans: number; buys: number; exits: number };
 }
 
+// OCO 주문 쌍
+interface OcoOrderPair {
+  id: string;
+  stockCode: string;
+  stockName: string;
+  quantity: number;
+  entryPrice: number;
+  stopPrice: number;
+  stopStatus: 'PENDING' | 'FILLED' | 'CANCELLED' | 'FAILED';
+  profitPrice: number;
+  profitStatus: 'PENDING' | 'FILLED' | 'CANCELLED' | 'FAILED';
+  createdAt: string;
+  resolvedAt?: string;
+  status: 'ACTIVE' | 'STOP_FILLED' | 'PROFIT_FILLED' | 'BOTH_CANCELLED' | 'ERROR';
+}
+
+// RRR 분포 차트 색상
+const RRR_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#10b981'];
+
 // KIS 계좌 잔고 요약
 interface AccountSummary {
   totalEvalAmt: number;    // 총 평가금액
@@ -147,6 +167,7 @@ export function AutoTradePage() {
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
   const [engineToggling, setEngineToggling] = useState(false);
   const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null);
+  const [ocoOrders, setOcoOrders] = useState<{ active: OcoOrderPair[]; history: OcoOrderPair[] }>({ active: [], history: [] });
 
   // ③ FOMC 차단 해제 카운트다운
   const fomcCountdown = useCountdown(buyAudit?.fomcGating.unblockAt);
@@ -166,6 +187,35 @@ export function AutoTradePage() {
     }, 0);
     return { exposureRate, cashRate, maxLoss };
   }, [accountSummary, watchlist]);
+
+  // ⑤ RRR 분포 막대차트 데이터
+  const rrrBuckets = useMemo(() => {
+    const settled = serverShadowTrades.filter((t: any) => t.returnPct != null);
+    return [
+      { name: '손실', value: settled.filter((t: any) => t.returnPct < 0).length },
+      { name: '0~5%', value: settled.filter((t: any) => t.returnPct >= 0 && t.returnPct < 5).length },
+      { name: '5~10%', value: settled.filter((t: any) => t.returnPct >= 5 && t.returnPct < 10).length },
+      { name: '10%+', value: settled.filter((t: any) => t.returnPct >= 10).length },
+    ];
+  }, [serverShadowTrades]);
+
+  // ⑥ 매매 타임라인 (최근 활동 피드)
+  const timeline = useMemo(() => {
+    const events: { time: string; type: string; stock: string; detail: string }[] = [];
+    // Shadow Trade 이벤트
+    for (const t of serverShadowTrades) {
+      if (t.status === 'HIT_TARGET') events.push({ time: t.resolvedAt ?? t.signalTime, type: 'TARGET_HIT', stock: t.stockName, detail: `+${t.returnPct?.toFixed(1)}%` });
+      else if (t.status === 'HIT_STOP') events.push({ time: t.resolvedAt ?? t.signalTime, type: 'STOP_HIT', stock: t.stockName, detail: `${t.returnPct?.toFixed(1)}%` });
+      else if (t.status === 'ACTIVE') events.push({ time: t.signalTime, type: 'BUY', stock: t.stockName, detail: `${t.shadowEntryPrice?.toLocaleString()}원` });
+    }
+    // 워치리스트 최근 추가
+    for (const w of watchlist.slice(0, 5)) {
+      events.push({ time: w.addedAt, type: 'WATCHLIST', stock: w.name, detail: `${w.addedBy} 추가` });
+    }
+    return events
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+      .slice(0, 8);
+  }, [serverShadowTrades, watchlist]);
 
   const handleEngineToggle = async () => {
     if (engineToggling) return;
@@ -193,6 +243,7 @@ export function AutoTradePage() {
       fetch('/api/system/gate-audit').then(r => r.json()).then(setGateAudit).catch((err) => console.error('[ERROR] Gate audit 조회 실패:', err));
       fetch('/api/auto-trade/condition-weights/debug').then(r => r.json()).then(setConditionDebug).catch((err) => console.error('[ERROR] Condition debug 조회 실패:', err));
       fetch('/api/auto-trade/engine/status').then(r => r.json()).then(setEngineStatus).catch((err) => console.error('[ERROR] Engine status 조회 실패:', err));
+      fetch('/api/auto-trade/oco-orders').then(r => r.json()).then(setOcoOrders).catch(() => {});
       fetch('/api/kis/balance').then(r => r.json()).then((data: any) => {
         // output2[0]에 계좌 총평가 정보가 있음
         const summary = data?.output2?.[0];
@@ -601,6 +652,110 @@ export function AutoTradePage() {
                   />
                 </div>
               </div>
+            </div>
+          </Card>
+        )}
+
+        {/* ⑤ RRR 분포 막대차트 + ⑥ 매매 타임라인 */}
+        <PageGrid columns="2" gap="sm">
+          {rrrBuckets.some(b => b.value > 0) && (
+            <Card padding="md">
+              <div className="flex items-center gap-2 mb-4">
+                <BarChart3 className="w-4 h-4 text-violet-400" />
+                <span className="text-sm font-bold text-theme-text">손익비 분포</span>
+                <span className="text-micro ml-auto">{serverShadowTrades.filter((t: any) => t.returnPct != null).length}건 결산</span>
+              </div>
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={rrrBuckets} barSize={32}>
+                  <XAxis dataKey="name" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis hide />
+                  <Tooltip
+                    contentStyle={{ background: 'rgba(0,0,0,0.85)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: 'rgba(255,255,255,0.7)' }}
+                    formatter={(v: number) => [`${v}건`, '거래 수']}
+                  />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                    {rrrBuckets.map((_: any, idx: number) => (
+                      <Cell key={idx} fill={RRR_COLORS[idx]} fillOpacity={0.8} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </Card>
+          )}
+
+          {timeline.length > 0 && (
+            <Card padding="md">
+              <div className="flex items-center gap-2 mb-4">
+                <Clock className="w-4 h-4 text-cyan-400" />
+                <span className="text-sm font-bold text-theme-text">최근 활동</span>
+              </div>
+              <div className="space-y-3">
+                {timeline.map((evt, i) => {
+                  const dotColor = evt.type === 'TARGET_HIT' ? 'bg-green-400' : evt.type === 'STOP_HIT' ? 'bg-red-400' : evt.type === 'BUY' ? 'bg-violet-400' : 'bg-blue-400';
+                  const label = evt.type === 'TARGET_HIT' ? '익절' : evt.type === 'STOP_HIT' ? '손절' : evt.type === 'BUY' ? '매수' : '추가';
+                  const timeStr = (() => {
+                    try {
+                      const d = new Date(evt.time);
+                      const now = new Date();
+                      if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                      return d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+                    } catch { return ''; }
+                  })();
+                  return (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="flex flex-col items-center">
+                        <div className={cn('w-2.5 h-2.5 rounded-full shrink-0', dotColor)} />
+                        {i < timeline.length - 1 && <div className="w-px h-4 bg-white/10 mt-1" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-theme-text truncate">{evt.stock}</span>
+                          <span className="text-[10px] text-theme-text-muted shrink-0 ml-2">{timeStr}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className={cn('text-[10px] font-bold', evt.type === 'TARGET_HIT' ? 'text-green-400' : evt.type === 'STOP_HIT' ? 'text-red-400' : 'text-theme-text-muted')}>{label}</span>
+                          <span className="text-[10px] text-theme-text-muted">{evt.detail}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+        </PageGrid>
+
+        {/* ⑦ OCO 주문 현황 패널 */}
+        {(ocoOrders.active.length > 0 || ocoOrders.history.length > 0) && (
+          <Card padding="md">
+            <div className="flex items-center gap-2 mb-4">
+              <ArrowUpDown className="w-4 h-4 text-orange-400" />
+              <span className="text-sm font-bold text-theme-text">OCO 주문 현황</span>
+              {ocoOrders.active.length > 0 && (
+                <Badge variant="warning" size="sm">{ocoOrders.active.length}건 활성</Badge>
+              )}
+            </div>
+            <div className="space-y-2">
+              {[...ocoOrders.active, ...ocoOrders.history.slice(0, 5)].map((o) => (
+                <div key={o.id} className="flex items-center justify-between gap-3 py-2 border-b border-theme-border/20 last:border-0">
+                  <div className="min-w-0">
+                    <span className="text-sm font-bold text-theme-text truncate">{o.stockName}</span>
+                    <span className="text-micro ml-2">{o.stockCode}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs shrink-0">
+                    <span className="text-red-400 font-num">손절 {o.stopPrice.toLocaleString()}</span>
+                    <span className="text-theme-text-muted">/</span>
+                    <span className="text-green-400 font-num">목표 {o.profitPrice.toLocaleString()}</span>
+                    <Badge
+                      variant={o.status === 'ACTIVE' ? 'warning' : o.status === 'PROFIT_FILLED' ? 'success' : o.status === 'STOP_FILLED' ? 'danger' : 'default'}
+                      size="sm"
+                    >
+                      {o.status === 'ACTIVE' ? '대기중' : o.status === 'PROFIT_FILLED' ? '익절' : o.status === 'STOP_FILLED' ? '손절' : o.status === 'BOTH_CANCELLED' ? '취소' : o.status}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
             </div>
           </Card>
         )}
