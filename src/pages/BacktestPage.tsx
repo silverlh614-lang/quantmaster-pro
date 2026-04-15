@@ -294,21 +294,21 @@ export function BacktestPage({
                   </motion.div>
                 )}
 
-                {/* Primary KPI Strip */}
-                <KpiStrip items={[
-                  { label: '누적 수익률', value: `${backtestResult.cumulativeReturn.toFixed(2)}%`, trend: backtestResult.cumulativeReturn >= 0 ? 'up' : 'down' },
-                  { label: '샤프 지수', value: backtestResult.sharpeRatio.toFixed(2), trend: backtestResult.sharpeRatio >= 1 ? 'up' : 'neutral' },
-                  { label: '최대 낙폭', value: `${backtestResult.maxDrawdown.toFixed(2)}%`, trend: 'down' },
-                  { label: '변동성', value: `${backtestResult.volatility.toFixed(2)}%`, trend: 'neutral' },
+                {/* Primary KPI Strip — Neo-Brutalism Large Scoreboard */}
+                <KpiStrip size="lg" items={[
+                  { label: '누적 수익률', value: `${backtestResult.cumulativeReturn.toFixed(2)}%`, status: backtestResult.cumulativeReturn >= 0 ? 'pass' : 'fail', trend: backtestResult.cumulativeReturn >= 0 ? 'up' : 'down' },
+                  { label: '샤프 지수', value: backtestResult.sharpeRatio.toFixed(2), status: backtestResult.sharpeRatio >= 1 ? 'pass' : backtestResult.sharpeRatio >= 0.5 ? 'warn' : 'fail' },
+                  { label: '최대 낙폭', value: `${backtestResult.maxDrawdown.toFixed(2)}%`, status: backtestResult.maxDrawdown > -20 ? 'pass' : backtestResult.maxDrawdown > -30 ? 'warn' : 'fail', trend: 'down' },
+                  { label: '변동성', value: `${backtestResult.volatility.toFixed(2)}%`, status: 'neutral' },
                 ]} />
 
                 {/* Secondary KPI Strip */}
                 <KpiStrip items={[
-                  { label: 'CAGR (연평균)', value: `${backtestResult.cagr.toFixed(2)}%`, trend: backtestResult.cagr >= 0 ? 'up' : 'down' },
-                  { label: '승률', value: `${backtestResult.winRate.toFixed(1)}%`, trend: backtestResult.winRate >= 50 ? 'up' : 'down' },
-                  { label: 'Profit Factor', value: backtestResult.profitFactor.toFixed(2), trend: backtestResult.profitFactor >= 1 ? 'up' : 'down' },
-                  { label: '총 매매', value: backtestResult.trades, trend: 'neutral' },
-                  { label: '최대 연속 손실', value: `${backtestResult.maxConsecutiveLoss}회`, trend: 'down' },
+                  { label: 'CAGR (연평균)', value: `${backtestResult.cagr.toFixed(2)}%`, status: backtestResult.cagr >= 0 ? 'pass' : 'fail', trend: backtestResult.cagr >= 0 ? 'up' : 'down' },
+                  { label: '승률', value: `${backtestResult.winRate.toFixed(1)}%`, status: backtestResult.winRate >= 50 ? 'pass' : 'warn', trend: backtestResult.winRate >= 50 ? 'up' : 'down' },
+                  { label: 'Profit Factor', value: backtestResult.profitFactor.toFixed(2), status: backtestResult.profitFactor >= 1 ? 'pass' : 'fail', trend: backtestResult.profitFactor >= 1 ? 'up' : 'down' },
+                  { label: '총 매매', value: backtestResult.trades, status: 'neutral' },
+                  { label: '최대 연속 손실', value: `${backtestResult.maxConsecutiveLoss}회`, status: backtestResult.maxConsecutiveLoss <= 3 ? 'pass' : 'fail', trend: 'down' },
                 ]} />
 
                 {/* Performance Chart */}

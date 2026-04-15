@@ -10,4 +10,5 @@ export { EmptyState } from './empty-state';
 export { LoadingState } from './loading-state';
 export { Spinner } from './spinner';
 export { Tabs } from './tabs';
-export { KpiStrip } from './kpi-strip';
+export { KpiStrip, KpiScoreboard } from './kpi-strip';
+export type { KpiItem, KpiDetail, KpiStatus } from './kpi-strip';

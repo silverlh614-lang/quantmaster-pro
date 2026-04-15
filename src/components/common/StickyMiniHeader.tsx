@@ -1,6 +1,6 @@
 /**
- * Idea 8: Scroll-aware sticky mini header
- * Shows context bar when scrolling down: stock count, watchlist count, avg gate score, last update time.
+ * Neo-Brutalism Sticky Mini Header
+ * Scroll-aware compact header with bold border + semantic colors.
  */
 import React, { useState, useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
@@ -13,12 +13,8 @@ export function StickyMiniHeader() {
   const { syncStatus } = useMarketStore();
 
   useEffect(() => {
-    let prevScrollY = 0;
     const handleScroll = () => {
-      const scrollY = window.scrollY;
-      // Show after scrolling past 200px
-      setIsVisible(scrollY > 200);
-      prevScrollY = scrollY;
+      setIsVisible(window.scrollY > 200);
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
@@ -45,19 +41,19 @@ export function StickyMiniHeader() {
       className={cn(
         'fixed top-0 left-0 right-0 z-[45] lg:left-[var(--sidebar-width)]',
         'h-10 flex items-center justify-between px-4 gap-4',
-        'border-b border-white/[0.04] backdrop-blur-xl',
+        'border-b-2 border-slate-700/30 backdrop-blur-xl',
         'animate-fade-slide-up no-print'
       )}
-      style={{ background: 'rgba(6, 9, 13, 0.88)' }}
+      style={{ background: 'rgba(6, 9, 13, 0.92)' }}
     >
       <div className="flex items-center gap-4 overflow-x-auto no-scrollbar">
         {/* Stock Count */}
         <div className="flex items-center gap-1.5 shrink-0">
           <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">AI추천</span>
-          <span className="text-[11px] font-black text-blue-400 font-num">{totalCount}건</span>
+          <span className="text-[11px] font-black text-violet-400 font-num">{totalCount}건</span>
         </div>
 
-        <div className="w-px h-3.5 bg-theme-border shrink-0" />
+        <div className="w-px h-3.5 bg-slate-700/40 shrink-0" />
 
         {/* Watchlist */}
         <div className="flex items-center gap-1.5 shrink-0">
@@ -65,20 +61,20 @@ export function StickyMiniHeader() {
           <span className="text-[11px] font-black text-blue-400 font-num">{watchlistCount}</span>
         </div>
 
-        <div className="w-px h-3.5 bg-theme-border shrink-0" />
+        <div className="w-px h-3.5 bg-slate-700/40 shrink-0" />
 
         {/* Average Score */}
         <div className="flex items-center gap-1.5 shrink-0">
           <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">Gate평균</span>
           <span className={cn(
             'text-[11px] font-black font-num',
-            avgScore >= 80 ? 'text-green-400' : avgScore >= 60 ? 'text-amber-400' : 'text-theme-text-secondary'
+            avgScore >= 80 ? 'text-green-400' : avgScore >= 60 ? 'text-yellow-400' : avgScore > 0 ? 'text-red-400' : 'text-theme-text-secondary'
           )}>
             {avgScore}
           </span>
         </div>
 
-        <div className="w-px h-3.5 bg-theme-border shrink-0" />
+        <div className="w-px h-3.5 bg-slate-700/40 shrink-0" />
 
         {/* Last Update */}
         <div className="flex items-center gap-1.5 shrink-0">

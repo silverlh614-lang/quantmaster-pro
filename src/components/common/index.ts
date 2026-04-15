@@ -6,6 +6,7 @@ export { SettingsModal } from './SettingsModal';
 export { MasterChecklistModal } from './MasterChecklistModal';
 export { FloatingActionButton } from './FloatingActionButton';
 export { StickyMiniHeader } from './StickyMiniHeader';
+export { StatusBanner } from './StatusBanner';
 export { EventCalendar } from './EventCalendar';
 export { WalkForwardView } from './WalkForwardView';
 export { QueryProvider } from './QueryProvider';

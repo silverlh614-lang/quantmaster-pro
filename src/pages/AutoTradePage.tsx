@@ -132,11 +132,11 @@ export function AutoTradePage() {
           accentColor="bg-violet-500"
         />
 
-        {/* KPI Strip */}
-        <KpiStrip items={[
-          { label: 'Shadow 건수', value: shadowTrades.length, trend: 'neutral' },
-          { label: '적중률', value: `${winRate}%`, trend: winRate >= 50 ? 'up' : 'down' },
-          { label: '평균수익', value: `${avgReturn.toFixed(2)}%`, trend: avgReturn >= 0 ? 'up' : 'down' },
+        {/* KPI Strip — Neo-Brutalism Large Scoreboard */}
+        <KpiStrip size="lg" items={[
+          { label: 'Shadow 건수', value: shadowTrades.length, status: 'neutral' },
+          { label: '적중률', value: `${winRate}%`, status: winRate >= 60 ? 'pass' : winRate >= 40 ? 'warn' : 'fail', change: winRate >= 50 ? '목표 충족' : '목표 미달' },
+          { label: '평균수익', value: `${avgReturn.toFixed(2)}%`, status: avgReturn >= 0 ? 'pass' : 'fail', trend: avgReturn >= 0 ? 'up' : 'down' },
         ]} />
 
         {/* 아이디어 10: 매수 차단 원인 진단 패널 */}

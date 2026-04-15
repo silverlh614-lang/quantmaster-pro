@@ -1,6 +1,7 @@
 /**
- * Idea 3: Signal Badge System with Pulsing Dots + Color Glow
- * STRONG_BUY gets green glow, SELL gets red glow. 0.5s readability.
+ * Neo-Brutalism Badge System
+ * Signal badges with pulsing dots + color glow + semantic color unification.
+ * Colors: green(pass/profit), red(fail/loss), yellow(warn), blue(info), violet(AI)
  */
 import React from 'react';
 import { cn } from './cn';
@@ -11,22 +12,33 @@ interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   variant?: BadgeVariant;
   size?: 'sm' | 'md';
   pulse?: boolean;
+  neo?: boolean;
 }
 
 const variantClasses: Record<BadgeVariant, string> = {
   default: 'bg-white/10 text-white/60 border-white/10',
   success: 'bg-green-500/15 text-green-400 border-green-500/25',
-  warning: 'bg-amber-500/15 text-amber-400 border-amber-500/25',
+  warning: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/25',
   danger: 'bg-red-500/15 text-red-400 border-red-500/25',
   info: 'bg-blue-500/15 text-blue-400 border-blue-500/25',
   accent: 'bg-orange-500/15 text-orange-400 border-orange-500/25',
   violet: 'bg-violet-500/15 text-violet-400 border-violet-500/25',
 };
 
+const neoVariantClasses: Record<BadgeVariant, string> = {
+  default: 'bg-white/10 text-white/60 border-white/20',
+  success: 'bg-green-500/12 text-green-400 border-green-500/35',
+  warning: 'bg-yellow-500/12 text-yellow-400 border-yellow-500/35',
+  danger: 'bg-red-500/12 text-red-400 border-red-500/35',
+  info: 'bg-blue-500/12 text-blue-400 border-blue-500/35',
+  accent: 'bg-orange-500/12 text-orange-400 border-orange-500/35',
+  violet: 'bg-violet-500/12 text-violet-400 border-violet-500/35',
+};
+
 const glowClasses: Record<BadgeVariant, string> = {
   default: '',
   success: 'shadow-[0_0_12px_rgba(34,197,94,0.2)]',
-  warning: 'shadow-[0_0_12px_rgba(245,158,11,0.2)]',
+  warning: 'shadow-[0_0_12px_rgba(234,179,8,0.2)]',
   danger: 'shadow-[0_0_12px_rgba(239,68,68,0.2)]',
   info: 'shadow-[0_0_12px_rgba(59,130,246,0.2)]',
   accent: 'shadow-[0_0_12px_rgba(249,115,22,0.2)]',
@@ -36,7 +48,7 @@ const glowClasses: Record<BadgeVariant, string> = {
 const dotColors: Record<BadgeVariant, string> = {
   default: 'bg-white/40',
   success: 'bg-green-400',
-  warning: 'bg-amber-400',
+  warning: 'bg-yellow-400',
   danger: 'bg-red-400',
   info: 'bg-blue-400',
   accent: 'bg-orange-400',
@@ -48,19 +60,20 @@ const sizeClasses = {
   md: 'px-2.5 py-1 text-[10px]',
 };
 
-export function Badge({ variant = 'default', size = 'md', pulse = false, className, children, ...props }: BadgeProps) {
+export function Badge({ variant = 'default', size = 'md', pulse = false, neo = false, className, children, ...props }: BadgeProps) {
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 font-black uppercase tracking-wider rounded-md border',
-        variantClasses[variant],
+        'inline-flex items-center gap-1.5 font-black uppercase tracking-wider rounded-md',
+        neo ? 'border-2' : 'border',
+        neo ? neoVariantClasses[variant] : variantClasses[variant],
         glowClasses[variant],
         sizeClasses[size],
+        neo && 'shadow-[2px_2px_0px_rgba(0,0,0,0.3)]',
         className
       )}
       {...props}
     >
-      {/* Pulsing Dot (Idea 3) */}
       {pulse && (
         <span className="relative flex h-2 w-2 shrink-0">
           <span className={cn(

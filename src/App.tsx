@@ -23,6 +23,7 @@ import { MarketTicker } from './components/market/MarketTicker';
 import { MarketRegimeBanner } from './components/market/MarketRegimeBanner';
 import { MarketNeutralPanel } from './components/market/MarketNeutralPanel';
 import { StickyMiniHeader } from './components/common/StickyMiniHeader';
+import { StatusBanner } from './components/common/StatusBanner';
 import { FloatingActionButton } from './components/common/FloatingActionButton';
 import { SectorRotationPanel } from './components/sector/SectorRotationPanel';
 import { Sidebar } from './layout/Sidebar';
@@ -129,6 +130,9 @@ export default function App() {
       <div className="app-main">
         {/* Sticky Mini Header (Idea 8) */}
         <StickyMiniHeader />
+
+        {/* Neo-Brutalism Status Banner — One-line Market Summary */}
+        <StatusBanner />
 
         {/* Market Regime Banner — Compact (Idea 5) */}
         <MarketRegimeBanner

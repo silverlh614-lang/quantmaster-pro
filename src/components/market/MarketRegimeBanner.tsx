@@ -49,7 +49,7 @@ export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult, inve
   const bgColor = isRiskOff ? 'bg-red-950/60' : isTransition ? 'bg-amber-950/60' : 'bg-orange-950/60';
 
   return (
-    <div className={cn('no-print', borderColor, bgColor, 'border-b backdrop-blur-sm')} role="alert" aria-live="assertive">
+    <div className={cn('no-print', borderColor, bgColor, 'border-b-2 backdrop-blur-sm')} role="alert" aria-live="assertive">
       {/* Compact One-Line Banner (Idea 5) */}
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-10 flex items-center gap-3">
         {/* Pulsing Risk State */}
