@@ -475,7 +475,7 @@ export async function stage3AIScreenAndRegister(
 
 /**
  * 3단계 자동 발굴 파이프라인 전체 실행 (기존 호환 — fallback용).
- * Stage1 캐시가 없을 때 08:20 cron에서 전체 파이프라인을 한 번에 실행.
+ * Stage1 캐시가 없을 때 08:35 cron에서 전체 파이프라인을 한 번에 실행.
  */
 export async function runFullDiscoveryPipeline(
   regime: RegimeLevel,
@@ -512,18 +512,18 @@ export async function runFullDiscoveryPipeline(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 2단계 분리 파이프라인 — Stage1 전날 16:30, Stage2+3 당일 08:20
+// 2단계 분리 파이프라인 — Stage1 전날 16:30, Stage2+3 당일 08:35
 // ═══════════════════════════════════════════════════════════════════════════════
 //
 // Stage1(220개 Yahoo 스캔)이 전체 시간의 80%를 차지.
 // 전일 종가 데이터는 15:30 장마감 즉시 확정되므로 16:30에 Stage1을 선행 실행.
-// 당일 08:20에는 전날 60개 후보에 대해 간밤 글로벌 신호를 반영한
+// 당일 08:35에는 전날 60개 후보에 대해 간밤 글로벌 신호를 반영한
 // Stage2+3만 실행하면 5분 안에 완료.
 //
 // 이점:
 //   - 이른 시간 이동 → 간밤 글로벌 신호 누락 문제 해결
-//   - 08:35 유지 → 10분 타임박스 리스크 해소
-//   - 16:30 Stage1 + 08:20 Stage2+3 분리 → 양쪽 문제 동시 해결
+//   - 08:35 실행 → 09:00 장 시작 전 충분한 여유 확보
+//   - 16:30 Stage1 + 08:35 Stage2+3 분리 → 양쪽 문제 동시 해결
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface Stage1CacheData {
@@ -571,19 +571,19 @@ export async function runStage1PreScreening(): Promise<void> {
     await sendTelegramAlert(
       `🔍 <b>[Pre-screening 완료] 16:30</b>\n` +
       `Stage1: ${stage1.length}개 후보 확정 → 캐시 저장\n` +
-      `소요: ${elapsed}초 | 내일 08:20 Stage2+3 실행 예정`,
+      `소요: ${elapsed}초 | 내일 08:35 Stage2+3 실행 예정`,
     ).catch(console.error);
   } catch (e) {
     console.error('[Pipeline/PreScreen] 오류:', e instanceof Error ? e.message : e);
     await sendTelegramAlert(
       `⚠️ <b>[Pre-screening 오류]</b>\n${e instanceof Error ? e.message : '알 수 없는 오류'}\n` +
-      `내일 08:20에 전체 파이프라인으로 fallback 실행됩니다.`,
+      `내일 08:35에 전체 파이프라인으로 fallback 실행됩니다.`,
     ).catch(console.error);
   }
 }
 
 /**
- * 2차 Final-screening — 당일 08:20 KST 실행.
+ * 2차 Final-screening — 당일 08:35 KST 실행.
  * 전날 Stage1 캐시(60개)에 대해 간밤 글로벌 신호를 반영한 Stage2+3만 실행.
  * 캐시가 없거나 24시간 이상 경과 시 전체 파이프라인으로 fallback.
  */
@@ -625,7 +625,7 @@ export async function runStage2_3FinalScreening(
     console.log(`[Pipeline/FinalScreen] 완료 — ${added}개 등록, ${elapsed}초 소요`);
 
     await sendTelegramAlert(
-      `🔍 <b>[Final-screening 완료] 08:20</b>\n` +
+      `🔍 <b>[Final-screening 완료] 08:35</b>\n` +
       `Stage1 캐시: ${cache.candidates.length}개 → Stage2: ${stage2.length}개 → 등록: ${added}개\n` +
       `소요: ${elapsed}초 (전체 파이프라인 대비 ~80% 단축)`,
     ).catch(console.error);

@@ -157,7 +157,7 @@ export function startScheduler() {
 
   // ─── 2단계 분리 파이프라인 ────────────────────────────────────────────────
   // Stage1(220개 Yahoo 스캔)이 전체 시간의 80% — 전날 16:30에 선행 실행.
-  // 당일 08:20에는 캐시된 60개에 간밤 글로벌 신호를 반영한 Stage2+3만 실행.
+  // 당일 08:35에는 캐시된 60개에 간밤 글로벌 신호를 반영한 Stage2+3만 실행.
   //
   // 1차 Pre-screening — 전날 16:30 KST (UTC 07:30, 월~금)
   // 전일 종가 확정(15:30) 직후 Stage1만 실행 → 캐시 저장
@@ -165,10 +165,10 @@ export function startScheduler() {
     await runStage1PreScreening().catch(console.error);
   }, { timezone: 'UTC' });
 
-  // 2차 Final-screening — 당일 08:20 KST (UTC 23:20, 일~목)
+  // 2차 Final-screening — 당일 08:35 KST (UTC 23:35, 일~목)
   // 전날 캐시 60개에 간밤 글로벌 신호 반영 → Stage2+3 → 워치리스트 등록
   // 캐시 미존재 시 전체 파이프라인(Stage1+2+3) fallback 실행
-  cron.schedule('20 23 * * 0-4', async () => {
+  cron.schedule('35 23 * * 0-4', async () => {
     const macroState = loadMacroState();
     const regime     = getLiveRegime(macroState);
     await runStage2_3FinalScreening(regime, macroState).catch(console.error);
