@@ -41,6 +41,8 @@ import { startKisStream, stopKisStream, getStreamStatus } from './clients/kisStr
 import { pollSellFills, SELL_POLL_INTERVAL } from './trading/fillMonitor.js';
 import { pollOcoSurvival, cancelAllActiveOco } from './trading/ocoCloseLoop.js';
 import { runPortfolioRiskCheck } from './trading/portfolioRiskEngine.js';
+import { generateQualityScorecard } from './alerts/qualityScorecard.js';
+import { macroSectorAlignmentCheck, initMacroSyncDayOpen } from './trading/macroSectorSync.js';
 
 export function startScheduler() {
   // ─── TradingDayOrchestrator — 장 사이클 State Machine ──────────────────
@@ -373,6 +375,30 @@ export function startScheduler() {
   // ACTIVE OCO 주문 쌍 전량 취소 (다음 날 exitEngine이 재모니터링)
   cron.schedule('20 6 * * 1-5', async () => {
     await cancelAllActiveOco().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // ─── 장마감 Pipeline Yield 스코어카드 — 평일 15:40 KST (UTC 06:40, 월~금) ─────
+  // 4단계 수율 계산: Discovery → Gate → Signal → Trade
+  // 장마감(15:30) 직후 당일 파이프라인 전체 수율을 측정하여 Telegram 발송
+  cron.schedule('40 6 * * 1-5', async () => {
+    await generateQualityScorecard().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // ─── 거시-섹터-종목 동기화 루프 — 장중 30분 간격 ──────────────────────────────
+  // VIX 장중 +3% 급등 감지 → positionPct 20% 축소, 신규 진입 일시 중단
+  // 3레이어(거시/섹터/종목) 정렬도 점검 → 불일치 시 Telegram 경고
+  //
+  // 장 시작 초기화 — 09:00 KST (UTC 00:00, 월~금): VIX 기준값 설정
+  cron.schedule('0 0 * * 1-5', async () => {
+    await initMacroSyncDayOpen().catch(console.error);
+  }, { timezone: 'UTC' });
+  // 정렬 점검 — 장중 30분 간격, KST 09:30~15:00 (UTC 00:30~06:00, 월~금)
+  cron.schedule('0,30 0-5 * * 1-5', async () => {
+    // UTC 00:00은 initMacroSyncDayOpen이 처리하므로 건너뜀 (최초 점검은 00:30 = KST 09:30)
+    const utcHour = new Date().getUTCHours();
+    const utcMin = new Date().getUTCMinutes();
+    if (utcHour === 0 && utcMin === 0) return; // 09:00 KST는 init만
+    await macroSectorAlignmentCheck().catch(console.error);
   }, { timezone: 'UTC' });
 
   console.log('[Scheduler] cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');

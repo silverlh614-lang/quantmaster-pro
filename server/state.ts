@@ -10,3 +10,9 @@ export const setDailyLoss = (pct: number) => { DAILY_LOSS_PCT = pct; };
 
 // autoTradeEngine.ts에서 import하는 기존 함수명 호환 유지
 export const isEmergencyStopped = () => EMERGENCY_STOP;
+
+// ─── 거시-섹터-종목 동기화 루프: VIX 급등 보수 모드 ──────────────────────────
+let VIX_CONSERVATIVE_MODE = false;
+/** VIX 장중 급등(+3%) 감지 시 활성: positionPct −20%, 신규 진입 일시 중단 */
+export const getVixConservativeMode = () => VIX_CONSERVATIVE_MODE;
+export const setVixConservativeMode = (v: boolean) => { VIX_CONSERVATIVE_MODE = v; };
