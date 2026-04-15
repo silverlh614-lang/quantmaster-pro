@@ -613,6 +613,37 @@ export async function preScreenStocks(): Promise<ScreenedStock[]> {
  * MA/RSI/MACD/ATR 등 히스토리 기반 지표는 0/false 기본값을 사용하므로
  * 해당 조건은 Gate에서 통과되지 않는다 — 보수적 평가가 의도된 동작이다.
  */
+/**
+ * KIS 실시간 시세에서 dayOpen/prevClose/volume/price만 가져온다.
+ * enrichQuoteWithKisMTAS에서 Yahoo 데이터의 해당 필드를 교체하는 용도.
+ * KIS 미연결 시 null 반환 → Yahoo 값 유지 (graceful fallback).
+ */
+async function fetchKisRealtimePrice(code: string): Promise<{
+  price: number; dayOpen: number; prevClose: number; volume: number;
+} | null> {
+  if (!HAS_REAL_DATA_CLIENT && !process.env.KIS_APP_KEY) return null;
+  try {
+    const data = await realDataKisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
+      FID_COND_MRKT_DIV_CODE: 'J',
+      FID_INPUT_ISCD: code.padStart(6, '0'),
+    });
+    const out = (data as { output?: Record<string, string> } | null)?.output;
+    if (!out) return null;
+
+    const price    = parseInt(out.stck_prpr ?? '0', 10);
+    if (price <= 0) return null;
+
+    const dayOpen  = parseInt(out.stck_oprc ?? '0', 10) || price;
+    const volume   = parseInt(out.acml_vol  ?? '0', 10);
+    const prdyVrss = parseInt(out.stck_prdy_vrss ?? '0', 10);
+    const signStr  = out.prdy_vrss_sign ?? '3';
+    const prdyChange = signStr === '5' || signStr === '4' ? -Math.abs(prdyVrss) : Math.abs(prdyVrss);
+    const prevClose  = price - prdyChange || price;
+
+    return { price, dayOpen, prevClose, volume };
+  } catch { return null; }
+}
+
 export async function fetchKisQuoteFallback(code: string): Promise<YahooQuoteExtended | null> {
   if (!HAS_REAL_DATA_CLIENT && !process.env.KIS_APP_KEY) return null;
   try {
@@ -892,11 +923,25 @@ export async function enrichQuoteWithKisMTAS(
   code: string,
 ): Promise<YahooQuoteExtended> {
   try {
-    const kisMtas = await fetchKisMTASData(code, quote.price);
-    if (!kisMtas || !kisMtas.dataAvailable) return quote;
+    const [kisMtas, kisPrice] = await Promise.all([
+      fetchKisMTASData(code, quote.price),
+      fetchKisRealtimePrice(code),
+    ]);
 
-    // KIS 데이터가 충분한 경우에만 덮어쓰기
     const enriched = { ...quote };
+
+    // ── KIS 실시간 시세로 dayOpen/prevClose/volume 교체 (Yahoo 오류 방지) ──
+    if (kisPrice) {
+      enriched.dayOpen   = kisPrice.dayOpen;
+      enriched.prevClose = kisPrice.prevClose;
+      enriched.volume    = kisPrice.volume;
+      enriched.price     = kisPrice.price;
+      console.log(
+        `[KIS-RealPrice] ${code} KIS 시세 교체: 시가=${kisPrice.dayOpen} 전일종가=${kisPrice.prevClose} 거래량=${kisPrice.volume}`,
+      );
+    }
+
+    if (!kisMtas || !kisMtas.dataAvailable) return enriched;
 
     if (kisMtas.monthlyCandleCount >= 13) {
       enriched.monthlyAboveEMA12 = kisMtas.monthlyAboveEMA12;

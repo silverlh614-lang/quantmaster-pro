@@ -131,6 +131,42 @@ describe('evaluateEntryRevalidation', () => {
     expect(result.reasons.find(r => r.startsWith('거래량 급감'))).toBeTruthy();
   });
 
+  it('skips dayOpen drop check when drop exceeds 20% trust limit (Yahoo data error)', () => {
+    // 제룡전기 사례: dayOpen이 Yahoo 오류로 비정상적 → -41.6% 급락으로 잘못 계산
+    // 한국 주식 ±30% 제한에서 시가 대비 20% 초과 변동은 불가능 → 스킵
+    const result = evaluateEntryRevalidation({
+      currentPrice: 10_050,
+      entryPrice: 10_000,
+      quoteGateScore: 6.5,
+      quoteSignalType: 'STRONG',
+      dayOpen: 17_200,          // 현재가 대비 -41.6% — Yahoo 오류
+      prevClose: 10_000,
+      volume: 2_000_000,
+      avgVolume: 2_200_000,
+      marketElapsedMinutes: 390,
+    });
+
+    expect(result.reasons.find(r => r.includes('시가 대비 급락'))).toBeUndefined();
+    expect(result.ok).toBe(true);
+  });
+
+  it('still rejects dayOpen drop within 20% trust range', () => {
+    // 12.7% 급락 — 신뢰 범위 내이므로 정상적으로 탈락 처리
+    const result = evaluateEntryRevalidation({
+      currentPrice: 8_730,
+      entryPrice: 8_500,
+      quoteGateScore: 6.5,
+      quoteSignalType: 'STRONG',
+      dayOpen: 10_000,          // 현재가 대비 -12.7% — 신뢰 범위 내
+      prevClose: 9_800,
+      volume: 2_000_000,
+      avgVolume: 2_200_000,
+      marketElapsedMinutes: 390,
+    });
+
+    expect(result.reasons.find(r => r.includes('시가 대비 급락'))).toBeTruthy();
+  });
+
   it('skips gap overheat check when gap exceeds 30% (data error)', () => {
     // 555% 갭은 Yahoo Finance 데이터 오류 — 체크 스킵
     const result = evaluateEntryRevalidation({

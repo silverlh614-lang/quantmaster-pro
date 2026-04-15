@@ -37,6 +37,14 @@ const ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT = 4;
 const ENTRY_MIN_VOLUME_RATIO = 0.6;
 
 /**
+ * 시가 대비 급락 Yahoo 데이터 신뢰 범위 상한 (절대값 %).
+ * 한국 주식 하루 등락폭 제한은 ±30%이므로 시가 대비 현재가가
+ * 20% 이상 벌어지면 Yahoo Finance 데이터 오류로 간주하여 체크를 스킵한다.
+ * 예: 제룡전기 -41.6% → Yahoo 오류, 체크 스킵.
+ */
+const ENTRY_DROP_FROM_OPEN_TRUST_LIMIT_PCT = 20;
+
+/**
  * 오전 시간대(09:00~12:00 KST) 거래량 기준 할인 계수.
  * 오전 중에는 거래량이 풀장 대비 낮으므로 volumeRatio 기준을 추가 하향한다.
  * adjustedMinRatio × 0.7 적용 → 실질 기준이 ~30% 완화.
@@ -227,7 +235,10 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): { ok: 
 
   if (input.dayOpen && input.dayOpen > 0) {
     const dropFromOpenPct = ((input.currentPrice - input.dayOpen) / input.dayOpen) * 100;
-    if (input.currentPrice < input.dayOpen && dropFromOpenPct <= ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT) {
+    // Yahoo Finance 데이터 신뢰 범위: |변동| > 20%이면 dayOpen 오류로 간주하여 스킵
+    if (Math.abs(dropFromOpenPct) <= ENTRY_DROP_FROM_OPEN_TRUST_LIMIT_PCT
+        && input.currentPrice < input.dayOpen
+        && dropFromOpenPct <= ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT) {
       reasons.push(`시가 대비 급락 (${dropFromOpenPct.toFixed(1)}%)`);
     }
   }
