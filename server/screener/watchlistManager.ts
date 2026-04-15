@@ -46,21 +46,21 @@ export function applyEntryPriceDrift(
   if (currentPrice <= 0 || entry.entryPrice <= 0) return 'KEEP';
   const driftPct = ((currentPrice - entry.entryPrice) / entry.entryPrice) * 100;
   if (driftPct < ENTRY_PRICE_DRIFT_PCT) return 'KEEP';
-  return entry.addedBy === 'AUTO' ? 'REMOVE' : 'UPDATE';
+  return entry.addedBy === 'MANUAL' ? 'UPDATE' : 'REMOVE';
 }
 
 /**
- * AUTO 항목 중 Track B (매수 스캔 대상) 코드 집합을 반환한다.
+ * AUTO/DART 항목 중 Track B (매수 스캔 대상) 코드 집합을 반환한다.
  * 선정 기준 (OR):
  *   1. gateScore 상위 FOCUS_LIST_SIZE(8)개
  *   2. gateScore >= FOCUS_GATE_THRESHOLD(8) — 상위 8 밖이어도 포함
  * isFocus 플래그 갱신 및 buyList 필터에 공통 사용된다.
  */
 export function computeFocusCodes(list: WatchlistEntry[]): Set<string> {
-  const autos = list.filter((w) => w.addedBy === 'AUTO');
-  const sorted = [...autos].sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0));
+  const nonManual = list.filter((w) => w.addedBy !== 'MANUAL');
+  const sorted = [...nonManual].sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0));
   const topN = sorted.slice(0, FOCUS_LIST_SIZE).map((w) => w.code);
-  const aboveThreshold = autos
+  const aboveThreshold = nonManual
     .filter((w) => (w.gateScore ?? 0) >= FOCUS_GATE_THRESHOLD)
     .map((w) => w.code);
   return new Set([...topN, ...aboveThreshold]);

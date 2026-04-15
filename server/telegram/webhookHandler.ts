@@ -171,7 +171,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
         const formatEntry = (w: WatchlistEntry, showDetail: boolean) => {
           const focusMark = w.isFocus ? '⭐' : '';
-          const manualMark = w.addedBy === 'MANUAL' ? '👤' : '🤖';
+          const manualMark = w.addedBy === 'MANUAL' ? '👤' : w.addedBy === 'DART' ? '📢' : '🤖';
           const gate = w.gateScore !== undefined ? `Gate ${w.gateScore.toFixed(1)}` : '';
           const rrr = w.rrr !== undefined ? `RRR 1:${w.rrr.toFixed(1)}` : '';
           const sector = w.sector ? `${w.sector}` : '';
@@ -484,7 +484,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         const lines: string[] = [];
         for (const w of focusList) {
           const focusMark = w.isFocus ? '⭐' : '';
-          const manualMark = w.addedBy === 'MANUAL' ? '👤' : '🤖';
+          const manualMark = w.addedBy === 'MANUAL' ? '👤' : w.addedBy === 'DART' ? '📢' : '🤖';
           const gate = w.gateScore !== undefined ? `Gate ${w.gateScore.toFixed(1)}` : 'Gate -';
           const rrr = w.rrr !== undefined ? `RRR 1:${w.rrr.toFixed(1)}` : '';
           const sector = w.sector ?? '';

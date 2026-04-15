@@ -10,7 +10,7 @@ export interface WatchlistEntry {
   addedAt: string;       // ISO
   gateScore?: number;    // 스크리닝 신뢰도 점수 (0~27)
   // 아이디어 6: 진입 근거 메모 & 메타데이터
-  addedBy: 'AUTO' | 'MANUAL';     // 자동 발굴 vs 수동 추가
+  addedBy: 'AUTO' | 'MANUAL' | 'DART';  // 자동 발굴 vs 수동 추가 vs DART 공시
   memo?: string;                   // 진입 근거 ("외국인 5일 연속 순매수, 52주 신고가 돌파")
   sector?: string;                 // 섹터 정보 (섹터별 성과 분석용)
   rrr?: number;                    // Risk-Reward Ratio (목표가-진입가) / (진입가-손절가)

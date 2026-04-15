@@ -49,7 +49,7 @@ interface WatchlistEntry {
   targetPrice: number;
   addedAt: string;
   gateScore?: number;
-  addedBy: 'AUTO' | 'MANUAL';
+  addedBy: 'AUTO' | 'MANUAL' | 'DART';
   isFocus?: boolean;
   rrr?: number;
   sector?: string;
@@ -361,7 +361,7 @@ export function AutoTradePage() {
                           <span className="text-theme-text-muted">G{w.gateScore}</span>
                         )}
                         <span className="text-theme-text-muted">{w.entryPrice.toLocaleString()}</span>
-                        <Badge variant={w.addedBy === 'AUTO' ? 'success' : 'default'} size="sm">
+                        <Badge variant={w.addedBy === 'AUTO' ? 'success' : w.addedBy === 'DART' ? 'violet' : 'default'} size="sm">
                           {w.addedBy}
                         </Badge>
                       </div>

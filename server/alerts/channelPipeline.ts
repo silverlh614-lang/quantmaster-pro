@@ -270,7 +270,7 @@ export async function channelWatchlistSummary(
     parts.push('🎯 <b>Track B — 매수 대상</b>');
     for (const w of trackB) {
       const focusMark = w.isFocus ? '⭐' : '';
-      const manualMark = w.addedBy === 'MANUAL' ? '👤' : '🤖';
+      const manualMark = w.addedBy === 'MANUAL' ? '👤' : w.addedBy === 'DART' ? '📢' : '🤖';
       const gate = w.gateScore !== undefined ? `G${w.gateScore.toFixed(0)}` : '';
       const rrr = w.rrr !== undefined ? `R1:${w.rrr.toFixed(1)}` : '';
       const sector = w.sector ?? '';

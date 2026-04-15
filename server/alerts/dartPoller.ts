@@ -2,7 +2,10 @@ import fs from 'fs';
 import nodemailer from 'nodemailer';
 import { DART_FAST_SEEN_FILE, DART_LLM_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { type DartAlert, loadDartAlerts, saveDartAlerts } from '../persistence/dartRepo.js';
-import { loadWatchlist } from '../persistence/watchlistRepo.js';
+import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
+import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
+import { isOpenShadowStatus } from '../trading/entryEngine.js';
+import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { callGemini } from '../clients/geminiClient.js';
 import { sendTelegramAlert } from './telegramClient.js';
 
@@ -174,6 +177,129 @@ async function classifyImpactWithLlm(
   }
 }
 
+// ── DART 공시 → 워치리스트 자동 연동 ──────────────────────────────────────────
+// 호재 공시 (+1/+2): 워치리스트에 없으면 자동 추가, 있으면 gateScore 보너스 + Track B 승격
+// 내부자 매수: 워치리스트에 있으면 Track B 강제 승격, 없으면 추가
+// 악재 공시 (-1/-2): 워치리스트에 있으면 즉시 제거, 포지션이 있으면 exitEngine 경보
+// 안전장치: DART 추가 종목은 expiresAt=3일, addedBy='DART' 표시
+/** DART 추가 종목 기본 만료 기간 (밀리초) — 3일 */
+const DART_WATCHLIST_EXPIRY_MS = 3 * 24 * 60 * 60 * 1000;
+
+export async function applyDartToWatchlist(params: {
+  stockCode: string;
+  corpName: string;
+  impact: number;        // -2 ~ +2 (Gemini 판정 또는 룰 기반)
+  insiderBuy: boolean;
+  reason: string;
+  rceptNo: string;
+}): Promise<void> {
+  const code = params.stockCode.padStart(6, '0');
+  if (!code || code === '000000') return;
+
+  const watchlist = loadWatchlist();
+  const existing = watchlist.find(w => w.code === code);
+
+  // ── 악재 공시 (-1/-2) ──────────────────────────────────────────────────────
+  if (params.impact < 0) {
+    // 워치리스트에 있으면 즉시 제거
+    if (existing) {
+      const updated = watchlist.filter(w => w.code !== code);
+      saveWatchlist(updated);
+      console.log(`[DART→WL] ❌ 악재 제거: ${params.corpName}(${code}) — ${params.reason}`);
+      await sendTelegramAlert(
+        `⚠️ <b>[DART 악재 → 워치리스트 제거]</b> ${params.corpName} (${code})\n` +
+        `공시 임팩트: ${params.impact} — ${params.reason}\n` +
+        `워치리스트에서 즉시 제거됨`,
+      ).catch(console.error);
+    }
+
+    // 포지션이 있으면 exitEngine 경보
+    const shadows = loadShadowTrades();
+    const activePosition = shadows.find(
+      s => s.stockCode === code && isOpenShadowStatus(s.status),
+    );
+    if (activePosition) {
+      console.log(`[DART→WL] 🚨 악재 경보: ${params.corpName}(${code}) — 활성 포지션 보유 중`);
+      await sendTelegramAlert(
+        `🚨 <b>[DART 악재 경보 — 포지션 보유 중!]</b> ${params.corpName} (${code})\n` +
+        `공시 임팩트: ${params.impact} — ${params.reason}\n` +
+        `보유 수량: ${activePosition.quantity}주 @${activePosition.shadowEntryPrice.toLocaleString()}원\n` +
+        `⚡ <b>손절선 점검 필요</b>\n` +
+        `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${params.rceptNo}`,
+      ).catch(console.error);
+    }
+    return;
+  }
+
+  // ── 호재 공시 (+1/+2) 또는 내부자 매수 ─────────────────────────────────────
+  const isPositive = params.impact > 0 || params.insiderBuy;
+  if (!isPositive) return; // impact=0이면서 insiderBuy도 아니면 무시
+
+  if (existing) {
+    // 이미 있으면: gateScore 보너스 + Track B 강제 승격
+    const bonus = params.insiderBuy ? 3 : (params.impact >= 2 ? 2 : 1);
+    existing.gateScore = (existing.gateScore ?? 0) + bonus;
+    existing.track = 'B';
+    existing.isFocus = true;
+    existing.memo = `${existing.memo ?? ''} | DART(${params.insiderBuy ? '내부자매수' : `+${params.impact}`}): ${params.reason}`.trim();
+    saveWatchlist(watchlist);
+    console.log(
+      `[DART→WL] ⬆️ 승격: ${params.corpName}(${code}) → Track B (gateScore +${bonus}, 합계 ${existing.gateScore})`,
+    );
+    await sendTelegramAlert(
+      `📊 <b>[DART 호재 → Track B 승격]</b> ${params.corpName} (${code})\n` +
+      `${params.insiderBuy ? '🕵️ 내부자 매수 감지' : `임팩트: +${params.impact}`} — ${params.reason}\n` +
+      `gateScore: +${bonus} (합계 ${existing.gateScore}) | Track B 강제 승격`,
+    ).catch(console.error);
+  } else {
+    // 없으면 새로 추가 (3일 만료, addedBy='DART')
+    let entryPrice = 0;
+    let stopLoss = 0;
+    let targetPrice = 0;
+
+    // KIS API로 현재가 조회 시도
+    try {
+      const price = await fetchCurrentPrice(code);
+      if (price && price > 0) {
+        entryPrice = price;
+        stopLoss = Math.round(price * 0.92);
+        targetPrice = Math.round(price * 1.20);
+      }
+    } catch { /* 시세 조회 실패 — 다음 스캔에서 채움 */ }
+
+    const expiresAt = new Date(Date.now() + DART_WATCHLIST_EXPIRY_MS).toISOString();
+    const forceTrackB = params.insiderBuy || params.impact >= 2;
+    const newEntry: WatchlistEntry = {
+      code,
+      name: params.corpName,
+      entryPrice,
+      stopLoss,
+      targetPrice,
+      addedAt: new Date().toISOString(),
+      addedBy: 'DART',
+      track: forceTrackB ? 'B' : 'A',
+      isFocus: forceTrackB,
+      expiresAt,
+      memo: `DART(${params.insiderBuy ? '내부자매수' : `+${params.impact}`}): ${params.reason}`,
+      gateScore: params.insiderBuy ? 3 : params.impact,
+      rrr: entryPrice > 0 ? parseFloat(((targetPrice - entryPrice) / (entryPrice - stopLoss || 1)).toFixed(2)) : 0,
+    };
+    watchlist.push(newEntry);
+    saveWatchlist(watchlist);
+    console.log(
+      `[DART→WL] ✅ 추가: ${params.corpName}(${code}) [Track ${newEntry.track}] ` +
+      `(만료: 3일, ${params.insiderBuy ? '내부자매수' : `임팩트 +${params.impact}`})`,
+    );
+    await sendTelegramAlert(
+      `📥 <b>[DART 공시 → 워치리스트 추가]</b> ${params.corpName} (${code})\n` +
+      `${params.insiderBuy ? '🕵️ 내부자 매수 감지' : `임팩트: +${params.impact}`} — ${params.reason}\n` +
+      `Track: ${newEntry.track} | 만료: 3일\n` +
+      (entryPrice > 0 ? `진입가: ${entryPrice.toLocaleString()}원 | 손절: ${stopLoss.toLocaleString()}원 | 목표: ${targetPrice.toLocaleString()}원\n` : '⚠️ 시세 미조회 — 다음 스캔에서 갱신 예정\n') +
+      `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${params.rceptNo}`,
+    ).catch(console.error);
+  }
+}
+
 async function sendDartAlert(alert: DartAlert): Promise<void> {
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return;
   const transporter = nodemailer.createTransport({
@@ -327,6 +453,20 @@ export async function pollDartDisclosures(): Promise<void> {
         impactLine +
         `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${alert.rcept_no}`
       ).catch(console.error);
+    }
+
+    // ── DART 공시 → 워치리스트 자동 연동 ──────────────────────────────────────
+    const effectiveImpact = llmImpact
+      ?? (ownershipSignal?.sentiment === 'POSITIVE' ? 1 : ownershipSignal?.sentiment === 'NEGATIVE' ? -1 : 0);
+    if (effectiveImpact !== 0 || insiderBuy) {
+      await applyDartToWatchlist({
+        stockCode,
+        corpName,
+        impact: effectiveImpact,
+        insiderBuy,
+        reason: llmReason ?? ownershipSignal?.reason ?? reportNm,
+        rceptNo: d.rcept_no ?? '',
+      }).catch(e => console.error(`[DART→WL] 워치리스트 연동 실패:`, e));
     }
   }
 
@@ -487,6 +627,17 @@ export async function fastDartCheck(): Promise<void> {
         `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${c.rceptNo}`
       ).catch(console.error);
       console.log(`[FastDART] ${emoji} 수급이벤트: ${c.corpName} (${ownershipSignal.sentiment}) — ${c.reportNm}`);
+
+      // DART 공시 → 워치리스트 연동
+      const ownerImpact = ownershipSignal.sentiment === 'POSITIVE' ? 1 : -1;
+      await applyDartToWatchlist({
+        stockCode: c.stockCode,
+        corpName: c.corpName,
+        impact: ownerImpact,
+        insiderBuy: c.insiderBuy,
+        reason: ownershipSignal.reason,
+        rceptNo: c.rceptNo,
+      }).catch(e => console.error(`[FastDART→WL] 워치리스트 연동 실패:`, e));
     }
   }
 
@@ -566,6 +717,18 @@ export async function fastDartCheck(): Promise<void> {
         `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${c.rceptNo}`
       ).catch(console.error);
       console.log(`[FastDART] ${emoji} ${c.corpName} (임팩트:${impactClamp}) — ${c.reportNm}`);
+    }
+
+    // ── DART 공시 → 워치리스트 자동 연동 ──────────────────────────────────────
+    if (impactClamp !== 0 || c.insiderBuy) {
+      await applyDartToWatchlist({
+        stockCode: c.stockCode,
+        corpName: c.corpName,
+        impact: impactClamp,
+        insiderBuy: c.insiderBuy,
+        reason,
+        rceptNo: c.rceptNo,
+      }).catch(e => console.error(`[FastDART→WL] 워치리스트 연동 실패:`, e));
     }
   }
 
