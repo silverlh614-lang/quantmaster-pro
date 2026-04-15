@@ -402,7 +402,20 @@ export function AutoTradePage() {
 
         {/* Tab Switcher: 대시보드 / 트레이딩 설정 */}
         <div className="flex items-center gap-2 p-1 bg-white/5 rounded-xl border border-theme-border w-fit">
-
+          {(['dashboard', 'settings'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={cn(
+                'px-4 py-1.5 text-xs font-bold rounded-lg transition-all',
+                activeTab === tab
+                  ? 'bg-violet-500 text-white shadow-[0_0_12px_rgba(139,92,246,0.3)]'
+                  : 'text-theme-text-muted hover:text-theme-text hover:bg-white/5'
+              )}
+            >
+              {tab === 'dashboard' ? '대시보드' : '트레이딩 설정'}
+            </button>
+          ))}
         </div>
 
         {/* ── 트레이딩 설정 탭 ─────────────────────────────────────────── */}
