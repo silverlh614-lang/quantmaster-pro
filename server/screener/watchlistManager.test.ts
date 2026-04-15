@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeFocusCodes,
+  applyEntryPriceDrift,
   FOCUS_LIST_SIZE,
   FOCUS_GATE_THRESHOLD,
   MAX_ENTRY_FAIL_COUNT,
   MAX_WATCHLIST,
+  ENTRY_PRICE_DRIFT_PCT,
 } from './watchlistManager.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
 
@@ -102,5 +104,58 @@ describe('exported constants', () => {
   it('FOCUS_GATE_THRESHOLD is positive integer', () => {
     expect(FOCUS_GATE_THRESHOLD).toBeGreaterThan(0);
     expect(Number.isInteger(FOCUS_GATE_THRESHOLD)).toBe(true);
+  });
+
+  it('ENTRY_PRICE_DRIFT_PCT is 10', () => {
+    expect(ENTRY_PRICE_DRIFT_PCT).toBe(10);
+  });
+});
+
+describe('applyEntryPriceDrift', () => {
+  it('returns KEEP when price is below drift threshold', () => {
+    const entry = makeEntry({ code: 'A001', entryPrice: 10_000 });
+    // +9% → below 10% threshold
+    expect(applyEntryPriceDrift(entry, 10_900)).toBe('KEEP');
+  });
+
+  it('returns KEEP when price equals drift threshold boundary', () => {
+    const entry = makeEntry({ code: 'A001', entryPrice: 10_000 });
+    // +9.99% → still below
+    expect(applyEntryPriceDrift(entry, 10_999)).toBe('KEEP');
+  });
+
+  it('returns REMOVE for AUTO entry at +10%', () => {
+    const entry = makeEntry({ code: 'A001', entryPrice: 10_000, addedBy: 'AUTO' });
+    expect(applyEntryPriceDrift(entry, 11_000)).toBe('REMOVE');
+  });
+
+  it('returns REMOVE for AUTO entry at +15%', () => {
+    const entry = makeEntry({ code: 'A001', entryPrice: 10_000, addedBy: 'AUTO' });
+    expect(applyEntryPriceDrift(entry, 11_500)).toBe('REMOVE');
+  });
+
+  it('returns UPDATE for MANUAL entry at +10%', () => {
+    const entry = makeEntry({ code: 'M001', entryPrice: 10_000, addedBy: 'MANUAL' });
+    expect(applyEntryPriceDrift(entry, 11_000)).toBe('UPDATE');
+  });
+
+  it('returns UPDATE for MANUAL entry at +20%', () => {
+    const entry = makeEntry({ code: 'M001', entryPrice: 10_000, addedBy: 'MANUAL' });
+    expect(applyEntryPriceDrift(entry, 12_000)).toBe('UPDATE');
+  });
+
+  it('returns KEEP when currentPrice is below entryPrice', () => {
+    const entry = makeEntry({ code: 'A001', entryPrice: 10_000 });
+    expect(applyEntryPriceDrift(entry, 9_000)).toBe('KEEP');
+  });
+
+  it('returns KEEP when currentPrice is 0', () => {
+    const entry = makeEntry({ code: 'A001', entryPrice: 10_000 });
+    expect(applyEntryPriceDrift(entry, 0)).toBe('KEEP');
+  });
+
+  it('returns KEEP when entryPrice is 0', () => {
+    const entry = makeEntry({ code: 'A001', entryPrice: 0 });
+    expect(applyEntryPriceDrift(entry, 11_000)).toBe('KEEP');
   });
 });

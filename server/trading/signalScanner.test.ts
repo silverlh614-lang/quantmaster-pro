@@ -61,7 +61,7 @@ describe('evaluateEntryRevalidation', () => {
   });
 
   it('adjusts volume threshold proportionally to elapsed market time', () => {
-    // 10:51 KST = 111분 경과, 기준 = 0.6 × (111/390) ≈ 0.17
+    // 10:51 KST = 111분 경과, 기준 = 0.6 × (111/390) × 0.7(오전보정) ≈ 0.12
     const result = evaluateEntryRevalidation({
       currentPrice: 10_050,
       entryPrice: 10_000,
@@ -69,13 +69,66 @@ describe('evaluateEntryRevalidation', () => {
       quoteSignalType: 'STRONG',
       dayOpen: 10_020,
       prevClose: 10_000,
-      volume: 260_000,      // 0.22x — 0.6 기준이면 탈락, 0.17 기준이면 통과
+      volume: 260_000,      // 0.22x — 보정 후 기준 0.12x이므로 통과
       avgVolume: 1_200_000,
       marketElapsedMinutes: 111,
     });
 
     expect(result.ok).toBe(true);
     expect(result.reasons).toHaveLength(0);
+  });
+
+  it('applies morning volume discount before 12:00 KST (180min)', () => {
+    // 10:00 KST = 60분 경과
+    // 기존: 0.6 × (60/390) ≈ 0.092
+    // 오전 보정 후: 0.092 × 0.7 ≈ 0.064
+    // volume 70000/1_200_000 = 0.058 → 오전 보정 없으면 통과, 있으면 탈락?
+    // 아니, 0.058 < 0.064 → 탈락
+    const resultMorning = evaluateEntryRevalidation({
+      currentPrice: 10_050,
+      entryPrice: 10_000,
+      quoteGateScore: 6.5,
+      quoteSignalType: 'STRONG',
+      dayOpen: 10_020,
+      prevClose: 10_000,
+      volume: 70_000,        // 0.058x
+      avgVolume: 1_200_000,
+      marketElapsedMinutes: 60, // 10:00 KST (오전)
+    });
+    expect(resultMorning.ok).toBe(false);
+    expect(resultMorning.reasons.find(r => r.startsWith('거래량 급감'))).toBeTruthy();
+
+    // volume 80000/1_200_000 = 0.067x > 0.064 → 오전 보정 후 통과
+    const resultPass = evaluateEntryRevalidation({
+      currentPrice: 10_050,
+      entryPrice: 10_000,
+      quoteGateScore: 6.5,
+      quoteSignalType: 'STRONG',
+      dayOpen: 10_020,
+      prevClose: 10_000,
+      volume: 80_000,        // 0.067x > 0.064x → 통과
+      avgVolume: 1_200_000,
+      marketElapsedMinutes: 60,
+    });
+    expect(resultPass.ok).toBe(true);
+  });
+
+  it('does not apply morning discount after 12:00 KST (≥180min)', () => {
+    // 13:00 KST = 240분 경과
+    // 기준: 0.6 × (240/390) ≈ 0.369 (오전 보정 없음)
+    const result = evaluateEntryRevalidation({
+      currentPrice: 10_050,
+      entryPrice: 10_000,
+      quoteGateScore: 6.5,
+      quoteSignalType: 'STRONG',
+      dayOpen: 10_020,
+      prevClose: 10_000,
+      volume: 400_000,       // 0.33x < 0.369x → 탈락
+      avgVolume: 1_200_000,
+      marketElapsedMinutes: 240,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reasons.find(r => r.startsWith('거래량 급감'))).toBeTruthy();
   });
 
   it('skips gap overheat check when gap exceeds 30% (data error)', () => {

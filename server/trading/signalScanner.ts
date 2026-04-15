@@ -31,7 +31,7 @@ import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
 import { addRecommendation } from '../learning/recommendationTracker.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
-import { computeFocusCodes } from '../screener/watchlistManager.js';
+import { computeFocusCodes, applyEntryPriceDrift } from '../screener/watchlistManager.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS } from '../screener/stockScreener.js';
 import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
@@ -293,6 +293,33 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       const currentPrice = await fetchCurrentPrice(stock.code).catch(() => null);
       if (!currentPrice) { stageLog.price = 'FAIL'; pushTrace(); continue; }
       stageLog.price = 'PASS';
+
+      // ── entryPrice 드리프트 체크: 현재가가 10% 이상 올랐으면 갱신/제거 ─────
+      const driftAction = applyEntryPriceDrift(stock, currentPrice);
+      if (driftAction === 'REMOVE') {
+        const driftPct = ((currentPrice - stock.entryPrice) / stock.entryPrice * 100).toFixed(1);
+        console.log(
+          `[AutoTrade] ${stock.name}(${stock.code}) entryPrice 드리프트 제거 — ` +
+          `현재가 ${currentPrice.toLocaleString()} vs entryPrice ${stock.entryPrice.toLocaleString()} (+${driftPct}%)`,
+        );
+        const idx = watchlist.findIndex(w => w.code === stock.code);
+        if (idx >= 0) { watchlist.splice(idx, 1); watchlistMutated = true; }
+        stageLog.drift = 'REMOVE';
+        pushTrace();
+        continue;
+      }
+      if (driftAction === 'UPDATE') {
+        const oldEntry = stock.entryPrice;
+        stock.entryPrice = currentPrice;
+        watchlistMutated = true;
+        console.log(
+          `[AutoTrade] ${stock.name}(${stock.code}) entryPrice 트레일 업 — ` +
+          `${oldEntry.toLocaleString()} → ${currentPrice.toLocaleString()} (+10% 이상 드리프트)`,
+        );
+        stageLog.drift = 'UPDATE';
+        pushTrace();
+        continue; // 이번 스캔에서는 진입 시도하지 않음 (갱신 직후 안정화 대기)
+      }
 
       // 당일 날짜 (재진입 방지 + PRE_BREAKOUT 추종 중복 방지 공통 사용)
       const today = new Date().toISOString().split('T')[0];

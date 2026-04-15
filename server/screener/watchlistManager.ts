@@ -23,8 +23,31 @@ export const MAX_ENTRY_FAIL_COUNT = 3;
 /** gateScore가 이 값 이상인 AUTO 종목은 상위 8위 밖이어도 Track B에 포함된다. */
 export const FOCUS_GATE_THRESHOLD = 8; // 수정: 15 → 8 (evaluateServerGate max score ~11)
 
+/**
+ * entryPrice 드리프트 임계값 (%).
+ * 현재가가 entryPrice 대비 이 비율 이상 상승했으면 워치리스트 갱신/제거 대상.
+ */
+export const ENTRY_PRICE_DRIFT_PCT = 10;
+
 /** @deprecated MAX_WATCHLIST → MAX_CANDIDATE_POOL 으로 교체. 하위 호환용. */
 export const MAX_WATCHLIST = MAX_CANDIDATE_POOL;
+
+/**
+ * entryPrice 대비 현재가 드리프트 판정.
+ *
+ *  - AUTO 항목: 10% 이상 올랐으면 'REMOVE' (발굴 시점 대비 너무 멀리 상승)
+ *  - MANUAL 항목: 'UPDATE' (사용자 확신 종목 → entryPrice를 현재가로 트레일 업)
+ *  - 그 외 또는 미도달: 'KEEP'
+ */
+export function applyEntryPriceDrift(
+  entry: WatchlistEntry,
+  currentPrice: number,
+): 'REMOVE' | 'UPDATE' | 'KEEP' {
+  if (currentPrice <= 0 || entry.entryPrice <= 0) return 'KEEP';
+  const driftPct = ((currentPrice - entry.entryPrice) / entry.entryPrice) * 100;
+  if (driftPct < ENTRY_PRICE_DRIFT_PCT) return 'KEEP';
+  return entry.addedBy === 'AUTO' ? 'REMOVE' : 'UPDATE';
+}
 
 /**
  * AUTO 항목 중 Track B (매수 스캔 대상) 코드 집합을 반환한다.
