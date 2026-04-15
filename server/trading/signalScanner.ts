@@ -32,7 +32,7 @@ import { addRecommendation } from '../learning/recommendationTracker.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { computeFocusCodes, applyEntryPriceDrift } from '../screener/watchlistManager.js';
-import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS } from '../screener/stockScreener.js';
+import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKisIntraday } from '../screener/stockScreener.js';
 import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
 import { getVixGating } from './vixGating.js';
@@ -807,6 +807,25 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       const reCheckQuote = reCheckQuoteRaw
         ? await enrichQuoteWithKisMTAS(reCheckQuoteRaw, stock.code)
         : null;
+
+      // ── KIS 실시간 시가/전일종가 보정 ──────────────────────────────────────────
+      // Yahoo Finance의 regularMarketOpen이 한국 장중 부정확한 경우가 빈번하여
+      // KIS 현재가 API(FHKST01010100)로 dayOpen·prevClose를 항상 덮어쓴다.
+      if (reCheckQuote) {
+        const kisSnap = await fetchKisIntraday(stock.code).catch(() => null);
+        if (kisSnap) {
+          if (kisSnap.dayOpen > 0 && reCheckQuote.dayOpen !== kisSnap.dayOpen) {
+            console.log(
+              `[KisIntraday] ${stock.code} 시가 보정: Yahoo=${reCheckQuote.dayOpen} → KIS=${kisSnap.dayOpen}`,
+            );
+            reCheckQuote.dayOpen = kisSnap.dayOpen;
+          }
+          if (kisSnap.prevClose > 0) {
+            reCheckQuote.prevClose = kisSnap.prevClose;
+          }
+        }
+      }
+
       const [kisFlow, dartFin] = reCheckQuote
         ? await Promise.all([
             fetchKisInvestorFlow(stock.code).catch(() => null),
