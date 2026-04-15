@@ -17,6 +17,7 @@ export const VIEW_LABELS: Record<View, string> = {
   MANUAL_INPUT: '수동 퀀트',
   TRADE_JOURNAL: '매매일지',
   AUTO_TRADE: '자동매매',
+  PORTFOLIO_EXTRACT: '포트폴리오 추출',
 };
 
 /** App name used in browser tab title */

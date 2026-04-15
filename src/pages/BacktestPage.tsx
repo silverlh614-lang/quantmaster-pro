@@ -1,10 +1,10 @@
-import React from 'react';
+import React, { useRef, useCallback } from 'react';
 import {
   TrendingUp, TrendingDown, ShieldCheck, ShieldAlert, Play, RefreshCw,
   Settings, History, Info, Plus, Trash2, GripVertical, Zap, Activity,
   Target, BarChart3, ArrowUpRight, ArrowDownRight, XCircle, Copy,
   AlertTriangle, Lightbulb, Sparkles, Layers, ArrowRightLeft,
-  Calendar as CalendarIcon
+  Calendar as CalendarIcon, Wallet, Clock, Percent
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import {
@@ -48,11 +48,29 @@ export function BacktestPage({
 }: BacktestPageProps) {
   const {
     backtestPortfolioItems, backtestResult, backtesting,
-    initialEquity, setInitialEquity, backtestYears, setBacktestYears, parsingFile
+    initialEquity, setInitialEquity, backtestYears, setBacktestYears,
+    commissionFee, setCommissionFee, parsingFile
   } = useMarketStore();
   const { portfolios, currentPortfolioId } = usePortfolioStore();
 
   const totalWeight = (backtestPortfolioItems || []).reduce((sum, i) => sum + i.weight, 0);
+
+  // Auto-focus refs for large input cards
+  const equityInputRef = useRef<HTMLInputElement>(null);
+  const yearsInputRef = useRef<HTMLInputElement>(null);
+  const feeInputRef = useRef<HTMLInputElement>(null);
+
+  const handleKeyDown = useCallback((nextRef: React.RefObject<HTMLInputElement | null>) => (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      nextRef.current?.focus();
+      nextRef.current?.select();
+    }
+  }, []);
+
+  // Display helpers
+  const equityInManWon = Math.round(initialEquity / 10000);
+  const formatManWon = (v: number) => v.toLocaleString('ko-KR');
 
   return (
     <motion.div
@@ -67,20 +85,186 @@ export function BacktestPage({
           title="AI Portfolio Backtest"
           subtitle="포트폴리오 백테스트 시뮬레이터"
           accentColor="bg-blue-500"
-          actions={
-            <Button
-              variant="accent"
-              size="lg"
-              icon={backtesting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
-              onClick={onRunBacktest}
-              disabled={backtesting || (backtestPortfolioItems || []).length === 0 || totalWeight !== 100}
-            >
-              {backtesting ? '시뮬레이션 중...' : '백테스팅 시작'}
-            </Button>
-          }
         >
           사용자 정의 포트폴리오의 과거 성과를 AI로 시뮬레이션하고, 위험 지표 분석 및 최적화 전략을 제안받으세요.
         </PageHeader>
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            QUANTUS-STYLE LARGE INPUT CARDS — Settings
+            ═══════════════════════════════════════════════════════════════════ */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
+          {/* Card 1: Initial Equity (만원) */}
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+          >
+            <Card padding="lg" className="relative group hover:border-blue-500/30 transition-all">
+              <div className="flex items-center gap-3 mb-4 sm:mb-6">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-blue-500/15 flex items-center justify-center">
+                  <Wallet className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400" />
+                </div>
+                <div>
+                  <span className="text-micro block">초기투자금액</span>
+                  <span className="text-[10px] font-bold text-theme-text-muted">Initial Equity</span>
+                </div>
+              </div>
+              <div className="relative">
+                <input
+                  ref={equityInputRef}
+                  type="number"
+                  value={equityInManWon}
+                  onChange={(e) => setInitialEquity((parseInt(e.target.value) || 0) * 10000)}
+                  onKeyDown={handleKeyDown(yearsInputRef)}
+                  className="w-full bg-transparent border-b-2 border-theme-border focus:border-blue-500 pb-2 text-2xl sm:text-3xl lg:text-4xl font-black text-theme-text text-right pr-16 sm:pr-20 focus:outline-none transition-colors font-mono tabular-nums tracking-tighter"
+                />
+                <span className="absolute right-0 bottom-2 text-lg sm:text-xl font-black text-blue-400">만원</span>
+              </div>
+              <p className="text-[10px] text-theme-text-muted font-bold mt-3 text-right">
+                = {(initialEquity).toLocaleString('ko-KR')}원
+              </p>
+            </Card>
+          </motion.div>
+
+          {/* Card 2: Period (년) */}
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+          >
+            <Card padding="lg" className="relative group hover:border-green-500/30 transition-all">
+              <div className="flex items-center gap-3 mb-4 sm:mb-6">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-green-500/15 flex items-center justify-center">
+                  <Clock className="w-5 h-5 sm:w-6 sm:h-6 text-green-400" />
+                </div>
+                <div>
+                  <span className="text-micro block">백테스트 기간</span>
+                  <span className="text-[10px] font-bold text-theme-text-muted">Backtest Period</span>
+                </div>
+              </div>
+              <div className="relative">
+                <input
+                  ref={yearsInputRef}
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={backtestYears}
+                  onChange={(e) => setBacktestYears(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+                  onKeyDown={handleKeyDown(feeInputRef)}
+                  className="w-full bg-transparent border-b-2 border-theme-border focus:border-green-500 pb-2 text-2xl sm:text-3xl lg:text-4xl font-black text-theme-text text-right pr-10 sm:pr-12 focus:outline-none transition-colors font-mono tabular-nums tracking-tighter"
+                />
+                <span className="absolute right-0 bottom-2 text-lg sm:text-xl font-black text-green-400">년</span>
+              </div>
+              {/* Quick select buttons */}
+              <div className="flex gap-2 mt-4">
+                {[1, 3, 5].map((y) => (
+                  <button
+                    key={y}
+                    onClick={() => { setBacktestYears(y); feeInputRef.current?.focus(); }}
+                    className={cn(
+                      'flex-1 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all border',
+                      backtestYears === y
+                        ? 'bg-green-500/15 border-green-500/40 text-green-400 shadow-[0_0_12px_rgba(34,197,94,0.12)]'
+                        : 'bg-white/5 border-theme-border text-theme-text-muted hover:bg-white/10'
+                    )}
+                  >
+                    {y}년
+                  </button>
+                ))}
+              </div>
+            </Card>
+          </motion.div>
+
+          {/* Card 3: Commission Fee (%) */}
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+          >
+            <Card padding="lg" className="relative group hover:border-orange-500/30 transition-all">
+              <div className="flex items-center gap-3 mb-4 sm:mb-6">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-orange-500/15 flex items-center justify-center">
+                  <Percent className="w-5 h-5 sm:w-6 sm:h-6 text-orange-400" />
+                </div>
+                <div>
+                  <span className="text-micro block">거래수수료</span>
+                  <span className="text-[10px] font-bold text-theme-text-muted">Commission Fee</span>
+                </div>
+              </div>
+              <div className="relative">
+                <input
+                  ref={feeInputRef}
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={5}
+                  value={commissionFee}
+                  onChange={(e) => setCommissionFee(parseFloat(e.target.value) || 0)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                  className="w-full bg-transparent border-b-2 border-theme-border focus:border-orange-500 pb-2 text-2xl sm:text-3xl lg:text-4xl font-black text-theme-text text-right pr-8 sm:pr-10 focus:outline-none transition-colors font-mono tabular-nums tracking-tighter"
+                />
+                <span className="absolute right-0 bottom-2 text-lg sm:text-xl font-black text-orange-400">%</span>
+              </div>
+              {/* Quick select buttons */}
+              <div className="flex gap-2 mt-4">
+                {[0.015, 0.05, 0.1].map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setCommissionFee(f)}
+                    className={cn(
+                      'flex-1 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all border',
+                      commissionFee === f
+                        ? 'bg-orange-500/15 border-orange-500/40 text-orange-400 shadow-[0_0_12px_rgba(249,115,22,0.12)]'
+                        : 'bg-white/5 border-theme-border text-theme-text-muted hover:bg-white/10'
+                    )}
+                  >
+                    {f}%
+                  </button>
+                ))}
+              </div>
+            </Card>
+          </motion.div>
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            REAL-TIME SUMMARY BAR + RUN BUTTON
+            ═══════════════════════════════════════════════════════════════════ */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-0 bg-[var(--bg-elevated)] border-2 border-theme-border rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-[4px_4px_0px_rgba(0,0,0,0.3)]"
+        >
+          <div className="flex flex-wrap items-center gap-3 sm:gap-5 flex-1 min-w-0 px-1 sm:px-3">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <Wallet className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+              <span className="text-xs sm:text-sm font-black text-theme-text whitespace-nowrap">
+                {formatManWon(equityInManWon)}만원
+              </span>
+            </div>
+            <span className="text-theme-text-muted font-black hidden xs:inline">|</span>
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <Clock className="w-3.5 h-3.5 text-green-400 shrink-0" />
+              <span className="text-xs sm:text-sm font-black text-theme-text whitespace-nowrap">{backtestYears}년</span>
+            </div>
+            <span className="text-theme-text-muted font-black hidden xs:inline">|</span>
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <Percent className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+              <span className="text-xs sm:text-sm font-black text-theme-text whitespace-nowrap">{commissionFee}%</span>
+            </div>
+            <span className="text-theme-text-muted font-black hidden xs:inline">&rarr;</span>
+          </div>
+          <Button
+            variant="accent"
+            size="lg"
+            icon={backtesting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
+            onClick={onRunBacktest}
+            disabled={backtesting || (backtestPortfolioItems || []).length === 0 || totalWeight !== 100}
+            className="shrink-0 sm:ml-4"
+          >
+            {backtesting ? '시뮬레이션 중...' : '백테스팅 시작'}
+          </Button>
+        </motion.div>
 
         {/* Portfolio Manager */}
         <PortfolioManager
@@ -100,56 +284,10 @@ export function BacktestPage({
           </Card>
         )}
 
-        {/* 3-column layout: settings + portfolio | results */}
+        {/* 3-column layout: portfolio builder | results */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 lg:gap-10">
-          {/* Left: Settings & Portfolio Builder */}
+          {/* Left: Portfolio Builder */}
           <div className="lg:col-span-1 space-y-6 sm:space-y-8">
-            {/* Backtest Settings */}
-            <Card padding="lg">
-              <div className="flex items-center gap-3 mb-6">
-                <Settings className="w-5 h-5 text-theme-text-muted" />
-                <span className="text-micro">백테스트 설정</span>
-              </div>
-
-              <div className="space-y-5 sm:space-y-6">
-                <div className="space-y-2">
-                  <label className="text-micro block">초기 자본금 (Initial Equity)</label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={initialEquity}
-                      onChange={(e) => setInitialEquity(parseInt(e.target.value) || 0)}
-                      className="w-full bg-theme-card border border-theme-border rounded-xl sm:rounded-2xl px-4 sm:px-6 py-3 sm:py-4 text-base sm:text-lg font-black text-theme-text focus:outline-none focus:border-blue-500/50 transition-all"
-                    />
-                    <span className="absolute right-4 sm:right-6 top-1/2 -translate-y-1/2 text-sm font-black text-theme-text-muted">KRW</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-micro block">테스트 기간 (Period)</label>
-                  <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                    {[
-                      { label: '1년', value: 1 },
-                      { label: '3년', value: 3 },
-                      { label: '5년', value: 5 },
-                    ].map((p) => (
-                      <button
-                        key={p.value}
-                        onClick={() => setBacktestYears(p.value)}
-                        className={cn(
-                          'py-2.5 sm:py-3 rounded-xl sm:rounded-2xl text-xs font-black uppercase tracking-widest transition-all border',
-                          backtestYears === p.value
-                            ? 'bg-blue-500/15 border-blue-500/40 text-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.15)]'
-                            : 'bg-white/5 border-theme-border text-theme-text-muted hover:bg-white/10'
-                        )}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </Card>
 
             {/* Portfolio Composition */}
             <Card padding="lg">
