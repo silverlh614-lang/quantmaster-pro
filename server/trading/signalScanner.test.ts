@@ -35,11 +35,12 @@ describe('evaluateEntryRevalidation', () => {
       prevClose: 10_000,
       volume: 500_000,
       avgVolume: 1_200_000,
+      marketElapsedMinutes: 390, // 장 마감 기준 — 보정 없이 원본 기준(0.6) 적용
     });
 
     expect(result.ok).toBe(false);
     expect(result.reasons).toContain('돌파 이탈 과열 (+6.0%)');
-    expect(result.reasons).toContain('거래량 급감 (0.42x)');
+    expect(result.reasons.find(r => r.startsWith('거래량 급감'))).toBeTruthy();
   });
 
   it('passes when all pre-entry checks are healthy', () => {
@@ -52,10 +53,46 @@ describe('evaluateEntryRevalidation', () => {
       prevClose: 10_000,
       volume: 2_000_000,
       avgVolume: 2_200_000,
+      marketElapsedMinutes: 390,
     });
 
     expect(result.ok).toBe(true);
     expect(result.reasons).toHaveLength(0);
+  });
+
+  it('adjusts volume threshold proportionally to elapsed market time', () => {
+    // 10:51 KST = 111분 경과, 기준 = 0.6 × (111/390) ≈ 0.17
+    const result = evaluateEntryRevalidation({
+      currentPrice: 10_050,
+      entryPrice: 10_000,
+      quoteGateScore: 6.5,
+      quoteSignalType: 'STRONG',
+      dayOpen: 10_020,
+      prevClose: 10_000,
+      volume: 260_000,      // 0.22x — 0.6 기준이면 탈락, 0.17 기준이면 통과
+      avgVolume: 1_200_000,
+      marketElapsedMinutes: 111,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.reasons).toHaveLength(0);
+  });
+
+  it('skips gap overheat check when gap exceeds 30% (data error)', () => {
+    // 555% 갭은 Yahoo Finance 데이터 오류 — 체크 스킵
+    const result = evaluateEntryRevalidation({
+      currentPrice: 10_050,
+      entryPrice: 10_000,
+      quoteGateScore: 6.5,
+      quoteSignalType: 'STRONG',
+      dayOpen: 65_500,       // prevClose 대비 +555%
+      prevClose: 10_000,
+      volume: 2_000_000,
+      avgVolume: 2_200_000,
+      marketElapsedMinutes: 390,
+    });
+
+    expect(result.reasons.find(r => r.includes('갭 과열'))).toBeUndefined();
   });
 });
 

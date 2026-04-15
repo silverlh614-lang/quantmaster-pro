@@ -36,6 +36,14 @@ const ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT = -2;
 const ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT = 4;
 const ENTRY_MIN_VOLUME_RATIO = 0.6;
 
+/** 현재 KST 시각의 장 시작(09:00) 이후 경과 분. 장 시작 전이면 0. */
+export function getKstMarketElapsedMinutes(): number {
+  const now = new Date();
+  const kstHour = (now.getUTCHours() + 9) % 24;
+  const kstMinute = now.getUTCMinutes();
+  return Math.max(0, (kstHour - 9) * 60 + kstMinute);
+}
+
 /**
  * 청산/감축 규칙 우선순위 정책표.
  * ExitRuleTag 타입으로 규칙명이 고정되므로, 새 규칙을 추가할 때는
@@ -191,6 +199,8 @@ interface EntryRevalidationInput {
   avgVolume?: number;
   /** 아이디어 #7: 레짐 연동 Gate 최솟값 — getMinGateScore(regime)으로 계산 후 전달 */
   minGateScore?: number;
+  /** 장 시작(09:00 KST) 이후 경과 분 — 거래량 비율을 시간대 비례로 보정 */
+  marketElapsedMinutes?: number;
 }
 
 export function evaluateEntryRevalidation(input: EntryRevalidationInput): { ok: boolean; reasons: string[] } {
@@ -215,15 +225,22 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): { ok: 
 
   if (input.prevClose && input.prevClose > 0 && input.dayOpen && input.dayOpen > 0) {
     const openGapPct = ((input.dayOpen - input.prevClose) / input.prevClose) * 100;
-    if (openGapPct >= ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT) {
+    // 30% 초과 갭은 Yahoo Finance 데이터 오류로 간주하여 체크 스킵
+    if (openGapPct < 30 && openGapPct >= ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT) {
       reasons.push(`장초반 갭 과열 (+${openGapPct.toFixed(1)}%)`);
     }
   }
 
   if (input.avgVolume && input.avgVolume > 0 && input.volume !== undefined) {
     const volumeRatio = input.volume / input.avgVolume;
-    if (volumeRatio < ENTRY_MIN_VOLUME_RATIO) {
-      reasons.push(`거래량 급감 (${volumeRatio.toFixed(2)}x)`);
+    // 시간대 비례 보정: avgVolume은 하루 전체 평균이므로 장중 경과 비율로 기준 하향
+    const TOTAL_MARKET_MINUTES = 390; // 09:00 ~ 15:30
+    const elapsedRatio = input.marketElapsedMinutes != null
+      ? Math.min(1, Math.max(0.1, input.marketElapsedMinutes / TOTAL_MARKET_MINUTES))
+      : 1; // 미전달 시 보정 없이 원본 기준 사용
+    const adjustedMinRatio = ENTRY_MIN_VOLUME_RATIO * elapsedRatio;
+    if (volumeRatio < adjustedMinRatio) {
+      reasons.push(`거래량 급감 (${volumeRatio.toFixed(2)}x, 기준 ${adjustedMinRatio.toFixed(2)}x)`);
     }
   }
 
