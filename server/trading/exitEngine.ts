@@ -17,6 +17,8 @@ import {
 import { addToBlacklist } from '../persistence/blacklistRepo.js';
 import { checkEuphoria } from './riskManager.js';
 import type { RegimeLevel } from '../../src/types/core.js';
+import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.js';
+import { regimeToStopRegime } from './entryEngine.js';
 
 /** Shadow 진행 중 거래 결과 업데이트 — Macro/포지션 제한 시에도 재사용 */
 export async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: RegimeLevel): Promise<void> {
@@ -53,7 +55,27 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
     const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
     const initialStopLoss = shadow.initialStopLoss ?? shadow.stopLoss;
     const regimeStopLoss = shadow.regimeStopLoss ?? shadow.stopLoss;
-    const hardStopLoss = shadow.hardStopLoss ?? shadow.stopLoss;
+
+    // ── ATR 동적 손절 재계산 (현재가·레짐 기준) ─────────────────────────────────
+    // 진입 시점 ATR이 기록된 포지션은 매 사이클마다 동적 손절가를 재평가.
+    // 트레일링 스톱(BEP 보호 / 수익 Lock-in)도 자동 적용.
+    let dynamicStopLoss = shadow.dynamicStopPrice ?? 0;
+    if (shadow.entryATR14 && shadow.entryATR14 > 0) {
+      const dynResult = evaluateDynamicStop({
+        entryPrice: shadow.shadowEntryPrice,
+        atr14: shadow.entryATR14,
+        regime: regimeToStopRegime(currentRegime),
+        currentPrice,
+      });
+      dynamicStopLoss = dynResult.trailingActive ? dynResult.trailingStopPrice : dynResult.stopPrice;
+      // 동적 손절가 갱신 (shadow에 최신 값 반영)
+      shadow.dynamicStopPrice = dynamicStopLoss;
+    }
+
+    const hardStopLoss = Math.max(
+      shadow.hardStopLoss ?? shadow.stopLoss,
+      dynamicStopLoss,
+    );
 
     // ─── R6 긴급 청산 30% (블랙스완 — 1회만) ────────────────────────────────
     if (currentRegime === 'R6_DEFENSE' && !shadow.r6EmergencySold && shadow.quantity > 0) {
