@@ -1,6 +1,6 @@
 import { type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 
-export const RRR_MIN_THRESHOLD       = Number(process.env.RRR_MIN_THRESHOLD || 2.0);
+export const RRR_MIN_THRESHOLD       = Number(process.env.RRR_MIN_THRESHOLD || 1.8);
 export const MAX_SECTOR_CONCENTRATION = Number(process.env.MAX_SECTOR_CONCENTRATION || 2);
 
 export function calcRRR(entryPrice: number, targetPrice: number, stopLoss: number): number {
