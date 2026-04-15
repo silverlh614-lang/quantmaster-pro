@@ -298,7 +298,7 @@ describe('진입가 미도달 종목 entryFailCount 증가', () => {
       name: '두산테스나',
       entryPrice: 80_000,
       stopLoss: 60_000,
-      addedBy: 'AUTO' as 'AUTO' | 'MANUAL',
+      addedBy: 'AUTO' as 'AUTO' | 'MANUAL' | 'DART',
       entryFailCount: 0,
     };
 
