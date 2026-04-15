@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2, Sliders } from 'lucide-react';
+import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2, Sliders, Power, Zap, TrendingUp, Wallet } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { PageHeader } from '../ui/page-header';
 import { KpiStrip } from '../ui/kpi-strip';
@@ -83,6 +83,27 @@ interface BuyAuditData {
 // 아이디어 11: Gate 조건 통과율 히트맵
 type GateAuditData = Record<string, { passed: number; failed: number }>;
 
+// 자동매매 엔진 상태
+interface EngineStatus {
+  running: boolean;
+  autoTradeEnabled: boolean;
+  emergencyStop: boolean;
+  mode: string;
+  currentState: string;
+  lastRun: string | null;
+  lastScanAt: string | null;
+  lastBuySignalAt: string | null;
+  todayStats: { scans: number; buys: number; exits: number };
+}
+
+// KIS 계좌 잔고 요약
+interface AccountSummary {
+  totalEvalAmt: number;    // 총 평가금액
+  totalPnlAmt: number;     // 총 손익금액
+  totalPnlRate: number;    // 총 수익률(%)
+  availableCash: number;   // 가용 현금
+}
+
 export function AutoTradePage() {
   const { shadowTrades } = useShadowTradeStore();
   const winRate = useShadowWinRate();
@@ -103,6 +124,23 @@ export function AutoTradePage() {
     recentRecordsCount: number;
     period: { from: string; to: string };
   } | null>(null);
+  const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
+  const [engineToggling, setEngineToggling] = useState(false);
+  const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null);
+
+  const handleEngineToggle = async () => {
+    if (engineToggling) return;
+    setEngineToggling(true);
+    try {
+      const res = await fetch('/api/auto-trade/engine/toggle', { method: 'POST' });
+      const data = await res.json();
+      setEngineStatus((prev) => prev ? { ...prev, running: data.running, emergencyStop: data.emergencyStop } : prev);
+    } catch (err) {
+      console.error('[ERROR] 엔진 토글 실패:', err);
+    } finally {
+      setEngineToggling(false);
+    }
+  };
 
   useEffect(() => {
     const fetchServerData = () => {
@@ -115,6 +153,20 @@ export function AutoTradePage() {
       fetch('/api/system/buy-audit').then(r => r.json()).then(setBuyAudit).catch((err) => console.error('[ERROR] Buy audit 조회 실패:', err));
       fetch('/api/system/gate-audit').then(r => r.json()).then(setGateAudit).catch((err) => console.error('[ERROR] Gate audit 조회 실패:', err));
       fetch('/api/auto-trade/condition-weights/debug').then(r => r.json()).then(setConditionDebug).catch((err) => console.error('[ERROR] Condition debug 조회 실패:', err));
+      fetch('/api/auto-trade/engine/status').then(r => r.json()).then(setEngineStatus).catch((err) => console.error('[ERROR] Engine status 조회 실패:', err));
+      fetch('/api/kis/balance').then(r => r.json()).then((data: any) => {
+        // output2[0]에 계좌 총평가 정보가 있음
+        const summary = data?.output2?.[0];
+        const holdings = data?.output1 ?? [];
+        if (summary) {
+          const totalEvalAmt = Number(summary.tot_evlu_amt ?? 0);
+          const purchaseAmt = Number(summary.pchs_amt_smtl_amt ?? 0);
+          const pnlAmt = totalEvalAmt - purchaseAmt;
+          const pnlRate = purchaseAmt > 0 ? (pnlAmt / purchaseAmt) * 100 : 0;
+          const availableCash = Number(summary.dnca_tot_amt ?? summary.prvs_rcdl_excc_amt ?? 0);
+          setAccountSummary({ totalEvalAmt, totalPnlAmt: pnlAmt, totalPnlRate: pnlRate, availableCash });
+        }
+      }).catch((err) => console.error('[ERROR] 계좌 잔고 조회 실패:', err));
     };
     fetchServerData();
     const interval = setInterval(fetchServerData, 60 * 1000); // 1분 간격 polling
@@ -137,6 +189,119 @@ export function AutoTradePage() {
           subtitle="KIS 모의계좌 연동 · Shadow Trading · OCO 자동 등록"
           accentColor="bg-violet-500"
         />
+
+        {/* ① 자동매매 엔진 마스터 스위치 + 상태 패널 */}
+        <Card padding="md">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                'w-10 h-10 rounded-xl flex items-center justify-center',
+                engineStatus?.running ? 'bg-green-500/20' : 'bg-red-500/20'
+              )}>
+                <Power className={cn('w-5 h-5', engineStatus?.running ? 'text-green-400' : 'text-red-400')} />
+              </div>
+              <div>
+                <span className="text-sm font-black text-theme-text">자동매매 엔진</span>
+                <div className="flex items-center gap-3 text-[10px] text-theme-text-muted mt-0.5">
+                  {engineStatus?.lastScanAt && (
+                    <span>마지막 스캔: {new Date(engineStatus.lastScanAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                  )}
+                  {engineStatus?.currentState && (
+                    <span className="px-1.5 py-0.5 rounded bg-white/5 font-bold">{engineStatus.currentState}</span>
+                  )}
+                  {engineStatus?.mode && (
+                    <Badge variant={engineStatus.mode === 'LIVE' ? 'danger' : engineStatus.mode === 'VTS' ? 'warning' : 'info'} size="sm">
+                      {engineStatus.mode}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+            {/* 대형 ON/OFF 토글 */}
+            <button
+              onClick={handleEngineToggle}
+              disabled={engineToggling}
+              className={cn(
+                'relative w-16 h-8 rounded-full transition-all duration-300 border-2 shrink-0',
+                engineStatus?.running
+                  ? 'bg-green-500/30 border-green-500/50'
+                  : 'bg-red-500/20 border-red-500/30',
+                engineToggling && 'opacity-50 cursor-not-allowed'
+              )}
+            >
+              <div className={cn(
+                'absolute top-0.5 w-6 h-6 rounded-full transition-all duration-300 shadow-lg',
+                engineStatus?.running
+                  ? 'left-[calc(100%-1.625rem)] bg-green-400'
+                  : 'left-0.5 bg-red-400'
+              )} />
+              <span className="sr-only">{engineStatus?.running ? 'ON' : 'OFF'}</span>
+            </button>
+          </div>
+          {/* 오늘 KPI 카드 3개 */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-xl bg-white/5 border border-theme-border/20 p-3 text-center">
+              <div className="flex items-center justify-center gap-1.5 mb-1">
+                <Zap className="w-3 h-3 text-blue-400" />
+                <p className="text-[9px] text-theme-text-muted uppercase tracking-wider font-bold">오늘 실행</p>
+              </div>
+              <p className="text-xl font-black text-theme-text font-num">{engineStatus?.todayStats.scans ?? 0}<span className="text-xs font-bold text-theme-text-muted ml-0.5">회</span></p>
+            </div>
+            <div className="rounded-xl bg-white/5 border border-theme-border/20 p-3 text-center">
+              <div className="flex items-center justify-center gap-1.5 mb-1">
+                <TrendingUp className="w-3 h-3 text-green-400" />
+                <p className="text-[9px] text-theme-text-muted uppercase tracking-wider font-bold">오늘 매수</p>
+              </div>
+              <p className="text-xl font-black text-green-400 font-num">{engineStatus?.todayStats.buys ?? 0}<span className="text-xs font-bold text-theme-text-muted ml-0.5">건</span></p>
+            </div>
+            <div className="rounded-xl bg-white/5 border border-theme-border/20 p-3 text-center">
+              <div className="flex items-center justify-center gap-1.5 mb-1">
+                <Activity className="w-3 h-3 text-amber-400" />
+                <p className="text-[9px] text-theme-text-muted uppercase tracking-wider font-bold">오늘 청산</p>
+              </div>
+              <p className="text-xl font-black text-amber-400 font-num">{engineStatus?.todayStats.exits ?? 0}<span className="text-xs font-bold text-theme-text-muted ml-0.5">건</span></p>
+            </div>
+          </div>
+        </Card>
+
+        {/* ② 실시간 포트폴리오 P&L 헤더 대시보드 */}
+        {accountSummary && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="border-2 rounded-xl p-4 text-center border-slate-600/40 bg-white/[0.02]">
+              <p className="text-[9px] text-theme-text-muted uppercase tracking-wider font-bold">평가금액</p>
+              <p className="text-lg font-black text-theme-text mt-1 font-num">{accountSummary.totalEvalAmt.toLocaleString()}<span className="text-[10px] font-bold text-theme-text-muted ml-0.5">원</span></p>
+            </div>
+            <div className={cn(
+              'border-2 rounded-xl p-4 text-center',
+              accountSummary.totalPnlAmt >= 0
+                ? 'border-green-500/40 bg-green-500/[0.06]'
+                : 'border-red-500/40 bg-red-500/[0.06]'
+            )}>
+              <p className="text-[9px] text-theme-text-muted uppercase tracking-wider font-bold">총 손익</p>
+              <p className={cn('text-lg font-black mt-1 font-num', accountSummary.totalPnlAmt >= 0 ? 'text-green-400' : 'text-red-400')}>
+                {accountSummary.totalPnlAmt >= 0 ? '+' : ''}{accountSummary.totalPnlAmt.toLocaleString()}<span className="text-[10px] font-bold text-theme-text-muted ml-0.5">원</span>
+              </p>
+            </div>
+            <div className={cn(
+              'border-2 rounded-xl p-4 text-center',
+              accountSummary.totalPnlRate >= 0
+                ? 'border-green-500/40 bg-green-500/[0.06]'
+                : 'border-red-500/40 bg-red-500/[0.06]'
+            )}>
+              <p className="text-[9px] text-theme-text-muted uppercase tracking-wider font-bold">수익률</p>
+              <p className={cn('text-lg font-black mt-1 font-num', accountSummary.totalPnlRate >= 0 ? 'text-green-400' : 'text-red-400')}>
+                {accountSummary.totalPnlRate >= 0 ? '+' : ''}{accountSummary.totalPnlRate.toFixed(2)}<span className="text-[10px] font-bold text-theme-text-muted ml-0.5">%</span>
+              </p>
+            </div>
+            <div className="border-2 rounded-xl p-4 text-center border-blue-500/30 bg-blue-500/[0.04]">
+              <div className="flex items-center justify-center gap-1 mb-0.5">
+                <Wallet className="w-3 h-3 text-blue-400" />
+                <p className="text-[9px] text-theme-text-muted uppercase tracking-wider font-bold">가용현금</p>
+              </div>
+              <p className="text-lg font-black text-blue-400 mt-1 font-num">{accountSummary.availableCash.toLocaleString()}<span className="text-[10px] font-bold text-theme-text-muted ml-0.5">원</span></p>
+            </div>
+          </div>
+        )}
 
         {/* KPI Strip — Neo-Brutalism Large Scoreboard */}
         <KpiStrip size="lg" items={[
