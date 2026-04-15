@@ -53,7 +53,15 @@ export interface MacroState {
 
 export function loadMacroState(): MacroState | null {
   ensureDataDir();
-  if (!fs.existsSync(MACRO_STATE_FILE)) return null;
+  if (!fs.existsSync(MACRO_STATE_FILE)) {
+    const defaultState: MacroState = {
+      mhs: 50,
+      regime: 'R4_NEUTRAL',
+      updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(MACRO_STATE_FILE, JSON.stringify(defaultState, null, 2));
+    return defaultState;
+  }
   try { return JSON.parse(fs.readFileSync(MACRO_STATE_FILE, 'utf-8')); } catch { return null; }
 }
 
