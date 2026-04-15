@@ -19,7 +19,7 @@ import { checkDailyLossLimit } from './emergency.js';
 import { refreshMarketRegimeVars } from './trading/marketDataRefresh.js';
 import { loadMacroState } from './persistence/macroStateRepo.js';
 import { getLiveRegime } from './trading/regimeBridge.js';
-import { runFullDiscoveryPipeline } from './screener/universeScanner.js';
+import { runFullDiscoveryPipeline, runStage1PreScreening, runStage2_3FinalScreening } from './screener/universeScanner.js';
 import { cleanupWatchlist } from './screener/watchlistManager.js';
 import { runGlobalScanAgent } from './alerts/globalScanAgent.js';
 import { trackPendingRecords } from './learning/newsSupplyLogger.js';
@@ -39,6 +39,7 @@ import { cleanupOldTraceFiles } from './trading/scanTracer.js';
 import { generateDailyPickReport } from './alerts/stockPickReporter.js';
 import { startKisStream, stopKisStream, getStreamStatus } from './clients/kisStreamClient.js';
 import { pollSellFills, SELL_POLL_INTERVAL } from './trading/fillMonitor.js';
+import { pollOcoSurvival, cancelAllActiveOco } from './trading/ocoCloseLoop.js';
 import { runPortfolioRiskCheck } from './trading/portfolioRiskEngine.js';
 
 export function startScheduler() {
@@ -152,12 +153,23 @@ export function startScheduler() {
     await sendIntradayCheckIn('preclose').catch(console.error);
   }, { timezone: 'UTC' });
 
-  // 자동 발굴 파이프라인 — 평일 08:35 KST (UTC 23:35, 일~목)
-  // Stage1(Yahoo스캔) → Stage2(Gate+섹터) → Stage3(Gemini배치) → 워치리스트 등록
-  cron.schedule('35 23 * * 0-4', async () => {
+  // ─── 2단계 분리 파이프라인 ────────────────────────────────────────────────
+  // Stage1(220개 Yahoo 스캔)이 전체 시간의 80% — 전날 16:30에 선행 실행.
+  // 당일 08:20에는 캐시된 60개에 간밤 글로벌 신호를 반영한 Stage2+3만 실행.
+  //
+  // 1차 Pre-screening — 전날 16:30 KST (UTC 07:30, 월~금)
+  // 전일 종가 확정(15:30) 직후 Stage1만 실행 → 캐시 저장
+  cron.schedule('30 7 * * 1-5', async () => {
+    await runStage1PreScreening().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // 2차 Final-screening — 당일 08:20 KST (UTC 23:20, 일~목)
+  // 전날 캐시 60개에 간밤 글로벌 신호 반영 → Stage2+3 → 워치리스트 등록
+  // 캐시 미존재 시 전체 파이프라인(Stage1+2+3) fallback 실행
+  cron.schedule('20 23 * * 0-4', async () => {
     const macroState = loadMacroState();
     const regime     = getLiveRegime(macroState);
-    await runFullDiscoveryPipeline(regime, macroState).catch(console.error);
+    await runStage2_3FinalScreening(regime, macroState).catch(console.error);
   }, { timezone: 'UTC' });
 
   // 워치리스트 자동 정리 — 평일 16:00 KST (UTC 07:00, 월~금)
@@ -350,5 +362,18 @@ export function startScheduler() {
     await runPortfolioRiskCheck().catch(console.error);
   }, { timezone: 'UTC' });
 
-  console.log('[Scheduler] 35개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
+  // ─── OCO 생존 확인 폴링 — 장중 15분 간격 ────────────────────────────────────
+  // 손절+익절 지정가 주문 쌍의 미체결 생존 확인. 한쪽 체결 시 다른쪽 자동 취소.
+  // KST 09:00~15:30 = UTC 00:00~06:30 (Mon-Fri)
+  cron.schedule('*/15 0-6 * * 1-5', async () => {
+    await pollOcoSurvival().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // OCO 장마감 정리 — 15:20 KST (UTC 06:20, 월~금)
+  // ACTIVE OCO 주문 쌍 전량 취소 (다음 날 exitEngine이 재모니터링)
+  cron.schedule('20 6 * * 1-5', async () => {
+    await cancelAllActiveOco().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  console.log('[Scheduler] cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
 }
