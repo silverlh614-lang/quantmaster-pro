@@ -3,12 +3,12 @@
  * 마지막 저장된 설정 상태를 감지하고, 복구 여부를 사용자에게 안내합니다.
  */
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, Clock, X } from 'lucide-react';
+
 
 interface SessionStateResponse {
   restored: boolean;
   savedAt?: string;
+
 }
 
 export function SessionRecoveryBanner() {
@@ -19,33 +19,28 @@ export function SessionRecoveryBanner() {
     fetch('/api/session-state')
       .then(r => r.json())
       .then((data: SessionStateResponse) => {
-        if (data.restored) setSession(data);
+
       })
       .catch(() => {});
   }, []);
 
-  // 5분마다 세션 상태 자동 저장
-  useEffect(() => {
+<
     const interval = setInterval(() => {
       fetch('/api/session-state', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ savedAt: new Date().toISOString() }),
+
       }).catch(() => {});
     }, 5 * 60 * 1000);
 
     return () => {
+n
       clearInterval(interval);
     };
   }, []);
 
-  if (!session || !session.restored || dismissed) return null;
 
-  const formattedDate = session.savedAt
-    ? new Date(session.savedAt).toLocaleString('ko-KR', {
-        timeZone: 'Asia/Seoul',
-        month: 'short', day: 'numeric',
-        hour: '2-digit', minute: '2-digit',
+
       })
     : '';
 
