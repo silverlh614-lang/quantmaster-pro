@@ -205,6 +205,11 @@ router.get('/system/buy-audit', (_req: Request, res: Response) => {
       phase: fomcGating.phase,
       kellyMultiplier: fomcGating.kellyMultiplier,
       description: fomcGating.description,
+      nextFomcDate: fomcGating.nextFomcDate,
+      // FOMC 차단 해제 시점: FOMC 당일(DAY) 다음 날 KST 09:00 (장 시작)
+      unblockAt: fomcGating.noNewEntry && fomcGating.nextFomcDate
+        ? new Date(new Date(fomcGating.nextFomcDate).getTime() + 24 * 60 * 60 * 1000).toISOString()
+        : null,
     },
     emergencyStop: getEmergencyStop(),
     lastScanAt,
