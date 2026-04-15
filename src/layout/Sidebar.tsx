@@ -1,25 +1,12 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
-  Zap, LayoutGrid, Bookmark, Filter, Radar, Calculator,
-  History, Shield, Activity, TrendingUp, ShieldCheck, Settings,
-  ChevronLeft, ChevronRight,
+  Zap, ShieldCheck, Settings,
 } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { useSettingsStore, useRecommendationStore, useTradeStore, useMarketStore } from '../stores';
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
+import { NAV_GROUPS } from '../config';
 import type { TradeRecord } from '../types/quant';
-
-interface NavGroup {
-  label: string;
-  items: NavItem[];
-}
-
-interface NavItem {
-  id: string;
-  label: string;
-  icon: React.ElementType;
-  count?: number;
-}
 
 export function Sidebar() {
   const { view, setView, setShowSettings, setShowMasterChecklist } = useSettingsStore();
@@ -30,38 +17,12 @@ export function Sidebar() {
 
   const openTradesCount = tradeRecords.filter((t: TradeRecord) => t.status === 'OPEN').length;
 
-  const navGroups: NavGroup[] = [
-    {
-      label: '탐색',
-      items: [
-        { id: 'DISCOVER', label: 'AI 추천', icon: LayoutGrid },
-        { id: 'WATCHLIST', label: '관심 목록', icon: Bookmark, count: (watchlist || []).length },
-      ],
-    },
-    {
-      label: '분석',
-      items: [
-        { id: 'SCREENER', label: '스크리너', icon: Filter },
-        { id: 'SUBSCRIPTION', label: '섹터 구독', icon: Radar },
-        { id: 'MANUAL_INPUT', label: '수동 퀀트', icon: Calculator },
-      ],
-    },
-    {
-      label: '전략',
-      items: [
-        { id: 'BACKTEST', label: '백테스트', icon: History },
-        { id: 'WALK_FORWARD', label: '워크포워드', icon: Shield },
-        { id: 'MARKET', label: '시장 대시보드', icon: Activity },
-      ],
-    },
-    {
-      label: '매매',
-      items: [
-        { id: 'TRADE_JOURNAL', label: '매매일지', icon: TrendingUp, count: openTradesCount },
-        { id: 'AUTO_TRADE', label: '자동매매', icon: Zap, count: shadowTrades.length },
-      ],
-    },
-  ];
+  /** Merge dynamic badge counts into the static nav config */
+  const countMap: Partial<Record<string, number>> = useMemo(() => ({
+    WATCHLIST: (watchlist || []).length,
+    TRADE_JOURNAL: openTradesCount,
+    AUTO_TRADE: shadowTrades.length,
+  }), [watchlist, openTradesCount, shadowTrades.length]);
 
   return (
     <aside className="app-sidebar no-scrollbar no-print">
@@ -89,7 +50,7 @@ export function Sidebar() {
 
       {/* Navigation Groups */}
       <nav className="flex-1 py-4 px-3 space-y-5">
-        {navGroups.map((group) => (
+        {NAV_GROUPS.map((group) => (
           <div key={group.label}>
             <div className="px-3 mb-2">
               <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-[0.2em]">
@@ -100,6 +61,7 @@ export function Sidebar() {
               {group.items.map((item) => {
                 const isActive = view === item.id;
                 const Icon = item.icon;
+                const count = countMap[item.id];
                 return (
                   <button
                     key={item.id}
@@ -116,14 +78,14 @@ export function Sidebar() {
                     )}
                     <Icon className={cn('w-4 h-4 shrink-0', isActive ? 'text-blue-400' : 'text-theme-text-muted group-hover/nav:text-theme-text-secondary')} />
                     <span className="truncate">{item.label}</span>
-                    {item.count != null && item.count > 0 && (
+                    {count != null && count > 0 && (
                       <span className={cn(
                         'ml-auto text-[10px] font-black px-1.5 py-0.5 rounded-md font-num',
                         isActive
                           ? 'bg-blue-500/20 text-blue-300'
                           : 'bg-white/[0.04] text-theme-text-muted'
                       )}>
-                        {item.count}
+                        {count}
                       </span>
                     )}
                   </button>
