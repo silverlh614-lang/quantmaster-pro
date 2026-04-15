@@ -10,6 +10,20 @@ import {
   fetchCurrentPrice, fetchAccountBalance, placeKisMarketBuyOrder,
   fetchKisInvestorFlow,
 } from '../clients/kisClient.js';
+import { getRealtimePrice, subscribeStock } from '../clients/kisStreamClient.js';
+
+/**
+ * 실시간 가격 맵 우선 조회 → REST fallback.
+ * KIS WebSocket H0STCNT0 구독 중이면 인메모리 맵에서 즉시 반환,
+ * 미구독/stale 시에만 REST fetchCurrentPrice 호출.
+ */
+async function getPrice(stockCode: string): Promise<number | null> {
+  const rtPrice = getRealtimePrice(stockCode);
+  if (rtPrice !== null) return rtPrice;
+  // 미구독 종목은 즉시 구독 등록 (다음 호출부터 실시간)
+  subscribeStock(stockCode);
+  return fetchCurrentPrice(stockCode).catch(() => null);
+}
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelBuySignal } from '../alerts/channelPipeline.js';
@@ -25,6 +39,7 @@ import {
   RRR_MIN_THRESHOLD, MAX_SECTOR_CONCENTRATION,
   calcRRR,
 } from './riskManager.js';
+import { evaluatePortfolioRisk } from './portfolioRiskEngine.js';
 import { getLiveRegime } from './regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
@@ -290,7 +305,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         stages: { ...stageLog },
       });
 
-      const currentPrice = await fetchCurrentPrice(stock.code).catch(() => null);
+      const currentPrice = await getPrice(stock.code);
       if (!currentPrice) { stageLog.price = 'FAIL'; pushTrace(); continue; }
       stageLog.price = 'PASS';
 
@@ -805,6 +820,22 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         }
       }
 
+      // ── 포트폴리오 리스크 엔진 — 섹터 비중/베타/일일 손실 통합 체크 ──────────
+      {
+        const prisk = await evaluatePortfolioRisk(stock.sector);
+        if (!prisk.entryAllowed) {
+          console.log(
+            `[PortfolioRisk] ${stock.name} 진입 차단 — ${prisk.blockReasons.join('; ')}`
+          );
+          stageLog.portfolioRisk = prisk.blockReasons.join('; ');
+          pushTrace();
+          continue;
+        }
+        if (prisk.warnings.length > 0) {
+          console.warn(`[PortfolioRisk] ${stock.name} 경고: ${prisk.warnings.join('; ')}`);
+        }
+      }
+
       const slippage = 0.003;
       const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));
 
@@ -1206,7 +1237,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         }
 
         try {
-          const currentPrice = await fetchCurrentPrice(stock.code).catch(() => null);
+          const currentPrice = await getPrice(stock.code);
           if (!currentPrice) continue;
 
           // 진입 조건: 현재가가 entryPrice ± 1% 이내 or 돌파

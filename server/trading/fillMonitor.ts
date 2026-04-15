@@ -1,7 +1,7 @@
 import fs from 'fs';
-import { PENDING_ORDERS_FILE, ensureDataDir } from '../persistence/paths.js';
+import { PENDING_ORDERS_FILE, PENDING_SELL_ORDERS_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadShadowTrades, saveShadowTrades } from '../persistence/shadowTradeRepo.js';
-import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL, placeKisStopLossLimitOrder } from '../clients/kisClient.js';
+import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL, SELL_TR_ID, placeKisStopLossLimitOrder } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 
 const FILL_POLL_MAX = 10; // 최대 폴링 횟수 (cron 5분 간격 × 10 = 최대 50분 모니터링)
@@ -214,3 +214,221 @@ export class FillMonitor {
 
 /** 싱글턴 인스턴스 (server.ts에서 import하여 cron 연결) */
 export const fillMonitor = new FillMonitor();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 매도 체결 확인 폐루프 (OCO CCLD 완성)
+// exitEngine이 placeKisSellOrder를 발행한 뒤 "체결 여부를 모르는" 상태를
+// 해소하기 위한 시스템. 30초 간격 최대 5회 CCLD 폴링 → 미체결 시 시장가 재발행.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const SELL_POLL_MAX        = 5;      // 최대 폴링 횟수
+/** 매도 체결 폴링 간격 (ms) — scheduler에서 setInterval에 사용 */
+export const SELL_POLL_INTERVAL = 30_000; // 30초 간격
+
+export interface PendingSellOrder {
+  ordNo: string;
+  stockCode: string;
+  stockName: string;
+  quantity: number;
+  orderType: 'MARKET' | 'LIMIT';      // 현재 주문 유형
+  originalReason: 'STOP_LOSS' | 'TAKE_PROFIT' | 'EUPHORIA';
+  placedAt: string;
+  pollCount: number;
+  status: 'PENDING' | 'FILLED' | 'PARTIAL' | 'REISSUED_MARKET' | 'FAILED';
+  fillPrice?: number;
+  fillQty?: number;
+  filledAt?: string;
+  relatedTradeId?: string;
+  reissuedOrdNo?: string;              // 시장가 재발행 시 새 주문번호
+}
+
+function loadPendingSellOrders(): PendingSellOrder[] {
+  ensureDataDir();
+  if (!fs.existsSync(PENDING_SELL_ORDERS_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(PENDING_SELL_ORDERS_FILE, 'utf-8')); } catch { return []; }
+}
+
+function savePendingSellOrders(orders: PendingSellOrder[]): void {
+  ensureDataDir();
+  const active  = orders.filter(o => o.status === 'PENDING' || o.status === 'PARTIAL');
+  const history = orders.filter(o => o.status !== 'PENDING' && o.status !== 'PARTIAL').slice(-100);
+  fs.writeFileSync(PENDING_SELL_ORDERS_FILE, JSON.stringify([...active, ...history], null, 2));
+}
+
+/**
+ * 매도 주문 후 호출 — 체결 확인 폐루프에 등록.
+ * exitEngine의 placeKisSellOrder 후 호출하여 체결 추적을 시작한다.
+ */
+export function addSellOrder(order: Omit<PendingSellOrder, 'pollCount' | 'status' | 'orderType'>): void {
+  // LIVE 모드에서만 추적
+  if (!KIS_IS_REAL) return;
+  const orders = loadPendingSellOrders();
+  if (orders.some(o => o.ordNo === order.ordNo)) return;
+  orders.push({ ...order, pollCount: 0, status: 'PENDING', orderType: 'MARKET' });
+  savePendingSellOrders(orders);
+  console.log(`[SellFillMonitor] 매도 주문 등록: ${order.stockName}(${order.stockCode}) ODNO=${order.ordNo}`);
+}
+
+/**
+ * 매도 체결 확인 폴링 — 30초 간격 최대 5회.
+ * 미체결 시 지정가→시장가 자동 전환 재발행.
+ * 부분 체결 시 잔여 수량 재폴링.
+ * 완전 체결 확인 후에만 shadow.status를 최종 CLOSED로 전환.
+ */
+export async function pollSellFills(): Promise<void> {
+  if (!process.env.KIS_APP_KEY || !KIS_IS_REAL) return;
+  const orders = loadPendingSellOrders();
+  const pending = orders.filter(o => o.status === 'PENDING' || o.status === 'PARTIAL');
+  if (pending.length === 0) return;
+
+  console.log(`[SellFillMonitor] 매도 체결 조회 — ${pending.length}건`);
+  const trId = KIS_IS_REAL ? 'TTTC8001R' : 'VTTC8001R';
+
+  // CCLD TR(당일 체결 내역 조회) — 당일 전체 체결 목록에서 매칭
+  let ccldData: { output?: { odno: string; tot_ccld_qty: string; avg_prvs: string; ord_qty: string; sll_buy_dvsn_cd: string }[] } | null = null;
+  try {
+    ccldData = await kisGet(trId, '/uapi/domestic-stock/v1/trading/inquire-daily-ccld', {
+      CANO: process.env.KIS_ACCOUNT_NO ?? '',
+      ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
+      INQR_STRT_DT: new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      INQR_END_DT: new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      SLL_BUY_DVSN_CD: '01', // 매도만
+      INQR_DVSN: '00',
+      PDNO: '',
+      CCLD_DVSN: '00',
+      ORD_GNO_BRNO: '',
+      ODNO: '',
+      INQR_DVSN_3: '00',
+      INQR_DVSN_1: '',
+      CTX_AREA_FK100: '',
+      CTX_AREA_NK100: '',
+    });
+  } catch (e) {
+    console.error('[SellFillMonitor] CCLD 조회 실패:', e instanceof Error ? e.message : e);
+    return;
+  }
+
+  const ccldMap = new Map((ccldData?.output ?? []).map(o => [o.odno, o]));
+  let changed = false;
+
+  for (const order of pending) {
+    order.pollCount++;
+    const ccld = ccldMap.get(order.ordNo) ?? ccldMap.get(order.reissuedOrdNo ?? '');
+
+    if (ccld) {
+      const filledQty = Number(ccld.tot_ccld_qty ?? 0);
+      const avgPrice  = Number(ccld.avg_prvs ?? 0);
+
+      if (filledQty >= order.quantity) {
+        // ── 완전 체결 ──
+        Object.assign(order, {
+          status: 'FILLED',
+          fillPrice: avgPrice || order.fillPrice,
+          fillQty: filledQty,
+          filledAt: new Date().toISOString(),
+        });
+        changed = true;
+        console.log(`[SellFillMonitor] ✅ 매도 체결 확인: ${order.stockName} ${filledQty}주 @${avgPrice.toLocaleString()}원`);
+
+        // shadow.status 최종 전환 — exitEngine이 이미 HIT_STOP/HIT_TARGET 설정했으므로 추가 전환 불필요
+        // 단, 로그 기록으로 체결 확인 표시
+        await sendTelegramAlert(
+          `✅ <b>[매도 체결 확인]</b> ${order.stockName} (${order.stockCode})\n` +
+          `체결: ${filledQty}주 @${avgPrice.toLocaleString()}원\n` +
+          `사유: ${order.originalReason} | 주문번호: ${order.ordNo}`,
+        ).catch(console.error);
+      } else if (filledQty > 0) {
+        // ── 부분 체결 → 잔여 재폴링 ──
+        Object.assign(order, {
+          status: 'PARTIAL',
+          fillPrice: avgPrice || order.fillPrice,
+          fillQty: filledQty,
+        });
+        changed = true;
+        console.log(`[SellFillMonitor] ◐ 매도 부분 체결: ${order.stockName} ${filledQty}/${order.quantity}주`);
+
+        // 마지막 폴링이면 잔여 수량 시장가 재발행
+        if (order.pollCount >= SELL_POLL_MAX) {
+          const remainQty = order.quantity - filledQty;
+          await reissueAsMarketOrder(order, remainQty);
+          changed = true;
+        }
+      } else if (order.pollCount >= SELL_POLL_MAX) {
+        // 체결 건수 0 + 폴링 만료 → 시장가 재발행
+        await reissueAsMarketOrder(order, order.quantity);
+        changed = true;
+      }
+    } else if (order.pollCount >= SELL_POLL_MAX) {
+      // CCLD에 아예 없음 + 폴링 만료 → 시장가 재발행
+      await reissueAsMarketOrder(order, order.quantity);
+      changed = true;
+    } else {
+      console.log(`[SellFillMonitor] 미체결 유지 (${order.pollCount}/${SELL_POLL_MAX}): ${order.stockName} ODNO=${order.ordNo}`);
+    }
+  }
+
+  if (changed) savePendingSellOrders(orders);
+}
+
+/** 미체결 매도 → 시장가 즉시 재발행 */
+async function reissueAsMarketOrder(order: PendingSellOrder, quantity: number): Promise<void> {
+  console.warn(`[SellFillMonitor] ⚠️ ${order.stockName} 매도 미체결 (${order.pollCount}회) — 시장가 재발행 ${quantity}주`);
+
+  try {
+    // 기존 주문 취소 시도
+    const cancelTrId = KIS_IS_REAL ? 'TTTC0803U' : 'VTTC0803U';
+    await kisPost(cancelTrId, '/uapi/domestic-stock/v1/trading/order-rvsecncl', {
+      CANO: process.env.KIS_ACCOUNT_NO ?? '',
+      ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
+      KRX_FWDG_ORD_ORGNO: '',
+      ORGN_ODNO: order.reissuedOrdNo ?? order.ordNo,
+      ORD_DVSN: '00',
+      RVSE_CNCL_DVSN_CD: '02',
+      ORD_QTY: quantity.toString(),
+      ORD_UNPR: '0',
+      QTY_ALL_ORD_YN: 'Y',
+      PDNO: order.stockCode.padStart(6, '0'),
+    }).catch(() => { /* 이미 취소/체결됐을 수 있음 — 무시 */ });
+
+    // 시장가 매도 즉시 재발행
+    const orderData = await kisPost(SELL_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
+      CANO: process.env.KIS_ACCOUNT_NO ?? '',
+      ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
+      PDNO: order.stockCode.padStart(6, '0'),
+      ORD_DVSN: '01',   // 시장가
+      ORD_QTY: quantity.toString(),
+      ORD_UNPR: '0',
+      SLL_BUY_DVSN_CD: '01',
+      CTAC_TLNO: '',
+      MGCO_APTM_ODNO: '',
+      ORD_SVR_DVSN_CD: '0',
+    });
+
+    const newOrdNo = (orderData as { output?: { ODNO?: string } } | null)?.output?.ODNO;
+    order.status = 'REISSUED_MARKET';
+    order.reissuedOrdNo = newOrdNo ?? undefined;
+    order.orderType = 'MARKET';
+    // 재발행된 주문을 새로 추적 — pollCount 리셋
+    order.pollCount = 0;
+    order.status = 'PENDING';
+
+    console.log(`[SellFillMonitor] 🔄 ${order.stockName} 시장가 재발행 완료 — 새 ODNO: ${newOrdNo}`);
+    await sendTelegramAlert(
+      `🔄 <b>[매도 재발행]</b> ${order.stockName} (${order.stockCode})\n` +
+      `미체결 → 시장가 즉시 재발행 ${quantity}주\n` +
+      `구 ODNO: ${order.ordNo} → 신 ODNO: ${newOrdNo ?? 'N/A'}`,
+      { priority: 'HIGH' },
+    ).catch(console.error);
+  } catch (err) {
+    order.status = 'FAILED';
+    console.error(`[SellFillMonitor] 시장가 재발행 실패:`, err instanceof Error ? err.message : err);
+    await sendTelegramAlert(
+      `🚨 <b>[긴급] ${order.stockName} 매도 재발행 실패!</b>\n` +
+      `수동으로 즉시 매도하세요!\n` +
+      `오류: ${err instanceof Error ? err.message : String(err)}`,
+      { priority: 'CRITICAL' },
+    ).catch(console.error);
+  }
+}
+
+export { pollSellFills as pollSellFillsOnce };

@@ -8,6 +8,7 @@
 import {
   fetchCurrentPrice, placeKisSellOrder,
 } from '../clients/kisClient.js';
+import { getRealtimePrice } from '../clients/kisStreamClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelSellSignal } from '../alerts/channelPipeline.js';
 import {
@@ -49,7 +50,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
     // ORDER_SUBMITTED는 fillMonitor가 체결 확인 후 ACTIVE로 전환할 때까지 exitEngine이 관여하지 않음.
     if (shadow.status !== 'ACTIVE' && shadow.status !== 'PARTIALLY_FILLED' && shadow.status !== 'EUPHORIA_PARTIAL') continue;
 
-    const currentPrice = await fetchCurrentPrice(shadow.stockCode).catch(() => null);
+    const currentPrice = getRealtimePrice(shadow.stockCode)
+      ?? await fetchCurrentPrice(shadow.stockCode).catch(() => null);
     if (!currentPrice) continue;
 
     const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;

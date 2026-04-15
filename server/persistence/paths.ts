@@ -25,6 +25,7 @@ export const DART_ALERTS_FILE        = path.join(DATA_DIR, 'dart-alerts.json');
 export const RECOMMENDATIONS_FILE    = path.join(DATA_DIR, 'recommendations.json');
 export const SCREENER_FILE           = path.join(DATA_DIR, 'screener-cache.json');
 export const PENDING_ORDERS_FILE     = path.join(DATA_DIR, 'pending-orders.json');
+export const PENDING_SELL_ORDERS_FILE = path.join(DATA_DIR, 'pending-sell-orders.json');
 export const BEAR_ALERT_FILE         = path.join(DATA_DIR, 'bear-alert-state.json');
 export const MHS_MORNING_ALERT_FILE  = path.join(DATA_DIR, 'mhs-morning-alert-state.json');
 export const IPS_ALERT_FILE          = path.join(DATA_DIR, 'ips-alert-state.json');

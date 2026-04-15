@@ -37,6 +37,9 @@ import { isOpenShadowStatus } from './trading/entryEngine.js';
 import { runPipelineDiagnosis } from './trading/pipelineDiagnosis.js';
 import { cleanupOldTraceFiles } from './trading/scanTracer.js';
 import { generateDailyPickReport } from './alerts/stockPickReporter.js';
+import { startKisStream, stopKisStream, getStreamStatus } from './clients/kisStreamClient.js';
+import { pollSellFills, SELL_POLL_INTERVAL } from './trading/fillMonitor.js';
+import { runPortfolioRiskCheck } from './trading/portfolioRiskEngine.js';
 
 export function startScheduler() {
   // ─── TradingDayOrchestrator — 장 사이클 State Machine ──────────────────
@@ -256,7 +259,8 @@ export function startScheduler() {
         `Yahoo: ${yahooStatus === 'OK' ? '✅' : yahooStatus === 'DEGRADED' ? '⚠️ 부분장애' : yahooStatus === 'DOWN' ? '❌ 불가' : '?'}\n` +
         `마지막 스캔: ${lastScanAt} | 마지막 신호: ${lastBuyAt}\n` +
         `일일손실: ${dailyLossPct.toFixed(1)}% / 한도 ${dailyLossLimit}%\n` +
-        `비상정지: ${emergencyStop ? '🛑 활성' : '✅ 해제'}`
+        `비상정지: ${emergencyStop ? '🛑 활성' : '✅ 해제'}\n` +
+        `실시간호가: ${(() => { const ss = getStreamStatus(); return ss.connected ? `✅ ${ss.subscribedCount}종목` : '❌ 미연결'; })()}`
       ).catch(console.error);
     } catch (e) {
       console.error('[Scheduler] 파이프라인 헬스체크 전송 실패:', e);
@@ -299,5 +303,52 @@ export function startScheduler() {
     cleanupOldTraceFiles();
   }, { timezone: 'UTC' });
 
-  console.log('[Scheduler] 30개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
+  // ─── KIS WebSocket 실시간 호가 스트림 시작 — 평일 08:55 KST (UTC 23:55, 일~목) ──
+  // 장 시작 5분 전 watchlist 종목을 구독하여 장중 실시간 가격 사용 준비
+  cron.schedule('55 23 * * 0-4', async () => {
+    try {
+      const wl = loadWatchlist();
+      const codes = wl.map(w => w.code);
+      if (codes.length > 0) {
+        await startKisStream(codes);
+        console.log(`[Scheduler] KIS WebSocket 스트림 시작 — ${codes.length}개 종목`);
+      }
+    } catch (e) {
+      console.error('[Scheduler] KIS WebSocket 시작 실패:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  // KIS WebSocket 스트림 종료 — 평일 15:35 KST (UTC 06:35, 월~금)
+  cron.schedule('35 6 * * 1-5', () => {
+    stopKisStream();
+    console.log('[Scheduler] KIS WebSocket 스트림 종료');
+  }, { timezone: 'UTC' });
+
+  // ─── 매도 체결 확인 폐루프 — 장중 30초 간격 (setInterval) ──────────────────
+  // cron 최소 단위가 1분이므로 setInterval로 30초 간격 실행.
+  // 장 시작 시 시작, 장 마감 시 정리.
+  let sellPollTimer: ReturnType<typeof setInterval> | null = null;
+
+  // 장 시작 시 매도 폴링 가동 — 09:00 KST (UTC 00:00, 월~금)
+  cron.schedule('0 0 * * 1-5', () => {
+    if (sellPollTimer) return;
+    sellPollTimer = setInterval(async () => {
+      await pollSellFills().catch(console.error);
+    }, SELL_POLL_INTERVAL);
+    console.log(`[Scheduler] 매도 체결 폴링 시작 (${SELL_POLL_INTERVAL / 1000}초 간격)`);
+  }, { timezone: 'UTC' });
+
+  // 장 마감 시 매도 폴링 정지 — 15:35 KST (UTC 06:35, 월~금)
+  cron.schedule('35 6 * * 1-5', () => {
+    if (sellPollTimer) { clearInterval(sellPollTimer); sellPollTimer = null; }
+    console.log('[Scheduler] 매도 체결 폴링 종료');
+  }, { timezone: 'UTC' });
+
+  // ─── 포트폴리오 리스크 정기 점검 — 장중 15분 간격 ───────────────────────────
+  // 허위 분산 경보, 베타 초과, 섹터 집중도를 정기 모니터링
+  cron.schedule('*/15 0-6 * * 1-5', async () => {
+    await runPortfolioRiskCheck().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  console.log('[Scheduler] 35개 cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
 }
