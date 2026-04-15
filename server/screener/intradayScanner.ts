@@ -31,6 +31,7 @@ import { isBlacklisted } from '../persistence/blacklistRepo.js';
 import { fetchYahooQuote, getScreenerCache, STOCK_UNIVERSE } from './stockScreener.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { isPullbackSetup } from './pipelineHelpers.js';
+import { getKstMarketElapsedMinutes, MORNING_VOLUME_DISCOUNT, MORNING_END_MINUTES } from '../trading/entryEngine.js';
 import type { YahooQuoteExtended } from './stockScreener.js';
 
 // ── 상수 ───────────────────────────────────────────────────────────────────────
@@ -93,16 +94,30 @@ export function resetIntradayScanState(): void {
 // ── 핵심 판단 함수 ─────────────────────────────────────────────────────────────
 
 /**
+ * 오전 시간대 보정된 거래량 기준 배율을 반환한다.
+ * 오전(12:00 KST 이전)에는 누적 거래량이 풀장 대비 낮으므로
+ * 기준 배율을 MORNING_VOLUME_DISCOUNT(0.7)만큼 추가 하향한다.
+ */
+function getMorningAdjustedRatio(baseRatio: number): number {
+  const elapsed = getKstMarketElapsedMinutes();
+  if (elapsed < MORNING_END_MINUTES) {
+    return baseRatio * MORNING_VOLUME_DISCOUNT;
+  }
+  return baseRatio;
+}
+
+/**
  * [경로 A — 돌파형] 거래량 터지면서 상승 + 고점 돌파.
  *
  * 조건:
- *   ① volume > avgVolume × BREAKOUT_VOLUME_RATIO (2×)
+ *   ① volume > avgVolume × BREAKOUT_VOLUME_RATIO (2×, 오전 보정 적용)
  *   ② price > dayOpen (시가 대비 강세)
  *   ③ changeRatePct ≥ BREAKOUT_PRICE_CHANGE_PCT (+1.5%)
  *   ④ price > high20d (20일 고점 돌파)
  */
 export function isBreakoutStrong(quote: YahooQuoteExtended): boolean {
-  const volumeSurge = quote.avgVolume > 0 && quote.volume > quote.avgVolume * BREAKOUT_VOLUME_RATIO;
+  const adjustedRatio = getMorningAdjustedRatio(BREAKOUT_VOLUME_RATIO);
+  const volumeSurge = quote.avgVolume > 0 && quote.volume > quote.avgVolume * adjustedRatio;
   const aboveOpen   = quote.price > quote.dayOpen;
   const strongGain  = quote.changePercent >= BREAKOUT_PRICE_CHANGE_PCT;
   const high20Break = quote.high20d > 0 && quote.price > quote.high20d;
@@ -114,13 +129,14 @@ export function isBreakoutStrong(quote: YahooQuoteExtended): boolean {
  * [경로 B — 수급형] 외국인 조용히 매집 중이거나 MA20 눌림목 반등 초입.
  *
  * 조건:
- *   ① volume > avgVolume × SUPPLY_VOLUME_RATIO (2.5×)
+ *   ① volume > avgVolume × SUPPLY_VOLUME_RATIO (2.5×, 오전 보정 적용)
  *   ② price > dayOpen AND changeRatePct ≥ SUPPLY_PRICE_CHANGE_PCT (0%)
  *   ③ price > ma20 (20일선 위)
  *   ④ 눌림목(pullback) 셋업 감지
  */
 export function isSupplyDemandStrong(quote: YahooQuoteExtended): boolean {
-  const volumeSurge = quote.avgVolume > 0 && quote.volume > quote.avgVolume * SUPPLY_VOLUME_RATIO;
+  const adjustedRatio = getMorningAdjustedRatio(SUPPLY_VOLUME_RATIO);
+  const volumeSurge = quote.avgVolume > 0 && quote.volume > quote.avgVolume * adjustedRatio;
   const aboveOpen   = quote.price > quote.dayOpen;
   const positiveDay = quote.changePercent >= SUPPLY_PRICE_CHANGE_PCT;
   const aboveMA20   = quote.ma20 > 0 && quote.price > quote.ma20;

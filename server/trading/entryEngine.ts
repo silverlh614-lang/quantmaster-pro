@@ -36,6 +36,15 @@ const ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT = -2;
 const ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT = 4;
 const ENTRY_MIN_VOLUME_RATIO = 0.6;
 
+/**
+ * 오전 시간대(09:00~12:00 KST) 거래량 기준 할인 계수.
+ * 오전 중에는 거래량이 풀장 대비 낮으므로 volumeRatio 기준을 추가 하향한다.
+ * adjustedMinRatio × 0.7 적용 → 실질 기준이 ~30% 완화.
+ */
+export const MORNING_VOLUME_DISCOUNT = 0.7;
+/** 오전 구간 종료 시각: 장 시작(09:00) 이후 180분 = 12:00 KST */
+export const MORNING_END_MINUTES = 180;
+
 /** 현재 KST 시각의 장 시작(09:00) 이후 경과 분. 장 시작 전이면 0. */
 export function getKstMarketElapsedMinutes(): number {
   const now = new Date();
@@ -235,10 +244,15 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): { ok: 
     const volumeRatio = input.volume / input.avgVolume;
     // 시간대 비례 보정: avgVolume은 하루 전체 평균이므로 장중 경과 비율로 기준 하향
     const TOTAL_MARKET_MINUTES = 390; // 09:00 ~ 15:30
-    const elapsedRatio = input.marketElapsedMinutes != null
-      ? Math.min(1, Math.max(0.1, input.marketElapsedMinutes / TOTAL_MARKET_MINUTES))
+    const elapsed = input.marketElapsedMinutes;
+    const elapsedRatio = elapsed != null
+      ? Math.min(1, Math.max(0.1, elapsed / TOTAL_MARKET_MINUTES))
       : 1; // 미전달 시 보정 없이 원본 기준 사용
-    const adjustedMinRatio = ENTRY_MIN_VOLUME_RATIO * elapsedRatio;
+    let adjustedMinRatio = ENTRY_MIN_VOLUME_RATIO * elapsedRatio;
+    // 오전 시간대 추가 보정: 12:00 KST 이전이면 기준을 MORNING_VOLUME_DISCOUNT(0.7)만큼 추가 하향
+    if (elapsed != null && elapsed < MORNING_END_MINUTES) {
+      adjustedMinRatio *= MORNING_VOLUME_DISCOUNT;
+    }
     if (volumeRatio < adjustedMinRatio) {
       reasons.push(`거래량 급감 (${volumeRatio.toFixed(2)}x, 기준 ${adjustedMinRatio.toFixed(2)}x)`);
     }
