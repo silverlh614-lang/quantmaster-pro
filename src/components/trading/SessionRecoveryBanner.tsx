@@ -24,7 +24,7 @@ export function SessionRecoveryBanner() {
       .catch(() => {});
   }, []);
 
-
+<
     const interval = setInterval(() => {
       fetch('/api/session-state', {
         method: 'POST',
@@ -34,10 +34,11 @@ export function SessionRecoveryBanner() {
     }, 5 * 60 * 1000);
 
     return () => {
-
+n
       clearInterval(interval);
     };
   }, []);
+
 
 
       })

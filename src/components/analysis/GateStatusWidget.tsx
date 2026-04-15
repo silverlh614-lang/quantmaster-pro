@@ -23,38 +23,10 @@ import { Badge } from '../../ui/badge';
   },
 
 
-const CHECKLIST_TO_ID: Record<string, number> = {
-  cycleVerified: 1, momentumRanking: 2, roeType3: 3, supplyInflow: 4,
-  riskOnEnvironment: 5, ichimokuBreakout: 6, mechanicalStop: 7, economicMoatVerified: 8,
-  notPreviousLeader: 9, technicalGoldenCross: 10, volumeSurgeVerified: 11,
-  institutionalBuying: 12, consensusTarget: 13, earningsSurprise: 14,
-  performanceReality: 15, policyAlignment: 16, psychologicalObjectivity: 17,
-  turtleBreakout: 18, fibonacciLevel: 19, elliottWaveVerified: 20,
-  ocfQuality: 21, marginAcceleration: 22, interestCoverage: 23,
-  relativeStrength: 24, vcpPattern: 25, divergenceCheck: 26, catalystAnalysis: 27,
-};
-
-
-    default: return null;
   }
+
+  return scores;
 }
-
-
-  if (stock.checklist) {
-    for (const [key, val] of Object.entries(stock.checklist)) {
-      const id = CHECKLIST_TO_ID[key];
-      if (id != null) {
-        scores[id] = typeof val === 'number' ? val : (val ? 10 : 0);
-      }
-    }
-  }
-
-
-          scores[Number(id)] = normalized;
-        }
-      }
-    }
-  }
 
 
       <button
@@ -69,7 +41,7 @@ const CHECKLIST_TO_ID: Record<string, number> = {
 
             size="sm"
           >
-            {gateResults.filter(g => g.passed).length}/3 GATE
+            {gateResults.filter(g => g.ok).length}/3 GATE
           </Badge>
 
         </div>

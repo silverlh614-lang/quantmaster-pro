@@ -58,6 +58,25 @@ const DEFAULT_SETTINGS: TradingSettings = {
   );
 }
 
+// ─── Setting Section Card ──────────────────────────────────────────────────
+
+function SettingSection({ icon, title, enabled, onToggle, children }: {
+  icon: React.ReactNode; title: string; enabled?: boolean; onToggle?: () => void; children: React.ReactNode;
+}) {
+  return (
+    <Card padding="md">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          {icon}
+          <span className="text-sm font-bold text-theme-text">{title}</span>
+        </div>
+        {onToggle != null && enabled != null && <Toggle enabled={enabled} onToggle={onToggle} />}
+      </div>
+      {children}
+    </Card>
+  );
+}
+
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export function TradingSettingsPanel() {
@@ -66,11 +85,6 @@ export function TradingSettingsPanel() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
 
-
-      .catch(() => setLoading(false));
-  }, []);
-
-  const update = useCallback(<K extends keyof TradingSettings>(
 
     setDirty(true);
   }, []);
@@ -116,32 +130,27 @@ export function TradingSettingsPanel() {
       </div>
 
 
-        <div className="space-y-4 mt-4">
           <div className="flex items-center justify-between">
             <span className="text-xs text-theme-text-muted">Gate 통과 필수</span>
-            <Badge variant={settings.buyCondition.gatePassRequired ? 'success' : 'default'} size="sm">
-              {settings.buyCondition.gatePassRequired ? 'ON' : 'OFF'}
-            </Badge>
+            <Toggle
+              enabled={settings.buyCondition.gatePassRequired}
+              onToggle={() => update('buyCondition', { ...settings.buyCondition, gatePassRequired: !settings.buyCondition.gatePassRequired })}
+            />
           </div>
           <Slider
             label="최소 스코어 임계값"
             description="이 점수 이상인 종목만 매수 후보에 포함됩니다. 높을수록 보수적 (권장: 55~70)"
             value={settings.buyCondition.minScoreThreshold}
 
-                  <p className="text-[9px] text-theme-text-muted mt-1">{desc}</p>
-                </div>
-              ))}
-            </div>
-
         {settings.positionLimit.enabled && (
-          <div className="mt-4">
+          <div className="mt-3">
             <Slider
               label="단일 종목 최대 비중"
               description="한 종목이 전체 포트폴리오에서 차지할 수 있는 최대 비중입니다. 15% 이하를 권장합니다."
               value={settings.positionLimit.maxSingleStockPercent}
 
         {settings.ocoAutoRegister.enabled && (
-          <div className="mt-4 rounded-lg bg-violet-500/5 border border-violet-500/10 p-3">
+          <div className="mt-3 rounded-lg bg-violet-500/5 border border-violet-500/10 p-3">
             <div className="flex items-center gap-3 text-xs">
               <div className="flex-1 text-center">
                 <span className="text-[9px] text-green-400 font-black uppercase block">익절</span>
