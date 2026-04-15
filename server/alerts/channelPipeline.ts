@@ -13,7 +13,7 @@
  *   🔒 개인 : 잔고/자산, 비상정지, 손절 접근 경보, 오류, 내부 디버그
  */
 
-import { sendChannelAlert } from './telegramClient.js';
+import { sendChannelAlert, sendPickChannelAlert } from './telegramClient.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
 
 function isChannelEnabled(): boolean {
@@ -219,10 +219,32 @@ export async function channelWatchlistAdded(
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `🗺️ 레짐: ${regime}`;
 
-  await sendChannelAlert(msg, { disableNotification: true }).catch(console.error);
+  await Promise.all([
+    sendChannelAlert(msg, { disableNotification: true }),
+    sendPickChannelAlert(msg, { disableNotification: true }),
+  ]).catch(console.error);
 }
 
-// ── 5-1. 워치리스트 전체 현황 채널 발송 ─────────────────────────────────────
+// ── 5-1. 워치리스트 제거 알림 ───────────────────────────────────────────────
+
+export async function channelWatchlistRemoved(
+  stock: { name: string; code: string },
+  remainingCount: number,
+): Promise<void> {
+  if (!isChannelEnabled()) return;
+
+  const msg =
+    `🗑️ <b>[워치리스트 제거] ${stock.name} (${stock.code})</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `📋 잔여 워치리스트: ${remainingCount}개`;
+
+  await Promise.all([
+    sendChannelAlert(msg, { disableNotification: true }),
+    sendPickChannelAlert(msg, { disableNotification: true }),
+  ]).catch(console.error);
+}
+
+// ── 5-2. 워치리스트 전체 현황 채널 발송 ─────────────────────────────────────
 
 export async function channelWatchlistSummary(
   watchlist: WatchlistEntry[],

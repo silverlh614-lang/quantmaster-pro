@@ -29,6 +29,7 @@ import {
 } from '../persistence/conditionWeightsRepo.js';
 import { CONDITION_KEYS, DEFAULT_CONDITION_WEIGHTS, type ConditionKey } from '../quantFilter.js';
 import { getScanFeedbackState } from '../orchestrator/adaptiveScanScheduler.js';
+import { channelWatchlistAdded, channelWatchlistRemoved } from '../alerts/channelPipeline.js';
 
 const router = Router();
 
@@ -106,14 +107,47 @@ router.post('/auto-trade/watchlist', (req: any, res: any) => {
   }
   const list = loadWatchlist();
   const idx = list.findIndex((e) => e.code === entry.code);
+  const isNew = idx < 0;
   if (idx >= 0) list[idx] = entry; else list.push({ ...entry, addedAt: new Date().toISOString() });
   saveWatchlist(list);
+
+  // 채널 알림: 신규 추가 시에만 발송 (기존 종목 업데이트는 노이즈)
+  if (isNew) {
+    const macro = loadMacroState();
+    channelWatchlistAdded(
+      [{
+        name: entry.name,
+        code: entry.code,
+        price: entry.entryPrice ?? 0,
+        changePercent: 0,
+        gateScore: entry.gateScore ?? 0,
+        sector: entry.sector,
+        entryPrice: entry.entryPrice,
+        stopLoss: entry.stopLoss,
+        targetPrice: entry.targetPrice,
+        rrr: entry.rrr,
+      }],
+      macro?.regime ?? 'UNKNOWN',
+    ).catch(console.error);
+  }
+
   res.json({ ok: true, count: list.length });
 });
 
 router.delete('/auto-trade/watchlist/:code', (req: any, res: any) => {
-  const list = loadWatchlist().filter((e) => e.code !== req.params.code);
+  const currentList = loadWatchlist();
+  const removed = currentList.find((e) => e.code === req.params.code);
+  const list = currentList.filter((e) => e.code !== req.params.code);
   saveWatchlist(list);
+
+  // 채널 알림: 제거된 종목이 있을 때만 발송
+  if (removed) {
+    channelWatchlistRemoved(
+      { name: removed.name, code: removed.code },
+      list.length,
+    ).catch(console.error);
+  }
+
   res.json({ ok: true, count: list.length });
 });
 
