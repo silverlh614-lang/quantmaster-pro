@@ -12,6 +12,7 @@ import { DeepAnalysisModal } from '../components/analysis/DeepAnalysisModal';
 import { WatchlistHeader } from '../components/watchlist/WatchlistHeader';
 import { WatchlistFilterPanel } from '../components/watchlist/WatchlistFilterPanel';
 import { WatchlistCard } from '../components/watchlist/WatchlistCard';
+import { GatePyramidVisualization } from '../components/analysis/GatePyramidVisualization';
 import { useWatchlistFilters } from '../hooks/useWatchlistFilters';
 import { useWatchlistData } from '../hooks/useWatchlistData';
 import type { StockRecommendation } from '../services/stockService';
@@ -197,6 +198,14 @@ export function DiscoverWatchlistPage({
         setView={setView}
         onDeepAnalysis={setDeepAnalysisStock}
       />
+
+      {/* 3-Gate Pyramid Visualization — Signature QuantMaster UI */}
+      {view === 'DISCOVER' && (
+        <GatePyramidVisualization
+          recommendations={recommendations}
+          totalUniverse={recommendations.length}
+        />
+      )}
 
       <Section>
         {/* Search / Sort / Filter Panel */}
