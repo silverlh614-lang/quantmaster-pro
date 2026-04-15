@@ -33,6 +33,9 @@ import { AppFooter } from './layout/AppFooter';
 // -- Zustand Stores --
 import { useSettingsStore, useGlobalIntelStore, useAnalysisStore } from './stores';
 
+// -- Centralized Config --
+import { buildPageTitle, THEME_BODY_CLASSES, PAGE_TRANSITION, SECTOR_PANEL_VIEWS } from './config';
+
 // -- Domain Hooks --
 import { useMarketData } from './hooks/useMarketData';
 import { useQuantRecommendations } from './hooks/useQuantRecommendations';
@@ -78,18 +81,13 @@ export default function App() {
 
   // -- Tab Title --
   useEffect(() => {
-    const viewLabels: Record<string, string> = {
-      DISCOVER: '탐색', WATCHLIST: '관심 목록', SCREENER: '스크리너',
-      SUBSCRIPTION: '섹터 구독', BACKTEST: '백테스트', MARKET: '시장 대시보드',
-      WALK_FORWARD: '워크포워드', MANUAL_INPUT: '수동 퀀트', TRADE_JOURNAL: '매매일지',
-    };
-    document.title = `${viewLabels[view] ?? view} \u00B7 QuantMaster Pro`;
+    document.title = buildPageTitle(view);
   }, [view]);
 
   // -- Theme Application --
   useEffect(() => {
     const body = document.body;
-    body.classList.remove('theme-light', 'theme-dark', 'theme-high-contrast', 'theme-ocean', 'theme-forest');
+    body.classList.remove(...THEME_BODY_CLASSES.map(c => c));
     if (theme !== 'dark') body.classList.add(`theme-${theme}`);
   }, [theme]);
 
@@ -157,10 +155,10 @@ export default function App() {
               <AnimatePresence mode="wait">
                 <motion.div
                   key={view}
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  transition={{ duration: 0.2, ease: 'easeOut' }}
+                  initial={PAGE_TRANSITION.initial}
+                  animate={PAGE_TRANSITION.animate}
+                  exit={PAGE_TRANSITION.exit}
+                  transition={PAGE_TRANSITION.transition}
                 >
                   {view === 'MARKET' ? (
                     <MarketPage onFetchMarketOverview={handleFetchMarketOverview} />
@@ -234,7 +232,7 @@ export default function App() {
           </div>
 
           {/* Sector Rotation Side Panel — Desktop only (Idea 4) */}
-          {(view === 'DISCOVER' || view === 'WATCHLIST') && (
+          {(SECTOR_PANEL_VIEWS as readonly string[]).includes(view) && (
             <div className="hidden xl:block w-[260px] shrink-0 p-4 pt-6 sticky top-0 h-screen overflow-y-auto no-scrollbar">
               <SectorRotationPanel />
             </div>

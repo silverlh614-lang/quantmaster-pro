@@ -1,21 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-  Zap, LayoutGrid, Bookmark, Filter, Radar, Calculator,
-  History, Shield, Activity, TrendingUp, Settings, MoreHorizontal,
-  X, ShieldCheck,
+  Settings, MoreHorizontal, X, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { AnimatePresence, motion } from 'motion/react';
 import { useSettingsStore, useRecommendationStore, useTradeStore } from '../stores';
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
+import { PRIMARY_MOBILE_TABS, MORE_MOBILE_TABS } from '../config';
 import type { TradeRecord } from '../types/quant';
-
-interface NavItem {
-  id: string;
-  label: string;
-  icon: React.ElementType;
-  count?: number;
-}
 
 export function BottomNav() {
   const [showMore, setShowMore] = useState(false);
@@ -26,25 +18,14 @@ export function BottomNav() {
 
   const openTradesCount = tradeRecords.filter((t: TradeRecord) => t.status === 'OPEN').length;
 
-  // Primary 4 tabs (always visible)
-  const primaryTabs: NavItem[] = [
-    { id: 'DISCOVER', label: '탐색', icon: LayoutGrid },
-    { id: 'WATCHLIST', label: '관심', icon: Bookmark, count: (watchlist || []).length },
-    { id: 'TRADE_JOURNAL', label: '매매', icon: TrendingUp, count: openTradesCount },
-    { id: 'MARKET', label: '시장', icon: Activity },
-  ];
+  /** Dynamic badge counts merged at render time */
+  const countMap: Partial<Record<string, number>> = useMemo(() => ({
+    WATCHLIST: (watchlist || []).length,
+    TRADE_JOURNAL: openTradesCount,
+    AUTO_TRADE: shadowTrades.length,
+  }), [watchlist, openTradesCount, shadowTrades.length]);
 
-  // More menu items
-  const moreItems: NavItem[] = [
-    { id: 'SCREENER', label: '스크리너', icon: Filter },
-    { id: 'SUBSCRIPTION', label: '섹터 구독', icon: Radar },
-    { id: 'MANUAL_INPUT', label: '수동 퀀트', icon: Calculator },
-    { id: 'BACKTEST', label: '백테스트', icon: History },
-    { id: 'WALK_FORWARD', label: '워크포워드', icon: Shield },
-    { id: 'AUTO_TRADE', label: '자동매매', icon: Zap, count: shadowTrades.length },
-  ];
-
-  const isMoreActive = moreItems.some(item => view === item.id);
+  const isMoreActive = MORE_MOBILE_TABS.some(item => view === item.id);
 
   const handleNavClick = (id: string) => {
     setView(id as any);
@@ -83,9 +64,10 @@ export function BottomNav() {
 
                 {/* Menu Grid */}
                 <div className="grid grid-cols-3 gap-1 p-3">
-                  {moreItems.map((item) => {
+                  {MORE_MOBILE_TABS.map((item) => {
                     const Icon = item.icon;
                     const isActive = view === item.id;
+                    const count = countMap[item.id];
                     return (
                       <button
                         key={item.id}
@@ -99,9 +81,9 @@ export function BottomNav() {
                       >
                         <div className="relative">
                           <Icon className="w-5 h-5" />
-                          {item.count != null && item.count > 0 && (
+                          {count != null && count > 0 && (
                             <span className="absolute -top-1.5 -right-2 text-[8px] font-black bg-gradient-to-r from-blue-500 to-indigo-500 text-white w-4 h-4 rounded-full flex items-center justify-center font-num">
-                              {item.count}
+                              {count}
                             </span>
                           )}
                         </div>
@@ -137,9 +119,10 @@ export function BottomNav() {
       {/* Bottom Navigation Bar */}
       <nav className="fixed bottom-0 left-0 right-0 z-[57] lg:hidden no-print backdrop-blur-xl" style={{ height: 'var(--bottom-nav-height)', background: 'rgba(6, 9, 13, 0.85)' }}>
         <div className="border-t border-white/[0.05] h-full flex items-stretch relative">
-          {primaryTabs.map((item) => {
+          {PRIMARY_MOBILE_TABS.map((item) => {
             const Icon = item.icon;
             const isActive = view === item.id;
+            const count = countMap[item.id];
             return (
               <button
                 key={item.id}
@@ -154,9 +137,9 @@ export function BottomNav() {
                 )}
                 <div className="relative">
                   <Icon className={cn('w-5 h-5 transition-transform', isActive && 'scale-110')} />
-                  {item.count != null && item.count > 0 && (
+                  {count != null && count > 0 && (
                     <span className="absolute -top-1 -right-2 text-[7px] font-black bg-gradient-to-r from-blue-500 to-indigo-500 text-white w-3.5 h-3.5 rounded-full flex items-center justify-center font-num">
-                      {item.count > 9 ? '9+' : item.count}
+                      {count > 9 ? '9+' : count}
                     </span>
                   )}
                 </div>
