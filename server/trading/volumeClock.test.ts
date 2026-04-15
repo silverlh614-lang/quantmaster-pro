@@ -83,23 +83,29 @@ describe('checkVolumeClockWindow', () => {
     });
   });
 
-  describe('패널티 -2: 12:00~12:59 점심 거래량 저조', () => {
-    it('applies -2 at 12:00 (구간 시작)', () => {
+  describe('절대 차단: 11:30~12:59 점심 구간', () => {
+    it('blocks entry at 11:30 (구간 시작)', () => {
+      const result = checkVolumeClockWindow(kstTime(11, 30));
+      expect(result.allowEntry).toBe(false);
+      expect(result.scoreBonus).toBe(0);
+    });
+
+    it('blocks entry at 12:00 (점심 중간)', () => {
       const result = checkVolumeClockWindow(kstTime(12, 0));
-      expect(result.allowEntry).toBe(true);
-      expect(result.scoreBonus).toBe(-2);
+      expect(result.allowEntry).toBe(false);
+      expect(result.scoreBonus).toBe(0);
     });
 
-    it('applies -2 at 12:30 (구간 중간)', () => {
+    it('blocks entry at 12:30 (점심 중간)', () => {
       const result = checkVolumeClockWindow(kstTime(12, 30));
-      expect(result.allowEntry).toBe(true);
-      expect(result.scoreBonus).toBe(-2);
+      expect(result.allowEntry).toBe(false);
+      expect(result.scoreBonus).toBe(0);
     });
 
-    it('applies -2 at 12:59 (구간 끝)', () => {
+    it('blocks entry at 12:59 (구간 끝)', () => {
       const result = checkVolumeClockWindow(kstTime(12, 59));
-      expect(result.allowEntry).toBe(true);
-      expect(result.scoreBonus).toBe(-2);
+      expect(result.allowEntry).toBe(false);
+      expect(result.scoreBonus).toBe(0);
     });
   });
 
@@ -155,19 +161,7 @@ describe('checkVolumeClockWindow', () => {
     });
   });
 
-  describe('보너스 0: 11:30~11:59 오전 마감 전', () => {
-    it('gives 0 bonus at 11:30 (구간 시작)', () => {
-      const result = checkVolumeClockWindow(kstTime(11, 30));
-      expect(result.allowEntry).toBe(true);
-      expect(result.scoreBonus).toBe(0);
-    });
-
-    it('gives 0 bonus at 11:59 (구간 끝)', () => {
-      const result = checkVolumeClockWindow(kstTime(11, 59));
-      expect(result.allowEntry).toBe(true);
-      expect(result.scoreBonus).toBe(0);
-    });
-  });
+  // 11:30~11:59 → 점심 절대 차단으로 이동 (위 '절대 차단: 11:30~12:59 점심 구간' 참조)
 
   // ── 보너스 +2 구간 ─────────────────────────────────────────────────────────
 
@@ -211,19 +205,18 @@ describe('checkVolumeClockWindow', () => {
       expect(checkVolumeClockWindow(kstTime(11, 0)).scoreBonus).toBe(-1);
     });
 
-    it('11:29→11:30: 패널티 -1 → 보너스 0 전환', () => {
-      expect(checkVolumeClockWindow(kstTime(11, 29)).scoreBonus).toBe(-1);
-      expect(checkVolumeClockWindow(kstTime(11, 30)).scoreBonus).toBe(0);
+    it('11:29→11:30: 패널티 -1 → 절대 차단(점심) 전환', () => {
+      const at1129 = checkVolumeClockWindow(kstTime(11, 29));
+      expect(at1129.allowEntry).toBe(true);
+      expect(at1129.scoreBonus).toBe(-1);
+      expect(checkVolumeClockWindow(kstTime(11, 30)).allowEntry).toBe(false);
     });
 
-    it('11:59→12:00: 보너스 0 → 패널티 -2 전환', () => {
-      expect(checkVolumeClockWindow(kstTime(11, 59)).scoreBonus).toBe(0);
-      expect(checkVolumeClockWindow(kstTime(12, 0)).scoreBonus).toBe(-2);
-    });
-
-    it('12:59→13:00: 패널티 -2 → 패널티 -1 전환', () => {
-      expect(checkVolumeClockWindow(kstTime(12, 59)).scoreBonus).toBe(-2);
-      expect(checkVolumeClockWindow(kstTime(13, 0)).scoreBonus).toBe(-1);
+    it('12:59→13:00: 절대 차단(점심) → 패널티 -1 전환', () => {
+      expect(checkVolumeClockWindow(kstTime(12, 59)).allowEntry).toBe(false);
+      const at1300 = checkVolumeClockWindow(kstTime(13, 0));
+      expect(at1300.allowEntry).toBe(true);
+      expect(at1300.scoreBonus).toBe(-1);
     });
 
     it('13:29→13:30: 패널티 -1 → 보너스 0 전환', () => {
