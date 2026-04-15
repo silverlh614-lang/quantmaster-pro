@@ -16,6 +16,8 @@ import {
 } from '../persistence/shadowTradeRepo.js';
 import { addToBlacklist } from '../persistence/blacklistRepo.js';
 import { checkEuphoria } from './riskManager.js';
+import { regimeToStopRegime } from './entryEngine.js';
+import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 
 /** Shadow 진행 중 거래 결과 업데이트 — Macro/포지션 제한 시에도 재사용 */
@@ -53,7 +55,49 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
     const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
     const initialStopLoss = shadow.initialStopLoss ?? shadow.stopLoss;
     const regimeStopLoss = shadow.regimeStopLoss ?? shadow.stopLoss;
-    const hardStopLoss = shadow.hardStopLoss ?? shadow.stopLoss;
+    let hardStopLoss = shadow.hardStopLoss ?? shadow.stopLoss;
+
+    // ─── ATR 동적 손절 갱신 (BEP 보호 / 수익 Lock-in) ──────────────────────
+    if (shadow.entryATR14 && shadow.entryATR14 > 0) {
+      const stopRegime = regimeToStopRegime(currentRegime);
+      const dynResult = evaluateDynamicStop({
+        entryPrice: shadow.shadowEntryPrice,
+        atr14: shadow.entryATR14,
+        regime: stopRegime,
+        currentPrice,
+      });
+
+      // 트레일링 활성 시 trailingStopPrice, 아니면 기본 stopPrice
+      const effectiveDynamicStop = dynResult.trailingActive
+        ? dynResult.trailingStopPrice
+        : dynResult.stopPrice;
+
+      // hardStopLoss는 오직 상향만 허용 (래칫 — 한번 올라간 손절은 내려가지 않음)
+      if (effectiveDynamicStop > hardStopLoss) {
+        const prevHardStop = hardStopLoss;
+        hardStopLoss = effectiveDynamicStop;
+        shadow.hardStopLoss = effectiveDynamicStop;
+        shadow.dynamicStopPrice = effectiveDynamicStop;
+
+        if (dynResult.profitLockIn) {
+          appendShadowLog({ event: 'ATR_PROFIT_LOCKIN', ...shadow, prevHardStop, newHardStop: effectiveDynamicStop });
+          console.log(`[AutoTrade] 🔒 ${shadow.stockName} ATR 수익 Lock-in: 손절 ${prevHardStop.toLocaleString()} → ${effectiveDynamicStop.toLocaleString()} (+3%)`);
+          await sendTelegramAlert(
+            `🔒 <b>[수익 Lock-in]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+            `ATR 동적 손절 상향: ${prevHardStop.toLocaleString()}원 → ${effectiveDynamicStop.toLocaleString()}원 (+3%)\n` +
+            `현재가: ${currentPrice.toLocaleString()}원 | 수익: +${returnPct.toFixed(1)}%`
+          ).catch(console.error);
+        } else if (dynResult.bepProtection) {
+          appendShadowLog({ event: 'ATR_BEP_PROTECTION', ...shadow, prevHardStop, newHardStop: effectiveDynamicStop });
+          console.log(`[AutoTrade] 🛡️ ${shadow.stockName} ATR BEP 보호: 손절 ${prevHardStop.toLocaleString()} → ${effectiveDynamicStop.toLocaleString()} (원금)`);
+          await sendTelegramAlert(
+            `🛡️ <b>[원금 보호]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+            `ATR 동적 손절 상향: ${prevHardStop.toLocaleString()}원 → ${effectiveDynamicStop.toLocaleString()}원 (BEP)\n` +
+            `현재가: ${currentPrice.toLocaleString()}원 | 수익: +${returnPct.toFixed(1)}%`
+          ).catch(console.error);
+        }
+      }
+    }
 
     // ─── R6 긴급 청산 30% (블랙스완 — 1회만) ────────────────────────────────
     if (currentRegime === 'R6_DEFENSE' && !shadow.r6EmergencySold && shadow.quantity > 0) {
@@ -75,10 +119,16 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
 
     // ─── 하드 스톱 (고정 손절/레짐 손절) ───────────────────────────────────────
     if (currentPrice <= hardStopLoss) {
-      const stopGap = Math.abs(initialStopLoss - regimeStopLoss);
-      const stopLossExitType = stopGap < 0.5
-        ? 'INITIAL_AND_REGIME'
-        : (initialStopLoss > regimeStopLoss ? 'INITIAL' : 'REGIME');
+      // ATR 트레일링이 손절을 초기/레짐 이상으로 끌어올린 경우 → PROFIT_PROTECTION
+      let stopLossExitType: 'INITIAL' | 'REGIME' | 'INITIAL_AND_REGIME' | 'PROFIT_PROTECTION';
+      if (hardStopLoss > initialStopLoss && hardStopLoss > regimeStopLoss) {
+        stopLossExitType = 'PROFIT_PROTECTION';
+      } else {
+        const stopGap = Math.abs(initialStopLoss - regimeStopLoss);
+        stopLossExitType = stopGap < 0.5
+          ? 'INITIAL_AND_REGIME'
+          : (initialStopLoss > regimeStopLoss ? 'INITIAL' : 'REGIME');
+      }
       Object.assign(shadow, {
         status: 'HIT_STOP',
         exitPrice: currentPrice,
