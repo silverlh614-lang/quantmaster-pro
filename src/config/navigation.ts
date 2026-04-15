@@ -6,7 +6,7 @@
 import type { ElementType } from 'react';
 import {
   Zap, LayoutGrid, Bookmark, Filter, Radar, Calculator,
-  History, Shield, Activity, TrendingUp,
+  History, Shield, Activity, TrendingUp, Layers,
 } from 'lucide-react';
 import type { View } from '../stores/useSettingsStore';
 
@@ -46,6 +46,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: '전략',
     items: [
       { id: 'BACKTEST', label: '백테스트', icon: History },
+      { id: 'PORTFOLIO_EXTRACT', label: '포트폴리오 추출', icon: Layers },
       { id: 'WALK_FORWARD', label: '워크포워드', icon: Shield },
       { id: 'MARKET', label: '시장 대시보드', icon: Activity },
     ],
@@ -75,6 +76,7 @@ export const MORE_MOBILE_TABS: NavItem[] = [
   { id: 'SUBSCRIPTION', label: '섹터 구독', icon: Radar },
   { id: 'MANUAL_INPUT', label: '수동 퀀트', icon: Calculator },
   { id: 'BACKTEST', label: '백테스트', icon: History },
+  { id: 'PORTFOLIO_EXTRACT', label: '추출', icon: Layers },
   { id: 'WALK_FORWARD', label: '워크포워드', icon: Shield },
   { id: 'AUTO_TRADE', label: '자동매매', icon: Zap },
 ];

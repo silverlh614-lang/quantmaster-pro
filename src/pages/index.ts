@@ -6,3 +6,4 @@ export { AutoTradePage } from './AutoTradePage';
 export { MarketPage } from './MarketPage';
 export { BacktestPage } from './BacktestPage';
 export { DiscoverWatchlistPage } from './DiscoverWatchlistPage';
+export { PortfolioExtractPage } from './PortfolioExtractPage';

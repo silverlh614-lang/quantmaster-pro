@@ -14,6 +14,7 @@ import { ScreenerPage } from './pages/ScreenerPage';
 import { SubscriptionPage } from './pages/SubscriptionPage';
 import { BacktestPage } from './pages/BacktestPage';
 import { DiscoverWatchlistPage } from './pages/DiscoverWatchlistPage';
+import { PortfolioExtractPage } from './pages/PortfolioExtractPage';
 import { WalkForwardView } from './components/common/WalkForwardView';
 import { StockDetailModal } from './components/analysis/StockDetailModal';
 import { SettingsModal } from './components/common/SettingsModal';
@@ -199,6 +200,8 @@ export default function App() {
                       onCopy={handleCopy}
                       copiedCode={copiedCode}
                     />
+                  ) : view === 'PORTFOLIO_EXTRACT' ? (
+                    <PortfolioExtractPage />
                   ) : view === 'WALK_FORWARD' ? (
                     <WalkForwardView />
                   ) : (

@@ -44,6 +44,8 @@ interface MarketState {
   setInitialEquity: (equity: number) => void;
   backtestYears: number;
   setBacktestYears: (years: number) => void;
+  commissionFee: number;
+  setCommissionFee: (fee: number) => void;
 
   // Walk-Forward
   walkForwardAnalysis: WalkForwardAnalysis | null;
@@ -104,6 +106,8 @@ export const useMarketStore = create<MarketState>()(
       setInitialEquity: (initialEquity) => set({ initialEquity }),
       backtestYears: 1,
       setBacktestYears: (backtestYears) => set({ backtestYears }),
+      commissionFee: 0.05,
+      setCommissionFee: (commissionFee) => set({ commissionFee }),
 
       // Walk-Forward
       walkForwardAnalysis: null,
