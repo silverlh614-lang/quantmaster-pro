@@ -180,11 +180,11 @@ export function decideScan(): ScanDecision {
     intervalMinutes: finalInterval,
     reason: (
       `${phase} | ${regime}(×${multiplier})` +
-      (emptyBackoff > 1 ? ` | 빈스캔×${emptyBackoff}` : '') +
+      (emptyBackoff > 1 ? ` | 빈스캔×${emptyBackoff}→SELL_ONLY` : '') +
       ` | 포지션 ${activePositions}/${maxPositions}` +
       ` → ${finalInterval}분 간격`
     ),
-    priority: forceSellOnly ? 'SELL_ONLY' : 'FULL',
+    priority: (forceSellOnly || emptyBackoff > 1) ? 'SELL_ONLY' : 'FULL',
   };
 }
 
