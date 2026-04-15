@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2, Sliders, Power, Zap, TrendingUp, Wallet } from 'lucide-react';
+import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2, Sliders, Power, Zap, TrendingUp, Wallet, Timer, Shield } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { PageHeader } from '../ui/page-header';
 import { KpiStrip } from '../ui/kpi-strip';
@@ -74,7 +74,7 @@ interface BuyAuditData {
   buyListCount: number;
   regime: string;
   vixGating: { noNewEntry: boolean; kellyMultiplier: number; reason: string };
-  fomcGating: { noNewEntry: boolean; phase: string; kellyMultiplier: number; description: string };
+  fomcGating: { noNewEntry: boolean; phase: string; kellyMultiplier: number; description: string; nextFomcDate?: string | null; unblockAt?: string | null };
   emergencyStop: boolean;
   lastScanAt: string | null;
   rejectedStocks: { code: string; name: string; reason: string }[];
@@ -104,6 +104,26 @@ interface AccountSummary {
   availableCash: number;   // 가용 현금
 }
 
+// ─── 카운트다운 훅 ─────────────────────────────────────────────────────────
+function useCountdown(targetIso: string | null | undefined): string | null {
+  const [remaining, setRemaining] = useState<string | null>(null);
+  useEffect(() => {
+    if (!targetIso) { setRemaining(null); return; }
+    const calc = () => {
+      const diff = new Date(targetIso).getTime() - Date.now();
+      if (diff <= 0) { setRemaining('해제됨'); return; }
+      const h = Math.floor(diff / 3_600_000);
+      const m = Math.floor((diff % 3_600_000) / 60_000);
+      const s = Math.floor((diff % 60_000) / 1_000);
+      setRemaining(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+    };
+    calc();
+    const id = setInterval(calc, 1_000);
+    return () => clearInterval(id);
+  }, [targetIso]);
+  return remaining;
+}
+
 export function AutoTradePage() {
   const { shadowTrades } = useShadowTradeStore();
   const winRate = useShadowWinRate();
@@ -127,6 +147,25 @@ export function AutoTradePage() {
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
   const [engineToggling, setEngineToggling] = useState(false);
   const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null);
+
+  // ③ FOMC 차단 해제 카운트다운
+  const fomcCountdown = useCountdown(buyAudit?.fomcGating.unblockAt);
+
+  // ④ 포지션 리스크 게이지
+  const riskGauge = useMemo(() => {
+    if (!accountSummary) return null;
+    const totalAsset = accountSummary.totalEvalAmt + accountSummary.availableCash;
+    if (totalAsset <= 0) return null;
+    const exposureRate = (accountSummary.totalEvalAmt / totalAsset) * 100;
+    const cashRate = (accountSummary.availableCash / totalAsset) * 100;
+    // 최대 예상 손실: 워치리스트 손절가 기반 계산
+    const maxLoss = watchlist.reduce((sum: number, w: WatchlistEntry) => {
+      const lossRate = Math.abs((w.stopLoss - w.entryPrice) / w.entryPrice);
+      const posSize = accountSummary.totalEvalAmt / Math.max(watchlist.length, 1);
+      return sum + lossRate * posSize;
+    }, 0);
+    return { exposureRate, cashRate, maxLoss };
+  }, [accountSummary, watchlist]);
 
   const handleEngineToggle = async () => {
     if (engineToggling) return;
@@ -389,6 +428,26 @@ export function AutoTradePage() {
                   {buyAudit.vixGating.noNewEntry && <li>- {buyAudit.vixGating.reason}</li>}
                   {buyAudit.fomcGating.noNewEntry && <li>- {buyAudit.fomcGating.description}</li>}
                 </ul>
+                {/* ③ FOMC 차단 해제 카운트다운 */}
+                {buyAudit.fomcGating.noNewEntry && fomcCountdown && (
+                  <div className="mt-3 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Timer className="w-4 h-4 text-amber-400" />
+                      <span className="text-xs font-bold text-amber-300">FOMC 차단 해제까지</span>
+                    </div>
+                    <span className="text-2xl font-black text-amber-400 tabular-nums font-num">{fomcCountdown}</span>
+                  </div>
+                )}
+                {/* VIX 차단 해제 조건 안내 */}
+                {buyAudit.vixGating.noNewEntry && (
+                  <div className="mt-3 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-amber-400" />
+                      <span className="text-xs font-bold text-amber-300">VIX 차단 해제 조건</span>
+                    </div>
+                    <span className="text-xs text-amber-300/80">VIX &lt; 30 또는 3일 연속 하락 시 자동 해제</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -489,6 +548,59 @@ export function AutoTradePage() {
                     </div>
                   );
                 })}
+            </div>
+          </Card>
+        )}
+
+        {/* ④ 포지션 리스크 게이지 */}
+        {riskGauge && (
+          <Card padding="md">
+            <div className="flex items-center gap-2 mb-4">
+              <Shield className="w-4 h-4 text-red-400" />
+              <span className="text-sm font-bold text-theme-text">포지션 리스크 게이지</span>
+            </div>
+            <div className="space-y-4">
+              {/* 총 익스포저 */}
+              <div>
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="text-theme-text font-bold">총 익스포저</span>
+                  <span className={cn('font-bold font-num', riskGauge.exposureRate > 80 ? 'text-red-400' : riskGauge.exposureRate > 60 ? 'text-amber-400' : 'text-green-400')}>
+                    {riskGauge.exposureRate.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-3 rounded-full bg-white/5 overflow-hidden">
+                  <div
+                    className={cn('h-full rounded-full transition-all', riskGauge.exposureRate > 80 ? 'bg-red-500' : riskGauge.exposureRate > 60 ? 'bg-amber-500' : 'bg-green-500')}
+                    style={{ width: `${Math.min(riskGauge.exposureRate, 100)}%` }}
+                  />
+                </div>
+              </div>
+              {/* 최대 예상 손실 */}
+              <div>
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="text-theme-text font-bold">최대 예상 손실</span>
+                  <span className="text-red-400 font-bold font-num">-{Math.round(riskGauge.maxLoss).toLocaleString()}원</span>
+                </div>
+                <div className="h-3 rounded-full bg-white/5 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-red-500 transition-all"
+                    style={{ width: `${Math.min((riskGauge.maxLoss / ((accountSummary?.totalEvalAmt ?? 1) + (accountSummary?.availableCash ?? 0))) * 100, 100)}%` }}
+                  />
+                </div>
+              </div>
+              {/* 남은 투자여력 */}
+              <div>
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="text-theme-text font-bold">남은 투자여력</span>
+                  <span className="text-blue-400 font-bold font-num">{riskGauge.cashRate.toFixed(1)}%</span>
+                </div>
+                <div className="h-3 rounded-full bg-white/5 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-blue-500 transition-all"
+                    style={{ width: `${Math.min(riskGauge.cashRate, 100)}%` }}
+                  />
+                </div>
+              </div>
             </div>
           </Card>
         )}
