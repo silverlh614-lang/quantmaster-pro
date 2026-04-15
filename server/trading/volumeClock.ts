@@ -4,49 +4,49 @@
  * 한국 주식 시장의 시간대별 특성에 기반하여 발주 실행 가능 여부와
  * 시간대 가중치 보너스를 결정한다.
  *
- * ┌─ 허용 발주 시간대 (KST) ────────────────────────────────────────────────────┐
- * │  09:30 ~ 11:30  개장 갭 수렴 후 기관 알고리즘 집중 구간                      │
- * │                 └ 09:30~09:59: 초반 구간 — Gate 점수 -1 패널티 적용          │
- * │  13:30 ~ 14:50  오후 기관 리밸런싱 + 윈도우 드레싱 구간                      │
+ * ┌─ 절대 차단 (KST) ──────────────────────────────────────────────────────────┐
+ * │  09:00 ~ 09:29  시초가 결정 구간 — 슬리피지 극심                            │
+ * │  14:55 ~ 15:30  마감 동시호가 — 절대 불가                                   │
  * └─────────────────────────────────────────────────────────────────────────────┘
  *
- * ┌─ 차단 시간대 (KST) ─────────────────────────────────────────────────────────┐
- * │  09:00 ~ 09:29  시초가 결정 구간 — 슬리피지 극심 (절대 차단)                 │
- * │  14:55 ~ 15:30  마감 변동성 구간 — 기관 일방 청산                            │
- * └─────────────────────────────────────────────────────────────────────────────┘
- *
- * ┌─ 시간대 가중치 보너스 ──────────────────────────────────────────────────────┐
- * │  10:00 ~ 11:00  발주 시 +2점 보너스 (기관 알고리즘 집중 진입 구간)          │
- * │  09:30 ~ 09:59  발주 시 -1점 패널티 (초반 개장 구간 노이즈 필터링)          │
+ * ┌─ 시간대별 점수 조정 ───────────────────────────────────────────────────────┐
+ * │  패널티 -2  09:30~09:59  개장 초반 노이즈                                  │
+ * │  패널티 -2  14:30~14:54  마감 30분 전 변동성 확대                           │
+ * │  패널티 -2  12:00~12:59  점심 거래량 저조                                   │
+ * │  패널티 -1  13:00~13:29  점심 직후 거래 회복 중                             │
+ * │  패널티 -1  11:00~11:29  오전 후반 모멘텀 약화                              │
+ * │  보너스  0  13:30~14:29  오후 기관 리밸런싱                                 │
+ * │  보너스  0  11:30~11:59  오전 마감 전                                       │
+ * │  보너스 +2  10:00~10:59  기관 알고리즘 집중 구간                            │
  * └─────────────────────────────────────────────────────────────────────────────┘
  */
 
-/** 발주 허용 시간대 정의 (KST, 분 단위 HH*60+MM) */
-const ALLOWED_WINDOWS: Array<{ start: number; end: number; label: string }> = [
-  { start:  9 * 60 + 30, end: 11 * 60 + 30, label: '09:30~11:30 개장 갭 수렴·기관 알고리즘 집중 구간' },
-  { start: 13 * 60 + 30, end: 14 * 60 + 50, label: '13:30~14:50 기관 오후 리밸런싱·윈도우 드레싱 구간' },
-];
-
-/** 차단 시간대 정의 (KST, 분 단위) */
+/** 절대 차단 시간대 (KST, 분 단위 HH*60+MM) */
 const BLOCKED_WINDOWS: Array<{ start: number; end: number; label: string }> = [
-  { start:  9 * 60,      end:  9 * 60 + 29, label: '09:00~09:29 시초가 결정 구간 — 슬리피지 극심' },
-  { start: 14 * 60 + 55, end: 15 * 60 + 30, label: '14:55~15:30 마감 변동성 구간' },
+  { start:  9 * 60,      end:  9 * 60 + 29, label: '09:00~09:29 시초가 결정 — 슬리피지 극심' },
+  { start: 14 * 60 + 55, end: 15 * 60 + 30, label: '14:55~15:30 마감 동시호가 — 절대 불가' },
 ];
-
-/** +2점 보너스 구간 (KST, 분 단위) */
-const BONUS_WINDOW = { start: 10 * 60, end: 11 * 60, bonus: 2, label: '10:00~11:00 기관 알고리즘 집중 (+2점)' };
 
 /**
- * 초반 개장 패널티 구간 (KST, 분 단위)
- * 09:30~09:59 — 허용은 하되 Gate 점수를 1점 차감해 노이즈 종목을 걸러낸다.
- * (효과: 진입 기준이 사실상 1점 높아짐)
+ * 시간대별 점수 조정 구간 (KST, 분 단위)
+ * 09:30~14:54 전체를 빈틈 없이 커버한다.
+ * 배열 순서 = 시간 순서 (검색 시 첫 매칭 반환).
  */
-const EARLY_OPEN_PENALTY = { start: 9 * 60 + 30, end: 10 * 60 - 1, bonus: -1, label: '09:30~09:59 초반 개장 구간 (-1점 패널티)' };
+const TIME_ZONES: Array<{ start: number; end: number; bonus: number; label: string }> = [
+  { start:  9 * 60 + 30, end:  9 * 60 + 59, bonus: -2, label: '09:30~09:59 개장 초반 노이즈 (-2점)' },
+  { start: 10 * 60,      end: 10 * 60 + 59, bonus: +2, label: '10:00~10:59 기관 알고리즘 집중 (+2점)' },
+  { start: 11 * 60,      end: 11 * 60 + 29, bonus: -1, label: '11:00~11:29 오전 후반 모멘텀 약화 (-1점)' },
+  { start: 11 * 60 + 30, end: 11 * 60 + 59, bonus:  0, label: '11:30~11:59 오전 마감 전' },
+  { start: 12 * 60,      end: 12 * 60 + 59, bonus: -2, label: '12:00~12:59 점심 거래량 저조 (-2점)' },
+  { start: 13 * 60,      end: 13 * 60 + 29, bonus: -1, label: '13:00~13:29 점심 직후 거래 회복 중 (-1점)' },
+  { start: 13 * 60 + 30, end: 14 * 60 + 29, bonus:  0, label: '13:30~14:29 오후 기관 리밸런싱' },
+  { start: 14 * 60 + 30, end: 14 * 60 + 54, bonus: -2, label: '14:30~14:54 마감 30분 전 변동성 확대 (-2점)' },
+];
 
 export interface VolumeClockResult {
   /** 발주 허용 여부 */
   allowEntry:   boolean;
-  /** 시간대 보너스 점수 (−1, 0, +2) */
+  /** 시간대 보너스 점수 (−2, −1, 0, +2) */
   scoreBonus:   number;
   /** 현재 시간대 설명 */
   windowLabel:  string;
@@ -72,41 +72,34 @@ function kstMinutesOfDay(now: Date): number {
 export function checkVolumeClockWindow(now: Date = new Date()): VolumeClockResult {
   const mins = kstMinutesOfDay(now);
 
-  // 차단 구간 먼저 확인 (우선순위 높음)
+  // 1. 절대 차단 구간 (최우선)
   for (const win of BLOCKED_WINDOWS) {
     if (mins >= win.start && mins <= win.end) {
       return {
         allowEntry:  false,
         scoreBonus:  0,
         windowLabel: win.label,
-        reason:      `[Volume Clock] 차단 시간대 — ${win.label} → 발주 금지`,
+        reason:      `[Volume Clock] 절대 차단 — ${win.label} → 발주 금지`,
       };
     }
   }
 
-  // 허용 구간 확인
-  for (const win of ALLOWED_WINDOWS) {
-    if (mins >= win.start && mins <= win.end) {
-      // 우선순위: 초반 개장 패널티 > 일반 보너스 (두 구간은 겹치지 않음)
-      let scoreBonus = 0;
-      let bonusNote  = '';
-      if (mins >= EARLY_OPEN_PENALTY.start && mins <= EARLY_OPEN_PENALTY.end) {
-        scoreBonus = EARLY_OPEN_PENALTY.bonus;
-        bonusNote  = ` (${EARLY_OPEN_PENALTY.label})`;
-      } else if (mins >= BONUS_WINDOW.start && mins < BONUS_WINDOW.end) {
-        scoreBonus = BONUS_WINDOW.bonus;
-        bonusNote  = ` (+${BONUS_WINDOW.bonus}점 보너스 — ${BONUS_WINDOW.label})`;
-      }
+  // 2. 시간대별 점수 조정 구간 (09:30~14:54)
+  for (const zone of TIME_ZONES) {
+    if (mins >= zone.start && mins <= zone.end) {
+      const bonusNote = zone.bonus !== 0
+        ? ` (${zone.bonus > 0 ? '+' : ''}${zone.bonus}점)`
+        : '';
       return {
         allowEntry:  true,
-        scoreBonus,
-        windowLabel: win.label,
-        reason:      `[Volume Clock] 허용 시간대 — ${win.label}${bonusNote}`,
+        scoreBonus:  zone.bonus,
+        windowLabel: zone.label,
+        reason:      `[Volume Clock] 허용 시간대 — ${zone.label}${bonusNote}`,
       };
     }
   }
 
-  // 어느 구간에도 해당하지 않음 → 발주 비허용
+  // 3. 어느 구간에도 해당하지 않음 → 발주 비허용
   const hh = String(Math.floor(mins / 60)).padStart(2, '0');
   const mm = String(mins % 60).padStart(2, '0');
   return {
