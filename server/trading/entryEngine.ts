@@ -227,7 +227,9 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): { ok: 
 
   if (input.dayOpen && input.dayOpen > 0) {
     const dropFromOpenPct = ((input.currentPrice - input.dayOpen) / input.dayOpen) * 100;
-    if (input.currentPrice < input.dayOpen && dropFromOpenPct <= ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT) {
+    // 시가와 현재가 차이가 ±30% 초과이면 데이터 오류로 간주하여 스킵
+    const openSane = Math.abs(dropFromOpenPct) <= 30;
+    if (openSane && input.currentPrice < input.dayOpen && dropFromOpenPct <= ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT) {
       reasons.push(`시가 대비 급락 (${dropFromOpenPct.toFixed(1)}%)`);
     }
   }

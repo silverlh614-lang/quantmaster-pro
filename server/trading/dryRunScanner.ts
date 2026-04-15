@@ -10,7 +10,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { computeFocusCodes } from '../screener/watchlistManager.js';
 import { fetchCurrentPrice, fetchAccountBalance } from '../clients/kisClient.js';
-import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS } from '../screener/stockScreener.js';
+import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKisIntraday } from '../screener/stockScreener.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { getLiveRegime } from './regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
@@ -199,6 +199,16 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
     const reCheckQuote = reCheckQuoteRaw
       ? await enrichQuoteWithKisMTAS(reCheckQuoteRaw, stock.code)
       : null;
+
+    // ── KIS 실시간 시가/전일종가 보정 ──
+    if (reCheckQuote) {
+      const kisSnap = await fetchKisIntraday(stock.code).catch(() => null);
+      if (kisSnap) {
+        if (kisSnap.dayOpen > 0)   reCheckQuote.dayOpen = kisSnap.dayOpen;
+        if (kisSnap.prevClose > 0) reCheckQuote.prevClose = kisSnap.prevClose;
+      }
+    }
+
     const reCheckGate = reCheckQuote
       ? evaluateServerGate(reCheckQuote, conditionWeights, macroState?.kospiDayReturn)
       : null;

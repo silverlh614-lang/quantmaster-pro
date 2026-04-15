@@ -655,6 +655,41 @@ export async function fetchKisQuoteFallback(code: string): Promise<YahooQuoteExt
   } catch { return null; }
 }
 
+/**
+ * KIS 현재가 API(FHKST01010100)에서 시가·전일종가·현재가만 경량 조회.
+ * Yahoo Finance의 regularMarketOpen이 한국 장중 부정확한 값을 반환하는 문제를
+ * 보정하기 위해 사용한다. Yahoo 전체 Quote를 대체하지 않고 dayOpen/prevClose만
+ * 덮어쓰는 용도이므로 히스토리 지표는 포함하지 않는다.
+ */
+export async function fetchKisIntraday(code: string): Promise<{
+  price: number;
+  dayOpen: number;
+  prevClose: number;
+  volume: number;
+} | null> {
+  if (!HAS_REAL_DATA_CLIENT && !process.env.KIS_APP_KEY) return null;
+  try {
+    const data = await realDataKisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
+      FID_COND_MRKT_DIV_CODE: 'J',
+      FID_INPUT_ISCD: code.padStart(6, '0'),
+    });
+    const out = (data as { output?: Record<string, string> } | null)?.output;
+    if (!out) return null;
+
+    const price = parseInt(out.stck_prpr ?? '0', 10);
+    if (price <= 0) return null;
+
+    const dayOpen    = parseInt(out.stck_oprc  ?? '0', 10) || price;
+    const volume     = parseInt(out.acml_vol   ?? '0', 10);
+    const prdyVrss   = parseInt(out.stck_prdy_vrss ?? '0', 10);
+    const signStr    = out.prdy_vrss_sign ?? '3';
+    const prdyChange = signStr === '5' || signStr === '4' ? -Math.abs(prdyVrss) : Math.abs(prdyVrss);
+    const prevClose  = price - prdyChange || price;
+
+    return { price, dayOpen, prevClose, volume };
+  } catch { return null; }
+}
+
 export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtended | null> {
   try {
     // range=2y — MTAS(월봉/주봉) 계산에 충분한 데이터 확보 (MA60, 가속도 지표 포함)
