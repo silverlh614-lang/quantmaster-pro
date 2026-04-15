@@ -693,13 +693,20 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             }
           }
         }
+        // 진입가 미도달 → failCount 증가 (3회 누적 시 cleanupWatchlist에서 자동 제거)
+        stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
+        watchlistMutated = true;
         continue; // 진입가 미도달 — 일반 진입 로직 건너뜀
       }
 
       // C4 수정: 명시적 진입 조건 체크 (INTRADAY 경로와 동일한 방어 패턴)
       // (!nearEntry && !breakout) 케이스는 위 pre-breakout 블록이 처리하지만,
       // 방어적 가드를 명시하여 미래 코드 변경 시 조건 없는 진입을 차단한다.
-      if (!(nearEntry || breakout)) continue;
+      if (!(nearEntry || breakout)) {
+        stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
+        watchlistMutated = true;
+        continue;
+      }
 
       if (!aboveStop) {
         console.log(

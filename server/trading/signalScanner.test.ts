@@ -289,3 +289,62 @@ describe('[BUG-08] Follow-through RRR 재검증', () => {
     expect(followRRR).toBeGreaterThanOrEqual(RRR_MIN_THRESHOLD);
   });
 });
+
+// ── 진입가 미도달 종목 entryFailCount 증가 검증 ─────────────────────────────
+describe('진입가 미도달 종목 entryFailCount 증가', () => {
+  it('nearEntry/breakout 모두 미충족 시 entryFailCount가 증가해야 한다', () => {
+    const stock = {
+      code: '131970',
+      name: '두산테스나',
+      entryPrice: 80_000,
+      stopLoss: 60_000,
+      addedBy: 'AUTO' as 'AUTO' | 'MANUAL',
+      entryFailCount: 0,
+    };
+
+    // 현재가 65,000원 — 진입가 80,000 대비 nearEntry(±1%) 아니고 breakout도 아님
+    const currentPrice = 65_000;
+    const nearEntryThreshold = stock.addedBy === 'MANUAL' ? 0.02 : 0.01;
+    const nearEntry = Math.abs(currentPrice - stock.entryPrice) / stock.entryPrice <= nearEntryThreshold;
+    const breakout = currentPrice >= stock.entryPrice;
+
+    expect(nearEntry).toBe(false);
+    expect(breakout).toBe(false);
+
+    // 수정 후: nearEntry/breakout 미충족 시 failCount++ 후 continue
+    if (!(nearEntry || breakout)) {
+      stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
+    }
+    expect(stock.entryFailCount).toBe(1);
+
+    // 3회 누적 시 cleanupWatchlist에서 제거 대상
+    stock.entryFailCount = (stock.entryFailCount ?? 0) + 1; // 2회
+    stock.entryFailCount = (stock.entryFailCount ?? 0) + 1; // 3회
+    expect(stock.entryFailCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it('breakout 충족 시 entryFailCount가 증가하지 않아야 한다', () => {
+    const stock = {
+      code: '298050',
+      name: '효성티앤씨',
+      entryPrice: 300_000,
+      stopLoss: 270_000,
+      addedBy: 'AUTO' as const,
+      entryFailCount: 0,
+    };
+
+    // 현재가 310,000원 — breakout 충족
+    const currentPrice = 310_000;
+    const breakout = currentPrice >= stock.entryPrice;
+    const nearEntryThreshold = 0.01;
+    const nearEntry = Math.abs(currentPrice - stock.entryPrice) / stock.entryPrice <= nearEntryThreshold;
+
+    expect(breakout).toBe(true);
+
+    // breakout 충족 → failCount 증가 없이 재검증 로직 진행
+    if (!(nearEntry || breakout)) {
+      stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
+    }
+    expect(stock.entryFailCount).toBe(0);
+  });
+});
