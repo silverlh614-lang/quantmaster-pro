@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { AI_MODELS } from '../constants.js';
 
 // Gemini Flash 모델 (Google Search 지원) — supplyChainAgent 전용
-const SEARCH_MODEL = 'gemini-3.0-flash';
+const SEARCH_MODEL = AI_MODELS.PRIMARY;
 
 // ── 일별 호출 카운터 ───────────────────────────────────────────────────────────
 

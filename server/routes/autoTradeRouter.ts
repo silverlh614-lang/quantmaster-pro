@@ -28,8 +28,12 @@ import {
   loadConditionWeightsByRegime,
 } from '../persistence/conditionWeightsRepo.js';
 import { CONDITION_KEYS, DEFAULT_CONDITION_WEIGHTS, type ConditionKey } from '../quantFilter.js';
-import { getScanFeedbackState } from '../orchestrator/adaptiveScanScheduler.js';
+import { getScanFeedbackState, getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { channelWatchlistAdded, channelWatchlistRemoved } from '../alerts/channelPipeline.js';
+import { getEmergencyStop, setEmergencyStop } from '../state.js';
+import { tradingOrchestrator } from '../orchestrator/tradingOrchestrator.js';
+import { isOpenShadowStatus } from '../trading/entryEngine.js';
+import { getLastBuySignalAt } from '../trading/signalScanner.js';
 import {
   loadTradingSettings,
   saveTradingSettings,
@@ -40,6 +44,67 @@ import {
 } from '../persistence/tradingSettingsRepo.js';
 
 const router = Router();
+
+// ─────────────────────────────────────────────────────────────
+// 자동매매 엔진 상태 조회 / 토글 API
+// ─────────────────────────────────────────────────────────────
+
+/** GET /api/auto-trade/engine/status — 엔진 ON/OFF, 마지막/다음 실행, 오늘 KPI */
+router.get('/auto-trade/engine/status', (_req: any, res: any) => {
+  const autoEnabled = process.env.AUTO_TRADE_ENABLED === 'true';
+  const emergencyStop = getEmergencyStop();
+  const running = autoEnabled && !emergencyStop;
+
+  // 오케스트레이터 상태에서 마지막 실행 시점 추출
+  const orchStatus = tradingOrchestrator.getStatus();
+  const handlerRanAt = orchStatus.handlerRanAt ?? {};
+  const lastRunTs = Object.values(handlerRanAt).sort().pop() ?? null;
+
+  // 마지막 스캔 시점
+  const lastScanTs = getLastScanAt();
+  const lastScanAt = lastScanTs > 0 ? new Date(lastScanTs).toISOString() : null;
+
+  // 마지막 매수 신호
+  const lastBuyTs = getLastBuySignalAt();
+  const lastBuySignalAt = lastBuyTs > 0 ? new Date(lastBuyTs).toISOString() : null;
+
+  // 오늘의 Shadow 거래 통계
+  const todayStr = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
+  const shadows = loadShadowTrades();
+  const todayShadows = shadows.filter(
+    (s) => (s.signalTime ?? '').slice(0, 10) === todayStr
+  );
+  const todayBuys = todayShadows.filter((s) => isOpenShadowStatus(s.status)).length;
+  const todayExits = todayShadows.filter(
+    (s) => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP'
+  ).length;
+  const todayScans = Object.keys(handlerRanAt).length;
+
+  res.json({
+    running,
+    autoTradeEnabled: autoEnabled,
+    emergencyStop,
+    mode: process.env.AUTO_TRADE_MODE ?? 'SHADOW',
+    currentState: orchStatus.computedState,
+    lastRun: lastRunTs,
+    lastScanAt,
+    lastBuySignalAt,
+    todayStats: {
+      scans: todayScans,
+      buys: todayBuys,
+      exits: todayExits,
+    },
+  });
+});
+
+/** POST /api/auto-trade/engine/toggle — 비상정지 토글로 엔진 ON/OFF 전환 */
+router.post('/auto-trade/engine/toggle', (_req: any, res: any) => {
+  const current = getEmergencyStop();
+  setEmergencyStop(!current);
+  const running = process.env.AUTO_TRADE_ENABLED === 'true' && current; // toggled: was stopped → now running
+  console.log(`[Engine] 자동매매 엔진 ${current ? '재개' : '정지'} (비상정지 → ${!current})`);
+  res.json({ running, emergencyStop: !current });
+});
 
 // ─── 아이디어 4: FSS 외국인 수급 방향 전환 스코어 API ──────────────────────
 // GET  /api/fss/records  — 저장된 일별 외국인 수급 기록 조회
