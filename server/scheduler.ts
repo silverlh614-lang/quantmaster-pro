@@ -204,10 +204,10 @@ export function startScheduler() {
   // KST 09:00~15:30 = UTC 00:00~06:30 (Mon-Fri)
   cron.schedule('*/5 0-6 * * 1-5', async () => {
     const shadows = loadShadowTrades();
-    const activeShadows = shadows.filter(
-      (s) => s.status === 'PENDING' || s.status === 'ACTIVE'
+    const hasOpenTrades = shadows.some(
+      (s) => isOpenShadowStatus(s.status)
     );
-    if (activeShadows.length === 0) return;
+    if (!hasOpenTrades) return;
     try {
       await updateShadowResults(shadows, getLiveRegime(loadMacroState()));
       saveShadowTrades(shadows);

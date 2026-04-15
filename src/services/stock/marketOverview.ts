@@ -85,9 +85,9 @@ export async function getMarketOverview(): Promise<MarketOverview | null> {
   if (yahoo?.vix)        preLines.push(`- VIX: ${yahoo.vix.toFixed(2)}`);
   if (yahoo?.us10yYield) preLines.push(`- 미국 10년물 금리: ${yahoo.us10yYield.toFixed(2)}%`);
   if (macroCached?.usdKrw) preLines.push(`- USD/KRW: ${(macroCached.usdKrw as number).toFixed(0)}원`);
-  if (yahoo?.ewyReturn !== null && yahoo?.ewyReturn !== undefined)
+  if (yahoo?.ewyReturn != null)
     preLines.push(`- EWY(한국 ETF) 5일 수익률: ${yahoo.ewyReturn >= 0 ? '+' : ''}${yahoo.ewyReturn.toFixed(2)}%`);
-  if (yahoo?.mtumReturn !== null && yahoo?.mtumReturn !== undefined)
+  if (yahoo?.mtumReturn != null)
     preLines.push(`- MTUM(모멘텀 ETF) 5일 수익률: ${yahoo.mtumReturn >= 0 ? '+' : ''}${yahoo.mtumReturn.toFixed(2)}%`);
   const preFilledSection = preLines.length > 0
     ? `\n[사전 수집 실데이터 — 아래 값은 이미 확보됨. 이 수치를 그대로 JSON에 반영하라]\n${preLines.join('\n')}\n`

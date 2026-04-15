@@ -53,7 +53,7 @@ export function getVixGating(
 ): VixGating {
   const rebound = checkVixRebound(vixHistory);
 
-  if (vix === null || vix === undefined) {
+  if (vix == null) {
     return {
       kellyMultiplier: 1.0,
       noNewEntry:      false,

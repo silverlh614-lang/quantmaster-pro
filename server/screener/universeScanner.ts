@@ -376,8 +376,7 @@ export async function stage3AIScreenAndRegister(
     const qualKeys = (result.passedConditionKeys ?? []).filter(k => !realKeys.includes(k));
 
     // DART OPM 음수 → 적자기업 경고 (SKIP하지는 않지만 profile 강제 강등)
-    const dartOPMNeg = candidate?.dartFin?.opm !== undefined &&
-                       candidate.dartFin.opm !== null &&
+    const dartOPMNeg = candidate?.dartFin?.opm != null &&
                        candidate.dartFin.opm < 0;
     const finalProfile = dartOPMNeg && profile === 'A' ? 'B' : profile;
 

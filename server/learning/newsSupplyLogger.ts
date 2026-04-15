@@ -144,7 +144,7 @@ export async function trackPendingRecords(): Promise<void> {
     // T+1: 1~2 거래일 경과
     if (elapsed >= 1 && r.t1EwyChange === undefined) {
       const t1EwyChange = await fetchNDayChange('EWY', elapsed).catch(() => undefined);
-      if (t1EwyChange !== null && t1EwyChange !== undefined) {
+      if (t1EwyChange != null) {
         r.t1EwyChange = t1EwyChange;
         updated++;
       }
@@ -153,7 +153,7 @@ export async function trackPendingRecords(): Promise<void> {
     // T+3: 3~4 거래일 경과
     if (elapsed >= 3 && r.t3EwyChange === undefined) {
       const t3EwyChange = await fetchNDayChange('EWY', elapsed).catch(() => undefined);
-      if (t3EwyChange !== null && t3EwyChange !== undefined) {
+      if (t3EwyChange != null) {
         r.t3EwyChange = t3EwyChange;
         updated++;
       }

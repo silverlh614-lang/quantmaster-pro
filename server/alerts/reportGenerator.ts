@@ -387,7 +387,7 @@ export async function sendIntradayCheckIn(type: 'midday' | 'preclose'): Promise<
 
 /** 변화율 포맷 헬퍼 */
 function fmtPct(v: number | null | undefined): string {
-  if (v === null || v === undefined) return 'N/A';
+  if (v == null) return 'N/A';
   return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
 }
 

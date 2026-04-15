@@ -152,7 +152,7 @@ RECOVERY/EXPANSION/SLOWDOWN/RECESSION/UNCERTAIN/CRISIS/RANGE_BOUND.
   const fredHySpread  = fredHyR.status  === 'fulfilled' && fredHyR.value  !== null ? Math.round(fredHyR.value * 100)  : null;
   const fredSofr      = fredSofrR.status === 'fulfilled' && fredSofrR.value !== null ? fredSofrR.value : null;
   const yahooB        = yahooPhaseB.status === 'fulfilled' ? yahooPhaseB.value : null;
-  const tedSpreadBps  = (fredSofr !== null && yahooB?.usShortRate !== null && yahooB?.usShortRate !== undefined)
+  const tedSpreadBps  = (fredSofr !== null && yahooB?.usShortRate != null)
     ? Math.round((fredSofr - (yahooB.usShortRate ?? 0)) * 100) : null;
   const ewyRet  = yahooB?.ewyReturn  ?? null;
   const mtumRet = yahooB?.mtumReturn ?? null;
