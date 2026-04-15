@@ -26,6 +26,9 @@ export const RECOMMENDATIONS_FILE    = path.join(DATA_DIR, 'recommendations.json
 export const SCREENER_FILE           = path.join(DATA_DIR, 'screener-cache.json');
 export const PENDING_ORDERS_FILE     = path.join(DATA_DIR, 'pending-orders.json');
 export const PENDING_SELL_ORDERS_FILE = path.join(DATA_DIR, 'pending-sell-orders.json');
+export const OCO_ORDERS_FILE          = path.join(DATA_DIR, 'oco-orders.json');
+/** Stage1 Pre-screening 캐시 — 전날 16:30 실행 결과를 저장, 당일 08:20 Stage2+3에서 사용 */
+export const STAGE1_CACHE_FILE        = path.join(DATA_DIR, 'stage1-cache.json');
 export const BEAR_ALERT_FILE         = path.join(DATA_DIR, 'bear-alert-state.json');
 export const MHS_MORNING_ALERT_FILE  = path.join(DATA_DIR, 'mhs-morning-alert-state.json');
 export const IPS_ALERT_FILE          = path.join(DATA_DIR, 'ips-alert-state.json');

@@ -21,6 +21,7 @@
  * 도메인 상수 및 유틸리티는 pipelineHelpers.ts 로 분리됨.
  */
 
+import fs from 'fs';
 import { fetchYahooQuote, enrichQuoteWithKisMTAS, STOCK_UNIVERSE } from './stockScreener.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
@@ -33,6 +34,7 @@ import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { calcReliabilityScore, sourcesFromGateKeys, formatReliabilityBadge } from '../learning/reliabilityScorer.js';
 import { runConfluenceEngine } from '../trading/confluenceEngine.js';
 import { evaluateRegretAsymmetry } from '../trading/regretAsymmetryFilter.js';
+import { STAGE1_CACHE_FILE, ensureDataDir } from '../persistence/paths.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 import {
   type CandidateStock,
@@ -469,8 +471,8 @@ export async function stage3AIScreenAndRegister(
 // ── 전체 파이프라인 오케스트레이터 ────────────────────────────────────────────
 
 /**
- * 3단계 자동 발굴 파이프라인 전체 실행.
- * scheduler.ts 에서 매일 08:35 KST (UTC 23:35 일~목) 호출.
+ * 3단계 자동 발굴 파이프라인 전체 실행 (기존 호환 — fallback용).
+ * Stage1 캐시가 없을 때 08:20 cron에서 전체 파이프라인을 한 번에 실행.
  */
 export async function runFullDiscoveryPipeline(
   regime: RegimeLevel,
@@ -502,6 +504,132 @@ export async function runFullDiscoveryPipeline(
     console.error('[Pipeline] 파이프라인 오류:', e instanceof Error ? e.message : e);
     await sendTelegramAlert(
       `⚠️ <b>[AI 파이프라인] 오류 발생</b>\n${e instanceof Error ? e.message : '알 수 없는 오류'}`,
+    ).catch(console.error);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 2단계 분리 파이프라인 — Stage1 전날 16:30, Stage2+3 당일 08:20
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Stage1(220개 Yahoo 스캔)이 전체 시간의 80%를 차지.
+// 전일 종가 데이터는 15:30 장마감 즉시 확정되므로 16:30에 Stage1을 선행 실행.
+// 당일 08:20에는 전날 60개 후보에 대해 간밤 글로벌 신호를 반영한
+// Stage2+3만 실행하면 5분 안에 완료.
+//
+// 이점:
+//   - 이른 시간 이동 → 간밤 글로벌 신호 누락 문제 해결
+//   - 08:35 유지 → 10분 타임박스 리스크 해소
+//   - 16:30 Stage1 + 08:20 Stage2+3 분리 → 양쪽 문제 동시 해결
+// ═══════════════════════════════════════════════════════════════════════════════
+
+interface Stage1CacheData {
+  cachedAt: string;        // ISO — Stage1 실행 시각
+  candidates: CandidateStock[];
+}
+
+function loadStage1Cache(): Stage1CacheData | null {
+  ensureDataDir();
+  if (!fs.existsSync(STAGE1_CACHE_FILE)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(STAGE1_CACHE_FILE, 'utf-8'));
+  } catch { return null; }
+}
+
+function saveStage1Cache(data: Stage1CacheData): void {
+  ensureDataDir();
+  fs.writeFileSync(STAGE1_CACHE_FILE, JSON.stringify(data, null, 2));
+}
+
+/**
+ * 1차 Pre-screening — 전날 16:30 KST 실행.
+ * Stage1만 실행하여 220개 → 상위 60개 후보를 확정하고 캐시에 저장.
+ * 전일 종가 데이터 기반이므로 15:30 장마감 직후 실행 가능.
+ */
+export async function runStage1PreScreening(): Promise<void> {
+  const start = Date.now();
+  console.log('[Pipeline/PreScreen] 1차 Pre-screening 시작 (Stage1 only)');
+
+  try {
+    const stage1 = await stage1QuantFilter();
+    if (stage1.length === 0) {
+      console.log('[Pipeline/PreScreen] Stage1 결과 없음');
+      return;
+    }
+
+    saveStage1Cache({
+      cachedAt: new Date().toISOString(),
+      candidates: stage1,
+    });
+
+    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+    console.log(`[Pipeline/PreScreen] 완료 — ${stage1.length}개 후보 캐시 저장, ${elapsed}초 소요`);
+
+    await sendTelegramAlert(
+      `🔍 <b>[Pre-screening 완료] 16:30</b>\n` +
+      `Stage1: ${stage1.length}개 후보 확정 → 캐시 저장\n` +
+      `소요: ${elapsed}초 | 내일 08:20 Stage2+3 실행 예정`,
+    ).catch(console.error);
+  } catch (e) {
+    console.error('[Pipeline/PreScreen] 오류:', e instanceof Error ? e.message : e);
+    await sendTelegramAlert(
+      `⚠️ <b>[Pre-screening 오류]</b>\n${e instanceof Error ? e.message : '알 수 없는 오류'}\n` +
+      `내일 08:20에 전체 파이프라인으로 fallback 실행됩니다.`,
+    ).catch(console.error);
+  }
+}
+
+/**
+ * 2차 Final-screening — 당일 08:20 KST 실행.
+ * 전날 Stage1 캐시(60개)에 대해 간밤 글로벌 신호를 반영한 Stage2+3만 실행.
+ * 캐시가 없거나 24시간 이상 경과 시 전체 파이프라인으로 fallback.
+ */
+export async function runStage2_3FinalScreening(
+  regime: RegimeLevel,
+  macroState: MacroState | null,
+): Promise<void> {
+  const start = Date.now();
+  const cache = loadStage1Cache();
+
+  // 캐시 유효성 검증: 존재 + 24시간 이내
+  const cacheMaxAgeMs = 24 * 60 * 60 * 1000;
+  const cacheValid = cache &&
+    cache.candidates.length > 0 &&
+    (Date.now() - new Date(cache.cachedAt).getTime()) < cacheMaxAgeMs;
+
+  if (!cacheValid) {
+    console.log('[Pipeline/FinalScreen] Stage1 캐시 없음 또는 만료 — 전체 파이프라인 fallback');
+    await runFullDiscoveryPipeline(regime, macroState);
+    return;
+  }
+
+  console.log(
+    `[Pipeline/FinalScreen] 2차 Final-screening 시작 — ` +
+    `Stage1 캐시 ${cache.candidates.length}개 (${cache.cachedAt})`,
+  );
+
+  try {
+    // Stage 2 — 섹터 + Gate 필터 (간밤 글로벌 신호 반영)
+    const stage2 = await stage2SectorGateFilter(cache.candidates, regime, macroState);
+    if (stage2.length === 0) {
+      console.log('[Pipeline/FinalScreen] Stage2 통과 종목 없음 — 종료');
+      return;
+    }
+
+    // Stage 3 — Gemini 배치 + 워치리스트 등록
+    const added = await stage3AIScreenAndRegister(stage2, regime);
+    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+    console.log(`[Pipeline/FinalScreen] 완료 — ${added}개 등록, ${elapsed}초 소요`);
+
+    await sendTelegramAlert(
+      `🔍 <b>[Final-screening 완료] 08:20</b>\n` +
+      `Stage1 캐시: ${cache.candidates.length}개 → Stage2: ${stage2.length}개 → 등록: ${added}개\n` +
+      `소요: ${elapsed}초 (전체 파이프라인 대비 ~80% 단축)`,
+    ).catch(console.error);
+  } catch (e) {
+    console.error('[Pipeline/FinalScreen] 오류:', e instanceof Error ? e.message : e);
+    await sendTelegramAlert(
+      `⚠️ <b>[Final-screening 오류]</b>\n${e instanceof Error ? e.message : '알 수 없는 오류'}`,
     ).catch(console.error);
   }
 }

@@ -3,6 +3,9 @@
 // 기존 server/clients/kisClient.ts + src/server/clients/kisClient.ts 통합
 
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { scheduleKisCall, type KisApiPriority } from './kisRateLimiter.js';
+export type { KisApiPriority } from './kisRateLimiter.js';
+export { getRateLimiterStats } from './kisRateLimiter.js';
 
 export const KIS_IS_REAL = process.env.KIS_IS_REAL === 'true';
 export const KIS_BASE    = KIS_IS_REAL
@@ -86,9 +89,10 @@ export function getRealDataTokenRemainingHours(): number {
   return Math.floor((cachedRealDataToken.expiry - Date.now()) / 1000 / 60 / 60);
 }
 
-// ─── HTTP 헬퍼 ──────────────────────────────────────────────────────────────
+// ─── HTTP 헬퍼 (내부 raw + 외부 rate-limited) ──────────────────────────────
 
-export async function kisGet(trId: string, apiPath: string, params: Record<string, string>) {
+/** 내부 raw GET — 토큰 버킷 없이 직접 호출. 외부에서는 kisGet을 사용할 것. */
+async function _rawKisGet(trId: string, apiPath: string, params: Record<string, string>) {
   const token = await refreshKisToken();
   const url = `${KIS_BASE}${apiPath}?${new URLSearchParams(params)}`;
   const res = await fetch(url, {
@@ -106,7 +110,8 @@ export async function kisGet(trId: string, apiPath: string, params: Record<strin
   try { return JSON.parse(text); } catch { return null; }
 }
 
-export async function kisPost(trId: string, apiPath: string, body: Record<string, string>) {
+/** 내부 raw POST — 토큰 버킷 없이 직접 호출. 외부에서는 kisPost를 사용할 것. */
+async function _rawKisPost(trId: string, apiPath: string, body: Record<string, string>) {
   const token = await refreshKisToken();
   const res = await fetch(`${KIS_BASE}${apiPath}`, {
     method: 'POST',
@@ -125,33 +130,57 @@ export async function kisPost(trId: string, apiPath: string, body: Record<string
   try { return JSON.parse(text); } catch { return null; }
 }
 
+/**
+ * Rate-limited KIS GET. 모든 외부 호출은 토큰 버킷을 통과한다.
+ * @param priority 기본 MEDIUM. 매도 체결 확인은 HIGH, 잔고/데이터 조회는 LOW.
+ */
+export function kisGet(
+  trId: string, apiPath: string, params: Record<string, string>,
+  priority: KisApiPriority = 'MEDIUM',
+) {
+  return scheduleKisCall(priority, `GET ${trId}`, () => _rawKisGet(trId, apiPath, params));
+}
+
+/**
+ * Rate-limited KIS POST. 모든 외부 호출은 토큰 버킷을 통과한다.
+ * @param priority 기본 HIGH (주문 계열). 데이터 조회는 LOW.
+ */
+export function kisPost(
+  trId: string, apiPath: string, body: Record<string, string>,
+  priority: KisApiPriority = 'HIGH',
+) {
+  return scheduleKisCall(priority, `POST ${trId}`, () => _rawKisPost(trId, apiPath, body));
+}
+
 // ─── 실계좌 데이터 전용 HTTP 헬퍼 ────────────────────────────────────────────
 // 시장 데이터(거래량 순위, 현재가, 투자자 수급 등) 조회 전용.
 // 실계좌 키 미설정 시 모의계좌 kisGet으로 자동 폴백.
 
 /**
- * 실계좌 데이터 전용 GET 요청.
+ * 실계좌 데이터 전용 GET 요청 (rate-limited).
  * KIS_REAL_DATA_APP_KEY 설정 시 실계좌 서버로, 미설정 시 기존 kisGet 폴백.
  */
-export async function realDataKisGet(trId: string, apiPath: string, params: Record<string, string>) {
+export function realDataKisGet(trId: string, apiPath: string, params: Record<string, string>) {
   if (_overrides.realDataKisGet) return _overrides.realDataKisGet(trId, apiPath, params);
-  if (!HAS_REAL_DATA_CLIENT) return kisGet(trId, apiPath, params);
+  if (!HAS_REAL_DATA_CLIENT) return kisGet(trId, apiPath, params, 'LOW');
 
-  const token = await refreshRealDataToken();
-  const url = `${REAL_DATA_BASE}${apiPath}?${new URLSearchParams(params)}`;
-  const res = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      appkey: process.env.KIS_REAL_DATA_APP_KEY!,
-      appsecret: process.env.KIS_REAL_DATA_APP_SECRET!,
-      tr_id: trId,
-      custtype: 'P',
-    },
+  return scheduleKisCall('LOW', `REAL_GET ${trId}`, async () => {
+    const token = await refreshRealDataToken();
+    const url = `${REAL_DATA_BASE}${apiPath}?${new URLSearchParams(params)}`;
+    const res = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        appkey: process.env.KIS_REAL_DATA_APP_KEY!,
+        appsecret: process.env.KIS_REAL_DATA_APP_SECRET!,
+        tr_id: trId,
+        custtype: 'P',
+      },
+    });
+    const text = await res.text();
+    if (!text.trim()) return null;
+    try { return JSON.parse(text); } catch { return null; }
   });
-  const text = await res.text();
-  if (!text.trim()) return null;
-  try { return JSON.parse(text); } catch { return null; }
 }
 
 // ─── 현재가 조회 ────────────────────────────────────────────────────────────
@@ -266,7 +295,7 @@ export async function fetchAccountBalance(): Promise<number | null> {
     PRCS_DVSN: '01',
     CTX_AREA_FK100: '',
     CTX_AREA_NK100: '',
-  });
+  }, 'LOW');
   const cash = Number(data?.output2?.[0]?.dnca_tot_amt ?? 0);
   return cash > 0 ? cash : null;
 }
@@ -416,5 +445,104 @@ export async function placeKisStopLossLimitOrder(
       `오류: ${err instanceof Error ? err.message : String(err)}`
     ).catch(console.error);
     return null;
+  }
+}
+
+// ─── OCO 익절 지정가 매도 (체결 즉시 자동 등록) ─────────────────────────────────
+/**
+ * 매수 체결 확인 후 호출 — 익절 지정가 매도를 KIS에 즉시 등록.
+ * placeKisStopLossLimitOrder와 쌍으로 등록되어 OCO 완결 루프를 구성.
+ *
+ * @returns 주문번호(ODNO) 또는 null (Shadow 모드·오류 시)
+ */
+export async function placeKisTakeProfitLimitOrder(
+  stockCode: string,
+  stockName: string,
+  quantity: number,
+  targetPrice: number,
+): Promise<string | null> {
+  if (!KIS_IS_REAL) {
+    console.log(`[TakeProfit OCO] 🎯 ${stockName}(${stockCode}) 익절 지정가 ${targetPrice.toLocaleString()}원 × ${quantity}주 (Shadow 모드)`);
+    await sendTelegramAlert(
+      `🎯 <b>[Shadow 익절 등록] ${stockName} (${stockCode})</b>\n` +
+      `익절가: ${targetPrice.toLocaleString()}원 × ${quantity}주 | Shadow 모드 — 실주문 없음`
+    ).catch(console.error);
+    return null;
+  }
+
+  if (!process.env.KIS_APP_KEY) {
+    console.warn(`[TakeProfit OCO] KIS 미설정 — ${stockName} 익절 주문 건너뜀`);
+    return null;
+  }
+
+  try {
+    console.log(`[TakeProfit OCO] 🎯 ${stockName}(${stockCode}) 익절 지정가 등록 — ${targetPrice.toLocaleString()}원 × ${quantity}주`);
+
+    const orderData = await kisPost(SELL_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
+      CANO:            process.env.KIS_ACCOUNT_NO ?? '',
+      ACNT_PRDT_CD:    process.env.KIS_ACCOUNT_PROD ?? '01',
+      PDNO:            stockCode.padStart(6, '0'),
+      ORD_DVSN:        '00',   // 지정가
+      ORD_QTY:         quantity.toString(),
+      ORD_UNPR:        targetPrice.toString(),
+      SLL_BUY_DVSN_CD: '01',  // 01 = 매도
+      CTAC_TLNO:       '',
+      MGCO_APTM_ODNO:  '',
+      ORD_SVR_DVSN_CD: '0',
+    });
+
+    const ordNo = (orderData as { output?: { ODNO?: string } } | null)?.output?.ODNO ?? null;
+    console.log(`[TakeProfit OCO] 🎯 ${stockName} 익절 등록 완료 — ${targetPrice.toLocaleString()}원 ODNO: ${ordNo}`);
+
+    await sendTelegramAlert(
+      `🎯 <b>[익절 주문 등록] ${stockName} (${stockCode})</b>\n` +
+      `익절가: ${targetPrice.toLocaleString()}원 × ${quantity}주\n` +
+      `주문번호: ${ordNo ?? 'N/A'}`
+    ).catch(console.error);
+
+    return ordNo;
+  } catch (err: unknown) {
+    console.error(`[TakeProfit OCO] ${stockName} 익절 주문 실패:`, err instanceof Error ? err.message : err);
+    await sendTelegramAlert(
+      `🚨 <b>[긴급] ${stockName} 익절 주문 등록 실패!</b>\n` +
+      `수동으로 익절 주문을 등록하세요!\n` +
+      `오류: ${err instanceof Error ? err.message : String(err)}`
+    ).catch(console.error);
+    return null;
+  }
+}
+
+// ─── KIS 주문 취소 (OCO one-cancels-other용) ────────────────────────────────
+/**
+ * 기존 미체결 주문을 취소한다. OCO에서 한 쪽 체결 시 다른 쪽 자동 취소에 사용.
+ *
+ * @returns true = 취소 성공 또는 이미 체결됨, false = 취소 실패
+ */
+export async function cancelKisOrder(
+  stockCode: string,
+  ordNo: string,
+  quantity: number,
+): Promise<boolean> {
+  if (!KIS_IS_REAL || !process.env.KIS_APP_KEY) return false;
+
+  try {
+    const cancelTrId = KIS_IS_REAL ? 'TTTC0803U' : 'VTTC0803U';
+    await kisPost(cancelTrId, '/uapi/domestic-stock/v1/trading/order-rvsecncl', {
+      CANO: process.env.KIS_ACCOUNT_NO ?? '',
+      ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
+      KRX_FWDG_ORD_ORGNO: '',
+      ORGN_ODNO: ordNo,
+      ORD_DVSN: '00',
+      RVSE_CNCL_DVSN_CD: '02',  // 02 = 취소
+      ORD_QTY: quantity.toString(),
+      ORD_UNPR: '0',
+      QTY_ALL_ORD_YN: 'Y',
+      PDNO: stockCode.padStart(6, '0'),
+    });
+    console.log(`[KIS] 주문 취소 완료: ${stockCode} ODNO=${ordNo}`);
+    return true;
+  } catch (err) {
+    console.error(`[KIS] 주문 취소 실패 ODNO=${ordNo}:`, err instanceof Error ? err.message : err);
+    return false;
   }
 }

@@ -1,8 +1,9 @@
 import fs from 'fs';
 import { PENDING_ORDERS_FILE, PENDING_SELL_ORDERS_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadShadowTrades, saveShadowTrades } from '../persistence/shadowTradeRepo.js';
-import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL, SELL_TR_ID, placeKisStopLossLimitOrder } from '../clients/kisClient.js';
+import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL, SELL_TR_ID } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { registerOcoPair } from './ocoCloseLoop.js';
 
 const FILL_POLL_MAX = 10; // 최대 폴링 횟수 (cron 5분 간격 × 10 = 최대 50분 모니터링)
 
@@ -123,23 +124,26 @@ export class FillMonitor {
           `주문번호: ${order.ordNo}`
         ).catch(console.error);
 
-        // ── OCO 손절 지정가 즉시 등록 ───────────────────────────────────
+        // ── OCO 손절+익절 지정가 쌍 동시 등록 (OCO Close Loop) ───────────
         // exitEngine 주기적 감시와 별개로, 거래소 레벨 안전망 확보.
+        // 양쪽 주문번호를 DB에 저장 → 15분마다 생존 확인 → 한쪽 체결 시 다른쪽 취소.
         const shadows = loadShadowTrades();
         const trade = shadows.find(s => s.id === order.relatedTradeId);
         const stopPrice = trade?.hardStopLoss ?? trade?.stopLoss;
-        if (trade && stopPrice && stopPrice > 0) {
-          const stopOrdNo = await placeKisStopLossLimitOrder(
+        const targetPrice = trade?.targetPrice;
+        if (trade && stopPrice && stopPrice > 0 && targetPrice && targetPrice > 0) {
+          await registerOcoPair(
+            order.relatedTradeId ?? order.ordNo,
             order.stockCode,
             order.stockName,
             order.quantity,
-            Math.floor(stopPrice),
+            fillPrice,
+            stopPrice,
+            targetPrice,
           );
-          if (stopOrdNo) {
-            console.log(`[FillMonitor] 🛡️ OCO 손절 연결: ${order.stockName} 손절가=${Math.floor(stopPrice).toLocaleString()}원 ODNO=${stopOrdNo}`);
-          }
+          console.log(`[FillMonitor] 🔗 OCO 쌍 등록: ${order.stockName} 손절=${Math.floor(stopPrice).toLocaleString()}원 익절=${Math.floor(targetPrice).toLocaleString()}원`);
         } else {
-          console.warn(`[FillMonitor] ⚠️ ${order.stockName} 손절가 미설정 — OCO 미등록 (exitEngine 감시 대체)`);
+          console.warn(`[FillMonitor] ⚠️ ${order.stockName} 손절/익절가 미설정 — OCO 미등록 (exitEngine 감시 대체)`);
         }
       } else if (Number(unfilled.tot_ccld_qty ?? 0) > 0) {
         const fillQty = Math.min(order.quantity, Number(unfilled.tot_ccld_qty ?? 0));
@@ -285,6 +289,7 @@ export async function pollSellFills(): Promise<void> {
   const trId = KIS_IS_REAL ? 'TTTC8001R' : 'VTTC8001R';
 
   // CCLD TR(당일 체결 내역 조회) — 당일 전체 체결 목록에서 매칭
+  // priority HIGH: 매도 체결 확인은 최우선 (네이키드 포지션 방지)
   let ccldData: { output?: { odno: string; tot_ccld_qty: string; avg_prvs: string; ord_qty: string; sll_buy_dvsn_cd: string }[] } | null = null;
   try {
     ccldData = await kisGet(trId, '/uapi/domestic-stock/v1/trading/inquire-daily-ccld', {
@@ -302,7 +307,7 @@ export async function pollSellFills(): Promise<void> {
       INQR_DVSN_1: '',
       CTX_AREA_FK100: '',
       CTX_AREA_NK100: '',
-    });
+    }, 'HIGH');
   } catch (e) {
     console.error('[SellFillMonitor] CCLD 조회 실패:', e instanceof Error ? e.message : e);
     return;
