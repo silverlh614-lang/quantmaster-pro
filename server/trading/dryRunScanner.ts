@@ -20,6 +20,7 @@ import {
   evaluateEntryRevalidation,
   buildStopLossPlan,
   getMinGateScore,
+  getKstMarketElapsedMinutes,
 } from './entryEngine.js';
 import { isBlacklisted } from '../persistence/blacklistRepo.js';
 import { calcRRR, RRR_MIN_THRESHOLD } from './riskManager.js';
@@ -225,6 +226,7 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
       volume:    reCheckQuote?.volume,
       avgVolume: reCheckQuote?.avgVolume,
       minGateScore: getMinGateScore(regime),
+      marketElapsedMinutes: getKstMarketElapsedMinutes(),
     });
 
     if (!entryRevalidation.ok) {

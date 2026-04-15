@@ -51,6 +51,7 @@ import {
   calculateOrderQuantity,
   evaluateEntryRevalidation,
   getMinGateScore,
+  getKstMarketElapsedMinutes,
 } from './entryEngine.js';
 import { updateShadowResults } from './exitEngine.js';
 import { requestBuyApproval, type ApprovalAction } from '../telegram/buyApproval.js';
@@ -791,6 +792,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         volume: reCheckQuote?.volume,
         avgVolume: reCheckQuote?.avgVolume,
         minGateScore: getMinGateScore(regime),  // 아이디어 #7: 레짐별 Gate 임계값 적용
+        marketElapsedMinutes: getKstMarketElapsedMinutes(),
       });
       if (!entryRevalidation.ok) {
         console.log(`[AutoTrade] ${stock.name} 진입 직전 재검증 탈락: ${entryRevalidation.reasons.join(', ')}`);
