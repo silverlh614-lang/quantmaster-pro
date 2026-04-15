@@ -442,11 +442,34 @@ export interface RecommendationResponse {
   recommendations: StockRecommendation[];
 }
 
+// ─── 유니버스 선택 (Gate-0) ─────────────────────────────────────────────────
+
+export type UniversePreset =
+  | 'KOSPI200'        // KOSPI 200 구성종목
+  | 'KOSDAQ150'       // KOSDAQ 150 구성종목
+  | 'ALL'             // 전체 상장 (KOSPI + KOSDAQ)
+  | 'CUSTOM';         // 커스텀 유니버스
+
+export type UniverseMarket = 'J' | 'Q' | 'JQ';  // J=KOSPI, Q=KOSDAQ, JQ=Both
+
+export interface UniverseFilter {
+  minMarketCapBillion?: number;   // 시총 하한 (억원)
+  volumeTopPercent?: number;      // 거래량 상위 N%
+  foreignOwned?: boolean;         // 외국인 편입 종목만
+}
+
+export interface UniverseConfig {
+  preset: UniversePreset;
+  market: UniverseMarket;
+  filters: UniverseFilter;
+}
+
 export interface StockFilters {
   minRoe?: number;
   maxPer?: number;
   maxDebtRatio?: number;
   minMarketCap?: number;
   mode?: 'MOMENTUM' | 'EARLY_DETECT' | 'QUANT_SCREEN' | 'BEAR_SCREEN' | 'SMALL_MID_CAP';
+  universe?: UniverseConfig;
 }
 

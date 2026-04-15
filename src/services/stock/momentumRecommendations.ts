@@ -30,7 +30,23 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
     cachedUsdKrw  !== null ? `- USD/KRW 환율: ${cachedUsdKrw.toFixed(0)}원 (ECOS 실데이터, 검색 불필요)` : '',
   ].filter(Boolean).join('\n');
 
+  // ── Gate-0: 유니버스 제한 프롬프트 ──
+  const universe = filters?.universe;
+  let universePrompt = '';
+  if (universe) {
+    const parts: string[] = [];
+    const marketLabel = universe.market === 'J' ? '코스피(KOSPI)' : universe.market === 'Q' ? '코스닥(KOSDAQ)' : '코스피+코스닥 전체';
+    if (universe.preset === 'KOSPI200') parts.push('- 탐색 범위를 KOSPI 200 구성종목으로 한정하라');
+    else if (universe.preset === 'KOSDAQ150') parts.push('- 탐색 범위를 KOSDAQ 150 구성종목으로 한정하라');
+    else parts.push(`- 탐색 범위: ${marketLabel} 상장 종목`);
+    if (universe.filters.minMarketCapBillion) parts.push(`- 시가총액 ${universe.filters.minMarketCapBillion.toLocaleString()}억원 이상`);
+    if (universe.filters.volumeTopPercent) parts.push(`- 거래량 상위 ${universe.filters.volumeTopPercent}% 이내 종목만`);
+    if (universe.filters.foreignOwned) parts.push('- 외국인 투자 가능 종목(외국인 편입 종목)만');
+    if (parts.length > 0) universePrompt = `\n      [Gate-0: 유니버스 제한]\n      ${parts.join('\n      ')}\n      위 유니버스 조건을 반드시 먼저 적용하라.\n`;
+  }
+
   const filterPrompt = filters ? `
+      ${universePrompt}
       [사용자 정의 정량 필터]
       - ROE > ${filters.minRoe || 0}%
       - PER < ${filters.maxPer || 999}

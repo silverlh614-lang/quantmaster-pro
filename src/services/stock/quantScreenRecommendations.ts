@@ -14,13 +14,15 @@ import type { StockFilters, RecommendationResponse } from './types';
 
 export async function runQuantScreenPipeline(filters?: StockFilters): Promise<RecommendationResponse | null> {
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const universe = filters?.universe;
 
   try {
     debugLog('[QUANT_SCREEN] 1단계: 정량 스크리닝 + DART 공시 병렬 스캔');
     const [quantResults, dartResults] = await Promise.all([
       runQuantitativeScreening({
-        minMarketCap: filters?.minMarketCap ?? 1000,
+        minMarketCap: universe?.filters?.minMarketCapBillion ?? filters?.minMarketCap ?? 1000,
         maxResults: 30,
+        universe,
       }),
       scanDartDisclosures({ daysBack: 5, minSignificance: 5, maxResults: 20 }),
     ]);
