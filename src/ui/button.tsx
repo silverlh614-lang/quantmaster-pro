@@ -1,8 +1,12 @@
+/**
+ * Neo-Brutalism Button System
+ * Bold offset shadows + thick borders for primary actions.
+ */
 import React from 'react';
 import { cn } from './cn';
 import { Spinner, type SpinnerSize, type SpinnerVariant } from './spinner';
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'accent';
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'accent' | 'neo' | 'neo-secondary';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -21,6 +25,8 @@ const variantClasses: Record<ButtonVariant, string> = {
   ghost: 'text-theme-text-muted hover:text-theme-text hover:bg-white/[0.04]',
   danger: 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 hover:border-red-500/40',
   accent: 'bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white shadow-[0_8px_30px_rgba(59,130,246,0.25)] active:scale-[0.97]',
+  neo: 'neo-btn bg-orange-500 hover:bg-orange-600 text-white',
+  'neo-secondary': 'neo-btn bg-white/[0.04] hover:bg-white/[0.08] text-theme-text-secondary',
 };
 
 const sizeClasses: Record<ButtonSize, string> = {

@@ -1,15 +1,16 @@
 /**
- * Idea 10: Dark Glassmorphism Card with 3-layer depth system
- * Cards have inset highlight line at top for depth perception.
+ * Neo-Brutalism Card System
+ * Bold borders + offset shadows for data-dense quantitative displays.
+ * Preserves glassmorphism variants for backward compatibility.
  */
 import React from 'react';
 import { cn } from './cn';
 
-type CardVariant = 'default' | 'accent' | 'danger' | 'ghost' | 'gradient';
+type CardVariant = 'default' | 'accent' | 'danger' | 'ghost' | 'gradient' | 'neo' | 'neo-accent' | 'neo-pass' | 'neo-fail' | 'neo-warn' | 'neo-info' | 'neo-ai';
 
 interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   variant?: CardVariant;
-  padding?: 'sm' | 'md' | 'lg';
+  padding?: 'sm' | 'md' | 'lg' | 'none';
   hover?: boolean;
 }
 
@@ -19,22 +20,31 @@ const variantClasses: Record<CardVariant, string> = {
   danger: 'glass-3d border-red-500/20 shadow-[0_0_30px_rgba(239,68,68,0.08)]',
   ghost: 'border border-theme-border',
   gradient: 'glass-gradient',
+  neo: 'neo-card',
+  'neo-accent': 'neo-card border-orange-500/40',
+  'neo-pass': 'neo-card neo-bg-pass',
+  'neo-fail': 'neo-card neo-bg-fail',
+  'neo-warn': 'neo-card neo-bg-warn',
+  'neo-info': 'neo-card neo-bg-info',
+  'neo-ai': 'neo-card neo-bg-ai',
 };
 
 const paddingClasses = {
+  none: '',
   sm: 'p-4 sm:p-5',
   md: 'p-5 sm:p-6 lg:p-8',
   lg: 'p-6 sm:p-8 lg:p-10',
 };
 
 export function Card({ variant = 'default', padding = 'md', hover = false, className, children, ...props }: CardProps) {
+  const isNeo = variant.startsWith('neo');
   return (
     <div
       className={cn(
-        'rounded-2xl sm:rounded-3xl',
+        isNeo ? 'rounded-xl sm:rounded-2xl' : 'rounded-2xl sm:rounded-3xl',
         variantClasses[variant],
         paddingClasses[padding],
-        hover && 'card-3d cursor-pointer',
+        hover && (isNeo ? 'cursor-pointer' : 'card-3d cursor-pointer'),
         variant === 'ghost' && 'bg-[var(--bg-surface)]',
         className
       )}

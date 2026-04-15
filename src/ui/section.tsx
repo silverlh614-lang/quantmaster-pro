@@ -1,3 +1,7 @@
+/**
+ * Neo-Brutalism Section Wrapper
+ * Bold borders for Gate section separation with thick dividers.
+ */
 import React from 'react';
 import { cn } from './cn';
 
@@ -6,13 +10,26 @@ interface SectionProps extends React.HTMLAttributes<HTMLElement> {
   subtitle?: string;
   actions?: React.ReactNode;
   compact?: boolean;
+  variant?: 'default' | 'neo';
 }
 
-export function Section({ title, subtitle, actions, compact = false, className, children, ...props }: SectionProps) {
+export function Section({ title, subtitle, actions, compact = false, variant = 'default', className, children, ...props }: SectionProps) {
+  const isNeo = variant === 'neo';
+
   return (
-    <section className={cn(compact ? 'space-y-3' : 'space-y-4 sm:space-y-6', className)} {...props}>
+    <section
+      className={cn(
+        compact ? 'space-y-3' : 'space-y-4 sm:space-y-6',
+        isNeo && 'neo-section rounded-xl sm:rounded-2xl p-4 sm:p-5 lg:p-6',
+        className
+      )}
+      {...props}
+    >
       {(title || actions) && (
-        <div className="flex items-center justify-between gap-4">
+        <div className={cn(
+          'flex items-center justify-between gap-4',
+          isNeo && 'pb-3 border-b-2 border-slate-700/40'
+        )}>
           <div>
             {title && (
               <h3 className="text-sm sm:text-base font-black text-theme-text uppercase tracking-wider leading-snug">{title}</h3>

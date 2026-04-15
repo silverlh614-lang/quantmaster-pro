@@ -1,3 +1,7 @@
+/**
+ * Neo-Brutalism Sidebar
+ * Bold border-right, thick accent indicators, uppercase group labels.
+ */
 import React, { useMemo } from 'react';
 import {
   Zap, ShieldCheck, Settings,
@@ -25,16 +29,16 @@ export function Sidebar() {
   }), [watchlist, openTradesCount, shadowTrades.length]);
 
   return (
-    <aside className="app-sidebar no-scrollbar no-print">
+    <aside className="app-sidebar neo-sidebar no-scrollbar no-print">
       {/* Logo */}
-      <div className="h-16 flex items-center gap-3 px-5 border-b border-white/[0.04] shrink-0 relative">
+      <div className="h-16 flex items-center gap-3 px-5 border-b-2 border-slate-700/30 shrink-0 relative">
         <div className="absolute inset-0 bg-gradient-to-r from-blue-500/[0.03] to-transparent pointer-events-none" />
         <button
           onClick={() => { setView('DISCOVER' as any); setSearchQuery(''); }}
           className="flex items-center gap-3 group/logo relative z-[1]"
         >
           <div className="relative">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 via-indigo-500 to-purple-500 flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover/logo:shadow-blue-500/40 transition-all group-hover/logo:scale-105">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 via-indigo-500 to-purple-500 flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover/logo:shadow-blue-500/40 transition-all group-hover/logo:scale-105 border-2 border-blue-400/30">
               <Zap className="w-5 h-5 text-white" />
             </div>
             {syncStatus.isSyncing && (
@@ -43,7 +47,7 @@ export function Sidebar() {
           </div>
           <div className="flex flex-col leading-none">
             <span className="text-sm font-black text-theme-text tracking-tight">QuantMaster</span>
-            <span className="text-[10px] font-bold text-gradient-blue">Pro</span>
+            <span className="text-[10px] font-black text-gradient-blue">PRO</span>
           </div>
         </button>
       </div>
@@ -69,21 +73,21 @@ export function Sidebar() {
                     className={cn(
                       'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold transition-all group/nav relative',
                       isActive
-                        ? 'bg-gradient-to-r from-blue-500/[0.12] to-indigo-500/[0.06] text-blue-300 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.15)]'
+                        ? 'bg-gradient-to-r from-blue-500/[0.12] to-indigo-500/[0.06] text-blue-300 border border-blue-500/20 shadow-[2px_2px_0px_rgba(0,0,0,0.2)]'
                         : 'text-theme-text-secondary hover:text-theme-text hover:bg-white/[0.04]'
                     )}
                   >
                     {isActive && (
-                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-gradient-to-b from-blue-400 to-indigo-500" />
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 rounded-r-full bg-gradient-to-b from-blue-400 to-indigo-500" />
                     )}
                     <Icon className={cn('w-4 h-4 shrink-0', isActive ? 'text-blue-400' : 'text-theme-text-muted group-hover/nav:text-theme-text-secondary')} />
                     <span className="truncate">{item.label}</span>
                     {count != null && count > 0 && (
                       <span className={cn(
-                        'ml-auto text-[10px] font-black px-1.5 py-0.5 rounded-md font-num',
+                        'ml-auto text-[10px] font-black px-1.5 py-0.5 rounded-md font-num border',
                         isActive
-                          ? 'bg-blue-500/20 text-blue-300'
-                          : 'bg-white/[0.04] text-theme-text-muted'
+                          ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                          : 'bg-white/[0.04] text-theme-text-muted border-white/[0.06]'
                       )}>
                         {count}
                       </span>
@@ -97,7 +101,7 @@ export function Sidebar() {
       </nav>
 
       {/* Bottom Actions */}
-      <div className="border-t border-white/[0.04] p-3 space-y-1 shrink-0">
+      <div className="border-t-2 border-slate-700/30 p-3 space-y-1 shrink-0">
         <button
           onClick={() => setShowMasterChecklist(true)}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold text-theme-text-muted hover:text-blue-300 hover:bg-blue-500/[0.06] transition-all"
