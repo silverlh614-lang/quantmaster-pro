@@ -17,19 +17,11 @@ import { Card } from '../../ui/card';
 import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
 import { ALL_CONDITIONS } from '../../services/quant/evolutionEngine';
-
-// ── Gate Definitions ────────────────────────────────────────────────────────
-
-const GATE1_IDS = [1, 3, 5, 7, 9] as const;
-const GATE2_IDS = [4, 6, 8, 10, 11, 12, 13, 14, 15, 16, 21, 24] as const;
-const GATE3_IDS = [2, 17, 18, 19, 20, 22, 23, 25, 26, 27] as const;
-
-const GATE1_REQUIRED = 5;   // ALL must pass
-const GATE2_REQUIRED = 9;   // 9 of 12
-const GATE3_REQUIRED = 7;   // 7 of 10
-
-/** Pass threshold for individual condition (0-10 scale) */
-const CONDITION_PASS_THRESHOLD = 5;
+import {
+  GATE1_IDS, GATE2_IDS, GATE3_IDS,
+  GATE1_REQUIRED, GATE2_REQUIRED, GATE3_REQUIRED,
+  CONDITION_PASS_THRESHOLD,
+} from '../../constants/gateConfig';
 
 // ── Step Config ─────────────────────────────────────────────────────────────
 

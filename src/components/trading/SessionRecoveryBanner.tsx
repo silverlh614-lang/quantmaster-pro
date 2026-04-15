@@ -3,83 +3,67 @@
  * 마지막 저장된 설정 상태를 감지하고, 복구 여부를 사용자에게 안내합니다.
  */
 import React, { useState, useEffect } from 'react';
-import { RotateCcw, X, Clock, CheckCircle2 } from 'lucide-react';
+import { X, Clock, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '../../ui/cn';
 
 interface SessionStateResponse {
   restored: boolean;
   savedAt?: string;
-  gateWeights?: Record<string, number>;
-  universeSelection?: string[];
-  initialInvestment?: number;
+}
+
+function buildSessionPayload() {
+  return {
+    gateWeights: {},
+    universeSelection: [],
+    initialInvestment: 100000000,
+    tradingSettings: {},
+    savedAt: new Date().toISOString(),
+  };
 }
 
 export function SessionRecoveryBanner() {
   const [session, setSession] = useState<SessionStateResponse | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  const [saving, setSaving] = useState(false);
 
+  // 서버에서 세션 상태 복구
   useEffect(() => {
     fetch('/api/session-state')
       .then(r => r.json())
       .then((data: SessionStateResponse) => {
-        if (data.restored && data.savedAt) {
-          setSession(data);
-        }
+        if (data.restored && data.savedAt) setSession(data);
       })
       .catch(() => {});
   }, []);
 
-  // 현재 상태를 서버에 저장하는 함수 (페이지 언로드 시 호출)
+  // 자동 저장: 5분 주기 + 페이지 언로드 시
   useEffect(() => {
-    const saveCurrentState = () => {
-      const state = {
-        gateWeights: {},
-        universeSelection: [],
-        initialInvestment: 100000000,
-        tradingSettings: {},
-        savedAt: new Date().toISOString(),
-      };
-      // navigator.sendBeacon for reliability on page unload
+    const save = () => {
       navigator.sendBeacon(
         '/api/session-state',
-        new Blob([JSON.stringify(state)], { type: 'application/json' })
+        new Blob([JSON.stringify(buildSessionPayload())], { type: 'application/json' })
       );
     };
 
-    window.addEventListener('beforeunload', saveCurrentState);
-    // 5분마다 자동 저장
+    window.addEventListener('beforeunload', save);
     const interval = setInterval(() => {
       fetch('/api/session-state', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          gateWeights: {},
-          universeSelection: [],
-          initialInvestment: 100000000,
-          tradingSettings: {},
-          savedAt: new Date().toISOString(),
-        }),
+        body: JSON.stringify(buildSessionPayload()),
       }).catch(() => {});
     }, 5 * 60 * 1000);
 
     return () => {
-      window.removeEventListener('beforeunload', saveCurrentState);
+      window.removeEventListener('beforeunload', save);
       clearInterval(interval);
     };
   }, []);
 
-  if (!session || !session.restored || dismissed) return null;
+  if (!session?.restored || dismissed) return null;
 
-  const savedDate = session.savedAt ? new Date(session.savedAt) : null;
-  const formattedDate = savedDate
-    ? savedDate.toLocaleString('ko-KR', {
-        timeZone: 'Asia/Seoul',
-        month: 'numeric',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
+  const formattedDate = session.savedAt
+    ? new Date(session.savedAt).toLocaleString('ko-KR', {
+        timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
       })
     : '';
 
