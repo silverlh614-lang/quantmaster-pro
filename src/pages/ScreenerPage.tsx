@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { QuantScreener } from '../components/analysis/QuantScreener';
 import { GateWizard } from '../components/analysis/GateWizard';
+import { WeightConfigPanel } from '../components/analysis/WeightConfigPanel';
 import { UniverseSelector, DEFAULT_UNIVERSE } from '../components/analysis/UniverseSelector';
 import { BearScreenerPanel } from '../components/bear/BearScreenerPanel';
 import { DartPreNewsPanel } from '../components/signals/DartPreNewsPanel';
@@ -9,6 +10,7 @@ import { useRecommendationStore, useAnalysisStore, useGlobalIntelStore } from '.
 import { PageHeader } from '../ui/page-header';
 import { Card } from '../ui/card';
 import { Stack } from '../layout/Stack';
+import { ALL_CONDITIONS } from '../services/quant/evolutionEngine';
 import type { StockFilters, StockRecommendation, UniverseConfig } from '../services/stockService';
 
 interface ScreenerPageProps {
@@ -23,6 +25,17 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
 
   // ── Gate-0: Universe Selection State ───────────────────────────────────────
   const [universe, setUniverse] = useState<UniverseConfig>(DEFAULT_UNIVERSE);
+
+  // ── Factor Weights State ───────────────────────────────────────────────────
+  const [factorWeights, setFactorWeights] = useState<Record<number, number>>(() => {
+    const defaults: Record<number, number> = {};
+    for (let id = 1; id <= 27; id++) defaults[id] = ALL_CONDITIONS[id]?.baseWeight ?? 1;
+    return defaults;
+  });
+
+  // VKOSPI from global intel store (fallback to 18)
+  const vkospiResult = useGlobalIntelStore(s => s.vkospiTriggerResult);
+  const currentVkospi = vkospiResult?.vkospi ?? 18;
 
   // ── Gate Wizard: selected stock for evaluation ─────────────────────────────
   const [wizardStock, setWizardStock] = useState<StockRecommendation | null>(null);
@@ -69,6 +82,13 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
 
         {/* Gate-0: Universe Selector */}
         <UniverseSelector value={universe} onChange={setUniverse} />
+
+        {/* Factor Weight Control Panel — 27조건 가중치 */}
+        <WeightConfigPanel
+          weights={factorWeights}
+          onWeightsChange={setFactorWeights}
+          vkospi={currentVkospi}
+        />
 
         {/* Bear Screener 패널 — Bear Regime 감지 시 자동 활성화 */}
         <BearScreenerPanel
