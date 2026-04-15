@@ -332,7 +332,7 @@ export function evaluateServerGate(
 
   // [선택] OCF 품질: DART 영업현금흐름/매출 비율 — dartFin 제공 시에만 평가
   // 분기 데이터라 실시간성 없음 — 스크리닝 단계 필터로 사용
-  if (dartFin && dartFin.ocfRatio !== null && dartFin.ocfRatio !== undefined) {
+  if (dartFin?.ocfRatio != null) {
     if (dartFin.ocfRatio >= 5.0) {
       // OCF/Revenue >= 5%: 이익의 질 양호 (영업에서 실제 현금 창출)
       score += w('earnings_quality');

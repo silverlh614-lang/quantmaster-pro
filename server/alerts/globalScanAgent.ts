@@ -224,7 +224,7 @@ export async function runGlobalScanAgent(): Promise<void> {
       macroState.vixHistory = updateVixHistory(prevHistory, vix);
       console.log(`[GlobalScan] VIX 갱신: ${vix} (이력 ${macroState.vixHistory.length}개)`);
     }
-    if (ewyResult?.changePct !== null && ewyResult?.changePct !== undefined) {
+    if (ewyResult?.changePct != null) {
       macroState.ewyDayChange = ewyResult.changePct;
       console.log(`[GlobalScan] EWY 당일 변화율: ${ewyResult.changePct.toFixed(2)}%`);
     }

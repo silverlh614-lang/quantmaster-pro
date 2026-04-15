@@ -410,7 +410,6 @@ async function reissueAsMarketOrder(order: PendingSellOrder, quantity: number): 
     });
 
     const newOrdNo = (orderData as { output?: { ODNO?: string } } | null)?.output?.ODNO;
-    order.status = 'REISSUED_MARKET';
     order.reissuedOrdNo = newOrdNo ?? undefined;
     order.orderType = 'MARKET';
     // 재발행된 주문을 새로 추적 — pollCount 리셋

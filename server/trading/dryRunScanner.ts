@@ -261,17 +261,19 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
       1,
       regimeConfig.maxPositions - activeSwingCount,
     );
+    const profile    = stock.profileType ?? 'B';
+    const profileKey = `profile${profile}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
+    const regimeStopRate = REGIME_CONFIGS[regime].stopLoss[profileKey];
+    const entryATR14 = reCheckQuote?.atr ?? 0;
     const stopLossPlan = buildStopLossPlan({
       entryPrice: shadowEntryPrice,
+      fixedStopLoss: stock.stopLoss,
+      regimeStopRate,
+      atr14: entryATR14,
       regime,
-      signalType,
-      atr:    reCheckQuote?.atr    ?? 0,
-      atr20avg: reCheckQuote?.atr20avg ?? 0,
-      high20d: reCheckQuote?.high20d  ?? shadowEntryPrice,
-      high60d: reCheckQuote?.high60d  ?? shadowEntryPrice,
     });
-    const limitTranches = (PROFIT_TARGETS as Array<{ trigger: number; ratio: number }>).filter(
-      t => typeof t.trigger === 'number' && t.trigger > 0,
+    const limitTranches = PROFIT_TARGETS[regime].filter(
+      t => t.type === 'LIMIT' && t.trigger !== null,
     );
     const execQty = isStrongBuy
       ? Math.max(1, Math.floor(1 / (limitTranches.length + 1)))
