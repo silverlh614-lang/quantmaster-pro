@@ -177,9 +177,10 @@ async function classifyImpactWithLlm(
   }
 }
 
-// ── DART 공시 → 워치리스트 자동 연동 ──────────────────────────────────────────
-// 호재 공시 (+1/+2): 워치리스트에 없으면 자동 추가, 있으면 gateScore 보너스 + Track B 승격
-// 내부자 매수: 워치리스트에 있으면 Track B 강제 승격, 없으면 추가
+// ── DART 공시 → 워치리스트 연동 (방향 1+3 전략) ──────────────────────────────
+// 방향 3: 내부자 매수 → 유일하게 즉시 워치리스트 신규 추가 허용 (룰 기반 고신뢰 신호)
+// 방향 1: 일반 호재 (+1/+2) → 기존 워치리스트 종목 강화 전용 (gateScore 보너스 + Track B 승격)
+//         워치리스트에 없는 종목은 추가하지 않음 — 공시 후 급등 가격에 진입하는 문제 방지
 // 악재 공시 (-1/-2): 워치리스트에 있으면 즉시 제거, 포지션이 있으면 exitEngine 경보
 // 안전장치: DART 추가 종목은 expiresAt=3일, addedBy='DART' 표시
 /** DART 추가 종목 기본 만료 기간 (밀리초) — 3일 */
@@ -236,7 +237,9 @@ export async function applyDartToWatchlist(params: {
   if (!isPositive) return; // impact=0이면서 insiderBuy도 아니면 무시
 
   if (existing) {
-    // 이미 있으면: gateScore 보너스 + Track B 강제 승격
+    // ── 방향 1: 기존 워치리스트 종목 강화 (확인 신호) ──────────────────────────
+    // Pre-Breakout이나 Gate로 이미 워치리스트에 있는 종목에 호재 공시가 겹치면
+    // gateScore 보너스 + Track B 강제 승격 → 진짜 강한 신호
     const bonus = params.insiderBuy ? 3 : (params.impact >= 2 ? 2 : 1);
     existing.gateScore = (existing.gateScore ?? 0) + bonus;
     existing.track = 'B';
@@ -244,20 +247,22 @@ export async function applyDartToWatchlist(params: {
     existing.memo = `${existing.memo ?? ''} | DART(${params.insiderBuy ? '내부자매수' : `+${params.impact}`}): ${params.reason}`.trim();
     saveWatchlist(watchlist);
     console.log(
-      `[DART→WL] ⬆️ 승격: ${params.corpName}(${code}) → Track B (gateScore +${bonus}, 합계 ${existing.gateScore})`,
+      `[DART→WL] ⬆️ 확인신호 강화: ${params.corpName}(${code}) → Track B (gateScore +${bonus}, 합계 ${existing.gateScore})`,
     );
     await sendTelegramAlert(
-      `📊 <b>[DART 호재 → Track B 승격]</b> ${params.corpName} (${code})\n` +
+      `📊 <b>[DART 확인신호 → 기존 종목 강화]</b> ${params.corpName} (${code})\n` +
       `${params.insiderBuy ? '🕵️ 내부자 매수 감지' : `임팩트: +${params.impact}`} — ${params.reason}\n` +
-      `gateScore: +${bonus} (합계 ${existing.gateScore}) | Track B 강제 승격`,
+      `gateScore: +${bonus} (합계 ${existing.gateScore}) | Track B 강제 승격\n` +
+      `전략: 기존 워치리스트 종목에 호재 공시 겹침 → 강한 매수 신호`,
     ).catch(console.error);
-  } else {
-    // 없으면 새로 추가 (3일 만료, addedBy='DART')
+  } else if (params.insiderBuy) {
+    // ── 방향 3: 내부자 매수만 즉시 신규 추가 (고신뢰 룰 기반 신호) ──────────────
+    // 임원/대주주 장내매수는 Gemini 판단과 달리 오류가 없는 룰 기반 신호.
+    // 이 경우에만 워치리스트에 새로 추가한다.
     let entryPrice = 0;
     let stopLoss = 0;
     let targetPrice = 0;
 
-    // KIS API로 현재가 조회 시도
     try {
       const price = await fetchCurrentPrice(code);
       if (price && price > 0) {
@@ -268,7 +273,6 @@ export async function applyDartToWatchlist(params: {
     } catch { /* 시세 조회 실패 — 다음 스캔에서 채움 */ }
 
     const expiresAt = new Date(Date.now() + DART_WATCHLIST_EXPIRY_MS).toISOString();
-    const forceTrackB = params.insiderBuy || params.impact >= 2;
     const newEntry: WatchlistEntry = {
       code,
       name: params.corpName,
@@ -277,24 +281,39 @@ export async function applyDartToWatchlist(params: {
       targetPrice,
       addedAt: new Date().toISOString(),
       addedBy: 'DART',
-      track: forceTrackB ? 'B' : 'A',
-      isFocus: forceTrackB,
+      track: 'B',
+      isFocus: true,
       expiresAt,
-      memo: `DART(${params.insiderBuy ? '내부자매수' : `+${params.impact}`}): ${params.reason}`,
-      gateScore: params.insiderBuy ? 3 : params.impact,
+      memo: `DART(내부자매수): ${params.reason}`,
+      gateScore: 3,
       rrr: entryPrice > 0 ? parseFloat(((targetPrice - entryPrice) / (entryPrice - stopLoss || 1)).toFixed(2)) : 0,
     };
     watchlist.push(newEntry);
     saveWatchlist(watchlist);
     console.log(
-      `[DART→WL] ✅ 추가: ${params.corpName}(${code}) [Track ${newEntry.track}] ` +
-      `(만료: 3일, ${params.insiderBuy ? '내부자매수' : `임팩트 +${params.impact}`})`,
+      `[DART→WL] ✅ 내부자매수 추가: ${params.corpName}(${code}) [Track B] (만료: 3일)`,
     );
     await sendTelegramAlert(
-      `📥 <b>[DART 공시 → 워치리스트 추가]</b> ${params.corpName} (${code})\n` +
-      `${params.insiderBuy ? '🕵️ 내부자 매수 감지' : `임팩트: +${params.impact}`} — ${params.reason}\n` +
-      `Track: ${newEntry.track} | 만료: 3일\n` +
+      `🕵️ <b>[내부자 매수 → 워치리스트 추가]</b> ${params.corpName} (${code})\n` +
+      `${params.reason}\n` +
+      `Track: B (고신뢰 룰 기반 신호) | 만료: 3일\n` +
       (entryPrice > 0 ? `진입가: ${entryPrice.toLocaleString()}원 | 손절: ${stopLoss.toLocaleString()}원 | 목표: ${targetPrice.toLocaleString()}원\n` : '⚠️ 시세 미조회 — 다음 스캔에서 갱신 예정\n') +
+      `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${params.rceptNo}`,
+    ).catch(console.error);
+  } else {
+    // ── 일반 호재 (+1/+2) but 워치리스트에 없음 → 추가하지 않음 ────────────────
+    // 공시 직후 급등한 가격에 진입하는 문제를 방지한다.
+    // Pre-Breakout 스캔이 이 종목을 먼저 발견하면 그때 워치리스트에 들어오고,
+    // 이후 공시가 나오면 방향 1(확인 신호)로 강화된다.
+    console.log(
+      `[DART→WL] ⏭️ 스킵: ${params.corpName}(${code}) — 일반 호재(+${params.impact})이지만 ` +
+      `워치리스트 미등록 종목 → 급등 가격 진입 방지 (확인 신호 전용)`,
+    );
+    await sendTelegramAlert(
+      `📋 <b>[DART 호재 — 참고용]</b> ${params.corpName} (${code})\n` +
+      `임팩트: +${params.impact} — ${params.reason}\n` +
+      `⏭️ 워치리스트 미등록 → 추가하지 않음 (급등 가격 진입 방지)\n` +
+      `💡 Pre-Breakout 스캔으로 사전 발굴 시 확인 신호로 활용됨\n` +
       `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${params.rceptNo}`,
     ).catch(console.error);
   }
