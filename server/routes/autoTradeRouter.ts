@@ -30,6 +30,14 @@ import {
 import { CONDITION_KEYS, DEFAULT_CONDITION_WEIGHTS, type ConditionKey } from '../quantFilter.js';
 import { getScanFeedbackState } from '../orchestrator/adaptiveScanScheduler.js';
 import { channelWatchlistAdded, channelWatchlistRemoved } from '../alerts/channelPipeline.js';
+import {
+  loadTradingSettings,
+  saveTradingSettings,
+  loadSessionState,
+  saveSessionState,
+  type TradingSettings,
+  type SessionState,
+} from '../persistence/tradingSettingsRepo.js';
 
 const router = Router();
 
@@ -597,6 +605,44 @@ router.get('/attribution/stats', (_req: any, res: any) => {
   } catch (e) {
     console.error('[Attribution] stats 계산 실패:', e);
     res.status(500).json({ error: 'internal' });
+  }
+});
+
+// ─── 트레이딩 설정 API ────────────────────────────────────────────────────────
+// GET  /api/auto-trade/trading-settings — 현재 트레이딩 설정 조회
+// POST /api/auto-trade/trading-settings — 트레이딩 설정 저장
+
+router.get('/auto-trade/trading-settings', (_req: any, res: any) => {
+  res.json(loadTradingSettings());
+});
+
+router.post('/auto-trade/trading-settings', (req: any, res: any) => {
+  try {
+    const settings = req.body as TradingSettings;
+    saveTradingSettings(settings);
+    res.json({ ok: true, settings: loadTradingSettings() });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── 세션 상태 저장/복구 API ──────────────────────────────────────────────────
+// GET  /api/session-state  — 마지막 세션 상태 조회
+// POST /api/session-state  — 현재 세션 상태 저장
+
+router.get('/session-state', (_req: any, res: any) => {
+  const state = loadSessionState();
+  if (!state) return res.json({ restored: false });
+  res.json({ restored: true, ...state });
+});
+
+router.post('/session-state', (req: any, res: any) => {
+  try {
+    const state = req.body as SessionState;
+    saveSessionState(state);
+    res.json({ ok: true, savedAt: state.savedAt });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 });
 

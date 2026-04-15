@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2 } from 'lucide-react';
+import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2, Sliders } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { PageHeader } from '../ui/page-header';
 import { KpiStrip } from '../ui/kpi-strip';
@@ -10,6 +10,8 @@ import { Badge } from '../ui/badge';
 import { Stack } from '../layout/Stack';
 import { PageGrid } from '../layout/PageGrid';
 import { TradingChecklist } from '../components/trading/TradingChecklist';
+import { TradingSettingsPanel } from '../components/trading/TradingSettingsPanel';
+import { SessionRecoveryBanner } from '../components/trading/SessionRecoveryBanner';
 import { useShadowTradeStore, useShadowWinRate, useShadowAvgReturn } from '../stores/useShadowTradeStore';
 
 // ─── 조건 키 → 사람이 읽을 수 있는 한국어 레이블 ─────────────────────────────
@@ -86,6 +88,7 @@ export function AutoTradePage() {
   const winRate = useShadowWinRate();
   const avgReturn = useShadowAvgReturn();
 
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'settings'>('dashboard');
   const [serverShadowTrades, setServerShadowTrades] = useState<any[]>([]);
   const [serverRecStats, setServerRecStats] = useState<{ month?: string; winRate?: number; avgReturn?: number; strongBuyWinRate?: number; total?: number } | null>(null);
   const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([]);
@@ -126,6 +129,9 @@ export function AutoTradePage() {
       exit={{ opacity: 0, y: -20 }}
     >
       <Stack gap="lg">
+        {/* 세션 복구 배너 */}
+        <SessionRecoveryBanner />
+
         <PageHeader
           title="자동매매 센터"
           subtitle="KIS 모의계좌 연동 · Shadow Trading · OCO 자동 등록"
@@ -138,6 +144,40 @@ export function AutoTradePage() {
           { label: '적중률', value: `${winRate}%`, status: winRate >= 60 ? 'pass' : winRate >= 40 ? 'warn' : 'fail', change: winRate >= 50 ? '목표 충족' : '목표 미달' },
           { label: '평균수익', value: `${avgReturn.toFixed(2)}%`, status: avgReturn >= 0 ? 'pass' : 'fail', trend: avgReturn >= 0 ? 'up' : 'down' },
         ]} />
+
+        {/* Tab Switcher: 대시보드 / 트레이딩 설정 */}
+        <div className="flex items-center gap-2 p-1 bg-white/5 rounded-xl border border-theme-border w-fit">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all',
+              activeTab === 'dashboard'
+                ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30 shadow-[0_0_12px_rgba(139,92,246,0.15)]'
+                : 'text-theme-text-muted hover:text-theme-text hover:bg-white/5 border border-transparent'
+            )}
+          >
+            <Activity className="w-3.5 h-3.5" />
+            대시보드
+          </button>
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all',
+              activeTab === 'settings'
+                ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30 shadow-[0_0_12px_rgba(139,92,246,0.15)]'
+                : 'text-theme-text-muted hover:text-theme-text hover:bg-white/5 border border-transparent'
+            )}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            트레이딩 설정
+          </button>
+        </div>
+
+        {/* ── 트레이딩 설정 탭 ─────────────────────────────────────────── */}
+        {activeTab === 'settings' && <TradingSettingsPanel />}
+
+        {/* ── 대시보드 탭 ─────────────────────────────────────────────── */}
+        {activeTab === 'dashboard' && <>
 
         {/* 아이디어 10: 매수 차단 원인 진단 패널 */}
         {buyAudit && (
@@ -525,6 +565,8 @@ export function AutoTradePage() {
           </Section>
           );
         })()}
+
+        </>}
       </Stack>
     </motion.div>
   );
