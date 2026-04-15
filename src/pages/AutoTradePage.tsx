@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2, Sliders, Power, Zap, TrendingUp, Wallet, Timer, Shield, Clock, ArrowUpDown } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+
 import { cn } from '../ui/cn';
 import { PageHeader } from '../ui/page-header';
 import { KpiStrip } from '../ui/kpi-strip';
@@ -121,36 +120,6 @@ interface AccountSummary {
   availableCash: number;   // 가용 현금
 }
 
-// ─── 카운트다운 훅 ──────────────────────────────────────────────────────────
-function useCountdown(targetIso: string | null | undefined): string | null {
-  const [remaining, setRemaining] = useState<string | null>(null);
-  useEffect(() => {
-    if (!targetIso) { setRemaining(null); return; }
-    const calc = () => {
-      const diff = new Date(targetIso).getTime() - Date.now();
-      if (diff <= 0) { setRemaining('해제됨'); return; }
-      const h = Math.floor(diff / 3_600_000);
-      const m = Math.floor((diff % 3_600_000) / 60_000);
-      const s = Math.floor((diff % 60_000) / 1000);
-      setRemaining(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
-    };
-    calc();
-    const interval = setInterval(calc, 1000);
-    return () => clearInterval(interval);
-  }, [targetIso]);
-  return remaining;
-}
-
-// ─── 타임라인 이벤트 타입 ────────────────────────────────────────────────────
-interface TimelineEvent {
-  time: string;
-  type: 'BUY' | 'STOP_HIT' | 'TARGET_HIT' | 'WATCHLIST_ADD';
-  stock: string;
-  detail: string;
-}
-
-// ─── RRR 버킷 데이터 ────────────────────────────────────────────────────────
-const RRR_COLORS = ['#ef4444', '#3b82f6', '#22c55e', '#f59e0b'];
 
 export function AutoTradePage() {
   const { shadowTrades } = useShadowTradeStore();
@@ -175,68 +144,6 @@ export function AutoTradePage() {
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
   const [engineToggling, setEngineToggling] = useState(false);
   const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null);
-  const [ocoOrders, setOcoOrders] = useState<{ active: OcoOrderPair[]; history: OcoOrderPair[] }>({ active: [], history: [] });
-
-  // ③ FOMC 카운트다운
-  const fomcUnblockAt = buyAudit?.fomcGating.unblockAt;
-  const fomcCountdown = useCountdown(fomcUnblockAt);
-
-  // ⑤ RRR 분포 데이터 (serverShadowTrades에서 계산)
-  const rrrBuckets = useMemo(() => {
-    const closed = serverShadowTrades.filter((t: any) => t.returnPct != null);
-    return [
-      { name: '손실', value: closed.filter((t: any) => t.returnPct < 0).length },
-      { name: '0~5%', value: closed.filter((t: any) => t.returnPct >= 0 && t.returnPct < 5).length },
-      { name: '5~10%', value: closed.filter((t: any) => t.returnPct >= 5 && t.returnPct < 10).length },
-      { name: '10%+', value: closed.filter((t: any) => t.returnPct >= 10).length },
-    ];
-  }, [serverShadowTrades]);
-
-  // ⑥ 매매 타임라인 (최근 5건)
-  const timeline = useMemo((): TimelineEvent[] => {
-    const events: TimelineEvent[] = [];
-    // Shadow trades
-    for (const t of serverShadowTrades) {
-      if (t.status === 'HIT_TARGET') {
-        events.push({ time: t.exitTime ?? t.signalTime, type: 'TARGET_HIT', stock: t.stockName, detail: `+${(t.returnPct ?? 0).toFixed(1)}%` });
-      } else if (t.status === 'HIT_STOP') {
-        events.push({ time: t.exitTime ?? t.signalTime, type: 'STOP_HIT', stock: t.stockName, detail: `${(t.returnPct ?? 0).toFixed(1)}%` });
-      } else if (t.status === 'ACTIVE' || t.status === 'PENDING') {
-        events.push({ time: t.signalTime, type: 'BUY', stock: t.stockName, detail: `${t.shadowEntryPrice?.toLocaleString()}원` });
-      }
-    }
-    // Watchlist additions
-    for (const w of watchlist) {
-      events.push({ time: w.addedAt, type: 'WATCHLIST_ADD', stock: w.name, detail: w.addedBy });
-    }
-    return events
-      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
-      .slice(0, 5);
-  }, [serverShadowTrades, watchlist]);
-
-  // ④ 포지션 위험 게이지 계산
-  const riskGauge = useMemo(() => {
-    if (!accountSummary) return null;
-    const totalAssets = accountSummary.totalEvalAmt + accountSummary.availableCash;
-    if (totalAssets <= 0) return null;
-    const exposureRate = totalAssets > 0 ? (accountSummary.totalEvalAmt / totalAssets) * 100 : 0;
-    const cashRate = totalAssets > 0 ? (accountSummary.availableCash / totalAssets) * 100 : 0;
-    // 최대 예상 손실 = 각 보유 종목의 (진입가-손절가)/진입가 * 평가금액 추정
-    // watchlist에서 stopLoss/entryPrice 비율로 계산
-    let maxLoss = 0;
-    for (const h of holdings) {
-      const matchedWl = watchlist.find(w => w.code === h.pdno);
-      const evalAmt = Number(h.hldg_qty) * Number(h.prpr);
-      if (matchedWl && matchedWl.entryPrice > 0) {
-        const lossRate = Math.abs((matchedWl.stopLoss - matchedWl.entryPrice) / matchedWl.entryPrice);
-        maxLoss += lossRate * evalAmt;
-      } else {
-        // 워치리스트 매칭 없으면 기본 7% 손절 가정
-        maxLoss += 0.07 * evalAmt;
-      }
-    }
-    return { exposureRate, cashRate, maxLoss };
-  }, [accountSummary, holdings, watchlist]);
 
   const handleEngineToggle = async () => {
     if (engineToggling) return;
@@ -264,7 +171,7 @@ export function AutoTradePage() {
       fetch('/api/system/gate-audit').then(r => r.json()).then(setGateAudit).catch((err) => console.error('[ERROR] Gate audit 조회 실패:', err));
       fetch('/api/auto-trade/condition-weights/debug').then(r => r.json()).then(setConditionDebug).catch((err) => console.error('[ERROR] Condition debug 조회 실패:', err));
       fetch('/api/auto-trade/engine/status').then(r => r.json()).then(setEngineStatus).catch((err) => console.error('[ERROR] Engine status 조회 실패:', err));
-      fetch('/api/auto-trade/oco-orders').then(r => r.json()).then(setOcoOrders).catch((err) => console.error('[ERROR] OCO orders 조회 실패:', err));
+
       fetch('/api/kis/balance').then(r => r.json()).then((data: any) => {
         // output2[0]에 계좌 총평가 정보가 있음
         const summary = data?.output2?.[0];
