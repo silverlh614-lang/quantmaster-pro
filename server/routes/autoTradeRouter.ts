@@ -646,6 +646,20 @@ router.get('/auto-trade/scan-feedback', (_req: any, res: any) => {
   res.json(getScanFeedbackState());
 });
 
+// ─── OCO 주문 현황 API ────────────────────────────────────────────────────────
+// GET /api/auto-trade/oco-orders — 활성 + 최근 이력 OCO 주문 쌍 조회
+
+router.get('/auto-trade/oco-orders', (_req: any, res: any) => {
+  try {
+    const { getActiveOcoOrders, getAllOcoOrders } = require('../trading/ocoCloseLoop.js');
+    const active = getActiveOcoOrders();
+    const all = getAllOcoOrders();
+    res.json({ active, history: all.filter((o: any) => o.status !== 'ACTIVE').slice(-20) });
+  } catch (e: any) {
+    res.json({ active: [], history: [] });
+  }
+});
+
 // ─── 귀인 분석 API ────────────────────────────────────────────────────────────
 // POST /api/attribution/record — 거래 종료 시 클라이언트가 27조건 스냅샷을 저장
 // GET  /api/attribution/stats  — 조건별 승률·평균 수익률 집계 반환
