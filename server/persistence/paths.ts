@@ -58,6 +58,10 @@ export const GATE_AUDIT_FILE         = path.join(DATA_DIR, 'gate-audit.json');
 export function scanTraceFile(yyyymmdd: string): string {
   return path.join(DATA_DIR, `scan_trace_${yyyymmdd}.json`);
 }
+/** 장마감 Pipeline Yield 스코어카드 — 일별 4단계 수율 기록 */
+export const SCORECARD_FILE           = path.join(DATA_DIR, 'pipeline-scorecard.json');
+/** 거시-섹터-종목 동기화 루프 상태 — 장중 VIX 급등 보수 모드 플래그 등 */
+export const MACRO_SYNC_STATE_FILE    = path.join(DATA_DIR, 'macro-sync-state.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

@@ -28,6 +28,7 @@ import type { YahooQuoteExtended } from './screener/stockScreener.js';
 import type { DartFinancials } from './clients/dartFinancialClient.js';
 import type { KisInvestorFlow } from './clients/kisClient.js';
 import { isPullbackSetup } from './screener/pipelineHelpers.js';
+import { getVixConservativeMode } from './state.js';
 
 export interface ServerGateResult {
   gateScore: number;                          // 가중치 적용 점수 (float, 최대 ~15)
@@ -381,6 +382,17 @@ export function evaluateServerGate(
     } else if (mtas >= 5) {
       positionPct *= 0.5;
       details.push(`MTAS ${mtas.toFixed(1)}/10 50%포지션`);
+    }
+  }
+
+  // ── VIX 장중 급등 보수 모드: positionPct 20% 축소 + 신규 진입 차단 ──────────
+  // macroSectorSync.ts가 장중 VIX +3% 급등 감지 시 활성화.
+  // 인과 역전 방지: 거시 악화에도 시스템이 매수 신호를 내는 상황을 차단.
+  if (getVixConservativeMode()) {
+    positionPct *= 0.80; // 20% 축소
+    if (signalType !== 'SKIP') {
+      signalType = 'SKIP';
+      details.push('VIX 보수모드 — 신규 진입 일시 중단');
     }
   }
 
