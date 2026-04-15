@@ -957,7 +957,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
       }
 
       const sl = Math.round(s.currentPrice * 0.92);
-      const tp = Math.round(s.currentPrice * 1.15);
+      const tp = Math.round(s.currentPrice * 1.20);
       watchlist.push({
         code: s.code,
         name: s.name,
@@ -1027,7 +1027,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
     const track: 'A' | 'B' = gate.signalType !== 'SKIP' ? 'B' : 'A';
 
     const sl = Math.round(quote.price * 0.92);
-    const tp = Math.round(quote.price * 1.15);
+    const tp = Math.round(quote.price * 1.20);
     watchlist.push({
       code: stock.code,
       name: stock.name,
