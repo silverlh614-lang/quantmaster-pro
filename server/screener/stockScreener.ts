@@ -5,7 +5,7 @@ import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL } from '../clients/kisClient.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { isPullbackSetup } from './pipelineHelpers.js';
+import { isPullbackSetup, addBusinessDays } from './pipelineHelpers.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fetchKisMTASData } from './kisChartDataFetcher.js';
 import { recordGateAudit, flushGateAudit } from '../persistence/gateAuditRepo.js';
@@ -1002,6 +1002,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
         addedAt: new Date().toISOString(),
         addedBy: 'AUTO',
         rrr: parseFloat(((tp - s.currentPrice) / (s.currentPrice - sl || 1)).toFixed(2)),
+        expiresAt: addBusinessDays(new Date(), 5).toISOString(),
       });
       existingCodes.add(s.code);
       added++;
@@ -1076,6 +1077,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
       rrr: parseFloat(((tp - quote.price) / (quote.price - sl || 1)).toFixed(2)),
       conditionKeys: gate.conditionKeys,
       track,
+      expiresAt: addBusinessDays(new Date(), 5).toISOString(),
     });
     existingCodes.add(stock.code);
     added++;
