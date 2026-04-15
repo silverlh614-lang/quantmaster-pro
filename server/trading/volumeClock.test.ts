@@ -83,7 +83,7 @@ describe('checkVolumeClockWindow', () => {
     });
   });
 
-  describe('절대 차단: 11:30~12:59 점심 구간', () => {
+  describe('절대 차단: 11:30~13:00 점심 구간', () => {
     it('blocks entry at 11:30 (구간 시작)', () => {
       const result = checkVolumeClockWindow(kstTime(11, 30));
       expect(result.allowEntry).toBe(false);
@@ -102,8 +102,14 @@ describe('checkVolumeClockWindow', () => {
       expect(result.scoreBonus).toBe(0);
     });
 
-    it('blocks entry at 12:59 (구간 끝)', () => {
+    it('blocks entry at 12:59 (구간 내부)', () => {
       const result = checkVolumeClockWindow(kstTime(12, 59));
+      expect(result.allowEntry).toBe(false);
+      expect(result.scoreBonus).toBe(0);
+    });
+
+    it('blocks entry at 13:00 (구간 끝)', () => {
+      const result = checkVolumeClockWindow(kstTime(13, 0));
       expect(result.allowEntry).toBe(false);
       expect(result.scoreBonus).toBe(0);
     });
@@ -111,9 +117,23 @@ describe('checkVolumeClockWindow', () => {
 
   // ── 패널티 -1 구간 ─────────────────────────────────────────────────────────
 
-  describe('패널티 -1: 13:00~13:29 점심 직후 거래 회복 중', () => {
-    it('applies -1 at 13:00 (구간 시작)', () => {
-      const result = checkVolumeClockWindow(kstTime(13, 0));
+  describe('패널티 -2: 13:01~13:14 점심 직후 회복 초기', () => {
+    it('applies -2 at 13:01 (구간 시작)', () => {
+      const result = checkVolumeClockWindow(kstTime(13, 1));
+      expect(result.allowEntry).toBe(true);
+      expect(result.scoreBonus).toBe(-2);
+    });
+
+    it('applies -2 at 13:14 (구간 끝)', () => {
+      const result = checkVolumeClockWindow(kstTime(13, 14));
+      expect(result.allowEntry).toBe(true);
+      expect(result.scoreBonus).toBe(-2);
+    });
+  });
+
+  describe('패널티 -1: 13:15~13:29 거래 회복 중', () => {
+    it('applies -1 at 13:15 (구간 시작)', () => {
+      const result = checkVolumeClockWindow(kstTime(13, 15));
       expect(result.allowEntry).toBe(true);
       expect(result.scoreBonus).toBe(-1);
     });
@@ -212,11 +232,16 @@ describe('checkVolumeClockWindow', () => {
       expect(checkVolumeClockWindow(kstTime(11, 30)).allowEntry).toBe(false);
     });
 
-    it('12:59→13:00: 절대 차단(점심) → 패널티 -1 전환', () => {
-      expect(checkVolumeClockWindow(kstTime(12, 59)).allowEntry).toBe(false);
-      const at1300 = checkVolumeClockWindow(kstTime(13, 0));
-      expect(at1300.allowEntry).toBe(true);
-      expect(at1300.scoreBonus).toBe(-1);
+    it('13:00→13:01: 절대 차단(점심) → 패널티 -2 전환', () => {
+      expect(checkVolumeClockWindow(kstTime(13, 0)).allowEntry).toBe(false);
+      const at1301 = checkVolumeClockWindow(kstTime(13, 1));
+      expect(at1301.allowEntry).toBe(true);
+      expect(at1301.scoreBonus).toBe(-2);
+    });
+
+    it('13:14→13:15: 패널티 -2 → 패널티 -1 전환', () => {
+      expect(checkVolumeClockWindow(kstTime(13, 14)).scoreBonus).toBe(-2);
+      expect(checkVolumeClockWindow(kstTime(13, 15)).scoreBonus).toBe(-1);
     });
 
     it('13:29→13:30: 패널티 -1 → 보너스 0 전환', () => {
