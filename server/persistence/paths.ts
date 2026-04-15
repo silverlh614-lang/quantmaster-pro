@@ -62,6 +62,10 @@ export function scanTraceFile(yyyymmdd: string): string {
 export const SCORECARD_FILE           = path.join(DATA_DIR, 'pipeline-scorecard.json');
 /** 거시-섹터-종목 동기화 루프 상태 — 장중 VIX 급등 보수 모드 플래그 등 */
 export const MACRO_SYNC_STATE_FILE    = path.join(DATA_DIR, 'macro-sync-state.json');
+/** 트레이딩 설정 — 매수조건/손절/포지션한도/운용시간/OCO 등 사용자 설정 저장 */
+export const TRADING_SETTINGS_FILE    = path.join(DATA_DIR, 'trading-settings.json');
+/** 세션 상태 저장 — Gate 가중치, 유니버스, 초기투자금 등 마지막 설정 스냅샷 */
+export const SESSION_STATE_FILE       = path.join(DATA_DIR, 'session-state.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

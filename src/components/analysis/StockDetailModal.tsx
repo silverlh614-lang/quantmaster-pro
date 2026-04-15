@@ -12,6 +12,7 @@ import { StockRecommendation } from '../../services/stockService';
 import { SignalBadge } from '../../ui/badge';
 import { cn } from '../../ui/cn';
 import { debugWarn } from '../../utils/debug';
+import { GateStatusWidget } from './GateStatusWidget';
 
 interface StockDetailModalProps {
   stock: StockRecommendation | null;
@@ -70,6 +71,9 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({ stock, onClo
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+        {/* Gate 통과 현황 미니 위젯 — 27개 조건 체크리스트 */}
+        {stock.checklist && <GateStatusWidget stock={stock} />}
+
         {/* 3-Gate Bar */}
         {stock.aiConvictionScore && (() => {
           const factors = stock.aiConvictionScore.factors || [];
