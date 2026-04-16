@@ -394,7 +394,7 @@ export function AutoTradePage() {
             )}>
               <p className="text-[9px] text-theme-text-muted uppercase tracking-wider font-bold">수익률</p>
               <p className={cn('text-lg font-black mt-1 font-num', accountSummary.totalPnlRate >= 0 ? 'text-green-400' : 'text-red-400')}>
-                {accountSummary.totalPnlRate >= 0 ? '+' : ''}{accountSummary.totalPnlRate.toFixed(2)}<span className="text-[10px] font-bold text-theme-text-muted ml-0.5">%</span>
+                {(accountSummary.totalPnlRate ?? 0) >= 0 ? '+' : ''}{(accountSummary.totalPnlRate ?? 0).toFixed(2)}<span className="text-[10px] font-bold text-theme-text-muted ml-0.5">%</span>
               </p>
             </div>
             <div className="border-2 rounded-xl p-4 text-center border-blue-500/30 bg-blue-500/[0.04]">
@@ -411,7 +411,7 @@ export function AutoTradePage() {
         <KpiStrip size="lg" items={[
           { label: 'Shadow 건수', value: serverShadowStats.count, status: 'neutral' },
           { label: '적중률', value: `${serverShadowStats.winRate}%`, status: serverShadowStats.winRate >= 60 ? 'pass' : serverShadowStats.winRate >= 40 ? 'warn' : 'fail', change: serverShadowStats.winRate >= 50 ? '목표 충족' : '목표 미달' },
-          { label: '평균수익', value: `${serverShadowStats.avgReturn.toFixed(2)}%`, status: serverShadowStats.avgReturn >= 0 ? 'pass' : 'fail', trend: serverShadowStats.avgReturn >= 0 ? 'up' : 'down' },
+          { label: '평균수익', value: `${(serverShadowStats.avgReturn ?? 0).toFixed(2)}%`, status: (serverShadowStats.avgReturn ?? 0) >= 0 ? 'pass' : 'fail', trend: (serverShadowStats.avgReturn ?? 0) >= 0 ? 'up' : 'down' },
         ]} />
 
         {/* Tab Switcher: 대시보드 / 트레이딩 설정 */}
@@ -480,7 +480,7 @@ export function AutoTradePage() {
               <div className="flex items-center justify-between text-sm">
                 <span className="text-theme-text-muted">VIX 공포지수 게이트</span>
                 <Badge variant={buyAudit.vixGating.noNewEntry ? 'danger' : 'success'} size="sm">
-                  {buyAudit.vixGating.noNewEntry ? '차단됨' : `정상 (베팅 비율 x${buyAudit.vixGating.kellyMultiplier.toFixed(2)})`}
+                  {buyAudit.vixGating.noNewEntry ? '차단됨' : `정상 (베팅 비율 x${(buyAudit.vixGating.kellyMultiplier ?? 1).toFixed(2)})`}
                 </Badge>
               </div>
               <div className="flex items-center justify-between text-sm">

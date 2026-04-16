@@ -85,52 +85,56 @@ export function useBatchGlobalIntel() {
       // macro → Gate 0 평가
       if (data.macro) {
         setMacroEnv(data.macro);
-        const g0 = evaluateGate0(data.macro);
-        const today = new Date().toISOString().split('T')[0];
-        addMhsRecord({
-          date: today,
-          mhs: g0.macroHealthScore,
-          mhsLevel: g0.mhsLevel,
-          interestRate: g0.details.interestRateScore,
-          liquidity: g0.details.liquidityScore,
-          economic: g0.details.economicScore,
-          risk: g0.details.riskScore,
-        });
+        try {
+          const g0 = evaluateGate0(data.macro);
+          const today = new Date().toISOString().split('T')[0];
+          addMhsRecord({
+            date: today,
+            mhs: g0.macroHealthScore,
+            mhsLevel: g0.mhsLevel,
+            interestRate: g0.details.interestRateScore,
+            liquidity: g0.details.liquidityScore,
+            economic: g0.details.economicScore,
+            risk: g0.details.riskScore,
+          });
 
-        const bearSeasonalityResult = evaluateBearSeasonality(data.macro);
-        setBearSeasonalityResult(bearSeasonalityResult);
+          const bearSeasonalityResult = evaluateBearSeasonality(data.macro);
+          setBearSeasonalityResult(bearSeasonalityResult);
 
-        // Gate -1: Bear Regime Detector (아이디어 1)
-        const bearResult = evaluateBearRegime(data.macro, g0, bearSeasonalityResult);
-        setBearRegimeResult(bearResult);
+          // Gate -1: Bear Regime Detector (아이디어 1)
+          const bearResult = evaluateBearRegime(data.macro, g0, bearSeasonalityResult);
+          setBearRegimeResult(bearResult);
 
-        // Bear Screener: 하락 수혜주 자동 탐색 (아이디어 3)
-        setBearScreenerResult(evaluateBearScreener(data.macro, bearResult));
+          // Bear Screener: 하락 수혜주 자동 탐색 (아이디어 3)
+          setBearScreenerResult(evaluateBearScreener(data.macro, bearResult));
 
-        // Inverse Gate 1: 인버스 ETF 스코어링 시스템 (아이디어 2)
-        setInverseGate1Result(evaluateInverseGate1(data.macro));
+          // Inverse Gate 1: 인버스 ETF 스코어링 시스템 (아이디어 2)
+          setInverseGate1Result(evaluateInverseGate1(data.macro));
 
-        // VKOSPI 트리거 시스템 (아이디어 4)
-        setVkospiTriggerResult(evaluateVkospiTrigger(data.macro.vkospi));
+          // VKOSPI 트리거 시스템 (아이디어 4)
+          setVkospiTriggerResult(evaluateVkospiTrigger(data.macro.vkospi ?? 18));
 
-        // Market Neutral 모드 (아이디어 9)
-        setMarketNeutralResult(evaluateMarketNeutral(bearResult));
+          // Market Neutral 모드 (아이디어 9)
+          setMarketNeutralResult(evaluateMarketNeutral(bearResult));
 
-        // Bear Mode Kelly Criterion (아이디어 6)
-        setBearKellyResult(evaluateBearKelly(bearResult, bearKellyEntryDate, bearSeasonalityResult.inverseEntryWeightPct));
+          // Bear Mode Kelly Criterion (아이디어 6)
+          setBearKellyResult(evaluateBearKelly(bearResult, bearKellyEntryDate, bearSeasonalityResult.inverseEntryWeightPct));
 
-        // IPS 통합 변곡점 확률 엔진 (아이디어 11)
-        setIpsResult(evaluateIPS(data.macro, g0, bearResult));
+          // IPS 통합 변곡점 확률 엔진 (아이디어 11)
+          setIpsResult(evaluateIPS(data.macro, g0, bearResult));
 
-        // 시장 레짐 자동 분류기 — VKOSPI 기반으로 자동 보완하여 계산
-        const classifierInput = {
-          ...marketRegimeClassifierInput,
-          vkospi: data.macro.vkospi,
-        };
-        setMarketRegimeClassifierResult(evaluateMarketRegimeClassifier(classifierInput));
+          // 시장 레짐 자동 분류기 — VKOSPI 기반으로 자동 보완하여 계산
+          const classifierInput = {
+            ...marketRegimeClassifierInput,
+            vkospi: data.macro.vkospi ?? 18,
+          };
+          setMarketRegimeClassifierResult(evaluateMarketRegimeClassifier(classifierInput));
 
-        // 서버 MacroState 동기화 — classifyRegime() 파이프라인 공급
-        syncGate0ToServer(data.macro, g0).catch(console.warn);
+          // 서버 MacroState 동기화 — classifyRegime() 파이프라인 공급
+          syncGate0ToServer(data.macro, g0).catch(console.warn);
+        } catch (evalErr) {
+          console.error('[useBatchGlobalIntel] 매크로 평가 실패 (비치명적):', evalErr);
+        }
       }
 
       if (data.regime) setEconomicRegimeData(data.regime);

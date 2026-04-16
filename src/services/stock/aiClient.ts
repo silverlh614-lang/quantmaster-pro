@@ -18,8 +18,10 @@ export const getAI = () => {
       }
     } catch {}
   }
-  // 3. Environment variables
-  const apiKey = userKey || zustandKey || (typeof process !== 'undefined' ? (process.env.API_KEY || process.env.GEMINI_API_KEY) : undefined);
+  // 3. Environment variables (Vite: import.meta.env, Node: process.env)
+  const envKey = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY)
+    || (typeof process !== 'undefined' ? (process.env.API_KEY || process.env.GEMINI_API_KEY) : undefined);
+  const apiKey = userKey || zustandKey || envKey;
 
   if (!apiKey) {
     throw new Error("API Key is missing. Please provide an API key in settings.");

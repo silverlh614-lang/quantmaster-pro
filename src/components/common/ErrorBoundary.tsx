@@ -50,14 +50,14 @@ export class ErrorBoundary extends Component<Props, State> {
           <h2 className="text-2xl font-black mb-4">문제가 발생했습니다.</h2>
           <p className="text-white/60 mb-6">애플리케이션을 복구할 수 없습니다. 새로고침을 시도해주세요.</p>
 
-          {isDev && this.state.error && (
+          {this.state.error && (
             <details className="mb-6 w-full max-w-2xl text-left">
               <summary className="cursor-pointer text-red-400 text-sm font-bold mb-2">
-                에러 상세 (개발 모드)
+                에러 상세
               </summary>
               <pre className="bg-white/5 border border-white/10 rounded-xl p-4 text-xs text-red-300 overflow-auto max-h-60 whitespace-pre-wrap">
                 {this.state.error.toString()}
-                {this.state.errorInfo?.componentStack}
+                {isDev && this.state.errorInfo?.componentStack}
               </pre>
             </details>
           )}
