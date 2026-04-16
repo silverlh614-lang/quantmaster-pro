@@ -17,8 +17,9 @@ export type ExitRuleTag =
   | 'CASCADE_WARN_BLOCK'         // priority 8
   | 'RRR_COLLAPSE_PARTIAL'       // priority 9
   | 'DIVERGENCE_PARTIAL'         // priority 10
-  | 'STOP_APPROACH_ALERT'        // priority 11
-  | 'EUPHORIA_PARTIAL';          // priority 12
+  | 'MA60_DEATH'                 // priority 11 — 60일선 역배열 완성 좀비 청산
+  | 'STOP_APPROACH_ALERT'        // priority 12
+  | 'EUPHORIA_PARTIAL';          // priority 13
 
 export interface ServerShadowTrade {
   id: string;
@@ -78,6 +79,14 @@ export interface ServerShadowTrade {
    * 진입 승인 메시지에 함께 표시되며, 사후 복기(postmortem)의 비교 기준이 된다.
    */
   preMortem?: string;
+  /**
+   * 60일선 역배열(Death Cross 유사) 감지 후 강제 청산 예정일(ISO date).
+   * price < MA20 < MA60 진입 시 5영업일 유예 후 강제 매도.
+   * 유예 중 MA60 회복(price > MA60) 시 회피 — forceExitDate 삭제.
+   */
+  forceExitDate?: string;
+  /** MA60 역배열 1회 감지 플래그 (중복 경보 방지) */
+  ma60DeathDetected?: boolean;
 }
 
 export function loadShadowTrades(): ServerShadowTrade[] {

@@ -20,6 +20,7 @@ import { checkEuphoria } from './riskManager.js';
 import { regimeToStopRegime } from './entryEngine.js';
 import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.js';
 import { fetchCloses } from './marketDataRefresh.js';
+import { addBusinessDays } from '../screener/pipelineHelpers.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 
 /**
@@ -63,6 +64,44 @@ function rsiSeries(closes: number[], period: number = 14): number[] {
 function yahooSymbolCandidates(stockCode: string): string[] {
   const c = stockCode.padStart(6, '0');
   return [`${c}.KS`, `${c}.KQ`];
+}
+
+/**
+ * 60일선 "죽음" 감지 — price < MA20 < MA60 완전 역배열 상태.
+ * 주도주 사이클 종료를 의미하는 기술적 신호로, 좀비 포지션 강제 청산 트리거.
+ */
+export function isMA60Death(currentPrice: number, ma20: number, ma60: number): boolean {
+  if (!(ma20 > 0) || !(ma60 > 0) || !(currentPrice > 0)) return false;
+  return currentPrice < ma20 && ma20 < ma60;
+}
+
+/** 단순 이동평균(SMA) — 마지막 N개 종가 평균. 데이터 부족 시 NaN. */
+function sma(closes: number[], period: number): number {
+  if (closes.length < period) return NaN;
+  const slice = closes.slice(-period);
+  return slice.reduce((s, v) => s + v, 0) / period;
+}
+
+/** 종목 MA20·MA60 조회 — 60일 캔들에서 계산, 실패 시 null. */
+async function fetchMa20Ma60(stockCode: string): Promise<{ ma20: number; ma60: number; lastClose: number } | null> {
+  for (const sym of yahooSymbolCandidates(stockCode)) {
+    const closes = await fetchCloses(sym, '60d').catch(() => null);
+    if (!closes || closes.length < 60) continue;
+    const ma20     = sma(closes, 20);
+    const ma60     = sma(closes, 60);
+    const lastClose = closes[closes.length - 1];
+    if (Number.isFinite(ma20) && Number.isFinite(ma60) && Number.isFinite(lastClose)) {
+      return { ma20, ma60, lastClose };
+    }
+  }
+  return null;
+}
+
+/** KST 기준 날짜 비교용 ISO date(YYYY-MM-DD). */
+function kstToday(): string {
+  const now = new Date();
+  const kstMs = now.getTime() + 9 * 60 * 60 * 1000;
+  return new Date(kstMs).toISOString().slice(0, 10);
 }
 
 /** 최근 N일 종가와 그에 정렬된 RSI 시계열을 반환. 실패 시 null. */
@@ -453,6 +492,92 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
         }).catch(console.error);
         if (shadow.quantity <= 0) continue;
+      }
+    }
+
+    // ─── MA60 "죽음" 감지 — 5영업일 유예 후 강제 청산 ──────────────────────
+    // price < MA20 < MA60 완전 역배열 = 주도주 사이클 종료 판정.
+    // 즉시 청산은 과잉 반응이므로 5영업일 유예 후 실행. 유예 중 MA60 회복 시 취소.
+    {
+      const mas = await fetchMa20Ma60(shadow.stockCode).catch(() => null);
+      if (mas) {
+        const reversalActive = isMA60Death(currentPrice, mas.ma20, mas.ma60);
+
+        if (reversalActive && !shadow.ma60DeathDetected) {
+          // 최초 감지 — 5영업일 유예 부여 + 경보
+          shadow.ma60DeathDetected = true;
+          shadow.forceExitDate     = addBusinessDays(new Date(), 5).toISOString().slice(0, 10);
+          shadow.exitRuleTag       = 'MA60_DEATH';
+          appendShadowLog({
+            event: 'MA60_DEATH_DETECTED',
+            ...shadow,
+            ma20: mas.ma20, ma60: mas.ma60, currentPrice, returnPct,
+          });
+          console.warn(
+            `[AutoTrade] ☠️ ${shadow.stockName} MA60 역배열 감지 ` +
+            `(가격 ${currentPrice.toLocaleString()} < MA20 ${mas.ma20.toFixed(0)} < MA60 ${mas.ma60.toFixed(0)}) ` +
+            `— 강제 청산 예정일: ${shadow.forceExitDate}`,
+          );
+          await sendTelegramAlert(
+            `☠️ <b>[MA60 역배열]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+            `가격 ${currentPrice.toLocaleString()} < MA20 ${mas.ma20.toFixed(0)} < MA60 ${mas.ma60.toFixed(0)}\n` +
+            `주도주 사이클 종료 판정 — 5영업일 내 강제 청산 예정 (${shadow.forceExitDate})\n` +
+            `회복(MA60 상향 돌파) 시 자동 취소됩니다.`,
+            { priority: 'HIGH', dedupeKey: `ma60_death:${shadow.stockCode}` },
+          ).catch(console.error);
+        } else if (!reversalActive && shadow.ma60DeathDetected && shadow.forceExitDate) {
+          // MA60 회복 — 유예 취소
+          const oldExit = shadow.forceExitDate;
+          shadow.ma60DeathDetected = false;
+          shadow.forceExitDate     = undefined;
+          appendShadowLog({
+            event: 'MA60_DEATH_RECOVERED',
+            ...shadow,
+            ma20: mas.ma20, ma60: mas.ma60, currentPrice, cancelledExitDate: oldExit,
+          });
+          console.log(`[AutoTrade] 🟢 ${shadow.stockName} MA60 회복 — 강제 청산 취소 (원 예정일: ${oldExit})`);
+          await sendTelegramAlert(
+            `🟢 <b>[MA60 회복]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+            `역배열 해소 — 강제 청산 취소 (원 예정일: ${oldExit})`,
+            { priority: 'NORMAL', dedupeKey: `ma60_recovery:${shadow.stockCode}` },
+          ).catch(console.error);
+        }
+
+        // 유예일 도달 && 여전히 역배열 → 전량 강제 청산
+        if (
+          shadow.forceExitDate &&
+          shadow.ma60DeathDetected &&
+          reversalActive &&
+          kstToday() >= shadow.forceExitDate &&
+          shadow.quantity > 0
+        ) {
+          Object.assign(shadow, {
+            status: 'HIT_STOP',
+            exitPrice: currentPrice,
+            exitTime: new Date().toISOString(),
+            returnPct,
+            exitRuleTag: 'MA60_DEATH',
+          });
+          appendShadowLog({ event: 'MA60_DEATH_FORCE_EXIT', ...shadow, ma20: mas.ma20, ma60: mas.ma60 });
+          console.log(`[AutoTrade] ☠️ ${shadow.stockName} MA60 역배열 유예 만료 — 강제 청산 @${currentPrice.toLocaleString()} (${returnPct.toFixed(2)}%)`);
+          await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
+          await sendTelegramAlert(
+            `☠️ <b>[MA60 강제 청산]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+            `역배열 5영업일 유예 만료 — 전량 청산 @${currentPrice.toLocaleString()}원\n` +
+            `수익률: ${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}%`,
+            { priority: 'CRITICAL', dedupeKey: `ma60_force_exit:${shadow.stockCode}` },
+          ).catch(console.error);
+          await channelSellSignal({
+            stockName:   shadow.stockName,
+            stockCode:   shadow.stockCode,
+            exitPrice:   currentPrice,
+            entryPrice:  shadow.shadowEntryPrice,
+            pnlPct:      returnPct,
+            reason:      'STOP',
+            holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+          }).catch(console.error);
+          continue;
+        }
       }
     }
 

@@ -75,8 +75,9 @@ export const EXIT_RULE_PRIORITY_TABLE: ReadonlyArray<{
   { priority: 8, rule: 'CASCADE_WARN_BLOCK', description: 'Cascade -7% 경고/추가매수 차단' },
   { priority: 9, rule: 'RRR_COLLAPSE_PARTIAL', description: 'RRR 붕괴(<1.0) 50% 익절' },
   { priority: 10, rule: 'DIVERGENCE_PARTIAL', description: '하락 다이버전스 30% 부분 익절' },
-  { priority: 11, rule: 'STOP_APPROACH_ALERT', description: '손절 접근 경고(알림)' },
-  { priority: 12, rule: 'EUPHORIA_PARTIAL', description: '과열 탐지 부분 매도' },
+  { priority: 11, rule: 'MA60_DEATH', description: '60일선 역배열(price<MA20<MA60) 5영업일 유예 후 강제 청산' },
+  { priority: 12, rule: 'STOP_APPROACH_ALERT', description: '손절 접근 경고(알림)' },
+  { priority: 13, rule: 'EUPHORIA_PARTIAL', description: '과열 탐지 부분 매도' },
 ] as const;
 
 export const OPEN_SHADOW_STATUSES = new Set<ServerShadowTrade['status']>([
