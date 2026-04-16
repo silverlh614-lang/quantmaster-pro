@@ -178,6 +178,54 @@ async function classifyImpactWithLlm(
   }
 }
 
+// ── 공시 유형별 차등 점수 맵 ─────────────────────────────────────────────────
+const DART_SCORE_MAP: Record<string, number> = {
+  '내부자매수':     4,   // 임원 대규모 취득
+  '내부자소규모':  2,   // 소규모 취득
+  '무상증자':       3,
+  '유상증자':      -1,   // 희석 우려
+  '자사주취득':    3,
+  '자사주소각':    4,
+  '실적서프라이즈': 3,
+  '일반호재':        1,
+};
+
+/**
+ * 공시 제목에서 DART_SCORE_MAP 키를 매칭하여 점수를 반환.
+ * 매칭 안 되면 insiderBuy=true이면 4, impact 기반 기본값 반환.
+ */
+function getDartScore(reportNm: string, insiderBuy: boolean, impact: number): number {
+  for (const [key, score] of Object.entries(DART_SCORE_MAP)) {
+    if (reportNm.includes(key)) return score;
+  }
+  // 내부자 매수 감지 → 4점
+  if (insiderBuy) return 4;
+  // LLM 임팩트 기반 기본값
+  if (impact >= 2) return 3;
+  if (impact >= 1) return 1;
+  if (impact <= -1) return impact; // 부정 점수 전달
+  return 0;
+}
+
+// ── 공시 이벤트 해시 기반 중복 방지 (종목코드 + 공시일 + 공시유형 + 보고인) ────
+// 동일 공시가 다른 rceptNo로 중복 접수되거나, 같은 건에 대해
+// 보고인만 다른 경우 점수가 중복 누적되는 문제 방지
+const _processedDartHashes = new Set<string>();
+const _DART_HASH_TTL_MS    = 24 * 60 * 60 * 1000; // 24시간
+
+function makeDartHash(code: string, date: string, type: string, reporter: string): string {
+  return `${code}_${date}_${type}_${reporter}`;
+}
+
+function isDartHashProcessed(hash: string): boolean {
+  return _processedDartHashes.has(hash);
+}
+
+function markDartHash(hash: string): void {
+  _processedDartHashes.add(hash);
+  setTimeout(() => _processedDartHashes.delete(hash), _DART_HASH_TTL_MS);
+}
+
 // ── DART 공시 → 워치리스트 연동 (방향 1+3 전략) ──────────────────────────────
 // 방향 3: 내부자 매수 → 유일하게 즉시 워치리스트 신규 추가 허용 (룰 기반 고신뢰 신호)
 // 방향 1: 일반 호재 (+1/+2) → 기존 워치리스트 종목 강화 전용 (gateScore 보너스 + Track B 승격)
@@ -206,17 +254,32 @@ export async function applyDartToWatchlist(params: {
   insiderBuy: boolean;
   reason: string;
   rceptNo: string;
+  reportNm?: string;     // 공시 제목 — 차등 점수 산정용
+  filingDate?: string;   // 공시일 (YYYYMMDD) — 이벤트 해시 dedup용
+  reporter?: string;     // 보고인 — 이벤트 해시 dedup용
 }): Promise<void> {
   const code = params.stockCode.padStart(6, '0');
   if (!code || code === '000000') return;
 
-  // ── 동일 공시 중복 적용 방지 ─────────────────────────────────────────────────
+  // ── 동일 공시 중복 적용 방지 (rceptNo 기준) ─────────────────────────────────
   // fastDartCheck()와 pollDartDisclosures() 양쪽에서 호출될 수 있으므로
   // rceptNo 기준으로 이미 처리된 공시는 스킵한다.
   if (_appliedRceptNos.has(params.rceptNo)) {
     console.log(`[DART→WL] ⏭️ 중복 스킵: ${params.corpName}(${code}) — rceptNo ${params.rceptNo} 이미 적용됨`);
     return;
   }
+
+  // ── 이벤트 해시 기반 중복 방지 (종목코드 + 공시일 + 공시유형 + 보고인) ────────
+  // 같은 날 같은 건에 대해 보고인만 다른 공시가 들어와도 점수 중복 누적 방지
+  if (params.filingDate && params.reportNm) {
+    const dartHash = makeDartHash(code, params.filingDate, params.reportNm, params.reporter ?? '');
+    if (isDartHashProcessed(dartHash)) {
+      console.log(`[DART→WL] ⏭️ 해시 중복 스킵: ${params.corpName}(${code}) — ${dartHash}`);
+      return;
+    }
+    markDartHash(dartHash);
+  }
+
   markRceptNoApplied(params.rceptNo);
 
   const watchlist = loadWatchlist();
@@ -262,7 +325,7 @@ export async function applyDartToWatchlist(params: {
     // ── 방향 1: 기존 워치리스트 종목 강화 (확인 신호) ──────────────────────────
     // Pre-Breakout이나 Gate로 이미 워치리스트에 있는 종목에 호재 공시가 겹치면
     // gateScore 보너스 + Track B 강제 승격 → 진짜 강한 신호
-    const bonus = params.insiderBuy ? 3 : (params.impact >= 2 ? 2 : 1);
+    const bonus = getDartScore(params.reportNm ?? '', params.insiderBuy, params.impact);
     existing.gateScore = (existing.gateScore ?? 0) + bonus;
     // 내부자 매수 → CATALYST 섹션, 일반 호재 → SWING 승격
     existing.section = params.insiderBuy ? 'CATALYST' : 'SWING';
@@ -519,6 +582,9 @@ export async function pollDartDisclosures(): Promise<void> {
         insiderBuy,
         reason: llmReason ?? ownershipSignal?.reason ?? reportNm,
         rceptNo: d.rcept_no ?? '',
+        reportNm,
+        filingDate: d.rcept_dt ?? today,
+        reporter: d.flr_nm ?? '',
       }).catch(e => console.error(`[DART→WL] 워치리스트 연동 실패:`, e));
     }
   }
@@ -625,7 +691,7 @@ export async function fastDartCheck(): Promise<void> {
   type Candidate = {
     rceptNo: string; corpName: string; reportNm: string;
     stockCode: string; isWatchlist: boolean; insiderBuy: boolean;
-    isOwnership: boolean;
+    isOwnership: boolean; filingDate: string; reporter: string;
   };
   const toAnalyze: Candidate[] = [];
 
@@ -634,6 +700,8 @@ export async function fastDartCheck(): Promise<void> {
     const corpName  = d.corp_name ?? '';
     const reportNm  = d.report_nm ?? '';
     const stockCode = (d.stock_code ?? '').padStart(6, '0');
+    const filingDate = d.rcept_dt ?? today;
+    const reporter   = d.flr_nm  ?? '';
 
     if (seen.has(rceptNo)) continue;
     seen.add(rceptNo);
@@ -658,7 +726,7 @@ export async function fastDartCheck(): Promise<void> {
     toAnalyze.push({
       rceptNo, corpName, reportNm,
       stockCode, isWatchlist: watchCodes.has(stockCode), insiderBuy,
-      isOwnership,
+      isOwnership, filingDate, reporter,
     });
   }
 
@@ -690,6 +758,9 @@ export async function fastDartCheck(): Promise<void> {
         insiderBuy: c.insiderBuy,
         reason: ownershipSignal.reason,
         rceptNo: c.rceptNo,
+        reportNm: c.reportNm,
+        filingDate: c.filingDate,
+        reporter: c.reporter,
       }).catch(e => console.error(`[FastDART→WL] 워치리스트 연동 실패:`, e));
     }
   }
@@ -781,6 +852,9 @@ export async function fastDartCheck(): Promise<void> {
         insiderBuy: c.insiderBuy,
         reason,
         rceptNo: c.rceptNo,
+        reportNm: c.reportNm,
+        filingDate: c.filingDate,
+        reporter: c.reporter,
       }).catch(e => console.error(`[FastDART→WL] 워치리스트 연동 실패:`, e));
     }
   }

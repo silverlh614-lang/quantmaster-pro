@@ -34,6 +34,7 @@ import { getLastScanAt } from './orchestrator/adaptiveScanScheduler.js';
 import { getLastBuySignalAt, getLastScanSummary } from './trading/signalScanner.js';
 import { getKisTokenRemainingHours } from './clients/kisClient.js';
 import { isOpenShadowStatus } from './trading/entryEngine.js';
+import { runAutoSignalScan } from './trading/signalScanner.js';
 import { runPipelineDiagnosis } from './trading/pipelineDiagnosis.js';
 import { cleanupOldTraceFiles } from './trading/scanTracer.js';
 import { generateDailyPickReport } from './alerts/stockPickReporter.js';
@@ -180,6 +181,20 @@ export function startScheduler() {
     await cleanupWatchlist().catch(console.error);
   }, { timezone: 'UTC' });
 
+  // ─── 미국장 전후 스캐닝 — 나스닥/S&P 시세 반영 재검증 ──────────────────────
+  // 미국 장 시작 직전 확인 — KST 22:25 (UTC 13:25, 월~금)
+  cron.schedule('25 13 * * 1-5', async () => {
+    console.log('[Scheduler] 미국장 프리마켓 스캔 (KST 22:25)');
+    await runAutoSignalScan({ sellOnly: false }).catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // 미국 장 마감 후 확인 — KST 06:10 (UTC 21:10 전일, 일~목)
+  // 익일 한국 장 대비 마지막 검증
+  cron.schedule('10 21 * * 0-4', async () => {
+    console.log('[Scheduler] 미국장 마감 후 스캔 (KST 06:10+1d)');
+    await runAutoSignalScan({ sellOnly: false }).catch(console.error);
+  }, { timezone: 'UTC' });
+
   // 새벽 글로벌 스캔 에이전트 — 매일 KST 06:00 (UTC 21:00, 일~목)
   // S&P500·나스닥·다우·VIX·EWY·ITA·SOXX·XLE·WOOD + Gemini 요약 + Telegram 알림
   // Layer 13(EWY 수급) · Layer 14(섹터ETF) + 공급망 역추적(Gemini Search) 포함
@@ -317,10 +332,11 @@ export function startScheduler() {
     cleanupOldTraceFiles();
   }, { timezone: 'UTC' });
 
-  // ─── KIS WebSocket 실시간 호가 스트림 시작 — 평일 08:55 KST (UTC 23:55, 일~목) ──
-  // 장 시작 5분 전 watchlist 종목을 구독하여 장중 실시간 가격 사용 준비
-  cron.schedule('55 23 * * 0-4', async () => {
+  // ─── KIS WebSocket 실시간 호가 스트림 시작 — 평일 09:00 KST (UTC 00:00, 월~금) ──
+  // KIS 실시간 서버는 09:00 이전 연결 거부 → 08:55 연결 시 onerror/onclose 중복 발화 문제 해결
+  cron.schedule('0 0 * * 1-5', async () => {
     try {
+      await new Promise(r => setTimeout(r, 5000)); // 5초 지연
       const wl = loadWatchlist();
       const codes = wl.map(w => w.code);
       if (codes.length > 0) {

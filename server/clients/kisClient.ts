@@ -252,6 +252,39 @@ export async function fetchKisInvestorFlow(code: string): Promise<KisInvestorFlo
   } catch { return null; }
 }
 
+/**
+ * FHKST03030100 — 코스피 전체 투자자별 매매 동향 조회.
+ * 외국인/기관/개인 전체 시장 순매수량을 반환한다.
+ * KIS_APP_KEY 미설정 시 null 반환. 실계좌/VTS 모두 지원.
+ */
+export async function fetchKisMarketSupply(): Promise<{
+  foreignNetBuy: number;
+  institutionNetBuy: number;
+  individualNetBuy: number;
+} | null> {
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  try {
+    const data = await realDataKisGet(
+      'FHKST03030100',
+      '/uapi/domestic-stock/v1/quotations/inquire-investor',
+      {
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_INPUT_ISCD: '0001',
+      },
+    );
+    const out = (data as { output?: Record<string, string> } | null)?.output;
+    if (!out) return null;
+    return {
+      foreignNetBuy:     Number(out.frgn_ntby_qty ?? out.FRGN_NETBUY_QTY ?? 0),
+      institutionNetBuy: Number(out.orgn_ntby_qty ?? out.INST_NETBUY_QTY ?? 0),
+      individualNetBuy:  Number(out.prsn_ntby_qty ?? out.INDV_NETBUY_QTY ?? 0),
+    };
+  } catch (e) {
+    console.error('[KIS] 코스피 전체 수급 조회 실패:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
 export async function fetchCurrentPrice(code: string): Promise<number | null> {
   if (_overrides.fetchCurrentPrice) return _overrides.fetchCurrentPrice(code);
   const data = await realDataKisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {

@@ -63,6 +63,10 @@ export function buildRegimeVars(macroState: MacroState): RegimeVariables {
     spx20dReturn: macroState.spx20dReturn ?? 0,
     vix:          macroState.vix          ?? 20,
     dxy5dChange:  macroState.dxy5dChange  ?? 0,
+
+    // ⑧ 레짐 승급 보조
+    kospiAboveMA20Pct:        macroState.kospiAboveMA20Pct,
+    foreignContinuousBuyDays: macroState.foreignContinuousBuyDays,
   };
 }
 
