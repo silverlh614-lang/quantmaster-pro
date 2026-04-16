@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2, Sliders, Power, Zap, TrendingUp, Wallet, Timer, Shield, Clock, ArrowUpDown } from 'lucide-react';
+import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2, Sliders, Power, Zap, TrendingUp, Wallet, Timer, Shield, Clock, ArrowUpDown, Info } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { cn } from '../ui/cn';
 import { PageHeader } from '../ui/page-header';
@@ -13,7 +13,6 @@ import { PageGrid } from '../layout/PageGrid';
 import { TradingChecklist } from '../components/trading/TradingChecklist';
 import { TradingSettingsPanel } from '../components/trading/TradingSettingsPanel';
 import { SessionRecoveryBanner } from '../components/trading/SessionRecoveryBanner';
-import { useShadowTradeStore, useShadowWinRate, useShadowAvgReturn } from '../stores/useShadowTradeStore';
 
 // ─── 조건 키 → 사람이 읽을 수 있는 한국어 레이블 ─────────────────────────────
 const CONDITION_LABELS: Record<string, string> = {
@@ -42,6 +41,13 @@ const REGIME_LABELS: Record<string, string> = {
   R4_NEUTRAL: 'R4 중립',
   R5_CAUTION: 'R5 주의',
   R6_DEFENSE: 'R6 방어',
+};
+
+// ─── Gate 설명 툴팁 ───────────────────────────────────────────────────────────
+const GATE_TOOLTIPS: Record<number, string> = {
+  1: 'Gate 1 (생존): 유동성·재무·상장요건 필수 통과',
+  2: 'Gate 2 (성장): ROE개선·마진가속·수급 12개 조건',
+  3: 'Gate 3 (타이밍): 기술적 진입 타점 10개 조건',
 };
 
 interface WatchlistEntry {
@@ -145,10 +151,6 @@ function useCountdown(targetIso: string | null | undefined): string | null {
 }
 
 export function AutoTradePage() {
-  const { shadowTrades } = useShadowTradeStore();
-  const winRate = useShadowWinRate();
-  const avgReturn = useShadowAvgReturn();
-
   const [activeTab, setActiveTab] = useState<'dashboard' | 'settings'>('dashboard');
   const [serverShadowTrades, setServerShadowTrades] = useState<any[]>([]);
   const [serverRecStats, setServerRecStats] = useState<{ month?: string; winRate?: number; avgReturn?: number; strongBuyWinRate?: number; total?: number } | null>(null);
@@ -171,6 +173,18 @@ export function AutoTradePage() {
 
   // ③ FOMC 차단 해제 카운트다운
   const fomcCountdown = useCountdown(buyAudit?.fomcGating.unblockAt);
+
+  // 서버 Shadow Trades 기반 통계 (로컬 저장소 의존 제거)
+  const serverShadowStats = useMemo(() => {
+    const settled = serverShadowTrades.filter((t: any) =>
+      t.status === 'HIT_TARGET' || t.status === 'HIT_STOP',
+    );
+    if (settled.length === 0) return { count: serverShadowTrades.length, winRate: 0, avgReturn: 0 };
+    const wins = settled.filter((t: any) => t.status === 'HIT_TARGET').length;
+    const winRate = Math.round((wins / settled.length) * 100);
+    const avgReturn = settled.reduce((s: number, t: any) => s + (t.returnPct ?? 0), 0) / settled.length;
+    return { count: serverShadowTrades.length, winRate, avgReturn };
+  }, [serverShadowTrades]);
 
   // ④ 포지션 리스크 게이지
   const riskGauge = useMemo(() => {
@@ -395,9 +409,9 @@ export function AutoTradePage() {
 
         {/* KPI Strip — Neo-Brutalism Large Scoreboard */}
         <KpiStrip size="lg" items={[
-          { label: 'Shadow 건수', value: shadowTrades.length, status: 'neutral' },
-          { label: '적중률', value: `${winRate}%`, status: winRate >= 60 ? 'pass' : winRate >= 40 ? 'warn' : 'fail', change: winRate >= 50 ? '목표 충족' : '목표 미달' },
-          { label: '평균수익', value: `${avgReturn.toFixed(2)}%`, status: avgReturn >= 0 ? 'pass' : 'fail', trend: avgReturn >= 0 ? 'up' : 'down' },
+          { label: 'Shadow 건수', value: serverShadowStats.count, status: 'neutral' },
+          { label: '적중률', value: `${serverShadowStats.winRate}%`, status: serverShadowStats.winRate >= 60 ? 'pass' : serverShadowStats.winRate >= 40 ? 'warn' : 'fail', change: serverShadowStats.winRate >= 50 ? '목표 충족' : '목표 미달' },
+          { label: '평균수익', value: `${serverShadowStats.avgReturn.toFixed(2)}%`, status: serverShadowStats.avgReturn >= 0 ? 'pass' : 'fail', trend: serverShadowStats.avgReturn >= 0 ? 'up' : 'down' },
         ]} />
 
         {/* Tab Switcher: 대시보드 / 트레이딩 설정 */}
@@ -582,6 +596,17 @@ export function AutoTradePage() {
             <div className="flex items-center gap-2 mb-4">
               <BarChart3 className="w-4 h-4 text-cyan-400" />
               <span className="text-sm font-bold text-theme-text">Gate 조건 통과율 히트맵</span>
+              <span className="ml-auto flex items-center gap-1.5">
+                {Object.entries(GATE_TOOLTIPS).map(([gate, desc]) => (
+                  <span
+                    key={gate}
+                    title={desc}
+                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-white/5 text-theme-text-muted cursor-help hover:bg-white/10 transition-colors"
+                  >
+                    <Info className="w-3 h-3" />G{gate}
+                  </span>
+                ))}
+              </span>
             </div>
             <div className="space-y-2">
               {Object.entries(gateAudit)
@@ -820,7 +845,10 @@ export function AutoTradePage() {
                       </div>
                       <div className="flex items-center gap-3 text-xs shrink-0">
                         {w.gateScore != null && (
-                          <span className="text-theme-text-muted">G{w.gateScore}</span>
+                          <span
+                            className="text-theme-text-muted cursor-help"
+                            title={`Gate Score: ${w.gateScore}점\n${GATE_TOOLTIPS[1]}\n${GATE_TOOLTIPS[2]}\n${GATE_TOOLTIPS[3]}`}
+                          >G{w.gateScore}</span>
                         )}
                         <span className="text-theme-text-muted">{w.entryPrice.toLocaleString()}</span>
                         <Badge variant={w.addedBy === 'AUTO' ? 'success' : w.addedBy === 'DART' ? 'violet' : 'default'} size="sm">
@@ -924,69 +952,6 @@ export function AutoTradePage() {
         )}
 
         <TradingChecklist />
-
-        {/* Local Shadow Trades (서버에 이미 동기화된 항목은 제외) */}
-        {(() => {
-          const serverIds = new Set(serverShadowTrades.map((t: any) => t.id));
-          const localOnly = shadowTrades.filter(t => !serverIds.has(t.id));
-          return localOnly.length > 0 && (
-          <Section
-            title="로컬 Shadow Trades"
-            actions={<span className="text-xs text-theme-text-muted">{localOnly.filter(t => t.status === 'ACTIVE' || t.status === 'PENDING').length}건 진행 중</span>}
-          >
-            <PageGrid columns="2" gap="sm">
-              {localOnly.map(trade => (
-                <Card
-                  key={trade.id}
-                  padding="md"
-                  className={cn(
-                    trade.status === 'HIT_TARGET' ? '!border-green-500/25 !bg-green-500/5' :
-                    trade.status === 'HIT_STOP' ? '!border-red-500/25 !bg-red-500/5' :
-                    trade.status === 'ACTIVE' ? '!border-violet-500/25 !bg-violet-500/5' : ''
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-sm font-black text-theme-text truncate">{trade.stockName}</span>
-                      <span className="text-micro">{trade.stockCode}</span>
-                    </div>
-                    <Badge
-                      variant={trade.status === 'HIT_TARGET' ? 'success' : trade.status === 'HIT_STOP' ? 'danger' : trade.status === 'ACTIVE' ? 'violet' : 'default'}
-                    >
-                      {trade.status === 'HIT_TARGET' ? 'TARGET HIT' :
-                       trade.status === 'HIT_STOP' ? 'STOP HIT' :
-                       trade.status === 'ACTIVE' ? 'ACTIVE' : 'PENDING'}
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3 text-center">
-                    <div>
-                      <p className="text-micro">진입가</p>
-                      <p className="text-sm font-bold text-theme-text mt-0.5">{trade.shadowEntryPrice.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-micro">손절</p>
-                      <p className="text-sm font-bold text-red-400 mt-0.5">{trade.stopLoss.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-micro">목표</p>
-                      <p className="text-sm font-bold text-green-400 mt-0.5">{trade.targetPrice.toLocaleString()}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-theme-border/50">
-                    <span className="text-micro">{trade.quantity}주 · Kelly {(trade.kellyFraction * 100).toFixed(0)}%</span>
-                    {trade.returnPct != null && (
-                      <span className={cn('text-sm font-black', trade.returnPct >= 0 ? 'text-green-400' : 'text-red-400')}>
-                        {trade.returnPct >= 0 ? '+' : ''}{trade.returnPct.toFixed(2)}%
-                      </span>
-                    )}
-                    <span className="text-micro">{new Date(trade.signalTime).toLocaleDateString('ko-KR')}</span>
-                  </div>
-                </Card>
-              ))}
-            </PageGrid>
-          </Section>
-          );
-        })()}
 
         </>}
       </Stack>
