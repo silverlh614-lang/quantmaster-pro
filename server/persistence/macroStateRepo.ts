@@ -49,6 +49,9 @@ export interface MacroState {
   sofr?: number;                    // SOFR: 달러 단기 기준금리 프록시 (%)
   financialStress?: number;         // STLFSI4: 세인트루이스 금융스트레스 지수 (0 기준, 양수 = 스트레스)
   wtiCrude?: number;                // DCOILWTICO: WTI 유가 (USD/배럴) — 수출주/정유 영향
+  // ─── 레짐 승급 보조 필드 (marketDataRefresh 자동 갱신) ──────────────────────
+  kospiAboveMA20Pct?: number;       // KOSPI가 MA20 대비 몇 % 위에 있는지
+  foreignContinuousBuyDays?: number; // 외국인 연속 순매수 일수
 }
 
 export function loadMacroState(): MacroState | null {

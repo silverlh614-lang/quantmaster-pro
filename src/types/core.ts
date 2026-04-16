@@ -120,6 +120,10 @@ export interface RegimeVariables {
   spx20dReturn: number;    // S&P500 20일 수익률 %
   vix: number;             // VIX (미국 공포지수)
   dxy5dChange: number;     // 달러 인덱스 5일 변화율 %
+
+  // ⑧ 레짐 승급 보조 축 (optional — 존재 시 R3 강제 승급 판단에 사용)
+  kospiAboveMA20Pct?: number;        // KOSPI가 MA20 대비 몇 % 위에 있는지
+  foreignContinuousBuyDays?: number; // 외국인 연속 순매수 일수
 }
 
 // ─── 레짐별 트레이딩 설정 타입 ───────────────────────────────────────────────

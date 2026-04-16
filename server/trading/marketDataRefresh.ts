@@ -19,6 +19,7 @@
 import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js';
 import { loadFssRecords } from '../persistence/fssRepo.js';
 import { checkAndNotifyRegimeChange } from './regimeBridge.js';
+import { fetchKisMarketSupply } from '../clients/kisClient.js';
 
 /**
  * FRED API — 최신 유효 관측값 조회 (최근 5건 중 '.' 제외 첫 번째).
@@ -85,15 +86,24 @@ function nDayReturn(prices: number[], n: number): number {
   return ((current - past) / past) * 100;
 }
 
-/** FSS 레코드 → foreignNetBuy5d(억원) + passiveActiveBoth */
-function computeFssVars(): { foreignNetBuy5d: number; passiveActiveBoth: boolean } {
+/** FSS 레코드 → foreignNetBuy5d(억원) + passiveActiveBoth + foreignContinuousBuyDays */
+function computeFssVars(): { foreignNetBuy5d: number; passiveActiveBoth: boolean; foreignContinuousBuyDays: number } {
   const records = loadFssRecords()
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(-5);
-  if (records.length === 0) return { foreignNetBuy5d: 0, passiveActiveBoth: false };
-  const foreignNetBuy5d  = records.reduce((s, r) => s + r.passiveNetBuy + r.activeNetBuy, 0);
-  const passiveActiveBoth = records.every(r => r.passiveNetBuy > 0 && r.activeNetBuy > 0);
-  return { foreignNetBuy5d, passiveActiveBoth };
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const last5 = records.slice(-5);
+  if (last5.length === 0) return { foreignNetBuy5d: 0, passiveActiveBoth: false, foreignContinuousBuyDays: 0 };
+  const foreignNetBuy5d  = last5.reduce((s, r) => s + r.passiveNetBuy + r.activeNetBuy, 0);
+  const passiveActiveBoth = last5.every(r => r.passiveNetBuy > 0 && r.activeNetBuy > 0);
+
+  // 최근부터 역순으로 연속 순매수 일수 계산
+  let continuousDays = 0;
+  for (let i = records.length - 1; i >= 0; i--) {
+    const dayNet = records[i].passiveNetBuy + records[i].activeNetBuy;
+    if (dayNet > 0) continuousDays++;
+    else break;
+  }
+
+  return { foreignNetBuy5d, passiveActiveBoth, foreignContinuousBuyDays: continuousDays };
 }
 
 /**
@@ -121,7 +131,9 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     computed.kospiDayReturn  = kospi.length >= 2
       ? ((last - kospi[kospi.length - 2]) / kospi[kospi.length - 2]) * 100
       : 0;
-    console.log(`[MarketRefresh] KOSPI: 현재=${last.toFixed(0)}, MA20=${ma20.toFixed(0)}, 20d=${(computed.kospi20dReturn as number).toFixed(2)}%`);
+    // ⑧ KOSPI가 MA20 대비 몇 % 위에 있는지 — 레짐 R3 강제 승급 판단용
+    computed.kospiAboveMA20Pct = ma20 > 0 ? ((last - ma20) / ma20) * 100 : 0;
+    console.log(`[MarketRefresh] KOSPI: 현재=${last.toFixed(0)}, MA20=${ma20.toFixed(0)}, MA20대비=${(computed.kospiAboveMA20Pct as number).toFixed(2)}%, 20d=${(computed.kospi20dReturn as number).toFixed(2)}%`);
   } else {
     console.warn('[MarketRefresh] KOSPI 데이터 부족 또는 실패');
   }
@@ -162,7 +174,23 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   const fssVars = computeFssVars();
   computed.foreignNetBuy5d  = fssVars.foreignNetBuy5d;
   computed.passiveActiveBoth = fssVars.passiveActiveBoth;
-  console.log(`[MarketRefresh] 수급: foreignNetBuy5d=${fssVars.foreignNetBuy5d.toFixed(0)}억, passiveActiveBoth=${fssVars.passiveActiveBoth}`);
+  computed.foreignContinuousBuyDays = fssVars.foreignContinuousBuyDays;
+  console.log(`[MarketRefresh] 수급: foreignNetBuy5d=${fssVars.foreignNetBuy5d.toFixed(0)}억, passiveActiveBoth=${fssVars.passiveActiveBoth}, 연속매수=${fssVars.foreignContinuousBuyDays}일`);
+
+  // ── ③-b KIS 코스피 전체 투자자별 수급 (실시간 보강) ─────────────────────
+  // FSS 레코드가 0이거나 누락 시 KIS API로 당일 실시간 수급 데이터 보강
+  const kisSupply = await fetchKisMarketSupply().catch(() => null);
+  if (kisSupply) {
+    // FSS 5일 누적이 0이면 KIS 당일 데이터로 대체 (단위: 주 → 억원 근사 변환 불가이므로 방향 참고)
+    if (fssVars.foreignNetBuy5d === 0) {
+      // KIS는 순매수 주수, FSS는 억원 단위 → 직접 대체 불가
+      // 다만 부호(양/음)와 크기를 기록하여 레짐 판단에 방향성 참고
+      console.log(
+        `[MarketRefresh] KIS 수급 보강: 외국인=${kisSupply.foreignNetBuy.toLocaleString()}주, ` +
+        `기관=${kisSupply.institutionNetBuy.toLocaleString()}주, 개인=${kisSupply.individualNetBuy.toLocaleString()}주`,
+      );
+    }
+  }
 
   // ── ⑧ FRED 거시 지표 (병렬 조회) ────────────────────────────────────────
   // T10Y2Y: 음수 전환 → 경기침체 6~18개월 선행 / STLFSI4 > 0 = 금융 스트레스

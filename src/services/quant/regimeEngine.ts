@@ -232,6 +232,15 @@ export function classifyRegime(v: RegimeVariables): RegimeLevel {
     return 'R2_BULL';
   }
 
+  // ── R3 강제 승급: KOSPI MA20 대비 +5% 이상 + 외국인 5일 연속 순매수 ──────────
+  // 보수적 R4에서도 상승 모멘텀이 명확하면 기회를 잡을 수 있도록 강제 승급
+  if (
+    (v.kospiAboveMA20Pct ?? 0) > 5 &&
+    (v.foreignContinuousBuyDays ?? 0) >= 5
+  ) {
+    return 'R3_EARLY';
+  }
+
   // ── 기본: R4 Neutral ─────────────────────────────────────────────────────────
   return 'R4_NEUTRAL';
 }
