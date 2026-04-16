@@ -27,6 +27,7 @@ import { StickyMiniHeader } from './components/common/StickyMiniHeader';
 import { StatusBanner } from './components/common/StatusBanner';
 import { FloatingActionButton } from './components/common/FloatingActionButton';
 import { SectorRotationPanel } from './components/sector/SectorRotationPanel';
+import { SectionErrorBoundary } from './components/common/SectionErrorBoundary';
 import { Sidebar } from './layout/Sidebar';
 import { BottomNav } from './layout/BottomNav';
 import { PageContainer } from './layout/PageContainer';
@@ -165,71 +166,73 @@ export default function App() {
                   exit={PAGE_TRANSITION.exit}
                   transition={PAGE_TRANSITION.transition}
                 >
-                  {view === 'MARKET' ? (
-                    <MarketPage onFetchMarketOverview={handleFetchMarketOverview} />
-                  ) : view === 'MANUAL_INPUT' ? (
-                    <ManualInputPage />
-                  ) : view === 'AUTO_TRADE' ? (
-                    <AutoTradePage />
-                  ) : view === 'TRADE_JOURNAL' ? (
-                    <TradeJournalPage
-                      onCloseTrade={closeTrade}
-                      onDeleteTrade={deleteTrade}
-                      onUpdateMemo={updateTradeMemo}
-                      onTriggerPreMortem={triggerPreMortem}
-                    />
-                  ) : view === 'SCREENER' ? (
-                    <ScreenerPage onScreen={handleScreener} />
-                  ) : view === 'SUBSCRIPTION' ? (
-                    <SubscriptionPage
-                      onAddSector={handleAddSector}
-                      onRemoveSector={handleRemoveSector}
-                    />
-                  ) : view === 'BACKTEST' ? (
-                    <BacktestPage
-                      onRunBacktest={runBacktest}
-                      onFileUpload={handleFileUpload}
-                      onRemoveFromBacktest={removeFromBacktest}
-                      onUpdateWeight={updateWeight}
-                      onReorderPortfolioItems={reorderPortfolioItems}
-                      onApplyAIRecommendedWeights={applyAIRecommendedWeights}
-                      onSelectPortfolio={selectPortfolio}
-                      onSavePortfolio={savePortfolio}
-                      onDeletePortfolio={deletePortfolio}
-                      onUpdatePortfolio={updatePortfolio}
-                      onCopy={handleCopy}
-                      copiedCode={copiedCode}
-                    />
-                  ) : view === 'PORTFOLIO_EXTRACT' ? (
-                    <PortfolioExtractPage />
-                  ) : view === 'WALK_FORWARD' ? (
-                    <WalkForwardView />
-                  ) : (
-                    <DiscoverWatchlistPage
-                      displayList={displayList}
-                      filteredRecommendations={filteredRecommendations}
-                      allPatterns={allPatterns}
-                      averageHitRate={averageHitRate}
-                      strongBuyHitRate={strongBuyHitRate}
-                      loadingNews={loadingNews}
-                      dartAlerts={dartAlerts}
-                      kisBalance={kisBalance}
-                      analysisReportRef={analysisReportRef}
-                      onFetchStocks={fetchStocks}
-                      onSyncAll={handleSyncAll}
-                      onSyncPrice={handleSyncPrice}
-                      onManualPriceUpdate={handleManualPriceUpdate}
-                      onToggleWatchlist={toggleWatchlist}
-                      onAddToBacktest={addToBacktest}
-                      onMarketSearch={handleMarketSearch}
-                      onFetchNewsScores={handleFetchNewsScores}
-                      onGenerateSummary={handleGenerateSummary}
-                      onGeneratePDF={generatePDF}
-                      onExportDeepAnalysisPDF={handleExportDeepAnalysisPDF}
-                      onSendEmail={sendEmail}
-                      onRecordTrade={recordTrade}
-                    />
-                  )}
+                  <SectionErrorBoundary sectionName={view}>
+                    {view === 'MARKET' ? (
+                      <MarketPage onFetchMarketOverview={handleFetchMarketOverview} />
+                    ) : view === 'MANUAL_INPUT' ? (
+                      <ManualInputPage />
+                    ) : view === 'AUTO_TRADE' ? (
+                      <AutoTradePage />
+                    ) : view === 'TRADE_JOURNAL' ? (
+                      <TradeJournalPage
+                        onCloseTrade={closeTrade}
+                        onDeleteTrade={deleteTrade}
+                        onUpdateMemo={updateTradeMemo}
+                        onTriggerPreMortem={triggerPreMortem}
+                      />
+                    ) : view === 'SCREENER' ? (
+                      <ScreenerPage onScreen={handleScreener} />
+                    ) : view === 'SUBSCRIPTION' ? (
+                      <SubscriptionPage
+                        onAddSector={handleAddSector}
+                        onRemoveSector={handleRemoveSector}
+                      />
+                    ) : view === 'BACKTEST' ? (
+                      <BacktestPage
+                        onRunBacktest={runBacktest}
+                        onFileUpload={handleFileUpload}
+                        onRemoveFromBacktest={removeFromBacktest}
+                        onUpdateWeight={updateWeight}
+                        onReorderPortfolioItems={reorderPortfolioItems}
+                        onApplyAIRecommendedWeights={applyAIRecommendedWeights}
+                        onSelectPortfolio={selectPortfolio}
+                        onSavePortfolio={savePortfolio}
+                        onDeletePortfolio={deletePortfolio}
+                        onUpdatePortfolio={updatePortfolio}
+                        onCopy={handleCopy}
+                        copiedCode={copiedCode}
+                      />
+                    ) : view === 'PORTFOLIO_EXTRACT' ? (
+                      <PortfolioExtractPage />
+                    ) : view === 'WALK_FORWARD' ? (
+                      <WalkForwardView />
+                    ) : (
+                      <DiscoverWatchlistPage
+                        displayList={displayList}
+                        filteredRecommendations={filteredRecommendations}
+                        allPatterns={allPatterns}
+                        averageHitRate={averageHitRate}
+                        strongBuyHitRate={strongBuyHitRate}
+                        loadingNews={loadingNews}
+                        dartAlerts={dartAlerts}
+                        kisBalance={kisBalance}
+                        analysisReportRef={analysisReportRef}
+                        onFetchStocks={fetchStocks}
+                        onSyncAll={handleSyncAll}
+                        onSyncPrice={handleSyncPrice}
+                        onManualPriceUpdate={handleManualPriceUpdate}
+                        onToggleWatchlist={toggleWatchlist}
+                        onAddToBacktest={addToBacktest}
+                        onMarketSearch={handleMarketSearch}
+                        onFetchNewsScores={handleFetchNewsScores}
+                        onGenerateSummary={handleGenerateSummary}
+                        onGeneratePDF={generatePDF}
+                        onExportDeepAnalysisPDF={handleExportDeepAnalysisPDF}
+                        onSendEmail={sendEmail}
+                        onRecordTrade={recordTrade}
+                      />
+                    )}
+                  </SectionErrorBoundary>
                 </motion.div>
               </AnimatePresence>
 
