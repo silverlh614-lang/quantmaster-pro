@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   RefreshCw, AlertTriangle, X, ChevronRight, HelpCircle,
-  History, Zap, Radar, Search, Globe, Download, Mail,
+  History, Zap, Radar, Search, Globe, Download, Mail, Star,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../ui/cn';
@@ -180,74 +180,135 @@ export function DiscoverWatchlistPage({
         )}
       </AnimatePresence>
 
-      {/* Market Sentiment & Hero / Top 3 / Market Context / AI Summary */}
-      <WatchlistHeader
-        filters={filters}
-        setFilters={setFilters}
-        setShowMasterChecklist={setShowMasterChecklist}
-        onFetchStocks={onFetchStocks}
-        loading={loading}
-        lastUpdated={lastUpdated}
-        marketContext={marketContext}
-        recommendations={recommendations}
-        searchResults={searchResults}
-        isSummarizing={isSummarizing}
-        onGenerateSummary={onGenerateSummary}
-        reportSummary={reportSummary}
-        setReportSummary={setReportSummary}
-        setView={setView}
-        onDeepAnalysis={setDeepAnalysisStock}
-      />
-
-      {/* 3-Gate Pyramid Visualization — Signature QuantMaster UI */}
+      {/* Discover-only hero / sentiment / Top 3 / Market Context / AI Summary */}
       {view === 'DISCOVER' && (
-        <GatePyramidVisualization
-          recommendations={recommendations}
-          totalUniverse={recommendations.length}
-        />
+        <>
+          <WatchlistHeader
+            filters={filters}
+            setFilters={setFilters}
+            setShowMasterChecklist={setShowMasterChecklist}
+            onFetchStocks={onFetchStocks}
+            loading={loading}
+            lastUpdated={lastUpdated}
+            marketContext={marketContext}
+            recommendations={recommendations}
+            searchResults={searchResults}
+            isSummarizing={isSummarizing}
+            onGenerateSummary={onGenerateSummary}
+            reportSummary={reportSummary}
+            setReportSummary={setReportSummary}
+            setView={setView}
+            onDeepAnalysis={setDeepAnalysisStock}
+          />
+          <GatePyramidVisualization
+            recommendations={recommendations}
+            totalUniverse={recommendations.length}
+          />
+        </>
+      )}
+
+      {/* Watchlist-only compact header */}
+      {view === 'WATCHLIST' && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-3d rounded-3xl border border-blue-500/20 bg-gradient-to-br from-blue-500/[0.06] via-indigo-500/[0.03] to-transparent p-6 sm:p-8 shadow-[0_20px_60px_rgba(37,99,235,0.12)]"
+        >
+          <div className="flex items-center justify-between gap-6 flex-wrap">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-blue-500/15 border border-blue-500/20 flex items-center justify-center shrink-0">
+                <Star className="w-6 h-6 sm:w-7 sm:h-7 text-blue-400 fill-current" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-black text-blue-300/70 uppercase tracking-[0.25em]">Watchlist</span>
+                  <span className="w-1 h-1 rounded-full bg-blue-400/40" />
+                  <span className="text-[10px] font-bold text-theme-text-muted uppercase tracking-widest">관심목록 전용</span>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-black text-theme-text tracking-tighter uppercase">관심목록</h1>
+                <p className="text-xs text-theme-text-muted font-bold mt-1">
+                  저장된 <span className="text-blue-400 font-black">{watchlist.length}</span>개 종목
+                  {searchQuery && <> · 검색 일치 <span className="text-blue-400 font-black">{displayList.length}</span>개</>}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-1 min-w-[220px] sm:max-w-md">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-theme-text-muted pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="관심목록에서 검색 (이름·코드)"
+                  className="w-full pl-11 pr-9 py-3 rounded-xl bg-white/5 border border-white/10 text-sm font-bold text-theme-text placeholder:text-theme-text-muted focus:outline-none focus:border-blue-500/40 focus:bg-white/10 transition-colors"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md text-theme-text-muted hover:text-theme-text"
+                    aria-label="검색어 지우기"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={onSyncAll}
+                disabled={syncStatus.isSyncing || watchlist.length === 0}
+                title="관심목록 현재가 일괄 동기화"
+                className="p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors disabled:opacity-40 shrink-0"
+              >
+                <RefreshCw className={cn('w-4 h-4 text-theme-text-muted', syncStatus.isSyncing && 'animate-spin text-blue-400')} />
+              </button>
+            </div>
+          </div>
+        </motion.div>
       )}
 
       <Section>
-        {/* Search / Sort / Filter Panel */}
-        <WatchlistFilterPanel
-          view={view}
-          loading={loading}
-          loadingNews={loadingNews}
-          searchingSpecific={searchingSpecific}
-          recommendations={recommendations}
-          searchResults={searchResults}
-          allPatterns={allPatterns}
-          filters={filters}
-          setFilters={setFilters}
-          selectedType={selectedType}
-          setSelectedType={setSelectedType}
-          selectedPattern={selectedPattern}
-          setSelectedPattern={setSelectedPattern}
-          selectedSentiment={selectedSentiment}
-          setSelectedSentiment={setSelectedSentiment}
-          selectedChecklist={selectedChecklist}
-          setSelectedChecklist={setSelectedChecklist}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-          minPrice={minPrice}
-          setMinPrice={setMinPrice}
-          maxPrice={maxPrice}
-          setMaxPrice={setMaxPrice}
-          sortBy={sortBy}
-          setSortBy={setSortBy}
-          isFilterExpanded={isFilterExpanded}
-          setIsFilterExpanded={setIsFilterExpanded}
-          hasActiveFilters={hasActiveFilters}
-          handleResetScreen={handleResetScreen}
-          onFetchStocks={onFetchStocks}
-          onFetchNewsScores={onFetchNewsScores}
-          onSyncAll={onSyncAll}
-          onMarketSearch={onMarketSearch}
-          autoSyncEnabled={autoSyncEnabled}
-          setAutoSyncEnabled={setAutoSyncEnabled}
-          nextSyncCountdown={nextSyncCountdown}
-          syncStatus={syncStatus}
-        />
+        {/* Search / Sort / Filter Panel — Discover only (watchlist has its own compact search) */}
+        {view === 'DISCOVER' && (
+          <WatchlistFilterPanel
+            view={view}
+            loading={loading}
+            loadingNews={loadingNews}
+            searchingSpecific={searchingSpecific}
+            recommendations={recommendations}
+            searchResults={searchResults}
+            allPatterns={allPatterns}
+            filters={filters}
+            setFilters={setFilters}
+            selectedType={selectedType}
+            setSelectedType={setSelectedType}
+            selectedPattern={selectedPattern}
+            setSelectedPattern={setSelectedPattern}
+            selectedSentiment={selectedSentiment}
+            setSelectedSentiment={setSelectedSentiment}
+            selectedChecklist={selectedChecklist}
+            setSelectedChecklist={setSelectedChecklist}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            minPrice={minPrice}
+            setMinPrice={setMinPrice}
+            maxPrice={maxPrice}
+            setMaxPrice={setMaxPrice}
+            sortBy={sortBy}
+            setSortBy={setSortBy}
+            isFilterExpanded={isFilterExpanded}
+            setIsFilterExpanded={setIsFilterExpanded}
+            hasActiveFilters={hasActiveFilters}
+            handleResetScreen={handleResetScreen}
+            onFetchStocks={onFetchStocks}
+            onFetchNewsScores={onFetchNewsScores}
+            onSyncAll={onSyncAll}
+            onMarketSearch={onMarketSearch}
+            autoSyncEnabled={autoSyncEnabled}
+            setAutoSyncEnabled={setAutoSyncEnabled}
+            nextSyncCountdown={nextSyncCountdown}
+            syncStatus={syncStatus}
+          />
+        )}
 
         {view === 'WATCHLIST' && (
           <motion.div
@@ -563,8 +624,8 @@ export function DiscoverWatchlistPage({
         isExporting={isExportingDeepAnalysis}
       />
 
-      {/* Export Report Section */}
-      <div className="mt-12 mb-8 px-4">
+      {/* Export Report Section — hidden in watchlist-only view */}
+      {view === 'DISCOVER' && <div className="mt-12 mb-8 px-4">
         <div className="max-w-2xl mx-auto glass-3d rounded-2xl border border-theme-border p-6 sm:p-8 shadow-xl relative overflow-hidden">
           <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-6">
             <div className="text-center sm:text-left flex-1 min-w-0">
@@ -621,7 +682,7 @@ export function DiscoverWatchlistPage({
             </div>
           </div>
         </div>
-      </div>
+      </div>}
     </Stack>
   );
 }
