@@ -15,9 +15,35 @@ import {
 } from '../alerts/telegramClient.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
 import { formatEnemyCheckSummary, type EnemyCheckResult } from '../clients/enemyCheckClient.js';
+import type { RegimeLevel } from '../../src/types/core.js';
 
-/** 자동 승인까지 대기 시간 (ms) — 기본 3분 */
+/** 자동 승인까지 대기 시간 (ms) — 기본(레짐 미지정 시) 3분 */
 const AUTO_APPROVE_TIMEOUT_MS = 3 * 60 * 1000;
+
+/**
+ * 레짐별 자동 승인 타임아웃 (ms).
+ *   R1 TURBO   — 빠른 체결이 생명 (1분)
+ *   R2 BULL    — 1.5분
+ *   R3 EARLY   — 2분
+ *   R4 NEUTRAL — 3분 (기존 고정값)
+ *   R5 CAUTION — 신중하게 5분
+ *   R6 DEFENSE — 자동 승인 없음(수동만) — 사실상 무제한이지만 R6는 상위 레이어에서 매수가 차단되므로 안전
+ */
+const TIMEOUT_BY_REGIME: Record<RegimeLevel, number> = {
+  R1_TURBO:    60_000,
+  R2_BULL:     90_000,
+  R3_EARLY:   120_000,
+  R4_NEUTRAL: 180_000,
+  R5_CAUTION: 300_000,
+  R6_DEFENSE:      0,  // 0 = 자동 승인 비활성 (수동 승인만 허용)
+};
+
+/** 레짐별 타임아웃 조회. 미전달·미지원 레짐 → 기본 3분. */
+export function getAutoApproveTimeoutMs(regime?: string): number {
+  if (!regime) return AUTO_APPROVE_TIMEOUT_MS;
+  const v = TIMEOUT_BY_REGIME[regime as RegimeLevel];
+  return v === undefined ? AUTO_APPROVE_TIMEOUT_MS : v;
+}
 
 export type ApprovalAction = 'APPROVE' | 'REJECT' | 'SKIP';
 
@@ -56,22 +82,38 @@ export async function requestBuyApproval(params: {
   gateScore?: number;
   /** 역검증 참고 데이터 — 자동 감점/차단 없이 표시만 함 */
   enemyCheck?: EnemyCheckResult | null;
+  /** 레짐별 가변 타임아웃 결정용. 미전달 시 기본 3분. */
+  regime?: string;
+  /** 매수 실패 시나리오 사전 체크리스트(Gemini Pre-Mortem). 있으면 메시지에 표시. */
+  preMortem?: string | null;
 }): Promise<ApprovalAction> {
   const {
     tradeId, stockCode, stockName,
     currentPrice, quantity, stopLoss, targetPrice, mode, gateScore, enemyCheck,
+    regime, preMortem,
   } = params;
 
   const modeEmoji = mode === 'LIVE' ? '🔴' : '⚡';
   const modeLabel = mode === 'LIVE' ? 'LIVE' : 'Shadow';
   const rrrRatio = ((targetPrice - currentPrice) / (currentPrice - stopLoss)).toFixed(1);
-  const timeoutSec = Math.round(AUTO_APPROVE_TIMEOUT_MS / 1000);
+  const timeoutMs = getAutoApproveTimeoutMs(regime);
+  const autoApproveDisabled = timeoutMs === 0;
+  const timeoutSec = Math.round(timeoutMs / 1000);
 
   // 역검증 섹션 (데이터 있을 때만 표시)
   const enemySummary = enemyCheck ? formatEnemyCheckSummary(enemyCheck) : null;
   const enemySection = enemySummary
     ? `━━━━━━━━━━━━━━━━━━━━\n<i>[역검증 참고]\n${enemySummary}</i>\n`
     : '';
+
+  // Pre-Mortem 섹션 (진입 전 실패 시나리오 사전 체크리스트)
+  const preMortemSection = preMortem
+    ? `━━━━━━━━━━━━━━━━━━━━\n⚠️ <b>실패 시나리오(Pre-Mortem)</b>\n${preMortem}\n`
+    : '';
+
+  const timeoutLine = autoApproveDisabled
+    ? `<i>🛑 자동 승인 비활성 (레짐 ${regime}) — 수동 승인 필수</i>`
+    : `<i>${timeoutSec}초 내 미응답 시 자동 승인${regime ? ` (레짐 ${regime})` : ''}</i>`;
 
   const message =
     `${modeEmoji} <b>[${modeLabel}] ${stockName} 매수 신호</b>\n` +
@@ -80,8 +122,9 @@ export async function requestBuyApproval(params: {
     `손절: ${stopLoss.toLocaleString()}원 | 목표: ${targetPrice.toLocaleString()}원\n` +
     `RRR: ${rrrRatio} | Gate: ${gateScore ?? 'N/A'}\n` +
     `${enemySection}` +
+    `${preMortemSection}` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `<i>${timeoutSec}초 내 미응답 시 자동 승인</i>`;
+    timeoutLine;
 
   const replyMarkup = {
     inline_keyboard: [[
@@ -104,23 +147,28 @@ export async function requestBuyApproval(params: {
   }
 
   return new Promise<ApprovalAction>((resolve) => {
-    const timer = setTimeout(async () => {
-      const pending = pendingApprovals.get(tradeId);
-      if (!pending) return;
-      pendingApprovals.delete(tradeId);
+    // R6 등 타임아웃 0 → 자동 승인 비활성. 타이머 생성하지 않고 수동 승인만 대기.
+    const timer = autoApproveDisabled
+      ? (setTimeout(() => { /* no-op */ }, 0) as ReturnType<typeof setTimeout>)
+      : setTimeout(async () => {
+          const pending = pendingApprovals.get(tradeId);
+          if (!pending) return;
+          pendingApprovals.delete(tradeId);
 
-      // 자동 승인 시 메시지 업데이트
-      await editMessageText(
-        msgId,
-        message.replace(
-          `<i>${timeoutSec}초 내 미응답 시 자동 승인</i>`,
-          `✅ <b>자동 승인 (${timeoutSec}초 타임아웃)</b>`,
-        ),
-      );
+          // 자동 승인 시 메시지 업데이트
+          await editMessageText(
+            msgId,
+            message.replace(
+              timeoutLine,
+              `✅ <b>자동 승인 (${timeoutSec}초 타임아웃)</b>`,
+            ),
+          );
 
-      console.log(`[BuyApproval] 자동 승인 (타임아웃): ${stockName}`);
-      resolve('APPROVE');
-    }, AUTO_APPROVE_TIMEOUT_MS);
+          console.log(`[BuyApproval] 자동 승인 (타임아웃): ${stockName} — ${timeoutSec}초`);
+          resolve('APPROVE');
+        }, timeoutMs);
+
+    if (autoApproveDisabled) clearTimeout(timer);
 
     pendingApprovals.set(tradeId, {
       tradeId,

@@ -33,6 +33,7 @@ import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, fetchKisInvestorFlow
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { calcReliabilityScore, sourcesFromGateKeys, formatReliabilityBadge } from '../learning/reliabilityScorer.js';
 import { runConfluenceEngine } from '../trading/confluenceEngine.js';
+import { computeEtfSectorBoost } from '../alerts/globalScanAgent.js';
 import { evaluateRegretAsymmetry } from '../trading/regretAsymmetryFilter.js';
 import { STAGE1_CACHE_FILE, ensureDataDir } from '../persistence/paths.js';
 import type { RegimeLevel } from '../../src/types/core.js';
@@ -229,14 +230,22 @@ export async function stage2SectorGateFilter(
     if (gate.signalType === 'SKIP') continue;
 
     const sectorBonus = leadingSectors.some((s) => c.sector.includes(s)) ? 1.5 : 1.0;
-    const stage2Score = gate.gateScore * sectorBonus + c.stage1Score * 0.3;
+
+    // Layer 14 ETF 선행 수급 부스트 — EWY/ITA/SOXX/XLE 5일 수익률 양수 시 gateScore에 가산
+    const etfBoost = computeEtfSectorBoost(c.sector);
+    const boostedGateScore = gate.gateScore + etfBoost.boost;
+    const boostedDetails = etfBoost.reasons.length > 0
+      ? [...gate.details, ...etfBoost.reasons]
+      : gate.details;
+
+    const stage2Score = boostedGateScore * sectorBonus + c.stage1Score * 0.3;
 
     results.push({
       ...c,
       quote:        enrichedQuote,  // KIS 보강된 quote 사용
-      gateScore:    gate.gateScore,
+      gateScore:    boostedGateScore,
       gateSignal:   gate.signalType,
-      gateDetails:  gate.details,
+      gateDetails:  boostedDetails,
       gateCondKeys: gate.conditionKeys,
       sectorBonus,
       stage2Score,

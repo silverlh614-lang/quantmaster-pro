@@ -14,6 +14,7 @@ import type { ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import type { ExitRuleTag } from '../persistence/shadowTradeRepo.js';
 import type { DynamicStopRegime } from '../../src/types/sell.js';
 import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.js';
+import { callGemini } from '../clients/geminiClient.js';
 
 const ENTRY_MIN_GATE_SCORE = 5;
 
@@ -263,4 +264,58 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): { ok: 
   }
 
   return { ok: reasons.length === 0, reasons };
+}
+
+// ── Pre-Mortem 체크리스트 생성 ─────────────────────────────────────────────────
+//
+// "이 매수가 -10% 손실로 끝난다면 가장 가능성 높은 원인 3가지는?"
+// Gemini에게 강제로 실패 시나리오를 나열하게 하여 인지 편향(확증 편향)을 역공격한다.
+// 결과는 shadowTrade.preMortem에 저장되어 진입 승인 메시지와 사후 복기에 활용된다.
+
+export interface PreMortemInput {
+  stockCode: string;
+  stockName: string;
+  entryPrice: number;
+  stopLoss: number;
+  targetPrice: number;
+  regime?: string;
+  sector?: string;
+  /** 진입 근거/메모 (Gate 통과 조건, 컨플루언스 요약 등) */
+  entryContext?: string;
+}
+
+/** Pre-Mortem Gemini 프롬프트 빌더 — 테스트 및 단독 검증용 export */
+export function buildPreMortemPrompt(input: PreMortemInput): string {
+  const stopPct   = ((input.stopLoss  - input.entryPrice) / input.entryPrice) * 100;
+  const targetPct = ((input.targetPrice - input.entryPrice) / input.entryPrice) * 100;
+  const ctxLine   = input.entryContext ? `\n진입근거: ${input.entryContext}` : '';
+  const secLine   = input.sector ? ` / 섹터 ${input.sector}` : '';
+  const regLine   = input.regime ? ` / 레짐 ${input.regime}` : '';
+
+  return (
+    `종목: ${input.stockName}(${input.stockCode})${secLine}${regLine}\n` +
+    `진입가: ${input.entryPrice.toLocaleString()}원\n` +
+    `손절: ${input.stopLoss.toLocaleString()}원 (${stopPct.toFixed(1)}%)\n` +
+    `목표: ${input.targetPrice.toLocaleString()}원 (${targetPct.toFixed(1)}%)` +
+    `${ctxLine}\n\n` +
+    `시나리오 가정: 이 매수가 -10% 손실로 끝났다. 가장 가능성 높은 원인 3가지를 ` +
+    `1~2줄씩 번호로 나열하라. 각 줄은 "구체적 촉발 조건 → 결과" 형식으로 작성하라. ` +
+    `추상적 문구(예: "시장 악화") 금지. JSON·마크다운 없이 순수 텍스트만 출력하라.`
+  );
+}
+
+/**
+ * Pre-Mortem 체크리스트 생성.
+ * Gemini 호출 실패(네트워크/키 미설정/quota) 시 null 반환 — 진입 차단하지 않는다.
+ */
+export async function generatePreMortem(input: PreMortemInput): Promise<string | null> {
+  const prompt = buildPreMortemPrompt(input);
+  try {
+    const out = await callGemini(prompt, 'pre-mortem');
+    if (!out) return null;
+    return out.trim().slice(0, 1000); // 텔레그램 4096자 안전 마진
+  } catch (e) {
+    console.warn(`[PreMortem] 생성 실패 (${input.stockCode}): ${e instanceof Error ? e.message : e}`);
+    return null;
+  }
 }

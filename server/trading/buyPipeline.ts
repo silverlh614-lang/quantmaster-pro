@@ -21,6 +21,9 @@ import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { evaluateServerGate, type ServerGateResult } from '../quantFilter.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
+import { computeEtfSectorBoost } from '../alerts/globalScanAgent.js';
+import { SECTOR_MAP } from '../screener/pipelineHelpers.js';
+import { generatePreMortem } from './entryEngine.js';
 import { placeKisMarketBuyOrder } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { requestBuyApproval } from '../telegram/buyApproval.js';
@@ -96,6 +99,13 @@ export async function fetchGateData(
   const gate = evaluateServerGate(
     quote, weights, kospiDayReturn ?? macroState?.kospiDayReturn, dartFin, kisFlow,
   );
+
+  // Layer 14 ETF 선행 수급 부스트 — universeScanner와 동일 기준으로 재평가 시에도 적용
+  const etfBoost = computeEtfSectorBoost(SECTOR_MAP[stockCode]);
+  if (etfBoost.boost > 0) {
+    gate.gateScore += etfBoost.boost;
+    gate.details.push(...etfBoost.reasons);
+  }
 
   return { quote, gate };
 }
@@ -181,6 +191,10 @@ export interface CreateBuyTaskParams {
   alertMessage: string;
   /** shadow log 이벤트명 */
   logEvent: string;
+  /** 레짐 (자동 승인 타임아웃 가변용) */
+  regime?: string;
+  /** 사전 생성된 Pre-Mortem 실패 시나리오 체크리스트 */
+  preMortem?: string | null;
 }
 
 /**
@@ -188,7 +202,29 @@ export interface CreateBuyTaskParams {
  * 기존에 6회 중복되던 approval + execute 패턴을 1회로 통합.
  */
 export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask> {
-  const enemyCheck = await fetchEnemyCheckData(p.stockCode).catch(() => null);
+  const regime = p.regime ?? p.trade.entryRegime;
+  const sector = SECTOR_MAP[p.stockCode];
+
+  // enemyCheck + preMortem 병렬 생성 (둘 다 외부 호출이고 서로 독립적)
+  const [enemyCheck, preMortem] = await Promise.all([
+    fetchEnemyCheckData(p.stockCode).catch(() => null),
+    p.preMortem !== undefined
+      ? Promise.resolve(p.preMortem)
+      : generatePreMortem({
+          stockCode:   p.stockCode,
+          stockName:   p.stockName,
+          entryPrice:  p.entryPrice,
+          stopLoss:    p.stopLoss,
+          targetPrice: p.targetPrice,
+          regime,
+          sector,
+        }).catch(() => null),
+  ]);
+
+  // Pre-Mortem을 shadowTrade에 저장 (승인 여부와 무관하게 기록 — 승인 거절 시 복기용)
+  if (preMortem) {
+    p.trade.preMortem = preMortem;
+  }
 
   return {
     approvalPromise: requestBuyApproval({
@@ -202,6 +238,8 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
       mode:        p.shadowMode ? 'SHADOW' : 'LIVE',
       gateScore:   p.gateScore,
       enemyCheck,
+      regime,
+      preMortem,
     }),
     execute: async (approval: ApprovalAction) => {
       if (approval !== 'APPROVE') {
