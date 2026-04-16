@@ -72,7 +72,7 @@ export const REGIME_CONFIGS: Record<RegimeLevel, FullRegimeConfig> = {
   R3_EARLY: {
     gate2Required: 6,    // R1과 동일 완화 — 선행 포착이 목적
     gate3Required: 4,
-    kellyMultiplier: 0.6, // 확신 낮으므로 소규모 진입
+    kellyMultiplier: 0.7, // 선취매 구간 — 신규 진입 슬롯 확보를 위해 소폭 상향
     maxPositions: 5,
     allowedSignals: ['STRONG_BUY', 'BUY', 'EARLY_ENTRY'],
     trancheStrategy: '1차 30% 선진입 → R2 레짐 확인 후 70% 증액',
@@ -232,11 +232,12 @@ export function classifyRegime(v: RegimeVariables): RegimeLevel {
     return 'R2_BULL';
   }
 
-  // ── R3 강제 승급: KOSPI MA20 대비 +5% 이상 + 외국인 5일 연속 순매수 ──────────
-  // 보수적 R4에서도 상승 모멘텀이 명확하면 기회를 잡을 수 있도록 강제 승급
+  // ── R3 강제 승급: KOSPI MA20 대비 +5% 이상 + 외국인 순매수 진입(≥1일) ─────────
+  // 보수적 R4에서도 상승 모멘텀이 명확하면 기회를 잡을 수 있도록 강제 승급.
+  // FSS 5일 누적이 0인 첫날에도 KIS 당일 보정값(≥1)이 들어오면 즉시 승급한다.
   if (
     (v.kospiAboveMA20Pct ?? 0) > 5 &&
-    (v.foreignContinuousBuyDays ?? 0) >= 5
+    (v.foreignContinuousBuyDays ?? 0) >= 1
   ) {
     return 'R3_EARLY';
   }
