@@ -38,6 +38,8 @@ interface SymbolResult {
   label:     string;
   price:     number | null;
   changePct: number | null;
+  /** 5일 수익률 (%) — 첫 종가 대비 최신 종가. ETF 섹터 부스트 판단에 사용. */
+  return5d?: number | null;
 }
 
 export interface SectorAlert {
@@ -110,11 +112,14 @@ async function fetchSymbolResult(symbol: string, label: string): Promise<SymbolR
   const prev      = closes[closes.length - 2];
   const current   = closes[closes.length - 1];
   const changePct = ((current - prev) / prev) * 100;
+  const first5d   = closes[0];
+  const return5d  = first5d > 0 ? ((current - first5d) / first5d) * 100 : null;
   return {
     symbol,
     label,
     price:     parseFloat(current.toFixed(2)),
     changePct: parseFloat(changePct.toFixed(2)),
+    return5d:  return5d === null ? null : parseFloat(return5d.toFixed(2)),
   };
 }
 
@@ -164,6 +169,69 @@ function checkVixReboundInternal(history: number[]): boolean {
 function fmtPct(v: number | null): string {
   if (v === null) return 'N/A';
   return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+}
+
+// ── ETF 섹터 Gate 부스트 (Layer 14 gateScore 연계) ──────────────────────────────
+//
+// globalScanAgent가 수집·저장한 ETF 5일 수익률을 KIS 워치리스트 Gate Score에 연계.
+// ETF 5일 수익률이 양수(자금 유입)이고 종목 섹터가 일치하면 gateScore += boostGate.
+//
+// 'EWY' (한국 ETF)  — 전체 외국인 선행 수급 신호 (모든 섹터 소폭 부스트)
+// 'ITA' (방산 ETF)  — 방산 섹터 3~5일 선행 상승 신호
+// 'SOXX'(반도체 ETF)— 반도체/반도체소재/반도체부품/반도체장비 섹터 1~3일 선행
+// 'XLE' (에너지 ETF)— 에너지 섹터 2~4일 선행
+
+interface EtfBoostConfig {
+  symbol:      string;
+  /** '전체' 또는 실제 섹터 키워드. '전체'는 모든 섹터에 적용. */
+  sectorMatch: string;
+  /** Gate Score에 더할 부스트 (0.3 ~ 0.5) */
+  boostGate:   number;
+}
+
+const ETF_SECTOR_BOOST: EtfBoostConfig[] = [
+  { symbol: 'EWY',  sectorMatch: '전체',   boostGate: 0.3 },
+  { symbol: 'ITA',  sectorMatch: '방산',   boostGate: 0.5 },
+  { symbol: 'SOXX', sectorMatch: '반도체', boostGate: 0.5 },
+  { symbol: 'XLE',  sectorMatch: '에너지', boostGate: 0.3 },
+];
+
+export interface EtfSectorBoostResult {
+  /** 부스트 총합 (gateScore에 더할 값) */
+  boost:   number;
+  /** 기여한 ETF의 설명 레이블 — gate details에 추가 */
+  reasons: string[];
+}
+
+/**
+ * 종목 섹터로부터 globalScanReport의 ETF 5일 수익률을 읽어 Gate 부스트 계산.
+ * 보고서 없거나 해당 ETF 데이터 없으면 boost=0, reasons=[] 반환(안전한 default).
+ *
+ * @param sector 종목 섹터 문자열 (SECTOR_MAP의 값). 미분류면 '전체' 매칭만 적용.
+ */
+export function computeEtfSectorBoost(sector: string | undefined): EtfSectorBoostResult {
+  const report = loadGlobalScanReport();
+  if (!report) return { boost: 0, reasons: [] };
+
+  const normalizedSector = sector ?? '미분류';
+  let totalBoost = 0;
+  const reasons: string[] = [];
+
+  for (const cfg of ETF_SECTOR_BOOST) {
+    const symResult = report.symbols.find(s => s.symbol === cfg.symbol);
+    if (!symResult || symResult.return5d == null || symResult.return5d <= 0) continue;
+
+    // '전체'는 모든 섹터에 적용, 그 외엔 섹터명 부분 일치로 매칭
+    const matches = cfg.sectorMatch === '전체'
+      ? true
+      : normalizedSector.includes(cfg.sectorMatch);
+    if (!matches) continue;
+
+    totalBoost += cfg.boostGate;
+    reasons.push(`ETF:${cfg.symbol}+${symResult.return5d.toFixed(1)}%(5d)→+${cfg.boostGate}`);
+  }
+
+  return { boost: parseFloat(totalBoost.toFixed(2)), reasons };
 }
 
 // ── 보고서 저장/로드 ──────────────────────────────────────────────────────────

@@ -72,6 +72,12 @@ export interface ServerShadowTrade {
   entryATR14?: number;
   /** ATR 기반 동적 손절가 — evaluateDynamicStop()으로 계산된 초기 동적 손절 */
   dynamicStopPrice?: number;
+  /**
+   * 매수 직전 Gemini가 생성한 "실패 시나리오" Pre-Mortem 체크리스트.
+   * 이 거래가 -10% 손실로 끝난다면 가장 가능성 높은 원인 3가지를 1줄씩 기록한다.
+   * 진입 승인 메시지에 함께 표시되며, 사후 복기(postmortem)의 비교 기준이 된다.
+   */
+  preMortem?: string;
 }
 
 export function loadShadowTrades(): ServerShadowTrade[] {
