@@ -88,14 +88,18 @@ const SnsSentimentCard = ({ sentiment }: { sentiment: SnsSentiment }) => (
 
         <div>
           <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] mb-3 block">실시간 트렌드 키워드</span>
-          <div className="flex flex-wrap gap-2">
-            {sentiment.trendingKeywords?.map((keyword, idx) => (
-              <div key={idx} className="flex items-center gap-2 px-4 py-2 bg-white/5 text-white/60 rounded-xl text-xs font-black border border-white/10 hover:bg-white/10 transition-colors cursor-default">
-                <Hash size={12} className="text-indigo-400" />
-                {keyword}
-              </div>
-            ))}
-          </div>
+          {sentiment.trendingKeywords && sentiment.trendingKeywords.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {sentiment.trendingKeywords.map((keyword, idx) => (
+                <div key={idx} className="flex items-center gap-2 px-4 py-2 bg-white/5 text-white/60 rounded-xl text-xs font-black border border-white/10 hover:bg-white/10 transition-colors cursor-default">
+                  <Hash size={12} className="text-indigo-400" />
+                  {keyword}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-white/30 italic">트렌드 키워드를 수집 중입니다.</p>
+          )}
         </div>
       </div>
     </div>

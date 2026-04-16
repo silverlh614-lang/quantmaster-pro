@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import type {
   Gate0Result, SmartMoneyData, ExportMomentumData, GeopoliticalRiskData,
-  CreditSpreadData, GlobalCorrelationMatrix, GlobalMultiSourceData,
+  CreditSpreadData, GlobalCorrelationMatrix,
   SupplyChainIntelligence, SectorOrderIntelligence, FinancialStressIndex,
   FomcSentimentAnalysis,
 } from '../../types/quant';
@@ -19,7 +19,6 @@ interface Props {
   geoRisk?: GeopoliticalRiskData | null;
   creditSpread?: CreditSpreadData | null;
   correlation?: GlobalCorrelationMatrix | null;
-  multiSource?: GlobalMultiSourceData | null;
   supplyChain?: SupplyChainIntelligence | null;
   sectorOrders?: SectorOrderIntelligence | null;
   fsi?: FinancialStressIndex | null;
@@ -78,17 +77,6 @@ function scoreCorrelation(data?: GlobalCorrelationMatrix | null): RadarPoint {
   return { layer: 'F', label: '글로벌 상관관계', score: s, raw: `KOSPI-S&P ${data.kospiSp500?.toFixed(2)}`, status: s >= 60 ? 'BULLISH' : s >= 30 ? 'NEUTRAL' : 'BEARISH' };
 }
 
-function scoreMultiSource(data?: GlobalMultiSourceData | null): RadarPoint {
-  if (!data) return { layer: 'G', label: '멀티소스 인텔', score: 0, raw: 'N/A', status: 'UNAVAILABLE' };
-  let s = 50;
-  if (data.fedWatch?.cutProbability > 50) s += 15;
-  if (data.chinaPmi?.manufacturing > 50) s += 10;
-  if (data.tsmcRevenue?.yoyGrowth > 0) s += 10;
-  if (data.usIsm?.manufacturing > 50) s += 10;
-  s = Math.min(100, Math.max(0, s));
-  return { layer: 'G', label: '멀티소스 인텔', score: s, raw: `Fed Cut ${data.fedWatch?.cutProbability ?? '?'}% / China PMI ${data.chinaPmi?.manufacturing ?? '?'}`, status: s >= 60 ? 'BULLISH' : s >= 30 ? 'NEUTRAL' : 'BEARISH' };
-}
-
 function scoreSupplyChain(data?: SupplyChainIntelligence | null): RadarPoint {
   if (!data) return { layer: 'I', label: '공급망 물동량', score: 0, raw: 'N/A', status: 'UNAVAILABLE' };
   let s = 50;
@@ -135,7 +123,6 @@ export const IntelligenceRadar: React.FC<Props> = (props) => {
     scoreGeoRisk(props.geoRisk),
     scoreCredit(props.creditSpread),
     scoreCorrelation(props.correlation),
-    scoreMultiSource(props.multiSource),
     scoreSupplyChain(props.supplyChain),
     scoreSectorOrders(props.sectorOrders),
     scoreFSI(props.fsi),
@@ -155,37 +142,40 @@ export const IntelligenceRadar: React.FC<Props> = (props) => {
     fullMark: 100,
   }));
 
-  const statusColor = (status: RadarPoint['status']) =>
-    status === 'BULLISH' ? 'text-green-600 border-green-300 bg-green-50' :
-    status === 'BEARISH' ? 'text-red-600 border-red-300 bg-red-50' :
-    status === 'NEUTRAL' ? 'text-amber-600 border-amber-300 bg-amber-50' :
-    'text-gray-400 border-gray-200 bg-gray-50';
+  const statusBadge = (status: RadarPoint['status']) =>
+    status === 'BULLISH' ? 'text-green-400 border-green-500/30 bg-green-500/10' :
+    status === 'BEARISH' ? 'text-red-400 border-red-500/30 bg-red-500/10' :
+    status === 'NEUTRAL' ? 'text-amber-400 border-amber-500/30 bg-amber-500/10' :
+    'text-white/40 border-white/10 bg-white/5';
 
   return (
-    <div className="border border-gray-200 p-5">
+    <div className="glass-3d p-5 rounded-[2rem] border border-white/10 shadow-2xl">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xs font-black uppercase tracking-widest text-gray-700">
+        <h3 className="text-xs font-black uppercase tracking-widest text-white/80">
           글로벌 인텔리전스 통합 레이더 (A~L)
         </h3>
         <div className="flex items-center gap-3">
-          <span className={`text-xl font-black ${avgScore >= 60 ? 'text-green-600' : avgScore >= 40 ? 'text-amber-600' : 'text-red-600'}`}>
+          <span className={`text-xl font-black ${avgScore >= 60 ? 'text-green-400' : avgScore >= 40 ? 'text-amber-400' : 'text-red-400'}`}>
             {avgScore}
           </span>
-          <span className="text-[9px] text-gray-400">/100 AVG</span>
-          <span className="text-[9px] px-2 py-0.5 border border-green-300 text-green-600 bg-green-50 font-bold">{bullish}B</span>
-          <span className="text-[9px] px-2 py-0.5 border border-red-300 text-red-600 bg-red-50 font-bold">{bearish}R</span>
+          <span className="text-[9px] text-white/30">/100 AVG</span>
+          <span className="text-[9px] px-2 py-0.5 border border-green-500/30 text-green-400 bg-green-500/10 font-bold">{bullish}B</span>
+          <span className="text-[9px] px-2 py-0.5 border border-red-500/30 text-red-400 bg-red-500/10 font-bold">{bearish}R</span>
+          {available.length < points.length && (
+            <span className="text-[9px] px-2 py-0.5 border border-white/10 text-white/40 bg-white/5 font-bold">{points.length - available.length} N/A</span>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_1.2fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4">
         {/* Radar Chart */}
         <div className="flex items-center justify-center">
           <ResponsiveContainer width="100%" height={340}>
             <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
-              <PolarGrid stroke="rgba(0,0,0,0.08)" />
+              <PolarGrid stroke="rgba(255,255,255,0.08)" />
               <PolarAngleAxis
                 dataKey="subject"
-                tick={{ fill: '#666', fontSize: 9, fontWeight: 700 }}
+                tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 9, fontWeight: 700 }}
               />
               <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
               <Radar
@@ -197,7 +187,9 @@ export const IntelligenceRadar: React.FC<Props> = (props) => {
                 strokeWidth={2}
               />
               <Tooltip
-                contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', fontSize: 11, fontWeight: 700 }}
+                contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', fontSize: 11, fontWeight: 700, color: '#fff', borderRadius: 12 }}
+                itemStyle={{ color: '#fff' }}
+                labelStyle={{ color: 'rgba(255,255,255,0.7)' }}
                 formatter={(value: any) => [`${value}/100`, 'Score']}
               />
             </RadarChart>
@@ -207,29 +199,33 @@ export const IntelligenceRadar: React.FC<Props> = (props) => {
         {/* Detail Table */}
         <div className="space-y-1.5 overflow-y-auto" style={{ maxHeight: 340 }}>
           {points.map(p => (
-            <div key={p.layer} className="flex items-center gap-2 py-1.5 border-b border-gray-50">
-              <span className="w-5 text-[9px] font-black text-gray-400">{p.layer}</span>
-              <span className="flex-1 text-[10px] font-bold text-gray-700 truncate">{p.label}</span>
-              <div className="w-16 h-1.5 bg-gray-100 flex-shrink-0">
+            <div key={p.layer} className="flex items-center gap-2 py-1.5 border-b border-white/5">
+              <span className="w-5 text-[9px] font-black text-white/30">{p.layer}</span>
+              <span className="flex-1 text-[10px] font-bold text-white/70 truncate">{p.label}</span>
+              <div className="w-16 h-1.5 bg-white/5 flex-shrink-0 rounded-full overflow-hidden">
                 <div className={`h-full ${
                   p.status === 'BULLISH' ? 'bg-green-400' :
                   p.status === 'BEARISH' ? 'bg-red-400' :
-                  p.status === 'NEUTRAL' ? 'bg-amber-400' : 'bg-gray-200'
+                  p.status === 'NEUTRAL' ? 'bg-amber-400' : 'bg-white/10'
                 }`} style={{ width: `${p.score}%` }} />
               </div>
-              <span className="w-8 text-[9px] font-mono text-gray-500 text-right">{p.score}</span>
-              <span className={`text-[8px] font-bold px-1.5 py-0.5 border ${statusColor(p.status)}`}>
+              <span className="w-8 text-[9px] font-mono text-white/50 text-right">{p.score}</span>
+              <span className={`text-[8px] font-bold px-1.5 py-0.5 border ${statusBadge(p.status)}`}>
                 {p.status === 'UNAVAILABLE' ? 'N/A' : p.status}
               </span>
             </div>
           ))}
           {/* 종합 판정 */}
-          <div className={`mt-3 p-3 border-2 text-center ${
-            avgScore >= 65 ? 'border-green-400 bg-green-50' :
-            avgScore >= 45 ? 'border-amber-400 bg-amber-50' :
-            'border-red-400 bg-red-50'
+          <div className={`mt-3 p-3 border text-center rounded-xl ${
+            avgScore >= 65 ? 'border-green-500/30 bg-green-500/10' :
+            avgScore >= 45 ? 'border-amber-500/30 bg-amber-500/10' :
+            'border-red-500/30 bg-red-500/10'
           }`}>
-            <p className="text-xs font-black">
+            <p className={`text-xs font-black ${
+              avgScore >= 65 ? 'text-green-400' :
+              avgScore >= 45 ? 'text-amber-400' :
+              'text-red-400'
+            }`}>
               {avgScore >= 65 ? '글로벌 환경 양호 — 적극 매수 구간' :
                avgScore >= 45 ? '글로벌 환경 중립 — 선별 매수, 현금 비중 유지' :
                '글로벌 환경 경고 — 방어적 운용, 신규 매수 자제'}
@@ -239,13 +235,15 @@ export const IntelligenceRadar: React.FC<Props> = (props) => {
       </div>
 
       {/* Raw data tooltip row */}
-      <div className="flex flex-wrap gap-1 mt-3">
-        {points.filter(p => p.status !== 'UNAVAILABLE').map(p => (
-          <span key={p.layer} className="text-[8px] text-gray-400 px-1.5 py-0.5 bg-gray-50 border border-gray-100">
-            {p.layer}: {p.raw}
-          </span>
-        ))}
-      </div>
+      {available.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-3">
+          {available.map(p => (
+            <span key={p.layer} className="text-[8px] text-white/50 px-1.5 py-0.5 bg-white/5 border border-white/10 rounded">
+              {p.layer}: {p.raw}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

@@ -103,7 +103,8 @@ ${preFilledSection}
     3. 원자재: 금, 국제유가(WTI) 등
     4. 금리: 미국 10년물은 위 사전 수집값 사용. 한국 3년물 등은 최신 지식 기반으로 채워라.
     5. 거시경제 지표: 실업률(Unemployment Rate), 인플레이션(CPI/PCE), 중앙은행 기준금리 결정(Fed/BOK Interest Rate Decisions) 등
-    6. SNS 시장 감성 (Sentiment): X(트위터), 네이버 종토방, 텔레그램 등 주요 커뮤니티의 현재 분위기를 분석하여 수치화 (0~100점)
+    6. SNS 시장 감성 (Sentiment): X(트위터), 네이버 종토방, 텔레그램 등 주요 커뮤니티의 현재 분위기를 분석하여 수치화 (0~100점).
+       - trendingKeywords 필드에 현재 커뮤니티에서 가장 많이 언급되는 실시간 트렌드 키워드 5~10개를 배열로 제공 (예: "AI", "반도체", "방산", "SMR", "SK하이닉스")
     7. **[신규 퀀트 지표]**:
        - Sector Rotation: 현재 자금이 유입되고 있는 섹터와 유출되고 있는 섹터 분석
        - Euphoria Detector: 시장의 과열 여부를 판단하는 신호 (0~100, 100: 극도 과열)
@@ -127,7 +128,7 @@ ${preFilledSection}
       "commodities": [...],
       "interestRates": [...],
       "macroIndicators": [...],
-      "snsSentiment": { ... },
+      "snsSentiment": { "score": 65, "status": "NEUTRAL", "summary": "...", "trendingKeywords": ["AI", "반도체", "방산", "SMR", "SK하이닉스"] },
       "sectorRotation": [
         { "sector": "반도체", "momentum": 85, "flow": "INFLOW" },
         { "sector": "이차전지", "momentum": 40, "flow": "OUTFLOW" }

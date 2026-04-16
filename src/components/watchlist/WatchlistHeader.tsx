@@ -161,7 +161,7 @@ export function WatchlistHeader({
                 <div className="flex flex-col gap-2">
                   <p className="text-xs font-bold text-white/20 uppercase tracking-[0.2em] flex items-center gap-2">
                     <Clock className="w-3 h-3" />
-                    Last Updated: {lastUpdated} (KST)
+                    Last Updated: {new Date(lastUpdated).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} (KST)
                   </p>
                   {marketContext?.dataSource && (
                     <p className="text-[10px] font-bold text-green-500/40 uppercase tracking-[0.1em] flex items-center gap-2">

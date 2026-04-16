@@ -18,7 +18,7 @@ import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
 import { ALL_CONDITIONS, CONDITION_SOURCE_MAP } from '../../services/quant/evolutionEngine';
 import { VKOSPI } from '../../constants/thresholds';
-import { GATE1_IDS, GATE2_IDS } from '../../constants/gateConfig';
+import { GATE1_IDS, GATE2_IDS, GATE3_IDS } from '../../constants/gateConfig';
 
 // ── Gate assignment map ─────────────────────────────────────────────────────
 
