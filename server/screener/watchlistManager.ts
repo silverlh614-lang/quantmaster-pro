@@ -10,7 +10,7 @@
  *   1. expiresAt 초과 항목 자동 제거
  *   2. entryFailCount >= 3인 항목 제거 (진입 실패 종목 정리)
  *   3. MOMENTUM → SWING 승격: Gate Score 상위 + 임계값 초과
- *   4. 섹션별 최대 개수 유지 (오래된 것부터 제거, MANUAL 보호)
+ *   4. 섹션별 최대 개수 유지 (gateScore 낮은 것부터 제거, MANUAL 보호)
  */
 
 import { loadWatchlist, saveWatchlist, type WatchlistEntry, type WatchlistSection } from '../persistence/watchlistRepo.js';
@@ -155,29 +155,39 @@ export async function cleanupWatchlist(): Promise<void> {
   const catalystCount = withSection.filter((w) => w.section === 'CATALYST').length;
   const momentumCount = withSection.filter((w) => w.section === 'MOMENTUM').length;
 
-  // 4. 섹션별 최대 개수 초과 시 오래된 것부터 제거 (MANUAL 보호)
+  // 4. 섹션별 최대 개수 초과 시 gateScore 낮은 것부터 제거 (품질 기반 정리)
+  //    기존 addedAt(등록일) 기준은 역선택 유발: 좋은 종목이 오래 살아남는 게 아니라
+  //    최근에 들어온 종목이 살아남아 gateScore 높은 종목이 먼저 잘리는 문제가 있었음
   let cleaned = withSection;
 
-  // CATALYST 섹션 초과 시 오래된 것부터 제거
+  // CATALYST 섹션 초과 시 gateScore 낮은 것부터 제거
   const catalystEntries = cleaned.filter((w) => w.section === 'CATALYST');
   if (catalystEntries.length > CATALYST_MAX_SIZE) {
     const catalystSorted = [...catalystEntries].sort(
-      (a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime(),
+      (a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0),
     );
     const catalystKeep = new Set(catalystSorted.slice(0, CATALYST_MAX_SIZE).map(w => w.code));
+    const removed = catalystEntries.filter(w => !catalystKeep.has(w.code));
     cleaned = cleaned.filter((w) => w.section !== 'CATALYST' || catalystKeep.has(w.code));
-    console.log(`[Watchlist] CATALYST 초과 제거: ${catalystEntries.length}개 → ${CATALYST_MAX_SIZE}개`);
+    console.log(
+      `[Watchlist] CATALYST 초과 제거: ${catalystEntries.length}개 → ${CATALYST_MAX_SIZE}개` +
+      ` (제거: ${removed.map(w => `${w.name}(G${w.gateScore ?? 0})`).join(', ')})`,
+    );
   }
 
-  // MOMENTUM 섹션 초과 시 오래된 것부터 제거
+  // MOMENTUM 섹션 초과 시 gateScore 낮은 것부터 제거
   const momentumEntries = cleaned.filter((w) => w.section === 'MOMENTUM');
   if (momentumEntries.length > MOMENTUM_MAX_SIZE) {
     const momentumSorted = [...momentumEntries].sort(
-      (a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime(),
+      (a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0),
     );
     const momentumKeep = new Set(momentumSorted.slice(0, MOMENTUM_MAX_SIZE).map(w => w.code));
+    const removed = momentumEntries.filter(w => !momentumKeep.has(w.code));
     cleaned = cleaned.filter((w) => w.section !== 'MOMENTUM' || momentumKeep.has(w.code));
-    console.log(`[Watchlist] MOMENTUM 초과 제거: ${momentumEntries.length}개 → ${MOMENTUM_MAX_SIZE}개`);
+    console.log(
+      `[Watchlist] MOMENTUM 초과 제거: ${momentumEntries.length}개 → ${MOMENTUM_MAX_SIZE}개` +
+      ` (제거: ${removed.map(w => `${w.name}(G${w.gateScore ?? 0})`).join(', ')})`,
+    );
   }
 
   if (

@@ -81,6 +81,8 @@ export interface YahooQuoteExtended {
   weeklyAboveCloud: boolean;    // 주봉: 일목균형표 구름대 위
   weeklyLaggingSpanUp: boolean; // 주봉: 후행스팬 상향
   dailyVolumeDrying: boolean;   // 일봉: 거래량 마름 (vol5d < vol20d × 0.7)
+  // 위험 종목 플래그
+  isHighRisk: boolean;          // 거래중지/관리종목/위험 분류 감지
 }
 
 // ── 기술적 지표 계산 유틸 ─────────────────────────────────────────────────────
@@ -657,6 +659,7 @@ export async function fetchKisQuoteFallback(code: string): Promise<YahooQuoteExt
       monthlyAboveEMA12: false, monthlyEMARising: false,
       weeklyAboveCloud: false, weeklyLaggingSpanUp: false,
       dailyVolumeDrying: false,
+      isHighRisk: false,
     };
   } catch { return null; }
 }
@@ -885,6 +888,15 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       weeklyLaggingSpanUp = wCloses[wn - 1] > wCloses[wn - 27];
     }
 
+    // ── 위험 종목 감지 ─────────────────────────────────────────────────────────
+    // 거래중지: 최근 5일 거래량 전부 0이면 거래중지 상태로 판단
+    // 관리종목/투자위험: 최근 10일 중 8일 이상 거래량 0 (유동성 사실상 고갈)
+    const recent5Vol = volumes.slice(-5);
+    const zeroVolDays5 = recent5Vol.filter(v => v === 0).length;
+    const recent10Vol = volumes.slice(-10);
+    const zeroVolDays10 = recent10Vol.filter(v => v === 0).length;
+    const isHighRisk = zeroVolDays5 >= 5 || zeroVolDays10 >= 8;
+
     return {
       price: Math.round(price), changePercent, volume, avgVolume,
       dayOpen: Math.round(dayOpen),
@@ -912,6 +924,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       weeklyAboveCloud,
       weeklyLaggingSpanUp,
       dailyVolumeDrying,
+      isHighRisk,
     };
   } catch {
     return null;
@@ -1038,6 +1051,12 @@ export async function autoPopulateWatchlist(): Promise<number> {
     const quote = await fetchYahooQuote(stock.symbol);
     if (!quote || quote.price <= 0) {
       rejectionLog.push({ code: stock.code, name: stock.name, reason: '시세조회실패' });
+      continue;
+    }
+
+    // 거래중지/관리종목/위험 분류 종목 제외
+    if (quote.isHighRisk) {
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: '거래중지/위험종목' });
       continue;
     }
 

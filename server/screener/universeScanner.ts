@@ -116,6 +116,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
             (await fetchYahooQuote(`${code}.KS`).catch(() => null)) ??
             (await fetchYahooQuote(`${code}.KQ`).catch(() => null));
           if (!quote || quote.price < 3000) return null;
+          if (quote.isHighRisk)                            return null; // 거래중지/관리종목/위험 분류 제외
           if (quote.changePercent >= 8)                    return null; // 당일 +8% 이상 과열 제외
           const kisPullback = isPullbackSetup(quote);
           if (quote.changePercent < 0 && !kisPullback)     return null; // 음봉 제외 (눌림목은 통과)
@@ -158,6 +159,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
         const quote = await fetchYahooQuote(stock.symbol).catch(() => null);
         if (!quote || quote.price <= 0) return null;
 
+        if (quote.isHighRisk)                            return null; // 거래중지/관리종목/위험 분류 제외
         if (quote.changePercent >= 8)                    return null; // 당일 +8% 이상 과열 제외
         const yahooPullback = isPullbackSetup(quote);
         if (quote.changePercent < 0 && !yahooPullback)   return null; // 음봉 제외 (눌림목은 통과)
