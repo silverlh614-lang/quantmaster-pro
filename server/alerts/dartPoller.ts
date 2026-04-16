@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import { DART_FAST_SEEN_FILE, DART_LLM_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { type DartAlert, loadDartAlerts, saveDartAlerts } from '../persistence/dartRepo.js';
 import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
+import { tryEvictWeakest, CATALYST_MAX_SIZE } from '../screener/watchlistManager.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
@@ -312,6 +313,15 @@ export async function applyDartToWatchlist(params: {
       gateScore: 3,
       rrr: entryPrice > 0 ? parseFloat(((targetPrice - entryPrice) / (entryPrice - stopLoss || 1)).toFixed(2)) : 0,
     };
+    // CATALYST 만석 시 품질 경쟁: 기존 최저 gateScore 종목을 밀어냄
+    const catalystCount = watchlist.filter(w => w.section === 'CATALYST').length;
+    if (catalystCount >= CATALYST_MAX_SIZE) {
+      const evicted = tryEvictWeakest(watchlist, newEntry.gateScore ?? 0, 'CATALYST');
+      if (!evicted) {
+        console.log(`[DART→WL] ⏭️ CATALYST 만석 + 기존 종목이 더 우수 → ${params.corpName}(${code}) 추가 불가`);
+        return;
+      }
+    }
     watchlist.push(newEntry);
     saveWatchlist(watchlist);
     console.log(

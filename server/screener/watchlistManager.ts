@@ -2,9 +2,13 @@
  * watchlistManager.ts — 워치리스트 자동 정리 + 3-섹션 구조 관리
  *
  * 3-섹션 구조 (Track A/B 대체):
- *   SWING     — 스윙 주도주: Gate 상위 + 임계값 초과 → 실제 매수 대상 (최대 8개)
- *   CATALYST  — 촉매 기반: DART 공시 / 내부자 매수 (최대 5개)
+ *   SWING     — 스윙 주도주: Gate 상위 + 임계값 초과 → 실제 매수 대상 (최대 10개)
+ *   CATALYST  — 촉매 기반: DART 공시 / 내부자 매수 (최대 3개)
  *   MOMENTUM  — 모멘텀 관찰: AUTO 발굴 후보풀 (최대 20개, 매매 안 함)
+ *
+ * 실시간 품질 경쟁:
+ *   섹션이 가득 찼을 때 신규 종목의 gateScore가 기존 최저보다 높으면
+ *   기존 최저 종목을 밀어내고 신규 종목이 입성한다 (tryEvictWeakest).
  *
  * 매일 16:00 KST (장마감 후) 실행:
  *   1. expiresAt 초과 항목 자동 제거
@@ -17,10 +21,10 @@ import { loadWatchlist, saveWatchlist, type WatchlistEntry, type WatchlistSectio
 
 // ── 섹션별 상수 ───────────────────────────────────────────────────────────────
 
-/** SWING 섹션 — 최대 매수 대상 수 */
-export const SWING_MAX_SIZE       = 8;
-/** CATALYST 섹션 — 최대 촉매 종목 수 */
-export const CATALYST_MAX_SIZE    = 5;
+/** SWING 섹션 — 최대 매수 대상 수 (8→10 확대: 공시 축소분을 우량 종목에 재배분) */
+export const SWING_MAX_SIZE       = 10;
+/** CATALYST 섹션 — 최대 촉매 종목 수 (5→3 축소: 공시 비중은 크지 않으므로 핵심만 유지) */
+export const CATALYST_MAX_SIZE    = 3;
 /** MOMENTUM 섹션 — 최대 관찰 후보 수 */
 export const MOMENTUM_MAX_SIZE    = 20;
 
@@ -43,7 +47,7 @@ export const MAX_ENTRY_FAIL_COUNT = 3;
 
 /** @deprecated MAX_CANDIDATE_POOL → MOMENTUM_MAX_SIZE 으로 교체. 하위 호환용. */
 export const MAX_CANDIDATE_POOL = MOMENTUM_MAX_SIZE;
-/** @deprecated FOCUS_LIST_SIZE → SWING_MAX_SIZE 으로 교체. 하위 호환용. */
+/** @deprecated FOCUS_LIST_SIZE → SWING_MAX_SIZE 으로 교체. 하위 호환용. (8→10 확대됨) */
 export const FOCUS_LIST_SIZE   = SWING_MAX_SIZE;
 /** @deprecated FOCUS_GATE_THRESHOLD → SWING_GATE_THRESHOLD 으로 교체. 하위 호환용. */
 export const FOCUS_GATE_THRESHOLD = SWING_GATE_THRESHOLD;
@@ -113,6 +117,51 @@ export function assignSection(
 /** section → 하위 호환 track 매핑 */
 function sectionToTrack(section: WatchlistSection): 'A' | 'B' {
   return section === 'MOMENTUM' ? 'A' : 'B';
+}
+
+// ── 섹션별 최대 크기 맵 ─────────────────────────────────────────────────────
+const SECTION_MAX: Record<WatchlistSection, number> = {
+  SWING:    SWING_MAX_SIZE,
+  CATALYST: CATALYST_MAX_SIZE,
+  MOMENTUM: MOMENTUM_MAX_SIZE,
+};
+
+/**
+ * 섹션이 가득 찼을 때 신규 종목이 기존 최저 gateScore 종목을 밀어내는 품질 경쟁.
+ *
+ * @param watchlist  현재 워치리스트 (in-place 수정됨)
+ * @param newScore   신규 종목의 gateScore
+ * @param section    대상 섹션
+ * @returns evicted entry if successful, null if the new entry isn't good enough
+ */
+export function tryEvictWeakest(
+  watchlist: WatchlistEntry[],
+  newScore: number,
+  section: WatchlistSection,
+): WatchlistEntry | null {
+  const maxSize = SECTION_MAX[section];
+  const sectionEntries = watchlist.filter(w => w.section === section && w.addedBy !== 'MANUAL');
+
+  if (sectionEntries.length < maxSize) return null; // 자리 있음 — eviction 불필요
+
+  // MANUAL 항목은 보호: eviction 대상에서 제외
+  const weakest = sectionEntries.reduce((min, w) =>
+    (w.gateScore ?? 0) < (min.gateScore ?? 0) ? w : min,
+  );
+
+  if (newScore <= (weakest.gateScore ?? 0)) return null; // 신규가 더 약함 — 진입 불가
+
+  // 최저 품질 종목 제거
+  const idx = watchlist.findIndex(w => w.code === weakest.code);
+  if (idx !== -1) {
+    watchlist.splice(idx, 1);
+    console.log(
+      `[Watchlist] 품질 경쟁: ${section} 만석 → ` +
+      `${weakest.name}(G${weakest.gateScore ?? 0}) 밀어냄 ← 신규(G${newScore})`,
+    );
+    return weakest;
+  }
+  return null;
 }
 
 export async function cleanupWatchlist(): Promise<void> {

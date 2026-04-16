@@ -27,7 +27,7 @@ import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { loadMacroState, type MacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
-import { computeFocusCodes, assignSection } from './watchlistManager.js';
+import { computeFocusCodes, assignSection, tryEvictWeakest, SWING_MAX_SIZE, MOMENTUM_MAX_SIZE } from './watchlistManager.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, fetchKisInvestorFlow, hasKisClientOverrides } from '../clients/kisClient.js';
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
@@ -411,6 +411,18 @@ export async function stage3AIScreenAndRegister(
 
     // Discovery Pipeline 종목: STRONG_BUY → SWING(즉시 매수대상), BUY → MOMENTUM(관찰 후 승격 대기)
     const section = result.signal === 'STRONG_BUY' ? 'SWING' as const : 'MOMENTUM' as const;
+
+    // ── 섹션 만석 시 품질 경쟁: 기존 최저 gateScore 종목을 밀어냄 ──────────────
+    const sectionMax = section === 'SWING' ? SWING_MAX_SIZE : MOMENTUM_MAX_SIZE;
+    const sectionCount = watchlist.filter(w => w.section === section).length;
+    if (sectionCount >= sectionMax) {
+      const evicted = tryEvictWeakest(watchlist, result.totalGateScore, section);
+      if (!evicted) {
+        // 신규 종목이 기존 최저보다 약함 → 진입 불가
+        continue;
+      }
+    }
+
     watchlist.push({
       code:          result.code,
       name:          result.name,
