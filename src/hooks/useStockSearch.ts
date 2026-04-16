@@ -43,7 +43,7 @@ export function useStockSearch() {
       setLastUsedMode(lastMode);
       setRecommendations(diversified);
       setMarketContext(data.marketContext);
-      setLastUpdated(new Date().toLocaleTimeString());
+      setLastUpdated(new Date().toISOString());
       if (diversified.length === 0) toast.info('추천 종목이 없습니다.');
       else toast.success('검색이 완료되었습니다.');
     } catch (err: any) {
