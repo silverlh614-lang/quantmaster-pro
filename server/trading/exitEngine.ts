@@ -39,6 +39,48 @@ export function detectBearishDivergence(prices: number[], rsi: number[]): boolea
   return recentHigh > prevHigh && recentRSI < prevRSI;
 }
 
+/**
+ * 60일선 "죽음" 판정 — 현재가 < MA20 < MA60 (역배열 완성).
+ * "주도주 사이클 종료" 신호로, 좀비 포지션을 장기 보유하지 않기 위한 강제 청산 트리거.
+ *
+ * @returns 역배열 완성 시 true
+ */
+export function isMA60Death(ma20: number, ma60: number, currentPrice: number): boolean {
+  return currentPrice < ma20 && ma20 < ma60;
+}
+
+/** 단순이동평균. closes.length < period 이면 null. */
+function simpleMA(closes: number[], period: number): number | null {
+  if (closes.length < period) return null;
+  const slice = closes.slice(-period);
+  return slice.reduce((s, v) => s + v, 0) / period;
+}
+
+/** KST 기준 N영업일(토·일 제외) 이후의 날짜 YYYY-MM-DD 반환. */
+export function kstBusinessDateStr(offsetBusinessDays: number): string {
+  const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  let daysLeft = offsetBusinessDays;
+  let cursor = new Date(Date.now() + KST_OFFSET_MS);
+  while (daysLeft > 0) {
+    cursor = new Date(cursor.getTime() + 86_400_000);
+    const dow = cursor.getUTCDay(); // KST offset 이미 반영됨
+    if (dow !== 0 && dow !== 6) daysLeft -= 1;
+  }
+  return cursor.toISOString().slice(0, 10);
+}
+
+/** stockCode → MA20·MA60 계산에 충분한 120일 종가 조회 후 (ma20, ma60) 반환. */
+async function fetchMaFromCloses(stockCode: string): Promise<{ ma20: number; ma60: number } | null> {
+  for (const sym of yahooSymbolCandidates(stockCode)) {
+    const closes = await fetchCloses(sym, '120d').catch(() => null);
+    if (!closes || closes.length < 60) continue;
+    const ma20 = simpleMA(closes, 20);
+    const ma60 = simpleMA(closes, 60);
+    if (ma20 !== null && ma60 !== null) return { ma20, ma60 };
+  }
+  return null;
+}
+
 /** Wilder 평활화 RSI 시계열 반환. period+1 미만이면 빈 배열. */
 function rsiSeries(closes: number[], period: number = 14): number[] {
   if (closes.length < period + 1) return [];
@@ -180,6 +222,51 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         `수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}% | 잔여: ${shadow.quantity}주`
       ).catch(console.error);
       if (shadow.quantity <= 0) continue; // 잔여 없으면 종료 처리 생략
+    }
+
+    // ─── MA60_DEATH_FORCE_EXIT: 유예 만료 + 여전히 역배열 → 전량 강제 청산 ───
+    // 60일선 역배열이 감지된 후 5영업일 유예. 유예 만료일 이후에도 여전히 역배열이면
+    // "주도주 사이클 종료"로 판정하고 좀비 포지션을 강제로 청산한다.
+    if (!shadow.ma60DeathForced && shadow.ma60ForceExitDate) {
+      const todayKst = kstBusinessDateStr(0);
+      if (todayKst >= shadow.ma60ForceExitDate) {
+        const mas = await fetchMaFromCloses(shadow.stockCode).catch(() => null);
+        const stillDead = mas ? isMA60Death(mas.ma20, mas.ma60, currentPrice) : true;
+        if (stillDead) {
+          Object.assign(shadow, {
+            status: 'HIT_STOP',
+            exitPrice: currentPrice,
+            exitTime: new Date().toISOString(),
+            returnPct,
+            exitRuleTag: 'MA60_DEATH_FORCE_EXIT',
+            ma60DeathForced: true,
+          });
+          appendShadowLog({ event: 'MA60_DEATH_FORCE_EXIT', ...shadow });
+          console.log(`[AutoTrade] ⚰️ ${shadow.stockName} MA60 죽음 강제 청산 ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
+          await placeKisSellOrder(shadow.stockCode, shadow.stockName, shadow.quantity, 'STOP_LOSS');
+          await sendTelegramAlert(
+            `⚰️ <b>[MA60 강제 청산]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+            `60일선 역배열 5영업일 유예 만료 — 전량 강제 청산\n` +
+            `${shadow.quantity}주 @${currentPrice.toLocaleString()}원 | 수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}%`,
+            { priority: 'CRITICAL', dedupeKey: `ma60_force:${shadow.stockCode}` },
+          ).catch(console.error);
+          await channelSellSignal({
+            stockName:   shadow.stockName,
+            stockCode:   shadow.stockCode,
+            exitPrice:   currentPrice,
+            entryPrice:  shadow.shadowEntryPrice,
+            pnlPct:      returnPct,
+            reason:      'STOP',
+            holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+          }).catch(console.error);
+          continue;
+        } else {
+          // 역배열 해소 → 스케줄 초기화
+          shadow.ma60DeathDetectedAt = undefined;
+          shadow.ma60ForceExitDate = undefined;
+          appendShadowLog({ event: 'MA60_DEATH_RECOVERED', ...shadow });
+        }
+      }
     }
 
     // ─── 하드 스톱 (고정 손절/레짐 손절) ───────────────────────────────────────
@@ -453,6 +540,28 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
         }).catch(console.error);
         if (shadow.quantity <= 0) continue;
+      }
+    }
+
+    // ─── MA60_DEATH_WATCH: 60일선 역배열 최초 감지 → 5영업일 강제 청산 스케줄 ─
+    // 이미 스케줄된 포지션은 스킵. 역배열이 아니면 스킵. 신규 감지 시 ma60ForceExitDate 설정.
+    if (!shadow.ma60DeathDetectedAt && !shadow.ma60DeathForced) {
+      const mas = await fetchMaFromCloses(shadow.stockCode).catch(() => null);
+      if (mas && isMA60Death(mas.ma20, mas.ma60, currentPrice)) {
+        const nowIso = new Date().toISOString();
+        const forceDate = kstBusinessDateStr(5);
+        shadow.ma60DeathDetectedAt = nowIso;
+        shadow.ma60ForceExitDate = forceDate;
+        shadow.exitRuleTag = 'MA60_DEATH_WATCH';
+        appendShadowLog({ event: 'MA60_DEATH_WATCH', ...shadow, ma20: mas.ma20, ma60: mas.ma60 });
+        console.log(`[AutoTrade] ⚠️ ${shadow.stockName} MA60 역배열 감지 — 강제 청산일 ${forceDate}`);
+        await sendTelegramAlert(
+          `⚠️ <b>[MA60 역배열 감지]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+          `60일선 역배열 진입 — 주도주 사이클 종료 신호\n` +
+          `MA20: ${Math.round(mas.ma20).toLocaleString()} · MA60: ${Math.round(mas.ma60).toLocaleString()} · 현재가: ${currentPrice.toLocaleString()}원\n` +
+          `📅 ${forceDate}까지 회복하지 못하면 강제 청산됩니다.`,
+          { priority: 'HIGH', dedupeKey: `ma60_watch:${shadow.stockCode}` },
+        ).catch(console.error);
       }
     }
 

@@ -67,16 +67,18 @@ export const EXIT_RULE_PRIORITY_TABLE: ReadonlyArray<{
 }> = [
   { priority: 1, rule: 'R6_EMERGENCY_EXIT', description: 'R6_DEFENSE 긴급 부분 청산(30%)' },
   { priority: 2, rule: 'HARD_STOP', description: '하드 스톱(고정 손절/레짐 손절) 전량 청산' },
-  { priority: 3, rule: 'CASCADE_FINAL', description: 'Cascade -25%/-30% 최종 청산' },
-  { priority: 4, rule: 'LIMIT_TRANCHE_TAKE_PROFIT', description: 'LIMIT 분할 익절' },
-  { priority: 5, rule: 'TRAILING_PROTECTIVE_STOP', description: '트레일링 기반 이익보호 손절' },
-  { priority: 6, rule: 'TARGET_EXIT', description: '목표가 전량 청산(레거시 fallback)' },
-  { priority: 7, rule: 'CASCADE_HALF_SELL', description: 'Cascade -15% 반매도' },
-  { priority: 8, rule: 'CASCADE_WARN_BLOCK', description: 'Cascade -7% 경고/추가매수 차단' },
-  { priority: 9, rule: 'RRR_COLLAPSE_PARTIAL', description: 'RRR 붕괴(<1.0) 50% 익절' },
-  { priority: 10, rule: 'DIVERGENCE_PARTIAL', description: '하락 다이버전스 30% 부분 익절' },
-  { priority: 11, rule: 'STOP_APPROACH_ALERT', description: '손절 접근 경고(알림)' },
-  { priority: 12, rule: 'EUPHORIA_PARTIAL', description: '과열 탐지 부분 매도' },
+  { priority: 3, rule: 'MA60_DEATH_FORCE_EXIT', description: 'MA60 역배열 5영업일 유예 만료 — 좀비 포지션 강제 청산' },
+  { priority: 4, rule: 'CASCADE_FINAL', description: 'Cascade -25%/-30% 최종 청산' },
+  { priority: 5, rule: 'LIMIT_TRANCHE_TAKE_PROFIT', description: 'LIMIT 분할 익절' },
+  { priority: 6, rule: 'TRAILING_PROTECTIVE_STOP', description: '트레일링 기반 이익보호 손절' },
+  { priority: 7, rule: 'TARGET_EXIT', description: '목표가 전량 청산(레거시 fallback)' },
+  { priority: 8, rule: 'CASCADE_HALF_SELL', description: 'Cascade -15% 반매도' },
+  { priority: 9, rule: 'CASCADE_WARN_BLOCK', description: 'Cascade -7% 경고/추가매수 차단' },
+  { priority: 10, rule: 'RRR_COLLAPSE_PARTIAL', description: 'RRR 붕괴(<1.0) 50% 익절' },
+  { priority: 11, rule: 'DIVERGENCE_PARTIAL', description: '하락 다이버전스 30% 부분 익절' },
+  { priority: 12, rule: 'MA60_DEATH_WATCH', description: 'MA60 역배열 최초 감지 — 5영업일 강제 청산 스케줄' },
+  { priority: 13, rule: 'STOP_APPROACH_ALERT', description: '손절 접근 경고(알림)' },
+  { priority: 14, rule: 'EUPHORIA_PARTIAL', description: '과열 탐지 부분 매도' },
 ] as const;
 
 export const OPEN_SHADOW_STATUSES = new Set<ServerShadowTrade['status']>([
