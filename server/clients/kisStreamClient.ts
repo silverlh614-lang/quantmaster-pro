@@ -70,6 +70,22 @@ let _reconnectCount = 0;
 const MAX_RECONNECT = 10;
 const RECONNECT_BASE_DELAY = 3000; // 3초 시작, 지수 백오프
 
+// ─── 디버그: 연결 이벤트 이력 (최근 20건 유지) ──────────────────────────────
+interface StreamEvent {
+  ts: string;      // ISO timestamp
+  event: string;   // 'CONNECT' | 'OPEN' | 'CLOSE' | 'ERROR' | 'RECONNECT' | 'PONG_TIMEOUT' | 'STOP'
+  detail: string;
+}
+const _eventLog: StreamEvent[] = [];
+function logStreamEvent(event: string, detail: string): void {
+  const entry: StreamEvent = { ts: new Date().toISOString(), event, detail };
+  _eventLog.push(entry);
+  if (_eventLog.length > 20) _eventLog.shift();
+  console.log(`[KIS-WS] [${entry.event}] ${entry.detail}`);
+}
+
+let _lastPongAt = 0; // PONG 수신 시각 (ms)
+
 const KIS_WS_URL_REAL = 'wss://ops.koreainvestment.com:21443/tryitout/H0STCNT0';
 const KIS_WS_URL_VTS  = 'wss://ops.koreainvestment.com:31443/tryitout/H0STCNT0';
 
@@ -191,24 +207,31 @@ async function connectWebSocket(): Promise<void> {
     }
 
     const wsUrl = getWsUrl();
-    console.log(`[KIS-WS] WebSocket 연결 시도: ${wsUrl}`);
+    logStreamEvent('CONNECT', `연결 시도: ${wsUrl} (구독 ${_subscribedCodes.size}종목)`);
 
     _ws = new WebSocket(wsUrl);
 
     _ws.onopen = () => {
-      console.log(`[KIS-WS] 연결 성공 — 구독 종목 ${_subscribedCodes.size}개 재등록`);
+      logStreamEvent('OPEN', `연결 성공 — 구독 종목 ${_subscribedCodes.size}개 재등록`);
       _isConnecting = false;
       _reconnectCount = 0;
+      _lastPongAt = Date.now();
 
       // 기존 구독 종목 재등록
       for (const code of _subscribedCodes) {
         _ws!.send(buildSubscribeMsg(code));
       }
 
-      // Heartbeat: 60초 간격 PING
+      // Heartbeat: 60초 간격 PING + PONG 타임아웃 검사
       if (_heartbeatTimer) clearInterval(_heartbeatTimer);
       _heartbeatTimer = setInterval(() => {
         if (_ws && _ws.readyState === WebSocket.OPEN) {
+          // PONG 3분 이상 미수신 → 좀비 커넥션으로 간주, 강제 종료
+          if (_lastPongAt > 0 && Date.now() - _lastPongAt > 3 * 60 * 1000) {
+            logStreamEvent('PONG_TIMEOUT', `마지막 PONG: ${new Date(_lastPongAt).toISOString()} — 좀비 커넥션 강제 종료`);
+            _ws.close(4000, 'PONG_TIMEOUT');
+            return;
+          }
           _ws.send('PING');
         }
       }, 60_000);
@@ -216,7 +239,11 @@ async function connectWebSocket(): Promise<void> {
 
     _ws.onmessage = (event) => {
       const msg = typeof event.data === 'string' ? event.data : '';
-      if (msg === 'PONG' || msg.startsWith('{"header"')) return; // 응답 헤더 무시
+      if (msg === 'PONG') {
+        _lastPongAt = Date.now();
+        return;
+      }
+      if (msg.startsWith('{"header"')) return; // 응답 헤더 무시
       // H0STCNT0 체결 데이터 파싱
       if (msg.includes('H0STCNT0')) {
         parseH0STCNT0(msg);
@@ -224,19 +251,20 @@ async function connectWebSocket(): Promise<void> {
     };
 
     _ws.onerror = (event) => {
-      console.error('[KIS-WS] WebSocket 오류:', event);
+      logStreamEvent('ERROR', `WebSocket 오류 발생 — readyState=${_ws?.readyState}`);
       _isConnecting = false;
     };
 
     _ws.onclose = (event) => {
-      console.warn(`[KIS-WS] WebSocket 종료 (code=${event.code}, reason=${event.reason})`);
+      logStreamEvent('CLOSE', `code=${event.code}, reason=${event.reason || '(없음)'}, wasClean=${event.wasClean}`);
       _isConnecting = false;
       _ws = null;
       if (_heartbeatTimer) { clearInterval(_heartbeatTimer); _heartbeatTimer = null; }
       scheduleReconnect();
     };
   } catch (err) {
-    console.error('[KIS-WS] 연결 실패:', err instanceof Error ? err.message : err);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    logStreamEvent('ERROR', `연결 실패: ${errMsg}`);
     _isConnecting = false;
     scheduleReconnect();
   }
@@ -244,7 +272,7 @@ async function connectWebSocket(): Promise<void> {
 
 function scheduleReconnect(): void {
   if (_reconnectCount >= MAX_RECONNECT) {
-    console.error(`[KIS-WS] 최대 재연결 횟수(${MAX_RECONNECT}) 초과 — 스트리밍 중단`);
+    logStreamEvent('STOP', `최대 재연결 ${MAX_RECONNECT}회 초과 — 스트리밍 중단, REST 폴백`);
     sendTelegramAlert(
       `🔌 <b>[KIS WebSocket] 실시간 호가 연결 실패</b>\n` +
       `최대 재연결 ${MAX_RECONNECT}회 초과 — REST 폴백으로 작동 중\n` +
@@ -256,7 +284,7 @@ function scheduleReconnect(): void {
 
   const delay = RECONNECT_BASE_DELAY * Math.pow(2, Math.min(_reconnectCount, 6));
   _reconnectCount++;
-  console.log(`[KIS-WS] 재연결 예정 (${_reconnectCount}/${MAX_RECONNECT}) — ${(delay / 1000).toFixed(0)}초 후`);
+  logStreamEvent('RECONNECT', `재연결 예정 (${_reconnectCount}/${MAX_RECONNECT}) — ${(delay / 1000).toFixed(0)}초 후`);
   if (_reconnectTimer) clearTimeout(_reconnectTimer);
   _reconnectTimer = setTimeout(() => connectWebSocket(), delay);
 }
@@ -329,11 +357,15 @@ export function getStreamStatus(): {
   subscribedCount: number;
   activePrices: number;
   reconnectCount: number;
+  lastPongAt: string | null;
+  recentEvents: StreamEvent[];
 } {
   return {
     connected: isStreamConnected(),
     subscribedCount: _subscribedCodes.size,
     activePrices: _priceMap.size,
     reconnectCount: _reconnectCount,
+    lastPongAt: _lastPongAt > 0 ? new Date(_lastPongAt).toISOString() : null,
+    recentEvents: [..._eventLog],
   };
 }
