@@ -47,6 +47,7 @@ import { CreditSpreadSection } from '../macro/CreditSpreadSection';
 import { ContrarianSection } from '../macro/ContrarianSection';
 import { FusionMatrixSection } from '../macro/FusionMatrixSection';
 import { GlobalIntelSection } from '../macro/GlobalIntelSection';
+import { SectionErrorBoundary } from '../common/SectionErrorBoundary';
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -265,110 +266,154 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
   return (
     <div className="space-y-10">
 
-      <RegimeGaugeSection gate0Result={gate0Result} externalRegime={externalRegime} />
+      <SectionErrorBoundary sectionName="레짐 게이지">
+        <RegimeGaugeSection gate0Result={gate0Result} externalRegime={externalRegime} />
+      </SectionErrorBoundary>
 
-      {/* 시장 레짐 자동 분류기 — Gate 임계값 마스터 컨트롤 엔진 */}
-      <MarketRegimeClassifierPanel
-        result={marketRegimeClassifierResult}
-        inputs={marketRegimeClassifierInput}
-        onInputsChange={handleMarketRegimeClassifierInputsChange}
-      />
+      <SectionErrorBoundary sectionName="시장 레짐 자동 분류기">
+        <MarketRegimeClassifierPanel
+          result={marketRegimeClassifierResult}
+          inputs={marketRegimeClassifierInput}
+          onInputsChange={handleMarketRegimeClassifierInputsChange}
+        />
+      </SectionErrorBoundary>
 
-      {/* MTF 합치 스코어 — 4개 시간 프레임 계층 통합 노이즈 필터 */}
-      <MTFConfluencePanel
-        result={mtfConfluenceResult}
-        inputs={mtfConfluenceInput}
-        onInputsChange={handleMtfInputsChange}
-      />
+      <SectionErrorBoundary sectionName="MTF 합치 스코어">
+        <MTFConfluencePanel
+          result={mtfConfluenceResult}
+          inputs={mtfConfluenceInput}
+          onInputsChange={handleMtfInputsChange}
+        />
+      </SectionErrorBoundary>
 
-      {/* 포지션 생애주기 완전 자동화 — 5단계 매도 체계 */}
-      <PositionLifecyclePanel />
+      <SectionErrorBoundary sectionName="포지션 생애주기">
+        <PositionLifecyclePanel />
+      </SectionErrorBoundary>
 
-      {/* 변동성 적응형 동적 손절 — ATR 기반 손절가 자동 조정 */}
-      <DynamicStopPanel
-        result={dynamicStopResult}
-        inputs={dynamicStopInput}
-        onInputsChange={handleDynamicStopInputsChange}
-      />
+      <SectionErrorBoundary sectionName="동적 손절">
+        <DynamicStopPanel
+          result={dynamicStopResult}
+          inputs={dynamicStopInput}
+          onInputsChange={handleDynamicStopInputsChange}
+        />
+      </SectionErrorBoundary>
 
-      {/* 시스템 상호간섭 파라미터 충돌 감지 — 레짐 분류기 ↔ 동적 손절 ↔ 포지션 생애주기 */}
-      <SystemInterferencePanel result={systemInterferenceResult} />
+      <SectionErrorBoundary sectionName="시스템 상호간섭">
+        <SystemInterferencePanel result={systemInterferenceResult} />
+      </SectionErrorBoundary>
 
-      <BearRegimeSection />
+      <SectionErrorBoundary sectionName="Bear Regime">
+        <BearRegimeSection />
+      </SectionErrorBoundary>
 
-      <BearKellyPanel
-        bearKellyResult={bearKellyResult}
-        entryDate={bearKellyEntryDate}
-        onSetEntryDate={setBearKellyEntryDate}
-      />
+      <SectionErrorBoundary sectionName="Bear Kelly">
+        <BearKellyPanel
+          bearKellyResult={bearKellyResult}
+          entryDate={bearKellyEntryDate}
+          onSetEntryDate={setBearKellyEntryDate}
+        />
+      </SectionErrorBoundary>
 
-      <SectorOverheatPanel
-        inputs={sectorOverheatInputs}
-        onInputsChange={handleSectorOverheatInputsChange}
-        result={sectorOverheatResult}
-      />
+      <SectionErrorBoundary sectionName="섹터 과열">
+        <SectorOverheatPanel
+          inputs={sectorOverheatInputs}
+          onInputsChange={handleSectorOverheatInputsChange}
+          result={sectorOverheatResult}
+        />
+      </SectionErrorBoundary>
 
-      <BearModeSimulatorPanel
-        inputs={bearModeSimulatorInputs}
-        onInputsChange={handleBearModeSimulatorInputsChange}
-        result={bearModeSimulatorResult}
-      />
+      <SectionErrorBoundary sectionName="Bear Mode 시뮬레이터">
+        <BearModeSimulatorPanel
+          inputs={bearModeSimulatorInputs}
+          onInputsChange={handleBearModeSimulatorInputsChange}
+          result={bearModeSimulatorResult}
+        />
+      </SectionErrorBoundary>
 
-      <MAPCPanel mapcResult={mapcResult} />
+      <SectionErrorBoundary sectionName="MAPC">
+        <MAPCPanel mapcResult={mapcResult} />
+      </SectionErrorBoundary>
 
-      <IPSPanel ipsResult={ipsResult} />
+      <SectionErrorBoundary sectionName="IPS">
+        <IPSPanel ipsResult={ipsResult} />
+      </SectionErrorBoundary>
 
-      <FSSPanel fssResult={fssResult} />
+      <SectionErrorBoundary sectionName="FSS">
+        <FSSPanel fssResult={fssResult} />
+      </SectionErrorBoundary>
 
-      <MarketOverviewSection marketOverview={marketOverview} />
+      <SectionErrorBoundary sectionName="시장 개요">
+        <MarketOverviewSection marketOverview={marketOverview} />
+      </SectionErrorBoundary>
 
-      <SmartMoneySection />
-      <ExportMomentumSection />
-      <GeoRiskSection />
-      <CreditSpreadSection />
+      <SectionErrorBoundary sectionName="Smart Money">
+        <SmartMoneySection />
+      </SectionErrorBoundary>
+      <SectionErrorBoundary sectionName="수출 모멘텀">
+        <ExportMomentumSection />
+      </SectionErrorBoundary>
+      <SectionErrorBoundary sectionName="지정학 리스크">
+        <GeoRiskSection />
+      </SectionErrorBoundary>
+      <SectionErrorBoundary sectionName="크레딧 스프레드">
+        <CreditSpreadSection />
+      </SectionErrorBoundary>
 
-      <ContrarianSection gate0Result={gate0Result} />
+      <SectionErrorBoundary sectionName="Contrarian">
+        <ContrarianSection gate0Result={gate0Result} />
+      </SectionErrorBoundary>
 
-      <FusionMatrixSection currentRoeType={currentRoeType} />
+      <SectionErrorBoundary sectionName="Fusion Matrix">
+        <FusionMatrixSection currentRoeType={currentRoeType} />
+      </SectionErrorBoundary>
 
-      {/* 피드백 폐쇄 루프 — 30거래 누적 후 27조건 자동 가중치 교정 */}
-      <FeedbackLoopPanel result={feedbackLoopResult} />
+      <SectionErrorBoundary sectionName="피드백 루프">
+        <FeedbackLoopPanel result={feedbackLoopResult} />
+      </SectionErrorBoundary>
 
-      {/* 섹터 에너지 맵 & 로테이션 마스터 게이트 */}
-      <SectorEnergyPanel
-        result={sectorEnergyResult}
-        inputs={sectorEnergyInputs}
-        onInputsChange={handleSectorEnergyInputsChange}
-      />
+      <SectionErrorBoundary sectionName="섹터 에너지">
+        <SectorEnergyPanel
+          result={sectorEnergyResult}
+          inputs={sectorEnergyInputs}
+          onInputsChange={handleSectorEnergyInputsChange}
+        />
+      </SectionErrorBoundary>
 
-      {/* DART 공시 LLM 인텔리전스 필터 */}
-      <DartIntelPanel />
+      <SectionErrorBoundary sectionName="DART 인텔">
+        <DartIntelPanel />
+      </SectionErrorBoundary>
 
-      {/* 반실패 학습 패턴 DB */}
-      <AntiFailurePanel />
+      <SectionErrorBoundary sectionName="반실패 학습">
+        <AntiFailurePanel />
+      </SectionErrorBoundary>
 
-      {/* 수급 예측 선행 모델 — Gate 필터보다 1~3일 앞서 진입 시점 포착 */}
-      <FlowPredictionPanel
-        result={flowPredictionResult}
-        input={flowPredictionInput}
-        onInputChange={handleFlowPredictionInputChange}
-      />
+      <SectionErrorBoundary sectionName="수급 예측">
+        <FlowPredictionPanel
+          result={flowPredictionResult}
+          input={flowPredictionInput}
+          onInputChange={handleFlowPredictionInputChange}
+        />
+      </SectionErrorBoundary>
 
-      {/* 위성 종목 연쇄 추적 시스템 — 주도주 이후 동일 섹터 지연 반응 종목 포착 */}
-      <SatelliteCascaderPanel
-        result={satelliteCascaderResult}
-        input={satelliteCascaderInput}
-        onInputChange={handleSatelliteCascaderInputChange}
-      />
+      <SectionErrorBoundary sectionName="위성 종목 연쇄">
+        <SatelliteCascaderPanel
+          result={satelliteCascaderResult}
+          input={satelliteCascaderInput}
+          onInputChange={handleSatelliteCascaderInputChange}
+        />
+      </SectionErrorBoundary>
 
-      {/* 투자자 행동 교정 미러 대시보드 — 행동 편향을 데이터로 교정 */}
-      <BehavioralMirrorPanel
-        result={behavioralMirrorResult}
-        input={behavioralMirrorInput}
-        onInputChange={handleBehavioralMirrorInputChange}
-      />
+      <SectionErrorBoundary sectionName="행동 미러">
+        <BehavioralMirrorPanel
+          result={behavioralMirrorResult}
+          input={behavioralMirrorInput}
+          onInputChange={handleBehavioralMirrorInputChange}
+        />
+      </SectionErrorBoundary>
 
-      <GlobalIntelSection />
+      <SectionErrorBoundary sectionName="글로벌 인텔">
+        <GlobalIntelSection />
+      </SectionErrorBoundary>
 
     </div>
   );
