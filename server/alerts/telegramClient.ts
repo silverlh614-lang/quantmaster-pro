@@ -151,26 +151,59 @@ async function sendTelegramAlertRaw(
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return;
 
-  try {
-    const payload: Record<string, unknown> = {
-      chat_id: chatId,
-      text: message,
-      parse_mode: 'HTML',
-    };
-    if (replyMarkup) payload.reply_markup = replyMarkup;
+  const MAX_LEN = 4096;
 
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      console.error('[Telegram] 전송 실패:', err.slice(0, 200));
-      return;
+  try {
+    if (message.length <= MAX_LEN) {
+      const payload: Record<string, unknown> = {
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'HTML',
+      };
+      if (replyMarkup) payload.reply_markup = replyMarkup;
+
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        console.error('[Telegram] 전송 실패:', err.slice(0, 200));
+        return;
+      }
+      const data = await res.json() as { result?: { message_id?: number } };
+      return data.result?.message_id;
+    } else {
+      // 4096자 초과 시 청크 분할 전송
+      let lastMsgId: number | undefined;
+      for (let i = 0; i < message.length; i += MAX_LEN) {
+        const chunk = message.slice(i, i + MAX_LEN);
+        const payload: Record<string, unknown> = {
+          chat_id: chatId,
+          text: chunk,
+          parse_mode: 'HTML',
+        };
+        // replyMarkup은 마지막 청크에만 첨부
+        if (replyMarkup && i + MAX_LEN >= message.length) {
+          payload.reply_markup = replyMarkup;
+        }
+        const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const err = await res.text();
+          console.error('[Telegram] 청크 전송 실패:', err.slice(0, 200));
+        } else {
+          const data = await res.json() as { result?: { message_id?: number } };
+          lastMsgId = data.result?.message_id;
+        }
+        await new Promise(r => setTimeout(r, 300)); // 연속 전송 간격
+      }
+      return lastMsgId;
     }
-    const data = await res.json() as { result?: { message_id?: number } };
-    return data.result?.message_id;
   } catch (e: unknown) {
     console.error('[Telegram] 오류:', e instanceof Error ? e.message : e);
   }

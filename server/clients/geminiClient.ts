@@ -47,7 +47,7 @@ export async function callGemini(prompt: string, caller = 'unknown'): Promise<st
     const res = await ai.models.generateContent({
       model: AI_MODELS.SERVER_SIDE,
       contents: prompt,
-      config: { temperature: 0.4, maxOutputTokens: 1024 },
+      config: { temperature: 0.4, maxOutputTokens: 2048 },
     });
     const tokens = (res as { usageMetadata?: { totalTokenCount?: number } })
       .usageMetadata?.totalTokenCount ?? 0;

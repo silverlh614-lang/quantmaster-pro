@@ -32,7 +32,11 @@ import { fetchYahooQuote, getScreenerCache, STOCK_UNIVERSE } from './stockScreen
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { isPullbackSetup } from './pipelineHelpers.js';
 import { getKstMarketElapsedMinutes, MORNING_VOLUME_DISCOUNT, MORNING_END_MINUTES } from '../trading/entryEngine.js';
+import { evaluateServerGate } from '../quantFilter.js';
+import { getLiveRegime } from '../trading/regimeBridge.js';
+import { loadMacroState } from '../persistence/macroStateRepo.js';
 import type { YahooQuoteExtended } from './stockScreener.js';
+import type { RegimeLevel } from '../../src/types/core.js';
 
 // ── 상수 ───────────────────────────────────────────────────────────────────────
 
@@ -76,8 +80,29 @@ export const INTRADAY_TARGET_PCT = 0.10;
 /** 발굴 경로 유형 */
 export type IntradayEntryPath = 'BREAKOUT' | 'SUPPLY_DEMAND' | 'PULLBACK';
 
-/** 발굴 스캔 최소 간격 — 10분 (ms) */
-const DISCOVERY_INTERVAL_MS = 10 * 60_000;
+/** 레짐별 Intraday 진입 최소 Gate 점수 — 점수 미달 시 발굴 후보에서 제외 */
+const INTRADAY_GATE_BY_REGIME: Record<RegimeLevel, number> = {
+  R1_TURBO:   5,
+  R2_BULL:    5,
+  R3_EARLY:   5,
+  R4_NEUTRAL: 4,   // 상승횡보장 포착 — 기존 5에서 4로 완화
+  R5_CAUTION: 7,
+  R6_DEFENSE: 99,  // 진입 금지
+};
+
+/** 발굴 스캔 기본 간격 — 10분 (ms) */
+const DISCOVERY_INTERVAL_DEFAULT_MS = 10 * 60_000;
+
+/** 상승 레짐(R1~R4) 발굴 스캔 단축 간격 — 5분 (ms) */
+const DISCOVERY_INTERVAL_BULL_MS = 5 * 60_000;
+
+/** 현재 레짐에 따른 발굴 간격 반환 */
+function getDiscoveryInterval(regime: RegimeLevel): number {
+  if (regime === 'R1_TURBO' || regime === 'R2_BULL' || regime === 'R3_EARLY' || regime === 'R4_NEUTRAL') {
+    return DISCOVERY_INTERVAL_BULL_MS;
+  }
+  return DISCOVERY_INTERVAL_DEFAULT_MS;
+}
 
 /** 1회 발굴 스캔 최대 Yahoo 호출 수 (rate limit 방지) */
 const MAX_YAHOO_CALLS_PER_DISCOVERY = 15;
@@ -179,11 +204,19 @@ function calcIntradayTarget(price: number): number {
 
 /**
  * STOCK_UNIVERSE 120개 + screenerCache 이중 소스 기반 장중 후보 발굴.
- * DISCOVERY_INTERVAL_MS(10분) 간격으로만 실행; 이미 목록에 있거나 Pre-Market 목록에 있는 종목은 건너뜀.
+ * 레짐별 발굴 간격(상승장 5분 / 기본 10분)으로만 실행; 이미 목록에 있거나 Pre-Market 목록에 있는 종목은 건너뜀.
+ * R6_DEFENSE(gate=99)에서는 사실상 진입 불가.
  */
 async function discoverIntradayCandidates(): Promise<void> {
+  const regime = getLiveRegime(loadMacroState());
+  const minGate = INTRADAY_GATE_BY_REGIME[regime] ?? 99;
+
+  // R6_DEFENSE — 장중 발굴 완전 차단
+  if (minGate >= 99) return;
+
   const now = Date.now();
-  if (now - lastDiscoveryAt < DISCOVERY_INTERVAL_MS) return;
+  const discoveryInterval = getDiscoveryInterval(regime);
+  if (now - lastDiscoveryAt < discoveryInterval) return;
   lastDiscoveryAt = now;
 
   const intradayList   = loadIntradayWatchlist();
@@ -235,6 +268,10 @@ async function discoverIntradayCandidates(): Promise<void> {
       if (!quote || quote.price <= 0) continue;
 
       if (!isIntradayStrong(quote)) continue;
+
+      // 레짐별 Gate 점수 필터 — minGate 미달 종목은 발굴 제외
+      const gateResult = evaluateServerGate(quote);
+      if (gateResult.gateScore < minGate) continue;
 
       const entryPath = classifyEntryPath(quote);
       const pathLabel = entryPath === 'BREAKOUT' ? '돌파형' : entryPath === 'SUPPLY_DEMAND' ? '수급형' : '눌림목형';

@@ -34,6 +34,7 @@ import { getLastScanAt } from './orchestrator/adaptiveScanScheduler.js';
 import { getLastBuySignalAt, getLastScanSummary } from './trading/signalScanner.js';
 import { getKisTokenRemainingHours } from './clients/kisClient.js';
 import { isOpenShadowStatus } from './trading/entryEngine.js';
+import { runAutoSignalScan } from './trading/signalScanner.js';
 import { runPipelineDiagnosis } from './trading/pipelineDiagnosis.js';
 import { cleanupOldTraceFiles } from './trading/scanTracer.js';
 import { generateDailyPickReport } from './alerts/stockPickReporter.js';
@@ -178,6 +179,20 @@ export function startScheduler() {
   // expiresAt 초과 항목 제거 + 최대 20개 유지
   cron.schedule('0 7 * * 1-5', async () => {
     await cleanupWatchlist().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // ─── 미국장 전후 스캐닝 — 나스닥/S&P 시세 반영 재검증 ──────────────────────
+  // 미국 장 시작 직전 확인 — KST 22:25 (UTC 13:25, 월~금)
+  cron.schedule('25 13 * * 1-5', async () => {
+    console.log('[Scheduler] 미국장 프리마켓 스캔 (KST 22:25)');
+    await runAutoSignalScan({ sellOnly: false }).catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // 미국 장 마감 후 확인 — KST 06:10 (UTC 21:10 전일, 일~목)
+  // 익일 한국 장 대비 마지막 검증
+  cron.schedule('10 21 * * 0-4', async () => {
+    console.log('[Scheduler] 미국장 마감 후 스캔 (KST 06:10+1d)');
+    await runAutoSignalScan({ sellOnly: false }).catch(console.error);
   }, { timezone: 'UTC' });
 
   // 새벽 글로벌 스캔 에이전트 — 매일 KST 06:00 (UTC 21:00, 일~목)
