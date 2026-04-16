@@ -178,17 +178,18 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   console.log(`[MarketRefresh] 수급: foreignNetBuy5d=${fssVars.foreignNetBuy5d.toFixed(0)}억, passiveActiveBoth=${fssVars.passiveActiveBoth}, 연속매수=${fssVars.foreignContinuousBuyDays}일`);
 
   // ── ③-b KIS 코스피 전체 투자자별 수급 (실시간 보강) ─────────────────────
-  // FSS 레코드가 0이거나 누락 시 KIS API로 당일 실시간 수급 데이터 보강
+  // FSS 레코드가 0이거나 누락 시 KIS API로 당일 실시간 수급 데이터 보강.
+  // KIS 외국인 순매수가 양수이면 FSS 연속매수 일수를 최소 1일로 보정 —
+  // 당일 선행 매수가 포착된 시점에서 R3 강제 승급 판단이 1일 지연되지 않도록.
   const kisSupply = await fetchKisMarketSupply().catch(() => null);
   if (kisSupply) {
-    // FSS 5일 누적이 0이면 KIS 당일 데이터로 대체 (단위: 주 → 억원 근사 변환 불가이므로 방향 참고)
-    if (fssVars.foreignNetBuy5d === 0) {
-      // KIS는 순매수 주수, FSS는 억원 단위 → 직접 대체 불가
-      // 다만 부호(양/음)와 크기를 기록하여 레짐 판단에 방향성 참고
-      console.log(
-        `[MarketRefresh] KIS 수급 보강: 외국인=${kisSupply.foreignNetBuy.toLocaleString()}주, ` +
-        `기관=${kisSupply.institutionNetBuy.toLocaleString()}주, 개인=${kisSupply.individualNetBuy.toLocaleString()}주`,
-      );
+    console.log(
+      `[MarketRefresh] KIS 수급 보강: 외국인=${kisSupply.foreignNetBuy.toLocaleString()}주, ` +
+      `기관=${kisSupply.institutionNetBuy.toLocaleString()}주, 개인=${kisSupply.individualNetBuy.toLocaleString()}주`,
+    );
+    if (kisSupply.foreignNetBuy > 0 && fssVars.foreignContinuousBuyDays < 1) {
+      computed.foreignContinuousBuyDays = 1;
+      console.log('[MarketRefresh] KIS 당일 외국인 순매수 양수 — foreignContinuousBuyDays 1일 보정');
     }
   }
 
