@@ -3,7 +3,7 @@ import { SCREENER_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadWatchlist, saveWatchlist, type WatchlistSection } from '../persistence/watchlistRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
-import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL } from '../clients/kisClient.js';
+import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, hasKisClientOverrides } from '../clients/kisClient.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { isPullbackSetup, addBusinessDays } from './pipelineHelpers.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
@@ -416,7 +416,8 @@ export async function preScreenStocks(options?: {
 
   // 순위 TR은 실계좌 전용 — VTS에서 미지원
   // 단, 실계좌 데이터 키(KIS_REAL_DATA_APP_KEY) 설정 시 하이브리드 모드로 조회 가능
-  if (!KIS_IS_REAL && !HAS_REAL_DATA_CLIENT) {
+  // VTS mock override가 설치된 경우에도 mock 데이터로 순위 TR 실행 허용
+  if (!KIS_IS_REAL && !HAS_REAL_DATA_CLIENT && !hasKisClientOverrides()) {
     console.warn(
       '[Screener] 모의투자(VTS) 모드 — 순위 TR 미지원. ' +
       '캐시된 스크리너 결과를 반환합니다. 실계좌 데이터 키 또는 KIS_IS_REAL=true 설정 후 사용 가능.'

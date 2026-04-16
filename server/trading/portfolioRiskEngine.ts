@@ -273,14 +273,24 @@ export async function evaluatePortfolioRisk(
 
 /** 허위 분산 경보 발송 이력 (같은 장중 중복 방지) */
 let _lastCorrelationAlertDate = '';
+/** 섹터 집중도 긴급 경보 발송 이력 (섹터별, 장중 1회) */
+let _lastSectorAlertDate = '';
+const _alertedSectors = new Set<string>();
 
 /**
  * 포트폴리오 리스크 정기 점검 — scheduler에서 호출.
  * 경보 조건 충족 시 텔레그램 발송.
+ * 섹터 한도 초과 시 해당 섹터 포지션을 exitPending으로 마킹하여 자동 청산을 유도한다.
  */
 export async function runPortfolioRiskCheck(): Promise<void> {
   const result = await evaluatePortfolioRisk();
   const today = new Date().toISOString().slice(0, 10);
+
+  // 날짜 변경 시 경보 이력 초기화
+  if (_lastSectorAlertDate !== today) {
+    _lastSectorAlertDate = today;
+    _alertedSectors.clear();
+  }
 
   // 허위 분산 경보 (하루 1회)
   if (result.warnings.length > 0 && _lastCorrelationAlertDate !== today) {
@@ -303,10 +313,67 @@ export async function runPortfolioRiskCheck(): Promise<void> {
     console.warn(`[PortfolioRisk] ${result.blockReasons.find(r => r.includes('베타'))}`);
   }
 
-  // 섹터 경고
+  // ── 섹터 집중도 자동 대응 ──────────────────────────────────────────────────
+  const shadows = loadShadowTrades();
+  const wlMap = new Map(loadWatchlist().map(w => [w.code, w]));
+  let shadowsChanged = false;
+
   for (const [sector, weight] of Object.entries(result.sectorWeights)) {
-    if (weight >= MAX_SECTOR_WEIGHT * 0.8) { // 80% 접근 시 사전 경고
-      console.warn(`[PortfolioRisk] 섹터 ${sector} 비중 ${(weight * 100).toFixed(1)}% — 한도(${(MAX_SECTOR_WEIGHT * 100).toFixed(0)}%) 접근 중`);
+    const weightPct = (weight * 100).toFixed(1);
+
+    if (weight >= MAX_SECTOR_WEIGHT) {
+      // ── 한도 초과: 해당 섹터 최저수익 포지션의 손절선을 현재가로 올려 청산을 유도 ──
+      const sectorPositions = shadows.filter(s => {
+        if (!isOpenShadowStatus(s.status)) return false;
+        const wl = wlMap.get(s.stockCode);
+        return (wl?.sector ?? s.profileType ?? '기타') === sector;
+      });
+
+      if (sectorPositions.length > 0) {
+        // 수익률 기준 오름차순 정렬 → 가장 낮은 수익률 포지션부터 청산 대상
+        const sorted = sectorPositions
+          .map(s => {
+            const currentPrice = getRealtimePrice(s.stockCode) ?? s.shadowEntryPrice;
+            const pnlPct = ((currentPrice - s.shadowEntryPrice) / s.shadowEntryPrice) * 100;
+            return { shadow: s, pnlPct, currentPrice };
+          })
+          .sort((a, b) => a.pnlPct - b.pnlPct);
+
+        // 최저수익 포지션의 손절선을 현재가 -1%로 긴축 → exitEngine이 다음 틱에서 청산
+        const exitTarget = sorted[0];
+        const tightStop = Math.round(exitTarget.currentPrice * 0.99);
+        if (exitTarget.shadow.stopLoss < tightStop) {
+          exitTarget.shadow.stopLoss = tightStop;
+          exitTarget.shadow.exitRuleTag = 'HARD_STOP';
+          shadowsChanged = true;
+          console.warn(
+            `[PortfolioRisk] 🚨 섹터 ${sector} 비중 ${weightPct}% 초과 → ` +
+            `${exitTarget.shadow.stockName}(${exitTarget.shadow.stockCode}) 손절선 ${tightStop.toLocaleString()}원으로 긴축 (PnL: ${exitTarget.pnlPct.toFixed(1)}%)`,
+          );
+        }
+      }
+
+      // Telegram 긴급 경보 (섹터별 장중 1회)
+      if (!_alertedSectors.has(sector)) {
+        _alertedSectors.add(sector);
+        const posNames = sectorPositions.map(s => s.stockName).join(', ');
+        await sendTelegramAlert(
+          `🚨 <b>[섹터 집중도 초과 — 자동 대응]</b>\n` +
+          `섹터: <b>${sector}</b> — ${weightPct}% (한도 ${(MAX_SECTOR_WEIGHT * 100).toFixed(0)}%)\n` +
+          `보유 종목: ${posNames}\n` +
+          `⚡ 최저수익 포지션 손절선 긴축 → 다음 스캔에서 청산 예정\n` +
+          `LIVE 전환 전 섹터 분산 필수!`,
+          { priority: 'HIGH', dedupeKey: `sector_conc_${sector}_${today}` },
+        ).catch(console.error);
+      }
+    } else if (weight >= MAX_SECTOR_WEIGHT * 0.8) {
+      // 80% 접근 시 사전 경고
+      console.warn(`[PortfolioRisk] 섹터 ${sector} 비중 ${weightPct}% — 한도(${(MAX_SECTOR_WEIGHT * 100).toFixed(0)}%) 접근 중`);
     }
+  }
+
+  if (shadowsChanged) {
+    const { saveShadowTrades } = await import('../persistence/shadowTradeRepo.js');
+    saveShadowTrades(shadows);
   }
 }

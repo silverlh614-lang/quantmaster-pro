@@ -256,9 +256,12 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   }
 
   // 레짐 Kelly × VIX Kelly × FOMC Kelly → 유효 배율
+  // 최소 하한선 0.15 — 누적 패널티가 과도하게 쌓여 포지션이 의미 없이 작아지는 것을 방지
+  const KELLY_FLOOR = 0.15;
+  const rawKelly = regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier;
   const kellyMultiplier = Math.min(
     1.5,  // 상한 캡 (POST 부스트 구간에서도 최대 1.5배)
-    regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier,
+    Math.max(KELLY_FLOOR, rawKelly),
   );
   if (vixGating.kellyMultiplier < 1) {
     console.log(`[AutoTrade] VIX 게이팅 적용 — ${vixGating.reason}`);
@@ -266,8 +269,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   if (fomcProximity.kellyMultiplier !== 1) {
     console.log(`[AutoTrade] FOMC 게이팅 적용 — ${fomcProximity.description}`);
   }
+  // 진단 로그: 각 패널티 구성 요소를 분해하여 기록
   if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
-    console.log(`[AutoTrade] 레짐 ${regime} × VIX × FOMC — Kelly ×${kellyMultiplier.toFixed(2)}`);
+    console.log(
+      `[AutoTrade] Kelly 배율 분해: 레짐 ${regime}(×${regimeConfig.kellyMultiplier}) × ` +
+      `VIX(×${vixGating.kellyMultiplier.toFixed(2)}) × FOMC(×${fomcProximity.kellyMultiplier.toFixed(2)}) ` +
+      `= raw ×${rawKelly.toFixed(3)}${rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}` : ''} → 유효 ×${kellyMultiplier.toFixed(2)}`,
+    );
   }
 
   // ── 동시 최대 보유 종목 (regimeConfig.maxPositions) ─────────────────────────

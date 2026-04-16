@@ -29,7 +29,7 @@ import { loadMacroState, type MacroState } from '../persistence/macroStateRepo.j
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { computeFocusCodes, assignSection } from './watchlistManager.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, fetchKisInvestorFlow } from '../clients/kisClient.js';
+import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, fetchKisInvestorFlow, hasKisClientOverrides } from '../clients/kisClient.js';
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { calcReliabilityScore, sourcesFromGateKeys, formatReliabilityBadge } from '../learning/reliabilityScorer.js';
 import { runConfluenceEngine } from '../trading/confluenceEngine.js';
@@ -66,7 +66,9 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
 
   // ─ KIS 실계좌 데이터: 거래량 + 상승률 순위 병렬 조회 ─
   // 실계좌 데이터 키(KIS_REAL_DATA_APP_KEY) 또는 실계좌 모드(KIS_IS_REAL)일 때 실행
-  if ((HAS_REAL_DATA_CLIENT || KIS_IS_REAL) && (process.env.KIS_REAL_DATA_APP_KEY || process.env.KIS_APP_KEY)) {
+  // VTS mock override가 설치된 경우에도 허용 (mock client가 ranking TR 응답을 생성)
+  const hasMockOverride = hasKisClientOverrides();
+  if ((HAS_REAL_DATA_CLIENT || KIS_IS_REAL || hasMockOverride) && (process.env.KIS_REAL_DATA_APP_KEY || process.env.KIS_APP_KEY || hasMockOverride)) {
     const [volResult, riseResult] = await Promise.allSettled([
       realDataKisGet('FHPST01710000', '/uapi/domestic-stock/v1/ranking/volume', {
         fid_cond_mrkt_div_code: 'J',
@@ -243,8 +245,8 @@ export async function stage2SectorGateFilter(
     .sort((a, b) => (b.stage2Score ?? 0) - (a.stage2Score ?? 0))
     .slice(0, 15);
 
-  // ── KIS 투자자 수급 실데이터 조회 (실계좌 모드, 상위 15개만) ─────────────────
-  if (KIS_IS_REAL) {
+  // ── KIS 투자자 수급 실데이터 조회 (실계좌 모드 또는 mock override, 상위 15개만) ──
+  if (KIS_IS_REAL || hasKisClientOverrides()) {
     for (const c of top15) {
       const flow = await fetchKisInvestorFlow(c.code).catch(() => null);
       if (flow) {

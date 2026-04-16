@@ -186,6 +186,18 @@ async function classifyImpactWithLlm(
 /** DART 추가 종목 기본 만료 기간 (밀리초) — 3일 */
 const DART_WATCHLIST_EXPIRY_MS = 3 * 24 * 60 * 60 * 1000;
 
+// ── rceptNo 기반 gateScore 적용 중복 방지 ──────────────────────────────────────
+// fastDartCheck()와 pollDartDisclosures()가 별도 dedup 메커니즘을 사용하므로,
+// 같은 공시가 양쪽에서 applyDartToWatchlist()를 호출할 수 있다.
+// rceptNo를 키로 이미 gateScore 보너스를 적용한 공시를 추적한다.
+const _appliedRceptNos     = new Set<string>();
+const _APPLIED_TTL_MS      = 24 * 60 * 60 * 1000; // 24시간 (당일 공시 전체 커버)
+
+function markRceptNoApplied(rceptNo: string): void {
+  _appliedRceptNos.add(rceptNo);
+  setTimeout(() => _appliedRceptNos.delete(rceptNo), _APPLIED_TTL_MS);
+}
+
 export async function applyDartToWatchlist(params: {
   stockCode: string;
   corpName: string;
@@ -196,6 +208,15 @@ export async function applyDartToWatchlist(params: {
 }): Promise<void> {
   const code = params.stockCode.padStart(6, '0');
   if (!code || code === '000000') return;
+
+  // ── 동일 공시 중복 적용 방지 ─────────────────────────────────────────────────
+  // fastDartCheck()와 pollDartDisclosures() 양쪽에서 호출될 수 있으므로
+  // rceptNo 기준으로 이미 처리된 공시는 스킵한다.
+  if (_appliedRceptNos.has(params.rceptNo)) {
+    console.log(`[DART→WL] ⏭️ 중복 스킵: ${params.corpName}(${code}) — rceptNo ${params.rceptNo} 이미 적용됨`);
+    return;
+  }
+  markRceptNoApplied(params.rceptNo);
 
   const watchlist = loadWatchlist();
   const existing = watchlist.find(w => w.code === code);
