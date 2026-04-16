@@ -187,7 +187,7 @@ export function classifyRegime(v: RegimeVariables): RegimeLevel {
     return 'R6_DEFENSE';
   }
 
-  // ── R5: 복합 위험 신호 (6개 중 3개 이상) ─────────────────────────────────────
+  // ── R5: 복합 위험 신호 (7개 중 3개 이상) ─────────────────────────────────────
   const cautionSignals = [
     v.vkospi           > 28,
     v.mhsScore         < 35,
@@ -195,6 +195,7 @@ export function classifyRegime(v: RegimeVariables): RegimeLevel {
     !v.kospiAbove60MA,
     v.spx20dReturn     < -5,
     v.usdKrw20dChange  > 3,
+    v.shortSellingRatio > 8, // KRX 공매도 비율 8% 초과 — 신용·공매도 과열
   ];
   if (cautionSignals.filter(Boolean).length >= 3) return 'R5_CAUTION';
 

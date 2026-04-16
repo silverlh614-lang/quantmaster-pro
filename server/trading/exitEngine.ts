@@ -19,7 +19,70 @@ import { addToBlacklist } from '../persistence/blacklistRepo.js';
 import { checkEuphoria } from './riskManager.js';
 import { regimeToStopRegime } from './entryEngine.js';
 import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.js';
+import { fetchCloses } from './marketDataRefresh.js';
 import type { RegimeLevel } from '../../src/types/core.js';
+
+/**
+ * 하락 다이버전스 감지 — 주가 신고가 갱신 + RSI 고점 낮아짐.
+ * 최근 5일/이전 5일 두 구간을 비교해 가짜 돌파·상투를 조기 포착.
+ *
+ * @param prices 최근 N(≥10)일 종가 배열
+ * @param rsi    prices와 정렬된 N일 RSI 배열
+ */
+export function detectBearishDivergence(prices: number[], rsi: number[]): boolean {
+  if (prices.length < 10 || rsi.length < 10) return false;
+  const recentHigh = Math.max(...prices.slice(-5));
+  const prevHigh   = Math.max(...prices.slice(-10, -5));
+  const recentRSI  = Math.max(...rsi.slice(-5));
+  const prevRSI    = Math.max(...rsi.slice(-10, -5));
+  // 주가 신고가 갱신 + RSI 고점 낮아짐 → 하락 다이버전스
+  return recentHigh > prevHigh && recentRSI < prevRSI;
+}
+
+/** Wilder 평활화 RSI 시계열 반환. period+1 미만이면 빈 배열. */
+function rsiSeries(closes: number[], period: number = 14): number[] {
+  if (closes.length < period + 1) return [];
+  const deltas: number[] = [];
+  for (let i = 1; i < closes.length; i++) deltas.push(closes[i] - closes[i - 1]);
+  let avgGain = deltas.slice(0, period).filter(d => d > 0).reduce((s, d) => s + d, 0) / period;
+  let avgLoss = deltas.slice(0, period).filter(d => d < 0).reduce((s, d) => s - d, 0) / period;
+  const out: number[] = [];
+  const rsiAt = (g: number, l: number) => l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  out.push(rsiAt(avgGain, avgLoss));
+  for (let i = period; i < deltas.length; i++) {
+    const gain = deltas[i] > 0 ? deltas[i] : 0;
+    const loss = deltas[i] < 0 ? -deltas[i] : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+    out.push(rsiAt(avgGain, avgLoss));
+  }
+  return out;
+}
+
+/** stockCode → Yahoo Finance 심볼 후보 배열. */
+function yahooSymbolCandidates(stockCode: string): string[] {
+  const c = stockCode.padStart(6, '0');
+  return [`${c}.KS`, `${c}.KQ`];
+}
+
+/** 최근 N일 종가와 그에 정렬된 RSI 시계열을 반환. 실패 시 null. */
+async function fetchPriceAndRsiHistory(
+  stockCode: string,
+  bars: number = 10,
+): Promise<{ prices: number[]; rsi: number[] } | null> {
+  // RSI 14 Wilder 평활화를 안정화하려면 최소 14 + bars 관측이 필요.
+  const minNeeded = 14 + bars;
+  for (const sym of yahooSymbolCandidates(stockCode)) {
+    const closes = await fetchCloses(sym, '60d').catch(() => null);
+    if (!closes || closes.length < minNeeded) continue;
+    const fullRsi = rsiSeries(closes, 14);
+    if (fullRsi.length < bars) continue;
+    const prices = closes.slice(-bars);
+    const rsi    = fullRsi.slice(-bars);
+    return { prices, rsi };
+  }
+  return null;
+}
 
 /** Shadow 진행 중 거래 결과 업데이트 — Macro/포지션 제한 시에도 재사용 */
 export async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: RegimeLevel): Promise<void> {
@@ -354,6 +417,42 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           }).catch(console.error);
           if (shadow.quantity <= 0) continue;
         }
+      }
+    }
+
+    // ─── 하락 다이버전스 — 주가 신고가 + RSI 고점 낮아짐 → 30% 부분 익절 (1회만) ─
+    // 수익 구간에서 "가짜 돌파·상투" 조기 경보. 매매 중 포지션만 대상.
+    if (
+      !shadow.divergencePartialSold &&
+      shadow.quantity > 0 &&
+      currentPrice > shadow.shadowEntryPrice
+    ) {
+      const hist = await fetchPriceAndRsiHistory(shadow.stockCode, 10).catch(() => null);
+      if (hist && detectBearishDivergence(hist.prices, hist.rsi)) {
+        const sellQty = Math.max(1, Math.floor(shadow.quantity * 0.30));
+        shadow.divergencePartialSold = true;
+        shadow.originalQuantity ??= shadow.quantity;
+        shadow.quantity -= sellQty;
+        shadow.exitRuleTag = 'DIVERGENCE_PARTIAL';
+        appendShadowLog({ event: 'DIVERGENCE_PARTIAL', ...shadow, soldQty: sellQty, returnPct });
+        console.log(`[AutoTrade] 📉 ${shadow.stockName} 하락 다이버전스 — 30% 익절 ${sellQty}주 @${currentPrice.toLocaleString()}`);
+        await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
+        await sendTelegramAlert(
+          `📉 <b>[하락 다이버전스]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+          `주가 신고가·RSI 고점 낮아짐 — 30% 부분 익절\n` +
+          `${sellQty}주 @${currentPrice.toLocaleString()}원 | 수익: +${returnPct.toFixed(2)}% | 잔여: ${shadow.quantity}주`,
+          { priority: 'HIGH', dedupeKey: `divergence:${shadow.stockCode}` },
+        ).catch(console.error);
+        await channelSellSignal({
+          stockName:   shadow.stockName,
+          stockCode:   shadow.stockCode,
+          exitPrice:   currentPrice,
+          entryPrice:  shadow.shadowEntryPrice,
+          pnlPct:      returnPct,
+          reason:      'DIVERGENCE',
+          holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+        }).catch(console.error);
+        if (shadow.quantity <= 0) continue;
       }
     }
 
