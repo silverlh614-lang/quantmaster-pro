@@ -26,6 +26,7 @@ import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { getKisTokenRemainingHours } from '../clients/kisClient.js';
 import { getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
+import { getStreamStatus } from '../clients/kisStreamClient.js';
 import { DATA_DIR } from '../persistence/paths.js';
 import fs from 'fs';
 
@@ -280,6 +281,9 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
   else if (yahooApiStatus === 'DOWN')          verdict = '🟡 YAHOO_DOWN';
   else                                         verdict = '🟢 OK';
 
+  // ── KIS WebSocket 실시간 스트림 상태 ──────────────────────────────────────
+  const streamStatus = getStreamStatus();
+
   res.json({
     scheduler:           'OK',
     watchlistCount,
@@ -297,6 +301,14 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
     dailyLossLimitReached: dailyLossPct >= dailyLossLimit,
     emergencyStop,
     lastScanSummary:     scanSummary,
+    kisStream: {
+      connected:       streamStatus.connected,
+      subscribedCount: streamStatus.subscribedCount,
+      activePrices:    streamStatus.activePrices,
+      reconnectCount:  streamStatus.reconnectCount,
+      lastPongAt:      streamStatus.lastPongAt,
+      recentEvents:    streamStatus.recentEvents,
+    },
     verdict,
   });
 });

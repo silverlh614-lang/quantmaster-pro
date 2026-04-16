@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { QuantScreener } from '../components/analysis/QuantScreener';
 import { GateWizard } from '../components/analysis/GateWizard';
@@ -12,6 +12,16 @@ import { Card } from '../ui/card';
 import { Stack } from '../layout/Stack';
 import { ALL_CONDITIONS } from '../services/quant/evolutionEngine';
 import type { StockFilters, StockRecommendation, UniverseConfig } from '../services/stockService';
+
+// ─── KIS Stream 연결 상태 디버그 타입 ─────────────────────────────────────────
+interface KisStreamDebug {
+  connected: boolean;
+  subscribedCount: number;
+  activePrices: number;
+  reconnectCount: number;
+  lastPongAt: string | null;
+  recentEvents: { ts: string; event: string; detail: string }[];
+}
 
 interface ScreenerPageProps {
   onScreen: (filters: StockFilters) => Promise<void>;
@@ -36,6 +46,25 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
   // VKOSPI from global intel store (fallback to 18)
   const vkospiResult = useGlobalIntelStore(s => s.vkospiTriggerResult);
   const currentVkospi = vkospiResult?.vkospi ?? 18;
+
+  // ── KIS Stream 디버그 상태 (30초 폴링) ──────────────────────────────────────
+  const [streamDebug, setStreamDebug] = useState<KisStreamDebug | null>(null);
+  const [showStreamLog, setShowStreamLog] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/health/pipeline');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data.kisStream) setStreamDebug(data.kisStream);
+      } catch { /* 서버 미응답 시 무시 */ }
+    };
+    poll();
+    const id = setInterval(poll, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   // ── Gate Wizard: selected stock for evaluation ─────────────────────────────
   const [wizardStock, setWizardStock] = useState<StockRecommendation | null>(null);
@@ -79,6 +108,60 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
         >
           정량적 필터로 후보군을 압축하고, AI가 질적 분석을 통해 최종 주도주를 선정하는 2단계 파이프라인입니다.
         </PageHeader>
+
+        {/* KIS Stream 연결 상태 디버그 배지 */}
+        {streamDebug && (
+          <div className="bg-[#0d0e11] border border-white/10 rounded-lg px-4 py-2.5">
+            <button
+              type="button"
+              onClick={() => setShowStreamLog(prev => !prev)}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <div className="flex items-center gap-3">
+                <span className={`w-2 h-2 rounded-full ${streamDebug.connected ? 'bg-green-400 shadow-[0_0_6px_rgba(34,197,94,0.6)]' : 'bg-red-400 shadow-[0_0_6px_rgba(239,68,68,0.6)]'}`} />
+                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                  KIS 실시간
+                </span>
+                <span className={`text-[11px] font-black ${streamDebug.connected ? 'text-green-400' : 'text-red-400'}`}>
+                  {streamDebug.connected ? '연결됨' : '미연결'}
+                </span>
+              </div>
+              <div className="flex items-center gap-4 text-[10px] text-gray-500">
+                <span>구독 {streamDebug.subscribedCount}종목</span>
+                <span>가격 {streamDebug.activePrices}건</span>
+                {streamDebug.reconnectCount > 0 && (
+                  <span className="text-amber-400">재연결 {streamDebug.reconnectCount}회</span>
+                )}
+                {streamDebug.lastPongAt && (
+                  <span>PONG {new Date(streamDebug.lastPongAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                )}
+                <span className="text-gray-600">{showStreamLog ? '▲' : '▼'}</span>
+              </div>
+            </button>
+            {showStreamLog && streamDebug.recentEvents.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-white/5 max-h-40 overflow-y-auto space-y-1">
+                {streamDebug.recentEvents.slice().reverse().map((ev, i) => (
+                  <div key={i} className="flex items-start gap-2 text-[9px] font-mono">
+                    <span className="text-gray-600 shrink-0">
+                      {new Date(ev.ts).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                    <span className={`shrink-0 font-bold ${
+                      ev.event === 'OPEN' ? 'text-green-400' :
+                      ev.event === 'CLOSE' || ev.event === 'ERROR' ? 'text-red-400' :
+                      ev.event === 'RECONNECT' ? 'text-amber-400' :
+                      ev.event === 'PONG_TIMEOUT' ? 'text-red-500' :
+                      ev.event === 'STOP' ? 'text-red-600' :
+                      'text-blue-400'
+                    }`}>
+                      [{ev.event}]
+                    </span>
+                    <span className="text-gray-400">{ev.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Gate-0: Universe Selector */}
         <UniverseSelector value={universe} onChange={setUniverse} />
