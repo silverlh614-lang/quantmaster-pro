@@ -1,8 +1,10 @@
-import { loadConditionWeights, saveConditionWeights } from '../persistence/conditionWeightsRepo.js';
+import { loadConditionWeights, saveConditionWeights, type ConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { analyzeAttribution, serverConditionKey } from './attributionAnalyzer.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { loadWalkForwardState } from './walkForwardValidator.js';
+import { loadShadowTrades, saveShadowTrades, appendShadowLog, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
+import { DEFAULT_CONDITION_WEIGHTS } from '../quantFilter.js';
 
 /**
  * 월간 귀인 분석 기반 캘리브레이션.
@@ -134,6 +136,137 @@ export async function calibrateSignalWeights(): Promise<void> {
 export function timeWeight(signalTime: string): number {
   const ageDays = (Date.now() - new Date(signalTime).getTime()) / 86_400_000;
   return Math.exp(-ageDays / 60);
+}
+
+// ── T+5 수익률 피드백 루프 ──────────────────────────────────────────────────
+
+/** Shadow 최종 종료 상태 — 수익률이 확정된 거래만 피드백 대상. */
+const CLOSED_STATUSES = new Set<ServerShadowTrade['status']>(['HIT_TARGET', 'HIT_STOP']);
+
+/** T+5 피드백 진입 기준 — signalTime 이후 이 일수가 경과해야 신호가 "검증되었다"고 간주. */
+export const T5_MIN_ELAPSED_DAYS = 5;
+
+/** T+5 수익률 부호별 가중치 변화량 (user spec). */
+export const T5_WEIGHT_DELTA_WIN  = 0.05;   // returnPct > 0
+export const T5_WEIGHT_DELTA_LOSS = -0.10;  // returnPct < -3
+/** -3% ≤ returnPct ≤ 0 구간은 중립 — 노이즈 구분 불가하여 가중치 유지. */
+
+/** 가중치 bound (기존 calibrateSignalWeights와 일관) */
+const WEIGHT_MIN = 0.1;
+const WEIGHT_MAX = 1.8;
+
+function clampWeight(v: number): number {
+  return Math.max(WEIGHT_MIN, Math.min(WEIGHT_MAX, v));
+}
+
+function isKnownWeightKey(key: string, weights: ConditionWeights): key is keyof ConditionWeights {
+  return Object.prototype.hasOwnProperty.call(weights, key);
+}
+
+/**
+ * T+5 수익률 기반 자동 캘리브레이션.
+ *
+ * 종료된 Shadow 거래(HIT_TARGET / HIT_STOP)를 순회하며, 진입 시 캡처된 conditionKeys에
+ * 대해 수익률 부호에 따라 가중치를 조정한다.
+ *   returnPct > 0     → 각 조건 가중치 +0.05 (최대 1.8)
+ *   returnPct < -3%   → 각 조건 가중치 -0.10 (최소 0.1)
+ *   그 외             → 유지
+ *
+ * 중복 반영 방지:
+ *   trade.t5CalibrationApplied = true 플래그를 설정해 다음 실행에서 제외.
+ *
+ * 최소 경과 기간:
+ *   signalTime이 T5_MIN_ELAPSED_DAYS(기본 5일) 이상 지난 거래만 대상으로 삼아
+ *   초단타 랜덤 결과가 피드백에 섞이지 않도록 한다.
+ *
+ * 워크포워드 동결 중이면 기존 calibrateSignalWeights와 마찬가지로 건너뛴다.
+ */
+export async function calibrateFromT5Returns(): Promise<{
+  processed: number;
+  skipped: number;
+  adjustments: string[];
+}> {
+  const wfState = loadWalkForwardState();
+  if (wfState) {
+    console.log(`[T5Calibrator] 워크포워드 동결 중 — 스킵 (사유: ${wfState.reason})`);
+    return { processed: 0, skipped: 0, adjustments: [] };
+  }
+
+  const shadows = loadShadowTrades();
+  const now     = Date.now();
+  const minElapsedMs = T5_MIN_ELAPSED_DAYS * 86_400_000;
+
+  const candidates = shadows.filter((t) =>
+    CLOSED_STATUSES.has(t.status) &&
+    typeof t.returnPct === 'number' &&
+    !t.t5CalibrationApplied &&
+    t.conditionKeys && t.conditionKeys.length > 0 &&
+    (now - new Date(t.signalTime).getTime()) >= minElapsedMs,
+  );
+
+  if (candidates.length === 0) {
+    console.log('[T5Calibrator] 대상 없음 — 종료된 shadow 거래 + T+5 경과 + 미반영 조건');
+    return { processed: 0, skipped: 0, adjustments: [] };
+  }
+
+  const weights: ConditionWeights = loadConditionWeights();
+  const perConditionDeltas: Record<string, { wins: number; losses: number; netDelta: number }> = {};
+  let skipped = 0;
+
+  for (const trade of candidates) {
+    const ret = trade.returnPct!;
+    let delta = 0;
+    if (ret > 0)        delta = T5_WEIGHT_DELTA_WIN;
+    else if (ret < -3)  delta = T5_WEIGHT_DELTA_LOSS;
+
+    if (delta !== 0) {
+      for (const cond of trade.conditionKeys ?? []) {
+        if (!isKnownWeightKey(cond, weights)) {
+          // 알려지지 않은 key (PRE_BREAKOUT, INTRADAY_STRONG 등)는 건너뛴다.
+          skipped++;
+          continue;
+        }
+        const prev = weights[cond] ?? DEFAULT_CONDITION_WEIGHTS[cond] ?? 1.0;
+        const next = clampWeight(prev + delta);
+        weights[cond] = parseFloat(next.toFixed(2));
+
+        const bucket = (perConditionDeltas[cond] ??= { wins: 0, losses: 0, netDelta: 0 });
+        if (delta > 0) bucket.wins++;
+        else           bucket.losses++;
+        bucket.netDelta += (next - prev);
+      }
+    }
+
+    trade.t5CalibrationApplied = true;
+    appendShadowLog({
+      event: 'T5_CALIBRATION_APPLIED',
+      id: trade.id,
+      stockCode: trade.stockCode,
+      returnPct: ret,
+      delta,
+      conditionKeys: trade.conditionKeys,
+    });
+  }
+
+  saveShadowTrades(shadows);
+  saveConditionWeights(weights);
+
+  const adjustments = Object.entries(perConditionDeltas)
+    .filter(([, v]) => Math.abs(v.netDelta) > 0.01)
+    .sort((a, b) => Math.abs(b[1].netDelta) - Math.abs(a[1].netDelta))
+    .map(([cond, v]) => {
+      const sign = v.netDelta >= 0 ? '+' : '';
+      return `${cond}: ${sign}${v.netDelta.toFixed(2)} (승 ${v.wins} / 패 ${v.losses})`;
+    });
+
+  console.log(
+    `[T5Calibrator] 처리 ${candidates.length}건 | 조정 ${adjustments.length}개 키 | 스킵(미매핑) ${skipped}건`,
+  );
+  if (adjustments.length > 0) {
+    console.log(`[T5Calibrator] 조정: ${adjustments.join(' | ')}`);
+  }
+
+  return { processed: candidates.length, skipped, adjustments };
 }
 
 /**

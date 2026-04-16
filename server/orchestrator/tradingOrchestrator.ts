@@ -18,7 +18,7 @@ import { generateDailyReport } from '../alerts/reportGenerator.js';
 import { evaluateRecommendations, isRealTradeReady } from '../learning/recommendationTracker.js';
 import { calculateOrderQuantity, isOpenShadowStatus } from '../trading/entryEngine.js';
 import { decideScan, recordScanResult } from './adaptiveScanScheduler.js';
-import { calibrateSignalWeights } from '../learning/signalCalibrator.js';
+import { calibrateSignalWeights, calibrateFromT5Returns } from '../learning/signalCalibrator.js';
 import { calibrateByRegime } from '../learning/regimeAwareCalibrator.js';
 import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
 import { runConditionAudit } from '../learning/conditionAuditor.js';
@@ -469,6 +469,12 @@ export class TradingDayOrchestrator {
           console.log('[Orchestrator] 장 마감 — 장중 워치리스트 초기화 (KST 15:30+)');
           clearIntradayWatchlist();
           this.markRan('clearIntradayWatchlist');
+        }
+        // POST_MARKET: 하루 1회 T+5 수익률 피드백 루프 — 종료된 shadow의 conditionKeys 가중치 조정
+        if (state === 'POST_MARKET' && !this.hasRan('t5Calibrate')) {
+          console.log('[Orchestrator] T+5 수익률 피드백 루프 실행 (KST 15:30+)');
+          await calibrateFromT5Returns().catch(console.error);
+          this.markRan('t5Calibrate');
         }
         // WEEKEND — 대기
         break;

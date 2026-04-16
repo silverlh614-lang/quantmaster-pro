@@ -424,6 +424,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               profileType: profile, watchlistSource: 'PRE_BREAKOUT_FOLLOWTHROUGH',
               profitTranches: limitTranches.map(t => ({ price: followEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false })),
               trailPct: trailTarget?.trailPct ?? 0.10, entryATR14: followATR14,
+              conditionKeys: ['PRE_BREAKOUT_FOLLOWTHROUGH'],
             });
 
             shadows.push(followTrade);
@@ -539,6 +540,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                   profileType: profilePb, watchlistSource: 'PRE_BREAKOUT',
                   profitTranches: limitTranchesPb.map(t => ({ price: pbEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false })),
                   trailPct: trailTargetPb?.trailPct ?? 0.10, entryATR14: pbATR14,
+                  conditionKeys: ['PRE_BREAKOUT', ...(reCheckGatePb?.conditionKeys ?? [])],
                 });
 
                 shadows.push(pbTrade);
@@ -845,6 +847,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           price: shadowEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false,
         })),
         trailPct: trailTarget?.trailPct ?? 0.10, entryATR14,
+        conditionKeys: stock.conditionKeys,
       });
 
       addRecommendation({
@@ -1011,6 +1014,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             profileType: 'C', watchlistSource: 'INTRADAY',
             profitTranches: [], // Intraday는 분할익절 없음
             trailPct: 0.05,    // 장중: 5% 트레일링
+            conditionKeys: ['INTRADAY_STRONG'],
           });
 
           // BUG-10 fix: 실시간 Gate 평가로 Intraday 종목의 gateScore 추정

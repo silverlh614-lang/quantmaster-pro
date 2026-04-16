@@ -119,6 +119,8 @@ export interface BuildBuyTradeParams {
   profitTranches: { price: number; ratio: number; taken: boolean }[];
   trailPct: number;
   entryATR14?: number;
+  /** 진입 시 통과한 Gate 조건 키 — T+5 캘리브레이터에서 사용 */
+  conditionKeys?: string[];
 }
 
 /**
@@ -151,6 +153,7 @@ export function buildBuyTrade(p: BuildBuyTradeParams): ServerShadowTrade {
     trailingEnabled:       false,
     entryATR14:            p.entryATR14 || undefined,
     dynamicStopPrice:      p.stopLossPlan.dynamicStopLoss,
+    conditionKeys:         p.conditionKeys && p.conditionKeys.length > 0 ? [...p.conditionKeys] : undefined,
   };
 }
 

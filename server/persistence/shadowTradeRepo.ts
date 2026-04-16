@@ -66,6 +66,10 @@ export interface ServerShadowTrade {
   rrrCollapsePartialSold?: boolean; // RRR 붕괴 50% 익절 완료 여부 (중복 방지)
   /** 하락 다이버전스 부분 익절 완료 여부 (중복 방지) */
   divergencePartialSold?: boolean;
+  /** 진입 시 통과한 Gate 조건 키 (T+5 캘리브레이터가 사용 — 진입 시점에 1회 캡처) */
+  conditionKeys?: string[];
+  /** T+5 캘리브레이션 적용 완료 여부 — signalCalibrator가 중복 반영 방지용 */
+  t5CalibrationApplied?: boolean;
   /** 워치리스트 출처 — Pre-Market(기본), Intraday(장중 발굴), Pre-Breakout(돌파 전 선취매) */
   watchlistSource?: 'PRE_MARKET' | 'INTRADAY' | 'PRE_BREAKOUT' | 'PRE_BREAKOUT_FOLLOWTHROUGH';
   /** 진입 시점 14일 ATR — ATR 기반 동적 손절 계산에 사용 */
