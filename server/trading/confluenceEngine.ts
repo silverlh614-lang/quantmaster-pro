@@ -217,6 +217,14 @@ interface DartFinInput {
   opm: number | null;
   debtRatio: number | null;
   ocfRatio: number | null;
+  // 이익의 질 — OCF vs 당기순이익 (최근 4분기 누적)
+  operatingCashFlow?: number | null;
+  netIncome?: number | null;
+  // 마진 가속도 — 최근 2분기 OPM과 각 분기의 전년 동기 OPM
+  opMarginQ1?: number | null;
+  opMarginQ1PrevYear?: number | null;
+  opMarginQ2?: number | null;
+  opMarginQ2PrevYear?: number | null;
 }
 
 function calcFundamentalScore(
@@ -283,6 +291,32 @@ function calcFundamentalScore(
   if (dartFin.ocfRatio !== null && dartFin.ocfRatio >= 1.0) {
     score += 15;
     factors.push('OCF양호');
+  }
+
+  // 이익의 질: 영업활동현금흐름 > 당기순이익 (흑자부도·분식 리스크 필터)
+  // OCF < 순이익이면 회계상 이익이 현금으로 전환되지 않는다는 의미.
+  if (dartFin.operatingCashFlow != null && dartFin.netIncome != null && dartFin.netIncome > 0) {
+    if (dartFin.operatingCashFlow > dartFin.netIncome) {
+      score += 8;
+      factors.push('OCF>순이익');
+    } else {
+      score -= 15;
+      factors.push('흑자부도리스크');
+    }
+  }
+
+  // 마진 가속도: 최근 2분기 연속 OPM YoY 상승 (구조적 개선 신호)
+  if (
+    dartFin.opMarginQ1 != null && dartFin.opMarginQ1PrevYear != null &&
+    dartFin.opMarginQ2 != null && dartFin.opMarginQ2PrevYear != null
+  ) {
+    const marginAccel =
+      dartFin.opMarginQ1 > dartFin.opMarginQ1PrevYear &&
+      dartFin.opMarginQ2 > dartFin.opMarginQ2PrevYear;
+    if (marginAccel) {
+      score += 10;
+      factors.push('OPM가속2Q');
+    }
   }
 
   // PER 밸류에이션 점수: +10/+5

@@ -88,6 +88,8 @@ export async function channelSellSignal(p: ChannelSellSignalParams): Promise<voi
     EUPHORIA: '🌡️ 과열 부분 청산',
     TRANCHE:  '📈 분할 익절',
     CASCADE:  '⚠️ 캐스케이드 청산',
+    RRR_COLLAPSE: '📊 RRR 붕괴 익절',
+    DIVERGENCE:   '📉 하락 다이버전스',
     MANUAL:   '👤 수동 청산',
   };
 

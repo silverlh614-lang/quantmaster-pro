@@ -8,12 +8,13 @@
  *  ② 거시:   usdKrw, usdKrw20dChange, usdKrwDayChange
  *  ③ 수급:   foreignNetBuy5d, passiveActiveBoth (FSS 레코드에서)
  *  ④ 지수:   kospiAbove20MA, kospiAbove60MA, kospi20dReturn, kospiDayReturn
+ *  ⑥ 신용:   shortSellingRatio (KRX 공매도 비율 공개 데이터)
  *  ⑦ 글로벌: spx20dReturn, dxy5dChange
  *
  * 커버하지 않는 필드 (별도 데이터 소스 필요):
  *  ① 변동성: vkospiDayChange, vkospi5dTrend  — regimeBridge가 vkospiRising 대용
  *  ⑤ 사이클: leadingSectorRS, sectorCycleStage — 섹터 데이터 별도 필요
- *  ⑥ 신용:   marginBalance5dChange, shortSellingRatio — KRX 데이터 별도 필요
+ *  ⑥ 신용:   marginBalance5dChange — KRX 데이터 별도 필요
  */
 
 import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js';
@@ -48,6 +49,64 @@ const YF_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
   'Accept': 'application/json',
 };
+
+/** KRX 공매도 거래 비중 공개 데이터 엔드포인트 */
+const KRX_SHORT_URL = 'https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd';
+
+/** KRX 공매도 응답에서 비율 필드 후보 — 스키마 변경에 대비해 다중 키 시도 */
+const KRX_SHORT_RATIO_KEYS = [
+  'SHORT_SELL_RATIO',
+  'SHORT_SELLING_RATIO',
+  'TRDVAL_RATIO',
+  'BID_TRDVAL_RATIO',
+];
+
+/** 필드값(문자열·숫자) → 백분율. 실패 시 null. */
+function parsePct(v: unknown): number | null {
+  if (v == null) return null;
+  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[^\d.\-]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * KRX 공매도 비율 조회 (공개 데이터).
+ * 전일 코스피 전체 공매도 거래대금 / 전체 거래대금 비율(%).
+ * 실패·스키마 불일치 시 null 반환 — 기본값 유지.
+ */
+export async function fetchKrxShortSelling(): Promise<number | null> {
+  try {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 8000);
+    const res  = await fetch(KRX_SHORT_URL, {
+      method:  'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Referer':      'http://data.krx.co.kr/',
+        'User-Agent':   YF_HEADERS['User-Agent'],
+      },
+      body: new URLSearchParams({
+        bld: 'dbms/MDC/STAT/standard/MDCSTAT30001',
+        mktId: 'STK', // 코스피
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(tid);
+    if (!res.ok) return null;
+
+    const data = await res.json() as { output?: Array<Record<string, unknown>>; OutBlock_1?: Array<Record<string, unknown>> };
+    const rows = data.output ?? data.OutBlock_1 ?? [];
+    if (rows.length === 0) return null;
+
+    // 첫 번째 row에서 후보 키를 순차 시도
+    for (const key of KRX_SHORT_RATIO_KEYS) {
+      const v = parsePct(rows[0][key]);
+      if (v != null && v >= 0 && v <= 100) return v;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /** Yahoo Finance에서 OHLCV close 배열 반환. 실패 시 null. */
 export async function fetchCloses(symbol: string, range: string): Promise<number[] | null> {
@@ -191,6 +250,16 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
       computed.foreignContinuousBuyDays = 1;
       console.log('[MarketRefresh] KIS 당일 외국인 순매수 양수 — foreignContinuousBuyDays 1일 보정');
     }
+  }
+
+  // ── ⑥ KRX 공매도 비율 (코스피 전체) ──────────────────────────────────────
+  // 8% 초과 시 R5_CAUTION 보조 조건 — regime 분류기가 computed.shortSellingRatio를 참조.
+  const shortRatio = await fetchKrxShortSelling();
+  if (shortRatio != null) {
+    computed.shortSellingRatio = shortRatio;
+    console.log(`[MarketRefresh] KRX 공매도비율: ${shortRatio.toFixed(2)}%${shortRatio > 8 ? ' (⚠ R5_CAUTION 보조)' : ''}`);
+  } else {
+    console.warn('[MarketRefresh] KRX 공매도 조회 실패 — 기존 값 유지');
   }
 
   // ── ⑧ FRED 거시 지표 (병렬 조회) ────────────────────────────────────────
