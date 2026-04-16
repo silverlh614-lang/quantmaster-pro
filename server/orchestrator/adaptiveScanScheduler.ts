@@ -195,7 +195,14 @@ export function decideScan(): ScanDecision {
  * 1 이상이면 즉시 0으로 리셋한다.
  * 5회 연속 빈 스캔이 누적되면 decideScan()이 인터벌을 자동 확대한다.
  */
-export function recordScanResult(signalCount: number): void {
+export function recordScanResult(signalCount: number, opts?: { positionFull?: boolean }): void {
+  // 포지션 만석으로 인한 진입 스킵은 "빈 스캔"이 아님 — 카운터에서 제외
+  // 이를 빈 스캔으로 카운트하면 SELL_ONLY 무한 루프에 빠짐
+  if (opts?.positionFull) {
+    // 포지션 만석은 정상 동작이므로 카운터를 증가시키지 않고 유지
+    return;
+  }
+
   if (signalCount === 0) {
     consecutiveEmptyScans++;
     if (consecutiveEmptyScans >= EMPTY_SCAN_BACKOFF_THRESHOLD) {

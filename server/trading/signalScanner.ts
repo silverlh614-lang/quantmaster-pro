@@ -132,14 +132,14 @@ export function getConsecutiveZeroScans(): number { return _consecutiveZeroScans
  * options.sellOnly: true → 신규 매수 없이 기존 포지션 모니터링만 실행
  *   (VKOSPI 급등·R6_DEFENSE·마감 급변 시 adaptiveScanScheduler가 호출)
  */
-export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuyCodes?: string[] }): Promise<void> {
+export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuyCodes?: string[] }): Promise<{ positionFull?: boolean }> {
   if (!process.env.KIS_APP_KEY) {
     console.warn('[AutoTrade] KIS_APP_KEY 미설정 — 스캔 건너뜀');
-    return;
+    return {};
   }
 
   const watchlist = loadWatchlist();
-  if (watchlist.length === 0) return;
+  if (watchlist.length === 0) return {};
 
   // 3-섹션 구조 — SWING/CATALYST만 매수 스캔, MOMENTUM은 관찰 전용
   // isFocus를 스캔 시점에 실시간 계산 (cleanupWatchlist은 16:00에만 실행되므로
@@ -213,7 +213,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     console.log('[AutoTrade] SELL_ONLY 모드 — 포지션 모니터링 전용');
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
-    return;
+    return {};
   }
 
   if (regime === 'R6_DEFENSE') {
@@ -224,7 +224,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     console.warn(`[AutoTrade] R6_DEFENSE (MHS=${macroState?.mhs}) — 신규 진입 전면 차단`);
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
-    return;
+    return {};
   }
 
   // ── VIX 게이팅 — 레짐 Kelly와 교차 적용 ──────────────────────────────────
@@ -238,7 +238,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     ).catch(console.error);
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
-    return;
+    return {};
   }
 
   // ── FOMC 게이팅 ───────────────────────────────────────────────────────────
@@ -252,7 +252,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     ).catch(console.error);
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
-    return;
+    return {};
   }
 
   // 레짐 Kelly × VIX Kelly × FOMC Kelly → 유효 배율
@@ -285,7 +285,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
-    return;
+    return { positionFull: true };
   }
 
   // ── Volume Clock — 발주 허용 시간대 확인 ──────────────────────────────────
@@ -298,7 +298,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     // 시간대 차단 시에도 포지션 모니터링(청산)은 계속 수행
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
-    return;
+    return {};
   }
   if (volumeClock.scoreBonus !== 0) {
     console.log(volumeClock.reason);
@@ -1120,4 +1120,5 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
 
   await updateShadowResults(shadows, regime);
   saveShadowTrades(shadows);
+  return {};
 }

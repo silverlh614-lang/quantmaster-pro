@@ -368,15 +368,16 @@ export class TradingDayOrchestrator {
         // 스캔 전후 shadow 수 비교 → 신호 건수 피드백 (아이디어 5: 피드백 루프)
         const shadowsBefore = loadShadowTrades().length;
 
+        let scanResult: { positionFull?: boolean } = {};
         if (decision.priority === 'SELL_ONLY') {
-          await runAutoSignalScan({ sellOnly: true }).catch(console.error);
+          scanResult = await runAutoSignalScan({ sellOnly: true }).catch(() => ({})) ?? {};
         } else {
-          await runAutoSignalScan().catch(console.error);
+          scanResult = await runAutoSignalScan().catch(() => ({})) ?? {};
         }
 
         const shadowsAfter = loadShadowTrades().length;
         const newSignals = Math.max(0, shadowsAfter - shadowsBefore);
-        recordScanResult(newSignals);
+        recordScanResult(newSignals, { positionFull: scanResult.positionFull });
 
         await fillMonitor.pollFills().catch(console.error);
         break;
