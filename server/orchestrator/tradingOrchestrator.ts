@@ -327,7 +327,11 @@ export class TradingDayOrchestrator {
         // 시초가 스캔 (한 번만)
         if (enabled && !this.hasRan('marketOpen')) {
           console.log('[Orchestrator] 시초가 스캔 (KST 09:00+)');
-          await runAutoSignalScan().catch(console.error);
+          const shadowsBefore = loadShadowTrades().length;
+          const scanResult = await runAutoSignalScan().catch(() => ({})) ?? {};
+          const shadowsAfter = loadShadowTrades().length;
+          const newSignals = Math.max(0, shadowsAfter - shadowsBefore);
+          recordScanResult(newSignals, { positionFull: (scanResult as { positionFull?: boolean }).positionFull });
           await fillMonitor.pollFills().catch(console.error);
           this.markRan('marketOpen');
         }

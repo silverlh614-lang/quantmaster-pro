@@ -317,10 +317,11 @@ export function startScheduler() {
     cleanupOldTraceFiles();
   }, { timezone: 'UTC' });
 
-  // ─── KIS WebSocket 실시간 호가 스트림 시작 — 평일 08:55 KST (UTC 23:55, 일~목) ──
-  // 장 시작 5분 전 watchlist 종목을 구독하여 장중 실시간 가격 사용 준비
-  cron.schedule('55 23 * * 0-4', async () => {
+  // ─── KIS WebSocket 실시간 호가 스트림 시작 — 평일 09:00 KST (UTC 00:00, 월~금) ──
+  // KIS 실시간 서버는 09:00 이전 연결 거부 → 08:55 연결 시 onerror/onclose 중복 발화 문제 해결
+  cron.schedule('0 0 * * 1-5', async () => {
     try {
+      await new Promise(r => setTimeout(r, 5000)); // 5초 지연
       const wl = loadWatchlist();
       const codes = wl.map(w => w.code);
       if (codes.length > 0) {

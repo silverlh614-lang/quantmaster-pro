@@ -96,7 +96,7 @@ export const REGIME_CONFIGS: Record<RegimeLevel, FullRegimeConfig> = {
     gate2Required: 8,
     gate3Required: 6,
     kellyMultiplier: 0.5,
-    maxPositions: 4,
+    maxPositions: 6,   // 상승횡보장도 6개 허용 (4→6 상향)
     allowedSignals: ['CONFIRMED_STRONG_BUY', 'STRONG_BUY'],
     trancheStrategy: '분할 3회 균등 (33/33/33)',
     stopLoss: {
