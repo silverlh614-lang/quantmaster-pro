@@ -165,6 +165,24 @@
     color-scheme: light;
   }
 
+  /* Light theme: rescue hard-coded `text-white/XX` and `text-white` that appear on
+     semi-transparent glass surfaces (bg-white/5 etc.). In dark themes these sit on
+     dark glass, but in light theme the glass is near-white, making white text invisible.
+     We scope this narrowly to non-solid-colored backgrounds so buttons with bg-orange-500,
+     bg-blue-500, etc. keep their intentional white labels. */
+  .theme-light :where([class*="bg-white/"], [class*="bg-black/"], [class*="bg-theme-"], .glass-3d, .glass-gradient) [class*="text-white/"] {
+    color: rgba(0, 0, 0, 0.72);
+  }
+  .theme-light :where([class*="bg-white/"], [class*="bg-black/"], [class*="bg-theme-"], .glass-3d, .glass-gradient) .text-white {
+    color: var(--text-primary);
+  }
+  /* Light theme: inputs and textareas with hard-coded text-white need dark text. */
+  .theme-light input.text-white,
+  .theme-light textarea.text-white,
+  .theme-light select.text-white {
+    color: var(--text-primary);
+  }
+
   .theme-high-contrast {
     --bg-app: #000000;
     --bg-elevated: #0a0a0a;

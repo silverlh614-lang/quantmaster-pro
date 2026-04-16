@@ -168,6 +168,7 @@ describe('EXIT_RULE_PRIORITY_TABLE', () => {
     expect(EXIT_RULE_PRIORITY_TABLE.map((r) => r.rule)).toEqual([
       'R6_EMERGENCY_EXIT',
       'HARD_STOP',
+      'MA60_DEATH_FORCE_EXIT',
       'CASCADE_FINAL',
       'LIMIT_TRANCHE_TAKE_PROFIT',
       'TRAILING_PROTECTIVE_STOP',
@@ -176,6 +177,7 @@ describe('EXIT_RULE_PRIORITY_TABLE', () => {
       'CASCADE_WARN_BLOCK',
       'RRR_COLLAPSE_PARTIAL',
       'DIVERGENCE_PARTIAL',
+      'MA60_DEATH_WATCH',
       'STOP_APPROACH_ALERT',
       'EUPHORIA_PARTIAL',
     ]);
@@ -187,7 +189,7 @@ describe('EXIT_RULE_PRIORITY_TABLE', () => {
     const tableRules = EXIT_RULE_PRIORITY_TABLE.map((r) => r.rule);
     // TypeScript: 아래 assignment가 컴파일되면 tableRules 는 ExitRuleTag[] 와 호환됨을 의미
     const _typed: ExitRuleTag[] = tableRules;
-    expect(_typed).toHaveLength(12);
+    expect(_typed).toHaveLength(14);
   });
 });
 

@@ -2,6 +2,7 @@ import React from 'react';
 import {
   RefreshCw, AlertTriangle, X, ChevronRight, HelpCircle,
   History, Zap, Radar, Search, Globe, Download, Mail,
+  Bookmark, TrendingUp, TrendingDown,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../ui/cn';
@@ -26,6 +27,93 @@ function scrollToStock(code: string) {
     const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
     window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
   }
+}
+
+function WatchlistSummaryHeader({
+  items,
+  onBackToDiscover,
+}: {
+  items: StockRecommendation[];
+  onBackToDiscover: () => void;
+}) {
+  const total = items.length;
+  const stats = items.reduce(
+    (acc, s) => {
+      const base = s.watchedPrice ?? 0;
+      const curr = s.currentPrice ?? 0;
+      if (base > 0 && curr > 0) {
+        const rate = ((curr - base) / base) * 100;
+        acc.sum += rate;
+        acc.valid += 1;
+        if (rate > 0) acc.gainers += 1;
+        else if (rate < 0) acc.losers += 1;
+        else acc.flat += 1;
+      }
+      return acc;
+    },
+    { sum: 0, valid: 0, gainers: 0, losers: 0, flat: 0 },
+  );
+  const avgReturn = stats.valid > 0 ? stats.sum / stats.valid : 0;
+  const avgPositive = avgReturn >= 0;
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass-3d rounded-3xl border border-blue-500/25 bg-gradient-to-br from-blue-500/[0.08] via-indigo-500/[0.04] to-transparent p-6 sm:p-8 shadow-[0_20px_60px_rgba(37,99,235,0.12)]"
+    >
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center shrink-0">
+            <Bookmark className="w-6 h-6 sm:w-7 sm:h-7 text-blue-400" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] sm:text-xs font-black text-blue-300/80 uppercase tracking-[0.25em]">My Watchlist</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-black text-theme-text tracking-tighter">나의 관심 목록</h2>
+            <p className="text-xs sm:text-sm font-bold text-theme-text-muted mt-1">
+              내가 추가한 종목만 모아서 실시간 변동을 추적합니다.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onBackToDiscover}
+          className="self-start md:self-auto px-4 py-2 rounded-xl border border-theme-border bg-theme-surface text-xs font-black text-theme-text-secondary hover:text-theme-text hover:border-orange-500/40 transition-colors uppercase tracking-widest"
+        >
+          종목 탐색으로
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mt-6">
+        <div className="rounded-2xl border border-theme-border bg-theme-card p-4">
+          <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest mb-1">총 종목</div>
+          <div className="text-2xl font-black text-theme-text font-num">{total}</div>
+        </div>
+        <div className="rounded-2xl border border-theme-border bg-theme-card p-4">
+          <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest mb-1">평균 수익률</div>
+          <div className={cn("text-2xl font-black font-num", avgPositive ? "text-green-400" : "text-red-400")}>
+            {stats.valid > 0 ? `${avgPositive ? '+' : ''}${avgReturn.toFixed(2)}%` : '-'}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-green-500/20 bg-green-500/[0.06] p-4">
+          <div className="flex items-center gap-1.5 mb-1">
+            <TrendingUp className="w-3 h-3 text-green-400" />
+            <span className="text-[10px] font-black text-green-400/80 uppercase tracking-widest">상승</span>
+          </div>
+          <div className="text-2xl font-black text-green-400 font-num">{stats.gainers}</div>
+        </div>
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.06] p-4">
+          <div className="flex items-center gap-1.5 mb-1">
+            <TrendingDown className="w-3 h-3 text-red-400" />
+            <span className="text-[10px] font-black text-red-400/80 uppercase tracking-widest">하락</span>
+          </div>
+          <div className="text-2xl font-black text-red-400 font-num">{stats.losers}</div>
+        </div>
+      </div>
+    </motion.section>
+  );
 }
 
 function formatCurrency(value?: number) {
@@ -180,24 +268,34 @@ export function DiscoverWatchlistPage({
         )}
       </AnimatePresence>
 
-      {/* Market Sentiment & Hero / Top 3 / Market Context / AI Summary */}
-      <WatchlistHeader
-        filters={filters}
-        setFilters={setFilters}
-        setShowMasterChecklist={setShowMasterChecklist}
-        onFetchStocks={onFetchStocks}
-        loading={loading}
-        lastUpdated={lastUpdated}
-        marketContext={marketContext}
-        recommendations={recommendations}
-        searchResults={searchResults}
-        isSummarizing={isSummarizing}
-        onGenerateSummary={onGenerateSummary}
-        reportSummary={reportSummary}
-        setReportSummary={setReportSummary}
-        setView={setView}
-        onDeepAnalysis={setDeepAnalysisStock}
-      />
+      {/* Market Sentiment & Hero / Top 3 / Market Context / AI Summary — DISCOVER 전용 */}
+      {view === 'DISCOVER' && (
+        <WatchlistHeader
+          filters={filters}
+          setFilters={setFilters}
+          setShowMasterChecklist={setShowMasterChecklist}
+          onFetchStocks={onFetchStocks}
+          loading={loading}
+          lastUpdated={lastUpdated}
+          marketContext={marketContext}
+          recommendations={recommendations}
+          searchResults={searchResults}
+          isSummarizing={isSummarizing}
+          onGenerateSummary={onGenerateSummary}
+          reportSummary={reportSummary}
+          setReportSummary={setReportSummary}
+          setView={setView}
+          onDeepAnalysis={setDeepAnalysisStock}
+        />
+      )}
+
+      {/* 관심목록 전용 헤더 — DISCOVER와 명확히 구분되는 컴팩트 섹션 */}
+      {view === 'WATCHLIST' && (
+        <WatchlistSummaryHeader
+          items={watchlist}
+          onBackToDiscover={() => setView('DISCOVER')}
+        />
+      )}
 
       {/* 3-Gate Pyramid Visualization — Signature QuantMaster UI */}
       {view === 'DISCOVER' && (

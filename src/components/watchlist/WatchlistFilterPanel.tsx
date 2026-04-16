@@ -464,11 +464,12 @@ export function WatchlistFilterPanel({
               </div>
             ) : null}
 
-            {/* Checklist Filter */}
+            {/* Checklist Filter — DISCOVER only */}
+            {view === 'DISCOVER' && (
             <div className="flex flex-col gap-3 bg-white/[0.02] p-5 rounded-3xl border border-white/5 shadow-inner">
               <div className="flex items-center gap-2 mb-1">
                 <ShieldCheck className="w-4 h-4 text-orange-500/50" />
-                <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">27단계 마스터 체크리스트 정밀 필터</span>
+                <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-[0.2em]">27단계 마스터 체크리스트 정밀 필터</span>
               </div>
               <div className="space-y-4 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
                 {[1, 2, 3].map(gateNum => (
@@ -510,10 +511,11 @@ export function WatchlistFilterPanel({
                   </div>
                 ))}
               </div>
-              <p className="text-[9px] text-white/10 font-bold uppercase tracking-widest mt-1">
+              <p className="text-[9px] text-theme-text-muted font-bold uppercase tracking-widest mt-1">
                 * 선택한 모든 조건을 동시에 충족하는 종목만 표시됩니다.
               </p>
             </div>
+            )}
           </motion.div>
         ) : (
           <motion.div

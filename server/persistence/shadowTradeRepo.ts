@@ -9,16 +9,18 @@ import { SHADOW_FILE, SHADOW_LOG_FILE, ensureDataDir } from './paths.js';
 export type ExitRuleTag =
   | 'R6_EMERGENCY_EXIT'          // priority 1
   | 'HARD_STOP'                  // priority 2
-  | 'CASCADE_FINAL'              // priority 3
-  | 'LIMIT_TRANCHE_TAKE_PROFIT'  // priority 4
-  | 'TRAILING_PROTECTIVE_STOP'   // priority 5
-  | 'TARGET_EXIT'                // priority 6
-  | 'CASCADE_HALF_SELL'          // priority 7
-  | 'CASCADE_WARN_BLOCK'         // priority 8
-  | 'RRR_COLLAPSE_PARTIAL'       // priority 9
-  | 'DIVERGENCE_PARTIAL'         // priority 10
-  | 'STOP_APPROACH_ALERT'        // priority 11
-  | 'EUPHORIA_PARTIAL';          // priority 12
+  | 'MA60_DEATH_FORCE_EXIT'      // priority 3 — 60일선 역배열 5영업일 유예 만료 → 강제 청산
+  | 'CASCADE_FINAL'              // priority 4
+  | 'LIMIT_TRANCHE_TAKE_PROFIT'  // priority 5
+  | 'TRAILING_PROTECTIVE_STOP'   // priority 6
+  | 'TARGET_EXIT'                // priority 7
+  | 'CASCADE_HALF_SELL'          // priority 8
+  | 'CASCADE_WARN_BLOCK'         // priority 9
+  | 'RRR_COLLAPSE_PARTIAL'       // priority 10
+  | 'DIVERGENCE_PARTIAL'         // priority 11
+  | 'MA60_DEATH_WATCH'           // priority 12 — 60일선 역배열 최초 감지: 유예 스케줄만 설정
+  | 'STOP_APPROACH_ALERT'        // priority 13
+  | 'EUPHORIA_PARTIAL';          // priority 14
 
 export interface ServerShadowTrade {
   id: string;
@@ -66,6 +68,15 @@ export interface ServerShadowTrade {
   rrrCollapsePartialSold?: boolean; // RRR 붕괴 50% 익절 완료 여부 (중복 방지)
   /** 하락 다이버전스 부분 익절 완료 여부 (중복 방지) */
   divergencePartialSold?: boolean;
+  /**
+   * MA60 역배열("60일선 죽음") 최초 감지 ISO 타임스탬프.
+   * 설정되면 ma60ForceExitDate까지 유예되며, 유예 만료 시 강제 청산된다.
+   */
+  ma60DeathDetectedAt?: string;
+  /** MA60 역배열 유예 만료일(YYYY-MM-DD). 이 날짜 이후 currentPrice가 여전히 역배열이면 강제 청산. */
+  ma60ForceExitDate?: string;
+  /** MA60_DEATH_FORCE_EXIT가 이미 실행되었는지 여부 (중복 청산 방지) */
+  ma60DeathForced?: boolean;
   /** 워치리스트 출처 — Pre-Market(기본), Intraday(장중 발굴), Pre-Breakout(돌파 전 선취매) */
   watchlistSource?: 'PRE_MARKET' | 'INTRADAY' | 'PRE_BREAKOUT' | 'PRE_BREAKOUT_FOLLOWTHROUGH';
   /** 진입 시점 14일 ATR — ATR 기반 동적 손절 계산에 사용 */

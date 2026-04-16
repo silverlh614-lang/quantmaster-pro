@@ -194,6 +194,7 @@ const ETF_SECTOR_BOOST: EtfBoostConfig[] = [
   { symbol: 'ITA',  sectorMatch: '방산',   boostGate: 0.5 },
   { symbol: 'SOXX', sectorMatch: '반도체', boostGate: 0.5 },
   { symbol: 'XLE',  sectorMatch: '에너지', boostGate: 0.3 },
+  { symbol: 'WOOD', sectorMatch: '조선',   boostGate: 0.4 },
 ];
 
 export interface EtfSectorBoostResult {
