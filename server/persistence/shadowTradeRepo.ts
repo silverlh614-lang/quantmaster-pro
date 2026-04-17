@@ -1,6 +1,77 @@
 import fs from 'fs';
 import { SHADOW_FILE, SHADOW_LOG_FILE, ensureDataDir } from './paths.js';
 
+// ─── Fill(체결 이벤트) 모델 ────────────────────────────────────────────────────
+
+/**
+ * 포지션에 귀속되는 단일 체결 이벤트.
+ * 매수(BUY) + 매도(SELL) 모두 기록하여 포지션의 전체 생애를 추적한다.
+ */
+export interface PositionFill {
+  id: string;
+  type: 'BUY' | 'SELL';
+  subType?:
+    | 'INITIAL_BUY'    // 최초 진입 체결
+    | 'TRANCHE_BUY'    // 분할 매수 체결
+    | 'PARTIAL_TP'     // 부분 익절 (RRR 붕괴, 다이버전스, EUPHORIA, TRANCHE)
+    | 'TRAILING_TP'    // 트레일링 스톱 수익 청산
+    | 'FULL_CLOSE'     // 목표가 전량 청산
+    | 'STOP_LOSS'      // 손절 청산 (HARD_STOP, CASCADE)
+    | 'EMERGENCY';     // 긴급 청산 (R6, MA60)
+  qty: number;
+  price: number;
+  /** 매도 시 원화 실현 손익 */
+  pnl?: number;
+  /** 매도 시 수익률 % (진입가 기준) */
+  pnlPct?: number;
+  /** 사람이 읽을 수 있는 청산 이유 */
+  reason: string;
+  exitRuleTag?: string;
+  timestamp: string;   // ISO
+}
+
+// ─── Fill 헬퍼 함수 ────────────────────────────────────────────────────────────
+
+let _fillSeq = 0;
+function newFillId(): string {
+  return `f${Date.now()}-${(++_fillSeq).toString(36)}`;
+}
+
+/**
+ * 포지션에 Fill을 추가한다.
+ * saveShadowTrades() 전에 호출해야 영속화된다.
+ */
+export function appendFill(
+  trade: ServerShadowTrade,
+  fill: Omit<PositionFill, 'id'>,
+): void {
+  if (!trade.fills) trade.fills = [];
+  trade.fills.push({ ...fill, id: newFillId() });
+}
+
+/**
+ * 포지션의 총 실현 원화 손익 (모든 SELL Fill의 pnl 합산).
+ */
+export function getTotalRealizedPnl(trade: ServerShadowTrade): number {
+  return (trade.fills ?? [])
+    .filter(f => f.type === 'SELL' && f.pnl !== undefined)
+    .reduce((sum, f) => sum + (f.pnl ?? 0), 0);
+}
+
+/**
+ * 포지션의 수량 가중 평균 수익률 %.
+ * fills가 없으면 레거시 returnPct로 폴백한다.
+ */
+export function getWeightedPnlPct(trade: ServerShadowTrade): number {
+  const sells = (trade.fills ?? []).filter(f => f.type === 'SELL' && f.pnlPct !== undefined);
+  if (sells.length === 0) return trade.returnPct ?? 0;
+  const totalQty = sells.reduce((s, f) => s + f.qty, 0);
+  if (totalQty === 0) return 0;
+  return sells.reduce((s, f) => s + (f.pnlPct ?? 0) * f.qty, 0) / totalQty;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * 청산/감축 규칙 태그 (EXIT_RULE_PRIORITY_TABLE 규칙명과 1:1 대응).
  * exitRuleTag 필드에 사용되며, EXIT_RULE_PRIORITY_TABLE 우선순위 순서로 평가된다.
@@ -89,6 +160,12 @@ export interface ServerShadowTrade {
    * 진입 승인 메시지에 함께 표시되며, 사후 복기(postmortem)의 비교 기준이 된다.
    */
   preMortem?: string;
+  /**
+   * 포지션에 귀속된 모든 체결 이벤트 (매수 + 매도).
+   * appendFill()로 추가하고 getWeightedPnlPct() / getTotalRealizedPnl()로 집계한다.
+   * 기존 포지션은 fills가 없을 수 있음 — 레거시 returnPct로 폴백.
+   */
+  fills?: PositionFill[];
 }
 
 export function loadShadowTrades(): ServerShadowTrade[] {

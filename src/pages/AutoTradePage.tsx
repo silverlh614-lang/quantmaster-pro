@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2, Sliders, Power, Zap, TrendingUp, Wallet, Timer, Shield, Clock, ArrowUpDown, Info } from 'lucide-react';
+import { Activity, Eye, Briefcase, ShieldAlert, BarChart3, Settings2, Sliders, Power, Zap, TrendingUp, Wallet, Timer, Shield, Clock, ArrowUpDown, Info, ChevronDown, ChevronUp, Layers, List } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { cn } from '../ui/cn';
 import { PageHeader } from '../ui/page-header';
@@ -173,6 +173,36 @@ export function AutoTradePage() {
 
   // ③ FOMC 차단 해제 카운트다운
   const fomcCountdown = useCountdown(buyAudit?.fomcGating.unblockAt);
+
+  // Shadow Trades 뷰 모드 (포지션 집계 vs 체결 이벤트)
+  const [shadowViewMode, setShadowViewMode] = useState<'position' | 'fills'>('position');
+  // 개별 포지션 fills 펼침 상태
+  const [expandedTrades, setExpandedTrades] = useState<Set<string>>(new Set());
+
+  // ─── Fill 유틸 (클라이언트 사이드) ─────────────────────────────────────────
+
+  function getWeightedPnlPct(trade: any): number {
+    const sells = (trade.fills ?? []).filter((f: any) => f.type === 'SELL' && f.pnlPct != null);
+    if (sells.length === 0) return trade.returnPct ?? 0;
+    const totalQty = sells.reduce((s: number, f: any) => s + f.qty, 0);
+    if (totalQty === 0) return 0;
+    return sells.reduce((s: number, f: any) => s + (f.pnlPct ?? 0) * f.qty, 0) / totalQty;
+  }
+
+  function getTotalRealizedPnl(trade: any): number {
+    return (trade.fills ?? [])
+      .filter((f: any) => f.type === 'SELL' && f.pnl != null)
+      .reduce((s: number, f: any) => s + (f.pnl ?? 0), 0);
+  }
+
+  function getSellFills(trade: any): any[] {
+    return (trade.fills ?? []).filter((f: any) => f.type === 'SELL');
+  }
+
+  function isPartialPosition(trade: any): boolean {
+    const orig = trade.originalQuantity ?? trade.quantity;
+    return trade.quantity > 0 && trade.quantity < orig && getSellFills(trade).length > 0;
+  }
 
   // 서버 Shadow Trades 기반 통계 (로컬 저장소 의존 제거)
   const serverShadowStats = useMemo(() => {
@@ -920,34 +950,229 @@ export function AutoTradePage() {
           </Card>
         )}
 
-        {/* Server Shadow Trades (중복 제거: 서버에 동기화된 클라이언트 trades 포함) */}
+        {/* Server Shadow Trades — 포지션/체결 이중 뷰 */}
         {serverShadowTrades.length > 0 && (
-          <Section title={`서버 Shadow Trades`} subtitle={`${serverShadowTrades.length}건`}>
-            <PageGrid columns="2" gap="sm">
-              {serverShadowTrades.slice(0, 10).map((t: any, i: number) => (
-                <Card
-                  key={t.id ?? i}
-                  padding="sm"
-                  className={cn(
-                    'text-sm',
+          <Section title="서버 Shadow Trades" subtitle={`${serverShadowTrades.length}건`}>
+            {/* 뷰 모드 토글 */}
+            <div className="flex items-center gap-2 mb-3">
+              <button
+                onClick={() => setShadowViewMode('position')}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all',
+                  shadowViewMode === 'position'
+                    ? 'bg-violet-500 text-white'
+                    : 'bg-white/5 text-theme-text-muted hover:text-theme-text'
+                )}
+              >
+                <Layers className="w-3 h-3" /> 포지션 기준
+              </button>
+              <button
+                onClick={() => setShadowViewMode('fills')}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all',
+                  shadowViewMode === 'fills'
+                    ? 'bg-cyan-500 text-white'
+                    : 'bg-white/5 text-theme-text-muted hover:text-theme-text'
+                )}
+              >
+                <List className="w-3 h-3" /> 체결 기준
+              </button>
+            </div>
+
+            {/* ── 포지션 기준 뷰 ── */}
+            {shadowViewMode === 'position' && (
+              <div className="space-y-2">
+                {serverShadowTrades.slice(0, 12).map((t: any, i: number) => {
+                  const sellFills = getSellFills(t);
+                  const partial = isPartialPosition(t);
+                  const weightedPnl = getWeightedPnlPct(t);
+                  const realizedPnl = getTotalRealizedPnl(t);
+                  const origQty = t.originalQuantity ?? t.quantity;
+                  const isExpanded = expandedTrades.has(t.id ?? String(i));
+
+                  const statusVariant =
+                    t.status === 'HIT_TARGET' ? 'success' :
+                    t.status === 'HIT_STOP' ? 'danger' :
+                    (t.status === 'ACTIVE' || t.status === 'EUPHORIA_PARTIAL') ? 'violet' : 'default';
+
+                  const cardBorder =
                     t.status === 'HIT_TARGET' ? '!border-green-500/20 !bg-green-500/5' :
-                    t.status === 'HIT_STOP' ? '!border-red-500/20 !bg-red-500/5' : ''
-                  )}
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="font-black text-theme-text">{t.stockName} <span className="text-theme-text-muted text-xs">{t.stockCode}</span></span>
-                    <Badge variant={t.status === 'HIT_TARGET' ? 'success' : t.status === 'HIT_STOP' ? 'danger' : t.status === 'ACTIVE' ? 'violet' : 'default'} size="sm">
-                      {t.status}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between mt-2 text-xs text-theme-text-muted">
-                    <span>진입 {t.shadowEntryPrice?.toLocaleString()}</span>
-                    <span>손절 {t.stopLoss?.toLocaleString()}</span>
-                    <span>목표 {t.targetPrice?.toLocaleString()}</span>
-                  </div>
-                </Card>
-              ))}
-            </PageGrid>
+                    t.status === 'HIT_STOP' ? '!border-red-500/20 !bg-red-500/5' :
+                    partial ? '!border-amber-500/20 !bg-amber-500/5' : '';
+
+                  return (
+                    <Card key={t.id ?? i} padding="sm" className={cn('text-sm', cardBorder)}>
+                      {/* 헤더 행 */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-black text-theme-text truncate">{t.stockName}</span>
+                          <span className="text-theme-text-muted text-xs shrink-0">{t.stockCode}</span>
+                          {partial && (
+                            <span className="text-[9px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded shrink-0">
+                              부분청산 {Math.round((1 - t.quantity / origQty) * 100)}%
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant={statusVariant} size="sm">{t.status}</Badge>
+                          {sellFills.length > 0 && (
+                            <button
+                              onClick={() => setExpandedTrades(prev => {
+                                const next = new Set(prev);
+                                isExpanded ? next.delete(t.id ?? String(i)) : next.add(t.id ?? String(i));
+                                return next;
+                              })}
+                              className="text-theme-text-muted hover:text-theme-text transition-colors"
+                            >
+                              {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 가격/수량 행 */}
+                      <div className="flex gap-3 mt-2 text-xs text-theme-text-muted flex-wrap">
+                        <span>진입 <span className="text-theme-text font-bold font-num">{t.shadowEntryPrice?.toLocaleString()}</span></span>
+                        <span>손절 <span className="font-num">{t.stopLoss?.toLocaleString()}</span></span>
+                        <span>목표 <span className="font-num">{t.targetPrice?.toLocaleString()}</span></span>
+                        {origQty > 0 && (
+                          <span>수량 <span className="text-theme-text font-num">{t.quantity}
+                            {t.quantity < origQty && <span className="text-amber-400">/{origQty}</span>}주</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* P&L 행 — fills 있으면 가중평균, 없으면 레거시 returnPct */}
+                      {(weightedPnl !== 0 || realizedPnl !== 0) && (
+                        <div className="flex items-center gap-3 mt-2 text-xs">
+                          <span className={cn(
+                            'font-black font-num',
+                            weightedPnl >= 0 ? 'text-green-400' : 'text-red-400'
+                          )}>
+                            {weightedPnl >= 0 ? '+' : ''}{weightedPnl.toFixed(2)}%
+                            {sellFills.length > 1 && <span className="text-theme-text-muted font-normal ml-1">(가중평균)</span>}
+                          </span>
+                          {realizedPnl !== 0 && (
+                            <span className={cn(
+                              'font-num text-[10px]',
+                              realizedPnl >= 0 ? 'text-green-400/70' : 'text-red-400/70'
+                            )}>
+                              실현 {realizedPnl >= 0 ? '+' : ''}{Math.round(realizedPnl).toLocaleString()}원
+                            </span>
+                          )}
+                          {sellFills.length > 0 && (
+                            <span className="text-theme-text-muted text-[10px]">
+                              {sellFills.length}회 청산
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* fills 펼침 패널 */}
+                      {isExpanded && sellFills.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-theme-border/20 space-y-1.5">
+                          <p className="text-[10px] text-theme-text-muted font-bold uppercase tracking-wider">체결 이벤트</p>
+                          {sellFills.map((f: any, fi: number) => (
+                            <div key={f.id ?? fi} className="flex items-center justify-between text-[11px]">
+                              <div className="flex items-center gap-2">
+                                <span className={cn(
+                                  'px-1 py-0.5 rounded text-[9px] font-bold',
+                                  f.subType === 'STOP_LOSS' || f.subType === 'EMERGENCY'
+                                    ? 'bg-red-500/20 text-red-400'
+                                    : 'bg-green-500/20 text-green-400'
+                                )}>
+                                  {f.subType === 'FULL_CLOSE' ? '전량' :
+                                   f.subType === 'TRAILING_TP' ? '트레일' :
+                                   f.subType === 'STOP_LOSS' ? '손절' :
+                                   f.subType === 'EMERGENCY' ? '긴급' : '부분'}
+                                </span>
+                                <span className="text-theme-text-muted">{f.reason}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-right shrink-0">
+                                <span className="text-theme-text-muted font-num">{f.qty}주 @{f.price?.toLocaleString()}</span>
+                                <span className={cn('font-bold font-num', (f.pnlPct ?? 0) >= 0 ? 'text-green-400' : 'text-red-400')}>
+                                  {(f.pnlPct ?? 0) >= 0 ? '+' : ''}{(f.pnlPct ?? 0).toFixed(2)}%
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ── 체결 기준 뷰 — 모든 fill을 시간순 플랫 리스트 ── */}
+            {shadowViewMode === 'fills' && (() => {
+              const allFills: { fill: any; trade: any }[] = [];
+              for (const t of serverShadowTrades) {
+                for (const f of (t.fills ?? [])) {
+                  allFills.push({ fill: f, trade: t });
+                }
+              }
+              allFills.sort((a, b) => new Date(b.fill.timestamp).getTime() - new Date(a.fill.timestamp).getTime());
+
+              if (allFills.length === 0) {
+                return (
+                  <p className="text-micro text-center py-6 text-theme-text-muted">
+                    체결 이벤트가 아직 없습니다. (신규 포지션부터 기록됩니다)
+                  </p>
+                );
+              }
+
+              return (
+                <div className="space-y-1.5">
+                  {allFills.slice(0, 30).map(({ fill: f, trade: t }, i: number) => {
+                    const isSell = f.type === 'SELL';
+                    const isLoss = isSell && (f.pnlPct ?? 0) < 0;
+                    const timeStr = (() => {
+                      try {
+                        const d = new Date(f.timestamp);
+                        const now = new Date();
+                        if (d.toDateString() === now.toDateString())
+                          return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                        return d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+                      } catch { return ''; }
+                    })();
+                    return (
+                      <div key={f.id ?? i} className={cn(
+                        'flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-xs',
+                        !isSell ? 'border-violet-500/20 bg-violet-500/5' :
+                        isLoss ? 'border-red-500/20 bg-red-500/5' :
+                        'border-green-500/20 bg-green-500/5'
+                      )}>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={cn(
+                            'text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0',
+                            !isSell ? 'bg-violet-500/30 text-violet-300' :
+                            isLoss ? 'bg-red-500/30 text-red-300' : 'bg-green-500/30 text-green-300'
+                          )}>
+                            {f.type === 'BUY' ? '매수' : f.subType === 'STOP_LOSS' || f.subType === 'EMERGENCY' ? '손절' : f.subType === 'FULL_CLOSE' ? '전량익절' : '부분익절'}
+                          </span>
+                          <span className="font-bold text-theme-text truncate">{t.stockName}</span>
+                          <span className="text-theme-text-muted shrink-0">{f.qty}주 @{f.price?.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {isSell && (
+                            <span className={cn('font-black font-num', isLoss ? 'text-red-400' : 'text-green-400')}>
+                              {(f.pnlPct ?? 0) >= 0 ? '+' : ''}{(f.pnlPct ?? 0).toFixed(2)}%
+                            </span>
+                          )}
+                          {isSell && f.pnl != null && (
+                            <span className={cn('text-[10px] font-num', isLoss ? 'text-red-400/70' : 'text-green-400/70')}>
+                              {f.pnl >= 0 ? '+' : ''}{Math.round(f.pnl).toLocaleString()}원
+                            </span>
+                          )}
+                          <span className="text-theme-text-muted text-[10px]">{timeStr}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </Section>
         )}
 

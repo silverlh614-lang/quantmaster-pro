@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { PENDING_ORDERS_FILE, PENDING_SELL_ORDERS_FILE, ensureDataDir } from '../persistence/paths.js';
-import { loadShadowTrades, saveShadowTrades } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, saveShadowTrades, appendFill } from '../persistence/shadowTradeRepo.js';
 import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL, SELL_TR_ID } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { registerOcoPair } from './ocoCloseLoop.js';
@@ -56,6 +56,22 @@ function updateRelatedTradeStatus(
   if (opts?.fillQty !== undefined && opts.fillQty > 0) {
     trade.quantity = opts.fillQty;
     trade.originalQuantity = Math.max(trade.originalQuantity ?? 0, opts.fillQty);
+  }
+
+  // ACTIVE 전환 시 BUY fill 기록 (포지션 생애 시작점)
+  if (status === 'ACTIVE' && opts?.fillPrice && opts.fillPrice > 0 && opts?.fillQty && opts.fillQty > 0) {
+    // 이미 BUY fill이 있으면 중복 추가 방지 (재폴링 등)
+    const hasBuyFill = (trade.fills ?? []).some(f => f.type === 'BUY');
+    if (!hasBuyFill) {
+      appendFill(trade, {
+        type: 'BUY',
+        subType: 'INITIAL_BUY',
+        qty: opts.fillQty,
+        price: opts.fillPrice,
+        reason: '진입 체결 확인',
+        timestamp: new Date().toISOString(),
+      });
+    }
   }
 
   saveShadowTrades(shadows);
