@@ -44,6 +44,7 @@ import { pollOcoSurvival, cancelAllActiveOco } from './trading/ocoCloseLoop.js';
 import { runPortfolioRiskCheck } from './trading/portfolioRiskEngine.js';
 import { generateQualityScorecard } from './alerts/qualityScorecard.js';
 import { macroSectorAlignmentCheck, initMacroSyncDayOpen } from './trading/macroSectorSync.js';
+import { runDailyBackup } from './persistence/dailyBackup.js';
 
 export function startScheduler() {
   // ─── KIS 토큰 사전 갱신 — 매일 KST 08:30 (UTC 23:30, 일~목) ──────────────
@@ -451,6 +452,26 @@ export function startScheduler() {
     const utcMin = new Date().getUTCMinutes();
     if (utcHour === 0 && utcMin === 0) return; // 09:00 KST는 init만
     await macroSectorAlignmentCheck().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // ─── 일일 데이터 백업 — 매일 KST 03:00 (UTC 18:00) ──────────────────────────
+  // Railway Volume의 shadow-trades·watchlist·dart·fss 등 주요 JSON을
+  // /backups/YYYY-MM-DD/ 로 복사. 7일 초과 백업은 자동 삭제 (로테이션).
+  cron.schedule('0 18 * * *', async () => {
+    try {
+      const result = runDailyBackup(7);
+      console.log(
+        `[Backup] ✅ ${result.copied.length}개 파일 백업 → ${result.backupDir}` +
+        (result.pruned.length > 0 ? ` | 삭제 ${result.pruned.length}일치` : '') +
+        (result.missing.length > 0 ? ` | 누락 ${result.missing.length}건` : '')
+      );
+    } catch (e) {
+      console.error('[Backup] 일일 백업 실패:', e);
+      await sendTelegramAlert(
+        `🚨 <b>[일일 백업 실패]</b>\n오류: ${e instanceof Error ? e.message : String(e)}`,
+        { priority: 'HIGH', dedupeKey: 'daily_backup_fail' },
+      ).catch(console.error);
+    }
   }, { timezone: 'UTC' });
 
   console.log('[Scheduler] cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');

@@ -98,10 +98,23 @@ export function getRealDataTokenRemainingHours(): number {
 
 // ─── HTTP 헬퍼 (내부 raw + 외부 rate-limited) ──────────────────────────────
 
-/** 내부 raw GET — 토큰 버킷 없이 직접 호출. 외부에서는 kisGet을 사용할 것. */
+const _kisSleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** 5xx exponential backoff 지연 계산 — retriesLeft=3→1s, 2→2s, 1→4s */
+const _kisBackoffDelayMs = (retriesLeft: number) =>
+  Math.pow(2, 3 - retriesLeft) * 1000;
+
+/**
+ * 내부 raw GET — 토큰 버킷 없이 직접 호출. 외부에서는 kisGet을 사용할 것.
+ *
+ * 재시도 정책 (retriesLeft 기본 3회):
+ *   - 401 Unauthorized: 토큰 무효화 + 즉시 재시도
+ *   - 429 Too Many Requests: 1초 대기 후 재시도
+ *   - 5xx Server Error: 지수 백오프 (1s → 2s → 4s) 후 재시도
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function _rawKisGet(
-  trId: string, apiPath: string, params: Record<string, string>, retry = true,
+  trId: string, apiPath: string, params: Record<string, string>, retriesLeft = 3,
 ): Promise<any> {
   const token = await refreshKisToken();
   const url = `${KIS_BASE}${apiPath}?${new URLSearchParams(params)}`;
@@ -116,11 +129,23 @@ async function _rawKisGet(
     },
   });
 
-  // 401 감지 → 토큰 강제 무효화 후 1회 재시도
-  if (res.status === 401 && retry) {
-    console.warn(`[KIS] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도`);
+  if (res.status === 401 && retriesLeft > 0) {
+    console.warn(`[KIS] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도 (${retriesLeft}회 남음)`);
     invalidateKisToken();
-    return _rawKisGet(trId, apiPath, params, false);
+    return _rawKisGet(trId, apiPath, params, retriesLeft - 1);
+  }
+
+  if (res.status === 429 && retriesLeft > 0) {
+    console.warn(`[KIS] 429 Rate Limit (${trId}) — 1초 대기 후 재시도 (${retriesLeft}회 남음)`);
+    await _kisSleep(1000);
+    return _rawKisGet(trId, apiPath, params, retriesLeft - 1);
+  }
+
+  if (res.status >= 500 && res.status < 600 && retriesLeft > 0) {
+    const delay = _kisBackoffDelayMs(retriesLeft);
+    console.warn(`[KIS] ${res.status} (${trId}) 재시도 ${retriesLeft}회 남음, ${delay}ms 대기`);
+    await _kisSleep(delay);
+    return _rawKisGet(trId, apiPath, params, retriesLeft - 1);
   }
 
   if (!res.ok) {
@@ -133,10 +158,13 @@ async function _rawKisGet(
   try { return JSON.parse(text); } catch { return null; }
 }
 
-/** 내부 raw POST — 토큰 버킷 없이 직접 호출. 외부에서는 kisPost를 사용할 것. */
+/**
+ * 내부 raw POST — 토큰 버킷 없이 직접 호출. 외부에서는 kisPost를 사용할 것.
+ * 재시도 정책은 _rawKisGet과 동일.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function _rawKisPost(
-  trId: string, apiPath: string, body: Record<string, string>, retry = true,
+  trId: string, apiPath: string, body: Record<string, string>, retriesLeft = 3,
 ): Promise<any> {
   const token = await refreshKisToken();
   const res = await fetch(`${KIS_BASE}${apiPath}`, {
@@ -152,11 +180,23 @@ async function _rawKisPost(
     body: JSON.stringify(body),
   });
 
-  // 401 감지 → 토큰 강제 무효화 후 1회 재시도
-  if (res.status === 401 && retry) {
-    console.warn(`[KIS] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도`);
+  if (res.status === 401 && retriesLeft > 0) {
+    console.warn(`[KIS] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도 (${retriesLeft}회 남음)`);
     invalidateKisToken();
-    return _rawKisPost(trId, apiPath, body, false);
+    return _rawKisPost(trId, apiPath, body, retriesLeft - 1);
+  }
+
+  if (res.status === 429 && retriesLeft > 0) {
+    console.warn(`[KIS] 429 Rate Limit (${trId}) — 1초 대기 후 재시도 (${retriesLeft}회 남음)`);
+    await _kisSleep(1000);
+    return _rawKisPost(trId, apiPath, body, retriesLeft - 1);
+  }
+
+  if (res.status >= 500 && res.status < 600 && retriesLeft > 0) {
+    const delay = _kisBackoffDelayMs(retriesLeft);
+    console.warn(`[KIS] ${res.status} (${trId}) 재시도 ${retriesLeft}회 남음, ${delay}ms 대기`);
+    await _kisSleep(delay);
+    return _rawKisPost(trId, apiPath, body, retriesLeft - 1);
   }
 
   if (!res.ok) {
