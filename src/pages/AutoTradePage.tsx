@@ -13,6 +13,7 @@ import { PageGrid } from '../layout/PageGrid';
 import { TradingChecklist } from '../components/trading/TradingChecklist';
 import { TradingSettingsPanel } from '../components/trading/TradingSettingsPanel';
 import { SessionRecoveryBanner } from '../components/trading/SessionRecoveryBanner';
+import { ShadowPortfolioPanel } from '../components/trading/ShadowPortfolioPanel';
 
 // ─── 조건 키 → 사람이 읽을 수 있는 한국어 레이블 ─────────────────────────────
 const CONDITION_LABELS: Record<string, string> = {
@@ -1175,6 +1176,11 @@ export function AutoTradePage() {
             })()}
           </Section>
         )}
+
+        {/* 섀도우 계좌 포트폴리오 패널 */}
+        <Card padding="md">
+          <ShadowPortfolioPanel />
+        </Card>
 
         <TradingChecklist />
 

@@ -31,6 +31,8 @@ export interface TradingSettings {
   ocoAutoRegister: {
     enabled: boolean;
   };
+  // 섀도우 계좌 시작 원금 (원화)
+  startingCapital: number;
   // 메타 정보
   updatedAt: string;
 }
@@ -58,6 +60,7 @@ export const DEFAULT_TRADING_SETTINGS: TradingSettings = {
   ocoAutoRegister: {
     enabled: true,
   },
+  startingCapital: 100_000_000,
   updatedAt: new Date().toISOString(),
 };
 

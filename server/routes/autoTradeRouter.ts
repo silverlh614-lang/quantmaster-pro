@@ -42,6 +42,9 @@ import {
   type TradingSettings,
   type SessionState,
 } from '../persistence/tradingSettingsRepo.js';
+import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
+import { fetchCurrentPrice } from '../clients/kisClient.js';
+import { getRealtimePrice } from '../clients/kisStreamClient.js';
 
 const router = Router();
 
@@ -701,6 +704,85 @@ router.post('/auto-trade/trading-settings', (req: any, res: any) => {
     saveTradingSettings(settings);
     res.json({ ok: true, settings: loadTradingSettings() });
   } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── 섀도우 계좌 포트폴리오 API ───────────────────────────────────────────────
+// GET /api/shadow/account         — ShadowAccountState 전체 스냅샷 (현재가 포함)
+// GET /api/shadow/current-prices  — 보유 포지션 종목코드 → 현재가 맵
+
+/**
+ * GET /api/shadow/account
+ * 모든 섀도우 거래 + 현재가를 기반으로 계좌 전체 상태를 계산하여 반환한다.
+ * 현재가 조회는 먼저 WebSocket 캐시(getRealtimePrice)를 사용하고,
+ * 없으면 KIS REST(fetchCurrentPrice)로 폴백한다.
+ */
+router.get('/shadow/account', async (_req: any, res: any) => {
+  try {
+    const settings = loadTradingSettings();
+    const trades = loadShadowTrades();
+
+    // 활성 포지션의 종목코드만 추출하여 현재가 조회
+    const activeStatuses = new Set(['ACTIVE', 'PARTIALLY_FILLED', 'ORDER_SUBMITTED', 'PENDING']);
+    const activeCodes = [...new Set(
+      trades
+        .filter(t => activeStatuses.has(t.status))
+        .map(t => t.stockCode)
+    )];
+
+    const currentPrices: Record<string, number> = {};
+    await Promise.all(
+      activeCodes.map(async code => {
+        const rt = getRealtimePrice(code);
+        if (rt !== null) {
+          currentPrices[code] = rt;
+        } else {
+          const price = await fetchCurrentPrice(code).catch(() => null);
+          if (price !== null && price !== undefined) currentPrices[code] = price;
+        }
+      })
+    );
+
+    const account = computeShadowAccount(trades, settings.startingCapital, currentPrices);
+    res.json(account);
+  } catch (e: any) {
+    console.error('[ShadowAccount] 계산 실패:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/shadow/current-prices
+ * 활성 포지션의 현재가만 빠르게 반환한다. (UI 폴링용)
+ * 응답: { prices: { [stockCode]: number }, updatedAt: string }
+ */
+router.get('/shadow/current-prices', async (_req: any, res: any) => {
+  try {
+    const trades = loadShadowTrades();
+    const activeStatuses = new Set(['ACTIVE', 'PARTIALLY_FILLED', 'ORDER_SUBMITTED', 'PENDING']);
+    const activeCodes = [...new Set(
+      trades
+        .filter(t => activeStatuses.has(t.status))
+        .map(t => t.stockCode)
+    )];
+
+    const prices: Record<string, number> = {};
+    await Promise.all(
+      activeCodes.map(async code => {
+        const rt = getRealtimePrice(code);
+        if (rt !== null) {
+          prices[code] = rt;
+        } else {
+          const price = await fetchCurrentPrice(code).catch(() => null);
+          if (price !== null && price !== undefined) prices[code] = price;
+        }
+      })
+    );
+
+    res.json({ prices, updatedAt: new Date().toISOString() });
+  } catch (e: any) {
+    console.error('[ShadowCurrentPrices] 조회 실패:', e);
     res.status(500).json({ error: e.message });
   }
 });
