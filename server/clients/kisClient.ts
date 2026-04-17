@@ -17,6 +17,24 @@ export const CCLD_TR_ID  = KIS_IS_REAL ? 'TTTC8001R' : 'VTTC8001R';
 
 let cachedToken: { token: string; expiry: number } | null = null;
 
+/**
+ * KIS 토큰 응답에서 안전한 오류 정보만 추출. 원본 응답에는 `access_token`·
+ * `approval_key` 등 비밀이 섞일 수 있으므로 raw JSON을 로그/에러에 포함하지
+ * 않고 표준 OAuth 오류 필드만 꺼내 쓴다.
+ */
+function sanitizeTokenErrorInfo(raw: unknown): string {
+  if (!raw || typeof raw !== 'object') return 'no response body';
+  const r = raw as Record<string, unknown>;
+  const code = typeof r.error === 'string' ? r.error
+    : typeof r.rt_cd === 'string' ? r.rt_cd
+    : typeof r.msg_cd === 'string' ? r.msg_cd
+    : 'unknown';
+  const desc = typeof r.error_description === 'string' ? r.error_description
+    : typeof r.msg1 === 'string' ? r.msg1
+    : 'no description';
+  return `${code}: ${desc}`;
+}
+
 // ─── 실계좌 데이터 전용 클라이언트 설정 ───────────────────────────────────────
 // 모의계좌 앱키 → 자동매매 주문 집행 (안전한 테스트)
 // 실계좌 앱키   → 시장 데이터 조회만 (거래량 순위, 현재가, 투자자 수급 등)
@@ -47,7 +65,9 @@ export async function refreshKisToken(): Promise<string> {
     }),
   });
   const data = await res.json() as { access_token?: string };
-  if (!data.access_token) throw new Error(`KIS 토큰 갱신 실패: ${JSON.stringify(data)}`);
+  if (!data.access_token) {
+    throw new Error(`KIS 토큰 갱신 실패 (status=${res.status}): ${sanitizeTokenErrorInfo(data)}`);
+  }
   cachedToken = { token: data.access_token, expiry: Date.now() + 23 * 60 * 60 * 1000 };
   console.log('[KIS] 토큰 갱신 완료');
   return cachedToken.token;
@@ -84,7 +104,9 @@ async function refreshRealDataToken(): Promise<string> {
     }),
   });
   const data = await res.json() as { access_token?: string };
-  if (!data.access_token) throw new Error(`KIS 실계좌 데이터 토큰 갱신 실패: ${JSON.stringify(data)}`);
+  if (!data.access_token) {
+    throw new Error(`KIS 실계좌 데이터 토큰 갱신 실패 (status=${res.status}): ${sanitizeTokenErrorInfo(data)}`);
+  }
   cachedRealDataToken = { token: data.access_token, expiry: Date.now() + 23 * 60 * 60 * 1000 };
   console.log('[KIS-RealData] 실계좌 데이터 전용 토큰 갱신 완료');
   return cachedRealDataToken.token;

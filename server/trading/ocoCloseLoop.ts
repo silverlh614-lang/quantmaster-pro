@@ -388,23 +388,43 @@ export async function cancelAllActiveOco(): Promise<void> {
 
   console.log(`[OCO] 장 마감 전 ACTIVE OCO ${active.length}건 전량 취소`);
 
+  // 한쪽 취소라도 실패 시 상태를 FAILED 로 남겨 다음 사이클에서 재시도 가능케 한다.
+  const tryCancel = async (stockCode: string, ordNo: string, qty: number): Promise<boolean> => {
+    try {
+      await cancelKisOrder(stockCode, ordNo, qty);
+      return true;
+    } catch (e) {
+      console.error(`[OCO] 취소 실패 ${stockCode} ord=${ordNo}:`, e instanceof Error ? e.message : e);
+      return false;
+    }
+  };
+
+  let allResolved = true;
   for (const pair of active) {
+    let stopOk = true;
+    let profitOk = true;
     if (pair.stopOrdNo && pair.stopStatus === 'PENDING') {
-      await cancelKisOrder(pair.stockCode, pair.stopOrdNo, pair.quantity).catch(() => {});
-      pair.stopStatus = 'CANCELLED';
+      stopOk = await tryCancel(pair.stockCode, pair.stopOrdNo, pair.quantity);
+      pair.stopStatus = stopOk ? 'CANCELLED' : 'FAILED';
     }
     if (pair.profitOrdNo && pair.profitStatus === 'PENDING') {
-      await cancelKisOrder(pair.stockCode, pair.profitOrdNo, pair.quantity).catch(() => {});
-      pair.profitStatus = 'CANCELLED';
+      profitOk = await tryCancel(pair.stockCode, pair.profitOrdNo, pair.quantity);
+      pair.profitStatus = profitOk ? 'CANCELLED' : 'FAILED';
     }
-    pair.status = 'BOTH_CANCELLED';
-    pair.resolvedAt = new Date().toISOString();
+    if (stopOk && profitOk) {
+      pair.status = 'BOTH_CANCELLED';
+      pair.resolvedAt = new Date().toISOString();
+    } else {
+      pair.status = 'ERROR';
+      allResolved = false;
+    }
   }
 
   saveOcoOrders(orders);
-  await sendTelegramAlert(
-    `🔔 <b>[OCO 장마감 정리]</b> ${active.length}건 OCO 주문 전량 취소`,
-  ).catch(console.error);
+  const summary = allResolved
+    ? `🔔 <b>[OCO 장마감 정리]</b> ${active.length}건 OCO 주문 전량 취소`
+    : `⚠️ <b>[OCO 장마감 정리]</b> ${active.length}건 중 일부 취소 실패 — 재시도 필요`;
+  await sendTelegramAlert(summary).catch(console.error);
 }
 
 // ─── 진단용 조회 ──────────────────────────────────────────────────────────────

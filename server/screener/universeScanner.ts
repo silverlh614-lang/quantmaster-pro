@@ -45,11 +45,11 @@ import {
   TARGET_RATES,
   addBusinessDays,
   calcStage1Score,
-  isPullbackSetup,
   getLeadingSectors,
   callGeminiForScreening,
   buildScreeningPrompt,
   parseScreeningResponse,
+  passesStage1Filter,
 } from './pipelineHelpers.js';
 
 // ── Stage 1 ───────────────────────────────────────────────────────────────────
@@ -133,17 +133,8 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
           const quote =
             (await fetchYahooQuote(`${code}.KS`).catch(() => null)) ??
             (await fetchYahooQuote(`${code}.KQ`).catch(() => null));
-          if (!quote || quote.price < 3000) return null;
-          if (quote.isHighRisk)                            return null; // 거래중지/관리종목/위험 분류 제외
-          if (quote.changePercent >= 8)                    return null; // 당일 +8% 이상 과열 제외
-          const kisPullback = isPullbackSetup(quote);
-          if (quote.changePercent < 0 && !kisPullback)     return null; // 음봉 제외 (눌림목은 통과)
-          if (quote.changePercent < -2)                    return null; // 눌림목이라도 -2% 이상 하락은 제외
-          const kisVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
-          if (quote.volume < quote.avgVolume * 1.2 && !kisVCP && !kisPullback) return null;
-          if (quote.per > 0 && quote.per > 60)             return null;
-          if (quote.ma20 > 0 && quote.price < quote.ma20 && !kisPullback) return null;
-          if (quote.return5d > 15)                         return null; // 5일 +15% 초과 → 이미 급등
+          if (!quote) return null;
+          if (!passesStage1Filter(quote)) return null;
 
           return {
             code, name,
@@ -176,18 +167,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
 
         const quote = await fetchYahooQuote(stock.symbol).catch(() => null);
         if (!quote || quote.price <= 0) return null;
-
-        if (quote.isHighRisk)                            return null; // 거래중지/관리종목/위험 분류 제외
-        if (quote.changePercent >= 8)                    return null; // 당일 +8% 이상 과열 제외
-        const yahooPullback = isPullbackSetup(quote);
-        if (quote.changePercent < 0 && !yahooPullback)   return null; // 음봉 제외 (눌림목은 통과)
-        if (quote.changePercent < -2)                    return null; // 눌림목이라도 -2% 이상 하락은 제외
-        const yahooVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * 0.75;
-        if (quote.volume < quote.avgVolume * 1.2 && !yahooVCP && !yahooPullback) return null;
-        if (quote.price < 3000)                          return null;
-        if (quote.per > 0 && quote.per > 60)             return null;
-        if (quote.ma20 > 0 && quote.price < quote.ma20 && !yahooPullback) return null;
-        if (quote.return5d > 15)                         return null; // 5일 +15% 초과 → 이미 급등
+        if (!passesStage1Filter(quote)) return null;
 
         return {
           code:   stock.code,

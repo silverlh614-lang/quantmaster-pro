@@ -692,7 +692,10 @@ export async function fetchKisQuoteFallback(code: string): Promise<YahooQuoteExt
       dailyVolumeDrying: false,
       isHighRisk: false,
     };
-  } catch { return null; }
+  } catch (e) {
+    console.error(`[fetchKisQuoteFallback] ${code}:`, e instanceof Error ? e.message : e);
+    return null;
+  }
 }
 
 /**
@@ -727,7 +730,10 @@ export async function fetchKisIntraday(code: string): Promise<{
     const prevClose  = price - prdyChange || price;
 
     return { price, dayOpen, prevClose, volume };
-  } catch { return null; }
+  } catch (e) {
+    console.error(`[fetchKisIntraday] ${code}:`, e instanceof Error ? e.message : e);
+    return null;
+  }
 }
 
 export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtended | null> {
@@ -957,7 +963,8 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       dailyVolumeDrying,
       isHighRisk,
     };
-  } catch {
+  } catch (e) {
+    console.error(`[fetchYahooQuote] ${symbol}:`, e instanceof Error ? e.message : e);
     return null;
   }
 }
