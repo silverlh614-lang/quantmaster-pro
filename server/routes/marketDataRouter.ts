@@ -198,7 +198,7 @@ router.get('/market-indicators', async (_req: Request, res: Response) => {
     if (r.status !== 'fulfilled' || !r.value) return null;
     const meta = r.value.meta;
     const price  = meta?.regularMarketPrice ?? null;
-    const prev   = meta?.chartPreviousClose ?? meta?.previousClose ?? null;
+    const prev   = meta?.regularMarketPreviousClose ?? meta?.previousClose ?? meta?.chartPreviousClose ?? null;
     if (price === null) return null;
     const change    = prev !== null ? parseFloat((price - prev).toFixed(2)) : 0;
     const changePct = prev !== null ? parseFloat(((price - prev) / prev * 100).toFixed(2)) : 0;

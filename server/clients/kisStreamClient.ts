@@ -250,8 +250,9 @@ async function connectWebSocket(): Promise<void> {
       }
     };
 
-    _ws.onerror = (event) => {
-      logStreamEvent('ERROR', `WebSocket 오류 발생 — readyState=${_ws?.readyState}`);
+    _ws.onerror = (event: any) => {
+      const detail = event?.error?.message || event?.message || event?.error?.code || 'unknown';
+      logStreamEvent('ERROR', `WebSocket 오류 — readyState=${_ws?.readyState}, detail=${detail}`);
       _isConnecting = false;
     };
 
