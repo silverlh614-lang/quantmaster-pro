@@ -710,7 +710,7 @@ export function AutoTradePage() {
                   <Tooltip
                     contentStyle={{ background: 'rgba(0,0,0,0.85)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
                     labelStyle={{ color: 'rgba(255,255,255,0.7)' }}
-                    formatter={(v: number) => [`${v}건`, '거래 수']}
+                    formatter={(v) => [`${v}건`, '거래 수']}
                   />
                   <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                     {rrrBuckets.map((_: any, idx: number) => (

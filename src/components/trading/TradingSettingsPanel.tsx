@@ -132,13 +132,17 @@ export function TradingSettingsPanel() {
       .catch(() => setLoading(false));
   }, []);
 
-  const update = useCallback(<K extends keyof TradingSettings>(
+  type SectionKey = {
+    [K in keyof TradingSettings]: TradingSettings[K] extends object ? K : never
+  }[keyof TradingSettings];
+
+  const update = useCallback(<K extends SectionKey>(
     section: K,
     patch: Partial<TradingSettings[K]>
   ) => {
     setSettings(prev => ({
       ...prev,
-      [section]: { ...prev[section], ...patch },
+      [section]: { ...(prev[section] as object), ...patch },
     }));
     setDirty(true);
   }, []);

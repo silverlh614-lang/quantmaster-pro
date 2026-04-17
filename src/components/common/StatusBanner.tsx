@@ -25,7 +25,8 @@ export function StatusBanner() {
   }[regime] ?? { label: 'BULL PHASE', color: 'text-green-400', dot: 'bg-green-400' };
 
   // Recommended position based on market neutral / regime
-  const cashRatio = marketNeutralResult?.recommended?.cashRatio ?? (regime === 'BEAR' ? 50 : regime === 'TRANSITION' ? 30 : 10);
+  const cashLeg = marketNeutralResult?.legs?.find(l => l.type === 'CASH');
+  const cashRatio = cashLeg?.weightPct ?? (regime === 'BEAR' ? 50 : regime === 'TRANSITION' ? 30 : 10);
   const positionPct = 100 - cashRatio;
 
   // Counts

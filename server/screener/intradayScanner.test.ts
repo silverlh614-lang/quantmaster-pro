@@ -60,6 +60,7 @@ function makeQuote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteExten
     weeklyAboveCloud:     true,
     weeklyLaggingSpanUp:  true,
     dailyVolumeDrying:   false,
+    isHighRisk:          false,
     ...overrides,
   };
 }
