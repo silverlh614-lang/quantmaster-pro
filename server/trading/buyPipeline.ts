@@ -31,6 +31,12 @@ import { fetchEnemyCheckData } from '../clients/enemyCheckClient.js';
 import { fillMonitor } from './fillMonitor.js';
 import { appendShadowLog } from '../persistence/shadowTradeRepo.js';
 
+// ── 진행 중 매수 주문 예약 테이블 ────────────────────────────────────────────
+// kisPost 가 수초(시장가 경합/재시도 포함) 걸리는 동안 다른 스캔 사이클이
+// 동일 trade 에 대해 중복 주문을 발사하는 것을 막기 위한 in-process 가드.
+// trade.id 를 키로 쓰며, 성공·실패 어떤 경로든 반드시 해제되도록 finally 에서 delete.
+const _inflightBuyOrders = new Set<string>();
+
 // ── MTAS Multiplier ────────────────────────────────────────────────────────────
 
 /**
@@ -254,12 +260,36 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
 
       if (!p.shadowMode) {
         // LIVE 모드: KIS 실주문
-        ordNo = await placeKisMarketBuyOrder(p.stockCode, p.quantity);
+        // 중복 발사 가드 — 동일 trade.id 에 대해 이미 주문이 진행 중이면 즉시 REJECTED.
+        if (_inflightBuyOrders.has(p.trade.id)) {
+          console.warn(`[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) 이미 주문 진행 중 — 중복 발사 차단`);
+          p.trade.status = 'REJECTED';
+          p.onRejected?.(p.trade, 'SKIP');
+          return;
+        }
+        _inflightBuyOrders.add(p.trade.id);
+
+        try {
+          ordNo = await placeKisMarketBuyOrder(p.stockCode, p.quantity);
+        } catch (e) {
+          // kisPost 가 재시도 후에도 throw 하는 경우 (네트워크·권한·한도 초과 등).
+          // ordNo 미수신이므로 REJECTED 로 마감하여 다음 스캔에서 새로 시도할 수 있게 한다.
+          console.error(`[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) 주문 API 실패:`, e instanceof Error ? e.message : e);
+          p.trade.status = 'REJECTED';
+          p.onRejected?.(p.trade, 'SKIP');
+          _inflightBuyOrders.delete(p.trade.id);
+          return;
+        }
+
         const modeTag = `[BuyPipeline LIVE]`;
         console.log(`${modeTag} ${p.stockName} 매수 주문 — ODNO: ${ordNo}`);
         appendShadowLog({ event: p.logEvent, code: p.stockCode, price: p.currentPrice, ordNo });
 
         if (ordNo) {
+          // 상태를 먼저 전이시켜 뒤따르는 fillMonitor 등록 실패가 있어도 중복 주문이 재발사되지
+          // 않도록 한다. addOrder 는 파일 I/O 로만 실패 가능 — 실패해도 KIS 상에는 이미 주문이
+          // 들어간 상태이므로 REJECTED 로 되돌리면 오히려 네이키드 포지션을 만든다.
+          p.trade.status = 'ORDER_SUBMITTED';
           fillMonitor.addOrder({
             ordNo,
             stockCode:      p.stockCode,
@@ -269,10 +299,10 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
             placedAt:       new Date().toISOString(),
             relatedTradeId: p.trade.id,
           });
-          p.trade.status = 'ORDER_SUBMITTED';
         } else {
           p.trade.status = 'REJECTED';
         }
+        _inflightBuyOrders.delete(p.trade.id);
       } else {
         // SHADOW 모드
         console.log(`[BuyPipeline SHADOW] ${p.stockName}(${p.stockCode}) 신호 등록 @${p.currentPrice}`);

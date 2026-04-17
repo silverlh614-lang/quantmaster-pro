@@ -120,11 +120,21 @@ export class FillMonitor {
         INQR_DVSN_1: '0', INQR_DVSN_2: '0',
       });
     } catch (e) {
-      console.error('[FillMonitor] KIS 미체결 조회 실패:', e instanceof Error ? e.message : e);
+      // kisGet 내부에서 이미 429/5xx 재시도 수행 후에도 실패한 경우만 도달.
+      // 이번 사이클은 건너뛰고 다음 cron(5분 후)에서 재조회 — pollCount 미증가로 만료 방지.
+      console.error('[FillMonitor] KIS 미체결 조회 실패 — 이번 사이클 스킵:', e instanceof Error ? e.message : e);
       return;
     }
 
-    const unfilledMap = new Map((data?.output ?? []).map(o => [o.odno, o]));
+    // data=null 은 kisGet 재시도 후에도 응답을 받지 못한 경우(4xx/본문 비어있음 등).
+    // output=[] (정상 빈 목록)과 구분하지 않으면 전 주문을 '체결됨'으로 오판하여
+    // 잘못된 OCO 등록·Telegram 알림을 유발한다. 반드시 이번 사이클을 중단해야 한다.
+    if (!data) {
+      console.warn('[FillMonitor] KIS 미체결 응답이 비어 있음 — 전 주문 FILLED 오판 방지 위해 스킵');
+      return;
+    }
+
+    const unfilledMap = new Map((data.output ?? []).map(o => [o.odno, o]));
     let changed = false;
 
     for (const order of pending) {
@@ -338,6 +348,24 @@ function correctShadowFill(
     return { remainingQty: getRemainingQty(trade), closed: false };
   }
 
+  // ── 트랜잭션 스냅샷: saveShadowTrades 실패 시 in-memory 롤백 ─────────────────
+  // fill.qty/price/pnl/ordNo 와 trade.quantity/originalQuantity/status/exitTime
+  // /exitPrice 가 모두 변경 대상. 중간에 throw 되면 in-memory 에는 부분 변경만
+  // 반영된 채로 "다음 호출이 신선한 load 로 덮어쓰는" 운에 맡기게 되는데,
+  // pollSellFills 의 caller 가 동일 fill 에 재접근할 수 있어 위험하다.
+  const snapshot = {
+    fillQty: fill.qty,
+    fillPrice: fill.price,
+    fillPnl: fill.pnl,
+    fillPnlPct: fill.pnlPct,
+    fillOrdNo: fill.ordNo,
+    tradeQuantity: trade.quantity,
+    tradeOriginalQuantity: trade.originalQuantity,
+    tradeStatus: trade.status,
+    tradeExitTime: trade.exitTime,
+    tradeExitPrice: trade.exitPrice,
+  };
+
   if (qtyChanged) fill.qty = filledQty;
   if (priceChanged) fill.price = effectivePrice;
   // pnl / pnlPct 재계산 (entryPrice 기준)
@@ -360,11 +388,31 @@ function correctShadowFill(
     trade.exitTime ??= new Date().toISOString();
     trade.exitPrice ??= effectivePrice;
     autoClosed = true;
-    console.log(`[SellFillMonitor] 🏁 자동 닫힘: ${trade.stockCode} 잔량 0 → HIT_STOP`);
   }
 
-  saveShadowTrades(trades);
+  try {
+    saveShadowTrades(trades);
+  } catch (e) {
+    // 저장 실패 — in-memory 변경을 snapshot 으로 롤백하여 "persist 안된 변경이
+    // 메모리에만 남아 이후 로직에서 쓰이는" 상태 분기를 차단한다.
+    fill.qty = snapshot.fillQty;
+    fill.price = snapshot.fillPrice;
+    fill.pnl = snapshot.fillPnl;
+    fill.pnlPct = snapshot.fillPnlPct;
+    if (snapshot.fillOrdNo !== undefined) fill.ordNo = snapshot.fillOrdNo;
+    trade.quantity = snapshot.tradeQuantity;
+    trade.originalQuantity = snapshot.tradeOriginalQuantity;
+    trade.status = snapshot.tradeStatus;
+    trade.exitTime = snapshot.tradeExitTime;
+    trade.exitPrice = snapshot.tradeExitPrice;
+    console.error(`[SellFillMonitor] ⚠️ Fill 저장 실패 — 롤백 수행: ${trade.stockCode} ordNo=${ordNo}`, e instanceof Error ? e.message : e);
+    return null;
+  }
 
+  // 저장 성공 후에만 사용자 가시 로그 방출 — 실패 시 "자동 닫힘" 오보를 막는다.
+  if (autoClosed) {
+    console.log(`[SellFillMonitor] 🏁 자동 닫힘: ${trade.stockCode} 잔량 0 → HIT_STOP`);
+  }
   const action = finalize ? '최종 보정' : '중간 보정';
   console.log(`[SellFillMonitor] 🔧 Fill ${action}: ${trade.stockCode} ordNo=${ordNo} qty=${filledQty} @${effectivePrice.toLocaleString()}원 pnl=${fill.pnl?.toFixed(0)}`);
 
@@ -407,11 +455,19 @@ export async function pollSellFills(): Promise<void> {
       CTX_AREA_NK100: '',
     }, 'HIGH');
   } catch (e) {
-    console.error('[SellFillMonitor] CCLD 조회 실패:', e instanceof Error ? e.message : e);
+    console.error('[SellFillMonitor] CCLD 조회 실패 — 이번 사이클 스킵:', e instanceof Error ? e.message : e);
     return;
   }
 
-  const ccldMap = new Map((ccldData?.output ?? []).map(o => [o.odno, o]));
+  // ccldData=null (kisGet 재시도 실패) 과 output=[] (정상 빈 목록) 구분.
+  // null 을 빈 목록으로 취급하면 미체결 매도가 '폴링 만료 → 시장가 재발행' 경로로
+  // 잘못 흘러 중복 매도를 유발한다. null 이면 이번 사이클 중단.
+  if (!ccldData) {
+    console.warn('[SellFillMonitor] CCLD 응답이 비어 있음 — 중복 재발행 방지 위해 스킵');
+    return;
+  }
+
+  const ccldMap = new Map((ccldData.output ?? []).map(o => [o.odno, o]));
   let changed = false;
 
   for (const order of pending) {
