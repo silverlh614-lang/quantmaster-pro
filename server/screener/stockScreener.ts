@@ -726,7 +726,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     if (closes.length < 5) return null;
 
     const price = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 0;
-    const prevClose = meta.chartPreviousClose ?? closes[closes.length - 2] ?? price;
+    const prevClose = meta.regularMarketPreviousClose ?? closes[closes.length - 2] ?? price;
     const dayOpen = meta.regularMarketOpen ?? price;
     const changePercent = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
     const volume = volumes[volumes.length - 1] ?? 0;
