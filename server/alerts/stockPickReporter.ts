@@ -88,6 +88,11 @@ export async function generateDailyPickReport(): Promise<void> {
       try {
         const quote = await fetchYahooQuote(`${entry.code}.KS`);
         if (!quote) continue;
+        // 거래정지/관리종목/zero-volume 위험 종목은 픽에서 제외 (사용자 피해 방지)
+        if (quote.isHighRisk) {
+          console.log(`[PickReport] ⏭️ 위험 종목 제외(지금 살): ${entry.name}(${entry.code})`);
+          continue;
+        }
 
         const price       = quote.price;
         const gateScore   = entry.gateScore ?? 0;
@@ -153,6 +158,10 @@ export async function generateDailyPickReport(): Promise<void> {
     try {
       const quote = await fetchYahooQuote(`${entry.code}.KS`);
       if (!quote) continue;
+      if (quote.isHighRisk) {
+        console.log(`[PickReport] ⏭️ 위험 종목 제외(미리 살): ${entry.name}(${entry.code})`);
+        continue;
+      }
       if (quote.price > entry.entryPrice * 1.05) continue; // 이미 돌파
 
       const pbInput: PreBreakoutInput = {

@@ -21,6 +21,7 @@ import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/report
 import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, getRealDataTokenRemainingHours, refreshKisToken, invalidateKisToken } from '../clients/kisClient.js';
 import { getStreamStatus } from '../clients/kisStreamClient.js';
 import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
+import { verifyVolumeMount } from '../persistence/paths.js';
 import { STOCK_UNIVERSE } from '../screener/stockScreener.js';
 import { calcRRR } from '../trading/riskManager.js';
 import { handleBuyApprovalCallback } from './buyApproval.js';
@@ -588,9 +589,33 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           : scanSummary.yahooFails > scanSummary.candidates * 0.5 ? 'DEGRADED'
           : 'OK';
 
+        // ── 서브시스템 프로브 병렬 실행 (타임아웃 3초) ──────────────────────
+        const volumeCheck = verifyVolumeMount();
+        const probeTimeout = (ms: number) => new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error(`timeout ${ms}ms`)), ms));
+        const withTimeout = <T>(p: Promise<T>, ms = 3000) =>
+          Promise.race([p, probeTimeout(ms)]);
+        const probes = await Promise.allSettled([
+          withTimeout(fetch('https://query1.finance.yahoo.com/v7/finance/chart/^KS11?interval=1d&range=1d')
+            .then(r => r.ok ? 'OK' : `HTTP ${r.status}`)),
+          withTimeout(fetch(`https://opendart.fss.or.kr/api/list.json?crtfc_key=${process.env.DART_API_KEY ?? ''}&page_count=1`)
+            .then(async r => {
+              if (!r.ok) return `HTTP ${r.status}`;
+              const j = await r.json() as { status?: string };
+              return j.status === '000' ? 'OK' : `status=${j.status}`;
+            })),
+        ]);
+        const [yahooProbe, dartProbe] = probes;
+        const probeLabel = (p: PromiseSettledResult<unknown>) =>
+          p.status === 'fulfilled' ? `✅ ${p.value}` : `❌ ${(p.reason as Error).message}`;
+
+        const uptimeHours = (process.uptime() / 3600).toFixed(1);
+        const memMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+
         let verdict: string;
         if (emergencyStop)                             verdict = '🔴 EMERGENCY_STOP';
         else if (dailyLossPct >= dailyLossLimit)       verdict = '🔴 DAILY_LOSS_LIMIT';
+        else if (!volumeCheck.ok)                      verdict = '🔴 VOLUME_UNMOUNTED';
         else if (watchlist.length === 0)               verdict = '🔴 WATCHLIST_EMPTY';
         else if (!autoEnabled)                         verdict = '🟡 AUTO_TRADE_DISABLED';
         else if (autoMode === 'LIVE' && kisHours === 0) verdict = '🟡 KIS_TOKEN_EXPIRED';
@@ -600,14 +625,17 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
         const ss = getStreamStatus();
         await reply(
-          `🩺 <b>[파이프라인 헬스체크]</b>\n` +
+          `🩺 <b>[파이프라인 헬스체크]</b> (uptime ${uptimeHours}h / mem ${memMB}MB)\n` +
           `판정: ${verdict}\n` +
           `─────────────────────\n` +
           `워치리스트: ${watchlist.length}개 | 활성 포지션: ${activeTrades}개\n` +
           `자동매매: ${autoEnabled ? '✅ 켜짐' : '❌ 꺼짐'} (${autoMode})\n` +
           `KIS 토큰: ${kisHours > 0 ? `✅ ${kisHours}시간 남음` : '❌ 만료'}` +
           (realDataHours > 0 ? ` | 실데이터: ✅ ${realDataHours}h` : '') + `\n` +
-          `Yahoo: ${yahooStatus === 'OK' ? '✅' : yahooStatus === 'DEGRADED' ? '⚠️ 부분장애' : yahooStatus === 'DOWN' ? '❌ 불가' : '?'}\n` +
+          `Yahoo probe: ${probeLabel(yahooProbe)}\n` +
+          `DART probe: ${probeLabel(dartProbe)}\n` +
+          `Volume: ${volumeCheck.ok ? '✅ 마운트됨' : `❌ ${volumeCheck.error ?? '미마운트'}`}\n` +
+          `Yahoo 집계: ${yahooStatus === 'OK' ? '✅' : yahooStatus === 'DEGRADED' ? '⚠️ 부분장애' : yahooStatus === 'DOWN' ? '❌ 불가' : '?'}\n` +
           `마지막 스캔: ${lastScanAt} | 마지막 신호: ${lastBuyAt}\n` +
           `일일손실: ${dailyLossPct.toFixed(1)}% / 한도 ${dailyLossLimit}%\n` +
           `비상정지: ${emergencyStop ? '🛑 활성' : '✅ 해제'}\n` +

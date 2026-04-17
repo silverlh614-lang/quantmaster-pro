@@ -309,6 +309,10 @@ async function discoverIntradayCandidates(): Promise<void> {
         `${pathDesc}\n` +
         `손절: ${entry.stopLoss.toLocaleString()}원 (${entryPath === 'BREAKOUT' ? '-5%' : '-4%'})\n` +
         `⏳ 15분 관찰 후 재검증 → 진입 후보 전환 예정`,
+        {
+          dedupeKey: `intraday_new:${stock.code}:${entryPath}`,
+          cooldownMs: 4 * 60 * 60 * 1000,  // 4시간 — 같은 종목·경로로 세션 중 재발송 차단
+        },
       ).catch(console.error);
 
       await new Promise(r => setTimeout(r, 300)); // Yahoo rate limit 방지
@@ -386,6 +390,10 @@ async function updateIntradayReadiness(): Promise<void> {
             `현재가: ${quote.price.toLocaleString()}원 (+${quote.changePercent.toFixed(1)}%)\n` +
             `진입가: ${entry.entryPrice.toLocaleString()} | 손절: ${entry.stopLoss.toLocaleString()} | 목표: ${entry.targetPrice.toLocaleString()}\n` +
             `📌 장중 포지션 50% 비중 / 최대 ${MAX_INTRADAY_POSITIONS}개 동시 진입 제한`,
+            {
+              dedupeKey: `intraday_ready:${entry.code}`,
+              cooldownMs: 4 * 60 * 60 * 1000,  // 4시간 — intradayReady 플래그 세팅 실패 시 중복 발송 방지
+            },
           ).catch(console.error);
         }
       }

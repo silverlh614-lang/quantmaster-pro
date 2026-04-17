@@ -35,6 +35,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
+import { sendTelegramAlert } from '../alerts/telegramClient.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -188,12 +189,27 @@ export function decideScan(): ScanDecision {
   };
 }
 
+/** 매수 가능 시간대(KST) 판정 — 점심/마감동시호가/장외 제외. */
+function isBuyableKstWindow(now = Date.now()): boolean {
+  const kst = new Date(now + 9 * 60 * 60 * 1000);
+  const dow = kst.getUTCDay();
+  if (dow === 0 || dow === 6) return false;
+  const t = kst.getUTCHours() * 100 + kst.getUTCMinutes();
+  // 09:00~11:30 (오전) + 13:00~14:30 (오후 정상 매매) = 매수 가능 구간
+  return (t >= 900 && t < 1130) || (t >= 1300 && t < 1430);
+}
+
 /**
  * 스캔 결과를 피드백한다 — tradingOrchestrator에서 runAutoSignalScan 완료 후 호출.
  *
  * signalCount가 0이면 consecutiveEmptyScans를 1 증가시키고,
  * 1 이상이면 즉시 0으로 리셋한다.
  * 5회 연속 빈 스캔이 누적되면 decideScan()이 인터벌을 자동 확대한다.
+ *
+ * 로그 레벨:
+ *   - SELL_ONLY / 장외 구간의 빈 스캔은 debug 로그만 (정상 동작)
+ *   - 매수 가능 구간의 5회 연속 빈 스캔은 warn + Telegram 알림
+ *     → 게이트 임계치가 현재 시장에 비해 너무 높다는 신호
  */
 export function recordScanResult(signalCount: number, opts?: { positionFull?: boolean }): void {
   // 포지션 만석으로 인한 진입 스킵은 "빈 스캔"이 아님 — 카운터에서 제외
@@ -206,10 +222,25 @@ export function recordScanResult(signalCount: number, opts?: { positionFull?: bo
   if (signalCount === 0) {
     consecutiveEmptyScans++;
     if (consecutiveEmptyScans >= EMPTY_SCAN_BACKOFF_THRESHOLD) {
-      console.log(
-        `[AdaptiveScheduler] 빈 스캔 ${consecutiveEmptyScans}회 연속 — ` +
-        `다음 간격 ×${Math.min(EMPTY_SCAN_MAX_MULTIPLIER, 1 + Math.floor(consecutiveEmptyScans / EMPTY_SCAN_BACKOFF_THRESHOLD))} 확대`,
+      const multiplier = Math.min(
+        EMPTY_SCAN_MAX_MULTIPLIER,
+        1 + Math.floor(consecutiveEmptyScans / EMPTY_SCAN_BACKOFF_THRESHOLD),
       );
+      const msg = `[AdaptiveScheduler] 빈 스캔 ${consecutiveEmptyScans}회 연속 — 다음 간격 ×${multiplier} 확대`;
+      if (!isBuyableKstWindow()) {
+        console.debug(`${msg} (SELL_ONLY·장외 정상 동작)`);
+      } else {
+        console.warn(`${msg} — 매수 구간 연속 빈 스캔, Gate 임계치 점검 필요`);
+        if (consecutiveEmptyScans === EMPTY_SCAN_BACKOFF_THRESHOLD) {
+          // 단일 임계 도달 시점에만 1회 알림 (spam 방지)
+          sendTelegramAlert(
+            `⚠️ <b>[매수 스캔 5회 연속 빈 결과]</b>\n` +
+            `매수 가능 시간대에도 후보가 발굴되지 않습니다.\n` +
+            `Gate 임계치/레짐 적합도를 점검하세요.`,
+            { priority: 'HIGH', dedupeKey: 'empty_scan_buyable' },
+          ).catch(console.error);
+        }
+      }
     }
   } else {
     if (consecutiveEmptyScans > 0) {

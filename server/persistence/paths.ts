@@ -78,3 +78,25 @@ export function ensureDataDir(): void {
     );
   }
 }
+
+/**
+ * Railway Volume 마운트 검증 — 기동 시 DATA_DIR에 write/read 테스트.
+ * 실패 시 재시작마다 데이터가 소실되므로 CRITICAL 알림 발송 필요.
+ *
+ * @returns true = 마운트 정상, false = 미마운트/쓰기 실패
+ */
+export function verifyVolumeMount(): { ok: boolean; error?: string; timestamp?: string } {
+  ensureDataDir();
+  const mountTestFile = path.join(DATA_DIR, '.mount_test');
+  try {
+    const timestamp = new Date().toISOString();
+    fs.writeFileSync(mountTestFile, timestamp);
+    const content = fs.readFileSync(mountTestFile, 'utf-8');
+    if (content !== timestamp) {
+      return { ok: false, error: `write/read mismatch: wrote=${timestamp}, read=${content}` };
+    }
+    return { ok: true, timestamp };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}

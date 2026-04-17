@@ -4,10 +4,16 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import dns from "dns";
 import { createHash } from "crypto";
 import dotenv from "dotenv";
 import { tradingOrchestrator } from "./orchestrator/tradingOrchestrator.js";
 import { sendTelegramAlert, setTelegramBotCommands } from "./alerts/telegramClient.js";
+import { DATA_DIR, verifyVolumeMount } from "./persistence/paths.js";
+
+// Railway/Gmail SMTP IPv6 라우팅 이슈 방어: IPv4 lookup을 우선한다.
+// 이후 생성되는 모든 nodemailer/fetch DNS 조회에 적용됨.
+dns.setDefaultResultOrder('ipv4first');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -156,6 +162,21 @@ async function startServer() {
     } else {
       registerFallbackRoot();
     }
+  }
+
+  // Railway Volume 마운트 검증 — 데이터 소실 위험을 기동 시 즉시 감지
+  const volumeCheck = verifyVolumeMount();
+  if (volumeCheck.ok) {
+    console.log(`[Volume] ✅ 마운트 확인 (${DATA_DIR}): ${volumeCheck.timestamp}`);
+  } else {
+    console.error(`[Volume] ❌ 미마운트 (${DATA_DIR}): ${volumeCheck.error}`);
+    sendTelegramAlert(
+      `🚨 <b>[Railway Volume 미마운트]</b>\n` +
+      `경로: ${DATA_DIR}\n` +
+      `오류: ${volumeCheck.error}\n` +
+      `재시작 시 shadow_trades·watchlist·dart·fss 데이터 전량 소실됩니다.`,
+      { priority: 'CRITICAL', dedupeKey: 'volume_mount_fail' }
+    ).catch(console.error);
   }
 
   // VTS Mock 주입은 HTTP 서버·스케줄러 기동 전에 동기적으로 완료
