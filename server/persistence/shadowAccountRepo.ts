@@ -66,6 +66,9 @@ export interface ShadowAccountState {
   returnPct: number;         // (totalAssets / startingCapital - 1) × 100
   openPositions: ActivePosition[];
   closedTrades: ClosedTrade[];
+  // 오늘(KST) 실현 성과 — 부분청산·전량청산 가리지 않고 금일 SELL fill 전부 합산
+  todayRealizedPnl: number;  // 금일 SELL fill pnl 합산
+  todaySellFillCount: number;
   // 통계
   stats: {
     totalTrades: number;     // 청산된 포지션 수
@@ -83,6 +86,12 @@ export interface ShadowAccountState {
 
 function getSellFills(trade: ServerShadowTrade): PositionFill[] {
   return (trade.fills ?? []).filter(f => f.type === 'SELL');
+}
+
+/** ISO 타임스탬프를 KST 기준 YYYY-MM-DD 문자열로 변환. */
+function kstDateString(d: Date): string {
+  const kst = new Date(d.getTime() + 9 * 3_600_000);
+  return kst.toISOString().slice(0, 10);
 }
 
 // ─── 핵심 계산 함수 ───────────────────────────────────────────────────────────
@@ -231,6 +240,21 @@ export function computeShadowAccount(
   const lossRate = 100 - winRate;
   const expectancy = (winRate / 100) * avgWinPct + (lossRate / 100) * avgLossPct;
 
+  // ── 오늘(KST) 실현 성과 ─────────────────────────────────────────
+  // closedTrades 외에도 부분청산이 일어난 ACTIVE 포지션의 SELL fill까지 포함해야
+  // "오늘 발생한 현금흐름"을 정확히 반영한다. relevant 전체를 다시 훑는다.
+  const todayKst = kstDateString(new Date());
+  let todayRealizedPnl = 0;
+  let todaySellFillCount = 0;
+  for (const t of relevant) {
+    for (const f of (t.fills ?? [])) {
+      if (f.type !== 'SELL') continue;
+      if (kstDateString(new Date(f.timestamp)) !== todayKst) continue;
+      todayRealizedPnl += f.pnl ?? 0;
+      todaySellFillCount++;
+    }
+  }
+
   return {
     startingCapital,
     cashBalance,
@@ -241,6 +265,8 @@ export function computeShadowAccount(
     returnPct,
     openPositions,
     closedTrades,
+    todayRealizedPnl,
+    todaySellFillCount,
     stats: {
       totalTrades,
       winCount,

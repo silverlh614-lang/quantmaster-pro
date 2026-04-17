@@ -83,6 +83,8 @@ interface ShadowAccountState {
   returnPct: number;
   openPositions: ActivePosition[];
   closedTrades: ClosedTrade[];
+  todayRealizedPnl?: number;
+  todaySellFillCount?: number;
   stats: AccountStats;
   computedAt: string;
 }
@@ -103,6 +105,15 @@ function fmtPct(v: number, digits = 2): string {
 
 function fmtTime(iso: string): string {
   const d = new Date(iso);
+  return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+}
+
+/** 상대시간 — 1분 이내 "방금 전", 1시간 이내 "N분 전", 그 외 HH:MM. */
+function fmtRelative(d: Date, now: Date = new Date()): string {
+  const sec = Math.max(0, Math.floor((now.getTime() - d.getTime()) / 1000));
+  if (sec < 10) return '방금 전';
+  if (sec < 60) return `${sec}초 전`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}분 전`;
   return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 }
 
@@ -331,6 +342,8 @@ export function ShadowPortfolioPanel() {
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [expandedTrades, setExpandedTrades] = useState<Set<string>>(new Set());
+  // 상대시간("N분 전")을 주기적으로 재렌더하기 위한 tick — 30초마다 갱신.
+  const [, setRelativeTick] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── 데이터 페치 ─────────────────────────────────────────────────────────────
@@ -369,8 +382,12 @@ export function ShadowPortfolioPanel() {
     };
     document.addEventListener('visibilitychange', onVisibility);
 
+    // 상대시간 라벨을 30초마다 재렌더 (fetch는 하지 않음)
+    const relativeInterval = setInterval(() => setRelativeTick(t => t + 1), 30_000);
+
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      clearInterval(relativeInterval);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [refresh]);
@@ -431,11 +448,11 @@ export function ShadowPortfolioPanel() {
           <p className="text-[10px] sm:text-xs text-theme-text-muted mt-0.5">
             {account ? `시작원금 ${fmtKrw(account.startingCapital)}` : '포트폴리오 추적'}
             {lastRefresh && (
-              <span className="ml-2">· 갱신 {fmtTime(lastRefresh.toISOString())}</span>
+              <span className="ml-2">· {fmtRelative(lastRefresh)} 갱신</span>
             )}
-            {isMarketOpen() && (
-              <span className="ml-1 text-green-400/70">· 장중 1분 자동갱신</span>
-            )}
+            {isMarketOpen()
+              ? <span className="ml-1 text-green-400/70">· 장중 1분 자동갱신</span>
+              : <span className="ml-1 text-theme-text-muted/60">· 장외</span>}
           </p>
         </div>
         <button
@@ -468,6 +485,22 @@ export function ShadowPortfolioPanel() {
         <>
           {/* KPI Strip */}
           <KpiStrip items={kpiItems} className="grid-cols-3 sm:grid-cols-6" />
+
+          {/* 오늘(KST) 실현 성과 — 금일 SELL fill이 있을 때만 표시 */}
+          {(account.todaySellFillCount ?? 0) > 0 && (
+            <div className="flex items-center justify-between rounded-xl border border-slate-700/40 bg-white/[0.015] px-3 py-2 text-xs">
+              <span className="text-theme-text-muted">
+                오늘 {account.todaySellFillCount}건 체결
+              </span>
+              <span className={cn(
+                'font-num font-black',
+                (account.todayRealizedPnl ?? 0) >= 0 ? 'text-green-400' : 'text-red-400',
+              )}>
+                {(account.todayRealizedPnl ?? 0) >= 0 ? '+' : ''}
+                {fmtKrw(account.todayRealizedPnl ?? 0)}
+              </span>
+            </div>
+          )}
 
           {/* ── 보유 포지션 ── */}
           <section className="space-y-3">
