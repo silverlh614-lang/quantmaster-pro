@@ -202,6 +202,14 @@ export function AutoTradePage() {
   } | null>(null);
   const [reconcileRunning, setReconcileRunning] = useState(false);
   const [ocoOrders, setOcoOrders] = useState<{ active: OcoOrderPair[]; history: OcoOrderPair[] }>({ active: [], history: [] });
+  // 아이디어 11: 감사 추적 뷰어 모달
+  const [auditTrade, setAuditTrade] = useState<any | null>(null);
+  const [auditEvents, setAuditEvents] = useState<any[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  // 아이디어 7: 일간 현금흐름 장부
+  const [ledgerDate, setLedgerDate] = useState<string>(
+    () => new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10)
+  );
 
   // ③ FOMC 차단 해제 카운트다운
   const fomcCountdown = useCountdown(buyAudit?.fomcGating.unblockAt);
@@ -310,6 +318,63 @@ export function AutoTradePage() {
       .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
       .slice(0, 8);
   }, [serverShadowTrades, watchlist]);
+
+  // ─── 아이디어 7: 일간 실현 현금흐름 장부 ──────────────────────────────────────
+  // exitRuleTag → 짧은 레이블 (Idea 8 공용)
+  const EXIT_RULE_SHORT: Record<string, string> = {
+    HARD_STOP: 'HARD STOP', CASCADE_FINAL: 'CASCADE', CASCADE_HALF_SELL: 'CASCADE ½',
+    R6_EMERGENCY_EXIT: 'R6 긴급', MA60_DEATH_FORCE_EXIT: 'MA60', TARGET_EXIT: '목표가',
+    LIMIT_TRANCHE_TAKE_PROFIT: 'LIMIT TP', TRAILING_PROTECTIVE_STOP: 'TRAILING',
+    RRR_COLLAPSE_PARTIAL: 'RRR', DIVERGENCE_PARTIAL: 'DIVG', EUPHORIA_PARTIAL: '과열',
+  };
+  const SUBTYPE_SHORT: Record<string, string> = {
+    STOP_LOSS: 'STOP', EMERGENCY: '긴급', PARTIAL_TP: 'LIMIT TP', TRAILING_TP: 'TRAILING', FULL_CLOSE: '목표가',
+  };
+
+  const dailyLedger = useMemo(() => {
+    const yyyymm = ledgerDate.slice(0, 7);
+    type Row = { stockName: string; stockCode: string; tpPnl: number; slPnl: number; net: number };
+    const rows: Row[] = [];
+    let mtdNet = 0;
+
+    for (const t of serverShadowTrades) {
+      const dayFills = (t.fills ?? []).filter((f: any) => {
+        if (f.type !== 'SELL') return false;
+        return new Date(new Date(f.timestamp).getTime() + 9 * 3_600_000).toISOString().slice(0, 10) === ledgerDate;
+      });
+      if (dayFills.length > 0) {
+        const tpPnl = dayFills
+          .filter((f: any) => f.subType !== 'STOP_LOSS' && f.subType !== 'EMERGENCY')
+          .reduce((s: number, f: any) => s + (f.pnl ?? 0), 0);
+        const slPnl = dayFills
+          .filter((f: any) => f.subType === 'STOP_LOSS' || f.subType === 'EMERGENCY')
+          .reduce((s: number, f: any) => s + (f.pnl ?? 0), 0);
+        rows.push({ stockName: t.stockName, stockCode: t.stockCode, tpPnl, slPnl, net: tpPnl + slPnl });
+      }
+      // MTD 합산
+      const mtdFills = (t.fills ?? []).filter((f: any) =>
+        f.type === 'SELL' &&
+        new Date(new Date(f.timestamp).getTime() + 9 * 3_600_000).toISOString().slice(0, 7) === yyyymm
+      );
+      mtdNet += mtdFills.reduce((s: number, f: any) => s + (f.pnl ?? 0), 0);
+    }
+    rows.sort((a, b) => b.net - a.net);
+    const dayNet = rows.reduce((s, r) => s + r.net, 0);
+    return { date: ledgerDate, rows, dayNet, mtdNet };
+  }, [serverShadowTrades, ledgerDate]);
+
+  const exportLedgerCSV = () => {
+    const header = '날짜,종목명,종목코드,익절PnL,손절PnL,순손익';
+    const lines = dailyLedger.rows.map(r =>
+      `${dailyLedger.date},${r.stockName},${r.stockCode},${r.tpPnl},${r.slPnl},${r.net}`
+    );
+    lines.push(`${dailyLedger.date},Day Net,,,, ${dailyLedger.dayNet}`);
+    const blob = new Blob([header + '\n' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `ledger-${dailyLedger.date}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleEngineToggle = async () => {
     if (engineToggling) return;
@@ -1343,36 +1408,52 @@ export function AutoTradePage() {
                       }
                       return { tp, sl };
                     })();
+                    // 계층화된 태그 요약 (아이디어 8) — Primary + Subs
+                    const tagSummary = (() => {
+                      const primary = getRemainingQty(t) === 0 ? '전량 청산' : '부분 청산';
+                      const subSet = new Set<string>();
+                      for (const f of sellFills) {
+                        if ((f as any).exitRuleTag) subSet.add(EXIT_RULE_SHORT[(f as any).exitRuleTag] ?? (f as any).exitRuleTag);
+                        else if (f.subType)         subSet.add(SUBTYPE_SHORT[f.subType] ?? f.subType);
+                      }
+                      const subs = [...subSet];
+                      return { primary, label: subs.length > 0 ? `${primary} (${subs.join(' · ')})` : primary };
+                    })();
 
                     return (
                       <Card key={t.id ?? i} padding="sm" className={cn(
-                        'text-sm opacity-90',
+                        'text-sm opacity-90 cursor-pointer hover:opacity-100 transition-opacity',
                         isWin ? '!border-green-500/15 !bg-green-500/[0.03]' : '!border-red-500/15 !bg-red-500/[0.03]'
-                      )}>
+                      )} onClick={async () => {
+                        setAuditTrade(t);
+                        setAuditLoading(true);
+                        setAuditEvents([]);
+                        try {
+                          const r = await fetch(`/api/auto-trade/positions/${t.id}/events`);
+                          const evts = await r.json();
+                          setAuditEvents(Array.isArray(evts) ? evts : []);
+                        } catch { setAuditEvents([]); }
+                        finally { setAuditLoading(false); }
+                      }}>
                         {/* 헤더 */}
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="font-black text-theme-text truncate">{t.stockName}</span>
                             <span className="text-theme-text-muted text-[11px] shrink-0">{t.stockCode}</span>
-                            {t.exitRuleTag && (
-                              <span className="text-[9px] px-1 py-0.5 rounded bg-slate-700/60 text-slate-400 border border-slate-600/40 font-bold shrink-0">
-                                {{
-                                  HARD_STOP: '강제손절', R6_EMERGENCY_EXIT: 'R6긴급', TARGET_EXIT: '목표가',
-                                  TRAILING_PROTECTIVE_STOP: '트레일링', LIMIT_TRANCHE_TAKE_PROFIT: '분할익절',
-                                  CASCADE_FINAL: '연쇄손절', RRR_COLLAPSE_PARTIAL: 'RRR붕괴',
-                                  DIVERGENCE_PARTIAL: '다이버전스', EUPHORIA_PARTIAL: '과열',
-                                  MA60_DEATH_FORCE_EXIT: 'MA60강제',
-                                }[t.exitRuleTag as string] ?? t.exitRuleTag}
-                              </span>
-                            )}
-                            {/* 익절+손절 혼합 청산 배지 — totalRealizedPnL 기준 색상 */}
-                            {exitComp.tp.qty > 0 && exitComp.sl.qty > 0 && (
+                            {/* 아이디어 8: 태그 계층화 — Primary (sub1 · sub2) */}
+                            {sellFills.length > 0 && (
                               <span className={cn(
                                 'text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0 border',
                                 isWin
                                   ? 'bg-green-500/10 text-green-400 border-green-500/20'
                                   : 'bg-red-500/10 text-red-400 border-red-500/20'
                               )}>
+                                {tagSummary.label}
+                              </span>
+                            )}
+                            {/* 혼합 청산 수량 배지 — 익절/손절 주수 분리 */}
+                            {exitComp.tp.qty > 0 && exitComp.sl.qty > 0 && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0 border bg-slate-700/40 text-slate-300 border-slate-600/30">
                                 익절 {exitComp.tp.qty}주 + 손절 {exitComp.sl.qty}주
                               </span>
                             )}
@@ -1521,6 +1602,86 @@ export function AutoTradePage() {
           );
         })()}
 
+        {/* ─── 아이디어 7: 일간 실현 현금흐름 장부 ────────────────────────── */}
+        <Card padding="sm">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <Wallet className="w-4 h-4 text-cyan-400" />
+              <span className="font-bold text-sm">실현 현금흐름 장부</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={ledgerDate}
+                max={new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10)}
+                onChange={e => setLedgerDate(e.target.value)}
+                className="text-[11px] bg-white/5 border border-theme-border/20 rounded px-2 py-1 text-theme-text font-num focus:outline-none"
+              />
+              {dailyLedger.rows.length > 0 && (
+                <button
+                  onClick={exportLedgerCSV}
+                  className="text-[10px] px-2 py-1 rounded bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 transition-colors"
+                >
+                  CSV
+                </button>
+              )}
+            </div>
+          </div>
+
+          {dailyLedger.rows.length === 0 ? (
+            <p className="text-xs text-center py-4 text-theme-text-muted">
+              {ledgerDate} — 실현된 SELL fill 없음
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {dailyLedger.rows.map((r, i) => (
+                <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-bold text-theme-text truncate">{r.stockName}</span>
+                    <span className="text-theme-text-muted text-[10px] shrink-0">{r.stockCode}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] shrink-0 font-num">
+                    {r.tpPnl !== 0 && (
+                      <span className="text-green-400/80">
+                        TP {r.tpPnl >= 0 ? '+' : ''}{Math.round(r.tpPnl).toLocaleString()}
+                      </span>
+                    )}
+                    {r.slPnl !== 0 && (
+                      <span className="text-red-400/80">
+                        SL {r.slPnl >= 0 ? '+' : ''}{Math.round(r.slPnl).toLocaleString()}
+                      </span>
+                    )}
+                    <span className={cn('font-black', r.net >= 0 ? 'text-green-400' : 'text-red-400')}>
+                      {r.net >= 0 ? '+' : ''}{Math.round(r.net).toLocaleString()}원
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {/* 구분선 + 합계 */}
+              <div className="pt-2 mt-1 border-t border-theme-border/20 space-y-1">
+                <div className="flex justify-between text-[11px] font-bold">
+                  <span className="text-theme-text-muted">Day Net ({ledgerDate})</span>
+                  <span className={cn('font-black font-num', dailyLedger.dayNet >= 0 ? 'text-green-400' : 'text-red-400')}>
+                    {dailyLedger.dayNet >= 0 ? '+' : ''}{Math.round(dailyLedger.dayNet).toLocaleString()}원
+                    <span className="text-theme-text-muted font-normal ml-1 text-[9px]">
+                      ({(dailyLedger.dayNet / 100_000_000 * 100).toFixed(3)}% / 1억)
+                    </span>
+                  </span>
+                </div>
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-theme-text-muted">MTD Net ({ledgerDate.slice(0, 7)})</span>
+                  <span className={cn('font-bold font-num', dailyLedger.mtdNet >= 0 ? 'text-green-400/80' : 'text-red-400/80')}>
+                    {dailyLedger.mtdNet >= 0 ? '+' : ''}{Math.round(dailyLedger.mtdNet).toLocaleString()}원
+                    <span className="text-theme-text-muted font-normal ml-1">
+                      ({(dailyLedger.mtdNet / 100_000_000 * 100).toFixed(2)}%)
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+
         {/* 섀도우 계좌 포트폴리오 패널 */}
         <Card padding="md">
           <ShadowPortfolioPanel />
@@ -1530,6 +1691,215 @@ export function AutoTradePage() {
 
         </>}
       </Stack>
+
+      {/* ─── 아이디어 11: 감사 추적 뷰어 모달 ─────────────────────────────────────── */}
+      {auditTrade && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setAuditTrade(null)}
+        >
+          <div
+            className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl border border-theme-border/30 bg-[#0f1117] shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* 모달 헤더 */}
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-theme-border/20 shrink-0">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-black text-theme-text text-base">{auditTrade.stockName}</span>
+                  <span className="text-theme-text-muted text-xs">{auditTrade.stockCode}</span>
+                  {auditTrade.entryRegime && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300 border border-violet-500/30 font-bold">
+                      {REGIME_LABELS[auditTrade.entryRegime] ?? auditTrade.entryRegime}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-theme-text-muted mt-0.5">
+                  진입 {auditTrade.shadowEntryPrice?.toLocaleString()}원
+                  {auditTrade.originalQuantity && ` × ${auditTrade.originalQuantity}주`}
+                  {auditTrade.signalTime && ` · ${new Date(new Date(auditTrade.signalTime).getTime() + 9*3_600_000).toISOString().slice(0,10)}`}
+                  {auditTrade.exitTime && ` → ${new Date(new Date(auditTrade.exitTime).getTime() + 9*3_600_000).toISOString().slice(0,10)}`}
+                  {auditTrade.signalTime && auditTrade.exitTime && (() => {
+                    const days = Math.round((new Date(auditTrade.exitTime).getTime() - new Date(auditTrade.signalTime).getTime()) / 86_400_000);
+                    return days > 0 ? ` (${days}일 보유)` : '';
+                  })()}
+                </p>
+              </div>
+              <button
+                onClick={() => setAuditTrade(null)}
+                className="shrink-0 text-theme-text-muted hover:text-theme-text transition-colors text-lg leading-none px-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 요약 KPI 바 */}
+            {(() => {
+              const sells = (auditTrade.fills ?? []).filter((f: any) => f.type === 'SELL');
+              const totalPnl = sells.reduce((s: number, f: any) => s + (f.pnl ?? 0), 0);
+              const totalQty = sells.reduce((s: number, f: any) => s + f.qty, 0);
+              const weightedPnl = totalQty > 0
+                ? sells.reduce((s: number, f: any) => s + (f.pnlPct ?? 0) * f.qty, 0) / totalQty
+                : (auditTrade.returnPct ?? 0);
+              const mfe = sells.reduce((mx: number, f: any) => Math.max(mx, f.pnlPct ?? 0), 0);
+              const mae = sells.reduce((mn: number, f: any) => Math.min(mn, f.pnlPct ?? 0), 0);
+              const slDist = auditTrade.shadowEntryPrice && auditTrade.stopLoss
+                ? ((auditTrade.stopLoss - auditTrade.shadowEntryPrice) / auditTrade.shadowEntryPrice * 100).toFixed(1)
+                : null;
+              const isWin = totalPnl >= 0;
+              return (
+                <div className="grid grid-cols-4 gap-px bg-theme-border/20 shrink-0">
+                  {[
+                    { label: '실현 P&L', value: `${totalPnl >= 0 ? '+' : ''}${Math.round(totalPnl).toLocaleString()}원`, color: isWin ? 'text-green-400' : 'text-red-400' },
+                    { label: '가중평균 수익률', value: `${weightedPnl >= 0 ? '+' : ''}${weightedPnl.toFixed(2)}%`, color: isWin ? 'text-green-400' : 'text-red-400' },
+                    { label: 'MFE (최대 유리)', value: `+${mfe.toFixed(2)}%`, color: 'text-blue-400' },
+                    { label: `MAE / SL거리`, value: `${mae.toFixed(2)}% / ${slDist ?? 'N/A'}%`, color: 'text-amber-400' },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="bg-[#0f1117] px-3 py-3 text-center">
+                      <p className="text-[9px] text-theme-text-muted uppercase tracking-wider font-bold mb-1">{label}</p>
+                      <p className={cn('font-black font-num text-sm', color)}>{value}</p>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* TradeEvent 타임라인 + fills 탭 */}
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
+              {/* TradeEvent 섹션 */}
+              <div>
+                <p className="text-[10px] font-black text-theme-text-muted uppercase tracking-wider mb-2 flex items-center gap-2">
+                  TradeEvent 감사 로그
+                  {auditLoading && <span className="text-[9px] text-violet-400 normal-case">로딩중…</span>}
+                  {!auditLoading && auditEvents.length === 0 && <span className="text-[9px] text-theme-text-muted normal-case">(이벤트 없음 — fills 기반 요약만 표시)</span>}
+                </p>
+                {auditEvents.length > 0 && (
+                  <div className="space-y-1.5">
+                    {auditEvents.map((evt: any, ei: number) => {
+                      const isEntry = evt.type === 'ENTRY';
+                      const isSell  = evt.type === 'PARTIAL_SELL' || evt.type === 'FULL_SELL';
+                      const isWin   = isSell && evt.realizedPnL >= 0;
+                      return (
+                        <div key={evt.id ?? ei} className={cn(
+                          'flex items-center gap-2 px-3 py-2 rounded-lg border text-[11px]',
+                          isEntry ? 'border-violet-500/20 bg-violet-500/5' :
+                          isWin   ? 'border-green-500/20 bg-green-500/5' :
+                                    'border-red-500/20 bg-red-500/5'
+                        )}>
+                          <span className="text-theme-text-muted w-10 shrink-0 font-num">
+                            {new Date(new Date(evt.ts).getTime() + 9*3_600_000).toISOString().slice(11,16)}
+                          </span>
+                          <span className={cn(
+                            'text-[9px] font-black px-1.5 py-0.5 rounded shrink-0',
+                            isEntry ? 'bg-violet-500/30 text-violet-300' :
+                            isWin   ? 'bg-green-500/30 text-green-300' : 'bg-red-500/30 text-red-300'
+                          )}>
+                            {evt.subType ?? evt.type}
+                          </span>
+                          <span className="text-theme-text font-num">{evt.quantity}주 @{evt.price?.toLocaleString()}</span>
+                          {isSell && (
+                            <span className={cn('font-black font-num ml-auto shrink-0', isWin ? 'text-green-400' : 'text-red-400')}>
+                              {evt.realizedPnL >= 0 ? '+' : ''}{Math.round(evt.realizedPnL).toLocaleString()}원
+                            </span>
+                          )}
+                          <span className="text-theme-text-muted text-[10px] shrink-0 font-num">
+                            잔량 {evt.remainingQty}주
+                          </span>
+                          {isSell && evt.cumRealizedPnL !== undefined && (
+                            <span className={cn('text-[10px] font-num shrink-0', evt.cumRealizedPnL >= 0 ? 'text-green-400/60' : 'text-red-400/60')}>
+                              누적 {evt.cumRealizedPnL >= 0 ? '+' : ''}{Math.round(evt.cumRealizedPnL).toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* fills 섹션 (TradeEvent가 없거나 보조로 표시) */}
+              {(auditTrade.fills ?? []).length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black text-theme-text-muted uppercase tracking-wider mb-2">
+                    Fill 상세 ({(auditTrade.fills ?? []).length}건)
+                  </p>
+                  <div className="space-y-1">
+                    {(auditTrade.fills ?? []).map((f: any, fi: number) => {
+                      const isBuy  = f.type === 'BUY';
+                      const isLoss = !isBuy && (f.pnlPct ?? 0) < 0;
+                      return (
+                        <div key={f.id ?? fi} className={cn(
+                          'flex items-center gap-2 px-2.5 py-1.5 rounded border text-[11px]',
+                          isBuy  ? 'border-violet-500/15 bg-violet-500/[0.04]' :
+                          isLoss ? 'border-red-500/15 bg-red-500/[0.03]' :
+                                   'border-green-500/15 bg-green-500/[0.03]'
+                        )}>
+                          <span className="text-theme-text-muted w-10 shrink-0 font-num">
+                            {new Date(new Date(f.timestamp).getTime() + 9*3_600_000).toISOString().slice(11,16)}
+                          </span>
+                          <span className={cn(
+                            'text-[9px] font-bold px-1 py-0.5 rounded shrink-0',
+                            isBuy  ? 'bg-violet-500/25 text-violet-300' :
+                            isLoss ? 'bg-red-500/25 text-red-300' : 'bg-green-500/25 text-green-300'
+                          )}>
+                            {f.subType ?? f.type}
+                          </span>
+                          <span className="text-theme-text font-num">{f.qty}주 @{f.price?.toLocaleString()}</span>
+                          {f.exitRuleTag && (
+                            <span className="text-[9px] text-theme-text-muted border border-theme-border/20 rounded px-1">
+                              {EXIT_RULE_SHORT[f.exitRuleTag] ?? f.exitRuleTag}
+                            </span>
+                          )}
+                          {!isBuy && f.pnlPct != null && (
+                            <span className={cn('font-black font-num ml-auto shrink-0', isLoss ? 'text-red-400' : 'text-green-400')}>
+                              {f.pnlPct >= 0 ? '+' : ''}{f.pnlPct.toFixed(2)}%
+                            </span>
+                          )}
+                          {!isBuy && f.pnl != null && (
+                            <span className={cn('font-num text-[10px] shrink-0', isLoss ? 'text-red-400/70' : 'text-green-400/70')}>
+                              {f.pnl >= 0 ? '+' : ''}{Math.round(f.pnl).toLocaleString()}원
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 하단 버튼 바 */}
+            <div className="px-5 py-3 border-t border-theme-border/20 flex justify-between items-center shrink-0">
+              <button
+                onClick={() => {
+                  const rows = [
+                    ['ts', 'type', 'subType', 'quantity', 'price', 'realizedPnL', 'cumRealizedPnL', 'remainingQty'],
+                    ...auditEvents.map((e: any) => [e.ts, e.type, e.subType ?? '', e.quantity, e.price, e.realizedPnL, e.cumRealizedPnL, e.remainingQty]),
+                  ];
+                  const csv = rows.map(r => r.join(',')).join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `audit-${auditTrade.stockCode}-${auditTrade.id?.slice(-8) ?? 'pos'}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                disabled={auditEvents.length === 0}
+                className="text-[11px] px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 text-theme-text-muted hover:text-theme-text border border-theme-border/20 transition-colors disabled:opacity-40"
+              >
+                CSV 내보내기
+              </button>
+              <button
+                onClick={() => setAuditTrade(null)}
+                className="text-[11px] px-3 py-1.5 rounded bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 border border-violet-500/30 transition-colors"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

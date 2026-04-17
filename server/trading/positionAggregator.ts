@@ -1,7 +1,6 @@
 import {
   type ServerShadowTrade,
   getRemainingQty,
-  getTotalRealizedPnl,
 } from '../persistence/shadowTradeRepo.js';
 
 // ─── 인터페이스 ───────────────────────────────────────────────────────────────
@@ -10,6 +9,39 @@ export interface ExitComposition {
   tp:       { qty: number; pnl: number }; // 익절 (PARTIAL_TP, FULL_CLOSE)
   sl:       { qty: number; pnl: number }; // 손절 (STOP_LOSS, EMERGENCY)
   trailing: { qty: number; pnl: number }; // 트레일링 (TRAILING_TP)
+}
+
+// exitRuleTag → 짧은 한국어/영문 레이블
+const EXIT_RULE_SHORT: Record<string, string> = {
+  HARD_STOP:                   'HARD STOP',
+  CASCADE_FINAL:               'CASCADE',
+  CASCADE_HALF_SELL:           'CASCADE ½',
+  R6_EMERGENCY_EXIT:           'R6 긴급',
+  MA60_DEATH_FORCE_EXIT:       'MA60',
+  TARGET_EXIT:                 '목표가',
+  LIMIT_TRANCHE_TAKE_PROFIT:   'LIMIT TP',
+  TRAILING_PROTECTIVE_STOP:    'TRAILING',
+  RRR_COLLAPSE_PARTIAL:        'RRR',
+  DIVERGENCE_PARTIAL:          'DIVG',
+  EUPHORIA_PARTIAL:            '과열',
+};
+
+// fill.subType → 짧은 레이블 (exitRuleTag 없을 때 폴백)
+const SUBTYPE_SHORT: Record<string, string> = {
+  STOP_LOSS:   'STOP',
+  EMERGENCY:   '긴급',
+  PARTIAL_TP:  'LIMIT TP',
+  TRAILING_TP: 'TRAILING',
+  FULL_CLOSE:  '목표가',
+};
+
+export interface TagSummary {
+  /** 청산 완료 여부에 따른 1차 분류 */
+  primary: '전량 청산' | '부분 청산' | '보유중';
+  /** fills에서 파생된 규칙 태그 목록 (중복 제거) */
+  subs: string[];
+  /** "부분 청산 (LIMIT TP · HARD STOP)" 형식의 한 줄 요약 */
+  label: string;
 }
 
 export interface PositionSummary {
@@ -26,6 +58,8 @@ export interface PositionSummary {
   totalRealizedPnL: number;     // 원화 실현 손익
   weightedReturnPct: number;    // totalRealizedPnL / (entryPrice × entryQuantity) × 100
   exitComposition: ExitComposition;
+  /** 계층화된 태그 요약 (아이디어 8) */
+  tagSummary: TagSummary;
 }
 
 // ─── 핵심 집계 함수 ───────────────────────────────────────────────────────────
@@ -93,6 +127,22 @@ export function aggregatePosition(trade: ServerShadowTrade): PositionSummary {
     } catch { return ''; }
   })();
 
+  // 계층화된 태그 요약 (아이디어 8)
+  const tagSummary: TagSummary = (() => {
+    const primary: TagSummary['primary'] =
+      status === 'CLOSED' ? '전량 청산' :
+      status === 'PARTIAL' ? '부분 청산' : '보유중';
+
+    const subSet = new Set<string>();
+    for (const f of sellFills) {
+      if (f.exitRuleTag) subSet.add(EXIT_RULE_SHORT[f.exitRuleTag] ?? f.exitRuleTag);
+      else if (f.subType)  subSet.add(SUBTYPE_SHORT[f.subType]    ?? f.subType);
+    }
+    const subs = [...subSet];
+    const label = subs.length > 0 ? `${primary} (${subs.join(' · ')})` : primary;
+    return { primary, subs, label };
+  })();
+
   return {
     positionId: trade.id ?? '',
     stockCode: trade.stockCode,
@@ -107,6 +157,7 @@ export function aggregatePosition(trade: ServerShadowTrade): PositionSummary {
     totalRealizedPnL,
     weightedReturnPct,
     exitComposition,
+    tagSummary,
   };
 }
 

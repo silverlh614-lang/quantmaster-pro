@@ -21,6 +21,14 @@ import {
   KIS_IS_REAL,
 } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import {
+  loadShadowTrades,
+  saveShadowTrades,
+  appendFill,
+  getRemainingQty,
+  updateShadow,
+} from '../persistence/shadowTradeRepo.js';
+import { appendTradeEvent } from './tradeEventLog.js';
 
 // ─── 데이터 모델 ──────────────────────────────────────────────────────────────
 
@@ -232,6 +240,52 @@ export async function pollOcoSurvival(): Promise<void> {
         pair.profitStatus = cancelled ? 'CANCELLED' : 'FAILED';
       }
 
+      // ── TradeEvent 발행 (Idea 10) ─────────────────────────────────────────
+      try {
+        const shadows = loadShadowTrades();
+        const shadow  = shadows.find(s => s.id === pair.id);
+        if (shadow) {
+          const fillPrice = pair.stopPrice;
+          const fillQty   = pair.quantity;
+          const pnl       = (fillPrice - (shadow.shadowEntryPrice ?? pair.entryPrice)) * fillQty;
+          const pnlPct    = shadow.shadowEntryPrice
+            ? ((fillPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100
+            : 0;
+          appendFill(shadow, {
+            type: 'SELL', subType: 'STOP_LOSS', qty: fillQty, price: fillPrice,
+            pnl, pnlPct: parseFloat(pnlPct.toFixed(4)),
+            reason: 'OCO 손절 체결', exitRuleTag: 'HARD_STOP' as any,
+            timestamp: pair.resolvedAt!,
+            ordNo: pair.stopOrdNo ?? undefined,
+          });
+          const remaining = getRemainingQty(shadow);
+          updateShadow(shadow, {
+            status: remaining === 0 ? 'HIT_STOP' : shadow.status,
+            exitPrice: fillPrice,
+            exitTime: pair.resolvedAt,
+            quantity: remaining,
+          });
+          saveShadowTrades(shadows);
+          const cumPnL = (shadow.fills ?? [])
+            .filter(f => f.type === 'SELL')
+            .reduce((s, f) => s + (f.pnl ?? 0), 0);
+          appendTradeEvent({
+            positionId: shadow.id,
+            ts: pair.resolvedAt!,
+            type: remaining === 0 ? 'FULL_SELL' : 'PARTIAL_SELL',
+            subType: 'HARD_STOP',
+            quantity: fillQty,
+            price: fillPrice,
+            realizedPnL: pnl,
+            cumRealizedPnL: cumPnL,
+            remainingQty: remaining,
+          });
+          console.log(`[OCO] TradeEvent 발행 완료: ${shadow.stockName} HARD_STOP ${fillQty}주 @${fillPrice}`);
+        }
+      } catch (e) {
+        console.error('[OCO] TradeEvent 발행 실패 (손절):', e);
+      }
+
       await sendTelegramAlert(
         `🔴 <b>[OCO 손절 체결] ${pair.stockName} (${pair.stockCode})</b>\n` +
         `손절가: ${pair.stopPrice.toLocaleString()}원\n` +
@@ -253,6 +307,52 @@ export async function pollOcoSurvival(): Promise<void> {
       if (pair.stopOrdNo && pair.stopStatus === 'PENDING') {
         const cancelled = await cancelKisOrder(pair.stockCode, pair.stopOrdNo, pair.quantity);
         pair.stopStatus = cancelled ? 'CANCELLED' : 'FAILED';
+      }
+
+      // ── TradeEvent 발행 (Idea 10) ─────────────────────────────────────────
+      try {
+        const shadows = loadShadowTrades();
+        const shadow  = shadows.find(s => s.id === pair.id);
+        if (shadow) {
+          const fillPrice = pair.profitPrice;
+          const fillQty   = pair.quantity;
+          const pnl       = (fillPrice - (shadow.shadowEntryPrice ?? pair.entryPrice)) * fillQty;
+          const pnlPct    = shadow.shadowEntryPrice
+            ? ((fillPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100
+            : 0;
+          appendFill(shadow, {
+            type: 'SELL', subType: 'FULL_CLOSE', qty: fillQty, price: fillPrice,
+            pnl, pnlPct: parseFloat(pnlPct.toFixed(4)),
+            reason: 'OCO 익절 체결', exitRuleTag: 'TARGET_EXIT' as any,
+            timestamp: pair.resolvedAt!,
+            ordNo: pair.profitOrdNo ?? undefined,
+          });
+          const remaining = getRemainingQty(shadow);
+          updateShadow(shadow, {
+            status: remaining === 0 ? 'HIT_TARGET' : shadow.status,
+            exitPrice: fillPrice,
+            exitTime: pair.resolvedAt,
+            quantity: remaining,
+          });
+          saveShadowTrades(shadows);
+          const cumPnL = (shadow.fills ?? [])
+            .filter(f => f.type === 'SELL')
+            .reduce((s, f) => s + (f.pnl ?? 0), 0);
+          appendTradeEvent({
+            positionId: shadow.id,
+            ts: pair.resolvedAt!,
+            type: remaining === 0 ? 'FULL_SELL' : 'PARTIAL_SELL',
+            subType: 'FULL_CLOSE',
+            quantity: fillQty,
+            price: fillPrice,
+            realizedPnL: pnl,
+            cumRealizedPnL: cumPnL,
+            remainingQty: remaining,
+          });
+          console.log(`[OCO] TradeEvent 발행 완료: ${shadow.stockName} FULL_CLOSE ${fillQty}주 @${fillPrice}`);
+        }
+      } catch (e) {
+        console.error('[OCO] TradeEvent 발행 실패 (익절):', e);
       }
 
       await sendTelegramAlert(

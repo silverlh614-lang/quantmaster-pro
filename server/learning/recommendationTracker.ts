@@ -1,8 +1,11 @@
 import fs from 'fs';
 import { RECOMMENDATIONS_FILE, REAL_TRADE_FLAG_FILE, ensureDataDir } from '../persistence/paths.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, getWeightedPnlPct } from '../persistence/shadowTradeRepo.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
+
+/** v2 이후 fills 데이터가 있는 거래가 이 수에 도달해야 가중치 재조정이 허용된다. */
+export const CALIBRATION_MIN_TRADES = 30;
 
 export interface RecommendationRecord {
   id: string;
@@ -202,7 +205,22 @@ export async function evaluateRecommendations(): Promise<void> {
   const closedShadows = shadows.filter(
     (s) => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP'
   );
-  const shadowReturns = closedShadows.map((s) => s.returnPct ?? 0);
+
+  // v2 이전 데이터는 returnPct가 오염되어 캘리브레이션에 사용할 수 없다.
+  // fills가 있는 거래만 신뢰할 수 있는 클린 데이터로 간주한다.
+  const cleanTrades  = closedShadows.filter(s => (s.fills ?? []).length > 0);
+  const legacyCount  = closedShadows.length - cleanTrades.length;
+
+  if (cleanTrades.length < CALIBRATION_MIN_TRADES) {
+    console.log(
+      `[자기학습] 오염 데이터 격리 중 — 신규 데이터 ${cleanTrades.length}/${CALIBRATION_MIN_TRADES}건 수집 중` +
+      (legacyCount > 0 ? ` (레거시 ${legacyCount}건 제외)` : '')
+    );
+  }
+
+  // 클린 데이터가 충분하면 클린 트레이드만, 아직 부족하면 전체 폴백 (fills-기반 getWeightedPnlPct 사용)
+  const calibrationSet = cleanTrades.length >= CALIBRATION_MIN_TRADES ? cleanTrades : closedShadows;
+  const shadowReturns  = calibrationSet.map(s => getWeightedPnlPct(s));
 
   let peak = 0, mdd = 0, cumReturn = 0;
   for (const r of shadowReturns) {

@@ -44,6 +44,7 @@ import {
 } from '../persistence/tradingSettingsRepo.js';
 import { computeShadowAccount, reconcileShadowQuantities, computeMonthlyShadowTradeStats } from '../persistence/shadowAccountRepo.js';
 import { aggregatePositions } from '../trading/positionAggregator.js';
+import { loadTradeEventsForPosition } from '../trading/tradeEventLog.js';
 import { runDailyReconciliation, loadLastReconcileResult } from '../trading/reconciliationEngine.js';
 import { getDataIntegrityBlocked } from '../state.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
@@ -275,6 +276,19 @@ router.get('/auto-trade/positions', (req: any, res: any) => {
   });
 
   res.json(aggregatePositions(filtered.slice(-limit)));
+});
+
+/**
+ * GET /api/auto-trade/positions/:id/events — 특정 포지션의 TradeEvent 시퀀스 (시간순)
+ * 감사 추적 뷰어용. 현재 월 + 직전 월을 검색하므로 최대 2개월 이력 커버.
+ */
+router.get('/auto-trade/positions/:id/events', (req: any, res: any) => {
+  try {
+    const events = loadTradeEventsForPosition(req.params.id);
+    res.json(events);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 /**
