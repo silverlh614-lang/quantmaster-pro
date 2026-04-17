@@ -123,6 +123,38 @@ export function syncPositionCache(trade: ServerShadowTrade): boolean {
   return changed;
 }
 
+// ─── Invariant 보호 래퍼 ──────────────────────────────────────────────────────
+
+/**
+ * Object.assign(shadow, patch) 의 안전한 대체재.
+ *
+ * 불변 규칙:
+ *  1. `returnPct` — fills에서 파생 가능하므로 저장 금지. 패치에 포함되면 자동 제거.
+ *  2. `originalQuantity` — 진입 시 한 번만 결정. 이미 양수이면 변경 차단.
+ */
+export function updateShadow(
+  shadow: ServerShadowTrade,
+  patch: Partial<ServerShadowTrade>,
+): void {
+  const safe = { ...patch } as any;
+
+  // 규칙 1: returnPct 제거 — getWeightedPnlPct(fills) 에서 항상 파생 가능
+  if ('returnPct' in safe) {
+    delete safe.returnPct;
+  }
+
+  // 규칙 2: originalQuantity 불변 — 이미 양수로 확정된 경우 덮어쓰기 차단
+  if ('originalQuantity' in safe && shadow.originalQuantity && shadow.originalQuantity > 0) {
+    console.error(
+      `[INVARIANT] ${shadow.id ?? shadow.stockCode} originalQuantity(${shadow.originalQuantity}) ` +
+      `변경 시도(→${safe.originalQuantity}) 차단`,
+    );
+    delete safe.originalQuantity;
+  }
+
+  Object.assign(shadow, safe);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**

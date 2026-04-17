@@ -43,6 +43,8 @@ import {
   type SessionState,
 } from '../persistence/tradingSettingsRepo.js';
 import { computeShadowAccount, reconcileShadowQuantities, computeMonthlyShadowTradeStats } from '../persistence/shadowAccountRepo.js';
+import { aggregatePositions } from '../trading/positionAggregator.js';
+import { getRemainingQty } from '../persistence/shadowTradeRepo.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { getRealtimePrice } from '../clients/kisStreamClient.js';
 
@@ -249,6 +251,29 @@ router.delete('/auto-trade/watchlist/intraday/:code', (req: any, res: any) => {
 
 router.get('/auto-trade/shadow-trades', (_req: any, res: any) => {
   res.json(getShadowTrades());
+});
+
+/**
+ * GET /api/auto-trade/positions — fills 기반 집계 뷰 (PositionSummary[])
+ * ?closed=true  : 완결 포지션만
+ * ?open=true    : 보유중·부분청산만
+ * ?limit=N      : 최신 N개 (기본 100)
+ */
+router.get('/auto-trade/positions', (req: any, res: any) => {
+  const trades  = loadShadowTrades().filter((t: any) => t.status !== 'REJECTED');
+  const wantClosed = req.query.closed === 'true';
+  const wantOpen   = req.query.open   === 'true';
+  const limit  = Math.min(parseInt(req.query.limit ?? '100', 10), 500);
+
+  const filtered = trades.filter((t: any) => {
+    if (!wantClosed && !wantOpen) return true;
+    const remaining = getRemainingQty(t);
+    if (wantClosed) return remaining === 0;
+    if (wantOpen)   return remaining > 0;
+    return true;
+  });
+
+  res.json(aggregatePositions(filtered.slice(-limit)));
 });
 
 /** POST /api/auto-trade/shadow-trades — 클라이언트에서 생성한 Shadow Trade를 서버에 동기화 */

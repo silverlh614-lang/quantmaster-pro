@@ -239,15 +239,15 @@ export function AutoTradePage() {
     return remaining > 0 && remaining < orig && getSellFills(trade).length > 0;
   }
 
-  // 서버 Shadow Trades 기반 통계 (로컬 저장소 의존 제거)
+  // 서버 Shadow Trades 기반 통계 — fills 가중평균 기준 (returnPct 오염 차단)
   const serverShadowStats = useMemo(() => {
     const settled = serverShadowTrades.filter((t: any) =>
       t.status === 'HIT_TARGET' || t.status === 'HIT_STOP',
     );
     if (settled.length === 0) return { count: serverShadowTrades.length, winRate: 0, avgReturn: 0 };
-    const wins = settled.filter((t: any) => t.status === 'HIT_TARGET').length;
+    const wins = settled.filter((t: any) => getWeightedPnlPct(t) > 0).length;
     const winRate = Math.round((wins / settled.length) * 100);
-    const avgReturn = settled.reduce((s: number, t: any) => s + (t.returnPct ?? 0), 0) / settled.length;
+    const avgReturn = settled.reduce((s: number, t: any) => s + getWeightedPnlPct(t), 0) / settled.length;
     return { count: serverShadowTrades.length, winRate, avgReturn };
   }, [serverShadowTrades]);
 
@@ -267,14 +267,16 @@ export function AutoTradePage() {
     return { exposureRate, cashRate, maxLoss };
   }, [accountSummary, watchlist]);
 
-  // ⑤ RRR 분포 막대차트 데이터
+  // ⑤ RRR 분포 막대차트 데이터 — fills 가중평균 기준
   const rrrBuckets = useMemo(() => {
-    const settled = serverShadowTrades.filter((t: any) => t.returnPct != null);
+    const settled = serverShadowTrades.filter((t: any) =>
+      t.status === 'HIT_TARGET' || t.status === 'HIT_STOP',
+    );
     return [
-      { name: '손실', value: settled.filter((t: any) => t.returnPct < 0).length },
-      { name: '0~5%', value: settled.filter((t: any) => t.returnPct >= 0 && t.returnPct < 5).length },
-      { name: '5~10%', value: settled.filter((t: any) => t.returnPct >= 5 && t.returnPct < 10).length },
-      { name: '10%+', value: settled.filter((t: any) => t.returnPct >= 10).length },
+      { name: '손실',   value: settled.filter((t: any) => getWeightedPnlPct(t) < 0).length },
+      { name: '0~5%',  value: settled.filter((t: any) => { const p = getWeightedPnlPct(t); return p >= 0 && p < 5; }).length },
+      { name: '5~10%', value: settled.filter((t: any) => { const p = getWeightedPnlPct(t); return p >= 5 && p < 10; }).length },
+      { name: '10%+',  value: settled.filter((t: any) => getWeightedPnlPct(t) >= 10).length },
     ];
   }, [serverShadowTrades]);
 
@@ -283,8 +285,9 @@ export function AutoTradePage() {
     const events: { time: string; type: string; stock: string; detail: string }[] = [];
     // Shadow Trade 이벤트
     for (const t of serverShadowTrades) {
-      if (t.status === 'HIT_TARGET') events.push({ time: t.resolvedAt ?? t.signalTime, type: 'TARGET_HIT', stock: t.stockName, detail: `+${t.returnPct?.toFixed(1)}%` });
-      else if (t.status === 'HIT_STOP') events.push({ time: t.resolvedAt ?? t.signalTime, type: 'STOP_HIT', stock: t.stockName, detail: `${t.returnPct?.toFixed(1)}%` });
+      const wpct = getWeightedPnlPct(t);
+      if (t.status === 'HIT_TARGET') events.push({ time: t.resolvedAt ?? t.signalTime, type: 'TARGET_HIT', stock: t.stockName, detail: `+${wpct.toFixed(1)}%` });
+      else if (t.status === 'HIT_STOP') events.push({ time: t.resolvedAt ?? t.signalTime, type: 'STOP_HIT', stock: t.stockName, detail: `${wpct.toFixed(1)}%` });
       else if (t.status === 'ACTIVE') events.push({ time: t.signalTime, type: 'BUY', stock: t.stockName, detail: `${t.shadowEntryPrice?.toLocaleString()}원` });
     }
     // 워치리스트 최근 추가
@@ -789,7 +792,7 @@ export function AutoTradePage() {
               <div className="flex items-center gap-2 mb-4">
                 <BarChart3 className="w-4 h-4 text-violet-400" />
                 <span className="text-sm font-bold text-theme-text">손익비 분포</span>
-                <span className="text-micro ml-auto">{serverShadowTrades.filter((t: any) => t.returnPct != null).length}건 결산</span>
+                <span className="text-micro ml-auto">{serverShadowTrades.filter((t: any) => t.status === 'HIT_TARGET' || t.status === 'HIT_STOP').length}건 결산</span>
               </div>
               <ResponsiveContainer width="100%" height={160}>
                 <BarChart data={rrrBuckets} barSize={32}>

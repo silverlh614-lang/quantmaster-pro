@@ -4,6 +4,7 @@ import { loadShadowTrades, saveShadowTrades, appendFill, syncPositionCache, getR
 import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL, SELL_TR_ID } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { registerOcoPair } from './ocoCloseLoop.js';
+import { appendTradeEvent } from './tradeEventLog.js';
 
 const FILL_POLL_MAX = 10; // 최대 폴링 횟수 (cron 5분 간격 × 10 = 최대 50분 모니터링)
 
@@ -63,13 +64,25 @@ function updateRelatedTradeStatus(
     // 이미 BUY fill이 있으면 중복 추가 방지 (재폴링 등)
     const hasBuyFill = (trade.fills ?? []).some(f => f.type === 'BUY');
     if (!hasBuyFill) {
+      const entryTs = new Date().toISOString();
       appendFill(trade, {
         type: 'BUY',
         subType: 'INITIAL_BUY',
         qty: opts.fillQty,
         price: opts.fillPrice,
         reason: '진입 체결 확인',
-        timestamp: new Date().toISOString(),
+        timestamp: entryTs,
+      });
+      appendTradeEvent({
+        positionId:    trade.id ?? trade.stockCode,
+        ts:            entryTs,
+        type:          'ENTRY',
+        subType:       'INITIAL_BUY',
+        quantity:      opts.fillQty,
+        price:         opts.fillPrice,
+        realizedPnL:   0,
+        cumRealizedPnL: 0,
+        remainingQty:  opts.fillQty,
       });
     }
   }

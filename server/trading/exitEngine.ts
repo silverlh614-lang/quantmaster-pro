@@ -17,13 +17,42 @@ import {
   appendShadowLog,
   appendFill,
   syncPositionCache,
+  updateShadow,
+  getRemainingQty,
+  getTotalRealizedPnl,
 } from '../persistence/shadowTradeRepo.js';
+import { appendTradeEvent, type TradeEvent } from './tradeEventLog.js';
 import { addToBlacklist } from '../persistence/blacklistRepo.js';
 import { checkEuphoria } from './riskManager.js';
 import { regimeToStopRegime } from './entryEngine.js';
 import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.js';
 import { fetchCloses } from './marketDataRefresh.js';
 import type { RegimeLevel } from '../../src/types/core.js';
+import type { PositionFill } from '../persistence/shadowTradeRepo.js';
+
+// ─── recordSell 헬퍼 ──────────────────────────────────────────────────────────
+// appendFill + appendTradeEvent를 원자적으로 수행한다.
+// exitEngine의 모든 SELL 기록은 이 함수를 통해야 한다.
+function recordSell(
+  shadow: ServerShadowTrade,
+  fill: Omit<PositionFill, 'id'>,
+  evtSubType: TradeEvent['subType'],
+): void {
+  appendFill(shadow, fill);
+  const remainingQty    = getRemainingQty(shadow);
+  const cumRealizedPnL  = getTotalRealizedPnl(shadow);
+  appendTradeEvent({
+    positionId:    shadow.id ?? shadow.stockCode,
+    ts:            fill.timestamp,
+    type:          remainingQty === 0 ? 'FULL_SELL' : 'PARTIAL_SELL',
+    subType:       evtSubType,
+    quantity:      fill.qty,
+    price:         fill.price,
+    realizedPnL:   fill.pnl ?? 0,
+    cumRealizedPnL,
+    remainingQty,
+  });
+}
 
 /**
  * 하락 다이버전스 감지 — 주가 신고가 갱신 + RSI 고점 낮아짐.
@@ -233,14 +262,15 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       appendShadowLog({ event: 'R6_EMERGENCY_EXIT', ...shadow, soldQty: emergencyQty, returnPct });
       console.log(`[AutoTrade] 🔴 ${shadow.stockName} R6 긴급 청산 30% (${emergencyQty}주) @${currentPrice.toLocaleString()}`);
       const r6Res = await placeKisSellOrder(shadow.stockCode, shadow.stockName, emergencyQty, 'STOP_LOSS');
-      appendFill(shadow, {
+      const r6Ts = new Date().toISOString();
+      recordSell(shadow, {
         type: 'SELL', subType: 'EMERGENCY',
         qty: emergencyQty, price: currentPrice,
         pnl: (currentPrice - shadow.shadowEntryPrice) * emergencyQty,
         pnlPct: returnPct, reason: 'R6 긴급청산 30%',
-        exitRuleTag: 'R6_EMERGENCY_EXIT', timestamp: new Date().toISOString(),
+        exitRuleTag: 'R6_EMERGENCY_EXIT', timestamp: r6Ts,
         ordNo: r6Res.ordNo ?? undefined,
-      });
+      }, 'R6_EMERGENCY');
       syncPositionCache(shadow);
       if (r6Res.placed && r6Res.ordNo) {
         addSellOrder({
@@ -267,28 +297,27 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         const stillDead = mas ? isMA60Death(mas.ma20, mas.ma60, currentPrice) : true;
         if (stillDead) {
           const soldQty = shadow.quantity;
-          Object.assign(shadow, {
+          updateShadow(shadow, {
             status: 'HIT_STOP',
             exitPrice: currentPrice,
             exitTime: new Date().toISOString(),
-            returnPct,
             exitRuleTag: 'MA60_DEATH_FORCE_EXIT',
             ma60DeathForced: true,
-            originalQuantity: shadow.originalQuantity ?? soldQty,
             quantity: 0,
           });
           console.log(`[Shadow Close] MA60_DEATH_FORCE_EXIT — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
           appendShadowLog({ event: 'MA60_DEATH_FORCE_EXIT', ...shadow, soldQty });
           console.log(`[AutoTrade] ⚰️ ${shadow.stockName} MA60 죽음 강제 청산 ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
           const ma60Res = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'STOP_LOSS');
-          appendFill(shadow, {
+          const ma60Ts = new Date().toISOString();
+          recordSell(shadow, {
             type: 'SELL', subType: 'EMERGENCY',
             qty: soldQty, price: currentPrice,
             pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
             pnlPct: returnPct, reason: 'MA60 역배열 강제청산',
-            exitRuleTag: 'MA60_DEATH_FORCE_EXIT', timestamp: new Date().toISOString(),
+            exitRuleTag: 'MA60_DEATH_FORCE_EXIT', timestamp: ma60Ts,
             ordNo: ma60Res.ordNo ?? undefined,
-          });
+          }, 'MA60_FORCE');
           if (ma60Res.placed && ma60Res.ordNo) {
             addSellOrder({
               ordNo: ma60Res.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
@@ -334,28 +363,27 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           : (initialStopLoss > regimeStopLoss ? 'INITIAL' : 'REGIME');
       }
       const soldQty = shadow.quantity;
-      Object.assign(shadow, {
+      updateShadow(shadow, {
         status: 'HIT_STOP',
         exitPrice: currentPrice,
         exitTime: new Date().toISOString(),
-        returnPct,
         stopLossExitType,
         exitRuleTag: 'HARD_STOP',
-        originalQuantity: shadow.originalQuantity ?? soldQty,
         quantity: 0,
       });
       console.log(`[Shadow Close] HARD_STOP — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
       appendShadowLog({ event: 'HIT_STOP', ...shadow, stopLossExitType, soldQty });
       console.log(`[AutoTrade] ❌ ${shadow.stockName} 하드 스톱(${stopLossExitType}) ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
       const hardStopRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'STOP_LOSS');
-      appendFill(shadow, {
+      const hardStopTs = new Date().toISOString();
+      recordSell(shadow, {
         type: 'SELL', subType: 'STOP_LOSS',
         qty: soldQty, price: currentPrice,
         pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
         pnlPct: returnPct, reason: `하드스톱 손절 (${stopLossExitType})`,
-        exitRuleTag: 'HARD_STOP', timestamp: new Date().toISOString(),
+        exitRuleTag: 'HARD_STOP', timestamp: hardStopTs,
         ordNo: hardStopRes.ordNo ?? undefined,
-      });
+      }, 'HARD_STOP');
       if (hardStopRes.placed && hardStopRes.ordNo) {
         addSellOrder({
           ordNo: hardStopRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
@@ -379,27 +407,26 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
     if (returnPct <= -25) {
       const isBlacklistStep = returnPct <= -30;
       const soldQty = shadow.quantity;
-      Object.assign(shadow, {
+      updateShadow(shadow, {
         status: 'HIT_STOP',
         exitPrice: currentPrice,
         exitTime: new Date().toISOString(),
-        returnPct,
         exitRuleTag: 'CASCADE_FINAL',
-        originalQuantity: shadow.originalQuantity ?? soldQty,
         quantity: 0,
       });
       console.log(`[Shadow Close] CASCADE_FINAL — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
       appendShadowLog({ event: isBlacklistStep ? 'CASCADE_STOP_BLACKLIST' : 'CASCADE_STOP_FINAL', ...shadow, soldQty });
       console.log(`[AutoTrade] ❌ ${shadow.stockName} Cascade ${returnPct.toFixed(2)}% — 전량 청산${isBlacklistStep ? ' + 블랙리스트 180일' : ''}`);
       const cascadeFinalRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'STOP_LOSS');
-      appendFill(shadow, {
+      const cascadeFinalTs = new Date().toISOString();
+      recordSell(shadow, {
         type: 'SELL', subType: 'STOP_LOSS',
         qty: soldQty, price: currentPrice,
         pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
         pnlPct: returnPct, reason: '캐스케이드 전량청산',
-        exitRuleTag: 'CASCADE_FINAL', timestamp: new Date().toISOString(),
+        exitRuleTag: 'CASCADE_FINAL', timestamp: cascadeFinalTs,
         ordNo: cascadeFinalRes.ordNo ?? undefined,
-      });
+      }, 'HARD_STOP');
       if (cascadeFinalRes.placed && cascadeFinalRes.ordNo) {
         addSellOrder({
           ordNo: cascadeFinalRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
@@ -444,14 +471,16 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           appendShadowLog({ event: 'PROFIT_TRANCHE', ...shadow, soldQty: sellQty, tranchePrice: t.price, returnPct });
           console.log(`[AutoTrade] 📈 ${shadow.stockName} L3 분할 익절 ${(t.ratio * 100).toFixed(0)}% (${sellQty}주) @${currentPrice.toLocaleString()}`);
           const trancheRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
-          appendFill(shadow, {
+          const trancheTs  = new Date().toISOString();
+          const trancheIdx = shadow.profitTranches?.filter(x => x.taken && x !== t).length ?? 0;
+          recordSell(shadow, {
             type: 'SELL', subType: 'PARTIAL_TP',
             qty: sellQty, price: currentPrice,
             pnl: (currentPrice - shadow.shadowEntryPrice) * sellQty,
             pnlPct: returnPct, reason: `분할익절 트랜치 ${(t.ratio * 100).toFixed(0)}%`,
-            exitRuleTag: 'LIMIT_TRANCHE_TAKE_PROFIT', timestamp: new Date().toISOString(),
+            exitRuleTag: 'LIMIT_TRANCHE_TAKE_PROFIT', timestamp: trancheTs,
             ordNo: trancheRes.ordNo ?? undefined,
-          });
+          }, trancheIdx === 0 ? 'LIMIT_TP1' : 'LIMIT_TP2');
           syncPositionCache(shadow);
           if (trancheRes.placed && trancheRes.ordNo) {
             addSellOrder({
@@ -487,7 +516,7 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       }
       // 전량 소진 시 종료
       if (shadow.quantity <= 0) {
-        Object.assign(shadow, { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct });
+        updateShadow(shadow, { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString() });
         appendShadowLog({ event: 'FULLY_CLOSED_TRANCHES', ...shadow });
         continue;
       }
@@ -498,28 +527,27 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       const trailFloor = shadow.trailingHighWaterMark * (1 - (shadow.trailPct ?? 0.10));
       if (currentPrice <= trailFloor) {
         const soldQty = shadow.quantity;
-        Object.assign(shadow, {
+        updateShadow(shadow, {
           status: 'HIT_TARGET',
           exitPrice: currentPrice,
           exitTime: new Date().toISOString(),
-          returnPct,
           stopLossExitType: 'PROFIT_PROTECTION',
           exitRuleTag: 'TRAILING_PROTECTIVE_STOP',
-          originalQuantity: shadow.originalQuantity ?? soldQty,
           quantity: 0,
         });
         console.log(`[Shadow Close] TRAILING_PROTECTIVE_STOP — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
         appendShadowLog({ event: 'TRAILING_STOP', ...shadow, soldQty });
         console.log(`[AutoTrade] 📉 ${shadow.stockName} L3 트레일링 스톱 (HWM×${(1 - (shadow.trailPct ?? 0.10)).toFixed(2)}) @${currentPrice.toLocaleString()}`);
         const trailRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'TAKE_PROFIT');
-        appendFill(shadow, {
+        const trailTs = new Date().toISOString();
+        recordSell(shadow, {
           type: 'SELL', subType: 'TRAILING_TP',
           qty: soldQty, price: currentPrice,
           pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
           pnlPct: returnPct, reason: '트레일링 스톱 청산',
-          exitRuleTag: 'TRAILING_PROTECTIVE_STOP', timestamp: new Date().toISOString(),
+          exitRuleTag: 'TRAILING_PROTECTIVE_STOP', timestamp: trailTs,
           ordNo: trailRes.ordNo ?? undefined,
-        });
+        }, 'TRAILING_STOP');
         if (trailRes.placed && trailRes.ordNo) {
           addSellOrder({
             ordNo: trailRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
@@ -548,27 +576,26 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
     // ① 목표가 달성 → 익절 전량 매도 (트랜치 미설정 구형 포지션 fallback)
     if (currentPrice >= shadow.targetPrice) {
       const soldQty = shadow.quantity;
-      Object.assign(shadow, {
+      updateShadow(shadow, {
         status: 'HIT_TARGET',
         exitPrice: currentPrice,
         exitTime: new Date().toISOString(),
-        returnPct,
         exitRuleTag: 'TARGET_EXIT',
-        originalQuantity: shadow.originalQuantity ?? soldQty,
         quantity: 0,
       });
       console.log(`[Shadow Close] TARGET_EXIT — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
       appendShadowLog({ event: 'HIT_TARGET', ...shadow, soldQty });
       console.log(`[AutoTrade] ✅ ${shadow.stockName} 목표가 달성 +${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
       const targetRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'TAKE_PROFIT');
-      appendFill(shadow, {
+      const targetTs = new Date().toISOString();
+      recordSell(shadow, {
         type: 'SELL', subType: 'FULL_CLOSE',
         qty: soldQty, price: currentPrice,
         pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
         pnlPct: returnPct, reason: '목표가 달성 전량청산',
-        exitRuleTag: 'TARGET_EXIT', timestamp: new Date().toISOString(),
+        exitRuleTag: 'TARGET_EXIT', timestamp: targetTs,
         ordNo: targetRes.ordNo ?? undefined,
-      });
+      }, 'FULL_CLOSE');
       if (targetRes.placed && targetRes.ordNo) {
         addSellOrder({
           ordNo: targetRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
@@ -602,14 +629,15 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       appendShadowLog({ event: 'CASCADE_HALF_SELL', ...shadow, soldQty: halfQty, returnPct });
       console.log(`[AutoTrade] 🔶 ${shadow.stockName} Cascade -15% — 반매도 ${halfQty}주 (잔여 ${shadow.quantity - halfQty}주)`);
       const cascadeHalfRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'STOP_LOSS');
-      appendFill(shadow, {
+      const cascadeHalfTs = new Date().toISOString();
+      recordSell(shadow, {
         type: 'SELL', subType: 'STOP_LOSS',
         qty: halfQty, price: currentPrice,
         pnl: (currentPrice - shadow.shadowEntryPrice) * halfQty,
         pnlPct: returnPct, reason: '캐스케이드 -15% 반매도',
-        exitRuleTag: 'CASCADE_HALF_SELL', timestamp: new Date().toISOString(),
+        exitRuleTag: 'CASCADE_HALF_SELL', timestamp: cascadeHalfTs,
         ordNo: cascadeHalfRes.ordNo ?? undefined,
-      });
+      }, 'CASCADE_HALF');
       syncPositionCache(shadow);
       if (cascadeHalfRes.placed && cascadeHalfRes.ordNo) {
         addSellOrder({
@@ -655,14 +683,15 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           appendShadowLog({ event: 'RRR_COLLAPSE_PARTIAL', ...shadow, soldQty: sellQty, liveRRR, returnPct });
           console.log(`[AutoTrade] 📊 ${shadow.stockName} RRR 붕괴 (${liveRRR.toFixed(2)}) — 50% 익절 ${sellQty}주 @${currentPrice.toLocaleString()}`);
           const rrrRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
-          appendFill(shadow, {
+          const rrrTs = new Date().toISOString();
+          recordSell(shadow, {
             type: 'SELL', subType: 'PARTIAL_TP',
             qty: sellQty, price: currentPrice,
             pnl: (currentPrice - shadow.shadowEntryPrice) * sellQty,
             pnlPct: returnPct, reason: 'RRR 붕괴 50% 익절',
-            exitRuleTag: 'RRR_COLLAPSE_PARTIAL', timestamp: new Date().toISOString(),
+            exitRuleTag: 'RRR_COLLAPSE_PARTIAL', timestamp: rrrTs,
             ordNo: rrrRes.ordNo ?? undefined,
-          });
+          }, 'LIMIT_TP1');
           syncPositionCache(shadow);
           if (rrrRes.placed && rrrRes.ordNo) {
             addSellOrder({
@@ -709,14 +738,15 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         appendShadowLog({ event: 'DIVERGENCE_PARTIAL', ...shadow, soldQty: sellQty, returnPct });
         console.log(`[AutoTrade] 📉 ${shadow.stockName} 하락 다이버전스 — 30% 익절 ${sellQty}주 @${currentPrice.toLocaleString()}`);
         const divRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
-        appendFill(shadow, {
+        const divTs = new Date().toISOString();
+        recordSell(shadow, {
           type: 'SELL', subType: 'PARTIAL_TP',
           qty: sellQty, price: currentPrice,
           pnl: (currentPrice - shadow.shadowEntryPrice) * sellQty,
           pnlPct: returnPct, reason: '하락 다이버전스 30% 익절',
-          exitRuleTag: 'DIVERGENCE_PARTIAL', timestamp: new Date().toISOString(),
+          exitRuleTag: 'DIVERGENCE_PARTIAL', timestamp: divTs,
           ordNo: divRes.ordNo ?? undefined,
-        });
+        }, 'LIMIT_TP1');
         syncPositionCache(shadow);
         if (divRes.placed && divRes.ordNo) {
           addSellOrder({
@@ -840,14 +870,15 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           originalQuantity: shadow.originalQuantity,
         });
         const euphoriaRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'EUPHORIA');
-        appendFill(shadow, {
+        const euphoriaTs = new Date().toISOString();
+        recordSell(shadow, {
           type: 'SELL', subType: 'PARTIAL_TP',
           qty: halfQty, price: currentPrice,
           pnl: (currentPrice - shadow.shadowEntryPrice) * halfQty,
           pnlPct: returnPct, reason: '과열 감지 50% 익절',
-          exitRuleTag: 'EUPHORIA_PARTIAL', timestamp: new Date().toISOString(),
+          exitRuleTag: 'EUPHORIA_PARTIAL', timestamp: euphoriaTs,
           ordNo: euphoriaRes.ordNo ?? undefined,
-        });
+        }, 'LIMIT_TP1');
         syncPositionCache(shadow);
         if (euphoriaRes.placed && euphoriaRes.ordNo) {
           addSellOrder({

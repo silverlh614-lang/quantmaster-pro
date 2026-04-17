@@ -16,6 +16,10 @@ export function conditionWeightsRegimeFile(regime: string): string {
   return path.join(DATA_DIR, `condition-weights-${safe}.json`);
 }
 export const SHADOW_FILE             = path.join(DATA_DIR, 'shadow-trades.json');
+/** data/trade-events-YYYYMM.jsonl — 월별 롤링 append-only 이벤트 로그 */
+export function tradeEventsFile(yyyymm: string): string {
+  return path.join(DATA_DIR, `trade-events-${yyyymm}.jsonl`);
+}
 export const SHADOW_LOG_FILE         = path.join(DATA_DIR, 'shadow-log.json');
 export const MACRO_STATE_FILE        = path.join(DATA_DIR, 'macro-state.json');
 export const CONDITION_WEIGHTS_FILE  = path.join(DATA_DIR, 'condition-weights.json');
