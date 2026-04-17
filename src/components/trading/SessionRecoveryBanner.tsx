@@ -6,14 +6,8 @@ import React, { useState, useEffect } from 'react';
 import { RotateCcw, X, Clock, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../ui/cn';
-
-interface SessionStateResponse {
-  restored: boolean;
-  savedAt?: string;
-  gateWeights?: Record<string, number>;
-  universeSelection?: string[];
-  initialInvestment?: number;
-}
+import { sessionApi } from '../../api';
+import type { SessionStateResponse } from '../../api';
 
 export function SessionRecoveryBanner() {
   const [session, setSession] = useState<SessionStateResponse | null>(null);
@@ -21,9 +15,8 @@ export function SessionRecoveryBanner() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch('/api/session-state')
-      .then(r => r.json())
-      .then((data: SessionStateResponse) => {
+    sessionApi.get()
+      .then((data) => {
         if (data.restored && data.savedAt) {
           setSession(data);
         }
@@ -51,16 +44,12 @@ export function SessionRecoveryBanner() {
     window.addEventListener('beforeunload', saveCurrentState);
     // 5분마다 자동 저장
     const interval = setInterval(() => {
-      fetch('/api/session-state', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          gateWeights: {},
-          universeSelection: [],
-          initialInvestment: 100000000,
-          tradingSettings: {},
-          savedAt: new Date().toISOString(),
-        }),
+      sessionApi.save({
+        gateWeights: {},
+        universeSelection: [],
+        initialInvestment: 100000000,
+        tradingSettings: {},
+        savedAt: new Date().toISOString(),
       }).catch(() => {});
     }, 5 * 60 * 1000);
 

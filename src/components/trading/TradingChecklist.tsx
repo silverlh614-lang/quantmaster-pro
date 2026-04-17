@@ -3,6 +3,7 @@
  * 자동매매 최초 설정 시 순서대로 검증하는 내장 체크리스트
  */
 import React, { useState } from 'react';
+import { kisApi } from '../../api';
 
 type StepStatus = 'idle' | 'running' | 'ok' | 'error';
 
@@ -19,8 +20,7 @@ const STEPS: Step[] = [
     label: 'KIS 토큰 발급 확인',
     description: 'GET /api/kis/token-status → { valid: true, expiresIn }',
     run: async () => {
-      const res = await fetch('/api/kis/token-status');
-      const data = await res.json();
+      const data = await kisApi.getTokenStatus();
       if (!data.valid) throw new Error(data.reason ?? '토큰 미발급');
       return `토큰 유효 (만료까지 ${data.expiresIn})`;
     },
@@ -30,8 +30,7 @@ const STEPS: Step[] = [
     label: '현재가 조회 — 삼성전자(005930)',
     description: 'KIS inquire-price TR 호출 → 실제 가격 반환 확인',
     run: async () => {
-      const res = await fetch('/api/kis/price?code=005930');
-      const data = await res.json();
+      const data = await kisApi.getPrice('005930');
       const price = data.output?.stck_prpr;
       if (!price || price === '0') throw new Error('가격 조회 실패: ' + JSON.stringify(data));
       return `현재가 ${Number(price).toLocaleString()}원 확인`;
@@ -42,9 +41,9 @@ const STEPS: Step[] = [
     label: '모의계좌 잔고 조회',
     description: 'GET /api/kis/balance → 초기 자금 확인 (기본 1억원)',
     run: async () => {
-      const res = await fetch('/api/kis/balance');
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
+      const data = await kisApi.getBalance();
+      const err = (data as { error?: string }).error;
+      if (err) throw new Error(err);
       const cash = data.output2?.[0]?.dnca_tot_amt ?? data.output?.dnca_tot_amt ?? '?';
       return `잔고 ${Number(cash).toLocaleString()}원 확인`;
     },
@@ -54,8 +53,7 @@ const STEPS: Step[] = [
     label: '소액 주문 테스트 — 삼성전자 1주 시장가 매수',
     description: 'KIS order-cash (VTS) → 체결 주문번호 수신',
     run: async () => {
-      const res = await fetch('/api/kis/order/test', { method: 'POST' });
-      const data = await res.json();
+      const data = await kisApi.testOrder();
       if (data.rt_cd !== '0') throw new Error(data.msg1 ?? data.error ?? '주문 실패');
       return `체결 완료 — 주문번호 ${data.output?.ORD_NO ?? '(수신됨)'}  /  이론가 ${Number(data.currentPrice).toLocaleString()}원`;
     },
@@ -65,9 +63,8 @@ const STEPS: Step[] = [
     label: '슬리피지 계산',
     description: '위 주문의 체결가 vs 이론가 차이 자동 계산',
     run: async () => {
-      const res = await fetch('/api/kis/fills/today?code=005930');
-      const fills = await res.json();
-      const fill = Array.isArray(fills) ? fills[0] : null;
+      const fills = await kisApi.getTodayFills('005930');
+      const fill = Array.isArray(fills) ? (fills[0] as Record<string, unknown>) : null;
       if (!fill) return '체결 내역 없음 (장 외 시간 또는 조회 지연)';
       const exec = Number(fill.avg_prvs ?? fill.ord_unpr ?? 0);
       const theory = Number(fill.ord_unpr ?? 0);

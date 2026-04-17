@@ -2,7 +2,7 @@
  * ShadowPortfolioPanel — 섀도우 계좌 포트폴리오 대시보드
  * KPI 헤더 · 보유 포지션 · 거래내역(체결 트리 포함) · 통계
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   RefreshCw, TrendingUp, TrendingDown, Wallet, BarChart2,
   ChevronDown, ChevronUp, Clock, Target, ShieldAlert,
@@ -13,6 +13,9 @@ import { KpiStrip, type KpiItem } from '../../ui/kpi-strip';
 import { Badge } from '../../ui/badge';
 import { Spinner } from '../../ui/spinner';
 import { isMarketOpen } from '../../utils/marketTime';
+import { fmtPrice, fmtQty } from '../../utils/format';
+import { shadowApi, ApiError } from '../../api';
+import { usePolledFetch } from '../../hooks/usePolledFetch';
 
 // ─── 타입 (서버 shadowAccountRepo.ts 미러) ───────────────────────────────────
 
@@ -91,16 +94,20 @@ interface ShadowAccountState {
 
 // ─── 포맷 유틸 ─────────────────────────────────────────────────────────────────
 
-function fmtKrw(v: number): string {
-  if (Math.abs(v) >= 100_000_000)
-    return `${(v / 100_000_000).toFixed(2)}억`;
-  if (Math.abs(v) >= 10_000)
-    return `${Math.round(v / 10_000).toLocaleString()}만`;
-  return `${Math.round(v).toLocaleString()}원`;
+function fmtKrw(v: unknown): string {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return '—';
+  if (Math.abs(n) >= 100_000_000)
+    return `${(n / 100_000_000).toFixed(2)}억`;
+  if (Math.abs(n) >= 10_000)
+    return `${Math.round(n / 10_000).toLocaleString()}만`;
+  return `${Math.round(n).toLocaleString()}원`;
 }
 
-function fmtPct(v: number, digits = 2): string {
-  return `${v >= 0 ? '+' : ''}${v.toFixed(digits)}%`;
+function fmtPct(v: unknown, digits = 2): string {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return '—';
+  return `${n >= 0 ? '+' : ''}${n.toFixed(digits)}%`;
 }
 
 function fmtTime(iso: string): string {
@@ -208,17 +215,17 @@ function OpenPositionCard({ pos }: { pos: ActivePosition }) {
       <div className="grid grid-cols-3 gap-2 text-[10px]">
         <div className="text-center">
           <p className="text-theme-text-muted">진입가</p>
-          <p className="font-num font-bold text-theme-text">{pos.entryPrice.toLocaleString()}</p>
+          <p className="font-num font-bold text-theme-text">{fmtPrice(pos.entryPrice)}</p>
         </div>
         <div className="text-center">
           <p className="text-theme-text-muted">현재가</p>
           <p className={cn('font-num font-bold', hasPrice ? (isPos ? 'text-green-400' : 'text-red-400') : 'text-theme-text-muted')}>
-            {hasPrice ? pos.currentPrice!.toLocaleString() : '—'}
+            {hasPrice ? fmtPrice(pos.currentPrice) : '—'}
           </p>
         </div>
         <div className="text-center">
           <p className="text-theme-text-muted">손절가</p>
-          <p className="font-num font-bold text-red-400/80">{pos.stopLoss.toLocaleString()}</p>
+          <p className="font-num font-bold text-red-400/80">{fmtPrice(pos.stopLoss)}</p>
         </div>
       </div>
 
@@ -236,8 +243,8 @@ function OpenPositionCard({ pos }: { pos: ActivePosition }) {
             />
           </div>
           <div className="flex justify-between text-[9px] text-theme-text-muted font-num">
-            <span>손절 {pos.stopLoss.toLocaleString()}</span>
-            <span>목표 {pos.targetPrice.toLocaleString()}</span>
+            <span>손절 {fmtPrice(pos.stopLoss)}</span>
+            <span>목표 {fmtPrice(pos.targetPrice)}</span>
           </div>
         </div>
       )}
@@ -314,8 +321,8 @@ function ClosedTradeRow({
           {trade.fills.map(fill => (
             <div key={fill.id} className="flex items-center gap-2 text-[10px] sm:text-xs">
               <FillBadge fill={fill} />
-              <span className="font-num text-theme-text">{fill.price.toLocaleString()}원</span>
-              <span className="text-theme-text-muted">×{fill.qty}주</span>
+              <span className="font-num text-theme-text">{fmtPrice(fill.price)}원</span>
+              <span className="text-theme-text-muted">×{fmtQty(fill.qty, { placeholder: '—주' })}</span>
               {fill.pnlPct !== undefined && (
                 <span className={cn('font-num font-bold', fill.pnlPct >= 0 ? 'text-green-400' : 'text-red-400')}>
                   {fmtPct(fill.pnlPct, 1)}
@@ -344,53 +351,35 @@ export function ShadowPortfolioPanel() {
   const [expandedTrades, setExpandedTrades] = useState<Set<string>>(new Set());
   // 상대시간("N분 전")을 주기적으로 재렌더하기 위한 tick — 30초마다 갱신.
   const [, setRelativeTick] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── 데이터 페치 ─────────────────────────────────────────────────────────────
+  // silent=true 는 폴링(재진입) 호출에서 스피너를 띄우지 않기 위함.
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/shadow/account');
-      if (!res.ok) throw new Error(`서버 오류 ${res.status}`);
-      const data: ShadowAccountState = await res.json();
+      const data = await shadowApi.getAccount<ShadowAccountState>();
       setAccount(data);
       setLastRefresh(new Date());
-    } catch (e: any) {
-      setError(e.message ?? '알 수 없는 오류');
+    } catch (e) {
+      const msg = e instanceof ApiError
+        ? `서버 오류 ${e.status}`
+        : e instanceof Error ? e.message : '알 수 없는 오류';
+      setError(msg);
     } finally {
       if (!silent) setLoading(false);
     }
   }, []);
 
-  // ── 초기 로드 + 장중·가시 상태 1분 자동 폴링 ─────────────────────────────
+  // 초기 로드(스피너 표시) + 장중·가시 상태에서 60s 폴링(silent).
+  usePolledFetch(() => refresh(true), { skipInitial: true });
+  useEffect(() => { refresh(false); }, [refresh]);
+
+  // 상대시간 라벨("N분 전")만 30초마다 재렌더 (fetch 없음).
   useEffect(() => {
-    refresh();
-
-    const tick = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (!isMarketOpen()) return;
-      refresh(true);
-    };
-    intervalRef.current = setInterval(tick, 60_000);
-
-    // 숨겨졌다 돌아오면 장중 한정 1회 즉시 갱신
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible' && isMarketOpen()) {
-        refresh(true);
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-
-    // 상대시간 라벨을 30초마다 재렌더 (fetch는 하지 않음)
-    const relativeInterval = setInterval(() => setRelativeTick(t => t + 1), 30_000);
-
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      clearInterval(relativeInterval);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, [refresh]);
+    const id = setInterval(() => setRelativeTick(t => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   // ── 체결 트리 토글 ───────────────────────────────────────────────────────────
   const toggleTrade = useCallback((id: string) => {

@@ -4,6 +4,42 @@ import type { TradeRecord } from '../types/quant';
 import type { StockRecommendation } from '../services/stockService';
 type Updater<T> = T | ((prev: T) => T);
 
+/**
+ * 영속된 레거시 TradeRecord 를 렌더링 안전한 형태로 정규화한다.
+ *
+ * 과거 버전에서 `parseFloat('') || undefined` 경로 등으로 수치 필드에
+ * `undefined` 가 저장된 케이스가 있었고, 그 레코드가 TradeJournal 에서
+ * `.toLocaleString()` · `.toFixed()` 호출 시 TypeError 를 내며
+ * 카드 전체(수량/매수가) 가 렌더되지 않던 원인을 여기서 차단한다.
+ */
+function sanitizeTradeRecord(raw: unknown): TradeRecord | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const t = raw as Record<string, unknown>;
+  if (typeof t.id !== 'string' || typeof t.stockCode !== 'string') return null;
+
+  const num = (v: unknown, fallback = 0): number => {
+    const n = typeof v === 'number' ? v : Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+
+  return {
+    ...(t as unknown as TradeRecord),
+    buyPrice: num(t.buyPrice),
+    quantity: Math.max(0, Math.floor(num(t.quantity))),
+    positionSize: num(t.positionSize, 10),
+    gate1Score: num(t.gate1Score),
+    gate2Score: num(t.gate2Score),
+    gate3Score: num(t.gate3Score),
+    finalScore: num(t.finalScore),
+    // 선택적 필드는 값이 있을 때만 유한한지 확인, 아니면 undefined 로 정리
+    sellPrice: t.sellPrice != null && Number.isFinite(Number(t.sellPrice)) ? Number(t.sellPrice) : undefined,
+    currentPrice: t.currentPrice != null && Number.isFinite(Number(t.currentPrice)) ? Number(t.currentPrice) : undefined,
+    returnPct: t.returnPct != null && Number.isFinite(Number(t.returnPct)) ? Number(t.returnPct) : undefined,
+    holdingDays: t.holdingDays != null && Number.isFinite(Number(t.holdingDays)) ? Number(t.holdingDays) : undefined,
+    buyDate: typeof t.buyDate === 'string' ? t.buyDate : new Date().toISOString(),
+  } as TradeRecord;
+}
+
 interface TradeState {
   // Trade Records
   tradeRecords: TradeRecord[];
@@ -61,6 +97,18 @@ export const useTradeStore = create<TradeState>()(
       partialize: (state) => ({
         tradeRecords: state.tradeRecords,
       }),
+      // 영속된 레코드 위생처리 — undefined 수치 필드로 인한 렌더 크래시 차단.
+      // rehydrate 시점에만 돌리므로 런타임 오버헤드는 무시 가능.
+      onRehydrateStorage: () => (state) => {
+        if (!state?.tradeRecords) return;
+        const cleaned = state.tradeRecords
+          .map(sanitizeTradeRecord)
+          .filter((t): t is TradeRecord => t !== null);
+        if (cleaned.length !== state.tradeRecords.length ||
+            cleaned.some((t, i) => t !== state.tradeRecords[i])) {
+          state.tradeRecords = cleaned;
+        }
+      },
     }
   )
 );

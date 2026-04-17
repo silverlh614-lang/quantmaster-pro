@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useRecommendationStore, useSettingsStore } from '../stores';
 import type { StockRecommendation } from '../services/stockService';
+import { autoTradeApi } from '../api';
 
 type HistoryEntry = { date: string; stocks: string[]; hitRate: number; strongBuyHitRate?: number };
 
@@ -46,20 +47,18 @@ export function useQuantRecommendations() {
 
     const added = (watchlist || []).filter((s: StockRecommendation) => !prevCodes.includes(s.code));
     for (const stock of added) {
-      fetch('/api/auto-trade/watchlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: stock.code, name: stock.name,
-          entryPrice: stock.entryPrice ?? stock.currentPrice ?? 0,
-          stopLoss: stock.stopLoss ?? 0, targetPrice: stock.targetPrice ?? 0,
-        }),
+      autoTradeApi.addToWatchlist({
+        code: stock.code,
+        name: stock.name,
+        entryPrice: stock.entryPrice ?? stock.currentPrice ?? 0,
+        stopLoss: stock.stopLoss ?? 0,
+        targetPrice: stock.targetPrice ?? 0,
       }).catch((err) => console.error('[ERROR] 워치리스트 동기화 실패:', err));
     }
 
     const removed = prevCodes.filter((code: string) => !currentCodes.includes(code));
     for (const code of removed) {
-      fetch(`/api/auto-trade/watchlist/${code}`, { method: 'DELETE' }).catch((err) => console.error('[ERROR] 워치리스트 삭제 실패:', err));
+      autoTradeApi.removeFromWatchlist(code).catch((err) => console.error('[ERROR] 워치리스트 삭제 실패:', err));
     }
   }, [watchlist]);
 
