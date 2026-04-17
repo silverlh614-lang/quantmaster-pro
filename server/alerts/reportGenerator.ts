@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import { createMailTransporter } from './mailer.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
@@ -100,22 +100,25 @@ export async function generateDailyReport(): Promise<void> {
   await sendTelegramAlert(telegramMsg).catch(console.error);
 
   // ── 이메일 발송 (보조 채널, 미설정 시 스킵) ────────────────────────────────
-  if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  let emailSent = false;
+  const transporter = createMailTransporter();
+  if (transporter) {
     const emailBody = narrative ? `${narrative}\n\n---\n${baseReport}` : baseReport;
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-    });
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: process.env.REPORT_EMAIL ?? process.env.EMAIL_USER,
-      subject: `[QuantMaster] ${today} 일일 리포트 — WIN률 ${winRate}%`,
-      text: emailBody,
-    }).catch((e: unknown) => console.error('[AutoTrade] 이메일 발송 실패:', e instanceof Error ? e.message : e));
-    console.log('[AutoTrade] 일일 리포트 이메일 발송 →', process.env.REPORT_EMAIL ?? process.env.EMAIL_USER);
+    try {
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: process.env.REPORT_EMAIL ?? process.env.EMAIL_USER,
+        subject: `[QuantMaster] ${today} 일일 리포트 — WIN률 ${winRate}%`,
+        text: emailBody,
+      });
+      emailSent = true;
+      console.log('[AutoTrade] 일일 리포트 이메일 발송 ✅ →', process.env.REPORT_EMAIL ?? process.env.EMAIL_USER);
+    } catch (e: unknown) {
+      console.error('[AutoTrade] 일일 리포트 이메일 발송 ❌', e instanceof Error ? e.message : e);
+    }
   }
 
-  console.log('[AutoTrade] 일일 리포트 완료 (Telegram + 이메일)');
+  console.log(`[AutoTrade] 일일 리포트 완료 (Telegram ✅ / 이메일 ${emailSent ? '✅' : '❌'})`);
 }
 
 /**

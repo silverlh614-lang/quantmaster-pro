@@ -1,5 +1,5 @@
 import fs from 'fs';
-import nodemailer from 'nodemailer';
+import { createMailTransporter } from './mailer.js';
 import { DART_FAST_SEEN_FILE, DART_LLM_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { type DartAlert, loadDartAlerts, saveDartAlerts } from '../persistence/dartRepo.js';
 import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
@@ -432,20 +432,21 @@ export async function applyDartToWatchlist(params: {
 }
 
 async function sendDartAlert(alert: DartAlert): Promise<void> {
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return;
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-  });
-  await transporter.sendMail({
-    from: process.env.EMAIL_USER,
-    to: process.env.REPORT_EMAIL ?? process.env.EMAIL_USER,
-    subject: `📢 [QuantMaster] 공시 알림: ${alert.corp_name} — ${alert.report_nm}`,
-    text: `종목코드: ${alert.stock_code}\n공시명: ${alert.report_nm}\n접수일: ${alert.rcept_dt}\n` +
-      `LLM 임팩트: ${alert.llmImpact ?? 'N/A'} (${alert.llmReason ?? ''})\n\n` +
-      `DART 바로가기: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${alert.rcept_no}`,
-  });
-  console.log(`[DART] 📧 알림 발송: ${alert.corp_name} — ${alert.report_nm}`);
+  const transporter = createMailTransporter();
+  if (!transporter) return;
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: process.env.REPORT_EMAIL ?? process.env.EMAIL_USER,
+      subject: `📢 [QuantMaster] 공시 알림: ${alert.corp_name} — ${alert.report_nm}`,
+      text: `종목코드: ${alert.stock_code}\n공시명: ${alert.report_nm}\n접수일: ${alert.rcept_dt}\n` +
+        `LLM 임팩트: ${alert.llmImpact ?? 'N/A'} (${alert.llmReason ?? ''})\n\n` +
+        `DART 바로가기: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${alert.rcept_no}`,
+    });
+    console.log(`[DART] 📧 알림 발송 ✅: ${alert.corp_name} — ${alert.report_nm}`);
+  } catch (e) {
+    console.error(`[DART] 📧 알림 발송 ❌: ${alert.corp_name}`, e instanceof Error ? e.message : e);
+  }
 }
 
 /**

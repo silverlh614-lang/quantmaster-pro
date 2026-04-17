@@ -4,11 +4,16 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import dns from "dns";
 import { createHash } from "crypto";
 import dotenv from "dotenv";
 import { tradingOrchestrator } from "./orchestrator/tradingOrchestrator.js";
 import { sendTelegramAlert, setTelegramBotCommands } from "./alerts/telegramClient.js";
 import { DATA_DIR, verifyVolumeMount } from "./persistence/paths.js";
+
+// Railway/Gmail SMTP IPv6 라우팅 이슈 방어: IPv4 lookup을 우선한다.
+// 이후 생성되는 모든 nodemailer/fetch DNS 조회에 적용됨.
+dns.setDefaultResultOrder('ipv4first');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

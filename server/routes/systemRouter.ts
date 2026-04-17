@@ -4,7 +4,7 @@
 //            POST /emergency-reset, POST /daily-loss, POST /send-email,
 //            POST /telegram/webhook, POST /telegram/test
 import { Router, Request, Response } from 'express';
-import nodemailer from 'nodemailer';
+import { createMailTransporter } from '../alerts/mailer.js';
 import {
   getEmergencyStop, setEmergencyStop,
   getDailyLossPct, setDailyLoss,
@@ -99,23 +99,14 @@ router.post('/send-email', async (req: Request, res: Response) => {
   }
 
   try {
-    // Check if environment variables are set
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    const transporter = createMailTransporter();
+    if (!transporter) {
       console.error("Email credentials missing in environment variables");
       return res.status(500).json({
         error: "이메일 서버가 설정되지 않았습니다.",
         details: "서버의 EMAIL_USER 또는 EMAIL_PASS 환경 변수가 누락되었습니다. AI Studio 설정에서 이를 추가해주세요.",
       });
     }
-
-    // Create a transporter
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
 
     const mailOptions = {
       from: process.env.EMAIL_USER,
