@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { PENDING_ORDERS_FILE, PENDING_SELL_ORDERS_FILE, ensureDataDir } from '../persistence/paths.js';
-import { loadShadowTrades, saveShadowTrades, appendFill } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, saveShadowTrades, appendFill, syncPositionCache, getRemainingQty } from '../persistence/shadowTradeRepo.js';
 import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL, SELL_TR_ID } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { registerOcoPair } from './ocoCloseLoop.js';
@@ -290,6 +290,75 @@ export function addSellOrder(order: Omit<PendingSellOrder, 'pollCount' | 'status
 }
 
 /**
+ * KIS CCLD 확인 결과로 Fill 레코드의 qty/price/pnl을 실체결량으로 보정한다.
+ *
+ * exitEngine이 매도 직후 `appendFill`로 기록한 Fill은 "의도 수량"을 가지고
+ * 있다. 실제 KIS 체결량은 CCLD로만 확인 가능하므로, 이 헬퍼가 두 값의
+ * 차이를 fills 배열에 반영한다. Fill SSOT 유지의 마지막 고리.
+ *
+ * @param relatedTradeId - 원본 shadow trade ID
+ * @param ordNo          - Fill에 저장된 KIS 주문번호 (exitEngine이 심어둔 값)
+ * @param filledQty      - KIS CCLD tot_ccld_qty
+ * @param fillPrice      - KIS CCLD avg_prvs (0이면 Fill의 기존 price 유지)
+ * @param finalize       - true면 ordNo 필드 제거 (더 이상 보정 안 함)
+ */
+function correctShadowFill(
+  relatedTradeId: string | undefined,
+  ordNo: string,
+  filledQty: number,
+  fillPrice: number,
+  finalize: boolean,
+): { remainingQty: number; closed: boolean } | null {
+  if (!relatedTradeId || !ordNo) return null;
+  const trades = loadShadowTrades();
+  const trade = trades.find(t => t.id === relatedTradeId);
+  if (!trade || !trade.fills) return null;
+
+  const fill = trade.fills.find(f => f.ordNo === ordNo);
+  if (!fill) return null;
+
+  const effectivePrice = fillPrice > 0 ? fillPrice : fill.price;
+  const qtyChanged = fill.qty !== filledQty;
+  const priceChanged = Math.abs((fill.price ?? 0) - effectivePrice) >= 1;
+  if (!qtyChanged && !priceChanged && !finalize) {
+    // 변경 없음 — 현재 잔량만 반환
+    return { remainingQty: getRemainingQty(trade), closed: false };
+  }
+
+  if (qtyChanged) fill.qty = filledQty;
+  if (priceChanged) fill.price = effectivePrice;
+  // pnl / pnlPct 재계산 (entryPrice 기준)
+  if (trade.shadowEntryPrice > 0) {
+    fill.pnl = (effectivePrice - trade.shadowEntryPrice) * filledQty;
+    fill.pnlPct = ((effectivePrice - trade.shadowEntryPrice) / trade.shadowEntryPrice) * 100;
+  }
+  if (finalize) delete fill.ordNo;
+
+  syncPositionCache(trade);
+
+  // 보정 결과 잔량이 0이 됐는데 status가 아직 열린 상태이면 HIT_STOP으로 자동 전환
+  // (reconcileShadowQuantities와 동일 원칙). 전량청산 경로는 exitEngine이 이미 status를
+  // 설정하지만, 부분청산 fill이 누적되어 잔량이 0이 되는 경로는 닫아줄 주체가 없다.
+  const openStatuses = new Set(['ACTIVE', 'PARTIALLY_FILLED', 'EUPHORIA_PARTIAL', 'PENDING', 'ORDER_SUBMITTED']);
+  const remainingQty = getRemainingQty(trade);
+  let autoClosed = false;
+  if (remainingQty === 0 && openStatuses.has(trade.status)) {
+    trade.status = 'HIT_STOP';
+    trade.exitTime ??= new Date().toISOString();
+    trade.exitPrice ??= effectivePrice;
+    autoClosed = true;
+    console.log(`[SellFillMonitor] 🏁 자동 닫힘: ${trade.stockCode} 잔량 0 → HIT_STOP`);
+  }
+
+  saveShadowTrades(trades);
+
+  const action = finalize ? '최종 보정' : '중간 보정';
+  console.log(`[SellFillMonitor] 🔧 Fill ${action}: ${trade.stockCode} ordNo=${ordNo} qty=${filledQty} @${effectivePrice.toLocaleString()}원 pnl=${fill.pnl?.toFixed(0)}`);
+
+  return { remainingQty, closed: autoClosed };
+}
+
+/**
  * 매도 체결 확인 폴링 — 30초 간격 최대 5회.
  * 미체결 시 지정가→시장가 자동 전환 재발행.
  * 부분 체결 시 잔여 수량 재폴링.
@@ -351,12 +420,19 @@ export async function pollSellFills(): Promise<void> {
         changed = true;
         console.log(`[SellFillMonitor] ✅ 매도 체결 확인: ${order.stockName} ${filledQty}주 @${avgPrice.toLocaleString()}원`);
 
-        // shadow.status 최종 전환 — exitEngine이 이미 HIT_STOP/HIT_TARGET 설정했으므로 추가 전환 불필요
-        // 단, 로그 기록으로 체결 확인 표시
+        // Fill 레코드를 실체결량으로 최종 보정 (ordNo 제거)
+        const correction = correctShadowFill(order.relatedTradeId, order.ordNo, filledQty, avgPrice, true);
+
+        const remainingLine = correction
+          ? (correction.closed
+              ? '\n포지션 전량 청산 완료 (자동 닫힘)'
+              : `\n잔여: ${correction.remainingQty}주`)
+          : '';
         await sendTelegramAlert(
           `✅ <b>[매도 체결 확인]</b> ${order.stockName} (${order.stockCode})\n` +
           `체결: ${filledQty}주 @${avgPrice.toLocaleString()}원\n` +
-          `사유: ${order.originalReason} | 주문번호: ${order.ordNo}`,
+          `사유: ${order.originalReason} | 주문번호: ${order.ordNo}` +
+          remainingLine,
         ).catch(console.error);
       } else if (filledQty > 0) {
         // ── 부분 체결 → 잔여 재폴링 ──
@@ -367,6 +443,9 @@ export async function pollSellFills(): Promise<void> {
         });
         changed = true;
         console.log(`[SellFillMonitor] ◐ 매도 부분 체결: ${order.stockName} ${filledQty}/${order.quantity}주`);
+
+        // Fill 레코드를 현 시점 부분체결량으로 중간 보정 (ordNo 유지 — 추가 체결/재발행 대기)
+        correctShadowFill(order.relatedTradeId, order.ordNo, filledQty, avgPrice, false);
 
         // 마지막 폴링이면 잔여 수량 시장가 재발행
         if (order.pollCount >= SELL_POLL_MAX) {

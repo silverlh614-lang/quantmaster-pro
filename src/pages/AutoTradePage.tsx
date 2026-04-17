@@ -14,6 +14,7 @@ import { TradingChecklist } from '../components/trading/TradingChecklist';
 import { TradingSettingsPanel } from '../components/trading/TradingSettingsPanel';
 import { SessionRecoveryBanner } from '../components/trading/SessionRecoveryBanner';
 import { ShadowPortfolioPanel } from '../components/trading/ShadowPortfolioPanel';
+import { isMarketOpen } from '../utils/marketTime';
 
 // ─── 조건 키 → 사람이 읽을 수 있는 한국어 레이블 ─────────────────────────────
 const CONDITION_LABELS: Record<string, string> = {
@@ -316,9 +317,31 @@ export function AutoTradePage() {
         }
       }).catch((err) => console.error('[ERROR] 계좌 잔고 조회 실패:', err));
     };
+
+    // 초기 1회는 무조건 로드 (장외에도 현재 계좌 상태는 보여야 함)
     fetchServerData();
-    const interval = setInterval(fetchServerData, 60 * 1000); // 1분 간격 polling
-    return () => clearInterval(interval);
+
+    // 이후 반복 폴링은 장중 + 탭 가시 상태일 때만. 장외/휴일/백그라운드
+    // 탭에서 KIS·내부 API를 의미 없이 두드리지 않도록.
+    const tick = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!isMarketOpen()) return;
+      fetchServerData();
+    };
+    const interval = setInterval(tick, 60 * 1000);
+
+    // 탭이 숨겨져 있다가 다시 보이면 즉시 한 번 갱신 (장중 한정)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && isMarketOpen()) {
+        fetchServerData();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   return (
@@ -972,11 +995,12 @@ export function AutoTradePage() {
             const remaining = getRemainingQty(t);
             return remaining > 0;
           });
+          // 🔑 완결 = 잔량 0 (fills 단일 진실 원천). status 필드는 동기화 지연 가능성이
+          // 있어 기준으로 쓰지 않는다. 그렇지 않으면 status='HIT_STOP'인데 fills에 잔량이
+          // 남은 포지션이 보유중·완결 양쪽에 중복 표시된다.
           const closedTrades = serverShadowTrades.filter((t: any) => {
             if (t.status === 'REJECTED') return false;
-            const remaining = getRemainingQty(t);
-            return remaining === 0 ||
-              t.status === 'HIT_TARGET' || t.status === 'HIT_STOP';
+            return getRemainingQty(t) === 0;
           });
           const allFills: { fill: any; trade: any }[] = [];
           for (const t of serverShadowTrades) {

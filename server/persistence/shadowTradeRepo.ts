@@ -28,6 +28,13 @@ export interface PositionFill {
   reason: string;
   exitRuleTag?: string;
   timestamp: string;   // ISO
+  /**
+   * LIVE 모드 매도 시 KIS 주문번호 (ODNO).
+   * 값이 있으면 아직 CCLD 확인 대기 상태 — pollSellFills가 실체결량(qty/
+   * price/pnl)으로 Fill을 덮어쓰고 덮어쓴 뒤 ordNo를 undefined로 삭제한다.
+   * SHADOW 모드 또는 KIS 주문 실패/미송신 시 처음부터 undefined.
+   */
+  ordNo?: string;
 }
 
 // ─── Fill 헬퍼 함수 ────────────────────────────────────────────────────────────
@@ -68,6 +75,52 @@ export function getWeightedPnlPct(trade: ServerShadowTrade): number {
   const totalQty = sells.reduce((s, f) => s + f.qty, 0);
   if (totalQty === 0) return 0;
   return sells.reduce((s, f) => s + (f.pnlPct ?? 0) * f.qty, 0) / totalQty;
+}
+
+/**
+ * fills 배열을 단일 진실 원천으로 삼아 계산한 현재 보유 수량.
+ * BUY fill이 하나라도 있으면 Σ(BUY.qty) - Σ(SELL.qty), 없으면 레거시 trade.quantity.
+ *
+ * 이 함수는 `trade.quantity` 캐시를 **신뢰하지 않고** 매번 fills에서 파생한다.
+ * 청산 판정·UI 집계·회계 로직은 이 함수를 써야 캐시 불일치에 영향받지 않는다.
+ */
+export function getRemainingQty(trade: ServerShadowTrade): number {
+  const fills = trade.fills ?? [];
+  const buyQty  = fills.filter(f => f.type === 'BUY').reduce((s, f) => s + f.qty, 0);
+  const sellQty = fills.filter(f => f.type === 'SELL').reduce((s, f) => s + f.qty, 0);
+  if (buyQty > 0) return Math.max(0, buyQty - sellQty);
+  return trade.quantity ?? 0;
+}
+
+/**
+ * Fill 합산을 단일 진실 원천으로 삼아 포지션의 캐시 필드
+ * (`quantity`, `originalQuantity`)를 동기화한다. **멱등**이며, fills가 없는
+ * 레거시 거래는 건드리지 않는다.
+ *
+ * 주의: `status` 전환(HIT_TARGET/HIT_STOP 등)은 호출측 책임이다. 이 함수는
+ * 파생 수량 캐시만 갱신한다. 상태 자동 닫힘까지 포함한 전체 교정은
+ * `reconcileShadowQuantities()`를 사용하라.
+ *
+ * @returns 캐시 필드가 실제로 바뀌었는지 여부
+ */
+export function syncPositionCache(trade: ServerShadowTrade): boolean {
+  const fills = trade.fills ?? [];
+  const buyQty = fills.filter(f => f.type === 'BUY').reduce((s, f) => s + f.qty, 0);
+  if (buyQty === 0) return false; // 레거시 — 건드리지 않음
+
+  const sellQty = fills.filter(f => f.type === 'SELL').reduce((s, f) => s + f.qty, 0);
+  const remaining = Math.max(0, buyQty - sellQty);
+
+  let changed = false;
+  if (trade.quantity !== remaining) {
+    trade.quantity = remaining;
+    changed = true;
+  }
+  if (!trade.originalQuantity || trade.originalQuantity < buyQty) {
+    trade.originalQuantity = buyQty;
+    changed = true;
+  }
+  return changed;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

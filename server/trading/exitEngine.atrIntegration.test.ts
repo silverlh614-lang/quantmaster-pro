@@ -5,7 +5,11 @@ import type { ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 
 vi.mock('../clients/kisClient.js', () => ({
   fetchCurrentPrice: vi.fn(),
-  placeKisSellOrder: vi.fn().mockResolvedValue(undefined),
+  placeKisSellOrder: vi.fn().mockResolvedValue({ ordNo: null, placed: false }),
+}));
+
+vi.mock('./fillMonitor.js', () => ({
+  addSellOrder: vi.fn(),
 }));
 
 vi.mock('../alerts/telegramClient.js', () => ({
