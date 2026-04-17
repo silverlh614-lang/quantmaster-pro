@@ -187,6 +187,22 @@ export interface ServerShadowTrade {
 
 export type PositionEvent = Record<string, unknown>;
 
+export interface ShadowForceInputPatch {
+  quantity?: number;
+  shadowEntryPrice?: number;
+  signalPrice?: number;
+  stopLoss?: number;
+  targetPrice?: number;
+  reason?: string;
+}
+
+export interface ShadowForceInputResponse {
+  ok: boolean;
+  changed: boolean;
+  applied?: Record<string, { before: number; after: number }>;
+  trade?: ServerShadowTrade;
+}
+
 // ─── API 메서드 ─────────────────────────────────────────────────────────────
 
 export const autoTradeApi = {
@@ -209,6 +225,19 @@ export const autoTradeApi = {
     apiFetch<ServerShadowTrade[]>('/api/auto-trade/shadow-trades'),
   syncShadowTrade: (trade: unknown) =>
     apiFetch<void>('/api/auto-trade/shadow-trades', { method: 'POST', json: trade }),
+  /**
+   * Shadow 불일치 상황에서 수량·가격 등을 강제 입력하여 서버 레코드와
+   * 동기화한다. 허용 필드: quantity, shadowEntryPrice, signalPrice,
+   * stopLoss, targetPrice.
+   */
+  forceUpdateShadowTrade: (
+    id: string,
+    patch: ShadowForceInputPatch,
+  ) =>
+    apiFetch<ShadowForceInputResponse>(
+      `/api/auto-trade/shadow-trades/${encodeURIComponent(id)}/force`,
+      { method: 'PATCH', json: patch },
+    ),
 
   // Recommendations
   getRecommendationStats: () =>

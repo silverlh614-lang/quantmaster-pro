@@ -8,7 +8,7 @@ import { loadMacroState, saveMacroState, type MacroState } from '../persistence/
 import { getDartAlerts } from '../persistence/dartRepo.js';
 import { loadFssRecords, upsertFssRecord } from '../persistence/fssRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
-import { loadShadowTrades, saveShadowTrades, getRemainingQty, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, saveShadowTrades, getRemainingQty, appendShadowLog, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { getScreenerCache, preScreenStocks, autoPopulateWatchlist } from '../screener/stockScreener.js';
 import { getRecommendations, getMonthlyStats, evaluateRecommendations, isRealTradeReady } from '../learning/recommendationTracker.js';
 import { pollDartDisclosures } from '../alerts/dartPoller.js';
@@ -340,6 +340,62 @@ router.post('/auto-trade/shadow-trades', (req: any, res: any) => {
   shadows.push(serverTrade);
   saveShadowTrades(shadows);
   res.json({ ok: true });
+});
+
+/**
+ * PATCH /api/auto-trade/shadow-trades/:id/force
+ *
+ * Shadow 불일치 상황에서 사용자가 UI로부터 직접 수량·가격 등을
+ * 강제 입력하여 서버 레코드와 동기화한다.
+ *
+ * 허용 필드: quantity, shadowEntryPrice, signalPrice, stopLoss, targetPrice.
+ * 다른 필드는 무시하여 불변량(fills, originalQuantity 등)을 보호한다.
+ * 변경된 값은 shadow 로그에 감사용으로 기록된다.
+ */
+router.patch('/auto-trade/shadow-trades/:id/force', (req: any, res: any) => {
+  const { id } = req.params;
+  const patch = req.body ?? {};
+  if (!id) return res.status(400).json({ error: 'id 필수' });
+
+  const shadows = loadShadowTrades();
+  const target = shadows.find((s) => s.id === id);
+  if (!target) return res.status(404).json({ error: '해당 shadow trade 없음' });
+
+  const ALLOWED = ['quantity', 'shadowEntryPrice', 'signalPrice', 'stopLoss', 'targetPrice'] as const;
+  const applied: Record<string, { before: number; after: number }> = {};
+
+  for (const key of ALLOWED) {
+    if (!(key in patch)) continue;
+    const raw = patch[key];
+    const num = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(num) || num < 0) {
+      return res.status(400).json({ error: `${key}: 음수가 아닌 유한 숫자 필요` });
+    }
+    const before = (target as any)[key] ?? 0;
+    if (before === num) continue;
+    (target as any)[key] = num;
+    applied[key] = { before, after: num };
+  }
+
+  if (Object.keys(applied).length === 0) {
+    return res.json({ ok: true, changed: false, trade: target });
+  }
+
+  saveShadowTrades(shadows);
+  try {
+    appendShadowLog({
+      kind: 'FORCED_INPUT',
+      id,
+      stockCode: target.stockCode,
+      stockName: target.stockName,
+      applied,
+      reason: patch.reason ?? 'manual-mismatch-fix',
+    });
+  } catch (err) {
+    console.error('[force-input] shadow 로그 기록 실패:', err);
+  }
+
+  res.json({ ok: true, changed: true, applied, trade: target });
 });
 
 // 즉시 수동 스캔 트리거 (체크리스트 Step 6 등에서 호출)
