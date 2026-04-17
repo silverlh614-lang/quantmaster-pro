@@ -28,6 +28,13 @@ export interface PositionFill {
   reason: string;
   exitRuleTag?: string;
   timestamp: string;   // ISO
+  /**
+   * LIVE 모드 매도 시 KIS 주문번호 (ODNO).
+   * 값이 있으면 아직 CCLD 확인 대기 상태 — pollSellFills가 실체결량(qty/
+   * price/pnl)으로 Fill을 덮어쓰고 덮어쓴 뒤 ordNo를 undefined로 삭제한다.
+   * SHADOW 모드 또는 KIS 주문 실패/미송신 시 처음부터 undefined.
+   */
+  ordNo?: string;
 }
 
 // ─── Fill 헬퍼 함수 ────────────────────────────────────────────────────────────
