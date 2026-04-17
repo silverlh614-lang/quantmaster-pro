@@ -15,6 +15,7 @@ import {
   type ServerShadowTrade,
   appendShadowLog,
   appendFill,
+  syncPositionCache,
 } from '../persistence/shadowTradeRepo.js';
 import { addToBlacklist } from '../persistence/blacklistRepo.js';
 import { checkEuphoria } from './riskManager.js';
@@ -157,19 +158,11 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
     if (shadow.status !== 'ACTIVE' && shadow.status !== 'PARTIALLY_FILLED' && shadow.status !== 'EUPHORIA_PARTIAL') continue;
 
     // ─── Fill 기반 잔량 동기화 (단일 진실 원천) ──────────────────────────────
-    // shadow.quantity는 종료 엔진이 내부적으로 감소시키지만, fills 배열이 진실 원천이다.
-    // 재시작·중복 실행 등으로 quantity와 fills가 어긋날 경우 이 시점에 교정한다.
+    // fills 배열이 진실 원천. 재시작·중복 실행 등으로 quantity 캐시가 어긋났으면 교정.
     {
-      const fills = shadow.fills ?? [];
-      const buyFillQty  = fills.filter(f => f.type === 'BUY' ).reduce((s, f) => s + f.qty, 0);
-      const sellFillQty = fills.filter(f => f.type === 'SELL').reduce((s, f) => s + f.qty, 0);
-      if (buyFillQty > 0) {
-        // BUY fill이 있는 경우에만 fill-based 잔량을 신뢰
-        const fillBasedQty = Math.max(0, buyFillQty - sellFillQty);
-        if (fillBasedQty !== shadow.quantity) {
-          console.log(`[ExitEngine] ⚠️ 잔량 불일치 ${shadow.stockCode}: stored=${shadow.quantity} fill-based=${fillBasedQty} (BUY ${buyFillQty} - SELL ${sellFillQty}) → 교정`);
-          shadow.quantity = fillBasedQty;
-        }
+      const before = shadow.quantity;
+      if (syncPositionCache(shadow) && shadow.quantity !== before) {
+        console.log(`[ExitEngine] ⚠️ 잔량 불일치 ${shadow.stockCode}: stored=${before} fill-based=${shadow.quantity} → 교정`);
       }
       // 잔량이 0이면 HIT_STOP으로 전환하고 루프 스킵
       if (shadow.quantity <= 0) {
@@ -236,8 +229,6 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       const emergencyQty = Math.max(1, Math.floor(shadow.quantity * 0.30));
       shadow.exitRuleTag = 'R6_EMERGENCY_EXIT';
       shadow.r6EmergencySold = true;
-      shadow.quantity -= emergencyQty;
-      shadow.originalQuantity ??= shadow.quantity + emergencyQty;
       appendShadowLog({ event: 'R6_EMERGENCY_EXIT', ...shadow, soldQty: emergencyQty, returnPct });
       console.log(`[AutoTrade] 🔴 ${shadow.stockName} R6 긴급 청산 30% (${emergencyQty}주) @${currentPrice.toLocaleString()}`);
       await placeKisSellOrder(shadow.stockCode, shadow.stockName, emergencyQty, 'STOP_LOSS');
@@ -248,6 +239,7 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         pnlPct: returnPct, reason: 'R6 긴급청산 30%',
         exitRuleTag: 'R6_EMERGENCY_EXIT', timestamp: new Date().toISOString(),
       });
+      syncPositionCache(shadow);
       await sendTelegramAlert(
         `🔴 <b>[R6 긴급 청산]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
         `블랙스완 감지 — 30% 즉시 청산 ${emergencyQty}주 @${currentPrice.toLocaleString()}원\n` +
@@ -413,7 +405,6 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         if (!t.taken && currentPrice >= t.price) {
           const baseQty  = shadow.originalQuantity ?? shadow.quantity;
           const sellQty  = Math.min(Math.max(1, Math.round(baseQty * t.ratio)), shadow.quantity);
-          shadow.quantity -= sellQty;
           t.taken = true;
           trancheFired = true;
           shadow.exitRuleTag = 'LIMIT_TRANCHE_TAKE_PROFIT';
@@ -427,6 +418,7 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
             pnlPct: returnPct, reason: `분할익절 트랜치 ${(t.ratio * 100).toFixed(0)}%`,
             exitRuleTag: 'LIMIT_TRANCHE_TAKE_PROFIT', timestamp: new Date().toISOString(),
           });
+          syncPositionCache(shadow);
           await sendTelegramAlert(
             `📈 <b>[L3 분할 익절]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
             `트랜치: ${(t.ratio * 100).toFixed(0)}% × ${sellQty}주 @${currentPrice.toLocaleString()}원\n` +
@@ -549,11 +541,9 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       const halfQty = Math.max(1, Math.floor(shadow.quantity / 2));
       shadow.cascadeStep = 2;
       shadow.halfSoldAt  = new Date().toISOString();
-      shadow.originalQuantity ??= shadow.quantity;
-      shadow.quantity -= halfQty;
       shadow.exitRuleTag = 'CASCADE_HALF_SELL';
       appendShadowLog({ event: 'CASCADE_HALF_SELL', ...shadow, soldQty: halfQty, returnPct });
-      console.log(`[AutoTrade] 🔶 ${shadow.stockName} Cascade -15% — 반매도 ${halfQty}주 (잔여 ${shadow.quantity}주)`);
+      console.log(`[AutoTrade] 🔶 ${shadow.stockName} Cascade -15% — 반매도 ${halfQty}주 (잔여 ${shadow.quantity - halfQty}주)`);
       await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'STOP_LOSS');
       appendFill(shadow, {
         type: 'SELL', subType: 'STOP_LOSS',
@@ -562,6 +552,7 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         pnlPct: returnPct, reason: '캐스케이드 -15% 반매도',
         exitRuleTag: 'CASCADE_HALF_SELL', timestamp: new Date().toISOString(),
       });
+      syncPositionCache(shadow);
       await sendTelegramAlert(
         `🔶 <b>[Cascade -15%] ${shadow.stockName} (${shadow.stockCode})</b>\n` +
         `손실 ${returnPct.toFixed(1)}% — 반매도 ${halfQty}주 (잔여 ${shadow.quantity}주)`
@@ -595,8 +586,6 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         if (liveRRR < 1.0) {
           const sellQty = Math.max(1, Math.floor(shadow.quantity * 0.5));
           shadow.rrrCollapsePartialSold = true;
-          shadow.originalQuantity ??= shadow.quantity;
-          shadow.quantity -= sellQty;
           shadow.exitRuleTag = 'RRR_COLLAPSE_PARTIAL';
           appendShadowLog({ event: 'RRR_COLLAPSE_PARTIAL', ...shadow, soldQty: sellQty, liveRRR, returnPct });
           console.log(`[AutoTrade] 📊 ${shadow.stockName} RRR 붕괴 (${liveRRR.toFixed(2)}) — 50% 익절 ${sellQty}주 @${currentPrice.toLocaleString()}`);
@@ -608,6 +597,7 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
             pnlPct: returnPct, reason: 'RRR 붕괴 50% 익절',
             exitRuleTag: 'RRR_COLLAPSE_PARTIAL', timestamp: new Date().toISOString(),
           });
+          syncPositionCache(shadow);
           await sendTelegramAlert(
             `📊 <b>[RRR 붕괴 경보]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
             `잔여 RRR: ${liveRRR.toFixed(2)} (< 1.0) — 좀비 포지션 50% 익절\n` +
@@ -642,8 +632,6 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       if (hist && detectBearishDivergence(hist.prices, hist.rsi)) {
         const sellQty = Math.max(1, Math.floor(shadow.quantity * 0.30));
         shadow.divergencePartialSold = true;
-        shadow.originalQuantity ??= shadow.quantity;
-        shadow.quantity -= sellQty;
         shadow.exitRuleTag = 'DIVERGENCE_PARTIAL';
         appendShadowLog({ event: 'DIVERGENCE_PARTIAL', ...shadow, soldQty: sellQty, returnPct });
         console.log(`[AutoTrade] 📉 ${shadow.stockName} 하락 다이버전스 — 30% 익절 ${sellQty}주 @${currentPrice.toLocaleString()}`);
@@ -655,6 +643,7 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           pnlPct: returnPct, reason: '하락 다이버전스 30% 익절',
           exitRuleTag: 'DIVERGENCE_PARTIAL', timestamp: new Date().toISOString(),
         });
+        syncPositionCache(shadow);
         await sendTelegramAlert(
           `📉 <b>[하락 다이버전스]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
           `주가 신고가·RSI 고점 낮아짐 — 30% 부분 익절\n` +
@@ -760,8 +749,6 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         console.log(
           `[AutoTrade] 🌡️ ${shadow.stockName} 과열 감지 (${euphoria.count}개 신호) — 절반 매도 ${halfQty}주\n  신호: ${euphoria.signals.join(', ')}`
         );
-        shadow.originalQuantity ??= shadow.quantity;
-        shadow.quantity -= halfQty;
         shadow.status = 'EUPHORIA_PARTIAL';
         shadow.exitRuleTag = 'EUPHORIA_PARTIAL';
         appendShadowLog({
@@ -779,6 +766,7 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           pnlPct: returnPct, reason: '과열 감지 50% 익절',
           exitRuleTag: 'EUPHORIA_PARTIAL', timestamp: new Date().toISOString(),
         });
+        syncPositionCache(shadow);
         await channelSellSignal({
           stockName:   shadow.stockName,
           stockCode:   shadow.stockCode,
