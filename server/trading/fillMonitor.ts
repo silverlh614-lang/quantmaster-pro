@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { PENDING_ORDERS_FILE, PENDING_SELL_ORDERS_FILE, ensureDataDir } from '../persistence/paths.js';
-import { loadShadowTrades, saveShadowTrades, appendFill, syncPositionCache } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, saveShadowTrades, appendFill, syncPositionCache, getRemainingQty } from '../persistence/shadowTradeRepo.js';
 import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL, SELL_TR_ID } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { registerOcoPair } from './ocoCloseLoop.js';
@@ -308,19 +308,22 @@ function correctShadowFill(
   filledQty: number,
   fillPrice: number,
   finalize: boolean,
-): void {
-  if (!relatedTradeId || !ordNo) return;
+): { remainingQty: number; closed: boolean } | null {
+  if (!relatedTradeId || !ordNo) return null;
   const trades = loadShadowTrades();
   const trade = trades.find(t => t.id === relatedTradeId);
-  if (!trade || !trade.fills) return;
+  if (!trade || !trade.fills) return null;
 
   const fill = trade.fills.find(f => f.ordNo === ordNo);
-  if (!fill) return;
+  if (!fill) return null;
 
   const effectivePrice = fillPrice > 0 ? fillPrice : fill.price;
   const qtyChanged = fill.qty !== filledQty;
   const priceChanged = Math.abs((fill.price ?? 0) - effectivePrice) >= 1;
-  if (!qtyChanged && !priceChanged && !finalize) return;
+  if (!qtyChanged && !priceChanged && !finalize) {
+    // 변경 없음 — 현재 잔량만 반환
+    return { remainingQty: getRemainingQty(trade), closed: false };
+  }
 
   if (qtyChanged) fill.qty = filledQty;
   if (priceChanged) fill.price = effectivePrice;
@@ -332,10 +335,27 @@ function correctShadowFill(
   if (finalize) delete fill.ordNo;
 
   syncPositionCache(trade);
+
+  // 보정 결과 잔량이 0이 됐는데 status가 아직 열린 상태이면 HIT_STOP으로 자동 전환
+  // (reconcileShadowQuantities와 동일 원칙). 전량청산 경로는 exitEngine이 이미 status를
+  // 설정하지만, 부분청산 fill이 누적되어 잔량이 0이 되는 경로는 닫아줄 주체가 없다.
+  const openStatuses = new Set(['ACTIVE', 'PARTIALLY_FILLED', 'EUPHORIA_PARTIAL', 'PENDING', 'ORDER_SUBMITTED']);
+  const remainingQty = getRemainingQty(trade);
+  let autoClosed = false;
+  if (remainingQty === 0 && openStatuses.has(trade.status)) {
+    trade.status = 'HIT_STOP';
+    trade.exitTime ??= new Date().toISOString();
+    trade.exitPrice ??= effectivePrice;
+    autoClosed = true;
+    console.log(`[SellFillMonitor] 🏁 자동 닫힘: ${trade.stockCode} 잔량 0 → HIT_STOP`);
+  }
+
   saveShadowTrades(trades);
 
   const action = finalize ? '최종 보정' : '중간 보정';
   console.log(`[SellFillMonitor] 🔧 Fill ${action}: ${trade.stockCode} ordNo=${ordNo} qty=${filledQty} @${effectivePrice.toLocaleString()}원 pnl=${fill.pnl?.toFixed(0)}`);
+
+  return { remainingQty, closed: autoClosed };
 }
 
 /**
@@ -401,12 +421,18 @@ export async function pollSellFills(): Promise<void> {
         console.log(`[SellFillMonitor] ✅ 매도 체결 확인: ${order.stockName} ${filledQty}주 @${avgPrice.toLocaleString()}원`);
 
         // Fill 레코드를 실체결량으로 최종 보정 (ordNo 제거)
-        correctShadowFill(order.relatedTradeId, order.ordNo, filledQty, avgPrice, true);
+        const correction = correctShadowFill(order.relatedTradeId, order.ordNo, filledQty, avgPrice, true);
 
+        const remainingLine = correction
+          ? (correction.closed
+              ? '\n포지션 전량 청산 완료 (자동 닫힘)'
+              : `\n잔여: ${correction.remainingQty}주`)
+          : '';
         await sendTelegramAlert(
           `✅ <b>[매도 체결 확인]</b> ${order.stockName} (${order.stockCode})\n` +
           `체결: ${filledQty}주 @${avgPrice.toLocaleString()}원\n` +
-          `사유: ${order.originalReason} | 주문번호: ${order.ordNo}`,
+          `사유: ${order.originalReason} | 주문번호: ${order.ordNo}` +
+          remainingLine,
         ).catch(console.error);
       } else if (filledQty > 0) {
         // ── 부분 체결 → 잔여 재폴링 ──
