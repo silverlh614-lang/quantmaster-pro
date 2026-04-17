@@ -87,9 +87,14 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
   const wizardConditionScores = React.useMemo(() => {
     if (!wizardStock?.checklist) return undefined;
     const scores: Record<number, number> = {};
-    wizardStock.checklist.forEach((item: any, idx: number) => {
+    Object.values(wizardStock.checklist).forEach((value, idx) => {
       const id = idx + 1;
-      scores[id] = typeof item.score === 'number' ? item.score : (item.passed ? 7 : 3);
+      if (typeof value === 'number') {
+        scores[id] = value;
+      } else if (value && typeof value === 'object') {
+        const item = value as { score?: number; passed?: boolean };
+        scores[id] = typeof item.score === 'number' ? item.score : (item.passed ? 7 : 3);
+      }
     });
     return scores;
   }, [wizardStock]);

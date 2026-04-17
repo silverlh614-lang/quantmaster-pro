@@ -332,9 +332,13 @@ function ConditionWeightCard({ id, weight, recommended, baseWeight, onWeightChan
             {cond?.name || `조건 ${id}`}
           </span>
           {source === 'COMPUTED' ? (
-            <Cpu className="w-3 h-3 text-blue-400 shrink-0" title="실계산" />
+            <span title="실계산" className="inline-flex shrink-0">
+              <Cpu className="w-3 h-3 text-blue-400" />
+            </span>
           ) : (
-            <Brain className="w-3 h-3 text-purple-400 shrink-0" title="AI 추정" />
+            <span title="AI 추정" className="inline-flex shrink-0">
+              <Brain className="w-3 h-3 text-purple-400" />
+            </span>
           )}
         </div>
         <p className="text-[9px] text-theme-text-muted font-medium truncate">

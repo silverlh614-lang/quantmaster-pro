@@ -47,7 +47,7 @@ export async function syncMarketOverviewIndices(overview: MarketOverview): Promi
           const data = await fetchHistoricalData(symbol, '1d');
           if (data?.meta?.regularMarketPrice) {
             const price = data.meta.regularMarketPrice;
-            const prevClose = data.meta.previousClose || data.meta.chartPreviousClose;
+            const prevClose = data.meta.regularMarketPreviousClose || data.meta.previousClose || data.meta.chartPreviousClose;
             if (prevClose && prevClose > 0) {
               const change = Number((price - prevClose).toFixed(2));
               const changePercent = Number(((change / prevClose) * 100).toFixed(2));
