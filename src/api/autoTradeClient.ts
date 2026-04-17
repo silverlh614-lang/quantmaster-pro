@@ -151,16 +151,39 @@ export interface TradingSettings {
   updatedAt: string;
 }
 
-// ServerShadowTrade 는 fills 배열 등 서버 전용 필드가 많아
-// unknown-friendly 한 형태로 노출한다 (호출부가 점진적 타입 개선).
-export type ServerShadowTrade = Record<string, unknown> & {
+// ServerShadowTrade — 서버가 돌려주는 shadow trade 레코드의 브라우저측 미러.
+// 일부 필드는 서버 버전에 따라 누락될 수 있으므로 optional 로 선언한다.
+// (세부 fills 구조는 호출부에서 필요에 따라 좁힌다.)
+export interface ServerShadowTrade {
   id?: string;
   stockCode: string;
   stockName: string;
   status: 'PENDING' | 'ACTIVE' | 'HIT_TARGET' | 'HIT_STOP' | 'REJECTED' | string;
   signalTime: string;
-  fills?: Array<Record<string, unknown>>;
-};
+  signalPrice?: number;
+  shadowEntryPrice?: number;
+  quantity?: number;
+  originalQuantity?: number;
+  stopLoss?: number;
+  targetPrice?: number;
+  exitPrice?: number;
+  exitTime?: string;
+  resolvedAt?: string;
+  returnPct?: number;
+  fills?: Array<{
+    id?: string;
+    type: 'BUY' | 'SELL';
+    subType?: string;
+    qty: number;
+    price?: number;
+    pnl?: number;
+    pnlPct?: number;
+    reason?: string;
+    exitRuleTag?: string;
+    timestamp: string;
+  }>;
+  [extra: string]: unknown;
+}
 
 export type PositionEvent = Record<string, unknown>;
 

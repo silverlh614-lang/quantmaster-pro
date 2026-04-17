@@ -14,8 +14,7 @@ import { TradingChecklist } from '../components/trading/TradingChecklist';
 import { TradingSettingsPanel } from '../components/trading/TradingSettingsPanel';
 import { SessionRecoveryBanner } from '../components/trading/SessionRecoveryBanner';
 import { ShadowPortfolioPanel } from '../components/trading/ShadowPortfolioPanel';
-import { isMarketOpen } from '../utils/marketTime';
-import { autoTradeApi, kisApi, systemApi } from '../api';
+import { useAutoTradeDashboard } from '../hooks/useAutoTradeDashboard';
 
 // ─── 조건 키 → 사람이 읽을 수 있는 한국어 레이블 ─────────────────────────────
 const CONDITION_LABELS: Record<string, string> = {
@@ -155,54 +154,28 @@ function useCountdown(targetIso: string | null | undefined): string | null {
 
 export function AutoTradePage() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'settings'>('dashboard');
-  const [serverShadowTrades, setServerShadowTrades] = useState<any[]>([]);
-  const [serverRecStats, setServerRecStats] = useState<{
-    month?: string;
-    winRate?: number;
-    avgReturn?: number;
-    strongBuyWinRate?: number;
-    total?: number;
-    /** 실제 섀도우 SELL fill 기반 월간 실현 성과 — 1억원 기준 */
-    trades?: {
-      month: string;
-      startingCapital: number;
-      total: number;
-      wins: number;
-      losses: number;
-      winRate: number;
-      totalRealizedPnl: number;
-      totalReturnPct: number;
-      avgReturnPct: number;
-    };
-  } | null>(null);
-  const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([]);
-  const [holdings, setHoldings] = useState<KisHolding[]>([]);
   const [portfolioTab, setPortfolioTab] = useState<'watchlist' | 'holdings'>('watchlist');
-  const [buyAudit, setBuyAudit] = useState<BuyAuditData | null>(null);
-  const [gateAudit, setGateAudit] = useState<GateAuditData | null>(null);
-  const [conditionDebug, setConditionDebug] = useState<{
-    globalWeights: Record<string, number>;
-    defaults: Record<string, number>;
-    conditionStats30d: Record<string, { totalAppearances: number; wins: number; losses: number; hitRate: number; avgReturn: number }>;
-    recentRecordsCount: number;
-    period: { from: string; to: string };
-  } | null>(null);
-  const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
-  const [engineToggling, setEngineToggling] = useState(false);
-  const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null);
-  const [reconcileData, setReconcileData] = useState<{
-    last: {
-      date: string; ranAt: string;
-      shadowLogCloses: number; tradeEventCloses: number; shadowTradeCloses: number;
-      notificationsLogged: number;
-      mismatchCount: number;
-      mismatches: { positionId: string; stockCode: string; stockName?: string; issue: string }[];
-      integrityOk: boolean;
-    } | null;
-    dataIntegrityBlocked: boolean;
-  } | null>(null);
-  const [reconcileRunning, setReconcileRunning] = useState(false);
-  const [ocoOrders, setOcoOrders] = useState<{ active: OcoOrderPair[]; history: OcoOrderPair[] }>({ active: [], history: [] });
+
+  // 원격 상태 + 액션은 모두 useAutoTradeDashboard 에 위임 (Phase 2 리팩토링).
+  const {
+    engineStatus,
+    serverShadowTrades,
+    serverRecStats,
+    watchlist,
+    holdings,
+    buyAudit,
+    gateAudit,
+    conditionDebug,
+    ocoOrders,
+    reconcileData,
+    accountSummary,
+    toggleEngine,
+    engineToggling,
+    runReconcile,
+    reconcileRunning,
+    loadPositionEvents,
+  } = useAutoTradeDashboard();
+
   // 아이디어 11: 감사 추적 뷰어 모달
   const [auditTrade, setAuditTrade] = useState<any | null>(null);
   const [auditEvents, setAuditEvents] = useState<any[]>([]);
@@ -377,72 +350,8 @@ export function AutoTradePage() {
     URL.revokeObjectURL(url);
   };
 
-  const handleEngineToggle = async () => {
-    if (engineToggling) return;
-    setEngineToggling(true);
-    try {
-      const data = await autoTradeApi.toggleEngine();
-      setEngineStatus((prev) => prev ? { ...prev, running: data.running, emergencyStop: data.emergencyStop } : prev);
-    } catch (err) {
-      console.error('[ERROR] 엔진 토글 실패:', err);
-    } finally {
-      setEngineToggling(false);
-    }
-  };
-
-  useEffect(() => {
-    const fetchServerData = () => {
-      autoTradeApi.getShadowTrades().then(setServerShadowTrades).catch((err) => console.error('[ERROR] Shadow trades 조회 실패:', err));
-      autoTradeApi.getRecommendationStats().then(setServerRecStats).catch((err) => console.error('[ERROR] Recommendation stats 조회 실패:', err));
-      autoTradeApi.getWatchlist().then(setWatchlist).catch((err) => console.error('[ERROR] 워치리스트 조회 실패:', err));
-      kisApi.getHoldings().then((data) => {
-        if (Array.isArray(data)) setHoldings(data);
-      }).catch((err) => console.error('[ERROR] 보유종목 조회 실패:', err));
-      systemApi.getBuyAudit().then(setBuyAudit).catch((err) => console.error('[ERROR] Buy audit 조회 실패:', err));
-      systemApi.getGateAudit().then(setGateAudit).catch((err) => console.error('[ERROR] Gate audit 조회 실패:', err));
-      autoTradeApi.getConditionWeightsDebug().then(setConditionDebug).catch((err) => console.error('[ERROR] Condition debug 조회 실패:', err));
-      autoTradeApi.getEngineStatus().then(setEngineStatus).catch((err) => console.error('[ERROR] Engine status 조회 실패:', err));
-      autoTradeApi.getOcoOrders().then(setOcoOrders).catch(() => {});
-      autoTradeApi.getReconcile().then((d) => { if (d) setReconcileData(d); }).catch(() => {});
-      kisApi.getBalance().then((data) => {
-        const summary = data?.output2?.[0];
-        if (summary) {
-          const totalEvalAmt = Number(summary.tot_evlu_amt ?? 0);
-          const availableCash = Number(summary.dnca_tot_amt ?? summary.prvs_rcdl_excc_amt ?? 0);
-          // 기준금액(1억) 대비 총자산(주식평가+예수금) 손익
-          const startingCapital = 100_000_000;
-          const pnlAmt = totalEvalAmt - startingCapital;
-          const pnlRate = (pnlAmt / startingCapital) * 100;
-          setAccountSummary({ totalEvalAmt, totalPnlAmt: pnlAmt, totalPnlRate: pnlRate, availableCash });
-        }
-      }).catch((err) => console.error('[ERROR] 계좌 잔고 조회 실패:', err));
-    };
-
-    // 초기 1회는 무조건 로드 (장외에도 현재 계좌 상태는 보여야 함)
-    fetchServerData();
-
-    // 이후 반복 폴링은 장중 + 탭 가시 상태일 때만. 장외/휴일/백그라운드
-    // 탭에서 KIS·내부 API를 의미 없이 두드리지 않도록.
-    const tick = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (!isMarketOpen()) return;
-      fetchServerData();
-    };
-    const interval = setInterval(tick, 60 * 1000);
-
-    // 탭이 숨겨져 있다가 다시 보이면 즉시 한 번 갱신 (장중 한정)
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible' && isMarketOpen()) {
-        fetchServerData();
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, []);
+  // 데이터 페칭·폴링·토글 로직은 useAutoTradeDashboard 훅으로 이전됨.
+  // (이전: 200+줄 fetch 체인 + setInterval · visibilitychange 리스너)
 
   return (
     <motion.div
@@ -490,7 +399,7 @@ export function AutoTradePage() {
             </div>
             {/* 대형 ON/OFF 토글 */}
             <button
-              onClick={handleEngineToggle}
+              onClick={toggleEngine}
               disabled={engineToggling}
               className={cn(
                 'relative w-16 h-8 rounded-full transition-all duration-300 border-2 shrink-0',
@@ -554,13 +463,7 @@ export function AutoTradePage() {
                 )}
               </div>
               <button
-                onClick={async () => {
-                  setReconcileRunning(true);
-                  try {
-                    const d = await autoTradeApi.runReconcile();
-                    setReconcileData({ last: d, dataIntegrityBlocked: d.dataIntegrityBlocked });
-                  } catch { /* skip */ } finally { setReconcileRunning(false); }
-                }}
+                onClick={runReconcile}
                 disabled={reconcileRunning}
                 className="text-[10px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-theme-text-muted hover:text-theme-text border border-theme-border/20 transition-colors disabled:opacity-50"
               >
@@ -1426,10 +1329,8 @@ export function AutoTradePage() {
                         setAuditLoading(true);
                         setAuditEvents([]);
                         try {
-                          const evts = await autoTradeApi.getPositionEvents(t.id);
-                          setAuditEvents(Array.isArray(evts) ? evts : []);
-                        } catch { setAuditEvents([]); }
-                        finally { setAuditLoading(false); }
+                          setAuditEvents(await loadPositionEvents(t.id));
+                        } finally { setAuditLoading(false); }
                       }}>
                         {/* 헤더 */}
                         <div className="flex items-center justify-between gap-2">
