@@ -15,6 +15,7 @@ import { TradingSettingsPanel } from '../components/trading/TradingSettingsPanel
 import { SessionRecoveryBanner } from '../components/trading/SessionRecoveryBanner';
 import { ShadowPortfolioPanel } from '../components/trading/ShadowPortfolioPanel';
 import { isMarketOpen } from '../utils/marketTime';
+import { autoTradeApi, kisApi, systemApi } from '../api';
 
 // ─── 조건 키 → 사람이 읽을 수 있는 한국어 레이블 ─────────────────────────────
 const CONDITION_LABELS: Record<string, string> = {
@@ -380,8 +381,7 @@ export function AutoTradePage() {
     if (engineToggling) return;
     setEngineToggling(true);
     try {
-      const res = await fetch('/api/auto-trade/engine/toggle', { method: 'POST' });
-      const data = await res.json();
+      const data = await autoTradeApi.toggleEngine();
       setEngineStatus((prev) => prev ? { ...prev, running: data.running, emergencyStop: data.emergencyStop } : prev);
     } catch (err) {
       console.error('[ERROR] 엔진 토글 실패:', err);
@@ -392,22 +392,20 @@ export function AutoTradePage() {
 
   useEffect(() => {
     const fetchServerData = () => {
-      fetch('/api/auto-trade/shadow-trades').then(r => r.json()).then(setServerShadowTrades).catch((err) => console.error('[ERROR] Shadow trades 조회 실패:', err));
-      fetch('/api/auto-trade/recommendations/stats').then(r => r.json()).then(setServerRecStats).catch((err) => console.error('[ERROR] Recommendation stats 조회 실패:', err));
-      fetch('/api/auto-trade/watchlist').then(r => r.json()).then(setWatchlist).catch((err) => console.error('[ERROR] 워치리스트 조회 실패:', err));
-      fetch('/api/kis/holdings').then(r => r.json()).then((data) => {
+      autoTradeApi.getShadowTrades().then(setServerShadowTrades).catch((err) => console.error('[ERROR] Shadow trades 조회 실패:', err));
+      autoTradeApi.getRecommendationStats().then(setServerRecStats).catch((err) => console.error('[ERROR] Recommendation stats 조회 실패:', err));
+      autoTradeApi.getWatchlist().then(setWatchlist).catch((err) => console.error('[ERROR] 워치리스트 조회 실패:', err));
+      kisApi.getHoldings().then((data) => {
         if (Array.isArray(data)) setHoldings(data);
       }).catch((err) => console.error('[ERROR] 보유종목 조회 실패:', err));
-      fetch('/api/system/buy-audit').then(r => r.json()).then(setBuyAudit).catch((err) => console.error('[ERROR] Buy audit 조회 실패:', err));
-      fetch('/api/system/gate-audit').then(r => r.json()).then(setGateAudit).catch((err) => console.error('[ERROR] Gate audit 조회 실패:', err));
-      fetch('/api/auto-trade/condition-weights/debug').then(r => r.json()).then(setConditionDebug).catch((err) => console.error('[ERROR] Condition debug 조회 실패:', err));
-      fetch('/api/auto-trade/engine/status').then(r => r.json()).then(setEngineStatus).catch((err) => console.error('[ERROR] Engine status 조회 실패:', err));
-      fetch('/api/auto-trade/oco-orders').then(r => r.json()).then(setOcoOrders).catch(() => {});
-      fetch('/api/auto-trade/reconcile').then(r => r.json()).then(setReconcileData).catch(() => {});
-      fetch('/api/kis/balance').then(r => r.json()).then((data: any) => {
-        // output2[0]에 계좌 총평가 정보가 있음
+      systemApi.getBuyAudit().then(setBuyAudit).catch((err) => console.error('[ERROR] Buy audit 조회 실패:', err));
+      systemApi.getGateAudit().then(setGateAudit).catch((err) => console.error('[ERROR] Gate audit 조회 실패:', err));
+      autoTradeApi.getConditionWeightsDebug().then(setConditionDebug).catch((err) => console.error('[ERROR] Condition debug 조회 실패:', err));
+      autoTradeApi.getEngineStatus().then(setEngineStatus).catch((err) => console.error('[ERROR] Engine status 조회 실패:', err));
+      autoTradeApi.getOcoOrders().then(setOcoOrders).catch(() => {});
+      autoTradeApi.getReconcile().then((d) => { if (d) setReconcileData(d); }).catch(() => {});
+      kisApi.getBalance().then((data) => {
         const summary = data?.output2?.[0];
-        const holdings = data?.output1 ?? [];
         if (summary) {
           const totalEvalAmt = Number(summary.tot_evlu_amt ?? 0);
           const availableCash = Number(summary.dnca_tot_amt ?? summary.prvs_rcdl_excc_amt ?? 0);
@@ -559,8 +557,7 @@ export function AutoTradePage() {
                 onClick={async () => {
                   setReconcileRunning(true);
                   try {
-                    const r = await fetch('/api/auto-trade/reconcile', { method: 'POST' });
-                    const d = await r.json();
+                    const d = await autoTradeApi.runReconcile();
                     setReconcileData({ last: d, dataIntegrityBlocked: d.dataIntegrityBlocked });
                   } catch { /* skip */ } finally { setReconcileRunning(false); }
                 }}
@@ -1429,8 +1426,7 @@ export function AutoTradePage() {
                         setAuditLoading(true);
                         setAuditEvents([]);
                         try {
-                          const r = await fetch(`/api/auto-trade/positions/${t.id}/events`);
-                          const evts = await r.json();
+                          const evts = await autoTradeApi.getPositionEvents(t.id);
                           setAuditEvents(Array.isArray(evts) ? evts : []);
                         } catch { setAuditEvents([]); }
                         finally { setAuditLoading(false); }

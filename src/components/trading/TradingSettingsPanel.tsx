@@ -11,6 +11,7 @@ import { motion } from 'motion/react';
 import { cn } from '../../ui/cn';
 import { Card } from '../../ui/card';
 import { Badge } from '../../ui/badge';
+import { autoTradeApi } from '../../api';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -123,8 +124,7 @@ export function TradingSettingsPanel() {
 
   // 서버에서 설정 로드
   useEffect(() => {
-    fetch('/api/auto-trade/trading-settings')
-      .then(r => r.json())
+    autoTradeApi.getTradingSettings()
       .then(data => {
         setSettings({ ...DEFAULT_SETTINGS, ...data });
         setLoading(false);
@@ -150,11 +150,7 @@ export function TradingSettingsPanel() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await fetch('/api/auto-trade/trading-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
-      });
+      await autoTradeApi.saveTradingSettings(settings);
       setDirty(false);
     } catch (e) {
       console.error('[TradingSettings] 저장 실패:', e);

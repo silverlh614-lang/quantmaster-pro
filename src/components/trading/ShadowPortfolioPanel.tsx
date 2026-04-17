@@ -13,6 +13,7 @@ import { KpiStrip, type KpiItem } from '../../ui/kpi-strip';
 import { Badge } from '../../ui/badge';
 import { Spinner } from '../../ui/spinner';
 import { isMarketOpen } from '../../utils/marketTime';
+import { shadowApi, ApiError } from '../../api';
 
 // ─── 타입 (서버 shadowAccountRepo.ts 미러) ───────────────────────────────────
 
@@ -351,13 +352,14 @@ export function ShadowPortfolioPanel() {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/shadow/account');
-      if (!res.ok) throw new Error(`서버 오류 ${res.status}`);
-      const data: ShadowAccountState = await res.json();
+      const data = await shadowApi.getAccount<ShadowAccountState>();
       setAccount(data);
       setLastRefresh(new Date());
-    } catch (e: any) {
-      setError(e.message ?? '알 수 없는 오류');
+    } catch (e) {
+      const msg = e instanceof ApiError
+        ? `서버 오류 ${e.status}`
+        : e instanceof Error ? e.message : '알 수 없는 오류';
+      setError(msg);
     } finally {
       if (!silent) setLoading(false);
     }

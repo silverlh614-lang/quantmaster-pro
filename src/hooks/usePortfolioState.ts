@@ -4,22 +4,12 @@ import { resolveShadowTrade } from '../services/autoTrading';
 import { useTradeStore } from '../stores';
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
 import type { ShadowTrade } from '../types/quant';
-
-interface DartAlert {
-  corp_name: string;
-  stock_code: string;
-  report_nm: string;
-  rcept_dt: string;
-  sentiment: string;
-}
+import { autoTradeApi, kisApi } from '../api';
+import type { DartAlert } from '../api';
 
 /** 클라이언트 Shadow Trade를 서버에 동기화 */
 function syncShadowTradeToServer(trade: ShadowTrade): void {
-  fetch('/api/auto-trade/shadow-trades', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(trade),
-  }).catch((err) => console.error('[Shadow] 서버 동기화 실패:', err));
+  autoTradeApi.syncShadowTrade(trade).catch((err) => console.error('[Shadow] 서버 동기화 실패:', err));
 }
 
 export function usePortfolioState() {
@@ -35,8 +25,7 @@ export function usePortfolioState() {
   // ── KIS Balance ─────────────────────────────────────────────────────────
   const [kisBalance, setKisBalance] = useState<number>(100_000_000);
   useEffect(() => {
-    fetch('/api/kis/balance')
-      .then(res => res.json())
+    kisApi.getBalance()
       .then(data => {
         const cash = Number(data.output2?.[0]?.dnca_tot_amt ?? data.output?.dnca_tot_amt ?? 0);
         if (cash > 0) setKisBalance(cash);
@@ -48,7 +37,7 @@ export function usePortfolioState() {
   const [dartAlerts, setDartAlerts] = useState<DartAlert[]>([]);
   useEffect(() => {
     const fetchDart = () => {
-      fetch('/api/auto-trade/dart-alerts').then(r => r.json()).then(setDartAlerts).catch((err) => console.error('[ERROR] DART 알림 조회 실패:', err));
+      autoTradeApi.getDartAlerts().then(setDartAlerts).catch((err) => console.error('[ERROR] DART 알림 조회 실패:', err));
     };
     fetchDart();
     const interval = setInterval(fetchDart, 5 * 60 * 1000);
