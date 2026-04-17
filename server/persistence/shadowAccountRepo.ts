@@ -8,6 +8,7 @@ import {
   getWeightedPnlPct,
   getTotalRealizedPnl,
 } from './shadowTradeRepo.js';
+import { loadTradingSettings } from './tradingSettingsRepo.js';
 
 // ─── 섀도우 계좌 타입 정의 ────────────────────────────────────────────────────
 
@@ -228,7 +229,11 @@ export function computeShadowAccount(
 
   // ── 총자산 / 수익률 ─────────────────────────────────────────────
   const totalInvested = openPositions.reduce((s, p) => s + p.investedCash, 0);
-  const totalRealizedPnl = closedTrades.reduce((s, t) => s + t.realizedPnl, 0);
+  // 🔑 실현손익은 "완결된 포지션"뿐 아니라 ACTIVE 포지션의 부분청산(PARTIAL_TP /
+  // TRAILING_TP / STOP_LOSS 등) SELL fill의 pnl까지 모두 포함해야 한다. 예전에
+  // closedTrades만 합산하면 금일 RRR_COLLAPSE_PARTIAL·DIVERGENCE_PARTIAL·
+  // EUPHORIA_PARTIAL 등으로 실현된 이익이 "실현손익 +0원"으로 누락된다.
+  const totalRealizedPnl = relevant.reduce((s, t) => s + getTotalRealizedPnl(t), 0);
   const totalUnrealizedPnl = openPositions.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
 
   // 총자산 = 현금 + 보유 종목 평가액(현재가 기준 or 진입가 기준)
@@ -293,6 +298,63 @@ export function computeShadowAccount(
     },
     computedAt: new Date().toISOString(),
   };
+}
+
+// ─── 월간 실현 거래 통계 (자기학습 카드용) ──────────────────────────────────
+/**
+ * 당월(KST) SELL fill의 실제 실현 성과를 집계한다.
+ *
+ * - 부분청산·전량청산 구분 없이 해당 월의 모든 SELL fill을 하나의 "결산 이벤트"로 센다.
+ * - 평균 수익률은 요청대로 시작원금(1억원) 기준 — (fill.pnl / startingCapital) × 100.
+ * - totalReturnPct는 월간 누적 실현손익의 1억원 대비 비율.
+ */
+export interface MonthlyShadowTradeStats {
+  month: string;                // YYYY-MM (KST)
+  startingCapital: number;
+  total: number;                // 당월 SELL fill 수 (결산 건수)
+  wins: number;
+  losses: number;
+  winRate: number;              // %
+  totalRealizedPnl: number;     // 원화 합계
+  totalReturnPct: number;       // Σpnl / startingCapital × 100
+  avgReturnPct: number;         // mean(pnl/startingCapital × 100)
+}
+
+export function computeMonthlyShadowTradeStats(
+  trades?: ServerShadowTrade[],
+  startingCapital?: number,
+): MonthlyShadowTradeStats {
+  const all = trades ?? loadShadowTrades();
+  const capital = startingCapital ?? loadTradingSettings().startingCapital;
+
+  const now = new Date();
+  const kst = new Date(now.getTime() + 9 * 3_600_000);
+  const month = kst.toISOString().slice(0, 7); // YYYY-MM
+
+  let total = 0;
+  let wins = 0;
+  let losses = 0;
+  let totalRealizedPnl = 0;
+
+  for (const t of all) {
+    for (const f of (t.fills ?? [])) {
+      if (f.type !== 'SELL') continue;
+      if (f.pnl === undefined) continue;
+      const fillMonth = new Date(new Date(f.timestamp).getTime() + 9 * 3_600_000)
+        .toISOString().slice(0, 7);
+      if (fillMonth !== month) continue;
+      total++;
+      totalRealizedPnl += f.pnl;
+      if (f.pnl > 0) wins++;
+      else if (f.pnl < 0) losses++;
+    }
+  }
+
+  const winRate        = total > 0 ? (wins / total) * 100 : 0;
+  const totalReturnPct = capital > 0 ? (totalRealizedPnl / capital) * 100 : 0;
+  const avgReturnPct   = total > 0 ? totalReturnPct / total : 0;
+
+  return { month, startingCapital: capital, total, wins, losses, winRate, totalRealizedPnl, totalReturnPct, avgReturnPct };
 }
 
 // ─── 재조정 (Reconciler) ──────────────────────────────────────────────────────

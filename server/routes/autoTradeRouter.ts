@@ -42,7 +42,7 @@ import {
   type TradingSettings,
   type SessionState,
 } from '../persistence/tradingSettingsRepo.js';
-import { computeShadowAccount, reconcileShadowQuantities } from '../persistence/shadowAccountRepo.js';
+import { computeShadowAccount, reconcileShadowQuantities, computeMonthlyShadowTradeStats } from '../persistence/shadowAccountRepo.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { getRealtimePrice } from '../clients/kisStreamClient.js';
 
@@ -350,7 +350,14 @@ router.get('/auto-trade/recommendations', (_req: any, res: any) => {
 });
 
 router.get('/auto-trade/recommendations/stats', (_req: any, res: any) => {
-  res.json(getMonthlyStats());
+  // 🔑 UI "서버 자기학습 통계" 카드는 실제 SELL fill(부분청산 포함) 기반 지표를
+  // 보여야 한다. getMonthlyStats()는 추천 시그널 품질 추적용이라 추천-기준-% 수익률
+  // 만 반영해 금일 실현 결산이 누락된다. trades 필드에 실제 월간 실현 성과를 함께
+  // 실어 보내고 프런트가 이를 우선 사용한다. (Telegram 리포트는 기존 필드 유지)
+  res.json({
+    ...getMonthlyStats(),
+    trades: computeMonthlyShadowTradeStats(),
+  });
 });
 
 // 수동 평가 트리거 (테스트 / 장 마감 후 즉시 확인 용도)

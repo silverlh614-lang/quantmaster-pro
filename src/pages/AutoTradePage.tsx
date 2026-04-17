@@ -155,7 +155,25 @@ function useCountdown(targetIso: string | null | undefined): string | null {
 export function AutoTradePage() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'settings'>('dashboard');
   const [serverShadowTrades, setServerShadowTrades] = useState<any[]>([]);
-  const [serverRecStats, setServerRecStats] = useState<{ month?: string; winRate?: number; avgReturn?: number; strongBuyWinRate?: number; total?: number } | null>(null);
+  const [serverRecStats, setServerRecStats] = useState<{
+    month?: string;
+    winRate?: number;
+    avgReturn?: number;
+    strongBuyWinRate?: number;
+    total?: number;
+    /** 실제 섀도우 SELL fill 기반 월간 실현 성과 — 1억원 기준 */
+    trades?: {
+      month: string;
+      startingCapital: number;
+      total: number;
+      wins: number;
+      losses: number;
+      winRate: number;
+      totalRealizedPnl: number;
+      totalReturnPct: number;
+      avgReturnPct: number;
+    };
+  } | null>(null);
   const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([]);
   const [holdings, setHoldings] = useState<KisHolding[]>([]);
   const [portfolioTab, setPortfolioTab] = useState<'watchlist' | 'holdings'>('watchlist');
@@ -961,33 +979,50 @@ export function AutoTradePage() {
           )}
         </Card>
 
-        {/* Server Learning Stats */}
-        {serverRecStats && serverRecStats.total != null && serverRecStats.total > 0 && (
-          <Card padding="md">
-            <div className="flex items-center gap-2 mb-4">
-              <Activity className="w-4 h-4 text-amber-400" />
-              <span className="text-micro">서버 자기학습 통계 ({serverRecStats.month})</span>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-center">
-              <div>
-                <p className="text-micro">결산 건수</p>
-                <p className="text-lg font-black text-theme-text mt-1">{serverRecStats.total}</p>
+        {/* Server Learning Stats — 실제 SELL fill 기반 (부분청산 포함, 1억원 기준) */}
+        {serverRecStats && (() => {
+          const t = serverRecStats.trades;
+          const tradeCount = t?.total ?? 0;
+          const recCount   = serverRecStats.total ?? 0;
+          // 둘 다 0이면 카드 자체를 숨긴다.
+          if (tradeCount === 0 && recCount === 0) return null;
+          const month       = t?.month ?? serverRecStats.month;
+          const winRate     = tradeCount > 0 ? (t!.winRate ?? 0) : (serverRecStats.winRate ?? 0);
+          const avgReturn   = tradeCount > 0 ? (t!.avgReturnPct ?? 0) : (serverRecStats.avgReturn ?? 0);
+          const displayCount = tradeCount > 0 ? tradeCount : recCount;
+          return (
+            <Card padding="md">
+              <div className="flex items-center gap-2 mb-4">
+                <Activity className="w-4 h-4 text-amber-400" />
+                <span className="text-micro">서버 자기학습 통계 ({month})</span>
+                {tradeCount > 0 && t && (
+                  <span className="text-micro ml-auto">
+                    월 누적 {t.totalRealizedPnl >= 0 ? '+' : ''}{t.totalRealizedPnl.toLocaleString()}원
+                    · {t.totalReturnPct >= 0 ? '+' : ''}{t.totalReturnPct.toFixed(2)}% (1억 기준)
+                  </span>
+                )}
               </div>
-              <div>
-                <p className="text-micro">WIN률</p>
-                <p className="text-lg font-black text-green-400 mt-1">{serverRecStats.winRate?.toFixed(1)}%</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-center">
+                <div>
+                  <p className="text-micro">결산 건수</p>
+                  <p className="text-lg font-black text-theme-text mt-1">{displayCount}</p>
+                </div>
+                <div>
+                  <p className="text-micro">WIN률</p>
+                  <p className="text-lg font-black text-green-400 mt-1">{winRate.toFixed(1)}%</p>
+                </div>
+                <div>
+                  <p className="text-micro">평균 수익</p>
+                  <p className={cn('text-lg font-black mt-1', avgReturn >= 0 ? 'text-green-400' : 'text-red-400')}>{avgReturn.toFixed(2)}%</p>
+                </div>
+                <div>
+                  <p className="text-micro">STRONG_BUY</p>
+                  <p className="text-lg font-black text-amber-400 mt-1">{(serverRecStats.strongBuyWinRate ?? 0).toFixed(1)}%</p>
+                </div>
               </div>
-              <div>
-                <p className="text-micro">평균 수익</p>
-                <p className={cn('text-lg font-black mt-1', (serverRecStats.avgReturn ?? 0) >= 0 ? 'text-green-400' : 'text-red-400')}>{serverRecStats.avgReturn?.toFixed(2)}%</p>
-              </div>
-              <div>
-                <p className="text-micro">STRONG_BUY</p>
-                <p className="text-lg font-black text-amber-400 mt-1">{serverRecStats.strongBuyWinRate?.toFixed(1)}%</p>
-              </div>
-            </div>
-          </Card>
-        )}
+            </Card>
+          );
+        })()}
 
         {/* Server Shadow Trades — 3탭: 보유중 / 완결 / 체결 기록 */}
         {(() => {
