@@ -16,3 +16,9 @@ let VIX_CONSERVATIVE_MODE = false;
 /** VIX 장중 급등(+3%) 감지 시 활성: positionPct −20%, 신규 진입 일시 중단 */
 export const getVixConservativeMode = () => VIX_CONSERVATIVE_MODE;
 export const setVixConservativeMode = (v: boolean) => { VIX_CONSERVATIVE_MODE = v; };
+
+// ─── 데이터 정합성 게이팅 — Reconciliation 불일치 초과 시 신규 매수 차단 ───────
+let DATA_INTEGRITY_BLOCKED = false;
+/** Reconciliation 불일치 건수 > 임계치 시 true — 신뢰할 수 없는 상태에서 신규 매수 금지 */
+export const getDataIntegrityBlocked = () => DATA_INTEGRITY_BLOCKED;
+export const setDataIntegrityBlocked = (v: boolean) => { DATA_INTEGRITY_BLOCKED = v; };

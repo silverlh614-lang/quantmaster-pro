@@ -45,6 +45,7 @@ import { runPortfolioRiskCheck } from './trading/portfolioRiskEngine.js';
 import { generateQualityScorecard } from './alerts/qualityScorecard.js';
 import { macroSectorAlignmentCheck, initMacroSyncDayOpen } from './trading/macroSectorSync.js';
 import { runDailyBackup } from './persistence/dailyBackup.js';
+import { runDailyReconciliation } from './trading/reconciliationEngine.js';
 
 export function startScheduler() {
   // ─── KIS 토큰 사전 갱신 — 매일 KST 08:30 (UTC 23:30, 일~목) ──────────────
@@ -471,6 +472,17 @@ export function startScheduler() {
         `🚨 <b>[일일 백업 실패]</b>\n오류: ${e instanceof Error ? e.message : String(e)}`,
         { priority: 'HIGH', dedupeKey: 'daily_backup_fail' },
       ).catch(console.error);
+    }
+  }, { timezone: 'UTC' });
+
+  // ─── 이중 기록 Reconciliation — 매일 KST 23:30 (UTC 14:30) ─────────────────
+  // shadow-log ↔ TradeEvent ↔ shadow-trades 정합성 자동 대조.
+  // 불일치 > 임계치 시 Critical 텔레그램 알림 + DATA_INTEGRITY_BLOCKED 게이팅.
+  cron.schedule('30 14 * * *', async () => {
+    try {
+      await runDailyReconciliation();
+    } catch (e) {
+      console.error('[Reconciliation] cron 실행 오류:', e);
     }
   }, { timezone: 'UTC' });
 

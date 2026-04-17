@@ -189,6 +189,18 @@ export function AutoTradePage() {
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
   const [engineToggling, setEngineToggling] = useState(false);
   const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null);
+  const [reconcileData, setReconcileData] = useState<{
+    last: {
+      date: string; ranAt: string;
+      shadowLogCloses: number; tradeEventCloses: number; shadowTradeCloses: number;
+      notificationsLogged: number;
+      mismatchCount: number;
+      mismatches: { positionId: string; stockCode: string; stockName?: string; issue: string }[];
+      integrityOk: boolean;
+    } | null;
+    dataIntegrityBlocked: boolean;
+  } | null>(null);
+  const [reconcileRunning, setReconcileRunning] = useState(false);
   const [ocoOrders, setOcoOrders] = useState<{ active: OcoOrderPair[]; history: OcoOrderPair[] }>({ active: [], history: [] });
 
   // ③ FOMC 차단 해제 카운트다운
@@ -326,6 +338,7 @@ export function AutoTradePage() {
       fetch('/api/auto-trade/condition-weights/debug').then(r => r.json()).then(setConditionDebug).catch((err) => console.error('[ERROR] Condition debug 조회 실패:', err));
       fetch('/api/auto-trade/engine/status').then(r => r.json()).then(setEngineStatus).catch((err) => console.error('[ERROR] Engine status 조회 실패:', err));
       fetch('/api/auto-trade/oco-orders').then(r => r.json()).then(setOcoOrders).catch(() => {});
+      fetch('/api/auto-trade/reconcile').then(r => r.json()).then(setReconcileData).catch(() => {});
       fetch('/api/kis/balance').then(r => r.json()).then((data: any) => {
         // output2[0]에 계좌 총평가 정보가 있음
         const summary = data?.output2?.[0];
@@ -458,6 +471,97 @@ export function AutoTradePage() {
             </div>
           </div>
         </Card>
+
+        {/* ─── Reconciliation 정합성 대시보드 ───────────────────────────────── */}
+        {reconcileData && (
+          <Card padding="sm" className={reconcileData.dataIntegrityBlocked
+            ? '!border-red-500/40 !bg-red-500/[0.04]'
+            : reconcileData.last && !reconcileData.last.integrityOk
+              ? '!border-amber-500/40 !bg-amber-500/[0.03]'
+              : '!border-green-500/20 !bg-green-500/[0.02]'
+          }>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className={cn('w-4 h-4', reconcileData.dataIntegrityBlocked ? 'text-red-400' : 'text-green-400')} />
+                <span className="font-bold text-sm">이중 기록 Reconciliation</span>
+                {reconcileData.dataIntegrityBlocked && (
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse">
+                    매수 차단
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={async () => {
+                  setReconcileRunning(true);
+                  try {
+                    const r = await fetch('/api/auto-trade/reconcile', { method: 'POST' });
+                    const d = await r.json();
+                    setReconcileData({ last: d, dataIntegrityBlocked: d.dataIntegrityBlocked });
+                  } catch { /* skip */ } finally { setReconcileRunning(false); }
+                }}
+                disabled={reconcileRunning}
+                className="text-[10px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-theme-text-muted hover:text-theme-text border border-theme-border/20 transition-colors disabled:opacity-50"
+              >
+                {reconcileRunning ? '실행중…' : '수동 실행'}
+              </button>
+            </div>
+
+            {reconcileData.last ? (() => {
+              const r = reconcileData.last!;
+              return (
+                <div className="space-y-2">
+                  {/* 대조 수치 3열 */}
+                  <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
+                    <div className="rounded-lg bg-white/[0.03] border border-theme-border/15 p-2">
+                      <p className="text-theme-text-muted text-[9px] uppercase font-bold mb-0.5">shadow-log</p>
+                      <p className="font-black font-num text-theme-text">{r.shadowLogCloses}</p>
+                    </div>
+                    <div className="rounded-lg bg-white/[0.03] border border-theme-border/15 p-2">
+                      <p className="text-theme-text-muted text-[9px] uppercase font-bold mb-0.5">TradeEvent</p>
+                      <p className="font-black font-num text-theme-text">{r.tradeEventCloses}</p>
+                    </div>
+                    <div className="rounded-lg bg-white/[0.03] border border-theme-border/15 p-2">
+                      <p className="text-theme-text-muted text-[9px] uppercase font-bold mb-0.5">ShadowTrades</p>
+                      <p className="font-black font-num text-theme-text">{r.shadowTradeCloses}</p>
+                    </div>
+                  </div>
+
+                  {/* 정합성 결과 */}
+                  <div className="flex items-center justify-between text-xs">
+                    <span className={cn('font-bold', r.integrityOk ? 'text-green-400' : 'text-red-400')}>
+                      {r.integrityOk ? `✅ 정합성 ${r.mismatchCount === 0 ? '100%' : '양호'}` : `🚨 불일치 ${r.mismatchCount}건`}
+                    </span>
+                    <span className="text-theme-text-muted text-[10px]">
+                      {r.date} · {new Date(r.ranAt).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+
+                  {/* 불일치 상세 */}
+                  {r.mismatches.length > 0 && (
+                    <div className="space-y-1">
+                      {r.mismatches.slice(0, 3).map((m, mi) => (
+                        <div key={mi} className="text-[10px] flex gap-2 items-start">
+                          <span className="text-red-400 shrink-0">•</span>
+                          <span className="text-theme-text-muted">
+                            <span className="font-bold text-theme-text">{m.stockCode}{m.stockName ? `(${m.stockName})` : ''}</span>
+                            {' '}{m.issue}
+                          </span>
+                        </div>
+                      ))}
+                      {r.mismatches.length > 3 && (
+                        <p className="text-[10px] text-theme-text-muted">외 {r.mismatches.length - 3}건…</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })() : (
+              <p className="text-xs text-theme-text-muted text-center py-2">
+                Reconciliation 이력 없음 — 수동 실행 또는 KST 23:30 자동 실행 대기
+              </p>
+            )}
+          </Card>
+        )}
 
         {/* ② 실시간 포트폴리오 P&L 헤더 대시보드 */}
         {accountSummary && (
@@ -1223,13 +1327,22 @@ export function AutoTradePage() {
                     const origQty     = t.originalQuantity ?? t.quantity;
                     const sellFills   = getSellFills(t);
                     const realizedPnl = getTotalRealizedPnl(t);
-                    // 포지션 전체 가중평균 (각 SELL fill의 qty × pnlPct 합산)
                     const totalSoldQty = sellFills.reduce((s: number, f: any) => s + (f.qty ?? 0), 0);
                     const weightedPnl  = totalSoldQty > 0
                       ? sellFills.reduce((s: number, f: any) => s + (f.pnlPct ?? 0) * (f.qty ?? 0), 0) / totalSoldQty
                       : (t.returnPct ?? 0);
-                    const isWin        = weightedPnl > 0;
+                    // 색상 규칙: 실현 PnL 합계 기준 (강제손절 태그가 아니라 총합이 판정)
+                    const isWin        = sellFills.length > 0 ? realizedPnl > 0 : weightedPnl > 0;
                     const isExpanded   = expandedTrades.has(t.id ?? String(i));
+                    // 청산 구성 — 익절(TP)/손절(SL) 수량 분리
+                    const exitComp = (() => {
+                      const tp = { qty: 0 }, sl = { qty: 0 };
+                      for (const f of sellFills) {
+                        if (f.subType === 'STOP_LOSS' || f.subType === 'EMERGENCY') sl.qty += f.qty ?? 0;
+                        else tp.qty += f.qty ?? 0;
+                      }
+                      return { tp, sl };
+                    })();
 
                     return (
                       <Card key={t.id ?? i} padding="sm" className={cn(
@@ -1250,6 +1363,17 @@ export function AutoTradePage() {
                                   DIVERGENCE_PARTIAL: '다이버전스', EUPHORIA_PARTIAL: '과열',
                                   MA60_DEATH_FORCE_EXIT: 'MA60강제',
                                 }[t.exitRuleTag as string] ?? t.exitRuleTag}
+                              </span>
+                            )}
+                            {/* 익절+손절 혼합 청산 배지 — totalRealizedPnL 기준 색상 */}
+                            {exitComp.tp.qty > 0 && exitComp.sl.qty > 0 && (
+                              <span className={cn(
+                                'text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0 border',
+                                isWin
+                                  ? 'bg-green-500/10 text-green-400 border-green-500/20'
+                                  : 'bg-red-500/10 text-red-400 border-red-500/20'
+                              )}>
+                                익절 {exitComp.tp.qty}주 + 손절 {exitComp.sl.qty}주
                               </span>
                             )}
                           </div>
@@ -1285,14 +1409,15 @@ export function AutoTradePage() {
                           {origQty > 0 && <span> × {origQty}주</span>}
                         </p>
 
-                        {/* 청산 이벤트 타임라인 (항상 표시 — 완결 뷰의 핵심) */}
-                        {sellFills.length > 0 && (
-                          <div className={cn(
-                            'mt-2 space-y-1',
-                            !isExpanded && sellFills.length > 2 ? 'max-h-[4.5rem] overflow-hidden' : ''
-                          )}>
+                        {/* 청산 이벤트 타임라인 — 아코디언 (chevron 클릭 시 펼침) */}
+                        {isExpanded && sellFills.length > 0 && (
+                          <div className="mt-2 pt-2 space-y-1.5 border-t border-theme-border/20">
                             {sellFills.map((f: any, fi: number) => {
                               const isLoss = (f.pnlPct ?? 0) < 0;
+                              // 누적 실현 PnL — 이 이벤트까지 합산
+                              const cumPnl = sellFills
+                                .slice(0, fi + 1)
+                                .reduce((s: number, f2: any) => s + (f2.pnl ?? 0), 0);
                               return (
                                 <div key={f.id ?? fi} className="flex items-center gap-2 text-[11px]">
                                   <span className="text-theme-text-muted w-10 shrink-0">{fmtFillTime(f.timestamp)}</span>
@@ -1306,9 +1431,9 @@ export function AutoTradePage() {
                                   <span className={cn('font-bold font-num ml-auto shrink-0', isLoss ? 'text-red-400' : 'text-green-400')}>
                                     {(f.pnlPct ?? 0) >= 0 ? '+' : ''}{(f.pnlPct ?? 0).toFixed(2)}%
                                   </span>
-                                  {f.pnl != null && (
-                                    <span className={cn('font-num text-[10px] shrink-0', isLoss ? 'text-red-400/70' : 'text-green-400/70')}>
-                                      {f.pnl >= 0 ? '+' : ''}{Math.round(f.pnl).toLocaleString()}원
+                                  {cumPnl !== 0 && (
+                                    <span className={cn('font-num text-[10px] shrink-0', cumPnl >= 0 ? 'text-green-400/60' : 'text-red-400/60')}>
+                                      누적 {cumPnl >= 0 ? '+' : ''}{Math.round(cumPnl).toLocaleString()}원
                                     </span>
                                   )}
                                 </div>

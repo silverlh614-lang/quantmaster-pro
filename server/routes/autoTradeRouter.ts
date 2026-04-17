@@ -44,7 +44,8 @@ import {
 } from '../persistence/tradingSettingsRepo.js';
 import { computeShadowAccount, reconcileShadowQuantities, computeMonthlyShadowTradeStats } from '../persistence/shadowAccountRepo.js';
 import { aggregatePositions } from '../trading/positionAggregator.js';
-import { getRemainingQty } from '../persistence/shadowTradeRepo.js';
+import { runDailyReconciliation, loadLastReconcileResult } from '../trading/reconciliationEngine.js';
+import { getDataIntegrityBlocked } from '../state.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { getRealtimePrice } from '../clients/kisStreamClient.js';
 
@@ -274,6 +275,27 @@ router.get('/auto-trade/positions', (req: any, res: any) => {
   });
 
   res.json(aggregatePositions(filtered.slice(-limit)));
+});
+
+/**
+ * GET  /api/auto-trade/reconcile — 마지막 Reconciliation 결과 조회
+ * POST /api/auto-trade/reconcile — 즉시 Reconciliation 실행 (수동 트리거)
+ */
+router.get('/auto-trade/reconcile', (_req: any, res: any) => {
+  const last = loadLastReconcileResult();
+  res.json({
+    last,
+    dataIntegrityBlocked: getDataIntegrityBlocked(),
+  });
+});
+
+router.post('/auto-trade/reconcile', async (_req: any, res: any) => {
+  try {
+    const result = await runDailyReconciliation({ silent: false });
+    res.json({ ok: true, ...result, dataIntegrityBlocked: getDataIntegrityBlocked() });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 /** POST /api/auto-trade/shadow-trades — 클라이언트에서 생성한 Shadow Trade를 서버에 동기화 */
