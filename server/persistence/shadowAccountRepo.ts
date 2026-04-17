@@ -137,8 +137,20 @@ export function computeShadowAccount(
   const cashBalance = startingCapital - cashUsed + cashIn;
 
   // ── 활성 포지션 ─────────────────────────────────────────────────
-  const activeStatuses = new Set(['ACTIVE', 'PARTIALLY_FILLED', 'ORDER_SUBMITTED', 'PENDING']);
-  const activeTrades = relevant.filter(t => activeStatuses.has(t.status));
+  // 🔑 보유/완결 분류는 fills 기반 잔량을 단일 진실 원천으로 삼는다 (AutoTradePage와 동일 규칙).
+  // status 필드만으로 분류하면 (1) status='ACTIVE' 인데 잔량 0 → 빈 포지션 유령 표시,
+  // (2) status='HIT_STOP' 인데 잔량 > 0 → 보유분을 잃어버리는 불일치,
+  // (3) EUPHORIA_PARTIAL + 잔량 > 0 → 어느 리스트에도 속하지 않는 누락이 발생한다.
+  // 레거시(BUY fill 없는) 거래는 getRemainingQty가 trade.quantity로 폴백하므로
+  // status가 종결(HIT_TARGET/HIT_STOP)일 때 여기서 제외하여 완결과의 중복을 방지한다.
+  const closedTerminalStatuses = new Set(['HIT_TARGET', 'HIT_STOP']);
+  const activeTrades = relevant.filter(t => {
+    if (t.status === 'REJECTED') return false;
+    const fills = t.fills ?? [];
+    const hasBuyFill = fills.some(f => f.type === 'BUY');
+    if (hasBuyFill) return getRemainingQty(t) > 0;
+    return !closedTerminalStatuses.has(t.status); // 레거시: fills 없으면 status로 판정
+  });
 
   const openPositions: ActivePosition[] = activeTrades.map(t => {
     const remainingQty = getRemainingQty(t);
@@ -172,14 +184,17 @@ export function computeShadowAccount(
   });
 
   // ── 청산 포지션 ─────────────────────────────────────────────────
-  const closedStatuses = new Set(['HIT_TARGET', 'HIT_STOP', 'REJECTED']);
-  // EUPHORIA_PARTIAL은 부분 청산 상태이므로 활성으로 분류하되
-  // 전량 청산된 경우(remainingQty === 0)만 closed로 처리
+  // 완결 판정 규칙 (AutoTradePage와 동일 — activeTrades 필터의 여집합):
+  // - REJECTED: 주문 자체가 거부 — 완결로 분류 (체결 내역도 없음)
+  // - 그 외: fills 기반 잔량이 0 이면 완결. BUY fill이 없는 레거시 거래는
+  //   status가 종결 상태(HIT_TARGET/HIT_STOP)일 때만 완결로 인정한다.
   const closedTrades: ClosedTrade[] = relevant
     .filter(t => {
-      if (closedStatuses.has(t.status)) return true;
-      if (t.status === 'EUPHORIA_PARTIAL') return getRemainingQty(t) === 0;
-      return false;
+      if (t.status === 'REJECTED') return true;
+      const fills = t.fills ?? [];
+      const hasBuyFill = fills.some(f => f.type === 'BUY');
+      if (hasBuyFill) return getRemainingQty(t) === 0;
+      return closedTerminalStatuses.has(t.status); // 레거시: fills 없고 status가 종결
     })
     .map(t => {
       const sells = getSellFills(t);

@@ -8,7 +8,7 @@ import { loadMacroState, saveMacroState, type MacroState } from '../persistence/
 import { getDartAlerts } from '../persistence/dartRepo.js';
 import { loadFssRecords, upsertFssRecord } from '../persistence/fssRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
-import { loadShadowTrades, saveShadowTrades, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, saveShadowTrades, getRemainingQty, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { getScreenerCache, preScreenStocks, autoPopulateWatchlist } from '../screener/stockScreener.js';
 import { getRecommendations, getMonthlyStats, evaluateRecommendations, isRealTradeReady } from '../learning/recommendationTracker.js';
 import { pollDartDisclosures } from '../alerts/dartPoller.js';
@@ -746,10 +746,10 @@ router.get('/shadow/account', async (_req: any, res: any) => {
     const trades = loadShadowTrades();
 
     // 활성 포지션의 종목코드만 추출하여 현재가 조회
-    const activeStatuses = new Set(['ACTIVE', 'PARTIALLY_FILLED', 'ORDER_SUBMITTED', 'PENDING']);
+    // 분류는 computeShadowAccount와 동일한 fills 기반 잔량 규칙을 사용한다.
     const activeCodes = [...new Set(
       trades
-        .filter(t => activeStatuses.has(t.status))
+        .filter(t => t.status !== 'REJECTED' && getRemainingQty(t) > 0)
         .map(t => t.stockCode)
     )];
 
