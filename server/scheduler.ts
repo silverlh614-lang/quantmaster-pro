@@ -32,7 +32,7 @@ import { loadWatchlist } from './persistence/watchlistRepo.js';
 import { getEmergencyStop, getDailyLossPct } from './state.js';
 import { getLastScanAt } from './orchestrator/adaptiveScanScheduler.js';
 import { getLastBuySignalAt, getLastScanSummary } from './trading/signalScanner.js';
-import { getKisTokenRemainingHours } from './clients/kisClient.js';
+import { getKisTokenRemainingHours, refreshKisToken, invalidateKisToken } from './clients/kisClient.js';
 import { isOpenShadowStatus } from './trading/entryEngine.js';
 import { runAutoSignalScan } from './trading/signalScanner.js';
 import { runPipelineDiagnosis } from './trading/pipelineDiagnosis.js';
@@ -46,6 +46,22 @@ import { generateQualityScorecard } from './alerts/qualityScorecard.js';
 import { macroSectorAlignmentCheck, initMacroSyncDayOpen } from './trading/macroSectorSync.js';
 
 export function startScheduler() {
+  // ─── KIS 토큰 사전 갱신 — 매일 KST 08:30 (UTC 23:30, 일~목) ──────────────
+  // 23시간 유효 토큰을 장 시작 전 강제 재발급하여 장중 401 만료 방지.
+  // Railway 재시작 없이 24시간을 넘겨도 cron이 먼저 갱신한다.
+  cron.schedule('30 23 * * 0-4', async () => {
+    try {
+      invalidateKisToken();
+      await refreshKisToken();
+      console.log('[Scheduler] KIS 토큰 사전 갱신 완료 (장전 08:30 KST)');
+    } catch (e) {
+      console.error('[Scheduler] KIS 토큰 사전 갱신 실패:', e);
+      await sendTelegramAlert(
+        '⚠️ <b>[KIS 토큰 갱신 실패]</b>\n장 시작 전 토큰 갱신 오류 — 수동 확인 필요',
+      ).catch(console.error);
+    }
+  }, { timezone: 'UTC' });
+
   // ─── TradingDayOrchestrator — 장 사이클 State Machine ──────────────────
   // cron은 1분 간격 — INTRADAY 실제 스캔 빈도는 adaptiveScanScheduler가 결정.
   // ① UTC 23:xx (= KST Mon-Fri 08:xx, 동시호가/장 전 준비) — Sun-Thu UTC

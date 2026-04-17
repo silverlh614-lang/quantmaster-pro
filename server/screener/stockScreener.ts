@@ -517,8 +517,29 @@ export async function preScreenStocks(options?: {
       }
     };
 
+    // 관리종목 · 거래정지 · 정리매매 · 투자위험 필터 (부실기업 제외)
+    // KIS 랭킹 TR 출력의 공통 상태 필드를 사용:
+    //   trht_yn='Y'   → 거래정지
+    //   sltr_yn='Y'   → 정리매매
+    //   mang_issu_cls_code/mang_issu_yn='Y' → 관리종목
+    //   mrkt_warn_cls_code='02'(경고)·'03'(위험) → 투자경고/위험
+    //   iscd_stat_cls_code '51'(관리)·'58'(정지) → 종목상태
+    const isRiskyKisRow = (s: Record<string, string>): boolean => {
+      if ((s.trht_yn ?? '').toUpperCase() === 'Y') return true;
+      if ((s.sltr_yn ?? '').toUpperCase() === 'Y') return true;
+      if ((s.mang_issu_yn ?? '').toUpperCase() === 'Y') return true;
+      if ((s.mang_issu_cls_code ?? '').toUpperCase() === 'Y') return true;
+      const warnCode = s.mrkt_warn_cls_code ?? '';
+      if (warnCode === '02' || warnCode === '03') return true;
+      const statCode = s.iscd_stat_cls_code ?? '';
+      if (statCode === '51' || statCode === '52' || statCode === '58') return true;
+      return false;
+    };
+
     // 거래량 상위 매핑
-    mergeOutput(volData, 'VOL', (s) => ({
+    mergeOutput(volData, 'VOL', (s) => {
+      if (isRiskyKisRow(s)) return null;
+      return {
       code:          s.stck_shrn_iscd  ?? '',
       name:          s.hts_kor_isnm    ?? '',
       currentPrice:  parseInt(s.stck_prpr      ?? '0', 10),
@@ -528,10 +549,13 @@ export async function preScreenStocks(options?: {
       per:           parseFloat(s.per          ?? '999'),
       foreignNetBuy: parseInt(s.frgn_ntby_qty  ?? '0', 10),
       screenedAt:    now,
-    }));
+    };
+    });
 
     // 상승률 상위 매핑
-    mergeOutput(riseData, 'RISE', (s) => ({
+    mergeOutput(riseData, 'RISE', (s) => {
+      if (isRiskyKisRow(s)) return null;
+      return {
       code:          s.stck_shrn_iscd  ?? '',
       name:          s.hts_kor_isnm    ?? '',
       currentPrice:  parseInt(s.stck_prpr      ?? '0', 10),
@@ -541,10 +565,13 @@ export async function preScreenStocks(options?: {
       per:           parseFloat(s.per          ?? '999'),
       foreignNetBuy: parseInt(s.frgn_ntby_qty  ?? '0', 10),
       screenedAt:    now,
-    }));
+    };
+    });
 
     // 52주 신고가 매핑
-    mergeOutput(highData, 'HIGH52W', (s) => ({
+    mergeOutput(highData, 'HIGH52W', (s) => {
+      if (isRiskyKisRow(s)) return null;
+      return {
       code:          s.stck_shrn_iscd  ?? '',
       name:          s.hts_kor_isnm    ?? '',
       currentPrice:  parseInt(s.stck_prpr      ?? '0', 10),
@@ -554,10 +581,13 @@ export async function preScreenStocks(options?: {
       per:           parseFloat(s.per          ?? '999'),
       foreignNetBuy: 0,
       screenedAt:    now,
-    }));
+    };
+    });
 
     // 외국인 순매수 상위 매핑
-    mergeOutput(foreignData, 'FOREIGN', (s) => ({
+    mergeOutput(foreignData, 'FOREIGN', (s) => {
+      if (isRiskyKisRow(s)) return null;
+      return {
       code:          s.stck_shrn_iscd  ?? '',
       name:          s.hts_kor_isnm    ?? '',
       currentPrice:  parseInt(s.stck_prpr      ?? '0', 10),
@@ -567,7 +597,8 @@ export async function preScreenStocks(options?: {
       per:           999,
       foreignNetBuy: parseInt(s.frgn_ntby_qty  ?? '0', 10),
       screenedAt:    now,
-    }));
+    };
+    });
 
     // ── 복수 TR에 등장한 종목 우선 정렬 ────────────────────────
     // 거래량+상승률+신고가+외국인 동시에 잡힌 종목 = 최강 후보
