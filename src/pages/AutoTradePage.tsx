@@ -972,11 +972,12 @@ export function AutoTradePage() {
             const remaining = getRemainingQty(t);
             return remaining > 0;
           });
+          // 🔑 완결 = 잔량 0 (fills 단일 진실 원천). status 필드는 동기화 지연 가능성이
+          // 있어 기준으로 쓰지 않는다. 그렇지 않으면 status='HIT_STOP'인데 fills에 잔량이
+          // 남은 포지션이 보유중·완결 양쪽에 중복 표시된다.
           const closedTrades = serverShadowTrades.filter((t: any) => {
             if (t.status === 'REJECTED') return false;
-            const remaining = getRemainingQty(t);
-            return remaining === 0 ||
-              t.status === 'HIT_TARGET' || t.status === 'HIT_STOP';
+            return getRemainingQty(t) === 0;
           });
           const allFills: { fill: any; trade: any }[] = [];
           for (const t of serverShadowTrades) {
