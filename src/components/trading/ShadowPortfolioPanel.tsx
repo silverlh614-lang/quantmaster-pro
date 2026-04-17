@@ -12,6 +12,7 @@ import { cn } from '../../ui/cn';
 import { KpiStrip, type KpiItem } from '../../ui/kpi-strip';
 import { Badge } from '../../ui/badge';
 import { Spinner } from '../../ui/spinner';
+import { isMarketOpen } from '../../utils/marketTime';
 
 // ─── 타입 (서버 shadowAccountRepo.ts 미러) ───────────────────────────────────
 
@@ -110,17 +111,6 @@ function fmtDate(iso: string): string {
   return d.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
 }
 
-// ─── 장중 여부 ─────────────────────────────────────────────────────────────────
-function isMarketOpen(): boolean {
-  const now = new Date();
-  const kst = new Date(now.getTime() + 9 * 3_600_000);
-  const h = kst.getUTCHours();
-  const m = kst.getUTCMinutes();
-  const day = kst.getUTCDay(); // 0=일, 6=토
-  if (day === 0 || day === 6) return false;
-  const mins = h * 60 + m;
-  return mins >= 9 * 60 && mins < 15 * 60 + 30;
-}
 
 // ─── EXIT RULE TAG 레이블 ───────────────────────────────────────────────────────
 const EXIT_LABELS: Record<string, string> = {
@@ -360,16 +350,28 @@ export function ShadowPortfolioPanel() {
     }
   }, []);
 
-  // ── 초기 로드 + 장중 1분 자동 폴링 ────────────────────────────────────────
+  // ── 초기 로드 + 장중·가시 상태 1분 자동 폴링 ─────────────────────────────
   useEffect(() => {
     refresh();
 
     const tick = () => {
-      if (isMarketOpen()) refresh(true);
+      if (document.visibilityState !== 'visible') return;
+      if (!isMarketOpen()) return;
+      refresh(true);
     };
     intervalRef.current = setInterval(tick, 60_000);
+
+    // 숨겨졌다 돌아오면 장중 한정 1회 즉시 갱신
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && isMarketOpen()) {
+        refresh(true);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [refresh]);
 
