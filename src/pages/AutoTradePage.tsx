@@ -203,13 +203,15 @@ export function AutoTradePage() {
 
   /**
    * fills 배열에서 잔량을 재계산한다 (단일 진실 원천).
-   * BUY fill이 없는 레거시 거래는 trade.quantity를 그대로 반환.
+   * BUY fill이 없는 레거시 거래는 status로 판정: 종결 상태(HIT_TARGET/HIT_STOP/REJECTED)면 0,
+   * 그 외에는 trade.quantity를 그대로 반환한다.
    */
   function getRemainingQty(trade: any): number {
     const fills: any[] = trade.fills ?? [];
     const buyQty  = fills.filter((f: any) => f.type === 'BUY').reduce((s: number, f: any) => s + f.qty, 0);
     const sellQty = fills.filter((f: any) => f.type === 'SELL').reduce((s: number, f: any) => s + f.qty, 0);
     if (buyQty > 0) return Math.max(0, buyQty - sellQty);
+    if (trade.status === 'HIT_TARGET' || trade.status === 'HIT_STOP' || trade.status === 'REJECTED') return 0;
     return trade.quantity ?? 0;
   }
 
