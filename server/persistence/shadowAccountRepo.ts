@@ -1,4 +1,13 @@
-import { ServerShadowTrade, PositionFill, loadShadowTrades, saveShadowTrades } from './shadowTradeRepo.js';
+import {
+  ServerShadowTrade,
+  PositionFill,
+  loadShadowTrades,
+  saveShadowTrades,
+  syncPositionCache,
+  getRemainingQty,
+  getWeightedPnlPct,
+  getTotalRealizedPnl,
+} from './shadowTradeRepo.js';
 
 // ─── 섀도우 계좌 타입 정의 ────────────────────────────────────────────────────
 
@@ -72,34 +81,8 @@ export interface ShadowAccountState {
 
 // ─── 계산 헬퍼 ───────────────────────────────────────────────────────────────
 
-function getBuyFills(trade: ServerShadowTrade): PositionFill[] {
-  return (trade.fills ?? []).filter(f => f.type === 'BUY');
-}
-
 function getSellFills(trade: ServerShadowTrade): PositionFill[] {
   return (trade.fills ?? []).filter(f => f.type === 'SELL');
-}
-
-function calcRemainingQty(trade: ServerShadowTrade): number {
-  const bought = getBuyFills(trade).reduce((s, f) => s + f.qty, 0);
-  const sold = getSellFills(trade).reduce((s, f) => s + f.qty, 0);
-  // fills가 없으면 trade.quantity 사용
-  if (bought === 0) return trade.quantity ?? 0;
-  return Math.max(0, bought - sold);
-}
-
-function calcWeightedPnlPct(trade: ServerShadowTrade): number {
-  const sells = getSellFills(trade).filter(f => f.pnlPct !== undefined);
-  if (sells.length === 0) return trade.returnPct ?? 0;
-  const totalQty = sells.reduce((s, f) => s + f.qty, 0);
-  if (totalQty === 0) return 0;
-  return sells.reduce((s, f) => s + (f.pnlPct ?? 0) * f.qty, 0) / totalQty;
-}
-
-function calcRealizedPnl(trade: ServerShadowTrade): number {
-  return getSellFills(trade)
-    .filter(f => f.pnl !== undefined)
-    .reduce((s, f) => s + (f.pnl ?? 0), 0);
 }
 
 // ─── 핵심 계산 함수 ───────────────────────────────────────────────────────────
@@ -149,7 +132,7 @@ export function computeShadowAccount(
   const activeTrades = relevant.filter(t => activeStatuses.has(t.status));
 
   const openPositions: ActivePosition[] = activeTrades.map(t => {
-    const remainingQty = calcRemainingQty(t);
+    const remainingQty = getRemainingQty(t);
     const entryPrice = t.shadowEntryPrice;
     const investedCash = remainingQty * entryPrice;
     const currentPrice = currentPrices[t.stockCode];
@@ -186,15 +169,15 @@ export function computeShadowAccount(
   const closedTrades: ClosedTrade[] = relevant
     .filter(t => {
       if (closedStatuses.has(t.status)) return true;
-      if (t.status === 'EUPHORIA_PARTIAL') return calcRemainingQty(t) === 0;
+      if (t.status === 'EUPHORIA_PARTIAL') return getRemainingQty(t) === 0;
       return false;
     })
     .map(t => {
       const sells = getSellFills(t);
       const lastSell = sells.length > 0 ? sells[sells.length - 1] : null;
       const totalSoldQty = sells.reduce((s, f) => s + f.qty, 0);
-      const realizedPnl = calcRealizedPnl(t);
-      const weightedPnlPct = calcWeightedPnlPct(t);
+      const realizedPnl = getTotalRealizedPnl(t);
+      const weightedPnlPct = getWeightedPnlPct(t);
 
       return {
         tradeId: t.id,
@@ -293,38 +276,31 @@ export function reconcileShadowQuantities(trades?: ServerShadowTrade[]): Reconci
   const all = trades ?? loadShadowTrades();
   const result: ReconcileResult = { checked: all.length, fixed: 0, details: [] };
 
+  const openStatuses = new Set(['ACTIVE', 'PARTIALLY_FILLED', 'EUPHORIA_PARTIAL', 'PENDING', 'ORDER_SUBMITTED']);
+  const closedStatuses = new Set(['HIT_STOP', 'HIT_TARGET']);
+
   for (const t of all) {
     const fills = t.fills ?? [];
-    const buyFillQty  = fills.filter(f => f.type === 'BUY').reduce((s, f) => s + f.qty, 0);
-    const sellFillQty = fills.filter(f => f.type === 'SELL').reduce((s, f) => s + f.qty, 0);
-
+    const buyFillQty = fills.filter(f => f.type === 'BUY').reduce((s, f) => s + f.qty, 0);
     if (buyFillQty === 0) continue; // fill 없는 레거시 — 건드리지 않음
-
-    const fillBasedQty = Math.max(0, buyFillQty - sellFillQty);
-    const openStatuses = new Set(['ACTIVE', 'PARTIALLY_FILLED', 'EUPHORIA_PARTIAL', 'PENDING', 'ORDER_SUBMITTED']);
-    const closedStatuses = new Set(['HIT_STOP', 'HIT_TARGET']);
-
-    const qtyChanged = fillBasedQty !== t.quantity;
-    const shouldBeClosed = fillBasedQty === 0 && openStatuses.has(t.status);
-    const shouldBeOpen   = fillBasedQty > 0  && closedStatuses.has(t.status); // 잘못 닫힌 경우
-
-    if (!qtyChanged && !shouldBeClosed && !shouldBeOpen) continue;
 
     const before = { qty: t.quantity, status: t.status };
 
-    // 수량 교정
-    if (qtyChanged) t.quantity = fillBasedQty;
+    // 1) quantity / originalQuantity 파생 동기화 (fills 단일 진실 원천)
+    const qtyChanged = syncPositionCache(t);
 
-    // originalQuantity 보장 (한 번도 설정 안 된 경우)
-    if (!t.originalQuantity) t.originalQuantity = buyFillQty;
-
-    // 상태 교정
+    // 2) 상태 교정 — reconciler 전용 자동 닫힘 판정
+    const shouldBeClosed = t.quantity === 0 && openStatuses.has(t.status);
+    const shouldBeOpen   = t.quantity > 0  && closedStatuses.has(t.status); // 잘못 닫힌 경우
     if (shouldBeClosed) {
       const lastSell = fills.filter(f => f.type === 'SELL').sort((a, b) => a.timestamp.localeCompare(b.timestamp)).pop();
       t.status    = 'HIT_STOP';
       t.exitTime  ??= lastSell?.timestamp ?? new Date().toISOString();
       t.exitPrice ??= lastSell?.price;
     }
+
+    const statusChanged = before.status !== t.status;
+    if (!qtyChanged && !statusChanged && !shouldBeOpen) continue;
 
     result.fixed++;
     result.details.push({ id: t.id, stockCode: t.stockCode, before, after: { qty: t.quantity, status: t.status } });
