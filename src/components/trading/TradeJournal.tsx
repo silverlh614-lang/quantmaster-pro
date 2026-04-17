@@ -219,8 +219,18 @@ export const TradeJournal: React.FC<Props> = ({
           ) : (
             <div className="space-y-2">
               {filteredTrades.map(trade => {
-                const pnlPct = trade.status === 'CLOSED' ? (trade.returnPct ?? 0)
-                  : trade.currentPrice ? ((trade.currentPrice - trade.buyPrice) / trade.buyPrice * 100) : 0;
+                // 영속된 레거시 레코드가 필드 일부를 비워둘 수 있으므로, 렌더링
+                // 경로는 모두 nullish 안전을 가정한다.
+                const buyPrice = Number.isFinite(trade.buyPrice) ? trade.buyPrice : 0;
+                const quantity = Number.isFinite(trade.quantity) ? trade.quantity : 0;
+                const currentPrice = Number.isFinite(trade.currentPrice) ? trade.currentPrice! : undefined;
+                const sellPrice = Number.isFinite(trade.sellPrice) ? trade.sellPrice! : undefined;
+                const finalScore = Number.isFinite(trade.finalScore) ? trade.finalScore : 0;
+                const buyDateLabel = trade.buyDate ? trade.buyDate.split('T')[0] : '-';
+                const sellDateLabel = trade.sellDate ? trade.sellDate.split('T')[0] : null;
+                const pnlPct = trade.status === 'CLOSED'
+                  ? (trade.returnPct ?? 0)
+                  : (currentPrice && buyPrice > 0 ? ((currentPrice - buyPrice) / buyPrice * 100) : 0);
                 const isProfit = pnlPct > 0;
                 return (
                   <div key={trade.id} className={`border p-4 ${
@@ -254,7 +264,7 @@ export const TradeJournal: React.FC<Props> = ({
                           {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
                         </p>
                         <p className="text-[9px] text-gray-400">
-                          {trade.buyDate.split('T')[0]}{trade.sellDate ? ` → ${trade.sellDate.split('T')[0]}` : ' → 보유 중'}
+                          {buyDateLabel}{sellDateLabel ? ` → ${sellDateLabel}` : ' → 보유 중'}
                           {trade.holdingDays !== undefined && ` (${trade.holdingDays}일)`}
                         </p>
                       </div>
@@ -263,23 +273,28 @@ export const TradeJournal: React.FC<Props> = ({
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mt-3 text-[9px]">
                       <div>
                         <span className="text-gray-400">매수가</span>
-                        <p className="font-bold">{trade.buyPrice.toLocaleString()}원</p>
+                        <p className="font-bold">{buyPrice > 0 ? `${buyPrice.toLocaleString()}원` : '—'}</p>
                       </div>
                       <div>
                         <span className="text-gray-400">{trade.status === 'CLOSED' ? '매도가' : '현재가'}</span>
-                        <p className="font-bold">{(trade.status === 'CLOSED' ? trade.sellPrice : trade.currentPrice ?? trade.buyPrice)?.toLocaleString()}원</p>
+                        <p className="font-bold">
+                          {(() => {
+                            const price = trade.status === 'CLOSED' ? sellPrice : (currentPrice ?? (buyPrice > 0 ? buyPrice : undefined));
+                            return price != null ? `${price.toLocaleString()}원` : '—';
+                          })()}
+                        </p>
                       </div>
                       <div>
                         <span className="text-gray-400">수량</span>
-                        <p className="font-bold">{trade.quantity.toLocaleString()}주</p>
+                        <p className="font-bold">{quantity > 0 ? `${quantity.toLocaleString()}주` : '—'}</p>
                       </div>
                       <div>
                         <span className="text-gray-400">비중</span>
-                        <p className="font-bold">{trade.positionSize}%</p>
+                        <p className="font-bold">{trade.positionSize ?? 0}%</p>
                       </div>
                       <div>
                         <span className="text-gray-400">Final Score</span>
-                        <p className="font-bold">{trade.finalScore.toFixed(1)}</p>
+                        <p className="font-bold">{finalScore.toFixed(1)}</p>
                       </div>
                     </div>
 

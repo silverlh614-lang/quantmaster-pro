@@ -163,9 +163,25 @@ export function TradeRecordModal({ onRecordTrade }: TradeRecordModalProps) {
           variant="primary"
           size="lg"
           onClick={() => {
-            const bp = parseFloat(tradeFormData.buyPrice) || tradeRecordStock.currentPrice;
-            const qty = parseInt(tradeFormData.quantity) || 1;
-            const ps = parseFloat(tradeFormData.positionSize) || 10;
+            // parseFloat/parseInt 는 빈 문자열을 NaN 으로 돌려주고,
+            // `NaN || fallback` 은 fallback 이 undefined 면 그대로 undefined 를
+            // 저장해 버리는 함정이 있다. 모든 수치 필드가 유한한 값이 되도록 강제.
+            const currentPrice = Number(tradeRecordStock.currentPrice);
+            const bpParsed = parseFloat(tradeFormData.buyPrice);
+            const bp = Number.isFinite(bpParsed) && bpParsed > 0
+              ? bpParsed
+              : (Number.isFinite(currentPrice) && currentPrice > 0 ? currentPrice : 0);
+            const qtyParsed = parseInt(tradeFormData.quantity, 10);
+            const qty = Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 1;
+            const psParsed = parseFloat(tradeFormData.positionSize);
+            const ps = Number.isFinite(psParsed) && psParsed > 0 ? psParsed : 10;
+
+            if (bp <= 0) {
+              // 현재가도 매수가 입력도 없으면 조용히 저장하지 않고 리턴.
+              // (일지 상단이 0원·-로 렌더되는 원인 차단)
+              return;
+            }
+
             const preMortems: PreMortemItem[] = DEFAULT_PRE_MORTEMS
               .filter(pm => selectedPreMortems.has(pm.id))
               .map(pm => ({ ...pm, triggered: false }));
