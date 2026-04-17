@@ -2,7 +2,7 @@
  * ShadowPortfolioPanel — 섀도우 계좌 포트폴리오 대시보드
  * KPI 헤더 · 보유 포지션 · 거래내역(체결 트리 포함) · 통계
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   RefreshCw, TrendingUp, TrendingDown, Wallet, BarChart2,
   ChevronDown, ChevronUp, Clock, Target, ShieldAlert,
@@ -14,6 +14,7 @@ import { Badge } from '../../ui/badge';
 import { Spinner } from '../../ui/spinner';
 import { isMarketOpen } from '../../utils/marketTime';
 import { shadowApi, ApiError } from '../../api';
+import { usePolledFetch } from '../../hooks/usePolledFetch';
 
 // ─── 타입 (서버 shadowAccountRepo.ts 미러) ───────────────────────────────────
 
@@ -345,9 +346,9 @@ export function ShadowPortfolioPanel() {
   const [expandedTrades, setExpandedTrades] = useState<Set<string>>(new Set());
   // 상대시간("N분 전")을 주기적으로 재렌더하기 위한 tick — 30초마다 갱신.
   const [, setRelativeTick] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── 데이터 페치 ─────────────────────────────────────────────────────────────
+  // silent=true 는 폴링(재진입) 호출에서 스피너를 띄우지 않기 위함.
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError(null);
@@ -365,34 +366,15 @@ export function ShadowPortfolioPanel() {
     }
   }, []);
 
-  // ── 초기 로드 + 장중·가시 상태 1분 자동 폴링 ─────────────────────────────
+  // 초기 로드(스피너 표시) + 장중·가시 상태에서 60s 폴링(silent).
+  usePolledFetch(() => refresh(true), { skipInitial: true });
+  useEffect(() => { refresh(false); }, [refresh]);
+
+  // 상대시간 라벨("N분 전")만 30초마다 재렌더 (fetch 없음).
   useEffect(() => {
-    refresh();
-
-    const tick = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (!isMarketOpen()) return;
-      refresh(true);
-    };
-    intervalRef.current = setInterval(tick, 60_000);
-
-    // 숨겨졌다 돌아오면 장중 한정 1회 즉시 갱신
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible' && isMarketOpen()) {
-        refresh(true);
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-
-    // 상대시간 라벨을 30초마다 재렌더 (fetch는 하지 않음)
-    const relativeInterval = setInterval(() => setRelativeTick(t => t + 1), 30_000);
-
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      clearInterval(relativeInterval);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, [refresh]);
+    const id = setInterval(() => setRelativeTick(t => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   // ── 체결 트리 토글 ───────────────────────────────────────────────────────────
   const toggleTrade = useCallback((id: string) => {
