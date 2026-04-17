@@ -70,38 +70,64 @@ export interface ChannelSellSignalParams {
   /** 'TARGET' | 'STOP' | 'TRAILING' | 'CASCADE' | 'EUPHORIA' | 'MANUAL' */
   reason: string;
   holdingDays: number;
+  /** 이번에 청산한 수량 (부분청산 감지에 사용) */
+  soldQty?: number;
+  /** 포지션 원래 전체 수량 */
+  originalQty?: number;
 }
 
 export async function channelSellSignal(p: ChannelSellSignalParams): Promise<void> {
   if (!isChannelEnabled()) return;
 
   const isProfit = p.pnlPct >= 0;
-  const emoji = isProfit
+  const profitEmoji = isProfit
     ? (p.pnlPct >= 10 ? '💎' : '✅')
     : (p.pnlPct <= -7 ? '🔴' : '🟡');
   const pnlStr = `${isProfit ? '+' : ''}${p.pnlPct.toFixed(1)}%`;
 
   const reasonLabel: Record<string, string> = {
-    TARGET:   '🎯 목표가 도달',
-    STOP:     '🛡️ 손절 실행',
-    TRAILING: '📉 트레일링 손절',
-    EUPHORIA: '🌡️ 과열 부분 청산',
-    TRANCHE:  '📈 분할 익절',
-    CASCADE:  '⚠️ 캐스케이드 청산',
+    TARGET:       '🎯 목표가 도달',
+    STOP:         '🛡️ 손절 실행',
+    TRAILING:     '📉 트레일링 손절',
+    EUPHORIA:     '🌡️ 과열 부분 청산',
+    TRANCHE:      '📈 분할 익절',
+    CASCADE:      '⚠️ 캐스케이드 청산',
     RRR_COLLAPSE: '📊 RRR 붕괴 익절',
     DIVERGENCE:   '📉 하락 다이버전스',
-    MANUAL:   '👤 수동 청산',
+    MANUAL:       '👤 수동 청산',
   };
 
-  const msg =
-    `${emoji} <b>[청산] ${p.stockName} (${p.stockCode})</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    `📌 ${reasonLabel[p.reason] ?? p.reason}\n` +
-    `💰 청산가: ${p.exitPrice.toLocaleString()}원\n` +
-    `📈 손익: <b>${pnlStr}</b> (${p.holdingDays}일 보유)\n` +
-    `진입: ${p.entryPrice.toLocaleString()}원`;
+  const isPartial =
+    p.soldQty !== undefined &&
+    p.originalQty !== undefined &&
+    p.soldQty < p.originalQty;
+  const pct       = isPartial ? Math.round((p.soldQty! / p.originalQty!) * 100) : 100;
+  const remaining = isPartial ? p.originalQty! - p.soldQty! : 0;
 
-  await sendChannelAlert(msg).catch(console.error);
+  const header = isPartial
+    ? `🟡 <b>[부분청산 ${pct}%] ${p.stockName} (${p.stockCode})</b>`
+    : `${profitEmoji} <b>[청산] ${p.stockName} (${p.stockCode})</b>`;
+
+  const lines: string[] = [
+    header,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `📌 ${reasonLabel[p.reason] ?? p.reason}`,
+    `💰 청산가: ${p.exitPrice.toLocaleString()}원`,
+  ];
+
+  if (isPartial) {
+    lines.push(`📦 청산 수량: ${p.soldQty}주 / 원래 ${p.originalQty}주`);
+  }
+
+  lines.push(`📈 손익: <b>${pnlStr}</b> (${p.holdingDays}일 보유)`);
+  lines.push(`진입: ${p.entryPrice.toLocaleString()}원`);
+
+  if (isPartial) {
+    lines.push(``);
+    lines.push(`🔸 잔여 보유: ${remaining}주`);
+  }
+
+  await sendChannelAlert(lines.join('\n')).catch(console.error);
 }
 
 // ── 3. 장 전 시장 브리핑 ─────────────────────────────────────────────────────

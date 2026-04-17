@@ -380,6 +380,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
             pnlPct:      returnPct,
             reason:      'TRANCHE',
             holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+            soldQty:     sellQty,
+            originalQty: baseQty,
           }).catch(console.error);
         }
       }
@@ -533,6 +535,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
             pnlPct:      returnPct,
             reason:      'RRR_COLLAPSE',
             holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+            soldQty:     sellQty,
+            originalQty: shadow.originalQuantity,
           }).catch(console.error);
           if (shadow.quantity <= 0) continue;
         }
@@ -570,6 +574,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           pnlPct:      returnPct,
           reason:      'DIVERGENCE',
           holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+          soldQty:     sellQty,
+          originalQty: shadow.originalQuantity,
         }).catch(console.error);
         if (shadow.quantity <= 0) continue;
       }
@@ -679,6 +685,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           pnlPct:      returnPct,
           reason:      'EUPHORIA',
           holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+          soldQty:     halfQty,
+          originalQty: shadow.originalQuantity,
         }).catch(console.error);
       }
     }

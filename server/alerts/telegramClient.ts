@@ -45,6 +45,28 @@ export async function setTelegramBotCommands(): Promise<void> {
   }
 }
 
+// ─── HTML 이스케이프 유틸 ──────────────────────────────────────────────────────
+
+/**
+ * HTML 모드로 전송할 메시지 내부 변수(종목명·코드 등)를 이스케이프한다.
+ * <b>, <i> 같은 마크업 태그 자체에는 사용하지 말 것.
+ */
+export function escapeHtml(text: string): string {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/** HTML 태그를 제거하고 엔티티를 원래 문자로 복원한다 (plain text 폴백용). */
+function stripHtml(text: string): string {
+  return text
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
 // ─── 아이디어 2: 알림 중복 방지 + 우선순위 레이어 ─────────────────────────────────
 export type AlertPriority = 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW';
 
@@ -153,59 +175,69 @@ async function sendTelegramAlertRaw(
 
   const MAX_LEN = 4096;
 
-  try {
-    if (message.length <= MAX_LEN) {
-      const payload: Record<string, unknown> = {
-        chat_id: chatId,
-        text: message,
-        parse_mode: 'HTML',
-      };
-      if (replyMarkup) payload.reply_markup = replyMarkup;
+  /** 단일 청크를 전송한다. 400 파싱 오류 시 plain-text로 재시도. */
+  async function sendChunk(
+    text: string,
+    markup?: Record<string, unknown>,
+  ): Promise<number | undefined> {
+    const payload: Record<string, unknown> = {
+      chat_id: chatId,
+      text,
+      parse_mode: 'HTML',
+    };
+    if (markup) payload.reply_markup = markup;
 
-      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        console.error('[Telegram] 전송 실패:', err.slice(0, 200));
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      // 400 + 엔티티 파싱 오류 → parse_mode 없이 plain text 재시도
+      if (res.status === 400 && err.includes("can't parse entities")) {
+        console.warn('[Telegram] ⚠️ HTML 파싱 실패 → plain text 재시도 (첫 100자):', text.slice(0, 100));
+        const plain: Record<string, unknown> = { chat_id: chatId, text: stripHtml(text) };
+        if (markup) plain.reply_markup = markup;
+        const fb = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(plain),
+        });
+        if (fb.ok) {
+          const fd = await fb.json() as { result?: { message_id?: number } };
+          return fd.result?.message_id;
+        }
+        const fbErr = await fb.text();
+        console.error('[Telegram] ❌ plain text 폴백도 실패 (거래는 완료됨):', fbErr.slice(0, 200));
         return;
       }
-      const data = await res.json() as { result?: { message_id?: number } };
-      return data.result?.message_id;
+      console.error('[Telegram] ❌ 전송 실패 (거래는 완료됨):', err.slice(0, 200));
+      return;
+    }
+    const data = await res.json() as { result?: { message_id?: number } };
+    return data.result?.message_id;
+  }
+
+  try {
+    if (message.length <= MAX_LEN) {
+      return await sendChunk(message, replyMarkup);
     } else {
       // 4096자 초과 시 청크 분할 전송
       let lastMsgId: number | undefined;
       for (let i = 0; i < message.length; i += MAX_LEN) {
         const chunk = message.slice(i, i + MAX_LEN);
-        const payload: Record<string, unknown> = {
-          chat_id: chatId,
-          text: chunk,
-          parse_mode: 'HTML',
-        };
         // replyMarkup은 마지막 청크에만 첨부
-        if (replyMarkup && i + MAX_LEN >= message.length) {
-          payload.reply_markup = replyMarkup;
-        }
-        const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          const err = await res.text();
-          console.error('[Telegram] 청크 전송 실패:', err.slice(0, 200));
-        } else {
-          const data = await res.json() as { result?: { message_id?: number } };
-          lastMsgId = data.result?.message_id;
-        }
+        const markup = (replyMarkup && i + MAX_LEN >= message.length) ? replyMarkup : undefined;
+        const msgId = await sendChunk(chunk, markup);
+        if (msgId !== undefined) lastMsgId = msgId;
         await new Promise(r => setTimeout(r, 300)); // 연속 전송 간격
       }
       return lastMsgId;
     }
   } catch (e: unknown) {
-    console.error('[Telegram] 오류:', e instanceof Error ? e.message : e);
+    console.error('[Telegram] ❌ 네트워크 오류 (거래는 완료됨):', e instanceof Error ? e.message : e);
   }
 }
 
