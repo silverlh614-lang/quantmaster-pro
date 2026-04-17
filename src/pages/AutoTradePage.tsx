@@ -19,6 +19,7 @@ import {
   type RiskGauge, type RrrBucket, type TimelineEvent,
 } from '../components/trading/autoTrade';
 import { useAutoTradeDashboard } from '../hooks/useAutoTradeDashboard';
+import { useQueryParam } from '../hooks/useQueryParam';
 import {
   getWeightedPnlPct,
 } from '../components/trading/autoTrade/shadowTradeFills';
@@ -32,8 +33,12 @@ import type { ServerShadowTrade, PositionEvent } from '../api';
  * 페칭·폴링은 Phase 2, shadow trade 동기화는 Phase 4, 개별 카드는
  * Phase 5 에서 각각 분리되었다.
  */
+type TabKey = 'dashboard' | 'settings';
+const TAB_KEYS = ['dashboard', 'settings'] as const satisfies readonly TabKey[];
+
 export function AutoTradePage() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'settings'>('dashboard');
+  // ?tab=settings 쿼리와 상태를 양방향 동기화. 값이 없으면 'dashboard'.
+  const [activeTab, setActiveTab] = useQueryParam<TabKey>('tab', 'dashboard', TAB_KEYS);
 
   const {
     engineStatus,
@@ -165,7 +170,7 @@ export function AutoTradePage() {
 
         {/* Tab Switcher: 대시보드 / 트레이딩 설정 */}
         <div className="flex items-center gap-2 p-1 bg-white/5 rounded-xl border border-theme-border w-fit">
-          {(['dashboard', 'settings'] as const).map((tab) => (
+          {TAB_KEYS.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
