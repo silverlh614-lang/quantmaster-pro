@@ -32,7 +32,16 @@ export interface MonthlyStats {
   winRate: number;
   avgReturn: number;
   strongBuyWinRate: number;
+  /** 표본 5건 미만이면 통계 신뢰 불가 — 숫자 대신 "표본 부족" 표시 필요 */
+  sampleSufficient: boolean;
+  /** 복리 누적 수익률 (산술평균과 별도 — 실제 자본 성장에 근접) */
+  compoundReturn: number;
+  /** Profit Factor = sum(wins 수익) / |sum(losses 손실)|. 손실 없으면 null. */
+  profitFactor: number | null;
 }
+
+/** 통계 신뢰 판정 최소 표본 수. */
+export const MIN_STATS_SAMPLE = 5;
 
 function loadRecommendations(): RecommendationRecord[] {
   ensureDataDir();
@@ -73,6 +82,16 @@ export function getMonthlyStats(): MonthlyStats {
     ? monthly.reduce((s, r) => s + (r.actualReturn ?? 0), 0) / total
     : 0;
 
+  // 복리 수익률: ∏(1 + r/100) - 1. 산술평균은 분산이 큰 표본에서 왜곡되므로 복리로 보완.
+  const compoundReturn = total > 0
+    ? (monthly.reduce((acc, r) => acc * (1 + (r.actualReturn ?? 0) / 100), 1) - 1) * 100
+    : 0;
+
+  // Profit Factor = 승 총수익 ÷ |패 총손실|. 수학적으로 손실 없으면 정의 불가.
+  const winSum  = wins.reduce((s, r) => s + (r.actualReturn ?? 0), 0);
+  const lossSum = Math.abs(losses.reduce((s, r) => s + (r.actualReturn ?? 0), 0));
+  const profitFactor = lossSum > 0 ? winSum / lossSum : null;
+
   const sbMonthly = monthly.filter((r) => r.signalType === 'STRONG_BUY');
   const sbWins    = sbMonthly.filter((r) => r.status === 'WIN');
 
@@ -84,6 +103,9 @@ export function getMonthlyStats(): MonthlyStats {
     winRate: total > 0 ? (wins.length / total) * 100 : 0,
     avgReturn,
     strongBuyWinRate: sbMonthly.length > 0 ? (sbWins.length / sbMonthly.length) * 100 : 0,
+    sampleSufficient: total >= MIN_STATS_SAMPLE,
+    compoundReturn,
+    profitFactor,
   };
 }
 
@@ -152,17 +174,28 @@ export async function evaluateRecommendations(): Promise<void> {
   if (changed) saveRecommendations(recs);
 
   const stats = getMonthlyStats();
-  console.log(
-    `[자기학습] ${stats.month} 통계 — 전체 WIN률: ${stats.winRate.toFixed(1)}% ` +
-    `| STRONG_BUY: ${stats.strongBuyWinRate.toFixed(1)}% ` +
-    `| 평균 수익: ${stats.avgReturn.toFixed(2)}%`
-  );
+  if (stats.sampleSufficient) {
+    console.log(
+      `[자기학습] ${stats.month} 통계 — 전체 WIN률: ${stats.winRate.toFixed(1)}% ` +
+      `| STRONG_BUY: ${stats.strongBuyWinRate.toFixed(1)}% ` +
+      `| 평균: ${stats.avgReturn.toFixed(2)}% | 복리: ${stats.compoundReturn.toFixed(2)}% ` +
+      `| PF: ${stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : 'N/A'}`
+    );
+  } else {
+    console.log(
+      `[자기학습] ${stats.month} 통계 — 표본 부족 ${stats.total}건 (신뢰 통계 위해 ${MIN_STATS_SAMPLE}건 이상 필요)`,
+    );
+  }
+
+  const statsBody = stats.sampleSufficient
+    ? `WIN률: <b>${stats.winRate.toFixed(1)}%</b> | 평균: ${stats.avgReturn.toFixed(2)}% | 복리: ${stats.compoundReturn >= 0 ? '+' : ''}${stats.compoundReturn.toFixed(2)}%\n` +
+      `PF: ${stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : 'N/A'} | STRONG_BUY 적중률: <b>${stats.strongBuyWinRate.toFixed(1)}%</b>`
+    : `⚠️ <b>표본 부족</b> — ${stats.total}건 (신뢰 통계 위해 ${MIN_STATS_SAMPLE}건 이상 필요)`;
 
   await sendTelegramAlert(
     `📊 <b>[QuantMaster] ${stats.month} 자기학습 일일 평가</b>\n` +
     `결산: ${stats.total}건 (승 ${stats.wins} / 패 ${stats.losses} / 만료 ${stats.expired})\n` +
-    `WIN률: <b>${stats.winRate.toFixed(1)}%</b> | 평균 수익: ${stats.avgReturn.toFixed(2)}%\n` +
-    `STRONG_BUY 적중률: <b>${stats.strongBuyWinRate.toFixed(1)}%</b>`
+    statsBody
   ).catch(console.error);
 
   const shadows = loadShadowTrades();

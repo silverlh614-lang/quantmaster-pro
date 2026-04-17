@@ -40,22 +40,28 @@ export async function generateDailyReport(): Promise<void> {
     `  ${s.status === 'HIT_TARGET' ? '✅' : '❌'} ${s.stockName}(${s.stockCode}) ${(s.returnPct ?? 0).toFixed(2)}%`
   ).join('\n') || '  (결산 없음)';
 
+  const dailyStatsLine = closed.length >= 5
+    ? `▶ 적중률: ${winRate}%  |  일일 P&L: ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%`
+    : `▶ 표본 ${closed.length}건 (통계 ${5 - closed.length}건 더 필요)  |  일일 P&L: ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%`;
+
+  const monthlyLine = stats.sampleSufficient
+    ? `[월간 ${stats.month}] WIN률 ${stats.winRate.toFixed(1)}% | PF ${
+        stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : 'N/A'
+      } | 평균 ${stats.avgReturn.toFixed(2)}% | 복리 ${stats.compoundReturn.toFixed(2)}%`
+    : `[월간 ${stats.month}] 표본 ${stats.total}건 — 통계 신뢰 위해 5건 이상 필요`;
+
   const baseReport = [
     `[QuantMaster Pro] ${today} 자동매매 일일 리포트`,
     '',
     `▶ 당일 신호: ${todayTrades.length}건`,
     `▶ 결산 완료: ${closed.length}건 (승 ${wins.length} / 패 ${closed.length - wins.length})`,
-    `▶ 적중률: ${winRate}%  |  일일 P&L: ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%`,
+    dailyStatsLine,
     `▶ MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})`,
     `▶ 워치리스트: ${watchlist.length}개`,
     '',
     tradeLines,
     '',
-    `[월간 ${stats.month}] WIN률 ${stats.winRate.toFixed(1)}% | PF ${
-      stats.wins > 0 && stats.losses > 0
-        ? (stats.wins / (stats.losses || 1)).toFixed(2)
-        : 'N/A'
-    } | 평균수익 ${stats.avgReturn.toFixed(2)}%`,
+    monthlyLine,
     `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? 'SHADOW (가상매매)' : 'LIVE (실매매)'}`,
   ].join('\n');
 

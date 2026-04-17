@@ -501,11 +501,15 @@ export async function stage3AIScreenAndRegister(
       .map(w => `  • ${w.name}(${w.code}) Gate ${w.gateScore}/27 | ${w.memo ?? ''}`)
       .join('\n');
 
+    // 같은 날 파이프라인이 재시도되거나 Stage1/Stage2/Stage3가 중복 호출돼도
+    // Telegram "신규 워치리스트 N개 등록" 메시지는 하루 1회만 발송한다.
+    const todayKey = new Date().toISOString().slice(0, 10);
     await sendTelegramAlert(
       `🔍 <b>[AI 파이프라인] 신규 워치리스트 ${added}개 등록</b>\n` +
       `레짐: ${regime} | 후보 ${candidates.length}개 → 등록 ${added}개\n` +
       `데이터: Yahoo OHLCV✅ DART재무${candidates.some(c => c.dartFin) ? '✅' : '⚠️'} KIS수급${candidates.some(c => c.kisFlow) ? '✅' : '⚠️'}\n` +
       summary,
+      { dedupeKey: `pipeline_watchlist:${todayKey}`, cooldownMs: 12 * 60 * 60 * 1000 },
     ).catch(console.error);
   }
 
