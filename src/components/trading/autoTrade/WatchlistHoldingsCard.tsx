@@ -3,6 +3,7 @@ import { Eye, Briefcase } from 'lucide-react';
 import { cn } from '../../../ui/cn';
 import { Card } from '../../../ui/card';
 import { Badge } from '../../../ui/badge';
+import { fmtPrice, fmtQty } from '../../../utils/format';
 import type { WatchlistEntry, KisHolding } from '../../../api';
 import { GATE_TOOLTIPS } from './constants';
 
@@ -63,7 +64,7 @@ export function WatchlistHoldingsCard({ watchlist, holdings }: Props) {
                       title={`Gate Score: ${w.gateScore}점\n${GATE_TOOLTIPS[1]}\n${GATE_TOOLTIPS[2]}\n${GATE_TOOLTIPS[3]}`}
                     >G{w.gateScore}</span>
                   )}
-                  <span className="text-theme-text-muted">{w.entryPrice.toLocaleString()}</span>
+                  <span className="text-theme-text-muted">{fmtPrice(w.entryPrice)}</span>
                   <Badge variant={w.addedBy === 'AUTO' ? 'success' : w.addedBy === 'DART' ? 'violet' : 'default'} size="sm">
                     {w.addedBy}
                   </Badge>
@@ -88,10 +89,10 @@ export function WatchlistHoldingsCard({ watchlist, holdings }: Props) {
                     <span className="text-micro ml-2">{h.pdno}</span>
                   </div>
                   <div className="flex items-center gap-3 text-xs shrink-0">
-                    <span className="text-theme-text-muted">{Number(h.hldg_qty).toLocaleString()}주</span>
-                    <span className="text-theme-text-muted">평단 {Number(h.pchs_avg_pric).toLocaleString()}</span>
+                    <span className="text-theme-text-muted">{fmtQty(h.hldg_qty)}</span>
+                    <span className="text-theme-text-muted">평단 {fmtPrice(h.pchs_avg_pric)}</span>
                     <span className={cn('font-bold', pfRate >= 0 ? 'text-green-400' : 'text-red-400')}>
-                      {pfRate >= 0 ? '+' : ''}{pfRate.toFixed(2)}%
+                      {Number.isFinite(pfRate) ? `${pfRate >= 0 ? '+' : ''}${pfRate.toFixed(2)}%` : '—'}
                     </span>
                   </div>
                 </div>

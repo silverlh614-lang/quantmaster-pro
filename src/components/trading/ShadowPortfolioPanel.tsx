@@ -13,6 +13,7 @@ import { KpiStrip, type KpiItem } from '../../ui/kpi-strip';
 import { Badge } from '../../ui/badge';
 import { Spinner } from '../../ui/spinner';
 import { isMarketOpen } from '../../utils/marketTime';
+import { fmtPrice, fmtQty } from '../../utils/format';
 import { shadowApi, ApiError } from '../../api';
 import { usePolledFetch } from '../../hooks/usePolledFetch';
 
@@ -93,16 +94,20 @@ interface ShadowAccountState {
 
 // ─── 포맷 유틸 ─────────────────────────────────────────────────────────────────
 
-function fmtKrw(v: number): string {
-  if (Math.abs(v) >= 100_000_000)
-    return `${(v / 100_000_000).toFixed(2)}억`;
-  if (Math.abs(v) >= 10_000)
-    return `${Math.round(v / 10_000).toLocaleString()}만`;
-  return `${Math.round(v).toLocaleString()}원`;
+function fmtKrw(v: unknown): string {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return '—';
+  if (Math.abs(n) >= 100_000_000)
+    return `${(n / 100_000_000).toFixed(2)}억`;
+  if (Math.abs(n) >= 10_000)
+    return `${Math.round(n / 10_000).toLocaleString()}만`;
+  return `${Math.round(n).toLocaleString()}원`;
 }
 
-function fmtPct(v: number, digits = 2): string {
-  return `${v >= 0 ? '+' : ''}${v.toFixed(digits)}%`;
+function fmtPct(v: unknown, digits = 2): string {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return '—';
+  return `${n >= 0 ? '+' : ''}${n.toFixed(digits)}%`;
 }
 
 function fmtTime(iso: string): string {
@@ -210,17 +215,17 @@ function OpenPositionCard({ pos }: { pos: ActivePosition }) {
       <div className="grid grid-cols-3 gap-2 text-[10px]">
         <div className="text-center">
           <p className="text-theme-text-muted">진입가</p>
-          <p className="font-num font-bold text-theme-text">{pos.entryPrice.toLocaleString()}</p>
+          <p className="font-num font-bold text-theme-text">{fmtPrice(pos.entryPrice)}</p>
         </div>
         <div className="text-center">
           <p className="text-theme-text-muted">현재가</p>
           <p className={cn('font-num font-bold', hasPrice ? (isPos ? 'text-green-400' : 'text-red-400') : 'text-theme-text-muted')}>
-            {hasPrice ? pos.currentPrice!.toLocaleString() : '—'}
+            {hasPrice ? fmtPrice(pos.currentPrice) : '—'}
           </p>
         </div>
         <div className="text-center">
           <p className="text-theme-text-muted">손절가</p>
-          <p className="font-num font-bold text-red-400/80">{pos.stopLoss.toLocaleString()}</p>
+          <p className="font-num font-bold text-red-400/80">{fmtPrice(pos.stopLoss)}</p>
         </div>
       </div>
 
@@ -238,8 +243,8 @@ function OpenPositionCard({ pos }: { pos: ActivePosition }) {
             />
           </div>
           <div className="flex justify-between text-[9px] text-theme-text-muted font-num">
-            <span>손절 {pos.stopLoss.toLocaleString()}</span>
-            <span>목표 {pos.targetPrice.toLocaleString()}</span>
+            <span>손절 {fmtPrice(pos.stopLoss)}</span>
+            <span>목표 {fmtPrice(pos.targetPrice)}</span>
           </div>
         </div>
       )}
@@ -316,8 +321,8 @@ function ClosedTradeRow({
           {trade.fills.map(fill => (
             <div key={fill.id} className="flex items-center gap-2 text-[10px] sm:text-xs">
               <FillBadge fill={fill} />
-              <span className="font-num text-theme-text">{fill.price.toLocaleString()}원</span>
-              <span className="text-theme-text-muted">×{fill.qty}주</span>
+              <span className="font-num text-theme-text">{fmtPrice(fill.price)}원</span>
+              <span className="text-theme-text-muted">×{fmtQty(fill.qty, { placeholder: '—주' })}</span>
               {fill.pnlPct !== undefined && (
                 <span className={cn('font-num font-bold', fill.pnlPct >= 0 ? 'text-green-400' : 'text-red-400')}>
                   {fmtPct(fill.pnlPct, 1)}

@@ -2,6 +2,7 @@ import React from 'react';
 import { ArrowUpDown } from 'lucide-react';
 import { Card } from '../../../ui/card';
 import { Badge } from '../../../ui/badge';
+import { fmtPrice } from '../../../utils/format';
 import type { OcoOrdersResponse } from '../../../api';
 
 interface Props { orders: OcoOrdersResponse; }
@@ -24,9 +25,9 @@ export function OcoOrdersCard({ orders }: Props) {
               <span className="text-micro ml-2">{o.stockCode}</span>
             </div>
             <div className="flex items-center gap-2 text-xs shrink-0">
-              <span className="text-red-400 font-num">손절 {o.stopPrice.toLocaleString()}</span>
+              <span className="text-red-400 font-num">손절 {fmtPrice(o.stopPrice)}</span>
               <span className="text-theme-text-muted">/</span>
-              <span className="text-green-400 font-num">목표 {o.profitPrice.toLocaleString()}</span>
+              <span className="text-green-400 font-num">목표 {fmtPrice(o.profitPrice)}</span>
               <Badge
                 variant={o.status === 'ACTIVE' ? 'warning' : o.status === 'PROFIT_FILLED' ? 'success' : o.status === 'STOP_FILLED' ? 'danger' : 'default'}
                 size="sm"
