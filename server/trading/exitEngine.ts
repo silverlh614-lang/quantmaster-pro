@@ -156,6 +156,30 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
     // ORDER_SUBMITTED는 fillMonitor가 체결 확인 후 ACTIVE로 전환할 때까지 exitEngine이 관여하지 않음.
     if (shadow.status !== 'ACTIVE' && shadow.status !== 'PARTIALLY_FILLED' && shadow.status !== 'EUPHORIA_PARTIAL') continue;
 
+    // ─── Fill 기반 잔량 동기화 (단일 진실 원천) ──────────────────────────────
+    // shadow.quantity는 종료 엔진이 내부적으로 감소시키지만, fills 배열이 진실 원천이다.
+    // 재시작·중복 실행 등으로 quantity와 fills가 어긋날 경우 이 시점에 교정한다.
+    {
+      const fills = shadow.fills ?? [];
+      const buyFillQty  = fills.filter(f => f.type === 'BUY' ).reduce((s, f) => s + f.qty, 0);
+      const sellFillQty = fills.filter(f => f.type === 'SELL').reduce((s, f) => s + f.qty, 0);
+      if (buyFillQty > 0) {
+        // BUY fill이 있는 경우에만 fill-based 잔량을 신뢰
+        const fillBasedQty = Math.max(0, buyFillQty - sellFillQty);
+        if (fillBasedQty !== shadow.quantity) {
+          console.log(`[ExitEngine] ⚠️ 잔량 불일치 ${shadow.stockCode}: stored=${shadow.quantity} fill-based=${fillBasedQty} (BUY ${buyFillQty} - SELL ${sellFillQty}) → 교정`);
+          shadow.quantity = fillBasedQty;
+        }
+      }
+      // 잔량이 0이면 HIT_STOP으로 전환하고 루프 스킵
+      if (shadow.quantity <= 0) {
+        shadow.status = 'HIT_STOP';
+        shadow.exitTime ??= new Date().toISOString();
+        console.log(`[ExitEngine] ⚠️ ${shadow.stockCode} fill 기반 잔량=0 → 강제 HIT_STOP 전환`);
+        continue;
+      }
+    }
+
     const currentPrice = getRealtimePrice(shadow.stockCode)
       ?? await fetchCurrentPrice(shadow.stockCode).catch(() => null);
     if (!currentPrice) continue;

@@ -1,4 +1,4 @@
-import { ServerShadowTrade, PositionFill } from './shadowTradeRepo.js';
+import { ServerShadowTrade, PositionFill, loadShadowTrades, saveShadowTrades } from './shadowTradeRepo.js';
 
 // ─── 섀도우 계좌 타입 정의 ────────────────────────────────────────────────────
 
@@ -269,4 +269,74 @@ export function computeShadowAccount(
     },
     computedAt: new Date().toISOString(),
   };
+}
+
+// ─── 재조정 (Reconciler) ──────────────────────────────────────────────────────
+
+export interface ReconcileResult {
+  checked: number;
+  fixed: number;
+  details: { id: string; stockCode: string; before: { qty: number; status: string }; after: { qty: number; status: string } }[];
+}
+
+/**
+ * 모든 섀도우 거래의 `quantity` 필드를 fills 배열에서 재계산하여 불일치를 교정한다.
+ * 서버 시작 시 1회, 그리고 필요 시 수동 호출.
+ *
+ * 교정 규칙:
+ * - BUY fill이 있으면 fill-based 잔량 = Σ(BUY qty) - Σ(SELL qty) 가 진실 원천
+ * - fill-based 잔량 === 0 이고 status가 ACTIVE/PARTIALLY_FILLED/EUPHORIA_PARTIAL 이면 → HIT_STOP
+ * - fill-based 잔량 > 0 이고 status가 HIT_STOP/HIT_TARGET 이면 → ACTIVE (잘못 닫힌 경우)
+ * - BUY fill 없고 PENDING/ACTIVE 이면 → originalQuantity 또는 quantity 유지
+ */
+export function reconcileShadowQuantities(trades?: ServerShadowTrade[]): ReconcileResult {
+  const all = trades ?? loadShadowTrades();
+  const result: ReconcileResult = { checked: all.length, fixed: 0, details: [] };
+
+  for (const t of all) {
+    const fills = t.fills ?? [];
+    const buyFillQty  = fills.filter(f => f.type === 'BUY').reduce((s, f) => s + f.qty, 0);
+    const sellFillQty = fills.filter(f => f.type === 'SELL').reduce((s, f) => s + f.qty, 0);
+
+    if (buyFillQty === 0) continue; // fill 없는 레거시 — 건드리지 않음
+
+    const fillBasedQty = Math.max(0, buyFillQty - sellFillQty);
+    const openStatuses = new Set(['ACTIVE', 'PARTIALLY_FILLED', 'EUPHORIA_PARTIAL', 'PENDING', 'ORDER_SUBMITTED']);
+    const closedStatuses = new Set(['HIT_STOP', 'HIT_TARGET']);
+
+    const qtyChanged = fillBasedQty !== t.quantity;
+    const shouldBeClosed = fillBasedQty === 0 && openStatuses.has(t.status);
+    const shouldBeOpen   = fillBasedQty > 0  && closedStatuses.has(t.status); // 잘못 닫힌 경우
+
+    if (!qtyChanged && !shouldBeClosed && !shouldBeOpen) continue;
+
+    const before = { qty: t.quantity, status: t.status };
+
+    // 수량 교정
+    if (qtyChanged) t.quantity = fillBasedQty;
+
+    // originalQuantity 보장 (한 번도 설정 안 된 경우)
+    if (!t.originalQuantity) t.originalQuantity = buyFillQty;
+
+    // 상태 교정
+    if (shouldBeClosed) {
+      const lastSell = fills.filter(f => f.type === 'SELL').sort((a, b) => a.timestamp.localeCompare(b.timestamp)).pop();
+      t.status    = 'HIT_STOP';
+      t.exitTime  ??= lastSell?.timestamp ?? new Date().toISOString();
+      t.exitPrice ??= lastSell?.price;
+    }
+
+    result.fixed++;
+    result.details.push({ id: t.id, stockCode: t.stockCode, before, after: { qty: t.quantity, status: t.status } });
+    console.log(`[Reconcile] ${t.stockCode} ${t.stockName}: qty ${before.qty}→${t.quantity}, status ${before.status}→${t.status}`);
+  }
+
+  if (result.fixed > 0) {
+    saveShadowTrades(all);
+    console.log(`[Reconcile] ✅ ${result.fixed}건 교정 완료`);
+  } else {
+    console.log(`[Reconcile] ✅ ${result.checked}건 이상 없음`);
+  }
+
+  return result;
 }

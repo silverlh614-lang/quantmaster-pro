@@ -42,7 +42,7 @@ import {
   type TradingSettings,
   type SessionState,
 } from '../persistence/tradingSettingsRepo.js';
-import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
+import { computeShadowAccount, reconcileShadowQuantities } from '../persistence/shadowAccountRepo.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { getRealtimePrice } from '../clients/kisStreamClient.js';
 
@@ -711,6 +711,28 @@ router.post('/auto-trade/trading-settings', (req: any, res: any) => {
 // ─── 섀도우 계좌 포트폴리오 API ───────────────────────────────────────────────
 // GET /api/shadow/account         — ShadowAccountState 전체 스냅샷 (현재가 포함)
 // GET /api/shadow/current-prices  — 보유 포지션 종목코드 → 현재가 맵
+
+/**
+ * POST /api/shadow/reconcile
+ * 섀도우 거래의 quantity 필드를 fills 기반으로 즉시 재조정한다.
+ * 서버 시작 시 자동 실행되며, UI에서 수동 호출도 가능.
+ */
+router.post('/shadow/reconcile', (_req: any, res: any) => {
+  try {
+    const result = reconcileShadowQuantities();
+    res.json({ ok: true, ...result });
+  } catch (e: any) {
+    console.error('[ShadowReconcile] 실패:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── 서버 시작 시 1회 자동 재조정 ───────────────────────────────────────────────
+try {
+  reconcileShadowQuantities();
+} catch (e) {
+  console.error('[ShadowReconcile] 시작 시 재조정 실패:', e);
+}
 
 /**
  * GET /api/shadow/account

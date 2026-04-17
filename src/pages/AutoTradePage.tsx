@@ -200,9 +200,22 @@ export function AutoTradePage() {
     return (trade.fills ?? []).filter((f: any) => f.type === 'SELL');
   }
 
+  /**
+   * fills 배열에서 잔량을 재계산한다 (단일 진실 원천).
+   * BUY fill이 없는 레거시 거래는 trade.quantity를 그대로 반환.
+   */
+  function getRemainingQty(trade: any): number {
+    const fills: any[] = trade.fills ?? [];
+    const buyQty  = fills.filter((f: any) => f.type === 'BUY').reduce((s: number, f: any) => s + f.qty, 0);
+    const sellQty = fills.filter((f: any) => f.type === 'SELL').reduce((s: number, f: any) => s + f.qty, 0);
+    if (buyQty > 0) return Math.max(0, buyQty - sellQty);
+    return trade.quantity ?? 0;
+  }
+
   function isPartialPosition(trade: any): boolean {
     const orig = trade.originalQuantity ?? trade.quantity;
-    return trade.quantity > 0 && trade.quantity < orig && getSellFills(trade).length > 0;
+    const remaining = getRemainingQty(trade);
+    return remaining > 0 && remaining < orig && getSellFills(trade).length > 0;
   }
 
   // 서버 Shadow Trades 기반 통계 (로컬 저장소 의존 제거)
@@ -989,6 +1002,8 @@ export function AutoTradePage() {
                   const weightedPnl = getWeightedPnlPct(t);
                   const realizedPnl = getTotalRealizedPnl(t);
                   const origQty = t.originalQuantity ?? t.quantity;
+                  // fill 기반 잔량이 단일 진실 원천 (레거시: t.quantity 폴백)
+                  const remainingQty = getRemainingQty(t);
                   const isExpanded = expandedTrades.has(t.id ?? String(i));
 
                   const statusVariant =
@@ -1010,7 +1025,7 @@ export function AutoTradePage() {
                           <span className="text-theme-text-muted text-xs shrink-0">{t.stockCode}</span>
                           {partial && (
                             <span className="text-[9px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded shrink-0">
-                              부분청산 {Math.round((1 - t.quantity / origQty) * 100)}%
+                              부분청산 {Math.round((1 - remainingQty / origQty) * 100)}%
                             </span>
                           )}
                         </div>
@@ -1037,8 +1052,8 @@ export function AutoTradePage() {
                         <span>손절 <span className="font-num">{t.stopLoss?.toLocaleString()}</span></span>
                         <span>목표 <span className="font-num">{t.targetPrice?.toLocaleString()}</span></span>
                         {origQty > 0 && (
-                          <span>수량 <span className="text-theme-text font-num">{t.quantity}
-                            {t.quantity < origQty && <span className="text-amber-400">/{origQty}</span>}주</span>
+                          <span>수량 <span className="text-theme-text font-num">{remainingQty}
+                            {remainingQty < origQty && <span className="text-amber-400">/{origQty}</span>}주</span>
                           </span>
                         )}
                       </div>
