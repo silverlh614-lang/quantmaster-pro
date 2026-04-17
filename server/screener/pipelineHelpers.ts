@@ -254,6 +254,40 @@ export function isPullbackSetup(q: YahooQuoteExtended): boolean {
   return true;
 }
 
+/**
+ * Stage 1 정량 필터 임계값 — KIS/Yahoo 양 경로 공통 적용.
+ * 수치 변경 시 여기 한 곳만 수정하면 된다.
+ */
+export const STAGE1_THRESHOLDS = {
+  MIN_PRICE: 3000,              // 저가주 제외
+  MAX_OVERHEAT_PCT: 8,          // 당일 과열 상한
+  MAX_DRAWDOWN_PCT: -2,         // 눌림목이라도 하락 허용 하한
+  MIN_VOLUME_MULTIPLIER: 1.2,   // 평균 대비 최소 거래량 배수
+  VCP_ATR_RATIO: 0.75,          // ATR < 20일평균 × 비율 = VCP
+  MAX_PER: 60,                  // PER 상한 (0 이하는 미적용)
+  MAX_RETURN_5D: 15,            // 5일 누적 수익률 상한 (급등주 제외)
+} as const;
+
+/**
+ * Stage 1 정량 필터 — KIS 랭킹 경로와 Yahoo 유니버스 경로에서 동일하게 사용.
+ * 필터 순서는 저비용 → 고비용 순서로 정렬.
+ */
+export function passesStage1Filter(quote: YahooQuoteExtended): boolean {
+  const t = STAGE1_THRESHOLDS;
+  if (quote.price < t.MIN_PRICE) return false;
+  if (quote.isHighRisk) return false;                            // 거래중지/관리종목/위험 분류 제외
+  if (quote.changePercent >= t.MAX_OVERHEAT_PCT) return false;   // 당일 과열 제외
+  const pullback = isPullbackSetup(quote);
+  if (quote.changePercent < 0 && !pullback) return false;        // 음봉 제외 (눌림목 통과)
+  if (quote.changePercent < t.MAX_DRAWDOWN_PCT) return false;    // 눌림목이라도 과도한 하락 제외
+  const isVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * t.VCP_ATR_RATIO;
+  if (quote.volume < quote.avgVolume * t.MIN_VOLUME_MULTIPLIER && !isVCP && !pullback) return false;
+  if (quote.per > 0 && quote.per > t.MAX_PER) return false;
+  if (quote.ma20 > 0 && quote.price < quote.ma20 && !pullback) return false;
+  if (quote.return5d > t.MAX_RETURN_5D) return false;            // 5일 과급등 제외
+  return true;
+}
+
 export function calcStage1Score(q: YahooQuoteExtended): number {
   let score = 0;
   score += Math.min(q.changePercent / 10, 1);                            // 상승률 비중 축소 (최대 1점, 기존 2점)
