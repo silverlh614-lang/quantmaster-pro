@@ -11,7 +11,7 @@ import { SessionRecoveryBanner } from '../components/trading/SessionRecoveryBann
 import { ShadowPortfolioPanel } from '../components/trading/ShadowPortfolioPanel';
 import { Card } from '../ui/card';
 import {
-  EngineControlCard, ReconcileCard, AccountSummaryStrip,
+  EngineControlCard, ReconcileCard, ShadowForcedInputCard, AccountSummaryStrip,
   BuyAuditCard, ConditionWeightsCard, GateAuditCard,
   RiskGaugeCard, RrrDistributionCard, TradingTimelineCard,
   OcoOrdersCard, WatchlistHoldingsCard, RecommendationStatsCard,
@@ -57,6 +57,7 @@ export function AutoTradePage() {
     runReconcile,
     reconcileRunning,
     loadPositionEvents,
+    refetchAll,
   } = useAutoTradeDashboard();
 
   // ── 감사 추적 뷰어 모달 상태 ──────────────────────────────────────
@@ -157,6 +158,9 @@ export function AutoTradePage() {
         {reconcileData && (
           <ReconcileCard data={reconcileData} running={reconcileRunning} onRun={runReconcile} />
         )}
+
+        {/* Shadow 불일치 강제 입력 · 수동 동기화 */}
+        <ShadowForcedInputCard trades={serverShadowTrades} onSynced={refetchAll} />
 
         {/* ② 실시간 포트폴리오 P&L 헤더 */}
         {accountSummary && <AccountSummaryStrip summary={accountSummary} />}

@@ -1,5 +1,6 @@
 export { EngineControlCard } from './EngineControlCard';
 export { ReconcileCard } from './ReconcileCard';
+export { ShadowForcedInputCard } from './ShadowForcedInputCard';
 export { AccountSummaryStrip } from './AccountSummaryStrip';
 export { BuyAuditCard } from './BuyAuditCard';
 export { ConditionWeightsCard } from './ConditionWeightsCard';

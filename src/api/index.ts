@@ -26,6 +26,8 @@ export type {
   TradingSettings,
   ServerShadowTrade,
   PositionEvent,
+  ShadowForceInputPatch,
+  ShadowForceInputResponse,
   KisHolding,
   KisBalanceRaw,
   KisTokenStatus,

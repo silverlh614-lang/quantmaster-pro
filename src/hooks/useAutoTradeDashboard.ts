@@ -76,6 +76,9 @@ export interface UseAutoTradeDashboardReturn {
 
   /** 특정 포지션의 이벤트 타임라인 로드 (감사 트레일 모달용). */
   loadPositionEvents: (positionId: string) => Promise<PositionEvent[]>;
+
+  /** 모든 원격 상태를 즉시 재조회 (강제 입력 후 동기화 등). */
+  refetchAll: () => void;
 }
 
 export function useAutoTradeDashboard(): UseAutoTradeDashboardReturn {
@@ -178,5 +181,6 @@ export function useAutoTradeDashboard(): UseAutoTradeDashboardReturn {
     runReconcile,
     reconcileRunning,
     loadPositionEvents,
+    refetchAll: fetchAll,
   };
 }
