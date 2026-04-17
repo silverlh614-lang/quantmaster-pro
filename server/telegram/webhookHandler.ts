@@ -6,18 +6,21 @@
 import { Request, Response } from 'express';
 import {
   getEmergencyStop, setEmergencyStop,
-  setDailyLoss,
+  setDailyLoss, getDailyLossPct,
 } from '../state.js';
 import { cancelAllPendingOrders } from '../emergency.js';
+import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
 import { getMonthlyStats } from '../learning/recommendationTracker.js';
 import { sendTelegramAlert, answerCallbackQuery } from '../alerts/telegramClient.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
-import { runAutoSignalScan, isOpenShadowStatus } from '../trading/signalScanner.js';
+import { runAutoSignalScan, isOpenShadowStatus, getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
 import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/reportGenerator.js';
-import { fetchCurrentPrice, fetchStockName } from '../clients/kisClient.js';
+import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, getRealDataTokenRemainingHours, refreshKisToken, invalidateKisToken } from '../clients/kisClient.js';
+import { getStreamStatus } from '../clients/kisStreamClient.js';
+import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { STOCK_UNIVERSE } from '../screener/stockScreener.js';
 import { calcRRR } from '../trading/riskManager.js';
 import { handleBuyApprovalCallback } from './buyApproval.js';
@@ -78,7 +81,9 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /pending — 미체결 주문 조회\n` +
           `  /pos — 보유 포지션 요약\n` +
           `  /pnl — 실시간 포지션별 손익\n` +
-          `  /regime — 매크로 레짐 현황\n\n` +
+          `  /regime — 매크로 레짐 현황\n` +
+          `  /health — 파이프라인 헬스체크 (KIS/스캐너/토큰)\n` +
+          `  /refresh_token — KIS 토큰 강제 갱신\n\n` +
           `📈 <b>매매</b>\n` +
           `  /buy <code>종목코드</code> — 수동 매수 신호\n` +
           `  /scan — 장중 강제 스캔 트리거\n` +
@@ -555,6 +560,79 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             ? `✅ 채널 발송 성공 (message_id: ${msgId})`
             : `❌ 채널 발송 실패 — TELEGRAM_CHANNEL_ID 또는 봇 권한 확인 필요`
         );
+        break;
+      }
+
+      case '/health': {
+        const watchlist     = loadWatchlist();
+        const shadows       = loadShadowTrades();
+        const emergencyStop = getEmergencyStop();
+        const dailyLossPct  = getDailyLossPct();
+        const dailyLossLimit = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
+        const autoEnabled   = process.env.AUTO_TRADE_ENABLED === 'true';
+        const autoMode      = process.env.AUTO_TRADE_MODE ?? 'SHADOW';
+        const kisHours      = getKisTokenRemainingHours();
+        const realDataHours = getRealDataTokenRemainingHours();
+        const lastScanTs    = getLastScanAt();
+        const lastScanAt    = lastScanTs > 0
+          ? new Date(lastScanTs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
+          : '미실행';
+        const lastBuyTs     = getLastBuySignalAt();
+        const lastBuyAt     = lastBuyTs > 0
+          ? new Date(lastBuyTs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
+          : '없음';
+        const scanSummary   = getLastScanSummary();
+        const activeTrades  = shadows.filter(s => isOpenShadowStatus(s.status)).length;
+        const yahooStatus   = !scanSummary || scanSummary.candidates === 0 ? 'UNKNOWN'
+          : scanSummary.yahooFails === scanSummary.candidates ? 'DOWN'
+          : scanSummary.yahooFails > scanSummary.candidates * 0.5 ? 'DEGRADED'
+          : 'OK';
+
+        let verdict: string;
+        if (emergencyStop)                             verdict = '🔴 EMERGENCY_STOP';
+        else if (dailyLossPct >= dailyLossLimit)       verdict = '🔴 DAILY_LOSS_LIMIT';
+        else if (watchlist.length === 0)               verdict = '🔴 WATCHLIST_EMPTY';
+        else if (!autoEnabled)                         verdict = '🟡 AUTO_TRADE_DISABLED';
+        else if (autoMode === 'LIVE' && kisHours === 0) verdict = '🟡 KIS_TOKEN_EXPIRED';
+        else if (!lastScanTs)                          verdict = '🟡 SCANNER_IDLE';
+        else if (yahooStatus === 'DOWN')               verdict = '🟡 YAHOO_DOWN';
+        else                                           verdict = '🟢 OK';
+
+        const ss = getStreamStatus();
+        await reply(
+          `🩺 <b>[파이프라인 헬스체크]</b>\n` +
+          `판정: ${verdict}\n` +
+          `─────────────────────\n` +
+          `워치리스트: ${watchlist.length}개 | 활성 포지션: ${activeTrades}개\n` +
+          `자동매매: ${autoEnabled ? '✅ 켜짐' : '❌ 꺼짐'} (${autoMode})\n` +
+          `KIS 토큰: ${kisHours > 0 ? `✅ ${kisHours}시간 남음` : '❌ 만료'}` +
+          (realDataHours > 0 ? ` | 실데이터: ✅ ${realDataHours}h` : '') + `\n` +
+          `Yahoo: ${yahooStatus === 'OK' ? '✅' : yahooStatus === 'DEGRADED' ? '⚠️ 부분장애' : yahooStatus === 'DOWN' ? '❌ 불가' : '?'}\n` +
+          `마지막 스캔: ${lastScanAt} | 마지막 신호: ${lastBuyAt}\n` +
+          `일일손실: ${dailyLossPct.toFixed(1)}% / 한도 ${dailyLossLimit}%\n` +
+          `비상정지: ${emergencyStop ? '🛑 활성' : '✅ 해제'}\n` +
+          `실시간호가: ${ss.connected ? `✅ ${ss.subscribedCount}종목` : '❌ 미연결'}\n` +
+          `─────────────────────\n` +
+          `<i>/refresh_token — KIS 토큰 강제 갱신</i>`
+        );
+        break;
+      }
+
+      case '/refresh_token': {
+        try {
+          invalidateKisToken();
+          await refreshKisToken();
+          const hours = getKisTokenRemainingHours();
+          await reply(
+            `🔄 <b>KIS 토큰 강제 갱신 완료</b>\n` +
+            `잔여: ${hours}시간`
+          );
+        } catch (e) {
+          await reply(
+            `❌ <b>KIS 토큰 갱신 실패</b>\n` +
+            `${e instanceof Error ? e.message : String(e)}`
+          );
+        }
         break;
       }
 

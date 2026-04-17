@@ -98,10 +98,27 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
     ]);
 
     type KisOutput = { output?: Record<string, string>[] };
-    const kisRows: Record<string, string>[] = [
+    const rawRows: Record<string, string>[] = [
       ...((volResult.status === 'fulfilled'  ? (volResult.value  as KisOutput)?.output  : null) ?? []),
       ...((riseResult.status === 'fulfilled' ? (riseResult.value as KisOutput)?.output  : null) ?? []),
     ];
+
+    // 관리종목 · 거래정지 · 정리매매 · 투자경고/위험 사전 제외 (부실기업 필터)
+    const isRiskyKisRow = (s: Record<string, string>): boolean => {
+      if ((s.trht_yn ?? '').toUpperCase() === 'Y') return true;
+      if ((s.sltr_yn ?? '').toUpperCase() === 'Y') return true;
+      if ((s.mang_issu_yn ?? '').toUpperCase() === 'Y') return true;
+      if ((s.mang_issu_cls_code ?? '').toUpperCase() === 'Y') return true;
+      const warnCode = s.mrkt_warn_cls_code ?? '';
+      if (warnCode === '02' || warnCode === '03') return true;
+      const statCode = s.iscd_stat_cls_code ?? '';
+      if (statCode === '51' || statCode === '52' || statCode === '58') return true;
+      return false;
+    };
+    const kisRows = rawRows.filter(r => !isRiskyKisRow(r));
+    if (rawRows.length !== kisRows.length) {
+      console.log(`[Pipeline/Stage1] 관리·거래정지 등 부실기업 ${rawRows.length - kisRows.length}개 제외`);
+    }
 
     // ─ 5개씩 병렬 배치 처리 (순차 대비 ~5× 속도 향상) ─
     const kisTop60 = kisRows.slice(0, 60);

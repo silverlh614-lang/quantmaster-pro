@@ -62,6 +62,13 @@ export function getKisTokenRemainingHours(): number {
   return Math.floor((cachedToken.expiry - Date.now()) / 1000 / 60 / 60);
 }
 
+/** 토큰 캐시 강제 초기화 — 401 감지 시 또는 외부 수동 갱신 시 사용 */
+export function invalidateKisToken(): void {
+  cachedToken = null;
+  cachedRealDataToken = null;
+  console.log('[KIS] 토큰 캐시 강제 초기화');
+}
+
 // ─── 실계좌 데이터 전용 토큰 관리 ────────────────────────────────────────────
 
 /** 실계좌 데이터 전용 토큰 갱신. 실계좌 키 미설정 시 에러 */
@@ -92,7 +99,10 @@ export function getRealDataTokenRemainingHours(): number {
 // ─── HTTP 헬퍼 (내부 raw + 외부 rate-limited) ──────────────────────────────
 
 /** 내부 raw GET — 토큰 버킷 없이 직접 호출. 외부에서는 kisGet을 사용할 것. */
-async function _rawKisGet(trId: string, apiPath: string, params: Record<string, string>) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function _rawKisGet(
+  trId: string, apiPath: string, params: Record<string, string>, retry = true,
+): Promise<any> {
   const token = await refreshKisToken();
   const url = `${KIS_BASE}${apiPath}?${new URLSearchParams(params)}`;
   const res = await fetch(url, {
@@ -105,13 +115,29 @@ async function _rawKisGet(trId: string, apiPath: string, params: Record<string, 
       custtype: 'P',
     },
   });
+
+  // 401 감지 → 토큰 강제 무효화 후 1회 재시도
+  if (res.status === 401 && retry) {
+    console.warn(`[KIS] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도`);
+    invalidateKisToken();
+    return _rawKisGet(trId, apiPath, params, false);
+  }
+
+  if (!res.ok) {
+    console.error(`[KIS] API 오류 ${res.status} (${trId})`);
+    return null;
+  }
+
   const text = await res.text();
   if (!text.trim()) return null;
   try { return JSON.parse(text); } catch { return null; }
 }
 
 /** 내부 raw POST — 토큰 버킷 없이 직접 호출. 외부에서는 kisPost를 사용할 것. */
-async function _rawKisPost(trId: string, apiPath: string, body: Record<string, string>) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function _rawKisPost(
+  trId: string, apiPath: string, body: Record<string, string>, retry = true,
+): Promise<any> {
   const token = await refreshKisToken();
   const res = await fetch(`${KIS_BASE}${apiPath}`, {
     method: 'POST',
@@ -125,6 +151,19 @@ async function _rawKisPost(trId: string, apiPath: string, body: Record<string, s
     },
     body: JSON.stringify(body),
   });
+
+  // 401 감지 → 토큰 강제 무효화 후 1회 재시도
+  if (res.status === 401 && retry) {
+    console.warn(`[KIS] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도`);
+    invalidateKisToken();
+    return _rawKisPost(trId, apiPath, body, false);
+  }
+
+  if (!res.ok) {
+    console.error(`[KIS] API 오류 ${res.status} (${trId})`);
+    return null;
+  }
+
   const text = await res.text();
   if (!text.trim()) return null;
   try { return JSON.parse(text); } catch { return null; }
@@ -165,18 +204,36 @@ export function realDataKisGet(trId: string, apiPath: string, params: Record<str
   if (!HAS_REAL_DATA_CLIENT) return kisGet(trId, apiPath, params, 'LOW');
 
   return scheduleKisCall('LOW', `REAL_GET ${trId}`, async () => {
-    const token = await refreshRealDataToken();
-    const url = `${REAL_DATA_BASE}${apiPath}?${new URLSearchParams(params)}`;
-    const res = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        appkey: process.env.KIS_REAL_DATA_APP_KEY!,
-        appsecret: process.env.KIS_REAL_DATA_APP_SECRET!,
-        tr_id: trId,
-        custtype: 'P',
+    const doFetch = async (token: string) => fetch(
+      `${REAL_DATA_BASE}${apiPath}?${new URLSearchParams(params)}`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          appkey: process.env.KIS_REAL_DATA_APP_KEY!,
+          appsecret: process.env.KIS_REAL_DATA_APP_SECRET!,
+          tr_id: trId,
+          custtype: 'P',
+        },
       },
-    });
+    );
+
+    let token = await refreshRealDataToken();
+    let res = await doFetch(token);
+
+    // 401 감지 → 실계좌 데이터 토큰 강제 무효화 후 1회 재시도
+    if (res.status === 401) {
+      console.warn(`[KIS-RealData] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도`);
+      cachedRealDataToken = null;
+      token = await refreshRealDataToken();
+      res = await doFetch(token);
+    }
+
+    if (!res.ok) {
+      console.error(`[KIS-RealData] API 오류 ${res.status} (${trId})`);
+      return null;
+    }
+
     const text = await res.text();
     if (!text.trim()) return null;
     try { return JSON.parse(text); } catch { return null; }
