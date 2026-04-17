@@ -329,10 +329,11 @@ export function AutoTradePage() {
         const holdings = data?.output1 ?? [];
         if (summary) {
           const totalEvalAmt = Number(summary.tot_evlu_amt ?? 0);
-          const purchaseAmt = Number(summary.pchs_amt_smtl_amt ?? 0);
-          const pnlAmt = totalEvalAmt - purchaseAmt;
-          const pnlRate = purchaseAmt > 0 ? (pnlAmt / purchaseAmt) * 100 : 0;
           const availableCash = Number(summary.dnca_tot_amt ?? summary.prvs_rcdl_excc_amt ?? 0);
+          // 기준금액(1억) 대비 총자산(주식평가+예수금) 손익
+          const startingCapital = 100_000_000;
+          const pnlAmt = totalEvalAmt - startingCapital;
+          const pnlRate = (pnlAmt / startingCapital) * 100;
           setAccountSummary({ totalEvalAmt, totalPnlAmt: pnlAmt, totalPnlRate: pnlRate, availableCash });
         }
       }).catch((err) => console.error('[ERROR] 계좌 잔고 조회 실패:', err));
@@ -1314,9 +1315,15 @@ export function AutoTradePage() {
                         )}
 
                         {/* 합계 구분선 */}
-                        {sellFills.length >= 2 && (
+                        {sellFills.length >= 2 && (() => {
+                          const winQty  = sellFills.filter((f: any) => (f.pnlPct ?? 0) >= 0).reduce((s: number, f: any) => s + (f.qty ?? 0), 0);
+                          const lossQty = sellFills.filter((f: any) => (f.pnlPct ?? 0) <  0).reduce((s: number, f: any) => s + (f.qty ?? 0), 0);
+                          const summaryLabel = winQty > 0 && lossQty > 0
+                            ? `익절 ${winQty}주 + 손절 ${lossQty}주`
+                            : winQty > 0 ? `익절 ${winQty}주` : `손절 ${lossQty}주`;
+                          return (
                           <div className="mt-2 pt-2 border-t border-slate-700/30 flex justify-between text-[11px]">
-                            <span className="text-theme-text-muted">합계 · {totalSoldQty}주 청산</span>
+                            <span className="text-theme-text-muted">합계 · {summaryLabel}</span>
                             <div className="flex items-center gap-3">
                               <span className={cn('font-black font-num', isWin ? 'text-green-400' : 'text-red-400')}>
                                 {weightedPnl >= 0 ? '+' : ''}{weightedPnl.toFixed(2)}%
@@ -1329,7 +1336,8 @@ export function AutoTradePage() {
                               )}
                             </div>
                           </div>
-                        )}
+                          );
+                        })()}
                       </Card>
                     );
                   })}

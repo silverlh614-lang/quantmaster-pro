@@ -339,14 +339,20 @@ export function computeMonthlyShadowTradeStats(
   for (const t of all) {
     for (const f of (t.fills ?? [])) {
       if (f.type !== 'SELL') continue;
-      if (f.pnl === undefined) continue;
+      // pnl이 undefined면 entryPrice × pnlPct로 추정 (CCLD 동기화 미완료 케이스 대응)
+      const fillPnl = f.pnl ?? (
+        f.pnlPct != null && t.shadowEntryPrice > 0
+          ? (f.pnlPct / 100) * t.shadowEntryPrice * f.qty
+          : undefined
+      );
+      if (fillPnl === undefined) continue;
       const fillMonth = new Date(new Date(f.timestamp).getTime() + 9 * 3_600_000)
         .toISOString().slice(0, 7);
       if (fillMonth !== month) continue;
       total++;
-      totalRealizedPnl += f.pnl;
-      if (f.pnl > 0) wins++;
-      else if (f.pnl < 0) losses++;
+      totalRealizedPnl += fillPnl;
+      if (fillPnl > 0) wins++;
+      else if (fillPnl < 0) losses++;
     }
   }
 

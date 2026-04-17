@@ -78,8 +78,12 @@ router.get('/auto-trade/engine/status', (_req: any, res: any) => {
     (s) => (s.signalTime ?? '').slice(0, 10) === todayStr
   );
   const todayBuys = todayShadows.filter((s) => isOpenShadowStatus(s.status)).length;
-  const todayExits = todayShadows.filter(
-    (s) => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP'
+  // 오늘 청산 = 오늘(KST) SELL fill이 하나라도 있는 포지션 수 (진입일 무관)
+  const todayExits = shadows.filter((s) =>
+    (s.fills ?? []).some((f) =>
+      f.type === 'SELL' &&
+      new Date(new Date(f.timestamp).getTime() + 9 * 3_600_000).toISOString().slice(0, 10) === todayStr
+    )
   ).length;
   const todayScans = Object.keys(handlerRanAt).length;
 
