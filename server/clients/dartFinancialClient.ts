@@ -1,6 +1,8 @@
 /**
  * dartFinancialClient.ts — DART Open API 기반 펀더멘털 실데이터
  *
+ * @responsibility DART 재무지표를 캐시 + 재시도 + 서킷 브레이커로 안정 조회한다.
+ *
  * DART_API_KEY 필요. 없으면 모두 null 반환.
  * 24시간 인메모리 캐시 (당일 재호출 차단).
  *
@@ -11,8 +13,23 @@
  *   ocfRatio  — 영업활동현금흐름/매출 (%)
  */
 
+import { fetchJsonWithRetry, FetchRetryError } from '../utils/fetchWithRetry.js';
+import { createCircuitBreaker, CircuitOpenError } from '../utils/circuitBreaker.js';
+
 const DART_BASE = 'https://opendart.fss.or.kr/api';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+// DART 공시 API: 5건/초 제한 — 5xx/네트워크 누적 시 1분 차단.
+const _dartCb = createCircuitBreaker({
+  name: 'dart',
+  failureThreshold: 6,
+  windowMs: 60_000,
+  cooldownMs: 60_000,
+});
+
+export function getDartCircuitStats() {
+  return _dartCb.getStats();
+}
 
 export interface DartFinancials {
   roe:       number | null;  // %
@@ -37,15 +54,25 @@ async function getCorpCode(stockCode: string): Promise<string | null> {
   if (!apiKey) return null;
 
   try {
-    const res = await fetch(
-      `${DART_BASE}/company.json?crtfc_key=${apiKey}&stock_code=${key}`,
-      { signal: AbortSignal.timeout(8000) },
+    const data = await _dartCb.exec(() =>
+      fetchJsonWithRetry<{ status: string; corp_code?: string }>(
+        `${DART_BASE}/company.json?crtfc_key=${apiKey}&stock_code=${key}`,
+        { timeoutMs: 8000, retries: 2, callerLabel: 'dart-corp' },
+      ),
     );
-    const data = await res.json() as { status: string; corp_code?: string };
     if (data.status !== '000' || !data.corp_code) return null;
     _corpCache.set(key, { code: data.corp_code, exp: Date.now() + CACHE_TTL_MS });
     return data.corp_code;
-  } catch { return null; }
+  } catch (e) {
+    if (e instanceof CircuitOpenError) {
+      console.warn(`[DART/Corp] 서킷 OPEN — ${key} skip`);
+    } else if (e instanceof FetchRetryError) {
+      console.warn(`[DART/Corp] ${key} 재시도 실패 — ${e.message}`);
+    } else {
+      console.error(`[DART/Corp] ${key} 예상 외 오류:`, e instanceof Error ? e.message : e);
+    }
+    return null;
+  }
 }
 
 // ── 재무항목 추출 헬퍼 (복수 account_id 시도, 첫 번째 유효값 반환) ─────────────
@@ -89,15 +116,21 @@ export async function getDartFinancials(stockCode: string): Promise<DartFinancia
     `&bsns_year=${year}&reprt_code=11011&fs_div=CFS`;
 
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    const data = await res.json() as { status: string; list?: DartItem[] };
+    const data = await _dartCb.exec(() =>
+      fetchJsonWithRetry<{ status: string; list?: DartItem[] }>(url, {
+        timeoutMs: 10000, retries: 2, callerLabel: 'dart-fin-cfs',
+      }),
+    );
 
     // CFS 없으면 OFS(개별) fallback
     let list = data.list ?? [];
     if (data.status !== '000' || list.length === 0) {
       const url2 = url.replace('fs_div=CFS', 'fs_div=OFS');
-      const res2 = await fetch(url2, { signal: AbortSignal.timeout(10000) });
-      const data2 = await res2.json() as { status: string; list?: DartItem[] };
+      const data2 = await _dartCb.exec(() =>
+        fetchJsonWithRetry<{ status: string; list?: DartItem[] }>(url2, {
+          timeoutMs: 10000, retries: 2, callerLabel: 'dart-fin-ofs',
+        }),
+      );
       if (data2.status !== '000' || !data2.list?.length) return null;
       list = data2.list;
     }
@@ -139,7 +172,13 @@ export async function getDartFinancials(stockCode: string): Promise<DartFinancia
     );
     return result;
   } catch (e) {
-    console.error(`[DART/Fin] ${key} 실패:`, e instanceof Error ? e.message : e);
+    if (e instanceof CircuitOpenError) {
+      console.warn(`[DART/Fin] 서킷 OPEN — ${key} skip`);
+    } else if (e instanceof FetchRetryError) {
+      console.warn(`[DART/Fin] ${key} 재시도 실패 — ${e.message}`);
+    } else {
+      console.error(`[DART/Fin] ${key} 실패:`, e instanceof Error ? e.message : e);
+    }
     return null;
   }
 }

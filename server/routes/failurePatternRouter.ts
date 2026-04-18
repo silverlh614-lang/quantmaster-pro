@@ -1,74 +1,79 @@
 // server/routes/failurePatternRouter.ts
-// 반실패 패턴 DB API 라우터
+// 반실패 패턴 DB API 라우터 — apiResponse + zod 표준 적용 예시
 
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
+import { z } from 'zod';
 import {
   checkFailurePattern,
   saveFailureSnapshot,
   getFailurePatternCount,
-  type FailurePatternEntry,
 } from '../learning/failurePatternDB.js';
 import { loadFailurePatterns } from '../persistence/failurePatternRepo.js';
+import { ok, asyncHandler, validateBody } from '../utils/apiResponse.js';
 
 const router = Router();
 
-/**
- * GET /api/failure-patterns
- * 저장된 실패 패턴 목록 반환 (최근 50건)
- */
-router.get('/', (_req: Request, res: Response) => {
-  try {
-    const patterns = loadFailurePatterns();
-    res.json({
-      count: patterns.length,
-      patterns: patterns.slice(-50).reverse(),
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to load failure patterns', details: error.message });
-  }
+// ── 요청 스키마 ──────────────────────────────────────────────────────────
+const ConditionScoresSchema = z.record(z.coerce.number().int(), z.number().min(0).max(10));
+
+const CheckBody = z.object({
+  conditionScores: ConditionScoresSchema,
 });
 
-/**
- * POST /api/failure-patterns/check
- * 신규 후보 조건 벡터와 실패 패턴 DB를 비교하여 경고 반환
- *
- * Body: { conditionScores: Record<number, number> }
- */
-router.post('/check', (req: Request, res: Response) => {
-  try {
-    const { conditionScores } = req.body as { conditionScores?: Record<number, number> };
-    if (!conditionScores || typeof conditionScores !== 'object') {
-      return res.status(400).json({ error: 'conditionScores 필요' });
-    }
-    const warning = checkFailurePattern(conditionScores);
-    res.json(warning);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failure pattern check failed', details: error.message });
-  }
+const SaveBody = z.object({
+  id: z.string().min(1).optional(),
+  stockCode: z.string().min(1),
+  stockName: z.string().min(1),
+  entryDate: z.string(),
+  exitDate: z.string(),
+  returnPct: z.number(),
+  conditionScores: ConditionScoresSchema,
+  gate1Score: z.number(),
+  gate2Score: z.number(),
+  gate3Score: z.number(),
+  finalScore: z.number(),
+  gate2PassCount: z.number().nullable().optional(),
+  rsPercentile: z.number().nullable().optional(),
+  vkospi: z.number().nullable().optional(),
+  mtfScore: z.number().nullable().optional(),
+  marketRegime: z.string().nullable().optional(),
+  sector: z.string().nullable().optional(),
 });
 
+// ── 라우트 ────────────────────────────────────────────────────────────────
+
 /**
- * POST /api/failure-patterns/save
- * 손절된 포지션의 진입 스냅샷을 DB에 저장
- *
- * Body: FailurePatternEntry
+ * GET /api/failure-patterns — 저장된 실패 패턴 목록 (최근 50건)
  */
-router.post('/save', (req: Request, res: Response) => {
-  try {
-    const entry = req.body as FailurePatternEntry;
-    if (!entry.stockCode || !entry.conditionScores) {
-      return res.status(400).json({ error: 'stockCode, conditionScores 필요' });
-    }
-    // savedAt 자동 설정
-    entry.savedAt = new Date().toISOString();
-    saveFailureSnapshot(entry);
-    res.json({
-      success: true,
-      totalPatterns: getFailurePatternCount(),
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to save failure pattern', details: error.message });
-  }
-});
+router.get('/', asyncHandler(async (_req, res) => {
+  const patterns = loadFailurePatterns();
+  ok(res, {
+    count: patterns.length,
+    patterns: patterns.slice(-50).reverse(),
+  });
+}));
+
+/**
+ * POST /api/failure-patterns/check — 후보 조건 벡터 vs DB 코사인 유사도
+ */
+router.post('/check', validateBody(CheckBody), asyncHandler(async (req, res) => {
+  const { conditionScores } = req.body as z.infer<typeof CheckBody>;
+  const warning = checkFailurePattern(conditionScores);
+  ok(res, warning);
+}));
+
+/**
+ * POST /api/failure-patterns/save — 손절 스냅샷 저장
+ */
+router.post('/save', validateBody(SaveBody), asyncHandler(async (req, res) => {
+  const body = req.body as z.infer<typeof SaveBody>;
+  const entry = {
+    ...body,
+    id: body.id ?? `${body.stockCode}_${body.entryDate}`,
+    savedAt: new Date().toISOString(),
+  };
+  saveFailureSnapshot(entry);
+  ok(res, { totalPatterns: getFailurePatternCount() });
+}));
 
 export default router;
