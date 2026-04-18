@@ -11,9 +11,6 @@ export function AppFooter() {
         <Info className="w-4 h-4 shrink-0 text-blue-400/40" />
         <span className="font-medium leading-relaxed">본 정보는 AI 분석 결과이며 투자 권유가 아닙니다. 모든 투자의 책임은 본인에게 있습니다.</span>
       </div>
-      <p className="text-[10px] uppercase tracking-[0.3em] font-bold">
-        <span className="text-gradient-blue opacity-50">Powered by Google Gemini & Master Framework Engine</span>
-      </p>
       <p className="text-[9px] text-theme-text-muted/25 mt-4 font-medium">
         &copy; 2026 K-Stock AI Analysis System. All rights reserved.
       </p>

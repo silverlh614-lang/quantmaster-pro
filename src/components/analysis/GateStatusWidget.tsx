@@ -12,18 +12,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../ui/cn';
 import { Badge } from '../../ui/badge';
 import type { StockRecommendation } from '../../services/stockService';
-
-// ── Gate 정의 (GateWizard와 동일 기준) ────────────────────────────────────
-
-const GATE1_IDS = [1, 3, 5, 7, 9] as const;
-const GATE2_IDS = [4, 6, 8, 10, 11, 12, 13, 14, 15, 16, 21, 24] as const;
-const GATE3_IDS = [2, 17, 18, 19, 20, 22, 23, 25, 26, 27] as const;
-
-const GATE1_REQUIRED = 5;
-const GATE2_REQUIRED = 9;
-const GATE3_REQUIRED = 7;
-
-const CONDITION_PASS_THRESHOLD = 5;
+import {
+  GATE1_IDS, GATE2_IDS, GATE3_IDS,
+  GATE1_REQUIRED, GATE2_REQUIRED, GATE3_REQUIRED,
+  CONDITION_PASS_THRESHOLD,
+} from '../../constants/gateConfig';
 
 // ── 조건 이름 매핑 ───────────────────────────────────────────────────────
 
