@@ -24,6 +24,8 @@ import { cleanupWatchlist } from './screener/watchlistManager.js';
 import { runGlobalScanAgent } from './alerts/globalScanAgent.js';
 import { runAdrGapScan } from './alerts/adrGapCalculator.js';
 import { runPreMarketSignal } from './alerts/preMarketSignal.js';
+import { runDxyMonitor } from './alerts/dxyMonitor.js';
+import { runSectorEtfMomentumScan } from './alerts/sectorEtfMomentum.js';
 import { trackPendingRecords } from './learning/newsSupplyLogger.js';
 import { checkFomcProximityAlert } from './trading/fomcCalendar.js';
 import { runBacktest } from './learning/backtestEngine.js';
@@ -261,6 +263,22 @@ export function startScheduler() {
   // 항셍 개장 30분 후 라이브 인트라데이 반영 재계산 — 당일 방향성 최종 교정.
   cron.schedule('45 1 * * 1-5', async () => {
     await runPreMarketSignal('HK_OPEN_PLUS_30').catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // ─── DXY 실시간 수급 방향 전환 모니터 ────────────────────────────────────
+  // 미국 장 마감 직후 06:05 KST + 한국 장 직전 08:40 KST 재확인.
+  // DX-Y.NYB × USD/KRW × EWY 교차검증 후 CONFIRMED 시 CRITICAL 경보.
+  cron.schedule('5 21 * * 0-4', async () => {
+    await runDxyMonitor().catch(console.error);
+  }, { timezone: 'UTC' });
+  cron.schedule('40 23 * * 0-4', async () => {
+    await runDxyMonitor().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // ─── 미 섹터 ETF 30분봉 모멘텀 교차 스캔 — 평일 06:15 KST (UTC 21:15 일~목)
+  // XLK·XLB·XLE·IYT·XLF 합성 RS 랭킹 → 한국 선점 우선순위 → Telegram.
+  cron.schedule('15 21 * * 0-4', async () => {
+    await runSectorEtfMomentumScan().catch(console.error);
   }, { timezone: 'UTC' });
 
   // OHLCV 기반 백테스트 — 매주 토요일 KST 08:00 (UTC 23:00 금요일)

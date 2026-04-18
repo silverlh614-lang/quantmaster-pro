@@ -110,6 +110,15 @@ export const ADR_GAP_STATE_FILE       = path.join(DATA_DIR, 'adr-gap-state.json'
  * 경보 중복 억제 + 당일 방향성 예측 이력 저장.
  */
 export const PRE_MARKET_SIGNAL_FILE   = path.join(DATA_DIR, 'pre-market-signal.json');
+/**
+ * DXY 실시간 수급 연동 모니터 — 달러인덱스 임계값 돌파 이벤트/쿨다운 상태.
+ * EM 자금이탈·복귀 방향 전환 예비 경보 중복 억제.
+ */
+export const DXY_MONITOR_STATE_FILE   = path.join(DATA_DIR, 'dxy-monitor-state.json');
+/**
+ * 섹터 ETF 30분 모멘텀 교차 스캐너 — 미국 섹터 ETF 간밤 RS 랭킹 + 한국 섹터 매핑 결과.
+ */
+export const SECTOR_ETF_MOMENTUM_FILE = path.join(DATA_DIR, 'sector-etf-momentum.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
