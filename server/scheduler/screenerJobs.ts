@@ -7,6 +7,7 @@ import { cleanupWatchlist } from '../screener/watchlistManager.js';
 import { runDynamicUniverseExpansion } from '../screener/dynamicUniverseExpander.js';
 import { runAutoSignalScan } from '../trading/signalScanner.js';
 import { runGlobalScanAgent } from '../alerts/globalScanAgent.js';
+import { runSupplyChainScan } from '../alerts/supplyChainAgent.js';
 import { trackPendingRecords } from '../learning/newsSupplyLogger.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
@@ -53,6 +54,19 @@ export function registerScreenerJobs(): void {
   cron.schedule('10 0 * * 1-5', async () => { await trackPendingRecords().catch(console.error); }, { timezone: 'UTC' });
 
   // 동적 유니버스 확장 — 매주 토요일 09:00 KST (UTC 00:00).
-  // KIS API 52주 신고가 + 외국인 순매수 상위 → STOCK_UNIVERSE 임시 확장
+  // KIS API 52주 신고가 + 외국인 순매수 + 거래량/등락률/시총 상위 → STOCK_UNIVERSE 임시 확장
   cron.schedule('0 0 * * 6', async () => { await runDynamicUniverseExpansion().catch(console.error); }, { timezone: 'UTC' });
+
+  // ─── 주말 해외 뉴스·공급망 스캔 ───────────────────────────────────────────
+  // 주말은 장이 없어 자가진단이 무의미하므로, 그 시간대에 미국 기업 수주/계약 뉴스를
+  // Gemini Search 로 수집하고 국내 공급망 수혜주를 포착한다.
+  // 토요일·일요일 KST 02:00 / 10:00 (UTC 17:00 Fri·Sat / 01:00 Sat·Sun).
+  cron.schedule('0 17 * * 5,6', async () => {
+    console.log('[Scheduler] 주말 해외 뉴스 스캔 (KST 02:00)');
+    await runSupplyChainScan().catch(console.error);
+  }, { timezone: 'UTC' });
+  cron.schedule('0 1 * * 6,0', async () => {
+    console.log('[Scheduler] 주말 해외 뉴스 재스캔 (KST 10:00)');
+    await runSupplyChainScan().catch(console.error);
+  }, { timezone: 'UTC' });
 }

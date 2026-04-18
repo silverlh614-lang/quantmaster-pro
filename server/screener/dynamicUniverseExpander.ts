@@ -2,14 +2,19 @@
  * dynamicUniverseExpander.ts — 아이디어 6: STOCK_UNIVERSE 동적 확장
  *
  * 매주 1회 (토요일 KST 09:00) KIS API에서:
- *   1. 52주 신고가 상위 종목 (FHPST01710000 + 신고가 필터)
+ *   1. 52주 신고가 상위 종목 (FHPST01700000 + 신고가 필터)
  *   2. 외국인 순매수 상위 종목 (FHPST01710000 + 외국인 필터)
+ *   3. 당일 등락률 중위권 +3~+7% 신흥 주도주 (FHPST01700000, Tier 1)
+ *   4. 시가총액 상위 중·대형주 리프레시 (FHPST01720000, Tier 1)
  * 을 수집하여, STOCK_UNIVERSE에 없는 신흥 주도주를 임시 추가.
  *
  * - 동적 확장 종목은 메모리 캐시 + JSON 파일로 영속화
  * - 2주(14일) 후 자동 만료 → 다음 주 스캔에서 갱신
  * - 기존 STOCK_UNIVERSE 원본은 수정하지 않음
  * - getExpandedUniverse()로 정적 + 동적 병합 유니버스 제공
+ *
+ * Yahoo 의존도 축소: Tier 1 3종(거래량·등락률·시총) 순위가 모두 KIS로
+ * 직접 추출되므로, Yahoo Finance 장애 시에도 유니버스 갱신이 유지된다.
  */
 
 import fs from 'fs';
@@ -25,7 +30,7 @@ export interface DynamicStock {
   symbol: string;    // Yahoo Finance 심볼 (예: '005930.KS')
   code: string;      // 6자리 종목코드
   name: string;
-  source: '52W_HIGH' | 'FOREIGN_NET_BUY';
+  source: '52W_HIGH' | 'FOREIGN_NET_BUY' | 'MID_RISER' | 'MARKET_CAP';
   addedAt: string;   // ISO 8601
   expiresAt: string; // ISO 8601 — 2주 후 자동 만료
 }
@@ -176,6 +181,121 @@ async function fetchForeignNetBuyStocks(): Promise<Omit<DynamicStock, 'addedAt' 
   }
 }
 
+/**
+ * Tier 1 ②: 당일 등락률 +3~+7% 중위권 상승 종목 수집.
+ * 신고가·과열(+8% 이상)은 기존 스테이지 필터에서 걸러지므로,
+ * "새 주도주 초기 신호" 구간만 유니버스에 선편입한다.
+ * FHPST01700000 등락률 순위 + 등락률 레인지 필터.
+ */
+async function fetchMidRangeRisers(): Promise<Omit<DynamicStock, 'addedAt' | 'expiresAt'>[]> {
+  if (!HAS_REAL_DATA_CLIENT && !KIS_IS_REAL) return [];
+
+  try {
+    const results: Omit<DynamicStock, 'addedAt' | 'expiresAt'>[] = [];
+
+    for (const mrktDiv of ['J', 'Q']) {
+      const data = await realDataKisGet(
+        'FHPST01700000',
+        '/uapi/domestic-stock/v1/ranking/fluctuation',
+        {
+          fid_cond_mrkt_div_code: mrktDiv,
+          fid_cond_scr_div_code: '20170',
+          fid_input_iscd: '0000',
+          fid_rank_sort_cls_code: '0',          // 상승률 내림차순
+          fid_input_cnt_1: '0',
+          fid_prc_cls_code: '0',                // 0 = 전체 (신고가 제약 없음)
+          fid_input_price_1: '5000',
+          fid_input_price_2: '',
+          fid_vol_cnt: '50000',                 // 거래량 5만주 이상
+          fid_trgt_cls_code: '0',
+          fid_trgt_exls_cls_code: '0',
+          fid_div_cls_code: '0',
+          fid_rsfl_rate1: '3',                  // 등락률 하한 +3%
+          fid_rsfl_rate2: '7',                  // 등락률 상한 +7%
+        },
+      );
+
+      const output = (data as { output?: Record<string, string>[] } | null)?.output;
+      if (!output || !Array.isArray(output)) continue;
+
+      const suffix = mrktDiv === 'J' ? '.KS' : '.KQ';
+      for (const item of output.slice(0, 15)) {
+        const code = item.mksc_shrn_iscd ?? item.stck_shrn_iscd ?? '';
+        const name = item.hts_kor_isnm ?? '';
+        if (!code || code.length !== 6) continue;
+        const rate = parseFloat(item.prdy_ctrt ?? '0');
+        // 응답 필터가 누락되어도 코드 레벨 재검증 — 과열 차단
+        if (!Number.isFinite(rate) || rate < 3 || rate > 7) continue;
+        results.push({
+          symbol: `${code}${suffix}`,
+          code,
+          name,
+          source: 'MID_RISER',
+        });
+      }
+    }
+
+    console.log(`[DynamicExpander] 중위권 상승 후보: ${results.length}개`);
+    return results;
+  } catch (e) {
+    console.error('[DynamicExpander] 중위권 상승 수집 실패:', e instanceof Error ? e.message : e);
+    return [];
+  }
+}
+
+/**
+ * Tier 1 ③: 시가총액 상위 종목 수집 — 중·대형주 유니버스 자동 리프레시.
+ * FHPST01720000 시가총액 순위 상위 30 (KOSPI+KOSDAQ 통합).
+ * 주간 1회 갱신으로 정적 유니버스의 경직성을 해소.
+ */
+async function fetchMarketCapLeaders(): Promise<Omit<DynamicStock, 'addedAt' | 'expiresAt'>[]> {
+  if (!HAS_REAL_DATA_CLIENT && !KIS_IS_REAL) return [];
+
+  try {
+    const results: Omit<DynamicStock, 'addedAt' | 'expiresAt'>[] = [];
+
+    for (const mrktDiv of ['J', 'Q']) {
+      const data = await realDataKisGet(
+        'FHPST01720000',
+        '/uapi/domestic-stock/v1/ranking/market-cap',
+        {
+          fid_cond_mrkt_div_code: mrktDiv,
+          fid_cond_scr_div_code: '20172',
+          fid_input_iscd: '0000',
+          fid_div_cls_code: '0',
+          fid_input_price_1: '',
+          fid_input_price_2: '',
+          fid_vol_cnt: '',
+          fid_trgt_cls_code: '0',
+          fid_trgt_exls_cls_code: '0',
+        },
+      );
+
+      const output = (data as { output?: Record<string, string>[] } | null)?.output;
+      if (!output || !Array.isArray(output)) continue;
+
+      const suffix = mrktDiv === 'J' ? '.KS' : '.KQ';
+      for (const item of output.slice(0, 30)) {
+        const code = item.mksc_shrn_iscd ?? item.stck_shrn_iscd ?? '';
+        const name = item.hts_kor_isnm ?? '';
+        if (!code || code.length !== 6) continue;
+        results.push({
+          symbol: `${code}${suffix}`,
+          code,
+          name,
+          source: 'MARKET_CAP',
+        });
+      }
+    }
+
+    console.log(`[DynamicExpander] 시가총액 상위 후보: ${results.length}개`);
+    return results;
+  } catch (e) {
+    console.error('[DynamicExpander] 시가총액 상위 수집 실패:', e instanceof Error ? e.message : e);
+    return [];
+  }
+}
+
 // ── 메인 확장 로직 ────────────────────────────────────────────────────────────
 
 /**
@@ -192,10 +312,12 @@ export async function runDynamicUniverseExpansion(): Promise<number> {
   let dynamicStocks = purgeExpired(loadDynamicUniverse());
   const existingDynamicCodes = new Set(dynamicStocks.map(s => s.code));
 
-  // KIS API 수집 (병렬)
-  const [highStocks, foreignStocks] = await Promise.all([
+  // KIS API 수집 (병렬) — Tier 1 3종 + 기존 2종
+  const [highStocks, foreignStocks, midRisers, marketCapLeaders] = await Promise.all([
     fetch52WeekHighStocks(),
     fetchForeignNetBuyStocks(),
+    fetchMidRangeRisers(),
+    fetchMarketCapLeaders(),
   ]);
 
   const now = new Date();
@@ -204,7 +326,7 @@ export async function runDynamicUniverseExpansion(): Promise<number> {
   let newCount = 0;
 
   // 병합: 정적 유니버스에 없고 + 기존 동적 목록에도 없는 종목만 추가
-  const allCandidates = [...highStocks, ...foreignStocks];
+  const allCandidates = [...highStocks, ...foreignStocks, ...midRisers, ...marketCapLeaders];
   for (const c of allCandidates) {
     if (staticCodes.has(c.code)) continue;
     if (existingDynamicCodes.has(c.code)) continue;
@@ -221,10 +343,16 @@ export async function runDynamicUniverseExpansion(): Promise<number> {
 
   // Telegram 알림
   if (newCount > 0) {
+    const sourceLabel: Record<DynamicStock['source'], string> = {
+      '52W_HIGH':        '52주신고가',
+      'FOREIGN_NET_BUY': '외국인순매수',
+      'MID_RISER':       '중위권상승(+3~7%)',
+      'MARKET_CAP':      '시총상위',
+    };
     const newStockLines = allCandidates
       .filter(c => !staticCodes.has(c.code))
       .slice(0, 15)
-      .map(c => `  ${c.name}(${c.code}) [${c.source === '52W_HIGH' ? '52주신고가' : '외국인순매수'}]`)
+      .map(c => `  ${c.name}(${c.code}) [${sourceLabel[c.source]}]`)
       .join('\n');
 
     await sendTelegramAlert(
@@ -264,9 +392,11 @@ export async function expandOnEmpty(ttlDays = 3): Promise<number> {
   let dynamicStocks = purgeExpired(loadDynamicUniverse());
   const existingDynamicCodes = new Set(dynamicStocks.map(s => s.code));
 
-  const [highStocks, foreignStocks] = await Promise.all([
+  const [highStocks, foreignStocks, midRisers, marketCapLeaders] = await Promise.all([
     fetch52WeekHighStocks(),
     fetchForeignNetBuyStocks(),
+    fetchMidRangeRisers(),
+    fetchMarketCapLeaders(),
   ]);
 
   const now = new Date();
@@ -274,7 +404,7 @@ export async function expandOnEmpty(ttlDays = 3): Promise<number> {
   const addedAt = now.toISOString();
   let newCount = 0;
 
-  for (const c of [...highStocks, ...foreignStocks]) {
+  for (const c of [...highStocks, ...foreignStocks, ...midRisers, ...marketCapLeaders]) {
     if (staticCodes.has(c.code)) continue;
     if (existingDynamicCodes.has(c.code)) continue;
     dynamicStocks.push({ ...c, addedAt, expiresAt });
