@@ -26,6 +26,7 @@ async function getPrice(stockCode: string): Promise<number | null> {
   return fetchCurrentPrice(stockCode).catch(() => null);
 }
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
+import { getKellyMultiplier as getIpsKellyMultiplier } from './kellyDampener.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelBuySignal } from '../alerts/channelPipeline.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
@@ -255,14 +256,18 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     return {};
   }
 
-  // 레짐 Kelly × VIX Kelly × FOMC Kelly → 유효 배율
+  // 레짐 Kelly × VIX Kelly × FOMC Kelly × IPS 변곡 감쇠 → 유효 배율
   // 최소 하한선 0.15 — 누적 패널티가 과도하게 쌓여 포지션이 의미 없이 작아지는 것을 방지
   const KELLY_FLOOR = 0.15;
-  const rawKelly = regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier;
+  const ipsKelly = getIpsKellyMultiplier();
+  const rawKelly = regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier * ipsKelly;
   const kellyMultiplier = Math.min(
     1.5,  // 상한 캡 (POST 부스트 구간에서도 최대 1.5배)
     Math.max(KELLY_FLOOR, rawKelly),
   );
+  if (ipsKelly < 1.0) {
+    console.log(`[AutoTrade] IPS 변곡 Kelly 감쇠 적용 — ×${ipsKelly.toFixed(2)}`);
+  }
   if (vixGating.kellyMultiplier < 1) {
     console.log(`[AutoTrade] VIX 게이팅 적용 — ${vixGating.reason}`);
   }

@@ -36,6 +36,10 @@ export const STAGE1_CACHE_FILE        = path.join(DATA_DIR, 'stage1-cache.json')
 export const BEAR_ALERT_FILE         = path.join(DATA_DIR, 'bear-alert-state.json');
 export const MHS_MORNING_ALERT_FILE  = path.join(DATA_DIR, 'mhs-morning-alert-state.json');
 export const IPS_ALERT_FILE          = path.join(DATA_DIR, 'ips-alert-state.json');
+/** IPS → MAPC Kelly 감쇠 상태 — IPS가 임계치 초과 시 신규 포지션 Kelly 배율을 낮춘다. */
+export const KELLY_DAMPENER_FILE     = path.join(DATA_DIR, 'kelly-dampener-state.json');
+/** F2W(Failure-to-Weight) 감사 로그 — 매 실행마다의 가중치 조정 이력을 append. */
+export const F2W_AUDIT_FILE          = path.join(DATA_DIR, 'f2w-audit-log.json');
 export const REAL_TRADE_FLAG_FILE    = path.join(DATA_DIR, 'real-trade-ready.flag');
 export const DART_FAST_SEEN_FILE     = path.join(DATA_DIR, 'dart-fast-seen.json');
 export const ORCHESTRATOR_STATE_FILE = path.join(DATA_DIR, 'orchestrator-state.json');

@@ -65,6 +65,7 @@ import {
 } from './learning/learningState.js';
 import { checkWeeklySharpeAlert } from './learning/weeklySharpeMonitor.js';
 import { getLearningInterval } from './learning/adaptiveLearningClock.js';
+import { runF2WReverseLoop } from './learning/failureToWeight.js';
 
 export function startScheduler() {
   // ─── KIS 토큰 사전 갱신 — 매일 KST 08:30 (UTC 23:30, 일~목) ──────────────
@@ -624,6 +625,18 @@ export function startScheduler() {
         `🚨 <b>[일일 백업 실패]</b>\n오류: ${e instanceof Error ? e.message : String(e)}`,
         { priority: 'HIGH', dedupeKey: 'daily_backup_fail' },
       ).catch(console.error);
+    }
+  }, { timezone: 'UTC' });
+
+  // ─── F2W 가중치 역피드백 — 매일 KST 03:10 (UTC 18:10) ────────────────────
+  // 당일 귀인 레코드 기반으로 조건별 점-양상관 r 을 계산하여
+  //   r ≥ +0.7 → 1.05× 부스트, r ≤ -0.7 → 0.9× 감쇠, 180d 기여 음수 → 0.2× 일몰.
+  // 일일 백업(UTC 18:00) 직후 동작하므로 변경 전 스냅샷이 보존된다.
+  cron.schedule('10 18 * * *', async () => {
+    try {
+      await runF2WReverseLoop({ notifyTelegram: true });
+    } catch (e) {
+      console.error('[F2W] 실행 실패:', e);
     }
   }, { timezone: 'UTC' });
 
