@@ -26,3 +26,5 @@ export { useDebugWatchers } from './useDebugWatchers';
 export { useMarketData } from './useMarketData';
 export { useQuantRecommendations } from './useQuantRecommendations';
 export { usePortfolioState } from './usePortfolioState';
+export { useAppEffects } from './useAppEffects';
+export { useFloatingActions } from './useFloatingActions';

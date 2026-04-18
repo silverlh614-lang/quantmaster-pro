@@ -10,3 +10,4 @@ export { StatusBanner } from './StatusBanner';
 export { EventCalendar } from './EventCalendar';
 export { WalkForwardView } from './WalkForwardView';
 export { QueryProvider } from './QueryProvider';
+export { GlobalModals } from './GlobalModals';
