@@ -445,6 +445,71 @@ export async function sendPickChannelAlert(
   }
 }
 
+// ─── 빈 스캔 Decision Broker (인라인 3택) ─────────────────────────────────
+// 5회 연속 빈 스캔 시 운용자에게 3택을 제시하고 서버가 callback으로 액션을 받는다.
+// callback_data 포맷: "op_override:<ACTION>:<nonce>" — webhookHandler → overrideExecutor로 라우팅.
+
+export type EmptyScanOverrideAction = 'EXPAND_UNIVERSE' | 'RELAX_THRESHOLD' | 'HOLD';
+
+export interface EmptyScanBrokerParams {
+  consecutiveEmptyScans: number;
+  regime?: string;
+  /** 현재 실효 Gate 임계값 (숫자). 메시지 맥락 제공용. */
+  currentThreshold?: number;
+  /** 오늘 이미 소진한 오버라이드 횟수 */
+  usedToday?: number;
+  dailyLimit?: number;
+}
+
+/**
+ * 3택(유니버스 확장/임계값 완화/관망) 인라인 키보드와 함께 상황 보고를 전송.
+ * LIVE 모드 감지 시 RELAX 버튼은 텍스트에 "SHADOW 전용" 경고를 덧붙인다(실행은 executor가 차단).
+ *
+ * dedupeKey로 동일 사이클 스팸을 방지 — callback 수신 전까지는 재발송 금지.
+ */
+export async function sendEmptyScanDecisionBroker(
+  params: EmptyScanBrokerParams,
+): Promise<number | undefined> {
+  const {
+    consecutiveEmptyScans,
+    regime = 'R4_NEUTRAL',
+    currentThreshold,
+    usedToday = 0,
+    dailyLimit = 2,
+  } = params;
+
+  const nonce = Date.now().toString(36);
+  const isLive = (process.env.AUTO_TRADE_MODE ?? 'SHADOW').toUpperCase() === 'LIVE';
+  const remaining = Math.max(0, dailyLimit - usedToday);
+
+  const header =
+    `🧭 <b>[빈 스캔 Decision Broker]</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `연속 빈 스캔: <b>${consecutiveEmptyScans}회</b>\n` +
+    `현재 레짐: ${regime}` +
+    (currentThreshold !== undefined ? ` | Gate ≥ ${currentThreshold.toFixed(1)}` : '') +
+    `\n오늘 사용: ${usedToday}/${dailyLimit}${remaining === 0 ? ' (한도 소진)' : ''}\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `<b>조치 선택 (30분 후 자동 만료)</b>\n` +
+    `① 유니버스 확장 — 52주 신고가 + 외국인 순매수 추가 편입\n` +
+    `② 임계값 −0.5 완화${isLive ? ' (LIVE 모드에서 차단됨)' : ''}\n` +
+    `③ 관망 유지 — 조치 없이 현 상태 고수`;
+
+  const replyMarkup = {
+    inline_keyboard: [[
+      { text: '① 유니버스 확장', callback_data: `op_override:EXPAND_UNIVERSE:${nonce}` },
+      { text: `② 임계값 −0.5${isLive ? ' 🚫' : ''}`, callback_data: `op_override:RELAX_THRESHOLD:${nonce}` },
+      { text: '③ 관망 유지', callback_data: `op_override:HOLD:${nonce}` },
+    ]],
+  };
+
+  return sendTelegramAlert(header, {
+    priority: 'HIGH',
+    dedupeKey: 'empty_scan_broker',
+    replyMarkup,
+  });
+}
+
 /**
  * 개인 채팅 + 채널 동시 전송 (브로드캐스트).
  *

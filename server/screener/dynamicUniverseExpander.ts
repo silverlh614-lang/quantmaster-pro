@@ -245,6 +245,51 @@ export async function runDynamicUniverseExpansion(): Promise<number> {
   return newCount;
 }
 
+// ── 빈 스캔 트리거 확장 ───────────────────────────────────────────────────────
+
+/**
+ * 빈 스캔 연속 감지 시 즉시 호출 — "유니버스 확장" 오버라이드 액션의 구동부.
+ *
+ * 정기 runDynamicUniverseExpansion()은 주 1회 스케줄이라 운용자가 "지금" 확장하고
+ * 싶을 때 기다릴 수 없다. 이 메서드는:
+ *   1. KIS API로 52주 신고가 + 외국인 순매수 상위를 즉시 수집
+ *   2. TTL을 단축(기본 3일)하여 오버라이드의 일시성을 반영
+ *   3. Telegram 알림 없이 조용히 실행 (호출자가 응답 포맷 책임)
+ *
+ * @param ttlDays 동적 편입 만료 기간 (기본 3일 — 빈 스캔 대응 임시성)
+ * @returns 신규 편입 종목 수
+ */
+export async function expandOnEmpty(ttlDays = 3): Promise<number> {
+  const staticCodes = new Set(STOCK_UNIVERSE.map(s => s.code));
+  let dynamicStocks = purgeExpired(loadDynamicUniverse());
+  const existingDynamicCodes = new Set(dynamicStocks.map(s => s.code));
+
+  const [highStocks, foreignStocks] = await Promise.all([
+    fetch52WeekHighStocks(),
+    fetchForeignNetBuyStocks(),
+  ]);
+
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
+  const addedAt = now.toISOString();
+  let newCount = 0;
+
+  for (const c of [...highStocks, ...foreignStocks]) {
+    if (staticCodes.has(c.code)) continue;
+    if (existingDynamicCodes.has(c.code)) continue;
+    dynamicStocks.push({ ...c, addedAt, expiresAt });
+    existingDynamicCodes.add(c.code);
+    newCount++;
+  }
+
+  saveDynamicUniverse(dynamicStocks);
+  console.log(
+    `[DynamicExpander] expandOnEmpty 완료 — 신규 ${newCount}개 (TTL ${ttlDays}일), ` +
+    `전체 동적 ${dynamicStocks.length}개`,
+  );
+  return newCount;
+}
+
 // ── 확장 유니버스 제공 ────────────────────────────────────────────────────────
 
 /**
