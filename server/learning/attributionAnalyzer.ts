@@ -305,3 +305,18 @@ export function analyzeAttribution(
 export function serverConditionKey(conditionId: number): ConditionKey | null {
   return CONDITION_TO_SERVER_KEY[conditionId] ?? null;
 }
+
+/**
+ * 서버 ConditionKey → 클라이언트 conditionId (역매핑).
+ * 시너지 부트스트랩 등에서 RecommendationRecord.conditionKeys 를
+ * 27-score 벡터로 확장할 때 사용.
+ */
+const SERVER_KEY_TO_CONDITION_ID: Record<string, number> = Object.fromEntries(
+  Object.entries(CONDITION_TO_SERVER_KEY)
+    .filter(([, v]) => v !== null)
+    .map(([id, key]) => [key as string, Number(id)]),
+);
+
+export function conditionIdFromServerKey(key: string): number | null {
+  return SERVER_KEY_TO_CONDITION_ID[key] ?? null;
+}

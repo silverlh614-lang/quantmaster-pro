@@ -185,12 +185,39 @@ export async function calibrateSignalWeights(): Promise<void> {
 // ── 공유 유틸 ────────────────────────────────────────────────────────────────
 
 /**
- * 시간 감쇠 가중치 (regimeAwareCalibrator / conditionAuditor 에서도 사용).
- * 60일 반감기 지수 감쇠 — 최근 거래가 6개월 전보다 약 3배 높은 영향.
+ * 레짐별 반감기(일).
+ *
+ * 아이디어 4 (Phase 2) — 시장 속도에 학습 감쇠를 동기화한다.
+ *   - R1_TURBO/R2_BULL: 변동이 빨라 최근 신호 편중 → 짧은 반감기
+ *   - R4_NEUTRAL(기본): 기존 60일 유지
+ *   - R5_CAUTION/R6_DEFENSE: 관측 기간이 길어야 하므로 긴 반감기
+ *
+ * 알 수 없는 레짐(빈값/오타)은 보수적으로 기본 60일.
  */
-export function timeWeight(signalTime: string): number {
-  const ageDays = (Date.now() - new Date(signalTime).getTime()) / 86_400_000;
-  return Math.exp(-ageDays / 60);
+export const REGIME_HALFLIFE_DAYS: Record<string, number> = {
+  R1_TURBO:   30,
+  R2_BULL:    45,
+  R3_EARLY:   50,
+  R4_NEUTRAL: 60,
+  R5_CAUTION: 75,
+  R6_DEFENSE: 90,
+};
+
+export function regimeHalfLifeDays(regime?: string | null): number {
+  if (!regime) return 60;
+  return REGIME_HALFLIFE_DAYS[regime] ?? 60;
+}
+
+/**
+ * 시간 감쇠 가중치 (regimeAwareCalibrator / conditionAuditor 에서도 사용).
+ *
+ * 기본 60일 반감기 지수 감쇠 — 최근 거래가 6개월 전보다 약 3배 높은 영향.
+ * `regime` 을 전달하면 REGIME_HALFLIFE_DAYS 에 따라 반감기가 조정된다.
+ */
+export function timeWeight(signalTime: string, regime?: string | null): number {
+  const ageDays  = (Date.now() - new Date(signalTime).getTime()) / 86_400_000;
+  const halflife = regimeHalfLifeDays(regime);
+  return Math.exp(-ageDays / halflife);
 }
 
 /**

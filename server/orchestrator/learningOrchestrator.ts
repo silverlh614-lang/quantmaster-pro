@@ -22,6 +22,7 @@ import { calibrateByRegime } from '../learning/regimeAwareCalibrator.js';
 import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
 import { runConditionAudit } from '../learning/conditionAuditor.js';
 import { runBacktest, runWeeklyMiniBacktest } from '../learning/backtestEngine.js';
+import { bootstrapAttributionFromRecommendations } from '../learning/synergyBootstrap.js';
 import {
   runIncrementalCalibration,
   calibrateSignalWeightsLite,
@@ -115,6 +116,15 @@ class LearningOrchestrator {
    */
   async runMonthlyEvolution(): Promise<void> {
     console.log('[LearningOrch L4] 월간 진화 루프 시작');
+    // 아이디어 3 (Phase 2): 시너지 분석 데이터 확보용 부트스트랩 — 멱등.
+    // 결산된 추천 이력을 27-score 가상 Attribution 으로 소급 전사하여
+    // findSynergies()가 초기 운용 단계에서도 작동하도록 샘플을 보강한다.
+    try {
+      const added = bootstrapAttributionFromRecommendations();
+      if (added > 0) console.log(`[L4 bootstrap] 가상 Attribution ${added}건 주입`);
+    } catch (e) {
+      console.error('[L4 bootstrap]', e);
+    }
     await runWalkForwardValidation().catch((e) => console.error('[L4 wf]', e));
     await calibrateSignalWeights().catch((e) => console.error('[L4 signal]', e));
     markCalibRan();

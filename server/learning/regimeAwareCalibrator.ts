@@ -72,7 +72,9 @@ export async function calibrateByRegime(): Promise<void> {
     const condStats: Record<string, { wWins: number; wTotal: number; returns: number[] }> = {};
 
     for (const rec of regimeRecs) {
-      const tw = timeWeight(rec.signalTime);
+      // 아이디어 4 (Phase 2): 현재 처리 중인 레짐의 반감기로 시간 감쇠 조정.
+      // R1_TURBO는 30일, R6_DEFENSE는 90일 — 시장 속도에 학습 속도 동기화.
+      const tw = timeWeight(rec.signalTime, regime);
       for (const key of rec.conditionKeys ?? []) {
         if (!condStats[key]) condStats[key] = { wWins: 0, wTotal: 0, returns: [] };
         condStats[key].wTotal += tw;

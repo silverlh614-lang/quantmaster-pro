@@ -23,6 +23,8 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { calcConditionSharpe, timeWeight } from './signalCalibrator.js';
 import { CONDITION_AUDIT_FILE, ensureDataDir } from '../persistence/paths.js';
 import type { ConditionWeights } from '../quantFilter.js';
+import { loadMacroState } from '../persistence/macroStateRepo.js';
+import { getLiveRegime } from '../trading/regimeBridge.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -94,8 +96,12 @@ export async function runConditionAudit(): Promise<void> {
     { wWins: number; wTotal: number; returns: number[]; total: number }
   > = {};
 
+  // 아이디어 4 (Phase 2): 현재 라이브 레짐의 반감기로 감사 전체를 감쇠.
+  // rec 각자의 entryRegime 이 아닌 "지금 시점의 학습 속도"로 일관 처리한다.
+  const liveRegime = getLiveRegime(loadMacroState());
+
   for (const rec of allRecs) {
-    const tw = timeWeight(rec.signalTime);
+    const tw = timeWeight(rec.signalTime, liveRegime);
     for (const key of rec.conditionKeys ?? []) {
       if (!condStats[key]) condStats[key] = { wWins: 0, wTotal: 0, returns: [], total: 0 };
       condStats[key].wTotal += tw;

@@ -170,7 +170,8 @@ export async function calibrateByRegimeSingle(targetRegime: string): Promise<voi
   const condStats: Record<string, { wWins: number; wTotal: number; returns: number[] }> = {};
 
   for (const rec of recs) {
-    const tw = timeWeight(rec.signalTime);
+    // 아이디어 4 (Phase 2): 레짐별 반감기로 적응형 감쇠 — 단일 레짐 캘리브.
+    const tw = timeWeight(rec.signalTime, targetRegime);
     for (const key of rec.conditionKeys ?? []) {
       if (!condStats[key]) condStats[key] = { wWins: 0, wTotal: 0, returns: [] };
       condStats[key].wTotal += tw;
