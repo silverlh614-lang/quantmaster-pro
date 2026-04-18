@@ -18,16 +18,30 @@
  */
 
 import type { RegimeLevel } from '../../src/types/core.js';
+import {
+  GATE_SCORE_THRESHOLD_BY_REGIME as SHARED_SCORE_BANDS,
+  getRegimeGateScoreBand,
+} from '../../src/constants/gateConfig.js';
 
-/** 베이스라인 — 레짐별 Gate 통과 최소 점수. 약세장일수록 높다. */
+/**
+ * 베이스라인 — 레짐별 Gate 통과 최소 점수(NORMAL). 약세장일수록 높다.
+ *
+ * src/constants/gateConfig.ts의 GATE_SCORE_THRESHOLD_BY_REGIME (STRONG/NORMAL 페어)
+ * 를 단일 소스로 사용한다. 이 맵은 NORMAL만 서버용으로 투영한 호환 뷰.
+ */
 export const GATE_SCORE_THRESHOLD_BY_REGIME: Record<RegimeLevel, number> = {
-  R1_TURBO:   4,
-  R2_BULL:    5,
-  R3_EARLY:   5,
-  R4_NEUTRAL: 5,
-  R5_CAUTION: 6,
-  R6_DEFENSE: 999, // R6는 상위 레이어에서 매수 차단 — 안전망
+  R1_TURBO:   SHARED_SCORE_BANDS.R1_TURBO.normal,
+  R2_BULL:    SHARED_SCORE_BANDS.R2_BULL.normal,
+  R3_EARLY:   SHARED_SCORE_BANDS.R3_EARLY.normal,
+  R4_NEUTRAL: SHARED_SCORE_BANDS.R4_NEUTRAL.normal,
+  R5_CAUTION: SHARED_SCORE_BANDS.R5_CAUTION.normal,
+  R6_DEFENSE: SHARED_SCORE_BANDS.R6_DEFENSE.normal, // 999 — 매수 차단
 };
+
+/** 레짐별 (STRONG, NORMAL) 쌍 — quantFilter의 signalType 분류에서 사용. */
+export function getRegimeGateBand(regime?: RegimeLevel | string): { strong: number; normal: number } {
+  return getRegimeGateScoreBand(regime);
+}
 
 const MIN_EFFECTIVE_THRESHOLD = 2.0;
 

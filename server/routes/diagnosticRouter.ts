@@ -26,6 +26,7 @@ import {
   getLastPostmortemReport,
   getEmptyScanCount,
 } from '../orchestrator/emptyScanPostmortem.js';
+import { getCompletenessSnapshot } from '../screener/dataCompletenessTracker.js';
 
 const router = express.Router();
 
@@ -437,6 +438,20 @@ router.get('/diagnostics/empty-scan-postmortem', (_req, res) => {
     });
   } catch (e: any) {
     console.error('[Diagnostic postmortem] 오류:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── 엔드포인트 7: 데이터 완성도 스냅샷 ────────────────────────────────────
+//
+// MTAS/DART 보강 실패율 + 종목별 완성도 점수. isDataStarved=true이면
+// signalScanner가 신규 진입을 보류하도록 게이팅 중임을 뜻한다.
+
+router.get('/diagnostics/data-completeness', (_req, res) => {
+  try {
+    res.json(getCompletenessSnapshot());
+  } catch (e: any) {
+    console.error('[Diagnostic data-completeness] 오류:', e);
     res.status(500).json({ error: e.message });
   }
 });

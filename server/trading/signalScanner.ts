@@ -53,6 +53,7 @@ import {
   CATALYST_POSITION_FACTOR, CATALYST_FIXED_STOP_PCT,
 } from '../screener/watchlistManager.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKisIntraday } from '../screener/stockScreener.js';
+import { isDataStarvedScan, getCompletenessSnapshot } from '../screener/dataCompletenessTracker.js';
 import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
 import { getVixGating } from './vixGating.js';
@@ -250,6 +251,26 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       `📅 <b>[FOMC 게이팅] 신규 진입 차단</b>\n` +
       `${fomcProximity.description}\n` +
       `포지션 모니터링만 수행합니다.`
+    ).catch(console.error);
+    await updateShadowResults(shadows, regime);
+    saveShadowTrades(shadows);
+    return {};
+  }
+
+  // ── Data Degradation Gate: 데이터 빈곤 스캔이면 신규 진입 보류 ───────────
+  // "신호 부재"와 "데이터 부재"를 분리 — 데이터가 없으면 대응 자체가 달라야 한다.
+  if (isDataStarvedScan()) {
+    const snap = getCompletenessSnapshot();
+    console.warn(
+      `[AutoTrade] 데이터 빈곤 스캔 차단 — MTAS실패 ${(snap.mtasFailRate * 100).toFixed(1)}% / ` +
+      `DART null ${(snap.dartNullRate * 100).toFixed(1)}%`,
+    );
+    await sendTelegramAlert(
+      `🧪 <b>[데이터 빈곤 스캔] 신규 진입 보류</b>\n` +
+      `MTAS 실패 ${(snap.mtasFailRate * 100).toFixed(1)}% | DART null ${(snap.dartNullRate * 100).toFixed(1)}%\n` +
+      `표본: M${snap.mtasAttempts} · D${snap.dartAttempts}\n` +
+      `빈 스캔과 구분되는 "데이터 부재" 상태 — 원천 데이터 점검 후 복귀`,
+      { priority: 'HIGH', dedupeKey: 'data-starved-scan', cooldownMs: 30 * 60_000 },
     ).catch(console.error);
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
@@ -517,7 +538,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                 fetchKisInvestorFlow(stock.code).catch(() => null),
                 getDartFinancials(stock.code).catch(() => null),
               ]);
-              const reCheckGatePb = evaluateServerGate(reCheckQuotePb, conditionWeights, macroState?.kospiDayReturn, dartFinPb, kisFlowPb);
+              const reCheckGatePb = evaluateServerGate(reCheckQuotePb, conditionWeights, macroState?.kospiDayReturn, dartFinPb, kisFlowPb, regime);
               const mtasPb = reCheckGatePb ? computeMtasMultiplier(reCheckGatePb.mtas) : 1.0;
               const posPctPb    = computeRawPositionPct(gateScorePb) * kellyMultiplier * mtasPb;
               const remSlotsPb  = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY').length);
@@ -744,7 +765,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           ])
         : [null, null];
       const reCheckGate = reCheckQuote
-        ? evaluateServerGate(reCheckQuote, conditionWeights, macroState?.kospiDayReturn, dartFin, kisFlow)
+        ? evaluateServerGate(reCheckQuote, conditionWeights, macroState?.kospiDayReturn, dartFin, kisFlow, regime)
         : null;
       const entryRevalidation = evaluateEntryRevalidation({
         currentPrice,

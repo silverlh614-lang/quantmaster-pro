@@ -6,6 +6,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { cleanupOldTraceFiles } from '../trading/scanTracer.js';
 import { runDailyBackup } from '../persistence/dailyBackup.js';
 import { runDailyReconciliation } from '../trading/reconciliationEngine.js';
+import { resetDataCompleteness } from '../screener/dataCompletenessTracker.js';
 
 const BACKUP_RETENTION_DAYS = 7;
 
@@ -34,6 +35,13 @@ export function registerMaintenanceJobs(): void {
         { priority: 'HIGH', dedupeKey: 'daily_backup_fail' },
       ).catch(console.error);
     }
+  }, { timezone: 'UTC' });
+
+  // 데이터 완성도 트래커 리셋 — 평일 KST 08:00 (UTC 23:00 일~목).
+  // 장 시작 전 전일 표본을 지워 새로운 장의 데이터 빈곤 여부만 측정하도록 한다.
+  cron.schedule('0 23 * * 0-4', () => {
+    try { resetDataCompleteness(); console.log('[DataCompleteness] 일일 리셋 완료 (08:00 KST)'); }
+    catch (e) { console.error('[DataCompleteness] 리셋 실패:', e); }
   }, { timezone: 'UTC' });
 
   // 이중 기록 Reconciliation — 매일 KST 23:30 (UTC 14:30).

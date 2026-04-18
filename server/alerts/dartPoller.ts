@@ -3,7 +3,8 @@ import { createMailTransporter } from './mailer.js';
 import { DART_FAST_SEEN_FILE, DART_LLM_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { type DartAlert, loadDartAlerts, saveDartAlerts } from '../persistence/dartRepo.js';
 import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
-import { tryEvictWeakest, CATALYST_MAX_SIZE } from '../screener/watchlistManager.js';
+import { tryEvictWeakest, tryEvictMostDataStarved, CATALYST_MAX_SIZE } from '../screener/watchlistManager.js';
+import { getStockCompletenessScore } from '../screener/dataCompletenessTracker.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
@@ -399,12 +400,27 @@ export async function applyDartToWatchlist(params: {
       rrr: entryPrice > 0 ? parseFloat(((targetPrice - entryPrice) / (entryPrice - stopLoss || 1)).toFixed(2)) : 0,
     };
     // CATALYST 만석 시 품질 경쟁: 기존 최저 gateScore 종목을 밀어냄
+    // 1차 — gateScore 경쟁; 2차 — 데이터 빈곤 종목 우선 교체 (DART 확신도 점수 1.0 기준).
     const catalystCount = watchlist.filter(w => w.section === 'CATALYST').length;
     if (catalystCount >= CATALYST_MAX_SIZE) {
       const evicted = tryEvictWeakest(watchlist, newEntry.gateScore ?? 0, 'CATALYST');
       if (!evicted) {
-        console.log(`[DART→WL] ⏭️ CATALYST 만석 + 기존 종목이 더 우수 → ${params.corpName}(${code}) 추가 불가`);
-        return;
+        // DART 내부자매수 이벤트는 실측 완성도 1.0 — 기존 데이터 빈곤 종목과 비교
+        const evictedStarved = tryEvictMostDataStarved(
+          watchlist,
+          1.0,
+          getStockCompletenessScore,
+          'CATALYST',
+          0.3,
+        );
+        if (!evictedStarved) {
+          console.log(`[DART→WL] ⏭️ CATALYST 만석 + 기존 종목이 더 우수 → ${params.corpName}(${code}) 추가 불가`);
+          return;
+        }
+        console.log(
+          `[DART→WL] ♻️ 데이터빈곤 교체: ${evictedStarved.name}(${evictedStarved.code}) ` +
+          `→ ${params.corpName}(${code}) 대체 (DART 실증 신호 우선)`,
+        );
       }
     }
     watchlist.push(newEntry);

@@ -8,12 +8,18 @@ import fs from 'fs';
 import { DATA_DIR } from '../persistence/paths.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { refreshKisToken, getKisTokenRemainingHours } from '../clients/kisClient.js';
+import {
+  getCompletenessSnapshot,
+  type CompletenessSnapshot,
+} from '../screener/dataCompletenessTracker.js';
 
 export interface DiagnosisResult {
   hasCriticalIssue: boolean;
   issues: string[];
   warnings: string[];
   checkedAt: string;
+  /** 데이터 빈곤 스캔 스냅샷 — 진단 API가 함께 반환해 UI에서 활용. */
+  dataCompleteness?: CompletenessSnapshot;
 }
 
 /**
@@ -94,10 +100,32 @@ export async function runPipelineDiagnosis(): Promise<DiagnosisResult> {
     }
   }
 
+  // ⑥ Data Degradation Detector — 종목별 MTAS/DART 완성도 집계
+  //
+  // 빈 스캔을 '신호 부재'와 '데이터 부재'로 분리한다.
+  // 집계 실패율 > 30% & 표본 충분 → '데이터 빈곤 스캔' 경고.
+  // 상위 레이어(signalScanner)는 isDataStarvedScan() 체크로 매수를 보류한다.
+  const completeness = getCompletenessSnapshot();
+  if (completeness.isDataStarved) {
+    warnings.push(
+      `🧪 데이터 빈곤 스캔 — MTAS 실패 ${(completeness.mtasFailRate * 100).toFixed(1)}% / ` +
+      `DART null ${(completeness.dartNullRate * 100).toFixed(1)}% (시도 M${completeness.mtasAttempts}·D${completeness.dartAttempts}). ` +
+      `매수 보류 권장 — KIS 차트/DART API 상태 점검 필요.`,
+    );
+  } else if (completeness.mtasAttempts > 0 || completeness.dartAttempts > 0) {
+    // 경계선 근처(20~30%)는 debug 수준으로만
+    if (completeness.aggregateFailRate > 0.20) {
+      warnings.push(
+        `🧪 데이터 완성도 경계 — MTAS ${(completeness.mtasFailRate * 100).toFixed(1)}% / DART ${(completeness.dartNullRate * 100).toFixed(1)}%`,
+      );
+    }
+  }
+
   return {
     hasCriticalIssue: issues.length > 0,
     issues,
     warnings,
     checkedAt: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) + ' KST',
+    dataCompleteness: completeness,
   };
 }

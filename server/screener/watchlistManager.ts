@@ -164,6 +164,48 @@ export function tryEvictWeakest(
   return null;
 }
 
+/**
+ * 데이터 빈곤 종목 우선 교체.
+ *
+ * 섹션이 만석이고 gateScore 경쟁에서도 밀릴 때, "완성도 점수가 바닥인 종목"을
+ * 찾아 밀어낸다. DART 공시로 새 CATALYST 후보가 들어올 때 기존 리스트 중
+ * 실측 데이터가 모자란 종목이 있다면 교체하는 쪽이 낫다 —
+ * 게이트 평가 자체가 불완전한 종목을 붙잡는 건 기회비용.
+ *
+ * @param minGap  기존 최저 완성도와 신규의 차이가 이 이상이어야 교체.
+ *                (예: 0.3 → 신규가 30%p 더 완전해야 교체)
+ */
+export function tryEvictMostDataStarved(
+  watchlist: WatchlistEntry[],
+  newCompletenessScore: number,
+  getStockCompleteness: (code: string) => number | null,
+  section: WatchlistSection,
+  minGap: number = 0.3,
+): WatchlistEntry | null {
+  const maxSize = SECTION_MAX[section];
+  const sectionEntries = watchlist.filter(w => w.section === section && w.addedBy !== 'MANUAL');
+  if (sectionEntries.length < maxSize) return null;
+
+  let worst: { entry: WatchlistEntry; score: number } | null = null;
+  for (const e of sectionEntries) {
+    const s = getStockCompleteness(e.code);
+    if (s == null) continue;
+    if (!worst || s < worst.score) worst = { entry: e, score: s };
+  }
+  if (!worst) return null;
+  if (newCompletenessScore - worst.score < minGap) return null;
+
+  const idx = watchlist.findIndex(w => w.code === worst!.entry.code);
+  if (idx === -1) return null;
+  watchlist.splice(idx, 1);
+  console.log(
+    `[Watchlist] 데이터 완성도 교체: ${section} 만석 → ` +
+    `${worst.entry.name}(완성도 ${(worst.score * 100).toFixed(0)}%) 밀어냄 ← ` +
+    `신규(완성도 ${(newCompletenessScore * 100).toFixed(0)}%)`,
+  );
+  return worst.entry;
+}
+
 export async function cleanupWatchlist(): Promise<void> {
   const watchlist = loadWatchlist();
   const now = new Date();
