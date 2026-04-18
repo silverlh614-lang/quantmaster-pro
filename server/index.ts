@@ -55,6 +55,7 @@ import dartRouter from './routes/dartRouter.js';
 import autoTradeRouter from './routes/autoTradeRouter.js';
 import systemRouter from './routes/systemRouter.js';
 import failurePatternRouter from './routes/failurePatternRouter.js';
+import diagnosticRouter from './routes/diagnosticRouter.js';
 import { startScheduler } from './scheduler.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 
@@ -107,6 +108,7 @@ async function startServer() {
   //  POST /api/failure-patterns/save)
   // ─────────────────────────────────────────────────────────────
   app.use('/api/failure-patterns', failurePatternRouter);
+  app.use('/api', diagnosticRouter);
 
   // ─── 아이디어 1: 오케스트레이터 상태 조회 ────────────────────────────────────
   app.get('/api/orchestrator/state', (_req: Request, res: Response) => {
