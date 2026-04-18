@@ -779,6 +779,32 @@
   animation: fade-slide-up 0.3s ease-out;
 }
 
+/* ---------- Skeleton shimmer ---------- */
+@keyframes skeleton-shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.08) 40%,
+    rgba(255, 255, 255, 0.04) 80%
+  );
+  background-size: 800px 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  min-height: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer {
+    animation: none;
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+
 /* =============================================================================
    PRINT STYLES
    ============================================================================= */

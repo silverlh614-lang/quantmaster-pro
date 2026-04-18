@@ -1,17 +1,29 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { cn } from './cn';
+import { FieldError } from './field-error';
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   hint?: string;
   icon?: React.ReactNode;
+  /** 검증 에러 메시지 — 지정 시 빨강 테두리·FieldError 렌더. */
+  error?: string | null;
 }
 
-export function Input({ label, hint, icon, className, ...props }: InputProps) {
+export function Input({ label, hint, icon, error, className, id, ...props }: InputProps) {
+  const reactId = useId();
+  const inputId = id ?? reactId;
+  const errorId = `${inputId}-error`;
+  const hintId = `${inputId}-hint`;
+  const hasError = Boolean(error);
+
   return (
     <div>
       {label && (
-        <label className="block text-[10px] font-black text-theme-text-muted uppercase tracking-[0.15em] mb-2">
+        <label
+          htmlFor={inputId}
+          className="block text-[10px] font-black text-theme-text-muted uppercase tracking-[0.15em] mb-2"
+        >
           {label}
         </label>
       )}
@@ -22,21 +34,32 @@ export function Input({ label, hint, icon, className, ...props }: InputProps) {
           </div>
         )}
         <input
+          id={inputId}
+          aria-invalid={hasError || undefined}
+          aria-describedby={cn(hasError && errorId, hint && hintId) || undefined}
           className={cn(
-            'w-full bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2.5',
+            'w-full bg-white/[0.03] border rounded-xl px-4 py-2.5',
             'text-sm font-medium text-theme-text',
             'placeholder:text-theme-text-muted',
-            'focus:outline-none focus:border-blue-500/30 focus:ring-1 focus:ring-blue-500/15 focus:bg-white/[0.04]',
-            'transition-all',
+            'focus:outline-none focus:ring-1 transition-all',
+            hasError
+              ? 'border-red-500/50 focus:border-red-500/70 focus:ring-red-500/25 bg-red-500/[0.04]'
+              : 'border-white/[0.06] focus:border-blue-500/30 focus:ring-blue-500/15 focus:bg-white/[0.04]',
             icon && 'pl-10',
-            className
+            className,
           )}
           {...props}
         />
       </div>
-      {hint && (
-        <p className="mt-1.5 text-[10px] text-theme-text-muted font-medium leading-relaxed">{hint}</p>
+      {hint && !hasError && (
+        <p
+          id={hintId}
+          className="mt-1.5 text-[10px] text-theme-text-muted font-medium leading-relaxed"
+        >
+          {hint}
+        </p>
       )}
+      <FieldError id={errorId} message={error} />
     </div>
   );
 }

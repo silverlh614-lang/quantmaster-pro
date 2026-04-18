@@ -9,7 +9,7 @@
  * 기존 모든 로직(Nuclear Reactor Gate, SSE 스트림 등) 은 그대로 유지.
  */
 import React, { useMemo, useState } from 'react';
-import { Activity } from 'lucide-react';
+import { Activity, RefreshCw } from 'lucide-react';
 import { Stack } from '../layout/Stack';
 import { PageHeader, LoadingState, EmptyState, ViewModeToggle } from '../ui';
 import { AutoTradingControlCenter } from '../components/autoTrading/AutoTradingControlCenter';
@@ -82,15 +82,28 @@ export function AutoTradePage() {
   );
 
   if (loading && !data) {
-    return <LoadingState message="정밀 장비를 초기화하는 중입니다..." />;
+    // Skeleton 대시보드 — KPI grid + 카드 쌍 + 테이블로 실제 레이아웃 힌트.
+    return (
+      <LoadingState
+        message="정밀 장비를 초기화하는 중입니다..."
+        skeleton="dashboard"
+      />
+    );
   }
 
   if (error && !data) {
     return (
       <EmptyState
+        variant="error"
         icon={<Activity className="h-8 w-8" />}
         title="관제 데이터를 불러올 수 없습니다"
         description={error}
+        cta={{
+          label: '다시 시도',
+          icon: <RefreshCw className="h-4 w-4" />,
+          onClick: refresh,
+          variant: 'secondary',
+        }}
       />
     );
   }
@@ -98,9 +111,16 @@ export function AutoTradePage() {
   if (!data) {
     return (
       <EmptyState
+        variant="inviting"
         icon={<Activity className="h-8 w-8" />}
         title="데이터가 없습니다"
-        description="관제실 데이터가 비어 있습니다."
+        description="관제실 데이터가 비어 있습니다. 엔진 상태를 확인하거나 새로고침 해보세요."
+        cta={{
+          label: '새로고침',
+          icon: <RefreshCw className="h-4 w-4" />,
+          onClick: refresh,
+          variant: 'primary',
+        }}
       />
     );
   }

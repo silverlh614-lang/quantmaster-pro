@@ -96,7 +96,10 @@ export function MarketPage({ onFetchMarketOverview }: MarketPageProps) {
 
         {/* Market Dashboard */}
         {loadingMarket && !marketOverview ? (
-          <LoadingState message="AI가 실시간 시장 데이터를 분석 중입니다..." />
+          <LoadingState
+            message="AI가 실시간 시장 데이터를 분석 중입니다..."
+            skeleton="dashboard"
+          />
         ) : marketOverview ? (
           <>
             <PageGrid columns="2-1" gap="md">
@@ -106,7 +109,7 @@ export function MarketPage({ onFetchMarketOverview }: MarketPageProps) {
 
             {/* Distributed heavy sections - moved out of MarketDashboard for load balancing */}
             <SectionErrorBoundary sectionName="센티먼트 & 매크로">
-              <Suspense fallback={<LoadingState message="센티먼트 데이터 로딩 중..." />}>
+              <Suspense fallback={<LoadingState skeleton="card" message="센티먼트 데이터 로딩 중..." />}>
                 <LazySentimentMacroSection
                   snsSentiment={marketOverview.snsSentiment}
                   exchangeRates={marketOverview.exchangeRates}
@@ -116,7 +119,7 @@ export function MarketPage({ onFetchMarketOverview }: MarketPageProps) {
             </SectionErrorBoundary>
 
             <SectionErrorBoundary sectionName="글로벌 추이 차트">
-              <Suspense fallback={<LoadingState message="차트 로딩 중..." />}>
+              <Suspense fallback={<LoadingState skeleton="card" message="차트 로딩 중..." />}>
                 <LazyGlobalTrendChart indices={marketOverview.indices} />
               </Suspense>
             </SectionErrorBoundary>
