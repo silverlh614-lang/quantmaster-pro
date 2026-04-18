@@ -9,6 +9,7 @@ import {
   clampBoost,
   type PromptConditionBoost,
 } from '../persistence/promptBoostRepo.js';
+import { appendWeightSnapshot } from '../persistence/weightHistoryRepo.js';
 
 /**
  * 월간 귀인 분석 기반 캘리브레이션.
@@ -120,6 +121,9 @@ export async function calibrateSignalWeights(): Promise<void> {
   } else {
     console.log('[Calibrator] 가중치 변경 없음 — 현재 설정 유지');
   }
+
+  // 아이디어 8 (Phase 4): 월간 조정 후 스냅샷 저장 — 워크포워드 동결 시 앙상블 재구성 자료.
+  appendWeightSnapshot(weights, 'monthly');
 
   if (boostAdjustments.length > 0) {
     savePromptBoosts(promptBoosts);

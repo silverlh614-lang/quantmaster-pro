@@ -157,7 +157,11 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         }
         setEmergencyStop(false);
         setDailyLoss(0);
-        await reply('🟢 <b>비상 정지 해제</b> — 자동매매 재개');
+        // 아이디어 7 (Phase 4): 서킷브레이커 상태를 함께 해제하여 재발동 가능.
+        const { clearCircuitBreaker, clearForcedRegimeDowngrade } = await import('../learning/learningState.js');
+        clearCircuitBreaker();
+        clearForcedRegimeDowngrade();
+        await reply('🟢 <b>비상 정지 해제</b> — 자동매매 재개 (서킷브레이커/다운그레이드 해제)');
         break;
       }
 

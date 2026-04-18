@@ -86,6 +86,11 @@ export const PROMPT_BOOSTS_FILE       = path.join(DATA_DIR, 'condition-prompt-bo
  * PROPOSED → BACKTESTED_PASSED/FAILED → (선택적) ACTIVE 생애주기.
  */
 export const EXPERIMENTAL_CONDITIONS_FILE = path.join(DATA_DIR, 'experimental-conditions.json');
+/**
+ * 가중치 스냅샷 히스토리 — 월간 캘리브레이션 직후 저장.
+ * 워크포워드 동결 시 최근 3개월 중앙값을 앙상블 임시 가중치로 활용한다.
+ */
+export const WEIGHT_HISTORY_FILE      = path.join(DATA_DIR, 'condition-weight-history.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

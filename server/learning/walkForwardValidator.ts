@@ -24,6 +24,7 @@ import {
   WALK_FORWARD_STATE_FILE,
   ensureDataDir,
 } from '../persistence/paths.js';
+import { computeMedianWeights } from '../persistence/weightHistoryRepo.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -113,8 +114,17 @@ export async function runWalkForwardValidation(): Promise<{ frozen: boolean }> {
   }
 
   if (degradation > THRESHOLD) {
-    // ── 과최적화 감지: 가중치 리셋 + 동결 ─────────────────────────────────────
-    saveConditionWeights({ ...DEFAULT_CONDITION_WEIGHTS });
+    // ── 과최적화 감지 ──────────────────────────────────────────────────────────
+    // 아이디어 8 (Phase 4): DEFAULT 리셋 대신 최근 3개월 스냅샷 중앙값을 앙상블로.
+    // 스냅샷이 3개 미만이면 DEFAULT 로 안전 폴백.
+    const ensemble = computeMedianWeights(3);
+    let weightSource = 'DEFAULT(1.0)';
+    if (ensemble) {
+      saveConditionWeights(ensemble);
+      weightSource = '최근 3개월 median 앙상블';
+    } else {
+      saveConditionWeights({ ...DEFAULT_CONDITION_WEIGHTS });
+    }
 
     const state: WalkForwardState = {
       frozenAt: new Date().toISOString(),
@@ -132,11 +142,11 @@ export async function runWalkForwardValidation(): Promise<{ frozen: boolean }> {
       `IS 승률 (3→2개월전): <b>${(isWinRate * 100).toFixed(1)}%</b> (${inSample.length}건)\n` +
       `OOS 승률 (최근30일): <b>${(oosWinRate * 100).toFixed(1)}%</b> (${outSample.length}건)\n` +
       `성과 저하: <b>${(degradation * 100).toFixed(1)}%p</b>\n\n` +
-      `🔄 가중치 기본값(1.0) 리셋 완료\n` +
+      `🔄 가중치 복원: <b>${weightSource}</b>\n` +
       `🔒 다음 달 캘리브레이션까지 조정 동결`,
     ).catch(console.error);
 
-    console.log('[WalkForward] ⚠️ 과최적화 감지 — 가중치 리셋, 동결 상태 저장');
+    console.log(`[WalkForward] ⚠️ 과최적화 감지 — 가중치 ${weightSource} 복원, 동결 상태 저장`);
     return { frozen: true };
   }
 

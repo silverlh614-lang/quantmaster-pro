@@ -16,6 +16,7 @@ import type { MacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelRegimeChange } from '../alerts/channelPipeline.js';
 import { resetConditionWeightsForRegime } from '../persistence/conditionWeightsRepo.js';
+import { isForcedRegimeDowngradeActive } from '../learning/learningState.js';
 
 // ── 레짐 전환 감지용 모듈 상태 ──────────────────────────────────────────────
 
@@ -71,21 +72,27 @@ export function buildRegimeVars(macroState: MacroState): RegimeVariables {
   };
 }
 
-/**
- * MacroState → RegimeLevel
- * macroState가 null이면 R4_NEUTRAL 반환 (신호 스캔 일시 중단 없음, 보수적 운용).
- */
-export function getLiveRegime(macroState: MacroState | null): RegimeLevel {
-  if (!macroState) return 'R4_NEUTRAL';
-  return classifyRegime(buildRegimeVars(macroState));
-}
-
-// ── 레짐 전환 즉시 알림 ──────────────────────────────────────────────────────
-
 /** 레짐 순서 (방어 → 공격) — 다운그레이드/업그레이드 판단용 */
 const REGIME_ORDER: RegimeLevel[] = [
   'R6_DEFENSE', 'R5_CAUTION', 'R4_NEUTRAL', 'R3_EARLY', 'R2_BULL', 'R1_TURBO',
 ];
+
+/**
+ * MacroState → RegimeLevel
+ * macroState가 null이면 R4_NEUTRAL 반환 (신호 스캔 일시 중단 없음, 보수적 운용).
+ *
+ * 아이디어 7 (Phase 4): isForcedRegimeDowngradeActive() 활성 시 raw 분류 결과를
+ * REGIME_ORDER 상 한 단계 방어쪽으로 이동(예: R2_BULL → R3_EARLY).
+ */
+export function getLiveRegime(macroState: MacroState | null): RegimeLevel {
+  const raw: RegimeLevel = macroState ? classifyRegime(buildRegimeVars(macroState)) : 'R4_NEUTRAL';
+  if (!isForcedRegimeDowngradeActive()) return raw;
+  const idx = REGIME_ORDER.indexOf(raw);
+  if (idx <= 0) return raw; // 이미 R6_DEFENSE — 더 내려갈 곳 없음
+  return REGIME_ORDER[idx - 1];
+}
+
+// ── 레짐 전환 즉시 알림 ──────────────────────────────────────────────────────
 
 /**
  * 레짐 전환 감지 + 즉시 Telegram 알림 발송.

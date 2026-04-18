@@ -27,15 +27,27 @@ export interface LearningState {
   firstCalibrationDone: boolean;
   /** 연속 LOSS 실시간 감지로 설정된 신규 진입 홀드 만료 시각 ISO (null = 홀드 없음) */
   tradingHoldUntil: string | null;
+  /**
+   * 아이디어 7 (Phase 4) — 연속손절 2회 시 강제 레짐 1단계 다운그레이드 만료 시각.
+   * getLiveRegime() 가 이 기간에는 raw 분류 결과를 한 단계 방어 쪽으로 이동시킨다.
+   */
+  forcedRegimeDowngradeUntil: string | null;
+  /**
+   * 아이디어 7 (Phase 4) — 연속손절 3회 서킷브레이커 최초 발동 시각.
+   * 로그 용도. 실제 거래 차단은 setEmergencyStop(true) 로 처리.
+   */
+  circuitBreakerTrippedAt: string | null;
 }
 
 const DEFAULT_STATE: LearningState = {
-  lastRunAt:            {},
-  lastEvalAt:           null,
-  lastCalibAt:          null,
-  prevRegime:           null,
-  firstCalibrationDone: false,
-  tradingHoldUntil:     null,
+  lastRunAt:                {},
+  lastEvalAt:               null,
+  lastCalibAt:              null,
+  prevRegime:               null,
+  firstCalibrationDone:     false,
+  tradingHoldUntil:         null,
+  forcedRegimeDowngradeUntil: null,
+  circuitBreakerTrippedAt:  null,
 };
 
 function loadState(): LearningState {
@@ -119,5 +131,52 @@ export function isTradingHeld(): boolean {
 export function clearTradingHold(): void {
   const state = loadState();
   state.tradingHoldUntil = null;
+  saveState(state);
+}
+
+// ─── 아이디어 7 (Phase 4): 연속손절 서킷브레이커 ───────────────────────────────
+
+/**
+ * 강제 레짐 다운그레이드를 설정한다 (연속손절 2회 감지 시).
+ * 기존 값보다 짧은 만료는 덮어쓰지 않는다.
+ */
+export function setForcedRegimeDowngrade(durationMs: number): void {
+  const state = loadState();
+  const next = Date.now() + durationMs;
+  const curr = state.forcedRegimeDowngradeUntil
+    ? new Date(state.forcedRegimeDowngradeUntil).getTime()
+    : 0;
+  if (next > curr) {
+    state.forcedRegimeDowngradeUntil = new Date(next).toISOString();
+    saveState(state);
+  }
+}
+
+export function isForcedRegimeDowngradeActive(): boolean {
+  const state = loadState();
+  if (!state.forcedRegimeDowngradeUntil) return false;
+  return Date.now() < new Date(state.forcedRegimeDowngradeUntil).getTime();
+}
+
+export function clearForcedRegimeDowngrade(): void {
+  const state = loadState();
+  state.forcedRegimeDowngradeUntil = null;
+  saveState(state);
+}
+
+/** 서킷브레이커 발동 기록. 실제 거래 차단은 setEmergencyStop(true) 측에서 처리. */
+export function tripCircuitBreaker(): void {
+  const state = loadState();
+  state.circuitBreakerTrippedAt = new Date().toISOString();
+  saveState(state);
+}
+
+export function getCircuitBreakerTrippedAt(): string | null {
+  return loadState().circuitBreakerTrippedAt;
+}
+
+export function clearCircuitBreaker(): void {
+  const state = loadState();
+  state.circuitBreakerTrippedAt = null;
   saveState(state);
 }
