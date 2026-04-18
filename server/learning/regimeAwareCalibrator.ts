@@ -21,7 +21,7 @@ import {
   type ConditionWeights,
 } from '../persistence/conditionWeightsRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { timeWeight, calcConditionSharpe } from './signalCalibrator.js';
+import { timeWeight, calcConditionSharpe, latePenaltyForServerKey } from './signalCalibrator.js';
 
 /** R6_DEFENSE 포함 전체 레짐 레벨 */
 const ALL_REGIMES = [
@@ -78,7 +78,10 @@ export async function calibrateByRegime(): Promise<void> {
       for (const key of rec.conditionKeys ?? []) {
         if (!condStats[key]) condStats[key] = { wWins: 0, wTotal: 0, returns: [] };
         condStats[key].wTotal += tw;
-        if (rec.status === 'WIN') condStats[key].wWins += tw;
+        // 아이디어 5 (Phase 3): LATE_WIN × 타이밍 조건 시 WIN 기여를 0.7× 페널티.
+        if (rec.status === 'WIN') {
+          condStats[key].wWins += tw * latePenaltyForServerKey(rec.lateWin, key);
+        }
         if (rec.actualReturn !== undefined) condStats[key].returns.push(rec.actualReturn);
       }
     }

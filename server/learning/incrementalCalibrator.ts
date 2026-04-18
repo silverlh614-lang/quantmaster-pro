@@ -25,7 +25,11 @@ import {
 import { serverConditionKey } from './attributionAnalyzer.js';
 import { loadWalkForwardState } from './walkForwardValidator.js';
 import { getRecommendations } from './recommendationTracker.js';
-import { timeWeight, calcConditionSharpe } from './signalCalibrator.js';
+import {
+  timeWeight,
+  calcConditionSharpe,
+  latePenaltyForServerKey,
+} from './signalCalibrator.js';
 import { markCalibRan } from './learningState.js';
 
 const WEIGHT_MIN = 0.3;
@@ -58,7 +62,9 @@ export async function runIncrementalCalibration(
     if (!key) continue;
 
     const scoreNorm = Math.max(0, Math.min(1, Number(score) / 10));
-    const delta     = learningRate * direction * scoreNorm;
+    // 아이디어 5 (Phase 3): LATE_WIN 시 타이밍 조건 기여를 감쇠.
+    const penalty   = direction > 0 ? latePenaltyForServerKey(newRecord.lateWin, key) : 1.0;
+    const delta     = learningRate * direction * scoreNorm * penalty;
     const prev      = (weights as Record<string, number>)[key] ?? 1.0;
     const next      = clamp(prev + delta, WEIGHT_MIN, WEIGHT_MAX);
 
@@ -111,7 +117,8 @@ export async function calibrateSignalWeightsLite(): Promise<void> {
       if (s < 0.5) continue; // 저점수 조건은 가중치 신호로 보지 않음
       if (!agg[key]) agg[key] = { wWin: 0, wTotal: 0 };
       agg[key].wTotal += s;
-      if (rec.isWin) agg[key].wWin += s;
+      // 아이디어 5 (Phase 3): lateWin × 타이밍 조건 WIN 기여 0.7× 감쇠
+      if (rec.isWin) agg[key].wWin += s * latePenaltyForServerKey(rec.lateWin, key);
     }
   }
 

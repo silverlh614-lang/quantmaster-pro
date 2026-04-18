@@ -81,6 +81,11 @@ export const LEARNING_STATE_FILE      = path.join(DATA_DIR, 'learning-state.json
  * 서버 자동평가 경로로 피드백되지 않는 조건도 Gemini 분석 비중으로 소프트 가중 적용.
  */
 export const PROMPT_BOOSTS_FILE       = path.join(DATA_DIR, 'condition-prompt-boosts.json');
+/**
+ * 실험 조건 레지스터 — Gemini 가 제안한 신규 조건 후보의 A/B 테스트 상태.
+ * PROPOSED → BACKTESTED_PASSED/FAILED → (선택적) ACTIVE 생애주기.
+ */
+export const EXPERIMENTAL_CONDITIONS_FILE = path.join(DATA_DIR, 'experimental-conditions.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

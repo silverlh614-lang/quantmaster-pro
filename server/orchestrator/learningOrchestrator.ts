@@ -23,6 +23,8 @@ import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
 import { runConditionAudit } from '../learning/conditionAuditor.js';
 import { runBacktest, runWeeklyMiniBacktest } from '../learning/backtestEngine.js';
 import { bootstrapAttributionFromRecommendations } from '../learning/synergyBootstrap.js';
+import { reEvaluateExpired } from '../learning/lateWinEvaluator.js';
+import { runExperimentalConditionBacktest } from '../learning/experimentalConditionTester.js';
 import {
   runIncrementalCalibration,
   calibrateSignalWeightsLite,
@@ -90,6 +92,20 @@ class LearningOrchestrator {
    */
   async runWeeklyCalib(): Promise<void> {
     console.log('[LearningOrch L3] 주간 경량 보정 시작');
+    // 아이디어 5 (Phase 3): EXPIRED → LATE_WIN 재평가 (60/90일 시점).
+    // Yahoo OHLCV 호출이 있으므로 주간 1회만 실행.
+    try {
+      const converted = await reEvaluateExpired();
+      if (converted > 0) {
+        await sendTelegramAlert(
+          `🕰 <b>[EXPIRED 재평가]</b> LATE_WIN 전환 ${converted}건\n` +
+          `타이밍 조건(momentum, turtle_high, 피보나치, 엘리엇, 다이버전스)의 ` +
+          `가중치 기여는 0.7× 페널티 적용 — "신호는 맞았지만 타이밍은 빗나감" 구분.`,
+        ).catch(console.error);
+      }
+    } catch (e) {
+      console.error('[L3 late-win-eval]', e);
+    }
     await calibrateSignalWeightsLite().catch((e) => console.error('[L3 lite-calib]', e));
     await runWeeklyMiniBacktest().catch((e) => console.error('[L3 mini-backtest]', e));
     markTierRan('L3_WEEKLY');
@@ -130,6 +146,10 @@ class LearningOrchestrator {
     markCalibRan();
     await calibrateByRegime().catch((e) => console.error('[L4 regime]', e));
     await runConditionAudit().catch((e) => console.error('[L4 audit]', e));
+    // 아이디어 6 (Phase 3): 이전 월 PROPOSED 조건들의 A/B 백테스트 후 상태 전이.
+    // runConditionAudit 내부 proposeNewConditions 가 이번 월 신규 PROPOSED 를
+    // 등록한 직후이므로, 순서상 백테스트는 "직전 월 이전" 등록건을 평가한다.
+    await runExperimentalConditionBacktest().catch((e) => console.error('[L4 exp-backtest]', e));
     markTierRan('L4_MONTHLY');
     console.log('[LearningOrch L4] 월간 진화 루프 완료');
   }

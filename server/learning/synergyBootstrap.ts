@@ -62,6 +62,8 @@ function toVirtualRecord(rec: RecommendationRecord): ServerAttributionRecord | n
     conditionScores: buildConditionScores(rec),
     holdingDays,
     sellReason:      `bootstrap:${rec.status.toLowerCase()}`,
+    // 아이디어 5 (Phase 3): LATE_WIN 플래그를 부트스트랩 경로에도 전사
+    lateWin:         rec.lateWin,
   };
 }
 

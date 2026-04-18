@@ -221,6 +221,42 @@ export function timeWeight(signalTime: string, regime?: string | null): number {
 }
 
 /**
+ * 아이디어 5 (Phase 3) — 타이밍 민감 조건 식별.
+ *
+ * EXPIRED 이후 LATE_WIN 으로 재분류된 거래는 "신호는 맞았으나 타이밍이 어긋났다"
+ * 는 의미다. 타이밍이 핵심 변수인 조건에 한해 기여도를 30% 감쇠하여 학습 시
+ * "신호 정확성"과 "타이밍 정밀도"를 분리한다.
+ *
+ * 서버 매핑: momentum(18), turtle_high(20)
+ * 클라이언트 ID: 20 터틀, 21 피보나치, 22 엘리엇, 26 다이버전스
+ */
+const TIMING_SENSITIVE_SERVER_KEYS = new Set(['momentum', 'turtle_high']);
+const TIMING_SENSITIVE_CONDITION_IDS = new Set([18, 20, 21, 22, 26]);
+
+export function isTimingSensitiveServerKey(key: string): boolean {
+  return TIMING_SENSITIVE_SERVER_KEYS.has(key);
+}
+
+export function isTimingSensitiveConditionId(id: number): boolean {
+  return TIMING_SENSITIVE_CONDITION_IDS.has(id);
+}
+
+/**
+ * LATE_WIN 거래의 타이밍 조건 기여도를 감쇠하는 승률 가중치.
+ * - lateWin=true AND 타이밍 조건 → 0.7
+ * - 그 외 → 1.0
+ */
+export const LATE_WIN_TIMING_PENALTY = 0.7;
+
+export function latePenaltyForServerKey(lateWin: boolean | undefined, key: string): number {
+  return lateWin && isTimingSensitiveServerKey(key) ? LATE_WIN_TIMING_PENALTY : 1.0;
+}
+
+export function latePenaltyForConditionId(lateWin: boolean | undefined, id: number): number {
+  return lateWin && isTimingSensitiveConditionId(id) ? LATE_WIN_TIMING_PENALTY : 1.0;
+}
+
+/**
  * 조건별 Sharpe 비율.
  * mean / std(returns). 수익률이 2개 미만이면 0 반환.
  */
