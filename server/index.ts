@@ -56,6 +56,7 @@ import autoTradeRouter from './routes/autoTradeRouter.js';
 import systemRouter from './routes/systemRouter.js';
 import failurePatternRouter from './routes/failurePatternRouter.js';
 import diagnosticRouter from './routes/diagnosticRouter.js';
+import operatorRouter from './routes/operatorRouter.js';
 import { startScheduler } from './scheduler.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 import { globalErrorHandler } from './utils/apiResponse.js';
@@ -110,6 +111,13 @@ async function startServer() {
   // ─────────────────────────────────────────────────────────────
   app.use('/api/failure-patterns', failurePatternRouter);
   app.use('/api', diagnosticRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // 운용자 오버라이드 → server/routes/operatorRouter.ts
+  // (POST /api/operator/override, GET /api/operator/override/status/history)
+  // Telegram Decision Broker와 동일한 3택을 API로도 노출
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/operator', operatorRouter);
 
   // ─── 아이디어 1: 오케스트레이터 상태 조회 ────────────────────────────────────
   app.get('/api/orchestrator/state', (_req: Request, res: Response) => {

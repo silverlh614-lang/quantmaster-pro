@@ -29,6 +29,7 @@ import { verifyVolumeMount } from '../persistence/paths.js';
 import { STOCK_UNIVERSE } from '../screener/stockScreener.js';
 import { calcRRR } from '../trading/riskManager.js';
 import { handleBuyApprovalCallback } from './buyApproval.js';
+import { handleOperatorOverrideCallback } from './operatorOverride.js';
 
 export async function handleTelegramWebhook(req: Request, res: Response): Promise<void> {
   res.sendStatus(200); // Telegram에 즉시 200 응답 (재전송 방지)
@@ -42,12 +43,20 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
     const callbackQueryId = callbackQuery.id;
     const data = callbackQuery.data ?? '';
+    const messageId = callbackQuery.message?.message_id as number | undefined;
 
-    // 매수 승인 콜백 처리
-    const handled = await handleBuyApprovalCallback(callbackQueryId, data).catch(() => false);
-    if (!handled) {
-      await answerCallbackQuery(callbackQueryId, '알 수 없는 버튼입니다.');
-    }
+    // 매수 승인 → 운용자 오버라이드 순으로 라우팅 (prefix 매칭으로 충돌 없음)
+    const buyHandled = await handleBuyApprovalCallback(callbackQueryId, data).catch(() => false);
+    if (buyHandled) return;
+
+    const overrideHandled = await handleOperatorOverrideCallback(callbackQueryId, data, messageId)
+      .catch((e: unknown) => {
+        console.error('[TelegramBot] operator override 처리 실패:', e instanceof Error ? e.message : e);
+        return false;
+      });
+    if (overrideHandled) return;
+
+    await answerCallbackQuery(callbackQueryId, '알 수 없는 버튼입니다.');
     return;
   }
 

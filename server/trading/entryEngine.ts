@@ -16,22 +16,24 @@ import type { DynamicStopRegime } from '../../src/types/sell.js';
 import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.js';
 import { callGemini } from '../clients/geminiClient.js';
 import { buildConditionBoostHint } from '../learning/conditionBoostHints.js';
+import { GATE_SCORE_THRESHOLD_BY_REGIME, getEffectiveGateThreshold } from './gateConfig.js';
 
 const ENTRY_MIN_GATE_SCORE = 5;
 
-/** 아이디어 #7: 레짐별 Gate 임계값 — 약세장일수록 기준 강화 */
-export const REGIME_GATE_MIN: Record<string, number> = {
-  R1_TURBO:   4,
-  R2_BULL:    5,
-  R3_EARLY:   5,
-  R4_NEUTRAL: 5,
-  R5_CAUTION: 6,
-  R6_DEFENSE: 999, // R6는 entryEngine 진입 전 차단되지만 안전망으로 999
-};
+/**
+ * 아이디어 #7: 레짐별 Gate 임계값 — 약세장일수록 기준 강화.
+ * 단일 소스는 gateConfig.GATE_SCORE_THRESHOLD_BY_REGIME — 운용자 오버라이드 연동을 위해
+ * 이 상수는 그 모듈을 재수출(re-export)한다. 하드 참조는 금지.
+ */
+export const REGIME_GATE_MIN = GATE_SCORE_THRESHOLD_BY_REGIME;
 
-/** 레짐 문자열로부터 Gate 최솟값을 반환. 미전달·미지원 레짐 → 기본값 5 */
+/**
+ * 레짐 문자열로부터 실효 Gate 최솟값을 반환.
+ * 운용자 오버라이드(gateConfig.setRuntimeThresholdDelta)가 활성이면 완화값을 반영한다.
+ * 미전달·미지원 레짐 → 기본값 5.
+ */
 export function getMinGateScore(regime?: string): number {
-  return REGIME_GATE_MIN[regime ?? 'R4_NEUTRAL'] ?? 5;
+  return getEffectiveGateThreshold(regime);
 }
 const ENTRY_MAX_BREAKOUT_EXTENSION_PCT = 3;
 const ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT = -2;

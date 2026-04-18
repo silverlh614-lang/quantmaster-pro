@@ -35,7 +35,9 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
-import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { sendEmptyScanDecisionBroker } from '../alerts/telegramClient.js';
+import { getEffectiveGateThreshold } from '../trading/gateConfig.js';
+import { canApplyToday } from '../persistence/overrideLedger.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -232,13 +234,17 @@ export function recordScanResult(signalCount: number, opts?: { positionFull?: bo
       } else {
         console.warn(`${msg} — 매수 구간 연속 빈 스캔, Gate 임계치 점검 필요`);
         if (consecutiveEmptyScans === EMPTY_SCAN_BACKOFF_THRESHOLD) {
-          // 단일 임계 도달 시점에만 1회 알림 (spam 방지)
-          sendTelegramAlert(
-            `⚠️ <b>[매수 스캔 5회 연속 빈 결과]</b>\n` +
-            `매수 가능 시간대에도 후보가 발굴되지 않습니다.\n` +
-            `Gate 임계치/레짐 적합도를 점검하세요.`,
-            { priority: 'HIGH', dedupeKey: 'empty_scan_buyable' },
-          ).catch(console.error);
+          // 단일 임계 도달 시점에만 1회 알림 (spam 방지).
+          // 단순 경보가 아닌 3택 Decision Broker로 전환 — 운용자가 "도구를 든 판단자"로 서도록.
+          const regime = getLiveRegime(loadMacroState());
+          const usage = canApplyToday();
+          sendEmptyScanDecisionBroker({
+            consecutiveEmptyScans,
+            regime,
+            currentThreshold: getEffectiveGateThreshold(regime),
+            usedToday: usage.used,
+            dailyLimit: usage.limit,
+          }).catch(console.error);
         }
       }
     }
