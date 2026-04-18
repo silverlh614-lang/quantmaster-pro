@@ -33,6 +33,8 @@ import { getVixConservativeMode, setVixConservativeMode } from '../state.js';
 import { getLiveRegime } from './regimeBridge.js';
 import { fetchCloses } from './marketDataRefresh.js';
 import { MACRO_SYNC_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
+import { loadPrevRegime, savePrevRegime } from '../learning/learningState.js';
+import { calibrateByRegimeSingle } from '../learning/incrementalCalibrator.js';
 import fs from 'fs';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -421,6 +423,31 @@ export async function macroSectorAlignmentCheck(): Promise<void> {
     syncState.lastCheckAt = new Date().toISOString();
     syncState.lastAlignmentScore = result.score;
     saveMacroSyncState(syncState);
+
+    // ── 7. 아이디어 5 — 레짐 전환 감지 즉시 해당 레짐 캘리브레이션 트리거 ───────
+    // macroState 갱신 이후의 "현재 레짐"을 확정한다. 이전 저장분과 다르면 신규 레짐 재보정.
+    const updatedMacro = loadMacroState();
+    const currRegime = updatedMacro ? getLiveRegime(updatedMacro) : null;
+    const prevRegime = loadPrevRegime();
+    if (currRegime && prevRegime && prevRegime !== currRegime) {
+      savePrevRegime(currRegime);
+      console.log(`[MacroSync] 레짐 전환 감지: ${prevRegime} → ${currRegime}`);
+      // 상태 저장이 완전히 반영되도록 30초 지연 후 단일 레짐만 재보정
+      setTimeout(() => {
+        calibrateByRegimeSingle(currRegime)
+          .then(() =>
+            sendTelegramAlert(
+              `🔄 <b>[레짐 전환 학습]</b> ${prevRegime} → ${currRegime}\n` +
+              `해당 레짐 가중치 즉시 재보정 완료`,
+              { priority: 'HIGH', dedupeKey: `regime_switch:${prevRegime}->${currRegime}` },
+            ).catch(console.error),
+          )
+          .catch((e) => console.error('[MacroSync] 레짐 전환 재보정 실패:', e));
+      }, 30_000);
+    } else if (currRegime && !prevRegime) {
+      // 첫 실행 — 비교 기준만 저장
+      savePrevRegime(currRegime);
+    }
 
     console.log(
       `[MacroSync] 완료 — 정렬도: ${result.alignment} (${result.score}/100), ` +

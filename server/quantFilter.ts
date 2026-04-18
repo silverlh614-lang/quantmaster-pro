@@ -29,6 +29,7 @@ import type { DartFinancials } from './clients/dartFinancialClient.js';
 import type { KisInvestorFlow } from './clients/kisClient.js';
 import { isPullbackSetup } from './screener/pipelineHelpers.js';
 import { getVixConservativeMode } from './state.js';
+import { isTradingHeld } from './learning/learningState.js';
 
 export interface ServerGateResult {
   gateScore: number;                          // 가중치 적용 점수 (float, 최대 ~15)
@@ -393,6 +394,15 @@ export function evaluateServerGate(
     if (signalType !== 'SKIP') {
       signalType = 'SKIP';
       details.push('VIX 보수모드 — 신규 진입 일시 중단');
+    }
+  }
+
+  // ── 아이디어 3 — 실시간 연속 LOSS 거래 홀드 ─────────────────────────────────
+  // 장중 2건 이상 연속 손절 감지 시 30분간 신규 진입 차단.
+  if (isTradingHeld()) {
+    if (signalType !== 'SKIP') {
+      signalType = 'SKIP';
+      details.push('실시간 연속손절 홀드 — 신규 진입 차단 중');
     }
   }
 

@@ -29,6 +29,7 @@ import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.
 import { fetchCloses } from './marketDataRefresh.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 import type { PositionFill } from '../persistence/shadowTradeRepo.js';
+import { learningOrchestrator } from '../orchestrator/learningOrchestrator.js';
 
 // ─── recordSell 헬퍼 ──────────────────────────────────────────────────────────
 // appendFill + appendTradeEvent를 원자적으로 수행한다.
@@ -163,6 +164,10 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
   // 청산 실행 우선순위는 EXIT_RULE_PRIORITY_TABLE(entryEngine.ts)과 동일한 순서로 평가된다.
   // ExitRuleTag 타입이 규칙명을 강제하므로, 규칙 추가 시 shadowTradeRepo.ts의 ExitRuleTag와
   // entryEngine.ts의 EXIT_RULE_PRIORITY_TABLE을 함께 갱신하면 된다.
+  //
+  // L1 학습 훅 (아이디어 1) — 이번 루프에서 HIT_TARGET/HIT_STOP으로 전환된 stockCode를 수집하여
+  // 루프 종료 후 setImmediate로 learningOrchestrator.onShadowResolved() 일괄 트리거.
+  const resolvedNow = new Set<string>();
   for (const shadow of shadows) {
     // PENDING: Shadow 모드에서만 4분 경과 후 ACTIVE 전환.
     // LIVE 모드에서는 fillMonitor가 ORDER_SUBMITTED → ACTIVE 전환을 책임지므로
@@ -900,5 +905,23 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         }).catch(console.error);
       }
     }
+
+    // L1 학습 훅 — 이 루프 진입 조건(line ~188)이 ACTIVE/PARTIALLY_FILLED/EUPHORIA_PARTIAL 이므로
+    // 종료 시 HIT_TARGET/HIT_STOP 이라면 이번 루프에서 갓 청산된 것이다.
+    // TS의 좁혀진 상태가 루프 내 재할당 이후에도 유지되므로 string 비교로 우회.
+    const finalStatus = shadow.status as string;
+    if (finalStatus === 'HIT_TARGET' || finalStatus === 'HIT_STOP') {
+      resolvedNow.add(shadow.stockCode);
+    }
+  }
+
+  // 청산된 종목이 있으면 다음 tick으로 밀어 learningOrchestrator.onShadowResolved를 트리거.
+  // KIS API 부담 최소화를 위해 종목당 1건씩 순차 처리 (Promise.all 미사용).
+  if (resolvedNow.size > 0) {
+    setImmediate(async () => {
+      for (const code of resolvedNow) {
+        await learningOrchestrator.onShadowResolved(code).catch(console.error);
+      }
+    });
   }
 }

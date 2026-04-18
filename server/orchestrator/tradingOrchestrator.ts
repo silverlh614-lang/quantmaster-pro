@@ -15,14 +15,10 @@ import { trancheExecutor } from '../trading/trancheExecutor.js';
 import { runAutoSignalScan } from '../trading/signalScanner.js';
 import { fetchYahooQuote, preScreenStocks, autoPopulateWatchlist, sendWatchlistRejectionReport } from '../screener/stockScreener.js';
 import { generateDailyReport } from '../alerts/reportGenerator.js';
-import { evaluateRecommendations, isRealTradeReady } from '../learning/recommendationTracker.js';
+import { isRealTradeReady } from '../learning/recommendationTracker.js';
 import { calculateOrderQuantity, isOpenShadowStatus } from '../trading/entryEngine.js';
 import { decideScan, recordScanResult } from './adaptiveScanScheduler.js';
-import { calibrateSignalWeights } from '../learning/signalCalibrator.js';
-import { calibrateByRegime } from '../learning/regimeAwareCalibrator.js';
-import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
-import { runConditionAudit } from '../learning/conditionAuditor.js';
-import { detectPerformanceAnomaly } from '../learning/anomalyDetector.js';
+import { learningOrchestrator } from './learningOrchestrator.js';
 import { scanAndUpdateIntradayWatchlist } from '../screener/intradayScanner.js';
 import { clearIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 
@@ -404,31 +400,22 @@ export class TradingDayOrchestrator {
           await generateDailyReport().catch(console.error);
           this.markRan('dailyReport');
         }
-        // 16:30+ 한 번만: 자기학습 추천 평가 + 이상 감지
+        // 16:30+ 한 번만: L2 일일 평가 (evaluateRecommendations + anomaly + first-calib)
         if (t >= 1630 && !this.hasRan('evalRecs')) {
-          console.log('[Orchestrator] 자기학습 추천 평가 (KST 16:30+)');
-          await evaluateRecommendations().catch(console.error);
-          await detectPerformanceAnomaly().catch(console.error); // 아이디어 6
+          console.log('[Orchestrator] L2 일일 평가 위임 (KST 16:30+)');
+          await learningOrchestrator.runDailyEval().catch(console.error);
           this.markRan('evalRecs');
         }
-        // 월말(28일 이후) 16:45+ 한 번만: 자기진화 루프 전체 실행
+        // 월말(28일 이후) 16:45+ 한 번만: L4 월간 진화 루프
         {
           const kstNow    = new Date(Date.now() + 9 * 60 * 60 * 1000);
           const kstDay    = kstNow.getUTCDate();
           const kstMonth  = kstNow.toISOString().slice(0, 7); // YYYY-MM
           if (kstDay >= 28 && t >= 1645 && !this.hasRan('calibrate')) {
-            console.log('[Orchestrator] 자기진화 루프 시작 (월말)');
-            // 1단계: 워크포워드 검증 — 과최적화 감지 시 이후 캘리브레이션 동결
-            await runWalkForwardValidation().catch(console.error);
-            // 2단계: 전역 가중치 보정 (동결 상태면 내부에서 skip)
-            await calibrateSignalWeights().catch(console.error);
-            // 3단계: 레짐별 독립 가중치 보정
-            await calibrateByRegime().catch(console.error);
-            // 4단계: 조건 감사 + 신규 조건 후보 발굴 (항상 실행)
-            await runConditionAudit().catch(console.error);
-            // 완료 기록 — PRE_MARKET catch-up 판단 기준
+            console.log('[Orchestrator] L4 월간 진화 루프 위임 (월말)');
+            await learningOrchestrator.runMonthlyEvolution().catch(console.error);
             this.orch.lastCalibratedMonth = kstMonth;
-            this.markRan('calibrate'); // save() 포함
+            this.markRan('calibrate');
           }
         }
         break;
@@ -448,17 +435,14 @@ export class TradingDayOrchestrator {
           !this.hasRan('catchupCalibrate');
 
         if (catchupNeeded) {
-          console.log('[Orchestrator] 월말 캘리브레이션 누락 감지 — catch-up 실행 (KST 17:00+)');
+          console.log('[Orchestrator] L4 월말 캘리브레이션 누락 감지 — catch-up 실행 (KST 17:00+)');
           await sendTelegramAlert(
             `⚠️ <b>[Calibrator Catch-up]</b> 16:45 구간 누락 감지\n` +
             `${kstMonth} 캘리브레이션을 17:00+ catch-up으로 실행합니다.`
           ).catch(console.error);
-          await runWalkForwardValidation().catch(console.error);
-          await calibrateSignalWeights().catch(console.error);
-          await calibrateByRegime().catch(console.error);
-          await runConditionAudit().catch(console.error);
+          await learningOrchestrator.runMonthlyEvolution().catch(console.error);
           this.orch.lastCalibratedMonth = kstMonth;
-          this.markRan('catchupCalibrate'); // save() 포함
+          this.markRan('catchupCalibrate');
         }
         break;
       }

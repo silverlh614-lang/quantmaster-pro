@@ -292,6 +292,55 @@ export async function runBacktest(): Promise<BacktestSummary> {
 }
 
 /**
+ * 주간 미니 백테스트 (아이디어 4) — 최근 7일 결산 추천만 Yahoo OHLCV로 재검증.
+ * 전체 이력이 아닌 최근 신호만 재검증하므로 < 30초 안에 완료된다.
+ * 샘플이 없으면 Telegram 발송도 스킵.
+ */
+export async function runWeeklyMiniBacktest(): Promise<BacktestSummary | null> {
+  const cutoff = Date.now() - 7 * 86_400_000;
+  const recent = getRecommendations().filter(
+    (r) => r.status !== 'PENDING' && new Date(r.signalTime).getTime() >= cutoff,
+  );
+  if (recent.length === 0) {
+    console.log('[MiniBacktest] 전주 결산 신호 없음 — 건너뜀');
+    return null;
+  }
+
+  console.log(`[MiniBacktest] 전주 ${recent.length}건 재검증 시작`);
+  const tradeResults: BacktestTradeResult[] = [];
+  for (const rec of recent) {
+    const entryDate = new Date(rec.signalTime);
+    const toDate    = rec.resolvedAt ? new Date(rec.resolvedAt) : new Date();
+    const maxTo     = new Date(entryDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const fetchTo   = toDate > maxTo ? maxTo : toDate;
+
+    const ohlcv  = await fetchOHLCVRange(rec.stockCode, entryDate, fetchTo);
+    const result = simulateTrade(rec, ohlcv);
+    tradeResults.push(result);
+    await new Promise(r => setTimeout(r, 120));
+  }
+
+  const stats   = aggregateStats(tradeResults);
+  const summary: BacktestSummary = {
+    runAt: new Date().toISOString(),
+    period: '최근 7일',
+    ...stats,
+  };
+
+  console.log(
+    `[MiniBacktest] 완료 — ${stats.totalTrades}건 | WIN률 ${stats.winRate}% | Sharpe ${stats.sharpe}`,
+  );
+  await sendTelegramAlert(
+    `⚡ <b>[주간 미니 백테스트]</b>\n` +
+    `최근 7일 ${stats.totalTrades}건 (승 ${stats.wins} / 패 ${stats.losses} / 만료 ${stats.expired})\n` +
+    `WIN률: <b>${stats.winRate}%</b> | Sharpe: ${stats.sharpe} | PF: ${stats.profitFactor}\n` +
+    `평균 보유: ${stats.avgHoldingDays}일`,
+  ).catch(console.error);
+
+  return summary;
+}
+
+/**
  * PENDING 추천을 OHLCV 기반으로 즉시 재평가 — evaluateRecommendations() 대체.
  * 각 PENDING 레코드의 stop/target 도달 여부를 일봉 고가/저가로 정확히 판별.
  * @returns 업데이트된 레코드 수
