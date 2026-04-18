@@ -31,7 +31,15 @@ import {
 import { CONDITION_KEYS, DEFAULT_CONDITION_WEIGHTS, type ConditionKey } from '../quantFilter.js';
 import { getScanFeedbackState, getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { channelWatchlistAdded, channelWatchlistRemoved } from '../alerts/channelPipeline.js';
-import { getEmergencyStop, setEmergencyStop } from '../state.js';
+import {
+  getEmergencyStop,
+  setEmergencyStop,
+  getLastHeartbeat,
+  getLastHeartbeatSource,
+  getTradingMode,
+  getKillSwitchLast,
+} from '../state.js';
+import { assessKillSwitch } from '../trading/killSwitch.js';
 import { tradingOrchestrator } from '../orchestrator/tradingOrchestrator.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { getLastBuySignalAt } from '../trading/signalScanner.js';
@@ -92,15 +100,28 @@ router.get('/auto-trade/engine/status', (_req: any, res: any) => {
   ).length;
   const todayScans = Object.keys(handlerRanAt).length;
 
+  const heartbeatAt = getLastHeartbeat();
+  const killSwitch = getKillSwitchLast();
+  const killSwitchAssessment = assessKillSwitch();
+
   res.json({
     running,
     autoTradeEnabled: autoEnabled,
     emergencyStop,
-    mode: process.env.AUTO_TRADE_MODE ?? 'SHADOW',
+    mode: getTradingMode(),
     currentState: orchStatus.computedState,
     lastRun: lastRunTs,
     lastScanAt,
     lastBuySignalAt,
+    heartbeat: {
+      at: heartbeatAt > 0 ? new Date(heartbeatAt).toISOString() : null,
+      source: getLastHeartbeatSource(),
+      ageMs: heartbeatAt > 0 ? Date.now() - heartbeatAt : null,
+    },
+    killSwitch: {
+      last: killSwitch,
+      current: killSwitchAssessment,
+    },
     todayStats: {
       scans: todayScans,
       buys: todayBuys,

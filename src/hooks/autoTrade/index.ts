@@ -44,3 +44,14 @@ export {
   type UseEngineArmingOptions,
   type UseEngineArmingReturn,
 } from './useEngineArming';
+
+export {
+  useEngineHeartbeat,
+  type EngineHeartbeatInfo,
+  type UseEngineHeartbeatOptions,
+} from './useEngineHeartbeat';
+
+export {
+  useKillSwitchStatus,
+  type UseKillSwitchStatusReturn,
+} from './useKillSwitchStatus';

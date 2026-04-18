@@ -16,8 +16,11 @@ import { EmergencyActionsPanel } from '../components/autoTrading/EmergencyAction
 import { OrderDetailModal } from '../components/autoTrading/OrderDetailModal';
 import { PositionDetailDrawer } from '../components/autoTrading/PositionDetailDrawer';
 import { EngineToggleGate } from '../components/autoTrading/EngineToggleGate';
+import { EngineHealthBanner } from '../components/autoTrading/EngineHealthBanner';
 import { useAutoTradingDashboard } from '../hooks/useAutoTradingDashboard';
 import { useEngineArming } from '../hooks/autoTrade/useEngineArming';
+import { useEngineHeartbeat } from '../hooks/autoTrade/useEngineHeartbeat';
+import { useKillSwitchStatus } from '../hooks/autoTrade/useKillSwitchStatus';
 
 export function AutoTradePage() {
   const {
@@ -33,6 +36,9 @@ export function AutoTradePage() {
 
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
+
+  const heartbeat = useEngineHeartbeat();
+  const killSwitch = useKillSwitchStatus();
 
   // ── Nuclear Reactor Gate — LIVE 모드 시동 시에만 사용 ──────────
   const arming = useEngineArming({
@@ -94,6 +100,8 @@ export function AutoTradePage() {
           subtitle="Auto Trading Control Room"
           accentColor="bg-red-500"
         />
+
+        <EngineHealthBanner heartbeat={heartbeat} killSwitch={killSwitch} />
 
         <AutoTradingControlCenter
           state={data.control}

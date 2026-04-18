@@ -32,6 +32,31 @@ export interface WatchlistAddPayload {
   targetPrice: number;
 }
 
+export interface EngineHeartbeat {
+  at: string | null;
+  source: string;
+  ageMs: number | null;
+}
+
+export interface KillSwitchAssessmentDto {
+  shouldDowngrade: boolean;
+  triggers: string[];
+  details: {
+    dailyLossPct: number;
+    ocoCancelFails: number;
+    kisTokenFailRecent: boolean;
+    vkospiSurgePct: number;
+  };
+}
+
+export interface KillSwitchRecordDto {
+  at: string;
+  from: string;
+  to: string;
+  reason: string;
+  triggers: string[];
+}
+
 export interface EngineStatus {
   running: boolean;
   autoTradeEnabled: boolean;
@@ -41,6 +66,13 @@ export interface EngineStatus {
   lastRun: string | null;
   lastScanAt: string | null;
   lastBuySignalAt: string | null;
+  /** Phase 3: 스케줄러 tick heartbeat — null 이면 아직 1회도 돌지 않음. */
+  heartbeat?: EngineHeartbeat;
+  /** Phase 3: Kill Switch — 최근 강등 기록 + 현재 평가. */
+  killSwitch?: {
+    last: KillSwitchRecordDto | null;
+    current: KillSwitchAssessmentDto;
+  };
   todayStats: { scans: number; buys: number; exits: number };
 }
 

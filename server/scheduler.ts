@@ -33,7 +33,9 @@ import { loadShadowTrades, saveShadowTrades } from './persistence/shadowTradeRep
 import { updateShadowResults } from './trading/exitEngine.js';
 import { runDynamicUniverseExpansion } from './screener/dynamicUniverseExpander.js';
 import { loadWatchlist } from './persistence/watchlistRepo.js';
-import { getEmergencyStop, setEmergencyStop, getDailyLossPct, getAutoTradePaused } from './state.js';
+import { getEmergencyStop, setEmergencyStop, getDailyLossPct, getAutoTradePaused, touchHeartbeat } from './state.js';
+import { pollOcoConfirm } from './trading/ocoConfirmLoop.js';
+import { runKillSwitchCheck } from './trading/killSwitch.js';
 import { getLastScanAt } from './orchestrator/adaptiveScanScheduler.js';
 import { getLastBuySignalAt, getLastScanSummary } from './trading/signalScanner.js';
 import { getKisTokenRemainingHours, refreshKisToken, invalidateKisToken } from './clients/kisClient.js';
@@ -85,22 +87,33 @@ export function startScheduler() {
   // cron은 1분 간격 — INTRADAY 실제 스캔 빈도는 adaptiveScanScheduler가 결정.
   // ① UTC 23:xx (= KST Mon-Fri 08:xx, 동시호가/장 전 준비) — Sun-Thu UTC
   cron.schedule('*/1 23 * * 0-4', async () => {
+    touchHeartbeat('orchestrator');
     if (getEmergencyStop()) { console.warn('[Orchestrator] 비상 정지 — tick 건너뜀'); return; }
     if (getAutoTradePaused()) { console.warn('[Orchestrator] 소프트 일시정지 — tick 건너뜀'); return; }
     await tradingOrchestrator.tick().catch(console.error);
     if (process.env.AUTO_TRADE_ENABLED === 'true') {
       await checkDailyLossLimit().catch(console.error);
+      await runKillSwitchCheck().catch(console.error);
     }
   }, { timezone: 'UTC' });
 
   // ② UTC 00:xx~08:xx (= KST Mon-Fri 09:xx~17:xx, 장중/마감/리포트) — Mon-Fri UTC
   cron.schedule('*/1 0-8 * * 1-5', async () => {
+    touchHeartbeat('orchestrator');
     if (getEmergencyStop()) { console.warn('[Orchestrator] 비상 정지 — tick 건너뜀'); return; }
     if (getAutoTradePaused()) { console.warn('[Orchestrator] 소프트 일시정지 — tick 건너뜀'); return; }
     await tradingOrchestrator.tick().catch(console.error);
     if (process.env.AUTO_TRADE_ENABLED === 'true') {
       await checkDailyLossLimit().catch(console.error);
+      await runKillSwitchCheck().catch(console.error);
     }
+  }, { timezone: 'UTC' });
+
+  // ─── OCO 체결 확정 (30초) — 빠른 반대 주문 취소 ────────────────────────────
+  // 기존 15분 pollOcoSurvival 은 안전망. 이 30초 루프가 주 동기화 채널.
+  // KST 09:00~15:30 = UTC 00:00~06:30 (Mon-Fri). node-cron 은 초 단위 cron 지원.
+  cron.schedule('*/30 * 0-6 * * 1-5', async () => {
+    await pollOcoConfirm().catch(console.error);
   }, { timezone: 'UTC' });
 
   // 아이디어 6: DART 공시 30분 폴링 — 장중 08:30~18:00 KST (UTC 23:30~09:00)
