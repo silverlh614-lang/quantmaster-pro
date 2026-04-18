@@ -11,3 +11,5 @@ export { EventCalendar } from './EventCalendar';
 export { WalkForwardView } from './WalkForwardView';
 export { QueryProvider } from './QueryProvider';
 export { GlobalModals } from './GlobalModals';
+export { PipelineYieldTicker } from './PipelineYieldTicker';
+export { TopBlockersPanel } from './TopBlockersPanel';

@@ -35,9 +35,10 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
-import { sendEmptyScanDecisionBroker } from '../alerts/telegramClient.js';
+import { sendEmptyScanDecisionBroker, sendTelegramAlert } from '../alerts/telegramClient.js';
 import { getEffectiveGateThreshold } from '../trading/gateConfig.js';
 import { canApplyToday } from '../persistence/overrideLedger.js';
+import { notifyEmptyScan, resetEmptyScanCounter } from './emptyScanPostmortem.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -223,6 +224,25 @@ export function recordScanResult(signalCount: number, opts?: { positionFull?: bo
 
   if (signalCount === 0) {
     consecutiveEmptyScans++;
+    // ── 포스트모템 자가판별: 3회 누적마다 "기능 vs 버그" 판정 ─────────────
+    // 단순 백오프 확대보다 먼저 돌아서, 레짐이 정당히 거부한 것인지
+    // 게이트가 병리적으로 닫힌 것인지를 엔진이 스스로 결론낸다.
+    const postmortem = notifyEmptyScan();
+    if (postmortem && postmortem.verdict === 'PATHOLOGICAL_BLOCK' && isBuyableKstWindow()) {
+      sendTelegramAlert(
+        `🔬 <b>[빈스캔 포스트모템] PATHOLOGICAL_BLOCK</b>\n` +
+        `레짐: ${postmortem.regime} | 원인: ${postmortem.dominantCause}\n` +
+        `Gate 실패율: ${(postmortem.metrics.gateFailRatio * 100).toFixed(1)}% ` +
+        `(${postmortem.metrics.gateFail}/${postmortem.metrics.gateReached})\n` +
+        (postmortem.topBlockerCondition
+          ? `최대 병목: ${postmortem.topBlockerCondition} ` +
+            `(${(postmortem.topBlockerFailRate * 100).toFixed(1)}%)\n`
+          : '') +
+        `권고: ${postmortem.recommendedAction}\n` +
+        `${postmortem.reason}`,
+      ).catch(console.error);
+    }
+
     if (consecutiveEmptyScans >= EMPTY_SCAN_BACKOFF_THRESHOLD) {
       const multiplier = Math.min(
         EMPTY_SCAN_MAX_MULTIPLIER,
@@ -253,6 +273,7 @@ export function recordScanResult(signalCount: number, opts?: { positionFull?: bo
       console.log(`[AdaptiveScheduler] 신호 ${signalCount}건 발견 — 빈 스캔 카운터 리셋`);
     }
     consecutiveEmptyScans = 0;
+    resetEmptyScanCounter();
   }
 }
 

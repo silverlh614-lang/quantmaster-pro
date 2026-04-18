@@ -20,6 +20,12 @@ import fs from 'fs';
 import path from 'path';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { SHADOW_FILE, SHADOW_LOG_FILE, DATA_DIR, ensureDataDir } from '../persistence/paths.js';
+import { loadGateAudit } from '../persistence/gateAuditRepo.js';
+import {
+  runPostmortem,
+  getLastPostmortemReport,
+  getEmptyScanCount,
+} from '../orchestrator/emptyScanPostmortem.js';
 
 const router = express.Router();
 
@@ -351,6 +357,86 @@ router.get('/diagnostic/position-events/:id', (req, res) => {
     res.json(agg);
   } catch (e: any) {
     console.error('[Diagnostic position-events] 오류:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── 엔드포인트 5: 오늘 가장 많이 탈락시킨 게이트 조건 TOP N ──────────────────
+//
+// GateStatusWidget 상단에 "오늘의 병목 TOP 3"를 노출하기 위한 집계 API.
+// gateAuditRepo의 당일 누적(passed/failed)을 실패율 기준으로 정렬해 반환.
+// 빈 스캔 원인이 "모멘텀" 단일일 수도, "정배열+볼륨돌파" 결합일 수도 있어
+// 단순 전체 % 하나가 아니라 조건별 TOP을 보여주는 게 자가개선의 출발점이 된다.
+
+const CONDITION_LABEL_KO: Record<string, string> = {
+  momentum:          '모멘텀',
+  ma_alignment:      '정배열',
+  volume_breakout:   '볼륨 돌파',
+  per:               'PER',
+  turtle_high:       '터틀 돌파',
+  relative_strength: '상대강도',
+  vcp:               'VCP',
+  volume_surge:      '거래량 급증',
+  rsi_zone:          'RSI 구간',
+  macd_bull:         'MACD 정방향',
+  pullback:          '눌림목',
+  ma60_rising:       'MA60 상승',
+  weekly_rsi_zone:   '주봉 RSI',
+  supply_confluence: '수급 합치',
+  earnings_quality:  '실적 품질',
+};
+
+const TOP_BLOCKERS_MIN_SAMPLE = 5;
+
+router.get('/diagnostics/top-blockers', (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(10, parseInt(String(req.query.limit ?? '3'), 10)));
+    const audit = loadGateAudit();
+
+    const rows = Object.entries(audit)
+      .map(([key, s]) => {
+        const total = s.passed + s.failed;
+        const failRate = total > 0 ? s.failed / total : 0;
+        return {
+          conditionKey:  key,
+          conditionName: CONDITION_LABEL_KO[key] ?? key,
+          passed:        s.passed,
+          failed:        s.failed,
+          total,
+          failRate:      parseFloat((failRate * 100).toFixed(1)), // %로 환산
+        };
+      })
+      .filter((r) => r.total >= TOP_BLOCKERS_MIN_SAMPLE)
+      .sort((a, b) => b.failRate - a.failRate || b.failed - a.failed);
+
+    res.json({
+      totalConditions: Object.keys(audit).length,
+      minSample:       TOP_BLOCKERS_MIN_SAMPLE,
+      topBlockers:     rows.slice(0, limit),
+      timestamp:       new Date().toISOString(),
+    });
+  } catch (e: any) {
+    console.error('[Diagnostic top-blockers] 오류:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── 엔드포인트 6: 빈 스캔 포스트모템 ────────────────────────────────────────
+//
+// 현재 시점의 레짐 + 최근 scan traces + gate audit를 근거로
+// 빈 스캔이 "기능인지(HEALTHY_REJECTION) 버그인지(PATHOLOGICAL_BLOCK)"를 판정.
+// 자동 트리거(3회 누적)가 아직 돌지 않아도 운용자가 수동 조회 가능.
+
+router.get('/diagnostics/empty-scan-postmortem', (_req, res) => {
+  try {
+    const report = runPostmortem();
+    res.json({
+      ...report,
+      consecutiveEmptyScans: getEmptyScanCount(),
+      cachedLast: getLastPostmortemReport(),
+    });
+  } catch (e: any) {
+    console.error('[Diagnostic postmortem] 오류:', e);
     res.status(500).json({ error: e.message });
   }
 });
