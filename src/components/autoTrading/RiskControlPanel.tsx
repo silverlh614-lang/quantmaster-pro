@@ -8,11 +8,11 @@ interface RiskControlPanelProps {
 
 export function RiskControlPanel({ rules }: RiskControlPanelProps) {
   return (
-    <Section title="¸®½ºÅ© Á¦¾î ÆĞ³Î" subtitle="Risk Control Panel">
+    <Section title="ë¦¬ìŠ¤í¬ ì œì–´ íŒ¨ë„" subtitle="Risk Control Panel">
       <div className="space-y-3">
         {rules.length === 0 ? (
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/50">
-            ¸®½ºÅ© ±ÔÄ¢ÀÌ ¾ø½À´Ï´Ù.
+            ë¦¬ìŠ¤í¬ ê·œì¹™ì´ ì—†ìŠµë‹ˆë‹¤.
           </div>
         ) : (
           rules.map((rule) => (
@@ -38,7 +38,7 @@ export function RiskControlPanel({ rules }: RiskControlPanelProps) {
                         : 'bg-slate-500/15 text-slate-300'
                     }`}
                   >
-                    {rule.enabled ? 'È°¼º' : 'ºñÈ°¼º'}
+                    {rule.enabled ? 'í™œì„±' : 'ë¹„í™œì„±'}
                   </span>
 
                   <span
@@ -48,7 +48,7 @@ export function RiskControlPanel({ rules }: RiskControlPanelProps) {
                         : 'bg-blue-500/15 text-blue-300'
                     }`}
                   >
-                    {rule.triggered ? 'Æ®¸®°ÅµÊ' : 'Á¤»ó'}
+                    {rule.triggered ? 'íŠ¸ë¦¬ê±°ë¨' : 'ì •ìƒ'}
                   </span>
                 </div>
               </div>

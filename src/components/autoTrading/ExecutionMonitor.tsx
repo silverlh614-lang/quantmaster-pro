@@ -16,7 +16,7 @@ export function ExecutionMonitor({ orders }: ExecutionMonitorProps) {
 
   return (
     <Section
-      title="аж╧╝ ╫ггЮ ╦П╢оем"
+      title="Лё╪К╛╦ Л▀╓М√┴ К╙╗К▀┬М└╟"
       subtitle="Execution Monitor"
       actions={
         <label className="flex items-center gap-2 text-xs text-white/70">
@@ -25,7 +25,7 @@ export function ExecutionMonitor({ orders }: ExecutionMonitorProps) {
             checked={showOnlyFailed}
             onChange={(e) => setShowOnlyFailed(e.target.checked)}
           />
-          ╫гфп аж╧╝╦╦ ╨╦╠Б
+          Л▀╓М▄╗ Лё╪К╛╦К╖▄ КЁ╢Й╦╟
         </label>
       }
     >
@@ -33,21 +33,21 @@ export function ExecutionMonitor({ orders }: ExecutionMonitorProps) {
         <table className="min-w-full text-sm">
           <thead className="bg-white/5 text-white/60">
             <tr>
-              <th className="px-4 py-3 text-left">╫ц╟╒</th>
-              <th className="px-4 py-3 text-left">а╬╦Я</th>
-              <th className="px-4 py-3 text-left">╠╦╨п</th>
-              <th className="px-4 py-3 text-right">╪Ж╥╝</th>
-              <th className="px-4 py-3 text-right">аж╧╝╟║</th>
-              <th className="px-4 py-3 text-right">ц╪╟А╟║</th>
-              <th className="px-4 py-3 text-left">╩Себ</th>
-              <th className="px-4 py-3 text-left">╦ч╫цаЖ</th>
+              <th className="px-4 py-3 text-left">Л▀°Й╟│</th>
+              <th className="px-4 py-3 text-left">Л╒┘К╙╘</th>
+              <th className="px-4 py-3 text-left">Й╣╛К╤└</th>
+              <th className="px-4 py-3 text-right">Л┬≤К÷┴</th>
+              <th className="px-4 py-3 text-right">Лё╪К╛╦Й╟─</th>
+              <th className="px-4 py-3 text-right">Л╡╢Й╡╟Й╟─</th>
+              <th className="px-4 py-3 text-left">Л┐│М┐°</th>
+              <th className="px-4 py-3 text-left">К╘■Л▀°Л╖─</th>
             </tr>
           </thead>
           <tbody>
             {filteredOrders.length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-4 py-6 text-center text-white/50">
-                  г╔╫цгр аж╧╝юл ╬Ь╫ю╢о╢ы.
+                  М▒°Л▀°М∙═ Лё╪К╛╦Л²╢ Л≈├Л┼╣К▀┬К▀╓.
                 </td>
               </tr>
             ) : (

@@ -32,7 +32,7 @@ export function SignalQueuePanel({ signals }: SignalQueuePanelProps) {
               <th className="px-4 py-3 text-center">Gate3</th>
               <th className="px-4 py-3 text-right">RRR</th>
               <th className="px-4 py-3 text-left">상태</th>
-              <th className="px-4 py-3 text-left">차단사유</th>
+              <th className="px-4 py-3 text-left">차단 사유</th>
             </tr>
           </thead>
           <tbody>
