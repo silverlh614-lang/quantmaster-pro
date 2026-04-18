@@ -61,7 +61,7 @@ export function KpiStrip({ items, className, size = 'sm' }: KpiStripProps) {
   }
 
   return (
-    <div className={cn('grid gap-3', className)} style={{ gridTemplateColumns: `repeat(${Math.min(items.length, 5)}, 1fr)` }}>
+    <div className={cn('grid gap-3', responsiveScoreboardCols(Math.min(items.length, 5)), className)}>
       {items.map((item, i) => {
         const status = item.status ?? (item.trend === 'up' ? 'pass' : item.trend === 'down' ? 'fail' : 'neutral');
         return (
@@ -95,6 +95,21 @@ export function KpiStrip({ items, className, size = 'sm' }: KpiStripProps) {
   );
 }
 
+/* ---------- Responsive grid columns for Scoreboard ---------- */
+/**
+ * N 개 KPI 에 대해 화면폭별 열 수를 Tailwind 클래스로 매핑.
+ *   - mobile(<sm)   : 2열 (너무 좁아지지 않도록 4+ 도 2열 고정)
+ *   - tablet(md)    : 2 혹은 3열
+ *   - desktop(lg+)  : N 열 (최대 5)
+ */
+function responsiveScoreboardCols(n: number): string {
+  if (n <= 1) return 'grid-cols-1';
+  if (n === 2) return 'grid-cols-2';
+  if (n === 3) return 'grid-cols-2 md:grid-cols-3';
+  if (n === 4) return 'grid-cols-2 md:grid-cols-2 lg:grid-cols-4';
+  return 'grid-cols-2 md:grid-cols-3 lg:grid-cols-5';
+}
+
 /* ---------- Large Neo-Brutalism Scoreboard ---------- */
 interface KpiScoreboardProps {
   items: KpiItem[];
@@ -103,13 +118,13 @@ interface KpiScoreboardProps {
 
 export function KpiScoreboard({ items, className }: KpiScoreboardProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const cols = Math.min(items.length, 5);
 
   return (
     <div className={cn('space-y-2', className)}>
-      {/* Main Scoreboard Grid */}
+      {/* Main Scoreboard Grid — 반응형 breakpoint: mobile 2열 → tablet 2열 → lg N열 */}
       <div
-        className="grid gap-3 sm:gap-4"
-        style={{ gridTemplateColumns: `repeat(${Math.min(items.length, 5)}, 1fr)` }}
+        className={cn('grid gap-3 sm:gap-4', responsiveScoreboardCols(cols))}
       >
         {items.map((item, i) => {
           const status = item.status ?? (item.trend === 'up' ? 'pass' : item.trend === 'down' ? 'fail' : 'neutral');
