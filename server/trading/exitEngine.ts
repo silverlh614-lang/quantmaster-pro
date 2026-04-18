@@ -685,7 +685,7 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           const sellQty = Math.max(1, Math.floor(shadow.quantity * 0.5));
           shadow.rrrCollapsePartialSold = true;
           shadow.exitRuleTag = 'RRR_COLLAPSE_PARTIAL';
-          appendShadowLog({ event: 'RRR_COLLAPSE_PARTIAL', ...shadow, soldQty: sellQty, liveRRR, returnPct });
+          appendShadowLog({ event: 'RRR_COLLAPSE_PARTIAL', ...shadow, soldQty: sellQty, liveRRR, returnPct, exitPrice: currentPrice });
           console.log(`[AutoTrade] 📊 ${shadow.stockName} RRR 붕괴 (${liveRRR.toFixed(2)}) — 50% 익절 ${sellQty}주 @${currentPrice.toLocaleString()}`);
           const rrrRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
           const rrrTs = new Date().toISOString();
@@ -740,7 +740,7 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         const sellQty = Math.max(1, Math.floor(shadow.quantity * 0.30));
         shadow.divergencePartialSold = true;
         shadow.exitRuleTag = 'DIVERGENCE_PARTIAL';
-        appendShadowLog({ event: 'DIVERGENCE_PARTIAL', ...shadow, soldQty: sellQty, returnPct });
+        appendShadowLog({ event: 'DIVERGENCE_PARTIAL', ...shadow, soldQty: sellQty, returnPct, exitPrice: currentPrice });
         console.log(`[AutoTrade] 📉 ${shadow.stockName} 하락 다이버전스 — 30% 익절 ${sellQty}주 @${currentPrice.toLocaleString()}`);
         const divRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
         const divTs = new Date().toISOString();
