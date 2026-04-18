@@ -29,7 +29,7 @@ import { loadShadowTrades, saveShadowTrades } from './persistence/shadowTradeRep
 import { updateShadowResults } from './trading/exitEngine.js';
 import { runDynamicUniverseExpansion } from './screener/dynamicUniverseExpander.js';
 import { loadWatchlist } from './persistence/watchlistRepo.js';
-import { getEmergencyStop, setEmergencyStop, getDailyLossPct } from './state.js';
+import { getEmergencyStop, setEmergencyStop, getDailyLossPct, getAutoTradePaused } from './state.js';
 import { getLastScanAt } from './orchestrator/adaptiveScanScheduler.js';
 import { getLastBuySignalAt, getLastScanSummary } from './trading/signalScanner.js';
 import { getKisTokenRemainingHours, refreshKisToken, invalidateKisToken } from './clients/kisClient.js';
@@ -82,6 +82,7 @@ export function startScheduler() {
   // ① UTC 23:xx (= KST Mon-Fri 08:xx, 동시호가/장 전 준비) — Sun-Thu UTC
   cron.schedule('*/1 23 * * 0-4', async () => {
     if (getEmergencyStop()) { console.warn('[Orchestrator] 비상 정지 — tick 건너뜀'); return; }
+    if (getAutoTradePaused()) { console.warn('[Orchestrator] 소프트 일시정지 — tick 건너뜀'); return; }
     await tradingOrchestrator.tick().catch(console.error);
     if (process.env.AUTO_TRADE_ENABLED === 'true') {
       await checkDailyLossLimit().catch(console.error);
@@ -91,6 +92,7 @@ export function startScheduler() {
   // ② UTC 00:xx~08:xx (= KST Mon-Fri 09:xx~17:xx, 장중/마감/리포트) — Mon-Fri UTC
   cron.schedule('*/1 0-8 * * 1-5', async () => {
     if (getEmergencyStop()) { console.warn('[Orchestrator] 비상 정지 — tick 건너뜀'); return; }
+    if (getAutoTradePaused()) { console.warn('[Orchestrator] 소프트 일시정지 — tick 건너뜀'); return; }
     await tradingOrchestrator.tick().catch(console.error);
     if (process.env.AUTO_TRADE_ENABLED === 'true') {
       await checkDailyLossLimit().catch(console.error);

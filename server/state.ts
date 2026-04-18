@@ -22,3 +22,9 @@ let DATA_INTEGRITY_BLOCKED = false;
 /** Reconciliation 불일치 건수 > 임계치 시 true — 신뢰할 수 없는 상태에서 신규 매수 금지 */
 export const getDataIntegrityBlocked = () => DATA_INTEGRITY_BLOCKED;
 export const setDataIntegrityBlocked = (v: boolean) => { DATA_INTEGRITY_BLOCKED = v; };
+
+// ─── 소프트 일시정지 — 텔레그램 /pause 명령으로 설정, /resume 으로 해제 ─────────
+// 비상정지(hard stop)와 달리 미체결 주문은 취소하지 않고 신규 tick만 건너뜀.
+let AUTO_TRADE_PAUSED = false;
+export const getAutoTradePaused = () => AUTO_TRADE_PAUSED;
+export const setAutoTradePaused = (v: boolean) => { AUTO_TRADE_PAUSED = v; };

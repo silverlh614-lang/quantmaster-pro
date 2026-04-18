@@ -1,12 +1,16 @@
 // server/telegram/webhookHandler.ts
 // Telegram 양방향 봇 Webhook 핸들러 — server.ts에서 분리
 // POST /api/telegram/webhook 엔드포인트에서 호출
-// 지원 명령어: /help, /status, /market, /stop, /reset, /watchlist, /buy, /report,
-//             /shadow, /pending, /pnl, /pos, /add, /remove, /regime, /scan, /cancel
+// 지원 명령어: /help, /status, /market, /pause, /resume, /stop, /reset, /integrity,
+//             /watchlist, /buy, /report, /shadow, /pending, /pnl, /pos,
+//             /add, /remove, /regime, /scan, /cancel, /focus, /watchlist_channel,
+//             /health, /refresh_token, /channel_test
 import { Request, Response } from 'express';
 import {
   getEmergencyStop, setEmergencyStop,
   setDailyLoss, getDailyLossPct,
+  getAutoTradePaused, setAutoTradePaused,
+  getDataIntegrityBlocked, setDataIntegrityBlocked,
 } from '../state.js';
 import { cancelAllPendingOrders } from '../emergency.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
@@ -95,8 +99,11 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /remove <code>종목코드</code> — 워치리스트 제거\n` +
           `  /watchlist_channel — 워치리스트 채널 발송\n\n` +
           `🛑 <b>제어</b>\n` +
-          `  /stop — 비상 정지 발동\n` +
+          `  /pause — 엔진 소프트 일시정지 (주문취소 없음)\n` +
+          `  /resume — 일시정지 해제\n` +
+          `  /stop — 비상 정지 발동 (미체결 전량 취소)\n` +
           `  /reset [pw] — 비상 정지 해제\n` +
+          `  /integrity — 데이터 무결성 차단 상태 조회/해제\n` +
           `  /channel_test — 채널 연결 테스트\n\n` +
           `⏰ <b>자동 레포트 스케줄</b>\n` +
           `  08:30 — 장전 시장 브리핑\n` +
@@ -136,6 +143,53 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n` +
           `활성 포지션: ${active.length}개\n` +
           `오늘 결산: ${closed.length}건 (P&L ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%)`
+        );
+        break;
+      }
+
+      case '/pause': {
+        if (getEmergencyStop()) {
+          await reply('🔴 이미 비상 정지 상태입니다. /reset 으로 해제 후 /pause 사용 가능.');
+          break;
+        }
+        setAutoTradePaused(true);
+        console.warn('[TelegramBot] /pause — 소프트 일시정지 발동');
+        await reply(
+          '⏸ <b>[엔진 일시정지]</b>\n' +
+          '신규 tick 실행 중단 (미체결 주문·기존 포지션 유지)\n' +
+          '/resume 으로 재개 | /stop 으로 완전 정지'
+        );
+        break;
+      }
+
+      case '/resume': {
+        if (!getAutoTradePaused()) {
+          await reply('✅ 이미 실행 중입니다. (일시정지 상태 아님)');
+          break;
+        }
+        setAutoTradePaused(false);
+        console.warn('[TelegramBot] /resume — 소프트 일시정지 해제');
+        await reply(
+          '▶️ <b>[엔진 재개]</b>\n' +
+          '다음 cron tick 부터 정상 실행합니다.\n' +
+          `자동매매: ${process.env.AUTO_TRADE_ENABLED === 'true' ? '✅ 켜짐' : '❌ 꺼짐 (AUTO_TRADE_ENABLED 확인)'}`
+        );
+        break;
+      }
+
+      case '/integrity': {
+        const blocked = getDataIntegrityBlocked();
+        const paused  = getAutoTradePaused();
+        if (args[0] === 'clear') {
+          setDataIntegrityBlocked(false);
+          await reply('🟢 <b>데이터 무결성 차단 해제</b>\n신규 매수 재허용.');
+          break;
+        }
+        await reply(
+          `🔍 <b>[데이터 무결성 상태]</b>\n` +
+          `무결성 차단: ${blocked ? '🔴 차단 중 (신규 매수 금지)' : '🟢 정상'}\n` +
+          `엔진 일시정지: ${paused ? '⏸ 정지 중' : '▶️ 실행 중'}\n` +
+          (blocked ? `\n<i>/integrity clear — 차단 수동 해제</i>` : '')
         );
         break;
       }
