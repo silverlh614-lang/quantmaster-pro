@@ -44,7 +44,7 @@ import {
   type SessionState,
 } from '../persistence/tradingSettingsRepo.js';
 import { computeShadowAccount, reconcileShadowQuantities, computeMonthlyShadowTradeStats } from '../persistence/shadowAccountRepo.js';
-import { aggregatePositions } from '../trading/positionAggregator.js';
+import { aggregateAllPositions } from '../trading/positionAggregator.js';
 import { loadTradeEventsForPosition } from '../trading/tradeEventLog.js';
 import { runDailyReconciliation, loadLastReconcileResult } from '../trading/reconciliationEngine.js';
 import { getDataIntegrityBlocked } from '../state.js';
@@ -263,20 +263,16 @@ router.get('/auto-trade/shadow-trades', (_req: any, res: any) => {
  * ?limit=N      : 최신 N개 (기본 100)
  */
 router.get('/auto-trade/positions', (req: any, res: any) => {
-  const trades  = loadShadowTrades().filter((t: any) => t.status !== 'REJECTED');
   const wantClosed = req.query.closed === 'true';
   const wantOpen   = req.query.open   === 'true';
-  const limit  = Math.min(parseInt(req.query.limit ?? '100', 10), 500);
+  const limit      = Math.min(parseInt(req.query.limit ?? '100', 10), 500);
 
-  const filtered = trades.filter((t: any) => {
-    if (!wantClosed && !wantOpen) return true;
-    const remaining = getRemainingQty(t);
-    if (wantClosed) return remaining === 0;
-    if (wantOpen)   return remaining > 0;
-    return true;
-  });
+  let summaries = aggregateAllPositions();
 
-  res.json(aggregatePositions(filtered.slice(-limit)));
+  if (wantClosed) summaries = summaries.filter((s) => s.stage === 'CLOSED');
+  else if (wantOpen) summaries = summaries.filter((s) => s.remainingQty > 0);
+
+  res.json(summaries.slice(0, limit));
 });
 
 /**
