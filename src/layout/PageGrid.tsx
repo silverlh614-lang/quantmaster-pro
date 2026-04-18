@@ -15,8 +15,10 @@ const gapClasses = {
 
 const columnClasses = {
   '1': 'grid-cols-1',
-  '2': 'grid-cols-1 lg:grid-cols-2',
+  // 태블릿(md, 768px+) 부터 2열 — 사이드바가 드로어화되며 가용 폭이 넓어진 반영.
+  '2': 'grid-cols-1 md:grid-cols-2',
   '3': 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3',
+  // 2-1 / 1-2 는 3열 구조이므로 태블릿은 협소 → lg 유지.
   '2-1': 'grid-cols-1 lg:grid-cols-3 [&>*:first-child]:lg:col-span-2',
   '1-2': 'grid-cols-1 lg:grid-cols-3 [&>*:last-child]:lg:col-span-2',
   '1-1-1': 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
