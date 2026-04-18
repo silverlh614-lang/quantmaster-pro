@@ -100,6 +100,16 @@ export const PHASE_MAP_FILE           = path.join(DATA_DIR, 'condition-phase-map
  * Shadow vs Real 드리프트 감지 상태 — 진입/청산가 괴리율 이력.
  */
 export const SHADOW_REAL_DRIFT_FILE   = path.join(DATA_DIR, 'shadow-real-drift.json');
+/**
+ * ADR 역산 갭 모니터 — 간밤 미국 ADR 종가 기반 이론 시가 계산 결과.
+ * 경보 중복 억제용 마지막 발송 시각/종목별 갭률 기록.
+ */
+export const ADR_GAP_STATE_FILE       = path.join(DATA_DIR, 'adr-gap-state.json');
+/**
+ * 홍콩 30분 선행 신호 — 항셍 08:30 KST 개장 후 첫 30분 스냅샷.
+ * 경보 중복 억제 + 당일 방향성 예측 이력 저장.
+ */
+export const PRE_MARKET_SIGNAL_FILE   = path.join(DATA_DIR, 'pre-market-signal.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

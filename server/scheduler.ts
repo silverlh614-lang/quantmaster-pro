@@ -22,6 +22,8 @@ import { getLiveRegime } from './trading/regimeBridge.js';
 import { runFullDiscoveryPipeline, runStage1PreScreening, runStage2_3FinalScreening } from './screener/universeScanner.js';
 import { cleanupWatchlist } from './screener/watchlistManager.js';
 import { runGlobalScanAgent } from './alerts/globalScanAgent.js';
+import { runAdrGapScan } from './alerts/adrGapCalculator.js';
+import { runPreMarketSignal } from './alerts/preMarketSignal.js';
 import { trackPendingRecords } from './learning/newsSupplyLogger.js';
 import { checkFomcProximityAlert } from './trading/fomcCalendar.js';
 import { runBacktest } from './learning/backtestEngine.js';
@@ -239,6 +241,26 @@ export function startScheduler() {
   // 경보 발생 후 T+1·T+3·T+5 거래일 경과 레코드의 EWY·주가 변화율 자동 채움
   cron.schedule('10 0 * * 1-5', async () => {
     await trackPendingRecords().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // ─── ADR 역산 갭 모니터 — 평일 08:35 KST (UTC 23:35, 일~목) ────────────────
+  // 간밤 NY 세션 종가 기반 한국 종목 이론 시가 역산 → |갭| ≥ 2% 시 Telegram 경보.
+  // 개장 25분 전 선점 — 외국인 수급 선행 단서.
+  cron.schedule('35 23 * * 0-4', async () => {
+    await runAdrGapScan().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // ─── 장전 방향 카드 (홍콩 30분 선행 모델) — 평일 08:30 KST (UTC 23:30, 일~목) ─
+  // ^HSI · ^N225 · ES=F · NQ=F · ^VIX · KRW=X 가중합 Bias Score.
+  // |score| ≥ 40 일 때만 선제 Telegram 경보.
+  cron.schedule('30 23 * * 0-4', async () => {
+    await runPreMarketSignal('OPEN_MINUS_30').catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // ─── 장전 방향 카드 보조 — 평일 10:45 KST (UTC 01:45, 월~금) ──────────────
+  // 항셍 개장 30분 후 라이브 인트라데이 반영 재계산 — 당일 방향성 최종 교정.
+  cron.schedule('45 1 * * 1-5', async () => {
+    await runPreMarketSignal('HK_OPEN_PLUS_30').catch(console.error);
   }, { timezone: 'UTC' });
 
   // OHLCV 기반 백테스트 — 매주 토요일 KST 08:00 (UTC 23:00 금요일)
