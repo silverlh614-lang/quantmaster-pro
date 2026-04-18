@@ -55,3 +55,8 @@ export {
   useKillSwitchStatus,
   type UseKillSwitchStatusReturn,
 } from './useKillSwitchStatus';
+
+export {
+  useEngineStream,
+  type UseEngineStreamOptions,
+} from './useEngineStream';

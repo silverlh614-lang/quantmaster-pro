@@ -50,6 +50,12 @@ export interface RiskRuleState {
   message?: string;
 }
 
+/**
+ * 포지션 생애주기 5단계 (positionLifecycleEngine 과 동일 스키마).
+ * UI 표시 시 Phase 4 LifecycleStageGauge 가 이 값을 기반으로 5단계 진행바 렌더.
+ */
+export type PositionLifecycleStage = 'ENTRY' | 'HOLD' | 'ALERT' | 'EXIT_PREP' | 'FULL_EXIT';
+
 export interface PositionItem {
   id: string;
   symbol: string;
@@ -64,7 +70,12 @@ export interface PositionItem {
   targetPrice1?: number;
   targetPrice2?: number;
   trailingStopEnabled?: boolean;
+  /** 레거시 status (하위 호환) — Phase 4 부터는 `stage` 를 우선 참조. */
   status: 'HOLD' | 'REDUCE' | 'EXIT_READY';
+  /** Phase 4 신설: 5단계 생애주기 표기. */
+  stage?: PositionLifecycleStage;
+  /** 단계 전이에서 이탈된 조건 (툴팁/상세 모달용). */
+  breachedConditions?: string[];
   warningMessage?: string;
 }
 

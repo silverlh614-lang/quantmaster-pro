@@ -152,12 +152,31 @@ export function toRiskRules(
   return rules;
 }
 
+/**
+ * 보유 포지션 수익률만으로 5단계 Lifecycle Stage 를 휴리스틱 추정.
+ * 서버에 전용 lifecycle 엔드포인트가 생기기 전까지의 과도기 추정값이며
+ * 구체적 분기는 positionLifecycleEngine 의 규칙을 단순화한 것이다.
+ */
+function inferLifecycleStage(pnlPct: number): PositionItem['stage'] {
+  if (pnlPct <= -5) return 'FULL_EXIT';     // 손절 임박/발동
+  if (pnlPct <= -2) return 'EXIT_PREP';     // 분할 축소 필요 구간
+  if (pnlPct <= -0.5) return 'ALERT';       // 주의 구간
+  if (pnlPct >= 5) return 'HOLD';           // 수익 정상 유지
+  return 'HOLD';
+}
+
 export function toPositions(holdings: KisHolding[]): PositionItem[] {
   return holdings.slice(0, 20).map((holding) => {
     const quantity = toNumber(holding.hldg_qty);
     const avgPrice = toNumber(holding.pchs_avg_pric);
     const currentPrice = toNumber(holding.prpr);
     const pnlPct = toNumber(holding.evlu_pfls_rt);
+
+    const stage = inferLifecycleStage(pnlPct);
+    const breachedConditions: string[] = [];
+    if (pnlPct <= -3) breachedConditions.push('-3% 이상 손실 — 리스크 재평가');
+    if (pnlPct <= -5) breachedConditions.push('손절 라인 임박');
+    if (quantity <= 0) breachedConditions.push('잔여 수량 0');
 
     return {
       id: holding.pdno,
@@ -170,6 +189,8 @@ export function toPositions(holdings: KisHolding[]): PositionItem[] {
       quantity,
       pnlPct,
       status: pnlPct < -2 ? 'REDUCE' : pnlPct > 5 ? 'EXIT_READY' : 'HOLD',
+      stage,
+      breachedConditions: breachedConditions.length ? breachedConditions : undefined,
       warningMessage: pnlPct < -3 ? '손실 구간 진입: 리스크 점검 필요' : undefined,
     };
   });

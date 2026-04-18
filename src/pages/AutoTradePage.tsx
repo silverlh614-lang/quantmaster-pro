@@ -17,10 +17,13 @@ import { OrderDetailModal } from '../components/autoTrading/OrderDetailModal';
 import { PositionDetailDrawer } from '../components/autoTrading/PositionDetailDrawer';
 import { EngineToggleGate } from '../components/autoTrading/EngineToggleGate';
 import { EngineHealthBanner } from '../components/autoTrading/EngineHealthBanner';
+import { CompositeVerdictCard } from '../components/autoTrading/CompositeVerdictCard';
 import { useAutoTradingDashboard } from '../hooks/useAutoTradingDashboard';
+import { useAutoTradeEngine } from '../hooks/autoTrade';
 import { useEngineArming } from '../hooks/autoTrade/useEngineArming';
 import { useEngineHeartbeat } from '../hooks/autoTrade/useEngineHeartbeat';
 import { useKillSwitchStatus } from '../hooks/autoTrade/useKillSwitchStatus';
+import { useEngineStream } from '../hooks/autoTrade/useEngineStream';
 
 export function AutoTradePage() {
   const {
@@ -39,6 +42,10 @@ export function AutoTradePage() {
 
   const heartbeat = useEngineHeartbeat();
   const killSwitch = useKillSwitchStatus();
+  // SSE 실시간 엔진 스트림 — 연결되면 5초 폴링은 cache-hit 로 흡수되어 무해.
+  useEngineStream();
+  // CompositeVerdictCard 용 raw 엔진/감사 데이터 (파생 맵 이전 원형).
+  const { engineStatus, buyAudit } = useAutoTradeEngine();
 
   // ── Nuclear Reactor Gate — LIVE 모드 시동 시에만 사용 ──────────
   const arming = useEngineArming({
@@ -102,6 +109,15 @@ export function AutoTradePage() {
         />
 
         <EngineHealthBanner heartbeat={heartbeat} killSwitch={killSwitch} />
+
+        <CompositeVerdictCard
+          engine={engineStatus}
+          heartbeat={heartbeat}
+          killSwitch={killSwitch}
+          buyAudit={buyAudit}
+          brokerConnected={data.broker.connected}
+          dataIntegrityOk={!data.control.engineStatus.includes('ERROR')}
+        />
 
         <AutoTradingControlCenter
           state={data.control}
