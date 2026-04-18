@@ -29,6 +29,7 @@ import { getKisTokenRemainingHours } from '../clients/kisClient.js';
 import { getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
 import { getStreamStatus } from '../clients/kisStreamClient.js';
 import { DATA_DIR } from '../persistence/paths.js';
+import { getCachedIntradayYield } from '../alerts/intradayYieldTicker.js';
 import fs from 'fs';
 
 const router = Router();
@@ -280,6 +281,9 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
   // ── KIS WebSocket 실시간 스트림 상태 ──────────────────────────────────────
   const streamStatus = getStreamStatus();
 
+  // ── IPYL: 장중 Pipeline Yield 스냅샷 ──────────────────────────────────────
+  const intradayYield = getCachedIntradayYield();
+
   res.json({
     scheduler:           'OK',
     watchlistCount,
@@ -305,6 +309,7 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
       lastPongAt:      streamStatus.lastPongAt,
       recentEvents:    streamStatus.recentEvents,
     },
+    intradayYield,
     verdict,
   });
 });

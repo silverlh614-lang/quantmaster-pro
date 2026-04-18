@@ -9,6 +9,9 @@ import { isPullbackSetup, addBusinessDays } from './pipelineHelpers.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fetchKisMTASData } from './kisChartDataFetcher.js';
 import { recordGateAudit, flushGateAudit } from '../persistence/gateAuditRepo.js';
+import { getLiveRegime } from '../trading/regimeBridge.js';
+import { getCurrentScanPreset } from './scanPresets.js';
+import { recordMtasAttempt } from './dataCompletenessTracker.js';
 
 // ── 아이디어 5: 워치리스트 탈락 사유 추적 ─────────────────────────────────────
 export interface RejectionEntry {
@@ -985,6 +988,9 @@ export async function enrichQuoteWithKisMTAS(
 ): Promise<YahooQuoteExtended> {
   try {
     const kisMtas = await fetchKisMTASData(code, quote.price);
+    const available = !!(kisMtas && kisMtas.dataAvailable
+      && (kisMtas.monthlyCandleCount >= 13 || kisMtas.weeklyCandleCount >= 52));
+    recordMtasAttempt(code, available);
     if (!kisMtas || !kisMtas.dataAvailable) return quote;
 
     // KIS 데이터가 충분한 경우에만 덮어쓰기
@@ -1008,6 +1014,7 @@ export async function enrichQuoteWithKisMTAS(
 
     return enriched;
   } catch (err) {
+    recordMtasAttempt(code, false);
     console.warn(`[KisMTAS] ${code} KIS 보강 실패 (Yahoo 폴백):`, err instanceof Error ? err.message : err);
     return quote;
   }
@@ -1079,9 +1086,14 @@ export async function autoPopulateWatchlist(): Promise<number> {
   }));
   const { getExpandedUniverse } = await import('./dynamicUniverseExpander.js');
   const scanUniverse = screenerSymbols.length > 0 ? screenerSymbols : getExpandedUniverse();
+
+  // ── 시간대별 3-Preset: MORNING/MIDDAY/CLOSE/OFFHOURS ─────────────────────
+  // 기존 하드컷(quote.changePercent >= 8, < -3, return5d > 20)을 시간 커브로 교체.
+  const preset = getCurrentScanPreset();
   console.log(
     `[AutoPopulate] 스캔 대상: ${scanUniverse.length}개` +
-    (screenerSymbols.length > 0 ? ' (KIS 스크리너 캐시 기반)' : ' (정적 유니버스 폴백)'),
+    (screenerSymbols.length > 0 ? ' (KIS 스크리너 캐시 기반)' : ' (정적 유니버스 폴백)') +
+    ` | 프리셋: ${preset.phase} (${preset.label})`,
   );
   for (const stock of scanUniverse) {
     if (existingCodes.has(stock.code)) continue;
@@ -1098,28 +1110,44 @@ export async function autoPopulateWatchlist(): Promise<number> {
       continue;
     }
 
-    // ── 아이디어 8: Track A (Candidate Pool) 느슨한 필터 ──
-    // 과열 상단만 차단, 하단은 -3% 단일 기준, 거래량 조건 제거
-    if (quote.changePercent >= 8) {
-      rejectionLog.push({ code: stock.code, name: stock.name, reason: `과열 +${quote.changePercent.toFixed(1)}%` });
+    // ── 시간대별 프리셋 적용: MORNING/MIDDAY/CLOSE/OFFHOURS ──────────────────
+    // 단일 임계값이 아닌 시간 커브를 가진 필터.
+    if (quote.changePercent >= preset.changePercentMax) {
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: `과열 +${quote.changePercent.toFixed(1)}% (${preset.phase})` });
       continue;
     }
-    if (quote.changePercent < -3) {
-      rejectionLog.push({ code: stock.code, name: stock.name, reason: `하락 ${quote.changePercent.toFixed(1)}%` });
+    if (quote.changePercent < preset.changePercentMin) {
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: `하락 ${quote.changePercent.toFixed(1)}% (${preset.phase})` });
       continue;
     }
-    // 5일 급등 완화 (Track A: 20% → 기존 15%)
-    if (quote.return5d > 20) {
-      rejectionLog.push({ code: stock.code, name: stock.name, reason: `5일급등 +${quote.return5d.toFixed(1)}%` });
+    if (quote.return5d > preset.return5dMax) {
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: `5일급등 +${quote.return5d.toFixed(1)}% (${preset.phase})` });
       continue;
+    }
+    // MIDDAY/CLOSE는 거래량 배수 하한 요구 — MORNING은 누적 미비로 null (스킵)
+    if (preset.minVolumeMultiplier != null && quote.avgVolume > 0) {
+      const multiplier = quote.volume / quote.avgVolume;
+      if (multiplier < preset.minVolumeMultiplier) {
+        rejectionLog.push({ code: stock.code, name: stock.name, reason: `거래량부족 ×${multiplier.toFixed(2)} (${preset.phase} 최소 ×${preset.minVolumeMultiplier})` });
+        continue;
+      }
     }
 
     // 아이디어 9: KIS API로 월봉/주봉 MTAS 구성 요소 보강 (Yahoo 폴백)
     const enrichedQuote = await enrichQuoteWithKisMTAS(quote, stock.code);
 
     // 서버사이드 Gate 평가 — Track A에서는 SKIP이어도 등록 (점수만 기록)
+    // 레짐을 전달해 RISK_ON_EARLY/RISK_OFF_CORRECTION에서 STRONG/NORMAL 밴드가 동적 적용되도록.
+    // 프리셋 VCP/눌림목 가중은 개별 조건 weight에 승수로 덮어씌운다.
     const macroState = loadMacroState();
-    const gate = evaluateServerGate(enrichedQuote, loadConditionWeights(), macroState?.kospiDayReturn);
+    const regime     = getLiveRegime(macroState);
+    const baseWeights = loadConditionWeights();
+    const presetWeights = {
+      ...baseWeights,
+      vcp:      Math.min(2.0, (baseWeights.vcp      ?? 1.0) * preset.vcpWeightMultiplier),
+      pullback: Math.min(2.0, (baseWeights.pullback ?? 1.0) * preset.pullbackWeightMultiplier),
+    };
+    const gate = evaluateServerGate(enrichedQuote, presetWeights, macroState?.kospiDayReturn, null, null, regime);
 
     // 아이디어 11: Gate 조건 통과/탈락 — 메모리 캐시에만 누적 (루프 후 flushGateAudit으로 파일 저장)
     recordGateAudit(gate.conditionKeys);

@@ -11,6 +11,7 @@ import { Shield, TrendingUp, Clock, Check, X, ChevronDown, ChevronUp } from 'luc
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../ui/cn';
 import { Badge } from '../../ui/badge';
+import { TopBlockersPanel } from '../common/TopBlockersPanel';
 import type { StockRecommendation } from '../../services/stockService';
 import {
   GATE1_IDS, GATE2_IDS, GATE3_IDS,
@@ -204,6 +205,9 @@ export function GateStatusWidget({ stock }: GateStatusWidgetProps) {
             className="overflow-hidden"
           >
             <div className="px-3 pb-3 space-y-3">
+              {/* 오늘 가장 많이 탈락시킨 조건 TOP 3 — 증상이 아닌 원인 노출 */}
+              <TopBlockersPanel limit={3} />
+
               {gateResults.map((gate) => (
                 <div key={gate.label}>
                   {/* Gate Header */}

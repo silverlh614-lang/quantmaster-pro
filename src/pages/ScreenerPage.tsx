@@ -7,6 +7,7 @@ import { UniverseSelector, DEFAULT_UNIVERSE } from '../components/analysis/Unive
 import { BearScreenerPanel } from '../components/bear/BearScreenerPanel';
 import { DartPreNewsPanel } from '../components/signals/DartPreNewsPanel';
 import { SectionErrorBoundary } from '../components/common/SectionErrorBoundary';
+import { PipelineYieldTicker } from '../components/common/PipelineYieldTicker';
 import { useRecommendationStore, useAnalysisStore, useGlobalIntelStore } from '../stores';
 import { PageHeader } from '../ui/page-header';
 import { Card } from '../ui/card';
@@ -114,6 +115,9 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
         >
           정량적 필터로 후보군을 압축하고, AI가 질적 분석을 통해 최종 주도주를 선정하는 2단계 파이프라인입니다.
         </PageHeader>
+
+        {/* IPYL — 장중 Pipeline Yield 3-막대 실시간 티커 */}
+        <PipelineYieldTicker />
 
         {/* KIS Stream 연결 상태 디버그 배지 */}
         {streamDebug && (

@@ -27,9 +27,11 @@
 import type { YahooQuoteExtended } from './screener/stockScreener.js';
 import type { DartFinancials } from './clients/dartFinancialClient.js';
 import type { KisInvestorFlow } from './clients/kisClient.js';
+import type { RegimeLevel } from '../src/types/core.js';
 import { isPullbackSetup } from './screener/pipelineHelpers.js';
 import { getVixConservativeMode } from './state.js';
 import { isTradingHeld } from './learning/learningState.js';
+import { getRegimeGateBand } from './trading/gateConfig.js';
 
 export interface ServerGateResult {
   gateScore: number;                          // 가중치 적용 점수 (float, 최대 ~15)
@@ -183,6 +185,7 @@ export function evaluateServerGate(
   kospiDayReturn?: number,
   dartFin?: DartFinancials | null,
   kisFlow?: KisInvestorFlow | null,
+  regime?: RegimeLevel | string,
 ): ServerGateResult {
   let score = 0;
   const details: string[] = [];
@@ -361,13 +364,18 @@ export function evaluateServerGate(
     positionPct = 0;
     details.push(`MTAS ${mtas.toFixed(1)}/10 진입금지`);
   } else {
-    // 기존 점수 기반 분류 (최대 점수 ~15)
-    signalType = score >= 7 ? 'STRONG' as const
-               : score >= 5 ? 'NORMAL' as const
+    // 레짐별 STRONG/NORMAL 밴드 — RISK_ON_EARLY(R1/R3)에서는 NORMAL 4.0 완화,
+    // RISK_OFF_CORRECTION(R5)에서는 6.0 강화 (src/constants/gateConfig.ts).
+    const band = getRegimeGateBand(regime);
+    signalType = score >= band.strong ? 'STRONG' as const
+               : score >= band.normal ? 'NORMAL' as const
                : 'SKIP' as const;
+    if (regime && (band.strong !== 7 || band.normal !== 5)) {
+      details.push(`레짐(${regime}) 밴드 S${band.strong}/N${band.normal}`);
+    }
 
-    positionPct = score >= 7 ? 0.12
-                : score >= 5 ? 0.08
+    positionPct = signalType === 'STRONG' ? 0.12
+                : signalType === 'NORMAL' ? 0.08
                 : 0.03;
 
     // 데이터 부족 시 포지션 축소 (월봉/주봉 없이 일봉만으로 평가한 경우)

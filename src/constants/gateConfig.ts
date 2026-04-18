@@ -71,3 +71,41 @@ export function getDynamicGateThreshold(regime: string | null | undefined): Gate
   if (!regime) return DEFAULT_THRESHOLDS;
   return REGIME_GATE_THRESHOLDS[regime as RegimeId] ?? DEFAULT_THRESHOLDS;
 }
+
+// ─── Gate Score Band — STRONG / NORMAL / SKIP 레짐별 차등 ───────────────────
+// evaluateServerGate는 그동안 STRONG ≥ 7, NORMAL ≥ 5 고정이었다.
+// 레짐이 gate2/gate3 통과 '개수'만 조절하는 건 반쪽짜리 적응이므로
+// 여기서 '점수 밴드'까지 레짐에 따라 변하도록 한다.
+//
+//   - 강세 초기(RISK_ON_EARLY ≈ R1/R3): NORMAL을 4.0까지 완화해 기회 포착
+//   - 약세 조정(RISK_OFF_CORRECTION ≈ R5): NORMAL을 6.0로 강화해 보수 운영
+//   - R6_DEFENSE: 사실상 차단 (NORMAL=999, 상위 레이어에서 매수 거부)
+
+export interface GateScoreBand {
+  /** STRONG 신호 최소 점수 — 최대 포지션 */
+  strong: number;
+  /** NORMAL 신호 최소 점수 — 표준 포지션 */
+  normal: number;
+}
+
+/**
+ * 레짐별 Gate Score 밴드.
+ * server/trading/gateConfig.ts의 `GATE_SCORE_THRESHOLD_BY_REGIME`(NORMAL 전용)
+ * 과 값이 정렬되어 있어야 한다 — 해당 파일이 이 상수를 단일 소스로 사용한다.
+ */
+export const GATE_SCORE_THRESHOLD_BY_REGIME: Record<RegimeId, GateScoreBand> = {
+  R1_TURBO:   { strong: 6,   normal: 4   }, // RISK_ON_EARLY — 문턱 완화
+  R2_BULL:    { strong: 7,   normal: 5   },
+  R3_EARLY:   { strong: 6,   normal: 4   }, // RISK_ON_EARLY — 문턱 완화
+  R4_NEUTRAL: { strong: 7,   normal: 5   }, // 기본
+  R5_CAUTION: { strong: 8,   normal: 6   }, // RISK_OFF_CORRECTION — 문턱 강화
+  R6_DEFENSE: { strong: 999, normal: 999 }, // 매수 차단
+};
+
+const DEFAULT_SCORE_BAND: GateScoreBand = { strong: 7, normal: 5 };
+
+/** 레짐에 맞는 STRONG/NORMAL 밴드. 알 수 없는 레짐은 7/5 폴백. */
+export function getRegimeGateScoreBand(regime: string | null | undefined): GateScoreBand {
+  if (!regime) return DEFAULT_SCORE_BAND;
+  return GATE_SCORE_THRESHOLD_BY_REGIME[regime as RegimeId] ?? DEFAULT_SCORE_BAND;
+}
