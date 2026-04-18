@@ -21,7 +21,7 @@ import {
   type ConditionWeights,
 } from '../persistence/conditionWeightsRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { timeWeight, calcConditionSharpe } from './signalCalibrator.js';
+import { timeWeight, calcConditionSharpe, latePenaltyForServerKey } from './signalCalibrator.js';
 
 /** R6_DEFENSE 포함 전체 레짐 레벨 */
 const ALL_REGIMES = [
@@ -72,11 +72,16 @@ export async function calibrateByRegime(): Promise<void> {
     const condStats: Record<string, { wWins: number; wTotal: number; returns: number[] }> = {};
 
     for (const rec of regimeRecs) {
-      const tw = timeWeight(rec.signalTime);
+      // 아이디어 4 (Phase 2): 현재 처리 중인 레짐의 반감기로 시간 감쇠 조정.
+      // R1_TURBO는 30일, R6_DEFENSE는 90일 — 시장 속도에 학습 속도 동기화.
+      const tw = timeWeight(rec.signalTime, regime);
       for (const key of rec.conditionKeys ?? []) {
         if (!condStats[key]) condStats[key] = { wWins: 0, wTotal: 0, returns: [] };
         condStats[key].wTotal += tw;
-        if (rec.status === 'WIN') condStats[key].wWins += tw;
+        // 아이디어 5 (Phase 3): LATE_WIN × 타이밍 조건 시 WIN 기여를 0.7× 페널티.
+        if (rec.status === 'WIN') {
+          condStats[key].wWins += tw * latePenaltyForServerKey(rec.lateWin, key);
+        }
         if (rec.actualReturn !== undefined) condStats[key].returns.push(rec.actualReturn);
       }
     }

@@ -23,6 +23,12 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { calcConditionSharpe, timeWeight } from './signalCalibrator.js';
 import { CONDITION_AUDIT_FILE, ensureDataDir } from '../persistence/paths.js';
 import type { ConditionWeights } from '../quantFilter.js';
+import { loadMacroState } from '../persistence/macroStateRepo.js';
+import { getLiveRegime } from '../trading/regimeBridge.js';
+import {
+  appendExperimentalCondition,
+  type ExperimentalCondition,
+} from '../persistence/experimentalConditionRepo.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -94,8 +100,12 @@ export async function runConditionAudit(): Promise<void> {
     { wWins: number; wTotal: number; returns: number[]; total: number }
   > = {};
 
+  // 아이디어 4 (Phase 2): 현재 라이브 레짐의 반감기로 감사 전체를 감쇠.
+  // rec 각자의 entryRegime 이 아닌 "지금 시점의 학습 속도"로 일관 처리한다.
+  const liveRegime = getLiveRegime(loadMacroState());
+
   for (const rec of allRecs) {
-    const tw = timeWeight(rec.signalTime);
+    const tw = timeWeight(rec.signalTime, liveRegime);
     for (const key of rec.conditionKeys ?? []) {
       if (!condStats[key]) condStats[key] = { wWins: 0, wTotal: 0, returns: [], total: 0 };
       condStats[key].wTotal += tw;
@@ -193,49 +203,181 @@ export async function runConditionAudit(): Promise<void> {
     .filter((r) => r.status === 'WIN')
     .sort((a, b) => (b.actualReturn ?? 0) - (a.actualReturn ?? 0))
     .slice(0, 20);
+  // 아이디어 6 (Phase 3): LOSS/EXPIRED 대조군도 함께 제공 → Gemini 가 패턴 차이 학습.
+  const lossTrades = allRecs
+    .filter((r) => r.status === 'LOSS' || r.status === 'EXPIRED')
+    .sort((a, b) => (a.actualReturn ?? 0) - (b.actualReturn ?? 0))
+    .slice(0, 20);
 
   if (winTrades.length >= 5) {
-    await proposeNewConditions(winTrades);
+    await proposeNewConditions(winTrades, lossTrades);
   }
 }
 
 // ── 내부 유틸 ─────────────────────────────────────────────────────────────────
 
-async function proposeNewConditions(winTrades: RecommendationRecord[]): Promise<void> {
-  const summary = winTrades.map((r) => ({
+/**
+ * Gemini 자유 서술 응답에서 JSON 블록 추출.
+ * 응답이 ```json ... ``` 코드펜스 혹은 plain JSON 모두 대응.
+ */
+function extractJsonBlock(raw: string): string | null {
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fence) return fence[1].trim();
+  // 첫 '{' 부터 마지막 '}' 까지
+  const first = raw.indexOf('{');
+  const last  = raw.lastIndexOf('}');
+  if (first >= 0 && last > first) return raw.slice(first, last + 1);
+  return null;
+}
+
+interface GeminiCandidate {
+  name?: string;
+  dataSource?: string;
+  threshold?: number;
+  formula?: string;
+  rationale?: string;
+  passingWinCodes?: string[];
+  passingLossCodes?: string[];
+}
+
+interface GeminiProposalResponse {
+  candidates?: GeminiCandidate[];
+  narrative?: string;
+}
+
+/**
+ * 아이디어 6 (Phase 3) — Gemini 제안 조건 후보를 JSON 으로 받아
+ * experimental-conditions.json 에 PROPOSED 상태로 등록.
+ *
+ * 전달 데이터:
+ *   - 수익 상위 WIN trades (최대 20)
+ *   - 실패 LOSS/EXPIRED trades (최대 20) — 대조군
+ *
+ * 요청 포맷(JSON):
+ *   {
+ *     "candidates": [
+ *       {
+ *         "name": "...", "dataSource": "YAHOO|KIS|DART",
+ *         "threshold": <number?>, "formula": "<expr>",
+ *         "rationale": "...",
+ *         "passingWinCodes": ["..."],
+ *         "passingLossCodes": ["..."]
+ *       }
+ *     ],
+ *     "narrative": "<공통 패턴 요약>"
+ *   }
+ */
+async function proposeNewConditions(
+  winTrades: RecommendationRecord[],
+  lossTrades: RecommendationRecord[] = [],
+): Promise<void> {
+  const toSummary = (r: RecommendationRecord) => ({
     code:       r.stockCode,
     return:     `${(r.actualReturn ?? 0).toFixed(1)}%`,
     conditions: (r.conditionKeys ?? []).join(', '),
     regime:     r.entryRegime ?? '미기록',
     signalType: r.signalType,
-  }));
+  });
+  const winSummary  = winTrades.map(toSummary);
+  const lossSummary = lossTrades.map(toSummary);
 
   const prompt = [
     '당신은 한국 주식 퀀트 시스템의 시그널 발굴 AI입니다.',
-    '아래는 최근 수익률이 가장 높았던 WIN 거래들의 통과 조건 목록입니다.',
+    '아래 두 그룹(WIN / LOSS)을 비교하여 WIN 에만 공통되는 새로운 조건 후보를 제안하세요.',
     '',
     '현재 시스템이 평가하는 조건 8가지:',
-    '  momentum(+2% 이상), ma_alignment(5일>20일>60일 정배열),',
-    '  volume_breakout(5일평균 거래량 2배), per(PER<20),',
-    '  turtle_high(20일 신고가), relative_strength(상대강도 +1.5%),',
-    '  vcp(ATR 축소<평균70%), volume_surge(거래량3배+상승1%)',
+    '  momentum, ma_alignment, volume_breakout, per, turtle_high,',
+    '  relative_strength, vcp, volume_surge',
     '',
-    '=== 수익 상위 WIN 거래 (최대 20건) ===',
-    JSON.stringify(summary, null, 2),
+    '=== 수익 상위 WIN 거래 ===',
+    JSON.stringify(winSummary, null, 2),
     '',
-    '요청:',
-    '1. 위 거래들에서 공통적으로 나타나는 패턴을 2~3가지 분석해주세요.',
-    '2. 현재 8개 조건에 없는 새로운 조건 후보 1~2가지를 한국어로 제안해주세요.',
-    '3. 각 후보 조건이 어떤 데이터(Yahoo Finance 또는 KIS API)로 측정 가능한지 설명해주세요.',
-    '4. 각 후보 조건의 기대 승률 향상 근거를 간략히 제시해주세요.',
-    '외부 검색 불필요. 제공된 데이터만 분석하세요.',
+    '=== 실패 LOSS/EXPIRED 거래 ===',
+    JSON.stringify(lossSummary, null, 2),
+    '',
+    '요청: 아래 JSON 형식으로만 응답하세요. 마크다운/자유 텍스트 금지.',
+    '{',
+    '  "candidates": [',
+    '    {',
+    '      "name": "<영문식별자, snake_case>",',
+    '      "dataSource": "YAHOO | KIS | DART",',
+    '      "threshold": <숫자 또는 생략>,',
+    '      "formula": "<조건식 설명, 예: OCF/NetIncome > 1.2>",',
+    '      "rationale": "<한국어 2~3줄 근거>",',
+    '      "passingWinCodes": ["<WIN 중 이 조건에 부합한다고 판단한 stockCode들>"],',
+    '      "passingLossCodes": ["<LOSS 중 이 조건에 부합한다고 판단한 stockCode들>"]',
+    '    }',
+    '  ],',
+    '  "narrative": "<전체 패턴 2~3줄 요약>"',
+    '}',
+    '',
+    '- candidates 는 1~2개만 제안. 현재 8개 조건과 중복되면 안 됩니다.',
+    '- passingWinCodes / passingLossCodes 는 반드시 위에 제공된 stockCode 문자열만 사용.',
+    '- 외부 검색 불필요. 제공된 데이터만 분석하세요.',
   ].join('\n');
 
-  const suggestion = await callGemini(prompt, 'condition-auditor');
-  if (suggestion) {
+  const raw = await callGemini(prompt, 'condition-auditor');
+  if (!raw) return;
+
+  const jsonText = extractJsonBlock(raw);
+  if (!jsonText) {
+    console.warn('[ConditionAuditor] Gemini 응답에서 JSON 추출 실패 — 자유 서술로 폴백 알림');
     await sendTelegramAlert(
-      `💡 <b>[Condition Auditor] 신규 조건 후보 제안</b>\n\n${suggestion}`,
+      `💡 <b>[Condition Auditor] 신규 조건 후보 제안 (파싱 실패)</b>\n\n${raw.slice(0, 1500)}`,
     ).catch(console.error);
-    console.log('[ConditionAuditor] 신규 조건 후보 Gemini 분석 완료');
+    return;
   }
+
+  let parsed: GeminiProposalResponse;
+  try {
+    parsed = JSON.parse(jsonText) as GeminiProposalResponse;
+  } catch (e) {
+    console.warn('[ConditionAuditor] JSON 파싱 실패:', e instanceof Error ? e.message : e);
+    await sendTelegramAlert(
+      `💡 <b>[Condition Auditor] 신규 조건 후보 제안 (JSON 오류)</b>\n\n${raw.slice(0, 1500)}`,
+    ).catch(console.error);
+    return;
+  }
+
+  const candidates = (parsed.candidates ?? []).filter(
+    (c) => typeof c.name === 'string' && c.name.length > 0,
+  );
+  if (candidates.length === 0) {
+    console.log('[ConditionAuditor] Gemini 제안 후보 0건');
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const savedNames: string[] = [];
+
+  for (const cand of candidates) {
+    const entry: ExperimentalCondition = {
+      id:              `exp-${Date.now()}-${cand.name!.replace(/[^a-zA-Z0-9_]/g, '_')}`,
+      name:            cand.name!,
+      dataSource:      cand.dataSource ?? 'UNKNOWN',
+      threshold:       typeof cand.threshold === 'number' ? cand.threshold : undefined,
+      formula:         cand.formula,
+      rationale:       cand.rationale ?? '',
+      proposedAt:      now,
+      status:          'PROPOSED',
+      passingWinCodes:  Array.isArray(cand.passingWinCodes)
+        ? cand.passingWinCodes.filter((c) => typeof c === 'string')
+        : undefined,
+      passingLossCodes: Array.isArray(cand.passingLossCodes)
+        ? cand.passingLossCodes.filter((c) => typeof c === 'string')
+        : undefined,
+    };
+    appendExperimentalCondition(entry);
+    savedNames.push(entry.name);
+  }
+
+  await sendTelegramAlert(
+    `💡 <b>[Condition Auditor] 신규 조건 후보 ${savedNames.length}건 등록</b>\n\n` +
+    savedNames.map((n) => `• ${n}`).join('\n') +
+    (parsed.narrative ? `\n\n📝 <i>${parsed.narrative}</i>` : '') +
+    `\n\n다음 L4 사이클의 experimental backtest 단계에서 lift 기준(≥1.15) 통과 시 ` +
+    `BACKTESTED_PASSED 로 전이됩니다.`,
+  ).catch(console.error);
+
+  console.log(`[ConditionAuditor] 신규 조건 후보 ${savedNames.length}건 PROPOSED 등록: ${savedNames.join(', ')}`);
 }

@@ -22,6 +22,11 @@ import { calibrateByRegime } from '../learning/regimeAwareCalibrator.js';
 import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
 import { runConditionAudit } from '../learning/conditionAuditor.js';
 import { runBacktest, runWeeklyMiniBacktest } from '../learning/backtestEngine.js';
+import { bootstrapAttributionFromRecommendations } from '../learning/synergyBootstrap.js';
+import { reEvaluateExpired } from '../learning/lateWinEvaluator.js';
+import { runExperimentalConditionBacktest } from '../learning/experimentalConditionTester.js';
+import { updatePhaseMapAndCaps } from '../learning/phaseMapCalibrator.js';
+import { updateShadowRealDrift } from '../learning/shadowRealDriftDetector.js';
 import {
   runIncrementalCalibration,
   calibrateSignalWeightsLite,
@@ -89,8 +94,25 @@ class LearningOrchestrator {
    */
   async runWeeklyCalib(): Promise<void> {
     console.log('[LearningOrch L3] 주간 경량 보정 시작');
+    // 아이디어 5 (Phase 3): EXPIRED → LATE_WIN 재평가 (60/90일 시점).
+    // Yahoo OHLCV 호출이 있으므로 주간 1회만 실행.
+    try {
+      const converted = await reEvaluateExpired();
+      if (converted > 0) {
+        await sendTelegramAlert(
+          `🕰 <b>[EXPIRED 재평가]</b> LATE_WIN 전환 ${converted}건\n` +
+          `타이밍 조건(momentum, turtle_high, 피보나치, 엘리엇, 다이버전스)의 ` +
+          `가중치 기여는 0.7× 페널티 적용 — "신호는 맞았지만 타이밍은 빗나감" 구분.`,
+        ).catch(console.error);
+      }
+    } catch (e) {
+      console.error('[L3 late-win-eval]', e);
+    }
     await calibrateSignalWeightsLite().catch((e) => console.error('[L3 lite-calib]', e));
     await runWeeklyMiniBacktest().catch((e) => console.error('[L3 mini-backtest]', e));
+    // 아이디어 10 (Phase 5): Shadow vs Real 드리프트 감지 — 주간 1회.
+    // signalScanner 가 다음 주간의 targetPrice/stopLoss 계산에 계수 반영.
+    await updateShadowRealDrift().catch((e) => console.error('[L3 drift]', e));
     markTierRan('L3_WEEKLY');
     console.log('[LearningOrch L3] 주간 경량 보정 완료');
   }
@@ -115,11 +137,27 @@ class LearningOrchestrator {
    */
   async runMonthlyEvolution(): Promise<void> {
     console.log('[LearningOrch L4] 월간 진화 루프 시작');
+    // 아이디어 3 (Phase 2): 시너지 분석 데이터 확보용 부트스트랩 — 멱등.
+    // 결산된 추천 이력을 27-score 가상 Attribution 으로 소급 전사하여
+    // findSynergies()가 초기 운용 단계에서도 작동하도록 샘플을 보강한다.
+    try {
+      const added = bootstrapAttributionFromRecommendations();
+      if (added > 0) console.log(`[L4 bootstrap] 가상 Attribution ${added}건 주입`);
+    } catch (e) {
+      console.error('[L4 bootstrap]', e);
+    }
     await runWalkForwardValidation().catch((e) => console.error('[L4 wf]', e));
     await calibrateSignalWeights().catch((e) => console.error('[L4 signal]', e));
     markCalibRan();
     await calibrateByRegime().catch((e) => console.error('[L4 regime]', e));
+    // 아이디어 9 (Phase 5): 레짐별 위상 맵 — 위험 레짐에 cap 0.5 적용.
+    // calibrateByRegime 직후에 실행하여 regime별 가중치 조정 결과 위에 cap 적용.
+    await updatePhaseMapAndCaps().catch((e) => console.error('[L4 phase-map]', e));
     await runConditionAudit().catch((e) => console.error('[L4 audit]', e));
+    // 아이디어 6 (Phase 3): 이전 월 PROPOSED 조건들의 A/B 백테스트 후 상태 전이.
+    // runConditionAudit 내부 proposeNewConditions 가 이번 월 신규 PROPOSED 를
+    // 등록한 직후이므로, 순서상 백테스트는 "직전 월 이전" 등록건을 평가한다.
+    await runExperimentalConditionBacktest().catch((e) => console.error('[L4 exp-backtest]', e));
     markTierRan('L4_MONTHLY');
     console.log('[LearningOrch L4] 월간 진화 루프 완료');
   }

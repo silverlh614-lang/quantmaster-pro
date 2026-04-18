@@ -76,6 +76,30 @@ export const RECONCILE_STATE_FILE     = path.join(DATA_DIR, 'reconcile-state.jso
 export const NOTIFICATION_LOG_FILE    = path.join(DATA_DIR, 'notification-log.json');
 /** 4티어 자기학습 상태 — L1~L4 마지막 실행 시각, prevRegime, 첫 캘리브레이션 완료 플래그, 거래 홀드 만료시각 */
 export const LEARNING_STATE_FILE      = path.join(DATA_DIR, 'learning-state.json');
+/**
+ * 27 조건 전체 학습 커버리지용 — 클라이언트 전용 조건(21개)의 Gemini 프롬프트 boost 맵.
+ * 서버 자동평가 경로로 피드백되지 않는 조건도 Gemini 분석 비중으로 소프트 가중 적용.
+ */
+export const PROMPT_BOOSTS_FILE       = path.join(DATA_DIR, 'condition-prompt-boosts.json');
+/**
+ * 실험 조건 레지스터 — Gemini 가 제안한 신규 조건 후보의 A/B 테스트 상태.
+ * PROPOSED → BACKTESTED_PASSED/FAILED → (선택적) ACTIVE 생애주기.
+ */
+export const EXPERIMENTAL_CONDITIONS_FILE = path.join(DATA_DIR, 'experimental-conditions.json');
+/**
+ * 가중치 스냅샷 히스토리 — 월간 캘리브레이션 직후 저장.
+ * 워크포워드 동결 시 최근 3개월 중앙값을 앙상블 임시 가중치로 활용한다.
+ */
+export const WEIGHT_HISTORY_FILE      = path.join(DATA_DIR, 'condition-weight-history.json');
+/**
+ * 조건별 레짐 위상 맵 — 각 조건이 "위험 레짐"에서 WIN률이 급락하면 그 레짐에서
+ * 가중치를 cap 하는 정책 테이블. attributionAnalyzer.byRegime 로부터 도출.
+ */
+export const PHASE_MAP_FILE           = path.join(DATA_DIR, 'condition-phase-map.json');
+/**
+ * Shadow vs Real 드리프트 감지 상태 — 진입/청산가 괴리율 이력.
+ */
+export const SHADOW_REAL_DRIFT_FILE   = path.join(DATA_DIR, 'shadow-real-drift.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

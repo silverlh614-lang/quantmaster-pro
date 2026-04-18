@@ -47,3 +47,30 @@ export function saveConditionWeightsByRegime(regime: string, w: ConditionWeights
   ensureDataDir();
   fs.writeFileSync(conditionWeightsRegimeFile(regime), JSON.stringify(w, null, 2));
 }
+
+/**
+ * 레짐별 가중치 초기값 리셋 (아이디어 2 — 레짐 급변 트리거).
+ *
+ * R2_BULL → R5_CAUTION 같은 2단계 이상 급전환 시, 새 레짐에서는
+ * 이전 레짐에서 학습된 가중치가 오히려 유해할 수 있다. "직전 장세의
+ * 주도주는 신장세의 주도주가 아니다" 원칙을 가중치 레벨로 실현.
+ *
+ * @param regime  리셋 대상 레짐 (예: 'R5_CAUTION')
+ * @returns 리셋 전 가중치의 서명된 스냅샷 (감사 로그용).
+ *          파일이 없었으면 null.
+ */
+export function resetConditionWeightsForRegime(regime: string): ConditionWeights | null {
+  ensureDataDir();
+  const file = conditionWeightsRegimeFile(regime);
+  let prev: ConditionWeights | null = null;
+  if (fs.existsSync(file)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<ConditionWeights>;
+      prev = { ...DEFAULT_CONDITION_WEIGHTS, ...raw };
+    } catch {
+      prev = null;
+    }
+  }
+  fs.writeFileSync(file, JSON.stringify({ ...DEFAULT_CONDITION_WEIGHTS }, null, 2));
+  return prev;
+}

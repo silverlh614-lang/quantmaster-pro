@@ -29,6 +29,12 @@ export interface ServerAttributionRecord {
   conditionScores: Record<number, number>;
   holdingDays:     number;
   sellReason?:     string;
+  /**
+   * 아이디어 5 (Phase 3): EXPIRED 이후 60/90일 재평가에서 targetPrice 달성.
+   * true 면 타이밍 조건(20 터틀, 21 피보나치, 22 엘리엇, 26 다이버전스)의
+   * 가중치/boost 기여에 0.7× 페널티가 적용된다.
+   */
+  lateWin?:        boolean;
 }
 
 /** 조건별 집계 결과 (GET /api/attribution/stats 응답 형태) */

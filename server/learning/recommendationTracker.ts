@@ -24,6 +24,21 @@ export interface RecommendationRecord {
   status: 'PENDING' | 'WIN' | 'LOSS' | 'EXPIRED';
   actualReturn?: number;
   resolvedAt?: string;
+  /**
+   * 아이디어 5 (Phase 3): EXPIRED → WIN 지연 평가 표식.
+   * 30일 만료 후 60/90일 재추적에서 targetPrice 도달 시 true로 전환.
+   * status 는 'WIN' 으로 덮어쓰고 lateWin=true 로 표기 — 기존 승률 집계와
+   * 호환 유지하면서 "타이밍 조건(momentum, turtle_high)"에 대한 별도 페널티 산출.
+   */
+  lateWin?: boolean;
+  /** EXPIRED 시점 (lateWin 전환 전의 원래 resolvedAt 보존) */
+  expiredAt?: string;
+  /** 60일 시점 종가 기준 수익률 */
+  return60d?: number;
+  /** 90일 시점 종가 기준 수익률 */
+  return90d?: number;
+  /** 지연 평가 마지막 점검 시각 — 중복 재실행 억제 */
+  lateEvalCheckedAt?: string;
 }
 
 export interface MonthlyStats {

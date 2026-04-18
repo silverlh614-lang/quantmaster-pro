@@ -304,4 +304,106 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────
+// 아이디어 11 (Phase 5): 조건 학습 상태 시각화 API
+// ─────────────────────────────────────────────────────────────
+
+router.get('/learning/condition-state', async (_req: Request, res: Response) => {
+  try {
+    const [
+      { loadConditionWeights },
+      { loadPromptBoosts },
+      { loadPhaseMap },
+      { loadShadowRealDrift },
+      { loadAttributionRecords },
+      { analyzeAttribution, CONDITION_NAMES, serverConditionKey },
+      { loadWeightHistory },
+      { loadExperimentalConditions },
+    ] = await Promise.all([
+      import('../persistence/conditionWeightsRepo.js'),
+      import('../persistence/promptBoostRepo.js'),
+      import('../learning/phaseMapCalibrator.js'),
+      import('../learning/shadowRealDriftDetector.js'),
+      import('../persistence/attributionRepo.js'),
+      import('../learning/attributionAnalyzer.js'),
+      import('../persistence/weightHistoryRepo.js'),
+      import('../persistence/experimentalConditionRepo.js'),
+    ]);
+
+    const weights  = loadConditionWeights();
+    const boosts   = loadPromptBoosts();
+    const phaseMap = loadPhaseMap();
+    const drift    = loadShadowRealDrift();
+    const history  = loadWeightHistory();
+    const experimental = loadExperimentalConditions();
+
+    // 조건 감사 상태(ACTIVE/PROBATION/SUSPENDED)
+    let auditState: Record<string, { status: string; winRate: number; sharpe: number; totalTrades: number }> = {};
+    try {
+      const CONDITION_AUDIT_FILE = (await import('../persistence/paths.js')).CONDITION_AUDIT_FILE;
+      if (fs.existsSync(CONDITION_AUDIT_FILE)) {
+        const raw = JSON.parse(fs.readFileSync(CONDITION_AUDIT_FILE, 'utf-8')) as Record<string, unknown>;
+        auditState = raw as typeof auditState;
+      }
+    } catch { /* audit state missing — 빈 객체 유지 */ }
+
+    const attribution = analyzeAttribution(loadAttributionRecords());
+
+    const conditions = attribution.map((a) => {
+      const key = serverConditionKey(a.conditionId);
+      const phaseEntry = phaseMap.entries[a.conditionId];
+      return {
+        conditionId:   a.conditionId,
+        conditionName: a.conditionName,
+        serverKey:     key,
+        weight:        key ? ((weights as Record<string, number>)[key] ?? 1.0) : null,
+        promptBoost:   key ? null : (boosts[a.conditionId] ?? 1.0),
+        auditStatus:   key ? (auditState[key]?.status ?? 'ACTIVE') : 'CLIENT_SOFT',
+        winRate:       a.winRate,
+        sharpe:        a.sharpe,
+        totalTrades:   a.totalTrades,
+        recentTrend:   a.recentTrend,
+        byRegime:      a.byRegime,
+        bestPartners:  a.bestPartners,
+        worstPartners: a.worstPartners,
+        recommendation: a.recommendation,
+        dangerRegimes: phaseEntry?.dangerRegimes ?? [],
+      };
+    });
+
+    res.json({
+      conditions,
+      conditionNames: CONDITION_NAMES,
+      drift: {
+        shadowAvgReturn: drift.shadowAvgReturn,
+        liveAvgReturn:   drift.liveAvgReturn,
+        driftPct:        drift.driftPct,
+        targetBoost:     drift.targetBoost,
+        stopBoost:       drift.stopBoost,
+        shadowCount:     drift.shadowCount,
+        liveCount:       drift.liveCount,
+        updatedAt:       drift.updatedAt,
+      },
+      weightHistory: history.slice(-6).map((s) => ({
+        timestamp: s.timestamp,
+        source:    s.source,
+        weights:   s.weights,
+      })),
+      experimentalConditions: experimental.slice(-20),
+      phaseMap: {
+        updatedAt: phaseMap.updatedAt,
+        dangerMatrix: Object.values(phaseMap.entries).map((e) => ({
+          conditionId:   e.conditionId,
+          conditionName: e.conditionName,
+          dangerRegimes: e.dangerRegimes,
+          regimeWinRates: e.regimeWinRates,
+        })),
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 export default router;

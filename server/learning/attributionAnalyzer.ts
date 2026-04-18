@@ -13,11 +13,15 @@
 
 import type { ServerAttributionRecord } from '../persistence/attributionRepo.js';
 import type { ConditionKey } from '../quantFilter.js';
+import {
+  isTimingSensitiveConditionId,
+  LATE_WIN_TIMING_PENALTY,
+} from './signalCalibrator.js';
 
 // ── 상수 ─────────────────────────────────────────────────────────────────────
 
 /** 클라이언트 conditionId(1~27) → 조건명 */
-const CONDITION_NAMES: Record<number, string> = {
+export const CONDITION_NAMES: Record<number, string> = {
   1:  '주도주 사이클 (Cycle)',
   2:  'ROE 유형 3 (ROE Type 3)',
   3:  '시장 환경 (Risk-On)',
@@ -122,8 +126,21 @@ function sharpeRatio(arr: number[]): number {
   return std > 0 ? mean(arr) / std : 0;
 }
 
-function winRateOf(recs: ServerAttributionRecord[]): number {
-  return recs.length > 0 ? recs.filter((r) => r.isWin).length / recs.length : 0;
+/**
+ * 승률 계산. conditionId 가 타이밍 민감 조건(18/20/21/22/26)이면 LATE_WIN 기여를
+ * LATE_WIN_TIMING_PENALTY(0.7) 배로 감쇠하여 "신호는 맞았지만 타이밍은 빗나간"
+ * 케이스를 가중치 학습 신호에서 구분한다. 기타 조건은 단순 비율.
+ */
+function winRateOf(recs: ServerAttributionRecord[], conditionId?: number): number {
+  if (recs.length === 0) return 0;
+  if (conditionId !== undefined && isTimingSensitiveConditionId(conditionId)) {
+    const effectiveWins = recs.reduce((sum, r) => {
+      if (!r.isWin) return sum;
+      return sum + (r.lateWin ? LATE_WIN_TIMING_PENALTY : 1);
+    }, 0);
+    return effectiveWins / recs.length;
+  }
+  return recs.filter((r) => r.isWin).length / recs.length;
 }
 
 // ── 빈 결과 ───────────────────────────────────────────────────────────────────
@@ -242,7 +259,7 @@ export function analyzeAttribution(
 
     // ── 기본 지표 ──
     const returns = relevant.map((r) => r.returnPct);
-    const wr      = winRateOf(relevant);
+    const wr      = winRateOf(relevant, id);
     const avgRet  = mean(returns);
     const sharpe  = sharpeRatio(returns);
 
@@ -252,7 +269,7 @@ export function analyzeAttribution(
       const sub = relevant.filter((r) => r.entryRegime === regime);
       if (sub.length === 0) continue;
       byRegime[regime] = {
-        winRate:   parseFloat(winRateOf(sub).toFixed(3)),
+        winRate:   parseFloat(winRateOf(sub, id).toFixed(3)),
         avgReturn: parseFloat(mean(sub.map((r) => r.returnPct)).toFixed(2)),
         count:     sub.length,
       };
@@ -264,8 +281,8 @@ export function analyzeAttribution(
       const age = now - new Date(r.closedAt).getTime();
       return age >= MS_30D && age < MS_60D;
     });
-    const recentWR   = recent30.length >= 3 ? winRateOf(recent30) : wr;
-    const historWR   = prev30.length   >= 3 ? winRateOf(prev30)   : wr;
+    const recentWR   = recent30.length >= 3 ? winRateOf(recent30, id) : wr;
+    const historWR   = prev30.length   >= 3 ? winRateOf(prev30, id)   : wr;
     const wrDiff     = recentWR - historWR;
     const trend: ConditionAttribution['recentTrend'] =
       wrDiff > 0.10  ? 'IMPROVING' :
@@ -304,4 +321,19 @@ export function analyzeAttribution(
  */
 export function serverConditionKey(conditionId: number): ConditionKey | null {
   return CONDITION_TO_SERVER_KEY[conditionId] ?? null;
+}
+
+/**
+ * 서버 ConditionKey → 클라이언트 conditionId (역매핑).
+ * 시너지 부트스트랩 등에서 RecommendationRecord.conditionKeys 를
+ * 27-score 벡터로 확장할 때 사용.
+ */
+const SERVER_KEY_TO_CONDITION_ID: Record<string, number> = Object.fromEntries(
+  Object.entries(CONDITION_TO_SERVER_KEY)
+    .filter(([, v]) => v !== null)
+    .map(([id, key]) => [key as string, Number(id)]),
+);
+
+export function conditionIdFromServerKey(key: string): number | null {
+  return SERVER_KEY_TO_CONDITION_ID[key] ?? null;
 }

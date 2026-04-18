@@ -3,6 +3,13 @@ import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { analyzeAttribution, serverConditionKey } from './attributionAnalyzer.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { loadWalkForwardState } from './walkForwardValidator.js';
+import {
+  loadPromptBoosts,
+  savePromptBoosts,
+  clampBoost,
+  type PromptConditionBoost,
+} from '../persistence/promptBoostRepo.js';
+import { appendWeightSnapshot } from '../persistence/weightHistoryRepo.js';
 
 /**
  * 월간 귀인 분석 기반 캘리브레이션.
@@ -40,9 +47,46 @@ export async function calibrateSignalWeights(): Promise<void> {
   const weights  = loadConditionWeights();
   const adjustments: string[] = [];
 
+  // 아이디어 1 (Phase 1): 클라이언트 전용 조건 21개도 Gemini 프롬프트 boost로 학습 반영
+  const promptBoosts: PromptConditionBoost = loadPromptBoosts();
+  const boostAdjustments: string[] = [];
+
   for (const attr of analysis) {
     const key = serverConditionKey(attr.conditionId);
-    if (!key) continue; // 서버 가중치 미매핑 조건은 분석만, 조정 제외
+
+    if (!key) {
+      // ── 서버 미매핑 조건(21개): Gemini 프롬프트 boost 경로로 학습 피드백 ──
+      if (attr.totalTrades < 5) continue; // 샘플 부족 — 1.0 유지
+
+      const prevBoost = promptBoosts[attr.conditionId] ?? 1.0;
+      let   nextBoost = prevBoost;
+
+      switch (attr.recommendation) {
+        case 'INCREASE_WEIGHT':
+          nextBoost = clampBoost(prevBoost * 1.10);
+          break;
+        case 'DECREASE_WEIGHT':
+          nextBoost = clampBoost(prevBoost * 0.92);
+          break;
+        case 'SUSPEND':
+          nextBoost = 0.5; // 최저값 = 프롬프트에서 사실상 무시
+          break;
+        case 'MAINTAIN':
+        default:
+          // 점진적 평균회귀 — 장기 무변동 조건 1.0으로 수렴
+          nextBoost = clampBoost(prevBoost + (1.0 - prevBoost) * 0.1);
+          break;
+      }
+
+      if (Math.abs(nextBoost - prevBoost) > 0.01) {
+        promptBoosts[attr.conditionId] = nextBoost;
+        boostAdjustments.push(
+          `${attr.conditionName}: ${prevBoost.toFixed(2)}→${nextBoost.toFixed(2)} ` +
+          `(WIN ${(attr.winRate * 100).toFixed(0)}%·SR ${attr.sharpe.toFixed(2)})`,
+        );
+      }
+      continue;
+    }
 
     const prev = weights[key] ?? 1.0;
     let   next = prev;
@@ -76,6 +120,19 @@ export async function calibrateSignalWeights(): Promise<void> {
     console.log(`[Calibrator] 가중치 조정: ${adjustments.join(' | ')}`);
   } else {
     console.log('[Calibrator] 가중치 변경 없음 — 현재 설정 유지');
+  }
+
+  // 아이디어 8 (Phase 4): 월간 조정 후 스냅샷 저장 — 워크포워드 동결 시 앙상블 재구성 자료.
+  appendWeightSnapshot(weights, 'monthly');
+
+  if (boostAdjustments.length > 0) {
+    savePromptBoosts(promptBoosts);
+    console.log(
+      `[Calibrator] 클라이언트 조건 Gemini boost 조정 ${boostAdjustments.length}건: ` +
+      boostAdjustments.join(' | '),
+    );
+  } else {
+    console.log('[Calibrator] 클라이언트 조건 boost 변경 없음');
   }
 
   // ── 텔레그램 월간 리포트 ──
@@ -120,20 +177,87 @@ export async function calibrateSignalWeights(): Promise<void> {
     ).join('\n') + '\n\n' +
     `🏆 <b>레짐별 최강 조건</b>\n${regimeStarText}\n\n` +
     (trendChanges ? `📊 <b>추이 변화 감지</b>\n${trendChanges}\n\n` : '') +
-    `⚙️ <b>가중치 조정 ${adjustments.length}건</b>\n` +
-    (adjustments.length > 0 ? adjustments.slice(0, 5).join('\n') : '  변경 없음')
+    `⚙️ <b>서버 가중치 조정 ${adjustments.length}건</b>\n` +
+    (adjustments.length > 0 ? adjustments.slice(0, 5).join('\n') : '  변경 없음') +
+    (boostAdjustments.length > 0
+      ? `\n\n🧠 <b>Gemini 프롬프트 boost 조정 ${boostAdjustments.length}건 (클라이언트 조건)</b>\n` +
+        boostAdjustments.slice(0, 5).join('\n')
+      : '')
   ).catch(console.error);
 }
 
 // ── 공유 유틸 ────────────────────────────────────────────────────────────────
 
 /**
- * 시간 감쇠 가중치 (regimeAwareCalibrator / conditionAuditor 에서도 사용).
- * 60일 반감기 지수 감쇠 — 최근 거래가 6개월 전보다 약 3배 높은 영향.
+ * 레짐별 반감기(일).
+ *
+ * 아이디어 4 (Phase 2) — 시장 속도에 학습 감쇠를 동기화한다.
+ *   - R1_TURBO/R2_BULL: 변동이 빨라 최근 신호 편중 → 짧은 반감기
+ *   - R4_NEUTRAL(기본): 기존 60일 유지
+ *   - R5_CAUTION/R6_DEFENSE: 관측 기간이 길어야 하므로 긴 반감기
+ *
+ * 알 수 없는 레짐(빈값/오타)은 보수적으로 기본 60일.
  */
-export function timeWeight(signalTime: string): number {
-  const ageDays = (Date.now() - new Date(signalTime).getTime()) / 86_400_000;
-  return Math.exp(-ageDays / 60);
+export const REGIME_HALFLIFE_DAYS: Record<string, number> = {
+  R1_TURBO:   30,
+  R2_BULL:    45,
+  R3_EARLY:   50,
+  R4_NEUTRAL: 60,
+  R5_CAUTION: 75,
+  R6_DEFENSE: 90,
+};
+
+export function regimeHalfLifeDays(regime?: string | null): number {
+  if (!regime) return 60;
+  return REGIME_HALFLIFE_DAYS[regime] ?? 60;
+}
+
+/**
+ * 시간 감쇠 가중치 (regimeAwareCalibrator / conditionAuditor 에서도 사용).
+ *
+ * 기본 60일 반감기 지수 감쇠 — 최근 거래가 6개월 전보다 약 3배 높은 영향.
+ * `regime` 을 전달하면 REGIME_HALFLIFE_DAYS 에 따라 반감기가 조정된다.
+ */
+export function timeWeight(signalTime: string, regime?: string | null): number {
+  const ageDays  = (Date.now() - new Date(signalTime).getTime()) / 86_400_000;
+  const halflife = regimeHalfLifeDays(regime);
+  return Math.exp(-ageDays / halflife);
+}
+
+/**
+ * 아이디어 5 (Phase 3) — 타이밍 민감 조건 식별.
+ *
+ * EXPIRED 이후 LATE_WIN 으로 재분류된 거래는 "신호는 맞았으나 타이밍이 어긋났다"
+ * 는 의미다. 타이밍이 핵심 변수인 조건에 한해 기여도를 30% 감쇠하여 학습 시
+ * "신호 정확성"과 "타이밍 정밀도"를 분리한다.
+ *
+ * 서버 매핑: momentum(18), turtle_high(20)
+ * 클라이언트 ID: 20 터틀, 21 피보나치, 22 엘리엇, 26 다이버전스
+ */
+const TIMING_SENSITIVE_SERVER_KEYS = new Set(['momentum', 'turtle_high']);
+const TIMING_SENSITIVE_CONDITION_IDS = new Set([18, 20, 21, 22, 26]);
+
+export function isTimingSensitiveServerKey(key: string): boolean {
+  return TIMING_SENSITIVE_SERVER_KEYS.has(key);
+}
+
+export function isTimingSensitiveConditionId(id: number): boolean {
+  return TIMING_SENSITIVE_CONDITION_IDS.has(id);
+}
+
+/**
+ * LATE_WIN 거래의 타이밍 조건 기여도를 감쇠하는 승률 가중치.
+ * - lateWin=true AND 타이밍 조건 → 0.7
+ * - 그 외 → 1.0
+ */
+export const LATE_WIN_TIMING_PENALTY = 0.7;
+
+export function latePenaltyForServerKey(lateWin: boolean | undefined, key: string): number {
+  return lateWin && isTimingSensitiveServerKey(key) ? LATE_WIN_TIMING_PENALTY : 1.0;
+}
+
+export function latePenaltyForConditionId(lateWin: boolean | undefined, id: number): number {
+  return lateWin && isTimingSensitiveConditionId(id) ? LATE_WIN_TIMING_PENALTY : 1.0;
 }
 
 /**

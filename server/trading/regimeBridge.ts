@@ -15,6 +15,8 @@ import { classifyRegime, REGIME_CONFIGS } from '../../src/services/quant/regimeE
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelRegimeChange } from '../alerts/channelPipeline.js';
+import { resetConditionWeightsForRegime } from '../persistence/conditionWeightsRepo.js';
+import { isForcedRegimeDowngradeActive } from '../learning/learningState.js';
 
 // ── 레짐 전환 감지용 모듈 상태 ──────────────────────────────────────────────
 
@@ -70,21 +72,27 @@ export function buildRegimeVars(macroState: MacroState): RegimeVariables {
   };
 }
 
-/**
- * MacroState → RegimeLevel
- * macroState가 null이면 R4_NEUTRAL 반환 (신호 스캔 일시 중단 없음, 보수적 운용).
- */
-export function getLiveRegime(macroState: MacroState | null): RegimeLevel {
-  if (!macroState) return 'R4_NEUTRAL';
-  return classifyRegime(buildRegimeVars(macroState));
-}
-
-// ── 레짐 전환 즉시 알림 ──────────────────────────────────────────────────────
-
 /** 레짐 순서 (방어 → 공격) — 다운그레이드/업그레이드 판단용 */
 const REGIME_ORDER: RegimeLevel[] = [
   'R6_DEFENSE', 'R5_CAUTION', 'R4_NEUTRAL', 'R3_EARLY', 'R2_BULL', 'R1_TURBO',
 ];
+
+/**
+ * MacroState → RegimeLevel
+ * macroState가 null이면 R4_NEUTRAL 반환 (신호 스캔 일시 중단 없음, 보수적 운용).
+ *
+ * 아이디어 7 (Phase 4): isForcedRegimeDowngradeActive() 활성 시 raw 분류 결과를
+ * REGIME_ORDER 상 한 단계 방어쪽으로 이동(예: R2_BULL → R3_EARLY).
+ */
+export function getLiveRegime(macroState: MacroState | null): RegimeLevel {
+  const raw: RegimeLevel = macroState ? classifyRegime(buildRegimeVars(macroState)) : 'R4_NEUTRAL';
+  if (!isForcedRegimeDowngradeActive()) return raw;
+  const idx = REGIME_ORDER.indexOf(raw);
+  if (idx <= 0) return raw; // 이미 R6_DEFENSE — 더 내려갈 곳 없음
+  return REGIME_ORDER[idx - 1];
+}
+
+// ── 레짐 전환 즉시 알림 ──────────────────────────────────────────────────────
 
 /**
  * 레짐 전환 감지 + 즉시 Telegram 알림 발송.
@@ -124,6 +132,29 @@ export async function checkAndNotifyRegimeChange(
   const prevIdx = REGIME_ORDER.indexOf(_previousRegime);
   const currIdx = REGIME_ORDER.indexOf(currentRegime);
   const isDowngrade = currIdx < prevIdx;
+  // 아이디어 2: 2단계 이상 급변 시 새 레짐의 학습 가중치 즉시 리셋.
+  // 예: R2_BULL(idx=4) → R5_CAUTION(idx=1) → |diff|=3 → 리셋.
+  const stepDelta = Math.abs(prevIdx - currIdx);
+  const isAbruptShift = stepDelta >= 2;
+  let resetNote = '';
+  if (isAbruptShift) {
+    const prevWeights = resetConditionWeightsForRegime(currentRegime);
+    const movedKeys = prevWeights
+      ? Object.entries(prevWeights)
+          .filter(([, v]) => Math.abs(v - 1.0) > 0.05)
+          .map(([k]) => k)
+      : [];
+    resetNote =
+      `\n🧬 <b>가중치 자동 리셋</b>\n` +
+      `• ${currentRegime} condition-weights 초기값 1.0 복원 (${stepDelta}단계 급변)\n` +
+      (movedKeys.length > 0
+        ? `• 리셋된 키: ${movedKeys.slice(0, 6).join(', ')}${movedKeys.length > 6 ? ` 외 ${movedKeys.length - 6}` : ''}\n`
+        : '• 이전 저장 없음 — 신규 파일 생성\n') +
+      `• 원칙: 직전 장세 주도주는 신장세 주도주가 아니다\n`;
+    console.log(
+      `[RegimeBridge] ${stepDelta}단계 급변(${_previousRegime}→${currentRegime}) — ${currentRegime} 가중치 리셋`,
+    );
+  }
 
   const prevCfg = REGIME_CONFIGS[_previousRegime];
   const currCfg = REGIME_CONFIGS[currentRegime];
@@ -159,6 +190,10 @@ export async function checkAndNotifyRegimeChange(
     msg += `• 손절 기준: 강화 모드 전환\n`;
   } else {
     msg += `• 손절 기준: 완화 모드 전환\n`;
+  }
+
+  if (resetNote) {
+    msg += resetNote;
   }
 
   msg += `━━━━━━━━━━━━━━━━━━━━\n`;

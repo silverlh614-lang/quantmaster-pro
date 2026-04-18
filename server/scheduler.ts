@@ -29,7 +29,7 @@ import { loadShadowTrades, saveShadowTrades } from './persistence/shadowTradeRep
 import { updateShadowResults } from './trading/exitEngine.js';
 import { runDynamicUniverseExpansion } from './screener/dynamicUniverseExpander.js';
 import { loadWatchlist } from './persistence/watchlistRepo.js';
-import { getEmergencyStop, getDailyLossPct } from './state.js';
+import { getEmergencyStop, setEmergencyStop, getDailyLossPct } from './state.js';
 import { getLastScanAt } from './orchestrator/adaptiveScanScheduler.js';
 import { getLastBuySignalAt, getLastScanSummary } from './trading/signalScanner.js';
 import { getKisTokenRemainingHours, refreshKisToken, invalidateKisToken } from './clients/kisClient.js';
@@ -52,6 +52,10 @@ import {
   loadLearningState,
   setTradingHold,
   isTradingHeld,
+  setForcedRegimeDowngrade,
+  isForcedRegimeDowngradeActive,
+  tripCircuitBreaker,
+  getCircuitBreakerTrippedAt,
 } from './learning/learningState.js';
 import { checkWeeklySharpeAlert } from './learning/weeklySharpeMonitor.js';
 import { getLearningInterval } from './learning/adaptiveLearningClock.js';
@@ -289,13 +293,34 @@ export function startScheduler() {
         if (s.status === 'HIT_STOP') consecLoss++;
         else break;
       }
-      if (consecLoss >= 2 && !isTradingHeld()) {
-        setTradingHold(30 * 60 * 1000); // 30분 신규 진입 차단
+      // 아이디어 7 (Phase 4) — 3단계 서킷브레이커:
+      //   2건: 신규 진입 30분 홀드 + 레짐 1단계 강제 다운그레이드(4시간)
+      //   3건: 자동거래 완전 정지(setEmergencyStop) + 수동 재개 승인 요청
+      if (consecLoss >= 3 && !getCircuitBreakerTrippedAt()) {
+        tripCircuitBreaker();
+        setEmergencyStop(true);
         await sendTelegramAlert(
-          `🚨 <b>[실시간 연속손절]</b> ${consecLoss}건 연속 — 신규 진입 30분 홀드`,
+          `🛑 <b>[서킷브레이커 발동]</b> 연속손절 ${consecLoss}건\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `• 자동거래 <b>일시정지</b> (setEmergencyStop=true)\n` +
+          `• 레짐 강제 다운그레이드 유지\n` +
+          `• 신규 진입 홀드 30분 유지\n\n` +
+          `📌 <b>수동 재개 필요</b> — /emergency off 또는 웹훅 명령으로 해제`,
+          { priority: 'CRITICAL', dedupeKey: `circuit_breaker:${consecLoss}` },
+        ).catch(console.error);
+        console.warn(`[Scheduler] 🛑 서킷브레이커 발동 — 연속손절 ${consecLoss}건, 자동거래 정지`);
+      } else if (consecLoss >= 2 && !isForcedRegimeDowngradeActive()) {
+        setForcedRegimeDowngrade(4 * 60 * 60 * 1000); // 4시간 강제 다운그레이드
+        setTradingHold(30 * 60 * 1000);
+        await sendTelegramAlert(
+          `🚨 <b>[실시간 연속손절]</b> ${consecLoss}건 연속\n` +
+          `• 신규 진입 30분 홀드\n` +
+          `• 레짐 1단계 강제 다운그레이드 (4시간) — 포지션 한도/Kelly 축소`,
           { priority: 'CRITICAL', dedupeKey: `streak_hold:${consecLoss}` },
         ).catch(console.error);
-        console.warn(`[Scheduler] 실시간 연속손절 ${consecLoss}건 — 30분 거래 홀드 활성화`);
+        console.warn(`[Scheduler] 실시간 연속손절 ${consecLoss}건 — 홀드 + 레짐 다운그레이드`);
+      } else if (consecLoss >= 2 && !isTradingHeld()) {
+        setTradingHold(30 * 60 * 1000);
       }
     } catch (e) {
       console.error('[Scheduler] Shadow trade resolution 실패:', e);
