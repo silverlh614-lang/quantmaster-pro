@@ -19,6 +19,7 @@ import { isRealTradeReady } from '../learning/recommendationTracker.js';
 import { calculateOrderQuantity, isOpenShadowStatus } from '../trading/entryEngine.js';
 import { decideScan, recordScanResult } from './adaptiveScanScheduler.js';
 import { learningOrchestrator } from './learningOrchestrator.js';
+import { shouldRunMonthlyEvolution, getLearningInterval } from '../learning/adaptiveLearningClock.js';
 import { scanAndUpdateIntradayWatchlist } from '../screener/intradayScanner.js';
 import { clearIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 
@@ -406,13 +407,18 @@ export class TradingDayOrchestrator {
           await learningOrchestrator.runDailyEval().catch(console.error);
           this.markRan('evalRecs');
         }
-        // 월말(28일 이후) 16:45+ 한 번만: L4 월간 진화 루프
+        // L4 월간 진화 루프 — 적응형 트리거 (아이디어: Adaptive Learning Clock).
+        // 기존 "28일 이후" 하드코드 대신 VIX/레짐 기반 calibrateTriggerDays(7/14/28)로
+        // 적응. shouldRunMonthlyEvolution()이 true면 16:45+ 이후 1회 실행.
         {
-          const kstNow    = new Date(Date.now() + 9 * 60 * 60 * 1000);
-          const kstDay    = kstNow.getUTCDate();
-          const kstMonth  = kstNow.toISOString().slice(0, 7); // YYYY-MM
-          if (kstDay >= 28 && t >= 1645 && !this.hasRan('calibrate')) {
-            console.log('[Orchestrator] L4 월간 진화 루프 위임 (월말)');
+          const kstNow   = new Date(Date.now() + 9 * 60 * 60 * 1000);
+          const kstMonth = kstNow.toISOString().slice(0, 7); // YYYY-MM
+          if (t >= 1645 && !this.hasRan('calibrate') && shouldRunMonthlyEvolution()) {
+            const { mode, calibrateTriggerDays, reason } = getLearningInterval();
+            console.log(
+              `[Orchestrator] L4 월간 진화 루프 위임 — adaptive mode=${mode} ` +
+              `(trigger=${calibrateTriggerDays}일, ${reason})`,
+            );
             await learningOrchestrator.runMonthlyEvolution().catch(console.error);
             this.orch.lastCalibratedMonth = kstMonth;
             this.markRan('calibrate');
@@ -422,23 +428,25 @@ export class TradingDayOrchestrator {
       }
 
       case 'PRE_MARKET': {
-        // ── 월말 캘리브레이션 catch-up ──────────────────────────────────────
-        // KST 17:00+ PRE_MARKET에서 실행됨 (UTC 08:xx 크론).
-        // 조건: 이번 달 캘리브레이션 미완료 & 28일 이후 & 오늘 정상/catch-up 모두 미실행
+        // ── L4 캘리브레이션 catch-up ────────────────────────────────────────
+        // KST 17:00+ PRE_MARKET (UTC 08:xx cron).
+        // 조건: adaptive 트리거 만족 & 이번 달 미실행 & 오늘 정상/catch-up 모두 미실행.
         const kstNow   = new Date(Date.now() + 9 * 60 * 60 * 1000);
-        const kstDay   = kstNow.getUTCDate();
         const kstMonth = kstNow.toISOString().slice(0, 7);
         const catchupNeeded =
-          kstDay >= 28 &&
+          shouldRunMonthlyEvolution() &&
           this.orch.lastCalibratedMonth !== kstMonth &&
           !this.hasRan('calibrate') &&
           !this.hasRan('catchupCalibrate');
 
         if (catchupNeeded) {
-          console.log('[Orchestrator] L4 월말 캘리브레이션 누락 감지 — catch-up 실행 (KST 17:00+)');
+          const { mode, calibrateTriggerDays } = getLearningInterval();
+          console.log(
+            `[Orchestrator] L4 캘리브레이션 누락 감지 — catch-up 실행 (adaptive ${mode} / ${calibrateTriggerDays}일)`,
+          );
           await sendTelegramAlert(
             `⚠️ <b>[Calibrator Catch-up]</b> 16:45 구간 누락 감지\n` +
-            `${kstMonth} 캘리브레이션을 17:00+ catch-up으로 실행합니다.`
+            `${kstMonth} 캘리브레이션(adaptive ${mode} / ${calibrateTriggerDays}일)을 17:00+ catch-up으로 실행합니다.`
           ).catch(console.error);
           await learningOrchestrator.runMonthlyEvolution().catch(console.error);
           this.orch.lastCalibratedMonth = kstMonth;
