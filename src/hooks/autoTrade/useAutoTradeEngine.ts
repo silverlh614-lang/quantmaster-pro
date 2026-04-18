@@ -157,12 +157,10 @@ export function useAutoTradeEngine(): UseAutoTradeEngineReturn {
     engineStatusQ.isPending && shadowTradesQ.isPending && holdingsQ.isPending;
 
   // ── 액션 ─────────────────────────────────────────────────────
+  // mutation 의 onError 에서 이미 toast.error 를 표시하지만, 호출부(특히
+  // Arming 게이트)가 실패 여부로 분기할 수 있도록 에러는 다시 throw 한다.
   const toggleEngine = useCallback(async () => {
-    try {
-      await toggleMut.mutateAsync();
-    } catch (err) {
-      console.error('[auto-trade] 엔진 토글 실패:', err);
-    }
+    await toggleMut.mutateAsync();
   }, [toggleMut]);
 
   const runReconcile = useCallback(async () => {

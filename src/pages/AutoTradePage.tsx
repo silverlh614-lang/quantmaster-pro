@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Activity } from 'lucide-react';
 import { Stack } from '../layout/Stack';
 import { PageHeader } from '../ui/page-header';
@@ -15,12 +15,40 @@ import { BrokerConnectionPanel } from '../components/autoTrading/BrokerConnectio
 import { EmergencyActionsPanel } from '../components/autoTrading/EmergencyActionsPanel';
 import { OrderDetailModal } from '../components/autoTrading/OrderDetailModal';
 import { PositionDetailDrawer } from '../components/autoTrading/PositionDetailDrawer';
+import { EngineToggleGate } from '../components/autoTrading/EngineToggleGate';
 import { useAutoTradingDashboard } from '../hooks/useAutoTradingDashboard';
+import { useEngineArming } from '../hooks/autoTrade/useEngineArming';
 
 export function AutoTradePage() {
-  const { data, loading, error, refresh, toggleEngine } = useAutoTradingDashboard();
+  const {
+    data,
+    loading,
+    error,
+    refresh,
+    toggleEngine,
+    engineToggling,
+    isRunning,
+    mode,
+  } = useAutoTradingDashboard();
+
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
+
+  // ── Nuclear Reactor Gate — LIVE 모드 시동 시에만 사용 ──────────
+  const arming = useEngineArming({
+    armTimeoutMs: 10_000,
+    onCommit: toggleEngine, // toast.promise 는 mutations 에서 이미 처리
+  });
+
+  const handleArmLive = () => {
+    if (isRunning) return;
+    arming.arm();
+  };
+
+  const handleResumeShadow = () => {
+    // LIVE 가 아닌 모드는 Gate 없이 즉시 토글 (Optimistic UI 로 반영).
+    void toggleEngine();
+  };
 
   const selectedOrder = useMemo(
     () => data?.orders.find((order) => order.id === selectedOrderId) ?? null,
@@ -56,6 +84,8 @@ export function AutoTradePage() {
     );
   }
 
+  const gateOpen = arming.state !== 'IDLE';
+
   return (
     <>
       <Stack gap="xl">
@@ -67,8 +97,10 @@ export function AutoTradePage() {
 
         <AutoTradingControlCenter
           state={data.control}
+          engineToggling={engineToggling}
           onPause={() => { void toggleEngine(); }}
-          onResume={() => { void toggleEngine(); }}
+          onResume={handleResumeShadow}
+          onArmLive={handleArmLive}
           onRefresh={refresh}
           onEmergencyStop={() => { void toggleEngine(); }}
         />
@@ -111,6 +143,18 @@ export function AutoTradePage() {
         position={selectedPosition}
         open={!!selectedPosition}
         onClose={() => setSelectedPositionId(null)}
+      />
+
+      {/* Nuclear Reactor Gate — LIVE 엔진 시동용 3단계 확인 모달 */}
+      <EngineToggleGate
+        open={gateOpen}
+        state={arming.state}
+        armCountdown={arming.armCountdown}
+        todayToken={arming.todayToken}
+        mode={mode}
+        onAbort={arming.abort}
+        onProceed={arming.proceed}
+        onCommit={(t) => arming.commit(t, arming.todayToken)}
       />
     </>
   );

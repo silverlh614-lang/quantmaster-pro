@@ -1,12 +1,15 @@
 /**
  * Auto-Trade Mutations — 엔진 토글, reconcile, shadow trade 동기화.
  *
- * mutation 성공 시 관련 쿼리를 invalidate 하여 SSoT 원칙을 유지한다.
- * (Phase 2 에서 optimistic UI + toast.promise 가 추가 예정 — 훅 반환 형태는
- *  TanStack `UseMutationResult` 를 그대로 사용해 확장 친화적으로 설계.)
+ * **Phase 2 강화**:
+ *   - 엔진 토글에 Optimistic UI 적용: 클릭 즉시 UI 가 "실행중/정지" 로 반영되고,
+ *     서버 응답 실패 시 `onError` 에서 이전 상태로 롤백 + toast 에러.
+ *   - `sonner` 의 `toast.promise()` 로 로딩 → 성공/실패 상태 인라인 알림.
+ *   - 24번 보고서: 0.1초 지연이 시스템 1→2 전환 유발 → 낙관적 업데이트로 마찰 제거.
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import {
   autoTradeApi,
   type EngineStatus,
@@ -18,11 +21,31 @@ import {
 } from '../../api';
 import { AUTO_TRADE_KEYS } from './queryKeys';
 
-// ── 엔진 ON/OFF 토글 ────────────────────────────────────────────
+// ── 엔진 ON/OFF 토글 (Optimistic UI + 롤백) ─────────────────────
 export function useToggleEngineMutation() {
   const qc = useQueryClient();
-  return useMutation<EngineToggleResponse, Error, void>({
+  return useMutation<
+    EngineToggleResponse,
+    Error,
+    void,
+    { previous: EngineStatus | undefined }
+  >({
     mutationFn: () => autoTradeApi.toggleEngine(),
+
+    // ── Optimistic: 클릭 즉시 cache 에 running 반전 반영 ─────────
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: AUTO_TRADE_KEYS.engineStatus });
+      const previous = qc.getQueryData<EngineStatus>(AUTO_TRADE_KEYS.engineStatus);
+      if (previous) {
+        qc.setQueryData<EngineStatus>(AUTO_TRADE_KEYS.engineStatus, {
+          ...previous,
+          running: !previous.running,
+        });
+      }
+      return { previous };
+    },
+
+    // ── 성공: 서버 응답을 최종 진실로 반영 ─────────────────────
     onSuccess: (data) => {
       qc.setQueryData<EngineStatus | undefined>(
         AUTO_TRADE_KEYS.engineStatus,
@@ -30,7 +53,40 @@ export function useToggleEngineMutation() {
       );
       void qc.invalidateQueries({ queryKey: AUTO_TRADE_KEYS.engineStatus });
     },
+
+    // ── 실패: 낙관적 변경 롤백 + 에러 토스트 ──────────────────
+    onError: (err, _vars, ctx) => {
+      if (ctx?.previous) {
+        qc.setQueryData(AUTO_TRADE_KEYS.engineStatus, ctx.previous);
+      }
+      toast.error('엔진 토글 실패', { description: err.message });
+    },
+
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: AUTO_TRADE_KEYS.engineStatus });
+    },
   });
+}
+
+/**
+ * 사용자 이벤트 핸들러에서 호출할 수 있는 편의 함수 —
+ * `toggleMut.mutateAsync()` 를 `toast.promise()` 로 감싸 라이프사이클 표시.
+ *
+ * 사용 예:
+ *   const toggle = useToggleEngineMutation();
+ *   const handle = () => toggleEngineWithToast(toggle.mutateAsync, { nextRunning: true });
+ */
+export function toggleEngineWithToast(
+  fire: () => Promise<EngineToggleResponse>,
+  meta: { nextRunning: boolean },
+): Promise<EngineToggleResponse> {
+  const actionLabel = meta.nextRunning ? '엔진 가동' : '엔진 정지';
+  return toast.promise(fire(), {
+    loading: `${actionLabel} 요청 전송 중…`,
+    success: (data) =>
+      data.running ? '엔진 가동 완료 — 실매매 모니터링 시작' : '엔진 정지 완료',
+    error: (err: Error) => `${actionLabel} 실패: ${err.message}`,
+  }).unwrap();
 }
 
 // ── 수동 Reconciliation ─────────────────────────────────────────
@@ -45,6 +101,14 @@ export function useRunReconcileMutation() {
       });
       void qc.invalidateQueries({ queryKey: AUTO_TRADE_KEYS.reconcile });
       void qc.invalidateQueries({ queryKey: AUTO_TRADE_KEYS.engineStatus });
+      toast.success('Reconciliation 완료', {
+        description: data.integrityOk
+          ? '데이터 정합성 확인됨'
+          : `불일치 ${data.mismatchCount}건 감지`,
+      });
+    },
+    onError: (err) => {
+      toast.error('Reconciliation 실패', { description: err.message });
     },
   });
 }

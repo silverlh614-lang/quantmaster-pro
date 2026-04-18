@@ -35,4 +35,12 @@ export {
   useRunReconcileMutation,
   useSyncShadowTradeMutation,
   useForceUpdateShadowTradeMutation,
+  toggleEngineWithToast,
 } from './mutations';
+
+export {
+  useEngineArming,
+  type ArmingState,
+  type UseEngineArmingOptions,
+  type UseEngineArmingReturn,
+} from './useEngineArming';

@@ -33,6 +33,12 @@ interface UseAutoTradingDashboardResult {
   refresh: () => void;
   /** 엔진 토글 (컨트롤 센터의 play/pause 버튼용). */
   toggleEngine: () => Promise<void>;
+  /** 토글 요청 진행 중 여부 — 버튼 로딩 스피너용. */
+  engineToggling: boolean;
+  /** 현재 엔진이 실행 중인지. */
+  isRunning: boolean;
+  /** 현재 운용 모드 ('LIVE' | 'PAPER' | 'SHADOW' | 'MANUAL'). */
+  mode: string;
   /** Phase 2 로 이관 예정: 비상정지 전용 액션. 현재는 토글과 동일. */
   emergencyStop: () => Promise<void>;
 }
@@ -71,6 +77,9 @@ export function useAutoTradingDashboard(): UseAutoTradingDashboardResult {
     error: engine.error ? '자동매매 대시보드를 불러오지 못했습니다.' : null,
     refresh: engine.refetchAll,
     toggleEngine: engine.toggleEngine,
+    engineToggling: engine.engineToggling,
+    isRunning: Boolean(engine.engineStatus?.running),
+    mode: data?.control.mode ?? 'MANUAL',
     emergencyStop: engine.toggleEngine,
   };
 }
