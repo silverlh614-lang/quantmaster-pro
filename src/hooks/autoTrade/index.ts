@@ -32,6 +32,7 @@ export {
 
 export {
   useToggleEngineMutation,
+  useEmergencyStopMutation,
   useRunReconcileMutation,
   useSyncShadowTradeMutation,
   useForceUpdateShadowTradeMutation,
@@ -60,3 +61,8 @@ export {
   useEngineStream,
   type UseEngineStreamOptions,
 } from './useEngineStream';
+
+export {
+  useAlertsFeed,
+  type UseAlertsFeedReturn,
+} from './useAlertsFeed';

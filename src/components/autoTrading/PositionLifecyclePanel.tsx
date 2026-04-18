@@ -9,7 +9,7 @@ interface PositionLifecyclePanelProps {
 
 export function PositionLifecyclePanel({ positions }: PositionLifecyclePanelProps) {
   return (
-    <Section title="포지션 라이프사이클" subtitle="Position Lifecycle Panel">
+    <Section title="활성 포지션 포트폴리오" subtitle="Active Position Lifecycle">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {positions.length === 0 ? (
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/50">

@@ -89,6 +89,25 @@ export function toggleEngineWithToast(
   }).unwrap();
 }
 
+// ── 비상 정지 (강제 단방향) ─────────────────────────────────────
+export function useEmergencyStopMutation() {
+  const qc = useQueryClient();
+  return useMutation<EngineToggleResponse, Error, void>({
+    mutationFn: () => autoTradeApi.emergencyStop(),
+    onSuccess: (data) => {
+      qc.setQueryData<EngineStatus | undefined>(
+        AUTO_TRADE_KEYS.engineStatus,
+        (prev) => prev ? { ...prev, running: data.running, emergencyStop: true } : prev,
+      );
+      void qc.invalidateQueries({ queryKey: AUTO_TRADE_KEYS.engineStatus });
+      toast.success('비상정지 발동', { description: '엔진이 즉시 정지되었습니다.' });
+    },
+    onError: (err) => {
+      toast.error('비상정지 실패', { description: err.message });
+    },
+  });
+}
+
 // ── 수동 Reconciliation ─────────────────────────────────────────
 export function useRunReconcileMutation() {
   const qc = useQueryClient();

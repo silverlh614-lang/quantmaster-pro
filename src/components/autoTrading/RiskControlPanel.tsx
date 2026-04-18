@@ -8,7 +8,7 @@ interface RiskControlPanelProps {
 
 export function RiskControlPanel({ rules }: RiskControlPanelProps) {
   return (
-    <Section title="리스크 제어 패널" subtitle="Risk Control Panel">
+    <Section title="리스크 제어 매트릭스" subtitle="Risk Control Matrix">
       <div className="space-y-3">
         {rules.length === 0 ? (
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/50">

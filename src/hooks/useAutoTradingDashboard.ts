@@ -80,6 +80,7 @@ export function useAutoTradingDashboard(): UseAutoTradingDashboardResult {
     engineToggling: engine.engineToggling,
     isRunning: Boolean(engine.engineStatus?.running),
     mode: data?.control.mode ?? 'MANUAL',
-    emergencyStop: engine.toggleEngine,
+    // 비상정지는 이제 단방향 엔드포인트로 분리됨 — toggle 반전 리스크 제거.
+    emergencyStop: engine.emergencyStop,
   };
 }

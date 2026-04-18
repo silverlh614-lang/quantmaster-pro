@@ -19,7 +19,7 @@ function gradeStyle(grade: SignalItem['grade']) {
 
 export function SignalQueuePanel({ signals }: SignalQueuePanelProps) {
   return (
-    <Section title="신호 큐" subtitle="Signal Queue Panel">
+    <Section title="진입 신호 집행 대기열" subtitle="Entry Signal Execution Queue">
       <div className="overflow-x-auto rounded-xl border border-white/10">
         <table className="min-w-full text-sm">
           <thead className="bg-white/5 text-white/60">

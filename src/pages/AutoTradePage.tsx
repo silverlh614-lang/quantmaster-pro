@@ -18,12 +18,15 @@ import { PositionDetailDrawer } from '../components/autoTrading/PositionDetailDr
 import { EngineToggleGate } from '../components/autoTrading/EngineToggleGate';
 import { EngineHealthBanner } from '../components/autoTrading/EngineHealthBanner';
 import { CompositeVerdictCard } from '../components/autoTrading/CompositeVerdictCard';
+import { GatePassRateHeatmap } from '../components/autoTrading/GatePassRateHeatmap';
+import { AlertsFeedBell } from '../components/autoTrading/AlertsFeedBell';
 import { useAutoTradingDashboard } from '../hooks/useAutoTradingDashboard';
 import { useAutoTradeEngine } from '../hooks/autoTrade';
 import { useEngineArming } from '../hooks/autoTrade/useEngineArming';
 import { useEngineHeartbeat } from '../hooks/autoTrade/useEngineHeartbeat';
 import { useKillSwitchStatus } from '../hooks/autoTrade/useKillSwitchStatus';
 import { useEngineStream } from '../hooks/autoTrade/useEngineStream';
+import { useAlertsFeed } from '../hooks/autoTrade/useAlertsFeed';
 
 export function AutoTradePage() {
   const {
@@ -35,6 +38,7 @@ export function AutoTradePage() {
     engineToggling,
     isRunning,
     mode,
+    emergencyStop,
   } = useAutoTradingDashboard();
 
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
@@ -44,13 +48,15 @@ export function AutoTradePage() {
   const killSwitch = useKillSwitchStatus();
   // SSE 실시간 엔진 스트림 — 연결되면 5초 폴링은 cache-hit 로 흡수되어 무해.
   useEngineStream();
-  // CompositeVerdictCard 용 raw 엔진/감사 데이터 (파생 맵 이전 원형).
-  const { engineStatus, buyAudit } = useAutoTradeEngine();
+  // CompositeVerdictCard / Heatmap 용 raw 엔진·감사 데이터.
+  const { engineStatus, buyAudit, gateAudit } = useAutoTradeEngine();
+  // 텔레그램 ↔ UI 알림 동기화.
+  const alertsFeed = useAlertsFeed();
 
   // ── Nuclear Reactor Gate — LIVE 모드 시동 시에만 사용 ──────────
   const arming = useEngineArming({
     armTimeoutMs: 10_000,
-    onCommit: toggleEngine, // toast.promise 는 mutations 에서 이미 처리
+    onCommit: toggleEngine,
   });
 
   const handleArmLive = () => {
@@ -59,7 +65,6 @@ export function AutoTradePage() {
   };
 
   const handleResumeShadow = () => {
-    // LIVE 가 아닌 모드는 Gate 없이 즉시 토글 (Optimistic UI 로 반영).
     void toggleEngine();
   };
 
@@ -74,14 +79,14 @@ export function AutoTradePage() {
   );
 
   if (loading && !data) {
-    return <LoadingState message="자동매매 관제 데이터를 불러오는 중입니다..." />;
+    return <LoadingState message="정밀 장비를 초기화하는 중입니다..." />;
   }
 
   if (error && !data) {
     return (
       <EmptyState
         icon={<Activity className="h-8 w-8" />}
-        title="자동매매 데이터를 불러올 수 없습니다"
+        title="관제 데이터를 불러올 수 없습니다"
         description={error}
       />
     );
@@ -92,7 +97,7 @@ export function AutoTradePage() {
       <EmptyState
         icon={<Activity className="h-8 w-8" />}
         title="데이터가 없습니다"
-        description="자동매매 대시보드 데이터가 비어 있습니다."
+        description="관제실 데이터가 비어 있습니다."
       />
     );
   }
@@ -102,10 +107,18 @@ export function AutoTradePage() {
   return (
     <>
       <Stack gap="xl">
+        {/* Phase 5 의도 기반 라벨링 — "관제실" 은 "정밀 장비" 신호. */}
         <PageHeader
           title="자동매매 관제실"
-          subtitle="Auto Trading Control Room"
+          subtitle="Precision Instrument · Auto Trading Control Room"
           accentColor="bg-red-500"
+          actions={
+            <AlertsFeedBell
+              entries={alertsFeed.entries}
+              unread={alertsFeed.unread}
+              onMarkAllRead={alertsFeed.markAllRead}
+            />
+          }
         />
 
         <EngineHealthBanner heartbeat={heartbeat} killSwitch={killSwitch} />
@@ -126,7 +139,7 @@ export function AutoTradePage() {
           onResume={handleResumeShadow}
           onArmLive={handleArmLive}
           onRefresh={refresh}
-          onEmergencyStop={() => { void toggleEngine(); }}
+          onEmergencyStop={() => { void emergencyStop(); }}
         />
 
         <PageGrid columns="2-1" gap="md">
@@ -145,6 +158,9 @@ export function AutoTradePage() {
           <PositionLifecyclePanel positions={data.positions} />
         </div>
 
+        {/* Phase 5: Gate 통과율 히트맵 — 필터 효율성 실시간 진단. */}
+        <GatePassRateHeatmap data={gateAudit} />
+
         <PageGrid columns="2" gap="md">
           <BrokerConnectionPanel broker={data.broker} />
           <EmergencyActionsPanel
@@ -152,7 +168,7 @@ export function AutoTradePage() {
             onBlockNewBuy={() => console.log('block new buy')}
             onPauseAutoTrading={() => console.log('pause auto trading')}
             onManageOnly={() => console.log('manage only')}
-            onEmergencyLiquidation={() => console.log('emergency liquidation')}
+            onEmergencyLiquidation={() => { void emergencyStop(); }}
           />
         </PageGrid>
       </Stack>

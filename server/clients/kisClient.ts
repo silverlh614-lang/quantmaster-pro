@@ -4,8 +4,10 @@
 
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { scheduleKisCall, type KisApiPriority } from './kisRateLimiter.js';
+import { assertModeCompatible } from './kisModeGuard.js';
 export type { KisApiPriority } from './kisRateLimiter.js';
 export { getRateLimiterStats } from './kisRateLimiter.js';
+export { ModeIncompatibleError, assertModeCompatible } from './kisModeGuard.js';
 
 export const KIS_IS_REAL = process.env.KIS_IS_REAL === 'true';
 export const KIS_BASE    = KIS_IS_REAL
@@ -239,6 +241,7 @@ export function kisGet(
   trId: string, apiPath: string, params: Record<string, string>,
   priority: KisApiPriority = 'MEDIUM',
 ) {
+  assertModeCompatible(trId, KIS_IS_REAL ? 'LIVE' : 'VTS');
   return scheduleKisCall(priority, `GET ${trId}`, () => _rawKisGet(trId, apiPath, params));
 }
 
@@ -250,6 +253,7 @@ export function kisPost(
   trId: string, apiPath: string, body: Record<string, string>,
   priority: KisApiPriority = 'HIGH',
 ) {
+  assertModeCompatible(trId, KIS_IS_REAL ? 'LIVE' : 'VTS');
   return scheduleKisCall(priority, `POST ${trId}`, () => _rawKisPost(trId, apiPath, body));
 }
 

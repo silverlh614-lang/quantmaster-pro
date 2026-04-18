@@ -7,6 +7,7 @@ export {
   systemApi,
   sessionApi,
   shadowApi,
+  alertsApi,
 } from './autoTradeClient';
 
 export type {
@@ -25,6 +26,9 @@ export type {
   ConditionWeightsDebug,
   KillSwitchAssessmentDto,
   KillSwitchRecordDto,
+  AlertFeedEntry,
+  AlertFeedPriority,
+  AlertFeedResponse,
   DartAlert,
   TradingSettings,
   ServerShadowTrade,

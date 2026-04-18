@@ -49,6 +49,7 @@ import {
 } from './queries';
 import {
   useToggleEngineMutation,
+  useEmergencyStopMutation,
   useRunReconcileMutation,
 } from './mutations';
 
@@ -99,6 +100,10 @@ export interface UseAutoTradeEngineReturn {
   toggleEngine: () => Promise<void>;
   engineToggling: boolean;
 
+  /** 단방향 비상정지 (멱등). 이미 정지 상태여도 재개되지 않음. */
+  emergencyStop: () => Promise<void>;
+  emergencyStopping: boolean;
+
   runReconcile: () => Promise<void>;
   reconcileRunning: boolean;
 
@@ -124,6 +129,7 @@ export function useAutoTradeEngine(): UseAutoTradeEngineReturn {
   const balanceQ = useBalanceQuery();
 
   const toggleMut = useToggleEngineMutation();
+  const emergencyMut = useEmergencyStopMutation();
   const reconcileMut = useRunReconcileMutation();
 
   const accountSummary = useMemo(
@@ -162,6 +168,10 @@ export function useAutoTradeEngine(): UseAutoTradeEngineReturn {
   const toggleEngine = useCallback(async () => {
     await toggleMut.mutateAsync();
   }, [toggleMut]);
+
+  const emergencyStop = useCallback(async () => {
+    await emergencyMut.mutateAsync();
+  }, [emergencyMut]);
 
   const runReconcile = useCallback(async () => {
     try {
@@ -207,6 +217,8 @@ export function useAutoTradeEngine(): UseAutoTradeEngineReturn {
 
     toggleEngine,
     engineToggling: toggleMut.isPending,
+    emergencyStop,
+    emergencyStopping: emergencyMut.isPending,
     runReconcile,
     reconcileRunning: reconcileMut.isPending,
     loadPositionEvents,

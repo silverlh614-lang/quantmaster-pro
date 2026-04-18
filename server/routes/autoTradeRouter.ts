@@ -44,6 +44,7 @@ import {
   attachEngineStream,
   publishEngineStatus,
 } from './engineStreamBus.js';
+import { listAlertFeed, countUnreadSince } from '../persistence/alertsFeedRepo.js';
 import { tradingOrchestrator } from '../orchestrator/tradingOrchestrator.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { getLastBuySignalAt } from '../trading/signalScanner.js';
@@ -161,6 +162,33 @@ router.post('/auto-trade/engine/toggle', (_req: any, res: any) => {
   // 토글 즉시 SSE 브로드캐스트 — 타 브라우저 탭도 5초 지연 없이 동기화.
   try { publishEngineStatus(buildEngineStatusSnapshot()); } catch { /* noop */ }
   res.json({ running, emergencyStop: !current });
+});
+
+// ─── Phase 5: Alerts Feed — UI 벨 아이콘 ────────────────────────────────────
+/** GET /api/alerts/feed — Telegram 으로 발송된 알림의 UI용 타임라인 조회. */
+router.get('/alerts/feed', (req: any, res: any) => {
+  const sinceId = typeof req.query.sinceId === 'string' ? req.query.sinceId : undefined;
+  const limitRaw = Number(req.query.limit);
+  const limit = Number.isFinite(limitRaw) ? limitRaw : 50;
+  const priorityParam = typeof req.query.priority === 'string' ? req.query.priority : '';
+  const priority = priorityParam ? priorityParam.split(',').filter(Boolean) : undefined;
+  const entries = listAlertFeed({ sinceId, limit, priority: priority as any });
+  const unread = countUnreadSince(sinceId);
+  res.json({ entries, unread });
+});
+
+/**
+ * POST /api/auto-trade/engine/emergency-stop — 단방향 강제 정지.
+ *
+ * `toggle` 은 반전이므로 "이미 정지 상태" 에서 호출하면 역설적으로 재개된다.
+ * 비상 경로에서는 이 위험을 허용할 수 없어, 명시적으로 setEmergencyStop(true)
+ * 만 수행하는 별도 엔드포인트를 제공한다. 멱등 (여러 번 호출해도 항상 정지).
+ */
+router.post('/auto-trade/engine/emergency-stop', (_req: any, res: any) => {
+  setEmergencyStop(true);
+  console.warn('[Engine] 🛑 비상정지 강제 발동 (emergency-stop endpoint)');
+  try { publishEngineStatus(buildEngineStatusSnapshot()); } catch { /* noop */ }
+  res.json({ running: false, emergencyStop: true });
 });
 
 // ─── 아이디어 4: FSS 외국인 수급 방향 전환 스코어 API ──────────────────────
