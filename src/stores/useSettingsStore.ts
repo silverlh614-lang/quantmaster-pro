@@ -3,6 +3,12 @@ import { persist } from 'zustand/middleware';
 
 export type View = 'DISCOVER' | 'WATCHLIST' | 'BACKTEST' | 'MARKET' | 'WALK_FORWARD' | 'MANUAL_INPUT' | 'SCREENER' | 'SUBSCRIPTION' | 'TRADE_JOURNAL' | 'AUTO_TRADE' | 'PORTFOLIO_EXTRACT';
 export type ThemeMode = 'dark' | 'light' | 'high-contrast' | 'ocean' | 'forest';
+/**
+ * 점진적 공개(Progressive disclosure) 모드.
+ *  - `simple`: 핵심 KPI + 주요 2개 패널만 표시 (초심자/급하게 확인할 때).
+ *  - `pro`: 전체 진단·이벤트 로그·히트맵까지 탭으로 노출 (프로 운영).
+ */
+export type ViewDensity = 'simple' | 'pro';
 
 interface SettingsState {
   // Navigation
@@ -42,6 +48,10 @@ interface SettingsState {
   // UI Panels
   isFilterExpanded: boolean;
   setIsFilterExpanded: (expanded: boolean) => void;
+
+  // Progressive disclosure — 페이지별 간단/프로 모드
+  autoTradeViewMode: ViewDensity;
+  setAutoTradeViewMode: (mode: ViewDensity) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -90,6 +100,10 @@ export const useSettingsStore = create<SettingsState>()(
       // UI Panels
       isFilterExpanded: true,
       setIsFilterExpanded: (isFilterExpanded) => set({ isFilterExpanded }),
+
+      // Progressive disclosure
+      autoTradeViewMode: 'simple',
+      setAutoTradeViewMode: (autoTradeViewMode) => set({ autoTradeViewMode }),
     }),
     {
       name: 'k-stock-settings',
@@ -100,6 +114,7 @@ export const useSettingsStore = create<SettingsState>()(
         emailAddress: state.emailAddress,
         autoSyncEnabled: state.autoSyncEnabled,
         subscribedSectors: state.subscribedSectors,
+        autoTradeViewMode: state.autoTradeViewMode,
       }),
     }
   )

@@ -12,3 +12,4 @@ export { Spinner } from './spinner';
 export { Tabs } from './tabs';
 export { KpiStrip, KpiScoreboard } from './kpi-strip';
 export type { KpiItem, KpiDetail, KpiStatus } from './kpi-strip';
+export { ViewModeToggle } from './view-mode-toggle';

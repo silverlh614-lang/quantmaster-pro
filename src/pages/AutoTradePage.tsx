@@ -1,25 +1,26 @@
+/**
+ * AutoTradePage — 자동매매 관제실.
+ *
+ * Step 1 (정보 계층화) 리팩토링:
+ *   1) 상단 Hero 4-카드 KPI 로 "한 눈 요약" 구축
+ *   2) Progressive disclosure: 간단 ↔ 프로 모드 토글
+ *   3) 세부 패널은 탭으로 분리 (Position / Execution / Signals / Diagnostics)
+ *
+ * 기존 모든 로직(Nuclear Reactor Gate, SSE 스트림 등) 은 그대로 유지.
+ */
 import React, { useMemo, useState } from 'react';
 import { Activity } from 'lucide-react';
 import { Stack } from '../layout/Stack';
-import { PageHeader } from '../ui/page-header';
-import { PageGrid } from '../layout/PageGrid';
-import { LoadingState } from '../ui/loading-state';
-import { EmptyState } from '../ui/empty-state';
+import { PageHeader, LoadingState, EmptyState, ViewModeToggle } from '../ui';
 import { AutoTradingControlCenter } from '../components/autoTrading/AutoTradingControlCenter';
-import { ExecutionMonitor } from '../components/autoTrading/ExecutionMonitor';
-import { RiskControlPanel } from '../components/autoTrading/RiskControlPanel';
-import { PositionLifecyclePanel } from '../components/autoTrading/PositionLifecyclePanel';
-import { SignalQueuePanel } from '../components/autoTrading/SignalQueuePanel';
-import { EventLogPanel } from '../components/autoTrading/EventLogPanel';
-import { BrokerConnectionPanel } from '../components/autoTrading/BrokerConnectionPanel';
-import { EmergencyActionsPanel } from '../components/autoTrading/EmergencyActionsPanel';
 import { OrderDetailModal } from '../components/autoTrading/OrderDetailModal';
 import { PositionDetailDrawer } from '../components/autoTrading/PositionDetailDrawer';
 import { EngineToggleGate } from '../components/autoTrading/EngineToggleGate';
 import { EngineHealthBanner } from '../components/autoTrading/EngineHealthBanner';
 import { CompositeVerdictCard } from '../components/autoTrading/CompositeVerdictCard';
-import { GatePassRateHeatmap } from '../components/autoTrading/GatePassRateHeatmap';
 import { AlertsFeedBell } from '../components/autoTrading/AlertsFeedBell';
+import { AutoTradeHeroKpis } from '../components/autoTrading/AutoTradeHeroKpis';
+import { AutoTradeTabbedView } from '../components/autoTrading/AutoTradeTabbedView';
 import { useAutoTradingDashboard } from '../hooks/useAutoTradingDashboard';
 import { useAutoTradeEngine } from '../hooks/autoTrade';
 import { useEngineArming } from '../hooks/autoTrade/useEngineArming';
@@ -27,6 +28,7 @@ import { useEngineHeartbeat } from '../hooks/autoTrade/useEngineHeartbeat';
 import { useKillSwitchStatus } from '../hooks/autoTrade/useKillSwitchStatus';
 import { useEngineStream } from '../hooks/autoTrade/useEngineStream';
 import { useAlertsFeed } from '../hooks/autoTrade/useAlertsFeed';
+import { useSettingsStore } from '../stores/useSettingsStore';
 
 export function AutoTradePage() {
   const {
@@ -44,16 +46,17 @@ export function AutoTradePage() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
 
+  const viewMode = useSettingsStore((s) => s.autoTradeViewMode);
+  const setViewMode = useSettingsStore((s) => s.setAutoTradeViewMode);
+
   const heartbeat = useEngineHeartbeat();
   const killSwitch = useKillSwitchStatus();
   // SSE 실시간 엔진 스트림 — 연결되면 5초 폴링은 cache-hit 로 흡수되어 무해.
   useEngineStream();
-  // CompositeVerdictCard / Heatmap 용 raw 엔진·감사 데이터.
   const { engineStatus, buyAudit, gateAudit } = useAutoTradeEngine();
-  // 텔레그램 ↔ UI 알림 동기화.
   const alertsFeed = useAlertsFeed();
 
-  // ── Nuclear Reactor Gate — LIVE 모드 시동 시에만 사용 ──────────
+  // Nuclear Reactor Gate — LIVE 모드 시동 시에만 사용
   const arming = useEngineArming({
     armTimeoutMs: 10_000,
     onCommit: toggleEngine,
@@ -103,34 +106,49 @@ export function AutoTradePage() {
   }
 
   const gateOpen = arming.state !== 'IDLE';
+  const killSwitchActive = Boolean(
+    killSwitch.isDowngraded || killSwitch.current?.shouldDowngrade,
+  );
 
   return (
     <>
       <Stack gap="xl">
-        {/* Phase 5 의도 기반 라벨링 — "관제실" 은 "정밀 장비" 신호. */}
         <PageHeader
           title="자동매매 관제실"
           subtitle="Precision Instrument · Auto Trading Control Room"
           accentColor="bg-red-500"
           actions={
-            <AlertsFeedBell
-              entries={alertsFeed.entries}
-              unread={alertsFeed.unread}
-              onMarkAllRead={alertsFeed.markAllRead}
-            />
+            <div className="flex items-center gap-2">
+              <ViewModeToggle value={viewMode} onChange={setViewMode} />
+              <AlertsFeedBell
+                entries={alertsFeed.entries}
+                unread={alertsFeed.unread}
+                onMarkAllRead={alertsFeed.markAllRead}
+              />
+            </div>
           }
         />
 
+        {/* 최상단: 한 눈 파악용 Hero KPI (4-카드 스코어보드) */}
+        <AutoTradeHeroKpis
+          state={data}
+          isRunning={isRunning}
+          killSwitchActive={killSwitchActive}
+        />
+
+        {/* 필수 진단: 엔진 건강 + 종합 평결 + 컨트롤 */}
         <EngineHealthBanner heartbeat={heartbeat} killSwitch={killSwitch} />
 
-        <CompositeVerdictCard
-          engine={engineStatus}
-          heartbeat={heartbeat}
-          killSwitch={killSwitch}
-          buyAudit={buyAudit}
-          brokerConnected={data.broker.connected}
-          dataIntegrityOk={!data.control.engineStatus.includes('ERROR')}
-        />
+        {viewMode === 'pro' && (
+          <CompositeVerdictCard
+            engine={engineStatus}
+            heartbeat={heartbeat}
+            killSwitch={killSwitch}
+            buyAudit={buyAudit}
+            brokerConnected={data.broker.connected}
+            dataIntegrityOk={!data.control.engineStatus.includes('ERROR')}
+          />
+        )}
 
         <AutoTradingControlCenter
           state={data.control}
@@ -142,35 +160,15 @@ export function AutoTradePage() {
           onEmergencyStop={() => { void emergencyStop(); }}
         />
 
-        <PageGrid columns="2-1" gap="md">
-          <SignalQueuePanel signals={data.signals} />
-          <EventLogPanel logs={data.logs} />
-        </PageGrid>
-
-        <PageGrid columns="2" gap="md">
-          <div onDoubleClick={() => data.orders[0] && setSelectedOrderId(data.orders[0].id)}>
-            <ExecutionMonitor orders={data.orders} />
-          </div>
-          <RiskControlPanel rules={data.riskRules} />
-        </PageGrid>
-
-        <div onDoubleClick={() => data.positions[0] && setSelectedPositionId(data.positions[0].id)}>
-          <PositionLifecyclePanel positions={data.positions} />
-        </div>
-
-        {/* Phase 5: Gate 통과율 히트맵 — 필터 효율성 실시간 진단. */}
-        <GatePassRateHeatmap data={gateAudit} />
-
-        <PageGrid columns="2" gap="md">
-          <BrokerConnectionPanel broker={data.broker} />
-          <EmergencyActionsPanel
-            state={data.emergency}
-            onBlockNewBuy={() => console.log('block new buy')}
-            onPauseAutoTrading={() => console.log('pause auto trading')}
-            onManageOnly={() => console.log('manage only')}
-            onEmergencyLiquidation={() => { void emergencyStop(); }}
-          />
-        </PageGrid>
+        {/* 세부 패널: 탭으로 계층화 */}
+        <AutoTradeTabbedView
+          data={data}
+          gateAudit={gateAudit}
+          viewMode={viewMode}
+          onSelectOrder={setSelectedOrderId}
+          onSelectPosition={setSelectedPositionId}
+          onEmergencyStop={() => { void emergencyStop(); }}
+        />
       </Stack>
 
       <OrderDetailModal
