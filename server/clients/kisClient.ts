@@ -120,6 +120,36 @@ export function getRealDataTokenRemainingHours(): number {
   return Math.floor((cachedRealDataToken.expiry - Date.now()) / 1000 / 60 / 60);
 }
 
+/**
+ * 주·실계좌 KIS 토큰을 **강제로** 동시 갱신한다.
+ *
+ * 캐시 TTL(23h)과 cron 주기(24h) 사이의 1시간 공백을 없애기 위해, 상위 스케줄러가
+ * 12시간 주기로 호출한다. invalidate 후 재발급이므로 "장중 lazy refresh" 경쟁은
+ * 제거되고 토큰 교체 지점이 예측 가능해진다.
+ *
+ * - 주 토큰(KIS_APP_KEY) — 주문·잔고 전용
+ * - 실계좌 데이터 토큰(KIS_REAL_DATA_APP_KEY) — 시장 데이터 전용 (미설정 시 스킵)
+ *
+ * 어느 한쪽이 실패해도 다른 쪽은 계속 시도한다(Promise.allSettled).
+ */
+export async function forceRefreshKisTokens(): Promise<{ main: boolean; realData: boolean | 'SKIPPED' }> {
+  cachedToken = null;
+  cachedRealDataToken = null;
+
+  const mainTask = refreshKisToken();
+  const realTask: Promise<string> | null = HAS_REAL_DATA_CLIENT ? refreshRealDataToken() : null;
+
+  const [mainRes, realRes] = await Promise.allSettled([
+    mainTask,
+    realTask ?? Promise.resolve('SKIPPED'),
+  ]);
+
+  return {
+    main: mainRes.status === 'fulfilled',
+    realData: !realTask ? 'SKIPPED' : realRes.status === 'fulfilled',
+  };
+}
+
 // ─── HTTP 헬퍼 (내부 raw + 외부 rate-limited) ──────────────────────────────
 
 const _kisSleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
