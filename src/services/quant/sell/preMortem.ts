@@ -3,11 +3,17 @@
  *
  * 호출자(autoTradeEngine)가 최신 시장 데이터를 PreMortemData로 주입.
  *
- * 조건 1. ROE 유형 전이   — 유형 3 → 4 이상 시 50% 청산
+ * 조건 1. ROE 유형 전이   — roeEngine.detectROETransition 단일 출처 소비
  * 조건 2. 외국인 순매도   — 5일 누적 순매도 시 30% 청산
  * 조건 3. 데드크로스       — MA20 < MA60 교차 시 전량 청산
  * 조건 4. R6 레짐 전환    — 30% 즉시 청산
  * 조건 5. 고점 대비 -30% — 추세 붕괴 선언, 전량 청산
+ *
+ * ROE 단일 출처 (Phase 2):
+ *   과거 `entryROEType === 3 && currentROEType >= 4` 하드코딩을 제거하고
+ *   roeEngine.detectROETransition([3,3,3,4] 패턴 + 총자산회전율 QoQ 하락)을
+ *   그대로 소비한다. roeTypeHistory가 주입되면 정식 규칙으로, 없으면 기존
+ *   currentROEType 단일값으로 [entry, current] 2원소 히스토리를 합성해 fallback.
  */
 
 import type {
@@ -15,26 +21,62 @@ import type {
   PreMortemData,
   PreMortemTrigger,
 } from '../../../types/sell';
+import type { ROEType } from '../../../types/core';
+import { detectROETransition } from '../roeEngine';
 import { calcDrawdown } from './util';
+
+/**
+ * ROE 히스토리를 확정.
+ * roeTypeHistory가 명시되면 그대로 사용, 없으면 position.entryROEType + data.currentROEType로
+ * 최소 2원소 히스토리를 합성 (하위 호환).
+ */
+function resolveRoeHistory(
+  position: ActivePosition,
+  data: PreMortemData,
+  explicitHistory?: ROEType[],
+): ROEType[] {
+  if (explicitHistory && explicitHistory.length > 0) return explicitHistory;
+
+  const history: ROEType[] = [];
+  if (position.entryROEType !== undefined) {
+    history.push(position.entryROEType as ROEType);
+  }
+  if (data.currentROEType !== undefined) {
+    history.push(data.currentROEType as ROEType);
+  }
+  return history;
+}
 
 export function evaluatePreMortems(
   position: ActivePosition,
   data: PreMortemData,
+  options: {
+    roeTypeHistory?: ROEType[];
+    assetTurnoverHistory?: number[];
+  } = {},
 ): PreMortemTrigger[] {
   const triggers: PreMortemTrigger[] = [];
 
-  // 1. ROE 유형 전이
-  if (
-    position.entryROEType === 3 &&
-    data.currentROEType !== undefined &&
-    data.currentROEType >= 4
-  ) {
-    triggers.push({
-      type: 'ROE_DRIFT',
-      severity: 'HIGH',
-      sellRatio: 0.50,
-      reason: `ROE 유형 전이: 유형 3 → ${data.currentROEType}. 50% 청산.`,
-    });
+  // 1. ROE 유형 전이 — roeEngine 단일 출처 소비
+  const roeHistory = resolveRoeHistory(position, data, options.roeTypeHistory);
+  if (roeHistory.length >= 2) {
+    const roeResult = detectROETransition(
+      roeHistory,
+      options.assetTurnoverHistory ?? [],
+    );
+
+    if (roeResult.penaltyApplied) {
+      // PENALTY 수준이면 전량 가까이, WATCH는 발동하지 않음
+      // TYPE3_TO_4 단독이어도 패턴이 [3,3,3,4]면 매출 성장 동력 소실 → 50% 청산
+      // BOTH(전이 + 총자산회전율 하락)면 더 위험 → 70% 청산
+      const sellRatio = roeResult.transitionType === 'BOTH' ? 0.70 : 0.50;
+      triggers.push({
+        type: 'ROE_DRIFT',
+        severity: roeResult.transitionType === 'BOTH' ? 'CRITICAL' : 'HIGH',
+        sellRatio,
+        reason: `${roeResult.actionMessage} (pattern=[${roeResult.pattern.join(',')}])`,
+      });
+    }
   }
 
   // 2. 외국인 5일 순매도

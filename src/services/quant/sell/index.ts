@@ -33,3 +33,7 @@ export {
   evaluateSellSignalsFromContext,
   type EvaluateSellSignalsOptions,
 } from './orchestrator';
+
+// Strategy Pattern (Phase 2)
+export { SELL_LAYER_REGISTRY, SELL_LAYERS } from './registry';
+export type { SellLayer } from './types';

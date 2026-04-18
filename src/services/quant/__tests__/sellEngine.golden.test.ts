@@ -159,11 +159,14 @@ describe('sellEngine 골든 시나리오', () => {
     expect(signal?.ratio).toBe(0.40);
   });
 
-  it('[S8] L2 Pre-Mortem — ROE 유형 3→4 전이 시 50% 청산', () => {
+  it('[S8] L2 Pre-Mortem — [3,3,3,4] 패턴 감지 시 50% 청산 (detectROETransition 단일 출처)', () => {
+    // Phase 2: 단순 `entry=3, current=4` 전이 즉시 발동이 아니라
+    // roeEngine.detectROETransition의 정식 규칙 ([3,3,3,4] 패턴)만 발동한다.
     const position = basePosition({ entryROEType: 3 });
     const triggers = evaluatePreMortems(
       position,
       basePreMortemData({ currentROEType: 4 }),
+      { roeTypeHistory: [3, 3, 3, 4] },
     );
     const roeTrigger = triggers.find(t => t.type === 'ROE_DRIFT');
     expect(roeTrigger).toBeDefined();
