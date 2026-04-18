@@ -57,7 +57,7 @@ import systemRouter from './routes/systemRouter.js';
 import failurePatternRouter from './routes/failurePatternRouter.js';
 import diagnosticRouter from './routes/diagnosticRouter.js';
 import operatorRouter from './routes/operatorRouter.js';
-import { startScheduler } from './scheduler.js';
+import { startScheduler } from './scheduler/index.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 import { globalErrorHandler } from './utils/apiResponse.js';
 
