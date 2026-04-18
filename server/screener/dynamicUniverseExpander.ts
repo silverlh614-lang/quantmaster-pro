@@ -21,6 +21,7 @@ import fs from 'fs';
 import path from 'path';
 import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL } from '../clients/kisClient.js';
+import { getRanking, type RankingEntry } from '../clients/kisRankingClient.js';
 import { STOCK_UNIVERSE } from './stockScreener.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 
@@ -392,19 +393,48 @@ export async function expandOnEmpty(ttlDays = 3): Promise<number> {
   let dynamicStocks = purgeExpired(loadDynamicUniverse());
   const existingDynamicCodes = new Set(dynamicStocks.map(s => s.code));
 
-  const [highStocks, foreignStocks, midRisers, marketCapLeaders] = await Promise.all([
-    fetch52WeekHighStocks(),
-    fetchForeignNetBuyStocks(),
-    fetchMidRangeRisers(),
-    fetchMarketCapLeaders(),
+  // Phase A: 4개의 전용 fetcher 대신 kisRankingClient의 3종 랭킹만 사용.
+  // 각 호출은 자체 5분 캐시·시장별 부분 실패 허용·전체 실패 시 빈 배열.
+  // allSettled로 감싸서 한 랭킹이 throw해도 나머지 결과와 정적 유니버스로 자연 폴백.
+  const settled = await Promise.allSettled([
+    getRanking('volume',      { limit: 30 }),
+    getRanking('fluctuation', { limit: 30 }),
+    getRanking('market-cap',  { limit: 30 }),
   ]);
+  const [volume, fluctuation, marketCap] = settled.map((r, i) => {
+    if (r.status === 'fulfilled') return r.value;
+    const name = ['volume', 'fluctuation', 'market-cap'][i];
+    console.warn(`[DynamicExpander] expandOnEmpty ${name} 실패 (흡수):`, r.reason instanceof Error ? r.reason.message : r.reason);
+    return [] as RankingEntry[];
+  });
+
+  const toDynamic = (e: RankingEntry, source: DynamicStock['source']): Omit<DynamicStock, 'addedAt' | 'expiresAt'> => ({
+    symbol: `${e.code}${e.market === 'KOSPI' ? '.KS' : '.KQ'}`,
+    code:   e.code,
+    name:   e.name,
+    source,
+  });
 
   const now = new Date();
   const expiresAt = new Date(now.getTime() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
   const addedAt = now.toISOString();
   let newCount = 0;
 
-  for (const c of [...highStocks, ...foreignStocks, ...midRisers, ...marketCapLeaders]) {
+  // 3개 랭킹 → 기존 DynamicStock.source 카테고리로 매핑 (레거시 필드 유지).
+  //   volume      → FOREIGN_NET_BUY (거래량 상위 = 수급 유입 근사)
+  //   fluctuation → MID_RISER      (등락률 상위 — +3~+7% 필터를 호출자 레벨에서 적용)
+  //   market-cap  → MARKET_CAP
+  // 중복은 Set으로 제거 — 세 랭킹에 겹치는 코드는 첫 등장 source 만 반영.
+  const merged: Array<Omit<DynamicStock, 'addedAt' | 'expiresAt'>> = [
+    ...volume.map(e => toDynamic(e, 'FOREIGN_NET_BUY')),
+    ...fluctuation
+      // 기존 expandOnEmpty의 +3~+7% 중위권 필터를 클라이언트 레벨로 이관.
+      .filter(e => e.changePercent >= 3 && e.changePercent <= 7)
+      .map(e => toDynamic(e, 'MID_RISER')),
+    ...marketCap.map(e => toDynamic(e, 'MARKET_CAP')),
+  ];
+
+  for (const c of merged) {
     if (staticCodes.has(c.code)) continue;
     if (existingDynamicCodes.has(c.code)) continue;
     dynamicStocks.push({ ...c, addedAt, expiresAt });
@@ -415,7 +445,7 @@ export async function expandOnEmpty(ttlDays = 3): Promise<number> {
   saveDynamicUniverse(dynamicStocks);
   console.log(
     `[DynamicExpander] expandOnEmpty 완료 — 신규 ${newCount}개 (TTL ${ttlDays}일), ` +
-    `전체 동적 ${dynamicStocks.length}개`,
+    `전체 동적 ${dynamicStocks.length}개 (vol ${volume.length}·flc ${fluctuation.length}·mc ${marketCap.length})`,
   );
   return newCount;
 }
