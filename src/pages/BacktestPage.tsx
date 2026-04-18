@@ -690,9 +690,15 @@ export function BacktestPage({
               </>
             ) : (
               <EmptyState
+                variant="inviting"
                 icon={<History className="w-10 h-10 sm:w-12 sm:h-12" />}
                 title="백테스팅 결과가 없습니다"
                 description="포트폴리오를 구성하고 시뮬레이션을 시작하세요."
+                cta={{
+                  label: '백테스트 실행',
+                  onClick: () => { void onRunBacktest(); },
+                  variant: 'primary',
+                }}
               />
             )}
           </div>
