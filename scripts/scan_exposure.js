@@ -105,6 +105,9 @@ function historyCheck() {
 function main() {
   const args = process.argv.slice(2);
   const skipHistory = args.includes('--no-history');
+  // 기본값: 히스토리 findings 는 경고(warn). git filter-repo 없이는 사후 복구
+  // 불가하므로 CI 를 영구 차단하지 않는다. --strict-history 로 hard fail 승격.
+  const strictHistory = args.includes('--strict-history');
 
   const tracked = gitTrackedFiles();
   const files = tracked || walk('.').map((p) => p.replace(/^\.\//, ''));
@@ -139,11 +142,15 @@ function main() {
   if (!skipHistory) {
     const historic = historyCheck();
     if (historic.length > 0) {
-      console.error(`\n[PRES] 과거 커밋에 금지 파일이 포함된 적 있음 ${historic.length}건`);
+      const label = strictHistory ? '[PRES][FAIL]' : '[PRES][WARN]';
+      console.error(`\n${label} 과거 커밋에 금지 파일이 포함된 적 있음 ${historic.length}건`);
       for (const n of historic) console.error(`  - ${n}`);
-      console.error('  해결: git filter-repo 혹은 BFG 로 히스토리 정리, 그리고 연관 키는 전부 재발급하세요.');
-      // 히스토리 오염은 즉시 실패로 처리
-      failed = true;
+      console.error(
+        '  대응: git filter-repo / BFG 로 히스토리를 정리하고 관련 키를 전부 재발급하세요.\n' +
+        '        히스토리 정리는 강제 push 가 필요한 파괴적 작업이므로 팀 합의 후 수행.\n' +
+        '        엄격 차단을 원하면 --strict-history 로 실행하세요.',
+      );
+      if (strictHistory) failed = true;
     }
   }
 

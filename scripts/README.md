@@ -48,6 +48,10 @@ npm run precommit                 # pre-commit 에서 실제 실행되는 묶음
 - `check_responsibility.js` 는 `*.d.ts`, `*.test.ts(x)`, `*.spec.ts(x)` 를 건너뜁니다.
 - `silent_degradation_sentinel.js` 의 catch 검출에서 의도적으로 무시하려면 `catch (e) { /* SDS-ignore */ }` 형태로 주석을 추가하세요.
 - `scan_exposure.js` 는 `.env.example` 은 허용합니다.
+- `scan_exposure.js` 의 히스토리 검사(`git log --all`)는 기본적으로 **경고만** 합니다.
+  `git filter-repo` 없이는 사후 복구 불가한 속성이므로 PR CI 를 영구 차단하지
+  않습니다. 엄격 차단이 필요하면 `--strict-history` 를 붙이세요. 워킹트리/
+  스테이징 findings 는 항상 hard fail 입니다.
 
 ## CI
 
