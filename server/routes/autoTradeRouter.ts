@@ -23,6 +23,7 @@ import {
   computeAttributionStats,
   type ServerAttributionRecord,
 } from '../persistence/attributionRepo.js';
+import { learningOrchestrator } from '../orchestrator/learningOrchestrator.js';
 import {
   loadConditionWeights,
   loadConditionWeightsByRegime,
@@ -802,6 +803,12 @@ router.post('/attribution/record', (req: any, res: any) => {
       return res.status(400).json({ error: 'tradeId, conditionScores 필수' });
     }
     appendAttributionRecord(record);
+    // L1 학습 훅 (아이디어 2) — 응답은 즉시, 온라인 학습은 비동기 실행
+    setImmediate(() => {
+      learningOrchestrator.onAttributionRecorded(record).catch((e) =>
+        console.error('[Attribution] incremental calibration 실패:', e),
+      );
+    });
     res.json({ ok: true });
   } catch (e) {
     console.error('[Attribution] record 저장 실패:', e);

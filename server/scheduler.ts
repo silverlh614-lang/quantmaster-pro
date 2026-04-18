@@ -46,6 +46,15 @@ import { generateQualityScorecard } from './alerts/qualityScorecard.js';
 import { macroSectorAlignmentCheck, initMacroSyncDayOpen } from './trading/macroSectorSync.js';
 import { runDailyBackup } from './persistence/dailyBackup.js';
 import { runDailyReconciliation } from './trading/reconciliationEngine.js';
+import { learningOrchestrator } from './orchestrator/learningOrchestrator.js';
+import { runWeeklyMiniBacktest } from './learning/backtestEngine.js';
+import {
+  loadLearningState,
+  setTradingHold,
+  isTradingHeld,
+} from './learning/learningState.js';
+import { checkWeeklySharpeAlert } from './learning/weeklySharpeMonitor.js';
+import { getLearningInterval } from './learning/adaptiveLearningClock.js';
 
 export function startScheduler() {
   // ─── KIS 토큰 사전 갱신 — 매일 KST 08:30 (UTC 23:30, 일~목) ──────────────
@@ -232,6 +241,28 @@ export function startScheduler() {
     await runBacktest().catch(console.error);
   }, { timezone: 'UTC' });
 
+  // ── 4티어 자기학습 L3 — 매주 월요일 07:00 KST (UTC 22:00 일요일) ───────────────
+  // 전주 AttributionRecord 기반 경량 캘리브레이션 + 전주 추천 미니 백테스트.
+  // 워크포워드 동결 시 내부에서 skip. 최소 5건 미달 시 skip.
+  cron.schedule('0 22 * * 0', async () => {
+    console.log('[Scheduler] L3 주간 경량 캘리브레이션 시작 (월요일 07:00 KST)');
+    await learningOrchestrator.runWeeklyCalib().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // ── 일일 미니 백테스트 (아이디어 4) — 평일 KST 00:30 (UTC 15:30, 일~목 UTC) ─────
+  // 전일(월~금) 결산된 추천 신호만 빠르게 재검증. < 30초 실행.
+  cron.schedule('30 15 * * 0-4', async () => {
+    console.log('[Scheduler] 일일 미니 백테스트 시작 (00:30 KST)');
+    await runWeeklyMiniBacktest().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // ── 주중 Sharpe 급락 조기 경보 — 매주 수요일 16:30 KST (UTC 07:30 수요일) ───────
+  // 각 조건의 이번 주 Sharpe가 이전 4주 평균의 50% 미만이면 월말 전 경보.
+  cron.schedule('30 7 * * 3', async () => {
+    console.log('[Scheduler] 주중 Sharpe 급락 체크 (수요일 16:30 KST)');
+    await checkWeeklySharpeAlert().catch(console.error);
+  }, { timezone: 'UTC' });
+
   // ─── Shadow Trade 자동 청산 — 장중 5분 간격 (브라우저 독립) ──────────────────
   // 클라이언트 resolveShadowTrade 루프의 서버 측 대응.
   // AUTO_TRADE_ENABLED 무관하게 항상 동작하여, 브라우저 종료 시에도
@@ -246,6 +277,26 @@ export function startScheduler() {
     try {
       await updateShadowResults(shadows, getLiveRegime(loadMacroState()));
       saveShadowTrades(shadows);
+
+      // 아이디어 3 — 실시간 연속 LOSS 감지 (2건부터 경보).
+      // 최근 4시간 이내 청산된 shadow를 시간 역순으로 나열하고 연속 HIT_STOP 카운트.
+      const FOUR_H_MS = 4 * 60 * 60 * 1000;
+      const recentClosed = shadows
+        .filter((s) => s.exitTime && Date.now() - new Date(s.exitTime).getTime() < FOUR_H_MS)
+        .sort((a, b) => new Date(b.exitTime!).getTime() - new Date(a.exitTime!).getTime());
+      let consecLoss = 0;
+      for (const s of recentClosed) {
+        if (s.status === 'HIT_STOP') consecLoss++;
+        else break;
+      }
+      if (consecLoss >= 2 && !isTradingHeld()) {
+        setTradingHold(30 * 60 * 1000); // 30분 신규 진입 차단
+        await sendTelegramAlert(
+          `🚨 <b>[실시간 연속손절]</b> ${consecLoss}건 연속 — 신규 진입 30분 홀드`,
+          { priority: 'CRITICAL', dedupeKey: `streak_hold:${consecLoss}` },
+        ).catch(console.error);
+        console.warn(`[Scheduler] 실시간 연속손절 ${consecLoss}건 — 30분 거래 홀드 활성화`);
+      }
     } catch (e) {
       console.error('[Scheduler] Shadow trade resolution 실패:', e);
     }
@@ -296,6 +347,25 @@ export function startScheduler() {
       else if (yahooStatus === 'DOWN')               verdict = '🟡 YAHOO_DOWN';
       else                                           verdict = '🟢 OK';
 
+      // 아이디어 7 — 학습 파이프라인 상태 요약 + adaptive 학습 주기 레이블
+      const learning    = loadLearningState();
+      const evalTs      = learning.lastEvalAt ? new Date(learning.lastEvalAt).getTime() : 0;
+      const calibTs     = learning.lastCalibAt ? new Date(learning.lastCalibAt).getTime() : 0;
+      const evalLagHrs  = evalTs  ? (Date.now() - evalTs)  / 3_600_000 : Infinity;
+      const calibLagDays = calibTs ? (Date.now() - calibTs) / 86_400_000 : Infinity;
+      const clock        = getLearningInterval();
+      const calibStaleAt = clock.calibrateTriggerDays + 7; // 트리거 + 7일 넘으면 STALE
+      const learningStatus =
+        !evalTs                               ? '⚪ EVAL_NEVER'  :
+        evalLagHrs > 30                       ? '🔴 EVAL_STALE'  :
+        !calibTs                               ? '⚪ CALIB_NEVER' :
+        calibLagDays > calibStaleAt           ? '🔴 CALIB_STALE' :
+        calibLagDays > clock.calibrateTriggerDays ? '🟡 CALIB_DUE'   : '🟢 OK';
+      const evalLagLbl  = evalTs  ? `${evalLagHrs.toFixed(0)}h전`  : '미실행';
+      const calibLagLbl = calibTs ? `${calibLagDays.toFixed(0)}일전` : '미실행';
+      const heldLbl     = learning.tradingHoldUntil && Date.now() < new Date(learning.tradingHoldUntil).getTime()
+        ? ' | ⛔ 신규진입 홀드중' : '';
+
       await sendTelegramAlert(
         `🩺 <b>[파이프라인 헬스체크] 09:05 KST</b>\n` +
         `판정: ${verdict}\n` +
@@ -307,7 +377,9 @@ export function startScheduler() {
         `마지막 스캔: ${lastScanAt} | 마지막 신호: ${lastBuyAt}\n` +
         `일일손실: ${dailyLossPct.toFixed(1)}% / 한도 ${dailyLossLimit}%\n` +
         `비상정지: ${emergencyStop ? '🛑 활성' : '✅ 해제'}\n` +
-        `실시간호가: ${(() => { const ss = getStreamStatus(); return ss.connected ? `✅ ${ss.subscribedCount}종목` : '❌ 미연결'; })()}`
+        `실시간호가: ${(() => { const ss = getStreamStatus(); return ss.connected ? `✅ ${ss.subscribedCount}종목` : '❌ 미연결'; })()}\n` +
+        `학습엔진: ${learningStatus} (평가 ${evalLagLbl} / 캘리브레이션 ${calibLagLbl})${heldLbl}\n` +
+        `학습클럭: ${clock.mode} (L4 트리거 ${clock.calibrateTriggerDays}일) — ${clock.reason}`
       ).catch(console.error);
     } catch (e) {
       console.error('[Scheduler] 파이프라인 헬스체크 전송 실패:', e);

@@ -74,6 +74,8 @@ export const SESSION_STATE_FILE       = path.join(DATA_DIR, 'session-state.json'
 export const RECONCILE_STATE_FILE     = path.join(DATA_DIR, 'reconcile-state.json');
 /** 텔레그램 알림 발송 로그 — 청산·진입 알림 건별 기록 (최근 1000건) */
 export const NOTIFICATION_LOG_FILE    = path.join(DATA_DIR, 'notification-log.json');
+/** 4티어 자기학습 상태 — L1~L4 마지막 실행 시각, prevRegime, 첫 캘리브레이션 완료 플래그, 거래 홀드 만료시각 */
+export const LEARNING_STATE_FILE      = path.join(DATA_DIR, 'learning-state.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
