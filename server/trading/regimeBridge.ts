@@ -15,6 +15,7 @@ import { classifyRegime, REGIME_CONFIGS } from '../../src/services/quant/regimeE
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelRegimeChange } from '../alerts/channelPipeline.js';
+import { resetConditionWeightsForRegime } from '../persistence/conditionWeightsRepo.js';
 
 // ── 레짐 전환 감지용 모듈 상태 ──────────────────────────────────────────────
 
@@ -124,6 +125,29 @@ export async function checkAndNotifyRegimeChange(
   const prevIdx = REGIME_ORDER.indexOf(_previousRegime);
   const currIdx = REGIME_ORDER.indexOf(currentRegime);
   const isDowngrade = currIdx < prevIdx;
+  // 아이디어 2: 2단계 이상 급변 시 새 레짐의 학습 가중치 즉시 리셋.
+  // 예: R2_BULL(idx=4) → R5_CAUTION(idx=1) → |diff|=3 → 리셋.
+  const stepDelta = Math.abs(prevIdx - currIdx);
+  const isAbruptShift = stepDelta >= 2;
+  let resetNote = '';
+  if (isAbruptShift) {
+    const prevWeights = resetConditionWeightsForRegime(currentRegime);
+    const movedKeys = prevWeights
+      ? Object.entries(prevWeights)
+          .filter(([, v]) => Math.abs(v - 1.0) > 0.05)
+          .map(([k]) => k)
+      : [];
+    resetNote =
+      `\n🧬 <b>가중치 자동 리셋</b>\n` +
+      `• ${currentRegime} condition-weights 초기값 1.0 복원 (${stepDelta}단계 급변)\n` +
+      (movedKeys.length > 0
+        ? `• 리셋된 키: ${movedKeys.slice(0, 6).join(', ')}${movedKeys.length > 6 ? ` 외 ${movedKeys.length - 6}` : ''}\n`
+        : '• 이전 저장 없음 — 신규 파일 생성\n') +
+      `• 원칙: 직전 장세 주도주는 신장세 주도주가 아니다\n`;
+    console.log(
+      `[RegimeBridge] ${stepDelta}단계 급변(${_previousRegime}→${currentRegime}) — ${currentRegime} 가중치 리셋`,
+    );
+  }
 
   const prevCfg = REGIME_CONFIGS[_previousRegime];
   const currCfg = REGIME_CONFIGS[currentRegime];
@@ -159,6 +183,10 @@ export async function checkAndNotifyRegimeChange(
     msg += `• 손절 기준: 강화 모드 전환\n`;
   } else {
     msg += `• 손절 기준: 완화 모드 전환\n`;
+  }
+
+  if (resetNote) {
+    msg += resetNote;
   }
 
   msg += `━━━━━━━━━━━━━━━━━━━━\n`;

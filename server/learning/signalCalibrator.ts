@@ -3,6 +3,12 @@ import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { analyzeAttribution, serverConditionKey } from './attributionAnalyzer.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { loadWalkForwardState } from './walkForwardValidator.js';
+import {
+  loadPromptBoosts,
+  savePromptBoosts,
+  clampBoost,
+  type PromptConditionBoost,
+} from '../persistence/promptBoostRepo.js';
 
 /**
  * 월간 귀인 분석 기반 캘리브레이션.
@@ -40,9 +46,46 @@ export async function calibrateSignalWeights(): Promise<void> {
   const weights  = loadConditionWeights();
   const adjustments: string[] = [];
 
+  // 아이디어 1 (Phase 1): 클라이언트 전용 조건 21개도 Gemini 프롬프트 boost로 학습 반영
+  const promptBoosts: PromptConditionBoost = loadPromptBoosts();
+  const boostAdjustments: string[] = [];
+
   for (const attr of analysis) {
     const key = serverConditionKey(attr.conditionId);
-    if (!key) continue; // 서버 가중치 미매핑 조건은 분석만, 조정 제외
+
+    if (!key) {
+      // ── 서버 미매핑 조건(21개): Gemini 프롬프트 boost 경로로 학습 피드백 ──
+      if (attr.totalTrades < 5) continue; // 샘플 부족 — 1.0 유지
+
+      const prevBoost = promptBoosts[attr.conditionId] ?? 1.0;
+      let   nextBoost = prevBoost;
+
+      switch (attr.recommendation) {
+        case 'INCREASE_WEIGHT':
+          nextBoost = clampBoost(prevBoost * 1.10);
+          break;
+        case 'DECREASE_WEIGHT':
+          nextBoost = clampBoost(prevBoost * 0.92);
+          break;
+        case 'SUSPEND':
+          nextBoost = 0.5; // 최저값 = 프롬프트에서 사실상 무시
+          break;
+        case 'MAINTAIN':
+        default:
+          // 점진적 평균회귀 — 장기 무변동 조건 1.0으로 수렴
+          nextBoost = clampBoost(prevBoost + (1.0 - prevBoost) * 0.1);
+          break;
+      }
+
+      if (Math.abs(nextBoost - prevBoost) > 0.01) {
+        promptBoosts[attr.conditionId] = nextBoost;
+        boostAdjustments.push(
+          `${attr.conditionName}: ${prevBoost.toFixed(2)}→${nextBoost.toFixed(2)} ` +
+          `(WIN ${(attr.winRate * 100).toFixed(0)}%·SR ${attr.sharpe.toFixed(2)})`,
+        );
+      }
+      continue;
+    }
 
     const prev = weights[key] ?? 1.0;
     let   next = prev;
@@ -76,6 +119,16 @@ export async function calibrateSignalWeights(): Promise<void> {
     console.log(`[Calibrator] 가중치 조정: ${adjustments.join(' | ')}`);
   } else {
     console.log('[Calibrator] 가중치 변경 없음 — 현재 설정 유지');
+  }
+
+  if (boostAdjustments.length > 0) {
+    savePromptBoosts(promptBoosts);
+    console.log(
+      `[Calibrator] 클라이언트 조건 Gemini boost 조정 ${boostAdjustments.length}건: ` +
+      boostAdjustments.join(' | '),
+    );
+  } else {
+    console.log('[Calibrator] 클라이언트 조건 boost 변경 없음');
   }
 
   // ── 텔레그램 월간 리포트 ──
@@ -120,8 +173,12 @@ export async function calibrateSignalWeights(): Promise<void> {
     ).join('\n') + '\n\n' +
     `🏆 <b>레짐별 최강 조건</b>\n${regimeStarText}\n\n` +
     (trendChanges ? `📊 <b>추이 변화 감지</b>\n${trendChanges}\n\n` : '') +
-    `⚙️ <b>가중치 조정 ${adjustments.length}건</b>\n` +
-    (adjustments.length > 0 ? adjustments.slice(0, 5).join('\n') : '  변경 없음')
+    `⚙️ <b>서버 가중치 조정 ${adjustments.length}건</b>\n` +
+    (adjustments.length > 0 ? adjustments.slice(0, 5).join('\n') : '  변경 없음') +
+    (boostAdjustments.length > 0
+      ? `\n\n🧠 <b>Gemini 프롬프트 boost 조정 ${boostAdjustments.length}건 (클라이언트 조건)</b>\n` +
+        boostAdjustments.slice(0, 5).join('\n')
+      : '')
   ).catch(console.error);
 }
 

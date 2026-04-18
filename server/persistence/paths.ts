@@ -76,6 +76,11 @@ export const RECONCILE_STATE_FILE     = path.join(DATA_DIR, 'reconcile-state.jso
 export const NOTIFICATION_LOG_FILE    = path.join(DATA_DIR, 'notification-log.json');
 /** 4티어 자기학습 상태 — L1~L4 마지막 실행 시각, prevRegime, 첫 캘리브레이션 완료 플래그, 거래 홀드 만료시각 */
 export const LEARNING_STATE_FILE      = path.join(DATA_DIR, 'learning-state.json');
+/**
+ * 27 조건 전체 학습 커버리지용 — 클라이언트 전용 조건(21개)의 Gemini 프롬프트 boost 맵.
+ * 서버 자동평가 경로로 피드백되지 않는 조건도 Gemini 분석 비중으로 소프트 가중 적용.
+ */
+export const PROMPT_BOOSTS_FILE       = path.join(DATA_DIR, 'condition-prompt-boosts.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

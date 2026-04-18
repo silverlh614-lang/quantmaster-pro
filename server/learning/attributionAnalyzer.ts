@@ -17,7 +17,7 @@ import type { ConditionKey } from '../quantFilter.js';
 // ── 상수 ─────────────────────────────────────────────────────────────────────
 
 /** 클라이언트 conditionId(1~27) → 조건명 */
-const CONDITION_NAMES: Record<number, string> = {
+export const CONDITION_NAMES: Record<number, string> = {
   1:  '주도주 사이클 (Cycle)',
   2:  'ROE 유형 3 (ROE Type 3)',
   3:  '시장 환경 (Risk-On)',
