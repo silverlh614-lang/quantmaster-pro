@@ -1,209 +1,31 @@
-// ─── 매도 엔진 도메인 타입 ─────────────────────────────────────────────────────
+// ─── 매도 엔진 도메인 타입 (barrel) ──────────────────────────────────────────
+//
+// Phase 1 리팩토링: types/sell/ 하위 모듈로 분리된 타입들의 재노출 지점.
+// 기존 `import { ActivePosition } from '../../types/sell'` 호환성 유지.
 
-import type { StockProfileType, RegimeLevel } from './core';
-
-// ─── 보유 포지션 ──────────────────────────────────────────────────────────────
-
-/**
- * 자동매매 엔진이 관리하는 실시간 보유 포지션.
- * 매수 체결 시 생성, 전량 청산 시 제거.
- */
-export interface ActivePosition {
-  id: string;                    // 고유 ID (e.g., `pos_${Date.now()}_${stockCode}`)
-  stockCode: string;
-  name: string;
-  profile: StockProfileType;     // A/B/C/D — 손절 기준 결정
-  entryPrice: number;            // 평균 매수가 (분할 매수 시 가중평균)
-  entryDate: string;             // ISO 8601
-  currentPrice: number;          // 직전 체결가 / 현재가
-  quantity: number;              // 잔여 보유 수량
-  entryROEType?: number;         // 매수 시점 ROE 유형 (L2 전이 감지용)
-  entryRegime: RegimeLevel;      // 매수 시점 레짐 (익절 기준 결정)
-
-  // 고점 추적 (L3 트레일링 · L2 -30% 붕괴 감지용)
-  highSinceEntry: number;        // 매수 이후 고점 (매 사이클 갱신 필요)
-
-  // 트레일링 스톱 상태
-  trailingEnabled: boolean;      // 마지막 LIMIT 익절 완료 후 true로 전환
-  trailingHighWaterMark: number; // 트레일링 기준 고점 (신고가 갱신 시마다 업데이트)
-  trailPct: number;              // 트레일링 거리 (e.g., 0.10 = -10%)
-  trailingRemainingRatio: number; // 트레일링 매도 대상 잔여 비율 (e.g., 0.40)
-
-  // Gate 1 재검증 상태 (-7% 도달 시 재검증 → 중복 방지)
-  revalidated: boolean;
-
-  // MA 전일 상태 (데드크로스 감지 — 이전 체크 시점 값 보관)
-  prevMa20?: number;
-  prevMa60?: number;
-
-  // 익절 완료 추적 (중복 실행 방지)
-  takenProfit: number[];         // 실현된 trigger 값 목록 (e.g., [0.12, 0.20])
-}
-
-// ─── 매도 신호 ────────────────────────────────────────────────────────────────
-
-export type SellAction =
-  | 'HARD_STOP'         // L1: 기계적 손절 (전량 시장가)
-  | 'REVALIDATE_GATE1'  // L1: -7% 경보 → Gate 1 재검증 요청
-  | 'PRE_MORTEM'        // L2: 펀더멘털 붕괴 조건 발동
-  | 'PROFIT_TAKE'       // L3: 분할 익절 타겟 도달
-  | 'TRAILING_STOP'     // L3: 트레일링 스톱 발동
-  | 'EUPHORIA_SELL';    // L4: 과열 탐지 익절
-
-export interface SellSignal {
-  action: SellAction;
-  ratio: number;                 // 매도 비율 0~1 (1.0 = 전량)
-  orderType: 'MARKET' | 'LIMIT';
-  price?: number;                // LIMIT 주문 가격 (MARKET 시 불필요)
-  reason: string;                // 텔레그램 알림 메시지용
-  severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-}
-
-// ─── L2 Pre-Mortem 타입 ───────────────────────────────────────────────────────
-
-export type PreMortemType =
-  | 'ROE_DRIFT'         // ROE 유형 3 → 4 이상 전이
-  | 'FOREIGN_SELLOUT'   // 외국인 5일 연속 순매도
-  | 'MA_DEATH_CROSS'    // 20일선 < 60일선 교차
-  | 'REGIME_DEFENSE'    // 레짐 R6 전환
-  | 'TREND_COLLAPSE';   // 고점 대비 -30% 추세 붕괴
-
-export interface PreMortemTrigger {
-  type: PreMortemType;
-  severity: 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  sellRatio: number;
-  reason: string;
-}
-
-/** evaluatePreMortems()에 주입하는 현재 시장 데이터 */
-export interface PreMortemData {
-  currentROEType?: number;       // 현재 ROE 유형 (undefined = 조회 불가, skip)
-  foreignNetBuy5d: number;       // 외국인 5일 누적 순매수 (억원, 음수 = 순매도)
-  ma20: number;                  // 현재 20일 이동평균
-  ma60: number;                  // 현재 60일 이동평균
-  currentRegime: RegimeLevel;
-}
-
-// ─── L3 익절 타겟 ─────────────────────────────────────────────────────────────
-
-export interface TakeProfitTarget {
-  trigger: number | null;        // 수익률 임계값 (null = 트레일링 스톱)
-  ratio: number;                 // 해당 트랜치 매도 비율 0~1
-  type: 'LIMIT' | 'TRAILING';
-  trailPct?: number;             // TRAILING 타입 전용 — 고점 대비 하락 허용 폭
-}
-
-// ─── L4 과열 탐지 데이터 ──────────────────────────────────────────────────────
-
-/** evaluateEuphoria()에 주입하는 과열 지표 데이터 */
-export interface EuphoriaData {
-  rsi14: number;                  // 14일 RSI
-  volumeRatio: number;            // 당일 거래량 / 20일 평균 (e.g., 3.0 = 300%)
-  retailRatio: number;            // 개인 매수 비율 0~1 (e.g., 0.65 = 65%)
-  analystUpgradeCount30d: number; // 30일 내 증권사 목표가 상향 건수
-}
-
-// ─── 매도 사이클 컨텍스트 ────────────────────────────────────────────────────
-
-/** runSellCycle() 실행 시 필요한 포트폴리오 수준 상태 */
-export interface SellCycleContext {
-  positions: ActivePosition[];
-  currentRegime: RegimeLevel;
-  todayPnLRate: number;          // 당일 손익률 (e.g., -0.025 = -2.5%)
-}
-
-// ─── 변동성 적응형 동적 손절 (Volatility-Adaptive Dynamic Stop) ──────────────────
-
-/**
- * 시장 레짐 유형 (동적 손절 배수 결정용)
- * RISK_ON  — Risk-On 강세 레짐 (배수 2.0, 여유 있는 손절)
- * RISK_OFF — Risk-Off 조정 레짐 (배수 1.5, 타이트한 손절)
- * CRISIS   — 시스템 위기 레짐  (배수 1.0, 초타이트 손절)
- */
-export type DynamicStopRegime = 'RISK_ON' | 'RISK_OFF' | 'CRISIS';
-
-/** evaluateDynamicStop()에 주입하는 입력 데이터 */
-export interface DynamicStopInput {
-  entryPrice: number;
-  /** 14봉 ATR (Average True Range) */
-  atr14: number;
-  /** 현재 시장 레짐 */
-  regime: DynamicStopRegime;
-  /** 현재 가격 (트레일링 스톱 계산용) */
-  currentPrice: number;
-}
-
-/** evaluateDynamicStop() 반환 결과 */
-export interface DynamicStopResult {
-  /** Dynamic_Stop = Entry_Price − (ATR_14 × Regime_Multiplier) */
-  stopPrice: number;
-  /** 레짐 배수 (2.0 / 1.5 / 1.0) */
-  multiplier: number;
-  /** 입력 레짐 */
-  regime: DynamicStopRegime;
-  /** 손절가 비율 (진입가 대비 %, 음수) */
-  stopPct: number;
-  /** 트레일링 스톱 활성화 여부 (+5% 이상 수익 시) */
-  trailingActive: boolean;
-  /** 트레일링 스톱 가격 */
-  trailingStopPrice: number;
-  /** 트레일링 스톱 비율 (진입가 대비 %) */
-  trailingStopPct: number;
-  /** BEP 보호 활성화 (+5% → 손절을 진입가로 이동) */
-  bepProtection: boolean;
-  /** 수익 Lock-in 활성화 (+10% → +3%로 이동) */
-  profitLockIn: boolean;
-  /** 현재 수익률 (%) */
-  currentReturnPct: number;
-  /** 행동 권고 메시지 */
-  actionMessage: string;
-}
-
-// ─── 포지션 생애주기 자동화 (Position Lifecycle Automation) ─────────────────────
-
-/**
- * 포지션 5단계 생애주기.
- *
- * ENTRY        — 진입: Gate 1+2+3 통과 → OCO 주문 등록
- * HOLD         — 보유: 27조건 일일 재검증, 점수 추이 모니터링
- * ALERT        — 경보: 점수 20% 이상 하락 → 50% 분할 매도 예정
- * EXIT_PREP    — 청산 준비: Gate 1 조건 2개 이상 이탈 → 25% 추가 매도
- * FULL_EXIT    — 전량 청산: Gate 1 3개 이상 이탈 OR 손절 발동
- */
-export type LifecycleStage = 'ENTRY' | 'HOLD' | 'ALERT' | 'EXIT_PREP' | 'FULL_EXIT';
-
-/** 생애주기 단계 전환 결과 */
-export interface LifecycleTransition {
-  /** 이전 단계 */
-  prevStage: LifecycleStage;
-  /** 새로운 단계 */
-  nextStage: LifecycleStage;
-  /** 전환 이유 */
-  reason: string;
-  /**
-   * 즉시 실행할 매도 비율 (0~1).
-   * ALERT: 0.50, EXIT_PREP: 0.25 (잔여 기준), FULL_EXIT: 1.0
-   */
-  sellRatio: number;
-  /** Telegram 경보 필요 여부 */
-  sendAlert: boolean;
-  /** 경보 심각도 */
-  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-}
-
-/** evaluatePositionLifecycle()에 주입하는 포지션별 생애주기 상태 */
-export interface PositionLifecycleState {
-  /** 현재 단계 */
-  stage: LifecycleStage;
-  /**
-   * 진입 시점 27조건 점수 (Gate 1 통과 개수 기준, 0~8).
-   * 실제로는 Gate 1 기준 8개의 통과 수.
-   */
-  entryScore: number;
-  /** 현재 27조건 점수 (현재 Gate 1 통과 개수) */
-  currentScore: number;
-  /** 현재 Gate 1 이탈 조건 수 */
-  gate1BreachCount: number;
-  /** 손절 발동 여부 */
-  stopLossTriggered: boolean;
-}
+export type { ActivePosition } from './sell/position';
+export type {
+  SellAction,
+  SellSignal,
+  PreMortemType,
+  PreMortemTrigger,
+  TakeProfitTarget,
+} from './sell/signal';
+export type {
+  SellContext,
+  PreMortemData,
+  EuphoriaData,
+  OHLCCandle,
+  VolumeStats,
+} from './sell/context';
+export type {
+  LifecycleStage,
+  LifecycleTransition,
+  PositionLifecycleState,
+} from './sell/lifecycle';
+export type {
+  DynamicStopRegime,
+  DynamicStopInput,
+  DynamicStopResult,
+  SellCycleContext,
+} from './sell/dynamicStop';
