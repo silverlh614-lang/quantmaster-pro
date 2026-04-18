@@ -1,6 +1,10 @@
 /**
- * Neo-Brutalism Section Wrapper
- * Bold borders for Gate section separation with thick dividers.
+ * Section — 섹션 래퍼 (제목 + 서브타이틀 + 액션 + 본문).
+ *
+ * 디자인 원칙 (Step 4):
+ *   - 기본(variant="default") = 순수 여백 기반 구분. 상단 제목으로 계층 표시.
+ *   - variant="neo"           = 테두리·그림자가 있는 박스형, Gate 판정 같은 결정적 UI 용.
+ *   - 스페이싱은 --space-* 토큰을 활용한 Tailwind 클래스로만 사용.
  */
 import React from 'react';
 import { cn } from './cn';

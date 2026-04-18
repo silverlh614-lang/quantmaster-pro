@@ -10,7 +10,7 @@ type BadgeVariant = 'default' | 'success' | 'warning' | 'danger' | 'info' | 'acc
 
 interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   variant?: BadgeVariant;
-  size?: 'sm' | 'md';
+  size?: 'sm' | 'md' | 'lg';
   pulse?: boolean;
   neo?: boolean;
 }
@@ -58,6 +58,7 @@ const dotColors: Record<BadgeVariant, string> = {
 const sizeClasses = {
   sm: 'px-1.5 py-0.5 text-[9px]',
   md: 'px-2.5 py-1 text-[10px]',
+  lg: 'px-3 py-1.5 text-[11px]',
 };
 
 export function Badge({ variant = 'default', size = 'md', pulse = false, neo = false, className, children, ...props }: BadgeProps) {
