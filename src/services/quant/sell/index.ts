@@ -24,8 +24,31 @@ export {
   resolveTrailingConfig,
 } from './trailing';
 
+// L1.5 — 3단 경보 손절 사다리 (Phase 3)
+export {
+  evaluateStopLadder,
+  STOP_LADDER_CONFIG,
+  type LadderRung,
+  type LadderSignal,
+} from './stopLossLadder';
+
 // L4 — 과열 탐지
 export { evaluateEuphoria } from './euphoria';
+
+// L5 — 일목균형표 이탈 감지 (Phase 3)
+export {
+  evaluateIchimokuExit,
+  computeIchimokuSeries,
+  detectCloudBreakdown,
+  detectChikouBreakdown,
+  detectTkDeathWithCloudExit,
+} from './ichimokuExit';
+
+// 2D 낙폭 역치 (Phase 3)
+export {
+  DRAWDOWN_THRESHOLDS,
+  resolveDrawdownThreshold,
+} from './drawdownThresholds';
 
 // 오케스트레이터
 export {

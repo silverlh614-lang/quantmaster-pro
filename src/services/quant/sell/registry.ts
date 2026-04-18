@@ -21,10 +21,12 @@
 import type { SellLayer } from './types';
 import type { SellSignal } from '../../../types/sell';
 import { checkHardStopLoss } from './hardStopLoss';
+import { evaluateStopLadder } from './stopLossLadder';
 import { checkProfitTargets } from './partialProfit';
 import { checkTrailingStop } from './trailing';
 import { evaluatePreMortems } from './preMortem';
 import { evaluateEuphoria } from './euphoria';
+import { evaluateIchimokuExit } from './ichimokuExit';
 
 const neverShortCircuit = (): boolean => false;
 
@@ -38,6 +40,18 @@ const L1_HARD_STOP: SellLayer = {
   // HARD_STOP만 중단, REVALIDATE_GATE1은 경보이므로 이후 레이어 계속 진행
   shortCircuit(signals: SellSignal[]) {
     return signals.some(s => s.action === 'HARD_STOP');
+  },
+};
+
+const L1_5_STOP_LADDER: SellLayer = {
+  id: 'L1_5_STOP_LADDER',
+  priority: 12,
+  evaluate(ctx) {
+    return evaluateStopLadder(ctx.position);
+  },
+  // FULL 단계(전량)는 즉시 중단 — 다른 레이어 평가 불필요
+  shortCircuit(signals: SellSignal[]) {
+    return signals.some(s => s.action === 'STOP_LADDER' && s.ratio === 1.0);
   },
 };
 
@@ -67,6 +81,7 @@ const L2_PRE_MORTEM: SellLayer = {
     const triggers = evaluatePreMortems(ctx.position, ctx.preMortem, {
       roeTypeHistory: ctx.roeTypeHistory,
       assetTurnoverHistory: ctx.assetTurnoverHistory,
+      regime: ctx.regime,
     });
     return triggers.map(pm => ({
       action: 'PRE_MORTEM' as const,
@@ -77,6 +92,19 @@ const L2_PRE_MORTEM: SellLayer = {
     }));
   },
   shortCircuit: neverShortCircuit,
+};
+
+const L5_ICHIMOKU_EXIT: SellLayer = {
+  id: 'L5_ICHIMOKU_EXIT',
+  priority: 35,
+  evaluate(ctx) {
+    const signal = evaluateIchimokuExit(ctx.position, ctx.candles);
+    return signal ? [signal] : [];
+  },
+  // 전량 청산 신호(ratio=1.0)는 중단, 30%/50%는 계속
+  shortCircuit(signals: SellSignal[]) {
+    return signals.some(s => s.action === 'ICHIMOKU_EXIT' && s.ratio === 1.0);
+  },
 };
 
 const L4_EUPHORIA: SellLayer = {
@@ -96,17 +124,21 @@ const L4_EUPHORIA: SellLayer = {
  */
 export const SELL_LAYER_REGISTRY: readonly SellLayer[] = [
   L1_HARD_STOP,
+  L1_5_STOP_LADDER,
   L3_PROFIT_TAKE,
   L3_TRAILING,
   L2_PRE_MORTEM,
+  L5_ICHIMOKU_EXIT,
   L4_EUPHORIA,
 ];
 
 /** 개별 레이어 접근용 (테스트·진단 목적) */
 export const SELL_LAYERS = {
   L1_HARD_STOP,
+  L1_5_STOP_LADDER,
   L3_PROFIT_TAKE,
   L3_TRAILING,
   L2_PRE_MORTEM,
+  L5_ICHIMOKU_EXIT,
   L4_EUPHORIA,
 } as const;

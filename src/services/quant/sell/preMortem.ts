@@ -21,9 +21,10 @@ import type {
   PreMortemData,
   PreMortemTrigger,
 } from '../../../types/sell';
-import type { ROEType } from '../../../types/core';
+import type { ROEType, RegimeLevel } from '../../../types/core';
 import { detectROETransition } from '../roeEngine';
 import { calcDrawdown } from './util';
+import { resolveDrawdownThreshold } from './drawdownThresholds';
 
 /**
  * ROE 히스토리를 확정.
@@ -53,6 +54,11 @@ export function evaluatePreMortems(
   options: {
     roeTypeHistory?: ROEType[];
     assetTurnoverHistory?: number[];
+    /**
+     * 2D 낙폭 역치 판정에 쓸 레짐.
+     * 명시되지 않으면 data.currentRegime을 사용 (Phase 1 하위 호환).
+     */
+    regime?: RegimeLevel;
   } = {},
 ): PreMortemTrigger[] {
   const triggers: PreMortemTrigger[] = [];
@@ -113,14 +119,17 @@ export function evaluatePreMortems(
     });
   }
 
-  // 5. 고점 대비 -30% 추세 붕괴
+  // 5. 고점 대비 낙폭 — 레짐×프로파일 2D 역치 (Phase 3)
   const drawdown = calcDrawdown(position);
-  if (drawdown <= -0.30) {
+  const regimeForThreshold = options.regime ?? data.currentRegime;
+  const drawdownThreshold = resolveDrawdownThreshold(regimeForThreshold, position.profile);
+  if (drawdown <= drawdownThreshold) {
     triggers.push({
       type: 'TREND_COLLAPSE',
       severity: 'CRITICAL',
       sellRatio: 1.0,
-      reason: `고점 대비 ${(drawdown * 100).toFixed(1)}% 추세 붕괴. 전량 청산.`,
+      reason: `고점 대비 ${(drawdown * 100).toFixed(1)}% 추세 붕괴 `
+        + `(기준 ${(drawdownThreshold * 100).toFixed(0)}%, regime=${regimeForThreshold}, profile=${position.profile}). 전량 청산.`,
     });
   }
 
