@@ -93,6 +93,43 @@ export {
   type SyncTrailingOcoResult,
 } from './trailingOcoSyncer';
 
+// Phase 5: 매도 감사 로그 (자기 학습의 입력)
+export {
+  buildAuditEntry,
+  computeVerdict,
+  aggregateLayerReliability,
+  type SellAuditEntry,
+  type AuditLogAdapter,
+  type AuditLogFilter,
+  type RecordSellDecisionInput,
+  type LayerReliabilityStats,
+} from './sellAuditLog';
+export {
+  attachAuditLogger,
+  type AuditContextBuilder,
+} from './sellAuditLogAttach';
+
+// Phase 5: Shadow Sell Mode
+export {
+  buildShadowRecord,
+  evaluateShadowOutcome,
+  aggregateShadowStats,
+  isShadowMode,
+  type ShadowSellRecord,
+  type RecordShadowInput,
+  type ShadowLayerStats,
+  type ShadowSellModeFlag,
+} from './shadowSellMode';
+
+// Phase 5: Pre-Flight Sell Simulation
+export {
+  runPreFlightSellSim,
+  type PreFlightScenario,
+  type PreFlightScenarioId,
+  type PreFlightScenarioResult,
+  type PreFlightReport,
+} from './preFlightSellSim';
+
 // 오케스트레이터
 export {
   evaluateSellSignals,
