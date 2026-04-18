@@ -81,6 +81,8 @@ function stripHtml(text: string): string {
 
 // ─── 아이디어 2: 알림 중복 방지 + 우선순위 레이어 ─────────────────────────────────
 export type AlertPriority = 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW';
+/** 외부 레포에서 임포트하기 쉬운 별칭 — UI 알림 피드가 같은 enum 재사용. */
+export type TelegramAlertPriority = AlertPriority;
 
 interface AlertCooldownEntry {
   lastSentAt: number;
@@ -272,6 +274,11 @@ export async function sendTelegramAlert(
     if (shouldSendAlert(opts)) {
       addToDigest(message);
       recordAlertSent(opts);
+      // UI 피드에도 동일 엔트리 누적 (텔레그램 ↔ UI 정보 비대칭 해소).
+      try {
+        const { appendAlertFeed } = await import('../persistence/alertsFeedRepo.js');
+        appendAlertFeed(message, 'LOW', opts?.dedupeKey);
+      } catch { /* noop — 피드 기록은 best-effort */ }
     }
     return;
   }
@@ -283,6 +290,10 @@ export async function sendTelegramAlert(
 
   const msgId = await sendTelegramAlertRaw(message, opts?.replyMarkup);
   recordAlertSent(opts);
+  try {
+    const { appendAlertFeed } = await import('../persistence/alertsFeedRepo.js');
+    appendAlertFeed(message, opts?.priority ?? 'NORMAL', opts?.dedupeKey);
+  } catch { /* noop */ }
   return msgId;
 }
 

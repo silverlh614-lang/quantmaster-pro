@@ -31,7 +31,20 @@ import {
 import { CONDITION_KEYS, DEFAULT_CONDITION_WEIGHTS, type ConditionKey } from '../quantFilter.js';
 import { getScanFeedbackState, getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { channelWatchlistAdded, channelWatchlistRemoved } from '../alerts/channelPipeline.js';
-import { getEmergencyStop, setEmergencyStop } from '../state.js';
+import {
+  getEmergencyStop,
+  setEmergencyStop,
+  getLastHeartbeat,
+  getLastHeartbeatSource,
+  getTradingMode,
+  getKillSwitchLast,
+} from '../state.js';
+import { assessKillSwitch } from '../trading/killSwitch.js';
+import {
+  attachEngineStream,
+  publishEngineStatus,
+} from './engineStreamBus.js';
+import { listAlertFeed, countUnreadSince } from '../persistence/alertsFeedRepo.js';
 import { tradingOrchestrator } from '../orchestrator/tradingOrchestrator.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { getLastBuySignalAt } from '../trading/signalScanner.js';
@@ -57,33 +70,28 @@ const router = Router();
 // 자동매매 엔진 상태 조회 / 토글 API
 // ─────────────────────────────────────────────────────────────
 
-/** GET /api/auto-trade/engine/status — 엔진 ON/OFF, 마지막/다음 실행, 오늘 KPI */
-router.get('/auto-trade/engine/status', (_req: any, res: any) => {
+/**
+ * 엔진 상태 스냅샷 빌더 — REST(/engine/status) 와 SSE 브로드캐스트가 같은 형태를
+ * 공유하도록 단일 함수로 추출. 외부 의존이 없어 매 tick 호출 부담이 낮다.
+ */
+function buildEngineStatusSnapshot() {
   const autoEnabled = process.env.AUTO_TRADE_ENABLED === 'true';
   const emergencyStop = getEmergencyStop();
   const running = autoEnabled && !emergencyStop;
 
-  // 오케스트레이터 상태에서 마지막 실행 시점 추출
   const orchStatus = tradingOrchestrator.getStatus();
   const handlerRanAt = orchStatus.handlerRanAt ?? {};
   const lastRunTs = Object.values(handlerRanAt).sort().pop() ?? null;
 
-  // 마지막 스캔 시점
   const lastScanTs = getLastScanAt();
   const lastScanAt = lastScanTs > 0 ? new Date(lastScanTs).toISOString() : null;
-
-  // 마지막 매수 신호
   const lastBuyTs = getLastBuySignalAt();
   const lastBuySignalAt = lastBuyTs > 0 ? new Date(lastBuyTs).toISOString() : null;
 
-  // 오늘의 Shadow 거래 통계
   const todayStr = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
   const shadows = loadShadowTrades();
-  const todayShadows = shadows.filter(
-    (s) => (s.signalTime ?? '').slice(0, 10) === todayStr
-  );
+  const todayShadows = shadows.filter((s) => (s.signalTime ?? '').slice(0, 10) === todayStr);
   const todayBuys = todayShadows.filter((s) => isOpenShadowStatus(s.status)).length;
-  // 오늘 청산 = 오늘(KST) SELL fill이 하나라도 있는 포지션 수 (진입일 무관)
   const todayExits = shadows.filter((s) =>
     (s.fills ?? []).some((f) =>
       f.type === 'SELL' &&
@@ -92,22 +100,58 @@ router.get('/auto-trade/engine/status', (_req: any, res: any) => {
   ).length;
   const todayScans = Object.keys(handlerRanAt).length;
 
-  res.json({
+  const heartbeatAt = getLastHeartbeat();
+  const killSwitch = getKillSwitchLast();
+  const killSwitchAssessment = assessKillSwitch();
+
+  return {
     running,
     autoTradeEnabled: autoEnabled,
     emergencyStop,
-    mode: process.env.AUTO_TRADE_MODE ?? 'SHADOW',
+    mode: getTradingMode(),
     currentState: orchStatus.computedState,
     lastRun: lastRunTs,
     lastScanAt,
     lastBuySignalAt,
-    todayStats: {
-      scans: todayScans,
-      buys: todayBuys,
-      exits: todayExits,
+    heartbeat: {
+      at: heartbeatAt > 0 ? new Date(heartbeatAt).toISOString() : null,
+      source: getLastHeartbeatSource(),
+      ageMs: heartbeatAt > 0 ? Date.now() - heartbeatAt : null,
     },
-  });
+    killSwitch: {
+      last: killSwitch,
+      current: killSwitchAssessment,
+    },
+    todayStats: { scans: todayScans, buys: todayBuys, exits: todayExits },
+  };
+}
+
+/** GET /api/auto-trade/engine/status — 엔진 ON/OFF, 마지막/다음 실행, 오늘 KPI */
+router.get('/auto-trade/engine/status', (_req: any, res: any) => {
+  res.json(buildEngineStatusSnapshot());
 });
+
+/**
+ * GET /api/auto-trade/engine/stream — Server-Sent Events 스트림.
+ *
+ * 연결 시 즉시 현재 스냅샷 1회 발신 + 이후 5초 간격 재발신 + 엔진 토글·
+ * Kill Switch 이벤트 발생 시 즉시 push.
+ *
+ * 기존 REST 폴링 대비:
+ *   - 트래픽 95% 감소 (n명 × 5초 → 5초 × 1방송)
+ *   - 체감 지연 60초 → 5초
+ *   - 자동 재연결은 브라우저 EventSource 기본 동작으로 처리
+ */
+router.get('/auto-trade/engine/stream', (req: any, res: any) => {
+  attachEngineStream(req, res);
+  // 연결 직후 최신 스냅샷 1회 푸시 — 초기 렌더에서 빈 상태를 방지.
+  publishEngineStatus(buildEngineStatusSnapshot());
+});
+
+// 5초 간격 엔진 상태 브로드캐스트 — 구독자 0명이면 부하 거의 0.
+setInterval(() => {
+  try { publishEngineStatus(buildEngineStatusSnapshot()); } catch { /* noop */ }
+}, 5_000).unref?.();
 
 /** POST /api/auto-trade/engine/toggle — 비상정지 토글로 엔진 ON/OFF 전환 */
 router.post('/auto-trade/engine/toggle', (_req: any, res: any) => {
@@ -115,7 +159,36 @@ router.post('/auto-trade/engine/toggle', (_req: any, res: any) => {
   setEmergencyStop(!current);
   const running = process.env.AUTO_TRADE_ENABLED === 'true' && current; // toggled: was stopped → now running
   console.log(`[Engine] 자동매매 엔진 ${current ? '재개' : '정지'} (비상정지 → ${!current})`);
+  // 토글 즉시 SSE 브로드캐스트 — 타 브라우저 탭도 5초 지연 없이 동기화.
+  try { publishEngineStatus(buildEngineStatusSnapshot()); } catch { /* noop */ }
   res.json({ running, emergencyStop: !current });
+});
+
+// ─── Phase 5: Alerts Feed — UI 벨 아이콘 ────────────────────────────────────
+/** GET /api/alerts/feed — Telegram 으로 발송된 알림의 UI용 타임라인 조회. */
+router.get('/alerts/feed', (req: any, res: any) => {
+  const sinceId = typeof req.query.sinceId === 'string' ? req.query.sinceId : undefined;
+  const limitRaw = Number(req.query.limit);
+  const limit = Number.isFinite(limitRaw) ? limitRaw : 50;
+  const priorityParam = typeof req.query.priority === 'string' ? req.query.priority : '';
+  const priority = priorityParam ? priorityParam.split(',').filter(Boolean) : undefined;
+  const entries = listAlertFeed({ sinceId, limit, priority: priority as any });
+  const unread = countUnreadSince(sinceId);
+  res.json({ entries, unread });
+});
+
+/**
+ * POST /api/auto-trade/engine/emergency-stop — 단방향 강제 정지.
+ *
+ * `toggle` 은 반전이므로 "이미 정지 상태" 에서 호출하면 역설적으로 재개된다.
+ * 비상 경로에서는 이 위험을 허용할 수 없어, 명시적으로 setEmergencyStop(true)
+ * 만 수행하는 별도 엔드포인트를 제공한다. 멱등 (여러 번 호출해도 항상 정지).
+ */
+router.post('/auto-trade/engine/emergency-stop', (_req: any, res: any) => {
+  setEmergencyStop(true);
+  console.warn('[Engine] 🛑 비상정지 강제 발동 (emergency-stop endpoint)');
+  try { publishEngineStatus(buildEngineStatusSnapshot()); } catch { /* noop */ }
+  res.json({ running: false, emergencyStop: true });
 });
 
 // ─── 아이디어 4: FSS 외국인 수급 방향 전환 스코어 API ──────────────────────

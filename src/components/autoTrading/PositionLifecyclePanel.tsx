@@ -1,6 +1,7 @@
 import React from 'react';
 import { Section } from '../../ui/section';
 import type { PositionItem } from '../../services/autoTrading/autoTradingTypes';
+import { LifecycleStageGauge } from './LifecycleStageGauge';
 
 interface PositionLifecyclePanelProps {
   positions: PositionItem[];
@@ -8,7 +9,7 @@ interface PositionLifecyclePanelProps {
 
 export function PositionLifecyclePanel({ positions }: PositionLifecyclePanelProps) {
   return (
-    <Section title="포지션 라이프사이클" subtitle="Position Lifecycle Panel">
+    <Section title="활성 포지션 포트폴리오" subtitle="Active Position Lifecycle">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {positions.length === 0 ? (
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/50">
@@ -18,7 +19,7 @@ export function PositionLifecyclePanel({ positions }: PositionLifecyclePanelProp
           positions.map((position) => (
             <div key={position.id} className="rounded-2xl border border-white/10 bg-white/5 p-5">
               <div className="flex items-start justify-between gap-4">
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="text-base font-semibold text-white">
                     {position.name} ({position.symbol})
                   </div>
@@ -36,6 +37,14 @@ export function PositionLifecyclePanel({ positions }: PositionLifecyclePanelProp
                 >
                   {position.status}
                 </span>
+              </div>
+
+              {/* Phase 4: 5단계 생애주기 진행바 ─────────────────────── */}
+              <div className="mt-4">
+                <LifecycleStageGauge
+                  stage={position.stage ?? 'HOLD'}
+                  breachedConditions={position.breachedConditions}
+                />
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">

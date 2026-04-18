@@ -3,7 +3,7 @@
 // Railway/일부 호스트에서 발생하는 "ENETUNREACH 2607:f8b0:..." IPv6 실패를 차단한다.
 
 import nodemailer from 'nodemailer';
-import type { Transporter } from 'nodemailer';
+import type { Transporter, TransportOptions } from 'nodemailer';
 
 /**
  * Gmail SMTP transporter 생성. EMAIL_USER/EMAIL_PASS 미설정 시 null.
@@ -14,6 +14,9 @@ import type { Transporter } from 'nodemailer';
  */
 export function createMailTransporter(): Transporter | null {
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return null;
+  // nodemailer 의 TransportOptions 타입은 SMTP/SES/stream 유니언이라 host/port
+  // 등 SMTP 전용 필드를 직접 리터럴로 쓰면 추론이 깨진다. SMTP options 으로
+  // 명시 캐스팅하여 타입 검사와 런타임 동작을 분리한다.
   return nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
@@ -26,5 +29,5 @@ export function createMailTransporter(): Transporter | null {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
-  });
+  } as unknown as TransportOptions);
 }

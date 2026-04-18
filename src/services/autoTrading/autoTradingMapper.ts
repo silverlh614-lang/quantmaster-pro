@@ -15,6 +15,8 @@ import type {
   OrderStatus,
   PositionItem,
   RiskRuleState,
+  SignalItem,
+  TradingLogItem,
   TradingMode,
 } from './autoTradingTypes';
 
@@ -150,12 +152,31 @@ export function toRiskRules(
   return rules;
 }
 
+/**
+ * 보유 포지션 수익률만으로 5단계 Lifecycle Stage 를 휴리스틱 추정.
+ * 서버에 전용 lifecycle 엔드포인트가 생기기 전까지의 과도기 추정값이며
+ * 구체적 분기는 positionLifecycleEngine 의 규칙을 단순화한 것이다.
+ */
+function inferLifecycleStage(pnlPct: number): PositionItem['stage'] {
+  if (pnlPct <= -5) return 'FULL_EXIT';     // 손절 임박/발동
+  if (pnlPct <= -2) return 'EXIT_PREP';     // 분할 축소 필요 구간
+  if (pnlPct <= -0.5) return 'ALERT';       // 주의 구간
+  if (pnlPct >= 5) return 'HOLD';           // 수익 정상 유지
+  return 'HOLD';
+}
+
 export function toPositions(holdings: KisHolding[]): PositionItem[] {
   return holdings.slice(0, 20).map((holding) => {
     const quantity = toNumber(holding.hldg_qty);
     const avgPrice = toNumber(holding.pchs_avg_pric);
     const currentPrice = toNumber(holding.prpr);
     const pnlPct = toNumber(holding.evlu_pfls_rt);
+
+    const stage = inferLifecycleStage(pnlPct);
+    const breachedConditions: string[] = [];
+    if (pnlPct <= -3) breachedConditions.push('-3% 이상 손실 — 리스크 재평가');
+    if (pnlPct <= -5) breachedConditions.push('손절 라인 임박');
+    if (quantity <= 0) breachedConditions.push('잔여 수량 0');
 
     return {
       id: holding.pdno,
@@ -168,6 +189,8 @@ export function toPositions(holdings: KisHolding[]): PositionItem[] {
       quantity,
       pnlPct,
       status: pnlPct < -2 ? 'REDUCE' : pnlPct > 5 ? 'EXIT_READY' : 'HOLD',
+      stage,
+      breachedConditions: breachedConditions.length ? breachedConditions : undefined,
       warningMessage: pnlPct < -3 ? '손실 구간 진입: 리스크 점검 필요' : undefined,
     };
   });
@@ -185,6 +208,101 @@ const fallbackEmergency: EmergencyActionState = {
   autoTradingPaused: false,
   positionManageOnly: false,
 };
+
+// ── Shadow Trades 로부터 신호 큐 파생 ───────────────────────────
+// 전용 신호 엔드포인트가 없으므로 최근 shadow trade 들을 신호로 역추정.
+// Phase 3+ 에서 `/api/auto-trade/signals/queue` 엔드포인트 추가 시 교체.
+export function deriveSignalsFromShadowTrades(trades: ServerShadowTrade[]): SignalItem[] {
+  return trades
+    .slice()
+    .sort((a, b) => new Date(b.signalTime).getTime() - new Date(a.signalTime).getTime())
+    .slice(0, 20)
+    .map((t, i) => {
+      const status = mapOrderStatus(t);
+      const blocked = status === 'REJECTED' || status === 'BLOCKED';
+      return {
+        id: t.id ?? `sig-${t.stockCode}-${i}`,
+        symbol: t.stockCode,
+        name: t.stockName,
+        createdAt: formatKst(t.signalTime) ?? '-',
+        grade: 'BUY' as const,
+        gate1Passed: 0,
+        gate2Passed: 0,
+        gate3Passed: 0,
+        rrr: undefined,
+        status,
+        blockedReason: blocked ? '서버 측 필터에 의해 실행 차단' : undefined,
+      };
+    });
+}
+
+// ── Shadow Trades 로부터 로그 타임라인 파생 ─────────────────────
+export function deriveLogsFromShadowTrades(trades: ServerShadowTrade[]): TradingLogItem[] {
+  const logs: TradingLogItem[] = [];
+  trades
+    .slice()
+    .sort((a, b) => new Date(b.signalTime).getTime() - new Date(a.signalTime).getTime())
+    .slice(0, 30)
+    .forEach((t, i) => {
+      const status = (t.status ?? '').toUpperCase();
+      const level: TradingLogItem['level'] =
+        status === 'REJECTED' ? 'ERROR'
+        : status === 'HIT_TARGET' ? 'SUCCESS'
+        : status === 'HIT_STOP' ? 'WARNING'
+        : 'INFO';
+      const verb =
+        status === 'HIT_TARGET' ? '익절 체결'
+        : status === 'HIT_STOP' ? '손절 체결'
+        : status === 'ACTIVE' ? '주문 체결'
+        : status === 'PENDING' ? '신호 탐지'
+        : status === 'REJECTED' ? '주문 거부'
+        : '상태 갱신';
+      logs.push({
+        id: `log-${t.id ?? t.stockCode}-${i}`,
+        level,
+        message: `${t.stockName} (${t.stockCode}) — ${verb}`,
+        createdAt: formatKst(t.resolvedAt ?? t.exitTime ?? t.signalTime) ?? '-',
+      });
+    });
+  return logs;
+}
+
+// ── 브로커 연결 상태 파생 ───────────────────────────────────────
+export function deriveBrokerState(
+  engineStatus: ServerEngineStatus | null,
+  accountSummary: AccountSummary | null,
+): BrokerConnectionState {
+  if (!engineStatus) return fallbackBroker;
+  const connected = Boolean(accountSummary) && !engineStatus.emergencyStop;
+  return {
+    brokerName: 'KIS',
+    connected,
+    accountMasked: accountSummary ? '자동 매핑됨' : undefined,
+    orderAvailable: connected && engineStatus.autoTradeEnabled,
+    balanceSyncedAt: formatKst(engineStatus.lastRun),
+    quoteSyncedAt: formatKst(engineStatus.lastScanAt),
+    lastError: engineStatus.emergencyStop ? '비상정지 활성' : undefined,
+  };
+}
+
+// ── 긴급 액션 상태 파생 ─────────────────────────────────────────
+export function deriveEmergencyState(
+  engineStatus: ServerEngineStatus | null,
+  buyAudit: BuyAuditData | null,
+): EmergencyActionState {
+  if (!engineStatus && !buyAudit) return fallbackEmergency;
+  const newBuyBlocked = Boolean(
+    buyAudit?.vixGating.noNewEntry ||
+    buyAudit?.fomcGating.noNewEntry ||
+    buyAudit?.emergencyStop,
+  );
+  const autoTradingPaused = Boolean(engineStatus?.emergencyStop || !engineStatus?.running);
+  return {
+    newBuyBlocked,
+    autoTradingPaused,
+    positionManageOnly: newBuyBlocked && !autoTradingPaused,
+  };
+}
 
 export function mapAutoTradingDashboard(raw: AutoTradingDashboardState): AutoTradingDashboardState {
   return {

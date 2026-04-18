@@ -28,3 +28,55 @@ export const setDataIntegrityBlocked = (v: boolean) => { DATA_INTEGRITY_BLOCKED 
 let AUTO_TRADE_PAUSED = false;
 export const getAutoTradePaused = () => AUTO_TRADE_PAUSED;
 export const setAutoTradePaused = (v: boolean) => { AUTO_TRADE_PAUSED = v; };
+
+// ─── 엔진 하트비트 — Railway 좀비 프로세스 감지용 ──────────────────────────────
+// 스케줄러 tick 마다 갱신. UI는 (Date.now() - lastHeartbeatTs) > 90_000 일 때
+// "엔진 응답 없음" 적색 배너를 노출한다. 14분 self-ping 은 프로세스 생존만
+// 확인하지만, heartbeat 는 cron 루프가 실제로 돌고 있는지 증명한다.
+let LAST_HEARTBEAT_TS = 0;
+let LAST_HEARTBEAT_SOURCE = 'init';
+export const getLastHeartbeat = () => LAST_HEARTBEAT_TS;
+export const getLastHeartbeatSource = () => LAST_HEARTBEAT_SOURCE;
+/**
+ * @param source 트리거 소스 ('orchestrator' | 'oco-confirm' | 'oco-poll' | ...) — 디버깅용
+ */
+export const touchHeartbeat = (source: string) => {
+  LAST_HEARTBEAT_TS = Date.now();
+  LAST_HEARTBEAT_SOURCE = source;
+};
+
+// ─── 런타임 운영 모드 — Kill Switch Cascade 로 강등 가능 ─────────────────────────
+// 기본값은 env 의 AUTO_TRADE_MODE. 강등 발생 시 메모리 상에서 SHADOW 로 덮어쓴다.
+// 재시작 시 env 값으로 복원 — 스냅샷(Phase 5) 도입 시 영속화 예정.
+type TradingMode = 'LIVE' | 'PAPER' | 'SHADOW' | 'MANUAL';
+let RUNTIME_MODE: TradingMode | null = null;
+
+function readEnvMode(): TradingMode {
+  const raw = (process.env.AUTO_TRADE_MODE ?? 'SHADOW').toUpperCase();
+  if (raw === 'LIVE') return 'LIVE';
+  if (raw === 'PAPER' || raw === 'VTS') return 'PAPER';
+  if (raw === 'SHADOW') return 'SHADOW';
+  return 'MANUAL';
+}
+
+export const getTradingMode = (): TradingMode => RUNTIME_MODE ?? readEnvMode();
+export const setTradingMode = (mode: TradingMode): void => { RUNTIME_MODE = mode; };
+
+// ─── Kill Switch Cascade 원인 추적 ──────────────────────────────────────────
+// 강등 시 UI + 알림에 이유를 전달하기 위한 최근 강등 레코드.
+export interface KillSwitchRecord {
+  /** ISO timestamp */
+  at: string;
+  /** 강등 전 모드 */
+  from: TradingMode;
+  /** 강등 후 모드 (현재는 SHADOW 고정, 확장 여지) */
+  to: TradingMode;
+  /** 강등 트리거 원인 (사람이 읽을 수 있는 한국어 문구) */
+  reason: string;
+  /** 해당 사이클 감지된 전체 원인 키 (하나 이상일 수 있음) */
+  triggers: string[];
+}
+
+let KILL_SWITCH_LAST: KillSwitchRecord | null = null;
+export const getKillSwitchLast = () => KILL_SWITCH_LAST;
+export const setKillSwitchLast = (rec: KillSwitchRecord) => { KILL_SWITCH_LAST = rec; };

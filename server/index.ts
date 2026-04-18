@@ -200,6 +200,16 @@ async function startServer() {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
 
+    // ─── Phase 5: 엔진 스냅샷 복원 + 30초 주기 체크포인트 ────────────────────
+    // app.listen 콜백은 동기라서 await 못 씀 — dynamic import 를 .then 체이닝.
+    import('./persistence/engineSnapshotRepo.js')
+      .then(({ restoreEngineSnapshot, startEngineSnapshotLoop }) => {
+        restoreEngineSnapshot();
+        startEngineSnapshotLoop();
+        console.log('[AutoTrade] 엔진 스냅샷 체크포인트 루프 가동 (30s)');
+      })
+      .catch((e) => console.error('[AutoTrade] 엔진 스냅샷 초기화 실패:', e));
+
     // ─── cron 스케줄러 기동 ───────────────────────────────────────────────────
     startScheduler();
 

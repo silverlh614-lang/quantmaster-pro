@@ -21,7 +21,7 @@ function levelStyle(level: TradingLogItem['level']) {
 
 export function EventLogPanel({ logs }: EventLogPanelProps) {
   return (
-    <Section title="이벤트 로그" subtitle="Event Log Panel">
+    <Section title="체결 추적 분석" subtitle="Execution Event Timeline">
       <div className="space-y-2">
         {logs.length === 0 ? (
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/50">

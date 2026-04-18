@@ -20,7 +20,7 @@ export function EmergencyActionsPanel({
   onEmergencyLiquidation,
 }: EmergencyActionsPanelProps) {
   return (
-    <Section title="비상 액션 패널" subtitle="Emergency Actions Panel">
+    <Section title="비상 대응 프로토콜" subtitle="Emergency Response Protocol">
       <div className="space-y-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <StatusPill label="신규 매수 차단" active={state.newBuyBlocked} />

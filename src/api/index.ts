@@ -7,12 +7,14 @@ export {
   systemApi,
   sessionApi,
   shadowApi,
+  alertsApi,
 } from './autoTradeClient';
 
 export type {
   WatchlistEntry,
   WatchlistAddPayload,
   EngineStatus,
+  EngineHeartbeat,
   EngineToggleResponse,
   BuyAuditData,
   GateAuditData,
@@ -22,6 +24,11 @@ export type {
   ReconcileResponse,
   RecommendationStats,
   ConditionWeightsDebug,
+  KillSwitchAssessmentDto,
+  KillSwitchRecordDto,
+  AlertFeedEntry,
+  AlertFeedPriority,
+  AlertFeedResponse,
   DartAlert,
   TradingSettings,
   ServerShadowTrade,

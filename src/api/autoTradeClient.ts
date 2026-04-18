@@ -32,6 +32,31 @@ export interface WatchlistAddPayload {
   targetPrice: number;
 }
 
+export interface EngineHeartbeat {
+  at: string | null;
+  source: string;
+  ageMs: number | null;
+}
+
+export interface KillSwitchAssessmentDto {
+  shouldDowngrade: boolean;
+  triggers: string[];
+  details: {
+    dailyLossPct: number;
+    ocoCancelFails: number;
+    kisTokenFailRecent: boolean;
+    vkospiSurgePct: number;
+  };
+}
+
+export interface KillSwitchRecordDto {
+  at: string;
+  from: string;
+  to: string;
+  reason: string;
+  triggers: string[];
+}
+
 export interface EngineStatus {
   running: boolean;
   autoTradeEnabled: boolean;
@@ -41,6 +66,13 @@ export interface EngineStatus {
   lastRun: string | null;
   lastScanAt: string | null;
   lastBuySignalAt: string | null;
+  /** Phase 3: 스케줄러 tick heartbeat — null 이면 아직 1회도 돌지 않음. */
+  heartbeat?: EngineHeartbeat;
+  /** Phase 3: Kill Switch — 최근 강등 기록 + 현재 평가. */
+  killSwitch?: {
+    last: KillSwitchRecordDto | null;
+    current: KillSwitchAssessmentDto;
+  };
   todayStats: { scans: number; buys: number; exits: number };
 }
 
@@ -211,6 +243,12 @@ export const autoTradeApi = {
     apiFetch<EngineStatus>('/api/auto-trade/engine/status'),
   toggleEngine: () =>
     apiFetch<EngineToggleResponse>('/api/auto-trade/engine/toggle', { method: 'POST' }),
+  /**
+   * 비상정지 강제 발동 (멱등). `toggleEngine` 과 달리 이미 정지 상태여도
+   * 재개되지 않는다 — 사고 방지용 단방향 액션.
+   */
+  emergencyStop: () =>
+    apiFetch<EngineToggleResponse>('/api/auto-trade/engine/emergency-stop', { method: 'POST' }),
 
   // Watchlist
   getWatchlist: () =>
@@ -341,4 +379,32 @@ export const sessionApi = {
 // Shadow account 는 `/api/shadow/account` 경로 — 자동매매 UI 의 주요 의존처.
 export const shadowApi = {
   getAccount: <T = unknown>() => apiFetch<T>('/api/shadow/account'),
+};
+
+// ─── Phase 5: Alerts Feed (텔레그램 ↔ UI 동기화) ──────────────────────────
+
+export type AlertFeedPriority = 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW' | 'INFO';
+
+export interface AlertFeedEntry {
+  id: string;
+  at: string;
+  priority: AlertFeedPriority;
+  text: string;
+  dedupeKey?: string;
+}
+
+export interface AlertFeedResponse {
+  entries: AlertFeedEntry[];
+  unread: number;
+}
+
+export const alertsApi = {
+  getFeed: (opts: { sinceId?: string; limit?: number; priority?: AlertFeedPriority[] } = {}) =>
+    apiFetch<AlertFeedResponse>('/api/alerts/feed', {
+      query: {
+        ...(opts.sinceId ? { sinceId: opts.sinceId } : {}),
+        ...(opts.limit ? { limit: String(opts.limit) } : {}),
+        ...(opts.priority?.length ? { priority: opts.priority.join(',') } : {}),
+      },
+    }),
 };
