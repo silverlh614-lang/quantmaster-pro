@@ -18,7 +18,7 @@ import { PositionDetailDrawer } from '../components/autoTrading/PositionDetailDr
 import { useAutoTradingDashboard } from '../hooks/useAutoTradingDashboard';
 
 export function AutoTradePage() {
-  const { data, loading, error, refresh } = useAutoTradingDashboard();
+  const { data, loading, error, refresh, toggleEngine } = useAutoTradingDashboard();
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
 
@@ -67,10 +67,10 @@ export function AutoTradePage() {
 
         <AutoTradingControlCenter
           state={data.control}
-          onPause={() => console.log('pause')}
-          onResume={() => console.log('resume')}
+          onPause={() => { void toggleEngine(); }}
+          onResume={() => { void toggleEngine(); }}
           onRefresh={refresh}
-          onEmergencyStop={() => console.log('emergency stop')}
+          onEmergencyStop={() => { void toggleEngine(); }}
         />
 
         <PageGrid columns="2-1" gap="md">
