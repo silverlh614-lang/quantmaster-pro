@@ -50,6 +50,49 @@ export {
   resolveDrawdownThreshold,
 } from './drawdownThresholds';
 
+// L5.5 — Volume Dry-up Alert (Phase 4)
+export {
+  evaluateVdaAlert,
+  calcVdaScore,
+  type VdaScoreBreakdown,
+} from './volumeDryupAlert';
+
+// Phase 4: PositionEventBus — 단일 신호 채널
+export {
+  PositionEventBus,
+  positionEventBus,
+  publishSellSignals,
+  publishLifecycleTransition,
+  publishHighWaterMark,
+  type PositionEvent,
+  type PositionEventType,
+  type PositionEventPayload,
+  type PositionEventHandler,
+} from './positionEventBus';
+
+// Phase 4: 매도 27단계 대칭 체크리스트
+export {
+  evaluateSellChecklist27,
+  SURVIVAL_EXIT_IDS,
+  WARNING_EXIT_IDS,
+  PRECISION_EXIT_IDS,
+  type SellConditionId,
+  type ConditionBreachMap,
+  type SellChecklistInput,
+  type SellChecklistResult,
+} from './sellChecklist27';
+
+// Phase 4: Trailing OCO 동적 갱신
+export {
+  calcTrailingStopPrice,
+  syncTrailingOco,
+  type OcoAdapter,
+  type TrailingStopInput,
+  type TrailingStopCalcResult,
+  type SyncTrailingOcoOptions,
+  type SyncTrailingOcoResult,
+} from './trailingOcoSyncer';
+
 // 오케스트레이터
 export {
   evaluateSellSignals,

@@ -27,6 +27,7 @@ import { checkTrailingStop } from './trailing';
 import { evaluatePreMortems } from './preMortem';
 import { evaluateEuphoria } from './euphoria';
 import { evaluateIchimokuExit } from './ichimokuExit';
+import { evaluateVdaAlert } from './volumeDryupAlert';
 
 const neverShortCircuit = (): boolean => false;
 
@@ -107,6 +108,17 @@ const L5_ICHIMOKU_EXIT: SellLayer = {
   },
 };
 
+const L5_5_VDA: SellLayer = {
+  id: 'L5_5_VDA',
+  priority: 38,
+  evaluate(ctx) {
+    const signal = evaluateVdaAlert(ctx.position, ctx.volumeStats, ctx.candles);
+    return signal ? [signal] : [];
+  },
+  // VDA는 매도보다 조기 경보 성격이 강해 shortCircuit하지 않는다
+  shortCircuit: neverShortCircuit,
+};
+
 const L4_EUPHORIA: SellLayer = {
   id: 'L4_EUPHORIA',
   priority: 40,
@@ -129,6 +141,7 @@ export const SELL_LAYER_REGISTRY: readonly SellLayer[] = [
   L3_TRAILING,
   L2_PRE_MORTEM,
   L5_ICHIMOKU_EXIT,
+  L5_5_VDA,
   L4_EUPHORIA,
 ];
 
@@ -140,5 +153,6 @@ export const SELL_LAYERS = {
   L3_TRAILING,
   L2_PRE_MORTEM,
   L5_ICHIMOKU_EXIT,
+  L5_5_VDA,
   L4_EUPHORIA,
 } as const;
