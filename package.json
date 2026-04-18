@@ -13,7 +13,13 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
     "validate:gemini": "node scripts/validate_gemini_calls.js",
-    "precommit": "npm run validate:gemini && npm run lint"
+    "validate:complexity": "node scripts/check_complexity.js",
+    "validate:sds": "node scripts/silent_degradation_sentinel.js",
+    "validate:exposure": "node scripts/scan_exposure.js",
+    "validate:responsibility": "node scripts/check_responsibility.js",
+    "validate:all": "npm run validate:gemini && npm run validate:complexity && npm run validate:sds && npm run validate:exposure && npm run validate:responsibility",
+    "precommit": "node scripts/scan_exposure.js --no-history && node scripts/check_complexity.js && node scripts/check_responsibility.js --changed && npm run validate:gemini && npm run lint",
+    "install:hooks": "node scripts/install_git_hooks.js"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

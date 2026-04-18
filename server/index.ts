@@ -58,6 +58,7 @@ import failurePatternRouter from './routes/failurePatternRouter.js';
 import diagnosticRouter from './routes/diagnosticRouter.js';
 import { startScheduler } from './scheduler.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
+import { globalErrorHandler } from './utils/apiResponse.js';
 
 
 export { isEmergencyStopped, setDailyLoss };
@@ -114,6 +115,11 @@ async function startServer() {
   app.get('/api/orchestrator/state', (_req: Request, res: Response) => {
     res.json(tradingOrchestrator.getStatus());
   });
+
+  // ─── 글로벌 API 에러 핸들러 ───────────────────────────────────────────────
+  // 라우터 등록 직후, Vite/static 미들웨어 등록 전에 장착하여 /api/* 만 envelope 화한다.
+  // ZodError → 400, CircuitOpenError → 503, FetchRetryError → 502, 그 외 → 500
+  app.use('/api', globalErrorHandler);
 
   // ─── Vite middleware (dev) / Static file serving (prod) ───────────────────
   // IMPORTANT: This must come AFTER all API routes so the catch-all '*'

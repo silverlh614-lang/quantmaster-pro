@@ -2,6 +2,9 @@ import fs from 'fs';
 import { IPS_ALERT_FILE, ensureDataDir } from '../persistence/paths.js';
 import { type MacroState, loadMacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from './telegramClient.js';
+import { updateKellyDampenerFromIps } from '../trading/kellyDampener.js';
+import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
+import { isOpenShadowStatus } from '../trading/entryEngine.js';
 
 /** IPS 알림 단계별 재발송 최소 간격 */
 export const IPS_ALERT_COOLDOWN_MS: Record<string, number> = {
@@ -87,6 +90,25 @@ export async function pollIpsAlert(): Promise<void> {
   if (!macro) return; // 매크로 상태 미설정 시 패스
 
   const { ips, signals } = computeServerIps(macro);
+
+  // ── IPS × MAPC 피드백 루프 ─────────────────────────────────────────────
+  // IPS 값 변화에 맞춰 Kelly 감쇠 배율을 갱신한다. 배율이 변했으면
+  // 기존 포지션 보유자에게 "변곡 감지 알림"을 별도로 송출한다.
+  const dampener = updateKellyDampenerFromIps(ips);
+  if (dampener.changed) {
+    const openShadowCount = loadShadowTrades().filter((s) => isOpenShadowStatus(s.status)).length;
+    const direction = dampener.multiplier < dampener.prevMultiplier ? '강화' : '완화';
+    const arrow = `×${dampener.prevMultiplier.toFixed(2)} → ×${dampener.multiplier.toFixed(2)}`;
+    await sendTelegramAlert(
+      `🔔 <b>[변곡 감지 알림]</b> IPS ${ips}% (${dampener.level})\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `• Kelly 감쇠 ${direction}: <b>${arrow}</b>\n` +
+      `• 활성 포지션: ${openShadowCount}개\n` +
+      `• 신규 진입 크기가 자동으로 조정됩니다`,
+      { priority: dampener.multiplier < 0.5 ? 'CRITICAL' : 'HIGH', dedupeKey: `ips_kelly:${dampener.multiplier}` },
+    ).catch(console.error);
+    console.log(`[IpsAlert] Kelly 감쇠 업데이트 ${arrow} (IPS=${ips}%, 포지션 ${openShadowCount}개)`);
+  }
 
   // IPS < 60 → NORMAL, 알림 없음
   if (ips < 60) return;

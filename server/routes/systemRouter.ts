@@ -12,7 +12,8 @@ import {
 import { cancelAllPendingOrders, checkDailyLossLimit } from '../emergency.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { handleTelegramWebhook } from '../telegram/webhookHandler.js';
-import { getApiUsageStats } from '../clients/geminiClient.js';
+import { getApiUsageStats, getGeminiCircuitStats } from '../clients/geminiClient.js';
+import { getDartCircuitStats } from '../clients/dartFinancialClient.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { computeFocusCodes } from '../screener/watchlistManager.js';
 import { getLastRejectionLog } from '../screener/stockScreener.js';
@@ -47,6 +48,10 @@ router.get('/health', (_req: Request, res: Response) => {
     kisIsReal: process.env.KIS_IS_REAL === 'true',
     uptime: process.uptime(),
     startedAt: serverStart,
+    circuitBreakers: {
+      gemini: getGeminiCircuitStats(),
+      dart: getDartCircuitStats(),
+    },
   });
 });
 

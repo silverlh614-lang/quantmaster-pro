@@ -1,6 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ * @responsibility 앱의 최상위 레이아웃을 조립하고 전역 effect 훅을 초기화한다.
  */
 
 import React from 'react';
