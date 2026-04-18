@@ -9,6 +9,8 @@ import { Toaster } from 'sonner';
 import { PageRouter } from './pages/PageRouter';
 import { GlobalModals } from './components/common/GlobalModals';
 import { Sidebar } from './layout/Sidebar';
+import { SidebarDrawer } from './layout/SidebarDrawer';
+import { MobileTopBar } from './layout/MobileTopBar';
 import { BottomNav } from './layout/BottomNav';
 import { PageContainer } from './layout/PageContainer';
 import { AppFooter } from './layout/AppFooter';
@@ -33,9 +35,11 @@ export default function App() {
 
       <GlobalModals />
       <Sidebar />
+      <SidebarDrawer />
       <BottomNav />
 
       <div className="app-main">
+        <MobileTopBar />
         <MarketOverviewHeader onRefresh={() => handleFetchMarketOverview(true)} />
 
         <div className="flex">

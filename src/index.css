@@ -574,6 +574,44 @@
     }
   }
 
+  /* -- Sidebar Drawer (tablet/mobile <lg) — fixed frame provided by SidebarDrawer -- */
+  .app-sidebar-drawer {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(180deg, rgba(11, 16, 24, 0.98), rgba(6, 9, 13, 1));
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* -- Horizontal scroll-snap carousel (chart strips on narrow screens) -- */
+  .scroll-snap-x {
+    display: flex;
+    gap: var(--space-3);
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-padding: var(--space-4);
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+  .scroll-snap-x > * {
+    scroll-snap-align: start;
+    flex: 0 0 auto;
+  }
+
+  /* -- Tablet-optimized density (768-1023px) -- */
+  @media (min-width: 768px) and (max-width: 1023px) {
+    :root {
+      --space-tablet-gutter: 18px;
+    }
+    .app-main {
+      padding-left: var(--space-tablet-gutter);
+      padding-right: var(--space-tablet-gutter);
+    }
+  }
+
   /* -- Slide-in Detail Panel (Idea 7) -- */
   .detail-panel {
     position: fixed;

@@ -6,6 +6,7 @@ import React, { useState, useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { cn } from '../../ui/cn';
 import { useRecommendationStore, useMarketStore } from '../../stores';
+import { AppMenuButton } from '../../layout/AppMenuButton';
 
 export function StickyMiniHeader() {
   const [isVisible, setIsVisible] = useState(false);
@@ -46,6 +47,9 @@ export function StickyMiniHeader() {
       )}
       style={{ background: 'rgba(6, 9, 13, 0.92)' }}
     >
+      {/* 모바일/태블릿 햄버거 (데스크톱에선 CSS 로 숨김) */}
+      <AppMenuButton className="!h-8 !w-8 shrink-0" />
+
       <div className="flex items-center gap-4 overflow-x-auto no-scrollbar">
         {/* Stock Count */}
         <div className="flex items-center gap-1.5 shrink-0">

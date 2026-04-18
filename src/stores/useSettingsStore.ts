@@ -52,6 +52,11 @@ interface SettingsState {
   // Progressive disclosure — 페이지별 간단/프로 모드
   autoTradeViewMode: ViewDensity;
   setAutoTradeViewMode: (mode: ViewDensity) => void;
+
+  // Responsive sidebar drawer (<lg 화면) — 휘발성, persist X
+  sidebarDrawerOpen: boolean;
+  setSidebarDrawerOpen: (open: boolean) => void;
+  toggleSidebarDrawer: () => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -104,6 +109,12 @@ export const useSettingsStore = create<SettingsState>()(
       // Progressive disclosure
       autoTradeViewMode: 'simple',
       setAutoTradeViewMode: (autoTradeViewMode) => set({ autoTradeViewMode }),
+
+      // Responsive sidebar drawer
+      sidebarDrawerOpen: false,
+      setSidebarDrawerOpen: (sidebarDrawerOpen) => set({ sidebarDrawerOpen }),
+      toggleSidebarDrawer: () =>
+        set((state) => ({ sidebarDrawerOpen: !state.sidebarDrawerOpen })),
     }),
     {
       name: 'k-stock-settings',

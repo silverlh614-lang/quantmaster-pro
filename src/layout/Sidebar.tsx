@@ -12,7 +12,12 @@ import { useShadowTradeStore } from '../stores/useShadowTradeStore';
 import { NAV_GROUPS } from '../config';
 import type { TradeRecord } from '../types/quant';
 
-export function Sidebar() {
+interface SidebarProps {
+  /** 드로어 안에서 렌더될 때는 자체 fixed 포지셔닝 대신 부모 컨테이너를 채운다. */
+  asDrawer?: boolean;
+}
+
+export function Sidebar({ asDrawer = false }: SidebarProps = {}) {
   const { view, setView, setShowSettings, setShowMasterChecklist } = useSettingsStore();
   const { watchlist, setSearchQuery, lastUpdated } = useRecommendationStore();
   const { tradeRecords } = useTradeStore();
@@ -29,7 +34,12 @@ export function Sidebar() {
   }), [watchlist, openTradesCount, shadowTrades.length]);
 
   return (
-    <aside className="app-sidebar neo-sidebar no-scrollbar no-print">
+    <aside
+      className={cn(
+        'neo-sidebar no-scrollbar no-print',
+        asDrawer ? 'app-sidebar-drawer' : 'app-sidebar',
+      )}
+    >
       {/* Logo */}
       <div className="h-16 flex items-center gap-3 px-5 border-b-2 border-slate-700/30 shrink-0 relative">
         <div className="absolute inset-0 bg-gradient-to-r from-blue-500/[0.03] to-transparent pointer-events-none" />
