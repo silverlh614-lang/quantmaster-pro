@@ -37,6 +37,7 @@ import { FlowPredictionPanel } from './FlowPredictionPanel';
 import { SatelliteCascaderPanel } from './SatelliteCascaderPanel';
 import { BehavioralMirrorPanel } from './BehavioralMirrorPanel';
 import { SystemInterferencePanel } from './SystemInterferencePanel';
+import { ConditionLearningPanel } from './ConditionLearningPanel';
 import { RegimeGaugeSection } from '../macro/RegimeGaugeSection';
 import { BearRegimeSection } from '../macro/BearRegimeSection';
 import { MarketOverviewSection } from '../macro/MarketOverviewSection';
@@ -300,6 +301,10 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
 
       <SectionErrorBoundary sectionName="시스템 상호간섭">
         <SystemInterferencePanel result={systemInterferenceResult} />
+      </SectionErrorBoundary>
+
+      <SectionErrorBoundary sectionName="조건 학습 대시보드">
+        <ConditionLearningPanel />
       </SectionErrorBoundary>
 
       <SectionErrorBoundary sectionName="Bear Regime">

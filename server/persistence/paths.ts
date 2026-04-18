@@ -91,6 +91,15 @@ export const EXPERIMENTAL_CONDITIONS_FILE = path.join(DATA_DIR, 'experimental-co
  * 워크포워드 동결 시 최근 3개월 중앙값을 앙상블 임시 가중치로 활용한다.
  */
 export const WEIGHT_HISTORY_FILE      = path.join(DATA_DIR, 'condition-weight-history.json');
+/**
+ * 조건별 레짐 위상 맵 — 각 조건이 "위험 레짐"에서 WIN률이 급락하면 그 레짐에서
+ * 가중치를 cap 하는 정책 테이블. attributionAnalyzer.byRegime 로부터 도출.
+ */
+export const PHASE_MAP_FILE           = path.join(DATA_DIR, 'condition-phase-map.json');
+/**
+ * Shadow vs Real 드리프트 감지 상태 — 진입/청산가 괴리율 이력.
+ */
+export const SHADOW_REAL_DRIFT_FILE   = path.join(DATA_DIR, 'shadow-real-drift.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

@@ -25,6 +25,8 @@ import { runBacktest, runWeeklyMiniBacktest } from '../learning/backtestEngine.j
 import { bootstrapAttributionFromRecommendations } from '../learning/synergyBootstrap.js';
 import { reEvaluateExpired } from '../learning/lateWinEvaluator.js';
 import { runExperimentalConditionBacktest } from '../learning/experimentalConditionTester.js';
+import { updatePhaseMapAndCaps } from '../learning/phaseMapCalibrator.js';
+import { updateShadowRealDrift } from '../learning/shadowRealDriftDetector.js';
 import {
   runIncrementalCalibration,
   calibrateSignalWeightsLite,
@@ -108,6 +110,9 @@ class LearningOrchestrator {
     }
     await calibrateSignalWeightsLite().catch((e) => console.error('[L3 lite-calib]', e));
     await runWeeklyMiniBacktest().catch((e) => console.error('[L3 mini-backtest]', e));
+    // 아이디어 10 (Phase 5): Shadow vs Real 드리프트 감지 — 주간 1회.
+    // signalScanner 가 다음 주간의 targetPrice/stopLoss 계산에 계수 반영.
+    await updateShadowRealDrift().catch((e) => console.error('[L3 drift]', e));
     markTierRan('L3_WEEKLY');
     console.log('[LearningOrch L3] 주간 경량 보정 완료');
   }
@@ -145,6 +150,9 @@ class LearningOrchestrator {
     await calibrateSignalWeights().catch((e) => console.error('[L4 signal]', e));
     markCalibRan();
     await calibrateByRegime().catch((e) => console.error('[L4 regime]', e));
+    // 아이디어 9 (Phase 5): 레짐별 위상 맵 — 위험 레짐에 cap 0.5 적용.
+    // calibrateByRegime 직후에 실행하여 regime별 가중치 조정 결과 위에 cap 적용.
+    await updatePhaseMapAndCaps().catch((e) => console.error('[L4 phase-map]', e));
     await runConditionAudit().catch((e) => console.error('[L4 audit]', e));
     // 아이디어 6 (Phase 3): 이전 월 PROPOSED 조건들의 A/B 백테스트 후 상태 전이.
     // runConditionAudit 내부 proposeNewConditions 가 이번 월 신규 PROPOSED 를

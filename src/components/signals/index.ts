@@ -23,3 +23,4 @@ export { MarketRegimeClassifierPanel } from './MarketRegimeClassifierPanel';
 export { PositionLifecyclePanel } from './PositionLifecyclePanel';
 export { SectorEnergyPanel } from './SectorEnergyPanel';
 export { SectorOverheatPanel } from './SectorOverheatPanel';
+export { ConditionLearningPanel } from './ConditionLearningPanel';
