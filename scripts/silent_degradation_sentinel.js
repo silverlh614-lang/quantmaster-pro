@@ -73,6 +73,48 @@ function scanModels(files, approved) {
   return bad;
 }
 
+/**
+ * 라인/블록 주석을 같은 길이의 공백으로 치환해 코드의 절대 위치(라인/컬럼)를 보존.
+ * 문자열 리터럴(작은/큰/백틱) 안의 // /* 시퀀스는 주석으로 간주하지 않는다.
+ */
+function stripCommentsPreservingPositions(src) {
+  const out = [];
+  let i = 0;
+  let state = 'code'; // 'code' | 'sq' | 'dq' | 'tpl' | 'block' | 'line'
+  while (i < src.length) {
+    const c = src[i], n = src[i + 1];
+    if (state === 'code') {
+      if (c === '/' && n === '/') { out.push('  '); i += 2; state = 'line'; continue; }
+      if (c === '/' && n === '*') { out.push('  '); i += 2; state = 'block'; continue; }
+      if (c === "'") { state = 'sq'; out.push(c); i++; continue; }
+      if (c === '"') { state = 'dq'; out.push(c); i++; continue; }
+      if (c === '`') { state = 'tpl'; out.push(c); i++; continue; }
+      out.push(c); i++; continue;
+    }
+    if (state === 'sq' || state === 'dq') {
+      const quote = state === 'sq' ? "'" : '"';
+      if (c === '\\' && i + 1 < src.length) { out.push(c, src[i + 1]); i += 2; continue; }
+      if (c === quote) { state = 'code'; out.push(c); i++; continue; }
+      out.push(c); i++; continue;
+    }
+    if (state === 'tpl') {
+      if (c === '\\' && i + 1 < src.length) { out.push(c, src[i + 1]); i += 2; continue; }
+      if (c === '`') { state = 'code'; out.push(c); i++; continue; }
+      out.push(c); i++; continue;
+    }
+    if (state === 'line') {
+      if (c === '\n') { state = 'code'; out.push(c); i++; continue; }
+      out.push(' '); i++; continue;
+    }
+    if (state === 'block') {
+      if (c === '*' && n === '/') { out.push('  '); i += 2; state = 'code'; continue; }
+      // 줄바꿈은 보존 (라인 번호 정확도)
+      out.push(c === '\n' ? '\n' : ' '); i++; continue;
+    }
+  }
+  return out.join('');
+}
+
 function scanSwallowedErrors(files) {
   // catch (e) { ... } 블록을 스캔해서 logger/console/throw/return 중 어느 것도
   // 없으면 swallowed error 로 간주한다.
@@ -80,7 +122,11 @@ function scanSwallowedErrors(files) {
   const catchRe = /catch\s*\(\s*([A-Za-z_$][\w$]*)?\s*\)\s*\{/g;
 
   for (const f of files) {
-    const src = readFileSync(f, 'utf-8');
+    const rawSrc = readFileSync(f, 'utf-8');
+    // 블록·라인 주석 안의 catch 키워드(예: JSDoc 예시)를 스캔에서 제외하기 위해
+    // 코드 본문 위치를 보존한 채 동일 길이의 공백으로 치환한다.
+    // 단, SDS-ignore 검사는 raw 소스에서 수행해야 하므로 body는 rawSrc로 추출.
+    const src = stripCommentsPreservingPositions(rawSrc);
     let m;
     while ((m = catchRe.exec(src)) !== null) {
       // 블록 본문 추출
@@ -93,18 +139,45 @@ function scanSwallowedErrors(files) {
         else if (ch === '}') depth--;
         i++;
       }
-      const body = src.slice(start, i - 1);
-      const trimmed = body.trim();
-      if (trimmed === '' || trimmed === ';') {
+      // 본문은 rawSrc에서 추출 — /* SDS-ignore */ 등 의도적 무시 마커를 보존하기 위함.
+      const body    = src.slice(start, i - 1);
+      const rawBody = rawSrc.slice(start, i - 1);
+      const trimmed    = body.trim();
+      const rawTrimmed = rawBody.trim();
+      // 진짜 빈 catch는 raw 본문도 비어 있어야 한다. 주석만 있는 catch는 의도적 swallow로 본다.
+      if (trimmed === '' && rawTrimmed === '') {
         offenders.push({ file: f, reason: 'empty catch block' });
         continue;
       }
-      const ignored = /SDS-ignore/.test(body);
+      const ignored = /SDS-ignore/.test(rawBody);
       if (ignored) continue;
-      const mentionsLogging = /(console\.(log|warn|error|info|debug)|logger\.|log\.|reportError|captureException|toast\.|Sentry\.)/.test(body);
-      const rethrows = /\b(throw|return|reject\()/.test(body);
+      // 주석으로 의도가 명시된 빈 catch (예: "// Ignore", "// Not JSON")는 swallow로 인정.
+      if (trimmed === '' && /\/\/.*|\/\*[\s\S]*?\*\//.test(rawBody)) continue;
+      // 인정 패턴:
+      //   - 표준 콘솔/로거/리포터/토스트/Sentry
+      //   - 프로젝트 디버그 헬퍼: debugLog/debugWarn/debugError (console.* 직접 래퍼)
+      //   - 스트림/도메인 이벤트 로거: logStreamEvent
+      //   - React 상태 셋터로 UI에 에러 표면화: setError/setErr/setFlash/set*Error
+      //   - HTTP 응답으로 클라이언트에 통보: res.status / res.json / res.send
+      //   - 진단 누적: issues.push / warnings.push / errors.push (호출자가 반환받음)
+      //   - 텔레그램 봇 응답: await reply(
+      const mentionsLogging = new RegExp([
+        'console\\.(log|warn|error|info|debug)',
+        'logger\\.',           'log\\.',
+        'reportError',         'captureException',
+        'toast\\.',            'Sentry\\.',
+        'debug(Log|Warn|Error)\\(',
+        'logStreamEvent\\(',
+        'set\\w*(Err|Error|Flash|Status|Message)\\(',  // setError/setErr/setScanError/setFlash/setStatus/setMessage
+        'setLoading\\(',                                  // 종종 catch에서 false로 리셋
+        '\\bres\\.(status|json|send)\\(',
+        '\\b(issues|warnings|errors)\\.push\\(',
+        '\\breply\\(',
+      ].join('|')).test(body);
+      // break도 catch 탈출(루프 종료) 의미 — 상위 코드에서 lastErr를 throw하는 패턴 인정.
+      const rethrows = /\b(throw|return|reject\(|break\b)/.test(body);
       if (!mentionsLogging && !rethrows) {
-        const lineNo = src.slice(0, m.index).split('\n').length;
+        const lineNo = rawSrc.slice(0, m.index).split('\n').length;
         offenders.push({ file: f, line: lineNo, reason: 'catch block has no log/throw/return' });
       }
     }

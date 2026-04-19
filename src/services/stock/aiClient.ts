@@ -353,7 +353,7 @@ export function safeJsonParse(text: string | undefined): any {
             const truncated = tempCleaned.substring(0, braceIdx + 1) + ']';
             try {
               return JSON.parse(truncated);
-            } catch (e) {
+            } catch (e) { /* SDS-ignore: 의도적 재시도 — 절단 위치를 한 칸 줄여 다시 파싱 시도, 5회 실패 시 외부 catch가 throw */
               tempCleaned = tempCleaned.substring(0, braceIdx);
               attempts++;
             }
