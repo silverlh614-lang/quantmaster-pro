@@ -24,9 +24,10 @@
 
 import fs from 'fs';
 import { fetchCloses } from '../trading/marketDataRefresh.js';
-import { sendTelegramAlert } from './telegramClient.js';
+import { sendTelegramBroadcast } from './telegramClient.js';
 import { ADR_GAP_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { logNewsSupplyEvent } from '../learning/newsSupplyLogger.js';
+import { CHANNEL_SEPARATOR, channelHeader } from './channelFormatter.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -139,27 +140,50 @@ async function computeGap(target: AdrTarget, usdKrw: number): Promise<AdrGapResu
 
 // ── 알림 메시지 구성 ─────────────────────────────────────────────────────────
 
+/** 갭 방향·크기에 따른 구체 행동 지침 — 구독자가 개장 직후 대응 판단에 쓸 수 있게. */
+function formatActionGuidance(r: AdrGapResult): string {
+  const abs = Math.abs(r.gapPct);
+  if (r.direction === 'UP') {
+    if (abs >= GAP_PCT_HIGH) {
+      return '→ 시가 과열 확률 → 10:00 이후 눌림목 대기 진입 고려';
+    }
+    return '→ 갭업 시 신규 진입은 눌림목 확인 후. 보유 중이면 익절 선 점검';
+  }
+  // DOWN
+  if (abs >= GAP_PCT_HIGH) {
+    return '→ 갭다운 확정 시 손절선 재점검 · 추격 매도 금지 · 09:30 이후 반등 여부 관찰';
+  }
+  return '→ 갭다운 시 진입 보류 · 기존 포지션 손절선 위 여부 확인';
+}
+
 function formatAlert(results: AdrGapResult[]): string {
   const withSignal = results.filter(r => r.significance !== 'LOW');
   const lines = withSignal
     .sort((a, b) => Math.abs(b.gapPct) - Math.abs(a.gapPct))
     .map(r => {
-      const arrow  = r.direction === 'UP' ? '▲' : '▼';
+      const arrow  = r.direction === 'UP' ? '🟢 ▲' : '🔴 ▼';
       const tagBox = r.significance === 'HIGH' ? '🚨' : '⚠️';
       const sign   = r.gapPct >= 0 ? '+' : '';
       return (
         `${tagBox} <b>${r.koreanName}</b> (${r.sector}) ${arrow} ${sign}${r.gapPct}%\n` +
-        `   KRX종가 ${r.krxClose.toLocaleString()}원 → 이론시가 ${r.theoreticalOpen.toLocaleString()}원\n` +
-        `   ADR ${r.adrSymbol} $${r.adrClose.toFixed(2)} × ${r.usdKrw.toFixed(1)}원`
+        `   KRX종가 ${r.krxClose.toLocaleString()}원 → 이론시가 <b>${r.theoreticalOpen.toLocaleString()}원</b>\n` +
+        `   ADR ${r.adrSymbol} $${r.adrClose.toFixed(2)} × ${r.usdKrw.toFixed(1)}원\n` +
+        `   ${formatActionGuidance(r)}`
       );
     });
 
+  const header = channelHeader({
+    icon: '🌙',
+    title: 'ADR 역산 갭 모니터',
+    suffix: '08:35 KST',
+  });
+
   return (
-    `🌙 <b>[ADR 역산 갭 모니터]</b> 08:35 KST\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `${header}\n` +
     `간밤 NY 세션 반영 — 한국 개장 전 선점 경보\n\n` +
     (lines.length > 0 ? lines.join('\n\n') : '✅ 유의미한 갭 없음 (|갭| < 2%)') +
-    `\n\n<i>⚠️ ADR OTC 유동성 낮은 종목은 가격 왜곡 가능</i>`
+    `\n${CHANNEL_SEPARATOR}\n` +
+    `<i>⚠️ ADR OTC 유동성 낮은 종목은 가격 왜곡 가능</i>`
   );
 }
 
@@ -227,13 +251,16 @@ export async function runAdrGapScan(
     results.map(r => `${r.koreanName} ${r.gapPct >= 0 ? '+' : ''}${r.gapPct}%`).join(', '),
   );
 
-  // 유의미 갭이 1건이라도 있으면 알림 발송
+  // 유의미 갭이 1건이라도 있으면 알림 발송 — DM + 채널 동시 브로드캐스트
   const significant = results.filter(r => r.significance !== 'LOW');
   if (significant.length > 0) {
     const hasHigh = significant.some(r => r.significance === 'HIGH');
-    await sendTelegramAlert(formatAlert(results), {
+    await sendTelegramBroadcast(formatAlert(results), {
       priority:  hasHigh ? 'CRITICAL' : 'HIGH',
+      tier:      hasHigh ? 'T1_ALARM' : 'T2_REPORT',
+      category:  'adr_gap',
       dedupeKey: `adr_gap:${new Date().toISOString().slice(0, 10)}`,
+      disableChannelNotification: !hasHigh,
     }).catch(console.error);
     logToNewsSupply(results);
   } else {

@@ -19,6 +19,8 @@ import { refreshMarketRegimeVars } from '../trading/marketDataRefresh.js';
 import { checkFomcProximityAlert } from '../trading/fomcCalendar.js';
 import { generateDailyPickReport } from '../alerts/stockPickReporter.js';
 import { generateQualityScorecard } from '../alerts/qualityScorecard.js';
+import { sendScanReviewReport } from '../alerts/scanReviewReport.js';
+import { sendPositionMorningCard } from '../alerts/positionMorningCard.js';
 import {
   sendDailyShadowProgress,
   sendSampleStallAlertIfNeeded,
@@ -58,6 +60,14 @@ export function registerReportJobs(): void {
 
   // 일일 종목 픽 리포트 — 평일 16:30 KST (UTC 07:30). 구독자용 픽 채널.
   cron.schedule('30 7 * * 1-5', async () => { await generateDailyPickReport().catch(console.error); }, { timezone: 'UTC' });
+
+  // 오늘 스캔 회고 리포트 — 평일 16:40 KST (UTC 07:40). IDEA 1.
+  // scanTracer + watchlist + shadowTrades 교차 → 탈락 상위 이유 + 내일 후보 → DM+채널 브로드캐스트.
+  cron.schedule('40 7 * * 1-5', async () => { await sendScanReviewReport().catch(console.error); }, { timezone: 'UTC' });
+
+  // 보유 포지션 Morning Card — 평일 09:05 KST (UTC 00:05). IDEA 4.
+  // positionAggregator 생애주기 집계 → 활성 포지션별 현재가/손절/목표 격차 카드 → DM+채널.
+  cron.schedule('5 0 * * 1-5', async () => { await sendPositionMorningCard().catch(console.error); }, { timezone: 'UTC' });
 
   // 시장 지표 자동 갱신 — 평일 08:40 KST + 15:30 KST (장 마감 후).
   // KOSPI/SPX/DXY/USD-KRW Yahoo Finance → classifyRegime() 7축 갱신. Telegram 없음.

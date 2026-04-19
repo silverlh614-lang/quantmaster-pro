@@ -15,8 +15,9 @@
  */
 
 import { callGeminiWithSearch } from '../clients/geminiClient.js';
-import { sendTelegramAlert } from './telegramClient.js';
+import { sendTelegramBroadcast } from './telegramClient.js';
 import { logNewsSupplyEvent } from '../learning/newsSupplyLogger.js';
+import { CHANNEL_SEPARATOR } from './channelFormatter.js';
 
 // ── 공급망 매핑 DB ────────────────────────────────────────────────────────────
 // 글로벌 기업 키워드 → 한국 공급망 수혜주
@@ -271,13 +272,29 @@ export async function runSupplyChainScan(): Promise<void> {
     const emoji = news.significance === 'HIGH' ? '🚨' : '🔔';
     const amountLine = news.amount ? `\n💰 계약 규모: ${news.amount}` : '';
 
-    await sendTelegramAlert(
-      `${emoji} <b>[공급망 경보] ${news.company} ${news.newsType}</b>\n` +
-      `${news.headline}${amountLine}\n` +
-      `──────────────\n` +
-      `📌 한국 수혜주 (${entry.leadDays} 선행):\n` +
-      entry.koreanNames.map(n => `  • ${n}`).join('\n') +
-      `\n🏭 섹터: ${entry.sector}`
+    // 수혜 경로 시각화 — "미국 기업 → 한국 수혜주" 각 링크별 1줄
+    const pathLines = entry.koreanNames
+      .map((n, i) => `  ${news.company} → <b>${n}</b>${entry.codes[i] ? ` (${entry.codes[i].replace(/\.KS$/, '')})` : ''}`)
+      .join('\n');
+
+    const isHigh = news.significance === 'HIGH';
+
+    await sendTelegramBroadcast(
+      `${emoji} <b>[공급망 수혜 탐지] T+0 선점</b>\n` +
+      `${CHANNEL_SEPARATOR}\n` +
+      `📡 트리거: ${news.company} ${news.newsType}\n` +
+      `${news.headline}${amountLine}\n\n` +
+      `🔗 <b>국내 수혜 경로</b>:\n${pathLines}\n\n` +
+      `🏭 섹터: ${entry.sector}\n` +
+      `⏱️ 예상 선행: ${entry.leadDays} 영업일\n` +
+      `📊 신뢰도: ${isHigh ? '●●●●○' : '●●●○○'} (Gemini Search 확인)`,
+      {
+        priority:  isHigh ? 'HIGH' : 'NORMAL',
+        tier:      isHigh ? 'T1_ALARM' : 'T2_REPORT',
+        category:  'supply_chain',
+        dedupeKey: `supply_chain:${news.company}:${new Date().toISOString().slice(0, 10)}`,
+        disableChannelNotification: !isHigh,
+      },
     ).catch(console.error);
 
     // NewsSupplyLogger에 기록 (T+1·T+3·T+5 추적 시작)
