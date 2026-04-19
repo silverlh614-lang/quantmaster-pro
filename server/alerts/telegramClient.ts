@@ -88,6 +88,11 @@ export type TelegramAlertPriority = AlertPriority;
 // 선두 아이콘을 티어 아이콘으로 교체해 "이게 지금 봐야 하는가"가 첫 글자로 결정되게 한다.
 import { applyTierPrefix, deriveTier, inferCategory, type AlertTier } from './alertTiers.js';
 import { appendAlertAudit } from './alertAuditLog.js';
+import {
+  captureToUnifiedBriefing,
+  isUnifiedBriefingActive,
+  shouldBypassCapture,
+} from './unifiedBriefing.js';
 export type { AlertTier } from './alertTiers.js';
 
 interface AlertCooldownEntry {
@@ -308,6 +313,15 @@ export async function sendTelegramAlert(
   const hasTierIntent = Boolean(opts?.priority || opts?.tier);
   const tier: AlertTier | undefined = hasTierIntent ? deriveTier(opts) : undefined;
   const finalMessage = tier ? applyTierPrefix(message, tier) : message;
+
+  // 통합 브리핑 캡처 모드: T1/CRITICAL 외에는 버퍼로 흡수 후 endUnifiedBriefing이 일괄 발송.
+  if (isUnifiedBriefingActive() && !shouldBypassCapture(opts) && !opts?.replyMarkup) {
+    const absorbed = captureToUnifiedBriefing(finalMessage, opts?.category ?? inferCategory(opts?.dedupeKey));
+    if (absorbed) {
+      recordAlertSent(opts);
+      return;
+    }
+  }
 
   // T1 ACK 자동 부착: tier=T1이고 replyMarkup이 없으면 [확인] 버튼 자동 생성.
   // 호출부가 이미 버튼을 달았거나 requireAck=false면 스킵.
