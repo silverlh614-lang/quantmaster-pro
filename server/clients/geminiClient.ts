@@ -212,6 +212,57 @@ export async function callGemini(prompt: string, caller = 'unknown'): Promise<st
 }
 
 /**
+ * Gemini "해석 전용" 호출 (아이디어 3).
+ *
+ * 호출자는 KIS(현재가·수급) · Yahoo(기술지표) · DART(재무)에서 실데이터를
+ * 먼저 수집하여 `prefetchedContext` 블록으로 주입한다. 모델에게는
+ *   "검색 금지, 아래 실데이터만으로 정성 판단"
+ * 지시가 프롬프트 상단에 강제 삽입되어 googleSearch 호출과 토큰을 모두 절감한다.
+ *
+ * 기존 callGemini() 와 같은 예산/서킷/재시도 계층을 재사용한다.
+ */
+const INTERPRET_PREAMBLE =
+  '# 중요 규칙 (반드시 준수)\n' +
+  '- 외부 검색, URL 접근, 네이버/구글 조회를 절대 하지 마라.\n' +
+  '- 아래 "사전 수집 실데이터" 블록에 없는 숫자·사실은 추측하지 말고\n' +
+  '  "데이터 없음"으로 표기하라.\n' +
+  '- 모든 수치 해석은 [사전 수집 실데이터] 블록 안의 값만 사용한다.\n';
+
+export async function callGeminiInterpret(
+  prefetchedContext: string,
+  instruction: string,
+  caller = 'interpret',
+): Promise<string | null> {
+  const ai = getGeminiClient();
+  if (!ai) {
+    console.warn('[Gemini] API 키 미설정 — 해석 기능 비활성화');
+    return null;
+  }
+  if (isBudgetBlocked()) {
+    console.warn(`[Gemini] 월 예산 HARD_BLOCK 상태 — callGeminiInterpret[${caller}] 호출 차단`);
+    return null;
+  }
+  const fullPrompt =
+    INTERPRET_PREAMBLE + '\n' +
+    '[사전 수집 실데이터]\n' +
+    prefetchedContext.trim() + '\n' +
+    '\n[해석 지시]\n' +
+    instruction.trim();
+
+  return withRetry(`callGeminiInterpret[${caller}]`, async () => {
+    const res = await ai.models.generateContent({
+      model: AI_MODELS.SERVER_SIDE,
+      contents: fullPrompt,
+      config: { temperature: 0.2, maxOutputTokens: 1536 },
+    });
+    const tokens = (res as { usageMetadata?: { totalTokenCount?: number } })
+      .usageMetadata?.totalTokenCount ?? 0;
+    recordCall(caller, tokens);
+    return res.text ?? null;
+  });
+}
+
+/**
  * Gemini + Google Search 그라운딩 호출 (공급망 뉴스 스캔 전용).
  * 실시간 웹 검색 결과를 바탕으로 응답 — 비용이 높으므로 1일 1회만 사용.
  */
