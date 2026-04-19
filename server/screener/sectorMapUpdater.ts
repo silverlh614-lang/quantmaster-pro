@@ -3,8 +3,8 @@
  *
  * @responsibility KRX 정보데이터시스템 JSON 엔드포인트에서 KOSPI·KOSDAQ 전종목의
  * 업종 분류를 수집하여 data/krx-sector-map.json 으로 저장한다. KRX 장애(HTTP 400/500·
- * 타임아웃) 시에는 sectorSources.ts 의 3단계 폴백 체인(KRX → Yahoo → Gemini)을 호출해
- * 기존 파일이 진부화되는 것을 막는다.
+ * 타임아웃) 시에는 sectorSources.ts 의 4단계 폴백 체인(KRX → Naver → Yahoo → Gemini)을
+ * 호출해 기존 파일이 진부화되는 것을 막는다.
  *
  * 호출 경로:
  *   - CLI: scripts/updateSectorMap.ts (주간 수동 실행 또는 최초 부트스트랩용)
@@ -13,7 +13,7 @@
  * 안전성:
  *   1. 원자적 쓰기(tmp → rename) — 중간 실패 시 기존 파일 보존
  *   2. KRX 응답 검증 — 기대치 이하(KOSPI/KOSDAQ 각 500행 미만) 시 폴백으로 낙하
- *   3. KRX 장애시 trdDd 를 최근 영업일 5일까지 역추적 후 Yahoo/Gemini 폴백
+ *   3. KRX 장애시 trdDd 를 최근 영업일 5일까지 역추적 후 Naver/Yahoo/Gemini 폴백
  *   4. 폴백 결과라도 최소 커버리지(기존 + 신규 합산 MIN_TOTAL_ROWS) 충족 시에만 저장
  */
 
@@ -56,7 +56,7 @@ export interface UpdateResult {
   count:       number;
   updatedAt:   string;
   trdDd:       string;
-  /** 데이터 출처 라벨 — 'KRX' | 'KRX-fail→Yahoo' | 'KRX-fail→Yahoo+Gemini' | 'carry-over' */
+  /** 데이터 출처 라벨 — 'KRX' | 'KRX-fail→Naver' | 'KRX-fail→Naver+Yahoo+Gemini' | 'carry-over' 등 */
   source:      string;
   /** 폴백 진단 로그 — 텔레그램 알림·관측성용 */
   diagnostics: string[];
@@ -254,8 +254,8 @@ function atomicWriteJson(target: string, payload: unknown): void {
  * KRX 전종목 섹터 스냅샷 갱신 (폴백 체인 포함).
  *
  * 성공 시 data/krx-sector-map.json 를 원자적으로 교체하고 sectorMap.ts 의 mtime
- * 캐시를 즉시 무효화한다. KRX 장애 시 Yahoo → Gemini 순으로 누락분을 채워 최소
- * 커버리지를 확보한다. 폴백 + 기존 파일로도 임계치 미달이면 throw 하고 기존 파일 보존.
+ * 캐시를 즉시 무효화한다. KRX 장애 시 Naver → Yahoo → Gemini 순으로 누락분을 채워
+ * 최소 커버리지를 확보한다. 폴백 + 기존 파일로도 임계치 미달이면 throw 하고 기존 파일 보존.
  */
 export async function updateKrxSectorMap(opts: { verbose?: boolean } = {}): Promise<UpdateResult> {
   const { verbose = false } = opts;
@@ -294,7 +294,7 @@ export async function updateKrxSectorMap(opts: { verbose?: boolean } = {}): Prom
   if (count < MIN_TOTAL_ROWS) {
     const diagTail = result.diagnostics.slice(-4).join(' | ');
     throw new Error(
-      `모든 소스(KRX/Yahoo/Gemini) 실패 — 최종 매핑 ${count}개 (<${MIN_TOTAL_ROWS}). ` +
+      `모든 소스(KRX/Naver/Yahoo/Gemini) 실패 — 최종 매핑 ${count}개 (<${MIN_TOTAL_ROWS}). ` +
       `진단: ${diagTail}`,
     );
   }

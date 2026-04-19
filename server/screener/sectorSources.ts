@@ -2,8 +2,8 @@
  * sectorSources.ts — KRX 섹터맵 갱신용 대체 데이터 소스 체인
  *
  * @responsibility KRX 정보데이터시스템이 장애(HTTP 400/500·타임아웃)일 때
- * 섹터 분류를 보전하기 위한 3단계 폴백 체인을 제공한다. 원본(KRX)·보조(Yahoo)·
- * 최후의 수단(Gemini) 3소스 각각의 수집 + 빌더와, 이를 순서대로 시도해
+ * 섹터 분류를 보전하기 위한 4단계 폴백 체인을 제공한다. 원본(KRX)·준원본(Naver)·
+ * 보조(Yahoo)·최후의 수단(Gemini) 각각의 수집 + 빌더와, 이를 순서대로 시도해
  * 최대 커버리지를 확보하는 오케스트레이터(buildSectorMapWithFallback)를 노출한다.
  *
  * 설계 원칙:
@@ -12,11 +12,14 @@
  *   2. 실패 격리 — 각 소스는 throw 해도 오케스트레이터가 다음 소스로 넘어간다.
  *   3. 비용 관리 — Yahoo는 동시성/타임아웃 제한, Gemini는 월 예산 회로차단기 준수.
  *   4. 영업일 역산 — KRX가 "오늘 trdDd"로 400을 반환하면 최근 영업일 최대 5일까지 역추적.
+ *   5. Naver 는 인증 없이 업종별 HTML 을 스크레이핑하므로 KRX API 키 발급 전
+ *      공백 기간에 한국어 네이티브 분류를 무료로 공급한다.
  *
  * 폴백 우선순위:
- *   ① KRX 벌크 스냅샷 (MDCSTAT03901) — 전종목 한 번에 수집
- *   ② Yahoo Finance 개별 종목 assetProfile (영문 섹터 → 한글 매핑)
- *   ③ Gemini 배치 분류 (prefetchedContext 전달, 검색 금지) — 최후
+ *   ① KRX 벌크 스냅샷 (MDCSTAT03901) — 전종목 한 번에 수집 (인증 필요 시 400)
+ *   ② Naver Finance 업종별 HTML 스크레이프 (인증 불필요, 한글 섹터 원문)
+ *   ③ Yahoo Finance 개별 종목 assetProfile (영문 섹터 → 한글 매핑)
+ *   ④ Gemini 배치 분류 (prefetchedContext 전달, 검색 금지) — 최후
  */
 
 import fs from 'fs';
@@ -29,7 +32,7 @@ export interface SectorSourceResult {
   /** 6자리 코드 → 한글 섹터명 맵 */
   map: Record<string, string>;
   /** 소스 라벨 (통합 meta 기록용) */
-  source: 'KRX' | 'Yahoo' | 'Gemini' | 'none';
+  source: 'KRX' | 'Naver' | 'Yahoo' | 'Gemini' | 'none';
   /** 진단용: 각 소스별 수집량·오류 */
   diagnostics: string[];
 }
@@ -70,7 +73,183 @@ function mapYahooToKorean(sector?: string, industry?: string): string | null {
   return null;
 }
 
-// ── ② Yahoo Finance 소스 ────────────────────────────────────────────────────
+// ── ② Naver Finance 업종별 스크레이프 ───────────────────────────────────────
+// Naver Finance 는 인증 없이 업종별 종목 목록을 HTML 로 제공한다.
+// 인덱스 페이지(type=upjong)에서 업종 링크(no=N) 목록을 얻고, 각 업종 상세에서
+// 종목코드를 추출한다. HTML 은 EUC-KR 이므로 TextDecoder 로 직접 디코드한다.
+
+const NAVER_SECTOR_TIMEOUT_MS = 8_000;
+const NAVER_SECTOR_CONCURRENCY = 4;
+const NAVER_SECTOR_INDEX_URL  = 'https://finance.naver.com/sise/sise_group.naver?type=upjong';
+const NAVER_SECTOR_DETAIL_URL = 'https://finance.naver.com/sise/sise_group_detail.naver';
+const NAVER_MAX_INDUSTRIES    = Number(process.env.SECTOR_FALLBACK_NAVER_MAX ?? '200');
+
+/**
+ * Naver 원문 업종명 → 프로젝트 표준 섹터명.
+ * 특정성(specificity) 우선 — "반도체장비" 가 "반도체" 보다 먼저 매칭되도록 순서 유지.
+ * 매칭 실패 시 null 반환 — 결과 맵에서 제외되어 '미분류'로 낙하.
+ */
+export function mapNaverIndustryToKorean(rawIndustry: string): string | null {
+  const s = rawIndustry.replace(/\s+/g, '');
+  if (!s) return null;
+  if (s.includes('반도체장비'))                        return '반도체장비';
+  if (s.includes('반도체소재'))                        return '반도체소재';
+  if (s.includes('반도체'))                            return '반도체';
+  if (s.includes('2차전지') || s.includes('이차전지')) return '2차전지';
+  if (s.includes('자동차부품'))                        return '자동차부품';
+  if (s.includes('자동차'))                            return '자동차';
+  if (s.includes('조선기자재'))                        return '조선기자재';
+  if (s.includes('조선'))                              return '조선';
+  if (s.includes('방위') || s.includes('방산'))        return '방산';
+  if (s.includes('원자력'))                            return '원자력';
+  if (s.includes('제약'))                              return '제약';
+  if (s.includes('생명공학') || s.includes('바이오'))  return '바이오';
+  if (s.includes('건강관리') || s.includes('헬스케어'))return '헬스케어';
+  if (s.includes('전력기기') || s.includes('전기장비'))return '전력기기';
+  if (s.includes('유틸리티') || s.includes('전기가스'))return '유틸리티';
+  if (s.includes('신재생') || s.includes('태양광') || s.includes('풍력')) return '신재생에너지';
+  if (s.includes('석유') || s.includes('가스') || s.includes('에너지'))   return '에너지';
+  if (s.includes('화장품'))                            return '화장품';
+  if (s.includes('화학'))                              return '화학';
+  if (s.includes('철강'))                              return '철강';
+  if (s.includes('비철금속') || s.includes('광업'))    return '금속';
+  if (s.includes('건설'))                              return '건설';
+  if (s.includes('기계'))                              return '기계';
+  if (s.includes('로봇'))                              return '로봇';
+  if (s.includes('가전'))                              return '가전';
+  if (s.includes('전자부품'))                          return '전자부품';
+  if (s.includes('통신장비'))                          return '전자부품';
+  if (s.includes('통신'))                              return '통신';
+  if (s.includes('소프트웨어') || s.includes('인터넷') || s.includes('IT서비스')) return 'IT서비스';
+  if (s.includes('은행') || s.includes('증권') || s.includes('금융')) return '금융';
+  if (s.includes('보험'))                              return '보험';
+  if (s.includes('식료') || s.includes('음식료') || s.includes('식품')) return '식품';
+  if (s.includes('의류') || s.includes('섬유'))        return '의류';
+  if (s.includes('생활용품') || s.includes('가정용품'))return '생활용품';
+  if (s.includes('백화점') || s.includes('유통') || s.includes('소매')) return '유통';
+  if (s.includes('엔터') || s.includes('미디어'))      return '엔터테인먼트';
+  if (s.includes('해상운송') || s.includes('해운'))    return '해운';
+  if (s.includes('항공'))                              return '항공';
+  if (s.includes('운송') || s.includes('물류'))        return '운송';
+  if (s.includes('의료미용'))                          return '의료미용';
+  if (s.includes('소재'))                              return '소재';
+  return null;
+}
+
+async function fetchNaverPage(url: string): Promise<string | null> {
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), NAVER_SECTOR_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; QuantmasterPro/1.0)' },
+      signal:  ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const buf = await res.arrayBuffer();
+    // Naver Finance 는 EUC-KR. Node 의 TextDecoder 는 ICU 로 EUC-KR 을 지원.
+    return new TextDecoder('euc-kr').decode(buf);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+interface NaverIndustryLink {
+  no:   string;
+  name: string;
+}
+
+/** 인덱스 페이지에서 업종별 상세 링크와 한글 업종명을 추출. */
+export function parseNaverIndustryIndex(html: string): NaverIndustryLink[] {
+  const out: NaverIndustryLink[] = [];
+  const seen = new Set<string>();
+  // href="/sise/sise_group_detail.naver?type=upjong&amp;no=278" ... >반도체와반도체장비</a>
+  const re = /sise_group_detail\.naver\?type=upjong&(?:amp;)?no=(\d+)[^>]*>\s*([^<]+?)\s*</g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    const no   = m[1];
+    const name = m[2].trim();
+    if (!no || !name || seen.has(no)) continue;
+    seen.add(no);
+    out.push({ no, name });
+  }
+  return out;
+}
+
+/** 업종 상세 페이지에서 6자리 종목코드 집합을 추출. */
+export function parseNaverIndustryDetail(html: string): string[] {
+  const codes = new Set<string>();
+  const re = /\/item\/main\.naver\?code=(\d{6})/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) codes.add(m[1]);
+  return Array.from(codes);
+}
+
+/**
+ * Naver Finance 업종별 HTML 을 스크레이프해 6자리 코드 → 표준 섹터맵을 빌드한다.
+ * - codes: 관심 유니버스. 스크레이프는 전체 업종을 돌지만 반환 맵은 이 집합 교집합만.
+ * - 타임아웃 NAVER_SECTOR_TIMEOUT_MS, 업종 병렬도 NAVER_SECTOR_CONCURRENCY.
+ * - 매핑 실패(허용 섹터 테이블에 없음) 종목은 결과에서 제외 → '미분류'로 낙하.
+ */
+export async function fetchFromNaver(
+  codes: string[],
+  verbose = false,
+): Promise<SectorSourceResult> {
+  const diagnostics: string[] = [];
+  const wanted = new Set(codes.filter((c) => /^\d{6}$/.test(c)));
+  if (wanted.size === 0) {
+    return { map: {}, source: 'Naver', diagnostics: ['Naver: 조회 대상 코드 0개 — 스킵'] };
+  }
+
+  const indexHtml = await fetchNaverPage(NAVER_SECTOR_INDEX_URL);
+  if (!indexHtml) {
+    return { map: {}, source: 'Naver', diagnostics: ['Naver: 인덱스 페이지 실패 — 스킵'] };
+  }
+  const industries = parseNaverIndustryIndex(indexHtml).slice(0, NAVER_MAX_INDUSTRIES);
+  if (industries.length === 0) {
+    return { map: {}, source: 'Naver', diagnostics: ['Naver: 업종 링크 0개 — 스킵'] };
+  }
+  if (verbose) console.log(`[SectorSources/Naver] 업종 ${industries.length}개 스크레이프 시작 (concurrency=${NAVER_SECTOR_CONCURRENCY})`);
+
+  const map: Record<string, string> = {};
+  let okIndustries = 0, failIndustries = 0, mappedIndustries = 0;
+
+  let idx = 0;
+  async function worker(): Promise<void> {
+    while (idx < industries.length) {
+      const my = idx++;
+      const { no, name } = industries[my];
+      const sector = mapNaverIndustryToKorean(name);
+      if (!sector) {
+        // 매핑 불가 업종은 상세 조회 자체를 스킵 — 네트워크 낭비 방지.
+        failIndustries++;
+        continue;
+      }
+      const detailHtml = await fetchNaverPage(`${NAVER_SECTOR_DETAIL_URL}?type=upjong&no=${no}`);
+      if (!detailHtml) { failIndustries++; continue; }
+      const stockCodes = parseNaverIndustryDetail(detailHtml);
+      if (stockCodes.length === 0) { failIndustries++; continue; }
+      mappedIndustries++;
+      okIndustries++;
+      for (const code of stockCodes) {
+        if (!wanted.has(code)) continue;
+        // 먼저 선점된 업종이 우선 — 인덱스가 더 상위(상장시장·대분류)라는 가정.
+        if (!map[code]) map[code] = sector;
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: NAVER_SECTOR_CONCURRENCY }, () => worker()));
+
+  diagnostics.push(
+    `Naver: industries=${industries.length} mapped=${mappedIndustries} ok=${okIndustries} ` +
+    `fail=${failIndustries} classified=${Object.keys(map).length}/${wanted.size}`,
+  );
+  if (verbose) console.log(`[SectorSources/Naver] ${diagnostics[diagnostics.length - 1]}`);
+  return { map, source: 'Naver', diagnostics };
+}
+
+// ── ③ Yahoo Finance 소스 ────────────────────────────────────────────────────
 
 const YAHOO_TIMEOUT_MS    = 4_000;
 const YAHOO_CONCURRENCY   = 6;
@@ -148,7 +327,7 @@ export async function fetchFromYahoo(
   return { map, source: 'Yahoo', diagnostics };
 }
 
-// ── ③ Gemini 배치 분류 소스 ─────────────────────────────────────────────────
+// ── ④ Gemini 배치 분류 소스 ─────────────────────────────────────────────────
 
 const GEMINI_BATCH_SIZE    = 50;
 const GEMINI_MAX_BATCHES   = Number(process.env.SECTOR_FALLBACK_GEMINI_MAX_BATCHES ?? '4');
@@ -237,19 +416,19 @@ export async function fetchFromGemini(
 
 export interface FallbackBuildResult {
   map:         Record<string, string>;
-  source:      'KRX' | 'Yahoo' | 'Gemini' | 'carry-over';
-  /** KRX+Yahoo+Gemini 등 조합형 라벨 — 메타데이터 기록용 */
+  source:      'KRX' | 'Naver' | 'Yahoo' | 'Gemini' | 'carry-over';
+  /** KRX+Naver+Yahoo+Gemini 등 조합형 라벨 — 메타데이터 기록용 */
   sourceLabel: string;
   diagnostics: string[];
 }
 
 /**
- * KRX → Yahoo → Gemini 순으로 폴백을 시도해 최대 커버리지 맵을 산출한다.
+ * KRX → Naver → Yahoo → Gemini 순으로 폴백을 시도해 최대 커버리지 맵을 산출한다.
  *
  * @param krxAttempt   KRX 벌크 스냅샷을 시도하는 콜백. 성공 시 {map, diagnostics} 반환.
  *                     실패 시 throw 또는 null. sectorMapUpdater.ts 의 KRX 빌더를 주입.
  * @param existingMap  현재 디스크의 krx-sector-map.json 내용 (신규 설치 시 {}).
- * @param targetCodes  Yahoo/Gemini 후보 유니버스 — 보통 existingMap 키 + MANUAL_OVERRIDES 키의 합집합.
+ * @param targetCodes  Naver/Yahoo/Gemini 후보 유니버스 — 보통 existingMap 키 + MANUAL_OVERRIDES 키의 합집합.
  * @param targetNamesByCode  Gemini 프롬프트에 전달할 종목명 — 없으면 Gemini 스킵.
  * @param minTotalRows 벌크 성공 기준치 (KRX는 1500+, 폴백 합산은 느슨하게).
  * @param verbose      디버그 로그.
@@ -288,20 +467,34 @@ export async function buildSectorMapWithFallback(opts: {
 
   // ── 공통: 기존 파일 + 수동 오버라이드를 기반선(baseline) 으로 채택 ───────
   // 폴백 단계는 "신선도 회복"이 아니라 "무너지지 않도록 보존"이 목표.
-  // 기존 파일에서 커버되는 종목은 그대로 유지하고, 부족분만 Yahoo/Gemini 로 보충.
+  // 기존 파일에서 커버되는 종목은 그대로 유지하고, 부족분만 Naver/Yahoo/Gemini 로 보충.
   const merged: Record<string, string> = { ...existingMap };
   // 수동 오버라이드는 sectorMap.ts 조회 우선순위에서 최상위라 디스크엔 기록할 필요 없지만,
   // 최종 맵의 커버리지 판단을 위해 합산한다.
   for (const [c, s] of Object.entries(MANUAL_OVERRIDES)) merged[c] = s;
 
-  // Yahoo/Gemini 에서 보충할 "미커버" 코드 — 기존 맵에 없는 targetCodes 만.
+  // Naver/Yahoo/Gemini 에서 보충할 "미커버" 코드 — 기존 맵에 없는 targetCodes 만.
   const missing = targetCodes.filter((c) => !merged[c]);
   diagnostics.push(`baseline: existing=${Object.keys(existingMap).length} manual=${Object.keys(MANUAL_OVERRIDES).length} missing=${missing.length}`);
 
-  // ── ② Yahoo ──────────────────────────────────────────────────────────────
-  let usedYahoo = false;
+  // ── ② Naver ──────────────────────────────────────────────────────────────
+  // 인증 불필요·벌크 스크레이프라 KRX 장애 시 첫 번째로 시도. 업종별 한글 원문을
+  // 프로젝트 표준 섹터로 매핑해 반환하며, 매핑 실패 종목은 다음 단계로 낙하.
+  let usedNaver = false;
   if (missing.length > 0) {
-    const yr = await fetchFromYahoo(missing, verbose).catch((e) => ({
+    const nr = await fetchFromNaver(missing, verbose).catch((e) => ({
+      map: {}, source: 'Naver' as const, diagnostics: [`Naver: catch ${e instanceof Error ? e.message : String(e)}`],
+    }));
+    diagnostics.push(...nr.diagnostics);
+    Object.assign(merged, nr.map);
+    usedNaver = Object.keys(nr.map).length > 0;
+  }
+
+  // ── ③ Yahoo ──────────────────────────────────────────────────────────────
+  let usedYahoo = false;
+  const afterNaverMissing = targetCodes.filter((c) => !merged[c]);
+  if (afterNaverMissing.length > 0) {
+    const yr = await fetchFromYahoo(afterNaverMissing, verbose).catch((e) => ({
       map: {}, source: 'Yahoo' as const, diagnostics: [`Yahoo: catch ${e instanceof Error ? e.message : String(e)}`],
     }));
     diagnostics.push(...yr.diagnostics);
@@ -309,7 +502,7 @@ export async function buildSectorMapWithFallback(opts: {
     usedYahoo = Object.keys(yr.map).length > 0;
   }
 
-  // ── ③ Gemini ─────────────────────────────────────────────────────────────
+  // ── ④ Gemini ─────────────────────────────────────────────────────────────
   let usedGemini = false;
   const stillMissing = targetCodes.filter((c) => !merged[c]);
   if (stillMissing.length > 0 && Object.keys(targetNamesByCode).length > 0) {
@@ -325,19 +518,27 @@ export async function buildSectorMapWithFallback(opts: {
   }
 
   // ── 최종 커버리지 판정 ────────────────────────────────────────────────────
-  // carry-over 는 "KRX·Yahoo·Gemini 모두 실패 + merged 가 기존 파일과 동일"인 경우.
+  // carry-over 는 "KRX·Naver·Yahoo·Gemini 모두 실패 + merged 가 기존 파일과 동일"인 경우.
   const finalCount      = Object.keys(merged).length;
   const existingCount   = Object.keys(existingMap).length;
   const addedByFallback = finalCount - existingCount - Object.keys(MANUAL_OVERRIDES).filter((c) => !existingMap[c]).length;
 
   const label = [
+    usedNaver  ? 'Naver'  : null,
     usedYahoo  ? 'Yahoo'  : null,
     usedGemini ? 'Gemini' : null,
   ].filter(Boolean).join('+') || 'carry-over';
 
+  // 우선순위 — 실제로 첫 커버리지를 기여한 소스를 대표 source 필드로.
+  const primary: FallbackBuildResult['source'] =
+    label === 'carry-over' ? 'carry-over' :
+    usedNaver              ? 'Naver'      :
+    usedYahoo              ? 'Yahoo'      :
+                             'Gemini';
+
   return {
     map:         merged,
-    source:      label === 'carry-over' ? 'carry-over' : (usedYahoo ? 'Yahoo' : 'Gemini'),
+    source:      primary,
     sourceLabel: label === 'carry-over' ? 'carry-over' : `KRX-fail→${label} (added=${addedByFallback})`,
     diagnostics,
   };
