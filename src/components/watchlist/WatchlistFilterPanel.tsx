@@ -234,7 +234,9 @@ export function WatchlistFilterPanel({
                   </div>
                   <input
                     type="text"
-                    placeholder="종목명 또는 코드를 입력하여 검색..."
+                    data-search-focus
+                    aria-label="종목 검색"
+                    placeholder="종목명 또는 코드를 입력하여 검색… (/ 로 바로 포커스)"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && onMarketSearch()}

@@ -4,7 +4,7 @@
  */
 import React, { useMemo } from 'react';
 import {
-  Zap, ShieldCheck, Settings,
+  Zap, ShieldCheck, Settings, Keyboard,
 } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { useSettingsStore, useRecommendationStore, useTradeStore, useMarketStore } from '../stores';
@@ -114,14 +114,27 @@ export function Sidebar({ asDrawer = false }: SidebarProps = {}) {
       <div className="border-t-2 border-slate-700/30 p-3 space-y-1 shrink-0">
         <button
           onClick={() => setShowMasterChecklist(true)}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold text-theme-text-muted hover:text-blue-300 hover:bg-blue-500/[0.06] transition-all"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold text-theme-text-muted hover:text-blue-300 hover:bg-blue-500/[0.06] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
         >
           <ShieldCheck className="w-4 h-4" />
           <span>체크리스트</span>
         </button>
         <button
+          type="button"
+          onClick={() => {
+            // '?' 키와 동일하게 KeyboardShortcutsModal 토글
+            const ev = new KeyboardEvent('keydown', { key: '?' });
+            window.dispatchEvent(ev);
+          }}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold text-theme-text-muted hover:text-theme-text-secondary hover:bg-white/[0.04] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+        >
+          <Keyboard className="w-4 h-4" />
+          <span>단축키</span>
+          <kbd className="ml-auto text-[9px] font-mono font-black text-theme-text-muted border border-white/10 px-1.5 py-0.5 rounded">?</kbd>
+        </button>
+        <button
           onClick={() => setShowSettings(true)}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold text-theme-text-muted hover:text-theme-text-secondary hover:bg-white/[0.04] transition-all"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold text-theme-text-muted hover:text-theme-text-secondary hover:bg-white/[0.04] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
         >
           <Settings className="w-4 h-4" />
           <span>설정</span>
