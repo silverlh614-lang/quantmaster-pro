@@ -30,16 +30,37 @@ export const getAI = () => {
   return new GoogleGenAI({ apiKey });
 };
 
-// ─── AI 응답 캐시 (메모리 + localStorage 이중 계층) ─────────────────────────────
+// ─── AI 응답 캐시 (메모리 + localStorage + 서버 Volume 3층) ────────────────────
 //
 // 계층 1: 메모리 캐시 — 같은 세션 내 즉각 응답 (무한 TTL → 탭 닫으면 소멸)
 // 계층 2: localStorage — 새로고침/탭 재오픈 후에도 유지 (4시간 TTL)
+// 계층 3 (Idea 4): /api/system/ai-cache — Railway Volume 영속 (재배포 후 즉시 히트)
 //
-// 효과: 앱 시작 시 12개 AI 쿼리 → 첫 실행 1회 후 새로고침해도 localStorage 히트
+// 효과: 앱 시작 시 12개 AI 쿼리 → 첫 실행 1회 후 새로고침해도 localStorage 히트.
+//       서버 재배포로 메모리 초기화돼도 Volume에서 복원 → 재호출 비용 0.
 export const aiCache: Record<string, { data: any; timestamp: number }> = {};
 const AI_CACHE_TTL    = 4 * 60 * 60 * 1000; // 4시간 (기존 30분 → 8배 연장)
 const LS_CACHE_PREFIX = 'qm:ai:';            // localStorage 키 네임스페이스
 const LS_MAX_KEYS     = 30;                  // 최대 보관 키 수 (용량 제한)
+
+// 서버 ai-cache 키는 SAFE_KEY_RE(영숫자/_/:/-/.) 만 허용. 부적합 키는 서버 폴백 비활성화.
+const SERVER_CACHE_KEY_RE = /^[A-Za-z0-9_:\-.]{1,200}$/;
+
+// Idea 9 보조: BroadcastChannel — 같은 origin의 다른 탭이 캐시 갱신 이벤트 수신 시
+// 자신의 메모리 캐시도 갱신하여 세션당 Gemini 호출 1회로 수렴.
+const bc: BroadcastChannel | null =
+  typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('qm:ai:cache') : null;
+if (bc) {
+  bc.onmessage = (ev) => {
+    const msg = ev.data as { type: 'set'; key: string; entry: { data: unknown; timestamp: number } } | null;
+    if (!msg || msg.type !== 'set' || typeof msg.key !== 'string' || !msg.entry) return;
+    aiCache[msg.key] = msg.entry as { data: any; timestamp: number };
+  };
+}
+function broadcastCacheSet(key: string, entry: { data: any; timestamp: number }): void {
+  if (!bc) return;
+  try { bc.postMessage({ type: 'set', key, entry }); } catch { /* noop */ }
+}
 
 /** localStorage 안전 읽기 (SSR / 용량 초과 대비) */
 export function lsGet(key: string): { data: any; timestamp: number } | null {
@@ -87,6 +108,29 @@ function lsEvictIfNeeded(): void {
   }
 }
 
+// ── 서버 Volume 캐시(Layer 3) 폴백 ──────────────────────────────────────────
+async function serverCacheGet(cacheKey: string): Promise<{ data: unknown; timestamp: number; ttlMs: number } | null> {
+  if (!SERVER_CACHE_KEY_RE.test(cacheKey)) return null;
+  try {
+    const res = await fetch(`/api/system/ai-cache/${encodeURIComponent(cacheKey)}`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    if (!body?.hit) return null;
+    return { data: body.data, timestamp: body.timestamp, ttlMs: body.ttlMs };
+  } catch { return null; }
+}
+
+async function serverCacheSet(cacheKey: string, data: unknown, ttlMs: number): Promise<void> {
+  if (!SERVER_CACHE_KEY_RE.test(cacheKey)) return;
+  try {
+    await fetch(`/api/system/ai-cache/${encodeURIComponent(cacheKey)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data, ttlMs }),
+    });
+  } catch { /* noop — 영속화 실패는 메모리/LS 만으로 동작 */ }
+}
+
 export async function getCachedAIResponse<T>(cacheKey: string, fetchFn: () => Promise<T>): Promise<T> {
   const now = Date.now();
 
@@ -105,12 +149,27 @@ export async function getCachedAIResponse<T>(cacheKey: string, fetchFn: () => Pr
     return lsHit.data as T;
   }
 
-  // 3) AI API 실제 호출
+  // 3) (Idea 4) 서버 Volume 캐시 확인 — 재배포 후 첫 호출 시 절감 효과
+  const serverHit = await serverCacheGet(cacheKey);
+  if (serverHit) {
+    const ageMin = Math.floor((now - serverHit.timestamp) / 60000);
+    debugLog(`[AI캐시] 서버Volume 히트 (${ageMin}분 전 캐시): ${cacheKey.substring(0, 50)}...`);
+    const entry = { data: serverHit.data, timestamp: serverHit.timestamp };
+    aiCache[cacheKey] = entry;
+    lsSet(cacheKey, entry);
+    broadcastCacheSet(cacheKey, entry);
+    return serverHit.data as T;
+  }
+
+  // 4) AI API 실제 호출
   const data = await fetchFn();
   const entry = { data, timestamp: now };
   aiCache[cacheKey] = entry;
   lsEvictIfNeeded();
   lsSet(cacheKey, entry);
+  broadcastCacheSet(cacheKey, entry);
+  // 서버 Volume에도 비동기 저장 (대기하지 않음 — 호출자 응답 지연 없음)
+  void serverCacheSet(cacheKey, data, AI_CACHE_TTL);
   return data;
 }
 

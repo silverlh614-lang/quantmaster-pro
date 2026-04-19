@@ -5,6 +5,110 @@ import { createCircuitBreaker, CircuitOpenError } from '../utils/circuitBreaker.
 // Gemini Flash 모델 (Google Search 지원) — supplyChainAgent 전용
 const SEARCH_MODEL = AI_MODELS.PRIMARY;
 
+// ── Idea 13: 월 예산 하드리밋 회로차단기 ──────────────────────────────────────
+//
+// "손절은 실패가 아니라 운영 비용" 원칙을 비용에 적용:
+//   - MONTHLY_AI_BUDGET_USD (기본 5달러)
+//   - 90% 도달 시 1회 WARN + Telegram
+//   - 100% 도달 시 모든 호출 즉시 null + Telegram, 익월 1일 자동 재개
+//
+// gemini-2.5-flash 가격(2025): input $0.30/M, output $2.50/M.
+// totalTokenCount는 input+output 합계라 단가 평균 ~$1.40/M으로 보수적 추정.
+// (실제 input 비중 70%면 평균 $0.96/M, output 비중 50%면 $1.40/M)
+const MONTHLY_BUDGET_USD = parseFloat(process.env.MONTHLY_AI_BUDGET_USD ?? '5');
+const TOKEN_PRICE_USD_PER_M = parseFloat(process.env.AI_TOKEN_PRICE_USD_PER_M ?? '1.40');
+
+interface BudgetState {
+  yyyymm: string;          // 'YYYY-MM' — 월 변경 시 자동 리셋
+  totalTokens: number;     // 누적 토큰 (input+output)
+  warned: boolean;         // 90% 경고 1회 발송 플래그
+  blocked: boolean;        // 100% 도달 시 true → 호출 차단
+  blockedAt?: string;      // ISO timestamp
+}
+
+let _budgetState: BudgetState = {
+  yyyymm: new Date().toISOString().slice(0, 7),
+  totalTokens: 0,
+  warned: false,
+  blocked: false,
+};
+
+function resetIfNewMonth(): void {
+  const yyyymm = new Date().toISOString().slice(0, 7);
+  if (_budgetState.yyyymm !== yyyymm) {
+    console.log(`[Gemini/Budget] 월 변경 (${_budgetState.yyyymm} → ${yyyymm}) — 예산 리셋`);
+    _budgetState = { yyyymm, totalTokens: 0, warned: false, blocked: false };
+  }
+}
+
+function tokensToUsd(tokens: number): number {
+  return (tokens / 1_000_000) * TOKEN_PRICE_USD_PER_M;
+}
+
+/** 외부에서 예산 상태 확인 (대시보드/디버깅) */
+export function getBudgetState(): BudgetState & { spentUsd: number; budgetUsd: number; pctUsed: number } {
+  resetIfNewMonth();
+  const spentUsd = tokensToUsd(_budgetState.totalTokens);
+  return {
+    ..._budgetState,
+    spentUsd: parseFloat(spentUsd.toFixed(4)),
+    budgetUsd: MONTHLY_BUDGET_USD,
+    pctUsed: parseFloat(((spentUsd / MONTHLY_BUDGET_USD) * 100).toFixed(2)),
+  };
+}
+
+/** 호출 직전 차단 여부 검사 — true면 호출 거부 */
+export function isBudgetBlocked(): boolean {
+  resetIfNewMonth();
+  return _budgetState.blocked;
+}
+
+async function recordBudgetUsage(tokens: number): Promise<void> {
+  resetIfNewMonth();
+  _budgetState.totalTokens += tokens;
+  const spentUsd = tokensToUsd(_budgetState.totalTokens);
+  const pct = (spentUsd / MONTHLY_BUDGET_USD) * 100;
+
+  // 100% 도달 → HARD_BLOCK + Telegram (1회만)
+  if (!_budgetState.blocked && pct >= 100) {
+    _budgetState.blocked = true;
+    _budgetState.blockedAt = new Date().toISOString();
+    console.error(
+      `[Gemini/Budget] 🚫 HARD_BLOCK — 월 예산 100% 도달 ` +
+      `($${spentUsd.toFixed(2)}/$${MONTHLY_BUDGET_USD}). 익월 1일까지 모든 Gemini 호출 차단.`,
+    );
+    // Telegram 알림 — best-effort, 실패 무시
+    try {
+      const { sendTelegramAlert } = await import('../alerts/telegramClient.js');
+      await sendTelegramAlert(
+        `🚫 <b>[AI 예산 HARD_BLOCK]</b>\n` +
+        `${_budgetState.yyyymm} 누적 $${spentUsd.toFixed(2)} / $${MONTHLY_BUDGET_USD} (100%)\n` +
+        `익월까지 모든 Gemini 호출이 차단됩니다.`,
+        { priority: 'CRITICAL', dedupeKey: `ai-budget-block:${_budgetState.yyyymm}` },
+      );
+    } catch { /* noop */ }
+    return;
+  }
+
+  // 90% 도달 → WARN + Telegram (1회만)
+  if (!_budgetState.warned && pct >= 90) {
+    _budgetState.warned = true;
+    console.warn(
+      `[Gemini/Budget] ⚠️ 월 예산 90% 도달 ` +
+      `($${spentUsd.toFixed(2)}/$${MONTHLY_BUDGET_USD}). 100% 도달 시 호출 차단됨.`,
+    );
+    try {
+      const { sendTelegramAlert } = await import('../alerts/telegramClient.js');
+      await sendTelegramAlert(
+        `⚠️ <b>[AI 예산 90% 경고]</b>\n` +
+        `${_budgetState.yyyymm} 누적 $${spentUsd.toFixed(2)} / $${MONTHLY_BUDGET_USD} (${pct.toFixed(1)}%)\n` +
+        `남은 예산이 부족합니다.`,
+        { priority: 'HIGH', dedupeKey: `ai-budget-warn:${_budgetState.yyyymm}` },
+      );
+    } catch { /* noop */ }
+  }
+}
+
 // ── 안정성: 서킷 브레이커 + 재시도 정책 ────────────────────────────────────
 // 5xx/네트워크 오류 누적 시 일정 시간 호출 차단 — quota burn 방지.
 const _cb = createCircuitBreaker({
@@ -62,6 +166,8 @@ function recordCall(caller: string, tokens: number): void {
   }
   _dailyCounter[caller].count++;
   _dailyCounter[caller].tokens += tokens;
+  // Idea 13: 월 예산 누적 — 90%/100% 도달 시 자동 경보/차단
+  void recordBudgetUsage(tokens);
 }
 
 /** GET /api/system/api-usage 로 노출되는 일별 호출 통계 */
@@ -88,6 +194,10 @@ export async function callGemini(prompt: string, caller = 'unknown'): Promise<st
     console.warn('[Gemini] API 키 미설정 — AI 기능 비활성화');
     return null;
   }
+  if (isBudgetBlocked()) {
+    console.warn(`[Gemini] 월 예산 HARD_BLOCK 상태 — callGemini[${caller}] 호출 차단`);
+    return null;
+  }
   return withRetry(`callGemini[${caller}]`, async () => {
     const res = await ai.models.generateContent({
       model: AI_MODELS.SERVER_SIDE,
@@ -109,6 +219,10 @@ export async function callGeminiWithSearch(prompt: string, caller = 'search'): P
   const ai = getGeminiClient();
   if (!ai) {
     console.warn('[Gemini] API 키 미설정 — 검색 기능 비활성화');
+    return null;
+  }
+  if (isBudgetBlocked()) {
+    console.warn(`[Gemini] 월 예산 HARD_BLOCK 상태 — callGeminiWithSearch[${caller}] 호출 차단`);
     return null;
   }
   return withRetry(`callGeminiWithSearch[${caller}]`, async () => {
