@@ -24,6 +24,7 @@ import {
   sendSampleStallAlertIfNeeded,
 } from '../alerts/shadowProgressBriefing.js';
 import { sendWeeklyIntegrityReport } from '../alerts/weeklyIntegrityReport.js';
+import { sendWeeklyHygieneAudit } from '../alerts/weeklyHygieneAudit.js';
 import { runHourlyCanary } from '../learning/mutationCanary.js';
 import { beginUnifiedBriefing, endUnifiedBriefing } from '../alerts/unifiedBriefing.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
@@ -95,10 +96,12 @@ export function registerReportJobs(): void {
     ]);
   }, { timezone: 'UTC' });
 
-  // Phase 3.2 — 주간 무결성 리포트 (일요일 10:00 KST = 토 01:00 UTC).
+  // Phase 3.2 — 주간 무결성 리포트 (일요일 10:00 KST = 일 01:00 UTC).
   // 주간 신호 발생 패턴 · 조건 활성화 빈도 · 판단 로직 해시값 변동 여부 요약.
+  // Phase 6 — 동일 슬롯에서 알림 감사 리포트도 함께 발송.
   cron.schedule('0 1 * * 0', async () => {
     await sendWeeklyIntegrityReport().catch(console.error);
+    await sendWeeklyHygieneAudit().catch(console.error);
   }, { timezone: 'UTC' });
 
   // Phase 2차 C4 — Mutation Canary: 매시간 정각, 고정 입력 → 고정 출력 검증.
