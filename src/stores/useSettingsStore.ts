@@ -94,8 +94,8 @@ export const useSettingsStore = create<SettingsState>()(
       autoSyncEnabled: false,
       setAutoSyncEnabled: (autoSyncEnabled) => set({ autoSyncEnabled }),
 
-      // Sector Subscriptions
-      subscribedSectors: ['조선', '방산', '원자력'],
+      // Sector Subscriptions — 기본값은 빈 배열. 사용자가 직접 선택/저장한다.
+      subscribedSectors: [],
       addSector: (sector) => set((state) => ({
         subscribedSectors: state.subscribedSectors.includes(sector)
           ? state.subscribedSectors
