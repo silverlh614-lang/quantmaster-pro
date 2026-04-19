@@ -23,6 +23,7 @@ import type { FlowPredictionInput, FlowPredictionResult } from '../types/flowPre
 import type { SatelliteCascaderInput, SatelliteCascaderResult } from '../types/satellite';
 import type { BehavioralMirrorInput, BehavioralMirrorResult } from '../types/behavioralMirror';
 import type { SystemInterferenceResult } from '../types/interference';
+import { buildRegimeContext } from '../services/quant/regimeContext';
 
 interface GlobalIntelState {
   // Core macro
@@ -296,7 +297,18 @@ export const useGlobalIntelStore = create<GlobalIntelState>()(
       },
       setMarketRegimeClassifierInput: (marketRegimeClassifierInput) => set({ marketRegimeClassifierInput }),
       marketRegimeClassifierResult: null,
-      setMarketRegimeClassifierResult: (marketRegimeClassifierResult) => set({ marketRegimeClassifierResult }),
+      // RegimeContext SSoT — 분류 결과를 set 할 때 dynamicStopInput.regime 도 자동 동기화.
+      // 어떤 호출 경로로 진입하더라도 두 값이 발산할 수 없게 한다.
+      setMarketRegimeClassifierResult: (marketRegimeClassifierResult) => set((state) => {
+        if (!marketRegimeClassifierResult) return { marketRegimeClassifierResult };
+        const ctx = buildRegimeContext(marketRegimeClassifierResult);
+        return state.dynamicStopInput.regime === ctx.dynamicStopRegime
+          ? { marketRegimeClassifierResult }
+          : {
+              marketRegimeClassifierResult,
+              dynamicStopInput: { ...state.dynamicStopInput, regime: ctx.dynamicStopRegime },
+            };
+      }),
 
       currentRoeType: 3,
       setCurrentRoeType: (currentRoeType) => set({ currentRoeType }),

@@ -19,6 +19,11 @@ interface Props {
   result: DynamicStopResult | null;
   inputs: DynamicStopInput;
   onInputsChange: (inputs: DynamicStopInput) => void;
+  /**
+   * 활성화 시 레짐 선택 UI 를 비활성화하고 RegimeContext 도출값으로 표시한다.
+   * 호출 측이 이미 분류기 결과로부터 자동 동기화하고 있을 때만 true 로 전달하라.
+   */
+  regimeLockedByContext?: boolean;
 }
 
 // ─── 레짐 스타일 ─────────────────────────────────────────────────────────────
@@ -53,7 +58,12 @@ function NumInput({ label, value, onChange, step = 100, min = 0 }: {
 
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────────────────
 
-export const DynamicStopPanel: React.FC<Props> = ({ result, inputs, onInputsChange }) => {
+export const DynamicStopPanel: React.FC<Props> = ({
+  result,
+  inputs,
+  onInputsChange,
+  regimeLockedByContext = false,
+}) => {
   const [expanded, setExpanded] = useState(false);
 
   const r = result ?? evaluateDynamicStop(inputs);
@@ -186,28 +196,44 @@ export const DynamicStopPanel: React.FC<Props> = ({ result, inputs, onInputsChan
             <NumInput label="ATR14 (원)" value={inputs.atr14} onChange={v => update({ atr14: v })} step={100} min={0} />
           </div>
 
-          {/* Regime Select */}
+          {/* Regime — RegimeContext 동기화 시 read-only 표시 */}
           <div>
-            <p className="text-[10px] text-gray-400 mb-2">시장 레짐 (ATR 배수 결정)</p>
-            <div className="flex gap-2">
-              {(['RISK_ON', 'RISK_OFF', 'CRISIS'] as DynamicStopRegime[]).map(rg => {
-                const s = getRegimeStyle(rg);
-                return (
-                  <button
-                    key={rg}
-                    onClick={() => update({ regime: rg })}
-                    className={cn(
-                      'flex-1 py-1.5 rounded-lg border text-[10px] font-bold transition-all',
-                      inputs.regime === rg
-                        ? `${s.bg} border-transparent text-white`
-                        : 'bg-gray-800 border-gray-600 text-gray-400 hover:border-gray-500',
-                    )}
-                  >
-                    {s.label}<br /><span className="font-normal">{s.mult}</span>
-                  </button>
-                );
-              })}
-            </div>
+            <p className="text-[10px] text-gray-400 mb-2">
+              시장 레짐 (ATR 배수 결정)
+              {regimeLockedByContext && (
+                <span className="ml-2 text-[9px] text-emerald-400 font-bold">
+                  · 레짐 분류기 동기화 (수동 변경 불가)
+                </span>
+              )}
+            </p>
+            {regimeLockedByContext ? (
+              <div className={cn(
+                'w-full py-2 rounded-lg border text-center text-[11px] font-bold',
+                'bg-gray-800/60 border-gray-600 text-gray-200',
+              )}>
+                {regStyle.label} {regStyle.mult}
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                {(['RISK_ON', 'RISK_OFF', 'CRISIS'] as DynamicStopRegime[]).map(rg => {
+                  const s = getRegimeStyle(rg);
+                  return (
+                    <button
+                      key={rg}
+                      onClick={() => update({ regime: rg })}
+                      className={cn(
+                        'flex-1 py-1.5 rounded-lg border text-[10px] font-bold transition-all',
+                        inputs.regime === rg
+                          ? `${s.bg} border-transparent text-white`
+                          : 'bg-gray-800 border-gray-600 text-gray-400 hover:border-gray-500',
+                      )}
+                    >
+                      {s.label}<br /><span className="font-normal">{s.mult}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Algorithm Explanation */}

@@ -10,6 +10,7 @@ import { evaluateMAPCResult } from '../../services/quant/macroEngine';
 import { evaluateMarketRegimeClassifier } from '../../services/quant/marketRegimeClassifier';
 import { evaluateMTFConfluence } from '../../services/quant/mtfEngine';
 import { evaluateDynamicStop } from '../../services/quant/dynamicStopEngine';
+import { buildRegimeContext } from '../../services/quant/regimeContext';
 import { evaluateFeedbackLoop } from '../../services/quant/feedbackLoopEngine';
 import { evaluateSectorEnergy } from '../../services/quant/sectorEnergyEngine';
 import { evaluateFlowPrediction } from '../../services/quant/flowPredictionEngine';
@@ -168,9 +169,26 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
       setMarketRegimeClassifierInput(inputs);
       const newResult = evaluateMarketRegimeClassifier(inputs);
       setMarketRegimeClassifierResult(newResult);
-      setSystemInterferenceResult(checkSystemInterference(newResult, dynamicStopInput));
+
+      // RegimeContext SSoT — 분류 결과가 바뀌면 dynamicStopInput.regime 도 자동 동기화.
+      // 이 한 줄로 REGIME_TYPE_MISMATCH 가 구조적으로 발생 불가능해진다.
+      const ctx = buildRegimeContext(newResult);
+      const syncedDynamicStopInput = { ...dynamicStopInput, regime: ctx.dynamicStopRegime };
+      if (syncedDynamicStopInput.regime !== dynamicStopInput.regime) {
+        setDynamicStopInput(syncedDynamicStopInput);
+        setDynamicStopResult(evaluateDynamicStop(syncedDynamicStopInput));
+      }
+
+      setSystemInterferenceResult(checkSystemInterference(newResult));
     },
-    [setMarketRegimeClassifierInput, setMarketRegimeClassifierResult, setSystemInterferenceResult, dynamicStopInput],
+    [
+      setMarketRegimeClassifierInput,
+      setMarketRegimeClassifierResult,
+      setSystemInterferenceResult,
+      setDynamicStopInput,
+      setDynamicStopResult,
+      dynamicStopInput,
+    ],
   );
 
   const handleBearModeSimulatorInputsChange = useCallback(
@@ -191,11 +209,16 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
 
   const handleDynamicStopInputsChange = useCallback(
     (inputs: typeof dynamicStopInput) => {
-      setDynamicStopInput(inputs);
-      setDynamicStopResult(evaluateDynamicStop(inputs));
-      setSystemInterferenceResult(checkSystemInterference(marketRegimeClassifierResult, inputs));
+      // RegimeContext SSoT — regime 필드는 사용자 입력으로 변경 불가.
+      // 분류 결과가 있으면 컨텍스트 도출 값으로 강제 덮어쓴다(수동 발산 차단).
+      const lockedRegime = marketRegimeClassifierResult
+        ? buildRegimeContext(marketRegimeClassifierResult).dynamicStopRegime
+        : inputs.regime;
+      const lockedInputs = { ...inputs, regime: lockedRegime };
+      setDynamicStopInput(lockedInputs);
+      setDynamicStopResult(evaluateDynamicStop(lockedInputs));
     },
-    [setDynamicStopInput, setDynamicStopResult, setSystemInterferenceResult, marketRegimeClassifierResult],
+    [setDynamicStopInput, setDynamicStopResult, marketRegimeClassifierResult],
   );
 
   const handleSectorEnergyInputsChange = useCallback(
@@ -258,11 +281,11 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
     setBehavioralMirrorResult(evaluateBehavioralMirror(closed, behavioralMirrorInput));
   }, [tradeRecords, behavioralMirrorInput, setBehavioralMirrorResult]);
 
-  // Run system interference check on mount and whenever regime or dynamic stop changes
+  // BUYING_HALTED 가드 — 분류기 결과 갱신 시마다 검사 (dynamicStop 입력은 더 이상 영향 없음)
   React.useEffect(() => {
-    setSystemInterferenceResult(checkSystemInterference(marketRegimeClassifierResult, dynamicStopInput));
+    setSystemInterferenceResult(checkSystemInterference(marketRegimeClassifierResult));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [marketRegimeClassifierResult, dynamicStopInput]);
+  }, [marketRegimeClassifierResult]);
 
   return (
     <div className="space-y-10">
@@ -296,6 +319,7 @@ export const MacroIntelligenceDashboard: React.FC<Props> = ({
           result={dynamicStopResult}
           inputs={dynamicStopInput}
           onInputsChange={handleDynamicStopInputsChange}
+          regimeLockedByContext={!!marketRegimeClassifierResult}
         />
       </SectionErrorBoundary>
 
