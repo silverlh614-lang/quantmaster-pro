@@ -23,7 +23,7 @@ export function AIIntelligenceSection({ stock }: Props) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {/* AI Conviction Score */}
-        <div className="bg-white/5 rounded-[2rem] p-6 border border-white/10 relative overflow-hidden group/ai-card">
+        <div className="bg-white/5 rounded-2xl p-6 border border-white/10 relative overflow-hidden group/ai-card">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover/ai-card:opacity-20 transition-opacity">
             <Brain className="w-12 h-12 text-orange-500" />
           </div>
@@ -88,7 +88,7 @@ export function AIIntelligenceSection({ stock }: Props) {
         </div>
 
         {/* Catalyst Analysis */}
-        <div className="bg-white/5 rounded-[2rem] p-6 border border-white/10 relative overflow-hidden group/ai-card">
+        <div className="bg-white/5 rounded-2xl p-6 border border-white/10 relative overflow-hidden group/ai-card">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover/ai-card:opacity-20 transition-opacity">
             <Zap className="w-12 h-12 text-orange-500" />
           </div>
@@ -131,7 +131,7 @@ export function AIIntelligenceSection({ stock }: Props) {
         </div>
 
         {/* Visual Report Summary */}
-        <div className="bg-white/5 rounded-[2rem] p-6 border border-white/10 relative overflow-hidden group/ai-card">
+        <div className="bg-white/5 rounded-2xl p-6 border border-white/10 relative overflow-hidden group/ai-card">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover/ai-card:opacity-20 transition-opacity">
             <FileText className="w-12 h-12 text-orange-500" />
           </div>
@@ -176,7 +176,7 @@ export function AIIntelligenceSection({ stock }: Props) {
 
         {/* KIS 실시간 수급 카드 */}
         {stock.supplyData && (
-          <div className="glass-3d rounded-[2.5rem] p-8 border border-white/10 mb-6">
+          <div className="glass-3d rounded-2xl p-8 border border-white/10 mb-6">
             <div className="flex items-center gap-3 mb-6">
               <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
                 <TrendingUp className="w-5 h-5 text-blue-400" />
@@ -244,7 +244,7 @@ export function AIIntelligenceSection({ stock }: Props) {
         )}
 
         {/* Short Selling */}
-        <div className="bg-white/5 rounded-[2rem] p-6 border border-white/10 relative overflow-hidden group/ai-card">
+        <div className="bg-white/5 rounded-2xl p-6 border border-white/10 relative overflow-hidden group/ai-card">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover/ai-card:opacity-20 transition-opacity">
             <TrendingDown className="w-12 h-12 text-red-500" />
           </div>
@@ -285,7 +285,7 @@ export function AIIntelligenceSection({ stock }: Props) {
         </div>
 
         {/* Tenbagger DNA */}
-        <div className="bg-white/5 rounded-[2rem] p-6 border border-white/10 relative overflow-hidden group/ai-card">
+        <div className="bg-white/5 rounded-2xl p-6 border border-white/10 relative overflow-hidden group/ai-card">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover/ai-card:opacity-20 transition-opacity">
             <Sparkles className="w-12 h-12 text-blue-400" />
           </div>
@@ -329,7 +329,7 @@ export function AIIntelligenceSection({ stock }: Props) {
         </div>
 
         {/* Historical Analogy */}
-        <div className="bg-white/5 rounded-[2rem] p-6 border border-white/10 relative overflow-hidden group/ai-card">
+        <div className="bg-white/5 rounded-2xl p-6 border border-white/10 relative overflow-hidden group/ai-card">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover/ai-card:opacity-20 transition-opacity">
             <History className="w-12 h-12 text-blue-500" />
           </div>
@@ -358,7 +358,7 @@ export function AIIntelligenceSection({ stock }: Props) {
         </div>
 
         {/* Anomaly Detection */}
-        <div className="bg-white/5 rounded-[2rem] p-6 border border-white/10 relative overflow-hidden group/ai-card">
+        <div className="bg-white/5 rounded-2xl p-6 border border-white/10 relative overflow-hidden group/ai-card">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover/ai-card:opacity-20 transition-opacity">
             <Radar className="w-12 h-12 text-purple-500" />
           </div>
@@ -388,7 +388,7 @@ export function AIIntelligenceSection({ stock }: Props) {
         </div>
 
         {/* Semantic Mapping */}
-        <div className="bg-white/5 rounded-[2rem] p-6 border border-white/10 relative overflow-hidden group/ai-card">
+        <div className="bg-white/5 rounded-2xl p-6 border border-white/10 relative overflow-hidden group/ai-card">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover/ai-card:opacity-20 transition-opacity">
             <Hash className="w-12 h-12 text-emerald-500" />
           </div>

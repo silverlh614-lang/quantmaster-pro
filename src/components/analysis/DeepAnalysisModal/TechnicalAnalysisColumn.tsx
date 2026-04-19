@@ -11,7 +11,7 @@ export function TechnicalAnalysisColumn({ stock }: Props) {
   return (
     <>
       {/* Technical Indicators Grid */}
-      <div className="bg-white/5 rounded-[2.5rem] p-6 border border-white/10 relative overflow-hidden group/card">
+      <div className="bg-white/5 rounded-2xl p-6 border border-white/10 relative overflow-hidden group/card">
         <div className="flex items-center gap-3 mb-6">
           <Activity className="w-5 h-5 text-blue-400" />
           <h3 className="text-lg font-black text-white uppercase tracking-tight">Technical Indicators</h3>
@@ -205,7 +205,7 @@ export function TechnicalAnalysisColumn({ stock }: Props) {
 
       {/* Elliott Wave & Strategic Insight */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/10">
+        <div className="bg-white/5 rounded-2xl p-8 border border-white/10">
           <div className="flex items-center gap-3 mb-6">
             <Zap className="w-5 h-5 text-yellow-400" />
             <h3 className="text-lg font-black text-white uppercase tracking-tight">Elliott Wave</h3>
@@ -225,7 +225,7 @@ export function TechnicalAnalysisColumn({ stock }: Props) {
         </div>
 
         {/* Chart Pattern Analysis */}
-        <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/10">
+        <div className="bg-white/5 rounded-2xl p-8 border border-white/10">
           <div className="flex items-center gap-3 mb-6">
             <TrendingUp className="w-5 h-5 text-blue-400" />
             <h3 className="text-lg font-black text-white uppercase tracking-tight">Chart Pattern Analysis</h3>
@@ -265,7 +265,7 @@ export function TechnicalAnalysisColumn({ stock }: Props) {
           )}
         </div>
 
-        <div className="bg-white/5 rounded-[2.5rem] p-6 border border-white/10">
+        <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
           <div className="flex items-center gap-3 mb-4">
             <Sparkles className="w-5 h-5 text-purple-400" />
             <h3 className="text-lg font-black text-white uppercase tracking-tight">Strategic Insight</h3>
