@@ -57,3 +57,5 @@ export { AnimatedNumber } from './animated-number';
 export { TrendIndicator } from './trend-indicator';
 export { DataTable } from './data-table';
 export type { DataTableColumn } from './data-table';
+export { FadeInOnScroll } from './fade-in-on-scroll';
+export { Pulse } from './pulse';

@@ -810,6 +810,26 @@
   animation: fade-slide-up 0.3s ease-out;
 }
 
+/* ---------- Hover lift — subtle Y + shadow (cards, clickable panels) ---------- */
+@keyframes subtle-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+.subtle-hover-lift {
+  transition: transform 180ms ease-out, box-shadow 180ms ease-out;
+}
+.subtle-hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.6);
+}
+@media (prefers-reduced-motion: reduce) {
+  .subtle-hover-lift,
+  .subtle-hover-lift:hover {
+    transform: none;
+    transition: none;
+  }
+}
+
 /* ---------- Skeleton shimmer ---------- */
 @keyframes skeleton-shimmer {
   0% { background-position: -400px 0; }

@@ -11,7 +11,7 @@
 import React, { useMemo, useState } from 'react';
 import { Activity, RefreshCw } from 'lucide-react';
 import { Stack } from '../layout/Stack';
-import { PageHeader, LoadingState, EmptyState, ViewModeToggle } from '../ui';
+import { PageHeader, LoadingState, EmptyState, ViewModeToggle, FadeInOnScroll } from '../ui';
 import { AutoTradingControlCenter } from '../components/autoTrading/AutoTradingControlCenter';
 import { OrderDetailModal } from '../components/autoTrading/OrderDetailModal';
 import { PositionDetailDrawer } from '../components/autoTrading/PositionDetailDrawer';
@@ -160,14 +160,16 @@ export function AutoTradePage() {
         <EngineHealthBanner heartbeat={heartbeat} killSwitch={killSwitch} />
 
         {viewMode === 'pro' && (
-          <CompositeVerdictCard
-            engine={engineStatus}
-            heartbeat={heartbeat}
-            killSwitch={killSwitch}
-            buyAudit={buyAudit}
-            brokerConnected={data.broker.connected}
-            dataIntegrityOk={!data.control.engineStatus.includes('ERROR')}
-          />
+          <FadeInOnScroll>
+            <CompositeVerdictCard
+              engine={engineStatus}
+              heartbeat={heartbeat}
+              killSwitch={killSwitch}
+              buyAudit={buyAudit}
+              brokerConnected={data.broker.connected}
+              dataIntegrityOk={!data.control.engineStatus.includes('ERROR')}
+            />
+          </FadeInOnScroll>
         )}
 
         <AutoTradingControlCenter
@@ -181,14 +183,16 @@ export function AutoTradePage() {
         />
 
         {/* 세부 패널: 탭으로 계층화 */}
-        <AutoTradeTabbedView
-          data={data}
-          gateAudit={gateAudit}
-          viewMode={viewMode}
-          onSelectOrder={setSelectedOrderId}
-          onSelectPosition={setSelectedPositionId}
-          onEmergencyStop={() => { void emergencyStop(); }}
-        />
+        <FadeInOnScroll delay={0.05}>
+          <AutoTradeTabbedView
+            data={data}
+            gateAudit={gateAudit}
+            viewMode={viewMode}
+            onSelectOrder={setSelectedOrderId}
+            onSelectPosition={setSelectedPositionId}
+            onEmergencyStop={() => { void emergencyStop(); }}
+          />
+        </FadeInOnScroll>
       </Stack>
 
       <OrderDetailModal

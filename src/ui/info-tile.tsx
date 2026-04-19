@@ -51,7 +51,7 @@ export function InfoTile({
   return (
     <div
       className={cn(
-        'rounded-xl border border-white/10 bg-white/5 p-4',
+        'rounded-xl border border-white/10 bg-white/5 p-4 subtle-hover-lift',
         toneRingClass[tone],
         className,
       )}
