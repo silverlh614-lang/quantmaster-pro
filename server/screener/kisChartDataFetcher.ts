@@ -64,7 +64,7 @@ function calcEMAArr(values: number[], period: number): number[] {
  * @param endDate    조회 종료일 YYYYMMDD
  * @returns 캔들 배열 (오래된 순서: 과거 → 최근)
  */
-async function fetchKisChartData(
+export async function fetchKisChartData(
   code: string,
   period: 'D' | 'W' | 'M',
   startDate: string,
@@ -216,4 +216,24 @@ function formatDate(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}${m}${day}`;
+}
+
+/**
+ * KIS 일봉 데이터 조회 래퍼 — 최근 N 영업일 캔들 반환.
+ * Yahoo Finance 실패 시 KIS 기반으로 RSI/MACD/MA/ATR 등 기술적 지표를
+ * 산출하기 위한 엔트리포인트.
+ *
+ * FHKST03010100 한 번 호출당 최대 ~100 봉 반환 — 120봉 확보 위해
+ * calendarDays(기본 220)로 충분한 캘린더 범위를 지정한다.
+ */
+export async function fetchKisDailyCandles(
+  code: string,
+  calendarDays = 220,
+): Promise<KisChartCandle[]> {
+  const now = new Date();
+  const endDate = formatDate(now);
+  const start = new Date(now);
+  start.setDate(start.getDate() - calendarDays);
+  const startDate = formatDate(start);
+  return fetchKisChartData(code, 'D', startDate, endDate);
 }
