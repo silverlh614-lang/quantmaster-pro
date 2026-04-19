@@ -233,6 +233,14 @@ npm run dev
 
 ---
 
+## 최근 업데이트
+
+**2026-04-19**
+- StickyMiniHeader: `lastUpdated`가 파싱 불가능한 값일 때 "Invalid Date"가 노출되던 문제 수정 → 유효성 검증 후 `--:--`로 대체
+- FusionMatrixSection: 현재 ROE 유형 행 레이블이 다크 모드에서 흰 배경 위 흰 글씨로 보이지 않던 문제 수정 (`text-white` → `text-theme-bg`로 테마 반전 적용)
+
+---
+
 ## 기술 스택
 
 | 분류 | 기술 |
@@ -261,6 +269,6 @@ npm run dev
 
 **"판단의 틀은 기관급, 판단의 재료는 지속적으로 고도화 중"**
 
-*v13 · 2026.04*
+*v13 · 2026.04.19*
 
 </div>

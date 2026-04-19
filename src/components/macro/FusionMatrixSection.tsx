@@ -51,7 +51,7 @@ export function FusionMatrixSection({ currentRoeType }: Props) {
               <tr key={roeType}>
                 <td
                   className={`p-3 border border-theme-border text-[9px] font-black ${
-                    roeType === currentRoeType ? 'bg-theme-text text-white' : 'bg-theme-bg text-theme-text-secondary'
+                    roeType === currentRoeType ? 'bg-theme-text text-theme-bg' : 'bg-theme-bg text-theme-text-secondary'
                   }`}
                 >
                   {roeType === currentRoeType ? '▶ ' : ''}{ROE_TYPE_LABELS[roeType]}
