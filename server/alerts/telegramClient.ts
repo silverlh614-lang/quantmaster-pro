@@ -84,6 +84,12 @@ export type AlertPriority = 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW';
 /** 외부 레포에서 임포트하기 쉬운 별칭 — UI 알림 피드가 같은 enum 재사용. */
 export type TelegramAlertPriority = AlertPriority;
 
+// 티어 체계 (T1 🚨 ALARM / T2 📊 REPORT / T3 📋 DIGEST) 를 본 모듈에서 강제한다.
+// 선두 아이콘을 티어 아이콘으로 교체해 "이게 지금 봐야 하는가"가 첫 글자로 결정되게 한다.
+import { applyTierPrefix, deriveTier, inferCategory, type AlertTier } from './alertTiers.js';
+import { appendAlertAudit } from './alertAuditLog.js';
+export type { AlertTier } from './alertTiers.js';
+
 interface AlertCooldownEntry {
   lastSentAt: number;
   priority: AlertPriority;
@@ -104,6 +110,15 @@ export interface TelegramAlertOptions {
   cooldownMs?: number;     // 커스텀 쿨다운 (ms) — 기본값은 priority별
   /** 인라인 키보드 버튼 (reply_markup) */
   replyMarkup?: Record<string, unknown>;
+  /**
+   * 티어를 명시적으로 지정한다. 생략 시 priority로 자동 매핑 (CRITICAL→T1, LOW→T3, 그 외→T2).
+   * 본 필드가 설정되거나 priority가 지정되면 메시지 선두에 티어 아이콘(🚨/📊/📋)을 강제 부여한다.
+   */
+  tier?: AlertTier;
+  /**
+   * 알림 감사 로그용 카테고리 수동 오버라이드. 미설정 시 dedupeKey에서 자동 추정.
+   */
+  category?: string;
 }
 
 function shouldSendAlert(opts?: TelegramAlertOptions): boolean {
@@ -154,7 +169,7 @@ export function addToDigest(message: string): void {
   }
 }
 
-/** 다이제스트 버퍼를 묶어 한 번에 전송 */
+/** 다이제스트 버퍼를 묶어 한 번에 전송 (T3 📋 DIGEST 아이콘을 강제) */
 export async function flushDigest(): Promise<void> {
   digestTimer = null;
   if (digestBuffer.length === 0) return;
@@ -168,11 +183,22 @@ export async function flushDigest(): Promise<void> {
   const startHH = startTime.getUTCHours().toString().padStart(2, '0');
   const startMM = startTime.getUTCMinutes().toString().padStart(2, '0');
 
-  const header = `📋 <b>[${entries.length}건 요약] ${startHH}:${startMM}~${hh}:${mm}</b>\n━━━━━━━━━━━━━━━━━━━━`;
+  const header = applyTierPrefix(
+    `<b>[${entries.length}건 요약] ${startHH}:${startMM}~${hh}:${mm}</b>\n━━━━━━━━━━━━━━━━━━━━`,
+    'T3_DIGEST',
+  );
   const body = entries.map(e => e.message).join('\n');
   const full = `${header}\n${body}\n━━━━━━━━━━━━━━━━━━━━`;
 
-  await sendTelegramAlertRaw(full);
+  const messageId = await sendTelegramAlertRaw(full);
+  appendAlertAudit({
+    at: new Date().toISOString(),
+    tier: 'T3_DIGEST',
+    priority: 'LOW',
+    category: 'digest',
+    textLen: full.length,
+    messageId,
+  });
 }
 
 /**
@@ -256,12 +282,15 @@ async function sendTelegramAlertRaw(
 }
 
 /**
- * Telegram Bot API를 통해 알림 전송 (우선순위 + 중복방지 + 다이제스트 지원)
+ * Telegram Bot API를 통해 알림 전송 (우선순위 + 중복방지 + 다이제스트 + 티어 아이콘 강제)
  *
- * - CRITICAL: 항상 즉시 발송
- * - HIGH: 1분 쿨다운
- * - NORMAL: 5분 쿨다운 (기본)
- * - LOW: 다이제스트 버퍼에 축적 → 10분 단위 일괄 전송
+ * - CRITICAL: 항상 즉시 발송 / 티어 T1 🚨 ALARM
+ * - HIGH: 1분 쿨다운 / 기본 T2 📊 REPORT (T1 수준이면 `tier: 'T1_ALARM'` 명시)
+ * - NORMAL: 5분 쿨다운 / T2 📊 REPORT
+ * - LOW: 다이제스트 버퍼 / T3 📋 DIGEST
+ *
+ * priority 또는 tier 가 지정되면 메시지 선두 아이콘은 자동으로 티어 아이콘으로 정규화된다.
+ * 두 옵션 모두 없으면 (예: 사용자 명령 응답) 메시지는 그대로 전달된다.
  *
  * 기존 sendTelegramAlert(message) 시그니처 100% 호환.
  */
@@ -269,16 +298,30 @@ export async function sendTelegramAlert(
   message: string,
   opts?: TelegramAlertOptions,
 ): Promise<number | undefined> {
-  // LOW 우선순위: 다이제스트 버퍼로 전환 (replyMarkup 있으면 즉시 발송)
-  if (opts?.priority === 'LOW' && !opts?.replyMarkup) {
+  // 티어 의도가 명시된 경우에만 선두 아이콘을 강제한다 — 커맨드 응답은 기존 서식 유지.
+  const hasTierIntent = Boolean(opts?.priority || opts?.tier);
+  const tier: AlertTier | undefined = hasTierIntent ? deriveTier(opts) : undefined;
+  const finalMessage = tier ? applyTierPrefix(message, tier) : message;
+
+  // LOW 우선순위 (또는 T3 명시): 다이제스트 버퍼로 전환 (replyMarkup 있으면 즉시 발송)
+  const goDigest = (opts?.priority === 'LOW' || opts?.tier === 'T3_DIGEST') && !opts?.replyMarkup;
+  if (goDigest) {
     if (shouldSendAlert(opts)) {
-      addToDigest(message);
+      addToDigest(finalMessage);
       recordAlertSent(opts);
       // UI 피드에도 동일 엔트리 누적 (텔레그램 ↔ UI 정보 비대칭 해소).
       try {
         const { appendAlertFeed } = await import('../persistence/alertsFeedRepo.js');
-        appendAlertFeed(message, 'LOW', opts?.dedupeKey);
+        appendAlertFeed(finalMessage, 'LOW', opts?.dedupeKey);
       } catch { /* noop — 피드 기록은 best-effort */ }
+      appendAlertAudit({
+        at: new Date().toISOString(),
+        tier: tier ?? 'T3_DIGEST',
+        priority: opts?.priority,
+        category: opts?.category ?? inferCategory(opts?.dedupeKey),
+        dedupeKey: opts?.dedupeKey,
+        textLen: finalMessage.length,
+      });
     }
     return;
   }
@@ -288,12 +331,23 @@ export async function sendTelegramAlert(
     return;
   }
 
-  const msgId = await sendTelegramAlertRaw(message, opts?.replyMarkup);
+  const msgId = await sendTelegramAlertRaw(finalMessage, opts?.replyMarkup);
   recordAlertSent(opts);
   try {
     const { appendAlertFeed } = await import('../persistence/alertsFeedRepo.js');
-    appendAlertFeed(message, opts?.priority ?? 'NORMAL', opts?.dedupeKey);
+    appendAlertFeed(finalMessage, opts?.priority ?? 'NORMAL', opts?.dedupeKey);
   } catch { /* noop */ }
+  if (hasTierIntent) {
+    appendAlertAudit({
+      at: new Date().toISOString(),
+      tier: tier!,
+      priority: opts?.priority,
+      category: opts?.category ?? inferCategory(opts?.dedupeKey),
+      dedupeKey: opts?.dedupeKey,
+      textLen: finalMessage.length,
+      messageId: msgId,
+    });
+  }
   return msgId;
 }
 
@@ -505,7 +559,9 @@ export async function sendEmptyScanDecisionBroker(
 
   return sendTelegramAlert(header, {
     priority: 'HIGH',
+    tier: 'T1_ALARM',  // 참뮌의 선택 대기 중 — 응답 없으면 관망 유지로 자동 만료.
     dedupeKey: 'empty_scan_broker',
+    category: 'decision_broker',
     replyMarkup,
   });
 }

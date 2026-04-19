@@ -133,6 +133,13 @@ export const AI_CACHE_FILE            = path.join(DATA_DIR, 'ai-cache.json');
  * 이후 Shadow 샘플의 incidentFlag 자동 부착 / 오염 반경 계산의 기초.
  */
 export const INCIDENT_LOG_FILE        = path.join(DATA_DIR, 'incident-log.json');
+/**
+ * 알림 감사 로그 — 월별 JSONL. 티어·카테고리·쿨다운키·시각을 1행 1건 append.
+ * Phase 6 주간 알림 감사 리포트가 빈발 카테고리·티어별 폭증을 자동 감지한다.
+ */
+export function alertAuditFile(yyyymm: string): string {
+  return path.join(DATA_DIR, `alert-audit-${yyyymm}.jsonl`);
+}
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

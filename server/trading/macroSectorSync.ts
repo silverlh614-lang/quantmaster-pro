@@ -284,7 +284,9 @@ async function handleVixSpike(
       `\n` +
       `레짐: ${macro.regime} | MHS: ${macro.mhs}\n` +
       `VIX 정상화 시 자동 해제됩니다.`,
-      { priority: 'CRITICAL', dedupeKey: 'vix-conservative-on' },
+      // 자동 조치(positionPct 축소 + 신규 진입 차단) 후 통보 — 사람이 개입할 필요 없음.
+      // T2 REPORT 로 두고 참뮌은 인지 후 필요 시 /pause 여부만 판단한다.
+      { priority: 'HIGH', tier: 'T2_REPORT', dedupeKey: 'vix-conservative-on' },
     ).catch(console.error);
 
     console.log(`[MacroSync] VIX 급등 감지 — 보수 모드 활성화 (VIX +${macro.vixIntradayChangePct?.toFixed(1)}%)`);
