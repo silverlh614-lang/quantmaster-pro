@@ -52,3 +52,4 @@ export {
 } from './skeleton';
 export { FieldError } from './field-error';
 export { toast, toastProgress, toastUndo, toastPromise } from './toast';
+export { InfoTile } from './info-tile';

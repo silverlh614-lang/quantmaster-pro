@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Card } from '../../ui/card';
+import { InfoTile } from '../../ui/info-tile';
 import { Section } from '../../ui/section';
 import type { ControlCenterState } from '../../services/autoTrading/autoTradingTypes';
 import { TradingModeBadge } from './TradingModeBadge';
@@ -140,20 +141,6 @@ export function AutoTradingControlCenter({
 }
 
 /* ---------- Local helpers ---------- */
-
-interface InfoTileProps {
-  label: string;
-  value: React.ReactNode;
-}
-
-function InfoTile({ label, value }: InfoTileProps) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-      <div className="text-xs text-white/50">{label}</div>
-      <div className="mt-2 text-sm">{value}</div>
-    </div>
-  );
-}
 
 function BrokerStatus({ connected }: { connected: boolean }) {
   return (
