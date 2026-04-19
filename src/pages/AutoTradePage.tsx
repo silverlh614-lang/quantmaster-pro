@@ -8,10 +8,11 @@
  *
  * 기존 모든 로직(Nuclear Reactor Gate, SSE 스트림 등) 은 그대로 유지.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Activity, RefreshCw } from 'lucide-react';
 import { Stack } from '../layout/Stack';
 import { PageHeader, LoadingState, EmptyState, ViewModeToggle, FadeInOnScroll } from '../ui';
+import type { AutoTradeTabId } from '../stores/useSettingsStore';
 import { AutoTradingControlCenter } from '../components/autoTrading/AutoTradingControlCenter';
 import { OrderDetailModal } from '../components/autoTrading/OrderDetailModal';
 import { PositionDetailDrawer } from '../components/autoTrading/PositionDetailDrawer';
@@ -48,6 +49,20 @@ export function AutoTradePage() {
 
   const viewMode = useSettingsStore((s) => s.autoTradeViewMode);
   const setViewMode = useSettingsStore((s) => s.setAutoTradeViewMode);
+  const setActiveTab = useSettingsStore((s) => s.setAutoTradeActiveTab);
+
+  // Hero KPI 클릭 시 탭 전환 후 부드럽게 스크롤.
+  const tabsRef = useRef<HTMLDivElement | null>(null);
+  const handleKpiDrilldown = useCallback(
+    (tab: AutoTradeTabId) => {
+      setActiveTab(tab);
+      // 탭 전환이 리렌더된 후 스크롤 — 다음 프레임에 예약.
+      requestAnimationFrame(() => {
+        tabsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    },
+    [setActiveTab],
+  );
 
   const heartbeat = useEngineHeartbeat();
   const killSwitch = useKillSwitchStatus();
@@ -149,11 +164,13 @@ export function AutoTradePage() {
           }
         />
 
-        {/* 최상단: 한 눈 파악용 Hero KPI (4-카드 스코어보드) */}
+        {/* 최상단: 한 눈 파악용 Hero KPI (4-카드 스코어보드) — 클릭 시 해당 탭으로 drill-down */}
         <AutoTradeHeroKpis
           state={data}
           isRunning={isRunning}
           killSwitchActive={killSwitchActive}
+          viewMode={viewMode}
+          onDrilldown={handleKpiDrilldown}
         />
 
         {/* 필수 진단: 엔진 건강 + 종합 평결 + 컨트롤 */}
@@ -182,9 +199,10 @@ export function AutoTradePage() {
           onEmergencyStop={() => { void emergencyStop(); }}
         />
 
-        {/* 세부 패널: 탭으로 계층화 */}
+        {/* 세부 패널: 탭으로 계층화 — Hero KPI 가 이 영역으로 drill-down */}
         <FadeInOnScroll delay={0.05}>
           <AutoTradeTabbedView
+            ref={tabsRef}
             data={data}
             gateAudit={gateAudit}
             viewMode={viewMode}

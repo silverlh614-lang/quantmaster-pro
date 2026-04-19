@@ -1,12 +1,14 @@
 /**
  * AutoTradeHeroKpis — 자동매매 관제실 최상단 4-카드 Hero KPI.
  *
- * 정보 계층화(Step 1) 의 핵심: 세부 패널을 탭으로 접어두기 전에,
- * "한 눈에 파악해야 할 4개 지표" 를 Scoreboard 로 승격한다.
- *   1) 오늘 실현손익 (거래 건수 포함)
- *   2) 실행 효율 (체결 성공률)
- *   3) 활성 포지션 (경보 단계 포함)
- *   4) 리스크 · 엔진 상태 (킬스위치·트리거 규칙 요약)
+ * 정보 계층화(Step 1 v2) 의 핵심:
+ *   - "한 눈에 파악해야 할 4개 지표" 를 Scoreboard 로 승격
+ *   - 각 카드 클릭 → 해당 탭으로 drill-down (progressive disclosure 완성)
+ *
+ *   1) 오늘 실현손익 (거래 건수 포함)  → 주문·리스크 탭
+ *   2) 실행 효율 (체결 성공률)         → 주문·리스크 탭
+ *   3) 활성 포지션 (경보 단계 포함)    → 포지션 탭
+ *   4) 리스크 · 엔진 상태              → 진단(pro) / 주문·리스크(simple) 탭
  */
 import React, { useMemo } from 'react';
 import { KpiScoreboard, type KpiItem } from '../../ui/kpi-strip';
@@ -18,21 +20,34 @@ import type {
   RiskRuleState,
 } from '../../services/autoTrading/autoTradingTypes';
 import { fmtKrw, fmtPct } from '../../utils/format';
+import type {
+  AutoTradeTabId,
+  ViewDensity,
+} from '../../stores/useSettingsStore';
 
 interface AutoTradeHeroKpisProps {
   state: AutoTradingDashboardState;
   isRunning: boolean;
   killSwitchActive?: boolean;
+  /** 현재 뷰 모드 — Risk KPI 의 목적 탭 매핑에 필요. */
+  viewMode: ViewDensity;
+  /**
+   * KPI 카드 클릭 시 호출 (drill-down).
+   * 부모(AutoTradePage) 가 활성 탭을 변경하고 탭 영역으로 스크롤한다.
+   */
+  onDrilldown?: (tab: AutoTradeTabId) => void;
 }
 
 export function AutoTradeHeroKpis({
   state,
   isRunning,
   killSwitchActive = false,
+  viewMode,
+  onDrilldown,
 }: AutoTradeHeroKpisProps) {
   const items = useMemo<KpiItem[]>(
-    () => buildHeroKpis(state, isRunning, killSwitchActive),
-    [state, isRunning, killSwitchActive],
+    () => buildHeroKpis(state, isRunning, killSwitchActive, viewMode, onDrilldown),
+    [state, isRunning, killSwitchActive, viewMode, onDrilldown],
   );
 
   return <KpiScoreboard items={items} />;
@@ -44,13 +59,26 @@ function buildHeroKpis(
   state: AutoTradingDashboardState,
   isRunning: boolean,
   killSwitchActive: boolean,
+  viewMode: ViewDensity,
+  onDrilldown?: (tab: AutoTradeTabId) => void,
 ): KpiItem[] {
-  const pnl = computePnlKpi(state);
-  const execution = computeExecutionKpi(state.orders);
-  const positions = computePositionsKpi(state.positions);
-  const risk = computeRiskKpi(state.riskRules, isRunning, killSwitchActive);
+  const attach = (tab: AutoTradeTabId, fallbackLabel: string) =>
+    onDrilldown
+      ? {
+          onClick: () => onDrilldown(tab),
+          ariaLabel: `${fallbackLabel} 상세 보기 (탭 전환)`,
+        }
+      : {};
 
-  return [pnl, execution, positions, risk];
+  // Risk KPI 의 대상 탭: 프로 모드에서는 진단, 간단 모드에서는 리스크 패널이 있는 주문·리스크 탭.
+  const riskTab: AutoTradeTabId = viewMode === 'pro' ? 'diagnostics' : 'execution';
+
+  return [
+    { ...computePnlKpi(state), ...attach('execution', '오늘 실현손익') },
+    { ...computeExecutionKpi(state.orders), ...attach('execution', '실행 효율') },
+    { ...computePositionsKpi(state.positions), ...attach('positions', '활성 포지션') },
+    { ...computeRiskKpi(state.riskRules, isRunning, killSwitchActive), ...attach(riskTab, '리스크 · 엔진 상태') },
+  ];
 }
 
 function computePnlKpi(state: AutoTradingDashboardState): KpiItem {

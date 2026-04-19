@@ -19,6 +19,11 @@ export interface KpiItem {
   status?: KpiStatus;
   details?: KpiDetail[];
   onClick?: () => void;
+  /**
+   * 스크린리더 전용 라벨 — 지정 시 "label: value, change" 대신 이 문자열이 읽힌다.
+   * 상호작용(onClick)이 있을 때 특히 권장 (예: "오늘 실현손익 상세 보기").
+   */
+  ariaLabel?: string;
 }
 
 export interface KpiDetail {
@@ -131,22 +136,30 @@ export function KpiScoreboard({ items, className }: KpiScoreboardProps) {
           const status = item.status ?? (item.trend === 'up' ? 'pass' : item.trend === 'down' ? 'fail' : 'neutral');
           const hasDetails = item.details && item.details.length > 0;
           const isExpanded = expandedIndex === i;
+          const interactive = Boolean(item.onClick || hasDetails);
+          const Tag = interactive ? 'button' : 'div';
 
           return (
-            <button
+            <Tag
               key={i}
-              type="button"
+              {...(interactive
+                ? {
+                    type: 'button' as const,
+                    'aria-label': item.ariaLabel,
+                    'aria-expanded': hasDetails ? isExpanded : undefined,
+                    onClick: () => {
+                      if (item.onClick) { item.onClick(); return; }
+                      if (hasDetails) setExpandedIndex(isExpanded ? null : i);
+                    },
+                  }
+                : { role: 'group' as const, 'aria-label': item.ariaLabel })}
               className={cn(
                 'relative border-2 rounded-xl sm:rounded-2xl p-4 sm:p-5 text-left transition-all group',
                 statusCardClass[status],
                 'box-shadow-[4px_4px_0px_rgba(0,0,0,0.3)]',
-                hasDetails && 'cursor-pointer',
-                isExpanded && 'ring-1 ring-white/10'
+                interactive && 'cursor-pointer',
+                isExpanded && 'ring-1 ring-white/10',
               )}
-              onClick={() => {
-                if (item.onClick) { item.onClick(); return; }
-                if (hasDetails) setExpandedIndex(isExpanded ? null : i);
-              }}
             >
               {/* Status dot */}
               <div className="flex items-center justify-between mb-2">
@@ -175,11 +188,11 @@ export function KpiScoreboard({ items, className }: KpiScoreboardProps) {
 
               {/* Drill-down indicator */}
               {hasDetails && (
-                <div className="absolute bottom-2 right-3 text-theme-text-muted opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute bottom-2 right-3 text-theme-text-muted opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden>
                   {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 </div>
               )}
-            </button>
+            </Tag>
           );
         })}
       </div>

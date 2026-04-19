@@ -10,6 +10,14 @@ export type ThemeMode = 'dark' | 'light' | 'high-contrast' | 'ocean' | 'forest';
  */
 export type ViewDensity = 'simple' | 'pro';
 
+/**
+ * 자동매매 관제실 탭 ID.
+ *   - simple 모드에선 'positions' · 'execution' 만 유효.
+ *   - pro 모드에선 모두 유효.
+ * 페이지 재진입 후에도 마지막 탭을 유지하기 위해 store 에 영속.
+ */
+export type AutoTradeTabId = 'positions' | 'execution' | 'signals' | 'diagnostics';
+
 interface SettingsState {
   // Navigation
   view: View;
@@ -52,6 +60,10 @@ interface SettingsState {
   // Progressive disclosure — 페이지별 간단/프로 모드
   autoTradeViewMode: ViewDensity;
   setAutoTradeViewMode: (mode: ViewDensity) => void;
+
+  // 자동매매 관제실 활성 탭 (영속)
+  autoTradeActiveTab: AutoTradeTabId;
+  setAutoTradeActiveTab: (tab: AutoTradeTabId) => void;
 
   // Responsive sidebar drawer (<lg 화면) — 휘발성, persist X
   sidebarDrawerOpen: boolean;
@@ -110,6 +122,10 @@ export const useSettingsStore = create<SettingsState>()(
       autoTradeViewMode: 'simple',
       setAutoTradeViewMode: (autoTradeViewMode) => set({ autoTradeViewMode }),
 
+      // 자동매매 활성 탭
+      autoTradeActiveTab: 'positions',
+      setAutoTradeActiveTab: (autoTradeActiveTab) => set({ autoTradeActiveTab }),
+
       // Responsive sidebar drawer
       sidebarDrawerOpen: false,
       setSidebarDrawerOpen: (sidebarDrawerOpen) => set({ sidebarDrawerOpen }),
@@ -126,6 +142,7 @@ export const useSettingsStore = create<SettingsState>()(
         autoSyncEnabled: state.autoSyncEnabled,
         subscribedSectors: state.subscribedSectors,
         autoTradeViewMode: state.autoTradeViewMode,
+        autoTradeActiveTab: state.autoTradeActiveTab,
       }),
     }
   )
