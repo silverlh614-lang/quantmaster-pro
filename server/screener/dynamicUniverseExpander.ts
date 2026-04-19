@@ -21,7 +21,8 @@ import fs from 'fs';
 import path from 'path';
 import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL } from '../clients/kisClient.js';
-import { getRanking, type RankingEntry, type RankingType } from '../clients/kisRankingClient.js';
+import { type RankingEntry, type RankingType } from '../clients/kisRankingClient.js';
+import { getShadowSafeRanking } from './shadowDataGate.js';
 import { STOCK_UNIVERSE } from './stockScreener.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 
@@ -414,8 +415,10 @@ export async function expandOnEmpty(ttlDays = 3): Promise<number> {
     'volume', 'fluctuation', 'market-cap',
     'institutional-net-buy', 'large-volume',
   ];
+  // Phase 1: Shadow-VTS decoupling — Shadow 모드에서 VTS 랭킹이 비어도
+  // Yahoo 폴백으로 자동 전환. LIVE 모드에서는 동작 변경 없음.
   const settled = await Promise.allSettled(
-    RANKING_KEYS.map(k => getRanking(k, { limit: 30 })),
+    RANKING_KEYS.map(k => getShadowSafeRanking(k, { limit: 30 })),
   );
   const [volume, fluctuation, marketCap, instNetBuy, largeVolume] = settled.map((r, i) => {
     if (r.status === 'fulfilled') return r.value;

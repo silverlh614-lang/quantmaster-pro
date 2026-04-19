@@ -55,6 +55,7 @@ export interface YahooQuoteExtended {
   ma5: number;             // 5일 이동평균
   ma20: number;            // 20일 이동평균
   ma60: number;            // 60일 이동평균
+  high5d: number;          // 5일 최고가 (Gate 24 breakout_momentum 용 — momentum 과 독립 입력)
   high20d: number;         // 20일 최고가
   high60d: number;         // 60일 최고가 (눌림목 판단용)
   atr: number;             // 최근 14일 ATR (Average True Range)
@@ -752,7 +753,7 @@ export async function fetchKisQuoteFallback(code: string): Promise<YahooQuoteExt
       volume,
       // 히스토리 기반 지표 — KIS 단건 조회로는 산출 불가, 보수적 0값
       avgVolume: 0, ma5: 0, ma20: 0, ma60: 0,
-      high20d: price, high60d: price,
+      high5d: price, high20d: price, high60d: price,
       atr: 0, atr20avg: 0, per: 0,
       rsi14: 50, macd: 0, macdSignal: 0, macdHistogram: 0,
       rsi5dAgo: 50, weeklyRSI: 50,
@@ -855,6 +856,11 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const ma5  = avg(closes, 5);
     const ma20 = avg(closes, 20);
     const ma60 = avg(closes, 60);
+
+    // 5일 최고가 (Gate 24 breakout_momentum 용 — momentum 과 독립 입력)
+    const high5d = highs.length >= 5
+      ? Math.max(...highs.slice(-5))
+      : highs.length > 0 ? Math.max(...highs) : 0;
 
     // 20일 최고가
     const high20d = highs.length >= 20
@@ -1011,7 +1017,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       price: Math.round(price), changePercent, volume, avgVolume,
       dayOpen: Math.round(dayOpen),
       prevClose: Math.round(prevClose),
-      ma5, ma20, ma60, high20d, high60d, atr, atr20avg, per,
+      ma5, ma20, ma60, high5d, high20d, high60d, atr, atr20avg, per,
       rsi14: parseFloat(rsi14.toFixed(1)),
       macd:  parseFloat(macd.toFixed(2)),
       macdSignal: parseFloat(macdSignal.toFixed(2)),

@@ -14,6 +14,11 @@ import { refreshMarketRegimeVars } from '../trading/marketDataRefresh.js';
 import { checkFomcProximityAlert } from '../trading/fomcCalendar.js';
 import { generateDailyPickReport } from '../alerts/stockPickReporter.js';
 import { generateQualityScorecard } from '../alerts/qualityScorecard.js';
+import {
+  sendDailyShadowProgress,
+  sendSampleStallAlertIfNeeded,
+} from '../alerts/shadowProgressBriefing.js';
+import { sendWeeklyIntegrityReport } from '../alerts/weeklyIntegrityReport.js';
 
 export function registerReportJobs(): void {
   // 주간 리포트 — 매주 금요일 16:30 KST (UTC 07:30)
@@ -53,4 +58,18 @@ export function registerReportJobs(): void {
   // 장마감 Pipeline Yield 스코어카드 — 평일 15:40 KST (UTC 06:40).
   // 4단계 수율 계산: Discovery → Gate → Signal → Trade
   cron.schedule('40 6 * * 1-5', async () => { await generateQualityScorecard().catch(console.error); }, { timezone: 'UTC' });
+
+  // Phase 2.1 — 일일 Shadow 진행률 브리핑 (16:40 KST, UTC 07:40).
+  // "얼마나 남았는지"를 매일 눈으로 확인 → 지루함으로 인한 시스템 손질 방지.
+  cron.schedule('40 7 * * 1-5', async () => {
+    await sendDailyShadowProgress().catch(console.error);
+    // 같은 cron 사이클에서 표본 정체도 함께 점검 (쿨다운 1일이라 중복 스팸 없음)
+    await sendSampleStallAlertIfNeeded().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // Phase 3.2 — 주간 무결성 리포트 (일요일 10:00 KST = 토 01:00 UTC).
+  // 주간 신호 발생 패턴 · 조건 활성화 빈도 · 판단 로직 해시값 변동 여부 요약.
+  cron.schedule('0 1 * * 0', async () => {
+    await sendWeeklyIntegrityReport().catch(console.error);
+  }, { timezone: 'UTC' });
 }

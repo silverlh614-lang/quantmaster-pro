@@ -82,7 +82,7 @@ describe('buildStockInterpretContext', () => {
       dayOpen: 71000, prevClose: 71400,
       avgVolume: 15_000_000,
       ma5: 71000, ma20: 70500, ma60: 68000,
-      high20d: 73000, high60d: 75000,
+      high5d: 72800, high20d: 73000, high60d: 75000,
       atr: 1200, atr20avg: 1100, per: 18.5,
       rsi14: 62, macd: 300, macdSignal: 250, macdHistogram: 50,
       rsi5dAgo: 55, weeklyRSI: 60, ma60TrendUp: true, macd5dHistAgo: 20,
