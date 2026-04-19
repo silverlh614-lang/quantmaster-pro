@@ -53,3 +53,7 @@ export {
 export { FieldError } from './field-error';
 export { toast, toastProgress, toastUndo, toastPromise } from './toast';
 export { InfoTile } from './info-tile';
+export { AnimatedNumber } from './animated-number';
+export { TrendIndicator } from './trend-indicator';
+export { DataTable } from './data-table';
+export type { DataTableColumn } from './data-table';

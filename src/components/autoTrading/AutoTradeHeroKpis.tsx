@@ -10,6 +10,7 @@
  */
 import React, { useMemo } from 'react';
 import { KpiScoreboard, type KpiItem } from '../../ui/kpi-strip';
+import { AnimatedNumber } from '../../ui/animated-number';
 import type {
   AutoTradingDashboardState,
   ExecutionOrder,
@@ -58,7 +59,7 @@ function computePnlKpi(state: AutoTradingDashboardState): KpiItem {
   const status = pnl > 0 ? 'pass' : pnl < 0 ? 'fail' : 'neutral';
   return {
     label: '오늘 실현손익',
-    value: fmtKrw(pnl),
+    value: <AnimatedNumber value={pnl} format={(v) => fmtKrw(v)} />,
     change: `${count}건 체결`,
     trend: pnl > 0 ? 'up' : pnl < 0 ? 'down' : 'neutral',
     status,
@@ -80,7 +81,10 @@ function computeExecutionKpi(orders: ExecutionOrder[]): KpiItem {
 
   return {
     label: '실행 효율',
-    value: total === 0 ? '—' : fmtPct(fillRate, 0),
+    value:
+      total === 0 ? '—' : (
+        <AnimatedNumber value={fillRate} format={(v) => fmtPct(v, 0)} />
+      ),
     change: `${filled}/${total} 체결 · ${rejected} 실패`,
     trend: total === 0 ? 'neutral' : fillRate >= 80 ? 'up' : 'down',
     status,

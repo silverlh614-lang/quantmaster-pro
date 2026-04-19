@@ -12,7 +12,8 @@ export type KpiStatus = 'pass' | 'fail' | 'warn' | 'neutral';
 
 export interface KpiItem {
   label: string;
-  value: string | number;
+  /** 문자열·숫자·React 노드(AnimatedNumber 등) 모두 허용. */
+  value: React.ReactNode;
   change?: string;
   trend?: 'up' | 'down' | 'neutral';
   status?: KpiStatus;
