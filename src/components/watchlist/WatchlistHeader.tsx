@@ -459,8 +459,13 @@ export function WatchlistHeader({
                     <div className="flex items-center gap-2 text-green-400 font-black text-sm">
                       <ArrowUpRight className="w-4 h-4" />
                       {(() => {
-                        const upside = Math.round(((Number(stock.targetPrice) || 0) / (Number(stock.currentPrice) || 1) - 1) * 100);
-                        return Number.isFinite(upside) && upside > 0 ? `+${upside}%` : 'N/A';
+                        // Fix 2 — enrichStockWithRealData 가 이미 fallback 을 적용하므로
+                        // 일반적으로 targetPrice 는 0 이 아니다. 그래도 안전하게 guard.
+                        const tp = Number(stock.targetPrice) || 0;
+                        const cp = Number(stock.currentPrice) || 0;
+                        if (tp <= 0 || cp <= 0) return '—';
+                        const upside = Math.round((tp / cp - 1) * 100);
+                        return upside > 0 ? `+${upside}%` : `${upside}%`;
                       })()}
                     </div>
                   </div>

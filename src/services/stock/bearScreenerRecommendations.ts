@@ -90,7 +90,9 @@ export async function getBearScreenerRecommendations(filters?: StockFilters): Pr
         "recommendations": [
           {
             "name": "종목명", "code": "종목코드", "corpCode": "00000000", "reason": "Bear Screener 선정 이유...",
-            "type": "BUY", "gate": 2, "patterns": [], "hotness": 6,
+            "type": "BUY",
+            "targetPrice": 0, "targetPrice2": 0, "entryPrice": 0, "stopLoss": 0,
+            "gate": 2, "patterns": [], "hotness": 6,
             "bearScreenerCategory": "DEFENSIVE",
             "isLeadingSector": false, "isSectorTopPick": true, "momentumRank": 1, "confidenceScore": 75,
             "supplyQuality": { "passive": true, "active": false },
@@ -131,7 +133,7 @@ export async function getBearScreenerRecommendations(filters?: StockFilters): Pr
               "tranche3": { "size": 20, "trigger": "반등 확인 후", "status": "PENDING" }
             },
             "marketCap": 0, "marketCapCategory": "LARGE",
-            "targetPrice": 0, "targetPrice2": 0, "entryPrice": 0, "stopLoss": 0, "riskFactors": ["..."]
+            "riskFactors": ["..."]
           }
         ]
       }
