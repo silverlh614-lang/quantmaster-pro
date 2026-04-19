@@ -22,6 +22,10 @@ import { generateQualityScorecard } from '../alerts/qualityScorecard.js';
 import { sendScanReviewReport } from '../alerts/scanReviewReport.js';
 import { sendPositionMorningCard } from '../alerts/positionMorningCard.js';
 import { sendWeeklyConditionScorecard } from '../alerts/weeklyConditionScorecard.js';
+import { sendSectorCycleDashboard } from '../alerts/sectorCycleDashboard.js';
+import { sendNewHighMomentumScan } from '../alerts/newHighMomentumScanner.js';
+import { sendWeeklyDeepAnalysis } from '../alerts/weeklyDeepAnalysis.js';
+import { sendWeeklyQuantInsight } from '../alerts/weeklyQuantInsight.js';
 import {
   sendDailyShadowProgress,
   sendSampleStallAlertIfNeeded,
@@ -73,6 +77,22 @@ export function registerReportJobs(): void {
   // 보유 포지션 Morning Card — 평일 09:05 KST (UTC 00:05). IDEA 4.
   // positionAggregator 생애주기 집계 → 활성 포지션별 현재가/손절/목표 격차 카드 → DM+채널.
   cron.schedule('5 0 * * 1-5', async () => { await sendPositionMorningCard().catch(console.error); }, { timezone: 'UTC' });
+
+  // 섹터 사이클 대시보드 — 평일 14:30 KST (UTC 05:30). IDEA 8.
+  // 美 섹터 ETF RS + 국내 워치리스트 섹터 분포 + 매크로 사이클 단계 → DM+채널.
+  cron.schedule('30 5 * * 1-5', async () => { await sendSectorCycleDashboard().catch(console.error); }, { timezone: 'UTC' });
+
+  // 52주 신고가 모멘텀 스캔 — 평일 16:05 KST (UTC 07:05). IDEA 7.
+  // 당일 동적 유니버스 52W_HIGH 편입 → Gate ≥ 8 필터 → DM+채널.
+  cron.schedule('5 7 * * 1-5', async () => { await sendNewHighMomentumScan().catch(console.error); }, { timezone: 'UTC' });
+
+  // 주간 심층 분석 카드 — 매주 수요일 15:00 KST (UTC 06:00). IDEA 10.
+  // SWING 워치리스트 Gate 상위 1종목 → 심층 카드 → 픽 채널.
+  cron.schedule('0 6 * * 3', async () => { await sendWeeklyDeepAnalysis().catch(console.error); }, { timezone: 'UTC' });
+
+  // 주간 퀀트 인사이트 — 매주 금요일 17:00 KST (UTC 08:00). IDEA 12.
+  // 이번 주 MHS·외국인 수급·신고가·결산 → Gemini narrative → DM+채널.
+  cron.schedule('0 8 * * 5', async () => { await sendWeeklyQuantInsight().catch(console.error); }, { timezone: 'UTC' });
 
   // 시장 지표 자동 갱신 — 평일 08:40 KST + 15:30 KST (장 마감 후).
   // KOSPI/SPX/DXY/USD-KRW Yahoo Finance → classifyRegime() 7축 갱신. Telegram 없음.
