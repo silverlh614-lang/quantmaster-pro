@@ -1,6 +1,39 @@
 const kisCache = new Map<string, { data: any; timestamp: number }>();
 const KIS_CACHE_TTL = 1000 * 60 * 60; // 1시간
 
+export interface KisRankingItem {
+  code: string;
+  name: string;
+  rank: number;
+  value: number;
+  changePercent: number;
+  market: 'KOSPI' | 'KOSDAQ';
+}
+
+export type KisRankingType = 'volume' | 'fluctuation' | 'market-cap';
+
+/**
+ * KIS 순위 TR 조회 — 거래량/등락률/시가총액 상위 종목.
+ * 5분 메모리 캐시 (서버측 5분 캐시와 별개로 클라이언트 중복 호출 방지).
+ * KIS 미설정/장외 시 빈 배열 반환 (호출자 안전 폴백).
+ */
+export async function fetchKisRanking(type: KisRankingType, limit = 20): Promise<KisRankingItem[]> {
+  const key = `kis_ranking_${type}_${limit}`;
+  const hit = kisCache.get(key);
+  if (hit && Date.now() - hit.timestamp < 5 * 60 * 1000) return hit.data;
+  try {
+    const res = await fetch(`/api/kis/ranking?type=${type}&limit=${limit}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items: KisRankingItem[] = Array.isArray(data?.items) ? data.items : [];
+    kisCache.set(key, { data: items, timestamp: Date.now() });
+    return items;
+  } catch (e) {
+    console.warn(`KIS ranking(${type}) fetch failed:`, e);
+    return [];
+  }
+}
+
 export async function fetchKisSupply(code: string) {
   const key = `kis_supply_${code}`;
   const hit = kisCache.get(key);

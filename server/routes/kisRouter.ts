@@ -2,8 +2,25 @@
 // KIS (한국투자증권) API 라우터 — server.ts에서 분리
 import { Router } from 'express';
 import { kisGet, kisPost, realDataKisGet, BUY_TR_ID, CCLD_TR_ID, getKisToken, getKisBase, getKisTokenRemainingHours, HAS_REAL_DATA_CLIENT, getRealDataTokenRemainingHours } from '../clients/kisClient.js';
+import { getRanking, type RankingType } from '../clients/kisRankingClient.js';
 
 const router = Router();
+
+// [KIS-Ranking] 거래량/등락률/시가총액 상위 종목 조회 (사전 수집 후보군 제공)
+router.get('/ranking', async (req: any, res: any) => {
+  const type = (req.query.type as string) ?? 'volume';
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string, 10) || 20));
+  if (!['volume', 'fluctuation', 'market-cap'].includes(type)) {
+    return res.status(400).json({ error: 'type은 volume|fluctuation|market-cap 중 하나' });
+  }
+  try {
+    const data = await getRanking(type as RankingType, { limit });
+    res.json({ type, count: data.length, items: data });
+  } catch (e: any) {
+    console.error(`KIS ranking(${type}) error:`, e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // [KIS-1] 외국인/기관 수급
 router.get('/supply', async (req: any, res: any) => {

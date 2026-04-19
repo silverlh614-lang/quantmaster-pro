@@ -40,15 +40,12 @@ import { STAGE1_CACHE_FILE, ensureDataDir } from '../persistence/paths.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 import {
   type CandidateStock,
-  type GeminiScreenResult,
   STOP_RATES,
   TARGET_RATES,
   addBusinessDays,
   calcStage1Score,
   getLeadingSectors,
-  callGeminiForScreening,
-  buildScreeningPrompt,
-  parseScreeningResponse,
+  runStage3Screening,
   passesStage1Filter,
 } from './pipelineHelpers.js';
 import { getSectorByCode } from './sectorMap.js';
@@ -341,22 +338,14 @@ export async function stage3AIScreenAndRegister(
       kospiDayReturn: macroState?.kospiDayReturn,
     });
   }
-  const prompt     = buildScreeningPrompt(candidates, regime, macroState);
-  const response   = await callGeminiForScreening(prompt);
-
-  if (!response) {
-    console.warn('[Pipeline/Stage3] Gemini 응답 없음 — Stage3 건너뜀');
-    return 0;
-  }
-
-  // Gemini 가 반환한 sector 필드는 무시하고 항상 서버 측 결정적 조회값으로 덮어쓴다.
-  // (프롬프트로도 재분류 금지를 지시하지만, 안전망으로 파서 계층에서도 강제 교체)
-  const results = parseScreeningResponse(response).map((r) => ({
+  // 결정적 평가 + Gemini는 topReasons만 자연어 생성 (Idea 5).
+  // Gemini 호출 실패 시에도 결정적 결과는 유지되므로 파이프라인 안정성 향상.
+  const results = (await runStage3Screening(candidates, regime, macroState)).map((r) => ({
     ...r,
-    sector: getSectorByCode(r.code),
+    sector: getSectorByCode(r.code),  // 서버측 결정적 조회로 안전 덮어쓰기
   }));
   if (results.length === 0) {
-    console.warn('[Pipeline/Stage3] JSON 파싱 실패 — 원문:', response.slice(0, 300));
+    console.warn('[Pipeline/Stage3] 결정적 스크리닝 결과 없음 — 종료');
     return 0;
   }
 
@@ -449,7 +438,7 @@ export async function stage3AIScreenAndRegister(
       entryRegime:   regime,
       profileType:   finalProfile,
       gateScore:     result.totalGateScore,
-      sector:        result.sector,  // parseScreeningResponse 단계에서 getSectorByCode로 확정됨
+      sector:        result.sector,  // runStage3Screening 후처리 단계에서 getSectorByCode로 확정됨
       memo:          `${formatReliabilityBadge(reliability)} | ${confPart} | ${result.topReasons.slice(0, 2).join(', ')}`,
       expiresAt:     addBusinessDays(new Date(), section === 'SWING' ? 7 : 2).toISOString(),
       conditionKeys: [...realKeys, ...qualKeys],

@@ -9,9 +9,10 @@
  *   addBusinessDays()   — 영업일 기준 날짜 덧셈
  *   calcStage1Score()   — Stage 1 종목 정량 점수 계산
  *   getLeadingSectors() — 레짐별 주도 섹터 조회
- *   callGeminiForScreening() — Gemini 스크리닝 배치 호출
- *   buildScreeningPrompt()   — Gemini 프롬프트 빌더
- *   parseScreeningResponse() — Gemini 응답 JSON 파서
+ *
+ * Stage 3 결정화 (Idea 5):
+ *   computeDeterministicScreening() — qualScore/signal/profile 결정적 산출 (재현성 보장)
+ *   runStage3Screening()            — 결정적 결과 + Gemini topReasons 자연어만 호출 (1024토큰)
  */
 
 import { getGeminiClient } from '../clients/geminiClient.js';
@@ -313,117 +314,209 @@ export function getLeadingSectors(regime: RegimeLevel): string[] {
   return LEADING_SECTORS[regime] ?? LEADING_SECTORS['R4_NEUTRAL'];
 }
 
-/** Gemini 스크리닝용 — maxOutputTokens 4096으로 배치 분석 */
-export async function callGeminiForScreening(prompt: string): Promise<string | null> {
+// ── Stage 3 결정화 (Idea 5) ─────────────────────────────────────────────────
+//
+// 종전 구조: Gemini가 12개 질적 조건 자체를 평가 + qualScore/totalGateScore/signal/profile
+//            모두 추정 → 동일 입력에 매번 다른 출력 (재현성 0).
+// 신 구조  : 12개 조건을 모두 결정적 검사기로 이식 (confluenceResult/dartFin/macroState).
+//            Gemini는 BUY 종목의 topReasons 2~3문장만 자연어 생성. maxOutputTokens 1024.
+//            "기계적 매매" 원칙 — 같은 입력 → 같은 신호.
+
+const QUAL_CONDITION_KEYS = [
+  'qual_cycle_alignment',     // 1. 주도주 사이클 적합성
+  'qual_regime_fit',          // 2. 시장 환경 부합
+  'qual_not_prev_leader',     // 3. 신규 주도주 여부
+  'qual_economic_moat',       // 4. 경제적 해자
+  'qual_target_upside',       // 5. 목표가 여력
+  'qual_earnings_surprise',   // 6. 실적 서프라이즈 가능성
+  'qual_policy_macro',        // 7. 정책/매크로 부합
+  'qual_psychology',          // 8. 심리적 객관성
+  'qual_fib_elliott',         // 9. 피보나치/엘리엇 위치
+  'qual_catalyst',            // 10. 촉매제 유무
+  'qual_margin_accel',        // 11. 이익 모멘텀 가속도
+  'qual_structural',          // 12. 기타 구조적 강점
+] as const;
+
+const RISK_ON_REGIMES: ReadonlyArray<RegimeLevel> = ['R1_TURBO', 'R2_BULL', 'R3_EARLY'];
+
+/**
+ * 12개 질적 조건을 결정적으로 평가.
+ * confluenceResult(4축 점수, cyclePosition, catalystGrade) + dartFin(ROE/OPM)
+ * + macroState(MHS) + Yahoo quote(RSI/return5d)에서 모든 신호를 도출.
+ */
+export function computeDeterministicScreening(
+  candidates: CandidateStock[],
+  regime: RegimeLevel,
+  macroState: MacroState | null,
+): GeminiScreenResult[] {
+  const regimeIsRiskOn = RISK_ON_REGIMES.includes(regime);
+  const mhs = macroState?.mhs ?? 0;
+
+  return candidates.map<GeminiScreenResult>((c) => {
+    const cf = c.confluenceResult;
+    const q = c.quote;
+    const dart = c.dartFin;
+    const realGateScore = c.gateScore ?? 0;
+
+    // ── 신호 결정 (HOLD는 Stage 2에서 이미 제거되지만 안전망) ──
+    const signal: GeminiScreenResult['signal'] =
+      !cf || cf.signal === 'HOLD'                ? 'SKIP'
+      : cf.signal === 'CONFIRMED_STRONG_BUY'    ? 'STRONG_BUY'
+      :                                           'BUY';
+
+    // ── 프로파일 (포지션 사이즈/손절 폭 결정용) ──
+    // A: 강한 게이트 + EARLY 사이클 (대형 주도주)
+    // B: 양호한 게이트 (중형 성장주)
+    // C: 평균 (소형 모멘텀주)
+    // D: 약함 (촉매제 플레이)
+    const profile: GeminiScreenResult['profile'] =
+      realGateScore >= 8 && cf?.cyclePosition === 'EARLY' ? 'A'
+      : realGateScore >= 6                                ? 'B'
+      : realGateScore >= 4                                ? 'C'
+      :                                                     'D';
+
+    // ── 12개 질적 조건 결정적 검사 ──
+    const checks: Array<{ key: typeof QUAL_CONDITION_KEYS[number]; pass: boolean }> = [
+      // 1. 주도주 사이클: EARLY/MID는 진입 가치 있음, LATE는 후기
+      { key: 'qual_cycle_alignment',   pass: cf?.cyclePosition === 'EARLY' || cf?.cyclePosition === 'MID' },
+      // 2. 시장 환경: Risk-On 레짐(R1/R2/R3)
+      { key: 'qual_regime_fit',        pass: regimeIsRiskOn },
+      // 3. 신규 주도주: 5일 누적 수익률 < 15% (이미 폭등한 종목 제외)
+      { key: 'qual_not_prev_leader',   pass: q.return5d < 15 },
+      // 4. 경제적 해자: ROE >= 15% (DART 실데이터)
+      { key: 'qual_economic_moat',     pass: (dart?.roe ?? 0) >= 15 },
+      // 5. 목표가 여력: macroAxis 양호 + 사이클 LATE 아님 (구조적 헤드룸)
+      { key: 'qual_target_upside',     pass: (cf?.macroAxis.score ?? 0) >= 60 && cf?.cyclePosition !== 'LATE' },
+      // 6. 실적 서프라이즈: OPM >= 8% (높은 영업이익률은 어닝 서프 확률 높음)
+      { key: 'qual_earnings_surprise', pass: (dart?.opm ?? 0) >= 8 },
+      // 7. 정책/매크로 부합: MHS >= 55 (Macro Health Score)
+      { key: 'qual_policy_macro',      pass: mhs >= 55 },
+      // 8. 심리적 객관성: RSI 40~65 (과매수/과매도 모두 회피)
+      { key: 'qual_psychology',        pass: q.rsi14 >= 40 && q.rsi14 <= 65 },
+      // 9. 피보나치/엘리엇: 사이클 LATE 아님 (5파 종료 후 진입 위험)
+      { key: 'qual_fib_elliott',       pass: cf?.cyclePosition !== 'LATE' },
+      // 10. 촉매제: 등급 A 또는 B (technical+fundamental+supply 종합)
+      { key: 'qual_catalyst',          pass: cf?.catalystGrade === 'A' || cf?.catalystGrade === 'B' },
+      // 11. 이익 모멘텀 가속도: OPM > 0 (적자 기업 제외)
+      { key: 'qual_margin_accel',      pass: (dart?.opm ?? 0) > 0 },
+      // 12. 기타 구조적 강점: confluenceScore >= 65 (4축 가중 합산)
+      { key: 'qual_structural',        pass: (cf?.confluenceScore ?? 0) >= 65 },
+    ];
+
+    const passedQual = checks.filter(ck => ck.pass);
+    const qualScore = passedQual.length;
+    const passedConditionKeys = passedQual.map(ck => ck.key);
+
+    // totalGateScore: realGateScore × 1.5 + qualScore (0~27 범위 클램프)
+    const totalGateScore = Math.max(0, Math.min(27,
+      parseFloat((realGateScore * 1.5 + qualScore).toFixed(1)),
+    ));
+
+    return {
+      code:                c.code,
+      name:                c.name,
+      signal,
+      qualScore,
+      totalGateScore,
+      profile,
+      sector:              c.sector,
+      topReasons:          [],   // Gemini가 BUY/STRONG_BUY 종목에만 채움
+      passedConditionKeys,
+    };
+  });
+}
+
+interface GeminiReasonRow { code: string; topReasons: string[] }
+
+/**
+ * BUY/STRONG_BUY 종목의 topReasons 2~3문장만 Gemini에 위임.
+ * maxOutputTokens 1024 (기존 4096 → 75% 축소).
+ * 호출 실패/SKIP만 있는 경우 빈 Map 반환 → 결정적 결과는 이미 확정되어 있으므로 안전.
+ */
+async function generateTopReasons(
+  candidates: CandidateStock[],
+  detResults: GeminiScreenResult[],
+): Promise<Map<string, string[]>> {
   const ai = getGeminiClient();
-  if (!ai) {
-    console.warn('[Pipeline/Gemini] API 키 미설정 — Stage3 건너뜀');
-    return null;
+  const buyTargets = detResults.filter(r => r.signal !== 'SKIP');
+  if (!ai || buyTargets.length === 0) {
+    if (!ai) console.warn('[Pipeline/Reasons] Gemini 키 미설정 — topReasons 빈값 사용');
+    return new Map();
   }
+
+  const lines = buyTargets.map(r => {
+    const c = candidates.find(cd => cd.code === r.code);
+    if (!c) return '';
+    const cf = c.confluenceResult;
+    const dart = c.dartFin;
+    const kis = c.kisFlow;
+    const segs = [
+      `${r.name}(${r.code})`,
+      `${r.signal}/Profile${r.profile}`,
+      `${c.sector}`,
+      `Gate${c.gateScore?.toFixed(1) ?? '?'}+Qual${r.qualScore}/12=${r.totalGateScore}/27`,
+      cf ? `${cf.cyclePosition}사이클·촉매${cf.catalystGrade}·기술${cf.technicalAxis.score}·수급${cf.supplyAxis.score}·펀더${cf.fundamentalAxis.score}·매크로${cf.macroAxis.score}` : '',
+      dart ? `ROE${dart.roe?.toFixed(0) ?? 'N/A'}%·OPM${dart.opm?.toFixed(0) ?? 'N/A'}%` : '',
+      kis ? `외인${kis.foreignNetBuy >= 0 ? '+' : ''}${(kis.foreignNetBuy/1000).toFixed(0)}천주` : '',
+    ].filter(Boolean);
+    return `- ${segs.join(' | ')}`;
+  }).filter(Boolean).join('\n');
+
+  const prompt =
+    `다음 ${buyTargets.length}개 한국 종목에 대해 매수 사유를 자연어로 작성하세요.\n` +
+    `점수와 신호는 이미 시스템이 결정했습니다 (재평가 금지). 핵심 강점만 2~3문장으로 간결하게.\n\n` +
+    `${lines}\n\n` +
+    `JSON 배열로만 응답 (다른 텍스트 금지):\n` +
+    `[{"code":"종목코드","topReasons":["사유1","사유2","사유3"]}]`;
+
   try {
     const res = await ai.models.generateContent({
       model:    AI_MODELS.SERVER_SIDE,
       contents: prompt,
-      config:   { temperature: 0.3, maxOutputTokens: 4096 },
+      // 기존 4096 → 1024 (자연어 사유 2~3문장만 필요). temperature 0.4로 약간의 다양성 허용.
+      config:   { temperature: 0.4, maxOutputTokens: 1024 },
     });
-    return res.text ?? null;
+    const text = res.text ?? '';
+    const arrStart = text.indexOf('[');
+    if (arrStart === -1) return new Map();
+    let depth = 0;
+    let arrEnd = -1;
+    for (let i = arrStart; i < text.length; i++) {
+      if (text[i] === '[') depth++;
+      else if (text[i] === ']') { depth--; if (depth === 0) { arrEnd = i; break; } }
+    }
+    if (arrEnd === -1) return new Map();
+    const parsed = JSON.parse(text.slice(arrStart, arrEnd + 1)) as unknown[];
+    const map = new Map<string, string[]>();
+    for (const item of parsed) {
+      if (item && typeof item === 'object') {
+        const row = item as Partial<GeminiReasonRow>;
+        if (typeof row.code === 'string' && Array.isArray(row.topReasons)) {
+          const reasons = row.topReasons.filter((r): r is string => typeof r === 'string');
+          if (reasons.length > 0) map.set(row.code, reasons);
+        }
+      }
+    }
+    return map;
   } catch (e) {
-    console.error('[Pipeline/Gemini] 호출 실패:', e instanceof Error ? e.message : e);
-    return null;
+    console.warn('[Pipeline/Reasons] Gemini topReasons 호출 실패 — 빈값 폴백:', e instanceof Error ? e.message : e);
+    return new Map();
   }
 }
 
-export function buildScreeningPrompt(
+/**
+ * Stage 3 메인 진입점 — 결정적 평가 + Gemini topReasons 자연어 생성을 통합.
+ * 호출자(universeScanner.ts::stage3AIScreenAndRegister)는 이 함수만 호출하면 된다.
+ */
+export async function runStage3Screening(
   candidates: CandidateStock[],
   regime: RegimeLevel,
   macroState: MacroState | null,
-): string {
-  const stockLines = candidates.map((c) => {
-    const q          = c.quote;
-    const techPassed = c.gateDetails?.join('|') ?? '';
-    const cf         = c.confluenceResult;
-
-    // DART 실데이터 포함 (있을 경우)
-    const dartStr = c.dartFin
-      ? `ROE:${c.dartFin.roe?.toFixed(1) ?? 'N/A'}% OPM:${c.dartFin.opm?.toFixed(1) ?? 'N/A'}% DR:${c.dartFin.debtRatio?.toFixed(0) ?? 'N/A'}%`
-      : 'DART:미수집';
-
-    // KIS 수급 실데이터 (있을 경우)
-    const kisStr = c.kisFlow
-      ? `외인${c.kisFlow.foreignNetBuy >= 0 ? '+' : ''}${(c.kisFlow.foreignNetBuy / 1000).toFixed(0)}천주 기관${c.kisFlow.institutionalNetBuy >= 0 ? '+' : ''}${(c.kisFlow.institutionalNetBuy / 1000).toFixed(0)}천주`
-      : 'KIS:미수집';
-
-    // 컨플루언스 요약 — 대괄호 금지(JSON 파서 충돌 방지): 소괄호 사용
-    const cfStr = cf
-      ? `컨플루언스:${cf.signal} ${cf.bullishAxes}/4축 기술${cf.technicalAxis.score}·수급${cf.supplyAxis.score}·펀더${cf.fundamentalAxis.score}·매크로${cf.macroAxis.score} ${cf.cyclePosition}사이클 촉매${cf.catalystGrade}`
-      : '';
-
-    return (
-      `${c.name}(${c.code}): ${q.price.toLocaleString()}원 ` +
-      `등락${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(1)}% ` +
-      `RSI${q.rsi14.toFixed(0)}(5일전${q.rsi5dAgo.toFixed(0)}) MACD${q.macdHistogram >= 0 ? '상승' : '하락'} ` +
-      `정배열:${q.price > q.ma5 && q.ma5 > q.ma20 ? 'Y' : 'N'} ` +
-      `VCP:${q.atr > 0 && q.atr < q.atr20avg * 0.7 ? 'Y' : 'N'} ` +
-      `섹터:${c.sector} ` +
-      `Gate:${c.gateScore?.toFixed(1) ?? '?'}/10 ${techPassed} ` +
-      `${dartStr} ${kisStr} ${cfStr}`
-    );
-  }).join('\n');
-
-  return (
-    `당신은 한국 주식 퀀트 시스템의 종목 선별 AI입니다.\n` +
-    `현재 레짐: ${regime} | MHS: ${macroState?.mhs ?? 'N/A'} | VKOSPI: ${macroState?.vkospi ?? 'N/A'}\n\n` +
-    `[서버 실계산 완료 — 재평가 금지]\n` +
-    `RSI(14)/MACD/정배열/거래량/VCP/터틀/상대강도/PER → 서버Gate(0~10)에 반영 완료.\n` +
-    `ROE/OPM/부채비율 → DART API 실데이터. 수급 → KIS API 실데이터.\n` +
-    `위 데이터들은 사실 그대로 해석만 하세요 (재추정 금지).\n\n` +
-    `[당신이 평가할 순수 질적 조건]\n` +
-    `1.주도주사이클적합성 2.시장환경부합(레짐) 3.신규주도주여부\n` +
-    `4.경제적해자(Moat) 5.목표가여력(애널리스트) 6.실적서프라이즈가능성\n` +
-    `7.정책/매크로부합 8.심리적객관성 9.피보나치/엘리엇위치\n` +
-    `10.촉매제유무 11.이익모멘텀가속도 12.기타구조적강점\n\n` +
-    `[종목 데이터 (실계산 포함)]\n${stockLines}\n\n` +
-    `JSON 배열로만 응답 (추가 텍스트 금지):\n` +
-    `[{"code":"","name":"","signal":"STRONG_BUY|BUY|SKIP",` +
-    `"qualScore":0,"totalGateScore":0,` +
-    `"profile":"A|B|C|D","sector":"","topReasons":[""],"passedConditionKeys":[""]}]\n` +
-    `qualScore: 질적 조건 12개 중 통과 추정 수 (0~12)\n` +
-    `totalGateScore: 서버Gate점수×1.5+qualScore (0~27 범위 클램프)\n` +
-    `sector: 입력 "섹터:" 값을 그대로 복사하라. 절대 재분류하지 말 것.`
-  );
-}
-
-export function parseScreeningResponse(text: string): GeminiScreenResult[] {
-  // '[{' 로 시작하는 JSON 배열 탐색 — 대괄호가 포함된 앞 텍스트(프롬프트 echo 등)에 의한
-  // 그리디 오매칭 방지. 못 찾으면 첫 '[' fallback.
-  const arrayStart = (() => {
-    const idx = text.indexOf('[{');
-    if (idx !== -1) return idx;
-    const idx2 = text.indexOf('[');
-    return idx2 !== -1 ? idx2 : -1;
-  })();
-  if (arrayStart === -1) return [];
-
-  // 괄호 깊이 추적으로 짝이 맞는 ']' 찾기
-  let depth = 0;
-  let arrayEnd = -1;
-  for (let i = arrayStart; i < text.length; i++) {
-    if (text[i] === '[') depth++;
-    else if (text[i] === ']') { depth--; if (depth === 0) { arrayEnd = i; break; } }
-  }
-  if (arrayEnd === -1) return [];
-
-  try {
-    const parsed = JSON.parse(text.slice(arrayStart, arrayEnd + 1)) as unknown[];
-    return parsed.filter(
-      (item): item is GeminiScreenResult =>
-        typeof item === 'object' &&
-        item !== null &&
-        typeof (item as GeminiScreenResult).code === 'string' &&
-        typeof (item as GeminiScreenResult).signal === 'string',
-    );
-  } catch (e) {
-    console.warn('[Pipeline/Stage3] JSON 파싱 실패:', e instanceof Error ? e.message : e);
-    return [];
-  }
+): Promise<GeminiScreenResult[]> {
+  const detResults = computeDeterministicScreening(candidates, regime, macroState);
+  const reasonsMap = await generateTopReasons(candidates, detResults);
+  return detResults.map(r => ({
+    ...r,
+    topReasons: reasonsMap.get(r.code) ?? r.topReasons,
+  }));
 }
