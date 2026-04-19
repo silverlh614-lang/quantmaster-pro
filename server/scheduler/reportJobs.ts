@@ -21,6 +21,7 @@ import { generateDailyPickReport } from '../alerts/stockPickReporter.js';
 import { generateQualityScorecard } from '../alerts/qualityScorecard.js';
 import { sendScanReviewReport } from '../alerts/scanReviewReport.js';
 import { sendPositionMorningCard } from '../alerts/positionMorningCard.js';
+import { sendWeeklyConditionScorecard } from '../alerts/weeklyConditionScorecard.js';
 import {
   sendDailyShadowProgress,
   sendSampleStallAlertIfNeeded,
@@ -57,6 +58,10 @@ export function registerReportJobs(): void {
   // Phase 4: 금요일 16:30 발송은 주말에 잊혀지는 문제가 있어 월요일 아침으로 이동.
   // "지난 주 움직임 + 이번 주 액션 아이템" narrative 형식.
   cron.schedule('0 23 * * 0', async () => { await generateWeeklyReport().catch(console.error); }, { timezone: 'UTC' });
+
+  // 주간 조건 성과 스코어카드 — 매주 월요일 08:10 KST (UTC 일요일 23:10). IDEA 6.
+  // 27조건 Top3/Bottom3 + 다음주 주목 조건 → DM+채널 브로드캐스트.
+  cron.schedule('10 23 * * 0', async () => { await sendWeeklyConditionScorecard().catch(console.error); }, { timezone: 'UTC' });
 
   // 일일 종목 픽 리포트 — 평일 16:30 KST (UTC 07:30). 구독자용 픽 채널.
   cron.schedule('30 7 * * 1-5', async () => { await generateDailyPickReport().catch(console.error); }, { timezone: 'UTC' });

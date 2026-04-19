@@ -15,6 +15,7 @@ import { classifyRegime, REGIME_CONFIGS } from '../../src/services/quant/regimeE
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelRegimeChange } from '../alerts/channelPipeline.js';
+import { renderPlaybook } from '../alerts/regimePlaybook.js';
 import { resetConditionWeightsForRegime } from '../persistence/conditionWeightsRepo.js';
 import { isForcedRegimeDowngradeActive } from '../learning/learningState.js';
 
@@ -203,6 +204,9 @@ export async function checkAndNotifyRegimeChange(
   } else {
     msg += `📌 신규 진입 기회 탐색 권고`;
   }
+
+  // IDEA 5 — 레짐별 구체 행동 가이드 블록 주입
+  msg += renderPlaybook(currentRegime);
 
   // Phase 4: 레짐 변화 차등화 — 나빠짐(downgrade) = T1 즉각 행동, 좋아짐(upgrade) = T2 리포트.
   // "긍정 변화는 조용히 기록, 부정 변화는 즉각 경보" (참뮌 스펙 #8).

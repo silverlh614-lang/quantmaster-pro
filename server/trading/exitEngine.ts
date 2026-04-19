@@ -12,6 +12,7 @@ import { addSellOrder } from './fillMonitor.js';
 import { getRealtimePrice } from '../clients/kisStreamClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelSellSignal } from '../alerts/channelPipeline.js';
+import { sendStopLossTransparencyReport } from '../alerts/stopLossTransparencyReport.js';
 import {
   type ServerShadowTrade,
   appendShadowLog,
@@ -345,6 +346,12 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
             reason:      'STOP',
             holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
           }).catch(console.error);
+          // IDEA 11 — 손절 투명성 리포트
+          await sendStopLossTransparencyReport(shadow, {
+            exitPrice: currentPrice,
+            returnPct,
+            soldQty,
+          }).catch(console.error);
           continue;
         } else {
           // 역배열 해소 → 스케줄 초기화
@@ -405,6 +412,12 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         reason:      'STOP',
         holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
       }).catch(console.error);
+      // IDEA 11 — 손절 투명성 리포트
+      await sendStopLossTransparencyReport(shadow, {
+        exitPrice: currentPrice,
+        returnPct,
+        soldQty,
+      }).catch(console.error);
       continue;
     }
 
@@ -447,6 +460,12 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         pnlPct:      returnPct,
         reason:      'CASCADE',
         holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+      }).catch(console.error);
+      // IDEA 11 — 손절 투명성 리포트
+      await sendStopLossTransparencyReport(shadow, {
+        exitPrice: currentPrice,
+        returnPct,
+        soldQty,
       }).catch(console.error);
       if (isBlacklistStep) {
         addToBlacklist(shadow.stockCode, shadow.stockName, `Cascade ${returnPct.toFixed(1)}%`);
