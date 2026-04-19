@@ -13,6 +13,26 @@ import { fetchHistoricalData } from './historicalData';
 import type { StockRecommendation } from './types';
 import type { TranchePlan } from '../../types/quant';
 
+/**
+ * KRX PER/PBR 조회 — 서버 `/api/krx/valuation` 프록시 경유.
+ * 실패 시 null 반환하여 호출측에서 기존 값 보존.
+ */
+async function fetchKrxValuation(code: string): Promise<{ per: number; pbr: number } | null> {
+  const baseCode = code.split('.')[0];
+  if (!/^\d{6}$/.test(baseCode)) return null;
+  try {
+    const res = await fetch(`/api/krx/valuation?code=${baseCode}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const per = typeof data?.per === 'number' ? data.per : 0;
+    const pbr = typeof data?.pbr === 'number' ? data.pbr : 0;
+    if (per <= 0 && pbr <= 0) return null;
+    return { per, pbr };
+  } catch {
+    return null;
+  }
+}
+
 export function calculateTranchePlan(currentPrice: number, stopLoss: number, targetPrice: number): TranchePlan {
   const risk = currentPrice - stopLoss;
   const reward = targetPrice - currentPrice;
@@ -105,11 +125,13 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
 
     let kisSupply = null;
     let kisShort = null;
+    let krxValuation: { per: number; pbr: number } | null = null;
     const isKoreanStock = /^\d{6}$/.test(stock.code.split('.')[0]);
     if (isKoreanStock) {
       const baseCode = stock.code.split('.')[0];
       kisSupply = await fetchKisSupply(baseCode);
       kisShort = await fetchKisShortSelling(baseCode);
+      krxValuation = await fetchKrxValuation(baseCode);
     }
 
     // Fix 2 — AI 응답 토큰 절단으로 targetPrice/stopLoss/entryPrice 가 0 으로 남는
@@ -174,6 +196,8 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       },
       valuation: {
         ...stock.valuation,
+        per: (krxValuation?.per && krxValuation.per > 0) ? krxValuation.per : stock.valuation.per,
+        pbr: (krxValuation?.pbr && krxValuation.pbr > 0) ? krxValuation.pbr : stock.valuation.pbr,
         debtRatio: dartFinancials?.debtRatio || stock.valuation.debtRatio,
       },
       financialUpdatedAt: dartFinancials?.updatedAt || stock.financialUpdatedAt

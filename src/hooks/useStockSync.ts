@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { syncStockPrice, fetchCurrentPrice } from '../services/stockService';
+import { applyTradingFieldFallbacks } from '../services/stock/enrichment';
 import { useRecommendationStore, useMarketStore, useAnalysisStore, useSettingsStore, useTradeStore } from '../stores';
 import type { StockRecommendation } from '../services/stockService';
 import type { TradeRecord } from '../types/quant';
@@ -52,7 +53,21 @@ export function useStockSync() {
 
   const handleManualPriceUpdate = (stock: StockRecommendation, newPrice: number) => {
     if (isNaN(newPrice) || newPrice <= 0) { toast.error("유효한 가격을 입력해주세요."); return; }
-    const updatedStock = { ...stock, currentPrice: newPrice, priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} (수동)` };
+    // 새 현재가 기준으로 entryPrice/targetPrice/stopLoss 가 0 인 경우 퍼센트 기반 폴백 재계산.
+    const fallback = applyTradingFieldFallbacks(
+      { targetPrice: stock.targetPrice, targetPrice2: stock.targetPrice2,
+        entryPrice: stock.entryPrice, stopLoss: stock.stopLoss },
+      newPrice,
+    );
+    const updatedStock = {
+      ...stock,
+      currentPrice: newPrice,
+      targetPrice:  fallback.targetPrice  ?? stock.targetPrice,
+      targetPrice2: fallback.targetPrice2 ?? stock.targetPrice2,
+      entryPrice:   fallback.entryPrice   ?? stock.entryPrice,
+      stopLoss:     fallback.stopLoss     ?? stock.stopLoss,
+      priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} (수동)`,
+    };
     setRecommendations((prev: StockRecommendation[]) => (prev || []).map(s => s.code === stock.code ? updatedStock : s));
     setWatchlist((prev: StockRecommendation[]) => (prev || []).map(s => s.code === stock.code ? updatedStock : s));
     setDeepAnalysisStock((prev: StockRecommendation | null) => prev?.code === stock.code ? updatedStock : prev);

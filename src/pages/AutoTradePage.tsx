@@ -78,11 +78,16 @@ export function AutoTradePage() {
   });
 
   const handleArmLive = () => {
-    if (isRunning) return;
+    // 이미 가동 중이거나 토글 전환이 진행 중인 경우 ARM 재진입 차단 — 중복 전환 방지.
+    if (isRunning || engineToggling) return;
+    // Nuclear Reactor Gate 가 이미 열려 있다면 재 무장하지 않는다(카운트다운 리셋 방지).
+    if (arming.state !== 'IDLE') return;
     arming.arm();
   };
 
   const handleResumeShadow = () => {
+    // 토글이 진행 중인 동안에는 재시동 금지 — 브로커 세션 교란 방지.
+    if (engineToggling) return;
     void toggleEngine();
   };
 

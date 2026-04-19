@@ -120,16 +120,32 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({ stock, onClo
           <div className="glass-3d rounded-xl p-4 border-blue-500/20 text-center">
             <span className="text-[9px] font-black text-blue-400/60 uppercase tracking-widest block mb-1">Entry</span>
             <span className="text-sm font-black text-theme-text font-num">
-              {'\u20A9'}{stock.entryPrice?.toLocaleString() || stock.currentPrice?.toLocaleString() || '-'}
+              {stock.entryPrice && stock.entryPrice > 0
+                ? `${'\u20A9'}${stock.entryPrice.toLocaleString()}`
+                : stock.currentPrice > 0
+                  ? `${'\u20A9'}${stock.currentPrice.toLocaleString()}*`
+                  : '-'}
             </span>
           </div>
           <div className="glass-3d rounded-xl p-4 border-green-500/20 text-center">
             <span className="text-[9px] font-black text-green-400/60 uppercase tracking-widest block mb-1">Target</span>
-            <span className="text-sm font-black text-green-400 font-num">{'\u20A9'}{stock.targetPrice?.toLocaleString() || '-'}</span>
+            <span className="text-sm font-black text-green-400 font-num">
+              {stock.targetPrice && stock.targetPrice > 0
+                ? `${'\u20A9'}${stock.targetPrice.toLocaleString()}`
+                : stock.currentPrice > 0
+                  ? `${'\u20A9'}${Math.round(stock.currentPrice * 1.20).toLocaleString()}*`
+                  : '-'}
+            </span>
           </div>
           <div className="glass-3d rounded-xl p-4 border-red-500/20 text-center">
             <span className="text-[9px] font-black text-red-400/60 uppercase tracking-widest block mb-1">Stop</span>
-            <span className="text-sm font-black text-red-400 font-num">{'\u20A9'}{stock.stopLoss?.toLocaleString() || '-'}</span>
+            <span className="text-sm font-black text-red-400 font-num">
+              {stock.stopLoss && stock.stopLoss > 0
+                ? `${'\u20A9'}${stock.stopLoss.toLocaleString()}`
+                : stock.currentPrice > 0
+                  ? `${'\u20A9'}${Math.round(stock.currentPrice * 0.93).toLocaleString()}*`
+                  : '-'}
+            </span>
           </div>
         </div>
 
@@ -175,15 +191,21 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({ stock, onClo
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 rounded-lg border border-theme-border" style={{ background: 'var(--bg-surface)' }}>
               <span className="text-[9px] text-theme-text-muted font-black uppercase block mb-1">PER</span>
-              <span className="text-sm font-black text-theme-text font-num">{stock.valuation?.per || 'N/A'}x</span>
+              <span className="text-sm font-black text-theme-text font-num">
+                {stock.valuation?.per && stock.valuation.per > 0 ? `${stock.valuation.per.toFixed(1)}x` : 'N/A'}
+              </span>
             </div>
             <div className="p-3 rounded-lg border border-theme-border" style={{ background: 'var(--bg-surface)' }}>
               <span className="text-[9px] text-theme-text-muted font-black uppercase block mb-1">PBR</span>
-              <span className="text-sm font-black text-theme-text font-num">{stock.valuation?.pbr || 'N/A'}x</span>
+              <span className="text-sm font-black text-theme-text font-num">
+                {stock.valuation?.pbr && stock.valuation.pbr > 0 ? `${stock.valuation.pbr.toFixed(2)}x` : 'N/A'}
+              </span>
             </div>
             <div className="p-3 rounded-lg border border-theme-border" style={{ background: 'var(--bg-surface)' }}>
               <span className="text-[9px] text-theme-text-muted font-black uppercase block mb-1">부채비율</span>
-              <span className="text-sm font-black text-theme-text font-num">{stock.valuation?.debtRatio || 'N/A'}%</span>
+              <span className="text-sm font-black text-theme-text font-num">
+                {stock.valuation?.debtRatio && stock.valuation.debtRatio > 0 ? `${stock.valuation.debtRatio.toFixed(1)}%` : 'N/A'}
+              </span>
             </div>
             <div className="p-3 rounded-lg border border-theme-border" style={{ background: 'var(--bg-surface)' }}>
               <span className="text-[9px] text-theme-text-muted font-black uppercase block mb-1">시가총액</span>

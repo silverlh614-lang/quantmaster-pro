@@ -623,19 +623,31 @@ export function WatchlistCard({
             <div className="flex flex-col items-center min-w-0">
               <div className="flex items-baseline gap-0.5 sm:gap-1 min-w-0">
                 <span className="text-[8px] sm:text-[10px] font-black text-green-400/30 uppercase shrink-0">1st</span>
-                <span className="text-xs sm:text-base font-black text-green-400 tracking-tighter truncate font-num">₩{stock.targetPrice?.toLocaleString() || '-'}</span>
+                <span className="text-xs sm:text-base font-black text-green-400 tracking-tighter truncate font-num">
+                  {stock.targetPrice && stock.targetPrice > 0
+                    ? `₩${stock.targetPrice.toLocaleString()}`
+                    : stock.currentPrice > 0
+                      ? `₩${Math.round(stock.currentPrice * 1.20).toLocaleString()}*`
+                      : '-'}
+                </span>
               </div>
               {stock.targetPrice2 && stock.targetPrice2 > 0 && (
                 <div className="flex items-baseline gap-1 opacity-60">
                   <span className="text-[7px] sm:text-[9px] font-black text-green-400/30 uppercase shrink-0">2nd</span>
-                  <span className="text-[10px] sm:text-sm font-black text-green-400/60 tracking-tighter truncate">₩{stock.targetPrice2?.toLocaleString() || '0'}</span>
+                  <span className="text-[10px] sm:text-sm font-black text-green-400/60 tracking-tighter truncate">₩{stock.targetPrice2.toLocaleString()}</span>
                 </div>
               )}
             </div>
           </div>
           <div className="bg-red-500/5 rounded-2xl sm:rounded-3xl p-3 sm:p-5 border border-red-500/10 flex flex-col items-center justify-center gap-1 sm:gap-1.5 group/price hover:bg-red-500/10 transition-all shadow-sm min-w-0">
             <span className="text-[7px] sm:text-[9px] font-black text-red-400/50 uppercase tracking-widest truncate w-full text-center">Stop</span>
-            <span className="text-xs sm:text-base font-black text-red-400 tracking-tighter truncate font-num">₩{stock.stopLoss?.toLocaleString() || '-'}</span>
+            <span className="text-xs sm:text-base font-black text-red-400 tracking-tighter truncate font-num">
+              {stock.stopLoss && stock.stopLoss > 0
+                ? `₩${stock.stopLoss.toLocaleString()}`
+                : stock.currentPrice > 0
+                  ? `₩${Math.round(stock.currentPrice * 0.93).toLocaleString()}*`
+                  : '-'}
+            </span>
           </div>
         </div>
       </div>
@@ -702,15 +714,25 @@ export function WatchlistCard({
               <div className="grid grid-cols-3 gap-2 sm:gap-3">
                 <div className="bg-white/5 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-white/5 shadow-inner min-w-0">
                   <span className="text-[7px] sm:text-[9px] font-black text-white/10 uppercase block mb-0.5 sm:mb-1 tracking-tighter truncate">P/E</span>
-                  <span className="text-xs sm:text-sm font-black text-white/80 truncate block font-num">{stock.valuation?.per || 'N/A'}x</span>
+                  <span className="text-xs sm:text-sm font-black text-white/80 truncate block font-num">
+                    {stock.valuation?.per && stock.valuation.per > 0 ? `${stock.valuation.per.toFixed(1)}x` : 'N/A'}
+                  </span>
                 </div>
                 <div className="bg-white/5 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-white/5 shadow-inner min-w-0">
                   <span className="text-[7px] sm:text-[9px] font-black text-white/10 uppercase block mb-0.5 sm:mb-1 tracking-tighter truncate">P/B</span>
-                  <span className="text-xs sm:text-sm font-black text-white/80 truncate block font-num">{stock.valuation?.pbr || 'N/A'}x</span>
+                  <span className="text-xs sm:text-sm font-black text-white/80 truncate block font-num">
+                    {stock.valuation?.pbr && stock.valuation.pbr > 0 ? `${stock.valuation.pbr.toFixed(2)}x` : 'N/A'}
+                  </span>
                 </div>
                 <div className="bg-white/5 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-white/5 shadow-inner min-w-0">
                   <span className="text-[7px] sm:text-[9px] font-black text-white/10 uppercase block mb-0.5 sm:mb-1 tracking-tighter truncate">EPS</span>
-                  <span className="text-xs sm:text-sm font-black text-green-400 truncate block font-num">+{stock.valuation?.epsGrowth || '0'}%</span>
+                  <span className={cn(
+                    "text-xs sm:text-sm font-black truncate block font-num",
+                    (stock.valuation?.epsGrowth ?? 0) > 0 ? "text-green-400" :
+                    (stock.valuation?.epsGrowth ?? 0) < 0 ? "text-red-400" : "text-white/50"
+                  )}>
+                    {(stock.valuation?.epsGrowth ?? 0) > 0 ? '+' : ''}{stock.valuation?.epsGrowth ?? 0}%
+                  </span>
                 </div>
               </div>
             </div>

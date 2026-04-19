@@ -76,6 +76,9 @@ export function AutoTradingControlCenter({
               size="sm"
               icon={<ShieldAlert className="h-4 w-4" />}
               onClick={onArmLive}
+              disabled={engineToggling}
+              loading={engineToggling}
+              loadingText="전환 중…"
             >
               실매매 시동 (ARM)
             </Button>
