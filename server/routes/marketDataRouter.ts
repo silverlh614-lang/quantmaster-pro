@@ -11,8 +11,35 @@ import {
   generateMacroCommentary,
   buildMacroInterpretContext,
 } from '../engines/macroIndexEngine.js';
+import { fetchPerPbr } from '../clients/krxClient.js';
 
 const router = Router();
+
+// ─── KRX PER/PBR 조회 — 밸류에이션 매트릭스 클라이언트 표시용 ───────────────
+router.get('/krx/valuation', async (req: Request, res: Response) => {
+  const code = typeof req.query.code === 'string' ? req.query.code.trim() : '';
+  if (!/^\d{6}$/.test(code)) {
+    return res.status(400).json({ error: 'code(6자리 숫자)가 필요합니다.' });
+  }
+  try {
+    const rows = await fetchPerPbr();
+    const row = rows.find((r) => r.code === code);
+    if (!row) return res.json({ code, per: 0, pbr: 0, eps: 0, bps: 0, found: false });
+    return res.json({
+      code: row.code,
+      name: row.name,
+      per: row.per,
+      pbr: row.pbr,
+      eps: row.eps,
+      bps: row.bps,
+      dividendYield: row.dividendYield,
+      found: true,
+    });
+  } catch (err: any) {
+    console.error('[marketData] /krx/valuation 실패:', err?.message || err);
+    return res.status(502).json({ error: 'KRX 조회 실패', detail: err?.message });
+  }
+});
 
 // ─── Yahoo Finance Historical Data Proxy ────────────────────────────────────
 router.get('/historical-data', async (req: Request, res: Response) => {
