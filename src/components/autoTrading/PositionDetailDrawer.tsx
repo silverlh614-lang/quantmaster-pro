@@ -2,6 +2,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 import type { PositionItem } from '../../services/autoTrading/autoTradingTypes';
 import { InfoTile } from '../../ui/info-tile';
+import { TrendIndicator } from '../../ui/trend-indicator';
 
 interface PositionDetailDrawerProps {
   position: PositionItem | null;
@@ -11,9 +12,6 @@ interface PositionDetailDrawerProps {
 
 export function PositionDetailDrawer({ position, open, onClose }: PositionDetailDrawerProps) {
   if (!open || !position) return null;
-
-  const pnlTone =
-    position.pnlPct > 0 ? 'success' : position.pnlPct < 0 ? 'danger' : 'neutral';
 
   return (
     <div
@@ -52,8 +50,7 @@ export function PositionDetailDrawer({ position, open, onClose }: PositionDetail
             <InfoTile label="수량" value={String(position.quantity)} />
             <InfoTile
               label="수익률"
-              tone={pnlTone}
-              value={`${position.pnlPct.toFixed(2)}%`}
+              value={<TrendIndicator value={position.pnlPct} size="md" />}
             />
             <InfoTile
               label="손절가"

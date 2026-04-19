@@ -2,6 +2,7 @@ import React from 'react';
 import { Briefcase } from 'lucide-react';
 import { Section } from '../../ui/section';
 import { EmptyState } from '../../ui/empty-state';
+import { TrendIndicator } from '../../ui/trend-indicator';
 import type { PositionItem } from '../../services/autoTrading/autoTradingTypes';
 import { LifecycleStageGauge } from './LifecycleStageGauge';
 
@@ -63,8 +64,8 @@ export function PositionLifecyclePanel({ positions }: PositionLifecyclePanelProp
                 </div>
                 <div className="rounded-xl bg-black/20 p-3">
                   <div className="text-xs text-white/50">수익률</div>
-                  <div className={position.pnlPct >= 0 ? 'mt-1 text-emerald-300' : 'mt-1 text-red-300'}>
-                    {position.pnlPct.toFixed(2)}%
+                  <div className="mt-1">
+                    <TrendIndicator value={position.pnlPct} size="md" />
                   </div>
                 </div>
                 <div className="rounded-xl bg-black/20 p-3">
