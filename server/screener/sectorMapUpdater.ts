@@ -1,24 +1,31 @@
 /**
- * sectorMapUpdater.ts — KRX 전종목 섹터 스냅샷 수집
+ * sectorMapUpdater.ts — KRX 전종목 섹터 스냅샷 수집 + 폴백 체인
  *
  * @responsibility KRX 정보데이터시스템 JSON 엔드포인트에서 KOSPI·KOSDAQ 전종목의
- * 업종 분류를 수집하여 data/krx-sector-map.json 으로 저장한다. 이 모듈은 "외부 데이터
- * 수집·정규화·파일 쓰기" 한 가지 책임만 담당한다. 조회는 sectorMap.ts 가 담당한다.
+ * 업종 분류를 수집하여 data/krx-sector-map.json 으로 저장한다. KRX 장애(HTTP 400/500·
+ * 타임아웃) 시에는 sectorSources.ts 의 3단계 폴백 체인(KRX → Yahoo → Gemini)을 호출해
+ * 기존 파일이 진부화되는 것을 막는다.
  *
  * 호출 경로:
  *   - CLI: scripts/updateSectorMap.ts (주간 수동 실행 또는 최초 부트스트랩용)
- *   - 스케줄러: maintenanceJobs.ts (매주 월요일 03:00 KST)
+ *   - 스케줄러: maintenanceJobs.ts (매주 월요일 03:00 KST · 평일 04:00 KST 일일 재시도)
  *
  * 안전성:
  *   1. 원자적 쓰기(tmp → rename) — 중간 실패 시 기존 파일 보존
- *   2. 응답 검증 — 기대치 이하(KOSPI/KOSDAQ 각 500행 미만) 시 기존 파일 유지하고 throw
- *   3. 최근 개장일 역산 — 주말엔 금요일 거래일로 조회
+ *   2. KRX 응답 검증 — 기대치 이하(KOSPI/KOSDAQ 각 500행 미만) 시 폴백으로 낙하
+ *   3. KRX 장애시 trdDd 를 최근 영업일 5일까지 역추적 후 Yahoo/Gemini 폴백
+ *   4. 폴백 결과라도 최소 커버리지(기존 + 신규 합산 MIN_TOTAL_ROWS) 충족 시에만 저장
  */
 
 import fs from 'fs';
 import path from 'path';
 import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
 import { invalidateSectorMapCache } from './sectorMap.js';
+import {
+  buildSectorMapWithFallback,
+  loadExistingSectorMap,
+} from './sectorSources.js';
+import { SECTOR_MAP as MANUAL_OVERRIDES } from './pipelineHelpers.js';
 
 const KRX_URL    = 'http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd';
 const KRX_BLD    = 'dbms/MDC/STAT/standard/MDCSTAT03901';
@@ -46,9 +53,13 @@ interface KrxResponse {
 type MktId = 'STK' | 'KSQ';
 
 export interface UpdateResult {
-  count:     number;
-  updatedAt: string;
-  trdDd:     string;
+  count:       number;
+  updatedAt:   string;
+  trdDd:       string;
+  /** 데이터 출처 라벨 — 'KRX' | 'KRX-fail→Yahoo' | 'KRX-fail→Yahoo+Gemini' | 'carry-over' */
+  source:      string;
+  /** 폴백 진단 로그 — 텔레그램 알림·관측성용 */
+  diagnostics: string[];
 }
 
 // ── KRX 원본 섹터명 → 프로젝트 표준 섹터명 별칭 ───────────────────────────────
@@ -102,6 +113,22 @@ export function recentWeekdayYYYYMMDD(now = new Date()): string {
   return `${y}${m}${d}`;
 }
 
+/** 최근 영업일 N개를 최신순으로 반환 — KRX HTTP 400(공휴일·프리오픈)시 역추적용. */
+function recentWeekdaysYYYYMMDD(count: number, now = new Date()): string[] {
+  const out: string[] = [];
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  while (out.length < count) {
+    if (kst.getUTCDay() !== 0 && kst.getUTCDay() !== 6) {
+      const y = kst.getUTCFullYear();
+      const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(kst.getUTCDate()).padStart(2, '0');
+      out.push(`${y}${m}${d}`);
+    }
+    kst.setUTCDate(kst.getUTCDate() - 1);
+  }
+  return out;
+}
+
 // ── KRX 조회 ──────────────────────────────────────────────────────────────────
 
 async function fetchMarket(mktId: MktId, trdDd: string, verbose: boolean): Promise<KrxRow[]> {
@@ -139,45 +166,78 @@ async function fetchMarket(mktId: MktId, trdDd: string, verbose: boolean): Promi
 
 // ── 매핑 빌드 ─────────────────────────────────────────────────────────────────
 
-async function buildSectorMap(trdDd: string, verbose: boolean): Promise<Record<string, string>> {
+/** 특정 거래일 trdDd 로 1회 KRX 조회·정규화. 임계치 미달이면 null. */
+async function buildSectorMapOnce(
+  trdDd: string,
+  verbose: boolean,
+): Promise<{ map: Record<string, string>; namesByCode: Record<string, string>; diagnostic: string } | null> {
   const [kospiRes, kosdaqRes] = await Promise.allSettled([
     fetchMarket('STK', trdDd, verbose),
     fetchMarket('KSQ', trdDd, verbose),
   ]);
-
   const kospi  = kospiRes.status  === 'fulfilled' ? kospiRes.value  : [];
   const kosdaq = kosdaqRes.status === 'fulfilled' ? kosdaqRes.value : [];
 
-  if (kospiRes.status === 'rejected') {
-    throw new Error(`KOSPI 조회 실패: ${String(kospiRes.reason)}`);
-  }
-  if (kosdaqRes.status === 'rejected') {
-    throw new Error(`KOSDAQ 조회 실패: ${String(kosdaqRes.reason)}`);
-  }
-  if (kospi.length < MIN_ROWS_PER_MARKET) {
-    throw new Error(`KOSPI 응답 이상 — ${kospi.length}행 (<${MIN_ROWS_PER_MARKET})`);
-  }
-  if (kosdaq.length < MIN_ROWS_PER_MARKET) {
-    throw new Error(`KOSDAQ 응답 이상 — ${kosdaq.length}행 (<${MIN_ROWS_PER_MARKET})`);
+  if (kospiRes.status === 'rejected' || kosdaqRes.status === 'rejected') {
+    const reason =
+      kospiRes.status  === 'rejected' ? `KOSPI: ${String(kospiRes.reason)}` :
+      kosdaqRes.status === 'rejected' ? `KOSDAQ: ${String(kosdaqRes.reason)}` : 'unknown';
+    return { map: {}, namesByCode: {}, diagnostic: `KRX(${trdDd}): ${reason}` };
   }
 
-  const all = [...kospi, ...kosdaq];
-  if (all.length < MIN_TOTAL_ROWS) {
-    throw new Error(`총 응답 이상 — ${all.length}행 (<${MIN_TOTAL_ROWS})`);
+  if (kospi.length < MIN_ROWS_PER_MARKET || kosdaq.length < MIN_ROWS_PER_MARKET) {
+    return {
+      map: {},
+      namesByCode: {},
+      diagnostic: `KRX(${trdDd}): KOSPI=${kospi.length} KOSDAQ=${kosdaq.length} (임계치 ${MIN_ROWS_PER_MARKET} 미달)`,
+    };
   }
 
   const map: Record<string, string> = {};
+  const namesByCode: Record<string, string> = {};
   let skipped = 0;
-  for (const r of all) {
+  for (const r of [...kospi, ...kosdaq]) {
     const code = (r.ISU_SRT_CD ?? '').trim();
     if (!code || !/^\d{5,6}$/.test(code)) { skipped++; continue; }
     const padded = code.padStart(6, '0');
+    const name   = (r.ISU_ABBRV ?? '').trim();
+    if (name) namesByCode[padded] = name;
     const sector = normalizeSector(r.IDX_IND_NM);
     if (sector === '미분류') { skipped++; continue; }
     map[padded] = sector;
   }
-  if (verbose) console.log(`[SectorMapUpdater] 유효 ${Object.keys(map).length}개 / 스킵 ${skipped}개`);
-  return map;
+  if (verbose) console.log(`[SectorMapUpdater] trdDd=${trdDd} 유효 ${Object.keys(map).length}개 / 스킵 ${skipped}개`);
+  return {
+    map,
+    namesByCode,
+    diagnostic: `KRX(${trdDd}): 유효 ${Object.keys(map).length}행`,
+  };
+}
+
+/**
+ * KRX 벌크 스냅샷 시도 — 최근 영업일 N일까지 trdDd 를 역추적한다.
+ * KRX 는 장 전·공휴일 직후에 400 을 내기도 해서 단일 거래일만으로는 취약.
+ * 성공 시 {map, diagnostic} · 모두 실패 시 null.
+ */
+async function attemptKrxWithDateRetry(
+  verbose: boolean,
+): Promise<{ map: Record<string, string>; namesByCode: Record<string, string>; diagnostic: string } | null> {
+  const dates = recentWeekdaysYYYYMMDD(5);
+  const diagnostics: string[] = [];
+  for (const trdDd of dates) {
+    const r = await buildSectorMapOnce(trdDd, verbose).catch((e) => ({
+      map: {}, namesByCode: {}, diagnostic: `KRX(${trdDd}): exception ${e instanceof Error ? e.message : String(e)}`,
+    }));
+    if (r && Object.keys(r.map).length >= MIN_TOTAL_ROWS) {
+      return {
+        map:        r.map,
+        namesByCode:r.namesByCode,
+        diagnostic: [...diagnostics, r.diagnostic].join(' | '),
+      };
+    }
+    diagnostics.push(r?.diagnostic ?? `KRX(${trdDd}): 알 수 없는 실패`);
+  }
+  return { map: {}, namesByCode: {}, diagnostic: diagnostics.join(' | ') };
 }
 
 // ── 원자적 저장 ───────────────────────────────────────────────────────────────
@@ -191,33 +251,73 @@ function atomicWriteJson(target: string, payload: unknown): void {
 // ── 공개 API ──────────────────────────────────────────────────────────────────
 
 /**
- * KRX 전종목 섹터 스냅샷 갱신. 성공 시 data/krx-sector-map.json 를 원자적으로 교체하고
- * sectorMap.ts 의 mtime 캐시를 즉시 무효화한다. 실패 시 throw 하며 기존 파일은 보존된다.
+ * KRX 전종목 섹터 스냅샷 갱신 (폴백 체인 포함).
+ *
+ * 성공 시 data/krx-sector-map.json 를 원자적으로 교체하고 sectorMap.ts 의 mtime
+ * 캐시를 즉시 무효화한다. KRX 장애 시 Yahoo → Gemini 순으로 누락분을 채워 최소
+ * 커버리지를 확보한다. 폴백 + 기존 파일로도 임계치 미달이면 throw 하고 기존 파일 보존.
  */
 export async function updateKrxSectorMap(opts: { verbose?: boolean } = {}): Promise<UpdateResult> {
   const { verbose = false } = opts;
   ensureDataDir();
 
-  const trdDd = recentWeekdayYYYYMMDD();
-  if (verbose) console.log(`[SectorMapUpdater] trdDd=${trdDd} 조회 시작`);
+  const primaryTrdDd = recentWeekdayYYYYMMDD();
+  if (verbose) console.log(`[SectorMapUpdater] 기준일 trdDd=${primaryTrdDd} 조회 시작`);
 
-  const map = await buildSectorMap(trdDd, verbose);
-  const count = Object.keys(map).length;
+  // 폴백 체인이 참조할 기존 파일·유니버스 수집.
+  const existingMap = loadExistingSectorMap(OUT_PATH);
+  // 폴백 유니버스 = 기존 파일 + 수동 오버라이드 코드의 합집합.
+  // KRX 가 완전 장애일 때에도 이 집합은 커버해야 함.
+  const targetCodes = Array.from(new Set([
+    ...Object.keys(existingMap),
+    ...Object.keys(MANUAL_OVERRIDES),
+  ]));
+
+  // KRX 조회 과정에서 얻는 종목명(Gemini 프롬프트용)은 공유 컨테이너로 전달 —
+  // JS 객체 참조 공유로 오케스트레이터가 Gemini 단계 진입 시점의 최신 값을 본다.
+  const namesBox: Record<string, string> = {};
+  const result = await buildSectorMapWithFallback({
+    krxAttempt: async () => {
+      const r = await attemptKrxWithDateRetry(verbose);
+      if (!r) return null;
+      Object.assign(namesBox, r.namesByCode);
+      return { map: r.map, diagnostic: r.diagnostic };
+    },
+    existingMap,
+    targetCodes,
+    targetNamesByCode: namesBox,
+    minTotalRows: MIN_TOTAL_ROWS,
+    verbose,
+  });
+
+  const count = Object.keys(result.map).length;
   if (count < MIN_TOTAL_ROWS) {
-    throw new Error(`정규화 후 매핑 ${count}개 (<${MIN_TOTAL_ROWS}) — 기존 파일 유지`);
+    const diagTail = result.diagnostics.slice(-4).join(' | ');
+    throw new Error(
+      `모든 소스(KRX/Yahoo/Gemini) 실패 — 최종 매핑 ${count}개 (<${MIN_TOTAL_ROWS}). ` +
+      `진단: ${diagTail}`,
+    );
   }
 
   const updatedAt = new Date().toISOString();
-  atomicWriteJson(OUT_PATH, map);
+  atomicWriteJson(OUT_PATH, result.map);
   atomicWriteJson(META_PATH, {
     updatedAt,
-    source: `KRX ${KRX_BLD} (trdDd=${trdDd})`,
+    source:      result.sourceLabel,
     count,
+    trdDd:       primaryTrdDd,
+    diagnostics: result.diagnostics,
   });
 
   // 조회 계층의 mtime 캐시를 즉시 무효화 — 다음 getSectorByCode() 호출부터 새 맵 반영
   invalidateSectorMapCache();
 
-  if (verbose) console.log(`[SectorMapUpdater] ✅ ${count}개 저장 → ${OUT_PATH}`);
-  return { count, updatedAt, trdDd };
+  if (verbose) console.log(`[SectorMapUpdater] ✅ ${count}개 저장 (source=${result.sourceLabel}) → ${OUT_PATH}`);
+  return {
+    count,
+    updatedAt,
+    trdDd:       primaryTrdDd,
+    source:      result.sourceLabel,
+    diagnostics: result.diagnostics,
+  };
 }

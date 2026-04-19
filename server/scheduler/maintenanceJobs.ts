@@ -1,6 +1,8 @@
 /**
  * @responsibility 유지보수 cron(스캔 트레이스 정리 · 일일 백업 · 이중 기록 Reconciliation · 주간 KRX 섹터맵 갱신)을 등록한다.
  */
+import fs from 'fs';
+import path from 'path';
 import cron from 'node-cron';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { cleanupOldTraceFiles } from '../trading/scanTracer.js';
@@ -8,8 +10,9 @@ import { runDailyBackup } from '../persistence/dailyBackup.js';
 import { runBackupCeremony } from '../persistence/dailyBackupCeremony.js';
 import { runDailyReconciliation } from '../trading/reconciliationEngine.js';
 import { resetDataCompleteness } from '../screener/dataCompletenessTracker.js';
-import { updateKrxSectorMap } from '../screener/sectorMapUpdater.js';
+import { updateKrxSectorMap, type UpdateResult } from '../screener/sectorMapUpdater.js';
 import { migrateAttributionRecords } from '../persistence/attributionRepo.js';
+import { DATA_DIR } from '../persistence/paths.js';
 
 const BACKUP_RETENTION_DAYS = 7;
 
@@ -94,19 +97,76 @@ export function registerMaintenanceJobs(): void {
 
   // KRX 전종목 섹터맵 갱신 — 매주 월요일 KST 03:00 (UTC 18:00 일요일).
   // data/krx-sector-map.json 을 원자적으로 교체하여 Stage 2 섹터 커버리지를
-  // 100%로 유지한다. Gemini 섹터 추론이 필요 없어져 토큰 비용과 '미분류'로 인한
-  // sectorBonus 손실을 동시에 제거. 실패 시 기존 파일 유지 + Telegram 경고.
-  cron.schedule('0 18 * * 0', async () => {
-    try {
-      const result = await updateKrxSectorMap();
-      console.log(`[SectorMapUpdater] ✅ ${result.count}개 종목 갱신 (trdDd=${result.trdDd})`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('[SectorMapUpdater] 갱신 실패:', msg);
-      await sendTelegramAlert(
-        `⚠️ <b>[KRX 섹터맵 갱신 실패]</b>\n${msg}\n기존 파일이 유지됩니다. 다음 주 월요일 03:00에 재시도합니다.`,
-        { priority: 'NORMAL', dedupeKey: 'krx_sector_map_fail', cooldownMs: 6 * 60 * 60 * 1000 },
-      ).catch(console.error);
+  // 100%로 유지한다. KRX 장애(HTTP 400/500)시 sectorMapUpdater 내부 폴백 체인
+  // (trdDd 역추적 → Yahoo → Gemini) 이 자동 작동하여 최대 커버리지를 보전한다.
+  // 폴백 + 기존 파일로도 임계치 미달 시에만 Telegram 경고.
+  cron.schedule('0 18 * * 0', () => {
+    void runSectorMapUpdate('weekly');
+  }, { timezone: 'UTC' });
+
+  // 일일 재시도 — 평일 KST 04:00 (UTC 19:00 전일). 주간 실패/폴백 진입 시에만 발화.
+  // 정상(주간) 갱신이 성공한 뒤에는 meta.json 의 updatedAt 나이로 스킵한다.
+  cron.schedule('0 19 * * 0-4', () => {
+    if (shouldRetrySectorMap()) {
+      void runSectorMapUpdate('daily-retry');
     }
   }, { timezone: 'UTC' });
+}
+
+// ── KRX 섹터맵 갱신 헬퍼 ─────────────────────────────────────────────────────
+
+const SECTOR_MAP_META_PATH = path.join(DATA_DIR, 'krx-sector-map.meta.json');
+// 마지막 갱신으로부터 이 시간 내면 일일 재시도 스킵 — 정상 운영 시엔 주간 1회로 충분.
+const SECTOR_MAP_FRESH_MS = 36 * 60 * 60 * 1000; // 36시간
+
+/** 일일 재시도 cron 이 실제로 갱신을 돌릴지 결정. meta 없음/오래됨/carry-over 이면 true. */
+function shouldRetrySectorMap(): boolean {
+  try {
+    if (!fs.existsSync(SECTOR_MAP_META_PATH)) return true;
+    const raw   = fs.readFileSync(SECTOR_MAP_META_PATH, 'utf-8');
+    const meta  = JSON.parse(raw) as { updatedAt?: string; source?: string };
+    const ageMs = Date.now() - new Date(meta.updatedAt ?? 0).getTime();
+    // carry-over 는 항상 재시도 — 데이터가 아예 갱신되지 않은 상태.
+    if (meta.source === 'carry-over') return true;
+    return ageMs > SECTOR_MAP_FRESH_MS;
+  } catch {
+    // meta 읽기 실패는 보수적으로 재시도.
+    return true;
+  }
+}
+
+/** 섹터맵 갱신 실행 + Telegram 알림. schedule 라벨은 주간/일일 구분용. */
+async function runSectorMapUpdate(schedule: 'weekly' | 'daily-retry'): Promise<void> {
+  const scheduleLabel = schedule === 'weekly' ? '주간' : '일일 재시도';
+  try {
+    const result: UpdateResult = await updateKrxSectorMap();
+    console.log(
+      `[SectorMapUpdater] ✅ ${scheduleLabel} ${result.count}개 갱신 ` +
+      `(source=${result.source}, trdDd=${result.trdDd})`,
+    );
+
+    // 폴백으로 갱신된 경우 — 성공이지만 원본 소스가 장애 중임을 알린다.
+    if (result.source !== 'KRX') {
+      const diagTail = result.diagnostics.slice(-4).join('\n• ');
+      await sendTelegramAlert(
+        `ℹ️ <b>[KRX 섹터맵 — 폴백 갱신 성공]</b>\n` +
+        `Source: <code>${result.source}</code>\n` +
+        `종목 수: ${result.count}\n` +
+        `KRX 본선 장애 중 — Yahoo/Gemini 폴백으로 커버리지 보전.\n` +
+        `진단:\n• ${diagTail}`,
+        { priority: 'LOW', dedupeKey: 'krx_sector_map_fallback_ok', cooldownMs: 12 * 60 * 60 * 1000 },
+      ).catch(console.error);
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[SectorMapUpdater] ${scheduleLabel} 갱신 실패:`, msg);
+    const nextRetry = schedule === 'weekly'
+      ? '내일 04:00 일일 재시도 예정'
+      : '다음 주 월요일 03:00 재시도 예정';
+    await sendTelegramAlert(
+      `⚠️ <b>[KRX 섹터맵 갱신 실패 — ${scheduleLabel}]</b>\n${msg}\n` +
+      `기존 파일이 유지됩니다. ${nextRetry}.`,
+      { priority: 'NORMAL', dedupeKey: 'krx_sector_map_fail', cooldownMs: 6 * 60 * 60 * 1000 },
+    ).catch(console.error);
+  }
 }

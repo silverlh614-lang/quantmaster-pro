@@ -18,8 +18,12 @@ updateKrxSectorMap({ verbose: VERBOSE })
   .then((result) => {
     console.log(
       `[updateSectorMap] ✅ 완료 — ${result.count}개 종목 저장 ` +
-      `(trdDd=${result.trdDd}, updatedAt=${result.updatedAt})`,
+      `(source=${result.source}, trdDd=${result.trdDd}, updatedAt=${result.updatedAt})`,
     );
+    if (result.source !== 'KRX' && VERBOSE) {
+      console.log('[updateSectorMap] 폴백 경로로 갱신됨. 진단:');
+      for (const d of result.diagnostics) console.log(`  • ${d}`);
+    }
     process.exit(0);
   })
   .catch((e: unknown) => {
