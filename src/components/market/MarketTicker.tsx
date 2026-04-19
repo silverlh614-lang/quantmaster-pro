@@ -1,7 +1,8 @@
 import React from 'react';
 import { MarketOverview } from '../../services/stockService';
-import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import { cn } from '../../ui/cn';
+import { TrendIndicator } from '../../ui/trend-indicator';
 import { debugWarn } from '../../utils/debug';
 
 interface MarketTickerProps {
@@ -55,32 +56,29 @@ export const MarketTicker: React.FC<MarketTickerProps> = ({ data, loading, onRef
         {/* Repeat twice for seamless scrolling */}
         {[...Array(2)].map((_, i) => (
           <div key={i} className="flex items-center gap-8">
-            {mainIndices.map((idx, j) => {
-              const isPositive = idx.change >= 0;
-              return (
-                <div key={`${i}-${j}`} className="flex items-center gap-3">
-                  <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{idx.name}</span>
-                  <span className="text-xs font-black text-white tracking-tighter font-num">{idx.value?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  <div className={cn(
-                    "flex items-center text-[10px] font-black",
-                    isPositive ? "text-red-400" : "text-blue-400"
-                  )}>
-                    {isPositive ? <TrendingUp size={10} className="mr-0.5" /> : <TrendingDown size={10} className="mr-0.5" />}
-                    <span className="font-num">{isPositive ? '+' : ''}{idx.changePercent}%</span>
-                  </div>
-                </div>
-              );
-            })}
+            {mainIndices.map((idx, j) => (
+              <div key={`${i}-${j}`} className="flex items-center gap-3">
+                <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{idx.name}</span>
+                <span className="text-xs font-black text-white tracking-tighter font-num">
+                  {idx.value?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <TrendIndicator
+                  value={idx.changePercent ?? 0}
+                  size="sm"
+                  koreanPalette
+                />
+              </div>
+            ))}
             {data.exchangeRates?.slice(0, 1).map((rate, j) => (
               <div key={`rate-${i}-${j}`} className="flex items-center gap-3">
                 <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{rate.name}</span>
                 <span className="text-xs font-black text-white tracking-tighter font-num">{rate.value?.toLocaleString()}</span>
-                <div className={cn(
-                  "flex items-center text-[10px] font-black",
-                  rate.change >= 0 ? "text-red-400" : "text-blue-400"
-                )}>
-                  {rate.change >= 0 ? '+' : ''}{rate.changePercent}%
-                </div>
+                <TrendIndicator
+                  value={rate.changePercent ?? 0}
+                  size="sm"
+                  koreanPalette
+                  showIcon={false}
+                />
               </div>
             ))}
           </div>
