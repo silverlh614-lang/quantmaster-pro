@@ -22,7 +22,7 @@ import { evaluateServerGate, type ServerGateResult } from '../quantFilter.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { computeEtfSectorBoost } from '../alerts/globalScanAgent.js';
-import { SECTOR_MAP } from '../screener/pipelineHelpers.js';
+import { getSectorByCode } from '../screener/sectorMap.js';
 import { generatePreMortem } from './entryEngine.js';
 import { placeKisMarketBuyOrder } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
@@ -107,7 +107,7 @@ export async function fetchGateData(
   );
 
   // Layer 14 ETF 선행 수급 부스트 — universeScanner와 동일 기준으로 재평가 시에도 적용
-  const etfBoost = computeEtfSectorBoost(SECTOR_MAP[stockCode]);
+  const etfBoost = computeEtfSectorBoost(getSectorByCode(stockCode));
   if (etfBoost.boost > 0) {
     gate.gateScore += etfBoost.boost;
     gate.details.push(...etfBoost.reasons);
@@ -209,7 +209,7 @@ export interface CreateBuyTaskParams {
  */
 export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask> {
   const regime = p.regime ?? p.trade.entryRegime;
-  const sector = SECTOR_MAP[p.stockCode];
+  const sector = getSectorByCode(p.stockCode);
 
   // enemyCheck + preMortem 병렬 생성 (둘 다 외부 호출이고 서로 독립적)
   const [enemyCheck, preMortem] = await Promise.all([

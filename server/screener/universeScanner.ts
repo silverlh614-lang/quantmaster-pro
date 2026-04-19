@@ -41,7 +41,6 @@ import type { RegimeLevel } from '../../src/types/core.js';
 import {
   type CandidateStock,
   type GeminiScreenResult,
-  SECTOR_MAP,
   STOP_RATES,
   TARGET_RATES,
   addBusinessDays,
@@ -52,6 +51,7 @@ import {
   parseScreeningResponse,
   passesStage1Filter,
 } from './pipelineHelpers.js';
+import { getSectorByCode } from './sectorMap.js';
 
 // ── Stage 1 ───────────────────────────────────────────────────────────────────
 
@@ -140,7 +140,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
           return {
             code, name,
             symbol: `${code}.KS`,
-            sector: SECTOR_MAP[code] ?? '미분류',
+            sector: getSectorByCode(code),
             quote,
             stage1Score: calcStage1Score(quote),
           } as CandidateStock;
@@ -174,7 +174,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
           code:   stock.code,
           name:   stock.name,
           symbol: stock.symbol,
-          sector: SECTOR_MAP[stock.code] ?? '미분류',
+          sector: getSectorByCode(stock.code),
           quote,
           stage1Score: calcStage1Score(quote),
         } as CandidateStock;
@@ -349,7 +349,12 @@ export async function stage3AIScreenAndRegister(
     return 0;
   }
 
-  const results = parseScreeningResponse(response);
+  // Gemini 가 반환한 sector 필드는 무시하고 항상 서버 측 결정적 조회값으로 덮어쓴다.
+  // (프롬프트로도 재분류 금지를 지시하지만, 안전망으로 파서 계층에서도 강제 교체)
+  const results = parseScreeningResponse(response).map((r) => ({
+    ...r,
+    sector: getSectorByCode(r.code),
+  }));
   if (results.length === 0) {
     console.warn('[Pipeline/Stage3] JSON 파싱 실패 — 원문:', response.slice(0, 300));
     return 0;
@@ -444,7 +449,7 @@ export async function stage3AIScreenAndRegister(
       entryRegime:   regime,
       profileType:   finalProfile,
       gateScore:     result.totalGateScore,
-      sector:        result.sector || candidate?.sector,
+      sector:        result.sector,  // parseScreeningResponse 단계에서 getSectorByCode로 확정됨
       memo:          `${formatReliabilityBadge(reliability)} | ${confPart} | ${result.topReasons.slice(0, 2).join(', ')}`,
       expiresAt:     addBusinessDays(new Date(), section === 'SWING' ? 7 : 2).toISOString(),
       conditionKeys: [...realKeys, ...qualKeys],
