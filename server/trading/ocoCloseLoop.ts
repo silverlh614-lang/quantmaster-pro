@@ -32,6 +32,21 @@ import { appendTradeEvent } from './tradeEventLog.js';
 
 // ─── 데이터 모델 ──────────────────────────────────────────────────────────────
 
+/**
+ * OCO 복구 진행 상태 — ocoRecoveryAgent 가 채운다.
+ * 등록 직후엔 undefined. FAILED 사이드 발견 시 처음으로 채워진다.
+ */
+export interface OcoRecoveryState {
+  /** 시도 횟수 (0..3). 3 도달 후에도 실패하면 fallback 발동. */
+  attempts: number;
+  /** 마지막 시도 시각 (ISO) — 다음 backoff 계산 기준. */
+  lastAttemptAt?: string;
+  /** 'AWAITING' | 'IN_PROGRESS' | 'RECOVERED' | 'EXHAUSTED' | 'FALLBACK_DONE' */
+  status: 'AWAITING' | 'IN_PROGRESS' | 'RECOVERED' | 'EXHAUSTED' | 'FALLBACK_DONE';
+  /** 마지막 시도의 실패 사유 (감사용) */
+  lastError?: string;
+}
+
 export interface OcoOrderPair {
   id: string;                    // 관련 shadow trade ID
   stockCode: string;
@@ -51,6 +66,20 @@ export interface OcoOrderPair {
   resolvedAt?: string;           // 해소 시각 (한쪽 체결 + 다른쪽 취소 완료)
   pollCount: number;
   status: 'ACTIVE' | 'STOP_FILLED' | 'PROFIT_FILLED' | 'BOTH_CANCELLED' | 'ERROR';
+  /** OCO 복구 에이전트 진행 상태 — registerOcoPair 시점엔 없음. */
+  recovery?: OcoRecoveryState;
+}
+
+// ─── 영속화 헬퍼 (외부 노출) ─────────────────────────────────────────────────
+
+/** ocoRecoveryAgent 가 import 해 사용. 동일 파일 내 loadOcoOrders 와 같은 데이터 소스. */
+export function readAllOcoOrders(): OcoOrderPair[] {
+  return loadOcoOrders();
+}
+
+/** ocoRecoveryAgent 가 retry 결과를 반영해 저장. */
+export function writeAllOcoOrders(orders: OcoOrderPair[]): void {
+  saveOcoOrders(orders);
 }
 
 // ─── 영속화 ──────────────────────────────────────────────────────────────────

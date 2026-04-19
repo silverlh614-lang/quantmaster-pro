@@ -12,6 +12,7 @@
  */
 
 import type { LifecycleStage, LifecycleTransition, PositionLifecycleState } from '../../types/sell';
+import type { RegimeContext } from '../../types/regimeContext';
 
 // ─── 전환 조건 상수 ─────────────────────────────────────────────────────────────
 
@@ -22,14 +23,16 @@ import type { LifecycleStage, LifecycleTransition, PositionLifecycleState } from
 const SCORE_DROP_ALERT_THRESHOLD = 0.20;
 
 /**
- * EXIT_PREP 단계 전환 기준: Gate 1 조건 이탈 최소 개수.
+ * EXIT_PREP 단계 전환 기준 — RegimeContext 미주입 시 기본값.
+ * RegimeContext 주입 시 ctx.lifecycle.exitPrepBreachCount 가 우선한다.
  */
-const EXIT_PREP_BREACH_COUNT = 2;
+const DEFAULT_EXIT_PREP_BREACH_COUNT = 2;
 
 /**
- * FULL_EXIT 단계 전환 기준: Gate 1 조건 이탈 최소 개수.
+ * FULL_EXIT 단계 전환 기준 — RegimeContext 미주입 시 기본값.
+ * RegimeContext 주입 시 ctx.lifecycle.fullExitBreachCount 가 우선한다.
  */
-const FULL_EXIT_BREACH_COUNT = 3;
+const DEFAULT_FULL_EXIT_BREACH_COUNT = 3;
 
 // ─── 단계별 매도 비율 ──────────────────────────────────────────────────────────
 
@@ -53,20 +56,23 @@ function shouldTransitionToAlert(
 }
 
 /**
- * EXIT_PREP 전환 여부 판정 (Gate 1 조건 2개 이상 이탈).
+ * EXIT_PREP 전환 여부 판정 (Gate 1 조건 N개 이상 이탈).
+ * 임계값 N 은 RegimeContext 가 결정 (미주입 시 기본 2).
  */
-function shouldTransitionToExitPrep(gate1BreachCount: number): boolean {
-  return gate1BreachCount >= EXIT_PREP_BREACH_COUNT;
+function shouldTransitionToExitPrep(gate1BreachCount: number, threshold: number): boolean {
+  return gate1BreachCount >= threshold;
 }
 
 /**
- * FULL_EXIT 전환 여부 판정 (Gate 1 조건 3개 이상 이탈 OR 손절 발동).
+ * FULL_EXIT 전환 여부 판정 (Gate 1 조건 N개 이상 이탈 OR 손절 발동).
+ * 임계값 N 은 RegimeContext 가 결정 (미주입 시 기본 3).
  */
 function shouldTransitionToFullExit(
   gate1BreachCount: number,
   stopLossTriggered: boolean,
+  threshold: number,
 ): boolean {
-  return gate1BreachCount >= FULL_EXIT_BREACH_COUNT || stopLossTriggered;
+  return gate1BreachCount >= threshold || stopLossTriggered;
 }
 
 // ─── 메인 평가 함수 ──────────────────────────────────────────────────────────────
@@ -76,13 +82,21 @@ function shouldTransitionToFullExit(
  *
  * 호출 시점: 매일 장 종료 후 (또는 중요 지표 변경 시).
  *
- * @param state - 현재 포지션 생애주기 상태
+ * @param state          - 현재 포지션 생애주기 상태
+ * @param regimeContext  - (선택) RegimeContext. 주입 시 EXIT_PREP/FULL_EXIT 임계값을
+ *                          ctx.lifecycle 에서 가져온다. 미주입 시 기본 상수(2/3) 사용.
+ *                          프로덕션 호출은 항상 주입해야 LIFECYCLE_BREACH_THRESHOLD_MISMATCH
+ *                          충돌이 구조적으로 불가능해진다.
  * @returns 단계 전환이 필요하면 LifecycleTransition, 유지 중이면 null
  */
 export function evaluatePositionLifecycle(
   state: PositionLifecycleState,
+  regimeContext?: RegimeContext | null,
 ): LifecycleTransition | null {
   const { stage, entryScore, currentScore, gate1BreachCount, stopLossTriggered } = state;
+
+  const exitPrepThreshold = regimeContext?.lifecycle.exitPrepBreachCount ?? DEFAULT_EXIT_PREP_BREACH_COUNT;
+  const fullExitThreshold = regimeContext?.lifecycle.fullExitBreachCount ?? DEFAULT_FULL_EXIT_BREACH_COUNT;
 
   // ENTRY → HOLD: 진입 직후 최초 보유 상태로 전환
   if (stage === 'ENTRY') {
@@ -97,10 +111,10 @@ export function evaluatePositionLifecycle(
   }
 
   // FULL_EXIT 판정 (최우선 — 어떤 단계에서든 즉시 전환)
-  if (stage !== 'FULL_EXIT' && shouldTransitionToFullExit(gate1BreachCount, stopLossTriggered)) {
+  if (stage !== 'FULL_EXIT' && shouldTransitionToFullExit(gate1BreachCount, stopLossTriggered, fullExitThreshold)) {
     const reason = stopLossTriggered
       ? `손절 발동. Gate 1 이탈 ${gate1BreachCount}개. 전량 청산 실행.`
-      : `Gate 1 조건 ${gate1BreachCount}개 이탈 (기준: ${FULL_EXIT_BREACH_COUNT}개). 전량 청산 실행.`;
+      : `Gate 1 조건 ${gate1BreachCount}개 이탈 (기준: ${fullExitThreshold}개). 전량 청산 실행.`;
     return {
       prevStage: stage,
       nextStage: 'FULL_EXIT',
@@ -112,11 +126,11 @@ export function evaluatePositionLifecycle(
   }
 
   // EXIT_PREP 판정 (HOLD 또는 ALERT에서)
-  if ((stage === 'HOLD' || stage === 'ALERT') && shouldTransitionToExitPrep(gate1BreachCount)) {
+  if ((stage === 'HOLD' || stage === 'ALERT') && shouldTransitionToExitPrep(gate1BreachCount, exitPrepThreshold)) {
     return {
       prevStage: stage,
       nextStage: 'EXIT_PREP',
-      reason: `Gate 1 조건 ${gate1BreachCount}개 이탈 (기준: ${EXIT_PREP_BREACH_COUNT}개). 잔여 포지션 25% 추가 매도.`,
+      reason: `Gate 1 조건 ${gate1BreachCount}개 이탈 (기준: ${exitPrepThreshold}개). 잔여 포지션 25% 추가 매도.`,
       sellRatio: EXIT_PREP_SELL_RATIO,
       sendAlert: true,
       severity: 'HIGH',
@@ -184,10 +198,10 @@ export function getLifecycleNextAction(
     }
     case 'ALERT':
       return `50% 매도 실행 완료. Gate 1 이탈 ${gate1BreachCount}개 모니터링 중. `
-        + `${EXIT_PREP_BREACH_COUNT}개 이상 시 EXIT_PREP 전환.`;
+        + `${DEFAULT_EXIT_PREP_BREACH_COUNT}개 이상 시 EXIT_PREP 전환.`;
     case 'EXIT_PREP':
       return `25% 추가 매도 완료. Gate 1 이탈 ${gate1BreachCount}개. `
-        + `${FULL_EXIT_BREACH_COUNT}개 이상 시 전량 청산 전환.`;
+        + `${DEFAULT_FULL_EXIT_BREACH_COUNT}개 이상 시 전량 청산 전환.`;
     case 'FULL_EXIT':
       return '전량 청산 완료. 포지션 종료.';
   }

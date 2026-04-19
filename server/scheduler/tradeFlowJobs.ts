@@ -6,6 +6,7 @@
 import cron from 'node-cron';
 import { pollOcoConfirm } from '../trading/ocoConfirmLoop.js';
 import { cancelAllActiveOco, pollOcoSurvival } from '../trading/ocoCloseLoop.js';
+import { runOcoRecoveryRound } from '../trading/ocoRecoveryAgent.js';
 import { SELL_POLL_INTERVAL, pollSellFills } from '../trading/fillMonitor.js';
 import { runPortfolioRiskCheck } from '../trading/portfolioRiskEngine.js';
 import { initMacroSyncDayOpen, macroSectorAlignmentCheck } from '../trading/macroSectorSync.js';
@@ -21,6 +22,10 @@ export function registerTradeFlowJobs(): void {
 
   // OCO 생존 확인 폴링 — 장중 15분 간격. 한쪽 체결 시 다른쪽 자동 취소.
   cron.schedule('*/15 0-6 * * 1-5', async () => { await pollOcoSurvival().catch(console.error); }, { timezone: 'UTC' });
+
+  // OCO 자동 복구 라운드 — 장중 5분 간격. FAILED 사이드 재등록(최대 3회 지수 백오프),
+  // 한도 소진 시 시장가 강제 청산 fallback. 보호 주문 부재 노출 시간을 분 단위로 제한.
+  cron.schedule('*/5 0-6 * * 1-5', async () => { await runOcoRecoveryRound().catch(console.error); }, { timezone: 'UTC' });
 
   // OCO 장마감 정리 — 15:20 KST (UTC 06:20). ACTIVE OCO 주문 쌍 전량 취소.
   cron.schedule('20 6 * * 1-5', async () => { await cancelAllActiveOco().catch(console.error); }, { timezone: 'UTC' });
