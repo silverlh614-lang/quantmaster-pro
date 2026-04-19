@@ -28,10 +28,10 @@ import type { YahooQuoteExtended } from './screener/stockScreener.js';
 import type { DartFinancials } from './clients/dartFinancialClient.js';
 import type { KisInvestorFlow } from './clients/kisClient.js';
 import type { RegimeLevel } from '../src/types/core.js';
-import { isPullbackSetup } from './screener/pipelineHelpers.js';
 import { getVixConservativeMode } from './state.js';
 import { isTradingHeld } from './learning/learningState.js';
 import { getRegimeGateBand } from './trading/gateConfig.js';
+import { defaultRegistry, calculateCompressionScore } from './quant/conditions/index.js';
 
 export interface ServerGateResult {
   gateScore: number;                          // 가중치 적용 점수 (float, 최대 ~15)
@@ -86,34 +86,9 @@ export const DEFAULT_CONDITION_WEIGHTS: ConditionWeights = {
 };
 
 /**
- * Compression Score (CS) — 변동성 압축도 정량화 지수
- *
- * CS = (1 - BB폭현재/BB폭20일평균) × 0.4
- *    + (1 - 거래량5일평균/거래량20일평균) × 0.4
- *    + (1 - ATR5일/ATR20일) × 0.2
- *
- * 범위: 0~1 (1에 가까울수록 강한 압축)
- * CS ≥ 0.6: 강한 압축 (최대 포지션)
- * CS 0.4~0.6: 중간 압축 (절반 포지션)
- * CS < 0.4: 압축 미완 (진입 보류)
+ * Compression Score (CS) 계산은 server/quant/conditions/evaluators.ts 로 이전.
+ * orchestrator 가 result.compressionScore 채우려면 동일 함수가 필요해 re-export.
  */
-function calculateCompressionScore(quote: YahooQuoteExtended): number {
-  const bbRatio = quote.bbWidth20dAvg > 0
-    ? quote.bbWidthCurrent / quote.bbWidth20dAvg
-    : 1;
-  const volRatio = quote.vol20dAvg > 0
-    ? quote.vol5dAvg / quote.vol20dAvg
-    : 1;
-  const atrRatio = quote.atr20avg > 0
-    ? quote.atr5d / quote.atr20avg
-    : 1;
-
-  const cs = (1 - bbRatio) * 0.4
-           + (1 - volRatio) * 0.4
-           + (1 - atrRatio) * 0.2;
-
-  return Math.max(0, Math.min(1, cs));
-}
 
 /**
  * Multi-Timeframe Alignment Score (MTAS) — 타임프레임 정렬도 수치화
@@ -187,169 +162,16 @@ export function evaluateServerGate(
   kisFlow?: KisInvestorFlow | null,
   regime?: RegimeLevel | string,
 ): ServerGateResult {
-  let score = 0;
-  const details: string[] = [];
-  const conditionKeys: string[] = [];
+  // 14개 ConditionEvaluator 를 defaultRegistry 가 일괄 실행하고 합산.
+  // 신규 조건 추가는 conditions/index.ts 에서 한 줄 register 만으로 끝난다(Open-Closed).
+  const run = defaultRegistry.run({ quote, weights, kospiDayReturn, dartFin, kisFlow });
+  let score = run.totalScore;
+  const details = [...run.details];
+  const conditionKeys = [...run.conditionKeys];
 
-  const w = (key: ConditionKey): number =>
-    Math.max(0.1, Math.min(2.0, weights[key] ?? DEFAULT_CONDITION_WEIGHTS[key] ?? 1.0));
-
-  // 조건 2: 모멘텀 — 당일 상승률 또는 RSI 가속으로 충족 가능
-  const rsiAccel = (quote.rsi14 - quote.rsi5dAgo) >= 3;
-  if (quote.changePercent >= 2) {
-    score += w('momentum');
-    details.push(`모멘텀 +${quote.changePercent.toFixed(1)}%`);
-    conditionKeys.push('momentum');
-  } else if (quote.changePercent >= 0.5 && rsiAccel && quote.return5d < 8) {
-    // 당일 소폭 상승이라도 RSI 가속 + 5일 과급등 아니면 모멘텀 인정
-    score += w('momentum') * 0.7;
-    details.push(`모멘텀(RSI가속) +${quote.changePercent.toFixed(1)}% RSI${quote.rsi14.toFixed(0)}`);
-    conditionKeys.push('momentum');
-  }
-
-  // 조건 10: 정배열 (5일선 > 20일선 > 60일선)
-  if (quote.ma5 > 0 && quote.ma20 > 0 && quote.ma60 > 0 &&
-      quote.ma5 > quote.ma20 && quote.ma20 > quote.ma60) {
-    score += w('ma_alignment');
-    details.push('정배열 (MA5>MA20>MA60)');
-    conditionKeys.push('ma_alignment');
-  }
-
-  // 조건 11: 거래량 돌파 (5일 평균 2배 이상)
-  if (quote.avgVolume > 0 && quote.volume >= quote.avgVolume * 2) {
-    score += w('volume_breakout');
-    details.push(`거래량 ${(quote.volume / quote.avgVolume).toFixed(1)}배`);
-    conditionKeys.push('volume_breakout');
-  }
-
-  // 조건 13: PER 밸류에이션 (0 < PER < 20)
-  if (quote.per > 0 && quote.per < 20) {
-    score += w('per');
-    details.push(`PER ${quote.per.toFixed(1)}`);
-    conditionKeys.push('per');
-  }
-
-  // 조건 18: 터틀 돌파 (20일 신고가)
-  if (quote.high20d > 0 && quote.price >= quote.high20d) {
-    score += w('turtle_high');
-    details.push('20일 신고가 돌파');
-    conditionKeys.push('turtle_high');
-  }
-
-  // 조건 24: 상대강도 — kospiDayReturn 제공 시 실계산, 미제공 시 절대 기준
-  const relStrengthGap = quote.changePercent - (kospiDayReturn ?? 0);
-  const relStrengthThreshold = kospiDayReturn !== undefined ? 1.0 : 1.5;
-  if (relStrengthGap > relStrengthThreshold) {
-    score += w('relative_strength');
-    details.push(
-      kospiDayReturn !== undefined
-        ? `상대강도 +${relStrengthGap.toFixed(1)}%p (KOSPI ${kospiDayReturn.toFixed(1)}%)`
-        : `상대강도 +${quote.changePercent.toFixed(1)}%`
-    );
-    conditionKeys.push('relative_strength');
-  }
-
-  // 조건 25: VCP — Compression Score 기반 정량 평가
-  // '박스권이다' 정성 판단 → '압축도 0.73 강한 에너지 응축' 정량 판단으로 업그레이드
+  // CS 는 vcpEvaluator 내부에서도 사용하지만 결과 객체(ServerGateResult.compressionScore)에
+  // 그대로 노출하기 위해 한 번 더 계산. 동일 입력 → 동일 결과(순수 함수).
   const cs = calculateCompressionScore(quote);
-  if (cs >= 0.6) {
-    score += w('vcp');
-    details.push(`VCP 강한압축 (CS=${cs.toFixed(2)})`);
-    conditionKeys.push('vcp');
-  } else if (cs >= 0.4) {
-    score += w('vcp') * 0.5;
-    details.push(`VCP 중간압축 (CS=${cs.toFixed(2)})`);
-    conditionKeys.push('vcp');
-  }
-  // CS < 0.4: 압축 미완 — VCP 미통과
-
-  // 조건 27: 거래량 급증 + 상승 (거래량 3배 이상 & +1% 이상)
-  if (quote.avgVolume > 0 && quote.volume >= quote.avgVolume * 3 && quote.changePercent >= 1) {
-    score += w('volume_surge');
-    details.push('거래량 급증+상승');
-    conditionKeys.push('volume_surge');
-  }
-
-  // [신규] RSI(14) 건강구간: 40~70 (과매도 탈출 후 과매수 미달 — 실계산)
-  if (quote.rsi14 >= 40 && quote.rsi14 <= 70) {
-    score += w('rsi_zone');
-    details.push(`RSI ${quote.rsi14.toFixed(0)}`);
-    conditionKeys.push('rsi_zone');
-  }
-
-  // [신규] MACD 가속: 히스토그램 > 0 AND 5일 전보다 확대 (방향 + 가속 동시 확인)
-  // 단순 양수(방향만)보다 가속이 더 강한 신호 — 기존 macd_bull에서 업그레이드
-  if (quote.macdHistogram > 0 && quote.macdHistogram > quote.macd5dHistAgo) {
-    score += w('macd_bull');
-    details.push(`MACD가속 ${quote.macd5dHistAgo.toFixed(2)}→${quote.macdHistogram.toFixed(2)}`);
-    conditionKeys.push('macd_bull');
-  } else if (quote.macdHistogram > 0) {
-    // 양수이나 가속 미확인 — 부분 점수
-    score += w('macd_bull') * 0.5;
-    details.push(`MACD+ ${quote.macdHistogram.toFixed(2)} (가속미확인)`);
-    conditionKeys.push('macd_bull');
-  }
-
-  // [신규] 눌림목 셋업: 고점 대비 조정 + 변동성 축소 + 장기 추세 유지
-  if (isPullbackSetup(quote)) {
-    const drawdown = quote.high60d > 0 ? (quote.high60d - quote.price) / quote.high60d * 100 : 0;
-    score += w('pullback');
-    details.push(`눌림목 (고점대비 -${drawdown.toFixed(1)}%)`);
-    conditionKeys.push('pullback');
-  }
-
-  // [신규] MA60 상승 추세: 현재 MA60 > 5일 전 MA60 (대세 하락 중 단기 반등 필터)
-  // 정배열(MA5>MA20>MA60)이지만 MA60이 하락 중인 종목을 추가로 걸러낸다
-  if (quote.ma60TrendUp) {
-    score += w('ma60_rising');
-    details.push('MA60 우상향');
-    conditionKeys.push('ma60_rising');
-  }
-
-  // [신규] 주봉 RSI 건강구간: 40~70 (타임프레임 정렬 — 일봉 RSI와 독립 등록)
-  if (quote.weeklyRSI >= 40 && quote.weeklyRSI <= 70) {
-    score += w('weekly_rsi_zone');
-    details.push(`주봉RSI ${quote.weeklyRSI.toFixed(0)}`);
-    conditionKeys.push('weekly_rsi_zone');
-  }
-
-  // [선택] 수급 합치: KIS 기관/외인 순매수 — kisFlow 제공 시에만 평가
-  // 신뢰도 HIGH — 허위신호 차단 효과 가장 큼
-  if (kisFlow) {
-    const instBuy  = kisFlow.institutionalNetBuy > 0;
-    const foreiBuy = kisFlow.foreignNetBuy > 0;
-    if (instBuy && foreiBuy) {
-      score += w('supply_confluence');
-      details.push(
-        `수급합치 기관+${(kisFlow.institutionalNetBuy / 1000).toFixed(0)}천주 ` +
-        `외인+${(kisFlow.foreignNetBuy / 1000).toFixed(0)}천주`
-      );
-      conditionKeys.push('supply_confluence');
-    } else if (instBuy || foreiBuy) {
-      score += w('supply_confluence') * 0.6;
-      const label = instBuy
-        ? `기관+${(kisFlow.institutionalNetBuy / 1000).toFixed(0)}천주`
-        : `외인+${(kisFlow.foreignNetBuy / 1000).toFixed(0)}천주`;
-      details.push(`수급단독 ${label}`);
-      conditionKeys.push('supply_confluence');
-    }
-  }
-
-  // [선택] OCF 품질: DART 영업현금흐름/매출 비율 — dartFin 제공 시에만 평가
-  // 분기 데이터라 실시간성 없음 — 스크리닝 단계 필터로 사용
-  if (dartFin?.ocfRatio != null) {
-    if (dartFin.ocfRatio >= 5.0) {
-      // OCF/Revenue >= 5%: 이익의 질 양호 (영업에서 실제 현금 창출)
-      score += w('earnings_quality');
-      details.push(`OCF품질 ${dartFin.ocfRatio.toFixed(1)}%`);
-      conditionKeys.push('earnings_quality');
-    } else if (dartFin.ocfRatio >= 1.0) {
-      // OCF/Revenue 1~5%: 기본 충족
-      score += w('earnings_quality') * 0.5;
-      details.push(`OCF기본 ${dartFin.ocfRatio.toFixed(1)}%`);
-      conditionKeys.push('earnings_quality');
-    }
-  }
 
   // MTAS — 멀티타임프레임 정렬도 (타임프레임 불일치 역방향 진입 구조적 차단)
   const { mtas, dataInsufficient } = calculateMTAS(quote);
