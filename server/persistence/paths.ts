@@ -145,6 +145,19 @@ export function alertAuditFile(yyyymm: string): string {
  * 재시작 후에도 복원되어야 하므로 파일 영속화.
  */
 export const T1_ACK_STATE_FILE        = path.join(DATA_DIR, 't1-ack-pending.json');
+/**
+ * 기억 보완 회로 — 부팅/종료 매니페스트.
+ * Railway 재시작 시 "이전 세션이 정상 종료됐는지, 크래시였는지"를 확인하는 근거.
+ */
+export const BOOT_MANIFEST_FILE       = path.join(DATA_DIR, 'boot-manifest.json');
+/**
+ * 기억 보완 회로 — 월별 영속 에러 로그 (JSONL).
+ * uncaughtException·unhandledRejection·명시적 recordError 호출을 append-only 로 누적.
+ * Telegram 발송 실패 여부와 무관하게 "무슨 에러가 언제 발생했는지" 재시작 후에도 조회 가능.
+ */
+export function errorLogFile(yyyymm: string): string {
+  return path.join(DATA_DIR, `error-log-${yyyymm}.jsonl`);
+}
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

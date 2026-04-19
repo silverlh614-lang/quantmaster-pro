@@ -19,8 +19,11 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
-import { SHADOW_FILE, SHADOW_LOG_FILE, DATA_DIR, ensureDataDir } from '../persistence/paths.js';
+import { SHADOW_FILE, SHADOW_LOG_FILE, DATA_DIR, ensureDataDir, verifyVolumeMount } from '../persistence/paths.js';
 import { loadGateAudit } from '../persistence/gateAuditRepo.js';
+import { listRecentBoots, getLastBoot } from '../persistence/bootManifest.js';
+import { listRecentErrors, summarizeErrors } from '../persistence/persistentErrorLog.js';
+import { listIncidents } from '../persistence/incidentLogRepo.js';
 import {
   runPostmortem,
   getLastPostmortemReport,
@@ -452,6 +455,64 @@ router.get('/diagnostics/data-completeness', (_req, res) => {
     res.json(getCompletenessSnapshot());
   } catch (e: any) {
     console.error('[Diagnostic data-completeness] 오류:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── 엔드포인트 8: 기억 보완 회로 감사 ────────────────────────────────────
+//
+// "서버가 재시작되어도 기존 정보와 에러 로그가 유지되는가" 를 한 눈에 확인.
+// Volume 마운트 상태 + 최근 부팅 히스토리 + 영속 에러 요약 + incident 로그 요약.
+//
+// Railway 재배포 직후 이 엔드포인트 하나로 "기억이 끊겼는지" 판별할 수 있다:
+//  - volume.ok === false → Volume 미마운트 (데이터 소실)
+//  - boots[0].status === 'unknown' && boots[1]?.status === 'crashed' → 이전 크래시
+//  - errors.recent24h 가 평소보다 급증 → 회귀 발생
+
+router.get('/diagnostic/memory-audit', (_req, res) => {
+  try {
+    const volume = verifyVolumeMount();
+    const boots = listRecentBoots(10);
+    const lastBoot = getLastBoot();
+    const errorSummary = summarizeErrors();
+    const recentErrors = listRecentErrors(20);
+    const incidents = listIncidents(20);
+
+    // 기억 보완 회로 건강 점수 — 4지표 합산 (운용자 직관용)
+    const volumeScore  = volume.ok ? 25 : 0;
+    const bootScore    = boots.some(b => b.status === 'clean') ? 25 : (boots.length > 0 ? 10 : 0);
+    const errorScore   = errorSummary.fatal24h === 0 ? 25 : (errorSummary.fatal24h < 3 ? 10 : 0);
+    const dataDirScore = (() => {
+      try {
+        ensureDataDir();
+        return fs.existsSync(DATA_DIR) ? 25 : 0;
+      } catch { return 0; }
+    })();
+    const healthScore = volumeScore + bootScore + errorScore + dataDirScore;
+
+    res.json({
+      healthScore,
+      verdict:
+        healthScore >= 90 ? 'HEALTHY' :
+        healthScore >= 60 ? 'DEGRADED' : 'CRITICAL',
+      volume: {
+        ok:    volume.ok,
+        error: volume.error,
+        dataDir: DATA_DIR,
+        persistDataDirEnv: process.env.PERSIST_DATA_DIR ?? null,
+      },
+      currentBoot: lastBoot,
+      recentBoots: boots,
+      previousCrashed: boots.length >= 2 && boots[1].status === 'crashed',
+      errors: {
+        summary: errorSummary,
+        recent:  recentErrors,
+      },
+      incidents,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e: any) {
+    console.error('[Diagnostic memory-audit] 오류:', e);
     res.status(500).json({ error: e.message });
   }
 });
