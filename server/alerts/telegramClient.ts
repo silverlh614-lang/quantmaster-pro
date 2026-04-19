@@ -119,6 +119,12 @@ export interface TelegramAlertOptions {
    * 알림 감사 로그용 카테고리 수동 오버라이드. 미설정 시 dedupeKey에서 자동 추정.
    */
   category?: string;
+  /**
+   * T1 경보에 [확인] 인라인 버튼을 자동 첨부하고 ackTracker에 등록한다.
+   * 기본값: tier가 T1_ALARM이고 replyMarkup이 없으면 true, 그 외 false.
+   * 명시적으로 false를 설정하면 T1이어도 버튼을 붙이지 않는다 (예: Decision Broker가 자체 3택 사용).
+   */
+  requireAck?: boolean;
 }
 
 function shouldSendAlert(opts?: TelegramAlertOptions): boolean {
@@ -303,8 +309,21 @@ export async function sendTelegramAlert(
   const tier: AlertTier | undefined = hasTierIntent ? deriveTier(opts) : undefined;
   const finalMessage = tier ? applyTierPrefix(message, tier) : message;
 
+  // T1 ACK 자동 부착: tier=T1이고 replyMarkup이 없으면 [확인] 버튼 자동 생성.
+  // 호출부가 이미 버튼을 달았거나 requireAck=false면 스킵.
+  let effectiveReplyMarkup = opts?.replyMarkup;
+  let ackId: string | undefined;
+  const wantsAck = tier === 'T1_ALARM'
+    && !opts?.replyMarkup
+    && (opts?.requireAck ?? true);
+  if (wantsAck) {
+    ackId = `ack_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const { buildAckReplyMarkup } = await import('./ackTracker.js');
+    effectiveReplyMarkup = buildAckReplyMarkup(ackId);
+  }
+
   // LOW 우선순위 (또는 T3 명시): 다이제스트 버퍼로 전환 (replyMarkup 있으면 즉시 발송)
-  const goDigest = (opts?.priority === 'LOW' || opts?.tier === 'T3_DIGEST') && !opts?.replyMarkup;
+  const goDigest = (opts?.priority === 'LOW' || opts?.tier === 'T3_DIGEST') && !effectiveReplyMarkup;
   if (goDigest) {
     if (shouldSendAlert(opts)) {
       addToDigest(finalMessage);
@@ -331,7 +350,7 @@ export async function sendTelegramAlert(
     return;
   }
 
-  const msgId = await sendTelegramAlertRaw(finalMessage, opts?.replyMarkup);
+  const msgId = await sendTelegramAlertRaw(finalMessage, effectiveReplyMarkup);
   recordAlertSent(opts);
   try {
     const { appendAlertFeed } = await import('../persistence/alertsFeedRepo.js');
@@ -347,6 +366,23 @@ export async function sendTelegramAlert(
       textLen: finalMessage.length,
       messageId: msgId,
     });
+  }
+  // ACK 대기 엔트리 등록 (Telegram 전송 성공 시에만) — 미확인 시 크론이 재발송·이메일 에스컬레이션.
+  if (wantsAck && ackId && msgId !== undefined) {
+    try {
+      const { registerPendingAck } = await import('./ackTracker.js');
+      const firstLine = finalMessage.split('\n').find(l => l.trim().length > 0) ?? finalMessage;
+      registerPendingAck({
+        ackId,
+        messageId: msgId,
+        summary: firstLine.replace(/<[^>]+>/g, '').slice(0, 160),
+        sentAt: Date.now(),
+        category: opts?.category ?? inferCategory(opts?.dedupeKey),
+        dedupeKey: opts?.dedupeKey,
+      });
+    } catch (e: unknown) {
+      console.warn('[Telegram] ACK 등록 실패:', e instanceof Error ? e.message : e);
+    }
   }
   return msgId;
 }

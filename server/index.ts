@@ -60,12 +60,16 @@ import operatorRouter from './routes/operatorRouter.js';
 import { startScheduler } from './scheduler/index.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 import { globalErrorHandler } from './utils/apiResponse.js';
+import { installGlobalErrorHandlers } from './utils/globalErrorHandlers.js';
 
 
 export { isEmergencyStopped, setDailyLoss };
 
 
 async function startServer() {
+  // 전역 에러 포획 — 가장 먼저 설치해야 이후 모든 모듈 로드 중 예외도 잡는다.
+  installGlobalErrorHandlers();
+
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 

@@ -140,6 +140,11 @@ export const INCIDENT_LOG_FILE        = path.join(DATA_DIR, 'incident-log.json')
 export function alertAuditFile(yyyymm: string): string {
   return path.join(DATA_DIR, `alert-audit-${yyyymm}.jsonl`);
 }
+/**
+ * T1 ACK 대기 상태 — 미확인 상태가 유지되면 30분 후 재발송, 60분 후 이메일 에스컬레이션.
+ * 재시작 후에도 복원되어야 하므로 파일 영속화.
+ */
+export const T1_ACK_STATE_FILE        = path.join(DATA_DIR, 't1-ack-pending.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
