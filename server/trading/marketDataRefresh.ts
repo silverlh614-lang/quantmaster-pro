@@ -21,6 +21,7 @@ import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js
 import { loadFssRecords } from '../persistence/fssRepo.js';
 import { checkAndNotifyRegimeChange } from './regimeBridge.js';
 import { fetchKisMarketSupply } from '../clients/kisClient.js';
+import { computeMacroIndex } from '../engines/macroIndexEngine.js';
 
 /**
  * FRED API — 최신 유효 관측값 조회 (최근 5건 중 '.' 제외 첫 번째).
@@ -281,6 +282,30 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     `HY=${hySpread?.toFixed(2) ?? 'N/A'}% | SOFR=${sofr?.toFixed(2) ?? 'N/A'}% | ` +
     `FSI=${fsi?.toFixed(2) ?? 'N/A'} | WTI=$${wti?.toFixed(1) ?? 'N/A'}`
   );
+
+  // ── ⑨ 아이디어 11: ECOS+FRED 기반 MHS 자체 계산 ─────────────────────────
+  // 기존 MHS 는 클라이언트 batchIntel Phase A 가 Gemini 에게 추론시켰지만,
+  // 서버에서 ECOS 실데이터 + FRED 지표만으로 결정적으로 도출한다.
+  // 시장 보조(vkospi/vix/samsungIri)는 이 함수 상단에서 계산된 computed 를 재사용.
+  try {
+    const vkospiHint    = typeof existing.vkospi === 'number' ? existing.vkospi : undefined;
+    const vixHint       = null;  // VIX 는 marketDataRefresh 가 수집하지 않음 — 엔진 기본값 사용
+    const samsungIriHint = null;
+    const idx = await computeMacroIndex({
+      vkospi: vkospiHint,
+      vix: vixHint ?? undefined,
+      samsungIri: samsungIriHint ?? undefined,
+      usShortRate: typeof computed.sofr === 'number' ? computed.sofr : undefined,
+    });
+    computed.mhs = idx.mhs;
+    // regime 필드는 기존에 classifyRegime 이 덮어쓰므로 그대로 두되, MHS 만 반영.
+    console.log(
+      `[MarketRefresh] MHS 자체 계산 완료 — ${idx.mhs}/100 (${idx.regime}` +
+      `${idx.buyingHalted ? ', 매수중단' : ''}) | 소스 ecos=${idx.sourcesOk.ecos} fred=${idx.sourcesOk.fred}`,
+    );
+  } catch (e) {
+    console.warn('[MarketRefresh] MHS 자체 계산 실패 — 기존 MHS 유지:', e instanceof Error ? e.message : e);
+  }
 
   // ── MacroState에 MERGE 저장 ───────────────────────────────────────────────
   const updated = { ...existing, ...computed, updatedAt: new Date().toISOString() };
