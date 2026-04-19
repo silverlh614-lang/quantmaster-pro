@@ -15,7 +15,7 @@ import { fetchYahooQuote } from '../screener/stockScreener.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { analyzeAttribution } from '../learning/attributionAnalyzer.js';
-import { loadTodayScanTraces, summarizeScanTraces, formatScanTraceSummary } from '../trading/scanTracer.js';
+// scanTracer 요약은 scanReviewReport.ts(16:40) 로 이관되어 이 파일에서는 더 이상 직접 사용하지 않는다.
 
 /**
  * 아이디어 9: 일일 리포트 2.0 — Gemini AI 내러티브 리포트
@@ -622,14 +622,8 @@ export async function sendPostMarketReport(): Promise<void> {
 
   await sendTelegramAlert(msg).catch(console.error);
 
-  // 파이프라인 트레이서 — 오늘 의사결정 요약 (아이디어 10)
-  try {
-    const traces = loadTodayScanTraces();
-    if (traces.length > 0) {
-      const traceSummary = summarizeScanTraces(traces);
-      await sendTelegramAlert(formatScanTraceSummary(traceSummary)).catch(console.error);
-    }
-  } catch { /* 트레이서 실패는 리포트를 막지 않음 */ }
+  // NOTE: 파이프라인 트레이서 요약은 16:40 KST scanReviewReport 로 이관되었다 (IDEA 1).
+  // 상위 탈락 이유 Top3 + 내일 후보를 포함한 확장 포맷으로 DM+채널 동시 발송한다.
 
   console.log('[MarketReport] 장마감 요약 발송 완료');
 }

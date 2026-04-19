@@ -52,7 +52,7 @@ const EXPIRY_DAYS = 14;
 
 // ── 영속화 ────────────────────────────────────────────────────────────────────
 
-function loadDynamicUniverse(): DynamicStock[] {
+export function loadDynamicUniverse(): DynamicStock[] {
   ensureDataDir();
   if (!fs.existsSync(DYNAMIC_UNIVERSE_FILE)) return [];
   try {

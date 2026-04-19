@@ -241,6 +241,12 @@ function loadState(): PersistedState {
   try { return JSON.parse(fs.readFileSync(SECTOR_ETF_MOMENTUM_FILE, 'utf-8')); } catch { return { history: [] }; }
 }
 
+/** 최신 섹터 ETF 모멘텀 리포트. 다른 모듈에서 대시보드 소재로 읽어갈 때 사용. */
+export function getLatestSectorEtfReport(): SectorMomentumReport | null {
+  const state = loadState();
+  return state.history.length > 0 ? state.history[state.history.length - 1] : null;
+}
+
 function saveState(state: PersistedState): void {
   ensureDataDir();
   const kept = state.history.slice(-30);

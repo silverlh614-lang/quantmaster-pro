@@ -14,6 +14,7 @@ import { runDxyMonitor } from '../alerts/dxyMonitor.js';
 import { runSectorEtfMomentumScan } from '../alerts/sectorEtfMomentum.js';
 import { tickIntradayYield } from '../alerts/intradayYieldTicker.js';
 import { sweepPendingAcks } from '../alerts/ackTracker.js';
+import { checkForeignFlowLeadingAlert } from '../alerts/foreignFlowLeadingAlert.js';
 
 export function registerAlertJobs(): void {
   // DART 공시 30분 폴링 — 장중 08:30~18:00 KST (UTC 23:30~09:00)
@@ -40,6 +41,10 @@ export function registerAlertJobs(): void {
   // ADR 역산 갭 모니터 — 평일 08:35 KST (UTC 23:35, 일~목).
   // 간밤 NY 종가 기반 한국 종목 이론 시가 역산 → |갭| ≥ 2% 시 Telegram 경보.
   cron.schedule('35 23 * * 0-4', async () => { await runAdrGapScan().catch(console.error); }, { timezone: 'UTC' });
+
+  // 외국인 수급 선행 경보 — 평일 07:30 KST (UTC 22:30, 일~목). IDEA 9.
+  // EWY · DXY · 외국인 연속 순매수 3축 합치 시에만 T1 발송.
+  cron.schedule('30 22 * * 0-4', async () => { await checkForeignFlowLeadingAlert().catch(console.error); }, { timezone: 'UTC' });
 
   // 장전 방향 카드 (홍콩 30분 선행 모델) — 평일 08:30 KST (UTC 23:30, 일~목).
   // |score| ≥ 40 일 때만 선제 Telegram 경보.

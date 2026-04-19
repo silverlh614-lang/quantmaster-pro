@@ -68,6 +68,21 @@ export interface ScanTraceSummary {
   otherBlock: number;
   buyExecuted: number;
   lastScanTime: string | null;
+  /**
+   * 탈락 이유별 상세 카운트. FAIL 괄호 안의 첫 토큰 (예: "FAIL(volume_clock)" → "volume_clock")을
+   * 집계해 상위 이유 랭킹에 활용한다.
+   */
+  reasonCounts: Record<string, number>;
+}
+
+/**
+ * FAIL(xxx) 형식 문자열에서 괄호 안의 사유 토큰을 추출한다.
+ * "FAIL(volume_clock:now_09:55)" → "volume_clock"
+ */
+function extractFailReason(stageValue: string | undefined): string | null {
+  if (!stageValue || !stageValue.startsWith('FAIL')) return null;
+  const match = stageValue.match(/^FAIL\(([^:)]+)/);
+  return match ? match[1] : 'unknown';
 }
 
 /**
@@ -80,10 +95,22 @@ export function summarizeScanTraces(traces: ScanTrace[]): ScanTraceSummary {
     priceFail: 0, rrrFail: 0, gateFail: 0,
     yahooFail: 0, otherBlock: 0, buyExecuted: 0,
     lastScanTime: null,
+    reasonCounts: {},
   };
   for (const t of traces) {
     summary.lastScanTime = t.ts;
     if (t.stages.buy === 'SHADOW' || t.stages.buy === 'LIVE') { summary.buyExecuted++; continue; }
+
+    // 상위 탈락 이유 카운트 — 모든 FAIL 단계에서 첫 이유만 취함
+    for (const stageKey of Object.keys(t.stages)) {
+      const reason = extractFailReason(t.stages[stageKey]);
+      if (reason) {
+        const key = `${stageKey}:${reason}`;
+        summary.reasonCounts[key] = (summary.reasonCounts[key] ?? 0) + 1;
+        break; // 첫 FAIL만 (중복 카운트 방지)
+      }
+    }
+
     if (t.stages.price?.startsWith('FAIL'))    { summary.priceFail++;  continue; }
     if (t.stages.rrr?.startsWith('FAIL'))      { summary.rrrFail++;    continue; }
     if (t.stages.gate?.startsWith('FAIL(yahoo')) { summary.yahooFail++; continue; }
@@ -91,6 +118,23 @@ export function summarizeScanTraces(traces: ScanTrace[]): ScanTraceSummary {
     summary.otherBlock++;
   }
   return summary;
+}
+
+/**
+ * 상위 N개 탈락 이유를 카운트 내림차순으로 반환한다.
+ * UI 표시용 라벨은 "단계:이유" 형식을 유지하되, 호출자가 매핑 테이블로 번역할 수 있게 원본을 노출.
+ */
+export function topFailureReasons(
+  summary: ScanTraceSummary,
+  n = 5,
+): Array<{ key: string; stage: string; reason: string; count: number }> {
+  return Object.entries(summary.reasonCounts)
+    .map(([key, count]) => {
+      const [stage, reason] = key.split(':', 2);
+      return { key, stage, reason, count };
+    })
+    .sort((a, b) => b.count - a.count)
+    .slice(0, n);
 }
 
 /** 요약 구조를 사람이 읽기 쉬운 Telegram 문자열로 변환한다. */
