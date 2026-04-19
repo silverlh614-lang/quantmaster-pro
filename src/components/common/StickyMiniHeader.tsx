@@ -33,9 +33,12 @@ export function StickyMiniHeader() {
     .filter((s): s is number => s != null);
   const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
 
-  const updateTime = lastUpdated
-    ? new Date(lastUpdated).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-    : '--:--';
+  const updateTime = (() => {
+    if (!lastUpdated) return '--:--';
+    const d = new Date(lastUpdated);
+    if (Number.isNaN(d.getTime())) return '--:--';
+    return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  })();
 
   return (
     <div
