@@ -61,15 +61,45 @@ import operatorRouter from './routes/operatorRouter.js';
 import { startScheduler } from './scheduler/index.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 import { globalErrorHandler } from './utils/apiResponse.js';
-import { installGlobalErrorHandlers } from './utils/globalErrorHandlers.js';
+import { installGlobalErrorHandlers, setCurrentBootId } from './utils/globalErrorHandlers.js';
+import { startBoot, markBootReady, markCleanShutdown } from './persistence/bootManifest.js';
+import { errorsSince, recordPersistentError } from './persistence/persistentErrorLog.js';
 
 
 export { isEmergencyStopped, setDailyLoss };
 
 
 async function startServer() {
+  // ─── 기억 보완 회로: 부팅 매니페스트 기록 ────────────────────────────────
+  // Volume 이 마운트돼 있으면 이전 세션이 정상 종료됐는지 여기서 판정된다.
+  // (이전 엔트리 status='unknown' → 이번 시작에서 'crashed' 로 마감)
+  const bootStartNs = Date.now();
+  const bootInfo = startBoot();
+  setCurrentBootId(bootInfo.current.bootId);
+
   // 전역 에러 포획 — 가장 먼저 설치해야 이후 모든 모듈 로드 중 예외도 잡는다.
   installGlobalErrorHandlers();
+
+  // 이전 세션이 비정상 종료됐다면 → 그 세션 bootedAt 이후 에러 로그를 복기해
+  // Telegram 으로 요약 보고. Volume 이 살아있다는 증거이기도 하다.
+  if (bootInfo.previousCrashed && bootInfo.previous) {
+    const since = bootInfo.previous.bootedAt;
+    const prevErrors = errorsSince(since, 5);
+    const snippet = prevErrors.length > 0
+      ? prevErrors.map(e => `• [${e.severity}] ${e.source}: ${e.message}`).join('\n')
+      : '(영속 로그에 기록된 에러 없음 — OOM/SIGKILL 추정)';
+    sendTelegramAlert(
+      `<b>[기억 보완] 이전 세션 비정상 종료 감지</b>\n` +
+      `이전 bootId: <code>${bootInfo.previous.bootId}</code>\n` +
+      `시작: ${since}\n` +
+      `종료: (마감 기록 없음)\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `${snippet}`,
+      { priority: 'HIGH', dedupeKey: `prev_crash:${bootInfo.previous.bootId}`, category: 'boot_audit' },
+    ).catch(() => { /* noop */ });
+    console.warn(`[BootManifest] 이전 세션 (${bootInfo.previous.bootId}) 비정상 종료로 마감됨`);
+  }
+  console.log(`[BootManifest] bootId=${bootInfo.current.bootId} pid=${process.pid} mode=${bootInfo.current.tradeMode}`);
 
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
@@ -211,9 +241,14 @@ async function startServer() {
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
 
+    // 부팅 완료 시점 기록 — 기억 보완 회로 (startupMs).
+    markBootReady(bootInfo.current.bootId, Date.now() - bootStartNs);
+
     // ─── Graceful shutdown (Railway SIGTERM 대응) ─────────────────────────
     const shutdown = (signal: string) => {
       console.log(`[Server] ${signal} 수신 — graceful shutdown 시작`);
+      // 기억 보완 회로: 정상 종료 마감 — 다음 부팅에서 'clean' 으로 관측된다.
+      try { markCleanShutdown(bootInfo.current.bootId, signal); } catch { /* noop */ }
       // Idea 4: AI 캐시 강제 flush — debounce 타이머 대기 없이 디스크에 저장
       import('./persistence/aiCacheRepo.js')
         .then(({ flushAiCache }) => flushAiCache())
@@ -294,5 +329,6 @@ async function startServer() {
 
 startServer().catch((error) => {
   console.error('[Server] Failed to start:', error);
+  try { recordPersistentError('startServer', error, 'FATAL'); } catch { /* noop */ }
   process.exit(1);
 });

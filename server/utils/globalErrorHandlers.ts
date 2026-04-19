@@ -5,13 +5,24 @@
  * cron 콜백·orchestrator tick·setInterval 내부에서 터진 오류는 Node의 기본 경로를
  *타고 로그만 찍힌 뒤 소리 없이 사라진다. 본 모듈은 그런 조용한 죽음을 방지한다.
  *
- * 포획 즉시 T1 🚨 경보로 승격하여 참뮌이 실시간으로 인지하고, 에러 스택은
- * 이메일 에스컬레이션 루프가 재발송까지 담당한다. uncaughtException 발생 시
- * process를 죽이지 않는다 — Railway 자동 재시작이 거래 흐름을 더 크게 깰 수 있다.
+ * 포획 순서:
+ *   1) persistentErrorLog 에 먼저 append — Telegram 발송 실패/봇 정지와 무관하게
+ *      재부팅 후에도 증거가 남는다 (기억 보완 회로).
+ *   2) T1 🚨 경보 승격. 이메일 에스컬레이션 루프가 재발송 담당.
+ *
+ * uncaughtException 발생 시 process를 죽이지 않는다 — Railway 자동 재시작이
+ * 거래 흐름을 더 크게 깰 수 있다.
  */
 import { sendTelegramAlert, escapeHtml } from '../alerts/telegramClient.js';
+import { recordPersistentError } from '../persistence/persistentErrorLog.js';
 
 let installed = false;
+let currentBootId: string | undefined;
+
+/** server/index.ts startBoot() 직후 호출 — 이후 기록되는 에러에 bootId 태깅. */
+export function setCurrentBootId(bootId: string): void {
+  currentBootId = bootId;
+}
 
 export function installGlobalErrorHandlers(): void {
   if (installed) return;
@@ -19,6 +30,10 @@ export function installGlobalErrorHandlers(): void {
 
   process.on('uncaughtException', (err: Error) => {
     console.error('[GlobalError] uncaughtException:', err);
+    try {
+      recordPersistentError('uncaughtException', err, 'FATAL',
+        currentBootId ? { bootId: currentBootId } : undefined);
+    } catch { /* 기록 실패해도 알림은 시도 */ }
     const stackHead = (err.stack ?? err.message ?? String(err)).split('\n').slice(0, 6).join('\n');
     sendTelegramAlert(
       `<b>[uncaughtException 감지]</b>\n` +
@@ -38,6 +53,10 @@ export function installGlobalErrorHandlers(): void {
   process.on('unhandledRejection', (reason: unknown) => {
     const err = reason instanceof Error ? reason : new Error(String(reason));
     console.error('[GlobalError] unhandledRejection:', err);
+    try {
+      recordPersistentError('unhandledRejection', err, 'FATAL',
+        currentBootId ? { bootId: currentBootId } : undefined);
+    } catch { /* noop */ }
     const stackHead = (err.stack ?? err.message ?? String(err)).split('\n').slice(0, 6).join('\n');
     sendTelegramAlert(
       `<b>[unhandledRejection 감지]</b>\n` +
