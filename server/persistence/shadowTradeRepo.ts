@@ -251,6 +251,13 @@ export interface ServerShadowTrade {
    * 기존 포지션은 fills가 없을 수 있음 — 레거시 returnPct로 폴백.
    */
   fills?: PositionFill[];
+  /**
+   * Phase 2차 C5 — Sample Quarantine Protocol:
+   * 치명 버그(incident) 발생 시각 이후에 생성된 Shadow 샘플에 자동 부착되는 태그.
+   * 값 = incident ISO 타임스탬프. 이 태그가 있는 샘플은 캘리브레이션·워크포워드
+   * 분석에서 자동 제외된다 (사람이 삭제하지 않아도 통계에서 자동 격리).
+   */
+  incidentFlag?: string;
 }
 
 export function loadShadowTrades(): ServerShadowTrade[] {

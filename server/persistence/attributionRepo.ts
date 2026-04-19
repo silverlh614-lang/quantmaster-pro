@@ -16,7 +16,7 @@
  */
 
 import fs from 'fs';
-import { ATTRIBUTION_FILE, ensureDataDir } from './paths.js';
+import { ATTRIBUTION_FILE, SHADOW_FILE, ensureDataDir } from './paths.js';
 
 // ── 스키마 버전 ──────────────────────────────────────────────────────────────
 
@@ -141,6 +141,25 @@ export function loadCurrentSchemaRecords(): ServerAttributionRecord[] {
   );
 }
 
+/**
+ * Phase 2차 C5 — shadow-trades.json 에서 incidentFlag 가 부착된 tradeId 집합.
+ * shadowTradeRepo 를 직접 import 하지 않고 파일 레벨로 읽어서 순환 의존을 회피.
+ * 파일이 없거나 파싱 실패 시 빈 Set 반환 — 격리 로직은 안전 기본값.
+ */
+export function collectFlaggedTradeIds(): Set<string> {
+  try {
+    if (!fs.existsSync(SHADOW_FILE)) return new Set();
+    const raw = JSON.parse(fs.readFileSync(SHADOW_FILE, 'utf-8')) as Array<{ id?: string; incidentFlag?: string }>;
+    const ids = new Set<string>();
+    for (const t of raw) {
+      if (t?.incidentFlag && t.id) ids.add(t.id);
+    }
+    return ids;
+  } catch {
+    return new Set();
+  }
+}
+
 // ── 집계 유틸 ─────────────────────────────────────────────────────────────────
 
 function avg(arr: number[]): number {
@@ -157,7 +176,9 @@ function winRatePct(arr: number[]): number {
  */
 export function computeAttributionStats(): AttributionConditionStat[] {
   // 현행 스키마만 집계 — 혼합 스키마로 인한 NaN/왜곡 방지
-  const records = loadCurrentSchemaRecords();
+  // Phase 2차 C5: incidentFlag 가 붙은 Shadow 거래는 결과 집계에서도 격리.
+  const flaggedTradeIds = collectFlaggedTradeIds();
+  const records = loadCurrentSchemaRecords().filter(r => !flaggedTradeIds.has(r.tradeId));
   if (records.length === 0) return [];
 
   const condMap: Record<

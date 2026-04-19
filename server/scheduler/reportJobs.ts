@@ -19,6 +19,7 @@ import {
   sendSampleStallAlertIfNeeded,
 } from '../alerts/shadowProgressBriefing.js';
 import { sendWeeklyIntegrityReport } from '../alerts/weeklyIntegrityReport.js';
+import { runHourlyCanary } from '../learning/mutationCanary.js';
 
 export function registerReportJobs(): void {
   // 주간 리포트 — 매주 금요일 16:30 KST (UTC 07:30)
@@ -71,5 +72,11 @@ export function registerReportJobs(): void {
   // 주간 신호 발생 패턴 · 조건 활성화 빈도 · 판단 로직 해시값 변동 여부 요약.
   cron.schedule('0 1 * * 0', async () => {
     await sendWeeklyIntegrityReport().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // Phase 2차 C4 — Mutation Canary: 매시간 정각, 고정 입력 → 고정 출력 검증.
+  // 판단 로직에 우발적 변경이 일어난 직후 ≤ 60분 내 CRITICAL 경보.
+  cron.schedule('0 * * * *', async () => {
+    await runHourlyCanary().catch(console.error);
   }, { timezone: 'UTC' });
 }

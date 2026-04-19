@@ -22,6 +22,7 @@ import { learningOrchestrator } from './learningOrchestrator.js';
 import { shouldRunMonthlyEvolution, getLearningInterval } from '../learning/adaptiveLearningClock.js';
 import { scanAndUpdateIntradayWatchlist } from '../screener/intradayScanner.js';
 import { clearIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
+import { runPreMarketSmokeTest } from '../trading/preMarketSmokeTest.js';
 
 // ─── 편의 조회 래퍼 ────────────────────────────────────────────────────────────
 export function getShadowTrades() { return loadShadowTrades(); }
@@ -319,6 +320,9 @@ export class TradingDayOrchestrator {
         if (t >= 845 && !this.hasRan('openAuction')) {
           console.log('[Orchestrator] 장 전 준비 시작 (KST 08:45+)');
           await refreshKisToken().catch(console.error);
+          // Phase 2차 C7 — 스모크 테스트 게이트: 실패 시 LIVE 주문 자동 차단.
+          // 토큰 갱신 직후에 실행하여 토큰 유효성도 함께 검증.
+          await runPreMarketSmokeTest().catch(console.error);
           // 아이디어 8: 분할 매수 대기 트랜치 실행
           await trancheExecutor.checkPendingTranches().catch(console.error);
           await preScreenStocks().catch(console.error);

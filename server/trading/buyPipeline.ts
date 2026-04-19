@@ -24,12 +24,15 @@ import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { computeEtfSectorBoost } from '../alerts/globalScanAgent.js';
 import { getSectorByCode } from '../screener/sectorMap.js';
 import { generatePreMortem } from './entryEngine.js';
-import { placeKisMarketBuyOrder } from '../clients/kisClient.js';
+import { placeKisMarketBuyOrder, fetchAccountBalance } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { requestBuyApproval } from '../telegram/buyApproval.js';
 import { fetchEnemyCheckData } from '../clients/enemyCheckClient.js';
 import { fillMonitor } from './fillMonitor.js';
 import { appendShadowLog } from '../persistence/shadowTradeRepo.js';
+import { getLatestIncidentAt } from '../persistence/incidentLogRepo.js';
+import { assertSafeOrder } from './preOrderGuard.js';
+import { getSmokeTestLiveBlocked, getSmokeTestLastFailedReason } from '../state.js';
 
 // ── 진행 중 매수 주문 예약 테이블 ────────────────────────────────────────────
 // kisPost 가 수초(시장가 경합/재시도 포함) 걸리는 동안 다른 스캔 사이클이
@@ -142,6 +145,9 @@ export interface BuildBuyTradeParams {
  * 4개 매수 경로에서 중복 생성하던 20+ 필드 객체를 통합.
  */
 export function buildBuyTrade(p: BuildBuyTradeParams): ServerShadowTrade {
+  // Phase 2차 C5 — 현재 활성 incident 가 있으면 해당 시점 이후 생성되는 Shadow 샘플은
+  // 자동으로 incidentFlag 가 부착되어 캘리브레이션에서 격리된다.
+  const latestIncident = getLatestIncidentAt();
   return {
     id:                    `${p.idPrefix}_${Date.now()}_${p.stockCode}`,
     stockCode:             p.stockCode,
@@ -167,6 +173,7 @@ export function buildBuyTrade(p: BuildBuyTradeParams): ServerShadowTrade {
     trailingEnabled:       false,
     entryATR14:            p.entryATR14 || undefined,
     dynamicStopPrice:      p.stopLossPlan.dynamicStopLoss,
+    ...(latestIncident ? { incidentFlag: latestIncident } : {}),
   };
 }
 
@@ -260,6 +267,15 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
 
       if (!p.shadowMode) {
         // LIVE 모드: KIS 실주문
+        // Phase 2차 C7 — 당일 Pre-Market Smoke Test 가 실패했으면 LIVE 경로 완전 차단.
+        if (getSmokeTestLiveBlocked()) {
+          console.warn(
+            `[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) smoke-test 실패로 LIVE 차단 — ${getSmokeTestLastFailedReason()}`,
+          );
+          p.trade.status = 'REJECTED';
+          p.onRejected?.(p.trade, 'SKIP');
+          return;
+        }
         // 중복 발사 가드 — 동일 trade.id 에 대해 이미 주문이 진행 중이면 즉시 REJECTED.
         if (_inflightBuyOrders.has(p.trade.id)) {
           console.warn(`[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) 이미 주문 진행 중 — 중복 발사 차단`);
@@ -268,6 +284,28 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
           return;
         }
         _inflightBuyOrders.add(p.trade.id);
+
+        // Phase 2차 C3 — 주문 직전 Automated Kill Switch 검증.
+        // 포지션 팽창·손절 논리 붕괴·무한 루프 감지 시 여기서 throw → REJECTED.
+        try {
+          const totalAssets = await fetchAccountBalance().catch(() => null);
+          assertSafeOrder({
+            stockCode:   p.stockCode,
+            stockName:   p.stockName,
+            quantity:    p.quantity,
+            entryPrice:  p.entryPrice,
+            stopLoss:    p.stopLoss,
+            totalAssets,
+          });
+        } catch (e) {
+          // PreOrderGuardError — 이미 incident 기록 + EmergencyStop + Telegram 경보 완료.
+          console.error(`[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) 사전 가드 차단:`,
+            e instanceof Error ? e.message : e);
+          p.trade.status = 'REJECTED';
+          p.onRejected?.(p.trade, 'SKIP');
+          _inflightBuyOrders.delete(p.trade.id);
+          return;
+        }
 
         try {
           ordNo = await placeKisMarketBuyOrder(p.stockCode, p.quantity);
