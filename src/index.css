@@ -252,6 +252,14 @@
     color-scheme: dark;
   }
 
+  /* 전역 포커스 링 안전망 — Button 프리미티브를 쓰지 않는 raw <button>/<a> 요소에도
+     키보드 포커스 시 명확한 고대비 링을 제공. 마우스 클릭 시에는 표시되지 않는다. */
+  :where(button, a, [role='button'], [role='tab']):focus-visible {
+    outline: 2px solid rgba(59, 130, 246, 0.65);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
   html {
     transition: font-size 0.2s ease-out;
     text-rendering: optimizeLegibility;

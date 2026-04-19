@@ -76,7 +76,7 @@ export function Badge({ variant = 'default', size = 'md', pulse = false, neo = f
       {...props}
     >
       {pulse && (
-        <span className="relative flex h-2 w-2 shrink-0">
+        <span className="relative flex h-2 w-2 shrink-0" aria-hidden="true">
           <span className={cn(
             'absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping',
             dotColors[variant]
