@@ -4,6 +4,7 @@ import {
   momentumEvaluator,
   maAlignmentEvaluator,
   relativeStrengthEvaluator,
+  breakoutMomentumEvaluator,
   volumeBreakoutEvaluator,
   volumeSurgeEvaluator,
   vcpEvaluator,
@@ -19,7 +20,7 @@ function quote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteExtended 
     changePercent: 0,
     volume: 100, avgVolume: 100,
     ma5: 10000, ma20: 9800, ma60: 9600,
-    high20d: 10000, high60d: 11000,
+    high5d: 10000, high20d: 10000, high60d: 11000,
     atr: 200, atr20avg: 250, atr5d: 200,
     per: 10,
     rsi14: 55, rsi5dAgo: 50, weeklyRSI: 55,
@@ -92,7 +93,7 @@ describe('ConditionRegistry — 등록/실행', () => {
 // ─── 정적 분석 — 같은 입력 공유 발견 ─────────────────────────────────────────
 
 describe('ConditionRegistry — findSharedInputs (정적 분석)', () => {
-  it('momentum + relative_strength + volume_surge 가 quote.changePercent 공유', () => {
+  it('momentum + relative_strength + volume_surge 가 quote.changePercent 공유 — 정적 분석은 이를 감지한다', () => {
     const reg = new ConditionRegistry()
       .register(momentumEvaluator)
       .register(relativeStrengthEvaluator)
@@ -101,6 +102,28 @@ describe('ConditionRegistry — findSharedInputs (정적 분석)', () => {
     const cp = shared.find(s => s.input === 'quote.changePercent');
     expect(cp).toBeDefined();
     expect(cp!.evaluators.sort()).toEqual(['momentum', 'relative_strength', 'volume_surge']);
+  });
+
+  // Phase 1 B3 회귀 테스트 — Gate 24 (breakout_momentum) 는 더 이상 changePercent 를 입력으로 받지 않는다.
+  it('Gate 2 (momentum) and Gate 24 (breakout_momentum) must use distinct condition keys AND distinct primary inputs', () => {
+    expect(momentumEvaluator.key).not.toBe(breakoutMomentumEvaluator.key);
+    const momentumInputs = new Set(momentumEvaluator.inputs);
+    const breakoutInputs = new Set(breakoutMomentumEvaluator.inputs);
+    // 두 평가기는 quote.changePercent 를 동시에 참조하지 않아야 한다.
+    const shared = [...momentumInputs].filter(i => breakoutInputs.has(i));
+    expect(shared).toEqual([]);
+    // breakout_momentum 의 핵심 입력은 5일 고점 + 거래량이어야 함.
+    expect(breakoutInputs.has('quote.high5d')).toBe(true);
+    expect(breakoutInputs.has('quote.volume')).toBe(true);
+  });
+
+  // Phase 1 B3 회귀 테스트 — relative_strength 는 kospiDayReturn 없이 발화하지 않아야 한다.
+  it('relative_strength does NOT fire without kospiDayReturn (prevents momentum overlap)', () => {
+    const out = relativeStrengthEvaluator.evaluate({
+      quote: quote({ changePercent: 5 }),
+      weights: DEFAULT_CONDITION_WEIGHTS,
+    });
+    expect(out).toBeNull();
   });
 
   it('volume_breakout + volume_surge 가 quote.volume / quote.avgVolume 공유', () => {
@@ -119,12 +142,15 @@ describe('ConditionRegistry — findSharedInputs (정적 분석)', () => {
     expect(reg.findSharedInputs()).toEqual([]);
   });
 
-  it('defaultRegistry: changePercent 가 ≥ 2개 evaluator 에서 사용됨 (사용자 지적사항 자동 검증)', () => {
+  it('defaultRegistry: breakout_momentum 은 momentum 과 quote.changePercent 를 공유하지 않는다 (Phase 1 B3)', () => {
     const shared = defaultRegistry.findSharedInputs();
     const cp = shared.find(s => s.input === 'quote.changePercent');
     expect(cp).toBeDefined();
+    // breakout_momentum 은 changePercent 를 사용하지 않아야 — 공유 목록에 없어야 한다
+    expect(cp!.evaluators).not.toContain('breakout_momentum');
+    // 정적 분석상 momentum 과 relative_strength 는 여전히 입력이 겹치지만,
+    // 런타임 의미적 격리(kospiDayReturn 강제)로 중복 발화는 차단된다.
     expect(cp!.evaluators).toContain('momentum');
-    expect(cp!.evaluators).toContain('relative_strength');
   });
 });
 
@@ -151,12 +177,12 @@ describe('evaluateServerGate — 리팩토링 동작 동등성', () => {
     expect(r.signalType).toBe('SKIP');
   });
 
-  it('모멘텀 +2.5% 통과 + 상대강도 절대기준(1.5%) 자동 통과 — 사용자가 지적한 changePercent 중복 사용의 결과', () => {
+  it('모멘텀 +2.5% 통과 시, relative_strength 는 kospiDayReturn 없이 발화하지 않음 (B3 격리 후)', () => {
     const r = evaluateServerGate(quote({
       changePercent: 2.5,
       rsi14: 30, rsi5dAgo: 30,
       ma5: 0, ma20: 0, ma60: 0,
-      per: 0, high20d: 0,
+      per: 0, high5d: 0, high20d: 0,
       avgVolume: 0,
       macdHistogram: -1, macd5dHistAgo: -1,
       bbWidthCurrent: 1, bbWidth20dAvg: 1,
@@ -164,10 +190,9 @@ describe('evaluateServerGate — 리팩토링 동작 동등성', () => {
       atr5d: 1, atr20avg: 1,
       ma60TrendUp: false, weeklyRSI: 30,
     }));
-    // changePercent 한 필드가 momentum + relative_strength 두 evaluator 모두에 통과 점수 부여.
-    // findSharedInputs() 가 이 의존을 자동 발견해 사용자에게 가시화한다.
-    expect(r.conditionKeys.sort()).toEqual(['momentum', 'relative_strength']);
-    expect(r.gateScore).toBeCloseTo(2.0, 5);
+    // changePercent 한 필드가 과거엔 momentum + relative_strength 동시 발화했음. 이제 분리.
+    expect(r.conditionKeys).toEqual(['momentum']);
+    expect(r.gateScore).toBeCloseTo(1.0, 5);
   });
 
   it('모멘텀 단독 통과 — kospiDayReturn 제공으로 상대강도 격차 차단', () => {
@@ -175,7 +200,7 @@ describe('evaluateServerGate — 리팩토링 동작 동등성', () => {
       changePercent: 2.5,
       rsi14: 30, rsi5dAgo: 30,
       ma5: 0, ma20: 0, ma60: 0,
-      per: 0, high20d: 0,
+      per: 0, high5d: 0, high20d: 0,
       avgVolume: 0,
       macdHistogram: -1, macd5dHistAgo: -1,
       bbWidthCurrent: 1, bbWidth20dAvg: 1,
@@ -187,18 +212,39 @@ describe('evaluateServerGate — 리팩토링 동작 동등성', () => {
     expect(r.gateScore).toBeCloseTo(1.0, 5);
   });
 
-  it('정배열 + 거래량 돌파 + RSI건강 + MA60우상향 + 주봉RSI = 5개 조건 통과', () => {
+  // Phase 1 B3 회귀 — breakout_momentum 이 5일 고점 + 거래량 조건에서 독립적으로 발화
+  it('breakout_momentum: 5일 고점 돌파 + 거래량 1.5배 이상 시 독립 발화', () => {
+    const r = evaluateServerGate(quote({
+      changePercent: 0,      // changePercent 는 이 조건에 영향 없음
+      high5d: 10000,
+      price: 10150,          // 5일 고점 대비 +1.5%
+      volume: 200, avgVolume: 100,  // 2배 거래량
+      rsi14: 30, rsi5dAgo: 30,
+      ma5: 0, ma20: 0, ma60: 0,
+      per: 0, high20d: 0,
+      macdHistogram: -1, macd5dHistAgo: -1,
+      bbWidthCurrent: 1, bbWidth20dAvg: 1,
+      vol5dAvg: 1, vol20dAvg: 1,
+      atr5d: 1, atr20avg: 1,
+      ma60TrendUp: false, weeklyRSI: 30,
+    }));
+    expect(r.conditionKeys).toContain('breakout_momentum');
+    // momentum 은 changePercent=0 이므로 발화하지 않음 — 두 조건이 진정 독립임을 확인
+    expect(r.conditionKeys).not.toContain('momentum');
+  });
+
+  it('정배열 + 거래량 돌파 + RSI건강 + MA60우상향 + 주봉RSI = 5개 조건 통과 (breakout_momentum 차단)', () => {
     const r = evaluateServerGate(quote({
       changePercent: 0,
       ma5: 10000, ma20: 9800, ma60: 9600,
-      avgVolume: 100, volume: 250,   // 2.5배
+      avgVolume: 100, volume: 250,   // 2.5배 — volume_breakout 발화
       rsi14: 55, weeklyRSI: 55,
       ma60TrendUp: true,
       macdHistogram: -1, macd5dHistAgo: -1,
       bbWidthCurrent: 1, bbWidth20dAvg: 1,
       vol5dAvg: 1, vol20dAvg: 1,
       atr5d: 1, atr20avg: 1,
-      per: 0, high20d: 0, high60d: 0,
+      per: 0, high5d: 0, high20d: 0, high60d: 0,  // high5d=0 → breakout_momentum 차단
     }));
     expect(r.conditionKeys.sort()).toEqual(
       ['ma60_rising', 'ma_alignment', 'rsi_zone', 'volume_breakout', 'weekly_rsi_zone'].sort()
@@ -207,19 +253,19 @@ describe('evaluateServerGate — 리팩토링 동작 동등성', () => {
     expect(r.gateScore).toBeCloseTo(4.8, 5);
   });
 
-  it('상대강도 — KOSPI 미제공 시 절대 1.5% 기준', () => {
-    const passed = evaluateServerGate(quote({
+  it('상대강도 — KOSPI 미제공 시 발화하지 않음 (Phase 1 B3)', () => {
+    const result = evaluateServerGate(quote({
       changePercent: 1.6,
       rsi14: 30, rsi5dAgo: 30,
       ma5: 0, ma20: 0, ma60: 0,
-      avgVolume: 0, per: 0, high20d: 0,
+      avgVolume: 0, per: 0, high5d: 0, high20d: 0,
       macdHistogram: -1, macd5dHistAgo: -1,
       bbWidthCurrent: 1, bbWidth20dAvg: 1,
       vol5dAvg: 1, vol20dAvg: 1,
       atr5d: 1, atr20avg: 1,
       ma60TrendUp: false, weeklyRSI: 30,
     }));
-    expect(passed.conditionKeys).toContain('relative_strength');
+    expect(result.conditionKeys).not.toContain('relative_strength');
   });
 
   it('상대강도 — KOSPI 제공 시 1.0%p 차이 기준', () => {
@@ -227,7 +273,7 @@ describe('evaluateServerGate — 리팩토링 동작 동등성', () => {
       changePercent: 1.5,
       rsi14: 30, rsi5dAgo: 30,
       ma5: 0, ma20: 0, ma60: 0,
-      avgVolume: 0, per: 0, high20d: 0,
+      avgVolume: 0, per: 0, high5d: 0, high20d: 0,
       macdHistogram: -1, macd5dHistAgo: -1,
       bbWidthCurrent: 1, bbWidth20dAvg: 1,
       vol5dAvg: 1, vol20dAvg: 1,

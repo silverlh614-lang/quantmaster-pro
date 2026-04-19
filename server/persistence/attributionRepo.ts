@@ -8,14 +8,30 @@
  * 조건별 성과를 보완적으로 분석할 수 있다.
  *
  * 보관 한도: 최근 500건 (saveAttributionRecords 내 자동 트리밍)
+ *
+ * 스키마 버전 (Phase 1 B5):
+ *   CURRENT_ATTRIBUTION_SCHEMA_VERSION 이 쓰기 시 자동 부여된다.
+ *   과거 버전 레코드는 자동 migration 으로 현 스키마로 맞추거나, migration 불가 시
+ *   `schemaVersion === CURRENT` 필터를 통해 집계/캘리브레이션에서 격리된다.
  */
 
 import fs from 'fs';
-import { ATTRIBUTION_FILE, ensureDataDir } from './paths.js';
+import { ATTRIBUTION_FILE, SHADOW_FILE, ensureDataDir } from './paths.js';
+
+// ── 스키마 버전 ──────────────────────────────────────────────────────────────
+
+/**
+ * 현재 귀인 레코드 스키마 버전.
+ *   - v0: 과거 (schemaVersion 필드 없음, Phase 1 이전)
+ *   - v1: Phase 1 — schemaVersion 도입, Gate 24 semantic separation 반영
+ */
+export const CURRENT_ATTRIBUTION_SCHEMA_VERSION = 1 as const;
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
 export interface ServerAttributionRecord {
+  /** 스키마 버전 — 미지정(레거시) 레코드는 v0 으로 취급된다. */
+  schemaVersion?: number;
   tradeId:         string;
   stockCode:       string;
   stockName:       string;
@@ -67,11 +83,81 @@ export function saveAttributionRecords(records: ServerAttributionRecord[]): void
 }
 
 export function appendAttributionRecord(record: ServerAttributionRecord): void {
+  // 신규 저장 시 현재 스키마 버전 강제 기록 — 과거 v0 혼입 방지.
+  const versioned: ServerAttributionRecord = {
+    ...record,
+    schemaVersion: record.schemaVersion ?? CURRENT_ATTRIBUTION_SCHEMA_VERSION,
+  };
   const records = loadAttributionRecords();
-  // 중복 tradeId 방지
-  const filtered = records.filter((r) => r.tradeId !== record.tradeId);
-  filtered.push(record);
+  const filtered = records.filter((r) => r.tradeId !== versioned.tradeId);
+  filtered.push(versioned);
   saveAttributionRecords(filtered.slice(-500));
+}
+
+/**
+ * Phase 1 B5 — 스키마 버전 마이그레이션 유틸리티.
+ *
+ * - v0 (schemaVersion 누락): conditionScores 형태가 유효하면 v1 로 승격.
+ * - conditionScores 가 없거나 객체가 아닌 레코드는 "격리 대상" 으로 분류.
+ *
+ * 반환: { migrated, quarantined } 수.
+ *
+ * 집계 경로 (computeAttributionStats) 는 오직 CURRENT 버전만 읽어 NaN 전염을 차단한다.
+ */
+export function migrateAttributionRecords(): { migrated: number; quarantined: number; total: number } {
+  const records = loadAttributionRecords();
+  let migrated = 0;
+  let quarantined = 0;
+
+  const normalized: ServerAttributionRecord[] = [];
+  for (const rec of records) {
+    const version = rec.schemaVersion ?? 0;
+    const hasScores = rec.conditionScores && typeof rec.conditionScores === 'object';
+    if (!hasScores || !rec.tradeId || typeof rec.returnPct !== 'number') {
+      quarantined++;
+      continue; // 격리: 집계에서 제외
+    }
+    if (version < CURRENT_ATTRIBUTION_SCHEMA_VERSION) {
+      normalized.push({ ...rec, schemaVersion: CURRENT_ATTRIBUTION_SCHEMA_VERSION });
+      migrated++;
+    } else {
+      normalized.push(rec);
+    }
+  }
+
+  if (migrated > 0 || quarantined > 0) {
+    saveAttributionRecords(normalized);
+  }
+  return { migrated, quarantined, total: records.length };
+}
+
+/**
+ * 집계 안전을 위한 필터 — 오직 현행 스키마 레코드만 돌려준다.
+ * 캘리브레이션 / 통계 / 주간 리포트가 공통으로 사용.
+ */
+export function loadCurrentSchemaRecords(): ServerAttributionRecord[] {
+  return loadAttributionRecords().filter(
+    (r) => (r.schemaVersion ?? 0) === CURRENT_ATTRIBUTION_SCHEMA_VERSION,
+  );
+}
+
+/**
+ * Phase 2차 C5 — shadow-trades.json 에서 incidentFlag 가 부착된 tradeId 집합.
+ * shadowTradeRepo 를 직접 import 하지 않고 파일 레벨로 읽어서 순환 의존을 회피.
+ * 파일이 없거나 파싱 실패 시 빈 Set 반환 — 격리 로직은 안전 기본값.
+ */
+export function collectFlaggedTradeIds(): Set<string> {
+  try {
+    if (!fs.existsSync(SHADOW_FILE)) return new Set();
+    const raw = JSON.parse(fs.readFileSync(SHADOW_FILE, 'utf-8')) as Array<{ id?: string; incidentFlag?: string }>;
+    const ids = new Set<string>();
+    for (const t of raw) {
+      if (t?.incidentFlag && t.id) ids.add(t.id);
+    }
+    return ids;
+  } catch {
+    return new Set();
+  }
 }
 
 // ── 집계 유틸 ─────────────────────────────────────────────────────────────────
@@ -89,7 +175,10 @@ function winRatePct(arr: number[]): number {
  * score >= 7 → "고점수" / score < 5 → "저점수" 구간으로 분리.
  */
 export function computeAttributionStats(): AttributionConditionStat[] {
-  const records = loadAttributionRecords();
+  // 현행 스키마만 집계 — 혼합 스키마로 인한 NaN/왜곡 방지
+  // Phase 2차 C5: incidentFlag 가 붙은 Shadow 거래는 결과 집계에서도 격리.
+  const flaggedTradeIds = collectFlaggedTradeIds();
+  const records = loadCurrentSchemaRecords().filter(r => !flaggedTradeIds.has(r.tradeId));
   if (records.length === 0) return [];
 
   const condMap: Record<

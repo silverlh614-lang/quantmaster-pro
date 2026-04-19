@@ -8,59 +8,55 @@ interface Props {
 
 export function MarketPositionSection({ stock }: Props) {
   return (
-    <div className="mb-10">
-      <div className="flex items-center gap-3 mb-6 px-4">
-        <div className="w-1.5 h-6 bg-blue-500 rounded-full" />
-        <h3 className="text-xl font-black text-white uppercase tracking-tighter">Market Position</h3>
+    <div className="mb-6">
+      <div className="flex items-center gap-2.5 mb-3 px-1">
+        <div className="w-1 h-5 bg-blue-500 rounded-full" />
+        <h3 className="text-base font-black text-white uppercase tracking-tighter">Market Position</h3>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <div className="bg-white/5 rounded-3xl p-6 border border-white/10 flex flex-col items-center justify-center text-center">
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-2">Momentum Rank</span>
-          <span className="text-3xl font-black text-blue-400">#{stock.momentumRank}</span>
-          <span className="text-[9px] font-bold text-white/40 mt-1">Top {Math.round((stock.momentumRank / 2500) * 100)}% of Market</span>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">
+          <span className="text-[9px] font-black text-white/25 uppercase tracking-widest mb-1.5">Momentum Rank</span>
+          <span className="text-2xl font-black text-blue-400">#{stock.momentumRank}</span>
+          <span className="text-[9px] font-bold text-white/40 mt-0.5">Top {Math.round((stock.momentumRank / 2500) * 100)}%</span>
         </div>
 
-        <div className="bg-white/5 rounded-3xl p-6 border border-white/10 flex flex-col items-center justify-center text-center">
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-2">Supply Quality</span>
-          <div className="flex gap-2">
-            <div className={cn("px-3 py-1 rounded-full text-[10px] font-black border",
+        <div className="bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">
+          <span className="text-[9px] font-black text-white/25 uppercase tracking-widest mb-1.5">Supply Quality</span>
+          <div className="flex gap-1.5">
+            <div className={cn("px-2 py-0.5 rounded text-[9px] font-black border",
               stock.supplyQuality?.active ? "bg-orange-500/20 text-orange-400 border-orange-500/30" : "bg-white/5 text-white/20 border-white/10")}>
               ACTIVE
             </div>
-            <div className={cn("px-3 py-1 rounded-full text-[10px] font-black border",
+            <div className={cn("px-2 py-0.5 rounded text-[9px] font-black border",
               stock.supplyQuality?.passive ? "bg-blue-500/20 text-blue-400 border-blue-500/30" : "bg-white/5 text-white/20 border-white/10")}>
               PASSIVE
             </div>
           </div>
         </div>
 
-        <div className="bg-white/5 rounded-3xl p-6 border border-white/10 flex flex-col items-center justify-center text-center">
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-2">Sector Status</span>
-          <div className="flex flex-col items-center">
-            <span className={cn("text-sm font-black mb-1", stock.isLeadingSector ? "text-orange-400" : "text-white/40")}>
-              {stock.isLeadingSector ? "LEADING SECTOR" : "SECONDARY SECTOR"}
-            </span>
-            <span className="text-[9px] font-bold text-white/20 uppercase tracking-widest">
-              {stock.isPreviousLeader ? "PREVIOUS LEADER" : "NEW LEADER CANDIDATE"}
-            </span>
-          </div>
+        <div className="bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">
+          <span className="text-[9px] font-black text-white/25 uppercase tracking-widest mb-1.5">Sector Status</span>
+          <span className={cn("text-xs font-black", stock.isLeadingSector ? "text-orange-400" : "text-white/40")}>
+            {stock.isLeadingSector ? "LEADING" : "SECONDARY"}
+          </span>
+          <span className="text-[9px] font-bold text-white/25 uppercase tracking-widest mt-0.5">
+            {stock.isPreviousLeader ? "PREV LEADER" : "NEW CANDIDATE"}
+          </span>
         </div>
 
-        <div className="bg-white/5 rounded-3xl p-6 border border-white/10 flex flex-col items-center justify-center text-center">
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-2">Peak Distance</span>
-          <div className="flex flex-col items-center">
-            <span className="text-xl font-black text-white">₩{stock.peakPrice?.toLocaleString()}</span>
-            <span className="text-[10px] font-black text-red-400 mt-1">
-              -{Math.round((1 - (stock.currentPrice / (stock.peakPrice || 1))) * 100)}% from Peak
-            </span>
-          </div>
+        <div className="bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">
+          <span className="text-[9px] font-black text-white/25 uppercase tracking-widest mb-1.5">Peak Distance</span>
+          <span className="text-base font-black text-white">₩{stock.peakPrice?.toLocaleString()}</span>
+          <span className="text-[10px] font-black text-red-400 mt-0.5">
+            -{Math.round((1 - (stock.currentPrice / (stock.peakPrice || 1))) * 100)}%
+          </span>
         </div>
 
-        <div className="bg-white/5 rounded-3xl p-6 border border-white/10 flex flex-col items-center justify-center text-center">
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-2">Market Cap</span>
-          <span className="text-lg font-black text-white uppercase tracking-tight">{stock.marketCapCategory} CAP</span>
-          <span className="text-[9px] font-bold text-white/40 mt-1">₩{(stock.marketCap / 100000000).toFixed(1)}B</span>
+        <div className="bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">
+          <span className="text-[9px] font-black text-white/25 uppercase tracking-widest mb-1.5">Market Cap</span>
+          <span className="text-sm font-black text-white uppercase">{stock.marketCapCategory} CAP</span>
+          <span className="text-[9px] font-bold text-white/40 mt-0.5">₩{(stock.marketCap / 100000000).toFixed(1)}B</span>
         </div>
       </div>
     </div>

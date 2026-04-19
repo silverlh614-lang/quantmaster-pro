@@ -34,6 +34,7 @@ function makeQuote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteExten
     ma5:            10_500,
     ma20:           10_000,
     ma60:            9_500,
+    high5d:         10_800,  // 5일 고점 (Gate 24 breakout_momentum 입력)
     high20d:        10_500,  // 현재가(11000) > high20d(10500) → 20일 고점 돌파
     high60d:        11_500,
     atr:               300,

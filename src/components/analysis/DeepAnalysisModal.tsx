@@ -129,7 +129,7 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[150] flex items-center justify-center p-4 md:p-6 bg-black/90 backdrop-blur-md"
+          className="fixed inset-0 z-[150] flex items-center justify-center p-3 md:p-5 bg-black/90 backdrop-blur-md"
           onClick={(e: React.MouseEvent) => {
             if (e.target === e.currentTarget && canCloseRef.current) onClose();
           }}
@@ -140,38 +140,38 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
             initial={{ scale: 0.95, opacity: 0, y: 30 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 30 }}
-            className="glass-3d rounded-[3rem] w-full max-w-[1600px] max-h-[94vh] border border-white/10 shadow-2xl overflow-hidden relative flex flex-col print-section"
+            className="glass-3d rounded-3xl w-full max-w-[1400px] max-h-[94vh] border border-white/10 shadow-2xl overflow-hidden relative flex flex-col print-section"
             onClick={e => e.stopPropagation()}
           >
             <AnalysisViewToggle>
             {(analysisView, setAnalysisView) => (<>
             {/* Action Buttons - Absolute Positioned */}
-            <div className="absolute top-6 right-6 z-[160] flex items-center gap-3 no-print">
+            <div className="absolute top-4 right-4 z-[160] flex items-center gap-2 no-print">
               <AnalysisViewButtons analysisView={analysisView} setAnalysisView={setAnalysisView} />
               <button
                 onClick={onExportPDF}
                 disabled={isExporting}
-                className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center hover:bg-blue-500 transition-all group active:scale-90 border border-white/10 backdrop-blur-md shadow-2xl"
+                className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-blue-500 transition-all group active:scale-90 border border-white/10 backdrop-blur-md shadow-lg"
                 title="PDF 리포트 저장"
               >
                 {isExporting ? (
-                  <RefreshCw className="w-6 h-6 text-white/50 animate-spin" />
+                  <RefreshCw className="w-4 h-4 text-white/50 animate-spin" />
                 ) : (
-                  <Download className="w-6 h-6 text-white/50 group-hover:text-white transition-colors" />
+                  <Download className="w-4 h-4 text-white/50 group-hover:text-white transition-colors" />
                 )}
               </button>
               <button
                 onClick={() => onClose()}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 transition-all group active:scale-90 border border-white/10 backdrop-blur-md shadow-2xl"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-all group active:scale-90 border border-white/10 backdrop-blur-md shadow-lg"
                 title="닫기"
               >
                 <span className="text-[10px] font-black uppercase tracking-widest text-white/40 group-hover:text-white transition-colors">Close</span>
-                <X className="w-6 h-6 text-white/50 group-hover:text-white transition-colors" />
+                <X className="w-4 h-4 text-white/50 group-hover:text-white transition-colors" />
               </button>
             </div>
 
             {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-5 md:p-7 custom-scrollbar">
               {analysisView === 'QUANT' ? (
                 <QuantDashboard result={evaluateStock({
                   rawStockData: Object.fromEntries(
@@ -255,47 +255,47 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
                 <>
                   <ModalHeader stock={stock} />
 
-                  {/* AI 분석결과 요약 */}
-                  <div className="mb-8 p-6 sm:p-8 rounded-[2rem] bg-orange-500/5 border border-orange-500/10 relative overflow-hidden">
-                    <div className="flex items-center gap-3 mb-4">
-                      <Sparkles className="w-4 h-4 text-orange-500" />
-                      <span className="text-xs font-black text-white/40 uppercase tracking-[0.25em]">AI 분석결과 요약</span>
+                  {/* AI 분석결과 요약 — 한 줄 요약으로 밀도 향상 */}
+                  <div className="mb-5 p-4 sm:p-5 rounded-2xl bg-orange-500/5 border border-orange-500/10 flex gap-3 items-start">
+                    <Sparkles className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <span className="block text-[10px] font-black text-white/40 uppercase tracking-[0.25em] mb-1.5">AI 분석결과 요약</span>
+                      <p className="text-white/90 text-sm sm:text-[15px] leading-relaxed font-bold tracking-tight break-words">
+                        {stock.reason}
+                      </p>
                     </div>
-                    <p className="text-white/90 text-sm sm:text-base lg:text-lg leading-relaxed font-bold tracking-tight break-words">
-                      {stock.reason}
-                    </p>
                   </div>
 
                   {/* Candle Chart with Technical Overlays */}
-                  <div className="mb-10">
+                  <div className="mb-6">
                     <CandleChart
                       stockCode={stock.code}
                       stockName={stock.name}
                       gateSignals={deepAnalysisGateSignals}
-                      height={480}
+                      height={380}
                     />
                   </div>
 
                   {/* Radar Chart & Checklist Overview */}
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-10 mb-12">
-                    <div className="glass-3d rounded-[3rem] p-10 border border-white/10 flex flex-col items-center justify-center min-h-[500px]">
-                      <div className="w-full flex items-center justify-between mb-10">
-                        <div className="flex items-center gap-4">
-                          <Radar className="w-6 h-6 text-orange-500" />
-                          <span className="text-[11px] font-black text-white/20 uppercase tracking-[0.3em]">27단계 마스터 분석 레이더</span>
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-8">
+                    <div className="glass-3d rounded-2xl p-5 sm:p-6 border border-white/10 flex flex-col">
+                      <div className="w-full flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2.5">
+                          <Radar className="w-5 h-5 text-orange-500" />
+                          <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.25em]">27단계 마스터 레이더</span>
                         </div>
-                        <div className="px-4 py-2 bg-orange-500/10 rounded-xl border border-orange-500/20">
-                          <span className="text-xs font-black text-orange-500">{Object.values(stock?.checklist || {}).filter(Boolean).length} / 27 Passed</span>
+                        <div className="px-3 py-1 bg-orange-500/10 rounded-lg border border-orange-500/20">
+                          <span className="text-[11px] font-black text-orange-500">{Object.values(stock?.checklist || {}).filter(Boolean).length} / 27</span>
                         </div>
                       </div>
 
-                      <div className="w-full h-[400px]">
+                      <div className="w-full h-[280px]">
                         <ResponsiveContainer width="100%" height="100%">
-                          <RadarChart cx="50%" cy="50%" outerRadius="80%" data={getRadarData(stock)}>
+                          <RadarChart cx="50%" cy="50%" outerRadius="78%" data={getRadarData(stock)}>
                             <PolarGrid stroke="rgba(255,255,255,0.1)" />
                             <PolarAngleAxis
                               dataKey="subject"
-                              tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 900 }}
+                              tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 800 }}
                             />
                             <PolarRadiusAxis
                               angle={30}
@@ -315,34 +315,34 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
                       </div>
                     </div>
 
-                    <div className="glass-3d rounded-[3rem] p-10 border border-white/10">
-                      <div className="flex items-center gap-4 mb-10">
-                        <CheckSquare className="w-6 h-6 text-green-400" />
-                        <span className="text-[11px] font-black text-white/20 uppercase tracking-[0.3em]">핵심 체크리스트 현황</span>
+                    <div className="glass-3d rounded-2xl p-5 sm:p-6 border border-white/10">
+                      <div className="flex items-center gap-2.5 mb-4">
+                        <CheckSquare className="w-5 h-5 text-green-400" />
+                        <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.25em]">핵심 체크리스트 현황</span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
                         {[
                           { label: '성장성 (Growth)', keys: ['roeType3', 'earningsSurprise', 'performanceReality', 'ocfQuality', 'marginAcceleration'] },
                           { label: '기술적 분석 (Technical)', keys: ['momentumRanking', 'ichimokuBreakout', 'technicalGoldenCross', 'volumeSurgeVerified', 'turtleBreakout'] },
                           { label: '수급 (Supply)', keys: ['supplyInflow', 'institutionalBuying', 'consensusTarget'] },
                           { label: '시장 주도력 (Market)', keys: ['cycleVerified', 'riskOnEnvironment', 'notPreviousLeader', 'policyAlignment'] },
                         ].map((group, gIdx) => (
-                          <div key={gIdx} className="space-y-3">
-                            <h5 className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-4 border-b border-white/5 pb-2">{group.label}</h5>
+                          <div key={gIdx} className="space-y-1.5">
+                            <h5 className="text-[10px] font-black text-white/25 uppercase tracking-widest mb-2 border-b border-white/5 pb-1.5">{group.label}</h5>
                             {group.keys.map(key => {
                               const step = MASTER_CHECKLIST_STEPS.find(s => s.key === key);
                               const isPassed = stock.checklist?.[key as keyof StockRecommendation['checklist']];
                               return (
-                                <div key={key} className="flex items-center gap-3">
+                                <div key={key} className="flex items-center gap-2">
                                   <div className={cn(
-                                    "w-5 h-5 rounded-lg flex items-center justify-center border transition-all",
+                                    "w-4 h-4 rounded flex items-center justify-center border transition-all shrink-0",
                                     isPassed ? "bg-green-500/20 border-green-500/30" : "bg-white/5 border-white/10 opacity-30"
                                   )}>
-                                    {isPassed && <CheckCircle2 className="w-3 h-3 text-green-400" />}
+                                    {isPassed && <CheckCircle2 className="w-2.5 h-2.5 text-green-400" />}
                                   </div>
                                   <span className={cn(
-                                    "text-xs font-bold transition-colors",
+                                    "text-[11px] font-bold transition-colors truncate",
                                     isPassed ? "text-white/80" : "text-white/20"
                                   )}>
                                     {step?.title.split(' (')[0]}

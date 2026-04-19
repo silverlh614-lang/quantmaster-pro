@@ -22,6 +22,7 @@ import { learningOrchestrator } from './learningOrchestrator.js';
 import { shouldRunMonthlyEvolution, getLearningInterval } from '../learning/adaptiveLearningClock.js';
 import { scanAndUpdateIntradayWatchlist } from '../screener/intradayScanner.js';
 import { clearIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
+import { runPreMarketSmokeTest } from '../trading/preMarketSmokeTest.js';
 
 // ─── 편의 조회 래퍼 ────────────────────────────────────────────────────────────
 export function getShadowTrades() { return loadShadowTrades(); }
@@ -239,6 +240,12 @@ export class TradingDayOrchestrator {
   }
 
   private markRan(key: string): void {
+    // tradingDate 가 비어 있으면(초기 부팅 직후, tick() 전) 현재 KST 일자를 채워서 저장한다.
+    // 비어 있는 상태로 저장되면, 다음 부팅에서 hasRan() 이 무조건 tradingDate!==today 로
+    // 판정해 handlerRanAt 을 지워버리는 회귀 위험이 있음.
+    if (!this.orch.tradingDate) {
+      this.orch.tradingDate = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
+    }
     this.orch.handlerRanAt[key] = new Date().toISOString();
     this.save();
   }
@@ -247,6 +254,21 @@ export class TradingDayOrchestrator {
   getStatus(): OrchestratorState & { computedState: TradingState } {
     const { h, m, dow } = getKstTime();
     return { ...this.orch, computedState: resolveState(h, m, dow) };
+  }
+
+  /**
+   * Phase 2.3 — 테스트 전용: 핸들러 키 이력을 외부에서 확인 가능하게 노출.
+   * Railway 재배포 → orchestrator-state.json 재로드 → hasRan 반환 동작 검증용.
+   * 프로덕션 코드에서는 호출하지 말 것 (비공개 상태 노출).
+   */
+  _testOnly_hasRan(key: string): boolean {
+    return this.hasRan(key);
+  }
+  _testOnly_markRan(key: string): void {
+    this.markRan(key);
+  }
+  _testOnly_getHandlerRanAt(): Record<string, string> {
+    return { ...this.orch.handlerRanAt };
   }
 
   /**
@@ -298,6 +320,9 @@ export class TradingDayOrchestrator {
         if (t >= 845 && !this.hasRan('openAuction')) {
           console.log('[Orchestrator] 장 전 준비 시작 (KST 08:45+)');
           await refreshKisToken().catch(console.error);
+          // Phase 2차 C7 — 스모크 테스트 게이트: 실패 시 LIVE 주문 자동 차단.
+          // 토큰 갱신 직후에 실행하여 토큰 유효성도 함께 검증.
+          await runPreMarketSmokeTest().catch(console.error);
           // 아이디어 8: 분할 매수 대기 트랜치 실행
           await trancheExecutor.checkPendingTranches().catch(console.error);
           await preScreenStocks().catch(console.error);

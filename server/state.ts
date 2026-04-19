@@ -29,6 +29,19 @@ let AUTO_TRADE_PAUSED = false;
 export const getAutoTradePaused = () => AUTO_TRADE_PAUSED;
 export const setAutoTradePaused = (v: boolean) => { AUTO_TRADE_PAUSED = v; };
 
+// ─── Phase 2차 C7: Pre-Market Smoke Test Gate ──────────────────────────────────
+// 08:45 KST 스모크 테스트 실패 시 LIVE 주문 경로만 차단한다. Shadow 학습 루프는
+// 계속 돌아감 — 버그가 LIVE 주문에 도달하기 전에 선제적으로 차단하는 방어선.
+// 다음 거래일 08:45 스모크 테스트가 성공하면 자동 해제된다.
+let SMOKE_TEST_LIVE_BLOCKED = false;
+let SMOKE_TEST_LAST_FAILED_REASON: string | null = null;
+export const getSmokeTestLiveBlocked = () => SMOKE_TEST_LIVE_BLOCKED;
+export const setSmokeTestLiveBlocked = (v: boolean, reason?: string): void => {
+  SMOKE_TEST_LIVE_BLOCKED = v;
+  SMOKE_TEST_LAST_FAILED_REASON = v ? reason ?? 'unknown' : null;
+};
+export const getSmokeTestLastFailedReason = () => SMOKE_TEST_LAST_FAILED_REASON;
+
 // ─── 엔진 하트비트 — Railway 좀비 프로세스 감지용 ──────────────────────────────
 // 스케줄러 tick 마다 갱신. UI는 (Date.now() - lastHeartbeatTs) > 90_000 일 때
 // "엔진 응답 없음" 적색 배너를 노출한다. 14분 self-ping 은 프로세스 생존만

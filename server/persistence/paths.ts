@@ -128,6 +128,11 @@ export const SECTOR_ETF_MOMENTUM_FILE = path.join(DATA_DIR, 'sector-etf-momentum
  * macro-environment 등 분기급 TTL 키는 재배포 후에도 즉시 히트하여 비용 절감.
  */
 export const AI_CACHE_FILE            = path.join(DATA_DIR, 'ai-cache.json');
+/**
+ * Incident Log — Phase 2차: 치명 버그 감지 시 타임스탬프 + 원인 기록.
+ * 이후 Shadow 샘플의 incidentFlag 자동 부착 / 오염 반경 계산의 기초.
+ */
+export const INCIDENT_LOG_FILE        = path.join(DATA_DIR, 'incident-log.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

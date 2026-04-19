@@ -16,6 +16,7 @@ import {
   perEvaluator,
   turtleHighEvaluator,
   relativeStrengthEvaluator,
+  breakoutMomentumEvaluator,
   vcpEvaluator,
   volumeSurgeEvaluator,
   rsiZoneEvaluator,
@@ -47,6 +48,7 @@ export const defaultRegistry: ConditionRegistry = new ConditionRegistry()
   .register(perEvaluator)
   .register(turtleHighEvaluator)
   .register(relativeStrengthEvaluator)
+  .register(breakoutMomentumEvaluator)
   .register(vcpEvaluator)
   .register(volumeSurgeEvaluator)
   .register(rsiZoneEvaluator)

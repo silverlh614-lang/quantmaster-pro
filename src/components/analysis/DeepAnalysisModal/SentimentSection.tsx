@@ -11,7 +11,7 @@ export function SentimentSection({ stock }: Props) {
   return (
     <div className="lg:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-6">
       {/* Analyst Sentiment */}
-      <div className="bg-white/5 rounded-[2.5rem] p-6 border border-white/10">
+      <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
         <div className="flex items-center gap-3 mb-4">
           <Users className="w-5 h-5 text-blue-400" />
           <h3 className="text-lg font-black text-white uppercase tracking-tight">Analyst Sentiment</h3>
@@ -73,7 +73,7 @@ export function SentimentSection({ stock }: Props) {
       </div>
 
       {/* News Sentiment */}
-      <div className="bg-white/5 rounded-[2.5rem] p-6 border border-white/10">
+      <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
         <div className="flex items-center gap-3 mb-4">
           <Newspaper className="w-5 h-5 text-emerald-400" />
           <h3 className="text-lg font-black text-white uppercase tracking-tight">News Sentiment</h3>

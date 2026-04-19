@@ -5,17 +5,53 @@ import cron from 'node-cron';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { cleanupOldTraceFiles } from '../trading/scanTracer.js';
 import { runDailyBackup } from '../persistence/dailyBackup.js';
+import { runBackupCeremony } from '../persistence/dailyBackupCeremony.js';
 import { runDailyReconciliation } from '../trading/reconciliationEngine.js';
 import { resetDataCompleteness } from '../screener/dataCompletenessTracker.js';
 import { updateKrxSectorMap } from '../screener/sectorMapUpdater.js';
+import { migrateAttributionRecords } from '../persistence/attributionRepo.js';
 
 const BACKUP_RETENTION_DAYS = 7;
 
 export function registerMaintenanceJobs(): void {
+  // Phase 1 B5: 부팅 시점에 한 번 귀인 레코드 스키마 마이그레이션.
+  // 레거시(v0) 레코드를 현행 v1 스키마로 승격하거나, 불완전 레코드는 집계에서
+  // 자동 격리한다. 월말 캘리브레이션 NaN 전염을 사전 차단.
+  try {
+    const { migrated, quarantined, total } = migrateAttributionRecords();
+    if (migrated > 0 || quarantined > 0) {
+      console.log(
+        `[AttributionMigration] total=${total} migrated=${migrated} quarantined=${quarantined}`,
+      );
+    }
+  } catch (e) {
+    console.error('[AttributionMigration] 부팅 마이그레이션 실패:', e);
+  }
+
   // 스캔 트레이스 파일 정리 — 매주 일요일 KST 03:00 (UTC 18:00 토요일).
   // 7일 이상 된 파일 삭제.
   cron.schedule('0 18 * * 6', () => {
     cleanupOldTraceFiles();
+  }, { timezone: 'UTC' });
+
+  // Phase 2차 C1 — Daily Backup Ceremony: 매일 KST 01:00 (UTC 16:00 전일).
+  // DATA_DIR 의 모든 *.json 을 snapshots/YYYY-MM-DD/ 로 복사 — "어제 자정" 상태
+  // 복원의 표준 기준점. 7일 초과분은 자동 삭제.
+  cron.schedule('0 16 * * *', async () => {
+    try {
+      const r = runBackupCeremony(7);
+      console.log(
+        `[BackupCeremony] ✅ ${r.copied.length}개 파일, ` +
+        `${(r.totalBytes / 1024).toFixed(1)}KB → ${r.snapshotDir}` +
+        (r.pruned.length > 0 ? ` | 삭제 ${r.pruned.length}일치` : ''),
+      );
+    } catch (e) {
+      console.error('[BackupCeremony] 실패:', e);
+      await sendTelegramAlert(
+        `⚠️ <b>[Backup Ceremony 실패]</b> ${e instanceof Error ? e.message : String(e)}`,
+        { priority: 'HIGH', dedupeKey: 'backup_ceremony_fail' },
+      ).catch(console.error);
+    }
   }, { timezone: 'UTC' });
 
   // 일일 데이터 백업 — 매일 KST 03:00 (UTC 18:00).

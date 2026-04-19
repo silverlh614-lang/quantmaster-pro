@@ -12,7 +12,7 @@ interface Props {
 export function RiskChecklistSection({ stock }: Props) {
   return (
     <div className="lg:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div className="bg-red-500/5 rounded-[2.5rem] p-6 border border-red-500/10">
+      <div className="bg-red-500/5 rounded-2xl p-6 border border-red-500/10">
         <div className="flex items-center gap-3 mb-4">
           <AlertTriangle className="w-5 h-5 text-red-400" />
           <h3 className="text-lg font-black text-white uppercase tracking-tight">Risk Factors</h3>
@@ -31,7 +31,7 @@ export function RiskChecklistSection({ stock }: Props) {
         </ul>
       </div>
 
-      <div className="bg-green-500/5 rounded-[2.5rem] p-6 border border-green-500/10 flex flex-col">
+      <div className="bg-green-500/5 rounded-2xl p-6 border border-green-500/10 flex flex-col">
         <div className="flex items-center gap-3 mb-4">
           <CheckCircle2 className="w-5 h-5 text-green-400" />
           <h3 className="text-lg font-black text-white uppercase tracking-tight">27-Step Master Checklist</h3>

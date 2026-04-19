@@ -45,12 +45,16 @@ export interface ServerGateResult {
 
 /** 조건 키 상수 — condition-weights.json의 키와 1:1 매핑 */
 export const CONDITION_KEYS = {
-  MOMENTUM:          'momentum',
+  MOMENTUM:          'momentum',            // Gate 2 — intraday price change (+2% OR 0.5% + RSI 가속)
   MA_ALIGNMENT:      'ma_alignment',
   VOLUME_BREAKOUT:   'volume_breakout',
   PER:               'per',
   TURTLE_HIGH:       'turtle_high',
+  // Gate 24 의미 분리 (B3) — 과거 relative_strength 의 absolute 1.5% 폴백이 changePercent에서
+  // momentum 과 중복 발화했다. 이제 relative_strength 는 KOSPI 비교치가 제공될 때만 작동한다.
   RELATIVE_STRENGTH: 'relative_strength',
+  // Gate 24 새 의미 — 5일 고점 대비 위치 + 거래량 조건. momentum 과 독립 입력을 사용한다.
+  BREAKOUT_MOMENTUM: 'breakout_momentum',
   VCP:               'vcp',
   VOLUME_SURGE:      'volume_surge',
   RSI_ZONE:          'rsi_zone',          // RSI(14) 40~70 건강구간 (실계산)
@@ -74,6 +78,7 @@ export const DEFAULT_CONDITION_WEIGHTS: ConditionWeights = {
   per:               1.0,
   turtle_high:       1.0,
   relative_strength: 1.0,
+  breakout_momentum: 1.0,  // Gate 24 새 의미 — 5일 고점 위치 + 거래량 (momentum과 독립 입력)
   vcp:               1.0,
   volume_surge:      1.0,
   rsi_zone:          1.0,

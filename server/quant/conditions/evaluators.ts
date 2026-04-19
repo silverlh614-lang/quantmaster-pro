@@ -107,26 +107,69 @@ export const turtleHighEvaluator: ConditionEvaluator = {
   },
 };
 
-// ─── 조건 24: 상대강도 — KOSPI 대비 ──────────────────────────────────────────
+// ─── 상대강도 — KOSPI 대비 (모멘텀과 입력 분리 후) ───────────────────────────
 //
-// kospiDayReturn 제공 시 실계산(차이 1.0%p), 미제공 시 절대 기준(1.5%).
+// Phase 1 Condition Key Semantic Separation (B3):
+//   과거 이 평가기는 kospiDayReturn 미제공 시 `changePercent >= 1.5%` 절대 기준으로
+//   폴백했다. 이로 인해 단 1개의 +2% 변동이 momentum(+2% 이상) 과 본 평가기 양쪽에서
+//   점수를 획득해 귀인 분석이 두 조건을 구별하지 못했다.
+//
+//   이제 본 평가기는 kospiDayReturn 이 실제로 제공된 경우에만 발화한다. 이로써:
+//     - momentum 은 "당일 절대 변동률" 을 측정
+//     - relative_strength 는 "KOSPI 대비 초과수익" 을 측정
+//   두 조건이 의미적으로 분리되어 같은 입력에 중복 발화하지 않는다.
 
 export const relativeStrengthEvaluator: ConditionEvaluator = {
   key: 'relative_strength',
-  description: 'KOSPI 대비 +1.0%p 초과 (절대 기준 1.5%)',
+  description: 'KOSPI 대비 +1.0%p 초과 — kospiDayReturn 제공 시에만 발화 (momentum과 입력 분리)',
   inputs: ['quote.changePercent', 'ctx.kospiDayReturn'],
   evaluate({ quote, weights, kospiDayReturn }) {
-    const gap = quote.changePercent - (kospiDayReturn ?? 0);
-    const threshold = kospiDayReturn !== undefined ? 1.0 : 1.5;
-    if (!(gap > threshold)) return null;
-    const detail = kospiDayReturn !== undefined
-      ? `상대강도 +${gap.toFixed(1)}%p (KOSPI ${kospiDayReturn.toFixed(1)}%)`
-      : `상대강도 +${quote.changePercent.toFixed(1)}%`;
+    if (kospiDayReturn === undefined) return null; // momentum 과 입력 공유 차단
+    const gap = quote.changePercent - kospiDayReturn;
+    if (!(gap > 1.0)) return null;
     return {
       score: weightFor(weights, 'relative_strength'),
       conditionKey: 'relative_strength',
-      detail,
+      detail: `상대강도 +${gap.toFixed(1)}%p (KOSPI ${kospiDayReturn.toFixed(1)}%)`,
     };
+  },
+};
+
+// ─── Gate 24 새 의미: Breakout Momentum (5일 고점 대비 + 거래량) ─────────────
+//
+// 의미적으로 독립: momentum 은 "오늘 얼마나 올랐나",
+// breakout_momentum 은 "최근 5일 박스권을 뚫고 매물대를 돌파하는가" 를 측정.
+// 입력: high5d, price, volume, avgVolume (changePercent 미사용 → 명시적 독립).
+//
+// 점수 체계:
+//   - 강한 돌파: 현재가가 5일 고점의 101% 이상 + 거래량 5일 평균 1.5배  → 만점
+//   - 약한 돌파: 현재가가 5일 고점의 99%~101% + 거래량 1.2배           → 0.6점
+//   - 미달: null
+
+export const breakoutMomentumEvaluator: ConditionEvaluator = {
+  key: 'breakout_momentum',
+  description: '5일 고점 돌파 + 거래량 확인 (momentum 과 입력 독립)',
+  inputs: ['quote.high5d', 'quote.price', 'quote.volume', 'quote.avgVolume'],
+  evaluate({ quote, weights }) {
+    if (!(quote.high5d > 0 && quote.price > 0 && quote.avgVolume > 0)) return null;
+    const posVsHigh = quote.price / quote.high5d;
+    const volRatio  = quote.volume / quote.avgVolume;
+    const w = weightFor(weights, 'breakout_momentum');
+    if (posVsHigh >= 1.01 && volRatio >= 1.5) {
+      return {
+        score: w,
+        conditionKey: 'breakout_momentum',
+        detail: `5일돌파 ${((posVsHigh - 1) * 100).toFixed(1)}% + 거래량 ${volRatio.toFixed(1)}배`,
+      };
+    }
+    if (posVsHigh >= 0.99 && volRatio >= 1.2) {
+      return {
+        score: w * 0.6,
+        conditionKey: 'breakout_momentum',
+        detail: `5일고점근접 (${((posVsHigh - 1) * 100).toFixed(1)}%) 거래량 ${volRatio.toFixed(1)}배`,
+      };
+    }
+    return null;
   },
 };
 
