@@ -1,0 +1,44 @@
+name: security-gitleaks
+
+# 비밀(API 키·토큰·증명서) 누출 방지 — gitleaks 를 PR/메인 푸시마다 실행한다.
+# scan_exposure.js 가 자체 정규식 룰을 돌리는 데 더해 산업 표준 룰셋(80+ provider)
+# 으로 보강하여 신규 도입 SaaS 키도 자동 탐지한다.
+#
+# 실패 시: PR 머지 차단. 로컬에서 `gitleaks detect --redact -v` 로 재현 가능.
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: gitleaks — secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 히스토리 전체를 검사해야 과거 커밋의 누출도 잡는다.
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.21.2
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan repository
+        run: |
+          gitleaks detect \
+            --source . \
+            --config .gitleaks.toml \
+            --redact \
+            --verbose \
+            --exit-code 1
