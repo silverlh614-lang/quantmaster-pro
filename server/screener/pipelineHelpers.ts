@@ -67,7 +67,14 @@ export interface GeminiScreenResult {
 
 // ── 상수 ──────────────────────────────────────────────────────────────────────
 
-/** 주요 종목 코드 → 섹터 매핑 (나머지는 Gemini 판단) */
+/**
+ * 주요 종목 수동 오버라이드 (세분화된 분류).
+ *
+ * KRX 자동 스냅샷(data/krx-sector-map.json) 은 '전기전자' 같은 대분류만 제공하므로,
+ * '반도체소재/반도체장비/2차전지소재/조선엔진' 등 LEADING_SECTORS 매칭에 필요한
+ * 세분화는 이 상수로 유지한다. 나머지 전종목 섹터는 sectorMap.ts::getSectorByCode
+ * 가 KRX 맵에서 자동 조회하므로 Gemini 에 섹터 재추론 요청이 필요 없다.
+ */
 export const SECTOR_MAP: Record<string, string> = {
   // 반도체
   '005930': '반도체', '000660': '반도체', '042700': '반도체',
@@ -381,7 +388,8 @@ export function buildScreeningPrompt(
     `"qualScore":0,"totalGateScore":0,` +
     `"profile":"A|B|C|D","sector":"","topReasons":[""],"passedConditionKeys":[""]}]\n` +
     `qualScore: 질적 조건 12개 중 통과 추정 수 (0~12)\n` +
-    `totalGateScore: 서버Gate점수×1.5+qualScore (0~27 범위 클램프)`
+    `totalGateScore: 서버Gate점수×1.5+qualScore (0~27 범위 클램프)\n` +
+    `sector: 입력 "섹터:" 값을 그대로 복사하라. 절대 재분류하지 말 것.`
   );
 }
 

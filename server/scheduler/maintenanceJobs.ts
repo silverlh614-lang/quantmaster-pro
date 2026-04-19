@@ -1,5 +1,5 @@
 /**
- * @responsibility 유지보수 cron(스캔 트레이스 정리 · 일일 백업 · 이중 기록 Reconciliation)을 등록한다.
+ * @responsibility 유지보수 cron(스캔 트레이스 정리 · 일일 백업 · 이중 기록 Reconciliation · 주간 KRX 섹터맵 갱신)을 등록한다.
  */
 import cron from 'node-cron';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
@@ -7,6 +7,7 @@ import { cleanupOldTraceFiles } from '../trading/scanTracer.js';
 import { runDailyBackup } from '../persistence/dailyBackup.js';
 import { runDailyReconciliation } from '../trading/reconciliationEngine.js';
 import { resetDataCompleteness } from '../screener/dataCompletenessTracker.js';
+import { updateKrxSectorMap } from '../screener/sectorMapUpdater.js';
 
 const BACKUP_RETENTION_DAYS = 7;
 
@@ -52,6 +53,24 @@ export function registerMaintenanceJobs(): void {
       await runDailyReconciliation();
     } catch (e) {
       console.error('[Reconciliation] cron 실행 오류:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  // KRX 전종목 섹터맵 갱신 — 매주 월요일 KST 03:00 (UTC 18:00 일요일).
+  // data/krx-sector-map.json 을 원자적으로 교체하여 Stage 2 섹터 커버리지를
+  // 100%로 유지한다. Gemini 섹터 추론이 필요 없어져 토큰 비용과 '미분류'로 인한
+  // sectorBonus 손실을 동시에 제거. 실패 시 기존 파일 유지 + Telegram 경고.
+  cron.schedule('0 18 * * 0', async () => {
+    try {
+      const result = await updateKrxSectorMap();
+      console.log(`[SectorMapUpdater] ✅ ${result.count}개 종목 갱신 (trdDd=${result.trdDd})`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[SectorMapUpdater] 갱신 실패:', msg);
+      await sendTelegramAlert(
+        `⚠️ <b>[KRX 섹터맵 갱신 실패]</b>\n${msg}\n기존 파일이 유지됩니다. 다음 주 월요일 03:00에 재시도합니다.`,
+        { priority: 'NORMAL', dedupeKey: 'krx_sector_map_fail', cooldownMs: 6 * 60 * 60 * 1000 },
+      ).catch(console.error);
     }
   }, { timezone: 'UTC' });
 }
