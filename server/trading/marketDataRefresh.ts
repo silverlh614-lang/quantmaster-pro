@@ -109,8 +109,14 @@ export async function fetchKrxShortSelling(): Promise<number | null> {
   }
 }
 
-/** Yahoo Finance에서 OHLCV close 배열 반환. 실패 시 null. */
-export async function fetchCloses(symbol: string, range: string): Promise<number[] | null> {
+/** Yahoo Finance 일봉 원본 — close / timestamp 정렬쌍. 실패 시 null. */
+export interface DailyBar {
+  /** Unix epoch seconds (Yahoo 원본 단위) */
+  ts: number;
+  close: number;
+}
+
+async function fetchDailyBars(symbol: string, range: string): Promise<DailyBar[] | null> {
   const urls = [
     `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`,
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`,
@@ -123,12 +129,39 @@ export async function fetchCloses(symbol: string, range: string): Promise<number
       clearTimeout(tid);
       if (!res.ok) continue;
       const data = await res.json();
-      const closes: (number | null)[] = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
-      const valid = closes.filter((v): v is number => v !== null && isFinite(v));
-      if (valid.length > 0) return valid;
+      const result    = data?.chart?.result?.[0];
+      const timestamps: number[]        = result?.timestamp ?? [];
+      const closes: (number | null)[]   = result?.indicators?.quote?.[0]?.close ?? [];
+      const bars: DailyBar[] = [];
+      for (let i = 0; i < closes.length; i++) {
+        const c  = closes[i];
+        const ts = timestamps[i];
+        if (c !== null && isFinite(c) && typeof ts === 'number' && isFinite(ts)) {
+          bars.push({ ts, close: c });
+        }
+      }
+      if (bars.length > 0) return bars;
     } catch { /* retry next url */ }
   }
   return null;
+}
+
+/** Yahoo Finance에서 OHLCV close 배열 반환. 실패 시 null. */
+export async function fetchCloses(symbol: string, range: string): Promise<number[] | null> {
+  const bars = await fetchDailyBars(symbol, range);
+  return bars ? bars.map(b => b.close) : null;
+}
+
+/**
+ * 가장 최근 일봉 한 개 (close + timestamp) 반환.
+ * 호출자는 timestamp 를 검증해 과거 데이터 재사용을 방지해야 한다.
+ * 예) 상장폐지된 ADR(PKX)·OTC 저유동성(SSNLF, HXSCL) 은 수년 전 종가가
+ *     '최신'으로 반환될 수 있어 이론시가 역산이 극단적으로 왜곡된다.
+ */
+export async function fetchLatestBar(symbol: string, range = '10d'): Promise<DailyBar | null> {
+  const bars = await fetchDailyBars(symbol, range);
+  if (!bars || bars.length === 0) return null;
+  return bars[bars.length - 1];
 }
 
 /** 이동평균 계산 */
