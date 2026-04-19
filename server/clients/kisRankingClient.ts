@@ -1,10 +1,13 @@
 /**
- * kisRankingClient.ts — KIS 순위 기반 TR 단일 책임 클라이언트 (Phase A)
+ * kisRankingClient.ts — KIS 순위 기반 TR 단일 책임 클라이언트 (Phase A + 아이디어 5)
  *
- * 단일 책임: "순위 → 종목" 방향의 KIS 랭킹 TR 3종만 관리한다.
- *   - volume:       FHPST01710000 (거래량 상위)
- *   - fluctuation:  FHPST01700000 (등락률 상위)
- *   - market-cap:   FHPST01720000 (시가총액 상위)
+ * 단일 책임: "순위 → 종목" 방향의 KIS 랭킹 TR 6종을 관리한다.
+ *   - volume:              FHPST01710000 (거래량 상위)
+ *   - fluctuation:         FHPST01700000 (등락률 상위)
+ *   - market-cap:          FHPST01720000 (시가총액 상위)
+ *   - institutional-net-buy: FHPST01620000 (기관 순매수 상위)
+ *   - short-balance:       FHPST04020000 (공매도 잔고 상위)
+ *   - large-volume:        FHPST01710000 (대량거래 — 거래량 TR + fid_blng_cls_code=3)
  *
  * 기존 kisClient.ts의 토큰·헤더 로직은 realDataKisGet 재사용으로 그대로 가져온다.
  * kisClient를 2,000줄짜리 비대 파일로 만들지 않기 위한 분리 — 항후 flow/ws 클라이언트도
@@ -12,7 +15,13 @@
  *
  * 반환: { code, name, rank, value, changePercent }[]
  * 캐시: 메모리 5분 TTL (장중 과다 호출 방지 — 호출자가 주기적으로 두들겨도 1/300s 만큼만 실제 API)
- * 실패: 빈 배열 반환 (호출자는 기존 Yahoo/정적 유니버스로 자연스럽게 폴백)
+ * 실패: 빈 배열 반환 (호출자는 기존 Yahoo/정적 유니버스 또는 KRX 폴백으로 자연스럽게 전환)
+ *
+ * 아이디어 5 — "KIS 순위 TR 이중 활용":
+ *   기관 순매수·공매도 잔고·대량거래 상위를 추가 호출함으로써 "지금 뜨는 종목"을
+ *   googleSearch 없이 국내 순위 TR만으로 확보한다. VTS mock 호환성은 기존
+ *   `hasKisClientOverrides()` 가드를 그대로 재사용해 실계좌 데이터 키 분리 원칙을
+ *   지킨다.
  */
 
 import {
@@ -24,13 +33,19 @@ import {
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
-export type RankingType = 'volume' | 'fluctuation' | 'market-cap';
+export type RankingType =
+  | 'volume'
+  | 'fluctuation'
+  | 'market-cap'
+  | 'institutional-net-buy'
+  | 'short-balance'
+  | 'large-volume';
 
 export interface RankingEntry {
   code: string;           // 6자리 종목코드
   name: string;           // 한글 종목명
   rank: number;           // 1부터 시작하는 순위 (KOSPI·KOSDAQ 통합 순위는 아님 — 각 시장 내 순위)
-  value: number;          // 정렬 기준값 — 거래량/등락률/시가총액 등 TR에 따라 의미 상이
+  value: number;          // 정렬 기준값 — 거래량/등락률/시가총액/순매수량 등 TR에 따라 의미 상이
   changePercent: number;  // 당일 등락률 (%)
   market: 'KOSPI' | 'KOSDAQ';
 }
@@ -152,6 +167,100 @@ const TR_SPECS: Record<RankingType, TrSpec> = {
         name:          (row.hts_kor_isnm ?? '').trim(),
         rank,
         value:         parseFloat(row.stck_avls ?? row.lstn_stcn ?? '0'),  // 시가총액(억원) 또는 상장주식수
+        changePercent: parseFloat(row.prdy_ctrt ?? '0'),
+        market,
+      };
+    },
+  },
+  // 기관 순매수 상위 — googleSearch "지금 뜨는 종목" 질문을 완전 대체.
+  'institutional-net-buy': {
+    trId: 'FHPST01620000',
+    apiPath: '/uapi/domestic-stock/v1/ranking/investor',
+    params: (mrktDiv) => ({
+      fid_cond_mrkt_div_code: mrktDiv,
+      fid_cond_scr_div_code:  '20162',
+      fid_input_iscd:         '0000',
+      fid_inqr_dvsn_cls_code: '0',       // 0=순매수
+      fid_div_cls_code:       '0',
+      fid_rank_sort_cls_code: '2',       // 2=기관 (KIS 공통 규약 — 1=외국인 / 2=기관 / 0=전체)
+      fid_input_cnt_1:        '30',
+      fid_trgt_cls_code:      '0',
+      fid_trgt_exls_cls_code: '0',
+      fid_vol_cnt:            '10000',
+      fid_input_price_1:      '3000',
+      fid_input_price_2:      '500000',
+    }),
+    mapRow: (row, rank, market) => {
+      const code = (row.mksc_shrn_iscd ?? row.stck_shrn_iscd ?? '').trim();
+      if (!code || code.length !== 6) return null;
+      // KIS 투자자 순매수 TR은 orgn_ntby_qty/frgn_ntby_qty를 모두 내려준다.
+      const instNet = parseInt(row.orgn_ntby_qty ?? row.ntby_qty ?? '0', 10);
+      return {
+        code,
+        name:          (row.hts_kor_isnm ?? '').trim(),
+        rank,
+        value:         instNet,
+        changePercent: parseFloat(row.prdy_ctrt ?? '0'),
+        market,
+      };
+    },
+  },
+  // 공매도 잔고 상위 — 역방향 신호: 하락 베팅 많은 종목을 워치리스트에서 제외할 때 사용.
+  'short-balance': {
+    trId: 'FHPST04020000',
+    apiPath: '/uapi/domestic-stock/v1/ranking/short-sale',
+    params: (mrktDiv) => ({
+      fid_cond_mrkt_div_code: mrktDiv,
+      fid_cond_scr_div_code:  '20402',
+      fid_input_iscd:         '0000',
+      fid_period_div_code:    'D',       // D=일별
+      fid_input_cnt_1:        '30',
+      fid_trgt_cls_code:      '0',
+      fid_trgt_exls_cls_code: '0',
+      fid_input_price_1:      '3000',
+      fid_input_price_2:      '',
+      fid_vol_cnt:            '10000',
+    }),
+    mapRow: (row, rank, market) => {
+      const code = (row.mksc_shrn_iscd ?? row.stck_shrn_iscd ?? '').trim();
+      if (!code || code.length !== 6) return null;
+      const shortBal = parseInt(row.stnd_shrt_wght ?? row.ssts_cntg_qty ?? row.ntby_qty ?? '0', 10);
+      return {
+        code,
+        name:          (row.hts_kor_isnm ?? '').trim(),
+        rank,
+        value:         shortBal,
+        changePercent: parseFloat(row.prdy_ctrt ?? '0'),
+        market,
+      };
+    },
+  },
+  // 대량거래 상위 — 거래량 TR에서 fid_blng_cls_code=3(대량거래) + 거래대금 하한 강화.
+  // 평균 대비 급증한 거래가 있는 종목에 집중한다.
+  'large-volume': {
+    trId: 'FHPST01710000',
+    apiPath: '/uapi/domestic-stock/v1/ranking/volume',
+    params: (mrktDiv) => ({
+      fid_cond_mrkt_div_code: mrktDiv,
+      fid_cond_scr_div_code:  '20171',
+      fid_input_iscd:         '0000',
+      fid_div_cls_code:       '0',
+      fid_blng_cls_code:      '3',         // 3=대량거래
+      fid_trgt_cls_code:      '111111111',
+      fid_trgt_exls_cls_code: '000000',
+      fid_input_price_1:      '3000',
+      fid_input_price_2:      '500000',
+      fid_vol_cnt:            '100000',    // 거래량 10만주 이상
+      fid_input_date_1:       '',
+    }),
+    mapRow: (row, rank, market) => {
+      const code = (row.mksc_shrn_iscd ?? row.stck_shrn_iscd ?? '').trim();
+      if (!code || code.length !== 6) return null;
+      return {
+        code,
+        name:          (row.hts_kor_isnm ?? '').trim(),
+        rank,
+        value:         parseInt(row.acml_vol ?? '0', 10),
         changePercent: parseFloat(row.prdy_ctrt ?? '0'),
         market,
       };

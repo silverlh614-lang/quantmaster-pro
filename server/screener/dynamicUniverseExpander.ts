@@ -21,7 +21,7 @@ import fs from 'fs';
 import path from 'path';
 import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL } from '../clients/kisClient.js';
-import { getRanking, type RankingEntry } from '../clients/kisRankingClient.js';
+import { getRanking, type RankingEntry, type RankingType } from '../clients/kisRankingClient.js';
 import { STOCK_UNIVERSE } from './stockScreener.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 
@@ -31,7 +31,17 @@ export interface DynamicStock {
   symbol: string;    // Yahoo Finance 심볼 (예: '005930.KS')
   code: string;      // 6자리 종목코드
   name: string;
-  source: '52W_HIGH' | 'FOREIGN_NET_BUY' | 'MID_RISER' | 'MARKET_CAP';
+  // 아이디어 5: Gemini googleSearch 대체용 KIS 순위 3종 source 추가.
+  source:
+    | '52W_HIGH'
+    | 'FOREIGN_NET_BUY'
+    | 'MID_RISER'
+    | 'MARKET_CAP'
+    | 'INST_NET_BUY'
+    | 'LARGE_VOLUME'
+    // 공매도 잔고 상위는 "하락 베팅"이 몰린 종목 — 워치리스트에 편입하는
+    // 용도가 아니라 스크리너 결과에서 제외할 "반대 신호" 태그로 추후 활용.
+    | 'SHORT_HEAVY';
   addedAt: string;   // ISO 8601
   expiresAt: string; // ISO 8601 — 2주 후 자동 만료
 }
@@ -349,6 +359,9 @@ export async function runDynamicUniverseExpansion(): Promise<number> {
       'FOREIGN_NET_BUY': '외국인순매수',
       'MID_RISER':       '중위권상승(+3~7%)',
       'MARKET_CAP':      '시총상위',
+      'INST_NET_BUY':    '기관순매수상위',
+      'LARGE_VOLUME':    '대량거래상위',
+      'SHORT_HEAVY':     '공매도잔고상위',
     };
     const newStockLines = allCandidates
       .filter(c => !staticCodes.has(c.code))
@@ -393,18 +406,23 @@ export async function expandOnEmpty(ttlDays = 3): Promise<number> {
   let dynamicStocks = purgeExpired(loadDynamicUniverse());
   const existingDynamicCodes = new Set(dynamicStocks.map(s => s.code));
 
-  // Phase A: 4개의 전용 fetcher 대신 kisRankingClient의 3종 랭킹만 사용.
+  // Phase A + 아이디어 5: 6개 KIS 랭킹 TR을 병렬 호출.
   // 각 호출은 자체 5분 캐시·시장별 부분 실패 허용·전체 실패 시 빈 배열.
   // allSettled로 감싸서 한 랭킹이 throw해도 나머지 결과와 정적 유니버스로 자연 폴백.
-  const settled = await Promise.allSettled([
-    getRanking('volume',      { limit: 30 }),
-    getRanking('fluctuation', { limit: 30 }),
-    getRanking('market-cap',  { limit: 30 }),
-  ]);
-  const [volume, fluctuation, marketCap] = settled.map((r, i) => {
+  // 기관 순매수/대량거래 상위를 편입함으로써 "지금 뜨는 종목" 질문이 googleSearch 없이 해결.
+  const RANKING_KEYS: RankingType[] = [
+    'volume', 'fluctuation', 'market-cap',
+    'institutional-net-buy', 'large-volume',
+  ];
+  const settled = await Promise.allSettled(
+    RANKING_KEYS.map(k => getRanking(k, { limit: 30 })),
+  );
+  const [volume, fluctuation, marketCap, instNetBuy, largeVolume] = settled.map((r, i) => {
     if (r.status === 'fulfilled') return r.value;
-    const name = ['volume', 'fluctuation', 'market-cap'][i];
-    console.warn(`[DynamicExpander] expandOnEmpty ${name} 실패 (흡수):`, r.reason instanceof Error ? r.reason.message : r.reason);
+    console.warn(
+      `[DynamicExpander] expandOnEmpty ${RANKING_KEYS[i]} 실패 (흡수):`,
+      r.reason instanceof Error ? r.reason.message : r.reason,
+    );
     return [] as RankingEntry[];
   });
 
@@ -420,11 +438,14 @@ export async function expandOnEmpty(ttlDays = 3): Promise<number> {
   const addedAt = now.toISOString();
   let newCount = 0;
 
-  // 3개 랭킹 → 기존 DynamicStock.source 카테고리로 매핑 (레거시 필드 유지).
-  //   volume      → FOREIGN_NET_BUY (거래량 상위 = 수급 유입 근사)
-  //   fluctuation → MID_RISER      (등락률 상위 — +3~+7% 필터를 호출자 레벨에서 적용)
-  //   market-cap  → MARKET_CAP
-  // 중복은 Set으로 제거 — 세 랭킹에 겹치는 코드는 첫 등장 source 만 반영.
+  // 5개 랭킹 → 기존 DynamicStock.source 카테고리로 매핑.
+  //   volume               → FOREIGN_NET_BUY (거래량 상위 = 수급 유입 근사)
+  //   fluctuation          → MID_RISER      (등락률 +3~+7% 필터)
+  //   market-cap           → MARKET_CAP
+  //   institutional-net-buy → INST_NET_BUY  (기관 순매수 양수만)
+  //   large-volume         → LARGE_VOLUME   (대량거래 상위)
+  // 중복은 Set 기반 기존 루프에서 자연 제거 — 같은 코드가 여러 랭킹에 걸쳐도
+  // 첫 등장 source 만 반영 (중복 편입 방지).
   const merged: Array<Omit<DynamicStock, 'addedAt' | 'expiresAt'>> = [
     ...volume.map(e => toDynamic(e, 'FOREIGN_NET_BUY')),
     ...fluctuation
@@ -432,6 +453,11 @@ export async function expandOnEmpty(ttlDays = 3): Promise<number> {
       .filter(e => e.changePercent >= 3 && e.changePercent <= 7)
       .map(e => toDynamic(e, 'MID_RISER')),
     ...marketCap.map(e => toDynamic(e, 'MARKET_CAP')),
+    ...instNetBuy
+      // 기관 순매수량(value)이 양수인 종목만 편입.
+      .filter(e => e.value > 0)
+      .map(e => toDynamic(e, 'INST_NET_BUY')),
+    ...largeVolume.map(e => toDynamic(e, 'LARGE_VOLUME')),
   ];
 
   for (const c of merged) {
@@ -445,7 +471,8 @@ export async function expandOnEmpty(ttlDays = 3): Promise<number> {
   saveDynamicUniverse(dynamicStocks);
   console.log(
     `[DynamicExpander] expandOnEmpty 완료 — 신규 ${newCount}개 (TTL ${ttlDays}일), ` +
-    `전체 동적 ${dynamicStocks.length}개 (vol ${volume.length}·flc ${fluctuation.length}·mc ${marketCap.length})`,
+    `전체 동적 ${dynamicStocks.length}개 (vol ${volume.length}·flc ${fluctuation.length}·mc ${marketCap.length}` +
+    `·inst ${instNetBuy.length}·lrgVol ${largeVolume.length})`,
   );
   return newCount;
 }

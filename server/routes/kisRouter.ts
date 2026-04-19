@@ -6,12 +6,19 @@ import { getRanking, type RankingType } from '../clients/kisRankingClient.js';
 
 const router = Router();
 
-// [KIS-Ranking] 거래량/등락률/시가총액 상위 종목 조회 (사전 수집 후보군 제공)
+// [KIS-Ranking] 거래량/등락률/시가총액/기관순매수/공매도잔고/대량거래 상위 종목 조회
+// 아이디어 5: googleSearch "지금 뜨는 종목" 질문을 순위 TR 6종으로 대체.
 router.get('/ranking', async (req: any, res: any) => {
   const type = (req.query.type as string) ?? 'volume';
   const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string, 10) || 20));
-  if (!['volume', 'fluctuation', 'market-cap'].includes(type)) {
-    return res.status(400).json({ error: 'type은 volume|fluctuation|market-cap 중 하나' });
+  const ALLOWED: RankingType[] = [
+    'volume', 'fluctuation', 'market-cap',
+    'institutional-net-buy', 'short-balance', 'large-volume',
+  ];
+  if (!ALLOWED.includes(type as RankingType)) {
+    return res.status(400).json({
+      error: `type은 ${ALLOWED.join('|')} 중 하나`,
+    });
   }
   try {
     const data = await getRanking(type as RankingType, { limit });

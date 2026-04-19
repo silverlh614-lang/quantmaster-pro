@@ -12,6 +12,10 @@ import { recordGateAudit, flushGateAudit } from '../persistence/gateAuditRepo.js
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { getCurrentScanPreset } from './scanPresets.js';
 import { recordMtasAttempt } from './dataCompletenessTracker.js';
+import {
+  fetchInvestorTrading as krxFetchInvestorTrading,
+  fetchPerPbr as krxFetchPerPbr,
+} from '../clients/krxClient.js';
 
 // ── 아이디어 5: 워치리스트 탈락 사유 추적 ─────────────────────────────────────
 export interface RejectionEntry {
@@ -642,9 +646,75 @@ export async function preScreenStocks(options?: {
 
     ensureDataDir();
     fs.writeFileSync(SCREENER_FILE, JSON.stringify(toSave, null, 2));
+
+    // ── 아이디어 2: KIS 결과가 0건이면 KRX OpenAPI로 폴백 ──────────────────
+    // KIS 4개 TR이 모두 비었거나 한국투자증권 서버 장애 시 KRX 정보데이터시스템
+    // (data.krx.co.kr) 에서 투자자별 거래실적 + PER/PBR 을 수집해 최소 후보군을
+    // 확보한다. 법적 리스크 0, 무료, 공식 채널.
+    if (toSave.length === 0) {
+      const krxFallback = await fetchKrxScreenerFallback();
+      if (krxFallback.length > 0) {
+        fs.writeFileSync(SCREENER_FILE, JSON.stringify(krxFallback, null, 2));
+        console.log(`[Screener] KIS 빈 결과 → KRX 폴백 ${krxFallback.length}개 종목 적재`);
+        return krxFallback;
+      }
+    }
     return toSave;
   } catch (e: unknown) {
     console.error('[Screener] 실패:', e instanceof Error ? e.message : e);
+    // KIS 예외 경로도 KRX로 한 번 더 시도.
+    const krxFallback = await fetchKrxScreenerFallback();
+    if (krxFallback.length > 0) {
+      ensureDataDir();
+      fs.writeFileSync(SCREENER_FILE, JSON.stringify(krxFallback, null, 2));
+      console.log(`[Screener] KIS 예외 → KRX 폴백 ${krxFallback.length}개 종목 적재`);
+      return krxFallback;
+    }
+    return [];
+  }
+}
+
+/**
+ * KRX 정보데이터시스템(공식 OpenAPI) 기반 폴백 스크리너.
+ * - 투자자별 거래실적: 외국인 순매수 양수 종목만 선택
+ * - PER/PBR 테이블: 현재가·PER 보강 (데이터가 있는 종목만)
+ * - 두 소스 모두 실패하면 빈 배열 — 호출자는 기존 캐시로 자연 폴백
+ * KIS와 스키마 동일하므로 ScreenedStock 형태로 변환 후 최대 80개 반환.
+ */
+export async function fetchKrxScreenerFallback(): Promise<ScreenedStock[]> {
+  try {
+    const [investors, perPbr] = await Promise.all([
+      krxFetchInvestorTrading().catch(() => []),
+      krxFetchPerPbr().catch(() => []),
+    ]);
+    if (investors.length === 0) return [];
+
+    const perMap = new Map(perPbr.map(r => [r.code, r]));
+    const now = new Date().toISOString();
+    const rows: ScreenedStock[] = [];
+    for (const iv of investors) {
+      if (iv.foreignNetBuy <= 0) continue; // 외국인 순매수 양수만
+      const pp = perMap.get(iv.code);
+      const price = pp?.close ?? 0;
+      if (price <= 0) continue;            // 종가 없는 로우 제외
+      rows.push({
+        code: iv.code,
+        name: iv.name,
+        currentPrice: price,
+        // KRX 리포트엔 당일 등락률 없음 — 0으로 초기화. 후단 Yahoo 보강이 덮어씀.
+        changeRate: 0,
+        volume: 0,
+        turnoverRate: 0,
+        per: pp?.per ?? 999,
+        foreignNetBuy: iv.foreignNetBuy,
+        screenedAt: now,
+      });
+    }
+    // 외국인 순매수 규모 상위 80개.
+    rows.sort((a, b) => b.foreignNetBuy - a.foreignNetBuy);
+    return rows.slice(0, 80);
+  } catch (e) {
+    console.warn('[Screener/KRX] 폴백 실패:', e instanceof Error ? e.message : e);
     return [];
   }
 }

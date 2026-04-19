@@ -6,6 +6,11 @@ import { loadGlobalScanReport } from '../alerts/globalScanAgent.js';
 import { analyzeNewsSupplyPatterns, loadNewsSupplyRecords } from '../learning/newsSupplyLogger.js';
 import { getFomcProximity, generateFomcIcs, FOMC_DATES } from '../trading/fomcCalendar.js';
 import { runBacktest } from '../learning/backtestEngine.js';
+import {
+  computeMacroIndex,
+  generateMacroCommentary,
+  buildMacroInterpretContext,
+} from '../engines/macroIndexEngine.js';
 
 const router = Router();
 
@@ -292,6 +297,62 @@ router.get('/fred', async (req: Request, res: Response) => {
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: 'FRED fetch failed', details: error.message });
+  }
+});
+
+// ─── 아이디어 11: MHS 자체 계산 엔진 — ECOS + FRED 결정적 도출 ──────────────
+// GET  /api/market/macro-index         — 결정적 MHS + 축별 점수 + 드라이버
+// GET  /api/market/macro-index?commentary=1 — 위 결과 + Gemini 해석 코멘트
+// POST /api/market/macro-index         — 클라이언트가 VKOSPI/VIX/IRI 주입해 재계산
+router.get('/market/macro-index', async (req: Request, res: Response) => {
+  try {
+    const parseNum = (v: unknown): number | undefined => {
+      if (typeof v !== 'string') return undefined;
+      const n = parseFloat(v);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const result = await computeMacroIndex({
+      vkospi:     parseNum(req.query.vkospi),
+      vix:        parseNum(req.query.vix),
+      samsungIri: parseNum(req.query.samsungIri),
+      us10yYield: parseNum(req.query.us10y),
+    });
+    const wantCommentary = req.query.commentary === '1' || req.query.commentary === 'true';
+    const commentary = wantCommentary ? await generateMacroCommentary(result) : null;
+    res.json({ ...result, commentary });
+  } catch (e: any) {
+    console.error('macro-index error:', e?.message ?? e);
+    res.status(500).json({ error: e?.message ?? 'internal error' });
+  }
+});
+
+router.post('/market/macro-index', async (req: Request, res: Response) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const num = (v: unknown): number | undefined =>
+      typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+    const result = await computeMacroIndex({
+      vkospi:      num(body.vkospi),
+      vix:         num(body.vix),
+      samsungIri:  num(body.samsungIri),
+      us10yYield:  num(body.us10yYield),
+      usShortRate: num(body.usShortRate),
+    });
+    const commentary = body.commentary === true ? await generateMacroCommentary(result) : null;
+    res.json({ ...result, commentary });
+  } catch (e: any) {
+    console.error('macro-index POST error:', e?.message ?? e);
+    res.status(500).json({ error: e?.message ?? 'internal error' });
+  }
+});
+
+// GET /api/market/macro-index/context — Gemini 주입 블록 문자열만 반환 (디버깅용)
+router.get('/market/macro-index/context', async (_req: Request, res: Response) => {
+  try {
+    const result = await computeMacroIndex();
+    res.type('text/plain').send(buildMacroInterpretContext(result));
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? 'internal error' });
   }
 });
 

@@ -37,8 +37,13 @@ import {
 } from './dynamicUniverseExpander.js';
 import { getRanking } from '../clients/kisRankingClient.js';
 import { STOCK_UNIVERSE } from './stockScreener.js';
+import { DATA_DIR } from '../persistence/paths.js';
 
-const DYNAMIC_FILE = path.join(TEST_DATA_DIR, 'dynamic-universe.json');
+// 주의: paths.ts는 module-load 시점에 DATA_DIR 을 확정하므로, 다른 테스트 파일에서
+// 먼저 import된 경우 TEST_DATA_DIR이 아닌 production 경로가 쓰인다. 그래서
+// 테스트는 실제 사용 중인 DATA_DIR 을 검증 기준으로 삼아 상태 격리한다.
+const EFFECTIVE_DYNAMIC_FILE = path.join(DATA_DIR, 'dynamic-universe.json');
+const DYNAMIC_FILE = EFFECTIVE_DYNAMIC_FILE;
 
 describe('expandOnEmpty — KIS 실패 시 정적 유니버스 폴백', () => {
   beforeEach(() => {
@@ -57,10 +62,14 @@ describe('expandOnEmpty — KIS 실패 시 정적 유니버스 폴백', () => {
     const count = await expandOnEmpty();
     expect(count).toBe(0);
 
-    // kisRankingClient가 3종(volume/fluctuation/market-cap) 모두 호출되었는지 확인.
+    // 아이디어 5: 기존 3종(volume/fluctuation/market-cap) + 신규 2종
+    // (institutional-net-buy/large-volume)가 병렬 호출된다.
     const called = vi.mocked(getRanking).mock.calls.map(c => c[0]);
-    expect(called).toEqual(expect.arrayContaining(['volume', 'fluctuation', 'market-cap']));
-    expect(called.length).toBe(3);
+    expect(called).toEqual(expect.arrayContaining([
+      'volume', 'fluctuation', 'market-cap',
+      'institutional-net-buy', 'large-volume',
+    ]));
+    expect(called.length).toBe(5);
   });
 
   it('getExpandedUniverse는 KIS 실패 상황에서도 정적 STOCK_UNIVERSE 전부를 반환한다', async () => {
