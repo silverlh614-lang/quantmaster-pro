@@ -2,11 +2,12 @@
  * sectorSources.test.ts — KRX 장애 시 폴백 체인 동작 검증
  *
  * 검증 목표:
- *   1. KRX 벌크가 임계치를 넘으면 Yahoo/Gemini 는 호출되지 않는다.
+ *   1. KRX 벌크가 임계치를 넘으면 Naver/Yahoo/Gemini 는 호출되지 않는다.
  *   2. KRX 가 null 이어도 기존 파일 + 수동 오버라이드가 baseline 으로 유지된다.
- *   3. Yahoo fallback 은 영문 섹터를 한글로 매핑하고, Gemini 는 예산 차단 시 스킵한다.
- *   4. 오케스트레이터의 sourceLabel 은 최종 사용된 폴백을 기록한다.
- *   5. 타깃 유니버스는 Yahoo 병렬 동시성(YAHOO_CONCURRENCY) 상한을 넘지 않는다 — 네트워크 폭주 방지.
+ *   3. Naver fallback 은 업종별 한글 원문을 프로젝트 표준 섹터로 매핑한다.
+ *   4. Yahoo fallback 은 영문 섹터를 한글로 매핑하고, Gemini 는 예산 차단 시 스킵한다.
+ *   5. 오케스트레이터의 sourceLabel 은 최종 사용된 폴백 조합(Naver+Yahoo+Gemini)을 기록한다.
+ *   6. 타깃 유니버스는 Yahoo 병렬 동시성(YAHOO_CONCURRENCY) 상한을 넘지 않는다 — 네트워크 폭주 방지.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -145,6 +146,68 @@ describe('sectorSources — KRX → Yahoo → Gemini 폴백 체인', () => {
       '000660': '반도체',
       '373220': '2차전지',
     });
+  });
+
+  it('mapNaverIndustryToKorean: 특정성 우선 매칭 + 매핑 불가 null 반환', async () => {
+    const { mapNaverIndustryToKorean } = await import('./sectorSources.js');
+    expect(mapNaverIndustryToKorean('반도체와반도체장비')).toBe('반도체장비');
+    expect(mapNaverIndustryToKorean('반도체')).toBe('반도체');
+    expect(mapNaverIndustryToKorean('자동차부품')).toBe('자동차부품');
+    expect(mapNaverIndustryToKorean('자동차')).toBe('자동차');
+    expect(mapNaverIndustryToKorean('이차전지')).toBe('2차전지');
+    expect(mapNaverIndustryToKorean('소프트웨어')).toBe('IT서비스');
+    expect(mapNaverIndustryToKorean('은행')).toBe('금융');
+    expect(mapNaverIndustryToKorean('손해보험')).toBe('보험');
+    expect(mapNaverIndustryToKorean('알수없는업종명XYZ')).toBeNull();
+    expect(mapNaverIndustryToKorean('')).toBeNull();
+  });
+
+  it('parseNaverIndustryIndex: &amp; 와 & 표기 모두에서 no/name 을 추출', async () => {
+    const { parseNaverIndustryIndex } = await import('./sectorSources.js');
+    const html = `
+      <ul>
+        <li><a href="/sise/sise_group_detail.naver?type=upjong&amp;no=278">반도체와반도체장비</a></li>
+        <li><a href="/sise/sise_group_detail.naver?type=upjong&no=279">자동차부품</a></li>
+        <li><a href="/sise/sise_group_detail.naver?type=upjong&amp;no=278">중복</a></li>
+      </ul>`;
+    const out = parseNaverIndustryIndex(html);
+    expect(out).toEqual([
+      { no: '278', name: '반도체와반도체장비' },
+      { no: '279', name: '자동차부품' },
+    ]);
+  });
+
+  it('parseNaverIndustryDetail: 6자리 종목코드만 중복 제거하여 추출', async () => {
+    const { parseNaverIndustryDetail } = await import('./sectorSources.js');
+    const html = `
+      <a href="/item/main.naver?code=005930">삼성전자</a>
+      <a href="/item/main.naver?code=000660">SK하이닉스</a>
+      <a href="/item/main.naver?code=005930">삼성전자(중복)</a>
+      <a href="/item/main.naver?code=12345">5자리무시</a>
+    `;
+    expect(parseNaverIndustryDetail(html).sort()).toEqual(['000660', '005930']);
+  });
+
+  it('fetchFromNaver: 인덱스 페이지 실패 시 빈 맵을 반환하고 진단에 기록', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false, status: 500, arrayBuffer: async () => new ArrayBuffer(0),
+    }) as unknown as typeof fetch;
+
+    const { fetchFromNaver } = await import('./sectorSources.js');
+    const r = await fetchFromNaver(['005930', '000660']);
+    expect(r.map).toEqual({});
+    expect(r.source).toBe('Naver');
+    expect(r.diagnostics.join(' ')).toMatch(/인덱스 페이지 실패/);
+  });
+
+  it('fetchFromNaver: 조회 대상 0개면 즉시 스킵 (fetch 호출 없음)', async () => {
+    const spy = vi.fn();
+    globalThis.fetch = spy as unknown as typeof fetch;
+    const { fetchFromNaver } = await import('./sectorSources.js');
+    const r = await fetchFromNaver([]);
+    expect(r.map).toEqual({});
+    expect(spy).not.toHaveBeenCalled();
+    expect(r.diagnostics.join(' ')).toMatch(/조회 대상 코드 0개/);
   });
 
   it('오케스트레이터의 sourceLabel 은 최종 폴백(Yahoo+Gemini)을 기록한다', async () => {
