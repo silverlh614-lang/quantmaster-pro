@@ -271,6 +271,11 @@ export interface StockRecommendation {
     positionSize: number;
     isPassed?: boolean;
     currentGate?: number;
+    // enrichment 단계에서 27-항목 checklist 에서 계산된 세부 게이트.
+    // GateFilterSection 이 {score, reason, isPassed} 형태로 렌더한다.
+    gate1?: { score: number; isPassed: boolean; reason: string };
+    gate2?: { score: number; isPassed: boolean; reason: string };
+    gate3?: { score: number; isPassed: boolean; reason: string };
   };
   sellScore?: number;
   sellSignals?: { condition: string; reason: string }[];
