@@ -5,7 +5,7 @@
  */
 import type { ElementType } from 'react';
 import {
-  Zap, LayoutGrid, Bookmark, Filter, Radar, Calculator,
+  Zap, Search, Bookmark, Filter, Radar, Calculator,
   History, Shield, Activity, TrendingUp, Layers,
 } from 'lucide-react';
 import type { View } from '../stores/useSettingsStore';
@@ -30,7 +30,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: '탐색',
     items: [
-      { id: 'DISCOVER', label: 'AI 추천', icon: LayoutGrid },
+      { id: 'DISCOVER', label: 'AI 추천', icon: Search },
       { id: 'WATCHLIST', label: '관심 목록', icon: Bookmark },
     ],
   },
@@ -63,7 +63,7 @@ export const NAV_GROUPS: NavGroup[] = [
 // ── Mobile bottom-nav: primary tabs (always visible) ─────────────────────
 
 export const PRIMARY_MOBILE_TABS: NavItem[] = [
-  { id: 'DISCOVER', label: '탐색', icon: LayoutGrid },
+  { id: 'DISCOVER', label: '탐색', icon: Search },
   { id: 'WATCHLIST', label: '관심', icon: Bookmark },
   { id: 'TRADE_JOURNAL', label: '매매', icon: TrendingUp },
   { id: 'MARKET', label: '시장', icon: Activity },

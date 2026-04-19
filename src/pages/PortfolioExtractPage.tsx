@@ -10,12 +10,15 @@ import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Stack } from '../layout/Stack';
+import { ConnectionStatus, type ConnectionState } from '../components/common/ConnectionStatus';
+import { useRecommendationStore } from '../stores';
 
 // ── Gate extraction step definition ─────────────────────────────────────────
 interface GateStep {
   key: string;
   label: string;
   labelKo: string;
+  description: string;
   color: string;
   bgColor: string;
   borderColor: string;
@@ -25,16 +28,19 @@ interface GateStep {
 const GATE_STEPS: GateStep[] = [
   {
     key: 'gate1', label: 'Gate 1', labelKo: '필수 조건 필터',
+    description: '재무 건전성·거래대금 등 최소 자격을 통과한 종목만 남깁니다.',
     color: 'text-red-400', bgColor: 'bg-red-500/15', borderColor: 'border-red-500/40',
     icon: <Shield className="w-5 h-5 text-red-400" />,
   },
   {
     key: 'gate2', label: 'Gate 2', labelKo: '성장성 스코어링',
+    description: '매출·이익 성장, ROE 품질 등을 점수화해 상위 후보를 선별합니다.',
     color: 'text-amber-400', bgColor: 'bg-amber-500/15', borderColor: 'border-amber-500/40',
     icon: <TrendingUp className="w-5 h-5 text-amber-400" />,
   },
   {
     key: 'gate3', label: 'Gate 3', labelKo: '타이밍 최적화',
+    description: '이동평균 정배열·모멘텀으로 진입 타이밍이 좋은 종목을 고릅니다.',
     color: 'text-green-400', bgColor: 'bg-green-500/15', borderColor: 'border-green-500/40',
     icon: <Clock className="w-5 h-5 text-green-400" />,
   },
@@ -43,6 +49,13 @@ const GATE_STEPS: GateStep[] = [
 type PositionSizeMode = 'kelly' | 'equal';
 
 export function PortfolioExtractPage() {
+  const { recommendations, lastUpdated, loading } = useRecommendationStore();
+  const upstreamState: ConnectionState = loading
+    ? 'loading'
+    : recommendations && recommendations.length > 0
+      ? 'live'
+      : 'idle';
+
   // ── Section 1: Stock Count ─────────────────────────────────────────────────
   const [stockCount, setStockCount] = useState(10);
 
@@ -95,6 +108,14 @@ export function PortfolioExtractPage() {
           title="Portfolio Extraction"
           subtitle="3-Gate 포트폴리오 추출 엔진"
           accentColor="bg-purple-500"
+          actions={
+            <ConnectionStatus
+              label="추천 데이터"
+              state={upstreamState}
+              lastUpdated={lastUpdated}
+              detail={upstreamState === 'idle' ? 'AI 추천이 없으면 추출할 후보가 없습니다. 탐색 탭에서 추천을 먼저 실행하세요.' : undefined}
+            />
+          }
         >
           Gate 1(필수) &rarr; Gate 2(성장) &rarr; Gate 3(타이밍)을 순차 통과시켜 최적 종목을 추출합니다.
         </PageHeader>
@@ -352,7 +373,7 @@ export function PortfolioExtractPage() {
         >
           <Card padding="lg" className={cn(extracting && 'border-purple-500/30')}>
             {/* Gate Progress Visualization */}
-            <div className="flex items-center justify-center gap-2 sm:gap-4 mb-6 sm:mb-8">
+            <div className="flex items-center justify-center gap-2 sm:gap-4 mb-4">
               {GATE_STEPS.map((gate, idx) => {
                 const isActive = currentGate === idx;
                 const isCompleted = completedGates.includes(idx);
@@ -377,6 +398,7 @@ export function PortfolioExtractPage() {
                       )}
                       animate={isActive ? { scale: [1, 1.05, 1] } : { scale: 1 }}
                       transition={isActive ? { repeat: Infinity, duration: 1 } : {}}
+                      title={`${gate.label} · ${gate.labelKo} — ${gate.description}`}
                     >
                       {isCompleted ? (
                         <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-green-400" />
@@ -387,19 +409,45 @@ export function PortfolioExtractPage() {
                       ) : (
                         <span className="text-theme-text-muted">{gate.icon}</span>
                       )}
-                      <div className="hidden sm:block">
+                      <div>
                         <span className={cn(
-                          'text-xs font-black uppercase tracking-wider block',
+                          'text-[10px] sm:text-xs font-black uppercase tracking-wider block',
                           isActive ? gate.color : isCompleted ? 'text-green-400' : 'text-theme-text-muted'
                         )}>
                           {gate.label}
                         </span>
-                        <span className="text-[9px] font-bold text-theme-text-muted">{gate.labelKo}</span>
+                        <span className="text-[9px] sm:text-[10px] font-bold text-theme-text-muted">{gate.labelKo}</span>
                       </div>
                     </motion.div>
                   </React.Fragment>
                 );
               })}
+            </div>
+
+            {/* Gate 설명 카드 — 각 Gate가 무엇을 하는지 명시 */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6 sm:mb-8">
+              {GATE_STEPS.map((gate) => (
+                <div
+                  key={`${gate.key}-desc`}
+                  className={cn(
+                    "rounded-xl border p-3 sm:p-4 bg-white/[0.03]",
+                    gate.borderColor.replace('/40', '/20')
+                  )}
+                >
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className={cn("shrink-0", gate.color)}>{gate.icon}</span>
+                    <div className="flex flex-col leading-tight">
+                      <span className={cn("text-[10px] sm:text-xs font-black uppercase tracking-wider", gate.color)}>
+                        {gate.label}
+                      </span>
+                      <span className="text-[10px] sm:text-[11px] font-bold text-theme-text">{gate.labelKo}</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] sm:text-[11px] text-theme-text-muted font-medium leading-relaxed">
+                    {gate.description}
+                  </p>
+                </div>
+              ))}
             </div>
 
             {/* Progress bar during extraction */}

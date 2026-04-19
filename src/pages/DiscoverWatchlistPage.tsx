@@ -2,7 +2,7 @@ import React from 'react';
 import {
   RefreshCw, AlertTriangle, X, ChevronRight, HelpCircle,
   History, Zap, Radar, Search, Globe, Download, Mail,
-  Bookmark, TrendingUp, TrendingDown,
+  Bookmark, TrendingUp, TrendingDown, LayoutDashboard,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../ui/cn';
@@ -199,6 +199,19 @@ export function DiscoverWatchlistPage({
     [watchlist],
   );
 
+  /** DISCOVER 탭 분리: 스크롤 부담 완화를 위해 'overview' / 'search' 로 분리. */
+  const [discoverTab, setDiscoverTab] = React.useState<'overview' | 'search'>('overview');
+  const showOverview = view === 'DISCOVER' && discoverTab === 'overview';
+  const showSearch = view === 'DISCOVER' && discoverTab === 'search';
+
+  const switchDiscoverTab = React.useCallback((tab: 'overview' | 'search') => {
+    setDiscoverTab(tab);
+    // 탭 전환 시 상단으로 스크롤 — 새로 드러난 섹션이 바로 보이도록.
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, []);
+
   return (
     <Stack gap="lg">
       {/* Sync Status Bar */}
@@ -269,8 +282,42 @@ export function DiscoverWatchlistPage({
         )}
       </AnimatePresence>
 
-      {/* Market Sentiment & Hero / Top 3 / Market Context / AI Summary — DISCOVER 전용 */}
+      {/* DISCOVER 섹션 내부 탭 — 추천 대시보드 vs 종목 검색 */}
       {view === 'DISCOVER' && (
+        <div className="flex items-center gap-2 p-1.5 bg-white/[0.04] border border-white/10 rounded-2xl w-full max-w-md mx-auto sm:mx-0">
+          <button
+            type="button"
+            onClick={() => switchDiscoverTab('overview')}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black uppercase tracking-widest transition-all",
+              discoverTab === 'overview'
+                ? "bg-orange-500 text-white shadow-[0_4px_14px_rgba(249,115,22,0.35)]"
+                : "text-theme-text-muted hover:text-theme-text hover:bg-white/[0.06]"
+            )}
+            aria-pressed={discoverTab === 'overview'}
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            AI 추천 대시보드
+          </button>
+          <button
+            type="button"
+            onClick={() => switchDiscoverTab('search')}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black uppercase tracking-widest transition-all",
+              discoverTab === 'search'
+                ? "bg-blue-500 text-white shadow-[0_4px_14px_rgba(59,130,246,0.35)]"
+                : "text-theme-text-muted hover:text-theme-text hover:bg-white/[0.06]"
+            )}
+            aria-pressed={discoverTab === 'search'}
+          >
+            <Search className="w-4 h-4" />
+            종목 검색
+          </button>
+        </div>
+      )}
+
+      {/* Market Sentiment & Hero / Top 3 / Market Context / AI Summary — DISCOVER 대시보드 탭 */}
+      {showOverview && (
         <WatchlistHeader
           filters={filters}
           setFilters={setFilters}
@@ -299,7 +346,7 @@ export function DiscoverWatchlistPage({
       )}
 
       {/* 3-Gate Pyramid Visualization — Signature QuantMaster UI */}
-      {view === 'DISCOVER' && (
+      {showOverview && (
         <GatePyramidVisualization
           recommendations={recommendations}
           totalUniverse={recommendations.length}
@@ -307,7 +354,8 @@ export function DiscoverWatchlistPage({
       )}
 
       <Section>
-        {/* Search / Sort / Filter Panel */}
+        {/* Search / Sort / Filter Panel — 검색 탭 & 관심목록에서만 노출 */}
+        {(showSearch || view === 'WATCHLIST') && (
         <WatchlistFilterPanel
           view={view}
           loading={loading}
@@ -347,6 +395,7 @@ export function DiscoverWatchlistPage({
           nextSyncCountdown={nextSyncCountdown}
           syncStatus={syncStatus}
         />
+        )}
 
         {view === 'WATCHLIST' && (
           <motion.div
@@ -429,8 +478,8 @@ export function DiscoverWatchlistPage({
           </motion.div>
         )}
 
-        {/* Quick Navigation */}
-        {view === 'DISCOVER' && (
+        {/* Quick Navigation — 검색 탭 전용 */}
+        {showSearch && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -456,8 +505,8 @@ export function DiscoverWatchlistPage({
           </motion.div>
         )}
 
-        {/* Stats (DISCOVER view only) */}
-        {view === 'DISCOVER' && (
+        {/* Stats — 대시보드 탭 전용 */}
+        {showOverview && (
           <div className="mb-8 grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-1">
               <div className="flex items-center gap-1">

@@ -7,6 +7,7 @@ import { MacroIntelligenceDashboard } from '../components/signals/MacroIntellige
 import { MHSHistoryChart } from '../components/signals/MHSHistoryChart';
 import { IntelligenceRadar } from '../components/analysis/IntelligenceRadar';
 import { SectionErrorBoundary } from '../components/common/SectionErrorBoundary';
+import { ConnectionStatus, type ConnectionState } from '../components/common/ConnectionStatus';
 import { useMarketStore, useGlobalIntelStore, useRecommendationStore } from '../stores';
 import { evaluateGate0 } from '../services/quant/macroEngine';
 import { PageHeader } from '../ui/page-header';
@@ -58,6 +59,16 @@ export function MarketPage({ onFetchMarketOverview }: MarketPageProps) {
 
   const gate0Result = useMemo(() => macroEnv ? evaluateGate0(macroEnv) : undefined, [macroEnv]);
 
+  const marketConnState: ConnectionState = loadingMarket
+    ? 'loading'
+    : marketOverview
+      ? (() => {
+          const ts = marketOverview.lastUpdated ? new Date(marketOverview.lastUpdated).getTime() : NaN;
+          if (!Number.isFinite(ts)) return 'live';
+          return (Date.now() - ts) > 30 * 60 * 1000 ? 'stale' : 'live';
+        })()
+      : 'idle';
+
   const triageSummary = useMemo(() => {
     const summary = { gate1: 0, gate2: 0, gate3: 0, total: (recommendations || []).length };
     (recommendations || []).forEach(rec => {
@@ -82,15 +93,23 @@ export function MarketPage({ onFetchMarketOverview }: MarketPageProps) {
           subtitle="Global Market Overview"
           accentColor="bg-indigo-500"
           actions={
-            <Button
-              variant="secondary"
-              size="md"
-              icon={<RefreshCw className={loadingMarket ? 'w-4 h-4 animate-spin' : 'w-4 h-4'} />}
-              onClick={() => onFetchMarketOverview(true)}
-              disabled={loadingMarket}
-            >
-              데이터 갱신
-            </Button>
+            <>
+              <ConnectionStatus
+                label="시장 데이터"
+                state={marketConnState}
+                lastUpdated={marketOverview?.lastUpdated}
+                detail={marketConnState === 'stale' ? '30분 이상 업데이트되지 않았습니다.' : undefined}
+              />
+              <Button
+                variant="secondary"
+                size="md"
+                icon={<RefreshCw className={loadingMarket ? 'w-4 h-4 animate-spin' : 'w-4 h-4'} />}
+                onClick={() => onFetchMarketOverview(true)}
+                disabled={loadingMarket}
+              >
+                데이터 갱신
+              </Button>
+            </>
           }
         />
 

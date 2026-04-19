@@ -182,6 +182,32 @@
   .theme-light select.text-white {
     color: var(--text-primary);
   }
+  /* Light theme: low-opacity translucent overlays become invisible on near-white glass.
+     Give them a soft neutral tint so nested content has a perceptible container. */
+  .theme-light :where(.glass-3d, .glass-gradient) :where(
+    .bg-white\/5,
+    .bg-white\/\[0\.02\],
+    .bg-white\/\[0\.03\],
+    .bg-white\/\[0\.04\],
+    .bg-white\/\[0\.05\],
+    .bg-white\/\[0\.06\],
+    .bg-white\/\[0\.08\],
+    .bg-white\/10
+  ) {
+    background-color: rgba(15, 23, 42, 0.04);
+    border-color: rgba(15, 23, 42, 0.08);
+  }
+  /* Ensure text-white/20~30 that act as micro-labels remain readable on light glass. */
+  .theme-light :where([class*="bg-white/"], [class*="bg-black/"], [class*="bg-theme-"], .glass-3d, .glass-gradient) :where(
+    .text-white\/10,
+    .text-white\/20,
+    .text-white\/\[0\.2\],
+    .text-white\/25,
+    .text-white\/30,
+    .text-white\/40
+  ) {
+    color: rgba(15, 23, 42, 0.6);
+  }
 
   .theme-high-contrast {
     --bg-app: #000000;

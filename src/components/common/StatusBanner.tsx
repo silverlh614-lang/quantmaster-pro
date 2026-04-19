@@ -4,16 +4,35 @@
  * Shows: market phase, recommended position, watchlist count, gate average.
  */
 import React from 'react';
-import { Activity, Eye, Target, TrendingUp, Zap } from 'lucide-react';
+import { Activity, Eye, Target, TrendingUp, Zap, Wifi, WifiOff, RefreshCw, Clock } from 'lucide-react';
 import { cn } from '../../ui/cn';
-import { useRecommendationStore, useGlobalIntelStore } from '../../stores';
+import { useRecommendationStore, useGlobalIntelStore, useMarketStore } from '../../stores';
 import { useTradeStore } from '../../stores';
 
 export function StatusBanner() {
-  const { recommendations, watchlist } = useRecommendationStore();
+  const { recommendations, watchlist, loading: loadingReco, lastUpdated: recoUpdatedAt } = useRecommendationStore();
   const { tradeRecords } = useTradeStore();
+  const { marketOverview, loadingMarket, syncStatus } = useMarketStore();
   const bearRegimeResult = useGlobalIntelStore(s => s.bearRegimeResult);
   const marketNeutralResult = useGlobalIntelStore(s => s.marketNeutralResult);
+
+  /** 전체 데이터 연결 상태 — 로딩/최신성/가용성 순으로 판단. */
+  const connState: 'loading' | 'live' | 'stale' | 'idle' = (() => {
+    if (loadingReco || loadingMarket || syncStatus.isSyncing) return 'loading';
+    const hasAny = (recommendations || []).length > 0 || !!marketOverview;
+    if (!hasAny) return 'idle';
+    const ts = recoUpdatedAt
+      ? new Date(recoUpdatedAt).getTime()
+      : marketOverview?.lastUpdated ? new Date(marketOverview.lastUpdated).getTime() : NaN;
+    if (!Number.isFinite(ts)) return 'live';
+    return Date.now() - ts > 30 * 60 * 1000 ? 'stale' : 'live';
+  })();
+  const connCfg = {
+    live: { label: 'LIVE', color: 'text-green-400', icon: <Wifi className="w-3 h-3" />, dot: 'bg-green-400 shadow-[0_0_6px_rgba(34,197,94,0.6)]' },
+    loading: { label: 'SYNC', color: 'text-blue-400', icon: <RefreshCw className="w-3 h-3 animate-spin" />, dot: 'bg-blue-400 animate-pulse' },
+    stale: { label: 'STALE', color: 'text-amber-400', icon: <Clock className="w-3 h-3" />, dot: 'bg-amber-400' },
+    idle: { label: 'IDLE', color: 'text-theme-text-muted', icon: <WifiOff className="w-3 h-3" />, dot: 'bg-theme-text-muted' },
+  }[connState];
 
   const regime = bearRegimeResult?.regime ?? 'BULL';
 
@@ -42,6 +61,22 @@ export function StatusBanner() {
   return (
     <div className="neo-status-banner no-print" role="banner">
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-11 flex items-center gap-2 sm:gap-4 overflow-x-auto no-scrollbar">
+        {/* Connection / Data Freshness */}
+        <div
+          className="flex items-center gap-1.5 shrink-0"
+          title={connState === 'stale' ? '데이터가 30분 이상 갱신되지 않았습니다.' : connState === 'idle' ? '아직 데이터를 불러오지 않았습니다.' : undefined}
+          role="status"
+          aria-label={`데이터 연결 ${connCfg.label}`}
+        >
+          <span className={cn('w-2 h-2 rounded-full', connCfg.dot)} />
+          <span className={cn('flex items-center gap-1 text-[11px] font-black uppercase tracking-[0.12em] font-num', connCfg.color)}>
+            {connCfg.icon}
+            {connCfg.label}
+          </span>
+        </div>
+
+        <Separator />
+
         {/* Market Phase */}
         <div className="flex items-center gap-2 shrink-0">
           <span className={cn('w-2 h-2 rounded-full', phaseConfig.dot)} />

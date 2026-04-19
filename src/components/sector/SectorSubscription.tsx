@@ -1,24 +1,22 @@
-import React, { useState } from 'react';
-import { 
-  Radar, 
-  Plus, 
-  X, 
-  Bell, 
-  Zap, 
-  ChevronRight, 
-  Target,
-  AlertCircle,
-  CheckCircle2,
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Radar,
+  Plus,
+  X,
+  Bell,
+  Zap,
+  ChevronRight,
+  Save,
+  RotateCcw,
   RefreshCw,
   Activity,
   ShieldCheck,
-  Building2,
-  Flame,
-  Globe,
-  Brain
+  Brain,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
+import { toast } from 'sonner';
 import { StockRecommendation } from '../../services/stockService';
+import { useSettingsStore } from '../../stores';
 import { cn } from '../../ui/cn';
 
 interface SectorSubscriptionProps {
@@ -33,24 +31,57 @@ const AVAILABLE_SECTORS = [
   '조선', '방산', '원자력', 'AI 반도체', '이차전지', '바이오', '로봇', '우주항공', '전력설비', '엔터테인먼트', '게임', '화장품'
 ];
 
-export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({ 
-  subscribedSectors, 
-  onAddSector, 
-  onRemoveSector,
+export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
+  subscribedSectors,
   recommendations,
   loading
 }) => {
+  const setSubscribedSectors = useSettingsStore(s => s.setSubscribedSectors);
   const [newSector, setNewSector] = useState('');
+  const [draftSectors, setDraftSectors] = useState<string[]>(subscribedSectors);
+
+  // 외부(스토어)에서 구독 목록이 달라지면 draft 동기화 (예: 다른 화면에서 수정 시).
+  useEffect(() => {
+    setDraftSectors(subscribedSectors);
+  }, [subscribedSectors]);
+
+  const isDirty = useMemo(() => {
+    if (draftSectors.length !== subscribedSectors.length) return true;
+    const sortedA = [...draftSectors].sort();
+    const sortedB = [...subscribedSectors].sort();
+    return sortedA.some((v, i) => v !== sortedB[i]);
+  }, [draftSectors, subscribedSectors]);
+
+  const addToDraft = (sector: string) => {
+    const trimmed = sector.trim();
+    if (!trimmed) return;
+    setDraftSectors(prev => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+  };
+
+  const removeFromDraft = (sector: string) => {
+    setDraftSectors(prev => prev.filter(s => s !== sector));
+  };
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (newSector.trim()) {
-      onAddSector(newSector.trim());
+      addToDraft(newSector.trim());
       setNewSector('');
     }
   };
 
-  const filteredRecommendations = recommendations.filter(r => 
+  const handleSave = () => {
+    setSubscribedSectors(draftSectors);
+    toast.success(draftSectors.length === 0
+      ? '구독 섹터를 모두 해제했습니다.'
+      : `${draftSectors.length}개 섹터 구독을 저장했습니다.`);
+  };
+
+  const handleReset = () => {
+    setDraftSectors(subscribedSectors);
+  };
+
+  const filteredRecommendations = recommendations.filter(r =>
     subscribedSectors.some(s => r.relatedSectors?.includes(s) || (r.name || '').includes(s))
   );
 
@@ -75,49 +106,101 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
         </div>
 
         <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {subscribedSectors.map(sector => (
-              <div 
-                key={sector}
-                className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 group hover:border-amber-500/30 transition-all"
-              >
-                <span className="text-sm font-medium text-gray-200">{sector}</span>
-                <button 
-                  onClick={() => onRemoveSector(sector)}
-                  className="text-gray-500 hover:text-red-400 transition-colors"
+          {draftSectors.length === 0 ? (
+            <div className="bg-black/30 border border-dashed border-white/10 rounded-lg p-4 text-center">
+              <p className="text-sm text-gray-400 font-medium">선택된 섹터가 없습니다.</p>
+              <p className="text-xs text-gray-500 mt-1">아래 추천 섹터를 선택하거나 직접 입력해 <span className="text-amber-400 font-bold">저장</span>을 눌러주세요.</p>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {draftSectors.map(sector => (
+                <div
+                  key={sector}
+                  className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 group hover:border-amber-500/30 transition-all"
                 >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-            <form onSubmit={handleAdd} className="relative">
-              <input
-                type="text"
-                value={newSector}
-                onChange={(e) => setNewSector(e.target.value)}
-                placeholder="섹터 추가..."
-                className="bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-amber-500/50 w-32"
-              />
-              <button 
-                type="submit"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-amber-400"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </form>
-          </div>
+                  <span className="text-sm font-medium text-gray-200">{sector}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeFromDraft(sector)}
+                    className="text-gray-500 hover:text-red-400 transition-colors"
+                    aria-label={`${sector} 제거`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <form onSubmit={handleAdd} className="relative max-w-xs">
+            <input
+              type="text"
+              value={newSector}
+              onChange={(e) => setNewSector(e.target.value)}
+              placeholder="섹터 이름을 입력 후 Enter"
+              className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 pr-9 text-sm text-white focus:outline-none focus:border-amber-500/50"
+            />
+            <button
+              type="submit"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-amber-400"
+              aria-label="섹터 추가"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </form>
 
           <div className="flex flex-wrap gap-2 pt-2">
             <span className="text-xs text-gray-500 font-medium py-1">추천 섹터:</span>
-            {AVAILABLE_SECTORS.filter(s => !subscribedSectors.includes(s)).slice(0, 6).map(sector => (
+            {AVAILABLE_SECTORS.filter(s => !draftSectors.includes(s)).slice(0, 8).map(sector => (
               <button
                 key={sector}
-                onClick={() => onAddSector(sector)}
+                type="button"
+                onClick={() => addToDraft(sector)}
                 className="text-xs text-gray-400 hover:text-amber-400 bg-white/5 hover:bg-amber-500/10 border border-white/5 hover:border-amber-500/20 rounded-md px-2 py-1 transition-all"
               >
                 + {sector}
               </button>
             ))}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-white/5">
+            <div className="flex items-center gap-2 text-xs">
+              <span
+                className={cn(
+                  "w-2 h-2 rounded-full",
+                  isDirty ? "bg-amber-400 animate-pulse" : "bg-green-500"
+                )}
+              />
+              <span className={cn("font-bold uppercase tracking-widest", isDirty ? "text-amber-300" : "text-green-400")}>
+                {isDirty ? '저장되지 않은 변경사항' : '저장 상태 최신'}
+              </span>
+              <span className="text-gray-500 font-medium ml-1">선택 {draftSectors.length}개 / 저장 {subscribedSectors.length}개</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleReset}
+                disabled={!isDirty}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 bg-white/5 hover:bg-white/10 border border-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                되돌리기
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={!isDirty}
+                className={cn(
+                  "flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all",
+                  isDirty
+                    ? "bg-amber-500 text-black hover:bg-amber-400 shadow-[0_4px_14px_rgba(245,158,11,0.35)]"
+                    : "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed"
+                )}
+              >
+                <Save className="w-3.5 h-3.5" />
+                저장
+              </button>
+            </div>
           </div>
         </div>
       </div>
