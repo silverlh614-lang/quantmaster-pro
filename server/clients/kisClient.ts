@@ -18,6 +18,10 @@ export const SELL_TR_ID  = KIS_IS_REAL ? 'TTTC0801U' : 'VTTC0801U';
 export const CCLD_TR_ID  = KIS_IS_REAL ? 'TTTC8001R' : 'VTTC8001R';
 
 let cachedToken: { token: string; expiry: number } | null = null;
+// Single-flight: 동시 토큰 갱신 요청을 하나로 합쳐 OAuth2 엔드포인트 중복 호출을 방지.
+// 시장 스크리너·AI 분석이 병렬로 여러 KIS 호출을 날릴 때 캐시가 비어 있으면
+// N개의 동시 `/oauth2/tokenP` 요청이 발생해 KIS가 남용으로 간주할 수 있다.
+let inFlightMainTokenRefresh: Promise<string> | null = null;
 
 /**
  * KIS 토큰 응답에서 안전한 오류 정보만 추출. 원본 응답에는 `access_token`·
@@ -49,6 +53,7 @@ export const HAS_REAL_DATA_CLIENT =
   !!(process.env.KIS_REAL_DATA_APP_KEY && process.env.KIS_REAL_DATA_APP_SECRET);
 
 let cachedRealDataToken: { token: string; expiry: number } | null = null;
+let inFlightRealDataTokenRefresh: Promise<string> | null = null;
 
 // ─── 토큰 관리 ──────────────────────────────────────────────────────────────
 
@@ -57,22 +62,32 @@ export function getKisBase(): string { return KIS_BASE; }
 
 export async function refreshKisToken(): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiry) return cachedToken.token;
-  const res = await fetch(`${KIS_BASE}/oauth2/tokenP`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'client_credentials',
-      appkey: process.env.KIS_APP_KEY,
-      appsecret: process.env.KIS_APP_SECRET,
-    }),
-  });
-  const data = await res.json() as { access_token?: string };
-  if (!data.access_token) {
-    throw new Error(`KIS 토큰 갱신 실패 (status=${res.status}): ${sanitizeTokenErrorInfo(data)}`);
-  }
-  cachedToken = { token: data.access_token, expiry: Date.now() + 23 * 60 * 60 * 1000 };
-  console.log('[KIS] 토큰 갱신 완료');
-  return cachedToken.token;
+  if (inFlightMainTokenRefresh) return inFlightMainTokenRefresh;
+
+  inFlightMainTokenRefresh = (async () => {
+    try {
+      const res = await fetch(`${KIS_BASE}/oauth2/tokenP`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'client_credentials',
+          appkey: process.env.KIS_APP_KEY,
+          appsecret: process.env.KIS_APP_SECRET,
+        }),
+      });
+      const data = await res.json() as { access_token?: string };
+      if (!data.access_token) {
+        throw new Error(`KIS 토큰 갱신 실패 (status=${res.status}): ${sanitizeTokenErrorInfo(data)}`);
+      }
+      cachedToken = { token: data.access_token, expiry: Date.now() + 23 * 60 * 60 * 1000 };
+      console.log('[KIS] 토큰 갱신 완료');
+      return cachedToken.token;
+    } finally {
+      inFlightMainTokenRefresh = null;
+    }
+  })();
+
+  return inFlightMainTokenRefresh;
 }
 
 /** refreshKisToken 호환 별칭 (기존 server/ 호환) */
@@ -96,22 +111,32 @@ export function invalidateKisToken(): void {
 /** 실계좌 데이터 전용 토큰 갱신. 실계좌 키 미설정 시 에러 */
 async function refreshRealDataToken(): Promise<string> {
   if (cachedRealDataToken && Date.now() < cachedRealDataToken.expiry) return cachedRealDataToken.token;
-  const res = await fetch(`${REAL_DATA_BASE}/oauth2/tokenP`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'client_credentials',
-      appkey: process.env.KIS_REAL_DATA_APP_KEY,
-      appsecret: process.env.KIS_REAL_DATA_APP_SECRET,
-    }),
-  });
-  const data = await res.json() as { access_token?: string };
-  if (!data.access_token) {
-    throw new Error(`KIS 실계좌 데이터 토큰 갱신 실패 (status=${res.status}): ${sanitizeTokenErrorInfo(data)}`);
-  }
-  cachedRealDataToken = { token: data.access_token, expiry: Date.now() + 23 * 60 * 60 * 1000 };
-  console.log('[KIS-RealData] 실계좌 데이터 전용 토큰 갱신 완료');
-  return cachedRealDataToken.token;
+  if (inFlightRealDataTokenRefresh) return inFlightRealDataTokenRefresh;
+
+  inFlightRealDataTokenRefresh = (async () => {
+    try {
+      const res = await fetch(`${REAL_DATA_BASE}/oauth2/tokenP`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'client_credentials',
+          appkey: process.env.KIS_REAL_DATA_APP_KEY,
+          appsecret: process.env.KIS_REAL_DATA_APP_SECRET,
+        }),
+      });
+      const data = await res.json() as { access_token?: string };
+      if (!data.access_token) {
+        throw new Error(`KIS 실계좌 데이터 토큰 갱신 실패 (status=${res.status}): ${sanitizeTokenErrorInfo(data)}`);
+      }
+      cachedRealDataToken = { token: data.access_token, expiry: Date.now() + 23 * 60 * 60 * 1000 };
+      console.log('[KIS-RealData] 실계좌 데이터 전용 토큰 갱신 완료');
+      return cachedRealDataToken.token;
+    } finally {
+      inFlightRealDataTokenRefresh = null;
+    }
+  })();
+
+  return inFlightRealDataTokenRefresh;
 }
 
 /** 실계좌 데이터 전용 토큰 잔여 시간 */
