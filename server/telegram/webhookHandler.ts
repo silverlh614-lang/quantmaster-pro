@@ -18,7 +18,8 @@ import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistenc
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
 import { getMonthlyStats } from '../learning/recommendationTracker.js';
-import { sendTelegramAlert, answerCallbackQuery } from '../alerts/telegramClient.js';
+import { sendTelegramAlert, answerCallbackQuery, isDigestEnabled, setDigestEnabled } from '../alerts/telegramClient.js';
+import { readAlertAuditRange } from '../alerts/alertAuditLog.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
 import { runAutoSignalScan, isOpenShadowStatus, getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
 import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/reportGenerator.js';
@@ -716,6 +717,59 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `실시간호가: ${ss.connected ? `✅ ${ss.subscribedCount}종목` : '❌ 미연결'}\n` +
           `─────────────────────\n` +
           `<i>/refresh_token — KIS 토큰 강제 갱신</i>`
+        );
+        break;
+      }
+
+      case '/todaylog': {
+        // 오늘 KST 00:00 ~ 현재까지의 알림 감사 로그를 티어·카테고리별 집계.
+        const nowMs = Date.now();
+        const kstNow = new Date(nowMs + 9 * 3_600_000);
+        const kstMidnight = Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate()) - 9 * 3_600_000;
+        const entries = readAlertAuditRange(kstMidnight, nowMs);
+        if (entries.length === 0) {
+          await reply('📋 오늘 기록된 알림이 없습니다.');
+          break;
+        }
+        const byTier: Record<string, number> = { T1_ALARM: 0, T2_REPORT: 0, T3_DIGEST: 0 };
+        const byCat: Map<string, number> = new Map();
+        for (const e of entries) {
+          byTier[e.tier] = (byTier[e.tier] ?? 0) + 1;
+          byCat.set(e.category, (byCat.get(e.category) ?? 0) + 1);
+        }
+        const topCats = [...byCat.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+        await reply(
+          `📋 <b>[오늘 알림 로그] ${entries.length}건</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `🚨 T1 ALARM: ${byTier.T1_ALARM}건\n` +
+          `📊 T2 REPORT: ${byTier.T2_REPORT}건\n` +
+          `📋 T3 DIGEST: ${byTier.T3_DIGEST}건\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `<b>카테고리 Top ${topCats.length}:</b>\n` +
+          topCats.map(([k, v]) => `  ${k}: ${v}건`).join('\n')
+        );
+        break;
+      }
+
+      case '/digest_on': {
+        setDigestEnabled(true);
+        await reply('📋 다이제스트 수신 ON — 30분 단위로 요약 발송됩니다.');
+        break;
+      }
+
+      case '/digest_off': {
+        setDigestEnabled(false);
+        await reply(
+          '🔕 다이제스트 수신 OFF — T3 알림은 Telegram 으로 발송되지 않습니다.\n' +
+          '<i>기록은 계속 쌓이며 /todaylog 로 조회 가능.</i>'
+        );
+        break;
+      }
+
+      case '/digest_status': {
+        await reply(
+          `📋 다이제스트 상태: <b>${isDigestEnabled() ? 'ON' : 'OFF'}</b>\n` +
+          `<i>/digest_on · /digest_off 로 토글</i>`
         );
         break;
       }

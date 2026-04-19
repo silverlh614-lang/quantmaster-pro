@@ -38,6 +38,11 @@ export async function setTelegramBotCommands(): Promise<void> {
     { command: 'integrity', description: '데이터 무결성 차단 상태 조회/해제' },
     { command: 'refresh_token', description: 'KIS 토큰 강제 갱신' },
     { command: 'channel_test',  description: '채널 연결 테스트' },
+    // ── Phase 5: 다이제스트 ──────────────────────────────────────────────────
+    { command: 'todaylog',     description: '오늘 발생한 알림 카테고리·티어 요약' },
+    { command: 'digest_on',    description: 'T3 다이제스트 수신 ON' },
+    { command: 'digest_off',   description: 'T3 다이제스트 수신 OFF (기록은 유지)' },
+    { command: 'digest_status',description: '다이제스트 수신 상태 조회' },
   ];
 
   try {
@@ -152,6 +157,19 @@ function recordAlertSent(opts?: TelegramAlertOptions): void {
   });
 }
 
+// ─── Phase 5: 다이제스트 수신 토글 (/digest_on, /digest_off) ─────────────────
+// T3 DIGEST 수신을 사용자가 끌 수 있다. 정보는 /todaylog 로 풀(pull) 조회 가능.
+// 파일 영속화 없이 프로세스 메모리만 사용 — 재시작 시 기본값(ON)으로 복귀.
+let digestEnabled = process.env.DIGEST_ENABLED !== 'false';
+
+export function isDigestEnabled(): boolean {
+  return digestEnabled;
+}
+
+export function setDigestEnabled(enabled: boolean): void {
+  digestEnabled = enabled;
+}
+
 /** 주기적으로 오래된 쿨다운 엔트리 정리 (메모리 누수 방지) */
 export function pruneAlertCooldown(): void {
   const now = Date.now();
@@ -170,7 +188,8 @@ interface DigestEntry {
 
 const digestBuffer: DigestEntry[] = [];
 let digestTimer: ReturnType<typeof setTimeout> | null = null;
-const DIGEST_INTERVAL_MS = 10 * 60 * 1000; // 10분
+// Phase 5 (참뮌 스펙 #9): 10분 → 30분으로 확대. "background radio" 역할.
+const DIGEST_INTERVAL_MS = 30 * 60 * 1000; // 30분
 
 /** 다이제스트 버퍼에 메시지 추가 (LOW 우선순위 알림 대상) */
 export function addToDigest(message: string): void {
@@ -178,6 +197,51 @@ export function addToDigest(message: string): void {
   if (!digestTimer) {
     digestTimer = setTimeout(flushDigest, DIGEST_INTERVAL_MS);
   }
+}
+
+/**
+ * 동일 종목/이벤트 반복을 1줄로 압축한다.
+ *
+ * 그룹 키: "첫 줄에서 HTML·이모지·숫자·%·괄호값을 제거한 시그니처".
+ * 예: "삼성전자 +0.8% → +1.2%", "삼성전자 +1.0% → +1.3%" 모두 같은 그룹 →
+ *     "삼성전자 (3건)" 압축 출력.
+ */
+function compressDigestEntries(entries: DigestEntry[]): string[] {
+  const groups = new Map<string, { first: string; last: string; count: number }>();
+  const order: string[] = [];
+  for (const e of entries) {
+    const firstLine = e.message.split('\n').find(l => l.trim()) ?? e.message;
+    const sig = signatureOf(firstLine);
+    if (!groups.has(sig)) {
+      groups.set(sig, { first: firstLine.trim(), last: firstLine.trim(), count: 1 });
+      order.push(sig);
+    } else {
+      const g = groups.get(sig)!;
+      g.last = firstLine.trim();
+      g.count += 1;
+    }
+  }
+  return order.map(sig => {
+    const g = groups.get(sig)!;
+    if (g.count === 1) return `• ${g.first}`;
+    return `• ${g.first} → ${extractTail(g.last)} <i>(${g.count}건 누적)</i>`;
+  });
+}
+
+function signatureOf(line: string): string {
+  return line
+    .replace(/<[^>]+>/g, '')
+    .replace(/[0-9]+[.,0-9]*%?/g, '#')           // 숫자·퍼센트 제거
+    .replace(/[\uD83C-\uDBFF\uDC00-\uDFFF\u2600-\u27BF\uFE0F]/g, '')  // 이모지 제거
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+}
+
+function extractTail(line: string): string {
+  // 동일 그룹의 마지막 인스턴스에서 숫자 부분만 꺼내 "→" 뒤에 보여준다.
+  const m = line.match(/([+-]?\d[\d.,]*%?)/g);
+  return m && m.length > 0 ? m[m.length - 1] : '최근';
 }
 
 /** 다이제스트 버퍼를 묶어 한 번에 전송 (T3 📋 DIGEST 아이콘을 강제) */
@@ -198,8 +262,9 @@ export async function flushDigest(): Promise<void> {
     `<b>[${entries.length}건 요약] ${startHH}:${startMM}~${hh}:${mm}</b>\n━━━━━━━━━━━━━━━━━━━━`,
     'T3_DIGEST',
   );
-  const body = entries.map(e => e.message).join('\n');
-  const full = `${header}\n${body}\n━━━━━━━━━━━━━━━━━━━━`;
+  const compressed = compressDigestEntries(entries);
+  const body = compressed.join('\n');
+  const full = `${header}\n${body}\n━━━━━━━━━━━━━━━━━━━━\n<i>상세 로그: /todaylog</i>`;
 
   const messageId = await sendTelegramAlertRaw(full);
   appendAlertAudit({
@@ -339,6 +404,22 @@ export async function sendTelegramAlert(
   // LOW 우선순위 (또는 T3 명시): 다이제스트 버퍼로 전환 (replyMarkup 있으면 즉시 발송)
   const goDigest = (opts?.priority === 'LOW' || opts?.tier === 'T3_DIGEST') && !effectiveReplyMarkup;
   if (goDigest) {
+    // /digest_off 상태: Telegram 발송은 하지 않고 감사 로그·UI 피드만 남긴다. 참뮌은 /todaylog 로 조회.
+    if (!digestEnabled) {
+      try {
+        const { appendAlertFeed } = await import('../persistence/alertsFeedRepo.js');
+        appendAlertFeed(finalMessage, 'LOW', opts?.dedupeKey);
+      } catch { /* noop */ }
+      appendAlertAudit({
+        at: new Date().toISOString(),
+        tier: 'T3_DIGEST',
+        priority: opts?.priority,
+        category: opts?.category ?? inferCategory(opts?.dedupeKey),
+        dedupeKey: opts?.dedupeKey,
+        textLen: finalMessage.length,
+      });
+      return;
+    }
     if (shouldSendAlert(opts)) {
       addToDigest(finalMessage);
       recordAlertSent(opts);
