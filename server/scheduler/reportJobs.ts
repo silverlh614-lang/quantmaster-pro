@@ -50,9 +50,10 @@ async function runUnifiedBriefing(
 }
 
 export function registerReportJobs(): void {
-  // 주간 리포트 — 매주 금요일 16:30 KST (UTC 07:30).
-  // TODO(Phase 4): 월요일 08:00 KST로 이동 — 주말 맥락·이번주 액션 아이템 강조.
-  cron.schedule('30 7 * * 5', async () => { await generateWeeklyReport().catch(console.error); }, { timezone: 'UTC' });
+  // 주간 캘리브레이션 리포트 — 매주 월요일 08:00 KST (UTC 일요일 23:00).
+  // Phase 4: 금요일 16:30 발송은 주말에 잊혀지는 문제가 있어 월요일 아침으로 이동.
+  // "지난 주 움직임 + 이번 주 액션 아이템" narrative 형식.
+  cron.schedule('0 23 * * 0', async () => { await generateWeeklyReport().catch(console.error); }, { timezone: 'UTC' });
 
   // 일일 종목 픽 리포트 — 평일 16:30 KST (UTC 07:30). 구독자용 픽 채널.
   cron.schedule('30 7 * * 1-5', async () => { await generateDailyPickReport().catch(console.error); }, { timezone: 'UTC' });
