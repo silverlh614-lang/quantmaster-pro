@@ -23,7 +23,7 @@
  */
 
 import fs from 'fs';
-import { fetchCloses } from '../trading/marketDataRefresh.js';
+import { fetchLatestBar } from '../trading/marketDataRefresh.js';
 import { sendTelegramBroadcast } from './telegramClient.js';
 import { ADR_GAP_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { logNewsSupplyEvent } from '../learning/newsSupplyLogger.js';
@@ -87,6 +87,15 @@ export const DEFAULT_ADR_TARGETS: AdrTarget[] = [
 const GAP_PCT_MEDIUM = 2.0;
 const GAP_PCT_HIGH   = 3.5;
 
+/**
+ * 종가 신선도 허용치(일).
+ * 08:35 KST cron 기준 금요일→월요일 3일 공백 + 공휴일 최대 2일을 포괄하되,
+ * 상장폐지·유동성 고갈로 수년 전 종가가 반환되는 경우는 배제한다.
+ * ADR 선례: PKX(POSCO) 는 2015 년 NYSE 상장폐지 — Yahoo 는 2015 년 종가를 '최신'으로 내려준다.
+ */
+const MAX_BAR_STALENESS_DAYS = 5;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 // ── 영속성 ────────────────────────────────────────────────────────────────────
 
 function saveState(state: AdrGapState): void {
@@ -96,23 +105,40 @@ function saveState(state: AdrGapState): void {
 
 // ── 종가 한 점 조회 헬퍼 ──────────────────────────────────────────────────────
 
-async function fetchLatestClose(symbol: string, range = '10d'): Promise<number | null> {
-  const closes = await fetchCloses(symbol, range).catch(() => null);
-  if (!closes || closes.length === 0) return null;
-  return closes[closes.length - 1];
+/** Yahoo timestamp(Unix seconds) 기준 바의 경과일수. */
+function barAgeDays(tsSeconds: number, now = Date.now()): number {
+  return (now - tsSeconds * 1000) / DAY_MS;
+}
+
+async function fetchFreshClose(
+  symbol: string,
+  label: string,
+  maxAgeDays = MAX_BAR_STALENESS_DAYS,
+): Promise<number | null> {
+  const bar = await fetchLatestBar(symbol).catch(() => null);
+  if (!bar) {
+    console.warn(`[AdrGap] ${label} ${symbol}: 바 조회 실패`);
+    return null;
+  }
+  const ageDays = barAgeDays(bar.ts);
+  if (ageDays > maxAgeDays) {
+    console.warn(
+      `[AdrGap] ${label} ${symbol}: 종가 과거 데이터 (${ageDays.toFixed(1)}일 전, ` +
+      `${new Date(bar.ts * 1000).toISOString().slice(0, 10)}) — 제외`,
+    );
+    return null;
+  }
+  return bar.close;
 }
 
 // ── 단일 종목 갭 계산 ─────────────────────────────────────────────────────────
 
 async function computeGap(target: AdrTarget, usdKrw: number): Promise<AdrGapResult | null> {
   const [krxClose, adrClose] = await Promise.all([
-    fetchLatestClose(target.krxSymbol),
-    fetchLatestClose(target.adrSymbol),
+    fetchFreshClose(target.krxSymbol, 'KRX', MAX_BAR_STALENESS_DAYS),
+    fetchFreshClose(target.adrSymbol, 'ADR', MAX_BAR_STALENESS_DAYS),
   ]);
-  if (krxClose == null || adrClose == null) {
-    console.warn(`[AdrGap] 종가 조회 실패: ${target.krxSymbol}=${krxClose}, ${target.adrSymbol}=${adrClose}`);
-    return null;
-  }
+  if (krxClose == null || adrClose == null) return null;
   if (krxClose <= 0 || adrClose <= 0) return null;
 
   const theoreticalOpen = adrClose * usdKrw * target.adrRatio;
@@ -226,9 +252,10 @@ function logToNewsSupply(results: AdrGapResult[]): void {
 export async function runAdrGapScan(
   targets: AdrTarget[] = DEFAULT_ADR_TARGETS,
 ): Promise<AdrGapResult[]> {
-  const usdKrw = await fetchLatestClose('KRW=X');
+  // USD/KRW 는 FX 24/5 — 3일 이상 공백이면 데이터 이상으로 보고 전체 스킵.
+  const usdKrw = await fetchFreshClose('KRW=X', 'FX', 3);
   if (usdKrw == null || usdKrw <= 0) {
-    console.warn('[AdrGap] USD/KRW 조회 실패 — 스킵');
+    console.warn('[AdrGap] USD/KRW 최신 종가 조회 실패 — 전체 스킵');
     return [];
   }
 
