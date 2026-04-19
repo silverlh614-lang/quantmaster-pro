@@ -8,6 +8,16 @@ interface Props {
 }
 
 export function FundamentalsColumn({ stock }: Props) {
+  // 0 / 미정의 값은 "—" 로 표시. AI 플레이스홀더와 실데이터 0 을 구분하기 어려워
+  // "데이터 없음"은 dash, 값이 있으면 그대로 렌더한다.
+  const per = Number(stock.valuation?.per) || 0;
+  const pbr = Number(stock.valuation?.pbr) || 0;
+  const epsGrowth = Number(stock.valuation?.epsGrowth) || 0;
+  const debtRatio = Number(stock.valuation?.debtRatio) || 0;
+  const fmtRatio = (v: number, suffix: string) => (v > 0 ? `${v.toFixed(v >= 10 ? 1 : 2)}${suffix}` : '—');
+  const fmtPct = (v: number) => (v !== 0 ? `${v > 0 ? '+' : ''}${v.toFixed(1)}%` : '—');
+  const fmtDebt = (v: number) => (v > 0 ? `${v.toFixed(1)}%` : '—');
+
   return (
     <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
       <div className="flex items-center gap-3 mb-6">
@@ -22,7 +32,7 @@ export function FundamentalsColumn({ stock }: Props) {
               <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] block mb-1">P/E Ratio (PER)</span>
               <p className="text-[10px] text-white/40 font-bold leading-tight max-w-[200px]">주가수익비율: 이익 대비 주가 수준 (낮을수록 저평가)</p>
             </div>
-            <span className="text-2xl font-black text-white">{stock.valuation?.per}x</span>
+            <span className="text-2xl font-black text-white">{fmtRatio(per, 'x')}</span>
           </div>
         </div>
 
@@ -32,7 +42,7 @@ export function FundamentalsColumn({ stock }: Props) {
               <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] block mb-1">P/B Ratio (PBR)</span>
               <p className="text-[10px] text-white/40 font-bold leading-tight max-w-[200px]">주가순자산비율: 자산 가치 대비 주가 (1미만 시 장부가 미달)</p>
             </div>
-            <span className="text-2xl font-black text-white">{stock.valuation?.pbr}x</span>
+            <span className="text-2xl font-black text-white">{fmtRatio(pbr, 'x')}</span>
           </div>
         </div>
 
@@ -42,7 +52,9 @@ export function FundamentalsColumn({ stock }: Props) {
               <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] block mb-1">EPS Growth</span>
               <p className="text-[10px] text-white/40 font-bold leading-tight max-w-[200px]">주당순이익 성장률: 기업의 수익성 성장 속도</p>
             </div>
-            <span className="text-2xl font-black text-green-400">+{stock.valuation?.epsGrowth}%</span>
+            <span className={cn("text-2xl font-black", epsGrowth > 0 ? "text-green-400" : epsGrowth < 0 ? "text-red-400" : "text-white/40")}>
+              {fmtPct(epsGrowth)}
+            </span>
           </div>
         </div>
 
@@ -52,7 +64,7 @@ export function FundamentalsColumn({ stock }: Props) {
               <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] block mb-1">Debt Ratio</span>
               <p className="text-[10px] text-white/40 font-bold leading-tight max-w-[200px]">부채비율: 재무 건전성 및 리스크 지표 (낮을수록 안전)</p>
             </div>
-            <span className="text-2xl font-black text-white">{stock.valuation?.debtRatio}%</span>
+            <span className="text-2xl font-black text-white">{fmtDebt(debtRatio)}</span>
           </div>
         </div>
 

@@ -13,24 +13,124 @@ import { fetchHistoricalData } from './historicalData';
 import type { StockRecommendation } from './types';
 import type { TranchePlan } from '../../types/quant';
 
+interface KrxValuation {
+  per: number;
+  pbr: number;
+  eps: number;
+  bps: number;
+  marketCap: number;         // 억원
+  marketCapDisplay: string;  // "12.3조" / "3,450억"
+}
+
+// 세션 스코프 in-memory 캐시 — 한 번의 분석 사이클에서 동일 종목 코드 중복 호출을 줄인다.
+const _valuationCache = new Map<string, KrxValuation | null>();
+
 /**
- * KRX PER/PBR 조회 — 서버 `/api/krx/valuation` 프록시 경유.
- * 실패 시 null 반환하여 호출측에서 기존 값 보존.
+ * KRX 스타일 밸류에이션 조회 — 서버 `/api/krx/valuation` 프록시 경유 (실데이터는 KIS inquire-price).
+ * 실패·빈 데이터는 null 반환하여 호출측에서 기존 값을 보존한다.
  */
-async function fetchKrxValuation(code: string): Promise<{ per: number; pbr: number } | null> {
+async function fetchKrxValuation(code: string): Promise<KrxValuation | null> {
   const baseCode = code.split('.')[0];
   if (!/^\d{6}$/.test(baseCode)) return null;
+  if (_valuationCache.has(baseCode)) return _valuationCache.get(baseCode) ?? null;
   try {
     const res = await fetch(`/api/krx/valuation?code=${baseCode}`);
-    if (!res.ok) return null;
+    if (!res.ok) { _valuationCache.set(baseCode, null); return null; }
     const data = await res.json();
-    const per = typeof data?.per === 'number' ? data.per : 0;
-    const pbr = typeof data?.pbr === 'number' ? data.pbr : 0;
-    if (per <= 0 && pbr <= 0) return null;
-    return { per, pbr };
+    const result: KrxValuation = {
+      per: Number(data?.per) || 0,
+      pbr: Number(data?.pbr) || 0,
+      eps: Number(data?.eps) || 0,
+      bps: Number(data?.bps) || 0,
+      marketCap: Number(data?.marketCap) || 0,
+      marketCapDisplay: typeof data?.marketCapDisplay === 'string' ? data.marketCapDisplay : '',
+    };
+    const isEmpty = result.per <= 0 && result.pbr <= 0 && result.marketCap <= 0;
+    const cached = isEmpty ? null : result;
+    _valuationCache.set(baseCode, cached);
+    return cached;
   } catch {
+    _valuationCache.set(baseCode, null);
     return null;
   }
+}
+
+/**
+ * 27-항목 checklist 와 ichimokuStatus 로부터 3-Gate Pyramid 의 개별 게이트 점수를 계산한다.
+ * AI 프롬프트의 Gate 정의를 그대로 사용:
+ *   - Gate 1 (Survival, 5): cycleVerified, roeType3, riskOnEnvironment, mechanicalStop, notPreviousLeader
+ *   - Gate 2 (Growth, 12): supply*·ichimokuBreakout·economicMoatVerified·technicalGoldenCross·volumeSurgeVerified·
+ *                          institutionalBuying·consensusTarget·earningsSurprise·performanceReality·policyAlignment·
+ *                          ocfQuality·relativeStrength
+ *   - Gate 3 (Precision, 10): psychologicalObjectivity·turtleBreakout·fibonacciLevel·elliottWaveVerified·vcpPattern·
+ *                             divergenceCheck·momentumRanking·marginAcceleration·interestCoverage·catalystAnalysis
+ * 통과 기준: Gate 1 전부 / Gate 2 ≥ 9 / Gate 3 ≥ 6 (프롬프트와 동일).
+ */
+function computeGateEvaluation(stock: StockRecommendation): StockRecommendation['gateEvaluation'] {
+  const cl = stock.checklist || ({} as StockRecommendation['checklist']);
+  const v = (k: keyof typeof cl) => (cl[k] ? 1 : 0);
+
+  const gate1Keys: (keyof typeof cl)[] = [
+    'cycleVerified', 'roeType3', 'riskOnEnvironment', 'mechanicalStop', 'notPreviousLeader',
+  ];
+  const gate2Keys: (keyof typeof cl)[] = [
+    'supplyInflow', 'ichimokuBreakout', 'economicMoatVerified', 'technicalGoldenCross',
+    'volumeSurgeVerified', 'institutionalBuying', 'consensusTarget', 'earningsSurprise',
+    'performanceReality', 'policyAlignment', 'ocfQuality', 'relativeStrength',
+  ];
+  const gate3Keys: (keyof typeof cl)[] = [
+    'psychologicalObjectivity', 'turtleBreakout', 'fibonacciLevel', 'elliottWaveVerified',
+    'vcpPattern', 'divergenceCheck', 'momentumRanking', 'marginAcceleration',
+    'interestCoverage', 'catalystAnalysis',
+  ];
+
+  const gate1Score = gate1Keys.reduce((s, k) => s + v(k), 0);
+  const gate2Score = gate2Keys.reduce((s, k) => s + v(k), 0);
+  const gate3Score = gate3Keys.reduce((s, k) => s + v(k), 0);
+
+  const gate1Passed = gate1Score === gate1Keys.length;
+  const gate2Passed = gate2Score >= 9;
+  const gate3Passed = gate3Score >= 6;
+
+  const currentGate = !gate1Passed ? 1 : !gate2Passed ? 2 : !gate3Passed ? 3 : 3;
+  const isPassed = gate1Passed && gate2Passed && gate3Passed;
+
+  const reason = (score: number, total: number, pass: boolean) =>
+    pass ? `통과 (${score}/${total} 항목 충족)` : `미충족 (${score}/${total} 항목, 기준 미달)`;
+
+  const prev = stock.gateEvaluation;
+  return {
+    gate1Passed,
+    gate2Passed,
+    gate3Passed,
+    finalScore: gate1Score + gate2Score + gate3Score,
+    recommendation: prev?.recommendation ?? (isPassed ? 'BUY 적격' : `Gate ${currentGate} 에서 중단`),
+    positionSize: prev?.positionSize ?? 0,
+    isPassed,
+    currentGate,
+    gate1: { score: gate1Score, isPassed: gate1Passed, reason: reason(gate1Score, gate1Keys.length, gate1Passed) },
+    gate2: { score: gate2Score, isPassed: gate2Passed, reason: reason(gate2Score, gate2Keys.length, gate2Passed) },
+    gate3: { score: gate3Score, isPassed: gate3Passed, reason: reason(gate3Score, gate3Keys.length, gate3Passed) },
+  };
+}
+
+/**
+ * sectorAnalysis.leadingStocks[].marketCap 가 AI 플레이스홀더("..." 등) 이면 실데이터로 덮어쓴다.
+ * 각 종목코드별로 `/api/krx/valuation` 를 호출하며, 캐시 덕분에 동일 코드는 1회만 조회된다.
+ */
+async function enrichLeadingStocksMarketCap(
+  leadingStocks: { name: string; code: string; marketCap: string }[],
+): Promise<{ name: string; code: string; marketCap: string }[]> {
+  return Promise.all(leadingStocks.map(async (s) => {
+    const current = typeof s.marketCap === 'string' ? s.marketCap.trim() : '';
+    // AI 가 정상 값(예: "12조 3,450억")을 넣었으면 그대로 유지.
+    const looksValid = /\d/.test(current) && !/^\.+$/.test(current);
+    if (looksValid) return s;
+    const baseCode = (s.code || '').split('.')[0];
+    if (!/^\d{6}$/.test(baseCode)) return { ...s, marketCap: current || '데이터 없음' };
+    const val = await fetchKrxValuation(baseCode);
+    return { ...s, marketCap: val?.marketCapDisplay || '데이터 없음' };
+  }));
 }
 
 export function calculateTranchePlan(currentPrice: number, stopLoss: number, targetPrice: number): TranchePlan {
@@ -81,7 +181,7 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         entryPrice: stock.entryPrice, stopLoss: stock.stopLoss },
       stock.currentPrice || 0,
     );
-    return {
+    const merged: StockRecommendation = {
       ...stock,
       targetPrice:  fallback.targetPrice  ?? stock.targetPrice,
       targetPrice2: fallback.targetPrice2 ?? stock.targetPrice2,
@@ -89,6 +189,9 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       stopLoss:     fallback.stopLoss     ?? stock.stopLoss,
       dataSourceType: 'AI',
     };
+    // Enrichment 전체가 실패해도 3-Gate Pyramid 는 checklist 기반 계산이므로 채워둔다.
+    merged.gateEvaluation = computeGateEvaluation(merged);
+    return merged;
   };
 
   try {
@@ -125,7 +228,7 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
 
     let kisSupply = null;
     let kisShort = null;
-    let krxValuation: { per: number; pbr: number } | null = null;
+    let krxValuation: KrxValuation | null = null;
     const isKoreanStock = /^\d{6}$/.test(stock.code.split('.')[0]);
     if (isKoreanStock) {
       const baseCode = stock.code.split('.')[0];
@@ -199,9 +302,30 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         per: (krxValuation?.per && krxValuation.per > 0) ? krxValuation.per : stock.valuation.per,
         pbr: (krxValuation?.pbr && krxValuation.pbr > 0) ? krxValuation.pbr : stock.valuation.pbr,
         debtRatio: dartFinancials?.debtRatio || stock.valuation.debtRatio,
+        epsGrowth: (typeof dartFinancials?.epsGrowth === 'number' && dartFinancials.epsGrowth !== 0)
+          ? dartFinancials.epsGrowth
+          : stock.valuation.epsGrowth,
       },
+      marketCap: (krxValuation?.marketCap && krxValuation.marketCap > 0)
+        ? krxValuation.marketCap
+        : stock.marketCap,
       financialUpdatedAt: dartFinancials?.updatedAt || stock.financialUpdatedAt
     };
+
+    // 3-Gate Pyramid 세부 점수 계산 — checklist 기반이므로 enrichment 이후에 산출.
+    enriched.gateEvaluation = computeGateEvaluation(enriched);
+
+    // 섹터 대장주 시가총액 실데이터 주입 (AI 플레이스홀더 덮어쓰기)
+    if (enriched.sectorAnalysis?.leadingStocks?.length) {
+      try {
+        enriched.sectorAnalysis = {
+          ...enriched.sectorAnalysis,
+          leadingStocks: await enrichLeadingStocksMarketCap(enriched.sectorAnalysis.leadingStocks),
+        };
+      } catch (e) {
+        console.warn(`[enrichment] leadingStocks marketCap 보강 실패 (${stock.name}):`, e);
+      }
+    }
 
     if (dartFinancials) {
       enriched.roeAnalysis = {

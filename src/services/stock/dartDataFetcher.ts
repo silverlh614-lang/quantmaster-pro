@@ -22,6 +22,11 @@ export async function fetchCorpCode(stockCode: string): Promise<string | null> {
   }
 }
 
+/**
+ * DART 재무제표에서 당기(thstrm_amount) + 전기(frmtrm_amount) 값을 함께 추출한다.
+ * frmtrm_amount 는 사업보고서/분기보고서 공통으로 전년 동기 금액이 들어있으므로
+ * 이것으로 netIncome 성장률을 근사한다 (주식수 큰 변동이 없다는 가정하에 EPS 성장률과 유사).
+ */
 export async function fetchDartFinancials(corpCode: string) {
   const cacheKey = `fin_${corpCode}`;
   const cached = dartCache.get(cacheKey);
@@ -44,15 +49,16 @@ export async function fetchDartFinancials(corpCode: string) {
       const data = await response.json();
 
       if (data.status === '000' && data.list) {
-        const findValue = (nm: string) => {
-          const item = data.list.find((i: any) =>
-            i.account_nm.replace(/\s/g, '').includes(nm.replace(/\s/g, '')) ||
-            (i.account_id && i.account_id.includes(nm))
-          );
-          return item ? parseFloat(item.thstrm_amount.replace(/,/g, '')) : 0;
-        };
+        const findItem = (nm: string) => data.list.find((i: any) =>
+          i.account_nm.replace(/\s/g, '').includes(nm.replace(/\s/g, '')) ||
+          (i.account_id && i.account_id.includes(nm))
+        );
+        const toNum = (s?: string) => s ? parseFloat(s.replace(/,/g, '')) || 0 : 0;
+        const findValue = (nm: string) => toNum(findItem(nm)?.thstrm_amount);
+        const findPrior = (nm: string) => toNum(findItem(nm)?.frmtrm_amount);
 
         const netIncome = findValue('당기순이익');
+        const priorNetIncome = findPrior('당기순이익');
         const operatingIncome = findValue('영업이익');
         const equity = findValue('자본총계');
         const assets = findValue('자산총계');
@@ -64,12 +70,17 @@ export async function fetchDartFinancials(corpCode: string) {
         const debtRatio = equity > 0 ? (liabilities / equity) * 100 : 0;
         const interestCoverageRatio = interestExpense > 0 ? operatingIncome / interestExpense : (operatingIncome > 0 ? 99.9 : 0);
         const netProfitMargin = assets > 0 ? (netIncome / assets) * 100 : 0;
+        // 전기 대비 당기순이익 성장률 — 주식수 변동이 작다는 가정하에 EPS 성장률의 프록시.
+        const epsGrowth = priorNetIncome !== 0
+          ? ((netIncome - priorNetIncome) / Math.abs(priorNetIncome)) * 100
+          : 0;
 
         const result = {
           roe,
           debtRatio,
           interestCoverageRatio,
           netProfitMargin,
+          epsGrowth,
           ocfGreaterThanNetIncome: ocf > netIncome,
           updatedAt: `${bsnsYear} ${reportCode === '11011' ? '사업보고서' : '3분기보고서'}`
         };
