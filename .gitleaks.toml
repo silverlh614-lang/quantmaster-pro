@@ -1,0 +1,45 @@
+# gitleaks 설정 — quantmaster-pro
+#
+# 정책: 기본 룰셋(extend default) + 프로젝트별 allowlist 만 추가한다.
+# allowlist 는 "실제 비밀이 아닌 것이 확실한 패턴"만 등록한다.
+#
+# 운영 원칙:
+#   - .env.example 의 placeholder(`xxxxxxxxxxx...`, `AIzaSy_xxx...`) 는 검사 제외.
+#   - 실제 비밀은 어떤 경우에도 코드/주석/문서에 들어가서는 안 된다.
+#   - false positive 추가 시 반드시 PR 설명에 근거를 기재한다.
+
+title = "quantmaster-pro gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "프로젝트 전역 화이트리스트"
+
+paths = [
+  # 환경변수 템플릿 — 모든 값이 placeholder
+  '''\.env\.example$''',
+  # 운영 문서의 키 형식 예시
+  '''README\.md$''',
+  '''SECURITY\.md$''',
+  '''ARCHITECTURE\.md$''',
+  # 검증 스크립트 자체에 들어 있는 정규식 패턴
+  '''^scripts/scan_exposure\.js$''',
+  '''^scripts/validate_gemini_calls\.(js|py)$''',
+  # node_modules / lockfile / 빌드 산출물
+  '''^node_modules/''',
+  '''^package-lock\.json$''',
+  '''^dist/''',
+  '''^build/''',
+]
+
+regexes = [
+  # x로만 채운 placeholder ("KIS_APP_SECRET=xxxxxxxx..." 등)
+  '''=\s*x{8,}\b''',
+  # Google 키 placeholder ("AIzaSy_xxxxxxxx..." / "AIza...")
+  '''AIza(Sy)?_?x{8,}''',
+  '''AIza\.\.\.''',
+  # "your-..." / "<...>" 류 일반 placeholder
+  '''=\s*your[-_].+''',
+  '''=\s*<[^>]+>''',
+]
