@@ -204,6 +204,10 @@ async function startServer() {
     // ─── Graceful shutdown (Railway SIGTERM 대응) ─────────────────────────
     const shutdown = (signal: string) => {
       console.log(`[Server] ${signal} 수신 — graceful shutdown 시작`);
+      // Idea 4: AI 캐시 강제 flush — debounce 타이머 대기 없이 디스크에 저장
+      import('./persistence/aiCacheRepo.js')
+        .then(({ flushAiCache }) => flushAiCache())
+        .catch(() => { /* noop */ });
       server.close(() => {
         console.log('[Server] HTTP 서버 종료 완료');
         process.exit(0);

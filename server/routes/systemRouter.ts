@@ -12,7 +12,7 @@ import {
 import { cancelAllPendingOrders, checkDailyLossLimit } from '../emergency.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { handleTelegramWebhook } from '../telegram/webhookHandler.js';
-import { getApiUsageStats, getGeminiCircuitStats } from '../clients/geminiClient.js';
+import { getApiUsageStats, getGeminiCircuitStats, getBudgetState } from '../clients/geminiClient.js';
 import { getDartCircuitStats } from '../clients/dartFinancialClient.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { computeFocusCodes } from '../screener/watchlistManager.js';
@@ -23,6 +23,8 @@ import { getVixGating } from '../trading/vixGating.js';
 import { getFomcProximity } from '../trading/fomcCalendar.js';
 import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { loadGateAudit } from '../persistence/gateAuditRepo.js';
+import { getCacheEntry, setCacheEntry, getAiCacheSnapshot } from '../persistence/aiCacheRepo.js';
+import { buildRagIndex, queryRag, generateAdvice, getRagStats } from '../rag/localRag.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { getKisTokenRemainingHours } from '../clients/kisClient.js';
@@ -165,7 +167,72 @@ router.get('/system/api-usage', (_req: Request, res: Response) => {
     (acc, s) => ({ count: acc.count + s.count, tokens: acc.tokens + s.tokens }),
     { count: 0, tokens: 0 }
   );
-  res.json({ date: new Date().toISOString().slice(0, 10), total, byCallers: stats });
+  // Idea 13: 월 예산 상태 동봉 (대시보드/디버깅용)
+  const budget = getBudgetState();
+  res.json({ date: new Date().toISOString().slice(0, 10), total, byCallers: stats, budget });
+});
+
+// ─── Idea 4: AI 응답 영속 캐시 (3층 백엔드) ─────────────────────────────────
+// 클라이언트 aiClient는 메모리/localStorage 미스 시 이 엔드포인트로 폴백.
+// 캐시 키는 모두 영숫자/하이픈/콜론/언더바만 허용 — 그 외는 400.
+
+const SAFE_KEY_RE = /^[A-Za-z0-9_:\-.]{1,200}$/;
+
+router.get('/system/ai-cache/:key', (req: Request, res: Response) => {
+  const key = req.params.key;
+  if (!SAFE_KEY_RE.test(key)) return res.status(400).json({ error: 'invalid key format' });
+  const entry = getCacheEntry(key);
+  if (!entry) return res.status(404).json({ hit: false });
+  res.json({ hit: true, ...entry });
+});
+
+router.post('/system/ai-cache/:key', (req: Request, res: Response) => {
+  const key = req.params.key;
+  if (!SAFE_KEY_RE.test(key)) return res.status(400).json({ error: 'invalid key format' });
+  const body = req.body ?? {};
+  if (body.data === undefined) return res.status(400).json({ error: 'data field required' });
+  const ttlMs = typeof body.ttlMs === 'number' && body.ttlMs > 0 ? body.ttlMs : undefined;
+  setCacheEntry(key, body.data, ttlMs);
+  res.json({ ok: true });
+});
+
+router.get('/system/ai-cache', (_req: Request, res: Response) => {
+  res.json(getAiCacheSnapshot());
+});
+
+// ─── Idea 11: 로컬 RAG ────────────────────────────────────────────────────────
+// data/knowledge/*.txt → text-embedding-004로 1회 임베딩 → 코사인 유사도 검색
+// /api/system/rag/build : 인덱스 (재)빌드. 신규 청크만 증분 임베딩.
+// /api/system/rag/stats : 인덱스 통계 (청크 수, 소스 파일, 마지막 빌드 시각)
+// /api/system/rag/query?q=... : 상위 3개 청크 + 유사도 점수
+// /api/system/rag/advice?topic=... : 템플릿 조립 결과 (Gemini 호출 없음)
+
+router.post('/system/rag/build', async (_req: Request, res: Response) => {
+  try {
+    const result = await buildRagIndex();
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/system/rag/stats', (_req: Request, res: Response) => {
+  res.json(getRagStats());
+});
+
+router.get('/system/rag/query', async (req: Request, res: Response) => {
+  const q = (req.query.q as string ?? '').trim();
+  if (!q) return res.status(400).json({ error: 'q 쿼리 파라미터 필요' });
+  const k = Math.max(1, Math.min(10, parseInt((req.query.k as string) ?? '3', 10) || 3));
+  const hits = await queryRag(q, k);
+  res.json({ q, k, hits: hits.map((h) => ({ source: h.chunk.source, score: h.score, snippet: h.chunk.content.slice(0, 300) })) });
+});
+
+router.get('/system/rag/advice', async (req: Request, res: Response) => {
+  const topic = (req.query.topic as string ?? '').trim();
+  if (!topic) return res.status(400).json({ error: 'topic 쿼리 파라미터 필요' });
+  const advice = await generateAdvice(topic);
+  res.json({ topic, advice, hasContent: advice.length > 0 });
 });
 
 // ─────────────────────────────────────────────────────────────

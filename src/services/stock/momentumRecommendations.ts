@@ -1,14 +1,16 @@
 /**
- * momentumRecommendations.ts — MOMENTUM / EARLY_DETECT 모드 AI 추천 로직
+ * momentumRecommendations.ts — MOMENTUM / EARLY_DETECT / SMALL_MID_CAP 모드 AI 추천 로직
  *
- * getStockRecommendations() 에서 mode가 MOMENTUM 또는 EARLY_DETECT인 경우에
- * 사용되는 프롬프트 빌딩, AI 호출, Enrichment 로직을 담당합니다.
+ * 사전 수집(KIS 랭킹 + Yahoo + ECOS) 데이터에 100% 의존.
+ * googleSearch grounding 제거 — 호출당 $0.035 절감.
+ * AI 역할: 수치 검색이 아니라 "사전 수집된 후보군에서 선정 + 사유 작성".
  */
 
 import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, lsGet, withRetry, safeJsonParse, getCachedAIResponse } from './aiClient';
 import { enrichStockWithRealData } from './enrichment';
 import { fetchMarketIndicators } from './marketOverview';
+import { fetchKisRanking, type KisRankingItem } from './kisDataFetcher';
 import { debugLog } from '../../utils/debug';
 import type { StockFilters, RecommendationResponse } from './types';
 
@@ -17,17 +19,76 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
   const todayDate = now.split(' ')[0];
   const mode = filters?.mode || 'MOMENTUM';
 
-  // ── 사전 수집 실데이터: Yahoo + ECOS 캐시 → Search 횟수 절감 ──
-  const [yahooCached] = await Promise.allSettled([fetchMarketIndicators()]);
+  // ── 사전 수집 실데이터: Yahoo + ECOS + KIS 랭킹 ──
+  // mode별로 적절한 KIS 랭킹을 병렬 수집하여 후보군을 사전 확정한다.
+  // EARLY_DETECT는 거래량 마름이 핵심이라 등락률 하단도 별도 수집.
+  const rankingTasks: Promise<KisRankingItem[]>[] = [
+    fetchKisRanking('volume', 25),
+    fetchKisRanking('fluctuation', 25),
+  ];
+  if (mode === 'SMALL_MID_CAP') {
+    rankingTasks.push(fetchKisRanking('market-cap', 50));
+  }
+  const [yahooCached, volRankR, flucRankR, mcapRankR] = await Promise.allSettled([
+    fetchMarketIndicators(),
+    ...rankingTasks,
+  ]);
   const yahoo = yahooCached.status === 'fulfilled' ? yahooCached.value : null;
+  const volRanking  = volRankR?.status  === 'fulfilled' ? volRankR.value  : [];
+  const flucRanking = flucRankR?.status === 'fulfilled' ? flucRankR.value : [];
+  const mcapRanking = mcapRankR?.status === 'fulfilled' ? mcapRankR.value : [];
+
   const macroCached = lsGet(`macro-environment-${todayDate}`)?.data as Record<string, unknown> | undefined;
   const cachedVkospi     = yahoo?.vkospi     ?? null;
   const cachedUs10y      = yahoo?.us10yYield ?? null;
   const cachedUsdKrw     = (macroCached?.usdKrw as number | undefined) ?? null;
+  const cachedKospi      = yahoo?.kospi  ?? null;
+  const cachedKosdaq     = yahoo?.kosdaq ?? null;
+
+  // ── 후보군 빌드: mode별 필터링 ──
+  // 같은 종목이 volume/fluctuation 양쪽에 등장하면 한 번만.
+  const candidatePool = new Map<string, KisRankingItem & { source: string }>();
+  const addPool = (items: KisRankingItem[], source: string) => {
+    for (const it of items) {
+      if (!it.code || candidatePool.has(it.code)) continue;
+      candidatePool.set(it.code, { ...it, source });
+    }
+  };
+  if (mode === 'EARLY_DETECT') {
+    // 급등 전 종목: 등락률 0~3% 구간 + 거래량 상위 (마름 후보)
+    addPool(volRanking.filter(r => r.changePercent >= -1 && r.changePercent <= 3), 'volume(저변동)');
+    addPool(flucRanking.filter(r => r.changePercent >= 0 && r.changePercent <= 3), 'fluctuation(소폭상승)');
+  } else if (mode === 'SMALL_MID_CAP') {
+    // 중소형주: 시총 50위 밖 우선, 초대형주 제외
+    const megaCapCodes = new Set(mcapRanking.slice(0, 10).map(r => r.code));
+    addPool(volRanking.filter(r => !megaCapCodes.has(r.code)), 'volume(중소형)');
+    addPool(flucRanking.filter(r => !megaCapCodes.has(r.code)), 'fluctuation(중소형)');
+  } else {
+    // MOMENTUM: 기본 — 거래량 + 등락률 양쪽 전부
+    addPool(volRanking, 'volume');
+    addPool(flucRanking, 'fluctuation');
+  }
+  const candidates = Array.from(candidatePool.values()).slice(0, 30);
+  debugLog(`[momentumRecommendations] mode=${mode} 후보군 ${candidates.length}개 (vol=${volRanking.length}, fluc=${flucRanking.length})`);
+
+  const candidateBlock = candidates.length > 0
+    ? candidates.map(c =>
+        `  - ${c.name}(${c.code}) ${c.market} | 등락 ${c.changePercent >= 0 ? '+' : ''}${c.changePercent.toFixed(2)}% | rank#${c.rank} (${c.source})`
+      ).join('\n')
+    : '(KIS 랭킹 수집 실패 — AI 자체 판단 필요)';
+
+  const indexLine = (cachedKospi || cachedKosdaq)
+    ? [
+        cachedKospi  ? `KOSPI ${cachedKospi.price.toFixed(2)} (${cachedKospi.changePct >= 0 ? '+' : ''}${cachedKospi.changePct.toFixed(2)}%)` : '',
+        cachedKosdaq ? `KOSDAQ ${cachedKosdaq.price.toFixed(2)} (${cachedKosdaq.changePct >= 0 ? '+' : ''}${cachedKosdaq.changePct.toFixed(2)}%)` : '',
+      ].filter(Boolean).join(' | ')
+    : '';
+
   const preFilledBlock = [
-    cachedVkospi  !== null ? `- VKOSPI: ${cachedVkospi.toFixed(2)} (Yahoo Finance 실데이터, 검색 불필요)` : '',
-    cachedUs10y   !== null ? `- 미국 10년물 국채 금리: ${cachedUs10y.toFixed(2)}% (Yahoo ^TNX 실데이터, 검색 불필요)` : '',
-    cachedUsdKrw  !== null ? `- USD/KRW 환율: ${cachedUsdKrw.toFixed(0)}원 (ECOS 실데이터, 검색 불필요)` : '',
+    indexLine        ? `- 한국 지수: ${indexLine} (Yahoo 실데이터)` : '',
+    cachedVkospi  !== null ? `- VKOSPI: ${cachedVkospi.toFixed(2)} (Yahoo 실데이터)` : '',
+    cachedUs10y   !== null ? `- 미국 10년물 국채 금리: ${cachedUs10y.toFixed(2)}% (Yahoo ^TNX)` : '',
+    cachedUsdKrw  !== null ? `- USD/KRW 환율: ${cachedUsdKrw.toFixed(0)}원 (ECOS)` : '',
   ].filter(Boolean).join('\n');
 
   // ── Gate-0: 유니버스 제한 프롬프트 ──
@@ -54,44 +115,6 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
       - 시가총액 > ${filters.minMarketCap || 0}억
       이 조건을 만족하는 종목들 중에서만 추천하라.
   ` : '';
-
-  const momentumSearchQueries = [
-    `오늘(${todayDate})의 코스피 지수`,
-    `오늘의 코스닥 지수`,
-    `코스피 200일 이동평균선(200MA)`,
-    `오늘의 한국 주도주`,
-    `기관 대량 매수 종목 한국`,
-    `외국인 순매수 상위 종목 한국`
-  ];
-
-  const earlyDetectSearchQueries = [
-    `거래량 급감 횡보 종목 한국`,
-    `52주 신고가 5% 이내 근접 종목 한국`,
-    `기관 연속 소량 매수 종목 한국`,
-    `볼린저밴드 수축 최저 종목 한국`,
-    `VCP 패턴 종목 한국`,
-    `섹터 대장주 신고가 경신 후 2등주`,
-    `KODEX 조선 ETF 자금 유입`,
-    `PLUS 방산 ETF 자금 유입`,
-    `섹터 ETF 순자산 증가 종목`
-  ];
-
-  const smallMidCapSearchQueries = [
-    `코스닥 중소형주 급등 후보 ${todayDate}`,
-    `코스닥 소형주 거래량 급증 종목 한국`,
-    `코스피 중형주 기관 매집 종목 한국`,
-    `시가총액 1000억~5000억 성장주 한국`,
-    `중소형주 52주 신고가 근접 종목 코스닥`,
-    `코스닥 테마 주도주 후발주 한국`,
-    `중소형 바이오 실적 개선 종목`,
-    `코스닥 반도체 장비 소재 중소형주`,
-    `중소형 방산 수혜주 한국 ${todayDate}`
-  ];
-
-  const searchQueries =
-    mode === 'EARLY_DETECT'    ? earlyDetectSearchQueries :
-    mode === 'SMALL_MID_CAP'  ? smallMidCapSearchQueries :
-    momentumSearchQueries;
 
   const modePrompt = mode === 'EARLY_DETECT' ? `
       [선행 신호 우선 탐색 - 급등 전 종목 포착 모드]
@@ -125,44 +148,36 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
   `;
 
   const prompt = `
-      [절대 원칙: 실시간성 보장 및 과거 데이터 배제]
+      [절대 원칙: 사전 수집 실데이터 100% 의존 — 외부 검색 금지]
       현재 한국 시각은 ${now}입니다. (오늘 날짜: ${todayDate})
       추천 모드: ${mode === 'EARLY_DETECT' ? '미리 볼 종목 (Early Detect)' : mode === 'SMALL_MID_CAP' ? '중소형주 주도주 (Small/Mid-Cap)' : '지금 살 종목 (Momentum)'}
 
-      [사전 수집 실데이터 — 이 항목들은 검색 없이 바로 사용하라]
-${preFilledBlock || '      (사전 수집 데이터 없음 — 필요 시 검색)'}
+      [후보군 — KIS 실데이터 랭킹에서 사전 추출, 이 목록 외 종목은 추천 금지]
+${candidateBlock}
+
+      [사전 수집 거시지표]
+${preFilledBlock || '      (사전 수집 데이터 없음)'}
 
       ${filterPrompt}
       ${modePrompt}
-      당신은 반드시 'googleSearch' 도구를 사용하여 '현재 시점의 실시간 데이터'만을 기반으로 응답해야 합니다.
-      특히 해외 지수(나스닥, S&P 500 등)는 반드시 현재 시점의 실시간 또는 가장 최근 종가를 반영해야 합니다.
-      과거의 훈련 데이터, 예시 데이터, 혹은 이전에 생성했던 데이터를 재사용하는 것은 엄격히 금지됩니다.
-      조회 시 항상 현재(${now})를 기준으로 하는 조건을 강력하게 부여합니다.
 
       [중요 알림: 기술적 지표 실계산 시스템 도입]
-      현재 시스템은 Yahoo Finance의 OHLCV 데이터를 기반으로 RSI, MACD, Bollinger Bands, VCP 패턴 등을 코드로 직접 계산합니다.
-      따라서 당신은 이러한 수치를 '추정'할 필요가 없습니다. 대신, 검색을 통해 얻은 '현재가'와 '거래량' 데이터를 정확히 반영하고,
-      이러한 지표들이 가리키는 '의미'와 '투자 전략'에 집중하여 분석을 수행하십시오.
-      당신이 생성한 JSON 데이터는 이후 실시간 데이터로 'Enrichment(강화)' 과정을 거치게 됩니다.
+      당신이 반환한 JSON은 이후 enrichStockWithRealData()가 Yahoo OHLCV로 RSI/MACD/볼린저/VCP/이치모쿠를 정확히 재계산하고,
+      DART corpCode 자동 매핑, KIS 수급/공매도 실데이터 주입까지 자동 수행합니다.
+      따라서 당신의 역할은 후보군에서 5개 이내를 선정하고 정성적 사유(reason, sectorAnalysis 등)를 작성하는 것입니다.
+      현재가·시가총액·기술지표·재무수치는 0 또는 추정값으로 두어도 됩니다 — Enrichment가 실데이터로 덮어씁니다.
 
-      [필수 검색 단계 - 실시간 데이터 확보]
-      1. 다음 쿼리들을 검색하여 시장 상황을 파악하라: ${searchQueries.join(', ')}
-      2. 현재 시장 상황(BULL, BEAR, SIDEWAYS 등)에 가장 적합한 종목 3~5개를 선정하라.
-      3. 선정된 각 종목에 대해 다음 정보를 'googleSearch'로 검색하라:
-         - '네이버 증권 [종목명]' (현재가 및 시가총액 확인용)
-         - '${todayDate} [종목명] 실시간 주가'
-         - 'KRX:[종목코드] 주가'
-      4. **[초정밀 가격 검증 및 시가총액 대조]**
-         - 검색 결과에서 반드시 오늘(${todayDate}) 날짜와 현재 시각이 포함된 최신 가격 정보를 선택하라.
-         - **[필수]** 해당 종목의 시가총액을 확인하여 [현재가 * 발행주식수 = 시가총액] 공식이 맞는지 검증하라. 자릿수 오류를 절대적으로 방지하라.
-         - 여러 검색 결과(네이버 증권, 다음 금융, 구글 파이낸스 등)를 비교하여 가장 신뢰할 수 있는 데이터를 채택하라.
-      5. **[DART corpCode 확보]** 각 종목에 대해 'DART 고유번호(corpCode, 8자리)'를 반드시 검색하여 'corpCode' 필드에 포함하라. 이는 이후 실시간 재무 데이터 연동에 필수적이다.
-      6. **[차트 패턴 분석]** 각 종목의 최근 주가 흐름을 분석하여 다음 패턴 중 하나 이상이 발견되는지 확인하라:
+      [선정 절차 — 외부 검색 없이 위 후보군과 거시지표만으로]
+      1. 위 [후보군] 목록과 거시지표·모드 조건을 종합하여 시장 상황(BULL/BEAR/SIDEWAYS)을 1차 진단하라.
+      2. 후보군에서 모드 조건(MOMENTUM/EARLY_DETECT/SMALL_MID_CAP)에 가장 부합하는 3~5개를 선정하라.
+      3. **[코드/이름 정확성]** 반드시 위 후보군에 등장한 6자리 종목코드와 한글명을 그대로 사용하라. 임의 생성 금지.
+      4. **[corpCode]** 알려진 8자리 DART 고유번호를 'corpCode' 필드에 포함하라. 미상이면 빈 문자열 ""로 두면 enrichment에서 자동 매핑된다.
+      5. **[차트 패턴 분석]** 학습된 지식 + 후보군 등락률 데이터로 패턴을 추정하라:
          - 상승 패턴: 상승삼각형, 상승플래그, 상승패넌트, 컵 앤 핸들, 삼각수렴
          - 상승 반전: 쌍바닥(Double Bottom), 3중바닥, 하락쐐기, 역 헤드 앤 숄더(Inverse H&S), 라운드 바텀
          - 하락 패턴: 하락삼각형, 하락플래그, 하락패넌트, 상승쐐기
          - 하락 반전: 브로드닝 탑, 더블 탑(쌍봉), 트리플 탑, 헤드 앤 숄더(H&S), 라운드 탑, 다이아몬드 탑
-      7. **[뉴스 데이터 확보]** 각 종목에 대해 가장 최근의 뉴스 기사 3개를 찾아 'latestNews' 필드에 [헤드라인, 날짜, URL] 형식으로 포함하라.
+      6. **[뉴스 데이터]** 'latestNews' 필드는 빈 배열 []로 두라. 별도 뉴스 파이프라인이 채운다.
       7. **[판단 기준 - STRONG_BUY, BUY, STRONG_SELL, SELL]**
          - ${mode === 'EARLY_DETECT' ? 'EARLY_DETECT 모드에서는 거래량 마름과 횡보 후 돌파 직전 신호를 가장 높게 평가하라.' : mode === 'SMALL_MID_CAP' ? 'SMALL_MID_CAP 모드에서는 코스닥 중소형주의 거래량 급증과 섹터 후발주 특성을 가장 높게 평가하라.' : 'MOMENTUM 모드에서는 강력한 수급과 추세 강도를 가장 높게 평가하라.'}
          [BUY/STRONG_BUY 발동 전 필수 선결 조건 - 하나라도 미충족 시 즉시 HOLD]
@@ -182,19 +197,17 @@ ${preFilledBlock || '      (사전 수집 데이터 없음 — 필요 시 검색
          - **STRONG_SELL**: 추세 붕괴, 재료 소멸, 극심한 고평가, 대규모 수급 이탈이 명확하며 하락 압력이 매우 강한 경우.
          - **SELL**: 추세 약화, 모멘텀 둔화, 수급 이탈 조짐, 기술적 저항에 부딪힌 경우.
       8. **[엄격한 평가 원칙]** 단순히 '좋아 보인다'는 이유로 BUY를 주지 마라. 위 기준을 '보수적'으로 적용하여 데이터가 확실할 때만 긍정적 의견을 제시하라.
-      9. **[초정밀 검증]** 검색 결과에서 반드시 오늘(${todayDate}) 날짜와 현재 시각이 포함된 최신 가격 정보를 선택하라.
-         - **[시가총액 교차 검증 필수]** 모든 추천 종목의 가격은 반드시 시가총액과 대조하여 자릿수 오류가 없는지 확인하라. (예: 100만원대 종목을 30만원대로 기재하는 오류 절대 금지)
-         - 여러 검색 결과(네이버 증권, 다음 금융, 야후 파이낸스 등)를 비교하여 가장 최신의 데이터를 채택하라. 며칠 전 데이터는 절대 사용하지 마라.
-      10. **[트레이딩 전략 수립]** 각 종목에 대해 현재가 기준 최적의 '진입가(entryPrice)', '손절가(stopLoss)', '1차 목표가(targetPrice)', '2차 목표가(targetPrice2)'를 기술적 분석(지지/저항, 피보나치 등)을 통해 산출하라.
-      11. **[데이터 출처 명시]** 'dataSource' 필드에 어떤 사이트에서 몇 시에 데이터를 가져왔는지 명시하라.
-      12. **[글로벌 ETF 모니터링]** 'googleSearch'를 사용하여 KODEX 200(069500), TIGER 미국S&P500(360750), KODEX 레버리지(122630), TIGER 차이나전기차SOLACTIVE(371460) 등 주요 ETF의 현재가, 등락률, 자금 유입/유출 현황을 검색하여 'globalEtfMonitoring' 필드에 반영하라. 각 항목에 반드시 symbol(종목코드), name(ETF명), price(현재가 숫자), change(등락률 숫자 %), flow("INFLOW" 또는 "OUTFLOW"), implication(한글 설명) 필드를 모두 포함하라.
-      12-1. **[환율/국채 데이터]** 프롬프트 상단 '사전 수집 실데이터'에서 USD/KRW 환율과 10년물 금리를 그대로 사용하라. 사전 수집값이 없는 경우에만 'googleSearch'로 검색하라. 각각 'exchangeRate': { "value": 환율숫자, "change": 0 }, 'bondYield': { "value": 금리숫자, "change": 0 } 형식으로 채워라.
+      9. **[수치 필드 처리]** currentPrice, marketCap, valuation.per/pbr 등 정확 수치는 0으로 두라. enrichment가 Yahoo/DART 실데이터로 덮어쓴다.
+      10. **[트레이딩 전략 수립]** 각 종목에 대해 현재가 기준 최적의 '진입가(entryPrice)', '손절가(stopLoss)', '1차 목표가(targetPrice)', '2차 목표가(targetPrice2)'를 기술적 분석(지지/저항, 피보나치 등)을 통해 비율 기반으로 산출하라. 절대치 추정 어려우면 0으로 두면 enrichment가 보정한다.
+      11. **[데이터 출처 명시]** 'dataSource' 필드는 "KIS 랭킹 + Gemini 사전수집데이터" 등으로 명시하라.
+      12. **[글로벌 ETF 모니터링]** 'globalEtfMonitoring' 필드는 빈 배열 []로 두라. (별도 ETF 모니터링 파이프라인이 채운다)
+      12-1. **[환율/국채 데이터]** 위 [사전 수집 거시지표]의 USD/KRW 환율과 10년물 금리를 그대로 사용하라. 'exchangeRate': { "value": 환율숫자, "change": 0 }, 'bondYield': { "value": 금리숫자, "change": 0 } 형식.
       13. **[장세 전환 감지]** 현재 시장의 주도 섹터가 바뀌고 있는지(Regime Shift)를 판단하여 'regimeShiftDetector' 필드에 반영하라.
       14. **[다중 시계열 분석]** 월봉, 주봉, 일봉의 추세가 일치하는지 확인하여 'multiTimeframe' 필드에 반영하라.
       15. **[눌림목 성격 판단 (Pullback Analysis)]** 주가가 조정(눌림목)을 받을 때 거래량이 감소하는지(건전한 조정) 또는 증가하는지(매도 압력)를 반드시 확인하여 'technicalSignals'의 'volumeSurge' 및 'reason' 필드에 반영하라. 거래량이 줄어들며 지지받는 눌림목을 최우선으로 추천하라.
-      16. **[섹터 대장주 선행 확인]** 해당 종목이 속한 섹터의 대장주(Leading Stock)가 최근 5거래일 이내에 신고가를 경신했는지 확인하라. 대장주가 먼저 길을 열어준 종목에 대해 'isLeadingSector' 및 'gate' 평가 시 가산점을 부여하라.
-      17. **[AI 공시 감성 분석]** 'googleSearch'를 사용하여 해당 종목의 최근 DART 공시(실적, 수주, 증자 등)를 분석하여 'disclosureSentiment'에 반영하라.
-      18. **[공매도/대차잔고 분석]** 'googleSearch'를 사용하여 해당 종목의 공매도 비율(Short Selling Ratio)과 대차잔고 추이를 분석하여 'shortSelling' 필드에 반영하라. 특히 공매도 급감에 따른 숏 커버링 가능성을 체크하라.
+      16. **[섹터 대장주 선행 확인]** 해당 종목이 속한 섹터의 대장주(Leading Stock)가 최근 5거래일 이내에 신고가를 경신했는지 학습 지식 기반으로 추정하여 'isLeadingSector' 및 'gate' 평가에 반영하라.
+      17. **[AI 공시 감성 분석]** 'disclosureSentiment'는 학습 지식 기반의 일반론으로 채우거나 score 0/summary "데이터 없음"으로 두라. 별도 DART 공시 파이프라인이 채운다.
+      18. **[공매도/대차잔고 분석]** 'shortSelling' 필드는 ratio 0, trend "STABLE"로 두라. KIS API enrichment가 실데이터로 덮어쓴다.
       19. **[텐배거 DNA 패턴 매칭]** 다음 과거 대장주들의 급등 직전 DNA와 현재 종목을 비교하여 'tenbaggerDNA' 필드에 유사도(similarity, 0-100)와 매칭 패턴명, 이유를 기술하라.
           - **에코프로(2023)**: RSI 45-55(과열 전), 거래량 마름(VCP), 대장주 신고가 선행, ROE 유형 3, 전 사이클 비주도주.
           - **씨젠(2020)**: 폭발적 실적 가속도(OPM 급증), 강력한 외부 촉매제(팬데믹), 이평선 정배열 초입.
@@ -299,9 +312,7 @@ ${preFilledBlock || '      (사전 수집 데이터 없음 — 필요 시 검색
           },
           "correlationScore": 0,
           "historicalAnalogy": { "stockName": "...", "period": "...", "similarity": 0, "reason": "..." },
-          "latestNews": [
-            { "headline": "뉴스 제목", "date": "2026-03-28", "url": "https://..." }
-          ],
+          "latestNews": [],
           "anomalyDetection": { "type": "FUNDAMENTAL_DIVERGENCE", "score": 0, "description": "..." },
           "semanticMapping": { "theme": "...", "keywords": ["..."], "relevanceScore": 0, "description": "..." },
           "gateEvaluation": { "gate1Passed": true, "gate2Passed": true, "gate3Passed": true, "finalScore": 0, "recommendation": "...", "positionSize": 0 },
@@ -324,7 +335,8 @@ ${preFilledBlock || '      (사전 수집 데이터 없음 — 필요 시 검색
           model: AI_MODELS.PRIMARY,
           contents: prompt,
           config: {
-            tools: [{ googleSearch: {} }],
+            // googleSearch grounding 제거 — 사전 수집 KIS+Yahoo+ECOS 실데이터에 100% 의존
+            // 호출당 약 $0.035 grounding 비용 절감
             maxOutputTokens: 12000,
             temperature: 0.1,
           },

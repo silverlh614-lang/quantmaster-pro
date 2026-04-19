@@ -2,6 +2,7 @@ import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, aiCache, lsSet, withRetry, safeJsonParse, getCachedAIResponse } from './aiClient';
 import { fetchMarketIndicators } from './marketOverview';
 import { getMacroSnapshot, snapshotToMacroFields, getTradeData } from '../ecosService';
+import { evaluateGate0 } from '../quant/macroEngine';
 import { debugLog, debugWarn } from '../../utils/debug';
 import type {
   MacroEnvironment,
@@ -16,12 +17,163 @@ import type {
   SupplyChainIntelligence,
   SectorOrderIntelligence,
 } from '../../types/quant';
+import type { EconomicRegime } from '../../types/core';
 
 // ─── 배치 통합 호출 (12개 → 3개 압축) ─────────────────────────────────────────
 //
 // Batch 1: getBatchGlobalIntel()  — macro + regime + extendedRegime + creditSpreads + financialStress + smartMoney
+//          (Idea 2) ECOS+Yahoo로 11/12 macro 필드 확보 시 Phase A Gemini 호출 완전 생략
 // Batch 2: getBatchSectorIntel()  — exportMomentum + geoRisk + supplyChain + sectorOrders
 // Batch 3: getBatchMarketIntel()  — globalCorrelation + fomcSentiment
+
+// ─── Idea 2: macro/regime/extendedRegime 결정적 도출 (Gemini Phase A 우회) ────
+
+/**
+ * exportGrowth3mAvg + nominalGdpGrowth 기반 OECD CLI 한국 추정.
+ * baseline 100 + 수출 모멘텀 + GDP 모멘텀.
+ */
+function estimateOeciCliKorea(exportGrowth3mAvg: number, nominalGdpGrowth: number): number {
+  const exportContrib = Math.max(-5, Math.min(5, exportGrowth3mAvg / 5));
+  const gdpContrib    = Math.max(-2, Math.min(2, (nominalGdpGrowth - 3.5)));
+  return parseFloat((100 + exportContrib + gdpContrib).toFixed(2));
+}
+
+/**
+ * 매크로 4지표(수출/금리방향/GDP/MHS) 기반 EconomicRegime 결정적 분류.
+ * Gemini Phase A의 핵심 결과를 룰 기반으로 대체한다.
+ */
+function classifyEconomicRegime(env: MacroEnvironment, mhs: number): {
+  regime: EconomicRegime; confidence: number; rationale: string;
+} {
+  const { exportGrowth3mAvg, bokRateDirection, vkospi, vix } = env;
+  // 위기 우선 검사 (VKOSPI 35+ AND VIX 30+)
+  if (vkospi >= 35 && vix >= 30) {
+    return { regime: 'CRISIS', confidence: 85, rationale: `VKOSPI ${vkospi} + VIX ${vix} 동반 극단 — 위기 국면` };
+  }
+  // 침체: 수출 -5% 이하 또는 MHS 30 미만
+  if (exportGrowth3mAvg <= -5 || mhs < 30) {
+    return { regime: 'RECESSION', confidence: 75, rationale: `수출 ${exportGrowth3mAvg.toFixed(1)}% / MHS ${mhs} — 침체 신호` };
+  }
+  // 둔화: 수출 0~-5% 또는 금리 인상
+  if (exportGrowth3mAvg < 0 || (bokRateDirection === 'HIKING' && mhs < 50)) {
+    return { regime: 'SLOWDOWN', confidence: 70, rationale: `수출 ${exportGrowth3mAvg.toFixed(1)}% / 금리 ${bokRateDirection} — 둔화` };
+  }
+  // 확장: 수출 5%+ AND MHS 60+
+  if (exportGrowth3mAvg >= 5 && mhs >= 60) {
+    return { regime: 'EXPANSION', confidence: 80, rationale: `수출 +${exportGrowth3mAvg.toFixed(1)}% / MHS ${mhs} — 확장 국면` };
+  }
+  // 회복: 수출 0~5% AND 금리 동결/인하
+  if (exportGrowth3mAvg >= 0 && bokRateDirection !== 'HIKING') {
+    return { regime: 'RECOVERY', confidence: 70, rationale: `수출 +${exportGrowth3mAvg.toFixed(1)}% / 금리 ${bokRateDirection} — 회복` };
+  }
+  // 박스권: 위 조건 미충족
+  return { regime: 'RANGE_BOUND', confidence: 60, rationale: `수출 ${exportGrowth3mAvg.toFixed(1)}% / MHS ${mhs} — 명확한 추세 없음` };
+}
+
+/**
+ * 레짐별 허용/회피 섹터 매핑 (룰 기반 화이트리스트).
+ */
+function regimeSectors(regime: EconomicRegime): { allowedSectors: string[]; avoidSectors: string[] } {
+  const map: Record<EconomicRegime, { allowedSectors: string[]; avoidSectors: string[] }> = {
+    EXPANSION:   { allowedSectors: ['반도체', 'AI', '2차전지', '조선', '방산', 'IT서비스'], avoidSectors: ['통신', '유틸리티'] },
+    RECOVERY:    { allowedSectors: ['금융', '조선', '소재', '원자력', '건설'],            avoidSectors: ['제약'] },
+    SLOWDOWN:    { allowedSectors: ['헬스케어', '바이오', '화장품', '의료미용'],         avoidSectors: ['반도체', '2차전지'] },
+    RECESSION:   { allowedSectors: ['통신', '유틸리티', '제약', '금융'],                  avoidSectors: ['반도체', '조선', '방산'] },
+    CRISIS:      { allowedSectors: ['통신', '유틸리티'],                                  avoidSectors: ['반도체', 'AI', '2차전지', '조선'] },
+    UNCERTAIN:   { allowedSectors: ['헬스케어', 'IT서비스', '바이오'],                    avoidSectors: ['금융', '소재'] },
+    RANGE_BOUND: { allowedSectors: ['화장품', '헬스케어', 'IT서비스', '바이오'],         avoidSectors: ['소재'] },
+  };
+  return map[regime];
+}
+
+/**
+ * 결정적 Phase A 결과 생성 — macro/regime/extendedRegime을 Gemini 없이 도출.
+ * 11개 ECOS+Yahoo 필드가 모두 확보된 경우에만 호출.
+ */
+function deriveDeterministicPhaseA(
+  preFilled: Record<string, number | string>,
+  yahooFields: { vkospi5dTrend: number | null },
+  requestedAtISO: string,
+): Pick<BatchGlobalIntelResult, 'macro' | 'regime' | 'extendedRegime'> {
+  // 11개 사전 수집 + oeciCliKorea 추정 = 12개 완성
+  const exportGrowth3mAvg = preFilled.exportGrowth3mAvg as number;
+  const nominalGdpGrowth  = preFilled.nominalGdpGrowth  as number;
+  const oeciCliKorea = estimateOeciCliKorea(exportGrowth3mAvg, nominalGdpGrowth);
+
+  const macro: MacroEnvironment = {
+    bokRateDirection:  preFilled.bokRateDirection as MacroEnvironment['bokRateDirection'],
+    us10yYield:        preFilled.us10yYield        as number,
+    krUsSpread:        preFilled.krUsSpread        as number,
+    m2GrowthYoY:       preFilled.m2GrowthYoY       as number,
+    bankLendingGrowth: preFilled.bankLendingGrowth as number,
+    nominalGdpGrowth,
+    oeciCliKorea,
+    exportGrowth3mAvg,
+    vkospi:            preFilled.vkospi            as number,
+    samsungIri:        preFilled.samsungIri        as number,
+    vix:               preFilled.vix               as number,
+    usdKrw:            preFilled.usdKrw            as number,
+  };
+
+  // evaluateGate0 으로 MHS·tradeRegime 도출
+  const gate0 = evaluateGate0(macro);
+  const { regime, confidence, rationale } = classifyEconomicRegime(macro, gate0.macroHealthScore);
+  const sectors = regimeSectors(regime);
+
+  const baseRegime: EconomicRegimeData = {
+    regime,
+    confidence,
+    rationale: `${rationale} (MHS ${gate0.macroHealthScore}, ${gate0.tradeRegime})`,
+    allowedSectors: sectors.allowedSectors,
+    avoidSectors:   sectors.avoidSectors,
+    keyIndicators: {
+      exportGrowth:     `${exportGrowth3mAvg >= 0 ? '+' : ''}${exportGrowth3mAvg.toFixed(1)}%`,
+      bokRateDirection: macro.bokRateDirection,
+      oeciCli:          oeciCliKorea.toFixed(1),
+      gdpGrowth:        `${nominalGdpGrowth.toFixed(1)}%`,
+    },
+    lastUpdated: requestedAtISO,
+  };
+
+  // extendedRegime: 동일 regime + uncertaintyMetrics + systemAction
+  const vkospi5d = yahooFields.vkospi5dTrend ?? 0;
+  const regimeClarity = Math.max(0, Math.min(100, confidence));
+  const signalConflict = gate0.tradeRegime === 'NEUTRAL' ? 60 : 30;
+  const systemMode: ExtendedRegimeData['systemAction']['mode'] =
+    gate0.buyingHalted                    ? 'FULL_STOP'
+    : gate0.tradeRegime === 'DEFENSE'     ? 'CASH_HEAVY'
+    : gate0.tradeRegime === 'NEUTRAL'     ? 'DEFENSIVE'
+    :                                       'NORMAL';
+  const cashRatio =
+    systemMode === 'FULL_STOP'   ? 100
+    : systemMode === 'CASH_HEAVY'? 70
+    : systemMode === 'DEFENSIVE' ? 50
+    :                              20;
+
+  const extendedRegime: ExtendedRegimeData = {
+    ...baseRegime,
+    uncertaintyMetrics: {
+      regimeClarity,
+      signalConflict,
+      kospi60dVolatility: Math.abs(vkospi5d * 4),  // 5일 추세 → 월 변동성 근사
+      leadingSectorCount: sectors.allowedSectors.length,
+      foreignFlowDirection: 'ALTERNATING',          // 별도 데이터 부재 시 보수적 기본값
+      correlationBreakdown: false,
+    },
+    systemAction: {
+      mode: systemMode,
+      cashRatio,
+      gateAdjustment: {
+        gate1Threshold: gate0.macroHealthScore >= 70 ? 4 : 5,
+        gate2Required:  gate0.macroHealthScore >= 70 ? 8 : 9,
+        gate3Required:  gate0.macroHealthScore >= 70 ? 6 : 7,
+      },
+      message: `결정적 도출(${regime}/MHS${gate0.macroHealthScore}/${gate0.tradeRegime}) — Gemini 우회`,
+    },
+  };
+
+  return { macro, regime: baseRegime, extendedRegime };
+}
 
 export interface BatchGlobalIntelResult {
   macro: MacroEnvironment;
@@ -105,6 +257,19 @@ export async function getBatchGlobalIntel(): Promise<BatchGlobalIntelResult> {
   };
   const preFilledCount = Object.keys(preFilledMacro).length;
   debugLog(`[getBatchGlobalIntel] 사전 확보 macro 필드 ${preFilledCount}/12`);
+
+  // (Idea 2) 11개 ECOS+Yahoo 필드가 모두 채워졌으면 Phase A Gemini 호출 우회.
+  // oeciCliKorea만 estimateOeciCliKorea()로 로컬 도출 → 12개 완성.
+  // regime/extendedRegime은 evaluateGate0() + classifyEconomicRegime() 룰 기반으로 결정.
+  const REQUIRED_PHASE_A_KEYS = [
+    'bokRateDirection', 'us10yYield', 'krUsSpread',
+    'm2GrowthYoY', 'bankLendingGrowth', 'nominalGdpGrowth',
+    'exportGrowth3mAvg', 'vkospi', 'samsungIri', 'vix', 'usdKrw',
+  ];
+  const phaseAFullyDeterministic = REQUIRED_PHASE_A_KEYS.every(k => preFilledMacro[k] !== undefined);
+  if (phaseAFullyDeterministic) {
+    debugLog('[getBatchGlobalIntel] Phase A 결정적 도출 (Gemini 우회 — Idea 2 활성화)');
+  }
 
   const phaseAPrompt = `현재 한국 날짜: ${todayDate}
 
@@ -195,20 +360,27 @@ ${phaseBLines.length > 0 ? phaseBLines.join('\n') : '(데이터 수집 실패 �
   const cacheKey = `batch-global-intel-${todayDate}`;
 
   return getCachedAIResponse<BatchGlobalIntelResult>(cacheKey, async () => {
+    // (Idea 2) Phase A: 결정적 가능 → Gemini 호출 자체를 스킵.
+    // Phase B는 항상 Gemini 호출 (FRED/Yahoo 보조 데이터 외에 추가 추정 필요).
+    const phaseATask = phaseAFullyDeterministic
+      ? null  // Gemini 호출 생략
+      : withRetry(() => getAI().models.generateContent({
+          model: AI_MODELS.PRIMARY,
+          contents: phaseAPrompt,
+          config: { temperature: 0.1, maxOutputTokens: 4096 },
+        }), 2, 2000);
+    const phaseBTask = withRetry(() => getAI().models.generateContent({
+      model: AI_MODELS.PRIMARY,
+      contents: phaseBPrompt,
+      config: { temperature: 0.1, maxOutputTokens: 4096 },
+    }), 2, 2000);
+
     const [phaseARes, phaseBRes] = await Promise.allSettled([
-      withRetry(() => getAI().models.generateContent({
-        model: AI_MODELS.PRIMARY,
-        contents: phaseAPrompt,
-        config: { temperature: 0.1, maxOutputTokens: 4096 },
-      }), 2, 2000),
-      withRetry(() => getAI().models.generateContent({
-        model: AI_MODELS.PRIMARY,
-        contents: phaseBPrompt,
-        config: { temperature: 0.1, maxOutputTokens: 4096 },
-      }), 2, 2000),
+      phaseATask ?? Promise.resolve(null as null),
+      phaseBTask,
     ]);
 
-    if (phaseARes.status === 'rejected') console.error('[getBatchGlobalIntel] Phase A 실패:', phaseARes.reason);
+    if (!phaseAFullyDeterministic && phaseARes.status === 'rejected') console.error('[getBatchGlobalIntel] Phase A 실패:', phaseARes.reason);
     if (phaseBRes.status === 'rejected') console.error('[getBatchGlobalIntel] Phase B 실패:', phaseBRes.reason);
 
     const fallbackMacro = {
@@ -224,11 +396,24 @@ ${phaseBLines.length > 0 ? phaseBLines.join('\n') : '(데이터 수집 실패 �
       lastUpdated: requestedAtISO,
     };
 
-    const parsedA = (phaseARes.status === 'fulfilled' && phaseARes.value.text)
-      ? safeJsonParse(phaseARes.value.text) as Pick<BatchGlobalIntelResult, 'macro' | 'regime' | 'extendedRegime'>
+    // 결정적 도출 우선 — Gemini 응답이 있어도 결정적 결과로 덮어쓴다 (재현성 우선).
+    const deterministicA = phaseAFullyDeterministic
+      ? deriveDeterministicPhaseA(preFilledMacro, yahooFields, requestedAtISO)
       : null;
-    const parsedB = (phaseBRes.status === 'fulfilled' && phaseBRes.value.text)
-      ? safeJsonParse(phaseBRes.value.text) as Pick<BatchGlobalIntelResult, 'creditSpreads' | 'financialStress' | 'smartMoney'>
+
+    const phaseAText = (!phaseAFullyDeterministic && phaseARes.status === 'fulfilled' && phaseARes.value)
+      ? (phaseARes.value as { text?: string }).text
+      : undefined;
+    const parsedA = deterministicA
+      ?? (phaseAText
+            ? safeJsonParse(phaseAText) as Pick<BatchGlobalIntelResult, 'macro' | 'regime' | 'extendedRegime'>
+            : null);
+
+    const phaseBText = (phaseBRes.status === 'fulfilled' && phaseBRes.value)
+      ? (phaseBRes.value as { text?: string }).text
+      : undefined;
+    const parsedB = phaseBText
+      ? safeJsonParse(phaseBText) as Pick<BatchGlobalIntelResult, 'creditSpreads' | 'financialStress' | 'smartMoney'>
       : null;
 
     const parsed: BatchGlobalIntelResult = {
