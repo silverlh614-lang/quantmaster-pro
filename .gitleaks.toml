@@ -42,4 +42,7 @@ regexes = [
   # "your-..." / "<...>" 류 일반 placeholder
   '''=\s*your[-_].+''',
   '''=\s*<[^>]+>''',
+  # `env.XXX` 속성 접근식(예: `keySignal: env.m2GrowthYoY`) —
+  # 매크로 엔진의 도메인 필드 참조로, 실제 비밀이 아님.
+  '''^env\.[A-Za-z][A-Za-z0-9]*$''',
 ]
