@@ -7,7 +7,7 @@ import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, hasKisClientOverride
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { isPullbackSetup, addBusinessDays } from './pipelineHelpers.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { fetchKisMTASData } from './kisChartDataFetcher.js';
+import { fetchKisMTASData, fetchKisDailyCandles, type KisChartCandle } from './kisChartDataFetcher.js';
 import { recordGateAudit, flushGateAudit } from '../persistence/gateAuditRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { getCurrentScanPreset } from './scanPresets.js';
@@ -721,10 +721,203 @@ export async function fetchKrxScreenerFallback(): Promise<ScreenedStock[]> {
 }
 
 /**
- * Yahoo Finance 실패 시 KIS FHKST01010100으로 현재가·시가·거래량을 조회해
- * YahooQuoteExtended 형태로 반환하는 폴백 함수.
- * MA/RSI/MACD/ATR 등 히스토리 기반 지표는 0/false 기본값을 사용하므로
- * 해당 조건은 Gate에서 통과되지 않는다 — 보수적 평가가 의도된 동작이다.
+ * KIS 일봉 캔들(FHKST03010100) OHLCV로부터 YahooQuoteExtended 호환
+ * 기술적 지표를 산출한다. fetchYahooQuote의 지표 계산 로직과 동일한
+ * 공식을 사용하므로 산출값은 Yahoo 결과와 호환된다.
+ *
+ * 주의: fetchYahooQuote의 지표 산식이 변경되면 여기도 동기화할 것.
+ */
+function buildExtendedFromKisDaily(
+  candles: KisChartCandle[],
+  live: { price: number; dayOpen: number; prevClose: number; changePercent: number; volume: number },
+): YahooQuoteExtended {
+  // KIS 캔들은 과거→최신 순서. 마지막 봉 종가는 라이브 현재가로 대체하여
+  // 장중 실시간 MA/RSI/MACD 가 Yahoo 방식(meta.regularMarketPrice 덮어쓰기)과 일치하도록 한다.
+  const closes  = candles.map(c => c.close);
+  const highs   = candles.map(c => c.high);
+  const lows    = candles.map(c => c.low);
+  const volumes = candles.map(c => c.volume);
+
+  if (closes.length > 0 && live.price > 0) closes[closes.length - 1] = live.price;
+  if (volumes.length > 0 && live.volume > 0) volumes[volumes.length - 1] = live.volume;
+
+  // 평균 거래량 (최근 60거래일, 당일 제외)
+  const pastVolumes = volumes.slice(Math.max(0, volumes.length - 61), -1);
+  const avgVolume = pastVolumes.length > 0
+    ? pastVolumes.reduce((s, v) => s + v, 0) / pastVolumes.length
+    : live.volume;
+
+  const avg = (arr: number[], n: number) => {
+    const slice = arr.slice(-n);
+    return slice.length >= n ? slice.reduce((a, b) => a + b, 0) / n : 0;
+  };
+  const ma5  = avg(closes, 5);
+  const ma20 = avg(closes, 20);
+  const ma60 = avg(closes, 60);
+
+  const high5d  = highs.length >= 5  ? Math.max(...highs.slice(-5))  : highs.length > 0 ? Math.max(...highs) : 0;
+  const high20d = highs.length >= 20 ? Math.max(...highs.slice(-20)) : highs.length > 0 ? Math.max(...highs) : 0;
+  const high60d = highs.length >= 60 ? Math.max(...highs.slice(-60)) : highs.length > 0 ? Math.max(...highs) : 0;
+
+  // ATR (True Range 기반 14일·20일·5일 이평)
+  const trueRanges: number[] = [];
+  const minLen = Math.min(closes.length, highs.length, lows.length);
+  for (let i = 1; i < minLen; i++) {
+    const tr = Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i]  - closes[i - 1]),
+    );
+    trueRanges.push(tr);
+  }
+  const atr = trueRanges.length >= 14
+    ? trueRanges.slice(-14).reduce((a, b) => a + b, 0) / 14
+    : trueRanges.length > 0
+      ? trueRanges.reduce((a, b) => a + b, 0) / trueRanges.length
+      : 0;
+  const atr20avg = trueRanges.length >= 20
+    ? trueRanges.slice(-20).reduce((a, b) => a + b, 0) / 20
+    : atr;
+  const atr5d = trueRanges.length >= 5
+    ? trueRanges.slice(-5).reduce((a, b) => a + b, 0) / 5
+    : atr;
+
+  // RSI14 + MACD
+  const rsi14 = calcRSI14(closes);
+  const { macd, signal: macdSignal, histogram: macdHistogram } = calcMACD(closes);
+
+  // Phase 2 가속도 지표
+  const closes5dAgo   = closes.length > 5 ? closes.slice(0, -5) : closes;
+  const rsi5dAgo      = parseFloat(calcRSI14(closes5dAgo).toFixed(1));
+  const macdPast      = calcMACD(closes5dAgo);
+  const macd5dHistAgo = parseFloat(macdPast.histogram.toFixed(2));
+  const ma60Before    = avg(closes5dAgo, 60);
+  const ma60TrendUp   = ma60 > 0 && ma60Before > 0 && ma60 > ma60Before;
+
+  // 주봉 RSI(9) — 5영업일 다운샘플
+  const weeklyClosesSample: number[] = [];
+  for (let i = 4; i < closes.length; i += 5) weeklyClosesSample.push(closes[i]);
+  const weeklyRSI = parseFloat(calcRSI(weeklyClosesSample, 9).toFixed(1));
+
+  // 5거래일 수익률
+  const close5dAgo = closes.length > 5 ? closes[closes.length - 6] : closes[0] ?? live.price;
+  const return5d = close5dAgo > 0 ? ((live.price - close5dAgo) / close5dAgo) * 100 : 0;
+
+  // Compression Score: BB 폭
+  const calcBBWidthAt = (cs: number[], endIdx: number): number => {
+    if (endIdx < 19 || cs.length <= endIdx) return 0;
+    const slice = cs.slice(endIdx - 19, endIdx + 1);
+    const mean = slice.reduce((a, b) => a + b, 0) / 20;
+    if (mean === 0) return 0;
+    const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / 20;
+    return (4 * Math.sqrt(variance)) / mean;
+  };
+  const bbWidthCurrent = calcBBWidthAt(closes, closes.length - 1);
+  let bbWidthSum = 0, bbWidthCount = 0;
+  for (let i = 0; i < 20 && (closes.length - 1 - i) >= 19; i++) {
+    bbWidthSum += calcBBWidthAt(closes, closes.length - 1 - i);
+    bbWidthCount++;
+  }
+  const bbWidth20dAvg = bbWidthCount > 0 ? bbWidthSum / bbWidthCount : bbWidthCurrent;
+
+  const vol5dAvg  = volumes.length >= 5
+    ? volumes.slice(-5).reduce((a, b) => a + b, 0) / 5 : live.volume;
+  const vol20dAvg = volumes.length >= 20
+    ? volumes.slice(-20).reduce((a, b) => a + b, 0) / 20 : avgVolume;
+  const dailyVolumeDrying = vol20dAvg > 0 && vol5dAvg < vol20dAvg * 0.7;
+
+  // 주봉 다운샘플링 (5거래일 단위)
+  const wCloses: number[] = [], wHighs: number[] = [], wLows: number[] = [];
+  for (let i = 0; i < closes.length; i += 5) {
+    const end = Math.min(i + 5, closes.length);
+    wCloses.push(closes[end - 1]);
+    wHighs.push(Math.max(...highs.slice(i, end)));
+    wLows.push(Math.min(...lows.slice(i, end)));
+  }
+
+  // 월봉 다운샘플링 (~21거래일 단위)
+  const mClosesSample: number[] = [];
+  for (let i = 0; i < closes.length; i += 21) {
+    const end = Math.min(i + 21, closes.length);
+    mClosesSample.push(closes[end - 1]);
+  }
+
+  // 월봉 MTAS 힌트 (정식 값은 enrichQuoteWithKisMTAS가 월봉 API로 덮어씀)
+  let monthlyAboveEMA12 = false, monthlyEMARising = false;
+  if (mClosesSample.length >= 13) {
+    const mEma12 = calcEMAArr(mClosesSample, 12);
+    const lastEma = mEma12[mEma12.length - 1];
+    const prevEma = mEma12.length >= 2 ? mEma12[mEma12.length - 2] : lastEma;
+    monthlyAboveEMA12 = live.price > lastEma;
+    monthlyEMARising  = lastEma > prevEma;
+  }
+
+  // 주봉 일목균형표 힌트
+  let weeklyAboveCloud = false, weeklyLaggingSpanUp = false;
+  if (wCloses.length >= 52) {
+    const wn = wCloses.length;
+    const refBar = wn - 27;
+    const midpoint = (h: number[], l: number[], s: number, e: number): number => {
+      if (s < 0 || e > h.length) return 0;
+      return (Math.max(...h.slice(s, e)) + Math.min(...l.slice(s, e))) / 2;
+    };
+    const tenkanRef = midpoint(wHighs, wLows, refBar - 8,  refBar + 1);
+    const kijunRef  = midpoint(wHighs, wLows, refBar - 25, refBar + 1);
+    const spanA = (tenkanRef + kijunRef) / 2;
+    const spanB = midpoint(wHighs, wLows, refBar - 51, refBar + 1);
+    const cloudTop = Math.max(spanA, spanB);
+    weeklyAboveCloud    = cloudTop > 0 && wCloses[wn - 1] > cloudTop;
+    weeklyLaggingSpanUp = wCloses[wn - 1] > wCloses[wn - 27];
+  }
+
+  // 거래중지·관리종목 감지 (거래량 0 비율)
+  const recent5Vol  = volumes.slice(-5);
+  const recent10Vol = volumes.slice(-10);
+  const zeroVolDays5  = recent5Vol.filter(v => v === 0).length;
+  const zeroVolDays10 = recent10Vol.filter(v => v === 0).length;
+  const isHighRisk = zeroVolDays5 >= 5 || zeroVolDays10 >= 8;
+
+  return {
+    price: Math.round(live.price),
+    changePercent: live.changePercent,
+    volume: live.volume,
+    avgVolume,
+    dayOpen: Math.round(live.dayOpen),
+    prevClose: Math.round(live.prevClose),
+    ma5, ma20, ma60,
+    high5d, high20d, high60d,
+    atr, atr20avg,
+    per: 0,
+    rsi14: parseFloat(rsi14.toFixed(1)),
+    macd: parseFloat(macd.toFixed(2)),
+    macdSignal: parseFloat(macdSignal.toFixed(2)),
+    macdHistogram: parseFloat(macdHistogram.toFixed(2)),
+    rsi5dAgo, weeklyRSI, ma60TrendUp, macd5dHistAgo,
+    return5d: parseFloat(return5d.toFixed(2)),
+    recentCloses10d:  closes.slice(-10),
+    recentHighs10d:   highs.slice(-10),
+    recentLows10d:    lows.slice(-10),
+    recentVolumes10d: volumes.slice(-10),
+    bbWidthCurrent: parseFloat(bbWidthCurrent.toFixed(6)),
+    bbWidth20dAvg:  parseFloat(bbWidth20dAvg.toFixed(6)),
+    vol5dAvg: Math.round(vol5dAvg),
+    vol20dAvg: Math.round(vol20dAvg),
+    atr5d: parseFloat(atr5d.toFixed(2)),
+    monthlyAboveEMA12, monthlyEMARising,
+    weeklyAboveCloud, weeklyLaggingSpanUp,
+    dailyVolumeDrying,
+    isHighRisk,
+  };
+}
+
+/**
+ * Yahoo Finance 실패 시 KIS API로 YahooQuoteExtended 를 구성하는 폴백.
+ *
+ * 2단계 조회:
+ *   1) FHKST01010100 (현재가) — 라이브 시가·현재가·전일종가·등락률
+ *   2) FHKST03010100 (일봉) — 최근 ~120영업일 OHLCV 로 MA/RSI/MACD/ATR/MTAS 산출
+ *
+ * 일봉 조회 실패 또는 데이터 부족(<20봉) 시 보수적 0값 폴백으로 degrade.
  */
 export async function fetchKisQuoteFallback(code: string): Promise<YahooQuoteExtended | null> {
   if (!HAS_REAL_DATA_CLIENT && !process.env.KIS_APP_KEY) return null;
@@ -747,11 +940,18 @@ export async function fetchKisQuoteFallback(code: string): Promise<YahooQuoteExt
     const prdyChange = signStr === '5' || signStr === '4' ? -Math.abs(prdyVrss) : Math.abs(prdyVrss);
     const prevClose  = price - prdyChange || price;
     const changePercent = prevClose > 0 ? (prdyChange / prevClose) * 100 : 0;
+    const live = { price, dayOpen, prevClose, changePercent, volume };
+
+    // 일봉 120봉 조회 → 기술적 지표 풀 산출. 실패/부족 시 보수적 0값 폴백.
+    const candles = await fetchKisDailyCandles(code).catch(() => [] as KisChartCandle[]);
+    if (candles.length >= 20) {
+      return buildExtendedFromKisDaily(candles, live);
+    }
 
     return {
       price, dayOpen, prevClose, changePercent,
       volume,
-      // 히스토리 기반 지표 — KIS 단건 조회로는 산출 불가, 보수적 0값
+      // 일봉 데이터 부족 — 보수적 0값 (Gate 통과 불가)
       avgVolume: 0, ma5: 0, ma20: 0, ma60: 0,
       high5d: price, high20d: price, high60d: price,
       atr: 0, atr20avg: 0, per: 0,
