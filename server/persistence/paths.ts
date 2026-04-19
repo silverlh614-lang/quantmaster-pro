@@ -133,6 +133,18 @@ export const AI_CACHE_FILE            = path.join(DATA_DIR, 'ai-cache.json');
  * 이후 Shadow 샘플의 incidentFlag 자동 부착 / 오염 반경 계산의 기초.
  */
 export const INCIDENT_LOG_FILE        = path.join(DATA_DIR, 'incident-log.json');
+/**
+ * 알림 감사 로그 — 월별 JSONL. 티어·카테고리·쿨다운키·시각을 1행 1건 append.
+ * Phase 6 주간 알림 감사 리포트가 빈발 카테고리·티어별 폭증을 자동 감지한다.
+ */
+export function alertAuditFile(yyyymm: string): string {
+  return path.join(DATA_DIR, `alert-audit-${yyyymm}.jsonl`);
+}
+/**
+ * T1 ACK 대기 상태 — 미확인 상태가 유지되면 30분 후 재발송, 60분 후 이메일 에스컬레이션.
+ * 재시작 후에도 복원되어야 하므로 파일 영속화.
+ */
+export const T1_ACK_STATE_FILE        = path.join(DATA_DIR, 't1-ack-pending.json');
 
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

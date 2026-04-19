@@ -22,6 +22,9 @@ import {
 import { assessKillSwitch } from '../../trading/killSwitch.js';
 import { attachEngineStream, publishEngineStatus } from '../engineStreamBus.js';
 import { listAlertFeed, countUnreadSince } from '../../persistence/alertsFeedRepo.js';
+import { readAlertAuditRange } from '../../alerts/alertAuditLog.js';
+import { computeWeeklyHygiene } from '../../alerts/weeklyHygieneAudit.js';
+import { countPendingAcks, listPendingAcks } from '../../alerts/ackTracker.js';
 import { tradingOrchestrator } from '../../orchestrator/tradingOrchestrator.js';
 import { isOpenShadowStatus } from '../../trading/entryEngine.js';
 import { getLastBuySignalAt } from '../../trading/signalScanner.js';
@@ -132,6 +135,48 @@ router.get('/alerts/feed', (req: any, res: any) => {
   const entries = listAlertFeed({ sinceId, limit, priority: priority as any });
   const unread = countUnreadSince(sinceId);
   res.json({ entries, unread });
+});
+
+/**
+ * Phase 6 대시보드 API — 오늘 KST 00:00 이후 알림을 티어·카테고리별 집계.
+ * UI가 "아침 커피 마시며" 푸시 없이 열어볼 수 있는 배경 라디오.
+ */
+router.get('/alerts/today', (_req: any, res: any) => {
+  const nowMs = Date.now();
+  const kstNow = new Date(nowMs + 9 * 3_600_000);
+  const kstMidnight = Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate()) - 9 * 3_600_000;
+  const entries = readAlertAuditRange(kstMidnight, nowMs);
+  const byTier = {
+    T1_ALARM:  entries.filter(e => e.tier === 'T1_ALARM').length,
+    T2_REPORT: entries.filter(e => e.tier === 'T2_REPORT').length,
+    T3_DIGEST: entries.filter(e => e.tier === 'T3_DIGEST').length,
+  };
+  const catMap = new Map<string, number>();
+  for (const e of entries) catMap.set(e.category, (catMap.get(e.category) ?? 0) + 1);
+  const byCategory = [...catMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([category, count]) => ({ category, count }));
+  res.json({
+    windowStart: new Date(kstMidnight).toISOString(),
+    windowEnd:   new Date(nowMs).toISOString(),
+    total: entries.length,
+    byTier,
+    byCategory,
+    recent: entries.slice(-20).reverse(),
+  });
+});
+
+/** 주간 알림 감사 리포트 데이터 — hygieneAudit과 동일 계산식. */
+router.get('/alerts/hygiene/week', (_req: any, res: any) => {
+  res.json(computeWeeklyHygiene());
+});
+
+/** 미확인 T1 ACK 목록 — 상단 배지·알림 센터용. */
+router.get('/alerts/pending-acks', (_req: any, res: any) => {
+  res.json({
+    count: countPendingAcks(),
+    entries: listPendingAcks(),
+  });
 });
 
 export default router;

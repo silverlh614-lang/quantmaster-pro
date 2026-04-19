@@ -13,6 +13,7 @@ import { runPreMarketSignal } from '../alerts/preMarketSignal.js';
 import { runDxyMonitor } from '../alerts/dxyMonitor.js';
 import { runSectorEtfMomentumScan } from '../alerts/sectorEtfMomentum.js';
 import { tickIntradayYield } from '../alerts/intradayYieldTicker.js';
+import { sweepPendingAcks } from '../alerts/ackTracker.js';
 
 export function registerAlertJobs(): void {
   // DART 공시 30분 폴링 — 장중 08:30~18:00 KST (UTC 23:30~09:00)
@@ -58,5 +59,11 @@ export function registerAlertJobs(): void {
   // 평일 KST 09:00 ~ 15:30 (UTC 00:00 ~ 06:30) 커버. 런타임 캐시만 갱신 — Telegram 없음.
   cron.schedule('*/30 0-6 * * 1-5', () => {
     try { tickIntradayYield(); } catch (e) { console.error('[IPYL] tick 실패:', e); }
+  }, { timezone: 'UTC' });
+
+  // T1 ACK 폐루프 스윕 — 5분 간격. 30분 미확인 → 재발송, 60분 미확인 → 이메일 에스컬레이션.
+  cron.schedule('*/5 * * * *', async () => {
+    await sweepPendingAcks().catch(e =>
+      console.error('[AckTracker] sweep 실패:', e instanceof Error ? e.message : e));
   }, { timezone: 'UTC' });
 }

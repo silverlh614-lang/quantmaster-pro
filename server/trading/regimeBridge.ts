@@ -204,10 +204,12 @@ export async function checkAndNotifyRegimeChange(
     msg += `📌 신규 진입 기회 탐색 권고`;
   }
 
-  await sendTelegramAlert(msg, {
-    priority: 'CRITICAL',
-    dedupeKey: `regime-change-${currentRegime}`,
-  }).catch(console.error);
+  // Phase 4: 레짐 변화 차등화 — 나빠짐(downgrade) = T1 즉각 행동, 좋아짐(upgrade) = T2 리포트.
+  // "긍정 변화는 조용히 기록, 부정 변화는 즉각 경보" (참뮌 스펙 #8).
+  await sendTelegramAlert(msg, isDowngrade
+    ? { priority: 'CRITICAL', tier: 'T1_ALARM', dedupeKey: `regime-change-${currentRegime}`, category: 'regime_downgrade' }
+    : { priority: 'HIGH',     tier: 'T2_REPORT', dedupeKey: `regime-change-${currentRegime}`, category: 'regime_upgrade' },
+  ).catch(console.error);
 
   // 채널: 레짐 변화 경보 (개인 메시지보다 간결하게)
   await channelRegimeChange(

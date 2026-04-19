@@ -122,13 +122,16 @@ export async function generateDailyReport(): Promise<void> {
 }
 
 /**
- * 주간 성과 리포트 — 매주 금요일 16:30 KST (UTC 07:30) 자동 발송
+ * 주간 캘리브레이션 리포트 — 매주 월요일 08:00 KST (UTC 일요일 23:00) 자동 발송.
+ *
+ * Phase 4 (참뮌 스펙 #7): 기존 금요일 16:30 발송은 주말 동안 잊혀지는 문제가 있어
+ * 월요일 아침으로 이동. "지난 주 이렇게 움직였고 이번 주 주의사항은 이것" 맥락.
  *
  * 구조화된 주간 리포트:
  *  ① 거래 건수, WIN/LOSS, WIN률
  *  ② 평균 수익/손실, RRR 달성
  *  ③ 최고 기여 조건 TOP3 (attributionAnalyzer 연동)
- *  ④ 다음주 주의사항 (FOMC 등)
+ *  ④ 이번주 액션 아이템 (FOMC·레짐 기반 narrative)
  */
 export async function generateWeeklyReport(): Promise<void> {
   const shadows = loadShadowTrades();
@@ -177,20 +180,37 @@ export async function generateWeeklyReport(): Promise<void> {
     }
   }
 
-  // ── 다음주 주의사항 (FOMC 등) ────────────────────────────────────────────────
+  // ── 이번주 액션 아이템 (FOMC + 현재 레짐 기반 narrative) ───────────────────
   const fomc = getFomcProximity();
-  let nextWeekNote = '';
+  const macroNow = loadMacroState();
+  const regimeNow = getLiveRegime(macroNow);
+  const actionLines: string[] = [];
   if (fomc.nextFomcDate) {
-    const fomcDate = new Date(fomc.nextFomcDate);
     const daysUntil = fomc.daysUntil ?? 999;
     if (daysUntil <= 7) {
-      nextWeekNote = `\n⚠️ 다음주 주의: ${fomc.nextFomcDate} FOMC (D-${daysUntil})`;
+      actionLines.push(`⚠️ 이번주 FOMC: ${fomc.nextFomcDate} (D-${daysUntil}) — 진입 규모 축소 권고`);
+    } else if (daysUntil <= 14) {
+      actionLines.push(`📅 2주 내 FOMC: ${fomc.nextFomcDate} (D-${daysUntil}) — 포지션 롤오버 시 유의`);
     }
   }
+  if (regimeNow === 'R5_CAUTION' || regimeNow === 'R6_DEFENSE') {
+    actionLines.push(`🔴 현재 레짐 ${regimeNow} — 신규 진입 자제, 기존 포지션 점검 우선`);
+  } else if (regimeNow === 'R1_TURBO' || regimeNow === 'R2_BULL') {
+    actionLines.push(`🟢 현재 레짐 ${regimeNow} — 주도주 집중도 강화, Kelly 배율 정상화`);
+  }
+  if (winRate < 40 && closed.length >= 5) {
+    actionLines.push(`⚠️ 지난주 WIN률 ${winRate}% — 손절 기준·필터 재점검 권고`);
+  }
+  if (rrr < 1.5 && closed.length >= 5) {
+    actionLines.push(`⚠️ RRR ${rrr.toFixed(2)} — 목표가 상향 또는 손절폭 축소 검토`);
+  }
+  const actionBlock = actionLines.length > 0
+    ? `\n<b>이번주 액션 아이템:</b>\n${actionLines.map(l => `• ${l}`).join('\n')}\n`
+    : `\n<i>이번주 특이사항 없음 — 기존 운용 원칙 유지.</i>\n`;
 
   // ── 메시지 조립 ──────────────────────────────────────────────────────────────
   const msg =
-    `📊 <b>[주간 성과] ${fmtDate(weekStart)}~${fmtDate(weekEnd)}</b>\n` +
+    `<b>[주간 캘리브레이션] ${fmtDate(weekStart)}~${fmtDate(weekEnd)}</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `거래 ${closed.length}건: WIN ${wins.length} / LOSS ${losses.length}  (WIN률 ${winRate}%)\n` +
     `평균 수익: +${avgWin.toFixed(1)}%  평균 손실: -${avgLoss.toFixed(1)}%\n` +
@@ -198,9 +218,9 @@ export async function generateWeeklyReport(): Promise<void> {
     `━━━━━━━━━━━━━━━━━━━━` +
     top3Lines +
     (top3Lines ? `━━━━━━━━━━━━━━━━━━━━` : '') +
-    nextWeekNote;
+    actionBlock;
 
-  await sendTelegramAlert(msg).catch(console.error);
+  await sendTelegramAlert(msg, { tier: 'T2_REPORT', category: 'weekly_calibration' }).catch(console.error);
 
   const bestShadow  = wins.length  > 0 ? wins.reduce((a, b)  => (a.returnPct ?? 0) > (b.returnPct ?? 0) ? a : b)  : undefined;
   const worstShadow = losses.length > 0 ? losses.reduce((a, b) => (a.returnPct ?? 0) < (b.returnPct ?? 0) ? a : b) : undefined;
