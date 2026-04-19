@@ -1,7 +1,6 @@
 import React from 'react';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
-import { TrendingUp, TrendingDown } from 'lucide-react';
-import { cn } from '../../../ui/cn';
+import { TrendIndicator } from '../../../ui/trend-indicator';
 
 interface MarketDataPoint {
   name: string;
@@ -21,12 +20,12 @@ const MarketCard = ({ item }: { item: MarketDataPoint }) => {
     <div className="glass-3d p-6 rounded-[2rem] border border-white/10 shadow-xl hover:bg-white/[0.05] transition-all group">
       <div className="flex justify-between items-start mb-4 gap-2">
         <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] truncate" title={item.name}>{item.name}</span>
-        <div className={cn(
-          "flex items-center px-2 py-1 rounded-lg text-[10px] font-black",
-          isPositive ? "bg-red-500/10 text-red-400" : "bg-blue-500/10 text-blue-400"
-        )}>
-          {isPositive ? <TrendingUp size={12} className="mr-1" /> : <TrendingDown size={12} className="mr-1" />}
-          {isPositive ? '+' : ''}{item.changePercent}%
+        <div className={`px-2 py-1 rounded-lg ${isPositive ? 'bg-red-500/10' : 'bg-blue-500/10'}`}>
+          <TrendIndicator
+            value={item.changePercent ?? 0}
+            size="sm"
+            koreanPalette
+          />
         </div>
       </div>
       <div className="text-fluid-3xl font-black text-white tracking-tighter mb-6">

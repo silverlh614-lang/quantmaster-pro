@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../ui/cn';
 import { Card } from '../ui/card';
 import { Section } from '../ui/section';
+import { Skeleton } from '../ui/skeleton';
 import { Stack } from '../layout/Stack';
 import { DeepAnalysisModal } from '../components/analysis/DeepAnalysisModal';
 import { WatchlistHeader } from '../components/watchlist/WatchlistHeader';
@@ -541,9 +542,15 @@ export function DiscoverWatchlistPage({
 
         {/* Stock List */}
         {view === 'DISCOVER' && (loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div
+            className="grid grid-cols-1 md:grid-cols-2 gap-6"
+            role="status"
+            aria-busy="true"
+            aria-live="polite"
+          >
+            <span className="sr-only">종목을 불러오는 중입니다</span>
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-64 bg-white/5 rounded-3xl animate-pulse border border-white/10" />
+              <Skeleton key={i} shape="rect" className="h-64 !rounded-3xl" />
             ))}
           </div>
         ) : (

@@ -12,12 +12,18 @@ export type KpiStatus = 'pass' | 'fail' | 'warn' | 'neutral';
 
 export interface KpiItem {
   label: string;
-  value: string | number;
+  /** 문자열·숫자·React 노드(AnimatedNumber 등) 모두 허용. */
+  value: React.ReactNode;
   change?: string;
   trend?: 'up' | 'down' | 'neutral';
   status?: KpiStatus;
   details?: KpiDetail[];
   onClick?: () => void;
+  /**
+   * 스크린리더 전용 라벨 — 지정 시 "label: value, change" 대신 이 문자열이 읽힌다.
+   * 상호작용(onClick)이 있을 때 특히 권장 (예: "오늘 실현손익 상세 보기").
+   */
+  ariaLabel?: string;
 }
 
 export interface KpiDetail {
@@ -61,7 +67,7 @@ export function KpiStrip({ items, className, size = 'sm' }: KpiStripProps) {
   }
 
   return (
-    <div className={cn('grid gap-3', className)} style={{ gridTemplateColumns: `repeat(${Math.min(items.length, 5)}, 1fr)` }}>
+    <div className={cn('grid gap-3', responsiveScoreboardCols(Math.min(items.length, 5)), className)}>
       {items.map((item, i) => {
         const status = item.status ?? (item.trend === 'up' ? 'pass' : item.trend === 'down' ? 'fail' : 'neutral');
         return (
@@ -95,6 +101,21 @@ export function KpiStrip({ items, className, size = 'sm' }: KpiStripProps) {
   );
 }
 
+/* ---------- Responsive grid columns for Scoreboard ---------- */
+/**
+ * N 개 KPI 에 대해 화면폭별 열 수를 Tailwind 클래스로 매핑.
+ *   - mobile(<sm)   : 2열 (너무 좁아지지 않도록 4+ 도 2열 고정)
+ *   - tablet(md)    : 2 혹은 3열
+ *   - desktop(lg+)  : N 열 (최대 5)
+ */
+function responsiveScoreboardCols(n: number): string {
+  if (n <= 1) return 'grid-cols-1';
+  if (n === 2) return 'grid-cols-2';
+  if (n === 3) return 'grid-cols-2 md:grid-cols-3';
+  if (n === 4) return 'grid-cols-2 md:grid-cols-2 lg:grid-cols-4';
+  return 'grid-cols-2 md:grid-cols-3 lg:grid-cols-5';
+}
+
 /* ---------- Large Neo-Brutalism Scoreboard ---------- */
 interface KpiScoreboardProps {
   items: KpiItem[];
@@ -103,34 +124,42 @@ interface KpiScoreboardProps {
 
 export function KpiScoreboard({ items, className }: KpiScoreboardProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const cols = Math.min(items.length, 5);
 
   return (
     <div className={cn('space-y-2', className)}>
-      {/* Main Scoreboard Grid */}
+      {/* Main Scoreboard Grid — 반응형 breakpoint: mobile 2열 → tablet 2열 → lg N열 */}
       <div
-        className="grid gap-3 sm:gap-4"
-        style={{ gridTemplateColumns: `repeat(${Math.min(items.length, 5)}, 1fr)` }}
+        className={cn('grid gap-3 sm:gap-4', responsiveScoreboardCols(cols))}
       >
         {items.map((item, i) => {
           const status = item.status ?? (item.trend === 'up' ? 'pass' : item.trend === 'down' ? 'fail' : 'neutral');
           const hasDetails = item.details && item.details.length > 0;
           const isExpanded = expandedIndex === i;
+          const interactive = Boolean(item.onClick || hasDetails);
+          const Tag = interactive ? 'button' : 'div';
 
           return (
-            <button
+            <Tag
               key={i}
-              type="button"
+              {...(interactive
+                ? {
+                    type: 'button' as const,
+                    'aria-label': item.ariaLabel,
+                    'aria-expanded': hasDetails ? isExpanded : undefined,
+                    onClick: () => {
+                      if (item.onClick) { item.onClick(); return; }
+                      if (hasDetails) setExpandedIndex(isExpanded ? null : i);
+                    },
+                  }
+                : { role: 'group' as const, 'aria-label': item.ariaLabel })}
               className={cn(
                 'relative border-2 rounded-xl sm:rounded-2xl p-4 sm:p-5 text-left transition-all group',
                 statusCardClass[status],
                 'box-shadow-[4px_4px_0px_rgba(0,0,0,0.3)]',
-                hasDetails && 'cursor-pointer',
-                isExpanded && 'ring-1 ring-white/10'
+                interactive && 'cursor-pointer',
+                isExpanded && 'ring-1 ring-white/10',
               )}
-              onClick={() => {
-                if (item.onClick) { item.onClick(); return; }
-                if (hasDetails) setExpandedIndex(isExpanded ? null : i);
-              }}
             >
               {/* Status dot */}
               <div className="flex items-center justify-between mb-2">
@@ -159,11 +188,11 @@ export function KpiScoreboard({ items, className }: KpiScoreboardProps) {
 
               {/* Drill-down indicator */}
               {hasDetails && (
-                <div className="absolute bottom-2 right-3 text-theme-text-muted opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute bottom-2 right-3 text-theme-text-muted opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden>
                   {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 </div>
               )}
-            </button>
+            </Tag>
           );
         })}
       </div>

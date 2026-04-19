@@ -1,8 +1,10 @@
 import React, { useState, useMemo } from 'react';
+import { BookOpen } from 'lucide-react';
 import {
   TradeRecord, ConditionPerformance, SystemVsIntuitionStats, ConditionId,
 } from '../../types/quant';
 import { ALL_CONDITIONS, CONDITION_SOURCE_MAP, getEvolutionWeightsFromPerformance } from '../../services/quant/evolutionEngine';
+import { EmptyState } from '../../ui/empty-state';
 
 // ─── Helper: 조건별 성과 계산 ────────────────────────────────────────────────────
 
@@ -212,10 +214,12 @@ export const TradeJournal: React.FC<Props> = ({
           </div>
 
           {filteredTrades.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
-              <p className="text-sm font-bold">매매 기록이 없습니다</p>
-              <p className="text-[10px] mt-1">종목 상세에서 '매수 기록' 버튼을 눌러 첫 매매를 기록하세요.</p>
-            </div>
+            <EmptyState
+              variant="inviting"
+              icon={<BookOpen className="h-7 w-7" />}
+              title="매매 기록이 없습니다"
+              description="종목 상세에서 '매수 기록' 버튼을 눌러 첫 매매를 기록하세요."
+            />
           ) : (
             <div className="space-y-2">
               {filteredTrades.map(trade => {

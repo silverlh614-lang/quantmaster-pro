@@ -1,5 +1,7 @@
 import React from 'react';
+import { ShieldCheck } from 'lucide-react';
 import { Section } from '../../ui/section';
+import { EmptyState } from '../../ui/empty-state';
 import type { RiskRuleState } from '../../services/autoTrading/autoTradingTypes';
 
 interface RiskControlPanelProps {
@@ -9,13 +11,16 @@ interface RiskControlPanelProps {
 export function RiskControlPanel({ rules }: RiskControlPanelProps) {
   return (
     <Section title="리스크 제어 매트릭스" subtitle="Risk Control Matrix">
-      <div className="space-y-3">
-        {rules.length === 0 ? (
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/50">
-            리스크 규칙이 없습니다.
-          </div>
-        ) : (
-          rules.map((rule) => (
+      {rules.length === 0 ? (
+        <EmptyState
+          variant="minimal"
+          icon={<ShieldCheck className="h-6 w-6" />}
+          title="리스크 규칙이 없습니다"
+          description="규칙이 등록되면 각 조건의 활성/트리거 상태가 여기에 표시됩니다."
+        />
+      ) : (
+        <div className="space-y-3">
+          {rules.map((rule) => (
             <div
               key={rule.id}
               className={`rounded-xl border p-4 ${
@@ -53,9 +58,9 @@ export function RiskControlPanel({ rules }: RiskControlPanelProps) {
                 </div>
               </div>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </Section>
   );
 }

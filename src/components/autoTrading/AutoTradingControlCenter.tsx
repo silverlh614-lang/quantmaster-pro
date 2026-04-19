@@ -5,11 +5,18 @@
  *          (부모가 `EngineToggleGate` 를 열어 3단계 확인을 요구.)
  *          SHADOW/PAPER 모드에서는 1-클릭 즉시 토글.
  *          "일시정지"·"비상정지" 는 1-클릭 유지 (정지는 빠를수록 안전).
+ *
+ * Step 4 (디자인 일관성): 반복되는 정보 타일을 `InfoTile` 헬퍼로 추출하고,
+ *                        LIVE 경고 배너를 `Card tone="danger"` 로 통일.
  */
 
 import React from 'react';
-import { OctagonAlert, Pause, Play, RefreshCw, ShieldAlert, Wifi, WifiOff } from 'lucide-react';
+import {
+  OctagonAlert, Pause, Play, RefreshCw, ShieldAlert, Wifi, WifiOff,
+} from 'lucide-react';
 import { Button } from '../../ui/button';
+import { Card } from '../../ui/card';
+import { InfoTile } from '../../ui/info-tile';
 import { Section } from '../../ui/section';
 import type { ControlCenterState } from '../../services/autoTrading/autoTradingTypes';
 import { TradingModeBadge } from './TradingModeBadge';
@@ -98,69 +105,57 @@ export function AutoTradingControlCenter({
     >
       <div className="space-y-4">
         {isLive && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-            <div className="flex items-center gap-2 font-semibold">
+          <Card variant="ghost" tone="danger" padding="sm">
+            <div className="flex items-center gap-2 font-semibold text-red-200">
               <ShieldAlert className="h-4 w-4" />
               실거래 모드 (LIVE)
             </div>
             <div className="mt-1 text-xs text-red-300/80">
-              시동 시 3단계 안전 게이트(ARMED → 날짜 입력 → 실행)가 강제됩니다. 주문 전 리스크 상태를 재확인하세요.
+              시동 시 3단계 안전 게이트(ARMED → 날짜 입력 → 실행)가 강제됩니다.
+              주문 전 리스크 상태를 재확인하세요.
             </div>
-          </div>
+          </Card>
         )}
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <div className="text-xs text-white/50">모드</div>
-            <div className="mt-2">
-              <TradingModeBadge mode={state.mode} />
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <div className="text-xs text-white/50">엔진 상태</div>
-            <div className="mt-2 text-sm font-semibold text-white">{state.engineStatus}</div>
-          </div>
-
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <div className="text-xs text-white/50">브로커 연결</div>
-            <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-white">
-              {state.brokerConnected ? (
-                <>
-                  <Wifi className="h-4 w-4 text-emerald-400" />
-                  CONNECTED
-                </>
-              ) : (
-                <>
-                  <WifiOff className="h-4 w-4 text-red-400" />
-                  DISCONNECTED
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <div className="text-xs text-white/50">마지막 스캔</div>
-            <div className="mt-2 text-sm font-semibold text-white">{state.lastScanAt ?? '-'}</div>
-          </div>
-
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <div className="text-xs text-white/50">마지막 주문</div>
-            <div className="mt-2 text-sm font-semibold text-white">{state.lastOrderAt ?? '-'}</div>
-          </div>
-
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <div className="text-xs text-white/50">오늘 실현손익</div>
-            <div
-              className={`mt-2 text-sm font-semibold ${
-                state.todayPnL >= 0 ? 'text-emerald-300' : 'text-red-300'
-              }`}
-            >
-              {state.todayPnL.toLocaleString()}원 ({state.todayOrderCount}건)
-            </div>
-          </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-6">
+          <InfoTile label="모드" value={<TradingModeBadge mode={state.mode} />} />
+          <InfoTile label="엔진 상태" value={<span className="font-semibold text-white">{state.engineStatus}</span>} />
+          <InfoTile
+            label="브로커 연결"
+            value={<BrokerStatus connected={state.brokerConnected} />}
+          />
+          <InfoTile label="마지막 스캔" value={<span className="font-semibold text-white">{state.lastScanAt ?? '-'}</span>} />
+          <InfoTile label="마지막 주문" value={<span className="font-semibold text-white">{state.lastOrderAt ?? '-'}</span>} />
+          <InfoTile
+            label="오늘 실현손익"
+            value={
+              <span className={state.todayPnL >= 0 ? 'font-semibold text-emerald-300' : 'font-semibold text-red-300'}>
+                {state.todayPnL.toLocaleString()}원 ({state.todayOrderCount}건)
+              </span>
+            }
+          />
         </div>
       </div>
     </Section>
+  );
+}
+
+/* ---------- Local helpers ---------- */
+
+function BrokerStatus({ connected }: { connected: boolean }) {
+  return (
+    <span className="flex items-center gap-2 font-semibold text-white">
+      {connected ? (
+        <>
+          <Wifi className="h-4 w-4 text-emerald-400" />
+          CONNECTED
+        </>
+      ) : (
+        <>
+          <WifiOff className="h-4 w-4 text-red-400" />
+          DISCONNECTED
+        </>
+      )}
+    </span>
   );
 }

@@ -1,5 +1,7 @@
 import React from 'react';
+import { ScrollText } from 'lucide-react';
 import { Section } from '../../ui/section';
+import { EmptyState } from '../../ui/empty-state';
 import type { TradingLogItem } from '../../services/autoTrading/autoTradingTypes';
 
 interface EventLogPanelProps {
@@ -22,13 +24,16 @@ function levelStyle(level: TradingLogItem['level']) {
 export function EventLogPanel({ logs }: EventLogPanelProps) {
   return (
     <Section title="체결 추적 분석" subtitle="Execution Event Timeline">
-      <div className="space-y-2">
-        {logs.length === 0 ? (
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/50">
-            로그가 없습니다.
-          </div>
-        ) : (
-          logs.map((log) => (
+      {logs.length === 0 ? (
+        <EmptyState
+          variant="minimal"
+          icon={<ScrollText className="h-6 w-6" />}
+          title="로그가 없습니다"
+          description="실행 이벤트가 기록되면 이곳에 시간순으로 나타납니다."
+        />
+      ) : (
+        <div className="space-y-2">
+          {logs.map((log) => (
             <div key={log.id} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
               <div className="flex items-start justify-between gap-4">
                 <div className={`text-sm font-medium ${levelStyle(log.level)}`}>
@@ -37,9 +42,9 @@ export function EventLogPanel({ logs }: EventLogPanelProps) {
                 <div className="text-xs text-white/40">{log.createdAt}</div>
               </div>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </Section>
   );
 }

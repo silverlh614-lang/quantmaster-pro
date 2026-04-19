@@ -3,6 +3,9 @@ import { Lock, OctagonAlert, PauseCircle, ShieldBan } from 'lucide-react';
 import type { EmergencyActionState } from '../../services/autoTrading/autoTradingTypes';
 import { Section } from '../../ui/section';
 import { Button } from '../../ui/button';
+import { Card } from '../../ui/card';
+import { InfoTile } from '../../ui/info-tile';
+import { Badge } from '../../ui/badge';
 
 interface EmergencyActionsPanelProps {
   state: EmergencyActionState;
@@ -66,9 +69,9 @@ export function EmergencyActionsPanel({
           </Button>
         </div>
 
-        <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
+        <Card variant="ghost" tone="danger" padding="sm" className="text-sm text-red-200">
           비상 액션은 반드시 확인 모달과 2단계 검증을 거친 뒤 실행되도록 연결하는 것이 좋습니다.
-        </div>
+        </Card>
       </div>
     </Section>
   );
@@ -76,17 +79,14 @@ export function EmergencyActionsPanel({
 
 function StatusPill({ label, active }: { label: string; active: boolean }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-      <div className="text-xs text-white/50">{label}</div>
-      <div
-        className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-medium ${
-          active
-            ? 'border-red-500/30 bg-red-500/15 text-red-300'
-            : 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300'
-        }`}
-      >
-        {active ? '활성' : '비활성'}
-      </div>
-    </div>
+    <InfoTile
+      label={label}
+      tone={active ? 'danger' : 'success'}
+      value={
+        <Badge variant={active ? 'danger' : 'success'} size="md">
+          {active ? '활성' : '비활성'}
+        </Badge>
+      }
+    />
   );
 }

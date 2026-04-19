@@ -8,6 +8,7 @@ import { useSettingsStore, useRecommendationStore, useTradeStore } from '../stor
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
 import { PRIMARY_MOBILE_TABS, MORE_MOBILE_TABS } from '../config';
 import type { TradeRecord } from '../types/quant';
+import { useHapticFeedback } from '../hooks/useHapticFeedback';
 
 export function BottomNav() {
   const [showMore, setShowMore] = useState(false);
@@ -15,6 +16,7 @@ export function BottomNav() {
   const { watchlist, setSearchQuery } = useRecommendationStore();
   const { tradeRecords } = useTradeStore();
   const { shadowTrades } = useShadowTradeStore();
+  const haptic = useHapticFeedback();
 
   const openTradesCount = tradeRecords.filter((t: TradeRecord) => t.status === 'OPEN').length;
 
@@ -28,9 +30,16 @@ export function BottomNav() {
   const isMoreActive = MORE_MOBILE_TABS.some(item => view === item.id);
 
   const handleNavClick = (id: string) => {
+    // 같은 탭 재탭 → 살짝 더 약한 햅틱으로 구분.
+    haptic(id === view ? 'light' : 'medium');
     setView(id as any);
     setSearchQuery('');
     setShowMore(false);
+  };
+
+  const handleToggleMore = () => {
+    haptic('light');
+    setShowMore((prev) => !prev);
   };
 
   return (
@@ -117,7 +126,12 @@ export function BottomNav() {
       </AnimatePresence>
 
       {/* Bottom Navigation Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 z-[57] lg:hidden no-print backdrop-blur-xl" style={{ height: 'var(--bottom-nav-height)', background: 'rgba(6, 9, 13, 0.85)' }}>
+      <nav
+        role="navigation"
+        aria-label="하단 주요 메뉴"
+        className="fixed bottom-0 left-0 right-0 z-[57] lg:hidden no-print backdrop-blur-xl"
+        style={{ height: 'var(--bottom-nav-height)', background: 'rgba(6, 9, 13, 0.85)' }}
+      >
         <div className="border-t border-white/[0.05] h-full flex items-stretch relative">
           {PRIMARY_MOBILE_TABS.map((item) => {
             const Icon = item.icon;
@@ -126,14 +140,23 @@ export function BottomNav() {
             return (
               <button
                 key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-label={item.label}
                 onClick={() => handleNavClick(item.id)}
                 className={cn(
-                  'flex-1 flex flex-col items-center justify-center gap-1 transition-all relative',
-                  isActive ? 'text-blue-400' : 'text-theme-text-muted'
+                  'flex-1 flex flex-col items-center justify-center gap-1 transition-colors relative',
+                  'active:scale-[0.96] transition-transform',
+                  isActive ? 'text-blue-400' : 'text-theme-text-muted',
                 )}
               >
                 {isActive && (
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-gradient-to-r from-blue-400 to-indigo-500" />
+                  <motion.div
+                    layoutId="bottomNavActivePill"
+                    transition={{ type: 'spring', damping: 28, stiffness: 380 }}
+                    className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-[3px] rounded-b-full bg-gradient-to-r from-blue-400 to-indigo-500 shadow-[0_0_10px_rgba(59,130,246,0.55)]"
+                  />
                 )}
                 <div className="relative">
                   <Icon className={cn('w-5 h-5 transition-transform', isActive && 'scale-110')} />
@@ -143,23 +166,32 @@ export function BottomNav() {
                     </span>
                   )}
                 </div>
-                <span className={cn('text-[10px] font-bold', isActive ? 'font-black' : '')}>{item.label}</span>
+                <span className={cn('text-[10px] font-bold', isActive ? 'font-black' : '')}>
+                  {item.label}
+                </span>
               </button>
             );
           })}
 
           {/* More Button */}
           <button
-            onClick={() => setShowMore(prev => !prev)}
+            type="button"
+            aria-label="더보기"
+            aria-expanded={showMore}
+            onClick={handleToggleMore}
             className={cn(
-              'flex-1 flex flex-col items-center justify-center gap-1 transition-all relative',
-              showMore || isMoreActive ? 'text-blue-400' : 'text-theme-text-muted'
+              'flex-1 flex flex-col items-center justify-center gap-1 transition-colors relative active:scale-[0.96]',
+              showMore || isMoreActive ? 'text-blue-400' : 'text-theme-text-muted',
             )}
           >
             {isMoreActive && !showMore && (
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-gradient-to-r from-blue-400 to-indigo-500" />
+              <motion.div
+                layoutId="bottomNavActivePill"
+                transition={{ type: 'spring', damping: 28, stiffness: 380 }}
+                className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-[3px] rounded-b-full bg-gradient-to-r from-blue-400 to-indigo-500 shadow-[0_0_10px_rgba(59,130,246,0.55)]"
+              />
             )}
-            <MoreHorizontal className="w-5 h-5" />
+            <MoreHorizontal className={cn('w-5 h-5 transition-transform', showMore && 'rotate-90')} />
             <span className="text-[10px] font-bold">더보기</span>
           </button>
         </div>
