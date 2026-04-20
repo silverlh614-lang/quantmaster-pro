@@ -231,6 +231,56 @@ describe('krxOpenApi — 인증·캐시·매핑', () => {
     await expect(mod.fetchKospiDailyTrade('20260417')).resolves.toEqual([]);
   });
 
+  it('블루프린트 env (KRX_API_KEY / KRX_API_BASE) 를 AUTH_KEY/URL 로 사용한다', async () => {
+    delete process.env.KRX_OPENAPI_AUTH_KEY;
+    delete process.env.KRX_OPENAPI_BASE;
+    process.env.KRX_API_KEY = 'blueprint-key';
+    process.env.KRX_API_BASE = 'http://data-dbg.krx.co.kr';
+
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ OutBlock_1: [] }),
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    vi.resetModules();
+    const mod = await import('./krxOpenApi.js');
+    mod._resetKrxOpenApiBreaker();
+    mod.resetKrxOpenApiCache();
+
+    await mod.fetchKospiDailyTrade('20260417');
+
+    const call = fetchSpy.mock.calls[0];
+    expect(call).toBeTruthy();
+    // URL: KRX_API_BASE 는 호스트만 지정되므로 /svc/apis 자동 부착 여부 검증.
+    const url = String(call![0]);
+    expect(url).toContain('http://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd');
+    const init = call![1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers.AUTH_KEY).toBe('blueprint-key');
+
+    delete process.env.KRX_API_KEY;
+    delete process.env.KRX_API_BASE;
+  });
+
+  it('KRX_API_DISABLED=true 도 KRX_OPENAPI_DISABLED 와 동일하게 네트워크를 차단한다', async () => {
+    process.env.KRX_API_DISABLED = 'true';
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    vi.resetModules();
+    const mod = await import('./krxOpenApi.js');
+    mod._resetKrxOpenApiBreaker();
+    mod.resetKrxOpenApiCache();
+
+    const rows = await mod.fetchKospiDailyTrade('20260417');
+    expect(rows).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    delete process.env.KRX_API_DISABLED;
+  });
+
   it('5회 연속 실패 시 서킷 OPEN → isKrxOpenApiHealthy=false', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,

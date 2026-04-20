@@ -139,3 +139,136 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     await expect(fetchInvestorTrading('bad-date')).resolves.toEqual([]);
   });
 });
+
+// ── 블루프린트 파사드 검증 (경로 A: KRX Open API 인증) ──────────────────────
+describe('krxClient — 블루프린트 파사드', () => {
+  const ORIG_FETCH = globalThis.fetch;
+  const ORIG_ENV = {
+    KRX_API_KEY: process.env.KRX_API_KEY,
+    KRX_OPENAPI_AUTH_KEY: process.env.KRX_OPENAPI_AUTH_KEY,
+    KRX_API_DISABLED: process.env.KRX_API_DISABLED,
+    KRX_OPENAPI_DISABLED: process.env.KRX_OPENAPI_DISABLED,
+  };
+
+  beforeEach(() => {
+    process.env.KRX_API_KEY = 'blueprint-key';
+    delete process.env.KRX_OPENAPI_AUTH_KEY;
+    delete process.env.KRX_API_DISABLED;
+    delete process.env.KRX_OPENAPI_DISABLED;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = ORIG_FETCH;
+    process.env.KRX_API_KEY = ORIG_ENV.KRX_API_KEY;
+    process.env.KRX_OPENAPI_AUTH_KEY = ORIG_ENV.KRX_OPENAPI_AUTH_KEY;
+    process.env.KRX_API_DISABLED = ORIG_ENV.KRX_API_DISABLED;
+    process.env.KRX_OPENAPI_DISABLED = ORIG_ENV.KRX_OPENAPI_DISABLED;
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it('getKrxAuthKey()는 KRX_API_KEY 를 우선으로, 없으면 레거시 KRX_OPENAPI_AUTH_KEY 를 반환한다', async () => {
+    vi.resetModules();
+    const mod = await import('./krxClient.js');
+    expect(mod.getKrxAuthKey()).toBe('blueprint-key');
+
+    delete process.env.KRX_API_KEY;
+    process.env.KRX_OPENAPI_AUTH_KEY = 'legacy-key';
+    vi.resetModules();
+    const mod2 = await import('./krxClient.js');
+    expect(mod2.getKrxAuthKey()).toBe('legacy-key');
+  });
+
+  it('fetchKrxDailyOhlcv(code)는 KOSPI 일별매매에서 일치 종목을 반환한다', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        OutBlock_1: [
+          { BAS_DD: '20260417', ISU_SRT_CD: 'A005930', ISU_NM: '삼성전자',
+            MKT_NM: 'KOSPI', TDD_CLSPRC: '72,400', MKTCAP: '432000000000000',
+            LIST_SHRS: '5969782550' },
+        ],
+      }),
+    }) as unknown as typeof fetch;
+
+    vi.resetModules();
+    const openApi = await import('./krxOpenApi.js');
+    openApi._resetKrxOpenApiBreaker();
+    openApi.resetKrxOpenApiCache();
+    const { fetchKrxDailyOhlcv } = await import('./krxClient.js');
+    const row = await fetchKrxDailyOhlcv('005930', '20260417');
+    expect(row).not.toBeNull();
+    expect(row?.code).toBe('005930');
+    expect(row?.close).toBe(72400);
+  });
+
+  it('fetchKrxDailyOhlcv(code)는 6자리가 아니면 null', async () => {
+    vi.resetModules();
+    const { fetchKrxDailyOhlcv } = await import('./krxClient.js');
+    await expect(fetchKrxDailyOhlcv('12345')).resolves.toBeNull();
+    await expect(fetchKrxDailyOhlcv('abcdef')).resolves.toBeNull();
+  });
+
+  it('fetchKrxSectorIndices()는 KRX 시리즈를 우선 사용한다', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        OutBlock_1: [
+          { BAS_DD: '20260417', IDX_IND_CD: '2001', IDX_NM: 'KRX 에너지',
+            CLSPRC_IDX: '1,234.56' },
+        ],
+      }),
+    }) as unknown as typeof fetch;
+
+    vi.resetModules();
+    const openApi = await import('./krxOpenApi.js');
+    openApi._resetKrxOpenApiBreaker();
+    openApi.resetKrxOpenApiCache();
+    const { fetchKrxSectorIndices } = await import('./krxClient.js');
+    const rows = await fetchKrxSectorIndices('20260417');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].indexName).toBe('KRX 에너지');
+  });
+
+  it('fetchKrxMarketCap()은 marketCap 이 0 인 행을 제거하고 원 단위 정수로 반환한다', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        OutBlock_1: [
+          { BAS_DD: '20260417', ISU_SRT_CD: '005930', ISU_NM: '삼성전자',
+            MKT_NM: 'KOSPI', MKTCAP: '432,000,000,000,000', LIST_SHRS: '5,969,782,550',
+            TDD_CLSPRC: '72,400' },
+          { BAS_DD: '20260417', ISU_SRT_CD: '999999', ISU_NM: 'ZERO',
+            MKT_NM: 'KOSPI', MKTCAP: '0', LIST_SHRS: '0', TDD_CLSPRC: '0' },
+        ],
+      }),
+    }) as unknown as typeof fetch;
+
+    vi.resetModules();
+    const openApi = await import('./krxOpenApi.js');
+    openApi._resetKrxOpenApiBreaker();
+    openApi.resetKrxOpenApiCache();
+    const { fetchKrxMarketCap } = await import('./krxClient.js');
+    const rows = await fetchKrxMarketCap('20260417');
+    // KOSPI 한 건 + KOSDAQ(동일 mock 본문) 한 건 = 0 건 제거 후 2 건.
+    // (동일 fetch mock 이 두 호출에 동일 본문을 반환하므로 삼성전자가 두 번 포함됨)
+    expect(rows.every(r => r.marketCap > 0)).toBe(true);
+    expect(rows[0]).toMatchObject({
+      code: '005930',
+      marketCap: 432000000000000,
+      listedShares: 5969782550,
+      market: 'KOSPI',
+    });
+  });
+
+  it('fetchKrxInvestorTrading / fetchKrxPerPbr / fetchKrxShortBalance 는 레거시 함수와 동일 참조', async () => {
+    vi.resetModules();
+    const mod = await import('./krxClient.js');
+    expect(mod.fetchKrxInvestorTrading).toBe(mod.fetchInvestorTrading);
+    expect(mod.fetchKrxPerPbr).toBe(mod.fetchPerPbr);
+    expect(mod.fetchKrxShortBalance).toBe(mod.fetchShortBalance);
+  });
+});
