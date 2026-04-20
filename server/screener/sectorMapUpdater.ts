@@ -1,20 +1,23 @@
 /**
  * sectorMapUpdater.ts — KRX 전종목 섹터 스냅샷 수집 + 폴백 체인
  *
- * @responsibility KRX 정보데이터시스템 JSON 엔드포인트에서 KOSPI·KOSDAQ 전종목의
- * 업종 분류를 수집하여 data/krx-sector-map.json 으로 저장한다. KRX 장애(HTTP 400/500·
- * 타임아웃) 시에는 sectorSources.ts 의 4단계 폴백 체인(KRX → Naver → Yahoo → Gemini)을
- * 호출해 기존 파일이 진부화되는 것을 막는다.
+ * @responsibility KRX 전종목의 종목코드·업종 분류를 수집하여
+ * data/krx-sector-map.json 으로 저장한다.
  *
- * 호출 경로:
- *   - CLI: scripts/updateSectorMap.ts (주간 수동 실행 또는 최초 부트스트랩용)
- *   - 스케줄러: maintenanceJobs.ts (매주 월요일 03:00 KST · 평일 04:00 KST 일일 재시도)
+ * 수집 우선순위:
+ *   ① 신규 OpenAPI (openapi.krx.co.kr / data-dbg.krx.co.kr, KRX_API_KEY 인증)
+ *      — krxOpenApi.ts 의 fetchKospiDailyTrade/fetchKosdaqDailyTrade 를 사용해
+ *        전종목 code·name·sector(소속부)를 가져온다. sector 필드가 "우량기업부"
+ *        처럼 업종과 무관한 값이면 아래 폴백 체인이 namesByCode 로 업종을 보충.
+ *   ② 레거시 공개 엔드포인트 (data.krx.co.kr MDCSTAT03901, 인증 불필요)
+ *      — OpenAPI 가 비활성(KRX_OPENAPI_DISABLED)이거나 장애(서킷 OPEN)일 때 사용.
+ *   ③ Naver → Yahoo → Gemini 체인 (sectorSources.ts) — 누락분 업종 보충.
  *
  * 안전성:
  *   1. 원자적 쓰기(tmp → rename) — 중간 실패 시 기존 파일 보존
  *   2. KRX 응답 검증 — 기대치 이하(KOSPI/KOSDAQ 각 500행 미만) 시 폴백으로 낙하
- *   3. KRX 장애시 trdDd 를 최근 영업일 5일까지 역추적 후 Naver/Yahoo/Gemini 폴백
- *   4. 폴백 결과라도 최소 커버리지(기존 + 신규 합산 MIN_TOTAL_ROWS) 충족 시에만 저장
+ *   3. 거래일을 최근 영업일 5일까지 역추적 후 Naver/Yahoo/Gemini 폴백
+ *   4. 폴백 결과라도 최소 커버리지(MIN_TOTAL_ROWS) 충족 시에만 저장
  */
 
 import fs from 'fs';
@@ -26,10 +29,17 @@ import {
   loadExistingSectorMap,
 } from './sectorSources.js';
 import { SECTOR_MAP as MANUAL_OVERRIDES } from './pipelineHelpers.js';
+import {
+  fetchKospiDailyTrade,
+  fetchKosdaqDailyTrade,
+  isKrxOpenApiHealthy,
+  getKrxOpenApiStatus,
+  type KrxStockDailyRow,
+} from '../clients/krxOpenApi.js';
 
-const KRX_URL    = 'http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd';
-const KRX_BLD    = 'dbms/MDC/STAT/standard/MDCSTAT03901';
-const TIMEOUT_MS = 15_000;
+const KRX_LEGACY_URL = 'http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd';
+const KRX_LEGACY_BLD = 'dbms/MDC/STAT/standard/MDCSTAT03901';
+const TIMEOUT_MS     = 15_000;
 
 const OUT_PATH  = path.join(DATA_DIR, 'krx-sector-map.json');
 const META_PATH = path.join(DATA_DIR, 'krx-sector-map.meta.json');
@@ -129,11 +139,11 @@ function recentWeekdaysYYYYMMDD(count: number, now = new Date()): string[] {
   return out;
 }
 
-// ── KRX 조회 ──────────────────────────────────────────────────────────────────
+// ── KRX 조회 (② 레거시 공개 엔드포인트) ──────────────────────────────────────
 
-async function fetchMarket(mktId: MktId, trdDd: string, verbose: boolean): Promise<KrxRow[]> {
+async function fetchLegacyMarket(mktId: MktId, trdDd: string, verbose: boolean): Promise<KrxRow[]> {
   const body = new URLSearchParams({
-    bld:         KRX_BLD,
+    bld:         KRX_LEGACY_BLD,
     mktId,
     trdDd,
     money:       '1',
@@ -143,7 +153,7 @@ async function fetchMarket(mktId: MktId, trdDd: string, verbose: boolean): Promi
   const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(new Error(`KRX ${mktId} timeout ${TIMEOUT_MS}ms`)), TIMEOUT_MS);
   try {
-    const res = await fetch(KRX_URL, {
+    const res = await fetch(KRX_LEGACY_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
@@ -157,7 +167,7 @@ async function fetchMarket(mktId: MktId, trdDd: string, verbose: boolean): Promi
     if (!res.ok) throw new Error(`KRX ${mktId} HTTP ${res.status}`);
     const json = (await res.json()) as KrxResponse;
     const rows = Array.isArray(json?.OutBlock_1) ? json.OutBlock_1 : [];
-    if (verbose) console.log(`[SectorMapUpdater] ${mktId} ${rows.length}행 수신`);
+    if (verbose) console.log(`[SectorMapUpdater] ${mktId} ${rows.length}행 수신 (legacy)`);
     return rows;
   } finally {
     clearTimeout(timer);
@@ -172,8 +182,8 @@ async function buildSectorMapOnce(
   verbose: boolean,
 ): Promise<{ map: Record<string, string>; namesByCode: Record<string, string>; diagnostic: string } | null> {
   const [kospiRes, kosdaqRes] = await Promise.allSettled([
-    fetchMarket('STK', trdDd, verbose),
-    fetchMarket('KSQ', trdDd, verbose),
+    fetchLegacyMarket('STK', trdDd, verbose),
+    fetchLegacyMarket('KSQ', trdDd, verbose),
   ]);
   const kospi  = kospiRes.status  === 'fulfilled' ? kospiRes.value  : [];
   const kosdaq = kosdaqRes.status === 'fulfilled' ? kosdaqRes.value : [];
@@ -215,18 +225,18 @@ async function buildSectorMapOnce(
 }
 
 /**
- * KRX 벌크 스냅샷 시도 — 최근 영업일 N일까지 trdDd 를 역추적한다.
- * KRX 는 장 전·공휴일 직후에 400 을 내기도 해서 단일 거래일만으로는 취약.
- * 성공 시 {map, diagnostic} · 모두 실패 시 null.
+ * ② 레거시 공개 엔드포인트 벌크 스냅샷 — 최근 영업일 N일까지 trdDd 를 역추적한다.
+ * KRX 공개 JSON 은 장 전·공휴일 직후에 400 을 내기도 해서 단일 거래일만으로는 취약.
+ * 성공 시 {map, diagnostic} · 모두 실패 시 비어있는 map 과 누적 진단.
  */
-async function attemptKrxWithDateRetry(
+async function attemptKrxLegacyWithDateRetry(
   verbose: boolean,
-): Promise<{ map: Record<string, string>; namesByCode: Record<string, string>; diagnostic: string } | null> {
+): Promise<{ map: Record<string, string>; namesByCode: Record<string, string>; diagnostic: string }> {
   const dates = recentWeekdaysYYYYMMDD(5);
   const diagnostics: string[] = [];
   for (const trdDd of dates) {
     const r = await buildSectorMapOnce(trdDd, verbose).catch((e) => ({
-      map: {}, namesByCode: {}, diagnostic: `KRX(${trdDd}): exception ${e instanceof Error ? e.message : String(e)}`,
+      map: {}, namesByCode: {}, diagnostic: `KRX-Legacy(${trdDd}): exception ${e instanceof Error ? e.message : String(e)}`,
     }));
     if (r && Object.keys(r.map).length >= MIN_TOTAL_ROWS) {
       return {
@@ -235,9 +245,86 @@ async function attemptKrxWithDateRetry(
         diagnostic: [...diagnostics, r.diagnostic].join(' | '),
       };
     }
-    diagnostics.push(r?.diagnostic ?? `KRX(${trdDd}): 알 수 없는 실패`);
+    diagnostics.push(r?.diagnostic ?? `KRX-Legacy(${trdDd}): 알 수 없는 실패`);
   }
   return { map: {}, namesByCode: {}, diagnostic: diagnostics.join(' | ') };
+}
+
+// ── ① 신규 OpenAPI (openapi.krx.co.kr / data-dbg.krx.co.kr) ──────────────────
+
+/**
+ * 신규 OpenAPI 로 KOSPI·KOSDAQ 일별매매정보를 수집해 code/name/업종 맵을 구성한다.
+ *
+ * 제약:
+ *   - 승인된 엔드포인트(stk_bydd_trd·ksq_bydd_trd)의 SECT_TP_NM 은 "소속부"이지
+ *     레거시 MDCSTAT03901 의 IDX_IND_NM(업종) 과 동일하지 않다. 업종이 정규화되지
+ *     않는 행은 map 에서 제외되지만 namesByCode 에는 남아 Naver/Yahoo/Gemini
+ *     폴백 체인이 종목명 기반으로 업종을 보충한다.
+ *   - KRX_API_KEY 미설정·서킷 OPEN·KRX_OPENAPI_DISABLED 상태이면 즉시 null.
+ *
+ * 성공 조건: KOSPI·KOSDAQ 각각 최소 MIN_ROWS_PER_MARKET 종목을 받았을 때.
+ */
+async function attemptKrxOpenApi(
+  verbose: boolean,
+): Promise<{ map: Record<string, string>; namesByCode: Record<string, string>; diagnostic: string } | null> {
+  if (!isKrxOpenApiHealthy()) {
+    const st = getKrxOpenApiStatus();
+    const reason = !st.authKeyConfigured ? 'AUTH_KEY 미설정'
+                 : !st.enabled           ? 'DISABLED'
+                 : st.circuitState === 'OPEN' ? '서킷 OPEN'
+                 : `상태=${st.circuitState}`;
+    if (verbose) console.log(`[SectorMapUpdater] KRX OpenAPI 건너뜀 — ${reason}`);
+    return null;
+  }
+
+  const dates = recentWeekdaysYYYYMMDD(5);
+  const diagnostics: string[] = [];
+
+  for (const basDd of dates) {
+    const [kospiRes, kosdaqRes] = await Promise.allSettled([
+      fetchKospiDailyTrade(basDd),
+      fetchKosdaqDailyTrade(basDd),
+    ]);
+    const kospi  = kospiRes.status  === 'fulfilled' ? kospiRes.value  : [];
+    const kosdaq = kosdaqRes.status === 'fulfilled' ? kosdaqRes.value : [];
+
+    if (kospiRes.status === 'rejected' || kosdaqRes.status === 'rejected') {
+      const reason =
+        kospiRes.status  === 'rejected' ? `KOSPI: ${String(kospiRes.reason)}` :
+        kosdaqRes.status === 'rejected' ? `KOSDAQ: ${String(kosdaqRes.reason)}` : 'unknown';
+      diagnostics.push(`KRX-OpenAPI(${basDd}): ${reason}`);
+      continue;
+    }
+
+    if (kospi.length < MIN_ROWS_PER_MARKET || kosdaq.length < MIN_ROWS_PER_MARKET) {
+      diagnostics.push(`KRX-OpenAPI(${basDd}): KOSPI=${kospi.length} KOSDAQ=${kosdaq.length} (임계치 ${MIN_ROWS_PER_MARKET} 미달)`);
+      continue;
+    }
+
+    const map:         Record<string, string> = {};
+    const namesByCode: Record<string, string> = {};
+    let mapped = 0;
+    for (const r of [...kospi, ...kosdaq] as KrxStockDailyRow[]) {
+      const code = r.code.padStart(6, '0');
+      if (r.name) namesByCode[code] = r.name;
+      const sector = normalizeSector(r.sector);
+      if (sector !== '미분류') { map[code] = sector; mapped++; }
+    }
+
+    if (verbose) {
+      console.log(
+        `[SectorMapUpdater] KRX-OpenAPI(${basDd}) 수신 — ` +
+        `KOSPI=${kospi.length} KOSDAQ=${kosdaq.length}, 업종매핑=${mapped}, 종목명=${Object.keys(namesByCode).length}`,
+      );
+    }
+    return {
+      map,
+      namesByCode,
+      diagnostic: `KRX-OpenAPI(${basDd}): KOSPI=${kospi.length} KOSDAQ=${kosdaq.length}, 업종매핑=${mapped}`,
+    };
+  }
+
+  return { map: {}, namesByCode: {}, diagnostic: diagnostics.join(' | ') || 'KRX-OpenAPI: 5영업일 모두 실패' };
 }
 
 // ── 원자적 저장 ───────────────────────────────────────────────────────────────
@@ -278,10 +365,31 @@ export async function updateKrxSectorMap(opts: { verbose?: boolean } = {}): Prom
   const namesBox: Record<string, string> = {};
   const result = await buildSectorMapWithFallback({
     krxAttempt: async () => {
-      const r = await attemptKrxWithDateRetry(verbose);
-      if (!r) return null;
-      Object.assign(namesBox, r.namesByCode);
-      return { map: r.map, diagnostic: r.diagnostic };
+      // ① 신규 OpenAPI (KRX_API_KEY + openapi.krx.co.kr). 서킷 OPEN · 키 미설정이면 즉시 null.
+      const oa = await attemptKrxOpenApi(verbose);
+      if (oa) {
+        Object.assign(namesBox, oa.namesByCode);
+        if (Object.keys(oa.map).length >= MIN_TOTAL_ROWS) {
+          return { map: oa.map, diagnostic: oa.diagnostic };
+        }
+        // OpenAPI 가 종목 리스트를 줬지만 업종(SECT_TP_NM)이 MDCSTAT03901 의 IDX_IND_NM
+        // 과 달라 대부분 '미분류'로 떨어질 수 있다. 종목 리스트가 충분하면 legacy 로
+        // 추가 시도 없이 아래 Naver/Yahoo/Gemini 체인이 namesByCode 로 업종을 보충한다.
+        if (Object.keys(oa.namesByCode).length >= MIN_TOTAL_ROWS) {
+          return {
+            map: oa.map,
+            diagnostic: `${oa.diagnostic} — 업종 부족, 폴백 체인으로 보충`,
+          };
+        }
+      }
+      // ② 레거시 공개 엔드포인트 (data.krx.co.kr) — OpenAPI 비활성/부족 시 최후 수단.
+      const legacy = await attemptKrxLegacyWithDateRetry(verbose);
+      Object.assign(namesBox, legacy.namesByCode);
+      const oaDiag = oa?.diagnostic ?? 'KRX-OpenAPI: 건너뜀';
+      return {
+        map:        legacy.map,
+        diagnostic: `${oaDiag} || ${legacy.diagnostic}`,
+      };
     },
     existingMap,
     targetCodes,
