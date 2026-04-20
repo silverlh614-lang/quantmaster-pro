@@ -491,16 +491,26 @@ export async function fetchStockName(code: string): Promise<string | null> {
 
 // ─── 계좌 잔고 조회 ─────────────────────────────────────────────────────────
 
-// 장외 시간 (특히 새벽 KIS 서버 점검 시간) 잔고 API는 500을 반환한다.
-// 무의미한 재시도 스팸을 막기 위해 장중에만 실호출하고, 그 외엔 최근 캐시값을 반환.
+// KIS 실계좌 서버는 평일 KST 02:00~07:00 에 정기 점검을 돌려 이 시간대 잔고 API
+// (TTTC8434R / VTTC8434R) 호출은 HTTP 500 으로 반환된다. 또한 장마감 이후(16:00~)
+// 에도 장외 조회라 잔고가 불안정해 재시도 스팸이 무의미하다.
+// 따라서 KST 07:00~16:00 구간에서만 실호출하고, 그 외엔 최근 캐시값을 반환한다.
 let _cachedBalance: number | null = null;
+
+/**
+ * 잔고 API 를 실제로 호출해도 되는 시각인지 — KST 07:00~15:59 만 true.
+ * - 02:00~06:59: KIS 서버 정기 점검 (→ 500 반복)
+ * - 16:00~: 장마감 이후 (→ 장외 조회, 불안정)
+ */
+export function isKisBalanceQueryAllowed(now: Date = new Date()): boolean {
+  const kstHour = (now.getUTCHours() + 9) % 24;
+  return kstHour >= 7 && kstHour < 16;
+}
 
 export async function fetchAccountBalance(): Promise<number | null> {
   if (_overrides.fetchAccountBalance) return _overrides.fetchAccountBalance();
 
-  const kstHour = (new Date().getUTCHours() + 9) % 24;
-  const isMarketHours = kstHour >= 8 && kstHour < 16;
-  if (!isMarketHours) return _cachedBalance;
+  if (!isKisBalanceQueryAllowed()) return _cachedBalance;
 
   const trId = KIS_IS_REAL ? 'TTTC8434R' : 'VTTC8434R';
   const data = await kisGet(trId, '/uapi/domestic-stock/v1/trading/inquire-balance', {
