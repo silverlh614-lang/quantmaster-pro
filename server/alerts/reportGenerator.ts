@@ -15,6 +15,7 @@ import { fetchYahooQuote } from '../screener/stockScreener.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { analyzeAttribution } from '../learning/attributionAnalyzer.js';
+import { loadTomorrowPriming } from '../persistence/reflectionRepo.js';
 // scanTracer 요약은 scanReviewReport.ts(16:40) 로 이관되어 이 파일에서는 더 이상 직접 사용하지 않는다.
 
 /**
@@ -455,9 +456,18 @@ export async function sendPreMarketReport(): Promise<void> {
     `KOSPI 예상 방향 + 핵심 근거를 한국어 2문장으로 답하라.`;
   const aiOneLiner = await callGemini(aiPrompt, 'pre-market-brief').catch(() => null);
 
+  // Nightly Reflection Engine #5 — 어제 반성에서 도출한 1줄 학습 포인트 주입.
+  // forDate 가 오늘 KST 와 일치할 때만 표시 (과거 priming 이 누적되어도 stale 노출 방지).
+  const todayKst = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }); // YYYY-MM-DD
+  const priming = loadTomorrowPriming();
+  const primingLine = priming && priming.forDate === todayKst && priming.oneLineLearning
+    ? `\n🌅 <b>오늘의 학습 포인트:</b> ${priming.oneLineLearning}\n`
+    : '';
+
   const msg =
     `🌅 <b>[장전 브리핑] ${new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })}</b>\n` +
     `━━━━━━━━━━━━━━━━━━━\n` +
+    primingLine +
     `<b>🌏 간밤 글로벌</b>\n` +
     `  S&P500: ${sp500?.price?.toLocaleString() ?? 'N/A'} (${fmtPct(sp500?.changePct)})\n` +
     `  나스닥: ${ndx?.price?.toLocaleString() ?? 'N/A'} (${fmtPct(ndx?.changePct)})\n` +

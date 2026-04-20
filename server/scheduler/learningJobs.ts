@@ -1,11 +1,14 @@
 /**
- * @responsibility 자기학습 파이프라인 cron(주간 L3 캘리브레이션 · 일일 미니 백테스트 · Sharpe 급락 경보 · F2W 역피드백 · 주간 백테스트)을 등록한다.
+ * @responsibility 자기학습 파이프라인 cron(주간 L3 캘리브레이션 · 일일 미니 백테스트 · Sharpe 급락 경보 · F2W 역피드백 · 주간 백테스트 · Nightly Reflection)을 등록한다.
  */
 import cron from 'node-cron';
 import { runBacktest, runWeeklyMiniBacktest } from '../learning/backtestEngine.js';
 import { learningOrchestrator } from '../orchestrator/learningOrchestrator.js';
 import { checkWeeklySharpeAlert } from '../learning/weeklySharpeMonitor.js';
 import { runF2WReverseLoop } from '../learning/failureToWeight.js';
+import { runNightlyReflection } from '../learning/nightlyReflectionEngine.js';
+import { refreshGhostPortfolio } from '../learning/ghostPortfolioTracker.js';
+import { distillWeeklyKnowledge } from '../learning/silentKnowledgeDistillation.js';
 
 export function registerLearningJobs(): void {
   // OHLCV 기반 백테스트 — 매주 토요일 KST 08:00 (UTC 23:00 금요일).
@@ -41,6 +44,39 @@ export function registerLearningJobs(): void {
       await runF2WReverseLoop({ notifyTelegram: true });
     } catch (e) {
       console.error('[F2W] 실행 실패:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  // Nightly Reflection Engine — 매일 KST 19:00 (UTC 10:00).
+  // Silence Monday / Budget Governor / Integrity Guard 내부 적용.
+  cron.schedule('0 10 * * *', async () => {
+    try {
+      const res = await runNightlyReflection();
+      console.log(`[NightlyReflection] ${res.date} mode=${res.mode} executed=${res.executed}${res.skipped ? ` skipped=${res.skipped}` : ''}`);
+    } catch (e) {
+      console.error('[NightlyReflection] 실행 실패:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  // Ghost Portfolio 갱신 — 매일 KST 15:40 (UTC 06:40). 장마감 직후 current price 로 수익률 갱신.
+  cron.schedule('40 6 * * 1-5', async () => {
+    try {
+      const res = await refreshGhostPortfolio();
+      console.log(`[GhostPortfolio] updated=${res.updated} closed=${res.closed} skipped=${res.skipped}`);
+    } catch (e) {
+      console.error('[GhostPortfolio] 갱신 실패:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  // Silent Knowledge Distillation — 매주 일요일 KST 18:00 (UTC 09:00).
+  // 지난 7일 반성 리포트 → "이번 주 1줄 교훈" → distilled-weekly.txt append.
+  cron.schedule('0 9 * * 0', async () => {
+    try {
+      const res = await distillWeeklyKnowledge();
+      if (res.executed) console.log(`[Distillation] 축적: ${res.lesson}`);
+      else console.log(`[Distillation] skipped=${res.skipped}`);
+    } catch (e) {
+      console.error('[Distillation] 실행 실패:', e);
     }
   }, { timezone: 'UTC' });
 }

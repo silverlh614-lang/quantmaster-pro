@@ -8,14 +8,17 @@ const SEARCH_MODEL = AI_MODELS.PRIMARY;
 // ── Idea 13: 월 예산 하드리밋 회로차단기 ──────────────────────────────────────
 //
 // "손절은 실패가 아니라 운영 비용" 원칙을 비용에 적용:
-//   - MONTHLY_AI_BUDGET_USD (기본 5달러)
+//   - MONTHLY_AI_BUDGET_USD (기본 10,000달러 = 사실상 무제한)
 //   - 90% 도달 시 1회 WARN + Telegram
 //   - 100% 도달 시 모든 호출 즉시 null + Telegram, 익월 1일 자동 재개
+//
+// 기본값을 10,000 USD 로 상향 — 참뮌의 운영 리듬에 맞춰 필요 시
+// env MONTHLY_AI_BUDGET_USD 로 하향 조정 가능.
 //
 // gemini-2.5-flash 가격(2025): input $0.30/M, output $2.50/M.
 // totalTokenCount는 input+output 합계라 단가 평균 ~$1.40/M으로 보수적 추정.
 // (실제 input 비중 70%면 평균 $0.96/M, output 비중 50%면 $1.40/M)
-const MONTHLY_BUDGET_USD = parseFloat(process.env.MONTHLY_AI_BUDGET_USD ?? '5');
+const MONTHLY_BUDGET_USD = parseFloat(process.env.MONTHLY_AI_BUDGET_USD ?? '10000');
 const TOKEN_PRICE_USD_PER_M = parseFloat(process.env.AI_TOKEN_PRICE_USD_PER_M ?? '1.40');
 
 interface BudgetState {

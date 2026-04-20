@@ -166,6 +166,43 @@ export function errorLogFile(yyyymm: string): string {
  */
 export const COLDSTART_SNAPSHOTS_FILE = path.join(DATA_DIR, 'coldstart-snapshots.json');
 
+// ── Nightly Reflection Engine — R(t) 티어 ─────────────────────────────────────
+
+/**
+ * Nightly Reflection — 일별 반성 리포트 디렉토리.
+ * 하루 1건, 파일명 YYYY-MM-DD.json.
+ */
+export const REFLECTIONS_DIR           = path.join(DATA_DIR, 'reflections');
+export function reflectionFile(yyyymmdd: string): string {
+  return path.join(REFLECTIONS_DIR, `${yyyymmdd}.json`);
+}
+/** 내일 아침 브리핑 상단에 주입될 1줄 학습 포인트 + 요약 */
+export const TOMORROW_PRIMING_FILE     = path.join(DATA_DIR, 'tomorrow-priming.json');
+/** 고스트 포트폴리오 — Watch/BUY 신호 났으나 매수 안 한 종목 30일 추적 */
+export const GHOST_PORTFOLIO_FILE      = path.join(DATA_DIR, 'ghost-portfolio.json');
+/** 지난 7일 반성 리포트에서 추출한 주간 1줄 교훈 (누적) */
+export const DISTILLED_WEEKLY_FILE     = path.join(DATA_DIR, 'knowledge', 'distilled-weekly.txt');
+/** 반성 엔진 Gemini 호출 예산 사용량 — 월별 재집계 */
+export const REFLECTION_BUDGET_FILE    = path.join(DATA_DIR, 'reflection-budget.json');
+/** Meta-Decision Journal — Gate 통과/최종 선택 프로세스 기록 (JSONL 월별) */
+export function metaDecisionFile(yyyymm: string): string {
+  return path.join(DATA_DIR, `meta-decisions-${yyyymm}.jsonl`);
+}
+/** Bias Heatmap — 10개 편향 발동 가능성 스코어 일별 이력 */
+export const BIAS_HEATMAP_FILE         = path.join(DATA_DIR, 'bias-heatmap.json');
+/** 실험 제안 레지스터 — 반성 엔진이 도출한 24h 자동/승인 실험 큐 */
+export const EXPERIMENT_PROPOSALS_FILE = path.join(DATA_DIR, 'experiment-proposals.json');
+
+export function ensureReflectionsDir(): void {
+  ensureDataDir();
+  if (!fs.existsSync(REFLECTIONS_DIR)) fs.mkdirSync(REFLECTIONS_DIR, { recursive: true });
+}
+export function ensureKnowledgeDir(): void {
+  ensureDataDir();
+  const dir = path.join(DATA_DIR, 'knowledge');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   // Railway 배포 시 파일시스템 초기화 경고
