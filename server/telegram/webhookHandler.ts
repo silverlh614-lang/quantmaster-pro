@@ -3,7 +3,7 @@
 // POST /api/telegram/webhook 엔드포인트에서 호출
 // 지원 명령어: /help, /status, /market, /pause, /resume, /stop, /reset, /integrity,
 //             /watchlist, /buy, /report, /shadow, /pending, /pnl, /pos,
-//             /add, /remove, /regime, /scan, /cancel, /focus, /watchlist_channel,
+//             /add, /remove, /regime, /scan, /krx_scan, /cancel, /focus, /watchlist_channel,
 //             /health, /refresh_token, /channel_test
 import { Request, Response } from 'express';
 import {
@@ -22,6 +22,10 @@ import { sendTelegramAlert, answerCallbackQuery, isDigestEnabled, setDigestEnabl
 import { readAlertAuditRange } from '../alerts/alertAuditLog.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
 import { runAutoSignalScan, isOpenShadowStatus, getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
+import { runFullDiscoveryPipeline } from '../screener/universeScanner.js';
+import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resetKrxCache } from '../clients/krxClient.js';
+import { _resetKrxOpenApiBreaker, getKrxOpenApiStatus, resetKrxOpenApiCache } from '../clients/krxOpenApi.js';
 import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/reportGenerator.js';
 import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, getRealDataTokenRemainingHours, refreshKisToken, invalidateKisToken } from '../clients/kisClient.js';
 import { getStreamStatus } from '../clients/kisStreamClient.js';
@@ -109,6 +113,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `📈 <b>매매</b>\n` +
           `  /buy <code>종목코드</code> — 수동 매수 신호\n` +
           `  /scan — 장중 강제 스캔 트리거\n` +
+          `  /krx_scan — KRX 종목조회 강제 재스캔 (Stage1+2+3)\n` +
           `  /cancel <code>종목코드</code> — 미체결 주문 취소\n` +
           `  /report — 일일 리포트 생성\n\n` +
           `📋 <b>워치리스트</b>\n` +
@@ -512,6 +517,44 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         await reply('🔍 장중 강제 스캔 트리거 중...');
         await runAutoSignalScan().catch(console.error);
         await reply('✅ 강제 스캔 완료');
+        break;
+      }
+
+      case '/krx_scan': {
+        // KRX 종목조회(Stage1 양적 필터)가 실패했을 때 전체 발굴 파이프라인을
+        // 강제 재실행한다. KRX OpenAPI 서킷 브레이커와 캐시를 초기화해 직전
+        // 실패 상태를 해제한 뒤 Stage1+2+3을 한 번에 돌린다.
+        if (getEmergencyStop()) {
+          await reply('🔴 비상 정지 상태 — 스캔 불가. /reset 으로 해제 후 재시도.');
+          break;
+        }
+        const before = getKrxOpenApiStatus();
+        _resetKrxOpenApiBreaker();
+        resetKrxOpenApiCache();
+        resetKrxCache();
+        await reply(
+          `🇰🇷 <b>KRX 강제 스캔 트리거</b>\n` +
+          `서킷: ${before.circuitState} (실패 ${before.failures}회) → RESET\n` +
+          `캐시: 초기화 완료\n` +
+          `Stage1(KRX 종목조회) → Stage2 → Stage3 재실행 중...`,
+        );
+        try {
+          const macroState = loadMacroState();
+          const regime = getLiveRegime(macroState);
+          await runFullDiscoveryPipeline(regime, macroState);
+          const after = getKrxOpenApiStatus();
+          const wl   = loadWatchlist();
+          await reply(
+            `✅ <b>KRX 강제 스캔 완료</b>\n` +
+            `서킷: ${after.circuitState} (실패 ${after.failures}회)\n` +
+            `워치리스트: ${wl.length}개`,
+          );
+        } catch (e) {
+          await reply(
+            `❌ <b>KRX 강제 스캔 실패</b>\n` +
+            `${escapeHtml(e instanceof Error ? e.message : String(e))}`,
+          );
+        }
         break;
       }
 
