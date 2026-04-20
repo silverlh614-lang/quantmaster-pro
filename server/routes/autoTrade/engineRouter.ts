@@ -18,6 +18,12 @@ import {
   getLastHeartbeatSource,
   getTradingMode,
   getKillSwitchLast,
+  getAutoTradePaused,
+  setAutoTradePaused,
+  getManualBlockNewBuy,
+  setManualBlockNewBuy,
+  getManualManageOnly,
+  setManualManageOnly,
 } from '../../state.js';
 import { assessKillSwitch } from '../../trading/killSwitch.js';
 import { attachEngineStream, publishEngineStatus } from '../engineStreamBus.js';
@@ -25,6 +31,10 @@ import { listAlertFeed, countUnreadSince } from '../../persistence/alertsFeedRep
 import { readAlertAuditRange } from '../../alerts/alertAuditLog.js';
 import { computeWeeklyHygiene } from '../../alerts/weeklyHygieneAudit.js';
 import { countPendingAcks, listPendingAcks } from '../../alerts/ackTracker.js';
+import { getLatestAdrGapState } from '../../alerts/adrGapCalculator.js';
+import { getLatestPreMarketReport } from '../../alerts/preMarketSignal.js';
+import { getLatestDxyReport } from '../../alerts/dxyMonitor.js';
+import { getLatestSectorEtfReport } from '../../alerts/sectorEtfMomentum.js';
 import { tradingOrchestrator } from '../../orchestrator/tradingOrchestrator.js';
 import { isOpenShadowStatus } from '../../trading/entryEngine.js';
 import { getLastBuySignalAt } from '../../trading/signalScanner.js';
@@ -126,6 +136,55 @@ router.post('/auto-trade/engine/emergency-stop', (_req: any, res: any) => {
   res.json({ running: false, emergencyStop: true });
 });
 
+// ─────────────────────────────────────────────────────────────
+// UI 수동 비상 액션 — EmergencyActionsPanel 3-버튼 연결점
+// ─────────────────────────────────────────────────────────────
+
+router.get('/auto-trade/engine/guards', (_req: any, res: any) => {
+  res.json({
+    blockNewBuy: getManualBlockNewBuy(),
+    autoTradingPaused: getAutoTradePaused() || getEmergencyStop(),
+    manageOnly: getManualManageOnly(),
+    emergencyStop: getEmergencyStop(),
+  });
+});
+
+/** 신규 매수 차단 토글 — 기존 포지션 청산/트레일링은 유지. body.enabled 로 명시. */
+router.post('/auto-trade/engine/block-new-buy', (req: any, res: any) => {
+  const next = req.body?.enabled === undefined
+    ? !getManualBlockNewBuy()
+    : Boolean(req.body.enabled);
+  setManualBlockNewBuy(next);
+  console.warn(`[Engine] 신규 매수 차단 → ${next ? 'ON' : 'OFF'} (수동)`);
+  res.json({ blockNewBuy: next });
+});
+
+/** 자동매매 일시정지 토글 — 소프트 중단 (미체결 주문 유지, tick 건너뜀). */
+router.post('/auto-trade/engine/pause', (req: any, res: any) => {
+  const next = req.body?.enabled === undefined
+    ? !getAutoTradePaused()
+    : Boolean(req.body.enabled);
+  setAutoTradePaused(next);
+  console.warn(`[Engine] 자동매매 일시정지 → ${next ? 'ON' : 'OFF'} (수동 UI)`);
+  try { publishEngineStatus(buildEngineStatusSnapshot()); } catch { /* noop */ }
+  res.json({ autoTradingPaused: next });
+});
+
+/** 보유만 관리 모드 토글 — 신규 진입 금지 + 기존 청산 루프는 계속 작동. */
+router.post('/auto-trade/engine/manage-only', (req: any, res: any) => {
+  const next = req.body?.enabled === undefined
+    ? !getManualManageOnly()
+    : Boolean(req.body.enabled);
+  setManualManageOnly(next);
+  // 보유만 관리 ON 이면 신규 매수는 자연스럽게 차단되어야 한다 — 함께 설정.
+  if (next) setManualBlockNewBuy(true);
+  console.warn(`[Engine] 보유만 관리 모드 → ${next ? 'ON' : 'OFF'} (수동)`);
+  res.json({
+    manageOnly: next,
+    blockNewBuy: getManualBlockNewBuy(),
+  });
+});
+
 router.get('/alerts/feed', (req: any, res: any) => {
   const sinceId = typeof req.query.sinceId === 'string' ? req.query.sinceId : undefined;
   const limitRaw = Number(req.query.limit);
@@ -176,6 +235,28 @@ router.get('/alerts/pending-acks', (_req: any, res: any) => {
   res.json({
     count: countPendingAcks(),
     entries: listPendingAcks(),
+  });
+});
+
+/**
+ * 오늘의 글로벌 신호 요약 — 진단 탭 하단 카드용.
+ *
+ * 각 에이전트(ADR 갭, 장전 Bias, DXY, 섹터 ETF) 의 가장 최근 영속 스냅샷을
+ * 한 번에 모아 반환. 실패해도 null 만 내려가며 전체 요청은 200 OK 를 유지한다.
+ */
+router.get('/alerts/global-signals', (_req: any, res: any) => {
+  const safe = <T,>(fn: () => T): T | null => {
+    try { return fn(); } catch (e) {
+      console.warn('[global-signals] 스냅샷 로드 실패:', (e as Error).message);
+      return null;
+    }
+  };
+  res.json({
+    adrGap:       safe(getLatestAdrGapState),
+    preMarket:    safe(getLatestPreMarketReport),
+    dxy:          safe(getLatestDxyReport),
+    sectorEtf:    safe(getLatestSectorEtfReport),
+    fetchedAt:    new Date().toISOString(),
   });
 });
 

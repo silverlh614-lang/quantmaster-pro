@@ -30,6 +30,7 @@ export const AUTO_TRADE_KEYS = {
   reconcile: ['auto-trade', 'reconcile'] as const,
   recommendationStats: ['auto-trade', 'rec-stats'] as const,
   balance: ['auto-trade', 'balance'] as const,
+  engineGuards: ['auto-trade', 'engine-guards'] as const,
   positionEvents: (positionId: string) =>
     ['auto-trade', 'position-events', positionId] as const,
 } as const;
@@ -91,5 +92,9 @@ export const AUTO_TRADE_POLICY = {
   conditionWeights: {
     staleTime: 10 * MINUTE,
     refetchInterval: false as const,
+  },
+  engineGuards: {
+    staleTime: 5 * SECOND,
+    refetchInterval: () => intervalIfActive(10 * SECOND),
   },
 } as const;

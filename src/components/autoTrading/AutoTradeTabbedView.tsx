@@ -25,6 +25,9 @@ import { PositionLifecyclePanel } from './PositionLifecyclePanel';
 import { GatePassRateHeatmap } from './GatePassRateHeatmap';
 import { BrokerConnectionPanel } from './BrokerConnectionPanel';
 import { EmergencyActionsPanel } from './EmergencyActionsPanel';
+import { OcoOrdersCard } from '../trading/autoTrade/OcoOrdersCard';
+import { GlobalSignalsPanel } from './GlobalSignalsPanel';
+import { useOcoOrdersQuery } from '../../hooks/autoTrade';
 import type { AutoTradingDashboardState } from '../../services/autoTrading/autoTradingTypes';
 import type { GateAuditData } from '../../api';
 import {
@@ -57,6 +60,9 @@ export const AutoTradeTabbedView = forwardRef<HTMLDivElement, AutoTradeTabbedVie
     const activeTab = useSettingsStore((s) => s.autoTradeActiveTab);
     const setActiveTab = useSettingsStore((s) => s.setAutoTradeActiveTab);
 
+    const ocoQuery = useOcoOrdersQuery();
+    const ocoOrders = ocoQuery.data ?? { active: [], history: [] };
+
     const tabs = useMemo(() => buildTabs(data, viewMode), [data, viewMode]);
 
     // viewMode 전환 후 이전 탭이 더 이상 유효하지 않으면 첫 탭으로 보정.
@@ -82,11 +88,14 @@ export const AutoTradeTabbedView = forwardRef<HTMLDivElement, AutoTradeTabbedVie
 
         {current === 'positions' && (
           <div
+            className="space-y-4"
             onDoubleClick={() =>
               data.positions[0] && onSelectPosition(data.positions[0].id)
             }
           >
             <PositionLifecyclePanel positions={data.positions} />
+            {/* OCO 주문 현황 — 포지션별 손절/익절 주문번호와 상태를 한 눈에 표시. */}
+            <OcoOrdersCard orders={ocoOrders} />
           </div>
         )}
 
@@ -117,18 +126,11 @@ export const AutoTradeTabbedView = forwardRef<HTMLDivElement, AutoTradeTabbedVie
               <BrokerConnectionPanel broker={data.broker} />
               <EmergencyActionsPanel
                 state={data.emergency}
-                onBlockNewBuy={() => {
-                  /* Phase 2 실제 엔드포인트 연결 예정 */
-                }}
-                onPauseAutoTrading={() => {
-                  /* Phase 2 실제 엔드포인트 연결 예정 */
-                }}
-                onManageOnly={() => {
-                  /* Phase 2 실제 엔드포인트 연결 예정 */
-                }}
                 onEmergencyLiquidation={onEmergencyStop}
               />
             </PageGrid>
+            {/* 진단 탭 하단: ADR·Pre-Market·DXY·섹터 ETF 글로벌 신호 요약 */}
+            <GlobalSignalsPanel />
           </div>
         )}
       </div>

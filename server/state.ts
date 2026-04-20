@@ -29,6 +29,18 @@ let AUTO_TRADE_PAUSED = false;
 export const getAutoTradePaused = () => AUTO_TRADE_PAUSED;
 export const setAutoTradePaused = (v: boolean) => { AUTO_TRADE_PAUSED = v; };
 
+// ─── UI 수동 비상 액션 플래그 ───────────────────────────────────────────────
+// UI 관제 패널(EmergencyActionsPanel)에서 직접 토글하는 2개 플래그.
+// MANUAL_BLOCK_NEW_BUY  : 신규 매수만 차단 (기존 포지션은 계속 관리)
+// MANUAL_MANAGE_ONLY    : 보유 포지션만 관리 (청산/트레일링은 계속, 신규 진입 금지)
+// 비상정지(hard stop) 와 AUTO_TRADE_PAUSED(소프트) 와는 독립적으로 평가된다.
+let MANUAL_BLOCK_NEW_BUY = false;
+let MANUAL_MANAGE_ONLY = false;
+export const getManualBlockNewBuy = () => MANUAL_BLOCK_NEW_BUY;
+export const setManualBlockNewBuy = (v: boolean) => { MANUAL_BLOCK_NEW_BUY = v; };
+export const getManualManageOnly = () => MANUAL_MANAGE_ONLY;
+export const setManualManageOnly = (v: boolean) => { MANUAL_MANAGE_ONLY = v; };
+
 // ─── Phase 2차 C7: Pre-Market Smoke Test Gate ──────────────────────────────────
 // 08:45 KST 스모크 테스트 실패 시 LIVE 주문 경로만 차단한다. Shadow 학습 루프는
 // 계속 돌아감 — 버그가 LIVE 주문에 도달하기 전에 선제적으로 차단하는 방어선.

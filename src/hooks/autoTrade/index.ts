@@ -66,3 +66,8 @@ export {
   useAlertsFeed,
   type UseAlertsFeedReturn,
 } from './useAlertsFeed';
+
+export {
+  useEngineGuards,
+  type UseEngineGuardsReturn,
+} from './useEngineGuards';

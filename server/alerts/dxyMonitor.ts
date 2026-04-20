@@ -67,6 +67,13 @@ function loadState(): PersistedState | null {
   try { return JSON.parse(fs.readFileSync(DXY_MONITOR_STATE_FILE, 'utf-8')); } catch { return null; }
 }
 
+/** 대시보드용 — 가장 최근 DXY 경보 리포트. 없으면 null. */
+export function getLatestDxyReport(): DxyAlertReport | null {
+  const state = loadState();
+  if (!state || !state.history || state.history.length === 0) return null;
+  return state.history[state.history.length - 1];
+}
+
 function saveState(state: PersistedState): void {
   ensureDataDir();
   state.history = state.history.slice(-50);
