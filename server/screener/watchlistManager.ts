@@ -23,10 +23,15 @@ import { loadWatchlist, saveWatchlist, type WatchlistEntry, type WatchlistSectio
 
 /** SWING 섹션 — 최대 매수 대상 수 (8→10 확대: 공시 축소분을 우량 종목에 재배분) */
 export const SWING_MAX_SIZE       = 10;
-/** CATALYST 섹션 — 최대 촉매 종목 수 (5→3 축소: 공시 비중은 크지 않으므로 핵심만 유지) */
-export const CATALYST_MAX_SIZE    = 3;
-/** MOMENTUM 섹션 — 최대 관찰 후보 수 */
-export const MOMENTUM_MAX_SIZE    = 20;
+/**
+ * CATALYST 섹션 — 최대 촉매 종목 수.
+ * Phase 4-⑤: 3 → 5 확장. 동시 4건 이상 촉매가 기각되던 "CATALYST 만석 + 기존 종목이 더
+ * 우수" 부조리(심플랫폼·동양·우리이앤엘·엘에스일렉트릭 사례)를 해소.
+ * MOMENTUM 을 20 → 18 로 축소해 총 용량은 유지.
+ */
+export const CATALYST_MAX_SIZE    = 5;
+/** MOMENTUM 섹션 — 최대 관찰 후보 수 (20 → 18, CATALYST 확장 상쇄) */
+export const MOMENTUM_MAX_SIZE    = 18;
 
 /** CATALYST 포지션 축소 계수 (표준의 60%) */
 export const CATALYST_POSITION_FACTOR = 0.6;

@@ -203,15 +203,34 @@ const DART_SCORE_MAP: Record<string, number> = {
 };
 
 /**
+ * Phase 4-⑤: 내부자 매수 가산점 조건 분기.
+ *
+ *  - 임원 직접 매수 (reportNm 에 '임원' 포함)          → 4점 (고신뢰 고확신 신호)
+ *  - 대주주/외부인 매수 또는 소규모 지분 변경         → 2점 (일반 확인 신호)
+ *
+ * 기존 일률 +4 는 수급량 ≥ 0.5% 또는 임원 직접 매수 기준을 충족하지 않는 사례에도
+ * 동일한 가중치를 부여해 recommendationTracker 가 내부자 매수 신호의 실효를
+ * 과대평가하는 편향을 만들었다. 이 함수는 reportNm 기반 휴리스틱으로 구분한다.
+ */
+export function computeInsiderBuyScore(reportNm: string): number {
+  // '임원' 이 들어간 보고서는 임원·주요주주 특정증권 소유상황 보고서 — 직접 매수 가능성 높음
+  const isExecutiveReport = reportNm.includes('임원');
+  // 대주주 변동 (0.5% 이상 대량 변동 — 구체 파싱은 향후 확장) 가정 키워드
+  const hasBulkChange = reportNm.includes('대량') || reportNm.includes('취득') && reportNm.includes('장내');
+  if (isExecutiveReport || hasBulkChange) return 4;
+  return 2;
+}
+
+/**
  * 공시 제목에서 DART_SCORE_MAP 키를 매칭하여 점수를 반환.
- * 매칭 안 되면 insiderBuy=true이면 4, impact 기반 기본값 반환.
+ * 매칭 안 되면 insiderBuy=true이면 computeInsiderBuyScore, impact 기반 기본값 반환.
  */
 function getDartScore(reportNm: string, insiderBuy: boolean, impact: number): number {
   for (const [key, score] of Object.entries(DART_SCORE_MAP)) {
     if (reportNm.includes(key)) return score;
   }
-  // 내부자 매수 감지 → 4점
-  if (insiderBuy) return 4;
+  // Phase 4-⑤: 내부자 매수는 reportNm 기반으로 +4/+2 차등 (기존 일률 +4 폐지)
+  if (insiderBuy) return computeInsiderBuyScore(reportNm);
   // LLM 임팩트 기반 기본값
   if (impact >= 2) return 3;
   if (impact >= 1) return 1;
