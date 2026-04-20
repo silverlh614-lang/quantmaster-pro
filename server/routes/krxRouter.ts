@@ -2,8 +2,19 @@
 // KRX-style 밸류에이션 프록시 — 실제로는 KIS inquire-price TR(FHKST01010100)에서
 // per/pbr/시가총액/eps 를 뽑아 {per, pbr, marketCap, eps} 로 정규화해 반환한다.
 // 프론트 enrichment.ts 의 fetchKrxValuation(code) 계약과 호환되는 단일 엔드포인트.
+//
+// 추가 엔드포인트 (인증 KRX OpenAPI + Yahoo 이중화):
+//   GET /api/krx/quote?code=005930       — 단일 종목 일봉 스냅샷 (KRX → Yahoo fallback)
+//   GET /api/krx/index?name=KOSPI|KOSDAQ — 대표 지수 일봉 스냅샷
+//   GET /api/krx/openapi-status          — KRX OpenAPI 진단 (인증키·서킷 상태)
 import { Router, Request, Response } from 'express';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL } from '../clients/kisClient.js';
+import {
+  fetchKoreanDailyQuote,
+  fetchKoreanIndexDailyQuote,
+  type KoreanIndexAlias,
+} from '../clients/koreanQuoteBridge.js';
+import { getKrxOpenApiStatus } from '../clients/krxOpenApi.js';
 
 const router = Router();
 
@@ -60,6 +71,59 @@ router.get('/valuation', async (req: Request, res: Response) => {
     console.error(`[KRX] valuation(${code}) error:`, msg);
     res.status(500).json({ error: msg });
   }
+});
+
+/**
+ * GET /api/krx/quote?code=005930
+ * KRX OpenAPI(인증) 1차, Yahoo Finance 폴백. 응답에 source 포함.
+ */
+router.get('/quote', async (req: Request, res: Response) => {
+  const code = String(req.query.code || '').trim();
+  if (!/^\d{6}$/.test(code)) {
+    return res.status(400).json({ error: 'code must be 6-digit' });
+  }
+  try {
+    const quote = await fetchKoreanDailyQuote(code);
+    // source === 'none' 이면 양쪽 다 실패 — 502 로 올려 상위 재시도 유도.
+    if (quote.source === 'none') {
+      return res.status(502).json({ error: 'KRX/Yahoo 모두 응답 없음', code });
+    }
+    return res.json(quote);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[KRX] /quote(${code}) error:`, msg);
+    return res.status(500).json({ error: msg });
+  }
+});
+
+/**
+ * GET /api/krx/index?name=KOSPI|KOSDAQ
+ * 대표 지수 일봉 — KRX 인증 시리즈 API 1차, Yahoo (^KS11/^KQ11) 폴백.
+ */
+router.get('/index', async (req: Request, res: Response) => {
+  const raw = String(req.query.name || '').trim().toUpperCase();
+  if (raw !== 'KOSPI' && raw !== 'KOSDAQ') {
+    return res.status(400).json({ error: 'name must be KOSPI or KOSDAQ' });
+  }
+  try {
+    const quote = await fetchKoreanIndexDailyQuote(raw as KoreanIndexAlias);
+    if (quote.source === 'none') {
+      return res.status(502).json({ error: 'KRX/Yahoo 모두 응답 없음', name: raw });
+    }
+    return res.json(quote);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[KRX] /index(${raw}) error:`, msg);
+    return res.status(500).json({ error: msg });
+  }
+});
+
+/**
+ * GET /api/krx/openapi-status
+ * 운영 중 KRX 인증키 설정·서킷 상태·캐시 키를 관측하기 위한 진단 엔드포인트.
+ */
+router.get('/openapi-status', (_req: Request, res: Response) => {
+  res.json(getKrxOpenApiStatus());
 });
 
 export default router;
