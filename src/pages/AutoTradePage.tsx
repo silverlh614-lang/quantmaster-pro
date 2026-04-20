@@ -22,6 +22,7 @@ import { CompositeVerdictCard } from '../components/autoTrading/CompositeVerdict
 import { AlertsFeedBell } from '../components/autoTrading/AlertsFeedBell';
 import { AutoTradeHeroKpis } from '../components/autoTrading/AutoTradeHeroKpis';
 import { AutoTradeTabbedView } from '../components/autoTrading/AutoTradeTabbedView';
+import { ProDiagnosticsStrip } from '../components/autoTrading/ProDiagnosticsStrip';
 import { useAutoTradingDashboard } from '../hooks/useAutoTradingDashboard';
 import { useAutoTradeEngine } from '../hooks/autoTrade';
 import { useEngineArming } from '../hooks/autoTrade/useEngineArming';
@@ -150,15 +151,34 @@ export function AutoTradePage() {
     killSwitch.isDowngraded || killSwitch.current?.shouldDowngrade,
   );
 
+  const isPro = viewMode === 'pro';
+
   return (
     <>
       <Stack gap="xl">
         <PageHeader
-          title="자동매매 관제실"
-          subtitle="Precision Instrument · Auto Trading Control Room"
-          accentColor="bg-red-500"
+          title={isPro ? '자동매매 관제실 — PRO' : '자동매매 관제실'}
+          subtitle={
+            isPro
+              ? 'Full Command Console · 신호 큐 · 게이트 진단 · 응급 조치'
+              : '요약 대시보드 · 포지션 · 주문 모니터링'
+          }
+          accentColor={
+            isPro
+              ? 'bg-gradient-to-b from-amber-400 via-orange-500 to-rose-500'
+              : 'bg-gradient-to-b from-sky-400 to-blue-500'
+          }
           actions={
             <div className="flex items-center gap-2">
+              <span
+                className={
+                  isPro
+                    ? 'hidden sm:inline-flex px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.25em] rounded-lg bg-gradient-to-r from-amber-500/[0.18] via-orange-500/[0.14] to-rose-500/[0.1] text-amber-200 border-2 border-amber-400/30 shadow-[2px_2px_0px_rgba(0,0,0,0.35)]'
+                    : 'hidden sm:inline-flex px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.25em] rounded-lg bg-sky-500/[0.1] text-sky-200 border-2 border-sky-400/25 shadow-[2px_2px_0px_rgba(0,0,0,0.3)]'
+                }
+              >
+                {isPro ? 'PRO · FULL' : 'SIMPLE'}
+              </span>
               <ViewModeToggle value={viewMode} onChange={setViewMode} />
               <AlertsFeedBell
                 entries={alertsFeed.entries}
@@ -168,6 +188,15 @@ export function AutoTradePage() {
             </div>
           }
         />
+
+        {/* 프로 전용: 고밀도 진단 스트립 (mono-font, 터미널 스타일) */}
+        {isPro && (
+          <ProDiagnosticsStrip
+            data={data}
+            isRunning={isRunning}
+            killSwitchActive={killSwitchActive}
+          />
+        )}
 
         {/* 최상단: 한 눈 파악용 Hero KPI (4-카드 스코어보드) — 클릭 시 해당 탭으로 drill-down */}
         <AutoTradeHeroKpis
