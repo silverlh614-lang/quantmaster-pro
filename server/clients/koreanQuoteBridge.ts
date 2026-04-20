@@ -116,7 +116,6 @@ interface YahooChart {
         regularMarketPrice?: number;
         regularMarketPreviousClose?: number;
         previousClose?: number;
-        chartPreviousClose?: number;
         regularMarketDayHigh?: number;
         regularMarketDayLow?: number;
         regularMarketVolume?: number;
@@ -173,7 +172,6 @@ async function fetchYahooSymbol(symbol: string): Promise<KoreanDailyQuote | null
       const prev =
         meta.regularMarketPreviousClose ??
         meta.previousClose ??
-        meta.chartPreviousClose ??
         null;
 
       return {
