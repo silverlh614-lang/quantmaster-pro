@@ -42,6 +42,8 @@ import {
   calcRRR,
 } from './riskManager.js';
 import { evaluatePortfolioRisk } from './portfolioRiskEngine.js';
+import { checkSectorExposureBefore } from './preOrderGuard.js';
+import { getSectorByCode } from '../screener/sectorMap.js';
 import { getLiveRegime } from './regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
@@ -341,14 +343,31 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // 매수 승인 큐 (LIVE/Shadow 공통) — 승인 요청을 병렬 발송하고 루프 완료 후 일괄 처리
   // (순차 대기 시 종목당 최대 3분 × N종목 = 총 N×3분 블로킹 방지)
   const liveBuyQueue: LiveBuyTask[] = [];
+  // Phase 1 ①: 원자적 슬롯 예약 — 큐 푸시 시점에 예약 카운터 증가, 실패한 예약은 롤백.
+  // 루프 내 currentActive 만 보던 기존 로직은 같은 tick 안에서 이미 큐에 들어간 N-1개를
+  // 보지 못해 maxPositions 초과 승인을 허용했다(00:40 사건). reservedSlots 로 이를 차단.
+  let reservedSlots = 0;
+  // Phase 1 ②: 섹터 노출 선검증용 — 현재 보유 + 같은 tick 예약분을 합산해 투영 비중 계산.
+  const currentSectorValue = new Map<string, number>();
+  for (const s of shadows) {
+    if (!isOpenShadowStatus(s.status) || s.watchlistSource === 'INTRADAY') continue;
+    const sec = getSectorByCode(s.stockCode) || '미분류';
+    const val = s.shadowEntryPrice * s.quantity;
+    currentSectorValue.set(sec, (currentSectorValue.get(sec) ?? 0) + val);
+  }
+  const pendingSectorValue = new Map<string, number>();
+  const reservedSectorValues: Array<{ sector: string; value: number }> = [];
 
   for (const stock of buyList) {
     // 아이디어 7: 루프 내에서도 포지션 수 재확인 (같은 스캔 중 복수 진입 방지)
     const currentActive = shadows.filter(
       (s) => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY',
     ).length;
-    if (currentActive >= regimeConfig.maxPositions) {
-      console.log(`[AutoTrade] 최대 포지션 도달 (${currentActive}/${regimeConfig.maxPositions}, 레짐 ${regime}) — 나머지 종목 스킵`);
+    const totalCommitted = currentActive + reservedSlots;
+    if (totalCommitted >= regimeConfig.maxPositions) {
+      console.log(
+        `[AutoTrade] 최대 포지션 도달 (활성 ${currentActive} + 예약 ${reservedSlots} = ${totalCommitted}/${regimeConfig.maxPositions}, 레짐 ${regime}) — 나머지 종목 스킵`,
+      );
       break;
     }
 
@@ -476,6 +495,14 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               alertMessage: alertMsg, logEvent: 'PRE_BREAKOUT_FOLLOWTHROUGH',
               onApproved: async () => { orderableCash = Math.max(0, orderableCash - followQty * followEntryPrice); },
             }));
+            // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
+            reservedSlots++;
+            {
+              const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
+              const _val = followQty * followEntryPrice;
+              pendingSectorValue.set(_sec, (pendingSectorValue.get(_sec) ?? 0) + _val);
+              reservedSectorValues.push({ sector: _sec, value: _val });
+            }
           } else {
             console.log(`[PreBreakout] ${stock.name}(${stock.code}) 추종 매수 이미 실행됨 — 스킵`);
           }
@@ -595,6 +622,14 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                   alertMessage: pbAlertMsg, logEvent: 'PRE_BREAKOUT_ENTRY',
                   onApproved: async () => { orderableCash = Math.max(0, orderableCash - pbQty * pbEntryPrice); },
                 }));
+                // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
+                reservedSlots++;
+                {
+                  const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
+                  const _val = pbQty * pbEntryPrice;
+                  pendingSectorValue.set(_sec, (pendingSectorValue.get(_sec) ?? 0) + _val);
+                  reservedSectorValues.push({ sector: _sec, value: _val });
+                }
               }
             }
           }
@@ -707,6 +742,33 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             `섹터: ${stock.sector}\n` +
             `동일 섹터 보유 ${sectorCount}/${MAX_SECTOR_CONCENTRATION}개 → 분산 한도 초과`
           ).catch(console.error);
+          continue;
+        }
+      }
+
+      // ── Phase 1-②: 섹터 노출 선검증 (승인 큐 투입 전, 같은 tick 의 pending 포함) ──
+      // 현재 보유 + 같은 스캔에서 이미 큐에 들어간 종목의 섹터 합산으로 투영 비중을 계산해
+      // 단일 섹터 > 40% 또는 상관 그룹 > 50% 를 사전 차단한다. portfolioRiskEngine 의
+      // 사후 점검은 그대로 남아 제2방어선 역할. 위반 시 해당 후보만 SKIP 해 다음 섹터로 교체.
+      {
+        const candidateSector = stock.sector || getSectorByCode(stock.code);
+        // 신규 진입 예상 금액 — 실제 quantity 계산 전이므로 positionPct × totalAssets 추정.
+        // 후속 포지션 사이징 결과와 10~30% 오차가 있을 수 있으나, 단일 섹터 40% 가드에
+        // 비하면 무시할 수준. 섹터 skip 판단용도의 보수적 추정이면 충분.
+        const estGateScore = stock.gateScore ?? 5;
+        const estRawPct = estGateScore >= 9 ? 0.12 : estGateScore >= 7 ? 0.08 : estGateScore >= 5 ? 0.05 : 0.03;
+        const estCandidateValue = totalAssets * estRawPct * kellyMultiplier;
+        const secGuard = checkSectorExposureBefore({
+          candidateSector,
+          candidateValue: estCandidateValue,
+          currentSectorValue,
+          pendingSectorValue,
+          totalAssets,
+        });
+        if (!secGuard.allowed) {
+          console.log(`[SectorPreGuard] ${stock.name}(${candidateSector ?? '?'}) ${secGuard.reason}`);
+          stageLog.sectorGuard = `BLOCK(${secGuard.projectedSectorWeight.toFixed(2)})`;
+          pushTrace();
           continue;
         }
       }
@@ -926,6 +988,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           }
         },
       }));
+      // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
+      reservedSlots++;
+      {
+        const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
+        pendingSectorValue.set(_sec, (pendingSectorValue.get(_sec) ?? 0) + effectiveBudget);
+        reservedSectorValues.push({ sector: _sec, value: effectiveBudget });
+      }
     } catch (err: unknown) {
       console.error(`[AutoTrade] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
     }
@@ -935,10 +1004,30 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // 모든 승인 요청을 동시에 발송했다가 응답을 일괄 수거한 후 순차 실행
   if (liveBuyQueue.length > 0) {
     const approvals = await Promise.allSettled(liveBuyQueue.map((t) => t.approvalPromise));
+    let approved = 0, rejected = 0;
     for (let i = 0; i < liveBuyQueue.length; i++) {
       const result = approvals[i];
       const action: ApprovalAction = result.status === 'fulfilled' ? result.value : 'SKIP';
       await liveBuyQueue[i].execute(action);
+      if (action === 'APPROVE') {
+        approved++;
+      } else {
+        // Phase 1 ①: 실패한 예약은 롤백 — reservedSlots/pendingSectorValue 감소
+        rejected++;
+        reservedSlots = Math.max(0, reservedSlots - 1);
+        const rel = reservedSectorValues[i];
+        if (rel) {
+          const cur = pendingSectorValue.get(rel.sector) ?? 0;
+          const next = Math.max(0, cur - rel.value);
+          if (next === 0) pendingSectorValue.delete(rel.sector);
+          else pendingSectorValue.set(rel.sector, next);
+        }
+      }
+    }
+    if (rejected > 0) {
+      console.log(
+        `[AutoTrade] 승인 큐 플러시 — 승인 ${approved} / 거절·스킵 ${rejected} → 예약 롤백 완료 (잔여 reservedSlots=${reservedSlots})`,
+      );
     }
   }
 
@@ -958,14 +1047,19 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       const today = new Date().toISOString().split('T')[0];
       // Intraday 병렬 승인 큐 (LIVE/Shadow 공통)
       const intradayLiveBuyQueue: LiveBuyTask[] = [];
+      // Phase 1 ①: Intraday 경로도 원자적 슬롯 예약 적용 (main 경로와 동일 원리)
+      let reservedIntradaySlots = 0;
 
       for (const stock of intradayBuyList) {
         // 포지션 수 재확인
         const currentIntradayActive = shadows.filter(
           (s) => isOpenShadowStatus(s.status) && s.watchlistSource === 'INTRADAY',
         ).length;
-        if (currentIntradayActive >= MAX_INTRADAY_POSITIONS) {
-          console.log(`[AutoTrade/Intraday] 최대 포지션 도달 (${currentIntradayActive}/${MAX_INTRADAY_POSITIONS}) — 나머지 스킵`);
+        const totalIntradayCommitted = currentIntradayActive + reservedIntradaySlots;
+        if (totalIntradayCommitted >= MAX_INTRADAY_POSITIONS) {
+          console.log(
+            `[AutoTrade/Intraday] 최대 포지션 도달 (활성 ${currentIntradayActive} + 예약 ${reservedIntradaySlots} = ${totalIntradayCommitted}/${MAX_INTRADAY_POSITIONS}) — 나머지 스킵`,
+          );
           break;
         }
 
@@ -1087,6 +1181,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               orderableCash = Math.max(0, orderableCash - effectiveBudget);
             },
           }));
+          // Phase 1 ①: 큐 푸시 시점에 Intraday 슬롯 예약 (플러시 후 실패 시 롤백)
+          reservedIntradaySlots++;
         } catch (err: unknown) {
           console.error(`[AutoTrade/Intraday] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
         }
@@ -1095,10 +1191,22 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       // ── intradayBuyList 병렬 승인 큐 플러시 ──────────────────────────────────
       if (intradayLiveBuyQueue.length > 0) {
         const intradayApprovals = await Promise.allSettled(intradayLiveBuyQueue.map((t) => t.approvalPromise));
+        let intradayApproved = 0, intradayRejected = 0;
         for (let i = 0; i < intradayLiveBuyQueue.length; i++) {
           const result = intradayApprovals[i];
           const action: ApprovalAction = result.status === 'fulfilled' ? result.value : 'SKIP';
           await intradayLiveBuyQueue[i].execute(action);
+          if (action === 'APPROVE') intradayApproved++;
+          else {
+            // Phase 1 ①: Intraday 실패 예약 롤백
+            intradayRejected++;
+            reservedIntradaySlots = Math.max(0, reservedIntradaySlots - 1);
+          }
+        }
+        if (intradayRejected > 0) {
+          console.log(
+            `[AutoTrade/Intraday] 승인 큐 플러시 — 승인 ${intradayApproved} / 거절·스킵 ${intradayRejected} → 예약 롤백 완료 (잔여 reservedIntradaySlots=${reservedIntradaySlots})`,
+          );
         }
       }
     }

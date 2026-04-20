@@ -98,3 +98,112 @@ describe('preOrderGuard — Automated Kill Switch', () => {
     })).not.toThrow();
   });
 });
+
+describe('preOrderGuard — Phase 1-② 섹터 노출 선검증', () => {
+  it('포트폴리오 비어있을 때 신규 진입 허용', async () => {
+    const { checkSectorExposureBefore } = await import('./preOrderGuard.js');
+    const r = checkSectorExposureBefore({
+      candidateSector: '반도체',
+      candidateValue: 3_000_000,
+      currentSectorValue: new Map(),
+      pendingSectorValue: new Map(),
+      totalAssets: 100_000_000,
+    });
+    expect(r.allowed).toBe(true);
+  });
+
+  it('단일 섹터 40% 초과 — 같은 tick 의 pending 포함 투영 비중으로 차단', async () => {
+    const { checkSectorExposureBefore } = await import('./preOrderGuard.js');
+    // 현재 금융 섹터 보유 20M, 같은 tick 에서 이미 15M 예약, 신규 후보 10M → 45M / 총분모
+    const r = checkSectorExposureBefore({
+      candidateSector: '금융',
+      candidateValue: 10_000_000,
+      currentSectorValue: new Map([['금융', 20_000_000]]),
+      pendingSectorValue: new Map([['금융', 15_000_000]]),
+      totalAssets: 100_000_000,
+    });
+    // denom = 100M + 15M + 10M = 125M, numer = 20+15+10 = 45M → 36% → 아직 통과
+    // 더 큰 값으로 차단 확인
+    const r2 = checkSectorExposureBefore({
+      candidateSector: '금융',
+      candidateValue: 30_000_000,
+      currentSectorValue: new Map([['금융', 20_000_000]]),
+      pendingSectorValue: new Map([['금융', 15_000_000]]),
+      totalAssets: 100_000_000,
+    });
+    // denom = 145M, numer = 65M → 44.8% > 40% → 차단
+    expect(r.allowed).toBe(true);
+    expect(r2.allowed).toBe(false);
+    expect(r2.reason).toContain('금융');
+    expect(r2.projectedSectorWeight).toBeGreaterThan(0.40);
+  });
+
+  it('상관 그룹 50% 초과 — 경기민감_대형 묶음에서 차단', async () => {
+    const { checkSectorExposureBefore } = await import('./preOrderGuard.js');
+    // 경기민감_대형: 철강, 조선, 자동차, 화학, 에너지, 금융
+    // 현재 철강 20M + 조선 20M + 자동차 20M = 60M, 신규 금융 10M
+    const r = checkSectorExposureBefore({
+      candidateSector: '금융',
+      candidateValue: 10_000_000,
+      currentSectorValue: new Map([
+        ['철강', 20_000_000],
+        ['조선', 20_000_000],
+        ['자동차', 20_000_000],
+      ]),
+      pendingSectorValue: new Map(),
+      totalAssets: 100_000_000,
+    });
+    // 금융 단일 비중: 10M / 110M = 9% → 단일 OK
+    // 그룹 비중: 70M / 110M = 63.6% > 50% → 차단
+    expect(r.allowed).toBe(false);
+    expect(r.group).toBe('경기민감_대형');
+    expect(r.projectedGroupWeight).toBeGreaterThan(0.50);
+  });
+
+  it('미분류·빈 섹터 → 회귀 방지를 위해 통과', async () => {
+    const { checkSectorExposureBefore } = await import('./preOrderGuard.js');
+    const r1 = checkSectorExposureBefore({
+      candidateSector: undefined,
+      candidateValue: 50_000_000,
+      currentSectorValue: new Map(),
+      pendingSectorValue: new Map(),
+      totalAssets: 100_000_000,
+    });
+    const r2 = checkSectorExposureBefore({
+      candidateSector: '미분류',
+      candidateValue: 50_000_000,
+      currentSectorValue: new Map(),
+      pendingSectorValue: new Map(),
+      totalAssets: 100_000_000,
+    });
+    expect(r1.allowed).toBe(true);
+    expect(r2.allowed).toBe(true);
+  });
+
+  it('totalAssets <= 0 → skip (분모 0 방어)', async () => {
+    const { checkSectorExposureBefore } = await import('./preOrderGuard.js');
+    const r = checkSectorExposureBefore({
+      candidateSector: '금융',
+      candidateValue: 10_000_000,
+      currentSectorValue: new Map([['금융', 50_000_000]]),
+      pendingSectorValue: new Map(),
+      totalAssets: 0,
+    });
+    expect(r.allowed).toBe(true);
+  });
+
+  it('같은 tick pending 만으로도 한도 초과 — 두번째 후보 차단 (원자적 예약 시나리오)', async () => {
+    const { checkSectorExposureBefore } = await import('./preOrderGuard.js');
+    // 00:40 시나리오 재현: 현재 포트폴리오 비어있고, 이미 큐에 금융 30M 들어가 있는 상태에서
+    // 금융 후보 50M 을 평가 → (30+50)/(100+30+50) = 80/180 = 44.4% > 40% → 차단
+    const r = checkSectorExposureBefore({
+      candidateSector: '금융',
+      candidateValue: 50_000_000,
+      currentSectorValue: new Map(),
+      pendingSectorValue: new Map([['금융', 30_000_000]]),
+      totalAssets: 100_000_000,
+    });
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toContain('선검증 차단');
+  });
+});
