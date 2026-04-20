@@ -12,6 +12,7 @@ import {
   sendTelegramAlert,
   answerCallbackQuery,
   editMessageText,
+  escapeHtml,
 } from '../alerts/telegramClient.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
 import { formatEnemyCheckSummary, type EnemyCheckResult } from '../clients/enemyCheckClient.js';
@@ -103,20 +104,20 @@ export async function requestBuyApproval(params: {
   // 역검증 섹션 (데이터 있을 때만 표시)
   const enemySummary = enemyCheck ? formatEnemyCheckSummary(enemyCheck) : null;
   const enemySection = enemySummary
-    ? `━━━━━━━━━━━━━━━━━━━━\n<i>[역검증 참고]\n${enemySummary}</i>\n`
+    ? `━━━━━━━━━━━━━━━━━━━━\n<i>[역검증 참고]\n${escapeHtml(enemySummary)}</i>\n`
     : '';
 
   // Pre-Mortem 섹션 (진입 전 실패 시나리오 사전 체크리스트)
   const preMortemSection = preMortem
-    ? `━━━━━━━━━━━━━━━━━━━━\n⚠️ <b>실패 시나리오(Pre-Mortem)</b>\n${preMortem}\n`
+    ? `━━━━━━━━━━━━━━━━━━━━\n⚠️ <b>실패 시나리오(Pre-Mortem)</b>\n${escapeHtml(preMortem)}\n`
     : '';
 
   const timeoutLine = autoApproveDisabled
-    ? `<i>🛑 자동 승인 비활성 (레짐 ${regime}) — 수동 승인 필수</i>`
-    : `<i>${timeoutSec}초 내 미응답 시 자동 승인${regime ? ` (레짐 ${regime})` : ''}</i>`;
+    ? `<i>🛑 자동 승인 비활성 (레짐 ${escapeHtml(regime ?? '')}) — 수동 승인 필수</i>`
+    : `<i>${timeoutSec}초 내 미응답 시 자동 승인${regime ? ` (레짐 ${escapeHtml(regime)})` : ''}</i>`;
 
   const message =
-    `${modeEmoji} <b>[${modeLabel}] ${stockName} 매수 신호</b>\n` +
+    `${modeEmoji} <b>[${modeLabel}] ${escapeHtml(stockName)} 매수 신호</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `현재가: ${currentPrice.toLocaleString()}원 × ${quantity}주\n` +
     `손절: ${stopLoss.toLocaleString()}원 | 목표: ${targetPrice.toLocaleString()}원\n` +
@@ -228,7 +229,7 @@ export async function handleBuyApprovalCallback(
   // 메시지 업데이트 (버튼 제거 + 결과 표시)
   await editMessageText(
     pending.messageId,
-    `${actionEmoji} <b>[${pending.stockName}] ${actionLabel} 처리됨</b>\n` +
+    `${actionEmoji} <b>[${escapeHtml(pending.stockName)}] ${actionLabel} 처리됨</b>\n` +
     `현재가: ${pending.currentPrice.toLocaleString()}원 × ${pending.quantity}주`,
   );
 

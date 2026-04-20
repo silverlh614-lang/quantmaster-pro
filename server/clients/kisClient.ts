@@ -2,7 +2,7 @@
 // KIS (한국투자증권) API 클라이언트 — 토큰 관리 · HTTP 헬퍼 · 주문 실행
 // 기존 server/clients/kisClient.ts + src/server/clients/kisClient.ts 통합
 
-import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { sendTelegramAlert, escapeHtml } from '../alerts/telegramClient.js';
 import { scheduleKisCall, type KisApiPriority } from './kisRateLimiter.js';
 import { assertModeCompatible } from './kisModeGuard.js';
 export type { KisApiPriority } from './kisRateLimiter.js';
@@ -561,7 +561,7 @@ export async function placeKisSellOrder(
   if (!KIS_IS_REAL) {
     console.log(`[AutoTrade SELL Shadow] ${emoji} ${stockName}(${stockCode}) ${label} — ${quantity}주 (Shadow 모드, 실주문 없음)`);
     await sendTelegramAlert(
-      `${emoji} <b>[Shadow ${label}] ${stockName} (${stockCode})</b>\n` +
+      `${emoji} <b>[Shadow ${label}] ${escapeHtml(stockName)} (${escapeHtml(stockCode)})</b>\n` +
       `수량: ${quantity}주 | Shadow 모드 — 실주문 없음`
     ).catch(console.error);
     return { ordNo: null, placed: false };
@@ -592,7 +592,7 @@ export async function placeKisSellOrder(
     console.log(`[AutoTrade SELL] ${emoji} ${stockName} ${label} 완료 — ODNO: ${ordNo}`);
 
     await sendTelegramAlert(
-      `${emoji} <b>[${label}] ${stockName} (${stockCode})</b>\n` +
+      `${emoji} <b>[${label}] ${escapeHtml(stockName)} (${escapeHtml(stockCode)})</b>\n` +
       `수량: ${quantity}주 | 주문번호: ${ordNo ?? 'N/A'}`
     ).catch(console.error);
 
@@ -601,9 +601,9 @@ export async function placeKisSellOrder(
     console.error(`[AutoTrade SELL] ${stockName} 매도 실패:`, err instanceof Error ? err.message : err);
     // 매도 실패는 치명적 → Telegram 긴급 알림
     await sendTelegramAlert(
-      `🚨 <b>[긴급] ${stockName} ${label} 매도 실패!</b>\n` +
+      `🚨 <b>[긴급] ${escapeHtml(stockName)} ${label} 매도 실패!</b>\n` +
       `수동으로 즉시 매도하세요!\n` +
-      `오류: ${err instanceof Error ? err.message : String(err)}`
+      `오류: ${escapeHtml(err instanceof Error ? err.message : String(err))}`
     ).catch(console.error);
     return { ordNo: null, placed: false };
   }
@@ -626,7 +626,7 @@ export async function placeKisStopLossLimitOrder(
   if (!KIS_IS_REAL) {
     console.log(`[StopLoss OCO] 🛡️ ${stockName}(${stockCode}) 손절 지정가 ${stopPrice.toLocaleString()}원 × ${quantity}주 (Shadow 모드)`);
     await sendTelegramAlert(
-      `🛡️ <b>[Shadow 손절 등록] ${stockName} (${stockCode})</b>\n` +
+      `🛡️ <b>[Shadow 손절 등록] ${escapeHtml(stockName)} (${escapeHtml(stockCode)})</b>\n` +
       `손절가: ${stopPrice.toLocaleString()}원 × ${quantity}주 | Shadow 모드 — 실주문 없음`
     ).catch(console.error);
     return null;
@@ -657,7 +657,7 @@ export async function placeKisStopLossLimitOrder(
     console.log(`[StopLoss OCO] 🛡️ ${stockName} 손절 등록 완료 — ${stopPrice.toLocaleString()}원 ODNO: ${ordNo}`);
 
     await sendTelegramAlert(
-      `🛡️ <b>[손절 주문 등록] ${stockName} (${stockCode})</b>\n` +
+      `🛡️ <b>[손절 주문 등록] ${escapeHtml(stockName)} (${escapeHtml(stockCode)})</b>\n` +
       `손절가: ${stopPrice.toLocaleString()}원 × ${quantity}주\n` +
       `주문번호: ${ordNo ?? 'N/A'}`
     ).catch(console.error);
@@ -666,9 +666,9 @@ export async function placeKisStopLossLimitOrder(
   } catch (err: unknown) {
     console.error(`[StopLoss OCO] ${stockName} 손절 주문 실패:`, err instanceof Error ? err.message : err);
     await sendTelegramAlert(
-      `🚨 <b>[긴급] ${stockName} 손절 주문 등록 실패!</b>\n` +
+      `🚨 <b>[긴급] ${escapeHtml(stockName)} 손절 주문 등록 실패!</b>\n` +
       `수동으로 손절 주문을 등록하세요!\n` +
-      `오류: ${err instanceof Error ? err.message : String(err)}`
+      `오류: ${escapeHtml(err instanceof Error ? err.message : String(err))}`
     ).catch(console.error);
     return null;
   }
@@ -690,7 +690,7 @@ export async function placeKisTakeProfitLimitOrder(
   if (!KIS_IS_REAL) {
     console.log(`[TakeProfit OCO] 🎯 ${stockName}(${stockCode}) 익절 지정가 ${targetPrice.toLocaleString()}원 × ${quantity}주 (Shadow 모드)`);
     await sendTelegramAlert(
-      `🎯 <b>[Shadow 익절 등록] ${stockName} (${stockCode})</b>\n` +
+      `🎯 <b>[Shadow 익절 등록] ${escapeHtml(stockName)} (${escapeHtml(stockCode)})</b>\n` +
       `익절가: ${targetPrice.toLocaleString()}원 × ${quantity}주 | Shadow 모드 — 실주문 없음`
     ).catch(console.error);
     return null;
@@ -721,7 +721,7 @@ export async function placeKisTakeProfitLimitOrder(
     console.log(`[TakeProfit OCO] 🎯 ${stockName} 익절 등록 완료 — ${targetPrice.toLocaleString()}원 ODNO: ${ordNo}`);
 
     await sendTelegramAlert(
-      `🎯 <b>[익절 주문 등록] ${stockName} (${stockCode})</b>\n` +
+      `🎯 <b>[익절 주문 등록] ${escapeHtml(stockName)} (${escapeHtml(stockCode)})</b>\n` +
       `익절가: ${targetPrice.toLocaleString()}원 × ${quantity}주\n` +
       `주문번호: ${ordNo ?? 'N/A'}`
     ).catch(console.error);
@@ -730,9 +730,9 @@ export async function placeKisTakeProfitLimitOrder(
   } catch (err: unknown) {
     console.error(`[TakeProfit OCO] ${stockName} 익절 주문 실패:`, err instanceof Error ? err.message : err);
     await sendTelegramAlert(
-      `🚨 <b>[긴급] ${stockName} 익절 주문 등록 실패!</b>\n` +
+      `🚨 <b>[긴급] ${escapeHtml(stockName)} 익절 주문 등록 실패!</b>\n` +
       `수동으로 익절 주문을 등록하세요!\n` +
-      `오류: ${err instanceof Error ? err.message : String(err)}`
+      `오류: ${escapeHtml(err instanceof Error ? err.message : String(err))}`
     ).catch(console.error);
     return null;
   }

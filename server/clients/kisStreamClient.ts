@@ -254,6 +254,11 @@ async function connectWebSocket(): Promise<void> {
       const detail = event?.error?.message || event?.message || event?.error?.code || 'unknown';
       logStreamEvent('ERROR', `WebSocket 오류 — readyState=${_ws?.readyState}, detail=${detail}`);
       _isConnecting = false;
+      // non-101 핸드셰이크 거부 / 네트워크 오류 → 승인키가 만료되었을 가능성이 있다.
+      // onclose가 이어서 호출되므로 다음 재연결 시 새 키를 발급받도록 캐시를 무효화한다.
+      if (typeof detail === 'string' && /101|network|handshake|401|403/i.test(detail)) {
+        _approvalKey = null;
+      }
     };
 
     _ws.onclose = (event) => {
@@ -283,7 +288,12 @@ function scheduleReconnect(): void {
     return;
   }
 
-  const delay = RECONNECT_BASE_DELAY * Math.pow(2, Math.min(_reconnectCount, 6));
+  // 연속 실패 2회 이상 → 승인키 만료/회전 가능성 → 재발급 강제
+  if (_reconnectCount >= 2) _approvalKey = null;
+
+  const base = RECONNECT_BASE_DELAY * Math.pow(2, Math.min(_reconnectCount, 6));
+  const jitter = Math.floor(Math.random() * 1000); // 0~1s jitter: 썬더링허드 방지
+  const delay = base + jitter;
   _reconnectCount++;
   logStreamEvent('RECONNECT', `재연결 예정 (${_reconnectCount}/${MAX_RECONNECT}) — ${(delay / 1000).toFixed(0)}초 후`);
   if (_reconnectTimer) clearTimeout(_reconnectTimer);
