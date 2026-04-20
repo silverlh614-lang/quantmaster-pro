@@ -13,7 +13,7 @@
  *   🔒 개인 : 잔고/자산, 비상정지, 손절 접근 경보, 오류, 내부 디버그
  */
 
-import { sendChannelAlert, sendPickChannelAlert } from './telegramClient.js';
+import { sendChannelAlert, sendPickChannelAlert, escapeHtml } from './telegramClient.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
 
 function isChannelEnabled(): boolean {
@@ -47,10 +47,10 @@ export async function channelBuySignal(p: ChannelBuySignalParams): Promise<void>
   const rrrStr = p.rrr.toFixed(1);
 
   const msg =
-    `${modeEmoji} <b>[${modeLabel}] ${signalEmoji} ${p.stockName} (${p.stockCode})</b>\n` +
+    `${modeEmoji} <b>[${modeLabel}] ${signalEmoji} ${escapeHtml(p.stockName)} (${escapeHtml(p.stockCode)})</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `💰 진입가: <b>${p.price.toLocaleString()}원</b> × ${p.quantity}주\n` +
-    (p.sector ? `🏭 섹터: ${p.sector}\n` : '') +
+    (p.sector ? `🏭 섹터: ${escapeHtml(p.sector)}\n` : '') +
     `📊 Gate: ${p.gateScore.toFixed(1)} | MTAS: ${p.mtas.toFixed(0)}/10 | CS: ${p.cs.toFixed(2)}\n` +
     `🛡️ 손절: ${p.stopLoss.toLocaleString()}원\n` +
     `🎯 목표: ${p.targetPrice.toLocaleString()}원\n` +
@@ -105,8 +105,8 @@ export async function channelSellSignal(p: ChannelSellSignalParams): Promise<voi
   const remaining = isPartial ? p.originalQty! - p.soldQty! : 0;
 
   const header = isPartial
-    ? `🟡 <b>[부분청산 ${pct}%] ${p.stockName} (${p.stockCode})</b>`
-    : `${profitEmoji} <b>[청산] ${p.stockName} (${p.stockCode})</b>`;
+    ? `🟡 <b>[부분청산 ${pct}%] ${escapeHtml(p.stockName)} (${escapeHtml(p.stockCode)})</b>`
+    : `${profitEmoji} <b>[청산] ${escapeHtml(p.stockName)} (${escapeHtml(p.stockCode)})</b>`;
 
   const lines: string[] = [
     header,
@@ -168,9 +168,9 @@ export async function channelMarketBriefing(p: ChannelMarketBriefingParams): Pro
     p.usdKrw !== undefined ? `💵 USD/KRW: ${p.usdKrw.toFixed(0)}원` : '',
     `📋 워치리스트: ${p.watchlistCount}개 | Focus: ${p.focusCount}개`,
     p.topSectors?.length
-      ? `🏭 주목 섹터: ${p.topSectors.slice(0, 3).join(' · ')}`
+      ? `🏭 주목 섹터: ${p.topSectors.slice(0, 3).map(escapeHtml).join(' · ')}`
       : '',
-    p.aiSummary ? `\n💬 ${p.aiSummary}` : '',
+    p.aiSummary ? `\n💬 ${escapeHtml(p.aiSummary)}` : '',
   ].filter(Boolean).join('\n');
 
   await sendChannelAlert(lines).catch(console.error);
@@ -194,8 +194,8 @@ export async function channelRegimeChange(
   const msg =
     `🔄 <b>[레짐 변화]</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `${arrows[prevRegime] ?? '?'} ${prevRegime} → ${arrows[newRegime] ?? '?'} <b>${newRegime}</b>\n` +
-    `MHS: ${mhs.toFixed(0)} | ${reason}`;
+    `${arrows[prevRegime] ?? '?'} ${escapeHtml(prevRegime)} → ${arrows[newRegime] ?? '?'} <b>${escapeHtml(newRegime)}</b>\n` +
+    `MHS: ${mhs.toFixed(0)} | ${escapeHtml(reason)}`;
 
   await sendChannelAlert(msg).catch(console.error);
 }
@@ -227,14 +227,14 @@ export async function channelWatchlistAdded(
     .map(s => {
       const changeStr = `${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(1)}%`;
       const rrrStr = s.rrr ? ` | RRR 1:${s.rrr.toFixed(1)}` : '';
-      const sectorStr = s.sector ? ` | ${s.sector}` : '';
+      const sectorStr = s.sector ? ` | ${escapeHtml(s.sector)}` : '';
       const priceInfo = s.entryPrice
         ? `\n     💰 진입: ${s.entryPrice.toLocaleString()}원` +
           (s.stopLoss ? ` | 🛡️ 손절: ${s.stopLoss.toLocaleString()}원` : '') +
           (s.targetPrice ? ` | 🎯 목표: ${s.targetPrice.toLocaleString()}원` : '')
         : '';
       return (
-        `  • <b>${s.name}</b>(${s.code}) ${changeStr} | Gate ${s.gateScore.toFixed(1)}${rrrStr}${sectorStr}` +
+        `  • <b>${escapeHtml(s.name)}</b>(${escapeHtml(s.code)}) ${changeStr} | Gate ${s.gateScore.toFixed(1)}${rrrStr}${sectorStr}` +
         priceInfo
       );
     })
@@ -262,7 +262,7 @@ export async function channelWatchlistRemoved(
   if (!isChannelEnabled()) return;
 
   const msg =
-    `🗑️ <b>[워치리스트 제거] ${stock.name} (${stock.code})</b>\n` +
+    `🗑️ <b>[워치리스트 제거] ${escapeHtml(stock.name)} (${escapeHtml(stock.code)})</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `📋 잔여 워치리스트: ${remainingCount}개`;
 
@@ -302,10 +302,10 @@ export async function channelWatchlistSummary(
       const manualMark = w.addedBy === 'MANUAL' ? '👤' : w.addedBy === 'DART' ? '📢' : '🤖';
       const gate = w.gateScore !== undefined ? `G${w.gateScore.toFixed(0)}` : '';
       const rrr = w.rrr !== undefined ? `R1:${w.rrr.toFixed(1)}` : '';
-      const sector = w.sector ?? '';
+      const sector = w.sector ? escapeHtml(w.sector) : '';
       const meta = [gate, rrr, sector].filter(Boolean).join(' · ');
       parts.push(
-        `${focusMark}${manualMark} <b>${w.name}</b>(${w.code})` +
+        `${focusMark}${manualMark} <b>${escapeHtml(w.name)}</b>(${escapeHtml(w.code)})` +
         ` ${w.entryPrice.toLocaleString()}원` +
         (meta ? ` [${meta}]` : '') +
         `\n   🛡️${w.stopLoss.toLocaleString()} → 🎯${w.targetPrice.toLocaleString()}`
@@ -319,7 +319,7 @@ export async function channelWatchlistSummary(
     for (const w of catalystList) {
       const gate = w.gateScore !== undefined ? `G${w.gateScore.toFixed(0)}` : '';
       parts.push(
-        `  📢 <b>${w.name}</b>(${w.code}) ${w.entryPrice.toLocaleString()}원 ${gate}` +
+        `  📢 <b>${escapeHtml(w.name)}</b>(${escapeHtml(w.code)}) ${w.entryPrice.toLocaleString()}원 ${gate}` +
         `\n   🛡️${w.stopLoss.toLocaleString()} → 🎯${w.targetPrice.toLocaleString()} (포지션 60%)`
       );
     }
@@ -333,7 +333,7 @@ export async function channelWatchlistSummary(
       .slice(0, 8);
     for (const w of shown) {
       const gate = w.gateScore !== undefined ? `G${w.gateScore.toFixed(0)}` : '';
-      parts.push(`  🤖 ${w.name}(${w.code}) ${w.entryPrice.toLocaleString()}원 ${gate}`);
+      parts.push(`  🤖 ${escapeHtml(w.name)}(${escapeHtml(w.code)}) ${w.entryPrice.toLocaleString()}원 ${gate}`);
     }
     if (momentumList.length > 8) {
       parts.push(`  ... 외 ${momentumList.length - 8}개`);
@@ -352,7 +352,7 @@ export async function channelWatchlistSummary(
 export async function channelGlobalScan(summary: string): Promise<void> {
   if (!isChannelEnabled()) return;
 
-  const msg = `🌐 <b>[글로벌 스캔]</b>\n━━━━━━━━━━━━━━━━━━━━\n${summary}`;
+  const msg = `🌐 <b>[글로벌 스캔]</b>\n━━━━━━━━━━━━━━━━━━━━\n${escapeHtml(summary)}`;
   await sendChannelAlert(msg, { disableNotification: true }).catch(console.error);
 }
 
@@ -384,8 +384,8 @@ export async function channelPerformance(p: ChannelPerformanceParams): Promise<v
     `📊 총 거래: ${p.totalTrades}건 (승 ${p.winCount} / 패 ${p.lossCount})`,
     `🏆 승률: ${winRate}%`,
     `💰 손익: <b>${pnlStr}</b>`,
-    p.bestTrade  ? `✅ 최고: ${p.bestTrade.name} +${p.bestTrade.pnlPct.toFixed(1)}%`   : '',
-    p.worstTrade ? `🔴 최저: ${p.worstTrade.name} ${p.worstTrade.pnlPct.toFixed(1)}%` : '',
+    p.bestTrade  ? `✅ 최고: ${escapeHtml(p.bestTrade.name)} +${p.bestTrade.pnlPct.toFixed(1)}%`   : '',
+    p.worstTrade ? `🔴 최저: ${escapeHtml(p.worstTrade.name)} ${p.worstTrade.pnlPct.toFixed(1)}%` : '',
   ].filter(Boolean).join('\n');
 
   await sendChannelAlert(lines).catch(console.error);

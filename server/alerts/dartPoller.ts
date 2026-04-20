@@ -9,7 +9,7 @@ import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { callGemini } from '../clients/geminiClient.js';
-import { sendTelegramAlert } from './telegramClient.js';
+import { sendTelegramAlert, escapeHtml } from './telegramClient.js';
 
 // ── 인메모리 중복 방지 캐시 (서버 재시작 시 초기화 — 의도적) ─────────────────
 // 파일 기반 seen Set(DART_FAST_SEEN_FILE)에 더해 메모리 캐시로 중복 Gemini 호출을 차단.
@@ -312,8 +312,8 @@ export async function applyDartToWatchlist(params: {
       saveWatchlist(updated);
       console.log(`[DART→WL] ❌ 악재 제거: ${params.corpName}(${code}) — ${params.reason}`);
       await sendTelegramAlert(
-        `⚠️ <b>[DART 악재 → 워치리스트 제거]</b> ${params.corpName} (${code})\n` +
-        `공시 임팩트: ${params.impact} — ${params.reason}\n` +
+        `⚠️ <b>[DART 악재 → 워치리스트 제거]</b> ${escapeHtml(params.corpName)} (${escapeHtml(code)})\n` +
+        `공시 임팩트: ${params.impact} — ${escapeHtml(params.reason)}\n` +
         `워치리스트에서 즉시 제거됨`,
         dartTelegramOpts(params.rceptNo, 'neg_remove'),
       ).catch(console.error);
@@ -327,8 +327,8 @@ export async function applyDartToWatchlist(params: {
     if (activePosition) {
       console.log(`[DART→WL] 🚨 악재 경보: ${params.corpName}(${code}) — 활성 포지션 보유 중`);
       await sendTelegramAlert(
-        `🚨 <b>[DART 악재 경보 — 포지션 보유 중!]</b> ${params.corpName} (${code})\n` +
-        `공시 임팩트: ${params.impact} — ${params.reason}\n` +
+        `🚨 <b>[DART 악재 경보 — 포지션 보유 중!]</b> ${escapeHtml(params.corpName)} (${escapeHtml(code)})\n` +
+        `공시 임팩트: ${params.impact} — ${escapeHtml(params.reason)}\n` +
         `보유 수량: ${activePosition.quantity}주 @${activePosition.shadowEntryPrice.toLocaleString()}원\n` +
         `⚡ <b>손절선 점검 필요</b>\n` +
         `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${params.rceptNo}`,
@@ -359,8 +359,8 @@ export async function applyDartToWatchlist(params: {
       `[DART→WL] ⬆️ 확인신호 강화: ${params.corpName}(${code}) → ${existing.section} (gateScore +${bonus}, 합계 ${existing.gateScore})`,
     );
     await sendTelegramAlert(
-      `📊 <b>[DART 확인신호 → 기존 종목 강화]</b> ${params.corpName} (${code})\n` +
-      `${params.insiderBuy ? '🕵️ 내부자 매수 감지' : `임팩트: +${params.impact}`} — ${params.reason}\n` +
+      `📊 <b>[DART 확인신호 → 기존 종목 강화]</b> ${escapeHtml(params.corpName)} (${escapeHtml(code)})\n` +
+      `${params.insiderBuy ? '🕵️ 내부자 매수 감지' : `임팩트: +${params.impact}`} — ${escapeHtml(params.reason)}\n` +
       `gateScore: +${bonus} (합계 ${existing.gateScore}) | ${existing.section} 승격\n` +
       `전략: 기존 워치리스트 종목에 호재 공시 겹침 → 강한 매수 신호`,
       dartTelegramOpts(params.rceptNo, 'confirm'),
@@ -429,8 +429,8 @@ export async function applyDartToWatchlist(params: {
       `[DART→WL] ✅ 내부자매수 추가: ${params.corpName}(${code}) [CATALYST] (만료: 3일)`,
     );
     await sendTelegramAlert(
-      `🕵️ <b>[내부자 매수 → 워치리스트 추가]</b> ${params.corpName} (${code})\n` +
-      `${params.reason}\n` +
+      `🕵️ <b>[내부자 매수 → 워치리스트 추가]</b> ${escapeHtml(params.corpName)} (${escapeHtml(code)})\n` +
+      `${escapeHtml(params.reason)}\n` +
       `섹션: CATALYST (고신뢰 룰 기반 신호) | 만료: 3일\n` +
       (entryPrice > 0 ? `진입가: ${entryPrice.toLocaleString()}원 | 손절: ${stopLoss.toLocaleString()}원 | 목표: ${targetPrice.toLocaleString()}원\n` : '⚠️ 시세 미조회 — 다음 스캔에서 갱신 예정\n') +
       `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${params.rceptNo}`,
@@ -551,11 +551,11 @@ export async function pollDartDisclosures(): Promise<void> {
     if (ownershipSignal && ownershipSignal.sentiment !== 'NEUTRAL') {
       const emoji = ownershipSignal.sentiment === 'POSITIVE' ? '📈' : '📉';
       await sendTelegramAlert(
-        `${emoji} <b>[수급 이벤트] ${alert.corp_name}</b>\n` +
-        `${alert.report_nm}\n` +
+        `${emoji} <b>[수급 이벤트] ${escapeHtml(alert.corp_name)}</b>\n` +
+        `${escapeHtml(alert.report_nm)}\n` +
         `접수일: ${alert.rcept_dt}\n` +
         (isWatchlist ? `⭐ <b>워치리스트 종목!</b>\n` : '') +
-        `수급: ${ownershipSignal.reason}\n` +
+        `수급: ${escapeHtml(ownershipSignal.reason)}\n` +
         `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${alert.rcept_no}`,
         dartTelegramOpts(alert.rcept_no, 'ownership'),
       ).catch(console.error);
@@ -566,11 +566,11 @@ export async function pollDartDisclosures(): Promise<void> {
     // 지분 공시로 이미 수급 이벤트 알림을 보낸 경우(POSITIVE/NEGATIVE)에는 중복 발송하지 않는다.
     if (insiderBuy && (!ownershipSignal || ownershipSignal.sentiment === 'NEUTRAL')) {
       await sendTelegramAlert(
-        `🕵️ <b>[내부자 매수 감지] ${alert.corp_name}</b>\n` +
-        `${alert.report_nm}\n` +
+        `🕵️ <b>[내부자 매수 감지] ${escapeHtml(alert.corp_name)}</b>\n` +
+        `${escapeHtml(alert.report_nm)}\n` +
         `접수일: ${alert.rcept_dt}\n` +
         (isWatchlist ? `⭐ <b>워치리스트 종목!</b>\n` : '') +
-        (llmImpact !== undefined ? `LLM 임팩트: ${llmImpact > 0 ? '+' : ''}${llmImpact} — ${llmReason}\n` : '') +
+        (llmImpact !== undefined ? `LLM 임팩트: ${llmImpact > 0 ? '+' : ''}${llmImpact} — ${escapeHtml(llmReason ?? '')}\n` : '') +
         `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${alert.rcept_no}`,
         dartTelegramOpts(alert.rcept_no, 'insider_poll'),
       ).catch(console.error);
@@ -593,11 +593,11 @@ export async function pollDartDisclosures(): Promise<void> {
     if ((sentiment === 'NEGATIVE' || sentiment === 'MAJOR_POSITIVE') && isWatchlist) {
       const emoji = sentiment === 'MAJOR_POSITIVE' ? '📢' : '⚠️';
       const impactLine = llmImpact !== undefined
-        ? `LLM 임팩트: ${llmImpact > 0 ? '+' : ''}${llmImpact} — ${llmReason}\n`
+        ? `LLM 임팩트: ${llmImpact > 0 ? '+' : ''}${llmImpact} — ${escapeHtml(llmReason ?? '')}\n`
         : '';
       await sendTelegramAlert(
-        `${emoji} <b>[DART 공시] ${alert.corp_name}</b>\n` +
-        `${alert.report_nm}\n` +
+        `${emoji} <b>[DART 공시] ${escapeHtml(alert.corp_name)}</b>\n` +
+        `${escapeHtml(alert.report_nm)}\n` +
         `접수일: ${alert.rcept_dt}\n` +
         `감성: ${sentiment}\n` +
         impactLine +
@@ -667,8 +667,8 @@ export async function checkBadNewsAbsorbed(
       alertEntry.badNewsAbsorbed = true;
       saveDartAlerts(existing);
       await sendTelegramAlert(
-        `🔄 <b>[악재 소화 완료] ${alertEntry.corp_name}</b>\n` +
-        `공시: ${alertEntry.report_nm}\n` +
+        `🔄 <b>[악재 소화 완료] ${escapeHtml(alertEntry.corp_name)}</b>\n` +
+        `공시: ${escapeHtml(alertEntry.report_nm)}\n` +
         `LLM 임팩트: ${alertEntry.llmImpact} → 주가 미하락 (+${changePct.toFixed(1)}%)\n` +
         `⚡ <b>진입 후보 등록 — 악재 선반영 완료 신호</b>\n` +
         `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${entry.rceptNo}`,
@@ -777,10 +777,10 @@ export async function fastDartCheck(): Promise<void> {
     if (ownershipSignal.sentiment !== 'NEUTRAL') {
       const emoji = ownershipSignal.sentiment === 'POSITIVE' ? '📈' : '📉';
       await sendTelegramAlert(
-        `${emoji} <b>[수급 이벤트] ${c.corpName}</b>\n` +
-        `${c.reportNm}\n` +
+        `${emoji} <b>[수급 이벤트] ${escapeHtml(c.corpName)}</b>\n` +
+        `${escapeHtml(c.reportNm)}\n` +
         (c.isWatchlist ? `⭐ <b>워치리스트 종목!</b>\n` : '') +
-        `수급: ${ownershipSignal.reason}\n` +
+        `수급: ${escapeHtml(ownershipSignal.reason)}\n` +
         `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${c.rceptNo}`,
         dartTelegramOpts(c.rceptNo, 'ownership_fast'),
       ).catch(console.error);
@@ -848,10 +848,10 @@ export async function fastDartCheck(): Promise<void> {
     // 내부자 매수 → 즉시 특별 알림
     if (c.insiderBuy) {
       await sendTelegramAlert(
-        `🕵️ <b>[내부자 매수 감지] ${c.corpName}</b>\n` +
-        `${c.reportNm}\n` +
+        `🕵️ <b>[내부자 매수 감지] ${escapeHtml(c.corpName)}</b>\n` +
+        `${escapeHtml(c.reportNm)}\n` +
         (c.isWatchlist ? `⭐ <b>워치리스트 종목!</b>\n` : '') +
-        `임팩트: ${impactClamp > 0 ? '+' : ''}${impactClamp} — ${reason}\n` +
+        `임팩트: ${impactClamp > 0 ? '+' : ''}${impactClamp} — ${escapeHtml(reason)}\n` +
         `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${c.rceptNo}`,
         dartTelegramOpts(c.rceptNo, 'insider_fast'),
       ).catch(console.error);
@@ -872,10 +872,10 @@ export async function fastDartCheck(): Promise<void> {
     if (isPositive || c.isWatchlist) {
       const emoji = impactClamp >= 2 ? '🚀' : impactClamp >= 1 ? '📈' : '📢';
       await sendTelegramAlert(
-        `${emoji} <b>[DART 인텔리전스] ${c.corpName}</b>\n` +
-        `${c.reportNm}\n` +
+        `${emoji} <b>[DART 인텔리전스] ${escapeHtml(c.corpName)}</b>\n` +
+        `${escapeHtml(c.reportNm)}\n` +
         (c.isWatchlist ? `⭐ <b>워치리스트 종목!</b>\n` : '') +
-        `임팩트: ${impactClamp > 0 ? '+' : ''}${impactClamp} — ${reason}\n` +
+        `임팩트: ${impactClamp > 0 ? '+' : ''}${impactClamp} — ${escapeHtml(reason)}\n` +
         `DART: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${c.rceptNo}`,
         dartTelegramOpts(c.rceptNo, 'intel_fast'),
       ).catch(console.error);

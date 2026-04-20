@@ -18,7 +18,7 @@ import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistenc
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
 import { getMonthlyStats } from '../learning/recommendationTracker.js';
-import { sendTelegramAlert, answerCallbackQuery, isDigestEnabled, setDigestEnabled } from '../alerts/telegramClient.js';
+import { sendTelegramAlert, answerCallbackQuery, isDigestEnabled, setDigestEnabled, escapeHtml } from '../alerts/telegramClient.js';
 import { readAlertAuditRange } from '../alerts/alertAuditLog.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
 import { runAutoSignalScan, isOpenShadowStatus, getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
@@ -256,19 +256,19 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           const sectionMark = w.addedBy === 'MANUAL' ? '👤' : w.addedBy === 'DART' ? '📢' : '🤖';
           const gate = w.gateScore !== undefined ? `Gate ${w.gateScore.toFixed(1)}` : '';
           const rrr = w.rrr !== undefined ? `RRR 1:${w.rrr.toFixed(1)}` : '';
-          const sector = w.sector ? `${w.sector}` : '';
+          const sector = w.sector ? escapeHtml(w.sector) : '';
           const meta = [gate, rrr, sector].filter(Boolean).join(' · ');
 
           if (showDetail) {
             return (
-              `${focusMark}${sectionMark} <b>${w.name}</b> (${w.code})\n` +
+              `${focusMark}${sectionMark} <b>${escapeHtml(w.name)}</b> (${escapeHtml(w.code)})\n` +
               `   💰 진입: ${w.entryPrice.toLocaleString()}원\n` +
               `   🛡️ 손절: ${w.stopLoss.toLocaleString()}원 → 🎯 목표: ${w.targetPrice.toLocaleString()}원\n` +
               (meta ? `   📊 ${meta}` : '') +
-              (w.memo ? `\n   💬 ${w.memo}` : '')
+              (w.memo ? `\n   💬 ${escapeHtml(w.memo)}` : '')
             );
           }
-          return `  ${sectionMark} ${w.name}(${w.code}) ${meta ? `| ${meta}` : ''}`;
+          return `  ${sectionMark} ${escapeHtml(w.name)}(${escapeHtml(w.code)}) ${meta ? `| ${meta}` : ''}`;
         };
 
         const parts: string[] = [
@@ -319,7 +319,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         }
         // Shadow 강제 신호 트리거 — forceBuyCodes로 buyList에 강제 포함
         await runAutoSignalScan({ forceBuyCodes: [code] }).catch(console.error);
-        await reply(`🔔 <b>${hit.name}(${code})</b> 수동 매수 신호 트리거 완료 (다음 스캔 주기에 체결)`);
+        await reply(`🔔 <b>${escapeHtml(hit.name)}(${escapeHtml(code)})</b> 수동 매수 신호 트리거 완료 (다음 스캔 주기에 체결)`);
         break;
       }
 
@@ -347,7 +347,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         const pending = fillMonitor.getPendingOrders().filter(o => o.status === 'PENDING' || o.status === 'PARTIAL');
         if (pending.length === 0) { await reply('✅ 미체결 주문 없음'); break; }
         const lines = pending.map(o =>
-          `• ${o.stockName}(${o.ordNo}) ${o.quantity}주 @${o.orderPrice.toLocaleString()} [${o.pollCount}/${10}회]`
+          `• ${escapeHtml(o.stockName)}(${escapeHtml(o.ordNo)}) ${o.quantity}주 @${o.orderPrice.toLocaleString()} [${o.pollCount}/${10}회]`
         ).join('\n');
         await reply(`⏳ <b>미체결 주문 (${pending.length}건)</b>\n${lines}`);
         break;
@@ -365,7 +365,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         for (const s of active) {
           const price = await fetchCurrentPrice(s.stockCode).catch(() => null);
           if (!price) {
-            lines.push(`• ${s.stockName} — 가격 조회 실패`);
+            lines.push(`• ${escapeHtml(s.stockName)} — 가격 조회 실패`);
             continue;
           }
           const pnlPct = ((price - s.shadowEntryPrice) / s.shadowEntryPrice) * 100;
@@ -375,7 +375,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           const targetDist = ((s.targetPrice - price) / price * 100).toFixed(1);
           const stopDist = ((price - (s.hardStopLoss ?? s.stopLoss)) / (s.hardStopLoss ?? s.stopLoss) * 100).toFixed(1);
           lines.push(
-            `${emoji} ${s.stockName} ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%` +
+            `${emoji} ${escapeHtml(s.stockName)} ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%` +
             ` (${pnlAmt >= 0 ? '+' : ''}${pnlAmt.toLocaleString()}원)` +
             `\n   목표까지 +${targetDist}% | 손절까지 -${stopDist}%`
           );
@@ -400,7 +400,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           const mode = s.mode === 'LIVE' ? '🔴' : '🟡';
           const status = s.status === 'PENDING' ? '⏳' : s.status === 'ACTIVE' ? '✅' : '◐';
           return (
-            `${mode}${status} <b>${s.stockName}</b> (${s.stockCode})\n` +
+            `${mode}${status} <b>${escapeHtml(s.stockName)}</b> (${escapeHtml(s.stockCode)})\n` +
             `   진입: ${s.shadowEntryPrice.toLocaleString()}원 × ${s.quantity}주\n` +
             `   손절: ${(s.hardStopLoss ?? s.stopLoss).toLocaleString()}원 | 목표: ${s.targetPrice.toLocaleString()}원\n` +
             `   진입시각: ${new Date(s.signalTime).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`
@@ -573,8 +573,8 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           const manualMark = w.addedBy === 'MANUAL' ? '👤' : w.addedBy === 'DART' ? '📢' : '🤖';
           const gate = w.gateScore !== undefined ? `Gate ${w.gateScore.toFixed(1)}` : 'Gate -';
           const rrr = w.rrr !== undefined ? `RRR 1:${w.rrr.toFixed(1)}` : '';
-          const sector = w.sector ?? '';
-          const profile = w.profileType ? `[${w.profileType}]` : '';
+          const sector = w.sector ? escapeHtml(w.sector) : '';
+          const profile = w.profileType ? `[${escapeHtml(w.profileType)}]` : '';
           const cooldown = w.cooldownUntil && new Date(w.cooldownUntil) > new Date()
             ? '🧊 쿨다운중' : '';
           const addedDate = new Date(w.addedAt).toLocaleDateString('ko-KR', {
@@ -583,12 +583,12 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           const meta = [gate, rrr, sector, profile].filter(Boolean).join(' · ');
 
           lines.push(
-            `${focusMark}${manualMark} <b>${w.name}</b> (${w.code}) ${cooldown}\n` +
+            `${focusMark}${manualMark} <b>${escapeHtml(w.name)}</b> (${escapeHtml(w.code)}) ${cooldown}\n` +
             `   💰 진입: ${w.entryPrice.toLocaleString()}원\n` +
             `   🛡️ 손절: ${w.stopLoss.toLocaleString()}원 | 🎯 목표: ${w.targetPrice.toLocaleString()}원\n` +
             `   📊 ${meta}\n` +
             `   📅 등록: ${addedDate}` +
-            (w.memo ? ` | 💬 ${w.memo}` : '')
+            (w.memo ? ` | 💬 ${escapeHtml(w.memo)}` : '')
           );
         }
 
