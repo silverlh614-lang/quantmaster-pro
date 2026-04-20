@@ -42,6 +42,52 @@ import {
   calcRRR,
 } from './riskManager.js';
 import { evaluatePortfolioRisk } from './portfolioRiskEngine.js';
+import { checkSectorExposureBefore } from './preOrderGuard.js';
+import { getSectorByCode } from '../screener/sectorMap.js';
+import { getExecutionCostConfig } from './executionCosts.js';
+import { classifySizingTier, canReserveProbingSlot, PROBING_MAX_SLOTS } from './sizingTier.js';
+import type { FullRegimeConfig } from '../../src/types/core.js';
+import type { MacroState } from '../persistence/macroStateRepo.js';
+
+// ── Phase 2-③: SELL_ONLY Top-K 예외 채널 평가 ─────────────────────────────────
+// regimeConfig.sellOnlyException.enabled=true 일 때만 작동.
+// 4중 AND 조건: liveGate≥minLiveGate && MTAS≥minMtas && sectorAligned && VIX<maxVix.
+// liveGate·MTAS 는 종목 단위라 이 평가에서는 매크로(sectorAligned + VIX) 만 선검증.
+interface SellOnlyExceptionDecision {
+  allow: boolean;
+  maxSlots: number;
+  kellyFactor: number;
+  minLiveGate: number;
+  minMtas: number;
+  reason: string;
+}
+function evaluateSellOnlyException(
+  cfg: FullRegimeConfig,
+  macro: MacroState | null,
+): SellOnlyExceptionDecision {
+  const exc = cfg.sellOnlyException;
+  if (!exc || !exc.enabled) {
+    return { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 99, minMtas: 11, reason: 'disabled' };
+  }
+  const vix = macro?.vix;
+  if (vix == null || vix >= exc.maxVix) {
+    return { allow: false, maxSlots: 0, kellyFactor: exc.kellyFactor, minLiveGate: exc.minLiveGate, minMtas: exc.minMtas, reason: `VIX ${vix ?? 'N/A'} ≥ ${exc.maxVix}` };
+  }
+  const rs = macro?.leadingSectorRS ?? 0;
+  const stage = macro?.sectorCycleStage;
+  const sectorAligned = rs >= 60 || stage === 'EARLY' || stage === 'MID';
+  if (!sectorAligned) {
+    return { allow: false, maxSlots: 0, kellyFactor: exc.kellyFactor, minLiveGate: exc.minLiveGate, minMtas: exc.minMtas, reason: `sector not aligned (RS ${rs}, stage ${stage ?? 'N/A'})` };
+  }
+  return {
+    allow: true,
+    maxSlots: Math.max(1, Math.floor(exc.maxSlots)),
+    kellyFactor: exc.kellyFactor,
+    minLiveGate: exc.minLiveGate,
+    minMtas: exc.minMtas,
+    reason: `ALIGNED (VIX ${vix} < ${exc.maxVix}, RS ${rs}, stage ${stage ?? '-'})`,
+  };
+}
 import { getLiveRegime } from './regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
@@ -211,11 +257,24 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
 
   // SELL_ONLY 모드: 신규 매수 없이 기존 포지션 모니터링만 실행
   // (adaptiveScanScheduler — VKOSPI 급등·R6_DEFENSE·마감 급변 구간 호출)
-  if (options?.sellOnly) {
-    console.log('[AutoTrade] SELL_ONLY 모드 — 포지션 모니터링 전용');
+  //
+  // Phase 2-③: regimeConfig.sellOnlyException 가 켜져 있고 macro 4중 조건이
+  // 모두 만족되면, maxSlots(1~2) 한정으로 신규 매수를 허용한다. Kelly 는 ×0.5
+  // 추가 감쇠, 종목별 liveGate·MTAS 재검증은 루프 안쪽에서 수행.
+  const sellOnlyExc = options?.sellOnly
+    ? evaluateSellOnlyException(regimeConfig, macroState)
+    : { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'not-sellOnly' };
+  if (options?.sellOnly && !sellOnlyExc.allow) {
+    console.log(`[AutoTrade] SELL_ONLY 모드 — 포지션 모니터링 전용 (예외 불가: ${sellOnlyExc.reason})`);
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return {};
+  }
+  if (options?.sellOnly && sellOnlyExc.allow) {
+    console.log(
+      `[AutoTrade] SELL_ONLY 예외 채널 활성 — ${sellOnlyExc.reason} | ` +
+      `maxSlots=${sellOnlyExc.maxSlots}, Kelly×${sellOnlyExc.kellyFactor}, Gate≥${sellOnlyExc.minLiveGate}, MTAS≥${sellOnlyExc.minMtas}`,
+    );
   }
 
   if (regime === 'R6_DEFENSE') {
@@ -281,7 +340,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // 최소 하한선 0.15 — 누적 패널티가 과도하게 쌓여 포지션이 의미 없이 작아지는 것을 방지
   const KELLY_FLOOR = 0.15;
   const ipsKelly = getIpsKellyMultiplier();
-  const rawKelly = regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier * ipsKelly;
+  // Phase 2-③: SELL_ONLY 예외 채널 진입 시 Kelly ×0.5 (kellyFactor) 추가 감쇠
+  const exceptionKellyFactor = sellOnlyExc.allow ? sellOnlyExc.kellyFactor : 1;
+  const rawKelly = regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier * ipsKelly * exceptionKellyFactor;
   const kellyMultiplier = Math.min(
     1.5,  // 상한 캡 (POST 부스트 구간에서도 최대 1.5배)
     Math.max(KELLY_FLOOR, rawKelly),
@@ -308,14 +369,18 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // INTRADAY 포지션은 별도 한도(MAX_INTRADAY_POSITIONS)로 관리하므로 제외한다.
   // BUG-09 fix: PRE_BREAKOUT(30% 선취매)도 제외 — 선취매는 탐색적 소량 포지션이므로
   // 스윙 한도에 포함하면 같은 종목의 일반 스윙 진입이 이중 차단됨.
+  // Phase 2-③: SELL_ONLY 예외 시 maxSlots 캡과 min 으로 제한.
+  const effectiveMaxPositions = sellOnlyExc.allow
+    ? Math.min(regimeConfig.maxPositions, sellOnlyExc.maxSlots)
+    : regimeConfig.maxPositions;
   const activeSwingCount = shadows.filter(
     (s) => isOpenShadowStatus(s.status) &&
            s.watchlistSource !== 'INTRADAY' &&
            s.watchlistSource !== 'PRE_BREAKOUT',
   ).length;
-  if (activeSwingCount >= regimeConfig.maxPositions) {
+  if (activeSwingCount >= effectiveMaxPositions) {
     console.log(
-      `[AutoTrade] 최대 동시 포지션 도달 (${activeSwingCount}/${regimeConfig.maxPositions}, 레짐 ${regime}) — 신규 진입 스킵`
+      `[AutoTrade] 최대 동시 포지션 도달 (${activeSwingCount}/${effectiveMaxPositions}${sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${regime}) — 신규 진입 스킵`
     );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
@@ -341,14 +406,36 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // 매수 승인 큐 (LIVE/Shadow 공통) — 승인 요청을 병렬 발송하고 루프 완료 후 일괄 처리
   // (순차 대기 시 종목당 최대 3분 × N종목 = 총 N×3분 블로킹 방지)
   const liveBuyQueue: LiveBuyTask[] = [];
+  // Phase 1 ①: 원자적 슬롯 예약 — 큐 푸시 시점에 예약 카운터 증가, 실패한 예약은 롤백.
+  // 루프 내 currentActive 만 보던 기존 로직은 같은 tick 안에서 이미 큐에 들어간 N-1개를
+  // 보지 못해 maxPositions 초과 승인을 허용했다(00:40 사건). reservedSlots 로 이를 차단.
+  let reservedSlots = 0;
+  // Phase 4-⑧(수정): sizingTier — PROBING 은 전체 maxPositions 안에서 최대 1슬롯 허용.
+  // 워치리스트 구조·총 포지션 수는 그대로 유지하고 Kelly 만 티어별로 차등 적용.
+  let probingReservedSlots = 0;
+  // Phase 1 ②: 섹터 노출 선검증용 — 현재 보유 + 같은 tick 예약분을 합산해 투영 비중 계산.
+  const currentSectorValue = new Map<string, number>();
+  for (const s of shadows) {
+    if (!isOpenShadowStatus(s.status) || s.watchlistSource === 'INTRADAY') continue;
+    const sec = getSectorByCode(s.stockCode) || '미분류';
+    const val = s.shadowEntryPrice * s.quantity;
+    currentSectorValue.set(sec, (currentSectorValue.get(sec) ?? 0) + val);
+  }
+  const pendingSectorValue = new Map<string, number>();
+  const reservedSectorValues: Array<{ sector: string; value: number }> = [];
+  // Phase 4-⑧(수정): 큐 인덱스별 티어 — 플러시 시 PROBING 실패 예약도 정확히 롤백.
+  const reservedTiers: Array<'PROBING' | 'OTHER'> = [];
 
   for (const stock of buyList) {
     // 아이디어 7: 루프 내에서도 포지션 수 재확인 (같은 스캔 중 복수 진입 방지)
     const currentActive = shadows.filter(
       (s) => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY',
     ).length;
-    if (currentActive >= regimeConfig.maxPositions) {
-      console.log(`[AutoTrade] 최대 포지션 도달 (${currentActive}/${regimeConfig.maxPositions}, 레짐 ${regime}) — 나머지 종목 스킵`);
+    const totalCommitted = currentActive + reservedSlots;
+    if (totalCommitted >= effectiveMaxPositions) {
+      console.log(
+        `[AutoTrade] 최대 포지션 도달 (활성 ${currentActive} + 예약 ${reservedSlots} = ${totalCommitted}/${effectiveMaxPositions}${sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${regime}) — 나머지 종목 스킵`,
+      );
       break;
     }
 
@@ -411,7 +498,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                  (isOpenShadowStatus(s.status) || s.signalTime.startsWith(today))
           );
           if (!followAlreadyDone && !isBlacklisted(stock.code)) {
-            const slippage = 0.003;
+            const slippage = getExecutionCostConfig().slippageRate;
             const followEntryPrice = Math.round(currentPrice * (1 + slippage));
 
             // BUG-08 fix: 추종 매수 시 새 진입가 기준 RRR 재검증
@@ -476,6 +563,15 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               alertMessage: alertMsg, logEvent: 'PRE_BREAKOUT_FOLLOWTHROUGH',
               onApproved: async () => { orderableCash = Math.max(0, orderableCash - followQty * followEntryPrice); },
             }));
+            // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
+            reservedSlots++;
+            reservedTiers.push('OTHER');
+            {
+              const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
+              const _val = followQty * followEntryPrice;
+              pendingSectorValue.set(_sec, (pendingSectorValue.get(_sec) ?? 0) + _val);
+              reservedSectorValues.push({ sector: _sec, value: _val });
+            }
           } else {
             console.log(`[PreBreakout] ${stock.name}(${stock.code}) 추종 매수 이미 실행됨 — 스킵`);
           }
@@ -530,7 +626,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                    s.signalTime.startsWith(today)
             );
             if (!pbAlreadyToday && !isBlacklisted(stock.code)) {
-              const slippage = 0.003;
+              const slippage = getExecutionCostConfig().slippageRate;
               const pbEntryPrice = Math.round(currentPrice * (1 + slippage));
               const gateScorePb = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
               // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 선취매에도 적용)
@@ -595,6 +691,15 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                   alertMessage: pbAlertMsg, logEvent: 'PRE_BREAKOUT_ENTRY',
                   onApproved: async () => { orderableCash = Math.max(0, orderableCash - pbQty * pbEntryPrice); },
                 }));
+                // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
+                reservedSlots++;
+                reservedTiers.push('OTHER');
+                {
+                  const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
+                  const _val = pbQty * pbEntryPrice;
+                  pendingSectorValue.set(_sec, (pendingSectorValue.get(_sec) ?? 0) + _val);
+                  reservedSectorValues.push({ sector: _sec, value: _val });
+                }
               }
             }
           }
@@ -711,6 +816,33 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         }
       }
 
+      // ── Phase 1-②: 섹터 노출 선검증 (승인 큐 투입 전, 같은 tick 의 pending 포함) ──
+      // 현재 보유 + 같은 스캔에서 이미 큐에 들어간 종목의 섹터 합산으로 투영 비중을 계산해
+      // 단일 섹터 > 40% 또는 상관 그룹 > 50% 를 사전 차단한다. portfolioRiskEngine 의
+      // 사후 점검은 그대로 남아 제2방어선 역할. 위반 시 해당 후보만 SKIP 해 다음 섹터로 교체.
+      {
+        const candidateSector = stock.sector || getSectorByCode(stock.code);
+        // 신규 진입 예상 금액 — 실제 quantity 계산 전이므로 positionPct × totalAssets 추정.
+        // 후속 포지션 사이징 결과와 10~30% 오차가 있을 수 있으나, 단일 섹터 40% 가드에
+        // 비하면 무시할 수준. 섹터 skip 판단용도의 보수적 추정이면 충분.
+        const estGateScore = stock.gateScore ?? 5;
+        const estRawPct = estGateScore >= 9 ? 0.12 : estGateScore >= 7 ? 0.08 : estGateScore >= 5 ? 0.05 : 0.03;
+        const estCandidateValue = totalAssets * estRawPct * kellyMultiplier;
+        const secGuard = checkSectorExposureBefore({
+          candidateSector,
+          candidateValue: estCandidateValue,
+          currentSectorValue,
+          pendingSectorValue,
+          totalAssets,
+        });
+        if (!secGuard.allowed) {
+          console.log(`[SectorPreGuard] ${stock.name}(${candidateSector ?? '?'}) ${secGuard.reason}`);
+          stageLog.sectorGuard = `BLOCK(${secGuard.projectedSectorWeight.toFixed(2)})`;
+          pushTrace();
+          continue;
+        }
+      }
+
       // ── 포트폴리오 리스크 엔진 — 섹터 비중/베타/일일 손실 통합 체크 ──────────
       {
         const prisk = await evaluatePortfolioRisk(stock.sector);
@@ -727,7 +859,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         }
       }
 
-      const slippage = 0.003;
+      const slippage = getExecutionCostConfig().slippageRate;
       const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));
 
       // ── 실시간 Gate 재평가 (타점 판단 연동) ──────────────────────────────────
@@ -815,11 +947,56 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         continue;
       }
 
+      // Phase 2-③: SELL_ONLY 예외 채널이면 liveGate·MTAS 재검증 (4중 조건의 종목 측면)
+      if (sellOnlyExc.allow) {
+        if (liveGateScore < sellOnlyExc.minLiveGate) {
+          console.log(
+            `[AutoTrade/SellOnlyExc] ${stock.name} liveGate ${liveGateScore.toFixed(2)} < ${sellOnlyExc.minLiveGate} — 예외 진입 차단`,
+          );
+          continue;
+        }
+        if (reCheckGate.mtas < sellOnlyExc.minMtas) {
+          console.log(
+            `[AutoTrade/SellOnlyExc] ${stock.name} MTAS ${reCheckGate.mtas.toFixed(1)} < ${sellOnlyExc.minMtas} — 예외 진입 차단`,
+          );
+          continue;
+        }
+      }
+
+      // Phase 4-⑧(수정): 신뢰도 티어 기반 사이징 — 카테고리 신설 대신 Kelly 만 차등.
+      // Gate 1 통과 프록시: liveGateScore ≥ getMinGateScore(regime).
+      // 섹터 정렬 프록시: leadingSectorRS ≥ 60 또는 sectorCycleStage ∈ {EARLY, MID}.
+      // conditionsMatched: 통과 조건 키 수.
+      const _gate1Pass = liveGateScore >= getMinGateScore(regime);
+      const _rs = macroState?.leadingSectorRS ?? 0;
+      const _stage = macroState?.sectorCycleStage;
+      const _sectorAligned = _rs >= 60 || _stage === 'EARLY' || _stage === 'MID';
+      const _conditionsMatched = reCheckGate.conditionKeys?.length ?? 0;
+      const tierDecision = classifySizingTier({
+        liveGate: liveGateScore, mtas: reCheckGate.mtas,
+        gate1Pass: _gate1Pass, sectorAligned: _sectorAligned,
+        conditionsMatched: _conditionsMatched,
+      });
+      if (tierDecision.tier === null) {
+        console.log(`[AutoTrade/SizingTier] ${stock.name} 티어 미달 — ${tierDecision.reason}`);
+        continue;
+      }
+      if (tierDecision.tier === 'PROBING' && !canReserveProbingSlot(probingReservedSlots)) {
+        console.log(
+          `[AutoTrade/SizingTier] ${stock.name} PROBING 슬롯 포화 (${probingReservedSlots}/${PROBING_MAX_SLOTS}) — 스킵`,
+        );
+        continue;
+      }
+      console.log(
+        `[AutoTrade/SizingTier] ${stock.name} → ${tierDecision.tier} (×${tierDecision.kellyFactor}) — ${tierDecision.reason}`,
+      );
+
       // 포지션 사이징: 실시간 Gate 결과 연동 (buyPipeline 헬퍼 사용)
       // CATALYST 섹션은 표준의 60%로 축소 — 촉매 신호는 단기 고리스크이므로 손실 제한
       const mtasMultiplier = computeMtasMultiplier(reCheckGate.mtas);
       const sectionFactor = stock.section === 'CATALYST' ? CATALYST_POSITION_FACTOR : 1.0;
-      const positionPct = computeRawPositionPct(gateScore) * kellyMultiplier * mtasMultiplier * sectionFactor;
+      const positionPct =
+        computeRawPositionPct(gateScore) * kellyMultiplier * mtasMultiplier * sectionFactor * tierDecision.kellyFactor;
 
       if (reCheckGate) {
         console.log(
@@ -827,6 +1004,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           `liveGate: ${liveGateScore.toFixed(1)} (stale: ${(stock.gateScore ?? 0)}) | ` +
           `MTAS: ${reCheckGate.mtas.toFixed(1)}/10 (×${mtasMultiplier}) | ` +
           `CS: ${reCheckGate.compressionScore.toFixed(2)} | ` +
+          `tier: ${tierDecision.tier}(×${tierDecision.kellyFactor}) | ` +
           `posPct: ${(positionPct * 100).toFixed(1)}%`
         );
       }
@@ -926,6 +1104,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           }
         },
       }));
+      // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
+      reservedSlots++;
+      // Phase 4-⑧(수정): PROBING 티어 전용 슬롯 카운터
+      if (tierDecision.tier === 'PROBING') probingReservedSlots++;
+      reservedTiers.push(tierDecision.tier === 'PROBING' ? 'PROBING' : 'OTHER');
+      {
+        const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
+        pendingSectorValue.set(_sec, (pendingSectorValue.get(_sec) ?? 0) + effectiveBudget);
+        reservedSectorValues.push({ sector: _sec, value: effectiveBudget });
+      }
     } catch (err: unknown) {
       console.error(`[AutoTrade] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
     }
@@ -935,10 +1123,34 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // 모든 승인 요청을 동시에 발송했다가 응답을 일괄 수거한 후 순차 실행
   if (liveBuyQueue.length > 0) {
     const approvals = await Promise.allSettled(liveBuyQueue.map((t) => t.approvalPromise));
+    let approved = 0, rejected = 0;
     for (let i = 0; i < liveBuyQueue.length; i++) {
       const result = approvals[i];
       const action: ApprovalAction = result.status === 'fulfilled' ? result.value : 'SKIP';
       await liveBuyQueue[i].execute(action);
+      if (action === 'APPROVE') {
+        approved++;
+      } else {
+        // Phase 1 ①: 실패한 예약은 롤백 — reservedSlots/pendingSectorValue 감소
+        rejected++;
+        reservedSlots = Math.max(0, reservedSlots - 1);
+        // Phase 4-⑧(수정): PROBING 예약도 롤백해 다음 tick 이 정확히 1 슬롯 재사용
+        if (reservedTiers[i] === 'PROBING') {
+          probingReservedSlots = Math.max(0, probingReservedSlots - 1);
+        }
+        const rel = reservedSectorValues[i];
+        if (rel) {
+          const cur = pendingSectorValue.get(rel.sector) ?? 0;
+          const next = Math.max(0, cur - rel.value);
+          if (next === 0) pendingSectorValue.delete(rel.sector);
+          else pendingSectorValue.set(rel.sector, next);
+        }
+      }
+    }
+    if (rejected > 0) {
+      console.log(
+        `[AutoTrade] 승인 큐 플러시 — 승인 ${approved} / 거절·스킵 ${rejected} → 예약 롤백 완료 (잔여 reservedSlots=${reservedSlots})`,
+      );
     }
   }
 
@@ -958,14 +1170,19 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       const today = new Date().toISOString().split('T')[0];
       // Intraday 병렬 승인 큐 (LIVE/Shadow 공통)
       const intradayLiveBuyQueue: LiveBuyTask[] = [];
+      // Phase 1 ①: Intraday 경로도 원자적 슬롯 예약 적용 (main 경로와 동일 원리)
+      let reservedIntradaySlots = 0;
 
       for (const stock of intradayBuyList) {
         // 포지션 수 재확인
         const currentIntradayActive = shadows.filter(
           (s) => isOpenShadowStatus(s.status) && s.watchlistSource === 'INTRADAY',
         ).length;
-        if (currentIntradayActive >= MAX_INTRADAY_POSITIONS) {
-          console.log(`[AutoTrade/Intraday] 최대 포지션 도달 (${currentIntradayActive}/${MAX_INTRADAY_POSITIONS}) — 나머지 스킵`);
+        const totalIntradayCommitted = currentIntradayActive + reservedIntradaySlots;
+        if (totalIntradayCommitted >= MAX_INTRADAY_POSITIONS) {
+          console.log(
+            `[AutoTrade/Intraday] 최대 포지션 도달 (활성 ${currentIntradayActive} + 예약 ${reservedIntradaySlots} = ${totalIntradayCommitted}/${MAX_INTRADAY_POSITIONS}) — 나머지 스킵`,
+          );
           break;
         }
 
@@ -997,7 +1214,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             continue;
           }
 
-          const slippage         = 0.003;
+          const slippage         = getExecutionCostConfig().slippageRate;
           const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));
 
           // 장중 손절: 경로별 차등 — 돌파형 -5% / 수급·눌림목형 -4%
@@ -1087,6 +1304,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               orderableCash = Math.max(0, orderableCash - effectiveBudget);
             },
           }));
+          // Phase 1 ①: 큐 푸시 시점에 Intraday 슬롯 예약 (플러시 후 실패 시 롤백)
+          reservedIntradaySlots++;
         } catch (err: unknown) {
           console.error(`[AutoTrade/Intraday] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
         }
@@ -1095,10 +1314,22 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       // ── intradayBuyList 병렬 승인 큐 플러시 ──────────────────────────────────
       if (intradayLiveBuyQueue.length > 0) {
         const intradayApprovals = await Promise.allSettled(intradayLiveBuyQueue.map((t) => t.approvalPromise));
+        let intradayApproved = 0, intradayRejected = 0;
         for (let i = 0; i < intradayLiveBuyQueue.length; i++) {
           const result = intradayApprovals[i];
           const action: ApprovalAction = result.status === 'fulfilled' ? result.value : 'SKIP';
           await intradayLiveBuyQueue[i].execute(action);
+          if (action === 'APPROVE') intradayApproved++;
+          else {
+            // Phase 1 ①: Intraday 실패 예약 롤백
+            intradayRejected++;
+            reservedIntradaySlots = Math.max(0, reservedIntradaySlots - 1);
+          }
+        }
+        if (intradayRejected > 0) {
+          console.log(
+            `[AutoTrade/Intraday] 승인 큐 플러시 — 승인 ${intradayApproved} / 거절·스킵 ${intradayRejected} → 예약 롤백 완료 (잔여 reservedIntradaySlots=${reservedIntradaySlots})`,
+          );
         }
       }
     }

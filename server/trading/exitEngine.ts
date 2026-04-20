@@ -9,6 +9,8 @@ import {
   fetchCurrentPrice, placeKisSellOrder,
 } from '../clients/kisClient.js';
 import { addSellOrder } from './fillMonitor.js';
+import { matchExitInvalidation, promoteInvalidationPatternIfRepeated } from './preMortemStructured.js';
+import { captureSnapshotsForOpenTrades } from '../learning/coldstartBootstrap.js';
 import { getRealtimePrice } from '../clients/kisStreamClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelSellSignal } from '../alerts/channelPipeline.js';
@@ -169,6 +171,15 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
   // L1 학습 훅 (아이디어 1) — 이번 루프에서 HIT_TARGET/HIT_STOP으로 전환된 stockCode를 수집하여
   // 루프 종료 후 setImmediate로 learningOrchestrator.onShadowResolved() 일괄 트리거.
   const resolvedNow = new Set<string>();
+
+  // Phase 3-⑨: 열려 있는 trade 에 대해 30/60/120분 mini-bar 스냅샷 포착 (약한 라벨).
+  // 실패해도 main exit 로직에 영향 없도록 격리.
+  try {
+    const captured = await captureSnapshotsForOpenTrades(shadows);
+    if (captured > 0) console.log(`[Coldstart] mini-bar snapshot ${captured}건 저장`);
+  } catch (e) {
+    console.warn('[Coldstart] snapshot capture 실패:', e instanceof Error ? e.message : e);
+  }
   for (const shadow of shadows) {
     // PENDING: Shadow 모드에서만 4분 경과 후 ACTIVE 전환.
     // LIVE 모드에서는 fillMonitor가 ORDER_SUBMITTED → ACTIVE 전환을 책임지므로
@@ -385,6 +396,23 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       });
       console.log(`[Shadow Close] HARD_STOP — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
       appendShadowLog({ event: 'HIT_STOP', ...shadow, stopLossExitType, soldQty });
+      // Phase 3-⑫: 구조화 Pre-Mortem 매칭 + 반복 패턴 자동 승급
+      {
+        const match = matchExitInvalidation(shadow, {
+          currentPrice,
+          currentRegime,
+          mtas: undefined,
+          ma60: undefined,
+          volume: undefined,
+          vkospiDayChange: undefined,
+        });
+        if (match) {
+          shadow.exitInvalidationMatch = {
+            id: match.id, matchedAt: new Date().toISOString(), observedValue: match.observedValue,
+          };
+          promoteInvalidationPatternIfRepeated(shadow);
+        }
+      }
       console.log(`[AutoTrade] ❌ ${shadow.stockName} 하드 스톱(${stopLossExitType}) ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
       const hardStopRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'STOP_LOSS');
       const hardStopTs = new Date().toISOString();

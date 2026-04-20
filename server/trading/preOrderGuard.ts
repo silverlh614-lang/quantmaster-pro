@@ -17,6 +17,9 @@
  *
  * 메모리 스파이크(heap) 는 별도 heartbeat 모니터링 경로에서 다룬다 (I/O 집약
  * 주문 경로에서 측정 노이즈 과다).
+ *
+ * Phase 1-②: 섹터 노출 선검증(checkSectorExposureBefore) — 주문 큐에 들어가기
+ * 전에 단일 섹터 편중을 차단. portfolioRiskEngine 은 제2방어선으로 유지한다.
  */
 
 import { recordIncident } from '../persistence/incidentLogRepo.js';
@@ -119,6 +122,131 @@ export function assertSafeOrder(ctx: PreOrderContext): void {
       { stockCode: ctx.stockCode, count, windowMs: ORDER_LOOP_WINDOW_MS },
     );
   }
+}
+
+// ── Phase 1-②: 섹터 노출 선검증 (Pre-Order Sector Guard) ──────────────────────
+//
+// 주문 큐에 들어가기 전에 단일 섹터 편중을 차단한다. portfolioRiskEngine 은
+// 사후 리밸런싱 로직으로 제2방어선에 남긴다(동일 엔진이 승인 후 재평가로 진입
+// 승인 뒤에 손절선 조임만 하던 약점을 해소).
+//
+// 기준선:
+//   - 단일 섹터 투영 비중 ≤ SECTOR_WEIGHT_LIMIT (기본 40%)
+//   - 상관 그룹 투영 비중 ≤ CORRELATION_GROUP_LIMIT (기본 50%)
+//
+// 위반 시 해당 후보만 SKIP → 상위 호출자는 다음 후보로 교체 가능.
+
+const SECTOR_WEIGHT_LIMIT = parseFloat(process.env.PRE_ORDER_SECTOR_LIMIT ?? '0.40');
+const CORRELATION_GROUP_LIMIT = parseFloat(process.env.PRE_ORDER_CORR_GROUP_LIMIT ?? '0.50');
+
+/**
+ * 상관 그룹 — 같은 거시 드라이버에 함께 움직이는 섹터 묶음.
+ * 동일 그룹 합산 비중이 CORRELATION_GROUP_LIMIT 을 넘으면 분산 붕괴로 간주.
+ */
+const CORRELATION_GROUPS: Record<string, string[]> = {
+  경기민감_대형: ['철강', '조선', '자동차', '화학', '에너지', '금융'],
+  성장_테크:     ['반도체', '소프트웨어', 'AI', '로봇', '통신'],
+  내수_방어:     ['통신', '유통', '바이오'],
+  배터리_차량:   ['이차전지', '자동차', '화학'],
+};
+
+function resolveGroup(sector: string): string | null {
+  for (const [group, sectors] of Object.entries(CORRELATION_GROUPS)) {
+    if (sectors.includes(sector)) return group;
+  }
+  return null;
+}
+
+export interface SectorExposureContext {
+  /** 진입 후보의 섹터 (미분류면 가드 skip) */
+  candidateSector: string | undefined | null;
+  /** 진입 후보의 예상 주문 금액 */
+  candidateValue: number;
+  /** 현재 보유 포지션의 섹터별 집계 금액 */
+  currentSectorValue: Map<string, number>;
+  /** 같은 tick 내 이미 승인 큐에 들어간 항목의 섹터별 합산 금액 */
+  pendingSectorValue: Map<string, number>;
+  /** 포트폴리오 기준 금액 — 총자산 또는 분모 기준. 0 이하면 skip. */
+  totalAssets: number;
+}
+
+export interface SectorExposureResult {
+  allowed: boolean;
+  reason?: string;
+  projectedSectorWeight: number;
+  projectedGroupWeight?: number;
+  group?: string;
+}
+
+/**
+ * 주문 큐 투입 전에 섹터/상관 그룹 투영 비중을 평가.
+ *   - 현재 보유 + 같은 tick 의 pending + 신규 후보를 모두 합산
+ *   - 분모는 totalAssets + pendingAdded + candidateValue (신규 자금 유입분 반영)
+ *   - 단일 섹터 비중이 SECTOR_WEIGHT_LIMIT 을 넘으면 차단
+ *   - 상관 그룹 비중이 CORRELATION_GROUP_LIMIT 을 넘으면 차단
+ *
+ * 섹터가 '미분류' 또는 비어있으면 allowed=true 로 통과(회귀 방지).
+ */
+export function checkSectorExposureBefore(
+  ctx: SectorExposureContext,
+): SectorExposureResult {
+  if (ctx.totalAssets <= 0) return { allowed: true, projectedSectorWeight: 0 };
+  const sector = (ctx.candidateSector ?? '').trim();
+  if (!sector || sector === '미분류') return { allowed: true, projectedSectorWeight: 0 };
+  if (ctx.candidateValue <= 0) return { allowed: true, projectedSectorWeight: 0 };
+
+  const pendingTotal = Array.from(ctx.pendingSectorValue.values())
+    .reduce((sum, v) => sum + v, 0);
+  // 분모는 보수적으로 "현재 총자산 + 이번 tick 신규 유입분" — 비중 상향 편향 방지.
+  const denom = ctx.totalAssets + pendingTotal + ctx.candidateValue;
+  if (denom <= 0) return { allowed: true, projectedSectorWeight: 0 };
+
+  const curSectorVal = ctx.currentSectorValue.get(sector) ?? 0;
+  const pendingSectorVal = ctx.pendingSectorValue.get(sector) ?? 0;
+  const projectedSectorValue = curSectorVal + pendingSectorVal + ctx.candidateValue;
+  const projectedSectorWeight = projectedSectorValue / denom;
+
+  if (projectedSectorWeight > SECTOR_WEIGHT_LIMIT) {
+    return {
+      allowed: false,
+      projectedSectorWeight,
+      reason:
+        `섹터 선검증 차단: ${sector} 투영 비중 ${(projectedSectorWeight * 100).toFixed(1)}% > ` +
+        `${(SECTOR_WEIGHT_LIMIT * 100).toFixed(0)}% (현재 ${curSectorVal.toLocaleString()}원 + 대기 ${pendingSectorVal.toLocaleString()}원 + 신규 ${ctx.candidateValue.toLocaleString()}원)`,
+    };
+  }
+
+  // 상관 그룹 체크 — 그룹에 속한 섹터들의 총합
+  const group = resolveGroup(sector);
+  if (group) {
+    const groupSectors = CORRELATION_GROUPS[group];
+    let groupValue = 0;
+    for (const s of groupSectors) {
+      groupValue += (ctx.currentSectorValue.get(s) ?? 0);
+      groupValue += (ctx.pendingSectorValue.get(s) ?? 0);
+    }
+    groupValue += ctx.candidateValue;
+    const projectedGroupWeight = groupValue / denom;
+    if (projectedGroupWeight > CORRELATION_GROUP_LIMIT) {
+      return {
+        allowed: false,
+        projectedSectorWeight,
+        projectedGroupWeight,
+        group,
+        reason:
+          `상관 그룹 선검증 차단: ${group} 투영 비중 ${(projectedGroupWeight * 100).toFixed(1)}% > ` +
+          `${(CORRELATION_GROUP_LIMIT * 100).toFixed(0)}% (포함 섹터: ${groupSectors.join(',')})`,
+      };
+    }
+    return { allowed: true, projectedSectorWeight, projectedGroupWeight, group };
+  }
+
+  return { allowed: true, projectedSectorWeight };
+}
+
+/** 테스트용 — 설정 상수 조회. */
+export function _getSectorExposureLimits(): { single: number; group: number } {
+  return { single: SECTOR_WEIGHT_LIMIT, group: CORRELATION_GROUP_LIMIT };
 }
 
 // ── 내부: kill switch 발사 ───────────────────────────────────────────────────

@@ -159,6 +159,13 @@ export function errorLogFile(yyyymm: string): string {
   return path.join(DATA_DIR, `error-log-${yyyymm}.jsonl`);
 }
 
+/**
+ * Phase 3-⑨ 콜드스타트 부트스트랩 — 진입 후 30·60·120분 시점의 mini-bar 스냅샷
+ * (return, MAE, MFE)을 약한 라벨로 저장. recommendationTracker 정식 라벨이
+ * 5건 미만일 때 0.3배 가중치로 학습 부트스트랩에 투입.
+ */
+export const COLDSTART_SNAPSHOTS_FILE = path.join(DATA_DIR, 'coldstart-snapshots.json');
+
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   // Railway 배포 시 파일시스템 초기화 경고

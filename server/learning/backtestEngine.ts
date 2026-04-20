@@ -14,6 +14,7 @@
 
 import { getRecommendations, type RecommendationRecord } from './recommendationTracker.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { computeNetPnL } from '../trading/executionCosts.js';
 
 const YF_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -118,36 +119,36 @@ function simulateTrade(
 ): BacktestTradeResult {
   const EXPIRE_DAYS = 30;
   let holdingDays   = 0;
+  // Phase 2-⑥: executionCosts 통합 — gross 수익률 대신 수수료·세금·슬리피지 차감 후 net.
+  const netPctAt = (exitPrice: number): number =>
+    computeNetPnL({ entryPrice: rec.priceAtRecommend, exitPrice, quantity: 1 }).netPct;
 
   for (const day of ohlcv) {
     holdingDays++;
     // 손절 체크 (저가 기준)
     if (day.low <= rec.stopLoss) {
-      const ret = ((rec.stopLoss - rec.priceAtRecommend) / rec.priceAtRecommend) * 100;
       return {
         id: rec.id, code: rec.stockCode,
         entryDate: rec.signalTime.slice(0, 10), exitDate: day.date,
-        outcome: 'LOSS', returnPct: parseFloat(ret.toFixed(2)),
+        outcome: 'LOSS', returnPct: parseFloat(netPctAt(rec.stopLoss).toFixed(2)),
         holdingDays, source: 'YAHOO_OHLCV',
       };
     }
     // 목표가 체크 (고가 기준)
     if (day.high >= rec.targetPrice) {
-      const ret = ((rec.targetPrice - rec.priceAtRecommend) / rec.priceAtRecommend) * 100;
       return {
         id: rec.id, code: rec.stockCode,
         entryDate: rec.signalTime.slice(0, 10), exitDate: day.date,
-        outcome: 'WIN', returnPct: parseFloat(ret.toFixed(2)),
+        outcome: 'WIN', returnPct: parseFloat(netPctAt(rec.targetPrice).toFixed(2)),
         holdingDays, source: 'YAHOO_OHLCV',
       };
     }
     // 30영업일 만료
     if (holdingDays >= EXPIRE_DAYS) {
-      const ret = ((day.close - rec.priceAtRecommend) / rec.priceAtRecommend) * 100;
       return {
         id: rec.id, code: rec.stockCode,
         entryDate: rec.signalTime.slice(0, 10), exitDate: day.date,
-        outcome: 'EXPIRED', returnPct: parseFloat(ret.toFixed(2)),
+        outcome: 'EXPIRED', returnPct: parseFloat(netPctAt(day.close).toFixed(2)),
         holdingDays, source: 'YAHOO_OHLCV',
       };
     }
@@ -163,11 +164,10 @@ function simulateTrade(
       holdingDays: 0, source: 'YAHOO_OHLCV',
     };
   }
-  const ret = ((last.close - rec.priceAtRecommend) / rec.priceAtRecommend) * 100;
   return {
     id: rec.id, code: rec.stockCode,
     entryDate: rec.signalTime.slice(0, 10), exitDate: last.date,
-    outcome: 'EXPIRED', returnPct: parseFloat(ret.toFixed(2)),
+    outcome: 'EXPIRED', returnPct: parseFloat(netPctAt(last.close).toFixed(2)),
     holdingDays, source: 'YAHOO_OHLCV',
   };
 }

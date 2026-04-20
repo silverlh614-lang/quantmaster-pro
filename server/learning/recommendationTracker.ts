@@ -3,6 +3,7 @@ import { RECOMMENDATIONS_FILE, REAL_TRADE_FLAG_FILE, ensureDataDir } from '../pe
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { loadShadowTrades, getWeightedPnlPct } from '../persistence/shadowTradeRepo.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
+import { computeNetPnL } from '../trading/executionCosts.js';
 
 /** v2 이후 fills 데이터가 있는 거래가 이 수에 도달해야 가중치 재조정이 허용된다. */
 export const CALIBRATION_MIN_TRADES = 30;
@@ -161,28 +162,36 @@ export async function evaluateRecommendations(): Promise<void> {
       const currentPrice = await fetchCurrentPrice(rec.stockCode).catch(() => null);
       if (!currentPrice) continue;
 
-      const returnPct = ((currentPrice - rec.priceAtRecommend) / rec.priceAtRecommend) * 100;
+      // Phase 2-⑥: 모든 returnPct 산출을 computeNetPnL().netPct 로 통일.
+      // 기존 gross 수익률은 왕복 비용 0.4~1.0% 를 무시해 자기학습이 낙관 편향된 RRR 로
+      // 가중치를 조정하던 문제를 해소한다.
       const ageMs     = Date.now() - new Date(rec.signalTime).getTime();
       const EXPIRE_MS = 30 * 24 * 60 * 60 * 1000;
+      const netPctAt = (exitPrice: number): number =>
+        computeNetPnL({
+          entryPrice: rec.priceAtRecommend,
+          exitPrice,
+          quantity: 1, // 비율(%) 산출용 — qty 는 상쇄됨
+        }).netPct;
 
       if (currentPrice <= rec.stopLoss) {
         rec.status       = 'LOSS';
-        rec.actualReturn = parseFloat((((rec.stopLoss - rec.priceAtRecommend) / rec.priceAtRecommend) * 100).toFixed(2));
+        rec.actualReturn = parseFloat(netPctAt(rec.stopLoss).toFixed(2));
         rec.resolvedAt   = new Date().toISOString();
         changed = true;
-        console.log(`[자기학습] ❌ LOSS: ${rec.stockName} ${rec.actualReturn}%`);
+        console.log(`[자기학습] ❌ LOSS(net): ${rec.stockName} ${rec.actualReturn}%`);
       } else if (currentPrice >= rec.targetPrice) {
         rec.status       = 'WIN';
-        rec.actualReturn = parseFloat((((rec.targetPrice - rec.priceAtRecommend) / rec.priceAtRecommend) * 100).toFixed(2));
+        rec.actualReturn = parseFloat(netPctAt(rec.targetPrice).toFixed(2));
         rec.resolvedAt   = new Date().toISOString();
         changed = true;
-        console.log(`[자기학습] ✅ WIN: ${rec.stockName} +${rec.actualReturn}%`);
+        console.log(`[자기학습] ✅ WIN(net): ${rec.stockName} +${rec.actualReturn}%`);
       } else if (ageMs > EXPIRE_MS) {
         rec.status       = 'EXPIRED';
-        rec.actualReturn = parseFloat(returnPct.toFixed(2));
+        rec.actualReturn = parseFloat(netPctAt(currentPrice).toFixed(2));
         rec.resolvedAt   = new Date().toISOString();
         changed = true;
-        console.log(`[자기학습] ⏱ EXPIRED: ${rec.stockName} ${rec.actualReturn}%`);
+        console.log(`[자기학습] ⏱ EXPIRED(net): ${rec.stockName} ${rec.actualReturn}%`);
       }
     } catch (e: unknown) {
       console.error(`[자기학습] ${rec.stockCode} 평가 실패:`, e instanceof Error ? e.message : e);

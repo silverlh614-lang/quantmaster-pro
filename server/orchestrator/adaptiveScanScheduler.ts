@@ -39,6 +39,11 @@ import { sendEmptyScanDecisionBroker, sendTelegramAlert } from '../alerts/telegr
 import { getEffectiveGateThreshold } from '../trading/gateConfig.js';
 import { canApplyToday } from '../persistence/overrideLedger.js';
 import { notifyEmptyScan, resetEmptyScanCounter } from './emptyScanPostmortem.js';
+import {
+  buildThresholdProposal, formatGateHistogram,
+  alreadyExecutedThisSession, markSessionExecuted,
+} from './thresholdSearchLoop.js';
+import { loadWatchlist } from '../persistence/watchlistRepo.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -258,13 +263,43 @@ export function recordScanResult(signalCount: number, opts?: { positionFull?: bo
           // 단순 경보가 아닌 3택 Decision Broker로 전환 — 운용자가 "도구를 든 판단자"로 서도록.
           const regime = getLiveRegime(loadMacroState());
           const usage = canApplyToday();
+          const currentThreshold = getEffectiveGateThreshold(regime);
           sendEmptyScanDecisionBroker({
             consecutiveEmptyScans,
             regime,
-            currentThreshold: getEffectiveGateThreshold(regime),
+            currentThreshold,
             usedToday: usage.used,
             dailyLimit: usage.limit,
           }).catch(console.error);
+
+          // Phase 5-⑪: Threshold Search Loop — 세션당 1회 gate 분포 + 섀도우 드라이런 제안
+          if (!alreadyExecutedThisSession()) {
+            markSessionExecuted();
+            try {
+              const watchlist = loadWatchlist();
+              const scores = watchlist
+                .map((w) => w.gateScore ?? 0)
+                .filter((s) => Number.isFinite(s));
+              // 누적 delta — getEffectiveGateThreshold 에 이미 반영돼 있으므로 0 으로 가정해도 무관하나,
+              // 정확한 한도 제어를 위해 baseline 과의 차이를 계산한다.
+              const proposal = buildThresholdProposal({
+                scores, baselineThreshold: currentThreshold, currentDelta: 0,
+              });
+              const hist = formatGateHistogram(proposal.histogram, proposal.total);
+              const body = proposal.shouldPropose
+                ? `📉 <b>[Threshold Search Loop] 임계치 하향 제안</b>\n` +
+                  `${proposal.reason}\n\n<pre>${hist}</pre>\n` +
+                  `<i>최종 적용은 Decision Broker 버튼으로 수동 승인 필요 — 세션당 1회, 최대 -1.0pt 까지.</i>`
+                : `🔬 <b>[Threshold Search Loop] 제안 보류</b>\n` +
+                  `${proposal.reason}\n\n<pre>${hist}</pre>`;
+              sendTelegramAlert(body, {
+                priority: 'HIGH', category: 'threshold_search',
+                dedupeKey: `threshold_search:${new Date().toISOString().slice(0, 10)}`,
+              }).catch(console.error);
+            } catch (e) {
+              console.error('[ThresholdSearchLoop] 실행 실패:', e instanceof Error ? e.message : e);
+            }
+          }
         }
       }
     }

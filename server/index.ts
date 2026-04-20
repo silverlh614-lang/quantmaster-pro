@@ -11,8 +11,8 @@ import { tradingOrchestrator } from "./orchestrator/tradingOrchestrator.js";
 import { sendTelegramAlert, setTelegramBotCommands } from "./alerts/telegramClient.js";
 import { DATA_DIR, verifyVolumeMount } from "./persistence/paths.js";
 
-// Railway/Gmail SMTP IPv6 라우팅 이슈 방어: IPv4 lookup을 우선한다.
-// 이후 생성되는 모든 nodemailer/fetch DNS 조회에 적용됨.
+// Railway/외부 API(fetch) IPv6 라우팅 이슈 방어: IPv4 lookup 우선.
+// Phase 5-⑩ 이메일 채널 제거 후에도 DART·KIS·Yahoo 등 외부 HTTP 호출에 유효.
 dns.setDefaultResultOrder('ipv4first');
 
 const __filename = fileURLToPath(import.meta.url);

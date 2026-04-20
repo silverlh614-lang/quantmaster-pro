@@ -246,6 +246,44 @@ export interface ServerShadowTrade {
    */
   preMortem?: string;
   /**
+   * Phase 3-⑫: 구조화된 Pre-Mortem (자유 문자열 대비 기계 매칭 가능).
+   * 모든 매수 승인 시 필수 기록. exitEngine 이 종결 시점에 어떤 invalidation
+   * 이 트리거되었는지 매칭하여 exitInvalidationMatch 필드에 기록한다.
+   */
+  preMortemStructured?: {
+    /** "왜 지금 매수하는가" — 진입 근거의 단일 핵심 명제 */
+    primaryThesis: string;
+    /** 어떤 구체 조건이 깨지면 thesis 가 무효화되는가 (기계 매칭 가능한 촉발 조건 목록) */
+    invalidationConditions: Array<{
+      id: string;                // 'MA60_BREAK' | 'VOLUME_DROP' | 'SECTOR_RS_DOWN' ...
+      description: string;       // 사람이 읽을 수 있는 설명
+      watch: Record<string, number | string>; // 측정 임계값 (예: { ma60: 68000 })
+    }>;
+    /** 손절 발동 구조 — 가격·레짐·ATR 기준의 구체 트리거 */
+    stopLossTrigger: {
+      hardStop: number;
+      regime: string;
+      rationale: string;         // 이 stop 이 왜 이 가격에 설정됐는지
+    };
+    /** 목표 달성 시나리오 — 목표가 + 예상 소요 기간 + 분할 익절 구조 */
+    targetScenario: {
+      targetPrice: number;
+      expectedDays: number;
+      rrr: number;
+      profitTrancheCount: number;
+    };
+  };
+  /**
+   * Phase 3-⑫: exitEngine 이 종결 시 preMortemStructured.invalidationConditions
+   * 중 어느 id 가 트리거되었는지 기록. 동일 id 가 전역 3회 이상 손절로 이어지면
+   * FailurePatternDB 로 자동 승급된다.
+   */
+  exitInvalidationMatch?: {
+    id: string;
+    matchedAt: string;
+    observedValue?: number | string;
+  };
+  /**
    * 포지션에 귀속된 모든 체결 이벤트 (매수 + 매도).
    * appendFill()로 추가하고 getWeightedPnlPct() / getTotalRealizedPnl()로 집계한다.
    * 기존 포지션은 fills가 없을 수 있음 — 레거시 returnPct로 폴백.
