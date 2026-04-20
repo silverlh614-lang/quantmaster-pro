@@ -17,8 +17,8 @@
  *   S5 DATA_INTEG  — Reconciliation / 강등 상태
  */
 
-import React from 'react';
-import { Activity, Database, LinkIcon, ShieldAlert, Sparkles } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Activity, Database, LinkIcon, RefreshCw, ShieldAlert, Sparkles } from 'lucide-react';
 import { Section } from '../../ui/section';
 import type { EngineStatus, BuyAuditData } from '../../api';
 import type { EngineHeartbeatInfo } from '../../hooks/autoTrade/useEngineHeartbeat';
@@ -42,6 +42,12 @@ interface CompositeVerdictCardProps {
   buyAudit: BuyAuditData | null;
   brokerConnected: boolean;
   dataIntegrityOk?: boolean;
+  /**
+   * 전체 하위 시스템 상태를 재조회한다. 브로커 링크가 끊긴 것처럼
+   * 보이지만 실제로는 일시적 네트워크/토큰 갱신 지연일 수 있으므로,
+   * 사용자가 즉시 회복을 시도할 수 있게 헤더에 새로고침 버튼을 노출한다.
+   */
+  onRefresh?: () => void;
 }
 
 const LEVEL_TONE: Record<VerdictLevel, { dot: string; ring: string; badge: string }> = {
@@ -125,19 +131,50 @@ function overallLevel(verdicts: SubsystemVerdict[]): VerdictLevel {
 }
 
 export function CompositeVerdictCard(props: CompositeVerdictCardProps) {
+  const { onRefresh } = props;
   const verdicts = deriveVerdicts(props);
   const overall = overallLevel(verdicts);
   const overallTone = LEVEL_TONE[overall];
+
+  // 버튼 클릭 직후 700ms 동안 회전 애니메이션 — 캐시 히트로 refetch가
+  // 즉시 끝나더라도 사용자에게 "갱신 요청이 반영되었다" 는 피드백을 준다.
+  const [spinning, setSpinning] = useState(false);
+  const spinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (spinTimer.current) clearTimeout(spinTimer.current);
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    if (!onRefresh) return;
+    setSpinning(true);
+    onRefresh();
+    if (spinTimer.current) clearTimeout(spinTimer.current);
+    spinTimer.current = setTimeout(() => setSpinning(false), 700);
+  }, [onRefresh]);
 
   return (
     <Section
       title="종합 판독"
       subtitle="Composite Verdict — 5 Subsystems"
       actions={
-        <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold ${overallTone.badge}`}>
-          <span className={`h-2.5 w-2.5 rounded-full ${overallTone.dot}`} />
-          {LEVEL_LABEL[overall]}
-        </div>
+        <>
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={spinning}
+              title="하위 시스템 상태 새로고침"
+              aria-label="하위 시스템 상태 새로고침"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70 transition-colors hover:bg-white/[0.1] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${spinning ? 'animate-spin' : ''}`} />
+            </button>
+          )}
+          <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold ${overallTone.badge}`}>
+            <span className={`h-2.5 w-2.5 rounded-full ${overallTone.dot}`} />
+            {LEVEL_LABEL[overall]}
+          </div>
+        </>
       }
     >
       <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
