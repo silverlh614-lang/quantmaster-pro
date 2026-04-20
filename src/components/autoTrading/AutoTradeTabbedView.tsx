@@ -77,6 +77,7 @@ export const AutoTradeTabbedView = forwardRef<HTMLDivElement, AutoTradeTabbedVie
           value={current}
           onChange={(id) => setActiveTab(id as AutoTradeTabId)}
           className="overflow-x-auto"
+          tone={viewMode === 'pro' ? 'amber' : 'blue'}
         />
 
         {current === 'positions' && (
