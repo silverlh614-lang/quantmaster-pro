@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { createMailTransporter } from './mailer.js';
+// Phase 5-⑩: 이메일 채널 제거 — DART 공시 알림은 Telegram 단일 채널로 통합.
 import { DART_FAST_SEEN_FILE, DART_LLM_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { type DartAlert, loadDartAlerts, saveDartAlerts } from '../persistence/dartRepo.js';
 import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
@@ -466,22 +466,10 @@ export async function applyDartToWatchlist(params: {
   }
 }
 
-async function sendDartAlert(alert: DartAlert): Promise<void> {
-  const transporter = createMailTransporter();
-  if (!transporter) return;
-  try {
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: process.env.REPORT_EMAIL ?? process.env.EMAIL_USER,
-      subject: `📢 [QuantMaster] 공시 알림: ${alert.corp_name} — ${alert.report_nm}`,
-      text: `종목코드: ${alert.stock_code}\n공시명: ${alert.report_nm}\n접수일: ${alert.rcept_dt}\n` +
-        `LLM 임팩트: ${alert.llmImpact ?? 'N/A'} (${alert.llmReason ?? ''})\n\n` +
-        `DART 바로가기: https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${alert.rcept_no}`,
-    });
-    console.log(`[DART] 📧 알림 발송 ✅: ${alert.corp_name} — ${alert.report_nm}`);
-  } catch (e) {
-    console.error(`[DART] 📧 알림 발송 ❌: ${alert.corp_name}`, e instanceof Error ? e.message : e);
-  }
+// Phase 5-⑩: 이메일 기반 DART 알림 제거 — Telegram 워치리스트 감성 알림으로 대체됨(상단 코드 경로).
+async function sendDartAlert(_alert: DartAlert): Promise<void> {
+  // no-op: 이메일 채널 폐쇄. DART MAJOR_POSITIVE + 워치리스트 조합은
+  // dartTelegramOpts('watchlist_sentiment') 경로에서 이미 발송 중.
 }
 
 /**

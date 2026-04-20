@@ -4,7 +4,7 @@
 //            POST /emergency-reset, POST /daily-loss, POST /send-email,
 //            POST /telegram/webhook, POST /telegram/test
 import { Router, Request, Response } from 'express';
-import { createMailTransporter } from '../alerts/mailer.js';
+// Phase 5-⑩: 이메일 채널 제거 — /send-email 는 410 Gone 을 반환한다.
 import {
   getEmergencyStop, setEmergencyStop,
   getDailyLossPct, setDailyLoss,
@@ -99,43 +99,12 @@ router.post('/daily-loss', (req: Request, res: Response) => {
   res.json({ ok: true, dailyLossPct: getDailyLossPct() });
 });
 
-router.post('/send-email', async (req: Request, res: Response) => {
-  const { email, subject, text, pdfBase64, filename } = req.body;
-
-  if (!email || !pdfBase64) {
-    return res.status(400).json({ error: "Email and PDF data are required" });
-  }
-
-  try {
-    const transporter = createMailTransporter();
-    if (!transporter) {
-      console.error("Email credentials missing in environment variables");
-      return res.status(500).json({
-        error: "이메일 서버가 설정되지 않았습니다.",
-        details: "서버의 EMAIL_USER 또는 EMAIL_PASS 환경 변수가 누락되었습니다. AI Studio 설정에서 이를 추가해주세요.",
-      });
-    }
-
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: subject || "Stock Analysis Report",
-      text: text || "Please find the attached stock analysis report.",
-      attachments: [
-        {
-          filename: filename || "report.pdf",
-          content: pdfBase64.split("base64,")[1],
-          encoding: 'base64' as const,
-        }
-      ],
-    };
-
-    await transporter.sendMail(mailOptions);
-    res.json({ success: true, message: "Email sent successfully" });
-  } catch (error: any) {
-    console.error("Error sending email:", error);
-    res.status(500).json({ error: "Failed to send email", details: error.message });
-  }
+// Phase 5-⑩: 이메일 엔드포인트 폐기 — 레거시 클라이언트가 호출할 수 있으므로 410 Gone 반환.
+router.post('/send-email', (_req: Request, res: Response) => {
+  res.status(410).json({
+    error: 'Email channel removed',
+    details: 'Phase 5-⑩: 이메일 채널 제거. Telegram 통합 채널로 전환되었습니다.',
+  });
 });
 
 // ─────────────────────────────────────────────────────────────

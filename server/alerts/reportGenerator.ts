@@ -1,4 +1,4 @@
-import { createMailTransporter } from './mailer.js';
+// Phase 5-⑩: 이메일 채널 제거 — 모든 리포트는 Telegram 통합 채널로 발송.
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
@@ -99,26 +99,9 @@ export async function generateDailyReport(): Promise<void> {
 
   await sendTelegramAlert(telegramMsg).catch(console.error);
 
-  // ── 이메일 발송 (보조 채널, 미설정 시 스킵) ────────────────────────────────
-  let emailSent = false;
-  const transporter = createMailTransporter();
-  if (transporter) {
-    const emailBody = narrative ? `${narrative}\n\n---\n${baseReport}` : baseReport;
-    try {
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: process.env.REPORT_EMAIL ?? process.env.EMAIL_USER,
-        subject: `[QuantMaster] ${today} 일일 리포트 — WIN률 ${winRate}%`,
-        text: emailBody,
-      });
-      emailSent = true;
-      console.log('[AutoTrade] 일일 리포트 이메일 발송 ✅ →', process.env.REPORT_EMAIL ?? process.env.EMAIL_USER);
-    } catch (e: unknown) {
-      console.error('[AutoTrade] 일일 리포트 이메일 발송 ❌', e instanceof Error ? e.message : e);
-    }
-  }
-
-  console.log(`[AutoTrade] 일일 리포트 완료 (Telegram ✅ / 이메일 ${emailSent ? '✅' : '❌'})`);
+  // Phase 5-⑩: 이메일 보조 채널 제거 — 모든 리포트는 Telegram 단일 채널로 발송.
+  // 기존 이메일 코드는 유지비용만 남기고 사용되지 않아 삭제함.
+  console.log('[AutoTrade] 일일 리포트 완료 (Telegram ✅)');
 }
 
 /**

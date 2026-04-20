@@ -728,7 +728,7 @@ export function DiscoverWatchlistPage({
               </div>
               <h2 className="text-lg sm:text-xl font-black text-theme-text mb-2 tracking-tight uppercase break-keep">분석 리포트 내보내기</h2>
               <p className="text-xs text-theme-text-muted font-bold leading-relaxed">
-                PDF 저장 또는 이메일 전송
+                PDF 저장
               </p>
             </div>
 
@@ -747,31 +747,7 @@ export function DiscoverWatchlistPage({
                 <Download className={cn("w-5 h-5 transition-colors", isGeneratingPDF ? "animate-pulse text-blue-400" : "text-theme-text-muted group-hover/btn:text-blue-400")} />
                 <span className={cn("text-sm font-black transition-colors", isGeneratingPDF ? "text-blue-400" : "text-theme-text group-hover/btn:text-blue-400")}>{isGeneratingPDF ? '생성중...' : 'PDF'}</span>
               </button>
-
-              <button
-                onClick={() => {
-                  if (!emailAddress && !localStorage.getItem('k-stock-email')) {
-                    const email = prompt('리포트를 전송할 이메일 주소를 입력해주세요:', 'silverlh614@gmail.com');
-                    if (email) {
-                      setEmailAddress(email);
-                      setTimeout(() => onSendEmail(), 100);
-                    }
-                  } else {
-                    onSendEmail();
-                  }
-                }}
-                disabled={isSendingEmail || loading}
-                className={cn(
-                  "flex items-center gap-3 px-5 py-3 rounded-xl transition-all duration-300 disabled:opacity-50 active:scale-95 group/btn border",
-                  isSendingEmail
-                    ? "bg-green-500/20 border-green-500/30"
-                    : "bg-white/5 hover:bg-green-500/20 border-theme-border hover:border-green-500/30"
-                )}
-                title="이메일로 전송"
-              >
-                <Mail className={cn("w-5 h-5 transition-colors", isSendingEmail ? "animate-pulse text-green-400" : "text-theme-text-muted group-hover/btn:text-green-400")} />
-                <span className={cn("text-sm font-black transition-colors", isSendingEmail ? "text-green-400" : "text-theme-text group-hover/btn:text-green-400")}>{isSendingEmail ? '전송중...' : 'Email'}</span>
-              </button>
+              {/* Phase 5-⑩: 이메일 발송 제거됨 — Telegram 통합 채널로 전환 */}
             </div>
           </div>
         </div>

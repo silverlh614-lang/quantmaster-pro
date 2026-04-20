@@ -12,7 +12,7 @@
 import fs from 'fs';
 import { T1_ACK_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { sendTelegramAlert, answerCallbackQuery, editMessageText } from './telegramClient.js';
-import { createMailTransporter } from './mailer.js';
+// Phase 5-⑩: 이메일 에스컬레이션 제거 — Telegram 재발송으로만 운용.
 
 export interface T1AckEntry {
   ackId: string;
@@ -124,9 +124,9 @@ export async function sweepPendingAcks(now: number = Date.now()): Promise<void> 
       continue;
     }
 
-    // 2차: 60분 경과 + 아직 에스컬레이션 안 했으면 이메일 발송
+    // Phase 5-⑩: 60분 경과 이메일 에스컬레이션 제거 — Telegram CRITICAL 재발송만 유지.
     if (age >= ESCALATE_AFTER_MS && !entry.escalated) {
-      await escalateViaEmail(entry).catch(e =>
+      await escalateViaTelegram(entry).catch(e =>
         console.error('[AckTracker] 에스컬레이션 실패:', e instanceof Error ? e.message : e));
       entry.escalated = true;
       savePending();
@@ -140,7 +140,7 @@ async function resendAckAlert(entry: T1AckEntry): Promise<void> {
     `<b>[재발송 — 미확인 T1 경보]</b>\n` +
     `원경보: ${entry.summary}\n` +
     `발송 시각: ${new Date(entry.sentAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}\n` +
-    `<i>30분 경과 미확인 → 자동 재발송. 이 알림도 미확인 시 30분 후 이메일로 에스컬레이션됩니다.</i>`;
+    `<i>30분 경과 미확인 → 자동 재발송. 미확인 시 30분 후 Telegram CRITICAL 에스컬레이션.</i>`;
 
   await sendTelegramAlert(text, {
     priority: 'CRITICAL',
@@ -151,25 +151,21 @@ async function resendAckAlert(entry: T1AckEntry): Promise<void> {
   });
 }
 
-async function escalateViaEmail(entry: T1AckEntry): Promise<void> {
-  const transporter = createMailTransporter();
-  const to = process.env.REPORT_EMAIL ?? process.env.EMAIL_USER;
-  if (!transporter || !to) {
-    console.warn('[AckTracker] 이메일 설정 없음 — 에스컬레이션 스킵');
-    return;
-  }
-  await transporter.sendMail({
-    from: process.env.EMAIL_USER,
-    to,
-    subject: `[QuantMaster] 🚨 T1 경보 60분 미확인 — ${entry.summary.slice(0, 60)}`,
-    text:
-      `60분 이상 미확인된 Tier 1 경보가 있습니다.\n\n` +
-      `요약: ${entry.summary}\n` +
-      `최초 발송: ${new Date(entry.sentAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}\n` +
-      `카테고리: ${entry.category ?? 'uncategorized'}\n` +
-      `dedupeKey: ${entry.dedupeKey ?? '(없음)'}\n\n` +
-      `텔레그램에서 [확인] 버튼을 눌러 루프를 닫아 주세요.`,
-  });
+async function escalateViaTelegram(entry: T1AckEntry): Promise<void> {
+  await sendTelegramAlert(
+    `🚨 <b>[T1 경보 60분 미확인 — 에스컬레이션]</b>\n` +
+    `요약: ${entry.summary}\n` +
+    `최초 발송: ${new Date(entry.sentAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}\n` +
+    `카테고리: ${entry.category ?? 'uncategorized'}\n\n` +
+    `<i>60분 이상 미확인 — 즉시 [확인] 또는 [긴급 대응중] 버튼으로 루프를 닫아 주세요.</i>`,
+    {
+      priority: 'CRITICAL',
+      tier: 'T1_ALARM',
+      dedupeKey: `t1_ack_escalate:${entry.ackId}`,
+      category: 'ack_escalate',
+      replyMarkup: buildAckReplyMarkup(entry.ackId),
+    },
+  );
 }
 
 /** [✅ 확인] [🔥 긴급 대응중] 2-택 ACK 버튼 셋. */
