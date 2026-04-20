@@ -167,6 +167,24 @@ export interface FullRegimeConfig {
   // R6 전용
   emergencyExit?: string;      // 블랙스완 시 즉시 청산 방식
   cooldown?: string;           // 매수 재개 전 냉각 기간
+
+  // Phase 2-③: SELL_ONLY 모드 Top-K 예외 채널 — 기본 OFF (optional).
+  // ALIGNED 상태에서도 점심/마감 전역 차단으로 진입을 놓치던 문제를 보완.
+  // 4중 AND 조건(liveGate≥min, MTAS≥min, sectorAligned, VIX<max) 모두 만족 시에만
+  // maxSlots 만큼 매수 허용. Kelly 는 kellyFactor 로 추가 감쇠.
+  sellOnlyException?: {
+    enabled: boolean;
+    /** 허용 슬롯 수 (예: 1~2) */
+    maxSlots: number;
+    /** liveGate(+volumeClockBonus) 최소값 */
+    minLiveGate: number;
+    /** MTAS 최소값 (0~10) */
+    minMtas: number;
+    /** VIX 최대값 — 이 값 미만이어야 허용 */
+    maxVix: number;
+    /** Kelly 추가 감쇠 배율 (기본 0.5) */
+    kellyFactor: number;
+  };
 }
 
 /** getRegimeConfig()가 반환하는 경량 Gate·Kelly 설정 (서버 autoTradeEngine 호환용) */

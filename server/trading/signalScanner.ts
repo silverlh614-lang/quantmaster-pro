@@ -44,6 +44,49 @@ import {
 import { evaluatePortfolioRisk } from './portfolioRiskEngine.js';
 import { checkSectorExposureBefore } from './preOrderGuard.js';
 import { getSectorByCode } from '../screener/sectorMap.js';
+import { getExecutionCostConfig } from './executionCosts.js';
+import type { FullRegimeConfig } from '../../src/types/core.js';
+import type { MacroState } from '../persistence/macroStateRepo.js';
+
+// ── Phase 2-③: SELL_ONLY Top-K 예외 채널 평가 ─────────────────────────────────
+// regimeConfig.sellOnlyException.enabled=true 일 때만 작동.
+// 4중 AND 조건: liveGate≥minLiveGate && MTAS≥minMtas && sectorAligned && VIX<maxVix.
+// liveGate·MTAS 는 종목 단위라 이 평가에서는 매크로(sectorAligned + VIX) 만 선검증.
+interface SellOnlyExceptionDecision {
+  allow: boolean;
+  maxSlots: number;
+  kellyFactor: number;
+  minLiveGate: number;
+  minMtas: number;
+  reason: string;
+}
+function evaluateSellOnlyException(
+  cfg: FullRegimeConfig,
+  macro: MacroState | null,
+): SellOnlyExceptionDecision {
+  const exc = cfg.sellOnlyException;
+  if (!exc || !exc.enabled) {
+    return { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 99, minMtas: 11, reason: 'disabled' };
+  }
+  const vix = macro?.vix;
+  if (vix == null || vix >= exc.maxVix) {
+    return { allow: false, maxSlots: 0, kellyFactor: exc.kellyFactor, minLiveGate: exc.minLiveGate, minMtas: exc.minMtas, reason: `VIX ${vix ?? 'N/A'} ≥ ${exc.maxVix}` };
+  }
+  const rs = macro?.leadingSectorRS ?? 0;
+  const stage = macro?.sectorCycleStage;
+  const sectorAligned = rs >= 60 || stage === 'EARLY' || stage === 'MID';
+  if (!sectorAligned) {
+    return { allow: false, maxSlots: 0, kellyFactor: exc.kellyFactor, minLiveGate: exc.minLiveGate, minMtas: exc.minMtas, reason: `sector not aligned (RS ${rs}, stage ${stage ?? 'N/A'})` };
+  }
+  return {
+    allow: true,
+    maxSlots: Math.max(1, Math.floor(exc.maxSlots)),
+    kellyFactor: exc.kellyFactor,
+    minLiveGate: exc.minLiveGate,
+    minMtas: exc.minMtas,
+    reason: `ALIGNED (VIX ${vix} < ${exc.maxVix}, RS ${rs}, stage ${stage ?? '-'})`,
+  };
+}
 import { getLiveRegime } from './regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
@@ -213,11 +256,24 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
 
   // SELL_ONLY 모드: 신규 매수 없이 기존 포지션 모니터링만 실행
   // (adaptiveScanScheduler — VKOSPI 급등·R6_DEFENSE·마감 급변 구간 호출)
-  if (options?.sellOnly) {
-    console.log('[AutoTrade] SELL_ONLY 모드 — 포지션 모니터링 전용');
+  //
+  // Phase 2-③: regimeConfig.sellOnlyException 가 켜져 있고 macro 4중 조건이
+  // 모두 만족되면, maxSlots(1~2) 한정으로 신규 매수를 허용한다. Kelly 는 ×0.5
+  // 추가 감쇠, 종목별 liveGate·MTAS 재검증은 루프 안쪽에서 수행.
+  const sellOnlyExc = options?.sellOnly
+    ? evaluateSellOnlyException(regimeConfig, macroState)
+    : { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'not-sellOnly' };
+  if (options?.sellOnly && !sellOnlyExc.allow) {
+    console.log(`[AutoTrade] SELL_ONLY 모드 — 포지션 모니터링 전용 (예외 불가: ${sellOnlyExc.reason})`);
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return {};
+  }
+  if (options?.sellOnly && sellOnlyExc.allow) {
+    console.log(
+      `[AutoTrade] SELL_ONLY 예외 채널 활성 — ${sellOnlyExc.reason} | ` +
+      `maxSlots=${sellOnlyExc.maxSlots}, Kelly×${sellOnlyExc.kellyFactor}, Gate≥${sellOnlyExc.minLiveGate}, MTAS≥${sellOnlyExc.minMtas}`,
+    );
   }
 
   if (regime === 'R6_DEFENSE') {
@@ -283,7 +339,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // 최소 하한선 0.15 — 누적 패널티가 과도하게 쌓여 포지션이 의미 없이 작아지는 것을 방지
   const KELLY_FLOOR = 0.15;
   const ipsKelly = getIpsKellyMultiplier();
-  const rawKelly = regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier * ipsKelly;
+  // Phase 2-③: SELL_ONLY 예외 채널 진입 시 Kelly ×0.5 (kellyFactor) 추가 감쇠
+  const exceptionKellyFactor = sellOnlyExc.allow ? sellOnlyExc.kellyFactor : 1;
+  const rawKelly = regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier * ipsKelly * exceptionKellyFactor;
   const kellyMultiplier = Math.min(
     1.5,  // 상한 캡 (POST 부스트 구간에서도 최대 1.5배)
     Math.max(KELLY_FLOOR, rawKelly),
@@ -310,14 +368,18 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // INTRADAY 포지션은 별도 한도(MAX_INTRADAY_POSITIONS)로 관리하므로 제외한다.
   // BUG-09 fix: PRE_BREAKOUT(30% 선취매)도 제외 — 선취매는 탐색적 소량 포지션이므로
   // 스윙 한도에 포함하면 같은 종목의 일반 스윙 진입이 이중 차단됨.
+  // Phase 2-③: SELL_ONLY 예외 시 maxSlots 캡과 min 으로 제한.
+  const effectiveMaxPositions = sellOnlyExc.allow
+    ? Math.min(regimeConfig.maxPositions, sellOnlyExc.maxSlots)
+    : regimeConfig.maxPositions;
   const activeSwingCount = shadows.filter(
     (s) => isOpenShadowStatus(s.status) &&
            s.watchlistSource !== 'INTRADAY' &&
            s.watchlistSource !== 'PRE_BREAKOUT',
   ).length;
-  if (activeSwingCount >= regimeConfig.maxPositions) {
+  if (activeSwingCount >= effectiveMaxPositions) {
     console.log(
-      `[AutoTrade] 최대 동시 포지션 도달 (${activeSwingCount}/${regimeConfig.maxPositions}, 레짐 ${regime}) — 신규 진입 스킵`
+      `[AutoTrade] 최대 동시 포지션 도달 (${activeSwingCount}/${effectiveMaxPositions}${sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${regime}) — 신규 진입 스킵`
     );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
@@ -364,9 +426,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       (s) => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY',
     ).length;
     const totalCommitted = currentActive + reservedSlots;
-    if (totalCommitted >= regimeConfig.maxPositions) {
+    if (totalCommitted >= effectiveMaxPositions) {
       console.log(
-        `[AutoTrade] 최대 포지션 도달 (활성 ${currentActive} + 예약 ${reservedSlots} = ${totalCommitted}/${regimeConfig.maxPositions}, 레짐 ${regime}) — 나머지 종목 스킵`,
+        `[AutoTrade] 최대 포지션 도달 (활성 ${currentActive} + 예약 ${reservedSlots} = ${totalCommitted}/${effectiveMaxPositions}${sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${regime}) — 나머지 종목 스킵`,
       );
       break;
     }
@@ -430,7 +492,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                  (isOpenShadowStatus(s.status) || s.signalTime.startsWith(today))
           );
           if (!followAlreadyDone && !isBlacklisted(stock.code)) {
-            const slippage = 0.003;
+            const slippage = getExecutionCostConfig().slippageRate;
             const followEntryPrice = Math.round(currentPrice * (1 + slippage));
 
             // BUG-08 fix: 추종 매수 시 새 진입가 기준 RRR 재검증
@@ -557,7 +619,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                    s.signalTime.startsWith(today)
             );
             if (!pbAlreadyToday && !isBlacklisted(stock.code)) {
-              const slippage = 0.003;
+              const slippage = getExecutionCostConfig().slippageRate;
               const pbEntryPrice = Math.round(currentPrice * (1 + slippage));
               const gateScorePb = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
               // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 선취매에도 적용)
@@ -789,7 +851,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         }
       }
 
-      const slippage = 0.003;
+      const slippage = getExecutionCostConfig().slippageRate;
       const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));
 
       // ── 실시간 Gate 재평가 (타점 판단 연동) ──────────────────────────────────
@@ -875,6 +937,22 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           `[AutoTrade] ${stock.name} MTAS ${reCheckGate.mtas.toFixed(1)}/10 진입 금지 — 타임프레임 불일치`
         );
         continue;
+      }
+
+      // Phase 2-③: SELL_ONLY 예외 채널이면 liveGate·MTAS 재검증 (4중 조건의 종목 측면)
+      if (sellOnlyExc.allow) {
+        if (liveGateScore < sellOnlyExc.minLiveGate) {
+          console.log(
+            `[AutoTrade/SellOnlyExc] ${stock.name} liveGate ${liveGateScore.toFixed(2)} < ${sellOnlyExc.minLiveGate} — 예외 진입 차단`,
+          );
+          continue;
+        }
+        if (reCheckGate.mtas < sellOnlyExc.minMtas) {
+          console.log(
+            `[AutoTrade/SellOnlyExc] ${stock.name} MTAS ${reCheckGate.mtas.toFixed(1)} < ${sellOnlyExc.minMtas} — 예외 진입 차단`,
+          );
+          continue;
+        }
       }
 
       // 포지션 사이징: 실시간 Gate 결과 연동 (buyPipeline 헬퍼 사용)
@@ -1091,7 +1169,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             continue;
           }
 
-          const slippage         = 0.003;
+          const slippage         = getExecutionCostConfig().slippageRate;
           const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));
 
           // 장중 손절: 경로별 차등 — 돌파형 -5% / 수급·눌림목형 -4%

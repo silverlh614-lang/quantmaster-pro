@@ -22,6 +22,7 @@ import {
   type ServerShadowTrade,
 } from '../persistence/shadowTradeRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { computeNetPnL, applyRoundTripCostToPct } from '../trading/executionCosts.js';
 
 const DRIFT_THRESHOLD_PCT = 2.0; // %p
 const TARGET_BOOST_MIN = 0.90;
@@ -79,8 +80,32 @@ function clamp(v: number, lo: number, hi: number): number {
 
 function closedReturn(trade: ServerShadowTrade): number | null {
   if (trade.status !== 'HIT_TARGET' && trade.status !== 'HIT_STOP') return null;
-  const pnl = getWeightedPnlPct(trade);
-  return Number.isFinite(pnl) ? pnl : null;
+  // Phase 2-⑥: executionCosts 통합 — fills 가 있으면 수량 가중 net P&L 로,
+  // 없으면 getWeightedPnlPct(gross) 에서 왕복 비용을 차감해 근사.
+  const sells = (trade.fills ?? []).filter(f => f.type === 'SELL');
+  if (sells.length > 0 && trade.shadowEntryPrice > 0) {
+    let totalQty = 0;
+    let totalNetPnl = 0;
+    let totalEntryVal = 0;
+    for (const f of sells) {
+      const br = computeNetPnL({
+        entryPrice: trade.shadowEntryPrice,
+        exitPrice:  f.price,
+        quantity:   f.qty,
+        // 시장 정보 없음 → 기본 'KOSPI' (보수적으로 고비용 선택)
+      });
+      totalQty += f.qty;
+      totalNetPnl += br.net;
+      totalEntryVal += trade.shadowEntryPrice * f.qty;
+    }
+    if (totalEntryVal <= 0) return null;
+    const netPct = (totalNetPnl / totalEntryVal) * 100;
+    return Number.isFinite(netPct) ? netPct : null;
+  }
+  // 레거시 trade.returnPct 경로 — 왕복 비용을 일괄 차감
+  const gross = getWeightedPnlPct(trade);
+  if (!Number.isFinite(gross)) return null;
+  return applyRoundTripCostToPct(gross, 'KOSPI', true);
 }
 
 /**
