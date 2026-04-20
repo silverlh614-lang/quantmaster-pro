@@ -219,6 +219,7 @@ export function AutoTradePage() {
               buyAudit={buyAudit}
               brokerConnected={data.broker.connected}
               dataIntegrityOk={!data.control.engineStatus.includes('ERROR')}
+              onRefresh={refresh}
             />
           </FadeInOnScroll>
         )}
