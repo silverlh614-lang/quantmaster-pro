@@ -600,8 +600,13 @@ let _cachedBalance: number | null = null;
  * 잔고 API 를 실제로 호출해도 되는 시각인지 — KST 07:00~15:59 만 true.
  * - 02:00~06:59: KIS 서버 정기 점검 (→ 500 반복)
  * - 16:00~: 장마감 이후 (→ 장외 조회, 불안정)
+ *
+ * KIS_ACCOUNT_BALANCE_DISABLE=true 이면 시간대와 무관하게 항상 false — KIS 서버가
+ * 영업시간에도 TTTC8434R 을 계속 500 으로 반환하는 장애 상황에서 재시도 폭주와
+ * 회로차단 로그 스팸을 막기 위한 Kill-switch.
  */
 export function isKisBalanceQueryAllowed(now: Date = new Date()): boolean {
+  if (process.env.KIS_ACCOUNT_BALANCE_DISABLE === 'true') return false;
   const kstHour = (now.getUTCHours() + 9) % 24;
   return kstHour >= 7 && kstHour < 16;
 }
