@@ -82,14 +82,36 @@ const DEFAULT_BASE = 'https://data-dbg.krx.co.kr/svc/apis';
 const REQUEST_TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
+/**
+ * Base URL 우선순위:
+ *   1. KRX_OPENAPI_BASE (레거시)
+ *   2. KRX_API_BASE (블루프린트 표준 — 호스트만 입력돼도 /svc/apis 자동 부착)
+ *   3. https://data-dbg.krx.co.kr/svc/apis
+ * 블루프린트는 KRX_API_BASE=http://data-dbg.krx.co.kr 처럼 호스트만 지정하므로
+ * 경로 prefix(/svc/apis)가 없으면 자동으로 붙여 과거 호환을 유지한다.
+ */
 function readBaseUrl(): string {
-  return (process.env.KRX_OPENAPI_BASE ?? DEFAULT_BASE).replace(/\/+$/, '');
+  const legacy = process.env.KRX_OPENAPI_BASE?.trim();
+  if (legacy) return legacy.replace(/\/+$/, '');
+  const canonical = process.env.KRX_API_BASE?.trim();
+  if (canonical) {
+    const cleaned = canonical.replace(/\/+$/, '');
+    return /\/svc\/apis$/i.test(cleaned) ? cleaned : `${cleaned}/svc/apis`;
+  }
+  return DEFAULT_BASE;
 }
+/**
+ * Auth key 우선순위:
+ *   1. KRX_API_KEY (블루프린트 표준 — .env.example 에 기재)
+ *   2. KRX_OPENAPI_AUTH_KEY (레거시 호환)
+ */
 function readAuthKey(): string {
+  const canonical = (process.env.KRX_API_KEY ?? '').trim();
+  if (canonical) return canonical;
   return (process.env.KRX_OPENAPI_AUTH_KEY ?? '').trim();
 }
 function readDisabled(): boolean {
-  return process.env.KRX_OPENAPI_DISABLED === 'true';
+  return process.env.KRX_OPENAPI_DISABLED === 'true' || process.env.KRX_API_DISABLED === 'true';
 }
 
 // 엔드포인트 경로 — KRX가 구조를 바꿀 경우 env로 오버라이드 가능.
@@ -193,8 +215,10 @@ function extractRows(raw: KrxOpenApiResponse | null): Record<string, string | nu
  * - 서킷브레이커로 감싸 연속 실패를 단락시킨다.
  * - AbortSignal 타임아웃으로 hung 호출 방지.
  * - AUTH_KEY 미설정·DISABLED 플래그 시 즉시 null.
+ *
+ * `export` — `krxClient.ts` 블루프린트 파사드가 재사용한다.
  */
-async function krxGet(
+export async function krxGet(
   endpoint: string,
   params: Record<string, string>,
 ): Promise<KrxOpenApiResponse | null> {

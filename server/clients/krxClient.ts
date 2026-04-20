@@ -13,7 +13,8 @@
  * 설계 원칙:
  *   1. 네트워크 실패·파싱 실패·JSON 이상은 전부 [] (빈 배열) 반환. throw 하지 않는다.
  *   2. 메모리 캐시 (TTL 10분) — 반복 호출에도 API 부하를 주지 않는다.
- *   3. KRX_API_BASE 환경변수로 프라이빗 라우팅(사내 프록시 등) 가능.
+ *   3. KRX_PUBLIC_API_BASE 환경변수로 공개 엔드포인트 라우팅(사내 프록시 등) 가능.
+ *      ※ 블루프린트의 KRX_API_BASE 는 인증 OpenAPI 전용이므로 네임스페이스를 분리했다.
  *   4. KRX_API_DISABLED=true 면 호출 없이 즉시 빈 배열 — 네트워크가 막힌 환경 보호.
  *
  * KRX 공개 엔드포인트는 HTML 폼을 통한 동적 JSON 응답을 제공한다
@@ -24,6 +25,19 @@
  *
  * 호출자가 날짜를 넘기지 않으면 "직전 영업일" 개념으로 KST 오늘 하루 전을 사용한다.
  */
+
+import {
+  krxGet as _openApiGet,
+  fetchKospiDailyTrade,
+  fetchKosdaqDailyTrade,
+  fetchKospiIndexDaily,
+  fetchKosdaqIndexDaily,
+  fetchKrxIndexDaily,
+  isKrxOpenApiHealthy,
+  getKrxOpenApiStatus,
+  type KrxStockDailyRow,
+  type KrxIndexDailyRow,
+} from './krxOpenApi.js';
 
 // ── 타입 ─────────────────────────────────────────────────────────────────────
 
@@ -56,7 +70,14 @@ export interface KrxShortBalanceRow {
 
 // ── 설정 ──────────────────────────────────────────────────────────────────────
 
-const KRX_BASE = process.env.KRX_API_BASE ?? 'http://data.krx.co.kr';
+// KRX_PUBLIC_API_BASE 가 우선. 블루프린트에서 KRX_API_BASE 는 인증 OpenAPI 를 가리키므로,
+// 동일한 변수로 두 엔드포인트를 함께 오버라이드할 수 없다. 과거 배포에서 KRX_API_BASE 가
+// data.krx.co.kr(공개) 호스트를 담고 있던 경우에만 레거시 호환으로 수용한다.
+const _legacyKrxBase = (process.env.KRX_API_BASE ?? '').trim();
+const _legacyPublic =
+  /data\.krx\.co\.kr(?!.*\/svc\/apis)/.test(_legacyKrxBase) ? _legacyKrxBase : '';
+const KRX_BASE =
+  (process.env.KRX_PUBLIC_API_BASE ?? _legacyPublic) || 'http://data.krx.co.kr';
 const KRX_JSON_PATH = '/comm/bldAttendant/getJsonData.cmd';
 const KRX_DISABLED = process.env.KRX_API_DISABLED === 'true';
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -328,4 +349,129 @@ export function getKrxStatus(): {
     disabled: KRX_DISABLED,
     cacheKeys: Array.from(_cache.keys()),
   };
+}
+
+// ── 블루프린트 파사드 (경로 A: KRX Open API 인증) ────────────────────────────
+// 공개 엔드포인트(위)와 인증 Open API 를 블루프린트 네이밍으로 노출한다.
+// 호출자는 fetchKrx* 계열 한 곳만 보면 되고, kisClient.ts 의 getKisToken/kisGet
+// 구조와 대칭된다. 실제 HTTP·서킷브레이커 구현은 krxOpenApi.ts 가 담당하므로
+// 이 섹션은 얇은 파사드이며 중복 구현이 없다.
+//
+// 환경변수 계약:
+//   KRX_API_KEY      — openapi.krx.co.kr 발급 인증키 (블루프린트 표준)
+//   KRX_API_BASE     — 기본 http://data-dbg.krx.co.kr (호스트만 입력해도 됨)
+//   KRX_API_DISABLED — true 면 인증 API 호출 없이 즉시 폴백
+//
+// Yahoo 폴백은 koreanQuoteBridge.ts 가 담당한다 — 이 파사드는 Yahoo 를 직접
+// 호출하지 않는다. 대신 `isKrxOpenApiHealthy()` 를 함께 내보내 상위 라우트가
+// 폴백 여부를 직접 판단할 수 있게 한다.
+
+export {
+  isKrxOpenApiHealthy,
+  getKrxOpenApiStatus,
+  type KrxStockDailyRow,
+  type KrxIndexDailyRow,
+};
+
+/**
+ * KRX Open API 인증키를 반환한다. 미설정 시 빈 문자열.
+ * kisClient.getKisToken 과 포지션을 맞춘 파사드로, 호출자는 존재 여부만 확인하면 된다.
+ */
+export function getKrxAuthKey(): string {
+  return (process.env.KRX_API_KEY ?? process.env.KRX_OPENAPI_AUTH_KEY ?? '').trim();
+}
+
+/**
+ * KRX Open API 공통 GET 래퍼. 서킷브레이커·타임아웃·AUTH_KEY 헤더를
+ * `krxOpenApi.ts` 의 `krxGet` 이 담당한다. 인증 실패·네트워크 실패·쿼터 초과는
+ * 모두 null 로 정규화되어 호출자가 Yahoo 폴백을 시도할 수 있다.
+ */
+export function krxGet(
+  endpoint: string,
+  params: Record<string, string>,
+): Promise<Record<string, unknown> | null> {
+  return _openApiGet(endpoint, params) as Promise<Record<string, unknown> | null>;
+}
+
+/**
+ * 종목별 일별 OHLCV 스냅샷. KOSPI → KOSDAQ 순서로 조회하고 일치하는 종목 1건을 반환.
+ * KRX 미응답·미발견 시 null — 상위 레이어(koreanQuoteBridge)가 Yahoo 로 폴백한다.
+ *
+ * @param code  6자리 단축종목코드 (예: '005930')
+ * @param date  YYYYMMDD (미지정 시 최근 영업일)
+ */
+export async function fetchKrxDailyOhlcv(
+  code: string,
+  date?: string,
+): Promise<KrxStockDailyRow | null> {
+  const normalized = String(code ?? '').trim();
+  if (!/^\d{6}$/.test(normalized)) return null;
+
+  const kospi = await fetchKospiDailyTrade(date);
+  const hitKospi = kospi.find(r => r.code === normalized);
+  if (hitKospi) return hitKospi;
+
+  const kosdaq = await fetchKosdaqDailyTrade(date);
+  const hitKosdaq = kosdaq.find(r => r.code === normalized);
+  return hitKosdaq ?? null;
+}
+
+/**
+ * 섹터/시장 지수 일별시세. sectorEnergyEngine 의 연료 공급처.
+ * KRX 시리즈(/idx/krx_dd_trd)는 KOSPI200·KRX100 및 섹터지수(에너지·반도체·IT 등)를
+ * 한 번에 반환하므로 한 번의 호출로 섹터 에너지 계산에 필요한 raw 데이터가 충족된다.
+ * 비어있는 응답이면 KOSPI+KOSDAQ 시리즈를 합쳐 대체한다.
+ */
+export async function fetchKrxSectorIndices(date?: string): Promise<KrxIndexDailyRow[]> {
+  const primary = await fetchKrxIndexDaily(date);
+  if (primary.length > 0) return primary;
+
+  const [kospi, kosdaq] = await Promise.all([
+    fetchKospiIndexDaily(date),
+    fetchKosdaqIndexDaily(date),
+  ]);
+  return [...kospi, ...kosdaq];
+}
+
+/**
+ * 블루프린트 별칭 — 투자자별 거래실적. KIS VTS 쿼터를 우회해 KRX 공개 소스로 조회.
+ * 기존 `fetchInvestorTrading` 을 그대로 재노출.
+ */
+export const fetchKrxInvestorTrading = fetchInvestorTrading;
+
+/** 블루프린트 별칭 — PER/PBR/배당수익률. Gemini 스크리닝 프롬프트 대체 소스. */
+export const fetchKrxPerPbr = fetchPerPbr;
+
+/** 블루프린트 별칭 — 공매도 잔고 상위. enemyCheckClient 의 적색 신호 입력. */
+export const fetchKrxShortBalance = fetchShortBalance;
+
+/**
+ * 시가총액 스냅샷. 자릿수 오류(억/조 혼동)를 방지하기 위해 원 단위 정수로 반환한다.
+ * KOSPI + KOSDAQ 일별매매정보에서 market_cap/상장주식수만 추출.
+ */
+export interface KrxMarketCapRow {
+  code: string;
+  name: string;
+  marketCap: number;    // 원 단위 (KRX MKTCAP 원본)
+  listedShares: number; // 주 단위
+  market: string;       // 'KOSPI' | 'KOSDAQ' | …
+}
+
+export async function fetchKrxMarketCap(date?: string): Promise<KrxMarketCapRow[]> {
+  const [kospi, kosdaq] = await Promise.all([
+    fetchKospiDailyTrade(date),
+    fetchKosdaqDailyTrade(date),
+  ]);
+  const out: KrxMarketCapRow[] = [];
+  for (const r of [...kospi, ...kosdaq]) {
+    if (!r.code || r.marketCap <= 0) continue;
+    out.push({
+      code: r.code,
+      name: r.name,
+      marketCap: r.marketCap,
+      listedShares: r.listedShares,
+      market: r.market,
+    });
+  }
+  return out;
 }
