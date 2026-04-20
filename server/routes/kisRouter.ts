@@ -1,7 +1,7 @@
 // server/routes/kisRouter.ts
 // KIS (한국투자증권) API 라우터 — server.ts에서 분리
 import { Router } from 'express';
-import { kisGet, kisPost, realDataKisGet, BUY_TR_ID, CCLD_TR_ID, getKisToken, getKisBase, getKisTokenRemainingHours, HAS_REAL_DATA_CLIENT, getRealDataTokenRemainingHours } from '../clients/kisClient.js';
+import { kisGet, kisPost, realDataKisGet, BUY_TR_ID, CCLD_TR_ID, getKisToken, getKisBase, getKisTokenRemainingHours, HAS_REAL_DATA_CLIENT, getRealDataTokenRemainingHours, isKisBalanceQueryAllowed } from '../clients/kisClient.js';
 import { getRanking, type RankingType } from '../clients/kisRankingClient.js';
 
 const router = Router();
@@ -127,8 +127,13 @@ router.get('/token-status', async (_req: any, res: any) => {
 });
 
 // [KIS-Balance] 모의계좌 잔고 조회 (체크리스트 Step 3)
+// KIS 서버 점검(KST 02:00~07:00) · 장외(16:00~) 시간대에는 실호출을 피하고
+// 빈 응답을 돌려준다 — 프론트 폴링(60s)이 이 시간대에 500을 반복하지 않도록.
 router.get('/balance', async (_req: any, res: any) => {
   if (!process.env.KIS_APP_KEY) return res.status(500).json({ error: 'KIS_APP_KEY 미설정' });
+  if (!isKisBalanceQueryAllowed()) {
+    return res.json({ rt_cd: '0', msg1: 'KIS 점검/장외 시간 — 실호출 스킵', output1: [], output2: [] });
+  }
   try {
     const isReal = process.env.KIS_IS_REAL === 'true';
     const trId = isReal ? 'TTTC8434R' : 'VTTC8434R';
@@ -153,8 +158,12 @@ router.get('/balance', async (_req: any, res: any) => {
 });
 
 // [KIS-Holdings] 보유 종목 목록 조회 (잔고 inquire-balance output1)
+// 점검/장외 시간대에는 빈 배열을 반환 (balance 라우트와 동일한 이유).
 router.get('/holdings', async (_req: any, res: any) => {
   if (!process.env.KIS_APP_KEY) return res.status(500).json({ error: 'KIS_APP_KEY 미설정' });
+  if (!isKisBalanceQueryAllowed()) {
+    return res.json([]);
+  }
   try {
     const isReal = process.env.KIS_IS_REAL === 'true';
     const trId = isReal ? 'TTTC8434R' : 'VTTC8434R';

@@ -6,6 +6,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { getDailyLossPct, getEmergencyStop } from '../state.js';
 import { getKisTokenRemainingHours } from '../clients/kisClient.js';
 import { getStreamStatus } from '../clients/kisStreamClient.js';
+import { getKrxOpenApiStatus, isKrxOpenApiHealthy } from '../clients/krxOpenApi.js';
 import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
@@ -38,16 +39,27 @@ function computeVerdict(args: {
   kisHours: number;
   lastScanTs: number;
   yahooStatus: YahooStatus;
+  krxHealthy: boolean;
+  krxConfigured: boolean;
 }): string {
-  const { emergencyStop, dailyLossPct, dailyLossLimit, watchlistLen, autoEnabled, autoMode, kisHours, lastScanTs, yahooStatus } = args;
+  const { emergencyStop, dailyLossPct, dailyLossLimit, watchlistLen, autoEnabled, autoMode, kisHours, lastScanTs, yahooStatus, krxHealthy, krxConfigured } = args;
   if (emergencyStop) return '🔴 EMERGENCY_STOP';
   if (dailyLossPct >= dailyLossLimit) return '🔴 DAILY_LOSS_LIMIT';
   if (watchlistLen === 0) return '🔴 WATCHLIST_EMPTY';
   if (!autoEnabled) return '🟡 AUTO_TRADE_DISABLED';
   if (autoMode === 'LIVE' && kisHours === 0) return '🟡 KIS_TOKEN_EXPIRED';
+  if (!krxConfigured) return '🟡 KRX_NOT_CONFIGURED';
+  if (!krxHealthy) return '🟡 KRX_UNHEALTHY';
   if (!lastScanTs) return '🟡 SCANNER_IDLE';
   if (yahooStatus === 'DOWN') return '🟡 YAHOO_DOWN';
   return '🟢 OK';
+}
+
+function formatKrxStatus(krxStatus: ReturnType<typeof getKrxOpenApiStatus>, healthy: boolean): string {
+  if (!krxStatus.authKeyConfigured) return '⚠️ AUTH_KEY 미설정';
+  if (!krxStatus.enabled) return '⚠️ DISABLED';
+  if (!healthy) return `❌ 서킷 ${krxStatus.circuitState} (실패 ${krxStatus.failures}회)`;
+  return `✅ 서킷 ${krxStatus.circuitState}`;
 }
 
 function computeLearningStatus(): { status: string; evalLagLbl: string; calibLagLbl: string; heldLbl: string; clock: ReturnType<typeof getLearningInterval> } {
@@ -86,10 +98,13 @@ async function runPipelineHealthCheck(): Promise<void> {
     const scanSummary = getLastScanSummary();
     const activeTrades = shadows.filter((s) => isOpenShadowStatus(s.status)).length;
     const yahooStatus = classifyYahoo(scanSummary);
+    const krxStatus = getKrxOpenApiStatus();
+    const krxHealthy = isKrxOpenApiHealthy();
 
     const verdict = computeVerdict({
       emergencyStop, dailyLossPct, dailyLossLimit, watchlistLen: watchlist.length,
       autoEnabled, autoMode, kisHours, lastScanTs, yahooStatus,
+      krxHealthy, krxConfigured: krxStatus.authKeyConfigured,
     });
     const lastScanAt = lastScanTs > 0 ? toKstHm(lastScanTs) : '미실행';
     const lastBuyAt = lastBuyTs > 0 ? toKstHm(lastBuyTs) : '없음';
@@ -103,6 +118,7 @@ async function runPipelineHealthCheck(): Promise<void> {
       `워치리스트: ${watchlist.length}개 | 활성 포지션: ${activeTrades}개\n` +
       `자동매매: ${autoEnabled ? '✅ 켜짐' : '❌ 꺼짐'} (${autoMode})\n` +
       `KIS 토큰: ${kisHours > 0 ? `✅ ${kisHours}시간 남음` : '❌ 만료'}\n` +
+      `KRX OpenAPI: ${formatKrxStatus(krxStatus, krxHealthy)}\n` +
       `Yahoo: ${yahooStatus === 'OK' ? '✅' : yahooStatus === 'DEGRADED' ? '⚠️ 부분장애' : yahooStatus === 'DOWN' ? '❌ 불가' : '?'}\n` +
       `마지막 스캔: ${lastScanAt} | 마지막 신호: ${lastBuyAt}\n` +
       `일일손실: ${dailyLossPct.toFixed(1)}% / 한도 ${dailyLossLimit}%\n` +

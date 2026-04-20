@@ -23,6 +23,7 @@ import { AlertsFeedBell } from '../components/autoTrading/AlertsFeedBell';
 import { AutoTradeHeroKpis } from '../components/autoTrading/AutoTradeHeroKpis';
 import { AutoTradeTabbedView } from '../components/autoTrading/AutoTradeTabbedView';
 import { ProDiagnosticsStrip } from '../components/autoTrading/ProDiagnosticsStrip';
+import { ApiConnectionLamps } from '../components/autoTrading/ApiConnectionLamps';
 import { useAutoTradingDashboard } from '../hooks/useAutoTradingDashboard';
 import { useAutoTradeEngine } from '../hooks/autoTrade';
 import { useEngineArming } from '../hooks/autoTrade/useEngineArming';
@@ -206,6 +207,9 @@ export function AutoTradePage() {
           viewMode={viewMode}
           onDrilldown={handleKpiDrilldown}
         />
+
+        {/* 외부 API 연결 상태 램프 (KIS REST · 실시간 · KRX · Yahoo) */}
+        <ApiConnectionLamps />
 
         {/* 필수 진단: 엔진 건강 + 종합 평결 + 컨트롤 */}
         <EngineHealthBanner heartbeat={heartbeat} killSwitch={killSwitch} />
