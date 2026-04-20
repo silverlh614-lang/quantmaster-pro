@@ -24,6 +24,7 @@ import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { computeEtfSectorBoost } from '../alerts/globalScanAgent.js';
 import { getSectorByCode } from '../screener/sectorMap.js';
 import { generatePreMortem } from './entryEngine.js';
+import { buildPreMortemStructured } from './preMortemStructured.js';
 import { placeKisMarketBuyOrder, fetchAccountBalance } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { requestBuyApproval } from '../telegram/buyApproval.js';
@@ -237,6 +238,22 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
   // Pre-Mortem을 shadowTrade에 저장 (승인 여부와 무관하게 기록 — 승인 거절 시 복기용)
   if (preMortem) {
     p.trade.preMortem = preMortem;
+  }
+
+  // Phase 3-⑫: 구조화된 4필드 Pre-Mortem 은 항상 필수 기록 (deterministic, Gemini 독립).
+  // Gemini free-text 는 사람 복기용이고, structured 는 exitEngine 의 기계 매칭용.
+  if (!p.trade.preMortemStructured) {
+    p.trade.preMortemStructured = buildPreMortemStructured({
+      entryPrice: p.entryPrice,
+      targetPrice: p.targetPrice,
+      stopLoss: p.stopLoss,
+      regime: p.trade.entryRegime ?? regime ?? 'R4_NEUTRAL',
+      sector,
+      gateScore: p.gateScore,
+      atr14: p.trade.entryATR14,
+      profileType: p.trade.profileType,
+      profitTrancheCount: p.trade.profitTranches?.length ?? 0,
+    });
   }
 
   return {
