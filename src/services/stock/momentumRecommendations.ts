@@ -12,7 +12,46 @@ import { enrichStockWithRealData } from './enrichment';
 import { fetchMarketIndicators } from './marketOverview';
 import { fetchKisRanking, type KisRankingItem } from './kisDataFetcher';
 import { debugLog } from '../../utils/debug';
+import { fetchSectorEnergy, formatSectorEnergySummary } from '../quant/sectorEnergyProvider';
 import type { StockFilters, RecommendationResponse } from './types';
+
+// ── 후보 종목 PER/PBR 사전조회 ──────────────────────────────────────────────
+// `/api/krx/valuation` 은 enrichment.ts 가 AI 응답 후 호출하지만, 여기서 AI
+// 프롬프트에도 같은 소스를 주입해 Gemini 가 PER 을 추정하거나 학습지식으로
+// 대체할 여지를 제거한다. 요청은 동시 6건으로 제한해 KIS TR 쿼터를 보호한다.
+
+interface PrefetchedValuation {
+  per: number;
+  pbr: number;
+  marketCapDisplay: string;
+}
+
+async function prefetchValuations(codes: string[]): Promise<Map<string, PrefetchedValuation>> {
+  const out = new Map<string, PrefetchedValuation>();
+  const queue = codes.filter(c => /^\d{6}$/.test(c));
+  const CONCURRENCY = 6;
+  async function worker(): Promise<void> {
+    while (queue.length > 0) {
+      const code = queue.shift();
+      if (!code) return;
+      try {
+        const res = await fetch(`/api/krx/valuation?code=${code}`);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const per = Number(data?.per) || 0;
+        const pbr = Number(data?.pbr) || 0;
+        const marketCapDisplay = typeof data?.marketCapDisplay === 'string' ? data.marketCapDisplay : '';
+        if (per > 0 || pbr > 0 || marketCapDisplay) {
+          out.set(code, { per, pbr, marketCapDisplay });
+        }
+      } catch {
+        // per-code 실패는 무시 — 해당 종목만 추정 없이 진행
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+  return out;
+}
 
 export async function getMomentumRecommendations(filters?: StockFilters): Promise<RecommendationResponse | null> {
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
@@ -29,10 +68,13 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
   if (mode === 'SMALL_MID_CAP') {
     rankingTasks.push(fetchKisRanking('market-cap', 50));
   }
+  // 섹터 에너지는 랭킹 배열 인덱싱과 얽히지 않도록 별도 Promise 로 분리.
+  const sectorEnergyPromise = fetchSectorEnergy();
   const [yahooCached, volRankR, flucRankR, mcapRankR] = await Promise.allSettled([
     fetchMarketIndicators(),
     ...rankingTasks,
   ]);
+  const sectorEnergy = await sectorEnergyPromise;
   const yahoo = yahooCached.status === 'fulfilled' ? yahooCached.value : null;
   const volRanking  = volRankR?.status  === 'fulfilled' ? volRankR.value  : [];
   const flucRanking = flucRankR?.status === 'fulfilled' ? flucRankR.value : [];
@@ -71,10 +113,19 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
   const candidates = Array.from(candidatePool.values()).slice(0, 30);
   debugLog(`[momentumRecommendations] mode=${mode} 후보군 ${candidates.length}개 (vol=${volRanking.length}, fluc=${flucRanking.length})`);
 
+  // 후보 PER/PBR/시총 사전조회 — Gemini 가 학습지식으로 밸류에이션을 추정하지 않도록
+  // 프롬프트에 직접 주입한다. enrichment 가 동일 소스를 AI 응답 후에도 재조회해 덮어쓴다.
+  const valuationMap = await prefetchValuations(candidates.map(c => c.code));
+  debugLog(`[momentumRecommendations] 밸류에이션 프리페치 ${valuationMap.size}/${candidates.length}건`);
+
   const candidateBlock = candidates.length > 0
-    ? candidates.map(c =>
-        `  - ${c.name}(${c.code}) ${c.market} | 등락 ${c.changePercent >= 0 ? '+' : ''}${c.changePercent.toFixed(2)}% | rank#${c.rank} (${c.source})`
-      ).join('\n')
+    ? candidates.map(c => {
+        const v = valuationMap.get(c.code);
+        const valStr = v
+          ? ` | PER ${v.per > 0 ? v.per.toFixed(2) : 'N/A'} · PBR ${v.pbr > 0 ? v.pbr.toFixed(2) : 'N/A'}${v.marketCapDisplay ? ` · 시총 ${v.marketCapDisplay}` : ''}`
+          : '';
+        return `  - ${c.name}(${c.code}) ${c.market} | 등락 ${c.changePercent >= 0 ? '+' : ''}${c.changePercent.toFixed(2)}% | rank#${c.rank} (${c.source})${valStr}`;
+      }).join('\n')
     : '(KIS 랭킹 수집 실패 — AI 자체 판단 필요)';
 
   const indexLine = (cachedKospi || cachedKosdaq)
@@ -84,11 +135,13 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
       ].filter(Boolean).join(' | ')
     : '';
 
+  const sectorEnergyLine = formatSectorEnergySummary(sectorEnergy);
   const preFilledBlock = [
     indexLine        ? `- 한국 지수: ${indexLine} (Yahoo 실데이터)` : '',
     cachedVkospi  !== null ? `- VKOSPI: ${cachedVkospi.toFixed(2)} (Yahoo 실데이터)` : '',
     cachedUs10y   !== null ? `- 미국 10년물 국채 금리: ${cachedUs10y.toFixed(2)}% (Yahoo ^TNX)` : '',
     cachedUsdKrw  !== null ? `- USD/KRW 환율: ${cachedUsdKrw.toFixed(0)}원 (ECOS)` : '',
+    sectorEnergyLine ? `- 섹터 에너지 (KRX 12섹터 실데이터): ${sectorEnergyLine}` : '',
   ].filter(Boolean).join('\n');
 
   // ── Gate-0: 유니버스 제한 프롬프트 ──
@@ -165,7 +218,8 @@ ${preFilledBlock || '      (사전 수집 데이터 없음)'}
       당신이 반환한 JSON은 이후 enrichStockWithRealData()가 Yahoo OHLCV로 RSI/MACD/볼린저/VCP/이치모쿠를 정확히 재계산하고,
       DART corpCode 자동 매핑, KIS 수급/공매도 실데이터 주입까지 자동 수행합니다.
       따라서 당신의 역할은 후보군에서 5개 이내를 선정하고 정성적 사유(reason, sectorAnalysis 등)를 작성하는 것입니다.
-      현재가·시가총액·기술지표·재무수치는 0 또는 추정값으로 두어도 됩니다 — Enrichment가 실데이터로 덮어씁니다.
+      현재가·기술지표·재무수치는 0으로 두어도 됩니다 — Enrichment가 실데이터로 덮어씁니다.
+      시가총액·PER·PBR 은 [후보군] 라인에 이미 KRX 실데이터가 주입돼 있으니 그 값을 그대로 필드에 옮기고 추정하지 마라.
 
       [선정 절차 — 외부 검색 없이 위 후보군과 거시지표만으로]
       1. 위 [후보군] 목록과 거시지표·모드 조건을 종합하여 시장 상황(BULL/BEAR/SIDEWAYS)을 1차 진단하라.
@@ -197,7 +251,7 @@ ${preFilledBlock || '      (사전 수집 데이터 없음)'}
          - **STRONG_SELL**: 추세 붕괴, 재료 소멸, 극심한 고평가, 대규모 수급 이탈이 명확하며 하락 압력이 매우 강한 경우.
          - **SELL**: 추세 약화, 모멘텀 둔화, 수급 이탈 조짐, 기술적 저항에 부딪힌 경우.
       8. **[엄격한 평가 원칙]** 단순히 '좋아 보인다'는 이유로 BUY를 주지 마라. 위 기준을 '보수적'으로 적용하여 데이터가 확실할 때만 긍정적 의견을 제시하라.
-      9. **[수치 필드 처리]** currentPrice, marketCap, valuation.per/pbr 등 정확 수치는 0으로 두라. enrichment가 Yahoo/DART 실데이터로 덮어쓴다.
+      9. **[수치 필드 처리]** currentPrice 는 0으로 두라(enrichment가 실시간 시세로 덮어쓴다). 다만 valuation.per/pbr 및 시가총액은 위 [후보군] 라인에 주입된 KRX 실데이터 값(PER/PBR/시총)을 그대로 사용하라. PER/PBR 이 N/A 또는 부재한 종목만 0으로 두며, 학습지식 기반 추정은 금지한다.
       10. **[트레이딩 전략 수립]** 각 종목에 대해 현재가 기준 최적의 '진입가(entryPrice)', '손절가(stopLoss)', '1차 목표가(targetPrice)', '2차 목표가(targetPrice2)'를 기술적 분석(지지/저항, 피보나치 등)을 통해 비율 기반으로 산출하라. 절대치 추정 어려우면 0으로 두면 enrichment가 보정한다.
       11. **[데이터 출처 명시]** 'dataSource' 필드는 "KIS 랭킹 + Gemini 사전수집데이터" 등으로 명시하라.
       12. **[글로벌 ETF 모니터링]** 'globalEtfMonitoring' 필드는 빈 배열 []로 두라. (별도 ETF 모니터링 파이프라인이 채운다)
@@ -205,7 +259,7 @@ ${preFilledBlock || '      (사전 수집 데이터 없음)'}
       13. **[장세 전환 감지]** 현재 시장의 주도 섹터가 바뀌고 있는지(Regime Shift)를 판단하여 'regimeShiftDetector' 필드에 반영하라.
       14. **[다중 시계열 분석]** 월봉, 주봉, 일봉의 추세가 일치하는지 확인하여 'multiTimeframe' 필드에 반영하라.
       15. **[눌림목 성격 판단 (Pullback Analysis)]** 주가가 조정(눌림목)을 받을 때 거래량이 감소하는지(건전한 조정) 또는 증가하는지(매도 압력)를 반드시 확인하여 'technicalSignals'의 'volumeSurge' 및 'reason' 필드에 반영하라. 거래량이 줄어들며 지지받는 눌림목을 최우선으로 추천하라.
-      16. **[섹터 대장주 선행 확인]** 해당 종목이 속한 섹터의 대장주(Leading Stock)가 최근 5거래일 이내에 신고가를 경신했는지 학습 지식 기반으로 추정하여 'isLeadingSector' 및 'gate' 평가에 반영하라.
+      16. **[섹터 에너지 반영]** 위 [사전 수집 거시지표] 의 "섹터 에너지" 항목이 KRX 실데이터 기반 주도/소외 섹터를 제공한다. 해당 종목의 섹터가 주도 섹터(Top 3)에 포함되면 'isLeadingSector' = true 및 'isSectorTopPick' 우대, 소외 섹터에 속하면 포지션 사이즈 축소 및 BUY 기준 상향. 섹터 에너지 라인이 없을 때만 학습지식 기반으로 대장주 신고가 선행 여부를 추정하라.
       17. **[AI 공시 감성 분석]** 'disclosureSentiment'는 학습 지식 기반의 일반론으로 채우거나 score 0/summary "데이터 없음"으로 두라. 별도 DART 공시 파이프라인이 채운다.
       18. **[공매도/대차잔고 분석]** 'shortSelling' 필드는 ratio 0, trend "STABLE"로 두라. KIS API enrichment가 실데이터로 덮어쓴다.
       19. **[텐배거 DNA 패턴 매칭]** 다음 과거 대장주들의 급등 직전 DNA와 현재 종목을 비교하여 'tenbaggerDNA' 필드에 유사도(similarity, 0-100)와 매칭 패턴명, 이유를 기술하라.

@@ -15,6 +15,8 @@ import {
   type KoreanIndexAlias,
 } from '../clients/koreanQuoteBridge.js';
 import { getKrxOpenApiStatus } from '../clients/krxOpenApi.js';
+import { getSectorEnergyInputs } from '../clients/sectorEnergyProvider.js';
+import { evaluateSectorEnergy } from '../../src/services/quant/sectorEnergyEngine.js';
 
 const router = Router();
 
@@ -124,6 +126,24 @@ router.get('/index', async (req: Request, res: Response) => {
  */
 router.get('/openapi-status', (_req: Request, res: Response) => {
   res.json(getKrxOpenApiStatus());
+});
+
+/**
+ * GET /api/krx/sector-energy
+ * KRX 섹터 지수·종목·투자자 데이터를 묶어 sectorEnergyEngine 결과를 반환한다.
+ * 프론트는 evaluateSectorEnergy 재실행 없이 leadingSectors/laggingSectors/summary 만 소비.
+ * inputs 배열이 비어있으면 엔진은 '입력 없음' 요약을 반환하므로 504 로 올리지 않는다.
+ */
+router.get('/sector-energy', async (_req: Request, res: Response) => {
+  try {
+    const inputs = await getSectorEnergyInputs();
+    const result = evaluateSectorEnergy(inputs);
+    res.json({ inputs, result });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[KRX] /sector-energy error:', msg);
+    res.status(500).json({ error: msg });
+  }
 });
 
 export default router;
