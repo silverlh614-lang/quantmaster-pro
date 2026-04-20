@@ -183,6 +183,84 @@ const _kisSleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms)
 const _kisBackoffDelayMs = (retriesLeft: number) =>
   Math.pow(2, 3 - retriesLeft) * 1000;
 
+// ─── 회로 차단기 (Circuit Breaker) ──────────────────────────────────────────
+// KIS 서버가 특정 trId(예: TTTC8434R 잔고조회)에 대해 지속적으로 5xx를 반환할 때,
+// 재시도 루프가 매 호출마다 최대 7초(1+2+4s)를 소비하고 rate-limiter 큐에 적체되어
+// Railway 메모리/타임아웃 한도를 초과하고 SIGTERM을 유발하는 문제를 차단한다.
+//
+// 동작:
+//   - trId별로 연속 5xx 실패 카운터 유지
+//   - CIRCUIT_THRESHOLD(3회) 도달 시 CIRCUIT_COOLDOWN_MS(10분) 동안 회로 개방
+//   - 개방 상태에서는 fetch 호출 자체를 건너뛰고 즉시 null 반환
+//   - 성공 응답(2xx) 시 카운터 리셋 + 회로 복구
+
+const CIRCUIT_THRESHOLD = 3;
+const CIRCUIT_COOLDOWN_MS = 10 * 60 * 1000;
+
+interface CircuitState {
+  consecutiveFailures: number;
+  openUntil: number;
+}
+
+const _circuitByTrId = new Map<string, CircuitState>();
+
+function _getCircuit(trId: string): CircuitState {
+  let state = _circuitByTrId.get(trId);
+  if (!state) {
+    state = { consecutiveFailures: 0, openUntil: 0 };
+    _circuitByTrId.set(trId, state);
+  }
+  return state;
+}
+
+/** 회로가 열려 있으면 true — 호출을 건너뛰어야 함 */
+function _isCircuitOpen(trId: string): boolean {
+  const state = _circuitByTrId.get(trId);
+  if (!state) return false;
+  if (Date.now() < state.openUntil) return true;
+  // 쿨다운 만료 — 반열림 상태로 전환(카운터는 유지하고 한 번 시도)
+  if (state.openUntil > 0 && Date.now() >= state.openUntil) {
+    state.openUntil = 0;
+  }
+  return false;
+}
+
+function _recordCircuitFailure(trId: string, status: number): void {
+  const state = _getCircuit(trId);
+  state.consecutiveFailures += 1;
+  if (state.consecutiveFailures >= CIRCUIT_THRESHOLD) {
+    state.openUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
+    console.warn(
+      `[KIS] 🚨 회로 차단 — ${trId} ${state.consecutiveFailures}회 연속 ${status} 실패, ` +
+      `${CIRCUIT_COOLDOWN_MS / 60000}분간 호출 차단`
+    );
+  }
+}
+
+function _recordCircuitSuccess(trId: string): void {
+  const state = _circuitByTrId.get(trId);
+  if (!state) return;
+  if (state.consecutiveFailures > 0 || state.openUntil > 0) {
+    console.log(`[KIS] ✅ 회로 복구 — ${trId} 정상 응답 (이전 실패 ${state.consecutiveFailures}회 리셋)`);
+  }
+  state.consecutiveFailures = 0;
+  state.openUntil = 0;
+}
+
+/** 회로 차단기 상태 조회 (디버깅/모니터링용) */
+export function getCircuitBreakerStats(): Array<{
+  trId: string;
+  consecutiveFailures: number;
+  openFor: number;
+}> {
+  const now = Date.now();
+  return Array.from(_circuitByTrId.entries()).map(([trId, state]) => ({
+    trId,
+    consecutiveFailures: state.consecutiveFailures,
+    openFor: Math.max(0, state.openUntil - now),
+  }));
+}
+
 /**
  * 내부 raw GET — 토큰 버킷 없이 직접 호출. 외부에서는 kisGet을 사용할 것.
  *
@@ -195,6 +273,11 @@ const _kisBackoffDelayMs = (retriesLeft: number) =>
 async function _rawKisGet(
   trId: string, apiPath: string, params: Record<string, string>, retriesLeft = 3,
 ): Promise<any> {
+  if (_isCircuitOpen(trId)) {
+    console.warn(`[KIS] 회로 차단 상태 — ${trId} 호출 건너뜀 (cooldown 중)`);
+    return null;
+  }
+
   const token = await refreshKisToken();
   const url = `${KIS_BASE}${apiPath}?${new URLSearchParams(params)}`;
   const res = await fetch(url, {
@@ -229,9 +312,11 @@ async function _rawKisGet(
 
   if (!res.ok) {
     console.error(`[KIS] API 오류 ${res.status} (${trId})`);
+    if (res.status >= 500 && res.status < 600) _recordCircuitFailure(trId, res.status);
     return null;
   }
 
+  _recordCircuitSuccess(trId);
   const text = await res.text();
   if (!text.trim()) return null;
   try { return JSON.parse(text); } catch { return null; }
@@ -245,6 +330,11 @@ async function _rawKisGet(
 async function _rawKisPost(
   trId: string, apiPath: string, body: Record<string, string>, retriesLeft = 3,
 ): Promise<any> {
+  if (_isCircuitOpen(trId)) {
+    console.warn(`[KIS] 회로 차단 상태 — ${trId} 호출 건너뜀 (cooldown 중)`);
+    return null;
+  }
+
   const token = await refreshKisToken();
   const res = await fetch(`${KIS_BASE}${apiPath}`, {
     method: 'POST',
@@ -280,9 +370,11 @@ async function _rawKisPost(
 
   if (!res.ok) {
     console.error(`[KIS] API 오류 ${res.status} (${trId})`);
+    if (res.status >= 500 && res.status < 600) _recordCircuitFailure(trId, res.status);
     return null;
   }
 
+  _recordCircuitSuccess(trId);
   const text = await res.text();
   if (!text.trim()) return null;
   try { return JSON.parse(text); } catch { return null; }
@@ -325,6 +417,11 @@ export function realDataKisGet(trId: string, apiPath: string, params: Record<str
   if (!HAS_REAL_DATA_CLIENT) return kisGet(trId, apiPath, params, 'LOW');
 
   return scheduleKisCall('LOW', `REAL_GET ${trId}`, async () => {
+    if (_isCircuitOpen(trId)) {
+      console.warn(`[KIS-RealData] 회로 차단 상태 — ${trId} 호출 건너뜀 (cooldown 중)`);
+      return null;
+    }
+
     const doFetch = async (token: string) => fetch(
       `${REAL_DATA_BASE}${apiPath}?${new URLSearchParams(params)}`,
       {
@@ -352,9 +449,11 @@ export function realDataKisGet(trId: string, apiPath: string, params: Record<str
 
     if (!res.ok) {
       console.error(`[KIS-RealData] API 오류 ${res.status} (${trId})`);
+      if (res.status >= 500 && res.status < 600) _recordCircuitFailure(trId, res.status);
       return null;
     }
 
+    _recordCircuitSuccess(trId);
     const text = await res.text();
     if (!text.trim()) return null;
     try { return JSON.parse(text); } catch { return null; }
