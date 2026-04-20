@@ -138,6 +138,15 @@ export async function maybeCaptureSnapshots(
 export async function captureSnapshotsForOpenTrades(
   trades: ServerShadowTrade[],
 ): Promise<number> {
+  // 조기 종료: 어떤 trade 도 30분 offset 에 도달하지 않았으면 파일 I/O 생략.
+  const earliestCutoff = Date.now() - SNAPSHOT_OFFSETS_MIN[0] * 60_000;
+  const anyEligible = trades.some((t) => {
+    if (t.status === 'HIT_TARGET' || t.status === 'HIT_STOP' || t.status === 'REJECTED') return false;
+    const sigTime = new Date(t.signalTime).getTime();
+    return Number.isFinite(sigTime) && sigTime <= earliestCutoff;
+  });
+  if (!anyEligible) return 0;
+
   const snaps = loadSnapshots();
   let count = 0;
   for (const t of trades) {

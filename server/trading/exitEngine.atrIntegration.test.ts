@@ -8,6 +8,13 @@ vi.mock('../clients/kisClient.js', () => ({
   placeKisSellOrder: vi.fn().mockResolvedValue({ ordNo: null, placed: false }),
 }));
 
+// Phase 3-⑨ 도입 이후 exitEngine.updateShadowResults 가 coldstartBootstrap 경로를
+// 거쳐 kisStreamClient.subscribeStock 을 참조한다. 테스트에서 WS 구독 부작용을 차단.
+vi.mock('../clients/kisStreamClient.js', () => ({
+  getRealtimePrice: vi.fn(() => null),
+  subscribeStock:   vi.fn(),
+}));
+
 vi.mock('./fillMonitor.js', () => ({
   addSellOrder: vi.fn(),
 }));

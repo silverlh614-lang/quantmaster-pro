@@ -43,11 +43,6 @@ export interface WatchlistEntry {
    * 기본 MOMENTUM(base layer) 과 구분해 4h TTL 로 자동 만료시킨다.
    */
   leadershipBridge?: boolean;
-  /**
-   * Phase 4-⑧: 시간축 재분류. section 은 신호 축(유지), timeframe 은 시간 축.
-   * 존재할 때만 signalScanner 가 timeframe 별 슬롯·Kelly·손절 규칙을 적용한다.
-   */
-  timeframe?: 'SCALPING' | 'DAY' | 'SWING';
 }
 
 export function loadWatchlist(): WatchlistEntry[] {

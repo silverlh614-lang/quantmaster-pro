@@ -45,6 +45,7 @@ import { evaluatePortfolioRisk } from './portfolioRiskEngine.js';
 import { checkSectorExposureBefore } from './preOrderGuard.js';
 import { getSectorByCode } from '../screener/sectorMap.js';
 import { getExecutionCostConfig } from './executionCosts.js';
+import { classifySizingTier, canReserveProbingSlot, PROBING_MAX_SLOTS } from './sizingTier.js';
 import type { FullRegimeConfig } from '../../src/types/core.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
 
@@ -409,6 +410,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // 루프 내 currentActive 만 보던 기존 로직은 같은 tick 안에서 이미 큐에 들어간 N-1개를
   // 보지 못해 maxPositions 초과 승인을 허용했다(00:40 사건). reservedSlots 로 이를 차단.
   let reservedSlots = 0;
+  // Phase 4-⑧(수정): sizingTier — PROBING 은 전체 maxPositions 안에서 최대 1슬롯 허용.
+  // 워치리스트 구조·총 포지션 수는 그대로 유지하고 Kelly 만 티어별로 차등 적용.
+  let probingReservedSlots = 0;
   // Phase 1 ②: 섹터 노출 선검증용 — 현재 보유 + 같은 tick 예약분을 합산해 투영 비중 계산.
   const currentSectorValue = new Map<string, number>();
   for (const s of shadows) {
@@ -419,6 +423,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   }
   const pendingSectorValue = new Map<string, number>();
   const reservedSectorValues: Array<{ sector: string; value: number }> = [];
+  // Phase 4-⑧(수정): 큐 인덱스별 티어 — 플러시 시 PROBING 실패 예약도 정확히 롤백.
+  const reservedTiers: Array<'PROBING' | 'OTHER'> = [];
 
   for (const stock of buyList) {
     // 아이디어 7: 루프 내에서도 포지션 수 재확인 (같은 스캔 중 복수 진입 방지)
@@ -559,6 +565,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             }));
             // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
             reservedSlots++;
+            reservedTiers.push('OTHER');
             {
               const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
               const _val = followQty * followEntryPrice;
@@ -686,6 +693,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                 }));
                 // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
                 reservedSlots++;
+                reservedTiers.push('OTHER');
                 {
                   const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
                   const _val = pbQty * pbEntryPrice;
@@ -955,11 +963,40 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         }
       }
 
+      // Phase 4-⑧(수정): 신뢰도 티어 기반 사이징 — 카테고리 신설 대신 Kelly 만 차등.
+      // Gate 1 통과 프록시: liveGateScore ≥ getMinGateScore(regime).
+      // 섹터 정렬 프록시: leadingSectorRS ≥ 60 또는 sectorCycleStage ∈ {EARLY, MID}.
+      // conditionsMatched: 통과 조건 키 수.
+      const _gate1Pass = liveGateScore >= getMinGateScore(regime);
+      const _rs = macroState?.leadingSectorRS ?? 0;
+      const _stage = macroState?.sectorCycleStage;
+      const _sectorAligned = _rs >= 60 || _stage === 'EARLY' || _stage === 'MID';
+      const _conditionsMatched = reCheckGate.conditionKeys?.length ?? 0;
+      const tierDecision = classifySizingTier({
+        liveGate: liveGateScore, mtas: reCheckGate.mtas,
+        gate1Pass: _gate1Pass, sectorAligned: _sectorAligned,
+        conditionsMatched: _conditionsMatched,
+      });
+      if (tierDecision.tier === null) {
+        console.log(`[AutoTrade/SizingTier] ${stock.name} 티어 미달 — ${tierDecision.reason}`);
+        continue;
+      }
+      if (tierDecision.tier === 'PROBING' && !canReserveProbingSlot(probingReservedSlots)) {
+        console.log(
+          `[AutoTrade/SizingTier] ${stock.name} PROBING 슬롯 포화 (${probingReservedSlots}/${PROBING_MAX_SLOTS}) — 스킵`,
+        );
+        continue;
+      }
+      console.log(
+        `[AutoTrade/SizingTier] ${stock.name} → ${tierDecision.tier} (×${tierDecision.kellyFactor}) — ${tierDecision.reason}`,
+      );
+
       // 포지션 사이징: 실시간 Gate 결과 연동 (buyPipeline 헬퍼 사용)
       // CATALYST 섹션은 표준의 60%로 축소 — 촉매 신호는 단기 고리스크이므로 손실 제한
       const mtasMultiplier = computeMtasMultiplier(reCheckGate.mtas);
       const sectionFactor = stock.section === 'CATALYST' ? CATALYST_POSITION_FACTOR : 1.0;
-      const positionPct = computeRawPositionPct(gateScore) * kellyMultiplier * mtasMultiplier * sectionFactor;
+      const positionPct =
+        computeRawPositionPct(gateScore) * kellyMultiplier * mtasMultiplier * sectionFactor * tierDecision.kellyFactor;
 
       if (reCheckGate) {
         console.log(
@@ -967,6 +1004,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           `liveGate: ${liveGateScore.toFixed(1)} (stale: ${(stock.gateScore ?? 0)}) | ` +
           `MTAS: ${reCheckGate.mtas.toFixed(1)}/10 (×${mtasMultiplier}) | ` +
           `CS: ${reCheckGate.compressionScore.toFixed(2)} | ` +
+          `tier: ${tierDecision.tier}(×${tierDecision.kellyFactor}) | ` +
           `posPct: ${(positionPct * 100).toFixed(1)}%`
         );
       }
@@ -1068,6 +1106,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       }));
       // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
       reservedSlots++;
+      // Phase 4-⑧(수정): PROBING 티어 전용 슬롯 카운터
+      if (tierDecision.tier === 'PROBING') probingReservedSlots++;
+      reservedTiers.push(tierDecision.tier === 'PROBING' ? 'PROBING' : 'OTHER');
       {
         const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
         pendingSectorValue.set(_sec, (pendingSectorValue.get(_sec) ?? 0) + effectiveBudget);
@@ -1093,6 +1134,10 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         // Phase 1 ①: 실패한 예약은 롤백 — reservedSlots/pendingSectorValue 감소
         rejected++;
         reservedSlots = Math.max(0, reservedSlots - 1);
+        // Phase 4-⑧(수정): PROBING 예약도 롤백해 다음 tick 이 정확히 1 슬롯 재사용
+        if (reservedTiers[i] === 'PROBING') {
+          probingReservedSlots = Math.max(0, probingReservedSlots - 1);
+        }
         const rel = reservedSectorValues[i];
         if (rel) {
           const cur = pendingSectorValue.get(rel.sector) ?? 0;
