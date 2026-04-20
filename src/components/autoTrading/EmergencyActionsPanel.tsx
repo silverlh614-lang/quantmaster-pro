@@ -6,57 +6,65 @@ import { Button } from '../../ui/button';
 import { Card } from '../../ui/card';
 import { InfoTile } from '../../ui/info-tile';
 import { Badge } from '../../ui/badge';
+import { useEngineGuards } from '../../hooks/autoTrade/useEngineGuards';
 
 interface EmergencyActionsPanelProps {
+  /** 파생 상태(VIX/FOMC 기반) — 서버 가드 상태와 병합하여 "현재 활성" 여부를 판단. */
   state: EmergencyActionState;
-  onBlockNewBuy: () => void;
-  onPauseAutoTrading: () => void;
-  onManageOnly: () => void;
   onEmergencyLiquidation: () => void;
 }
 
 export function EmergencyActionsPanel({
   state,
-  onBlockNewBuy,
-  onPauseAutoTrading,
-  onManageOnly,
   onEmergencyLiquidation,
 }: EmergencyActionsPanelProps) {
+  const {
+    guards,
+    toggleBlockNewBuy,
+    togglePauseAutoTrading,
+    toggleManageOnly,
+  } = useEngineGuards();
+
+  // 활성 판단: UI 수동 가드(server guards) OR 시장 상태 기반 자동 차단(state).
+  const newBuyBlocked = guards.blockNewBuy || state.newBuyBlocked;
+  const autoTradingPaused = guards.autoTradingPaused || state.autoTradingPaused;
+  const manageOnly = guards.manageOnly || state.positionManageOnly;
+
   return (
     <Section title="비상 대응 프로토콜" subtitle="Emergency Response Protocol">
       <div className="space-y-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <StatusPill label="신규 매수 차단" active={state.newBuyBlocked} />
-          <StatusPill label="자동매매 일시정지" active={state.autoTradingPaused} />
-          <StatusPill label="보유 포지션만 관리" active={state.positionManageOnly} />
+          <StatusPill label="신규 매수 차단" active={newBuyBlocked} />
+          <StatusPill label="자동매매 일시정지" active={autoTradingPaused} />
+          <StatusPill label="보유 포지션만 관리" active={manageOnly} />
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Button
-            variant="secondary"
+            variant={guards.blockNewBuy ? 'danger' : 'secondary'}
             size="md"
             icon={<ShieldBan className="h-4 w-4" />}
-            onClick={onBlockNewBuy}
+            onClick={toggleBlockNewBuy}
           >
-            신규 매수 차단
+            {guards.blockNewBuy ? '신규 매수 차단 해제' : '신규 매수 차단'}
           </Button>
 
           <Button
-            variant="secondary"
+            variant={guards.autoTradingPaused ? 'danger' : 'secondary'}
             size="md"
             icon={<PauseCircle className="h-4 w-4" />}
-            onClick={onPauseAutoTrading}
+            onClick={togglePauseAutoTrading}
           >
-            자동매매 일시정지
+            {guards.autoTradingPaused ? '자동매매 재개' : '자동매매 일시정지'}
           </Button>
 
           <Button
-            variant="secondary"
+            variant={guards.manageOnly ? 'danger' : 'secondary'}
             size="md"
             icon={<Lock className="h-4 w-4" />}
-            onClick={onManageOnly}
+            onClick={toggleManageOnly}
           >
-            보유만 관리
+            {guards.manageOnly ? '보유만 관리 해제' : '보유만 관리'}
           </Button>
 
           <Button

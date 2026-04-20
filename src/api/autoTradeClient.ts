@@ -81,6 +81,73 @@ export interface EngineToggleResponse {
   emergencyStop: boolean;
 }
 
+export interface EngineGuardsState {
+  blockNewBuy: boolean;
+  autoTradingPaused: boolean;
+  manageOnly: boolean;
+  emergencyStop: boolean;
+}
+
+export interface PendingApprovalEntry {
+  tradeId: string;
+  stockCode: string;
+  stockName: string;
+  currentPrice: number;
+  quantity: number;
+  stopLoss: number;
+  targetPrice: number;
+  createdAt: number;
+  ageMs: number;
+}
+
+export interface PendingApprovalsResponse {
+  entries: PendingApprovalEntry[];
+}
+
+/**
+ * 글로벌 에이전트별 최근 스냅샷. 타입이 에이전트마다 상이해 unknown 으로 수신.
+ * UI 는 표시할 필드를 가드 로 방어적으로 읽는다(형식 변경에 강한 렌더링).
+ */
+export interface GlobalSignalsResponse {
+  adrGap: {
+    lastSentAt: string;
+    lastGaps: Record<string, number>;
+  } | null;
+  preMarket: {
+    createdAt: string;
+    trigger: string;
+    biasScore: number;
+    biasDirection: 'BULL' | 'BEAR' | 'NEUTRAL';
+    snapshots: Array<{
+      symbol: string;
+      label: string;
+      last: number | null;
+      changePct: number | null;
+      weight: number;
+    }>;
+  } | null;
+  dxy: {
+    createdAt: string;
+    direction: 'STRENGTH' | 'WEAKNESS';
+    severity: 'CONFIRMED' | 'PRELIMINARY';
+    flowBias: 'FOREIGN_OUTFLOW' | 'FOREIGN_INFLOW' | 'UNCLEAR';
+    reading: {
+      last: number;
+      change1d: number;
+      change5d: number;
+      krwChange: number | null;
+      ewyChange: number | null;
+    };
+  } | null;
+  sectorEtf: {
+    createdAt: string;
+    topBullish: { symbol: string; label: string; composite: number | null } | null;
+    topBearish: { symbol: string; label: string; composite: number | null } | null;
+    momentums?: Array<{ symbol: string; label: string; composite: number | null }>;
+  } | null;
+  fetchedAt: string;
+}
+
 export interface BuyAuditData {
   watchlistCount: number;
   focusCount: number;
@@ -249,6 +316,61 @@ export const autoTradeApi = {
    */
   emergencyStop: () =>
     apiFetch<EngineToggleResponse>('/api/auto-trade/engine/emergency-stop', { method: 'POST' }),
+
+  /** EmergencyActionsPanel 가드 상태 — 신규매수 차단·일시정지·보유만 관리. */
+  getEngineGuards: () =>
+    apiFetchSafe<EngineGuardsState>(
+      '/api/auto-trade/engine/guards',
+      {},
+      { blockNewBuy: false, autoTradingPaused: false, manageOnly: false, emergencyStop: false },
+    ),
+  setBlockNewBuy: (enabled: boolean) =>
+    apiFetch<{ blockNewBuy: boolean }>(
+      '/api/auto-trade/engine/block-new-buy',
+      { method: 'POST', json: { enabled } },
+    ),
+  setPauseAutoTrading: (enabled: boolean) =>
+    apiFetch<{ autoTradingPaused: boolean }>(
+      '/api/auto-trade/engine/pause',
+      { method: 'POST', json: { enabled } },
+    ),
+  setManageOnly: (enabled: boolean) =>
+    apiFetch<{ manageOnly: boolean; blockNewBuy: boolean }>(
+      '/api/auto-trade/engine/manage-only',
+      { method: 'POST', json: { enabled } },
+    ),
+
+  // Signals — UI-side approval / reject
+  getPendingApprovals: () =>
+    apiFetchSafe<PendingApprovalsResponse>(
+      '/api/auto-trade/signals/pending',
+      {},
+      { entries: [] },
+    ),
+  approveSignal: (tradeId: string) =>
+    apiFetch<{ ok: boolean; action: 'APPROVE'; tradeId: string }>(
+      `/api/auto-trade/signals/${encodeURIComponent(tradeId)}/approve`,
+      { method: 'POST' },
+    ),
+  rejectSignal: (tradeId: string, reason: string) =>
+    apiFetch<{ ok: boolean; action: 'REJECT'; tradeId: string; reason: string }>(
+      `/api/auto-trade/signals/${encodeURIComponent(tradeId)}/reject`,
+      { method: 'POST', json: { reason } },
+    ),
+
+  /** 오늘의 글로벌 신호 요약 — 진단 탭 하단 카드용. 실패해도 전체 null 로 안전 복귀. */
+  getGlobalSignals: () =>
+    apiFetchSafe<GlobalSignalsResponse>(
+      '/api/alerts/global-signals',
+      {},
+      {
+        adrGap: null,
+        preMarket: null,
+        dxy: null,
+        sectorEtf: null,
+        fetchedAt: new Date().toISOString(),
+      },
+    ),
 
   // Watchlist
   getWatchlist: () =>

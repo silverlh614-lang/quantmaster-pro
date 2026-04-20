@@ -48,6 +48,7 @@ import { getExecutionCostConfig } from './executionCosts.js';
 import { classifySizingTier, canReserveProbingSlot, PROBING_MAX_SLOTS } from './sizingTier.js';
 import type { FullRegimeConfig } from '../../src/types/core.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
+import { getManualBlockNewBuy, getManualManageOnly } from '../state.js';
 
 // ── Phase 2-③: SELL_ONLY Top-K 예외 채널 평가 ─────────────────────────────────
 // regimeConfig.sellOnlyException.enabled=true 일 때만 작동.
@@ -184,6 +185,17 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   if (!process.env.KIS_APP_KEY) {
     console.warn('[AutoTrade] KIS_APP_KEY 미설정 — 스캔 건너뜀');
     return {};
+  }
+
+  // UI 수동 가드 — EmergencyActionsPanel 버튼으로 설정된 "신규 매수 차단" /
+  // "보유만 관리" 를 sellOnly 로 승격시켜 신규 진입만 차단. 청산·모니터링은
+  // 기존 sellOnly 분기가 처리하므로 추가 분기 불필요.
+  const manualBlockNewBuy = getManualBlockNewBuy();
+  const manualManageOnly = getManualManageOnly();
+  if ((manualBlockNewBuy || manualManageOnly) && !options?.sellOnly) {
+    const reason = manualManageOnly ? '보유만 관리 모드' : '신규 매수 차단';
+    console.warn(`[AutoTrade] UI 수동 가드 활성 (${reason}) — sellOnly 로 승격`);
+    options = { ...(options ?? {}), sellOnly: true };
   }
 
   const watchlist = loadWatchlist();

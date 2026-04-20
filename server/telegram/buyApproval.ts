@@ -252,3 +252,60 @@ export function hasPendingApproval(stockCode: string): boolean {
   }
   return false;
 }
+
+/** UI용 대기 승인 목록 — 민감 정보 없이 스냅샷만 반환. */
+export function listPendingApprovals(): Array<{
+  tradeId: string;
+  stockCode: string;
+  stockName: string;
+  currentPrice: number;
+  quantity: number;
+  stopLoss: number;
+  targetPrice: number;
+  createdAt: number;
+  ageMs: number;
+}> {
+  const now = Date.now();
+  return Array.from(pendingApprovals.values()).map((p) => ({
+    tradeId: p.tradeId,
+    stockCode: p.stockCode,
+    stockName: p.stockName,
+    currentPrice: p.currentPrice,
+    quantity: p.quantity,
+    stopLoss: p.stopLoss,
+    targetPrice: p.targetPrice,
+    createdAt: p.createdAt,
+    ageMs: now - p.createdAt,
+  }));
+}
+
+/**
+ * UI(관제실)에서 승인/거부 버튼을 눌렀을 때 호출되는 외부 resolver.
+ * 텔레그램 callback 과 동일 경로를 거친다 — 타이머 정리 + pending 맵 제거.
+ * @returns resolved 여부 (false = 이미 만료/처리됨)
+ */
+export async function resolvePendingApproval(
+  tradeId: string,
+  action: ApprovalAction,
+  source: 'UI' | 'TELEGRAM' = 'UI',
+): Promise<boolean> {
+  const pending = pendingApprovals.get(tradeId);
+  if (!pending) return false;
+
+  clearTimeout(pending.timer);
+  pendingApprovals.delete(tradeId);
+
+  const actionLabel = action === 'APPROVE' ? '✅ 승인' : action === 'REJECT' ? '❌ 거부' : '⏸ 스킵';
+  const actionEmoji = action === 'APPROVE' ? '✅' : action === 'REJECT' ? '❌' : '⏸';
+
+  // 텔레그램 원본 메시지 업데이트 — 실패해도 UI 경로는 계속.
+  await editMessageText(
+    pending.messageId,
+    `${actionEmoji} <b>[${escapeHtml(pending.stockName)}] ${actionLabel} (${source}) 처리됨</b>\n` +
+    `현재가: ${pending.currentPrice.toLocaleString()}원 × ${pending.quantity}주`,
+  ).catch(() => { /* 원본 메시지 편집 실패는 치명적이지 않음 */ });
+
+  console.log(`[BuyApproval/${source}] ${actionLabel}: ${pending.stockName} (${pending.stockCode})`);
+  pending.resolve(action);
+  return true;
+}

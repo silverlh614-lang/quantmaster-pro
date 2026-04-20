@@ -30,6 +30,7 @@ import learningRouter from './autoTrade/learningRouter.js';
 import tranchesRouter from './autoTrade/tranchesRouter.js';
 import positionsRouter from './autoTrade/positionsRouter.js';
 import settingsRouter from './autoTrade/settingsRouter.js';
+import signalsRouter from './autoTrade/signalsRouter.js';
 
 const router = Router();
 
@@ -42,5 +43,6 @@ router.use(learningRouter);
 router.use(tranchesRouter);
 router.use(positionsRouter);
 router.use(settingsRouter);
+router.use(signalsRouter);
 
 export default router;

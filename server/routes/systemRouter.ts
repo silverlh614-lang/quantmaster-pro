@@ -28,6 +28,7 @@ import { buildRagIndex, queryRag, generateAdvice, getRagStats } from '../rag/loc
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { getKisTokenRemainingHours } from '../clients/kisClient.js';
+import { getKrxOpenApiStatus, isKrxOpenApiHealthy } from '../clients/krxOpenApi.js';
 import { getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
 import { getStreamStatus } from '../clients/kisStreamClient.js';
 import { DATA_DIR } from '../persistence/paths.js';
@@ -273,6 +274,11 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
   const kisConfigured = !!process.env.KIS_APP_KEY;
   const kisTokenHours = getKisTokenRemainingHours();
   const kisTokenValid = kisConfigured && (autoMode !== 'LIVE' || kisTokenHours > 0);
+
+  // KRX OpenAPI AUTH_KEY 상태 — 인증키 설정·서킷 상태·빌드된 base URL 까지 포함
+  const krxStatus = getKrxOpenApiStatus();
+  const krxTokenConfigured = krxStatus.authKeyConfigured;
+  const krxTokenValid = isKrxOpenApiHealthy();
   const watchlistCount   = watchlist.length;
   const shadowTradeCount = shadows.filter(s => isOpenShadowStatus(s.status)).length;
 
@@ -310,6 +316,8 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
   else if (!autoEnabled)                       verdict = '🟡 AUTO_TRADE_DISABLED';
   else if (!kisConfigured)                     verdict = '🟡 KIS_NOT_CONFIGURED';
   else if (autoMode === 'LIVE' && !kisTokenValid) verdict = '🟡 KIS_TOKEN_EXPIRED';
+  else if (!krxTokenConfigured)                verdict = '🟡 KRX_TOKEN_NOT_CONFIGURED';
+  else if (!krxTokenValid)                     verdict = '🟡 KRX_TOKEN_UNHEALTHY';
   else if (!lastScanAt)                        verdict = '🟡 SCANNER_IDLE';
   else if (yahooApiStatus === 'DOWN')          verdict = '🟡 YAHOO_DOWN';
   else                                         verdict = '🟢 OK';
@@ -329,6 +337,10 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
     kisConfigured,
     kisTokenValid,
     kisTokenHoursLeft:   kisTokenHours,
+    krxTokenConfigured,
+    krxTokenValid,
+    krxCircuitState:     krxStatus.circuitState,
+    krxFailures:         krxStatus.failures,
     yahooApiStatus,
     railwayVolumeMount,
     lastScanAt,

@@ -103,6 +103,14 @@ function saveState(state: AdrGapState): void {
   fs.writeFileSync(ADR_GAP_STATE_FILE, JSON.stringify(state, null, 2));
 }
 
+/** 대시보드용 — 가장 최근 ADR Gap 상태. 없으면 null. */
+export function getLatestAdrGapState(): AdrGapState | null {
+  ensureDataDir();
+  if (!fs.existsSync(ADR_GAP_STATE_FILE)) return null;
+  try { return JSON.parse(fs.readFileSync(ADR_GAP_STATE_FILE, 'utf-8')) as AdrGapState; }
+  catch { return null; }
+}
+
 // ── 종가 한 점 조회 헬퍼 ──────────────────────────────────────────────────────
 
 /** Yahoo timestamp(Unix seconds) 기준 바의 경과일수. */

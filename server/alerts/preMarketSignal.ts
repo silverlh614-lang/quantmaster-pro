@@ -82,6 +82,12 @@ function loadState(): PersistedState {
   try { return JSON.parse(fs.readFileSync(PRE_MARKET_SIGNAL_FILE, 'utf-8')); } catch { return { lastReports: [] }; }
 }
 
+/** 대시보드용 — 가장 최근 Pre-Market Bias Score 리포트 반환. */
+export function getLatestPreMarketReport(): PreMarketSignalReport | null {
+  const state = loadState();
+  return state.lastReports.length > 0 ? state.lastReports[state.lastReports.length - 1] : null;
+}
+
 function saveState(state: PersistedState): void {
   ensureDataDir();
   const kept = state.lastReports.slice(-50);
