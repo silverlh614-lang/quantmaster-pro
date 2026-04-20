@@ -491,8 +491,17 @@ export async function fetchStockName(code: string): Promise<string | null> {
 
 // ─── 계좌 잔고 조회 ─────────────────────────────────────────────────────────
 
+// 장외 시간 (특히 새벽 KIS 서버 점검 시간) 잔고 API는 500을 반환한다.
+// 무의미한 재시도 스팸을 막기 위해 장중에만 실호출하고, 그 외엔 최근 캐시값을 반환.
+let _cachedBalance: number | null = null;
+
 export async function fetchAccountBalance(): Promise<number | null> {
   if (_overrides.fetchAccountBalance) return _overrides.fetchAccountBalance();
+
+  const kstHour = (new Date().getUTCHours() + 9) % 24;
+  const isMarketHours = kstHour >= 8 && kstHour < 16;
+  if (!isMarketHours) return _cachedBalance;
+
   const trId = KIS_IS_REAL ? 'TTTC8434R' : 'VTTC8434R';
   const data = await kisGet(trId, '/uapi/domestic-stock/v1/trading/inquire-balance', {
     CANO: process.env.KIS_ACCOUNT_NO ?? '',
@@ -508,7 +517,9 @@ export async function fetchAccountBalance(): Promise<number | null> {
     CTX_AREA_NK100: '',
   }, 'LOW');
   const cash = Number(data?.output2?.[0]?.dnca_tot_amt ?? 0);
-  return cash > 0 ? cash : null;
+  const balance = cash > 0 ? cash : null;
+  if (balance !== null) _cachedBalance = balance;
+  return balance;
 }
 
 // ─── 실제 KIS 매도 주문 ─────────────────────────────────────────────────────
