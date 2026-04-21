@@ -13,6 +13,7 @@
  *   3. 구독 메시지 전송 → 체결 데이터 스트리밍 수신
  */
 
+import WebSocket from 'ws';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 
 // ─── 인메모리 실시간 가격 맵 ─────────────────────────────────────────────────
