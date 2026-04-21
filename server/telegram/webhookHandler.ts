@@ -2,9 +2,9 @@
 // Telegram 양방향 봇 Webhook 핸들러 — server.ts에서 분리
 // POST /api/telegram/webhook 엔드포인트에서 호출
 // 지원 명령어: /help, /status, /market, /pause, /resume, /stop, /reset, /integrity,
-//             /watchlist, /buy, /report, /shadow, /pending, /pnl, /pos,
+//             /watchlist, /buy, /sell, /report, /shadow, /pending, /pnl, /pos,
 //             /add, /remove, /regime, /scan, /krx_scan, /cancel, /focus, /watchlist_channel,
-//             /health, /refresh_token, /channel_test
+//             /health, /refresh_token, /channel_test, /reconnect_ws
 import { Request, Response } from 'express';
 import {
   getEmergencyStop, setEmergencyStop,
@@ -13,7 +13,14 @@ import {
   getDataIntegrityBlocked, setDataIntegrityBlocked,
 } from '../state.js';
 import { cancelAllPendingOrders } from '../emergency.js';
-import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
+import {
+  loadShadowTrades,
+  saveShadowTrades,
+  getRemainingQty,
+  updateShadow,
+  appendFill,
+  appendShadowLog,
+} from '../persistence/shadowTradeRepo.js';
 import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
@@ -27,8 +34,8 @@ import { getLiveRegime } from '../trading/regimeBridge.js';
 import { resetKrxCache } from '../clients/krxClient.js';
 import { _resetKrxOpenApiBreaker, getKrxOpenApiStatus, resetKrxOpenApiCache } from '../clients/krxOpenApi.js';
 import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/reportGenerator.js';
-import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, getRealDataTokenRemainingHours, refreshKisToken, invalidateKisToken } from '../clients/kisClient.js';
-import { getStreamStatus } from '../clients/kisStreamClient.js';
+import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, getRealDataTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder } from '../clients/kisClient.js';
+import { getStreamStatus, startKisStream, stopKisStream, getRealtimePrice } from '../clients/kisStreamClient.js';
 import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { verifyVolumeMount } from '../persistence/paths.js';
 import { STOCK_UNIVERSE } from '../screener/stockScreener.js';
@@ -112,6 +119,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /refresh_token — KIS 토큰 강제 갱신\n\n` +
           `📈 <b>매매</b>\n` +
           `  /buy <code>종목코드</code> — 수동 매수 신호\n` +
+          `  /sell <code>종목코드</code> — 포지션 전량 시장가 매도\n` +
           `  /scan — 장중 강제 스캔 트리거\n` +
           `  /krx_scan — KRX 종목조회 강제 재스캔 (Stage1+2+3)\n` +
           `  /cancel <code>종목코드</code> — 미체결 주문 취소\n` +
@@ -126,6 +134,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /stop — 비상 정지 발동 (미체결 전량 취소)\n` +
           `  /reset [pw] — 비상 정지 해제\n` +
           `  /integrity — 데이터 무결성 차단 상태 조회/해제\n` +
+          `  /reconnect_ws — KIS WebSocket 강제 재연결\n` +
           `  /channel_test — 채널 연결 테스트\n\n` +
           `⏰ <b>자동 레포트 스케줄</b>\n` +
           `  08:30 — 장전 시장 브리핑\n` +
@@ -325,6 +334,104 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         // Shadow 강제 신호 트리거 — forceBuyCodes로 buyList에 강제 포함
         await runAutoSignalScan({ forceBuyCodes: [code] }).catch(console.error);
         await reply(`🔔 <b>${escapeHtml(hit.name)}(${escapeHtml(code)})</b> 수동 매수 신호 트리거 완료 (다음 스캔 주기에 체결)`);
+        break;
+      }
+
+      case '/sell': {
+        const code = args[0]?.replace(/[^0-9]/g, '').slice(0, 6);
+        if (!code || code.length !== 6) {
+          await reply('❌ 사용법: /sell 005930 (종목코드 6자리)');
+          break;
+        }
+
+        // ── 1단계: 보유 포지션 확인 ─────────────────────────────────────
+        const shadows = loadShadowTrades();
+        const target  = shadows.find(s => s.stockCode === code && isOpenShadowStatus(s.status));
+        if (!target) {
+          await reply(`⚠️ ${code} 보유 포지션 없음 — /pos 로 현재 포지션을 확인하세요.`);
+          break;
+        }
+        const qty = getRemainingQty(target);
+        if (qty <= 0) {
+          await reply(`⚠️ ${escapeHtml(target.stockName)}(${code}) 잔여 수량이 0입니다.`);
+          break;
+        }
+
+        await reply(
+          `🛒 <b>[수동 청산 요청]</b>\n` +
+          `종목: ${escapeHtml(target.stockName)} (${escapeHtml(code)})\n` +
+          `진입: ${target.shadowEntryPrice.toLocaleString()}원 × ${qty}주\n` +
+          `현재가 조회 중...`
+        );
+
+        // ── 2단계: 현재가 조회 (실시간 → REST 폴백) ─────────────────────
+        const rtPrice = getRealtimePrice(code);
+        const currentPrice = rtPrice ?? await fetchCurrentPrice(code).catch(() => null);
+        if (!currentPrice || currentPrice <= 0) {
+          await reply(`❌ ${code} 현재가 조회 실패 — 매도 중단. KIS 토큰/네트워크 상태를 확인하세요.`);
+          break;
+        }
+        const returnPct = ((currentPrice - target.shadowEntryPrice) / target.shadowEntryPrice) * 100;
+
+        // ── 3단계: 전량 시장가 매도 주문 ──────────────────────────────
+        const nowIso = new Date().toISOString();
+        const sellRes = await placeKisSellOrder(
+          target.stockCode,
+          target.stockName,
+          qty,
+          'STOP_LOSS', // placeKisSellOrder 기존 reason 타입 재사용 — 로그에는 "수동 청산"으로 구분
+        ).catch(err => {
+          console.error('[TelegramBot] /sell placeKisSellOrder 실패:', err);
+          return { ordNo: null, placed: false };
+        });
+
+        // ── 4단계: Shadow 상태 업데이트 — exitEngine HARD_STOP 패턴 ───
+        const pnl = (currentPrice - target.shadowEntryPrice) * qty;
+        try {
+          appendFill(target, {
+            type: 'SELL',
+            subType: 'STOP_LOSS',
+            qty,
+            price: currentPrice,
+            pnl,
+            pnlPct: returnPct,
+            reason: '수동 청산 (/sell)',
+            exitRuleTag: 'HARD_STOP',
+            timestamp: nowIso,
+            ordNo: sellRes.ordNo ?? undefined,
+          });
+          updateShadow(target, {
+            status: 'HIT_STOP',
+            exitPrice: currentPrice,
+            exitTime: nowIso,
+            exitRuleTag: 'HARD_STOP',
+            quantity: 0,
+          });
+          appendShadowLog({
+            event: 'MANUAL_SELL',
+            trigger: 'telegram /sell',
+            ...target,
+            soldQty: qty,
+            exitPrice: currentPrice,
+            returnPct,
+            ordNo: sellRes.ordNo,
+          });
+          saveShadowTrades(shadows);
+        } catch (e) {
+          console.error('[TelegramBot] /sell shadow 상태 업데이트 실패:', e);
+        }
+
+        // ── 5단계: 결과 텔레그램 알림 ────────────────────────────────
+        const modeLabel = sellRes.placed ? '🔴 LIVE 매도 접수' : '🟡 Shadow 청산 기록';
+        await reply(
+          `✅ <b>[수동 청산 완료]</b> ${modeLabel}\n` +
+          `종목: ${escapeHtml(target.stockName)} (${escapeHtml(code)})\n` +
+          `수량: ${qty}주\n` +
+          `현재가: ${currentPrice.toLocaleString()}원\n` +
+          `손익: ${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}% ` +
+          `(${pnl >= 0 ? '+' : ''}${Math.round(pnl).toLocaleString()}원)\n` +
+          `주문번호: ${sellRes.ordNo ?? 'N/A'}`
+        );
         break;
       }
 
@@ -832,6 +939,57 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             `${e instanceof Error ? e.message : String(e)}`
           );
         }
+        break;
+      }
+
+      case '/reconnect_ws': {
+        // ── 1단계: 현재 연결 상태 보고 ─────────────────────────────────
+        const before = getStreamStatus();
+        const lastPong = before.lastPongAt
+          ? new Date(before.lastPongAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
+          : '없음';
+        await reply(
+          `🔌 <b>[KIS WebSocket 재연결 요청]</b>\n` +
+          `현재 상태: ${before.connected ? '✅ 연결됨' : '❌ 끊김'}\n` +
+          `구독 종목: ${before.subscribedCount}개 | 활성 가격: ${before.activePrices}개\n` +
+          `재연결 카운트: ${before.reconnectCount}\n` +
+          `마지막 PONG: ${lastPong}\n` +
+          `기존 연결 종료 → 1초 후 재연결 시도...`
+        );
+
+        // ── 2단계: 기존 연결 종료 ───────────────────────────────────
+        try {
+          stopKisStream();
+        } catch (e) {
+          console.error('[TelegramBot] /reconnect_ws stopKisStream 실패:', e);
+        }
+
+        // ── 3단계: 1초 대기 후 재연결 ───────────────────────────────
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const codes = loadWatchlist().map(w => w.code);
+        if (codes.length === 0) {
+          await reply('⚠️ 워치리스트가 비어 있어 재연결할 구독 종목이 없습니다. /add 또는 /krx_scan 후 재시도하세요.');
+          break;
+        }
+
+        try {
+          await startKisStream(codes);
+        } catch (e) {
+          await reply(
+            `❌ <b>KIS WebSocket 재연결 실패</b>\n` +
+            `${escapeHtml(e instanceof Error ? e.message : String(e))}`
+          );
+          break;
+        }
+
+        // ── 4단계: 결과 보고 ────────────────────────────────────────
+        const after = getStreamStatus();
+        await reply(
+          `✅ <b>[KIS WebSocket 재연결 완료]</b>\n` +
+          `연결: ${after.connected ? '✅ OK' : '🟡 연결 중 (핸드셰이크 진행)'}\n` +
+          `구독: ${after.subscribedCount}개 / 워치리스트 ${codes.length}개\n` +
+          `재연결 카운트: ${after.reconnectCount}`
+        );
         break;
       }
 
