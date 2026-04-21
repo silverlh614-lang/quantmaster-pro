@@ -283,6 +283,18 @@ async function connectWebSocket(): Promise<void> {
 }
 
 function scheduleReconnect(): void {
+  // KIS 서버는 15:20 이후 실시간 데이터 송출을 종료하므로 재연결해도 즉시 끊긴다.
+  // 장외 시간(KST 09:00 이전 / 15:20 이후)에는 재연결 루프를 끊어 좀비 재시도/알림 폭주를 방지한다.
+  const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const kstHour = kstNow.getUTCHours();
+  const kstMin = kstNow.getUTCMinutes();
+  const afterClose = kstHour > 15 || (kstHour === 15 && kstMin >= 20);
+  const beforeOpen = kstHour < 9;
+  if (afterClose || beforeOpen) {
+    logStreamEvent('STOP', `장마감/장외 시간 (KST ${String(kstHour).padStart(2, '0')}:${String(kstMin).padStart(2, '0')}) — 재연결 생략`);
+    return;
+  }
+
   if (_reconnectCount >= MAX_RECONNECT) {
     logStreamEvent('STOP', `최대 재연결 ${MAX_RECONNECT}회 초과 — 스트리밍 중단, REST 폴백`);
     sendTelegramAlert(
