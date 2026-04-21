@@ -176,7 +176,9 @@ export type ExitRuleTag =
   | 'DIVERGENCE_PARTIAL'         // priority 11
   | 'MA60_DEATH_WATCH'           // priority 12 — 60일선 역배열 최초 감지: 유예 스케줄만 설정
   | 'STOP_APPROACH_ALERT'        // priority 13
-  | 'EUPHORIA_PARTIAL';          // priority 14
+  | 'EUPHORIA_PARTIAL'           // priority 14
+  | 'MANUAL_EXIT';               // priority 99 — "규칙 외" 수동 청산 (Telegram /sell, UI 수동 매도)
+                                 //               자동 평가 루프에서 절대 선택되지 않으며, 오직 외부 주입 전용.
 
 export interface ServerShadowTrade {
   id: string;
@@ -296,6 +298,46 @@ export interface ServerShadowTrade {
    * 분석에서 자동 제외된다 (사람이 삭제하지 않아도 통계에서 자동 격리).
    */
   incidentFlag?: string;
+  /**
+   * 수동 청산(MANUAL_EXIT) 발생 시점에 자동 캡처되는 컨텍스트.
+   * exitRuleTag === 'MANUAL_EXIT' 과 한 쌍으로, 반성 엔진이 "왜 수동 청산했는가"를
+   * 학습할 수 있게 한다. 기계가 대기 중이던 규칙·손절/목표가까지 거리·편향 추정·
+   * 사용자 자유 노트를 포함한다.
+   */
+  manualExitContext?: ManualExitContext;
+}
+
+// ─── Manual Exit Context ──────────────────────────────────────────────────────
+
+/**
+ * Telegram /sell 명령어 또는 UI 수동 매도 시 외부에서 주입되는 메타데이터.
+ * 자동 손절/익절 경로에서는 기록되지 않는다 (exitRuleTag === 'MANUAL_EXIT' 전용).
+ */
+export interface ManualExitContext {
+  /** 수동 청산 트리거 시각 (KST ISO) */
+  triggeredAt: string;
+  /** 사용자가 선택한 청산 사유 카테고리 */
+  reasonCode: 'USER_NEWS' | 'USER_PANIC' | 'USER_CORRECTION' | 'USER_OTHER';
+  /** 기계는 그 시점에 무엇을 판단하고 있었나 — 수동 개입 vs 자동 판단의 괴리 측정 */
+  currentMachineVerdict: {
+    /** 대기 중이던 규칙 (있으면) */
+    activeRule?: ExitRuleTag;
+    /** 손절가까지의 거리 (%) — 현재가 기준 음수면 이미 손절선 하향 돌파 */
+    distanceToStop: number;
+    /** 목표가까지의 거리 (%) */
+    distanceToTarget: number;
+  };
+  /** 행동 편향 자동 추정 (0~1) — 반성 엔진이 패턴화할 수 있도록 수치로 기록 */
+  biasAssessment: {
+    /** 후회 회피 — 더 큰 손실 우려로 선제 청산 */
+    regretAvoidance: number;
+    /** 보유 효과 — 근거 없는 지속 보유 선호 반전 */
+    endowmentEffect: number;
+    /** 패닉 매도 — 감정적 일괄 청산 경향 */
+    panicSelling: number;
+  };
+  /** 선택적 사용자 자유 노트 */
+  userNote?: string;
 }
 
 export function loadShadowTrades(): ServerShadowTrade[] {

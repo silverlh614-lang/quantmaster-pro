@@ -180,6 +180,7 @@ describe('EXIT_RULE_PRIORITY_TABLE', () => {
       'MA60_DEATH_WATCH',
       'STOP_APPROACH_ALERT',
       'EUPHORIA_PARTIAL',
+      'MANUAL_EXIT',
     ]);
   });
 
@@ -189,7 +190,16 @@ describe('EXIT_RULE_PRIORITY_TABLE', () => {
     const tableRules = EXIT_RULE_PRIORITY_TABLE.map((r) => r.rule);
     // TypeScript: 아래 assignment가 컴파일되면 tableRules 는 ExitRuleTag[] 와 호환됨을 의미
     const _typed: ExitRuleTag[] = tableRules;
-    expect(_typed).toHaveLength(14);
+    expect(_typed).toHaveLength(15);
+  });
+
+  it('MANUAL_EXIT is registered at priority 99 ("규칙 외") and never competes with automatic rules', () => {
+    const manual = EXIT_RULE_PRIORITY_TABLE.find((r) => r.rule === 'MANUAL_EXIT');
+    expect(manual).toBeDefined();
+    expect(manual!.priority).toBe(99);
+    // 자동 평가 규칙들의 priority 는 모두 99 미만이어야 한다.
+    const autoRules = EXIT_RULE_PRIORITY_TABLE.filter((r) => r.rule !== 'MANUAL_EXIT');
+    expect(autoRules.every((r) => r.priority < 99)).toBe(true);
   });
 });
 
