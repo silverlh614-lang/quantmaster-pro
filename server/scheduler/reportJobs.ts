@@ -35,6 +35,7 @@ import { sendWeeklyHygieneAudit } from '../alerts/weeklyHygieneAudit.js';
 import { runHourlyCanary } from '../learning/mutationCanary.js';
 import { beginUnifiedBriefing, endUnifiedBriefing } from '../alerts/unifiedBriefing.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { flushInfoDailyDigest, flushSystemWeeklySummary } from '../alerts/alertRouter.js';
 
 /** 통합 브리핑 래퍼 — 내부 report 함수 호출을 캡처해 단일 composite로 발송. */
 async function runUnifiedBriefing(
@@ -137,6 +138,16 @@ export function registerReportJobs(): void {
   cron.schedule('0 1 * * 0', async () => {
     await sendWeeklyIntegrityReport().catch(console.error);
     await sendWeeklyHygieneAudit().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // INFO 채널 일일 다이제스트 flush (평일 15:35 KST = UTC 06:35)
+  cron.schedule('35 6 * * 1-5', async () => {
+    await flushInfoDailyDigest().catch(console.error);
+  }, { timezone: 'UTC' });
+
+  // SYSTEM 채널 주간 요약 flush (금요일 17:00 KST = UTC 08:00)
+  cron.schedule('0 8 * * 5', async () => {
+    await flushSystemWeeklySummary().catch(console.error);
   }, { timezone: 'UTC' });
 
   // Phase 2차 C4 — Mutation Canary: 매시간 정각, 고정 입력 → 고정 출력 검증.

@@ -27,6 +27,10 @@ import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
 import { getMonthlyStats } from '../learning/recommendationTracker.js';
 import { sendTelegramAlert, answerCallbackQuery, isDigestEnabled, setDigestEnabled, escapeHtml } from '../alerts/telegramClient.js';
 import { readAlertAuditRange } from '../alerts/alertAuditLog.js';
+import { getChannelStatsByDate, getRecentDateKeys } from '../persistence/channelStatsRepo.js';
+import { findAlertHistoryById, getRecentAlertHistory } from '../persistence/alertHistoryRepo.js';
+import { AlertCategory } from '../alerts/alertCategories.js';
+import { dispatchAlert, runChannelHealthCheck } from '../alerts/alertRouter.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
 import { runAutoSignalScan, isOpenShadowStatus, getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
 import { runFullDiscoveryPipeline } from '../screener/universeScanner.js';
@@ -135,7 +139,11 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /reset [pw] — 비상 정지 해제\n` +
           `  /integrity — 데이터 무결성 차단 상태 조회/해제\n` +
           `  /reconnect_ws — KIS WebSocket 강제 재연결\n` +
-          `  /channel_test — 채널 연결 테스트\n\n` +
+          `  /channel_health — 4채널 상태 점검\n` +
+          `  /channel_stats [YYYY-MM-DD|today|yesterday] — 채널 통계 조회\n` +
+          `  /alert_history [n] — 최근 알림 이력 조회\n` +
+          `  /alert_replay <id> [TRADE|ANALYSIS|INFO|SYSTEM] — 알림 재전송\n` +
+          `  /channel_test — 채널 연결 테스트(레거시)\n\n` +
           `⏰ <b>자동 레포트 스케줄</b>\n` +
           `  08:30 — 장전 시장 브리핑\n` +
           `  12:00 — 장중 시장 현황\n` +
@@ -762,6 +770,131 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         }
         await channelWatchlistSummary(wl);
         await reply(`✅ 워치리스트 ${wl.length}개 종목을 채널에 발송했습니다.`);
+        break;
+      }
+
+      case '/channel_health': {
+        await reply('🧪 4개 채널 헬스체크를 실행합니다...');
+        const result = await runChannelHealthCheck();
+        const categories: AlertCategory[] = [
+          AlertCategory.TRADE,
+          AlertCategory.ANALYSIS,
+          AlertCategory.INFO,
+          AlertCategory.SYSTEM,
+        ];
+        const lines = categories.map((category) => {
+          const item = result[category];
+          const icon = item.ok ? '✅' : '❌';
+          const reason = item.reason ? ` (${escapeHtml(item.reason)})` : '';
+          const enabled = item.enabled ? '' : ' [disabled]';
+          const configured = item.configured ? '' : ' [unconfigured]';
+          return `${category}: ${icon}${enabled}${configured}${reason}`;
+        });
+        await reply(
+          `🧪 <b>[채널 헬스체크 결과]</b>\n` +
+          `${lines.join('\n')}`
+        );
+        break;
+      }
+
+      case '/channel_stats': {
+        const raw = (args[0] ?? 'today').toLowerCase();
+        const todayKey = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+        const yesterdayKey = new Date(Date.now() - 24 * 60 * 60 * 1000)
+          .toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+        const dateKey =
+          raw === 'today'
+            ? todayKey
+            : raw === 'yesterday'
+              ? yesterdayKey
+              : raw;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+          await reply('❌ 사용법: /channel_stats [YYYY-MM-DD|today|yesterday]');
+          break;
+        }
+
+        const stats = getChannelStatsByDate(dateKey);
+        const recentKeys = getRecentDateKeys(7);
+        const categories: AlertCategory[] = [
+          AlertCategory.TRADE,
+          AlertCategory.ANALYSIS,
+          AlertCategory.INFO,
+          AlertCategory.SYSTEM,
+        ];
+        const lines = categories.map((category) => {
+          const bucket = stats[category];
+          return `${category}: sent=${bucket.sent}, skipped=${bucket.skipped}, failed=${bucket.failed}, digested=${bucket.digested}`;
+        });
+        const totalSent = categories.reduce((sum, category) => sum + stats[category].sent, 0);
+        const totalFailed = categories.reduce((sum, category) => sum + stats[category].failed, 0);
+
+        await reply(
+          `📊 <b>[채널 통계 ${dateKey} KST]</b>\n` +
+          `${lines.join('\n')}\n` +
+          `total: sent=${totalSent}, failed=${totalFailed}\n` +
+          `recent keys: ${recentKeys.length > 0 ? recentKeys.join(', ') : '(none)'}`
+        );
+        break;
+      }
+
+      case '/alert_replay': {
+        const id = (args[0] ?? '').trim();
+        const categoryRaw = (args[1] ?? '').trim().toUpperCase();
+        if (!id) {
+          await reply('❌ 사용법: /alert_replay <id> [TRADE|ANALYSIS|INFO|SYSTEM]');
+          break;
+        }
+
+        const history = findAlertHistoryById(id);
+        if (!history) {
+          await reply(`❌ alert id not found: ${escapeHtml(id)}`);
+          break;
+        }
+
+        const targetCategory = categoryRaw
+          ? (Object.values(AlertCategory).includes(categoryRaw as AlertCategory)
+            ? (categoryRaw as AlertCategory)
+            : null)
+          : history.category;
+
+        if (!targetCategory) {
+          await reply('❌ category must be one of TRADE, ANALYSIS, INFO, SYSTEM');
+          break;
+        }
+
+        const replayMessage = `${history.message}\n\n<i>[replay: ${escapeHtml(id)}]</i>`;
+        const msgId = await dispatchAlert(targetCategory, replayMessage, {
+          priority: history.priority,
+          dedupeKey: `replay:${id}:${Date.now()}`,
+          delivery: 'immediate',
+        }).catch(() => undefined);
+
+        await reply(
+          msgId !== undefined
+            ? `✅ replay sent: ${escapeHtml(id)} -> ${targetCategory} (message_id: ${msgId})`
+            : `❌ replay failed: ${escapeHtml(id)} -> ${targetCategory}`
+        );
+        break;
+      }
+
+      case '/alert_history': {
+        const rawLimit = Number(args[0] ?? '8');
+        const limit = Number.isFinite(rawLimit) ? Math.min(20, Math.max(1, Math.floor(rawLimit))) : 8;
+        const rows = getRecentAlertHistory(limit);
+        if (rows.length === 0) {
+          await reply('ℹ️ alert history is empty');
+          break;
+        }
+        const lines = rows.map((row) => {
+          const kst = new Date(row.at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+          const status = row.success ? 'OK' : 'FAIL';
+          return `${escapeHtml(row.id)} | ${row.category} | ${status} | ${kst}`;
+        });
+        await reply(
+          `🗂️ <b>[Alert History 최근 ${rows.length}건]</b>\n` +
+          `${lines.join('\n')}\n\n` +
+          `<i>replay: /alert_replay &lt;id&gt; [TRADE|ANALYSIS|INFO|SYSTEM]</i>`
+        );
         break;
       }
 

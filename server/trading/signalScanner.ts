@@ -28,7 +28,7 @@ async function getPrice(stockCode: string): Promise<number | null> {
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { getKellyMultiplier as getIpsKellyMultiplier } from './kellyDampener.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { channelBuySignal } from '../alerts/channelPipeline.js';
+import { channelBuySignalEmitted } from '../alerts/channelPipeline.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { loadIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
@@ -1097,7 +1097,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         alertMessage: mainAlertMsg, logEvent: shadowMode ? 'SIGNAL' : 'ORDER',
         onApproved: async (t) => {
           shadows.push(t);
-          await channelBuySignal({
+          await channelBuySignalEmitted({
             mode: shadowMode ? 'SHADOW' : 'LIVE', stockName: stock.name, stockCode: stock.code,
             price: currentPrice, quantity: execQty, gateScore: liveGateScore,
             mtas: reCheckGate.mtas, cs: reCheckGate.compressionScore,

@@ -38,7 +38,11 @@ export async function setTelegramBotCommands(): Promise<void> {
     { command: 'reset',     description: '비상 정지 해제' },
     { command: 'integrity', description: '데이터 무결성 차단 상태 조회/해제' },
     { command: 'refresh_token', description: 'KIS 토큰 강제 갱신' },
-    { command: 'channel_test',  description: '채널 연결 테스트' },
+    { command: 'channel_health', description: '4채널 상태 점검' },
+    { command: 'channel_stats',  description: '채널 발송 통계 조회' },
+    { command: 'alert_history',  description: '최근 알림 이력 조회' },
+    { command: 'alert_replay',   description: '알림 ID 재전송 (카테고리 선택)' },
+    { command: 'channel_test',   description: '채널 연결 테스트(레거시)' },
     // ── Phase 5: 다이제스트 ──────────────────────────────────────────────────
     { command: 'todaylog',     description: '오늘 발생한 알림 카테고리·티어 요약' },
     { command: 'digest_on',    description: 'T3 다이제스트 수신 ON' },
@@ -554,12 +558,21 @@ export async function sendChannelAlert(
   message: string,
   opts?: { disableNotification?: boolean },
 ): Promise<number | undefined> {
-  const token     = process.env.TELEGRAM_BOT_TOKEN;
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
-  if (!token || !channelId) {
+  if (!channelId) {
     console.log('[Telegram] TELEGRAM_CHANNEL_ID 미설정 — 채널 전송 스킵');
     return;
   }
+  return sendChannelAlertTo(channelId, message, opts);
+}
+
+export async function sendChannelAlertTo(
+  channelId: string,
+  message: string,
+  opts?: { disableNotification?: boolean },
+): Promise<number | undefined> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !channelId) return;
 
   try {
     const payload: Record<string, unknown> = {
@@ -597,38 +610,12 @@ export async function sendPickChannelAlert(
   message: string,
   opts?: { disableNotification?: boolean },
 ): Promise<number | undefined> {
-  const token     = process.env.TELEGRAM_BOT_TOKEN;
   const channelId = process.env.TELEGRAM_PICK_CHANNEL_ID;
-  if (!token || !channelId) {
+  if (!channelId) {
     console.log('[Telegram] TELEGRAM_PICK_CHANNEL_ID 미설정 — 픽 채널 전송 스킵');
     return;
   }
-
-  try {
-    const payload: Record<string, unknown> = {
-      chat_id: channelId,
-      text: message,
-      parse_mode: 'HTML',
-    };
-    if (opts?.disableNotification) {
-      payload.disable_notification = true;
-    }
-
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      console.error('[Telegram] 픽 채널 전송 실패:', err.slice(0, 200));
-      return;
-    }
-    const data = await res.json() as { result?: { message_id?: number } };
-    return data.result?.message_id;
-  } catch (e: unknown) {
-    console.error('[Telegram] 픽 채널 전송 오류:', e instanceof Error ? e.message : e);
-  }
+  return sendChannelAlertTo(channelId, message, opts);
 }
 
 // ─── 빈 스캔 Decision Broker (인라인 3택) ─────────────────────────────────

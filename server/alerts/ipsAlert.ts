@@ -2,6 +2,8 @@ import fs from 'fs';
 import { IPS_ALERT_FILE, ensureDataDir } from '../persistence/paths.js';
 import { type MacroState, loadMacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from './telegramClient.js';
+import { dispatchAlert } from './alertRouter.js';
+import { AlertCategory } from './alertCategories.js';
 import { updateKellyDampenerFromIps } from '../trading/kellyDampener.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
@@ -164,6 +166,11 @@ export async function pollIpsAlert(): Promise<void> {
     `③ ${action3}`;
 
   await sendTelegramAlert(message).catch(console.error);
+  await dispatchAlert(
+    AlertCategory.INFO,
+    message,
+    { disableNotification: level !== 'CRITICAL' && level !== 'EXTREME' },
+  ).catch(console.error);
   console.log(`[IpsAlert] ${level} 경보 발송 완료 (IPS=${ips}%)`);
 
   saveIpsAlertState({ lastSentAt: new Date().toISOString(), lastLevel: level, lastIps: ips });

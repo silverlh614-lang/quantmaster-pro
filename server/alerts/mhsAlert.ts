@@ -2,6 +2,8 @@ import fs from 'fs';
 import { MHS_MORNING_ALERT_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from './telegramClient.js';
+import { dispatchAlert } from './alertRouter.js';
+import { AlertCategory } from './alertCategories.js';
 
 export interface MhsMorningAlertState {
   prevMhs: number;   // 직전 알림 시점의 MHS
@@ -48,6 +50,7 @@ export async function pollMhsMorningAlert(): Promise<void> {
       `② 현금 비중 확대 검토\n` +
       `③ 기존 롱 포지션 리스크 점검`;
     await sendTelegramAlert(message).catch(console.error);
+    await dispatchAlert(AlertCategory.INFO, message, { disableNotification: false }).catch(console.error);
     console.log(`[MhsMorningAlert] RED 레짐 알림 발송 완료 (MHS=${mhs})`);
   }
 
@@ -65,6 +68,7 @@ export async function pollMhsMorningAlert(): Promise<void> {
       `② 퀀트 엔진 평가 신호 재활성화\n` +
       `③ 분할 매수 스케줄 점검`;
     await sendTelegramAlert(message).catch(console.error);
+    await dispatchAlert(AlertCategory.INFO, message, { disableNotification: true }).catch(console.error);
     console.log(`[MhsMorningAlert] GREEN 레짐 전환 알림 발송 완료 (MHS=${mhs}, prevMhs=${prevMhs})`);
   }
 

@@ -3,6 +3,7 @@ import { PENDING_ORDERS_FILE, PENDING_SELL_ORDERS_FILE, ensureDataDir } from '..
 import { loadShadowTrades, saveShadowTrades, appendFill, syncPositionCache, getRemainingQty } from '../persistence/shadowTradeRepo.js';
 import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL, SELL_TR_ID } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { channelBuyFilled } from '../alerts/channelPipeline.js';
 import { registerOcoPair } from './ocoCloseLoop.js';
 import { appendTradeEvent } from './tradeEventLog.js';
 
@@ -162,6 +163,13 @@ export class FillMonitor {
           `수량: ${order.quantity}주\n` +
           `주문번호: ${order.ordNo}`
         ).catch(console.error);
+        await channelBuyFilled({
+          stockName: order.stockName,
+          stockCode: order.stockCode,
+          fillPrice,
+          quantity: order.quantity,
+          orderNo: order.ordNo,
+        }).catch(console.error);
 
         // ── OCO 손절+익절 지정가 쌍 동시 등록 (OCO Close Loop) ───────────
         // exitEngine 주기적 감시와 별개로, 거래소 레벨 안전망 확보.
@@ -600,3 +608,4 @@ async function reissueAsMarketOrder(order: PendingSellOrder, quantity: number): 
 }
 
 export { pollSellFills as pollSellFillsOnce };
+

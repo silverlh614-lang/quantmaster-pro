@@ -304,7 +304,31 @@ async function startServer() {
     })().catch(console.error);
 
     // Telegram 봇 명령어 메뉴 등록 (fire-and-forget)
-    setTelegramBotCommands().catch(console.error);
+    setTelegramBotCommands()
+      .then(async () => {
+        const { runChannelHealthCheck } = await import('./alerts/alertRouter.js');
+        const result = await runChannelHealthCheck();
+        const ordered = ['TRADE', 'ANALYSIS', 'INFO', 'SYSTEM'] as const;
+        const lines = ordered.map((category) => {
+          const item = result[category];
+          const icon = item.ok ? '✅' : '❌';
+          const reason = item.reason ? ` (${item.reason})` : '';
+          const enabled = item.enabled ? '' : ' [disabled]';
+          const configured = item.configured ? '' : ' [unconfigured]';
+          return `${category}: ${icon}${enabled}${configured}${reason}`;
+        });
+        await sendTelegramAlert(
+          `🧪 <b>[Startup Channel Health]</b>\n` +
+          `${lines.join('\n')}`,
+          {
+            priority: 'HIGH',
+            dedupeKey: `startup_channel_health:${new Date().toISOString().slice(0, 10)}`,
+            cooldownMs: 60_000,
+            category: 'channel_health',
+          },
+        );
+      })
+      .catch(console.error);
 
     // 아이디어 12: 서버 기동 시 Telegram 알림 (fire-and-forget)
     sendTelegramAlert(

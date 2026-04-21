@@ -13,7 +13,10 @@
  *   🔒 개인 : 잔고/자산, 비상정지, 손절 접근 경보, 오류, 내부 디버그
  */
 
-import { sendChannelAlert, sendPickChannelAlert, escapeHtml } from './telegramClient.js';
+import { escapeHtml } from './telegramClient.js';
+import { dispatchAlert } from './alertRouter.js';
+import { AlertCategory } from './alertCategories.js';
+import { formatAlert } from './formatAlert.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
 
 function isChannelEnabled(): boolean {
@@ -38,25 +41,49 @@ export interface ChannelBuySignalParams {
   sector?: string;
 }
 
-export async function channelBuySignal(p: ChannelBuySignalParams): Promise<void> {
+export async function channelBuySignalEmitted(p: ChannelBuySignalParams): Promise<void> {
   if (!isChannelEnabled()) return;
 
-  const modeEmoji  = p.mode === 'LIVE' ? '🚀' : '⚡';
-  const modeLabel  = p.mode === 'LIVE' ? 'LIVE 매수' : 'Shadow 매수';
+  const modeLabel  = p.mode === 'LIVE' ? 'LIVE 매수 신호' : 'Shadow 매수 신호';
   const signalEmoji = p.signalType === 'STRONG_BUY' ? '🔥' : '✅';
-  const rrrStr = p.rrr.toFixed(1);
+  const message = formatAlert({
+    category: AlertCategory.ANALYSIS,
+    eventType: `${modeLabel} ${signalEmoji} ${p.stockName} (${p.stockCode})`,
+    headerEmoji: '🧪',
+    bodyLines: [
+      `💰 진입가: <b>${p.price.toLocaleString()}원</b> × ${p.quantity}주`,
+      p.sector ? `🏭 섹터: ${escapeHtml(p.sector)}` : '',
+      `📊 Gate: ${p.gateScore.toFixed(1)} | MTAS: ${p.mtas.toFixed(0)}/10 | CS: ${p.cs.toFixed(2)}`,
+      `🛡️ 손절: ${p.stopLoss.toLocaleString()}원`,
+      `🎯 목표: ${p.targetPrice.toLocaleString()}원`,
+      `⚖️ RRR: 1:${p.rrr.toFixed(1)}`,
+    ],
+  });
+  await dispatchAlert(AlertCategory.ANALYSIS, message).catch(console.error);
+}
 
-  const msg =
-    `${modeEmoji} <b>[${modeLabel}] ${signalEmoji} ${escapeHtml(p.stockName)} (${escapeHtml(p.stockCode)})</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    `💰 진입가: <b>${p.price.toLocaleString()}원</b> × ${p.quantity}주\n` +
-    (p.sector ? `🏭 섹터: ${escapeHtml(p.sector)}\n` : '') +
-    `📊 Gate: ${p.gateScore.toFixed(1)} | MTAS: ${p.mtas.toFixed(0)}/10 | CS: ${p.cs.toFixed(2)}\n` +
-    `🛡️ 손절: ${p.stopLoss.toLocaleString()}원\n` +
-    `🎯 목표: ${p.targetPrice.toLocaleString()}원\n` +
-    `⚖️ RRR: 1:${rrrStr}`;
+export async function channelBuyFilled(params: {
+  stockName: string;
+  stockCode: string;
+  fillPrice: number;
+  quantity: number;
+  orderNo: string;
+}): Promise<void> {
+  if (!isChannelEnabled()) return;
+  const message = formatAlert({
+    category: AlertCategory.TRADE,
+    eventType: `체결 ${params.stockName} (${params.stockCode})`,
+    headerEmoji: '📈',
+    bodyLines: [
+      `💵 체결가: <b>${params.fillPrice.toLocaleString()}원</b> × ${params.quantity}주`,
+      `🧾 주문번호: ${escapeHtml(params.orderNo)}`,
+    ],
+  });
+  await dispatchAlert(AlertCategory.TRADE, message).catch(console.error);
+}
 
-  await sendChannelAlert(msg).catch(console.error);
+export async function channelBuySignal(p: ChannelBuySignalParams): Promise<void> {
+  await channelBuySignalEmitted(p);
 }
 
 // ── 2. 매도/청산 신호 ────────────────────────────────────────────────────────
@@ -127,7 +154,7 @@ export async function channelSellSignal(p: ChannelSellSignalParams): Promise<voi
     lines.push(`🔸 잔여 보유: ${remaining}주`);
   }
 
-  await sendChannelAlert(lines.join('\n')).catch(console.error);
+  await dispatchAlert(AlertCategory.TRADE, lines.join('\n')).catch(console.error);
 }
 
 // ── 3. 장 전 시장 브리핑 ─────────────────────────────────────────────────────
@@ -173,7 +200,7 @@ export async function channelMarketBriefing(p: ChannelMarketBriefingParams): Pro
     p.aiSummary ? `\n💬 ${escapeHtml(p.aiSummary)}` : '',
   ].filter(Boolean).join('\n');
 
-  await sendChannelAlert(lines).catch(console.error);
+  await dispatchAlert(AlertCategory.INFO, lines).catch(console.error);
 }
 
 // ── 4. 레짐 변화 경보 ────────────────────────────────────────────────────────
@@ -197,7 +224,7 @@ export async function channelRegimeChange(
     `${arrows[prevRegime] ?? '?'} ${escapeHtml(prevRegime)} → ${arrows[newRegime] ?? '?'} <b>${escapeHtml(newRegime)}</b>\n` +
     `MHS: ${mhs.toFixed(0)} | ${escapeHtml(reason)}`;
 
-  await sendChannelAlert(msg).catch(console.error);
+  await dispatchAlert(AlertCategory.INFO, msg).catch(console.error);
 }
 
 // ── 5. 워치리스트 추가 요약 ──────────────────────────────────────────────────
@@ -247,10 +274,7 @@ export async function channelWatchlistAdded(
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `🗺️ 레짐: ${regime}`;
 
-  await Promise.all([
-    sendChannelAlert(msg, { disableNotification: true }),
-    sendPickChannelAlert(msg, { disableNotification: true }),
-  ]).catch(console.error);
+  await dispatchAlert(AlertCategory.ANALYSIS, msg, { disableNotification: true }).catch(console.error);
 }
 
 // ── 5-1. 워치리스트 제거 알림 ───────────────────────────────────────────────
@@ -266,10 +290,7 @@ export async function channelWatchlistRemoved(
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `📋 잔여 워치리스트: ${remainingCount}개`;
 
-  await Promise.all([
-    sendChannelAlert(msg, { disableNotification: true }),
-    sendPickChannelAlert(msg, { disableNotification: true }),
-  ]).catch(console.error);
+  await dispatchAlert(AlertCategory.ANALYSIS, msg, { disableNotification: true }).catch(console.error);
 }
 
 // ── 5-2. 워치리스트 전체 현황 채널 발송 ─────────────────────────────────────
@@ -344,7 +365,7 @@ export async function channelWatchlistSummary(
   parts.push('━━━━━━━━━━━━━━━━━━━━');
   parts.push('⭐=SWING매수대상 👤=수동 📢=CATALYST 🤖=MOMENTUM');
 
-  await sendChannelAlert(parts.join('\n'), { disableNotification: true }).catch(console.error);
+  await dispatchAlert(AlertCategory.ANALYSIS, parts.join('\n'), { disableNotification: true }).catch(console.error);
 }
 
 // ── 6. 글로벌 스캔 핵심 요약 ─────────────────────────────────────────────────
@@ -353,7 +374,10 @@ export async function channelGlobalScan(summary: string): Promise<void> {
   if (!isChannelEnabled()) return;
 
   const msg = `🌐 <b>[글로벌 스캔]</b>\n━━━━━━━━━━━━━━━━━━━━\n${escapeHtml(summary)}`;
-  await sendChannelAlert(msg, { disableNotification: true }).catch(console.error);
+  await dispatchAlert(AlertCategory.INFO, msg, {
+    disableNotification: true,
+    delivery: 'daily_digest',
+  }).catch(console.error);
 }
 
 // ── 7. 일일/주간 성과 리포트 ─────────────────────────────────────────────────
@@ -388,5 +412,6 @@ export async function channelPerformance(p: ChannelPerformanceParams): Promise<v
     p.worstTrade ? `🔴 최저: ${escapeHtml(p.worstTrade.name)} ${p.worstTrade.pnlPct.toFixed(1)}%` : '',
   ].filter(Boolean).join('\n');
 
-  await sendChannelAlert(lines).catch(console.error);
+  await dispatchAlert(AlertCategory.INFO, lines).catch(console.error);
 }
+
