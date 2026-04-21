@@ -1223,7 +1223,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const zeroVolDays10 = recent10Vol.filter(v => v === 0).length;
     const isHighRisk = zeroVolDays5 >= 5 || zeroVolDays10 >= 8;
 
-    const result: YahooQuoteExtended = {
+    const quote: YahooQuoteExtended = {
       price: Math.round(price), changePercent, volume, avgVolume,
       dayOpen: Math.round(dayOpen),
       prevClose: Math.round(prevClose),
@@ -1252,8 +1252,8 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       dailyVolumeDrying,
       isHighRisk,
     };
-    _yahooQuoteCache.set(symbol, { data: result, ts: Date.now() });
-    return result;
+    _yahooQuoteCache.set(symbol, { data: quote, ts: Date.now() });
+    return quote;
   } catch (e) {
     console.error(`[fetchYahooQuote] ${symbol}:`, e instanceof Error ? e.message : e);
     return null;
