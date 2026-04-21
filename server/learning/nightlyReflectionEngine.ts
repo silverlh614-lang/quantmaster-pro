@@ -43,7 +43,13 @@ import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { listIncidents } from '../persistence/incidentLogRepo.js';
 import { loadCurrentSchemaRecords } from '../persistence/attributionRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
-import { loadManualExitsForDateKst, type ManualExitRecord } from '../persistence/manualExitsRepo.js';
+import {
+  loadManualExitsForDateKst,
+  loadManualExitsWithinDays,
+  type ManualExitRecord,
+} from '../persistence/manualExitsRepo.js';
+import { buildManualExitReview } from './reflectionModules/manualExitReview.js';
+import { computeManualFrequencyAxis } from './biasHeatmap.js';
 
 import { generateMainReflection, buildShortNarrative } from './reflectionModules/mainReflection.js';
 import { runFiveWhyFor } from './reflectionModules/fiveWhy.js';
@@ -388,32 +394,48 @@ export async function runNightlyReflection(
     // 전일 제안 중 autoStartAt 경과 YELLOW → AUTO_STARTED 승격
     promoteYellowExperiments(now);
 
-    // ── 수동 청산 경향 기록 — 편향 평균이 0.5 이상이면 followUp 에 경고 ──────
-    if (inputs.manualExitsToday.length > 0) {
-      const n = inputs.manualExitsToday.length;
-      const avgBias = (key: 'regretAvoidance' | 'endowmentEffect' | 'panicSelling') =>
-        inputs.manualExitsToday.reduce(
-          (s, m) => s + (m.context.biasAssessment[key] ?? 0),
-          0,
-        ) / n;
-      const avgRegret = avgBias('regretAvoidance');
-      const avgEndow  = avgBias('endowmentEffect');
-      const avgPanic  = avgBias('panicSelling');
-      const triggered: string[] = [];
-      if (avgRegret >= 0.5) triggered.push(`후회회피 ${avgRegret.toFixed(2)}`);
-      if (avgEndow  >= 0.5) triggered.push(`보유효과 ${avgEndow.toFixed(2)}`);
-      if (avgPanic  >= 0.5) triggered.push(`패닉매도 ${avgPanic.toFixed(2)}`);
-      if (triggered.length > 0) {
-        const sourceIds = inputs.manualExitsToday.map((m) => m.tradeId);
-        for (const id of sourceIds) inputs.knownSourceIds.add(id);
+    // ── P2 #15 수동 청산 의무 분석 (manualExitReview) ─────────────────────
+    // 오늘 + 7일 + 30일 롤링 카운트로 구조화된 리뷰 스냅샷을 리포트에 직접 부착.
+    const rolling7d  = loadManualExitsWithinDays(7, now);
+    const rolling30d = loadManualExitsWithinDays(30, now);
+    const meReview = buildManualExitReview({
+      dateKst: date,
+      today:   inputs.manualExitsToday,
+      rolling7d,
+      rolling30d,
+    });
+    if (meReview.count > 0 || meReview.rolling7dCount > 0) {
+      report.manualExitReview = meReview;
+      const sourceIds = inputs.manualExitsToday.map((m) => m.tradeId);
+      for (const id of sourceIds) inputs.knownSourceIds.add(id);
+      // 편향 평균 경고 — 기존 로직 유지.
+      if (meReview.flags.length > 0 && meReview.count > 0) {
         report.followUpActions = [
           ...(report.followUpActions ?? []),
           {
-            text: `수동 청산 ${n}건 편향 평균 경고: ${triggered.join(' / ')} — 내일 /sell 직전 5분 대기 규칙 재검토.`,
-            sourceIds,
+            text: `수동 청산 ${meReview.count}건 — ${meReview.flags.join(' / ')}. 내일 /sell 직전 5분 대기 규칙 재검토.`,
+            sourceIds: sourceIds.length > 0 ? sourceIds : [`system:manual_exit_review`],
           },
         ];
       }
+    }
+
+    // ── P2 #16 Bias Heatmap 수동 빈도 축 ────────────────────────────────
+    const manualFreq = computeManualFrequencyAxis(
+      inputs.manualExitsToday,
+      rolling7d,
+      rolling30d,
+    );
+    if (manualFreq.grade !== 'CALM') {
+      const sid = `system:manual_freq_axis`;
+      inputs.knownSourceIds.add(sid);
+      report.followUpActions = [
+        ...(report.followUpActions ?? []),
+        {
+          text: `[심리 온도계] 수동 빈도 ${manualFreq.grade} — ${manualFreq.evidence}`,
+          sourceIds: [sid],
+        },
+      ];
     }
   }
 

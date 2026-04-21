@@ -192,6 +192,8 @@ export function metaDecisionFile(yyyymm: string): string {
 export const BIAS_HEATMAP_FILE         = path.join(DATA_DIR, 'bias-heatmap.json');
 /** 실험 제안 레지스터 — 반성 엔진이 도출한 24h 자동/승인 실험 큐 */
 export const EXPERIMENT_PROPOSALS_FILE = path.join(DATA_DIR, 'experiment-proposals.json');
+/** P2 #17 — 수동 오버라이드 3/5/7회 경보 dedupe 상태 (day 별 최근 발송 티어 기록) */
+export const MANUAL_OVERRIDE_ALERT_FILE = path.join(DATA_DIR, 'manual-override-alert-state.json');
 
 export function ensureReflectionsDir(): void {
   ensureDataDir();

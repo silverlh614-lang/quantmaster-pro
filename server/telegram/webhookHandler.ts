@@ -42,6 +42,7 @@ import { STOCK_UNIVERSE } from '../screener/stockScreener.js';
 import { calcRRR } from '../trading/riskManager.js';
 import { buildManualExitContext } from '../trading/manualExitContext.js';
 import { appendManualExit } from '../persistence/manualExitsRepo.js';
+import { evaluateAndAlertManualOverride } from '../alerts/manualOverrideMonitor.js';
 import { handleBuyApprovalCallback } from './buyApproval.js';
 import { handleOperatorOverrideCallback } from './operatorOverride.js';
 import { handleT1AckCallback } from '../alerts/ackTracker.js';
@@ -470,6 +471,12 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         } catch (e) {
           console.error('[TelegramBot] /sell shadow 상태 업데이트 실패:', e);
         }
+
+        // P2 #17 — 수동 개입 빈도 평가 + 3/5/7회 임계 도달 시 Telegram 경보.
+        // 본 채팅 응답과 독립적 경로(다른 dedupeKey) 이므로 실패해도 /sell 성공은 유지.
+        evaluateAndAlertManualOverride().catch((e) =>
+          console.error('[TelegramBot] manualOverrideMonitor 실패:', e instanceof Error ? e.message : e),
+        );
 
         // ── 5단계: 결과 텔레그램 알림 ────────────────────────────────
         const modeLabel = sellRes.placed ? '🔴 LIVE 매도 접수' : '🟡 Shadow 청산 기록';

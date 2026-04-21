@@ -58,6 +58,7 @@ import systemRouter from './routes/systemRouter.js';
 import failurePatternRouter from './routes/failurePatternRouter.js';
 import diagnosticRouter from './routes/diagnosticRouter.js';
 import operatorRouter from './routes/operatorRouter.js';
+import monitoringCertRouter from './routes/monitoringCertRouter.js';
 import { startScheduler } from './scheduler/index.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 import { globalErrorHandler } from './utils/apiResponse.js';
@@ -158,6 +159,13 @@ async function startServer() {
   // Telegram Decision Broker와 동일한 3택을 API로도 노출
   // ─────────────────────────────────────────────────────────────
   app.use('/api/operator', operatorRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // P2 #19 Monitoring Cert → server/routes/monitoringCertRouter.ts
+  // (GET /api/monitoring-cert, GET /api/monitoring-cert/:stockCode)
+  // 진입 판정을 편향·레짐·수동 빈도·냉각 상태로 객관화하는 통합 스냅샷.
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/monitoring-cert', monitoringCertRouter);
 
   // ─── 아이디어 1: 오케스트레이터 상태 조회 ────────────────────────────────────
   app.get('/api/orchestrator/state', (_req: Request, res: Response) => {
