@@ -1,9 +1,22 @@
 import { GoogleGenAI } from '@google/genai';
 import { AI_MODELS } from '../constants.js';
 import { createCircuitBreaker, CircuitOpenError } from '../utils/circuitBreaker.js';
+import { buildPersonaPrelude, hasPersonaPrelude } from '../persona/personaIdentity.js';
 
 // Gemini Flash 모델 (Google Search 지원) — supplyChainAgent 전용
 const SEARCH_MODEL = AI_MODELS.PRIMARY;
+
+// ── 페르소나 주입 가드 ────────────────────────────────────────────────────────
+// 모든 Gemini 호출에 QuantMaster 시스템 아키텍트 페르소나를 자동 prepend 한다.
+// 환경변수 DISABLE_PERSONA_PREPEND=true 로 비활성화 가능 (테스트·디버깅용).
+// 이미 prepend 된 prompt(예: 재시도) 는 중복 적용 안 함.
+function withPersona(prompt: string): string {
+  if ((process.env.DISABLE_PERSONA_PREPEND ?? 'false').toLowerCase() === 'true') {
+    return prompt;
+  }
+  if (hasPersonaPrelude(prompt)) return prompt;
+  return buildPersonaPrelude(prompt);
+}
 
 // ── Idea 13: 월 예산 하드리밋 회로차단기 ──────────────────────────────────────
 //
@@ -204,7 +217,7 @@ export async function callGemini(prompt: string, caller = 'unknown'): Promise<st
   return withRetry(`callGemini[${caller}]`, async () => {
     const res = await ai.models.generateContent({
       model: AI_MODELS.SERVER_SIDE,
-      contents: prompt,
+      contents: withPersona(prompt),
       config: { temperature: 0.4, maxOutputTokens: 2048 },
     });
     const tokens = (res as { usageMetadata?: { totalTokenCount?: number } })
@@ -255,7 +268,7 @@ export async function callGeminiInterpret(
   return withRetry(`callGeminiInterpret[${caller}]`, async () => {
     const res = await ai.models.generateContent({
       model: AI_MODELS.SERVER_SIDE,
-      contents: fullPrompt,
+      contents: withPersona(fullPrompt),
       config: { temperature: 0.2, maxOutputTokens: 1536 },
     });
     const tokens = (res as { usageMetadata?: { totalTokenCount?: number } })
@@ -282,7 +295,7 @@ export async function callGeminiWithSearch(prompt: string, caller = 'search'): P
   return withRetry(`callGeminiWithSearch[${caller}]`, async () => {
     const res = await ai.models.generateContent({
       model: SEARCH_MODEL,
-      contents: prompt,
+      contents: withPersona(prompt),
       config: {
         tools: [{ googleSearch: {} }],
         temperature: 0.2,

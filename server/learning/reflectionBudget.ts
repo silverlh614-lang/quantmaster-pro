@@ -1,11 +1,20 @@
 /**
  * reflectionBudget.ts — Reflection Budget Governor (#15).
  *
- * 규칙:
- *   - 예산 0~70%   : FULL       — 매일 4~6회 Gemini 호출.
- *   - 예산 70~90% : REDUCED_EOD — 격일 (어제 실행했으면 오늘 skip).
- *   - 예산 90~100%: REDUCED_MWF — 월·수·금만.
+ * 규칙 (예산 $20/월 기준 재조정 — 2026-04 업데이트):
+ *   - 예산 0~85%  : FULL         — 매일 4~6회 Gemini 호출 (기본 모드).
+ *   - 예산 85~95% : REDUCED_EOD  — 격일 (어제 실행했으면 오늘 skip).
+ *   - 예산 95~100%: REDUCED_MWF  — 월·수·금만.
  *   - 예산 100%+  : TEMPLATE_ONLY — 로컬 RAG 템플릿 기반, Gemini 호출 0.
+ *
+ * 변경 이력:
+ *   - 이전(예산 $5): 70% / 90% / 100% 임계값 → 월말 보호 과민 반응.
+ *   - 현재(예산 $20): 85% / 95% / 100% 임계값 → FULL 가동 기간 연장.
+ *     월말 L4 캘리브레이션은 pctUsed 85% 도달해도 예산 $3 여유 확보됨.
+ *
+ * Silence Monday:
+ *   - 기본 비활성화 (SILENCE_MONDAY=false). 예산 여유로 매일 풀 반성 가동.
+ *   - 주간 인지 과부하 시 SILENCE_MONDAY=true 로 재활성화 가능.
  *
  * 예산 소스:
  *   전역 Gemini 월 예산(geminiClient.ts::getBudgetState) 의 pctUsed 를 우선 사용.
@@ -39,18 +48,21 @@ function kstWeekdayForDate(yyyymmdd: string): number {
  * @param dateKst YYYY-MM-DD (KST 기준)
  */
 export function decideReflectionMode(dateKst: string): ReflectionMode {
-  // Silence Monday — 다른 규칙에 우선.
-  if (kstWeekdayForDate(dateKst) === 1) return 'SILENCE_MONDAY';
+  // Silence Monday — 기본 비활성화. SILENCE_MONDAY=true 면 재활성화.
+  // 예산 $20 기준으로는 매일 풀 가동이 비용 감당 가능하므로 기본 OFF.
+  const silenceMondayEnabled = (process.env.SILENCE_MONDAY ?? 'false').toLowerCase() === 'true';
+  if (silenceMondayEnabled && kstWeekdayForDate(dateKst) === 1) return 'SILENCE_MONDAY';
 
   const budget = getBudgetState();
   const pct = Number.isFinite(budget.pctUsed) ? budget.pctUsed : 0;
 
+  // 임계값 완화 (예산 $20 기준): 70/90/100 → 85/95/100
   if (pct >= 100) return 'TEMPLATE_ONLY';
-  if (pct >= 90) {
+  if (pct >= 95) {
     // MWF 축소
     return MWF_DOWS.has(kstWeekdayForDate(dateKst)) ? 'REDUCED_MWF' : 'TEMPLATE_ONLY';
   }
-  if (pct >= 70) {
+  if (pct >= 85) {
     // 격일 — 어제 실행했으면 skip → TEMPLATE_ONLY
     const state = loadReflectionBudget();
     if (state.lastReflectionDate) {

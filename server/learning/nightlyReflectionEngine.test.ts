@@ -4,7 +4,7 @@
  * 검증 범위:
  *   - KST 날짜 유틸 (타임존 경계)
  *   - Integrity Guard claim 필터링
- *   - Budget Governor 모드 결정 (Silence Monday / 70% / 90% / 100%)
+ *   - Budget Governor 모드 결정 (Silence Monday flag / 85% / 95% / 100%)
  *   - runNightlyReflection 기본 흐름 (첫 실행 저장, 중복 스킵, priming 생성)
  */
 
@@ -76,35 +76,53 @@ describe('Phase 1 — reflectionBudget.decideReflectionMode', () => {
     vi.doUnmock('../clients/geminiClient.js');
   });
 
-  it('월요일 → SILENCE_MONDAY', async () => {
+  it('월요일 + SILENCE_MONDAY=true → SILENCE_MONDAY', async () => {
     vi.doMock('../clients/geminiClient.js', () => ({
-      getBudgetState: () => ({ pctUsed: 10, spentUsd: 0, budgetUsd: 5 }),
+      getBudgetState: () => ({ pctUsed: 10, spentUsd: 0, budgetUsd: 20 }),
     }));
+    process.env.SILENCE_MONDAY = 'true';
     const { decideReflectionMode } = await import('./reflectionBudget.js');
     // 2026-04-20 = 월요일
     expect(decideReflectionMode('2026-04-20')).toBe('SILENCE_MONDAY');
+    delete process.env.SILENCE_MONDAY;
+  });
+
+  it('월요일 + SILENCE_MONDAY 기본(비활성) → FULL', async () => {
+    vi.doMock('../clients/geminiClient.js', () => ({
+      getBudgetState: () => ({ pctUsed: 10, spentUsd: 0, budgetUsd: 20 }),
+    }));
+    const { decideReflectionMode } = await import('./reflectionBudget.js');
+    expect(decideReflectionMode('2026-04-20')).toBe('FULL');
   });
 
   it('예산 여유 → FULL', async () => {
     vi.doMock('../clients/geminiClient.js', () => ({
-      getBudgetState: () => ({ pctUsed: 10, spentUsd: 0, budgetUsd: 5 }),
+      getBudgetState: () => ({ pctUsed: 10, spentUsd: 0, budgetUsd: 20 }),
     }));
     const { decideReflectionMode } = await import('./reflectionBudget.js');
     // 2026-04-21 = 화요일
     expect(decideReflectionMode('2026-04-21')).toBe('FULL');
   });
 
-  it('예산 75% + 어제 실행 이력 없음 → REDUCED_EOD', async () => {
+  it('예산 75% → FULL (임계값 완화로 85% 미만은 FULL)', async () => {
     vi.doMock('../clients/geminiClient.js', () => ({
-      getBudgetState: () => ({ pctUsed: 75, spentUsd: 0, budgetUsd: 5 }),
+      getBudgetState: () => ({ pctUsed: 75, spentUsd: 0, budgetUsd: 20 }),
+    }));
+    const { decideReflectionMode } = await import('./reflectionBudget.js');
+    expect(decideReflectionMode('2026-04-21')).toBe('FULL');
+  });
+
+  it('예산 88% + 어제 실행 이력 없음 → REDUCED_EOD', async () => {
+    vi.doMock('../clients/geminiClient.js', () => ({
+      getBudgetState: () => ({ pctUsed: 88, spentUsd: 0, budgetUsd: 20 }),
     }));
     const { decideReflectionMode } = await import('./reflectionBudget.js');
     expect(decideReflectionMode('2026-04-21')).toBe('REDUCED_EOD');
   });
 
-  it('예산 75% + 어제 실행 이력 있음 → TEMPLATE_ONLY (격일)', async () => {
+  it('예산 88% + 어제 실행 이력 있음 → TEMPLATE_ONLY (격일)', async () => {
     vi.doMock('../clients/geminiClient.js', () => ({
-      getBudgetState: () => ({ pctUsed: 75, spentUsd: 0, budgetUsd: 5 }),
+      getBudgetState: () => ({ pctUsed: 88, spentUsd: 0, budgetUsd: 20 }),
     }));
     const { saveReflectionBudget } = await import('../persistence/reflectionRepo.js');
     saveReflectionBudget({ month: '2026-04', tokensUsed: 1, callCount: 1, lastReflectionDate: '2026-04-20' });
@@ -112,18 +130,18 @@ describe('Phase 1 — reflectionBudget.decideReflectionMode', () => {
     expect(decideReflectionMode('2026-04-21')).toBe('TEMPLATE_ONLY');
   });
 
-  it('예산 92% + 수요일 → REDUCED_MWF', async () => {
+  it('예산 97% + 수요일 → REDUCED_MWF', async () => {
     vi.doMock('../clients/geminiClient.js', () => ({
-      getBudgetState: () => ({ pctUsed: 92, spentUsd: 0, budgetUsd: 5 }),
+      getBudgetState: () => ({ pctUsed: 97, spentUsd: 0, budgetUsd: 20 }),
     }));
     const { decideReflectionMode } = await import('./reflectionBudget.js');
     // 2026-04-22 = 수요일
     expect(decideReflectionMode('2026-04-22')).toBe('REDUCED_MWF');
   });
 
-  it('예산 92% + 화요일 → TEMPLATE_ONLY', async () => {
+  it('예산 97% + 화요일 → TEMPLATE_ONLY', async () => {
     vi.doMock('../clients/geminiClient.js', () => ({
-      getBudgetState: () => ({ pctUsed: 92, spentUsd: 0, budgetUsd: 5 }),
+      getBudgetState: () => ({ pctUsed: 97, spentUsd: 0, budgetUsd: 20 }),
     }));
     const { decideReflectionMode } = await import('./reflectionBudget.js');
     expect(decideReflectionMode('2026-04-21')).toBe('TEMPLATE_ONLY');
@@ -131,7 +149,7 @@ describe('Phase 1 — reflectionBudget.decideReflectionMode', () => {
 
   it('예산 100% → TEMPLATE_ONLY (요일 무관)', async () => {
     vi.doMock('../clients/geminiClient.js', () => ({
-      getBudgetState: () => ({ pctUsed: 100, spentUsd: 0, budgetUsd: 5 }),
+      getBudgetState: () => ({ pctUsed: 100, spentUsd: 0, budgetUsd: 20 }),
     }));
     const { decideReflectionMode } = await import('./reflectionBudget.js');
     expect(decideReflectionMode('2026-04-22')).toBe('TEMPLATE_ONLY');
@@ -178,14 +196,19 @@ describe('Phase 1 — runNightlyReflection 기본 흐름', () => {
     expect(res2.skipped).toBe('ALREADY_EXISTS');
   });
 
-  it('월요일 → SILENCE_MONDAY 모드로 실행', async () => {
+  it('월요일 + SILENCE_MONDAY=true → SILENCE_MONDAY 모드로 실행', async () => {
     const { runNightlyReflection } = await import('./nightlyReflectionEngine.js');
     // 2026-04-20 KST = 월요일. 10 UTC = 19 KST.
-    const now = new Date(Date.UTC(2026, 3, 20, 10, 0, 0));
-    const res = await runNightlyReflection({ now });
-    expect(res.mode).toBe('SILENCE_MONDAY');
-    expect(res.executed).toBe(true);
-    expect(res.report?.keyLessons[0]?.text).toMatch(/월요일 침묵/);
+    process.env.SILENCE_MONDAY = 'true';
+    try {
+      const now = new Date(Date.UTC(2026, 3, 20, 10, 0, 0));
+      const res = await runNightlyReflection({ now });
+      expect(res.mode).toBe('SILENCE_MONDAY');
+      expect(res.executed).toBe(true);
+      expect(res.report?.keyLessons[0]?.text).toMatch(/월요일 침묵/);
+    } finally {
+      delete process.env.SILENCE_MONDAY;
+    }
   });
 
   it('kstDate — UTC→KST 경계 변환', async () => {
