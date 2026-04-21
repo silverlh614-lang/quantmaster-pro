@@ -194,10 +194,7 @@ export async function runDxyMonitor(): Promise<DxyAlertReport | null> {
   const abs5d   = Math.abs(change5d);
   const trig1d  = abs1d >= DXY_1D_THRESHOLD;
   const trig5d  = abs5d >= DXY_5D_THRESHOLD;
-  if (!trig1d && !trig5d) {
-    console.log(`[DxyMonitor] 임계 미달 — 1d ${change1d}% / 5d ${change5d}% (스킵)`);
-    return null;
-  }
+  const triggered = trig1d || trig5d;
 
   const direction: DxyAlertReport['direction'] = change1d >= 0 ? 'STRENGTH' : 'WEAKNESS';
   const severity:  DxyAlertReport['severity']  = (trig1d && trig5d) ? 'CONFIRMED' : 'PRELIMINARY';
@@ -212,8 +209,23 @@ export async function runDxyMonitor(): Promise<DxyAlertReport | null> {
     alertSent: false,
   };
 
+  const state = loadState();
+
+  // 임계 미달: 경보는 보내지 않지만, 대시보드("DXY 모니터" 카드) 표기를 위해
+  // 최신 리딩은 항상 저장한다. 과거에는 skip 시 상태를 아예 쓰지 않아
+  // getLatestDxyReport() 가 null 을 반환 → UI 에 "데이터 없음" 만 노출됐다.
+  if (!triggered) {
+    console.log(`[DxyMonitor] 임계 미달 — 1d ${change1d}% / 5d ${change5d}% (경보 스킵, 스냅샷 저장)`);
+    saveState({
+      lastSentAt:    state?.lastSentAt ?? report.createdAt,
+      lastDirection: state?.lastDirection ?? null,
+      lastChange1d:  change1d,
+      history:       [...(state?.history ?? []), report],
+    });
+    return report;
+  }
+
   // 방향 전환 감지 — 쿨다운 우회 판단
-  const state       = loadState();
   const fourHoursMs = 4 * 60 * 60 * 1000;
   const sameDir     = state?.lastDirection === direction;
   const inCooldown  = state && sameDir && (Date.now() - new Date(state.lastSentAt).getTime() < fourHoursMs);

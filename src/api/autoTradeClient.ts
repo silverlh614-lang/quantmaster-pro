@@ -61,6 +61,11 @@ export interface EngineStatus {
   running: boolean;
   autoTradeEnabled: boolean;
   emergencyStop: boolean;
+  /**
+   * KIS 실시간 호가 WebSocket 연결 상태.
+   * UI "브로커 연결" 판정의 진실 소스. 서버의 buildEngineStatusSnapshot 가 내려준다.
+   */
+  kisStreamConnected?: boolean;
   mode: string;
   currentState: string;
   lastRun: string | null;

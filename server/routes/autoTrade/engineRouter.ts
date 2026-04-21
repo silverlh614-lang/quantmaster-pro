@@ -38,6 +38,7 @@ import { getLatestSectorEtfReport } from '../../alerts/sectorEtfMomentum.js';
 import { tradingOrchestrator } from '../../orchestrator/tradingOrchestrator.js';
 import { isOpenShadowStatus } from '../../trading/entryEngine.js';
 import { getLastBuySignalAt } from '../../trading/signalScanner.js';
+import { isStreamConnected } from '../../clients/kisStreamClient.js';
 
 const router = Router();
 
@@ -79,6 +80,9 @@ export function buildEngineStatusSnapshot() {
     running,
     autoTradeEnabled: autoEnabled,
     emergencyStop,
+    // 실시간 호가 WebSocket 연결 상태 — UI의 "브로커 연결" 판정은 이 값이 진실.
+    // autoTradeEnabled(엔진 ON/OFF) 는 브로커 실 연결을 보증하지 않으므로 분리한다.
+    kisStreamConnected: isStreamConnected(),
     mode: getTradingMode(),
     currentState: orchStatus.computedState,
     lastRun: lastRunTs,

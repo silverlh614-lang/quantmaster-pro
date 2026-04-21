@@ -76,7 +76,7 @@ export function toControlCenterState(
   return {
     mode: mapTradingMode(engineStatus?.mode),
     engineStatus: mapEngineStatus(engineStatus),
-    brokerConnected: Boolean(engineStatus?.autoTradeEnabled && !engineStatus?.emergencyStop),
+    brokerConnected: Boolean(engineStatus?.kisStreamConnected),
     lastScanAt: formatKst(engineStatus?.lastScanAt),
     lastOrderAt: formatKst(engineStatus?.lastBuySignalAt),
     todayOrderCount: (engineStatus?.todayStats?.buys ?? 0) + (engineStatus?.todayStats?.exits ?? 0),
@@ -273,15 +273,22 @@ export function deriveBrokerState(
   accountSummary: AccountSummary | null,
 ): BrokerConnectionState {
   if (!engineStatus) return fallbackBroker;
-  const connected = Boolean(accountSummary) && !engineStatus.emergencyStop;
+  // 브로커 연결의 진실 소스는 실시간 호가 WebSocket 상태(kisStreamConnected).
+  // autoTradeEnabled·accountSummary 는 연결이 아닌 "설정/조회 여부" 를 의미하므로 분리.
+  const connected = Boolean(engineStatus.kisStreamConnected);
+  const lastError = engineStatus.emergencyStop
+    ? '비상정지 활성'
+    : !connected
+      ? 'KIS 실시간 호가 스트림 미연결'
+      : undefined;
   return {
     brokerName: 'KIS',
     connected,
     accountMasked: accountSummary ? '자동 매핑됨' : undefined,
-    orderAvailable: connected && engineStatus.autoTradeEnabled,
+    orderAvailable: connected && engineStatus.autoTradeEnabled && !engineStatus.emergencyStop,
     balanceSyncedAt: formatKst(engineStatus.lastRun),
     quoteSyncedAt: formatKst(engineStatus.lastScanAt),
-    lastError: engineStatus.emergencyStop ? '비상정지 활성' : undefined,
+    lastError,
   };
 }
 
