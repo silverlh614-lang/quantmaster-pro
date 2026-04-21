@@ -86,7 +86,7 @@ function logStreamEvent(event: string, detail: string): void {
 
 let _lastPongAt = 0; // PONG 수신 시각 (ms)
 
-const KIS_WS_URL_REAL = 'wss://ops.koreainvestment.com:21443/tryitout/H0STCNT0';
+const KIS_WS_URL_REAL = 'wss://ops.koreainvestment.com:21000/H0STCNT0';
 const KIS_WS_URL_VTS  = 'wss://ops.koreainvestment.com:31443/tryitout/H0STCNT0';
 
 function getWsUrl(): string {
