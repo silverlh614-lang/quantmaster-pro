@@ -142,17 +142,28 @@ export function loadCurrentSchemaRecords(): ServerAttributionRecord[] {
 }
 
 /**
- * Phase 2차 C5 — shadow-trades.json 에서 incidentFlag 가 부착된 tradeId 집합.
+ * Phase 2차 C5 — shadow-trades.json 에서 귀인 집계에서 격리해야 하는 tradeId 집합.
  * shadowTradeRepo 를 직접 import 하지 않고 파일 레벨로 읽어서 순환 의존을 회피.
  * 파일이 없거나 파싱 실패 시 빈 Set 반환 — 격리 로직은 안전 기본값.
+ *
+ * 격리 대상:
+ *   1) incidentFlag — 치명 버그 시각 이후 생성된 Shadow 샘플
+ *   2) exitRuleTag === 'MANUAL_EXIT' — 사용자 수동 청산 (외부 요인/편향 혼입)
+ *      자동 규칙 성과 평가에 수동 결정 결과가 섞이면 조건 가중치가 왜곡된다.
  */
 export function collectFlaggedTradeIds(): Set<string> {
   try {
     if (!fs.existsSync(SHADOW_FILE)) return new Set();
-    const raw = JSON.parse(fs.readFileSync(SHADOW_FILE, 'utf-8')) as Array<{ id?: string; incidentFlag?: string }>;
+    const raw = JSON.parse(fs.readFileSync(SHADOW_FILE, 'utf-8')) as Array<{
+      id?: string;
+      incidentFlag?: string;
+      exitRuleTag?: string;
+    }>;
     const ids = new Set<string>();
     for (const t of raw) {
-      if (t?.incidentFlag && t.id) ids.add(t.id);
+      if (!t?.id) continue;
+      if (t.incidentFlag) ids.add(t.id);
+      if (t.exitRuleTag === 'MANUAL_EXIT') ids.add(t.id);
     }
     return ids;
   } catch {

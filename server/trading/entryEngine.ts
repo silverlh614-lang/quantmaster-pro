@@ -82,6 +82,9 @@ export const EXIT_RULE_PRIORITY_TABLE: ReadonlyArray<{
   { priority: 12, rule: 'MA60_DEATH_WATCH', description: 'MA60 역배열 최초 감지 — 5영업일 강제 청산 스케줄' },
   { priority: 13, rule: 'STOP_APPROACH_ALERT', description: '손절 접근 경고(알림)' },
   { priority: 14, rule: 'EUPHORIA_PARTIAL', description: '과열 탐지 부분 매도' },
+  // priority 99: 자동 평가 루프에서 절대 선택되지 않는 "규칙 외" 슬롯.
+  // Telegram /sell 명령어·UI 수동 매도 경로에서 외부 주입으로만 exitRuleTag 에 부착된다.
+  { priority: 99, rule: 'MANUAL_EXIT', description: '수동 청산(사용자 개입) — 자동 규칙 평가 대상 아님' },
 ] as const;
 
 export const OPEN_SHADOW_STATUSES = new Set<ServerShadowTrade['status']>([

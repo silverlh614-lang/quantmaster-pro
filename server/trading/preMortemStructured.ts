@@ -198,15 +198,20 @@ const PATTERN_AUTO_PROMOTION_THRESHOLD = 3;
 /**
  * 동일 invalidation id 로 손절된 트레이드가 임계치 이상이면 FailurePatternDB 로 자동 승급.
  * 호출 시점: exitEngine 이 hardStop 기반 청산 후 exitInvalidationMatch 를 기록한 직후.
+ *
+ * 수동 청산(exitRuleTag === 'MANUAL_EXIT') 트레이드는 반성·학습 신호에서 격리한다 —
+ * 사용자 편향(후회회피·패닉)이 섞이면 코사인 유사도 검색에 영구 각인되어 최악.
  */
 export function promoteInvalidationPatternIfRepeated(
   justClosedTrade: ServerShadowTrade,
 ): boolean {
+  if (justClosedTrade.exitRuleTag === 'MANUAL_EXIT') return false;
   const id = justClosedTrade.exitInvalidationMatch?.id;
   if (!id) return false;
   const trades = loadShadowTrades();
   const matches = trades.filter(
     (t) => t.exitInvalidationMatch?.id === id &&
+      t.exitRuleTag !== 'MANUAL_EXIT' &&
       (t.status === 'HIT_STOP' || (t.returnPct ?? 0) < 0),
   );
   if (matches.length < PATTERN_AUTO_PROMOTION_THRESHOLD) return false;
