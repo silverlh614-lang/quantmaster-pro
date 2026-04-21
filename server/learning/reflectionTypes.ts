@@ -40,6 +40,8 @@ export interface ReflectionReport {
   conditionConfession?: ConditionConfessionEntry[];
   /** Phase 3: 후회 지연 손실 (Regret Quantifier) */
   regret?:           RegretQuantifierResult;
+  /** P2: 수동 청산 의무 분석 — 일일 편향·괴리 통계 */
+  manualExitReview?: ManualExitReview;
   /** Integrity Guard 감사: 삭제된 claim 수 */
   integrity?:        IntegrityAuditResult;
   /** Budget Governor 결과 (완전/감쇠/템플릿) */
@@ -107,6 +109,33 @@ export interface ConditionConfessionEntry {
   expiredCount: number;
   /** 당일 허위신호 정도 (0~1) */
   falseSignalScore: number;
+}
+
+// ── Manual Exit Review (P2 #15) ──────────────────────────────────────────────
+/**
+ * 매일 19:00 반성에서 산출되는 수동 청산 의무 분석.
+ * Nightly Reflection 이 이 스냅샷을 기록하여 심리 온도계·행동 경보 등 상위 체계가 소비.
+ */
+export interface ManualExitReview {
+  date: string;                       // YYYY-MM-DD (KST)
+  count: number;                      // 오늘 수동 청산 건수
+  reasonBreakdown: Record<string, number>; // reasonCode → 건수
+  avgBias: {
+    regretAvoidance: number;          // 0~1 평균
+    endowmentEffect: number;
+    panicSelling:    number;
+  };
+  /** 기계 대기 규칙과 괴리 (사용자 청산 ↔ 자동 규칙 불일치) 건수 */
+  machineDivergenceCount: number;
+  /** 평균 손절/목표 거리 — 근접/이격 경향을 수치로 */
+  avgDistanceToStop:   number;
+  avgDistanceToTarget: number;
+  /** 최근 7일 롤링 카운트 — 3/5/7 임계값 경보 판단용 */
+  rolling7dCount: number;
+  /** 최근 30일 롤링 카운트 */
+  rolling30dCount: number;
+  /** ≥0.5 평균 편향 트리거 요약 */
+  flags: string[];
 }
 
 // ── Regret Quantifier (Phase 3 #8) ───────────────────────────────────────────

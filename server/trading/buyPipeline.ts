@@ -34,12 +34,47 @@ import { appendShadowLog } from '../persistence/shadowTradeRepo.js';
 import { getLatestIncidentAt } from '../persistence/incidentLogRepo.js';
 import { assertSafeOrder } from './preOrderGuard.js';
 import { getSmokeTestLiveBlocked, getSmokeTestLastFailedReason } from '../state.js';
+import { lastManualExitAtForCode } from '../persistence/manualExitsRepo.js';
 
 // ── 진행 중 매수 주문 예약 테이블 ────────────────────────────────────────────
 // kisPost 가 수초(시장가 경합/재시도 포함) 걸리는 동안 다른 스캔 사이클이
 // 동일 trade 에 대해 중복 주문을 발사하는 것을 막기 위한 in-process 가드.
 // trade.id 를 키로 쓰며, 성공·실패 어떤 경로든 반드시 해제되도록 finally 에서 delete.
 const _inflightBuyOrders = new Set<string>();
+
+// ── P2 #18: 수동 청산 후 72h 재매수 냉각 룰 ──────────────────────────────────
+/** 사용자가 수동 청산한 종목은 이 시간 동안 재매수 경로가 막힌다 (반복 편향 방지). */
+export const MANUAL_EXIT_REBUY_COOLDOWN_MS = 72 * 60 * 60 * 1000;
+
+export interface ManualExitCooldownResult {
+  blocked: boolean;
+  lastExitAt?: string;
+  remainingMs?: number;
+  remainingHours?: number;
+}
+
+/**
+ * 주어진 종목이 72h 재매수 냉각 중인지 판정한다.
+ * blocked=true 이면 매수 경로가 REJECTED 처리되어야 한다.
+ */
+export function checkManualExitCooldown(
+  stockCode: string,
+  now = new Date(),
+): ManualExitCooldownResult {
+  const lastExitAt = lastManualExitAtForCode(stockCode, now);
+  if (!lastExitAt) return { blocked: false };
+  const elapsed = now.getTime() - new Date(lastExitAt).getTime();
+  if (!Number.isFinite(elapsed) || elapsed >= MANUAL_EXIT_REBUY_COOLDOWN_MS) {
+    return { blocked: false, lastExitAt };
+  }
+  const remainingMs = MANUAL_EXIT_REBUY_COOLDOWN_MS - elapsed;
+  return {
+    blocked: true,
+    lastExitAt,
+    remainingMs,
+    remainingHours: Math.ceil(remainingMs / (60 * 60 * 1000)),
+  };
+}
 
 // ── MTAS Multiplier ────────────────────────────────────────────────────────────
 
@@ -218,6 +253,34 @@ export interface CreateBuyTaskParams {
 export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask> {
   const regime = p.regime ?? p.trade.entryRegime;
   const sector = getSectorByCode(p.stockCode);
+
+  // P2 #18 — 수동 청산 후 72h 재매수 냉각 가드. 승인 요청 전에 즉시 차단.
+  const cooldown = checkManualExitCooldown(p.stockCode);
+  if (cooldown.blocked) {
+    console.warn(
+      `[BuyPipeline] ${p.stockName}(${p.stockCode}) 72h 재매수 냉각 차단 — ` +
+      `마지막 수동 청산: ${cooldown.lastExitAt}, 잔여 ${cooldown.remainingHours}h`,
+    );
+    appendShadowLog({
+      event: 'BUY_BLOCKED_MANUAL_EXIT_COOLDOWN',
+      code: p.stockCode,
+      price: p.currentPrice,
+      lastExitAt: cooldown.lastExitAt,
+      remainingHours: cooldown.remainingHours,
+    });
+    p.trade.status = 'REJECTED';
+    sendTelegramAlert(
+      `🔒 <b>[재매수 냉각]</b> ${p.stockName}(${p.stockCode})\n` +
+      `최근 수동 청산 후 ${cooldown.remainingHours}h 동안 재매수 차단 — 반복 편향 방지 룰.`,
+      { category: 'manual_exit_cooldown', dedupeKey: `cooldown:${p.stockCode}:${cooldown.lastExitAt}` },
+    ).catch(() => { /* noop */ });
+    return {
+      approvalPromise: Promise.resolve<ApprovalAction>('SKIP'),
+      execute: async (_a) => {
+        p.onRejected?.(p.trade, 'SKIP');
+      },
+    };
+  }
 
   // enemyCheck + preMortem 병렬 생성 (둘 다 외부 호출이고 서로 독립적)
   const [enemyCheck, preMortem] = await Promise.all([

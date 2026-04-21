@@ -85,4 +85,42 @@ function isoInKstDate(iso: string | undefined, dateKst: string): boolean {
   return new Date(kstMs).toISOString().slice(0, 10) === dateKst;
 }
 
+/**
+ * 최근 N 일(KST) 이내의 수동 청산 레코드 전체를 반환. 월 파일 경계를 자동 포괄한다.
+ * manualOverrideMonitor 경보·72h 재매수 냉각 룰·Bias Heatmap 수동 빈도 축에서 공용.
+ */
+export function loadManualExitsWithinDays(
+  days: number,
+  now = new Date(),
+): ManualExitRecord[] {
+  if (days <= 0) return [];
+  const cutoffMs = now.getTime() - days * 24 * 60 * 60 * 1000;
+  const months = new Set<string>();
+  // 경계 월 포함을 위해 days+1 만큼 과거까지 월 키 수집
+  for (let i = 0; i <= days; i++) {
+    const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+    months.add(currentYyyymmKst(d));
+  }
+  const out: ManualExitRecord[] = [];
+  for (const m of months) {
+    for (const rec of loadManualExitsMonth(m)) {
+      const t = new Date(rec.context.triggeredAt).getTime();
+      if (Number.isFinite(t) && t >= cutoffMs) out.push(rec);
+    }
+  }
+  out.sort((a, b) => a.context.triggeredAt.localeCompare(b.context.triggeredAt));
+  return out;
+}
+
+/**
+ * 특정 종목의 가장 최근 수동 청산 시각(ISO). 없으면 null.
+ * buyPipeline 의 72h 재매수 냉각 판정에 쓰인다.
+ */
+export function lastManualExitAtForCode(stockCode: string, now = new Date()): string | null {
+  const recent = loadManualExitsWithinDays(10, now); // 72h 룰이면 10일이면 충분
+  const mine = recent.filter((r) => r.stockCode === stockCode);
+  if (mine.length === 0) return null;
+  return mine[mine.length - 1].context.triggeredAt;
+}
+
 export const __test = { currentYyyymmKst, isoInKstDate };
