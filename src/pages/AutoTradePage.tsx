@@ -20,6 +20,7 @@ import { EngineToggleGate } from '../components/autoTrading/EngineToggleGate';
 import { EngineHealthBanner } from '../components/autoTrading/EngineHealthBanner';
 import { CompositeVerdictCard } from '../components/autoTrading/CompositeVerdictCard';
 import { AlertsFeedBell } from '../components/autoTrading/AlertsFeedBell';
+import { NotificationsTimelineTable } from '../components/autoTrading/NotificationsTimelineTable';
 import { AutoTradeHeroKpis } from '../components/autoTrading/AutoTradeHeroKpis';
 import { AutoTradeTabbedView } from '../components/autoTrading/AutoTradeTabbedView';
 import { ProDiagnosticsStrip } from '../components/autoTrading/ProDiagnosticsStrip';
@@ -237,6 +238,17 @@ export function AutoTradePage() {
           onRefresh={refresh}
           onEmergencyStop={() => { void emergencyStop(); }}
         />
+
+        {/* 알림 타임라인 — Telegram ↔ UI 미러, 시간 역순 표 */}
+        <FadeInOnScroll delay={0.03}>
+          <NotificationsTimelineTable
+            entries={alertsFeed.entries}
+            unread={alertsFeed.unread}
+            isLoading={alertsFeed.isLoading}
+            onMarkAllRead={alertsFeed.markAllRead}
+            onRefresh={alertsFeed.refetch}
+          />
+        </FadeInOnScroll>
 
         {/* 세부 패널: 탭으로 계층화 — Hero KPI 가 이 영역으로 drill-down */}
         <FadeInOnScroll delay={0.05}>
