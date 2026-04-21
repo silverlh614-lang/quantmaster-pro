@@ -44,6 +44,9 @@ import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { verifyVolumeMount } from '../persistence/paths.js';
 import { STOCK_UNIVERSE } from '../screener/stockScreener.js';
 import { calcRRR } from '../trading/riskManager.js';
+import { buildManualExitContext } from '../trading/manualExitContext.js';
+import { appendManualExit } from '../persistence/manualExitsRepo.js';
+import { evaluateAndAlertManualOverride } from '../alerts/manualOverrideMonitor.js';
 import { handleBuyApprovalCallback } from './buyApproval.js';
 import { handleOperatorOverrideCallback } from './operatorOverride.js';
 import { handleT1AckCallback } from '../alerts/ackTracker.js';
@@ -348,7 +351,11 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       case '/sell': {
         const code = args[0]?.replace(/[^0-9]/g, '').slice(0, 6);
         if (!code || code.length !== 6) {
-          await reply('❌ 사용법: /sell 005930 (종목코드 6자리)');
+          await reply(
+            '❌ 사용법: /sell 005930 [사유] [메모]\n' +
+            '사유: news | panic | correction | other (기본 other)\n' +
+            '예: /sell 005930 news 실적 쇼크 확인'
+          );
           break;
         }
 
@@ -359,16 +366,39 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           await reply(`⚠️ ${code} 보유 포지션 없음 — /pos 로 현재 포지션을 확인하세요.`);
           break;
         }
+
+        // ── Shadow 모드 봉쇄 — 30건 검증 순도 보장 (데이터 오염 차단) ──
+        // Shadow 포지션은 자동 규칙 평가로만 종결되어야 한다. 수동 청산이 섞이면
+        // 조건 가중치 통계·실패 패턴 DB가 사용자 편향(후회회피·패닉)으로 오염된다.
+        if (target.mode === 'SHADOW') {
+          await reply(
+            `🛡️ <b>[수동 청산 차단]</b> ${escapeHtml(target.stockName)}(${escapeHtml(code)})\n` +
+            `이 포지션은 Shadow 모드입니다 — 자동 규칙 평가만 허용됩니다.\n` +
+            `(30건 검증 순도 보장 위해 SHADOW /sell 은 봉쇄됩니다)`
+          );
+          break;
+        }
+
         const qty = getRemainingQty(target);
         if (qty <= 0) {
           await reply(`⚠️ ${escapeHtml(target.stockName)}(${code}) 잔여 수량이 0입니다.`);
           break;
         }
 
+        // ── 사유 코드 + 자유 메모 파싱 ────────────────────────────────
+        const reasonArg = (args[1] ?? '').toLowerCase();
+        const reasonCode: 'USER_NEWS' | 'USER_PANIC' | 'USER_CORRECTION' | 'USER_OTHER' =
+          reasonArg === 'news' ? 'USER_NEWS'
+          : reasonArg === 'panic' ? 'USER_PANIC'
+          : reasonArg === 'correction' ? 'USER_CORRECTION'
+          : 'USER_OTHER';
+        const userNote = args.slice(2).join(' ').trim() || undefined;
+
         await reply(
           `🛒 <b>[수동 청산 요청]</b>\n` +
           `종목: ${escapeHtml(target.stockName)} (${escapeHtml(code)})\n` +
           `진입: ${target.shadowEntryPrice.toLocaleString()}원 × ${qty}주\n` +
+          `사유: ${reasonCode}\n` +
           `현재가 조회 중...`
         );
 
@@ -387,14 +417,25 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           target.stockCode,
           target.stockName,
           qty,
-          'STOP_LOSS', // placeKisSellOrder 기존 reason 타입 재사용 — 로그에는 "수동 청산"으로 구분
+          'STOP_LOSS', // placeKisSellOrder 기존 reason 타입 재사용 — 상태는 MANUAL_EXIT 로 구분
         ).catch(err => {
           console.error('[TelegramBot] /sell placeKisSellOrder 실패:', err);
           return { ordNo: null, placed: false };
         });
 
-        // ── 4단계: Shadow 상태 업데이트 — exitEngine HARD_STOP 패턴 ───
+        // ── 4단계: Shadow 상태 업데이트 — MANUAL_EXIT 태깅 + context 캡처 ──
+        //   exitRuleTag = 'MANUAL_EXIT' 로 태깅되면 collectFlaggedTradeIds() 가 자동
+        //   격리하여 조건 가중치·실패패턴 DB 학습에서 제외된다 (오염 차단).
+        //   manualExitContext 는 Nightly Reflection 이 소비하는 학습 재료.
         const pnl = (currentPrice - target.shadowEntryPrice) * qty;
+        const manualExitContext = buildManualExitContext({
+          target,
+          currentPrice,
+          reasonCode,
+          userNote,
+          nowIso,
+          activeRule: target.exitRuleTag,
+        });
         try {
           appendFill(target, {
             type: 'SELL',
@@ -403,8 +444,8 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             price: currentPrice,
             pnl,
             pnlPct: returnPct,
-            reason: '수동 청산 (/sell)',
-            exitRuleTag: 'HARD_STOP',
+            reason: `수동 청산 (/sell ${reasonCode})`,
+            exitRuleTag: 'MANUAL_EXIT',
             timestamp: nowIso,
             ordNo: sellRes.ordNo ?? undefined,
           });
@@ -412,12 +453,14 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             status: 'HIT_STOP',
             exitPrice: currentPrice,
             exitTime: nowIso,
-            exitRuleTag: 'HARD_STOP',
+            exitRuleTag: 'MANUAL_EXIT',
             quantity: 0,
+            manualExitContext,
           });
           appendShadowLog({
             event: 'MANUAL_SELL',
             trigger: 'telegram /sell',
+            reasonCode,
             ...target,
             soldQty: qty,
             exitPrice: currentPrice,
@@ -425,20 +468,38 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             ordNo: sellRes.ordNo,
           });
           saveShadowTrades(shadows);
+          appendManualExit({
+            tradeId: target.id,
+            stockCode: target.stockCode,
+            stockName: target.stockName,
+            exitPrice: currentPrice,
+            returnPct,
+            context: manualExitContext,
+          });
         } catch (e) {
           console.error('[TelegramBot] /sell shadow 상태 업데이트 실패:', e);
         }
 
+        // P2 #17 — 수동 개입 빈도 평가 + 3/5/7회 임계 도달 시 Telegram 경보.
+        // 본 채팅 응답과 독립적 경로(다른 dedupeKey) 이므로 실패해도 /sell 성공은 유지.
+        evaluateAndAlertManualOverride().catch((e) =>
+          console.error('[TelegramBot] manualOverrideMonitor 실패:', e instanceof Error ? e.message : e),
+        );
+
         // ── 5단계: 결과 텔레그램 알림 ────────────────────────────────
         const modeLabel = sellRes.placed ? '🔴 LIVE 매도 접수' : '🟡 Shadow 청산 기록';
+        const bias = manualExitContext.biasAssessment;
         await reply(
           `✅ <b>[수동 청산 완료]</b> ${modeLabel}\n` +
           `종목: ${escapeHtml(target.stockName)} (${escapeHtml(code)})\n` +
+          `사유: ${reasonCode}\n` +
           `수량: ${qty}주\n` +
           `현재가: ${currentPrice.toLocaleString()}원\n` +
           `손익: ${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}% ` +
           `(${pnl >= 0 ? '+' : ''}${Math.round(pnl).toLocaleString()}원)\n` +
-          `주문번호: ${sellRes.ordNo ?? 'N/A'}`
+          `주문번호: ${sellRes.ordNo ?? 'N/A'}\n` +
+          `🏷️ MANUAL_EXIT — 학습 격리됨 (조건 가중치 통계 미반영)\n` +
+          `🧠 편향 추정 — 후회회피 ${bias.regretAvoidance} / 보유효과 ${bias.endowmentEffect} / 패닉 ${bias.panicSelling}`
         );
         break;
       }
