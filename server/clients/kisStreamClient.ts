@@ -305,6 +305,12 @@ function scheduleReconnect(): void {
 /**
  * KIS 실시간 호가 WebSocket을 시작하고 지정 종목들을 구독한다.
  * 장 시작 전 호출하여 watchlist 전체를 구독해 두면 장중 실시간 가격 사용 가능.
+ *
+ * 재시작 시맨틱:
+ *   - 명시적 호출(오퍼레이터 · 스케줄러 워치독)은 `_reconnectCount` 를 리셋한다.
+ *     MAX_RECONNECT 소진 후에는 `scheduleReconnect()` 가 조기 반환하므로
+ *     리셋하지 않으면 env 변경(KIS_IS_REAL=true) 후에도 영영 복귀하지 못한다.
+ *   - 승인키도 함께 무효화해 다음 연결 시 새 키를 발급받는다.
  */
 export async function startKisStream(stockCodes: string[]): Promise<void> {
   if (!process.env.KIS_APP_KEY) {
@@ -316,8 +322,16 @@ export async function startKisStream(stockCodes: string[]): Promise<void> {
     _subscribedCodes.add(code.padStart(6, '0'));
   }
 
+  const isReal = process.env.KIS_IS_REAL === 'true';
+  if (_reconnectCount >= MAX_RECONNECT) {
+    logStreamEvent('RESET', `재연결 카운트(${_reconnectCount}) 리셋 — 명시적 재시작, 모드=${isReal ? 'LIVE' : 'VTS'}`);
+  }
+  _reconnectCount = 0;
+  _approvalKey = null;
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+
   await connectWebSocket();
-  console.log(`[KIS-WS] 실시간 스트림 시작 — ${_subscribedCodes.size}개 종목 구독`);
+  console.log(`[KIS-WS] 실시간 스트림 시작 — ${_subscribedCodes.size}개 종목 구독 (모드=${isReal ? 'LIVE' : 'VTS'})`);
 }
 
 /** 장중 종목 추가 구독 (이미 연결된 WebSocket에 구독 추가) */

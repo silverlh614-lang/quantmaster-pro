@@ -10,7 +10,10 @@
  *        전종목 code·name·sector(소속부)를 가져온다. sector 필드가 "우량기업부"
  *        처럼 업종과 무관한 값이면 아래 폴백 체인이 namesByCode 로 업종을 보충.
  *   ② 레거시 공개 엔드포인트 (data.krx.co.kr MDCSTAT03901, 인증 불필요)
- *      — OpenAPI 가 비활성(KRX_OPENAPI_DISABLED)이거나 장애(서킷 OPEN)일 때 사용.
+ *      — **KRX_API_KEY 미설정** 배포용 폴백. 키가 설정돼 있으면 스킵하고 바로
+ *        Naver/Yahoo/Gemini 체인으로 넘어간다. 레거시 엔드포인트는 공지 없이
+ *        응답 스키마가 바뀌거나 차단되는 일이 잦아 인증 키가 있는 배포에서는
+ *        재현성 없는 노이즈가 된다.
  *   ③ Naver → Yahoo → Gemini 체인 (sectorSources.ts) — 누락분 업종 보충.
  *
  * 안전성:
@@ -382,7 +385,25 @@ export async function updateKrxSectorMap(opts: { verbose?: boolean } = {}): Prom
           };
         }
       }
-      // ② 레거시 공개 엔드포인트 (data.krx.co.kr) — OpenAPI 비활성/부족 시 최후 수단.
+      // ② 레거시 공개 엔드포인트 (data.krx.co.kr).
+      //    KRX_API_KEY 가 설정된 배포에서는 건너뛴다 — 사용자가 인증 OpenAPI 를
+      //    선택한 것이므로 비인증 레거시 호스트로 폴백해 "왜 여전히 data.krx.co.kr
+      //    로 가냐" 는 혼란을 만들지 않는다. OpenAPI 가 실패하면 Naver/Yahoo/
+      //    Gemini 체인이 빈 map 과 namesBox 로부터 업종을 재구성한다.
+      const apiKeyConfigured = !!(
+        (process.env.KRX_API_KEY ?? process.env.KRX_OPENAPI_AUTH_KEY ?? '').trim()
+      );
+      if (apiKeyConfigured) {
+        const oaDiag = oa?.diagnostic ?? 'KRX-OpenAPI: 건너뜀';
+        if (verbose) {
+          console.log(`[SectorMapUpdater] KRX_API_KEY 설정됨 — 레거시 data.krx.co.kr 폴백 스킵`);
+        }
+        return {
+          map:        {},
+          diagnostic: `${oaDiag} || 레거시 data.krx.co.kr 스킵(KRX_API_KEY 설정됨)`,
+        };
+      }
+
       const legacy = await attemptKrxLegacyWithDateRetry(verbose);
       Object.assign(namesBox, legacy.namesByCode);
       const oaDiag = oa?.diagnostic ?? 'KRX-OpenAPI: 건너뜀';
