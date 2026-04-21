@@ -299,14 +299,21 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
     ? new Date(lastBuyTs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
     : null;
 
-  const scanSummary    = getLastScanSummary();
-  const yahooApiStatus = !scanSummary || scanSummary.candidates === 0
+  const scanSummary = getLastScanSummary();
+  const yahooApiDetail = !scanSummary
+    ? 'NO_SCAN_HISTORY'
+    : scanSummary.candidates === 0
+      ? 'NO_CANDIDATES'
+      : 'HAS_CANDIDATES';
+  const yahooApiStatus = !scanSummary
     ? 'UNKNOWN'
-    : scanSummary.yahooFails === scanSummary.candidates
-      ? 'DOWN'
-      : scanSummary.yahooFails > scanSummary.candidates * 0.5
-        ? 'DEGRADED'
-        : 'OK';
+    : scanSummary.candidates === 0
+      ? 'OK'
+      : scanSummary.yahooFails === scanSummary.candidates
+        ? 'DOWN'
+        : scanSummary.yahooFails > scanSummary.candidates * 0.5
+          ? 'DEGRADED'
+          : 'OK';
 
   // verdict: 파이프라인 첫 번째 단절점 반환
   let verdict: string;
@@ -342,6 +349,7 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
     krxCircuitState:     krxStatus.circuitState,
     krxFailures:         krxStatus.failures,
     yahooApiStatus,
+    yahooApiDetail,
     railwayVolumeMount,
     lastScanAt,
     lastBuySignalAt,

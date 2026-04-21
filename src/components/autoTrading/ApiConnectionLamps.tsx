@@ -26,6 +26,10 @@ interface PipelineHealth {
   krxCircuitState?: string;
   krxFailures?: number;
   yahooApiStatus?: 'OK' | 'DEGRADED' | 'DOWN' | 'UNKNOWN';
+  yahooApiDetail?: 'NO_SCAN_HISTORY' | 'NO_CANDIDATES' | 'HAS_CANDIDATES';
+  lastScanSummary?: {
+    candidates?: number;
+  };
   kisStream?: {
     connected?: boolean;
     subscribedCount?: number;
@@ -89,12 +93,19 @@ function deriveKrx(h: PipelineHealth | null): LampInfo {
 }
 
 function deriveYahoo(h: PipelineHealth | null): LampInfo {
-  if (!h) return { label: 'Yahoo Finance', state: 'unknown', detail: '상태 조회 중' };
+  if (!h) return { label: 'Yahoo Finance', state: 'unknown', detail: 'Loading' };
+  if (h.yahooApiDetail === 'NO_SCAN_HISTORY') {
+    return { label: 'Yahoo Finance', state: 'unknown', detail: 'No scan history' };
+  }
+  if (h.yahooApiDetail === 'NO_CANDIDATES') {
+    const n = h.lastScanSummary?.candidates ?? 0;
+    return { label: 'Yahoo Finance', state: 'ok', detail: `No candidates (${n})` };
+  }
   switch (h.yahooApiStatus) {
-    case 'OK':       return { label: 'Yahoo Finance', state: 'ok',   detail: '정상' };
-    case 'DEGRADED': return { label: 'Yahoo Finance', state: 'warn', detail: '부분 장애' };
-    case 'DOWN':     return { label: 'Yahoo Finance', state: 'down', detail: '호출 불가' };
-    default:         return { label: 'Yahoo Finance', state: 'unknown', detail: '스캔 이력 없음' };
+    case 'OK':       return { label: 'Yahoo Finance', state: 'ok',   detail: 'Healthy' };
+    case 'DEGRADED': return { label: 'Yahoo Finance', state: 'warn', detail: 'Degraded' };
+    case 'DOWN':     return { label: 'Yahoo Finance', state: 'down', detail: 'Unavailable' };
+    default:         return { label: 'Yahoo Finance', state: 'unknown', detail: 'No scan history' };
   }
 }
 
