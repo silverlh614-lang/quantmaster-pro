@@ -194,6 +194,8 @@ export const BIAS_HEATMAP_FILE         = path.join(DATA_DIR, 'bias-heatmap.json'
 export const EXPERIMENT_PROPOSALS_FILE = path.join(DATA_DIR, 'experiment-proposals.json');
 /** P2 #17 — 수동 오버라이드 3/5/7회 경보 dedupe 상태 (day 별 최근 발송 티어 기록) */
 export const MANUAL_OVERRIDE_ALERT_FILE = path.join(DATA_DIR, 'manual-override-alert-state.json');
+/** 채널별 카테고리 송수신 통계 — 일별 sent/skipped/failed/digested 카운트 */
+export const CHANNEL_STATS_FILE         = path.join(DATA_DIR, 'channel-stats.json');
 
 export function ensureReflectionsDir(): void {
   ensureDataDir();
