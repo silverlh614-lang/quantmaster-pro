@@ -210,7 +210,7 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
     }
 
     const reCheckGate = reCheckQuote
-      ? evaluateServerGate(reCheckQuote, conditionWeights, macroState?.kospiDayReturn)
+      ? evaluateServerGate(reCheckQuote, conditionWeights, macroState?.kospi20dReturn)
       : null;
 
     if (!reCheckGate) {

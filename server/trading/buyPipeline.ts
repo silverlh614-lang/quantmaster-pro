@@ -126,7 +126,7 @@ export interface GateData {
 export async function fetchGateData(
   stockCode: string,
   conditionWeights?: ReturnType<typeof loadConditionWeights>,
-  kospiDayReturn?: number,
+  kospi20dReturn?: number,
 ): Promise<GateData> {
   const weights = conditionWeights ?? loadConditionWeights();
   const quote = await fetchYahooQuote(`${stockCode}.KS`).catch(() => null)
@@ -142,7 +142,7 @@ export async function fetchGateData(
 
   const macroState = loadMacroState();
   const gate = evaluateServerGate(
-    quote, weights, kospiDayReturn ?? macroState?.kospiDayReturn, dartFin, kisFlow,
+    quote, weights, kospi20dReturn ?? macroState?.kospi20dReturn, dartFin, kisFlow,
   );
 
   // Layer 14 ETF 선행 수급 부스트 — universeScanner와 동일 기준으로 재평가 시에도 적용

@@ -27,6 +27,7 @@ function quote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteExtended 
     macd: 0, macdSignal: 0, macdHistogram: 0,
     macd5dHistAgo: 0,
     return5d: 0,
+    return20d: 0,
     bbWidthCurrent: 0.05, bbWidth20dAvg: 0.05,
     vol5dAvg: 100, vol20dAvg: 100,
     ma60TrendUp: false,
@@ -93,7 +94,7 @@ describe('ConditionRegistry — 등록/실행', () => {
 // ─── 정적 분석 — 같은 입력 공유 발견 ─────────────────────────────────────────
 
 describe('ConditionRegistry — findSharedInputs (정적 분석)', () => {
-  it('momentum + relative_strength + volume_surge 가 quote.changePercent 공유 — 정적 분석은 이를 감지한다', () => {
+  it('momentum + volume_surge 가 quote.changePercent 공유 — relative_strength 는 더 이상 포함되지 않음 (20d 분리 후)', () => {
     const reg = new ConditionRegistry()
       .register(momentumEvaluator)
       .register(relativeStrengthEvaluator)
@@ -101,7 +102,16 @@ describe('ConditionRegistry — findSharedInputs (정적 분석)', () => {
     const shared = reg.findSharedInputs();
     const cp = shared.find(s => s.input === 'quote.changePercent');
     expect(cp).toBeDefined();
-    expect(cp!.evaluators.sort()).toEqual(['momentum', 'relative_strength', 'volume_surge']);
+    // relative_strength 입력을 quote.return20d / ctx.kospi20dReturn 으로 옮겨 changePercent 공유 그룹에서 이탈.
+    expect(cp!.evaluators.sort()).toEqual(['momentum', 'volume_surge']);
+  });
+
+  it('relative_strength 는 quote.return20d 와 ctx.kospi20dReturn 을 입력으로 선언한다 (공선성 제거)', () => {
+    const inputs = new Set(relativeStrengthEvaluator.inputs);
+    expect(inputs.has('quote.return20d')).toBe(true);
+    expect(inputs.has('ctx.kospi20dReturn')).toBe(true);
+    // 당일 changePercent 는 사용 금지 — momentum 과 시간축을 분리한다.
+    expect(inputs.has('quote.changePercent')).toBe(false);
   });
 
   // Phase 1 B3 회귀 테스트 — Gate 24 (breakout_momentum) 는 더 이상 changePercent 를 입력으로 받지 않는다.
@@ -117,10 +127,10 @@ describe('ConditionRegistry — findSharedInputs (정적 분석)', () => {
     expect(breakoutInputs.has('quote.volume')).toBe(true);
   });
 
-  // Phase 1 B3 회귀 테스트 — relative_strength 는 kospiDayReturn 없이 발화하지 않아야 한다.
-  it('relative_strength does NOT fire without kospiDayReturn (prevents momentum overlap)', () => {
+  // Phase 1 B3 후속 — relative_strength 는 kospi20dReturn 없이 발화하지 않아야 한다.
+  it('relative_strength does NOT fire without kospi20dReturn (prevents momentum overlap)', () => {
     const out = relativeStrengthEvaluator.evaluate({
-      quote: quote({ changePercent: 5 }),
+      quote: quote({ changePercent: 5, return20d: 25 }),
       weights: DEFAULT_CONDITION_WEIGHTS,
     });
     expect(out).toBeNull();
@@ -142,14 +152,14 @@ describe('ConditionRegistry — findSharedInputs (정적 분석)', () => {
     expect(reg.findSharedInputs()).toEqual([]);
   });
 
-  it('defaultRegistry: breakout_momentum 은 momentum 과 quote.changePercent 를 공유하지 않는다 (Phase 1 B3)', () => {
+  it('defaultRegistry: breakout_momentum 과 relative_strength 모두 quote.changePercent 공유 그룹 밖 (Phase 1 B3 20d)', () => {
     const shared = defaultRegistry.findSharedInputs();
     const cp = shared.find(s => s.input === 'quote.changePercent');
     expect(cp).toBeDefined();
-    // breakout_momentum 은 changePercent 를 사용하지 않아야 — 공유 목록에 없어야 한다
+    // Gate 24 두 조건(breakout_momentum, relative_strength)은 모두 changePercent 미사용.
     expect(cp!.evaluators).not.toContain('breakout_momentum');
-    // 정적 분석상 momentum 과 relative_strength 는 여전히 입력이 겹치지만,
-    // 런타임 의미적 격리(kospiDayReturn 강제)로 중복 발화는 차단된다.
+    expect(cp!.evaluators).not.toContain('relative_strength');
+    // momentum 은 여전히 changePercent 를 사용하지만 다른 조건과 시간축이 다르다.
     expect(cp!.evaluators).toContain('momentum');
   });
 });
@@ -177,9 +187,10 @@ describe('evaluateServerGate — 리팩토링 동작 동등성', () => {
     expect(r.signalType).toBe('SKIP');
   });
 
-  it('모멘텀 +2.5% 통과 시, relative_strength 는 kospiDayReturn 없이 발화하지 않음 (B3 격리 후)', () => {
+  it('모멘텀 +2.5% 통과 시, relative_strength 는 kospi20dReturn 없이 발화하지 않음 (20d 분리 후)', () => {
     const r = evaluateServerGate(quote({
       changePercent: 2.5,
+      return20d: 25,           // 당일 급등과 별도로 20일 누적이 커도 벤치마크 없으면 미발화
       rsi14: 30, rsi5dAgo: 30,
       ma5: 0, ma20: 0, ma60: 0,
       per: 0, high5d: 0, high20d: 0,
@@ -190,14 +201,15 @@ describe('evaluateServerGate — 리팩토링 동작 동등성', () => {
       atr5d: 1, atr20avg: 1,
       ma60TrendUp: false, weeklyRSI: 30,
     }));
-    // changePercent 한 필드가 과거엔 momentum + relative_strength 동시 발화했음. 이제 분리.
+    // changePercent 한 필드가 과거엔 momentum + relative_strength 동시 발화했음. 이제 시간축 분리.
     expect(r.conditionKeys).toEqual(['momentum']);
     expect(r.gateScore).toBeCloseTo(1.0, 5);
   });
 
-  it('모멘텀 단독 통과 — kospiDayReturn 제공으로 상대강도 격차 차단', () => {
+  it('모멘텀 단독 통과 — 20일 누적 격차가 3%p 미만이면 상대강도 차단', () => {
     const r = evaluateServerGate(quote({
       changePercent: 2.5,
+      return20d: 5,             // 종목 20일 +5% — 벤치마크 대비 격차 2%p < 3%p
       rsi14: 30, rsi5dAgo: 30,
       ma5: 0, ma20: 0, ma60: 0,
       per: 0, high5d: 0, high20d: 0,
@@ -207,7 +219,7 @@ describe('evaluateServerGate — 리팩토링 동작 동등성', () => {
       vol5dAvg: 1, vol20dAvg: 1,
       atr5d: 1, atr20avg: 1,
       ma60TrendUp: false, weeklyRSI: 30,
-    }), DEFAULT_CONDITION_WEIGHTS, /* kospiDayReturn */ 2.0); // gap=0.5, threshold=1.0 → relative_strength 미통과
+    }), DEFAULT_CONDITION_WEIGHTS, /* kospi20dReturn */ 3.0); // gap=2, threshold=3 → 미통과
     expect(r.conditionKeys).toEqual(['momentum']);
     expect(r.gateScore).toBeCloseTo(1.0, 5);
   });
@@ -253,9 +265,10 @@ describe('evaluateServerGate — 리팩토링 동작 동등성', () => {
     expect(r.gateScore).toBeCloseTo(4.8, 5);
   });
 
-  it('상대강도 — KOSPI 미제공 시 발화하지 않음 (Phase 1 B3)', () => {
+  it('상대강도 — kospi20dReturn 미제공 시 발화하지 않음 (공선성 차단)', () => {
     const result = evaluateServerGate(quote({
       changePercent: 1.6,
+      return20d: 20,            // 20일 +20% 여도 벤치마크 없으면 판단 불가
       rsi14: 30, rsi5dAgo: 30,
       ma5: 0, ma20: 0, ma60: 0,
       avgVolume: 0, per: 0, high5d: 0, high20d: 0,
@@ -268,9 +281,10 @@ describe('evaluateServerGate — 리팩토링 동작 동등성', () => {
     expect(result.conditionKeys).not.toContain('relative_strength');
   });
 
-  it('상대강도 — KOSPI 제공 시 1.0%p 차이 기준', () => {
+  it('상대강도 — KOSPI 20d 제공 시 3.0%p 누적 격차 기준', () => {
     const passed = evaluateServerGate(quote({
-      changePercent: 1.5,
+      changePercent: 1.5,       // 당일은 중립 — relative_strength 는 당일 값을 쓰지 않음
+      return20d: 10,            // 종목 20일 +10%
       rsi14: 30, rsi5dAgo: 30,
       ma5: 0, ma20: 0, ma60: 0,
       avgVolume: 0, per: 0, high5d: 0, high20d: 0,
@@ -279,9 +293,27 @@ describe('evaluateServerGate — 리팩토링 동작 동등성', () => {
       vol5dAvg: 1, vol20dAvg: 1,
       atr5d: 1, atr20avg: 1,
       ma60TrendUp: false, weeklyRSI: 30,
-    }), DEFAULT_CONDITION_WEIGHTS, 0.3);
+    }), DEFAULT_CONDITION_WEIGHTS, /* kospi20dReturn */ 5.0); // gap=5 > 3 → 통과
     expect(passed.conditionKeys).toContain('relative_strength');
     expect(passed.details.find(d => d.includes('상대강도'))).toContain('KOSPI');
+  });
+
+  it('상대강도 — 20일 하락 종목이 KOSPI 대비 덜 떨어져도 벤치마크 대비 초과면 통과 (당일 무관)', () => {
+    const r = evaluateServerGate(quote({
+      changePercent: 0,         // 당일 0 — momentum 은 발화 안 함
+      return20d: -5,            // 종목 20일 -5%
+      rsi14: 30, rsi5dAgo: 30,
+      ma5: 0, ma20: 0, ma60: 0,
+      avgVolume: 0, per: 0, high5d: 0, high20d: 0,
+      macdHistogram: -1, macd5dHistAgo: -1,
+      bbWidthCurrent: 1, bbWidth20dAvg: 1,
+      vol5dAvg: 1, vol20dAvg: 1,
+      atr5d: 1, atr20avg: 1,
+      ma60TrendUp: false, weeklyRSI: 30,
+    }), DEFAULT_CONDITION_WEIGHTS, /* kospi20dReturn */ -10); // gap=5 > 3 → 통과
+    expect(r.conditionKeys).toContain('relative_strength');
+    // momentum 은 당일 +2% 미만이라 미발화 — 두 조건의 시간축 분리를 증명
+    expect(r.conditionKeys).not.toContain('momentum');
   });
 
   it('VCP 강한압축 (CS≥0.6) — vcp 만점, 중간압축 (≥0.4) — 0.5배', () => {

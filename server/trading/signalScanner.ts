@@ -524,7 +524,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
 
             // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 추종에도 적용)
             const gateScoreFollow = (stock.gateScore ?? 0) + volumeClock.scoreBonus;
-            const { gate: reCheckGateFollow, quote: reCheckQuoteFollow } = await fetchGateData(stock.code, conditionWeights, macroState?.kospiDayReturn);
+            const { gate: reCheckGateFollow, quote: reCheckQuoteFollow } = await fetchGateData(stock.code, conditionWeights, macroState?.kospi20dReturn);
             const mtasFollow = reCheckGateFollow ? computeMtasMultiplier(reCheckGateFollow.mtas) : 1.0;
             const posPctFollow = computeRawPositionPct(gateScoreFollow) * kellyMultiplier * mtasFollow;
             const remSlots = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY').length);
@@ -646,7 +646,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                 fetchKisInvestorFlow(stock.code).catch(() => null),
                 getDartFinancials(stock.code).catch(() => null),
               ]);
-              const reCheckGatePb = evaluateServerGate(reCheckQuotePb, conditionWeights, macroState?.kospiDayReturn, dartFinPb, kisFlowPb, regime);
+              const reCheckGatePb = evaluateServerGate(reCheckQuotePb, conditionWeights, macroState?.kospi20dReturn, dartFinPb, kisFlowPb, regime);
               const mtasPb = reCheckGatePb ? computeMtasMultiplier(reCheckGatePb.mtas) : 1.0;
               const posPctPb    = computeRawPositionPct(gateScorePb) * kellyMultiplier * mtasPb;
               const remSlotsPb  = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY').length);
@@ -909,7 +909,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           ])
         : [null, null];
       const reCheckGate = reCheckQuote
-        ? evaluateServerGate(reCheckQuote, conditionWeights, macroState?.kospiDayReturn, dartFin, kisFlow, regime)
+        ? evaluateServerGate(reCheckQuote, conditionWeights, macroState?.kospi20dReturn, dartFin, kisFlow, regime)
         : null;
       const entryRevalidation = evaluateEntryRevalidation({
         currentPrice,
@@ -1269,7 +1269,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           });
 
           // BUG-10 fix: 실시간 Gate 평가로 Intraday 종목의 gateScore 추정
-          const { gate: intradayGate } = await fetchGateData(stock.code, conditionWeights, macroState?.kospiDayReturn);
+          const { gate: intradayGate } = await fetchGateData(stock.code, conditionWeights, macroState?.kospi20dReturn);
           const intradayGateScore = intradayGate?.gateScore ?? 0;
 
           addRecommendation({

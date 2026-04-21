@@ -25,7 +25,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 interface CanaryCase {
   label: string;
   quote: YahooQuoteExtended;
-  kospiDayReturn?: number;
+  kospi20dReturn?: number;
   expect: {
     conditionKeysSorted: string[];
     gateScoreApprox: number;
@@ -46,6 +46,7 @@ function baseQuote(overrides: Partial<YahooQuoteExtended>): YahooQuoteExtended {
     macd: 0, macdSignal: 0, macdHistogram: 0,
     macd5dHistAgo: 0,
     return5d: 0,
+    return20d: 0,
     bbWidthCurrent: 0.05, bbWidth20dAvg: 0.05,
     vol5dAvg: 100, vol20dAvg: 100,
     ma60TrendUp: false,
@@ -115,7 +116,7 @@ export interface CanaryResult {
 export function runCanaryCases(): CanaryResult[] {
   const out: CanaryResult[] = [];
   for (const c of CANARY_CASES) {
-    const r = evaluateServerGate(c.quote, DEFAULT_CONDITION_WEIGHTS, c.kospiDayReturn);
+    const r = evaluateServerGate(c.quote, DEFAULT_CONDITION_WEIGHTS, c.kospi20dReturn);
     const actualKeys = [...r.conditionKeys].sort();
     const expectedKeys = [...c.expect.conditionKeysSorted].sort();
     const keysMatch = actualKeys.join(',') === expectedKeys.join(',');

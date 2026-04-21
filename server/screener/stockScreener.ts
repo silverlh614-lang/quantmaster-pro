@@ -72,6 +72,7 @@ export interface YahooQuoteExtended {
   macd5dHistAgo: number;   // MACD 히스토그램 5일 전 (MACD 가속도 계산용)
   // Regret Asymmetry Filter 용
   return5d: number;        // 직전 5거래일 수익률 (%) — FOMO 쿨다운 판단
+  return20d: number;       // 직전 20거래일 수익률 (%) — Gate 24 상대강도(vs KOSPI 20d) 입력
   // Pre-Breakout Accumulation Detector 용 (최근 10일 OHLCV 원본 배열)
   recentCloses10d?: number[];   // 최근 10일 종가 배열
   recentHighs10d?: number[];    // 최근 10일 일중 고가 배열
@@ -803,6 +804,11 @@ function buildExtendedFromKisDaily(
   const close5dAgo = closes.length > 5 ? closes[closes.length - 6] : closes[0] ?? live.price;
   const return5d = close5dAgo > 0 ? ((live.price - close5dAgo) / close5dAgo) * 100 : 0;
 
+  // 20거래일 수익률 — Gate 24 상대강도(vs KOSPI 20d) 용. 이력 부족 시 첫 종가 기준으로 폴백
+  // (이는 return5d 와 동일한 폴백 패턴). 이력이 정말 없으면 0.
+  const close20dAgo = closes.length > 20 ? closes[closes.length - 21] : closes[0] ?? live.price;
+  const return20d = close20dAgo > 0 ? ((live.price - close20dAgo) / close20dAgo) * 100 : 0;
+
   // Compression Score: BB 폭
   const calcBBWidthAt = (cs: number[], endIdx: number): number => {
     if (endIdx < 19 || cs.length <= endIdx) return 0;
@@ -894,6 +900,7 @@ function buildExtendedFromKisDaily(
     macdHistogram: parseFloat(macdHistogram.toFixed(2)),
     rsi5dAgo, weeklyRSI, ma60TrendUp, macd5dHistAgo,
     return5d: parseFloat(return5d.toFixed(2)),
+    return20d: parseFloat(return20d.toFixed(2)),
     recentCloses10d:  closes.slice(-10),
     recentHighs10d:   highs.slice(-10),
     recentLows10d:    lows.slice(-10),
@@ -959,6 +966,7 @@ export async function fetchKisQuoteFallback(code: string): Promise<YahooQuoteExt
       rsi5dAgo: 50, weeklyRSI: 50,
       ma60TrendUp: false, macd5dHistAgo: 0,
       return5d: 0,
+      return20d: 0,
       bbWidthCurrent: 0, bbWidth20dAvg: 0,
       vol5dAvg: 0, vol20dAvg: 0, atr5d: 0,
       monthlyAboveEMA12: false, monthlyEMARising: false,
@@ -1134,6 +1142,10 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const close5dAgo = closes.length > 5 ? closes[closes.length - 6] : closes[0];
     const return5d = close5dAgo > 0 ? ((price - close5dAgo) / close5dAgo) * 100 : 0;
 
+    // 직전 20거래일 수익률 — Gate 24 상대강도(vs KOSPI 20d) 입력
+    const close20dAgo = closes.length > 20 ? closes[closes.length - 21] : closes[0];
+    const return20d = close20dAgo > 0 ? ((price - close20dAgo) / close20dAgo) * 100 : 0;
+
     // ── Compression Score 구성 요소 ──────────────────────────────────────────────
 
     // BB 폭 계산: (4σ / SMA) at a given bar index
@@ -1234,6 +1246,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       macdHistogram: parseFloat(macdHistogram.toFixed(2)),
       rsi5dAgo, weeklyRSI, ma60TrendUp, macd5dHistAgo,
       return5d: parseFloat(return5d.toFixed(2)),
+      return20d: parseFloat(return20d.toFixed(2)),
       recentCloses10d:  closes.slice(-10),
       recentHighs10d:   highs.slice(-10),
       recentLows10d:    lows.slice(-10),
@@ -1435,7 +1448,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
       vcp:      Math.min(2.0, (baseWeights.vcp      ?? 1.0) * preset.vcpWeightMultiplier),
       pullback: Math.min(2.0, (baseWeights.pullback ?? 1.0) * preset.pullbackWeightMultiplier),
     };
-    const gate = evaluateServerGate(enrichedQuote, presetWeights, macroState?.kospiDayReturn, null, null, regime);
+    const gate = evaluateServerGate(enrichedQuote, presetWeights, macroState?.kospi20dReturn, null, null, regime);
 
     // 아이디어 11: Gate 조건 통과/탈락 — 메모리 캐시에만 누적 (루프 후 flushGateAudit으로 파일 저장)
     recordGateAudit(gate.conditionKeys);
