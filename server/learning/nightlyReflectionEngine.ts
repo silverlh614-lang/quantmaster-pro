@@ -43,6 +43,7 @@ import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { listIncidents } from '../persistence/incidentLogRepo.js';
 import { loadCurrentSchemaRecords } from '../persistence/attributionRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
+import { loadManualExitsForDateKst, type ManualExitRecord } from '../persistence/manualExitsRepo.js';
 
 import { generateMainReflection, buildShortNarrative } from './reflectionModules/mainReflection.js';
 import { runFiveWhyFor } from './reflectionModules/fiveWhy.js';
@@ -116,6 +117,8 @@ export interface ReflectionInputs {
   missedSignals: Array<{ stockCode: string; reason: string }>;
   /** Integrity Guard 가 claim 검증에 사용 */
   knownSourceIds: Set<string>;
+  /** 오늘 발생한 수동 청산 — 편향·기계 괴리 추적 재료 */
+  manualExitsToday: ManualExitRecord[];
 }
 
 export function collectInputs(date: string): ReflectionInputs {
@@ -139,14 +142,25 @@ export function collectInputs(date: string): ReflectionInputs {
     .slice(0, 20) // 상한 — 과도한 nois 방지
     .map((w) => ({ stockCode: w.code, reason: 'WATCHLIST_NOT_ENTERED' }));
 
+  const manualExitsToday = loadManualExitsForDateKst(date);
+
   // Integrity Guard 원천 집합 조립.
   const knownSourceIds = new Set<string>();
   for (const t of closedTrades) knownSourceIds.add(t.id);
   for (const r of attribution) knownSourceIds.add(r.tradeId);
   for (const i of incidentsToday) knownSourceIds.add(i.at);
   for (const m of missedSignals) knownSourceIds.add(m.stockCode);
+  for (const m of manualExitsToday) knownSourceIds.add(m.tradeId);
 
-  return { date, closedTrades, attributionToday: attribution, incidentsToday, missedSignals, knownSourceIds };
+  return {
+    date,
+    closedTrades,
+    attributionToday: attribution,
+    incidentsToday,
+    missedSignals,
+    knownSourceIds,
+    manualExitsToday,
+  };
 }
 
 // ── 시스템 pseudo source (Integrity Guard 통과) ─────────────────────────────
@@ -373,6 +387,34 @@ export async function runNightlyReflection(
     }
     // 전일 제안 중 autoStartAt 경과 YELLOW → AUTO_STARTED 승격
     promoteYellowExperiments(now);
+
+    // ── 수동 청산 경향 기록 — 편향 평균이 0.5 이상이면 followUp 에 경고 ──────
+    if (inputs.manualExitsToday.length > 0) {
+      const n = inputs.manualExitsToday.length;
+      const avgBias = (key: 'regretAvoidance' | 'endowmentEffect' | 'panicSelling') =>
+        inputs.manualExitsToday.reduce(
+          (s, m) => s + (m.context.biasAssessment[key] ?? 0),
+          0,
+        ) / n;
+      const avgRegret = avgBias('regretAvoidance');
+      const avgEndow  = avgBias('endowmentEffect');
+      const avgPanic  = avgBias('panicSelling');
+      const triggered: string[] = [];
+      if (avgRegret >= 0.5) triggered.push(`후회회피 ${avgRegret.toFixed(2)}`);
+      if (avgEndow  >= 0.5) triggered.push(`보유효과 ${avgEndow.toFixed(2)}`);
+      if (avgPanic  >= 0.5) triggered.push(`패닉매도 ${avgPanic.toFixed(2)}`);
+      if (triggered.length > 0) {
+        const sourceIds = inputs.manualExitsToday.map((m) => m.tradeId);
+        for (const id of sourceIds) inputs.knownSourceIds.add(id);
+        report.followUpActions = [
+          ...(report.followUpActions ?? []),
+          {
+            text: `수동 청산 ${n}건 편향 평균 경고: ${triggered.join(' / ')} — 내일 /sell 직전 5분 대기 규칙 재검토.`,
+            sourceIds,
+          },
+        ];
+      }
+    }
   }
 
   // Integrity Guard — 시스템 pseudo source 항상 포함. 파싱 실패 플래그 보존.
