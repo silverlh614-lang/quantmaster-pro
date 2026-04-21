@@ -14,7 +14,16 @@ import type { ConditionKey, ConditionWeights } from '../../quantFilter.js';
 export interface ConditionEvalContext {
   readonly quote: YahooQuoteExtended;
   readonly weights: ConditionWeights;
-  readonly kospiDayReturn?: number;
+  /**
+   * KOSPI 20거래일 누적 수익률 (%) — relative_strength 조건의 벤치마크.
+   *
+   * Phase 1 B3 후속(공선성 제거): momentum 은 당일 +2% 이상을,
+   * relative_strength 는 20일 누적 초과수익률을 측정하여 입력을 완전 분리한다.
+   * 과거 1일 기준 구현은 changePercent 와 70% 이상 동시발화해 Gate 2/24
+   * 이중 기여 문제를 일으켰다. 이 필드가 undefined 이면 relative_strength 는
+   * 발화하지 않는다(안전 기본).
+   */
+  readonly kospi20dReturn?: number;
   readonly dartFin?: DartFinancials | null;
   readonly kisFlow?: KisInvestorFlow | null;
 }
@@ -35,7 +44,7 @@ export interface ConditionEvalOutput {
 /**
  * 입력 필드 식별자.
  *   - `quote.<fieldname>` : YahooQuoteExtended 의 필드
- *   - `ctx.kospiDayReturn` / `ctx.kisFlow.<...>` / `ctx.dartFin.<...>` : 외부 데이터
+ *   - `ctx.kospi20dReturn` / `ctx.kisFlow.<...>` / `ctx.dartFin.<...>` : 외부 데이터
  *   - `ctx.<key>` : 기타 컨텍스트 키
  *
  * 정적 분석(findSharedInputs) 에서 동일 입력을 참조하는 evaluator 들을 자동 발견한다.

@@ -211,12 +211,12 @@ export async function stage2SectorGateFilter(
   const weights  = loadConditionWeights();
   const results: CandidateStock[] = [];
 
-  const kospiDayReturn = macroState?.kospiDayReturn;
+  const kospi20dReturn = macroState?.kospi20dReturn;
 
   for (const c of candidates) {
     // 아이디어 9: KIS API 월봉/주봉 데이터로 MTAS 보강
     const enrichedQuote = await enrichQuoteWithKisMTAS(c.quote, c.code);
-    const gate = evaluateServerGate(enrichedQuote, weights, kospiDayReturn, null, null, regime);
+    const gate = evaluateServerGate(enrichedQuote, weights, kospi20dReturn, null, null, regime);
 
     // 아이디어 #5 rate limit 방지: 종목당 월봉+주봉 2회 호출 후 인터벌 확보
     // 내부 100ms(월봉→주봉) + 외부 60ms = 종목간 총 ~160ms → 약 6종목/초로 KIS 20건/초 한도 내 유지

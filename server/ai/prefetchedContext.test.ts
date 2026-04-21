@@ -86,7 +86,7 @@ describe('buildStockInterpretContext', () => {
       atr: 1200, atr20avg: 1100, per: 18.5,
       rsi14: 62, macd: 300, macdSignal: 250, macdHistogram: 50,
       rsi5dAgo: 55, weeklyRSI: 60, ma60TrendUp: true, macd5dHistAgo: 20,
-      return5d: 2.1, bbWidthCurrent: 0.05, bbWidth20dAvg: 0.06,
+      return5d: 2.1, return20d: 8.4, bbWidthCurrent: 0.05, bbWidth20dAvg: 0.06,
       vol5dAvg: 18_000_000, vol20dAvg: 15_000_000, atr5d: 1150,
       monthlyAboveEMA12: true, monthlyEMARising: true,
       weeklyAboveCloud: true, weeklyLaggingSpanUp: true,

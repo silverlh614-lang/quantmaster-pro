@@ -49,6 +49,7 @@ function makeQuote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteExten
     ma60TrendUp:      true,
     macd5dHistAgo:      10,
     return5d:            8,
+    return20d:          25,
     // Compression Score 구성 요소
     bbWidthCurrent:     0.04,
     bbWidth20dAvg:      0.06,

@@ -107,30 +107,35 @@ export const turtleHighEvaluator: ConditionEvaluator = {
   },
 };
 
-// ─── 상대강도 — KOSPI 대비 (모멘텀과 입력 분리 후) ───────────────────────────
+// ─── 상대강도 — KOSPI 대비 20일 누적 (모멘텀과 시간축 분리) ──────────────────
 //
-// Phase 1 Condition Key Semantic Separation (B3):
-//   과거 이 평가기는 kospiDayReturn 미제공 시 `changePercent >= 1.5%` 절대 기준으로
-//   폴백했다. 이로 인해 단 1개의 +2% 변동이 momentum(+2% 이상) 과 본 평가기 양쪽에서
-//   점수를 획득해 귀인 분석이 두 조건을 구별하지 못했다.
+// Phase 1 B3 후속(공선성 완전 제거):
+//   1차 B3 에서는 kospiDayReturn 을 필수화해 fallback 을 제거했으나,
+//   momentum(quote.changePercent) 과 relative_strength(quote.changePercent − kospiDayReturn)
+//   이 여전히 같은 "당일 변동률" 변수를 공유해 강한 양의 상관을 보였다.
+//   경험적으로 개별 종목이 2%+ 오르는 날 KOSPI 가 1%p 이상 덜 오르는 빈도는 70%+ 여서
+//   두 조건은 독립 정보가 아니었다(→ Gate 2/24 이중 기여로 모멘텀 편향 증폭).
 //
-//   이제 본 평가기는 kospiDayReturn 이 실제로 제공된 경우에만 발화한다. 이로써:
-//     - momentum 은 "당일 절대 변동률" 을 측정
-//     - relative_strength 는 "KOSPI 대비 초과수익" 을 측정
-//   두 조건이 의미적으로 분리되어 같은 입력에 중복 발화하지 않는다.
+//   본 평가기는 시간축을 다르게 잡아 입력 자체를 분리한다:
+//     - momentum           : "오늘 얼마나 올랐나" (당일 1일 변동)
+//     - relative_strength  : "지난 20일 KOSPI 를 얼마나 앞섰나" (누적 초과수익)
+//   이는 institutionalFootprintEngine 의 detectBetaSeparation(10d) 과 SRRPanel 의
+//   RS Ratio(20d) 와 같은 시간축이다 — 코드베이스 내 "진짜 상대강도" 정의 일치.
+//
+//   kospi20dReturn 미제공 시 발화하지 않는다(안전 기본).
 
 export const relativeStrengthEvaluator: ConditionEvaluator = {
   key: 'relative_strength',
-  description: 'KOSPI 대비 +1.0%p 초과 — kospiDayReturn 제공 시에만 발화 (momentum과 입력 분리)',
-  inputs: ['quote.changePercent', 'ctx.kospiDayReturn'],
-  evaluate({ quote, weights, kospiDayReturn }) {
-    if (kospiDayReturn === undefined) return null; // momentum 과 입력 공유 차단
-    const gap = quote.changePercent - kospiDayReturn;
-    if (!(gap > 1.0)) return null;
+  description: 'KOSPI 대비 20일 누적 +3.0%p 초과 — momentum 과 시간축·입력 모두 분리',
+  inputs: ['quote.return20d', 'ctx.kospi20dReturn'],
+  evaluate({ quote, weights, kospi20dReturn }) {
+    if (kospi20dReturn === undefined) return null; // 벤치마크 없이 발화 금지
+    const gap = quote.return20d - kospi20dReturn;
+    if (!(gap > 3.0)) return null;
     return {
       score: weightFor(weights, 'relative_strength'),
       conditionKey: 'relative_strength',
-      detail: `상대강도 +${gap.toFixed(1)}%p (KOSPI ${kospiDayReturn.toFixed(1)}%)`,
+      detail: `상대강도 20d +${gap.toFixed(1)}%p (종목 ${quote.return20d.toFixed(1)}% vs KOSPI ${kospi20dReturn.toFixed(1)}%)`,
     };
   },
 };

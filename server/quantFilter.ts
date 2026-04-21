@@ -12,7 +12,7 @@
  *   조건 11: 거래량 돌파 (5일 평균 2배 이상)
  *   조건 13: PER 밸류에이션 (0 < PER < 20)
  *   조건 18: 터틀 돌파 (20일 신고가)
- *   조건 24: 상대강도 (종목−KOSPI > 1.0%p)
+ *   조건 24: 상대강도 (종목20d − KOSPI20d > 3.0%p)
  *   조건 25: VCP 변동성 축소 (Compression Score 기반)
  *   조건 27: 거래량 급증+상승 (3배 & +1%)
  *   RSI(14) 건강구간 40~70
@@ -50,8 +50,9 @@ export const CONDITION_KEYS = {
   VOLUME_BREAKOUT:   'volume_breakout',
   PER:               'per',
   TURTLE_HIGH:       'turtle_high',
-  // Gate 24 의미 분리 (B3) — 과거 relative_strength 의 absolute 1.5% 폴백이 changePercent에서
-  // momentum 과 중복 발화했다. 이제 relative_strength 는 KOSPI 비교치가 제공될 때만 작동한다.
+  // Gate 24 의미 분리 (B3 → 20d): momentum(당일 +2%) 과 시간축 분리.
+  // relative_strength 는 종목 20일 누적 − KOSPI 20일 누적 > 3%p 기준이다.
+  // kospi20dReturn 미제공 시 발화하지 않는다(공선성 차단).
   RELATIVE_STRENGTH: 'relative_strength',
   // Gate 24 새 의미 — 5일 고점 대비 위치 + 거래량 조건. momentum 과 독립 입력을 사용한다.
   BREAKOUT_MOMENTUM: 'breakout_momentum',
@@ -153,23 +154,24 @@ function calculateMTAS(quote: YahooQuoteExtended): { mtas: number; dataInsuffici
 /**
  * Yahoo Finance 확장 시세 데이터로 Gate 조건 평가.
  *
- * @param quote          Yahoo 확장 시세 (필수)
- * @param weights        Signal Calibrator 자기학습 가중치 (기본값 DEFAULT_CONDITION_WEIGHTS)
- * @param kospiDayReturn KOSPI 당일 수익률 — 상대강도 실계산용 (미전달 시 절대 기준)
- * @param dartFin        DART 재무 데이터 — 제공 시 OCF 품질 조건 평가 (선택)
- * @param kisFlow        KIS 투자자 수급 — 제공 시 기관/외인 합치 조건 평가 (선택)
+ * @param quote           Yahoo 확장 시세 (필수)
+ * @param weights         Signal Calibrator 자기학습 가중치 (기본값 DEFAULT_CONDITION_WEIGHTS)
+ * @param kospi20dReturn  KOSPI 20거래일 누적 수익률 (%) — relative_strength 벤치마크.
+ *                        미제공 시 relative_strength 조건은 발화하지 않는다(공선성 차단).
+ * @param dartFin         DART 재무 데이터 — 제공 시 OCF 품질 조건 평가 (선택)
+ * @param kisFlow         KIS 투자자 수급 — 제공 시 기관/외인 합치 조건 평가 (선택)
  */
 export function evaluateServerGate(
   quote: YahooQuoteExtended,
   weights: ConditionWeights = DEFAULT_CONDITION_WEIGHTS,
-  kospiDayReturn?: number,
+  kospi20dReturn?: number,
   dartFin?: DartFinancials | null,
   kisFlow?: KisInvestorFlow | null,
   regime?: RegimeLevel | string,
 ): ServerGateResult {
   // 14개 ConditionEvaluator 를 defaultRegistry 가 일괄 실행하고 합산.
   // 신규 조건 추가는 conditions/index.ts 에서 한 줄 register 만으로 끝난다(Open-Closed).
-  const run = defaultRegistry.run({ quote, weights, kospiDayReturn, dartFin, kisFlow });
+  const run = defaultRegistry.run({ quote, weights, kospi20dReturn, dartFin, kisFlow });
   let score = run.totalScore;
   const details = [...run.details];
   const conditionKeys = [...run.conditionKeys];
