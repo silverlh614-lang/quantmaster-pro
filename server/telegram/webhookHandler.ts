@@ -35,7 +35,7 @@ import { resetKrxCache } from '../clients/krxClient.js';
 import { _resetKrxOpenApiBreaker, getKrxOpenApiStatus, resetKrxOpenApiCache } from '../clients/krxOpenApi.js';
 import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/reportGenerator.js';
 import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, getRealDataTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder } from '../clients/kisClient.js';
-import { getStreamStatus, startKisStream, stopKisStream, getRealtimePrice } from '../clients/kisStreamClient.js';
+import { MAX_SUBSCRIPTIONS, getStreamStatus, startKisStream, stopKisStream, getRealtimePrice } from '../clients/kisStreamClient.js';
 import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { verifyVolumeMount } from '../persistence/paths.js';
 import { STOCK_UNIVERSE } from '../screener/stockScreener.js';
@@ -966,7 +966,12 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
         // ── 3단계: 1초 대기 후 재연결 ───────────────────────────────
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const codes = loadWatchlist().map(w => w.code);
+        const watchlist = loadWatchlist();
+        // KIS 단일 세션 구독 한도(41) — gate score 상위 순으로 절삭. 초과 시 1006 강제 종료 방지.
+        const codes = [...watchlist]
+          .sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0))
+          .slice(0, MAX_SUBSCRIPTIONS)
+          .map(w => w.code);
         if (codes.length === 0) {
           await reply('⚠️ 워치리스트가 비어 있어 재연결할 구독 종목이 없습니다. /add 또는 /krx_scan 후 재시도하세요.');
           break;

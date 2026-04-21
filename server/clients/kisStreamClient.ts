@@ -70,6 +70,11 @@ let _isConnecting = false;
 let _reconnectCount = 0;
 const MAX_RECONNECT = 10;
 const RECONNECT_BASE_DELAY = 3000; // 3초 시작, 지수 백오프
+/**
+ * KIS 실시간 시세 단일 세션 구독 한도.
+ * 계정당 41종목이 상한 — 초과 시 서버가 code=1006 으로 강제 종료한다.
+ */
+export const MAX_SUBSCRIPTIONS = 41;
 
 // ─── 디버그: 연결 이벤트 이력 (최근 20건 유지) ──────────────────────────────
 interface StreamEvent {
@@ -319,7 +324,18 @@ export async function startKisStream(stockCodes: string[]): Promise<void> {
     return;
   }
 
-  for (const code of stockCodes) {
+  // KIS 단일 세션 구독 한도(41) 초과 시 서버가 1006 으로 강제 종료한다.
+  // 호출부에서 이미 우선순위 정렬을 마친 상태라고 가정하고, 여기서는 방어적으로 상한만 적용한다.
+  const accepted = stockCodes.slice(0, MAX_SUBSCRIPTIONS);
+  if (stockCodes.length > MAX_SUBSCRIPTIONS) {
+    logStreamEvent(
+      'LIMIT',
+      `요청 ${stockCodes.length}종목 → 상한 ${MAX_SUBSCRIPTIONS} 으로 절삭 (초과 ${stockCodes.length - MAX_SUBSCRIPTIONS}개 미구독)`,
+    );
+  }
+
+  _subscribedCodes.clear();
+  for (const code of accepted) {
     _subscribedCodes.add(code.padStart(6, '0'));
   }
 
@@ -335,13 +351,22 @@ export async function startKisStream(stockCodes: string[]): Promise<void> {
   console.log(`[KIS-WS] 실시간 스트림 시작 — ${_subscribedCodes.size}개 종목 구독 (모드=${isReal ? 'LIVE' : 'VTS'})`);
 }
 
-/** 장중 종목 추가 구독 (이미 연결된 WebSocket에 구독 추가) */
-export function subscribeStock(stockCode: string): void {
+/** 장중 종목 추가 구독 (이미 연결된 WebSocket에 구독 추가).
+ *  구독 상한(MAX_SUBSCRIPTIONS) 초과 시 조용히 무시하여 KIS 1006 강제 종료를 방지한다.
+ *  반환값: 구독 수행 여부.
+ */
+export function subscribeStock(stockCode: string): boolean {
   const code = stockCode.padStart(6, '0');
+  if (_subscribedCodes.has(code)) return true;
+  if (_subscribedCodes.size >= MAX_SUBSCRIPTIONS) {
+    logStreamEvent('LIMIT', `subscribeStock(${code}) 거부 — 이미 상한 ${MAX_SUBSCRIPTIONS} 도달`);
+    return false;
+  }
   _subscribedCodes.add(code);
   if (_ws && _ws.readyState === WebSocket.OPEN) {
     _ws.send(buildSubscribeMsg(code));
   }
+  return true;
 }
 
 /** 종목 구독 해제 */
