@@ -22,7 +22,7 @@ function selectSubscribableCodes(entries: WatchlistEntry[]): string[] {
     .map((w) => w.code);
 }
 
-/** 현재 시각이 KST 장중(월~금 09:00~15:30) 인지 판정. */
+/** 현재 시각이 KST 장중(월~금 09:00~15:20) 인지 판정. */
 function isKstMarketHours(now: Date = new Date()): boolean {
   // KST = UTC+9. 로컬 TZ 에 의존하지 않도록 UTC 기반으로 KST 를 계산.
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
@@ -32,7 +32,7 @@ function isKstMarketHours(now: Date = new Date()): boolean {
   const minute = kst.getUTCMinutes();
   const minutesSinceMidnight = hour * 60 + minute;
   const OPEN = 9 * 60;           // 09:00
-  const CLOSE = 15 * 60 + 30;    // 15:30
+  const CLOSE = 15 * 60 + 20;    // 15:20 — KIS 실시간 데이터 송출 종료 시각
   return minutesSinceMidnight >= OPEN && minutesSinceMidnight < CLOSE;
 }
 
@@ -71,8 +71,9 @@ export function registerKisStreamJobs(): void {
     }
   }, { timezone: 'UTC' });
 
-  // 종료 — 평일 15:35 KST (UTC 06:35).
-  cron.schedule('35 6 * * 1-5', () => {
+  // 종료 — 평일 15:20 KST (UTC 06:20). KIS 서버가 이 시각 이후 실시간 송출을 끊으므로
+  // 15:35 까지 끌고 가면 재연결 루프가 좀비로 도는 문제가 있어 15:20 으로 앞당긴다.
+  cron.schedule('20 6 * * 1-5', () => {
     stopKisStream();
     console.log('[Scheduler] KIS WebSocket 스트림 종료');
   }, { timezone: 'UTC' });

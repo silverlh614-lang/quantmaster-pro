@@ -1010,7 +1010,17 @@ export async function fetchKisIntraday(code: string): Promise<{
   }
 }
 
+// Yahoo Finance 호출 캐시 — 동일 종목 중복 호출을 억제해 429 Rate Limit을 회피한다.
+// 스크리너·시그널·리포트가 같은 분 안에 동일 심볼을 여러 번 조회하므로
+// 5분 TTL로만 묶어도 호출 수가 대폭 줄어든다. null 은 캐싱하지 않는다(일시 실패 재시도 허용).
+const YAHOO_QUOTE_CACHE_TTL_MS = 5 * 60 * 1000;
+const _yahooQuoteCache = new Map<string, { data: YahooQuoteExtended; ts: number }>();
+
 export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtended | null> {
+  const cached = _yahooQuoteCache.get(symbol);
+  if (cached && Date.now() - cached.ts < YAHOO_QUOTE_CACHE_TTL_MS) {
+    return cached.data;
+  }
   try {
     // range=2y — MTAS(월봉/주봉) 계산에 충분한 데이터 확보 (MA60, 가속도 지표 포함)
     const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=2y&interval=1d`;
@@ -1213,7 +1223,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const zeroVolDays10 = recent10Vol.filter(v => v === 0).length;
     const isHighRisk = zeroVolDays5 >= 5 || zeroVolDays10 >= 8;
 
-    return {
+    const result: YahooQuoteExtended = {
       price: Math.round(price), changePercent, volume, avgVolume,
       dayOpen: Math.round(dayOpen),
       prevClose: Math.round(prevClose),
@@ -1242,6 +1252,8 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       dailyVolumeDrying,
       isHighRisk,
     };
+    _yahooQuoteCache.set(symbol, { data: result, ts: Date.now() });
+    return result;
   } catch (e) {
     console.error(`[fetchYahooQuote] ${symbol}:`, e instanceof Error ? e.message : e);
     return null;
