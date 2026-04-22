@@ -75,6 +75,8 @@ let _reconnectCount = 0;
 const MAX_RECONNECT = 10;
 const RECONNECT_BASE_DELAY = 3000; // 3초 시작, 지수 백오프 → 3/6/12/24/48s ... (6회차 상한)
 const STABLE_RESET_AFTER_MS = 60_000; // OPEN 후 이 시간 이상 유지돼야 reconnectCount 를 0 으로 리셋
+// 구독 메시지 간격(ms). 41개를 한꺼번에 쏘면 KIS 서버가 1006 으로 강제 종료하므로 순차 전송.
+const SUBSCRIBE_THROTTLE_MS = 100;
 /**
  * KIS 실시간 시세 단일 세션 구독 한도.
  * 계정당 41종목이 상한 — 초과 시 서버가 code=1006 으로 강제 종료한다.
@@ -226,7 +228,7 @@ async function connectWebSocket(): Promise<void> {
 
     _ws = new WebSocket(wsUrl);
 
-    _ws.onopen = () => {
+    _ws.onopen = async () => {
       logStreamEvent('OPEN', `연결 성공 — 구독 종목 ${_subscribedCodes.size}개 재등록`);
       _isConnecting = false;
       _lastPongAt = Date.now();
@@ -244,9 +246,17 @@ async function connectWebSocket(): Promise<void> {
         _stableResetTimer = null;
       }, STABLE_RESET_AFTER_MS);
 
-      // 기존 구독 종목 재등록
+      // 이 onopen 에 결합된 ws 참조를 스냅샷: 순차 전송 도중 _ws 가 교체될 수 있다
+      // (onclose → scheduleReconnect → 새 소켓). 스냅샷으로 송신하면 구 소켓에
+      // 남은 송신이 신 소켓에 섞여 들어가는 것을 방지한다.
+      const ws = _ws!;
+
+      // 기존 구독 종목 재등록 — 서버가 41개 일괄 폭주를 code=1006 으로 강제종료하므로
+      // 100ms 간격 순차 전송 (41개 × 100ms ≈ 4.1s). 장 시작 수초의 초기 지연은 수용.
       for (const code of _subscribedCodes) {
-        _ws!.send(buildSubscribeMsg(code));
+        if (ws.readyState !== WebSocket.OPEN) break;
+        ws.send(buildSubscribeMsg(code));
+        await new Promise((r) => setTimeout(r, SUBSCRIBE_THROTTLE_MS));
       }
 
       // Heartbeat: 20초 간격 PING + PONG 타임아웃 검사.
