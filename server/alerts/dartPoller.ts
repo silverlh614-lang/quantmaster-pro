@@ -3,7 +3,7 @@ import fs from 'fs';
 import { DART_FAST_SEEN_FILE, DART_LLM_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { type DartAlert, loadDartAlerts, saveDartAlerts } from '../persistence/dartRepo.js';
 import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
-import { tryEvictWeakest, tryEvictMostDataStarved, CATALYST_MAX_SIZE } from '../screener/watchlistManager.js';
+import { addToWatchlist, tryEvictWeakest, tryEvictMostDataStarved, CATALYST_MAX_SIZE } from '../screener/watchlistManager.js';
 import { getStockCompletenessScore } from '../screener/dataCompletenessTracker.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
@@ -341,6 +341,33 @@ export async function applyDartToWatchlist(params: {
   markRceptNoApplied(params.rceptNo);
 
   const watchlist = loadWatchlist();
+  watchlist.push = ((...entries: WatchlistEntry[]) => {
+    for (const entry of entries) {
+      const isCatalyst = entry.section === 'CATALYST';
+      const result = addToWatchlist(
+        watchlist,
+        entry,
+        isCatalyst
+          ? {
+              evictionStrategy: (list, nextEntry) => {
+                const weakest = tryEvictWeakest(list, nextEntry.gateScore ?? 0, 'CATALYST');
+                if (weakest) return weakest;
+                return tryEvictMostDataStarved(
+                  list,
+                  getStockCompletenessScore(nextEntry.code) ?? 1,
+                  getStockCompletenessScore,
+                  'CATALYST',
+                );
+              },
+            }
+          : {},
+      );
+      if (!result.added) {
+        console.log(`[DART→WL] ${entry.section ?? 'MOMENTUM'} 등록 보류: ${entry.name}(${entry.code}) [${result.reason ?? 'unknown'}]`);
+      }
+    }
+    return watchlist.length;
+  }) as typeof watchlist.push;
   const existing = watchlist.find(w => w.code === code);
 
   // ── 악재 공시 (-1/-2) ──────────────────────────────────────────────────────

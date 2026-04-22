@@ -32,6 +32,12 @@ export function registerScreenerJobs(): void {
   // expiresAt 초과 항목 제거 + 최대 20개 유지
   cron.schedule('0 7 * * 1-5', async () => { await cleanupWatchlist().catch(console.error); }, { timezone: 'UTC' });
 
+  // 장중 안전망 — 평일 30분마다 워치리스트 재정리.
+  // autoPopulate 외 유입 경로로 MOMENTUM이 불어나도 장중에 빠르게 정리한다.
+  cron.schedule('0,30 9-15 * * 1-5', async () => {
+    await cleanupWatchlist().catch(console.error);
+  }, { timezone: 'Asia/Seoul' });
+
   // ─── 미국장 전후 스캐닝 — 나스닥/S&P 시세 반영 재검증 ──────────────────────
   // 미국 장 시작 직전 확인 — KST 22:25 (UTC 13:25).
   cron.schedule('25 13 * * 1-5', async () => {

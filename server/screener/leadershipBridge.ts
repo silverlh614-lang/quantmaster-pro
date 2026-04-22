@@ -15,7 +15,7 @@
 import {
   loadWatchlist, saveWatchlist, type WatchlistEntry,
 } from '../persistence/watchlistRepo.js';
-import { MOMENTUM_MAX_SIZE } from './watchlistManager.js';
+import { addToWatchlist } from './watchlistManager.js';
 
 export const LEADERSHIP_BRIDGE_TTL_HOURS = 4;
 export const LEADERSHIP_MIN_GATE = 4.5;
@@ -108,7 +108,6 @@ export function bridgeLeadersToMomentum(
 
   const list = loadWatchlist();
   const byCode = new Map(list.map((w) => [w.code, w]));
-  let momentumCount = list.filter((w) => w.section === 'MOMENTUM').length;
 
   for (const raw of candidates) {
     if (!qualifiesAsLeader(raw, ctx)) { bump('not_qualified'); continue; }
@@ -129,13 +128,13 @@ export function bridgeLeadersToMomentum(
       bump('base_momentum_exists'); continue;
     }
 
-    if (momentumCount >= MOMENTUM_MAX_SIZE) {
-      bump('momentum_full'); continue;
-    }
     const entry = buildEntryFromLeader(raw);
-    list.push(entry);
+    const addResult = addToWatchlist(list, entry);
+    if (!addResult.added) {
+      bump('momentum_full');
+      continue;
+    }
     byCode.set(code, entry);
-    momentumCount++;
     result.added++;
   }
 

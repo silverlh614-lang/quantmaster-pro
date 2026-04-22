@@ -135,6 +135,52 @@ const SECTION_MAX: Record<WatchlistSection, number> = {
   MOMENTUM: MOMENTUM_MAX_SIZE,
 };
 
+export interface AddToWatchlistOptions {
+  evictionStrategy?: (
+    watchlist: WatchlistEntry[],
+    entry: WatchlistEntry,
+  ) => WatchlistEntry | null;
+}
+
+export interface AddToWatchlistResult {
+  added: boolean;
+  evicted?: WatchlistEntry | null;
+  existing?: WatchlistEntry;
+  reason?: 'duplicate' | 'full';
+}
+
+/**
+ * 워치리스트 직접 push를 대체하는 단일 진입점.
+ * 중복 코드 차단, 섹션 상한 체크, 기본 품질 경쟁(eviction)까지 여기서 처리한다.
+ */
+export function addToWatchlist(
+  watchlist: WatchlistEntry[],
+  entry: WatchlistEntry,
+  options: AddToWatchlistOptions = {},
+): AddToWatchlistResult {
+  const code = entry.code.padStart(6, '0');
+  const existing = watchlist.find((item) => item.code === code);
+  if (existing) {
+    return { added: false, existing, reason: 'duplicate' };
+  }
+
+  const section = entry.section ?? 'MOMENTUM';
+  const maxSize = SECTION_MAX[section];
+  const sectionCount = watchlist.filter((item) => item.section === section).length;
+  if (sectionCount >= maxSize) {
+    const evicted = (options.evictionStrategy ?? ((list, nextEntry) =>
+      tryEvictWeakest(list, nextEntry.gateScore ?? 0, section)))(watchlist, entry);
+    if (!evicted) {
+      return { added: false, evicted: null, reason: 'full' };
+    }
+    Array.prototype.push.call(watchlist, { ...entry, code });
+    return { added: true, evicted };
+  }
+
+  Array.prototype.push.call(watchlist, { ...entry, code });
+  return { added: true, evicted: null };
+}
+
 /**
  * 섹션이 가득 찼을 때 신규 종목이 기존 최저 gateScore 종목을 밀어내는 품질 경쟁.
  *

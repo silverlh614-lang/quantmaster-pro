@@ -23,6 +23,7 @@ import { shouldRunMonthlyEvolution, getLearningInterval } from '../learning/adap
 import { scanAndUpdateIntradayWatchlist } from '../screener/intradayScanner.js';
 import { clearIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { runPreMarketSmokeTest } from '../trading/preMarketSmokeTest.js';
+import { cleanupWatchlist } from '../screener/watchlistManager.js';
 
 // ─── 편의 조회 래퍼 ────────────────────────────────────────────────────────────
 export function getShadowTrades() { return loadShadowTrades(); }
@@ -328,6 +329,7 @@ export class TradingDayOrchestrator {
           await preScreenStocks().catch(console.error);
           const wlBefore = new Set(loadWatchlist().map(w => w.code));
           const added = await autoPopulateWatchlist().catch(() => 0) ?? 0;
+          await cleanupWatchlist().catch(console.error);
           if (added > 0) {
             const newEntries = loadWatchlist().filter(w => !wlBefore.has(w.code));
             const namesList  = newEntries.map(w => `${w.name}(${w.code})`).join('\n');
@@ -369,6 +371,7 @@ export class TradingDayOrchestrator {
           console.log('[Orchestrator] 장중 워치리스트 재스캔 (KST 13:00)');
           const wlBeforeMidday = new Set(loadWatchlist().map(w => w.code));
           const added = await autoPopulateWatchlist().catch(() => 0) ?? 0;
+          await cleanupWatchlist().catch(console.error);
           if (added > 0) {
             const newEntries = loadWatchlist().filter(w => !wlBeforeMidday.has(w.code));
             const namesList  = newEntries.map(w => `${w.name}(${w.code})`).join('\n');

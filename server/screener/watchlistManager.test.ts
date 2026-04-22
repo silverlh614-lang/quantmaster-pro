@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   computeFocusCodes,
   applyEntryPriceDrift,
+  addToWatchlist,
   assignSection,
   SWING_MAX_SIZE,
   SWING_GATE_THRESHOLD,
@@ -229,5 +230,60 @@ describe('applyEntryPriceDrift', () => {
   it('returns KEEP when entryPrice is 0', () => {
     const entry = makeEntry({ code: 'A001', entryPrice: 0 });
     expect(applyEntryPriceDrift(entry, 11_000)).toBe('KEEP');
+  });
+});
+
+describe('addToWatchlist', () => {
+  it('adds a new entry when the section has capacity', () => {
+    const list: WatchlistEntry[] = [];
+    const result = addToWatchlist(list, makeEntry({ code: 'A001', section: 'MOMENTUM' }));
+    expect(result.added).toBe(true);
+    expect(list).toHaveLength(1);
+  });
+
+  it('rejects duplicate codes', () => {
+    const list: WatchlistEntry[] = [
+      makeEntry({ code: 'A001', section: 'MOMENTUM' }),
+    ];
+    const result = addToWatchlist(list, makeEntry({ code: 'A001', section: 'MOMENTUM' }));
+    expect(result.added).toBe(false);
+    expect(result.reason).toBe('duplicate');
+    expect(list).toHaveLength(1);
+  });
+
+  it('evicts the weakest entry when the new one is stronger', () => {
+    const list: WatchlistEntry[] = Array.from({ length: MOMENTUM_MAX_SIZE }, (_, i) =>
+      makeEntry({
+        code: `M${String(i).padStart(3, '0')}`,
+        section: 'MOMENTUM',
+        gateScore: i,
+      }),
+    );
+    const result = addToWatchlist(list, makeEntry({
+      code: 'M999',
+      section: 'MOMENTUM',
+      gateScore: 99,
+    }));
+    expect(result.added).toBe(true);
+    expect(result.evicted?.code).toBe('M000');
+    expect(list.some((entry) => entry.code === 'M999')).toBe(true);
+  });
+
+  it('rejects a weak entry when the section is already full', () => {
+    const list: WatchlistEntry[] = Array.from({ length: MOMENTUM_MAX_SIZE }, (_, i) =>
+      makeEntry({
+        code: `M${String(i).padStart(3, '0')}`,
+        section: 'MOMENTUM',
+        gateScore: 50 + i,
+      }),
+    );
+    const result = addToWatchlist(list, makeEntry({
+      code: 'M999',
+      section: 'MOMENTUM',
+      gateScore: 0,
+    }));
+    expect(result.added).toBe(false);
+    expect(result.reason).toBe('full');
+    expect(list.some((entry) => entry.code === 'M999')).toBe(false);
   });
 });

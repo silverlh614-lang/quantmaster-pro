@@ -1,5 +1,6 @@
 import fs from 'fs';
 import { WATCHLIST_FILE, ensureDataDir } from './paths.js';
+import { sendTelegramAlert } from '../alerts/telegramClient.js';
 
 /**
  * 워치리스트 섹션 — 신호 품질에 따라 매매 파라미터를 차등 적용
@@ -12,6 +13,8 @@ import { WATCHLIST_FILE, ensureDataDir } from './paths.js';
  *              최대 20개 · 매매 안 함 · SWING 승격 시만 매수 · 만료 2영업일
  */
 export type WatchlistSection = 'SWING' | 'CATALYST' | 'MOMENTUM';
+
+const MOMENTUM_ALERT_THRESHOLD = 30;
 
 export interface WatchlistEntry {
   code: string;          // 종목코드 6자리
@@ -58,4 +61,21 @@ export function loadWatchlist(): WatchlistEntry[] {
 export function saveWatchlist(list: WatchlistEntry[]): void {
   ensureDataDir();
   fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list, null, 2));
+
+  const momentumCount = list.filter((entry) =>
+    entry.section === 'MOMENTUM' || (!entry.section && entry.track === 'A'),
+  ).length;
+
+  if (momentumCount > MOMENTUM_ALERT_THRESHOLD) {
+    void sendTelegramAlert(
+      `🚨 <b>[Watchlist Overflow]</b>\n` +
+      `MOMENTUM 수량이 비정상적으로 증가했습니다.\n` +
+      `현재: ${momentumCount}개 / 경보 기준: ${MOMENTUM_ALERT_THRESHOLD}개`,
+      {
+        priority: 'HIGH',
+        dedupeKey: 'watchlist-momentum-overflow',
+        cooldownMs: 30 * 60 * 1000,
+      },
+    ).catch(console.error);
+  }
 }

@@ -12,6 +12,7 @@ import { recordGateAudit, flushGateAudit } from '../persistence/gateAuditRepo.js
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { getCurrentScanPreset } from './scanPresets.js';
 import { recordMtasAttempt } from './dataCompletenessTracker.js';
+import { MOMENTUM_MAX_SIZE, SWING_MAX_SIZE, addToWatchlist } from './watchlistManager.js';
 import {
   fetchInvestorTrading as krxFetchInvestorTrading,
   fetchPerPbr as krxFetchPerPbr,
@@ -23,6 +24,8 @@ export interface RejectionEntry {
   name: string;
   reason: string;
 }
+
+const PRE_SCREEN_MAX_RESULTS = 40;
 
 /** 마지막 autoPopulateWatchlist 실행의 탈락 사유 로그 (메모리 캐시) */
 let lastRejectionLog: RejectionEntry[] = [];
@@ -1344,7 +1347,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
 
   // 실계좌: preScreenStocks 결과 → 워치리스트 승격
   if (KIS_IS_REAL) {
-    const screened = getScreenerCache();
+    const screened = getScreenerCache().slice(0, PRE_SCREEN_MAX_RESULTS);
     for (const s of screened) {
       if (existingCodes.has(s.code)) continue;
       if (s.changeRate < 0 || s.changeRate >= 8) {
@@ -1358,7 +1361,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
 
       const sl = Math.round(s.currentPrice * 0.92);
       const tp = Math.round(s.currentPrice * 1.20);
-      watchlist.push({
+      const addResult = addToWatchlist(watchlist, {
         code: s.code,
         name: s.name,
         entryPrice: s.currentPrice,
@@ -1371,6 +1374,11 @@ export async function autoPopulateWatchlist(): Promise<number> {
         track: 'A',
         expiresAt: addBusinessDays(new Date(), 2).toISOString(), // MOMENTUM: 2영업일 만료
       });
+      if (!addResult.added) {
+        const momentumCount = watchlist.filter(w => w.section === 'MOMENTUM').length;
+        rejectionLog.push({ code: s.code, name: s.name, reason: `MOMENTUM 만석(${momentumCount}/${MOMENTUM_MAX_SIZE})` });
+        continue;
+      }
       existingCodes.add(s.code);
       added++;
       console.log(`[AutoPopulate] 스크리너 → 워치리스트 [MOMENTUM]: ${s.name}(${s.code}) @${s.currentPrice.toLocaleString()}`);
@@ -1380,7 +1388,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
   // ── Yahoo Finance 기반 기술적 지표 보완 ─────────────────────────────
   // 실계좌: KIS 4개 TR 스크리닝 결과(캐시) 기반으로 후보군 축소
   // VTS/폴백: 기존 동적 확장 유니버스 사용
-  const screenerSymbols = getScreenerCache().map(s => ({
+  const screenerSymbols = getScreenerCache().slice(0, PRE_SCREEN_MAX_RESULTS).map(s => ({
     symbol: `${s.code}.KS`,  // 코스피 기본, Yahoo에서 코스닥도 .KS로 조회 가능
     code: s.code,
     name: s.name,
@@ -1461,7 +1469,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
 
     const sl = Math.round(quote.price * 0.92);
     const tp = Math.round(quote.price * 1.20);
-    watchlist.push({
+    const addResult = addToWatchlist(watchlist, {
       code: stock.code,
       name: stock.name,
       entryPrice: quote.price,
@@ -1477,6 +1485,12 @@ export async function autoPopulateWatchlist(): Promise<number> {
       track,
       expiresAt: addBusinessDays(new Date(), expireDays).toISOString(),
     });
+    if (!addResult.added) {
+      const sectionCount = watchlist.filter(w => w.section === section).length;
+      const sectionMax = section === 'SWING' ? SWING_MAX_SIZE : MOMENTUM_MAX_SIZE;
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: `${section} 만석(${sectionCount}/${sectionMax})` });
+      continue;
+    }
     existingCodes.add(stock.code);
     added++;
     console.log(
