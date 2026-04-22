@@ -1,160 +1,144 @@
-/**
- * fredClient.ts — 서버사이드 FRED(세인트루이스 연준) API 어댑터 (아이디어 11)
- *
- * 이전에는 server/trading/marketDataRefresh.ts 내 private `fetchFred()` 와
- * server/routes/marketDataRouter.ts 의 `/fred` 프록시에 로직이 흩어져 있었다.
- * macroIndexEngine 이 동일한 FRED 시리즈를 구독해야 하므로, 관측값 파싱 · 캐시 ·
- * 타임아웃을 한곳에서 재사용 가능한 클라이언트로 분리한다.
- *
- * 제공 함수:
- *   - fetchFredLatest(seriesId)    — 최신 유효 관측값 (숫자) 또는 null
- *   - fetchFredSnapshot()          — MHS 계산에 필요한 5종 시리즈 병렬 수집
- *
- * 시리즈:
- *   T10Y2Y:        장단기 금리차 (음수 → 침체 6~18개월 선행)
- *   BAMLH0A0HYM2:  US HY 스프레드 (%, 양수 커질수록 신용 스트레스)
- *   SOFR:          달러 단기 기준금리 대용 (%)
- *   STLFSI4:       세인트루이스 금융스트레스 지수 (0 기준)
- *   DCOILWTICO:    WTI 유가 (USD/배럴)
- *
- * 설계 원칙:
- *   - FRED_API_KEY 미설정 / FRED_API_DISABLED=true 시 즉시 null 반환.
- *   - 5분 캐시 TTL — 동일 시리즈 반복 호출에도 API 부하 최소화.
- *   - 실패 시 null · errors 로 축적, throw 하지 않음.
- */
-
-// ── 타입 ─────────────────────────────────────────────────────────────────────
-
-export interface FredSnapshot {
-  yieldCurve10y2y: number | null;  // T10Y2Y
-  hySpreadPct:     number | null;  // BAMLH0A0HYM2 (%, 예: 3.42)
-  sofrPct:         number | null;  // SOFR (%)
-  financialStress: number | null;  // STLFSI4
-  wtiCrude:        number | null;  // DCOILWTICO
-  fetchedAt:       string;
-  errors:          string[];
-}
-
-// ── 설정 ─────────────────────────────────────────────────────────────────────
-
 const FRED_BASE = process.env.FRED_API_BASE ?? 'https://api.stlouisfed.org';
 const FRED_DISABLED = process.env.FRED_API_DISABLED === 'true';
-const REQUEST_TIMEOUT_MS = 8_000;
+const REQUEST_TIMEOUT_MS = 15_000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_FETCH_ATTEMPTS = 2;
+const RETRY_DELAY_MS = 2_000;
 
-// ── 캐시 ─────────────────────────────────────────────────────────────────────
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
 
-interface CacheEntry<T> { data: T; expiresAt: number }
 const _cache = new Map<string, CacheEntry<unknown>>();
 
-function getCached<T>(key: string): T | null {
+function getCached<T>(key: string): { hit: boolean; data: T | null } {
   const hit = _cache.get(key);
-  if (!hit || hit.expiresAt <= Date.now()) return null;
-  return hit.data as T;
+  if (!hit || hit.expiresAt <= Date.now()) return { hit: false, data: null };
+  return { hit: true, data: hit.data as T | null };
 }
 
 function setCached<T>(key: string, data: T): void {
   _cache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
-export function resetFredCache(): void { _cache.clear(); }
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-// ── 단건 조회 ────────────────────────────────────────────────────────────────
-
-/**
- * 지정한 FRED 시리즈의 최신 유효 관측값을 숫자로 반환.
- * 최근 5건 중 value 가 '.'(결측) · 빈 문자열이 아닌 첫 번째.
- * FRED_API_KEY 미설정 / 네트워크 실패 / 파싱 실패는 모두 null.
- */
-export async function fetchFredLatest(seriesId: string): Promise<number | null> {
+function getFredApiKey(): string | null {
   if (FRED_DISABLED) return null;
-  const apiKey = process.env.FRED_API_KEY;
+  const apiKey = process.env.FRED_API_KEY?.trim();
+  if (!apiKey) return null;
+  return apiKey;
+}
+
+export async function fetchFredLatest(seriesId: string): Promise<number | null> {
+  const apiKey = getFredApiKey();
   if (!apiKey) return null;
   if (!seriesId || !/^[A-Z0-9_]+$/i.test(seriesId)) return null;
 
-  const cached = getCached<number | null>(seriesId);
-  if (cached !== null) return cached;
+  const cached = getCached<number>(seriesId);
+  if (cached.hit) return cached.data;
 
-  const url =
-    `${FRED_BASE}/fred/series/observations` +
-    `?series_id=${encodeURIComponent(seriesId)}` +
-    `&api_key=${encodeURIComponent(apiKey)}` +
-    `&file_type=json&sort_order=desc&limit=5`;
+  for (let attempt = 0; attempt < MAX_FETCH_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { method: 'GET', signal: ac.signal });
-    if (!res.ok) {
-      console.warn(`[FRED] ${seriesId} HTTP ${res.status}`);
+    try {
+      const url = new URL('/fred/series/observations', FRED_BASE);
+      url.searchParams.set('series_id', seriesId);
+      url.searchParams.set('api_key', apiKey);
+      url.searchParams.set('file_type', 'json');
+      url.searchParams.set('sort_order', 'desc');
+      url.searchParams.set('limit', '12');
+
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const json = (await res.json()) as {
+        observations?: Array<{ value?: string }>;
+      };
+      const observations = Array.isArray(json?.observations) ? json.observations : [];
+      for (const obs of observations) {
+        const value = obs?.value;
+        if (value && value !== '.') {
+          const parsed = Number(value);
+          if (Number.isFinite(parsed)) {
+            setCached(seriesId, parsed);
+            return parsed;
+          }
+        }
+      }
+
       setCached(seriesId, null);
       return null;
-    }
-    const data = await res.json() as { observations?: Array<{ value: string }> };
-    const obs = data?.observations ?? [];
-    const valid = obs.find(o => o.value && o.value !== '.' && o.value.trim() !== '');
-    if (!valid) {
+    } catch (e) {
+      const isTimeout = e instanceof Error && e.name === 'AbortError';
+      const tag = isTimeout ? '[FRED-TIMEOUT]' : '[FRED-ERROR]';
+      const message = e instanceof Error ? e.message : String(e);
+
+      if (attempt < MAX_FETCH_ATTEMPTS - 1) {
+        console.warn(`${tag} ${seriesId}: ${message} (retrying)`);
+        await sleep(RETRY_DELAY_MS);
+        continue;
+      }
+
+      console.warn(`${tag} ${seriesId}: ${message}`);
       setCached(seriesId, null);
       return null;
+    } finally {
+      clearTimeout(timer);
     }
-    const n = parseFloat(valid.value);
-    if (!Number.isFinite(n)) {
-      setCached(seriesId, null);
-      return null;
-    }
-    setCached(seriesId, n);
-    return n;
-  } catch (e) {
-    console.warn(`[FRED] ${seriesId} 요청 실패: ${e instanceof Error ? e.message : e}`);
-    setCached(seriesId, null);
-    return null;
-  } finally {
-    clearTimeout(timer);
   }
+
+  setCached(seriesId, null);
+  return null;
 }
 
-// ── 스냅샷 ───────────────────────────────────────────────────────────────────
+export interface FredSnapshot {
+  yieldCurve10y2y: number | null;
+  hySpreadPct: number | null;
+  sofrPct: number | null;
+  financialStress: number | null;
+  wtiCrude: number | null;
+  fetchedAt: string;
+  errors: string[];
+}
 
-/** MHS 계산에 필요한 5종 시리즈를 한번에 수집. 부분 실패 허용. */
 export async function fetchFredSnapshot(): Promise<FredSnapshot> {
-  const errors: string[] = [];
-  const SERIES = {
-    T10Y2Y:        'yieldCurve10y2y',
-    BAMLH0A0HYM2:  'hySpreadPct',
-    SOFR:          'sofrPct',
-    STLFSI4:       'financialStress',
-    DCOILWTICO:    'wtiCrude',
-  } as const;
+  const ids = [
+    ['yieldCurve10y2y', 'T10Y2Y'],
+    ['hySpreadPct', 'BAMLH0A0HYM2'],
+    ['sofrPct', 'SOFR'],
+    ['financialStress', 'STLFSI4'],
+    ['wtiCrude', 'DCOILWTICO'],
+  ] as const;
 
-  const ids = Object.keys(SERIES) as Array<keyof typeof SERIES>;
-  const settled = await Promise.allSettled(ids.map(id => fetchFredLatest(id)));
+  const settled = await Promise.allSettled(ids.map(([, seriesId]) => fetchFredLatest(seriesId)));
 
-  const snap: FredSnapshot = {
+  const snapshot: FredSnapshot = {
     yieldCurve10y2y: null,
-    hySpreadPct:     null,
-    sofrPct:         null,
+    hySpreadPct: null,
+    sofrPct: null,
     financialStress: null,
-    wtiCrude:        null,
-    fetchedAt:       new Date().toISOString(),
-    errors,
+    wtiCrude: null,
+    fetchedAt: new Date().toISOString(),
+    errors: [],
   };
-  settled.forEach((r, i) => {
-    const id = ids[i];
-    const field = SERIES[id];
-    if (r.status === 'fulfilled') {
-      (snap as Record<typeof field, number | null>)[field] = r.value;
-    } else {
-      errors.push(`${id}: ${r.reason instanceof Error ? r.reason.message : String(r.reason).slice(0, 120)}`);
-    }
-  });
-  return snap;
-}
 
-export function getFredStatus(): { base: string; hasKey: boolean; disabled: boolean; cacheKeys: string[] } {
-  return {
-    base: FRED_BASE,
-    hasKey: !!process.env.FRED_API_KEY,
-    disabled: FRED_DISABLED,
-    cacheKeys: Array.from(_cache.keys()),
-  };
+  settled.forEach((result, idx) => {
+    const [field, seriesId] = ids[idx];
+    if (result.status === 'fulfilled') {
+      snapshot[field] = result.value;
+      if (result.value === null) snapshot.errors.push(seriesId);
+      return;
+    }
+
+    snapshot.errors.push(seriesId);
+  });
+
+  return snapshot;
 }

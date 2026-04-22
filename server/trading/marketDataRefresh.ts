@@ -21,6 +21,7 @@ import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js
 import { loadFssRecords } from '../persistence/fssRepo.js';
 import { checkAndNotifyRegimeChange } from './regimeBridge.js';
 import { fetchKisMarketSupply } from '../clients/kisClient.js';
+import { fetchFredLatest } from '../clients/fredClient.js';
 import { computeMacroIndex } from '../engines/macroIndexEngine.js';
 
 /**
@@ -28,6 +29,8 @@ import { computeMacroIndex } from '../engines/macroIndexEngine.js';
  * FRED_API_KEY 미설정 시 null 반환.
  */
 async function fetchFred(series: string): Promise<number | null> {
+  // Route all FRED reads through the shared client so the later macro-index pass hits the same cache.
+  return fetchFredLatest(series);
   const apiKey = process.env.FRED_API_KEY;
   if (!apiKey) return null;
   const url =

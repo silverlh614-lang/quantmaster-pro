@@ -26,6 +26,11 @@ import { fetchEcosSnapshot, type EcosSnapshot, type BokRateDirection } from '../
 import { fetchFredSnapshot, type FredSnapshot } from '../clients/fredClient.js';
 import { callGeminiInterpret } from '../clients/geminiClient.js';
 
+export interface MacroIndexPreloadedSources {
+  ecos?: EcosSnapshot;
+  fred?: FredSnapshot;
+}
+
 // ── 상수 (src/constants/thresholds.ts 와 동기화) ─────────────────────────────
 
 const MACRO_AXIS_MAX = 25;
@@ -196,10 +201,11 @@ function scoreRisk(
  */
 export async function computeMacroIndex(
   market: OptionalMarketInputs = {},
+  preloaded: MacroIndexPreloadedSources = {},
 ): Promise<MacroIndexResult> {
   const [ecos, fred] = await Promise.all([
-    fetchEcosSnapshot(),
-    fetchFredSnapshot(),
+    preloaded.ecos ? Promise.resolve(preloaded.ecos) : fetchEcosSnapshot(),
+    preloaded.fred ? Promise.resolve(preloaded.fred) : fetchFredSnapshot(),
   ]);
 
   const vkospi     = market.vkospi    ?? null;
