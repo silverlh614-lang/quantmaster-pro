@@ -1054,8 +1054,10 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         else                                           verdict = '🟢 OK';
 
         const ss = getStreamStatus();
+        // Railway 가 자동 주입하는 배포 커밋. 실제 재배포 여부를 운영자가 즉시 확인 가능.
+        const commitSha = (process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown').slice(0, 7);
         await reply(
-          `🩺 <b>[파이프라인 헬스체크]</b> (uptime ${uptimeHours}h / mem ${memMB}MB)\n` +
+          `🩺 <b>[파이프라인 헬스체크]</b> (uptime ${uptimeHours}h / mem ${memMB}MB / build ${commitSha})\n` +
           `판정: ${verdict}\n` +
           `─────────────────────\n` +
           `워치리스트: ${watchlist.length}개 | 활성 포지션: ${activeTrades}개\n` +
