@@ -30,8 +30,12 @@ export const SWING_MAX_SIZE       = 10;
  * MOMENTUM 을 20 → 18 로 축소해 총 용량은 유지.
  */
 export const CATALYST_MAX_SIZE    = 5;
-/** MOMENTUM 섹션 — 최대 관찰 후보 수 (20 → 18, CATALYST 확장 상쇄) */
-export const MOMENTUM_MAX_SIZE    = 18;
+/**
+ * MOMENTUM 섹션 — 최대 관찰 후보 수.
+ * 18 → 15: KIS WebSocket 구독 한도를 30 으로 낮추면서 총합(10+5+15=30) 을 MAX_SUBSCRIPTIONS
+ * 와 일치시켜 1006 강제 종료 빈도를 줄인다.
+ */
+export const MOMENTUM_MAX_SIZE    = 15;
 
 /** CATALYST 포지션 축소 계수 (표준의 60%) */
 export const CATALYST_POSITION_FACTOR = 0.6;

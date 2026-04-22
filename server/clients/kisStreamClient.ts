@@ -79,9 +79,12 @@ const STABLE_RESET_AFTER_MS = 60_000; // OPEN 후 이 시간 이상 유지돼야
 const SUBSCRIBE_THROTTLE_MS = 100;
 /**
  * KIS 실시간 시세 단일 세션 구독 한도.
- * 계정당 41종목이 상한 — 초과 시 서버가 code=1006 으로 강제 종료한다.
+ * KIS 계정당 41종목이 하드 리밋 — 초과 시 서버가 code=1006 으로 강제 종료한다.
+ * 41 에 근접시키면 signalScanner.subscribeStock() 동적 구독 + 워치독 재시작 경합으로
+ * 1006 강제 종료가 빈발하여, 하드 리밋보다 11 낮은 30 을 운영 한도로 사용한다.
+ * (SWING 10 + CATALYST 5 + MOMENTUM 15 = 30 — 워치리스트 총합과 일치)
  */
-export const MAX_SUBSCRIPTIONS = 41;
+export const MAX_SUBSCRIPTIONS = 30;
 
 // ─── 디버그: 연결 이벤트 이력 (최근 20건 유지) ──────────────────────────────
 interface StreamEvent {
