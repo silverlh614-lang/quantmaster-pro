@@ -549,15 +549,21 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             lines.push(`• ${escapeHtml(s.stockName)} — 가격 조회 실패`);
             continue;
           }
+          // fills SSOT 기반 실제 수량 — s.quantity 캐시가 꼬여도 정확한 값.
+          const realQty = getRemainingQty(s);
           const pnlPct = ((price - s.shadowEntryPrice) / s.shadowEntryPrice) * 100;
-          const pnlAmt = (price - s.shadowEntryPrice) * s.quantity;
+          const pnlAmt = (price - s.shadowEntryPrice) * realQty;
           totalPnl += pnlPct;
           const emoji = pnlPct >= 0 ? '🟢' : '🔴';
           const targetDist = ((s.targetPrice - price) / price * 100).toFixed(1);
           const stopDist = ((price - (s.hardStopLoss ?? s.stopLoss)) / (s.hardStopLoss ?? s.stopLoss) * 100).toFixed(1);
+          // 캐시 불일치 감지 → 운영자에게 즉시 경보 (재발 조기 포착).
+          const cacheDrift = s.quantity !== realQty
+            ? ` ⚠️ 캐시 ${s.quantity}주 불일치`
+            : '';
           lines.push(
             `${emoji} ${escapeHtml(s.stockName)} ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%` +
-            ` (${pnlAmt >= 0 ? '+' : ''}${pnlAmt.toLocaleString()}원)` +
+            ` (${pnlAmt >= 0 ? '+' : ''}${pnlAmt.toLocaleString()}원)${cacheDrift}` +
             `\n   목표까지 +${targetDist}% | 손절까지 -${stopDist}%`
           );
         }
@@ -580,9 +586,14 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         const lines = active.map(s => {
           const mode = s.mode === 'LIVE' ? '🔴' : '🟡';
           const status = s.status === 'PENDING' ? '⏳' : s.status === 'ACTIVE' ? '✅' : '◐';
+          // fills SSOT 기반 실제 수량. 캐시(s.quantity)와 다르면 경보.
+          const realQty = getRemainingQty(s);
+          const cacheDrift = s.quantity !== realQty
+            ? ` <i>⚠️ 캐시 ${s.quantity}주 불일치 — reconcile 권장</i>`
+            : '';
           return (
             `${mode}${status} <b>${escapeHtml(s.stockName)}</b> (${escapeHtml(s.stockCode)})\n` +
-            `   진입: ${s.shadowEntryPrice.toLocaleString()}원 × ${s.quantity}주\n` +
+            `   진입: ${s.shadowEntryPrice.toLocaleString()}원 × ${realQty}주${cacheDrift}\n` +
             `   손절: ${(s.hardStopLoss ?? s.stopLoss).toLocaleString()}원 | 목표: ${s.targetPrice.toLocaleString()}원\n` +
             `   진입시각: ${new Date(s.signalTime).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`
           );

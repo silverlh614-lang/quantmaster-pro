@@ -96,6 +96,13 @@ function reserveSell(
     flagToClearOnRevert,
   };
   appendFill(shadow, fullFill);
+  // ⚡ Fill 추가 직후 캐시 동기화 — SSOT(fills)와 파생 필드(quantity) 불일치 방지.
+  // 호출측에서 syncPositionCache를 잊는 경로가 있었고(RRR/Tranche 등 일부),
+  // 그 결과 fills에 SELL이 들어가는데 trade.quantity는 그대로 유지되어
+  // /pos · /pnl · 후속 exitEngine 루프가 수량을 과대 평가하는 버그를 유발했다.
+  // 이 위치에서 보장하면 모든 매도 경로(SHADOW·LIVE_ORDERED·향후 신규)가
+  // fills 추가와 동시에 quantity·originalQuantity 캐시도 정합 상태가 된다.
+  syncPositionCache(shadow);
   const remainingQty    = getRemainingQty(shadow);
   const cumRealizedPnL  = getTotalRealizedPnl(shadow);
   appendTradeEvent({
