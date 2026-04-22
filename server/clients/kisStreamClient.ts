@@ -228,7 +228,8 @@ async function connectWebSocket(): Promise<void> {
         _ws!.send(buildSubscribeMsg(code));
       }
 
-      // Heartbeat: 60초 간격 PING + PONG 타임아웃 검사
+      // Heartbeat: 30초 간격 PING + PONG 타임아웃 검사
+      // KIS 서버의 idle 세션 타임아웃(약 1분) 보다 짧게 유지해 무음 단절을 방지한다.
       if (_heartbeatTimer) clearInterval(_heartbeatTimer);
       _heartbeatTimer = setInterval(() => {
         if (_ws && _ws.readyState === WebSocket.OPEN) {
@@ -240,7 +241,7 @@ async function connectWebSocket(): Promise<void> {
           }
           _ws.send('PING');
         }
-      }, 60_000);
+      }, 30_000);
     };
 
     _ws.onmessage = (event) => {
