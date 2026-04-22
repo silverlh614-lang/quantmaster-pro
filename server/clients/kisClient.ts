@@ -681,15 +681,24 @@ export async function placeKisMarketBuyOrder(
 }
 
 /**
- * 매도 주문 결과.
- * - LIVE 모드 성공: ordNo가 문자열. 실체결량은 아직 모름 (CCLD 폴링 필요).
- * - LIVE 모드 실패: ordNo는 null (호출측이 Fill 기록을 건너뛸 수 있음).
- * - SHADOW 모드: ordNo는 null. 실주문 없음. 호출측은 의도 수량을 그대로 Fill로 기록.
+ * 매도 주문 결과. `outcome` 으로 3-상태를 명시적으로 구분하여 호출측이 Shadow 선반영 /
+ * LIVE 체결 대기 / LIVE 접수 실패 분기를 정확히 수행할 수 있게 한다.
+ *
+ * - `SHADOW_ONLY`  : Shadow 모드 — 실주문 없이 가상 체결로 기록해도 안전.
+ * - `LIVE_ORDERED` : LIVE 실주문 접수 성공, ODNO 발급됨 (체결은 CCLD 폴링 필요).
+ * - `LIVE_FAILED`  : LIVE 모드였으나 접수 실패 (KIS 미설정 · API 예외 · ODNO null).
+ *                    호출측은 Fill 선반영을 건너뛰고 중복 방지 플래그도 롤백해야 한다.
  */
+export type SellOrderOutcome = 'SHADOW_ONLY' | 'LIVE_ORDERED' | 'LIVE_FAILED';
+
 export interface SellOrderResult {
   ordNo: string | null;
   /** KIS 실주문이 성사됐는지 (LIVE 성공 시 true, SHADOW/실패 시 false) */
   placed: boolean;
+  /** 호출측 분기의 진실 원천 — placed 보다 우선 사용 권장. */
+  outcome: SellOrderOutcome;
+  /** LIVE_FAILED 경우 사람이 읽을 수 있는 사유 */
+  failureReason?: string;
 }
 
 export async function placeKisSellOrder(
@@ -709,12 +718,12 @@ export async function placeKisSellOrder(
       `${emoji} <b>[Shadow ${label}] ${escapeHtml(stockName)} (${escapeHtml(stockCode)})</b>\n` +
       `수량: ${quantity}주 | Shadow 모드 — 실주문 없음`
     ).catch(console.error);
-    return { ordNo: null, placed: false };
+    return { ordNo: null, placed: false, outcome: 'SHADOW_ONLY' };
   }
 
   if (!process.env.KIS_APP_KEY) {
     console.warn(`[AutoTrade] KIS 미설정 — ${stockName} 매도 건너뜀`);
-    return { ordNo: null, placed: false };
+    return { ordNo: null, placed: false, outcome: 'LIVE_FAILED', failureReason: 'KIS_APP_KEY 미설정' };
   }
 
   try {
@@ -741,7 +750,10 @@ export async function placeKisSellOrder(
       `수량: ${quantity}주 | 주문번호: ${ordNo ?? 'N/A'}`
     ).catch(console.error);
 
-    return { ordNo, placed: ordNo !== null };
+    if (ordNo === null) {
+      return { ordNo: null, placed: false, outcome: 'LIVE_FAILED', failureReason: 'ODNO 미발급' };
+    }
+    return { ordNo, placed: true, outcome: 'LIVE_ORDERED' };
   } catch (err: unknown) {
     console.error(`[AutoTrade SELL] ${stockName} 매도 실패:`, err instanceof Error ? err.message : err);
     // 매도 실패는 치명적 → Telegram 긴급 알림
@@ -750,7 +762,12 @@ export async function placeKisSellOrder(
       `수동으로 즉시 매도하세요!\n` +
       `오류: ${escapeHtml(err instanceof Error ? err.message : String(err))}`
     ).catch(console.error);
-    return { ordNo: null, placed: false };
+    return {
+      ordNo: null,
+      placed: false,
+      outcome: 'LIVE_FAILED',
+      failureReason: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

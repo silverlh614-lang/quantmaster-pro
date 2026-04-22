@@ -35,6 +35,39 @@ export interface PositionFill {
    * SHADOW 모드 또는 KIS 주문 실패/미송신 시 처음부터 undefined.
    */
   ordNo?: string;
+  /**
+   * Fill 상태 — 주문 접수 직후 "선반영"된 Fill 과 실체결 확인된 Fill 을 구분한다.
+   *
+   * - `PROVISIONAL` : LIVE 주문 접수만 성공, CCLD 미확인. pollSellFills 가 체결을
+   *                   확인하면 CONFIRMED 로 전환, 체결 실패/만료 시 REVERTED 로 전환.
+   * - `CONFIRMED`   : 체결 확인 완료(또는 SHADOW 모드의 가상 체결). 회계·집계 대상.
+   * - `REVERTED`    : 주문 실패/만료로 되돌려진 fill. 잔량·손익 집계에서 제외된다.
+   *
+   * 값이 없는 레거시 fill 은 CONFIRMED 로 간주한다 (하위 호환).
+   */
+  status?: 'PROVISIONAL' | 'CONFIRMED' | 'REVERTED';
+  /** PROVISIONAL → CONFIRMED 전환 시각 (CCLD 확인 또는 SHADOW 즉시 확정) */
+  confirmedAt?: string;
+  /** PROVISIONAL → REVERTED 전환 시각 */
+  revertedAt?: string;
+  /** 되돌림 사유 — Telegram 디버깅·사후 추적용 */
+  revertReason?: string;
+  /**
+   * 이 fill 이 REVERTED 로 전환될 때 함께 초기화해야 할 "중복 방지 플래그" 이름.
+   * exitEngine 의 DIVERGENCE/RRR/EUPHORIA/CASCADE 같은 1회성 청산 경로는 중복 실행
+   * 방지용 boolean 플래그를 사용하므로, 주문 실패 시 플래그도 함께 되돌려야 다음
+   * 기회에 재시도가 가능하다. pollSellFills 에서 revertProvisionalFill() 호출 시
+   * 참조된다.
+   */
+  flagToClearOnRevert?:
+    | 'divergencePartialSold'
+    | 'rrrCollapsePartialSold'
+    | 'r6EmergencySold';
+}
+
+/** REVERTED 가 아닌 "살아 있는" fill 만 true. 레거시(status 미정) 는 CONFIRMED 간주. */
+export function isActiveFill(fill: PositionFill): boolean {
+  return fill.status !== 'REVERTED';
 }
 
 // ─── Fill 헬퍼 함수 ────────────────────────────────────────────────────────────
@@ -58,19 +91,21 @@ export function appendFill(
 
 /**
  * 포지션의 총 실현 원화 손익 (모든 SELL Fill의 pnl 합산).
+ * REVERTED fill 은 주문 실패로 되돌려진 것이므로 집계에서 제외한다.
  */
 export function getTotalRealizedPnl(trade: ServerShadowTrade): number {
   return (trade.fills ?? [])
-    .filter(f => f.type === 'SELL' && f.pnl !== undefined)
+    .filter(f => f.type === 'SELL' && f.pnl !== undefined && isActiveFill(f))
     .reduce((sum, f) => sum + (f.pnl ?? 0), 0);
 }
 
 /**
  * 포지션의 수량 가중 평균 수익률 %.
  * fills가 없으면 레거시 returnPct로 폴백한다.
+ * REVERTED fill 은 집계 대상에서 제외.
  */
 export function getWeightedPnlPct(trade: ServerShadowTrade): number {
-  const sells = (trade.fills ?? []).filter(f => f.type === 'SELL' && f.pnlPct !== undefined);
+  const sells = (trade.fills ?? []).filter(f => f.type === 'SELL' && f.pnlPct !== undefined && isActiveFill(f));
   if (sells.length === 0) return trade.returnPct ?? 0;
   const totalQty = sells.reduce((s, f) => s + f.qty, 0);
   if (totalQty === 0) return 0;
@@ -83,9 +118,14 @@ export function getWeightedPnlPct(trade: ServerShadowTrade): number {
  *
  * 이 함수는 `trade.quantity` 캐시를 **신뢰하지 않고** 매번 fills에서 파생한다.
  * 청산 판정·UI 집계·회계 로직은 이 함수를 써야 캐시 불일치에 영향받지 않는다.
+ *
+ * 중요: PROVISIONAL SELL fill 도 차감에 반영 (보수적 기준). 이는 주문 접수 직후
+ * 같은 수량이 다음 루프에서 다시 매도 대상으로 선택되는 "이중 매도" 를 방지하기
+ * 위한 것이다. PROVISIONAL 이 CCLD 미확인으로 REVERTED 되면 그 즉시 remaining 이
+ * 회복된다. REVERTED fill 만 집계에서 제외된다.
  */
 export function getRemainingQty(trade: ServerShadowTrade): number {
-  const fills = trade.fills ?? [];
+  const fills = (trade.fills ?? []).filter(isActiveFill);
   const buyQty  = fills.filter(f => f.type === 'BUY').reduce((s, f) => s + f.qty, 0);
   const sellQty = fills.filter(f => f.type === 'SELL').reduce((s, f) => s + f.qty, 0);
   if (buyQty > 0) return Math.max(0, buyQty - sellQty);
@@ -104,7 +144,7 @@ export function getRemainingQty(trade: ServerShadowTrade): number {
  * @returns 캐시 필드가 실제로 바뀌었는지 여부
  */
 export function syncPositionCache(trade: ServerShadowTrade): boolean {
-  const fills = trade.fills ?? [];
+  const fills = (trade.fills ?? []).filter(isActiveFill);
   const buyQty = fills.filter(f => f.type === 'BUY').reduce((s, f) => s + f.qty, 0);
   if (buyQty === 0) return false; // 레거시 — 건드리지 않음
 
@@ -121,6 +161,42 @@ export function syncPositionCache(trade: ServerShadowTrade): boolean {
     changed = true;
   }
   return changed;
+}
+
+/**
+ * 주문 접수 시 선반영된 PROVISIONAL fill 을 되돌린다.
+ * pollSellFills 가 CCLD 미확인 + 시장가 재발행 실패(status=FAILED) 경로에서 호출.
+ *
+ * - 대상 fill 을 `status='REVERTED'` 로 마킹 (레코드 자체는 유지 — 감사 추적용)
+ * - `flagToClearOnRevert` 가 있으면 대응 flag (e.g. `divergencePartialSold`)를
+ *   `false` 로 복구하여 다음 기회에 동일 규칙이 재실행될 수 있게 한다.
+ * - `quantity` 캐시를 fills SSOT 기준으로 재동기화.
+ *
+ * @returns 되돌린 fill 이 있었으면 true
+ */
+export function revertProvisionalFill(
+  trade: ServerShadowTrade,
+  ordNo: string,
+  reason: string,
+): boolean {
+  const fill = (trade.fills ?? []).find(
+    f => f.ordNo === ordNo && f.status === 'PROVISIONAL' && f.type === 'SELL',
+  );
+  if (!fill) return false;
+
+  fill.status = 'REVERTED';
+  fill.revertedAt = new Date().toISOString();
+  fill.revertReason = reason;
+
+  // 중복 방지 플래그 복구 — 다음 기회에 동일 규칙이 다시 평가될 수 있도록.
+  const flagKey = fill.flagToClearOnRevert;
+  if (flagKey) {
+    (trade as unknown as Record<string, unknown>)[flagKey] = false;
+  }
+
+  // REVERTED 를 반영한 잔량으로 캐시 재동기화.
+  syncPositionCache(trade);
+  return true;
 }
 
 // ─── Invariant 보호 래퍼 ──────────────────────────────────────────────────────

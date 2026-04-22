@@ -14,7 +14,7 @@
 
 import fs from 'fs';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, getRemainingQty } from '../persistence/shadowTradeRepo.js';
 import {
   SHADOW_LOG_FILE,
   NOTIFICATION_LOG_FILE,
@@ -23,6 +23,7 @@ import {
   ensureDataDir,
 } from '../persistence/paths.js';
 import { getDataIntegrityBlocked, setDataIntegrityBlocked } from '../state.js';
+import { KIS_IS_REAL, isKisBalanceQueryAllowed, kisGet } from '../clients/kisClient.js';
 
 // ─── 설정 ─────────────────────────────────────────────────────────────────────
 
@@ -274,4 +275,136 @@ export async function runDailyReconciliation(
 export function loadLastReconcileResult(): ReconcileResult | null {
   if (!fs.existsSync(RECONCILE_STATE_FILE)) return null;
   try { return JSON.parse(fs.readFileSync(RECONCILE_STATE_FILE, 'utf-8')); } catch { return null; }
+}
+
+// ─── KIS 잔고 vs Shadow DB 정합성 검증 ───────────────────────────────────────
+//
+// exitEngine 이 매도 주문을 접수하면 shadow DB 의 fill 수량을 "선반영" 한다.
+// 접수~CCLD 확인 사이 최대 150초 공백이 있어, 이 구간 shadow 의 내부 포지션
+// 수량은 KIS 실잔고와 괴리된다. PROVISIONAL fill 상태로 대부분 해결되지만,
+// 장애/재부팅/누락된 CCLD 갱신 등 예상 밖 경로가 남는다.
+//
+// 이 함수는 KIS `/inquire-balance` 로 실보유 수량을 조회하여 LIVE shadow 의 fills
+// SSOT 기반 잔량과 대조한다. 2주 이상 차이나면 Telegram HIGH 알림.
+
+export interface KisShadowMismatch {
+  stockCode: string;
+  stockName?: string;
+  shadowQty: number;
+  kisHldgQty: number;
+  delta: number;  // kis - shadow (음수 = shadow 가 더 많이 가지고 있다고 기록)
+}
+
+export interface KisShadowReconcileResult {
+  ranAt: string;
+  skipped: boolean;
+  skipReason?: string;
+  shadowPositions: number;    // LIVE shadow open position 수
+  kisHoldings: number;         // KIS 보유 종목 수
+  mismatches: KisShadowMismatch[];
+  totalQtyDelta: number;       // Σ|delta|
+}
+
+/**
+ * KIS 실잔고 vs Shadow LIVE 포지션의 수량 정합성을 대조한다.
+ * 점검/장외 시간대엔 자동 스킵 (isKisBalanceQueryAllowed).
+ * LIVE (KIS_IS_REAL=true) 가 아니면 전체 스킵 — SHADOW 모드는 KIS 잔고와 괴리가 설계상 정상.
+ */
+export async function reconcileKisVsShadow(
+  opts: { silent?: boolean; quantityTolerance?: number } = {},
+): Promise<KisShadowReconcileResult> {
+  const qtyTolerance = opts.quantityTolerance ?? 2;
+  const ranAt = new Date().toISOString();
+
+  if (!KIS_IS_REAL || !process.env.KIS_APP_KEY) {
+    return { ranAt, skipped: true, skipReason: 'SHADOW 모드 또는 KIS 미설정', shadowPositions: 0, kisHoldings: 0, mismatches: [], totalQtyDelta: 0 };
+  }
+  if (!isKisBalanceQueryAllowed()) {
+    return { ranAt, skipped: true, skipReason: 'KIS 잔고 조회 불가 시간대 (점검/장외)', shadowPositions: 0, kisHoldings: 0, mismatches: [], totalQtyDelta: 0 };
+  }
+
+  // LIVE 오픈 포지션만 대상 — HIT_TARGET/HIT_STOP 은 이미 청산된 것이므로 제외.
+  const shadowAll = loadShadowTrades();
+  const openStatuses = new Set(['PENDING', 'ORDER_SUBMITTED', 'PARTIALLY_FILLED', 'ACTIVE', 'EUPHORIA_PARTIAL']);
+  const liveOpen = shadowAll.filter(t => (t.mode ?? 'LIVE') === 'LIVE' && openStatuses.has(t.status));
+
+  // KIS 실보유 조회
+  const trId = KIS_IS_REAL ? 'TTTC8434R' : 'VTTC8434R';
+  let data: { output1?: Array<{ pdno: string; prdt_name?: string; hldg_qty: string }> } | null = null;
+  try {
+    data = await kisGet(trId, '/uapi/domestic-stock/v1/trading/inquire-balance', {
+      CANO: process.env.KIS_ACCOUNT_NO ?? '',
+      ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
+      AFHR_FLPR_YN: 'N', OFL_YN: '', INQR_DVSN: '02', UNPR_DVSN: '01',
+      FUND_STTL_ICLD_YN: 'N', FNCG_AMT_AUTO_RDPT_YN: 'N', PRCS_DVSN: '01',
+      CTX_AREA_FK100: '', CTX_AREA_NK100: '',
+    }, 'LOW');
+  } catch (e) {
+    return { ranAt, skipped: true, skipReason: `KIS 조회 실패: ${e instanceof Error ? e.message : String(e)}`, shadowPositions: liveOpen.length, kisHoldings: 0, mismatches: [], totalQtyDelta: 0 };
+  }
+  if (!data) {
+    return { ranAt, skipped: true, skipReason: 'KIS 조회 응답 비어있음', shadowPositions: liveOpen.length, kisHoldings: 0, mismatches: [], totalQtyDelta: 0 };
+  }
+
+  const kisHoldings = (data.output1 ?? []).filter(h => Number(h.hldg_qty ?? 0) > 0);
+  const kisQtyByCode = new Map<string, { qty: number; name?: string }>();
+  for (const h of kisHoldings) {
+    const code = String(h.pdno ?? '').padStart(6, '0');
+    kisQtyByCode.set(code, { qty: Number(h.hldg_qty ?? 0), name: h.prdt_name });
+  }
+
+  const shadowQtyByCode = new Map<string, { qty: number; name: string }>();
+  for (const t of liveOpen) {
+    const code = String(t.stockCode ?? '').padStart(6, '0');
+    const q = getRemainingQty(t);
+    const prev = shadowQtyByCode.get(code);
+    shadowQtyByCode.set(code, { qty: (prev?.qty ?? 0) + q, name: prev?.name ?? t.stockName });
+  }
+
+  const mismatches: KisShadowMismatch[] = [];
+  const allCodes = new Set<string>([...kisQtyByCode.keys(), ...shadowQtyByCode.keys()]);
+  for (const code of allCodes) {
+    const shadowQty = shadowQtyByCode.get(code)?.qty ?? 0;
+    const kisHldgQty = kisQtyByCode.get(code)?.qty ?? 0;
+    const delta = kisHldgQty - shadowQty;
+    if (Math.abs(delta) >= qtyTolerance) {
+      mismatches.push({
+        stockCode: code,
+        stockName: shadowQtyByCode.get(code)?.name ?? kisQtyByCode.get(code)?.name,
+        shadowQty, kisHldgQty, delta,
+      });
+    }
+  }
+
+  const totalQtyDelta = mismatches.reduce((s, m) => s + Math.abs(m.delta), 0);
+  const result: KisShadowReconcileResult = {
+    ranAt,
+    skipped: false,
+    shadowPositions: liveOpen.length,
+    kisHoldings: kisHoldings.length,
+    mismatches,
+    totalQtyDelta,
+  };
+
+  if (!opts.silent && mismatches.length > 0) {
+    const lines = [
+      `🚨 <b>[KIS 잔고 ≠ Shadow DB]</b>`,
+      `Shadow LIVE 포지션: ${liveOpen.length}개 | KIS 보유: ${kisHoldings.length}종목`,
+      `불일치 ${mismatches.length}건 (|Δ|≥${qtyTolerance}):`,
+      ...mismatches.slice(0, 8).map(m =>
+        `• ${m.stockCode} ${m.stockName ?? ''}: Shadow ${m.shadowQty}주 vs KIS ${m.kisHldgQty}주 (Δ${m.delta >= 0 ? '+' : ''}${m.delta})`
+      ),
+      ...(mismatches.length > 8 ? [`...외 ${mismatches.length - 8}건`] : []),
+    ];
+    await sendTelegramAlert(lines.join('\n'), {
+      priority: 'HIGH',
+      dedupeKey: `kis_shadow_mismatch:${new Date().toISOString().slice(0, 13)}`,  // 시간별 1회
+    }).catch(console.error);
+  }
+
+  console.log(
+    `[KisShadowReconcile] shadowOpen=${liveOpen.length} kisHoldings=${kisHoldings.length} ` +
+    `mismatch=${mismatches.length} ΣΔ=${totalQtyDelta}`,
+  );
+  return result;
 }

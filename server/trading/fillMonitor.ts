@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { PENDING_ORDERS_FILE, PENDING_SELL_ORDERS_FILE, ensureDataDir } from '../persistence/paths.js';
-import { loadShadowTrades, saveShadowTrades, appendFill, syncPositionCache, getRemainingQty } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, saveShadowTrades, appendFill, syncPositionCache, getRemainingQty, revertProvisionalFill } from '../persistence/shadowTradeRepo.js';
 import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL, SELL_TR_ID } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelBuyFilled } from '../alerts/channelPipeline.js';
@@ -367,6 +367,8 @@ function correctShadowFill(
     fillPnl: fill.pnl,
     fillPnlPct: fill.pnlPct,
     fillOrdNo: fill.ordNo,
+    fillStatus: fill.status,
+    fillConfirmedAt: fill.confirmedAt,
     tradeQuantity: trade.quantity,
     tradeOriginalQuantity: trade.originalQuantity,
     tradeStatus: trade.status,
@@ -381,7 +383,14 @@ function correctShadowFill(
     fill.pnl = (effectivePrice - trade.shadowEntryPrice) * filledQty;
     fill.pnlPct = ((effectivePrice - trade.shadowEntryPrice) / trade.shadowEntryPrice) * 100;
   }
-  if (finalize) delete fill.ordNo;
+  if (finalize) {
+    delete fill.ordNo;
+    // CCLD 확인으로 PROVISIONAL → CONFIRMED 최종 확정. 레거시 fill (status 미정)은
+    // CONFIRMED 간주이므로 굳이 덮어쓸 필요는 없지만, 명시적으로 기록해두면 감사
+    // 추적 시 "어느 시점에 확정되었는가"를 확인할 수 있다.
+    fill.status = 'CONFIRMED';
+    fill.confirmedAt = new Date().toISOString();
+  }
 
   syncPositionCache(trade);
 
@@ -408,6 +417,8 @@ function correctShadowFill(
     fill.pnl = snapshot.fillPnl;
     fill.pnlPct = snapshot.fillPnlPct;
     if (snapshot.fillOrdNo !== undefined) fill.ordNo = snapshot.fillOrdNo;
+    fill.status = snapshot.fillStatus;
+    fill.confirmedAt = snapshot.fillConfirmedAt;
     trade.quantity = snapshot.tradeQuantity;
     trade.originalQuantity = snapshot.tradeOriginalQuantity;
     trade.status = snapshot.tradeStatus;
@@ -598,10 +609,38 @@ async function reissueAsMarketOrder(order: PendingSellOrder, quantity: number): 
   } catch (err) {
     order.status = 'FAILED';
     console.error(`[SellFillMonitor] 시장가 재발행 실패:`, err instanceof Error ? err.message : err);
+
+    // ── PROVISIONAL fill 되돌림 (선반영 수정) ─────────────────────────────
+    // exitEngine 이 주문 접수 직후 "선반영" 했던 SELL fill 을 되돌린다. 이 경로는
+    // 체결이 전혀 일어나지 않았을 때만 안전하다: order.fillQty > 0 (부분 체결 누적)
+    // 인 경우엔 일부는 실제로 매도됐으므로 되돌리면 안 된다. CCLD 재폴링을 포기하고
+    // 운영자의 수동 개입을 요청한다.
+    const alreadyFilled = (order.fillQty ?? 0) > 0;
+    let revertedMsg = '';
+    if (!alreadyFilled && order.relatedTradeId) {
+      try {
+        const trades = loadShadowTrades();
+        const trade = trades.find(t => t.id === order.relatedTradeId);
+        const reverted = trade
+          ? revertProvisionalFill(trade, order.ordNo, `재발행 실패: ${err instanceof Error ? err.message : String(err)}`)
+          : false;
+        if (reverted) {
+          saveShadowTrades(trades);
+          revertedMsg = '\n↩️ 선반영 Fill 되돌림 — 잔량/플래그 복구됨.';
+          console.warn(`[SellFillMonitor] ↩️ PROVISIONAL fill 되돌림 — ${order.stockName} ordNo=${order.ordNo}`);
+        }
+      } catch (revertErr) {
+        console.error('[SellFillMonitor] 되돌림 실패:', revertErr instanceof Error ? revertErr.message : revertErr);
+      }
+    } else if (alreadyFilled) {
+      revertedMsg = `\n⚠️ 부분 체결 ${order.fillQty}주 반영 상태 — 되돌림 금지, 수동 확인 필수.`;
+    }
+
     await sendTelegramAlert(
       `🚨 <b>[긴급] ${order.stockName} 매도 재발행 실패!</b>\n` +
       `수동으로 즉시 매도하세요!\n` +
-      `오류: ${err instanceof Error ? err.message : String(err)}`,
+      `오류: ${err instanceof Error ? err.message : String(err)}` +
+      revertedMsg,
       { priority: 'CRITICAL' },
     ).catch(console.error);
   }
