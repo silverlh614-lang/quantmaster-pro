@@ -20,6 +20,7 @@ import {
   updateShadow,
   appendFill,
   appendShadowLog,
+  syncPositionCache,
 } from '../persistence/shadowTradeRepo.js';
 import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
@@ -127,6 +128,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `📈 <b>매매</b>\n` +
           `  /buy <code>종목코드</code> — 수동 매수 신호\n` +
           `  /sell <code>종목코드</code> — 포지션 전량 시장가 매도\n` +
+          `  /adjust_qty <code>종목코드</code> <code>수량</code> [메모] — 장부 수량 수동 보정 (실계좌 대비 drift 교정)\n` +
           `  /scan — 장중 강제 스캔 트리거\n` +
           `  /krx_scan — KRX 종목조회 강제 재스캔 (Stage1+2+3)\n` +
           `  /cancel <code>종목코드</code> — 미체결 주문 취소\n` +
@@ -500,6 +502,107 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `주문번호: ${sellRes.ordNo ?? 'N/A'}\n` +
           `🏷️ MANUAL_EXIT — 학습 격리됨 (조건 가중치 통계 미반영)\n` +
           `🧠 편향 추정 — 후회회피 ${bias.regretAvoidance} / 보유효과 ${bias.endowmentEffect} / 패닉 ${bias.panicSelling}`
+        );
+        break;
+      }
+
+      case '/adjust_qty': {
+        // 서버 장부(원장) ↔ 실계좌 수량이 불일치할 때 운영자가 직접 보정.
+        // fills 가 있는 포지션은 보정 fill 을 추가해 SSOT(=getRemainingQty) 가
+        // 목표치에 수렴하도록, fills 없는 레거시는 캐시 필드를 직접 세팅한다.
+        // 포지션을 종결시키지는 않는다 — 청산은 /sell 전용.
+        const code = args[0]?.replace(/[^0-9]/g, '').slice(0, 6);
+        const targetQty = args[1] != null ? Number(args[1]) : NaN;
+        const note = args.slice(2).join(' ').trim() || undefined;
+
+        if (!code || code.length !== 6 || !Number.isInteger(targetQty) || targetQty < 0) {
+          await reply(
+            '❌ 사용법: /adjust_qty &lt;종목코드&gt; &lt;목표수량&gt; [메모]\n' +
+            '예: /adjust_qty 005930 5 실계좌 대비 -3주 보정\n' +
+            '• 목표수량은 0 이상 정수\n' +
+            '• 포지션 종결 아님 — 청산은 /sell'
+          );
+          break;
+        }
+
+        const shadows = loadShadowTrades();
+        const target = shadows.find(s => s.stockCode === code && isOpenShadowStatus(s.status));
+        if (!target) {
+          await reply(`⚠️ ${code} 보유 포지션 없음 — /pos 로 확인`);
+          break;
+        }
+
+        const beforeFills = getRemainingQty(target);
+        const beforeCache = target.quantity;
+        const diff = targetQty - beforeFills;
+        // SSOT 경로 판정 — BUY fill 이 1개라도 살아있으면 fills 보정으로 간다.
+        const hasSsot = (target.fills ?? []).some(f => f.type === 'BUY' && f.status !== 'REVERTED');
+        const nowIso = new Date().toISOString();
+
+        if (diff === 0 && beforeCache === targetQty) {
+          await reply(`ℹ️ ${escapeHtml(target.stockName)}(${code}) 수량 이미 ${targetQty}주 — 조정 불필요`);
+          break;
+        }
+
+        let method: string;
+        try {
+          if (hasSsot) {
+            if (diff > 0) {
+              appendFill(target, {
+                type: 'BUY',
+                subType: 'TRANCHE_BUY',
+                qty: diff,
+                price: target.shadowEntryPrice,
+                reason: `수동 수량 보정 +${diff}주${note ? ` — ${note}` : ''}`,
+                exitRuleTag: 'MANUAL_ADJUST',
+                timestamp: nowIso,
+                status: 'CONFIRMED',
+              });
+            } else if (diff < 0) {
+              // pnl 은 의도적으로 생략 — 실손익이 아니라 장부 보정이므로 실현 PnL 집계에서 제외.
+              appendFill(target, {
+                type: 'SELL',
+                subType: 'PARTIAL_TP',
+                qty: -diff,
+                price: target.shadowEntryPrice,
+                reason: `수동 수량 보정 ${diff}주${note ? ` — ${note}` : ''}`,
+                exitRuleTag: 'MANUAL_ADJUST',
+                timestamp: nowIso,
+                status: 'CONFIRMED',
+              });
+            }
+            syncPositionCache(target);
+            method = 'fills 보정';
+          } else {
+            target.quantity = targetQty;
+            if ((target.originalQuantity ?? 0) < targetQty) target.originalQuantity = targetQty;
+            method = '캐시 직접수정 (레거시 — fills 없음)';
+          }
+
+          appendShadowLog({
+            event: 'MANUAL_QTY_ADJUST',
+            trigger: 'telegram /adjust_qty',
+            ...target,
+            beforeQty: beforeFills,
+            afterQty: targetQty,
+            diff,
+            note,
+          });
+          saveShadowTrades(shadows);
+        } catch (e) {
+          console.error('[TelegramBot] /adjust_qty 실패:', e);
+          await reply(`❌ 수량 보정 저장 실패 — 서버 로그를 확인하세요.`);
+          break;
+        }
+
+        const afterQty = getRemainingQty(target);
+        await reply(
+          `🔧 <b>[수량 수동 보정]</b> ${escapeHtml(target.stockName)} (${escapeHtml(code)})\n` +
+          `이전 잔량: ${beforeFills}주 → 이후: ${afterQty}주 (${diff > 0 ? '+' : ''}${diff}주)\n` +
+          `방식: ${method}\n` +
+          (note ? `메모: ${escapeHtml(note)}\n` : '') +
+          `🏷️ MANUAL_ADJUST — PnL·학습 집계 격리` +
+          (targetQty === 0 ? `\n⚠️ 잔량 0 — 상태는 유지됩니다. 포지션 종결은 /sell` : '')
         );
         break;
       }
@@ -1054,8 +1157,10 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         else                                           verdict = '🟢 OK';
 
         const ss = getStreamStatus();
+        // Railway 가 자동 주입하는 배포 커밋. 실제 재배포 여부를 운영자가 즉시 확인 가능.
+        const commitSha = (process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown').slice(0, 7);
         await reply(
-          `🩺 <b>[파이프라인 헬스체크]</b> (uptime ${uptimeHours}h / mem ${memMB}MB)\n` +
+          `🩺 <b>[파이프라인 헬스체크]</b> (uptime ${uptimeHours}h / mem ${memMB}MB / build ${commitSha})\n` +
           `판정: ${verdict}\n` +
           `─────────────────────\n` +
           `워치리스트: ${watchlist.length}개 | 활성 포지션: ${activeTrades}개\n` +

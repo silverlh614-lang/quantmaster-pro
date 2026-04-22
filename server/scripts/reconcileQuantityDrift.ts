@@ -25,7 +25,7 @@ import {
   syncPositionCache,
   type ServerShadowTrade,
 } from '../persistence/shadowTradeRepo.js';
-import { SHADOW_TRADES_FILE } from '../persistence/paths.js';
+import { SHADOW_FILE } from '../persistence/paths.js';
 
 interface DriftReport {
   id: string;
@@ -44,8 +44,8 @@ function deriveStatusFromFills(trade: ServerShadowTrade): ServerShadowTrade['sta
   const sells = (trade.fills ?? []).filter(f => f.type === 'SELL' && f.status !== 'REVERTED');
   const lastSell = sells[sells.length - 1];
   if (!lastSell) return trade.status;
-  // TAKE_PROFIT 계열 → HIT_TARGET / STOP_LOSS 계열 → HIT_STOP / 그 외 → HIT_TARGET (부분익절 누적 close)
-  if (lastSell.subType === 'STOP_LOSS' || lastSell.subType === 'HARD_STOP') return 'HIT_STOP';
+  // STOP_LOSS/EMERGENCY → HIT_STOP / PARTIAL_TP·TRAILING_TP·FULL_CLOSE → HIT_TARGET
+  if (lastSell.subType === 'STOP_LOSS' || lastSell.subType === 'EMERGENCY') return 'HIT_STOP';
   return 'HIT_TARGET';
 }
 
@@ -54,9 +54,9 @@ function main(): void {
   const trades = loadShadowTrades();
 
   // 백업
-  const backupPath = `${SHADOW_TRADES_FILE}.backup-${Date.now()}`;
+  const backupPath = `${SHADOW_FILE}.backup-${Date.now()}`;
   if (!dryRun) {
-    fs.copyFileSync(SHADOW_TRADES_FILE, backupPath);
+    fs.copyFileSync(SHADOW_FILE, backupPath);
     console.log(`[Reconcile] 백업: ${path.basename(backupPath)}`);
   }
 

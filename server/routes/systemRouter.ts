@@ -43,8 +43,11 @@ const router = Router();
 const serverStart = new Date().toISOString();
 
 router.get('/health', (_req: Request, res: Response) => {
+  // Railway 가 자동 주입하는 커밋 SHA. 로컬/기타 환경은 GIT_COMMIT_SHA fallback.
+  const commitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown';
   res.json({
     status: 'ok',
+    commit: commitSha.slice(0, 7),
     emergencyStop: getEmergencyStop(),
     dailyLossPct: getDailyLossPct(),
     autoTradeEnabled: process.env.AUTO_TRADE_ENABLED === 'true',
