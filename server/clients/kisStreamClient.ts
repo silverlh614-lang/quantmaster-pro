@@ -262,9 +262,10 @@ async function connectWebSocket(): Promise<void> {
         await new Promise((r) => setTimeout(r, SUBSCRIBE_THROTTLE_MS));
       }
 
-      // Heartbeat: 20초 간격 PING + PONG 타임아웃 검사.
-      // KIS 서버 idle 세션 타임아웃(~1분) 보다 충분히 짧게 유지해 무음 단절 방지.
-      // 30초였던 이전 값은 1006 플랩 직전까지 1회 PING 밖에 나가지 못해 margin 부족.
+      // Heartbeat: KIS 서버는 PINGPONG 프레임을 주기적으로 push 하므로 클라이언트가
+      // 능동적으로 애플리케이션 레벨 PING 을 보낼 필요가 없다. onmessage 의 PINGPONG
+      // echo-back 으로 _lastPongAt 이 갱신되며, 여기서는 좀비 커넥션 감지 + RFC 6455
+      // control-frame ping (프록시/LB idle keepalive) 이중 안전망만 수행한다.
       if (_heartbeatTimer) clearInterval(_heartbeatTimer);
       _heartbeatTimer = setInterval(() => {
         if (_ws && _ws.readyState === WebSocket.OPEN) {
@@ -274,18 +275,31 @@ async function connectWebSocket(): Promise<void> {
             _ws.close(4000, 'PONG_TIMEOUT');
             return;
           }
-          _ws.send('PING');
+          try { _ws.ping(); } catch { /* ignore */ }
         }
       }, 20_000);
     };
 
+    // RFC 6455 control-frame pong 수신 핸들러 (프록시/LB keepalive 확인용).
+    _ws.on('pong', () => {
+      _lastPongAt = Date.now();
+    });
+
     _ws.onmessage = (event) => {
       const msg = typeof event.data === 'string' ? event.data : '';
+      // KIS 서버 주도 PINGPONG: 반드시 '{"header"' 필터보다 먼저 처리한다.
+      // 서버가 push 한 {"header":{"tr_id":"PINGPONG",...}} 를 그대로 되돌려주지
+      // 않으면 세션이 끊긴다 (KIS 공식 프로토콜).
+      if (msg.startsWith('{"header"') && msg.includes('"PINGPONG"')) {
+        _lastPongAt = Date.now();
+        try { _ws?.send(msg); } catch { /* ignore */ }
+        return;
+      }
       if (msg === 'PONG') {
         _lastPongAt = Date.now();
         return;
       }
-      if (msg.startsWith('{"header"')) return; // 응답 헤더 무시
+      if (msg.startsWith('{"header"')) return; // 구독/해제 응답 헤더 무시
       // H0STCNT0 체결 데이터 파싱
       if (msg.includes('H0STCNT0')) {
         parseH0STCNT0(msg);
