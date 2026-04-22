@@ -65,11 +65,16 @@ let _ws: WebSocket | null = null;
 let _approvalKey: string | null = null;
 let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+// OPEN 직후 즉시 _reconnectCount 를 0 으로 돌리면, 30~40초 만에 1006 으로 끊기는
+// 플랩 상황에서 백오프가 영영 3초에 고정된다 (로그에 '3초 → 3초 → 3초' 패턴).
+// 안정 유지 시간이 누적된 뒤에만 카운터를 리셋하기 위한 타이머.
+let _stableResetTimer: ReturnType<typeof setTimeout> | null = null;
 let _subscribedCodes = new Set<string>();
 let _isConnecting = false;
 let _reconnectCount = 0;
 const MAX_RECONNECT = 10;
-const RECONNECT_BASE_DELAY = 3000; // 3초 시작, 지수 백오프
+const RECONNECT_BASE_DELAY = 3000; // 3초 시작, 지수 백오프 → 3/6/12/24/48s ... (6회차 상한)
+const STABLE_RESET_AFTER_MS = 60_000; // OPEN 후 이 시간 이상 유지돼야 reconnectCount 를 0 으로 리셋
 /**
  * KIS 실시간 시세 단일 세션 구독 한도.
  * 계정당 41종목이 상한 — 초과 시 서버가 code=1006 으로 강제 종료한다.
@@ -204,7 +209,11 @@ function buildUnsubscribeMsg(stockCode: string): string {
 
 /** WebSocket 연결 시작 */
 async function connectWebSocket(): Promise<void> {
-  if (_isConnecting || (_ws && _ws.readyState === WebSocket.OPEN)) return;
+  // 중복 connect 방지: _isConnecting 플래그뿐 아니라 _ws 가 이미 OPEN 또는
+  // CONNECTING 상태면 즉시 반환. 워치독 cron + scheduleReconnect 가 거의 동시에
+  // 발화하는 경우 기존 OPEN 체크만으로는 핸드셰이크 중인 소켓을 중복 생성할 수 있다.
+  if (_isConnecting) return;
+  if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) return;
   _isConnecting = true;
 
   try {
@@ -220,16 +229,29 @@ async function connectWebSocket(): Promise<void> {
     _ws.onopen = () => {
       logStreamEvent('OPEN', `연결 성공 — 구독 종목 ${_subscribedCodes.size}개 재등록`);
       _isConnecting = false;
-      _reconnectCount = 0;
       _lastPongAt = Date.now();
+
+      // OPEN 직후 reconnectCount 를 0 으로 되돌리지 않는다:
+      // 1006 으로 수초 만에 다시 끊기는 플랩 상황에서는 백오프가 3초에 고정되어
+      // 서버 쪽에서 세션 차단/레이트리밋을 유발한다. STABLE_RESET_AFTER_MS 만큼
+      // 끊김 없이 유지된 뒤에만 안정적으로 간주해 카운터를 초기화한다.
+      if (_stableResetTimer) clearTimeout(_stableResetTimer);
+      _stableResetTimer = setTimeout(() => {
+        if (_reconnectCount > 0) {
+          logStreamEvent('STABLE', `${STABLE_RESET_AFTER_MS / 1000}s 이상 안정 유지 — reconnectCount 리셋 (${_reconnectCount} → 0)`);
+        }
+        _reconnectCount = 0;
+        _stableResetTimer = null;
+      }, STABLE_RESET_AFTER_MS);
 
       // 기존 구독 종목 재등록
       for (const code of _subscribedCodes) {
         _ws!.send(buildSubscribeMsg(code));
       }
 
-      // Heartbeat: 30초 간격 PING + PONG 타임아웃 검사
-      // KIS 서버의 idle 세션 타임아웃(약 1분) 보다 짧게 유지해 무음 단절을 방지한다.
+      // Heartbeat: 20초 간격 PING + PONG 타임아웃 검사.
+      // KIS 서버 idle 세션 타임아웃(~1분) 보다 충분히 짧게 유지해 무음 단절 방지.
+      // 30초였던 이전 값은 1006 플랩 직전까지 1회 PING 밖에 나가지 못해 margin 부족.
       if (_heartbeatTimer) clearInterval(_heartbeatTimer);
       _heartbeatTimer = setInterval(() => {
         if (_ws && _ws.readyState === WebSocket.OPEN) {
@@ -241,7 +263,7 @@ async function connectWebSocket(): Promise<void> {
           }
           _ws.send('PING');
         }
-      }, 30_000);
+      }, 20_000);
     };
 
     _ws.onmessage = (event) => {
@@ -273,6 +295,8 @@ async function connectWebSocket(): Promise<void> {
       _isConnecting = false;
       _ws = null;
       if (_heartbeatTimer) { clearInterval(_heartbeatTimer); _heartbeatTimer = null; }
+      // 안정 상태로 전환되기 전에 끊겼다면 카운터 리셋을 취소해 백오프가 실제로 커지도록 한다.
+      if (_stableResetTimer) { clearTimeout(_stableResetTimer); _stableResetTimer = null; }
       scheduleReconnect();
     };
   } catch (err) {
@@ -397,6 +421,7 @@ export function stopKisStream(): void {
   console.log('[KIS-WS] 실시간 스트림 종료');
   if (_heartbeatTimer) { clearInterval(_heartbeatTimer); _heartbeatTimer = null; }
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  if (_stableResetTimer) { clearTimeout(_stableResetTimer); _stableResetTimer = null; }
   _reconnectCount = MAX_RECONNECT; // 재연결 방지
   if (_ws) {
     for (const code of _subscribedCodes) {
