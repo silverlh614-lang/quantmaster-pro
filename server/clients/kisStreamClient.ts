@@ -74,9 +74,23 @@ let _isConnecting = false;
 let _reconnectCount = 0;
 const MAX_RECONNECT = 10;
 const RECONNECT_BASE_DELAY = 3000; // 3초 시작, 지수 백오프 → 3/6/12/24/48s ... (6회차 상한)
-const STABLE_RESET_AFTER_MS = 60_000; // OPEN 후 이 시간 이상 유지돼야 reconnectCount 를 0 으로 리셋
+// OPEN 후 이 시간 이상 유지돼야 reconnectCount 를 0 으로 리셋.
+// 고정값(60s)을 쓰면 세션이 30초만 사는 환경에서 안정 판정이 절대 발동 못 해
+// 백오프가 무한정 증가한다. 최근 10회 세션 수명의 EMA(α=2/11)의 2배를 임계값으로
+// 동적 산정하되, 10s 하한·5min 상한으로 이상치를 차단한다.
+const STABLE_RESET_INITIAL_MS = 60_000;
+const STABLE_RESET_MIN_MS = 10_000;
+const STABLE_RESET_MAX_MS = 5 * 60_000;
+const SESSION_LIFESPAN_EMA_ALPHA = 2 / 11; // 10-period EMA: α=2/(N+1)
+let _sessionLifespanEmaMs: number | null = null;
+let _sessionOpenedAt = 0; // 0 = OPEN 도달 전
 // 구독 메시지 간격(ms). 41개를 한꺼번에 쏘면 KIS 서버가 1006 으로 강제 종료하므로 순차 전송.
 const SUBSCRIBE_THROTTLE_MS = 100;
+// CLOSE 1006 플랩 감지: 30분 내 3회 이상이면 HIGH 알림 1회 발송(1시간 쿨다운).
+const CLOSE_1006_WINDOW_MS = 30 * 60_000;
+const CLOSE_1006_THRESHOLD = 3;
+const CLOSE_1006_ALERT_COOLDOWN_MS = 60 * 60_000;
+const _close1006Timestamps: number[] = [];
 /**
  * KIS 실시간 시세 단일 세션 구독 한도.
  * KIS 계정당 41종목이 하드 리밋 — 초과 시 서버가 code=1006 으로 강제 종료한다.
@@ -176,6 +190,49 @@ function parseH0STCNT0(body: string): void {
   });
 }
 
+// ─── 세션 수명 EMA · 1006 플랩 감지 헬퍼 ─────────────────────────────────────
+
+function updateSessionLifespanEma(lifespanMs: number): void {
+  if (_sessionLifespanEmaMs === null) {
+    _sessionLifespanEmaMs = lifespanMs;
+  } else {
+    _sessionLifespanEmaMs =
+      SESSION_LIFESPAN_EMA_ALPHA * lifespanMs +
+      (1 - SESSION_LIFESPAN_EMA_ALPHA) * _sessionLifespanEmaMs;
+  }
+}
+
+function getStableResetThresholdMs(): number {
+  if (_sessionLifespanEmaMs === null) return STABLE_RESET_INITIAL_MS;
+  const target = _sessionLifespanEmaMs * 2;
+  if (target < STABLE_RESET_MIN_MS) return STABLE_RESET_MIN_MS;
+  if (target > STABLE_RESET_MAX_MS) return STABLE_RESET_MAX_MS;
+  return target;
+}
+
+// 1006 CLOSE 슬라이딩 윈도우 집계. 윈도우 초과 엔트리를 prune 한 뒤,
+// 임계를 충족하면 1시간 쿨다운으로 HIGH 알림을 1회만 발송한다.
+function recordAndMaybeAlert1006Flap(): void {
+  const now = Date.now();
+  _close1006Timestamps.push(now);
+  while (_close1006Timestamps.length > 0 && now - _close1006Timestamps[0] > CLOSE_1006_WINDOW_MS) {
+    _close1006Timestamps.shift();
+  }
+  const count = _close1006Timestamps.length;
+  if (count < CLOSE_1006_THRESHOLD) return;
+  logStreamEvent('FLAP_1006', `최근 ${CLOSE_1006_WINDOW_MS / 60_000}분 내 1006 ${count}회 — HIGH 알림 발송 시도`);
+  sendTelegramAlert(
+    `🚨 <b>[KIS WebSocket] 1006 플랩 감지</b>\n` +
+    `최근 ${CLOSE_1006_WINDOW_MS / 60_000}분 내 비정상 종료(1006) ${count}회 발생\n` +
+    `구독 한도 초과/레이트리밋/네트워크 이상 가능성 — 즉시 점검 필요`,
+    {
+      priority: 'HIGH',
+      dedupeKey: 'kis_ws_1006_flap',
+      cooldownMs: CLOSE_1006_ALERT_COOLDOWN_MS,
+    },
+  ).catch(console.error);
+}
+
 // ─── WebSocket 연결/구독 ─────────────────────────────────────────────────────
 
 function buildSubscribeMsg(stockCode: string): string {
@@ -235,19 +292,27 @@ async function connectWebSocket(): Promise<void> {
       logStreamEvent('OPEN', `연결 성공 — 구독 종목 ${_subscribedCodes.size}개 재등록`);
       _isConnecting = false;
       _lastPongAt = Date.now();
+      _sessionOpenedAt = Date.now();
 
       // OPEN 직후 reconnectCount 를 0 으로 되돌리지 않는다:
       // 1006 으로 수초 만에 다시 끊기는 플랩 상황에서는 백오프가 3초에 고정되어
-      // 서버 쪽에서 세션 차단/레이트리밋을 유발한다. STABLE_RESET_AFTER_MS 만큼
-      // 끊김 없이 유지된 뒤에만 안정적으로 간주해 카운터를 초기화한다.
+      // 서버 쪽에서 세션 차단/레이트리밋을 유발한다. 최근 세션 수명 EMA의 2배
+      // (=실제 세션 수명의 배수)만큼 끊김 없이 유지된 뒤에만 안정적으로 간주한다.
+      const stableThresholdMs = getStableResetThresholdMs();
       if (_stableResetTimer) clearTimeout(_stableResetTimer);
       _stableResetTimer = setTimeout(() => {
         if (_reconnectCount > 0) {
-          logStreamEvent('STABLE', `${STABLE_RESET_AFTER_MS / 1000}s 이상 안정 유지 — reconnectCount 리셋 (${_reconnectCount} → 0)`);
+          const emaLabel = _sessionLifespanEmaMs !== null
+            ? `${Math.round(_sessionLifespanEmaMs / 1000)}s EMA`
+            : 'init';
+          logStreamEvent(
+            'STABLE',
+            `${(stableThresholdMs / 1000).toFixed(0)}s 이상 안정 유지 (${emaLabel}×2) — reconnectCount 리셋 (${_reconnectCount} → 0)`,
+          );
         }
         _reconnectCount = 0;
         _stableResetTimer = null;
-      }, STABLE_RESET_AFTER_MS);
+      }, stableThresholdMs);
 
       // 이 onopen 에 결합된 ws 참조를 스냅샷: 순차 전송 도중 _ws 가 교체될 수 있다
       // (onclose → scheduleReconnect → 새 소켓). 스냅샷으로 송신하면 구 소켓에
@@ -324,6 +389,15 @@ async function connectWebSocket(): Promise<void> {
       if (_heartbeatTimer) { clearInterval(_heartbeatTimer); _heartbeatTimer = null; }
       // 안정 상태로 전환되기 전에 끊겼다면 카운터 리셋을 취소해 백오프가 실제로 커지도록 한다.
       if (_stableResetTimer) { clearTimeout(_stableResetTimer); _stableResetTimer = null; }
+      // OPEN 에 도달한 세션만 수명을 집계한다 (핸드셰이크 실패는 제외).
+      if (_sessionOpenedAt > 0) {
+        const lifespanMs = Date.now() - _sessionOpenedAt;
+        updateSessionLifespanEma(lifespanMs);
+        _sessionOpenedAt = 0;
+      }
+      if (event.code === 1006) {
+        recordAndMaybeAlert1006Flap();
+      }
       scheduleReconnect();
     };
   } catch (err) {
@@ -460,6 +534,7 @@ export function stopKisStream(): void {
   _subscribedCodes.clear();
   _priceMap.clear();
   _approvalKey = null;
+  _sessionOpenedAt = 0;
 }
 
 /** WebSocket 연결 상태 */
@@ -475,7 +550,13 @@ export function getStreamStatus(): {
   reconnectCount: number;
   lastPongAt: string | null;
   recentEvents: StreamEvent[];
+  sessionLifespanEmaMs: number | null;
+  stableResetThresholdMs: number;
+  close1006WindowCount: number;
 } {
+  // 상태 조회 시점 기준 윈도우 밖 엔트리는 제외하여 정확한 현재 카운트를 반환한다.
+  const now = Date.now();
+  const liveCount = _close1006Timestamps.filter((t) => now - t <= CLOSE_1006_WINDOW_MS).length;
   return {
     connected: isStreamConnected(),
     subscribedCount: _subscribedCodes.size,
@@ -483,5 +564,8 @@ export function getStreamStatus(): {
     reconnectCount: _reconnectCount,
     lastPongAt: _lastPongAt > 0 ? new Date(_lastPongAt).toISOString() : null,
     recentEvents: [..._eventLog],
+    sessionLifespanEmaMs: _sessionLifespanEmaMs,
+    stableResetThresholdMs: getStableResetThresholdMs(),
+    close1006WindowCount: liveCount,
   };
 }
