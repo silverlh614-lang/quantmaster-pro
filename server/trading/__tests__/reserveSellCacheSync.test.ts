@@ -4,11 +4,11 @@
  *
  * 버그 이력:
  *   2026-04-22 포스코퓨처엠·오픈엣지테크 사례. Tranche 40% → RRR 50% 매도 후에도
- *   trade.quantity 캐시가 원래 값 유지 → /pos 오탐 + 후속 루프 이중 매도 위험.
- *   원인: reserveSell 내부의 syncPositionCache 호출 누락. 호출측 책임으로
+ *   trade.quantity 캐시가 원래 값 유지 → /pos 오표시 + 후속 루프 이중 매도 위험.
+ *   원인: reserveSell 내부에 syncPositionCache 호출 누락. 호출측 책임으로
  *   남겨진 경로 일부가 사이에 빠짐.
  *
- * 이 테스트가 fail 하면 그 시점이 근본 버그를 다시 불러온 것이다.
+ * 이 테스트가 fail 하면 그 수정이 근본 버그를 다시 불러온 것이다.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -86,7 +86,7 @@ describe('reserveSell 계약 — fill 기록 후 quantity 캐시 동기화', () 
     vi.clearAllMocks();
   });
 
-  it('SHADOW 부분 매도 1회 → quantity 캐시가 즉시 차감되어야 함', () => {
+  it('SHADOW 부분 매도 1회 — quantity 캐시가 즉시 차감돼야 함', () => {
     const trade = makeTrade(100);
     expect(trade.quantity).toBe(100);
 
@@ -107,7 +107,7 @@ describe('reserveSell 계약 — fill 기록 후 quantity 캐시 동기화', () 
     expect(trade.quantity).toBe(60);
   });
 
-  it('SHADOW 부분 매도 2회 연속 → 누적 차감이 cache 에 반영되어야 함', () => {
+  it('SHADOW 부분 매도 2회 연속 — 누적 차감이 cache 에 반영돼야 함', () => {
     const trade = makeTrade(100);
 
     // 1차: Tranche 40 주 익절

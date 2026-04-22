@@ -549,7 +549,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             lines.push(`• ${escapeHtml(s.stockName)} — 가격 조회 실패`);
             continue;
           }
-          // fills SSOT 기반 실제 수량 — s.quantity 캐시가 꼬여도 정확한 값.
+          // fills SSOT 기반 실제 잔량 — s.quantity 캐시가 꼬여도 안전.
           const realQty = getRemainingQty(s);
           const pnlPct = ((price - s.shadowEntryPrice) / s.shadowEntryPrice) * 100;
           const pnlAmt = (price - s.shadowEntryPrice) * realQty;
@@ -557,7 +557,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           const emoji = pnlPct >= 0 ? '🟢' : '🔴';
           const targetDist = ((s.targetPrice - price) / price * 100).toFixed(1);
           const stopDist = ((price - (s.hardStopLoss ?? s.stopLoss)) / (s.hardStopLoss ?? s.stopLoss) * 100).toFixed(1);
-          // 캐시 불일치 감지 → 운영자에게 즉시 경보 (재발 조기 포착).
+          // 캐시 불일치 감지 — 운영자에게 즉시 경보하여 재발 조기 포착.
           const cacheDrift = s.quantity !== realQty
             ? ` ⚠️ 캐시 ${s.quantity}주 불일치`
             : '';
@@ -586,7 +586,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         const lines = active.map(s => {
           const mode = s.mode === 'LIVE' ? '🔴' : '🟡';
           const status = s.status === 'PENDING' ? '⏳' : s.status === 'ACTIVE' ? '✅' : '◐';
-          // fills SSOT 기반 실제 수량. 캐시(s.quantity)와 다르면 경보.
+          // fills SSOT 기반 실제 잔량. 캐시(s.quantity)와 다르면 경보.
           const realQty = getRemainingQty(s);
           const cacheDrift = s.quantity !== realQty
             ? ` <i>⚠️ 캐시 ${s.quantity}주 불일치 — reconcile 권장</i>`

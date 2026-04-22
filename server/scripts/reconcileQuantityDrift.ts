@@ -2,8 +2,8 @@
  * reconcileQuantityDrift.ts — 기존 quantity 캐시 꼬임 일회성 교정 스크립트
  *
  * 적용 배경:
- *   exitEngine.reserveSell 의 syncPositionCache 가 없던 시점, RRR/Tranche 등
- *   부분 매도 경로에서 fills 에 SELL 이 들어갔지만 trade.quantity 캐시가
+ *   exitEngine.reserveSell 에 syncPositionCache 가 없던 시절, RRR/Tranche 등
+ *   부분 매도 경로에서 fills 엔 SELL 이 들어갔지만 trade.quantity 캐시가
  *   업데이트되지 않은 포지션이 남아있다. 패치 배포 후 한 번만 실행하여
  *   SSOT(fills)를 기준으로 quantity·status 를 일괄 교정한다.
  *
@@ -25,7 +25,7 @@ import {
   syncPositionCache,
   type ServerShadowTrade,
 } from '../persistence/shadowTradeRepo.js';
-import { SHADOW_FILE } from '../persistence/paths.js';
+import { SHADOW_TRADES_FILE } from '../persistence/paths.js';
 
 interface DriftReport {
   id: string;
@@ -36,16 +36,16 @@ interface DriftReport {
   fillsSummary: string;
 }
 
-/** fills 가 모두 확정(REVERTED 제외) 된 상태에서 수량 0 이면 closed 상태로 전이. */
+/** fills 가 모두 확정(REVERTED 제외) 된 상태에서 잔량 0 이면 closed 상태로 전이. */
 function deriveStatusFromFills(trade: ServerShadowTrade): ServerShadowTrade['status'] {
   const remaining = getRemainingQty(trade);
   if (remaining > 0) return trade.status; // 부분 청산 — 기존 status 유지
-  // 수량 0 — SELL fill 의 subType 으로 HIT_TARGET/HIT_STOP 판정
+  // 잔량 0 — SELL fill 의 subType 으로 HIT_TARGET/HIT_STOP 판정
   const sells = (trade.fills ?? []).filter(f => f.type === 'SELL' && f.status !== 'REVERTED');
   const lastSell = sells[sells.length - 1];
   if (!lastSell) return trade.status;
-  // STOP_LOSS/EMERGENCY → HIT_STOP / 그 외(PARTIAL_TP·TRAILING_TP·FULL_CLOSE) → HIT_TARGET
-  if (lastSell.subType === 'STOP_LOSS' || lastSell.subType === 'EMERGENCY') return 'HIT_STOP';
+  // TAKE_PROFIT 계열 → HIT_TARGET / STOP_LOSS 계열 → HIT_STOP / 그 외 → HIT_TARGET (부분익절 누적 close)
+  if (lastSell.subType === 'STOP_LOSS' || lastSell.subType === 'HARD_STOP') return 'HIT_STOP';
   return 'HIT_TARGET';
 }
 
@@ -54,9 +54,9 @@ function main(): void {
   const trades = loadShadowTrades();
 
   // 백업
-  const backupPath = `${SHADOW_FILE}.backup-${Date.now()}`;
+  const backupPath = `${SHADOW_TRADES_FILE}.backup-${Date.now()}`;
   if (!dryRun) {
-    fs.copyFileSync(SHADOW_FILE, backupPath);
+    fs.copyFileSync(SHADOW_TRADES_FILE, backupPath);
     console.log(`[Reconcile] 백업: ${path.basename(backupPath)}`);
   }
 
@@ -73,7 +73,7 @@ function main(): void {
     // quantity 교정
     const changed = syncPositionCache(t);
 
-    // 수량 0 인데 status 가 open 이면 closed 로 전이
+    // 잔량 0 인데 status 가 open 이면 closed 로 전이
     const openStatuses = new Set(['ACTIVE', 'PARTIALLY_FILLED', 'EUPHORIA_PARTIAL', 'PENDING', 'ORDER_SUBMITTED']);
     if (ssotRemaining === 0 && openStatuses.has(t.status)) {
       t.status = deriveStatusFromFills(t);
