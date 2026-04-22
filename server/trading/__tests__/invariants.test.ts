@@ -28,6 +28,8 @@ import {
   getWeightedPnlPct,
   appendFill,
   updateShadow,
+  revertProvisionalFill,
+  syncPositionCache,
 } from '../../persistence/shadowTradeRepo.js';
 import type { ServerShadowTrade, PositionFill } from '../../persistence/shadowTradeRepo.js';
 import { aggregatePosition } from '../positionAggregator.js';
@@ -247,5 +249,50 @@ describe('TradeEvent Invariants (아이디어 9)', () => {
     if (summary.totalRealizedPnL !== 0 && summary.weightedReturnPct !== 0) {
       expect(Math.sign(summary.totalRealizedPnL)).toBe(Math.sign(summary.weightedReturnPct));
     }
+  });
+
+  // ── 불변성 9: PROVISIONAL fill 은 잔량 차감에 반영되고, REVERTED 로 전환되면 회복된다 ──
+  it('PROVISIONAL fill 은 수량 차감에 반영되고 REVERTED 로 회복된다', () => {
+    const t = makeTrade(70_000, 100);
+    // divergence 30% 부분 익절을 시뮬레이션: 주문 접수 직후 PROVISIONAL 선반영
+    appendFill(t, {
+      ...fill('SELL', 30, 75_000, {
+        pnl: (75_000 - 70_000) * 30,
+        pnlPct: (75_000 / 70_000 - 1) * 100,
+        subType: 'PARTIAL_TP',
+      }),
+      ordNo: 'ODNO_TEST_1',
+      status: 'PROVISIONAL',
+      flagToClearOnRevert: 'divergencePartialSold',
+    });
+    t.divergencePartialSold = true;
+    syncPositionCache(t);
+    expect(getRemainingQty(t)).toBe(70);           // 100 - 30 PROVISIONAL
+    expect(getTotalRealizedPnl(t)).toBe(150_000);  // PROVISIONAL 도 pnl 집계
+
+    // 재발행 실패 → 되돌림
+    const ok = revertProvisionalFill(t, 'ODNO_TEST_1', '시장가 재발행 실패');
+    expect(ok).toBe(true);
+    expect(getRemainingQty(t)).toBe(100);                 // 수량 복원
+    expect(getTotalRealizedPnl(t)).toBe(0);               // pnl 집계에서 제거
+    expect(t.divergencePartialSold).toBe(false);          // 중복 방지 플래그 복원
+    expect(t.quantity).toBe(100);                         // 캐시도 동기화
+    // 감사 추적을 위해 fill 자체는 레코드로 남아있어야 한다
+    expect((t.fills ?? []).find(f => f.ordNo === 'ODNO_TEST_1')?.status).toBe('REVERTED');
+  });
+
+  // ── 불변성 10: CONFIRMED 된 fill 은 되돌려지지 않는다 ───────────────────────
+  it('revertProvisionalFill 은 CONFIRMED fill 을 건드리지 않는다', () => {
+    const t = makeTrade(70_000, 100);
+    appendFill(t, {
+      ...fill('SELL', 30, 75_000, { pnl: 150_000, pnlPct: 7.14, subType: 'PARTIAL_TP' }),
+      ordNo: 'ODNO_CONFIRMED',
+      status: 'CONFIRMED',
+    });
+    syncPositionCache(t);
+    const ok = revertProvisionalFill(t, 'ODNO_CONFIRMED', 'should be blocked');
+    expect(ok).toBe(false);
+    expect(getRemainingQty(t)).toBe(70);
+    expect((t.fills ?? []).find(f => f.ordNo === 'ODNO_CONFIRMED')?.status).toBe('CONFIRMED');
   });
 });

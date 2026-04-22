@@ -8,7 +8,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { cleanupOldTraceFiles } from '../trading/scanTracer.js';
 import { runDailyBackup } from '../persistence/dailyBackup.js';
 import { runBackupCeremony } from '../persistence/dailyBackupCeremony.js';
-import { runDailyReconciliation } from '../trading/reconciliationEngine.js';
+import { runDailyReconciliation, reconcileKisVsShadow } from '../trading/reconciliationEngine.js';
 import { resetDataCompleteness } from '../screener/dataCompletenessTracker.js';
 import { updateKrxSectorMap, type UpdateResult } from '../screener/sectorMapUpdater.js';
 import { migrateAttributionRecords } from '../persistence/attributionRepo.js';
@@ -92,6 +92,20 @@ export function registerMaintenanceJobs(): void {
       await runDailyReconciliation();
     } catch (e) {
       console.error('[Reconciliation] cron 실행 오류:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  // KIS 실잔고 vs Shadow DB 정합성 — 15분 간격, 장중 구간 자동 스킵.
+  // exitEngine 의 PROVISIONAL fill 선반영이 실제 KIS 잔고와 괴리되는 구간을 조기에
+  // 포착한다. KIS 잔고 조회 허용 시간대(KST 07:00~15:59)에서만 실행되며,
+  // reconcileKisVsShadow 내부가 SHADOW 모드·점검 시간대를 자동 스킵한다.
+  //
+  // cron 표현식: 0,15,30,45 * * * * — 매 15분.
+  cron.schedule('*/15 * * * *', async () => {
+    try {
+      await reconcileKisVsShadow();
+    } catch (e) {
+      console.error('[KisShadowReconcile] cron 실행 오류:', e);
     }
   }, { timezone: 'UTC' });
 

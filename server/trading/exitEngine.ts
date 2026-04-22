@@ -7,6 +7,7 @@
 
 import {
   fetchCurrentPrice, placeKisSellOrder,
+  type SellOrderResult, type SellOrderOutcome,
 } from '../clients/kisClient.js';
 import { addSellOrder } from './fillMonitor.js';
 import { matchExitInvalidation, promoteInvalidationPatternIfRepeated } from './preMortemStructured.js';
@@ -34,15 +35,67 @@ import type { RegimeLevel } from '../../src/types/core.js';
 import type { PositionFill } from '../persistence/shadowTradeRepo.js';
 import { learningOrchestrator } from '../orchestrator/learningOrchestrator.js';
 
-// ─── recordSell 헬퍼 ──────────────────────────────────────────────────────────
-// appendFill + appendTradeEvent를 원자적으로 수행한다.
-// exitEngine의 모든 SELL 기록은 이 함수를 통해야 한다.
-function recordSell(
+// ─── reserveSell 헬퍼 — "주문 접수 ≠ 체결" 원칙을 강제한다 ─────────────────────
+//
+// 과거 recordSell 은 KIS 주문 접수 직후(체결 확인 前) 의도 수량 그대로 Fill 을
+// 선반영했다. 이 방식은 세 가지 실패 경로를 구분하지 못했다:
+//   1) SHADOW 모드 — 실주문 없음인데 "체결"로 기록되어 KIS 잔고와 Shadow DB 괴리.
+//   2) LIVE 주문 접수 실패 — ODNO 미발급인데 Fill 이 남아 수량·손익 왜곡.
+//   3) LIVE 접수 성공 후 미체결/재발행 실패 — PROVISIONAL 상태 표기 없이 확정.
+//
+// reserveSell 은 SellOrderResult.outcome 으로 세 경로를 명시적으로 분기한다:
+//   · SHADOW_ONLY  → Fill 즉시 CONFIRMED (가상 체결)
+//   · LIVE_ORDERED → Fill PROVISIONAL + ordNo 보존 (pollSellFills 가 CONFIRM 또는 REVERT)
+//   · LIVE_FAILED  → Fill 기록 스킵 + 호출측이 중복 방지 플래그를 롤백
+//
+// Telegram 메시지는 3-상태 접두어를 붙여 운영자가 실주문 여부를 즉시 구분하도록 한다.
+
+export type ReserveSellResult =
+  | { kind: 'SHADOW';  recorded: true;  remainingQty: number; statusPrefix: string; statusSuffix: string }
+  | { kind: 'PENDING'; recorded: true;  remainingQty: number; statusPrefix: string; statusSuffix: string; ordNo: string }
+  | { kind: 'FAILED';  recorded: false; remainingQty: number; statusPrefix: string; statusSuffix: string; reason: string };
+
+/** PositionFill 중에서 reserveSell 이 내부적으로 채우는 필드는 입력에서 제외한다. */
+type SellFillInput = Omit<PositionFill, 'id' | 'ordNo' | 'status' | 'confirmedAt' | 'revertedAt' | 'revertReason' | 'flagToClearOnRevert'>;
+
+/**
+ * 매도 Fill 을 세 가지 상태 중 하나로 안전하게 기록한다.
+ * Fill SSOT (fills 배열) 에 PROVISIONAL/CONFIRMED/REVERTED 라벨을 부여하여
+ * "주문 접수 ≠ 체결" 원칙을 회계 레벨에서 강제한다.
+ *
+ * @param flagToClearOnRevert  fill 이 REVERTED 로 전환될 때 초기화할 중복 방지 플래그.
+ *                              DIVERGENCE/RRR/R6 같은 1회성 경로에서 설정.
+ */
+function reserveSell(
   shadow: ServerShadowTrade,
-  fill: Omit<PositionFill, 'id'>,
+  orderRes: SellOrderResult,
+  fill: SellFillInput,
   evtSubType: TradeEvent['subType'],
-): void {
-  appendFill(shadow, fill);
+  flagToClearOnRevert?: PositionFill['flagToClearOnRevert'],
+): ReserveSellResult {
+  if (orderRes.outcome === 'LIVE_FAILED') {
+    // 실주문 접수 실패 — Fill 기록 스킵. 호출측이 중복 방지 플래그/상태를 롤백한다.
+    return {
+      kind: 'FAILED',
+      recorded: false,
+      remainingQty: getRemainingQty(shadow),
+      statusPrefix: '❌ [주문 실패]',
+      statusSuffix: `\n🚨 실주문 접수 실패 — ${orderRes.failureReason ?? 'unknown'}. 수동 매도/재시도 필요.`,
+      reason: orderRes.failureReason ?? 'unknown',
+    };
+  }
+
+  const isShadow = orderRes.outcome === 'SHADOW_ONLY';
+  const nowIso = new Date().toISOString();
+
+  const fullFill: Omit<PositionFill, 'id'> = {
+    ...fill,
+    ordNo: isShadow ? undefined : orderRes.ordNo ?? undefined,
+    status: isShadow ? 'CONFIRMED' : 'PROVISIONAL',
+    confirmedAt: isShadow ? nowIso : undefined,
+    flagToClearOnRevert,
+  };
+  appendFill(shadow, fullFill);
   const remainingQty    = getRemainingQty(shadow);
   const cumRealizedPnL  = getTotalRealizedPnl(shadow);
   appendTradeEvent({
@@ -56,7 +109,26 @@ function recordSell(
     cumRealizedPnL,
     remainingQty,
   });
+
+  if (isShadow) {
+    return {
+      kind: 'SHADOW',
+      recorded: true,
+      remainingQty,
+      statusPrefix: '🎭 [SHADOW 가상 체결]',
+      statusSuffix: '\n⚠️ 실주문 없음 · KIS 잔고 불변 (Shadow 모드)',
+    };
+  }
+  return {
+    kind: 'PENDING',
+    recorded: true,
+    remainingQty,
+    statusPrefix: '⏳ [체결 대기]',
+    statusSuffix: `\n⏳ 주문 접수됨 (ODNO ${orderRes.ordNo}) — CCLD 확인 후 최종 확정`,
+    ordNo: orderRes.ordNo as string,
+  };
 }
+
 
 /**
  * 하락 다이버전스 감지 — 주가 신고가 갱신 + RSI 고점 낮아짐.
@@ -280,26 +352,33 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       console.log(`[AutoTrade] 🔴 ${shadow.stockName} R6 긴급 청산 30% (${emergencyQty}주) @${currentPrice.toLocaleString()}`);
       const r6Res = await placeKisSellOrder(shadow.stockCode, shadow.stockName, emergencyQty, 'STOP_LOSS');
       const r6Ts = new Date().toISOString();
-      recordSell(shadow, {
+      const r6Reserve = reserveSell(shadow, r6Res, {
         type: 'SELL', subType: 'EMERGENCY',
         qty: emergencyQty, price: currentPrice,
         pnl: (currentPrice - shadow.shadowEntryPrice) * emergencyQty,
         pnlPct: returnPct, reason: 'R6 긴급청산 30%',
         exitRuleTag: 'R6_EMERGENCY_EXIT', timestamp: r6Ts,
-        ordNo: r6Res.ordNo ?? undefined,
-      }, 'R6_EMERGENCY');
-      syncPositionCache(shadow);
-      if (r6Res.placed && r6Res.ordNo) {
-        addSellOrder({
-          ordNo: r6Res.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
-          quantity: emergencyQty, originalReason: 'STOP_LOSS',
-          placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
-        });
+      }, 'R6_EMERGENCY', 'r6EmergencySold');
+
+      if (r6Reserve.kind === 'FAILED') {
+        // LIVE 주문 접수 실패 — 중복 방지 플래그 즉시 롤백 (다음 기회 재시도 허용)
+        shadow.r6EmergencySold = false;
+      } else {
+        syncPositionCache(shadow);
+        if (r6Reserve.kind === 'PENDING') {
+          addSellOrder({
+            ordNo: r6Reserve.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
+            quantity: emergencyQty, originalReason: 'STOP_LOSS',
+            placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
+          });
+        }
       }
       await sendTelegramAlert(
-        `🔴 <b>[R6 긴급 청산]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+        `🔴 <b>${r6Reserve.statusPrefix} [R6 긴급 청산]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
         `블랙스완 감지 — 30% 즉시 청산 ${emergencyQty}주 @${currentPrice.toLocaleString()}원\n` +
-        `수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}% | 잔여: ${shadow.quantity}주`
+        `수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}% | 잔여: ${r6Reserve.remainingQty}주` +
+        r6Reserve.statusSuffix,
+        { priority: r6Reserve.kind === 'FAILED' ? 'CRITICAL' : 'HIGH' },
       ).catch(console.error);
       if (shadow.quantity <= 0) continue; // 잔여 없으면 종료 처리 생략
     }
@@ -327,25 +406,29 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           console.log(`[AutoTrade] ⚰️ ${shadow.stockName} MA60 죽음 강제 청산 ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
           const ma60Res = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'STOP_LOSS');
           const ma60Ts = new Date().toISOString();
-          recordSell(shadow, {
+          const ma60Reserve = reserveSell(shadow, ma60Res, {
             type: 'SELL', subType: 'EMERGENCY',
             qty: soldQty, price: currentPrice,
             pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
             pnlPct: returnPct, reason: 'MA60 역배열 강제청산',
             exitRuleTag: 'MA60_DEATH_FORCE_EXIT', timestamp: ma60Ts,
-            ordNo: ma60Res.ordNo ?? undefined,
           }, 'MA60_FORCE');
-          if (ma60Res.placed && ma60Res.ordNo) {
+          if (ma60Reserve.kind === 'PENDING') {
             addSellOrder({
-              ordNo: ma60Res.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
+              ordNo: ma60Reserve.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
               quantity: soldQty, originalReason: 'STOP_LOSS',
               placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
             });
+          } else if (ma60Reserve.kind === 'FAILED') {
+            // 전량 강제청산 경로에서 주문 실패 — shadow 는 이미 HIT_STOP 로 closed.
+            // 자동 롤백은 복잡(updateShadow 복귀 필요)하므로 운영자 알림으로 대체.
+            console.error(`[AutoTrade] 🚨 ${shadow.stockName} MA60 강제 청산 주문 실패 — shadow 는 CLOSED, KIS 잔고 수동 확인 필요`);
           }
           await sendTelegramAlert(
-            `⚰️ <b>[MA60 강제 청산]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+            `⚰️ <b>${ma60Reserve.statusPrefix} [MA60 강제 청산]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
             `60일선 역배열 5영업일 유예 만료 — 전량 강제 청산\n` +
-            `${soldQty}주 @${currentPrice.toLocaleString()}원 | 수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}%`,
+            `${soldQty}주 @${currentPrice.toLocaleString()}원 | 수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}%` +
+            ma60Reserve.statusSuffix,
             { priority: 'CRITICAL', dedupeKey: `ma60_force:${shadow.stockCode}` },
           ).catch(console.error);
           await channelSellSignal({
@@ -416,20 +499,28 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       console.log(`[AutoTrade] ❌ ${shadow.stockName} 하드 스톱(${stopLossExitType}) ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
       const hardStopRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'STOP_LOSS');
       const hardStopTs = new Date().toISOString();
-      recordSell(shadow, {
+      const hardStopReserve = reserveSell(shadow, hardStopRes, {
         type: 'SELL', subType: 'STOP_LOSS',
         qty: soldQty, price: currentPrice,
         pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
         pnlPct: returnPct, reason: `하드스톱 손절 (${stopLossExitType})`,
         exitRuleTag: 'HARD_STOP', timestamp: hardStopTs,
-        ordNo: hardStopRes.ordNo ?? undefined,
       }, 'HARD_STOP');
-      if (hardStopRes.placed && hardStopRes.ordNo) {
+      if (hardStopReserve.kind === 'PENDING') {
         addSellOrder({
-          ordNo: hardStopRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
+          ordNo: hardStopReserve.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
           quantity: soldQty, originalReason: 'STOP_LOSS',
           placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
         });
+      } else if (hardStopReserve.kind === 'FAILED') {
+        // 전량 손절 경로 주문 실패 — shadow 는 이미 HIT_STOP. KIS 잔고 수동 확인 필요.
+        console.error(`[AutoTrade] 🚨 ${shadow.stockName} 하드 스톱 주문 실패 — shadow CLOSED, 수동 확인 필수`);
+        await sendTelegramAlert(
+          `🚨 <b>${hardStopReserve.statusPrefix} [하드 스톱]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+          `${stopLossExitType} 손절 ${soldQty}주 @${currentPrice.toLocaleString()}원` +
+          hardStopReserve.statusSuffix,
+          { priority: 'CRITICAL', dedupeKey: `hard_stop_fail:${shadow.stockCode}` },
+        ).catch(console.error);
       }
       await channelSellSignal({
         stockName:   shadow.stockName,
@@ -465,14 +556,21 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       console.log(`[AutoTrade] ❌ ${shadow.stockName} Cascade ${returnPct.toFixed(2)}% — 전량 청산${isBlacklistStep ? ' + 블랙리스트 180일' : ''}`);
       const cascadeFinalRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'STOP_LOSS');
       const cascadeFinalTs = new Date().toISOString();
-      recordSell(shadow, {
+      const cascadeFinalReserve = reserveSell(shadow, cascadeFinalRes, {
         type: 'SELL', subType: 'STOP_LOSS',
         qty: soldQty, price: currentPrice,
         pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
         pnlPct: returnPct, reason: '캐스케이드 전량청산',
         exitRuleTag: 'CASCADE_FINAL', timestamp: cascadeFinalTs,
-        ordNo: cascadeFinalRes.ordNo ?? undefined,
       }, 'HARD_STOP');
+      if (cascadeFinalReserve.kind === 'FAILED') {
+        console.error(`[AutoTrade] 🚨 ${shadow.stockName} 캐스케이드 전량청산 주문 실패 — 수동 확인`);
+        await sendTelegramAlert(
+          `🚨 <b>${cascadeFinalReserve.statusPrefix} [캐스케이드 전량청산]</b> ${shadow.stockName}` +
+          cascadeFinalReserve.statusSuffix,
+          { priority: 'CRITICAL', dedupeKey: `cascade_final_fail:${shadow.stockCode}` },
+        ).catch(console.error);
+      }
       if (cascadeFinalRes.placed && cascadeFinalRes.ordNo) {
         addSellOrder({
           ordNo: cascadeFinalRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
@@ -525,26 +623,34 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           const trancheRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
           const trancheTs  = new Date().toISOString();
           const trancheIdx = shadow.profitTranches?.filter(x => x.taken && x !== t).length ?? 0;
-          recordSell(shadow, {
+          const trancheReserve = reserveSell(shadow, trancheRes, {
             type: 'SELL', subType: 'PARTIAL_TP',
             qty: sellQty, price: currentPrice,
             pnl: (currentPrice - shadow.shadowEntryPrice) * sellQty,
             pnlPct: returnPct, reason: `분할익절 트랜치 ${(t.ratio * 100).toFixed(0)}%`,
             exitRuleTag: 'LIMIT_TRANCHE_TAKE_PROFIT', timestamp: trancheTs,
-            ordNo: trancheRes.ordNo ?? undefined,
           }, trancheIdx === 0 ? 'LIMIT_TP1' : 'LIMIT_TP2');
-          syncPositionCache(shadow);
-          if (trancheRes.placed && trancheRes.ordNo) {
-            addSellOrder({
-              ordNo: trancheRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
-              quantity: sellQty, originalReason: 'TAKE_PROFIT',
-              placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
-            });
+
+          if (trancheReserve.kind === 'FAILED') {
+            // 트랜치 주문 실패 — taken 플래그 롤백 (다음 기회에 재시도 허용)
+            t.taken = false;
+            // trancheFired 는 유지: 다른 트랜치가 이미 fired 됐을 수 있음.
+          } else {
+            syncPositionCache(shadow);
+            if (trancheReserve.kind === 'PENDING') {
+              addSellOrder({
+                ordNo: trancheReserve.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
+                quantity: sellQty, originalReason: 'TAKE_PROFIT',
+                placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
+              });
+            }
           }
           await sendTelegramAlert(
-            `📈 <b>[L3 분할 익절]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+            `📈 <b>${trancheReserve.statusPrefix} [L3 분할 익절]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
             `트랜치: ${(t.ratio * 100).toFixed(0)}% × ${sellQty}주 @${currentPrice.toLocaleString()}원\n` +
-            `수익률: +${returnPct.toFixed(2)}% | 잔여: ${shadow.quantity}주`
+            `수익률: +${returnPct.toFixed(2)}% | 잔여: ${trancheReserve.remainingQty}주` +
+            trancheReserve.statusSuffix,
+            trancheReserve.kind === 'FAILED' ? { priority: 'HIGH' } : undefined,
           ).catch(console.error);
           await channelSellSignal({
             stockName:   shadow.stockName,
@@ -592,25 +698,28 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         console.log(`[AutoTrade] 📉 ${shadow.stockName} L3 트레일링 스톱 (HWM×${(1 - (shadow.trailPct ?? 0.10)).toFixed(2)}) @${currentPrice.toLocaleString()}`);
         const trailRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'TAKE_PROFIT');
         const trailTs = new Date().toISOString();
-        recordSell(shadow, {
+        const trailReserve = reserveSell(shadow, trailRes, {
           type: 'SELL', subType: 'TRAILING_TP',
           qty: soldQty, price: currentPrice,
           pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
           pnlPct: returnPct, reason: '트레일링 스톱 청산',
           exitRuleTag: 'TRAILING_PROTECTIVE_STOP', timestamp: trailTs,
-          ordNo: trailRes.ordNo ?? undefined,
         }, 'TRAILING_STOP');
-        if (trailRes.placed && trailRes.ordNo) {
+        if (trailReserve.kind === 'PENDING') {
           addSellOrder({
-            ordNo: trailRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
+            ordNo: trailReserve.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
             quantity: soldQty, originalReason: 'TAKE_PROFIT',
             placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
           });
+        } else if (trailReserve.kind === 'FAILED') {
+          console.error(`[AutoTrade] 🚨 ${shadow.stockName} 트레일링 스톱 주문 실패 — shadow CLOSED, 수동 확인`);
         }
         await sendTelegramAlert(
-          `📉 <b>[L3 트레일링 스톱]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+          `📉 <b>${trailReserve.statusPrefix} [L3 트레일링 스톱]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
           `고점: ${shadow.trailingHighWaterMark.toLocaleString()}원 → 청산: ${currentPrice.toLocaleString()}원\n` +
-          `최종 수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}%`
+          `최종 수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}%` +
+          trailReserve.statusSuffix,
+          trailReserve.kind === 'FAILED' ? { priority: 'CRITICAL' } : undefined,
         ).catch(console.error);
         await channelSellSignal({
           stockName:   shadow.stockName,
@@ -640,25 +749,28 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       console.log(`[AutoTrade] ✅ ${shadow.stockName} 목표가 달성 +${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
       const targetRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'TAKE_PROFIT');
       const targetTs = new Date().toISOString();
-      recordSell(shadow, {
+      const targetReserve = reserveSell(shadow, targetRes, {
         type: 'SELL', subType: 'FULL_CLOSE',
         qty: soldQty, price: currentPrice,
         pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
         pnlPct: returnPct, reason: '목표가 달성 전량청산',
         exitRuleTag: 'TARGET_EXIT', timestamp: targetTs,
-        ordNo: targetRes.ordNo ?? undefined,
       }, 'FULL_CLOSE');
-      if (targetRes.placed && targetRes.ordNo) {
+      if (targetReserve.kind === 'PENDING') {
         addSellOrder({
-          ordNo: targetRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
+          ordNo: targetReserve.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
           quantity: soldQty, originalReason: 'TAKE_PROFIT',
           placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
         });
+      } else if (targetReserve.kind === 'FAILED') {
+        console.error(`[AutoTrade] 🚨 ${shadow.stockName} 목표가 달성 주문 실패 — shadow CLOSED, 수동 확인`);
       }
       await sendTelegramAlert(
-        `✅ <b>[목표가 달성]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+        `✅ <b>${targetReserve.statusPrefix} [목표가 달성]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
         `청산가: ${currentPrice.toLocaleString()}원\n` +
-        `수익률: +${returnPct.toFixed(2)}%`
+        `수익률: +${returnPct.toFixed(2)}%` +
+        targetReserve.statusSuffix,
+        targetReserve.kind === 'FAILED' ? { priority: 'CRITICAL' } : undefined,
       ).catch(console.error);
       await channelSellSignal({
         stockName:   shadow.stockName,
@@ -675,6 +787,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
     // ③ -15% 반매도 (cascadeStep 2, 1회만)
     if (returnPct <= -15 && (shadow.cascadeStep ?? 0) < 2) {
       const halfQty = Math.max(1, Math.floor(shadow.quantity / 2));
+      const prevCascadeStep = shadow.cascadeStep ?? 0;
+      const prevHalfSoldAt = shadow.halfSoldAt;
       shadow.cascadeStep = 2;
       shadow.halfSoldAt  = new Date().toISOString();
       shadow.exitRuleTag = 'CASCADE_HALF_SELL';
@@ -682,25 +796,33 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       console.log(`[AutoTrade] 🔶 ${shadow.stockName} Cascade -15% — 반매도 ${halfQty}주 (잔여 ${shadow.quantity - halfQty}주)`);
       const cascadeHalfRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'STOP_LOSS');
       const cascadeHalfTs = new Date().toISOString();
-      recordSell(shadow, {
+      const cascadeHalfReserve = reserveSell(shadow, cascadeHalfRes, {
         type: 'SELL', subType: 'STOP_LOSS',
         qty: halfQty, price: currentPrice,
         pnl: (currentPrice - shadow.shadowEntryPrice) * halfQty,
         pnlPct: returnPct, reason: '캐스케이드 -15% 반매도',
         exitRuleTag: 'CASCADE_HALF_SELL', timestamp: cascadeHalfTs,
-        ordNo: cascadeHalfRes.ordNo ?? undefined,
       }, 'CASCADE_HALF');
-      syncPositionCache(shadow);
-      if (cascadeHalfRes.placed && cascadeHalfRes.ordNo) {
-        addSellOrder({
-          ordNo: cascadeHalfRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
-          quantity: halfQty, originalReason: 'STOP_LOSS',
-          placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
-        });
+
+      if (cascadeHalfReserve.kind === 'FAILED') {
+        // 실주문 접수 실패 — cascadeStep 을 이전 값으로 롤백 (다음 기회 재시도)
+        shadow.cascadeStep = prevCascadeStep as 0 | 1 | 2;
+        shadow.halfSoldAt = prevHalfSoldAt;
+      } else {
+        syncPositionCache(shadow);
+        if (cascadeHalfReserve.kind === 'PENDING') {
+          addSellOrder({
+            ordNo: cascadeHalfReserve.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
+            quantity: halfQty, originalReason: 'STOP_LOSS',
+            placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
+          });
+        }
       }
       await sendTelegramAlert(
-        `🔶 <b>[Cascade -15%] ${shadow.stockName} (${shadow.stockCode})</b>\n` +
-        `손실 ${returnPct.toFixed(1)}% — 반매도 ${halfQty}주 (잔여 ${shadow.quantity}주)`
+        `🔶 <b>${cascadeHalfReserve.statusPrefix} [Cascade -15%] ${shadow.stockName} (${shadow.stockCode})</b>\n` +
+        `손실 ${returnPct.toFixed(1)}% — 반매도 ${halfQty}주 (잔여 ${cascadeHalfReserve.remainingQty}주)` +
+        cascadeHalfReserve.statusSuffix,
+        cascadeHalfReserve.kind === 'FAILED' ? { priority: 'HIGH' } : undefined,
       ).catch(console.error);
       continue;
     }
@@ -736,40 +858,48 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           console.log(`[AutoTrade] 📊 ${shadow.stockName} RRR 붕괴 (${liveRRR.toFixed(2)}) — 50% 익절 ${sellQty}주 @${currentPrice.toLocaleString()}`);
           const rrrRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
           const rrrTs = new Date().toISOString();
-          recordSell(shadow, {
+          const rrrReserve = reserveSell(shadow, rrrRes, {
             type: 'SELL', subType: 'PARTIAL_TP',
             qty: sellQty, price: currentPrice,
             pnl: (currentPrice - shadow.shadowEntryPrice) * sellQty,
             pnlPct: returnPct, reason: 'RRR 붕괴 50% 익절',
             exitRuleTag: 'RRR_COLLAPSE_PARTIAL', timestamp: rrrTs,
-            ordNo: rrrRes.ordNo ?? undefined,
-          }, 'LIMIT_TP1');
-          syncPositionCache(shadow);
-          if (rrrRes.placed && rrrRes.ordNo) {
-            addSellOrder({
-              ordNo: rrrRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
-              quantity: sellQty, originalReason: 'TAKE_PROFIT',
-              placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
-            });
+          }, 'LIMIT_TP1', 'rrrCollapsePartialSold');
+
+          if (rrrReserve.kind === 'FAILED') {
+            // 실주문 접수 실패 — 중복 방지 플래그 즉시 롤백
+            shadow.rrrCollapsePartialSold = false;
+          } else {
+            syncPositionCache(shadow);
+            if (rrrReserve.kind === 'PENDING') {
+              addSellOrder({
+                ordNo: rrrReserve.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
+                quantity: sellQty, originalReason: 'TAKE_PROFIT',
+                placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
+              });
+            }
           }
           await sendTelegramAlert(
-            `📊 <b>[RRR 붕괴 경보]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+            `📊 <b>${rrrReserve.statusPrefix} [RRR 붕괴 경보]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
             `잔여 RRR: ${liveRRR.toFixed(2)} (< 1.0) — 좀비 포지션 50% 익절\n` +
             `${sellQty}주 @${currentPrice.toLocaleString()}원 | 수익: +${returnPct.toFixed(2)}%\n` +
-            `목표: ${shadow.targetPrice.toLocaleString()}원 | 손절: ${hardStopLoss.toLocaleString()}원 | 잔여: ${shadow.quantity}주`,
-            { priority: 'HIGH', dedupeKey: `rrr_collapse:${shadow.stockCode}` },
+            `목표: ${shadow.targetPrice.toLocaleString()}원 | 손절: ${hardStopLoss.toLocaleString()}원 | 잔여: ${rrrReserve.remainingQty}주` +
+            rrrReserve.statusSuffix,
+            { priority: rrrReserve.kind === 'FAILED' ? 'CRITICAL' : 'HIGH', dedupeKey: `rrr_collapse:${shadow.stockCode}` },
           ).catch(console.error);
-          await channelSellSignal({
-            stockName:   shadow.stockName,
-            stockCode:   shadow.stockCode,
-            exitPrice:   currentPrice,
-            entryPrice:  shadow.shadowEntryPrice,
-            pnlPct:      returnPct,
-            reason:      'RRR_COLLAPSE',
-            holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
-            soldQty:     sellQty,
-            originalQty: shadow.originalQuantity,
-          }).catch(console.error);
+          if (rrrReserve.recorded) {
+            await channelSellSignal({
+              stockName:   shadow.stockName,
+              stockCode:   shadow.stockCode,
+              exitPrice:   currentPrice,
+              entryPrice:  shadow.shadowEntryPrice,
+              pnlPct:      returnPct,
+              reason:      'RRR_COLLAPSE',
+              holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+              soldQty:     sellQty,
+              originalQty: shadow.originalQuantity,
+            }).catch(console.error);
+          }
           if (shadow.quantity <= 0) continue;
         }
       }
@@ -791,39 +921,47 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         console.log(`[AutoTrade] 📉 ${shadow.stockName} 하락 다이버전스 — 30% 익절 ${sellQty}주 @${currentPrice.toLocaleString()}`);
         const divRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
         const divTs = new Date().toISOString();
-        recordSell(shadow, {
+        const divReserve = reserveSell(shadow, divRes, {
           type: 'SELL', subType: 'PARTIAL_TP',
           qty: sellQty, price: currentPrice,
           pnl: (currentPrice - shadow.shadowEntryPrice) * sellQty,
           pnlPct: returnPct, reason: '하락 다이버전스 30% 익절',
           exitRuleTag: 'DIVERGENCE_PARTIAL', timestamp: divTs,
-          ordNo: divRes.ordNo ?? undefined,
-        }, 'LIMIT_TP1');
-        syncPositionCache(shadow);
-        if (divRes.placed && divRes.ordNo) {
-          addSellOrder({
-            ordNo: divRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
-            quantity: sellQty, originalReason: 'TAKE_PROFIT',
-            placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
-          });
+        }, 'LIMIT_TP1', 'divergencePartialSold');
+
+        if (divReserve.kind === 'FAILED') {
+          // LIVE 주문 접수 실패 — 중복 방지 플래그 즉시 롤백
+          shadow.divergencePartialSold = false;
+        } else {
+          syncPositionCache(shadow);
+          if (divReserve.kind === 'PENDING') {
+            addSellOrder({
+              ordNo: divReserve.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
+              quantity: sellQty, originalReason: 'TAKE_PROFIT',
+              placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
+            });
+          }
         }
         await sendTelegramAlert(
-          `📉 <b>[하락 다이버전스]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+          `📉 <b>${divReserve.statusPrefix} [하락 다이버전스]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
           `주가 신고가·RSI 고점 낮아짐 — 30% 부분 익절\n` +
-          `${sellQty}주 @${currentPrice.toLocaleString()}원 | 수익: +${returnPct.toFixed(2)}% | 잔여: ${shadow.quantity}주`,
-          { priority: 'HIGH', dedupeKey: `divergence:${shadow.stockCode}` },
+          `${sellQty}주 @${currentPrice.toLocaleString()}원 | 수익: +${returnPct.toFixed(2)}% | 잔여: ${divReserve.remainingQty}주` +
+          divReserve.statusSuffix,
+          { priority: divReserve.kind === 'FAILED' ? 'CRITICAL' : 'HIGH', dedupeKey: `divergence:${shadow.stockCode}` },
         ).catch(console.error);
-        await channelSellSignal({
-          stockName:   shadow.stockName,
-          stockCode:   shadow.stockCode,
-          exitPrice:   currentPrice,
-          entryPrice:  shadow.shadowEntryPrice,
-          pnlPct:      returnPct,
-          reason:      'DIVERGENCE',
-          holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
-          soldQty:     sellQty,
-          originalQty: shadow.originalQuantity,
-        }).catch(console.error);
+        if (divReserve.recorded) {
+          await channelSellSignal({
+            stockName:   shadow.stockName,
+            stockCode:   shadow.stockCode,
+            exitPrice:   currentPrice,
+            entryPrice:  shadow.shadowEntryPrice,
+            pnlPct:      returnPct,
+            reason:      'DIVERGENCE',
+            holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+            soldQty:     sellQty,
+            originalQty: shadow.originalQuantity,
+          }).catch(console.error);
+        }
         if (shadow.quantity <= 0) continue;
       }
     }
@@ -912,6 +1050,7 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         console.log(
           `[AutoTrade] 🌡️ ${shadow.stockName} 과열 감지 (${euphoria.count}개 신호) — 절반 매도 ${halfQty}주\n  신호: ${euphoria.signals.join(', ')}`
         );
+        const prevStatus = shadow.status;
         shadow.status = 'EUPHORIA_PARTIAL';
         shadow.exitRuleTag = 'EUPHORIA_PARTIAL';
         appendShadowLog({
@@ -923,33 +1062,51 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         });
         const euphoriaRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'EUPHORIA');
         const euphoriaTs = new Date().toISOString();
-        recordSell(shadow, {
+        const euphoriaReserve = reserveSell(shadow, euphoriaRes, {
           type: 'SELL', subType: 'PARTIAL_TP',
           qty: halfQty, price: currentPrice,
           pnl: (currentPrice - shadow.shadowEntryPrice) * halfQty,
           pnlPct: returnPct, reason: '과열 감지 50% 익절',
           exitRuleTag: 'EUPHORIA_PARTIAL', timestamp: euphoriaTs,
-          ordNo: euphoriaRes.ordNo ?? undefined,
         }, 'LIMIT_TP1');
-        syncPositionCache(shadow);
-        if (euphoriaRes.placed && euphoriaRes.ordNo) {
-          addSellOrder({
-            ordNo: euphoriaRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
-            quantity: halfQty, originalReason: 'EUPHORIA',
-            placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
-          });
+
+        if (euphoriaReserve.kind === 'FAILED') {
+          // 실주문 접수 실패 — status 롤백 (다음 기회에 EUPHORIA 재평가 허용)
+          shadow.status = prevStatus;
+          await sendTelegramAlert(
+            `🚨 <b>${euphoriaReserve.statusPrefix} [과열 부분매도 실패]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+            `${halfQty}주 @${currentPrice.toLocaleString()}원` +
+            euphoriaReserve.statusSuffix,
+            { priority: 'CRITICAL' },
+          ).catch(console.error);
+        } else {
+          syncPositionCache(shadow);
+          if (euphoriaReserve.kind === 'PENDING') {
+            addSellOrder({
+              ordNo: euphoriaReserve.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
+              quantity: halfQty, originalReason: 'EUPHORIA',
+              placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
+            });
+          }
+          await sendTelegramAlert(
+            `🌡️ <b>${euphoriaReserve.statusPrefix} [과열 부분매도]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+            `신호 ${euphoria.count}개 — 50% 매도 ${halfQty}주 @${currentPrice.toLocaleString()}원\n` +
+            `수익: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}% | 잔여: ${euphoriaReserve.remainingQty}주` +
+            euphoriaReserve.statusSuffix,
+            { priority: 'HIGH', dedupeKey: `euphoria:${shadow.stockCode}` },
+          ).catch(console.error);
+          await channelSellSignal({
+            stockName:   shadow.stockName,
+            stockCode:   shadow.stockCode,
+            exitPrice:   currentPrice,
+            entryPrice:  shadow.shadowEntryPrice,
+            pnlPct:      returnPct,
+            reason:      'EUPHORIA',
+            holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+            soldQty:     halfQty,
+            originalQty: shadow.originalQuantity,
+          }).catch(console.error);
         }
-        await channelSellSignal({
-          stockName:   shadow.stockName,
-          stockCode:   shadow.stockCode,
-          exitPrice:   currentPrice,
-          entryPrice:  shadow.shadowEntryPrice,
-          pnlPct:      returnPct,
-          reason:      'EUPHORIA',
-          holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
-          soldQty:     halfQty,
-          originalQty: shadow.originalQuantity,
-        }).catch(console.error);
       }
     }
 
