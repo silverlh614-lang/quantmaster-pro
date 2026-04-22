@@ -3,6 +3,7 @@
 // 기존 server/clients/kisClient.ts + src/server/clients/kisClient.ts 통합
 
 import { sendTelegramAlert, escapeHtml } from '../alerts/telegramClient.js';
+import { getTradingMode } from '../state.js';
 import { scheduleKisCall, type KisApiPriority } from './kisRateLimiter.js';
 import { assertModeCompatible } from './kisModeGuard.js';
 export type { KisApiPriority } from './kisRateLimiter.js';
@@ -16,6 +17,13 @@ export const KIS_BASE    = KIS_IS_REAL
 export const BUY_TR_ID   = KIS_IS_REAL ? 'TTTC0802U' : 'VTTC0802U';
 export const SELL_TR_ID  = KIS_IS_REAL ? 'TTTC0801U' : 'VTTC0801U';
 export const CCLD_TR_ID  = KIS_IS_REAL ? 'TTTC8001R' : 'VTTC8001R';
+
+// 실주문 송신 허용 조건 — 실 서버 키 + 런타임 모드 LIVE 가 모두 참이어야 한다.
+// killSwitch 가 런타임에서 SHADOW 로 강등하거나 env 에 AUTO_TRADE_MODE=SHADOW 가
+// 걸려 있는 경우, KIS_IS_REAL=true 여도 실TR 을 송신하면 안 된다.
+function isLiveOrderAllowed(): boolean {
+  return KIS_IS_REAL && getTradingMode() === 'LIVE';
+}
 
 let cachedToken: { token: string; expiry: number } | null = null;
 // Single-flight: 동시 토큰 갱신 요청을 하나로 합쳐 OAuth2 엔드포인트 중복 호출을 방지.
@@ -646,6 +654,17 @@ export async function placeKisMarketBuyOrder(
   stockCode: string,
   quantity: number,
 ): Promise<string | null> {
+  // Shadow 모드 방어막 — buyPipeline 이 이미 shadowMode 분기를 처리하지만,
+  // 런타임 강등(killSwitch)·env 불일치(KIS_IS_REAL=true + AUTO_TRADE_MODE=SHADOW)
+  // 상황에서 실TR 이 송신되는 것을 최종 차단한다.
+  if (!isLiveOrderAllowed()) {
+    console.warn(
+      `[AutoTrade BUY Shadow] 🟡 ${stockCode} ${quantity}주 — ` +
+      `KIS_IS_REAL=${KIS_IS_REAL} mode=${getTradingMode()} → 실주문 차단`,
+    );
+    return null;
+  }
+
   const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
     CANO:            process.env.KIS_ACCOUNT_NO ?? '',
     ACNT_PRDT_CD:    process.env.KIS_ACCOUNT_PROD ?? '01',
@@ -683,8 +702,9 @@ export async function placeKisSellOrder(
   const label = reason === 'STOP_LOSS' ? '손절' : reason === 'TAKE_PROFIT' ? '익절' : '과열부분매도';
 
   // Shadow 모드: 실주문 없이 로그 + Telegram만
-  if (!KIS_IS_REAL) {
-    console.log(`[AutoTrade SELL Shadow] ${emoji} ${stockName}(${stockCode}) ${label} — ${quantity}주 (Shadow 모드, 실주문 없음)`);
+  // KIS_IS_REAL=false(VTS) 또는 런타임 모드가 LIVE 가 아닐 때 모두 차단.
+  if (!isLiveOrderAllowed()) {
+    console.log(`[AutoTrade SELL Shadow] ${emoji} ${stockName}(${stockCode}) ${label} — ${quantity}주 (Shadow 모드, 실주문 없음, mode=${getTradingMode()})`);
     await sendTelegramAlert(
       `${emoji} <b>[Shadow ${label}] ${escapeHtml(stockName)} (${escapeHtml(stockCode)})</b>\n` +
       `수량: ${quantity}주 | Shadow 모드 — 실주문 없음`
@@ -748,8 +768,8 @@ export async function placeKisStopLossLimitOrder(
   stopPrice: number,
 ): Promise<string | null> {
   // Shadow 모드: 실주문 없이 로그 + Telegram만
-  if (!KIS_IS_REAL) {
-    console.log(`[StopLoss OCO] 🛡️ ${stockName}(${stockCode}) 손절 지정가 ${stopPrice.toLocaleString()}원 × ${quantity}주 (Shadow 모드)`);
+  if (!isLiveOrderAllowed()) {
+    console.log(`[StopLoss OCO] 🛡️ ${stockName}(${stockCode}) 손절 지정가 ${stopPrice.toLocaleString()}원 × ${quantity}주 (Shadow 모드, mode=${getTradingMode()})`);
     await sendTelegramAlert(
       `🛡️ <b>[Shadow 손절 등록] ${escapeHtml(stockName)} (${escapeHtml(stockCode)})</b>\n` +
       `손절가: ${stopPrice.toLocaleString()}원 × ${quantity}주 | Shadow 모드 — 실주문 없음`
@@ -812,8 +832,8 @@ export async function placeKisTakeProfitLimitOrder(
   quantity: number,
   targetPrice: number,
 ): Promise<string | null> {
-  if (!KIS_IS_REAL) {
-    console.log(`[TakeProfit OCO] 🎯 ${stockName}(${stockCode}) 익절 지정가 ${targetPrice.toLocaleString()}원 × ${quantity}주 (Shadow 모드)`);
+  if (!isLiveOrderAllowed()) {
+    console.log(`[TakeProfit OCO] 🎯 ${stockName}(${stockCode}) 익절 지정가 ${targetPrice.toLocaleString()}원 × ${quantity}주 (Shadow 모드, mode=${getTradingMode()})`);
     await sendTelegramAlert(
       `🎯 <b>[Shadow 익절 등록] ${escapeHtml(stockName)} (${escapeHtml(stockCode)})</b>\n` +
       `익절가: ${targetPrice.toLocaleString()}원 × ${quantity}주 | Shadow 모드 — 실주문 없음`
