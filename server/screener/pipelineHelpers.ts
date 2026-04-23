@@ -277,23 +277,119 @@ export const STAGE1_THRESHOLDS = {
 } as const;
 
 /**
+ * BUG #1 — Stage 1 rejection reason enum.
+ *
+ * 기존 `passesStage1Filter` 는 boolean 만 반환해 탈락 사유를 추적할 수 없었다.
+ * `evaluateStage1Filter` 는 어느 조건에서 탈락했는지 반환하여 집계/진단에 활용.
+ */
+export type Stage1RejectionReason =
+  | 'MIN_PRICE'           // price < 3,000원
+  | 'HIGH_RISK'           // 관리종목/거래정지/투자경고 등
+  | 'OVERHEAT'            // 당일 상승률 ≥ +8%
+  | 'NEGATIVE_DAY'        // 음봉 + 눌림목 아님
+  | 'EXCESSIVE_DRAWDOWN'  // 당일 하락률 < -2%
+  | 'LOW_VOLUME'          // 거래량 < avgVolume × 1.2 & !VCP & !pullback
+  | 'HIGH_PER'            // PER > 60
+  | 'BELOW_MA20'          // 가격 < MA20 & !pullback
+  | 'OVEREXTENDED';       // 5일 누적 수익률 > 15%
+
+export interface Stage1FilterResult {
+  pass: boolean;
+  reason?: Stage1RejectionReason;
+}
+
+/**
+ * Stage 1 정량 필터 (사유 동반). passesStage1Filter 는 하위 호환 wrapper.
+ * 필터 순서는 저비용 → 고비용 순서로 정렬 — 조기 탈락으로 평균 비용 최소화.
+ */
+export function evaluateStage1Filter(quote: YahooQuoteExtended): Stage1FilterResult {
+  const t = STAGE1_THRESHOLDS;
+  if (quote.price < t.MIN_PRICE) return { pass: false, reason: 'MIN_PRICE' };
+  if (quote.isHighRisk) return { pass: false, reason: 'HIGH_RISK' };
+  if (quote.changePercent >= t.MAX_OVERHEAT_PCT) return { pass: false, reason: 'OVERHEAT' };
+  const pullback = isPullbackSetup(quote);
+  if (quote.changePercent < 0 && !pullback) return { pass: false, reason: 'NEGATIVE_DAY' };
+  if (quote.changePercent < t.MAX_DRAWDOWN_PCT) return { pass: false, reason: 'EXCESSIVE_DRAWDOWN' };
+  const isVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * t.VCP_ATR_RATIO;
+  if (quote.volume < quote.avgVolume * t.MIN_VOLUME_MULTIPLIER && !isVCP && !pullback) {
+    return { pass: false, reason: 'LOW_VOLUME' };
+  }
+  if (quote.per > 0 && quote.per > t.MAX_PER) return { pass: false, reason: 'HIGH_PER' };
+  if (quote.ma20 > 0 && quote.price < quote.ma20 && !pullback) {
+    return { pass: false, reason: 'BELOW_MA20' };
+  }
+  if (quote.return5d > t.MAX_RETURN_5D) return { pass: false, reason: 'OVEREXTENDED' };
+  return { pass: true };
+}
+
+/**
  * Stage 1 정량 필터 — KIS 랭킹 경로와 Yahoo 유니버스 경로에서 동일하게 사용.
  * 필터 순서는 저비용 → 고비용 순서로 정렬.
+ *
+ * @deprecated 신규 코드는 evaluateStage1Filter 를 써 탈락 사유를 함께 수집.
  */
 export function passesStage1Filter(quote: YahooQuoteExtended): boolean {
-  const t = STAGE1_THRESHOLDS;
-  if (quote.price < t.MIN_PRICE) return false;
-  if (quote.isHighRisk) return false;                            // 거래중지/관리종목/위험 분류 제외
-  if (quote.changePercent >= t.MAX_OVERHEAT_PCT) return false;   // 당일 과열 제외
-  const pullback = isPullbackSetup(quote);
-  if (quote.changePercent < 0 && !pullback) return false;        // 음봉 제외 (눌림목 통과)
-  if (quote.changePercent < t.MAX_DRAWDOWN_PCT) return false;    // 눌림목이라도 과도한 하락 제외
-  const isVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * t.VCP_ATR_RATIO;
-  if (quote.volume < quote.avgVolume * t.MIN_VOLUME_MULTIPLIER && !isVCP && !pullback) return false;
-  if (quote.per > 0 && quote.per > t.MAX_PER) return false;
-  if (quote.ma20 > 0 && quote.price < quote.ma20 && !pullback) return false;
-  if (quote.return5d > t.MAX_RETURN_5D) return false;            // 5일 과급등 제외
-  return true;
+  return evaluateStage1Filter(quote).pass;
+}
+
+// ─── BUG #1 — Stage 1 탈락 사유별 집계 (진단 · /stage1_audit) ─────────────────
+//
+// 스캔 1회 동안의 탈락 분포를 누적해 어느 조건이 가장 많이 candidates 를 떨어뜨리는지
+// 가시화한다. 예: "OVEREXTENDED 가 30건 중 18건" → 5일 과급등 상한 완화 검토.
+
+export interface Stage1RejectionCounts {
+  totalEvaluated: number;
+  totalPassed: number;
+  totalRejected: number;
+  /** 각 사유별 발생 건수. */
+  byReason: Record<Stage1RejectionReason, number>;
+  /** 마지막 업데이트 ISO. */
+  lastUpdatedAt: string;
+}
+
+const EMPTY_REASON_COUNTS: Record<Stage1RejectionReason, number> = {
+  MIN_PRICE: 0, HIGH_RISK: 0, OVERHEAT: 0, NEGATIVE_DAY: 0,
+  EXCESSIVE_DRAWDOWN: 0, LOW_VOLUME: 0, HIGH_PER: 0,
+  BELOW_MA20: 0, OVEREXTENDED: 0,
+};
+
+let _stage1Stats: Stage1RejectionCounts = {
+  totalEvaluated: 0, totalPassed: 0, totalRejected: 0,
+  byReason: { ...EMPTY_REASON_COUNTS },
+  lastUpdatedAt: new Date(0).toISOString(),
+};
+
+/** 새 스캔 시작 시 카운터 초기화. */
+export function resetStage1RejectionCounts(): void {
+  _stage1Stats = {
+    totalEvaluated: 0, totalPassed: 0, totalRejected: 0,
+    byReason: { ...EMPTY_REASON_COUNTS },
+    lastUpdatedAt: new Date().toISOString(),
+  };
+}
+
+/** 단일 quote 평가 + 카운터 자동 증가. 스캐너가 evaluateStage1Filter 대신 이 함수 호출. */
+export function evaluateStage1FilterTracked(quote: YahooQuoteExtended): Stage1FilterResult {
+  const r = evaluateStage1Filter(quote);
+  _stage1Stats.totalEvaluated++;
+  if (r.pass) _stage1Stats.totalPassed++;
+  else {
+    _stage1Stats.totalRejected++;
+    if (r.reason) _stage1Stats.byReason[r.reason]++;
+  }
+  _stage1Stats.lastUpdatedAt = new Date().toISOString();
+  return r;
+}
+
+/** 마지막 스캔의 탈락 분포 스냅샷 (Telegram · /health 조회용). */
+export function getStage1RejectionCounts(): Stage1RejectionCounts {
+  return {
+    totalEvaluated: _stage1Stats.totalEvaluated,
+    totalPassed:    _stage1Stats.totalPassed,
+    totalRejected:  _stage1Stats.totalRejected,
+    byReason:       { ..._stage1Stats.byReason },
+    lastUpdatedAt:  _stage1Stats.lastUpdatedAt,
+  };
 }
 
 export function calcStage1Score(q: YahooQuoteExtended): number {

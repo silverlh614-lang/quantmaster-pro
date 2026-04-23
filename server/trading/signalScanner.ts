@@ -26,7 +26,7 @@ async function getPrice(stockCode: string): Promise<number | null> {
   return fetchCurrentPrice(stockCode).catch(() => null);
 }
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
-import { getKellyMultiplier as getIpsKellyMultiplier } from './kellyDampener.js';
+import { getKellyMultiplier as getIpsKellyMultiplier, loadKellyDampenerState } from './kellyDampener.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelBuySignalEmitted } from '../alerts/channelPipeline.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
@@ -34,8 +34,9 @@ import { loadIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import {
   type ServerShadowTrade,
+  type EntryKellySnapshot,
   getRemainingQty,
-  loadShadowTrades, saveShadowTrades,
+  loadShadowTrades, saveShadowTrades, appendShadowLog,
 } from '../persistence/shadowTradeRepo.js';
 import { isBlacklisted } from '../persistence/blacklistRepo.js';
 import {
@@ -46,7 +47,22 @@ import { evaluatePortfolioRisk } from './portfolioRiskEngine.js';
 import { checkSectorExposureBefore } from './preOrderGuard.js';
 import { getSectorByCode } from '../screener/sectorMap.js';
 import { getExecutionCostConfig } from './executionCosts.js';
-import { classifySizingTier, canReserveProbingSlot, PROBING_MAX_SLOTS } from './sizingTier.js';
+import { classifySizingTier, PROBING_MAX_SLOTS } from './sizingTier.js';
+import {
+  decideProbingSlotBudget, canReserveBanditProbingSlot, buildArmKey,
+  type BanditDecision,
+} from '../learning/probingBandit.js';
+import { checkFailurePattern } from '../learning/failurePatternDB.js';
+import { buildEntryConditionScores } from '../learning/entryConditionScores.js';
+import { evaluateCorrelationGate } from './correlationSlotGate.js';
+import { recordCounterfactual, COUNTERFACTUAL_DAILY_CAP } from '../learning/counterfactualShadow.js';
+import { recordUniverseEntries } from '../learning/ledgerSimulator.js';
+
+/**
+ * Idea 7 — 진입 차단 유사도 임계값 (0~100). 85% 이상 일치하는 실패 패턴이 존재하면 진입 차단.
+ * failurePatternDB 의 SIMILARITY_THRESHOLD (매칭 임계) 보다 엄격하게 운용 가능.
+ */
+const FAILURE_BLOCK_THRESHOLD_PCT = Number(process.env.FAILURE_BLOCK_THRESHOLD_PCT ?? '85');
 import type { FullRegimeConfig } from '../../src/types/core.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import { getManualBlockNewBuy, getManualManageOnly } from '../state.js';
@@ -94,7 +110,7 @@ import { getLiveRegime } from './regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
 import { addRecommendation } from '../learning/recommendationTracker.js';
-import { getAccountRiskBudget, computeRiskAdjustedSize } from './accountRiskBudget.js';
+import { getAccountRiskBudget, computeRiskAdjustedSize, FRACTIONAL_KELLY_CAP } from './accountRiskBudget.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import {
@@ -316,19 +332,29 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     w.section = assignSection(w, liveFocusCodes);
   }
 
-  // SWING + CATALYST = 매수 대상, MOMENTUM = 관찰 전용
+  // Idea 1 — Shadow Portfolio 50 확장.
+  // AUTO_SHADOW_FROM_MOMENTUM=true (기본) 이면 MOMENTUM 섹션을 buyList 에 포함시켜
+  // 모든 후보에 대해 Shadow 가상 체결을 집행하고 학습 표본을 5배 확대한다. 실 자본
+  // 경로 격리는 아래 per-stock `forceSectionShadow` 가 담당한다.
+  const AUTO_SHADOW_FROM_MOMENTUM = process.env.AUTO_SHADOW_FROM_MOMENTUM !== 'false';
   const buyList = watchlist.filter(
-    (w) => w.section === 'SWING' || w.section === 'CATALYST' || forceCodes.has(w.code),
+    (w) =>
+      w.section === 'SWING' ||
+      w.section === 'CATALYST' ||
+      (AUTO_SHADOW_FROM_MOMENTUM && w.section === 'MOMENTUM') ||
+      forceCodes.has(w.code),
   );
   const swingList    = watchlist.filter((w) => w.section === 'SWING');
   const catalystList = watchlist.filter((w) => w.section === 'CATALYST');
   const momentumList = watchlist.filter((w) => w.section === 'MOMENTUM');
 
-  // 진단 로그: MOMENTUM(관찰 전용) 종목 — 매수 스캔에서 제외
+  // 진단 로그: MOMENTUM 처리 경로 — 플래그에 따라 학습/관찰 분기
   if (momentumList.length > 0) {
+    const scope = AUTO_SHADOW_FROM_MOMENTUM ? 'Shadow 학습' : '관찰 전용';
     console.log(
-      `[AutoTrade] MOMENTUM 관찰 ${momentumList.length}개 (매수 스캔 제외): ` +
-      momentumList.map(w => `${w.name}(${w.code}) gate=${w.gateScore ?? 0}`).join(', '),
+      `[AutoTrade] MOMENTUM ${scope} ${momentumList.length}개: ` +
+      momentumList.slice(0, 10).map(w => `${w.name}(${w.code}) gate=${w.gateScore ?? 0}`).join(', ') +
+      (momentumList.length > 10 ? ` ...외 ${momentumList.length - 10}개` : ''),
     );
   }
   let watchlistMutated = false;
@@ -338,6 +364,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   let _scanGateMisses = 0;
   let _scanRrrMisses  = 0;
   let _scanEntries    = 0;
+  // Idea 4 — 일일 Counterfactual 기록 상한 (COUNTERFACTUAL_DAILY_CAP).
+  let _counterfactualRecordedToday = 0;
 
   // 파이프라인 트레이서 버퍼 — 스캔 종료 시 일괄 파일 기록 (아이디어 10)
   const _pendingTraces: ScanTrace[] = [];
@@ -488,14 +516,24 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     );
   }
 
+  // Idea 10 — Minimal Real Positions. 페르소나 원칙 "계좌 생존 우선" 에 맞춰
+  // 실 자본 포지션은 CONVICTION 등급 소수로 집중. 기본 8 로 설정 (레짐 maxPositions 의 min).
+  // MOMENTUM Shadow / PRE_BREAKOUT / INTRADAY 는 이 캡과 무관.
+  const MAX_CONVICTION_POSITIONS = Number(process.env.MAX_CONVICTION_POSITIONS ?? '8');
+
   // ── 동시 최대 보유 종목 (regimeConfig.maxPositions) ─────────────────────────
   // INTRADAY 포지션은 별도 한도(MAX_INTRADAY_POSITIONS)로 관리하므로 제외한다.
   // BUG-09 fix: PRE_BREAKOUT(30% 선취매)도 제외 — 선취매는 탐색적 소량 포지션이므로
   // 스윙 한도에 포함하면 같은 종목의 일반 스윙 진입이 이중 차단됨.
   // Phase 2-③: SELL_ONLY 예외 시 maxSlots 캡과 min 으로 제한.
-  const effectiveMaxPositions = sellOnlyExc.allow
-    ? Math.min(regimeConfig.maxPositions, sellOnlyExc.maxSlots)
-    : regimeConfig.maxPositions;
+  // Idea 10: CONVICTION 캡을 레짐 기반 상한과 min 으로 합성. 레짐이 여유롭더라도
+  // 실 자본 집중도를 유지하려면 절대 상한을 더 엄격히 적용. env 로 조정 가능.
+  const effectiveMaxPositions = Math.min(
+    MAX_CONVICTION_POSITIONS,
+    sellOnlyExc.allow
+      ? Math.min(regimeConfig.maxPositions, sellOnlyExc.maxSlots)
+      : regimeConfig.maxPositions,
+  );
   const activeSwingCount = shadows.filter(
     (s) => isOpenShadowStatus(s.status) &&
            s.watchlistSource !== 'INTRADAY' &&
@@ -536,6 +574,23 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // Phase 4-⑧(수정): sizingTier — PROBING 은 전체 maxPositions 안에서 최대 1슬롯 허용.
   // 워치리스트 구조·총 포지션 수는 그대로 유지하고 Kelly 만 티어별로 차등 적용.
   let probingReservedSlots = 0;
+  // Idea 6 — Thompson Sampling bandit: 이번 스캔의 PROBING 슬롯 동적 예산.
+  // buyList 에 나타날 수 있는 arm key(signalType × profileType) 를 상한으로 세팅하여
+  // 최악 케이스에서도 보너스 슬롯이 할당되도록 한다. 실제 슬롯 점유는
+  // canReserveBanditProbingSlot() 가 증가분만큼 허용한다.
+  const _banditCandidateArms: string[] = [];
+  for (const w of buyList) {
+    const sig = (w.gateScore ?? 0) >= 9 ? 'STRONG_BUY' : 'BUY';
+    _banditCandidateArms.push(buildArmKey({ signalType: sig, profileType: w.profileType ?? null }));
+  }
+  // PROBING tier 자체도 하나의 arm 으로 보강 — 히스토리가 희박한 PROBING 라인은 항상 탐색 가치.
+  _banditCandidateArms.push('PROBING:X');
+  const banditDecision: BanditDecision = decideProbingSlotBudget(_banditCandidateArms);
+  if (banditDecision.budget > 1) {
+    console.log(
+      `[AutoTrade/Bandit] PROBING 동적 예산 ×${banditDecision.budget} (base ${1}) — ${banditDecision.rationale}`,
+    );
+  }
   // Phase 1 ②: 섹터 노출 선검증용 — 현재 보유 + 같은 tick 예약분을 합산해 투영 비중 계산.
   const currentSectorValue = new Map<string, number>();
   for (const s of shadows) {
@@ -548,8 +603,21 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   const reservedSectorValues: Array<{ sector: string; value: number }> = [];
   // Phase 4-⑧(수정): 큐 인덱스별 티어 — 플러시 시 PROBING 실패 예약도 정확히 롤백.
   const reservedTiers: Array<'PROBING' | 'OTHER'> = [];
+  // Idea 1: 큐 인덱스별 MOMENTUM Shadow 여부 — 플러시 롤백 시 reservedSlots 를
+  // 감소시키지 않도록(애초에 증가하지 않음) 구분한다.
+  const reservedIsMomentum: boolean[] = [];
+  // BUG #3 fix — 승인 전 예약된 효과 자본(원). onApproved 이 아닌 큐 푸시 시점에
+  // 동기적으로 차감해 "같은 스캔의 다음 후보가 이미 예약된 현금을 다시 쓰는" 레이스를 차단.
+  // 롤백 시 reservedBudgets[i] 만큼 orderableCash 를 복원한다.
+  const reservedBudgets: number[] = [];
 
   for (const stock of buyList) {
+    // Idea 1 — MOMENTUM 은 AUTO_SHADOW_FROM_MOMENTUM 경로에서 강제 SHADOW 로 귀속된다.
+    // LIVE 모드 스캔 중에도 MOMENTUM 후보는 실 자본을 쓰지 않고 학습 표본만 남긴다.
+    // 이 플래그가 true 인 스톡은 슬롯/섹터/오더 현금 예약에서 제외된다.
+    const isMomentumShadow = stock.section === 'MOMENTUM';
+    const stockShadowMode = shadowMode || isMomentumShadow;
+
     // 아이디어 7: 루프 내에서도 포지션 수 재확인 (같은 스캔 중 복수 진입 방지)
     // BUG-09 정합성: 사전 점검(activeSwingCount)이 PRE_BREAKOUT(30% 선취매)을 제외하는 것과
     // 동일 기준을 적용해야 한다. 루프 내에서만 PRE_BREAKOUT을 포함하면 사전 점검은 "여유 있음",
@@ -560,7 +628,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
              s.watchlistSource !== 'PRE_BREAKOUT',
     ).length;
     const totalCommitted = currentActive + reservedSlots;
-    if (totalCommitted >= effectiveMaxPositions) {
+    if (!isMomentumShadow && totalCommitted >= effectiveMaxPositions) {
+      // MOMENTUM Shadow 는 LIVE 슬롯 한도에 귀속되지 않으므로 이 가드를 건너뛴다.
       console.log(
         `[AutoTrade] 최대 포지션 도달 (활성 ${currentActive} + 예약 ${reservedSlots} = ${totalCommitted}/${effectiveMaxPositions}${sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${regime}) — 나머지 종목 스킵`,
       );
@@ -1085,6 +1154,25 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         _scanGateMisses++;
         stageLog.gate = `FAIL(${entryRevalidation.reasons.join(',')})`;
         pushTrace();
+
+        // Idea 4 — Counterfactual Shadow: 탈락 후보 상위 N 개를 가상 진입으로 기록.
+        // 같은 날 동일 종목 중복은 자동 스킵 (멱등). I/O 실패가 실 매매 경로를 멈추지 않도록 try/catch.
+        if (_counterfactualRecordedToday < COUNTERFACTUAL_DAILY_CAP) {
+          try {
+            const recorded = recordCounterfactual({
+              stockCode: stock.code,
+              stockName: stock.name,
+              priceAtSignal: currentPrice,
+              gateScore: stock.gateScore ?? 0,
+              regime,
+              conditionKeys: stock.conditionKeys ?? [],
+              skipReason: `entryRevalidation:${entryRevalidation.reasons.join(',')}`,
+            });
+            if (recorded) _counterfactualRecordedToday++;
+          } catch (e) {
+            console.warn(`[Counterfactual] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
+          }
+        }
         continue;
       }
 
@@ -1147,9 +1235,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         console.log(`[AutoTrade/SizingTier] ${stock.name} 티어 미달 — ${tierDecision.reason}`);
         continue;
       }
-      if (tierDecision.tier === 'PROBING' && !canReserveProbingSlot(probingReservedSlots)) {
+      // Idea 6: bandit 이 결정한 동적 예산으로 PROBING 슬롯 제어.
+      // 최소 = 레거시 PROBING_MAX_SLOTS (1). bandit 이 더 높은 예산을 제시하면 그 값을 채택.
+      const probingBudget = Math.max(PROBING_MAX_SLOTS, banditDecision.budget);
+      if (tierDecision.tier === 'PROBING' &&
+          !canReserveBanditProbingSlot(probingReservedSlots, probingBudget)) {
         console.log(
-          `[AutoTrade/SizingTier] ${stock.name} PROBING 슬롯 포화 (${probingReservedSlots}/${PROBING_MAX_SLOTS}) — 스킵`,
+          `[AutoTrade/SizingTier] ${stock.name} PROBING 슬롯 포화 (${probingReservedSlots}/${probingBudget}) — 스킵`,
         );
         continue;
       }
@@ -1184,37 +1276,110 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         effectiveMaxPositions - currentActive - reservedSlots,
       );
 
+      // Idea 7 — Pre-Mortem Failure DB 능동 필터.
+      // preMortemStructured 에서 invalidation id 가 3회 이상 반복 손절로 이어진 패턴이
+      // failurePatternRepo 로 자동 승급됐다면, 이 후보의 진입 조건 벡터와 비교해
+      // 유사도 ≥ 85% 인 패턴이 있을 경우 진입을 차단한다. LIVE 경로 전용 —
+      // MOMENTUM Shadow 는 학습 표본이 목적이므로 이 게이트를 건너뛴다.
+      if (!isMomentumShadow) {
+        const candidateScores = buildEntryConditionScores(stock.conditionKeys);
+        const failureWarning = checkFailurePattern(candidateScores);
+        if (failureWarning.hasWarning && failureWarning.maxSimilarity >= FAILURE_BLOCK_THRESHOLD_PCT) {
+          console.log(
+            `[AutoTrade/FailureDB] ${stock.name}(${stock.code}) 진입 차단 — ${failureWarning.message}`,
+          );
+          appendShadowLog({
+            event: 'BLOCKED_FAILURE_PATTERN',
+            code: stock.code,
+            maxSimilarity: failureWarning.maxSimilarity,
+            similarCount: failureWarning.similarCount,
+            topMatches: failureWarning.topMatches.map(m =>
+              `${m.stockCode}(${m.similarity}%, ${m.returnPct.toFixed(1)}%)`,
+            ),
+          });
+          continue;
+        }
+
+        // Idea 5 — Correlation-Aware Slot Allocation.
+        // 기존 포지션과 후보의 섹터 기반 평균 상관이 임계 이상이면 신규 진입 차단.
+        // 실 진입 경로(LIVE) 만 게이팅. Shadow 학습 경로는 샘플 다양성 보존을 위해 통과.
+        const corrGate = evaluateCorrelationGate({
+          candidateCode: stock.code,
+          candidateSector: stock.sector,
+          trades: shadows,
+        });
+        if (!corrGate.allowed) {
+          console.log(`[AutoTrade/CorrGate] ${stock.name}(${stock.code}) 진입 차단 — ${corrGate.reason}`);
+          appendShadowLog({
+            event: 'BLOCKED_CORRELATION',
+            code: stock.code,
+            avgCorrelation: Number(corrGate.avgCorrelation.toFixed(3)),
+            effectiveIndependentCount: Number(corrGate.effectiveIndependentCount.toFixed(2)),
+          });
+          continue;
+        }
+      }
+
       // ── P1-2: 계좌 리스크 예산 + Fractional Kelly 게이트 ────────────────
       // sizingTier × kellyDampener × accountScale 까지 누적된 positionPct 에
       // 다시 한 번 "신호 등급별 캡 + 동시 R 잔여 + 일일 손실 잔여" 를 강제한다.
       // 작은 쪽이 채택되므로 기존 sizing 보다 더 보수적인 결과만 나올 수 있다.
-      {
-        const grade: 'STRONG_BUY' | 'BUY' | 'PROBING' | 'HOLD' =
-          tierDecision.tier === 'PROBING' ? 'PROBING'
-          : isStrongBuy ? 'STRONG_BUY'
-          : 'BUY';
-        const budget = getAccountRiskBudget({ totalAssets, trades: shadows });
-        if (!budget.canEnterNew) {
-          console.log(`[AutoTrade/RiskBudget] ${stock.name} 진입 차단 — ${budget.blockedReasons.join(' / ')}`);
-          continue;
-        }
-        const sized = computeRiskAdjustedSize({
-          entryPrice: shadowEntryPrice,
-          stopLoss:   stock.stopLoss,
-          signalGrade: grade,
-          kellyMultiplier: positionPct,             // 누적 Kelly 비율
-          confidenceModifier: Math.min(1.2, 0.6 + 0.05 * (reCheckGate.mtas ?? 0)),
-          budget,
-          totalAssets,
-        });
-        if (sized.recommendedBudgetKrw <= 0) {
-          console.log(`[AutoTrade/RiskBudget] ${stock.name} 사이즈 0 — ${sized.reason}`);
-          continue;
-        }
-        if (sized.kellyWasCapped) {
-          console.log(`[AutoTrade/RiskBudget] ${stock.name} Fractional Kelly 캡 적용 — ${sized.reason}`);
+      const grade: 'STRONG_BUY' | 'BUY' | 'PROBING' | 'HOLD' =
+        tierDecision.tier === 'PROBING' ? 'PROBING'
+        : isStrongBuy ? 'STRONG_BUY'
+        : 'BUY';
+      // Idea 8: 활성 포지션의 실시간 현재가를 수집하여 getAccountRiskBudget 에 주입.
+      // 이미 스트림 구독 중인 종목은 getRealtimePrice() 로 즉시 조회 가능하므로
+      // 추가 네트워크 비용 없이 trailing hardStop 반영 activeR 계산을 활성화한다.
+      const openCurrentPrices = new Map<string, number>();
+      for (const s of shadows) {
+        if (!isOpenShadowStatus(s.status)) continue;
+        const rt = getRealtimePrice(s.stockCode);
+        if (rt !== null && Number.isFinite(rt) && rt > 0) {
+          openCurrentPrices.set(s.stockCode, rt);
         }
       }
+      const budget = getAccountRiskBudget({
+        totalAssets,
+        trades: shadows,
+        currentPrices: openCurrentPrices,
+      });
+      if (!budget.canEnterNew) {
+        console.log(`[AutoTrade/RiskBudget] ${stock.name} 진입 차단 — ${budget.blockedReasons.join(' / ')}`);
+        continue;
+      }
+      const confidenceModifier = Math.min(1.2, 0.6 + 0.05 * (reCheckGate.mtas ?? 0));
+      const sized = computeRiskAdjustedSize({
+        entryPrice: shadowEntryPrice,
+        stopLoss:   stock.stopLoss,
+        signalGrade: grade,
+        kellyMultiplier: positionPct,             // 누적 Kelly 비율
+        confidenceModifier,
+        budget,
+        totalAssets,
+      });
+      if (sized.recommendedBudgetKrw <= 0) {
+        console.log(`[AutoTrade/RiskBudget] ${stock.name} 사이즈 0 — ${sized.reason}`);
+        continue;
+      }
+      if (sized.kellyWasCapped) {
+        console.log(`[AutoTrade/RiskBudget] ${stock.name} Fractional Kelly 캡 적용 — ${sized.reason}`);
+      }
+
+      // Idea 1 — 진입 시점 Kelly 의사결정 스냅샷 동결.
+      // buildBuyTrade 가 이 값을 trade 객체에 귀속시켜 이후 /kelly 헬스 카드·사후 복기에서 단일 참조점으로 쓴다.
+      const entryKellySnapshot: EntryKellySnapshot = {
+        tier: tierDecision.tier,
+        signalGrade: grade,
+        rawKellyMultiplier: positionPct,
+        effectiveKelly: sized.effectiveKelly,
+        fractionalCap: FRACTIONAL_KELLY_CAP[grade],
+        ipsAtEntry: loadKellyDampenerState().ips,
+        regimeAtEntry: regime,
+        accountRiskBudgetPctAtEntry: budget.openRiskPct,
+        confidenceModifier,
+        snapshotAt: new Date().toISOString(),
+      };
 
       const { quantity, effectiveBudget } = calculateOrderQuantity({
         totalAssets,
@@ -1262,14 +1427,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       const trailTarget = adaptiveProfitTargets.targets.find((t) => t.type === 'TRAILING');
 
       const trade = buildBuyTrade({
-        idPrefix: 'srv', stockCode: stock.code, stockName: stock.name,
+        idPrefix: isMomentumShadow ? 'srv_mom_shadow' : 'srv',
+        stockCode: stock.code, stockName: stock.name,
         currentPrice, shadowEntryPrice, quantity: execQty,
-        stopLossPlan, targetPrice: stock.targetPrice, shadowMode, regime,
+        stopLossPlan, targetPrice: stock.targetPrice, shadowMode: stockShadowMode, regime,
         profileType: profile, watchlistSource: undefined,
         profitTranches: limitTranches.map((t) => ({
           price: shadowEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false,
         })),
         trailPct: Math.max(0.05, Math.min(0.14, (trailTarget?.trailPct ?? 0.10) + adaptiveProfitTargets.trailPctAdjust)), entryATR14,
+        entryKellySnapshot,
       });
 
       addRecommendation({
@@ -1283,15 +1450,15 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       // ─── SHADOW/LIVE 통합 승인 큐 등록 ──────────────────────────────────────
       _scanEntries++;
       _lastBuySignalAt = Date.now();
-      stageLog.buy = shadowMode ? 'SHADOW' : 'LIVE'; pushTrace();
+      stageLog.buy = stockShadowMode ? 'SHADOW' : 'LIVE'; pushTrace();
 
-      const modeEmoji = shadowMode ? '⚡' : '🚀';
-      const modeLabel = shadowMode ? 'Shadow' : 'LIVE';
+      const modeEmoji = stockShadowMode ? '⚡' : '🚀';
+      const modeLabel = isMomentumShadow ? 'Shadow(학습)' : stockShadowMode ? 'Shadow' : 'LIVE';
       const trancheLabel = isStrongBuy ? ` (1차/${execQty}주, 총${quantity}주)` : '';
       const gateLabel = `Gate ${liveGateScore.toFixed(1)} | MTAS ${reCheckGate.mtas.toFixed(0)}/10 | CS ${reCheckGate.compressionScore.toFixed(2)}`;
       const slBreakdown = formatStopLossBreakdown(stopLossPlan);
       const mainAlertMsg =
-        `${modeEmoji} <b>[${modeLabel}] 매수 ${shadowMode ? '신호' : '주문'}${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
+        `${modeEmoji} <b>[${modeLabel}] 매수 ${stockShadowMode ? '신호' : '주문'}${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
         `종목: ${stock.name} (${stock.code})\n` +
         `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
         `📊 ${gateLabel}\n` +
@@ -1302,20 +1469,39 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         trade, stockCode: stock.code, stockName: stock.name,
         currentPrice, quantity: execQty, entryPrice: shadowEntryPrice,
         stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
-        gateScore, shadowMode, effectiveBudget,
-        alertMessage: mainAlertMsg, logEvent: shadowMode ? 'SIGNAL' : 'ORDER',
+        gateScore, shadowMode: stockShadowMode, effectiveBudget,
+        alertMessage: mainAlertMsg,
+        logEvent: isMomentumShadow ? 'MOMENTUM_SHADOW_SIGNAL' : (stockShadowMode ? 'SIGNAL' : 'ORDER'),
         onApproved: async (t) => {
           shadows.push(t);
           await channelBuySignalEmitted({
-            mode: shadowMode ? 'SHADOW' : 'LIVE', stockName: stock.name, stockCode: stock.code,
+            mode: stockShadowMode ? 'SHADOW' : 'LIVE', stockName: stock.name, stockCode: stock.code,
             price: currentPrice, quantity: execQty, gateScore: liveGateScore,
             mtas: reCheckGate.mtas, cs: reCheckGate.compressionScore,
             stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
             rrr: _rrr ?? 0, signalType: isStrongBuy ? 'STRONG_BUY' : 'BUY',
             sector: _sector,
           }).catch(console.error);
-          orderableCash = Math.max(0, orderableCash - effectiveBudget);
-          if (isStrongBuy && quantity > 1) {
+
+          // Idea 2 — Parallel Universe Ledger: 승인된 엔트리에 대해 A/B/C 3 세팅을 동시에 가상체결 기록.
+          // 실 진입 = Universe A 와 동형. B/C 는 학습 표본. LIVE/Shadow 양쪽 모두 기록.
+          try {
+            recordUniverseEntries({
+              stockCode: stock.code,
+              stockName: stock.name,
+              entryPrice: shadowEntryPrice,
+              regime,
+              signalGrade: grade,
+            });
+          } catch (e) {
+            console.warn(`[Ledger] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
+          }
+
+          // BUG #3 fix — orderableCash 는 큐 푸시 시점에 이미 예약/차감됨.
+          // onApproved 에서는 "예약 확정" 만 수행 (추가 차감 없음).
+          // reservedBudgets 는 그대로 두고, 롤백 경로만 참조.
+          if (isStrongBuy && quantity > 1 && !isMomentumShadow) {
+            // MOMENTUM Shadow 는 분할 매수 스케줄 제외 (진입 자체가 관찰 표본)
             trancheExecutor.scheduleTranches({
               parentTradeId: t.id, stockCode: stock.code, stockName: stock.name,
               totalQuantity: quantity, firstQuantity: execQty,
@@ -1326,11 +1512,26 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         },
       }));
       // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
-      reservedSlots++;
-      // Phase 4-⑧(수정): PROBING 티어 전용 슬롯 카운터
-      if (tierDecision.tier === 'PROBING') probingReservedSlots++;
-      reservedTiers.push(tierDecision.tier === 'PROBING' ? 'PROBING' : 'OTHER');
-      {
+      // MOMENTUM Shadow 는 LIVE 슬롯/섹터/PROBING 예산에서 모두 격리된다.
+      if (!isMomentumShadow) {
+        reservedSlots++;
+        // Phase 4-⑧(수정): PROBING 티어 전용 슬롯 카운터
+        if (tierDecision.tier === 'PROBING') probingReservedSlots++;
+        reservedTiers.push(tierDecision.tier === 'PROBING' ? 'PROBING' : 'OTHER');
+      } else {
+        // 큐 index 와 reservedTiers 길이 정합성을 위해 플레이스홀더를 push
+        reservedTiers.push('OTHER');
+      }
+      reservedIsMomentum.push(isMomentumShadow);
+      // BUG #3 fix — 같은 스캔의 다음 후보가 동일 orderableCash 를 이중 사용하는 것을
+      // 차단하기 위해, 승인 대기 시점에 즉시 예산을 예약(차감) 한다. 롤백 시 복원.
+      if (!isMomentumShadow && effectiveBudget > 0) {
+        orderableCash = Math.max(0, orderableCash - effectiveBudget);
+        reservedBudgets.push(effectiveBudget);
+      } else {
+        reservedBudgets.push(0);
+      }
+      if (!isMomentumShadow) {
         const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
         pendingSectorValue.set(_sec, (pendingSectorValue.get(_sec) ?? 0) + effectiveBudget);
         reservedSectorValues.push({ sector: _sec, value: effectiveBudget });
@@ -1354,17 +1555,25 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       } else {
         // Phase 1 ①: 실패한 예약은 롤백 — reservedSlots/pendingSectorValue 감소
         rejected++;
-        reservedSlots = Math.max(0, reservedSlots - 1);
-        // Phase 4-⑧(수정): PROBING 예약도 롤백해 다음 tick 이 정확히 1 슬롯 재사용
-        if (reservedTiers[i] === 'PROBING') {
-          probingReservedSlots = Math.max(0, probingReservedSlots - 1);
-        }
-        const rel = reservedSectorValues[i];
-        if (rel) {
-          const cur = pendingSectorValue.get(rel.sector) ?? 0;
-          const next = Math.max(0, cur - rel.value);
-          if (next === 0) pendingSectorValue.delete(rel.sector);
-          else pendingSectorValue.set(rel.sector, next);
+        // Idea 1: MOMENTUM Shadow 는 애초에 reservedSlots 를 증가시키지 않았으므로 롤백도 스킵.
+        if (!reservedIsMomentum[i]) {
+          reservedSlots = Math.max(0, reservedSlots - 1);
+          // Phase 4-⑧(수정): PROBING 예약도 롤백해 다음 tick 이 정확히 1 슬롯 재사용
+          if (reservedTiers[i] === 'PROBING') {
+            probingReservedSlots = Math.max(0, probingReservedSlots - 1);
+          }
+          const rel = reservedSectorValues[i];
+          if (rel) {
+            const cur = pendingSectorValue.get(rel.sector) ?? 0;
+            const next = Math.max(0, cur - rel.value);
+            if (next === 0) pendingSectorValue.delete(rel.sector);
+            else pendingSectorValue.set(rel.sector, next);
+          }
+          // BUG #3 fix — 승인 거절/스킵 시 큐 푸시 때 예약한 orderableCash 복원.
+          const refund = reservedBudgets[i] ?? 0;
+          if (refund > 0) {
+            orderableCash += refund;
+          }
         }
       }
     }

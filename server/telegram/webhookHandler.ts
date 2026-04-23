@@ -42,6 +42,12 @@ import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/report
 import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, getRealDataTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder, getCircuitBreakerStats, resetKisCircuits } from '../clients/kisClient.js';
 import { getYahooHealthSnapshot } from '../trading/marketDataRefresh.js';
 import { getAccountRiskBudget, formatAccountRiskBudget } from '../trading/accountRiskBudget.js';
+import { loadKellyDampenerState } from '../trading/kellyDampener.js';
+import { formatKellyHealthCards } from '../trading/kellyHealthCard.js';
+import { formatKellySurface } from '../learning/kellySurfaceMap.js';
+import { formatRegimeCoverage } from '../learning/regimeBalancedSampler.js';
+import { getUniverseStats } from '../learning/ledgerSimulator.js';
+import { getCounterfactualStats } from '../learning/counterfactualShadow.js';
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { MAX_SUBSCRIPTIONS, getStreamStatus, startKisStream, stopKisStream, getRealtimePrice } from '../clients/kisStreamClient.js';
 import { getBudgetState, getGeminiCircuitStats, getGeminiRuntimeState } from '../clients/geminiClient.js';
@@ -161,6 +167,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /circuits — KIS/KRX 회로 차단 상태 조회\n` +
           `  /reset_circuits — KIS/KRX 회로 즉시 해제 (저녁 스캔 전 권장)\n` +
           `  /risk — 계좌 리스크 예산 + Fractional Kelly 캡 현황\n` +
+          `  /kelly — 종목별 Kelly 헬스 카드 (진입 vs 현재)\n` +
           `  /news_patterns — 뉴스-수급 시차 학습 카탈로그 (베이지안)\n` +
           `  /dxy — DXY 인트라데이 스냅샷 (Yahoo + Alpha Vantage fallback)\n` +
           `  /channel_health — 4채널 상태 점검\n` +
@@ -927,6 +934,43 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         break;
       }
 
+      case '/stage1_audit': {
+        // BUG #1 — Stage 1 정량 필터 탈락 사유 분포. 어떤 조건이 후보를 가장 많이
+        // 떨어뜨리는지 식별하여 임계값 튜닝 근거로 사용.
+        const { getStage1RejectionCounts } = await import('../screener/pipelineHelpers.js');
+        const s = getStage1RejectionCounts();
+        if (s.totalEvaluated === 0) {
+          await reply(
+            `🔬 <b>[Stage 1 Audit]</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `아직 실행된 스캔이 없습니다. /scan 또는 /krx_scan 실행 후 다시 시도.`,
+          );
+          break;
+        }
+        const rows = Object.entries(s.byReason)
+          .sort(([, a], [, b]) => b - a)
+          .map(([reason, count]) => {
+            const pct = s.totalRejected > 0 ? (count / s.totalRejected) * 100 : 0;
+            const bar = count === 0 ? '·'
+              : pct >= 30 ? '🔴'
+              : pct >= 15 ? '🟠'
+              : pct >= 5  ? '🟡'
+              : '🟢';
+            return `${bar} ${reason.padEnd(20)} ${count.toString().padStart(3)}건 (${pct.toFixed(0)}%)`;
+          })
+          .join('\n');
+        const passPct = s.totalEvaluated > 0 ? (s.totalPassed / s.totalEvaluated) * 100 : 0;
+        await reply(
+          `🔬 <b>[Stage 1 Audit — 정량 필터 탈락 분포]</b>\n` +
+          `평가 ${s.totalEvaluated} · 통과 ${s.totalPassed} (${passPct.toFixed(0)}%) · 탈락 ${s.totalRejected}\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `<pre>${rows}</pre>\n` +
+          `<i>상위 원인이 30% 이상이면 임계값 완화 검토 — 예: OVEREXTENDED 집중 = 5일 ≥15% 상한이 엄격.</i>\n` +
+          `<i>업데이트: ${new Date(s.lastUpdatedAt).toLocaleString('ko-KR')}</i>`,
+        );
+        break;
+      }
+
       case '/krx_scan': {
         // KRX 종목조회(Stage1 양적 필터)가 실패했을 때 전체 발굴 파이프라인을
         // 강제 재실행한다. KRX OpenAPI 서킷 브레이커와 캐시를 초기화해 직전
@@ -1386,6 +1430,73 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           formatAccountRiskBudget(budget) +
           `\n\n<i>총 자본 기준: ${(totalAssets / 10_000).toLocaleString()}만원 (settings.startingCapital)\n` +
           `Fractional Kelly: STRONG_BUY ≤0.5 / BUY ≤0.25 / HOLD ≤0.1</i>`
+        );
+        break;
+      }
+
+      case '/kelly_surface': {
+        // Idea 9: signalType × regime 버킷별 (p, b) 학습 상태 + 신뢰구간 폭.
+        await reply(formatKellySurface());
+        break;
+      }
+
+      case '/regime_coverage': {
+        // Idea 3: 레짐별 샘플 수 / 목표 / 부족 상태.
+        await reply(formatRegimeCoverage());
+        break;
+      }
+
+      case '/ledger': {
+        // Idea 2: Parallel Universe Ledger Sharpe 비교.
+        const stats = getUniverseStats();
+        const lines = ['🌌 <b>[Parallel Universe Ledger]</b>', '━━━━━━━━━━━━━━━━━━━━'];
+        for (const s of stats) {
+          lines.push(
+            `Universe ${s.universe} (${s.label})\n` +
+            `   n=${s.closedSamples} · win=${(s.winRate * 100).toFixed(0)}% · μ=${s.meanReturn.toFixed(2)}% · σ=${s.stdReturn.toFixed(2)}%\n` +
+            `   Sharpe=${s.sharpe.toFixed(2)} · PF=${s.profitFactor === null ? 'n/a' : s.profitFactor === Infinity ? '∞' : s.profitFactor.toFixed(2)}`,
+          );
+        }
+        lines.push('━━━━━━━━━━━━━━━━━━━━');
+        lines.push('<i>Universe A 는 실 진입과 동형. B/C 는 대안 세팅 학습 표본.</i>');
+        await reply(lines.join('\n'));
+        break;
+      }
+
+      case '/counterfactual': {
+        // Idea 4: Gate 탈락 후보의 30/60/90일 분포 통계.
+        const lines = ['🔬 <b>[Counterfactual Shadow — 탈락 후보 추적]</b>', '━━━━━━━━━━━━━━━━━━━━'];
+        for (const h of [30, 60, 90] as const) {
+          const s = getCounterfactualStats(h);
+          if (!s) {
+            lines.push(`${h}일: 샘플 부족`);
+            continue;
+          }
+          lines.push(
+            `${h}일: n=${s.samples} · μ=${s.mean.toFixed(2)}% · median=${s.median.toFixed(2)}% · win=${(s.winRate * 100).toFixed(0)}% · σ=${s.stdDev.toFixed(2)}%`,
+          );
+        }
+        lines.push('━━━━━━━━━━━━━━━━━━━━');
+        lines.push('<i>만약 수익률 분포가 통과 샘플과 유의하게 다르지 않다면 Gate 기준이 과잉.</i>');
+        await reply(lines.join('\n'));
+        break;
+      }
+
+      case '/kelly': {
+        // Idea 5 — 종목별 Kelly 헬스 카드.
+        // entryKellySnapshot(Idea 1) 을 기준으로 진입 시점 대비 현재 Kelly/IPS 상태의
+        // 상대 변화(decay)·레짐 전이를 한눈에 보고 HOLD / TRIM / EXIT 권고를 제시한다.
+        const shadows = getShadowTrades();
+        const dampener = loadKellyDampenerState();
+        const macro = loadMacroState();
+        const liveRegime = getLiveRegime(macro);
+        await reply(
+          formatKellyHealthCards({
+            shadows,
+            currentIps: dampener.ips,
+            currentRegime: liveRegime,
+            currentIpsMultiplier: dampener.multiplier,
+          }),
         );
         break;
       }

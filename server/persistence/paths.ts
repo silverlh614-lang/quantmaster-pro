@@ -83,6 +83,10 @@ export const RECONCILE_STATE_FILE     = path.join(DATA_DIR, 'reconcile-state.jso
 export const NOTIFICATION_LOG_FILE    = path.join(DATA_DIR, 'notification-log.json');
 /** 4티어 자기학습 상태 — L1~L4 마지막 실행 시각, prevRegime, 첫 캘리브레이션 완료 플래그, 거래 홀드 만료시각 */
 export const LEARNING_STATE_FILE      = path.join(DATA_DIR, 'learning-state.json');
+/** Phase 1 — Counterfactual Shadow: Gate 1 탈락 후보의 가상 진입/추적 로그 */
+export const COUNTERFACTUAL_FILE      = path.join(DATA_DIR, 'counterfactual-shadow.json');
+/** Phase 1 — Parallel Universe Ledger: 동일 신호 × 3 Kelly 세팅 병렬 가상체결 */
+export const LEDGER_FILE              = path.join(DATA_DIR, 'parallel-universe-ledger.json');
 /**
  * 27 조건 전체 학습 커버리지용 — 클라이언트 전용 조건(21개)의 Gemini 프롬프트 boost 맵.
  * 서버 자동평가 경로로 피드백되지 않는 조건도 Gemini 분석 비중으로 소프트 가중 적용.

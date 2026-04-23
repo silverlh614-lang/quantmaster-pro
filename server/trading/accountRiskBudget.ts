@@ -17,7 +17,9 @@
  * 입력으로 받아 수행. portfolioRiskEngine 의 sector/beta 게이트는 직교 단계로 유지.
  */
 
-import { loadShadowTrades, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
+import {
+  loadShadowTrades, getRemainingQty, type ServerShadowTrade,
+} from '../persistence/shadowTradeRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { isOpenShadowStatus } from './entryEngine.js';
 import { getDailyLossPct } from '../state.js';
@@ -66,6 +68,29 @@ export function applyFractionalKelly(grade: SignalGrade, kellyMultiplier: number
   return { capped: safe, wasCapped: false, cap };
 }
 
+/**
+ * Idea 11 — Kelly Coverage Ratio.
+ *
+ * 회계 "이자보상배율" 과 동형: 이 포지션의 effective Kelly 가 단일 포지션 R-캡
+ * (maxPerTradeRiskPct/100) 대비 얼마나 크은가?
+ *
+ *   KellyCoverageRatio = effectiveKelly / (maxPerTradeRiskPct / 100)
+ *
+ * - ≥ 1: Kelly 가 R-캡 이상 → 정상 사이즈 포지션
+ * - < 1: "이 포지션은 자기 리스크 한도조차 감당 못하는 크기" → 청산 후보로 분류
+ *        (작은 사이즈 = 약한 확신 + R-캡 풀세이즈 못 채움 = 유지 근거 약함)
+ */
+export function computeKellyCoverageRatio(
+  effectiveKelly: number,
+  maxPerTradeRiskPct: number = MAX_PER_TRADE_RISK_PCT,
+): number {
+  if (maxPerTradeRiskPct <= 0) return 0;
+  return effectiveKelly / (maxPerTradeRiskPct / 100);
+}
+
+/** Coverage ratio < 1 이면 "저확신 포지션" 으로 분류되어 청산 후보. */
+export const KELLY_COVERAGE_TRIM_THRESHOLD = 1.0;
+
 // ── 계좌 리스크 예산 계산 ────────────────────────────────────────────────────
 
 export interface AccountRiskBudgetSnapshot {
@@ -96,25 +121,53 @@ export interface AccountRiskBudgetSnapshot {
  *
  * 외부 입력(totalAssets) 만으로 계산 — 계좌 가치 평가 변동에 따라 매 진입 시점에
  * 재계산되도록 호출자가 신선한 totalAssets 를 넘긴다.
+ *
+ * @param input.currentPrices 선택적 실시간가 맵(stockCode → price). 제공되면 Idea 8
+ *   "트레일링 스톱 반영 activeR" 계산이 적용된다 — 진입가와 현재가 중 낮은 쪽을
+ *   기준점으로 써서, 하드스톱이 BE 위로 올라온 포지션의 "이미 해소된 리스크" 를
+ *   동시 R 한도에서 정상적으로 해제한다. 미주입 시 진입가 기준 (레거시 동작).
  */
 export function getAccountRiskBudget(input: {
   totalAssets: number;
   /** 옵션 — 미주입 시 loadShadowTrades() 로 자동 로드 */
   trades?: ServerShadowTrade[];
+  /** 옵션 — Idea 8: 실시간가 맵. 제공 시 trailing hardStop 반영된 activeR 계산 */
+  currentPrices?: Map<string, number> | Record<string, number>;
 }): AccountRiskBudgetSnapshot {
   const totalAssets = input.totalAssets;
   const trades = input.trades ?? loadShadowTrades();
-  const open = trades.filter(t => isOpenShadowStatus(t.status) && t.quantity > 0);
+  const open = trades.filter(t => isOpenShadowStatus(t.status) && getRemainingQty(t) > 0);
 
   // 현재 누적 일일 손실 — state.ts 가 관리. 양수 = 손실.
   const dailyLossPct = getDailyLossPct();
   const dailyLossRemainingPct = Math.max(0, DAILY_LOSS_LIMIT_PCT - dailyLossPct);
 
-  // 활성 포지션 R 합 — Σ (entry - hardStop) × qty / totalAssets × 100
+  // ── Idea 8: 활성 포지션 R 합 — 트레일링 hardStop 반영 ────────────────────
+  // 기존 로직: Σ max(0, entry - hardStop) × qty 는 하드스톱이 entry 위로 올라간
+  // 순간(BE 이상 트레일링) 구조상 음수가 되어 max(0,·) 에 의해 0 으로 clamp,
+  // 결과적으로 "이미 수익 구간에 있는 포지션" 도 동시 R 한도는 제대로 해제되지만
+  // 진입가 아래로 더 내려갔을 때만 해소가 반영되는 비대칭 문제가 있었다.
+  //
+  // 수정: 기준가 = min(entry, currentPrice). 트레일링 스톱이 올라가면서 현재가가
+  // 진입가 위로 올라간 포지션은 "이제 더 이상 진입가 근처의 리스크를 지지 않는다" 는
+  // 현실을 반영해 activeR = max(0, min(entry, currentPrice) - hardStop) × remainingQty
+  // 로 계산한다. 현재가가 제공되지 않으면 레거시 동작(entry 기준) 으로 폴백.
+  const getCurrent = (code: string): number | undefined => {
+    const src = input.currentPrices;
+    if (!src) return undefined;
+    if (src instanceof Map) return src.get(code);
+    return (src as Record<string, number>)[code];
+  };
   let openRiskKrw = 0;
   for (const t of open) {
     const stop = t.hardStopLoss ?? t.stopLoss ?? 0;
-    const r = Math.max(0, t.shadowEntryPrice - stop) * (t.quantity ?? 0);
+    const entry = t.shadowEntryPrice;
+    const current = getCurrent(t.stockCode);
+    const base = current !== undefined && Number.isFinite(current) && current > 0
+      ? Math.min(entry, current)
+      : entry;
+    const activeQty = getRemainingQty(t);
+    const r = Math.max(0, base - stop) * activeQty;
     openRiskKrw += r;
   }
   const openRiskPct = totalAssets > 0 ? (openRiskKrw / totalAssets) * 100 : 0;

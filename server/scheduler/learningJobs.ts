@@ -1,5 +1,5 @@
 /**
- * @responsibility 자기학습 파이프라인 cron(주간 L3 캘리브레이션 · 일일 미니 백테스트 · Sharpe 급락 경보 · F2W 역피드백 · 주간 백테스트 · Nightly Reflection)을 등록한다.
+ * @responsibility 자기학습 파이프라인 cron(주간 L3 캘리브레이션 · 일일 미니 백테스트 · Sharpe 급락 경보 · F2W 역피드백 · 주간 백테스트 · Nightly Reflection · Phase 1 Learning)을 등록한다.
  */
 import cron from 'node-cron';
 import { runBacktest, runWeeklyMiniBacktest } from '../learning/backtestEngine.js';
@@ -9,6 +9,10 @@ import { runF2WReverseLoop } from '../learning/failureToWeight.js';
 import { runNightlyReflection } from '../learning/nightlyReflectionEngine.js';
 import { refreshGhostPortfolio } from '../learning/ghostPortfolioTracker.js';
 import { distillWeeklyKnowledge } from '../learning/silentKnowledgeDistillation.js';
+import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
+import { resolveCounterfactuals } from '../learning/counterfactualShadow.js';
+import { resolveLedger } from '../learning/ledgerSimulator.js';
+import { fetchCurrentPrice } from '../clients/kisClient.js';
 
 export function registerLearningJobs(): void {
   // OHLCV 기반 백테스트 — 매주 토요일 KST 08:00 (UTC 23:00 금요일).
@@ -77,6 +81,39 @@ export function registerLearningJobs(): void {
       else console.log(`[Distillation] skipped=${res.skipped}`);
     } catch (e) {
       console.error('[Distillation] 실행 실패:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  // Idea 11 — Walk-Forward Validation: 매월 1일 KST 07:00 (UTC 22:00 전달).
+  // IS(3개월) vs OOS(직전 30일) 승률 격차 > 15%p 시 가중치 동결.
+  cron.schedule('0 22 1 * *', async () => {
+    try {
+      const res = await runWalkForwardValidation();
+      console.log(`[WalkForward] frozen=${res.frozen}`);
+    } catch (e) {
+      console.error('[WalkForward] 실행 실패:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  // Idea 4 — Counterfactual Shadow resolve: 매일 KST 16:00 (UTC 07:00).
+  // 30·60·90 거래일 경과한 탈락 후보의 현재가 기준 수익률을 채워 넣는다.
+  cron.schedule('0 7 * * 1-5', async () => {
+    try {
+      const res = await resolveCounterfactuals((code) => fetchCurrentPrice(code).catch(() => null));
+      console.log(`[Counterfactual] resolved d30=${res.resolved30d} d60=${res.resolved60d} d90=${res.resolved90d}`);
+    } catch (e) {
+      console.error('[Counterfactual] 실행 실패:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  // Idea 2 — Parallel Universe Ledger resolve: 매일 KST 16:15 (UTC 07:15).
+  // OPEN 엔트리의 TP/SL/EXPIRED 판정을 단일 현재가 기준 버퍼링.
+  cron.schedule('15 7 * * 1-5', async () => {
+    try {
+      const res = await resolveLedger((code) => fetchCurrentPrice(code).catch(() => null));
+      console.log(`[Ledger] TP=${res.hitTP} SL=${res.hitSL} EXP=${res.expired}`);
+    } catch (e) {
+      console.error('[Ledger] 실행 실패:', e);
     }
   }, { timezone: 'UTC' });
 }

@@ -23,22 +23,12 @@ import {
   saveAttributionRecords,
   type ServerAttributionRecord,
 } from '../persistence/attributionRepo.js';
-import { conditionIdFromServerKey } from './attributionAnalyzer.js';
+import { buildEntryConditionScores } from './entryConditionScores.js';
 
 const BOOTSTRAP_PREFIX = 'bootstrap-';
-const NEUTRAL_SCORE = 5;
-const HIGH_SCORE = 7; // attributionAnalyzer HIGH_SCORE_THRESHOLD(6) 위
-const CONDITION_IDS = Array.from({ length: 27 }, (_, i) => i + 1);
 
 function buildConditionScores(rec: RecommendationRecord): Record<number, number> {
-  const scores: Record<number, number> = {};
-  for (const id of CONDITION_IDS) scores[id] = NEUTRAL_SCORE;
-
-  for (const key of rec.conditionKeys ?? []) {
-    const id = conditionIdFromServerKey(key);
-    if (id != null) scores[id] = HIGH_SCORE;
-  }
-  return scores;
+  return buildEntryConditionScores(rec.conditionKeys);
 }
 
 function toVirtualRecord(rec: RecommendationRecord): ServerAttributionRecord | null {

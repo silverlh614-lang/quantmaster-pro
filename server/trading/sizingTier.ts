@@ -97,3 +97,59 @@ export function classifySizingTier(input: SizingTierInput): SizingTierDecision {
 export function canReserveProbingSlot(currentProbingCount: number): boolean {
   return currentProbingCount < PROBING_MAX_SLOTS;
 }
+
+// ── Idea 7 안A — Tier × Grade 직교 분리 ──────────────────────────────────────
+//
+// 기존 코드는 (tierDecision.kellyFactor) 와 (FRACTIONAL_KELLY_CAP[grade]) 가 loosely
+// 연결되어, STANDARD 티어(×0.6) 가 BUY 등급 캡(0.25) 에 의해 재절단되는 겹침이
+// 발생했다. "안A" 는 두 축을 **명시적으로 직교 분리** 한다:
+//
+//   tier    → "후보 신호의 baseKelly 크기" (0.25~1.0) — 품질 게이트 통과 정도
+//   grade   → "절대 상한 (upper cap)" (0.1~0.5)      — Fractional Kelly 파산 방벽
+//
+// 최종 effectiveKelly 는 아래 한 함수 안에서 순차 적용 (tier × 누적 곱) → grade cap.
+// 효과는 기존 min-chain 과 수학적으로 동형이지만:
+//   1. 의도가 함수 시그니처와 문서로 드러남 (어디서 무엇이 축소됐는지 역추적 가능)
+//   2. snapshot 에 tier/grade 분해가 동시에 기록되어 사후 복기 가능
+//   3. tuning 지점 (예: STANDARD 과 STRONG_BUY 의 조합 특례) 이 한 곳에 집중됨
+//
+// 참고: signalScanner 의 기존 흐름 (positionPct = raw × tierFactor → applyFractionalKelly)
+// 은 유지한다. 본 함수는 "동일 결과를 단일 API 로 얻는" 정규 경로.
+
+/** grade 축 — Fractional Kelly upper cap (accountRiskBudget 의 FRACTIONAL_KELLY_CAP 와 정합). */
+export const GRADE_UPPER_CAP: Record<'STRONG_BUY' | 'BUY' | 'HOLD' | 'PROBING', number> = {
+  STRONG_BUY: 0.50,
+  BUY:        0.25,
+  HOLD:       0.10,
+  PROBING:    0.10,
+};
+
+export interface TierGradeComposition {
+  /** tier 로 정해진 baseKelly (누적 곱 전 기준 0.25~1.0) */
+  tierFactor: number;
+  /** grade 로 정해진 upper cap */
+  gradeCap: number;
+  /** 누적 원 positionPct (raw Kelly × account scale × section × tier 까지 반영된 값) */
+  rawKelly: number;
+  /** min(rawKelly, gradeCap) — 최종 effective Kelly */
+  effectiveKelly: number;
+  /** grade cap 에 의해 절단되었는가 */
+  wasCapped: boolean;
+}
+
+/**
+ * Idea 7 안A — tier/grade 를 직교 축으로 조합하는 정규 API.
+ * signalScanner 의 기존 computeRiskAdjustedSize 경로와 결과는 동형 (회귀 방어).
+ */
+export function composeEffectiveKelly(
+  tier: SizingTier,
+  grade: 'STRONG_BUY' | 'BUY' | 'HOLD' | 'PROBING',
+  rawKelly: number,
+): TierGradeComposition {
+  const tierFactor = TIER_KELLY_FACTOR[tier];
+  const gradeCap   = GRADE_UPPER_CAP[grade];
+  const safeRaw = Math.max(0, rawKelly);
+  const wasCapped = safeRaw > gradeCap;
+  const effectiveKelly = Math.min(safeRaw, gradeCap);
+  return { tierFactor, gradeCap, rawKelly: safeRaw, effectiveKelly, wasCapped };
+}
