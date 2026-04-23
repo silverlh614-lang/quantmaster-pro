@@ -15,7 +15,7 @@
  */
 
 import type { GoogleGenAI } from '@google/genai';
-import { getGeminiClient, callGemini } from '../clients/geminiClient.js';
+import { getGeminiClient, callGemini, callGeminiText } from '../clients/geminiClient.js';
 
 export type ProviderName = 'gemini' | 'openai' | 'groq' | 'self-hosted';
 
@@ -49,20 +49,27 @@ class GeminiProvider implements AiProvider {
     if (!opts || (opts.temperature === undefined && opts.maxOutputTokens === undefined)) {
       return callGemini(prompt, opts?.caller ?? 'aiProvider');
     }
+    return callGeminiText(prompt, {
+      caller: opts.caller ?? 'aiProvider',
+      model: 'gemini-2.5-flash',
+      temperature: opts.temperature ?? 0.4,
+      maxOutputTokens: opts.maxOutputTokens ?? 2048,
+      prependPersona: true,
+    });
     // 옵션 커스터마이징이 필요한 경우 직접 호출.
-    const ai: GoogleGenAI | null = getGeminiClient();
+    const ai: GoogleGenAI = getGeminiClient() as GoogleGenAI;
     if (!ai) return null;
     try {
       const res = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
-          temperature: opts.temperature ?? 0.4,
-          maxOutputTokens: opts.maxOutputTokens ?? 2048,
+          temperature: opts?.temperature ?? 0.4,
+          maxOutputTokens: opts?.maxOutputTokens ?? 2048,
         },
       });
       return res.text ?? null;
-    } catch (e) {
+    } catch (e: any) {
       console.error(`[AiProvider/Gemini] textOnly 실패:`, e instanceof Error ? e.message : e);
       return null;
     }

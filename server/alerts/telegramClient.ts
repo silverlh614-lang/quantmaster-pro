@@ -15,6 +15,7 @@ export async function setTelegramBotCommands(): Promise<void> {
     { command: 'market',    description: '시장상황 요약 레포트' },
     { command: 'regime',    description: '매크로 레짐 + MHS + VKOSPI 현황' },
     { command: 'health',    description: '파이프라인 헬스체크 (KIS/스캐너/토큰)' },
+    { command: 'ai_status', description: 'Gemini 예산/서킷/최근 실패 사유 조회' },
     // ── 워치리스트/포지션 ────────────────────────────────────────────────────
     { command: 'watchlist', description: '워치리스트 조회' },
     { command: 'focus',     description: 'Track B 매수 대상 상세 조회' },
@@ -29,6 +30,8 @@ export async function setTelegramBotCommands(): Promise<void> {
     { command: 'buy',       description: '수동 매수 신호 (예: /buy 005930)' },
     { command: 'scan',      description: '장중 강제 스캔 트리거' },
     { command: 'krx_scan',  description: 'KRX 종목조회 강제 재스캔 (Stage1+2+3)' },
+    { command: 'reconcile', description: '서버 실데이터 기준 수량/상태 동기화' },
+    { command: 'scheduler', description: '등록된 스케줄러 시간표 조회' },
     { command: 'cancel',    description: '종목 미체결 주문 취소 (예: /cancel 005380)' },
     { command: 'report',    description: '일일 리포트 생성' },
     // ── 제어 ─────────────────────────────────────────────────────────────────

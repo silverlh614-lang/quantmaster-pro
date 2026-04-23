@@ -41,6 +41,7 @@ import { _resetKrxOpenApiBreaker, getKrxOpenApiStatus, resetKrxOpenApiCache } fr
 import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/reportGenerator.js';
 import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, getRealDataTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder } from '../clients/kisClient.js';
 import { MAX_SUBSCRIPTIONS, getStreamStatus, startKisStream, stopKisStream, getRealtimePrice } from '../clients/kisStreamClient.js';
+import { getBudgetState, getGeminiCircuitStats, getGeminiRuntimeState } from '../clients/geminiClient.js';
 import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { verifyVolumeMount } from '../persistence/paths.js';
 import { STOCK_UNIVERSE } from '../screener/stockScreener.js';
@@ -52,6 +53,7 @@ import { reconcileShadowQuantities } from '../persistence/shadowAccountRepo.js';
 import { handleBuyApprovalCallback } from './buyApproval.js';
 import { handleOperatorOverrideCallback } from './operatorOverride.js';
 import { handleT1AckCallback } from '../alerts/ackTracker.js';
+import { formatSchedulerSummary } from '../scheduler/scheduleCatalog.js';
 
 export async function handleTelegramWebhook(req: Request, res: Response): Promise<void> {
   res.sendStatus(200); // Telegram에 즉시 200 응답 (재전송 방지)
@@ -125,12 +127,14 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /pnl — 실시간 포지션별 손익\n` +
           `  /regime — 매크로 레짐 현황\n` +
           `  /health — 파이프라인 헬스체크 (KIS/스캐너/토큰)\n` +
+          `  /ai_status — Gemini 예산/서킷/최근 실패 사유 조회\n` +
           `  /refresh_token — KIS 토큰 강제 갱신\n\n` +
           `📈 <b>매매</b>\n` +
           `  /buy <code>종목코드</code> — 수동 매수 신호\n` +
           `  /sell <code>종목코드</code> — 포지션 전량 시장가 매도\n` +
           `  /adjust_qty <code>종목코드</code> <code>수량</code> [메모] — 장부 수량 수동 보정 (실계좌 대비 drift 교정)\n` +
-          `  /reconcile_qty — Railway 서버 장부 기준 수량/상태 강제 동기화\n` +
+          `  /reconcile — Railway 서버 장부 기준 수량/상태 강제 동기화\n` +
+          `  /scheduler — 등록된 스케줄러 시간표 조회\n` +
           `  /scan — 장중 강제 스캔 트리거\n` +
           `  /krx_scan — KRX 종목조회 강제 재스캔 (Stage1+2+3)\n` +
           `  /cancel <code>종목코드</code> — 미체결 주문 취소\n` +
@@ -612,6 +616,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         break;
       }
 
+      case '/reconcile':
       case '/reconcile_qty': {
         await reply('🔄 Railway 서버 장부 기준 수량/상태 재조정 실행 중...');
 
@@ -636,6 +641,11 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           console.error('[TelegramBot] /reconcile_qty 실패:', e);
           await reply('❌ 수량 강제 동기화 실패 — 서버 로그를 확인하세요.');
         }
+        break;
+      }
+
+      case '/scheduler': {
+        await reply(formatSchedulerSummary());
         break;
       }
 
@@ -1149,6 +1159,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           : '없음';
         const scanSummary   = getLastScanSummary();
         const activeTrades  = shadows.filter(s => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0).length;
+        const geminiRuntime = getGeminiRuntimeState();
         const yahooStatus   = !scanSummary || scanSummary.candidates === 0 ? 'UNKNOWN'
           : scanSummary.yahooFails === scanSummary.candidates ? 'DOWN'
           : scanSummary.yahooFails > scanSummary.candidates * 0.5 ? 'DEGRADED'
@@ -1201,6 +1212,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           (realDataHours > 0 ? ` | 실데이터: ✅ ${realDataHours}h` : '') + `\n` +
           `Yahoo probe: ${probeLabel(yahooProbe)}\n` +
           `DART probe: ${probeLabel(dartProbe)}\n` +
+          `Gemini: ${geminiRuntime.status}${geminiRuntime.reason ? ` (${geminiRuntime.reason})` : ''}\n` +
           `Volume: ${volumeCheck.ok ? '✅ 마운트됨' : `❌ ${volumeCheck.error ?? '미마운트'}`}\n` +
           `Yahoo 집계: ${yahooStatus === 'OK' ? '✅' : yahooStatus === 'DEGRADED' ? '⚠️ 부분장애' : yahooStatus === 'DOWN' ? '❌ 불가' : '?'}\n` +
           `마지막 스캔: ${lastScanAt} | 마지막 신호: ${lastBuyAt}\n` +
@@ -1209,6 +1221,22 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `실시간호가: ${ss.connected ? `✅ ${ss.subscribedCount}종목` : '❌ 미연결'}\n` +
           `─────────────────────\n` +
           `<i>/refresh_token — KIS 토큰 강제 갱신</i>`
+        );
+        break;
+      }
+
+      case '/ai_status': {
+        const budget = getBudgetState();
+        const circuit = getGeminiCircuitStats();
+        const runtime = getGeminiRuntimeState();
+        await reply(
+          `🤖 <b>[AI 상태]</b>\n` +
+          `런타임: ${runtime.status}${runtime.reason ? ` (${runtime.reason})` : ''}\n` +
+          `호출처: ${runtime.caller ?? '-'}\n` +
+          `최근시각: ${runtime.updatedAt ?? '-'}\n` +
+          `서킷: ${circuit.state} (실패 ${circuit.failures}회)\n` +
+          `예산: $${budget.spentUsd.toFixed(2)} / $${budget.budgetUsd.toFixed(2)} (${budget.pctUsed.toFixed(1)}%)\n` +
+          `차단: ${budget.blocked ? 'ON' : 'OFF'}`
         );
         break;
       }

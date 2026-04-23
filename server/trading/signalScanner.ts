@@ -34,6 +34,7 @@ import { loadIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import {
   type ServerShadowTrade,
+  getRemainingQty,
   loadShadowTrades, saveShadowTrades,
 } from '../persistence/shadowTradeRepo.js';
 import { isBlacklisted } from '../persistence/blacklistRepo.js';
@@ -151,6 +152,7 @@ export {
   evaluateEntryRevalidation,
   regimeToStopRegime,
 } from './entryEngine.js';
+export { getRemainingQty } from '../persistence/shadowTradeRepo.js';
 
 // ── 스캔 진단 상태 (파이프라인 헬스체크 · 침묵 실패 탐지용) ─────────────────────
 export interface ScanSummary {
@@ -173,6 +175,46 @@ let _lastScanSummary: ScanSummary | null = null;
 export function getLastBuySignalAt(): number    { return _lastBuySignalAt; }
 export function getLastScanSummary(): ScanSummary | null { return _lastScanSummary; }
 export function getConsecutiveZeroScans(): number { return _consecutiveZeroScans; }
+
+function getAccountScaleKellyMultiplier(totalAssets: number): number {
+  if (totalAssets >= 300_000_000) return 1.15;
+  if (totalAssets >= 100_000_000) return 1.08;
+  if (totalAssets <= 20_000_000) return 0.92;
+  return 1.0;
+}
+
+function getAdaptiveProfitTargets(
+  regime: keyof typeof PROFIT_TARGETS,
+  macroState: MacroState | null,
+): { targets: typeof PROFIT_TARGETS[typeof regime]; trailPctAdjust: number; reason: string } {
+  const vix = macroState?.vix ?? null;
+  const mhs = macroState?.mhs ?? null;
+  let triggerAdjust = 0;
+  let trailPctAdjust = 0;
+  let reason = '기본';
+
+  if ((mhs != null && mhs >= 70) || (vix != null && vix <= 18) || regime === 'R1_TURBO' || regime === 'R2_BULL') {
+    triggerAdjust = 0.02;
+    trailPctAdjust = 0.02;
+    reason = 'risk-on 확장';
+  } else if ((mhs != null && mhs <= 45) || (vix != null && vix >= 24) || regime === 'R5_CAUTION' || regime === 'R6_DEFENSE') {
+    triggerAdjust = -0.02;
+    trailPctAdjust = -0.02;
+    reason = 'risk-off 보수화';
+  }
+
+  return {
+    targets: PROFIT_TARGETS[regime].map((target) => {
+      if (target.type !== 'LIMIT' || target.trigger == null) return target;
+      return {
+        ...target,
+        trigger: Math.max(0.03, Number((target.trigger + triggerAdjust).toFixed(3))),
+      };
+    }),
+    trailPctAdjust,
+    reason,
+  };
+}
 
 /**
  * 아이디어 1: 장중 자동 신호 스캔
@@ -359,9 +401,10 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // 최소 하한선 0.15 — 누적 패널티가 과도하게 쌓여 포지션이 의미 없이 작아지는 것을 방지
   const KELLY_FLOOR = 0.15;
   const ipsKelly = getIpsKellyMultiplier();
+  const accountKellyMultiplier = getAccountScaleKellyMultiplier(totalAssets);
   // Phase 2-③: SELL_ONLY 예외 채널 진입 시 Kelly ×0.5 (kellyFactor) 추가 감쇠
   const exceptionKellyFactor = sellOnlyExc.allow ? sellOnlyExc.kellyFactor : 1;
-  const rawKelly = regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier * ipsKelly * exceptionKellyFactor;
+  const rawKelly = regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier;
   const kellyMultiplier = Math.min(
     1.5,  // 상한 캡 (POST 부스트 구간에서도 최대 1.5배)
     Math.max(KELLY_FLOOR, rawKelly),
@@ -380,7 +423,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     console.log(
       `[AutoTrade] Kelly 배율 분해: 레짐 ${regime}(×${regimeConfig.kellyMultiplier}) × ` +
       `VIX(×${vixGating.kellyMultiplier.toFixed(2)}) × FOMC(×${fomcProximity.kellyMultiplier.toFixed(2)}) ` +
-      `= raw ×${rawKelly.toFixed(3)}${rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}` : ''} → 유효 ×${kellyMultiplier.toFixed(2)}`,
+      `× 계좌(×${accountKellyMultiplier.toFixed(2)}) = raw ×${rawKelly.toFixed(3)}` +
+      `${rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}` : ''} → 유효 ×${kellyMultiplier.toFixed(2)}`,
     );
   }
 
@@ -552,6 +596,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             const { quantity: fullQty } = calculateOrderQuantity({
               totalAssets, orderableCash, positionPct: posPctFollow,
               price: followEntryPrice, remainingSlots: remSlots,
+              accountKellyMultiplier,
             });
             const followQty = Math.max(1, Math.ceil(fullQty * 0.7));
             const profile    = stock.profileType ?? 'B';
@@ -561,15 +606,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             const stopLossPlan = buildStopLossPlan({
               entryPrice: followEntryPrice, fixedStopLoss: stock.stopLoss, regimeStopRate, atr14: followATR14, regime,
             });
-            const limitTranches = PROFIT_TARGETS[regime].filter(t => t.type === 'LIMIT' && t.trigger !== null);
-            const trailTarget   = PROFIT_TARGETS[regime].find(t => t.type === 'TRAILING');
+            const adaptiveFollowProfitTargets = getAdaptiveProfitTargets(regime, macroState);
+            const limitTranches = adaptiveFollowProfitTargets.targets.filter(t => t.type === 'LIMIT' && t.trigger !== null);
+            const trailTarget   = adaptiveFollowProfitTargets.targets.find(t => t.type === 'TRAILING');
             const followTrade = buildBuyTrade({
               idPrefix: 'srv_pbf', stockCode: stock.code, stockName: stock.name,
               currentPrice, shadowEntryPrice: followEntryPrice, quantity: followQty,
               stopLossPlan, targetPrice: stock.targetPrice, shadowMode, regime,
               profileType: profile, watchlistSource: 'PRE_BREAKOUT_FOLLOWTHROUGH',
               profitTranches: limitTranches.map(t => ({ price: followEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false })),
-              trailPct: trailTarget?.trailPct ?? 0.10, entryATR14: followATR14,
+              trailPct: Math.max(0.05, Math.min(0.14, (trailTarget?.trailPct ?? 0.10) + adaptiveFollowProfitTargets.trailPctAdjust)), entryATR14: followATR14,
             });
 
             shadows.push(followTrade);
@@ -683,6 +729,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               const { quantity: fullPbQty } = calculateOrderQuantity({
                 totalAssets, orderableCash, positionPct: posPctPb,
                 price: pbEntryPrice, remainingSlots: remSlotsPb,
+                accountKellyMultiplier,
               });
               const pbQty = Math.max(1, Math.floor(fullPbQty * 0.3)); // 30% 선취매
 
@@ -694,15 +741,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
                 const stopLossPlanPb = buildStopLossPlan({
                   entryPrice: pbEntryPrice, fixedStopLoss: stock.stopLoss, regimeStopRate: regimeStopRatePb, atr14: pbATR14, regime,
                 });
-                const limitTranchesPb = PROFIT_TARGETS[regime].filter(t => t.type === 'LIMIT' && t.trigger !== null);
-                const trailTargetPb   = PROFIT_TARGETS[regime].find(t => t.type === 'TRAILING');
+                const adaptivePreBreakoutTargets = getAdaptiveProfitTargets(regime, macroState);
+                const limitTranchesPb = adaptivePreBreakoutTargets.targets.filter(t => t.type === 'LIMIT' && t.trigger !== null);
+                const trailTargetPb   = adaptivePreBreakoutTargets.targets.find(t => t.type === 'TRAILING');
                 const pbTrade = buildBuyTrade({
                   idPrefix: 'srv_pb', stockCode: stock.code, stockName: stock.name,
                   currentPrice, shadowEntryPrice: pbEntryPrice, quantity: pbQty, originalQuantity: fullPbQty,
                   stopLossPlan: stopLossPlanPb, targetPrice: stock.targetPrice, shadowMode, regime,
                   profileType: profilePb, watchlistSource: 'PRE_BREAKOUT',
                   profitTranches: limitTranchesPb.map(t => ({ price: pbEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false })),
-                  trailPct: trailTargetPb?.trailPct ?? 0.10, entryATR14: pbATR14,
+                  trailPct: Math.max(0.05, Math.min(0.14, (trailTargetPb?.trailPct ?? 0.10) + adaptivePreBreakoutTargets.trailPctAdjust)), entryATR14: pbATR14,
                 });
 
                 shadows.push(pbTrade);
@@ -1075,6 +1123,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         positionPct,
         price: shadowEntryPrice,
         remainingSlots,
+        accountKellyMultiplier,
       });
 
       if (quantity < 1) continue;
@@ -1097,8 +1146,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       });
 
       // L3 분할 익절 타겟 — PROFIT_TARGETS[regime]에서 LIMIT 트랜치 추출
-      const limitTranches = PROFIT_TARGETS[regime].filter((t) => t.type === 'LIMIT' && t.trigger !== null);
-      const trailTarget = PROFIT_TARGETS[regime].find((t) => t.type === 'TRAILING');
+      const adaptiveProfitTargets = getAdaptiveProfitTargets(regime, macroState);
+      const limitTranches = adaptiveProfitTargets.targets.filter((t) => t.type === 'LIMIT' && t.trigger !== null);
+      const trailTarget = adaptiveProfitTargets.targets.find((t) => t.type === 'TRAILING');
 
       const trade = buildBuyTrade({
         idPrefix: 'srv', stockCode: stock.code, stockName: stock.name,
@@ -1108,7 +1158,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         profitTranches: limitTranches.map((t) => ({
           price: shadowEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false,
         })),
-        trailPct: trailTarget?.trailPct ?? 0.10, entryATR14,
+        trailPct: Math.max(0.05, Math.min(0.14, (trailTarget?.trailPct ?? 0.10) + adaptiveProfitTargets.trailPctAdjust)), entryATR14,
       });
 
       addRecommendation({
@@ -1296,6 +1346,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             positionPct,
             price: shadowEntryPrice,
             remainingSlots,
+            accountKellyMultiplier,
           });
 
           if (quantity < 1) continue;

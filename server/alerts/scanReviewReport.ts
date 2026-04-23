@@ -14,6 +14,7 @@ import { loadWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { sendTelegramBroadcast } from './telegramClient.js';
 import { CHANNEL_SEPARATOR, channelHeader, kstMMDD } from './channelFormatter.js';
+import { getRemainingQty, isOpenShadowStatus } from '../trading/signalScanner.js';
 
 // ── 탈락 이유 라벨 매핑 ─────────────────────────────────────────────────────────
 // scanTracer.stages.<stageKey> 에 저장된 FAIL(reason) 토큰을 사람이 읽을 수 있는 한국어로 번역.
@@ -49,10 +50,11 @@ function labelReason(stage: string, reason: string): string {
  * SWING + CATALYST 섹션에서 gateScore 상위 N개를 내일 진입 대기 후보로 제시.
  * MOMENTUM 은 관찰 전용이므로 제외.
  */
-function pickTomorrowCandidates(watchlist: WatchlistEntry[], n = 5): WatchlistEntry[] {
+function pickTomorrowCandidates(watchlist: WatchlistEntry[], excludedCodes: Set<string>, n = 5): WatchlistEntry[] {
   return watchlist
     .filter(w => w.section === 'SWING' || w.section === 'CATALYST'
               || (!w.section && (w.track === 'B' || w.addedBy === 'MANUAL' || w.addedBy === 'DART')))
+    .filter(w => !excludedCodes.has(w.code))
     .sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0))
     .slice(0, n);
 }
@@ -124,11 +126,16 @@ export async function sendScanReviewReport(): Promise<void> {
     }
 
     const summary = summarizeScanTraces(traces);
-    const watchlist = loadWatchlist();
-    const tomorrowCandidates = pickTomorrowCandidates(watchlist, 5);
-
     const today = new Date().toISOString().split('T')[0];
-    const todayTrades = loadShadowTrades().filter(s => s.signalTime.startsWith(today));
+    const trades = loadShadowTrades();
+    const excludedCodes = new Set(
+      trades
+        .filter((s) => (isOpenShadowStatus(s.status) && getRemainingQty(s) > 0) || s.signalTime.startsWith(today))
+        .map((s) => s.stockCode),
+    );
+    const watchlist = loadWatchlist();
+    const tomorrowCandidates = pickTomorrowCandidates(watchlist, excludedCodes, 5);
+    const todayTrades = trades.filter(s => s.signalTime.startsWith(today));
     const closed = todayTrades.filter(s => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP');
     const wins = closed.filter(s => s.status === 'HIT_TARGET');
 

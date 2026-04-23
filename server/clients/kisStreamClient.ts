@@ -16,6 +16,10 @@
 import WebSocket from 'ws';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 
+interface StreamMessageEvent { data: string | Buffer | ArrayBuffer | Buffer[]; }
+interface StreamErrorEvent { error?: { message?: string; code?: string | number }; message?: string; }
+interface StreamCloseEvent { code: number; reason: string; wasClean: boolean; }
+
 // ─── 인메모리 실시간 가격 맵 ─────────────────────────────────────────────────
 
 interface RealtimeQuote {
@@ -61,7 +65,7 @@ export function getPriceMapSnapshot(): Record<string, RealtimeQuote> {
 
 // ─── WebSocket 연결 관리 ─────────────────────────────────────────────────────
 
-let _ws: WebSocket | null = null;
+let _ws: any = null;
 let _approvalKey: string | null = null;
 let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -350,7 +354,7 @@ async function connectWebSocket(): Promise<void> {
       _lastPongAt = Date.now();
     });
 
-    _ws.onmessage = (event) => {
+    _ws.onmessage = (event: any) => {
       const msg = typeof event.data === 'string' ? event.data : '';
       // KIS 서버 주도 PINGPONG: 반드시 '{"header"' 필터보다 먼저 처리한다.
       // 서버가 push 한 {"header":{"tr_id":"PINGPONG",...}} 를 그대로 되돌려주지
@@ -382,7 +386,7 @@ async function connectWebSocket(): Promise<void> {
       }
     };
 
-    _ws.onclose = (event) => {
+    _ws.onclose = (event: any) => {
       logStreamEvent('CLOSE', `code=${event.code}, reason=${event.reason || '(없음)'}, wasClean=${event.wasClean}`);
       _isConnecting = false;
       _ws = null;

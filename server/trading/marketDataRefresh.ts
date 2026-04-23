@@ -44,8 +44,10 @@ async function fetchFred(series: string): Promise<number | null> {
     if (!r.ok) return null;
     const data: { observations?: Array<{ value: string }> } = await r.json();
     const obs  = data?.observations ?? [];
-    const valid = obs.find(o => o.value && o.value !== '.');
-    return valid ? parseFloat(valid.value) : null;
+    for (const row of obs) {
+      if (row.value && row.value !== '.') return parseFloat(row.value);
+    }
+    return null;
   } catch { return null; }
 }
 
@@ -119,7 +121,7 @@ export interface DailyBar {
   close: number;
 }
 
-async function fetchDailyBars(symbol: string, range: string): Promise<DailyBar[] | null> {
+export async function fetchDailyBars(symbol: string, range: string): Promise<DailyBar[] | null> {
   const urls = [
     `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`,
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`,

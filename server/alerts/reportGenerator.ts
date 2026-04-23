@@ -16,6 +16,7 @@ import { evaluateServerGate } from '../quantFilter.js';
 import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { analyzeAttribution } from '../learning/attributionAnalyzer.js';
 import { loadTomorrowPriming } from '../persistence/reflectionRepo.js';
+import { getRemainingQty, isOpenShadowStatus } from '../trading/signalScanner.js';
 // scanTracer 요약은 scanReviewReport.ts(16:40) 로 이관되어 이 파일에서는 더 이상 직접 사용하지 않는다.
 
 /**
@@ -234,6 +235,11 @@ export async function generateWeeklyReport(): Promise<void> {
  */
 export async function sendWatchlistBriefing(): Promise<void> {
   const list = loadWatchlist();
+  const openCodes = new Set(
+    loadShadowTrades()
+      .filter((s) => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0)
+      .map((s) => s.stockCode),
+  );
   const macro = loadMacroState();
   const regime = getLiveRegime(macro);
   const fomc = getFomcProximity();
@@ -264,6 +270,11 @@ export async function sendWatchlistBriefing(): Promise<void> {
     msg += `<b>워치리스트 ${list.length}종목</b>\n`;
     const topItems = list.slice(0, 8);
     for (const w of topItems) {
+      if (openCodes.has(w.code)) {
+        const focusMark = w.isFocus ? '★ ' : '• ';
+        msg += `${focusMark}${w.name}  보유중 · 대기목록 제외\n`;
+        continue;
+      }
       // Yahoo 시세 조회하여 CS, Gap 판단
       const quote =
         (await fetchYahooQuote(`${w.code}.KS`).catch(() => null)) ??

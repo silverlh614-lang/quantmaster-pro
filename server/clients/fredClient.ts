@@ -1,6 +1,6 @@
 const FRED_BASE = process.env.FRED_API_BASE ?? 'https://api.stlouisfed.org';
 const FRED_DISABLED = process.env.FRED_API_DISABLED === 'true';
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 8_000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_FETCH_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 2_000;
@@ -11,6 +11,12 @@ interface CacheEntry<T> {
 }
 
 const _cache = new Map<string, CacheEntry<unknown>>();
+const _staleCache = new Map<string, unknown>();
+
+export function resetFredCache(): void {
+  _cache.clear();
+  _staleCache.clear();
+}
 
 function getCached<T>(key: string): { hit: boolean; data: T | null } {
   const hit = _cache.get(key);
@@ -20,6 +26,11 @@ function getCached<T>(key: string): { hit: boolean; data: T | null } {
 
 function setCached<T>(key: string, data: T): void {
   _cache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+  if (data !== null) _staleCache.set(key, data);
+}
+
+function getStale<T>(key: string): T | null {
+  return (_staleCache.get(key) as T | undefined) ?? null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -86,7 +97,12 @@ export async function fetchFredLatest(seriesId: string): Promise<number | null> 
         continue;
       }
 
-      console.warn(`${tag} ${seriesId}: ${message}`);
+      const stale = getStale<number>(seriesId);
+      console.warn(`${tag} ${seriesId}: ${message}${stale !== null ? ' (using stale cache)' : ''}`);
+      if (stale !== null) {
+        _cache.set(seriesId, { data: stale, expiresAt: Date.now() + 60_000 });
+        return stale;
+      }
       setCached(seriesId, null);
       return null;
     } finally {
@@ -94,6 +110,11 @@ export async function fetchFredLatest(seriesId: string): Promise<number | null> 
     }
   }
 
+  const stale = getStale<number>(seriesId);
+  if (stale !== null) {
+    _cache.set(seriesId, { data: stale, expiresAt: Date.now() + 60_000 });
+    return stale;
+  }
   setCached(seriesId, null);
   return null;
 }

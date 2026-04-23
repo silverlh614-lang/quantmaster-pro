@@ -192,13 +192,14 @@ export interface PositionSizingInput {
   positionPct: number;
   price: number;
   remainingSlots: number;
+  accountKellyMultiplier?: number;
 }
 
 export function calculateOrderQuantity(input: PositionSizingInput): { quantity: number; effectiveBudget: number } {
   if (input.price <= 0 || input.remainingSlots <= 0 || input.orderableCash <= 0) {
     return { quantity: 0, effectiveBudget: 0 };
   }
-  const targetBudget = Math.max(0, input.totalAssets * input.positionPct);
+  const targetBudget = Math.max(0, input.totalAssets * input.positionPct * (input.accountKellyMultiplier ?? 1));
   const slotBudget = input.orderableCash / input.remainingSlots;
   const effectiveBudget = Math.max(0, Math.min(input.orderableCash, targetBudget, slotBudget));
   return {

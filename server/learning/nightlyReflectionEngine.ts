@@ -68,6 +68,7 @@ import {
 } from '../persistence/reflectionRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { getGeminiRuntimeState } from '../clients/geminiClient.js';
 
 export interface RunReflectionOptions {
   /** 기준 시각 (테스트 주입용). 기본값: Date.now() */
@@ -183,6 +184,7 @@ function buildTemplateReport(
   inputs: ReflectionInputs,
   reason: 'SILENCE_MONDAY' | 'TEMPLATE_ONLY' | 'GEMINI_FALLBACK' = 'TEMPLATE_ONLY',
 ): ReflectionReport {
+  const geminiRuntime = getGeminiRuntimeState();
   const dailyVerdict =
     inputs.closedTrades.length === 0 && inputs.incidentsToday.length === 0 ? 'SILENT' : 'MIXED';
 
@@ -205,6 +207,8 @@ function buildTemplateReport(
       sourceIds: [SYSTEM_SOURCE.fallback],
     });
     inputs.knownSourceIds.add(SYSTEM_SOURCE.fallback);
+    keyLessons[keyLessons.length - 1].text =
+      `Gemini 응답 실패${geminiRuntime.reason ? ` (${geminiRuntime.reason})` : ''} — 템플릿 fallback 으로 하루 리포트 보존.`;
   }
 
   return {

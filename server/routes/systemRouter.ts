@@ -12,7 +12,7 @@ import {
 import { cancelAllPendingOrders, checkDailyLossLimit } from '../emergency.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { handleTelegramWebhook } from '../telegram/webhookHandler.js';
-import { getApiUsageStats, getGeminiCircuitStats, getBudgetState } from '../clients/geminiClient.js';
+import { getApiUsageStats, getGeminiCircuitStats, getGeminiRuntimeState, getBudgetState } from '../clients/geminiClient.js';
 import { getDartCircuitStats } from '../clients/dartFinancialClient.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { computeFocusCodes } from '../screener/watchlistManager.js';
@@ -59,6 +59,7 @@ router.get('/health', (_req: Request, res: Response) => {
       gemini: getGeminiCircuitStats(),
       dart: getDartCircuitStats(),
     },
+    geminiRuntime: getGeminiRuntimeState(),
   });
 });
 

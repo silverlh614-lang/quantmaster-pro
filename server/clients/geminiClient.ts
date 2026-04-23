@@ -34,6 +34,14 @@ function withPersona(prompt: string): string {
 const MONTHLY_BUDGET_USD = parseFloat(process.env.MONTHLY_AI_BUDGET_USD ?? '10000');
 const TOKEN_PRICE_USD_PER_M = parseFloat(process.env.AI_TOKEN_PRICE_USD_PER_M ?? '1.40');
 
+export interface GeminiRuntimeState {
+  status: 'IDLE' | 'SUCCESS' | 'FAILED' | 'BLOCKED';
+  label: string | null;
+  caller: string | null;
+  reason: string | null;
+  updatedAt: string | null;
+}
+
 interface BudgetState {
   yyyymm: string;          // 'YYYY-MM' — 월 변경 시 자동 리셋
   totalTokens: number;     // 누적 토큰 (input+output)
@@ -48,6 +56,29 @@ let _budgetState: BudgetState = {
   warned: false,
   blocked: false,
 };
+
+let _runtimeState: GeminiRuntimeState = {
+  status: 'IDLE',
+  label: null,
+  caller: null,
+  reason: null,
+  updatedAt: null,
+};
+
+function setRuntimeState(
+  status: GeminiRuntimeState['status'],
+  label: string,
+  caller: string,
+  reason: string | null = null,
+): void {
+  _runtimeState = {
+    status,
+    label,
+    caller,
+    reason,
+    updatedAt: new Date().toISOString(),
+  };
+}
 
 function resetIfNewMonth(): void {
   const yyyymm = new Date().toISOString().slice(0, 7);
@@ -152,6 +183,7 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T | nu
     } catch (e) {
       lastErr = e;
       if (e instanceof CircuitOpenError) {
+        setRuntimeState('BLOCKED', label, label, 'CIRCUIT_OPEN');
         console.warn(`[Gemini] ${label} 서킷 OPEN — 즉시 null 반환 (${e.retryAfterMs}ms 후 회복)`);
         return null;
       }
@@ -162,11 +194,16 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T | nu
     }
   }
   console.error(`[Gemini] ${label} 최종 실패:`, lastErr instanceof Error ? lastErr.message : lastErr);
+  setRuntimeState('FAILED', label, label, lastErr instanceof Error ? lastErr.message : String(lastErr));
   return null;
 }
 
 export function getGeminiCircuitStats() {
   return _cb.getStats();
+}
+
+export function getGeminiRuntimeState(): GeminiRuntimeState {
+  return { ..._runtimeState };
 }
 
 // ── 일별 호출 카운터 ───────────────────────────────────────────────────────────
@@ -199,13 +236,65 @@ export function getGeminiClient(): GoogleGenAI | null {
   return new GoogleGenAI({ apiKey: key });
 }
 
+export interface GeminiTextOptions {
+  caller?: string;
+  model?: string;
+  temperature?: number;
+  maxOutputTokens?: number;
+  useSearch?: boolean;
+  prependPersona?: boolean;
+}
+
+export async function callGeminiText(prompt: string, opts: GeminiTextOptions = {}): Promise<string | null> {
+  const ai = getGeminiClient() as GoogleGenAI;
+  const caller = opts.caller ?? 'unknown';
+  const label = `callGeminiText[${caller}]`;
+  if (!ai) {
+    console.warn('[Gemini] API 키 미설정으로 AI 기능 비활성화');
+    setRuntimeState('BLOCKED', label, caller, 'MISSING_API_KEY');
+    return null;
+  }
+  if (isBudgetBlocked()) {
+    console.warn(`[Gemini] 월예산 HARD_BLOCK 상태로 ${label} 호출 차단`);
+    setRuntimeState('BLOCKED', label, caller, 'BUDGET_BLOCKED');
+    return null;
+  }
+  return withRetry(label, async () => {
+    const res = await ai.models.generateContent({
+      model: opts.model ?? AI_MODELS.SERVER_SIDE,
+      contents: opts.prependPersona === false ? prompt : withPersona(prompt),
+      config: {
+        temperature: opts.temperature ?? 0.4,
+        maxOutputTokens: opts.maxOutputTokens ?? 2048,
+        ...(opts.useSearch ? { tools: [{ googleSearch: {} }] } : {}),
+      } as Parameters<typeof ai.models.generateContent>[0]['config'],
+    });
+    const tokens = (res as { usageMetadata?: { totalTokenCount?: number } })
+      .usageMetadata?.totalTokenCount ?? 0;
+    recordCall(caller, tokens);
+    const text = res.text ?? null;
+    if (!text) {
+      setRuntimeState('FAILED', label, caller, 'EMPTY_RESPONSE');
+      return null;
+    }
+    setRuntimeState('SUCCESS', label, caller, null);
+    return text;
+  });
+}
+
 /**
  * Gemini Flash 간단 호출 (서버사이드 전용, googleSearch 없음 — 비용 절감).
  * @param prompt 프롬프트
  * @param caller 호출처 식별자 (사용량 추적용, 예: 'dart-fast' / 'global-scan')
  */
 export async function callGemini(prompt: string, caller = 'unknown'): Promise<string | null> {
-  const ai = getGeminiClient();
+  return callGeminiText(prompt, {
+    caller,
+    model: AI_MODELS.SERVER_SIDE,
+    temperature: 0.4,
+    maxOutputTokens: 2048,
+  });
+  const ai = getGeminiClient() as GoogleGenAI;
   if (!ai) {
     console.warn('[Gemini] API 키 미설정 — AI 기능 비활성화');
     return null;
@@ -249,7 +338,20 @@ export async function callGeminiInterpret(
   instruction: string,
   caller = 'interpret',
 ): Promise<string | null> {
-  const ai = getGeminiClient();
+  return callGeminiText(
+    INTERPRET_PREAMBLE + '\n' +
+    '[?ъ쟾 ?섏쭛 ?ㅻ뜲?댄꽣]\n' +
+    prefetchedContext.trim() + '\n' +
+    '\n[?댁꽍 吏??\n' +
+    instruction.trim(),
+    {
+      caller,
+      model: AI_MODELS.SERVER_SIDE,
+      temperature: 0.2,
+      maxOutputTokens: 1536,
+    },
+  );
+  const ai = getGeminiClient() as GoogleGenAI;
   if (!ai) {
     console.warn('[Gemini] API 키 미설정 — 해석 기능 비활성화');
     return null;
@@ -283,7 +385,14 @@ export async function callGeminiInterpret(
  * 실시간 웹 검색 결과를 바탕으로 응답 — 비용이 높으므로 1일 1회만 사용.
  */
 export async function callGeminiWithSearch(prompt: string, caller = 'search'): Promise<string | null> {
-  const ai = getGeminiClient();
+  return callGeminiText(prompt, {
+    caller,
+    model: SEARCH_MODEL,
+    temperature: 0.2,
+    maxOutputTokens: 2048,
+    useSearch: true,
+  });
+  const ai = getGeminiClient() as GoogleGenAI;
   if (!ai) {
     console.warn('[Gemini] API 키 미설정 — 검색 기능 비활성화');
     return null;

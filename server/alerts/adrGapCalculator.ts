@@ -23,7 +23,7 @@
  */
 
 import fs from 'fs';
-import { fetchLatestBar } from '../trading/marketDataRefresh.js';
+import { fetchDailyBars, type DailyBar } from '../trading/marketDataRefresh.js';
 import { sendTelegramBroadcast } from './telegramClient.js';
 import { ADR_GAP_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { logNewsSupplyEvent } from '../learning/newsSupplyLogger.js';
@@ -123,7 +123,8 @@ async function fetchFreshClose(
   label: string,
   maxAgeDays = MAX_BAR_STALENESS_DAYS,
 ): Promise<number | null> {
-  const bar = await fetchLatestBar(symbol).catch(() => null);
+  const bars = await fetchDailyBars(symbol, '15d').catch(() => null);
+  const bar = bars?.[bars.length - 1] ?? null;
   if (!bar) {
     console.warn(`[AdrGap] ${label} ${symbol}: 바 조회 실패`);
     return null;
@@ -139,14 +140,55 @@ async function fetchFreshClose(
   return bar.close;
 }
 
+function pickAlignedAdrBar(krxBar: DailyBar, adrBars: DailyBar[]): DailyBar | null {
+  const recentBars = adrBars.filter((bar) => barAgeDays(bar.ts) <= MAX_BAR_STALENESS_DAYS);
+  if (recentBars.length === 0) return null;
+  const minTs = krxBar.ts - (36 * 60 * 60);
+  const maxTs = krxBar.ts + (96 * 60 * 60);
+  for (let i = recentBars.length - 1; i >= 0; i -= 1) {
+    const bar = recentBars[i];
+    if (bar.ts >= minTs && bar.ts <= maxTs) return bar;
+  }
+  return null;
+}
+
+async function fetchAlignedCloses(
+  target: AdrTarget,
+): Promise<{ krxClose: number; adrClose: number } | null> {
+  const [krxBars, adrBars] = await Promise.all([
+    fetchDailyBars(target.krxSymbol, '15d').catch(() => null),
+    fetchDailyBars(target.adrSymbol, '15d').catch(() => null),
+  ]);
+  const krxBar = krxBars?.[krxBars.length - 1] ?? null;
+  if (!krxBar) {
+    console.warn(`[AdrGap] KRX ${target.krxSymbol}: 바 조회 실패`);
+    return null;
+  }
+  if (barAgeDays(krxBar.ts) > MAX_BAR_STALENESS_DAYS) {
+    console.warn(
+      `[AdrGap] KRX ${target.krxSymbol}: 종가 과거 데이터(${barAgeDays(krxBar.ts).toFixed(1)}일, ` +
+      `${new Date(krxBar.ts * 1000).toISOString().slice(0, 10)}) → 제외`,
+    );
+    return null;
+  }
+  const adrBar = adrBars ? pickAlignedAdrBar(krxBar, adrBars) : null;
+  if (!adrBar) {
+    const latestAdrBar = adrBars?.[adrBars.length - 1] ?? null;
+    console.warn(
+      `[AdrGap] ADR ${target.adrSymbol}: KRX 기준 정렬 가능한 종가 없음` +
+      `${latestAdrBar ? ` (latest=${new Date(latestAdrBar.ts * 1000).toISOString().slice(0, 10)})` : ''}`,
+    );
+    return null;
+  }
+  return { krxClose: krxBar.close, adrClose: adrBar.close };
+}
+
 // ── 단일 종목 갭 계산 ─────────────────────────────────────────────────────────
 
 async function computeGap(target: AdrTarget, usdKrw: number): Promise<AdrGapResult | null> {
-  const [krxClose, adrClose] = await Promise.all([
-    fetchFreshClose(target.krxSymbol, 'KRX', MAX_BAR_STALENESS_DAYS),
-    fetchFreshClose(target.adrSymbol, 'ADR', MAX_BAR_STALENESS_DAYS),
-  ]);
-  if (krxClose == null || adrClose == null) return null;
+  const aligned = await fetchAlignedCloses(target);
+  if (!aligned) return null;
+  const { krxClose, adrClose } = aligned;
   if (krxClose <= 0 || adrClose <= 0) return null;
 
   const theoreticalOpen = adrClose * usdKrw * target.adrRatio;
