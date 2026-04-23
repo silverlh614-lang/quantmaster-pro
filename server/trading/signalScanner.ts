@@ -447,8 +447,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
 
   for (const stock of buyList) {
     // 아이디어 7: 루프 내에서도 포지션 수 재확인 (같은 스캔 중 복수 진입 방지)
+    // BUG-09 정합성: 사전 점검(activeSwingCount)이 PRE_BREAKOUT(30% 선취매)을 제외하는 것과
+    // 동일 기준을 적용해야 한다. 루프 내에서만 PRE_BREAKOUT을 포함하면 사전 점검은 "여유 있음",
+    // 루프는 "만석"이라 판정해 보유 슬롯이 남았음에도 매수가 전혀 발생하지 않는 무성 실패가 난다.
     const currentActive = shadows.filter(
-      (s) => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY',
+      (s) => isOpenShadowStatus(s.status) &&
+             s.watchlistSource !== 'INTRADAY' &&
+             s.watchlistSource !== 'PRE_BREAKOUT',
     ).length;
     const totalCommitted = currentActive + reservedSlots;
     if (totalCommitted >= effectiveMaxPositions) {
@@ -534,7 +539,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             const { gate: reCheckGateFollow, quote: reCheckQuoteFollow } = await fetchGateData(stock.code, conditionWeights, macroState?.kospi20dReturn);
             const mtasFollow = reCheckGateFollow ? computeMtasMultiplier(reCheckGateFollow.mtas) : 1.0;
             const posPctFollow = computeRawPositionPct(gateScoreFollow) * kellyMultiplier * mtasFollow;
-            const remSlots = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY').length);
+            const remSlots = Math.max(
+              1,
+              effectiveMaxPositions
+                - shadows.filter(s =>
+                    isOpenShadowStatus(s.status) &&
+                    s.watchlistSource !== 'INTRADAY' &&
+                    s.watchlistSource !== 'PRE_BREAKOUT',
+                  ).length
+                - reservedSlots,
+            );
             const { quantity: fullQty } = calculateOrderQuantity({
               totalAssets, orderableCash, positionPct: posPctFollow,
               price: followEntryPrice, remainingSlots: remSlots,
@@ -656,7 +670,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               const reCheckGatePb = evaluateServerGate(reCheckQuotePb, conditionWeights, macroState?.kospi20dReturn, dartFinPb, kisFlowPb, regime);
               const mtasPb = reCheckGatePb ? computeMtasMultiplier(reCheckGatePb.mtas) : 1.0;
               const posPctPb    = computeRawPositionPct(gateScorePb) * kellyMultiplier * mtasPb;
-              const remSlotsPb  = Math.max(1, regimeConfig.maxPositions - shadows.filter(s => isOpenShadowStatus(s.status) && s.watchlistSource !== 'INTRADAY').length);
+              const remSlotsPb  = Math.max(
+                1,
+                effectiveMaxPositions
+                  - shadows.filter(s =>
+                      isOpenShadowStatus(s.status) &&
+                      s.watchlistSource !== 'INTRADAY' &&
+                      s.watchlistSource !== 'PRE_BREAKOUT',
+                    ).length
+                  - reservedSlots,
+              );
               const { quantity: fullPbQty } = calculateOrderQuantity({
                 totalAssets, orderableCash, positionPct: posPctPb,
                 price: pbEntryPrice, remainingSlots: remSlotsPb,
@@ -1037,7 +1060,15 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           `posPct: ${(positionPct * 100).toFixed(1)}%`
         );
       }
-      const remainingSlots = Math.max(1, regimeConfig.maxPositions - currentActive);
+      // 사전 점검·루프 점검과 동일 기준으로 잔여 슬롯을 산정한다:
+      //   - effectiveMaxPositions(SELL_ONLY 예외 캡 반영) 사용
+      //   - 같은 tick 안에서 이미 큐에 쌓인 reservedSlots 차감
+      // 기존 로직은 regimeConfig.maxPositions - currentActive 만 봐서 sizing 분모가 과대평가되어
+      // 예산 분할이 느슨해지고, SELL_ONLY 예외 시 max 캡이 무시되는 부작용이 있었다.
+      const remainingSlots = Math.max(
+        1,
+        effectiveMaxPositions - currentActive - reservedSlots,
+      );
       const { quantity, effectiveBudget } = calculateOrderQuantity({
         totalAssets,
         orderableCash,
