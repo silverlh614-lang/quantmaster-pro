@@ -35,6 +35,7 @@ export async function setTelegramBotCommands(): Promise<void> {
     { command: 'buy',       description: '수동 매수 신호 (예: /buy 005930)' },
     { command: 'scan',      description: '장중 강제 스캔 트리거' },
     { command: 'krx_scan',  description: 'KRX 종목조회 강제 재스캔 (Stage1+2+3)' },
+    { command: 'stage1_audit', description: 'Stage 1 정량 필터 탈락 분포 (튜닝 가이드)' },
     { command: 'reconcile', description: '서버 실데이터 기준 수량/상태 동기화' },
     { command: 'scheduler', description: '등록된 스케줄러 시간표 조회' },
     { command: 'cancel',    description: '종목 미체결 주문 취소 (예: /cancel 005380)' },

@@ -46,7 +46,9 @@ import {
   calcStage1Score,
   getLeadingSectors,
   runStage3Screening,
-  passesStage1Filter,
+  evaluateStage1FilterTracked,
+  resetStage1RejectionCounts,
+  getStage1RejectionCounts,
 } from './pipelineHelpers.js';
 import { getSectorByCode } from './sectorMap.js';
 
@@ -62,6 +64,8 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
   const candidates: CandidateStock[] = [];
   const seenCodes = new Set<string>();
   const BATCH_SIZE = 5;  // 병렬 배치 크기 (Yahoo rate limit 고려, 500개 확장 대비)
+  // BUG #1 — Stage 1 탈락 사유 카운터 초기화. evaluateStage1FilterTracked 가 자동 증가.
+  resetStage1RejectionCounts();
 
   // ─ KIS 실계좌 데이터: 거래량 + 상승률 순위 병렬 조회 ─
   // 실계좌 데이터 키(KIS_REAL_DATA_APP_KEY) 또는 실계좌 모드(KIS_IS_REAL)일 때 실행
@@ -132,7 +136,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
             (await fetchYahooQuote(`${code}.KS`).catch(() => null)) ??
             (await fetchYahooQuote(`${code}.KQ`).catch(() => null));
           if (!quote) return null;
-          if (!passesStage1Filter(quote)) return null;
+          if (!evaluateStage1FilterTracked(quote).pass) return null;
 
           return {
             code, name,
@@ -165,7 +169,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
 
         const quote = await fetchYahooQuote(stock.symbol).catch(() => null);
         if (!quote || quote.price <= 0) return null;
-        if (!passesStage1Filter(quote)) return null;
+        if (!evaluateStage1FilterTracked(quote).pass) return null;
 
         return {
           code:   stock.code,
@@ -190,8 +194,18 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
     .sort((a, b) => b.stage1Score - a.stage1Score)
     .slice(0, 60);
 
+  // BUG #1 — 탈락 사유 분포 로깅 (상위 3개 집중 원인 노출).
+  const stats = getStage1RejectionCounts();
+  const topReasons = Object.entries(stats.byReason)
+    .filter(([, n]) => n > 0)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 3)
+    .map(([k, n]) => `${k}=${n}`)
+    .join(', ');
   console.log(
-    `[Pipeline/Stage1] 스캔 ${candidates.length}개 → 상위 ${result.length}개 추출`,
+    `[Pipeline/Stage1] 스캔 ${candidates.length}개 → 상위 ${result.length}개 추출 ` +
+    `· 평가 ${stats.totalEvaluated} · 탈락 ${stats.totalRejected}` +
+    (topReasons ? ` · top ${topReasons}` : ''),
   );
   return result;
 }
