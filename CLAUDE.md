@@ -97,3 +97,5 @@ AI 기반 한국 주식 퀀트 트레이딩 시스템. 27개 조건 + 4단계 Ga
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 | 2026-04-23 | 하네스 신규 구축 (CLAUDE.md + agents/skills) | `.claude/`, `CLAUDE.md` | AI 조율 레이어 도입 |
+| 2026-04-23 | ADR 0001~0003 + ARCHITECTURE.md 분해 예고 | `docs/adr/`, `ARCHITECTURE.md` | 대형 파일 분해 설계·테스트 co-location·WARN 백로그 정책 |
+| 2026-04-23 | learningJobs.ts @responsibility 27→24단어 축약 | `server/scheduler/learningJobs.ts` | ADR-0003 P0 즉시 해소 |
