@@ -42,6 +42,8 @@ import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/report
 import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, getRealDataTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder, getCircuitBreakerStats, resetKisCircuits } from '../clients/kisClient.js';
 import { getYahooHealthSnapshot } from '../trading/marketDataRefresh.js';
 import { getAccountRiskBudget, formatAccountRiskBudget } from '../trading/accountRiskBudget.js';
+import { loadKellyDampenerState } from '../trading/kellyDampener.js';
+import { formatKellyHealthCards } from '../trading/kellyHealthCard.js';
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { MAX_SUBSCRIPTIONS, getStreamStatus, startKisStream, stopKisStream, getRealtimePrice } from '../clients/kisStreamClient.js';
 import { getBudgetState, getGeminiCircuitStats, getGeminiRuntimeState } from '../clients/geminiClient.js';
@@ -161,6 +163,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /circuits — KIS/KRX 회로 차단 상태 조회\n` +
           `  /reset_circuits — KIS/KRX 회로 즉시 해제 (저녁 스캔 전 권장)\n` +
           `  /risk — 계좌 리스크 예산 + Fractional Kelly 캡 현황\n` +
+          `  /kelly — 종목별 Kelly 헬스 카드 (진입 vs 현재)\n` +
           `  /news_patterns — 뉴스-수급 시차 학습 카탈로그 (베이지안)\n` +
           `  /dxy — DXY 인트라데이 스냅샷 (Yahoo + Alpha Vantage fallback)\n` +
           `  /channel_health — 4채널 상태 점검\n` +
@@ -1386,6 +1389,25 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           formatAccountRiskBudget(budget) +
           `\n\n<i>총 자본 기준: ${(totalAssets / 10_000).toLocaleString()}만원 (settings.startingCapital)\n` +
           `Fractional Kelly: STRONG_BUY ≤0.5 / BUY ≤0.25 / HOLD ≤0.1</i>`
+        );
+        break;
+      }
+
+      case '/kelly': {
+        // Idea 5 — 종목별 Kelly 헬스 카드.
+        // entryKellySnapshot(Idea 1) 을 기준으로 진입 시점 대비 현재 Kelly/IPS 상태의
+        // 상대 변화(decay)·레짐 전이를 한눈에 보고 HOLD / TRIM / EXIT 권고를 제시한다.
+        const shadows = getShadowTrades();
+        const dampener = loadKellyDampenerState();
+        const macro = loadMacroState();
+        const liveRegime = getLiveRegime(macro);
+        await reply(
+          formatKellyHealthCards({
+            shadows,
+            currentIps: dampener.ips,
+            currentRegime: liveRegime,
+            currentIpsMultiplier: dampener.multiplier,
+          }),
         );
         break;
       }

@@ -256,6 +256,43 @@ export type ExitRuleTag =
   | 'MANUAL_EXIT';               // priority 99 — "규칙 외" 수동 청산 (Telegram /sell, UI 수동 매도)
                                  //               자동 평가 루프에서 절대 선택되지 않으며, 오직 외부 주입 전용.
 
+/**
+ * 진입 시점 Kelly 사이징 스냅샷 (Idea 1).
+ *
+ * buildBuyTrade() 가 ServerShadowTrade 를 생성하는 순간의 Kelly 의사결정 컨텍스트를
+ * 하나의 구조체로 동결한다. 이후 포지션이 "왜 이 크기로 들어갔는가" 를 단일 지렛점으로
+ * 재구성할 수 있게 하며, /kelly 텔레그램 헬스 카드·포지션 감쇠 추적·사후 복기에서 공통 참조한다.
+ *
+ * 레거시 포지션(필드 누락) 은 undefined 로 폴백되며 호출부는 `?.` 로 안전 접근한다.
+ */
+export interface EntryKellySnapshot {
+  /** 사이징 티어 — CONVICTION(×1.0) / STANDARD(×0.6) / PROBING(×0.25). */
+  tier: 'CONVICTION' | 'STANDARD' | 'PROBING';
+  /** 신호 등급 — Fractional Kelly 캡이 결정되는 키. */
+  signalGrade: 'STRONG_BUY' | 'BUY' | 'HOLD' | 'PROBING';
+  /**
+   * 진입 순간에 누적된 "캡 적용 전" Kelly 비율 =
+   *   computeRawPositionPct(gate) × kellyMultiplier(레짐·VIX·FOMC·IPS·예외·계좌)
+   *   × mtasMult × sectionFactor × tierDecision.kellyFactor
+   * applyFractionalKelly() 로 자르기 직전 값.
+   */
+  rawKellyMultiplier: number;
+  /** applyFractionalKelly() 로 캡 적용된 실제 진입 Kelly 배율. */
+  effectiveKelly: number;
+  /** 이 grade 에 적용된 Fractional Kelly 캡 (진단·헬스 카드용). */
+  fractionalCap: number;
+  /** 진입 순간 IPS 변곡 점수 (0~100). */
+  ipsAtEntry: number;
+  /** 진입 순간 매크로 레짐 (예: 'R2_BULL'). */
+  regimeAtEntry: string;
+  /** 진입 순간 계좌 누적 R 합 (%). accountRiskBudget.openRiskPct 스냅샷. */
+  accountRiskBudgetPctAtEntry: number;
+  /** RRR/Gate/MTAS 종합 신뢰도 보정자 (0~1.2). */
+  confidenceModifier: number;
+  /** 스냅샷 동결 시각 (ISO). */
+  snapshotAt: string;
+}
+
 export interface ServerShadowTrade {
   id: string;
   stockCode: string;
@@ -381,6 +418,12 @@ export interface ServerShadowTrade {
    * 사용자 자유 노트를 포함한다.
    */
   manualExitContext?: ManualExitContext;
+  /**
+   * Idea 1: 진입 시점 Kelly 의사결정 스냅샷.
+   * buildBuyTrade() 가 생성 시 반드시 채운다. 레거시 포지션은 undefined.
+   * 이 단일 필드가 /kelly 헬스 카드·포지션 감쇠 추적·사후 복기의 공통 참조점.
+   */
+  entryKellySnapshot?: EntryKellySnapshot;
 }
 
 // ─── Manual Exit Context ──────────────────────────────────────────────────────

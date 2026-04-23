@@ -26,7 +26,7 @@ async function getPrice(stockCode: string): Promise<number | null> {
   return fetchCurrentPrice(stockCode).catch(() => null);
 }
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
-import { getKellyMultiplier as getIpsKellyMultiplier } from './kellyDampener.js';
+import { getKellyMultiplier as getIpsKellyMultiplier, loadKellyDampenerState } from './kellyDampener.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelBuySignalEmitted } from '../alerts/channelPipeline.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
@@ -34,6 +34,7 @@ import { loadIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import {
   type ServerShadowTrade,
+  type EntryKellySnapshot,
   getRemainingQty,
   loadShadowTrades, saveShadowTrades,
 } from '../persistence/shadowTradeRepo.js';
@@ -94,7 +95,7 @@ import { getLiveRegime } from './regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
 import { addRecommendation } from '../learning/recommendationTracker.js';
-import { getAccountRiskBudget, computeRiskAdjustedSize } from './accountRiskBudget.js';
+import { getAccountRiskBudget, computeRiskAdjustedSize, FRACTIONAL_KELLY_CAP } from './accountRiskBudget.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import {
@@ -1188,33 +1189,62 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       // sizingTier × kellyDampener × accountScale 까지 누적된 positionPct 에
       // 다시 한 번 "신호 등급별 캡 + 동시 R 잔여 + 일일 손실 잔여" 를 강제한다.
       // 작은 쪽이 채택되므로 기존 sizing 보다 더 보수적인 결과만 나올 수 있다.
-      {
-        const grade: 'STRONG_BUY' | 'BUY' | 'PROBING' | 'HOLD' =
-          tierDecision.tier === 'PROBING' ? 'PROBING'
-          : isStrongBuy ? 'STRONG_BUY'
-          : 'BUY';
-        const budget = getAccountRiskBudget({ totalAssets, trades: shadows });
-        if (!budget.canEnterNew) {
-          console.log(`[AutoTrade/RiskBudget] ${stock.name} 진입 차단 — ${budget.blockedReasons.join(' / ')}`);
-          continue;
-        }
-        const sized = computeRiskAdjustedSize({
-          entryPrice: shadowEntryPrice,
-          stopLoss:   stock.stopLoss,
-          signalGrade: grade,
-          kellyMultiplier: positionPct,             // 누적 Kelly 비율
-          confidenceModifier: Math.min(1.2, 0.6 + 0.05 * (reCheckGate.mtas ?? 0)),
-          budget,
-          totalAssets,
-        });
-        if (sized.recommendedBudgetKrw <= 0) {
-          console.log(`[AutoTrade/RiskBudget] ${stock.name} 사이즈 0 — ${sized.reason}`);
-          continue;
-        }
-        if (sized.kellyWasCapped) {
-          console.log(`[AutoTrade/RiskBudget] ${stock.name} Fractional Kelly 캡 적용 — ${sized.reason}`);
+      const grade: 'STRONG_BUY' | 'BUY' | 'PROBING' | 'HOLD' =
+        tierDecision.tier === 'PROBING' ? 'PROBING'
+        : isStrongBuy ? 'STRONG_BUY'
+        : 'BUY';
+      // Idea 8: 활성 포지션의 실시간 현재가를 수집하여 getAccountRiskBudget 에 주입.
+      // 이미 스트림 구독 중인 종목은 getRealtimePrice() 로 즉시 조회 가능하므로
+      // 추가 네트워크 비용 없이 trailing hardStop 반영 activeR 계산을 활성화한다.
+      const openCurrentPrices = new Map<string, number>();
+      for (const s of shadows) {
+        if (!isOpenShadowStatus(s.status)) continue;
+        const rt = getRealtimePrice(s.stockCode);
+        if (rt !== null && Number.isFinite(rt) && rt > 0) {
+          openCurrentPrices.set(s.stockCode, rt);
         }
       }
+      const budget = getAccountRiskBudget({
+        totalAssets,
+        trades: shadows,
+        currentPrices: openCurrentPrices,
+      });
+      if (!budget.canEnterNew) {
+        console.log(`[AutoTrade/RiskBudget] ${stock.name} 진입 차단 — ${budget.blockedReasons.join(' / ')}`);
+        continue;
+      }
+      const confidenceModifier = Math.min(1.2, 0.6 + 0.05 * (reCheckGate.mtas ?? 0));
+      const sized = computeRiskAdjustedSize({
+        entryPrice: shadowEntryPrice,
+        stopLoss:   stock.stopLoss,
+        signalGrade: grade,
+        kellyMultiplier: positionPct,             // 누적 Kelly 비율
+        confidenceModifier,
+        budget,
+        totalAssets,
+      });
+      if (sized.recommendedBudgetKrw <= 0) {
+        console.log(`[AutoTrade/RiskBudget] ${stock.name} 사이즈 0 — ${sized.reason}`);
+        continue;
+      }
+      if (sized.kellyWasCapped) {
+        console.log(`[AutoTrade/RiskBudget] ${stock.name} Fractional Kelly 캡 적용 — ${sized.reason}`);
+      }
+
+      // Idea 1 — 진입 시점 Kelly 의사결정 스냅샷 동결.
+      // buildBuyTrade 가 이 값을 trade 객체에 귀속시켜 이후 /kelly 헬스 카드·사후 복기에서 단일 참조점으로 쓴다.
+      const entryKellySnapshot: EntryKellySnapshot = {
+        tier: tierDecision.tier,
+        signalGrade: grade,
+        rawKellyMultiplier: positionPct,
+        effectiveKelly: sized.effectiveKelly,
+        fractionalCap: FRACTIONAL_KELLY_CAP[grade],
+        ipsAtEntry: loadKellyDampenerState().ips,
+        regimeAtEntry: regime,
+        accountRiskBudgetPctAtEntry: budget.openRiskPct,
+        confidenceModifier,
+        snapshotAt: new Date().toISOString(),
+      };
 
       const { quantity, effectiveBudget } = calculateOrderQuantity({
         totalAssets,
@@ -1270,6 +1300,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           price: shadowEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false,
         })),
         trailPct: Math.max(0.05, Math.min(0.14, (trailTarget?.trailPct ?? 0.10) + adaptiveProfitTargets.trailPctAdjust)), entryATR14,
+        entryKellySnapshot,
       });
 
       addRecommendation({

@@ -11,7 +11,7 @@
  *   createBuyTask()           — 승인 큐 태스크 (SHADOW/LIVE 통합)
  */
 
-import type { ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
+import type { ServerShadowTrade, EntryKellySnapshot } from '../persistence/shadowTradeRepo.js';
 import type { ApprovalAction } from '../telegram/buyApproval.js';
 import type { EnemyCheckResult } from '../clients/enemyCheckClient.js';
 import type { StopLossPlan } from './entryEngine.js';
@@ -174,6 +174,8 @@ export interface BuildBuyTradeParams {
   profitTranches: { price: number; ratio: number; taken: boolean }[];
   trailPct: number;
   entryATR14?: number;
+  /** Idea 1 — 진입 시점 Kelly 의사결정 스냅샷. 누락 시 snapshot 필드는 undefined 로 기록. */
+  entryKellySnapshot?: EntryKellySnapshot;
 }
 
 /**
@@ -210,6 +212,7 @@ export function buildBuyTrade(p: BuildBuyTradeParams): ServerShadowTrade {
     entryATR14:            p.entryATR14 || undefined,
     dynamicStopPrice:      p.stopLossPlan.dynamicStopLoss,
     ...(latestIncident ? { incidentFlag: latestIncident } : {}),
+    ...(p.entryKellySnapshot ? { entryKellySnapshot: p.entryKellySnapshot } : {}),
   };
 }
 
