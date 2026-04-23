@@ -606,6 +606,10 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // Idea 1: 큐 인덱스별 MOMENTUM Shadow 여부 — 플러시 롤백 시 reservedSlots 를
   // 감소시키지 않도록(애초에 증가하지 않음) 구분한다.
   const reservedIsMomentum: boolean[] = [];
+  // BUG #3 fix — 승인 전 예약된 효과 자본(원). onApproved 이 아닌 큐 푸시 시점에
+  // 동기적으로 차감해 "같은 스캔의 다음 후보가 이미 예약된 현금을 다시 쓰는" 레이스를 차단.
+  // 롤백 시 reservedBudgets[i] 만큼 orderableCash 를 복원한다.
+  const reservedBudgets: number[] = [];
 
   for (const stock of buyList) {
     // Idea 1 — MOMENTUM 은 AUTO_SHADOW_FROM_MOMENTUM 경로에서 강제 SHADOW 로 귀속된다.
@@ -1493,10 +1497,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             console.warn(`[Ledger] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
           }
 
-          // MOMENTUM Shadow 는 실 자본 차감 없음 — LIVE 주문가능현금과 격리
-          if (!isMomentumShadow) {
-            orderableCash = Math.max(0, orderableCash - effectiveBudget);
-          }
+          // BUG #3 fix — orderableCash 는 큐 푸시 시점에 이미 예약/차감됨.
+          // onApproved 에서는 "예약 확정" 만 수행 (추가 차감 없음).
+          // reservedBudgets 는 그대로 두고, 롤백 경로만 참조.
           if (isStrongBuy && quantity > 1 && !isMomentumShadow) {
             // MOMENTUM Shadow 는 분할 매수 스케줄 제외 (진입 자체가 관찰 표본)
             trancheExecutor.scheduleTranches({
@@ -1520,6 +1523,14 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         reservedTiers.push('OTHER');
       }
       reservedIsMomentum.push(isMomentumShadow);
+      // BUG #3 fix — 같은 스캔의 다음 후보가 동일 orderableCash 를 이중 사용하는 것을
+      // 차단하기 위해, 승인 대기 시점에 즉시 예산을 예약(차감) 한다. 롤백 시 복원.
+      if (!isMomentumShadow && effectiveBudget > 0) {
+        orderableCash = Math.max(0, orderableCash - effectiveBudget);
+        reservedBudgets.push(effectiveBudget);
+      } else {
+        reservedBudgets.push(0);
+      }
       if (!isMomentumShadow) {
         const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
         pendingSectorValue.set(_sec, (pendingSectorValue.get(_sec) ?? 0) + effectiveBudget);
@@ -1557,6 +1568,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             const next = Math.max(0, cur - rel.value);
             if (next === 0) pendingSectorValue.delete(rel.sector);
             else pendingSectorValue.set(rel.sector, next);
+          }
+          // BUG #3 fix — 승인 거절/스킵 시 큐 푸시 때 예약한 orderableCash 복원.
+          const refund = reservedBudgets[i] ?? 0;
+          if (refund > 0) {
+            orderableCash += refund;
           }
         }
       }

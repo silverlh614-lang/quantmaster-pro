@@ -165,6 +165,7 @@ describe('Phase 1 — runNightlyReflection 기본 흐름', () => {
     vi.resetModules();
     vi.doMock('../clients/geminiClient.js', () => ({
       getBudgetState: () => ({ pctUsed: 10, spentUsd: 0, budgetUsd: 5 }),
+      getGeminiRuntimeState: () => ({ status: 'IDLE', label: null, caller: null, reason: null, updatedAt: null }),
     }));
   });
   afterEach(() => {
@@ -246,6 +247,7 @@ describe('Phase 2 — runNightlyReflection FULL flow (mocked Gemini)', () => {
     vi.doMock('../clients/geminiClient.js', () => ({
       callGemini,
       getBudgetState: () => ({ pctUsed: 10, spentUsd: 0, budgetUsd: 5 }),
+      getGeminiRuntimeState: () => ({ status: 'SUCCESS', label: 'reflection', caller: 'test', reason: null, updatedAt: new Date().toISOString() }),
     }));
     vi.doMock('../rag/localRag.js', () => ({ queryRag: vi.fn().mockResolvedValue([]) }));
     vi.doMock('../alerts/telegramClient.js', () => ({
@@ -275,6 +277,7 @@ describe('Phase 2 — runNightlyReflection FULL flow (mocked Gemini)', () => {
     vi.doMock('../clients/geminiClient.js', () => ({
       callGemini: vi.fn().mockResolvedValue(null),
       getBudgetState: () => ({ pctUsed: 10, spentUsd: 0, budgetUsd: 5 }),
+      getGeminiRuntimeState: () => ({ status: 'FAILED', label: 'reflection', caller: 'test', reason: 'null response', updatedAt: new Date().toISOString() }),
     }));
     vi.doMock('../rag/localRag.js', () => ({ queryRag: vi.fn().mockResolvedValue([]) }));
     vi.doMock('../alerts/telegramClient.js', () => ({
@@ -292,6 +295,7 @@ describe('Phase 2 — runNightlyReflection FULL flow (mocked Gemini)', () => {
     vi.doMock('../clients/geminiClient.js', () => ({
       callGemini: vi.fn(),
       getBudgetState: () => ({ pctUsed: 10, spentUsd: 0, budgetUsd: 5 }),
+      getGeminiRuntimeState: () => ({ status: 'BLOCKED', label: null, caller: null, reason: 'disabled', updatedAt: new Date().toISOString() }),
     }));
     vi.doMock('../alerts/telegramClient.js', () => ({
       sendTelegramAlert: vi.fn().mockResolvedValue(undefined),
