@@ -49,7 +49,14 @@ export const CATALYST_EXPIRE_DAYS  = 3;
 /** MOMENTUM → 만료 기간: 2영업일 */
 export const MOMENTUM_EXPIRE_DAYS  = 2;
 
-/** SWING 승격 Gate Score 임계값 — 이 점수 이상이면 MOMENTUM에서 SWING으로 승격 */
+/**
+ * SWING 승격 Gate Score 임계값.
+ *
+ * 참고: computeFocusCodes 는 더 이상 이 임계값으로 MOMENTUM→SWING 자동 승격을
+ * 수행하지 않는다 (워치리스트 진입 바닥이 gateScore >= 18 이어서 임계 8 을 무조건 통과 →
+ * 모든 AUTO 항목이 SWING 으로 덮어씌워지고 MOMENTUM 이 0 으로 전멸하던 회귀 버그를 유발).
+ * 현재는 수동 승격/진단 용도로만 export 된다.
+ */
 export const SWING_GATE_THRESHOLD = 8;
 
 export const MAX_ENTRY_FAIL_COUNT = 3;
@@ -88,22 +95,29 @@ export function applyEntryPriceDrift(
 
 /**
  * SWING 섹션에 포함될 종목 코드 집합을 반환한다.
- * (기존 computeFocusCodes 대체 — 하위 호환 유지)
  *
- * 선정 기준 (OR):
- *   1. gateScore 상위 SWING_MAX_SIZE(8)개 (AUTO/DART 중)
- *   2. gateScore >= SWING_GATE_THRESHOLD(8) — 상위 8 밖이어도 포함
- * MANUAL 항목은 항상 SWING, DART(내부자 매수)는 항상 CATALYST.
+ * 선정 기준:
+ *   - universeScanner 가 STRONG_BUY(CONFIRMED_STRONG_BUY 컨플루언스) 시그널로
+ *     section='SWING' 으로 등록한 AUTO 종목을 gateScore 상위 SWING_MAX_SIZE 개까지 포함.
+ *   - section 미지정 레거시 항목도 포함해 초기 분류 전 공백을 메운다.
+ *
+ * 제외 기준:
+ *   - MANUAL — assignSection 에서 항상 SWING 으로 직행.
+ *   - CATALYST — 별도 섹션.
+ *   - **MOMENTUM — Gemini 가 BUY 로 판정(4축 컨플루언스 미확정)한 관찰 후보.**
+ *     gateScore >= 18 이 이미 워치리스트 진입 바닥이므로 "점수만으로 자동 승격"은
+ *     STRONG_BUY vs BUY 의 신호 품질 구분을 무력화한다. 따라서 MOMENTUM 은 여기서
+ *     자동 승격하지 않고 만료(2영업일) 또는 universeScanner 재분류로만 이동시킨다.
  */
 export function computeFocusCodes(list: WatchlistEntry[]): Set<string> {
-  // DART/CATALYST 종목은 별도 섹션이므로 SWING 후보에서 제외
-  const swingCandidates = list.filter((w) => w.addedBy !== 'MANUAL' && w.section !== 'CATALYST');
+  const swingCandidates = list.filter(
+    (w) =>
+      w.addedBy !== 'MANUAL' &&
+      w.section !== 'CATALYST' &&
+      w.section !== 'MOMENTUM',
+  );
   const sorted = [...swingCandidates].sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0));
-  const topN = sorted.slice(0, SWING_MAX_SIZE).map((w) => w.code);
-  const aboveThreshold = swingCandidates
-    .filter((w) => (w.gateScore ?? 0) >= SWING_GATE_THRESHOLD)
-    .map((w) => w.code);
-  return new Set([...topN, ...aboveThreshold]);
+  return new Set(sorted.slice(0, SWING_MAX_SIZE).map((w) => w.code));
 }
 
 /**

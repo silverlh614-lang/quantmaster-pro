@@ -46,24 +46,51 @@ describe('computeFocusCodes', () => {
     }
   });
 
-  it('includes AUTO stocks above SWING_GATE_THRESHOLD even beyond top N', () => {
+  it('caps focus at SWING_MAX_SIZE even when many high-gate candidates exist', () => {
+    // 회귀 가드: 과거에는 gateScore >= SWING_GATE_THRESHOLD(8) 항목을 무제한 포함시켜
+    // SWING 상한을 터뜨리고 MOMENTUM 을 전멸시켰다 (fix-momentum-watchlist).
+    // 이제는 상위 SWING_MAX_SIZE 개까지만 포함한다.
+    const bigList: WatchlistEntry[] = Array.from({ length: 12 }, (_, i) =>
+      makeEntry({ code: `MID${String(i).padStart(2, '0')}`, gateScore: SWING_GATE_THRESHOLD + i }),
+    );
+    const bigCodes = computeFocusCodes(bigList);
+    expect(bigCodes.size).toBe(SWING_MAX_SIZE);
+  });
+
+  it('excludes MOMENTUM-tagged entries from focus (no auto-promotion by gateScore)', () => {
+    // universeScanner 가 Gemini BUY 시그널로 section='MOMENTUM' 을 부여한 AUTO 종목은
+    // gateScore 만으로 SWING 승격되지 않아야 한다 (STRONG_BUY 신호 품질 보존).
     const list: WatchlistEntry[] = [
-      ...Array.from({ length: 10 }, (_, i) =>
-        makeEntry({ code: `LOW${String(i).padStart(2, '0')}`, gateScore: i }),
-      ),
-      makeEntry({ code: 'HIGH_A', gateScore: SWING_GATE_THRESHOLD }),
-      makeEntry({ code: 'HIGH_B', gateScore: SWING_GATE_THRESHOLD + 5 }),
+      makeEntry({ code: 'MOM01', gateScore: 25, section: 'MOMENTUM' }),
+      makeEntry({ code: 'MOM02', gateScore: 22, section: 'MOMENTUM' }),
+      makeEntry({ code: 'SWG01', gateScore: 18, section: 'SWING' }),
     ];
     const codes = computeFocusCodes(list);
-    expect(codes.has('HIGH_A')).toBe(true);
-    expect(codes.has('HIGH_B')).toBe(true);
-    const bigList: WatchlistEntry[] = [
-      ...Array.from({ length: 12 }, (_, i) =>
-        makeEntry({ code: `MID${String(i).padStart(2, '0')}`, gateScore: SWING_GATE_THRESHOLD + i }),
+    expect(codes.has('MOM01')).toBe(false);
+    expect(codes.has('MOM02')).toBe(false);
+    expect(codes.has('SWG01')).toBe(true);
+    expect(codes.size).toBe(1);
+  });
+
+  it('regression: keeps MOMENTUM populated when all AUTO entries pass entry floor', () => {
+    // 장중 로그 회귀: entry floor gateScore >= 18 이 모든 AUTO 항목이 통과해도
+    // MOMENTUM 으로 분류된 종목은 focus 에 포함되지 않아야 한다.
+    const list: WatchlistEntry[] = [
+      ...Array.from({ length: 5 }, (_, i) =>
+        makeEntry({ code: `SWG${String(i).padStart(2, '0')}`, gateScore: 20 + i, section: 'SWING' }),
+      ),
+      ...Array.from({ length: 6 }, (_, i) =>
+        makeEntry({ code: `MOM${String(i).padStart(2, '0')}`, gateScore: 18 + i, section: 'MOMENTUM' }),
       ),
     ];
-    const bigCodes = computeFocusCodes(bigList);
-    expect(bigCodes.size).toBe(12);
+    const codes = computeFocusCodes(list);
+    expect(codes.size).toBe(5);
+    for (let i = 0; i < 5; i++) {
+      expect(codes.has(`SWG${String(i).padStart(2, '0')}`)).toBe(true);
+    }
+    for (let i = 0; i < 6; i++) {
+      expect(codes.has(`MOM${String(i).padStart(2, '0')}`)).toBe(false);
+    }
   });
 
   it('excludes MANUAL entries from focus computation', () => {
@@ -126,6 +153,16 @@ describe('assignSection', () => {
   it('assigns MOMENTUM to AUTO entries not in focusCodes', () => {
     const entry = makeEntry({ code: 'A01', addedBy: 'AUTO' });
     expect(assignSection(entry, new Set())).toBe('MOMENTUM');
+  });
+
+  it('preserves MOMENTUM for BUY-signal entries even if gateScore is high', () => {
+    // universeScanner 가 Gemini BUY 시그널로 MOMENTUM 을 부여한 종목.
+    // computeFocusCodes 가 이 종목을 focus 에 넣지 않으므로 assignSection 도
+    // MOMENTUM 을 유지해야 한다 (과거 회귀: SWING 으로 자동 승격되던 버그).
+    const entry = makeEntry({ code: 'A01', addedBy: 'AUTO', gateScore: 25, section: 'MOMENTUM' });
+    const focusCodes = computeFocusCodes([entry]);
+    expect(focusCodes.has('A01')).toBe(false);
+    expect(assignSection(entry, focusCodes)).toBe('MOMENTUM');
   });
 });
 
