@@ -59,6 +59,77 @@ export type ReserveSellResult =
 /** PositionFill 중에서 reserveSell 이 내부적으로 채우는 필드는 입력에서 제외한다. */
 type SellFillInput = Omit<PositionFill, 'id' | 'ordNo' | 'status' | 'confirmedAt' | 'revertedAt' | 'revertReason' | 'flagToClearOnRevert'>;
 
+// ─── BUG #7 — 전량 청산 실패 시 상태 롤백 헬퍼 ─────────────────────────────────
+//
+// 기존 HARD_STOP / CASCADE_FINAL / TRAILING_PROTECTIVE / TARGET_EXIT / MA60_DEATH
+// 경로는 `updateShadow({status:'HIT_STOP'|'HIT_TARGET', quantity:0, …})` 를 주문
+// 접수 전에 실행해, 주문 접수 실패 시 "shadow DB = CLOSED, KIS 잔고 = OPEN" 의
+// 괴리가 발생했다 (naked position). 아래 두 함수로:
+//   1) updateShadow 전에 직전 상태 스냅샷을 캡처
+//   2) reserveSell.kind==='FAILED' 이면 상태를 되돌려 다음 스캔 사이클에서 규칙을 재평가
+//
+// 롤백 대상: status, quantity, exitPrice, exitTime, exitRuleTag, stopLossExitType,
+// ma60DeathForced. 이 필드들은 각 청산 분기에서 일관되게 변경되므로 스냅샷 1개로 충분.
+
+interface FullCloseSnapshot {
+  status: ServerShadowTrade['status'];
+  quantity: number;
+  exitPrice?: number;
+  exitTime?: string;
+  exitRuleTag?: ServerShadowTrade['exitRuleTag'];
+  stopLossExitType?: ServerShadowTrade['stopLossExitType'];
+  ma60DeathForced?: boolean;
+}
+
+function captureFullCloseSnapshot(shadow: ServerShadowTrade): FullCloseSnapshot {
+  return {
+    status: shadow.status,
+    quantity: shadow.quantity,
+    exitPrice: shadow.exitPrice,
+    exitTime: shadow.exitTime,
+    exitRuleTag: shadow.exitRuleTag,
+    stopLossExitType: shadow.stopLossExitType,
+    ma60DeathForced: shadow.ma60DeathForced,
+  };
+}
+
+/**
+ * 전량 청산 주문 실패 시 shadow 상태를 스냅샷 시점으로 되돌린다. 상태가 ACTIVE 등으로
+ * 복원되면 다음 scan tick 에서 동일 exit 규칙이 재평가되어 자동 재시도가 된다.
+ *
+ * 본 함수는 "주문 실패 = 상태 변경 없음" 원칙을 exit 레이어에 강제한다.
+ * CRITICAL 텔레그램 경보는 각 호출부가 기존 메시지 체계를 유지하고 본 함수는
+ * 결과 로그 + ShadowLog audit 만 담당한다.
+ */
+function rollbackFullCloseOnFailure(
+  shadow: ServerShadowTrade,
+  snap: FullCloseSnapshot,
+  ruleName: string,
+  failureReason: string,
+): void {
+  updateShadow(shadow, {
+    status: snap.status,
+    quantity: snap.quantity,
+    exitPrice: snap.exitPrice,
+    exitTime: snap.exitTime,
+    exitRuleTag: snap.exitRuleTag,
+    stopLossExitType: snap.stopLossExitType,
+    ma60DeathForced: snap.ma60DeathForced,
+  });
+  appendShadowLog({
+    event: 'FULL_CLOSE_ROLLBACK',
+    code: shadow.stockCode,
+    rule: ruleName,
+    reason: failureReason,
+    restoredStatus: snap.status,
+    restoredQty: snap.quantity,
+  });
+  console.error(
+    `[AutoTrade] 🚨 ${shadow.stockName} ${ruleName} 주문 실패 → shadow 상태 롤백 ` +
+    `(status=${snap.status}, qty=${snap.quantity}) · 다음 스캔에서 자동 재시도`,
+  );
+}
+
 /**
  * 매도 Fill 을 세 가지 상태 중 하나로 안전하게 기록한다.
  * Fill SSOT (fills 배열) 에 PROVISIONAL/CONFIRMED/REVERTED 라벨을 부여하여
@@ -401,6 +472,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         const stillDead = mas ? isMA60Death(mas.ma20, mas.ma60, currentPrice) : true;
         if (stillDead) {
           const soldQty = shadow.quantity;
+          // BUG #7 fix — 전량 청산 전 상태 스냅샷. 주문 실패 시 되돌린다.
+          const ma60Snapshot = captureFullCloseSnapshot(shadow);
           updateShadow(shadow, {
             status: 'HIT_STOP',
             exitPrice: currentPrice,
@@ -428,9 +501,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
               placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
             });
           } else if (ma60Reserve.kind === 'FAILED') {
-            // 전량 강제청산 경로에서 주문 실패 — shadow 는 이미 HIT_STOP 로 closed.
-            // 자동 롤백은 복잡(updateShadow 복귀 필요)하므로 운영자 알림으로 대체.
-            console.error(`[AutoTrade] 🚨 ${shadow.stockName} MA60 강제 청산 주문 실패 — shadow 는 CLOSED, KIS 잔고 수동 확인 필요`);
+            // BUG #7 fix — 상태 롤백으로 DB/KIS 괴리 제거. 다음 스캔에서 자동 재시도.
+            rollbackFullCloseOnFailure(shadow, ma60Snapshot, 'MA60_DEATH_FORCE_EXIT', ma60Reserve.reason);
           }
           await sendTelegramAlert(
             `⚰️ <b>${ma60Reserve.statusPrefix} [MA60 강제 청산]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
@@ -477,6 +549,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           : (initialStopLoss > regimeStopLoss ? 'INITIAL' : 'REGIME');
       }
       const soldQty = shadow.quantity;
+      // BUG #7 fix — 전량 청산 전 스냅샷. 주문 실패 시 HIT_STOP → 이전 상태로 복귀.
+      const hardStopSnapshot = captureFullCloseSnapshot(shadow);
       updateShadow(shadow, {
         status: 'HIT_STOP',
         exitPrice: currentPrice,
@@ -528,12 +602,13 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
         });
       } else if (hardStopReserve.kind === 'FAILED') {
-        // 전량 손절 경로 주문 실패 — shadow 는 이미 HIT_STOP. KIS 잔고 수동 확인 필요.
-        console.error(`[AutoTrade] 🚨 ${shadow.stockName} 하드 스톱 주문 실패 — shadow CLOSED, 수동 확인 필수`);
+        // BUG #7 fix — 상태 롤백 + CRITICAL 알림. 다음 스캔에서 규칙 재평가.
+        rollbackFullCloseOnFailure(shadow, hardStopSnapshot, 'HARD_STOP', hardStopReserve.reason);
         await sendTelegramAlert(
-          `🚨 <b>${hardStopReserve.statusPrefix} [하드 스톱]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+          `🚨 <b>${hardStopReserve.statusPrefix} [하드 스톱] (상태 롤백)</b> ${shadow.stockName} (${shadow.stockCode})\n` +
           `${stopLossExitType} 손절 ${soldQty}주 @${currentPrice.toLocaleString()}원` +
-          hardStopReserve.statusSuffix,
+          hardStopReserve.statusSuffix +
+          `\n⚙ shadow 는 ACTIVE 로 복귀 — 다음 스캔 사이클에서 자동 재시도.`,
           { priority: 'CRITICAL', dedupeKey: `hard_stop_fail:${shadow.stockCode}` },
         ).catch(console.error);
       }
@@ -559,6 +634,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
     if (returnPct <= -25) {
       const isBlacklistStep = returnPct <= -30;
       const soldQty = shadow.quantity;
+      // BUG #7 fix — 전량 청산 전 스냅샷.
+      const cascadeSnapshot = captureFullCloseSnapshot(shadow);
       updateShadow(shadow, {
         status: 'HIT_STOP',
         exitPrice: currentPrice,
@@ -579,10 +656,12 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         exitRuleTag: 'CASCADE_FINAL', timestamp: cascadeFinalTs,
       }, 'HARD_STOP');
       if (cascadeFinalReserve.kind === 'FAILED') {
-        console.error(`[AutoTrade] 🚨 ${shadow.stockName} 캐스케이드 전량청산 주문 실패 — 수동 확인`);
+        // BUG #7 fix — 상태 롤백 + CRITICAL 알림.
+        rollbackFullCloseOnFailure(shadow, cascadeSnapshot, 'CASCADE_FINAL', cascadeFinalReserve.reason);
         await sendTelegramAlert(
-          `🚨 <b>${cascadeFinalReserve.statusPrefix} [캐스케이드 전량청산]</b> ${shadow.stockName}` +
-          cascadeFinalReserve.statusSuffix,
+          `🚨 <b>${cascadeFinalReserve.statusPrefix} [캐스케이드 전량청산] (상태 롤백)</b> ${shadow.stockName}` +
+          cascadeFinalReserve.statusSuffix +
+          `\n⚙ 다음 스캔에서 자동 재시도 — 블랙리스트 적용도 재평가.`,
           { priority: 'CRITICAL', dedupeKey: `cascade_final_fail:${shadow.stockCode}` },
         ).catch(console.error);
       }
@@ -608,7 +687,9 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
         returnPct,
         soldQty,
       }).catch(console.error);
-      if (isBlacklistStep) {
+      // BUG #7 fix — 주문이 실제로 접수된 경우만 블랙리스트 등록. 실패 + 롤백 시에는
+      // 다음 스캔에서 재시도가 일어나므로 블랙리스트도 그 시점에 재평가된다.
+      if (isBlacklistStep && cascadeFinalReserve.kind !== 'FAILED') {
         addToBlacklist(shadow.stockCode, shadow.stockName, `Cascade ${returnPct.toFixed(1)}%`);
         await sendTelegramAlert(
           `🚫 <b>[블랙리스트] ${shadow.stockName} (${shadow.stockCode})</b>\n` +
@@ -700,6 +781,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       const trailFloor = shadow.trailingHighWaterMark * (1 - (shadow.trailPct ?? 0.10));
       if (currentPrice <= trailFloor) {
         const soldQty = shadow.quantity;
+        // BUG #7 fix — 전량 청산 전 스냅샷.
+        const trailSnapshot = captureFullCloseSnapshot(shadow);
         updateShadow(shadow, {
           status: 'HIT_TARGET',
           exitPrice: currentPrice,
@@ -727,7 +810,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
             placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
           });
         } else if (trailReserve.kind === 'FAILED') {
-          console.error(`[AutoTrade] 🚨 ${shadow.stockName} 트레일링 스톱 주문 실패 — shadow CLOSED, 수동 확인`);
+          // BUG #7 fix — 상태 롤백. 다음 tick 에 트레일링 재평가.
+          rollbackFullCloseOnFailure(shadow, trailSnapshot, 'TRAILING_PROTECTIVE_STOP', trailReserve.reason);
         }
         await sendTelegramAlert(
           `📉 <b>${trailReserve.statusPrefix} [L3 트레일링 스톱]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
@@ -752,6 +836,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
     // ① 목표가 달성 → 익절 전량 매도 (트랜치 미설정 구형 포지션 fallback)
     if (currentPrice >= shadow.targetPrice) {
       const soldQty = shadow.quantity;
+      // BUG #7 fix — 전량 청산 전 스냅샷.
+      const targetSnapshot = captureFullCloseSnapshot(shadow);
       updateShadow(shadow, {
         status: 'HIT_TARGET',
         exitPrice: currentPrice,
@@ -778,7 +864,8 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
           placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
         });
       } else if (targetReserve.kind === 'FAILED') {
-        console.error(`[AutoTrade] 🚨 ${shadow.stockName} 목표가 달성 주문 실패 — shadow CLOSED, 수동 확인`);
+        // BUG #7 fix — 상태 롤백. 다음 tick 에 목표가 조건 재평가.
+        rollbackFullCloseOnFailure(shadow, targetSnapshot, 'TARGET_EXIT', targetReserve.reason);
       }
       await sendTelegramAlert(
         `✅ <b>${targetReserve.statusPrefix} [목표가 달성]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
