@@ -48,6 +48,7 @@ import { calcRRR } from '../trading/riskManager.js';
 import { buildManualExitContext } from '../trading/manualExitContext.js';
 import { appendManualExit } from '../persistence/manualExitsRepo.js';
 import { evaluateAndAlertManualOverride } from '../alerts/manualOverrideMonitor.js';
+import { reconcileShadowQuantities } from '../persistence/shadowAccountRepo.js';
 import { handleBuyApprovalCallback } from './buyApproval.js';
 import { handleOperatorOverrideCallback } from './operatorOverride.js';
 import { handleT1AckCallback } from '../alerts/ackTracker.js';
@@ -129,6 +130,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /buy <code>종목코드</code> — 수동 매수 신호\n` +
           `  /sell <code>종목코드</code> — 포지션 전량 시장가 매도\n` +
           `  /adjust_qty <code>종목코드</code> <code>수량</code> [메모] — 장부 수량 수동 보정 (실계좌 대비 drift 교정)\n` +
+          `  /reconcile_qty — Railway 서버 장부 기준 수량/상태 강제 동기화\n` +
           `  /scan — 장중 강제 스캔 트리거\n` +
           `  /krx_scan — KRX 종목조회 강제 재스캔 (Stage1+2+3)\n` +
           `  /cancel <code>종목코드</code> — 미체결 주문 취소\n` +
@@ -607,6 +609,33 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `🏷️ MANUAL_ADJUST — PnL·학습 집계 격리` +
           (targetQty === 0 ? `\nℹ️ 잔량 0 — 보유 목록/보유 종목 수 집계에서 제외됩니다.` : '')
         );
+        break;
+      }
+
+      case '/reconcile_qty': {
+        await reply('🔄 Railway 서버 장부 기준 수량/상태 재조정 실행 중...');
+
+        try {
+          const result = reconcileShadowQuantities();
+          const detailLines = result.details
+            .slice(0, 8)
+            .map(d =>
+              `• ${escapeHtml(d.stockCode)}: ${d.before.qty}주/${escapeHtml(d.before.status)} → ` +
+              `${d.after.qty}주/${escapeHtml(d.after.status)}`
+            );
+
+          await reply(
+            `✅ <b>[수량 강제 동기화 완료]</b>\n` +
+            `기준: Railway 서버 장부(fills → quantity/status)\n` +
+            `검사: ${result.checked}건 | 교정: ${result.fixed}건\n` +
+            (detailLines.length > 0
+              ? `\n${detailLines.join('\n')}${result.details.length > detailLines.length ? `\n...외 ${result.details.length - detailLines.length}건` : ''}`
+              : '\n변경 사항 없음')
+          );
+        } catch (e) {
+          console.error('[TelegramBot] /reconcile_qty 실패:', e);
+          await reply('❌ 수량 강제 동기화 실패 — 서버 로그를 확인하세요.');
+        }
         break;
       }
 
