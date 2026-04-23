@@ -25,8 +25,14 @@ interface PipelineHealth {
   krxTokenValid?: boolean;
   krxCircuitState?: string;
   krxFailures?: number;
-  yahooApiStatus?: 'OK' | 'DEGRADED' | 'DOWN' | 'UNKNOWN';
-  yahooApiDetail?: 'NO_SCAN_HISTORY' | 'NO_CANDIDATES' | 'HAS_CANDIDATES';
+  yahooApiStatus?: 'OK' | 'STALE' | 'DEGRADED' | 'DOWN' | 'UNKNOWN';
+  yahooApiDetail?:
+    | 'NO_SCAN_HISTORY'
+    | 'NO_CANDIDATES'
+    | 'HAS_CANDIDATES'
+    | 'HEARTBEAT_OK'
+    | 'HEARTBEAT_STALE'
+    | 'HEARTBEAT_DOWN';
   lastScanSummary?: {
     candidates?: number;
   };
@@ -94,8 +100,18 @@ function deriveKrx(h: PipelineHealth | null): LampInfo {
 
 function deriveYahoo(h: PipelineHealth | null): LampInfo {
   if (!h) return { label: 'Yahoo Finance', state: 'unknown', detail: 'Loading' };
+  // 새 heartbeat 기반 상세값 우선 처리 (스캐너 idle 시에도 Yahoo 가용성 표시)
+  if (h.yahooApiDetail === 'HEARTBEAT_OK') {
+    return { label: 'Yahoo Finance', state: 'ok', detail: 'Heartbeat OK' };
+  }
+  if (h.yahooApiDetail === 'HEARTBEAT_STALE') {
+    return { label: 'Yahoo Finance', state: 'warn', detail: 'Heartbeat stale (>1h)' };
+  }
+  if (h.yahooApiDetail === 'HEARTBEAT_DOWN') {
+    return { label: 'Yahoo Finance', state: 'down', detail: 'Heartbeat down' };
+  }
   if (h.yahooApiDetail === 'NO_SCAN_HISTORY') {
-    return { label: 'Yahoo Finance', state: 'unknown', detail: 'No scan history' };
+    return { label: 'Yahoo Finance', state: 'unknown', detail: 'No scan & no fetch yet' };
   }
   if (h.yahooApiDetail === 'NO_CANDIDATES') {
     const n = h.lastScanSummary?.candidates ?? 0;
@@ -103,6 +119,7 @@ function deriveYahoo(h: PipelineHealth | null): LampInfo {
   }
   switch (h.yahooApiStatus) {
     case 'OK':       return { label: 'Yahoo Finance', state: 'ok',   detail: 'Healthy' };
+    case 'STALE':    return { label: 'Yahoo Finance', state: 'warn', detail: 'Stale (>1h)' };
     case 'DEGRADED': return { label: 'Yahoo Finance', state: 'warn', detail: 'Degraded' };
     case 'DOWN':     return { label: 'Yahoo Finance', state: 'down', detail: 'Unavailable' };
     default:         return { label: 'Yahoo Finance', state: 'unknown', detail: 'No scan history' };

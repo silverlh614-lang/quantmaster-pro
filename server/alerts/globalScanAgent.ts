@@ -26,6 +26,8 @@ import fs from 'fs';
 import { fetchCloses } from '../trading/marketDataRefresh.js';
 import { callGemini } from '../clients/geminiClient.js';
 import { sendTelegramAlert } from './telegramClient.js';
+import { dispatchAlert } from './alertRouter.js';
+import { AlertCategory } from './alertCategories.js';
 import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js';
 import { GLOBAL_SCAN_FILE, ensureDataDir } from '../persistence/paths.js';
 import { runSupplyChainScan } from './supplyChainAgent.js';
@@ -362,6 +364,13 @@ export async function runGlobalScanAgent(): Promise<void> {
   }
 
   await sendTelegramAlert(message).catch(console.error);
+
+  // AI 분석이 포함된 글로벌 스캔 결과는 ANALYSIS 채널로도 미러링한다.
+  // 개인 채팅의 운영 노이즈와 분리해 분석 채널 구독자에게 인사이트만 전달.
+  if (aiSummary) {
+    await dispatchAlert(AlertCategory.ANALYSIS, message, { disableNotification: true })
+      .catch(e => console.error('[GlobalScan] ANALYSIS 미러링 실패:', e));
+  }
 
   // ── 7. Layer 13 — EWY 외국인 수급 예비 경보 ─────────────────────────────
   if (ewyAlert) {

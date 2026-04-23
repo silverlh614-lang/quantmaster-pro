@@ -18,6 +18,8 @@ import {
 import { refreshMarketRegimeVars } from '../trading/marketDataRefresh.js';
 import { checkFomcProximityAlert } from '../trading/fomcCalendar.js';
 import { generateDailyPickReport } from '../alerts/stockPickReporter.js';
+import { resetKisCircuits } from '../clients/kisClient.js';
+import { _resetKrxOpenApiBreaker } from '../clients/krxOpenApi.js';
 import { generateQualityScorecard } from '../alerts/qualityScorecard.js';
 import { sendScanReviewReport } from '../alerts/scanReviewReport.js';
 import { sendPositionMorningCard } from '../alerts/positionMorningCard.js';
@@ -67,6 +69,18 @@ export function registerReportJobs(): void {
   // 주간 조건 성과 스코어카드 — 매주 월요일 08:10 KST (UTC 일요일 23:10). IDEA 6.
   // 27조건 Top3/Bottom3 + 다음주 주목 조건 → DM+채널 브로드캐스트.
   cron.schedule('10 23 * * 0', async () => { await sendWeeklyConditionScorecard().catch(console.error); }, { timezone: 'UTC' });
+
+  // 저녁 추천 사이클 직전 회로 자동 reset — 평일 KST 16:25 (UTC 07:25).
+  // 사용자 P3-8: 저녁 추천 스캔 시점에 KIS/KRX 회로가 차단된 채로 들어가면
+  // 후보 종목 호출이 모두 null 로 떨어진다. 16:30 종목 픽 리포트 직전에
+  // 회로를 한 번 정리하여 cooldown 누적의 부작용을 끊는다.
+  cron.schedule('25 7 * * 1-5', () => {
+    const cleared = resetKisCircuits();
+    try { _resetKrxOpenApiBreaker(); } catch { /* noop */ }
+    if (cleared > 0) {
+      console.log(`[Scheduler] 저녁 사이클 회로 자동 reset — KIS ${cleared}개 해제 + KRX 함께 reset`);
+    }
+  }, { timezone: 'UTC' });
 
   // 일일 종목 픽 리포트 — 평일 16:30 KST (UTC 07:30). 구독자용 픽 채널.
   cron.schedule('30 7 * * 1-5', async () => { await generateDailyPickReport().catch(console.error); }, { timezone: 'UTC' });

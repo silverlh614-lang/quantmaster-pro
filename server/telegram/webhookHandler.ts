@@ -39,7 +39,10 @@ import { getLiveRegime } from '../trading/regimeBridge.js';
 import { resetKrxCache } from '../clients/krxClient.js';
 import { _resetKrxOpenApiBreaker, getKrxOpenApiStatus, resetKrxOpenApiCache } from '../clients/krxOpenApi.js';
 import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/reportGenerator.js';
-import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, getRealDataTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder } from '../clients/kisClient.js';
+import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, getRealDataTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder, getCircuitBreakerStats, resetKisCircuits } from '../clients/kisClient.js';
+import { getYahooHealthSnapshot } from '../trading/marketDataRefresh.js';
+import { getAccountRiskBudget, formatAccountRiskBudget } from '../trading/accountRiskBudget.js';
+import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { MAX_SUBSCRIPTIONS, getStreamStatus, startKisStream, stopKisStream, getRealtimePrice } from '../clients/kisStreamClient.js';
 import { getBudgetState, getGeminiCircuitStats, getGeminiRuntimeState } from '../clients/geminiClient.js';
 import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
@@ -49,11 +52,16 @@ import { calcRRR } from '../trading/riskManager.js';
 import { buildManualExitContext } from '../trading/manualExitContext.js';
 import { appendManualExit } from '../persistence/manualExitsRepo.js';
 import { evaluateAndAlertManualOverride } from '../alerts/manualOverrideMonitor.js';
-import { reconcileShadowQuantities } from '../persistence/shadowAccountRepo.js';
+import { reconcileShadowQuantities, loadLastReconcileResult } from '../persistence/shadowAccountRepo.js';
 import { handleBuyApprovalCallback } from './buyApproval.js';
 import { handleOperatorOverrideCallback } from './operatorOverride.js';
 import { handleT1AckCallback } from '../alerts/ackTracker.js';
-import { formatSchedulerSummary } from '../scheduler/scheduleCatalog.js';
+import {
+  formatSchedulerSummary,
+  formatSchedulerNext,
+  formatSchedulerDetail,
+  formatSchedulerHistory,
+} from '../scheduler/scheduleCatalog.js';
 
 export async function handleTelegramWebhook(req: Request, res: Response): Promise<void> {
   res.sendStatus(200); // Telegram에 즉시 200 응답 (재전송 방지)
@@ -133,8 +141,8 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /buy <code>종목코드</code> — 수동 매수 신호\n` +
           `  /sell <code>종목코드</code> — 포지션 전량 시장가 매도\n` +
           `  /adjust_qty <code>종목코드</code> <code>수량</code> [메모] — 장부 수량 수동 보정 (실계좌 대비 drift 교정)\n` +
-          `  /reconcile — Railway 서버 장부 기준 수량/상태 강제 동기화\n` +
-          `  /scheduler — 등록된 스케줄러 시간표 조회\n` +
+          `  /reconcile [apply|last|status] — 장부 점검(기본 dry-run)·적용·마지막 결과 조회\n` +
+          `  /scheduler [next|detail|history] — 스케줄러 시간표/다음 실행/상세/실행 이력\n` +
           `  /scan — 장중 강제 스캔 트리거\n` +
           `  /krx_scan — KRX 종목조회 강제 재스캔 (Stage1+2+3)\n` +
           `  /cancel <code>종목코드</code> — 미체결 주문 취소\n` +
@@ -150,6 +158,11 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /reset [pw] — 비상 정지 해제\n` +
           `  /integrity — 데이터 무결성 차단 상태 조회/해제\n` +
           `  /reconnect_ws — KIS WebSocket 강제 재연결\n` +
+          `  /circuits — KIS/KRX 회로 차단 상태 조회\n` +
+          `  /reset_circuits — KIS/KRX 회로 즉시 해제 (저녁 스캔 전 권장)\n` +
+          `  /risk — 계좌 리스크 예산 + Fractional Kelly 캡 현황\n` +
+          `  /news_patterns — 뉴스-수급 시차 학습 카탈로그 (베이지안)\n` +
+          `  /dxy — DXY 인트라데이 스냅샷 (Yahoo + Alpha Vantage fallback)\n` +
           `  /channel_health — 4채널 상태 점검\n` +
           `  /channel_stats [YYYY-MM-DD|today|yesterday] — 채널 통계 조회\n` +
           `  /alert_history [n] — 최근 알림 이력 조회\n` +
@@ -618,34 +631,96 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
       case '/reconcile':
       case '/reconcile_qty': {
-        await reply('🔄 Railway 서버 장부 기준 수량/상태 재조정 실행 중...');
+        // 안전 기본값: 인자 없이 호출하면 dry-run(점검만). apply 명시 시에만 실제 교정.
+        // 사용법:
+        //   /reconcile               → dry-run 점검 (변경 없음)
+        //   /reconcile apply         → 실제 교정 적용
+        //   /reconcile last          → 마지막 실행 결과 조회
+        //   /reconcile status        → 마지막 실행 시각/모드/요약
+        //   (구) /reconcile_qty 는 apply 모드 호환 유지
+        const sub = (args[0] ?? '').toLowerCase();
+        const isLegacyApply = cmd.toLowerCase() === '/reconcile_qty';
+        const formatDetails = (details: typeof loadLastReconcileResult extends () => infer R ? R extends { details: infer D } ? D : never : never) => {
+          const arr = details as Array<{ stockCode: string; stockName?: string; before: { qty: number; status: string }; after: { qty: number; status: string } }>;
+          if (!arr || arr.length === 0) return '\n변경 사항 없음';
+          const lines = arr.slice(0, 8).map(d =>
+            `• ${escapeHtml(d.stockName ?? '')}(${escapeHtml(d.stockCode)}): ` +
+            `${d.before.qty}주/${escapeHtml(d.before.status)} → ${d.after.qty}주/${escapeHtml(d.after.status)}`
+          );
+          const more = arr.length > 8 ? `\n...외 ${arr.length - 8}건` : '';
+          return `\n${lines.join('\n')}${more}`;
+        };
+
+        if (sub === 'last') {
+          const last = loadLastReconcileResult();
+          if (!last) { await reply('📭 저장된 reconcile 결과가 없습니다. /reconcile 으로 점검을 실행하세요.'); break; }
+          await reply(
+            `🗂 <b>[마지막 reconcile 결과]</b>\n` +
+            `모드: ${last.mode === 'apply' ? '🔴 APPLY (실제 교정)' : '🟡 DRY-RUN (점검만)'}\n` +
+            `실행시각: ${new Date(last.ranAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}\n` +
+            `검사: ${last.checked}건 | 교정${last.mode === 'dryRun' ? ' 후보' : ''}: ${last.fixed}건` +
+            formatDetails(last.details as any)
+          );
+          break;
+        }
+
+        if (sub === 'status') {
+          const last = loadLastReconcileResult();
+          if (!last) { await reply('📭 reconcile 이력 없음 — /reconcile 으로 점검을 실행하세요.'); break; }
+          const driftSeverity = last.fixed === 0 ? '🟢 깨끗' : last.fixed <= 3 ? '🟡 경미' : '🔴 심각';
+          await reply(
+            `📊 <b>[reconcile 상태]</b>\n` +
+            `마지막 모드: ${last.mode === 'apply' ? 'APPLY' : 'DRY-RUN'}\n` +
+            `마지막 실행: ${new Date(last.ranAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}\n` +
+            `검사 ${last.checked}건 → 교정${last.mode === 'dryRun' ? ' 후보' : ''} ${last.fixed}건 (${driftSeverity})\n` +
+            (last.fixed > 0 && last.mode === 'dryRun' ? '\n⚠️ DRY-RUN 결과에 변경 후보가 있습니다 — /reconcile apply 로 적용하세요.' : '')
+          );
+          break;
+        }
+
+        const apply = isLegacyApply || sub === 'apply';
+        const banner = apply
+          ? '🔄 Railway 서버 장부 기준 수량/상태 강제 동기화 (APPLY) 실행 중...'
+          : '🔍 reconcile 점검 (DRY-RUN) 실행 중 — 변경 없이 후보만 표시합니다...';
+        await reply(banner);
 
         try {
-          const result = reconcileShadowQuantities();
-          const detailLines = result.details
-            .slice(0, 8)
-            .map(d =>
-              `• ${escapeHtml(d.stockCode)}: ${d.before.qty}주/${escapeHtml(d.before.status)} → ` +
-              `${d.after.qty}주/${escapeHtml(d.after.status)}`
-            );
+          const result = reconcileShadowQuantities(undefined, { dryRun: !apply });
+          const headerEmoji = apply ? '✅' : '🔍';
+          const headerLabel = apply ? '[수량 강제 동기화 완료]' : '[DRY-RUN 점검 결과]';
+          const tail = apply
+            ? ''
+            : (result.fixed > 0
+                ? `\n\n💡 실제 적용은 <code>/reconcile apply</code>`
+                : '\n\n변경할 항목이 없어 apply 도 동일하게 무변경입니다.');
 
           await reply(
-            `✅ <b>[수량 강제 동기화 완료]</b>\n` +
+            `${headerEmoji} <b>${headerLabel}</b>\n` +
             `기준: Railway 서버 장부(fills → quantity/status)\n` +
-            `검사: ${result.checked}건 | 교정: ${result.fixed}건\n` +
-            (detailLines.length > 0
-              ? `\n${detailLines.join('\n')}${result.details.length > detailLines.length ? `\n...외 ${result.details.length - detailLines.length}건` : ''}`
-              : '\n변경 사항 없음')
+            `검사: ${result.checked}건 | 교정${apply ? '' : ' 후보'}: ${result.fixed}건` +
+            formatDetails(result.details as any) +
+            tail
           );
         } catch (e) {
-          console.error('[TelegramBot] /reconcile_qty 실패:', e);
-          await reply('❌ 수량 강제 동기화 실패 — 서버 로그를 확인하세요.');
+          console.error('[TelegramBot] /reconcile 실패:', e);
+          await reply('❌ reconcile 실패 — 서버 로그를 확인하세요.');
         }
         break;
       }
 
-      case '/scheduler': {
-        await reply(formatSchedulerSummary());
+      case '/scheduler':
+      case '/schedule': {
+        const sub = (args[0] ?? '').toLowerCase();
+        if (sub === 'next') {
+          await reply(formatSchedulerNext());
+        } else if (sub === 'detail') {
+          await reply(formatSchedulerDetail());
+        } else if (sub === 'history') {
+          const n = Number(args[1]);
+          await reply(formatSchedulerHistory(Number.isFinite(n) && n > 0 ? Math.min(n, 50) : 15));
+        } else {
+          await reply(formatSchedulerSummary());
+        }
         break;
       }
 
@@ -1160,10 +1235,21 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         const scanSummary   = getLastScanSummary();
         const activeTrades  = shadows.filter(s => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0).length;
         const geminiRuntime = getGeminiRuntimeState();
-        const yahooStatus   = !scanSummary || scanSummary.candidates === 0 ? 'UNKNOWN'
-          : scanSummary.yahooFails === scanSummary.candidates ? 'DOWN'
-          : scanSummary.yahooFails > scanSummary.candidates * 0.5 ? 'DEGRADED'
-          : 'OK';
+        // Yahoo 집계 상태 — 우선순위:
+        //   1) 최근 스캔 결과(scanSummary) 가 있고 후보가 1개라도 있었으면 → 후보 대비 실패율로 판정
+        //   2) 그렇지 않으면(스캐너 idle 또는 candidates=0) → fetchDailyBars 의 last-success heartbeat 로 fallback
+        //   3) heartbeat 도 없으면 → '?'/UNKNOWN
+        // (이전엔 candidates=0 일 때 무조건 UNKNOWN 이라 운영자에게 '?' 가 자주 보였다.)
+        const yh = getYahooHealthSnapshot();
+        let yahooStatus: 'OK' | 'DEGRADED' | 'DOWN' | 'STALE' | 'UNKNOWN';
+        if (scanSummary && scanSummary.candidates > 0) {
+          if (scanSummary.yahooFails === scanSummary.candidates) yahooStatus = 'DOWN';
+          else if (scanSummary.yahooFails > scanSummary.candidates * 0.5) yahooStatus = 'DEGRADED';
+          else yahooStatus = 'OK';
+        } else {
+          // 스캔 후보가 없을 땐 heartbeat 기준으로 보고 — UNKNOWN 대신 실제 가용성 표시
+          yahooStatus = yh.status; // 'OK' | 'STALE' | 'DOWN' | 'UNKNOWN'
+        }
 
         // ── 서브시스템 프로브 병렬 실행 (타임아웃 3초) ──────────────────────
         const volumeCheck = verifyVolumeMount();
@@ -1214,13 +1300,136 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `DART probe: ${probeLabel(dartProbe)}\n` +
           `Gemini: ${geminiRuntime.status}${geminiRuntime.reason ? ` (${geminiRuntime.reason})` : ''}\n` +
           `Volume: ${volumeCheck.ok ? '✅ 마운트됨' : `❌ ${volumeCheck.error ?? '미마운트'}`}\n` +
-          `Yahoo 집계: ${yahooStatus === 'OK' ? '✅' : yahooStatus === 'DEGRADED' ? '⚠️ 부분장애' : yahooStatus === 'DOWN' ? '❌ 불가' : '?'}\n` +
+          `Yahoo 집계: ${
+            yahooStatus === 'OK' ? '✅'
+            : yahooStatus === 'DEGRADED' ? '⚠️ 부분장애'
+            : yahooStatus === 'STALE' ? `🟡 STALE (마지막 성공 ${yh.lastSuccessAt > 0 ? new Date(yh.lastSuccessAt).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' }) : 'N/A'})`
+            : yahooStatus === 'DOWN' ? `❌ 불가 (연속 실패 ${yh.consecutiveFailures}회)`
+            : '? 미수집'
+          }\n` +
           `마지막 스캔: ${lastScanAt} | 마지막 신호: ${lastBuyAt}\n` +
           `일일손실: ${dailyLossPct.toFixed(1)}% / 한도 ${dailyLossLimit}%\n` +
           `비상정지: ${emergencyStop ? '🛑 활성' : '✅ 해제'}\n` +
           `실시간호가: ${ss.connected ? `✅ ${ss.subscribedCount}종목` : '❌ 미연결'}\n` +
           `─────────────────────\n` +
           `<i>/refresh_token — KIS 토큰 강제 갱신</i>`
+        );
+        break;
+      }
+
+      case '/dxy_intraday':
+      case '/dxy': {
+        // P3-7: DXY 인트라데이 스냅샷. Yahoo 5m 우선, ALPHA_VANTAGE_API_KEY 시 fallback.
+        const { getDxyIntradaySnapshot } = await import('../alerts/dxyMonitor.js');
+        const snap = await getDxyIntradaySnapshot();
+        if (!snap) {
+          await reply(
+            '💱 <b>[DXY 인트라데이]</b>\n' +
+            '데이터 소스 모두 실패 — Yahoo Finance 와 Alpha Vantage 모두 응답 없음.\n' +
+            '<i>ALPHA_VANTAGE_API_KEY 환경변수를 설정하면 fallback 이 활성화됩니다.</i>'
+          );
+          break;
+        }
+        const sign = snap.changePct >= 0 ? '+' : '';
+        const arrow = snap.changePct >= 0 ? '▲' : '▼';
+        const stale = snap.source === 'YAHOO'
+          ? `최신 봉: ${new Date(snap.asOf).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })}`
+          : `Alpha Vantage 단일 스냅샷 (변화율 비교 불가)`;
+        await reply(
+          `💱 <b>[DXY 인트라데이]</b> 소스: ${snap.source}\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `${arrow} DXY ${snap.last.toFixed(2)} | ${snap.windowMinutes}분 윈도우 ${sign}${snap.changePct.toFixed(2)}%\n` +
+          `${stale}\n\n` +
+          `<i>임계 ±${process.env.DXY_INTRADAY_THRESHOLD ?? '0.4'}% 돌파 시 자동 ANALYSIS 채널 + 개인 채팅 발송</i>`
+        );
+        break;
+      }
+
+      case '/news_patterns':
+      case '/news_lag': {
+        // P3-6: 베이지안으로 학습된 (newsType × sector) lag 분포 카탈로그.
+        // T+5 결산이 누적될수록 정확도가 올라간다. 표본 < 3 인 항목은 표시 제외.
+        const { listAllOptimalWindows } = await import('../learning/newsLagBayesian.js');
+        const windows = listAllOptimalWindows(3);
+        if (windows.length === 0) {
+          await reply(
+            '📡 <b>[뉴스-수급 시차 학습]</b>\n' +
+            '아직 표본 ≥3 인 (newsType × sector) 조합이 없습니다.\n' +
+            '<i>T+5 결산이 누적될수록 카탈로그가 채워집니다.</i>'
+          );
+          break;
+        }
+        const top = windows.slice(0, 12);
+        const lines = top.map(w =>
+          `• <b>${escapeHtml(w.newsType)} → ${escapeHtml(w.sector)}</b>\n` +
+          `   peak ${w.meanLagDays}d ± ${w.stdDays}d ` +
+          `(95% [${w.ci95LowDays}, ${w.ci95HighDays}d], n=${w.sampleSize})`
+        );
+        await reply(
+          `📡 <b>[뉴스-수급 시차 카탈로그] ${windows.length}개</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          lines.join('\n') +
+          (windows.length > 12 ? `\n...외 ${windows.length - 12}개` : '') +
+          `\n\n<i>모델: Normal-Inverse-Gamma conjugate posterior on lag(business days)</i>`
+        );
+        break;
+      }
+
+      case '/risk_budget':
+      case '/risk': {
+        // 사용자 P1-2: 계좌 레벨 리스크 예산 + Fractional Kelly 가시성.
+        // signalScanner 게이트와 동일 로직 — 운영자가 "지금 신규 진입이 왜 막히는지" 즉시 진단.
+        const settings = loadTradingSettings();
+        const totalAssets = settings.startingCapital ?? 0;
+        const budget = getAccountRiskBudget({ totalAssets });
+        await reply(
+          formatAccountRiskBudget(budget) +
+          `\n\n<i>총 자본 기준: ${(totalAssets / 10_000).toLocaleString()}만원 (settings.startingCapital)\n` +
+          `Fractional Kelly: STRONG_BUY ≤0.5 / BUY ≤0.25 / HOLD ≤0.1</i>`
+        );
+        break;
+      }
+
+      case '/circuits': {
+        // KIS / KRX 회로 상태 가시성 — 저녁 추천 스캔이 회로 차단으로 인해 빈
+        // 결과가 나오는 현상을 즉시 진단하기 위한 명령. (사용자 P3-8 대응)
+        const kisCircuits = getCircuitBreakerStats();
+        const krxStatus = getKrxOpenApiStatus();
+        const kisLines = kisCircuits.length === 0
+          ? '  (이력 없음)'
+          : kisCircuits
+              .map(c => {
+                const open = c.openFor > 0;
+                const tag = open ? `🔴 OPEN (${Math.ceil(c.openFor / 1000)}s 남음)` : '🟢 CLOSED';
+                return `  ${tag} ${c.trId} (실패 ${c.consecutiveFailures}회)`;
+              })
+              .join('\n');
+        await reply(
+          `⚡ <b>[회로 차단기 상태]</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `<b>KIS</b>:\n${kisLines}\n\n` +
+          `<b>KRX OpenAPI</b>: ${krxStatus.circuitState === 'OPEN' ? '🔴 OPEN' : '🟢 ' + krxStatus.circuitState} ` +
+          `(실패 ${krxStatus.failures}회)\n\n` +
+          `<i>/reset_circuits — 모든 KIS 회로 즉시 해제 (저녁 스캔 전 권장)</i>`
+        );
+        break;
+      }
+
+      case '/reset_circuits': {
+        // 운영자 수동 회로 reset — 저녁 추천 스캔(KST 16~22) 전 일괄 해제로
+        // 종목 후보 호출이 회로 차단으로 묻히는 케이스를 우회한다.
+        const cleared = resetKisCircuits();
+        // KRX OpenAPI 회로도 함께 reset.
+        try {
+          _resetKrxOpenApiBreaker();
+        } catch (e) {
+          console.warn('[TelegramBot] KRX 회로 reset 실패:', e instanceof Error ? e.message : e);
+        }
+        await reply(
+          `🔧 <b>[회로 차단 해제]</b>\n` +
+          `해제된 KIS 회로: ${cleared}개\n` +
+          `KRX OpenAPI 회로: 함께 reset 시도\n` +
+          `<i>저녁 스캔/추천 작업 전 호출 권장. 이후 5xx 가 다시 누적되면 재차 차단됩니다.</i>`
         );
         break;
       }

@@ -12,12 +12,22 @@
  *
  * 이 데이터가 3~6개월 누적되면 어떤 공개 DB에도 없는
  * 개인화된 알파 패턴을 발굴할 수 있다.
+ *
+ * ─── P3-6 베이지안 학습 (구현 완료) ────────────────────────────────────────
+ * `newsLagBayesian.ts` 가 (newsType × sector) 조합별 lag posterior 를 유지.
+ * trackPendingRecords() 의 T+5 결산 분기에서 자동으로 recordLagObservation()
+ * 트리거 — 표본 누적에 따라 평균·표준편차·95% 구간 정밀도가 자가 향상.
+ *
+ * 운영자 조회: `/news_patterns` — 표본 ≥ 3 인 카탈로그 반환.
+ * 외부 모듈 사용: `getOptimalEntryWindow(newsType, sector)`
+ * ─────────────────────────────────────────────────────────────────────────
  */
 
 import fs from 'fs';
 import { NEWS_SUPPLY_FILE, ensureDataDir } from '../persistence/paths.js';
 import { fetchCloses } from '../trading/marketDataRefresh.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { recordLagObservation, inferLagFromTSeries } from './newsLagBayesian.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -174,6 +184,23 @@ export async function trackPendingRecords(): Promise<void> {
         r.trackedAt   = new Date().toISOString();
         updated++;
         console.log(`[NewsSupply] T+5 완료: ${r.newsType}/${r.sector} → 평균 ${r.t5StockAvg}%`);
+
+        // ── P3-6: 베이지안 사후 분포 업데이트 ───────────────────────────────
+        // T+1/T+3/T+5 변화율 중 절댓값 최대 시점을 "반응 피크 일수" 로 추정해
+        // (newsType, sector) 조합의 lag posterior 를 갱신한다. 표본이 누적되면
+        // getOptimalEntryWindow() 가 평균 + 95% 구간을 반환.
+        try {
+          const lag = inferLagFromTSeries(r.t1EwyChange, r.t3EwyChange, r.t5StockAvg);
+          if (lag != null) {
+            const post = recordLagObservation(r.newsType, r.sector, lag);
+            console.log(
+              `[NewsLag/Bayesian] ${r.newsType}/${r.sector} ← lag=${lag}d 관측 ` +
+              `(누적 ${post.posterior.n}회, μ=${post.posterior.mu.toFixed(2)}d)`,
+            );
+          }
+        } catch (e) {
+          console.warn('[NewsLag/Bayesian] 업데이트 실패:', e instanceof Error ? e.message : e);
+        }
       }
     }
   }

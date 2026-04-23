@@ -270,6 +270,28 @@ export function getCircuitBreakerStats(): Array<{
 }
 
 /**
+ * 모든 KIS 회로 차단을 즉시 해제 — 운영자용.
+ *
+ * 배경: 저녁 추천 스캔 시간대(KST 16~22)에 KIS 잔고/랭킹 TR 이 5xx 를 누적해
+ * 회로가 닫힌 채로 들어가면 10분 cooldown 동안 후보 종목 호출이 모두 null 로
+ * 떨어진다. /reset 비상 정지 해제로는 회로가 풀리지 않으므로 별도 경로 필요.
+ *
+ * @returns 해제 전 열려 있던 회로 수
+ */
+export function resetKisCircuits(): number {
+  let openCount = 0;
+  const now = Date.now();
+  for (const state of _circuitByTrId.values()) {
+    if (state.openUntil > now) openCount++;
+  }
+  _circuitByTrId.clear();
+  if (openCount > 0) {
+    console.warn(`[KIS] 🔧 운영자 수동 회로 reset — 열려 있던 ${openCount}개 회로 모두 해제`);
+  }
+  return openCount;
+}
+
+/**
  * 내부 raw GET — 토큰 버킷 없이 직접 호출. 외부에서는 kisGet을 사용할 것.
  *
  * 재시도 정책 (retriesLeft 기본 3회):

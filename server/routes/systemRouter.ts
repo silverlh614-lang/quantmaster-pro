@@ -31,6 +31,7 @@ import { getKisTokenRemainingHours } from '../clients/kisClient.js';
 import { getKrxOpenApiStatus, isKrxOpenApiHealthy } from '../clients/krxOpenApi.js';
 import { getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
 import { getStreamStatus } from '../clients/kisStreamClient.js';
+import { getYahooHealthSnapshot } from '../trading/marketDataRefresh.js';
 import { DATA_DIR } from '../persistence/paths.js';
 import { getCachedIntradayYield } from '../alerts/intradayYieldTicker.js';
 import fs from 'fs';
@@ -304,20 +305,35 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
     : null;
 
   const scanSummary = getLastScanSummary();
-  const yahooApiDetail = !scanSummary
-    ? 'NO_SCAN_HISTORY'
-    : scanSummary.candidates === 0
-      ? 'NO_CANDIDATES'
-      : 'HAS_CANDIDATES';
-  const yahooApiStatus = !scanSummary
-    ? 'UNKNOWN'
-    : scanSummary.candidates === 0
-      ? 'OK'
-      : scanSummary.yahooFails === scanSummary.candidates
-        ? 'DOWN'
-        : scanSummary.yahooFails > scanSummary.candidates * 0.5
-          ? 'DEGRADED'
-          : 'OK';
+  // Yahoo 상태 결정 — UI '/'No scan history' 회피용 fallback 추가:
+  //   1) 스캔 후보가 1개 이상이면: 후보 대비 yahooFails 비율로 판정 (기존 로직 유지)
+  //   2) 그렇지 않으면: fetchDailyBars heartbeat 의 lastSuccessAt 으로 fallback
+  //      → 스캐너가 idle 이거나 candidates=0 일 때도 Yahoo 자체는 살아있음을 표시
+  const yh = getYahooHealthSnapshot();
+  let yahooApiDetail: 'NO_SCAN_HISTORY' | 'NO_CANDIDATES' | 'HAS_CANDIDATES' | 'HEARTBEAT_OK' | 'HEARTBEAT_STALE' | 'HEARTBEAT_DOWN';
+  let yahooApiStatus: 'UNKNOWN' | 'OK' | 'STALE' | 'DEGRADED' | 'DOWN';
+  if (scanSummary && scanSummary.candidates > 0) {
+    yahooApiDetail = 'HAS_CANDIDATES';
+    yahooApiStatus = scanSummary.yahooFails === scanSummary.candidates ? 'DOWN'
+      : scanSummary.yahooFails > scanSummary.candidates * 0.5 ? 'DEGRADED'
+      : 'OK';
+  } else if (yh.status === 'OK') {
+    yahooApiDetail = 'HEARTBEAT_OK';
+    yahooApiStatus = 'OK';
+  } else if (yh.status === 'STALE') {
+    yahooApiDetail = 'HEARTBEAT_STALE';
+    yahooApiStatus = 'STALE';
+  } else if (yh.status === 'DOWN') {
+    yahooApiDetail = 'HEARTBEAT_DOWN';
+    yahooApiStatus = 'DOWN';
+  } else if (scanSummary && scanSummary.candidates === 0) {
+    // 스캔은 돌았지만 후보가 없고, Yahoo 호출도 한 번도 없었던 (드문) 경우
+    yahooApiDetail = 'NO_CANDIDATES';
+    yahooApiStatus = 'OK';
+  } else {
+    yahooApiDetail = 'NO_SCAN_HISTORY';
+    yahooApiStatus = 'UNKNOWN';
+  }
 
   // verdict: 파이프라인 첫 번째 단절점 반환
   let verdict: string;
