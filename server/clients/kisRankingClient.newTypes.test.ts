@@ -72,7 +72,7 @@ describe('kisRankingClient — 신규 3종 확장', () => {
     expect(rows[0].value).toBe(999000);
   });
 
-  it('large-volume: 거래량을 value로 매핑한다 (fid_blng_cls_code=3 대량거래)', async () => {
+  it('large-volume: 거래량을 value로 매핑한다 (vol_cnt 상향으로 대량거래 필터)', async () => {
     mockedKisGet.mockImplementation(async () => ({
       output: [
         {

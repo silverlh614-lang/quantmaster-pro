@@ -5,9 +5,9 @@
  *   - volume:              FHPST01710000 (거래량 상위)
  *   - fluctuation:         FHPST01700000 (등락률 상위)
  *   - market-cap:          FHPST01720000 (시가총액 상위)
- *   - institutional-net-buy: FHPST01620000 (기관 순매수 상위)
+ *   - institutional-net-buy: FHPST01600000 (기관 순매수 상위)
  *   - short-balance:       FHPST04020000 (공매도 잔고 상위)
- *   - large-volume:        FHPST01710000 (대량거래 — 거래량 TR + fid_blng_cls_code=3)
+ *   - large-volume:        FHPST01710000 (대량거래 — 거래량 TR, vol_cnt 상향)
  *
  * 기존 kisClient.ts의 토큰·헤더 로직은 realDataKisGet 재사용으로 그대로 가져온다.
  * kisClient를 2,000줄짜리 비대 파일로 만들지 않기 위한 분리 — 항후 flow/ws 클라이언트도
@@ -173,19 +173,21 @@ const TR_SPECS: Record<RankingType, TrSpec> = {
     },
   },
   // 기관 순매수 상위 — googleSearch "지금 뜨는 종목" 질문을 완전 대체.
+  // tr_id/scr_div_code는 stockScreener 및 mockKisClient와 동일한 FHPST01600000/20160 사용.
+  // 과거 FHPST01620000/20162 는 KIS에 존재하지 않아 404를 유발함.
   'institutional-net-buy': {
-    trId: 'FHPST01620000',
+    trId: 'FHPST01600000',
     apiPath: '/uapi/domestic-stock/v1/ranking/investor',
     params: (mrktDiv) => ({
       fid_cond_mrkt_div_code: mrktDiv,
-      fid_cond_scr_div_code:  '20162',
+      fid_cond_scr_div_code:  '20160',
       fid_input_iscd:         '0000',
       fid_inqr_dvsn_cls_code: '0',       // 0=순매수
       fid_div_cls_code:       '0',
       fid_rank_sort_cls_code: '2',       // 2=기관 (KIS 공통 규약 — 1=외국인 / 2=기관 / 0=전체)
       fid_input_cnt_1:        '30',
-      fid_trgt_cls_code:      '0',
-      fid_trgt_exls_cls_code: '0',
+      fid_trgt_cls_code:      '111111111',
+      fid_trgt_exls_cls_code: '000000',
       fid_vol_cnt:            '10000',
       fid_input_price_1:      '3000',
       fid_input_price_2:      '500000',
@@ -235,8 +237,8 @@ const TR_SPECS: Record<RankingType, TrSpec> = {
       };
     },
   },
-  // 대량거래 상위 — 거래량 TR에서 fid_blng_cls_code=3(대량거래) + 거래대금 하한 강화.
-  // 평균 대비 급증한 거래가 있는 종목에 집중한다.
+  // 대량거래 상위 — 거래량 TR을 거래량 하한만 상향해 재사용한다.
+  // (과거 fid_blng_cls_code=3 은 KIS 가 허용하지 않는 값이라 404 를 유발했다.)
   'large-volume': {
     trId: 'FHPST01710000',
     apiPath: '/uapi/domestic-stock/v1/ranking/volume',
@@ -245,12 +247,12 @@ const TR_SPECS: Record<RankingType, TrSpec> = {
       fid_cond_scr_div_code:  '20171',
       fid_input_iscd:         '0000',
       fid_div_cls_code:       '0',
-      fid_blng_cls_code:      '3',         // 3=대량거래
+      fid_blng_cls_code:      '0',         // 0=전체 (3=대량거래는 미지원)
       fid_trgt_cls_code:      '111111111',
       fid_trgt_exls_cls_code: '000000',
       fid_input_price_1:      '3000',
       fid_input_price_2:      '500000',
-      fid_vol_cnt:            '100000',    // 거래량 10만주 이상
+      fid_vol_cnt:            '100000',    // 거래량 10만주 이상 — 대량거래 필터 역할
       fid_input_date_1:       '',
     }),
     mapRow: (row, rank, market) => {
