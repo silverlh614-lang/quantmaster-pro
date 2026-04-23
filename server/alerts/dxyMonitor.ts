@@ -20,6 +20,21 @@
  *
  * cron: 미국 장 마감 직후 KST 06:05 (UTC 21:05 일~목)
  *       + 한국 장 직전 KST 08:40 (UTC 23:40) 재확인
+ *
+ * ─── 향후 작업 (사용자 P3-7 의견 반영) ─────────────────────────────────────
+ * 현재는 일봉 close 기반 — 미국 장 중 실시간 DXY 급변을 놓친다.
+ * 인트라데이 모니터링으로 전환:
+ *
+ *   ① Forex API (Alpha Vantage, OANDA, Fixer.io) WebSocket 또는 1분 폴링
+ *   ② DXY ±0.4% 인트라데이 변화 감지 시 즉시 "선행 경보" → ANALYSIS 채널
+ *   ③ 한국 장 시작 (KST 09:00) 직전 30분 윈도우 집중 감시
+ *
+ * 구현 순서:
+ *   step 1 — `dxyIntradayClient.ts` 신규: Alpha Vantage CURRENCY_EXCHANGE_RATE
+ *            (DXY 는 직접 지원 안 함 → DXY=USD/EUR + USD/JPY + USD/GBP 가중 합성)
+ *   step 2 — 1분 cron 으로 인트라데이 변화율 추적
+ *   step 3 — 임계값 초과 시 dxyMonitor.checkAndAlert() 강제 트리거
+ * ─────────────────────────────────────────────────────────────────────────
  */
 
 import fs from 'fs';
@@ -27,6 +42,8 @@ import { fetchCloses } from '../trading/marketDataRefresh.js';
 import { sendTelegramAlert } from './telegramClient.js';
 import { DXY_MONITOR_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { logNewsSupplyEvent } from '../learning/newsSupplyLogger.js';
+import { dispatchAlert } from './alertRouter.js';
+import { AlertCategory } from './alertCategories.js';
 
 // ── 임계값 ────────────────────────────────────────────────────────────────────
 
@@ -233,10 +250,16 @@ export async function runDxyMonitor(): Promise<DxyAlertReport | null> {
   if (inCooldown && severity !== 'CONFIRMED') {
     console.log(`[DxyMonitor] 쿨다운 중 (${direction}) — 예비 경보 억제`);
   } else {
-    await sendTelegramAlert(formatAlert(report), {
+    const alertText = formatAlert(report);
+    await sendTelegramAlert(alertText, {
       priority:  severity === 'CONFIRMED' ? 'CRITICAL' : 'HIGH',
       dedupeKey: `dxy_monitor:${direction}:${severity}:${new Date().toISOString().slice(0, 10)}`,
     }).catch(console.error);
+    // ANALYSIS 채널 미러링 — 외국인 수급 분석은 분석 채널의 핵심 정보
+    await dispatchAlert(AlertCategory.ANALYSIS, alertText, {
+      priority: severity === 'CONFIRMED' ? 'HIGH' : 'NORMAL',
+      dedupeKey: `dxy_monitor_ch:${direction}:${severity}:${new Date().toISOString().slice(0, 10)}`,
+    }).catch(e => console.error('[DxyMonitor] ANALYSIS 미러링 실패:', e));
     report.alertSent = true;
     logToNewsSupply(report);
   }

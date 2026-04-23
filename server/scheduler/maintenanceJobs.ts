@@ -13,6 +13,7 @@ import { resetDataCompleteness } from '../screener/dataCompletenessTracker.js';
 import { updateKrxSectorMap, type UpdateResult } from '../screener/sectorMapUpdater.js';
 import { migrateAttributionRecords } from '../persistence/attributionRepo.js';
 import { DATA_DIR } from '../persistence/paths.js';
+import { wrapJob } from './scheduleCatalog.js';
 
 const BACKUP_RETENTION_DAYS = 7;
 
@@ -87,13 +88,9 @@ export function registerMaintenanceJobs(): void {
   // 이중 기록 Reconciliation — 매일 KST 23:30 (UTC 14:30).
   // shadow-log ↔ TradeEvent ↔ shadow-trades 정합성 자동 대조.
   // 불일치 > 임계치 시 Critical 텔레그램 알림 + DATA_INTEGRITY_BLOCKED 게이팅.
-  cron.schedule('30 14 * * *', async () => {
-    try {
-      await runDailyReconciliation();
-    } catch (e) {
-      console.error('[Reconciliation] cron 실행 오류:', e);
-    }
-  }, { timezone: 'UTC' });
+  cron.schedule('30 14 * * *', wrapJob('daily_reconcile', async () => {
+    await runDailyReconciliation();
+  }), { timezone: 'UTC' });
 
   // KIS 실잔고 vs Shadow DB 정합성 — 15분 간격, 장중 구간 자동 스킵.
   // exitEngine 의 PROVISIONAL fill 선반영이 실제 KIS 잔고와 괴리되는 구간을 조기에

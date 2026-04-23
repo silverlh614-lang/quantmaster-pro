@@ -12,6 +12,27 @@
  *
  * 이 데이터가 3~6개월 누적되면 어떤 공개 DB에도 없는
  * 개인화된 알파 패턴을 발굴할 수 있다.
+ *
+ * ─── 향후 작업 (사용자 P3-6 의견 반영) ─────────────────────────────────────
+ * 베이지안 업데이트로 시차 분포(평균·표준편차)를 자동 학습:
+ *
+ *   1) 표본이 N≥30 이 되면 newsType + sector 조합별 lag 분포 추정
+ *      θ = (μ, σ²) — 정규-역감마 conjugate 사용
+ *
+ *   2) 새 이벤트 발생 시:
+ *        - 사전분포(prior) ← 직전 추정값
+ *        - 우도(likelihood) ← T+1/T+3/T+5 관측치
+ *        - 사후분포(posterior) → 다음 회차 사전 분포로 사용
+ *
+ *   3) 사후 분포 95% 구간 → "최적 진입 윈도우" 로 알림 발송
+ *      예: "미국 방산 수주 → 한국 방산주, T+0.3 ± 0.8d (표본 47)"
+ *
+ * 구현 순서:
+ *   step 1 — `newsLagBayesian.ts` 신규: posterior 갱신 함수
+ *   step 2 — `recordReaction()` 확장: T+5 결산 시 posterior 업데이트 트리거
+ *   step 3 — `getOptimalEntryWindow(newsType, sector)` 노출
+ *            → adrGapCalculator/ preMarketSignal 이 사용
+ * ─────────────────────────────────────────────────────────────────────────
  */
 
 import fs from 'fs';

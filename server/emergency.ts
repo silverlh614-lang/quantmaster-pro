@@ -64,9 +64,26 @@ export async function checkDailyLossLimit(): Promise<void> {
   const limit = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
   if (getDailyLossPct() >= limit && !getEmergencyStop()) {
     setEmergencyStop(true);
-    console.error(`[EMERGENCY] 일일 손실 한도 도달 (${getDailyLossPct().toFixed(2)}% ≥ ${limit}%) — 자동매매 중단`);
+    const lossPct = getDailyLossPct().toFixed(2);
+    console.error(`[EMERGENCY] 일일 손실 한도 도달 (${lossPct}% ≥ ${limit}%) — 자동매매 중단`);
     await cancelAllPendingOrders();
     const { generateDailyReport } = await import('./alerts/reportGenerator.js');
     await generateDailyReport().catch(console.error);
+
+    // SYSTEM 채널로 비상 정지 사실을 즉시 브로드캐스트 — CRITICAL 로 cooldown 우회.
+    // 이전엔 개인 chat 만 알았으나, 운영 콘솔(SYSTEM 채널) 구독자도 즉시 알 수 있어야 한다.
+    try {
+      const { dispatchAlert } = await import('./alerts/alertRouter.js');
+      const { AlertCategory } = await import('./alerts/alertCategories.js');
+      await dispatchAlert(
+        AlertCategory.SYSTEM,
+        `🚨 <b>[비상 정지 자동 발동]</b>\n` +
+        `사유: 일일 손실 한도 도달 (${lossPct}% ≥ ${limit}%)\n` +
+        `미체결 주문 전량 취소 완료. /reset 으로 재개 가능.`,
+        { priority: 'CRITICAL', dedupeKey: 'daily_loss_emergency_stop' },
+      );
+    } catch (e) {
+      console.error('[EMERGENCY] SYSTEM 채널 발송 실패:', e);
+    }
   }
 }

@@ -25,6 +25,8 @@ import {
 import { fetchKisInvestorFlow } from '../clients/kisClient.js';
 import { getScreenerCache } from '../screener/stockScreener.js';
 import { sendPickChannelAlert } from './telegramClient.js';
+import { dispatchAlert } from './alertRouter.js';
+import { AlertCategory } from './alertCategories.js';
 
 // ─── KST 현재 요일 (0=일, 1=월, ... 6=토) ───────────────────────────────────
 function getKstDayOfWeek(): number {
@@ -55,13 +57,16 @@ export async function generateDailyPickReport(): Promise<void> {
 
   // ── R6: 관망 권고만 발송 ────────────────────────────────────────────────────
   if (regime === 'R6_DEFENSE') {
-    await sendPickChannelAlert(
+    const r6Msg =
       `⚠️ <b>[${dateStr} 종목 픽] 관망 권고</b>\n` +
       `━━━━━━━━━━━━━━━━━━━━\n` +
       `현재 레짐: <b>${regime}</b> (시장 붕괴 국면)\n\n` +
       `오늘은 신규 매수를 자제하고 현금 비중을 높여 관망하는 것을 권고합니다.\n` +
-      `━━━━━━━━━━━━━━━━━━━━`,
-    );
+      `━━━━━━━━━━━━━━━━━━━━`;
+    await sendPickChannelAlert(r6Msg);
+    // 분석 채널로도 미러링 — 운영자가 picks 수신을 끄더라도 분석 흐름엔 남김.
+    await dispatchAlert(AlertCategory.ANALYSIS, r6Msg, { disableNotification: true })
+      .catch(e => console.error('[PickReport] ANALYSIS 미러링 실패:', e));
     return;
   }
 
@@ -285,5 +290,9 @@ export async function generateDailyPickReport(): Promise<void> {
     `<i>* 투자 참고용 — 최종 판단은 본인 책임</i>`;
 
   await sendPickChannelAlert(message);
+  // ANALYSIS 채널로도 발송 — AI/스크리너가 도출한 추천 내용은 분석 채널의 핵심 흐름.
+  // disableNotification 으로 알림은 PICK 채널만 보내고 ANALYSIS 는 조용히 누적.
+  await dispatchAlert(AlertCategory.ANALYSIS, message, { disableNotification: true })
+    .catch(e => console.error('[PickReport] ANALYSIS 미러링 실패:', e));
   console.log(`[PickReport] 발송 완료 — 지금살:${regime !== 'R5_CAUTION' ? (section1.includes('없음') ? 0 : section1.split('\n').filter(l => l.match(/^\d+\./)).length) : 'skip'} 미리살:${top5pb.length} 숨은:${isTueThu ? '조회됨' : '스킵(월수금)'}`);
 }

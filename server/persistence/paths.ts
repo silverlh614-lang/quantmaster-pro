@@ -56,6 +56,9 @@ export const ATTRIBUTION_FILE        = path.join(DATA_DIR, 'attribution-records.
 export const GLOBAL_SCAN_FILE        = path.join(DATA_DIR, 'global-scan-report.json');
 /** 뉴스-수급 시차 학습 DB — 공급망/ETF 경보 이벤트 + T+1·T+3·T+5 추적 결과 */
 export const NEWS_SUPPLY_FILE        = path.join(DATA_DIR, 'news-supply-log.json');
+/** 마지막 reconcile 결과 — /reconcile last 조회용. dry-run/apply 모두 기록. */
+export const RECONCILE_LAST_FILE     = path.join(DATA_DIR, 'reconcile-last.json');
+/** 스케줄러 실행 이력 — /scheduler history 조회용. 최근 N건 in-memory ring. 디스크 저장 X. */
 /** 반실패 패턴 DB — 손절된 포지션 진입 스냅샷 (코사인 유사도 경고 기반) */
 export const FAILURE_PATTERN_FILE    = path.join(DATA_DIR, 'failure-patterns.json');
 /** DART LLM 임팩트 상태 — 악재 소화 완료 종목 캐시 */

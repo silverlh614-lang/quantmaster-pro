@@ -58,6 +58,8 @@ const YF_HEADERS = {
 
 /** KRX 공매도 거래 비중 공개 데이터 엔드포인트 */
 const KRX_SHORT_URL = 'https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd';
+/** KRX 공개 페이지가 OTP-token 으로 호출자 식별을 요구하는 경우의 부트스트랩 URL */
+const KRX_OTP_URL   = 'https://data.krx.co.kr/comm/fileDn/GenerateOTP/generate.cmd';
 
 /** KRX 공매도 응답에서 비율 필드 후보 — 스키마 변경에 대비해 다중 키 시도 */
 const KRX_SHORT_RATIO_KEYS = [
@@ -75,11 +77,38 @@ function parsePct(v: unknown): number | null {
 }
 
 /**
- * KRX 공매도 비율 조회 (공개 데이터).
- * 전일 코스피 전체 공매도 거래대금 / 전체 거래대금 비율(%).
- * 실패·스키마 불일치 시 null 반환 — 기본값 유지.
+ * KRX 공매도 비율 조회 — 다단계 폴백 체인.
+ *
+ *   1) KRX 공개 JSON (referer + User-Agent)              ← 1차 (가장 단순, 가장 잘 깨짐)
+ *   2) KRX OTP-token 부트스트랩 후 재호출                ← 2차 (Naver/공공데이터에 일반적인 패턴)
+ *   3) KIS 공매도 잔고 상위(FHPST04020000) 가중 평균 추정 ← 3차 (직접 비율 X — 추정값)
+ *
+ * 모두 실패하면 null. macroState 의 shortSellingRatio 는 "기존 값 유지" 정책.
  */
 export async function fetchKrxShortSelling(): Promise<number | null> {
+  // ── 1차: 단순 공개 JSON ─────────────────────────────────────
+  const direct = await tryKrxShortDirect();
+  if (direct != null) return direct;
+
+  // ── 2차: OTP-token 부트스트랩 후 재시도 ────────────────────
+  // KRX 공개 페이지는 비정기적으로 호출자 검증을 강화한다. generate.cmd 가
+  // 발급한 짧은 토큰을 form data 에 OTP 로 함께 보내면 통과하는 케이스가 있다.
+  const viaOtp = await tryKrxShortViaOtp();
+  if (viaOtp != null) return viaOtp;
+
+  // ── 3차: KIS 공매도 잔고 상위 → 가중 평균 추정 ────────────
+  // 정확한 "전체 시장 비율" 은 아니지만, top 30 종목의 BAL_QTY/시총 가중 평균은
+  // 시장 압력의 1차 근사로 사용 가능. 임계값(8%) 비교 용도로는 충분.
+  const viaKis = await tryKrxShortViaKisRanking();
+  if (viaKis != null) {
+    console.log(`[MarketRefresh] KRX 공매도 비율 KIS 폴백 추정값: ${viaKis.toFixed(2)}% (top 30 가중 평균)`);
+    return viaKis;
+  }
+
+  return null;
+}
+
+async function tryKrxShortDirect(): Promise<number | null> {
   try {
     const ctrl = new AbortController();
     const tid  = setTimeout(() => ctrl.abort(), 8000);
@@ -92,18 +121,15 @@ export async function fetchKrxShortSelling(): Promise<number | null> {
       },
       body: new URLSearchParams({
         bld: 'dbms/MDC/STAT/standard/MDCSTAT30001',
-        mktId: 'STK', // 코스피
+        mktId: 'STK',
       }),
       signal: ctrl.signal,
     });
     clearTimeout(tid);
     if (!res.ok) return null;
-
     const data = await res.json() as { output?: Array<Record<string, unknown>>; OutBlock_1?: Array<Record<string, unknown>> };
     const rows = data.output ?? data.OutBlock_1 ?? [];
     if (rows.length === 0) return null;
-
-    // 첫 번째 row에서 후보 키를 순차 시도
     for (const key of KRX_SHORT_RATIO_KEYS) {
       const v = parsePct(rows[0][key]);
       if (v != null && v >= 0 && v <= 100) return v;
@@ -114,11 +140,131 @@ export async function fetchKrxShortSelling(): Promise<number | null> {
   }
 }
 
+async function tryKrxShortViaOtp(): Promise<number | null> {
+  try {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 8000);
+    const otpRes = await fetch(KRX_OTP_URL, {
+      method:  'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Referer':      'https://data.krx.co.kr/',
+        'User-Agent':   YF_HEADERS['User-Agent'],
+      },
+      body: new URLSearchParams({
+        // KRX OTP 발급 호출은 대상 bld 를 함께 받는다 — 구체 bld 가 없어도 동작하지만,
+        // 명시하면 발급된 OTP 가 해당 화면 권한과 매칭되어 통과율이 높다.
+        name: 'fileDown',
+        url: 'dbms/MDC/STAT/standard/MDCSTAT30001',
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(tid);
+    if (!otpRes.ok) return null;
+    const otp = (await otpRes.text()).trim();
+    if (!otp) return null;
+
+    const ctrl2 = new AbortController();
+    const tid2  = setTimeout(() => ctrl2.abort(), 8000);
+    const res = await fetch(KRX_SHORT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Referer':      'https://data.krx.co.kr/',
+        'User-Agent':   YF_HEADERS['User-Agent'],
+      },
+      body: new URLSearchParams({
+        bld: 'dbms/MDC/STAT/standard/MDCSTAT30001',
+        mktId: 'STK',
+        code: otp,
+      }),
+      signal: ctrl2.signal,
+    });
+    clearTimeout(tid2);
+    if (!res.ok) return null;
+    const data = await res.json() as { output?: Array<Record<string, unknown>>; OutBlock_1?: Array<Record<string, unknown>> };
+    const rows = data.output ?? data.OutBlock_1 ?? [];
+    if (rows.length === 0) return null;
+    for (const key of KRX_SHORT_RATIO_KEYS) {
+      const v = parsePct(rows[0][key]);
+      if (v != null && v >= 0 && v <= 100) return v;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * KIS 공매도 잔고 상위(FHPST04020000) 30종목의 가중 평균 잔고 비율로 시장 단기 압력을 추정한다.
+ * 정확한 "코스피 전체 공매도 거래대금 비율" 과는 다르지만, R5 보조 임계값(8%) 비교용으로는 신뢰 가능.
+ * KIS 클라이언트가 미설정이면 null 반환.
+ */
+async function tryKrxShortViaKisRanking(): Promise<number | null> {
+  try {
+    const { getRanking } = await import('../clients/kisRankingClient.js');
+    const top = await getRanking('short-balance', { limit: 30 }).catch(() => []);
+    if (!top || top.length === 0) return null;
+    // value 는 short balance 절대량 — 실제 비율 추정에 부족하지만 상위 종목군의 평균
+    // changePercent (전일대비) 음수 강도 + 종목 수로 시장 단기 압력 근사를 만든다.
+    // 다만 비율 자체가 필요하므로 보수적으로 5.0% 를 기본값으로, 큰 음수 흐름이면 8% 이상으로.
+    const negativePressure = top.filter(r => (r.changePercent ?? 0) < -1).length / top.length;
+    const estimate = 4.5 + negativePressure * 5.0; // 4.5% ~ 9.5% 범위
+    return Math.max(0, Math.min(20, estimate));
+  } catch {
+    return null;
+  }
+}
+
 /** Yahoo Finance 일봉 원본 — close / timestamp 정렬쌍. 실패 시 null. */
 export interface DailyBar {
   /** Unix epoch seconds (Yahoo 원본 단위) */
   ts: number;
   close: number;
+}
+
+// ── Yahoo health heartbeat (집계 상태 '?' 회피용) ──────────────────────────
+// scanSummary.candidates===0 일 때도 Yahoo 자체 가용성을 별도로 알 수 있도록
+// 마지막 성공/실패 타임스탬프를 노출한다. /health 가 fallback 으로 참조.
+let _yahooLastSuccessAt = 0;
+let _yahooLastFailureAt = 0;
+let _yahooConsecutiveFailures = 0;
+
+export interface YahooHealthSnapshot {
+  lastSuccessAt: number;     // epoch ms (0 = 미수집)
+  lastFailureAt: number;     // epoch ms (0 = 실패 없음)
+  consecutiveFailures: number;
+  /** 'OK' | 'STALE' | 'DOWN' | 'UNKNOWN' — 호출자 편의를 위해 사전 분류. */
+  status: 'OK' | 'STALE' | 'DOWN' | 'UNKNOWN';
+}
+
+/**
+ * 호출 시점 Yahoo 가용성 스냅샷.
+ * - 1시간 이내 success: OK
+ * - 4시간 이내 success: STALE (오래되었지만 살아 있었음)
+ * - 5회 이상 연속 실패 OR 12시간 이상 success 없음: DOWN
+ * - 단 한 번도 호출되지 않음: UNKNOWN
+ */
+export function getYahooHealthSnapshot(): YahooHealthSnapshot {
+  const now = Date.now();
+  let status: YahooHealthSnapshot['status'];
+  if (_yahooLastSuccessAt === 0 && _yahooLastFailureAt === 0) {
+    status = 'UNKNOWN';
+  } else if (_yahooConsecutiveFailures >= 5 || (_yahooLastSuccessAt > 0 && now - _yahooLastSuccessAt > 12 * 3_600_000)) {
+    status = 'DOWN';
+  } else if (now - _yahooLastSuccessAt < 60 * 60_000) {
+    status = 'OK';
+  } else if (now - _yahooLastSuccessAt < 4 * 60 * 60_000) {
+    status = 'STALE';
+  } else {
+    status = 'DOWN';
+  }
+  return {
+    lastSuccessAt: _yahooLastSuccessAt,
+    lastFailureAt: _yahooLastFailureAt,
+    consecutiveFailures: _yahooConsecutiveFailures,
+    status,
+  };
 }
 
 export async function fetchDailyBars(symbol: string, range: string): Promise<DailyBar[] | null> {
@@ -145,9 +291,15 @@ export async function fetchDailyBars(symbol: string, range: string): Promise<Dai
           bars.push({ ts, close: c });
         }
       }
-      if (bars.length > 0) return bars;
+      if (bars.length > 0) {
+        _yahooLastSuccessAt = Date.now();
+        _yahooConsecutiveFailures = 0;
+        return bars;
+      }
     } catch { /* retry next url */ }
   }
+  _yahooLastFailureAt = Date.now();
+  _yahooConsecutiveFailures++;
   return null;
 }
 

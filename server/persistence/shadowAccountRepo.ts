@@ -1,3 +1,4 @@
+import fs from 'fs';
 import {
   ServerShadowTrade,
   PositionFill,
@@ -9,6 +10,7 @@ import {
   getTotalRealizedPnl,
 } from './shadowTradeRepo.js';
 import { loadTradingSettings } from './tradingSettingsRepo.js';
+import { RECONCILE_LAST_FILE } from './paths.js';
 
 // ─── 섀도우 계좌 타입 정의 ────────────────────────────────────────────────────
 
@@ -365,10 +367,40 @@ export function computeMonthlyShadowTradeStats(
 
 // ─── 재조정 (Reconciler) ──────────────────────────────────────────────────────
 
+export interface ReconcileDetail {
+  id: string;
+  stockCode: string;
+  stockName: string;
+  before: { qty: number; status: string };
+  after:  { qty: number; status: string };
+}
+
 export interface ReconcileResult {
+  /** 'dryRun' 은 변경 후보만 계산하고 디스크에 쓰지 않는다. 'apply' 는 실제 교정. */
+  mode: 'dryRun' | 'apply';
+  ranAt: string;             // ISO timestamp
   checked: number;
+  /** dryRun: 변경 예정 건수 / apply: 실제 변경 건수 */
   fixed: number;
-  details: { id: string; stockCode: string; before: { qty: number; status: string }; after: { qty: number; status: string } }[];
+  details: ReconcileDetail[];
+}
+
+/** 마지막 reconcile 결과를 디스크에 영속화 — /reconcile last 조회용. */
+function persistLastReconcile(result: ReconcileResult): void {
+  try {
+    fs.writeFileSync(RECONCILE_LAST_FILE, JSON.stringify(result, null, 2));
+  } catch (e) {
+    console.warn('[Reconcile] 마지막 결과 영속화 실패:', e instanceof Error ? e.message : e);
+  }
+}
+
+export function loadLastReconcileResult(): ReconcileResult | null {
+  try {
+    if (!fs.existsSync(RECONCILE_LAST_FILE)) return null;
+    return JSON.parse(fs.readFileSync(RECONCILE_LAST_FILE, 'utf-8')) as ReconcileResult;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -380,10 +412,25 @@ export interface ReconcileResult {
  * - fill-based 잔량 === 0 이고 status가 ACTIVE/PARTIALLY_FILLED/EUPHORIA_PARTIAL 이면 → HIT_STOP
  * - fill-based 잔량 > 0 이고 status가 HIT_STOP/HIT_TARGET 이면 → ACTIVE (잘못 닫힌 경우)
  * - BUY fill 없고 PENDING/ACTIVE 이면 → originalQuantity 또는 quantity 유지
+ *
+ * @param opts.dryRun  true 면 변경 후보만 계산해 result 반환, 디스크 저장 안 함 (기본 false).
+ *                     /reconcile (인자 없음) 의 점검 모드 진입점.
  */
-export function reconcileShadowQuantities(trades?: ServerShadowTrade[]): ReconcileResult {
-  const all = trades ?? loadShadowTrades();
-  const result: ReconcileResult = { checked: all.length, fixed: 0, details: [] };
+export function reconcileShadowQuantities(
+  trades?: ServerShadowTrade[],
+  opts: { dryRun?: boolean } = {},
+): ReconcileResult {
+  const dryRun = opts.dryRun === true;
+  // dry-run 은 원본을 손대면 안 되므로 deep clone 후 시뮬레이션.
+  const source = trades ?? loadShadowTrades();
+  const all = dryRun ? (JSON.parse(JSON.stringify(source)) as ServerShadowTrade[]) : source;
+  const result: ReconcileResult = {
+    mode: dryRun ? 'dryRun' : 'apply',
+    ranAt: new Date().toISOString(),
+    checked: all.length,
+    fixed: 0,
+    details: [],
+  };
 
   const openStatuses = new Set(['ACTIVE', 'PARTIALLY_FILLED', 'EUPHORIA_PARTIAL', 'PENDING', 'ORDER_SUBMITTED']);
   const closedStatuses = new Set(['HIT_STOP', 'HIT_TARGET']);
@@ -412,16 +459,26 @@ export function reconcileShadowQuantities(trades?: ServerShadowTrade[]): Reconci
     if (!qtyChanged && !statusChanged && !shouldBeOpen) continue;
 
     result.fixed++;
-    result.details.push({ id: t.id, stockCode: t.stockCode, before, after: { qty: t.quantity, status: t.status } });
-    console.log(`[Reconcile] ${t.stockCode} ${t.stockName}: qty ${before.qty}→${t.quantity}, status ${before.status}→${t.status}`);
+    result.details.push({
+      id: t.id,
+      stockCode: t.stockCode,
+      stockName: t.stockName,
+      before,
+      after: { qty: t.quantity, status: t.status },
+    });
+    const tag = dryRun ? '[Reconcile:dryRun]' : '[Reconcile]';
+    console.log(`${tag} ${t.stockCode} ${t.stockName}: qty ${before.qty}→${t.quantity}, status ${before.status}→${t.status}`);
   }
 
-  if (result.fixed > 0) {
+  if (!dryRun && result.fixed > 0) {
     saveShadowTrades(all);
     console.log(`[Reconcile] ✅ ${result.fixed}건 교정 완료`);
-  } else {
+  } else if (!dryRun) {
     console.log(`[Reconcile] ✅ ${result.checked}건 이상 없음`);
+  } else {
+    console.log(`[Reconcile:dryRun] 검사 ${result.checked}건 / 교정 후보 ${result.fixed}건 — 변경 없음 (dry-run)`);
   }
 
+  persistLastReconcile(result);
   return result;
 }

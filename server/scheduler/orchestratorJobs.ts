@@ -8,6 +8,7 @@ import { checkDailyLossLimit } from '../emergency.js';
 import { runKillSwitchCheck } from '../trading/killSwitch.js';
 import { forceRefreshKisTokens } from '../clients/kisClient.js';
 import { getAutoTradePaused, getEmergencyStop, touchHeartbeat } from '../state.js';
+import { wrapJob } from './scheduleCatalog.js';
 
 async function runOrchestratorTick(): Promise<void> {
   touchHeartbeat('orchestrator');
@@ -49,8 +50,8 @@ export function registerOrchestratorJobs(): void {
   // 토요일/일요일에도 토큰이 신선해야 한다.
   //   - 08:30 KST (UTC 23:30 전일) — 장 시작 직전 (기존 시점 유지)
   //   - 20:30 KST (UTC 11:30 당일) — 장 마감 후·미국장 전
-  cron.schedule('30 23 * * *', () => forceRefreshKisTokenCron('장전 08:30 KST'), { timezone: 'UTC' });
-  cron.schedule('30 11 * * *', () => forceRefreshKisTokenCron('장후 20:30 KST'), { timezone: 'UTC' });
+  cron.schedule('30 23 * * *', wrapJob('kis_token_refresh', () => forceRefreshKisTokenCron('장전 08:30 KST')), { timezone: 'UTC' });
+  cron.schedule('30 11 * * *', wrapJob('kis_token_refresh', () => forceRefreshKisTokenCron('장후 20:30 KST')), { timezone: 'UTC' });
 
   // TradingDayOrchestrator — 장 사이클 State Machine.
   // cron은 1분 간격 — INTRADAY 실제 스캔 빈도는 adaptiveScanScheduler가 결정.

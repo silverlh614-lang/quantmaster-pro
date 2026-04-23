@@ -183,32 +183,91 @@ function getAccountScaleKellyMultiplier(totalAssets: number): number {
   return 1.0;
 }
 
+/**
+ * 종목 단위 상태 — getAdaptiveProfitTargets() 의 선택적 컨텍스트.
+ *
+ *   profileType
+ *     'LEADER'      — 주도주 추세 보유 강화 → 익절 라인 약간 상향, 트레일링 넓힘
+ *     'CATALYST'    — 단기 촉매 → 1차 익절 비중 확대(보수화)
+ *     'OVERHEATED'  — 고점/뉴스 과열 → 1차 익절 조기화 + 트레일링 짧게
+ *     'DIVERGENT'   — 거래량/RSI 다이버전스 → 트레일링 짧게
+ *
+ * 셋 다 미지정이면 macro 만 반영 (기존 동작과 100% 호환).
+ */
+export interface SymbolExitContext {
+  profileType?: 'LEADER' | 'CATALYST' | 'OVERHEATED' | 'DIVERGENT';
+  sector?: string;
+  watchlistSource?: string;
+}
+
 function getAdaptiveProfitTargets(
   regime: keyof typeof PROFIT_TARGETS,
   macroState: MacroState | null,
+  symbolCtx?: SymbolExitContext,
 ): { targets: typeof PROFIT_TARGETS[typeof regime]; trailPctAdjust: number; reason: string } {
   const vix = macroState?.vix ?? null;
   const mhs = macroState?.mhs ?? null;
-  let triggerAdjust = 0;
-  let trailPctAdjust = 0;
-  let reason = '기본';
 
+  // ── 1) Macro overlay (기존 로직 유지) ────────────────────────────────────
+  let macroTriggerAdjust = 0;
+  let macroTrailAdjust   = 0;
+  let macroReason = 'macro:기본';
   if ((mhs != null && mhs >= 70) || (vix != null && vix <= 18) || regime === 'R1_TURBO' || regime === 'R2_BULL') {
-    triggerAdjust = 0.02;
-    trailPctAdjust = 0.02;
-    reason = 'risk-on 확장';
+    macroTriggerAdjust = 0.02;
+    macroTrailAdjust   = 0.02;
+    macroReason = 'macro:risk-on 확장(트레일링 넓힘)';
   } else if ((mhs != null && mhs <= 45) || (vix != null && vix >= 24) || regime === 'R5_CAUTION' || regime === 'R6_DEFENSE') {
-    triggerAdjust = -0.02;
-    trailPctAdjust = -0.02;
-    reason = 'risk-off 보수화';
+    macroTriggerAdjust = -0.02;
+    macroTrailAdjust   = -0.02;
+    macroReason = 'macro:risk-off 보수화(익절 조기화)';
   }
+
+  // ── 2) Symbol overlay — 주도주 추세 / 과열 / 다이버전스 ──────────────────
+  // 의견(사용자 P1-1) 반영: 같은 레짐에서도 종목 상태에 따라 익절 강도를 차등화.
+  // 변경량은 macro 와 합산되며, 최종 trigger 는 floor 3% / ceiling 25% 로 클램프.
+  let symbolTriggerAdjust = 0;
+  let symbolTrailAdjust   = 0;
+  let symbolReason: string | null = null;
+  switch (symbolCtx?.profileType) {
+    case 'LEADER':
+      // 주도주 — 추세 보유. 1차 익절 늦추고 트레일링은 더 넓힘.
+      symbolTriggerAdjust = 0.01;
+      symbolTrailAdjust   = 0.02;
+      symbolReason = 'symbol:LEADER(추세보유 강화)';
+      break;
+    case 'CATALYST':
+      // 단기 촉매 — 1차 익절 약간 조기화하여 회수 우선.
+      symbolTriggerAdjust = -0.01;
+      symbolTrailAdjust   = -0.01;
+      symbolReason = 'symbol:CATALYST(1차 익절 조기화)';
+      break;
+    case 'OVERHEATED':
+      // 고점/뉴스 과열 — 1차 익절 빠르게, 트레일링 짧게.
+      symbolTriggerAdjust = -0.02;
+      symbolTrailAdjust   = -0.03;
+      symbolReason = 'symbol:OVERHEATED(과열 방어)';
+      break;
+    case 'DIVERGENT':
+      // 다이버전스 — 트레일링만 강화 (트리거는 유지).
+      symbolTrailAdjust   = -0.02;
+      symbolReason = 'symbol:DIVERGENT(트레일링 강화)';
+      break;
+    default:
+      break;
+  }
+
+  const triggerAdjust = macroTriggerAdjust + symbolTriggerAdjust;
+  const trailPctAdjust = macroTrailAdjust + symbolTrailAdjust;
+  const reason = [macroReason, symbolReason].filter(Boolean).join(' + ');
 
   return {
     targets: PROFIT_TARGETS[regime].map((target) => {
       if (target.type !== 'LIMIT' || target.trigger == null) return target;
+      // floor 3% / ceiling 25% — 합성 효과로 양 극단까지 가지 않도록 클램프.
+      const adjusted = Math.max(0.03, Math.min(0.25, target.trigger + triggerAdjust));
       return {
         ...target,
-        trigger: Math.max(0.03, Number((target.trigger + triggerAdjust).toFixed(3))),
+        trigger: Number(adjusted.toFixed(3)),
       };
     }),
     trailPctAdjust,
@@ -606,7 +665,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             const stopLossPlan = buildStopLossPlan({
               entryPrice: followEntryPrice, fixedStopLoss: stock.stopLoss, regimeStopRate, atr14: followATR14, regime,
             });
-            const adaptiveFollowProfitTargets = getAdaptiveProfitTargets(regime, macroState);
+            const followSymbolCtx: SymbolExitContext = {
+              // PRE_BREAKOUT 추세 추격 진입은 본질적으로 LEADER 성격(돌파 후 추세 보유 우선).
+              profileType: stock.section === 'CATALYST' ? 'CATALYST' : 'LEADER',
+              sector: stock.sector,
+              watchlistSource: 'PRE_BREAKOUT_FOLLOWTHROUGH',
+            };
+            const adaptiveFollowProfitTargets = getAdaptiveProfitTargets(regime, macroState, followSymbolCtx);
             const limitTranches = adaptiveFollowProfitTargets.targets.filter(t => t.type === 'LIMIT' && t.trigger !== null);
             const trailTarget   = adaptiveFollowProfitTargets.targets.find(t => t.type === 'TRAILING');
             const followTrade = buildBuyTrade({
@@ -1145,8 +1210,20 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         entryPrice: shadowEntryPrice, fixedStopLoss: isCatalyst ? catalystFixedStop : stock.stopLoss, regimeStopRate, atr14: entryATR14, regime,
       });
 
-      // L3 분할 익절 타겟 — PROFIT_TARGETS[regime]에서 LIMIT 트랜치 추출
-      const adaptiveProfitTargets = getAdaptiveProfitTargets(regime, macroState);
+      // L3 분할 익절 타겟 — PROFIT_TARGETS[regime]에서 LIMIT 트랜치 추출.
+      // section (CATALYST/SWING) 과 watchlist 추적자(MOMENTUM = LEADER 추세) 에 따라
+      // 익절 라인을 종목별로 차등 조정 (사용자 P1-1 의견 반영).
+      const symbolProfile: SymbolExitContext = {
+        profileType: isCatalyst ? 'CATALYST'
+          : (stock.section === 'MOMENTUM' || stock.profileType === 'A') ? 'LEADER'
+          : undefined,
+        sector: stock.sector,
+      };
+      const adaptiveProfitTargets = getAdaptiveProfitTargets(regime, macroState, symbolProfile);
+      // composite reason 을 로그에 노출 — Telegram 메시지에서 운영자가 조정 사유를 추적 가능.
+      if (adaptiveProfitTargets.reason !== 'macro:기본') {
+        console.log(`[ProfitTargets] ${stock.code} ${stock.name}: ${adaptiveProfitTargets.reason}`);
+      }
       const limitTranches = adaptiveProfitTargets.targets.filter((t) => t.type === 'LIMIT' && t.trigger !== null);
       const trailTarget = adaptiveProfitTargets.targets.find((t) => t.type === 'TRAILING');
 
