@@ -117,6 +117,7 @@ import {
   buildStopLossPlan,
   formatStopLossBreakdown,
   calculateOrderQuantity,
+  reconcileDayOpen,
   evaluateEntryRevalidation,
   getMinGateScore,
   getKstMarketElapsedMinutes,
@@ -146,6 +147,7 @@ export {
   isOpenShadowStatus,
   buildStopLossPlan,
   calculateOrderQuantity,
+  reconcileDayOpen,
   evaluateEntryRevalidation,
   regimeToStopRegime,
 } from './entryEngine.js';
@@ -249,18 +251,23 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   if (!totalAssets) totalAssets = balance ?? 30_000_000; // 모의계좌 기본 3천만원
   let orderableCash = balance ?? totalAssets;
   const conditionWeights = loadConditionWeights();
+  let activeHoldingValue = 0;
 
   console.log(
-    `[AutoTrade] 스캔 시작 — 워치리스트 ${watchlist.length}개 (SWING ${swingList.length}개 / CATALYST ${catalystList.length}개 / MOMENTUM ${momentumList.length}개) / Intraday Ready ${intradayBuyList.length}개 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'} / 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원`
+    `[AutoTrade] 스캔 시작 — 워치리스트 ${watchlist.length}개 (SWING ${swingList.length}개 / CATALYST ${catalystList.length}개 / MOMENTUM ${momentumList.length}개) / Intraday Ready ${intradayBuyList.length}개 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'}`
   );
 
   const shadows = loadShadowTrades();
-  if (balance === null) {
-    const activeHoldingValue = shadows
+  if (shadowMode || balance === null) {
+    activeHoldingValue = shadows
       .filter((s) => isOpenShadowStatus(s.status))
       .reduce((sum, s) => sum + (s.shadowEntryPrice * s.quantity), 0);
-    orderableCash = Math.max(0, totalAssets - activeHoldingValue);
+    orderableCash = Math.max(0, orderableCash - activeHoldingValue);
   }
+
+  console.log(
+    `[AutoTrade] 실주문 기준 현금 — 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원 / Shadow 보유가치: ${activeHoldingValue.toLocaleString()}원 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'}`
+  );
 
   // ── 레짐 분류 (classifyRegime — backtestPortfolio와 동일 로직) ──────────────
   const macroState = loadMacroState();
@@ -890,11 +897,21 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       if (reCheckQuote) {
         const kisSnap = await fetchKisIntraday(stock.code).catch(() => null);
         if (kisSnap) {
-          if (kisSnap.dayOpen > 0 && reCheckQuote.dayOpen !== kisSnap.dayOpen) {
+          const dayOpenDecision = reconcileDayOpen({
+            yahooDayOpen: reCheckQuote.dayOpen,
+            kisDayOpen: kisSnap.dayOpen,
+          });
+          if (
+            dayOpenDecision.dayOpen &&
+            reCheckQuote.dayOpen !== dayOpenDecision.dayOpen
+          ) {
+            const divergenceLabel = dayOpenDecision.divergencePct == null
+              ? 'N/A'
+              : `${dayOpenDecision.divergencePct.toFixed(1)}%`;
             console.log(
-              `[KisIntraday] ${stock.code} 시가 보정: Yahoo=${reCheckQuote.dayOpen} → KIS=${kisSnap.dayOpen}`,
+              `[KisIntraday] ${stock.code} 시가 ${dayOpenDecision.acceptedKis ? '보정' : '유지'}: Yahoo=${reCheckQuote.dayOpen} / KIS=${kisSnap.dayOpen} / 사용=${dayOpenDecision.dayOpen} / 괴리=${divergenceLabel}`,
             );
-            reCheckQuote.dayOpen = kisSnap.dayOpen;
+            reCheckQuote.dayOpen = dayOpenDecision.dayOpen;
           }
           if (kisSnap.prevClose > 0) {
             reCheckQuote.prevClose = kisSnap.prevClose;

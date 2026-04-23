@@ -17,6 +17,7 @@ import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import {
   isOpenShadowStatus,
   calculateOrderQuantity,
+  reconcileDayOpen,
   evaluateEntryRevalidation,
   buildStopLossPlan,
   getMinGateScore,
@@ -73,13 +74,17 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
   );
 
   // 자금 산정 (signalScanner와 동일 로직)
+  const shadowMode = process.env.AUTO_TRADE_MODE !== 'LIVE';
   let totalAssets = Number(process.env.AUTO_TRADE_ASSETS || 0);
   const balance   = await fetchAccountBalance().catch(() => null);
   if (!totalAssets) totalAssets = balance ?? 30_000_000;
   const activeHolding = shadows
     .filter(s => isOpenShadowStatus(s.status))
     .reduce((sum, s) => sum + s.shadowEntryPrice * s.quantity, 0);
-  let orderableCash = balance ?? Math.max(0, totalAssets - activeHolding);
+  let orderableCash = balance ?? totalAssets;
+  if (shadowMode || balance === null) {
+    orderableCash = Math.max(0, orderableCash - activeHolding);
+  }
 
   // 게이팅 평가
   const vixGating      = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
@@ -204,7 +209,11 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
     if (reCheckQuote) {
       const kisSnap = await fetchKisIntraday(stock.code).catch(() => null);
       if (kisSnap) {
-        if (kisSnap.dayOpen > 0)   reCheckQuote.dayOpen = kisSnap.dayOpen;
+        const dayOpenDecision = reconcileDayOpen({
+          yahooDayOpen: reCheckQuote.dayOpen,
+          kisDayOpen: kisSnap.dayOpen,
+        });
+        if (dayOpenDecision.dayOpen) reCheckQuote.dayOpen = dayOpenDecision.dayOpen;
         if (kisSnap.prevClose > 0) reCheckQuote.prevClose = kisSnap.prevClose;
       }
     }

@@ -5,6 +5,7 @@ import {
   evaluateEntryRevalidation,
   EXIT_RULE_PRIORITY_TABLE,
   isOpenShadowStatus,
+  reconcileDayOpen,
 } from './signalScanner.js';
 import { calcRRR, RRR_MIN_THRESHOLD } from './riskManager.js';
 import type { ExitRuleTag } from '../persistence/shadowTradeRepo.js';
@@ -21,6 +22,32 @@ describe('calculateOrderQuantity', () => {
 
     expect(result.effectiveBudget).toBe(1_000_000);
     expect(result.quantity).toBe(10);
+  });
+});
+
+describe('reconcileDayOpen', () => {
+  it('keeps Yahoo open when KIS diverges too much', () => {
+    const result = reconcileDayOpen({
+      yahooDayOpen: 18_160,
+      kisDayOpen: 20_600,
+    });
+
+    expect(result.dayOpen).toBe(18_160);
+    expect(result.source).toBe('YAHOO');
+    expect(result.acceptedKis).toBe(false);
+    expect(result.divergencePct).toBeGreaterThan(5);
+  });
+
+  it('accepts KIS open when divergence stays within tolerance', () => {
+    const result = reconcileDayOpen({
+      yahooDayOpen: 10_000,
+      kisDayOpen: 10_300,
+    });
+
+    expect(result.dayOpen).toBe(10_300);
+    expect(result.source).toBe('KIS');
+    expect(result.acceptedKis).toBe(true);
+    expect(result.divergencePct).toBeCloseTo(3, 5);
   });
 });
 

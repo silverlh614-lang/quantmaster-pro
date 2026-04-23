@@ -39,6 +39,7 @@ const ENTRY_MAX_BREAKOUT_EXTENSION_PCT = 3;
 const ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT = -2;
 const ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT = 4;
 const ENTRY_MIN_VOLUME_RATIO = 0.6;
+const DAY_OPEN_SOURCE_DIVERGENCE_PCT = 5;
 
 /**
  * 오전 시간대(09:00~12:00 KST) 거래량 기준 할인 계수.
@@ -207,6 +208,41 @@ export function calculateOrderQuantity(input: PositionSizingInput): { quantity: 
 }
 
 // ── Entry Revalidation ─────────────────────────────────────────────────────────
+
+export interface DayOpenReconciliationInput {
+  yahooDayOpen?: number;
+  kisDayOpen?: number;
+  maxDivergencePct?: number;
+}
+
+export interface DayOpenReconciliationResult {
+  dayOpen?: number;
+  source: 'YAHOO' | 'KIS' | 'UNAVAILABLE';
+  divergencePct: number | null;
+  acceptedKis: boolean;
+}
+
+export function reconcileDayOpen(input: DayOpenReconciliationInput): DayOpenReconciliationResult {
+  const yahooDayOpen = input.yahooDayOpen && input.yahooDayOpen > 0 ? input.yahooDayOpen : undefined;
+  const kisDayOpen = input.kisDayOpen && input.kisDayOpen > 0 ? input.kisDayOpen : undefined;
+  const maxDivergencePct = input.maxDivergencePct ?? DAY_OPEN_SOURCE_DIVERGENCE_PCT;
+
+  if (yahooDayOpen == null && kisDayOpen == null) {
+    return { dayOpen: undefined, source: 'UNAVAILABLE', divergencePct: null, acceptedKis: false };
+  }
+  if (yahooDayOpen == null) {
+    return { dayOpen: kisDayOpen, source: 'KIS', divergencePct: null, acceptedKis: true };
+  }
+  if (kisDayOpen == null) {
+    return { dayOpen: yahooDayOpen, source: 'YAHOO', divergencePct: null, acceptedKis: false };
+  }
+
+  const divergencePct = Math.abs((kisDayOpen - yahooDayOpen) / yahooDayOpen) * 100;
+  if (divergencePct > maxDivergencePct) {
+    return { dayOpen: yahooDayOpen, source: 'YAHOO', divergencePct, acceptedKis: false };
+  }
+  return { dayOpen: kisDayOpen, source: 'KIS', divergencePct, acceptedKis: true };
+}
 
 interface EntryRevalidationInput {
   currentPrice: number;
