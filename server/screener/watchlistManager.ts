@@ -32,10 +32,16 @@ export const SWING_MAX_SIZE       = 10;
 export const CATALYST_MAX_SIZE    = 5;
 /**
  * MOMENTUM 섹션 — 최대 관찰 후보 수.
- * 18 → 15: KIS WebSocket 구독 한도를 30 으로 낮추면서 총합(10+5+15=30) 을 MAX_SUBSCRIPTIONS
- * 와 일치시켜 1006 강제 종료 빈도를 줄인다.
+ *
+ * 15 → 50 (Idea 1: Shadow Portfolio 50 확장).
+ * MOMENTUM 은 `AUTO_SHADOW_FROM_MOMENTUM` 가 켜져 있을 때 자동 Shadow 체결 경로로
+ * 흘러가 학습 표본을 주당 50관측치 → 250관측치 (5배) 로 확장한다. 실 자본 영향은 0:
+ * 섹션 기반 강제 SHADOW 모드 + orderableCash/slot 예약 제외로 LIVE 핫패스와 격리된다.
+ *
+ * WebSocket 구독은 MAX_SUBSCRIPTIONS(30) 을 초과하는 부분은 `subscribeStock` 이
+ * 조용히 절삭하므로 1006 강제 종료 위험은 없다 (MOMENTUM 은 on-demand fetch 폴백).
  */
-export const MOMENTUM_MAX_SIZE    = 15;
+export const MOMENTUM_MAX_SIZE    = 50;
 
 /** CATALYST 포지션 축소 계수 (표준의 60%) */
 export const CATALYST_POSITION_FACTOR = 0.6;
@@ -164,6 +170,18 @@ export interface AddToWatchlistResult {
 }
 
 /**
+ * 한국 종목코드(숫자 6자리) 정규화. 이미 6자리이거나 숫자가 아니면 원본 유지.
+ * 예: '5930' → '005930' (KIS 호환), 'M999' → 'M999' (테스트/가상 코드 비파괴).
+ *
+ * 이전 구현은 모든 code 를 padStart(6, '0') 하여 'A001' → '00A001' 처럼
+ * 비숫자 코드도 변형시켰고, 중복 검사 양변의 정규화가 어긋나 test 회귀를 유발했다.
+ */
+function normalizeStockCode(code: string): string {
+  if (/^\d+$/.test(code)) return code.padStart(6, '0');
+  return code;
+}
+
+/**
  * 워치리스트 직접 push를 대체하는 단일 진입점.
  * 중복 코드 차단, 섹션 상한 체크, 기본 품질 경쟁(eviction)까지 여기서 처리한다.
  */
@@ -172,8 +190,8 @@ export function addToWatchlist(
   entry: WatchlistEntry,
   options: AddToWatchlistOptions = {},
 ): AddToWatchlistResult {
-  const code = entry.code.padStart(6, '0');
-  const existing = watchlist.find((item) => item.code === code);
+  const code = normalizeStockCode(entry.code);
+  const existing = watchlist.find((item) => normalizeStockCode(item.code) === code);
   if (existing) {
     return { added: false, existing, reason: 'duplicate' };
   }
