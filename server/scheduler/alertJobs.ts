@@ -10,7 +10,7 @@ import { pollIpsAlert } from '../alerts/ipsAlert.js';
 import { pollMhsMorningAlert } from '../alerts/mhsAlert.js';
 import { runAdrGapScan } from '../alerts/adrGapCalculator.js';
 import { runPreMarketSignal } from '../alerts/preMarketSignal.js';
-import { runDxyMonitor } from '../alerts/dxyMonitor.js';
+import { runDxyMonitor, runDxyIntradayMonitor } from '../alerts/dxyMonitor.js';
 import { runSectorEtfMomentumScan } from '../alerts/sectorEtfMomentum.js';
 import { tickIntradayYield } from '../alerts/intradayYieldTicker.js';
 import { sweepPendingAcks } from '../alerts/ackTracker.js';
@@ -56,6 +56,13 @@ export function registerAlertJobs(): void {
   // 미국 장 마감 직후 06:05 KST + 한국 장 직전 08:40 KST 재확인.
   cron.schedule('5 21 * * 0-4', async () => { await runDxyMonitor().catch(console.error); }, { timezone: 'UTC' });
   cron.schedule('40 23 * * 0-4', async () => { await runDxyMonitor().catch(console.error); }, { timezone: 'UTC' });
+
+  // P3-7: DXY 인트라데이 모니터 — US 장 시간대 5분 간격.
+  //   US Reg Mkt: KST 22:30 ~ 05:00 익일  (UTC 13:30 ~ 20:00 평일 / 0:00 ~ 5:00 익일 UTC 화~토)
+  //   안전 여유 — KST 22:00 ~ 06:00 까지 커버 (cron 표현 단순화: UTC 13~21 시 + 익일 UTC 0~5).
+  // Yahoo 5분봉이 freshness 5분이므로 5분 간격 호출이면 매 봉마다 1회 평가된다.
+  cron.schedule('*/5 13-23 * * 1-5', async () => { await runDxyIntradayMonitor().catch(console.error); }, { timezone: 'UTC' });
+  cron.schedule('*/5 0-5 * * 2-6',   async () => { await runDxyIntradayMonitor().catch(console.error); }, { timezone: 'UTC' });
 
   // 미 섹터 ETF 30분봉 모멘텀 교차 스캔 — 평일 06:15 KST (UTC 21:15 일~목).
   cron.schedule('15 21 * * 0-4', async () => { await runSectorEtfMomentumScan().catch(console.error); }, { timezone: 'UTC' });

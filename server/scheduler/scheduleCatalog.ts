@@ -41,6 +41,7 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '상시',  label: '오케스트레이터 1분 tick', group: 'trading', jobName: 'orchestrator_tick' },
   { timeKst: '상시',  label: 'OCO/매도 체결 감시', group: 'trading', jobName: 'oco_close_loop' },
   { timeKst: '상시',  label: 'DART/IPS/ACK 폴링', group: 'alerts', jobName: 'dart_ips_ack_poll' },
+  { timeKst: '상시',  label: 'DXY 인트라데이 5분 모니터 (US 장중)', group: 'alerts', jobName: 'dxy_intraday' },
 ];
 
 const GROUP_LABELS: Record<ScheduleEntry['group'], string> = {

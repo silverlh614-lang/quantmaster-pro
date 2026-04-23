@@ -94,6 +94,7 @@ import { getLiveRegime } from './regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
 import { addRecommendation } from '../learning/recommendationTracker.js';
+import { getAccountRiskBudget, computeRiskAdjustedSize } from './accountRiskBudget.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import {
@@ -1182,6 +1183,39 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         1,
         effectiveMaxPositions - currentActive - reservedSlots,
       );
+
+      // ── P1-2: 계좌 리스크 예산 + Fractional Kelly 게이트 ────────────────
+      // sizingTier × kellyDampener × accountScale 까지 누적된 positionPct 에
+      // 다시 한 번 "신호 등급별 캡 + 동시 R 잔여 + 일일 손실 잔여" 를 강제한다.
+      // 작은 쪽이 채택되므로 기존 sizing 보다 더 보수적인 결과만 나올 수 있다.
+      {
+        const grade: 'STRONG_BUY' | 'BUY' | 'PROBING' | 'HOLD' =
+          tierDecision.tier === 'PROBING' ? 'PROBING'
+          : isStrongBuy ? 'STRONG_BUY'
+          : 'BUY';
+        const budget = getAccountRiskBudget({ totalAssets, trades: shadows });
+        if (!budget.canEnterNew) {
+          console.log(`[AutoTrade/RiskBudget] ${stock.name} 진입 차단 — ${budget.blockedReasons.join(' / ')}`);
+          continue;
+        }
+        const sized = computeRiskAdjustedSize({
+          entryPrice: shadowEntryPrice,
+          stopLoss:   stock.stopLoss,
+          signalGrade: grade,
+          kellyMultiplier: positionPct,             // 누적 Kelly 비율
+          confidenceModifier: Math.min(1.2, 0.6 + 0.05 * (reCheckGate.mtas ?? 0)),
+          budget,
+          totalAssets,
+        });
+        if (sized.recommendedBudgetKrw <= 0) {
+          console.log(`[AutoTrade/RiskBudget] ${stock.name} 사이즈 0 — ${sized.reason}`);
+          continue;
+        }
+        if (sized.kellyWasCapped) {
+          console.log(`[AutoTrade/RiskBudget] ${stock.name} Fractional Kelly 캡 적용 — ${sized.reason}`);
+        }
+      }
+
       const { quantity, effectiveBudget } = calculateOrderQuantity({
         totalAssets,
         orderableCash,

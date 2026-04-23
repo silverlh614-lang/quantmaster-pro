@@ -14,24 +14,21 @@
  * 페르소나 원칙: "매수보다 리스크 관리와 매도가 더 중요하다" — 변곡 감지 시
  * 인간 판단 이전에 시스템이 먼저 포지션을 축소시킨다.
  *
- * ─── 향후 작업 (사용자 P1-2 의견 반영) ─────────────────────────────────────
- * 현재 Kelly 배율은 "종목 수 슬롯" 기반에 가깝다. 더 올바른 방향은:
+ * ─── 관련 모듈 (P1-2 구현 완료) ────────────────────────────────────────────
+ * 본 dampener (IPS 기반) 는 "위험 신호 시 즉시 사이즈 축소" 만 담당한다.
+ * 별도로 다음 두 모듈이 결합되어 다층 사이징을 형성한다:
  *
- *   ① 계좌 레벨 — 총 투자 가능 자본, 일 최대 손실 허용, 동시 보유 총 리스크 한도,
- *      섹터 편중 한도 → AccountRiskBudget 으로 분리
- *   ② 포지션 레벨 — 종목별 승률·RRR·신뢰도 등급·전략 레짐 가중치
- *   ③ 최종 배분  = Kelly_fraction × confidence_modifier × account_risk_budget
+ *   - `sizingTier.ts`           — 신호 품질 (CONVICTION/STANDARD/PROBING) → Kelly 계수
+ *   - `accountRiskBudget.ts`    — 계좌 레벨 일일/동시 R 한도 + Fractional Kelly 캡 강제
  *
- *   Fractional Kelly 강제 (풀 Kelly 금지):
- *     STRONG_BUY: ≤ 0.5 Kelly
- *     BUY:        ≤ 0.25 Kelly
- *     HOLD성 신규: ≤ 0.1 Kelly
+ * 결합 흐름 (signalScanner.ts):
+ *   positionPct = computeRawPositionPct(gateScore)
+ *               × kellyMultiplier(레짐·VIX·FOMC·IPS·exception·accountScale)
+ *               × mtasMultiplier × sectionFactor × tierDecision.kellyFactor
+ *   →  computeRiskAdjustedSize(...) 가 위 값을 입력으로 받아
+ *     "Fractional Kelly cap × confidence × risk-budget cap" 으로 한 번 더 잘라낸다.
  *
- * 구현 순서:
- *   step 1 — `accountRiskBudget.ts` 신규: 일일/주간 리스크 한도 + 섹터 한도 추적
- *   step 2 — `signalScanner.ts` 의 calculateOrderQuantity 가 Account 한도 우선,
- *            Kelly 는 "기대값 계산기" 로만 사용하도록 변경
- *   step 3 — Tier→Fractional Kelly 매핑 테이블 (`sizingTier.ts` 와 머지)
+ * 운영자는 `/risk` 텔레그램 명령으로 현재 리스크 예산을 즉시 확인 가능.
  * ─────────────────────────────────────────────────────────────────────────
  */
 

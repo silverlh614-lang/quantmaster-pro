@@ -21,19 +21,16 @@
  * cron: 미국 장 마감 직후 KST 06:05 (UTC 21:05 일~목)
  *       + 한국 장 직전 KST 08:40 (UTC 23:40) 재확인
  *
- * ─── 향후 작업 (사용자 P3-7 의견 반영) ─────────────────────────────────────
- * 현재는 일봉 close 기반 — 미국 장 중 실시간 DXY 급변을 놓친다.
- * 인트라데이 모니터링으로 전환:
+ * ─── P3-7 인트라데이 모니터 (구현 완료) ────────────────────────────────────
+ * `dxyIntradayClient.ts` 가 Yahoo Finance DX-Y.NYB 5분봉 우선 + Alpha Vantage
+ * 합성 DXY (ICE 표준 가중 환율 6개 합성) 를 fallback 으로 제공한다.
  *
- *   ① Forex API (Alpha Vantage, OANDA, Fixer.io) WebSocket 또는 1분 폴링
- *   ② DXY ±0.4% 인트라데이 변화 감지 시 즉시 "선행 경보" → ANALYSIS 채널
- *   ③ 한국 장 시작 (KST 09:00) 직전 30분 윈도우 집중 감시
+ * `runDxyIntradayMonitor()` 는 ±DXY_INTRADAY_THRESHOLD (기본 0.4%) /
+ * windowMinutes (기본 30분) 윈도우 변화 감지 시 즉시 개인 + ANALYSIS 채널로
+ * "선행 경보" 발송하고 일봉 기준 runDxyMonitor() 를 강제 트리거해 교차 검증.
  *
- * 구현 순서:
- *   step 1 — `dxyIntradayClient.ts` 신규: Alpha Vantage CURRENCY_EXCHANGE_RATE
- *            (DXY 는 직접 지원 안 함 → DXY=USD/EUR + USD/JPY + USD/GBP 가중 합성)
- *   step 2 — 1분 cron 으로 인트라데이 변화율 추적
- *   step 3 — 임계값 초과 시 dxyMonitor.checkAndAlert() 강제 트리거
+ * cron 등록: `dxyIntradayJobs.ts` — US 장 시간대 (KST 22:30~05:00 익일) 5분 간격.
+ * 운영자 조회: `/dxy_intraday` — 현재 리딩 즉시 확인.
  * ─────────────────────────────────────────────────────────────────────────
  */
 
@@ -49,6 +46,10 @@ import { AlertCategory } from './alertCategories.js';
 
 const DXY_1D_THRESHOLD = 0.6;   // %
 const DXY_5D_THRESHOLD = 1.5;   // %
+/** 인트라데이 윈도우 내 변화율 임계 (%) — windowMinutes 동안 ±0.4% */
+const DXY_INTRADAY_THRESHOLD = parseFloat(process.env.DXY_INTRADAY_THRESHOLD ?? '0.4');
+/** 인트라데이 비교 윈도우 (분) */
+const DXY_INTRADAY_WINDOW_MIN = parseInt(process.env.DXY_INTRADAY_WINDOW_MIN ?? '30', 10);
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -276,4 +277,111 @@ export async function runDxyMonitor(): Promise<DxyAlertReport | null> {
   });
 
   return report;
+}
+
+// ── P3-7: DXY 인트라데이 모니터 ──────────────────────────────────────────────
+//
+// US 장 시간대 (KST 22:30~05:00 익일) 동안 5분 간격으로 호출. windowMinutes 분
+// 이내 변화율이 ±DXY_INTRADAY_THRESHOLD 를 넘으면 즉시 ANALYSIS 채널 + 개인
+// 채팅으로 "선행 경보" 전송. 일봉 기반 runDxyMonitor() 보다 더 빠르게 반응한다.
+
+/** 인트라데이 알림 중복 방지 — 같은 dedup 키로 24h 내 1회만 발송 */
+const _intradayLastSentByKey = new Map<string, number>();
+const INTRADAY_DEDUP_WINDOW_MS = 60 * 60_000;  // 1시간 — 윈도우 내 같은 방향 중복 억제
+
+export interface DxyIntradayAlert {
+  source:    'YAHOO' | 'ALPHA_VANTAGE';
+  asOf:      string;
+  last:      number;
+  changePct: number;
+  direction: 'STRENGTH' | 'WEAKNESS';
+  windowMinutes: number;
+  alertSent: boolean;
+}
+
+/**
+ * 인트라데이 DXY 1회 체크 + 임계 돌파 시 알림 발송.
+ * cron 으로 5분 간격 호출 권장. ALPHA_VANTAGE_API_KEY 설정 시 Yahoo 실패 시 fallback.
+ */
+export async function runDxyIntradayMonitor(): Promise<DxyIntradayAlert | null> {
+  const { getDxyIntradayReading } = await import('./dxyIntradayClient.js');
+  const reading = await getDxyIntradayReading(DXY_INTRADAY_WINDOW_MIN);
+  if (!reading) {
+    console.warn('[DxyIntraday] 데이터 소스 모두 실패 (Yahoo + Alpha Vantage) — 스킵');
+    return null;
+  }
+  const abs = Math.abs(reading.changeWindowPct);
+  const direction: 'STRENGTH' | 'WEAKNESS' = reading.changeWindowPct >= 0 ? 'STRENGTH' : 'WEAKNESS';
+
+  const alert: DxyIntradayAlert = {
+    source:    reading.source as 'YAHOO' | 'ALPHA_VANTAGE',
+    asOf:      reading.asOf,
+    last:      reading.last,
+    changePct: reading.changeWindowPct,
+    direction,
+    windowMinutes: reading.windowMinutes,
+    alertSent: false,
+  };
+
+  if (abs < DXY_INTRADAY_THRESHOLD) {
+    return alert; // 임계 미달, 조용히 종료
+  }
+  // ALPHA_VANTAGE 단일 스냅샷은 changeWindowPct=0 이므로 여기 도달 X — Yahoo 일 때만 발송.
+  if (reading.source !== 'YAHOO') {
+    console.log('[DxyIntraday] Alpha Vantage 단일 스냅샷 — 변화율 비교 불가, 알림 스킵');
+    return alert;
+  }
+
+  // 1시간 내 같은 방향 중복 방지
+  const dedupKey = `intraday:${direction}`;
+  const lastSent = _intradayLastSentByKey.get(dedupKey) ?? 0;
+  if (Date.now() - lastSent < INTRADAY_DEDUP_WINDOW_MS) {
+    console.log(`[DxyIntraday] dedupe — 같은 방향(${direction}) 1시간 내 알림 억제`);
+    return alert;
+  }
+
+  const arrow = direction === 'STRENGTH' ? '▲' : '▼';
+  const sign  = reading.changeWindowPct >= 0 ? '+' : '';
+  const msg =
+    `⚡ <b>[DXY 인트라데이 선행 경보]</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `${arrow} DXY ${reading.last.toFixed(2)} | ${reading.windowMinutes}분 ${sign}${reading.changeWindowPct.toFixed(2)}%\n` +
+    `소스: ${reading.source} | 기준: ${new Date(reading.windowStartedAt).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })} → ${new Date(reading.asOf).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })}\n\n` +
+    (direction === 'STRENGTH'
+      ? '🔴 USD 강세 인트라데이 — 외국인 EWY 이탈 압력 (한국 장 개장 전 모니터)'
+      : '🟢 USD 약세 인트라데이 — 외국인 복귀 신호 가능 (한국 장 개장 전 모니터)');
+
+  await sendTelegramAlert(msg, {
+    priority:  'HIGH',
+    dedupeKey: `dxy_intraday:${direction}:${new Date().toISOString().slice(0, 13)}`,
+  }).catch(console.error);
+  await dispatchAlert(AlertCategory.ANALYSIS, msg, {
+    priority: 'NORMAL',
+    dedupeKey: `dxy_intraday_ch:${direction}:${new Date().toISOString().slice(0, 13)}`,
+  }).catch(e => console.error('[DxyIntraday] ANALYSIS 미러링 실패:', e));
+
+  _intradayLastSentByKey.set(dedupKey, Date.now());
+  alert.alertSent = true;
+  console.log(`[DxyIntraday] ✉️ ${direction} 알림 전송 — ${sign}${reading.changeWindowPct.toFixed(2)}% (${reading.windowMinutes}m)`);
+
+  // 인트라데이 임계 돌파 시 일봉 기준 모니터도 강제 트리거 — 교차 검증 + 학습 DB 기록
+  void runDxyMonitor().catch(e => console.warn('[DxyIntraday] runDxyMonitor 강제 트리거 실패:', e instanceof Error ? e.message : e));
+
+  return alert;
+}
+
+/** 운영자 진단용 — 현재 인트라데이 리딩만 반환 (알림 없음). */
+export async function getDxyIntradaySnapshot(): Promise<{
+  source: string; asOf: string; last: number; changePct: number; windowMinutes: number;
+} | null> {
+  const { getDxyIntradayReading } = await import('./dxyIntradayClient.js');
+  const r = await getDxyIntradayReading(DXY_INTRADAY_WINDOW_MIN);
+  if (!r) return null;
+  return {
+    source:        r.source,
+    asOf:          r.asOf,
+    last:          r.last,
+    changePct:     r.changeWindowPct,
+    windowMinutes: r.windowMinutes,
+  };
 }

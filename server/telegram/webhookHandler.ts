@@ -41,6 +41,8 @@ import { _resetKrxOpenApiBreaker, getKrxOpenApiStatus, resetKrxOpenApiCache } fr
 import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/reportGenerator.js';
 import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, getRealDataTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder, getCircuitBreakerStats, resetKisCircuits } from '../clients/kisClient.js';
 import { getYahooHealthSnapshot } from '../trading/marketDataRefresh.js';
+import { getAccountRiskBudget, formatAccountRiskBudget } from '../trading/accountRiskBudget.js';
+import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { MAX_SUBSCRIPTIONS, getStreamStatus, startKisStream, stopKisStream, getRealtimePrice } from '../clients/kisStreamClient.js';
 import { getBudgetState, getGeminiCircuitStats, getGeminiRuntimeState } from '../clients/geminiClient.js';
 import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
@@ -158,6 +160,9 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /reconnect_ws — KIS WebSocket 강제 재연결\n` +
           `  /circuits — KIS/KRX 회로 차단 상태 조회\n` +
           `  /reset_circuits — KIS/KRX 회로 즉시 해제 (저녁 스캔 전 권장)\n` +
+          `  /risk — 계좌 리스크 예산 + Fractional Kelly 캡 현황\n` +
+          `  /news_patterns — 뉴스-수급 시차 학습 카탈로그 (베이지안)\n` +
+          `  /dxy — DXY 인트라데이 스냅샷 (Yahoo + Alpha Vantage fallback)\n` +
           `  /channel_health — 4채널 상태 점검\n` +
           `  /channel_stats [YYYY-MM-DD|today|yesterday] — 채널 통계 조회\n` +
           `  /alert_history [n] — 최근 알림 이력 조회\n` +
@@ -1308,6 +1313,79 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `실시간호가: ${ss.connected ? `✅ ${ss.subscribedCount}종목` : '❌ 미연결'}\n` +
           `─────────────────────\n` +
           `<i>/refresh_token — KIS 토큰 강제 갱신</i>`
+        );
+        break;
+      }
+
+      case '/dxy_intraday':
+      case '/dxy': {
+        // P3-7: DXY 인트라데이 스냅샷. Yahoo 5m 우선, ALPHA_VANTAGE_API_KEY 시 fallback.
+        const { getDxyIntradaySnapshot } = await import('../alerts/dxyMonitor.js');
+        const snap = await getDxyIntradaySnapshot();
+        if (!snap) {
+          await reply(
+            '💱 <b>[DXY 인트라데이]</b>\n' +
+            '데이터 소스 모두 실패 — Yahoo Finance 와 Alpha Vantage 모두 응답 없음.\n' +
+            '<i>ALPHA_VANTAGE_API_KEY 환경변수를 설정하면 fallback 이 활성화됩니다.</i>'
+          );
+          break;
+        }
+        const sign = snap.changePct >= 0 ? '+' : '';
+        const arrow = snap.changePct >= 0 ? '▲' : '▼';
+        const stale = snap.source === 'YAHOO'
+          ? `최신 봉: ${new Date(snap.asOf).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })}`
+          : `Alpha Vantage 단일 스냅샷 (변화율 비교 불가)`;
+        await reply(
+          `💱 <b>[DXY 인트라데이]</b> 소스: ${snap.source}\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `${arrow} DXY ${snap.last.toFixed(2)} | ${snap.windowMinutes}분 윈도우 ${sign}${snap.changePct.toFixed(2)}%\n` +
+          `${stale}\n\n` +
+          `<i>임계 ±${process.env.DXY_INTRADAY_THRESHOLD ?? '0.4'}% 돌파 시 자동 ANALYSIS 채널 + 개인 채팅 발송</i>`
+        );
+        break;
+      }
+
+      case '/news_patterns':
+      case '/news_lag': {
+        // P3-6: 베이지안으로 학습된 (newsType × sector) lag 분포 카탈로그.
+        // T+5 결산이 누적될수록 정확도가 올라간다. 표본 < 3 인 항목은 표시 제외.
+        const { listAllOptimalWindows } = await import('../learning/newsLagBayesian.js');
+        const windows = listAllOptimalWindows(3);
+        if (windows.length === 0) {
+          await reply(
+            '📡 <b>[뉴스-수급 시차 학습]</b>\n' +
+            '아직 표본 ≥3 인 (newsType × sector) 조합이 없습니다.\n' +
+            '<i>T+5 결산이 누적될수록 카탈로그가 채워집니다.</i>'
+          );
+          break;
+        }
+        const top = windows.slice(0, 12);
+        const lines = top.map(w =>
+          `• <b>${escapeHtml(w.newsType)} → ${escapeHtml(w.sector)}</b>\n` +
+          `   peak ${w.meanLagDays}d ± ${w.stdDays}d ` +
+          `(95% [${w.ci95LowDays}, ${w.ci95HighDays}d], n=${w.sampleSize})`
+        );
+        await reply(
+          `📡 <b>[뉴스-수급 시차 카탈로그] ${windows.length}개</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          lines.join('\n') +
+          (windows.length > 12 ? `\n...외 ${windows.length - 12}개` : '') +
+          `\n\n<i>모델: Normal-Inverse-Gamma conjugate posterior on lag(business days)</i>`
+        );
+        break;
+      }
+
+      case '/risk_budget':
+      case '/risk': {
+        // 사용자 P1-2: 계좌 레벨 리스크 예산 + Fractional Kelly 가시성.
+        // signalScanner 게이트와 동일 로직 — 운영자가 "지금 신규 진입이 왜 막히는지" 즉시 진단.
+        const settings = loadTradingSettings();
+        const totalAssets = settings.startingCapital ?? 0;
+        const budget = getAccountRiskBudget({ totalAssets });
+        await reply(
+          formatAccountRiskBudget(budget) +
+          `\n\n<i>총 자본 기준: ${(totalAssets / 10_000).toLocaleString()}만원 (settings.startingCapital)\n` +
+          `Fractional Kelly: STRONG_BUY ≤0.5 / BUY ≤0.25 / HOLD ≤0.1</i>`
         );
         break;
       }
