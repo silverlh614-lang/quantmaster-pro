@@ -457,7 +457,15 @@ export function realDataKisGet(trId: string, apiPath: string, params: Record<str
 
     if (!res.ok) {
       console.error(`[KIS-RealData] API 오류 ${res.status} (${trId})`);
-      if (res.status >= 500 && res.status < 600) _recordCircuitFailure(trId, res.status);
+      // 5xx(일시 장애) + 404/403(엔드포인트/권한 불일치 — 자연 복구 불가)은 회로 차단.
+      // 400/429는 호출자 파라미터 조정·재시도로 해결 여지가 있어 카운팅에서 제외.
+      if (
+        (res.status >= 500 && res.status < 600)
+        || res.status === 404
+        || res.status === 403
+      ) {
+        _recordCircuitFailure(trId, res.status);
+      }
       return null;
     }
 

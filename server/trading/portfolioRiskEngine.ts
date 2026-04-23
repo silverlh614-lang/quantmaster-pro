@@ -105,7 +105,9 @@ async function buildPositionSnapshots(): Promise<PositionSnapshot[]> {
       ?? pos.shadowEntryPrice;
 
     const wl = wlMap.get(pos.stockCode);
-    const sector = wl?.sector ?? pos.profileType ?? '기타';
+    // NOTE: profileType은 A/B/C/D 품질 티어이지 산업 섹터가 아니다. 과거 fallback에
+    // pos.profileType이 포함돼 섹터 집중도·상관 계산이 전부 티어 기준으로 왜곡됐다.
+    const sector = wl?.sector ?? '기타';
     const beta = SECTOR_BETA[sector] ?? DEFAULT_BETA;
 
     snapshots.push({
@@ -141,7 +143,8 @@ function checkSectorConcentration(
   }
 
   // 후보 종목 섹터가 이미 30% 초과인지 확인
-  if (candidateSector && (weights[candidateSector] ?? 0) >= MAX_SECTOR_WEIGHT) {
+  // '기타'는 섹터 미분류 버킷이므로 집중도 판정에서 제외.
+  if (candidateSector && candidateSector !== '기타' && (weights[candidateSector] ?? 0) >= MAX_SECTOR_WEIGHT) {
     return {
       weights,
       blocked: true,
@@ -319,6 +322,9 @@ export async function runPortfolioRiskCheck(): Promise<void> {
   let shadowsChanged = false;
 
   for (const [sector, weight] of Object.entries(result.sectorWeights)) {
+    // '기타'는 섹터 미분류 버킷이므로 집중 판정 대상에서 제외한다.
+    // checkCorrelation도 동일하게 '기타'를 무시하는 것과 일관성을 맞춘다.
+    if (sector === '기타') continue;
     const weightPct = (weight * 100).toFixed(1);
 
     if (weight >= MAX_SECTOR_WEIGHT) {
@@ -326,7 +332,7 @@ export async function runPortfolioRiskCheck(): Promise<void> {
       const sectorPositions = shadows.filter(s => {
         if (!isOpenShadowStatus(s.status)) return false;
         const wl = wlMap.get(s.stockCode);
-        return (wl?.sector ?? s.profileType ?? '기타') === sector;
+        return (wl?.sector ?? '기타') === sector;
       });
 
       if (sectorPositions.length > 0) {
