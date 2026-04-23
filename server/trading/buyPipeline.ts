@@ -82,18 +82,20 @@ export function checkManualExitCooldown(
  * MTAS(Multi-Timeframe Alignment Score) → 포지션 배수 매핑.
  * 이전에 signalScanner.ts 내에서 3회 중복되던 로직을 통합.
  *
- *   10     → 1.15 (완벽 정렬 +15%)
+ *   ≥10    → 1.15 (완벽 정렬 +15%)
  *   7~9    → 1.0  (표준)
- *   5~6    → 0.5  (약한 정렬 50% 축소)
- *   3<x<5  → 0.5  (경계 구간)
- *   ≤3     → 진입 차단 (호출 전 별도 가드)
+ *   3<x<7  → 0.5  (약한/경계 구간)
+ *   ≤3     → 0.3  (호출 전 별도 가드가 보통 차단 — fallback 도달 시 강제 축소)
+ *
+ * 주의: 이전 구현은 `mtas > 3 → 0.5` + `≤3 → 1.0` 이 되어 "진입 차단" docstring 과
+ * 반대로 1.0 을 반환하던 불일치가 있었고, `>=5` 와 `>3` 이 둘 다 0.5 로 중복 분기였다.
+ * 양쪽 모두 보수적 방향으로 정리.
  */
 export function computeMtasMultiplier(mtas: number): number {
-  if (mtas === 10) return 1.15;
+  if (mtas >= 10) return 1.15;
   if (mtas >= 7) return 1.0;
-  if (mtas >= 5) return 0.5;
   if (mtas > 3) return 0.5;
-  return 1.0; // ≤3: 일반적으로 진입 전 차단되므로 fallback
+  return 0.3;
 }
 
 // ── Raw Position Pct ────────────────────────────────────────────────────────────
