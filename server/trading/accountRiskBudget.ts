@@ -68,6 +68,29 @@ export function applyFractionalKelly(grade: SignalGrade, kellyMultiplier: number
   return { capped: safe, wasCapped: false, cap };
 }
 
+/**
+ * Idea 11 — Kelly Coverage Ratio.
+ *
+ * 회계 "이자보상배율" 과 동형: 이 포지션의 effective Kelly 가 단일 포지션 R-캡
+ * (maxPerTradeRiskPct/100) 대비 얼마나 크은가?
+ *
+ *   KellyCoverageRatio = effectiveKelly / (maxPerTradeRiskPct / 100)
+ *
+ * - ≥ 1: Kelly 가 R-캡 이상 → 정상 사이즈 포지션
+ * - < 1: "이 포지션은 자기 리스크 한도조차 감당 못하는 크기" → 청산 후보로 분류
+ *        (작은 사이즈 = 약한 확신 + R-캡 풀세이즈 못 채움 = 유지 근거 약함)
+ */
+export function computeKellyCoverageRatio(
+  effectiveKelly: number,
+  maxPerTradeRiskPct: number = MAX_PER_TRADE_RISK_PCT,
+): number {
+  if (maxPerTradeRiskPct <= 0) return 0;
+  return effectiveKelly / (maxPerTradeRiskPct / 100);
+}
+
+/** Coverage ratio < 1 이면 "저확신 포지션" 으로 분류되어 청산 후보. */
+export const KELLY_COVERAGE_TRIM_THRESHOLD = 1.0;
+
 // ── 계좌 리스크 예산 계산 ────────────────────────────────────────────────────
 
 export interface AccountRiskBudgetSnapshot {

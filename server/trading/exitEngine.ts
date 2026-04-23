@@ -11,6 +11,7 @@ import {
 } from '../clients/kisClient.js';
 import { addSellOrder } from './fillMonitor.js';
 import { matchExitInvalidation, promoteInvalidationPatternIfRepeated } from './preMortemStructured.js';
+import { promoteKellyDriftPattern } from '../learning/kellyDriftFailurePromotion.js';
 import { captureSnapshotsForOpenTrades } from '../learning/coldstartBootstrap.js';
 import { getRealtimePrice } from '../clients/kisStreamClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
@@ -501,6 +502,13 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
             id: match.id, matchedAt: new Date().toISOString(), observedValue: match.observedValue,
           };
           promoteInvalidationPatternIfRepeated(shadow);
+          // Idea 10 — Kelly decay × invalidation 의 2차원 패턴도 병렬 승급 평가.
+          // I/O 실패가 exit 경로를 막지 않도록 try/catch.
+          try {
+            promoteKellyDriftPattern(shadow);
+          } catch (e) {
+            console.warn('[KellyDrift] 승급 평가 실패:', e instanceof Error ? e.message : e);
+          }
         }
       }
       console.log(`[AutoTrade] ❌ ${shadow.stockName} 하드 스톱(${stopLossExitType}) ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);

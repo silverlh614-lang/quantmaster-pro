@@ -27,6 +27,8 @@ import {
   type ServerShadowTrade,
   type EntryKellySnapshot,
 } from '../persistence/shadowTradeRepo.js';
+import { halfLifeSnapshot, type HalfLifeSnapshot } from './kellyHalfLife.js';
+import { computeKellyCoverageRatio, KELLY_COVERAGE_TRIM_THRESHOLD } from './accountRiskBudget.js';
 
 export interface KellyHealthCardInput {
   shadows: ServerShadowTrade[];
@@ -47,6 +49,10 @@ interface HealthCardRow {
   /** decay % — 양수 = 축소. null 이면 snapshot 누락으로 산정 불가. */
   decayPct: number | null;
   regimeShift: 'SAME' | 'UP' | 'DOWN' | 'UNKNOWN';
+  /** Idea 3: 시간 감쇠 스냅샷 (Kelly half-life). null = snapshot/entryIso 없음. */
+  halfLife?: HalfLifeSnapshot | null;
+  /** Idea 11: Kelly coverage ratio (effectiveKelly / R-cap). */
+  coverageRatio?: number | null;
   recommendation: Recommendation;
   rationale: string;
 }
@@ -99,6 +105,8 @@ function decide(
   regimeShift: HealthCardRow['regimeShift'],
   snapshotRegime: string | undefined,
   currentRegime: string,
+  halfLife?: HalfLifeSnapshot | null,
+  coverageRatio?: number | null,
 ): { recommendation: Recommendation; rationale: string } {
   // 레짐 급전환 우선 — Kelly 수치보다 시장 구조 전환이 더 강한 신호.
   const entrySev = regimeSeverity(snapshotRegime);
@@ -113,6 +121,20 @@ function decide(
     return {
       recommendation: 'TRIM_50',
       rationale: `레짐 악화 ${snapshotRegime}→${currentRegime} — 진입 당시보다 방어적 환경`,
+    };
+  }
+  // Idea 3 — 시간 감쇠 기반 trim 권고.
+  if (halfLife && halfLife.timeDecayWeight < 0.4) {
+    return {
+      recommendation: 'TRIM_50',
+      rationale: `보유 ${halfLife.daysHeld.toFixed(0)}일 · half-life ${halfLife.halfLifeDays}일 · weight ${halfLife.timeDecayWeight.toFixed(2)} — 시간 감쇠로 근거 약화`,
+    };
+  }
+  // Idea 11 — Coverage ratio 기반 trim (effectiveKelly 가 R-cap 을 못 채우는 경우).
+  if (coverageRatio != null && coverageRatio < KELLY_COVERAGE_TRIM_THRESHOLD) {
+    return {
+      recommendation: 'TRIM_50',
+      rationale: `Kelly coverage ${coverageRatio.toFixed(2)} < ${KELLY_COVERAGE_TRIM_THRESHOLD} — 자기 리스크 한도 미충족 (저확신 포지션)`,
     };
   }
   if (decayPct != null) {
@@ -158,8 +180,17 @@ function buildRow(
     ? Math.max(0, (1 - current / snap.effectiveKelly) * 100)
     : null;
   const regimeShift = classifyRegimeShift(snap.regimeAtEntry, input.currentRegime);
+  // Idea 3 — 시간 감쇠 스냅샷
+  const halfLife = halfLifeSnapshot({
+    entryKelly: snap.effectiveKelly,
+    entryIso: snap.snapshotAt ?? trade.signalTime,
+    regime: snap.regimeAtEntry,
+  });
+  // Idea 11 — coverage ratio (현재 추정 Kelly 기준)
+  const coverageRatio = computeKellyCoverageRatio(current);
   const { recommendation, rationale } = decide(
     decayPct, regimeShift, snap.regimeAtEntry, input.currentRegime,
+    halfLife, coverageRatio,
   );
 
   return {
@@ -169,6 +200,8 @@ function buildRow(
     currentEstimatedKelly: current,
     decayPct,
     regimeShift,
+    halfLife,
+    coverageRatio,
     recommendation,
     rationale,
   };
@@ -213,13 +246,22 @@ function renderCard(row: HealthCardRow, currentIps: number): string {
     : row.regimeShift === 'UP' ? '개선'
     : '미상';
   const ipsLine = `   IPS: ${s.ipsAtEntry.toFixed(0)}→${currentIps.toFixed(0)} · 레짐: ${s.regimeAtEntry}→${regimeSymbol}`;
+  // Idea 3 + 11 — 시간 감쇠 + Coverage ratio 한 줄
+  const hl = row.halfLife;
+  const hlLabel = hl
+    ? `보유 ${hl.daysHeld.toFixed(0)}일 (half=${hl.halfLifeDays}일, weight ${hl.timeDecayWeight.toFixed(2)})`
+    : 'n/a';
+  const covLabel = row.coverageRatio == null
+    ? 'n/a'
+    : `${row.coverageRatio.toFixed(2)}${row.coverageRatio < 1 ? ' ⚠' : ''}`;
+  const extraLine = `   ⏱ ${hlLabel} · Cov ${covLabel}`;
   const recLabel = row.recommendation === 'HOLD' ? 'HOLD'
     : row.recommendation === 'WATCH' ? 'WATCH (추가 악화 시 TRIM)'
     : row.recommendation === 'TRIM_50' ? '50% trim (Kelly 비례 축소)'
     : 'EXIT (전량 청산 고려)';
   const recLine = `   권고: ${recLabel}`;
   const rationaleLine = `   <i>${row.rationale}</i>`;
-  return [head, entryLine, currentLine, ipsLine, recLine, rationaleLine].join('\n');
+  return [head, entryLine, currentLine, ipsLine, extraLine, recLine, rationaleLine].join('\n');
 }
 
 /**

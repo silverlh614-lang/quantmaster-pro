@@ -286,6 +286,19 @@ export interface ServerShadowTrade {
     exitRuleTag?: string;
     timestamp: string;
   }>;
+  /** Phase 3 — 진입 시점 Kelly 의사결정 스냅샷 (레거시 포지션은 undefined). */
+  entryKellySnapshot?: {
+    tier: 'CONVICTION' | 'STANDARD' | 'PROBING';
+    signalGrade: 'STRONG_BUY' | 'BUY' | 'HOLD' | 'PROBING';
+    rawKellyMultiplier: number;
+    effectiveKelly: number;
+    fractionalCap: number;
+    ipsAtEntry: number;
+    regimeAtEntry: string;
+    accountRiskBudgetPctAtEntry: number;
+    confidenceModifier: number;
+    snapshotAt: string;
+  };
   [extra: string]: unknown;
 }
 
