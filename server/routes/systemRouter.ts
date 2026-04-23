@@ -25,7 +25,7 @@ import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { loadGateAudit } from '../persistence/gateAuditRepo.js';
 import { getCacheEntry, setCacheEntry, getAiCacheSnapshot } from '../persistence/aiCacheRepo.js';
 import { buildRagIndex, queryRag, generateAdvice, getRagStats } from '../rag/localRag.js';
-import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, getRemainingQty } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { getKisTokenRemainingHours } from '../clients/kisClient.js';
 import { getKrxOpenApiStatus, isKrxOpenApiHealthy } from '../clients/krxOpenApi.js';
@@ -283,7 +283,7 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
   const krxTokenConfigured = krxStatus.authKeyConfigured;
   const krxTokenValid = isKrxOpenApiHealthy();
   const watchlistCount   = watchlist.length;
-  const shadowTradeCount = shadows.filter(s => isOpenShadowStatus(s.status)).length;
+  const shadowTradeCount = shadows.filter(s => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0).length;
 
   // 볼륨 마운트: PERSIST_DATA_DIR 또는 기본 DATA_DIR 쓰기 가능 여부
   let railwayVolumeMount = false;

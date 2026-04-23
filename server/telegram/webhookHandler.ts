@@ -168,11 +168,14 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         const macro   = loadMacroState();
         const shadows = getShadowTrades();
         const active  = shadows.filter(s =>
-          (s as any).status === 'PENDING' ||
-          (s as any).status === 'ORDER_SUBMITTED' ||
-          (s as any).status === 'PARTIALLY_FILLED' ||
-          (s as any).status === 'ACTIVE' ||
-          (s as any).status === 'EUPHORIA_PARTIAL'
+          (
+            (s as any).status === 'PENDING' ||
+            (s as any).status === 'ORDER_SUBMITTED' ||
+            (s as any).status === 'PARTIALLY_FILLED' ||
+            (s as any).status === 'ACTIVE' ||
+            (s as any).status === 'EUPHORIA_PARTIAL'
+          ) &&
+          getRemainingQty(s) > 0
         );
         const today   = new Date().toISOString().split('T')[0];
         const closed  = shadows.filter(s =>
@@ -602,7 +605,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `방식: ${method}\n` +
           (note ? `메모: ${escapeHtml(note)}\n` : '') +
           `🏷️ MANUAL_ADJUST — PnL·학습 집계 격리` +
-          (targetQty === 0 ? `\n⚠️ 잔량 0 — 상태는 유지됩니다. 포지션 종결은 /sell` : '')
+          (targetQty === 0 ? `\nℹ️ 잔량 0 — 보유 목록/보유 종목 수 집계에서 제외됩니다.` : '')
         );
         break;
       }
@@ -641,7 +644,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
       case '/pnl': {
         const shadows = getShadowTrades();
-        const active = shadows.filter(s => isOpenShadowStatus(s.status));
+        const active = shadows.filter(s => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0);
         if (active.length === 0) { await reply('📈 활성 포지션 없음'); break; }
 
         let totalPnl = 0;
@@ -683,7 +686,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
       case '/pos': {
         const shadows = getShadowTrades();
-        const active = shadows.filter(s => isOpenShadowStatus(s.status));
+        const active = shadows.filter(s => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0);
         if (active.length === 0) { await reply('📋 보유 포지션 없음'); break; }
 
         const lines = active.map(s => {
@@ -1116,7 +1119,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           ? new Date(lastBuyTs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
           : '없음';
         const scanSummary   = getLastScanSummary();
-        const activeTrades  = shadows.filter(s => isOpenShadowStatus(s.status)).length;
+        const activeTrades  = shadows.filter(s => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0).length;
         const yahooStatus   = !scanSummary || scanSummary.candidates === 0 ? 'UNKNOWN'
           : scanSummary.yahooFails === scanSummary.candidates ? 'DOWN'
           : scanSummary.yahooFails > scanSummary.candidates * 0.5 ? 'DEGRADED'
