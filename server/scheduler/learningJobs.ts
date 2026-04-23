@@ -1,5 +1,5 @@
 /**
- * @responsibility 자기학습 파이프라인 cron(주간 L3 캘리브레이션 · 일일 미니 백테스트 · Sharpe 급락 경보 · F2W 역피드백 · 주간 백테스트 · Nightly Reflection · Phase 1 Learning)을 등록한다.
+ * @responsibility 자기학습 cron 작업(L3 캘리브레이션·일일 미니 백테스트·Sharpe 경보·F2W 피드백·Nightly Reflection·Phase 1 Learning)을 등록한다.
  */
 import cron from 'node-cron';
 import { runBacktest, runWeeklyMiniBacktest } from '../learning/backtestEngine.js';

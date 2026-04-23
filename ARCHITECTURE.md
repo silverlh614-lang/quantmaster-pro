@@ -32,3 +32,20 @@ When modifying any file, ensure changes stay within the owning module's stated r
 - **kisClient boundary**: All raw KIS REST calls (`kisGet`, `kisPost`, `getKisToken`) must go through this module. No other module may call the KIS API directly.
 - **stockService boundary**: All external data fetches (Yahoo, DART, Gemini, KIS via proxy) originate here. quantEngine must not perform network requests.
 - **autoTradeEngine boundary**: This is the sole channel for real order execution on the server. Client-side modules must not place live orders when `AUTO_TRADE_ENABLED=true`.
+
+---
+
+## Planned Decompositions (advisory)
+
+The following files currently exceed `scripts/check_complexity.js` thresholds. Their
+planned decomposition is documented in `docs/adr/`. Until migration completes, the
+current file continues to own the listed responsibility above.
+
+| File | Lines | ADR | Planned sub-modules |
+|------|------:|-----|---------------------|
+| `server/trading/signalScanner.ts` | 1,820 | [ADR-0001](./docs/adr/0001-signalScanner-decomposition.md) | `signalScanner/{index,preflight,candidateSelect,perSymbolEvaluation,approvalQueue,scanDiagnostics}` |
+| `server/telegram/webhookHandler.ts` | 1,700 | TBD (P1) | — |
+| `server/screener/stockScreener.ts` | 1,571 | TBD (P1) | — |
+| `server/trading/exitEngine.ts` | 1,233 | TBD (P2) | — |
+
+When implementing a decomposition, follow `.claude/skills/server-refactor-orchestrator/SKILL.md` 6-Phase flow and update this table.

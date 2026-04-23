@@ -1,27 +1,5 @@
 {
   "permissions": {
-    "allow": [
-      "Bash(npx tsc:*)",
-      "Bash(node_modules/.bin/tsc --noEmit)",
-      "Bash(grep -l \"className=\" \"C:\\\\Users\\\\6217822\\\\OneDrive - Hyundai Motor and Kia\\\\바탕 화면\\\\quantmaster-pro\\\\quantmaster-pro-1\\\\src\\\\components\"/*.tsx)",
-      "Bash(./node_modules/.bin/tsc --noEmit)",
-      "Bash(node_modules/.bin/tsc.cmd --noEmit)",
-      "Bash(ls node_modules/.bin/tsc*)",
-      "Bash(npx vite:*)",
-      "Bash(npx -p typescript tsc --noEmit)",
-      "Bash(npm ls:*)",
-      "Bash(npx -p typescript@5 tsc --noEmit --pretty)",
-      "Bash(find ./src -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -exec grep -l \"lightweight\" {} \\\\;)",
-      "Bash(npx -p typescript@5 tsc --noEmit)",
-      "Bash(npm install:*)",
-      "Bash(node -e \"const lc = require\\('lightweight-charts'\\); console.log\\(Object.keys\\(lc\\).filter\\(k => k.includes\\('Series'\\) || k === 'createChart'\\).join\\(', '\\)\\)\")",
-      "Bash(grep -n \"SELL_CONDITIONS\\\\|export const.*SELL\" src/constants/*.ts)",
-      "Bash(./node_modules/.bin/tsc --noEmit --skipLibCheck)",
-      "Bash(node_modules/.bin/tsc --noEmit --skipLibCheck)",
-      "Bash(sort -t'\\(' -k2 -n)",
-      "Bash(grep -v \"^.*//.*useState\")",
-      "Bash(grep -v \"//.*useState\")",
-      "Bash(grep -v \"^.*//.*req\")"
-    ]
+    "allow": []
   }
 }
