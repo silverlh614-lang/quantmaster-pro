@@ -54,6 +54,9 @@ import {
 } from '../learning/probingBandit.js';
 import { checkFailurePattern } from '../learning/failurePatternDB.js';
 import { buildEntryConditionScores } from '../learning/entryConditionScores.js';
+import { evaluateCorrelationGate } from './correlationSlotGate.js';
+import { recordCounterfactual, COUNTERFACTUAL_DAILY_CAP } from '../learning/counterfactualShadow.js';
+import { recordUniverseEntries } from '../learning/ledgerSimulator.js';
 
 /**
  * Idea 7 — 진입 차단 유사도 임계값 (0~100). 85% 이상 일치하는 실패 패턴이 존재하면 진입 차단.
@@ -361,6 +364,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   let _scanGateMisses = 0;
   let _scanRrrMisses  = 0;
   let _scanEntries    = 0;
+  // Idea 4 — 일일 Counterfactual 기록 상한 (COUNTERFACTUAL_DAILY_CAP).
+  let _counterfactualRecordedToday = 0;
 
   // 파이프라인 트레이서 버퍼 — 스캔 종료 시 일괄 파일 기록 (아이디어 10)
   const _pendingTraces: ScanTrace[] = [];
@@ -511,14 +516,24 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     );
   }
 
+  // Idea 10 — Minimal Real Positions. 페르소나 원칙 "계좌 생존 우선" 에 맞춰
+  // 실 자본 포지션은 CONVICTION 등급 소수로 집중. 기본 8 로 설정 (레짐 maxPositions 의 min).
+  // MOMENTUM Shadow / PRE_BREAKOUT / INTRADAY 는 이 캡과 무관.
+  const MAX_CONVICTION_POSITIONS = Number(process.env.MAX_CONVICTION_POSITIONS ?? '8');
+
   // ── 동시 최대 보유 종목 (regimeConfig.maxPositions) ─────────────────────────
   // INTRADAY 포지션은 별도 한도(MAX_INTRADAY_POSITIONS)로 관리하므로 제외한다.
   // BUG-09 fix: PRE_BREAKOUT(30% 선취매)도 제외 — 선취매는 탐색적 소량 포지션이므로
   // 스윙 한도에 포함하면 같은 종목의 일반 스윙 진입이 이중 차단됨.
   // Phase 2-③: SELL_ONLY 예외 시 maxSlots 캡과 min 으로 제한.
-  const effectiveMaxPositions = sellOnlyExc.allow
-    ? Math.min(regimeConfig.maxPositions, sellOnlyExc.maxSlots)
-    : regimeConfig.maxPositions;
+  // Idea 10: CONVICTION 캡을 레짐 기반 상한과 min 으로 합성. 레짐이 여유롭더라도
+  // 실 자본 집중도를 유지하려면 절대 상한을 더 엄격히 적용. env 로 조정 가능.
+  const effectiveMaxPositions = Math.min(
+    MAX_CONVICTION_POSITIONS,
+    sellOnlyExc.allow
+      ? Math.min(regimeConfig.maxPositions, sellOnlyExc.maxSlots)
+      : regimeConfig.maxPositions,
+  );
   const activeSwingCount = shadows.filter(
     (s) => isOpenShadowStatus(s.status) &&
            s.watchlistSource !== 'INTRADAY' &&
@@ -1135,6 +1150,25 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         _scanGateMisses++;
         stageLog.gate = `FAIL(${entryRevalidation.reasons.join(',')})`;
         pushTrace();
+
+        // Idea 4 — Counterfactual Shadow: 탈락 후보 상위 N 개를 가상 진입으로 기록.
+        // 같은 날 동일 종목 중복은 자동 스킵 (멱등). I/O 실패가 실 매매 경로를 멈추지 않도록 try/catch.
+        if (_counterfactualRecordedToday < COUNTERFACTUAL_DAILY_CAP) {
+          try {
+            const recorded = recordCounterfactual({
+              stockCode: stock.code,
+              stockName: stock.name,
+              priceAtSignal: currentPrice,
+              gateScore: stock.gateScore ?? 0,
+              regime,
+              conditionKeys: stock.conditionKeys ?? [],
+              skipReason: `entryRevalidation:${entryRevalidation.reasons.join(',')}`,
+            });
+            if (recorded) _counterfactualRecordedToday++;
+          } catch (e) {
+            console.warn(`[Counterfactual] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
+          }
+        }
         continue;
       }
 
@@ -1258,6 +1292,25 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             topMatches: failureWarning.topMatches.map(m =>
               `${m.stockCode}(${m.similarity}%, ${m.returnPct.toFixed(1)}%)`,
             ),
+          });
+          continue;
+        }
+
+        // Idea 5 — Correlation-Aware Slot Allocation.
+        // 기존 포지션과 후보의 섹터 기반 평균 상관이 임계 이상이면 신규 진입 차단.
+        // 실 진입 경로(LIVE) 만 게이팅. Shadow 학습 경로는 샘플 다양성 보존을 위해 통과.
+        const corrGate = evaluateCorrelationGate({
+          candidateCode: stock.code,
+          candidateSector: stock.sector,
+          trades: shadows,
+        });
+        if (!corrGate.allowed) {
+          console.log(`[AutoTrade/CorrGate] ${stock.name}(${stock.code}) 진입 차단 — ${corrGate.reason}`);
+          appendShadowLog({
+            event: 'BLOCKED_CORRELATION',
+            code: stock.code,
+            avgCorrelation: Number(corrGate.avgCorrelation.toFixed(3)),
+            effectiveIndependentCount: Number(corrGate.effectiveIndependentCount.toFixed(2)),
           });
           continue;
         }
@@ -1425,6 +1478,21 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
             rrr: _rrr ?? 0, signalType: isStrongBuy ? 'STRONG_BUY' : 'BUY',
             sector: _sector,
           }).catch(console.error);
+
+          // Idea 2 — Parallel Universe Ledger: 승인된 엔트리에 대해 A/B/C 3 세팅을 동시에 가상체결 기록.
+          // 실 진입 = Universe A 와 동형. B/C 는 학습 표본. LIVE/Shadow 양쪽 모두 기록.
+          try {
+            recordUniverseEntries({
+              stockCode: stock.code,
+              stockName: stock.name,
+              entryPrice: shadowEntryPrice,
+              regime,
+              signalGrade: grade,
+            });
+          } catch (e) {
+            console.warn(`[Ledger] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
+          }
+
           // MOMENTUM Shadow 는 실 자본 차감 없음 — LIVE 주문가능현금과 격리
           if (!isMomentumShadow) {
             orderableCash = Math.max(0, orderableCash - effectiveBudget);

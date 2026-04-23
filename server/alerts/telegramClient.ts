@@ -16,7 +16,11 @@ export async function setTelegramBotCommands(): Promise<void> {
     { command: 'regime',    description: '매크로 레짐 + MHS + VKOSPI 현황' },
     { command: 'health',    description: '파이프라인 헬스체크 (KIS/스캐너/토큰)' },
     { command: 'ai_status', description: 'Gemini 예산/서킷/최근 실패 사유 조회' },
-    { command: 'kelly',     description: '종목별 Kelly 헬스 카드 (진입 vs 현재)' },
+    { command: 'kelly',           description: '종목별 Kelly 헬스 카드 (진입 vs 현재)' },
+    { command: 'kelly_surface',   description: 'Kelly Surface — (p, b) 학습 상태' },
+    { command: 'regime_coverage', description: '레짐별 학습 샘플 커버리지' },
+    { command: 'ledger',          description: 'Parallel Universe Ledger Sharpe' },
+    { command: 'counterfactual',  description: '탈락 후보 가상 추적 통계' },
     // ── 워치리스트/포지션 ────────────────────────────────────────────────────
     { command: 'watchlist', description: '워치리스트 조회' },
     { command: 'focus',     description: 'Track B 매수 대상 상세 조회' },

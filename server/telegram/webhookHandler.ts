@@ -44,6 +44,10 @@ import { getYahooHealthSnapshot } from '../trading/marketDataRefresh.js';
 import { getAccountRiskBudget, formatAccountRiskBudget } from '../trading/accountRiskBudget.js';
 import { loadKellyDampenerState } from '../trading/kellyDampener.js';
 import { formatKellyHealthCards } from '../trading/kellyHealthCard.js';
+import { formatKellySurface } from '../learning/kellySurfaceMap.js';
+import { formatRegimeCoverage } from '../learning/regimeBalancedSampler.js';
+import { getUniverseStats } from '../learning/ledgerSimulator.js';
+import { getCounterfactualStats } from '../learning/counterfactualShadow.js';
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { MAX_SUBSCRIPTIONS, getStreamStatus, startKisStream, stopKisStream, getRealtimePrice } from '../clients/kisStreamClient.js';
 import { getBudgetState, getGeminiCircuitStats, getGeminiRuntimeState } from '../clients/geminiClient.js';
@@ -1390,6 +1394,54 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `\n\n<i>총 자본 기준: ${(totalAssets / 10_000).toLocaleString()}만원 (settings.startingCapital)\n` +
           `Fractional Kelly: STRONG_BUY ≤0.5 / BUY ≤0.25 / HOLD ≤0.1</i>`
         );
+        break;
+      }
+
+      case '/kelly_surface': {
+        // Idea 9: signalType × regime 버킷별 (p, b) 학습 상태 + 신뢰구간 폭.
+        await reply(formatKellySurface());
+        break;
+      }
+
+      case '/regime_coverage': {
+        // Idea 3: 레짐별 샘플 수 / 목표 / 부족 상태.
+        await reply(formatRegimeCoverage());
+        break;
+      }
+
+      case '/ledger': {
+        // Idea 2: Parallel Universe Ledger Sharpe 비교.
+        const stats = getUniverseStats();
+        const lines = ['🌌 <b>[Parallel Universe Ledger]</b>', '━━━━━━━━━━━━━━━━━━━━'];
+        for (const s of stats) {
+          lines.push(
+            `Universe ${s.universe} (${s.label})\n` +
+            `   n=${s.closedSamples} · win=${(s.winRate * 100).toFixed(0)}% · μ=${s.meanReturn.toFixed(2)}% · σ=${s.stdReturn.toFixed(2)}%\n` +
+            `   Sharpe=${s.sharpe.toFixed(2)} · PF=${s.profitFactor === null ? 'n/a' : s.profitFactor === Infinity ? '∞' : s.profitFactor.toFixed(2)}`,
+          );
+        }
+        lines.push('━━━━━━━━━━━━━━━━━━━━');
+        lines.push('<i>Universe A 는 실 진입과 동형. B/C 는 대안 세팅 학습 표본.</i>');
+        await reply(lines.join('\n'));
+        break;
+      }
+
+      case '/counterfactual': {
+        // Idea 4: Gate 탈락 후보의 30/60/90일 분포 통계.
+        const lines = ['🔬 <b>[Counterfactual Shadow — 탈락 후보 추적]</b>', '━━━━━━━━━━━━━━━━━━━━'];
+        for (const h of [30, 60, 90] as const) {
+          const s = getCounterfactualStats(h);
+          if (!s) {
+            lines.push(`${h}일: 샘플 부족`);
+            continue;
+          }
+          lines.push(
+            `${h}일: n=${s.samples} · μ=${s.mean.toFixed(2)}% · median=${s.median.toFixed(2)}% · win=${(s.winRate * 100).toFixed(0)}% · σ=${s.stdDev.toFixed(2)}%`,
+          );
+        }
+        lines.push('━━━━━━━━━━━━━━━━━━━━');
+        lines.push('<i>만약 수익률 분포가 통과 샘플과 유의하게 다르지 않다면 Gate 기준이 과잉.</i>');
+        await reply(lines.join('\n'));
         break;
       }
 
