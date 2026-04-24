@@ -1,3 +1,9 @@
+/**
+ * @responsibility recommendations.json 기반 월간/ready-check 캘리브레이션 — fill 가중 winRate
+ *
+ * PR-18: closed shadow trades 의 winRate 를 fill SSOT (getWeightedPnlPct > 0) 로
+ * 계산해 부분익절이 많은 trade 가 형식적으로 HIT_STOP 이어도 경제적 승으로 반영된다.
+ */
 import fs from 'fs';
 import { RECOMMENDATIONS_FILE, REAL_TRADE_FLAG_FILE, ensureDataDir } from '../persistence/paths.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
@@ -278,7 +284,15 @@ export async function evaluateRecommendations(): Promise<void> {
   }
 
   const closedCount = closedShadows.length;
-  const winRate = closedCount > 0 ? (closedShadows.filter(s => s.status === 'HIT_TARGET').length / closedCount) * 100 : 0;
+  // PR-18: winRate 를 fill SSOT 기반으로 정정 — trade 가 전량 HIT_STOP 이어도
+  // 도중 부분익절이 있었으면 경제적으로는 순이익일 수 있다. getWeightedPnlPct 가
+  // fill 가중 평균을 계산하므로 `> 0` 이면 승으로 카운트. 레거시(fills 없는) trade 는
+  // status 로 폴백.
+  const weightedWins = closedShadows.filter((s) => {
+    const pct = getWeightedPnlPct(s);
+    return (s.fills && s.fills.length > 0) ? pct > 0 : s.status === 'HIT_TARGET';
+  }).length;
+  const winRate = closedCount > 0 ? (weightedWins / closedCount) * 100 : 0;
 
   const readyChecks = {
     sampleSize:    closedCount >= 30,

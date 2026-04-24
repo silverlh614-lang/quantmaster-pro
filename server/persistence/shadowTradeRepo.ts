@@ -1,3 +1,9 @@
+/**
+ * @responsibility Shadow trade 영속 저장소 + fill SSOT 집계 (기간별/월간/STRONG_BUY)
+ *
+ * aggregateFillStats / computeShadowMonthlyStats 는 부분매도 실현을 포함하는
+ * 공용 집계 엔트리 포인트다.
+ */
 import fs from 'fs';
 import { SHADOW_FILE, SHADOW_LOG_FILE, ensureDataDir } from './paths.js';
 
@@ -551,6 +557,113 @@ export function isStrongBuyTrade(t: ServerShadowTrade): boolean {
     || t.entryRegime === 'R3_EARLY';
   const strongProfile = t.profileType === 'A' || t.profileType === 'B';
   return rrr >= 3.0 && strongRegime && strongProfile;
+}
+
+// ─── 기간별 fill 집계 SSOT (PR-18) ─────────────────────────────────────────────
+//
+// 주간/월간/전체 리포트가 공통으로 쓸 수 있는 fill-level 집계. 전량 청산뿐 아니라
+// 부분매도 익절/손절도 모두 반영되어 "이번 주 실현 이벤트" 가 체결 현실과 일치한다.
+//
+// 범위 의미:
+//   - fromIso/toIso 는 fill 의 confirmedAt(없으면 timestamp) 과 비교.
+//   - 둘 다 생략하면 모든 기간.
+
+export interface FillRange {
+  /** inclusive ISO 타임스탬프 (없으면 -∞) */
+  fromIso?: string;
+  /** exclusive ISO 타임스탬프 (없으면 +∞) */
+  toIso?: string;
+  /** PROVISIONAL 포함 여부 (기본 false — 집계에는 CONFIRMED 만) */
+  includeProvisional?: boolean;
+}
+
+export interface FillAggregateStats {
+  /** 집계에 포함된 fill 수 (SELL·CONFIRMED·비REVERTED) */
+  fillCount: number;
+  /** 이익 fill 수 (pnl > 0) */
+  winFills: number;
+  /** 손실 fill 수 (pnl < 0) */
+  lossFills: number;
+  /** fill 에 연관된 고유 trade 수 */
+  uniqueTradeCount: number;
+  /** 이 기간에 전량 청산된 trade 수 (trade.status === HIT_TARGET|HIT_STOP 그리고 마지막 SELL fill 이 범위 안) */
+  fullClosedCount: number;
+  /** ACTIVE 유지하며 이 기간에 부분매도한 trade 수 */
+  partialOnlyCount: number;
+  /** Σ(pnlPct × qty) / Σ(qty). fill 이 없으면 0. */
+  weightedReturnPct: number;
+  /** Σ pnl (원화). */
+  totalRealizedKrw: number;
+}
+
+/**
+ * fill-level 기간 집계. 리포트·학습 모듈이 공통 SSOT 로 사용.
+ *
+ * `range` 생략 시 모든 기간. includeProvisional 은 기본 false — 학습/정산에는
+ * CONFIRMED 만 신뢰한다. UI 에서 "현재 접수 상태" 를 보여줘야 하는 곳에서만 true.
+ */
+export function aggregateFillStats(
+  trades: ServerShadowTrade[],
+  range: FillRange = {},
+): FillAggregateStats {
+  const fromMs = range.fromIso ? new Date(range.fromIso).getTime() : Number.NEGATIVE_INFINITY;
+  const toMs   = range.toIso   ? new Date(range.toIso).getTime()   : Number.POSITIVE_INFINITY;
+
+  const tradeIdsInRange = new Set<string>();
+  const fullClosedIds   = new Set<string>();
+  const partialOnlyIds  = new Set<string>();
+
+  let fillCount = 0;
+  let winFills  = 0;
+  let lossFills = 0;
+  let weightedNum = 0;
+  let weightedDen = 0;
+  let totalRealizedKrw = 0;
+
+  for (const t of trades) {
+    const fills = t.fills ?? [];
+    const candidateSells = fills.filter((f) => {
+      if (f.type !== 'SELL' || !isActiveFill(f)) return false;
+      if (!range.includeProvisional && f.status === 'PROVISIONAL') return false;
+      const ts = f.confirmedAt ?? f.timestamp;
+      if (!ts) return false;
+      const ms = new Date(ts).getTime();
+      return ms >= fromMs && ms < toMs;
+    });
+    if (candidateSells.length === 0) continue;
+
+    tradeIdsInRange.add(t.id);
+
+    // 전량 청산 판정: trade 가 현재 HIT_TARGET|HIT_STOP 이고, 마지막 CONFIRMED SELL fill
+    // 이 범위 안에 있으면 "이 기간에 청산됨".
+    const allConfirmedSells = fills.filter((f) => f.type === 'SELL' && isActiveFill(f) && f.status !== 'PROVISIONAL');
+    const lastSellId = allConfirmedSells[allConfirmedSells.length - 1]?.id;
+    const isFullClosed = (t.status === 'HIT_TARGET' || t.status === 'HIT_STOP')
+      && !!lastSellId
+      && candidateSells.some((f) => f.id === lastSellId);
+    if (isFullClosed) fullClosedIds.add(t.id);
+    else partialOnlyIds.add(t.id);
+
+    for (const f of candidateSells) {
+      fillCount++;
+      if ((f.pnl ?? 0) > 0) winFills++;
+      else if ((f.pnl ?? 0) < 0) lossFills++;
+      weightedNum += (f.pnlPct ?? 0) * f.qty;
+      weightedDen += f.qty;
+      totalRealizedKrw += f.pnl ?? 0;
+    }
+  }
+
+  return {
+    fillCount,
+    winFills,
+    lossFills,
+    uniqueTradeCount: tradeIdsInRange.size,
+    fullClosedCount: fullClosedIds.size,
+    partialOnlyCount: partialOnlyIds.size,
+    weightedReturnPct: weightedDen > 0 ? weightedNum / weightedDen : 0,
+    totalRealizedKrw,
+  };
 }
 
 // ─── Shadow 월간 집계 (SSOT: fills) ───────────────────────────────────────────
