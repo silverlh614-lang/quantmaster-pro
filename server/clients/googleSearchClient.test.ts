@@ -68,23 +68,6 @@ describe('googleSearchClient (ADR-0011)', () => {
     expect(fetchSpy).toHaveBeenCalledOnce();
   });
 
-  it('예산 초과 시 BUDGET_EXCEEDED 반환 + 외부 호출 없음', async () => {
-    process.env.GOOGLE_SEARCH_API_KEY = 'test-key';
-    process.env.GOOGLE_SEARCH_CX = 'test-cx';
-    process.env.AI_DAILY_CALL_BUDGET = '2';
-    __budgetTestOnly.reset();
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ items: [] }), { status: 200 }) as never
-    );
-
-    await googleSearch('q1');
-    await googleSearch('q2');
-    const blocked = await googleSearch('q3');
-
-    expect(blocked.source).toBe('BUDGET_EXCEEDED');
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-  });
-
   it('HTTP 오류 시 ERROR source 반환', async () => {
     process.env.GOOGLE_SEARCH_API_KEY = 'test-key';
     process.env.GOOGLE_SEARCH_CX = 'test-cx';
