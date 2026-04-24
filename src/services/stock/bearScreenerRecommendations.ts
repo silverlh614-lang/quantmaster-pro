@@ -58,12 +58,17 @@ export async function getBearScreenerRecommendations(filters?: StockFilters): Pr
       숏 수혜주 조건: roeAbove15, perBelowSectorAvg, shortInterestDeclining, oversoldFundamentalsIntact
       변동성 수혜주 조건: insuranceSector, financialNimImprovement, dollarHedgeExporter
 
-      [Bear Screener 전용 BUY 조건 (일반 27조건과 다름)]
-      Bear Screener에서는 다음 조건으로 BUY를 판단한다:
-      - STRONG_BUY: 해당 카테고리 조건 4개 이상 충족 + 배당 수익률 4% 이상 또는 ROE 20% 이상 + 기관 매수 확인
-      - BUY: 해당 카테고리 조건 3개 이상 충족 + 실적 안정성 확인
-      - HOLD: 조건 2개 이하 충족 또는 펀더멘털 불명확
-      주의: 일목균형표 ABOVE_CLOUD 조건은 Bear Screener에서 필수가 아님 (방어주는 눌린 상태일 수 있음)
+      [Bear Screener 전용 BUY 조건 (ADR-0005 서버 Kelly 캡 정렬)]
+      Bear Screener에서는 다음 조건으로 BUY를 판단한다. 일반 27조건과 다르지만,
+      레짐별 Kelly 캡(regimePlaybook: R5_CAUTION 선택적 진입 · R6_DEFENSE CONFIRMED_STRONG_BUY 한정)
+      과 충돌하지 않도록 STRONG_BUY 기준을 엄격히 유지한다.
+      - STRONG_BUY: 해당 카테고리 조건 5개 이상 충족 + 배당 수익률 5% 이상 또는 ROE 25% 이상
+        + 기관 순매수 5거래일 연속 확인 + RRR ≥ 3.0 + 공매도 잔고 감소 추세.
+        (R6_DEFENSE 레짐 즉 "현재 Regime이 R6_DEFENSE" 로 판단되면 STRONG_BUY 부여 금지 —
+         CONFIRMED_STRONG_BUY 한정 진입 정책에 따라 일반 STRONG_BUY 는 사용하지 않는다.)
+      - BUY: 해당 카테고리 조건 3개 이상 충족 + 실적 안정성 확인 + RRR ≥ 2.0.
+      - HOLD: 조건 2개 이하 충족 또는 펀더멘털 불명확.
+      주의: 일목균형표 ABOVE_CLOUD 조건은 Bear Screener에서 필수가 아님 (방어주는 눌린 상태일 수 있음).
 
       응답 형식은 기존 getStockRecommendations와 동일한 JSON이지만,
       bearScreenerCategory 필드를 추가하라: "DEFENSIVE" | "COUNTER_CYCLICAL" | "VALUE_DEPRESSED" | "VOLATILITY_BENEFICIARY"

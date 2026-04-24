@@ -78,9 +78,17 @@ AND
 
 ### 3. 후속 과제 (이 ADR 범위 외)
 
-- `quantScreenRecommendations.ts` 와 `bearScreenerRecommendations.ts` 의 프롬프트
+- ~~`quantScreenRecommendations.ts` 와 `bearScreenerRecommendations.ts` 의 프롬프트
   기준도 `getEffectiveGateThreshold` 동기화 대상이나, 본 ADR 에서는
-  `momentumRecommendations.ts` 먼저 정비하고 후속 PR 로 확장.
+  `momentumRecommendations.ts` 먼저 정비하고 후속 PR 로 확장.~~
+  → 2026-04-24 PR-13 에서 반영:
+    - **QUANT_SCREEN**: 뉴스·모멘텀이 아닌 "combinedScore + accumulationPhase +
+      펀더멘털 + 수급" 4 축 교차 검증을 STRONG_BUY 조건으로 명시. RRR ≥ 3.0 하한
+      공통 적용.
+    - **BEAR_SCREEN**: 카테고리 조건 4→5, 배당 4%→5%, ROE 20%→25% 로 상향. 기관
+      순매수 5거래일·공매도 잔고 감소·RRR ≥ 3.0 추가. R6_DEFENSE 에서는 일반
+      STRONG_BUY 부여 금지 (regimePlaybook R6 의 "CONFIRMED_STRONG_BUY 한정 진입"
+      정책과 정렬).
 - SHADOW STRONG_BUY 표본이 계속 부족하면 fallback 휴리스틱의 임계값 (profileType A/B
   + RRR 3.0) 을 6개월 누적 데이터로 재조정.
 - Pre-Mortem 서문 regex 가 Gemini 모델 변경 시 실패할 수 있으므로, 1분기마다
