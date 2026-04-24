@@ -103,21 +103,6 @@ describe('aiUniverseService (ADR-0011)', () => {
     expect(res.candidates[0].code).toBe('005930');
   });
 
-  it('예산 초과 시 budgetExceeded=true 로 fallback', async () => {
-    process.env.GOOGLE_SEARCH_API_KEY = 'test-key';
-    process.env.GOOGLE_SEARCH_CX = 'test-cx';
-    process.env.AI_DAILY_CALL_BUDGET = '0';
-    __budgetTestOnly.reset();
-    setStockMaster([{ code: '005930', name: '삼성전자', market: 'KOSPI' }]);
-
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ items: [] }), { status: 200 }) as never
-    );
-    const res = await discoverUniverse('MOMENTUM', { enrich: false });
-    expect(res.diagnostics.budgetExceeded).toBe(true);
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
   it('enrichKnownStock — 마스터에 없는 코드는 null', async () => {
     setStockMaster([{ code: '005930', name: '삼성전자', market: 'KOSPI' }]);
     const result = await enrichKnownStock('999999');

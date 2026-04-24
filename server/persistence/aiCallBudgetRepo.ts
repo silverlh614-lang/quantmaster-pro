@@ -146,28 +146,21 @@ function checkThresholds(bucket: string, newUsed: number, limit: number, state: 
 }
 
 /**
- * 호출 시도 — 한도 안이면 카운터 증가하고 true. 초과면 false.
- * 카운터를 미리 증가시키므로 race condition 안전.
+ * 호출 시도 — 항상 true 반환 (enforcement 비활성, 2026-04 사용자 요청).
+ * AI 추천은 사용자가 직접 실행하는 경로이므로 자동 한도·경보가 불필요.
+ * 카운터는 관측용으로 유지하되 차단·threshold 알림은 발생시키지 않는다.
  */
 export function tryConsume(bucket: string, count: number = 1, now: number = Date.now()): boolean {
   const state = ensureLoaded(now);
-  const limit = defaultLimit(bucket);
-  const used = state.counters[bucket] ?? 0;
-  if (used + count > limit) return false;
-  const newUsed = used + count;
-  state.counters[bucket] = newUsed;
-  checkThresholds(bucket, newUsed, limit, state);
+  state.counters[bucket] = (state.counters[bucket] ?? 0) + count;
   scheduleFlush();
   return true;
 }
 
-/** 강제 카운터 증가 — 외부 fetch 가 이미 발생한 후 사후 기록할 때. */
+/** 강제 카운터 증가 — 외부 fetch 가 이미 발생한 후 사후 기록할 때. threshold 알림 없음. */
 export function recordCall(bucket: string, count: number = 1, now: number = Date.now()): void {
   const state = ensureLoaded(now);
-  const newUsed = (state.counters[bucket] ?? 0) + count;
-  state.counters[bucket] = newUsed;
-  const limit = defaultLimit(bucket);
-  checkThresholds(bucket, newUsed, limit, state);
+  state.counters[bucket] = (state.counters[bucket] ?? 0) + count;
   scheduleFlush();
 }
 
