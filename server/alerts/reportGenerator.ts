@@ -70,7 +70,7 @@ export async function generateDailyReport(): Promise<void> {
   // ── Gemini AI 내러티브 생성 (googleSearch 없음 — 비용 절감) ─────────────────
   const dataBlock = [
     `날짜: ${today} (KST)`,
-    `거래 모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? 'Shadow (가상매매)' : 'LIVE (실매매)'}`,
+    `거래 모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? '[SHADOW] (가상매매 — 실계좌 잔고 아님)' : 'LIVE (실매매)'}`,
     `당일 신호: ${todayTrades.length}건 | 결산 ${closed.length}건 (승 ${wins.length} / 패 ${closed.length - wins.length})`,
     `일일 P&L: ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%`,
     `MHS: ${macro?.mhs ?? 'N/A'} | 레짐: ${macro?.regime ?? 'N/A'}`,

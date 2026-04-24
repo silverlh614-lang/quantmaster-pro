@@ -1,9 +1,7 @@
 import fs from 'fs';
-import { evaluateServerGate } from '../quantFilter.js';
 import { ORCHESTRATOR_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
-import { loadWatchlist } from '../persistence/watchlistRepo.js';
+import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
-import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import {
   BUY_TR_ID,
   refreshKisToken, kisPost,
@@ -13,7 +11,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
 import { trancheExecutor } from '../trading/trancheExecutor.js';
 import { runAutoSignalScan } from '../trading/signalScanner.js';
-import { fetchYahooQuote, preScreenStocks, autoPopulateWatchlist, sendWatchlistRejectionReport } from '../screener/stockScreener.js';
+import { preScreenStocks, autoPopulateWatchlist, sendWatchlistRejectionReport } from '../screener/stockScreener.js';
 import { generateDailyReport } from '../alerts/reportGenerator.js';
 import { isRealTradeReady } from '../learning/recommendationTracker.js';
 import { calculateOrderQuantity, isOpenShadowStatus } from '../trading/entryEngine.js';
@@ -24,6 +22,11 @@ import { scanAndUpdateIntradayWatchlist } from '../screener/intradayScanner.js';
 import { clearIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { runPreMarketSmokeTest } from '../trading/preMarketSmokeTest.js';
 import { cleanupWatchlist } from '../screener/watchlistManager.js';
+import { probePreMarketGap, type GapProbeResult } from '../trading/preMarketGapProbe.js';
+import { assertSafeOrder, PreOrderGuardError } from '../trading/preOrderGuard.js';
+import { loadMacroState } from '../persistence/macroStateRepo.js';
+import { getLiveRegime } from '../trading/regimeBridge.js';
+import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 
 // ─── 편의 조회 래퍼 ────────────────────────────────────────────────────────────
 export function getShadowTrades() { return loadShadowTrades(); }
@@ -33,10 +36,11 @@ export function getWatchlist()    { return loadWatchlist(); }
 
 /**
  * OPENING_AUCTION 진입 시 (08:45 KST) 워치리스트 종목에 대해:
- * 1. Yahoo Finance로 전일 종가 조회
- * 2. 진입가 대비 ±2% 이내 괴리율 체크
- * 3. ServerGate 재평가 (8개 조건)
- * 4. NORMAL/STRONG → KIS 지정가 주문 or Shadow 알림
+ * 1. 동시호가 진입 전 포지션 Full 가드 (regimeConfig.maxPositions)
+ * 2. preMarketGapProbe 로 KIS 전일종가 기반 갭 체크 (ADR-0004)
+ * 3. ServerGate 재평가 (8개 조건) — quote 없이 워치리스트 entryPrice 기반
+ * 4. assertSafeOrder 최종 Kill-Switch (LIVE 경로)
+ * 5. NORMAL/STRONG → KIS 지정가 주문 or Shadow 알림
  */
 export async function preMarketOrderPrep(): Promise<void> {
   const watchlist = loadWatchlist();
@@ -45,55 +49,125 @@ export async function preMarketOrderPrep(): Promise<void> {
     return;
   }
 
-  console.log(`[PreMarket] 동시호가 예약 주문 준비 — ${watchlist.length}개 종목`);
-  const isLive = process.env.AUTO_TRADE_MODE === 'LIVE';
-  const capital = (await fetchAccountBalance().catch(() => null)) ?? 10_000_000;
-  // calculateOrderQuantity와 동일한 사이징 로직 적용: orderableCash를 주문마다 차감
+  // ── 포지션 Full 가드 (진입부 즉시) ─────────────────────────────────────────
+  // regimeConfig.maxPositions 이상 보유 시 preMarket 예약 주문 자체를 스킵.
+  // 신호 발견 후 뒤늦게 skip 하던 기존 구조는 이미 Shadow DB 에 PROVISIONAL 기록이
+  // 남아 "가득 찬 계좌에 추가 매수 시도" 이력이 누적되었다. 진입부에서 끊는다.
   const activeCount = loadShadowTrades().filter(s => isOpenShadowStatus(s.status)).length;
+  const regime = getLiveRegime(loadMacroState());
+  const maxPositions = REGIME_CONFIGS[regime]?.maxPositions ?? 4;
+  if (activeCount >= maxPositions) {
+    console.log(
+      `[PreMarket] 포지션 Full (${activeCount}/${maxPositions}, regime=${regime}) — 전체 스킵`,
+    );
+    await sendTelegramAlert(
+      `🛑 <b>[PreMarket Full 가드]</b>\n` +
+      `활성 포지션 ${activeCount}/${maxPositions} (regime=${regime}) — 예약 주문 전량 스킵`
+    ).catch(console.error);
+    return;
+  }
+
+  console.log(
+    `[PreMarket] 동시호가 예약 주문 준비 — ${watchlist.length}개 종목 ` +
+    `(포지션 ${activeCount}/${maxPositions}, regime=${regime})`,
+  );
+  const isLive = process.env.AUTO_TRADE_MODE === 'LIVE';
+  // PR-5 #11: SHADOW ↔ LIVE 계좌 잔고 분리. preMarket 사이징 capital 은
+  // LIVE 면 KIS 실/모의 잔고, SHADOW 면 shadowAccountRepo 독립 원장에서 가져온다.
+  let capital: number;
+  if (isLive) {
+    capital = (await fetchAccountBalance().catch(() => null)) ?? 10_000_000;
+  } else {
+    const { computeShadowAccount } = await import('../persistence/shadowAccountRepo.js');
+    const { loadTradingSettings } = await import('../persistence/tradingSettingsRepo.js');
+    const settings = loadTradingSettings();
+    const startingCapital = Number(process.env.AUTO_TRADE_ASSETS || settings.startingCapital);
+    const account = computeShadowAccount(loadShadowTrades(), startingCapital);
+    capital = Math.max(0, account.cashBalance); // 사이징은 실가용 현금 기준
+  }
   let orderableCash = capital;
   let orderedCount = 0;
+  const skipReasonByCode = new Map<string, string>();
 
   for (const stock of watchlist) {
     try {
-      // Yahoo Finance 시세 조회 (KS 접미사 → KQ 폴백)
-      const quote = (await fetchYahooQuote(`${stock.code}.KS`).catch(() => null))
-                 ?? (await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null));
+      // 루프 내부에서도 capacity 재확인 — 동일 tick 신규 주문이 한도를 넘지 않도록.
+      if (activeCount + orderedCount >= maxPositions) {
+        console.log(
+          `[PreMarket] 한도 도달 (${activeCount + orderedCount}/${maxPositions}) — ` +
+          `나머지 ${watchlist.length - orderedCount}개 건너뜀`,
+        );
+        break;
+      }
 
-      if (!quote || quote.price <= 0) {
-        console.log(`[PreMarket] ${stock.name}(${stock.code}) Yahoo 시세 없음 — 건너뜀`);
+      // ── Gap Probe (ADR-0004): KIS 전일종가 기반 ─────────────────────────────
+      const probe: GapProbeResult = await probePreMarketGap({
+        stockCode:  stock.code,
+        entryPrice: stock.entryPrice,
+      });
+
+      if (probe.decision === 'SKIP_NO_DATA'
+       || probe.decision === 'SKIP_STALE'
+       || probe.decision === 'SKIP_DATA_ERROR') {
+        console.log(
+          `[PreMarket] ${stock.name}(${stock.code}) ${probe.decision} — ${probe.reason ?? ''}`,
+        );
+        skipReasonByCode.set(stock.code, probe.decision);
         continue;
       }
 
-      // ±2% gap 체크: 전일 종가 대비 워치리스트 진입가 괴리율
-      const gapPct = Math.abs((quote.price - stock.entryPrice) / stock.entryPrice) * 100;
-      if (gapPct > 2) {
-        console.log(`[PreMarket] ${stock.name}(${stock.code}) Gap ${gapPct.toFixed(1)}% > 2% — 스킵`);
-        continue;
-      }
+      // Gate 재평가는 runAutoSignalScan(MARKET_OPEN) 이 실시간 quote 로 수행한다.
+      // 장전 preMarket 은 워치리스트 entry snapshot (gateScore) 을 신뢰하고, 단순
+      // 구간 포지션 사이징만 적용한다. (ADR-0004: Yahoo preMarket 호출 경로 제거)
+      const entryGateScore = stock.gateScore ?? 0;
+      // 보수적 기본 사이징: SWING 기준 8% 표준 포지션. runAutoSignalScan 에서
+      // 실가격·MTAS·레짐 반영한 사이징으로 재조정된다.
+      const defaultPositionPct = entryGateScore >= 7 ? 0.10 : 0.08;
 
-      // Gate 재평가 (Yahoo 데이터 기반 8개 조건, 자기학습 가중치 적용)
-      const gate = evaluateServerGate(quote, loadConditionWeights());
-      if (gate.signalType === 'SKIP') {
-        console.log(`[PreMarket] ${stock.name}(${stock.code}) Gate ${gate.gateScore}/8 SKIP — 미달`);
-        continue;
-      }
-
-      const remainingSlots = Math.max(1, watchlist.length - activeCount - orderedCount);
+      const remainingSlots = Math.max(1, maxPositions - activeCount - orderedCount);
       const { quantity, effectiveBudget } = calculateOrderQuantity({
         totalAssets:   capital,
         orderableCash,
-        positionPct:   gate.positionPct,
+        positionPct:   defaultPositionPct,
         price:         stock.entryPrice,
         remainingSlots,
       });
       if (quantity <= 0) continue;
 
+      const gapLabel = probe.gapPct != null ? ` gap=${probe.gapPct.toFixed(1)}%` : '';
+      const gapWarnTag = probe.decision === 'WARN' ? ' ⚠️' : '';
       console.log(
         `[PreMarket] ${stock.name}(${stock.code}) 예약 — ${quantity}주 @${stock.entryPrice.toLocaleString()} ` +
-        `(Gate=${gate.gateScore}/8 ${gate.signalType} gap=${gapPct.toFixed(1)}%)`
+        `(GateSnap=${entryGateScore}${gapLabel})${gapWarnTag}`
       );
 
       if (isLive && process.env.KIS_APP_KEY) {
+        // ── Pre-Order Kill Switch (assertSafeOrder) ─────────────────────────
+        // POSITION_EXPLOSION / STOPLOSS_LOGIC_BROKEN / ORDER_LOOP_SUSPECT 최종 검증.
+        try {
+          assertSafeOrder({
+            stockCode:   stock.code,
+            stockName:   stock.name,
+            quantity,
+            entryPrice:  stock.entryPrice,
+            stopLoss:    stock.stopLoss,
+            totalAssets: capital,
+          });
+        } catch (e) {
+          const reason = e instanceof PreOrderGuardError ? e.reason : 'unknown';
+          console.warn(
+            `[PreMarket] ${stock.name}(${stock.code}) PreOrderGuard 차단: ${reason}`,
+          );
+          await sendTelegramAlert(
+            `🚫 <b>[PreMarket Guard 차단]</b>\n` +
+            `종목: ${stock.name} (${stock.code})\n` +
+            `사유: ${reason}\n` +
+            `이 종목은 건너뛰고 나머지는 계속 진행합니다.`
+          ).catch(console.error);
+          skipReasonByCode.set(stock.code, `GUARD_${reason}`);
+          continue;
+        }
+
         // KIS 지정가 매수 주문 (동시호가)
         const orderRes = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
           CANO:         process.env.KIS_ACCOUNT_NO ?? '',
@@ -120,28 +194,49 @@ export async function preMarketOrderPrep(): Promise<void> {
           });
           orderableCash = Math.max(0, orderableCash - effectiveBudget);
           orderedCount++;
+          const gapLine = probe.gapPct != null
+            ? `${probe.decision === 'WARN' ? '⚠️ Gap' : 'Gap'} ${probe.gapPct.toFixed(1)}%`
+            : 'Gap n/a';
           await sendTelegramAlert(
             `📋 <b>[동시호가 예약 주문]</b>\n` +
             `종목: ${stock.name} (${stock.code})\n` +
             `가격: ${stock.entryPrice.toLocaleString()}원 × ${quantity}주\n` +
-            `Gate: ${gate.gateScore}/8 (${gate.signalType}) | Gap: ${gapPct.toFixed(1)}%\n` +
+            `GateSnap: ${entryGateScore} | ${gapLine}\n` +
             `주문번호: ${ordNo}`
           ).catch(console.error);
         }
       } else {
         // Shadow 모드: Telegram 알림만 (현금 차감 없음)
         orderedCount++;
+        const gapLine = probe.gapPct != null
+          ? `${probe.decision === 'WARN' ? '⚠️ Gap' : 'Gap'} ${probe.gapPct.toFixed(1)}%`
+          : 'Gap n/a';
         await sendTelegramAlert(
-          `🎭 <b>[동시호가 Shadow 예약]</b>\n` +
+          `🎭 <b>[SHADOW 동시호가 예약]</b>\n` +
           `종목: ${stock.name} (${stock.code})\n` +
           `예정가: ${stock.entryPrice.toLocaleString()}원 × ${quantity}주\n` +
-          `Gate: ${gate.gateScore}/8 (${gate.signalType}) | Gap: ${gapPct.toFixed(1)}%`
+          `GateSnap: ${entryGateScore} | ${gapLine}\n` +
+          `⚠️ SHADOW 모드 — 실계좌 잔고 아님`
         ).catch(console.error);
       }
 
-      await new Promise(r => setTimeout(r, 300)); // Yahoo rate limit 방지
+      await new Promise(r => setTimeout(r, 300)); // KIS rate limit 여유
     } catch (e) {
       console.error(`[PreMarket] ${stock.name}(${stock.code}) 오류:`, e instanceof Error ? e.message : e);
+    }
+  }
+
+  // ── 스킵 사유 워치리스트 반영 ─────────────────────────────────────────────
+  // lastSkipReason/lastSkipAt 필드는 WatchlistEntry 에 옵셔널로 정의되어 하위 호환 유지.
+  if (skipReasonByCode.size > 0) {
+    const nowIso = new Date().toISOString();
+    const updated = watchlist.map(entry => {
+      const reason = skipReasonByCode.get(entry.code);
+      if (!reason) return entry;
+      return { ...entry, lastSkipReason: reason, lastSkipAt: nowIso };
+    });
+    try { saveWatchlist(updated); } catch (e) {
+      console.warn('[PreMarket] skipReason 워치리스트 저장 실패:', e instanceof Error ? e.message : e);
     }
   }
 

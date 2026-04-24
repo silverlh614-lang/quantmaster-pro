@@ -17,15 +17,16 @@ import {
   loadShadowTrades,
   saveShadowTrades,
   getRemainingQty,
+  getTotalRealizedPnl,
   updateShadow,
   appendFill,
   appendShadowLog,
   syncPositionCache,
+  computeShadowMonthlyStats,
 } from '../persistence/shadowTradeRepo.js';
 import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
-import { getMonthlyStats } from '../learning/recommendationTracker.js';
 import { sendTelegramAlert, answerCallbackQuery, isDigestEnabled, setDigestEnabled, escapeHtml } from '../alerts/telegramClient.js';
 import { readAlertAuditRange } from '../alerts/alertAuditLog.js';
 import { getChannelStatsByDate, getRecentDateKeys } from '../persistence/channelStatsRepo.js';
@@ -147,7 +148,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /buy <code>종목코드</code> — 수동 매수 신호\n` +
           `  /sell <code>종목코드</code> — 포지션 전량 시장가 매도\n` +
           `  /adjust_qty <code>종목코드</code> <code>수량</code> [메모] — 장부 수량 수동 보정 (실계좌 대비 drift 교정)\n` +
-          `  /reconcile [apply|last|status] — 장부 점검(기본 dry-run)·적용·마지막 결과 조회\n` +
+          `  /reconcile [apply|last|status|push] — 장부 점검(기본 dry-run)·적용·이력·브로드캐스트\n` +
           `  /scheduler [next|detail|history] — 스케줄러 시간표/다음 실행/상세/실행 이력\n` +
           `  /scan — 장중 강제 스캔 트리거\n` +
           `  /krx_scan — KRX 종목조회 강제 재스캔 (Stage1+2+3)\n` +
@@ -211,7 +212,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         const pnl = closed.reduce((sum, s) => sum + ((s as any).returnPct ?? 0), 0);
         await reply(
           `📊 <b>[시스템 현황]</b>\n` +
-          `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? '🟡 Shadow' : '🔴 LIVE'}\n` +
+          `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? '🟡 [SHADOW]' : '🔴 LIVE'}\n` +
           `비상정지: ${getEmergencyStop() ? '🔴 ON' : '🟢 OFF'}\n` +
           `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n` +
           `활성 포지션: ${active.length}개\n` +
@@ -403,9 +404,10 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         // 조건 가중치 통계·실패 패턴 DB가 사용자 편향(후회회피·패닉)으로 오염된다.
         if (target.mode === 'SHADOW') {
           await reply(
-            `🛡️ <b>[수동 청산 차단]</b> ${escapeHtml(target.stockName)}(${escapeHtml(code)})\n` +
-            `이 포지션은 Shadow 모드입니다 — 자동 규칙 평가만 허용됩니다.\n` +
-            `(30건 검증 순도 보장 위해 SHADOW /sell 은 봉쇄됩니다)`
+            `🛡️ <b>[SHADOW] 수동 청산 차단</b> ${escapeHtml(target.stockName)}(${escapeHtml(code)})\n` +
+            `이 포지션은 SHADOW 모드입니다 — 자동 규칙 평가만 허용됩니다.\n` +
+            `(30건 검증 순도 보장 위해 SHADOW /sell 은 봉쇄됩니다)\n` +
+            `⚠️ SHADOW 모드 — 실계좌 잔고 아님`
           );
           break;
         }
@@ -518,8 +520,9 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         );
 
         // ── 5단계: 결과 텔레그램 알림 ────────────────────────────────
-        const modeLabel = sellRes.placed ? '🔴 LIVE 매도 접수' : '🟡 Shadow 청산 기록';
+        const modeLabel = sellRes.placed ? '🔴 LIVE 매도 접수' : '🟡 [SHADOW] 청산 기록';
         const bias = manualExitContext.biasAssessment;
+        const shadowSuffix = sellRes.placed ? '' : '\n⚠️ SHADOW 모드 — 실계좌 잔고 아님';
         await reply(
           `✅ <b>[수동 청산 완료]</b> ${modeLabel}\n` +
           `종목: ${escapeHtml(target.stockName)} (${escapeHtml(code)})\n` +
@@ -530,7 +533,8 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `(${pnl >= 0 ? '+' : ''}${Math.round(pnl).toLocaleString()}원)\n` +
           `주문번호: ${sellRes.ordNo ?? 'N/A'}\n` +
           `🏷️ MANUAL_EXIT — 학습 격리됨 (조건 가중치 통계 미반영)\n` +
-          `🧠 편향 추정 — 후회회피 ${bias.regretAvoidance} / 보유효과 ${bias.endowmentEffect} / 패닉 ${bias.panicSelling}`
+          `🧠 편향 추정 — 후회회피 ${bias.regretAvoidance} / 보유효과 ${bias.endowmentEffect} / 패닉 ${bias.panicSelling}` +
+          shadowSuffix
         );
         break;
       }
@@ -644,6 +648,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         //   /reconcile apply         → 실제 교정 적용
         //   /reconcile last          → 마지막 실행 결과 조회
         //   /reconcile status        → 마지막 실행 시각/모드/요약
+        //   /reconcile push          → 서버 장부 현재 포지션을 강제 브로드캐스트 (다기기 동기화용)
         //   (구) /reconcile_qty 는 apply 모드 호환 유지
         const sub = (args[0] ?? '').toLowerCase();
         const isLegacyApply = cmd.toLowerCase() === '/reconcile_qty';
@@ -681,6 +686,38 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             `마지막 실행: ${new Date(last.ranAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}\n` +
             `검사 ${last.checked}건 → 교정${last.mode === 'dryRun' ? ' 후보' : ''} ${last.fixed}건 (${driftSeverity})\n` +
             (last.fixed > 0 && last.mode === 'dryRun' ? '\n⚠️ DRY-RUN 결과에 변경 후보가 있습니다 — /reconcile apply 로 적용하세요.' : '')
+          );
+          break;
+        }
+
+        // PR-3 #9: /reconcile push — 서버 장부 스냅샷을 강제 브로드캐스트.
+        // 운영자가 다른 기기에서 텔레그램 표시가 구 버전인지 의심할 때 사용.
+        if (sub === 'push') {
+          const shadowsNow = loadShadowTrades();
+          const open = shadowsNow.filter(s => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0);
+          if (open.length === 0) {
+            await reply('📤 <b>[Reconcile Push]</b>\n서버 장부: 활성 포지션 없음 — 동기화할 내용 없음.');
+            break;
+          }
+          const lines = open.map(s => {
+            const isShadow = s.mode !== 'LIVE';
+            const modeTag = isShadow ? '[SHADOW]' : '[LIVE]';
+            const realQty = getRemainingQty(s);
+            const cacheDrift = s.quantity !== realQty ? ` ⚠️ 캐시 ${s.quantity}주 불일치` : '';
+            return (
+              `• ${modeTag} ${escapeHtml(s.stockName)}(${escapeHtml(s.stockCode)}) — ${realQty}주 @${s.shadowEntryPrice.toLocaleString()}원` +
+              cacheDrift
+            );
+          });
+          const hasShadow = open.some(s => s.mode !== 'LIVE');
+          const suffix = hasShadow
+            ? '\n⚠️ [SHADOW] 표시는 가상 잔고 — 실계좌 아님'
+            : '';
+          await reply(
+            `📤 <b>[Reconcile Push]</b> 서버 장부 기준 현재 포지션 ${open.length}개\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            lines.join('\n') + suffix +
+            `\n\n💡 수량 불일치 발견 시 <code>/reconcile apply</code>`,
           );
           break;
         }
@@ -739,14 +776,24 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       }
 
       case '/shadow': {
-        const stats = getMonthlyStats();
+        // ADR/PR-1: Shadow 체결은 shadow-trades.json (fills SSOT) 에 있으므로
+        // recommendations.json 을 읽는 getMonthlyStats() 대신 computeShadowMonthlyStats()
+        // 로 교체. 과거 0건 표시 버그는 잘못된 저장소 참조가 원인이었다.
+        const stats = computeShadowMonthlyStats();
         const pending = fillMonitor.getPendingOrders().filter(o => o.status === 'PENDING' || o.status === 'PARTIAL');
+        const pfStr = stats.profitFactor != null ? stats.profitFactor.toFixed(2) : 'N/A';
+        const sampleWarn = stats.sampleSufficient
+          ? ''
+          : `\n⚠️ 표본 ${stats.totalClosed}건 (< 5) — 통계 신뢰도 낮음`;
         await reply(
-          `🎭 <b>[Shadow 성과 현황]</b>\n` +
-          `${stats.month} — 전체 ${stats.total}건\n` +
-          `WIN률: ${stats.winRate.toFixed(1)}% | 평균수익: ${stats.avgReturn.toFixed(2)}%\n` +
-          `STRONG_BUY: ${stats.strongBuyWinRate.toFixed(1)}%\n` +
-          `미체결 모니터링: ${pending.length}건`
+          `🎭 <b>[SHADOW] 성과 현황</b>\n` +
+          `${stats.month} — 종결 ${stats.totalClosed}건 | 미결 ${stats.openPositions}건\n` +
+          `WIN률: ${stats.winRate.toFixed(1)}% | 평균수익: ${stats.avgReturnPct.toFixed(2)}%\n` +
+          `복리수익: ${stats.compoundReturnPct.toFixed(2)}% | PF: ${pfStr}\n` +
+          `STRONG_BUY WIN: ${stats.strongBuyWinRate.toFixed(1)}%\n` +
+          `미체결 모니터링: ${pending.length}건` +
+          sampleWarn +
+          `\n⚠️ SHADOW 모드 — 실계좌 잔고 아님`
         );
         break;
       }
@@ -764,11 +811,15 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       // ── 아이디어 4: 신규 명령어 ──────────────────────────────────────────────
 
       case '/pnl': {
+        // PR-8: realized(이미 부분매도로 확정된 손익) + unrealized(잔량의 평가손익) 분리 표시.
+        // 기존에는 unrealized 만 보여줘서 부분매도 누적 수익이 /pnl 에서 사라지는 혼란이 있었다.
         const shadows = getShadowTrades();
         const active = shadows.filter(s => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0);
         if (active.length === 0) { await reply('📈 활성 포지션 없음'); break; }
 
-        let totalPnl = 0;
+        let totalUnrealizedPct = 0;
+        let totalRealizedSum   = 0;
+        let totalUnrealizedSum = 0;
         const lines: string[] = [];
         for (const s of active) {
           const price = await fetchCurrentPrice(s.stockCode).catch(() => null);
@@ -776,31 +827,58 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             lines.push(`• ${escapeHtml(s.stockName)} — 가격 조회 실패`);
             continue;
           }
-          // fills SSOT 기반 실제 잔량 — s.quantity 캐시가 꼬여도 안전.
-          const realQty = getRemainingQty(s);
-          const pnlPct = ((price - s.shadowEntryPrice) / s.shadowEntryPrice) * 100;
-          const pnlAmt = (price - s.shadowEntryPrice) * realQty;
-          totalPnl += pnlPct;
-          const emoji = pnlPct >= 0 ? '🟢' : '🔴';
+          // fills SSOT 기반 실제 잔량 · 누적 실현손익.
+          const realQty       = getRemainingQty(s);
+          const originalQty   = s.originalQuantity ?? s.quantity ?? realQty;
+          const realizedPnl   = getTotalRealizedPnl(s);                       // 누적 실현(원)
+          const unrealizedPct = ((price - s.shadowEntryPrice) / s.shadowEntryPrice) * 100;
+          const unrealizedAmt = (price - s.shadowEntryPrice) * realQty;       // 잔량 기준 평가손익
+          // 총 투입원가 대비 종합 수익률 (realized + unrealized) / (originalQty × entryPrice)
+          const totalCost     = originalQty * s.shadowEntryPrice;
+          const totalPnlAmt   = realizedPnl + unrealizedAmt;
+          const totalPct      = totalCost > 0 ? (totalPnlAmt / totalCost) * 100 : 0;
+
+          totalUnrealizedPct += unrealizedPct;
+          totalRealizedSum   += realizedPnl;
+          totalUnrealizedSum += unrealizedAmt;
+
+          const emoji = totalPct >= 0 ? '🟢' : '🔴';
           const targetDist = ((s.targetPrice - price) / price * 100).toFixed(1);
           const stopDist = ((price - (s.hardStopLoss ?? s.stopLoss)) / (s.hardStopLoss ?? s.stopLoss) * 100).toFixed(1);
-          // 캐시 불일치 감지 — 운영자에게 즉시 경보하여 재발 조기 포착.
           const cacheDrift = s.quantity !== realQty
             ? ` ⚠️ 캐시 ${s.quantity}주 불일치`
             : '';
+          const modeTag = s.mode === 'LIVE' ? '' : '[SHADOW] ';
+          const partialSoldQty = originalQty - realQty;
+
+          // realized 블록은 부분매도가 실제로 있었을 때만 표기 (노이즈 억제).
+          const realizedLine = partialSoldQty > 0
+            ? `\n   실현: ${realizedPnl >= 0 ? '+' : ''}${Math.round(realizedPnl).toLocaleString()}원 (${partialSoldQty}주 부분매도 누적)`
+            : '';
           lines.push(
-            `${emoji} ${escapeHtml(s.stockName)} ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%` +
-            ` (${pnlAmt >= 0 ? '+' : ''}${pnlAmt.toLocaleString()}원)${cacheDrift}` +
+            `${emoji} ${modeTag}${escapeHtml(s.stockName)} 총 ${totalPct >= 0 ? '+' : ''}${totalPct.toFixed(1)}%` +
+            ` (${totalPnlAmt >= 0 ? '+' : ''}${Math.round(totalPnlAmt).toLocaleString()}원)${cacheDrift}` +
+            realizedLine +
+            `\n   미실현: ${unrealizedPct >= 0 ? '+' : ''}${unrealizedPct.toFixed(1)}% (잔여 ${realQty}주)` +
             `\n   목표까지 +${targetDist}% | 손절까지 -${stopDist}%`
           );
         }
-        const avgPnl = totalPnl / active.length;
+        const avgUnrealizedPct = totalUnrealizedPct / active.length;
+        const hasShadowPnl = active.some(s => s.mode !== 'LIVE');
+        const pnlShadowNote = hasShadowPnl
+          ? '\n⚠️ [SHADOW] 포함 — 실계좌 PnL 아님'
+          : '';
+        const totalSum = totalRealizedSum + totalUnrealizedSum;
         await reply(
           `📈 <b>[실시간 PnL] ${active.length}개 포지션</b>\n` +
           `━━━━━━━━━━━━━━━━━━━━\n` +
           `${lines.join('\n')}\n` +
           `━━━━━━━━━━━━━━━━━━━━\n` +
-          `평균 수익률: ${avgPnl >= 0 ? '+' : ''}${avgPnl.toFixed(2)}%`
+          `실현 누계: ${totalRealizedSum >= 0 ? '+' : ''}${Math.round(totalRealizedSum).toLocaleString()}원 | ` +
+          `미실현 합계: ${totalUnrealizedSum >= 0 ? '+' : ''}${Math.round(totalUnrealizedSum).toLocaleString()}원\n` +
+          `총 손익: ${totalSum >= 0 ? '+' : ''}${Math.round(totalSum).toLocaleString()}원 | ` +
+          `평균 미실현률: ${avgUnrealizedPct >= 0 ? '+' : ''}${avgUnrealizedPct.toFixed(2)}%` +
+          pnlShadowNote
         );
         break;
       }
@@ -811,7 +889,9 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         if (active.length === 0) { await reply('📋 보유 포지션 없음'); break; }
 
         const lines = active.map(s => {
-          const mode = s.mode === 'LIVE' ? '🔴' : '🟡';
+          const isShadow = s.mode !== 'LIVE';
+          const mode = isShadow ? '🟡' : '🔴';
+          const modeTag = isShadow ? '[SHADOW] ' : '';
           const status = s.status === 'PENDING' ? '⏳' : s.status === 'ACTIVE' ? '✅' : '◐';
           // fills SSOT 기반 실제 잔량. 캐시(s.quantity)와 다르면 경보.
           const realQty = getRemainingQty(s);
@@ -819,16 +899,21 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             ? ` <i>⚠️ 캐시 ${s.quantity}주 불일치 — reconcile 권장</i>`
             : '';
           return (
-            `${mode}${status} <b>${escapeHtml(s.stockName)}</b> (${escapeHtml(s.stockCode)})\n` +
+            `${mode}${status} ${modeTag}<b>${escapeHtml(s.stockName)}</b> (${escapeHtml(s.stockCode)})\n` +
             `   진입: ${s.shadowEntryPrice.toLocaleString()}원 × ${realQty}주${cacheDrift}\n` +
             `   손절: ${(s.hardStopLoss ?? s.stopLoss).toLocaleString()}원 | 목표: ${s.targetPrice.toLocaleString()}원\n` +
             `   진입시각: ${new Date(s.signalTime).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`
           );
         });
+        const hasShadow = active.some(s => s.mode !== 'LIVE');
+        const shadowNote = hasShadow
+          ? '\n━━━━━━━━━━━━━━━━━━━━\n⚠️ 🟡 [SHADOW] 표시 포지션은 가상 — 실계좌 잔고 아님'
+          : '';
         await reply(
           `📋 <b>[보유 포지션] ${active.length}개</b>\n` +
           `━━━━━━━━━━━━━━━━━━━━\n` +
-          lines.join('\n━━━━━━━━━━━━━━━━━━━━\n')
+          lines.join('\n━━━━━━━━━━━━━━━━━━━━\n') +
+          shadowNote
         );
         break;
       }

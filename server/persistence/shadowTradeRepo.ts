@@ -89,6 +89,54 @@ export function appendFill(
   trade.fills.push({ ...fill, id: newFillId() });
 }
 
+// ─── PR-7 #13: SHADOW BUY fill 백필 ───────────────────────────────────────────
+//
+// 배경: 기존 buyPipeline SHADOW 경로는 appendShadowLog 만 호출하고 BUY fill 을
+// `fills[]` 에 추가하지 않았다. 그 결과 getRemainingQty / syncPositionCache /
+// computeShadowAccount 가 전부 `trade.quantity` 캐시 fallback 으로 떨어졌고,
+// SHADOW SELL 후에도 캐시가 갱신되지 않아 잔량이 원본 값으로 고정되던 고질
+// 버그의 근본 원인.
+//
+// 이 함수는 **멱등**이며 두 지점에서 호출한다:
+//  1) 서버 부팅 시 1회 — 레거시 레코드 전체 마이그레이션
+//  2) exitEngine updateShadowResults 시작부 — 새 trade 도 커버
+//
+// 조건: mode=SHADOW && BUY fill 없음 && (originalQuantity>0 or quantity>0).
+// 이미 BUY fill 이 존재하면 건너뛴다.
+//
+// @returns backfill 된 trade 수 (0 이면 할 일 없음)
+export function backfillShadowBuyFills(trades: ServerShadowTrade[]): number {
+  let count = 0;
+  for (const t of trades) {
+    if (t.mode !== 'SHADOW') continue;
+    // REJECTED 는 체결 자체가 없었던 상태 — 백필 금지.
+    if (t.status === 'REJECTED') continue;
+    const fills = t.fills ?? [];
+    if (fills.some(f => f.type === 'BUY')) continue; // 이미 있음
+    const buyQty = t.originalQuantity && t.originalQuantity > 0 ? t.originalQuantity : t.quantity;
+    if (!buyQty || buyQty <= 0) continue;
+    const buyPrice = t.shadowEntryPrice ?? t.signalPrice;
+    if (!buyPrice || buyPrice <= 0) continue;
+
+    appendFill(t, {
+      type:        'BUY',
+      subType:     'INITIAL_BUY',
+      qty:         buyQty,
+      price:       buyPrice,
+      reason:      'SHADOW 가상 진입 (backfill)',
+      timestamp:   t.signalTime,
+      status:      'CONFIRMED',
+      confirmedAt: t.signalTime,
+    });
+    // originalQuantity 가 비어있던 레거시는 이 시점에 안정화.
+    if (!t.originalQuantity || t.originalQuantity <= 0) {
+      t.originalQuantity = buyQty;
+    }
+    count++;
+  }
+  return count;
+}
+
 /**
  * 포지션의 총 실현 원화 손익 (모든 SELL Fill의 pnl 합산).
  * REVERTED fill 은 주문 실패로 되돌려진 것이므로 집계에서 제외한다.
@@ -482,4 +530,104 @@ export function appendShadowLog(entry: Record<string, unknown>): void {
   logs.push({ ...entry, ts: new Date().toISOString() });
   // 최근 500건만 보관
   fs.writeFileSync(SHADOW_LOG_FILE, JSON.stringify(logs.slice(-500), null, 2));
+}
+
+// ─── Shadow 월간 집계 (SSOT: fills) ───────────────────────────────────────────
+
+/** Shadow 포지션이 종결(HIT_TARGET / HIT_STOP) 된 상태인지. */
+export function isClosedShadowStatus(status: ServerShadowTrade['status']): boolean {
+  return status === 'HIT_TARGET' || status === 'HIT_STOP';
+}
+
+export interface ShadowMonthlyStats {
+  /** 'YYYY-MM' */
+  month: string;
+  /** 당월 종결 건수 (HIT_TARGET/HIT_STOP) */
+  totalClosed: number;
+  wins: number;
+  losses: number;
+  /** 0~100 */
+  winRate: number;
+  /** 단순평균 netPct */
+  avgReturnPct: number;
+  /** ∏(1+r) - 1 (%) */
+  compoundReturnPct: number;
+  /** |손실합| > 0 이면 승익합/|손실합|, 아니면 null */
+  profitFactor: number | null;
+  /** (signalType === STRONG_BUY) 만 모아서 낸 승률 — 레거시 필드 없을 수도 있어 0 fallback */
+  strongBuyWinRate: number;
+  /** 표본 ≥ 5 인지 */
+  sampleSufficient: boolean;
+  /** 미결(진행 중) 포지션 수 — fills 기반 */
+  openPositions: number;
+}
+
+const _SHADOW_MIN_SAMPLE = 5;
+
+/**
+ * 당월(또는 지정월) Shadow 포지션의 종결·미결 집계를 한 번에 계산한다.
+ * getMonthlyStats(recommendationTracker) 는 recommendations.json 을 읽어 계산하므로
+ * 본 함수와 범위가 다르다 — 이 함수는 shadow-trades.json(실제 포지션 장부) 기반.
+ *
+ * - closed: exitTime 이 해당 월에 포함된 것 (HIT_TARGET/HIT_STOP).
+ * - netPct: getWeightedPnlPct(fills SSOT). fills 없는 레거시는 trade.returnPct.
+ * - strongBuy: 런타임 필드는 없으므로, entryKellySnapshot.signalGrade === 'STRONG_BUY' 로 판정.
+ */
+export function computeShadowMonthlyStats(monthISO?: string): ShadowMonthlyStats {
+  const month = monthISO ?? new Date().toISOString().slice(0, 7);
+  const all = loadShadowTrades();
+
+  // 종결 건: exitTime 이 해당 월에 속하는 HIT_TARGET / HIT_STOP.
+  const closed = all.filter(t => {
+    if (!isClosedShadowStatus(t.status)) return false;
+    const exitIso = t.exitTime ?? '';
+    return exitIso.startsWith(month);
+  });
+
+  const openPositions = all.filter(t => isOpenShadowStatusStatus(t.status)).length;
+
+  const returns = closed.map(t => getWeightedPnlPct(t));
+  const wins = returns.filter(r => r > 0).length;
+  const losses = returns.filter(r => r < 0).length;
+  const totalClosed = closed.length;
+
+  const avgReturnPct = totalClosed > 0
+    ? returns.reduce((s, r) => s + r, 0) / totalClosed
+    : 0;
+
+  const compoundReturnPct = totalClosed > 0
+    ? (returns.reduce((acc, r) => acc * (1 + r / 100), 1) - 1) * 100
+    : 0;
+
+  const winSum = returns.filter(r => r > 0).reduce((s, r) => s + r, 0);
+  const lossAbs = Math.abs(returns.filter(r => r < 0).reduce((s, r) => s + r, 0));
+  const profitFactor = lossAbs > 0 ? winSum / lossAbs : null;
+
+  // STRONG_BUY 승률 — entryKellySnapshot.signalGrade 로 식별. 레거시는 signalGrade 없음.
+  const sb = closed.filter(t => t.entryKellySnapshot?.signalGrade === 'STRONG_BUY');
+  const sbWins = sb.filter(t => getWeightedPnlPct(t) > 0).length;
+  const strongBuyWinRate = sb.length > 0 ? (sbWins / sb.length) * 100 : 0;
+
+  return {
+    month,
+    totalClosed,
+    wins,
+    losses,
+    winRate: totalClosed > 0 ? (wins / totalClosed) * 100 : 0,
+    avgReturnPct,
+    compoundReturnPct,
+    profitFactor,
+    strongBuyWinRate,
+    sampleSufficient: totalClosed >= _SHADOW_MIN_SAMPLE,
+    openPositions,
+  };
+}
+
+// 내부 helper — entryEngine.isOpenShadowStatus 와 동일 로직. 순환 import 회피를 위해 중복 정의.
+function isOpenShadowStatusStatus(status: ServerShadowTrade['status']): boolean {
+  return status === 'PENDING'
+      || status === 'ORDER_SUBMITTED'
+      || status === 'PARTIALLY_FILLED'
+      || status === 'ACTIVE'
+      || status === 'EUPHORIA_PARTIAL';
 }

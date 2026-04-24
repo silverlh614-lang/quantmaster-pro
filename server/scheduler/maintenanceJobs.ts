@@ -9,6 +9,7 @@ import { cleanupOldTraceFiles } from '../trading/scanTracer.js';
 import { runDailyBackup } from '../persistence/dailyBackup.js';
 import { runBackupCeremony } from '../persistence/dailyBackupCeremony.js';
 import { runDailyReconciliation, reconcileKisVsShadow } from '../trading/reconciliationEngine.js';
+import { reconcileShadowQuantities } from '../persistence/shadowAccountRepo.js';
 import { resetDataCompleteness } from '../screener/dataCompletenessTracker.js';
 import { updateKrxSectorMap, type UpdateResult } from '../screener/sectorMapUpdater.js';
 import { migrateAttributionRecords } from '../persistence/attributionRepo.js';
@@ -90,6 +91,33 @@ export function registerMaintenanceJobs(): void {
   // 불일치 > 임계치 시 Critical 텔레그램 알림 + DATA_INTEGRITY_BLOCKED 게이팅.
   cron.schedule('30 14 * * *', wrapJob('daily_reconcile', async () => {
     await runDailyReconciliation();
+  }), { timezone: 'UTC' });
+
+  // PR-3 #9: 장 마감 후 KST 16:05 (UTC 07:05) — fills↔quantity 자동 드라이런.
+  // /reconcile 명령을 기다리지 않고 매일 스캔하여 drift 가 있으면 텔레그램에 요약 발송.
+  // "/reconcile apply" 안내를 포함해 운영자가 바로 적용 결정을 할 수 있게 한다.
+  // 평일만 실행, 장 종료 +5분 마진.
+  cron.schedule('5 7 * * 1-5', wrapJob('shadow_qty_dryrun_broadcast', async () => {
+    try {
+      const result = reconcileShadowQuantities(undefined, { dryRun: true });
+      if (result.fixed === 0) {
+        console.log('[ShadowQtyDryRun] drift 없음 — 장부 정합성 정상');
+        return;
+      }
+      const sample = result.details.slice(0, 5).map(d =>
+        `• ${d.stockName ?? ''}(${d.stockCode}): ${d.before.qty}주/${d.before.status} → ${d.after.qty}주/${d.after.status}`,
+      );
+      const more = result.details.length > 5 ? `\n...외 ${result.details.length - 5}건` : '';
+      await sendTelegramAlert(
+        `🔍 <b>[16:05 Reconcile 점검 — DRY-RUN]</b>\n` +
+        `검사 ${result.checked}건 | 교정 후보 <b>${result.fixed}건</b>\n` +
+        `${sample.join('\n')}${more}\n\n` +
+        `💡 적용하려면: <code>/reconcile apply</code>`,
+        { priority: 'HIGH', dedupeKey: 'shadow-dryrun-broadcast', cooldownMs: 60 * 60 * 1000 },
+      ).catch(console.error);
+    } catch (e) {
+      console.error('[ShadowQtyDryRun] 실행 오류:', e);
+    }
   }), { timezone: 'UTC' });
 
   // KIS 실잔고 vs Shadow DB 정합성 — 15분 간격, 장중 구간 자동 스킵.

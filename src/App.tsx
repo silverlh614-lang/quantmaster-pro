@@ -24,6 +24,7 @@ import { useAllGlobalIntel } from './hooks';
 import { useDebugWatchers } from './hooks/useDebugWatchers';
 import { useAppEffects } from './hooks/useAppEffects';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
+import { useWatchlistSync } from './hooks/useWatchlistSync';
 
 export default function App() {
   const { handleFetchMarketOverview } = useMarketData();
@@ -31,6 +32,7 @@ export default function App() {
   useDebugWatchers();
   useAllGlobalIntel();
   useAppEffects();
+  useWatchlistSync();
   const { shortcutsOpen, closeShortcuts } = useGlobalShortcuts();
 
   return (

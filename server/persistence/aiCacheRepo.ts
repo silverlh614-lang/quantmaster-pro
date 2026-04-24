@@ -19,6 +19,7 @@
  */
 
 import fs from 'fs';
+import { createHash } from 'crypto';
 import { AI_CACHE_FILE, ensureDataDir } from './paths.js';
 
 export interface AiCacheEntry<T = unknown> {
@@ -138,4 +139,43 @@ export function resetAiCacheMemory(): void {
   _cache = null;
   _flushTimer = null;
   _dirty = false;
+}
+
+// ─── PR-3 #3: Canonical cache key helper ──────────────────────────────────
+//
+// 호출자가 동일 의미의 프롬프트를 약간 다른 문자열(추가 공백, JSON 키 순서 변경)로
+// 보내는 경우 캐시 히트를 놓친다. makeCanonicalCacheKey 는 이를 정규화해 SHA256
+// 해시로 묶는다. 호출자는 단일 문자열 키 대신 이 함수를 사용해 고품질 키를 얻는다.
+//
+// 정규화 규칙:
+//   - 프롬프트: 연속 공백 → 단일 공백, 앞뒤 trim
+//   - 파라미터: JSON.stringify 시 키 알파벳 오름차순
+//   - 모델명: 소문자 통일
+//
+// 반환: "v1:<12자 해시>" — 버전 접두사로 향후 정규화 규칙 변경 시 캐시 자동 무효화.
+
+function sortedJsonStringify(obj: unknown): string {
+  if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
+  if (Array.isArray(obj)) return `[${obj.map(sortedJsonStringify).join(',')}]`;
+  const keys = Object.keys(obj as Record<string, unknown>).sort();
+  const parts = keys.map(k => `${JSON.stringify(k)}:${sortedJsonStringify((obj as Record<string, unknown>)[k])}`);
+  return `{${parts.join(',')}}`;
+}
+
+export interface CanonicalKeyInputs {
+  prompt:   string;
+  model?:   string;
+  params?:  Record<string, unknown>;
+  /** 호출 경로 식별자 — 동일 프롬프트라도 다른 경로(예: reportGenerator vs persona) 는 별도 키. */
+  scope?:   string;
+}
+
+export function makeCanonicalCacheKey(inputs: CanonicalKeyInputs): string {
+  const promptNorm = inputs.prompt.replace(/\s+/g, ' ').trim();
+  const modelNorm  = (inputs.model ?? 'default').toLowerCase();
+  const paramsStr  = inputs.params ? sortedJsonStringify(inputs.params) : '';
+  const scopeNorm  = inputs.scope ?? '';
+  const payload    = `${scopeNorm}|${modelNorm}|${promptNorm}|${paramsStr}`;
+  const hash       = createHash('sha256').update(payload).digest('hex').slice(0, 12);
+  return `v1:${hash}`;
 }

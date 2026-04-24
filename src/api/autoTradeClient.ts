@@ -548,3 +548,47 @@ export const alertsApi = {
       },
     }),
 };
+
+// ─── 사용자 관심종목 (프론트 Zustand ↔ 서버 동기화) ──────────────────────
+// 자동매매 워치리스트(`autoTradeApi.getWatchlist`) 와 분리된 경량 북마크 저장소.
+// 기기 간 동일 관심종목이 보이도록 서버에 영속화한다.
+
+export interface UserWatchlistItem {
+  code: string;
+  name: string;
+  watchedAt: string;
+  watchedPrice?: number;
+  currentPrice?: number;
+  signalType?: string;
+  sector?: string;
+  gateScore?: number;
+  [extra: string]: unknown;
+}
+
+export interface UserWatchlistResponse {
+  items: UserWatchlistItem[];
+}
+
+export const userWatchlistApi = {
+  getAll: () =>
+    apiFetchSafe<UserWatchlistResponse>(
+      '/api/user-watchlist',
+      {},
+      { items: [] },
+    ),
+  replaceAll: (items: UserWatchlistItem[]) =>
+    apiFetch<{ ok: boolean; count: number; items: UserWatchlistItem[] }>(
+      '/api/user-watchlist',
+      { method: 'PUT', json: { items } },
+    ),
+  toggle: (item: UserWatchlistItem) =>
+    apiFetch<{ ok: boolean; action: 'ADDED' | 'REMOVED'; items: UserWatchlistItem[] }>(
+      '/api/user-watchlist/toggle',
+      { method: 'POST', json: item },
+    ),
+  remove: (code: string) =>
+    apiFetch<{ ok: boolean; items: UserWatchlistItem[] }>(
+      `/api/user-watchlist/${encodeURIComponent(code)}`,
+      { method: 'DELETE' },
+    ),
+};

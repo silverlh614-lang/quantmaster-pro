@@ -59,6 +59,7 @@ import failurePatternRouter from './routes/failurePatternRouter.js';
 import diagnosticRouter from './routes/diagnosticRouter.js';
 import operatorRouter from './routes/operatorRouter.js';
 import monitoringCertRouter from './routes/monitoringCertRouter.js';
+import userWatchlistRouter from './routes/userWatchlistRouter.js';
 import { startScheduler } from './scheduler/index.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 import { globalErrorHandler } from './utils/apiResponse.js';
@@ -101,6 +102,26 @@ async function startServer() {
     console.warn(`[BootManifest] 이전 세션 (${bootInfo.previous.bootId}) 비정상 종료로 마감됨`);
   }
   console.log(`[BootManifest] bootId=${bootInfo.current.bootId} pid=${process.pid} mode=${bootInfo.current.tradeMode}`);
+
+  // PR-7 #13: 부팅 시점 SHADOW BUY fill 레거시 백필 (1회성 멱등 마이그레이션).
+  // 기존 shadow-trades.json 의 SHADOW 레코드 중 BUY fill 이 없는 trade 에 대해
+  // `originalQuantity × shadowEntryPrice` 로 BUY fill 을 복원한다. 이후 모든
+  // fill 기반 파생(getRemainingQty/syncPositionCache/computeShadowAccount) 이
+  // 정상 작동한다. 재실행해도 이미 BUY fill 있는 trade 는 건너뛰어 안전.
+  try {
+    const { loadShadowTrades, saveShadowTrades, backfillShadowBuyFills } =
+      await import('./persistence/shadowTradeRepo.js');
+    const trades = loadShadowTrades();
+    const n = backfillShadowBuyFills(trades);
+    if (n > 0) {
+      saveShadowTrades(trades);
+      console.log(`[Boot] SHADOW BUY fill 백필 완료: ${n}건 — shadow-trades.json 저장`);
+    } else {
+      console.log('[Boot] SHADOW BUY fill 백필 대상 없음 (모든 SHADOW trade 정합)');
+    }
+  } catch (e) {
+    console.error('[Boot] SHADOW BUY fill 백필 실패:', e instanceof Error ? e.message : e);
+  }
 
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
@@ -166,6 +187,12 @@ async function startServer() {
   // 진입 판정을 편향·레짐·수동 빈도·냉각 상태로 객관화하는 통합 스냅샷.
   // ─────────────────────────────────────────────────────────────
   app.use('/api/monitoring-cert', monitoringCertRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // 사용자 관심종목 동기화 — 프론트 Zustand store ↔ 서버 영속화
+  // (ADR 분리: 자동매매 워치리스트와 완전 독립)
+  // ─────────────────────────────────────────────────────────────
+  app.use(userWatchlistRouter);
 
   // ─── 아이디어 1: 오케스트레이터 상태 조회 ────────────────────────────────────
   app.get('/api/orchestrator/state', (_req: Request, res: Response) => {
@@ -342,7 +369,7 @@ async function startServer() {
     sendTelegramAlert(
       `🟢 <b>[QuantMaster Pro] 서버 기동</b>\n` +
       `시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST\n` +
-      `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? '🟡 Shadow' : '🔴 LIVE'}\n` +
+      `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? '🟡 [SHADOW]' : '🔴 LIVE'}\n` +
       `KIS: ${process.env.KIS_IS_REAL === 'true' ? '실거래' : '모의투자'}`
     ).catch(console.error);
 

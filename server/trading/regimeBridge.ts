@@ -210,9 +210,13 @@ export async function checkAndNotifyRegimeChange(
 
   // Phase 4: 레짐 변화 차등화 — 나빠짐(downgrade) = T1 즉각 행동, 좋아짐(upgrade) = T2 리포트.
   // "긍정 변화는 조용히 기록, 부정 변화는 즉각 경보" (참뮌 스펙 #8).
+  //
+  // PR-4 B: dedupeKey 방향 분리. 공통 `regime-change-${regime}` 키는 같은 regime 에서
+  // 짧은 간격 내 up↔down 교차 시 한 방향 알림을 dedupe 가 덮어써 운영자에게 도달하지
+  // 못하는 사례가 있었다. 이제 up/down 이 서로 다른 키를 갖도록 분리한다.
   await sendTelegramAlert(msg, isDowngrade
-    ? { priority: 'CRITICAL', tier: 'T1_ALARM', dedupeKey: `regime-change-${currentRegime}`, category: 'regime_downgrade' }
-    : { priority: 'HIGH',     tier: 'T2_REPORT', dedupeKey: `regime-change-${currentRegime}`, category: 'regime_upgrade' },
+    ? { priority: 'CRITICAL', tier: 'T1_ALARM',  dedupeKey: `regime-change-down-${currentRegime}`, category: 'regime_downgrade' }
+    : { priority: 'HIGH',     tier: 'T2_REPORT', dedupeKey: `regime-change-up-${currentRegime}`,   category: 'regime_upgrade' },
   ).catch(console.error);
 
   // 채널: 레짐 변화 경보 (개인 메시지보다 간결하게)
