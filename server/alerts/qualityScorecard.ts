@@ -1,5 +1,5 @@
 /**
- * qualityScorecard.ts — 장마감 워치리스트 품질 스코어카드 (Close-of-Day Quality Scorecard)
+ * @responsibility 장마감 4단계 yield(Discovery/Gate/Signal/Trade) 스코어카드 — fill SSOT
  *
  * 매일 장마감 후(15:40 KST) 자동으로 계산되는 4단계 Pipeline Yield 스코어카드.
  * "오늘 워치리스트에 올라온 종목들이 실제로 Gate를 얼마나 통과했고
@@ -36,6 +36,12 @@ import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { SCORECARD_FILE, STAGE1_CACHE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadTodayScanTraces, summarizeScanTraces } from '../trading/scanTracer.js';
+import {
+  collectTodayBuyEvents,
+  collectTodayRealizations,
+  summarizeTodayBuyEvents,
+  summarizeTodayRealizations,
+} from './reportGenerator.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -173,16 +179,20 @@ export async function generateQualityScorecard(): Promise<void> {
   const gateReached = scanCandidates - yahooFail;
   const gatePassed = gateReached - gateFail;
 
-  // Shadow Trades → Trade Yield 계산
+  // PR-17: Shadow Trades → Trade Yield (fill SSOT 전환).
+  //   · todayTradesTotal: 오늘 실제 BUY 체결된 trade 수 (신규+기존 tranche)
+  //   · todayTradesClosed: 오늘 CONFIRMED SELL fill 수 (부분매도 포함)
+  //   · todayTradesWon/Lost: fill 단위 이익/손실 수
+  // "매수했지만 결산 안 됨" 과 "부분매도 익절" 이 Trade Yield 에서 누락되던 문제 해소.
   const shadows = loadShadowTrades();
-  const todayTrades = shadows.filter((s) => s.signalTime.startsWith(today));
-  const todayTradesTotal = todayTrades.length;
-  const closed = todayTrades.filter(
-    (s) => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP',
-  );
-  const todayTradesClosed = closed.length;
-  const todayTradesWon = closed.filter((s) => s.status === 'HIT_TARGET').length;
-  const todayTradesLost = todayTradesClosed - todayTradesWon;
+  const buyEvents = collectTodayBuyEvents(shadows, today);
+  const realizations = collectTodayRealizations(shadows, today);
+  const buyStats = summarizeTodayBuyEvents(buyEvents);
+  const realizationStats = summarizeTodayRealizations(realizations);
+  const todayTradesTotal = buyStats.totalBuys;
+  const todayTradesClosed = realizationStats.realizationCount;
+  const todayTradesWon = realizationStats.wins;
+  const todayTradesLost = realizationStats.losses;
 
   // 매크로 컨텍스트
   const macro = loadMacroState();

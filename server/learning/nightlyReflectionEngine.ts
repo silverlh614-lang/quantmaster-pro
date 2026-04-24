@@ -464,6 +464,9 @@ export async function runNightlyReflection(
     const biasScores = computeBiasHeatmap({
       activePositions,
       closedToday: inputs.closedTrades,
+      // PR-17: 부분매도 실현을 biasHeatmap 에도 주입해 Loss Aversion·Overconfidence
+      // 점수가 fill 단위 승/손을 기반으로 계산되도록 한다.
+      partialRealizationsToday: inputs.partialRealizationsToday,
       attributionToday: inputs.attributionToday,
       missedSignalCount: inputs.missedSignals.length,
       currentRegime: macro?.regime,

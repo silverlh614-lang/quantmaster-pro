@@ -1,5 +1,5 @@
 /**
- * scanReviewReport.ts — 오늘 스캔 결과 회고 리포트 (IDEA 1)
+ * @responsibility 16:40 KST 오늘 스캔 회고 — fill SSOT 기반 매수/실현 집계와 내일 후보 리포트
  *
  * 장마감 후 스캔 트레이스·샤도우 체결·워치리스트를 교차해
  * 구독자용 채널에 "왜 매수 안 됐는지"·"내일 후보는 뭔지"를 명시한 리포트를 발송한다.
@@ -15,6 +15,12 @@ import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { sendTelegramBroadcast } from './telegramClient.js';
 import { CHANNEL_SEPARATOR, channelHeader, kstMMDD } from './channelFormatter.js';
 import { getRemainingQty, isOpenShadowStatus } from '../trading/signalScanner.js';
+import {
+  collectTodayRealizations,
+  summarizeTodayRealizations,
+  collectTodayBuyEvents,
+  summarizeTodayBuyEvents,
+} from './reportGenerator.js';
 
 // ── 탈락 이유 라벨 매핑 ─────────────────────────────────────────────────────────
 // scanTracer.stages.<stageKey> 에 저장된 FAIL(reason) 토큰을 사람이 읽을 수 있는 한국어로 번역.
@@ -63,13 +69,28 @@ function pickTomorrowCandidates(watchlist: WatchlistEntry[], excludedCodes: Set<
 export interface ScanReviewMessageInput {
   summary: ScanTraceSummary;
   tomorrowCandidates: WatchlistEntry[];
-  todayClosedCount: number;
-  todayWinCount: number;
+  /** PR-17: fill SSOT 기반 오늘 실현 통계 */
+  realizationCount: number;
+  winFills: number;
+  lossFills: number;
+  partialOnlyCount: number;
+  fullClosedCount: number;
+  weightedReturnPct: number;
+  /** PR-17: fill SSOT 기반 오늘 매수 통계 */
+  todayBuys: number;
+  newEntries: number;
+  tranches: number;
 }
 
 export function formatScanReviewMessage(input: ScanReviewMessageInput): string {
-  const { summary, tomorrowCandidates, todayClosedCount, todayWinCount } = input;
-  const totalFailures = summary.totalCandidates - summary.buyExecuted;
+  const {
+    summary, tomorrowCandidates,
+    realizationCount, winFills, lossFills, partialOnlyCount, fullClosedCount, weightedReturnPct,
+    todayBuys, newEntries, tranches,
+  } = input;
+  // PR-17: "매수 N개" 를 scanTrace 카운터가 아닌 실제 fill 기반 체결 수로 대체해
+  // 어제 signaled → 오늘 tranche 체결 케이스도 정확히 반영.
+  const totalFailures = Math.max(0, summary.totalCandidates - todayBuys);
 
   const header = channelHeader({
     icon: '📋',
@@ -77,10 +98,16 @@ export function formatScanReviewMessage(input: ScanReviewMessageInput): string {
     suffix: kstMMDD(),
   });
 
-  const statLine = `스캔 ${summary.totalCandidates}개 → 매수 ${summary.buyExecuted}개 / 탈락 ${totalFailures}개`;
-  const closedLine = todayClosedCount > 0
-    ? `결산 ${todayClosedCount}건 (승 ${todayWinCount} / 패 ${todayClosedCount - todayWinCount})`
-    : '결산: 없음';
+  const buyDetail = tranches > 0
+    ? ` (신규 ${newEntries} · tranche ${tranches})`
+    : '';
+  const statLine = `스캔 ${summary.totalCandidates}개 → 매수 ${todayBuys}개${buyDetail} / 탈락 ${totalFailures}개`;
+  const realizationLine = realizationCount > 0
+    ? `실현 ${realizationCount}건 (익 ${winFills} / 손 ${lossFills})` +
+      (partialOnlyCount > 0 ? ` · 부분매도 ${partialOnlyCount}건` : '') +
+      (fullClosedCount > 0 ? ` · 전량 ${fullClosedCount}건` : '') +
+      ` | P&L(가중) ${weightedReturnPct >= 0 ? '+' : ''}${weightedReturnPct.toFixed(2)}%`
+    : '실현: 없음';
 
   // 탈락 상위 이유 (top 3)
   const topReasons = topFailureReasons(summary, 3);
@@ -107,7 +134,7 @@ export function formatScanReviewMessage(input: ScanReviewMessageInput): string {
   return [
     header,
     statLine,
-    closedLine,
+    realizationLine,
     reasonBlock + candidateBlock + footer,
   ].join('\n');
 }
@@ -126,24 +153,41 @@ export async function sendScanReviewReport(): Promise<void> {
     }
 
     const summary = summarizeScanTraces(traces);
-    const today = new Date().toISOString().split('T')[0];
+    // KST 오늘 날짜 — fill timestamp 기준 비교에 사용.
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
     const trades = loadShadowTrades();
-    const excludedCodes = new Set(
-      trades
-        .filter((s) => (isOpenShadowStatus(s.status) && getRemainingQty(s) > 0) || s.signalTime.startsWith(today))
-        .map((s) => s.stockCode),
+
+    // PR-17: "내일 진입 제외" 는 ACTIVE 포지션 + 오늘 신규 진입 trade 기준.
+    //   fill SSOT 기반 신규 진입 trade 는 collectTodayBuyEvents 에서 isInitial=true 로 확정.
+    const todayBuyEvents = collectTodayBuyEvents(trades, today);
+    const todaysNewTradeCodes = new Set(
+      todayBuyEvents.filter((e) => e.isInitial).map((e) => e.trade.stockCode),
     );
+    const excludedCodes = new Set<string>();
+    for (const s of trades) {
+      if (isOpenShadowStatus(s.status) && getRemainingQty(s) > 0) excludedCodes.add(s.stockCode);
+    }
+    for (const c of todaysNewTradeCodes) excludedCodes.add(c);
+
     const watchlist = loadWatchlist();
     const tomorrowCandidates = pickTomorrowCandidates(watchlist, excludedCodes, 5);
-    const todayTrades = trades.filter(s => s.signalTime.startsWith(today));
-    const closed = todayTrades.filter(s => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP');
-    const wins = closed.filter(s => s.status === 'HIT_TARGET');
+
+    // PR-17: fill SSOT 기반 오늘 실현 + 오늘 매수 통계.
+    const realization = summarizeTodayRealizations(collectTodayRealizations(trades, today));
+    const buyStats = summarizeTodayBuyEvents(todayBuyEvents);
 
     const message = formatScanReviewMessage({
       summary,
       tomorrowCandidates,
-      todayClosedCount: closed.length,
-      todayWinCount: wins.length,
+      realizationCount: realization.realizationCount,
+      winFills: realization.wins,
+      lossFills: realization.losses,
+      partialOnlyCount: realization.partialOnlyCount,
+      fullClosedCount: realization.fullClosedCount,
+      weightedReturnPct: realization.weightedReturnPct,
+      todayBuys: buyStats.totalBuys,
+      newEntries: buyStats.newEntries,
+      tranches: buyStats.tranches,
     });
 
     await sendTelegramBroadcast(message, {

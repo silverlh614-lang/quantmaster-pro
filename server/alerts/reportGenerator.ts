@@ -124,6 +124,72 @@ export function summarizeTodayRealizations(r: TodayRealization[]): TodayRealizat
   };
 }
 
+// ── 당일 매수 이벤트 집계 SSOT (PR-17) ────────────────────────────────────────
+//
+// "오늘 매수 N개" 는 기존 `shadows.filter(s => s.signalTime.startsWith(today))`
+// 로 계산되어 어제 signaled → 오늘 tranche 체결·오늘 signaled → 오늘 체결 등
+// fill 타임라인이 signalTime 과 괴리되는 케이스를 놓쳤다. 여기서는 실제 CONFIRMED
+// BUY fill 의 timestamp 를 기준으로 집계해 체결 현실을 반영한다.
+export interface TodayBuyEvent {
+  trade: ServerShadowTrade;
+  fill: PositionFill;
+  /** 이 trade 의 첫 BUY fill 인지 — true 면 "신규 진입", false 면 tranche */
+  isInitial: boolean;
+}
+
+export function collectTodayBuyEvents(
+  shadows: ServerShadowTrade[],
+  today: string,
+): TodayBuyEvent[] {
+  const out: TodayBuyEvent[] = [];
+  for (const trade of shadows) {
+    const fills = trade.fills ?? [];
+    const buys = fills.filter((f) => f.type === 'BUY' && isActiveFill(f));
+    if (buys.length === 0) continue;
+    // 시간순 정렬 — 첫 BUY 가 INITIAL, 나머지는 TRANCHE.
+    const sorted = [...buys].sort((a, b) => (a.confirmedAt ?? a.timestamp).localeCompare(b.confirmedAt ?? b.timestamp));
+    for (let i = 0; i < sorted.length; i++) {
+      const f = sorted[i];
+      // PROVISIONAL 도 집계 포함 (실제 주문 접수 완료 상태 — 체결 확인 대기).
+      if (f.status === 'REVERTED') continue;
+      const ts = f.confirmedAt ?? f.timestamp;
+      if (!ts) continue;
+      const d = new Date(ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+      if (d !== today) continue;
+      out.push({ trade, fill: f, isInitial: i === 0 });
+    }
+  }
+  return out;
+}
+
+export interface TodayBuyEventStats {
+  events: TodayBuyEvent[];
+  totalBuys: number;
+  /** 오늘 신규 진입한 trade 수 (isInitial 이면서 오늘) */
+  newEntries: number;
+  /** 기존 trade 에 대한 오늘 tranche 체결 수 */
+  tranches: number;
+  /** 오늘 BUY 체결로 유입된 총 주식 수량 */
+  totalQty: number;
+  /** 오늘 BUY 체결로 소요된 원화 총액 (qty × price) */
+  totalCostKrw: number;
+}
+
+export function summarizeTodayBuyEvents(events: TodayBuyEvent[]): TodayBuyEventStats {
+  const newEntries = events.filter((e) => e.isInitial).length;
+  const tranches = events.filter((e) => !e.isInitial).length;
+  const totalQty = events.reduce((s, e) => s + e.fill.qty, 0);
+  const totalCostKrw = events.reduce((s, e) => s + e.fill.qty * e.fill.price, 0);
+  return {
+    events,
+    totalBuys: events.length,
+    newEntries,
+    tranches,
+    totalQty,
+    totalCostKrw,
+  };
+}
+
 /**
  * 아이디어 9: 일일 리포트 2.0 — Gemini AI 내러티브 리포트
  * 1. 거래 데이터 + MHS + 월간 통계를 Gemini에 주입 (googleSearch 없음)

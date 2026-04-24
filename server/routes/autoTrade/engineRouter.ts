@@ -10,6 +10,7 @@
  */
 import { Router } from 'express';
 import { loadShadowTrades } from '../../persistence/shadowTradeRepo.js';
+import { collectTodayBuyEvents, collectTodayRealizations } from '../../alerts/reportGenerator.js';
 import { getLastScanAt } from '../../orchestrator/adaptiveScanScheduler.js';
 import {
   getEmergencyStop,
@@ -60,16 +61,12 @@ export function buildEngineStatusSnapshot() {
   const lastBuyTs = getLastBuySignalAt();
   const lastBuySignalAt = lastBuyTs > 0 ? new Date(lastBuyTs).toISOString() : null;
 
-  const todayStr = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
+  // PR-17: signalTime 이 아닌 fill timestamp 기준으로 오늘 매수/실현 건수 산출.
+  // 기존 로직은 ① 어제 signaled → 오늘 tranche 체결 누락, ② 오늘 부분매도 익절 누락.
+  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
   const shadows = loadShadowTrades();
-  const todayShadows = shadows.filter((s) => (s.signalTime ?? '').slice(0, 10) === todayStr);
-  const todayBuys = todayShadows.filter((s) => isOpenShadowStatus(s.status)).length;
-  const todayExits = shadows.filter((s) =>
-    (s.fills ?? []).some((f) =>
-      f.type === 'SELL' &&
-      new Date(new Date(f.timestamp).getTime() + 9 * 3_600_000).toISOString().slice(0, 10) === todayStr
-    )
-  ).length;
+  const todayBuys = collectTodayBuyEvents(shadows, todayStr).length;
+  const todayExits = collectTodayRealizations(shadows, todayStr).length;
   const todayScans = Object.keys(handlerRanAt).length;
 
   const heartbeatAt = getLastHeartbeat();
