@@ -13,6 +13,7 @@ import {
 } from '../engines/macroIndexEngine.js';
 import { fetchPerPbr } from '../clients/krxClient.js';
 import { isMarketOpen } from '../utils/marketClock.js';
+import { isMarketOpenFor } from '../utils/symbolMarketRegistry.js';
 
 const router = Router();
 
@@ -73,53 +74,48 @@ const _yahooInflight = new Map<string, Promise<CoalescedResult>>();
 export function inflightSize(): number { return _yahooInflight.size; }
 export function inflightReset(): void { _yahooInflight.clear(); }
 
-// ── ADR-0010: 주말 KR 심볼 게이트 ────────────────────────────────────────────
-// KR 심볼 패턴(.KS / .KQ / 6자리 숫자) + KST 주말 → cache hit 면 STALE-WEEKEND
-// 헤더로 stale 서빙, miss 면 204. 평일·US 심볼은 미들웨어 통과만.
-export const KR_SYMBOL_PATTERN = /\.KS$|\.KQ$|^\d{6}$/;
-const WEEKEND_GATED_PATHS = new Set(['/historical-data']);
+// ── ADR-0010: 시장 운영시간 게이트 ──────────────────────────────────────────
+// SymbolMarketRegistry 가 심볼 → 시장(KRX/NYSE/TSE) 매핑과 개장 시각을 단독 판정.
+// 게이트는 `isMarketOpenFor(symbol)` 단일 호출로 파생된다.
+// cache hit 이면 STALE-OFFHOURS 로 stale 서빙, miss 면 204 (OFFHOURS-SKIP).
+// 장중이거나 분류 불가 심볼 → pass.
+const MARKET_GATED_PATHS = new Set(['/historical-data']);
 
-export function isKstWeekend(now: Date = new Date()): boolean {
-  const kstDay = new Date(now.getTime() + 9 * 3_600_000).getUTCDay();
-  return kstDay === 0 || kstDay === 6;
-}
-
-export type WeekendGateDecision =
+export type MarketGateDecision =
   | { action: 'pass' }
   | { action: 'stale'; body: string; contentType: string }
   | { action: 'skip' };
 
 /**
- * 순수 함수 — 주말 KR 게이트 판정. 미들웨어 본체와 단위 테스트가 공유.
- * cacheKey 가 LRU 에 살아있으면 stale 서빙, 없으면 skip(204).
+ * 순수 함수 — 시장 게이트 판정. 미들웨어 본체와 단위 테스트가 공유.
+ * 심볼이 속한 시장이 열려있으면 pass, 닫혀있으면 cache hit → stale, miss → skip.
  */
-export function evaluateWeekendGate(
+export function evaluateMarketGate(
   symbol: string,
   range: string,
   interval: string,
   now: Date = new Date(),
-): WeekendGateDecision {
-  if (!KR_SYMBOL_PATTERN.test(symbol)) return { action: 'pass' };
-  if (!isKstWeekend(now)) return { action: 'pass' };
+): MarketGateDecision {
+  if (isMarketOpenFor(symbol, now)) return { action: 'pass' };
   const cached = proxyCacheGet(`${symbol}:${range}:${interval}`);
   if (cached) return { action: 'stale', body: cached.body, contentType: cached.contentType };
   return { action: 'skip' };
 }
 
 router.use((req: Request, res: Response, next) => {
-  if (!WEEKEND_GATED_PATHS.has(req.path)) return next();
+  if (!MARKET_GATED_PATHS.has(req.path)) return next();
   const symbol = String(req.query.symbol ?? '');
   if (!symbol) return next();
   const range = typeof req.query.range === 'string' && req.query.range.length > 0 ? req.query.range : '1y';
   const interval = typeof req.query.interval === 'string' && req.query.interval.length > 0 ? req.query.interval : '1d';
-  const decision = evaluateWeekendGate(symbol, range, interval);
+  const decision = evaluateMarketGate(symbol, range, interval);
   if (decision.action === 'pass') return next();
   if (decision.action === 'stale') {
     res.setHeader('Content-Type', decision.contentType);
-    res.setHeader('X-Cache', 'STALE-WEEKEND');
+    res.setHeader('X-Cache', 'STALE-OFFHOURS');
     return res.send(decision.body);
   }
-  res.setHeader('X-Cache', 'WEEKEND-SKIP');
+  res.setHeader('X-Cache', 'OFFHOURS-SKIP');
   return res.status(204).end();
 });
 
