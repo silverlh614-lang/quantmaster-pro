@@ -1,15 +1,21 @@
 /**
+ * @responsibility Kelly 시간감쇠 가중치 계산기 — 사이즈 결정은 accountRiskBudget 이 한다.
+ *
  * kellyHalfLife.ts — Idea 3: Kelly 의 물리적 반감기 (시간 감쇠 모델).
  *
  * "오래 들고 있는 포지션일수록 같은 조건이라도 근거가 약해진다" 는 행동경제학 인사이트를
  * 수학적으로 강제한다. 후회 회피 편향(loss aversion, disposition effect) 에 대한 구조적
  * 방벽 — 시간 자체가 음의 weight 를 만든다.
  *
- *   effectiveKelly(t) = entryKelly × exp(-λt),  λ = ln2 / half_life_days
+ *   decayedKelly(t) = staticKelly × exp(-λt),  λ = ln2 / half_life_days
  *
  * 기본 half_life = 10 영업일 (레짐 평균 보유일 기준). 레짐별 오버라이드 가능.
- * 이 모듈은 "가중치 계산기" 역할만 한다 — 사이즈 결정권은 exitEngine / kellyHealthCard
- * 가 가진다. 본 weight 가 일정 threshold 이하로 떨어지면 trim 후보로 분류 (Phase 3).
+ *
+ * 소비자 (ADR-0008):
+ *   - accountRiskBudget.computeRiskAdjustedSize — timeDecayInput 옵션으로 연결.
+ *     daysHeld=0 이면 weight=1 이라 기존 신규 진입 동작 불변.
+ *   - kellyHealthCard — halfLifeSnapshot 을 그대로 소비 (트림 권고).
+ *   - kellyDriftFailurePromotion — REGIME_HALF_LIFE_DAYS 로 승급 키 구성.
  */
 
 const LN2 = Math.log(2);
@@ -71,8 +77,8 @@ export interface HalfLifeSnapshot {
   halfLifeDays: number;
   /** exp(-λt) — 진입 대비 현재 시간 감쇠 가중치 */
   timeDecayWeight: number;
-  /** entryKelly × timeDecayWeight */
-  effectiveKelly: number;
+  /** entryKelly × timeDecayWeight — ADR-0008: "effectiveKelly" 동명이인 해소를 위해 decayedKelly 로 명명 */
+  decayedKelly: number;
   /** 권고 플래그 — weight < 0.5 (half-life 초과) 이면 "soft trim 후보" */
   trimCandidate: boolean;
 }
@@ -93,7 +99,28 @@ export function halfLifeSnapshot(input: {
     daysHeld,
     halfLifeDays,
     timeDecayWeight: weight,
-    effectiveKelly: input.entryKelly * weight,
+    decayedKelly: input.entryKelly * weight,
     trimCandidate: weight < 0.5,
   };
+}
+
+/** ADR-0008: accountRiskBudget.computeRiskAdjustedSize 가 사용하는 시간감쇠 입력 계약. */
+export interface HalfLifeDecayInput {
+  daysHeld: number;
+  halfLifeDays: number;
+}
+
+/**
+ * ADR-0008: staticKelly 에 시간 감쇠를 적용. input 이 null/undefined 이거나
+ * KELLY_TIME_DECAY_ENABLED=false 이면 staticKelly 를 그대로 반환. 진입 시점
+ * (daysHeld=0) 에는 weight=1 이라 결과 불변 — 신규 진입 사이징 회귀 위험 없음.
+ */
+export function applyHalfLifeDecay(
+  staticKelly: number,
+  input?: HalfLifeDecayInput | null,
+): number {
+  if (!input) return staticKelly;
+  if (process.env.KELLY_TIME_DECAY_ENABLED === 'false') return staticKelly;
+  const weight = computePositionRiskWeight(input.daysHeld, input.halfLifeDays);
+  return staticKelly * weight;
 }

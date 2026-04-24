@@ -13,6 +13,11 @@
  */
 
 import { getRecommendations, type RecommendationRecord } from './recommendationTracker.js';
+import { sendSuggestAlert } from './suggestNotifier.js';
+import {
+  SUGGEST_REGIME_COVERAGE_RATIO,
+  SUGGEST_REGIME_DRY_DAYS,
+} from './suggestThresholds.js';
 
 /** 레짐별 목표 샘플 수 — 통계적으로 유의한 비교를 위한 최소치. */
 export const REGIME_SAMPLE_TARGETS: Record<string, number> = {
@@ -114,4 +119,52 @@ export function formatRegimeCoverage(report?: RegimeCoverageReport): string {
     lines.push(`<i>총 부족 샘플 ${r.totalDeficit} — Walk-Forward replay 보충 권고</i>`);
   }
   return lines.join('\n');
+}
+
+/**
+ * Suggest 판정 — (목표 대비 current/target < 50%) 이고 최근 N일간 해당 레짐 진입이 0건이면
+ * 가장 부족한 레짐 1건만 suggest 한다. 0건 판정은 signalTime 기반 (KST 날짜가 아니라 ms 기준).
+ */
+export async function evaluateRegimeCoverageSuggestion(now: Date = new Date()): Promise<boolean> {
+  try {
+    const report = regimeCoverage();
+    const cutoffMs = now.getTime() - SUGGEST_REGIME_DRY_DAYS * 24 * 3600 * 1000;
+    const history = getRecommendations();
+
+    const dry = report.entries
+      .filter(e => e.target > 0 && e.current / e.target < SUGGEST_REGIME_COVERAGE_RATIO)
+      .map(e => {
+        const recentEntries = history.filter(r =>
+          r.entryRegime === e.regime && new Date(r.signalTime).getTime() >= cutoffMs,
+        );
+        return { entry: e, recentCount: recentEntries.length };
+      })
+      .filter(x => x.recentCount === 0)
+      .sort((a, b) => b.entry.deficit - a.entry.deficit);
+
+    if (dry.length === 0) return false;
+
+    const top = dry[0];
+    const day = now.toISOString().slice(0, 10);
+    const pct = top.entry.target > 0 ? (top.entry.current / top.entry.target) * 100 : 0;
+
+    return await sendSuggestAlert({
+      moduleKey: 'regimeCoverage',
+      signature: `regime-${top.entry.regime}-${day}`,
+      title: `레짐 ${top.entry.regime} 샘플 부족 & ${SUGGEST_REGIME_DRY_DAYS}일 dry`,
+      rationale:
+        `현재 ${top.entry.current}/${top.entry.target} (${pct.toFixed(0)}%) · ` +
+        `최근 ${SUGGEST_REGIME_DRY_DAYS}일 진입 0건`,
+      currentValue: `${top.entry.regime} 커버리지 ${pct.toFixed(0)}%`,
+      suggestedValue: 'Walk-Forward replay 보충 또는 PROBING 슬롯 확장',
+      threshold:
+        `current/target<${(SUGGEST_REGIME_COVERAGE_RATIO * 100).toFixed(0)}% & ${SUGGEST_REGIME_DRY_DAYS}일 dry`,
+    });
+  } catch (e) {
+    console.warn(
+      '[regimeBalancedSampler] evaluateSuggestion 실패:',
+      e instanceof Error ? e.message : String(e),
+    );
+    return false;
+  }
 }

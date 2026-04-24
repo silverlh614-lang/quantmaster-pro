@@ -14,6 +14,12 @@
  */
 
 import { getRecommendations, type RecommendationRecord } from './recommendationTracker.js';
+import { sendSuggestAlert } from './suggestNotifier.js';
+import {
+  SUGGEST_MIN_SAMPLE_KELLY_SURFACE,
+  SUGGEST_KELLY_CI_THRESHOLD,
+  SUGGEST_KELLY_DELTA_THRESHOLD,
+} from './suggestThresholds.js';
 
 const DEFAULT_MIN_SAMPLE = 5;
 
@@ -150,4 +156,56 @@ export function formatKellySurface(report?: KellySurfaceReport): string {
     lines.push(`   → 우선순위: ${top.signalType}·${top.regime} (+10샘플 시 ±${(top.pHalfWidth*100).toFixed(1)}%p → ±${((top.pHalfWidth - top.marginalPrecisionGainForNext10)*100).toFixed(1)}%p)`);
   }
   return lines.join('\n');
+}
+
+/**
+ * Suggest 판정 — (signalType × regime) 각 셀에 대해 sample≥20 & CI 폭(pHalfWidth)≤0.10 이 충족되고,
+ * 추정 Kelly* 와 현재 운용 Kelly(currentKellyBy[signalType]) 의 절대 괴리 ≥ 0.5 이면
+ * 가장 큰 괴리 1건만 suggest 한다.
+ *
+ * @param currentKellyBy signalType → 현재 운용 Kelly 배율(0~1). 빈 객체면 no-op.
+ * @returns suggest 발동 여부.
+ */
+export async function evaluateKellySurfaceSuggestion(
+  currentKellyBy: Record<string, number>,
+  now: Date = new Date(),
+): Promise<boolean> {
+  try {
+    if (!currentKellyBy || Object.keys(currentKellyBy).length === 0) return false;
+    const report = computeKellySurface();
+    const ranked = report.cells
+      .filter(c => c.samples >= SUGGEST_MIN_SAMPLE_KELLY_SURFACE)
+      .filter(c => Number.isFinite(c.pHalfWidth) && c.pHalfWidth <= SUGGEST_KELLY_CI_THRESHOLD)
+      .filter(c => typeof currentKellyBy[c.signalType] === 'number')
+      .map(c => {
+        const current = currentKellyBy[c.signalType];
+        const delta = Math.abs(c.kellyStar - current);
+        return { cell: c, current, delta };
+      })
+      .filter(x => x.delta >= SUGGEST_KELLY_DELTA_THRESHOLD)
+      .sort((a, b) => b.delta - a.delta);
+
+    if (ranked.length === 0) return false;
+
+    const top = ranked[0];
+    const day = now.toISOString().slice(0, 10);
+    return await sendSuggestAlert({
+      moduleKey: 'kellySurface',
+      signature: `kellySurface-${top.cell.signalType}-${top.cell.regime}-${day}`,
+      title: `${top.cell.signalType}·${top.cell.regime} Kelly 추정치 괴리`,
+      rationale:
+        `n=${top.cell.samples} · p=${(top.cell.p * 100).toFixed(0)}% (±${(top.cell.pHalfWidth * 100).toFixed(1)}%p) · ` +
+        `b=${top.cell.b.toFixed(2)} · Kelly*=${(top.cell.kellyStar * 100).toFixed(1)}%`,
+      currentValue: `Kelly=${(top.current * 100).toFixed(1)}%`,
+      suggestedValue: `Kelly≈${(top.cell.kellyStar * 100).toFixed(1)}% (|Δ|=${(top.delta * 100).toFixed(1)}%p)`,
+      threshold:
+        `샘플≥${SUGGEST_MIN_SAMPLE_KELLY_SURFACE} & CI≤${(SUGGEST_KELLY_CI_THRESHOLD * 100).toFixed(0)}%p & |Δ|≥${(SUGGEST_KELLY_DELTA_THRESHOLD * 100).toFixed(0)}%p`,
+    });
+  } catch (e) {
+    console.warn(
+      '[kellySurfaceMap] evaluateSuggestion 실패:',
+      e instanceof Error ? e.message : String(e),
+    );
+    return false;
+  }
 }

@@ -10,8 +10,10 @@ import { runNightlyReflection } from '../learning/nightlyReflectionEngine.js';
 import { refreshGhostPortfolio } from '../learning/ghostPortfolioTracker.js';
 import { distillWeeklyKnowledge } from '../learning/silentKnowledgeDistillation.js';
 import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
-import { resolveCounterfactuals } from '../learning/counterfactualShadow.js';
-import { resolveLedger } from '../learning/ledgerSimulator.js';
+import { resolveCounterfactuals, evaluateCounterfactualSuggestion } from '../learning/counterfactualShadow.js';
+import { resolveLedger, evaluateLedgerSuggestion } from '../learning/ledgerSimulator.js';
+import { evaluateKellySurfaceSuggestion } from '../learning/kellySurfaceMap.js';
+import { evaluateRegimeCoverageSuggestion } from '../learning/regimeBalancedSampler.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 
 export function registerLearningJobs(): void {
@@ -104,6 +106,8 @@ export function registerLearningJobs(): void {
     } catch (e) {
       console.error('[Counterfactual] 실행 실패:', e);
     }
+    // PR-22 / ADR-0007 — resolve 직후 하이브리드 suggest 평가. 실패는 전체 cron 을 깨뜨리지 않음.
+    await evaluateCounterfactualSuggestion().catch((e) => console.warn('[Counterfactual][suggest] 평가 실패:', e));
   }, { timezone: 'UTC' });
 
   // Idea 2 — Parallel Universe Ledger resolve: 매일 KST 16:15 (UTC 07:15).
@@ -115,5 +119,9 @@ export function registerLearningJobs(): void {
     } catch (e) {
       console.error('[Ledger] 실행 실패:', e);
     }
+    // PR-22 / ADR-0007 — 같은 16:15 cron 안에서 suggest 평가 + kellySurface/regimeCoverage 일일 스윕.
+    await evaluateLedgerSuggestion().catch((e) => console.warn('[Ledger][suggest] 평가 실패:', e));
+    await evaluateKellySurfaceSuggestion({}).catch((e) => console.warn('[KellySurface][suggest] 평가 실패:', e));
+    await evaluateRegimeCoverageSuggestion().catch((e) => console.warn('[RegimeCoverage][suggest] 평가 실패:', e));
   }, { timezone: 'UTC' });
 }
