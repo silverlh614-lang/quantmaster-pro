@@ -58,6 +58,35 @@ export interface ScanDecision {
 
 let lastScanAt         = 0;  // ms timestamp
 let lastVkospikSpikeAt = 0;  // ms timestamp
+/**
+ * 외부 훅에 의해 "즉시 재스캔 필요" 플래그가 설정된다 (예: exitEngine 이 HIT_TARGET/HIT_STOP 으로
+ * 슬롯을 비웠을 때, volumeClock 점심 차단 해제 직후). 다음 decideScan() 호출에서 1회만 소비되고
+ * 바로 false 로 리셋된다. interval/backoff 우회 수단.
+ */
+let immediateRescanRequested = false;
+let lastLunchBlockSeenAt     = 0;  // 11:30~13:00 구간 진입 최근 시각 (점심 해제 감지용)
+
+/**
+ * 외부 모듈(exitEngine 등)이 "지금 즉시 다음 tick 부터 스캔하라" 고 요청할 수 있는 훅.
+ *
+ * 사용처:
+ *   1. exitEngine.updateShadowResults — HIT_TARGET/HIT_STOP 으로 슬롯 회복 시
+ *   2. volumeClock 13:00 점심 차단 해제 직후 (decideScan 내부에서 자체 호출)
+ *
+ * 구현: lastScanAt 리셋 + 빈 스캔 백오프 리셋 + immediateRescanRequested 플래그.
+ * interval/multiplier 가 어떻든 다음 INTRADAY tick 에서 shouldScan=true 가 되도록 보장.
+ */
+export function requestImmediateRescan(reason: string): void {
+  immediateRescanRequested = true;
+  lastScanAt = 0;
+  if (consecutiveEmptyScans > 0) {
+    // 슬롯 회복·세션 재개 등 구조적 변경 시, 누적된 빈 스캔 backoff 를 초기화해야
+    // 다음 스캔이 제시간에 full 로 돈다.
+    consecutiveEmptyScans = 0;
+    resetEmptyScanCounter();
+  }
+  console.log(`[AdaptiveScheduler] 즉시 재스캔 요청 — ${reason}`);
+}
 
 // ── 아이디어 5: 피드백 루프 — 빈 스캔 연속 시 간격 확대 ──────────────────────
 let consecutiveEmptyScans = 0;
@@ -95,10 +124,20 @@ export function decideScan(): ScanDecision {
   const regime     = getLiveRegime(macroState);
   const shadows    = loadShadowTrades();
 
+  // signalScanner 와 동일한 기준으로 세어야 slot-adj 이 실제 스캐너의 판단과 일치한다.
+  // INTRADAY 및 PRE_BREAKOUT 포지션은 스윙 슬롯 밖이므로 제외.
   const activePositions = shadows.filter(
-    (s) => s.status === 'PENDING' || s.status === 'ORDER_SUBMITTED' || s.status === 'PARTIALLY_FILLED' || s.status === 'ACTIVE' || s.status === 'EUPHORIA_PARTIAL',
+    (s) =>
+      (s.status === 'PENDING' || s.status === 'ORDER_SUBMITTED' || s.status === 'PARTIALLY_FILLED' ||
+       s.status === 'ACTIVE' || s.status === 'EUPHORIA_PARTIAL') &&
+      s.watchlistSource !== 'INTRADAY' &&
+      s.watchlistSource !== 'PRE_BREAKOUT',
   ).length;
-  const maxPositions = REGIME_CONFIGS[regime]?.maxPositions ?? 4;
+  // signalScanner.ts 의 effectiveMaxPositions 와 동일 식.
+  // env MAX_CONVICTION_POSITIONS 가 낮게 설정된 경우에도 스캐너와 decideScan 이 일관된 한도를 쓴다.
+  const rawRegimeMax = REGIME_CONFIGS[regime]?.maxPositions ?? 4;
+  const convictionCap = Number(process.env.MAX_CONVICTION_POSITIONS ?? '8');
+  const maxPositions = Math.max(0, Math.min(convictionCap, rawRegimeMax));
 
   // ── 1. VKOSPI 급등 감지 → 즉시 SELL_ONLY 강제 실행 ──────────────────────
   const vkospiDayChange = macroState?.vkospiDayChange ?? 0;
@@ -145,7 +184,10 @@ export function decideScan(): ScanDecision {
 
   if      (t < 930)  { baseInterval = 2;  phase = '시초가(급변)'; }
   else if (t < 1130) { baseInterval = 3;  phase = '오전 주도주'; }
-  else if (t < 1300) { baseInterval = 10; phase = '점심(SELL_ONLY)'; forceSellOnly = true; }
+  else if (t < 1300) {
+    baseInterval = 10; phase = '점심(SELL_ONLY)'; forceSellOnly = true;
+    lastLunchBlockSeenAt = now; // 점심 구간 통과 중 — 해제 감지용 기록
+  }
   else if (t < 1430) { baseInterval = 5;  phase = '오후 재개장'; }
   else if (t < 1455) { baseInterval = 2;  phase = '마감전(급변)'; }
   else               { baseInterval = 2;  phase = '마감동시호가(SELL_ONLY)'; forceSellOnly = true; }
@@ -153,8 +195,15 @@ export function decideScan(): ScanDecision {
   // ── 4. 레짐 배율 적용 ────────────────────────────────────────────────────
   const multiplier = REGIME_MULTIPLIER[regime] ?? 1.0;
 
-  // ── 5. 포지션 조정: 포지션 많음 → +1분 (매도 모니터링 우선) ─────────────
-  const positionAdj = activePositions >= maxPositions * 0.7 ? 1 : 0;
+  // ── 5. 포지션 조정: 양방향 보상 ───────────────────────────────────────────
+  //   포지션 ≥ maxPositions × 0.7 → +1분 (매도 모니터링 우선)
+  //   포지션 ≤ maxPositions × 0.5 → -1분 (슬롯 여유 구간 빠른 재스캔)
+  //   maxPositions=0 (R6_DEFENSE) 는 비교를 건너뜀.
+  let positionAdj = 0;
+  if (maxPositions > 0) {
+    if (activePositions >= maxPositions * 0.7)      positionAdj = 1;
+    else if (activePositions <= maxPositions * 0.5) positionAdj = -1;
+  }
 
   const effectiveInterval = Math.max(1, Math.round(baseInterval * multiplier) + positionAdj);
 
@@ -167,9 +216,20 @@ export function decideScan(): ScanDecision {
 
   const finalInterval = effectiveInterval * emptyBackoff;
 
-  // ── 7. 인터벌 미충족 → skip ──────────────────────────────────────────────
+  // ── 6-b. 점심 차단 해제 직후 1회 강제 스캔 ───────────────────────────────
+  // 11:30~13:00 에 forceSellOnly 로 돌던 직후 13:00 재개 시, 기본 5분 interval 을 기다리면
+  // 슬롯 회복·오후 주도주 추격이 지연된다. 점심 구간 통과 기록(lastLunchBlockSeenAt)이 있고
+  // 현재 t >= 1300 이며 아직 lunchResumeFiredAt 가 오늘 설정 안 됐다면 1회 force scan.
+  if (!forceSellOnly && t >= 1300 && t < 1310 && lastLunchBlockSeenAt > 0) {
+    immediateRescanRequested = true;
+    // 같은 영업일 내 재진입을 막기 위해 lastLunchBlockSeenAt 를 소비.
+    lastLunchBlockSeenAt = 0;
+    console.log('[AdaptiveScheduler] 점심 차단 해제 감지 — 오후 개장 1회 강제 스캔');
+  }
+
+  // ── 7. 인터벌 미충족 → skip (단, immediateRescanRequested 면 우회) ───────
   const elapsedMin = (now - lastScanAt) / 60_000;
-  if (elapsedMin < finalInterval) {
+  if (!immediateRescanRequested && elapsedMin < finalInterval) {
     return {
       shouldScan:      false,
       intervalMinutes: finalInterval,
@@ -183,6 +243,8 @@ export function decideScan(): ScanDecision {
   }
 
   // ── 8. 스캔 실행 ─────────────────────────────────────────────────────────
+  const triggeredByImmediate = immediateRescanRequested;
+  immediateRescanRequested = false; // 1회 소비
   lastScanAt = now;
   return {
     shouldScan:      true,
@@ -190,7 +252,9 @@ export function decideScan(): ScanDecision {
     reason: (
       `${phase} | ${regime}(×${multiplier})` +
       (emptyBackoff > 1 ? ` | 빈스캔×${emptyBackoff}→SELL_ONLY` : '') +
+      (triggeredByImmediate ? ' | ⚡즉시요청' : '') +
       ` | 포지션 ${activePositions}/${maxPositions}` +
+      (positionAdj !== 0 ? ` (${positionAdj > 0 ? '+' : ''}${positionAdj}분 조정)` : '') +
       ` → ${finalInterval}분 간격`
     ),
     priority: (forceSellOnly || emptyBackoff > 1) ? 'SELL_ONLY' : 'FULL',
@@ -327,7 +391,9 @@ export function getLastScanAt(): number {
 
 /** 테스트·진단용: 모듈 상태 초기화 */
 export function resetScanState(): void {
-  lastScanAt             = 0;
-  lastVkospikSpikeAt     = 0;
-  consecutiveEmptyScans  = 0;
+  lastScanAt               = 0;
+  lastVkospikSpikeAt       = 0;
+  consecutiveEmptyScans    = 0;
+  immediateRescanRequested = false;
+  lastLunchBlockSeenAt     = 0;
 }

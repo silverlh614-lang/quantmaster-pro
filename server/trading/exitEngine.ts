@@ -36,6 +36,7 @@ import { fetchCloses } from './marketDataRefresh.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 import type { PositionFill } from '../persistence/shadowTradeRepo.js';
 import { learningOrchestrator } from '../orchestrator/learningOrchestrator.js';
+import { requestImmediateRescan } from '../orchestrator/adaptiveScanScheduler.js';
 
 // ─── reserveSell 헬퍼 — "주문 접수 ≠ 체결" 원칙을 강제한다 ─────────────────────
 //
@@ -1277,6 +1278,10 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
   // 청산된 종목이 있으면 다음 tick으로 밀어 learningOrchestrator.onShadowResolved를 트리거.
   // KIS API 부담 최소화를 위해 종목당 1건씩 순차 처리 (Promise.all 미사용).
   if (resolvedNow.size > 0) {
+    // 슬롯이 회복되었으므로 다음 INTRADAY tick 에서 interval/backoff 를 우회해 즉시 재스캔한다.
+    // (기존에는 최대 10분 뒤 다음 decideScan() 까지 빈 슬롯이 방치됨)
+    requestImmediateRescan(`exitEngine 청산 ${resolvedNow.size}건 (${Array.from(resolvedNow).join(',')})`);
+
     setImmediate(async () => {
       for (const code of resolvedNow) {
         await learningOrchestrator.onShadowResolved(code).catch(console.error);
