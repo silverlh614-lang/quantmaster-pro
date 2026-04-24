@@ -16,6 +16,7 @@ export function useStockSearch() {
     setLastUsedMode, setLastUpdated, setError,
     recommendationHistory, setRecommendationHistory,
     searchingSpecific, setSearchingSpecific,
+    setRecommendationWarnings,
   } = useRecommendationStore();
   const { setMarketContext } = useMarketStore();
   const { setNewsFrequencyScores } = useGlobalIntelStore();
@@ -24,6 +25,7 @@ export function useStockSearch() {
 
   const fetchStocks = async () => {
     setLoading(true); setSearchResults([]); setRecommendations([]); setError(null);
+    setRecommendationWarnings([]);
     try {
       const data = await getStockRecommendations(filters);
       if (!data || !data.recommendations) throw new Error("AI 추천 데이터를 불러오지 못했습니다.");
@@ -47,6 +49,10 @@ export function useStockSearch() {
       const warnings = Array.isArray((data as { warnings?: string[] }).warnings)
         ? ((data as { warnings?: string[] }).warnings ?? [])
         : [];
+      // toast 는 8초 후 사라져 사용자가 "버튼만 누르고 결과 없음" 으로 인지하던 문제 차단.
+      // 동일 내용을 store 의 recommendationWarnings 에 저장해 WatchlistHeader 배너에서
+      // 다음 분석 실행 전까지 영구 표시.
+      setRecommendationWarnings(warnings);
       for (const w of warnings) toast.warning(w, { duration: 8000 });
       if (diversified.length === 0) {
         toast.info(warnings.length > 0 ? '추천 결과 없음 — 위 안내를 확인하세요.' : '추천 종목이 없습니다.');

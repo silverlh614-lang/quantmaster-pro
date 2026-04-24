@@ -10,6 +10,7 @@ import { cn } from '../../ui/cn';
 import { ConfidenceBadge } from '../common/ConfidenceBadge';
 import { SignalBadge } from '../../ui/badge';
 import { PriceEditCell } from '../common/PriceEditCell';
+import { isMarketOpenFor, nextOpenAtFor, formatNextOpenKst } from '../../utils/marketTime';
 import type { StockRecommendation } from '../../services/stockService';
 import type { NewsFrequencyScore } from '../../types/quant';
 import type { ConditionId } from '../../types/quant';
@@ -556,19 +557,46 @@ export function WatchlistCard({
             <span className="text-[10px] sm:text-[11px] font-black text-white/30 uppercase tracking-[0.2em] sm:tracking-[0.25em]">Price Strategy</span>
           </div>
           <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 sm:gap-1">
-            <div className="flex items-center gap-2 sm:gap-2.5 bg-orange-500/10 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl border border-orange-500/20 shadow-[0_0_15px_rgba(249,115,22,0.1)] transition-all group-hover:bg-orange-500/20">
-              <div className="flex items-center gap-1.5 mr-1">
-                <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-orange-500 animate-pulse shadow-[0_0_8px_rgba(249,115,22,0.8)]" />
-                <span className="text-[7px] sm:text-[8px] font-black text-orange-500 uppercase tracking-widest">LIVE</span>
-              </div>
-              <PriceEditCell
-                stockCode={stock.code}
-                currentPrice={stock.currentPrice}
-                syncingStock={syncingStock}
-                onManualUpdate={(newPrice) => onManualPriceUpdate(stock, newPrice)}
-                onSync={() => onSyncPrice(stock)}
-              />
-            </div>
+            {(() => {
+              // 장중이면 LIVE(주황) · 장외면 CLOSED(파랑) — 가격이 stale 캐시일 때
+              // "LIVE" 라벨을 그대로 띄워 사용자에게 잘못된 신뢰를 주는 문제 해소.
+              // PR-31 (PR-25 후속): 자동매매 quota 와 무관하게 사용자 카드 시각 표기 정합성.
+              const open = isMarketOpenFor(stock.code);
+              let nextOpenLabel = '';
+              try { nextOpenLabel = formatNextOpenKst(nextOpenAtFor(stock.code)); } catch { /* noop */ }
+              return (
+                <div
+                  className={cn(
+                    "flex items-center gap-2 sm:gap-2.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl border shadow-[0_0_15px_rgba(249,115,22,0.1)] transition-all",
+                    open
+                      ? "bg-orange-500/10 border-orange-500/20 group-hover:bg-orange-500/20"
+                      : "bg-blue-500/10 border-blue-500/20 group-hover:bg-blue-500/15"
+                  )}
+                  title={open ? '장중 실시간' : `장외 — 다음 개장 ${nextOpenLabel}`}
+                >
+                  <div className="flex items-center gap-1.5 mr-1">
+                    {open ? (
+                      <>
+                        <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-orange-500 animate-pulse shadow-[0_0_8px_rgba(249,115,22,0.8)]" />
+                        <span className="text-[7px] sm:text-[8px] font-black text-orange-500 uppercase tracking-widest">LIVE</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-blue-400/80" />
+                        <span className="text-[7px] sm:text-[8px] font-black text-blue-300 uppercase tracking-widest">장외</span>
+                      </>
+                    )}
+                  </div>
+                  <PriceEditCell
+                    stockCode={stock.code}
+                    currentPrice={stock.currentPrice}
+                    syncingStock={syncingStock}
+                    onManualUpdate={(newPrice) => onManualPriceUpdate(stock, newPrice)}
+                    onSync={() => onSyncPrice(stock)}
+                  />
+                </div>
+              );
+            })()}
             <div className="flex items-center gap-2 mt-1">
               {stock.priceUpdatedAt && (
                 <span className="text-[7px] sm:text-[8px] font-black text-white/20 uppercase tracking-widest flex items-center gap-1">

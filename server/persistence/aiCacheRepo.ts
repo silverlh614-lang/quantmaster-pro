@@ -141,6 +141,15 @@ export function resetAiCacheMemory(): void {
   _dirty = false;
 }
 
+/** 단일 키 삭제 — 클라이언트가 빈/오염된 응답 박제를 무효화할 때 사용. */
+export function deleteCacheEntry(key: string): boolean {
+  const store = ensureLoaded();
+  if (!(key in store)) return false;
+  delete store[key];
+  scheduleFlush();
+  return true;
+}
+
 // ─── PR-3 #3: Canonical cache key helper ──────────────────────────────────
 //
 // 호출자가 동일 의미의 프롬프트를 약간 다른 문자열(추가 공백, JSON 키 순서 변경)로

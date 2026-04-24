@@ -10,6 +10,7 @@ import { cn } from '../../ui/cn';
 import { HeroChecklist } from '../trading/HeroChecklist';
 import { ConfidenceBadge } from '../common/ConfidenceBadge';
 import { OffHoursBanner } from '../common/OffHoursBanner';
+import { RecommendationWarningsBanner } from '../common/RecommendationWarningsBanner';
 import { MASTER_CHECKLIST_STEPS, getMarketPhaseInfo } from '../../constants/checklist';
 import type { StockRecommendation, MarketContext, StockFilters } from '../../services/stockService';
 import type { View } from '../../stores/useSettingsStore';
@@ -53,6 +54,9 @@ export function WatchlistHeader({
     <>
       {/* 장외 시에만 표시 — 장중엔 null */}
       <OffHoursBanner className="mb-4 sm:mb-6" />
+
+      {/* AI 추천 universe 발굴 경고 — Google Search 미설정/예산초과/실패 시 영구 표시 */}
+      <RecommendationWarningsBanner className="mb-4 sm:mb-6" />
 
       {/* Market Sentiment & Hero Section */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
