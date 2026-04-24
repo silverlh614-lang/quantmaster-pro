@@ -1,12 +1,8 @@
 /**
- * scheduleCatalog.ts — 등록된 스케줄러 작업 카탈로그 + 운영 가시성 헬퍼.
+ * @responsibility 등록 스케줄 카탈로그·다음/상세/이력 포맷·실행 링버퍼 제공
  *
- * 두 부분으로 구성:
- *   1) SCHEDULE_CATALOG: 사람이 읽을 수 있는 시간표 (수동 유지보수)
- *   2) recordScheduleRun() / getScheduleHistory(): 작업 실행 이력 in-memory 링버퍼
- *
- * 각 작업은 등록 시점에 자기 cron 콜백 진입/종료에서 recordScheduleRun() 을 호출하면
- * /scheduler history 에서 최근 실행 결과를 볼 수 있다 (운영 콘솔화 — 항목 1-4).
+ * SCHEDULE_CATALOG 가 사람이 읽는 시간표 SSOT, recordScheduleRun() 이 실행 이력을
+ * 기록해 /scheduler history 에서 조회 가능하다.
  */
 
 export interface ScheduleEntry {
@@ -17,27 +13,51 @@ export interface ScheduleEntry {
   jobName?: string;
   /** 비활성 표시용 — env / 기능 토글로 꺼져 있을 때 true. */
   disabled?: boolean;
+  /**
+   * 조건부 무음 설명 — cron 은 돌지만 조건 미달 시 Telegram 을 의도적으로 보내지 않는
+   * 작업은 여기에 사유를 적는다. /scheduler detail 에 "🔕 조건부 무음: …" 으로 표시되어
+   * "왜 이 시각에 메시지가 안 오느냐" 에 대한 운영 답변을 단일 소스로 관리한다.
+   */
+  silentWhen?: string;
 }
 
 export const SCHEDULE_CATALOG: ScheduleEntry[] = [
-  { timeKst: '08:30', label: '장전 방향 카드', group: 'alerts', jobName: 'pre_market_card' },
-  { timeKst: '08:35', label: 'ADR 갭 스캔 / 최종 스크리닝', group: 'alerts', jobName: 'adr_gap_scan' },
+  // ── 리포트 (Telegram 송출 중심) ────────────────────────────────────────────
+  { timeKst: '06:15', label: '미 섹터 ETF 모멘텀 스캔', group: 'reports', jobName: 'sector_etf_momentum' },
+  { timeKst: '07:30', label: '외국인 수급 선행 경보', group: 'alerts', jobName: 'foreign_flow_leading', silentWhen: 'EWY·DXY·외인 3축 합치하지 않으면 무음' },
+  { timeKst: '08:30', label: '장전 방향 카드', group: 'alerts', jobName: 'pre_market_card', silentWhen: '|Bias Score| < 40 (NEUTRAL) 이면 무음 — BULL/BEAR 일에만 발송' },
+  { timeKst: '08:35', label: 'ADR 갭 스캔 / 최종 스크리닝', group: 'alerts', jobName: 'adr_gap_scan', silentWhen: '|ADR 역산 갭| < 2% 이면 무음' },
+  { timeKst: '08:40', label: 'DXY 한국 개장 직전 모니터', group: 'alerts', jobName: 'dxy_kr_open', silentWhen: 'DXY 방향 전환 신호 없을 시 무음' },
   { timeKst: '08:45', label: '아침 통합 브리핑', group: 'reports', jobName: 'morning_briefing' },
-  { timeKst: '09:00', label: 'MHS 알림 / 거시-섹터 동기화 시작', group: 'alerts', jobName: 'mhs_open' },
-  { timeKst: '09:05', label: '보유 포지션 모닝카드', group: 'reports', jobName: 'morning_position_card' },
+  { timeKst: '09:00', label: 'MHS 알림 / 거시-섹터 동기화 시작', group: 'alerts', jobName: 'mhs_open', silentWhen: 'MHS 가 RED(<40) 또는 GREEN(≥70) 전환이 아니면 무음' },
+  { timeKst: '09:05', label: '보유 포지션 모닝카드', group: 'reports', jobName: 'morning_position_card', silentWhen: '활성 포지션 없으면 무음' },
   { timeKst: '09:10', label: 'newsSupply 추적', group: 'screener', jobName: 'news_supply_tracker' },
+  { timeKst: '10:45', label: '장전 방향 카드 (HK 개장 30분 후 재계산)', group: 'alerts', jobName: 'pre_market_card_hk', silentWhen: '|Bias Score| < 40 이면 무음' },
   { timeKst: '12:30', label: '점심 통합 브리핑', group: 'reports', jobName: 'lunch_briefing' },
   { timeKst: '14:30', label: '섹터 사이클 대시보드', group: 'reports', jobName: 'sector_cycle_dashboard' },
-  { timeKst: '15:35', label: 'INFO 일일 다이제스트 flush', group: 'reports', jobName: 'info_digest_flush' },
-  { timeKst: '15:40', label: 'Ghost Portfolio 갱신', group: 'learning', jobName: 'ghost_portfolio' },
+  { timeKst: '15:35', label: 'INFO 일일 다이제스트 flush', group: 'reports', jobName: 'info_digest_flush', silentWhen: 'INFO 버퍼 비어 있으면 무음 (당일 INFO 알림 없음)' },
+  { timeKst: '15:40', label: 'Ghost Portfolio 갱신', group: 'learning', jobName: 'ghost_portfolio', silentWhen: '내부 캐시 갱신만 — Telegram 송출 없음' },
   { timeKst: '16:00', label: '장마감 통합 브리핑', group: 'reports', jobName: 'eod_briefing' },
-  { timeKst: '16:25', label: '저녁 사이클 회로 자동 reset', group: 'maintenance', jobName: 'circuit_auto_reset' },
-  { timeKst: '16:05', label: '52주 신고가 모멘텀 스캔', group: 'reports', jobName: 'high_52w_scan' },
+  { timeKst: '16:05', label: '52주 신고가 모멘텀 스캔', group: 'reports', jobName: 'high_52w_scan', silentWhen: '편입 후보 0건이면 무음' },
+  { timeKst: '16:05', label: 'Shadow 수량 drift 점검 (DRY-RUN)', group: 'maintenance', jobName: 'shadow_qty_dryrun_broadcast', silentWhen: 'drift 0건이면 무음' },
+  { timeKst: '16:25', label: '저녁 사이클 회로 자동 reset', group: 'maintenance', jobName: 'circuit_auto_reset', silentWhen: '내부 회로 reset 만 — Telegram 송출 없음' },
   { timeKst: '16:30', label: '일일 종목 픽 리포트', group: 'reports', jobName: 'daily_pick_report' },
   { timeKst: '16:40', label: '스캔 회고 리포트', group: 'reports', jobName: 'scan_retrospective' },
   { timeKst: '19:00', label: 'Nightly Reflection', group: 'learning', jobName: 'nightly_reflection' },
-  { timeKst: '20:30', label: 'KIS 토큰 강제 갱신', group: 'trading', jobName: 'kis_token_refresh' },
-  { timeKst: '23:30', label: '일일 Reconciliation', group: 'maintenance', jobName: 'daily_reconcile' },
+  { timeKst: '20:30', label: 'KIS 토큰 강제 갱신', group: 'trading', jobName: 'kis_token_refresh', silentWhen: '성공 시 내부 로그만' },
+  { timeKst: '23:30', label: '일일 Reconciliation', group: 'maintenance', jobName: 'daily_reconcile', silentWhen: '장부 일치 시 내부 로그만 — 불일치 임계 초과 시에만 CRITICAL' },
+
+  // ── 주간 / 월간 리포트 ────────────────────────────────────────────────────
+  { timeKst: '월 08:00', label: '주간 캘리브레이션 리포트', group: 'reports', jobName: 'weekly_report' },
+  { timeKst: '월 08:10', label: '주간 조건 성과 스코어카드', group: 'reports', jobName: 'weekly_condition_scorecard' },
+  { timeKst: '수 15:00', label: '주간 심층 분석 카드 (SWING)', group: 'reports', jobName: 'weekly_deep_analysis', silentWhen: 'SWING Gate 상위 종목 없을 시 무음' },
+  { timeKst: '수 16:30', label: '주중 Sharpe 급락 조기 경보', group: 'learning', jobName: 'weekly_sharpe_alert', silentWhen: 'Sharpe 이번 주 > 4주 평균 50% 이면 무음' },
+  { timeKst: '금 17:00', label: '주간 퀀트 인사이트', group: 'reports', jobName: 'weekly_quant_insight' },
+  { timeKst: '금 17:00', label: 'SYSTEM 채널 주간 요약 flush', group: 'reports', jobName: 'system_weekly_flush', silentWhen: 'SYSTEM 버퍼 비어 있으면 무음' },
+  { timeKst: '일 10:00', label: '주간 무결성 + 알림 감사 리포트', group: 'reports', jobName: 'weekly_integrity_report' },
+  { timeKst: '1일 07:00', label: 'Walk-Forward Validation (월 1회)', group: 'learning', jobName: 'walk_forward_validation', silentWhen: 'IS↔OOS 승률 격차 ≤ 15%p 이면 무음' },
+
+  // ── 상시 ──────────────────────────────────────────────────────────────────
   { timeKst: '상시',  label: '오케스트레이터 1분 tick', group: 'trading', jobName: 'orchestrator_tick' },
   { timeKst: '상시',  label: 'OCO/매도 체결 감시', group: 'trading', jobName: 'oco_close_loop' },
   { timeKst: '상시',  label: 'DART/IPS/ACK 폴링', group: 'alerts', jobName: 'dart_ips_ack_poll' },
@@ -174,10 +194,12 @@ export function formatSchedulerSummary(): string {
         ? ` <i>(${last.status === 'success' ? '✅' : last.status === 'failure' ? '❌' : '⏭'})</i>`
         : '';
       const disabled = item.disabled ? ' <i>[비활성]</i>' : '';
-      lines.push(`• ${item.timeKst} — ${item.label}${disabled}${lastTag}`);
+      const silent = item.silentWhen ? ' 🔕' : '';
+      lines.push(`• ${item.timeKst} — ${item.label}${disabled}${silent}${lastTag}`);
     }
   }
-  lines.push('\n<i>/scheduler next · detail · history</i>');
+  lines.push('\n<i>🔕 = 조건부 무음 (상세는 /scheduler detail)</i>');
+  lines.push('<i>/scheduler next · detail · history</i>');
   return lines.join('\n');
 }
 
@@ -210,6 +232,9 @@ export function formatSchedulerDetail(): string {
       const enabled = item.disabled ? '🔴 DISABLED' : '🟢 ENABLED';
       const last = item.jobName ? getLastRunByJob(item.jobName) : undefined;
       lines.push(`• <b>${item.label}</b> — ${item.timeKst} — ${enabled}`);
+      if (item.silentWhen) {
+        lines.push(`   🔕 조건부 무음: ${item.silentWhen}`);
+      }
       lines.push(`   마지막: ${fmtRunStatus(last)}`);
     }
   }
