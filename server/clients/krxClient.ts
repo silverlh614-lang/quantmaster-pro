@@ -38,6 +38,7 @@ import {
   type KrxStockDailyRow,
   type KrxIndexDailyRow,
 } from './krxOpenApi.js';
+import { isMarketDataPublished } from '../utils/marketClock.js';
 
 // ── 타입 ─────────────────────────────────────────────────────────────────────
 
@@ -107,7 +108,48 @@ function setCached<T>(key: string, data: T): void {
   _cache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
-export function resetKrxCache(): void { _cache.clear(); }
+export function resetKrxCache(): void {
+  _cache.clear();
+  _bldFailureState.clear();
+}
+
+// ── ADR-0009: bld 연속 실패 soft cooldown ────────────────────────────────────
+// 동일 bld 가 연속 5회 이상 실패 (HTTP 400 등) 하면 1시간 동안 추가 호출을 건너뛴다.
+// KRX 공개 통계는 확정 지연·스키마 변경 등으로 한동안 400 을 계속 내는 경우가 있어,
+// 방어적으로 호출 횟수 자체를 줄이는 쿨다운을 둔다.
+interface BldFailureState {
+  consecutiveFailures: number;
+  cooldownUntilMs: number;
+}
+const _bldFailureState = new Map<string, BldFailureState>();
+const BLD_FAILURE_THRESHOLD = 5;
+const BLD_COOLDOWN_MS = 60 * 60 * 1000; // 1시간
+
+function isBldCooldown(bld: string): boolean {
+  const s = _bldFailureState.get(bld);
+  if (!s) return false;
+  return s.cooldownUntilMs > Date.now();
+}
+
+function recordBldFailure(bld: string): void {
+  const s = _bldFailureState.get(bld) ?? { consecutiveFailures: 0, cooldownUntilMs: 0 };
+  s.consecutiveFailures += 1;
+  if (s.consecutiveFailures >= BLD_FAILURE_THRESHOLD) {
+    s.cooldownUntilMs = Date.now() + BLD_COOLDOWN_MS;
+    console.warn(
+      `[KRX] ${bld} 연속 ${s.consecutiveFailures}회 실패 — 1시간 soft cooldown 활성화`,
+    );
+  }
+  _bldFailureState.set(bld, s);
+}
+
+function recordBldSuccess(bld: string): void {
+  const s = _bldFailureState.get(bld);
+  if (!s) return;
+  s.consecutiveFailures = 0;
+  s.cooldownUntilMs = 0;
+  _bldFailureState.set(bld, s);
+}
 
 // ── 날짜 유틸 ────────────────────────────────────────────────────────────────
 
@@ -128,6 +170,49 @@ function isValidYyyymmdd(v: string): boolean {
   return /^\d{8}$/.test(v);
 }
 
+/**
+ * KST 기준 직전 영업일(YYYYMMDD). 공휴일 캘린더 없이 "토/일 건너뛰기" 만 적용.
+ * 입력이 월요일이면 금요일, 주말이면 직전 금요일, 평일이면 전일을 반환.
+ * ADR-0009 — KRX 공개 통계가 당일 미확정(18:00 KST 전) 이거나 주말일 때 후퇴용.
+ */
+function previousBusinessDayYYYYMMDD(now: Date = new Date()): string {
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
+  const kst = new Date(utcMs + 9 * 60 * 60_000);
+  // 최대 7일 되돌려서 첫 평일을 찾는다.
+  for (let i = 1; i <= 7; i++) {
+    const probe = new Date(kst.getTime() - i * 24 * 60 * 60_000);
+    const day = probe.getUTCDay();
+    if (day >= 1 && day <= 5) {
+      const y = probe.getUTCFullYear();
+      const m = String(probe.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(probe.getUTCDate()).padStart(2, '0');
+      return `${y}${m}${d}`;
+    }
+  }
+  // 도달하지 않지만 안전망.
+  return todayKstYYYYMMDD();
+}
+
+/**
+ * ADR-0009 — date 미지정 시 KRX 공개 통계 조회에 쓸 "안전한" 거래일자를 결정한다.
+ *   - 수동 date 인자가 유효하면 그대로 존중 (백필/디버깅 경로).
+ *   - 그렇지 않고 isMarketDataPublished=false (평일 18:00 이전 또는 DATA_FETCH_FORCE_OFF)
+ *     면 직전 영업일로 후퇴.
+ *   - 주말 역시 직전 영업일로 후퇴 (오늘이 토/일이면 오늘 날짜는 비영업일이므로).
+ *   - 그 외(평일 18:00 이후) 오늘 KST 날짜를 그대로 사용.
+ */
+function resolveTradeDate(date: string | undefined, now: Date = new Date()): string {
+  if (date && isValidYyyymmdd(date)) return date;
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
+  const kst = new Date(utcMs + 9 * 60 * 60_000);
+  const day = kst.getUTCDay();
+  const isWeekend = day === 0 || day === 6;
+  if (isWeekend || !isMarketDataPublished(now)) {
+    return previousBusinessDayYYYYMMDD(now);
+  }
+  return todayKstYYYYMMDD();
+}
+
 // ── HTTP 헬퍼 ────────────────────────────────────────────────────────────────
 
 interface KrxRawResponse {
@@ -146,6 +231,10 @@ async function krxPost(
   params: Record<string, string>,
 ): Promise<KrxRawResponse | null> {
   if (KRX_DISABLED) return null;
+  if (isBldCooldown(bld)) {
+    // ADR-0009 soft cooldown — 이미 실패가 누적된 bld 는 쿨다운 동안 skip.
+    return null;
+  }
   const body = new URLSearchParams({ bld, ...params }).toString();
 
   const ac = new AbortController();
@@ -168,19 +257,29 @@ async function krxPost(
     });
     if (!res.ok) {
       console.warn(`[KRX] ${bld} HTTP ${res.status}`);
+      recordBldFailure(bld);
       return null;
     }
     const text = await res.text();
-    if (!text.trim()) return null;
-    try { return JSON.parse(text); }
+    if (!text.trim()) {
+      recordBldFailure(bld);
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(text);
+      recordBldSuccess(bld);
+      return parsed;
+    }
     catch {
       console.warn(`[KRX] ${bld} JSON 파싱 실패 (앞 120자: ${text.slice(0, 120)})`);
+      recordBldFailure(bld);
       return null;
     }
   } catch (e) {
     // AbortError 포함 — 네트워크/타임아웃 모두 빈 응답 처리.
     const msg = e instanceof Error ? e.message : String(e);
     console.warn(`[KRX] ${bld} 네트워크 실패: ${msg}`);
+    recordBldFailure(bld);
     return null;
   } finally {
     clearTimeout(timer);
@@ -227,7 +326,7 @@ function normalizeCode(s: string | undefined | null): string {
  * KRX 리포트 필드명 (MDCSTAT02203)은 한글 키 — 방어적 다중 키 fallback 적용.
  */
 export async function fetchInvestorTrading(date?: string): Promise<KrxInvestorRow[]> {
-  const tradeDate = date && isValidYyyymmdd(date) ? date : todayKstYYYYMMDD();
+  const tradeDate = resolveTradeDate(date);
   const cacheKey = `investor:${tradeDate}`;
   const cached = getCached<KrxInvestorRow[]>(cacheKey);
   if (cached) return cached;
@@ -271,7 +370,7 @@ export async function fetchInvestorTrading(date?: string): Promise<KrxInvestorRo
  * 상장종목 PER/PBR/배당수익률 스냅샷. MDCSTAT03501.
  */
 export async function fetchPerPbr(date?: string): Promise<KrxPerPbrRow[]> {
-  const tradeDate = date && isValidYyyymmdd(date) ? date : todayKstYYYYMMDD();
+  const tradeDate = resolveTradeDate(date);
   const cacheKey = `perpbr:${tradeDate}`;
   const cached = getCached<KrxPerPbrRow[]>(cacheKey);
   if (cached) return cached;
@@ -307,7 +406,7 @@ export async function fetchPerPbr(date?: string): Promise<KrxPerPbrRow[]> {
  * 공매도 잔고 상위. MDCSTAT30001.
  */
 export async function fetchShortBalance(date?: string): Promise<KrxShortBalanceRow[]> {
-  const tradeDate = date && isValidYyyymmdd(date) ? date : todayKstYYYYMMDD();
+  const tradeDate = resolveTradeDate(date);
   const cacheKey = `short:${tradeDate}`;
   const cached = getCached<KrxShortBalanceRow[]>(cacheKey);
   if (cached) return cached;

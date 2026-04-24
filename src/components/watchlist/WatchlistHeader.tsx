@@ -290,8 +290,8 @@ export function WatchlistHeader({
                     <div className="bg-white/[0.03] p-4 rounded-2xl border border-white/[0.05] hover:border-blue-500/10 transition-all">
                       <span className="text-[10px] font-black text-white/20 uppercase tracking-widest block mb-1">환율 (USD/KRW)</span>
                       <div className="text-xl font-black text-white tracking-tighter">
-                        {marketContext.exchangeRate?.value ? marketContext.exchangeRate.value.toLocaleString() : <span className="text-sm text-white/20">—</span>}
-                        {marketContext.exchangeRate?.value && typeof marketContext.exchangeRate.change === 'number' && (
+                        {(marketContext.exchangeRate?.value ?? 0) > 0 ? marketContext.exchangeRate!.value.toLocaleString() : <span className="text-sm text-white/20">—</span>}
+                        {(marketContext.exchangeRate?.value ?? 0) > 0 && typeof marketContext.exchangeRate?.change === 'number' && marketContext.exchangeRate.change !== 0 && (
                           <span className={cn("text-[10px] ml-2", marketContext.exchangeRate.change > 0 ? "text-red-400" : "text-green-400")}>
                             {marketContext.exchangeRate.change > 0 ? '▲' : '▼'} {Math.abs(marketContext.exchangeRate.change)}
                           </span>
@@ -301,8 +301,8 @@ export function WatchlistHeader({
                     <div className="bg-white/[0.03] p-4 rounded-2xl border border-white/[0.05] hover:border-blue-500/10 transition-all">
                       <span className="text-[10px] font-black text-white/20 uppercase tracking-widest block mb-1">국채 10년물</span>
                       <div className="text-xl font-black text-white tracking-tighter">
-                        {marketContext.bondYield?.value ? `${marketContext.bondYield.value}%` : <span className="text-sm text-white/20">—</span>}
-                        {marketContext.bondYield?.value && typeof marketContext.bondYield.change === 'number' && (
+                        {(marketContext.bondYield?.value ?? 0) > 0 ? `${marketContext.bondYield!.value}%` : <span className="text-sm text-white/20">—</span>}
+                        {(marketContext.bondYield?.value ?? 0) > 0 && typeof marketContext.bondYield?.change === 'number' && marketContext.bondYield.change !== 0 && (
                           <span className={cn("text-[10px] ml-2", marketContext.bondYield.change > 0 ? "text-red-400" : "text-green-400")}>
                             {marketContext.bondYield.change > 0 ? '▲' : '▼'} {Math.abs(marketContext.bondYield.change)}
                           </span>
@@ -316,13 +316,13 @@ export function WatchlistHeader({
                       <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
                         <span className="text-[10px] font-black text-white/20 uppercase tracking-widest block mb-1">미 국채 10년물</span>
                         <div className="text-xl font-black text-white tracking-tighter">
-                          {marketContext.globalMacro.us10yYield}%
+                          {(marketContext.globalMacro.us10yYield ?? 0) > 0 ? `${marketContext.globalMacro.us10yYield}%` : <span className="text-sm text-white/20">—</span>}
                         </div>
                       </div>
                       <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
                         <span className="text-[10px] font-black text-white/20 uppercase tracking-widest block mb-1">달러 인덱스</span>
                         <div className="text-xl font-black text-white tracking-tighter">
-                          {marketContext.globalMacro.dollarIndex}
+                          {(marketContext.globalMacro.dollarIndex ?? 0) > 0 ? marketContext.globalMacro.dollarIndex : <span className="text-sm text-white/20">—</span>}
                         </div>
                       </div>
                     </div>

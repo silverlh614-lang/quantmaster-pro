@@ -21,6 +21,12 @@ import {
 /**
  * temperature=0.2 고정 Gemini 호출.
  * 반환: 텍스트 또는 null (네트워크·예산·파싱 실패 모두 null).
+ *
+ * ADR-0009: reflection 프롬프트는 JSON 스키마 지시문을 자체 포함하므로 페르소나
+ *           prepend 및 응답 서문 stripper 를 모두 OFF 해 JSON 원문을 그대로 돌려받는다.
+ *           응답 토큰 상한은 4096 (reflectionIntegrity.REFLECTION_MAX_OUTPUT_TOKENS).
+ *           fallback 은 API 키 미설정 등 provider 미구성 경로 전용으로, 기본 옵션(2048,
+ *           persona prepend) 이 적용되지만 실제 운영에서는 provider 경로가 항상 우선한다.
  */
 export async function callReflectionGemini(
   prompt: string,
@@ -33,6 +39,8 @@ export async function callReflectionGemini(
         caller,
         temperature: REFLECTION_TEMPERATURE,
         maxOutputTokens: REFLECTION_MAX_OUTPUT_TOKENS,
+        prependPersona: false,
+        stripPreamble: false,
       });
     }
   } catch (e) {

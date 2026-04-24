@@ -3,8 +3,17 @@ import { toast } from 'sonner';
 import { syncStockPrice, fetchCurrentPrice } from '../services/stockService';
 import { applyTradingFieldFallbacks } from '../services/stock/enrichment';
 import { useRecommendationStore, useMarketStore, useAnalysisStore, useSettingsStore, useTradeStore } from '../stores';
+import { isMarketOpen } from '../utils/marketTime';
 import type { StockRecommendation } from '../services/stockService';
 import type { TradeRecord } from '../types/quant';
+
+/**
+ * ADR-0009 §3: 장중 5분, 장외 15분 폴링.
+ * Yahoo 프록시·KIS 호출 부하를 장 마감 후 1/3 로 축소한다.
+ */
+function getCycleMs(): number {
+  return isMarketOpen() ? 5 * 60 * 1000 : 15 * 60 * 1000;
+}
 
 export function useStockSync() {
   const {
@@ -121,8 +130,9 @@ export function useStockSync() {
         return { ...t, currentPrice: newPrice, unrealizedPct: parseFloat(((newPrice - t.buyPrice) / t.buyPrice * 100).toFixed(2)), lastSyncAt: new Date().toISOString() };
       }));
       setSyncStatus({ isSyncing: false, currentStock: null, lastSyncTime: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) });
-      setNextSyncCountdown(300);
-      timeoutId = setTimeout(runSyncCycle, 300000);
+      const cycleMs = getCycleMs();
+      setNextSyncCountdown(Math.floor(cycleMs / 1000));
+      timeoutId = setTimeout(runSyncCycle, cycleMs);
     };
     if (autoSyncEnabled) {
       setNextSyncCountdown(60);
@@ -146,7 +156,8 @@ export function useStockSync() {
       if (hasChanges) setRecommendations(updatedRecommendations);
     };
     syncPrices();
-    const interval = setInterval(syncPrices, 5 * 60 * 1000);
+    // ADR-0009 §3: 장중 5분 / 장외 15분
+    const interval = setInterval(syncPrices, getCycleMs());
     return () => clearInterval(interval);
   }, [recommendations.length]);
 
