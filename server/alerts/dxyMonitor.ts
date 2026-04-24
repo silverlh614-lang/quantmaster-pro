@@ -307,7 +307,14 @@ export async function runDxyIntradayMonitor(): Promise<DxyIntradayAlert | null> 
   const { getDxyIntradayReading } = await import('./dxyIntradayClient.js');
   const reading = await getDxyIntradayReading(DXY_INTRADAY_WINDOW_MIN);
   if (!reading) {
-    console.warn('[DxyIntraday] 데이터 소스 모두 실패 (Yahoo + Alpha Vantage) — 스킵');
+    // Alpha Vantage API key 미설정이면 "모두 실패"는 기대된 경로이므로 info 레벨.
+    // Yahoo range=5d 폴백이 있어도 실패하면 경고로 띄운다(드문 케이스).
+    const avConfigured = Boolean(process.env.ALPHA_VANTAGE_API_KEY?.trim());
+    if (avConfigured) {
+      console.warn('[DxyIntraday] 데이터 소스 모두 실패 (Yahoo + Alpha Vantage) — 스킵');
+    } else {
+      console.log('[DxyIntraday] Yahoo 리딩 없음 & ALPHA_VANTAGE_API_KEY 미설정 — 스킵');
+    }
     return null;
   }
   const abs = Math.abs(reading.changeWindowPct);

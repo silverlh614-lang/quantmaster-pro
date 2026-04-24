@@ -58,9 +58,15 @@ export function registerAlertJobs(): void {
   cron.schedule('40 23 * * 0-4', async () => { await runDxyMonitor().catch(console.error); }, { timezone: 'UTC' });
 
   // P3-7: DXY 인트라데이 모니터 — US 장 시간대 5분 간격.
-  //   US Reg Mkt: KST 22:30 ~ 05:00 익일  (UTC 13:30 ~ 20:00 평일 / 0:00 ~ 5:00 익일 UTC 화~토)
-  //   안전 여유 — KST 22:00 ~ 06:00 까지 커버 (cron 표현 단순화: UTC 13~21 시 + 익일 UTC 0~5).
-  // Yahoo 5분봉이 freshness 5분이므로 5분 간격 호출이면 매 봉마다 1회 평가된다.
+  //
+  //   ▸ 주간 cron '*/5 13-23 * * 1-5' = UTC 월~금 13~23시 = KST 월~금 22시 ~ 토 08시
+  //     (US 정규장 22:30~05:00 KST + 프리/애프터마켓 포함 커버)
+  //   ▸ 야간 cron '*/5 0-5 * * 2-6'   = UTC 화~토 00~05시 = KST 화~토 09~14시
+  //     (US 전일 장 마감 후 야간 futures / 주말 직전 데이터)
+  //
+  // 주의: 야간 cron 은 KST 점심시간대라 US 현물시장은 이미 마감 상태.
+  // Yahoo DX-Y.NYB 가 해당 시간 봉이 부족해 실패할 수 있어 range=5d 폴백으로 방어한다.
+  // (dxyIntradayClient.getDxyIntradayReading 참조)
   cron.schedule('*/5 13-23 * * 1-5', async () => { await runDxyIntradayMonitor().catch(console.error); }, { timezone: 'UTC' });
   cron.schedule('*/5 0-5 * * 2-6',   async () => { await runDxyIntradayMonitor().catch(console.error); }, { timezone: 'UTC' });
 

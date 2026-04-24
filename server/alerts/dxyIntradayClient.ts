@@ -118,22 +118,35 @@ async function fetchAvRate(from: string, to: string): Promise<number | null> {
 }
 
 /**
- * Alpha Vantage 의 6 환율을 동시 조회해 ICE 표준 공식으로 DXY 합성.
- * 6번의 호출이 필요하므로 free tier (5/min) 에서 실패 가능 — 호출자는 null 처리.
+ * Alpha Vantage 의 6 환율을 순차 조회해 ICE 표준 공식으로 DXY 합성.
+ *
+ * 무료 등급 한도(5 calls/min)를 초과하지 않도록 Promise.all 대신 for 루프로 호출한다.
+ * ALPHA_VANTAGE_API_KEY 미설정 시에는 네트워크 호출 없이 즉시 null 반환.
+ *
+ * 호출 간격: 60s / 5 = 12s 여유. 6 번이면 ~72s 소요. free-tier 에서 안정적으로 성공.
  */
 export async function fetchAvSyntheticDxy(): Promise<number | null> {
-  // EUR/USD 와 GBP/USD 는 base 가 EUR/GBP. 다른 4개는 base USD.
-  const [eurUsd, usdJpy, gbpUsd, usdCad, usdSek, usdChf] = await Promise.all([
-    fetchAvRate('EUR', 'USD'),
-    fetchAvRate('USD', 'JPY'),
-    fetchAvRate('GBP', 'USD'),
-    fetchAvRate('USD', 'CAD'),
-    fetchAvRate('USD', 'SEK'),
-    fetchAvRate('USD', 'CHF'),
-  ]);
-  if (eurUsd == null || usdJpy == null || gbpUsd == null || usdCad == null || usdSek == null || usdChf == null) {
-    return null;
+  // API key 미설정 시 조용히 null — 호출자는 warn 대신 일반 로그로 처리한다.
+  if (!process.env.ALPHA_VANTAGE_API_KEY?.trim()) return null;
+
+  const pairs: Array<[string, string]> = [
+    ['EUR', 'USD'],
+    ['USD', 'JPY'],
+    ['GBP', 'USD'],
+    ['USD', 'CAD'],
+    ['USD', 'SEK'],
+    ['USD', 'CHF'],
+  ];
+  const rates: Array<number | null> = [];
+  for (let i = 0; i < pairs.length; i++) {
+    const [from, to] = pairs[i];
+    const r = await fetchAvRate(from, to);
+    if (r == null) return null; // rate-limit·네트워크 오류 시 즉시 포기 — 잔여 호출 절약
+    rates.push(r);
+    // 마지막 호출 후에는 대기 없이 반환
+    if (i < pairs.length - 1) await new Promise(resolve => setTimeout(resolve, 12_000));
   }
+  const [eurUsd, usdJpy, gbpUsd, usdCad, usdSek, usdChf] = rates as [number, number, number, number, number, number];
   // ICE DXY 공식
   const dxy = 50.14348112
     * Math.pow(eurUsd, -0.576)
@@ -165,8 +178,11 @@ export interface DxyIntradayReading {
  * Alpha Vantage 는 단일 스냅샷이라 변화율은 0 (호출자가 외부 캐시로 비교).
  */
 export async function getDxyIntradayReading(windowMinutes = 30): Promise<DxyIntradayReading | null> {
-  // 1) Yahoo 5분봉 — windowMinutes 분 만큼 이전 봉과 비교
-  const yahoo = await fetchYahooIntradayBars('DX-Y.NYB', '5m', '1d').catch(() => null);
+  // 1) Yahoo 5분봉 — windowMinutes 분 만큼 이전 봉과 비교.
+  // range='5d' — 주말·US 장 마감 직후처럼 "현재 UTC 달력일" 봉이 0~1 개뿐인 시간대에도
+  //              직전 영업일 봉을 확보해 length >= 2 조건 충족률을 올린다.
+  //              (windowMinutes 는 타임스탬프 비교이므로 5d 범위여도 결과는 불변.)
+  const yahoo = await fetchYahooIntradayBars('DX-Y.NYB', '5m', '5d').catch(() => null);
   if (yahoo && yahoo.length >= 2) {
     const last = yahoo[yahoo.length - 1];
     const targetTs = last.ts - windowMinutes * 60_000;
@@ -186,7 +202,8 @@ export async function getDxyIntradayReading(windowMinutes = 30): Promise<DxyIntr
       windowMinutes,
     };
   }
-  // 2) Alpha Vantage fallback — 단일 스냅샷
+  // 2) Alpha Vantage fallback — 단일 스냅샷.
+  // API key 미설정·free-tier 한도(5/min)로 실패하기 쉬운 경로이므로 조용히 null 반환한다.
   const av = await fetchAvSyntheticDxy();
   if (av != null) {
     const now = new Date().toISOString();
