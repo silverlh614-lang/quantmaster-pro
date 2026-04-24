@@ -25,6 +25,7 @@ import {
   updateShadow,
   getRemainingQty,
   getTotalRealizedPnl,
+  backfillShadowBuyFills,
 } from '../persistence/shadowTradeRepo.js';
 import { appendTradeEvent, type TradeEvent } from './tradeEventLog.js';
 import { addToBlacklist } from '../persistence/blacklistRepo.js';
@@ -313,8 +314,30 @@ async function fetchPriceAndRsiHistory(
   return null;
 }
 
+// PR-6 #12: 동시 실행 방지 뮤텍스.
+// orchestratorJobs(*/1분) 의 signalScanner → updateShadowResults 와
+// shadowResolverJob(*/5분) 이 5분마다 동시 진입해, 동일 shadow 상태를 각각
+// 로드·처리·브로드캐스트하면서 같은 L3 분할 익절·원금보호 알림이 텔레그램에
+// 두 번 나가는 사례(2026-04-24 Shadow 익절 중복) 가 확인됐다.
+// 최종 fills/quantity 는 last-write-wins 로 정확하지만 메시지만 중복.
+// 간단한 in-memory 플래그로 직렬화 — 한 쪽이 끝날 때까지 다른 쪽은 skip.
+let _exitRunning = false;
+
 /** Shadow 진행 중 거래 결과 업데이트 — Macro/포지션 제한 시에도 재사용 */
 export async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: RegimeLevel): Promise<void> {
+  if (_exitRunning) {
+    console.warn('[ExitEngine] 이미 updateShadowResults 실행 중 — 중복 진입 skip (concurrent tick 가드)');
+    return;
+  }
+  _exitRunning = true;
+  try {
+    return await _updateShadowResultsImpl(shadows, currentRegime);
+  } finally {
+    _exitRunning = false;
+  }
+}
+
+async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentRegime: RegimeLevel): Promise<void> {
   // 청산 실행 우선순위는 EXIT_RULE_PRIORITY_TABLE(entryEngine.ts)과 동일한 순서로 평가된다.
   // ExitRuleTag 타입이 규칙명을 강제하므로, 규칙 추가 시 shadowTradeRepo.ts의 ExitRuleTag와
   // entryEngine.ts의 EXIT_RULE_PRIORITY_TABLE을 함께 갱신하면 된다.
@@ -322,6 +345,15 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
   // L1 학습 훅 (아이디어 1) — 이번 루프에서 HIT_TARGET/HIT_STOP으로 전환된 stockCode를 수집하여
   // 루프 종료 후 setImmediate로 learningOrchestrator.onShadowResolved() 일괄 트리거.
   const resolvedNow = new Set<string>();
+
+  // PR-7 #13: 레거시 SHADOW BUY fill 백필 (멱등). 기존에 BUY fill 없이 저장된
+  // trade 들에 `originalQuantity × shadowEntryPrice` 로 BUY fill 을 복원한다.
+  // 이후의 모든 fill 기반 파생(getRemainingQty/syncPositionCache/computeShadowAccount)
+  // 이 정상 작동하기 위한 전제 조건.
+  const backfilled = backfillShadowBuyFills(shadows);
+  if (backfilled > 0) {
+    console.log(`[ExitEngine] SHADOW BUY fill 백필: ${backfilled}건 (레거시 마이그레이션)`);
+  }
 
   // Phase 3-⑨: 열려 있는 trade 에 대해 30/60/120분 mini-bar 스냅샷 포착 (약한 라벨).
   // 실패해도 main exit 로직에 영향 없도록 격리.
@@ -340,11 +372,32 @@ export async function updateShadowResults(shadows: ServerShadowTrade[], currentR
       const ageMs = Date.now() - new Date(shadow.signalTime).getTime();
       if (ageMs < 4 * 60 * 1000) continue;
       shadow.status = 'ACTIVE';
+      // PR-7 #13: PENDING→ACTIVE 전환 시 BUY fill 기록 — fills SSOT 작동의 전제.
+      // LIVE 경로는 fillMonitor.updateStatus('ACTIVE') 가 이 역할을 하지만 SHADOW 경로는
+      // 이 지점이 유일한 진입 체결 확정점이다. 이미 BUY fill 이 있으면 스킵(멱등).
+      const hasBuyFill = (shadow.fills ?? []).some(f => f.type === 'BUY');
+      if (!hasBuyFill && shadow.quantity > 0 && shadow.shadowEntryPrice > 0) {
+        const entryTs = new Date().toISOString();
+        appendFill(shadow, {
+          type:        'BUY',
+          subType:     'INITIAL_BUY',
+          qty:         shadow.quantity,
+          price:       shadow.shadowEntryPrice,
+          reason:      'SHADOW 가상 진입',
+          timestamp:   entryTs,
+          status:      'CONFIRMED',
+          confirmedAt: entryTs,
+        });
+        shadow.originalQuantity = Math.max(shadow.originalQuantity ?? 0, shadow.quantity);
+      }
       // Shadow 체결 알림 — LIVE의 fillMonitor "✅ 체결 확인"과 동일한 경험 제공
+      // 체결 알림 — getRemainingQty SSOT 를 사용해 캐시 드리프트를 방지한다.
+      const filledQty = getRemainingQty(shadow) > 0 ? getRemainingQty(shadow) : shadow.quantity;
       await sendTelegramAlert(
-        `🎭 <b>[Shadow 체결]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
-        `진입가: ${shadow.shadowEntryPrice.toLocaleString()}원 × ${shadow.quantity}주\n` +
-        `손절: ${shadow.stopLoss.toLocaleString()}원 | 목표: ${shadow.targetPrice.toLocaleString()}원`
+        `🎭 <b>[SHADOW 체결]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+        `진입가: ${shadow.shadowEntryPrice.toLocaleString()}원 × ${filledQty}주\n` +
+        `손절: ${shadow.stopLoss.toLocaleString()}원 | 목표: ${shadow.targetPrice.toLocaleString()}원\n` +
+        `⚠️ SHADOW 모드 — 실계좌 잔고 아님`
       ).catch(console.error);
       appendShadowLog({ event: 'SHADOW_ACTIVATED', ...shadow });
       continue;

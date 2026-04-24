@@ -8,6 +8,8 @@ export const DATA_DIR = process.env.PERSIST_DATA_DIR
 
 export const WATCHLIST_FILE          = path.join(DATA_DIR, 'watchlist.json');
 export const INTRADAY_WATCHLIST_FILE = path.join(DATA_DIR, 'watchlist-intraday.json');
+/** 프론트엔드 "관심종목" — 자동매매 워치리스트와 분리된 사용자 큐레이션 저장소. */
+export const USER_WATCHLIST_FILE     = path.join(DATA_DIR, 'user-watchlist.json');
 
 /** 레짐별 가중치 파일 경로 (예: data/condition-weights-R2_BULL.json) */
 export function conditionWeightsRegimeFile(regime: string): string {

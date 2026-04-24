@@ -22,6 +22,8 @@ When modifying any file, ensure changes stay within the owning module's stated r
 | `server/clients/kisClient.ts` | Proxy all KIS API calls with token management and VTS/real switching |
 | `server/routes/kisRouter.ts` | Expose REST endpoints that delegate KIS supply, short-selling, and order calls |
 | `server/routes/autoTradeRouter.ts` | Expose REST endpoints for auto-trade control, watchlist management, and macro state |
+| `server/trading/preMarketGapProbe.ts` | Compute pre-market gap from KIS previous close; classify as proceed/warn/skip by threshold |
+| `server/orchestrator/tradingOrchestrator.ts` | Coordinate pre-market auction order prep via watchlist, gap probe, and gate re-evaluation |
 
 ---
 

@@ -44,20 +44,22 @@ export interface ChannelBuySignalParams {
 export async function channelBuySignalEmitted(p: ChannelBuySignalParams): Promise<void> {
   if (!isChannelEnabled()) return;
 
-  const modeLabel  = p.mode === 'LIVE' ? 'LIVE 매수 신호' : 'Shadow 매수 신호';
+  const modeLabel  = p.mode === 'LIVE' ? 'LIVE 매수 신호' : '[SHADOW] 매수 신호';
   const signalEmoji = p.signalType === 'STRONG_BUY' ? '🔥' : '✅';
+  const bodyLines = [
+    `💰 진입가: <b>${p.price.toLocaleString()}원</b> × ${p.quantity}주`,
+    p.sector ? `🏭 섹터: ${escapeHtml(p.sector)}` : '',
+    `📊 Gate: ${p.gateScore.toFixed(1)} | MTAS: ${p.mtas.toFixed(0)}/10 | CS: ${p.cs.toFixed(2)}`,
+    `🛡️ 손절: ${p.stopLoss.toLocaleString()}원`,
+    `🎯 목표: ${p.targetPrice.toLocaleString()}원`,
+    `⚖️ RRR: 1:${p.rrr.toFixed(1)}`,
+  ];
+  if (p.mode === 'SHADOW') bodyLines.push('⚠️ SHADOW 모드 — 실계좌 잔고 아님');
   const message = formatAlert({
     category: AlertCategory.ANALYSIS,
     eventType: `${modeLabel} ${signalEmoji} ${p.stockName} (${p.stockCode})`,
     headerEmoji: '🧪',
-    bodyLines: [
-      `💰 진입가: <b>${p.price.toLocaleString()}원</b> × ${p.quantity}주`,
-      p.sector ? `🏭 섹터: ${escapeHtml(p.sector)}` : '',
-      `📊 Gate: ${p.gateScore.toFixed(1)} | MTAS: ${p.mtas.toFixed(0)}/10 | CS: ${p.cs.toFixed(2)}`,
-      `🛡️ 손절: ${p.stopLoss.toLocaleString()}원`,
-      `🎯 목표: ${p.targetPrice.toLocaleString()}원`,
-      `⚖️ RRR: 1:${p.rrr.toFixed(1)}`,
-    ],
+    bodyLines,
   });
   await dispatchAlert(AlertCategory.ANALYSIS, message).catch(console.error);
 }

@@ -114,7 +114,7 @@ export function formatShadowProgress(p: ShadowProgress): string {
     ? ` (승률 ${p.winRatePct.toFixed(1)}%)`
     : '';
   return [
-    `📊 <b>[Shadow 진행률 Day ${p.dayElapsed}/${p.totalDays}]</b>`,
+    `📊 <b>[SHADOW 진행률 Day ${p.dayElapsed}/${p.totalDays}]</b>`,
     `신규 신호: ${p.newToday}건 | 전체 샘플: ${p.totalSamples}/${p.targetSamples}`,
     `━━━━━━━━━━━━━━━━━━`,
     `✅ WIN: ${p.winCount}건${closedPct}`,
@@ -124,6 +124,7 @@ export function formatShadowProgress(p: ShadowProgress): string {
     p.etaDaysRemain >= 0
       ? `예상 완주: ${p.etaDate} (D-${p.etaDaysRemain})`
       : `예상 완주: 미정 (최근 7일 신규 0건)`,
+    `⚠️ SHADOW 모드 — 실계좌 잔고 아님`,
   ].join('\n');
 }
 

@@ -32,6 +32,8 @@ import { channelBuySignalEmitted } from '../alerts/channelPipeline.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { loadIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
+import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
+import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import {
   type ServerShadowTrade,
   type EntryKellySnapshot,
@@ -375,28 +377,54 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
 
   const shadowMode = process.env.AUTO_TRADE_MODE !== 'LIVE'; // 기본 Shadow 모드
 
-  // 투자 총자산: 환경변수 → KIS 계좌 주문가능현금+기본값 순으로 결정
-  let totalAssets = Number(process.env.AUTO_TRADE_ASSETS || 0);
-  const balance = await fetchAccountBalance().catch(() => null);
-  if (!totalAssets) totalAssets = balance ?? 30_000_000; // 모의계좌 기본 3천만원
-  let orderableCash = balance ?? totalAssets;
-  const conditionWeights = loadConditionWeights();
+  // PR-5 #11: SHADOW ↔ LIVE 계좌 잔고 분리.
+  // 이전 코드는 shadowMode 여부와 무관하게 fetchAccountBalance() (실/모의 KIS 잔고)
+  // 를 읽어 totalAssets 로 삼았고, SHADOW 상태에서도 KIS 잔고가 "Shadow 보유가치"
+  // 차감 대상이 되면서 로그/사이징/알림이 모두 실계좌 값으로 표시되었다.
+  //
+  // 원칙:
+  //   - SHADOW 모드 → shadowAccountRepo.computeShadowAccount() 의 독립 원장 사용
+  //     (startingCapital 기반, KIS 잔고 미참조)
+  //   - LIVE 모드   → fetchAccountBalance() KIS 실/모의 잔고 사용
+  //
+  // Shadow 는 진짜 가상 포트폴리오로 독립 운용되어야 한다는 사용자 요구(2026-04-24).
+  const shadows = loadShadowTrades();
+  let totalAssets: number;
+  let orderableCash: number;
   let activeHoldingValue = 0;
+
+  if (shadowMode) {
+    const settings = loadTradingSettings();
+    // AUTO_TRADE_ASSETS 가 명시됐으면 그 값으로 시작원금 오버라이드 (운영 편의).
+    const startingCapital = Number(process.env.AUTO_TRADE_ASSETS || settings.startingCapital);
+    const account = computeShadowAccount(shadows, startingCapital);
+    totalAssets        = account.totalAssets;      // cash + invested + unrealized(미제공 시 invested)
+    orderableCash      = Math.max(0, account.cashBalance);
+    activeHoldingValue = account.totalInvested;
+  } else {
+    totalAssets = Number(process.env.AUTO_TRADE_ASSETS || 0);
+    const balance = await fetchAccountBalance().catch(() => null);
+    if (!totalAssets) totalAssets = balance ?? 30_000_000; // 모의계좌 기본 3천만원
+    orderableCash = balance ?? totalAssets;
+  }
+  const conditionWeights = loadConditionWeights();
 
   console.log(
     `[AutoTrade] 스캔 시작 — 워치리스트 ${watchlist.length}개 (SWING ${swingList.length}개 / CATALYST ${catalystList.length}개 / MOMENTUM ${momentumList.length}개) / Intraday Ready ${intradayBuyList.length}개 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'}`
   );
 
-  const shadows = loadShadowTrades();
-  if (shadowMode || balance === null) {
+  // 레거시 호환: preMarket 경로에서 이미 activeHoldingValue 를 미리 계산해둔 경우를
+  // 대비해, shadowMode 이면서 activeHoldingValue 가 0 이면 fills 기반으로 한 번 더 확인.
+  if (shadowMode && activeHoldingValue === 0) {
     activeHoldingValue = shadows
       .filter((s) => isOpenShadowStatus(s.status))
       .reduce((sum, s) => sum + (s.shadowEntryPrice * s.quantity), 0);
-    orderableCash = Math.max(0, orderableCash - activeHoldingValue);
   }
 
   console.log(
-    `[AutoTrade] 실주문 기준 현금 — 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원 / Shadow 보유가치: ${activeHoldingValue.toLocaleString()}원 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'}`
+    shadowMode
+      ? `[AutoTrade] [SHADOW] 가상 계좌 기준 — 시작원금: ${totalAssets.toLocaleString()}원 / 현금: ${orderableCash.toLocaleString()}원 / 보유가치: ${activeHoldingValue.toLocaleString()}원 / 모드: SHADOW`
+      : `[AutoTrade] [LIVE] 실계좌 기준 — 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원 / 모드: LIVE`
   );
 
   // ── 레짐 분류 (classifyRegime — backtestPortfolio와 동일 로직) ──────────────

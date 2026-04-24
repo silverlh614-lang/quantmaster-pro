@@ -164,8 +164,13 @@ const _cb = createCircuitBreaker({
   windowMs: 60_000,
   cooldownMs: 60_000,
 });
-const MAX_RETRIES = 2;
-const BACKOFF_BASE_MS = 800;
+// PR-3 #6: 매일 "Gemini 응답 실패 — 템플릿 fallback" 반복 발생을 줄이기 위해
+// MAX_RETRIES 2 → 3, BACKOFF_BASE 800 → 1500 으로 상향.
+// 전형적 실패 원인: (a) 일시적 503/504 (b) 토큰 초과 파싱 실패 (c) Flash preview 불안정.
+// 총 백오프 시간: 1.5 + 3 + 6 ≈ 10.5s (이전 0.8 + 1.6 + 3.2 ≈ 5.6s)
+// 더 긴 대기가 수용 가능한 이유: nightly 배치 경로는 사용자 동기 응답이 아님.
+const MAX_RETRIES = 3;
+const BACKOFF_BASE_MS = 1500;
 
 function isTransient(e: unknown): boolean {
   if (!(e instanceof Error)) return true;

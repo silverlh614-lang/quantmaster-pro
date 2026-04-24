@@ -1,5 +1,7 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { motion } from 'motion/react';
+import { useQuery } from '@tanstack/react-query';
+import { apiFetchSafe } from '../api/client';
 import { QuantScreener } from '../components/analysis/QuantScreener';
 import { GateWizard } from '../components/analysis/GateWizard';
 import { WeightConfigPanel } from '../components/analysis/WeightConfigPanel';
@@ -49,24 +51,24 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
   const vkospiResult = useGlobalIntelStore(s => s.vkospiTriggerResult);
   const currentVkospi = vkospiResult?.vkospi ?? 18;
 
-  // ── KIS Stream 디버그 상태 (30초 폴링) ──────────────────────────────────────
-  const [streamDebug, setStreamDebug] = useState<KisStreamDebug | null>(null);
+  // ── KIS Stream 디버그 상태 (30초 폴링, TanStack Query) ─────────────────────
+  // PR-2 #2: silent-fail fetch 대신 useQuery 로 캐시·retry·백오프 일관 적용.
+  // 실패해도 전역 onError 토스트만 뜨고 데이터는 undefined 로 남아 패널이 숨김 처리.
   const [showStreamLog, setShowStreamLog] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const res = await fetch('/api/health/pipeline');
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled && data.kisStream) setStreamDebug(data.kisStream);
-      } catch { /* 서버 미응답 시 무시 */ }
-    };
-    poll();
-    const id = setInterval(poll, 30_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  const { data: streamDebug = null } = useQuery<KisStreamDebug | null>({
+    queryKey: ['pipeline-health', 'kis-stream'],
+    queryFn: async () => {
+      const data = await apiFetchSafe<{ kisStream?: KisStreamDebug }>(
+        '/api/health/pipeline',
+        {},
+        { kisStream: undefined },
+      );
+      return data.kisStream ?? null;
+    },
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+    retry: 1,
+  });
 
   // ── Gate Wizard: selected stock for evaluation ─────────────────────────────
   const [wizardStock, setWizardStock] = useState<StockRecommendation | null>(null);
