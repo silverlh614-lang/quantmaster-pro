@@ -16,7 +16,6 @@ const TODAY_ISO_2   = '2026-04-24T10:15:00+09:00';
 
 function mkTrade(overrides: Partial<ServerShadowTrade> & { id: string; fills?: PositionFill[] }): ServerShadowTrade {
   return {
-    id: overrides.id,
     stockCode: overrides.stockCode ?? overrides.id,
     stockName: overrides.stockName ?? `종목${overrides.id}`,
     signalTime: overrides.signalTime ?? YESTERDAY_ISO,

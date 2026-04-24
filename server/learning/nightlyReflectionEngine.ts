@@ -1,5 +1,5 @@
 /**
- * nightlyReflectionEngine.ts — R(t) 티어: 매일 밤 자기반성 엔진.
+ * @responsibility 19:00 KST 반성 엔진 — 전량·부분 실현을 모아 Gemini 서사+페르소나 큐레이션
  *
  * 실행 시각: 매일 KST 19:00 (UTC 10:00).
  *
@@ -39,7 +39,7 @@ import type {
   CounterfactualBreakdown,
 } from './reflectionTypes.js';
 
-import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, isActiveFill, type ServerShadowTrade, type PositionFill } from '../persistence/shadowTradeRepo.js';
 import { listIncidents } from '../persistence/incidentLogRepo.js';
 import { loadCurrentSchemaRecords } from '../persistence/attributionRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
@@ -116,6 +116,15 @@ export interface ReflectionInputs {
   date: string;
   /** 오늘 종료된 shadow trades (전체 객체 — 5-Why·Persona·Counterfactual 입력) */
   closedTrades: ReturnType<typeof loadShadowTrades>;
+  /**
+   * PR-16: 오늘(KST) CONFIRMED SELL fill 이 있었으나 ACTIVE 상태를 유지하는 포지션.
+   * 예: 부분 익절(PARTIAL_TP), 트레일링 부분 청산. 학습이 이익 시나리오도 보도록.
+   * fill.timestamp 기준이며 closedTrades 와 상호 배타 (전량 청산은 closedTrades 로만 카운트).
+   */
+  partialRealizationsToday: Array<{
+    trade: ServerShadowTrade;
+    todaysSells: PositionFill[];
+  }>;
   /** 오늘 부착된 attribution 레코드 */
   attributionToday: ReturnType<typeof loadCurrentSchemaRecords>;
   /** 오늘의 incident (CRITICAL/HIGH/WARN 포함) */
@@ -133,6 +142,23 @@ export function collectInputs(date: string): ReflectionInputs {
   const closedTrades = allTrades.filter(
     (t) => (t.status === 'HIT_TARGET' || t.status === 'HIT_STOP') && isoInKstDate(t.exitTime, date),
   );
+
+  // PR-16: ACTIVE 상태에서 오늘 CONFIRMED 된 SELL fill 이 있는 포지션.
+  // closedTrades 와 동일 id 는 제외 (전량 청산은 closedTrades 가 SSOT).
+  const closedIds = new Set(closedTrades.map((t) => t.id));
+  const partialRealizationsToday: ReflectionInputs['partialRealizationsToday'] = [];
+  for (const t of allTrades) {
+    if (closedIds.has(t.id)) continue;
+    const fills = t.fills ?? [];
+    const todaysSells = fills.filter((f) => {
+      if (f.type !== 'SELL' || !isActiveFill(f) || f.status !== 'CONFIRMED') return false;
+      const ts = f.confirmedAt ?? f.timestamp;
+      return !!ts && isoInKstDate(ts, date);
+    });
+    if (todaysSells.length > 0) {
+      partialRealizationsToday.push({ trade: t, todaysSells });
+    }
+  }
 
   const attribution = loadCurrentSchemaRecords().filter((r) => isoInKstDate(r.closedAt, date));
   const incidentsToday = listIncidents(200).filter((i) => isoInKstDate(i.at, date));
@@ -154,6 +180,8 @@ export function collectInputs(date: string): ReflectionInputs {
   // Integrity Guard 원천 집합 조립.
   const knownSourceIds = new Set<string>();
   for (const t of closedTrades) knownSourceIds.add(t.id);
+  // PR-16: 부분매도 trade id 도 knownSourceIds 에 추가 — 학습이 이를 근거로 claim 가능.
+  for (const p of partialRealizationsToday) knownSourceIds.add(p.trade.id);
   for (const r of attribution) knownSourceIds.add(r.tradeId);
   for (const i of incidentsToday) knownSourceIds.add(i.at);
   for (const m of missedSignals) knownSourceIds.add(m.stockCode);
@@ -162,11 +190,87 @@ export function collectInputs(date: string): ReflectionInputs {
   return {
     date,
     closedTrades,
+    partialRealizationsToday,
     attributionToday: attribution,
     incidentsToday,
     missedSignals,
     knownSourceIds,
     manualExitsToday,
+  };
+}
+
+/**
+ * PR-16: 부분매도 + 전량청산을 합쳐 "오늘 실현 이벤트" 요약을 산출한다.
+ * nightlyReflection 의 Gemini 프롬프트·Bias Heatmap·Counterfactual 에
+ * 공통 입력으로 쓰여 "오늘 이익 있었음에도 손실로만 보이는" 편향을 차단한다.
+ */
+export interface TodaysRealizationSummary {
+  fullClosedCount: number;
+  partialOnlyCount: number;
+  winFills: number;
+  lossFills: number;
+  totalRealizedKrw: number;
+  weightedReturnPct: number;
+  /** 종목 단위 라벨 (사람이 읽는 요약). 예: "현대제철 전량손절 -7.42%, 포스코인터 부분익절 +5.00%" */
+  labels: string[];
+}
+
+export function summarizeTodaysRealizationsForLearning(inputs: ReflectionInputs): TodaysRealizationSummary {
+  const fullClosed = inputs.closedTrades;
+  const partial    = inputs.partialRealizationsToday;
+
+  // fill 수 기반 승/패 카운트
+  let winFills  = 0;
+  let lossFills = 0;
+  let totalRealizedKrw = 0;
+  let weightedNum = 0;
+  let weightedDen = 0;
+  const labels: string[] = [];
+
+  for (const t of fullClosed) {
+    // 전량 청산 trade 는 오늘(KST) SELL fill 들 중 해당 날짜만 집계.
+    const fills = (t.fills ?? []).filter((f) =>
+      f.type === 'SELL' && isActiveFill(f) && f.status === 'CONFIRMED'
+      && isoInKstDate(f.confirmedAt ?? f.timestamp, inputs.date),
+    );
+    for (const f of fills) {
+      if ((f.pnl ?? 0) > 0) winFills++;
+      else if ((f.pnl ?? 0) < 0) lossFills++;
+      totalRealizedKrw += f.pnl ?? 0;
+      weightedNum += (f.pnlPct ?? 0) * f.qty;
+      weightedDen += f.qty;
+    }
+    if (fills.length > 0) {
+      const sumPnl = fills.reduce((s, f) => s + (f.pnl ?? 0), 0);
+      const totalQty = fills.reduce((s, f) => s + f.qty, 0);
+      const pct = totalQty > 0 ? fills.reduce((s, f) => s + (f.pnlPct ?? 0) * f.qty, 0) / totalQty : 0;
+      const kind = t.status === 'HIT_TARGET' ? '전량익절' : '전량손절';
+      labels.push(`${t.stockName} ${kind} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}% (${Math.round(sumPnl).toLocaleString()}원)`);
+    }
+  }
+
+  for (const p of partial) {
+    for (const f of p.todaysSells) {
+      if ((f.pnl ?? 0) > 0) winFills++;
+      else if ((f.pnl ?? 0) < 0) lossFills++;
+      totalRealizedKrw += f.pnl ?? 0;
+      weightedNum += (f.pnlPct ?? 0) * f.qty;
+      weightedDen += f.qty;
+    }
+    const sumPnl   = p.todaysSells.reduce((s, f) => s + (f.pnl ?? 0), 0);
+    const totalQty = p.todaysSells.reduce((s, f) => s + f.qty, 0);
+    const pct = totalQty > 0 ? p.todaysSells.reduce((s, f) => s + (f.pnlPct ?? 0) * f.qty, 0) / totalQty : 0;
+    labels.push(`${p.trade.stockName} 부분익절 ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}% (${Math.round(sumPnl).toLocaleString()}원)`);
+  }
+
+  return {
+    fullClosedCount: fullClosed.length,
+    partialOnlyCount: partial.length,
+    winFills,
+    lossFills,
+    totalRealizedKrw,
+    weightedReturnPct: weightedDen > 0 ? weightedNum / weightedDen : 0,
+    labels,
   };
 }
 
@@ -266,6 +370,8 @@ export async function runNightlyReflection(
     const mainInput = {
       date,
       closedTrades: inputs.closedTrades,
+      // PR-16: 부분매도 실현도 Gemini narrative 에 포함해 "이익 실종" 편향 차단.
+      partialRealizationsToday: inputs.partialRealizationsToday,
       attributionToday: inputs.attributionToday,
       incidentsToday: inputs.incidentsToday,
       missedSignals: inputs.missedSignals,
@@ -290,7 +396,9 @@ export async function runNightlyReflection(
     }
 
     // ── Persona Round-Table (우선순위 1 — 스펙 순서: 메인 다음 페르소나) ──
-    const primaryTrade = inputs.closedTrades[0];
+    // PR-16: 오늘 전량 청산이 없을 때도 부분매도 포지션을 1순위로 Round-Table 대상으로
+    // 승격. 활발한 이익 실현을 학습 페르소나가 짚고 넘어가게 한다.
+    const primaryTrade = inputs.closedTrades[0] ?? inputs.partialRealizationsToday[0]?.trade;
     if (primaryTrade) {
       const remain = callsBudget - callsSpent;
       if (remain >= 1) {
@@ -348,8 +456,11 @@ export async function runNightlyReflection(
     }
 
     // ── Phase 4 #11 Bias Heatmap — Gemini 호출 없음 ────────────────────────
+    // PR-16: Bias Heatmap 의 "오늘 청산" 입력을 fill SSOT 기반 요약으로 확장한다.
+    // 부분익절이 있는 날에 "악손실 편향" 만 감지돼 왜곡된 heatmap 이 누적되지 않도록.
     const macro = loadMacroState();
     const activePositions = loadShadowTrades().filter((t) => t.status === 'ACTIVE');
+    const realizationSummary = summarizeTodaysRealizationsForLearning(inputs);
     const biasScores = computeBiasHeatmap({
       activePositions,
       closedToday: inputs.closedTrades,
@@ -376,10 +487,10 @@ export async function runNightlyReflection(
     }
 
     // ── Phase 4 #12 Experiment Proposal ──────────────────────────────────────
-    const totalClosed = inputs.closedTrades.length;
-    const lossRatio = totalClosed > 0
-      ? inputs.closedTrades.filter((t) => t.status === 'HIT_STOP').length / totalClosed
-      : 0;
+    // PR-16: lossRatio 를 전량 청산 비율이 아닌 fill 단위 승/손 비율로 계산해
+    // 부분익절이 있는 날에도 실패 실험 제안이 과도하게 나오지 않도록 보정.
+    const fillTotal = realizationSummary.winFills + realizationSummary.lossFills;
+    const lossRatio = fillTotal > 0 ? realizationSummary.lossFills / fillTotal : 0;
     const proposals = proposeExperiments({
       chronicConditions: chronic,
       confession,
