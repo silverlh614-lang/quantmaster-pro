@@ -136,6 +136,25 @@ async function startServer() {
     console.error('[Boot] KIS 블랙리스트 로드 실패:', e instanceof Error ? e.message : e);
   }
 
+  // PR-25-C (ADR-0011): AI 추천 외부 호출 예산 임계 경보 훅 등록.
+  // 80%/95%/100% 도달 시 텔레그램 1회 알림 (같은 임계 하루 1회 dedupe).
+  try {
+    const { setBudgetAlertHook } = await import('./persistence/aiCallBudgetRepo.js');
+    setBudgetAlertHook(({ bucket, used, limit, thresholdPct }) => {
+      const icon = thresholdPct >= 100 ? '🛑' : thresholdPct >= 95 ? '🚨' : '⚠️';
+      sendTelegramAlert(
+        `${icon} AI 추천 외부 호출 예산 ${thresholdPct}% 도달\n` +
+        `bucket: ${bucket}\n` +
+        `사용: ${used} / ${limit}\n` +
+        (thresholdPct >= 100
+          ? '→ 오늘 남은 시간 동안 해당 통로 차단됨. 다음 KST 자정 자동 리셋.'
+          : '→ 사용 추이 확인 바람.')
+      ).catch(() => { /* alert 실패는 무시 */ });
+    });
+  } catch (e) {
+    console.error('[Boot] AI 예산 경보 훅 등록 실패:', e instanceof Error ? e.message : e);
+  }
+
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 

@@ -1,6 +1,6 @@
 import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, withRetry, safeJsonParse, getCachedAIResponse } from './aiClient';
-import { fetchKisSupply, fetchKisShortSelling } from './kisDataFetcher';
+import { fetchAiUniverseSnapshot } from '../../api/aiUniverseClient';
 import type {
   QuantScreenResult,
   DartScreenerResult,
@@ -273,29 +273,25 @@ export async function detectSilentAccumulation(
   const todayDate = requestedAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }).split(' ')[0];
   const requestedAtISO = requestedAt.toISOString();
 
-  const kisResults = await Promise.allSettled(
-    stockCodes.map(s => Promise.all([
-      fetchKisSupply(s.code),
-      fetchKisShortSelling(s.code),
-    ]))
+  // PR-25-C (ADR-0011): KIS 수급·공매도 호출 제거. Naver 모바일 snapshot 의 정적
+  // `foreignerOwnRatio` + PER/PBR/시총 만 주입하고, 일별 순매수 추세·공매도 변화는
+  // AI 프롬프트 자체 판단으로 위임한다 (PR-13 프롬프트 정렬 유지).
+  const snapshotResults = await Promise.allSettled(
+    stockCodes.map(s => fetchAiUniverseSnapshot(s.code)),
   );
 
   const kisDataBlocks = stockCodes.map((s, i) => {
-    const res = kisResults[i];
-    if (res.status !== 'fulfilled') return `${s.name}(${s.code}): KIS 조회 실패`;
-    const [supply, short] = res.value;
+    const res = snapshotResults[i];
     const lines: string[] = [`▸ ${s.name}(${s.code})`];
-    if (supply) {
-      lines.push(`  기관 5일 순매수 합계: ${supply.institutionNet.toLocaleString()}주`);
-      lines.push(`  외인 5일 순매수 합계: ${supply.foreignNet.toLocaleString()}주`);
-      lines.push(`  기관 일별 순매수: [${(supply.institutionalDailyAmounts ?? []).join(', ')}]`);
-      lines.push(`  외인+기관 동반매수: ${supply.isPassiveAndActive ? 'YES' : 'NO'}`);
+    if (res.status === 'fulfilled' && res.value && res.value.found) {
+      const snap = res.value;
+      lines.push(`  외인 지분율: ${snap.foreignerOwnRatio.toFixed(2)}%`);
+      if (snap.per > 0) lines.push(`  PER: ${snap.per.toFixed(2)}`);
+      if (snap.pbr > 0) lines.push(`  PBR: ${snap.pbr.toFixed(2)}`);
+      if (snap.marketCapDisplay) lines.push(`  시총: ${snap.marketCapDisplay}`);
+      lines.push('  (일별 순매수·공매도 추세는 AI 자체 판단 영역)');
     } else {
-      lines.push('  KIS 수급 데이터 없음');
-    }
-    if (short) {
-      lines.push(`  공매도 비율: ${(short as any).currentRatio?.toFixed(2) ?? '?'}%`);
-      lines.push(`  공매도 추세: ${(short as any).trend ?? '?'}`);
+      lines.push('  스냅샷 조회 실패 — AI 자체 판단 필요');
     }
     return lines.join('\n');
   }).join('\n\n');

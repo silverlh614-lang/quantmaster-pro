@@ -8,8 +8,8 @@ import {
   calculateDisparity
 } from "../../utils/indicators";
 import { fetchCorpCode, fetchDartFinancials } from './dartDataFetcher';
-import { fetchKisSupply, fetchKisShortSelling } from './kisDataFetcher';
 import { fetchHistoricalData } from './historicalData';
+import { fetchAiUniverseSnapshot, type AiUniverseValuation } from '../../api/aiUniverseClient';
 import type { StockRecommendation } from './types';
 import type { TranchePlan } from '../../types/quant';
 
@@ -24,6 +24,30 @@ interface KrxValuation {
 
 // 세션 스코프 in-memory 캐시 — 한 번의 분석 사이클에서 동일 종목 코드 중복 호출을 줄인다.
 const _valuationCache = new Map<string, KrxValuation | null>();
+
+/**
+ * PR-25-C: Naver snapshot 의 `foreignerOwnRatio` 를 기존 supplyData 스키마와
+ * 호환되는 stub 으로 변환. 일별 순매수·연속일수 는 AI 프롬프트 자체 판단으로
+ * 위임하므로 0/빈 배열. 호출자 코드 변경 없이 `supplyData` 필드를 유지.
+ */
+export function buildSnapshotSupplyStub(snap: AiUniverseValuation | null): {
+  foreignNet: number; institutionNet: number; individualNet: number;
+  foreignConsecutive: number; institutionalDailyAmounts: number[];
+  isPassiveAndActive: boolean; foreignerOwnRatio: number;
+  dataSource: 'NAVER_SNAPSHOT' | 'NONE';
+} | null {
+  if (!snap) return null;
+  return {
+    foreignNet: 0,
+    institutionNet: 0,
+    individualNet: 0,
+    foreignConsecutive: 0,
+    institutionalDailyAmounts: [],
+    isPassiveAndActive: false,
+    foreignerOwnRatio: snap.foreignerOwnRatio,
+    dataSource: snap.found ? 'NAVER_SNAPSHOT' : 'NONE',
+  };
+}
 
 /**
  * 종목 밸류에이션 조회 — PR-25-B (ADR-0011): KIS/KRX 비의존 통로 사용.
@@ -234,8 +258,11 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
     const isKoreanStock = /^\d{6}$/.test(stock.code.split('.')[0]);
     if (isKoreanStock) {
       const baseCode = stock.code.split('.')[0];
-      kisSupply = await fetchKisSupply(baseCode);
-      kisShort = await fetchKisShortSelling(baseCode);
+      // PR-25-C (ADR-0011): KIS 수급·공매도 호출 제거 — Naver 모바일 snapshot 의 정적
+      // `foreignerOwnRatio` 만 유지. 일별 순매수·공매도 잔고는 AI 프롬프트가 자체
+      // 판단(PR-13 정렬 유지). 자동매매는 그대로 server/clients/kisClient.ts 사용.
+      const snap = await fetchAiUniverseSnapshot(baseCode);
+      kisSupply = buildSnapshotSupplyStub(snap);
       krxValuation = await fetchKrxValuation(baseCode);
     }
 
@@ -296,8 +323,8 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         roeType3: (dartFinancials?.roe ?? 0) >= 15 ? 1 : 0,
         ocfQuality: dartFinancials?.ocfGreaterThanNetIncome ? 1 : 0,
         interestCoverage: (dartFinancials?.interestCoverageRatio ?? 0) >= 3 ? 1 : 0,
-        institutionalBuying: kisSupply?.institutionNet > 0 ? 1 : 0,
-        supplyInflow: kisSupply?.foreignNet > 0 ? 1 : 0,
+        institutionalBuying: (kisSupply?.institutionNet ?? 0) > 0 ? 1 : 0,
+        supplyInflow: (kisSupply?.foreignNet ?? 0) > 0 ? 1 : 0,
       },
       valuation: {
         ...stock.valuation,
