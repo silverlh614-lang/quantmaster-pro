@@ -52,6 +52,7 @@ import {
 import kisRouter from './routes/kisRouter.js';
 import krxRouter from './routes/krxRouter.js';
 import marketDataRouter from './routes/marketDataRouter.js';
+import aiUniverseRouter from './routes/aiUniverseRouter.js';
 import dartRouter from './routes/dartRouter.js';
 import autoTradeRouter from './routes/autoTradeRouter.js';
 import systemRouter from './routes/systemRouter.js';
@@ -123,6 +124,18 @@ async function startServer() {
     console.error('[Boot] SHADOW BUY fill 백필 실패:', e instanceof Error ? e.message : e);
   }
 
+  // PR-24 (ADR-0010): KIS 엔드포인트 영속 블랙리스트 로드 — 만료 entry 자동 청소.
+  try {
+    const { loadKisEndpointBlacklist } =
+      await import('./persistence/kisEndpointBlacklistRepo.js');
+    const active = loadKisEndpointBlacklist();
+    if (active > 0) {
+      console.log(`[Boot] KIS 엔드포인트 블랙리스트 로드: ${active}개 활성 entry`);
+    }
+  } catch (e) {
+    console.error('[Boot] KIS 블랙리스트 로드 실패:', e instanceof Error ? e.message : e);
+  }
+
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
@@ -135,6 +148,12 @@ async function startServer() {
   // (ECOS, FRED, Yahoo Finance Historical, Market Indicators)
   // ─────────────────────────────────────────────────────────────
   app.use('/api', marketDataRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // AI 추천 universe — Google Search + Naver Finance (KIS/KRX 비의존)
+  // ADR-0011 / PR-25-B
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/ai-universe', aiUniverseRouter);
 
   // ─────────────────────────────────────────────────────────────
   // KIS API Proxy  → server/routes/kisRouter.ts 로 분리

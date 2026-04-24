@@ -26,24 +26,26 @@ interface KrxValuation {
 const _valuationCache = new Map<string, KrxValuation | null>();
 
 /**
- * KRX 스타일 밸류에이션 조회 — 서버 `/api/krx/valuation` 프록시 경유 (실데이터는 KIS inquire-price).
- * 실패·빈 데이터는 null 반환하여 호출측에서 기존 값을 보존한다.
+ * 종목 밸류에이션 조회 — PR-25-B (ADR-0011): KIS/KRX 비의존 통로 사용.
+ * 서버 `/api/ai-universe/snapshot` 으로 라우팅되어 Naver Finance 모바일 endpoint 에서
+ * 무비용 enrichment. 응답 schema 는 기존 KRX valuation 호환을 유지.
+ * 실패·빈 데이터는 null 반환하여 호출측에서 기존 값을 보존.
  */
 async function fetchKrxValuation(code: string): Promise<KrxValuation | null> {
   const baseCode = code.split('.')[0];
   if (!/^\d{6}$/.test(baseCode)) return null;
   if (_valuationCache.has(baseCode)) return _valuationCache.get(baseCode) ?? null;
   try {
-    const res = await fetch(`/api/krx/valuation?code=${baseCode}`);
-    if (!res.ok) { _valuationCache.set(baseCode, null); return null; }
-    const data = await res.json();
+    const { fetchAiUniverseSnapshot } = await import('../../api/aiUniverseClient');
+    const data = await fetchAiUniverseSnapshot(baseCode);
+    if (!data) { _valuationCache.set(baseCode, null); return null; }
     const result: KrxValuation = {
-      per: Number(data?.per) || 0,
-      pbr: Number(data?.pbr) || 0,
-      eps: Number(data?.eps) || 0,
-      bps: Number(data?.bps) || 0,
-      marketCap: Number(data?.marketCap) || 0,
-      marketCapDisplay: typeof data?.marketCapDisplay === 'string' ? data.marketCapDisplay : '',
+      per: Number(data.per) || 0,
+      pbr: Number(data.pbr) || 0,
+      eps: Number(data.eps) || 0,
+      bps: Number(data.bps) || 0,
+      marketCap: Number(data.marketCap) || 0,
+      marketCapDisplay: typeof data.marketCapDisplay === 'string' ? data.marketCapDisplay : '',
     };
     const isEmpty = result.per <= 0 && result.pbr <= 0 && result.marketCap <= 0;
     const cached = isEmpty ? null : result;

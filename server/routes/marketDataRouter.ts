@@ -65,6 +65,64 @@ export function proxyCacheSet(key: string, entry: YahooCacheEntry): void {
 export function proxyCacheReset(): void { _yahooProxyCache.clear(); }
 export function proxyCacheSize(): number { return _yahooProxyCache.size; }
 
+// ── ADR-0010: In-flight Request Coalescing ───────────────────────────────────
+// 동일 (symbol,range,interval) 호출이 캐시 set 이전 윈도우에서 N 번 들어와도
+// outbound 는 1 번. 진행 중인 Promise 에 편승 → finally 시점에 Map 에서 제거.
+interface CoalescedResult { body: string; contentType: string; status: number; }
+const _yahooInflight = new Map<string, Promise<CoalescedResult>>();
+export function inflightSize(): number { return _yahooInflight.size; }
+export function inflightReset(): void { _yahooInflight.clear(); }
+
+// ── ADR-0010: 주말 KR 심볼 게이트 ────────────────────────────────────────────
+// KR 심볼 패턴(.KS / .KQ / 6자리 숫자) + KST 주말 → cache hit 면 STALE-WEEKEND
+// 헤더로 stale 서빙, miss 면 204. 평일·US 심볼은 미들웨어 통과만.
+export const KR_SYMBOL_PATTERN = /\.KS$|\.KQ$|^\d{6}$/;
+const WEEKEND_GATED_PATHS = new Set(['/historical-data']);
+
+export function isKstWeekend(now: Date = new Date()): boolean {
+  const kstDay = new Date(now.getTime() + 9 * 3_600_000).getUTCDay();
+  return kstDay === 0 || kstDay === 6;
+}
+
+export type WeekendGateDecision =
+  | { action: 'pass' }
+  | { action: 'stale'; body: string; contentType: string }
+  | { action: 'skip' };
+
+/**
+ * 순수 함수 — 주말 KR 게이트 판정. 미들웨어 본체와 단위 테스트가 공유.
+ * cacheKey 가 LRU 에 살아있으면 stale 서빙, 없으면 skip(204).
+ */
+export function evaluateWeekendGate(
+  symbol: string,
+  range: string,
+  interval: string,
+  now: Date = new Date(),
+): WeekendGateDecision {
+  if (!KR_SYMBOL_PATTERN.test(symbol)) return { action: 'pass' };
+  if (!isKstWeekend(now)) return { action: 'pass' };
+  const cached = proxyCacheGet(`${symbol}:${range}:${interval}`);
+  if (cached) return { action: 'stale', body: cached.body, contentType: cached.contentType };
+  return { action: 'skip' };
+}
+
+router.use((req: Request, res: Response, next) => {
+  if (!WEEKEND_GATED_PATHS.has(req.path)) return next();
+  const symbol = String(req.query.symbol ?? '');
+  if (!symbol) return next();
+  const range = typeof req.query.range === 'string' && req.query.range.length > 0 ? req.query.range : '1y';
+  const interval = typeof req.query.interval === 'string' && req.query.interval.length > 0 ? req.query.interval : '1d';
+  const decision = evaluateWeekendGate(symbol, range, interval);
+  if (decision.action === 'pass') return next();
+  if (decision.action === 'stale') {
+    res.setHeader('Content-Type', decision.contentType);
+    res.setHeader('X-Cache', 'STALE-WEEKEND');
+    return res.send(decision.body);
+  }
+  res.setHeader('X-Cache', 'WEEKEND-SKIP');
+  return res.status(204).end();
+});
+
 // ─── KRX PER/PBR 조회 — 밸류에이션 매트릭스 클라이언트 표시용 ───────────────
 router.get('/krx/valuation', async (req: Request, res: Response) => {
   const code = typeof req.query.code === 'string' ? req.query.code.trim() : '';
@@ -92,6 +150,83 @@ router.get('/krx/valuation', async (req: Request, res: Response) => {
 });
 
 // ─── Yahoo Finance Historical Data Proxy ────────────────────────────────────
+async function fetchYahooHistorical(
+  symbolStr: string, rangeStr: string, intervalStr: string, cacheKey: string,
+): Promise<CoalescedResult> {
+  const urls = [
+    `https://query2.finance.yahoo.com/v8/finance/chart/${symbolStr}?range=${rangeStr}&interval=${intervalStr}`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/${symbolStr}?range=${rangeStr}&interval=${intervalStr}`,
+  ];
+
+  let lastError: any = null;
+
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
+    console.log(`Proxying request to Yahoo (${url.includes('query2') ? 'query2' : 'query1'}): ${url}`);
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.chart?.result?.[0]) {
+          const body = JSON.stringify(data);
+          proxyCacheSet(cacheKey, {
+            body,
+            contentType: 'application/json; charset=utf-8',
+            expiresAt: Date.now() + yahooProxyTtlMs(intervalStr),
+          });
+          return { body, contentType: 'application/json; charset=utf-8', status: 200 };
+        } else if (data.chart?.error) {
+          console.warn(`Yahoo API returned error for ${symbolStr}:`, data.chart.error);
+          lastError = data.chart.error;
+          if (i < urls.length - 1) await new Promise((r) => setTimeout(r, 500));
+          continue;
+        }
+      } else if (response.status === 404) {
+        console.warn(`Yahoo API symbol not found (404) for ${symbolStr}`);
+        return {
+          body: JSON.stringify({ error: 'Symbol not found', symbol: symbolStr }),
+          contentType: 'application/json; charset=utf-8',
+          status: 404,
+        };
+      }
+
+      const errorText = await response.text();
+      console.error(`Yahoo API error (${response.status}) for ${symbolStr}:`, errorText);
+      lastError = { status: response.status, details: errorText };
+      if (i < urls.length - 1) await new Promise((r) => setTimeout(r, 500));
+    } catch (error: any) {
+      console.error(`Proxy error for ${symbolStr} using ${url.includes('query2') ? 'query2' : 'query1'}:`, error.message);
+      lastError = error;
+      if (i < urls.length - 1) await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  return {
+    body: JSON.stringify({
+      error: 'Failed to fetch data from Yahoo after multiple attempts',
+      details: lastError?.message || lastError?.details || 'Unknown error',
+      symbol: symbolStr,
+    }),
+    contentType: 'application/json; charset=utf-8',
+    status: 502,
+  };
+}
+
 router.get('/historical-data', async (req: Request, res: Response) => {
   const { symbol, range, interval } = req.query;
   if (!symbol) return res.status(400).json({ error: "Symbol is required" });
@@ -100,7 +235,7 @@ router.get('/historical-data', async (req: Request, res: Response) => {
   const rangeStr = typeof range === 'string' && range.length > 0 ? range : '1y';
   const intervalStr = typeof interval === 'string' && interval.length > 0 ? interval : '1d';
 
-  // ADR-0009: 인프로세스 LRU 캐시 — 동일 (symbol,range,interval) 중복 호출 coalescing.
+  // ADR-0009: 인프로세스 LRU 캐시.
   const cacheKey = `${symbolStr}:${rangeStr}:${intervalStr}`;
   const cached = proxyCacheGet(cacheKey);
   if (cached) {
@@ -114,76 +249,21 @@ router.get('/historical-data', async (req: Request, res: Response) => {
     return res.send(cached.body);
   }
 
-  // Try query2 first as it's often more reliable/less throttled
-  const urls = [
-    `https://query2.finance.yahoo.com/v8/finance/chart/${symbolStr}?range=${rangeStr}&interval=${intervalStr}`,
-    `https://query1.finance.yahoo.com/v8/finance/chart/${symbolStr}?range=${rangeStr}&interval=${intervalStr}`,
-  ];
-
-  let lastError = null;
-
-  for (let i = 0; i < urls.length; i++) {
-    const url = urls[i];
-    console.log(`Proxying request to Yahoo (${url.includes('query2') ? 'query2' : 'query1'}): ${url}`);
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
-
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        },
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        const data = await response.json();
-        // Check if we actually got data
-        if (data.chart?.result?.[0]) {
-          const body = JSON.stringify(data);
-          proxyCacheSet(cacheKey, {
-            body,
-            contentType: 'application/json; charset=utf-8',
-            expiresAt: Date.now() + yahooProxyTtlMs(intervalStr),
-          });
-          res.setHeader('X-Cache', 'MISS');
-          return res.json(data);
-        } else if (data.chart?.error) {
-          console.warn(`Yahoo API returned error for ${symbolStr}:`, data.chart.error);
-          lastError = data.chart.error;
-          // Wait a bit before trying next URL
-          if (i < urls.length - 1) await new Promise(resolve => setTimeout(resolve, 500));
-          continue;
-        }
-      } else if (response.status === 404) {
-        console.warn(`Yahoo API symbol not found (404) for ${symbolStr}`);
-        return res.status(404).json({ error: "Symbol not found", symbol: symbolStr });
-      }
-
-      const errorText = await response.text();
-      console.error(`Yahoo API error (${response.status}) for ${symbolStr}:`, errorText);
-      lastError = { status: response.status, details: errorText };
-      // Wait a bit before trying next URL
-      if (i < urls.length - 1) await new Promise(resolve => setTimeout(resolve, 500));
-    } catch (error: any) {
-      console.error(`Proxy error for ${symbolStr} using ${url.includes('query2') ? 'query2' : 'query1'}:`, error.message);
-      lastError = error;
-      // Wait a bit before trying next URL
-      if (i < urls.length - 1) await new Promise(resolve => setTimeout(resolve, 500));
-    }
+  // ADR-0010: in-flight coalescing — 캐시 set 이전 윈도우의 동시 요청을 1회 outbound 로 수렴.
+  let inflight = _yahooInflight.get(cacheKey);
+  let coalesced = false;
+  if (inflight) {
+    coalesced = true;
+  } else {
+    inflight = fetchYahooHistorical(symbolStr, rangeStr, intervalStr, cacheKey)
+      .finally(() => { _yahooInflight.delete(cacheKey); });
+    _yahooInflight.set(cacheKey, inflight);
   }
 
-  res.status(502).json({
-    error: "Failed to fetch data from Yahoo after multiple attempts",
-    details: lastError?.message || lastError?.details || "Unknown error",
-    symbol: symbolStr,
-  });
+  const result = await inflight;
+  res.setHeader('Content-Type', result.contentType);
+  res.setHeader('X-Cache', coalesced ? 'COALESCED' : 'MISS');
+  return res.status(result.status).send(result.body);
 });
 
 // ─── ECOS (한국은행 경제통계시스템) API 프록시 ─────────────────────────────

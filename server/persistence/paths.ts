@@ -205,6 +205,22 @@ export const EXPERIMENT_PROPOSALS_FILE = path.join(DATA_DIR, 'experiment-proposa
 export const MANUAL_OVERRIDE_ALERT_FILE = path.join(DATA_DIR, 'manual-override-alert-state.json');
 /** 채널별 카테고리 송수신 통계 — 일별 sent/skipped/failed/digested 카운트 */
 export const CHANNEL_STATS_FILE         = path.join(DATA_DIR, 'channel-stats.json');
+/**
+ * KIS 엔드포인트 영속 블랙리스트 (PR-24, ADR-0010).
+ * 30분 윈도우 내 404 가 10회 누적된 trId 를 24시간 차단. 재배포 후에도 유지하여
+ * 같은 죽은 엔드포인트를 처음부터 다시 두드리는 것을 막는다.
+ */
+export const KIS_ENDPOINT_BLACKLIST_FILE = path.join(DATA_DIR, 'kis-endpoint-blacklist.json');
+/**
+ * KRX 종목 마스터 — 부팅·24h TTL 만료 시 1회 다운로드 영속 (ADR-0011, PR-25-A).
+ * AI 추천·자동매매 모두 종목코드 → 종목명·시장·섹터 매핑에 사용.
+ */
+export const KRX_STOCK_MASTER_FILE = path.join(DATA_DIR, 'krx-master.json');
+/**
+ * AI 추천 외부 호출 일일 예산 카운터 (ADR-0011, PR-25-A).
+ * Google Search / Naver Finance / KRX master refresh 별 호출 수를 KST 자정 단위로 집계.
+ */
+export const AI_CALL_BUDGET_FILE = path.join(DATA_DIR, 'ai-call-budget.json');
 
 export function ensureReflectionsDir(): void {
   ensureDataDir();

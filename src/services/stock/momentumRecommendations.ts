@@ -1,56 +1,58 @@
 /**
  * momentumRecommendations.ts — MOMENTUM / EARLY_DETECT / SMALL_MID_CAP 모드 AI 추천 로직
  *
- * 사전 수집(KIS 랭킹 + Yahoo + ECOS) 데이터에 100% 의존.
- * googleSearch grounding 제거 — 호출당 $0.035 절감.
- * AI 역할: 수치 검색이 아니라 "사전 수집된 후보군에서 선정 + 사유 작성".
+ * PR-25-B (ADR-0011): KIS 랭킹·KRX valuation 의존 제거. 후보 universe 발굴은
+ * Google Custom Search + Naver Finance(`aiUniverseService` 통로). 자동매매 KIS
+ * quota 침범 없음. AI 역할: 수치 검색이 아니라 "사전 수집된 후보군에서 선정 + 사유 작성".
  */
 
 import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, lsGet, withRetry, safeJsonParse, getCachedAIResponse } from './aiClient';
 import { enrichStockWithRealData } from './enrichment';
 import { fetchMarketIndicators } from './marketOverview';
-import { fetchKisRanking, type KisRankingItem } from './kisDataFetcher';
+import { discoverAiUniverse, type AiUniverseDiscoverResult } from '../../api/aiUniverseClient';
 import { debugLog } from '../../utils/debug';
 import { fetchSectorEnergy, formatSectorEnergySummary } from '../quant/sectorEnergyProvider';
 import type { StockFilters, RecommendationResponse } from './types';
 
-// ── 후보 종목 PER/PBR 사전조회 ──────────────────────────────────────────────
-// `/api/krx/valuation` 은 enrichment.ts 가 AI 응답 후 호출하지만, 여기서 AI
-// 프롬프트에도 같은 소스를 주입해 Gemini 가 PER 을 추정하거나 학습지식으로
-// 대체할 여지를 제거한다. 요청은 동시 6건으로 제한해 KIS TR 쿼터를 보호한다.
+/**
+ * mode 매핑 — 클라이언트 mode 문자열을 aiUniverseService 의 4 mode 중 하나로 변환.
+ * SMALL_MID_CAP 은 별도 mode 없이 MOMENTUM universe + 프롬프트에서 중소형주 우선 지시.
+ */
+export function toUniverseMode(mode: string): 'MOMENTUM' | 'EARLY_DETECT' {
+  if (mode === 'EARLY_DETECT') return 'EARLY_DETECT';
+  return 'MOMENTUM';
+}
 
-interface PrefetchedValuation {
+/**
+ * universe 발굴 결과를 momentum 후보 리스트로 평탄화.
+ * `KisRankingItem` 호환 필드(code/name/market/changePercent/rank) 를 유지해 프롬프트 변형 최소화.
+ */
+export interface MomentumCandidate {
+  code: string;
+  name: string;
+  market: string;
+  changePercent: number;
+  rank: number;
+  source: string;
   per: number;
   pbr: number;
   marketCapDisplay: string;
 }
 
-async function prefetchValuations(codes: string[]): Promise<Map<string, PrefetchedValuation>> {
-  const out = new Map<string, PrefetchedValuation>();
-  const queue = codes.filter(c => /^\d{6}$/.test(c));
-  const CONCURRENCY = 6;
-  async function worker(): Promise<void> {
-    while (queue.length > 0) {
-      const code = queue.shift();
-      if (!code) return;
-      try {
-        const res = await fetch(`/api/krx/valuation?code=${code}`);
-        if (!res.ok) continue;
-        const data = await res.json();
-        const per = Number(data?.per) || 0;
-        const pbr = Number(data?.pbr) || 0;
-        const marketCapDisplay = typeof data?.marketCapDisplay === 'string' ? data.marketCapDisplay : '';
-        if (per > 0 || pbr > 0 || marketCapDisplay) {
-          out.set(code, { per, pbr, marketCapDisplay });
-        }
-      } catch {
-        // per-code 실패는 무시 — 해당 종목만 추정 없이 진행
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
-  return out;
+export function flattenCandidates(result: AiUniverseDiscoverResult | null): MomentumCandidate[] {
+  if (!result) return [];
+  return result.candidates.map((c, idx) => ({
+    code: c.code,
+    name: c.name,
+    market: c.market,
+    changePercent: c.snapshot?.changeRate ?? 0,
+    rank: idx + 1,
+    source: c.discoveredFrom[0] ?? 'google_search',
+    per: c.snapshot?.per ?? 0,
+    pbr: c.snapshot?.pbr ?? 0,
+    marketCapDisplay: c.snapshot?.marketCapDisplay ?? '',
+  }));
 }
 
 export async function getMomentumRecommendations(filters?: StockFilters): Promise<RecommendationResponse | null> {
@@ -58,27 +60,19 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
   const todayDate = now.split(' ')[0];
   const mode = filters?.mode || 'MOMENTUM';
 
-  // ── 사전 수집 실데이터: Yahoo + ECOS + KIS 랭킹 ──
-  // mode별로 적절한 KIS 랭킹을 병렬 수집하여 후보군을 사전 확정한다.
-  // EARLY_DETECT는 거래량 마름이 핵심이라 등락률 하단도 별도 수집.
-  const rankingTasks: Promise<KisRankingItem[]>[] = [
-    fetchKisRanking('volume', 25),
-    fetchKisRanking('fluctuation', 25),
-  ];
-  if (mode === 'SMALL_MID_CAP') {
-    rankingTasks.push(fetchKisRanking('market-cap', 50));
-  }
-  // 섹터 에너지는 랭킹 배열 인덱싱과 얽히지 않도록 별도 Promise 로 분리.
+  // ── 사전 수집 실데이터: Yahoo + ECOS + AI universe 발굴 (PR-25-B) ──
+  // KIS/KRX 직접 호출 제거 — 자동매매 quota 침범 차단. universe 발굴은
+  // server `/api/ai-universe/discover` 가 Google Search + Naver Finance 로 수행.
+  const universeMode = toUniverseMode(mode);
+  const aiUniversePromise = discoverAiUniverse(universeMode, { maxCandidates: 20, enrich: true });
   const sectorEnergyPromise = fetchSectorEnergy();
-  const [yahooCached, volRankR, flucRankR, mcapRankR] = await Promise.allSettled([
+  const [yahooCached, aiUniverseR] = await Promise.allSettled([
     fetchMarketIndicators(),
-    ...rankingTasks,
+    aiUniversePromise,
   ]);
   const sectorEnergy = await sectorEnergyPromise;
   const yahoo = yahooCached.status === 'fulfilled' ? yahooCached.value : null;
-  const volRanking  = volRankR?.status  === 'fulfilled' ? volRankR.value  : [];
-  const flucRanking = flucRankR?.status === 'fulfilled' ? flucRankR.value : [];
-  const mcapRanking = mcapRankR?.status === 'fulfilled' ? mcapRankR.value : [];
+  const aiUniverse = aiUniverseR.status === 'fulfilled' ? aiUniverseR.value : null;
 
   const macroCached = lsGet(`macro-environment-${todayDate}`)?.data as Record<string, unknown> | undefined;
   const cachedVkospi     = yahoo?.vkospi     ?? null;
@@ -88,45 +82,35 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
   const cachedKosdaq     = yahoo?.kosdaq ?? null;
 
   // ── 후보군 빌드: mode별 필터링 ──
-  // 같은 종목이 volume/fluctuation 양쪽에 등장하면 한 번만.
-  const candidatePool = new Map<string, KisRankingItem & { source: string }>();
-  const addPool = (items: KisRankingItem[], source: string) => {
-    for (const it of items) {
-      if (!it.code || candidatePool.has(it.code)) continue;
-      candidatePool.set(it.code, { ...it, source });
-    }
-  };
+  let candidates: MomentumCandidate[] = flattenCandidates(aiUniverse);
   if (mode === 'EARLY_DETECT') {
-    // 급등 전 종목: 등락률 0~3% 구간 + 거래량 상위 (마름 후보)
-    addPool(volRanking.filter(r => r.changePercent >= -1 && r.changePercent <= 3), 'volume(저변동)');
-    addPool(flucRanking.filter(r => r.changePercent >= 0 && r.changePercent <= 3), 'fluctuation(소폭상승)');
+    // 급등 전 종목: 등락률 -1~3% 구간 (마름 후보)
+    candidates = candidates.filter(c => c.changePercent >= -1 && c.changePercent <= 3);
   } else if (mode === 'SMALL_MID_CAP') {
-    // 중소형주: 시총 50위 밖 우선, 초대형주 제외
-    const megaCapCodes = new Set(mcapRanking.slice(0, 10).map(r => r.code));
-    addPool(volRanking.filter(r => !megaCapCodes.has(r.code)), 'volume(중소형)');
-    addPool(flucRanking.filter(r => !megaCapCodes.has(r.code)), 'fluctuation(중소형)');
-  } else {
-    // MOMENTUM: 기본 — 거래량 + 등락률 양쪽 전부
-    addPool(volRanking, 'volume');
-    addPool(flucRanking, 'fluctuation');
+    // 중소형주: 마스터에서 KOSDAQ 우선 + KOSPI 후순위. 시총 정밀 필터는 프롬프트에 위임.
+    candidates = [
+      ...candidates.filter(c => c.market === 'KOSDAQ'),
+      ...candidates.filter(c => c.market !== 'KOSDAQ'),
+    ];
   }
-  const candidates = Array.from(candidatePool.values()).slice(0, 30);
-  debugLog(`[momentumRecommendations] mode=${mode} 후보군 ${candidates.length}개 (vol=${volRanking.length}, fluc=${flucRanking.length})`);
-
-  // 후보 PER/PBR/시총 사전조회 — Gemini 가 학습지식으로 밸류에이션을 추정하지 않도록
-  // 프롬프트에 직접 주입한다. enrichment 가 동일 소스를 AI 응답 후에도 재조회해 덮어쓴다.
-  const valuationMap = await prefetchValuations(candidates.map(c => c.code));
-  debugLog(`[momentumRecommendations] 밸류에이션 프리페치 ${valuationMap.size}/${candidates.length}건`);
+  candidates = candidates.slice(0, 30);
+  const budgetExceeded = aiUniverse?.diagnostics?.budgetExceeded === true;
+  debugLog(
+    `[momentumRecommendations] mode=${mode} universe=${aiUniverse?.candidates.length ?? 0}건 → ` +
+    `필터 후 ${candidates.length}건 (googleQ=${aiUniverse?.diagnostics.googleQueries ?? 0}, ` +
+    `enrich=${aiUniverse?.diagnostics.enrichSucceeded ?? 0}, budgetExceeded=${budgetExceeded})`
+  );
 
   const candidateBlock = candidates.length > 0
     ? candidates.map(c => {
-        const v = valuationMap.get(c.code);
-        const valStr = v
-          ? ` | PER ${v.per > 0 ? v.per.toFixed(2) : 'N/A'} · PBR ${v.pbr > 0 ? v.pbr.toFixed(2) : 'N/A'}${v.marketCapDisplay ? ` · 시총 ${v.marketCapDisplay}` : ''}`
+        const valStr = (c.per > 0 || c.pbr > 0 || c.marketCapDisplay)
+          ? ` | PER ${c.per > 0 ? c.per.toFixed(2) : 'N/A'} · PBR ${c.pbr > 0 ? c.pbr.toFixed(2) : 'N/A'}${c.marketCapDisplay ? ` · 시총 ${c.marketCapDisplay}` : ''}`
           : '';
         return `  - ${c.name}(${c.code}) ${c.market} | 등락 ${c.changePercent >= 0 ? '+' : ''}${c.changePercent.toFixed(2)}% | rank#${c.rank} (${c.source})${valStr}`;
       }).join('\n')
-    : '(KIS 랭킹 수집 실패 — AI 자체 판단 필요)';
+    : (budgetExceeded
+        ? '(AI 추천 일일 호출 예산 초과 — 내일 다시 시도하거나 GOOGLE_SEARCH_API_KEY 확인)'
+        : '(universe 발굴 결과 없음 — Google Search 미설정 가능, AI 자체 판단 필요)');
 
   const indexLine = (cachedKospi || cachedKosdaq)
     ? [
