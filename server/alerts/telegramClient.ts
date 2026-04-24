@@ -273,12 +273,12 @@ export async function flushDigest(): Promise<void> {
   const startMM = startTime.getUTCMinutes().toString().padStart(2, '0');
 
   const header = applyTierPrefix(
-    `<b>[${entries.length}건 요약] ${startHH}:${startMM}~${hh}:${mm}</b>\n━━━━━━━━━━━━━━━━━━━━`,
+    `<b>[${entries.length}건 요약] ${startHH}:${startMM}~${hh}:${mm}</b>\n━━━━━━━━━━━━━━━━`,
     'T3_DIGEST',
   );
   const compressed = compressDigestEntries(entries);
   const body = compressed.join('\n');
-  const full = `${header}\n${body}\n━━━━━━━━━━━━━━━━━━━━\n<i>상세 로그: /todaylog</i>`;
+  const full = `${header}\n${body}\n━━━━━━━━━━━━━━━━\n<i>상세 로그: /todaylog</i>`;
 
   const messageId = await sendTelegramAlertRaw(full);
   appendAlertAudit({
@@ -665,12 +665,12 @@ export async function sendEmptyScanDecisionBroker(
 
   const header =
     `🧭 <b>[빈 스캔 Decision Broker]</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `연속 빈 스캔: <b>${consecutiveEmptyScans}회</b>\n` +
     `현재 레짐: ${regime}` +
     (currentThreshold !== undefined ? ` | Gate ≥ ${currentThreshold.toFixed(1)}` : '') +
     `\n오늘 사용: ${usedToday}/${dailyLimit}${remaining === 0 ? ' (한도 소진)' : ''}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `<b>조치 선택 (30분 후 자동 만료)</b>\n` +
     `① 유니버스 확장 — 52주 신고가 + 외국인 순매수 추가 편입\n` +
     `② 임계값 −0.5 완화${isLive ? ' (LIVE 모드에서 차단됨)' : ''}\n` +

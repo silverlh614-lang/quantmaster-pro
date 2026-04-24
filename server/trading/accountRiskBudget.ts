@@ -311,7 +311,7 @@ export function formatAccountRiskBudget(snapshot: AccountRiskBudgetSnapshot): st
   const concEmoji  = snapshot.concurrentRiskRemainingPct <= 1 ? '🔴' : snapshot.concurrentRiskRemainingPct <= 2 ? '🟡' : '🟢';
   const lines = [
     '💰 <b>[계좌 리스크 예산]</b>',
-    '━━━━━━━━━━━━━━━━━━━━',
+    '━━━━━━━━━━━━━━━━',
     `${dailyEmoji} 일일 손실: ${snapshot.dailyLossPct.toFixed(2)}% / ${snapshot.dailyLossLimitPct.toFixed(1)}% (잔여 ${snapshot.dailyLossRemainingPct.toFixed(2)}%)`,
     `${concEmoji} 동시 R 합: ${snapshot.openRiskPct.toFixed(2)}% / ${snapshot.maxConcurrentRiskPct.toFixed(1)}% (잔여 ${snapshot.concurrentRiskRemainingPct.toFixed(2)}%)`,
     `📐 단일 포지션 R 캡: ${snapshot.maxPerTradeRiskPct.toFixed(2)}%`,

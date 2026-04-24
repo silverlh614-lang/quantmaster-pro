@@ -5,7 +5,9 @@
  * 포맷 변경 시 이 파일만 수정하면 전 채널 메시지에 일관 적용된다.
  */
 
-export const CHANNEL_SEPARATOR = '━━━━━━━━━━━━━━━━━━━━';
+// 모바일 360dp 가로폭에서 2줄 wrap 없이 표시되도록 16 자로 축소 (ADR-0005).
+// 기존 20 자는 한글 본문과 섞이면 일부 기기에서 줄넘김이 발생했다.
+export const CHANNEL_SEPARATOR = '━━━━━━━━━━━━━━━━';
 
 /** KST "HH:MM" 현재 시각. */
 export function kstHHMM(date: Date = new Date()): string {
@@ -36,7 +38,7 @@ export interface ChannelHeaderOptions {
  * 표준 채널 헤더 블록을 생성한다.
  * ```
  * 📋 <b>[오늘 스캔 결과] 04/20</b>
- * ━━━━━━━━━━━━━━━━━━━━
+ * ━━━━━━━━━━━━━━━━
  * ```
  */
 export function channelHeader(opts: ChannelHeaderOptions): string {

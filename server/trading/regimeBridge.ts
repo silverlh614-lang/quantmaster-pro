@@ -171,7 +171,7 @@ export async function checkAndNotifyRegimeChange(
 
   let msg =
     `⚠️ <b>[레짐 전환]</b> ${_previousRegime} → ${currentRegime} ${dirEmoji}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n`;
+    `━━━━━━━━━━━━━━━━\n`;
 
   // MHS / VKOSPI 변화
   if (mhsDelta !== null) {
@@ -197,7 +197,7 @@ export async function checkAndNotifyRegimeChange(
     msg += resetNote;
   }
 
-  msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+  msg += `━━━━━━━━━━━━━━━━\n`;
 
   if (isDowngrade) {
     msg += `📌 현재 보유 포지션 점검 권고`;

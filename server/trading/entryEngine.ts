@@ -346,9 +346,60 @@ export function buildPreMortemPrompt(input: PreMortemInput): string {
     `목표: ${input.targetPrice.toLocaleString()}원 (${targetPct.toFixed(1)}%)` +
     `${ctxLine}${boostLine}\n\n` +
     `시나리오 가정: 이 매수가 -10% 손실로 끝났다. 가장 가능성 높은 원인 3가지를 ` +
-    `1~2줄씩 번호로 나열하라. 각 줄은 "구체적 촉발 조건 → 결과" 형식으로 작성하라. ` +
-    `추상적 문구(예: "시장 악화") 금지. JSON·마크다운 없이 순수 텍스트만 출력하라.`
+    `각 1줄(최대 90자)씩 "1. " "2. " "3. " 형식으로 번호만 붙여 출력하라. ` +
+    `각 줄은 "구체적 촉발 조건 → 결과" 형식으로 작성하라. ` +
+    `페르소나 자기소개·서문·결론·메타 설명 금지 (예: "아키텍트로서", "분석한다", "이다." 로 시작 금지). ` +
+    `추상적 문구(예: "시장 악화") 금지. JSON·마크다운·코드블록·볼드 금지. 3줄 평문만 출력하라.`
   );
+}
+
+/**
+ * Gemini 응답에서 페르소나 서문·결론 메타 텍스트를 제거하고 번호 항목 3개만
+ * 추출한다. ADR-0005 에 따른 후처리 — Gemini 가 프롬프트를 위반해 서문을 붙이는
+ * 경우를 대비한 방어층.
+ */
+export function sanitizePreMortemResponse(raw: string): string {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  const lines = trimmed
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const numberedRe = /^\s*(?:[①②③]|\d{1,2}[.)\]]|[-•])\s*(.+)$/;
+
+  const numberedLines: string[] = [];
+  for (const l of lines) {
+    const m = l.match(numberedRe);
+    if (m && m[1]) {
+      numberedLines.push(m[1].trim());
+      if (numberedLines.length >= 3) break;
+    }
+  }
+
+  // 번호 항목이 3개 미만이면 폴백: 긴 문장 3개를 마침표 단위로 추출.
+  if (numberedLines.length < 3) {
+    const sentences = trimmed
+      .replace(/\n+/g, ' ')
+      .split(/(?<=[.!?。])\s+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 10 && !/아키텍트|분석한다|시스템의 Gate/.test(s))
+      .slice(0, 3);
+    if (sentences.length > numberedLines.length) {
+      numberedLines.splice(0, numberedLines.length, ...sentences);
+    }
+  }
+
+  const capped = numberedLines
+    .slice(0, 3)
+    .map((l) => (l.length > 120 ? `${l.slice(0, 117)}...` : l))
+    .map((l, i) => `${i + 1}. ${l}`);
+
+  // 최소 한 줄은 돌려줘야 "복기 없음" 공백 메시지가 안 나감. 실패 시 원문 상단 240자.
+  if (capped.length === 0) {
+    return trimmed.slice(0, 240);
+  }
+  return capped.join('\n').slice(0, 600);
 }
 
 /**
@@ -360,7 +411,8 @@ export async function generatePreMortem(input: PreMortemInput): Promise<string |
   try {
     const out = await callGemini(prompt, 'pre-mortem');
     if (!out) return null;
-    return out.trim().slice(0, 1000); // 텔레그램 4096자 안전 마진
+    // ADR-0005: 페르소나 서문 제거 + 번호항목 3개 추출 + 600자 상한.
+    return sanitizePreMortemResponse(out);
   } catch (e) {
     console.warn(`[PreMortem] 생성 실패 (${input.stockCode}): ${e instanceof Error ? e.message : e}`);
     return null;

@@ -199,13 +199,13 @@ export async function generateWeeklyReport(): Promise<void> {
   // ── 메시지 조립 ──────────────────────────────────────────────────────────────
   const msg =
     `<b>[주간 캘리브레이션] ${fmtDate(weekStart)}~${fmtDate(weekEnd)}</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `거래 ${closed.length}건: WIN ${wins.length} / LOSS ${losses.length}  (WIN률 ${winRate}%)\n` +
     `평균 수익: +${avgWin.toFixed(1)}%  평균 손실: -${avgLoss.toFixed(1)}%\n` +
     `RRR 달성: ${rrr.toFixed(2)} (목표 2.0 ${rrr >= 2.0 ? '✅' : '⚠️'})\n` +
-    `━━━━━━━━━━━━━━━━━━━━` +
+    `━━━━━━━━━━━━━━━━` +
     top3Lines +
-    (top3Lines ? `━━━━━━━━━━━━━━━━━━━━` : '') +
+    (top3Lines ? `━━━━━━━━━━━━━━━━` : '') +
     actionBlock;
 
   await sendTelegramAlert(msg, { tier: 'T2_REPORT', category: 'weekly_calibration' }).catch(console.error);
@@ -260,11 +260,11 @@ export async function sendWatchlistBriefing(): Promise<void> {
   // ── ① 레짐 헤더 ──────────────────────────────────────────────────────────
   let msg =
     `🌅 <b>[${hh}:${mm} 장전 브리핑]</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `레짐: <b>${regime}</b> ${regimeEmoji[regime] ?? '⚪'}  ` +
     `MHS: ${macro?.mhs ?? 'N/A'}  ` +
     `VKOSPI: ${macro?.vkospi?.toFixed(1) ?? 'N/A'}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n`;
+    `━━━━━━━━━━━━━━━━\n`;
 
   // ── ② 워치리스트 종목별 상세 ──────────────────────────────────────────────
   if (list.length === 0) {
@@ -321,7 +321,7 @@ export async function sendWatchlistBriefing(): Promise<void> {
   }
 
   // ── ③ FOMC / 특이사항 ─────────────────────────────────────────────────────
-  msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+  msg += `━━━━━━━━━━━━━━━━\n`;
   if (fomc.phase !== 'NORMAL') {
     msg += `⚠️ 오늘 주의: ${fomc.description}\n`;
   }

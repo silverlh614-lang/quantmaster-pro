@@ -109,12 +109,12 @@ export async function sendWeeklyHygieneAudit(): Promise<void> {
 
   const msg =
     `<b>[알림 감사 ${weekLabel}]</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `이번 주 알림: 총 ${report.total}건\n` +
     `├─ 🚨 T1 ALARM: ${report.byTier.T1_ALARM}건\n` +
     `├─ 📊 T2 REPORT: ${report.byTier.T2_REPORT}건\n` +
     `└─ 📋 T3 DIGEST: ${report.byTier.T3_DIGEST}건\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `<b>카테고리 Top ${topCats.length}:</b>\n${catLines}\n` +
     `\n<b>폭증 감지:</b>\n${surgingLines}\n` +
     `\n<b>조정 권고:</b>\n${recLines}`;

@@ -263,9 +263,9 @@ export async function runF2WReverseLoop(options: F2WRunOptions = {}): Promise<F2
       .join('\n');
     await sendTelegramAlert(
       `🔁 <b>[F2W 가중치 피드백]</b> 총 ${records.length}건 기반\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━━━━━\n` +
       `${lines}\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━━━━━\n` +
       `부스트 ${boostCount} · 감쇠 ${decayCount} · 일몰 ${sunsetCount}`,
       { priority: sunsetCount > 0 ? 'HIGH' : 'NORMAL', dedupeKey: `f2w:${result.ranAt.slice(0, 10)}` },
     ).catch(console.error);

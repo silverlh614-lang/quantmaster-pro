@@ -104,12 +104,12 @@ export async function requestBuyApproval(params: {
   // 역검증 섹션 (데이터 있을 때만 표시)
   const enemySummary = enemyCheck ? formatEnemyCheckSummary(enemyCheck) : null;
   const enemySection = enemySummary
-    ? `━━━━━━━━━━━━━━━━━━━━\n<i>[역검증 참고]\n${escapeHtml(enemySummary)}</i>\n`
+    ? `━━━━━━━━━━━━━━━━\n<i>[역검증 참고]\n${escapeHtml(enemySummary)}</i>\n`
     : '';
 
   // Pre-Mortem 섹션 (진입 전 실패 시나리오 사전 체크리스트)
   const preMortemSection = preMortem
-    ? `━━━━━━━━━━━━━━━━━━━━\n⚠️ <b>실패 시나리오(Pre-Mortem)</b>\n${escapeHtml(preMortem)}\n`
+    ? `━━━━━━━━━━━━━━━━\n⚠️ <b>실패 시나리오(Pre-Mortem)</b>\n${escapeHtml(preMortem)}\n`
     : '';
 
   const timeoutLine = autoApproveDisabled
@@ -118,13 +118,13 @@ export async function requestBuyApproval(params: {
 
   const message =
     `${modeEmoji} <b>[${modeLabel}] ${escapeHtml(stockName)} 매수 신호</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `현재가: ${currentPrice.toLocaleString()}원 × ${quantity}주\n` +
     `손절: ${stopLoss.toLocaleString()}원 | 목표: ${targetPrice.toLocaleString()}원\n` +
     `RRR: ${rrrRatio} | Gate: ${gateScore ?? 'N/A'}\n` +
     `${enemySection}` +
     `${preMortemSection}` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     timeoutLine;
 
   const replyMarkup = {

@@ -37,7 +37,7 @@ export function installGlobalErrorHandlers(): void {
     const stackHead = (err.stack ?? err.message ?? String(err)).split('\n').slice(0, 6).join('\n');
     sendTelegramAlert(
       `<b>[uncaughtException 감지]</b>\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━━━━━\n` +
       `${escapeHtml(err.message ?? String(err))}\n` +
       `<pre>${escapeHtml(stackHead)}</pre>\n` +
       `<i>프로세스는 계속 실행됨 — 원인 수정 후 재배포 권장</i>`,
@@ -60,7 +60,7 @@ export function installGlobalErrorHandlers(): void {
     const stackHead = (err.stack ?? err.message ?? String(err)).split('\n').slice(0, 6).join('\n');
     sendTelegramAlert(
       `<b>[unhandledRejection 감지]</b>\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━━━━━\n` +
       `${escapeHtml(err.message ?? String(err))}\n` +
       `<pre>${escapeHtml(stackHead)}</pre>\n` +
       `<i>Promise 체인에서 catch 누락 — 해당 모듈 리뷰 권장</i>`,

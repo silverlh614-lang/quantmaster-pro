@@ -40,6 +40,33 @@ function summarizeEntryConditions(tradeId: string): string | null {
     .join(', ');
 }
 
+// ── Pre-Mortem 표시 라인 추출 (ADR-0005) ────────────────────────────────────
+//
+// 레거시 preMortem 에는 Gemini 페르소나 서문("QuantMaster … 분석한다") 이
+// 혼입되어 원래의 3개 번호 항목이 메시지 길이 제한에서 잘리는 사례가 있었다.
+// 여기서는 표시 시점에도 한 번 더 필터링해 번호/하이픈 라인을 우선 취한다.
+function extractPreMortemLines(raw: string): string[] {
+  const numberedRe = /^\s*(?:[①②③]|\d{1,2}[.)\]]|[-•])\s*(.+)$/;
+  const metaRe = /아키텍트|시스템의 Gate|분석한다|다음과 같다/;
+  const lines = raw.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  const numbered = lines
+    .map(l => { const m = l.match(numberedRe); return m?.[1]?.trim() ?? null; })
+    .filter((x): x is string => !!x)
+    .slice(0, 3);
+  if (numbered.length > 0) {
+    return numbered.map((l, i) => `${i + 1}. ${l.length > 90 ? l.slice(0, 87) + '...' : l}`);
+  }
+  // 폴백: 메타 문장을 버리고 첫 3개 문장.
+  const sentences = raw
+    .replace(/\n+/g, ' ')
+    .split(/(?<=[.!?。])\s+/)
+    .map(s => s.trim())
+    .filter(s => s.length >= 10 && !metaRe.test(s))
+    .slice(0, 3);
+  if (sentences.length === 0) return ['(복기 내용 없음)'];
+  return sentences.map((l, i) => `${i + 1}. ${l.length > 90 ? l.slice(0, 87) + '...' : l}`);
+}
+
 // ── 손절 원인 라벨 ────────────────────────────────────────────────────────────
 
 function labelExitCause(shadow: ServerShadowTrade): string[] {
@@ -116,8 +143,10 @@ export async function sendStopLossTransparencyReport(
       `\n❌ <b>손절 원인 분석</b>\n` +
       causes.map(c => `  • ${c}`).join('\n');
 
+    // ADR-0005: Gemini 서문이 섞인 레거시 preMortem 도 안전하게 처리.
+    // 번호·하이픈 라인만 우선 취하고, 없으면 비-메타 문장 최대 3개 추출.
     const preMortemBlock = shadow.preMortem
-      ? `\n\n🧠 <b>Pre-Mortem 복기</b>\n${shadow.preMortem.split('\n').slice(0, 3).map(l => `  ${l}`).join('\n')}`
+      ? `\n\n🧠 <b>Pre-Mortem 복기</b>\n${extractPreMortemLines(shadow.preMortem).map(l => `  ${l}`).join('\n')}`
       : '';
 
     const learningBlock =

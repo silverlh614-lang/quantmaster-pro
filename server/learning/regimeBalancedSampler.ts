@@ -96,7 +96,7 @@ export function formatRegimeCoverage(report?: RegimeCoverageReport): string {
   const lines = [
     '📊 <b>[레짐 샘플 커버리지]</b>',
     `전체: ${r.totalSamples}/${r.totalTarget} (${(r.balanceRatio * 100).toFixed(0)}%)`,
-    '━━━━━━━━━━━━━━━━━━━━',
+    '━━━━━━━━━━━━━━━━',
   ];
   for (const e of r.entries) {
     const pct = e.target > 0 ? (e.current / e.target) * 100 : 0;
@@ -110,7 +110,7 @@ export function formatRegimeCoverage(report?: RegimeCoverageReport): string {
     );
   }
   if (r.totalDeficit > 0) {
-    lines.push('━━━━━━━━━━━━━━━━━━━━');
+    lines.push('━━━━━━━━━━━━━━━━');
     lines.push(`<i>총 부족 샘플 ${r.totalDeficit} — Walk-Forward replay 보충 권고</i>`);
   }
   return lines.join('\n');

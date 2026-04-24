@@ -48,7 +48,7 @@ async function reactToLossStreak(consecLoss: number): Promise<void> {
     setEmergencyStop(true);
     await sendTelegramAlert(
       `🛑 <b>[서킷브레이커 발동]</b> 연속손절 ${consecLoss}건\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━━━━━\n` +
       `• 자동거래 <b>일시정지</b> (setEmergencyStop=true)\n` +
       `• 레짐 강제 다운그레이드 유지\n` +
       `• 신규 진입 홀드 30분 유지\n\n` +

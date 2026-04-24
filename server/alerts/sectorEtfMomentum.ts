@@ -206,7 +206,7 @@ function formatAlert(report: SectorMomentumReport): string {
 
   return (
     `💠 <b>[美 섹터 ETF 30분 RS 스캔]</b> 06:15 KST\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     rankLines.join('\n\n') +
     `\n\n${priority}` +
     (caution ? `\n${caution}` : '')

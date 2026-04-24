@@ -1555,11 +1555,11 @@ export async function sendWatchlistRejectionReport(): Promise<void> {
 
   const msg =
     `📋 <b>[워치리스트 탈락 리포트]</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `스캔 종목: ${getScreenerCache().length || STOCK_UNIVERSE.length}개 | 탈락: ${log.length}건\n\n` +
     `<b>사유별 분포:</b>\n${reasonLines}\n\n` +
     `<b>탈락 종목 (상위 10):</b>\n${topRejections}\n` +
-    `━━━━━━━━━━━━━━━━━━━━`;
+    `━━━━━━━━━━━━━━━━`;
 
   await sendTelegramAlert(msg, {
     priority: 'LOW',

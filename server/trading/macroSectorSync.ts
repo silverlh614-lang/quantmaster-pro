@@ -273,7 +273,7 @@ async function handleVixSpike(
     const { macro } = result.layerSnapshot;
     await sendTelegramAlert(
       `⚠️ <b>[장중 VIX 급등 — 진입 보수 모드 전환]</b>\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━━━━━\n` +
       `VIX: ${macro.vixDayOpen?.toFixed(1)} → ${macro.vixCurrent?.toFixed(1)} ` +
       `(+${macro.vixIntradayChangePct?.toFixed(1)}%)\n` +
       `\n` +
@@ -340,11 +340,11 @@ async function notifyAlignmentWarnings(
   let message =
     `${alignEmoji} <b>[거시-섹터-종목 정렬 점검] ${hh}:${mm}</b>\n` +
     `정렬도: ${result.alignment} (${result.score}/100)\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `<b>거시:</b> ${macro.regime} | MHS ${macro.mhs} | VIX ${macro.vixCurrent?.toFixed(1) ?? 'N/A'}\n` +
     `<b>섹터:</b> ${sector.dominantDirection} | EWY ${sector.ewyChangePct?.toFixed(1) ?? 'N/A'}% | 경보 ${sector.sectorAlertCount}건\n` +
     `<b>종목:</b> 워치리스트 ${stock.watchlistCount}개 | 평균Gate ${stock.avgGateScore.toFixed(1)} | 고확신 ${stock.highConvictionCount}개\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `<b>경고:</b>\n${warningLines}`;
 
   // 연속 불일치 3회 이상이면 강조

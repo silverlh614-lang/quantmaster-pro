@@ -532,6 +532,27 @@ export function appendShadowLog(entry: Record<string, unknown>): void {
   fs.writeFileSync(SHADOW_LOG_FILE, JSON.stringify(logs.slice(-500), null, 2));
 }
 
+// ─── STRONG_BUY 분류 헬퍼 (ADR-0005) ─────────────────────────────────────────
+/**
+ * SHADOW 월간 집계에서 사용하는 STRONG_BUY 판정 함수.
+ *
+ * Primary: entryKellySnapshot.signalGrade === 'STRONG_BUY'
+ * Fallback (레거시 trade 용): profileType A/B + RRR ≥ 3.0 + 강세 레짐(R1/R2/R3).
+ *   signalScanner.ts:1222 의 isStrongBuy (gateScore >= 9) 기준을 충족하는 신호는
+ *   대개 강세 레짐에서 대/중형 주도 프로파일을 가지며 RRR 3 이상을 설계한다는 점을
+ *   반영한 휴리스틱이다. 신규 샘플에는 영향을 주지 않고 집계 시점에만 복원한다.
+ */
+export function isStrongBuyTrade(t: ServerShadowTrade): boolean {
+  if (t.entryKellySnapshot?.signalGrade === 'STRONG_BUY') return true;
+  if (t.entryKellySnapshot?.signalGrade) return false; // 명시적 다른 grade 면 fallback 금지
+  const rrr = t.preMortemStructured?.targetScenario?.rrr ?? 0;
+  const strongRegime = t.entryRegime === 'R1_TURBO'
+    || t.entryRegime === 'R2_BULL'
+    || t.entryRegime === 'R3_EARLY';
+  const strongProfile = t.profileType === 'A' || t.profileType === 'B';
+  return rrr >= 3.0 && strongRegime && strongProfile;
+}
+
 // ─── Shadow 월간 집계 (SSOT: fills) ───────────────────────────────────────────
 
 /** Shadow 포지션이 종결(HIT_TARGET / HIT_STOP) 된 상태인지. */
@@ -603,8 +624,13 @@ export function computeShadowMonthlyStats(monthISO?: string): ShadowMonthlyStats
   const lossAbs = Math.abs(returns.filter(r => r < 0).reduce((s, r) => s + r, 0));
   const profitFactor = lossAbs > 0 ? winSum / lossAbs : null;
 
-  // STRONG_BUY 승률 — entryKellySnapshot.signalGrade 로 식별. 레거시는 signalGrade 없음.
-  const sb = closed.filter(t => t.entryKellySnapshot?.signalGrade === 'STRONG_BUY');
+  // STRONG_BUY 승률 — Primary: entryKellySnapshot.signalGrade.
+  // ADR-0005 Fallback: 레거시 trade (snapshot 없음) 에 대해
+  //   preMortemStructured.targetScenario.rrr >= 3.0 AND
+  //   profileType ∈ {A, B} AND
+  //   entryRegime ∈ {R1_TURBO, R2_BULL, R3_EARLY}
+  // 을 STRONG_BUY 로 복원하여 SHADOW 졸업 조건 산정이 레거시 구간에서 막히지 않게 한다.
+  const sb = closed.filter(t => isStrongBuyTrade(t));
   const sbWins = sb.filter(t => getWeightedPnlPct(t) > 0).length;
   const strongBuyWinRate = sb.length > 0 ? (sbWins / sb.length) * 100 : 0;
 

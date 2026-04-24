@@ -268,7 +268,7 @@ export async function generateQualityScorecard(): Promise<void> {
 
   const message =
     `📋 <b>[Pipeline Yield 스코어카드] ${today}</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `\n` +
     `${yieldEmoji(discoveryYield)} <b>① Discovery Yield</b> (발굴 → 워치리스트)\n` +
     `   ${yieldBar(discoveryYield)} ${discoveryYield}%\n` +
@@ -287,7 +287,7 @@ export async function generateQualityScorecard(): Promise<void> {
     `   ${todayTradesClosed}개 결산 → ${todayTradesWon}승 ${todayTradesLost}패` +
     `${todayTradesTotal - todayTradesClosed > 0 ? ` (${todayTradesTotal - todayTradesClosed}개 미결산)` : ''}\n` +
     `\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `<b>End-to-End Yield:</b> ${overallYield}% (${universeScanned} → ${todayTradesWon}승)\n` +
     `\n` +
     `<b>7일 평균 추세:</b>\n` +

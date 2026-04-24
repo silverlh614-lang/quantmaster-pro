@@ -184,4 +184,58 @@ describe('computeShadowMonthlyStats', () => {
     expect(stats.profitFactor).toBeNull();
     expect(stats.sampleSufficient).toBe(false);
   });
+
+  // ADR-0005: 레거시 trade (entryKellySnapshot 미존재) 에서도 profileType + RRR + 강세 레짐
+  // 조건으로 STRONG_BUY 승률을 복원해 SHADOW 졸업 조건이 막히지 않도록 한다.
+  it('ADR-0005 STRONG_BUY fallback — 레거시 trade 복원', () => {
+    const thisMonthISO = `${thisMonth}-12T09:00:00.000Z`;
+    const trades: any[] = [
+      // 1) snapshot 없지만 profileType A + RRR 3.2 + R2_BULL → fallback STRONG_BUY, WIN
+      {
+        ...makeTrade({ id: 'LEG1', status: 'HIT_TARGET', entryPrice: 10_000, exitPrice: 11_500, qty: 10, exitTime: thisMonthISO }),
+        profileType: 'A',
+        entryRegime: 'R2_BULL',
+        preMortemStructured: { targetScenario: { rrr: 3.2, targetPrice: 13_200, expectedDays: 20, profitTrancheCount: 3 } },
+      },
+      // 2) 동일 조건, LOSS
+      {
+        ...makeTrade({ id: 'LEG2', status: 'HIT_STOP', entryPrice: 20_000, exitPrice: 18_000, qty: 5, exitTime: thisMonthISO }),
+        profileType: 'B',
+        entryRegime: 'R1_TURBO',
+        preMortemStructured: { targetScenario: { rrr: 3.5, targetPrice: 27_000, expectedDays: 10, profitTrancheCount: 3 } },
+      },
+      // 3) fallback 제외 — RRR 2.5 미달
+      {
+        ...makeTrade({ id: 'LEG3', status: 'HIT_TARGET', entryPrice: 30_000, exitPrice: 31_000, qty: 1, exitTime: thisMonthISO }),
+        profileType: 'A',
+        entryRegime: 'R2_BULL',
+        preMortemStructured: { targetScenario: { rrr: 2.5, targetPrice: 33_000, expectedDays: 15, profitTrancheCount: 3 } },
+      },
+      // 4) fallback 제외 — R4_NEUTRAL 은 강세 레짐 아님
+      {
+        ...makeTrade({ id: 'LEG4', status: 'HIT_TARGET', entryPrice: 40_000, exitPrice: 42_000, qty: 1, exitTime: thisMonthISO }),
+        profileType: 'A',
+        entryRegime: 'R4_NEUTRAL',
+        preMortemStructured: { targetScenario: { rrr: 3.5, targetPrice: 45_000, expectedDays: 15, profitTrancheCount: 3 } },
+      },
+    ];
+    repo.saveShadowTrades(trades);
+    const stats = repo.computeShadowMonthlyStats(thisMonth);
+    // LEG1(WIN) + LEG2(LOSS) 만 STRONG_BUY 로 인정 → 50%
+    expect(stats.strongBuyWinRate).toBeCloseTo(50, 1);
+
+    // 명시적 signalGrade 가 'BUY' 로 설정된 trade 는 fallback 으로 승격되지 않아야 함
+    const explicitBuy = {
+      ...makeTrade({ id: 'EXB', status: 'HIT_TARGET', entryPrice: 10_000, exitPrice: 11_000, qty: 1, exitTime: thisMonthISO, signalGrade: 'BUY' }),
+      profileType: 'A',
+      entryRegime: 'R2_BULL',
+      preMortemStructured: { targetScenario: { rrr: 4.0, targetPrice: 14_000, expectedDays: 20, profitTrancheCount: 3 } },
+    };
+    repo.saveShadowTrades([...trades, explicitBuy]);
+    const stats2 = repo.computeShadowMonthlyStats(thisMonth);
+    // 여전히 STRONG_BUY 2건만 (LEG1/LEG2) 인정
+    expect(stats2.totalClosed).toBe(5);
+    // strongBuyWinRate 은 LEG1(WIN) + LEG2(LOSS) 기준 50%
+    expect(stats2.strongBuyWinRate).toBeCloseTo(50, 1);
+  });
 });
