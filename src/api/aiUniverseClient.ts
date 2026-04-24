@@ -33,6 +33,18 @@ export interface AiUniverseValuation {
   source: string;
 }
 
+/**
+ * 서버 AiUniverseService 가 계산한 우선순위 단일 값. 클라이언트는 이 값으로
+ * "AI 추천 버튼을 눌렀는데 아무것도 나오지 않음" 에 대한 사용자 안내를 결정한다.
+ */
+export type AiUniverseSourceStatus =
+  | 'GOOGLE_OK'
+  | 'FALLBACK_SEED'
+  | 'NOT_CONFIGURED'
+  | 'BUDGET_EXCEEDED'
+  | 'ERROR'
+  | 'NO_MATCHES';
+
 export interface AiUniverseDiscoverResult {
   mode: AiUniverseMode;
   candidates: Array<{
@@ -51,6 +63,10 @@ export interface AiUniverseDiscoverResult {
     enrichSucceeded: number;
     enrichFailed: number;
     budgetExceeded: boolean;
+    /** 서버에서 계산된 경로 상태 — 구버전 서버와의 호환을 위해 optional. */
+    sourceStatus?: AiUniverseSourceStatus;
+    /** Google 매칭 0건 → seed universe 로 대체되었는지. */
+    fallbackUsed?: boolean;
   };
 }
 
