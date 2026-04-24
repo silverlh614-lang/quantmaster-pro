@@ -1,5 +1,9 @@
-// server/clients/kisClient.ts
-// KIS (한국투자증권) API 클라이언트 — 토큰 관리 · HTTP 헬퍼 · 주문 실행
+/**
+ * @responsibility KIS 토큰·HTTP·주문·실계좌 데이터 단일 통로 + 하드/소프트 회로차단
+ *
+ * PR-21: 404 는 소프트 카운터(10회·2분 쿨다운), 5xx/403 은 하드(3회·10분). 기존
+ * 3회 404→10분 차단 정책이 정상 조회까지 차단하던 부작용 제거.
+ */
 // 기존 server/clients/kisClient.ts + src/server/clients/kisClient.ts 통합
 
 import { sendTelegramAlert, escapeHtml } from '../alerts/telegramClient.js';
@@ -196,18 +200,39 @@ const _kisBackoffDelayMs = (retriesLeft: number) =>
 // 재시도 루프가 매 호출마다 최대 7초(1+2+4s)를 소비하고 rate-limiter 큐에 적체되어
 // Railway 메모리/타임아웃 한도를 초과하고 SIGTERM을 유발하는 문제를 차단한다.
 //
-// 동작:
-//   - trId별로 연속 5xx 실패 카운터 유지
-//   - CIRCUIT_THRESHOLD(3회) 도달 시 CIRCUIT_COOLDOWN_MS(10분) 동안 회로 개방
-//   - 개방 상태에서는 fetch 호출 자체를 건너뛰고 즉시 null 반환
-//   - 성공 응답(2xx) 시 카운터 리셋 + 회로 복구
+// 동작 (PR-21: 404 완화):
+//   - trId별로 연속 실패 카운터 2개: 하드(5xx/403) + 소프트(404) 분리 관리.
+//   - 하드 — CIRCUIT_THRESHOLD_HARD(3회) → CIRCUIT_COOLDOWN_HARD_MS(10분) 차단.
+//   - 소프트 — CIRCUIT_THRESHOLD_SOFT(10회) → CIRCUIT_COOLDOWN_SOFT_MS(2분) 차단.
+//   - KIS_LENIENT_404=true 이면 404 은 경고만 — 회로 절대 안 닫음.
+//   - 개방 상태에서는 fetch 호출 자체를 건너뛰고 즉시 null 반환.
+//   - 성공 응답(2xx) 시 두 카운터 모두 리셋 + 회로 복구.
+//
+// 404 완화 근거: KIS 실계좌 데이터(realDataKisGet) 에서 특정 trId 의 404 는
+// 엔드포인트 영구 불일치뿐 아니라 일시 장애·종목 일시 미지원에서도 발생한다.
+// 3회만 실패해도 10분 차단하던 기존 정책은 정상 조회까지 함께 죽였다.
 
-const CIRCUIT_THRESHOLD = 3;
-const CIRCUIT_COOLDOWN_MS = 10 * 60 * 1000;
+const CIRCUIT_THRESHOLD_HARD = 3;         // 5xx, 403 — 자연 복구 어려움
+const CIRCUIT_COOLDOWN_HARD_MS = 10 * 60 * 1000;
+const CIRCUIT_THRESHOLD_SOFT = 10;        // 404 — 종종 일시적, 관대 정책
+const CIRCUIT_COOLDOWN_SOFT_MS = 2 * 60 * 1000;
+/** 레거시 호환 — 외부에서 import 하는 코드가 있을 수 있어 유지. */
+const CIRCUIT_THRESHOLD = CIRCUIT_THRESHOLD_HARD;
+const CIRCUIT_COOLDOWN_MS = CIRCUIT_COOLDOWN_HARD_MS;
+
+function _lenient404(): boolean {
+  return (process.env.KIS_LENIENT_404 ?? 'false').toLowerCase() === 'true';
+}
 
 interface CircuitState {
-  consecutiveFailures: number;
+  /** 5xx/403 연속 실패 — 하드 실패 카운터 */
+  hardFailures: number;
+  /** 404 연속 실패 — 소프트 실패 카운터 */
+  softFailures: number;
+  /** 차단 만료 시각 (epoch ms). 0 = 차단 안 됨. */
   openUntil: number;
+  /** 마지막 차단이 어느 경로로 왔는지 (로그용) */
+  lastBlockedBy?: 'HARD' | 'SOFT';
 }
 
 const _circuitByTrId = new Map<string, CircuitState>();
@@ -215,7 +240,7 @@ const _circuitByTrId = new Map<string, CircuitState>();
 function _getCircuit(trId: string): CircuitState {
   let state = _circuitByTrId.get(trId);
   if (!state) {
-    state = { consecutiveFailures: 0, openUntil: 0 };
+    state = { hardFailures: 0, softFailures: 0, openUntil: 0 };
     _circuitByTrId.set(trId, state);
   }
   return state;
@@ -233,14 +258,41 @@ function _isCircuitOpen(trId: string): boolean {
   return false;
 }
 
+/**
+ * 실패 기록. status 값에 따라 하드(5xx/403) 또는 소프트(404) 카운터를 증가시킨다.
+ * 400/429 등은 호출자 측 파라미터·레이트 이슈라 회로 대상에서 제외한다.
+ */
 function _recordCircuitFailure(trId: string, status: number): void {
   const state = _getCircuit(trId);
-  state.consecutiveFailures += 1;
-  if (state.consecutiveFailures >= CIRCUIT_THRESHOLD) {
-    state.openUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
+
+  if (status === 404) {
+    if (_lenient404()) {
+      console.warn(`[KIS] ⚠️ 404 (${trId}) — KIS_LENIENT_404 모드: 회로 비활성`);
+      return;
+    }
+    state.softFailures += 1;
+    if (state.softFailures >= CIRCUIT_THRESHOLD_SOFT) {
+      state.openUntil = Date.now() + CIRCUIT_COOLDOWN_SOFT_MS;
+      state.lastBlockedBy = 'SOFT';
+      console.warn(
+        `[KIS] 🟡 소프트 회로 차단 — ${trId} 404 ${state.softFailures}회 연속, ` +
+        `${CIRCUIT_COOLDOWN_SOFT_MS / 60000}분간 호출 차단 (엔드포인트 일시 불가)`
+      );
+    } else {
+      const remaining = CIRCUIT_THRESHOLD_SOFT - state.softFailures;
+      console.warn(`[KIS] 404 (${trId}) — 소프트 카운트 ${state.softFailures}/${CIRCUIT_THRESHOLD_SOFT} (잔여 ${remaining}회)`);
+    }
+    return;
+  }
+
+  // 5xx / 403 — 하드 실패
+  state.hardFailures += 1;
+  if (state.hardFailures >= CIRCUIT_THRESHOLD_HARD) {
+    state.openUntil = Date.now() + CIRCUIT_COOLDOWN_HARD_MS;
+    state.lastBlockedBy = 'HARD';
     console.warn(
-      `[KIS] 🚨 회로 차단 — ${trId} ${state.consecutiveFailures}회 연속 ${status} 실패, ` +
-      `${CIRCUIT_COOLDOWN_MS / 60000}분간 호출 차단`
+      `[KIS] 🚨 회로 차단 — ${trId} ${state.hardFailures}회 연속 ${status} 실패, ` +
+      `${CIRCUIT_COOLDOWN_HARD_MS / 60000}분간 호출 차단`
     );
   }
 }
@@ -248,24 +300,47 @@ function _recordCircuitFailure(trId: string, status: number): void {
 function _recordCircuitSuccess(trId: string): void {
   const state = _circuitByTrId.get(trId);
   if (!state) return;
-  if (state.consecutiveFailures > 0 || state.openUntil > 0) {
-    console.log(`[KIS] ✅ 회로 복구 — ${trId} 정상 응답 (이전 실패 ${state.consecutiveFailures}회 리셋)`);
+  const hadFailure = state.hardFailures > 0 || state.softFailures > 0 || state.openUntil > 0;
+  if (hadFailure) {
+    console.log(
+      `[KIS] ✅ 회로 복구 — ${trId} 정상 응답 ` +
+      `(이전 hard ${state.hardFailures} / soft ${state.softFailures} 리셋)`
+    );
   }
-  state.consecutiveFailures = 0;
+  state.hardFailures = 0;
+  state.softFailures = 0;
   state.openUntil = 0;
+  state.lastBlockedBy = undefined;
 }
+
+// ─── 테스트 전용 export (PR-21) ──────────────────────────────────────────────
+// 런타임 코드 호출 대상이 아님 — 단위 테스트에서 회로 상태를 직접 조작한다.
+export const __testOnly = {
+  recordFailure: (trId: string, status: number) => _recordCircuitFailure(trId, status),
+  recordSuccess: (trId: string) => _recordCircuitSuccess(trId),
+  isOpen: (trId: string) => _isCircuitOpen(trId),
+};
 
 /** 회로 차단기 상태 조회 (디버깅/모니터링용) */
 export function getCircuitBreakerStats(): Array<{
   trId: string;
+  /** 하드 실패 수 (5xx/403) */
+  hardFailures: number;
+  /** 소프트 실패 수 (404) */
+  softFailures: number;
+  /** 호환용 별칭 — hardFailures + softFailures 합. 레거시 UI 를 위해 유지. */
   consecutiveFailures: number;
   openFor: number;
+  lastBlockedBy?: 'HARD' | 'SOFT';
 }> {
   const now = Date.now();
   return Array.from(_circuitByTrId.entries()).map(([trId, state]) => ({
     trId,
-    consecutiveFailures: state.consecutiveFailures,
+    hardFailures: state.hardFailures,
+    softFailures: state.softFailures,
+    consecutiveFailures: state.hardFailures + state.softFailures,
     openFor: Math.max(0, state.openUntil - now),
+    lastBlockedBy: state.lastBlockedBy,
   }));
 }
 
