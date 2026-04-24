@@ -18,13 +18,14 @@ function resolveTradeChannelId(): string | undefined {
   const trade = process.env.TELEGRAM_TRADE_CHANNEL_ID?.trim();
   if (trade) return trade;
 
-  const legacy = process.env.TELEGRAM_CHANNEL_ID?.trim();
-  if (legacy) {
+  // 전용 트레이드 채널이 없으면 개인 TELEGRAM_CHAT_ID 로 폴백한다 (단일 chat 운영 환경 기본 경로).
+  const chat = process.env.TELEGRAM_CHAT_ID?.trim();
+  if (chat) {
     warnOnce(
       'legacy_trade_channel',
-      '[AlertRouter] TELEGRAM_TRADE_CHANNEL_ID is missing; falling back to TELEGRAM_CHANNEL_ID.',
+      '[AlertRouter] TELEGRAM_TRADE_CHANNEL_ID is missing; falling back to TELEGRAM_CHAT_ID.',
     );
-    return legacy;
+    return chat;
   }
   return undefined;
 }

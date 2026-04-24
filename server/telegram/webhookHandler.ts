@@ -1323,7 +1323,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         await reply(
           `🔍 <b>[채널 테스트]</b>\n` +
           `CHANNEL_ENABLED: ${process.env.CHANNEL_ENABLED ?? '미설정'}\n` +
-          `TELEGRAM_CHANNEL_ID: ${process.env.TELEGRAM_CHANNEL_ID ?? '미설정'}\n` +
+          `TELEGRAM_CHAT_ID: ${process.env.TELEGRAM_CHAT_ID ?? '미설정'}\n` +
           `채널로 테스트 메시지를 전송합니다...`
         );
         const { sendChannelAlert } = await import('../alerts/telegramClient.js');
@@ -1338,7 +1338,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         await reply(
           msgId
             ? `✅ 채널 발송 성공 (message_id: ${msgId})`
-            : `❌ 채널 발송 실패 — TELEGRAM_CHANNEL_ID 또는 봇 권한 확인 필요`
+            : `❌ 채널 발송 실패 — TELEGRAM_CHAT_ID 또는 봇 권한 확인 필요`
         );
         break;
       }
