@@ -38,7 +38,7 @@ import {
   type KrxStockDailyRow,
   type KrxIndexDailyRow,
 } from './krxOpenApi.js';
-import { isMarketDataPublished } from '../utils/marketClock.js';
+import { isMarketDataPublished, isKstWeekend } from '../utils/marketClock.js';
 
 // ── 타입 ─────────────────────────────────────────────────────────────────────
 
@@ -256,9 +256,12 @@ async function krxPost(
       body,
     });
     if (!res.ok) {
-      // 주말·평일 18:00 이전 등 "통계 미확정 + resolveTradeDate 후퇴" 창에서는
-      // KRX 가 bld 별로 간헐적 400 을 반환한다. soft cooldown 이 이미 돌고 있어
-      // 정보 가치가 낮으므로 debug 로 강등하고 실장중 실패만 warn 유지.
+      // 주말 KRX 400 — resolveTradeDate 가 직전 영업일로 후퇴해도 bld 별 간헐 400.
+      // 정보 가치 0 + cooldown 오염 방지를 위해 silent return (recordBldFailure 도 생략).
+      if (res.status === 400 && isKstWeekend()) {
+        return null;
+      }
+      // 평일 18:00 이전 통계 미확정 창에서의 400 은 debug, 그 외는 warn 유지.
       if (res.status === 400 && !isMarketDataPublished()) {
         console.debug(`[KRX] ${bld} HTTP 400 (off-hours fallback — suppressed)`);
       } else {
