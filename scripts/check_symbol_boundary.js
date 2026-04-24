@@ -26,11 +26,7 @@ const EXTS = new Set(['.ts', '.tsx']);
 const IGNORED_SUFFIX = ['.d.ts', '.test.ts', '.test.tsx', '.spec.ts', '.spec.tsx'];
 
 // 경계 단독 소유 파일 (정규식 정의를 허용)
-// 서버 Registry + 클라이언트 twin (Tier 3 ⑩ 에서 shared/ 로 통합 예정)
-const REGISTRY_FILES = [
-  'server/utils/symbolMarketRegistry.ts',
-  'src/utils/marketTime.ts',
-];
+
 
 // 탐지 시그니처 — 문자열 매치 (정규식 리터럴 안에 등장하면 경계 위반)
 const SIGNATURES = [
@@ -79,8 +75,7 @@ function main() {
 
   const violations = [];
   for (const f of files) {
-    const norm = f.replace(/\\/g, '/');
-    if (REGISTRY_FILES.some((allowed) => norm.endsWith(allowed))) continue;
+
     const src = readFileSync(f, 'utf-8');
     const code = stripComments(src);
     for (const { name, pattern } of SIGNATURES) {
@@ -92,7 +87,7 @@ function main() {
 
   if (violations.length > 0) {
     console.error(`[SymbolBoundary][FAIL] 심볼 분류 정규식이 Registry 밖에서 발견됨 (${violations.length}건)`);
-    console.error(`  → 신규 regex 는 반드시 Registry 소유 파일(${REGISTRY_FILES.join(', ')}) 중 하나에 추가하세요.`);
+
     for (const { f, signature } of violations) {
       console.error(`  - ${f}  [${signature}]`);
     }

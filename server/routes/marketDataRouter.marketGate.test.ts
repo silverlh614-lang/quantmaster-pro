@@ -7,10 +7,6 @@ import {
   proxyCacheReset,
   proxyCacheSet,
 } from './marketDataRouter.js';
-import {
-  setSnapshot,
-  __resetForTests as resetSnapshot,
-} from '../persistence/offHoursSnapshotRepo.js';
 
 // UTC 기준: KST = UTC+9, ET = UTC-5 (EST)
 const SAT_KST_NOON_UTC      = new Date('2026-04-25T03:00:00.000Z'); // KST 토 12:00 / ET 금 22:00 → NYSE 닫힘
@@ -20,8 +16,7 @@ const MON_KST_EVENING_UTC   = new Date('2026-04-27T08:00:00.000Z'); // KST 월 1
 const MON_NYSE_OPEN_UTC     = new Date('2026-04-27T15:30:00.000Z'); // KST 화 00:30 / ET 월 10:30 → NYSE 열림, KRX 닫힘
 
 describe('evaluateMarketGate — SymbolMarketRegistry 게이트', () => {
-  beforeEach(() => { proxyCacheReset(); resetSnapshot(); });
-  afterEach(() => { proxyCacheReset(); resetSnapshot(); });
+
 
   it('KRX 장중(월요일 정오 KST) — KR 심볼 pass', () => {
     expect(evaluateMarketGate('009540.KS', '1y', '1d', MON_KST_NOON_UTC).action).toBe('pass');
@@ -82,34 +77,4 @@ describe('evaluateMarketGate — SymbolMarketRegistry 게이트', () => {
     expect(evaluateMarketGate('AAPL', '1y', '1d', MON_ET_EVENING_UTC).action).toBe('skip');
   });
 
-  it('PR-32 스냅샷 폴백 — LRU miss + 디스크 스냅샷 hit → stale 서빙', () => {
-    setSnapshot('009540.KS:1y:1d', {
-      body: '{"chart":"snapshot"}',
-      contentType: 'application/json; charset=utf-8',
-      fetchedAt: Date.now(),
-    });
-    const decision = evaluateMarketGate('009540.KS', '1y', '1d', SAT_KST_NOON_UTC);
-    expect(decision.action).toBe('stale');
-    if (decision.action === 'stale') {
-      expect(decision.body).toBe('{"chart":"snapshot"}');
-    }
-  });
-
-  it('LRU hit 우선 — 스냅샷 있어도 LRU 가 먼저 (최신 데이터 보존)', () => {
-    proxyCacheSet('009540.KS:1y:1d', {
-      body: '{"chart":"lru-newer"}',
-      contentType: 'application/json',
-      expiresAt: Date.now() + 60 * 60_000,
-    });
-    setSnapshot('009540.KS:1y:1d', {
-      body: '{"chart":"snapshot-older"}',
-      contentType: 'application/json',
-      fetchedAt: Date.now() - 3600_000,
-    });
-    const decision = evaluateMarketGate('009540.KS', '1y', '1d', SAT_KST_NOON_UTC);
-    expect(decision.action).toBe('stale');
-    if (decision.action === 'stale') {
-      expect(decision.body).toBe('{"chart":"lru-newer"}');
-    }
-  });
 });

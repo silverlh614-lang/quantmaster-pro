@@ -15,7 +15,6 @@ import { fetchPerPbr } from '../clients/krxClient.js';
 import { isMarketOpen } from '../utils/marketClock.js';
 import { isMarketOpenFor, nextOpenAtFor } from '../utils/symbolMarketRegistry.js';
 import { guardedFetch } from '../utils/egressGuard.js';
-import { getSnapshot, setSnapshot } from '../persistence/offHoursSnapshotRepo.js';
 
 const router = Router();
 
@@ -99,8 +98,7 @@ export function evaluateMarketGate(
   now: Date = new Date(),
 ): MarketGateDecision {
   if (isMarketOpenFor(symbol, now)) return { action: 'pass' };
-  const key = `${symbol}:${range}:${interval}`;
-  const cached = proxyCacheGet(key);
+
   if (cached) return { action: 'stale', body: cached.body, contentType: cached.contentType };
   // PR-32: 인메모리 LRU 미스 시 디스크 영속 스냅샷 폴백 — 재배포 후에도 마지막
   // 장중 값을 서빙해 UI 정보 불일치 원천 차단.
