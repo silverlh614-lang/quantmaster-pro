@@ -12,6 +12,26 @@ import { AI_CALL_BUDGET_FILE, ensureDataDir } from './paths.js';
 export interface DailyBudgetState {
   date: string;
   counters: Record<string, number>;
+  /** PR-25-C: 임계 경보 중복 억제 — bucket 별로 이미 통과한 임계값 percent(80/95/100). */
+  alertedThresholds?: Record<string, number[]>;
+}
+
+export const ALERT_THRESHOLDS_PCT = [80, 95, 100] as const;
+
+/**
+ * 임계 경보 콜백. 같은 bucket 의 같은 임계값은 하루에 한 번만 호출된다.
+ * 실제 텔레그램 송신은 server/index.ts 에서 주입 — repo 는 telegram 모듈 의존 없음.
+ */
+export type BudgetAlertHook = (payload: {
+  bucket: string;
+  used: number;
+  limit: number;
+  thresholdPct: number;
+}) => void;
+
+let _alertHook: BudgetAlertHook | null = null;
+export function setBudgetAlertHook(hook: BudgetAlertHook | null): void {
+  _alertHook = hook;
 }
 
 const KST_OFFSET_MS = 9 * 3_600_000;
@@ -32,29 +52,29 @@ const FLUSH_DEBOUNCE_MS = 200;
 function ensureLoaded(now: number = Date.now()): DailyBudgetState {
   if (_state) {
     if (_state.date !== todayKstDate(now)) {
-      _state = { date: todayKstDate(now), counters: {} };
+      _state = { date: todayKstDate(now), counters: {}, alertedThresholds: {} };
       scheduleFlush();
     }
     return _state;
   }
   ensureDataDir();
   if (!fs.existsSync(AI_CALL_BUDGET_FILE)) {
-    _state = { date: todayKstDate(now), counters: {} };
+    _state = { date: todayKstDate(now), counters: {}, alertedThresholds: {} };
     return _state;
   }
   try {
     const raw = fs.readFileSync(AI_CALL_BUDGET_FILE, 'utf-8');
     const parsed = JSON.parse(raw) as DailyBudgetState;
     if (parsed.date !== todayKstDate(now)) {
-      _state = { date: todayKstDate(now), counters: {} };
+      _state = { date: todayKstDate(now), counters: {}, alertedThresholds: {} };
       scheduleFlush();
     } else {
-      _state = parsed;
+      _state = { ...parsed, alertedThresholds: parsed.alertedThresholds ?? {} };
     }
     return _state;
   } catch (e) {
     console.warn('[AiCallBudgetRepo] 로드 실패:', e instanceof Error ? e.message : e);
-    _state = { date: todayKstDate(now), counters: {} };
+    _state = { date: todayKstDate(now), counters: {}, alertedThresholds: {} };
     return _state;
   }
 }
@@ -104,6 +124,28 @@ export function getUsed(bucket: string, now: number = Date.now()): number {
 }
 
 /**
+ * 사용량이 임계 percent 를 넘으면 콜백 호출 (중복 억제 — 같은 임계 일 1회).
+ * 한도 0 (전면 차단) 일 때는 비활성.
+ */
+function checkThresholds(bucket: string, newUsed: number, limit: number, state: DailyBudgetState): void {
+  if (!_alertHook || limit <= 0) return;
+  const pct = (newUsed / limit) * 100;
+  const already = state.alertedThresholds?.[bucket] ?? [];
+  for (const t of ALERT_THRESHOLDS_PCT) {
+    if (pct >= t && !already.includes(t)) {
+      if (!state.alertedThresholds) state.alertedThresholds = {};
+      state.alertedThresholds[bucket] = [...already, t];
+      try {
+        _alertHook({ bucket, used: newUsed, limit, thresholdPct: t });
+      } catch (e) {
+        console.warn('[AiCallBudgetRepo] alert hook 실패:', e instanceof Error ? e.message : e);
+      }
+      already.push(t);
+    }
+  }
+}
+
+/**
  * 호출 시도 — 한도 안이면 카운터 증가하고 true. 초과면 false.
  * 카운터를 미리 증가시키므로 race condition 안전.
  */
@@ -112,7 +154,9 @@ export function tryConsume(bucket: string, count: number = 1, now: number = Date
   const limit = defaultLimit(bucket);
   const used = state.counters[bucket] ?? 0;
   if (used + count > limit) return false;
-  state.counters[bucket] = used + count;
+  const newUsed = used + count;
+  state.counters[bucket] = newUsed;
+  checkThresholds(bucket, newUsed, limit, state);
   scheduleFlush();
   return true;
 }
@@ -120,7 +164,10 @@ export function tryConsume(bucket: string, count: number = 1, now: number = Date
 /** 강제 카운터 증가 — 외부 fetch 가 이미 발생한 후 사후 기록할 때. */
 export function recordCall(bucket: string, count: number = 1, now: number = Date.now()): void {
   const state = ensureLoaded(now);
-  state.counters[bucket] = (state.counters[bucket] ?? 0) + count;
+  const newUsed = (state.counters[bucket] ?? 0) + count;
+  state.counters[bucket] = newUsed;
+  const limit = defaultLimit(bucket);
+  checkThresholds(bucket, newUsed, limit, state);
   scheduleFlush();
 }
 
@@ -145,7 +192,7 @@ export function getBudgetSnapshot(now: number = Date.now()): {
 
 /** 운영자 수동 리셋. */
 export function resetBudget(): void {
-  _state = { date: todayKstDate(), counters: {} };
+  _state = { date: todayKstDate(), counters: {}, alertedThresholds: {} };
   scheduleFlush();
 }
 
