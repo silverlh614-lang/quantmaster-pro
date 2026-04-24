@@ -42,7 +42,7 @@ describe('momentumRecommendations — flattenCandidates (PR-25-B)', () => {
       fetchedAt: Date.now(),
       diagnostics: {
         googleQueries: 2, googleHits: 5, masterMisses: 0,
-        enrichSucceeded: 1, enrichFailed: 0, budgetExceeded: false,
+        enrichSucceeded: 1, enrichFailed: 0, budgetExceeded: false, sourceStatus: 'GOOGLE_OK', fallbackUsed: false,
       },
     };
     const flat = flattenCandidates(universe);
@@ -73,7 +73,7 @@ describe('momentumRecommendations — flattenCandidates (PR-25-B)', () => {
       fetchedAt: Date.now(),
       diagnostics: {
         googleQueries: 1, googleHits: 1, masterMisses: 0,
-        enrichSucceeded: 0, enrichFailed: 1, budgetExceeded: false,
+        enrichSucceeded: 0, enrichFailed: 1, budgetExceeded: false, sourceStatus: 'GOOGLE_OK', fallbackUsed: false,
       },
     };
     const flat = flattenCandidates(universe);
@@ -98,7 +98,7 @@ describe('momentumRecommendations — flattenCandidates (PR-25-B)', () => {
       fetchedAt: Date.now(),
       diagnostics: {
         googleQueries: 1, googleHits: 3, masterMisses: 0,
-        enrichSucceeded: 0, enrichFailed: 3, budgetExceeded: false,
+        enrichSucceeded: 0, enrichFailed: 3, budgetExceeded: false, sourceStatus: 'GOOGLE_OK', fallbackUsed: false,
       },
     };
     const flat = flattenCandidates(universe);

@@ -28,6 +28,24 @@ export interface AiUniverseCandidate extends StockMasterEntry {
   snapshot: NaverStockSnapshot | null;
 }
 
+/**
+ * Google 결과의 origin 상태. AI 추천이 "완료되었는데 아무것도 없음" 오인을 막기 위해
+ * 클라이언트가 사용자에게 정확한 사유를 표시할 수 있도록 우선순위 단일 값으로 요약한다.
+ * - GOOGLE_OK: 실제 Google CSE 매칭 성공
+ * - FALLBACK_SEED: Google 매칭 0건 → 하드코딩 seed 로 대체
+ * - NOT_CONFIGURED: GOOGLE_SEARCH_API_KEY/CX 미설정
+ * - BUDGET_EXCEEDED: google_search bucket 일일 한도 초과
+ * - ERROR: HTTP / fetch 오류
+ * - NO_MATCHES: Google 결과는 있었지만 KRX 마스터 매칭 0건 (or 마스터 비어있음)
+ */
+export type AiUniverseSourceStatus =
+  | 'GOOGLE_OK'
+  | 'FALLBACK_SEED'
+  | 'NOT_CONFIGURED'
+  | 'BUDGET_EXCEEDED'
+  | 'ERROR'
+  | 'NO_MATCHES';
+
 export interface AiUniverseResult {
   mode: AiUniverseMode;
   candidates: AiUniverseCandidate[];
@@ -39,6 +57,8 @@ export interface AiUniverseResult {
     enrichSucceeded: number;
     enrichFailed: number;
     budgetExceeded: boolean;
+    sourceStatus: AiUniverseSourceStatus;
+    fallbackUsed: boolean;
   };
 }
 
@@ -48,6 +68,57 @@ const MODE_QUERIES: Record<AiUniverseMode, string[]> = {
   QUANT_SCREEN: ['저PER 저PBR 우량주', '실적 개선주'],
   BEAR_SCREEN: ['약세장 방어주', '고배당 우량주'],
 };
+
+/**
+ * Google Search 미설정·예산 초과·매칭 실패 시 사용하는 KR 시총 상위 baseline.
+ * Gemini 가 최소한의 universe 로 기능을 이어가도록 보장 (사용자 체감 "완료만 뜨고
+ * 아무것도 없음" 오인 차단). naver_finance 일일 예산 1000 이 충분히 덮는다.
+ * mode 별로 성격에 맞는 부분집합만 노출한다.
+ */
+const SEED_UNIVERSE: Array<{ code: string; name: string; market: 'KOSPI' | 'KOSDAQ'; tags: Array<'LARGE_MOMENTUM' | 'DEFENSIVE' | 'VALUE' | 'GROWTH_MID'> }> = [
+  { code: '005930', name: '삼성전자',     market: 'KOSPI',  tags: ['LARGE_MOMENTUM', 'VALUE'] },
+  { code: '000660', name: 'SK하이닉스',   market: 'KOSPI',  tags: ['LARGE_MOMENTUM'] },
+  { code: '373220', name: 'LG에너지솔루션', market: 'KOSPI', tags: ['LARGE_MOMENTUM', 'GROWTH_MID'] },
+  { code: '207940', name: '삼성바이오로직스', market: 'KOSPI', tags: ['LARGE_MOMENTUM', 'GROWTH_MID'] },
+  { code: '005380', name: '현대차',       market: 'KOSPI',  tags: ['LARGE_MOMENTUM', 'VALUE'] },
+  { code: '000270', name: '기아',         market: 'KOSPI',  tags: ['LARGE_MOMENTUM', 'VALUE'] },
+  { code: '005490', name: 'POSCO홀딩스',  market: 'KOSPI',  tags: ['VALUE'] },
+  { code: '035420', name: 'NAVER',        market: 'KOSPI',  tags: ['GROWTH_MID'] },
+  { code: '035720', name: '카카오',       market: 'KOSPI',  tags: ['GROWTH_MID'] },
+  { code: '051910', name: 'LG화학',       market: 'KOSPI',  tags: ['GROWTH_MID'] },
+  { code: '006400', name: '삼성SDI',      market: 'KOSPI',  tags: ['GROWTH_MID'] },
+  { code: '068270', name: '셀트리온',     market: 'KOSPI',  tags: ['GROWTH_MID'] },
+  { code: '012330', name: '현대모비스',   market: 'KOSPI',  tags: ['VALUE'] },
+  { code: '015760', name: '한국전력',     market: 'KOSPI',  tags: ['DEFENSIVE', 'VALUE'] },
+  { code: '017670', name: 'SK텔레콤',     market: 'KOSPI',  tags: ['DEFENSIVE'] },
+  { code: '033780', name: 'KT&G',         market: 'KOSPI',  tags: ['DEFENSIVE'] },
+  { code: '097950', name: 'CJ제일제당',   market: 'KOSPI',  tags: ['DEFENSIVE'] },
+  { code: '055550', name: '신한지주',     market: 'KOSPI',  tags: ['VALUE', 'DEFENSIVE'] },
+  { code: '105560', name: 'KB금융',       market: 'KOSPI',  tags: ['VALUE', 'DEFENSIVE'] },
+  { code: '247540', name: '에코프로비엠', market: 'KOSDAQ', tags: ['GROWTH_MID'] },
+  { code: '086520', name: '에코프로',     market: 'KOSDAQ', tags: ['GROWTH_MID'] },
+  { code: '091990', name: '셀트리온헬스케어', market: 'KOSDAQ', tags: ['GROWTH_MID'] },
+  { code: '196170', name: '알테오젠',     market: 'KOSDAQ', tags: ['GROWTH_MID'] },
+  { code: '066970', name: '엘앤에프',     market: 'KOSDAQ', tags: ['GROWTH_MID'] },
+];
+
+function buildSeedFallback(mode: AiUniverseMode, limit: number): StockMasterEntry[] {
+  const wanted: Array<'LARGE_MOMENTUM' | 'DEFENSIVE' | 'VALUE' | 'GROWTH_MID'> =
+    mode === 'BEAR_SCREEN' ? ['DEFENSIVE', 'VALUE']
+    : mode === 'QUANT_SCREEN' ? ['VALUE', 'DEFENSIVE', 'GROWTH_MID']
+    : mode === 'EARLY_DETECT' ? ['GROWTH_MID', 'LARGE_MOMENTUM']
+    : ['LARGE_MOMENTUM', 'GROWTH_MID'];
+  const out: StockMasterEntry[] = [];
+  for (const tag of wanted) {
+    for (const s of SEED_UNIVERSE) {
+      if (!s.tags.includes(tag)) continue;
+      if (out.some((e) => e.code === s.code)) continue;
+      out.push({ code: s.code, name: s.name, market: s.market });
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
+}
 
 /**
  * mode 별 Google Search 쿼리를 실행해 universe 를 발굴한다.
@@ -63,13 +134,15 @@ export async function discoverUniverse(
   const enrich = options.enrich ?? true;
   const fetchedAt = Date.now();
 
-  const diag = {
+  const diag: AiUniverseResult['diagnostics'] = {
     googleQueries: 0,
     googleHits: 0,
     masterMisses: 0,
     enrichSucceeded: 0,
     enrichFailed: 0,
     budgetExceeded: false,
+    sourceStatus: 'GOOGLE_OK',
+    fallbackUsed: false,
   };
 
   // 1. 종목 마스터 stale 확인 + 1회 다운로드 (24h TTL)
@@ -89,12 +162,22 @@ export async function discoverUniverse(
   // 2. Google Search 로 후보 발굴
   const queries = MODE_QUERIES[mode];
   const candidatesByCode = new Map<string, { entry: StockMasterEntry; sources: Set<string> }>();
+  const nonOkSources = new Set<'NOT_CONFIGURED' | 'BUDGET_EXCEEDED' | 'ERROR'>();
   for (const q of queries) {
     const result = await googleSearch(q, { num: 5 });
     diag.googleQueries++;
     if (result.source === 'BUDGET_EXCEEDED') {
       diag.budgetExceeded = true;
+      nonOkSources.add('BUDGET_EXCEEDED');
       break;
+    }
+    if (result.source === 'NOT_CONFIGURED') {
+      nonOkSources.add('NOT_CONFIGURED');
+      break;
+    }
+    if (result.source === 'ERROR') {
+      nonOkSources.add('ERROR');
+      continue;
     }
     if (result.source !== 'GOOGLE_CSE') continue;
     diag.googleHits += result.items.length;
@@ -121,9 +204,30 @@ export async function discoverUniverse(
   }
 
   // 3. 상위 maxCandidates 개로 컷오프 (출처 다양성 우선)
-  const ranked = Array.from(candidatesByCode.values())
+  let ranked = Array.from(candidatesByCode.values())
     .sort((a, b) => b.sources.size - a.sources.size)
     .slice(0, maxCandidates);
+
+  // 3b. Google 결과 0건 → mode 별 seed fallback. Gemini 가 최소 universe 로 동작하도록
+  //     보장. 사용자 관점 "버튼 누르면 완료만 뜨고 아무것도 없음" 핵심 원인 차단.
+  if (ranked.length === 0) {
+    if (nonOkSources.has('NOT_CONFIGURED')) diag.sourceStatus = 'NOT_CONFIGURED';
+    else if (nonOkSources.has('BUDGET_EXCEEDED')) diag.sourceStatus = 'BUDGET_EXCEEDED';
+    else if (nonOkSources.has('ERROR')) diag.sourceStatus = 'ERROR';
+    else diag.sourceStatus = 'NO_MATCHES';
+
+    const seed = buildSeedFallback(mode, maxCandidates);
+    if (seed.length > 0) {
+      ranked = seed.map((entry) => ({
+        entry,
+        sources: new Set<string>(['seed:market_leaders']),
+      }));
+      diag.fallbackUsed = true;
+      console.warn(
+        `[AiUniverseService] Google 매칭 0건 (status=${diag.sourceStatus}) — seed ${seed.length}건으로 대체`,
+      );
+    }
+  }
 
   // 4. Naver Finance 로 enrichment (옵션)
   const snapshots = enrich
@@ -159,5 +263,5 @@ export async function enrichKnownStock(code: string): Promise<AiUniverseCandidat
   };
 }
 
-// 테스트 전용 — mode → queries 매핑 lock
-export const __testOnly = { MODE_QUERIES };
+// 테스트 전용 — mode → queries 매핑 lock + seed fallback 검증
+export const __testOnly = { MODE_QUERIES, SEED_UNIVERSE, buildSeedFallback };

@@ -163,6 +163,16 @@ export async function getCachedAIResponse<T>(cacheKey: string, fetchFn: () => Pr
 
   // 4) AI API 실제 호출
   const data = await fetchFn();
+
+  // 빈 응답(recommendations 0건)은 캐시하지 않는다. 한 번 실패한 상태가 4h
+  // localStorage + 24h 서버 캐시에 박제되어 사용자 체감 "완료만 뜨고 아무것도
+  // 안 나옴" 이 하루 종일 반복되는 것을 차단한다. getMomentumRecommendations
+  // 같이 structured 결과 반환 경로에서 의미가 있다.
+  if (isEmptyRecommendationData(data)) {
+    debugLog(`[AI캐시] 빈 recommendations — 캐시 스킵: ${cacheKey.substring(0, 50)}...`);
+    return data;
+  }
+
   const entry = { data, timestamp: now };
   aiCache[cacheKey] = entry;
   lsEvictIfNeeded();
@@ -171,6 +181,12 @@ export async function getCachedAIResponse<T>(cacheKey: string, fetchFn: () => Pr
   // 서버 Volume에도 비동기 저장 (대기하지 않음 — 호출자 응답 지연 없음)
   void serverCacheSet(cacheKey, data, AI_CACHE_TTL);
   return data;
+}
+
+function isEmptyRecommendationData(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const recs = (data as { recommendations?: unknown }).recommendations;
+  return Array.isArray(recs) && recs.length === 0;
 }
 
 export async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 2000): Promise<T> {

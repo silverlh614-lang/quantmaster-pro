@@ -44,8 +44,15 @@ export function useStockSearch() {
       setRecommendations(diversified);
       setMarketContext(data.marketContext);
       setLastUpdated(new Date().toISOString());
-      if (diversified.length === 0) toast.info('추천 종목이 없습니다.');
-      else toast.success('검색이 완료되었습니다.');
+      const warnings = Array.isArray((data as { warnings?: string[] }).warnings)
+        ? ((data as { warnings?: string[] }).warnings ?? [])
+        : [];
+      for (const w of warnings) toast.warning(w, { duration: 8000 });
+      if (diversified.length === 0) {
+        toast.info(warnings.length > 0 ? '추천 결과 없음 — 위 안내를 확인하세요.' : '추천 종목이 없습니다.');
+      } else {
+        toast.success('검색이 완료되었습니다.');
+      }
     } catch (err: any) {
       const message = err?.error?.message || err?.message || "";
       const isRateLimit = message.includes('429') || err?.status === 429;
