@@ -20,7 +20,9 @@ import type {
 } from './reflectionTypes.js';
 
 export const REFLECTION_TEMPERATURE = 0.2;
-export const REFLECTION_MAX_OUTPUT_TOKENS = 2048;
+// ADR-0009: JSON 응답 길이 상한 상향 (2048 → 4096). 기존 2048 에서 JSON 이 잘려 파싱
+// 실패 → template fallback 로그가 매일 반복되던 문제를 해소한다.
+export const REFLECTION_MAX_OUTPUT_TOKENS = 4096;
 
 /** 원천 검증 통과한 claim 만 남긴다. 삭제된 claim 텍스트는 removed[] 에 기록. */
 function filterClaims(

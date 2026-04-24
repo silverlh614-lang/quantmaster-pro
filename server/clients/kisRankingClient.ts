@@ -30,6 +30,7 @@ import {
   KIS_IS_REAL,
   hasKisClientOverrides,
 } from './kisClient.js';
+import { isMarketOpen } from '../utils/marketClock.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,11 @@ const _cache = new Map<string, CacheEntry>();
 function cacheKey(type: RankingType, limit: number): string {
   return `${type}:${limit}`;
 }
+
+// ── ADR-0009 장외 게이트 로그 throttle ─────────────────────────────────────
+// 장외 시간에 RankingType 별 스킵 로그를 1분에 한 번만 남겨 로그 폭증을 방지한다.
+const OFF_HOURS_LOG_INTERVAL_MS = 60 * 1000;
+let _lastOffHoursLogAt = 0;
 
 // ── TR 파라미터 매핑 ─────────────────────────────────────────────────────────
 
@@ -290,6 +296,21 @@ export async function getRanking(
   if (!opts.bypassCache) {
     const hit = _cache.get(key);
     if (hit && hit.expiresAt > Date.now()) return hit.data;
+  }
+
+  // ADR-0009: 장외(주말·평일 09:00 이전·15:30 이후) 에는 랭킹 TR 호출을 건너뛴다.
+  //   - 캐시 hit: TTL 무시하고 그대로 반환 (장외에는 stale 해도 무해).
+  //   - 캐시 miss: 네트워크 호출 스킵 후 빈 배열 반환.
+  //   - bypassCache=true 는 관리자 진단용 — 장외에도 호출 강제.
+  if (!opts.bypassCache && !isMarketOpen()) {
+    const staleHit = _cache.get(key);
+    if (staleHit) return staleHit.data;
+    const now = Date.now();
+    if (now - _lastOffHoursLogAt >= OFF_HOURS_LOG_INTERVAL_MS) {
+      _lastOffHoursLogAt = now;
+      console.info('[KisRanking] 장외 스킵', { type, limit });
+    }
+    return [];
   }
 
   if (!HAS_REAL_DATA_CLIENT && !KIS_IS_REAL && !hasKisClientOverrides()) {

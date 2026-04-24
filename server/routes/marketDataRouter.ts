@@ -12,8 +12,58 @@ import {
   buildMacroInterpretContext,
 } from '../engines/macroIndexEngine.js';
 import { fetchPerPbr } from '../clients/krxClient.js';
+import { isMarketOpen } from '../utils/marketClock.js';
 
 const router = Router();
+
+// ── ADR-0009: Yahoo historical-data 프록시 LRU 캐시 ─────────────────────────
+// 클라이언트 폴링이 같은 (symbol,range,interval) 조합을 분당 여러 번 요청하므로
+// 인프로세스 LRU 로 coalescing 한다. 장외에는 TTL 을 3배 연장해 새 호출을
+// 극단적으로 억제한다. 변경 범위는 /historical-data 엔드포인트 한 곳.
+interface YahooCacheEntry {
+  body: string;          // JSON 문자열 (Yahoo 응답 그대로)
+  contentType: string;
+  expiresAt: number;
+}
+const YAHOO_PROXY_MAX_ENTRIES = 500;
+const _yahooProxyCache = new Map<string, YahooCacheEntry>();
+const PROXY_LOG_INTERVAL_MS = 60_000;
+let _lastProxyCacheLogAt = 0;
+
+function yahooProxyTtlMs(interval: string | undefined): number {
+  const iv = (interval ?? '1d').toLowerCase();
+  const baseMs =
+    iv === '1d' ? 60 * 60_000 :
+    ['1m', '5m', '15m', '30m', '1h', '90m'].includes(iv) ? 5 * 60_000 :
+    15 * 60_000;
+  return isMarketOpen() ? baseMs : baseMs * 3;
+}
+
+export function proxyCacheGet(key: string): YahooCacheEntry | null {
+  const hit = _yahooProxyCache.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) {
+    _yahooProxyCache.delete(key);
+    return null;
+  }
+  // LRU: 최근 접근 = 뒤로 재삽입
+  _yahooProxyCache.delete(key);
+  _yahooProxyCache.set(key, hit);
+  return hit;
+}
+
+export function proxyCacheSet(key: string, entry: YahooCacheEntry): void {
+  if (_yahooProxyCache.has(key)) _yahooProxyCache.delete(key);
+  _yahooProxyCache.set(key, entry);
+  while (_yahooProxyCache.size > YAHOO_PROXY_MAX_ENTRIES) {
+    const oldest = _yahooProxyCache.keys().next().value;
+    if (oldest === undefined) break;
+    _yahooProxyCache.delete(oldest);
+  }
+}
+
+export function proxyCacheReset(): void { _yahooProxyCache.clear(); }
+export function proxyCacheSize(): number { return _yahooProxyCache.size; }
 
 // ─── KRX PER/PBR 조회 — 밸류에이션 매트릭스 클라이언트 표시용 ───────────────
 router.get('/krx/valuation', async (req: Request, res: Response) => {
@@ -46,10 +96,28 @@ router.get('/historical-data', async (req: Request, res: Response) => {
   const { symbol, range, interval } = req.query;
   if (!symbol) return res.status(400).json({ error: "Symbol is required" });
 
+  const symbolStr = String(symbol);
+  const rangeStr = typeof range === 'string' && range.length > 0 ? range : '1y';
+  const intervalStr = typeof interval === 'string' && interval.length > 0 ? interval : '1d';
+
+  // ADR-0009: 인프로세스 LRU 캐시 — 동일 (symbol,range,interval) 중복 호출 coalescing.
+  const cacheKey = `${symbolStr}:${rangeStr}:${intervalStr}`;
+  const cached = proxyCacheGet(cacheKey);
+  if (cached) {
+    const now = Date.now();
+    if (now - _lastProxyCacheLogAt >= PROXY_LOG_INTERVAL_MS) {
+      _lastProxyCacheLogAt = now;
+      console.debug('[YahooProxy] cache hit', { symbol: symbolStr, range: rangeStr, interval: intervalStr });
+    }
+    res.setHeader('Content-Type', cached.contentType);
+    res.setHeader('X-Cache', 'HIT');
+    return res.send(cached.body);
+  }
+
   // Try query2 first as it's often more reliable/less throttled
   const urls = [
-    `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range || '1y'}&interval=${interval || '1d'}`,
-    `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range || '1y'}&interval=${interval || '1d'}`
+    `https://query2.finance.yahoo.com/v8/finance/chart/${symbolStr}?range=${rangeStr}&interval=${intervalStr}`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/${symbolStr}?range=${rangeStr}&interval=${intervalStr}`,
   ];
 
   let lastError = null;
@@ -78,26 +146,33 @@ router.get('/historical-data', async (req: Request, res: Response) => {
         const data = await response.json();
         // Check if we actually got data
         if (data.chart?.result?.[0]) {
+          const body = JSON.stringify(data);
+          proxyCacheSet(cacheKey, {
+            body,
+            contentType: 'application/json; charset=utf-8',
+            expiresAt: Date.now() + yahooProxyTtlMs(intervalStr),
+          });
+          res.setHeader('X-Cache', 'MISS');
           return res.json(data);
         } else if (data.chart?.error) {
-          console.warn(`Yahoo API returned error for ${symbol}:`, data.chart.error);
+          console.warn(`Yahoo API returned error for ${symbolStr}:`, data.chart.error);
           lastError = data.chart.error;
           // Wait a bit before trying next URL
           if (i < urls.length - 1) await new Promise(resolve => setTimeout(resolve, 500));
           continue;
         }
       } else if (response.status === 404) {
-        console.warn(`Yahoo API symbol not found (404) for ${symbol}`);
-        return res.status(404).json({ error: "Symbol not found", symbol });
+        console.warn(`Yahoo API symbol not found (404) for ${symbolStr}`);
+        return res.status(404).json({ error: "Symbol not found", symbol: symbolStr });
       }
 
       const errorText = await response.text();
-      console.error(`Yahoo API error (${response.status}) for ${symbol}:`, errorText);
+      console.error(`Yahoo API error (${response.status}) for ${symbolStr}:`, errorText);
       lastError = { status: response.status, details: errorText };
       // Wait a bit before trying next URL
       if (i < urls.length - 1) await new Promise(resolve => setTimeout(resolve, 500));
     } catch (error: any) {
-      console.error(`Proxy error for ${symbol} using ${url.includes('query2') ? 'query2' : 'query1'}:`, error.message);
+      console.error(`Proxy error for ${symbolStr} using ${url.includes('query2') ? 'query2' : 'query1'}:`, error.message);
       lastError = error;
       // Wait a bit before trying next URL
       if (i < urls.length - 1) await new Promise(resolve => setTimeout(resolve, 500));
@@ -107,7 +182,7 @@ router.get('/historical-data', async (req: Request, res: Response) => {
   res.status(502).json({
     error: "Failed to fetch data from Yahoo after multiple attempts",
     details: lastError?.message || lastError?.details || "Unknown error",
-    symbol
+    symbol: symbolStr,
   });
 });
 

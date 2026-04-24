@@ -77,11 +77,16 @@ export const useRecommendationStore = create<RecommendationState>()(
       toggleWatchlist: (stock) => set((state) => {
         const exists = state.watchlist.find((s: StockRecommendation) => s.code === stock.code);
         if (exists) return { watchlist: state.watchlist.filter((s: StockRecommendation) => s.code !== stock.code) };
+        // PR-23: watchedPrice fallback chain — currentPrice → entryPrice → peakPrice.
+        // 0 은 "값 없음" 으로 취급하여 undefined 로 저장 (UI 가 — 로 렌더).
+        // watchedAt 은 ISO 문자열로 통일 (parseable by new Date()).
+        const candidates = [stock.currentPrice, stock.entryPrice, (stock as unknown as { peakPrice?: number }).peakPrice];
+        const watchedPrice = candidates.find((v): v is number => typeof v === 'number' && v > 0);
         return {
           watchlist: [...state.watchlist, {
             ...stock,
-            watchedPrice: stock.currentPrice,
-            watchedAt: new Date().toLocaleDateString('ko-KR'),
+            watchedPrice,
+            watchedAt: new Date().toISOString(),
           }],
         };
       }),

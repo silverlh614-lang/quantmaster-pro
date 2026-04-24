@@ -32,14 +32,26 @@ function toUserWatchlistItem(s: StockRecommendation): UserWatchlistItem {
  * 서버 직렬화 포맷 → Zustand watchlist 항목.
  * StockRecommendation 타입은 수십 개 필수 필드를 요구하지만, 워치리스트는 UI 북마크
  * 용도이므로 비필수 필드는 빈값/기본값으로 채워 런타임 안전을 유지한다.
+ *
+ * PR-23: 서버에 watchedPrice 가 비어 있고 currentPrice 가 있으면 currentPrice 로
+ * 백필 — 디바운스 sync 가 다음 PUT 에서 서버도 자연스럽게 갱신한다.
+ * watchedAt 이 ISO 포맷이 아니면 현재 시각으로 보정(기존 locale 문자열 레거시 호환).
  */
 function fromUserWatchlistItem(it: UserWatchlistItem): StockRecommendation {
+  const serverWatchedPrice = typeof it.watchedPrice === 'number' && it.watchedPrice > 0
+    ? it.watchedPrice
+    : undefined;
+  const serverCurrentPrice = typeof it.currentPrice === 'number' && it.currentPrice > 0
+    ? it.currentPrice
+    : 0;
+  const backfilledWatchedPrice = serverWatchedPrice ?? (serverCurrentPrice > 0 ? serverCurrentPrice : undefined);
+  const isIsoLike = typeof it.watchedAt === 'string' && !Number.isNaN(new Date(it.watchedAt).getTime());
   const restored = {
     code: it.code,
     name: it.name,
-    currentPrice: typeof it.currentPrice === 'number' ? it.currentPrice : 0,
-    watchedPrice: it.watchedPrice,
-    watchedAt: it.watchedAt,
+    currentPrice: serverCurrentPrice,
+    watchedPrice: backfilledWatchedPrice,
+    watchedAt: isIsoLike ? it.watchedAt : new Date().toISOString(),
     type: (it.signalType as StockRecommendation['type']) ?? 'BUY',
     reason: '',
     patterns: [],

@@ -14,8 +14,7 @@
  *   - 토큰/비용 추적은 상위 레이어(geminiClient.ts::recordCall)에 일임.
  */
 
-import type { GoogleGenAI } from '@google/genai';
-import { getGeminiClient, callGemini, callGeminiText } from '../clients/geminiClient.js';
+import { callGemini, callGeminiText } from '../clients/geminiClient.js';
 
 export type ProviderName = 'gemini' | 'openai' | 'groq' | 'self-hosted';
 
@@ -26,6 +25,17 @@ export interface TextOnlyOptions {
   temperature?: number;
   /** 응답 토큰 상한. Gemini 기본 2048 */
   maxOutputTokens?: number;
+  /**
+   * QuantMaster 페르소나 프리앰블을 prepend 할지 여부 (기본 true).
+   * reflection 모듈처럼 JSON 스키마 프롬프트가 자체 지시문을 갖는 경우 false.
+   */
+  prependPersona?: boolean;
+  /**
+   * 응답 상단의 페르소나 메타 서문을 자동 제거할지 여부 (기본 true).
+   * JSON 파싱 경로는 본문이 `{` 로 시작해 자동 stripper 가 노터치지만,
+   * 안전을 위해 false 로 끌 수 있다.
+   */
+  stripPreamble?: boolean;
 }
 
 export interface AiProvider {
@@ -46,33 +56,25 @@ class GeminiProvider implements AiProvider {
   }
   async textOnly(prompt: string, opts?: TextOnlyOptions): Promise<string | null> {
     // 단순 호출은 기본 callGemini 사용 (서킷·예산·재시도 모두 자동 적용).
-    if (!opts || (opts.temperature === undefined && opts.maxOutputTokens === undefined)) {
+    // ADR-0009: prependPersona / stripPreamble 가 지정되면 세밀 제어 경로(callGeminiText)
+    //          로 전환해 그대로 pass-through 한다.
+    const hasFineOpts =
+      opts &&
+      (opts.temperature !== undefined ||
+       opts.maxOutputTokens !== undefined ||
+       opts.prependPersona !== undefined ||
+       opts.stripPreamble !== undefined);
+    if (!hasFineOpts) {
       return callGemini(prompt, opts?.caller ?? 'aiProvider');
     }
     return callGeminiText(prompt, {
-      caller: opts.caller ?? 'aiProvider',
+      caller: opts!.caller ?? 'aiProvider',
       model: 'gemini-2.5-flash',
-      temperature: opts.temperature ?? 0.4,
-      maxOutputTokens: opts.maxOutputTokens ?? 2048,
-      prependPersona: true,
+      temperature: opts!.temperature ?? 0.4,
+      maxOutputTokens: opts!.maxOutputTokens ?? 2048,
+      ...(opts!.prependPersona !== undefined ? { prependPersona: opts!.prependPersona } : {}),
+      ...(opts!.stripPreamble !== undefined ? { stripPreamble: opts!.stripPreamble } : {}),
     });
-    // 옵션 커스터마이징이 필요한 경우 직접 호출.
-    const ai: GoogleGenAI = getGeminiClient() as GoogleGenAI;
-    if (!ai) return null;
-    try {
-      const res = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-          temperature: opts?.temperature ?? 0.4,
-          maxOutputTokens: opts?.maxOutputTokens ?? 2048,
-        },
-      });
-      return res.text ?? null;
-    } catch (e: any) {
-      console.error(`[AiProvider/Gemini] textOnly 실패:`, e instanceof Error ? e.message : e);
-      return null;
-    }
   }
 }
 
