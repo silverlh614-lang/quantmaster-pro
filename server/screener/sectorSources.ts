@@ -25,6 +25,7 @@
 import fs from 'fs';
 import { SECTOR_MAP as MANUAL_OVERRIDES } from './pipelineHelpers.js';
 import { callGeminiInterpret, isBudgetBlocked } from '../clients/geminiClient.js';
+import { guardedFetch } from '../utils/egressGuard.js';
 
 // ── 공통 타입 ────────────────────────────────────────────────────────────────
 
@@ -269,7 +270,7 @@ async function fetchYahooSector(code: string): Promise<{ sector: string | null; 
     const ctrl  = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), YAHOO_TIMEOUT_MS);
     try {
-      const res = await fetch(url, {
+      const res = await guardedFetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; QuantmasterPro/1.0)' },
         signal:  ctrl.signal,
       });

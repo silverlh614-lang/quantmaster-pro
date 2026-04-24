@@ -27,6 +27,7 @@ import fs from 'fs';
 import { sendTelegramAlert } from './telegramClient.js';
 import { SECTOR_ETF_MOMENTUM_FILE, ensureDataDir } from '../persistence/paths.js';
 import { logNewsSupplyEvent } from '../learning/newsSupplyLogger.js';
+import { guardedFetch } from '../utils/egressGuard.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -103,7 +104,7 @@ async function fetch30mBars(symbol: string, range = '5d'): Promise<IntradayBars 
     try {
       const ctrl = new AbortController();
       const tid  = setTimeout(() => ctrl.abort(), 12000);
-      const res  = await fetch(url, { headers: YF_HEADERS, signal: ctrl.signal });
+      const res  = await guardedFetch(url, { headers: YF_HEADERS, signal: ctrl.signal });
       clearTimeout(tid);
       if (!res.ok) continue;
       const data = await res.json();

@@ -18,6 +18,7 @@
 import fs from 'fs';
 import { RECOMMENDATIONS_FILE, ensureDataDir } from '../persistence/paths.js';
 import type { RecommendationRecord } from './recommendationTracker.js';
+import { guardedFetch } from '../utils/egressGuard.js';
 
 const YF_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -60,7 +61,7 @@ async function fetchOHLCV(code: string, from: Date, to: Date): Promise<OHLCVDay[
       try {
         const ctrl = new AbortController();
         const tid  = setTimeout(() => ctrl.abort(), 12_000);
-        const res  = await fetch(url, { headers: YF_HEADERS, signal: ctrl.signal });
+        const res  = await guardedFetch(url, { headers: YF_HEADERS, signal: ctrl.signal });
         clearTimeout(tid);
         if (!res.ok) continue;
         const data = await res.json();

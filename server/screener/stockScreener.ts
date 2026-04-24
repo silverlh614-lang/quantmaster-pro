@@ -13,6 +13,7 @@ import { getLiveRegime } from '../trading/regimeBridge.js';
 import { getCurrentScanPreset } from './scanPresets.js';
 import { recordMtasAttempt } from './dataCompletenessTracker.js';
 import { MOMENTUM_MAX_SIZE, SWING_MAX_SIZE, addToWatchlist } from './watchlistManager.js';
+import { guardedFetch } from '../utils/egressGuard.js';
 import {
   fetchInvestorTrading as krxFetchInvestorTrading,
   fetchPerPbr as krxFetchPerPbr,
@@ -1035,7 +1036,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
   try {
     // range=2y — MTAS(월봉/주봉) 계산에 충분한 데이터 확보 (MA60, 가속도 지표 포함)
     const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=2y&interval=1d`;
-    const res = await fetch(url, {
+    const res = await guardedFetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
     });
     if (!res.ok) return null;

@@ -23,6 +23,7 @@ import { checkAndNotifyRegimeChange } from './regimeBridge.js';
 import { fetchKisMarketSupply } from '../clients/kisClient.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
 import { computeMacroIndex } from '../engines/macroIndexEngine.js';
+import { guardedFetch } from '../utils/egressGuard.js';
 
 /**
  * FRED API — 최신 유효 관측값 조회 (최근 5건 중 '.' 제외 첫 번째).
@@ -276,7 +277,7 @@ export async function fetchDailyBars(symbol: string, range: string): Promise<Dai
     try {
       const ctrl = new AbortController();
       const tid  = setTimeout(() => ctrl.abort(), 12000);
-      const res  = await fetch(url, { headers: YF_HEADERS, signal: ctrl.signal });
+      const res  = await guardedFetch(url, { headers: YF_HEADERS, signal: ctrl.signal });
       clearTimeout(tid);
       if (!res.ok) continue;
       const data = await res.json();

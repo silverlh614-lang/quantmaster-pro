@@ -28,6 +28,7 @@ import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistenc
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
 import { sendTelegramAlert, answerCallbackQuery, isDigestEnabled, setDigestEnabled, escapeHtml } from '../alerts/telegramClient.js';
+import { guardedFetch } from '../utils/egressGuard.js';
 import { readAlertAuditRange } from '../alerts/alertAuditLog.js';
 import { getChannelStatsByDate, getRecentDateKeys } from '../persistence/channelStatsRepo.js';
 import { findAlertHistoryById, getRecentAlertHistory } from '../persistence/alertHistoryRepo.js';
@@ -1387,7 +1388,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         const withTimeout = <T>(p: Promise<T>, ms = 3000) =>
           Promise.race([p, probeTimeout(ms)]);
         const probes = await Promise.allSettled([
-          withTimeout(fetch('https://query1.finance.yahoo.com/v7/finance/chart/^KS11?interval=1d&range=1d')
+          withTimeout(guardedFetch('https://query1.finance.yahoo.com/v7/finance/chart/^KS11?interval=1d&range=1d')
             .then(r => r.ok ? 'OK' : `HTTP ${r.status}`)),
           withTimeout(fetch(`https://opendart.fss.or.kr/api/list.json?crtfc_key=${process.env.DART_API_KEY ?? ''}&page_count=1`)
             .then(async r => {

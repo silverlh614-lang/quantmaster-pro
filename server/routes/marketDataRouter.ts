@@ -14,6 +14,7 @@ import {
 import { fetchPerPbr } from '../clients/krxClient.js';
 import { isMarketOpen } from '../utils/marketClock.js';
 import { isMarketOpenFor, nextOpenAtFor } from '../utils/symbolMarketRegistry.js';
+import { guardedFetch } from '../utils/egressGuard.js';
 
 const router = Router();
 
@@ -168,7 +169,7 @@ async function fetchYahooHistorical(
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-      const response = await fetch(url, {
+      const response = await guardedFetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'application/json',
@@ -349,7 +350,7 @@ router.get('/market-indicators', async (_req: Request, res: Response) => {
     for (const host of ['query2', 'query1']) {
       try {
         const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
-        const r = await fetch(url, {
+        const r = await guardedFetch(url, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': 'application/json',
