@@ -65,7 +65,7 @@ export function endUnifiedBriefing(): { message: string; tier: 'T2_REPORT' | 'T3
   current = null;
   if (!session || session.sections.length === 0) return null;
 
-  const divider = '━━━━━━━━━━━━━━━━━━━━';
+  const divider = '━━━━━━━━━━━━━━━━';
   const parts: string[] = [`<b>${session.header}</b>`, divider];
   for (let i = 0; i < session.sections.length; i++) {
     const s = session.sections[i];

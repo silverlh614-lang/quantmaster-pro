@@ -1,5 +1,17 @@
+/**
+ * @responsibility 일일/장중/장마감 Telegram 리포트 생성 + 당일 실현 이벤트 fill SSOT 집계
+ *
+ * 리포트는 signalTime 이 아닌 fill timestamp 기준으로 오늘 실현을 모아, 부분매도
+ * 익절과 이월 청산이 누락되지 않도록 한다 (PR-15).
+ */
 // Phase 5-⑩: 이메일 채널 제거 — 모든 리포트는 Telegram 통합 채널로 발송.
-import { loadShadowTrades, getWeightedPnlPct } from '../persistence/shadowTradeRepo.js';
+import {
+  loadShadowTrades,
+  getWeightedPnlPct,
+  isActiveFill,
+  type ServerShadowTrade,
+  type PositionFill,
+} from '../persistence/shadowTradeRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { getMonthlyStats } from '../learning/recommendationTracker.js';
@@ -19,6 +31,165 @@ import { loadTomorrowPriming } from '../persistence/reflectionRepo.js';
 import { getRemainingQty, isOpenShadowStatus } from '../trading/signalScanner.js';
 // scanTracer 요약은 scanReviewReport.ts(16:40) 로 이관되어 이 파일에서는 더 이상 직접 사용하지 않는다.
 
+// ── 당일 실현 이벤트 집계 SSOT (PR-15) ────────────────────────────────────────
+//
+// 기존 리포트 로직 버그: (1) signalTime 기준 필터라 어제 진입→오늘 청산 건 누락,
+// (2) HIT_TARGET/HIT_STOP 만 `closed` 로 카운트해 ACTIVE 상태의 부분매도(익절)
+// 실현손익이 집계에서 통째로 빠짐. 이 헬퍼는 fill 단위로 오늘 KST 에 발생한
+// 모든 SELL 이벤트를 SSOT 로 모아, 부분매도·전량청산·이월청산을 균등 집계한다.
+export interface TodayRealization {
+  trade: ServerShadowTrade;
+  fill: PositionFill;
+  /** 이 fill 이 해당 trade 의 마지막 CONFIRMED SELL 이고 trade 가 전량 청산됐는지 */
+  isFinalClose: boolean;
+}
+
+/** 오늘(KST) 에 CONFIRMED 된 모든 SELL fill 을 trade 와 함께 나열한다. */
+export function collectTodayRealizations(
+  shadows: ServerShadowTrade[],
+  today: string,
+): TodayRealization[] {
+  const out: TodayRealization[] = [];
+  for (const trade of shadows) {
+    const fills = trade.fills ?? [];
+    // 살아 있는 SELL fill 중 오늘 타임스탬프인 것만.
+    const sellsToday = fills.filter((f) => {
+      if (f.type !== 'SELL' || !isActiveFill(f)) return false;
+      const ts = f.confirmedAt ?? f.timestamp;
+      if (!ts) return false;
+      const d = new Date(ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+      return d === today;
+    });
+    if (sellsToday.length === 0) continue;
+
+    // 이 trade 의 마지막 CONFIRMED SELL id — "전량 청산" 판정에 사용.
+    const allConfirmedSells = fills.filter((f) => f.type === 'SELL' && isActiveFill(f));
+    const lastSellId = allConfirmedSells[allConfirmedSells.length - 1]?.id;
+    const isClosed = trade.status === 'HIT_TARGET' || trade.status === 'HIT_STOP';
+
+    for (const f of sellsToday) {
+      out.push({
+        trade,
+        fill: f,
+        isFinalClose: isClosed && f.id === lastSellId,
+      });
+    }
+  }
+  return out;
+}
+
+export interface TodayRealizationStats {
+  realizations: TodayRealization[];
+  /** fill 개수 (부분매도 포함) */
+  realizationCount: number;
+  /** 이익 fill 개수 */
+  wins: number;
+  /** 손실 fill 개수 */
+  losses: number;
+  /** 전량 청산된 trade 수 (중복 제거) */
+  fullClosedCount: number;
+  /** 부분매도만 발생한 trade 수 (전량 청산 제외) */
+  partialOnlyCount: number;
+  /** fill 가중 평균 pnlPct (Σ pnlPct×qty / Σ qty) */
+  weightedReturnPct: number;
+  /** fill 기반 실현 원화 합계 */
+  totalRealizedKrw: number;
+  /** 0~100 — 이익 fill 비율 */
+  winRate: number;
+}
+
+export function summarizeTodayRealizations(r: TodayRealization[]): TodayRealizationStats {
+  const wins = r.filter((x) => (x.fill.pnl ?? 0) > 0).length;
+  const losses = r.filter((x) => (x.fill.pnl ?? 0) < 0).length;
+  const fullClosedIds = new Set(r.filter((x) => x.isFinalClose).map((x) => x.trade.id));
+  const allTradeIds = new Set(r.map((x) => x.trade.id));
+  const partialOnlyCount = [...allTradeIds].filter((id) => !fullClosedIds.has(id)).length;
+
+  const totalQty = r.reduce((s, x) => s + x.fill.qty, 0);
+  const weightedReturnPct = totalQty > 0
+    ? r.reduce((s, x) => s + (x.fill.pnlPct ?? 0) * x.fill.qty, 0) / totalQty
+    : 0;
+  const totalRealizedKrw = r.reduce((s, x) => s + (x.fill.pnl ?? 0), 0);
+
+  return {
+    realizations: r,
+    realizationCount: r.length,
+    wins,
+    losses,
+    fullClosedCount: fullClosedIds.size,
+    partialOnlyCount,
+    weightedReturnPct,
+    totalRealizedKrw,
+    winRate: r.length > 0 ? Math.round((wins / r.length) * 100) : 0,
+  };
+}
+
+// ── 당일 매수 이벤트 집계 SSOT (PR-17) ────────────────────────────────────────
+//
+// "오늘 매수 N개" 는 기존 `shadows.filter(s => s.signalTime.startsWith(today))`
+// 로 계산되어 어제 signaled → 오늘 tranche 체결·오늘 signaled → 오늘 체결 등
+// fill 타임라인이 signalTime 과 괴리되는 케이스를 놓쳤다. 여기서는 실제 CONFIRMED
+// BUY fill 의 timestamp 를 기준으로 집계해 체결 현실을 반영한다.
+export interface TodayBuyEvent {
+  trade: ServerShadowTrade;
+  fill: PositionFill;
+  /** 이 trade 의 첫 BUY fill 인지 — true 면 "신규 진입", false 면 tranche */
+  isInitial: boolean;
+}
+
+export function collectTodayBuyEvents(
+  shadows: ServerShadowTrade[],
+  today: string,
+): TodayBuyEvent[] {
+  const out: TodayBuyEvent[] = [];
+  for (const trade of shadows) {
+    const fills = trade.fills ?? [];
+    const buys = fills.filter((f) => f.type === 'BUY' && isActiveFill(f));
+    if (buys.length === 0) continue;
+    // 시간순 정렬 — 첫 BUY 가 INITIAL, 나머지는 TRANCHE.
+    const sorted = [...buys].sort((a, b) => (a.confirmedAt ?? a.timestamp).localeCompare(b.confirmedAt ?? b.timestamp));
+    for (let i = 0; i < sorted.length; i++) {
+      const f = sorted[i];
+      // PROVISIONAL 도 집계 포함 (실제 주문 접수 완료 상태 — 체결 확인 대기).
+      if (f.status === 'REVERTED') continue;
+      const ts = f.confirmedAt ?? f.timestamp;
+      if (!ts) continue;
+      const d = new Date(ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+      if (d !== today) continue;
+      out.push({ trade, fill: f, isInitial: i === 0 });
+    }
+  }
+  return out;
+}
+
+export interface TodayBuyEventStats {
+  events: TodayBuyEvent[];
+  totalBuys: number;
+  /** 오늘 신규 진입한 trade 수 (isInitial 이면서 오늘) */
+  newEntries: number;
+  /** 기존 trade 에 대한 오늘 tranche 체결 수 */
+  tranches: number;
+  /** 오늘 BUY 체결로 유입된 총 주식 수량 */
+  totalQty: number;
+  /** 오늘 BUY 체결로 소요된 원화 총액 (qty × price) */
+  totalCostKrw: number;
+}
+
+export function summarizeTodayBuyEvents(events: TodayBuyEvent[]): TodayBuyEventStats {
+  const newEntries = events.filter((e) => e.isInitial).length;
+  const tranches = events.filter((e) => !e.isInitial).length;
+  const totalQty = events.reduce((s, e) => s + e.fill.qty, 0);
+  const totalCostKrw = events.reduce((s, e) => s + e.fill.qty * e.fill.price, 0);
+  return {
+    events,
+    totalBuys: events.length,
+    newEntries,
+    tranches,
+    totalQty,
+    totalCostKrw,
+  };
+}
+
 /**
  * 아이디어 9: 일일 리포트 2.0 — Gemini AI 내러티브 리포트
  * 1. 거래 데이터 + MHS + 월간 통계를 Gemini에 주입 (googleSearch 없음)
@@ -29,25 +200,33 @@ export async function generateDailyReport(): Promise<void> {
   const shadows = loadShadowTrades();
   const macro   = loadMacroState();
   const stats   = getMonthlyStats();
-  // returnPct 는 fills SSOT 로 이관되어 더 이상 저장되지 않는다 — getWeightedPnlPct 로 파생.
   const today   = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
-  const todayTrades = shadows.filter(
+
+  // PR-15: 오늘의 "신호 건수" 는 signalTime 기준, "실현 손익" 은 fill SSOT 기준으로 분리.
+  // 부분매도(ACTIVE 상태 유지) 익절도 realizations 에 포함되어 이익 실종 방지.
+  const todaySignals = shadows.filter(
     (s) => new Date(s.signalTime).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }) === today,
   );
-  const closed = todayTrades.filter((s) => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP');
-  const wins   = closed.filter((s) => s.status === 'HIT_TARGET');
-  const totalReturn = closed.reduce((sum, s) => sum + getWeightedPnlPct(s), 0);
-  const winRate = closed.length > 0 ? Math.round((wins.length / closed.length) * 100) : 0;
+  const realizations = collectTodayRealizations(shadows, today);
+  const r = summarizeTodayRealizations(realizations);
+  const totalReturn = r.weightedReturnPct;
   const watchlist = loadWatchlist();
 
   // ── 기본 수치 리포트 (이메일 / 폴백용) ────────────────────────────────────────
-  const tradeLines = closed.map((s) =>
-    `  ${s.status === 'HIT_TARGET' ? '✅' : '❌'} ${s.stockName}(${s.stockCode}) ${getWeightedPnlPct(s).toFixed(2)}%`
-  ).join('\n') || '  (결산 없음)';
+  const tradeLines = realizations.length > 0
+    ? realizations.map((x) => {
+        const icon = (x.fill.pnl ?? 0) >= 0 ? '✅' : '❌';
+        const kind = x.isFinalClose
+          ? (x.trade.status === 'HIT_TARGET' ? '전량 익절' : '전량 손절')
+          : '부분매도';
+        const pct = (x.fill.pnlPct ?? 0).toFixed(2);
+        return `  ${icon} ${x.trade.stockName}(${x.trade.stockCode}) ${kind} ${pct}% · ${x.fill.qty}주`;
+      }).join('\n')
+    : '  (오늘 실현 이벤트 없음)';
 
-  const dailyStatsLine = closed.length >= 5
-    ? `▶ 적중률: ${winRate}%  |  일일 P&L: ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%`
-    : `▶ 표본 ${closed.length}건 (통계 ${5 - closed.length}건 더 필요)  |  일일 P&L: ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%`;
+  const dailyStatsLine = r.realizationCount >= 5
+    ? `▶ 적중률: ${r.winRate}%  |  일일 P&L(가중): ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%  |  실현 ${Math.round(r.totalRealizedKrw).toLocaleString()}원`
+    : `▶ 표본 ${r.realizationCount}건 (통계 ${Math.max(0, 5 - r.realizationCount)}건 더 필요)  |  일일 P&L(가중): ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%  |  실현 ${Math.round(r.totalRealizedKrw).toLocaleString()}원`;
 
   const monthlyLine = stats.sampleSufficient
     ? `[월간 ${stats.month}] WIN률 ${stats.winRate.toFixed(1)}% | PF ${
@@ -58,8 +237,10 @@ export async function generateDailyReport(): Promise<void> {
   const baseReport = [
     `[QuantMaster Pro] ${today} 자동매매 일일 리포트`,
     '',
-    `▶ 당일 신호: ${todayTrades.length}건`,
-    `▶ 결산 완료: ${closed.length}건 (승 ${wins.length} / 패 ${closed.length - wins.length})`,
+    `▶ 당일 신호: ${todaySignals.length}건`,
+    `▶ 실현 이벤트: ${r.realizationCount}건 (익 ${r.wins} / 손 ${r.losses})` +
+      (r.partialOnlyCount > 0 ? ` · 부분매도 진행 ${r.partialOnlyCount}건` : '') +
+      (r.fullClosedCount > 0 ? ` · 전량 청산 ${r.fullClosedCount}건` : ''),
     dailyStatsLine,
     `▶ MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})`,
     `▶ 워치리스트: ${watchlist.length}개`,
@@ -71,21 +252,32 @@ export async function generateDailyReport(): Promise<void> {
   ].join('\n');
 
   // ── Gemini AI 내러티브 생성 (googleSearch 없음 — 비용 절감) ─────────────────
+  const realizedDetail = realizations.length > 0
+    ? realizations.map((x) => {
+        const kind = x.isFinalClose
+          ? (x.trade.status === 'HIT_TARGET' ? '전량익절' : '전량손절')
+          : '부분익절';
+        return `${x.trade.stockName} ${kind} ${(x.fill.pnlPct ?? 0).toFixed(2)}%`;
+      }).join(', ')
+    : '';
+
   const dataBlock = [
     `날짜: ${today} (KST)`,
     `거래 모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? '[SHADOW] (가상매매 — 실계좌 잔고 아님)' : 'LIVE (실매매)'}`,
-    `당일 신호: ${todayTrades.length}건 | 결산 ${closed.length}건 (승 ${wins.length} / 패 ${closed.length - wins.length})`,
-    `일일 P&L: ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%`,
+    `당일 신호: ${todaySignals.length}건 | 실현 이벤트 ${r.realizationCount}건 (익 ${r.wins} / 손 ${r.losses})`,
+    `부분매도 ${r.partialOnlyCount}건 · 전량청산 ${r.fullClosedCount}건`,
+    `일일 P&L(가중 평균): ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%  |  실현 원화: ${Math.round(r.totalRealizedKrw).toLocaleString()}원`,
     `MHS: ${macro?.mhs ?? 'N/A'} | 레짐: ${macro?.regime ?? 'N/A'}`,
     `워치리스트: ${watchlist.length}개 (${watchlist.slice(0, 5).map(w => w.name).join(', ')}${watchlist.length > 5 ? ' 외' : ''})`,
     `월간 통계 (${stats.month}): 전체 ${stats.total}건 / WIN률 ${stats.winRate.toFixed(1)}% / 평균수익 ${stats.avgReturn.toFixed(2)}%`,
     `STRONG_BUY 적중률: ${stats.strongBuyWinRate.toFixed(1)}%`,
-    closed.length > 0 ? `오늘 결산 종목: ${closed.map(s => `${s.stockName} ${getWeightedPnlPct(s).toFixed(2)}%`).join(', ')}` : '',
+    realizedDetail ? `오늘 실현 상세: ${realizedDetail}` : '',
   ].filter(Boolean).join('\n');
 
   const geminiPrompt = [
     '당신은 한국 주식 자동매매 시스템의 일일 리포트 작성 AI입니다.',
     '아래 오늘의 거래 데이터를 바탕으로 트레이더가 내일 아침 읽을 간결한 한국어 내러티브 리포트를 작성하세요.',
+    '주의: "실현 이벤트" 는 전량 청산뿐 아니라 ACTIVE 포지션의 부분매도(익절)도 포함한다. 손익 방향은 반드시 "일일 P&L(가중 평균)" 의 부호와 "오늘 실현 상세" 의 각 항목 부호를 그대로 따라 서술하라. 부분매도 익절이 있으면 "손실만 있었다" 고 단정 짓지 마라.',
     '형식: 오늘 요약 2~3문장 + 주목할 점 1~2개 bullet + 내일 주의사항 1~2개 bullet.',
     '반드시 한국어로, 300자 이내로 작성하세요. 외부 검색은 필요 없습니다.',
     '',
@@ -99,7 +291,7 @@ export async function generateDailyReport(): Promise<void> {
   const telegramMsg = narrative
     ? `📊 <b>[QuantMaster] ${today} 일일 리포트</b>\n\n${narrative}\n\n` +
       `<i>P&L ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}% | ` +
-      `WIN ${winRate}% (${wins.length}/${closed.length}) | MHS ${macro?.mhs ?? 'N/A'}</i>`
+      `WIN ${r.winRate}% (${r.wins}/${r.realizationCount}) | MHS ${macro?.mhs ?? 'N/A'}</i>`
     : `📊 <b>[QuantMaster] ${today} 일일 리포트</b>\n\n${baseReport}`;
 
   await sendTelegramAlert(telegramMsg).catch(console.error);
@@ -199,13 +391,13 @@ export async function generateWeeklyReport(): Promise<void> {
   // ── 메시지 조립 ──────────────────────────────────────────────────────────────
   const msg =
     `<b>[주간 캘리브레이션] ${fmtDate(weekStart)}~${fmtDate(weekEnd)}</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `거래 ${closed.length}건: WIN ${wins.length} / LOSS ${losses.length}  (WIN률 ${winRate}%)\n` +
     `평균 수익: +${avgWin.toFixed(1)}%  평균 손실: -${avgLoss.toFixed(1)}%\n` +
     `RRR 달성: ${rrr.toFixed(2)} (목표 2.0 ${rrr >= 2.0 ? '✅' : '⚠️'})\n` +
-    `━━━━━━━━━━━━━━━━━━━━` +
+    `━━━━━━━━━━━━━━━━` +
     top3Lines +
-    (top3Lines ? `━━━━━━━━━━━━━━━━━━━━` : '') +
+    (top3Lines ? `━━━━━━━━━━━━━━━━` : '') +
     actionBlock;
 
   await sendTelegramAlert(msg, { tier: 'T2_REPORT', category: 'weekly_calibration' }).catch(console.error);
@@ -260,11 +452,11 @@ export async function sendWatchlistBriefing(): Promise<void> {
   // ── ① 레짐 헤더 ──────────────────────────────────────────────────────────
   let msg =
     `🌅 <b>[${hh}:${mm} 장전 브리핑]</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `레짐: <b>${regime}</b> ${regimeEmoji[regime] ?? '⚪'}  ` +
     `MHS: ${macro?.mhs ?? 'N/A'}  ` +
     `VKOSPI: ${macro?.vkospi?.toFixed(1) ?? 'N/A'}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n`;
+    `━━━━━━━━━━━━━━━━\n`;
 
   // ── ② 워치리스트 종목별 상세 ──────────────────────────────────────────────
   if (list.length === 0) {
@@ -321,7 +513,7 @@ export async function sendWatchlistBriefing(): Promise<void> {
   }
 
   // ── ③ FOMC / 특이사항 ─────────────────────────────────────────────────────
-  msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+  msg += `━━━━━━━━━━━━━━━━\n`;
   if (fomc.phase !== 'NORMAL') {
     msg += `⚠️ 오늘 주의: ${fomc.description}\n`;
   }
@@ -529,7 +721,8 @@ export async function sendIntradayMarketReport(): Promise<void> {
   const macro    = loadMacroState();
   const shadows  = loadShadowTrades();
   const today    = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
-  const todayTrades = shadows.filter(
+  // PR-15: signalTime 이 아니라 fill timestamp 기준. 부분매도 익절도 P&L 에 반영.
+  const todaySignals = shadows.filter(
     s => new Date(s.signalTime).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }) === today,
   );
   const active   = shadows.filter(s =>
@@ -553,21 +746,20 @@ export async function sendIntradayMarketReport(): Promise<void> {
     }
   }
 
-  const closed = todayTrades.filter(s => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP');
-  const wins   = closed.filter(s => s.status === 'HIT_TARGET');
-  // returnPct 는 fills SSOT 이관 후 저장되지 않는다 — getWeightedPnlPct 로 파생.
-  const pnl    = closed.reduce((sum, s) => sum + getWeightedPnlPct(s), 0);
+  const r = summarizeTodayRealizations(collectTodayRealizations(shadows, today));
 
   const msg =
     `📡 <b>[장중 시장 현황]</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━\n` +
     `<b>📊 KOSPI</b>: ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}\n` +
     `<b>💱 USD/KRW</b>: ${usdKrw ? `${usdKrw.rate.toFixed(0)}원 (${fmtPct(usdKrw.changePct)})` : 'N/A'}\n` +
     `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n\n` +
     `<b>📈 오전 거래 요약</b>\n` +
-    `  오늘 신호: ${todayTrades.length}건\n` +
-    `  결산: ${closed.length}건 (승 ${wins.length} / 패 ${closed.length - wins.length})\n` +
-    `  P&L: ${fmtPct(pnl !== 0 ? pnl : null)}\n\n` +
+    `  오늘 신호: ${todaySignals.length}건\n` +
+    `  실현 이벤트: ${r.realizationCount}건 (익 ${r.wins} / 손 ${r.losses})` +
+      (r.partialOnlyCount > 0 ? ` · 부분매도 ${r.partialOnlyCount}건` : '') + `\n` +
+    `  P&L(가중): ${fmtPct(r.weightedReturnPct !== 0 ? r.weightedReturnPct : null)}` +
+      ` | 실현 ${Math.round(r.totalRealizedKrw).toLocaleString()}원\n\n` +
     (active.length > 0
       ? `<b>💼 활성 포지션 (${active.length}개)</b>\n${posLines.join('\n')}\n`
       : `<b>💼 활성 포지션</b>: 없음\n`);
@@ -586,49 +778,53 @@ export async function sendPostMarketReport(): Promise<void> {
   const watchlist = loadWatchlist();
   const stats     = getMonthlyStats();
   const today     = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
-  const todayTrades = shadows.filter(
+  // PR-15: signalTime 이 아니라 fill timestamp 기준. 부분매도 익절 포함.
+  const todaySignals = shadows.filter(
     s => new Date(s.signalTime).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }) === today,
   );
   const active    = shadows.filter(s =>
     s.status === 'ORDER_SUBMITTED' || s.status === 'PARTIALLY_FILLED' ||
     s.status === 'ACTIVE' || s.status === 'EUPHORIA_PARTIAL'
   );
-  const closed = todayTrades.filter(s => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP');
-  const wins   = closed.filter(s => s.status === 'HIT_TARGET');
-  // returnPct 는 fills SSOT 이관 후 저장되지 않는다 — getWeightedPnlPct 로 파생.
-  const pnl    = closed.reduce((sum, s) => sum + getWeightedPnlPct(s), 0);
-  const winRate = closed.length > 0 ? Math.round((wins.length / closed.length) * 100) : 0;
+  const realizations = collectTodayRealizations(shadows, today);
+  const r = summarizeTodayRealizations(realizations);
 
   // KOSPI 종가
   const kospi  = await fetchKospiSnapshot();
   const usdKrw = await fetchUsdKrwSnapshot();
 
-  // 결산 종목 상세
-  const closedLines = closed.length > 0
-    ? closed.map(s => {
-        const ret = getWeightedPnlPct(s);
-        return `  ${s.status === 'HIT_TARGET' ? '✅' : '❌'} ${s.stockName} ${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%`;
+  // 실현 이벤트 상세 (부분매도 포함)
+  const closedLines = realizations.length > 0
+    ? realizations.map(x => {
+        const ret = x.fill.pnlPct ?? 0;
+        const icon = ret >= 0 ? '✅' : '❌';
+        const kind = x.isFinalClose
+          ? (x.trade.status === 'HIT_TARGET' ? '전량익절' : '전량손절')
+          : '부분익절';
+        return `  ${icon} ${x.trade.stockName} ${kind} ${ret >= 0 ? '+' : ''}${ret.toFixed(2)}% · ${x.fill.qty}주`;
       }).join('\n')
-    : '  (결산 없음)';
+    : '  (오늘 실현 이벤트 없음)';
 
   // Gemini AI 내일 전망
   const aiPrompt =
     `오늘 한국 주식시장 마감 후 요약 + 내일 전망 (2~3문장).\n` +
     `데이터: KOSPI ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}, ` +
     `USD/KRW ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원, MHS ${macro?.mhs ?? 'N/A'}(${macro?.regime ?? 'N/A'}), ` +
-    `오늘 자동매매 결산 ${closed.length}건 WIN률 ${winRate}%.\n` +
+    `오늘 실현 ${r.realizationCount}건 (익 ${r.wins}/손 ${r.losses}) WIN률 ${r.winRate}% P&L(가중) ${r.weightedReturnPct >= 0 ? '+' : ''}${r.weightedReturnPct.toFixed(2)}%.\n` +
+    `주의: "실현" 에는 부분매도 익절도 포함되어 있으니 "손실만 있었다" 고 단정 짓지 말고 P&L 가중치 부호와 각 실현 항목 부호를 그대로 따라 서술하라.\n` +
     `오늘 시장을 1문장으로 요약 + 내일 주의사항 1~2개 bullet으로 한국어 답변하라.`;
   const aiOutlook = await callGemini(aiPrompt, 'post-market-brief').catch(() => null);
 
   const msg =
     `🌇 <b>[장마감 요약] ${new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })}</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━\n` +
     `<b>📊 KOSPI 종가</b>: ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}\n` +
     `<b>💱 USD/KRW</b>: ${usdKrw ? `${usdKrw.rate.toFixed(0)}원 (${fmtPct(usdKrw.changePct)})` : 'N/A'}\n` +
     `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n\n` +
     `<b>📈 당일 거래 결과</b>\n` +
-    `  신호: ${todayTrades.length}건 | 결산: ${closed.length}건\n` +
-    `  WIN률: ${winRate}% | P&L: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%\n` +
+    `  신호: ${todaySignals.length}건 | 실현: ${r.realizationCount}건` +
+      (r.partialOnlyCount > 0 ? ` (부분 ${r.partialOnlyCount} · 전량 ${r.fullClosedCount})` : '') + `\n` +
+    `  WIN률: ${r.winRate}% | P&L(가중): ${r.weightedReturnPct >= 0 ? '+' : ''}${r.weightedReturnPct.toFixed(2)}% | 실현 ${Math.round(r.totalRealizedKrw).toLocaleString()}원\n` +
     `${closedLines}\n\n` +
     `<b>💼 보유 포지션</b>: ${active.length}개\n` +
     `<b>📋 워치리스트</b>: ${watchlist.length}개\n\n` +

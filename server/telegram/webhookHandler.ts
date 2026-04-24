@@ -130,7 +130,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       case '/start': {
         await reply(
           `🤖 <b>QuantMaster Pro 봇 명령어</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
           `📊 <b>조회</b>\n` +
           `  /status — 시스템 현황 요약\n` +
           `  /market — 시장상황 요약 레포트\n` +
@@ -330,7 +330,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
         const parts: string[] = [
           `📋 <b>[워치리스트] 총 ${wl.length}개</b>`,
-          `━━━━━━━━━━━━━━━━━━━━`,
+          `━━━━━━━━━━━━━━━━`,
         ];
 
         if (swingList.length > 0) {
@@ -353,7 +353,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         }
 
         parts.push(
-          `\n━━━━━━━━━━━━━━━━━━━━`,
+          `\n━━━━━━━━━━━━━━━━`,
           `⭐=SWING매수대상 👤=수동 📢=CATALYST 🤖=MOMENTUM`,
           `💡 /focus — SWING 상세 조회`
         );
@@ -715,7 +715,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             : '';
           await reply(
             `📤 <b>[Reconcile Push]</b> 서버 장부 기준 현재 포지션 ${open.length}개\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `━━━━━━━━━━━━━━━━\n` +
             lines.join('\n') + suffix +
             `\n\n💡 수량 불일치 발견 시 <code>/reconcile apply</code>`,
           );
@@ -871,9 +871,9 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         const totalSum = totalRealizedSum + totalUnrealizedSum;
         await reply(
           `📈 <b>[실시간 PnL] ${active.length}개 포지션</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━━\n` +
           `${lines.join('\n')}\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━━\n` +
           `실현 누계: ${totalRealizedSum >= 0 ? '+' : ''}${Math.round(totalRealizedSum).toLocaleString()}원 | ` +
           `미실현 합계: ${totalUnrealizedSum >= 0 ? '+' : ''}${Math.round(totalUnrealizedSum).toLocaleString()}원\n` +
           `총 손익: ${totalSum >= 0 ? '+' : ''}${Math.round(totalSum).toLocaleString()}원 | ` +
@@ -907,12 +907,12 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         });
         const hasShadow = active.some(s => s.mode !== 'LIVE');
         const shadowNote = hasShadow
-          ? '\n━━━━━━━━━━━━━━━━━━━━\n⚠️ 🟡 [SHADOW] 표시 포지션은 가상 — 실계좌 잔고 아님'
+          ? '\n━━━━━━━━━━━━━━━━\n⚠️ 🟡 [SHADOW] 표시 포지션은 가상 — 실계좌 잔고 아님'
           : '';
         await reply(
           `📋 <b>[보유 포지션] ${active.length}개</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
-          lines.join('\n━━━━━━━━━━━━━━━━━━━━\n') +
+          `━━━━━━━━━━━━━━━━\n` +
+          lines.join('\n━━━━━━━━━━━━━━━━\n') +
           shadowNote
         );
         break;
@@ -993,7 +993,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         const regimeEmoji = macro.regime === 'GREEN' ? '🟢' : macro.regime === 'YELLOW' ? '🟡' : '🔴';
         await reply(
           `🌐 <b>[매크로 레짐 현황]</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━━\n` +
           `${mhsEmoji} MHS: ${macro.mhs ?? 'N/A'}\n` +
           `${regimeEmoji} 레짐: ${macro.regime ?? 'N/A'}\n` +
           `📊 VKOSPI: ${macro.vkospi?.toFixed(1) ?? 'N/A'}\n` +
@@ -1002,7 +1002,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `📉 MHS추세: ${macro.mhsTrend ?? 'N/A'}\n` +
           `🐻 Bear방어: ${macro.bearDefenseMode ? '🔴 ON' : '🟢 OFF'}\n` +
           `📈 FSS경보: ${macro.fssAlertLevel ?? 'N/A'}\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━━\n` +
           `업데이트: ${macro.updatedAt ? new Date(macro.updatedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : 'N/A'}`
         );
         break;
@@ -1027,7 +1027,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         if (s.totalEvaluated === 0) {
           await reply(
             `🔬 <b>[Stage 1 Audit]</b>\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `━━━━━━━━━━━━━━━━\n` +
             `아직 실행된 스캔이 없습니다. /scan 또는 /krx_scan 실행 후 다시 시도.`,
           );
           break;
@@ -1048,7 +1048,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         await reply(
           `🔬 <b>[Stage 1 Audit — 정량 필터 탈락 분포]</b>\n` +
           `평가 ${s.totalEvaluated} · 통과 ${s.totalPassed} (${passPct.toFixed(0)}%) · 탈락 ${s.totalRejected}\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━━\n` +
           `<pre>${rows}</pre>\n` +
           `<i>상위 원인이 30% 이상이면 임계값 완화 검토 — 예: OVEREXTENDED 집중 = 5일 ≥15% 상한이 엄격.</i>\n` +
           `<i>업데이트: ${new Date(s.lastUpdatedAt).toLocaleString('ko-KR')}</i>`,
@@ -1173,9 +1173,9 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
         await reply(
           `🎯 <b>[Track B — 매수 대상] ${focusList.length}개</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
-          lines.join('\n━━━━━━━━━━━━━━━━━━━━\n') +
-          `\n━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━━\n` +
+          lines.join('\n━━━━━━━━━━━━━━━━\n') +
+          `\n━━━━━━━━━━━━━━━━\n` +
           `⭐=자동매수대상 👤=수동 🤖=자동발굴 🧊=쿨다운\n` +
           `💡 /buy 종목코드 — 수동 매수 신호 트리거`
         );
@@ -1331,7 +1331,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           .toISOString().replace('T', ' ').slice(0, 19);
         const msgId = await sendChannelAlert(
           `🧪 <b>[채널 연결 테스트]</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━━\n` +
           `✅ QuantMaster Pro 채널 연결 성공\n` +
           `⏰ ${kstStr} KST`
         ).catch(() => null);
@@ -1466,7 +1466,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           : `Alpha Vantage 단일 스냅샷 (변화율 비교 불가)`;
         await reply(
           `💱 <b>[DXY 인트라데이]</b> 소스: ${snap.source}\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━━\n` +
           `${arrow} DXY ${snap.last.toFixed(2)} | ${snap.windowMinutes}분 윈도우 ${sign}${snap.changePct.toFixed(2)}%\n` +
           `${stale}\n\n` +
           `<i>임계 ±${process.env.DXY_INTRADAY_THRESHOLD ?? '0.4'}% 돌파 시 자동 ANALYSIS 채널 + 개인 채팅 발송</i>`
@@ -1496,7 +1496,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         );
         await reply(
           `📡 <b>[뉴스-수급 시차 카탈로그] ${windows.length}개</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━━\n` +
           lines.join('\n') +
           (windows.length > 12 ? `\n...외 ${windows.length - 12}개` : '') +
           `\n\n<i>모델: Normal-Inverse-Gamma conjugate posterior on lag(business days)</i>`
@@ -1534,7 +1534,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       case '/ledger': {
         // Idea 2: Parallel Universe Ledger Sharpe 비교.
         const stats = getUniverseStats();
-        const lines = ['🌌 <b>[Parallel Universe Ledger]</b>', '━━━━━━━━━━━━━━━━━━━━'];
+        const lines = ['🌌 <b>[Parallel Universe Ledger]</b>', '━━━━━━━━━━━━━━━━'];
         for (const s of stats) {
           lines.push(
             `Universe ${s.universe} (${s.label})\n` +
@@ -1542,7 +1542,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             `   Sharpe=${s.sharpe.toFixed(2)} · PF=${s.profitFactor === null ? 'n/a' : s.profitFactor === Infinity ? '∞' : s.profitFactor.toFixed(2)}`,
           );
         }
-        lines.push('━━━━━━━━━━━━━━━━━━━━');
+        lines.push('━━━━━━━━━━━━━━━━');
         lines.push('<i>Universe A 는 실 진입과 동형. B/C 는 대안 세팅 학습 표본.</i>');
         await reply(lines.join('\n'));
         break;
@@ -1550,7 +1550,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
       case '/counterfactual': {
         // Idea 4: Gate 탈락 후보의 30/60/90일 분포 통계.
-        const lines = ['🔬 <b>[Counterfactual Shadow — 탈락 후보 추적]</b>', '━━━━━━━━━━━━━━━━━━━━'];
+        const lines = ['🔬 <b>[Counterfactual Shadow — 탈락 후보 추적]</b>', '━━━━━━━━━━━━━━━━'];
         for (const h of [30, 60, 90] as const) {
           const s = getCounterfactualStats(h);
           if (!s) {
@@ -1561,7 +1561,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             `${h}일: n=${s.samples} · μ=${s.mean.toFixed(2)}% · median=${s.median.toFixed(2)}% · win=${(s.winRate * 100).toFixed(0)}% · σ=${s.stdDev.toFixed(2)}%`,
           );
         }
-        lines.push('━━━━━━━━━━━━━━━━━━━━');
+        lines.push('━━━━━━━━━━━━━━━━');
         lines.push('<i>만약 수익률 분포가 통과 샘플과 유의하게 다르지 않다면 Gate 기준이 과잉.</i>');
         await reply(lines.join('\n'));
         break;
@@ -1602,7 +1602,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
               .join('\n');
         await reply(
           `⚡ <b>[회로 차단기 상태]</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━━\n` +
           `<b>KIS</b>:\n${kisLines}\n\n` +
           `<b>KRX OpenAPI</b>: ${krxStatus.circuitState === 'OPEN' ? '🔴 OPEN' : '🟢 ' + krxStatus.circuitState} ` +
           `(실패 ${krxStatus.failures}회)\n\n` +
@@ -1665,11 +1665,11 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         const topCats = [...byCat.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
         await reply(
           `📋 <b>[오늘 알림 로그] ${entries.length}건</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━━\n` +
           `🚨 T1 ALARM: ${byTier.T1_ALARM}건\n` +
           `📊 T2 REPORT: ${byTier.T2_REPORT}건\n` +
           `📋 T3 DIGEST: ${byTier.T3_DIGEST}건\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━━\n` +
           `<b>카테고리 Top ${topCats.length}:</b>\n` +
           topCats.map(([k, v]) => `  ${k}: ${v}건`).join('\n')
         );

@@ -148,7 +148,7 @@ function formatAlert(report: DxyAlertReport): string {
 
   return (
     `${icon} <b>[DXY ${severity === 'CONFIRMED' ? '확정' : '예비'} 경보]</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `${arrow} DXY ${reading.last.toFixed(2)} | 1d ${sign1}${reading.change1d}% · 5d ${sign5}${reading.change5d}%\n` +
     `USD/KRW 1d ${krwLbl} | EWY 1d ${ewyLbl}\n\n` +
     `${biasLine}\n\n` +
@@ -351,7 +351,7 @@ export async function runDxyIntradayMonitor(): Promise<DxyIntradayAlert | null> 
   const sign  = reading.changeWindowPct >= 0 ? '+' : '';
   const msg =
     `⚡ <b>[DXY 인트라데이 선행 경보]</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `${arrow} DXY ${reading.last.toFixed(2)} | ${reading.windowMinutes}분 ${sign}${reading.changeWindowPct.toFixed(2)}%\n` +
     `소스: ${reading.source} | 기준: ${new Date(reading.windowStartedAt).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })} → ${new Date(reading.asOf).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })}\n\n` +
     (direction === 'STRENGTH'

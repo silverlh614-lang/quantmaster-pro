@@ -95,7 +95,7 @@ async function startServer() {
       `이전 bootId: <code>${bootInfo.previous.bootId}</code>\n` +
       `시작: ${since}\n` +
       `종료: (마감 기록 없음)\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━━━━━\n` +
       `${snippet}`,
       { priority: 'HIGH', dedupeKey: `prev_crash:${bootInfo.previous.bootId}`, category: 'boot_audit' },
     ).catch(() => { /* noop */ });

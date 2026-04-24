@@ -372,11 +372,11 @@ export async function runDynamicUniverseExpansion(): Promise<number> {
 
     await sendTelegramAlert(
       `🔭 <b>[동적 유니버스 확장]</b>\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━━━━━\n` +
       `정적: ${STOCK_UNIVERSE.length}개 | 동적: ${dynamicStocks.length}개 (+${newCount})\n` +
       `만료: ${EXPIRY_DAYS}일 후 자동 제거\n\n` +
       `<b>신규 편입 종목:</b>\n${newStockLines}\n` +
-      `━━━━━━━━━━━━━━━━━━━━`,
+      `━━━━━━━━━━━━━━━━`,
       {
         priority: 'NORMAL',
         dedupeKey: 'dynamic-universe-weekly',

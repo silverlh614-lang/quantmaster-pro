@@ -59,10 +59,10 @@ export async function generateDailyPickReport(): Promise<void> {
   if (regime === 'R6_DEFENSE') {
     const r6Msg =
       `⚠️ <b>[${dateStr} 종목 픽] 관망 권고</b>\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━━━━━\n` +
       `현재 레짐: <b>${regime}</b> (시장 붕괴 국면)\n\n` +
       `오늘은 신규 매수를 자제하고 현금 비중을 높여 관망하는 것을 권고합니다.\n` +
-      `━━━━━━━━━━━━━━━━━━━━`;
+      `━━━━━━━━━━━━━━━━`;
     await sendPickChannelAlert(r6Msg);
     // 분석 채널로도 미러링 — 운영자가 picks 수신을 끄더라도 분석 흐름엔 남김.
     await dispatchAlert(AlertCategory.ANALYSIS, r6Msg, { disableNotification: true })
@@ -284,9 +284,9 @@ export async function generateDailyPickReport(): Promise<void> {
   const message =
     `📊 <b>[${dateStr} 일일 종목 픽] 16:30 KST</b>\n` +
     `레짐: ${regimeLabel} | 워치리스트: ${watchlist.length}개\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    sections.join('\n━━━━━━━━━━━━━━━━━━━━\n') +
-    `\n━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
+    sections.join('\n━━━━━━━━━━━━━━━━\n') +
+    `\n━━━━━━━━━━━━━━━━\n` +
     `<i>* 투자 참고용 — 최종 판단은 본인 책임</i>`;
 
   await sendPickChannelAlert(message);

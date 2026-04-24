@@ -139,7 +139,7 @@ export async function channelSellSignal(p: ChannelSellSignalParams): Promise<voi
 
   const lines: string[] = [
     header,
-    `━━━━━━━━━━━━━━━━━━━━`,
+    `━━━━━━━━━━━━━━━━`,
     `📌 ${reasonLabel[p.reason] ?? p.reason}`,
     `💰 청산가: ${p.exitPrice.toLocaleString()}원`,
   ];
@@ -188,7 +188,7 @@ export async function channelMarketBriefing(p: ChannelMarketBriefingParams): Pro
 
   const lines = [
     `${emoji} <b>[${dateStr} 장 전 브리핑]</b>`,
-    `━━━━━━━━━━━━━━━━━━━━`,
+    `━━━━━━━━━━━━━━━━`,
     `🗺️ 레짐: <b>${p.regime}</b> | MHS: ${p.mhs.toFixed(0)}`,
     p.vkospi    !== undefined ? `😨 VKOSPI: ${p.vkospi.toFixed(1)}` : '',
     p.kospiChange !== undefined
@@ -222,7 +222,7 @@ export async function channelRegimeChange(
 
   const msg =
     `🔄 <b>[레짐 변화]</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `${arrows[prevRegime] ?? '?'} ${escapeHtml(prevRegime)} → ${arrows[newRegime] ?? '?'} <b>${escapeHtml(newRegime)}</b>\n` +
     `MHS: ${mhs.toFixed(0)} | ${escapeHtml(reason)}`;
 
@@ -271,9 +271,9 @@ export async function channelWatchlistAdded(
 
   const msg =
     `📋 <b>[워치리스트 갱신] ${stocks.length}개 추가</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `${lines}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `🗺️ 레짐: ${regime}`;
 
   await dispatchAlert(AlertCategory.ANALYSIS, msg, { disableNotification: true }).catch(console.error);
@@ -289,7 +289,7 @@ export async function channelWatchlistRemoved(
 
   const msg =
     `🗑️ <b>[워치리스트 제거] ${escapeHtml(stock.name)} (${escapeHtml(stock.code)})</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `📋 잔여 워치리스트: ${remainingCount}개`;
 
   await dispatchAlert(AlertCategory.ANALYSIS, msg, { disableNotification: true }).catch(console.error);
@@ -313,7 +313,7 @@ export async function channelWatchlistSummary(
 
   const parts: string[] = [
     `📋 <b>[워치리스트 현황] ${hh}:${mm} KST</b>`,
-    `━━━━━━━━━━━━━━━━━━━━`,
+    `━━━━━━━━━━━━━━━━`,
     `총 ${watchlist.length}개 (SWING: ${swingList.length} | CATALYST: ${catalystList.length} | MOMENTUM: ${momentumList.length})`,
   ];
 
@@ -364,7 +364,7 @@ export async function channelWatchlistSummary(
   }
 
   parts.push('');
-  parts.push('━━━━━━━━━━━━━━━━━━━━');
+  parts.push('━━━━━━━━━━━━━━━━');
   parts.push('⭐=SWING매수대상 👤=수동 📢=CATALYST 🤖=MOMENTUM');
 
   await dispatchAlert(AlertCategory.ANALYSIS, parts.join('\n'), { disableNotification: true }).catch(console.error);
@@ -375,7 +375,7 @@ export async function channelWatchlistSummary(
 export async function channelGlobalScan(summary: string): Promise<void> {
   if (!isChannelEnabled()) return;
 
-  const msg = `🌐 <b>[글로벌 스캔]</b>\n━━━━━━━━━━━━━━━━━━━━\n${escapeHtml(summary)}`;
+  const msg = `🌐 <b>[글로벌 스캔]</b>\n━━━━━━━━━━━━━━━━\n${escapeHtml(summary)}`;
   await dispatchAlert(AlertCategory.INFO, msg, {
     disableNotification: true,
     delivery: 'daily_digest',
@@ -406,7 +406,7 @@ export async function channelPerformance(p: ChannelPerformanceParams): Promise<v
 
   const lines = [
     `${emoji} <b>[${label} 성과]</b>`,
-    `━━━━━━━━━━━━━━━━━━━━`,
+    `━━━━━━━━━━━━━━━━`,
     `📊 총 거래: ${p.totalTrades}건 (승 ${p.winCount} / 패 ${p.lossCount})`,
     `🏆 승률: ${winRate}%`,
     `💰 손익: <b>${pnlStr}</b>`,

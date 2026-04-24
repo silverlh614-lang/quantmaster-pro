@@ -130,7 +130,7 @@ export function formatKellySurface(report?: KellySurfaceReport): string {
   const lines = [
     '🧮 <b>[Kelly Surface Map — (p, b) 학습 상태]</b>',
     `전체 추천: ${r.overallSamples}건`,
-    '━━━━━━━━━━━━━━━━━━━━',
+    '━━━━━━━━━━━━━━━━',
   ];
   const ranked = [...r.cells].sort((a, b) => b.samples - a.samples);
   for (const c of ranked) {
@@ -142,7 +142,7 @@ export function formatKellySurface(report?: KellySurfaceReport): string {
       `${c.signalType}·${c.regime}: n=${c.samples} · p=${p100}% ${ci} · b=${c.b.toFixed(2)} · ${kellyStr}`,
     );
   }
-  lines.push('━━━━━━━━━━━━━━━━━━━━');
+  lines.push('━━━━━━━━━━━━━━━━');
   lines.push(`✅ 수렴(1%p 이하 한계효용): ${r.convergedCells.length}개`);
   lines.push(`🔶 샘플 더 필요(≥2%p 효용): ${r.highPriorityCells.length}개`);
   if (r.highPriorityCells.length > 0) {

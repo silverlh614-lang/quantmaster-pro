@@ -166,7 +166,7 @@ function formatAlert(report: PreMarketSignalReport): string {
 
   return (
     `🧭 <b>[장전 방향 카드]</b> ${triggerLabel}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `${dirIcon} <b>Bias Score: ${report.biasScore >= 0 ? '+' : ''}${report.biasScore}</b> ` +
     `(${report.biasDirection})\n\n` +
     lines.join('\n') + `\n\n` +

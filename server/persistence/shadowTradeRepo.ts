@@ -1,3 +1,9 @@
+/**
+ * @responsibility Shadow trade 영속 저장소 + fill SSOT 집계 (기간별/월간/STRONG_BUY)
+ *
+ * aggregateFillStats / computeShadowMonthlyStats 는 부분매도 실현을 포함하는
+ * 공용 집계 엔트리 포인트다.
+ */
 import fs from 'fs';
 import { SHADOW_FILE, SHADOW_LOG_FILE, ensureDataDir } from './paths.js';
 
@@ -532,6 +538,134 @@ export function appendShadowLog(entry: Record<string, unknown>): void {
   fs.writeFileSync(SHADOW_LOG_FILE, JSON.stringify(logs.slice(-500), null, 2));
 }
 
+// ─── STRONG_BUY 분류 헬퍼 (ADR-0005) ─────────────────────────────────────────
+/**
+ * SHADOW 월간 집계에서 사용하는 STRONG_BUY 판정 함수.
+ *
+ * Primary: entryKellySnapshot.signalGrade === 'STRONG_BUY'
+ * Fallback (레거시 trade 용): profileType A/B + RRR ≥ 3.0 + 강세 레짐(R1/R2/R3).
+ *   signalScanner.ts:1222 의 isStrongBuy (gateScore >= 9) 기준을 충족하는 신호는
+ *   대개 강세 레짐에서 대/중형 주도 프로파일을 가지며 RRR 3 이상을 설계한다는 점을
+ *   반영한 휴리스틱이다. 신규 샘플에는 영향을 주지 않고 집계 시점에만 복원한다.
+ */
+export function isStrongBuyTrade(t: ServerShadowTrade): boolean {
+  if (t.entryKellySnapshot?.signalGrade === 'STRONG_BUY') return true;
+  if (t.entryKellySnapshot?.signalGrade) return false; // 명시적 다른 grade 면 fallback 금지
+  const rrr = t.preMortemStructured?.targetScenario?.rrr ?? 0;
+  const strongRegime = t.entryRegime === 'R1_TURBO'
+    || t.entryRegime === 'R2_BULL'
+    || t.entryRegime === 'R3_EARLY';
+  const strongProfile = t.profileType === 'A' || t.profileType === 'B';
+  return rrr >= 3.0 && strongRegime && strongProfile;
+}
+
+// ─── 기간별 fill 집계 SSOT (PR-18) ─────────────────────────────────────────────
+//
+// 주간/월간/전체 리포트가 공통으로 쓸 수 있는 fill-level 집계. 전량 청산뿐 아니라
+// 부분매도 익절/손절도 모두 반영되어 "이번 주 실현 이벤트" 가 체결 현실과 일치한다.
+//
+// 범위 의미:
+//   - fromIso/toIso 는 fill 의 confirmedAt(없으면 timestamp) 과 비교.
+//   - 둘 다 생략하면 모든 기간.
+
+export interface FillRange {
+  /** inclusive ISO 타임스탬프 (없으면 -∞) */
+  fromIso?: string;
+  /** exclusive ISO 타임스탬프 (없으면 +∞) */
+  toIso?: string;
+  /** PROVISIONAL 포함 여부 (기본 false — 집계에는 CONFIRMED 만) */
+  includeProvisional?: boolean;
+}
+
+export interface FillAggregateStats {
+  /** 집계에 포함된 fill 수 (SELL·CONFIRMED·비REVERTED) */
+  fillCount: number;
+  /** 이익 fill 수 (pnl > 0) */
+  winFills: number;
+  /** 손실 fill 수 (pnl < 0) */
+  lossFills: number;
+  /** fill 에 연관된 고유 trade 수 */
+  uniqueTradeCount: number;
+  /** 이 기간에 전량 청산된 trade 수 (trade.status === HIT_TARGET|HIT_STOP 그리고 마지막 SELL fill 이 범위 안) */
+  fullClosedCount: number;
+  /** ACTIVE 유지하며 이 기간에 부분매도한 trade 수 */
+  partialOnlyCount: number;
+  /** Σ(pnlPct × qty) / Σ(qty). fill 이 없으면 0. */
+  weightedReturnPct: number;
+  /** Σ pnl (원화). */
+  totalRealizedKrw: number;
+}
+
+/**
+ * fill-level 기간 집계. 리포트·학습 모듈이 공통 SSOT 로 사용.
+ *
+ * `range` 생략 시 모든 기간. includeProvisional 은 기본 false — 학습/정산에는
+ * CONFIRMED 만 신뢰한다. UI 에서 "현재 접수 상태" 를 보여줘야 하는 곳에서만 true.
+ */
+export function aggregateFillStats(
+  trades: ServerShadowTrade[],
+  range: FillRange = {},
+): FillAggregateStats {
+  const fromMs = range.fromIso ? new Date(range.fromIso).getTime() : Number.NEGATIVE_INFINITY;
+  const toMs   = range.toIso   ? new Date(range.toIso).getTime()   : Number.POSITIVE_INFINITY;
+
+  const tradeIdsInRange = new Set<string>();
+  const fullClosedIds   = new Set<string>();
+  const partialOnlyIds  = new Set<string>();
+
+  let fillCount = 0;
+  let winFills  = 0;
+  let lossFills = 0;
+  let weightedNum = 0;
+  let weightedDen = 0;
+  let totalRealizedKrw = 0;
+
+  for (const t of trades) {
+    const fills = t.fills ?? [];
+    const candidateSells = fills.filter((f) => {
+      if (f.type !== 'SELL' || !isActiveFill(f)) return false;
+      if (!range.includeProvisional && f.status === 'PROVISIONAL') return false;
+      const ts = f.confirmedAt ?? f.timestamp;
+      if (!ts) return false;
+      const ms = new Date(ts).getTime();
+      return ms >= fromMs && ms < toMs;
+    });
+    if (candidateSells.length === 0) continue;
+
+    tradeIdsInRange.add(t.id);
+
+    // 전량 청산 판정: trade 가 현재 HIT_TARGET|HIT_STOP 이고, 마지막 CONFIRMED SELL fill
+    // 이 범위 안에 있으면 "이 기간에 청산됨".
+    const allConfirmedSells = fills.filter((f) => f.type === 'SELL' && isActiveFill(f) && f.status !== 'PROVISIONAL');
+    const lastSellId = allConfirmedSells[allConfirmedSells.length - 1]?.id;
+    const isFullClosed = (t.status === 'HIT_TARGET' || t.status === 'HIT_STOP')
+      && !!lastSellId
+      && candidateSells.some((f) => f.id === lastSellId);
+    if (isFullClosed) fullClosedIds.add(t.id);
+    else partialOnlyIds.add(t.id);
+
+    for (const f of candidateSells) {
+      fillCount++;
+      if ((f.pnl ?? 0) > 0) winFills++;
+      else if ((f.pnl ?? 0) < 0) lossFills++;
+      weightedNum += (f.pnlPct ?? 0) * f.qty;
+      weightedDen += f.qty;
+      totalRealizedKrw += f.pnl ?? 0;
+    }
+  }
+
+  return {
+    fillCount,
+    winFills,
+    lossFills,
+    uniqueTradeCount: tradeIdsInRange.size,
+    fullClosedCount: fullClosedIds.size,
+    partialOnlyCount: partialOnlyIds.size,
+    weightedReturnPct: weightedDen > 0 ? weightedNum / weightedDen : 0,
+    totalRealizedKrw,
+  };
+}
+
 // ─── Shadow 월간 집계 (SSOT: fills) ───────────────────────────────────────────
 
 /** Shadow 포지션이 종결(HIT_TARGET / HIT_STOP) 된 상태인지. */
@@ -603,8 +737,13 @@ export function computeShadowMonthlyStats(monthISO?: string): ShadowMonthlyStats
   const lossAbs = Math.abs(returns.filter(r => r < 0).reduce((s, r) => s + r, 0));
   const profitFactor = lossAbs > 0 ? winSum / lossAbs : null;
 
-  // STRONG_BUY 승률 — entryKellySnapshot.signalGrade 로 식별. 레거시는 signalGrade 없음.
-  const sb = closed.filter(t => t.entryKellySnapshot?.signalGrade === 'STRONG_BUY');
+  // STRONG_BUY 승률 — Primary: entryKellySnapshot.signalGrade.
+  // ADR-0005 Fallback: 레거시 trade (snapshot 없음) 에 대해
+  //   preMortemStructured.targetScenario.rrr >= 3.0 AND
+  //   profileType ∈ {A, B} AND
+  //   entryRegime ∈ {R1_TURBO, R2_BULL, R3_EARLY}
+  // 을 STRONG_BUY 로 복원하여 SHADOW 졸업 조건 산정이 레거시 구간에서 막히지 않게 한다.
+  const sb = closed.filter(t => isStrongBuyTrade(t));
   const sbWins = sb.filter(t => getWeightedPnlPct(t) > 0).length;
   const strongBuyWinRate = sb.length > 0 ? (sbWins / sb.length) * 100 : 0;
 

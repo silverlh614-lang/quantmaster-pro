@@ -103,7 +103,7 @@ export async function pollIpsAlert(): Promise<void> {
     const arrow = `×${dampener.prevMultiplier.toFixed(2)} → ×${dampener.multiplier.toFixed(2)}`;
     await sendTelegramAlert(
       `🔔 <b>[변곡 감지 알림]</b> IPS ${ips}% (${dampener.level})\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━━━━━\n` +
       `• Kelly 감쇠 ${direction}: <b>${arrow}</b>\n` +
       `• 활성 포지션: ${openShadowCount}개\n` +
       `• 신규 진입 크기가 자동으로 조정됩니다`,
@@ -155,9 +155,9 @@ export async function pollIpsAlert(): Promise<void> {
 
   const message =
     `📱 <b>QuantMaster Pro — IPS 변곡점 경보</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `${levelEmoji} <b>[${level}] IPS ${ips}%</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `<b>발동 신호:</b>\n${signalLines}\n` +
     `\n` +
     `<b>추천 액션:</b>\n` +

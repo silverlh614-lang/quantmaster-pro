@@ -1,5 +1,5 @@
 /**
- * weeklyIntegrityReport.ts — Phase 3.2: 주간 무결성 리포트 (매주 일요일 10:00 KST)
+ * @responsibility 일요일 10:00 KST 주간 무결성 리포트 — trade 단위 + fill SSOT 병행
  *
  * 월말 캘리브레이션 전에 "건강하게 성장 중" vs "뭔가 이상하게 정체 중" 을 조기 판별한다.
  *
@@ -17,7 +17,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { loadShadowTrades, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, aggregateFillStats, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { loadGateAudit } from '../persistence/gateAuditRepo.js';
 import { sendTelegramAlert } from './telegramClient.js';
@@ -63,6 +63,12 @@ export interface WeeklyIntegrityStats {
   winCount: number;
   lossCount: number;
   winRatePct: number;
+  /** PR-18: fill SSOT — 이번 주 실현 이벤트(부분매도 포함) 기준 승/손/가중 P&L */
+  fillWins: number;
+  fillLosses: number;
+  fillWeightedReturnPct: number;
+  fillRealizedKrw: number;
+  partialOnlyCount: number;
   topPassingConditions: Array<{ key: string; passed: number; failed: number; passRate: number }>;
   logicHashes: Record<string, string>;
   stallReason: string;
@@ -90,6 +96,13 @@ export function computeWeeklyIntegrityStats(now: Date = new Date()): WeeklyInteg
   const closed = winCount + lossCount;
   const winRatePct = closed > 0 ? (winCount / closed) * 100 : 0;
 
+  // PR-18: fill SSOT 기반 주간 실현 집계 — signalTime 필터가 아닌 fill.timestamp 기준.
+  // 이전 주 signaled 지만 이번 주에 부분매도로 실현된 익절 fill 도 포함된다.
+  const fillAgg = aggregateFillStats(shadows, {
+    fromIso: sevenDaysAgo.toISOString(),
+    toIso: now.toISOString(),
+  });
+
   // 조건별 통과 / 실패
   const audit = loadGateAudit();
   const topPassingConditions = Object.entries(audit)
@@ -107,6 +120,11 @@ export function computeWeeklyIntegrityStats(now: Date = new Date()): WeeklyInteg
     totalThisWeek: weekly.length,
     byDow, byHour,
     activeCount, winCount, lossCount, winRatePct,
+    fillWins: fillAgg.winFills,
+    fillLosses: fillAgg.lossFills,
+    fillWeightedReturnPct: fillAgg.weightedReturnPct,
+    fillRealizedKrw: fillAgg.totalRealizedKrw,
+    partialOnlyCount: fillAgg.partialOnlyCount,
     topPassingConditions,
     logicHashes: computeJudgmentLogicHashes(),
     stallReason: stall.reason,
@@ -144,11 +162,17 @@ export function formatWeeklyIntegrityReport(stats: WeeklyIntegrityStats): string
     `시간대별:`,
     hourLines,
     ``,
-    `<b>Shadow 결과</b>`,
+    `<b>Shadow 결과 (trade 단위)</b>`,
     `  ✅ WIN: ${stats.winCount}건`,
     `  ❌ LOSS: ${stats.lossCount}건`,
     `  ⏳ ACTIVE: ${stats.activeCount}건`,
     `  승률: ${stats.winRatePct.toFixed(1)}%`,
+    ``,
+    `<b>실현 이벤트 (부분매도 포함, fill 단위)</b>`,
+    `  익 fill: ${stats.fillWins}건 / 손 fill: ${stats.fillLosses}건` +
+      (stats.partialOnlyCount > 0 ? ` · 부분매도만 ${stats.partialOnlyCount}건` : ''),
+    `  가중 P&L: ${stats.fillWeightedReturnPct >= 0 ? '+' : ''}${stats.fillWeightedReturnPct.toFixed(2)}%` +
+      ` · 실현 ${Math.round(stats.fillRealizedKrw).toLocaleString()}원`,
     ``,
     `<b>조건 활성화 (상위 6)</b>`,
     condLines,
@@ -188,6 +212,10 @@ export function _computeFromShadows(shadows: ServerShadowTrade[], now: Date): We
   const winCount  = weekly.filter(s => s.status === 'HIT_TARGET').length;
   const lossCount = weekly.filter(s => s.status === 'HIT_STOP').length;
   const closed = winCount + lossCount;
+  const fillAgg = aggregateFillStats(shadows, {
+    fromIso: sevenDaysAgo.toISOString(),
+    toIso: now.toISOString(),
+  });
 
   return {
     weekRange: { fromIso: sevenDaysAgo.toISOString(), toIso: now.toISOString() },
@@ -196,6 +224,11 @@ export function _computeFromShadows(shadows: ServerShadowTrade[], now: Date): We
     activeCount: weekly.filter(s => isOpenShadowStatus(s.status)).length,
     winCount, lossCount,
     winRatePct: closed > 0 ? (winCount / closed) * 100 : 0,
+    fillWins: fillAgg.winFills,
+    fillLosses: fillAgg.lossFills,
+    fillWeightedReturnPct: fillAgg.weightedReturnPct,
+    fillRealizedKrw: fillAgg.totalRealizedKrw,
+    partialOnlyCount: fillAgg.partialOnlyCount,
     topPassingConditions: [],
     logicHashes: {},
     stallReason: '(테스트)',

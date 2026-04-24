@@ -1,5 +1,5 @@
 /**
- * shadowProgressBriefing.ts — Phase 2: 일일 Shadow 진행률 브리핑 & 표본 속도 추적
+ * @responsibility SHADOW 졸업 진행률 브리핑 — trade 샘플 수 + fill 실현 이벤트 동시 표시
  *
  * 목적: 60일 Shadow 모니터링 기간 동안 "얼마나 남았는지" 를 매일 눈으로 확인
  * 가능하게 하여, 지루함으로 인해 운용자가 시스템을 건드리는 것을 방지한다.
@@ -11,7 +11,7 @@
  * 호출자: scheduler/reportJobs.ts 가 cron 으로 invoke.
  */
 
-import { loadShadowTrades, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, aggregateFillStats, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { sendTelegramAlert } from './telegramClient.js';
 
@@ -49,7 +49,9 @@ function addDaysKst(baseIso: string, days: number): string {
 export interface ShadowProgress {
   dayElapsed: number;      // 첫 샘플 생성 후 경과일 (0 = 당일)
   totalDays:  number;      // SHADOW_MONITORING_DAYS
+  /** 전량 청산된 trade 단위 WIN 수 (graduation 샘플 기준) */
   winCount:   number;
+  /** 전량 청산된 trade 단위 LOSS 수 */
   lossCount:  number;
   activeCount: number;
   totalClosed: number;
@@ -59,6 +61,12 @@ export interface ShadowProgress {
   newToday:    number;     // 오늘 생성된 신규 신호 수
   etaDate:     string;     // YYYY-MM-DD — 현재 속도로 30건 도달 예상일 (또는 '미정')
   etaDaysRemain: number;   // ETA 까지 잔여 일수 (미정 시 -1)
+  /** PR-18: fill SSOT — 전체 기간 실현 이벤트(부분매도 포함) */
+  fillWins:    number;
+  fillLosses:  number;
+  fillWeightedReturnPct: number;
+  fillRealizedKrw: number;
+  partialOnlyCount: number;
 }
 
 export function computeShadowProgress(now: Date = new Date()): ShadowProgress {
@@ -98,6 +106,9 @@ export function computeShadowProgress(now: Date = new Date()): ShadowProgress {
     etaDate = addDaysKst(now.toISOString(), etaDaysRemain);
   }
 
+  // PR-18: fill SSOT — 전체 기간 실현 이벤트 집계 (부분매도 포함).
+  const fillAgg = aggregateFillStats(shadows);
+
   return {
     dayElapsed,
     totalDays: SHADOW_MONITORING_DAYS,
@@ -106,12 +117,22 @@ export function computeShadowProgress(now: Date = new Date()): ShadowProgress {
     targetSamples: SHADOW_SAMPLE_TARGET,
     winRatePct,
     newToday, etaDate, etaDaysRemain,
+    fillWins: fillAgg.winFills,
+    fillLosses: fillAgg.lossFills,
+    fillWeightedReturnPct: fillAgg.weightedReturnPct,
+    fillRealizedKrw: fillAgg.totalRealizedKrw,
+    partialOnlyCount: fillAgg.partialOnlyCount,
   };
 }
 
 export function formatShadowProgress(p: ShadowProgress): string {
   const closedPct = p.totalClosed > 0
     ? ` (승률 ${p.winRatePct.toFixed(1)}%)`
+    : '';
+  const realizedLine = (p.fillWins + p.fillLosses) > 0
+    ? `🎯 실현 fill: ${p.fillWins}익 / ${p.fillLosses}손` +
+      (p.partialOnlyCount > 0 ? ` · 부분매도만 ${p.partialOnlyCount}건` : '') +
+      ` · 가중 P&L ${p.fillWeightedReturnPct >= 0 ? '+' : ''}${p.fillWeightedReturnPct.toFixed(2)}%`
     : '';
   return [
     `📊 <b>[SHADOW 진행률 Day ${p.dayElapsed}/${p.totalDays}]</b>`,
@@ -120,12 +141,13 @@ export function formatShadowProgress(p: ShadowProgress): string {
     `✅ WIN: ${p.winCount}건${closedPct}`,
     `❌ LOSS: ${p.lossCount}건`,
     `⏳ ACTIVE: ${p.activeCount}건`,
+    realizedLine,
     `━━━━━━━━━━━━━━━━━━`,
     p.etaDaysRemain >= 0
       ? `예상 완주: ${p.etaDate} (D-${p.etaDaysRemain})`
       : `예상 완주: 미정 (최근 7일 신규 0건)`,
     `⚠️ SHADOW 모드 — 실계좌 잔고 아님`,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 export async function sendDailyShadowProgress(): Promise<void> {
@@ -243,10 +265,16 @@ export function _computeProgressFromShadows(
     etaDaysRemain = Math.ceil(remaining / velocityPerDay);
     etaDate = addDaysKst(now.toISOString(), etaDaysRemain);
   }
+  const fillAgg = aggregateFillStats(shadows);
   return {
     dayElapsed, totalDays: SHADOW_MONITORING_DAYS,
     winCount, lossCount, activeCount, totalClosed, totalSamples,
     targetSamples: SHADOW_SAMPLE_TARGET, winRatePct,
     newToday, etaDate, etaDaysRemain,
+    fillWins: fillAgg.winFills,
+    fillLosses: fillAgg.lossFills,
+    fillWeightedReturnPct: fillAgg.weightedReturnPct,
+    fillRealizedKrw: fillAgg.totalRealizedKrw,
+    partialOnlyCount: fillAgg.partialOnlyCount,
   };
 }

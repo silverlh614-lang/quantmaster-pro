@@ -108,6 +108,27 @@ ${candidateList}
 - "왜 거래량이 변했는가", "왜 기관이 매집하는가", "공시의 실질적 임팩트는 무엇인가"를 분석
 - 뉴스가 아직 없는 종목일수록 더 높은 잠재력을 가진 것으로 평가
 
+[판단 기준 — ADR-0005 서버 자동매매 Gate 정렬]
+QUANT_SCREEN 모드는 뉴스 대신 수치 이상 신호·공시 임팩트·조용한 매집으로 발굴한
+후보를 평가한다. "type" 필드는 다음 기준으로만 설정하라:
+ - STRONG_BUY:
+   ① combinedScore 상위 30% (후보 풀 상위 3위 이내) AND
+   ② ROE ≥ 15% AND 부채비율 < 100% AND
+   ③ 기관·외인 중 한쪽 이상 5거래일 순매수 확인 AND
+   ④ accumulationPhase === 'ACCUMULATION' (매집 단계 확인) AND
+   ⑤ RRR ≥ 3.0 (목표가/손절 설계) AND
+   ⑥ 해당 종목의 'valuation.per' 이 섹터 평균 대비 저평가.
+   위 6개 중 하나라도 미충족이면 BUY 로 강등하라.
+ - BUY:
+   ① combinedScore 상위 70% (후보 풀 상위 7위 이내) AND
+   ② RRR ≥ 2.0 AND
+   ③ quantScore 또는 dartScore 중 하나가 10 점 이상.
+   미충족 시 HOLD.
+ - HOLD: 위 조건 미충족, 또는 accumulationPhase === 'DISTRIBUTION'.
+ - STRONG_SELL / SELL: DART 공시가 "악재" (감자·상장폐지 위험·거액 손실) 로 명확할 때만.
+주의: QUANT_SCREEN 은 모멘텀이 아니라 이상 신호 기반이므로 "급등 중" 이라는 이유만으로
+STRONG_BUY 를 부여하지 마라. 매집 단계 + 펀더멘털 + 수급 3축이 모두 충족될 때만 STRONG_BUY.
+
 응답은 기존 recommendations JSON 형식과 동일하게 작성하되,
 각 종목의 dataSourceType을 "QUANT_SCREEN"으로 설정하라.
 최대 5개까지만 최종 추천하라.
