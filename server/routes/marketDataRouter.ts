@@ -13,7 +13,7 @@ import {
 } from '../engines/macroIndexEngine.js';
 import { fetchPerPbr } from '../clients/krxClient.js';
 import { isMarketOpen } from '../utils/marketClock.js';
-import { isMarketOpenFor } from '../utils/symbolMarketRegistry.js';
+import { isMarketOpenFor, nextOpenAtFor } from '../utils/symbolMarketRegistry.js';
 
 const router = Router();
 
@@ -110,6 +110,10 @@ router.use((req: Request, res: Response, next) => {
   const interval = typeof req.query.interval === 'string' && req.query.interval.length > 0 ? req.query.interval : '1d';
   const decision = evaluateMarketGate(symbol, range, interval);
   if (decision.action === 'pass') return next();
+  // 다음 개장 시각 힌트 — 프론트엔드 retry 스케줄링 근거 (장외 응답에만 부가).
+  try {
+    res.setHeader('X-Market-Next-Open', nextOpenAtFor(symbol).toISOString());
+  } catch { /* 분류 실패·범위 밖 — 헤더 생략 */ }
   if (decision.action === 'stale') {
     res.setHeader('Content-Type', decision.contentType);
     res.setHeader('X-Cache', 'STALE-OFFHOURS');

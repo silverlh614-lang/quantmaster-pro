@@ -72,6 +72,30 @@ export function isMarketOpenFor(symbol: string, now: Date = new Date()): boolean
   return isOpenAt(classifySymbol(symbol), now);
 }
 
+/**
+ * 특정 시장의 다음 개장 시각(UTC). `now` 기준으로 미래의 가장 가까운 openMin 을 반환.
+ * 장 개장 전이면 오늘 개장 시각, 장중/장 마감 후면 다음 영업일 개장 시각.
+ * FORCE_MARKET/FORCE_OFF env 와 관계없이 실제 시간표로만 계산 (진단·헤더 용도).
+ */
+export function nextOpenAt(market: MarketId, now: Date = new Date()): Date {
+  const session = MARKETS[market];
+  const DAY_MS = 86_400_000;
+  for (let dayOffset = 0; dayOffset < 8; dayOffset++) {
+    const shifted = new Date(now.getTime() + dayOffset * DAY_MS + session.tzOffsetHours * 3_600_000);
+    if (!session.weekdays.includes(shifted.getUTCDay())) continue;
+    const candidate = new Date(shifted);
+    candidate.setUTCHours(Math.floor(session.openMin / 60), session.openMin % 60, 0, 0);
+    const candidateUtc = new Date(candidate.getTime() - session.tzOffsetHours * 3_600_000);
+    if (candidateUtc.getTime() > now.getTime()) return candidateUtc;
+  }
+  throw new Error(`nextOpenAt: no open window found in 8 days for ${market}`);
+}
+
+/** 심볼 기준 다음 개장 시각 (UTC). 라우터 응답 헤더 `X-Market-Next-Open` 용. */
+export function nextOpenAtFor(symbol: string, now: Date = new Date()): Date {
+  return nextOpenAt(classifySymbol(symbol), now);
+}
+
 /** 등록된 시장 ID 목록. 추후 /markets 텔레그램 명령 등에서 iterate 용도. */
 export function listMarkets(): ReadonlyArray<MarketId> {
   return Object.keys(MARKETS) as MarketId[];

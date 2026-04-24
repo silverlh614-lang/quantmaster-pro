@@ -256,7 +256,14 @@ async function krxPost(
       body,
     });
     if (!res.ok) {
-      console.warn(`[KRX] ${bld} HTTP ${res.status}`);
+      // 주말·평일 18:00 이전 등 "통계 미확정 + resolveTradeDate 후퇴" 창에서는
+      // KRX 가 bld 별로 간헐적 400 을 반환한다. soft cooldown 이 이미 돌고 있어
+      // 정보 가치가 낮으므로 debug 로 강등하고 실장중 실패만 warn 유지.
+      if (res.status === 400 && !isMarketDataPublished()) {
+        console.debug(`[KRX] ${bld} HTTP 400 (off-hours fallback — suppressed)`);
+      } else {
+        console.warn(`[KRX] ${bld} HTTP ${res.status}`);
+      }
       recordBldFailure(bld);
       return null;
     }

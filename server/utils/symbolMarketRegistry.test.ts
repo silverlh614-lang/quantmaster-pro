@@ -7,6 +7,9 @@ import {
   isMarketOpenFor,
   isOpenAt,
   listMarkets,
+  nextOpenAt,
+  nextOpenAtFor,
+  type MarketId,
 } from './symbolMarketRegistry.js';
 
 afterEach(() => {
@@ -138,5 +141,70 @@ describe('listMarkets', () => {
     expect(ids).toContain('NYSE');
     expect(ids).toContain('TSE');
     expect(ids).toHaveLength(3);
+  });
+});
+
+describe('문제 심볼 전수 회귀 픽스처 (Tier 2 ⑦)', () => {
+  // 코드베이스에서 실제로 fetch 되는 10+ 심볼을 고정.
+  // 분류가 무너지면 게이트 판정이 조용히 망가지므로 CI 로 고정한다.
+  const FIXTURES: ReadonlyArray<{ symbol: string; market: MarketId }> = [
+    { symbol: '^KS11',     market: 'KRX'  }, // KOSPI 지수
+    { symbol: '^KQ11',     market: 'KRX'  }, // KOSDAQ 지수
+    { symbol: '^VKOSPI',   market: 'KRX'  }, // 변동성 지수
+    { symbol: '005930.KS', market: 'KRX'  }, // 삼성전자
+    { symbol: '035420.KQ', market: 'KRX'  }, // NAVER (KOSDAQ 티커 표기)
+    { symbol: '035420',    market: 'KRX'  }, // raw 6자리 코드
+    { symbol: '^VIX',      market: 'NYSE' }, // VIX
+    { symbol: '^TNX',      market: 'NYSE' }, // 10Y
+    { symbol: '^IRX',      market: 'NYSE' }, // 13주 T-bill
+    { symbol: 'AAPL',      market: 'NYSE' }, // 대표 US 티커
+    { symbol: 'EWY',       market: 'NYSE' }, // MSCI Korea ETF
+    { symbol: 'MTUM',      market: 'NYSE' }, // Momentum Factor ETF
+  ];
+
+  for (const { symbol, market } of FIXTURES) {
+    it(`${symbol} → ${market}`, () => {
+      expect(classifySymbol(symbol)).toBe(market);
+    });
+  }
+});
+
+describe('nextOpenAt', () => {
+  it('KRX 장 마감 직후(월 15:30 KST) → 다음 개장은 화 09:00 KST', () => {
+    const MON_1530_KST = new Date('2026-04-27T06:30:00.000Z');
+    const next = nextOpenAt('KRX', MON_1530_KST);
+    // 화요일 09:00 KST = UTC 화 00:00
+    expect(next.toISOString()).toBe('2026-04-28T00:00:00.000Z');
+  });
+
+  it('KRX 주말(토요일) → 다음 개장은 월 09:00 KST', () => {
+    const SAT_1200_KST = new Date('2026-04-25T03:00:00.000Z');
+    const next = nextOpenAt('KRX', SAT_1200_KST);
+    expect(next.toISOString()).toBe('2026-04-27T00:00:00.000Z');
+  });
+
+  it('KRX 장중(월 12:00 KST) → 다음 개장은 화 09:00 KST', () => {
+    const MON_1200_KST = new Date('2026-04-27T03:00:00.000Z');
+    const next = nextOpenAt('KRX', MON_1200_KST);
+    expect(next.toISOString()).toBe('2026-04-28T00:00:00.000Z');
+  });
+
+  it('NYSE 장 마감 후(월 16:00 ET) → 다음 개장은 화 09:30 ET', () => {
+    const MON_1600_ET = new Date('2026-04-27T21:00:00.000Z'); // ET 월 16:00
+    const next = nextOpenAt('NYSE', MON_1600_ET);
+    // 화 09:30 ET = UTC 화 14:30
+    expect(next.toISOString()).toBe('2026-04-28T14:30:00.000Z');
+  });
+
+  it('NYSE 금요일 마감 → 다음 개장은 월 09:30 ET (주말 건너뜀)', () => {
+    const FRI_1600_ET = new Date('2026-04-24T21:00:00.000Z'); // ET 금 16:00
+    const next = nextOpenAt('NYSE', FRI_1600_ET);
+    expect(next.toISOString()).toBe('2026-04-27T14:30:00.000Z');
+  });
+
+  it('nextOpenAtFor — 심볼을 받아 동일 결과', () => {
+    const SAT_1200_KST = new Date('2026-04-25T03:00:00.000Z');
+    expect(nextOpenAtFor('005930.KS', SAT_1200_KST).toISOString()).toBe('2026-04-27T00:00:00.000Z');
+    expect(nextOpenAtFor('AAPL',     SAT_1200_KST).toISOString()).toBe('2026-04-27T14:30:00.000Z'); // ET 월 09:30 (EST)
   });
 });
