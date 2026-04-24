@@ -6,7 +6,7 @@
  *
  * 배선:
  *   - 데이터: scanTracer(오늘 traces) + shadowTradeRepo + watchlistRepo
- *   - 발송: sendTelegramBroadcast (DM + TELEGRAM_CHANNEL_ID)
+ *   - 발송: sendTelegramBroadcast (DM + 채널 = TELEGRAM_CHAT_ID)
  *   - 스케줄: 평일 16:40 KST (reportJobs.ts)
  */
 import { loadTodayScanTraces, summarizeScanTraces, topFailureReasons, type ScanTraceSummary } from '../trading/scanTracer.js';

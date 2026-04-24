@@ -5,7 +5,7 @@
  * 각 함수는 내용을 채널 포맷으로 가공 후 sendChannelAlert 호출.
  *
  * 환경변수:
- *   TELEGRAM_CHANNEL_ID  — 채널 chat_id (@채널명 또는 -100xxxxxxxxxx)
+ *   TELEGRAM_CHAT_ID     — 채팅/채널 chat_id (@채널명, -100xxxxxxxxxx, 또는 개인 chat_id)
  *   CHANNEL_ENABLED      — 'true'일 때만 발송 (기본 false, 안전장치)
  *
  * 채널 vs 개인 발송 기준:

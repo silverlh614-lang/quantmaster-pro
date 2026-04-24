@@ -1,5 +1,5 @@
 // Phase 5-⑩: 이메일 채널 제거 — 모든 리포트는 Telegram 통합 채널로 발송.
-import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, getWeightedPnlPct } from '../persistence/shadowTradeRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { getMonthlyStats } from '../learning/recommendationTracker.js';
@@ -29,17 +29,20 @@ export async function generateDailyReport(): Promise<void> {
   const shadows = loadShadowTrades();
   const macro   = loadMacroState();
   const stats   = getMonthlyStats();
-  const today   = new Date().toISOString().split('T')[0];
-  const todayTrades = shadows.filter((s) => s.signalTime.startsWith(today));
+  // returnPct 는 fills SSOT 로 이관되어 더 이상 저장되지 않는다 — getWeightedPnlPct 로 파생.
+  const today   = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+  const todayTrades = shadows.filter(
+    (s) => new Date(s.signalTime).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }) === today,
+  );
   const closed = todayTrades.filter((s) => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP');
   const wins   = closed.filter((s) => s.status === 'HIT_TARGET');
-  const totalReturn = closed.reduce((sum, s) => sum + (s.returnPct ?? 0), 0);
+  const totalReturn = closed.reduce((sum, s) => sum + getWeightedPnlPct(s), 0);
   const winRate = closed.length > 0 ? Math.round((wins.length / closed.length) * 100) : 0;
   const watchlist = loadWatchlist();
 
   // ── 기본 수치 리포트 (이메일 / 폴백용) ────────────────────────────────────────
   const tradeLines = closed.map((s) =>
-    `  ${s.status === 'HIT_TARGET' ? '✅' : '❌'} ${s.stockName}(${s.stockCode}) ${(s.returnPct ?? 0).toFixed(2)}%`
+    `  ${s.status === 'HIT_TARGET' ? '✅' : '❌'} ${s.stockName}(${s.stockCode}) ${getWeightedPnlPct(s).toFixed(2)}%`
   ).join('\n') || '  (결산 없음)';
 
   const dailyStatsLine = closed.length >= 5
@@ -77,7 +80,7 @@ export async function generateDailyReport(): Promise<void> {
     `워치리스트: ${watchlist.length}개 (${watchlist.slice(0, 5).map(w => w.name).join(', ')}${watchlist.length > 5 ? ' 외' : ''})`,
     `월간 통계 (${stats.month}): 전체 ${stats.total}건 / WIN률 ${stats.winRate.toFixed(1)}% / 평균수익 ${stats.avgReturn.toFixed(2)}%`,
     `STRONG_BUY 적중률: ${stats.strongBuyWinRate.toFixed(1)}%`,
-    closed.length > 0 ? `오늘 결산 종목: ${closed.map(s => `${s.stockName} ${(s.returnPct ?? 0).toFixed(2)}%`).join(', ')}` : '',
+    closed.length > 0 ? `오늘 결산 종목: ${closed.map(s => `${s.stockName} ${getWeightedPnlPct(s).toFixed(2)}%`).join(', ')}` : '',
   ].filter(Boolean).join('\n');
 
   const geminiPrompt = [
@@ -355,8 +358,10 @@ export async function sendIntradayCheckIn(type: 'midday' | 'preclose'): Promise<
   if (active.length === 0) return;
 
   const macro = loadMacroState();
-  const today = new Date().toISOString().split('T')[0];
-  const todaySignals = shadows.filter(s => s.signalTime.startsWith(today));
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+  const todaySignals = shadows.filter(
+    s => new Date(s.signalTime).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }) === today,
+  );
 
   // 각 활성 포지션에 대해 현재가 조회 (병렬)
   const positionLines: string[] = [];
@@ -389,9 +394,10 @@ export async function sendIntradayCheckIn(type: 'midday' | 'preclose'): Promise<
   // 주목할 상황이 없는 날(preclose)은 생략
   if (type === 'preclose' && !nearStopLoss && !nearTarget) return;
 
+  // 헤더 시간은 unifiedBriefing footer 의 단일 타임스탬프로 통합한다 — 하드코딩 제거.
   const header = type === 'midday'
-    ? `📡 <b>[장 중간 현황] 11:30</b>`
-    : `⏰ <b>[마감 2시간 전] 14:00</b>`;
+    ? `📡 <b>[장 중간 현황]</b>`
+    : `⏰ <b>[마감 2시간 전]</b>`;
 
   const msg =
     `${header}\n` +
@@ -522,8 +528,10 @@ export async function sendPreMarketReport(): Promise<void> {
 export async function sendIntradayMarketReport(): Promise<void> {
   const macro    = loadMacroState();
   const shadows  = loadShadowTrades();
-  const today    = new Date().toISOString().split('T')[0];
-  const todayTrades = shadows.filter(s => s.signalTime.startsWith(today));
+  const today    = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+  const todayTrades = shadows.filter(
+    s => new Date(s.signalTime).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }) === today,
+  );
   const active   = shadows.filter(s =>
     s.status === 'ORDER_SUBMITTED' || s.status === 'PARTIALLY_FILLED' ||
     s.status === 'ACTIVE' || s.status === 'EUPHORIA_PARTIAL'
@@ -547,10 +555,11 @@ export async function sendIntradayMarketReport(): Promise<void> {
 
   const closed = todayTrades.filter(s => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP');
   const wins   = closed.filter(s => s.status === 'HIT_TARGET');
-  const pnl    = closed.reduce((sum, s) => sum + (s.returnPct ?? 0), 0);
+  // returnPct 는 fills SSOT 이관 후 저장되지 않는다 — getWeightedPnlPct 로 파생.
+  const pnl    = closed.reduce((sum, s) => sum + getWeightedPnlPct(s), 0);
 
   const msg =
-    `📡 <b>[장중 시장 현황] 12:00</b>\n` +
+    `📡 <b>[장중 시장 현황]</b>\n` +
     `━━━━━━━━━━━━━━━━━━━\n` +
     `<b>📊 KOSPI</b>: ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}\n` +
     `<b>💱 USD/KRW</b>: ${usdKrw ? `${usdKrw.rate.toFixed(0)}원 (${fmtPct(usdKrw.changePct)})` : 'N/A'}\n` +
@@ -576,15 +585,18 @@ export async function sendPostMarketReport(): Promise<void> {
   const shadows   = loadShadowTrades();
   const watchlist = loadWatchlist();
   const stats     = getMonthlyStats();
-  const today     = new Date().toISOString().split('T')[0];
-  const todayTrades = shadows.filter(s => s.signalTime.startsWith(today));
+  const today     = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+  const todayTrades = shadows.filter(
+    s => new Date(s.signalTime).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }) === today,
+  );
   const active    = shadows.filter(s =>
     s.status === 'ORDER_SUBMITTED' || s.status === 'PARTIALLY_FILLED' ||
     s.status === 'ACTIVE' || s.status === 'EUPHORIA_PARTIAL'
   );
   const closed = todayTrades.filter(s => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP');
   const wins   = closed.filter(s => s.status === 'HIT_TARGET');
-  const pnl    = closed.reduce((sum, s) => sum + (s.returnPct ?? 0), 0);
+  // returnPct 는 fills SSOT 이관 후 저장되지 않는다 — getWeightedPnlPct 로 파생.
+  const pnl    = closed.reduce((sum, s) => sum + getWeightedPnlPct(s), 0);
   const winRate = closed.length > 0 ? Math.round((wins.length / closed.length) * 100) : 0;
 
   // KOSPI 종가
@@ -593,9 +605,10 @@ export async function sendPostMarketReport(): Promise<void> {
 
   // 결산 종목 상세
   const closedLines = closed.length > 0
-    ? closed.map(s =>
-        `  ${s.status === 'HIT_TARGET' ? '✅' : '❌'} ${s.stockName} ${(s.returnPct ?? 0) >= 0 ? '+' : ''}${(s.returnPct ?? 0).toFixed(2)}%`
-      ).join('\n')
+    ? closed.map(s => {
+        const ret = getWeightedPnlPct(s);
+        return `  ${s.status === 'HIT_TARGET' ? '✅' : '❌'} ${s.stockName} ${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%`;
+      }).join('\n')
     : '  (결산 없음)';
 
   // Gemini AI 내일 전망
