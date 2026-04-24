@@ -7,6 +7,10 @@ import {
   proxyCacheReset,
   proxyCacheSet,
 } from './marketDataRouter.js';
+import {
+  setSnapshot,
+  __resetForTests as resetSnapshot,
+} from '../persistence/offHoursSnapshotRepo.js';
 
 // UTC 기준: KST = UTC+9, ET = UTC-5 (EST)
 const SAT_KST_NOON_UTC      = new Date('2026-04-25T03:00:00.000Z'); // KST 토 12:00 / ET 금 22:00 → NYSE 닫힘
@@ -16,7 +20,8 @@ const MON_KST_EVENING_UTC   = new Date('2026-04-27T08:00:00.000Z'); // KST 월 1
 const MON_NYSE_OPEN_UTC     = new Date('2026-04-27T15:30:00.000Z'); // KST 화 00:30 / ET 월 10:30 → NYSE 열림, KRX 닫힘
 
 describe('evaluateMarketGate — SymbolMarketRegistry 게이트', () => {
-
+  beforeEach(() => { proxyCacheReset(); resetSnapshot(); });
+  afterEach(() => { proxyCacheReset(); resetSnapshot(); });
 
   it('KRX 장중(월요일 정오 KST) — KR 심볼 pass', () => {
     expect(evaluateMarketGate('009540.KS', '1y', '1d', MON_KST_NOON_UTC).action).toBe('pass');
