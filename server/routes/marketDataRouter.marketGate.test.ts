@@ -16,8 +16,7 @@ const MON_KST_EVENING_UTC   = new Date('2026-04-27T08:00:00.000Z'); // KST 월 1
 const MON_NYSE_OPEN_UTC     = new Date('2026-04-27T15:30:00.000Z'); // KST 화 00:30 / ET 월 10:30 → NYSE 열림, KRX 닫힘
 
 describe('evaluateMarketGate — SymbolMarketRegistry 게이트', () => {
-  beforeEach(() => proxyCacheReset());
-  afterEach(() => proxyCacheReset());
+
 
   it('KRX 장중(월요일 정오 KST) — KR 심볼 pass', () => {
     expect(evaluateMarketGate('009540.KS', '1y', '1d', MON_KST_NOON_UTC).action).toBe('pass');
@@ -77,4 +76,5 @@ describe('evaluateMarketGate — SymbolMarketRegistry 게이트', () => {
     const MON_ET_EVENING_UTC = new Date('2026-04-27T23:00:00.000Z'); // KST 화 08:00 / ET 월 18:00
     expect(evaluateMarketGate('AAPL', '1y', '1d', MON_ET_EVENING_UTC).action).toBe('skip');
   });
+
 });

@@ -26,7 +26,7 @@ const EXTS = new Set(['.ts', '.tsx']);
 const IGNORED_SUFFIX = ['.d.ts', '.test.ts', '.test.tsx', '.spec.ts', '.spec.tsx'];
 
 // 경계 단독 소유 파일 (정규식 정의를 허용)
-const REGISTRY_FILE = 'server/utils/symbolMarketRegistry.ts';
+
 
 // 탐지 시그니처 — 문자열 매치 (정규식 리터럴 안에 등장하면 경계 위반)
 const SIGNATURES = [
@@ -75,7 +75,7 @@ function main() {
 
   const violations = [];
   for (const f of files) {
-    if (f.replace(/\\/g, '/').endsWith(REGISTRY_FILE)) continue;
+
     const src = readFileSync(f, 'utf-8');
     const code = stripComments(src);
     for (const { name, pattern } of SIGNATURES) {
@@ -87,7 +87,7 @@ function main() {
 
   if (violations.length > 0) {
     console.error(`[SymbolBoundary][FAIL] 심볼 분류 정규식이 Registry 밖에서 발견됨 (${violations.length}건)`);
-    console.error(`  → 신규 regex 는 반드시 ${REGISTRY_FILE} 에 추가하세요.`);
+
     for (const { f, signature } of violations) {
       console.error(`  - ${f}  [${signature}]`);
     }

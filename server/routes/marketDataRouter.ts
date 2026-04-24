@@ -98,8 +98,12 @@ export function evaluateMarketGate(
   now: Date = new Date(),
 ): MarketGateDecision {
   if (isMarketOpenFor(symbol, now)) return { action: 'pass' };
-  const cached = proxyCacheGet(`${symbol}:${range}:${interval}`);
+
   if (cached) return { action: 'stale', body: cached.body, contentType: cached.contentType };
+  // PR-32: 인메모리 LRU 미스 시 디스크 영속 스냅샷 폴백 — 재배포 후에도 마지막
+  // 장중 값을 서빙해 UI 정보 불일치 원천 차단.
+  const snapshot = getSnapshot(key);
+  if (snapshot) return { action: 'stale', body: snapshot.body, contentType: snapshot.contentType };
   return { action: 'skip' };
 }
 
@@ -185,12 +189,15 @@ async function fetchYahooHistorical(
         const data = await response.json();
         if (data.chart?.result?.[0]) {
           const body = JSON.stringify(data);
+          const contentType = 'application/json; charset=utf-8';
           proxyCacheSet(cacheKey, {
             body,
-            contentType: 'application/json; charset=utf-8',
+            contentType,
             expiresAt: Date.now() + yahooProxyTtlMs(intervalStr),
           });
-          return { body, contentType: 'application/json; charset=utf-8', status: 200 };
+          // PR-32: 디스크 영속 스냅샷도 갱신 — 장외·재배포 시 fallback 소스.
+          setSnapshot(cacheKey, { body, contentType, fetchedAt: Date.now() });
+          return { body, contentType, status: 200 };
         } else if (data.chart?.error) {
           console.warn(`Yahoo API returned error for ${symbolStr}:`, data.chart.error);
           lastError = data.chart.error;

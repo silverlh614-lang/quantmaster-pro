@@ -221,6 +221,11 @@ export const KRX_STOCK_MASTER_FILE = path.join(DATA_DIR, 'krx-master.json');
  * Google Search / Naver Finance / KRX master refresh 별 호출 수를 KST 자정 단위로 집계.
  */
 export const AI_CALL_BUDGET_FILE = path.join(DATA_DIR, 'ai-call-budget.json');
+/**
+ * Off-hours 스냅샷 — 성공한 /historical-data 응답의 디스크 영속 캐시 (PR-32).
+ * 장외 시 gated miss 를 이 스냅샷으로 폴백해 UI 정보 불일치 원천 차단.
+ */
+export const OFFHOURS_SNAPSHOT_FILE = path.join(DATA_DIR, 'offhours-snapshot.json');
 
 export function ensureReflectionsDir(): void {
   ensureDataDir();

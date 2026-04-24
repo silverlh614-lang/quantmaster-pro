@@ -9,6 +9,7 @@ import ReactMarkdown from 'react-markdown';
 import { cn } from '../../ui/cn';
 import { HeroChecklist } from '../trading/HeroChecklist';
 import { ConfidenceBadge } from '../common/ConfidenceBadge';
+import { OffHoursBanner } from '../common/OffHoursBanner';
 import { MASTER_CHECKLIST_STEPS, getMarketPhaseInfo } from '../../constants/checklist';
 import type { StockRecommendation, MarketContext, StockFilters } from '../../services/stockService';
 import type { View } from '../../stores/useSettingsStore';
@@ -50,6 +51,9 @@ export function WatchlistHeader({
 }: WatchlistHeaderProps) {
   return (
     <>
+      {/* 장외 시에만 표시 — 장중엔 null */}
+      <OffHoursBanner className="mb-4 sm:mb-6" />
+
       {/* Market Sentiment & Hero Section */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
         <motion.div
