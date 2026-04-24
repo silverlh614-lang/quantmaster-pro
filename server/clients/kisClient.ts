@@ -10,6 +10,12 @@ import { sendTelegramAlert, escapeHtml } from '../alerts/telegramClient.js';
 import { getTradingMode } from '../state.js';
 import { scheduleKisCall, type KisApiPriority } from './kisRateLimiter.js';
 import { assertModeCompatible } from './kisModeGuard.js';
+import {
+  isEndpointBlacklisted as _isBlacklisted,
+  recordEndpoint404 as _recordBlacklist404,
+  resetEndpoint404Counter as _resetBlacklistCounter,
+  resetKisEndpointBlacklist as _resetBlacklistAll,
+} from '../persistence/kisEndpointBlacklistRepo.js';
 export type { KisApiPriority } from './kisRateLimiter.js';
 export { getRateLimiterStats } from './kisRateLimiter.js';
 export { ModeIncompatibleError, assertModeCompatible } from './kisModeGuard.js';
@@ -248,6 +254,8 @@ function _getCircuit(trId: string): CircuitState {
 
 /** 회로가 열려 있으면 true — 호출을 건너뛰어야 함 */
 function _isCircuitOpen(trId: string): boolean {
+  // ADR-0010: 영속 블랙리스트가 회로보다 우선. 24h 차단 윈도우 동안 즉시 true.
+  if (_isBlacklisted(trId)) return true;
   const state = _circuitByTrId.get(trId);
   if (!state) return false;
   if (Date.now() < state.openUntil) return true;
@@ -271,6 +279,8 @@ function _recordCircuitFailure(trId: string, status: number): void {
       return;
     }
     state.softFailures += 1;
+    // ADR-0010: 영속 블랙리스트 카운터도 함께 누적 — 30분 윈도우/10회 누적 시 24h 차단.
+    _recordBlacklist404(trId);
     if (state.softFailures >= CIRCUIT_THRESHOLD_SOFT) {
       state.openUntil = Date.now() + CIRCUIT_COOLDOWN_SOFT_MS;
       state.lastBlockedBy = 'SOFT';
@@ -298,6 +308,8 @@ function _recordCircuitFailure(trId: string, status: number): void {
 }
 
 function _recordCircuitSuccess(trId: string): void {
+  // ADR-0010: 성공 시 영속 블랙리스트의 윈도우 카운터도 리셋(24h 차단 entry 는 만료 대기).
+  _resetBlacklistCounter(trId);
   const state = _circuitByTrId.get(trId);
   if (!state) return;
   const hadFailure = state.hardFailures > 0 || state.softFailures > 0 || state.openUntil > 0;
@@ -360,8 +372,12 @@ export function resetKisCircuits(): number {
     if (state.openUntil > now) openCount++;
   }
   _circuitByTrId.clear();
-  if (openCount > 0) {
-    console.warn(`[KIS] 🔧 운영자 수동 회로 reset — 열려 있던 ${openCount}개 회로 모두 해제`);
+  // ADR-0010: 영속 블랙리스트도 함께 청소 (운영자 수동 복구).
+  const blacklistCleared = _resetBlacklistAll();
+  if (openCount > 0 || blacklistCleared > 0) {
+    console.warn(
+      `[KIS] 🔧 운영자 수동 회로 reset — 회로 ${openCount}개 + 블랙리스트 ${blacklistCleared}개 해제`
+    );
   }
   return openCount;
 }

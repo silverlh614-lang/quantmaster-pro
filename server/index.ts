@@ -123,6 +123,18 @@ async function startServer() {
     console.error('[Boot] SHADOW BUY fill 백필 실패:', e instanceof Error ? e.message : e);
   }
 
+  // PR-24 (ADR-0010): KIS 엔드포인트 영속 블랙리스트 로드 — 만료 entry 자동 청소.
+  try {
+    const { loadKisEndpointBlacklist } =
+      await import('./persistence/kisEndpointBlacklistRepo.js');
+    const active = loadKisEndpointBlacklist();
+    if (active > 0) {
+      console.log(`[Boot] KIS 엔드포인트 블랙리스트 로드: ${active}개 활성 entry`);
+    }
+  } catch (e) {
+    console.error('[Boot] KIS 블랙리스트 로드 실패:', e instanceof Error ? e.message : e);
+  }
+
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
