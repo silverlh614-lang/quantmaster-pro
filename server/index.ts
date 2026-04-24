@@ -52,6 +52,7 @@ import {
 import kisRouter from './routes/kisRouter.js';
 import krxRouter from './routes/krxRouter.js';
 import marketDataRouter from './routes/marketDataRouter.js';
+import aiUniverseRouter from './routes/aiUniverseRouter.js';
 import dartRouter from './routes/dartRouter.js';
 import autoTradeRouter from './routes/autoTradeRouter.js';
 import systemRouter from './routes/systemRouter.js';
@@ -147,6 +148,12 @@ async function startServer() {
   // (ECOS, FRED, Yahoo Finance Historical, Market Indicators)
   // ─────────────────────────────────────────────────────────────
   app.use('/api', marketDataRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // AI 추천 universe — Google Search + Naver Finance (KIS/KRX 비의존)
+  // ADR-0011 / PR-25-B
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/ai-universe', aiUniverseRouter);
 
   // ─────────────────────────────────────────────────────────────
   // KIS API Proxy  → server/routes/kisRouter.ts 로 분리
