@@ -53,16 +53,27 @@ function labelReason(stage: string, reason: string): string {
 
 // ── 내일 후보 추출 ────────────────────────────────────────────────────────────
 /**
- * SWING + CATALYST 섹션에서 gateScore 상위 N개를 내일 진입 대기 후보로 제시.
+ * SWING + CATALYST 섹션에서 "의미 있는" gateScore 를 가진 종목만 내일 진입 대기
+ * 후보로 제시. 단순 상위 N개가 아니라 ADR-0005 Gate 기준을 반영한 2단 필터:
+ *
+ *   1) STRONG_BUY 근접 (Gate ≥ STRONG_BUY_GATE_MIN = 9) 을 우선 표시.
+ *   2) 자리가 남으면 BUY 근접 (Gate ≥ BUY_GATE_MIN = 7) 으로 보충.
+ *   3) 둘 다 없으면 빈 배열 — "Gate 3.0 짜리 종목 5개" 노이즈를 제거.
+ *
  * MOMENTUM 은 관찰 전용이므로 제외.
  */
+const STRONG_BUY_GATE_MIN = 9; // ADR-0005: Gate Score ≥ 9 → STRONG_BUY 근접
+const BUY_GATE_MIN = 7;        // R4_NEUTRAL normal — ADR-0005 BUY 임계값
 function pickTomorrowCandidates(watchlist: WatchlistEntry[], excludedCodes: Set<string>, n = 5): WatchlistEntry[] {
-  return watchlist
+  const base = watchlist
     .filter(w => w.section === 'SWING' || w.section === 'CATALYST'
               || (!w.section && (w.track === 'B' || w.addedBy === 'MANUAL' || w.addedBy === 'DART')))
     .filter(w => !excludedCodes.has(w.code))
-    .sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0))
-    .slice(0, n);
+    .sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0));
+  const strongCandidates = base.filter(w => (w.gateScore ?? 0) >= STRONG_BUY_GATE_MIN);
+  const buyCandidates    = base.filter(w => (w.gateScore ?? 0) >= BUY_GATE_MIN
+                                           && (w.gateScore ?? 0) < STRONG_BUY_GATE_MIN);
+  return [...strongCandidates, ...buyCandidates].slice(0, n);
 }
 
 // ── 메시지 조립 ──────────────────────────────────────────────────────────────
@@ -116,16 +127,19 @@ export function formatScanReviewMessage(input: ScanReviewMessageInput): string {
       topReasons.map((r, i) => `  ${['①','②','③'][i] ?? '•'} ${labelReason(r.stage, r.reason)} (${r.count}개)`).join('\n')
     : '\n🔻 <b>탈락 상위 이유</b>: 기록 없음';
 
-  // 내일 후보
+  // 내일 후보 — STRONG_BUY 근접(Gate≥9) 우선, BUY 근접(Gate≥7) 보충. 미달은 제외.
   const candidateBlock = tomorrowCandidates.length > 0
-    ? '\n\n💡 <b>내일 진입 대기 종목</b>:\n' +
+    ? '\n\n💡 <b>내일 진입 대기 종목</b> (Gate ≥ 7 만 표시):\n' +
       tomorrowCandidates.map(w => {
-        const gate = w.gateScore !== undefined ? `Gate ${w.gateScore.toFixed(1)}` : 'Gate N/A';
+        const gs = w.gateScore ?? 0;
+        const badge = gs >= STRONG_BUY_GATE_MIN ? '🔥 STRONG_BUY 근접'
+                    : gs >= BUY_GATE_MIN       ? '✅ BUY 근접'
+                                                : '';
         const sec = w.section ?? (w.track === 'B' ? 'SWING' : 'WATCH');
         const entry = `진입가 ${w.entryPrice.toLocaleString()}원`;
-        return `  • <b>${w.name}</b>(${w.code}) — ${gate} · ${entry} [${sec}]`;
+        return `  • <b>${w.name}</b>(${w.code}) — Gate ${gs.toFixed(1)} ${badge} · ${entry} [${sec}]`;
       }).join('\n')
-    : '\n\n💡 <b>내일 진입 대기 종목</b>: (워치리스트 비어있음)';
+    : '\n\n💡 <b>내일 진입 대기 종목</b>: 해당 없음 (Gate ≥ 7 충족 종목 없음)';
 
   const footer = summary.lastScanTime
     ? `\n\n<i>마지막 스캔: ${summary.lastScanTime} KST</i>`

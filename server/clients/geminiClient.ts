@@ -1,3 +1,9 @@
+/**
+ * @responsibility Gemini API 호출 + 페르소나 주입/서문 스트립 + 월예산·서킷·재시도
+ *
+ * 모든 서버 측 Gemini 호출은 이 모듈을 통과한다. 응답은 기본적으로 페르소나
+ * 메타 서문이 제거된 상태로 반환된다 (PR-20).
+ */
 import { GoogleGenAI } from '@google/genai';
 import { AI_MODELS } from '../constants.js';
 import { createCircuitBreaker, CircuitOpenError } from '../utils/circuitBreaker.js';
@@ -16,6 +22,61 @@ function withPersona(prompt: string): string {
   }
   if (hasPersonaPrelude(prompt)) return prompt;
   return buildPersonaPrelude(prompt);
+}
+
+// ── 응답 페르소나 서문 제거 (PR-20) ────────────────────────────────────────
+//
+// Gemini 는 페르소나 prepend 에 반응해 응답 상단에 "QuantMaster 시스템
+// 아키텍트로서 …을 제시한다" 같은 메타 서문을 자주 붙인다. 이는 텔레그램
+// 메시지 글자 수만 차지하고 영양가가 없으므로 기본적으로 제거한다.
+//
+// 규칙:
+//   - 첫 문장·문단 (빈 줄 전까지) 에서 메타 패턴을 탐지.
+//   - 다음 중 하나라도 매치되면 해당 덩어리를 삭제:
+//       · "QuantMaster", "시스템 아키텍트", "아키텍트로서"
+//       · "…제시한다|분석한다|답변한다|설명한다" 로만 끝나는 자기소개 문장
+//   - 번호 리스트 (①②③, 1./2./3., - , •) 또는 볼드(**)·이모지(📊📈🔥) 가
+//     먼저 등장하면 메타 서문 영역 종료로 간주하고 이후 본문은 그대로 유지.
+//   - 본문이 사라져 빈 문자열이 되면 원문을 그대로 반환 (안전 fallback).
+const PERSONA_META_PATTERNS = [
+  /QuantMaster/i,
+  /시스템\s*아키텍트/,
+  /아키텍트로서/,
+  /인사이트를\s*제시한다/,
+  /분석한다\.?$/,
+  /답변한다\.?$/,
+  /답하겠다\.?$/,
+];
+// JSON 응답(`{`, `[`) 또는 코드블록(```) 이 먼저 등장하면 서문 영역 종료 간주 —
+// mainReflection 등 JSON 파싱 경로의 안전장치.
+const BODY_START_PATTERN = /^(\s*[①②③④⑤]|\s*\d{1,2}[.)]|\s*[-•]|\s*\*\*|\s*[{[]|\s*```|\s*[📊📈📉🔥✅❌⚠️💡🎯🌅🌙🕛])/;
+
+export function stripPersonaPreamble(raw: string): string {
+  if (!raw) return raw;
+  // 구분선 (--- / ━━━) 으로 시작하는 서문은 그대로 컷.
+  const lines = raw.split('\n');
+  let cutAt = 0;
+  let stripped = false;
+  for (let i = 0; i < Math.min(lines.length, 5); i++) {
+    const line = lines[i].trim();
+    if (!line) { cutAt = i + 1; continue; }
+    // 구분선(---, ━━━, ─) 은 본문 신호보다 우선 — "-" 가 불릿으로 오인되지 않도록.
+    if (/^[-─━]{3,}$/.test(line)) { cutAt = i + 1; stripped = true; continue; }
+    // 본문 신호 (번호/불릿/볼드/이모지/JSON) 가 먼저 오면 서문 영역 끝.
+    if (BODY_START_PATTERN.test(line)) break;
+    // 메타 패턴 문장은 제거.
+    if (PERSONA_META_PATTERNS.some((re) => re.test(line))) {
+      cutAt = i + 1;
+      stripped = true;
+      continue;
+    }
+    // 패턴 아닌 첫 문장이 나오면 서문 영역 끝.
+    break;
+  }
+  if (!stripped) return raw;
+  const remainder = lines.slice(cutAt).join('\n').trim();
+  // 본문이 사라지면 원문 유지 — 잘못된 스트립 방지.
+  return remainder.length > 0 ? remainder : raw;
 }
 
 // ── Idea 13: 월 예산 하드리밋 회로차단기 ──────────────────────────────────────
@@ -248,6 +309,12 @@ export interface GeminiTextOptions {
   maxOutputTokens?: number;
   useSearch?: boolean;
   prependPersona?: boolean;
+  /**
+   * PR-20: 응답 상단의 페르소나 메타 서문("QuantMaster 시스템 아키텍트로서…")을
+   * 자동 제거할지 여부. 기본 true — 텔레그램 메시지 노이즈 축소 목적.
+   * JSON 파싱 경로(mainReflection 등)에서 원문이 필요한 경우 false 로 끌 수 있다.
+   */
+  stripPreamble?: boolean;
 }
 
 export async function callGeminiText(prompt: string, opts: GeminiTextOptions = {}): Promise<string | null> {
@@ -277,13 +344,14 @@ export async function callGeminiText(prompt: string, opts: GeminiTextOptions = {
     const tokens = (res as { usageMetadata?: { totalTokenCount?: number } })
       .usageMetadata?.totalTokenCount ?? 0;
     recordCall(caller, tokens);
-    const text = res.text ?? null;
-    if (!text) {
+    const raw = res.text ?? null;
+    if (!raw) {
       setRuntimeState('FAILED', label, caller, 'EMPTY_RESPONSE');
       return null;
     }
     setRuntimeState('SUCCESS', label, caller, null);
-    return text;
+    // PR-20: 기본적으로 페르소나 서문 제거. JSON 응답 경로는 stripPreamble=false.
+    return opts.stripPreamble === false ? raw : stripPersonaPreamble(raw);
   });
 }
 
