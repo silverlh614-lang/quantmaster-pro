@@ -131,27 +131,45 @@ async function serverCacheSet(cacheKey: string, data: unknown, ttlMs: number): P
   } catch { /* noop — 영속화 실패는 메모리/LS 만으로 동작 */ }
 }
 
+async function serverCacheDelete(cacheKey: string): Promise<void> {
+  if (!SERVER_CACHE_KEY_RE.test(cacheKey)) return;
+  try {
+    await fetch(`/api/system/ai-cache/${encodeURIComponent(cacheKey)}`, { method: 'DELETE' });
+  } catch { /* noop — 영속 캐시 삭제 실패는 다음 read 시 빈 응답 무효화로 충분 */ }
+}
+
 export async function getCachedAIResponse<T>(cacheKey: string, fetchFn: () => Promise<T>): Promise<T> {
   const now = Date.now();
 
   // 1) 메모리 캐시 확인 (TTL 무제한 — 탭 생존 기간 동안 유효)
+  // 단, 빈 recommendations(이전 버전에서 박제된 케이스)는 무효 처리하고 재호출.
+  // 사용자 체감 "버튼을 눌렀는데 아무것도 안 나옴" 의 핵심 원인 — write 만 스킵해도
+  // 이미 적재된 entry 가 read 경로에서 그대로 반환되던 구조 해소.
   const memHit = aiCache[cacheKey];
-  if (memHit) {
+  if (memHit && !isEmptyRecommendationData(memHit.data)) {
     debugLog(`[AI캐시] 메모리 히트: ${cacheKey.substring(0, 50)}...`);
     return memHit.data as T;
+  }
+  if (memHit) {
+    debugLog(`[AI캐시] 메모리 히트지만 빈 recommendations — 무효화: ${cacheKey.substring(0, 50)}...`);
+    delete aiCache[cacheKey];
   }
 
   // 2) localStorage 캐시 확인 (4시간 TTL)
   const lsHit = lsGet(cacheKey);
-  if (lsHit && now - lsHit.timestamp < AI_CACHE_TTL) {
+  if (lsHit && now - lsHit.timestamp < AI_CACHE_TTL && !isEmptyRecommendationData(lsHit.data)) {
     debugLog(`[AI캐시] localStorage 히트 (${Math.floor((now - lsHit.timestamp) / 60000)}분 전 캐시): ${cacheKey.substring(0, 50)}...`);
     aiCache[cacheKey] = lsHit; // 메모리에도 복사 → 이후 즉각 응답
     return lsHit.data as T;
   }
+  if (lsHit && isEmptyRecommendationData(lsHit.data)) {
+    debugLog(`[AI캐시] localStorage 히트지만 빈 recommendations — 무효화: ${cacheKey.substring(0, 50)}...`);
+    try { localStorage.removeItem(LS_CACHE_PREFIX + cacheKey); } catch { /* noop */ }
+  }
 
   // 3) (Idea 4) 서버 Volume 캐시 확인 — 재배포 후 첫 호출 시 절감 효과
   const serverHit = await serverCacheGet(cacheKey);
-  if (serverHit) {
+  if (serverHit && !isEmptyRecommendationData(serverHit.data)) {
     const ageMin = Math.floor((now - serverHit.timestamp) / 60000);
     debugLog(`[AI캐시] 서버Volume 히트 (${ageMin}분 전 캐시): ${cacheKey.substring(0, 50)}...`);
     const entry = { data: serverHit.data, timestamp: serverHit.timestamp };
@@ -159,6 +177,10 @@ export async function getCachedAIResponse<T>(cacheKey: string, fetchFn: () => Pr
     lsSet(cacheKey, entry);
     broadcastCacheSet(cacheKey, entry);
     return serverHit.data as T;
+  }
+  if (serverHit) {
+    debugLog(`[AI캐시] 서버Volume 히트지만 빈 recommendations — 무효화: ${cacheKey.substring(0, 50)}...`);
+    void serverCacheDelete(cacheKey);
   }
 
   // 4) AI API 실제 호출

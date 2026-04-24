@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, createSeriesMarkers, CandlestickSeries, LineSeries, HistogramSeries, IChartApi, CandlestickData, LineData, HistogramData, Time } from 'lightweight-charts';
 import { calculateEMA, calculateRSI, calculateBollingerBands } from '../../utils/indicators';
-import { fetchHistoricalData } from '../../services/stockService';
+import { fetchHistoricalData } from '../../services/stock/historicalData';
+import { formatNextOpenKst, nextOpenAtFor } from '../../utils/marketTime';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -74,6 +75,7 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [offHours, setOffHours] = useState<{ nextOpenAt?: string } | null>(null);
   const [overlays, setOverlays] = useState<Set<Overlay>>(new Set(['BB', 'EMA20']));
   const [subChart, setSubChart] = useState<SubChart>('RSI');
   const [range, setRange] = useState<'3mo' | '6mo' | '1y' | '2y'>('1y');
@@ -93,14 +95,24 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
       if (!mainRef.current) return;
       setLoading(true);
       setError(null);
+      setOffHours(null);
 
       // Clean up previous charts
       if (mainChartRef.current) { mainChartRef.current.remove(); mainChartRef.current = null; }
       if (subChartRef.current) { subChartRef.current.remove(); subChartRef.current = null; }
 
       try {
-        const data = await fetchHistoricalData(stockCode, range);
-        if (cancelled || !data) { if (!data) setError('가격 데이터를 불러올 수 없습니다.'); return; }
+        const result = await fetchHistoricalData(stockCode, range, '1d', { withMeta: true });
+        if (cancelled) return;
+        if (!result.data) {
+          if (result.meta.reason === 'OFFHOURS') {
+            setOffHours({ nextOpenAt: result.meta.nextOpenAt });
+          } else {
+            setError('가격 데이터를 불러올 수 없습니다.');
+          }
+          return;
+        }
+        const data = result.data;
 
         const timestamps: number[] = data.timestamp;
         const quote = data.indicators.quote[0];
@@ -314,11 +326,40 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
       {loading && (
         <div className="flex items-center justify-center py-20 text-white/30 text-xs animate-pulse">차트 데이터 로딩 중...</div>
       )}
-      {error && (
+      {error && !offHours && (
         <div className="flex items-center justify-center py-20 text-red-400/60 text-xs">{error}</div>
       )}
-      <div ref={mainRef} className={loading || error ? 'hidden' : ''} />
-      {subChart !== 'NONE' && <div ref={subRef} className={`border-t border-gray-800 ${loading || error ? 'hidden' : ''}`} />}
+      {offHours && (
+        <div className="flex flex-col items-center justify-center py-20 text-xs gap-2">
+          <span className="text-orange-400/80 font-bold uppercase tracking-widest">장외 시간</span>
+          <span className="text-white/60">
+            현재 장이 닫혀 차트가 갱신되지 않습니다.
+          </span>
+          {offHours.nextOpenAt && (() => {
+            try {
+              const next = new Date(offHours.nextOpenAt);
+              return (
+                <span className="text-white/30 text-[10px] tracking-wide">
+                  다음 개장: {formatNextOpenKst(next)}
+                </span>
+              );
+            } catch {
+              try {
+                const next = nextOpenAtFor(stockCode);
+                return (
+                  <span className="text-white/30 text-[10px] tracking-wide">
+                    다음 개장: {formatNextOpenKst(next)}
+                  </span>
+                );
+              } catch {
+                return null;
+              }
+            }
+          })()}
+        </div>
+      )}
+      <div ref={mainRef} className={loading || error || offHours ? 'hidden' : ''} />
+      {subChart !== 'NONE' && <div ref={subRef} className={`border-t border-gray-800 ${loading || error || offHours ? 'hidden' : ''}`} />}
     </div>
   );
 };

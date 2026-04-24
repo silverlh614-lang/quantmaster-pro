@@ -23,7 +23,7 @@ import { getVixGating } from '../trading/vixGating.js';
 import { getFomcProximity } from '../trading/fomcCalendar.js';
 import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { loadGateAudit } from '../persistence/gateAuditRepo.js';
-import { getCacheEntry, setCacheEntry, getAiCacheSnapshot } from '../persistence/aiCacheRepo.js';
+import { getCacheEntry, setCacheEntry, deleteCacheEntry, getAiCacheSnapshot } from '../persistence/aiCacheRepo.js';
 import { buildRagIndex, queryRag, generateAdvice, getRagStats } from '../rag/localRag.js';
 import { loadShadowTrades, getRemainingQty } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
@@ -169,6 +169,13 @@ router.post('/system/ai-cache/:key', (req: Request, res: Response) => {
   const ttlMs = typeof body.ttlMs === 'number' && body.ttlMs > 0 ? body.ttlMs : undefined;
   setCacheEntry(key, body.data, ttlMs);
   res.json({ ok: true });
+});
+
+router.delete('/system/ai-cache/:key', (req: Request, res: Response) => {
+  const key = req.params.key;
+  if (!SAFE_KEY_RE.test(key)) return res.status(400).json({ error: 'invalid key format' });
+  const deleted = deleteCacheEntry(key);
+  res.json({ ok: true, deleted });
 });
 
 router.get('/system/ai-cache', (_req: Request, res: Response) => {
