@@ -7,6 +7,7 @@ import {
   isMarketDataPublished,
   isPostClosePendingPublish,
   describeMarketPhase,
+  isKstWeekend,
 } from './marketClock.js';
 
 // UTC 기준: KST = UTC + 9
@@ -70,6 +71,19 @@ describe('marketClock.isPostClosePendingPublish', () => {
   });
   it('평일 19:00 KST — 확정 이후이므로 false', () => {
     expect(isPostClosePendingPublish(FRI_1900_KST)).toBe(false);
+  });
+});
+
+describe('marketClock.isKstWeekend', () => {
+  it('토요일 KST true', () => {
+    expect(isKstWeekend(SAT_1000_KST)).toBe(true);
+  });
+  it('금요일 KST false', () => {
+    expect(isKstWeekend(FRI_1000_KST)).toBe(false);
+  });
+  it('UTC 금요일 16:00 = KST 토요일 01:00 → true', () => {
+    // UTC 2026-04-24 16:00 = KST 2026-04-25 01:00 (토)
+    expect(isKstWeekend(new Date('2026-04-24T16:00:00.000Z'))).toBe(true);
   });
 });
 

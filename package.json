@@ -17,8 +17,9 @@
     "validate:sds": "node scripts/silent_degradation_sentinel.js",
     "validate:exposure": "node scripts/scan_exposure.js",
     "validate:responsibility": "node scripts/check_responsibility.js",
-    "validate:all": "npm run validate:gemini && npm run validate:complexity && npm run validate:sds && npm run validate:exposure && npm run validate:responsibility",
-    "precommit": "node scripts/check_deploy_window.js && node scripts/scan_exposure.js --no-history && node scripts/check_complexity.js && node scripts/check_responsibility.js --changed && npm run validate:gemini && npm run lint",
+    "validate:boundary": "node scripts/check_symbol_boundary.js",
+    "validate:all": "npm run validate:gemini && npm run validate:complexity && npm run validate:sds && npm run validate:exposure && npm run validate:responsibility && npm run validate:boundary",
+    "precommit": "node scripts/check_deploy_window.js && node scripts/scan_exposure.js --no-history && node scripts/check_complexity.js && node scripts/check_responsibility.js --changed && node scripts/check_symbol_boundary.js && npm run validate:gemini && npm run lint",
     "install:hooks": "node scripts/install_git_hooks.js",
     "update:sector-map": "tsx scripts/updateSectorMap.ts"
   },

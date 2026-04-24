@@ -17,6 +17,7 @@ import {
   type StockMasterEntry,
 } from '../persistence/krxStockMasterRepo.js';
 import { tryConsume } from '../persistence/aiCallBudgetRepo.js';
+import { isKstWeekend } from '../utils/marketClock.js';
 
 export type AiUniverseMode = 'MOMENTUM' | 'QUANT_SCREEN' | 'BEAR_SCREEN' | 'EARLY_DETECT';
 
@@ -75,7 +76,11 @@ export async function discoverUniverse(
   if (isMasterStale()) {
     if (tryConsume('krx_master_refresh', 1)) {
       const ok = await refreshKrxStockMaster();
-      if (!ok) console.warn('[AiUniverseService] 마스터 갱신 실패 — 기존 디스크 캐시로 진행');
+      if (!ok) {
+        // 주말엔 krxStockMasterRepo 자체가 단락되므로 정보 가치 0 → debug.
+        const logger = isKstWeekend() ? console.debug : console.warn;
+        logger('[AiUniverseService] 마스터 갱신 실패 — 기존 디스크 캐시로 진행');
+      }
     } else {
       diag.budgetExceeded = true;
     }

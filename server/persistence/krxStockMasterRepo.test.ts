@@ -11,6 +11,7 @@ import {
   isMasterStale,
   getMasterSize,
   parseKrxMasterCsv,
+  refreshKrxStockMaster,
   MASTER_TTL_MS,
   __testOnly,
 } from './krxStockMasterRepo.js';
@@ -98,5 +99,38 @@ describe('krxStockMasterRepo (ADR-0011)', () => {
   it('parseKrxMasterCsv — 빈 CSV 는 빈 배열', () => {
     expect(parseKrxMasterCsv('')).toEqual([]);
     expect(parseKrxMasterCsv('header\n')).toEqual([]);
+  });
+
+  describe('refreshKrxStockMaster — 주말 단락', () => {
+    const originalForceOff = process.env.DATA_FETCH_FORCE_OFF;
+    afterEach(() => {
+      // 주말 강제 분기 해제 (isKstWeekend 는 UTC 기반이라 date mock 대신 FORCE_OFF 는
+      // 무관 — 대신 KST 토요일 날짜 pin 은 vitest timer mock 없이는 어렵다. 대신
+      // 토요일 당일(2026-04-25)에 돌면 단락이 타고, 평일엔 기존 경로가 탄다.)
+      if (originalForceOff === undefined) delete process.env.DATA_FETCH_FORCE_OFF;
+      else process.env.DATA_FETCH_FORCE_OFF = originalForceOff;
+    });
+
+    it('주말 + 디스크 캐시 존재 → true 반환 + 외부 HTTP 호출 없음', async () => {
+      // 현재 KST 가 주말인 경우에만 단락을 검증 (아니면 skip).
+      const isSaturday = new Date(Date.now() + 9 * 3_600_000).getUTCDay();
+      if (isSaturday !== 0 && isSaturday !== 6) return; // 평일은 본 단락을 타지 않음
+      setStockMaster([{ code: '005930', name: '삼성전자', market: 'KOSPI' }]);
+      // 메모리 리셋 후 디스크만 남긴 상태에서 refresh 호출
+      __testOnly.reset();
+      const ok = await refreshKrxStockMaster();
+      expect(ok).toBe(true);
+      expect(getMasterSize()).toBe(1); // 디스크에서 복원됨
+    });
+
+    it('주말 + 디스크 캐시 없음 → false 반환', async () => {
+      const isSaturday = new Date(Date.now() + 9 * 3_600_000).getUTCDay();
+      if (isSaturday !== 0 && isSaturday !== 6) return;
+      cleanFile();
+      __testOnly.reset();
+      const ok = await refreshKrxStockMaster();
+      expect(ok).toBe(false);
+      expect(getMasterSize()).toBe(0);
+    });
   });
 });

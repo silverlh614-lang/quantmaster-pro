@@ -26,6 +26,7 @@ import {
   isKrxOpenApiHealthy,
   type KrxStockDailyRow,
 } from './krxOpenApi.js';
+import { guardedFetch } from '../utils/egressGuard.js';
 
 export type QuoteSource = 'krx-openapi' | 'yahoo' | 'none';
 
@@ -149,7 +150,7 @@ async function fetchYahooSymbol(symbol: string): Promise<KoreanDailyQuote | null
   for (const host of ['query2', 'query1']) {
     try {
       const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d`;
-      const res = await fetch(url, {
+      const res = await guardedFetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           'Accept': 'application/json',

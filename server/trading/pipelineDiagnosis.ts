@@ -12,6 +12,7 @@ import {
   getCompletenessSnapshot,
   type CompletenessSnapshot,
 } from '../screener/dataCompletenessTracker.js';
+import { guardedFetch } from '../utils/egressGuard.js';
 
 export interface DiagnosisResult {
   hasCriticalIssue: boolean;
@@ -83,7 +84,7 @@ export async function runPipelineDiagnosis(): Promise<DiagnosisResult> {
   try {
     const controller = new AbortController();
     const timeout    = setTimeout(() => controller.abort(), 8_000);
-    const res = await fetch(
+    const res = await guardedFetch(
       'https://query1.finance.yahoo.com/v8/finance/chart/000660.KS?interval=1d&range=1d',
       { signal: controller.signal, headers: { 'User-Agent': 'Mozilla/5.0' } },
     );

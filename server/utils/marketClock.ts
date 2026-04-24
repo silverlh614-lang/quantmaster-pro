@@ -21,6 +21,11 @@ function isWeekend(kst: Date): boolean {
   return day === 0 || day === 6;
 }
 
+/** KST 기준 주말(토·일) 여부 — 주말 단락·로그 분기 등 외부 사용자용 얇은 래퍼. */
+export function isKstWeekend(now: Date = new Date()): boolean {
+  return isWeekend(kstDate(now));
+}
+
 function toKstMinutes(kst: Date): number {
   return kst.getUTCHours() * 60 + kst.getUTCMinutes();
 }

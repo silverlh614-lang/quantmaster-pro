@@ -38,7 +38,7 @@ import {
   type KrxStockDailyRow,
   type KrxIndexDailyRow,
 } from './krxOpenApi.js';
-import { isMarketDataPublished } from '../utils/marketClock.js';
+import { isMarketDataPublished, isKstWeekend } from '../utils/marketClock.js';
 
 // ── 타입 ─────────────────────────────────────────────────────────────────────
 
@@ -256,7 +256,17 @@ async function krxPost(
       body,
     });
     if (!res.ok) {
-      console.warn(`[KRX] ${bld} HTTP ${res.status}`);
+      // 주말 KRX 400 — resolveTradeDate 가 직전 영업일로 후퇴해도 bld 별 간헐 400.
+      // 정보 가치 0 + cooldown 오염 방지를 위해 silent return (recordBldFailure 도 생략).
+      if (res.status === 400 && isKstWeekend()) {
+        return null;
+      }
+      // 평일 18:00 이전 통계 미확정 창에서의 400 은 debug, 그 외는 warn 유지.
+      if (res.status === 400 && !isMarketDataPublished()) {
+        console.debug(`[KRX] ${bld} HTTP 400 (off-hours fallback — suppressed)`);
+      } else {
+        console.warn(`[KRX] ${bld} HTTP ${res.status}`);
+      }
       recordBldFailure(bld);
       return null;
     }
