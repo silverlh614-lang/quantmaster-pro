@@ -17,6 +17,11 @@
 
 import fs from 'fs';
 import { LEDGER_FILE, ensureDataDir } from '../persistence/paths.js';
+import { sendSuggestAlert } from './suggestNotifier.js';
+import {
+  SUGGEST_MIN_SAMPLE_LEDGER,
+  SUGGEST_LEDGER_EDGE_PCT,
+} from './suggestThresholds.js';
 
 export type UniverseKey = 'A' | 'B' | 'C';
 
@@ -216,4 +221,86 @@ export function getUniverseStats(): UniverseStats[] {
     });
   }
   return out;
+}
+
+/**
+ * 단일 universe 의 "MaxDD" — 실현 수익률 시계열에서 최악 음수값의 절대값 (근사).
+ * horizon-unit 비교용 — 정확한 path DD 가 아닌 단일 현재가 판정 기반임을 감안한 대리지표.
+ */
+function computeUniverseMaxDD(returns: number[]): number {
+  if (returns.length === 0) return 0;
+  const minRet = returns.reduce((m, r) => (r < m ? r : m), 0);
+  return Math.max(0, -minRet);
+}
+
+/**
+ * Suggest 판정 — resolved triplet 30쌍 이상이고, Universe B 또는 C 의 누적(mean) 수익률이
+ * Universe A 대비 +5%p 이상이며 MaxDD ≤ A 의 MaxDD 이면 가장 큰 edge 1건만 suggest.
+ *
+ * 조건 미달 시 no-op + false. 예외는 warn 로그만 남기고 false 반환.
+ */
+export async function evaluateLedgerSuggestion(now: Date = new Date()): Promise<boolean> {
+  try {
+    const all = load().filter(e => e.status !== 'OPEN' && typeof e.returnPct === 'number');
+
+    // "resolved triplet" — groupId 3 universe 모두 closed 된 쌍.
+    const byGroup = new Map<string, LedgerEntry[]>();
+    for (const e of all) {
+      const arr = byGroup.get(e.groupId) ?? [];
+      arr.push(e);
+      byGroup.set(e.groupId, arr);
+    }
+    const completeTriplets = [...byGroup.values()].filter(arr => arr.length === 3);
+    if (completeTriplets.length < SUGGEST_MIN_SAMPLE_LEDGER) return false;
+
+    const flat = completeTriplets.flat();
+    const byUniverse = (key: UniverseKey) =>
+      flat.filter(e => e.universe === key).map(e => e.returnPct as number);
+
+    const aReturns = byUniverse('A');
+    const bReturns = byUniverse('B');
+    const cReturns = byUniverse('C');
+    if (aReturns.length === 0 || bReturns.length === 0 || cReturns.length === 0) return false;
+
+    const meanA = aReturns.reduce((s, x) => s + x, 0) / aReturns.length;
+    const meanB = bReturns.reduce((s, x) => s + x, 0) / bReturns.length;
+    const meanC = cReturns.reduce((s, x) => s + x, 0) / cReturns.length;
+    const ddA = computeUniverseMaxDD(aReturns);
+    const ddB = computeUniverseMaxDD(bReturns);
+    const ddC = computeUniverseMaxDD(cReturns);
+
+    const edgePctThreshold = SUGGEST_LEDGER_EDGE_PCT * 100; // decimal → %p (수익률은 % 단위로 저장됨).
+    const candidates: Array<{ key: UniverseKey; edge: number; dd: number; mean: number }> = [];
+    if (meanB - meanA >= edgePctThreshold && ddB <= ddA) {
+      candidates.push({ key: 'B', edge: meanB - meanA, dd: ddB, mean: meanB });
+    }
+    if (meanC - meanA >= edgePctThreshold && ddC <= ddA) {
+      candidates.push({ key: 'C', edge: meanC - meanA, dd: ddC, mean: meanC });
+    }
+    if (candidates.length === 0) return false;
+
+    candidates.sort((x, y) => y.edge - x.edge);
+    const winner = candidates[0];
+    const day = now.toISOString().slice(0, 10);
+
+    return await sendSuggestAlert({
+      moduleKey: 'ledger',
+      signature: `ledger-${winner.key}-${day}`,
+      title: `Universe ${winner.key} 가 A 대비 우위`,
+      rationale:
+        `triplet ${completeTriplets.length}쌍 · 평균 A=${meanA.toFixed(2)}% / ` +
+        `${winner.key}=${winner.mean.toFixed(2)}% (+${winner.edge.toFixed(2)}%p) · ` +
+        `MaxDD A=${ddA.toFixed(1)} ${winner.key}=${winner.dd.toFixed(1)}`,
+      currentValue: `Universe A (${UNIVERSE_SETTINGS.A.label})`,
+      suggestedValue: `Universe ${winner.key} (${UNIVERSE_SETTINGS[winner.key].label})`,
+      threshold:
+        `쌍≥${SUGGEST_MIN_SAMPLE_LEDGER} & edge≥${(SUGGEST_LEDGER_EDGE_PCT * 100).toFixed(1)}%p & DD≤A`,
+    });
+  } catch (e) {
+    console.warn(
+      '[ledgerSimulator] evaluateSuggestion 실패:',
+      e instanceof Error ? e.message : String(e),
+    );
+    return false;
+  }
 }

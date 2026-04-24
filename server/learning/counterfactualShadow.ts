@@ -20,6 +20,11 @@
 
 import fs from 'fs';
 import { COUNTERFACTUAL_FILE, ensureDataDir } from '../persistence/paths.js';
+import { sendSuggestAlert } from './suggestNotifier.js';
+import {
+  SUGGEST_MIN_SAMPLE_COUNTERFACTUAL,
+  SUGGEST_COUNTERFACTUAL_RATIO_THRESHOLD,
+} from './suggestThresholds.js';
 
 export interface CounterfactualEntry {
   id: string;
@@ -169,4 +174,54 @@ export function getCounterfactualStats(horizon: 30 | 60 | 90): CounterfactualSta
   const p75 = sorted[Math.floor(sorted.length * 0.75)];
 
   return { samples: returns.length, mean, median, stdDev, winRate, p25, p75 };
+}
+
+/**
+ * Suggest 판정 — resolved (return30d) 30건 이상이고, 탈락 후보(gateScore<7)의 평균 수익률이
+ * 통과 후보(gateScore≥7) 평균의 80% 이상이면 Gate 기준 과잉 의심으로 suggest 를 발동한다.
+ *
+ * gateScore 가 없는 레코드는 skipReason 을 보조 지표로 사용하지 않고 — 현 구현은 gateScore
+ * 필드를 기본값으로 사용한다 (recordCounterfactual 은 항상 gateScore 를 채움).
+ *
+ * 조건 미달 시 no-op + false. 예외는 warn 로그만 남기고 false 반환 — 스케줄러 전체 중단 방지.
+ */
+export async function evaluateCounterfactualSuggestion(now: Date = new Date()): Promise<boolean> {
+  try {
+    const entries = loadCounterfactuals();
+    const resolved = entries.filter(e => typeof e.return30d === 'number' && Number.isFinite(e.return30d));
+    if (resolved.length < SUGGEST_MIN_SAMPLE_COUNTERFACTUAL) return false;
+
+    // 통과(pass) vs 탈락(skip) 이분 — gateScore ≥ 7 이면 통과 근접 (STRONG_BUY/BUY cutoff).
+    const passed = resolved.filter(e => e.gateScore >= 7);
+    const skipped = resolved.filter(e => e.gateScore < 7);
+    if (passed.length === 0 || skipped.length === 0) return false;
+
+    const meanPass  = passed.reduce((s, e) => s + (e.return30d as number), 0) / passed.length;
+    const meanSkip  = skipped.reduce((s, e) => s + (e.return30d as number), 0) / skipped.length;
+
+    // 양쪽 모두 양수일 때만 비율 판정 (둘 다 음수일 때 ratio 의미 없음).
+    if (meanPass <= 0) return false;
+    const ratio = meanSkip / meanPass;
+    if (ratio < SUGGEST_COUNTERFACTUAL_RATIO_THRESHOLD) return false;
+
+    const day = now.toISOString().slice(0, 10);
+    return await sendSuggestAlert({
+      moduleKey: 'counterfactual',
+      signature: `counterfactual-${day}`,
+      title: '탈락 후보 Gate 기준 과잉 의심',
+      rationale:
+        `resolved ${resolved.length}건 · 통과 평균 ${meanPass.toFixed(2)}% / ` +
+        `탈락 평균 ${meanSkip.toFixed(2)}% (ratio ${ratio.toFixed(2)})`,
+      currentValue: 'Gate Score ≥ 7 통과',
+      suggestedValue: 'Gate 기준 완화 또는 컨디션 가중치 재검토',
+      threshold:
+        `샘플≥${SUGGEST_MIN_SAMPLE_COUNTERFACTUAL} & ratio≥${SUGGEST_COUNTERFACTUAL_RATIO_THRESHOLD}`,
+    });
+  } catch (e) {
+    console.warn(
+      '[counterfactualShadow] evaluateSuggestion 실패:',
+      e instanceof Error ? e.message : String(e),
+    );
+    return false;
+  }
 }

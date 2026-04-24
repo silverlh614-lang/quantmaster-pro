@@ -138,14 +138,45 @@ export function buildArmKey(input: {
   return `${input.signalType}:${input.profileType ?? 'X'}`;
 }
 
+/**
+ * 같은 process lifetime 내에서 legacy-fallback 경고가 범람하지 않도록 1회만 출력.
+ * `RecommendationRecord.profileType` 이 장래에 추가되면 경고 경로는 자연 소거.
+ */
+let __legacyArmKeyWarnedOnce = false;
+
+/**
+ * @internal 테스트 전용 — 경고 플래그를 리셋한다.
+ */
+export function __resetLegacyArmKeyWarningForTests(): void {
+  __legacyArmKeyWarnedOnce = false;
+}
+
 function armStatsFromHistory(
   armKey: string,
   history: RecommendationRecord[],
   rng: () => number,
 ): BanditArmStats {
-  // signalType, profileType 은 RecommendationRecord 에 전자는 있지만 후자는 없다.
-  // 하위 호환을 위해 signalType 만으로 매칭 — profileType='X' 조합도 armKey 로 흡수.
-  const [sigType] = armKey.split(':');
+  // armKey = `<signalType>:<profileType>` (profileType='X' 는 legacy/미지정).
+  //
+  // RecommendationRecord 는 현재 signalType 은 있지만 profileType 필드가 없다.
+  // 따라서 "옵션 a (ADR-0007 / PR-22 engine-dev handoff)" 정책 —
+  //   · legacy armKey (`:X`)  → 기존 동작 유지 (signalType 만으로 매칭)
+  //   · 비-legacy armKey (`:A`/`:B`/...) → 동일하게 signalType 매칭으로 fallback 하되
+  //     "profile 해상도가 복원되지 않은 legacy history" 임을 경고 (프로세스당 1회).
+  //
+  // 이 경고는 추후 RecommendationRecord 에 profileType 이 추가되면 즉시 정확 매칭으로
+  // 전환할 수 있는 지점을 표시하기 위한 marker 다.
+  const [sigType, profile] = armKey.split(':');
+  const isLegacyArm = profile === 'X';
+
+  if (!isLegacyArm && !__legacyArmKeyWarnedOnce) {
+    console.warn(
+      '[probingBandit] armKey profile=%s matched legacy signal-only history. Migration pending.',
+      profile,
+    );
+    __legacyArmKeyWarnedOnce = true;
+  }
+
   const matched = history.filter(r =>
     (r.status === 'WIN' || r.status === 'LOSS') &&
     r.signalType === sigType,

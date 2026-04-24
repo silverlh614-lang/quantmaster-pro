@@ -23,6 +23,7 @@ import {
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { isOpenShadowStatus } from './entryEngine.js';
 import { getDailyLossPct } from '../state.js';
+import { applyHalfLifeDecay, type HalfLifeDecayInput } from './kellyHalfLife.js';
 
 // ── 환경 변수 (env override 가능) ──────────────────────────────────────────────
 
@@ -212,13 +213,20 @@ export interface ComputeRiskAdjustedSizeInput {
   budget: AccountRiskBudgetSnapshot;
   /** 총 자본 — 사이즈 환산 */
   totalAssets: number;
+  /**
+   * ADR-0008: 보유 중 재평가 경로에서 시간감쇠를 반영. 미제공(신규 진입) 시 staticKelly.
+   * daysHeld=0 이면 weight=1 이라 결과 불변.
+   */
+  timeDecayInput?: HalfLifeDecayInput;
 }
 
 export interface ComputeRiskAdjustedSizeResult {
   /** 권장 투입 자본(원) — 0 이면 진입 금지 */
   recommendedBudgetKrw: number;
-  /** 적용된 Kelly 배율 (캡 후) */
+  /** 시간감쇠 **후** 최종 Kelly (timeDecayInput 없으면 staticKelly 와 동일) */
   effectiveKelly: number;
+  /** Fractional Kelly 캡 후, 시간감쇠 **전** */
+  staticKelly: number;
   /** Fractional Kelly 캡이 작동했는지 */
   kellyWasCapped: boolean;
   /** R-multiple per share */
@@ -250,6 +258,7 @@ export function computeRiskAdjustedSize(input: ComputeRiskAdjustedSizeInput): Co
     return {
       recommendedBudgetKrw: 0,
       effectiveKelly: 0,
+      staticKelly: 0,
       kellyWasCapped: false,
       riskPerShare: Math.max(0, entryPrice - stopLoss),
       maxRiskKrw: 0,
@@ -260,13 +269,16 @@ export function computeRiskAdjustedSize(input: ComputeRiskAdjustedSizeInput): Co
 
   // 게이트 2: Fractional Kelly 캡
   const kelly = applyFractionalKelly(signalGrade, kellyMultiplier);
+  // ADR-0008: 보유 중 재평가 경로만 timeDecayInput 을 넘긴다. 신규 진입은 undefined → decayedKelly = kelly.capped.
+  const decayedKelly = applyHalfLifeDecay(kelly.capped, input.timeDecayInput);
 
   // 게이트 3: 리스크 기준 최대 자본 (entry-stop 캡)
   const riskPerShare = Math.max(0, entryPrice - stopLoss);
   if (riskPerShare <= 0 || entryPrice <= 0) {
     return {
       recommendedBudgetKrw: 0,
-      effectiveKelly: kelly.capped,
+      effectiveKelly: decayedKelly,
+      staticKelly: kelly.capped,
       kellyWasCapped: kelly.wasCapped,
       riskPerShare: 0,
       maxRiskKrw: 0,
@@ -282,20 +294,24 @@ export function computeRiskAdjustedSize(input: ComputeRiskAdjustedSizeInput): Co
   const sharesByRisk = Math.floor(riskBudgetKrw / riskPerShare);
   const capitalByRisk = sharesByRisk * entryPrice;
 
-  // 게이트 4: Kelly 기준 자본
-  const capitalByKelly = totalAssets * kelly.capped * confidence;
+  // 게이트 4: Kelly 기준 자본 — decayedKelly 기준 (timeDecayInput 없으면 staticKelly 와 동일).
+  const capitalByKelly = totalAssets * decayedKelly * confidence;
 
   const recommendedBudgetKrw = Math.max(0, Math.min(capitalByRisk, capitalByKelly));
 
+  const decayNote = input.timeDecayInput && decayedKelly < kelly.capped - 1e-9
+    ? ` decay ${(decayedKelly / kelly.capped * 100).toFixed(0)}%`
+    : '';
   const reason =
     `grade=${signalGrade} kelly ${kellyMultiplier.toFixed(2)}→${kelly.capped.toFixed(2)}` +
-    `${kelly.wasCapped ? '(capped)' : ''} × confidence ${confidence.toFixed(2)}; ` +
+    `${kelly.wasCapped ? '(capped)' : ''}${decayNote} × confidence ${confidence.toFixed(2)}; ` +
     `riskBudget=${(riskBudgetKrw / 10000).toFixed(0)}만, kellyBudget=${(capitalByKelly / 10000).toFixed(0)}만, ` +
     `최소 채택=${(recommendedBudgetKrw / 10000).toFixed(0)}만`;
 
   return {
     recommendedBudgetKrw,
-    effectiveKelly: kelly.capped,
+    effectiveKelly: decayedKelly,
+    staticKelly: kelly.capped,
     kellyWasCapped: kelly.wasCapped,
     riskPerShare,
     maxRiskKrw: maxRiskKrwPerTrade,
