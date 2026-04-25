@@ -90,10 +90,57 @@ const HISTORY_LIMIT = 100;
 const _history: ScheduleRunRecord[] = [];
 const _lastByJob = new Map<string, ScheduleRunRecord>();
 
+/**
+ * 작업별 누적 메트릭 — recordScheduleRun() 가 갱신.
+ * 운영자가 "지난주 어떤 잡이 가장 많이 실패했나?" 같은 시계열 질문에 답하기 위한 SSOT.
+ */
+export interface JobMetrics {
+  jobName: string;
+  /** success + failure + skipped 누적 */
+  runCount: number;
+  successCount: number;
+  failCount: number;
+  skippedCount: number;
+  /** 마지막 성공 시각 (ISO) */
+  lastSuccessAt?: string;
+  /** 마지막 실패 시각 (ISO) */
+  lastFailureAt?: string;
+  /** 마지막 실패 메시지 — note 첫 줄 ≤120자 절삭 */
+  lastErrorMessage?: string;
+}
+
+const _metricsByJob = new Map<string, JobMetrics>();
+const ERROR_MESSAGE_LIMIT = 120;
+
+function ensureMetrics(jobName: string): JobMetrics {
+  let m = _metricsByJob.get(jobName);
+  if (!m) {
+    m = { jobName, runCount: 0, successCount: 0, failCount: 0, skippedCount: 0 };
+    _metricsByJob.set(jobName, m);
+  }
+  return m;
+}
+
 export function recordScheduleRun(rec: ScheduleRunRecord): void {
   _history.push(rec);
   if (_history.length > HISTORY_LIMIT) _history.shift();
   _lastByJob.set(rec.jobName, rec);
+
+  // 누적 메트릭 갱신 — JobMetrics SSOT
+  const m = ensureMetrics(rec.jobName);
+  m.runCount += 1;
+  if (rec.status === 'success') {
+    m.successCount += 1;
+    m.lastSuccessAt = rec.finishedAt;
+  } else if (rec.status === 'failure') {
+    m.failCount += 1;
+    m.lastFailureAt = rec.finishedAt;
+    if (rec.note) {
+      m.lastErrorMessage = rec.note.slice(0, ERROR_MESSAGE_LIMIT);
+    }
+  } else {
+    m.skippedCount += 1;
+  }
 }
 
 export function getScheduleHistory(limit = 20): ScheduleRunRecord[] {
@@ -102,6 +149,31 @@ export function getScheduleHistory(limit = 20): ScheduleRunRecord[] {
 
 export function getLastRunByJob(jobName: string): ScheduleRunRecord | undefined {
   return _lastByJob.get(jobName);
+}
+
+/** 단일 작업 누적 메트릭. 한 번도 실행 안 된 작업은 undefined. */
+export function getJobMetrics(jobName: string): JobMetrics | undefined {
+  return _metricsByJob.get(jobName);
+}
+
+/**
+ * 등록된 모든 작업의 메트릭 — failCount 내림차순, 동률은 runCount 내림차순.
+ * "최악 실패율" 작업이 항상 먼저 보이도록 정렬.
+ */
+export function getAllJobMetrics(): JobMetrics[] {
+  return Array.from(_metricsByJob.values())
+    .map((m) => ({ ...m })) // 외부에서 mutate 차단
+    .sort((a, b) => {
+      if (b.failCount !== a.failCount) return b.failCount - a.failCount;
+      return b.runCount - a.runCount;
+    });
+}
+
+/** 테스트 전용 — 메트릭/이력 초기화. */
+export function __resetScheduleMetricsForTests(): void {
+  _history.length = 0;
+  _lastByJob.clear();
+  _metricsByJob.clear();
 }
 
 /**
