@@ -13,9 +13,9 @@ import {
   extractStocksFromText,
   getStockByCode,
   isMasterStale,
-  refreshKrxStockMaster,
   type StockMasterEntry,
 } from '../persistence/krxStockMasterRepo.js';
+import { refreshMultiSourceMaster } from './multiSourceStockMaster.js';
 import { tryConsume } from '../persistence/aiCallBudgetRepo.js';
 import { isKstWeekend } from '../utils/marketClock.js';
 
@@ -145,14 +145,18 @@ export async function discoverUniverse(
     fallbackUsed: false,
   };
 
-  // 1. 종목 마스터 stale 확인 + 1회 다운로드 (24h TTL)
+  // 1. 종목 마스터 stale 확인 + 멀티소스 폴백 갱신 (ADR-0013, 24h TTL)
   if (isMasterStale()) {
     if (tryConsume('krx_master_refresh', 1)) {
-      const ok = await refreshKrxStockMaster();
-      if (!ok) {
-        // 주말엔 krxStockMasterRepo 자체가 단락되므로 정보 가치 0 → debug.
+      const result = await refreshMultiSourceMaster();
+      if (result.finalSource === 'NONE') {
         const logger = isKstWeekend() ? console.debug : console.warn;
-        logger('[AiUniverseService] 마스터 갱신 실패 — 기존 디스크 캐시로 진행');
+        logger('[AiUniverseService] 마스터 갱신 실패 — 모든 tier 실패, 기존 캐시로 진행');
+      } else if (result.usedFallback) {
+        console.warn(
+          `[AiUniverseService] 마스터 갱신: ${result.finalSource} fallback ` +
+          `사용 (${result.finalCount}건). attempts=${result.attempts.map((a) => `${a.source}:${a.ok ? 'OK' : a.reason ?? 'NG'}`).join('→')}`,
+        );
       }
     } else {
       diag.budgetExceeded = true;

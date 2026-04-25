@@ -139,6 +139,19 @@ async function startServer() {
   // AI 추천 외부 호출 예산 경보 — 2026-04 사용자 요청으로 enforcement 및 경보 비활성.
   // 사용자가 직접 실행하는 경로라 자동 차단·알림이 불필요. `aiCallBudgetRepo` 는 카운터만 유지.
 
+  // ADR-0013: 멀티소스 종목 마스터 — KRX 3회 연속 실패·SEED 폴백 시 텔레그램 경보.
+  try {
+    const { setMasterAlertHook } = await import('./services/multiSourceStockMaster.js');
+    setMasterAlertHook((level, message, dedupeKey) => {
+      sendTelegramAlert(
+        `<b>[종목 마스터 ${level}]</b>\n${message}`,
+        { priority: level === 'CRITICAL' ? 'HIGH' : 'NORMAL', dedupeKey, category: 'master_source' },
+      ).catch(() => { /* noop */ });
+    });
+  } catch (e) {
+    console.error('[Boot] master alert hook 설치 실패:', e instanceof Error ? e.message : e);
+  }
+
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 

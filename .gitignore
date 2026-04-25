@@ -2,6 +2,7 @@ node_modules/
 build/
 coverage/
 data/
+!server/data/
 _workspace/
 .DS_Store
 *.log
