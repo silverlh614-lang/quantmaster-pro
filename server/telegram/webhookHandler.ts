@@ -76,9 +76,20 @@ import {
   formatLearningStatusMessage,
   formatLearningHistoryMessage,
 } from '../learning/learningHistoryFormatter.js';
+import {
+  buildHelpMessage,
+  handleMetaCommand,
+  parseMetaCallback,
+  type InlineKeyboardMarkup,
+} from './metaCommands.js';
 
 // ADR-0015: /reconcile live apply 60초 rate-limit 가드 — 오타 방지.
 let _lastLiveReconcileApplyAt = 0;
+
+// ADR-0017: 메타 명령어 callback 으로 트리거된 재호출인지 식별하는 sentinel.
+// callback → text command 재진입은 1단계만 허용하고 추가 callback 발생은 차단해
+// 무한 루프를 원천 봉쇄한다.
+const META_RECURSIVE_FLAG = '__metaRecursiveInvocation';
 
 export async function handleTelegramWebhook(req: Request, res: Response): Promise<void> {
   res.sendStatus(200); // Telegram에 즉시 200 응답 (재전송 방지)
@@ -111,6 +122,33 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       });
     if (overrideHandled) return;
 
+    // ADR-0017: 4번째 라우터 — 메타 명령어 인라인 키보드 버튼 (`meta:<cmd>:<nonce>`)
+    // 사용자가 `/watch` `/positions` 등 메타 메뉴의 하위 버튼을 탭한 경우 해당 legacy
+    // 명령어를 합성 메시지로 재호출한다.
+    const metaParsed = parseMetaCallback(data);
+    if (metaParsed) {
+      await answerCallbackQuery(callbackQueryId, `${metaParsed.targetCmd} 실행 중...`)
+        .catch((e: unknown) => {
+          console.error('[TelegramBot] meta callback ack 실패:', e instanceof Error ? e.message : e);
+        });
+      const syntheticReq = {
+        body: {
+          message: {
+            chat: { id: cbChatId },
+            text: metaParsed.targetCmd,
+          },
+          [META_RECURSIVE_FLAG]: true,
+        },
+      } as unknown as Request;
+      const dummyRes = {
+        sendStatus: () => undefined,
+      } as unknown as Response;
+      await handleTelegramWebhook(syntheticReq, dummyRes).catch((e: unknown) => {
+        console.error('[TelegramBot] meta synthetic invocation 실패:', e instanceof Error ? e.message : e);
+      });
+      return;
+    }
+
     await answerCallbackQuery(callbackQueryId, '알 수 없는 버튼입니다.');
     return;
   }
@@ -130,70 +168,32 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
   const text: string = msg.text.trim();
   const [cmd, ...args] = text.split(/\s+/);
 
-  const reply = async (message: string) => {
-    await sendTelegramAlert(message).catch(console.error);
+  const reply = async (message: string, replyMarkup?: InlineKeyboardMarkup) => {
+    // sendTelegramAlert 는 replyMarkup 을 Record<string, unknown> 으로 받기 때문에
+    // InlineKeyboardMarkup 을 unknown 경유로 전달한다 (구조 동일).
+    const opts = replyMarkup
+      ? { replyMarkup: replyMarkup as unknown as Record<string, unknown> }
+      : undefined;
+    await sendTelegramAlert(message, opts).catch(console.error);
   };
 
   try {
     switch (cmd.toLowerCase()) {
       case '/help':
       case '/start': {
-        await reply(
-          `🤖 <b>QuantMaster Pro 봇 명령어</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `📊 <b>조회</b>\n` +
-          `  /status — 시스템 현황 요약\n` +
-          `  /market — 시장상황 요약 레포트\n` +
-          `  /watchlist — 워치리스트 전체 조회\n` +
-          `  /focus — Track B 매수 대상 상세 조회\n` +
-          `  /shadow — Shadow 성과 현황\n` +
-          `  /pending — 미체결 주문 조회\n` +
-          `  /pos — 보유 포지션 요약\n` +
-          `  /pnl — 실시간 포지션별 손익\n` +
-          `  /regime — 매크로 레짐 현황\n` +
-          `  /health — 파이프라인 헬스체크 (KIS/스캐너/토큰)\n` +
-          `  /ai_status — Gemini 예산/서킷/최근 실패 사유 조회\n` +
-          `  /refresh_token — KIS 토큰 강제 갱신\n\n` +
-          `📈 <b>매매</b>\n` +
-          `  /buy <code>종목코드</code> — 수동 매수 신호\n` +
-          `  /sell <code>종목코드</code> — 포지션 전량 시장가 매도\n` +
-          `  /adjust_qty <code>종목코드</code> <code>수량</code> [메모] — 장부 수량 수동 보정 (실계좌 대비 drift 교정)\n` +
-          `  /reconcile [apply|last|status|push|live] — 장부 점검(기본 dry-run)·적용·이력·브로드캐스트·KIS 동기화\n` +
-          `  /scheduler [next|detail|history] — 스케줄러 시간표/다음 실행/상세/실행 이력\n` +
-          `  /learning_status — 직전 nightly reflection · 편향 · 실험 제안 · suggest 알림 7일 요약\n` +
-          `  /learning_history [n=7] — 최근 N일 자기학습 이력 (mode/verdict/narrative/편향 TOP3, 1~30)\n` +
-          `  /scan — 장중 강제 스캔 트리거\n` +
-          `  /krx_scan — KRX 종목조회 강제 재스캔 (Stage1+2+3)\n` +
-          `  /cancel <code>종목코드</code> — 미체결 주문 취소\n` +
-          `  /report — 일일 리포트 생성\n\n` +
-          `📋 <b>워치리스트</b>\n` +
-          `  /add <code>종목코드</code> — 워치리스트 추가\n` +
-          `  /remove <code>종목코드</code> — 워치리스트 제거\n` +
-          `  /watchlist_channel — 워치리스트 채널 발송\n\n` +
-          `🛑 <b>제어</b>\n` +
-          `  /pause — 엔진 소프트 일시정지 (주문취소 없음)\n` +
-          `  /resume — 일시정지 해제\n` +
-          `  /stop — 비상 정지 발동 (미체결 전량 취소)\n` +
-          `  /reset [pw] — 비상 정지 해제\n` +
-          `  /integrity — 데이터 무결성 차단 상태 조회/해제\n` +
-          `  /reconnect_ws — KIS WebSocket 강제 재연결\n` +
-          `  /circuits — KIS/KRX 회로 차단 상태 조회\n` +
-          `  /reset_circuits — KIS/KRX 회로 즉시 해제 (저녁 스캔 전 권장)\n` +
-          `  /risk — 계좌 리스크 예산 + Fractional Kelly 캡 현황\n` +
-          `  /kelly — 종목별 Kelly 헬스 카드 (진입 vs 현재)\n` +
-          `  /news_patterns — 뉴스-수급 시차 학습 카탈로그 (베이지안)\n` +
-          `  /dxy — DXY 인트라데이 스냅샷 (Yahoo + Alpha Vantage fallback)\n` +
-          `  /channel_health — 4채널 상태 점검\n` +
-          `  /channel_stats [YYYY-MM-DD|today|yesterday] — 채널 통계 조회\n` +
-          `  /alert_history [n] — 최근 알림 이력 조회\n` +
-          `  /alert_replay <id> [TRADE|ANALYSIS|INFO|SYSTEM] — 알림 재전송\n` +
-          `  /channel_test — 채널 연결 테스트(레거시)\n\n` +
-          `⏰ <b>자동 레포트 스케줄</b>\n` +
-          `  08:30 — 장전 시장 브리핑\n` +
-          `  12:00 — 장중 시장 현황\n` +
-          `  15:35 — 장마감 시장 요약\n\n` +
-          `<i>/help 으로 이 메시지를 다시 볼 수 있습니다.</i>`
-        );
+        // ADR-0017: 메타 메뉴 8개 우선 노출. legacy 51 명령어는 직접 입력으로 alias 유지.
+        await reply(buildHelpMessage());
+        break;
+      }
+
+      // ADR-0017 Stage 1 — 메타 명령어 6종. 각 case 는 metaCommands 모듈로 위임만.
+      case '/now':
+      case '/watch':
+      case '/positions':
+      case '/learning':
+      case '/control':
+      case '/admin': {
+        await handleMetaCommand(cmd.toLowerCase(), reply);
         break;
       }
 

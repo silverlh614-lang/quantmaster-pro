@@ -7,56 +7,18 @@ export async function setTelegramBotCommands(): Promise<void> {
   if (!token) return;
 
   // Telegram 제약: command = lowercase/숫자/_만, ≤ 32자. description ≤ 256자.
-  // webhookHandler.ts 의 switch case 와 1:1 동기화되어야 "/" 자동완성에 모두 노출된다.
+  // ADR-0017 Stage 1 — 메뉴 노출은 8개 메타 명령어만 유지 (43→8). 기존 51개 alias 는
+  // webhookHandler.ts switch case 에서 100% 보존되어 직접 입력으로 사용 가능.
+  // 메타 명령어 핸들러는 server/telegram/metaCommands.ts 에서 정의된다.
   const commands = [
-    // ── 조회 ─────────────────────────────────────────────────────────────────
-    { command: 'help',      description: '명령어 목록 보기' },
-    { command: 'status',    description: '시스템 현황 요약' },
-    { command: 'market',    description: '시장상황 요약 레포트' },
-    { command: 'regime',    description: '매크로 레짐 + MHS + VKOSPI 현황' },
-    { command: 'health',    description: '파이프라인 헬스체크 (KIS/스캐너/토큰)' },
-    { command: 'ai_status', description: 'Gemini 예산/서킷/최근 실패 사유 조회' },
-    { command: 'kelly',           description: '종목별 Kelly 헬스 카드 (진입 vs 현재)' },
-    { command: 'kelly_surface',   description: 'Kelly Surface — (p, b) 학습 상태' },
-    { command: 'regime_coverage', description: '레짐별 학습 샘플 커버리지' },
-    { command: 'ledger',          description: 'Parallel Universe Ledger Sharpe' },
-    { command: 'counterfactual',  description: '탈락 후보 가상 추적 통계' },
-    // ── 워치리스트/포지션 ────────────────────────────────────────────────────
-    { command: 'watchlist', description: '워치리스트 조회' },
-    { command: 'focus',     description: 'Track B 매수 대상 상세 조회' },
-    { command: 'shadow',    description: 'Shadow 성과 현황' },
-    { command: 'pos',       description: '보유 포지션 요약' },
-    { command: 'pnl',       description: '실시간 포지션별 손익 조회' },
-    { command: 'pending',   description: '미체결 주문 조회' },
-    { command: 'add',       description: '워치리스트 추가 (예: /add 005380)' },
-    { command: 'remove',    description: '워치리스트 제거 (예: /remove 005380)' },
-    { command: 'watchlist_channel', description: '워치리스트 현황 채널 발송' },
-    // ── 매매 ─────────────────────────────────────────────────────────────────
-    { command: 'buy',       description: '수동 매수 신호 (예: /buy 005930)' },
-    { command: 'scan',      description: '장중 강제 스캔 트리거' },
-    { command: 'krx_scan',  description: 'KRX 종목조회 강제 재스캔 (Stage1+2+3)' },
-    { command: 'stage1_audit', description: 'Stage 1 정량 필터 탈락 분포 (튜닝 가이드)' },
-    { command: 'reconcile', description: '서버 실데이터 기준 수량/상태 동기화' },
-    { command: 'scheduler', description: '등록된 스케줄러 시간표 조회' },
-    { command: 'cancel',    description: '종목 미체결 주문 취소 (예: /cancel 005380)' },
-    { command: 'report',    description: '일일 리포트 생성' },
-    // ── 제어 ─────────────────────────────────────────────────────────────────
-    { command: 'pause',     description: '엔진 소프트 일시정지 (주문취소 없음)' },
-    { command: 'resume',    description: '소프트 일시정지 해제' },
-    { command: 'stop',      description: '비상 정지 발동 (미체결 전량 취소)' },
-    { command: 'reset',     description: '비상 정지 해제' },
-    { command: 'integrity', description: '데이터 무결성 차단 상태 조회/해제' },
-    { command: 'refresh_token', description: 'KIS 토큰 강제 갱신' },
-    { command: 'channel_health', description: '4채널 상태 점검' },
-    { command: 'channel_stats',  description: '채널 발송 통계 조회' },
-    { command: 'alert_history',  description: '최근 알림 이력 조회' },
-    { command: 'alert_replay',   description: '알림 ID 재전송 (카테고리 선택)' },
-    { command: 'channel_test',   description: '채널 연결 테스트(레거시)' },
-    // ── Phase 5: 다이제스트 ──────────────────────────────────────────────────
-    { command: 'todaylog',     description: '오늘 발생한 알림 카테고리·티어 요약' },
-    { command: 'digest_on',    description: 'T3 다이제스트 수신 ON' },
-    { command: 'digest_off',   description: 'T3 다이제스트 수신 OFF (기록은 유지)' },
-    { command: 'digest_status',description: '다이제스트 수신 상태 조회' },
+    { command: 'help',      description: '도움말 — 자주 쓰는 8개 메뉴 안내' },
+    { command: 'status',    description: '시스템 현황 요약 (모드/MHS/포지션/오늘 결산)' },
+    { command: 'now',       description: '"지금 매수해도 되나?" 1줄 의사결정 + 단축 메뉴' },
+    { command: 'watch',     description: '워치리스트 통합 메뉴 (조회/Focus/추가/제거)' },
+    { command: 'positions', description: '포지션·손익·미체결·매도/취소·reconcile 통합' },
+    { command: 'learning',  description: '학습·Kelly·서킷·리스크·AI 상태 통합' },
+    { command: 'control',   description: 'pause/resume/stop/reset/integrity 제어판' },
+    { command: 'admin',     description: '진단·관리 (시장 리포트/채널/다이제스트/...)' },
   ];
 
   try {
