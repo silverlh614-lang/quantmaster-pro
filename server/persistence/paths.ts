@@ -232,6 +232,15 @@ export const OFFHOURS_SNAPSHOT_FILE = path.join(DATA_DIR, 'offhours-snapshot.jso
  */
 export const STOCK_MASTER_SHADOW_FILE = path.join(DATA_DIR, 'stock-master-shadow.json');
 /**
+ * AI 추천 universe 직전 정상 스냅샷 (ADR-0016, PR-37).
+ * Tier 1 GOOGLE_OK 성공 시에만 mode 별 별도 파일로 저장. 주말/휴일/Google 미설정 시
+ * Tier 2 진입점. mode 정규 4값 + 클라이언트 변형(SMALL_MID_CAP) 까지 안전 저장.
+ */
+export function aiUniverseSnapshotFile(mode: string): string {
+  const safe = mode.replace(/[^A-Z_]/gi, '_').toUpperCase();
+  return path.join(DATA_DIR, `ai-universe-snapshot-${safe}.json`);
+}
+/**
  * Stock master 소스별 health score (0-100) + rolling stats 영속 (ADR-0013).
  * 운영자가 어떤 소스가 신뢰 가능한지 한눈에 파악하도록 source 별 누적 + ring buffer.
  */

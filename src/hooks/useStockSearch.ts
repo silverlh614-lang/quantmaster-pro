@@ -17,6 +17,7 @@ export function useStockSearch() {
     recommendationHistory, setRecommendationHistory,
     searchingSpecific, setSearchingSpecific,
     setRecommendationWarnings,
+    setRecommendationSourceStatus,
   } = useRecommendationStore();
   const { setMarketContext } = useMarketStore();
   const { setNewsFrequencyScores } = useGlobalIntelStore();
@@ -26,6 +27,7 @@ export function useStockSearch() {
   const fetchStocks = async () => {
     setLoading(true); setSearchResults([]); setRecommendations([]); setError(null);
     setRecommendationWarnings([]);
+    setRecommendationSourceStatus(undefined);
     try {
       const data = await getStockRecommendations(filters);
       if (!data || !data.recommendations) throw new Error("AI 추천 데이터를 불러오지 못했습니다.");
@@ -53,6 +55,9 @@ export function useStockSearch() {
       // 동일 내용을 store 의 recommendationWarnings 에 저장해 WatchlistHeader 배너에서
       // 다음 분석 실행 전까지 영구 표시.
       setRecommendationWarnings(warnings);
+      // ADR-0016 (PR-37): sourceStatus 는 배너 톤(회색/노랑/빨강) 분기에 사용.
+      const status = (data as { sourceStatus?: string }).sourceStatus;
+      setRecommendationSourceStatus(status);
       for (const w of warnings) toast.warning(w, { duration: 8000 });
       if (diversified.length === 0) {
         toast.info(warnings.length > 0 ? '추천 결과 없음 — 위 안내를 확인하세요.' : '추천 종목이 없습니다.');

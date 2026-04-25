@@ -1,5 +1,5 @@
 /**
- * @responsibility aiUniverseService 통합 회귀 테스트 — PR-25-A, ADR-0011
+ * @responsibility aiUniverseService 통합 회귀 테스트 — PR-25-A, ADR-0011, PR-37
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
@@ -10,13 +10,22 @@ import {
 } from '../persistence/krxStockMasterRepo.js';
 import { __testOnly as __budgetTestOnly } from '../persistence/aiCallBudgetRepo.js';
 import {
+  saveAiUniverseSnapshot,
+  __testOnly as __snapshotTestOnly,
+} from '../persistence/aiUniverseSnapshotRepo.js';
+import {
   AI_CALL_BUDGET_FILE,
   KRX_STOCK_MASTER_FILE,
+  aiUniverseSnapshotFile,
 } from '../persistence/paths.js';
+import { resetNaverNegativeCache } from '../clients/naverFinanceClient.js';
 
 function cleanFiles(): void {
   for (const f of [AI_CALL_BUDGET_FILE, KRX_STOCK_MASTER_FILE]) {
     try { fs.unlinkSync(f); } catch { /* not present */ }
+  }
+  for (const m of ['MOMENTUM', 'EARLY_DETECT', 'QUANT_SCREEN', 'BEAR_SCREEN']) {
+    try { fs.unlinkSync(aiUniverseSnapshotFile(m)); } catch { /* not present */ }
   }
 }
 
@@ -28,6 +37,10 @@ describe('aiUniverseService (ADR-0011)', () => {
     cleanFiles();
     __masterTestOnly.reset();
     __budgetTestOnly.reset();
+    resetNaverNegativeCache();
+    delete process.env.AI_UNIVERSE_FALLBACK_DISABLED;
+    delete process.env.DATA_FETCH_FORCE_OFF;
+    delete process.env.DATA_FETCH_FORCE_MARKET;
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-24T00:00:00.000Z'));
   });
@@ -36,6 +49,10 @@ describe('aiUniverseService (ADR-0011)', () => {
     cleanFiles();
     __masterTestOnly.reset();
     __budgetTestOnly.reset();
+    resetNaverNegativeCache();
+    delete process.env.AI_UNIVERSE_FALLBACK_DISABLED;
+    delete process.env.DATA_FETCH_FORCE_OFF;
+    delete process.env.DATA_FETCH_FORCE_MARKET;
     vi.restoreAllMocks();
   });
 
@@ -46,27 +63,39 @@ describe('aiUniverseService (ADR-0011)', () => {
     expect(__testOnly.MODE_QUERIES.EARLY_DETECT.length).toBeGreaterThan(0);
   });
 
-  it('Google Search 미설정 시 seed fallback 사용 + sourceStatus=NOT_CONFIGURED', async () => {
+  it('Google Search 미설정 + AI_UNIVERSE_FALLBACK_DISABLED — Tier 5 즉시 (ADR-0011 호환)', async () => {
+    process.env.AI_UNIVERSE_FALLBACK_DISABLED = 'true';
     setStockMaster([{ code: '005930', name: '삼성전자', market: 'KOSPI' }]);
-    const res = await discoverUniverse('MOMENTUM', { enrich: false });
-    expect(res.candidates.length).toBeGreaterThan(0);
-    expect(res.diagnostics.googleHits).toBe(0);
-    expect(res.diagnostics.budgetExceeded).toBe(false);
-    expect(res.diagnostics.sourceStatus).toBe('NOT_CONFIGURED');
-    expect(res.diagnostics.fallbackUsed).toBe(true);
-    // seed universe 는 실제 KRX 시총 상위 종목코드를 사용
-    expect(res.candidates.every((c) => /^\d{6}$/.test(c.code))).toBe(true);
-    expect(res.candidates.every((c) => c.discoveredFrom.includes('seed:market_leaders'))).toBe(true);
+    try {
+      const res = await discoverUniverse('MOMENTUM', { enrich: false });
+      expect(res.candidates.length).toBeGreaterThan(0);
+      expect(res.diagnostics.googleHits).toBe(0);
+      expect(res.diagnostics.budgetExceeded).toBe(false);
+      // Tier 5 직행 — sourceStatus=FALLBACK_SEED, tierAttempts 의 첫 entry 에 NOT_CONFIGURED 보존
+      expect(res.diagnostics.sourceStatus).toBe('FALLBACK_SEED');
+      expect(res.diagnostics.tierAttempts[0]).toBe('NOT_CONFIGURED');
+      expect(res.diagnostics.fallbackUsed).toBe(true);
+      expect(res.candidates.every((c) => /^\d{6}$/.test(c.code))).toBe(true);
+      expect(res.candidates.every((c) => c.discoveredFrom.includes('seed:market_leaders'))).toBe(true);
+    } finally {
+      delete process.env.AI_UNIVERSE_FALLBACK_DISABLED;
+    }
   });
 
-  it('Google Search 미설정 + mode=BEAR_SCREEN → 방어주 중심 seed', async () => {
+  it('Google Search 미설정 + mode=BEAR_SCREEN — 5-tier 사슬 끝까지 진행 후 SEED 도달', async () => {
+    process.env.AI_UNIVERSE_FALLBACK_DISABLED = 'true';
     setStockMaster([]);
-    const res = await discoverUniverse('BEAR_SCREEN', { enrich: false, maxCandidates: 10 });
-    expect(res.diagnostics.sourceStatus).toBe('NOT_CONFIGURED');
-    expect(res.diagnostics.fallbackUsed).toBe(true);
-    const codes = res.candidates.map((c) => c.code);
-    // 방어주·유틸리티 1순위: 한국전력/SK텔레콤/KT&G/CJ제일제당 중 최소 1개 포함
-    expect(codes.some((c) => ['015760', '017670', '033780', '097950'].includes(c))).toBe(true);
+    try {
+      const res = await discoverUniverse('BEAR_SCREEN', { enrich: false, maxCandidates: 10 });
+      expect(res.diagnostics.sourceStatus).toBe('FALLBACK_SEED');
+      expect(res.diagnostics.tierAttempts[0]).toBe('NOT_CONFIGURED');
+      expect(res.diagnostics.fallbackUsed).toBe(true);
+      const codes = res.candidates.map((c) => c.code);
+      // 방어주·유틸리티 1순위: 한국전력/SK텔레콤/KT&G/CJ제일제당 중 최소 1개 포함
+      expect(codes.some((c) => ['015760', '017670', '033780', '097950'].includes(c))).toBe(true);
+    } finally {
+      delete process.env.AI_UNIVERSE_FALLBACK_DISABLED;
+    }
   });
 
   it('buildSeedFallback — mode 별 태그 우선순위', () => {
@@ -147,5 +176,181 @@ describe('aiUniverseService (ADR-0011)', () => {
     expect(result?.code).toBe('005930');
     expect(result?.snapshot).toBeNull();
     expect(result?.discoveredFrom).toEqual(['known']);
+  });
+});
+
+// ── PR-37 (ADR-0016) — 5-Tier Fallback 시나리오 ─────────────────────────────
+describe('aiUniverseService — 5-Tier Fallback (PR-37, ADR-0016)', () => {
+  beforeEach(() => {
+    delete process.env.GOOGLE_SEARCH_API_KEY;
+    delete process.env.GOOGLE_SEARCH_CX;
+    delete process.env.AI_UNIVERSE_FALLBACK_DISABLED;
+    delete process.env.DATA_FETCH_FORCE_OFF;
+    delete process.env.DATA_FETCH_FORCE_MARKET;
+    cleanFiles();
+    __masterTestOnly.reset();
+    __budgetTestOnly.reset();
+    resetNaverNegativeCache();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-24T00:00:00.000Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanFiles();
+    __masterTestOnly.reset();
+    __budgetTestOnly.reset();
+    resetNaverNegativeCache();
+    delete process.env.AI_UNIVERSE_FALLBACK_DISABLED;
+    delete process.env.DATA_FETCH_FORCE_OFF;
+    delete process.env.DATA_FETCH_FORCE_MARKET;
+    vi.restoreAllMocks();
+  });
+
+  it('Tier 1 성공 → snapshot 갱신 (≥3 candidates)', async () => {
+    process.env.GOOGLE_SEARCH_API_KEY = 'test-key';
+    process.env.GOOGLE_SEARCH_CX = 'test-cx';
+    setStockMaster([
+      { code: '005930', name: '삼성전자', market: 'KOSPI' },
+      { code: '000660', name: 'SK하이닉스', market: 'KOSPI' },
+      { code: '247540', name: '에코프로비엠', market: 'KOSDAQ' },
+      { code: '035420', name: 'NAVER', market: 'KOSPI' },
+    ]);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        items: [
+          { title: '삼성전자', link: 'a', snippet: '삼성전자', displayLink: 'naver.com' },
+          { title: 'SK하이닉스', link: 'b', snippet: 'SK하이닉스', displayLink: 'hankyung.com' },
+          { title: '에코프로비엠', link: 'c', snippet: '에코프로비엠', displayLink: 'mk.co.kr' },
+          { title: 'NAVER', link: 'd', snippet: 'NAVER', displayLink: 'sedaily.com' },
+        ],
+      }), { status: 200 }) as never
+    );
+
+    const res = await discoverUniverse('MOMENTUM', { enrich: false, maxCandidates: 5 });
+    expect(res.diagnostics.sourceStatus).toBe('GOOGLE_OK');
+    expect(res.diagnostics.tierAttempts).toEqual(['GOOGLE_OK']);
+    expect(res.candidates.length).toBeGreaterThanOrEqual(3);
+
+    // snapshot 갱신 확인 — 디스크에 파일이 생성됐어야 함
+    expect(fs.existsSync(aiUniverseSnapshotFile('MOMENTUM'))).toBe(true);
+    __snapshotTestOnly.removeSnapshotFile('MOMENTUM');
+  });
+
+  it('Tier 1 실패 + snapshot 보유 → Tier 2 (FALLBACK_SNAPSHOT)', async () => {
+    // 사전: snapshot 파일 작성 (Tier 1 시뮬레이션의 결과를 가정)
+    setStockMaster([{ code: '005930', name: '삼성전자', market: 'KOSPI' }]);
+    saveAiUniverseSnapshot('MOMENTUM', {
+      mode: 'MOMENTUM',
+      generatedAt: Date.now(), // 같은 시각 — 만료 X
+      tradingDate: '2026-04-23',
+      marketMode: 'AFTER_MARKET',
+      sourceStatus: 'GOOGLE_OK',
+      candidates: [
+        { code: '005930', name: '삼성전자', market: 'KOSPI', sources: ['naver.com'] },
+        { code: '000660', name: 'SK하이닉스', market: 'KOSPI', sources: ['hankyung.com'] },
+        { code: '247540', name: '에코프로비엠', market: 'KOSDAQ', sources: ['mk.co.kr'] },
+      ],
+      diagnostics: {
+        googleQueries: 2, googleHits: 5, masterMisses: 0,
+        enrichSucceeded: 0, enrichFailed: 0, budgetExceeded: false,
+        sourceStatus: 'GOOGLE_OK', fallbackUsed: false,
+        marketMode: 'AFTER_MARKET', tradingDateRef: '2026-04-23',
+        snapshotAgeDays: null, tierAttempts: ['GOOGLE_OK'],
+      },
+    });
+
+    // Tier 1 실패 — Google 미설정
+    delete process.env.GOOGLE_SEARCH_API_KEY;
+    delete process.env.GOOGLE_SEARCH_CX;
+
+    const res = await discoverUniverse('MOMENTUM', { enrich: false });
+    expect(res.diagnostics.sourceStatus).toBe('FALLBACK_SNAPSHOT');
+    expect(res.diagnostics.tierAttempts).toContain('NOT_CONFIGURED');
+    expect(res.diagnostics.tierAttempts).toContain('FALLBACK_SNAPSHOT');
+    expect(res.diagnostics.fallbackUsed).toBe(true);
+    expect(res.diagnostics.tradingDateRef).toBe('2026-04-23');
+    expect(res.diagnostics.snapshotAgeDays).toBeGreaterThanOrEqual(0);
+    expect(res.candidates.length).toBeGreaterThanOrEqual(3);
+    expect(res.candidates.map((c) => c.code)).toContain('005930');
+    __snapshotTestOnly.removeSnapshotFile('MOMENTUM');
+  });
+
+  it('Tier 1+2 실패 + Tier 3 Yahoo 응답 정상 → FALLBACK_QUANT', async () => {
+    setStockMaster([
+      { code: '005930', name: '삼성전자', market: 'KOSPI' },
+      { code: '000660', name: 'SK하이닉스', market: 'KOSPI' },
+      { code: '373220', name: 'LG에너지솔루션', market: 'KOSPI' },
+      { code: '207940', name: '삼성바이오로직스', market: 'KOSPI' },
+      { code: '005380', name: '현대차', market: 'KOSPI' },
+      { code: '000270', name: '기아', market: 'KOSPI' },
+    ]);
+    process.env.DATA_FETCH_FORCE_MARKET = 'true'; // EgressGuard pass
+    // Yahoo 25봉 응답 — 5건 이상 성공해야 stale=false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      const closes = Array.from({ length: 25 }, (_, i) => 100 + i);
+      const ts = closes.map((_, i) => Math.floor(new Date(`2026-04-${String(i + 1).padStart(2, '0')}T00:00:00.000Z`).getTime() / 1000));
+      return new Response(JSON.stringify({
+        chart: {
+          result: [{
+            timestamp: ts,
+            indicators: { quote: [{ close: closes, high: closes, low: closes, volume: closes.map(() => 1_000_000) }] },
+            meta: { fiftyTwoWeekHigh: 124 },
+          }],
+        },
+      }), { status: 200 }) as Response;
+    });
+
+    const res = await discoverUniverse('MOMENTUM', { enrich: false, maxCandidates: 5 });
+    expect(res.diagnostics.sourceStatus).toBe('FALLBACK_QUANT');
+    expect(res.diagnostics.tierAttempts).toContain('FALLBACK_QUANT');
+    expect(res.diagnostics.fallbackUsed).toBe(true);
+    expect(res.diagnostics.marketMode).toBe('DEGRADED');
+    expect(res.candidates.length).toBeGreaterThan(0);
+  });
+
+  it('Tier 1+2+3 실패 → Tier 4 Naver 단독', async () => {
+    setStockMaster([{ code: '005930', name: '삼성전자', market: 'KOSPI' }]);
+    process.env.DATA_FETCH_FORCE_OFF = 'true'; // EgressGuard 가 Yahoo 차단
+
+    // Naver 응답: snapshot 200 OK
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const url = String(input);
+      if (url.includes('m.stock.naver.com/api/stock/')) {
+        const code = url.match(/api\/stock\/(\d{6})\//)?.[1] ?? '';
+        return new Response(JSON.stringify({
+          stockName: `종목${code}`,
+          closePrice: 100,
+          fluctuationsRatio: 0.5,
+          totalInfos: [
+            { code: 'marketValue', value: 100_000_000_000 },
+            { code: 'per', value: 12 },
+            { code: 'pbr', value: 1.2 },
+            { code: 'eps', value: 8 },
+            { code: 'bps', value: 80 },
+            { code: 'dividendRatio', value: 1.5 },
+            { code: 'foreignerOwnRatio', value: 30 },
+          ],
+        }), { status: 200 }) as Response;
+      }
+      return new Response('{}', { status: 404 }) as Response;
+    });
+
+    const res = await discoverUniverse('MOMENTUM', { enrich: false, maxCandidates: 5 });
+    expect(res.diagnostics.sourceStatus).toBe('FALLBACK_NAVER');
+    expect(res.diagnostics.tierAttempts).toContain('FALLBACK_NAVER');
+    expect(res.diagnostics.fallbackUsed).toBe(true);
+    expect(res.diagnostics.marketMode).toBe('DEGRADED');
+    expect(res.candidates.length).toBeGreaterThan(0);
+    expect(res.candidates[0].snapshot).not.toBeNull();
+  });
+
+  it('AI_UNIVERSE_FALLBACK_DISABLED=true → Tier 1 실패 → Tier 5 즉시 (Tier 2/3/4 스킵)', async () => {
+    process.env.AI_UNIVERSE_FALLBACK_DISABLED = 'true';
+    setStockMaster([]);
+    const res = await discoverUniverse('MOMENTUM', { enrich: false, maxCandidates: 5 });
+    expect(res.diagnostics.sourceStatus).toBe('FALLBACK_SEED');
+    // tierAttempts 가 NOT_CONFIGURED → FALLBACK_SEED 만 (Tier 2/3/4 항목 없음)
+    expect(res.diagnostics.tierAttempts).toEqual(['NOT_CONFIGURED', 'FALLBACK_SEED']);
+    expect(res.candidates.length).toBeGreaterThan(0);
   });
 });

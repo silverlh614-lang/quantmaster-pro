@@ -10,7 +10,7 @@ import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, lsGet, withRetry, safeJsonParse, getCachedAIResponse } from './aiClient';
 import { enrichStockWithRealData } from './enrichment';
 import { fetchMarketIndicators } from './marketOverview';
-import { discoverAiUniverse, type AiUniverseDiscoverResult } from '../../api/aiUniverseClient';
+import { discoverAiUniverse, type AiUniverseDiscoverResult, type AiUniverseSourceStatus } from '../../api/aiUniverseClient';
 import { debugLog } from '../../utils/debug';
 import { fetchSectorEnergy, formatSectorEnergySummary } from '../quant/sectorEnergyProvider';
 import type { StockFilters, RecommendationResponse } from './types';
@@ -55,6 +55,96 @@ export function flattenCandidates(result: AiUniverseDiscoverResult | null): Mome
   }));
 }
 
+/**
+ * ADR-0016 (PR-37) 5-Tier fallback 의 sourceStatus 별 프롬프트 룰 분기. AI 가
+ * "이 목록 외 추천 금지" 를 강제할지, 학습 지식 확장을 허용할지 결정한다.
+ *
+ * - Tier 1 GOOGLE_OK     : 뉴스·공시 매칭 후보군. 엄격한 universe 한정.
+ * - Tier 2 FALLBACK_SNAPSHOT : 직전 정상 거래일 universe 재평가. 후보 우선시 + 학습 지식 확장 허용.
+ * - Tier 3 FALLBACK_QUANT    : Yahoo OHLCV 정량 후보군. AI 가 metric 검토 후 강도 결정.
+ * - Tier 4 FALLBACK_NAVER    : Naver 펀더멘털 단독. 뉴스 분석 비활성.
+ * - Tier 5 / NOT_CONFIGURED 등 : 마지막 거래일 정량 데이터 후보군에서만 추천.
+ */
+export function buildUniverseRuleLine(
+  sourceStatus: AiUniverseSourceStatus | undefined,
+  candidatesLen: number,
+  fallbackUsed: boolean,
+  tradingDateRef?: string | null,
+): string {
+  // 신규 ADR-0016 분기 (서버가 sourceStatus 동봉한 경우 우선)
+  if (sourceStatus === 'GOOGLE_OK') {
+    return '[후보군 — Google 뉴스·공시 기반 universe 발굴 완료. 이 목록 외 종목은 추천 금지. 6자리 종목코드와 한글명을 그대로 사용하라.]';
+  }
+  if (sourceStatus === 'FALLBACK_SNAPSHOT') {
+    const dateLabel = tradingDateRef ? `(${tradingDateRef})` : '';
+    return `[후보군 — 직전 정상 거래일 ${dateLabel} universe 를 재평가합니다. 이 목록을 우선 고려하되, 당신의 학습 지식 범위 안에서 더 적합한 KR 상장 종목을 대신 추천해도 된다. 6자리 종목코드는 실존 값만.]`;
+  }
+  if (sourceStatus === 'FALLBACK_QUANT') {
+    return '[후보군 — Yahoo OHLCV 기반 정량 후보군. metric 을 검토 후 추천 강도를 결정하라. 이 목록을 우선시하되 학습 지식 확장 허용. 6자리 종목코드는 실존 값만.]';
+  }
+  if (sourceStatus === 'FALLBACK_NAVER') {
+    return '[후보군 — Naver Finance 펀더멘털(PER/PBR/배당) 단독 후보군. 뉴스 분석은 비활성 상태이니 학습 지식으로 보완하라. 이 목록을 우선시하되 학습 지식 확장 허용.]';
+  }
+  if (
+    sourceStatus === 'FALLBACK_SEED' ||
+    sourceStatus === 'NOT_CONFIGURED' ||
+    sourceStatus === 'BUDGET_EXCEEDED' ||
+    sourceStatus === 'ERROR' ||
+    sourceStatus === 'NO_MATCHES'
+  ) {
+    return '[후보군 — 마지막 거래일 기준 정량 데이터(KIS/Yahoo/Naver/KRX 캐시) 기반 후보군. 뉴스·촉매제 검색은 일시적으로 비활성화 상태이다. 이 목록을 우선 고려하되 학습 지식 확장 허용. 6자리 종목코드는 실존 값만.]';
+  }
+
+  // sourceStatus 미제공 (구버전 서버) — 기존 분기 유지 (호환)
+  if (candidatesLen > 0 && !fallbackUsed) {
+    return '[후보군 — KIS 실데이터 랭킹에서 사전 추출, 이 목록 외 종목은 추천 금지]';
+  }
+  if (fallbackUsed) {
+    return '[후보군 — 마지막 거래일 정량 데이터 기반 후보군. 이 목록을 우선 고려하되, 학습 지식 범위 안에서 더 적합한 KR 상장 종목을 대신 추천해도 된다. 단, 종목코드 6자리는 실제 존재하는 값만 사용하라.]';
+  }
+  return '[후보군 없음 — Google Search 미설정/실패. 학습 지식을 활용해 현재 시장 상황에 적합한 KR 상장 종목을 선정하라. 종목코드 6자리는 실존 값만.]';
+}
+
+/**
+ * ADR-0016 §6 사용자 노출 문구 — "baseline 시총 상위" 등의 표현 금지. sourceStatus
+ * 별 사유를 한국어 한 줄 메시지로 변환. RecommendationWarningsBanner 와 toast 가 공유.
+ */
+export function buildUniverseWarning(
+  sourceStatus: AiUniverseSourceStatus | undefined,
+  budgetExceeded: boolean,
+  tradingDateRef?: string | null,
+  snapshotAgeDays?: number | null,
+): string | null {
+  if (!sourceStatus || sourceStatus === 'GOOGLE_OK') return null;
+  if (sourceStatus === 'FALLBACK_SNAPSHOT') {
+    const date = tradingDateRef ? `(${tradingDateRef})` : '';
+    const age = typeof snapshotAgeDays === 'number' ? ` · 노화 ${snapshotAgeDays}일` : '';
+    return `직전 거래일 ${date} universe 를 재평가 중${age}. 뉴스·촉매 분석은 잠시 후 자동 복구됩니다.`;
+  }
+  if (sourceStatus === 'FALLBACK_QUANT') {
+    return '정량 데이터(Yahoo OHLCV) 기반 자동 후보군 사용 중. 뉴스·촉매 분석은 일시적으로 비활성화 상태입니다.';
+  }
+  if (sourceStatus === 'FALLBACK_NAVER') {
+    return 'Naver Finance 펀더멘털(PER/PBR/배당) 단독 후보군. 뉴스·촉매 분석은 일시적으로 비활성화 상태입니다.';
+  }
+  if (sourceStatus === 'FALLBACK_SEED') {
+    return '마지막 거래일 기준 정량 데이터(KIS/Yahoo/Naver/KRX 캐시) 기반 후보군입니다. 뉴스·촉매제 검색은 일시적으로 비활성화 상태입니다.';
+  }
+  if (sourceStatus === 'NOT_CONFIGURED') {
+    return 'Google Search API 미설정: 뉴스·촉매제 검색은 비활성화되었습니다. 현재 추천은 마지막 거래일 기준 정량 데이터(Naver/KRX 캐시) 기반 후보군으로 생성되었습니다.';
+  }
+  if (sourceStatus === 'BUDGET_EXCEEDED' || budgetExceeded) {
+    return '오늘의 뉴스 검색 한도에 도달했습니다. 정량 데이터 기반 후보군으로 추천을 생성합니다. 자정(KST) 이후 자동 복구됩니다.';
+  }
+  if (sourceStatus === 'ERROR') {
+    return '뉴스 데이터 일시 오류로 정량 후보군으로 폴백되었습니다. 네트워크 또는 외부 API 응답 상태를 확인하세요.';
+  }
+  if (sourceStatus === 'NO_MATCHES') {
+    return '뉴스 검색 결과에서 KRX 마스터와 매칭된 종목이 없어 정량 후보군으로 대체되었습니다.';
+  }
+  return null;
+}
+
 export async function getMomentumRecommendations(filters?: StockFilters): Promise<RecommendationResponse | null> {
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
   const todayDate = now.split(' ')[0];
@@ -97,24 +187,21 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
   const budgetExceeded = aiUniverse?.diagnostics?.budgetExceeded === true;
   const fallbackUsed = aiUniverse?.diagnostics?.fallbackUsed === true;
   const sourceStatus = aiUniverse?.diagnostics?.sourceStatus;
+  const tradingDateRef = aiUniverse?.diagnostics?.tradingDateRef ?? null;
+  const snapshotAgeDays = aiUniverse?.diagnostics?.snapshotAgeDays ?? null;
+  const marketMode = aiUniverse?.diagnostics?.marketMode;
   debugLog(
     `[momentumRecommendations] mode=${mode} universe=${aiUniverse?.candidates.length ?? 0}건 → ` +
     `필터 후 ${candidates.length}건 (googleQ=${aiUniverse?.diagnostics.googleQueries ?? 0}, ` +
     `enrich=${aiUniverse?.diagnostics.enrichSucceeded ?? 0}, budgetExceeded=${budgetExceeded}, ` +
-    `status=${sourceStatus ?? 'unknown'}, fallback=${fallbackUsed})`
+    `status=${sourceStatus ?? 'unknown'}, fallback=${fallbackUsed}, marketMode=${marketMode ?? 'unknown'})`
   );
 
-  // 사용자 노출용 경고 메시지 — "버튼을 눌렀는데 아무것도 안 나옴" 원인 직접 전달.
+  // 사용자 노출용 경고 메시지 — ADR-0016 §6 정밀화. "baseline 시총 상위" 표현 금지.
+  // sourceStatus 별 한 줄 메시지를 buildUniverseWarning 이 결정.
   const warnings: string[] = [];
-  if (sourceStatus === 'NOT_CONFIGURED') {
-    warnings.push('Google Search API 키가 설정되지 않아 baseline 종목(시총 상위)으로 추천을 생성했습니다. 정확도를 높이려면 GOOGLE_SEARCH_API_KEY · GOOGLE_SEARCH_CX 환경변수를 설정하세요.');
-  } else if (sourceStatus === 'BUDGET_EXCEEDED' || budgetExceeded) {
-    warnings.push('AI 추천 일일 Google 호출 예산이 초과되어 baseline 종목으로 대체되었습니다. 자정(KST) 이후 다시 시도하거나 AI_DAILY_CALL_BUDGET 환경변수로 한도를 조정할 수 있습니다.');
-  } else if (sourceStatus === 'ERROR') {
-    warnings.push('Google Search 호출이 실패해 baseline 종목으로 대체되었습니다. 네트워크 또는 API 응답 상태를 확인하세요.');
-  } else if (sourceStatus === 'NO_MATCHES') {
-    warnings.push('Google 검색 결과에서 KRX 마스터와 매칭된 종목이 없어 baseline 종목으로 대체되었습니다.');
-  }
+  const warningMsg = buildUniverseWarning(sourceStatus, budgetExceeded, tradingDateRef, snapshotAgeDays);
+  if (warningMsg) warnings.push(warningMsg);
 
   const candidateBlock = candidates.length > 0
     ? candidates.map(c => {
@@ -127,17 +214,10 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
         ? '(AI 추천 일일 호출 예산 초과 — 내일 다시 시도하거나 GOOGLE_SEARCH_API_KEY 확인)'
         : '(universe 발굴 결과 없음 — Google Search 미설정 가능, AI 자체 판단 필요)');
 
-  /**
-   * 하드 룰 분기: Google 실매칭으로 얻은 universe 일 때만 "이 목록 외 추천 금지" 를
-   * 강제한다. fallback seed 나 완전 공란인 경우엔 AI 의 학습 지식에서 확장 허용 —
-   * 그렇지 않으면 universe 0건이 그대로 recommendations 0건으로 고착되고 클라이언트
-   * 캐시에 24h 박제되어 사용자 체감 "아무것도 안 나옴" 이 된다.
-   */
-  const universeRuleLine = (candidates.length > 0 && !fallbackUsed)
-    ? '[후보군 — KIS 실데이터 랭킹에서 사전 추출, 이 목록 외 종목은 추천 금지]'
-    : fallbackUsed
-      ? '[후보군 — baseline 시드(시총 상위). Google Search 가 비활성이라 임시 universe 이다. 이 목록을 우선 고려하되, 당신의 학습 지식 범위 안에서 더 적합한 KR 상장 종목을 대신 추천해도 된다. 단, 종목코드 6자리는 실제 존재하는 값만 사용하라.]'
-      : '[후보군 없음 — Google Search 미설정/실패. 당신의 학습 지식을 활용해 현재 시장 상황에 적합한 KR 상장 종목을 선정하라. 종목코드 6자리는 실제 존재하는 값만 사용하라.]';
+  // ADR-0016 (PR-37): sourceStatus 별 universeRuleLine 5-Tier 분기.
+  // Tier 1 GOOGLE_OK 만 엄격한 universe 한정, Tier 2~5 는 학습 지식 확장 허용해
+  // universe 0건 박제 회귀 차단. 코드/이름 정확성 룰은 모든 tier 에서 유지.
+  const universeRuleLine = buildUniverseRuleLine(sourceStatus, candidates.length, fallbackUsed, tradingDateRef);
 
   const indexLine = (cachedKospi || cachedKosdaq)
     ? [
@@ -235,7 +315,13 @@ ${preFilledBlock || '      (사전 수집 데이터 없음)'}
       [선정 절차 — 외부 검색 없이 위 후보군과 거시지표만으로]
       1. 위 [후보군] 목록과 거시지표·모드 조건을 종합하여 시장 상황(BULL/BEAR/SIDEWAYS)을 1차 진단하라.
       2. 후보군에서 모드 조건(MOMENTUM/EARLY_DETECT/SMALL_MID_CAP)에 가장 부합하는 3~5개를 선정하라.
-      3. **[코드/이름 정확성]** ${(candidates.length > 0 && !fallbackUsed) ? '반드시 위 후보군에 등장한 6자리 종목코드와 한글명을 그대로 사용하라. 임의 생성 금지.' : '실제 한국 상장 종목의 6자리 종목코드와 정확한 한글명만 사용하라. 실존하지 않는 코드/명칭 생성은 엄격히 금지한다. 확신이 없으면 추천을 내지 마라.'}
+      3. **[코드/이름 정확성]** ${
+         // ADR-0016 (PR-37): GOOGLE_OK 일 때만 엄격 universe 한정. Tier 2~5 는
+         // 학습 지식 확장 허용 — 단, 실존 6자리 코드만이라는 룰은 모든 tier 에서 유지.
+         (sourceStatus === 'GOOGLE_OK' || (sourceStatus === undefined && candidates.length > 0 && !fallbackUsed))
+           ? '반드시 위 후보군에 등장한 6자리 종목코드와 한글명을 그대로 사용하라. 임의 생성 금지.'
+           : '실제 한국 상장 종목의 6자리 종목코드와 정확한 한글명만 사용하라. 실존하지 않는 코드/명칭 생성은 엄격히 금지한다. 확신이 없으면 추천을 내지 마라.'
+        }
       4. **[corpCode]** 알려진 8자리 DART 고유번호를 'corpCode' 필드에 포함하라. 미상이면 빈 문자열 ""로 두면 enrichment에서 자동 매핑된다.
       5. **[차트 패턴 분석]** 학습된 지식 + 후보군 등락률 데이터로 패턴을 추정하라:
          - 상승 패턴: 상승삼각형, 상승플래그, 상승패넌트, 컵 앤 핸들, 삼각수렴
@@ -447,6 +533,14 @@ ${preFilledBlock || '      (사전 수집 데이터 없음)'}
       // universe 발굴이 degrade 된 경우 사용자 안내 메시지를 응답에 첨부한다.
       if (parsed && warnings.length > 0) {
         parsed.warnings = warnings;
+      }
+      // ADR-0016 (PR-37): sourceStatus / marketMode / tradingDateRef / snapshotAgeDays
+      // 를 응답에 동봉해 RecommendationWarningsBanner 가 정밀 분기·표시할 수 있게 한다.
+      if (parsed) {
+        if (sourceStatus) parsed.sourceStatus = sourceStatus;
+        if (marketMode) parsed.marketMode = marketMode;
+        if (tradingDateRef !== undefined) parsed.tradingDateRef = tradingDateRef;
+        if (snapshotAgeDays !== undefined) parsed.snapshotAgeDays = snapshotAgeDays;
       }
 
       return parsed;
