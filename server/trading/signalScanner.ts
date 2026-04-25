@@ -147,7 +147,7 @@ import { type ApprovalAction } from '../telegram/buyApproval.js';
 import { checkCooldownRelease } from './regretAsymmetryFilter.js';
 import { checkVolumeClockWindow } from './volumeClock.js';
 import { detectPreBreakoutAccumulation } from './preBreakoutAccumulationDetector.js';
-import { appendScanTraces, type ScanTrace } from './scanTracer.js';
+// scanTracer 의 ScanTrace 영속화는 scanDiagnostics 모듈이 담당.
 import {
   computeMtasMultiplier,
   computeRawPositionPct,
@@ -173,27 +173,18 @@ export {
 } from './entryEngine.js';
 export { getRemainingQty } from '../persistence/shadowTradeRepo.js';
 
-// ── 스캔 진단 상태 (파이프라인 헬스체크 · 침묵 실패 탐지용) ─────────────────────
-export interface ScanSummary {
-  time: string;          // "HH:MM KST"
-  candidates: number;    // SWING + CATALYST + Intraday 합산
-  /** @deprecated trackB → swing + catalyst 합산. 하위 호환용. */
-  trackB: number;        // buyList.length (main 워치리스트)
-  swing: number;         // SWING 섹션 매수 대상 수
-  catalyst: number;      // CATALYST 섹션 매수 대상 수
-  momentum: number;      // MOMENTUM 섹션 관찰 전용 수
-  yahooFails: number;    // Yahoo + KIS fallback 모두 실패한 종목 수
-  gateMisses: number;    // entryRevalidation 탈락 수
-  rrrMisses: number;     // RRR < 최솟값 탈락 수
-  entries: number;       // 실제 진입(Shadow 포함 신호 등록) 수
-}
-let _lastBuySignalAt = 0;
-let _consecutiveZeroScans = 0;
-let _lastScanSummary: ScanSummary | null = null;
-
-export function getLastBuySignalAt(): number    { return _lastBuySignalAt; }
-export function getLastScanSummary(): ScanSummary | null { return _lastScanSummary; }
-export function getConsecutiveZeroScans(): number { return _consecutiveZeroScans; }
+// ── 스캔 진단 상태 (scanDiagnostics 모듈로 위임) ──────────────────────────────
+export {
+  type ScanSummary,
+  getLastBuySignalAt,
+  getLastScanSummary,
+  getConsecutiveZeroScans,
+} from './signalScanner/scanDiagnostics.js';
+import {
+  setLastBuySignalAt,
+  createScanCounters,
+  persistScanResults,
+} from './signalScanner/scanDiagnostics.js';
 
 function getAccountScaleKellyMultiplier(totalAssets: number): number {
   if (totalAssets >= 300_000_000) return 1.15;
@@ -361,16 +352,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   }
   let watchlistMutated = false;
 
-  // 스캔 통계 카운터 (침묵 실패 탐지 · 파이프라인 헬스)
-  let _scanYahooFails = 0;
-  let _scanGateMisses = 0;
-  let _scanRrrMisses  = 0;
-  let _scanEntries    = 0;
-  // Idea 4 — 일일 Counterfactual 기록 상한 (COUNTERFACTUAL_DAILY_CAP).
-  let _counterfactualRecordedToday = 0;
-
-  // 파이프라인 트레이서 버퍼 — 스캔 종료 시 일괄 파일 기록 (아이디어 10)
-  const _pendingTraces: ScanTrace[] = [];
+  // 스캔 통계 카운터 — scanDiagnostics 의 ScanCounters 객체를 사용 (mutate 가능).
+  // 원본의 모듈 전역 _scanYahooFails 등을 본 객체 안으로 캡슐화 (스캔 1회당 인스턴스).
+  const _counters = createScanCounters();
 
   // 장중 워치리스트: intradayReady=true 항목만 진입 후보
   const intradayBuyList = loadIntradayWatchlist().filter(w => w.intradayReady === true);
@@ -666,7 +650,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
 
     try {
       const stageLog: Record<string, string> = {};
-      const pushTrace = () => _pendingTraces.push({
+      const pushTrace = () => _counters.pendingTraces.push({
         ts: new Date().toISOString().slice(11, 19),
         stock: stock.code,
         name:  stock.name,
@@ -1039,7 +1023,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         console.log(
           `[AutoTrade] 📐 ${stock.name}(${stock.code}) RRR ${rrr.toFixed(2)} < ${RRR_MIN_THRESHOLD} — 진입 제외`
         );
-        _scanRrrMisses++;
+        _counters.rrrMisses++;
         stageLog.rrr = `FAIL(${rrr.toFixed(2)} < ${RRR_MIN_THRESHOLD})`;
         pushTrace();
         continue;
@@ -1179,13 +1163,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         // BUG-07 fix: MANUAL 종목도 entryFailCount 추적 — 반복 실패 시 자동 제거 대상에 포함
         stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
         watchlistMutated = true;
-        _scanGateMisses++;
+        _counters.gateMisses++;
         stageLog.gate = `FAIL(${entryRevalidation.reasons.join(',')})`;
         pushTrace();
 
         // Idea 4 — Counterfactual Shadow: 탈락 후보 상위 N 개를 가상 진입으로 기록.
         // 같은 날 동일 종목 중복은 자동 스킵 (멱등). I/O 실패가 실 매매 경로를 멈추지 않도록 try/catch.
-        if (_counterfactualRecordedToday < COUNTERFACTUAL_DAILY_CAP) {
+        if (_counters.counterfactualRecordedToday < COUNTERFACTUAL_DAILY_CAP) {
           try {
             const recorded = recordCounterfactual({
               stockCode: stock.code,
@@ -1196,7 +1180,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
               conditionKeys: stock.conditionKeys ?? [],
               skipReason: `entryRevalidation:${entryRevalidation.reasons.join(',')}`,
             });
-            if (recorded) _counterfactualRecordedToday++;
+            if (recorded) _counters.counterfactualRecordedToday++;
           } catch (e) {
             console.warn(`[Counterfactual] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
           }
@@ -1207,7 +1191,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       // BUG-02 fix: Yahoo 실패 시 MTAS 검증 우회 방지 — 재검증 불가 시 진입 보류
       if (!reCheckGate) {
         console.warn(`[AutoTrade] ${stock.name} Yahoo 조회 실패 — 재검증 불가, 진입 보류`);
-        _scanYahooFails++;
+        _counters.yahooFails++;
         stageLog.gate = 'FAIL(yahoo_unavailable)';
         pushTrace();
         continue;
@@ -1476,8 +1460,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       });
 
       // ─── SHADOW/LIVE 통합 승인 큐 등록 ──────────────────────────────────────
-      _scanEntries++;
-      _lastBuySignalAt = Date.now();
+      _counters.entries++;
+      setLastBuySignalAt(Date.now());
       stageLog.buy = stockShadowMode ? 'SHADOW' : 'LIVE'; pushTrace();
 
       const modeEmoji = stockShadowMode ? '⚡' : '🚀';
@@ -1731,8 +1715,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
           const intradaySlotLabel = `${currentIntradayActive + 1}/${MAX_INTRADAY_POSITIONS}`;
 
           // SHADOW/LIVE 통합 승인 큐 등록
-          _scanEntries++;
-          _lastBuySignalAt = Date.now();
+          _counters.entries++;
+          setLastBuySignalAt(Date.now());
 
           const intradayModeEmoji = shadowMode ? '📈' : '🚀';
           const intradayModeLabel = shadowMode ? 'Shadow' : 'LIVE';
@@ -1799,48 +1783,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     saveWatchlist(watchlist);
   }
 
-  // ── 파이프라인 트레이서 — 스캔 결과 파일 영속화 (아이디어 10) ─────────────────
-  if (!options?.sellOnly && _pendingTraces.length > 0) {
-    appendScanTraces(_pendingTraces);
-  }
-
-  // ── 침묵 실패 탐지기 (아이디어 3) ────────────────────────────────────────────
-  // sellOnly 모드는 신규 진입 스캔이 아니므로 집계 제외
-  if (!options?.sellOnly) {
-    const kstNow = new Date(Date.now() + 9 * 3_600_000);
-    const timeLabel = kstNow.toISOString().slice(11, 16) + ' KST';
-    _lastScanSummary = {
-      time:       timeLabel,
-      candidates: buyList.length + intradayBuyList.length,
-      trackB:     buyList.length,
-      swing:      swingList.length,
-      catalyst:   catalystList.length,
-      momentum:   momentumList.length,
-      yahooFails: _scanYahooFails,
-      gateMisses: _scanGateMisses,
-      rrrMisses:  _scanRrrMisses,
-      entries:    _scanEntries,
-    };
-
-    if (_scanEntries === 0 && _lastScanSummary.candidates > 0) {
-      _consecutiveZeroScans++;
-    } else {
-      _consecutiveZeroScans = 0;
-    }
-
-    if (_consecutiveZeroScans >= 3) {
-      _consecutiveZeroScans = 0; // 알림 후 리셋 — 스팸 방지
-      await sendTelegramAlert(
-        `📊 <b>[스캔 요약]</b> ${timeLabel}\n` +
-        `총 후보: ${_lastScanSummary.candidates}개 | SWING: ${_lastScanSummary.swing}개 | CATALYST: ${_lastScanSummary.catalyst}개 | MOMENTUM: ${_lastScanSummary.momentum}개\n` +
-        `- Yahoo 실패: ${_scanYahooFails}개 → 진입 보류\n` +
-        `- Gate 미달: ${_scanGateMisses}개\n` +
-        `- RRR 미달: ${_scanRrrMisses}개\n` +
-        `- 진입 성공: 0개\n` +
-        `⚠️ 3회 연속 진입 없음 — 파이프라인 점검 필요`
-      ).catch(console.error);
-    }
-  }
+  // ── 진단 영속화 (scanDiagnostics 모듈로 위임) ────────────────────────────────
+  // pendingTraces 파일 기록 + ScanSummary 갱신 + 3회 침묵 시 텔레그램 알림.
+  await persistScanResults(_counters, {
+    sellOnly: options?.sellOnly,
+    buyListLength: buyList.length,
+    intradayBuyListLength: intradayBuyList.length,
+    swingListLength: swingList.length,
+    catalystListLength: catalystList.length,
+    momentumListLength: momentumList.length,
+  });
 
   await updateShadowResults(shadows, regime);
   saveShadowTrades(shadows);
