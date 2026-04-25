@@ -28,21 +28,18 @@ import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistenc
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
 import { sendTelegramAlert, answerCallbackQuery, isDigestEnabled, setDigestEnabled, escapeHtml } from '../alerts/telegramClient.js';
-import { guardedFetch } from '../utils/egressGuard.js';
-import { readAlertAuditRange } from '../alerts/alertAuditLog.js';
 import { getChannelStatsByDate, getRecentDateKeys } from '../persistence/channelStatsRepo.js';
 import { findAlertHistoryById, getRecentAlertHistory } from '../persistence/alertHistoryRepo.js';
 import { AlertCategory } from '../alerts/alertCategories.js';
 import { dispatchAlert, runChannelHealthCheck } from '../alerts/alertRouter.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
-import { runAutoSignalScan, isOpenShadowStatus, getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
+import { runAutoSignalScan, isOpenShadowStatus } from '../trading/signalScanner.js';
 import { runFullDiscoveryPipeline } from '../screener/universeScanner.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { resetKrxCache } from '../clients/krxClient.js';
 import { _resetKrxOpenApiBreaker, getKrxOpenApiStatus, resetKrxOpenApiCache } from '../clients/krxOpenApi.js';
-import { generateDailyReport, sendMarketSummaryOnDemand } from '../alerts/reportGenerator.js';
-import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, getRealDataTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder, getCircuitBreakerStats, resetKisCircuits } from '../clients/kisClient.js';
-import { getYahooHealthSnapshot } from '../trading/marketDataRefresh.js';
+import { generateDailyReport } from '../alerts/reportGenerator.js';
+import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder, getCircuitBreakerStats, resetKisCircuits } from '../clients/kisClient.js';
 import { getAccountRiskBudget, formatAccountRiskBudget } from '../trading/accountRiskBudget.js';
 import { loadKellyDampenerState } from '../trading/kellyDampener.js';
 import { formatKellyHealthCards } from '../trading/kellyHealthCard.js';
@@ -52,9 +49,7 @@ import { getUniverseStats } from '../learning/ledgerSimulator.js';
 import { getCounterfactualStats } from '../learning/counterfactualShadow.js';
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { MAX_SUBSCRIPTIONS, getStreamStatus, startKisStream, stopKisStream, getRealtimePrice } from '../clients/kisStreamClient.js';
-import { getBudgetState, getGeminiCircuitStats, getGeminiRuntimeState } from '../clients/geminiClient.js';
-import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
-import { verifyVolumeMount } from '../persistence/paths.js';
+import { getGeminiRuntimeState } from '../clients/geminiClient.js';
 import { STOCK_UNIVERSE } from '../screener/stockScreener.js';
 import { calcRRR } from '../trading/riskManager.js';
 import { buildManualExitContext } from '../trading/manualExitContext.js';
@@ -66,22 +61,15 @@ import { handleBuyApprovalCallback } from './buyApproval.js';
 import { handleOperatorOverrideCallback } from './operatorOverride.js';
 import { handleT1AckCallback } from '../alerts/ackTracker.js';
 import {
-  formatSchedulerSummary,
-  formatSchedulerNext,
-  formatSchedulerDetail,
-  formatSchedulerHistory,
-} from '../scheduler/scheduleCatalog.js';
-import { getLearningStatus, getLearningHistory } from '../learning/learningHistorySummary.js';
-import {
-  formatLearningStatusMessage,
-  formatLearningHistoryMessage,
-} from '../learning/learningHistoryFormatter.js';
-import {
   buildHelpMessage,
   handleMetaCommand,
   parseMetaCallback,
   type InlineKeyboardMarkup,
 } from './metaCommands.js';
+import { commandRegistry } from './commandRegistry.js';
+// 본 import 는 side-effect 전용 — commands/system/*.cmd.ts 9개를 로드해 commandRegistry
+// 에 자동 등록한다 (ADR-0017 §Stage 2 Phase A).
+import './commands/system/index.js';
 
 // ADR-0015: /reconcile live apply 60초 rate-limit 가드 — 오타 방지.
 let _lastLiveReconcileApplyAt = 0;
@@ -194,42 +182,6 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       case '/control':
       case '/admin': {
         await handleMetaCommand(cmd.toLowerCase(), reply);
-        break;
-      }
-
-      case '/market': {
-        await reply('📡 시장상황 요약 생성 중...');
-        await sendMarketSummaryOnDemand().catch(console.error);
-        break;
-      }
-
-      case '/status': {
-        const macro   = loadMacroState();
-        const shadows = getShadowTrades();
-        const active  = shadows.filter(s =>
-          (
-            (s as any).status === 'PENDING' ||
-            (s as any).status === 'ORDER_SUBMITTED' ||
-            (s as any).status === 'PARTIALLY_FILLED' ||
-            (s as any).status === 'ACTIVE' ||
-            (s as any).status === 'EUPHORIA_PARTIAL'
-          ) &&
-          getRemainingQty(s) > 0
-        );
-        const today   = new Date().toISOString().split('T')[0];
-        const closed  = shadows.filter(s =>
-          ((s as any).status === 'HIT_TARGET' || (s as any).status === 'HIT_STOP') &&
-          (s as any).signalTime?.startsWith(today)
-        );
-        const pnl = closed.reduce((sum, s) => sum + ((s as any).returnPct ?? 0), 0);
-        await reply(
-          `📊 <b>[시스템 현황]</b>\n` +
-          `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? '🟡 [SHADOW]' : '🔴 LIVE'}\n` +
-          `비상정지: ${getEmergencyStop() ? '🔴 ON' : '🟢 OFF'}\n` +
-          `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n` +
-          `활성 포지션: ${active.length}개\n` +
-          `오늘 결산: ${closed.length}건 (P&L ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%)`
-        );
         break;
       }
 
@@ -801,46 +753,6 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         break;
       }
 
-      case '/scheduler':
-      case '/schedule': {
-        const sub = (args[0] ?? '').toLowerCase();
-        if (sub === 'next') {
-          await reply(formatSchedulerNext());
-        } else if (sub === 'detail') {
-          await reply(formatSchedulerDetail());
-        } else if (sub === 'history') {
-          const n = Number(args[1]);
-          await reply(formatSchedulerHistory(Number.isFinite(n) && n > 0 ? Math.min(n, 50) : 15));
-        } else {
-          await reply(formatSchedulerSummary());
-        }
-        break;
-      }
-
-      case '/learning_status': {
-        try {
-          const snapshot = getLearningStatus();
-          await reply(formatLearningStatusMessage(snapshot));
-        } catch (e) {
-          console.error('[TelegramBot] /learning_status 실패:', e);
-          await reply('❌ 학습 상태 조회 실패 — 서버 로그를 확인하세요.');
-        }
-        break;
-      }
-
-      case '/learning_history': {
-        const raw = Number(args[0]);
-        const days = Number.isFinite(raw) && raw >= 1 && raw <= 30 ? Math.floor(raw) : 7;
-        try {
-          const summary = getLearningHistory(days);
-          await reply(formatLearningHistoryMessage(summary));
-        } catch (e) {
-          console.error('[TelegramBot] /learning_history 실패:', e);
-          await reply('❌ 학습 이력 조회 실패 — 서버 로그를 확인하세요.');
-        }
-        break;
-      }
-
       case '/report': {
         await reply('📄 일일 리포트 생성 중...');
         await generateDailyReport().catch(console.error);
@@ -1053,31 +965,6 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         const removed = wl.splice(idx, 1)[0];
         saveWatchlist(wl);
         await reply(`🗑 <b>워치리스트 제거</b>\n${removed.name}(${code}) 삭제 완료\n잔여: ${wl.length}개`);
-        break;
-      }
-
-      case '/regime': {
-        const macro = loadMacroState();
-        if (!macro) {
-          await reply('❌ 매크로 상태 데이터 없음');
-          break;
-        }
-        const mhsEmoji = (macro.mhs ?? 0) >= 60 ? '🟢' : (macro.mhs ?? 0) >= 40 ? '🟡' : '🔴';
-        const regimeEmoji = macro.regime === 'GREEN' ? '🟢' : macro.regime === 'YELLOW' ? '🟡' : '🔴';
-        await reply(
-          `🌐 <b>[매크로 레짐 현황]</b>\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          `${mhsEmoji} MHS: ${macro.mhs ?? 'N/A'}\n` +
-          `${regimeEmoji} 레짐: ${macro.regime ?? 'N/A'}\n` +
-          `📊 VKOSPI: ${macro.vkospi?.toFixed(1) ?? 'N/A'}\n` +
-          `📊 VIX: ${macro.vix?.toFixed(1) ?? 'N/A'}\n` +
-          `💱 USD/KRW: ${macro.usdKrw?.toLocaleString() ?? 'N/A'}\n` +
-          `📉 MHS추세: ${macro.mhsTrend ?? 'N/A'}\n` +
-          `🐻 Bear방어: ${macro.bearDefenseMode ? '🔴 ON' : '🟢 OFF'}\n` +
-          `📈 FSS경보: ${macro.fssAlertLevel ?? 'N/A'}\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          `업데이트: ${macro.updatedAt ? new Date(macro.updatedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : 'N/A'}`
-        );
         break;
       }
 
@@ -1416,109 +1303,6 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         break;
       }
 
-      case '/health': {
-        const watchlist     = loadWatchlist();
-        const shadows       = loadShadowTrades();
-        const emergencyStop = getEmergencyStop();
-        const dailyLossPct  = getDailyLossPct();
-        const dailyLossLimit = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
-        const autoEnabled   = process.env.AUTO_TRADE_ENABLED === 'true';
-        const autoMode      = process.env.AUTO_TRADE_MODE ?? 'SHADOW';
-        const kisHours      = getKisTokenRemainingHours();
-        const realDataHours = getRealDataTokenRemainingHours();
-        const lastScanTs    = getLastScanAt();
-        const lastScanAt    = lastScanTs > 0
-          ? new Date(lastScanTs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
-          : '미실행';
-        const lastBuyTs     = getLastBuySignalAt();
-        const lastBuyAt     = lastBuyTs > 0
-          ? new Date(lastBuyTs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
-          : '없음';
-        const scanSummary   = getLastScanSummary();
-        const activeTrades  = shadows.filter(s => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0).length;
-        const geminiRuntime = getGeminiRuntimeState();
-        // Yahoo 집계 상태 — 우선순위:
-        //   1) 최근 스캔 결과(scanSummary) 가 있고 후보가 1개라도 있었으면 → 후보 대비 실패율로 판정
-        //   2) 그렇지 않으면(스캐너 idle 또는 candidates=0) → fetchDailyBars 의 last-success heartbeat 로 fallback
-        //   3) heartbeat 도 없으면 → '?'/UNKNOWN
-        // (이전엔 candidates=0 일 때 무조건 UNKNOWN 이라 운영자에게 '?' 가 자주 보였다.)
-        const yh = getYahooHealthSnapshot();
-        let yahooStatus: 'OK' | 'DEGRADED' | 'DOWN' | 'STALE' | 'UNKNOWN';
-        if (scanSummary && scanSummary.candidates > 0) {
-          if (scanSummary.yahooFails === scanSummary.candidates) yahooStatus = 'DOWN';
-          else if (scanSummary.yahooFails > scanSummary.candidates * 0.5) yahooStatus = 'DEGRADED';
-          else yahooStatus = 'OK';
-        } else {
-          // 스캔 후보가 없을 땐 heartbeat 기준으로 보고 — UNKNOWN 대신 실제 가용성 표시
-          yahooStatus = yh.status; // 'OK' | 'STALE' | 'DOWN' | 'UNKNOWN'
-        }
-
-        // ── 서브시스템 프로브 병렬 실행 (타임아웃 3초) ──────────────────────
-        const volumeCheck = verifyVolumeMount();
-        const probeTimeout = (ms: number) => new Promise<never>((_, rej) =>
-          setTimeout(() => rej(new Error(`timeout ${ms}ms`)), ms));
-        const withTimeout = <T>(p: Promise<T>, ms = 3000) =>
-          Promise.race([p, probeTimeout(ms)]);
-        const probes = await Promise.allSettled([
-          withTimeout(guardedFetch('https://query1.finance.yahoo.com/v7/finance/chart/^KS11?interval=1d&range=1d')
-            .then(r => r.ok ? 'OK' : `HTTP ${r.status}`)),
-          withTimeout(fetch(`https://opendart.fss.or.kr/api/list.json?crtfc_key=${process.env.DART_API_KEY ?? ''}&page_count=1`)
-            .then(async r => {
-              if (!r.ok) return `HTTP ${r.status}`;
-              const j = await r.json() as { status?: string };
-              return j.status === '000' ? 'OK' : `status=${j.status}`;
-            })),
-        ]);
-        const [yahooProbe, dartProbe] = probes;
-        const probeLabel = (p: PromiseSettledResult<unknown>) =>
-          p.status === 'fulfilled' ? `✅ ${p.value}` : `❌ ${(p.reason as Error).message}`;
-
-        const uptimeHours = (process.uptime() / 3600).toFixed(1);
-        const memMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-
-        let verdict: string;
-        if (emergencyStop)                             verdict = '🔴 EMERGENCY_STOP';
-        else if (dailyLossPct >= dailyLossLimit)       verdict = '🔴 DAILY_LOSS_LIMIT';
-        else if (!volumeCheck.ok)                      verdict = '🔴 VOLUME_UNMOUNTED';
-        else if (watchlist.length === 0)               verdict = '🔴 WATCHLIST_EMPTY';
-        else if (!autoEnabled)                         verdict = '🟡 AUTO_TRADE_DISABLED';
-        else if (autoMode === 'LIVE' && kisHours === 0) verdict = '🟡 KIS_TOKEN_EXPIRED';
-        else if (!lastScanTs)                          verdict = '🟡 SCANNER_IDLE';
-        else if (yahooStatus === 'DOWN')               verdict = '🟡 YAHOO_DOWN';
-        else                                           verdict = '🟢 OK';
-
-        const ss = getStreamStatus();
-        // Railway 가 자동 주입하는 배포 커밋. 실제 재배포 여부를 운영자가 즉시 확인 가능.
-        const commitSha = (process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown').slice(0, 7);
-        await reply(
-          `🩺 <b>[파이프라인 헬스체크]</b> (uptime ${uptimeHours}h / mem ${memMB}MB / build ${commitSha})\n` +
-          `판정: ${verdict}\n` +
-          `─────────────────────\n` +
-          `워치리스트: ${watchlist.length}개 | 활성 포지션: ${activeTrades}개\n` +
-          `자동매매: ${autoEnabled ? '✅ 켜짐' : '❌ 꺼짐'} (${autoMode})\n` +
-          `KIS 토큰: ${kisHours > 0 ? `✅ ${kisHours}시간 남음` : '❌ 만료'}` +
-          (realDataHours > 0 ? ` | 실데이터: ✅ ${realDataHours}h` : '') + `\n` +
-          `Yahoo probe: ${probeLabel(yahooProbe)}\n` +
-          `DART probe: ${probeLabel(dartProbe)}\n` +
-          `Gemini: ${geminiRuntime.status}${geminiRuntime.reason ? ` (${geminiRuntime.reason})` : ''}\n` +
-          `Volume: ${volumeCheck.ok ? '✅ 마운트됨' : `❌ ${volumeCheck.error ?? '미마운트'}`}\n` +
-          `Yahoo 집계: ${
-            yahooStatus === 'OK' ? '✅'
-            : yahooStatus === 'DEGRADED' ? '⚠️ 부분장애'
-            : yahooStatus === 'STALE' ? `🟡 STALE (마지막 성공 ${yh.lastSuccessAt > 0 ? new Date(yh.lastSuccessAt).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' }) : 'N/A'})`
-            : yahooStatus === 'DOWN' ? `❌ 불가 (연속 실패 ${yh.consecutiveFailures}회)`
-            : '? 미수집'
-          }\n` +
-          `마지막 스캔: ${lastScanAt} | 마지막 신호: ${lastBuyAt}\n` +
-          `일일손실: ${dailyLossPct.toFixed(1)}% / 한도 ${dailyLossLimit}%\n` +
-          `비상정지: ${emergencyStop ? '🛑 활성' : '✅ 해제'}\n` +
-          `실시간호가: ${ss.connected ? `✅ ${ss.subscribedCount}종목` : '❌ 미연결'}\n` +
-          `─────────────────────\n` +
-          `<i>/refresh_token — KIS 토큰 강제 갱신</i>`
-        );
-        break;
-      }
-
       case '/dxy_intraday':
       case '/dxy': {
         // P3-7: DXY 인트라데이 스냅샷. Yahoo 5m 우선, ALPHA_VANTAGE_API_KEY 시 fallback.
@@ -1703,52 +1487,6 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         break;
       }
 
-      case '/ai_status': {
-        const budget = getBudgetState();
-        const circuit = getGeminiCircuitStats();
-        const runtime = getGeminiRuntimeState();
-        await reply(
-          `🤖 <b>[AI 상태]</b>\n` +
-          `런타임: ${runtime.status}${runtime.reason ? ` (${runtime.reason})` : ''}\n` +
-          `호출처: ${runtime.caller ?? '-'}\n` +
-          `최근시각: ${runtime.updatedAt ?? '-'}\n` +
-          `서킷: ${circuit.state} (실패 ${circuit.failures}회)\n` +
-          `예산: $${budget.spentUsd.toFixed(2)} / $${budget.budgetUsd.toFixed(2)} (${budget.pctUsed.toFixed(1)}%)\n` +
-          `차단: ${budget.blocked ? 'ON' : 'OFF'}`
-        );
-        break;
-      }
-
-      case '/todaylog': {
-        // 오늘 KST 00:00 ~ 현재까지의 알림 감사 로그를 티어·카테고리별 집계.
-        const nowMs = Date.now();
-        const kstNow = new Date(nowMs + 9 * 3_600_000);
-        const kstMidnight = Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate()) - 9 * 3_600_000;
-        const entries = readAlertAuditRange(kstMidnight, nowMs);
-        if (entries.length === 0) {
-          await reply('📋 오늘 기록된 알림이 없습니다.');
-          break;
-        }
-        const byTier: Record<string, number> = { T1_ALARM: 0, T2_REPORT: 0, T3_DIGEST: 0 };
-        const byCat: Map<string, number> = new Map();
-        for (const e of entries) {
-          byTier[e.tier] = (byTier[e.tier] ?? 0) + 1;
-          byCat.set(e.category, (byCat.get(e.category) ?? 0) + 1);
-        }
-        const topCats = [...byCat.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
-        await reply(
-          `📋 <b>[오늘 알림 로그] ${entries.length}건</b>\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          `🚨 T1 ALARM: ${byTier.T1_ALARM}건\n` +
-          `📊 T2 REPORT: ${byTier.T2_REPORT}건\n` +
-          `📋 T3 DIGEST: ${byTier.T3_DIGEST}건\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          `<b>카테고리 Top ${topCats.length}:</b>\n` +
-          topCats.map(([k, v]) => `  ${k}: ${v}건`).join('\n')
-        );
-        break;
-      }
-
       case '/digest_on': {
         setDigestEnabled(true);
         await reply('📋 다이제스트 수신 ON — 30분 단위로 요약 발송됩니다.');
@@ -1846,11 +1584,18 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         break;
       }
 
-      default:
+      default: {
+        // ADR-0017 §Stage 2 Phase A — commands/* 로 이전된 명령은 commandRegistry 에서 처리.
+        const handler = commandRegistry.resolve(cmd.toLowerCase());
+        if (handler) {
+          await handler.execute({ args, reply });
+          break;
+        }
         await reply(
           `❓ 알 수 없는 명령어입니다.\n` +
           `/help 를 입력하면 사용 가능한 명령어 목록을 볼 수 있습니다.`
         );
+      }
     }
   } catch (e) {
     console.error('[TelegramBot] 명령 처리 실패:', e);
