@@ -33,6 +33,9 @@ describe('TradingDayOrchestrator — Railway 재시작 안전성 (Phase 2.3)', (
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
   });
 
+  // 본 테스트는 vi.resetModules() 직후 tradingOrchestrator 의 무거운 import 체인
+  // (signalScanner/webhookHandler/stockScreener/exitEngine 등 1,000줄+) 을 두 번
+  // 로드하므로 전체 suite 와 함께 돌면 5s 디폴트 timeout 을 초과한다.
   it('markRan → 새 인스턴스 로드 시 같은 거래일이면 hasRan = true 유지', async () => {
     const mod = await import('./tradingOrchestrator.js');
     const { TradingDayOrchestrator } = mod;
@@ -53,7 +56,7 @@ describe('TradingDayOrchestrator — Railway 재시작 안전성 (Phase 2.3)', (
     const mod2 = await import('./tradingOrchestrator.js');
     const o2 = new mod2.TradingDayOrchestrator();
     expect(o2._testOnly_hasRan('marketOpen')).toBe(true);
-  });
+  }, 30_000);
 
   it('날짜가 바뀌면 hasRan 이 false 로 리셋 (handlerRanAt 초기화)', async () => {
     const mod = await import('./tradingOrchestrator.js');

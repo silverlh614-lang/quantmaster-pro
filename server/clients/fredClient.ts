@@ -64,7 +64,9 @@ export async function fetchFredLatest(seriesId: string): Promise<number | null> 
       url.searchParams.set('sort_order', 'desc');
       url.searchParams.set('limit', '12');
 
-      const res = await fetch(url, { signal: controller.signal });
+      // URL → string 으로 변환 후 fetch — 테스트 mock 이 첫 인자를 string 으로 가정해
+      // url.includes() 패턴 분기를 사용하는 케이스 호환. native fetch 는 둘 다 수용.
+      const res = await fetch(url.toString(), { signal: controller.signal });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }

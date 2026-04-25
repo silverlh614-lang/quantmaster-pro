@@ -76,17 +76,19 @@ describe('attributionRepo — 스키마 마이그레이션', () => {
   });
 
   it('computeAttributionStats 는 현행 스키마만 집계 (혼합 시)', async () => {
+    const { computeAttributionStats, CURRENT_ATTRIBUTION_SCHEMA_VERSION } =
+      await import('./attributionRepo.js');
     const attrFile = path.join(tmpDir, 'attribution-records.json');
-    // 의도적으로 혼합 저장 — 미이그레이션 상태에서 stats 가 v0 을 제외해야 함
+    // 의도적으로 혼합 저장 — 미이그레이션 상태에서 stats 가 구버전 을 제외해야 함.
+    // PR-19 로 CURRENT 가 2 로 상향되어 v1 도 구버전 취급. 현행 스키마 한 건만 통과.
     fs.writeFileSync(attrFile, JSON.stringify([
-      { tradeId: 't-v0', stockCode: '005930', stockName: 'A', closedAt: '2026-03-01', returnPct: 10, isWin: true, conditionScores: { 2: 8 }, holdingDays: 1 /* no schemaVersion */ },
-      { tradeId: 't-v1', stockCode: '000660', stockName: 'B', closedAt: '2026-03-02', returnPct: 5, isWin: true, conditionScores: { 2: 7 }, holdingDays: 1, schemaVersion: 1 },
+      { tradeId: 't-old', stockCode: '005930', stockName: 'A', closedAt: '2026-03-01', returnPct: 10, isWin: true, conditionScores: { 2: 8 }, holdingDays: 1 /* no schemaVersion */ },
+      { tradeId: 't-current', stockCode: '000660', stockName: 'B', closedAt: '2026-03-02', returnPct: 5, isWin: true, conditionScores: { 2: 7 }, holdingDays: 1, schemaVersion: CURRENT_ATTRIBUTION_SCHEMA_VERSION },
     ]));
-    const { computeAttributionStats } = await import('./attributionRepo.js');
     const stats = computeAttributionStats();
     const cond2 = stats.find(s => s.conditionId === 2);
     expect(cond2).toBeDefined();
-    expect(cond2!.totalTrades).toBe(1); // v1 한 건만
+    expect(cond2!.totalTrades).toBe(1); // 현행 한 건만
     expect(cond2!.avgReturn).toBe(5);   // 10 은 제외
   });
 });

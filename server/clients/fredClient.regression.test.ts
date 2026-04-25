@@ -57,7 +57,8 @@ describe('fredClient regression', () => {
   });
 
   it('caches null responses and avoids refetch within ttl', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
+    // mockImplementation — Response 본문은 1회만 소비 가능하므로 호출마다 새 인스턴스 생성.
+    const fetchMock = vi.fn(async () =>
       jsonResponse({
         observations: [{ value: '.' }, { value: '.' }],
       }),
@@ -74,7 +75,8 @@ describe('fredClient regression', () => {
   });
 
   it('reuses cached series values across snapshot calls', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
+    // 5종 시리즈 병렬 호출 + 두 번째 snapshot 캐시 hit — 각 호출마다 새 Response 필요.
+    const fetchMock = vi.fn(async () =>
       jsonResponse({
         observations: [{ value: '1.23' }],
       }),

@@ -204,20 +204,38 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
   // 원인: 장외/주말에 fetchHistoricalData 가 null 반환 → aiFallback 진입 → Gemini 가
   //       프롬프트 지시대로 currentPrice=0 으로 응답 → applyTradingFieldFallbacks 도
   //       currentPrice<=0 이면 비활성화. Naver snapshot 의 closePrice(전일 종가) 로 보강.
+  //
+  // 2026-04-25: 펀더멘털 우선순위 = DART → Naver (DART 사업보고서가 신뢰도가 더 높다).
+  // aiFallback 도 corpCode 가 있으면 DART 를 먼저 시도하고, 없거나 실패한 필드만
+  // Naver snapshot 으로 보강해 일관된 SSOT 우선순위를 유지한다.
   const aiFallback = async (override?: { currentPrice?: number; per?: number; pbr?: number; marketCap?: number }): Promise<StockRecommendation> => {
     let resolvedPrice = stock.currentPrice || override?.currentPrice || 0;
     let snapPer = override?.per ?? 0;
     let snapPbr = override?.pbr ?? 0;
     let snapMarketCap = override?.marketCap ?? 0;
-    // currentPrice 가 여전히 0 이면 Naver snapshot 으로 무비용 보강 시도.
-    // /api/ai-universe/snapshot 은 KIS/KRX quota 무관 (Naver 모바일).
+
+    // ─── DART 펀더멘털 (1순위) ──────────────────────────────────────────────
+    // DART 사업보고서 기반 ROE/debt/OCF/이자보상/EPS 성장 — Naver 보다 신뢰도 우위.
+    let fallbackDart: Awaited<ReturnType<typeof fetchDartFinancials>> = null;
+    if (!stock.corpCode) {
+      try { stock.corpCode = (await fetchCorpCode(stock.code)) || undefined; } catch { /* noop */ }
+    }
+    if (stock.corpCode) {
+      try { fallbackDart = await fetchDartFinancials(stock.corpCode); } catch { /* noop */ }
+    }
+
+    // ─── Naver snapshot (2순위) — DART 미제공 필드(가격/PER/PBR/시총) 보강 ───
+    let priceSource = '';
     if (!resolvedPrice || resolvedPrice <= 0) {
       const baseCode = (stock.code || '').split('.')[0];
       if (/^\d{6}$/.test(baseCode)) {
         try {
           const snap = await fetchAiUniverseSnapshot(baseCode);
           if (snap) {
-            if (snap.closePrice && snap.closePrice > 0) resolvedPrice = snap.closePrice;
+            if (snap.closePrice && snap.closePrice > 0) {
+              resolvedPrice = snap.closePrice;
+              priceSource = '전일 종가 (Naver)';
+            }
             if (snap.per > 0) snapPer = snap.per;
             if (snap.pbr > 0) snapPbr = snap.pbr;
             if (snap.marketCap > 0) snapMarketCap = snap.marketCap;
@@ -237,17 +255,30 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       targetPrice2: fallback.targetPrice2 ?? stock.targetPrice2,
       entryPrice:   fallback.entryPrice   ?? stock.entryPrice,
       stopLoss:     fallback.stopLoss     ?? stock.stopLoss,
-      // Naver 전일 종가 기반 fallback 임을 명확히 표시 — 카드 라벨이 "AI Estimated" 로 보임.
       dataSourceType: resolvedPrice > 0 ? 'STALE' : 'AI',
-      priceUpdatedAt: resolvedPrice > 0 && resolvedPrice !== stock.currentPrice
-        ? '전일 종가 (Naver)'
+      priceUpdatedAt: resolvedPrice > 0 && resolvedPrice !== stock.currentPrice && priceSource
+        ? priceSource
         : stock.priceUpdatedAt,
       valuation: {
         ...stock.valuation,
+        // DART 가 직접 제공하지 않는 PER/PBR 은 Naver snapshot 사용.
         per: (snapPer > 0) ? snapPer : stock.valuation.per,
         pbr: (snapPbr > 0) ? snapPbr : stock.valuation.pbr,
+        // 펀더멘털: DART 우선 → 없으면 기존 값 유지.
+        debtRatio: fallbackDart?.debtRatio || stock.valuation.debtRatio,
+        epsGrowth: (typeof fallbackDart?.epsGrowth === 'number' && fallbackDart.epsGrowth !== 0)
+          ? fallbackDart.epsGrowth
+          : stock.valuation.epsGrowth,
       },
       marketCap: (snapMarketCap > 0) ? snapMarketCap : stock.marketCap,
+      checklist: {
+        ...stock.checklist,
+        // DART 우선 — 펀더멘털 게이트도 fallback 경로에서 활성화.
+        roeType3: (fallbackDart?.roe ?? 0) >= 15 ? 1 : (stock.checklist?.roeType3 ?? 0),
+        ocfQuality: fallbackDart?.ocfGreaterThanNetIncome ? 1 : (stock.checklist?.ocfQuality ?? 0),
+        interestCoverage: (fallbackDart?.interestCoverageRatio ?? 0) >= 3 ? 1 : (stock.checklist?.interestCoverage ?? 0),
+      },
+      financialUpdatedAt: fallbackDart?.updatedAt || stock.financialUpdatedAt,
     };
     // Enrichment 전체가 실패해도 3-Gate Pyramid 는 checklist 기반 계산이므로 채워둔다.
     merged.gateEvaluation = computeGateEvaluation(merged);
@@ -278,6 +309,10 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
 
     const currentPrice = closes[closes.length - 1];
 
+    // ─── 펀더멘털 우선순위: DART → Naver (2026-04-25) ─────────────────────────
+    // DART 사업보고서 기반 ROE/debtRatio/OCF/이자보상/EPS성장 이 Naver snapshot 보다
+    // 신뢰도가 높다. 따라서 DART 를 먼저 호출해 펀더멘털을 채우고, DART 가 직접
+    // 제공하지 않는 PER/PBR/시총/외인지분율 만 Naver snapshot 으로 보강한다.
     let dartFinancials = null;
     if (!stock.corpCode) {
       stock.corpCode = await fetchCorpCode(stock.code) || undefined;
@@ -295,6 +330,7 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       // PR-25-C (ADR-0011): KIS 수급·공매도 호출 제거 — Naver 모바일 snapshot 의 정적
       // `foreignerOwnRatio` 만 유지. 일별 순매수·공매도 잔고는 AI 프롬프트가 자체
       // 판단(PR-13 정렬 유지). 자동매매는 그대로 server/clients/kisClient.ts 사용.
+      // Naver 는 DART 가 제공하지 않는 시장가 기반 PER/PBR/시총 만 보강 (2순위).
       const snap = await fetchAiUniverseSnapshot(baseCode);
       kisSupply = buildSnapshotSupplyStub(snap);
       krxValuation = await fetchKrxValuation(baseCode);

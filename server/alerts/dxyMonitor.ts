@@ -302,13 +302,28 @@ export interface DxyIntradayAlert {
 /**
  * 인트라데이 DXY 1회 체크 + 임계 돌파 시 알림 발송.
  * cron 으로 5분 간격 호출 권장. ALPHA_VANTAGE_API_KEY 설정 시 Yahoo 실패 시 fallback.
+ *
+ * 2026-04-25: NYSE 정규장이 닫혀있는 동안에는 silent skip 한다 — 그렇지 않으면
+ *   ① EgressGuard 가 Yahoo 호출을 차단해 `[EgressGuard] skip NYSE:DX-Y.NYB`,
+ *   ② getDxyIntradayReading 이 null 을 돌려 `[DxyIntraday] Yahoo 리딩 없음`
+ * 두 로그가 5분 cron 마다 반복 출력된다. 본 cron 은 US 장 시간대를 위한 것이므로
+ * 시장이 닫혀있으면 호출 자체가 의미 없다. 로그 노이즈만 발생시킬 뿐.
  */
 export async function runDxyIntradayMonitor(): Promise<DxyIntradayAlert | null> {
+  // ─── NYSE 정규장 게이트 ─────────────────────────────────────────────────────
+  // DX-Y.NYB 는 ICE 파생지수지만 Yahoo endpoint 의 신뢰 가능한 5m 봉은 NYSE
+  // 정규장 시간대에만 안정적으로 채워진다. 장외 시간에 cron 이 fire 되면 외부
+  // 호출 예산만 소비하고 실제 알림은 발송되지 않는다 — 진입부에서 끊는다.
+  const { isOpenAt } = await import('../utils/symbolMarketRegistry.js');
+  if (!isOpenAt('NYSE')) {
+    return null; // silent skip — 로그 없음 (cron 정상 동작 분기)
+  }
+
   const { getDxyIntradayReading } = await import('./dxyIntradayClient.js');
   const reading = await getDxyIntradayReading(DXY_INTRADAY_WINDOW_MIN);
   if (!reading) {
-    // Alpha Vantage API key 미설정이면 "모두 실패"는 기대된 경로이므로 info 레벨.
-    // Yahoo range=5d 폴백이 있어도 실패하면 경고로 띄운다(드문 케이스).
+    // NYSE 장중인데 데이터 소스가 모두 실패한 케이스 — 실제 문제 가능성.
+    // ALPHA_VANTAGE_API_KEY 미설정이면 fallback 자체가 없으므로 info 로 1회 안내.
     const avConfigured = Boolean(process.env.ALPHA_VANTAGE_API_KEY?.trim());
     if (avConfigured) {
       console.warn('[DxyIntraday] 데이터 소스 모두 실패 (Yahoo + Alpha Vantage) — 스킵');
