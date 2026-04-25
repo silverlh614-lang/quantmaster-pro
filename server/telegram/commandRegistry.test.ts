@@ -130,3 +130,64 @@ describe('commands/system barrel — 9 read-only commands auto-registered', () =
     expect(keys).toContain('/schedule');
   });
 });
+
+// ── 3. Phase B1 — watchlist/positions/alert barrels (17 cmd objects, 19 keys) ──
+
+describe('commands/watchlist+positions+alert barrels — Phase B1 auto-register', () => {
+  beforeAll(async () => {
+    await import('./commands/watchlist/index.js');
+    await import('./commands/positions/index.js');
+    await import('./commands/alert/index.js');
+  });
+
+  it('all WL commands resolvable (5 names)', () => {
+    for (const name of ['/watchlist', '/focus', '/add', '/remove', '/watchlist_channel']) {
+      expect(commandRegistry.resolve(name), `missing ${name}`).toBeDefined();
+    }
+  });
+
+  it('all POS commands resolvable (3 names)', () => {
+    for (const name of ['/pos', '/pnl', '/pending']) {
+      expect(commandRegistry.resolve(name), `missing ${name}`).toBeDefined();
+    }
+  });
+
+  it('all ALR commands resolvable (12 keys = 9 cmd objects + 3 aliases)', () => {
+    for (const name of [
+      '/channel_health',
+      '/channel_stats',
+      '/alert_replay',
+      '/alert_history',
+      '/channel_test',
+      '/dxy',
+      '/dxy_intraday', // alias
+      '/news_lag',
+      '/news_patterns', // alias
+      '/digest_on',
+      '/digest_off',
+      '/digest_status',
+    ]) {
+      expect(commandRegistry.resolve(name), `missing ${name}`).toBeDefined();
+    }
+  });
+
+  it('aliases resolve to same instance as canonical', () => {
+    expect(commandRegistry.resolve('/dxy')).toBe(commandRegistry.resolve('/dxy_intraday'));
+    expect(commandRegistry.resolve('/news_lag')).toBe(
+      commandRegistry.resolve('/news_patterns'),
+    );
+  });
+
+  it('Phase A+B1 totals — system 9 + WL 5 + POS 3 + ALR 9 = 26 unique commands', () => {
+    // commandRegistry.all() 은 등록된 모든 인스턴스를 unique 로 반환한다.
+    // 본 테스트 파일 자체가 stub 6개를 추가로 등록하므로 ≥26.
+    const all = commandRegistry.all();
+    expect(all.length).toBeGreaterThanOrEqual(26);
+    // 카테고리 검증.
+    const categories = new Set(all.map((c) => c.category));
+    expect(categories).toContain('SYS');
+    expect(categories).toContain('WL');
+    expect(categories).toContain('POS');
+    expect(categories).toContain('ALR');
+  });
+});

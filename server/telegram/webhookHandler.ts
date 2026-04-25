@@ -17,21 +17,16 @@ import {
   loadShadowTrades,
   saveShadowTrades,
   getRemainingQty,
-  getTotalRealizedPnl,
   updateShadow,
   appendFill,
   appendShadowLog,
   syncPositionCache,
   computeShadowMonthlyStats,
 } from '../persistence/shadowTradeRepo.js';
-import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
+import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
-import { sendTelegramAlert, answerCallbackQuery, isDigestEnabled, setDigestEnabled, escapeHtml } from '../alerts/telegramClient.js';
-import { getChannelStatsByDate, getRecentDateKeys } from '../persistence/channelStatsRepo.js';
-import { findAlertHistoryById, getRecentAlertHistory } from '../persistence/alertHistoryRepo.js';
-import { AlertCategory } from '../alerts/alertCategories.js';
-import { dispatchAlert, runChannelHealthCheck } from '../alerts/alertRouter.js';
+import { sendTelegramAlert, answerCallbackQuery, escapeHtml } from '../alerts/telegramClient.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
 import { runAutoSignalScan, isOpenShadowStatus } from '../trading/signalScanner.js';
 import { runFullDiscoveryPipeline } from '../screener/universeScanner.js';
@@ -39,7 +34,7 @@ import { getLiveRegime } from '../trading/regimeBridge.js';
 import { resetKrxCache } from '../clients/krxClient.js';
 import { _resetKrxOpenApiBreaker, getKrxOpenApiStatus, resetKrxOpenApiCache } from '../clients/krxOpenApi.js';
 import { generateDailyReport } from '../alerts/reportGenerator.js';
-import { fetchCurrentPrice, fetchStockName, getKisTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder, getCircuitBreakerStats, resetKisCircuits } from '../clients/kisClient.js';
+import { fetchCurrentPrice, getKisTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder, getCircuitBreakerStats, resetKisCircuits } from '../clients/kisClient.js';
 import { getAccountRiskBudget, formatAccountRiskBudget } from '../trading/accountRiskBudget.js';
 import { loadKellyDampenerState } from '../trading/kellyDampener.js';
 import { formatKellyHealthCards } from '../trading/kellyHealthCard.js';
@@ -67,9 +62,12 @@ import {
   type InlineKeyboardMarkup,
 } from './metaCommands.js';
 import { commandRegistry } from './commandRegistry.js';
-// 본 import 는 side-effect 전용 — commands/system/*.cmd.ts 9개를 로드해 commandRegistry
-// 에 자동 등록한다 (ADR-0017 §Stage 2 Phase A).
+// 본 import 는 side-effect 전용 — commands/{system,watchlist,positions,alert}/*.cmd.ts 가
+// commandRegistry 에 자동 등록된다 (ADR-0017 §Stage 2 Phase A + B1).
 import './commands/system/index.js';
+import './commands/watchlist/index.js';
+import './commands/positions/index.js';
+import './commands/alert/index.js';
 
 // ADR-0015: /reconcile live apply 60초 rate-limit 가드 — 오타 방지.
 let _lastLiveReconcileApplyAt = 0;
@@ -254,75 +252,6 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         clearCircuitBreaker();
         clearForcedRegimeDowngrade();
         await reply('🟢 <b>비상 정지 해제</b> — 자동매매 재개 (서킷브레이커/다운그레이드 해제)');
-        break;
-      }
-
-      case '/watchlist': {
-        const wl = loadWatchlist();
-        if (wl.length === 0) {
-          await reply(
-            '📋 <b>워치리스트가 비어 있습니다.</b>\n\n' +
-            '💡 <i>/add 005930 으로 종목을 추가하세요.\n' +
-            '자동 스크리너가 발굴한 종목도 여기에 표시됩니다.</i>'
-          );
-          break;
-        }
-
-        const swingList    = wl.filter(w => w.section === 'SWING' || (!w.section && (w.track === 'B' || w.addedBy === 'MANUAL')));
-        const catalystList = wl.filter(w => w.section === 'CATALYST');
-        const momentumList = wl.filter(w => w.section === 'MOMENTUM' || (!w.section && w.track === 'A' && w.addedBy !== 'MANUAL'));
-
-        const formatEntry = (w: WatchlistEntry, showDetail: boolean) => {
-          const focusMark = w.isFocus ? '⭐' : '';
-          const sectionMark = w.addedBy === 'MANUAL' ? '👤' : w.addedBy === 'DART' ? '📢' : '🤖';
-          const gate = w.gateScore !== undefined ? `Gate ${w.gateScore.toFixed(1)}` : '';
-          const rrr = w.rrr !== undefined ? `RRR 1:${w.rrr.toFixed(1)}` : '';
-          const sector = w.sector ? escapeHtml(w.sector) : '';
-          const meta = [gate, rrr, sector].filter(Boolean).join(' · ');
-
-          if (showDetail) {
-            return (
-              `${focusMark}${sectionMark} <b>${escapeHtml(w.name)}</b> (${escapeHtml(w.code)})\n` +
-              `   💰 진입: ${w.entryPrice.toLocaleString()}원\n` +
-              `   🛡️ 손절: ${w.stopLoss.toLocaleString()}원 → 🎯 목표: ${w.targetPrice.toLocaleString()}원\n` +
-              (meta ? `   📊 ${meta}` : '') +
-              (w.memo ? `\n   💬 ${escapeHtml(w.memo)}` : '')
-            );
-          }
-          return `  ${sectionMark} ${escapeHtml(w.name)}(${escapeHtml(w.code)}) ${meta ? `| ${meta}` : ''}`;
-        };
-
-        const parts: string[] = [
-          `📋 <b>[워치리스트] 총 ${wl.length}개</b>`,
-          `━━━━━━━━━━━━━━━━`,
-        ];
-
-        if (swingList.length > 0) {
-          parts.push(`\n🎯 <b>SWING — 스윙 매수 대상 (${swingList.length}개)</b>`);
-          parts.push(...swingList.map(w => formatEntry(w, true)));
-        }
-
-        if (catalystList.length > 0) {
-          parts.push(`\n📢 <b>CATALYST — 촉매 단기 (${catalystList.length}개)</b>`);
-          parts.push(...catalystList.map(w => formatEntry(w, true)));
-        }
-
-        if (momentumList.length > 0) {
-          parts.push(`\n📂 <b>MOMENTUM — 관찰 전용 (${momentumList.length}개)</b>`);
-          const shown = momentumList.slice(0, 10);
-          parts.push(...shown.map(w => formatEntry(w, false)));
-          if (momentumList.length > 10) {
-            parts.push(`  ... 외 ${momentumList.length - 10}개`);
-          }
-        }
-
-        parts.push(
-          `\n━━━━━━━━━━━━━━━━`,
-          `⭐=SWING매수대상 👤=수동 📢=CATALYST 🤖=MOMENTUM`,
-          `💡 /focus — SWING 상세 조회`
-        );
-
-        await reply(parts.join('\n'));
         break;
       }
 
@@ -783,191 +712,6 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         break;
       }
 
-      case '/pending': {
-        const pending = fillMonitor.getPendingOrders().filter(o => o.status === 'PENDING' || o.status === 'PARTIAL');
-        if (pending.length === 0) { await reply('✅ 미체결 주문 없음'); break; }
-        const lines = pending.map(o =>
-          `• ${escapeHtml(o.stockName)}(${escapeHtml(o.ordNo)}) ${o.quantity}주 @${o.orderPrice.toLocaleString()} [${o.pollCount}/${10}회]`
-        ).join('\n');
-        await reply(`⏳ <b>미체결 주문 (${pending.length}건)</b>\n${lines}`);
-        break;
-      }
-
-      // ── 아이디어 4: 신규 명령어 ──────────────────────────────────────────────
-
-      case '/pnl': {
-        // PR-8: realized(이미 부분매도로 확정된 손익) + unrealized(잔량의 평가손익) 분리 표시.
-        // 기존에는 unrealized 만 보여줘서 부분매도 누적 수익이 /pnl 에서 사라지는 혼란이 있었다.
-        const shadows = getShadowTrades();
-        const active = shadows.filter(s => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0);
-        if (active.length === 0) { await reply('📈 활성 포지션 없음'); break; }
-
-        let totalUnrealizedPct = 0;
-        let totalRealizedSum   = 0;
-        let totalUnrealizedSum = 0;
-        const lines: string[] = [];
-        for (const s of active) {
-          const price = await fetchCurrentPrice(s.stockCode).catch(() => null);
-          if (!price) {
-            lines.push(`• ${escapeHtml(s.stockName)} — 가격 조회 실패`);
-            continue;
-          }
-          // fills SSOT 기반 실제 잔량 · 누적 실현손익.
-          const realQty       = getRemainingQty(s);
-          const originalQty   = s.originalQuantity ?? s.quantity ?? realQty;
-          const realizedPnl   = getTotalRealizedPnl(s);                       // 누적 실현(원)
-          const unrealizedPct = ((price - s.shadowEntryPrice) / s.shadowEntryPrice) * 100;
-          const unrealizedAmt = (price - s.shadowEntryPrice) * realQty;       // 잔량 기준 평가손익
-          // 총 투입원가 대비 종합 수익률 (realized + unrealized) / (originalQty × entryPrice)
-          const totalCost     = originalQty * s.shadowEntryPrice;
-          const totalPnlAmt   = realizedPnl + unrealizedAmt;
-          const totalPct      = totalCost > 0 ? (totalPnlAmt / totalCost) * 100 : 0;
-
-          totalUnrealizedPct += unrealizedPct;
-          totalRealizedSum   += realizedPnl;
-          totalUnrealizedSum += unrealizedAmt;
-
-          const emoji = totalPct >= 0 ? '🟢' : '🔴';
-          const targetDist = ((s.targetPrice - price) / price * 100).toFixed(1);
-          const stopDist = ((price - (s.hardStopLoss ?? s.stopLoss)) / (s.hardStopLoss ?? s.stopLoss) * 100).toFixed(1);
-          const cacheDrift = s.quantity !== realQty
-            ? ` ⚠️ 캐시 ${s.quantity}주 불일치`
-            : '';
-          const modeTag = s.mode === 'LIVE' ? '' : '[SHADOW] ';
-          const partialSoldQty = originalQty - realQty;
-
-          // realized 블록은 부분매도가 실제로 있었을 때만 표기 (노이즈 억제).
-          const realizedLine = partialSoldQty > 0
-            ? `\n   실현: ${realizedPnl >= 0 ? '+' : ''}${Math.round(realizedPnl).toLocaleString()}원 (${partialSoldQty}주 부분매도 누적)`
-            : '';
-          lines.push(
-            `${emoji} ${modeTag}${escapeHtml(s.stockName)} 총 ${totalPct >= 0 ? '+' : ''}${totalPct.toFixed(1)}%` +
-            ` (${totalPnlAmt >= 0 ? '+' : ''}${Math.round(totalPnlAmt).toLocaleString()}원)${cacheDrift}` +
-            realizedLine +
-            `\n   미실현: ${unrealizedPct >= 0 ? '+' : ''}${unrealizedPct.toFixed(1)}% (잔여 ${realQty}주)` +
-            `\n   목표까지 +${targetDist}% | 손절까지 -${stopDist}%`
-          );
-        }
-        const avgUnrealizedPct = totalUnrealizedPct / active.length;
-        const hasShadowPnl = active.some(s => s.mode !== 'LIVE');
-        const pnlShadowNote = hasShadowPnl
-          ? '\n⚠️ [SHADOW] 포함 — 실계좌 PnL 아님'
-          : '';
-        const totalSum = totalRealizedSum + totalUnrealizedSum;
-        await reply(
-          `📈 <b>[실시간 PnL] ${active.length}개 포지션</b>\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          `${lines.join('\n')}\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          `실현 누계: ${totalRealizedSum >= 0 ? '+' : ''}${Math.round(totalRealizedSum).toLocaleString()}원 | ` +
-          `미실현 합계: ${totalUnrealizedSum >= 0 ? '+' : ''}${Math.round(totalUnrealizedSum).toLocaleString()}원\n` +
-          `총 손익: ${totalSum >= 0 ? '+' : ''}${Math.round(totalSum).toLocaleString()}원 | ` +
-          `평균 미실현률: ${avgUnrealizedPct >= 0 ? '+' : ''}${avgUnrealizedPct.toFixed(2)}%` +
-          pnlShadowNote
-        );
-        break;
-      }
-
-      case '/pos': {
-        const shadows = getShadowTrades();
-        const active = shadows.filter(s => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0);
-        if (active.length === 0) { await reply('📋 보유 포지션 없음'); break; }
-
-        const lines = active.map(s => {
-          const isShadow = s.mode !== 'LIVE';
-          const mode = isShadow ? '🟡' : '🔴';
-          const modeTag = isShadow ? '[SHADOW] ' : '';
-          const status = s.status === 'PENDING' ? '⏳' : s.status === 'ACTIVE' ? '✅' : '◐';
-          // fills SSOT 기반 실제 잔량. 캐시(s.quantity)와 다르면 경보.
-          const realQty = getRemainingQty(s);
-          const cacheDrift = s.quantity !== realQty
-            ? ` <i>⚠️ 캐시 ${s.quantity}주 불일치 — reconcile 권장</i>`
-            : '';
-          return (
-            `${mode}${status} ${modeTag}<b>${escapeHtml(s.stockName)}</b> (${escapeHtml(s.stockCode)})\n` +
-            `   진입: ${s.shadowEntryPrice.toLocaleString()}원 × ${realQty}주${cacheDrift}\n` +
-            `   손절: ${(s.hardStopLoss ?? s.stopLoss).toLocaleString()}원 | 목표: ${s.targetPrice.toLocaleString()}원\n` +
-            `   진입시각: ${new Date(s.signalTime).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`
-          );
-        });
-        const hasShadow = active.some(s => s.mode !== 'LIVE');
-        const shadowNote = hasShadow
-          ? '\n━━━━━━━━━━━━━━━━\n⚠️ 🟡 [SHADOW] 표시 포지션은 가상 — 실계좌 잔고 아님'
-          : '';
-        await reply(
-          `📋 <b>[보유 포지션] ${active.length}개</b>\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          lines.join('\n━━━━━━━━━━━━━━━━\n') +
-          shadowNote
-        );
-        break;
-      }
-
-      case '/add': {
-        const code = args[0]?.replace(/[^0-9]/g, '').slice(0, 6);
-        if (!code || code.length !== 6) {
-          await reply('❌ 사용법: /add 005380 (종목코드 6자리)');
-          break;
-        }
-        const wl = loadWatchlist();
-        if (wl.find(w => w.code === code)) {
-          await reply(`⚠️ ${code} 이미 워치리스트에 있습니다.`);
-          break;
-        }
-
-        // 현재가 조회하여 기본 진입가/손절/목표 자동 설정
-        const price = await fetchCurrentPrice(code).catch(() => null);
-        if (!price) {
-          await reply(`❌ ${code} 현재가 조회 실패 — 유효한 종목코드인지 확인하세요.`);
-          break;
-        }
-        const sl = Math.round(price * 0.92);       // 기본 -8% 손절
-        const tp = Math.round(price * 1.15);       // 기본 +15% 목표
-        // 종목명 조회: STOCK_UNIVERSE → KIS API 순으로 시도
-        const univName = STOCK_UNIVERSE.find(s => s.code === code)?.name;
-        const stockName = univName ?? await fetchStockName(code).catch(() => null) ?? code;
-        const newEntry: WatchlistEntry = {
-          code,
-          name: stockName,
-          entryPrice: price,
-          stopLoss: sl,
-          targetPrice: tp,
-          rrr: parseFloat(calcRRR(price, tp, sl).toFixed(2)),
-          addedAt: new Date().toISOString(),
-          addedBy: 'MANUAL',
-        };
-        wl.push(newEntry);
-        saveWatchlist(wl);
-        await reply(
-          `✅ <b>워치리스트 추가</b>\n` +
-          `종목: ${stockName} (${code})\n` +
-          `진입가: ${price.toLocaleString()}원\n` +
-          `손절: ${newEntry.stopLoss.toLocaleString()}원 (-8%)\n` +
-          `목표: ${newEntry.targetPrice.toLocaleString()}원 (+15%)\n` +
-          `RRR: ${newEntry.rrr}\n` +
-          `<i>대시보드에서 진입가/손절/목표를 조정하세요.</i>`
-        );
-        break;
-      }
-
-      case '/remove': {
-        const code = args[0]?.replace(/[^0-9]/g, '').slice(0, 6);
-        if (!code || code.length !== 6) {
-          await reply('❌ 사용법: /remove 005380 (종목코드 6자리)');
-          break;
-        }
-        const wl = loadWatchlist();
-        const idx = wl.findIndex(w => w.code === code);
-        if (idx === -1) {
-          await reply(`⚠️ ${code} 워치리스트에 없습니다.`);
-          break;
-        }
-        const removed = wl.splice(idx, 1)[0];
-        saveWatchlist(wl);
-        await reply(`🗑 <b>워치리스트 제거</b>\n${removed.name}(${code}) 삭제 완료\n잔여: ${wl.length}개`);
-        break;
-      }
-
       case '/scan': {
         if (getEmergencyStop()) {
           await reply('🔴 비상 정지 상태 — 스캔 불가. /reset 으로 해제 후 재시도.');
@@ -1094,273 +838,6 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         break;
       }
 
-      case '/focus': {
-        const wl = loadWatchlist();
-        const focusList = wl.filter(w => w.section === 'SWING' || w.section === 'CATALYST' || (!w.section && (w.track === 'B' || w.addedBy === 'MANUAL')));
-        if (focusList.length === 0) {
-          await reply(
-            '🎯 <b>Focus 종목이 없습니다.</b>\n\n' +
-            '💡 <i>Gate Score 상위 종목이 SWING으로 자동 승격되거나,\n' +
-            '/add 로 수동 추가하면 SWING에 포함됩니다.</i>'
-          );
-          break;
-        }
-
-        const lines: string[] = [];
-        for (const w of focusList) {
-          const focusMark = w.isFocus ? '⭐' : '';
-          const manualMark = w.addedBy === 'MANUAL' ? '👤' : w.addedBy === 'DART' ? '📢' : '🤖';
-          const gate = w.gateScore !== undefined ? `Gate ${w.gateScore.toFixed(1)}` : 'Gate -';
-          const rrr = w.rrr !== undefined ? `RRR 1:${w.rrr.toFixed(1)}` : '';
-          const sector = w.sector ? escapeHtml(w.sector) : '';
-          const profile = w.profileType ? `[${escapeHtml(w.profileType)}]` : '';
-          const cooldown = w.cooldownUntil && new Date(w.cooldownUntil) > new Date()
-            ? '🧊 쿨다운중' : '';
-          const addedDate = new Date(w.addedAt).toLocaleDateString('ko-KR', {
-            month: 'short', day: 'numeric', timeZone: 'Asia/Seoul',
-          });
-          const meta = [gate, rrr, sector, profile].filter(Boolean).join(' · ');
-
-          lines.push(
-            `${focusMark}${manualMark} <b>${escapeHtml(w.name)}</b> (${escapeHtml(w.code)}) ${cooldown}\n` +
-            `   💰 진입: ${w.entryPrice.toLocaleString()}원\n` +
-            `   🛡️ 손절: ${w.stopLoss.toLocaleString()}원 | 🎯 목표: ${w.targetPrice.toLocaleString()}원\n` +
-            `   📊 ${meta}\n` +
-            `   📅 등록: ${addedDate}` +
-            (w.memo ? ` | 💬 ${escapeHtml(w.memo)}` : '')
-          );
-        }
-
-        await reply(
-          `🎯 <b>[Track B — 매수 대상] ${focusList.length}개</b>\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          lines.join('\n━━━━━━━━━━━━━━━━\n') +
-          `\n━━━━━━━━━━━━━━━━\n` +
-          `⭐=자동매수대상 👤=수동 🤖=자동발굴 🧊=쿨다운\n` +
-          `💡 /buy 종목코드 — 수동 매수 신호 트리거`
-        );
-        break;
-      }
-
-      case '/watchlist_channel': {
-        const { channelWatchlistSummary } = await import('../alerts/channelPipeline.js');
-        const wl = loadWatchlist();
-        if (wl.length === 0) {
-          await reply('📋 워치리스트가 비어 있어 채널 발송할 내용이 없습니다.');
-          break;
-        }
-        await channelWatchlistSummary(wl);
-        await reply(`✅ 워치리스트 ${wl.length}개 종목을 채널에 발송했습니다.`);
-        break;
-      }
-
-      case '/channel_health': {
-        await reply('🧪 4개 채널 헬스체크를 실행합니다...');
-        const result = await runChannelHealthCheck();
-        const categories: AlertCategory[] = [
-          AlertCategory.TRADE,
-          AlertCategory.ANALYSIS,
-          AlertCategory.INFO,
-          AlertCategory.SYSTEM,
-        ];
-        const lines = categories.map((category) => {
-          const item = result[category];
-          const icon = item.ok ? '✅' : '❌';
-          const reason = item.reason ? ` (${escapeHtml(item.reason)})` : '';
-          const enabled = item.enabled ? '' : ' [disabled]';
-          const configured = item.configured ? '' : ' [unconfigured]';
-          return `${category}: ${icon}${enabled}${configured}${reason}`;
-        });
-        await reply(
-          `🧪 <b>[채널 헬스체크 결과]</b>\n` +
-          `${lines.join('\n')}`
-        );
-        break;
-      }
-
-      case '/channel_stats': {
-        const raw = (args[0] ?? 'today').toLowerCase();
-        const todayKey = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
-        const yesterdayKey = new Date(Date.now() - 24 * 60 * 60 * 1000)
-          .toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
-        const dateKey =
-          raw === 'today'
-            ? todayKey
-            : raw === 'yesterday'
-              ? yesterdayKey
-              : raw;
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
-          await reply('❌ 사용법: /channel_stats [YYYY-MM-DD|today|yesterday]');
-          break;
-        }
-
-        const stats = getChannelStatsByDate(dateKey);
-        const recentKeys = getRecentDateKeys(7);
-        const categories: AlertCategory[] = [
-          AlertCategory.TRADE,
-          AlertCategory.ANALYSIS,
-          AlertCategory.INFO,
-          AlertCategory.SYSTEM,
-        ];
-        const lines = categories.map((category) => {
-          const bucket = stats[category];
-          return `${category}: sent=${bucket.sent}, skipped=${bucket.skipped}, failed=${bucket.failed}, digested=${bucket.digested}`;
-        });
-        const totalSent = categories.reduce((sum, category) => sum + stats[category].sent, 0);
-        const totalFailed = categories.reduce((sum, category) => sum + stats[category].failed, 0);
-
-        await reply(
-          `📊 <b>[채널 통계 ${dateKey} KST]</b>\n` +
-          `${lines.join('\n')}\n` +
-          `total: sent=${totalSent}, failed=${totalFailed}\n` +
-          `recent keys: ${recentKeys.length > 0 ? recentKeys.join(', ') : '(none)'}`
-        );
-        break;
-      }
-
-      case '/alert_replay': {
-        const id = (args[0] ?? '').trim();
-        const categoryRaw = (args[1] ?? '').trim().toUpperCase();
-        if (!id) {
-          await reply('❌ 사용법: /alert_replay <id> [TRADE|ANALYSIS|INFO|SYSTEM]');
-          break;
-        }
-
-        const history = findAlertHistoryById(id);
-        if (!history) {
-          await reply(`❌ alert id not found: ${escapeHtml(id)}`);
-          break;
-        }
-
-        const targetCategory = categoryRaw
-          ? (Object.values(AlertCategory).includes(categoryRaw as AlertCategory)
-            ? (categoryRaw as AlertCategory)
-            : null)
-          : history.category;
-
-        if (!targetCategory) {
-          await reply('❌ category must be one of TRADE, ANALYSIS, INFO, SYSTEM');
-          break;
-        }
-
-        const replayMessage = `${history.message}\n\n<i>[replay: ${escapeHtml(id)}]</i>`;
-        const msgId = await dispatchAlert(targetCategory, replayMessage, {
-          priority: history.priority,
-          dedupeKey: `replay:${id}:${Date.now()}`,
-          delivery: 'immediate',
-        }).catch(() => undefined);
-
-        await reply(
-          msgId !== undefined
-            ? `✅ replay sent: ${escapeHtml(id)} -> ${targetCategory} (message_id: ${msgId})`
-            : `❌ replay failed: ${escapeHtml(id)} -> ${targetCategory}`
-        );
-        break;
-      }
-
-      case '/alert_history': {
-        const rawLimit = Number(args[0] ?? '8');
-        const limit = Number.isFinite(rawLimit) ? Math.min(20, Math.max(1, Math.floor(rawLimit))) : 8;
-        const rows = getRecentAlertHistory(limit);
-        if (rows.length === 0) {
-          await reply('ℹ️ alert history is empty');
-          break;
-        }
-        const lines = rows.map((row) => {
-          const kst = new Date(row.at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
-          const status = row.success ? 'OK' : 'FAIL';
-          return `${escapeHtml(row.id)} | ${row.category} | ${status} | ${kst}`;
-        });
-        await reply(
-          `🗂️ <b>[Alert History 최근 ${rows.length}건]</b>\n` +
-          `${lines.join('\n')}\n\n` +
-          `<i>replay: /alert_replay &lt;id&gt; [TRADE|ANALYSIS|INFO|SYSTEM]</i>`
-        );
-        break;
-      }
-
-      case '/channel_test': {
-        await reply(
-          `🔍 <b>[채널 테스트]</b>\n` +
-          `CHANNEL_ENABLED: ${process.env.CHANNEL_ENABLED ?? '미설정'}\n` +
-          `TELEGRAM_CHAT_ID: ${process.env.TELEGRAM_CHAT_ID ?? '미설정'}\n` +
-          `채널로 테스트 메시지를 전송합니다...`
-        );
-        const { sendChannelAlert } = await import('../alerts/telegramClient.js');
-        const kstStr = new Date(Date.now() + 9 * 3_600_000)
-          .toISOString().replace('T', ' ').slice(0, 19);
-        const msgId = await sendChannelAlert(
-          `🧪 <b>[채널 연결 테스트]</b>\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          `✅ QuantMaster Pro 채널 연결 성공\n` +
-          `⏰ ${kstStr} KST`
-        ).catch(() => null);
-        await reply(
-          msgId
-            ? `✅ 채널 발송 성공 (message_id: ${msgId})`
-            : `❌ 채널 발송 실패 — TELEGRAM_CHAT_ID 또는 봇 권한 확인 필요`
-        );
-        break;
-      }
-
-      case '/dxy_intraday':
-      case '/dxy': {
-        // P3-7: DXY 인트라데이 스냅샷. Yahoo 5m 우선, ALPHA_VANTAGE_API_KEY 시 fallback.
-        const { getDxyIntradaySnapshot } = await import('../alerts/dxyMonitor.js');
-        const snap = await getDxyIntradaySnapshot();
-        if (!snap) {
-          await reply(
-            '💱 <b>[DXY 인트라데이]</b>\n' +
-            '데이터 소스 모두 실패 — Yahoo Finance 와 Alpha Vantage 모두 응답 없음.\n' +
-            '<i>ALPHA_VANTAGE_API_KEY 환경변수를 설정하면 fallback 이 활성화됩니다.</i>'
-          );
-          break;
-        }
-        const sign = snap.changePct >= 0 ? '+' : '';
-        const arrow = snap.changePct >= 0 ? '▲' : '▼';
-        const stale = snap.source === 'YAHOO'
-          ? `최신 봉: ${new Date(snap.asOf).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })}`
-          : `Alpha Vantage 단일 스냅샷 (변화율 비교 불가)`;
-        await reply(
-          `💱 <b>[DXY 인트라데이]</b> 소스: ${snap.source}\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          `${arrow} DXY ${snap.last.toFixed(2)} | ${snap.windowMinutes}분 윈도우 ${sign}${snap.changePct.toFixed(2)}%\n` +
-          `${stale}\n\n` +
-          `<i>임계 ±${process.env.DXY_INTRADAY_THRESHOLD ?? '0.4'}% 돌파 시 자동 ANALYSIS 채널 + 개인 채팅 발송</i>`
-        );
-        break;
-      }
-
-      case '/news_patterns':
-      case '/news_lag': {
-        // P3-6: 베이지안으로 학습된 (newsType × sector) lag 분포 카탈로그.
-        // T+5 결산이 누적될수록 정확도가 올라간다. 표본 < 3 인 항목은 표시 제외.
-        const { listAllOptimalWindows } = await import('../learning/newsLagBayesian.js');
-        const windows = listAllOptimalWindows(3);
-        if (windows.length === 0) {
-          await reply(
-            '📡 <b>[뉴스-수급 시차 학습]</b>\n' +
-            '아직 표본 ≥3 인 (newsType × sector) 조합이 없습니다.\n' +
-            '<i>T+5 결산이 누적될수록 카탈로그가 채워집니다.</i>'
-          );
-          break;
-        }
-        const top = windows.slice(0, 12);
-        const lines = top.map(w =>
-          `• <b>${escapeHtml(w.newsType)} → ${escapeHtml(w.sector)}</b>\n` +
-          `   peak ${w.meanLagDays}d ± ${w.stdDays}d ` +
-          `(95% [${w.ci95LowDays}, ${w.ci95HighDays}d], n=${w.sampleSize})`
-        );
-        await reply(
-          `📡 <b>[뉴스-수급 시차 카탈로그] ${windows.length}개</b>\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          lines.join('\n') +
-          (windows.length > 12 ? `\n...외 ${windows.length - 12}개` : '') +
-          `\n\n<i>모델: Normal-Inverse-Gamma conjugate posterior on lag(business days)</i>`
-        );
-        break;
-      }
-
       case '/risk_budget':
       case '/risk': {
         // 사용자 P1-2: 계좌 레벨 리스크 예산 + Fractional Kelly 가시성.
@@ -1483,29 +960,6 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `해제된 KIS 회로: ${cleared}개\n` +
           `KRX OpenAPI 회로: 함께 reset 시도\n` +
           `<i>저녁 스캔/추천 작업 전 호출 권장. 이후 5xx 가 다시 누적되면 재차 차단됩니다.</i>`
-        );
-        break;
-      }
-
-      case '/digest_on': {
-        setDigestEnabled(true);
-        await reply('📋 다이제스트 수신 ON — 30분 단위로 요약 발송됩니다.');
-        break;
-      }
-
-      case '/digest_off': {
-        setDigestEnabled(false);
-        await reply(
-          '🔕 다이제스트 수신 OFF — T3 알림은 Telegram 으로 발송되지 않습니다.\n' +
-          '<i>기록은 계속 쌓이며 /todaylog 로 조회 가능.</i>'
-        );
-        break;
-      }
-
-      case '/digest_status': {
-        await reply(
-          `📋 다이제스트 상태: <b>${isDigestEnabled() ? 'ON' : 'OFF'}</b>\n` +
-          `<i>/digest_on · /digest_off 로 토글</i>`
         );
         break;
       }
