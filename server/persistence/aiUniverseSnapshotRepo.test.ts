@@ -51,14 +51,12 @@ function makeSnapshot(overrides: Partial<AiUniverseSnapshot> = {}): AiUniverseSn
   };
 }
 
-const MODES: AiUniverseMode[] = ['MOMENTUM', 'EARLY_DETECT', 'QUANT_SCREEN', 'BEAR_SCREEN'];
+const MODES: AiUniverseMode[] = ['MOMENTUM', 'EARLY_DETECT', 'QUANT_SCREEN', 'BEAR_SCREEN', 'SMALL_MID_CAP'];
 
 function cleanAllSnapshots(): void {
   for (const m of MODES) {
     try { fs.unlinkSync(aiUniverseSnapshotFile(m)); } catch { /* not present */ }
   }
-  // 변형 mode (SMALL_MID_CAP) 도 제거
-  try { fs.unlinkSync(aiUniverseSnapshotFile('SMALL_MID_CAP')); } catch { /* not present */ }
 }
 
 describe('aiUniverseSnapshotRepo (PR-37, ADR-0016)', () => {
@@ -120,7 +118,7 @@ describe('aiUniverseSnapshotRepo (PR-37, ADR-0016)', () => {
     expect(meta.tradingDate).toBeNull();
   });
 
-  it('mode 별 분리 — MOMENTUM 저장이 BEAR_SCREEN 에 영향 없음', () => {
+  it('mode 별 분리 — MOMENTUM 저장이 다른 mode 에 영향 없음', () => {
     const momentum = makeSnapshot({ mode: 'MOMENTUM', tradingDate: '2026-04-24' });
     saveAiUniverseSnapshot('MOMENTUM', momentum);
 
@@ -128,13 +126,15 @@ describe('aiUniverseSnapshotRepo (PR-37, ADR-0016)', () => {
     expect(loadAiUniverseSnapshot('BEAR_SCREEN')).toBeNull();
     expect(loadAiUniverseSnapshot('QUANT_SCREEN')).toBeNull();
     expect(loadAiUniverseSnapshot('EARLY_DETECT')).toBeNull();
+    expect(loadAiUniverseSnapshot('SMALL_MID_CAP')).toBeNull();
   });
 
-  it('변형 mode (SMALL_MID_CAP) — paths.aiUniverseSnapshotFile 가 안전 정규화', () => {
-    const snap = makeSnapshot({ mode: 'MOMENTUM' });
+  it('PR-39: SMALL_MID_CAP 정규 mode — 다른 mode 와 동일하게 round-trip 동작', () => {
+    const snap = makeSnapshot({ mode: 'SMALL_MID_CAP' });
     expect(saveAiUniverseSnapshot('SMALL_MID_CAP', snap)).toBe(true);
     const loaded = loadAiUniverseSnapshot('SMALL_MID_CAP');
     expect(loaded).not.toBeNull();
+    expect(loaded?.mode).toBe('SMALL_MID_CAP');
     __testOnly.removeSnapshotFile('SMALL_MID_CAP');
   });
 

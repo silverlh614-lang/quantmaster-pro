@@ -274,6 +274,21 @@ function rankCandidates(
       .map((it) => ({ ...it.entry, metrics: it.metrics }));
   }
 
+  if (mode === 'SMALL_MID_CAP') {
+    // PR-39: KOSDAQ 우선 정렬 + 각 그룹 내 모멘텀 순. KOSDAQ 그룹이 빈 경우 KOSPI 만.
+    // Naver enrichment 후 service 단에서 시총 1,000억~3조 범위 필터 가능 (PER 정밀 필터는 후속).
+    const kosdaq = new Map<string, typeof items[number]>();
+    const kospi = new Map<string, typeof items[number]>();
+    for (const it of items) {
+      if (it.entry.market === 'KOSDAQ') kosdaq.set(it.entry.code, it);
+      else kospi.set(it.entry.code, it);
+    }
+    return [
+      ...rankCandidates('MOMENTUM', kosdaq),
+      ...rankCandidates('MOMENTUM', kospi),
+    ];
+  }
+
   // QUANT_SCREEN — Naver enrichment 가 PER/PBR 을 제공해야 본격 정렬 가능.
   // Tier 3 단계에서는 MOMENTUM 정렬을 그대로 사용해 candidates 를 먼저 뽑고,
   // service 가 Naver 보강 후 PER<=15 / PBR<=1.5 필터를 적용하도록 위임.

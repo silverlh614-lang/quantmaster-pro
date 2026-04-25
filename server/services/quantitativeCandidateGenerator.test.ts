@@ -221,4 +221,33 @@ describe('quantitativeCandidateGenerator (PR-37)', () => {
     const r = __testOnly.rankCandidates('QUANT_SCREEN', items);
     expect(r[0].code).toBe('B');
   });
+
+  it('PR-39: rankCandidates — SMALL_MID_CAP 은 KOSDAQ 우선 + 각 그룹 내 모멘텀 순', () => {
+    const items = new Map<string, { entry: { code: string; name: string; market: 'KOSPI' | 'KOSDAQ' }; metrics: Record<string, number> }>();
+    // KOSPI 가 더 높은 모멘텀이지만 SMALL_MID_CAP 은 KOSDAQ 을 우선해야 함
+    items.set('KP1', { entry: { code: 'KP1', name: 'kp1', market: 'KOSPI' }, metrics: { momentum20d: 0.40, avgTurnoverKrw: 1000 } });
+    items.set('KQ_LOW', { entry: { code: 'KQ_LOW', name: 'kqL', market: 'KOSDAQ' }, metrics: { momentum20d: 0.05, avgTurnoverKrw: 100 } });
+    items.set('KQ_HIGH', { entry: { code: 'KQ_HIGH', name: 'kqH', market: 'KOSDAQ' }, metrics: { momentum20d: 0.20, avgTurnoverKrw: 200 } });
+    items.set('KP2', { entry: { code: 'KP2', name: 'kp2', market: 'KOSPI' }, metrics: { momentum20d: 0.15, avgTurnoverKrw: 500 } });
+    const r = __testOnly.rankCandidates('SMALL_MID_CAP', items);
+    expect(r.length).toBe(4);
+    // KOSDAQ 그룹 우선 — 첫 두 개 모두 KOSDAQ
+    expect(r[0].market).toBe('KOSDAQ');
+    expect(r[1].market).toBe('KOSDAQ');
+    // KOSDAQ 그룹 내 모멘텀 높은 순 — KQ_HIGH 가 KQ_LOW 보다 앞
+    expect(r[0].code).toBe('KQ_HIGH');
+    expect(r[1].code).toBe('KQ_LOW');
+    // KOSPI 그룹은 KOSDAQ 다음
+    expect(r[2].market).toBe('KOSPI');
+    expect(r[3].market).toBe('KOSPI');
+  });
+
+  it('PR-39: rankCandidates — SMALL_MID_CAP 에 KOSDAQ 0건이면 KOSPI 만 모멘텀 순', () => {
+    const items = new Map<string, { entry: { code: string; name: string; market: 'KOSPI' | 'KOSDAQ' }; metrics: Record<string, number> }>();
+    items.set('A', { entry: { code: 'A', name: 'a', market: 'KOSPI' }, metrics: { momentum20d: 0.05, avgTurnoverKrw: 100 } });
+    items.set('B', { entry: { code: 'B', name: 'b', market: 'KOSPI' }, metrics: { momentum20d: 0.30, avgTurnoverKrw: 200 } });
+    const r = __testOnly.rankCandidates('SMALL_MID_CAP', items);
+    expect(r[0].code).toBe('B');
+    expect(r[1].code).toBe('A');
+  });
 });

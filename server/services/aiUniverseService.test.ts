@@ -24,7 +24,7 @@ function cleanFiles(): void {
   for (const f of [AI_CALL_BUDGET_FILE, KRX_STOCK_MASTER_FILE]) {
     try { fs.unlinkSync(f); } catch { /* not present */ }
   }
-  for (const m of ['MOMENTUM', 'EARLY_DETECT', 'QUANT_SCREEN', 'BEAR_SCREEN']) {
+  for (const m of ['MOMENTUM', 'EARLY_DETECT', 'QUANT_SCREEN', 'BEAR_SCREEN', 'SMALL_MID_CAP']) {
     try { fs.unlinkSync(aiUniverseSnapshotFile(m)); } catch { /* not present */ }
   }
 }
@@ -56,11 +56,21 @@ describe('aiUniverseService (ADR-0011)', () => {
     vi.restoreAllMocks();
   });
 
-  it('MODE_QUERIES — 4개 mode 모두 쿼리 정의됨', () => {
+  it('MODE_QUERIES — 5개 mode 모두 쿼리 정의됨 (PR-39 SMALL_MID_CAP 포함)', () => {
     expect(__testOnly.MODE_QUERIES.MOMENTUM.length).toBeGreaterThan(0);
     expect(__testOnly.MODE_QUERIES.QUANT_SCREEN.length).toBeGreaterThan(0);
     expect(__testOnly.MODE_QUERIES.BEAR_SCREEN.length).toBeGreaterThan(0);
     expect(__testOnly.MODE_QUERIES.EARLY_DETECT.length).toBeGreaterThan(0);
+    expect(__testOnly.MODE_QUERIES.SMALL_MID_CAP.length).toBeGreaterThan(0);
+  });
+
+  it('PR-39: buildSeedFallback SMALL_MID_CAP 은 LARGE_MOMENTUM(초대형주)을 제외하고 GROWTH_MID 만 반환', () => {
+    const seed = __testOnly.buildSeedFallback('SMALL_MID_CAP', 8);
+    expect(seed.length).toBeGreaterThan(0);
+    // 삼성전자/SK하이닉스/현대차/기아 — LARGE_MOMENTUM 단일 태그 또는 LARGE_MOMENTUM+VALUE
+    expect(seed.every((e) => !['005930', '000660', '005380', '000270'].includes(e.code))).toBe(true);
+    // KOSDAQ GROWTH_MID 가 최소 1개 포함 — 에코프로비엠/에코프로/셀트리온헬스케어/알테오젠/엘앤에프
+    expect(seed.some((e) => ['247540', '086520', '091990', '196170', '066970'].includes(e.code))).toBe(true);
   });
 
   it('Google Search 미설정 + AI_UNIVERSE_FALLBACK_DISABLED — Tier 5 즉시 (ADR-0011 호환)', async () => {

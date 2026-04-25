@@ -16,8 +16,12 @@
  * SymbolMarketRegistry(PR-26) · marketGate(PR-26/27) 통과한 KR 심볼만.
  */
 
-/** AI 추천 mode — 4 정규 mode + 클라이언트 변형 SMALL_MID_CAP 은 momentumRecommendations 에서 흡수. */
-export type AiUniverseMode = 'MOMENTUM' | 'QUANT_SCREEN' | 'BEAR_SCREEN' | 'EARLY_DETECT';
+/**
+ * AI 추천 mode — 5 정규값. PR-39 부터 `SMALL_MID_CAP` 이 클라이언트 변형에서
+ * 서버 정규 mode 로 승격되어 universe 발굴 단계부터 KOSDAQ·중소형 성장주 우선
+ * 후보를 반환한다 (`MODE_QUERIES.SMALL_MID_CAP` + `buildSeedFallback` + `rankCandidates` 분기).
+ */
+export type AiUniverseMode = 'MOMENTUM' | 'QUANT_SCREEN' | 'BEAR_SCREEN' | 'EARLY_DETECT' | 'SMALL_MID_CAP';
 
 /**
  * universe 응답의 출처 단일 SSOT. 클라이언트가 사용자에게 정확한 사유를 안내할 수 있도록
