@@ -5,6 +5,8 @@ import {
   deriveYahooStatus,
   computeVerdict,
   collectHealthSnapshot,
+  classifyYahooProbe,
+  classifyDartStatus,
   type HealthVerdict,
 } from './diagnostics.js';
 import type { ScanSummary } from '../trading/signalScanner/scanDiagnostics.js';
@@ -331,5 +333,81 @@ describe('collectHealthSnapshot — 통합 SSOT', () => {
     expect(s.volume.ok).toBe(false);
     expect(s.volume.error).toBe('EACCES');
     expect(s.verdict).toBe('🔴 VOLUME_UNMOUNTED');
+  });
+});
+
+// ── classifyYahooProbe ───────────────────────────────────────────────────────
+
+describe('classifyYahooProbe — HTTP 상태 코드 severity 매핑', () => {
+  it('200 → OK', () => {
+    expect(classifyYahooProbe(200)).toEqual({ severity: 'OK', message: 'Yahoo probe OK' });
+  });
+
+  it('299 → OK (2xx 범위 끝)', () => {
+    expect(classifyYahooProbe(299).severity).toBe('OK');
+  });
+
+  it('429 (rate limit) → WARN', () => {
+    expect(classifyYahooProbe(429).severity).toBe('WARN');
+    expect(classifyYahooProbe(429).message).toContain('429');
+  });
+
+  it('502/503/504 (게이트웨이/일시) → WARN', () => {
+    expect(classifyYahooProbe(502).severity).toBe('WARN');
+    expect(classifyYahooProbe(503).severity).toBe('WARN');
+    expect(classifyYahooProbe(504).severity).toBe('WARN');
+    // 사용자 보고 케이스: 503 이 ❌ 가 아니라 ⚠️ 로 표시되어야 한다.
+    expect(classifyYahooProbe(503).message).toContain('temporary unavailable');
+  });
+
+  it('400/401/404 → WARN (비정상이지만 cron 다음 주기 재시도)', () => {
+    expect(classifyYahooProbe(404).severity).toBe('WARN');
+    expect(classifyYahooProbe(404).message).toContain('non-OK');
+  });
+
+  it('statusCode undefined (timeout/network) → WARN', () => {
+    expect(classifyYahooProbe(undefined)).toEqual({
+      severity: 'WARN',
+      message: 'Yahoo probe timeout or network error',
+    });
+  });
+});
+
+// ── classifyDartStatus ──────────────────────────────────────────────────────
+
+describe('classifyDartStatus — DART API 상태 코드 severity 매핑', () => {
+  it('000 (정상) → OK', () => {
+    expect(classifyDartStatus('000').severity).toBe('OK');
+  });
+
+  it('013 (조회 데이터 없음) → OK — probe 자체 도달 성공이므로 의미상 정상', () => {
+    // 사용자 보고 케이스: status=013 이 ❌ 가 아니라 ✅ 로 표시되어야 한다.
+    const r = classifyDartStatus('013');
+    expect(r.severity).toBe('OK');
+    expect(r.message).toContain('reachable');
+  });
+
+  it('010/011/012/901 (인증·계정) → CRITICAL', () => {
+    expect(classifyDartStatus('010').severity).toBe('CRITICAL');
+    expect(classifyDartStatus('011').severity).toBe('CRITICAL');
+    expect(classifyDartStatus('012').severity).toBe('CRITICAL');
+    expect(classifyDartStatus('901').severity).toBe('CRITICAL');
+    expect(classifyDartStatus('010').message).toContain('인증');
+  });
+
+  it('020/800/900 (일시·시스템) → WARN', () => {
+    expect(classifyDartStatus('020').severity).toBe('WARN');
+    expect(classifyDartStatus('800').severity).toBe('WARN');
+    expect(classifyDartStatus('900').severity).toBe('WARN');
+    expect(classifyDartStatus('800').message).toContain('일시/제한');
+  });
+
+  it('정의되지 않은 status → WARN', () => {
+    expect(classifyDartStatus('XYZ').severity).toBe('WARN');
+    expect(classifyDartStatus('XYZ').message).toContain('알 수 없는');
+  });
+
+  it('빈 문자열 → WARN', () => {
+    expect(classifyDartStatus('').severity).toBe('WARN');
   });
 });

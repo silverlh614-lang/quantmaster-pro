@@ -121,8 +121,24 @@ export interface HealthSnapshot {
 }
 
 export interface HealthProbeResult {
-  yahoo: { ok: boolean; detail: string };
-  dart: { ok: boolean; detail: string };
+  yahoo: HealthProbeOutcome;
+  dart: HealthProbeOutcome;
+}
+
+/**
+ * 외부 probe 결과 분류 — 단순 ok/fail 보다 정확한 severity 매핑.
+ * - OK       : 응답 정상 또는 의미상 정상 (예: DART status=013 "데이터 없음")
+ * - WARN     : 일시 장애 / 비정상 응답 / 네트워크 에러
+ * - CRITICAL : 인증/접근 권한 문제 — 운영자가 즉시 확인 필요
+ */
+export type HealthProbeSeverity = 'OK' | 'WARN' | 'CRITICAL';
+
+export interface HealthProbeOutcome {
+  severity: HealthProbeSeverity;
+  /** HTTP 상태 코드 (네트워크 에러 / non-HTTP 실패 시 undefined). */
+  statusCode?: number;
+  /** 사람이 읽을 수 있는 사유 — 텔레그램 표시용. */
+  message: string;
 }
 
 // ─── 핵심: 스냅샷 수집 ───────────────────────────────────────────────────
@@ -293,11 +309,76 @@ export function computeVerdict(i: VerdictInputs): HealthVerdict {
   return '🟢 OK';
 }
 
+// ─── 외부 HTTP probe 분류 ────────────────────────────────────────────────
+
+/**
+ * Yahoo HTTP probe 결과 분류. 사용자 패치 권장안 — 단순 ok/fail 대신 severity 매핑.
+ *
+ * - 200~299 → OK
+ * - 429/502/503/504 → WARN (일시 장애·rate limit, retry 가치 있음)
+ * - statusCode 없음(타임아웃/네트워크) → WARN
+ * - 그 외 4xx/5xx → WARN (비정상이지만 cron 다음 주기 재시도)
+ */
+export function classifyYahooProbe(statusCode?: number): {
+  severity: HealthProbeSeverity;
+  message: string;
+} {
+  if (statusCode === undefined) {
+    return { severity: 'WARN', message: 'Yahoo probe timeout or network error' };
+  }
+  if (statusCode >= 200 && statusCode < 300) {
+    return { severity: 'OK', message: 'Yahoo probe OK' };
+  }
+  if (statusCode === 429 || statusCode === 502 || statusCode === 503 || statusCode === 504) {
+    return { severity: 'WARN', message: `Yahoo temporary unavailable status=${statusCode}` };
+  }
+  return { severity: 'WARN', message: `Yahoo probe non-OK status=${statusCode}` };
+}
+
+/**
+ * DART API status 코드 분류. 사용자 패치 권장안.
+ *
+ * DART 공식 코드 (https://opendart.fss.or.kr 명세):
+ * - 000 정상 / 010 미등록키 / 011 사용한도 / 012 접근거부 / 013 조회 데이터 없음
+ * - 020 요청 초과 / 100 필드 부재 / 800 시스템 점검 / 900 정의되지 않은 오류 / 901 사용자 계정 만료
+ *
+ * - status=000 → OK
+ * - status=013 → OK (데이터 없음 — probe 자체는 도달 성공, 의미상 정상)
+ * - status=010/011/012/901 → CRITICAL (인증·계정·권한)
+ * - status=020/800/900 → WARN (일시·시스템·미분류 오류)
+ * - 그 외 → WARN
+ */
+export function classifyDartStatus(status: string): {
+  severity: HealthProbeSeverity;
+  message: string;
+} {
+  switch (status) {
+    case '000':
+      return { severity: 'OK', message: 'DART API 정상 응답' };
+    case '013':
+      return { severity: 'OK', message: 'DART API reachable, no data for probe query' };
+    case '010':
+    case '011':
+    case '012':
+    case '901':
+      return { severity: 'CRITICAL', message: `DART 인증/접근 문제 status=${status}` };
+    case '020':
+    case '800':
+    case '900':
+      return { severity: 'WARN', message: `DART 일시/제한 문제 status=${status}` };
+    default:
+      return { severity: 'WARN', message: `DART 알 수 없는 status=${status}` };
+  }
+}
+
 // ─── 외부 HTTP probe (옵셔널) ────────────────────────────────────────────
 
 /**
  * Yahoo / DART 라이브 probe. health.cmd 만 사용 (HTTP 라우트는 응답 시간 보호 위해 미사용).
  * timeoutMs 초과 시 각 probe 가 개별 reject — 다른 probe 는 영향 없음.
+ *
+ * 결과는 `classifyYahooProbe` / `classifyDartStatus` 로 severity 매핑 — 단순 ok/fail
+ * 보다 정확하다 (예: DART status=013 "데이터 없음" 은 ❌ 가 아니라 ✅).
  */
 export async function runExternalProbes(timeoutMs = 3000): Promise<HealthProbeResult> {
   const withTimeout = <T,>(p: Promise<T>): Promise<T> =>
@@ -308,23 +389,39 @@ export async function runExternalProbes(timeoutMs = 3000): Promise<HealthProbeRe
       ),
     ]);
 
-  const yahooProbe = withTimeout(
+  const yahooProbe: Promise<HealthProbeOutcome> = withTimeout(
     guardedFetch(
       'https://query1.finance.yahoo.com/v7/finance/chart/^KS11?interval=1d&range=1d',
-    ).then(r => ({ ok: r.ok, detail: r.ok ? 'OK' : `HTTP ${r.status}` })),
-  ).catch(e => ({ ok: false, detail: (e as Error).message }));
+    ).then((r) => {
+      const cls = classifyYahooProbe(r.status);
+      return { severity: cls.severity, statusCode: r.status, message: cls.message };
+    }),
+  ).catch((e) => ({
+    severity: 'WARN' as HealthProbeSeverity,
+    message: `Yahoo probe error: ${(e as Error).message}`,
+  }));
 
-  const dartProbe = withTimeout(
+  const dartProbe: Promise<HealthProbeOutcome> = withTimeout(
     fetch(
       `https://opendart.fss.or.kr/api/list.json?crtfc_key=${process.env.DART_API_KEY ?? ''}&page_count=1`,
-    ).then(async r => {
-      if (!r.ok) return { ok: false, detail: `HTTP ${r.status}` };
+    ).then(async (r) => {
+      if (!r.ok) {
+        // HTTP 자체 실패 — DART status 분류 불가, transport 레벨로만 판단.
+        return {
+          severity: r.status >= 500 ? 'WARN' : 'WARN',
+          statusCode: r.status,
+          message: `DART HTTP ${r.status}`,
+        } satisfies HealthProbeOutcome;
+      }
       const j = (await r.json()) as { status?: string };
-      return j.status === '000'
-        ? { ok: true, detail: 'OK' }
-        : { ok: false, detail: `status=${j.status}` };
+      const apiStatus = j.status ?? 'unknown';
+      const cls = classifyDartStatus(apiStatus);
+      return { severity: cls.severity, statusCode: r.status, message: cls.message };
     }),
-  ).catch(e => ({ ok: false, detail: (e as Error).message }));
+  ).catch((e) => ({
+    severity: 'WARN' as HealthProbeSeverity,
+    message: `DART probe error: ${(e as Error).message}`,
+  }));
 
   const [yahoo, dart] = await Promise.all([yahooProbe, dartProbe]);
   return { yahoo, dart };

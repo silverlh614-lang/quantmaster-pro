@@ -4,6 +4,7 @@ import {
   runExternalProbes,
   type HealthSnapshot,
   type HealthProbeResult,
+  type HealthProbeOutcome,
 } from '../../../health/diagnostics.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -35,8 +36,7 @@ export function formatHealthMessage(s: HealthSnapshot, p: HealthProbeResult): st
   const lastScanAt = formatKstHm(s.lastScanTs);
   const lastBuyAt = formatKstHm(s.lastBuyTs, '없음');
   const yahooLine = formatYahooStatusLine(s);
-  const probeLabel = (probe: { ok: boolean; detail: string }) =>
-    probe.ok ? `✅ ${probe.detail}` : `❌ ${probe.detail}`;
+  const probeLabel = formatProbeOutcome;
 
   return (
     `🩺 <b>[파이프라인 헬스체크]</b> (uptime ${s.uptimeHours}h / mem ${s.memMB}MB / build ${s.commitSha})\n` +
@@ -59,6 +59,23 @@ export function formatHealthMessage(s: HealthSnapshot, p: HealthProbeResult): st
     `─────────────────────\n` +
     `<i>/refresh_token — KIS 토큰 강제 갱신</i>`
   );
+}
+
+/**
+ * probe outcome → 텔레그램 라벨. severity 별 아이콘 분기:
+ * - OK       → ✅
+ * - WARN     → ⚠️
+ * - CRITICAL → ❌
+ *
+ * 사용자 패치 권장안 — DART status=013 ("데이터 없음") 같이 의미상 정상인 응답이
+ * 빨간 ❌ 로 잘못 표시되던 회귀 차단.
+ */
+export function formatProbeOutcome(probe: HealthProbeOutcome): string {
+  const icon =
+    probe.severity === 'OK' ? '✅' :
+    probe.severity === 'WARN' ? '⚠️' :
+    '❌';
+  return `${icon} ${probe.message}`;
 }
 
 function formatKstHm(ts: number, fallback = '미실행'): string {
