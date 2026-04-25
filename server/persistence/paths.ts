@@ -226,6 +226,16 @@ export const AI_CALL_BUDGET_FILE = path.join(DATA_DIR, 'ai-call-budget.json');
  * 장외 시 gated miss 를 이 스냅샷으로 폴백해 UI 정보 불일치 원천 차단.
  */
 export const OFFHOURS_SNAPSHOT_FILE = path.join(DATA_DIR, 'offhours-snapshot.json');
+/**
+ * Stock master shadow DB — last-known-good 스냅샷 (ADR-0013).
+ * Tier 1/2 검증 통과한 응답만 저장. Tier 3/4 (shadow 자체·seed) 는 갱신하지 않는다.
+ */
+export const STOCK_MASTER_SHADOW_FILE = path.join(DATA_DIR, 'stock-master-shadow.json');
+/**
+ * Stock master 소스별 health score (0-100) + rolling stats 영속 (ADR-0013).
+ * 운영자가 어떤 소스가 신뢰 가능한지 한눈에 파악하도록 source 별 누적 + ring buffer.
+ */
+export const STOCK_MASTER_HEALTH_FILE = path.join(DATA_DIR, 'stock-master-health.json');
 
 export function ensureReflectionsDir(): void {
   ensureDataDir();

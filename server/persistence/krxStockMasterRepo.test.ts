@@ -12,8 +12,11 @@ import {
   getMasterSize,
   parseKrxMasterCsv,
   refreshKrxStockMaster,
+  isLikelyHtmlResponse,
+  validateMasterPayload,
   MASTER_TTL_MS,
   __testOnly,
+  type StockMasterEntry,
 } from './krxStockMasterRepo.js';
 import { KRX_STOCK_MASTER_FILE } from './paths.js';
 
@@ -99,6 +102,86 @@ describe('krxStockMasterRepo (ADR-0011)', () => {
   it('parseKrxMasterCsv — 빈 CSV 는 빈 배열', () => {
     expect(parseKrxMasterCsv('')).toEqual([]);
     expect(parseKrxMasterCsv('header\n')).toEqual([]);
+  });
+
+  describe('isLikelyHtmlResponse (ADR-0013)', () => {
+    it('CSV 응답은 false', () => {
+      expect(isLikelyHtmlResponse('표준코드,단축코드,한글 종목명\nKR1,005930,삼성전자')).toBe(false);
+    });
+    it('빈 문자열 false', () => {
+      expect(isLikelyHtmlResponse('')).toBe(false);
+    });
+    it('<!DOCTYPE 시작 → true', () => {
+      expect(isLikelyHtmlResponse('<!DOCTYPE html>\n<html><body>점검 중</body></html>')).toBe(true);
+    });
+    it('<html 시작 → true', () => {
+      expect(isLikelyHtmlResponse('<html><body>error</body></html>')).toBe(true);
+    });
+    it('대소문자 혼용 + 공백 무시', () => {
+      expect(isLikelyHtmlResponse('  <!DocType html>')).toBe(true);
+      expect(isLikelyHtmlResponse('<HTML>')).toBe(true);
+    });
+    it('<?xml 도 true (KRX SOAP fault 경우)', () => {
+      expect(isLikelyHtmlResponse('<?xml version="1.0"?>\n<error/>')).toBe(true);
+    });
+  });
+
+  describe('parseKrxMasterCsv HTML 가드 (ADR-0013)', () => {
+    it('HTML 응답을 받으면 빈 배열 반환', () => {
+      const html = '<!DOCTYPE html><html><body>점검 중입니다</body></html>';
+      expect(parseKrxMasterCsv(html)).toEqual([]);
+    });
+  });
+
+  describe('validateMasterPayload (ADR-0013)', () => {
+    function makeEntries(n: number, market: 'KOSPI' | 'KOSDAQ' = 'KOSPI'): StockMasterEntry[] {
+      return Array.from({ length: n }, (_, i) => ({
+        code: String(100000 + i).padStart(6, '0'),
+        name: `종목${i}`,
+        market,
+      }));
+    }
+
+    it('빈 배열 → EMPTY', () => {
+      const r = validateMasterPayload([]);
+      expect(r.valid).toBe(false);
+      expect(r.reason).toBe('EMPTY');
+    });
+
+    it('count < minCount → BELOW_MIN', () => {
+      const r = validateMasterPayload(makeEntries(1500));
+      expect(r.valid).toBe(false);
+      expect(r.reason).toBe('BELOW_MIN');
+      expect(r.detail).toContain('1500');
+    });
+
+    it('count >= minCount + 정상 ratio → valid', () => {
+      const r = validateMasterPayload(makeEntries(2500));
+      expect(r.valid).toBe(true);
+      expect(r.count).toBe(2500);
+    });
+
+    it('코드 매치율 < 95% → BAD_CODE_RATIO', () => {
+      const entries = makeEntries(2000);
+      // 10% 를 잘못된 코드로 변경
+      for (let i = 0; i < 200; i++) entries[i].code = 'XX' + String(i).padStart(4, '0');
+      const r = validateMasterPayload(entries);
+      expect(r.valid).toBe(false);
+      expect(r.reason).toBe('BAD_CODE_RATIO');
+    });
+
+    it('KOSPI/KOSDAQ 비율 < 80% → BAD_MARKET_RATIO', () => {
+      const entries = makeEntries(2000);
+      for (let i = 0; i < 500; i++) entries[i].market = 'KONEX';
+      const r = validateMasterPayload(entries);
+      expect(r.valid).toBe(false);
+      expect(r.reason).toBe('BAD_MARKET_RATIO');
+    });
+
+    it('낮은 minCount 로 호출 시 (Naver tier) 200건도 통과', () => {
+      const r = validateMasterPayload(makeEntries(250), 200);
+      expect(r.valid).toBe(true);
+    });
   });
 
   describe('refreshKrxStockMaster — 주말 단락', () => {
