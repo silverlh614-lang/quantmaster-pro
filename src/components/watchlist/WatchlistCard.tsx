@@ -11,6 +11,7 @@ import { ConfidenceBadge } from '../common/ConfidenceBadge';
 import { SignalBadge } from '../../ui/badge';
 import { PriceEditCell } from '../common/PriceEditCell';
 import { isMarketOpenFor, nextOpenAtFor, formatNextOpenKst } from '../../utils/marketTime';
+import { useMarketMode } from '../../hooks/useMarketMode';
 import type { StockRecommendation } from '../../services/stockService';
 import type { NewsFrequencyScore } from '../../types/quant';
 import type { ConditionId } from '../../types/quant';
@@ -67,6 +68,10 @@ export function WatchlistCard({
     (stock.gateEvaluation?.gate1Passed === true &&
       stock.gateEvaluation?.gate2Passed === true &&
       stock.gateEvaluation?.gate3Passed === true);
+
+  // ADR-0016 (PR-37): 시장 모드 5분류 SSOT — LIVE / 장외 / 주말 / 공휴일 / 다중실패.
+  // 카드 가격 영역 라벨(주황 LIVE / 파랑 장외 / 회색 주말·공휴일) 분기에 사용.
+  const marketMode = useMarketMode();
 
   return (
     <motion.div
@@ -558,34 +563,59 @@ export function WatchlistCard({
           </div>
           <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 sm:gap-1">
             {(() => {
-              // 장중이면 LIVE(주황) · 장외면 CLOSED(파랑) — 가격이 stale 캐시일 때
-              // "LIVE" 라벨을 그대로 띄워 사용자에게 잘못된 신뢰를 주는 문제 해소.
-              // PR-31 (PR-25 후속): 자동매매 quota 와 무관하게 사용자 카드 시각 표기 정합성.
+              // ADR-0016 (PR-37): 시장 모드 5분류 → 라벨/색 분기 SSOT.
+              // 가격이 stale 캐시일 때 "LIVE" 를 그대로 띄워 잘못된 신뢰를 주던 문제 해소.
+              // 자동매매 quota 와 무관하게 사용자 카드 시각 표기 정합성 보장.
               const open = isMarketOpenFor(stock.code);
               let nextOpenLabel = '';
               try { nextOpenLabel = formatNextOpenKst(nextOpenAtFor(stock.code)); } catch { /* noop */ }
+              type Variant = { label: string; tone: 'orange' | 'blue' | 'gray' | 'red'; pulse: boolean; title: string };
+              const variant: Variant = (() => {
+                if (open) {
+                  return { label: 'LIVE', tone: 'orange', pulse: true, title: '장중 실시간' };
+                }
+                if (marketMode === 'WEEKEND_CACHE') {
+                  return { label: '주말', tone: 'gray', pulse: false, title: `주말 — 다음 개장 ${nextOpenLabel}` };
+                }
+                if (marketMode === 'HOLIDAY_CACHE') {
+                  return { label: '공휴일', tone: 'gray', pulse: false, title: `공휴일 — 다음 개장 ${nextOpenLabel}` };
+                }
+                if (marketMode === 'DEGRADED') {
+                  return { label: '⚠️ 다중 실패', tone: 'red', pulse: false, title: '외부 소스 다중 실패 — 데이터 신뢰도 낮음' };
+                }
+                return { label: '장외', tone: 'blue', pulse: false, title: `장외 — 다음 개장 ${nextOpenLabel}` };
+              })();
+              const wrapperCn = (() => {
+                if (variant.tone === 'orange') return 'bg-orange-500/10 border-orange-500/20 group-hover:bg-orange-500/20';
+                if (variant.tone === 'blue') return 'bg-blue-500/10 border-blue-500/20 group-hover:bg-blue-500/15';
+                if (variant.tone === 'gray') return 'bg-slate-500/10 border-slate-500/20 group-hover:bg-slate-500/15';
+                return 'bg-red-500/10 border-red-500/30 group-hover:bg-red-500/15';
+              })();
+              const dotCn = (() => {
+                if (variant.tone === 'orange') return 'bg-orange-500 animate-pulse shadow-[0_0_8px_rgba(249,115,22,0.8)]';
+                if (variant.tone === 'blue') return 'bg-blue-400/80';
+                if (variant.tone === 'gray') return 'bg-slate-400/80';
+                return 'bg-red-400/80';
+              })();
+              const textCn = (() => {
+                if (variant.tone === 'orange') return 'text-orange-500';
+                if (variant.tone === 'blue') return 'text-blue-300';
+                if (variant.tone === 'gray') return 'text-slate-300';
+                return 'text-red-300';
+              })();
               return (
                 <div
                   className={cn(
                     "flex items-center gap-2 sm:gap-2.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl border shadow-[0_0_15px_rgba(249,115,22,0.1)] transition-all",
-                    open
-                      ? "bg-orange-500/10 border-orange-500/20 group-hover:bg-orange-500/20"
-                      : "bg-blue-500/10 border-blue-500/20 group-hover:bg-blue-500/15"
+                    wrapperCn,
                   )}
-                  title={open ? '장중 실시간' : `장외 — 다음 개장 ${nextOpenLabel}`}
+                  title={variant.title}
                 >
                   <div className="flex items-center gap-1.5 mr-1">
-                    {open ? (
-                      <>
-                        <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-orange-500 animate-pulse shadow-[0_0_8px_rgba(249,115,22,0.8)]" />
-                        <span className="text-[7px] sm:text-[8px] font-black text-orange-500 uppercase tracking-widest">LIVE</span>
-                      </>
-                    ) : (
-                      <>
-                        <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-blue-400/80" />
-                        <span className="text-[7px] sm:text-[8px] font-black text-blue-300 uppercase tracking-widest">장외</span>
-                      </>
-                    )}
+                    <div className={cn("w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full", dotCn)} />
+                    <span className={cn("text-[7px] sm:text-[8px] font-black uppercase tracking-widest", textCn)}>
+                      {variant.label}
+                    </span>
                   </div>
                   <PriceEditCell
                     stockCode={stock.code}

@@ -10,6 +10,8 @@
  *   DATA_FETCH_FORCE_OFF=true     — 강제 장외 (런북·복구 드릴)
  */
 
+import type { MarketDataMode } from '../services/aiUniverseTypes.js';
+
 const KST_OFFSET_MS = 9 * 3_600_000;
 
 function kstDate(now: Date): Date {
@@ -59,6 +61,18 @@ export function isPostClosePendingPublish(now: Date = new Date()): boolean {
   if (isWeekend(kst)) return false;
   const mins = toKstMinutes(kst);
   return mins >= 15 * 60 + 30 && mins < 18 * 60;
+}
+
+/**
+ * 시장 데이터 모드 분류 — ADR-0016 PR-37 SSOT.
+ * `LIVE_TRADING_DAY` / `WEEKEND_CACHE` / `AFTER_MARKET` 3분기만 본 함수가 결정한다.
+ * `HOLIDAY_CACHE` 는 향후 휴일 캘린더 도입 시 본 함수에 추가, `DEGRADED` 는 시장
+ * 상태가 아니라 폴백 사슬 결과이므로 호출자(`discoverUniverse`) 가 override 한다.
+ */
+export function classifyMarketDataMode(now: Date = new Date()): MarketDataMode {
+  if (isMarketOpen(now)) return 'LIVE_TRADING_DAY';
+  if (isKstWeekend(now)) return 'WEEKEND_CACHE';
+  return 'AFTER_MARKET';
 }
 
 /** 디버깅용 — 현재 KST 시각 요약 (로그 prefix 에 사용). */

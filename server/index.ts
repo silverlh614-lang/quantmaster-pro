@@ -53,6 +53,7 @@ import kisRouter from './routes/kisRouter.js';
 import krxRouter from './routes/krxRouter.js';
 import marketDataRouter from './routes/marketDataRouter.js';
 import aiUniverseRouter from './routes/aiUniverseRouter.js';
+import aiUniverseHealthRouter from './routes/aiUniverseHealthRouter.js';
 import dartRouter from './routes/dartRouter.js';
 import autoTradeRouter from './routes/autoTradeRouter.js';
 import systemRouter from './routes/systemRouter.js';
@@ -234,6 +235,11 @@ async function startServer() {
   // 자기학습 진단 — 운영자용 GET /api/learning/{status,history}
   // ─────────────────────────────────────────────────────────────
   app.use('/api/learning', learningRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // PR-37 (ADR-0016) — AI 추천 universe 건강성 GET /api/health/ai-universe
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/health', aiUniverseHealthRouter);
 
   // ─── 아이디어 1: 오케스트레이터 상태 조회 ────────────────────────────────────
   app.get('/api/orchestrator/state', (_req: Request, res: Response) => {

@@ -64,6 +64,11 @@ interface RecommendationState {
   // 인지하던 문제 해소 — 다음 분석 실행 시까지 배너로 영구 표시.
   recommendationWarnings: string[];
   setRecommendationWarnings: (warnings: string[]) => void;
+
+  // ADR-0016 (PR-37) 5-Tier fallback sourceStatus — 배너 색상 분기에 사용.
+  // 'GOOGLE_OK' 은 정상이라 배너 미표시. 미정시 undefined.
+  recommendationSourceStatus?: string;
+  setRecommendationSourceStatus: (status: string | undefined) => void;
 }
 
 export const useRecommendationStore = create<RecommendationState>()(
@@ -146,6 +151,8 @@ export const useRecommendationStore = create<RecommendationState>()(
 
       recommendationWarnings: [],
       setRecommendationWarnings: (recommendationWarnings) => set({ recommendationWarnings }),
+      recommendationSourceStatus: undefined,
+      setRecommendationSourceStatus: (recommendationSourceStatus) => set({ recommendationSourceStatus }),
     }),
     {
       name: 'k-stock-recommendations-store',

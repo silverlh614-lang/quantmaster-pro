@@ -8,6 +8,7 @@ import {
   isPostClosePendingPublish,
   describeMarketPhase,
   isKstWeekend,
+  classifyMarketDataMode,
 } from './marketClock.js';
 
 // UTC 기준: KST = UTC + 9
@@ -93,5 +94,26 @@ describe('marketClock.describeMarketPhase', () => {
     expect(describeMarketPhase(FRI_1700_KST)).toBe('POST_CLOSE_PENDING');
     expect(describeMarketPhase(FRI_1900_KST)).toBe('OFF_HOURS');
     expect(describeMarketPhase(SAT_1000_KST)).toBe('WEEKEND');
+  });
+});
+
+describe('marketClock.classifyMarketDataMode (PR-37, ADR-0016)', () => {
+  it('평일 장중 → LIVE_TRADING_DAY', () => {
+    expect(classifyMarketDataMode(FRI_1000_KST)).toBe('LIVE_TRADING_DAY');
+  });
+  it('평일 장 마감 후 → AFTER_MARKET', () => {
+    expect(classifyMarketDataMode(FRI_1700_KST)).toBe('AFTER_MARKET');
+    expect(classifyMarketDataMode(FRI_1900_KST)).toBe('AFTER_MARKET');
+  });
+  it('주말 → WEEKEND_CACHE', () => {
+    expect(classifyMarketDataMode(SAT_1000_KST)).toBe('WEEKEND_CACHE');
+  });
+  it('FORCE_OFF=true — 평일 장중에도 AFTER_MARKET (휴일 fallback)', () => {
+    process.env.DATA_FETCH_FORCE_OFF = 'true';
+    expect(classifyMarketDataMode(FRI_1000_KST)).toBe('AFTER_MARKET');
+  });
+  it('FORCE_MARKET=true — 주말도 LIVE_TRADING_DAY', () => {
+    process.env.DATA_FETCH_FORCE_MARKET = 'true';
+    expect(classifyMarketDataMode(SAT_1000_KST)).toBe('LIVE_TRADING_DAY');
   });
 });

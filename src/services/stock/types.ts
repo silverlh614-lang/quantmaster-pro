@@ -451,6 +451,24 @@ export interface RecommendationResponse {
    * 있으면 프론트엔드가 `toast.warning` 등으로 표시한다. 비어있으면 생략.
    */
   warnings?: string[];
+  /**
+   * ADR-0016 (PR-37) 5-Tier fallback diagnostics. 서버가 응답에 동봉하면
+   * `RecommendationWarningsBanner` 가 sourceStatus 별 정밀 분기 + marketMode 표기.
+   * 모두 옵셔널 — 비파괴 확장. 미제공 시 기존 warnings[] 만 표시.
+   */
+  sourceStatus?:
+    | 'GOOGLE_OK'
+    | 'FALLBACK_SNAPSHOT'
+    | 'FALLBACK_QUANT'
+    | 'FALLBACK_NAVER'
+    | 'FALLBACK_SEED'
+    | 'NOT_CONFIGURED'
+    | 'BUDGET_EXCEEDED'
+    | 'ERROR'
+    | 'NO_MATCHES';
+  marketMode?: 'LIVE_TRADING_DAY' | 'AFTER_MARKET' | 'WEEKEND_CACHE' | 'HOLIDAY_CACHE' | 'DEGRADED';
+  tradingDateRef?: string | null;
+  snapshotAgeDays?: number | null;
 }
 
 // ─── 유니버스 선택 (Gate-0) ─────────────────────────────────────────────────

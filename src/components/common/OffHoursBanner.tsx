@@ -1,5 +1,5 @@
 /**
- * @responsibility 장외 시 "마지막 종가 · 다음 개장" 배너 — 정보 불일치 맥락 명시
+ * @responsibility 장외/주말/공휴일 배너 — MarketDataMode 5분류 메시지 (ADR-0016 PR-37)
  */
 import type { ReactElement } from 'react';
 import { Clock } from 'lucide-react';
@@ -8,8 +8,8 @@ import {
   isMarketOpenFor,
   nextOpenAtFor,
   formatNextOpenKst,
-  isKstWeekend,
 } from '../../utils/marketTime';
+import { useMarketMode } from '../../hooks/useMarketMode';
 
 interface OffHoursBannerProps {
   /** 기준 심볼 — 없으면 '^KS11' (KRX 디폴트). */
@@ -19,13 +19,19 @@ interface OffHoursBannerProps {
 }
 
 /**
- * 장중이면 null 을 반환(렌더 안 함). 장외엔 다음 개장 시각 + 주말/평일 맥락 표시.
- * 현재가 0/공란 대신 "마지막 종가" 라는 맥락을 사용자에게 전달하는 역할.
+ * 장중이면 null 을 반환(렌더 안 함). 장외엔 다음 개장 시각 + 시장모드 5분류 라벨 표시.
+ *
+ * MarketDataMode (서버 SSOT 와 동기 사본):
+ * - LIVE_TRADING_DAY: 표시 안 함
+ * - AFTER_MARKET   : "KRX 장외" (파랑 톤)
+ * - WEEKEND_CACHE  : "주말 — 직전 거래일 데이터"
+ * - HOLIDAY_CACHE  : "공휴일 — 캐시 데이터" (현 phase 미감지)
+ * - DEGRADED       : "외부 소스 다중 실패" (다른 컴포넌트가 override 하여 사용)
  */
 export function OffHoursBanner({ symbol = '^KS11', className = '' }: OffHoursBannerProps): ReactElement | null {
   const now = new Date();
+  const mode = useMarketMode();
   if (isMarketOpenFor(symbol, now)) return null;
-
   const market = classifySymbol(symbol);
 
   let nextOpenLabel: string;
@@ -35,7 +41,11 @@ export function OffHoursBanner({ symbol = '^KS11', className = '' }: OffHoursBan
     nextOpenLabel = '—';
   }
 
-  const phaseLabel = isKstWeekend(now) ? '주말 장외' : '장외';
+  const phaseLabel = (() => {
+    if (mode === 'WEEKEND_CACHE') return '주말 — 직전 거래일 데이터';
+    if (mode === 'HOLIDAY_CACHE') return '공휴일 — 캐시 데이터';
+    return '장외 — 마지막 종가 기준';
+  })();
   const marketLabel = market === 'KRX' ? 'KRX' : market === 'NYSE' ? 'NYSE' : 'TSE';
 
   return (
@@ -43,8 +53,6 @@ export function OffHoursBanner({ symbol = '^KS11', className = '' }: OffHoursBan
       <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
       <span className="text-amber-200/80">
         <b className="text-amber-200">{marketLabel} {phaseLabel}</b>
-        <span className="mx-1 text-amber-200/40">·</span>
-        표시값은 <b>마지막 종가 기준</b>
         <span className="mx-1 text-amber-200/40">·</span>
         다음 개장 <b>{nextOpenLabel}</b>
       </span>
