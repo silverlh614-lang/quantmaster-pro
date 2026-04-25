@@ -141,16 +141,22 @@ async function serverCacheDelete(cacheKey: string): Promise<void> {
 export async function getCachedAIResponse<T>(cacheKey: string, fetchFn: () => Promise<T>): Promise<T> {
   const now = Date.now();
 
-  // 1) 메모리 캐시 확인 (TTL 무제한 — 탭 생존 기간 동안 유효)
-  // 단, 빈 recommendations(이전 버전에서 박제된 케이스)는 무효 처리하고 재호출.
+  // 1) 메모리 캐시 확인 — 4시간 TTL + 빈 응답 가드.
   // 사용자 체감 "버튼을 눌렀는데 아무것도 안 나옴" 의 핵심 원인 — write 만 스킵해도
   // 이미 적재된 entry 가 read 경로에서 그대로 반환되던 구조 해소.
+  // 2026-04-24 추가: 메모리 TTL 도 LS 와 동일하게 4시간 적용 — 이전엔 메모리 캐시가
+  // 탭 생존기간 내내 유효해 LS 에서 만료된 entry 가 "메모리 캐시 일관성" 으로
+  // 영구 잔존하는 위험 차단.
   const memHit = aiCache[cacheKey];
-  if (memHit && !isEmptyRecommendationData(memHit.data)) {
+  const memHitFresh = memHit && now - memHit.timestamp < AI_CACHE_TTL;
+  if (memHit && memHitFresh && !isEmptyRecommendationData(memHit.data)) {
     debugLog(`[AI캐시] 메모리 히트: ${cacheKey.substring(0, 50)}...`);
     return memHit.data as T;
   }
-  if (memHit) {
+  if (memHit && !memHitFresh) {
+    debugLog(`[AI캐시] 메모리 만료 (4h↑) — 무효화: ${cacheKey.substring(0, 50)}...`);
+    delete aiCache[cacheKey];
+  } else if (memHit) {
     debugLog(`[AI캐시] 메모리 히트지만 빈 recommendations — 무효화: ${cacheKey.substring(0, 50)}...`);
     delete aiCache[cacheKey];
   }
@@ -206,7 +212,11 @@ export async function getCachedAIResponse<T>(cacheKey: string, fetchFn: () => Pr
 }
 
 function isEmptyRecommendationData(data: unknown): boolean {
-  if (!data || typeof data !== 'object') return false;
+  // 2026-04-24 보강: null/undefined 도 "유효한 응답이 아님" 으로 간주해 캐시 무효화.
+  // 이전엔 fetchFn 이 null 을 반환한 경우 entry { data: null } 이 박제되고 read 시점에
+  // "object 가 아니므로 비어있지 않음" 으로 판정되어 무한 null 반환되던 경로 차단.
+  if (data === null || data === undefined) return true;
+  if (typeof data !== 'object') return false;
   const recs = (data as { recommendations?: unknown }).recommendations;
   return Array.isArray(recs) && recs.length === 0;
 }
