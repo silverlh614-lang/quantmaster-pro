@@ -24,12 +24,20 @@ import { getRanking, resetRankingCache } from './kisRankingClient.js';
 const mockedKisGet = vi.mocked(realDataKisGet);
 
 describe('kisRankingClient — 신규 3종 확장', () => {
+  const originalForceMarket = process.env.DATA_FETCH_FORCE_MARKET;
+
   beforeEach(() => {
+    // ADR-0009 장외 게이트 우회 — 본 테스트는 KIS 응답 매핑 자체를 검증한다.
+    process.env.DATA_FETCH_FORCE_MARKET = 'true';
     resetRankingCache();
     mockedKisGet.mockReset();
   });
 
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    if (originalForceMarket === undefined) delete process.env.DATA_FETCH_FORCE_MARKET;
+    else process.env.DATA_FETCH_FORCE_MARKET = originalForceMarket;
+    vi.restoreAllMocks();
+  });
 
   it('institutional-net-buy: 기관 순매수량을 value로 매핑한다', async () => {
     mockedKisGet.mockImplementation(async (_trId, _path, params) => {

@@ -14,13 +14,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('sectorSources — KRX → Yahoo → Gemini 폴백 체인', () => {
   const originalFetch = globalThis.fetch;
+  const originalEgressDisabled = process.env.EGRESS_GUARD_DISABLED;
 
   beforeEach(() => {
+    // PR-29 EgressGuard 가 KR 심볼·장외에서 outbound 를 차단하므로 본 테스트는 우회.
+    // 본 테스트는 KRX→Yahoo→Gemini 폴백 분기 자체를 검증하며 시장시간과 무관하다.
+    process.env.EGRESS_GUARD_DISABLED = 'true';
     vi.resetModules();
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    if (originalEgressDisabled === undefined) delete process.env.EGRESS_GUARD_DISABLED;
+    else process.env.EGRESS_GUARD_DISABLED = originalEgressDisabled;
     vi.restoreAllMocks();
   });
 

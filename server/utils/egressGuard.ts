@@ -116,7 +116,10 @@ export async function guardedFetch(
   return _fetchImpl(input as string, init);
 }
 
-const _LOG_INTERVAL_MS = 60_000;
+// 2026-04-25: 1분 throttle 은 5분 cron 에 의해 매 호출 통과되어 5분마다 로그가
+// 찍히던 문제 해소. 30분 으로 확대 — 같은 (market,symbol) 의 반복 차단은 30분에
+// 한 번만 표면화한다 (운영 신호로는 충분).
+const _LOG_INTERVAL_MS = 30 * 60_000;
 const _lastLogAt = new Map<string, number>();
 function _logThrottled(decision: EgressDecision): void {
   const key = `${decision.market ?? '?'}:${decision.symbol ?? '?'}`;

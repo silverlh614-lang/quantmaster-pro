@@ -86,15 +86,22 @@ function buildFetchMock(
 }
 
 describe('koreanQuoteBridge — KRX 우선·Yahoo 폴백', () => {
+  const ORIG_EGRESS_DISABLED = process.env.EGRESS_GUARD_DISABLED;
+
   beforeEach(() => {
     process.env.KRX_OPENAPI_AUTH_KEY = 'test-key';
     delete process.env.KRX_OPENAPI_DISABLED;
+    // PR-29 EgressGuard 가 KR 심볼·장외에서 outbound 를 차단하므로 본 테스트는 우회.
+    // 본 테스트는 KRX/Yahoo 분기 로직 자체를 검증하며 시장시간과 무관하다.
+    process.env.EGRESS_GUARD_DISABLED = 'true';
   });
 
   afterEach(() => {
     globalThis.fetch = ORIG_FETCH;
     process.env.KRX_OPENAPI_AUTH_KEY = BASE_ENV.KRX_OPENAPI_AUTH_KEY;
     process.env.KRX_OPENAPI_DISABLED = BASE_ENV.KRX_OPENAPI_DISABLED;
+    if (ORIG_EGRESS_DISABLED === undefined) delete process.env.EGRESS_GUARD_DISABLED;
+    else process.env.EGRESS_GUARD_DISABLED = ORIG_EGRESS_DISABLED;
     vi.restoreAllMocks();
     vi.resetModules();
   });
