@@ -8,6 +8,8 @@ import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
+import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
+import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
 import { computeFocusCodes } from '../screener/watchlistManager.js';
 import { fetchCurrentPrice, fetchAccountBalance } from '../clients/kisClient.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKisIntraday } from '../screener/stockScreener.js';
@@ -73,17 +75,32 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
     w => w.addedBy === 'MANUAL' || liveFocusCodes.has(w.code),
   );
 
-  // 자금 산정 (signalScanner와 동일 로직)
+  // 자금 산정 — signalScanner.ts:284~297 패턴 정합 (PR-5 #11 follow-up)
+  // SHADOW 모드는 KIS 호출 없이 computeShadowAccount 독립 원장만 사용한다.
+  // 이전엔 shadowMode 여부와 무관하게 fetchAccountBalance() 를 호출해
+  //   1) /dryrun 1회당 KIS API 1회 소비 (회로차단기·블랙리스트 부담),
+  //   2) SHADOW 시뮬레이션 totalAssets/orderableCash 가 LIVE 잔고로 표기되었다.
   const shadowMode = process.env.AUTO_TRADE_MODE !== 'LIVE';
-  let totalAssets = Number(process.env.AUTO_TRADE_ASSETS || 0);
-  const balance   = await fetchAccountBalance().catch(() => null);
-  if (!totalAssets) totalAssets = balance ?? 30_000_000;
-  const activeHolding = shadows
-    .filter(s => isOpenShadowStatus(s.status))
-    .reduce((sum, s) => sum + s.shadowEntryPrice * s.quantity, 0);
-  let orderableCash = balance ?? totalAssets;
-  if (shadowMode || balance === null) {
-    orderableCash = Math.max(0, orderableCash - activeHolding);
+  let totalAssets: number;
+  let orderableCash: number;
+
+  if (shadowMode) {
+    const settings = loadTradingSettings();
+    const startingCapital = Number(process.env.AUTO_TRADE_ASSETS || settings.startingCapital);
+    const account = computeShadowAccount(shadows, startingCapital);
+    totalAssets   = account.totalAssets;
+    orderableCash = Math.max(0, account.cashBalance);
+  } else {
+    totalAssets = Number(process.env.AUTO_TRADE_ASSETS || 0);
+    const balance = await fetchAccountBalance().catch(() => null);
+    if (!totalAssets) totalAssets = balance ?? 30_000_000;
+    orderableCash = balance ?? totalAssets;
+    if (balance === null) {
+      const activeHolding = shadows
+        .filter(s => isOpenShadowStatus(s.status))
+        .reduce((sum, s) => sum + s.shadowEntryPrice * s.quantity, 0);
+      orderableCash = Math.max(0, orderableCash - activeHolding);
+    }
   }
 
   // 게이팅 평가
