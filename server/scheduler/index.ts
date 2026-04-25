@@ -20,6 +20,7 @@ import { registerKisStreamJobs } from './kisStreamJobs.js';
 import { registerLearningJobs } from './learningJobs.js';
 import { registerTradeFlowJobs } from './tradeFlowJobs.js';
 import { registerMaintenanceJobs } from './maintenanceJobs.js';
+import { registerCommandUsageJobs } from './commandUsageJobs.js';
 
 export function startScheduler(): void {
   registerOrchestratorJobs();
@@ -32,6 +33,7 @@ export function startScheduler(): void {
   registerLearningJobs();
   registerTradeFlowJobs();
   registerMaintenanceJobs();
+  registerCommandUsageJobs();
 
   console.log('[Scheduler] cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
 }

@@ -286,16 +286,36 @@ function newNonce(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
-// ── /help 본문 (메타 우선 안내) ─────────────────────────────────────────────
+// ── /help 본문 (메타 우선 안내 + 개인화 Top 5) ─────────────────────────────
+
+/** ADR-0017 §Stage 3 — /help 첫 줄 개인 Top 5 표시용 입력 포맷. */
+export interface HelpTopEntry {
+  name: string;
+  count: number;
+}
 
 /**
  * 신규 사용자에게 메타 메뉴를 우선 노출하고 파워유저용 alias 51개는 접힘 안내로
  * 처리한 /help 본문을 반환한다.
+ *
+ * @param topUsage 옵셔널 — commandUsageRepo.getTopUsage(5) 결과를 그대로 전달하면
+ *                 "📊 자주 쓰는 명령 Top 5" 섹션이 메타 메뉴 위에 노출된다.
+ *                 빈 배열 / undefined 면 미노출.
  */
-export function buildHelpMessage(): string {
+export function buildHelpMessage(topUsage?: HelpTopEntry[]): string {
+  const topSection =
+    topUsage && topUsage.length > 0
+      ? `<b>📊 자주 쓰는 명령 Top ${Math.min(topUsage.length, 5)}</b>\n` +
+        topUsage
+          .slice(0, 5)
+          .map((t, i) => `  ${i + 1}. ${t.name} — ${t.count}회`)
+          .join('\n') +
+        `\n\n`
+      : '';
   return (
     `🤖 <b>QuantMaster Pro 봇</b>\n` +
     `━━━━━━━━━━━━━━━━\n` +
+    topSection +
     `<b>📌 자주 쓰는 메뉴 (8개)</b>\n` +
     `  /status — 시스템 현황 요약\n` +
     `  /now — "지금 매수해도 되나?" 1줄 판단\n` +
@@ -314,6 +334,6 @@ export function buildHelpMessage(): string {
     `  12:00 — 장중 시장 현황\n` +
     `  15:35 — 장마감 시장 요약\n` +
     `\n` +
-    `<i>ADR-0017 Stage 1 — 명령어 메뉴 압축 적용 중. /help 으로 언제든 다시 볼 수 있습니다.</i>`
+    `<i>ADR-0017 Stage 1+2+3 — 메뉴 압축 + 모듈 분해 + 사용량 텔레메트리 적용 중.</i>`
   );
 }

@@ -270,4 +270,40 @@ describe('buildHelpMessage', () => {
   it('mentions backward-compat for legacy 51 commands', () => {
     expect(buildHelpMessage()).toMatch(/51개|직접 입력|alias/);
   });
+
+  it('Top 5 미전달 시 — 개인화 섹션 미노출 (Stage 3 backward-compat)', () => {
+    const help = buildHelpMessage();
+    expect(help).not.toContain('자주 쓰는 명령 Top');
+  });
+
+  it('Top 5 전달 시 — 개인화 섹션 노출 + 카운트 표시 + 메타 메뉴 위에 위치', () => {
+    const help = buildHelpMessage([
+      { name: '/status', count: 142 },
+      { name: '/pos', count: 89 },
+      { name: '/pnl', count: 67 },
+    ]);
+    expect(help).toContain('자주 쓰는 명령 Top 3');
+    expect(help).toContain('1. /status — 142회');
+    expect(help).toContain('2. /pos — 89회');
+    expect(help).toContain('3. /pnl — 67회');
+    // 메타 메뉴 헤더 위에 위치하는지 검증.
+    const topIdx = help.indexOf('자주 쓰는 명령 Top');
+    const menuIdx = help.indexOf('자주 쓰는 메뉴');
+    expect(topIdx).toBeLessThan(menuIdx);
+  });
+
+  it('Top 5 빈 배열 → 미노출 (Stage 3 신규 사용자 보호)', () => {
+    expect(buildHelpMessage([])).not.toContain('자주 쓰는 명령 Top');
+  });
+
+  it('Top 5 가 6개 이상이어도 5개로 절삭', () => {
+    const six = Array.from({ length: 6 }, (_, i) => ({
+      name: `/cmd${i}`,
+      count: 10 - i,
+    }));
+    const help = buildHelpMessage(six);
+    expect(help).toContain('Top 5');
+    expect(help).toContain('5. /cmd4 — 6회');
+    expect(help).not.toContain('6. /cmd5');
+  });
 });
