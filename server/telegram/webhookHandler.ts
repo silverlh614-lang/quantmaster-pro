@@ -34,15 +34,7 @@ import { getLiveRegime } from '../trading/regimeBridge.js';
 import { resetKrxCache } from '../clients/krxClient.js';
 import { _resetKrxOpenApiBreaker, getKrxOpenApiStatus, resetKrxOpenApiCache } from '../clients/krxOpenApi.js';
 import { generateDailyReport } from '../alerts/reportGenerator.js';
-import { fetchCurrentPrice, getKisTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder, getCircuitBreakerStats, resetKisCircuits } from '../clients/kisClient.js';
-import { getAccountRiskBudget, formatAccountRiskBudget } from '../trading/accountRiskBudget.js';
-import { loadKellyDampenerState } from '../trading/kellyDampener.js';
-import { formatKellyHealthCards } from '../trading/kellyHealthCard.js';
-import { formatKellySurface } from '../learning/kellySurfaceMap.js';
-import { formatRegimeCoverage } from '../learning/regimeBalancedSampler.js';
-import { getUniverseStats } from '../learning/ledgerSimulator.js';
-import { getCounterfactualStats } from '../learning/counterfactualShadow.js';
-import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
+import { fetchCurrentPrice, getKisTokenRemainingHours, refreshKisToken, invalidateKisToken, placeKisSellOrder } from '../clients/kisClient.js';
 import { MAX_SUBSCRIPTIONS, getStreamStatus, startKisStream, stopKisStream, getRealtimePrice } from '../clients/kisStreamClient.js';
 import { getGeminiRuntimeState } from '../clients/geminiClient.js';
 import { STOCK_UNIVERSE } from '../screener/stockScreener.js';
@@ -68,6 +60,7 @@ import './commands/system/index.js';
 import './commands/watchlist/index.js';
 import './commands/positions/index.js';
 import './commands/alert/index.js';
+import './commands/learning/index.js';
 
 // ADR-0015: /reconcile live apply 60초 rate-limit 가드 — 오타 방지.
 let _lastLiveReconcileApplyAt = 0;
@@ -835,132 +828,6 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           }
         }
         await reply(`✅ ${code} 미체결 주문 ${pendingOrders.length}건 취소 요청 완료`);
-        break;
-      }
-
-      case '/risk_budget':
-      case '/risk': {
-        // 사용자 P1-2: 계좌 레벨 리스크 예산 + Fractional Kelly 가시성.
-        // signalScanner 게이트와 동일 로직 — 운영자가 "지금 신규 진입이 왜 막히는지" 즉시 진단.
-        const settings = loadTradingSettings();
-        const totalAssets = settings.startingCapital ?? 0;
-        const budget = getAccountRiskBudget({ totalAssets });
-        await reply(
-          formatAccountRiskBudget(budget) +
-          `\n\n<i>총 자본 기준: ${(totalAssets / 10_000).toLocaleString()}만원 (settings.startingCapital)\n` +
-          `Fractional Kelly: STRONG_BUY ≤0.5 / BUY ≤0.25 / HOLD ≤0.1</i>`
-        );
-        break;
-      }
-
-      case '/kelly_surface': {
-        // Idea 9: signalType × regime 버킷별 (p, b) 학습 상태 + 신뢰구간 폭.
-        await reply(formatKellySurface());
-        break;
-      }
-
-      case '/regime_coverage': {
-        // Idea 3: 레짐별 샘플 수 / 목표 / 부족 상태.
-        await reply(formatRegimeCoverage());
-        break;
-      }
-
-      case '/ledger': {
-        // Idea 2: Parallel Universe Ledger Sharpe 비교.
-        const stats = getUniverseStats();
-        const lines = ['🌌 <b>[Parallel Universe Ledger]</b>', '━━━━━━━━━━━━━━━━'];
-        for (const s of stats) {
-          lines.push(
-            `Universe ${s.universe} (${s.label})\n` +
-            `   n=${s.closedSamples} · win=${(s.winRate * 100).toFixed(0)}% · μ=${s.meanReturn.toFixed(2)}% · σ=${s.stdReturn.toFixed(2)}%\n` +
-            `   Sharpe=${s.sharpe.toFixed(2)} · PF=${s.profitFactor === null ? 'n/a' : s.profitFactor === Infinity ? '∞' : s.profitFactor.toFixed(2)}`,
-          );
-        }
-        lines.push('━━━━━━━━━━━━━━━━');
-        lines.push('<i>Universe A 는 실 진입과 동형. B/C 는 대안 세팅 학습 표본.</i>');
-        await reply(lines.join('\n'));
-        break;
-      }
-
-      case '/counterfactual': {
-        // Idea 4: Gate 탈락 후보의 30/60/90일 분포 통계.
-        const lines = ['🔬 <b>[Counterfactual Shadow — 탈락 후보 추적]</b>', '━━━━━━━━━━━━━━━━'];
-        for (const h of [30, 60, 90] as const) {
-          const s = getCounterfactualStats(h);
-          if (!s) {
-            lines.push(`${h}일: 샘플 부족`);
-            continue;
-          }
-          lines.push(
-            `${h}일: n=${s.samples} · μ=${s.mean.toFixed(2)}% · median=${s.median.toFixed(2)}% · win=${(s.winRate * 100).toFixed(0)}% · σ=${s.stdDev.toFixed(2)}%`,
-          );
-        }
-        lines.push('━━━━━━━━━━━━━━━━');
-        lines.push('<i>만약 수익률 분포가 통과 샘플과 유의하게 다르지 않다면 Gate 기준이 과잉.</i>');
-        await reply(lines.join('\n'));
-        break;
-      }
-
-      case '/kelly': {
-        // Idea 5 — 종목별 Kelly 헬스 카드.
-        // entryKellySnapshot(Idea 1) 을 기준으로 진입 시점 대비 현재 Kelly/IPS 상태의
-        // 상대 변화(decay)·레짐 전이를 한눈에 보고 HOLD / TRIM / EXIT 권고를 제시한다.
-        const shadows = getShadowTrades();
-        const dampener = loadKellyDampenerState();
-        const macro = loadMacroState();
-        const liveRegime = getLiveRegime(macro);
-        await reply(
-          formatKellyHealthCards({
-            shadows,
-            currentIps: dampener.ips,
-            currentRegime: liveRegime,
-            currentIpsMultiplier: dampener.multiplier,
-          }),
-        );
-        break;
-      }
-
-      case '/circuits': {
-        // KIS / KRX 회로 상태 가시성 — 저녁 추천 스캔이 회로 차단으로 인해 빈
-        // 결과가 나오는 현상을 즉시 진단하기 위한 명령. (사용자 P3-8 대응)
-        const kisCircuits = getCircuitBreakerStats();
-        const krxStatus = getKrxOpenApiStatus();
-        const kisLines = kisCircuits.length === 0
-          ? '  (이력 없음)'
-          : kisCircuits
-              .map(c => {
-                const open = c.openFor > 0;
-                const tag = open ? `🔴 OPEN (${Math.ceil(c.openFor / 1000)}s 남음)` : '🟢 CLOSED';
-                return `  ${tag} ${c.trId} (실패 ${c.consecutiveFailures}회)`;
-              })
-              .join('\n');
-        await reply(
-          `⚡ <b>[회로 차단기 상태]</b>\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          `<b>KIS</b>:\n${kisLines}\n\n` +
-          `<b>KRX OpenAPI</b>: ${krxStatus.circuitState === 'OPEN' ? '🔴 OPEN' : '🟢 ' + krxStatus.circuitState} ` +
-          `(실패 ${krxStatus.failures}회)\n\n` +
-          `<i>/reset_circuits — 모든 KIS 회로 즉시 해제 (저녁 스캔 전 권장)</i>`
-        );
-        break;
-      }
-
-      case '/reset_circuits': {
-        // 운영자 수동 회로 reset — 저녁 추천 스캔(KST 16~22) 전 일괄 해제로
-        // 종목 후보 호출이 회로 차단으로 묻히는 케이스를 우회한다.
-        const cleared = resetKisCircuits();
-        // KRX OpenAPI 회로도 함께 reset.
-        try {
-          _resetKrxOpenApiBreaker();
-        } catch (e) {
-          console.warn('[TelegramBot] KRX 회로 reset 실패:', e instanceof Error ? e.message : e);
-        }
-        await reply(
-          `🔧 <b>[회로 차단 해제]</b>\n` +
-          `해제된 KIS 회로: ${cleared}개\n` +
-          `KRX OpenAPI 회로: 함께 reset 시도\n` +
-          `<i>저녁 스캔/추천 작업 전 호출 권장. 이후 5xx 가 다시 누적되면 재차 차단됩니다.</i>`
-        );
         break;
       }
 

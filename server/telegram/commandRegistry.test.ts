@@ -191,3 +191,67 @@ describe('commands/watchlist+positions+alert barrels — Phase B1 auto-register'
     expect(categories).toContain('ALR');
   });
 });
+
+// ── 4. Phase B2 — learning barrel (8 cmd, 9 keys with /risk_budget alias) ─────
+
+describe('commands/learning barrel — Phase B2 auto-register', () => {
+  beforeAll(async () => {
+    await import('./commands/learning/index.js');
+  });
+
+  it('all 8 LRN commands resolvable (kelly/kelly_surface/regime_coverage/ledger/counterfactual/risk/circuits/reset_circuits)', () => {
+    for (const name of [
+      '/kelly',
+      '/kelly_surface',
+      '/regime_coverage',
+      '/ledger',
+      '/counterfactual',
+      '/risk',
+      '/circuits',
+      '/reset_circuits',
+    ]) {
+      expect(commandRegistry.resolve(name), `missing ${name}`).toBeDefined();
+    }
+  });
+
+  it('/risk has /risk_budget alias (same instance)', () => {
+    expect(commandRegistry.resolve('/risk')).toBe(commandRegistry.resolve('/risk_budget'));
+  });
+
+  it('every LRN command is category=LRN', () => {
+    for (const name of [
+      '/kelly',
+      '/kelly_surface',
+      '/regime_coverage',
+      '/ledger',
+      '/counterfactual',
+      '/risk',
+      '/circuits',
+      '/reset_circuits',
+    ]) {
+      expect(commandRegistry.resolve(name)?.category, `${name} category`).toBe('LRN');
+    }
+  });
+
+  it('/reset_circuits is riskLevel=1 (light mutate); read-only LRN are riskLevel=0', () => {
+    expect(commandRegistry.resolve('/reset_circuits')?.riskLevel).toBe(1);
+    for (const name of [
+      '/kelly',
+      '/kelly_surface',
+      '/regime_coverage',
+      '/ledger',
+      '/counterfactual',
+      '/risk',
+      '/circuits',
+    ]) {
+      expect(commandRegistry.resolve(name)?.riskLevel, `${name} riskLevel`).toBe(0);
+    }
+  });
+
+  it('Phase A+B1+B2 totals — ≥34 unique cmd objects across SYS/WL/POS/ALR/LRN', () => {
+    const all = commandRegistry.all();
+    expect(all.length).toBeGreaterThanOrEqual(34);
+    const categories = new Set(all.map((c) => c.category));
+    expect(categories).toContain('LRN');
+  });
+});
