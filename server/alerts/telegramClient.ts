@@ -1,25 +1,25 @@
 /**
  * Telegram Bot API — setMyCommands로 봇 메뉴에 명령어 목록 등록
  * 서버 기동 시 1회 호출하면 Telegram 앱에서 '/' 입력 시 자동완성 메뉴가 표시된다.
+ *
+ * 메뉴 SSOT 는 `metaCommands.buildBotMenuCommands()` — META_COMMAND_REGISTRY 에
+ * 메타 추가 시 자동 갱신된다. 본 함수에서 직접 명령어 배열을 하드코딩하지 말 것
+ * (drift 재발 차단).
  */
 export async function setTelegramBotCommands(): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
 
-  // Telegram 제약: command = lowercase/숫자/_만, ≤ 32자. description ≤ 256자.
-  // ADR-0017 Stage 1 — 메뉴 노출은 8개 메타 명령어만 유지 (43→8). 기존 51개 alias 는
-  // webhookHandler.ts switch case 에서 100% 보존되어 직접 입력으로 사용 가능.
-  // 메타 명령어 핸들러는 server/telegram/metaCommands.ts 에서 정의된다.
-  const commands = [
-    { command: 'help',      description: '도움말 — 자주 쓰는 8개 메뉴 안내' },
-    { command: 'status',    description: '시스템 현황 요약 (모드/MHS/포지션/오늘 결산)' },
-    { command: 'now',       description: '"지금 매수해도 되나?" 1줄 의사결정 + 단축 메뉴' },
-    { command: 'watch',     description: '워치리스트 통합 메뉴 (조회/Focus/추가/제거)' },
-    { command: 'positions', description: '포지션·손익·미체결·매도/취소·reconcile 통합' },
-    { command: 'learning',  description: '학습·Kelly·서킷·리스크·AI 상태 통합' },
-    { command: 'control',   description: 'pause/resume/stop/reset/integrity 제어판' },
-    { command: 'admin',     description: '진단·관리 (시장 리포트/채널/다이제스트/...)' },
-  ];
+  // ADR-0017 Stage 1 — 메뉴 노출은 메타 명령어 + /help /status /now 8개 (43→8).
+  // 기존 51개 alias 는 webhookHandler.ts switch / commandRegistry 에서 100% 보존
+  // 되어 직접 입력으로 사용 가능. 메타 명령어 핸들러는 metaCommands.ts.
+  let commands;
+  try {
+    commands = buildBotMenuCommands();
+  } catch (e: unknown) {
+    console.error('[Telegram] setMyCommands 빌드 실패:', e instanceof Error ? e.message : e);
+    return;
+  }
 
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
@@ -74,6 +74,7 @@ import {
   isUnifiedBriefingActive,
   shouldBypassCapture,
 } from './unifiedBriefing.js';
+import { buildBotMenuCommands } from '../telegram/metaCommands.js';
 export type { AlertTier } from './alertTiers.js';
 
 interface AlertCooldownEntry {
