@@ -199,21 +199,55 @@ export function applyTradingFieldFallbacks<
 }
 
 export async function enrichStockWithRealData(stock: StockRecommendation): Promise<StockRecommendation> {
-  // Fix 2 — enrich 실패 경로에서도 targetPrice/stopLoss 가 0 으로 남지 않도록
-  // AI 전용 폴백 경로에 동일한 현재가 기반 기본값 적용.
-  const aiFallback = (): StockRecommendation => {
+  // Fix 2 + 2026-04-24 추가 — enrich 실패 경로에서 currentPrice 가 0 으로 남는 문제 해소.
+  // 사용자 체감: AI 추천 카드는 보이지만 가격이 모두 "-" 로 표시되어 "표시 안 됨" 으로 인지.
+  // 원인: 장외/주말에 fetchHistoricalData 가 null 반환 → aiFallback 진입 → Gemini 가
+  //       프롬프트 지시대로 currentPrice=0 으로 응답 → applyTradingFieldFallbacks 도
+  //       currentPrice<=0 이면 비활성화. Naver snapshot 의 closePrice(전일 종가) 로 보강.
+  const aiFallback = async (override?: { currentPrice?: number; per?: number; pbr?: number; marketCap?: number }): Promise<StockRecommendation> => {
+    let resolvedPrice = stock.currentPrice || override?.currentPrice || 0;
+    let snapPer = override?.per ?? 0;
+    let snapPbr = override?.pbr ?? 0;
+    let snapMarketCap = override?.marketCap ?? 0;
+    // currentPrice 가 여전히 0 이면 Naver snapshot 으로 무비용 보강 시도.
+    // /api/ai-universe/snapshot 은 KIS/KRX quota 무관 (Naver 모바일).
+    if (!resolvedPrice || resolvedPrice <= 0) {
+      const baseCode = (stock.code || '').split('.')[0];
+      if (/^\d{6}$/.test(baseCode)) {
+        try {
+          const snap = await fetchAiUniverseSnapshot(baseCode);
+          if (snap) {
+            if (snap.closePrice && snap.closePrice > 0) resolvedPrice = snap.closePrice;
+            if (snap.per > 0) snapPer = snap.per;
+            if (snap.pbr > 0) snapPbr = snap.pbr;
+            if (snap.marketCap > 0) snapMarketCap = snap.marketCap;
+          }
+        } catch { /* SDS-ignore: snapshot 실패 시 가격 보강 포기 — 카드는 그대로 표시 */ }
+      }
+    }
     const fallback = applyTradingFieldFallbacks(
       { targetPrice: stock.targetPrice, targetPrice2: stock.targetPrice2,
         entryPrice: stock.entryPrice, stopLoss: stock.stopLoss },
-      stock.currentPrice || 0,
+      resolvedPrice,
     );
     const merged: StockRecommendation = {
       ...stock,
+      currentPrice: resolvedPrice || stock.currentPrice,
       targetPrice:  fallback.targetPrice  ?? stock.targetPrice,
       targetPrice2: fallback.targetPrice2 ?? stock.targetPrice2,
       entryPrice:   fallback.entryPrice   ?? stock.entryPrice,
       stopLoss:     fallback.stopLoss     ?? stock.stopLoss,
-      dataSourceType: 'AI',
+      // Naver 전일 종가 기반 fallback 임을 명확히 표시 — 카드 라벨이 "AI Estimated" 로 보임.
+      dataSourceType: resolvedPrice > 0 ? 'STALE' : 'AI',
+      priceUpdatedAt: resolvedPrice > 0 && resolvedPrice !== stock.currentPrice
+        ? '전일 종가 (Naver)'
+        : stock.priceUpdatedAt,
+      valuation: {
+        ...stock.valuation,
+        per: (snapPer > 0) ? snapPer : stock.valuation.per,
+        pbr: (snapPbr > 0) ? snapPbr : stock.valuation.pbr,
+      },
+      marketCap: (snapMarketCap > 0) ? snapMarketCap : stock.marketCap,
     };
     // Enrichment 전체가 실패해도 3-Gate Pyramid 는 checklist 기반 계산이므로 채워둔다.
     merged.gateEvaluation = computeGateEvaluation(merged);
@@ -223,7 +257,7 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
   try {
     const data = await fetchHistoricalData(stock.code, '1y');
     if (!data || !data.timestamp || !data.indicators?.quote?.[0]) {
-      return aiFallback();
+      return await aiFallback();
     }
 
     const quotes = data.indicators.quote[0];
@@ -232,7 +266,7 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
     const lows = (quotes.low as (number | null)[]).filter((v): v is number => v !== null);
     const volumes = (quotes.volume as (number | null)[]).filter((v): v is number => v !== null);
 
-    if (closes.length < 26) return aiFallback();
+    if (closes.length < 26) return await aiFallback();
 
     const rsi = calculateRSI(closes);
     const macd = calculateMACD(closes);
@@ -378,6 +412,6 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
     return enriched;
   } catch (error) {
     console.error(`Error enriching stock ${stock.name}:`, error);
-    return aiFallback();
+    return await aiFallback();
   }
 }

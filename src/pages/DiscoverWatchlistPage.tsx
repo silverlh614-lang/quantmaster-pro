@@ -149,7 +149,6 @@ interface DiscoverWatchlistPageProps {
   onAddToBacktest: (stock: StockRecommendation) => void;
   onMarketSearch: () => Promise<void>;
   onFetchNewsScores: () => Promise<void>;
-  onGenerateSummary: () => Promise<void>;
   onGeneratePDF: (shouldDownload?: boolean) => Promise<string | null>;
   onExportDeepAnalysisPDF: () => Promise<void>;
   onSendEmail: () => Promise<void>;
@@ -162,7 +161,7 @@ export function DiscoverWatchlistPage({
   analysisReportRef,
   onFetchStocks, onSyncAll, onSyncPrice, onManualPriceUpdate,
   onToggleWatchlist, onAddToBacktest, onMarketSearch, onFetchNewsScores,
-  onGenerateSummary, onGeneratePDF, onExportDeepAnalysisPDF, onSendEmail,
+  onGeneratePDF, onExportDeepAnalysisPDF, onSendEmail,
   onRecordTrade
 }: DiscoverWatchlistPageProps) {
   const {
@@ -170,11 +169,11 @@ export function DiscoverWatchlistPage({
     loading, lastUpdated, error, setError, searchingSpecific,
     lastUsedMode, recommendationHistory,
     view, setView, autoSyncEnabled, setAutoSyncEnabled,
-    setShowMasterChecklist, emailAddress, setEmailAddress,
+    setShowMasterChecklist,
     marketContext, syncStatus, syncingStock, nextSyncCountdown,
     deepAnalysisStock, setDeepAnalysisStock, setSelectedDetailStock,
-    weeklyRsiValues, reportSummary, setReportSummary,
-    isSummarizing, isGeneratingPDF, isExportingDeepAnalysis, isSendingEmail,
+    weeklyRsiValues,
+    isGeneratingPDF, isExportingDeepAnalysis,
     setTradeRecordStock, setTradeFormData,
     newsFrequencyScores, addShadowTrade, copiedCode, handleCopy,
   } = useWatchlistData();
@@ -316,7 +315,7 @@ export function DiscoverWatchlistPage({
         </div>
       )}
 
-      {/* Market Sentiment & Hero / Top 3 / Market Context / AI Summary — DISCOVER 대시보드 탭 */}
+      {/* Hero / Top 3 — DISCOVER 대시보드 탭 (시장 분석은 MARKET 탭으로 단일화 — ADR-0012) */}
       {showOverview && (
         <WatchlistHeader
           filters={filters}
@@ -327,12 +326,6 @@ export function DiscoverWatchlistPage({
           lastUpdated={lastUpdated}
           marketContext={marketContext}
           recommendations={recommendations}
-          searchResults={searchResults}
-          isSummarizing={isSummarizing}
-          onGenerateSummary={onGenerateSummary}
-          reportSummary={reportSummary}
-          setReportSummary={setReportSummary}
-          setView={setView}
           onDeepAnalysis={setDeepAnalysisStock}
         />
       )}

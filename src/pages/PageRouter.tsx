@@ -62,7 +62,7 @@ export function PageRouter({ onFetchMarketOverview }: PageRouterProps) {
     triggerPreMortem, handleAddSector, handleRemoveSector,
   } = useTradeOps();
   const {
-    generatePDF, handleExportDeepAnalysisPDF, handleGenerateSummary, sendEmail, analysisReportRef,
+    generatePDF, handleExportDeepAnalysisPDF, sendEmail, analysisReportRef,
   } = useReportExport();
   const { copiedCode, handleCopy } = useCopiedCode();
 
@@ -137,7 +137,6 @@ export function PageRouter({ onFetchMarketOverview }: PageRouterProps) {
                 onAddToBacktest={addToBacktest}
                 onMarketSearch={handleMarketSearch}
                 onFetchNewsScores={handleFetchNewsScores}
-                onGenerateSummary={handleGenerateSummary}
                 onGeneratePDF={generatePDF}
                 onExportDeepAnalysisPDF={handleExportDeepAnalysisPDF}
                 onSendEmail={sendEmail}
