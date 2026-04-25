@@ -227,6 +227,11 @@ export const AI_CALL_BUDGET_FILE = path.join(DATA_DIR, 'ai-call-budget.json');
  */
 export const OFFHOURS_SNAPSHOT_FILE = path.join(DATA_DIR, 'offhours-snapshot.json');
 /**
+ * Telegram 명령어 사용량 텔레메트리 (ADR-0017 §Stage 3, PR-48).
+ * 명령어별 호출 횟수 + 마지막 사용 시각을 영속해 Top 5 개인화 + 폐기 후보 자동 리포트에 활용.
+ */
+export const COMMAND_USAGE_FILE = path.join(DATA_DIR, 'command-usage.json');
+/**
  * Stock master shadow DB — last-known-good 스냅샷 (ADR-0013).
  * Tier 1/2 검증 통과한 응답만 저장. Tier 3/4 (shadow 자체·seed) 는 갱신하지 않는다.
  */

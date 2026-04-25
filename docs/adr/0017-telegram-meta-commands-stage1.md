@@ -1,6 +1,6 @@
-# ADR-0017 — Telegram 명령어 메뉴 압축 + 메타 명령어 도입 (Stage 1)
+# ADR-0017 — Telegram 명령어 메뉴 압축 + 메타 명령어 + 모듈 분해 + 사용량 텔레메트리
 
-- **Status**: Accepted (2026-04-25, PR-43 Stage 1 / Stage 2~3 후속)
+- **Status**: Implemented (2026-04-25, PR-43 Stage 1 / PR-44~47 Stage 2 / PR-48 Stage 3 완료)
 - **Owners**: architect, engine-dev
 - **Branch**: `claude/telegram-refactor-UwyFS`
 
@@ -116,11 +116,22 @@ server/telegram/
 `Command` 인터페이스 표준화 + `commandRegistry` 자동 등록으로 새 명령어 추가
 시 파일만 떨구면 라우터에 자동 등록.
 
-### Stage 3 (장기) — 사용량 텔레메트리 + 자기진화
+### Stage 3 (PR-48 구현 완료) — 사용량 텔레메트리 + 자기진화
 
-- `commandUsageRepo.ts` — 명령어별 사용 빈도 영속화
-- 주간 자동 리포트 — "30일간 0회 사용 명령어 = 폐기 후보"
-- `/help` 첫 줄 — 개인 Top 5 표시 (페르소나 학습 루프 UX 적용)
+- `server/persistence/commandUsageRepo.ts` 신설 — `recordUsage(name)` /
+  `getTopUsage(N)` / `getStaleCommands(names, days)` / `flushCommandUsage()`
+  + 200ms debounce flush + Volume JSON 영속(`COMMAND_USAGE_FILE`).
+- `webhookHandler` 가 commandRegistry 매칭 직후 `recordUsage(handler.name)` 1줄로
+  카운터 증가. alias 는 정식명으로 정규화되어 동일 인스턴스로 집계.
+- `metaCommands.buildHelpMessage(topUsage?)` — Top 5 가 ≥1 건이면 메타 메뉴 위에
+  "📊 자주 쓰는 명령 Top 5" 섹션 자동 노출. 신규 사용자(Top 0건) 는 미노출.
+- `server/telegram/deprecationReport.ts` — `collectDeprecationCandidates(days)`
+  + `formatDeprecationReport(data)` 순수 함수. 카테고리별 그룹핑 + Top 5 대비 표시
+  + 30개 절삭 + HTML escape.
+- `server/scheduler/commandUsageJobs.ts` — 매주 월요일 09:00 KST 폐기 후보
+  T2_REPORT 발송 cron. 후보 0건이면 채팅 노이즈 방지로 스킵.
+- 회귀 테스트 — `commandUsageRepo.test.ts` 12 + `deprecationReport.test.ts` 6 +
+  `metaCommands.test.ts` Top 5 4 케이스 = 22 신규.
 
 ## 결과 (Consequences)
 
@@ -164,9 +175,9 @@ server/telegram/
    - `commandRegistry` 자동 등록
    - `webhookHandler.ts` ≤50줄 축소 → CLAUDE.md "복잡도 위반" 표에서 제거
 
-3. **PR-45 (Stage 3, 후속)**:
-   - `commandUsageRepo` 텔레메트리
-   - 주간 폐기 후보 리포트
+3. **PR-48 (Stage 3, 완료)**:
+   - `commandUsageRepo` 텔레메트리 (recordUsage / getTopUsage / getStaleCommands)
+   - 주간 폐기 후보 리포트 (월요일 09:00 KST T2_REPORT)
    - `/help` 개인화 Top 5
 
 ## Non-Goals (Stage 1 범위 밖)

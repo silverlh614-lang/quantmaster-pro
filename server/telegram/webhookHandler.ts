@@ -16,6 +16,7 @@ import {
   type InlineKeyboardMarkup,
 } from './metaCommands.js';
 import { commandRegistry } from './commandRegistry.js';
+import { recordUsage, getTopUsage } from '../persistence/commandUsageRepo.js';
 // commands/* barrel side-effect — 모든 .cmd.ts 가 commandRegistry.register 자기 호출.
 import './commands/system/index.js';
 import './commands/watchlist/index.js';
@@ -115,12 +116,14 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
     await sendTelegramAlert(message, opts).catch(console.error);
   };
 
+  const lower = cmd.toLowerCase();
   try {
-    switch (cmd.toLowerCase()) {
+    switch (lower) {
       case '/help':
       case '/start': {
-        // ADR-0017: 메타 메뉴 8개 우선 노출. legacy 51 명령어는 직접 입력으로 alias 유지.
-        await reply(buildHelpMessage());
+        // ADR-0017 Stage 1+3 — 메타 메뉴 8개 + 개인 Top 5 (사용 이력 ≥1 시 자동 노출).
+        await reply(buildHelpMessage(getTopUsage(5)));
+        recordUsage(lower);
         break;
       }
 
@@ -131,16 +134,20 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       case '/learning':
       case '/control':
       case '/admin': {
-        await handleMetaCommand(cmd.toLowerCase(), reply);
+        await handleMetaCommand(lower, reply);
+        recordUsage(lower);
         break;
       }
 
 
       default: {
         // ADR-0017 §Stage 2 Phase A — commands/* 로 이전된 명령은 commandRegistry 에서 처리.
-        const handler = commandRegistry.resolve(cmd.toLowerCase());
+        const handler = commandRegistry.resolve(lower);
         if (handler) {
           await handler.execute({ args, reply });
+          // ADR-0017 §Stage 3 — 정식명(canonical name) 으로 텔레메트리. alias 가 별도 카운터로
+          // 분산되지 않고 동일 핸들러로 집계되도록 handler.name 사용.
+          recordUsage(handler.name);
           break;
         }
         await reply(
