@@ -57,49 +57,12 @@ import { recordUniverseEntries } from '../learning/ledgerSimulator.js';
 
 // FAILURE_BLOCK_THRESHOLD_PCT, getPrice, SymbolExitContext, getAdaptiveProfitTargets
 // 는 signalScanner/perSymbolEvaluation.ts 에서 이식 후 import.
-import type { FullRegimeConfig } from '../../src/types/core.js';
-import type { MacroState } from '../persistence/macroStateRepo.js';
 import { getManualBlockNewBuy, getManualManageOnly } from '../state.js';
 
-// ── Phase 2-③: SELL_ONLY Top-K 예외 채널 평가 ─────────────────────────────────
-// regimeConfig.sellOnlyException.enabled=true 일 때만 작동.
-// 4중 AND 조건: liveGate≥minLiveGate && MTAS≥minMtas && sectorAligned && VIX<maxVix.
-// liveGate·MTAS 는 종목 단위라 이 평가에서는 매크로(sectorAligned + VIX) 만 선검증.
-interface SellOnlyExceptionDecision {
-  allow: boolean;
-  maxSlots: number;
-  kellyFactor: number;
-  minLiveGate: number;
-  minMtas: number;
-  reason: string;
-}
-function evaluateSellOnlyException(
-  cfg: FullRegimeConfig,
-  macro: MacroState | null,
-): SellOnlyExceptionDecision {
-  const exc = cfg.sellOnlyException;
-  if (!exc || !exc.enabled) {
-    return { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 99, minMtas: 11, reason: 'disabled' };
-  }
-  const vix = macro?.vix;
-  if (vix == null || vix >= exc.maxVix) {
-    return { allow: false, maxSlots: 0, kellyFactor: exc.kellyFactor, minLiveGate: exc.minLiveGate, minMtas: exc.minMtas, reason: `VIX ${vix ?? 'N/A'} ≥ ${exc.maxVix}` };
-  }
-  const rs = macro?.leadingSectorRS ?? 0;
-  const stage = macro?.sectorCycleStage;
-  const sectorAligned = rs >= 60 || stage === 'EARLY' || stage === 'MID';
-  if (!sectorAligned) {
-    return { allow: false, maxSlots: 0, kellyFactor: exc.kellyFactor, minLiveGate: exc.minLiveGate, minMtas: exc.minMtas, reason: `sector not aligned (RS ${rs}, stage ${stage ?? 'N/A'})` };
-  }
-  return {
-    allow: true,
-    maxSlots: Math.max(1, Math.floor(exc.maxSlots)),
-    kellyFactor: exc.kellyFactor,
-    minLiveGate: exc.minLiveGate,
-    minMtas: exc.minMtas,
-    reason: `ALIGNED (VIX ${vix} < ${exc.maxVix}, RS ${rs}, stage ${stage ?? '-'})`,
-  };
-}
+// ── Phase 2-③: SELL_ONLY Top-K 예외 채널 평가 — preflight 단일 SSOT ───────────
+// PR-42 M3: 이전 inline 본체(L66~102) 와 signalScanner/preflight.ts:82~108 가 byte
+// 동일한 채로 병존하던 drift 위험을 제거. preflight 의 export 만 사용한다.
+import { evaluateSellOnlyException } from './signalScanner/preflight.js';
 import { getLiveRegime } from './regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
@@ -178,12 +141,9 @@ import {
   persistScanResults,
 } from './signalScanner/scanDiagnostics.js';
 
-function getAccountScaleKellyMultiplier(totalAssets: number): number {
-  if (totalAssets >= 300_000_000) return 1.15;
-  if (totalAssets >= 100_000_000) return 1.08;
-  if (totalAssets <= 20_000_000) return 0.92;
-  return 1.0;
-}
+// PR-42 M3: getAccountScaleKellyMultiplier 의 inline 정의를 제거하고 preflight 의
+// export 단일 SSOT 만 사용한다. 이전엔 byte 동일한 본체가 양쪽에 병존해 drift 위험.
+import { getAccountScaleKellyMultiplier } from './signalScanner/preflight.js';
 
 // SymbolExitContext / getAdaptiveProfitTargets 는 signalScanner/perSymbolEvaluation.ts
 // 로 이동 (Step 4a). 외부 노출은 본 파일 상단의 import 를 통해 유지.
