@@ -71,6 +71,11 @@ import {
   formatSchedulerDetail,
   formatSchedulerHistory,
 } from '../scheduler/scheduleCatalog.js';
+import { getLearningStatus, getLearningHistory } from '../learning/learningHistorySummary.js';
+import {
+  formatLearningStatusMessage,
+  formatLearningHistoryMessage,
+} from '../learning/learningHistoryFormatter.js';
 
 // ADR-0015: /reconcile live apply 60초 rate-limit 가드 — 오타 방지.
 let _lastLiveReconcileApplyAt = 0;
@@ -155,6 +160,8 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /adjust_qty <code>종목코드</code> <code>수량</code> [메모] — 장부 수량 수동 보정 (실계좌 대비 drift 교정)\n` +
           `  /reconcile [apply|last|status|push|live] — 장부 점검(기본 dry-run)·적용·이력·브로드캐스트·KIS 동기화\n` +
           `  /scheduler [next|detail|history] — 스케줄러 시간표/다음 실행/상세/실행 이력\n` +
+          `  /learning_status — 직전 nightly reflection · 편향 · 실험 제안 · suggest 알림 7일 요약\n` +
+          `  /learning_history [n=7] — 최근 N일 자기학습 이력 (mode/verdict/narrative/편향 TOP3, 1~30)\n` +
           `  /scan — 장중 강제 스캔 트리거\n` +
           `  /krx_scan — KRX 종목조회 강제 재스캔 (Stage1+2+3)\n` +
           `  /cancel <code>종목코드</code> — 미체결 주문 취소\n` +
@@ -806,6 +813,30 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           await reply(formatSchedulerHistory(Number.isFinite(n) && n > 0 ? Math.min(n, 50) : 15));
         } else {
           await reply(formatSchedulerSummary());
+        }
+        break;
+      }
+
+      case '/learning_status': {
+        try {
+          const snapshot = getLearningStatus();
+          await reply(formatLearningStatusMessage(snapshot));
+        } catch (e) {
+          console.error('[TelegramBot] /learning_status 실패:', e);
+          await reply('❌ 학습 상태 조회 실패 — 서버 로그를 확인하세요.');
+        }
+        break;
+      }
+
+      case '/learning_history': {
+        const raw = Number(args[0]);
+        const days = Number.isFinite(raw) && raw >= 1 && raw <= 30 ? Math.floor(raw) : 7;
+        try {
+          const summary = getLearningHistory(days);
+          await reply(formatLearningHistoryMessage(summary));
+        } catch (e) {
+          console.error('[TelegramBot] /learning_history 실패:', e);
+          await reply('❌ 학습 이력 조회 실패 — 서버 로그를 확인하세요.');
         }
         break;
       }

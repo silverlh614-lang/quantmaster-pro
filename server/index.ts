@@ -61,6 +61,7 @@ import diagnosticRouter from './routes/diagnosticRouter.js';
 import operatorRouter from './routes/operatorRouter.js';
 import monitoringCertRouter from './routes/monitoringCertRouter.js';
 import userWatchlistRouter from './routes/userWatchlistRouter.js';
+import learningRouter from './routes/learningRouter.js';
 import { startScheduler } from './scheduler/index.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 import { globalErrorHandler } from './utils/apiResponse.js';
@@ -228,6 +229,11 @@ async function startServer() {
   // (ADR 분리: 자동매매 워치리스트와 완전 독립)
   // ─────────────────────────────────────────────────────────────
   app.use(userWatchlistRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // 자기학습 진단 — 운영자용 GET /api/learning/{status,history}
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/learning', learningRouter);
 
   // ─── 아이디어 1: 오케스트레이터 상태 조회 ────────────────────────────────────
   app.get('/api/orchestrator/state', (_req: Request, res: Response) => {
