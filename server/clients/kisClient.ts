@@ -197,9 +197,48 @@ export async function forceRefreshKisTokens(): Promise<{ main: boolean; realData
 
 const _kisSleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-/** 5xx exponential backoff 지연 계산 — retriesLeft=3→1s, 2→2s, 1→4s */
-const _kisBackoffDelayMs = (retriesLeft: number) =>
-  Math.pow(2, 3 - retriesLeft) * 1000;
+/**
+ * ADR-0014 — 5xx exponential backoff + 50% jitter.
+ * - jitter 활성: retriesLeft=3 → 500~1500ms, 2 → 1000~3000ms, 1 → 2000~6000ms
+ * - jitter 비활성 (KIS_RETRY_JITTER_DISABLED=true): 1000/2000/4000ms 고정 (회귀 비교용)
+ */
+const _kisBackoffDelayMs = (retriesLeft: number): number => {
+  const base = Math.pow(2, 3 - retriesLeft) * 1000;
+  if (process.env.KIS_RETRY_JITTER_DISABLED === 'true') return base;
+  return Math.floor(base * 0.5 + Math.random() * base);
+};
+
+/**
+ * ADR-0014 — 429 rate-limit 대기 + 0~500ms jitter.
+ * 동시 호출이 KIS 게이트웨이 제한에 동시에 걸리면 동기화된 1초 대기 → 동시 재시도 폭주.
+ * Jitter 로 재시도 시점을 분산.
+ */
+const _kis429DelayMs = (): number => {
+  if (process.env.KIS_RETRY_JITTER_DISABLED === 'true') return 1000;
+  return 1000 + Math.floor(Math.random() * 500);
+};
+
+/**
+ * ADR-0014 — 재시도 자체를 무력화하는 긴급 스위치.
+ * KIS 자체 장애로 인한 재시도 폭주를 즉시 차단해야 할 때 사용.
+ */
+const _isKisRetryEnabled = (): boolean => process.env.KIS_RETRY_DISABLED !== 'true';
+
+/**
+ * ADR-0014 — KIS POST 호출의 idempotency 분류.
+ *
+ * - 'unsafe' (default): 주문/취소 등 mutate 호출. 5xx 재시도 차단 — KIS 매칭엔진이
+ *   주문을 받았는지 확인할 방법이 없어 재시도 시 중복 주문 위험.
+ * - 'safe': read-only POST (현재 코드베이스에는 해당 없음, 향후 확장용).
+ *
+ * 401/429/네트워크 에러는 두 분류 모두 안전 재시도 — KIS 매칭엔진 미진입 확정.
+ */
+export type KisPostIdempotency = 'safe' | 'unsafe';
+
+export interface KisPostOptions {
+  /** 기본 'unsafe' (주문 안전 우선). 명시 안 하면 5xx 재시도 차단. */
+  idempotency?: KisPostIdempotency;
+}
 
 // ─── 회로 차단기 (Circuit Breaker) ──────────────────────────────────────────
 // KIS 서버가 특정 trId(예: TTTC8434R 잔고조회)에 대해 지속적으로 5xx를 반환할 때,
@@ -331,6 +370,10 @@ export const __testOnly = {
   recordFailure: (trId: string, status: number) => _recordCircuitFailure(trId, status),
   recordSuccess: (trId: string) => _recordCircuitSuccess(trId),
   isOpen: (trId: string) => _isCircuitOpen(trId),
+  // ADR-0014 재시도 안전성 테스트 — jitter 동작·재시도 스위치 검증용.
+  backoffDelayMs: (retriesLeft: number) => _kisBackoffDelayMs(retriesLeft),
+  rateLimit429DelayMs: () => _kis429DelayMs(),
+  isRetryEnabled: () => _isKisRetryEnabled(),
 };
 
 /** 회로 차단기 상태 조회 (디버깅/모니터링용) */
@@ -387,8 +430,8 @@ export function resetKisCircuits(): number {
  *
  * 재시도 정책 (retriesLeft 기본 3회):
  *   - 401 Unauthorized: 토큰 무효화 + 즉시 재시도
- *   - 429 Too Many Requests: 1초 대기 후 재시도
- *   - 5xx Server Error: 지수 백오프 (1s → 2s → 4s) 후 재시도
+ *   - 429 Too Many Requests: 1초+jitter 대기 후 재시도
+ *   - 5xx Server Error: 지수 백오프+jitter 후 재시도 (READ 안전)
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function _rawKisGet(
@@ -412,19 +455,22 @@ async function _rawKisGet(
     },
   });
 
-  if (res.status === 401 && retriesLeft > 0) {
+  const retryAllowed = retriesLeft > 0 && _isKisRetryEnabled();
+
+  if (res.status === 401 && retryAllowed) {
     console.warn(`[KIS] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도 (${retriesLeft}회 남음)`);
     invalidateKisToken();
     return _rawKisGet(trId, apiPath, params, retriesLeft - 1);
   }
 
-  if (res.status === 429 && retriesLeft > 0) {
-    console.warn(`[KIS] 429 Rate Limit (${trId}) — 1초 대기 후 재시도 (${retriesLeft}회 남음)`);
-    await _kisSleep(1000);
+  if (res.status === 429 && retryAllowed) {
+    const delay = _kis429DelayMs();
+    console.warn(`[KIS] 429 Rate Limit (${trId}) — ${delay}ms 대기 후 재시도 (${retriesLeft}회 남음)`);
+    await _kisSleep(delay);
     return _rawKisGet(trId, apiPath, params, retriesLeft - 1);
   }
 
-  if (res.status >= 500 && res.status < 600 && retriesLeft > 0) {
+  if (res.status >= 500 && res.status < 600 && retryAllowed) {
     const delay = _kisBackoffDelayMs(retriesLeft);
     console.warn(`[KIS] ${res.status} (${trId}) 재시도 ${retriesLeft}회 남음, ${delay}ms 대기`);
     await _kisSleep(delay);
@@ -444,12 +490,41 @@ async function _rawKisGet(
 }
 
 /**
+ * ADR-0014 — WRITE 5xx 실패 시 텔레그램 즉시 경보 (1회).
+ *
+ * 5xx 재시도를 차단했으므로 호출자가 실패를 즉시 인지해야 한다. 운영자는 KIS HTS 로
+ * 실주문 상태를 직접 확인 후 수동 재실행 또는 /reconcile live 로 후속 조치.
+ *
+ * 텔레그램 송신 자체 실패는 무시 (재시도 폭주 방지).
+ */
+async function _alertUnsafeWriteFailure(
+  trId: string, apiPath: string, status: number,
+): Promise<void> {
+  const msg =
+    `🚨 <b>[KIS WRITE 5xx — 재시도 차단]</b>\n` +
+    `TR: <code>${escapeHtml(trId)}</code>\n` +
+    `Path: <code>${escapeHtml(apiPath)}</code>\n` +
+    `Status: ${status}\n\n` +
+    `중복 주문 위험으로 자동 재시도 없음.\n` +
+    `KIS HTS 로 실주문 상태 확인 후 필요 시 수동 재실행 또는 ` +
+    `<code>/reconcile live</code> 점검.`;
+  try { await sendTelegramAlert(msg); } catch { /* swallow */ }
+}
+
+/**
  * 내부 raw POST — 토큰 버킷 없이 직접 호출. 외부에서는 kisPost를 사용할 것.
- * 재시도 정책은 _rawKisGet과 동일.
+ *
+ * ADR-0014 재시도 정책:
+ *   - 401: 안전 재시도 (인증 거부, 매칭엔진 미진입)
+ *   - 429: 안전 재시도 (게이트웨이 거부, 매칭엔진 미진입)
+ *   - 5xx + idempotency='safe': 지수 백오프+jitter 재시도
+ *   - 5xx + idempotency='unsafe': **재시도 차단** + 텔레그램 경보 (중복 주문 방지)
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function _rawKisPost(
-  trId: string, apiPath: string, body: Record<string, string>, retriesLeft = 3,
+  trId: string, apiPath: string, body: Record<string, string>,
+  options: { idempotency: KisPostIdempotency } = { idempotency: 'unsafe' },
+  retriesLeft = 3,
 ): Promise<any> {
   if (_isCircuitOpen(trId)) {
     console.warn(`[KIS] 회로 차단 상태 — ${trId} 호출 건너뜀 (cooldown 중)`);
@@ -470,23 +545,39 @@ async function _rawKisPost(
     body: JSON.stringify(body),
   });
 
-  if (res.status === 401 && retriesLeft > 0) {
+  const retryAllowed = retriesLeft > 0 && _isKisRetryEnabled();
+
+  if (res.status === 401 && retryAllowed) {
     console.warn(`[KIS] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도 (${retriesLeft}회 남음)`);
     invalidateKisToken();
-    return _rawKisPost(trId, apiPath, body, retriesLeft - 1);
+    return _rawKisPost(trId, apiPath, body, options, retriesLeft - 1);
   }
 
-  if (res.status === 429 && retriesLeft > 0) {
-    console.warn(`[KIS] 429 Rate Limit (${trId}) — 1초 대기 후 재시도 (${retriesLeft}회 남음)`);
-    await _kisSleep(1000);
-    return _rawKisPost(trId, apiPath, body, retriesLeft - 1);
-  }
-
-  if (res.status >= 500 && res.status < 600 && retriesLeft > 0) {
-    const delay = _kisBackoffDelayMs(retriesLeft);
-    console.warn(`[KIS] ${res.status} (${trId}) 재시도 ${retriesLeft}회 남음, ${delay}ms 대기`);
+  if (res.status === 429 && retryAllowed) {
+    const delay = _kis429DelayMs();
+    console.warn(`[KIS] 429 Rate Limit (${trId}) — ${delay}ms 대기 후 재시도 (${retriesLeft}회 남음)`);
     await _kisSleep(delay);
-    return _rawKisPost(trId, apiPath, body, retriesLeft - 1);
+    return _rawKisPost(trId, apiPath, body, options, retriesLeft - 1);
+  }
+
+  if (res.status >= 500 && res.status < 600) {
+    // ADR-0014: WRITE(unsafe) 는 5xx 후 재시도 차단 — KIS 가 받았는지 알 수 없어 중복 주문 위험.
+    if (options.idempotency === 'unsafe') {
+      console.error(
+        `[KIS] ${res.status} WRITE 실패 (${trId}) — 재시도 차단 (중복 주문 방지). ` +
+        `KIS 실주문 상태를 HTS 로 확인 필요.`
+      );
+      _recordCircuitFailure(trId, res.status);
+      // 텔레그램 경보는 비동기로 발사 — 실패해도 호출자 흐름 차단하지 않음.
+      void _alertUnsafeWriteFailure(trId, apiPath, res.status);
+      return null;
+    }
+    if (retryAllowed) {
+      const delay = _kisBackoffDelayMs(retriesLeft);
+      console.warn(`[KIS] ${res.status} (${trId}) 재시도 ${retriesLeft}회 남음, ${delay}ms 대기`);
+      await _kisSleep(delay);
+      return _rawKisPost(trId, apiPath, body, options, retriesLeft - 1);
+    }
   }
 
   if (!res.ok) {
@@ -515,14 +606,24 @@ export function kisGet(
 
 /**
  * Rate-limited KIS POST. 모든 외부 호출은 토큰 버킷을 통과한다.
+ *
+ * ADR-0014: `options.idempotency` 기본 'unsafe' — 주문/취소 등 mutate 호출 보호.
+ * 5xx 후 재시도가 중복 주문을 만들 수 있으므로 차단 + 텔레그램 경보. read-only POST 가
+ * 추가될 경우 호출자가 명시적으로 `{ idempotency: 'safe' }` 전달.
+ *
  * @param priority 기본 HIGH (주문 계열). 데이터 조회는 LOW.
+ * @param options.idempotency 'unsafe' (기본) | 'safe'
  */
 export function kisPost(
   trId: string, apiPath: string, body: Record<string, string>,
   priority: KisApiPriority = 'HIGH',
+  options: KisPostOptions = {},
 ) {
   assertModeCompatible(trId, KIS_IS_REAL ? 'LIVE' : 'VTS');
-  return scheduleKisCall(priority, `POST ${trId}`, () => _rawKisPost(trId, apiPath, body));
+  const idempotency = options.idempotency ?? 'unsafe';
+  return scheduleKisCall(priority, `POST ${trId}`, () =>
+    _rawKisPost(trId, apiPath, body, { idempotency }),
+  );
 }
 
 // ─── 실계좌 데이터 전용 HTTP 헬퍼 ────────────────────────────────────────────
@@ -609,6 +710,7 @@ export interface KisClientOverrides {
   fetchCurrentPrice?: (code: string) => Promise<number | null>;
   fetchStockName?: (code: string) => Promise<string | null>;
   fetchAccountBalance?: () => Promise<number | null>;
+  fetchKisHoldings?: () => Promise<KisHolding[] | null>;
   fetchKisInvestorFlow?: (code: string) => Promise<KisInvestorFlow | null>;
   realDataKisGet?: (trId: string, apiPath: string, params: Record<string, string>) => Promise<unknown>;
 }
@@ -895,6 +997,84 @@ export async function fetchAccountBalance(): Promise<number | null> {
   const balance = cash > 0 ? cash : null;
   if (balance !== null) _cachedBalance = balance;
   return balance;
+}
+
+// ─── KIS 보유 포지션 조회 (ADR-0015 — /reconcile live SSOT) ────────────────
+
+/**
+ * KIS 실잔고 보유 포지션 1건.
+ *
+ * `inquire-balance` 응답의 `output1[]` 각 row 에서 포지션 식별·재동기화에 필요한
+ * 최소 필드만 정규화해 추출한다. 추가 필드(섹터/주문가능수량 등)가 필요하면 raw 응답에
+ * 직접 접근하지 말고 본 인터페이스를 확장한다.
+ */
+export interface KisHolding {
+  /** 종목코드 (6자리 zero-padded) */
+  pdno: string;
+  /** 종목명 (KIS 응답의 prdt_name) */
+  prdtName: string;
+  /** 보유 수량 — KIS 가 정답 (SSOT) */
+  hldgQty: number;
+  /** 매입 평단가 — KIS 가 사사오입 후 보관 (SSOT) */
+  pchsAvgPric: number;
+  /** 현재가 (KIS 응답의 prpr) — null 이면 장외/조회 실패 */
+  prpr: number | null;
+  /** 평가손익 (KIS 응답의 evlu_pfls_amt) */
+  evluPflsAmt: number | null;
+}
+
+/**
+ * KIS 실잔고에서 모든 보유 포지션을 가져온다.
+ *
+ * 페이지네이션 대응: KIS 는 100건 초과 시 CTX_AREA_FK100/NK100 으로 분할 응답한다.
+ * 본 PR 범위에서는 1페이지(100건) 만 처리 — 자동매매 동시 보유 한도가 통상 한 자리수라
+ * 페이지 누락이 실무 위험이 되지 않는다. 100건 초과 시 후속 PR 에서 페이지네이션 추가.
+ *
+ * 반환:
+ *   - `null`  : KIS 미설정·점검시간(02~07)·회로차단·5xx 등으로 조회 불가
+ *   - `[]`    : 조회 성공 + 보유 포지션 없음
+ *   - 배열   : 보유 포지션 정규화 결과 (hldgQty>0 만 필터)
+ */
+export async function fetchKisHoldings(): Promise<KisHolding[] | null> {
+  if (_overrides.fetchKisHoldings) return _overrides.fetchKisHoldings();
+
+  if (!isKisBalanceQueryAllowed()) return null;
+  if (!process.env.KIS_APP_KEY) return null;
+
+  const trId = KIS_IS_REAL ? 'TTTC8434R' : 'VTTC8434R';
+  const data = await kisGet(trId, '/uapi/domestic-stock/v1/trading/inquire-balance', {
+    CANO: process.env.KIS_ACCOUNT_NO ?? '',
+    ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
+    AFHR_FLPR_YN: 'N',
+    OFL_YN: '',
+    INQR_DVSN: '02',
+    UNPR_DVSN: '01',
+    FUND_STTL_ICLD_YN: 'N',
+    FNCG_AMT_AUTO_RDPT_YN: 'N',
+    PRCS_DVSN: '01',
+    CTX_AREA_FK100: '',
+    CTX_AREA_NK100: '',
+  }, 'LOW');
+
+  const output1 = (data as { output1?: Record<string, string>[] } | null)?.output1;
+  if (!Array.isArray(output1)) return null;
+
+  return output1
+    .map((row): KisHolding => {
+      const hldgQty = Number(row.hldg_qty ?? 0);
+      const pchsAvgPric = Number(row.pchs_avg_pric ?? 0);
+      const prprRaw = Number(row.prpr ?? 0);
+      const evluRaw = Number(row.evlu_pfls_amt ?? 0);
+      return {
+        pdno: String(row.pdno ?? '').padStart(6, '0'),
+        prdtName: String(row.prdt_name ?? '').trim(),
+        hldgQty,
+        pchsAvgPric,
+        prpr: Number.isFinite(prprRaw) && prprRaw > 0 ? prprRaw : null,
+        evluPflsAmt: Number.isFinite(evluRaw) ? evluRaw : null,
+      };
+    })
+    .filter((h) => h.pdno.length === 6 && h.hldgQty > 0);
 }
 
 // ─── 실제 KIS 매도 주문 ─────────────────────────────────────────────────────

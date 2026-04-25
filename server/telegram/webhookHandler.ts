@@ -61,6 +61,7 @@ import { buildManualExitContext } from '../trading/manualExitContext.js';
 import { appendManualExit } from '../persistence/manualExitsRepo.js';
 import { evaluateAndAlertManualOverride } from '../alerts/manualOverrideMonitor.js';
 import { reconcileShadowQuantities, loadLastReconcileResult } from '../persistence/shadowAccountRepo.js';
+import { reconcileLivePositions, formatLiveReconcileResult } from '../trading/liveReconciler.js';
 import { handleBuyApprovalCallback } from './buyApproval.js';
 import { handleOperatorOverrideCallback } from './operatorOverride.js';
 import { handleT1AckCallback } from '../alerts/ackTracker.js';
@@ -70,6 +71,9 @@ import {
   formatSchedulerDetail,
   formatSchedulerHistory,
 } from '../scheduler/scheduleCatalog.js';
+
+// ADR-0015: /reconcile live apply 60초 rate-limit 가드 — 오타 방지.
+let _lastLiveReconcileApplyAt = 0;
 
 export async function handleTelegramWebhook(req: Request, res: Response): Promise<void> {
   res.sendStatus(200); // Telegram에 즉시 200 응답 (재전송 방지)
@@ -149,7 +153,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           `  /buy <code>종목코드</code> — 수동 매수 신호\n` +
           `  /sell <code>종목코드</code> — 포지션 전량 시장가 매도\n` +
           `  /adjust_qty <code>종목코드</code> <code>수량</code> [메모] — 장부 수량 수동 보정 (실계좌 대비 drift 교정)\n` +
-          `  /reconcile [apply|last|status|push] — 장부 점검(기본 dry-run)·적용·이력·브로드캐스트\n` +
+          `  /reconcile [apply|last|status|push|live] — 장부 점검(기본 dry-run)·적용·이력·브로드캐스트·KIS 동기화\n` +
           `  /scheduler [next|detail|history] — 스케줄러 시간표/다음 실행/상세/실행 이력\n` +
           `  /scan — 장중 강제 스캔 트리거\n` +
           `  /krx_scan — KRX 종목조회 강제 재스캔 (Stage1+2+3)\n` +
@@ -720,6 +724,43 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             lines.join('\n') + suffix +
             `\n\n💡 수량 불일치 발견 시 <code>/reconcile apply</code>`,
           );
+          break;
+        }
+
+        // ADR-0015: /reconcile live — KIS 실잔고 기준 LIVE 포지션 강제 동기화.
+        //   /reconcile live          → KIS vs 로컬 dry-run 비교 (변경 없음)
+        //   /reconcile live apply    → KIS 값으로 로컬 강제 덮어쓰기 (60s rate-limit)
+        if (sub === 'live') {
+          const sub2 = (args[1] ?? '').toLowerCase();
+          const liveApply = sub2 === 'apply';
+
+          if (liveApply) {
+            const now = Date.now();
+            if (now - _lastLiveReconcileApplyAt < 60_000) {
+              const wait = Math.ceil((60_000 - (now - _lastLiveReconcileApplyAt)) / 1000);
+              await reply(
+                `⏱ <b>[Reconcile Live Apply 차단]</b>\n` +
+                `최근 ${wait}초 이내 동일 명령 실행 — 오타 방지 가드. ` +
+                `${wait}초 후 재시도하세요.`
+              );
+              break;
+            }
+            _lastLiveReconcileApplyAt = now;
+          }
+
+          await reply(
+            liveApply
+              ? '⚡ <b>[LIVE Reconcile APPLY]</b> KIS 잔고를 SSOT 로 로컬 포지션 동기화 중...'
+              : '🔍 <b>[LIVE Reconcile DRY-RUN]</b> KIS vs 로컬 비교 중 — 변경 없이 결과만 표시합니다...'
+          );
+
+          try {
+            const liveResult = await reconcileLivePositions({ dryRun: !liveApply });
+            await reply(formatLiveReconcileResult(liveResult));
+          } catch (e) {
+            console.error('[TelegramBot] /reconcile live 실패:', e);
+            await reply('❌ /reconcile live 실패 — 서버 로그를 확인하세요.');
+          }
           break;
         }
 
