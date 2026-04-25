@@ -28,6 +28,7 @@ import {
   backfillShadowBuyFills,
 } from '../persistence/shadowTradeRepo.js';
 import { appendTradeEvent, type TradeEvent } from './tradeEventLog.js';
+import { emitPartialAttribution } from '../persistence/attributionRepo.js';
 import { addToBlacklist } from '../persistence/blacklistRepo.js';
 import { checkEuphoria } from './riskManager.js';
 import { regimeToStopRegime } from './entryEngine.js';
@@ -37,6 +38,56 @@ import type { RegimeLevel } from '../../src/types/core.js';
 import type { PositionFill } from '../persistence/shadowTradeRepo.js';
 import { learningOrchestrator } from '../orchestrator/learningOrchestrator.js';
 import { requestImmediateRescan } from '../orchestrator/adaptiveScanScheduler.js';
+
+// ─── PR-42 M1 — emitPartialAttributionForSell 분리 (테스트 가능 helper) ──────
+//
+// 부분매도 SELL fill 1건이 reserveSell 에서 CONFIRMED 로 기록될 때 PR-19
+// attribution(qtyRatio 가중) 을 자동 emit 한다. 학습 baseline 이 없으면
+// emitPartialAttribution 자체가 null 반환 → 학습 오염 차단.
+//
+// 호출 조건(reserveSell 가 enforce):
+//   - isShadow=true (SHADOW 즉시 CONFIRMED 만, LIVE PROVISIONAL 은 후속 PR)
+//   - remainingQty > 0 (전량 청산은 FULL_CLOSE 경로에서 별도 처리)
+//   - fill.qty > 0
+export interface EmitPartialAttributionInputForSell {
+  shadow: ServerShadowTrade;
+  fill: SellFillInput;
+  remainingQty: number;
+  newFillId: string | undefined;
+  now: string;
+}
+
+export function emitPartialAttributionForSell(
+  input: EmitPartialAttributionInputForSell,
+): ReturnType<typeof emitPartialAttribution> {
+  const { shadow, fill, remainingQty, newFillId, now } = input;
+  if (remainingQty <= 0 || fill.qty <= 0 || !newFillId) return null;
+
+  const baseQty = shadow.originalQuantity && shadow.originalQuantity > 0
+    ? shadow.originalQuantity
+    : fill.qty + remainingQty;
+  if (baseQty <= 0) return null;
+
+  const closedAt = fill.timestamp ?? now;
+  const signalMs = new Date(shadow.signalTime).getTime();
+  const closedMs = new Date(closedAt).getTime();
+  const holdingDays = Number.isFinite(signalMs) && Number.isFinite(closedMs)
+    ? Math.max(0, Math.floor((closedMs - signalMs) / 86_400_000))
+    : 0;
+
+  return emitPartialAttribution({
+    tradeId:     shadow.id ?? shadow.stockCode,
+    fillId:      newFillId,
+    stockCode:   shadow.stockCode,
+    stockName:   shadow.stockName,
+    closedAt,
+    returnPct:   fill.pnlPct ?? 0,
+    qtyRatio:    fill.qty / baseQty,
+    holdingDays,
+    entryRegime: shadow.entryRegime,
+    sellReason:  fill.reason ?? undefined,
+  });
+}
 
 // ─── reserveSell 헬퍼 — "주문 접수 ≠ 체결" 원칙을 강제한다 ─────────────────────
 //
@@ -190,6 +241,21 @@ function reserveSell(
     cumRealizedPnL,
     remainingQty,
   });
+  // PR-42 M1 — 부분매도 시 PR-19(ADR-0006) attribution 자동 기록.
+  // 조건: SHADOW(CONFIRMED 즉시) + 잔량 > 0 + originalQuantity 확정.
+  // baseline conditionScores 가 없으면 emitPartialAttribution 가 null 을 반환해
+  // 학습 오염을 차단한다. LIVE PROVISIONAL fill 은 reserveSell 에서 emit 하지
+  // 않고 fillMonitor 의 confirm 시점 wiring 을 후속 PR 로 분리한다.
+  if (isShadow) {
+    const lastFill = shadow.fills?.[shadow.fills.length - 1];
+    emitPartialAttributionForSell({
+      shadow,
+      fill,
+      remainingQty,
+      newFillId: lastFill?.id,
+      now: nowIso,
+    });
+  }
 
   if (isShadow) {
     return {
