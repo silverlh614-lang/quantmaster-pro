@@ -420,6 +420,25 @@ async function startServer() {
       `KIS: ${process.env.KIS_IS_REAL === 'true' ? '실거래' : '모의투자'}`
     ).catch(console.error);
 
+    // P2-A: 부팅 30초 후 LIVE reconcile dry-run — Railway 재배포 직후 mismatch 조기 감지.
+    // 컨테이너 초기화 + KIS 토큰 선행 갱신이 완료되기를 대기. fire-and-forget.
+    setTimeout(() => {
+      import('./trading/bootReconcile.js')
+        .then(({ runBootReconcileDryRun }) => runBootReconcileDryRun())
+        .then((outcome) => {
+          if (outcome.skipped) {
+            console.log(`[BootReconcile] skip — ${outcome.reason}`);
+          } else if ('error' in outcome) {
+            console.error(`[BootReconcile] 실패 — ${outcome.error}`);
+          } else {
+            console.log(
+              `[BootReconcile] mismatch=${outcome.mismatchCount} alerted=${outcome.alerted}`,
+            );
+          }
+        })
+        .catch((e) => console.error('[BootReconcile] 모듈 로드 실패:', e));
+    }, 30_000);
+
     // 아이디어 7-A: 14분 간격 자가 핑 — Railway 슬립 방지
     const selfUrl = process.env.RAILWAY_STATIC_URL ?? `http://localhost:${PORT}`;
     setInterval(async () => {

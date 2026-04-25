@@ -337,3 +337,86 @@ export function buildHelpMessage(topUsage?: HelpTopEntry[]): string {
     `<i>ADR-0017 Stage 1+2+3 — 메뉴 압축 + 모듈 분해 + 사용량 텔레메트리 적용 중.</i>`
   );
 }
+
+// ── setMyCommands 자동 동기화 (drift 차단) ───────────────────────────────────
+
+/** Telegram setMyCommands payload 한 항목. command 는 슬래시 없이 lowercase. */
+export interface BotMenuCommand {
+  command: string;     // ≤ 32자, lowercase / 숫자 / _
+  description: string; // ≤ 256자
+}
+
+/**
+ * 메뉴에 고정 노출되는 일반 명령어. 메타가 아닌 단일 책임 명령 (/help /status /now).
+ * /now 는 META_COMMAND_REGISTRY 에 없는 별도 메타지만 메뉴에는 노출 (composeNowVerdict 진입점).
+ */
+const FIXED_BOT_MENU_PRELUDE: readonly BotMenuCommand[] = [
+  { command: 'help',   description: '도움말 — 자주 쓰는 8개 메뉴 안내' },
+  { command: 'status', description: '시스템 현황 요약 (모드/MHS/포지션/오늘 결산)' },
+  { command: 'now',    description: '"지금 매수해도 되나?" 1줄 의사결정 + 단축 메뉴' },
+];
+
+/**
+ * 메타 명령어별 메뉴 description SSOT. META_COMMAND_REGISTRY 의 spec.title 은
+ * 모바일 화면 헤더용이라 "👀 워치리스트" 처럼 이모지를 포함 — Telegram 메뉴는
+ * 이모지를 description 에 두면 가독성↓ 이라 별도 짧은 텍스트로 분리.
+ *
+ * **drift 차단**: 본 매핑의 키와 META_COMMAND_REGISTRY 키가 일치해야 한다.
+ * `buildBotMenuCommands()` 호출 시 자동 검증 (누락 키는 throw).
+ */
+const META_MENU_DESCRIPTIONS: Record<string, string> = {
+  '/watch':     '워치리스트 통합 메뉴 (조회/Focus/추가/제거)',
+  '/positions': '포지션·손익·미체결·매도/취소·reconcile 통합',
+  '/learning':  '학습·Kelly·서킷·리스크·AI 상태 통합',
+  '/control':   'pause/resume/stop/reset/integrity 제어판',
+  '/admin':     '진단·관리 (시장 리포트/채널/다이제스트/...)',
+};
+
+/**
+ * Telegram `setMyCommands` 호출에 사용할 메뉴 페이로드를 자동 생성한다.
+ *
+ * SSOT: META_COMMAND_REGISTRY 키 + FIXED_BOT_MENU_PRELUDE.
+ * 새 메타 메뉴 추가 시 META_COMMAND_REGISTRY 와 META_MENU_DESCRIPTIONS 양쪽에
+ * 항목을 추가해야 한다 (drift 차단 가드 — 본 함수가 검증).
+ *
+ * Telegram 제약 검증:
+ *   - command ≤ 32자, `/^[a-z0-9_]+$/` 매치
+ *   - description ≤ 256자
+ *   - description 비어있지 않음
+ *
+ * @throws META_COMMAND_REGISTRY 키와 META_MENU_DESCRIPTIONS 키 불일치 시
+ *         또는 Telegram 제약 위반 시.
+ */
+export function buildBotMenuCommands(): BotMenuCommand[] {
+  // ── drift 가드: META_COMMAND_REGISTRY ↔ META_MENU_DESCRIPTIONS ──
+  const metaKeys = Object.keys(META_COMMAND_REGISTRY).sort();
+  const descKeys = Object.keys(META_MENU_DESCRIPTIONS).sort();
+  if (metaKeys.length !== descKeys.length || metaKeys.some((k, i) => k !== descKeys[i])) {
+    const missing = metaKeys.filter((k) => !descKeys.includes(k));
+    const extra = descKeys.filter((k) => !metaKeys.includes(k));
+    throw new Error(
+      `[buildBotMenuCommands] META_MENU_DESCRIPTIONS drift — ` +
+      `missing=${missing.join(',') || 'none'} extra=${extra.join(',') || 'none'}`,
+    );
+  }
+
+  const entries: BotMenuCommand[] = [
+    ...FIXED_BOT_MENU_PRELUDE,
+    ...metaKeys.map((name) => ({
+      command: name.replace(/^\//, ''),
+      description: META_MENU_DESCRIPTIONS[name],
+    })),
+  ];
+
+  // ── Telegram 제약 검증 ──
+  for (const e of entries) {
+    if (!/^[a-z0-9_]{1,32}$/.test(e.command)) {
+      throw new Error(`[buildBotMenuCommands] invalid command "${e.command}" — must match /^[a-z0-9_]{1,32}$/`);
+    }
+    if (e.description.length === 0 || e.description.length > 256) {
+      throw new Error(`[buildBotMenuCommands] invalid description for /${e.command} — length ${e.description.length}`);
+    }
+  }
+
+  return entries;
+}

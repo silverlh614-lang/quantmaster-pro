@@ -25,15 +25,7 @@ import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { loadGateAudit } from '../persistence/gateAuditRepo.js';
 import { getCacheEntry, setCacheEntry, deleteCacheEntry, getAiCacheSnapshot } from '../persistence/aiCacheRepo.js';
 import { buildRagIndex, queryRag, generateAdvice, getRagStats } from '../rag/localRag.js';
-import { loadShadowTrades, getRemainingQty } from '../persistence/shadowTradeRepo.js';
-import { isOpenShadowStatus } from '../trading/entryEngine.js';
-import { getKisTokenRemainingHours } from '../clients/kisClient.js';
-import { getKrxOpenApiStatus, isKrxOpenApiHealthy } from '../clients/krxOpenApi.js';
-import { getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
-import { getStreamStatus } from '../clients/kisStreamClient.js';
-import { getYahooHealthSnapshot } from '../trading/marketDataRefresh.js';
-import { DATA_DIR } from '../persistence/paths.js';
-import { getCachedIntradayYield } from '../alerts/intradayYieldTicker.js';
+import { collectHealthSnapshot } from '../health/diagnostics.js';
 import fs from 'fs';
 
 const router = Router();
@@ -274,126 +266,53 @@ router.get('/system/gate-audit', (_req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────
 // 아이디어 1: 전체 파이프라인 자가진단 헬스체크
 // GET /api/health/pipeline
+//
+// 데이터 수집은 server/health/diagnostics.ts SSOT (ARCHITECTURE.md "diagnostics
+// boundary"). 본 라우트는 응답 시간 보호를 위해 외부 HTTP probe 는 실행하지 않는다 —
+// /health 텔레그램 명령만 runExternalProbes() 호출.
 // ─────────────────────────────────────────────────────────────
 router.get('/health/pipeline', (_req: Request, res: Response) => {
-  const watchlist     = loadWatchlist();
-  const shadows       = loadShadowTrades();
-  const autoEnabled   = process.env.AUTO_TRADE_ENABLED === 'true';
-  const autoMode      = process.env.AUTO_TRADE_MODE ?? 'SHADOW';
-  const emergencyStop = getEmergencyStop();
-  const dailyLossPct  = getDailyLossPct();
-  const dailyLossLimit = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
-  const kisConfigured = !!process.env.KIS_APP_KEY;
-  const kisTokenHours = getKisTokenRemainingHours();
-  const kisTokenValid = kisConfigured && (autoMode !== 'LIVE' || kisTokenHours > 0);
-
-  // KRX OpenAPI AUTH_KEY 상태 — 인증키 설정·서킷 상태·빌드된 base URL 까지 포함
-  const krxStatus = getKrxOpenApiStatus();
-  const krxTokenConfigured = krxStatus.authKeyConfigured;
-  const krxTokenValid = isKrxOpenApiHealthy();
-  const watchlistCount   = watchlist.length;
-  const shadowTradeCount = shadows.filter(s => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0).length;
-
-  // 볼륨 마운트: PERSIST_DATA_DIR 또는 기본 DATA_DIR 쓰기 가능 여부
-  let railwayVolumeMount = false;
-  try {
-    fs.accessSync(DATA_DIR, fs.constants.W_OK);
-    railwayVolumeMount = true;
-  } catch { /* 쓰기 불가 */ }
-
-  const lastScanTs = getLastScanAt();
-  const lastScanAt = lastScanTs > 0
-    ? new Date(lastScanTs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
-    : null;
-
-  const lastBuyTs = getLastBuySignalAt();
-  const lastBuySignalAt = lastBuyTs > 0
-    ? new Date(lastBuyTs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
-    : null;
-
-  const scanSummary = getLastScanSummary();
-  // Yahoo 상태 결정 — UI '/'No scan history' 회피용 fallback 추가:
-  //   1) 스캔 후보가 1개 이상이면: 후보 대비 yahooFails 비율로 판정 (기존 로직 유지)
-  //   2) 그렇지 않으면: fetchDailyBars heartbeat 의 lastSuccessAt 으로 fallback
-  //      → 스캐너가 idle 이거나 candidates=0 일 때도 Yahoo 자체는 살아있음을 표시
-  const yh = getYahooHealthSnapshot();
-  let yahooApiDetail: 'NO_SCAN_HISTORY' | 'NO_CANDIDATES' | 'HAS_CANDIDATES' | 'HEARTBEAT_OK' | 'HEARTBEAT_STALE' | 'HEARTBEAT_DOWN';
-  let yahooApiStatus: 'UNKNOWN' | 'OK' | 'STALE' | 'DEGRADED' | 'DOWN';
-  if (scanSummary && scanSummary.candidates > 0) {
-    yahooApiDetail = 'HAS_CANDIDATES';
-    yahooApiStatus = scanSummary.yahooFails === scanSummary.candidates ? 'DOWN'
-      : scanSummary.yahooFails > scanSummary.candidates * 0.5 ? 'DEGRADED'
-      : 'OK';
-  } else if (yh.status === 'OK') {
-    yahooApiDetail = 'HEARTBEAT_OK';
-    yahooApiStatus = 'OK';
-  } else if (yh.status === 'STALE') {
-    yahooApiDetail = 'HEARTBEAT_STALE';
-    yahooApiStatus = 'STALE';
-  } else if (yh.status === 'DOWN') {
-    yahooApiDetail = 'HEARTBEAT_DOWN';
-    yahooApiStatus = 'DOWN';
-  } else if (scanSummary && scanSummary.candidates === 0) {
-    // 스캔은 돌았지만 후보가 없고, Yahoo 호출도 한 번도 없었던 (드문) 경우
-    yahooApiDetail = 'NO_CANDIDATES';
-    yahooApiStatus = 'OK';
-  } else {
-    yahooApiDetail = 'NO_SCAN_HISTORY';
-    yahooApiStatus = 'UNKNOWN';
-  }
-
-  // verdict: 파이프라인 첫 번째 단절점 반환
-  let verdict: string;
-  if (emergencyStop)                           verdict = '🔴 EMERGENCY_STOP';
-  else if (dailyLossPct >= dailyLossLimit)     verdict = '🔴 DAILY_LOSS_LIMIT';
-  else if (watchlistCount === 0)               verdict = '🔴 WATCHLIST_EMPTY';
-  else if (!autoEnabled)                       verdict = '🟡 AUTO_TRADE_DISABLED';
-  else if (!kisConfigured)                     verdict = '🟡 KIS_NOT_CONFIGURED';
-  else if (autoMode === 'LIVE' && !kisTokenValid) verdict = '🟡 KIS_TOKEN_EXPIRED';
-  else if (!krxTokenConfigured)                verdict = '🟡 KRX_TOKEN_NOT_CONFIGURED';
-  else if (!krxTokenValid)                     verdict = '🟡 KRX_TOKEN_UNHEALTHY';
-  else if (!lastScanAt)                        verdict = '🟡 SCANNER_IDLE';
-  else if (yahooApiStatus === 'DOWN')          verdict = '🟡 YAHOO_DOWN';
-  else                                         verdict = '🟢 OK';
-
-  // ── KIS WebSocket 실시간 스트림 상태 ──────────────────────────────────────
-  const streamStatus = getStreamStatus();
-
-  // ── IPYL: 장중 Pipeline Yield 스냅샷 ──────────────────────────────────────
-  const intradayYield = getCachedIntradayYield();
-
+  const s = collectHealthSnapshot();
+  const formatKstHm = (ts: number): string | null =>
+    ts > 0
+      ? new Date(ts).toLocaleString('ko-KR', {
+          timeZone: 'Asia/Seoul',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : null;
   res.json({
     scheduler:           'OK',
-    watchlistCount,
-    shadowTradeCount,
-    autoTradeEnabled:    autoEnabled,
-    autoTradeMode:       autoMode,
-    kisConfigured,
-    kisTokenValid,
-    kisTokenHoursLeft:   kisTokenHours,
-    krxTokenConfigured,
-    krxTokenValid,
-    krxCircuitState:     krxStatus.circuitState,
-    krxFailures:         krxStatus.failures,
-    yahooApiStatus,
-    yahooApiDetail,
-    railwayVolumeMount,
-    lastScanAt,
-    lastBuySignalAt,
-    dailyLossPct,
-    dailyLossLimitReached: dailyLossPct >= dailyLossLimit,
-    emergencyStop,
-    lastScanSummary:     scanSummary,
+    watchlistCount:      s.watchlistCount,
+    shadowTradeCount:    s.activePositions,
+    autoTradeEnabled:    s.autoTradeEnabled,
+    autoTradeMode:       s.autoTradeMode,
+    kisConfigured:       s.kisConfigured,
+    kisTokenValid:       s.kisTokenValid,
+    kisTokenHoursLeft:   s.kisTokenHours,
+    krxTokenConfigured:  s.krxTokenConfigured,
+    krxTokenValid:       s.krxTokenValid,
+    krxCircuitState:     s.krxCircuitState,
+    krxFailures:         s.krxFailures,
+    yahooApiStatus:      s.yahoo.status,
+    yahooApiDetail:      s.yahoo.detail,
+    railwayVolumeMount:  s.volume.ok,
+    lastScanAt:          formatKstHm(s.lastScanTs),
+    lastBuySignalAt:     formatKstHm(s.lastBuyTs),
+    dailyLossPct:        s.dailyLossPct,
+    dailyLossLimitReached: s.dailyLossLimitReached,
+    emergencyStop:       s.emergencyStop,
+    lastScanSummary:     s.lastScanSummary,
     kisStream: {
-      connected:       streamStatus.connected,
-      subscribedCount: streamStatus.subscribedCount,
-      activePrices:    streamStatus.activePrices,
-      reconnectCount:  streamStatus.reconnectCount,
-      lastPongAt:      streamStatus.lastPongAt,
-      recentEvents:    streamStatus.recentEvents,
+      connected:       s.stream.connected,
+      subscribedCount: s.stream.subscribedCount,
+      activePrices:    s.stream.activePrices,
+      reconnectCount:  s.stream.reconnectCount,
+      lastPongAt:      s.stream.lastPongAt,
+      recentEvents:    s.stream.recentEvents,
     },
-    intradayYield,
-    verdict,
+    intradayYield:       s.intradayYield,
+    verdict:             s.verdict,
   });
 });
 
