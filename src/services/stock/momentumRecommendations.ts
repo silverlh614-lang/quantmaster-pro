@@ -63,7 +63,8 @@ export function flattenCandidates(result: AiUniverseDiscoverResult | null): Mome
  * - Tier 2 FALLBACK_SNAPSHOT : 직전 정상 거래일 universe 재평가. 후보 우선시 + 학습 지식 확장 허용.
  * - Tier 3 FALLBACK_QUANT    : Yahoo OHLCV 정량 후보군. AI 가 metric 검토 후 강도 결정.
  * - Tier 4 FALLBACK_NAVER    : Naver 펀더멘털 단독. 뉴스 분석 비활성.
- * - Tier 5 / NOT_CONFIGURED 등 : 마지막 거래일 정량 데이터 후보군에서만 추천.
+ * - Tier 5 FALLBACK_SEED     : 하드코딩 KOSPI/KOSDAQ leader seed (정량 산출 결과 아님).
+ * - NOT_CONFIGURED / BUDGET_EXCEEDED / ERROR / NO_MATCHES : 폴백 사슬을 따라 도달한 마지막 후보군.
  */
 export function buildUniverseRuleLine(
   sourceStatus: AiUniverseSourceStatus | undefined,
@@ -80,19 +81,36 @@ export function buildUniverseRuleLine(
     return `[후보군 — 직전 정상 거래일 ${dateLabel} universe 를 재평가합니다. 이 목록을 우선 고려하되, 당신의 학습 지식 범위 안에서 더 적합한 KR 상장 종목을 대신 추천해도 된다. 6자리 종목코드는 실존 값만.]`;
   }
   if (sourceStatus === 'FALLBACK_QUANT') {
-    return '[후보군 — Yahoo OHLCV 기반 정량 후보군. metric 을 검토 후 추천 강도를 결정하라. 이 목록을 우선시하되 학습 지식 확장 허용. 6자리 종목코드는 실존 값만.]';
+    // PR-38: metric 이름 + 검토 우선순위를 명시. 뉴스·촉매 분석이 비활성 상태이므로
+    // BUY/STRONG_BUY 강도는 보수적으로 적용해야 한다는 점을 프롬프트에서 강제한다.
+    return [
+      '[후보군 — Yahoo OHLCV 기반 정량 후보군.',
+      '다음 metric 을 우선 검토하라:',
+      '20거래일 모멘텀(momentum20d),',
+      '20일 평균 거래대금(avgTurnoverKrw),',
+      '20일 변동성(volatility20d),',
+      '52주 신고가 대비 괴리(drawdownFromHigh),',
+      '20/60일선 정렬 및 KOSPI/KOSDAQ 대비 초과수익 가능성.',
+      '뉴스·촉매 분석은 비활성 상태이므로 BUY/STRONG_BUY 판단은 보수적으로 적용하라.',
+      '이 목록을 우선시하되 학습 지식 확장 허용. 6자리 종목코드는 실존 값만.]',
+    ].join(' ');
   }
   if (sourceStatus === 'FALLBACK_NAVER') {
     return '[후보군 — Naver Finance 펀더멘털(PER/PBR/배당) 단독 후보군. 뉴스 분석은 비활성 상태이니 학습 지식으로 보완하라. 이 목록을 우선시하되 학습 지식 확장 허용.]';
   }
+  if (sourceStatus === 'FALLBACK_SEED') {
+    // PR-38: FALLBACK_SEED 는 정량 후보군이 아니라 하드코딩 KOSPI/KOSDAQ 대표주
+    // seed 다. 마지막 거래일 metric 으로 산출된 후보가 아님을 명확히 표기해 AI 가
+    // 신뢰도를 과대평가하지 않도록 한다.
+    return '[후보군 — 최후 보루 seed 후보군(하드코딩 KOSPI/KOSDAQ 대표주). 정량 metric 으로 산출된 후보가 아니다. 뉴스·정량 스크리닝이 모두 실패한 상태이므로 추천 신뢰도가 낮다. BUY/STRONG_BUY 는 매우 보수적으로만 부여하라. 6자리 종목코드는 실존 값만.]';
+  }
   if (
-    sourceStatus === 'FALLBACK_SEED' ||
     sourceStatus === 'NOT_CONFIGURED' ||
     sourceStatus === 'BUDGET_EXCEEDED' ||
     sourceStatus === 'ERROR' ||
     sourceStatus === 'NO_MATCHES'
   ) {
-    return '[후보군 — 마지막 거래일 기준 정량 데이터(KIS/Yahoo/Naver/KRX 캐시) 기반 후보군. 뉴스·촉매제 검색은 일시적으로 비활성화 상태이다. 이 목록을 우선 고려하되 학습 지식 확장 허용. 6자리 종목코드는 실존 값만.]';
+    return '[후보군 — 마지막 거래일 기준 정량 데이터(Yahoo/Naver/KRX 캐시) 기반 후보군. 뉴스·촉매제 검색은 일시적으로 비활성화 상태이다. 이 목록을 우선 고려하되 학습 지식 확장 허용. 6자리 종목코드는 실존 값만.]';
   }
 
   // sourceStatus 미제공 (구버전 서버) — 기존 분기 유지 (호환)
@@ -128,10 +146,13 @@ export function buildUniverseWarning(
     return 'Naver Finance 펀더멘털(PER/PBR/배당) 단독 후보군. 뉴스·촉매 분석은 일시적으로 비활성화 상태입니다.';
   }
   if (sourceStatus === 'FALLBACK_SEED') {
-    return '마지막 거래일 기준 정량 데이터(KIS/Yahoo/Naver/KRX 캐시) 기반 후보군입니다. 뉴스·촉매제 검색은 일시적으로 비활성화 상태입니다.';
+    // PR-38: FALLBACK_SEED 는 하드코딩 대표주 seed 다 — 정량 metric 산출 결과가 아니다.
+    // 사용자에게 신뢰도가 낮다는 점을 명시. (마지막 거래일 기준 X / 비활성화 O)
+    return '뉴스·정량 스크리닝이 모두 실패해 최후 보루 seed 후보군(하드코딩 KOSPI/KOSDAQ 대표주)을 사용 중입니다. 추천 신뢰도가 낮으니 신중히 판단하세요. 외부 데이터 소스가 일시적으로 비활성화 상태입니다.';
   }
   if (sourceStatus === 'NOT_CONFIGURED') {
-    return 'Google Search API 미설정: 뉴스·촉매제 검색은 비활성화되었습니다. 현재 추천은 마지막 거래일 기준 정량 데이터(Naver/KRX 캐시) 기반 후보군으로 생성되었습니다.';
+    // PR-38: 폴백 사슬을 정확히 표기 — snapshot/정량/Naver/KRX 캐시 우선, 모두 실패 시 seed.
+    return 'Google Search API 미설정: 뉴스·촉매제 검색은 비활성화되었습니다. snapshot/정량/Naver/KRX 캐시를 우선 사용하며, 모두 실패하면 seed 후보군으로 제한됩니다.';
   }
   if (sourceStatus === 'BUDGET_EXCEEDED' || budgetExceeded) {
     return '오늘의 뉴스 검색 한도에 도달했습니다. 정량 데이터 기반 후보군으로 추천을 생성합니다. 자정(KST) 이후 자동 복구됩니다.';
@@ -143,6 +164,58 @@ export function buildUniverseWarning(
     return '뉴스 검색 결과에서 KRX 마스터와 매칭된 종목이 없어 정량 후보군으로 대체되었습니다.';
   }
   return null;
+}
+
+/**
+ * PR-38: sourceStatus + candidatesLen + snapshotAgeDays 로 universe 신뢰도 등급을
+ * 산출. 사용자 노출용 — RecommendationWarningsBanner 가 등급에 따라 색상 톤을 결정.
+ *
+ * - A   : Tier 1 GOOGLE_OK (뉴스·공시 매칭 후보)
+ * - A-  : Tier 2 FALLBACK_SNAPSHOT (≤1일 노화)
+ * - B+  : Tier 2 FALLBACK_SNAPSHOT (2~3일) / 노화 미상
+ * - B   : Tier 2 FALLBACK_SNAPSHOT (≥4일) / Tier 3 FALLBACK_QUANT
+ * - C+  : Tier 4 FALLBACK_NAVER
+ * - C   : Tier 5 FALLBACK_SEED / NOT_CONFIGURED / BUDGET_EXCEEDED
+ * - C-  : ERROR / NO_MATCHES
+ * - UNAVAILABLE : 후보 0건 (추천 생성 차단)
+ */
+export type UniverseConfidenceGrade =
+  | 'A'
+  | 'A-'
+  | 'B+'
+  | 'B'
+  | 'C+'
+  | 'C'
+  | 'C-'
+  | 'UNAVAILABLE';
+
+export function getUniverseConfidenceGrade(
+  sourceStatus: AiUniverseSourceStatus | undefined,
+  candidatesLen: number,
+  snapshotAgeDays?: number | null,
+): UniverseConfidenceGrade {
+  if (candidatesLen === 0) return 'UNAVAILABLE';
+
+  if (sourceStatus === 'GOOGLE_OK') return 'A';
+
+  if (sourceStatus === 'FALLBACK_SNAPSHOT') {
+    if (typeof snapshotAgeDays === 'number') {
+      if (snapshotAgeDays <= 1) return 'A-';
+      if (snapshotAgeDays <= 3) return 'B+';
+      return 'B';
+    }
+    return 'B+';
+  }
+
+  if (sourceStatus === 'FALLBACK_QUANT') return 'B';
+  if (sourceStatus === 'FALLBACK_NAVER') return 'C+';
+  if (sourceStatus === 'FALLBACK_SEED') return 'C';
+  if (sourceStatus === 'NOT_CONFIGURED') return 'C';
+  if (sourceStatus === 'BUDGET_EXCEEDED') return 'C';
+  if (sourceStatus === 'ERROR') return 'C-';
+  if (sourceStatus === 'NO_MATCHES') return 'C-';
+
+  return 'C-';
 }
 
 export async function getMomentumRecommendations(filters?: StockFilters): Promise<RecommendationResponse | null> {
@@ -203,16 +276,47 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
   const warningMsg = buildUniverseWarning(sourceStatus, budgetExceeded, tradingDateRef, snapshotAgeDays);
   if (warningMsg) warnings.push(warningMsg);
 
-  const candidateBlock = candidates.length > 0
-    ? candidates.map(c => {
-        const valStr = (c.per > 0 || c.pbr > 0 || c.marketCapDisplay)
-          ? ` | PER ${c.per > 0 ? c.per.toFixed(2) : 'N/A'} · PBR ${c.pbr > 0 ? c.pbr.toFixed(2) : 'N/A'}${c.marketCapDisplay ? ` · 시총 ${c.marketCapDisplay}` : ''}`
-          : '';
-        return `  - ${c.name}(${c.code}) ${c.market} | 등락 ${c.changePercent >= 0 ? '+' : ''}${c.changePercent.toFixed(2)}% | rank#${c.rank} (${c.source})${valStr}`;
-      }).join('\n')
-    : (budgetExceeded
-        ? '(AI 추천 일일 호출 예산 초과 — 내일 다시 시도하거나 GOOGLE_SEARCH_API_KEY 확인)'
-        : '(universe 발굴 결과 없음 — Google Search 미설정 가능, AI 자체 판단 필요)');
+  // PR-38: universe 신뢰도 등급을 warnings 에 한 줄 추가. 후보 0건이면 UNAVAILABLE.
+  const confidenceGrade = getUniverseConfidenceGrade(sourceStatus, candidates.length, snapshotAgeDays);
+  if (confidenceGrade !== 'UNAVAILABLE' && confidenceGrade !== 'A') {
+    warnings.push(`데이터 신뢰도 등급: ${confidenceGrade}`);
+  }
+
+  // PR-38: universe 후보 0건 → AI 자체 판단으로 종목 환각 생성 차단. 실존 종목 검증 없이
+  // 학습 지식만으로 추천을 만드는 경로는 GOOGLE_SEARCH_API_KEY 미설정 + 모든 폴백 실패 시
+  // 발생하던 hallucination 의 근본 원인이다. 즉시 빈 응답을 반환해 후속 enrichment·캐시
+  // 단계도 차단한다 (aiClient.isEmptyRecommendationData 가 빈 응답을 캐시하지 않음).
+  if (candidates.length === 0) {
+    debugLog(
+      `[momentumRecommendations] candidates=0 — AI 자체 판단 추천 차단 ` +
+      `(status=${sourceStatus ?? 'unknown'}, fallback=${fallbackUsed}, budgetExceeded=${budgetExceeded})`
+    );
+    const reason = budgetExceeded
+      ? 'AI 추천 일일 호출 예산을 초과했습니다. 자정(KST) 이후 자동 복구됩니다.'
+      : '뉴스·정량 스크리닝·Naver/KRX 캐시 폴백이 모두 실패해 universe 후보가 0건입니다. 실존 종목 검증 없이 AI 자체 판단으로 추천을 생성하지 않습니다.';
+    if (!warnings.some(w => w.includes(reason.split('.')[0]))) {
+      warnings.unshift(reason);
+    }
+    return {
+      marketContext: {
+        kospi: { index: cachedKospi?.price ?? 0, change: 0, changePercent: cachedKospi?.changePct ?? 0, status: 'NEUTRAL', analysis: '' },
+        kosdaq: { index: cachedKosdaq?.price ?? 0, change: 0, changePercent: cachedKosdaq?.changePct ?? 0, status: 'NEUTRAL', analysis: '' },
+      },
+      recommendations: [],
+      warnings,
+      ...(sourceStatus ? { sourceStatus } : {}),
+      ...(marketMode ? { marketMode } : {}),
+      tradingDateRef,
+      snapshotAgeDays,
+    } as RecommendationResponse;
+  }
+
+  const candidateBlock = candidates.map(c => {
+    const valStr = (c.per > 0 || c.pbr > 0 || c.marketCapDisplay)
+      ? ` | PER ${c.per > 0 ? c.per.toFixed(2) : 'N/A'} · PBR ${c.pbr > 0 ? c.pbr.toFixed(2) : 'N/A'}${c.marketCapDisplay ? ` · 시총 ${c.marketCapDisplay}` : ''}`
+      : '';
+    return `  - ${c.name}(${c.code}) ${c.market} | 등락 ${c.changePercent >= 0 ? '+' : ''}${c.changePercent.toFixed(2)}% | rank#${c.rank} (${c.source})${valStr}`;
+  }).join('\n');
 
   // ADR-0016 (PR-37): sourceStatus 별 universeRuleLine 5-Tier 분기.
   // Tier 1 GOOGLE_OK 만 엄격한 universe 한정, Tier 2~5 는 학습 지식 확장 허용해
