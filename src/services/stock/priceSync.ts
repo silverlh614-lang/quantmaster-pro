@@ -37,6 +37,29 @@ function recalculatePriceLevels(stock: StockRecommendation, newPrice: number): P
   return result;
 }
 
+/**
+ * anchorPrice — currentPrice 변화에 비례해 target/stop 을 일괄 보정.
+ * 가격 기준 = 상승률 기준. ratio=1 이면 no-op (STALE 경로 안전).
+ */
+function anchorPrice(stock: StockRecommendation, price: number): StockRecommendation {
+  if (!price || price <= 0) return stock;
+
+  const old = stock.currentPrice;
+  if (!old || old <= 0) {
+    return { ...stock, currentPrice: price };
+  }
+
+  const ratio = price / old;
+
+  return {
+    ...stock,
+    currentPrice: price,
+    targetPrice: stock.targetPrice ? Math.round(stock.targetPrice * ratio) : stock.targetPrice,
+    targetPrice2: stock.targetPrice2 ? Math.round(stock.targetPrice2 * ratio) : stock.targetPrice2,
+    stopLoss: stock.stopLoss ? Math.round(stock.stopLoss * ratio) : stock.stopLoss,
+  };
+}
+
 export async function fetchCurrentPrice(code: string): Promise<number | null> {
   try {
     const data = await fetchHistoricalData(code, '1d');
@@ -135,9 +158,11 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
 
   // 3순위: 마지막 알려진 가격 유지
   console.warn(`[가격동기화] 모든 소스 실패 — STALE 유지: ${stock.name}`);
-  return {
+  const stale: StockRecommendation = {
     ...stock,
     dataSourceType: 'STALE',
     priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (가격 업데이트 실패)`,
   };
+  const finalPrice = stale.currentPrice;
+  return anchorPrice(stale, finalPrice);
 }
