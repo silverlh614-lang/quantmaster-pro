@@ -18,6 +18,7 @@ import {
   type SymbolExitContext,
   getAdaptiveProfitTargets,
   evaluateBuyList,
+  evaluateIntradayList,
 } from './signalScanner/perSymbolEvaluation.js';
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { getKellyMultiplier as getIpsKellyMultiplier, loadKellyDampenerState } from './kellyDampener.js';
@@ -619,187 +620,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     }
   }
 
-  // ── 장중 Watchlist 처리 — intradayReady 항목에 대해 진입 시도 ───────────────
-  // 즉시 매수 금지: intradayReady=true (15분 경과 + 재검증 통과)인 항목만 대상
-  // 위험 관리: maxIntradayPositions(3개) / 포지션 비중 50% 축소 / 경로별 손절(돌파-5%/눌림목-4%)
-  if (!options?.sellOnly && intradayBuyList.length > 0) {
-    const activeIntradayCount = shadows.filter(
-      (s) => isOpenShadowStatus(s.status) && s.watchlistSource === 'INTRADAY',
-    ).length;
-
-    if (activeIntradayCount >= MAX_INTRADAY_POSITIONS) {
-      console.log(
-        `[AutoTrade/Intraday] 최대 장중 포지션 도달 (${activeIntradayCount}/${MAX_INTRADAY_POSITIONS}) — 진입 스킵`,
-      );
-    } else {
-      const today = new Date().toISOString().split('T')[0];
-      // Intraday 병렬 승인 큐 (LIVE/Shadow 공통)
-      const intradayLiveBuyQueue: LiveBuyTask[] = [];
-      // Phase 1 ①: Intraday 경로도 원자적 슬롯 예약 적용 (main 경로와 동일 원리)
-      let reservedIntradaySlots = 0;
-
-      for (const stock of intradayBuyList) {
-        // 포지션 수 재확인
-        const currentIntradayActive = shadows.filter(
-          (s) => isOpenShadowStatus(s.status) && s.watchlistSource === 'INTRADAY',
-        ).length;
-        const totalIntradayCommitted = currentIntradayActive + reservedIntradaySlots;
-        if (totalIntradayCommitted >= MAX_INTRADAY_POSITIONS) {
-          console.log(
-            `[AutoTrade/Intraday] 최대 포지션 도달 (활성 ${currentIntradayActive} + 예약 ${reservedIntradaySlots} = ${totalIntradayCommitted}/${MAX_INTRADAY_POSITIONS}) — 나머지 스킵`,
-          );
-          break;
-        }
-
-        try {
-          const currentPrice = await getPrice(stock.code);
-          if (!currentPrice) continue;
-
-          // 진입 조건: 현재가가 entryPrice ± 1% 이내 or 돌파
-          const nearEntry = Math.abs(currentPrice - stock.entryPrice) / stock.entryPrice <= 0.01;
-          const breakout  = currentPrice >= stock.entryPrice;
-          const aboveStop = currentPrice > stock.stopLoss;
-
-          if (!(nearEntry || breakout) || !aboveStop) continue;
-
-          // 당일 재진입 금지 — Intraday는 더 엄격하게: 오늘 진입한 동일 종목 완전 차단
-          const alreadyTraded = shadows.some(
-            (s) => s.stockCode === stock.code &&
-              s.watchlistSource === 'INTRADAY' &&
-              s.signalTime.startsWith(today),
-          );
-          if (alreadyTraded) {
-            console.log(`[AutoTrade/Intraday] ${stock.name}(${stock.code}) 당일 재진입 금지`);
-            continue;
-          }
-
-          // 블랙리스트 확인
-          if (isBlacklisted(stock.code)) {
-            console.log(`[AutoTrade/Intraday] 🚫 ${stock.name}(${stock.code}) 블랙리스트 — 진입 차단`);
-            continue;
-          }
-
-          const slippage         = getExecutionCostConfig().slippageRate;
-          const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));
-
-          // 장중 손절: 경로별 차등 — 돌파형 -5% / 수급·눌림목형 -4%
-          const stopPct = (stock.entryPath === 'SUPPLY_DEMAND' || stock.entryPath === 'PULLBACK')
-            ? INTRADAY_PULLBACK_STOP_LOSS_PCT
-            : INTRADAY_STOP_LOSS_PCT;
-          const intradayStop   = Math.round(shadowEntryPrice * (1 - stopPct));
-          const intradayTarget = stock.targetPrice > 0
-            ? stock.targetPrice
-            : Math.round(shadowEntryPrice * (1 + INTRADAY_TARGET_PCT));
-
-          // 포지션 사이징: gateScore 없으므로 기본 5% × 레짐 Kelly × 50% 축소
-          const rawPositionPct  = 0.05; // Intraday 기본 포지션
-          const positionPct     = rawPositionPct * kellyMultiplier * INTRADAY_POSITION_PCT_FACTOR;
-          const remainingSlots  = Math.max(1, MAX_INTRADAY_POSITIONS - currentIntradayActive);
-          const { quantity, effectiveBudget } = calculateOrderQuantity({
-            totalAssets,
-            orderableCash,
-            positionPct,
-            price: shadowEntryPrice,
-            remainingSlots,
-            accountKellyMultiplier,
-          });
-
-          if (quantity < 1) continue;
-
-          // C3 수정: regimeStopLoss = intradayStop → exitEngine 일관된 손절 계산
-          const intradayStopPlan = {
-            initialStopLoss: intradayStop,
-            regimeStopLoss: intradayStop,
-            hardStopLoss: intradayStop,
-          } as const;
-          const trade = buildBuyTrade({
-            idPrefix: 'srv_intraday', stockCode: stock.code, stockName: stock.name,
-            currentPrice, shadowEntryPrice, quantity,
-            stopLossPlan: intradayStopPlan,
-            targetPrice: intradayTarget, shadowMode, regime,
-            profileType: 'C', watchlistSource: 'INTRADAY',
-            profitTranches: [], // Intraday는 분할익절 없음
-            trailPct: 0.05,    // 장중: 5% 트레일링
-          });
-
-          // BUG-10 fix: 실시간 Gate 평가로 Intraday 종목의 gateScore 추정
-          const { gate: intradayGate } = await fetchGateData(stock.code, conditionWeights, macroState?.kospi20dReturn);
-          const intradayGateScore = intradayGate?.gateScore ?? 0;
-
-          addRecommendation({
-            stockCode: stock.code, stockName: stock.name, signalTime: new Date().toISOString(),
-            priceAtRecommend: currentPrice, stopLoss: intradayStop,
-            targetPrice: intradayTarget, kellyPct: Math.round(positionPct * 100),
-            gateScore: intradayGateScore, signalType: 'BUY',
-            conditionKeys: ['INTRADAY_STRONG'], entryRegime: regime,
-          });
-
-          const stopLabel = stopPct === INTRADAY_PULLBACK_STOP_LOSS_PCT ? '-4%' : '-5%';
-          const intradaySlotLabel = `${currentIntradayActive + 1}/${MAX_INTRADAY_POSITIONS}`;
-
-          // SHADOW/LIVE 통합 승인 큐 등록
-          _counters.entries++;
-          setLastBuySignalAt(Date.now());
-
-          const intradayModeEmoji = shadowMode ? '📈' : '🚀';
-          const intradayModeLabel = shadowMode ? 'Shadow' : 'LIVE';
-          const intradayAlertMsg =
-            `${intradayModeEmoji} <b>[${intradayModeLabel}] 장중 매수 ${shadowMode ? '신호' : '주문'}</b>\n` +
-            `종목: ${stock.name} (${stock.code})\n` +
-            `현재가: ${currentPrice.toLocaleString()}원 × ${quantity}주\n` +
-            `손절: ${intradayStop.toLocaleString()} (${stopLabel}) | 목표: ${intradayTarget.toLocaleString()}\n` +
-            `⚡ Intraday 포지션 ${intradaySlotLabel}`;
-
-          intradayLiveBuyQueue.push(await createBuyTask({
-            trade, stockCode: stock.code, stockName: stock.name,
-            currentPrice, quantity, entryPrice: shadowEntryPrice,
-            stopLoss: intradayStop, targetPrice: intradayTarget,
-            gateScore: intradayGateScore, shadowMode, effectiveBudget,
-            alertMessage: intradayAlertMsg, logEvent: shadowMode ? 'INTRADAY_SIGNAL' : 'INTRADAY_ORDER',
-            onApproved: async (t) => {
-              // 포지션 수 재확인 (큐 플러시 시점에 재검증)
-              const latestIntradayCount = shadows.filter(
-                (s) => isOpenShadowStatus(s.status) && s.watchlistSource === 'INTRADAY',
-              ).length;
-              if (latestIntradayCount >= MAX_INTRADAY_POSITIONS) {
-                console.log(`[AutoTrade/Intraday] 최대 포지션 도달 — ${stock.name} 건너뜀`);
-                t.status = 'REJECTED';
-                return;
-              }
-              shadows.push(t);
-              orderableCash = Math.max(0, orderableCash - effectiveBudget);
-            },
-          }));
-          // Phase 1 ①: 큐 푸시 시점에 Intraday 슬롯 예약 (플러시 후 실패 시 롤백)
-          reservedIntradaySlots++;
-        } catch (err: unknown) {
-          console.error(`[AutoTrade/Intraday] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
-        }
-      }
-
-      // ── intradayBuyList 병렬 승인 큐 플러시 ──────────────────────────────────
-      if (intradayLiveBuyQueue.length > 0) {
-        const intradayApprovals = await Promise.allSettled(intradayLiveBuyQueue.map((t) => t.approvalPromise));
-        let intradayApproved = 0, intradayRejected = 0;
-        for (let i = 0; i < intradayLiveBuyQueue.length; i++) {
-          const result = intradayApprovals[i];
-          const action: ApprovalAction = result.status === 'fulfilled' ? result.value : 'SKIP';
-          await intradayLiveBuyQueue[i].execute(action);
-          if (action === 'APPROVE') intradayApproved++;
-          else {
-            // Phase 1 ①: Intraday 실패 예약 롤백
-            intradayRejected++;
-            reservedIntradaySlots = Math.max(0, reservedIntradaySlots - 1);
-          }
-        }
-        if (intradayRejected > 0) {
-          console.log(
-            `[AutoTrade/Intraday] 승인 큐 플러시 — 승인 ${intradayApproved} / 거절·스킵 ${intradayRejected} → 예약 롤백 완료 (잔여 reservedIntradaySlots=${reservedIntradaySlots})`,
-          );
-        }
-      }
-    }
-  }
+  // 장중 Watchlist 처리 — perSymbolEvaluation/evaluateIntradayList 로 위임 (ADR-0001 Phase B Step 4c)
+  const intradayMutables = { orderableCash: { value: orderableCash } };
+  await evaluateIntradayList({
+    intradayBuyList, shadows, shadowMode, totalAssets, accountKellyMultiplier,
+    kellyMultiplier, regime, regimeConfig, macroState, conditionWeights,
+    options: options ?? {},
+    scanCounters: _counters,
+    mutables: intradayMutables,
+  });
+  orderableCash = intradayMutables.orderableCash.value;
 
   // entryFailCount 변경분 영속화
   if (watchlistMutated) {
