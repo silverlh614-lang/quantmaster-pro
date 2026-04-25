@@ -11,14 +11,17 @@ import {
 } from './momentumRecommendations';
 import type { AiUniverseDiscoverResult } from '../../api/aiUniverseClient';
 
-describe('momentumRecommendations — toUniverseMode (PR-25-B)', () => {
+describe('momentumRecommendations — toUniverseMode (PR-25-B / PR-39)', () => {
   it('EARLY_DETECT 는 그대로', () => {
     expect(toUniverseMode('EARLY_DETECT')).toBe('EARLY_DETECT');
   });
 
-  it('MOMENTUM / SMALL_MID_CAP / 기타 → MOMENTUM', () => {
+  it('PR-39: SMALL_MID_CAP 은 서버 정규 mode 로 그대로 위임 (이전엔 MOMENTUM 으로 흡수)', () => {
+    expect(toUniverseMode('SMALL_MID_CAP')).toBe('SMALL_MID_CAP');
+  });
+
+  it('MOMENTUM / 기타 → MOMENTUM', () => {
     expect(toUniverseMode('MOMENTUM')).toBe('MOMENTUM');
-    expect(toUniverseMode('SMALL_MID_CAP')).toBe('MOMENTUM');
     expect(toUniverseMode('UNKNOWN_MODE')).toBe('MOMENTUM');
   });
 });

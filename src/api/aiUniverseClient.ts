@@ -5,7 +5,12 @@
  * KIS/KRX 비의존 통로를 사용한다. 응답 schema 는 KRX valuation 호환 필드를 유지.
  */
 
-export type AiUniverseMode = 'MOMENTUM' | 'QUANT_SCREEN' | 'BEAR_SCREEN' | 'EARLY_DETECT';
+/**
+ * 서버 `server/services/aiUniverseTypes.ts::AiUniverseMode` 와 1:1 동기 사본.
+ * PR-39 부터 `SMALL_MID_CAP` 정규값 추가 — 서버가 universe 발굴 단계에서
+ * KOSDAQ·중소형 성장주 우선 후보를 반환.
+ */
+export type AiUniverseMode = 'MOMENTUM' | 'QUANT_SCREEN' | 'BEAR_SCREEN' | 'EARLY_DETECT' | 'SMALL_MID_CAP';
 
 export interface AiUniverseSnapshotItem {
   code: string;

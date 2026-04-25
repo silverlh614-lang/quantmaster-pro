@@ -17,7 +17,7 @@ import { getBudgetSnapshot } from '../persistence/aiCallBudgetRepo.js';
 
 const router = Router();
 
-const MODE_VALUES: AiUniverseMode[] = ['MOMENTUM', 'QUANT_SCREEN', 'BEAR_SCREEN', 'EARLY_DETECT'];
+const MODE_VALUES: AiUniverseMode[] = ['MOMENTUM', 'QUANT_SCREEN', 'BEAR_SCREEN', 'EARLY_DETECT', 'SMALL_MID_CAP'];
 
 function isMode(v: unknown): v is AiUniverseMode {
   return typeof v === 'string' && MODE_VALUES.includes(v as AiUniverseMode);

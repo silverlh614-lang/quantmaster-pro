@@ -15,7 +15,7 @@ import type { AiUniverseMode } from '../services/aiUniverseTypes.js';
 
 const router = Router();
 
-const MODES: AiUniverseMode[] = ['MOMENTUM', 'EARLY_DETECT', 'QUANT_SCREEN', 'BEAR_SCREEN'];
+const MODES: AiUniverseMode[] = ['MOMENTUM', 'EARLY_DETECT', 'QUANT_SCREEN', 'BEAR_SCREEN', 'SMALL_MID_CAP'];
 
 interface SnapshotMetaResponse {
   tradingDate: string;

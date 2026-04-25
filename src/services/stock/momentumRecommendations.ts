@@ -16,11 +16,15 @@ import { fetchSectorEnergy, formatSectorEnergySummary } from '../quant/sectorEne
 import type { StockFilters, RecommendationResponse } from './types';
 
 /**
- * mode 매핑 — 클라이언트 mode 문자열을 aiUniverseService 의 4 mode 중 하나로 변환.
- * SMALL_MID_CAP 은 별도 mode 없이 MOMENTUM universe + 프롬프트에서 중소형주 우선 지시.
+ * mode 매핑 — 클라이언트 mode 문자열을 aiUniverseService 의 정규 5값 중 하나로 변환.
+ *
+ * PR-39: SMALL_MID_CAP 이 서버 정규 mode 로 승격되어 universe 발굴 단계에서 직접
+ * KOSDAQ·중소형 성장주 우선 후보를 받는다. (이전엔 MOMENTUM 으로 흡수 후 클라이언트
+ * 에서 KOSDAQ 정렬만 후처리했음.)
  */
-export function toUniverseMode(mode: string): 'MOMENTUM' | 'EARLY_DETECT' {
+export function toUniverseMode(mode: string): 'MOMENTUM' | 'EARLY_DETECT' | 'SMALL_MID_CAP' {
   if (mode === 'EARLY_DETECT') return 'EARLY_DETECT';
+  if (mode === 'SMALL_MID_CAP') return 'SMALL_MID_CAP';
   return 'MOMENTUM';
 }
 
@@ -250,7 +254,9 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
     // 급등 전 종목: 등락률 -1~3% 구간 (마름 후보)
     candidates = candidates.filter(c => c.changePercent >= -1 && c.changePercent <= 3);
   } else if (mode === 'SMALL_MID_CAP') {
-    // 중소형주: 마스터에서 KOSDAQ 우선 + KOSPI 후순위. 시총 정밀 필터는 프롬프트에 위임.
+    // PR-39: 서버가 SMALL_MID_CAP universe 단계에서 이미 KOSDAQ·중소형 성장주를
+    // 우선 반환하지만, Tier 1 (Google 뉴스) 결과가 대형주에 편중되는 경우를 방어해
+    // 한 번 더 KOSDAQ 우선 정렬을 적용한다 (시총 정밀 필터는 프롬프트에 위임).
     candidates = [
       ...candidates.filter(c => c.market === 'KOSDAQ'),
       ...candidates.filter(c => c.market !== 'KOSDAQ'),

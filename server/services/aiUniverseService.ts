@@ -59,6 +59,8 @@ const MODE_QUERIES: Record<AiUniverseMode, string[]> = {
   EARLY_DETECT: ['거래량 마름 후 돌파', '신고가 돌파 종목'],
   QUANT_SCREEN: ['저PER 저PBR 우량주', '실적 개선주'],
   BEAR_SCREEN: ['약세장 방어주', '고배당 우량주'],
+  // PR-39: 코스닥·중형주 후발주에 초점. 시총 1,000억~3조 범위, 정부 정책 수혜·턴어라운드.
+  SMALL_MID_CAP: ['코스닥 중소형 주도주', '중소형 성장주 신고가'],
 };
 
 /**
@@ -99,11 +101,16 @@ function buildSeedFallback(mode: AiUniverseMode, limit: number): StockMasterEntr
     mode === 'BEAR_SCREEN' ? ['DEFENSIVE', 'VALUE']
     : mode === 'QUANT_SCREEN' ? ['VALUE', 'DEFENSIVE', 'GROWTH_MID']
     : mode === 'EARLY_DETECT' ? ['GROWTH_MID', 'LARGE_MOMENTUM']
+    : mode === 'SMALL_MID_CAP' ? ['GROWTH_MID']
     : ['LARGE_MOMENTUM', 'GROWTH_MID'];
+  // PR-39: SMALL_MID_CAP 은 LARGE_MOMENTUM 태그를 가진 초대형주(삼성전자·SK하이닉스·
+  // 현대차·기아 등) 를 명시적으로 제외해 universe 가 대형주로 오염되지 않도록 한다.
+  const excludeLarge = mode === 'SMALL_MID_CAP';
   const out: StockMasterEntry[] = [];
   for (const tag of wanted) {
     for (const s of SEED_UNIVERSE) {
       if (!s.tags.includes(tag)) continue;
+      if (excludeLarge && s.tags.includes('LARGE_MOMENTUM')) continue;
       if (out.some((e) => e.code === s.code)) continue;
       out.push({ code: s.code, name: s.name, market: s.market });
       if (out.length >= limit) return out;
