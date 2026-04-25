@@ -1,5 +1,5 @@
 /**
- * @responsibility momentumRecommendations PR-25-B / PR-37 wiring 단위 테스트
+ * @responsibility momentumRecommendations PR-25-B / PR-37 / PR-38 wiring 단위 테스트
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -7,6 +7,7 @@ import {
   toUniverseMode,
   buildUniverseRuleLine,
   buildUniverseWarning,
+  getUniverseConfidenceGrade,
 } from './momentumRecommendations';
 import type { AiUniverseDiscoverResult } from '../../api/aiUniverseClient';
 
@@ -124,10 +125,16 @@ describe('momentumRecommendations — buildUniverseRuleLine (PR-37 ADR-0016)', (
     expect(line).toContain('학습 지식');
   });
 
-  it('FALLBACK_QUANT 는 Yahoo OHLCV 정량 후보 + metric 검토 지시', () => {
+  it('FALLBACK_QUANT 는 Yahoo OHLCV 정량 후보 + metric 이름 명시 + 보수적 BUY/STRONG_BUY 지시 (PR-38)', () => {
     const line = buildUniverseRuleLine('FALLBACK_QUANT', 10, true);
     expect(line).toContain('Yahoo OHLCV');
     expect(line).toContain('metric');
+    // PR-38: metric 이름이 프롬프트에 명시되어 AI 가 어떤 수치를 검토해야 하는지 모호함 제거
+    expect(line).toContain('momentum20d');
+    expect(line).toContain('avgTurnoverKrw');
+    expect(line).toContain('volatility20d');
+    expect(line).toContain('drawdownFromHigh');
+    expect(line).toContain('보수적');
   });
 
   it('FALLBACK_NAVER 는 펀더멘털 단독 + 뉴스 비활성 명시', () => {
@@ -136,22 +143,33 @@ describe('momentumRecommendations — buildUniverseRuleLine (PR-37 ADR-0016)', (
     expect(line).toContain('뉴스 분석은 비활성');
   });
 
-  it('FALLBACK_SEED 는 마지막 거래일 정량 데이터 후보군 문구 (baseline 표현 금지)', () => {
+  it('FALLBACK_SEED 는 하드코딩 대표주 seed 명시 + 신뢰도 낮음 + 보수적 추천 지시 (PR-38)', () => {
     const line = buildUniverseRuleLine('FALLBACK_SEED', 24, true);
-    expect(line).toContain('마지막 거래일');
-    expect(line).toContain('정량 데이터');
+    // PR-38: FALLBACK_SEED 는 정량 산출 결과가 아니라 하드코딩 KOSPI/KOSDAQ 대표주 seed
+    expect(line).toContain('seed');
+    expect(line).toContain('하드코딩');
+    expect(line).toContain('대표주');
+    expect(line).toContain('정량 metric');
+    expect(line).toContain('신뢰도');
+    expect(line).toContain('보수적');
+    // ADR §6 금지 표현 유지
     expect(line).not.toContain('baseline');
     expect(line).not.toContain('시총 상위');
+    // PR-38: "마지막 거래일 정량 데이터" 라는 잘못된 표기는 제거됐다
+    expect(line).not.toContain('마지막 거래일 기준 정량 데이터');
   });
 
-  it('NOT_CONFIGURED / BUDGET_EXCEEDED / ERROR / NO_MATCHES 는 동일 폴백 문구', () => {
+  it('NOT_CONFIGURED / BUDGET_EXCEEDED / ERROR / NO_MATCHES 는 동일 폴백 문구 (FALLBACK_SEED 와 분리)', () => {
     const a = buildUniverseRuleLine('NOT_CONFIGURED', 10, true);
     const b = buildUniverseRuleLine('BUDGET_EXCEEDED', 10, true);
     const c = buildUniverseRuleLine('ERROR', 10, true);
     const d = buildUniverseRuleLine('NO_MATCHES', 10, true);
     [a, b, c, d].forEach(line => {
       expect(line).toContain('마지막 거래일');
+      expect(line).toContain('Yahoo/Naver/KRX');
       expect(line).not.toContain('baseline');
+      // PR-38: FALLBACK_SEED 와는 별도 분기여야 한다 (하드코딩 seed 표기 없음)
+      expect(line).not.toContain('하드코딩');
     });
   });
 
@@ -185,23 +203,30 @@ describe('momentumRecommendations — buildUniverseWarning (PR-37 ADR-0016 §6)'
     expect(msg).toContain('Naver Finance');
   });
 
-  it('FALLBACK_SEED 는 ADR §6 권장 문구 — "마지막 거래일 기준" + "비활성화"', () => {
+  it('FALLBACK_SEED 는 PR-38 권장 문구 — 하드코딩 대표주 seed + 신뢰도 낮음 + 비활성화', () => {
     const msg = buildUniverseWarning('FALLBACK_SEED', false);
-    expect(msg).toContain('마지막 거래일 기준');
-    expect(msg).toContain('정량 데이터');
+    // PR-38: "마지막 거래일 기준 정량 데이터" 표기는 잘못된 정보였으므로 제거.
+    // FALLBACK_SEED 는 하드코딩 KOSPI/KOSDAQ 대표주 seed 라는 사실을 사용자에게 명시.
+    expect(msg).toContain('seed');
+    expect(msg).toContain('하드코딩');
+    expect(msg).toContain('신뢰도');
     expect(msg).toContain('비활성화');
-    // 금지 표현 없음
+    // 금지 표현 없음 + 잘못된 표기 제거
     expect(msg).not.toContain('baseline');
     expect(msg).not.toContain('시총 상위');
     expect(msg).not.toContain('임시 추천');
     expect(msg).not.toContain('fallback seed');
+    expect(msg).not.toContain('마지막 거래일 기준 정량 데이터');
   });
 
-  it('NOT_CONFIGURED 는 ADR §6 권장 문구 — Google API 미설정 안내', () => {
+  it('NOT_CONFIGURED 는 PR-38 권장 문구 — Google API 미설정 + 폴백 사슬 명시', () => {
     const msg = buildUniverseWarning('NOT_CONFIGURED', false);
     expect(msg).toContain('Google Search API 미설정');
     expect(msg).toContain('비활성화');
     expect(msg).toContain('Naver/KRX 캐시');
+    // PR-38: 폴백 사슬을 정확히 표기 (snapshot/정량/Naver/KRX 캐시 우선, 모두 실패 시 seed)
+    expect(msg).toContain('snapshot');
+    expect(msg).toContain('seed');
     expect(msg).not.toContain('baseline');
   });
 
@@ -222,5 +247,52 @@ describe('momentumRecommendations — buildUniverseWarning (PR-37 ADR-0016 §6)'
     const msg = buildUniverseWarning('NO_MATCHES', false);
     expect(msg).toContain('KRX 마스터');
     expect(msg).not.toContain('baseline');
+  });
+});
+
+describe('momentumRecommendations — getUniverseConfidenceGrade (PR-38)', () => {
+  it('candidates=0 은 항상 UNAVAILABLE (sourceStatus 무관)', () => {
+    expect(getUniverseConfidenceGrade('GOOGLE_OK', 0)).toBe('UNAVAILABLE');
+    expect(getUniverseConfidenceGrade('FALLBACK_SEED', 0)).toBe('UNAVAILABLE');
+    expect(getUniverseConfidenceGrade(undefined, 0)).toBe('UNAVAILABLE');
+  });
+
+  it('GOOGLE_OK 는 A', () => {
+    expect(getUniverseConfidenceGrade('GOOGLE_OK', 5)).toBe('A');
+  });
+
+  it('FALLBACK_SNAPSHOT 은 노화일 기반 A-/B+/B 분기', () => {
+    expect(getUniverseConfidenceGrade('FALLBACK_SNAPSHOT', 5, 0)).toBe('A-');
+    expect(getUniverseConfidenceGrade('FALLBACK_SNAPSHOT', 5, 1)).toBe('A-');
+    expect(getUniverseConfidenceGrade('FALLBACK_SNAPSHOT', 5, 2)).toBe('B+');
+    expect(getUniverseConfidenceGrade('FALLBACK_SNAPSHOT', 5, 3)).toBe('B+');
+    expect(getUniverseConfidenceGrade('FALLBACK_SNAPSHOT', 5, 4)).toBe('B');
+    expect(getUniverseConfidenceGrade('FALLBACK_SNAPSHOT', 5, 7)).toBe('B');
+    // 노화일 미상 → B+ 기본값
+    expect(getUniverseConfidenceGrade('FALLBACK_SNAPSHOT', 5)).toBe('B+');
+    expect(getUniverseConfidenceGrade('FALLBACK_SNAPSHOT', 5, null)).toBe('B+');
+  });
+
+  it('Tier 3 FALLBACK_QUANT 는 B', () => {
+    expect(getUniverseConfidenceGrade('FALLBACK_QUANT', 8)).toBe('B');
+  });
+
+  it('Tier 4 FALLBACK_NAVER 는 C+', () => {
+    expect(getUniverseConfidenceGrade('FALLBACK_NAVER', 6)).toBe('C+');
+  });
+
+  it('Tier 5 FALLBACK_SEED / NOT_CONFIGURED / BUDGET_EXCEEDED 는 C', () => {
+    expect(getUniverseConfidenceGrade('FALLBACK_SEED', 24)).toBe('C');
+    expect(getUniverseConfidenceGrade('NOT_CONFIGURED', 10)).toBe('C');
+    expect(getUniverseConfidenceGrade('BUDGET_EXCEEDED', 10)).toBe('C');
+  });
+
+  it('ERROR / NO_MATCHES 는 C-', () => {
+    expect(getUniverseConfidenceGrade('ERROR', 10)).toBe('C-');
+    expect(getUniverseConfidenceGrade('NO_MATCHES', 10)).toBe('C-');
+  });
+
+  it('sourceStatus 미제공이고 후보가 있으면 C- 기본값', () => {
+    expect(getUniverseConfidenceGrade(undefined, 5)).toBe('C-');
   });
 });
