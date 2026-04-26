@@ -222,6 +222,12 @@ export const KRX_STOCK_MASTER_FILE = path.join(DATA_DIR, 'krx-master.json');
  * Google Search / Naver Finance / KRX master refresh 별 호출 수를 KST 자정 단위로 집계.
  */
 export const AI_CALL_BUDGET_FILE = path.join(DATA_DIR, 'ai-call-budget.json');
+
+/**
+ * KRX 휴장일 patch 파일 (PR-D / ADR-0045).
+ * 정적 STATIC_HOLIDAYS 위에 운영자가 추가한 차년도 휴장일을 영속.
+ */
+export const KRX_HOLIDAY_PATCH_FILE = path.join(DATA_DIR, 'krx-holiday-patch.json');
 /**
  * Off-hours 스냅샷 — 성공한 /historical-data 응답의 디스크 영속 캐시 (PR-32).
  * 장외 시 gated miss 를 이 스냅샷으로 폴백해 UI 정보 불일치 원천 차단.

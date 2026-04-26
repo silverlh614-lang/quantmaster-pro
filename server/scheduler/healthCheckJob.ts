@@ -1,7 +1,7 @@
 /**
  * @responsibility 파이프라인 헬스체크(09:05 KST)와 새벽 자가진단(02:00 KST)을 실행해 Telegram 점검 요약을 푸시한다.
  */
-import cron from 'node-cron';
+import { scheduledJob } from './scheduleGuard.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { getDailyLossPct, getEmergencyStop } from '../state.js';
 import { getKisTokenRemainingHours } from '../clients/kisClient.js';
@@ -157,11 +157,12 @@ async function runSelfDiagnosis(): Promise<void> {
 }
 
 export function registerHealthCheckJobs(): void {
-  // 평일 KST 09:05 (UTC 00:05) Telegram 자동 전송
-  cron.schedule('5 0 * * 1-5', runPipelineHealthCheck, { timezone: 'UTC' });
+  // 평일 KST 09:05 (UTC 00:05) Telegram 자동 전송. PR-B-2: TRADING_DAY_ONLY.
+  scheduledJob('5 0 * * 1-5', 'TRADING_DAY_ONLY', 'pipeline_health_check',
+    runPipelineHealthCheck, { timezone: 'UTC' });
 
-  // 평일 KST 02:00 (UTC 17:00) 파이프라인 치명 이슈 조기 감지
-  // — 주말(토·일)은 장이 없어 파이프라인 진단 의미가 없으므로 스킵.
-  //   주말에는 screenerJobs 가 해외 뉴스/공급망 스캔을 대신 돌린다.
-  cron.schedule('0 17 * * 0-4', runSelfDiagnosis, { timezone: 'UTC' });
+  // 평일 KST 02:00 (UTC 17:00) 파이프라인 치명 이슈 조기 감지.
+  // PR-B-2: TRADING_DAY_ONLY — KRX 공휴일에 진단 무의미.
+  scheduledJob('0 17 * * 0-4', 'TRADING_DAY_ONLY', 'self_diagnosis',
+    runSelfDiagnosis, { timezone: 'UTC' });
 }
