@@ -13,7 +13,7 @@
  * 스케줄: 평일 07:30 KST — 한국 장 개장 1.5시간 전.
  */
 import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { sendTelegramBroadcast } from './telegramClient.js';
+import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 import { channelHeader, CHANNEL_SEPARATOR } from './channelFormatter.js';
 
 // ── 판정 임계 ─────────────────────────────────────────────────────────────────
@@ -103,10 +103,9 @@ export async function checkForeignFlowLeadingAlert(): Promise<void> {
     const message = formatMessage(inputs, reasons, confidence + 1); // +1 → 4점 만점 표기
     const today = new Date().toISOString().slice(0, 10);
 
-    await sendTelegramBroadcast(message, {
+    // ADR-0039: CH3 REGIME — 외국인 자금 3축 합치 (HIGH → 진동 ON VIBRATION_POLICY 자동)
+    await dispatchAlert(ChannelSemantic.REGIME, message, {
       priority: 'HIGH',
-      tier: 'T1_ALARM',
-      category: 'foreign_flow_leading',
       dedupeKey: `foreign_flow_leading:${today}`,
     });
 

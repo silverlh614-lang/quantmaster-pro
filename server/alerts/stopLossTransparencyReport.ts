@@ -15,7 +15,7 @@
 import type { ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { CONDITION_NAMES } from '../learning/attributionAnalyzer.js';
-import { sendTelegramBroadcast } from './telegramClient.js';
+import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 import { CHANNEL_SEPARATOR, channelHeader } from './channelFormatter.js';
 
 // ── 진입 근거 요약 ────────────────────────────────────────────────────────────
@@ -161,12 +161,12 @@ export async function sendStopLossTransparencyReport(
       CHANNEL_SEPARATOR,
     ].join('\n');
 
-    await sendTelegramBroadcast(message, {
+    // ADR-0039: CH4 JOURNAL — 손절 사후 복기 (HIGH 라도 JOURNAL VIBRATION_POLICY 는 OFF — 시간 격리)
+    // 운영자 의도가 즉각 인지였다면 disableNotification:false 로 override 가능.
+    await dispatchAlert(ChannelSemantic.JOURNAL, message, {
       priority: 'HIGH',
-      tier: 'T2_REPORT',
-      category: 'stop_loss_transparency',
       dedupeKey: `stop_loss_report:${shadow.id}`,
-      disableChannelNotification: false,
+      disableNotification: false, // 손절은 즉각 인지 — JOURNAL OFF 정책 override
     });
 
     console.log(`[StopLossReport] ${shadow.stockCode} 손절 투명성 리포트 발송`);

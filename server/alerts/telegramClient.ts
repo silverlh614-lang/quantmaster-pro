@@ -573,22 +573,9 @@ export async function sendChannelAlertTo(
   }
 }
 
-/**
- * 종목 픽 채널에 알림 전송.
- * TELEGRAM_PICK_CHANNEL_ID 환경변수에 채널 chat_id 설정 필요.
- * 구독자 전체에게 브로드캐스트 — 쿨다운/다이제스트 없이 즉시 전송.
- */
-export async function sendPickChannelAlert(
-  message: string,
-  opts?: { disableNotification?: boolean },
-): Promise<number | undefined> {
-  const channelId = process.env.TELEGRAM_PICK_CHANNEL_ID;
-  if (!channelId) {
-    console.log('[Telegram] TELEGRAM_PICK_CHANNEL_ID 미설정 — 픽 채널 전송 스킵');
-    return;
-  }
-  return sendChannelAlertTo(channelId, message, opts);
-}
+// ADR-0039 (PR-X3): sendPickChannelAlert 함수 삭제 — 호출자 0건 마이그레이션 완료.
+// 신규 코드는 dispatchAlert(ChannelSemantic.SIGNAL, message) 사용.
+// alertRouter.resolveAnalysisChannelId 가 TELEGRAM_PICK_CHANNEL_ID legacy fallback 유지.
 
 // ─── 빈 스캔 Decision Broker (인라인 3택) ─────────────────────────────────
 // 5회 연속 빈 스캔 시 운용자에게 3택을 제시하고 서버가 callback으로 액션을 받는다.

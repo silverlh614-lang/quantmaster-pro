@@ -13,7 +13,7 @@
 import { loadDynamicUniverse, type DynamicStock } from '../screener/dynamicUniverseExpander.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
-import { sendTelegramBroadcast } from './telegramClient.js';
+import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 import { channelHeader, CHANNEL_SEPARATOR } from './channelFormatter.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -131,12 +131,10 @@ export async function sendNewHighMomentumScan(): Promise<void> {
     const message = formatMessage(candidates);
     const today = new Date().toISOString().slice(0, 10);
 
-    await sendTelegramBroadcast(message, {
+    // ADR-0039: CH2 SIGNAL — 종목 픽 (FOMO 차단을 위해 진동 OFF, VIBRATION_POLICY 자동)
+    await dispatchAlert(ChannelSemantic.SIGNAL, message, {
       priority: 'NORMAL',
-      tier: 'T2_REPORT',
-      category: 'new_high_scan',
       dedupeKey: `new_high_scan:${today}`,
-      disableChannelNotification: true,
     });
 
     console.log(`[NewHighScan] 발송 완료 — ${candidates.length}개 후보`);

@@ -33,11 +33,10 @@ const EXTS = new Set(['.ts', '.tsx', '.js']);
 const IGNORED_SUFFIX = ['.d.ts', '.test.ts', '.test.tsx', '.spec.ts', '.spec.tsx'];
 
 // SSOT — 채널 ID 해석은 이 파일들에서만 가능
+// PR-X3 (ADR-0039) 부터 telegramClient.ts 의 TELEGRAM_PICK_CHANNEL_ID 직접 접근 제거 — 화이트리스트 축소.
 const ALLOWED_FILES = [
   'server/alerts/alertRouter.ts',
   'server/alerts/alertCategories.ts',
-  // LEGACY: PR-X3 에서 alertRouter 경유로 마이그레이션 예정. 현재는 화이트리스트.
-  'server/alerts/telegramClient.ts',
   // 본 검증 스크립트 자체 — 탐지 시그니처 정의 목적
   'scripts/check_channel_boundary.js',
 ];
