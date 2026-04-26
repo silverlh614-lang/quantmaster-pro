@@ -52,13 +52,13 @@ import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKi
 import { fillMonitor } from '../fillMonitor.js';
 import { trancheExecutor } from '../trancheExecutor.js';
 import { ENTRY_GATES_PHASE_B } from './entryGates/index.js';
+import { entryRevalidationStep } from './revalidationSteps/index.js';
 import {
   isOpenShadowStatus,
   buildStopLossPlan,
   formatStopLossBreakdown,
   calculateOrderQuantity,
   reconcileDayOpen,
-  evaluateEntryRevalidation,
   getMinGateScore,
   getKstMarketElapsedMinutes,
 } from '../entryEngine.js';
@@ -689,25 +689,26 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       const reCheckGate = reCheckQuote
         ? evaluateServerGate(reCheckQuote, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, dartFin, kisFlow, ctx.regime)
         : null;
-      const entryRevalidation = evaluateEntryRevalidation({
+      // ── ADR-0031 PR-59 PoC: entryRevalidationStep RevalidationStep 분기 ───
+      // step 자체는 외부 mutation·부수효과 0건 — fail 시 caller 가 stock.entryFailCount,
+      // watchlistMutated, scanCounters.gateMisses, stageLog, pushTrace, counterfactual
+      // 기록을 일괄 적용. byte-equivalent: 메시지·counter·stageLog 값 100% 보존.
+      const revalResult = entryRevalidationStep({
+        stockName: stock.name,
         currentPrice,
         entryPrice: stock.entryPrice,
-        quoteGateScore: reCheckGate?.gateScore,
-        quoteSignalType: reCheckGate?.signalType,
-        dayOpen: reCheckQuote?.dayOpen,
-        prevClose: reCheckQuote?.prevClose,
-        volume: reCheckQuote?.volume,
-        avgVolume: reCheckQuote?.avgVolume,
-        minGateScore: getMinGateScore(ctx.regime),  // 아이디어 #7: 레짐별 Gate 임계값 적용
+        reCheckQuote,
+        reCheckGate,
+        regime: ctx.regime,
         marketElapsedMinutes: getKstMarketElapsedMinutes(),
       });
-      if (!entryRevalidation.ok) {
-        console.log(`[AutoTrade] ${stock.name} 진입 직전 재검증 탈락: ${entryRevalidation.reasons.join(', ')}`);
+      if (!revalResult.proceed) {
+        console.log(revalResult.logMessage);
         // BUG-07 fix: MANUAL 종목도 entryFailCount 추적 — 반복 실패 시 자동 제거 대상에 포함
         stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
         ctx.mutables.watchlistMutated.value = true;
         ctx.scanCounters.gateMisses++;
-        stageLog.gate = `FAIL(${entryRevalidation.reasons.join(',')})`;
+        stageLog.gate = revalResult.stageLogValue;
         pushTrace();
 
         // Idea 4 — Counterfactual Shadow: 탈락 후보 상위 N 개를 가상 진입으로 기록.
@@ -721,7 +722,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               gateScore: stock.gateScore ?? 0,
               regime: ctx.regime,
               conditionKeys: stock.conditionKeys ?? [],
-              skipReason: `entryRevalidation:${entryRevalidation.reasons.join(',')}`,
+              skipReason: `entryRevalidation:${revalResult.failReasons.join(',')}`,
             });
             if (recorded) ctx.scanCounters.counterfactualRecordedToday++;
           } catch (e) {
