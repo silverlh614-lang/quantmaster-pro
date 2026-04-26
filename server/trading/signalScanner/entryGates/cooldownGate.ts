@@ -1,4 +1,4 @@
-// @responsibility Regret Asymmetry Filter 쿨다운 종목 진입 보류 또는 해제 게이트
+// @responsibility Regret Asymmetry Filter 쿨다운 만료 시점 진입 게이트 라우팅
 /**
  * entryGates/cooldownGate.ts — 쿨다운 종목 진입 보류·해제 (ADR-0030, PR-58).
  *

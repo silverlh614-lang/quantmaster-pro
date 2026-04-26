@@ -1,4 +1,4 @@
-// @responsibility 포트폴리오 리스크 엔진 통합 점검 차단 또는 경고 게이트
+// @responsibility 포트폴리오 리스크 엔진 통합 점검 결과 진입 라우팅 게이트
 /**
  * entryGates/portfolioRiskGate.ts — 포트폴리오 리스크 통합 점검 (ADR-0030, PR-58).
  *
