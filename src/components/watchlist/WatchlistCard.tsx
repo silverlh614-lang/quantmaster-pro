@@ -12,6 +12,7 @@ import { ConfidenceBadge } from '../common/ConfidenceBadge';
 import { DataQualityBadge } from '../common/DataQualityBadge';
 import { PriceAlertBadge } from '../common/PriceAlertBadge';
 import { GateStatusCard, buildGateCardSummary } from './GateStatusCard';
+import { GateMiniIndicator } from './GateMiniIndicator';
 import { LastTriggerCard } from './LastTriggerCard';
 import { EnemyChecklistCard } from './EnemyChecklistCard';
 import { classifyDataQuality } from '../../utils/dataQualityClassifier';
@@ -266,6 +267,11 @@ export function WatchlistCard({
                       BEST
                     </div>
                   )}
+
+                  {/* ADR-0049 PR-Z7: 4-Gate 미니 인디케이터 (즉시 인지) */}
+                  <div className="shrink-0">
+                    <GateMiniIndicator stock={stock} />
+                  </div>
                 </div>
 
                 {stock.aiConvictionScore && (
