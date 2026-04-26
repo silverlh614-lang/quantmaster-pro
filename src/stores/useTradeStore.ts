@@ -1,3 +1,4 @@
+// @responsibility useTradeStore Zustand store
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { TradeRecord, LossReason } from '../types/quant';

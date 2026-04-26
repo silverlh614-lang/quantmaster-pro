@@ -1,3 +1,4 @@
+// @responsibility phaseMapCalibrator 학습 엔진 모듈
 /**
  * phaseMapCalibrator.ts — 아이디어 9 (Phase 5): 조건별 시장 사이클 위상 맵.
  *

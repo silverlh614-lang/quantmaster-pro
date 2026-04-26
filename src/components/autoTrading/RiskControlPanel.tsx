@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 RiskControlPanel 컴포넌트
 import React from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { Section } from '../../ui/section';

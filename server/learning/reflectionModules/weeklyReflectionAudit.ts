@@ -1,3 +1,4 @@
+// @responsibility weeklyReflectionAudit 학습 엔진 모듈
 /**
  * weeklyReflectionAudit.ts — Reflection Integrity 주간 품질 감사 (#14 연장).
  *

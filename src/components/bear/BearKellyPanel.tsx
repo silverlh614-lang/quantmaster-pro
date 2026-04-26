@@ -1,3 +1,4 @@
+// @responsibility bear 영역 BearKellyPanel 컴포넌트
 /**
  * 아이디어 6: Bear Mode Kelly Criterion — 하락 베팅에 적용하는 켈리 공식
  * Bear Regime 감지 시 인버스 ETF에 대한 최적 포지션 비중을 켈리 공식으로 자동 계산하고,

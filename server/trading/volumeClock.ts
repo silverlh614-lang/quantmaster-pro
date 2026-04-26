@@ -1,3 +1,4 @@
+// @responsibility volumeClock 매매 엔진 모듈
 /**
  * volumeClock.ts — Volume Clock (장중 매수 최적 시간대 자동 선택)
  *

@@ -1,3 +1,4 @@
+// @responsibility quant trailing 엔진 모듈
 /**
  * sell/trailing.ts — L3 트레일링 스톱
  *

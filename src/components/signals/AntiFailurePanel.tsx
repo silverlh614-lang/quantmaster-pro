@@ -1,3 +1,4 @@
+// @responsibility signals 영역 AntiFailurePanel 컴포넌트
 /**
  * AntiFailurePanel.tsx — 반실패 학습 패턴 DB 패널
  *

@@ -1,3 +1,4 @@
+// @responsibility signals 영역 FSSPanel 컴포넌트
 /**
  * 아이디어 4: FSS 외국인 수급 방향 전환 스코어
  *

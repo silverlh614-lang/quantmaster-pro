@@ -1,3 +1,4 @@
+// @responsibility krxClient 외부 클라이언트 모듈
 /**
  * krxClient.ts — 한국거래소(KRX) 정보데이터시스템 OpenAPI 어댑터 (아이디어 2)
  *

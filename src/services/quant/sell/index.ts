@@ -1,3 +1,4 @@
+// @responsibility quant index 엔진 모듈
 /**
  * sell/index.ts — 매도 엔진 barrel export
  *

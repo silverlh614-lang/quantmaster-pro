@@ -1,3 +1,4 @@
+// @responsibility queries React hook
 /**
  * Auto-Trade TanStack Query Hooks
  *

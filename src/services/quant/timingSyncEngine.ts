@@ -1,3 +1,4 @@
+// @responsibility quant timingSyncEngine 엔진 모듈
 /**
  * timingSyncEngine.ts — 조건 통과 시점 일치도 스코어 (Timing Sync Score)
  *

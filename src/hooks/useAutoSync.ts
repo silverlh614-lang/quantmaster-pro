@@ -1,3 +1,4 @@
+// @responsibility useAutoSync React hook
 /**
  * useAutoSync.ts — 글로벌 스캔 보고서 자동 동기화 훅
  *

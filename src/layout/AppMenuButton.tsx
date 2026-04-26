@@ -1,3 +1,4 @@
+// @responsibility AppMenuButton 레이아웃 컴포넌트
 /**
  * AppMenuButton — <lg 화면 전용 햄버거 버튼.
  * 탭 시 드로어 사이드바 오픈 + 가벼운 햅틱.

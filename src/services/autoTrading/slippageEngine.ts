@@ -1,3 +1,4 @@
+// @responsibility slippageEngine 서비스 모듈
 /**
  * slippageEngine.ts — 슬리피지 측정 & 보정 Kelly (아이디어 8)
  *

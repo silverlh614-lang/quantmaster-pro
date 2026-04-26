@@ -1,3 +1,4 @@
+// @responsibility useEngineStream React hook
 /**
  * useEngineStream — Server-Sent Events 기반 엔진 상태 실시간 수신 훅.
  *

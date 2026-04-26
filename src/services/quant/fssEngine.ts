@@ -1,3 +1,4 @@
+// @responsibility quant fssEngine 엔진 모듈
 import {
   ForeignSupplyDayRecord,
   FssDailyScore,

@@ -1,3 +1,4 @@
+// @responsibility incrementalCalibrator 학습 엔진 모듈
 /**
  * incrementalCalibrator.ts — 증분/경량 캘리브레이션 (아이디어 2)
  *

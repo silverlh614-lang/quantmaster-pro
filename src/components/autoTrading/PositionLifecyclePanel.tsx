@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 PositionLifecyclePanel 컴포넌트
 import React from 'react';
 import { Briefcase } from 'lucide-react';
 import { Section } from '../../ui/section';

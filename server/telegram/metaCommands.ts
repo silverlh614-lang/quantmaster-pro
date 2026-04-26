@@ -1,3 +1,4 @@
+// @responsibility metaCommands 텔레그램 모듈
 // @responsibility: Telegram 메타 명령어 6종 (/now /watch /positions /learning /control /admin) 핸들러 + 인라인 키보드 빌더 + callback 파서.
 //
 // ADR-0017 Stage 1 — webhookHandler.ts 의 거대 switch 는 그대로 유지하되 사용자 노출

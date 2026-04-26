@@ -1,3 +1,4 @@
+// @responsibility useWatchlistActions React hook
 import { useRecommendationStore } from '../stores';
 
 export function useWatchlistActions() {

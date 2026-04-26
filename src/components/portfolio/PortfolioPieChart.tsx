@@ -1,3 +1,4 @@
+// @responsibility portfolio 영역 PortfolioPieChart 컴포넌트
 import React from 'react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 

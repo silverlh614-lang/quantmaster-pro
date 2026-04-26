@@ -1,3 +1,4 @@
+// @responsibility promptBoostRepo 영속화 저장소 모듈
 /**
  * promptBoostRepo.ts — 아이디어 1: 클라이언트 조건(21개) 학습 커버리지 확장.
  *

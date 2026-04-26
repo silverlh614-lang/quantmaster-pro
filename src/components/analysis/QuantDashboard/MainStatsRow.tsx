@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 MainStatsRow 컴포넌트
 import React from 'react';
 import { Target, Activity, DollarSign, TrendingUp } from 'lucide-react';
 import { cn } from '../../../ui/cn';

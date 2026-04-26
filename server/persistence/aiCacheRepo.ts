@@ -1,3 +1,4 @@
+// @responsibility aiCacheRepo 영속화 저장소 모듈
 /**
  * aiCacheRepo.ts — AI 응답 영속화 캐시 (Idea 4)
  *

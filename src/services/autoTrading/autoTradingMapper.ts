@@ -1,3 +1,4 @@
+// @responsibility autoTradingMapper 서비스 모듈
 ﻿import type {
   BuyAuditData,
   EngineStatus as ServerEngineStatus,

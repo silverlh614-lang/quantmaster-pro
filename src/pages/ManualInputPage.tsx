@@ -1,3 +1,4 @@
+// @responsibility ManualInputPage 페이지 컴포넌트
 import React from 'react';
 import { motion } from 'motion/react';
 import { ManualQuantInput } from '../components/analysis/ManualQuantInput';

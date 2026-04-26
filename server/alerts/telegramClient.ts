@@ -1,3 +1,4 @@
+// @responsibility telegramClient 알림 모듈
 /**
  * Telegram Bot API — setMyCommands로 봇 메뉴에 명령어 목록 등록
  * 서버 기동 시 1회 호출하면 Telegram 앱에서 '/' 입력 시 자동완성 메뉴가 표시된다.

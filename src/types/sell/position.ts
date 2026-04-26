@@ -1,3 +1,4 @@
+// @responsibility position 도메인 타입 정의
 // ─── 보유 포지션 타입 ─────────────────────────────────────────────────────────
 
 import type { StockProfileType, RegimeLevel } from '../core';

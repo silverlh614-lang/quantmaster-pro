@@ -1,3 +1,4 @@
+// @responsibility quant feedbackLoopEngine 엔진 모듈
 /**
  * feedbackLoopEngine.ts — 피드백 폐쇄 루프 (Feedback Closed Loop)
  *

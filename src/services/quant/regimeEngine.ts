@@ -1,3 +1,4 @@
+// @responsibility quant regimeEngine 엔진 모듈
 /**
  * regimeEngine.ts — 6단계 자동매매 레짐 분류기
  *

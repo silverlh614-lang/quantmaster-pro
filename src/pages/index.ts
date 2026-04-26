@@ -1,3 +1,4 @@
+// @responsibility index 페이지 컴포넌트
 export { TradeJournalPage } from './TradeJournalPage';
 export { ScreenerPage } from './ScreenerPage';
 export { SubscriptionPage } from './SubscriptionPage';

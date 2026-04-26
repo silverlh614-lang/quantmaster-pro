@@ -1,3 +1,4 @@
+// @responsibility gateAuditRepo 영속화 저장소 모듈
 /**
  * gateAuditRepo.ts — 아이디어 11: Gate 조건 통과율 누적 기록
  *

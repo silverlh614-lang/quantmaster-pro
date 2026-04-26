@@ -1,3 +1,4 @@
+// @responsibility signals 영역 IPSPanel 컴포넌트
 /**
  * 아이디어 11: IPS 통합 변곡점 확률 엔진
  *

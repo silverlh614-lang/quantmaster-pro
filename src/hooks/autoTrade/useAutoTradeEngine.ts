@@ -1,3 +1,4 @@
+// @responsibility useAutoTradeEngine React hook
 /**
  * useAutoTradeEngine — 자동매매 페이지를 위한 집계 훅.
  *

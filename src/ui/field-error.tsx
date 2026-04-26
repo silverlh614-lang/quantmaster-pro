@@ -1,3 +1,4 @@
+// @responsibility field-error UI 프리미티브 컴포넌트
 /**
  * FieldError — 폼 필드 인라인 검증 메시지.
  * 아이콘 + 빨강 계열 텍스트로 시각적 즉각성을 주되, 공간을 과점하지 않는 높이.

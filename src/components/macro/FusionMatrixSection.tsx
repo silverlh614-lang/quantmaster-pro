@@ -1,3 +1,4 @@
+// @responsibility macro 영역 FusionMatrixSection 컴포넌트
 import React from 'react';
 import { ArrowRight } from 'lucide-react';
 import { EconomicRegime, ROEType } from '../../types/quant';

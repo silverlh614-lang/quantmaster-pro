@@ -1,3 +1,4 @@
+// @responsibility enemyCheckClient 외부 클라이언트 모듈
 /**
  * enemyCheckClient.ts — 역검증(Enemy Checklist) 데이터 수집
  *

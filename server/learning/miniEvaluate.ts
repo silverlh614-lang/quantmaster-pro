@@ -1,3 +1,4 @@
+// @responsibility miniEvaluate 학습 엔진 모듈
 /**
  * miniEvaluate.ts — 단일 종목 PENDING 추천 즉시 평가 (아이디어 1 L1 훅).
  *

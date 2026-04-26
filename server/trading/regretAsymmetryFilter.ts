@@ -1,3 +1,4 @@
+// @responsibility regretAsymmetryFilter 매매 엔진 모듈
 /**
  * regretAsymmetryFilter.ts — Regret Asymmetry Filter (후회 비대칭 필터)
  *

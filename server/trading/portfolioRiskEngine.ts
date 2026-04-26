@@ -1,3 +1,4 @@
+// @responsibility portfolioRiskEngine 매매 엔진 모듈
 /**
  * portfolioRiskEngine.ts — 포트폴리오 수준 리스크 관리 엔진
  *

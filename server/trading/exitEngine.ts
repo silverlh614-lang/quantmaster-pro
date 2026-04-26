@@ -1,3 +1,4 @@
+// @responsibility exitEngine 매매 엔진 모듈
 /**
  * exitEngine.ts — 포지션 모니터링 및 청산 엔진
  *

@@ -1,3 +1,4 @@
+// @responsibility PortfolioExtractPage 페이지 컴포넌트
 import React, { useState, useCallback } from 'react';
 import {
   Filter, Layers, Play, Scale, SlidersHorizontal,

@@ -1,3 +1,4 @@
+// @responsibility portfolio 영역 PortfolioComparison 컴포넌트
 import React from 'react';
 import { 
   X, 

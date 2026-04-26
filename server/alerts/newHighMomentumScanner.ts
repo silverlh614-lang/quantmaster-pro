@@ -1,3 +1,4 @@
+// @responsibility newHighMomentumScanner 알림 모듈
 /**
  * newHighMomentumScanner.ts — 52주 신고가 모멘텀 스캔 리포트 (IDEA 7)
  *

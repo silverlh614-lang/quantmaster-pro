@@ -1,3 +1,4 @@
+// @responsibility weeklyDeepAnalysis 알림 모듈
 /**
  * weeklyDeepAnalysis.ts — 주간 심층 분석 카드 (IDEA 10)
  *

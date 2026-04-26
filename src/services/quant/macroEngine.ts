@@ -1,3 +1,4 @@
+// @responsibility quant macroEngine 엔진 모듈
 /**
  * macroEngine.ts — 거시 환경 평가 엔진
  *

@@ -1,3 +1,4 @@
+// @responsibility personaRoundTable 학습 엔진 모듈
 /**
  * personaRoundTable.ts — Persona Round-Table (#4).
  *

@@ -1,3 +1,4 @@
+// @responsibility diagnosticRouter 서버 라우터 모듈
 /**
  * diagnosticRouter.ts — 데이터 정합성 진단 API
  *

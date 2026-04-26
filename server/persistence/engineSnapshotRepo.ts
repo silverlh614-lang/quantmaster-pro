@@ -1,3 +1,4 @@
+// @responsibility engineSnapshotRepo 영속화 저장소 모듈
 /**
  * engineSnapshotRepo.ts — 30초 주기 엔진 체크포인트 저장/복원.
  *

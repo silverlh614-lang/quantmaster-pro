@@ -1,3 +1,4 @@
+// @responsibility macroSectorSync 매매 엔진 모듈
 /**
  * macroSectorSync.ts — 거시-섹터-종목 실시간 정렬 루프 (Macro↔Sector↔Stock Sync Loop)
  *

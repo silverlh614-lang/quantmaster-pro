@@ -1,3 +1,4 @@
+// @responsibility stockPickReporter 알림 모듈
 /**
  * stockPickReporter.ts — 일일 종목 픽 리포트 (16:30 KST)
  *

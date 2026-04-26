@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 AutoTradingControlCenter 컴포넌트
 /**
  * AutoTradingControlCenter — 자동매매 상단 컨트롤 섹션.
  *

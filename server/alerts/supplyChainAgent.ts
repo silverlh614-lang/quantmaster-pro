@@ -1,3 +1,4 @@
+// @responsibility supplyChainAgent 알림 모듈
 /**
  * supplyChainAgent.ts — 공급망 역추적 알고리즘
  *

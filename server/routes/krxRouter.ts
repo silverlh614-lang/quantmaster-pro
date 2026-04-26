@@ -1,3 +1,4 @@
+// @responsibility krxRouter 서버 라우터 모듈
 // server/routes/krxRouter.ts
 // KRX-style 밸류에이션 프록시 — 실제로는 KIS inquire-price TR(FHKST01010100)에서
 // per/pbr/시가총액/eps 를 뽑아 {per, pbr, marketCap, eps} 로 정규화해 반환한다.

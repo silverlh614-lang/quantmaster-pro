@@ -1,3 +1,4 @@
+// @responsibility dryRunScanner 매매 엔진 모듈
 /**
  * dryRunScanner.ts — 매수 시뮬레이션 드라이런 (아이디어 8)
  *

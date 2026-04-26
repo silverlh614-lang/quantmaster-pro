@@ -1,3 +1,4 @@
+// @responsibility newsSupplyLogger 학습 엔진 모듈
 /**
  * newsSupplyLogger.ts — 뉴스-수급 시차 학습 데이터베이스
  *

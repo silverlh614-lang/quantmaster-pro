@@ -1,3 +1,4 @@
+// @responsibility portfolio 영역 PortfolioManager 컴포넌트
 import React, { useState } from 'react';
 import { PortfolioPieChart } from './PortfolioPieChart';
 import { PortfolioComparison } from './PortfolioComparison';

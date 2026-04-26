@@ -1,3 +1,4 @@
+// @responsibility trancheEngine 서비스 모듈
 /**
  * trancheEngine.ts — 분할매수 트랜치 플랜 자동 실행 (아이디어 11)
  *

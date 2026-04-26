@@ -1,3 +1,4 @@
+// @responsibility quant preFlightScenarios 엔진 모듈
 /**
  * sell/preFlightScenarios.ts — Pre-Flight 5가지 시나리오 정의
  *

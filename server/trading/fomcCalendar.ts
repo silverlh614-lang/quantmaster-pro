@@ -1,3 +1,4 @@
+// @responsibility fomcCalendar 매매 엔진 모듈
 /**
  * fomcCalendar.ts — FOMC 일정 기반 자동 포지션 사이즈 조절기
  *

@@ -1,3 +1,4 @@
+// @responsibility channelTest.cmd 텔레그램 모듈
 // @responsibility: /channel_test — TELEGRAM_CHAT_ID 채널로 테스트 메시지 전송하여 봇 권한·연결을 검증.
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';

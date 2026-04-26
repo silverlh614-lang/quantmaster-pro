@@ -1,3 +1,4 @@
+// @responsibility channelPipeline 알림 모듈
 /**
  * channelPipeline.ts — 텔레그램 채널 발송 파이프라인
  *

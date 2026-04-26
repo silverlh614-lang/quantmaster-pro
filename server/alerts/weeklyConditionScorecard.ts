@@ -1,3 +1,4 @@
+// @responsibility weeklyConditionScorecard 알림 모듈
 /**
  * weeklyConditionScorecard.ts — 주간 조건 성과 리포트 (IDEA 6)
  *

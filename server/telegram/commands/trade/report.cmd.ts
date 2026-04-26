@@ -1,3 +1,4 @@
+// @responsibility report.cmd 텔레그램 모듈
 // @responsibility: /report — 일일 리포트 즉시 생성 + 이메일 발송 (generateDailyReport). TRD (read-only).
 import { generateDailyReport } from '../../../alerts/reportGenerator.js';
 import { commandRegistry } from '../../commandRegistry.js';

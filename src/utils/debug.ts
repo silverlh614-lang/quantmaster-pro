@@ -1,3 +1,4 @@
+// @responsibility debug 유틸 함수 모듈
 /**
  * Global debug logging utility for QuantMaster Pro.
  * Only outputs in development mode to keep production console clean.

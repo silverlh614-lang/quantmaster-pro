@@ -1,3 +1,4 @@
+// @responsibility AppHeader 레이아웃 컴포넌트
 /**
  * AppHeader — Now a minimal mobile-only top bar (desktop uses Sidebar).
  * Shows logo + last update time on mobile. Navigation handled by BottomNav.

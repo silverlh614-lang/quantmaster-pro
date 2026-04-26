@@ -1,3 +1,4 @@
+// @responsibility regretQuantifier 학습 엔진 모듈
 /**
  * regretQuantifier.ts — Regret Quantifier (#8).
  *

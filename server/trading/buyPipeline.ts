@@ -1,3 +1,4 @@
+// @responsibility buyPipeline 매매 엔진 모듈
 /**
  * buyPipeline.ts — 매수 실행 파이프라인 공통 헬퍼
  *

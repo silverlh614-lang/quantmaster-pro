@@ -1,3 +1,4 @@
+// @responsibility macroSync 서비스 모듈
 /**
  * macroSync.ts — 레짐 파이프라인 동기화
  *

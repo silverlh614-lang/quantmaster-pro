@@ -1,3 +1,4 @@
+// @responsibility reflectionIntegrity 학습 엔진 모듈
 /**
  * reflectionIntegrity.ts — Reflection Integrity Guard (#14).
  *

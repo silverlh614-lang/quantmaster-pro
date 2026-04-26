@@ -1,3 +1,4 @@
+// @responsibility watchlist.cmd 텔레그램 모듈
 // @responsibility: /watchlist 명령 — 워치리스트 전체를 SWING/CATALYST/MOMENTUM 섹션별로 포맷.
 import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import { escapeHtml } from '../../../alerts/telegramClient.js';

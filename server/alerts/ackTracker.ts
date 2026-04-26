@@ -1,3 +1,4 @@
+// @responsibility ackTracker 알림 모듈
 /**
  * ackTracker.ts — T1 경보의 "확인" 폐루프 추적.
  *

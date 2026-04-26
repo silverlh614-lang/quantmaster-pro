@@ -1,3 +1,4 @@
+// @responsibility scanTracer 매매 엔진 모듈
 /**
  * scanTracer.ts — 파이프라인 트레이서 (아이디어 10)
  *

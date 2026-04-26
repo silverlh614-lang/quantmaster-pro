@@ -1,3 +1,4 @@
+// @responsibility signals 영역 DartIntelPanel 컴포넌트
 /**
  * DartIntelPanel.tsx — DART 공시 LLM 인텔리전스 필터 패널
  *

@@ -1,3 +1,4 @@
+// @responsibility signals 영역 ContradictionDetectorPanel 컴포넌트
 /**
  * ContradictionDetectorPanel.tsx — 조건 간 상충 감지기 패널
  *

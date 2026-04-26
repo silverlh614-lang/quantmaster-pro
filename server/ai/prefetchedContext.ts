@@ -1,3 +1,4 @@
+// @responsibility prefetchedContext AI provider 모듈
 /**
  * prefetchedContext.ts — 아이디어 3: 정량 데이터 우선 수집 → Gemini 주입 블록 빌더
  *

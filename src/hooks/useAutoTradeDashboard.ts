@@ -1,3 +1,4 @@
+// @responsibility useAutoTradeDashboard React hook
 /**
  * useAutoTradeDashboard — thin re-export shim.
  *

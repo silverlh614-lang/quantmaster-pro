@@ -1,3 +1,4 @@
+// @responsibility entryEngine 매매 엔진 모듈
 /**
  * entryEngine.ts — 진입 검증 유틸리티
  *

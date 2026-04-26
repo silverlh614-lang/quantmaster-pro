@@ -1,3 +1,4 @@
+// @responsibility useWatchlistData React hook
 import { useMemo, useEffect } from 'react';
 import {
   useRecommendationStore, useSettingsStore, useMarketStore,

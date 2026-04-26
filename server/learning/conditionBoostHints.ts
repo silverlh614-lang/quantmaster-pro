@@ -1,3 +1,4 @@
+// @responsibility conditionBoostHints 학습 엔진 모듈
 /**
  * conditionBoostHints.ts — 아이디어 1: Gemini 프롬프트 boost 힌트 빌더.
  *

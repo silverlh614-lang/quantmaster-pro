@@ -1,3 +1,4 @@
+// @responsibility cacheConfig 유틸 함수 모듈
 /**
  * 캐시 계층 설정 — 데이터 반감기(Half-life) 기반 TTL + KRX 장 시간 인식
  *

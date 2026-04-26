@@ -1,3 +1,4 @@
+// @responsibility quant sellChecklist27 엔진 모듈
 /**
  * sell/sellChecklist27.ts — 매도 27단계 대칭 체크리스트
  *

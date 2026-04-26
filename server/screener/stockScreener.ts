@@ -1,3 +1,4 @@
+// @responsibility stockScreener 스크리너 모듈
 import fs from 'fs';
 import { SCREENER_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadWatchlist, saveWatchlist, type WatchlistSection } from '../persistence/watchlistRepo.js';

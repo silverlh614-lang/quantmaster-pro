@@ -1,3 +1,4 @@
+// @responsibility useDebugWatchers React hook
 import { useEffect } from 'react';
 import { useAnalysisStore, useRecommendationStore, useMarketStore, useSettingsStore } from '../stores';
 import { debugLog } from '../utils/debug';

@@ -1,3 +1,4 @@
+// @responsibility tradeEventLog 매매 엔진 모듈
 import fs from 'fs';
 import { tradeEventsFile, ensureDataDir } from '../persistence/paths.js';
 

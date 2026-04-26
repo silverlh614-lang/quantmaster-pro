@@ -1,3 +1,4 @@
+// @responsibility trancheExecutor 매매 엔진 모듈
 import fs from 'fs';
 import { TRANCHE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';

@@ -1,3 +1,4 @@
+// @responsibility common 영역 KeyboardShortcutsModal 컴포넌트
 /**
  * KeyboardShortcutsModal — "?" 로 여는 전역 단축키 안내 오버레이.
  */

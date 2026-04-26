@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 StockDetailModal 컴포넌트
 /**
  * Idea 7: Desktop → slide-in detail panel (list context preserved)
  *         Mobile  → bottom-up modal (full screen)

@@ -1,3 +1,4 @@
+// @responsibility marketDataRouter 서버 라우터 모듈
 // server/routes/marketDataRouter.ts
 // 외부 시장 데이터 라우터 — server.ts에서 분리
 // ECOS(한국은행), FRED, Yahoo Finance 프록시, 시장지표 일괄 조회

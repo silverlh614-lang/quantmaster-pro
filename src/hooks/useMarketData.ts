@@ -1,3 +1,4 @@
+// @responsibility useMarketData React hook
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import {

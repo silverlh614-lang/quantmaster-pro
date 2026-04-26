@@ -1,3 +1,4 @@
+// @responsibility useKillSwitchStatus React hook
 /**
  * useKillSwitchStatus — 서버 Kill Switch 평가 + 최근 강등 기록 접근.
  *

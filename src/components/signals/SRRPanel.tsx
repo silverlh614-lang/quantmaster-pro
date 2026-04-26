@@ -1,3 +1,4 @@
+// @responsibility signals 영역 SRRPanel 컴포넌트
 /**
  * IDEA 8: SRR — Sector Relative Strength Reversal
  *         섹터 내 상대강도 역전 감지

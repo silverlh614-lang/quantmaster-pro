@@ -1,3 +1,4 @@
+// @responsibility ecosService 서비스 모듈
 /**
  * ECOS (한국은행 경제통계시스템) API 서비스
  *

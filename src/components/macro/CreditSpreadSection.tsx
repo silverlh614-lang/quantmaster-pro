@@ -1,3 +1,4 @@
+// @responsibility macro 영역 CreditSpreadSection 컴포넌트
 import React, { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { CreditSpreadData } from '../../types/quant';

@@ -1,3 +1,4 @@
+// @responsibility market 영역 IndicesSection 컴포넌트
 import React from 'react';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import { TrendIndicator } from '../../../ui/trend-indicator';

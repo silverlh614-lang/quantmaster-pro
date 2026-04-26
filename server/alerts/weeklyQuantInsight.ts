@@ -1,3 +1,4 @@
+// @responsibility weeklyQuantInsight 알림 모듈
 /**
  * weeklyQuantInsight.ts — 주간 퀀트 인사이트 (IDEA 12)
  *

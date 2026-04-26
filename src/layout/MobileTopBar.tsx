@@ -1,3 +1,4 @@
+// @responsibility MobileTopBar 레이아웃 컴포넌트
 /**
  * MobileTopBar — <lg 에서 최상단에 고정 표시되는 얇은 헤더.
  *                햄버거 버튼 + 브랜드 로고만 포함 (데스크톱은 Sidebar 가 대체).

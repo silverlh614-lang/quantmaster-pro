@@ -1,3 +1,4 @@
+// @responsibility diagnostics 헬스 진단 모듈
 // @responsibility: 8축 시스템 헬스 스냅샷 SSOT — /health 텔레그램 cmd 와 /api/health/pipeline HTTP 라우트 공용.
 //
 // ADR-0017 후속 — health.cmd.ts (텍스트 포맷) 와 systemRouter.ts (JSON 포맷) 가
@@ -108,6 +109,14 @@ export interface HealthSnapshot {
   volume: { ok: boolean; error?: string };
   stream: StreamStatus;
 
+  // ── 9축: Telegram (PR-P) ──
+  /** TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID 둘 다 설정됨. */
+  telegramConfigured: boolean;
+  /** 봇 토큰만 설정 (chat ID 부재) — 메시지 발송 불가. */
+  telegramBotTokenOnly: boolean;
+  /** chat ID 만 설정 (토큰 부재) — 메시지 발송 불가. */
+  telegramChatIdOnly: boolean;
+
   // ── 부가: 스캐너 ──
   lastScanTs: number;
   lastBuyTs: number;
@@ -152,6 +161,8 @@ export function collectHealthSnapshot(): HealthSnapshot {
   const autoTradeEnabled = process.env.AUTO_TRADE_ENABLED === 'true';
   const autoTradeMode = process.env.AUTO_TRADE_MODE ?? 'SHADOW';
   const kisConfigured = !!process.env.KIS_APP_KEY;
+  const telegramBotToken = !!process.env.TELEGRAM_BOT_TOKEN;
+  const telegramChatId = !!process.env.TELEGRAM_CHAT_ID;
   const kisTokenHours = getKisTokenRemainingHours();
   const realDataTokenHours = getRealDataTokenRemainingHours();
   const kisTokenValid = kisConfigured && (autoTradeMode !== 'LIVE' || kisTokenHours > 0);
@@ -228,6 +239,10 @@ export function collectHealthSnapshot(): HealthSnapshot {
     geminiRuntime,
     volume: { ok: volumeCheck.ok, error: volumeCheck.error },
     stream: streamStatus,
+    // PR-P (Telegram health): 토큰·chatId 둘 다 있어야 발송 가능
+    telegramConfigured: telegramBotToken && telegramChatId,
+    telegramBotTokenOnly: telegramBotToken && !telegramChatId,
+    telegramChatIdOnly: !telegramBotToken && telegramChatId,
     lastScanTs,
     lastBuyTs,
     lastScanSummary,

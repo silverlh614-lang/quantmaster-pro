@@ -1,3 +1,4 @@
+// @responsibility gateConfig 매매 엔진 모듈
 /**
  * gateConfig.ts — 레짐별 Gate Score 임계값 단일 소스
  *

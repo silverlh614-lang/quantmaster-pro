@@ -1,3 +1,4 @@
+// @responsibility executionCosts 매매 엔진 모듈
 /**
  * executionCosts.ts — 한국 증시 실제 거래 비용 통합 회계 계층 (Phase 2-⑥).
  *

@@ -1,3 +1,4 @@
+// @responsibility kpi-strip UI 프리미티브 컴포넌트
 /**
  * Neo-Brutalism KPI Scoreboard Strip
  * Large numeric cards with semantic color coding for instant visual judgment.

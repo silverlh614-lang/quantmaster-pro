@@ -1,3 +1,4 @@
+// @responsibility market 영역 SectorRotationSection 컴포넌트
 import React from 'react';
 import { Layers, TrendingUp } from 'lucide-react';
 

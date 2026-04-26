@@ -1,3 +1,4 @@
+// @responsibility usePortfolioState React hook
 import { useState, useEffect } from 'react';
 import { useTradeStore } from '../stores';
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';

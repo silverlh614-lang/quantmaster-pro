@@ -1,3 +1,4 @@
+// @responsibility quant positionLifecycleEngine 엔진 모듈
 /**
  * positionLifecycleEngine.ts — 포지션 생애주기 완전 자동화 엔진
  *

@@ -1,3 +1,4 @@
+// @responsibility useStockSync React hook
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { syncStockPrice, fetchCurrentPrice } from '../services/stockService';

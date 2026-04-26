@@ -1,3 +1,4 @@
+// @responsibility kellyHealthCard 매매 엔진 모듈
 /**
  * kellyHealthCard.ts — Idea 5: 종목별 Kelly 헬스 카드 포맷터.
  *

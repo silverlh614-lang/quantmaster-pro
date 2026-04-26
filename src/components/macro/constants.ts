@@ -1,3 +1,4 @@
+// @responsibility macro 영역 constants 컴포넌트
 import { EconomicRegime, ROEType } from '../../types/quant';
 
 export type AlphaSignal = 'STRONG_BUY' | 'BUY' | 'NEUTRAL' | 'SELL' | 'STRONG_SELL' | 'AVOID';

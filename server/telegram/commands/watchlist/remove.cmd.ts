@@ -1,3 +1,4 @@
+// @responsibility remove.cmd 텔레그램 모듈
 // @responsibility: /remove 005380 — 워치리스트에서 종목코드를 삭제하고 잔여 개수를 보고.
 import { loadWatchlist, saveWatchlist } from '../../../persistence/watchlistRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';

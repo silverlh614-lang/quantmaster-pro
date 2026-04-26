@@ -1,3 +1,4 @@
+// @responsibility alertHistoryRepo 영속화 저장소 모듈
 import fs from 'fs';
 import path from 'path';
 import { DATA_DIR, ensureDataDir } from './paths.js';

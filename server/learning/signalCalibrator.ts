@@ -1,3 +1,4 @@
+// @responsibility signalCalibrator 학습 엔진 모듈
 import { loadConditionWeights, saveConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { analyzeAttribution, serverConditionKey } from './attributionAnalyzer.js';

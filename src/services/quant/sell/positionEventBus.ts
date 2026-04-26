@@ -1,3 +1,4 @@
+// @responsibility quant positionEventBus 엔진 모듈
 /**
  * sell/positionEventBus.ts — 포지션 이벤트 단일 버스
  *

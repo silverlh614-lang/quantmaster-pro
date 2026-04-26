@@ -1,3 +1,4 @@
+// @responsibility adjustQty.cmd 텔레그램 모듈
 // @responsibility: /adjust_qty <code> <qty> [memo] — 서버 장부 ↔ 실계좌 수량 drift 보정. fills SSOT 우선, 레거시 캐시 직접수정 fallback.
 import {
   loadShadowTrades,

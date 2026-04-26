@@ -1,3 +1,4 @@
+// @responsibility quant shadowSellMode 엔진 모듈
 /**
  * sell/shadowSellMode.ts — Shadow Sell Mode
  *

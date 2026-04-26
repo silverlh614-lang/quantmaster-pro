@@ -1,3 +1,4 @@
+// @responsibility common 영역 SectionErrorBoundary 컴포넌트
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 

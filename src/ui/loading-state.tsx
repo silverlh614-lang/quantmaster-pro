@@ -1,3 +1,4 @@
+// @responsibility loading-state UI 프리미티브 컴포넌트
 import React from 'react';
 import { cn } from './cn';
 import { Spinner, type SpinnerSize, type SpinnerVariant } from './spinner';

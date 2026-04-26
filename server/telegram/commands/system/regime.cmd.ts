@@ -1,3 +1,4 @@
+// @responsibility regime.cmd 텔레그램 모듈
 // @responsibility: /regime 명령 — 매크로 레짐(MHS·VKOSPI·VIX·USD/KRW·Bear방어) 1메시지 요약.
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';

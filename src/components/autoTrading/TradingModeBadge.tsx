@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 TradingModeBadge 컴포넌트
 import React from 'react';
 import type { TradingMode } from '../../services/autoTrading/autoTradingTypes';
 

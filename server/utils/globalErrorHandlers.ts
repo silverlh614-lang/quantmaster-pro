@@ -1,3 +1,4 @@
+// @responsibility globalErrorHandlers 서버 유틸 모듈
 /**
  * globalErrorHandlers.ts — process 레벨 전역 에러 포획.
  *

@@ -1,3 +1,4 @@
+// @responsibility reflectionGemini 학습 엔진 모듈
 /**
  * reflectionGemini.ts — Reflection Engine 전용 Gemini 호출 래퍼.
  *

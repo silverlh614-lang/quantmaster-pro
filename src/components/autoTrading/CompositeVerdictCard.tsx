@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 CompositeVerdictCard 컴포넌트
 /**
  * CompositeVerdictCard — 5개 하위 시스템(S1~S5) 계기판.
  *

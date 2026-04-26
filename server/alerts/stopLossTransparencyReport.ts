@@ -1,3 +1,4 @@
+// @responsibility stopLossTransparencyReport 알림 모듈
 /**
  * stopLossTransparencyReport.ts — 손절 집행 투명성 리포트 (IDEA 11)
  *

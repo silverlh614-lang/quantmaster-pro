@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 AdvancedQuantSections 컴포넌트
 import React from 'react';
 import { Layers, Clock } from 'lucide-react';
 import { cn } from '../../../ui/cn';

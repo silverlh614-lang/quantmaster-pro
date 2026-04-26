@@ -1,3 +1,4 @@
+// @responsibility cancel.cmd 텔레그램 모듈
 // @responsibility: /cancel <code> — 종목별 미체결 주문 KIS 취소 (TTTC0803U/VTTC0803U). TRD.
 import { fillMonitor } from '../../../trading/fillMonitor.js';
 import { commandRegistry } from '../../commandRegistry.js';

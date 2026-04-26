@@ -1,3 +1,4 @@
+// @responsibility signals 영역 TMAPanel 컴포넌트
 /**
  * IDEA 7: TMA — Trend Momentum Accelerometer (추세 모멘텀 가속도 측정기)
  *

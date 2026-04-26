@@ -1,3 +1,4 @@
+// @responsibility index 텔레그램 모듈
 // @responsibility: commands/system/* 9개 .cmd.ts 파일을 로드해 commandRegistry 자동 등록 트리거.
 //
 // ADR-0017 §Stage 2 Phase A — 본 파일을 import 하기만 해도 9개 read-only 명령이

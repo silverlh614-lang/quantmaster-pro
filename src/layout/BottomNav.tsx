@@ -1,3 +1,4 @@
+// @responsibility BottomNav 레이아웃 컴포넌트
 import React, { useState, useMemo } from 'react';
 import {
   Settings, MoreHorizontal, X, ShieldCheck,

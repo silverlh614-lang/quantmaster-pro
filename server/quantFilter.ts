@@ -1,3 +1,4 @@
+// @responsibility quantFilter 서버 모듈
 /**
  * quantFilter.ts — 서버사이드 경량 Gate 평가
  *

@@ -1,3 +1,4 @@
+// @responsibility integrity.cmd 텔레그램 모듈
 // @responsibility: /integrity [clear] — 데이터 무결성 차단 상태 조회/해제 (신규 매수 게이트). EMR.
 import {
   getDataIntegrityBlocked,

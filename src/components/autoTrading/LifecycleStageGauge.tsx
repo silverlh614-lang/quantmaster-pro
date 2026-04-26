@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 LifecycleStageGauge 컴포넌트
 /**
  * LifecycleStageGauge — 5단계 포지션 생애주기 인라인 진행바.
  *

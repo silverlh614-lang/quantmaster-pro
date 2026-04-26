@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 RiskChecklistSection 컴포넌트
 import React from 'react';
 import { AlertTriangle, AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 import { motion } from 'motion/react';

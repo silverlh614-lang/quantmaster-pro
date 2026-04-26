@@ -1,3 +1,4 @@
+// @responsibility themes 설정 SSOT
 /**
  * Theme configuration — single source of truth for all selectable themes.
  * SettingsModal and any future theme-picker reads from here.

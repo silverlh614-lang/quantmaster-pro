@@ -1,3 +1,4 @@
+// @responsibility scanPresets 스크리너 모듈
 /**
  * scanPresets.ts — 시간대별 Pre-Filter 3-Presets
  *
