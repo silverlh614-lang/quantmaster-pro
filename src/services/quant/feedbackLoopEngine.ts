@@ -21,6 +21,14 @@ import { saveEvolutionWeights } from './evolutionEngine';
 import { getSourceMultiplier, resolveSource } from './sourceWeighting';
 import { getTradeLearningWeight, summarizeLossReasonBreakdown } from './lossReasonWeighting';
 import { computeConditionEdge } from './conditionEdgeScore';
+import {
+  recordWeightSnapshot,
+  loadWeightHistory,
+  evaluateDrift,
+  isF2WPausedUntil,
+  pauseF2W,
+  getTopDeviatingConditions,
+} from './f2wDriftDetector';
 
 // ─── 캘리브레이션 임계값 ──────────────────────────────────────────────────────
 
@@ -173,8 +181,55 @@ export function evaluateFeedbackLoop(
   for (const c of calibrations) {
     if (c.newWeight !== c.prevWeight) saveMap[c.conditionId] = c.newWeight;
   }
+
+  // ADR-0046 (PR-Y1): F2W Drift Detector — 변화의 변화 감시
+  //   1. 매 학습 사이클 가중치 σ 누적 (히스토리 SSOT)
+  //   2. drift 판정 (sigma7d ≥ sigma30dAvg × 2)
+  //   3. drift 시 LIVE saveEvolutionWeights 차단 + pause flag 7일 설정
+  //   4. shadow=true 호출은 본 가드 우회 (ADR-0027 grace 보존)
+  const now = new Date();
+  let pauseStatus: FeedbackLoopResult['pauseStatus'] = undefined;
+  let driftBlockedSave = false;
+
+  if (!isShadow) {
+    const finalWeights = { ...currentWeights, ...saveMap };
+    // 본 사이클 결정된 가중치를 히스토리에 누적
+    recordWeightSnapshot(finalWeights, now);
+    const history = loadWeightHistory();
+    const drift = evaluateDrift(history, now);
+
+    // 기존 pause 가 활성이면 그대로 유지
+    const existingPauseUntil = isF2WPausedUntil(now);
+    if (existingPauseUntil) {
+      driftBlockedSave = true;
+      pauseStatus = {
+        paused: true,
+        until: existingPauseUntil.toISOString(),
+        reason: 'pause active',
+        ratio: drift.ratio,
+        sigma7d: drift.sigma7d,
+        sigma30dAvg: drift.sigma30dAvg,
+      };
+    } else if (drift.drifted) {
+      // 신규 drift 감지 → pause 설정
+      const pauseState = pauseF2W(drift.reason ?? 'σ7d ≥ σ30d × 2', drift.ratio, now);
+      driftBlockedSave = true;
+      pauseStatus = {
+        paused: true,
+        until: pauseState.pausedUntil,
+        reason: pauseState.reason,
+        ratio: drift.ratio,
+        sigma7d: drift.sigma7d,
+        sigma30dAvg: drift.sigma30dAvg,
+      };
+      // drift 알림은 호출자(useTradeOps) 가 결과 객체를 보고 fetch — 본 모듈은
+      // 클라이언트 측 순수 함수로 유지 (서버 텔레그램 callsite 와 분리, ADR-0046 §5)
+    }
+  }
+
   // ADR-0027 (PR-J): shadow=true → LIVE 가중치 무영향
-  if (Object.keys(saveMap).length > 0 && !isShadow) {
+  // ADR-0046 (PR-Y1): drift 감지 시 LIVE 가중치 동결
+  if (Object.keys(saveMap).length > 0 && !isShadow && !driftBlockedSave) {
     saveEvolutionWeights({ ...currentWeights, ...saveMap });
   }
 
@@ -182,9 +237,11 @@ export function evaluateFeedbackLoop(
   const reducedCount  = calibrations.filter(c => c.direction === 'DOWN').length;
   const lastCalibratedAt = new Date().toISOString();
 
-  const summary = calibrations.length === 0
-    ? `${closedCount}건 누적 — 조건별 데이터 부족 (조건당 최소 ${MIN_CONDITION_TRADES}건 필요)`
-    : `${closedCount}건 실전 데이터 반영 — 상향 ${boostedCount}개 / 하향 ${reducedCount}개 조건 조정 완료`;
+  const summary = driftBlockedSave
+    ? `${closedCount}건 누적 — F2W drift 감지로 가중치 동결 중 (사유: ${pauseStatus?.reason ?? 'drift'})`
+    : calibrations.length === 0
+      ? `${closedCount}건 누적 — 조건별 데이터 부족 (조건당 최소 ${MIN_CONDITION_TRADES}건 필요)`
+      : `${closedCount}건 실전 데이터 반영 — 상향 ${boostedCount}개 / 하향 ${reducedCount}개 조건 조정 완료`;
 
   return {
     closedTradeCount: closedCount,
@@ -195,5 +252,40 @@ export function evaluateFeedbackLoop(
     reducedCount,
     lastCalibratedAt,
     summary,
+    pauseStatus,
+  };
+}
+
+/**
+ * ADR-0046 (PR-Y1): drift 알림 페이로드 빌더 — 호출자(예: useTradeOps useEffect)
+ * 가 본 함수 결과를 `POST /api/learning/f2w-drift-alert` 로 전송하면 서버가
+ * dispatchAlert(JOURNAL) + sendPrivateAlert 일괄 발송.
+ *
+ * pauseStatus.paused=true + 신규 감지 시점에만 호출. 만료 / shadow / 기존 pause
+ * 유지 시에는 호출하지 않음 (24h dedupe 는 서버에서 추가 보장).
+ */
+export function buildDriftAlertPayload(
+  weights: Record<number, number>,
+  pauseStatus: NonNullable<FeedbackLoopResult['pauseStatus']>,
+): {
+  sigma7d: number;
+  sigma30dAvg: number;
+  ratio: number;
+  pausedUntil: string;
+  reason: string;
+  topConditions: Array<{ conditionId: number; weight: number; deviation: number }>;
+} {
+  const top = getTopDeviatingConditions(weights, 3);
+  return {
+    sigma7d: pauseStatus.sigma7d ?? 0,
+    sigma30dAvg: pauseStatus.sigma30dAvg ?? 0,
+    ratio: pauseStatus.ratio ?? 0,
+    pausedUntil: pauseStatus.until ?? '',
+    reason: pauseStatus.reason ?? 'F2W drift detected',
+    topConditions: top.map(t => ({
+      conditionId: t.conditionId,
+      weight: t.weight,
+      deviation: t.deviation,
+    })),
   };
 }
