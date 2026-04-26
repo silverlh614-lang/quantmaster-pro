@@ -24,6 +24,7 @@ import { fetchKisMarketSupply } from '../clients/kisClient.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
 import { computeMacroIndex } from '../engines/macroIndexEngine.js';
 import { guardedFetch } from '../utils/egressGuard.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 /**
  * FRED API — 최신 유효 관측값 조회 (최근 5건 중 '.' 제외 첫 번째).
@@ -329,12 +330,19 @@ function sma(prices: number[], n: number): number {
   return slice.reduce((a, b) => a + b, 0) / n;
 }
 
-/** N일 수익률 (%) */
-function nDayReturn(prices: number[], n: number): number {
+/**
+ * N일 수익률 (%). ADR-0028 — stale base / sanity bound 위반 시 0 반환 (KOSPI 매크로
+ * 지표가 망가져 레짐 분류가 왜곡되는 것을 차단하기 위해 0% 안전값으로 fallback).
+ *
+ * 기존 구현은 base ≤ 0 가드만 있어 Yahoo OTC 가 수년 전 stale 종가를 반환하면
+ * -90% 같은 비현실 값이 macroState 에 그대로 영속화될 수 있었다.
+ */
+function nDayReturn(prices: number[], n: number, label?: string): number {
   if (prices.length < n + 1) return 0;
   const past    = prices[prices.length - 1 - n];
   const current = prices[prices.length - 1];
-  return ((current - past) / past) * 100;
+  const result = safePctChange(current, past, { label: label ?? `nDayReturn:${n}d` });
+  return result ?? 0;
 }
 
 /** FSS 레코드 → foreignNetBuy5d(억원) + passiveActiveBoth + foreignContinuousBuyDays */

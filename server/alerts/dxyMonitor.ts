@@ -36,6 +36,7 @@
 
 import fs from 'fs';
 import { fetchCloses } from '../trading/marketDataRefresh.js';
+import { safePctChange } from '../utils/safePctChange.js';
 import { sendTelegramAlert } from './telegramClient.js';
 import { DXY_MONITOR_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { logNewsSupplyEvent } from '../learning/newsSupplyLogger.js';
@@ -100,12 +101,14 @@ function saveState(state: PersistedState): void {
 
 // ── N일 변화율 ────────────────────────────────────────────────────────────────
 
-function nDayPct(closes: number[], n: number): number | null {
+function nDayPct(closes: number[], n: number, label?: string): number | null {
   if (closes.length < n + 1) return null;
   const past    = closes[closes.length - 1 - n];
   const current = closes[closes.length - 1];
-  if (!past || past <= 0) return null;
-  return parseFloat((((current - past) / past) * 100).toFixed(2));
+  // ADR-0028: stale base price (DXY 외환시장 휴장·OTC 데이터 오류) 시 sanity 위반 → null.
+  const result = safePctChange(current, past, { label: label ?? `dxy.nDayPct:${n}d` });
+  if (result === null) return null;
+  return parseFloat(result.toFixed(2));
 }
 
 // ── 교차 검증 ─────────────────────────────────────────────────────────────────

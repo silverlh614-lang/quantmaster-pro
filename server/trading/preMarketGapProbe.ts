@@ -14,6 +14,7 @@
  */
 
 import { fetchKisPrevClose } from '../clients/kisClient.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 // ── 임계값 ────────────────────────────────────────────────────────────────────
 
@@ -122,7 +123,22 @@ export async function probePreMarketGap(input: GapProbeInput): Promise<GapProbeR
     };
   }
 
-  const gapPct = ((entryPrice - prev.prevClose) / prev.prevClose) * 100;
+  // ADR-0028: 공통 안전 헬퍼로 sanity bound (±90%) 자동 적용 — entryPrice 또는
+  // prevClose 가 비정상이면 null 반환 → SKIP_DATA_ERROR. 기존 30% 임계는 별도 분기로 유지.
+  const gapPct = safePctChange(entryPrice, prev.prevClose, {
+    label: `preMarketGapProbe:${stockCode}`,
+    silent: true, // 30% 임계 분기가 이미 SKIP_DATA_ERROR 로 처리하므로 중복 로그 차단
+  });
+  if (gapPct === null) {
+    return {
+      stockCode,
+      prevClose: prev.prevClose,
+      gapPct: null,
+      decision: 'SKIP_DATA_ERROR',
+      reason: `gap 계산 sanity 위반 (entryPrice=${entryPrice}, prevClose=${prev.prevClose}) — 데이터 오류 의심`,
+      tradingDate: prev.tradingDate,
+    };
+  }
   const absGap = Math.abs(gapPct);
 
   if (absGap >= GAP_DATA_ERROR_PCT) {
