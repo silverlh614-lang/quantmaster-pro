@@ -1,5 +1,5 @@
 /**
- * @responsibility scheduleGuard 회귀 테스트 — ScheduleClass 4분기 가드 + lastSkipReason 메트릭 (ADR-0037)
+ * @responsibility scheduleGuard 회귀 테스트 — ScheduleClass 4분기 가드 + lastSkipReason 메트릭 (ADR-0043)
  *
  * cron.schedule wrap 자체는 통합 시 검증 (실제 cron 시각 트리거는 단위에서 mock 부담).
  * 본 파일은 `shouldSkipForScheduleClass` 순수 함수 + JobMetrics lastSkipReason 갱신 검증.

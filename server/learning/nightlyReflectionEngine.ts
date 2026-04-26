@@ -350,7 +350,7 @@ export async function runNightlyReflection(
     }
   }
 
-  // PR-A — 주말·KRX 공휴일 환각 차단 가드 (ADR-0037 PR-B 후속에서 SSOT 일원화 예정).
+  // PR-A — 주말·KRX 공휴일 환각 차단 가드 (ADR-0043 PR-B 후속에서 SSOT 일원화 예정).
   // 거래 데이터 없는 날에 자기반성을 실행하면 "오늘 모든 신호가 실패" 로 잘못 학습되어
   // 가중치가 왜곡된다. opts.force=true 시 가드 우회 (수동 운영 호환).
   if (!opts.force) {

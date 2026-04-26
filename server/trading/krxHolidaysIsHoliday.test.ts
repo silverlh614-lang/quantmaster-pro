@@ -1,7 +1,7 @@
 /**
  * @responsibility krxHolidays.isKrxHoliday 헬퍼 회귀 테스트 — PR-A 신규.
  *
- * 본 헬퍼는 향후 ADR-0037 (MarketDayClassifier SSOT) 도입 시 단일 교체 지점이 된다.
+ * 본 헬퍼는 향후 ADR-0043 (MarketDayClassifier SSOT) 도입 시 단일 교체 지점이 된다.
  * KRX_HOLIDAYS Set 직접 접근을 차단하기 위한 추상화 계층의 단위 검증.
  */
 

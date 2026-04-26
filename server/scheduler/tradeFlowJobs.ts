@@ -2,7 +2,7 @@
  * @responsibility 체결·OCO·포트폴리오 리스크·거시-섹터 정렬 루프 cron과 매도 체결 폴링 setInterval 을 등록한다.
  *
  * 매도 체결 확인 폐루프는 cron 최소 단위(1분)보다 짧아 setInterval 로 구동한다.
- * PR-B-2 ADR-0037: 모든 cron 이 TRADING_DAY_ONLY — KRX 공휴일 평일에 OCO/매도 폴링은 무의미.
+ * PR-B-2 ADR-0043: 모든 cron 이 TRADING_DAY_ONLY — KRX 공휴일 평일에 OCO/매도 폴링은 무의미.
  */
 import { scheduledJob } from './scheduleGuard.js';
 import { pollOcoConfirm } from '../trading/ocoConfirmLoop.js';

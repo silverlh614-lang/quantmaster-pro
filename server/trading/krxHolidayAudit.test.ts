@@ -1,5 +1,5 @@
 /**
- * @responsibility krxHolidayAudit 회귀 테스트 — 차년도 검증 + 알림 분기 (ADR-0039 PR-D)
+ * @responsibility krxHolidayAudit 회귀 테스트 — 차년도 검증 + 알림 분기 (ADR-0045 PR-D)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

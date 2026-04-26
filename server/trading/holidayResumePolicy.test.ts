@@ -1,5 +1,5 @@
 /**
- * @responsibility holidayResumePolicy 회귀 테스트 (ADR-0038 PR-C)
+ * @responsibility holidayResumePolicy 회귀 테스트 (ADR-0044 PR-C)
  */
 
 import { describe, it, expect } from 'vitest';

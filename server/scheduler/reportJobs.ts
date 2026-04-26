@@ -4,7 +4,7 @@
  * Phase 3: 참뮌 스펙 #5에 따라 아침·정오·장마감 3개의 "통합 슬롯" 으로 합쳐
  * 30분 이내 다건 발송되던 중복 인지 부담을 제거한다.
  *
- * PR-B-2 ADR-0037: 평일 영업일 의존 cron 은 TRADING_DAY_ONLY,
+ * PR-B-2 ADR-0043: 평일 영업일 의존 cron 은 TRADING_DAY_ONLY,
  * 주간 리포트(월/일요일)·Mutation Canary(매시간 24/7) 는 ALWAYS_ON / WEEKEND_MAINTENANCE.
  */
 import { scheduledJob } from './scheduleGuard.js';

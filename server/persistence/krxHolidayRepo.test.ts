@@ -1,5 +1,5 @@
 /**
- * @responsibility krxHolidayRepo 회귀 테스트 — patch 영속·idempotent·손상 fallback (ADR-0039 PR-D)
+ * @responsibility krxHolidayRepo 회귀 테스트 — patch 영속·idempotent·손상 fallback (ADR-0045 PR-D)
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';

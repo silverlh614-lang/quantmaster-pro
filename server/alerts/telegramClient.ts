@@ -573,22 +573,9 @@ export async function sendChannelAlertTo(
   }
 }
 
-/**
- * 종목 픽 채널에 알림 전송.
- * TELEGRAM_PICK_CHANNEL_ID 환경변수에 채널 chat_id 설정 필요.
- * 구독자 전체에게 브로드캐스트 — 쿨다운/다이제스트 없이 즉시 전송.
- */
-export async function sendPickChannelAlert(
-  message: string,
-  opts?: { disableNotification?: boolean },
-): Promise<number | undefined> {
-  const channelId = process.env.TELEGRAM_PICK_CHANNEL_ID;
-  if (!channelId) {
-    console.log('[Telegram] TELEGRAM_PICK_CHANNEL_ID 미설정 — 픽 채널 전송 스킵');
-    return;
-  }
-  return sendChannelAlertTo(channelId, message, opts);
-}
+// ADR-0039 (PR-X3): sendPickChannelAlert 함수 삭제 — 호출자 0건 마이그레이션 완료.
+// 신규 코드는 dispatchAlert(ChannelSemantic.SIGNAL, message) 사용.
+// alertRouter.resolveAnalysisChannelId 가 TELEGRAM_PICK_CHANNEL_ID legacy fallback 유지.
 
 // ─── 빈 스캔 Decision Broker (인라인 3택) ─────────────────────────────────
 // 5회 연속 빈 스캔 시 운용자에게 3택을 제시하고 서버가 callback으로 액션을 받는다.
@@ -658,11 +645,37 @@ export async function sendEmptyScanDecisionBroker(
 }
 
 /**
+ * 개인 채팅(DM) 전용 알림 SSOT — sendTelegramAlert 의 시멘틱 별칭 (ADR-0038 §1).
+ *
+ * 사용 시점: **잔고/자산/비상정지/손절 접근 경보/KIS 오류/EgressGuard 차단** 등
+ * 본인만 봐야 할 민감 정보. 채널(TELEGRAM_*_CHANNEL_ID) 로는 절대 발송되지 않음을
+ * 호출자 시그니처에서 명시한다.
+ *
+ * 채널 발송이 필요한 알림은 `dispatchAlert(category, ...)` (alertRouter SSOT) 사용.
+ *
+ * @see sendTelegramAlert — 동일 구현 (TELEGRAM_CHAT_ID 한 곳으로만 발송)
+ * @see ADR-0038 — 개인 회선 격리 정책
+ */
+export async function sendPrivateAlert(
+  message: string,
+  opts?: TelegramAlertOptions,
+): Promise<number | undefined> {
+  return sendTelegramAlert(message, opts);
+}
+
+/**
  * 브로드캐스트 전송.
  *
- * TELEGRAM_CHAT_ID 단일 변수 운영 체제에서는 DM 과 채널 대상이 동일하므로
- * 중복 송신을 피하기 위해 sendTelegramAlert(DM) 한 번만 호출한다.
- * disableChannelNotification 옵션은 레거시 호출자 호환을 위해 유지한다.
+ * @deprecated PR-X2 (ADR-0038) — `TELEGRAM_CHAT_ID` 단일 변수 운영 환경에서는 이미
+ * `sendTelegramAlert` 와 동일 동작을 한다. 명칭이 "broadcast" 로 오해 소지 있어
+ * 신규 코드는 다음 중 하나로 마이그레이션:
+ *   - 개인 DM 전용 (잔고/자산/오류) → `sendPrivateAlert(...)`
+ *   - 채널 발송 (매매/픽/레짐/리포트) → `dispatchAlert(category, ...)`
+ *
+ * 기존 9개 호출자(weeklyConditionScorecard / supplyChainAgent / foreignFlowLeadingAlert
+ * / stopLossTransparencyReport / newHighMomentumScanner / positionMorningCard /
+ * sectorCycleDashboard / weeklyQuantInsight / scanReviewReport) 는 PR-X3 에서 일괄
+ * 마이그레이션 예정. 본 PR 은 표시만.
  *
  * @returns 개인 채팅 메시지 ID
  */

@@ -1,7 +1,7 @@
 /**
  * @responsibility 종목 발굴·워치리스트 관련 cron(2단계 분리 파이프라인 · 정리 · 동적 확장 · 미국장 전후 재스캔 · 글로벌 에이전트)을 등록한다.
  *
- * PR-B-2 ADR-0037: 평일 영업일 cron 은 TRADING_DAY_ONLY, 주말 cron 은 WEEKEND_MAINTENANCE,
+ * PR-B-2 ADR-0043: 평일 영업일 cron 은 TRADING_DAY_ONLY, 주말 cron 은 WEEKEND_MAINTENANCE,
  * 미국장 cron(US 장 시작/종료 시각)은 ALWAYS_ON (KR 휴장과 무관).
  */
 import { scheduledJob } from './scheduleGuard.js';

@@ -2,7 +2,7 @@
  * @responsibility 외부 시그널 알림 cron(DART / Bear Regime / IPS / MHS / DXY / 섹터 ETF / ADR 갭 / 장전 방향 카드)을 등록한다.
  *
  * 오케스트레이터와 독립적으로 동작 (AUTO_TRADE_ENABLED 무관).
- * PR-B-2 ADR-0037: 평일 KR 영업일 의존 cron 은 TRADING_DAY_ONLY,
+ * PR-B-2 ADR-0043: 평일 KR 영업일 의존 cron 은 TRADING_DAY_ONLY,
  * IPS·DXY 인트라데이·ACK 폐루프 등 24/7 글로벌 cron 은 ALWAYS_ON.
  */
 import { scheduledJob } from './scheduleGuard.js';
@@ -18,6 +18,8 @@ import { tickIntradayYield } from '../alerts/intradayYieldTicker.js';
 import { sweepPendingAcks } from '../alerts/ackTracker.js';
 import { checkForeignFlowLeadingAlert } from '../alerts/foreignFlowLeadingAlert.js';
 import { runHolidayResumeAlert } from '../trading/holidayResumeAlert.js';
+import { runMacroDigest } from '../alerts/macroDigestReport.js';
+import { runWeeklySelfCritique } from '../alerts/weeklySelfCritiqueReport.js';
 
 export function registerAlertJobs(): void {
   // DART 공시 30분 폴링 — 장중 08:30~18:00 KST. PR-B-2: TRADING_DAY_ONLY.
@@ -92,8 +94,22 @@ export function registerAlertJobs(): void {
   scheduledJob('*/5 * * * *', 'ALWAYS_ON', 'ack_sweep',
     () => sweepPendingAcks(), { timezone: 'UTC' });
 
-  // PR-C ADR-0038 — 연휴 복귀 보수 매매 모드 알림. 평일 09:05 KST (UTC 00:05 월~금).
+  // PR-C ADR-0044 — 연휴 복귀 보수 매매 모드 알림. 평일 09:05 KST (UTC 00:05 월~금).
   // PR-B-2: TRADING_DAY_ONLY — 활성 정책은 함수 내부에서 결정, 비활성 시 silent.
   scheduledJob('5 0 * * 1-5', 'TRADING_DAY_ONLY', 'holiday_resume_alert',
     () => runHolidayResumeAlert(), { timezone: 'UTC' });
+
+  // PR-X4 (ADR-0040) — CH3 REGIME 매크로 다이제스트 1일 2회 정기 발행.
+  // PR-B-2: TRADING_DAY_ONLY — KR 영업일에만 발송 (KR 매크로 컨텍스트).
+  // PRE_OPEN  KST 08:30 (UTC 23:30 일~목) — 장 시작 30분 전.
+  // POST_CLOSE KST 16:00 (UTC 07:00 월~금) — 한국 장 마감 30분 후.
+  scheduledJob('30 23 * * 0-4', 'TRADING_DAY_ONLY', 'macro_digest_pre_open',
+    () => runMacroDigest('PRE_OPEN'), { timezone: 'UTC' });
+  scheduledJob('0 7 * * 1-5', 'TRADING_DAY_ONLY', 'macro_digest_post_close',
+    () => runMacroDigest('POST_CLOSE'), { timezone: 'UTC' });
+
+  // PR-X5 (ADR-0041) — CH4 JOURNAL 주간 자기비판 리포트.
+  // PR-B-2: WEEKEND_MAINTENANCE — 일요일 KST 19:00 (UTC 10:00 일요일).
+  scheduledJob('0 10 * * 0', 'WEEKEND_MAINTENANCE', 'weekly_self_critique',
+    () => runWeeklySelfCritique(), { timezone: 'UTC' });
 }

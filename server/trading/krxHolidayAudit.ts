@@ -1,5 +1,5 @@
 /**
- * @responsibility KRX 차년도 휴장일 등록 감사 — 매년 12/1 cron 호출, 미등록 시 텔레그램 CRITICAL (ADR-0039)
+ * @responsibility KRX 차년도 휴장일 등록 감사 — 매년 12/1 cron 호출, 미등록 시 텔레그램 CRITICAL (ADR-0045)
  *
  * 운영자가 차년도 KRX 휴장일을 등록할 시간을 1개월 앞당겨 확보.
  * 차년도 휴장일 ≥ 8개 (한국 평균 공휴일 최소치) 등록되어 있으면 OK silent.

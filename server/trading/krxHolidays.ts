@@ -1,4 +1,4 @@
-// @responsibility KRX 휴장일 SSOT — 정적 STATIC_HOLIDAYS + 운영자 patch (ADR-0039) 통합 Set
+// @responsibility KRX 휴장일 SSOT — 정적 STATIC_HOLIDAYS + 운영자 patch (ADR-0045) 통합 Set
 /**
  * krxHolidays.ts — KRX 휴장일 관리
  *
@@ -7,7 +7,7 @@
  *
  * ⚠️  연말(12월) 이전에 다음 연도분을 추가하는 것을 권장한다.
  *
- * PR-D (ADR-0039): 정적 STATIC_HOLIDAYS 위에 영속 patch (`krxHolidayRepo`) 가 추가.
+ * PR-D (ADR-0045): 정적 STATIC_HOLIDAYS 위에 영속 patch (`krxHolidayRepo`) 가 추가.
  * 부팅 시 `reloadKrxHolidaySet()` 1회 호출로 patch 반영. 운영자가 응급 추가 시
  * `data/krx-holiday-patch.json` 직접 편집 후 재시작.
  */

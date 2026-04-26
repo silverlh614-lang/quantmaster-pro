@@ -1,5 +1,5 @@
 /**
- * @responsibility KRX 영업일 7분기 SSOT — 자기학습·스케줄러·매매 보수 모드 단일 컨텍스트 (ADR-0037)
+ * @responsibility KRX 영업일 7분기 SSOT — 자기학습·스케줄러·매매 보수 모드 단일 컨텍스트 (ADR-0043)
  *
  * PR-A 의 `isKrxHoliday` + `marketClock.isKstWeekend` 위에 올라가는 분류기.
  * 다음/이전 영업일 산술까지 캡슐화하여 PR-C(연휴 복귀 보수 모드)·PR-D(KRX 자동 동기화)

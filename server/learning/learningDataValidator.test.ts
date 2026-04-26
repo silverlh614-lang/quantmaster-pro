@@ -1,5 +1,5 @@
 /**
- * @responsibility learningDataValidator 회귀 테스트 — 영업일 필터링 + 거부 진단 (ADR-0037 PR-B)
+ * @responsibility learningDataValidator 회귀 테스트 — 영업일 필터링 + 거부 진단 (ADR-0043 PR-B)
  */
 
 import { describe, it, expect } from 'vitest';

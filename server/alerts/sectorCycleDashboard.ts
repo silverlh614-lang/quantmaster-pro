@@ -14,7 +14,7 @@
 import { getLatestSectorEtfReport } from './sectorEtfMomentum.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
-import { sendTelegramBroadcast } from './telegramClient.js';
+import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 import { channelHeader, CHANNEL_SEPARATOR } from './channelFormatter.js';
 
 // ── 사이클 단계 라벨 ─────────────────────────────────────────────────────────
@@ -117,12 +117,10 @@ export async function sendSectorCycleDashboard(): Promise<void> {
       CHANNEL_SEPARATOR,
     ].filter(Boolean).join('\n');
 
-    await sendTelegramBroadcast(message, {
+    // ADR-0039: CH3 REGIME — 섹터 사이클 대시보드 (매크로, 진동 OFF VIBRATION_POLICY 자동)
+    await dispatchAlert(ChannelSemantic.REGIME, message, {
       priority: 'NORMAL',
-      tier: 'T2_REPORT',
-      category: 'sector_cycle_dashboard',
       dedupeKey: `sector_dashboard:${new Date().toISOString().slice(0, 10)}`,
-      disableChannelNotification: true,
     });
 
     console.log('[SectorDashboard] 발송 완료');

@@ -1,5 +1,5 @@
 /**
- * @responsibility 연휴 복귀 보수 매매 모드 텔레그램 알림 — 09:00 KST 평일 cron 실행 (ADR-0038)
+ * @responsibility 연휴 복귀 보수 매매 모드 텔레그램 알림 — 09:00 KST 평일 cron 실행 (ADR-0044)
  *
  * 활성 정책 시 1회 텔레그램 발송. dedupeKey + 24h cooldown 으로 동일 일자 중복 차단.
  * 비활성 시 silent return (KRX 공휴일 / 비영업일 / 만료 시각 후 모두 silent).

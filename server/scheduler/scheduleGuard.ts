@@ -1,5 +1,5 @@
 /**
- * @responsibility cron 콜백 자동 가드 래퍼 — ScheduleClass 별 영업일/주말 차단 + 메트릭 기록 (ADR-0037)
+ * @responsibility cron 콜백 자동 가드 래퍼 — ScheduleClass 별 영업일/주말 차단 + 메트릭 기록 (ADR-0043)
  *
  * `node-cron` 의 `cron.schedule` 위에 올라가는 얇은 래퍼.
  * 호출자는 cron 표현식 + ScheduleClass 만 명시하면, 비영업일 진입 시 자동 SKIP +

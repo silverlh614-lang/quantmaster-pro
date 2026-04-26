@@ -1,5 +1,5 @@
 /**
- * @responsibility KRX 휴장일 patch 영속 — 정적 STATIC_HOLIDAYS 위에 추가된 차년도 휴장일 (ADR-0039)
+ * @responsibility KRX 휴장일 patch 영속 — 정적 STATIC_HOLIDAYS 위에 추가된 차년도 휴장일 (ADR-0045)
  *
  * 운영자가 차년도 KRX 휴장일을 알게 됐을 때, 코드 PR/재배포 없이 디스크 파일로
  * 추가 가능하도록 한다. `krxHolidays.reloadKrxHolidaySet()` 호출 시 본 모듈의

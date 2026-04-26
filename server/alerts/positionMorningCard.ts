@@ -13,7 +13,7 @@
 import { aggregateAllPositions, type PositionSummary } from '../trading/positionAggregator.js';
 import { loadShadowTrades, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
-import { sendTelegramBroadcast } from './telegramClient.js';
+import { sendPrivateAlert } from './telegramClient.js';
 import { channelHeader, CHANNEL_SEPARATOR } from './channelFormatter.js';
 
 // ── 카드 1건 ─────────────────────────────────────────────────────────────────
@@ -145,12 +145,12 @@ export async function sendPositionMorningCard(): Promise<void> {
       `<i>🟢≥+3% 🟡±1% 🟠-5% 🔴-5%↓ · 손절선 3% 내 접근 시 ⚠️</i>`;
 
     const today = new Date().toISOString().slice(0, 10);
-    await sendTelegramBroadcast(message, {
+    // ADR-0039: 보유 종목 카드는 자산 구성 정보 — 개인 DM 만 (채널 누출 방지).
+    await sendPrivateAlert(message, {
       priority: 'NORMAL',
       tier: 'T2_REPORT',
       category: 'position_morning_card',
       dedupeKey: `morning_card:${today}`,
-      disableChannelNotification: true,
     });
 
     console.log(`[MorningCard] ${active.length}개 포지션 카드 발송 완료`);

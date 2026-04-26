@@ -1,5 +1,5 @@
 /**
- * @responsibility 학습 입력 영업일 검증 — 비영업일 레코드 자동 필터링·거부 진단 헬퍼 (ADR-0037)
+ * @responsibility 학습 입력 영업일 검증 — 비영업일 레코드 자동 필터링·거부 진단 헬퍼 (ADR-0043)
  *
  * 학습 엔진(`backtestEngine` / `failureToWeight` / `nightlyReflection` /
  * `recommendationTracker`) 이 trade 레코드를 입력으로 받을 때, 비영업일에 발생한

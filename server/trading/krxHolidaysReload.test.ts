@@ -1,5 +1,5 @@
 /**
- * @responsibility krxHolidays.reloadKrxHolidaySet 회귀 테스트 — patch 통합 검증 (ADR-0039 PR-D)
+ * @responsibility krxHolidays.reloadKrxHolidaySet 회귀 테스트 — patch 통합 검증 (ADR-0045 PR-D)
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';

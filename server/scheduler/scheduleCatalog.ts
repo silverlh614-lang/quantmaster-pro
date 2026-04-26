@@ -110,7 +110,7 @@ export interface JobMetrics {
   /** 마지막 실패 메시지 — note 첫 줄 ≤120자 절삭 */
   lastErrorMessage?: string;
   /**
-   * 마지막 스킵 사유 — ScheduleGuard(ADR-0037) 가 기록.
+   * 마지막 스킵 사유 — ScheduleGuard(ADR-0043) 가 기록.
    * 'WEEKEND' / 'KRX_HOLIDAY' / 'LONG_HOLIDAY' / 'TRADING_DAY' / 'NON_TRADING_DAY' 등.
    * 운영자가 "월요일 자기반성이 정상 실행됐는가" 같은 시계열 진단에 활용.
    */

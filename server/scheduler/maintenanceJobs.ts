@@ -35,7 +35,7 @@ export function registerMaintenanceJobs(): void {
     console.error('[AttributionMigration] 부팅 마이그레이션 실패:', e);
   }
 
-  // PR-D ADR-0039 — 부팅 시 KRX 휴장일 patch 1회 reload.
+  // PR-D ADR-0045 — 부팅 시 KRX 휴장일 patch 1회 reload.
   // 정적 STATIC_HOLIDAYS + data/krx-holiday-patch.json 합산 → 활성 KRX_HOLIDAYS Set.
   try {
     reloadKrxHolidaySet();
@@ -143,7 +143,7 @@ export function registerMaintenanceJobs(): void {
     }
   }, { timezone: 'UTC' });
 
-  // PR-D ADR-0039 — KRX 차년도 휴장일 등록 감사. 매년 12/1 09:00 KST = UTC 12/1 00:00.
+  // PR-D ADR-0045 — KRX 차년도 휴장일 등록 감사. 매년 12/1 09:00 KST = UTC 12/1 00:00.
   // PR-B-2: ALWAYS_ON — 12/1 이 KRX 공휴일이어도 발송 (감사 자체는 휴장과 무관).
   scheduledJob('0 0 1 12 *', 'ALWAYS_ON', 'krx_holiday_audit',
     () => runKrxHolidayAudit(), { timezone: 'UTC' });

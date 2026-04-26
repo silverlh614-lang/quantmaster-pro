@@ -1,5 +1,5 @@
 /**
- * @responsibility 자기학습 cron 작업 등록 — ScheduleClass 자동 가드(ADR-0037) 적용
+ * @responsibility 자기학습 cron 작업 등록 — ScheduleClass 자동 가드(ADR-0043) 적용
  *
  * 모든 cron 은 `scheduledJob(cronExpr, ScheduleClass, jobName, fn)` 래퍼를 경유.
  * ScheduleClass 가 비영업일 진입을 자동 차단 + JobMetrics 에 lastSkipReason 기록.

@@ -1,5 +1,5 @@
 /**
- * @responsibility marketDayClassifier 7분기 + 영업일 산술 회귀 테스트 (ADR-0037 PR-B)
+ * @responsibility marketDayClassifier 7분기 + 영업일 산술 회귀 테스트 (ADR-0043 PR-B)
  */
 
 import { describe, it, expect } from 'vitest';

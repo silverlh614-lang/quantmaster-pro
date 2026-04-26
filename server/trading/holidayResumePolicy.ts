@@ -1,7 +1,7 @@
 /**
- * @responsibility 연휴 복귀 첫 영업일 보수 매매 정책 SSOT — Kelly 축소 + Gate 상향 + 시초 진입 차단 (ADR-0038)
+ * @responsibility 연휴 복귀 첫 영업일 보수 매매 정책 SSOT — Kelly 축소 + Gate 상향 + 시초 진입 차단 (ADR-0044)
  *
- * `MarketDayClassifier` (ADR-0037) 의 POST_HOLIDAY + isLongHoliday 판정 위에
+ * `MarketDayClassifier` (ADR-0043) 의 POST_HOLIDAY + isLongHoliday 판정 위에
  * 올라가는 시간 정책. 호출자가 명시적으로 `apply*` 헬퍼를 호출해야 효과 발동
  * (LIVE 매매 본체 0줄 변경 보장 — 본 PR 은 정책 SSOT + 알림만, 매매 wiring 은 PR-C-2).
  *
