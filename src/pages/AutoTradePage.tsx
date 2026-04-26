@@ -30,6 +30,7 @@ import { AutoTradeContextSection } from '../components/autoTrading/AutoTradeCont
 import { AutoTradeContextualLayout } from '../components/autoTrading/AutoTradeContextualLayout';
 import { AccountSurvivalGauge } from '../components/autoTrading/AccountSurvivalGauge';
 import { TodayOneDecisionCard } from '../components/autoTrading/TodayOneDecisionCard';
+import { NightlyReflectionCard } from '../components/autoTrading/NightlyReflectionCard';
 import { useAutoTradingDashboard } from '../hooks/useAutoTradingDashboard';
 import { useAutoTradeEngine } from '../hooks/autoTrade';
 import { useEngineArming } from '../hooks/autoTrade/useEngineArming';
@@ -238,6 +239,27 @@ export function AutoTradePage() {
           >
             <AccountSurvivalGauge />
           </AutoTradeContextSection>
+
+          {/*
+            ADR-0047 — 어젯밤 학습 결과 카드. Pro 모드 한정.
+            POST_MARKET/OVERNIGHT/WEEKEND 우선 (회고 시간), LIVE_MARKET 후순위.
+          */}
+          {isPro && (
+            <AutoTradeContextSection
+              id="nightly-reflection"
+              label="어젯밤 자기 학습"
+              priorityByContext={{
+                POST_MARKET: 2,
+                OVERNIGHT: 3,
+                WEEKEND_HOLIDAY: 2,
+                PRE_MARKET: 5,
+                LIVE_MARKET: 7,
+              }}
+              collapsedByContext={{ LIVE_MARKET: true }}
+            >
+              <NightlyReflectionCard />
+            </AutoTradeContextSection>
+          )}
 
           {/* 진단 스트립 — 프로 전용 + LIVE/POST 우선, OVERNIGHT/WEEKEND 접힘 */}
           {isPro && (
