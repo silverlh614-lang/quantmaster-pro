@@ -22,6 +22,15 @@ function sanitizeTradeRecord(raw: unknown): TradeRecord | null {
     return Number.isFinite(n) ? n : fallback;
   };
 
+  // ADR-0018: schemaVersion 미설정 레코드는 v1 (자기학습 데이터 무결성 보강 이전) 으로
+  // 표시한다. v1 레코드의 conditionScores 는 빈 객체일 가능성이 높아 학습에서
+  // 자연스럽게 배제된다 (feedbackLoopEngine 의 ≥5 필터가 통과 안 됨).
+  const schemaVersionRaw = t.schemaVersion;
+  const schemaVersion =
+    typeof schemaVersionRaw === 'number' && Number.isFinite(schemaVersionRaw)
+      ? schemaVersionRaw
+      : 1;
+
   return {
     ...(t as unknown as TradeRecord),
     buyPrice: num(t.buyPrice),
@@ -37,6 +46,7 @@ function sanitizeTradeRecord(raw: unknown): TradeRecord | null {
     returnPct: t.returnPct != null && Number.isFinite(Number(t.returnPct)) ? Number(t.returnPct) : undefined,
     holdingDays: t.holdingDays != null && Number.isFinite(Number(t.holdingDays)) ? Number(t.holdingDays) : undefined,
     buyDate: typeof t.buyDate === 'string' ? t.buyDate : new Date().toISOString(),
+    schemaVersion,
   } as TradeRecord;
 }
 

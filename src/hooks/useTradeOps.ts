@@ -65,7 +65,18 @@ export function useTradeOps() {
     });
   };
 
-  const recordTrade = (stock: StockRecommendation, buyPrice: number, quantity: number, positionSize: number, followedSystem: boolean, conditionScores: Record<ConditionId, number>, gateScores: { g1: number; g2: number; g3: number; final: number }, preMortems?: PreMortemItem[]) => {
+  const recordTrade = (
+    stock: StockRecommendation,
+    buyPrice: number,
+    quantity: number,
+    positionSize: number,
+    followedSystem: boolean,
+    conditionScores: Record<ConditionId, number>,
+    gateScores: { g1: number; g2: number; g3: number; final: number },
+    preMortems?: PreMortemItem[],
+    conditionSources?: Record<ConditionId, 'COMPUTED' | 'AI'>,
+    evaluationSnapshot?: TradeRecord['evaluationSnapshot'],
+  ) => {
     const newTrade: TradeRecord = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       stockCode: stock.code, stockName: stock.name, sector: stock.relatedSectors?.[0] ?? 'Unknown',
@@ -76,6 +87,10 @@ export function useTradeOps() {
       conditionScores, followedSystem, status: 'OPEN', currentPrice: stock.currentPrice, unrealizedPct: 0,
       preMortems: preMortems ?? [],
       peakPrice: buyPrice,
+      // ADR-0018: 자기학습 데이터 무결성 — v2 schema
+      conditionSources,
+      evaluationSnapshot,
+      schemaVersion: 2,
     };
     setTradeRecords((prev: TradeRecord[]) => [...prev, newTrade]);
   };

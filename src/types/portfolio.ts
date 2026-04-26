@@ -335,6 +335,16 @@ export interface TradeRecord {
   gate3Score: number;
   finalScore: number;
   conditionScores: Record<ConditionId, number>;  // 27조건 스냅샷
+  // ADR-0018: 자기학습 데이터 무결성 — v2 신규 필드 (옵셔널 후방호환)
+  conditionSources?: Record<ConditionId, 'COMPUTED' | 'AI'>;  // 조건별 데이터 출처
+  evaluationSnapshot?: {                                       // 추천 평가 시점 메타
+    capturedAt: string;
+    rrr?: number;
+    profile?: 'A' | 'B' | 'C' | 'D';
+    confluence?: number;
+    lastTrigger?: boolean;
+  };
+  schemaVersion?: number;                                      // 기본 2, v1 = 1
 
   // 시스템 vs 직관
   followedSystem: boolean;          // true=기계적 매수, false=직감 매수
