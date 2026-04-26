@@ -6,6 +6,7 @@ import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { computeConditionPerformance } from '../components/trading/TradeJournal';
 import { saveEvolutionWeights } from '../services/quant/evolutionEngine';
 import { runAttributionAnalysis, pushAttributionToServer } from '../services/autoTrading';
+import { classifyLossReason } from '../services/quant/lossReasonClassifier';
 import type { StockRecommendation } from '../services/stockService';
 import type { TradeRecord, ConditionId, PreMortemItem } from '../types/quant';
 
@@ -109,12 +110,49 @@ export function useTradeOps() {
 
   const closeTrade = (tradeId: string, sellPrice: number, sellReason: TradeRecord['sellReason']) => {
     const trade = tradeRecords.find((t: TradeRecord) => t.id === tradeId);
+    // ADR-0021 (PR-D): 손실 거래 자동 분류 — 매도 시점 macroEnv.vkospi 캡처.
+    const macroEnvSnapshot = useGlobalIntelStore.getState().macroEnv;
 
     setTradeRecords((prev: TradeRecord[]) => prev.map((t: TradeRecord) => {
       if (t.id !== tradeId) return t;
       const returnPct = ((sellPrice - t.buyPrice) / t.buyPrice) * 100;
       const holdingDays = Math.round((Date.now() - new Date(t.buyDate).getTime()) / (1000 * 60 * 60 * 24));
-      return { ...t, sellDate: new Date().toISOString(), sellPrice, sellReason, returnPct: parseFloat(returnPct.toFixed(2)), holdingDays, status: 'CLOSED' as const };
+
+      // ADR-0021: returnPct < 0 일 때만 lossReason 자동 분류 진입.
+      // 사용자 수동 override 가 이미 있으면 (lossReasonAuto=false) 보존.
+      let lossMeta: Pick<TradeRecord, 'lossReason' | 'lossReasonAuto' | 'lossReasonClassifiedAt'> = {};
+      const userManualSet = t.lossReason && t.lossReasonAuto === false;
+      if (returnPct < 0 && !userManualSet) {
+        const reason = classifyLossReason({
+          returnPct: parseFloat(returnPct.toFixed(2)),
+          holdingDays,
+          buyPrice: t.buyPrice,
+          sellPrice,
+          conditionScores: t.conditionScores,
+          vkospiAtBuy: t.evaluationSnapshot?.vkospiAtBuy,
+          vkospiAtSell:
+            typeof macroEnvSnapshot?.vkospi === 'number' && macroEnvSnapshot.vkospi > 0
+              ? macroEnvSnapshot.vkospi
+              : undefined,
+          sellReason,
+        });
+        lossMeta = {
+          lossReason: reason,
+          lossReasonAuto: true,
+          lossReasonClassifiedAt: new Date().toISOString(),
+        };
+      }
+
+      return {
+        ...t,
+        sellDate: new Date().toISOString(),
+        sellPrice,
+        sellReason,
+        returnPct: parseFloat(returnPct.toFixed(2)),
+        holdingDays,
+        status: 'CLOSED' as const,
+        ...lossMeta,
+      };
     }));
 
     if (trade) {

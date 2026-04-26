@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { cn } from '../../ui/cn';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
-import { useTradeStore } from '../../stores';
+import { useTradeStore, useGlobalIntelStore } from '../../stores';
 import { DEFAULT_PRE_MORTEMS } from '../../types/quant';
 import type { PreMortemItem, ConditionId, TradeRecord } from '../../types/quant';
 import type { StockRecommendation } from '../../services/stockService';
@@ -31,6 +31,7 @@ interface TradeRecordModalProps {
 
 export function TradeRecordModal({ onRecordTrade }: TradeRecordModalProps) {
   const { tradeRecordStock, setTradeRecordStock, tradeFormData, setTradeFormData } = useTradeStore();
+  const macroEnv = useGlobalIntelStore(state => state.macroEnv);
   const [showPreMortem, setShowPreMortem] = useState(false);
   const [selectedPreMortems, setSelectedPreMortems] = useState<Set<string>>(
     () => new Set(DEFAULT_PRE_MORTEMS.map(p => p.id))
@@ -209,6 +210,11 @@ export function TradeRecordModal({ onRecordTrade }: TradeRecordModalProps) {
               confluence: Number.isFinite(tradeRecordStock.confidenceScore)
                 ? tradeRecordStock.confidenceScore
                 : undefined,
+              // ADR-0021 (PR-D): 매수 시점 VKOSPI 캡처 — 청산 시 MACRO_SHOCK 분류 입력.
+              vkospiAtBuy:
+                typeof macroEnv?.vkospi === 'number' && macroEnv.vkospi > 0
+                  ? macroEnv.vkospi
+                  : undefined,
             };
 
             onRecordTrade(

@@ -307,6 +307,23 @@ export const DEFAULT_PRE_MORTEMS: Omit<PreMortemItem, 'triggered' | 'triggeredAt
   },
 ];
 
+// ─── ADR-0021 (PR-D): 손실 원인 분류 ─────────────────────────────────────────
+
+/**
+ * 손실 거래의 8 분류 + UNCLASSIFIED 안전 fallback.
+ * 청산 시점 자동 분류 (4분류) + 사용자 수동 입력 (4분류) 혼용.
+ */
+export type LossReason =
+  | 'FALSE_BREAKOUT'        // 돌파 실패 (수동 — 다중 trade 분석 필요)
+  | 'MACRO_SHOCK'           // 시장 전체 급락 (자동 — VKOSPI 급등)
+  | 'SECTOR_ROTATION_OUT'   // 섹터 자금 이탈 (수동 — 다중 trade 분석)
+  | 'EARNINGS_MISS'         // 실적 훼손 (수동 — 외부 데이터 필요)
+  | 'LIQUIDITY_TRAP'        // 거래대금 부족 (수동)
+  | 'OVERHEATED_ENTRY'      // 과열 진입 (자동 — 매수 시점 조건 17/25 체크)
+  | 'STOP_TOO_TIGHT'        // 손절폭 과도 (자동 — holdingDays ≤ 3 + STOP_LOSS)
+  | 'STOP_TOO_LOOSE'        // 손절 지연 (자동 — returnPct ≤ -15%)
+  | 'UNCLASSIFIED';         // 분류 불가
+
 // ─── 매매 일지 개별 기록 ─────────────────────────────────────────────────────
 
 /** ① 매매 일지 개별 기록 */
@@ -343,8 +360,14 @@ export interface TradeRecord {
     profile?: 'A' | 'B' | 'C' | 'D';
     confluence?: number;
     lastTrigger?: boolean;
+    vkospiAtBuy?: number;                                      // ADR-0021 (PR-D): 매수 시점 VKOSPI 캡처
   };
   schemaVersion?: number;                                      // 기본 2, v1 = 1
+
+  // ADR-0021 (PR-D): 손실 원인 태그 — CLOSED + returnPct < 0 일 때만 부여
+  lossReason?: LossReason;
+  lossReasonAuto?: boolean;                                    // 자동 분류 vs 사용자 수동
+  lossReasonClassifiedAt?: string;
 
   // 시스템 vs 직관
   followedSystem: boolean;          // true=기계적 매수, false=직감 매수
