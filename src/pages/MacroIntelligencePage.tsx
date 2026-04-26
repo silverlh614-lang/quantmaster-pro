@@ -4,6 +4,7 @@ import React from 'react';
 import { Activity, Globe, TrendingUp, Truck, AlertTriangle, BarChart3 } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { useGlobalIntelStore } from '../stores';
+import { GlobalCorrelationCard } from '../components/macro/GlobalCorrelationCard';
 
 // ─── 공통 카드 ─────────────────────────────────────────────────────────────
 
@@ -261,6 +262,7 @@ export function MacroIntelligencePage() {
         <ExportMomentumCard />
         <GeopoliticalCard />
         <CreditSpreadCard />
+        <GlobalCorrelationCard />
       </section>
 
       <p className="text-[10px] text-white/40 leading-snug">

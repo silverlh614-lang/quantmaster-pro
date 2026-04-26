@@ -10,6 +10,7 @@ import {
   type ClientRecommendationRecord,
 } from '../api/recommendationsClient';
 import { computeSignalBreakdown, type StatsPeriod } from '../utils/recommendationStats';
+import { ConditionAttributionChart } from '../components/analysis/ConditionAttributionChart';
 
 const PERIOD_OPTIONS: { id: StatsPeriod; label: string }[] = [
   { id: '7d', label: '7일' },
@@ -191,6 +192,9 @@ export function RecommendationHistoryPage() {
           </div>
         )}
       </section>
+
+      {/* PR-H (ADR-0025): 조건별 수익률 귀인 차트 */}
+      <ConditionAttributionChart />
     </div>
   );
 }
