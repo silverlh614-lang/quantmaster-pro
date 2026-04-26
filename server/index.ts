@@ -68,6 +68,7 @@ import recommendationsRouter from './routes/recommendationsRouter.js';
 import screenerPipelineRouter from './routes/screenerPipelineRouter.js';
 import attributionRouter from './routes/attributionRouter.js';
 import survivalRouter from './routes/survivalRouter.js';
+import decisionInputsRouter from './routes/decisionInputsRouter.js';
 import { startScheduler } from './scheduler/index.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 import { globalErrorHandler } from './utils/apiResponse.js';
@@ -265,6 +266,11 @@ async function startServer() {
   // PR-Z2 (ADR-0044) — 계좌 생존 게이지 GET /api/account/survival
   // ─────────────────────────────────────────────────────────────
   app.use('/api/account', survivalRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // PR-Z4 (ADR-0046) — 단일 결정 입력 GET /api/decision/inputs
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/decision', decisionInputsRouter);
 
   // ─── 아이디어 1: 오케스트레이터 상태 조회 ────────────────────────────────────
   app.get('/api/orchestrator/state', (_req: Request, res: Response) => {

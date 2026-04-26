@@ -29,6 +29,7 @@ import { TelegramConnectionTest } from '../components/autoTrading/TelegramConnec
 import { AutoTradeContextSection } from '../components/autoTrading/AutoTradeContextSection';
 import { AutoTradeContextualLayout } from '../components/autoTrading/AutoTradeContextualLayout';
 import { AccountSurvivalGauge } from '../components/autoTrading/AccountSurvivalGauge';
+import { TodayOneDecisionCard } from '../components/autoTrading/TodayOneDecisionCard';
 import { useAutoTradingDashboard } from '../hooks/useAutoTradingDashboard';
 import { useAutoTradeEngine } from '../hooks/autoTrade';
 import { useEngineArming } from '../hooks/autoTrade/useEngineArming';
@@ -201,6 +202,25 @@ export function AutoTradePage() {
           기존 컴포넌트 본체는 단 한 줄도 수정하지 않음.
         */}
         <AutoTradeContextualLayout>
+          {/*
+            ADR-0046 — Today's One Decision Card. 모든 컨텍스트에서 priority=1.
+            6 case 우선순위 + VOID 모드. AutoTradeContextSection 안정 정렬로
+            survival-gauge 보다 먼저 렌더 (children 선언 순서 보존).
+          */}
+          <AutoTradeContextSection
+            id="one-decision"
+            label="오늘의 단 하나의 결정"
+            priorityByContext={{
+              PRE_MARKET: 1,
+              LIVE_MARKET: 1,
+              POST_MARKET: 1,
+              OVERNIGHT: 1,
+              WEEKEND_HOLIDAY: 1,
+            }}
+          >
+            <TodayOneDecisionCard positions={data.positions} />
+          </AutoTradeContextSection>
+
           {/*
             ADR-0044 — 계좌 생존 게이지. 모든 컨텍스트에서 priority=1 (항상 최상단).
             일일 손실 여유 / 섹터 집중도 / Kelly 정합도 3 게이지 단일 카드.
