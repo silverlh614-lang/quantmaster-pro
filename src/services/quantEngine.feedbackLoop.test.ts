@@ -87,16 +87,16 @@ describe('evaluateFeedbackLoop — 캘리브레이션 활성화', () => {
 // ─── 가중치 상향 조정 — 승률 > 60% ──────────────────────────────────────────
 
 describe('evaluateFeedbackLoop — 가중치 상향 (승률 > 60%)', () => {
-  it('조건 1의 승률이 100%이면 가중치 +10% (1.0 → 1.1)', () => {
-    // 조건 1에 점수 8을 부여한 거래 10개 (모두 승리: +5%)
+  // ADR-0020 (PR-C): 조건 1 (주도주 사이클) 은 AI 분류라 multiplier=0.4 가
+  // 적용되어 +4% 만 보정된다. 본 테스트는 PR-C 정합 — UP 방향 + AI 보정량 검증.
+  it('AI 조건 (1=주도주 사이클) 100% 승률 → +4% (1.0 → 1.04, ADR-0020)', () => {
     const trades = makeTrades(10, 5, 1 as ConditionId, 8);
-    // 나머지 19개는 조건 1 점수 없음
     const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 10 }, () => makeTrade(5));
     const result = evaluateFeedbackLoop([...trades, ...filler], { 1: 1.0 });
     const cal = result.calibrations.find(c => c.conditionId === 1);
     expect(cal).toBeDefined();
     expect(cal!.direction).toBe('UP');
-    expect(cal!.newWeight).toBeCloseTo(1.1, 5);
+    expect(cal!.newWeight).toBeCloseTo(1.04, 5);
   });
 
   it('가중치 최대값 1.5 초과 금지', () => {
@@ -114,8 +114,8 @@ describe('evaluateFeedbackLoop — 가중치 상향 (승률 > 60%)', () => {
 // ─── 가중치 하향 조정 — 승률 < 40% ──────────────────────────────────────────
 
 describe('evaluateFeedbackLoop — 가중치 하향 (승률 < 40%)', () => {
-  it('조건 2의 승률이 0%이면 가중치 -10% (1.0 → 0.9)', () => {
-    // 조건 2에 점수 8 부여 + 모두 손실(-5%)
+  // ADR-0020: 조건 2 (모멘텀) 는 COMPUTED 분류라 multiplier=1.0 → -10% 그대로 적용
+  it('COMPUTED 조건 (2=모멘텀) 0% 승률 → -10% (1.0 → 0.9)', () => {
     const trades = makeTrades(10, -5, 2 as ConditionId, 8);
     const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 10 }, () => makeTrade(5));
     const result = evaluateFeedbackLoop([...trades, ...filler], { 2: 1.0 });

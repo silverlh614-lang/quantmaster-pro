@@ -152,7 +152,7 @@ interface DiscoverWatchlistPageProps {
   onGeneratePDF: (shouldDownload?: boolean) => Promise<string | null>;
   onExportDeepAnalysisPDF: () => Promise<void>;
   onSendEmail: () => Promise<void>;
-  onRecordTrade: (stock: StockRecommendation, buyPrice: number, quantity: number, positionSize: number, followedSystem: boolean, conditionScores: Record<ConditionId, number>, gateScores: { g1: number; g2: number; g3: number; final: number }, preMortems?: import('../types/quant').PreMortemItem[]) => void;
+  onRecordTrade: (stock: StockRecommendation, buyPrice: number, quantity: number, positionSize: number, followedSystem: boolean, conditionScores: Record<ConditionId, number>, gateScores: { g1: number; g2: number; g3: number; final: number }, preMortems?: import('../types/quant').PreMortemItem[], conditionSources?: Record<ConditionId, 'COMPUTED' | 'AI'>, evaluationSnapshot?: import('../types/quant').TradeRecord['evaluationSnapshot']) => void;
 }
 
 export function DiscoverWatchlistPage({

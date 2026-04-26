@@ -307,6 +307,23 @@ export const DEFAULT_PRE_MORTEMS: Omit<PreMortemItem, 'triggered' | 'triggeredAt
   },
 ];
 
+// ─── ADR-0021 (PR-D): 손실 원인 분류 ─────────────────────────────────────────
+
+/**
+ * 손실 거래의 8 분류 + UNCLASSIFIED 안전 fallback.
+ * 청산 시점 자동 분류 (4분류) + 사용자 수동 입력 (4분류) 혼용.
+ */
+export type LossReason =
+  | 'FALSE_BREAKOUT'        // 돌파 실패 (수동 — 다중 trade 분석 필요)
+  | 'MACRO_SHOCK'           // 시장 전체 급락 (자동 — VKOSPI 급등)
+  | 'SECTOR_ROTATION_OUT'   // 섹터 자금 이탈 (수동 — 다중 trade 분석)
+  | 'EARNINGS_MISS'         // 실적 훼손 (수동 — 외부 데이터 필요)
+  | 'LIQUIDITY_TRAP'        // 거래대금 부족 (수동)
+  | 'OVERHEATED_ENTRY'      // 과열 진입 (자동 — 매수 시점 조건 17/25 체크)
+  | 'STOP_TOO_TIGHT'        // 손절폭 과도 (자동 — holdingDays ≤ 3 + STOP_LOSS)
+  | 'STOP_TOO_LOOSE'        // 손절 지연 (자동 — returnPct ≤ -15%)
+  | 'UNCLASSIFIED';         // 분류 불가
+
 // ─── 매매 일지 개별 기록 ─────────────────────────────────────────────────────
 
 /** ① 매매 일지 개별 기록 */
@@ -335,6 +352,25 @@ export interface TradeRecord {
   gate3Score: number;
   finalScore: number;
   conditionScores: Record<ConditionId, number>;  // 27조건 스냅샷
+  // ADR-0018: 자기학습 데이터 무결성 — v2 신규 필드 (옵셔널 후방호환)
+  conditionSources?: Record<ConditionId, 'COMPUTED' | 'AI'>;  // 조건별 데이터 출처
+  evaluationSnapshot?: {                                       // 추천 평가 시점 메타
+    capturedAt: string;
+    rrr?: number;
+    profile?: 'A' | 'B' | 'C' | 'D';
+    confluence?: number;
+    lastTrigger?: boolean;
+    vkospiAtBuy?: number;                                      // ADR-0021 (PR-D): 매수 시점 VKOSPI 캡처
+  };
+  schemaVersion?: number;                                      // 기본 2, v1 = 1
+
+  // ADR-0021 (PR-D): 손실 원인 태그 — CLOSED + returnPct < 0 일 때만 부여
+  lossReason?: LossReason;
+  lossReasonAuto?: boolean;                                    // 자동 분류 vs 사용자 수동
+  lossReasonClassifiedAt?: string;
+
+  // ADR-0024 (PR-G): 매수 시점 시장 레짐 — Regime Memory Bank 학습 분리 키
+  entryRegime?: string;
 
   // 시스템 vs 직관
   followedSystem: boolean;          // true=기계적 매수, false=직감 매수
@@ -354,6 +390,77 @@ export interface TradeRecord {
   // IDEA 10: Pre-Mortem 무효화 조건 (매수 시점에 사전 명시)
   preMortems?: PreMortemItem[];     // 무효화 조건 목록
   peakPrice?: number;               // 최고가 (고점 대비 낙폭 추적용)
+
+  // ADR-0019 (PR-B): RecommendationSnapshot 양방향 추적
+  recommendationSnapshotId?: string;  // OPEN 시 snapshot.id 연결
+}
+
+// ─── ADR-0019 (PR-B): 추천 스냅샷 lifecycle ──────────────────────────────────
+
+/**
+ * 추천 발령 시점부터 사용자 행동(매수→매도) 까지의 전 lifecycle 영속 단위.
+ *
+ * 자기학습 5계층 확장 시리즈 PR-B 의 핵심 SSOT — 사용자가 받은 AI 추천이
+ * 실제로 얼마나 적중했는지(adoption rate, hit rate, avg return) 정량화한다.
+ *
+ * 서버 `recommendationTracker.RecommendationRecord` 와 별개:
+ *   - 서버: SHADOW 자동매매 신호 (시장가 자동 판정)
+ *   - 본 타입: 사용자 노출 추천 (사용자 행동 기반 lifecycle)
+ */
+export interface RecommendationSnapshot {
+  id: string;                         // 'rec-snap-<timestamp>-<code>'
+  recommendedAt: string;              // ISO
+  stockCode: string;
+  stockName: string;
+  recommendation: 'BUY' | 'STRONG_BUY' | 'STRONG_SELL' | 'SELL' | 'NEUTRAL';
+
+  // 추천 시점 가격/리스크
+  entryPrice: number;
+  targetPrice?: number;
+  stopLossPrice?: number;
+  rrr?: number;
+
+  // 추천 시점 27조건 + Gate (PR-A adapter 산출물 재사용)
+  conditionScores: Record<ConditionId, number>;
+  conditionSources: Record<ConditionId, 'COMPUTED' | 'AI'>;
+  gate1Score: number;
+  gate2Score: number;
+  gate3Score: number;
+  finalScore: number;
+  confluence?: number;
+  sector?: string;
+
+  // Lifecycle
+  status: 'PENDING' | 'OPEN' | 'CLOSED' | 'EXPIRED';
+  openedAt?: string;
+  closedAt?: string;
+  expiredAt?: string;
+  tradeId?: string;                   // OPEN 시 TradeRecord.id 연결
+
+  // 평가 (CLOSED 시점)
+  realizedReturnPct?: number;
+
+  schemaVersion: number;              // 1
+}
+
+/**
+ * RecommendationSnapshot 통계 — UI 적중률 패널 + 학습 입력으로 사용.
+ *
+ * - hitRate: CLOSED 중 realizedReturnPct > 0 비율
+ * - adoptionRate: 추천 → OPEN 전환 비율 (사용자가 시스템 추천을 따른 정도)
+ * - avgReturnClosed: CLOSED 의 평균 실현 수익률
+ */
+export interface SnapshotStats {
+  totalCount: number;
+  pendingCount: number;
+  openCount: number;
+  closedCount: number;
+  expiredCount: number;
+  hitRate: number;                    // 0~1
+  strongBuyHitRate: number;           // 0~1
+  buyHitRate: number;                 // 0~1
+  avgReturnClosed: number;            // %
+  adoptionRate: number;               // 0~1
 }
 
 // ─── 자동매매 엔진 타입 ──────────────────────────────────────────────────────────
@@ -526,6 +633,27 @@ export interface ConditionCalibration {
   direction: 'UP' | 'DOWN' | 'STABLE';
   /** 변화량 */
   delta: number;
+  // ADR-0020 (PR-C): AI/COMPUTED 차등 학습 — 결과 메타
+  /** 조건 데이터 출처 (CONDITION_SOURCE_MAP) */
+  source?: 'COMPUTED' | 'AI';
+  /** 본 보정에 적용된 source multiplier (COMPUTED=1.0, AI=0.4) */
+  sourceMultiplier?: number;
+  // ADR-0022 (PR-E): 손실 원인별 학습 가중치 보정 — 결과 메타
+  /** 가중평균 분모 (sum of trade-level multipliers) */
+  weightedTradeCount?: number;
+  /** 원래 trade 수 (UI 가 raw vs weighted 표기) */
+  rawTradeCount?: number;
+  /** loss trades 의 lossReason 분포 (진단용) */
+  lossReasonBreakdown?: Partial<Record<LossReason, number>>;
+  // ADR-0023 (PR-F): 조건별 Profit Factor / Edge Score
+  /** Profit Factor = sum(wins.return) / |sum(losses.return)|. 손실 0 이면 null. */
+  profitFactor?: number | null;
+  /** 승리 거래 가중평균 수익률 (%) */
+  avgReturnPosi?: number;
+  /** 손실 거래 가중평균 손실률 (%, 음수) */
+  avgReturnNeg?: number;
+  /** Edge Score 종합 점수 (-7 ~ +7, 양수=상향 정당화) */
+  edgeScore?: number;
 }
 
 /** 피드백 폐쇄 루프 캘리브레이션 결과 */

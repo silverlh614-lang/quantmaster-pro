@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { TradeRecord } from '../types/quant';
+import type { TradeRecord, LossReason } from '../types/quant';
 import type { StockRecommendation } from '../services/stockService';
 type Updater<T> = T | ((prev: T) => T);
 
@@ -22,6 +22,15 @@ function sanitizeTradeRecord(raw: unknown): TradeRecord | null {
     return Number.isFinite(n) ? n : fallback;
   };
 
+  // ADR-0018: schemaVersion 미설정 레코드는 v1 (자기학습 데이터 무결성 보강 이전) 으로
+  // 표시한다. v1 레코드의 conditionScores 는 빈 객체일 가능성이 높아 학습에서
+  // 자연스럽게 배제된다 (feedbackLoopEngine 의 ≥5 필터가 통과 안 됨).
+  const schemaVersionRaw = t.schemaVersion;
+  const schemaVersion =
+    typeof schemaVersionRaw === 'number' && Number.isFinite(schemaVersionRaw)
+      ? schemaVersionRaw
+      : 1;
+
   return {
     ...(t as unknown as TradeRecord),
     buyPrice: num(t.buyPrice),
@@ -37,6 +46,7 @@ function sanitizeTradeRecord(raw: unknown): TradeRecord | null {
     returnPct: t.returnPct != null && Number.isFinite(Number(t.returnPct)) ? Number(t.returnPct) : undefined,
     holdingDays: t.holdingDays != null && Number.isFinite(Number(t.holdingDays)) ? Number(t.holdingDays) : undefined,
     buyDate: typeof t.buyDate === 'string' ? t.buyDate : new Date().toISOString(),
+    schemaVersion,
   } as TradeRecord;
 }
 
@@ -48,6 +58,8 @@ interface TradeState {
   closeTrade: (tradeId: string, sellPrice: number, sellReason: TradeRecord['sellReason']) => void;
   deleteTrade: (tradeId: string) => void;
   updateTradeMemo: (tradeId: string, memo: string) => void;
+  // ADR-0025 (PR-H): 사용자 수동 lossReason 입력. null=자동 분류 모드 복원
+  setLossReason: (tradeId: string, reason: LossReason | null) => void;
 
   // Trade Form
   tradeRecordStock: StockRecommendation | null;
@@ -85,6 +97,25 @@ export const useTradeStore = create<TradeState>()(
       })),
       updateTradeMemo: (tradeId, memo) => set((state) => ({
         tradeRecords: state.tradeRecords.map((t: TradeRecord) => t.id === tradeId ? { ...t, memo } : t),
+      })),
+
+      // ADR-0025 (PR-H): 사용자 수동 lossReason 입력. lossReasonAuto=false 로 표기해
+      // PR-D 의 closeTrade 자동 분류가 덮어쓰지 않도록 보호. null = 수동 분류 해제.
+      setLossReason: (tradeId, reason) => set((state) => ({
+        tradeRecords: state.tradeRecords.map((t: TradeRecord) => {
+          if (t.id !== tradeId) return t;
+          if (reason === null) {
+            const { lossReason, lossReasonAuto, lossReasonClassifiedAt, ...rest } = t;
+            void lossReason; void lossReasonAuto; void lossReasonClassifiedAt;
+            return rest as TradeRecord;
+          }
+          return {
+            ...t,
+            lossReason: reason,
+            lossReasonAuto: false,
+            lossReasonClassifiedAt: new Date().toISOString(),
+          };
+        }),
       })),
 
       tradeRecordStock: null,
