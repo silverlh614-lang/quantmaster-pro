@@ -285,7 +285,8 @@ export async function generateDailyReport(): Promise<void> {
     dataBlock,
   ].join('\n');
 
-  const narrative = await callGemini(geminiPrompt, 'report-generator');
+  // daily 리포트 narrative — 시장 분석 + 매매 회고 + 익일 전략 multi-section. 2048 절삭 방지 (ADR-0058).
+  const narrative = await callGemini(geminiPrompt, 'report-generator', { maxOutputTokens: 4096 });
 
   // ── Telegram 발송 (메인 채널) ──────────────────────────────────────────────
   const telegramMsg = narrative

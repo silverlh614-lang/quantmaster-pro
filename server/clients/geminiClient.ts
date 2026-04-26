@@ -360,32 +360,36 @@ export async function callGeminiText(prompt: string, opts: GeminiTextOptions = {
  * @param prompt 프롬프트
  * @param caller 호출처 식별자 (사용량 추적용, 예: 'dart-fast' / 'global-scan')
  */
-export async function callGemini(prompt: string, caller = 'unknown'): Promise<string | null> {
+/** callGemini opts → 실제 적용값 SSOT (ADR-0058). default 2048 token / 0.4 temperature. */
+export function resolveGeminiOpts(
+  opts: { maxOutputTokens?: number; temperature?: number } = {},
+): { maxOutputTokens: number; temperature: number } {
+  return {
+    maxOutputTokens: opts.maxOutputTokens ?? 2048,
+    temperature:     opts.temperature ?? 0.4,
+  };
+}
+
+/**
+ * 일반 Gemini 호출. 페르소나 자동 prepend.
+ *
+ * @param prompt 프롬프트
+ * @param caller 호출처 식별자 (사용량 추적용, 예: 'dart-fast' / 'global-scan')
+ * @param opts   maxOutputTokens / temperature 옵션 — 긴 본문(KOSPI 전망 + 섹터 + 리스크
+ *               다중 분석) 출력 시 maxOutputTokens=4096 권장 (default 2048 응답 절삭 방지).
+ *               미전달 시 기존 default 유지 (호환성 보장).
+ */
+export async function callGemini(
+  prompt: string,
+  caller = 'unknown',
+  opts: { maxOutputTokens?: number; temperature?: number } = {},
+): Promise<string | null> {
+  const resolved = resolveGeminiOpts(opts);
   return callGeminiText(prompt, {
     caller,
     model: AI_MODELS.SERVER_SIDE,
-    temperature: 0.4,
-    maxOutputTokens: 2048,
-  });
-  const ai = getGeminiClient() as GoogleGenAI;
-  if (!ai) {
-    console.warn('[Gemini] API 키 미설정 — AI 기능 비활성화');
-    return null;
-  }
-  if (isBudgetBlocked()) {
-    console.warn(`[Gemini] 월 예산 HARD_BLOCK 상태 — callGemini[${caller}] 호출 차단`);
-    return null;
-  }
-  return withRetry(`callGemini[${caller}]`, async () => {
-    const res = await ai.models.generateContent({
-      model: AI_MODELS.SERVER_SIDE,
-      contents: withPersona(prompt),
-      config: { temperature: 0.4, maxOutputTokens: 2048 },
-    });
-    const tokens = (res as { usageMetadata?: { totalTokenCount?: number } })
-      .usageMetadata?.totalTokenCount ?? 0;
-    recordCall(caller, tokens);
-    return res.text ?? null;
+    temperature:     resolved.temperature,
+    maxOutputTokens: resolved.maxOutputTokens,
   });
 }
 
