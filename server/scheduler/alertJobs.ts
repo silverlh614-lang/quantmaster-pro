@@ -15,6 +15,7 @@ import { runSectorEtfMomentumScan } from '../alerts/sectorEtfMomentum.js';
 import { tickIntradayYield } from '../alerts/intradayYieldTicker.js';
 import { sweepPendingAcks } from '../alerts/ackTracker.js';
 import { checkForeignFlowLeadingAlert } from '../alerts/foreignFlowLeadingAlert.js';
+import { runMacroDigest } from '../alerts/macroDigestReport.js';
 
 export function registerAlertJobs(): void {
   // DART 공시 30분 폴링 — 장중 08:30~18:00 KST (UTC 23:30~09:00)
@@ -83,5 +84,18 @@ export function registerAlertJobs(): void {
   cron.schedule('*/5 * * * *', async () => {
     await sweepPendingAcks().catch(e =>
       console.error('[AckTracker] sweep 실패:', e instanceof Error ? e.message : e));
+  }, { timezone: 'UTC' });
+
+  // PR-X4 (ADR-0040) — CH3 REGIME 매크로 다이제스트 1일 2회 정기 발행.
+  // 페르소나 "글로벌 스마트 머니 ETF 추적" 일과화 — 같은 시각·같은 형식.
+  // PRE_OPEN  KST 08:30 (UTC 23:30 일~목) — 장 시작 30분 전, preMarketSignal 와 동시각 OK.
+  // POST_CLOSE KST 16:00 (UTC 07:00 월~금) — 한국 장 마감 30분 후.
+  cron.schedule('30 23 * * 0-4', async () => {
+    await runMacroDigest('PRE_OPEN').catch(e =>
+      console.error('[MacroDigest] PRE_OPEN 실패:', e instanceof Error ? e.message : e));
+  }, { timezone: 'UTC' });
+  cron.schedule('0 7 * * 1-5', async () => {
+    await runMacroDigest('POST_CLOSE').catch(e =>
+      console.error('[MacroDigest] POST_CLOSE 실패:', e instanceof Error ? e.message : e));
   }, { timezone: 'UTC' });
 }
