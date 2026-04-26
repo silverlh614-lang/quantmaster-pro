@@ -6,6 +6,7 @@ import { EmptyState } from '../../ui/empty-state';
 import { TrendIndicator } from '../../ui/trend-indicator';
 import type { PositionItem } from '../../services/autoTrading/autoTradingTypes';
 import { LifecycleStageGauge } from './LifecycleStageGauge';
+import { InvalidationMeter } from './InvalidationMeter';
 
 interface PositionLifecyclePanelProps {
   positions: PositionItem[];
@@ -52,6 +53,11 @@ export function PositionLifecyclePanel({ positions }: PositionLifecyclePanelProp
                   stage={position.stage ?? 'HOLD'}
                   breachedConditions={position.breachedConditions}
                 />
+              </div>
+
+              {/* ADR-0051 PR-Z3: 페르소나 4 카테고리 무효화 조건 미터 */}
+              <div className="mt-3">
+                <InvalidationMeter position={position} />
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">

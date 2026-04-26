@@ -12,6 +12,7 @@ import {
 import { computeSignalBreakdown, type StatsPeriod } from '../utils/recommendationStats';
 import { ConditionAttributionChart } from '../components/analysis/ConditionAttributionChart';
 import { RecommendationTimeseriesChart } from '../components/analysis/RecommendationTimeseriesChart';
+import { ConcordanceMatrix } from '../components/analysis/ConcordanceMatrix';
 
 const PERIOD_OPTIONS: { id: StatsPeriod; label: string }[] = [
   { id: '7d', label: '7일' },
@@ -199,6 +200,9 @@ export function RecommendationHistoryPage() {
 
       {/* PR-H (ADR-0035): 조건별 수익률 귀인 차트 */}
       <ConditionAttributionChart />
+
+      {/* PR-Z6 (ADR-0054): Quant × Qual 합치도 매트릭스 */}
+      <ConcordanceMatrix />
     </div>
   );
 }
