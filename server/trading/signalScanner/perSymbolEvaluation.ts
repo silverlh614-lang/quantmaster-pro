@@ -53,13 +53,23 @@ import { fillMonitor } from '../fillMonitor.js';
 import { trancheExecutor } from '../trancheExecutor.js';
 import { ENTRY_GATES_PHASE_B } from './entryGates/index.js';
 import {
+  entryRevalidationStep,
+  kisIntradayCorrectionStep,
+  yahooAvailabilityStep,
+  mtasGateStep,
+  sellOnlyExceptionStep,
+} from './revalidationSteps/index.js';
+import {
+  sizingTierDecider,
+  kellyBudgetDecider,
+  stopLossPolicyResolver,
+} from './sizingDeciders/index.js';
+import { applyApprovalReservation } from './approvalQueue/index.js';
+import {
   isOpenShadowStatus,
   buildStopLossPlan,
   formatStopLossBreakdown,
   calculateOrderQuantity,
-  reconcileDayOpen,
-  evaluateEntryRevalidation,
-  getMinGateScore,
   getKstMarketElapsedMinutes,
 } from '../entryEngine.js';
 import {
@@ -652,33 +662,15 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         ? await enrichQuoteWithKisMTAS(reCheckQuoteRaw, stock.code)
         : null;
 
-      // ── KIS 실시간 시가/전일종가 보정 ──────────────────────────────────────────
+      // ── ADR-0031 PR-60: kisIntradayCorrectionStep mutating step ─────────
       // Yahoo Finance의 regularMarketOpen이 한국 장중 부정확한 경우가 빈번하여
       // KIS 현재가 API(FHKST01010100)로 dayOpen·prevClose를 항상 덮어쓴다.
-      if (reCheckQuote) {
-        const kisSnap = await fetchKisIntraday(stock.code).catch(() => null);
-        if (kisSnap) {
-          const dayOpenDecision = reconcileDayOpen({
-            yahooDayOpen: reCheckQuote.dayOpen,
-            kisDayOpen: kisSnap.dayOpen,
-          });
-          if (
-            dayOpenDecision.dayOpen &&
-            reCheckQuote.dayOpen !== dayOpenDecision.dayOpen
-          ) {
-            const divergenceLabel = dayOpenDecision.divergencePct == null
-              ? 'N/A'
-              : `${dayOpenDecision.divergencePct.toFixed(1)}%`;
-            console.log(
-              `[KisIntraday] ${stock.code} 시가 ${dayOpenDecision.acceptedKis ? '보정' : '유지'}: Yahoo=${reCheckQuote.dayOpen} / KIS=${kisSnap.dayOpen} / 사용=${dayOpenDecision.dayOpen} / 괴리=${divergenceLabel}`,
-            );
-            reCheckQuote.dayOpen = dayOpenDecision.dayOpen;
-          }
-          if (kisSnap.prevClose > 0) {
-            reCheckQuote.prevClose = kisSnap.prevClose;
-          }
-        }
-      }
+      // step 이 reCheckQuote 참조를 직접 mutate, caller 는 logMessages 만 출력.
+      const kisCorrection = await kisIntradayCorrectionStep({
+        stockCode: stock.code,
+        reCheckQuote,
+      });
+      for (const msg of kisCorrection.logMessages) console.log(msg);
 
       const [kisFlow, dartFin] = reCheckQuote
         ? await Promise.all([
@@ -689,25 +681,26 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       const reCheckGate = reCheckQuote
         ? evaluateServerGate(reCheckQuote, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, dartFin, kisFlow, ctx.regime)
         : null;
-      const entryRevalidation = evaluateEntryRevalidation({
+      // ── ADR-0031 PR-59 PoC: entryRevalidationStep RevalidationStep 분기 ───
+      // step 자체는 외부 mutation·부수효과 0건 — fail 시 caller 가 stock.entryFailCount,
+      // watchlistMutated, scanCounters.gateMisses, stageLog, pushTrace, counterfactual
+      // 기록을 일괄 적용. byte-equivalent: 메시지·counter·stageLog 값 100% 보존.
+      const revalResult = entryRevalidationStep({
+        stockName: stock.name,
         currentPrice,
         entryPrice: stock.entryPrice,
-        quoteGateScore: reCheckGate?.gateScore,
-        quoteSignalType: reCheckGate?.signalType,
-        dayOpen: reCheckQuote?.dayOpen,
-        prevClose: reCheckQuote?.prevClose,
-        volume: reCheckQuote?.volume,
-        avgVolume: reCheckQuote?.avgVolume,
-        minGateScore: getMinGateScore(ctx.regime),  // 아이디어 #7: 레짐별 Gate 임계값 적용
+        reCheckQuote,
+        reCheckGate,
+        regime: ctx.regime,
         marketElapsedMinutes: getKstMarketElapsedMinutes(),
       });
-      if (!entryRevalidation.ok) {
-        console.log(`[AutoTrade] ${stock.name} 진입 직전 재검증 탈락: ${entryRevalidation.reasons.join(', ')}`);
+      if (!revalResult.proceed) {
+        console.log(revalResult.logMessage);
         // BUG-07 fix: MANUAL 종목도 entryFailCount 추적 — 반복 실패 시 자동 제거 대상에 포함
         stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
         ctx.mutables.watchlistMutated.value = true;
         ctx.scanCounters.gateMisses++;
-        stageLog.gate = `FAIL(${entryRevalidation.reasons.join(',')})`;
+        stageLog.gate = revalResult.stageLogValue;
         pushTrace();
 
         // Idea 4 — Counterfactual Shadow: 탈락 후보 상위 N 개를 가상 진입으로 기록.
@@ -721,7 +714,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               gateScore: stock.gateScore ?? 0,
               regime: ctx.regime,
               conditionKeys: stock.conditionKeys ?? [],
-              skipReason: `entryRevalidation:${entryRevalidation.reasons.join(',')}`,
+              skipReason: `entryRevalidation:${revalResult.failReasons.join(',')}`,
             });
             if (recorded) ctx.scanCounters.counterfactualRecordedToday++;
           } catch (e) {
@@ -731,14 +724,18 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         continue;
       }
 
+      // ── ADR-0031 PR-61: yahooAvailabilityStep RevalidationStep ──────────
       // BUG-02 fix: Yahoo 실패 시 MTAS 검증 우회 방지 — 재검증 불가 시 진입 보류
-      if (!reCheckGate) {
-        console.warn(`[AutoTrade] ${stock.name} Yahoo 조회 실패 — 재검증 불가, 진입 보류`);
+      const yahooAvail = yahooAvailabilityStep({ stockName: stock.name, reCheckGate });
+      if (!yahooAvail.proceed) {
+        console.warn(yahooAvail.logMessage);
         ctx.scanCounters.yahooFails++;
-        stageLog.gate = 'FAIL(yahoo_unavailable)';
+        stageLog.gate = yahooAvail.stageLogValue;
         pushTrace();
         continue;
       }
+      // TypeScript 좁히기: yahooAvailabilityStep 통과 시 reCheckGate non-null 보장 (도달 불가 가드)
+      if (!reCheckGate) continue;
       stageLog.gate = 'PASS';
 
       // 실시간 gateScore: 재평가 성공 시 실시간 값 우선
@@ -748,61 +745,43 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // 서버 Gate 최대 13점(11조건 × 1.0 + ctx.volumeClock +2) 기준 임계값
       const isStrongBuy = gateScore >= 9;
 
+      // ── ADR-0031 PR-61: mtasGateStep + sellOnlyExceptionStep ────────────
       // MTAS 기반 진입 차단: 타임프레임 불일치 시 진입 금지
-      if (reCheckGate.mtas <= 3) {
-        console.log(
-          `[AutoTrade] ${stock.name} MTAS ${reCheckGate.mtas.toFixed(1)}/10 진입 금지 — 타임프레임 불일치`
-        );
+      const mtasResult = mtasGateStep({ stockName: stock.name, mtas: reCheckGate.mtas });
+      if (!mtasResult.proceed) {
+        console.log(mtasResult.logMessage);
         continue;
       }
-
       // Phase 2-③: SELL_ONLY 예외 채널이면 liveGate·MTAS 재검증 (4중 조건의 종목 측면)
-      if (ctx.sellOnlyExc.allow) {
-        if (liveGateScore < ctx.sellOnlyExc.minLiveGate) {
-          console.log(
-            `[AutoTrade/SellOnlyExc] ${stock.name} liveGate ${liveGateScore.toFixed(2)} < ${ctx.sellOnlyExc.minLiveGate} — 예외 진입 차단`,
-          );
-          continue;
-        }
-        if (reCheckGate.mtas < ctx.sellOnlyExc.minMtas) {
-          console.log(
-            `[AutoTrade/SellOnlyExc] ${stock.name} MTAS ${reCheckGate.mtas.toFixed(1)} < ${ctx.sellOnlyExc.minMtas} — 예외 진입 차단`,
-          );
-          continue;
-        }
+      const sellOnlyResult = sellOnlyExceptionStep({
+        stockName: stock.name,
+        sellOnlyExc: ctx.sellOnlyExc,
+        liveGateScore,
+        mtas: reCheckGate.mtas,
+      });
+      if (!sellOnlyResult.proceed) {
+        console.log(sellOnlyResult.logMessage);
+        continue;
       }
 
+      // ── ADR-0031 PR-62: sizingTierDecider — 신뢰도 티어 + PROBING 슬롯 ──
       // Phase 4-⑧(수정): 신뢰도 티어 기반 사이징 — 카테고리 신설 대신 Kelly 만 차등.
-      // Gate 1 통과 프록시: liveGateScore ≥ getMinGateScore(ctx.regime).
-      // 섹터 정렬 프록시: leadingSectorRS ≥ 60 또는 sectorCycleStage ∈ {EARLY, MID}.
-      // conditionsMatched: 통과 조건 키 수.
-      const _gate1Pass = liveGateScore >= getMinGateScore(ctx.regime);
-      const _rs = ctx.macroState?.leadingSectorRS ?? 0;
-      const _stage = ctx.macroState?.sectorCycleStage;
-      const _sectorAligned = _rs >= 60 || _stage === 'EARLY' || _stage === 'MID';
-      const _conditionsMatched = reCheckGate.conditionKeys?.length ?? 0;
-      const tierDecision = classifySizingTier({
-        liveGate: liveGateScore, mtas: reCheckGate.mtas,
-        gate1Pass: _gate1Pass, sectorAligned: _sectorAligned,
-        conditionsMatched: _conditionsMatched,
-      });
-      if (tierDecision.tier === null) {
-        console.log(`[AutoTrade/SizingTier] ${stock.name} 티어 미달 — ${tierDecision.reason}`);
-        continue;
-      }
       // Idea 6: bandit 이 결정한 동적 예산으로 PROBING 슬롯 제어.
-      // 최소 = 레거시 PROBING_MAX_SLOTS (1). bandit 이 더 높은 예산을 제시하면 그 값을 채택.
-      const probingBudget = Math.max(PROBING_MAX_SLOTS, ctx.banditDecision.budget);
-      if (tierDecision.tier === 'PROBING' &&
-          !canReserveBanditProbingSlot(ctx.mutables.probingReservedSlots.value, probingBudget)) {
-        console.log(
-          `[AutoTrade/SizingTier] ${stock.name} PROBING 슬롯 포화 (${ctx.mutables.probingReservedSlots.value}/${probingBudget}) — 스킵`,
-        );
+      const tierResult = sizingTierDecider({
+        stockName: stock.name,
+        liveGateScore,
+        reCheckGate,
+        regime: ctx.regime,
+        macroState: ctx.macroState,
+        banditDecision: ctx.banditDecision,
+        probingReservedSlots: ctx.mutables.probingReservedSlots.value,
+      });
+      if (!tierResult.ok) {
+        console.log(tierResult.logMessage);
         continue;
       }
-      console.log(
-        `[AutoTrade/SizingTier] ${stock.name} → ${tierDecision.tier} (×${tierDecision.kellyFactor}) — ${tierDecision.reason}`,
-      );
+      const tierDecision = tierResult.tierDecision;
+      for (const msg of tierResult.logMessages) console.log(msg);
 
       // 포지션 사이징: 실시간 Gate 결과 연동 (buyPipeline 헬퍼 사용)
       // CATALYST 섹션은 표준의 60%로 축소 — 촉매 신호는 단기 고리스크이므로 손실 제한
@@ -875,51 +854,29 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         }
       }
 
-      // ── P1-2: 계좌 리스크 예산 + Fractional Kelly 게이트 ────────────────
+      // ── ADR-0031 PR-63: kellyBudgetDecider — 계좌 리스크 + Fractional Kelly ─
       // sizingTier × kellyDampener × accountScale 까지 누적된 positionPct 에
       // 다시 한 번 "신호 등급별 캡 + 동시 R 잔여 + 일일 손실 잔여" 를 강제한다.
-      // 작은 쪽이 채택되므로 기존 sizing 보다 더 보수적인 결과만 나올 수 있다.
       const grade: 'STRONG_BUY' | 'BUY' | 'PROBING' | 'HOLD' =
         tierDecision.tier === 'PROBING' ? 'PROBING'
         : isStrongBuy ? 'STRONG_BUY'
         : 'BUY';
-      // Idea 8: 활성 포지션의 실시간 현재가를 수집하여 getAccountRiskBudget 에 주입.
-      // 이미 스트림 구독 중인 종목은 getRealtimePrice() 로 즉시 조회 가능하므로
-      // 추가 네트워크 비용 없이 trailing hardStop 반영 activeR 계산을 활성화한다.
-      const openCurrentPrices = new Map<string, number>();
-      for (const s of ctx.shadows) {
-        if (!isOpenShadowStatus(s.status)) continue;
-        const rt = getRealtimePrice(s.stockCode);
-        if (rt !== null && Number.isFinite(rt) && rt > 0) {
-          openCurrentPrices.set(s.stockCode, rt);
-        }
-      }
-      const budget = getAccountRiskBudget({
-        totalAssets: ctx.totalAssets,
-        trades: ctx.shadows,
-        currentPrices: openCurrentPrices,
-      });
-      if (!budget.canEnterNew) {
-        console.log(`[AutoTrade/RiskBudget] ${stock.name} 진입 차단 — ${budget.blockedReasons.join(' / ')}`);
-        continue;
-      }
-      const confidenceModifier = Math.min(1.2, 0.6 + 0.05 * (reCheckGate.mtas ?? 0));
-      const sized = computeRiskAdjustedSize({
-        entryPrice: shadowEntryPrice,
-        stopLoss:   stock.stopLoss,
+      const kellyResult = kellyBudgetDecider({
+        stockName: stock.name,
+        shadowEntryPrice,
+        stopLoss: stock.stopLoss,
         signalGrade: grade,
-        kellyMultiplier: positionPct,             // 누적 Kelly 비율
-        confidenceModifier,
-        budget,
+        positionPct,
+        mtas: reCheckGate.mtas,
         totalAssets: ctx.totalAssets,
+        shadows: ctx.shadows,
       });
-      if (sized.recommendedBudgetKrw <= 0) {
-        console.log(`[AutoTrade/RiskBudget] ${stock.name} 사이즈 0 — ${sized.reason}`);
+      if (!kellyResult.ok) {
+        console.log(kellyResult.logMessage);
         continue;
       }
-      if (sized.kellyWasCapped) {
-        console.log(`[AutoTrade/RiskBudget] ${stock.name} Fractional Kelly 캡 적용 — ${sized.reason}`);
-      }
+      const { budget, sized, confidenceModifier } = kellyResult;
+      for (const msg of kellyResult.logMessages) console.log(msg);
 
       // Idea 1 — 진입 시점 Kelly 의사결정 스냅샷 동결.
       // buildBuyTrade 가 이 값을 trade 객체에 귀속시켜 이후 /kelly 헬스 카드·사후 복기에서 단일 참조점으로 쓴다.
@@ -951,18 +908,18 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // 잔여 30%·20%는 trancheExecutor가 3일·7일 후 실행
       const execQty = isStrongBuy ? Math.max(1, Math.floor(quantity * 0.5)) : quantity;
 
-      // ─── ① 손절 정책 분리: 고정 손절 / 레짐 손절 / 하드 스톱 ───────────────
+      // ── ADR-0031 PR-64: stopLossPolicyResolver — 손절 정책 분리 순수 헬퍼 ─
       // CATALYST 섹션: 고정 -5% 타이트 손절 (ATR 동적 손절 비사용)
       // SWING 섹션: 기존 ATR 동적 손절 + 레짐 손절
-      const profile    = stock.profileType ?? 'B';
-      const profileKey = `profile${profile}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
-      const isCatalyst = stock.section === 'CATALYST';
-      const regimeStopRate  = isCatalyst ? CATALYST_FIXED_STOP_PCT : REGIME_CONFIGS[ctx.regime].stopLoss[profileKey];
-      const entryATR14 = isCatalyst ? 0 : (reCheckQuote?.atr ?? 0); // CATALYST는 ATR 동적 손절 비사용
-      const catalystFixedStop = isCatalyst ? Math.round(shadowEntryPrice * (1 + CATALYST_FIXED_STOP_PCT)) : stock.stopLoss;
-      const stopLossPlan = buildStopLossPlan({
-        entryPrice: shadowEntryPrice, fixedStopLoss: isCatalyst ? catalystFixedStop : stock.stopLoss, regimeStopRate, atr14: entryATR14, regime: ctx.regime,
+      const stopPolicy = stopLossPolicyResolver({
+        profileType: stock.profileType,
+        section: stock.section,
+        regime: ctx.regime,
+        shadowEntryPrice,
+        fallbackStopLoss: stock.stopLoss,
+        reCheckQuoteAtr: reCheckQuote?.atr,
       });
+      const { profile, isCatalyst, stopLossPlan, entryATR14 } = stopPolicy;
 
       // L3 분할 익절 타겟 — PROFIT_TARGETS[ctx.regime]에서 LIMIT 트랜치 추출.
       // section (CATALYST/SWING) 과 ctx.watchlist 추적자(MOMENTUM = LEADER 추세) 에 따라
@@ -1066,31 +1023,18 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           }
         },
       }));
-      // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
-      // MOMENTUM Shadow 는 LIVE 슬롯/섹터/PROBING 예산에서 모두 격리된다.
-      if (!isMomentumShadow) {
-        ctx.mutables.reservedSlots.value++;
-        // Phase 4-⑧(수정): PROBING 티어 전용 슬롯 카운터
-        if (tierDecision.tier === 'PROBING') ctx.mutables.probingReservedSlots.value++;
-        ctx.mutables.reservedTiers.push(tierDecision.tier === 'PROBING' ? 'PROBING' : 'OTHER');
-      } else {
-        // 큐 index 와 ctx.mutables.reservedTiers 길이 정합성을 위해 플레이스홀더를 push
-        ctx.mutables.reservedTiers.push('OTHER');
-      }
-      ctx.mutables.reservedIsMomentum.push(isMomentumShadow);
-      // BUG #3 fix — 같은 스캔의 다음 후보가 동일 ctx.mutables.orderableCash.value 를 이중 사용하는 것을
-      // 차단하기 위해, 승인 대기 시점에 즉시 예산을 예약(차감) 한다. 롤백 시 복원.
-      if (!isMomentumShadow && effectiveBudget > 0) {
-        ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - effectiveBudget);
-        ctx.mutables.reservedBudgets.push(effectiveBudget);
-      } else {
-        ctx.mutables.reservedBudgets.push(0);
-      }
-      if (!isMomentumShadow) {
-        const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
-        ctx.mutables.pendingSectorValue.set(_sec, (ctx.mutables.pendingSectorValue.get(_sec) ?? 0) + effectiveBudget);
-        ctx.mutables.reservedSectorValues.push({ sector: _sec, value: effectiveBudget });
-      }
+      // ── ADR-0031 PR-65: applyApprovalReservation commit 단계 SSOT ───────
+      // 8개 mutable 필드 (reservedSlots / probingReservedSlots / reservedTiers /
+      // reservedIsMomentum / reservedBudgets / orderableCash / pendingSectorValue /
+      // reservedSectorValues) 동시 갱신을 단일 헬퍼로 캡슐화 — 슬롯 예약 롤백 SSOT.
+      applyApprovalReservation({
+        mutables: ctx.mutables,
+        isMomentumShadow,
+        tier: tierDecision.tier,
+        effectiveBudget,
+        stockCode: stock.code,
+        stockSector: stock.sector,
+      });
     } catch (err: unknown) {
       console.error(`[AutoTrade] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
     }
