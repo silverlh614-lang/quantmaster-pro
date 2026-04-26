@@ -54,6 +54,49 @@ export type ConditionSourceTier = 'COMPUTED' | 'API' | 'AI_INFERRED';
  */
 export type PriceAlertLevel = 'NORMAL' | 'CAUTION' | 'DANGER' | 'TAKE_PROFIT';
 
+// ─── PR-D (ADR-0021) — Last Trigger / Enemy Checklist ─────────────────────
+
+export type TriggerCheckId =
+  | 'VCP_BREAKOUT'
+  | 'VOLUME_SURGE'
+  | 'VKOSPI_STABLE'
+  | 'POSITIVE_DISCLOSURE';
+
+export type TriggerCheckStatus = 'TRIGGERED' | 'PENDING';
+
+export interface LastTriggerCheck {
+  id: TriggerCheckId;
+  label: string;
+  status: TriggerCheckStatus;
+  detail?: string;
+}
+
+export interface LastTriggerSummary {
+  checks: LastTriggerCheck[];
+  triggeredCount: number;
+  totalChecks: number;
+  /** 4/4 → EXECUTE / 1~3 → WATCHLIST / 0 → INACTIVE */
+  verdict: 'EXECUTE' | 'WATCHLIST' | 'INACTIVE';
+}
+
+export type EnemyFlagId = 'SHORT_INCREASING' | 'MARGIN_OVERHEAT' | 'WEEKLY_RSI_OVERHEAT';
+
+export type EnemyFlagStatus = 'WARNING' | 'CLEAR';
+
+export interface EnemyChecklistFlag {
+  id: EnemyFlagId;
+  label: string;
+  status: EnemyFlagStatus;
+  detail?: string;
+}
+
+export interface EnemyChecklistSummary {
+  flags: EnemyChecklistFlag[];
+  warningCount: number;
+  /** ≥2 WARNING → BLOCK / 1 → CAUTION / 0 → CLEAR */
+  verdict: 'CLEAR' | 'CAUTION' | 'BLOCK';
+}
+
 /**
  * DataQualityBadge 가 종목 카드에 노출하는 3분류 카운트.
  * - PR-A: sourceMetaAvailable=false → 클라이언트 휴리스틱 fallback (handoff.md §휴리스틱).
