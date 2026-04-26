@@ -51,6 +51,7 @@ import {
 import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKisIntraday } from '../../screener/stockScreener.js';
 import { fillMonitor } from '../fillMonitor.js';
 import { trancheExecutor } from '../trancheExecutor.js';
+import { ENTRY_GATES_PHASE_B_POC } from './entryGates/index.js';
 import {
   isOpenShadowStatus,
   buildStopLossPlan,
@@ -628,32 +629,23 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         }
       }
 
-      // ── 블랙리스트 확인 (Cascade -30% 진입 금지 목록) ──
-      if (isBlacklisted(stock.code)) {
-        console.log(`[AutoTrade] 🚫 ${stock.name}(${stock.code}) 블랙리스트 — 진입 차단`);
-        continue;
+      // ── ADR-0030 PR-57: Phase B PoC EntryGate Chain (3 단순 게이트) ────────
+      // blacklistGate / addBuyBlockGate / rrrGate 3 동기 게이트의 byte-equivalent 추출.
+      // 잔여 6 게이트 (cooldown / sector* / portfolioRisk / liveGateRevalidation /
+      // kellyBudget) 는 후속 PR 에서 async 시그니처로 추가.
+      let _gateBlocked = false;
+      for (const gate of ENTRY_GATES_PHASE_B_POC) {
+        const result = gate({ stock, shadows: ctx.shadows, scanCounters: ctx.scanCounters });
+        if (result.pass) continue;
+        console.log(result.logMessage);
+        if (result.counter) ctx.scanCounters[result.counter] += 1;
+        if (result.stageLog) stageLog[result.stageLog.key] = result.stageLog.value;
+        if (result.pushTrace) pushTrace();
+        _gateBlocked = true;
+        break;
       }
-
-      // ── 추가 매수 차단 플래그 확인 (Cascade -7% 이후) ──
-      const blockedShadow = ctx.shadows.find(
-        s => s.stockCode === stock.code && s.addBuyBlocked === true
-      );
-      if (blockedShadow) {
-        console.log(`[AutoTrade] ⚠️  ${stock.name}(${stock.code}) 추가 매수 차단 중 (Cascade -7%)`);
-        continue;
-      }
-
-      // ── RRR 필터 (Risk-Reward Ratio 최소값 미달 종목 제외) ──
-      const rrr = calcRRR(stock.entryPrice, stock.targetPrice, stock.stopLoss);
-      if (rrr < RRR_MIN_THRESHOLD) {
-        console.log(
-          `[AutoTrade] 📐 ${stock.name}(${stock.code}) RRR ${rrr.toFixed(2)} < ${RRR_MIN_THRESHOLD} — 진입 제외`
-        );
-        ctx.scanCounters.rrrMisses++;
-        stageLog.rrr = `FAIL(${rrr.toFixed(2)} < ${RRR_MIN_THRESHOLD})`;
-        pushTrace();
-        continue;
-      }
+      if (_gateBlocked) continue;
+      // 원본은 RRR PASS 시 stageLog.rrr='PASS' 만 별도로 기록 — 게이트 통과 후 동등 처리.
       stageLog.rrr = 'PASS';
 
       // ── 아이디어 4: 섹터 집중도 가드 (Correlation Guard) ──
