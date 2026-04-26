@@ -7,4 +7,5 @@ export { MarketPage } from './MarketPage';
 export { BacktestPage } from './BacktestPage';
 export { DiscoverWatchlistPage } from './DiscoverWatchlistPage';
 export { PortfolioExtractPage } from './PortfolioExtractPage';
+export { RecommendationHistoryPage } from './RecommendationHistoryPage';
 export { PageRouter } from './PageRouter';

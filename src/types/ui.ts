@@ -31,6 +31,17 @@ export interface MarketModePolicy {
 export type DataQualityTier = 'HIGH' | 'MEDIUM' | 'LOW';
 
 /**
+ * 27 조건 항목별 실제 데이터 출처 (ADR-0019 PR-B).
+ * - COMPUTED: 클라이언트 OHLCV 직접 계산 (RSI/MACD/볼린저/일목/VCP …)
+ * - API: DART/Naver/KIS proxy 응답 (ROE/PER/PBR/시총/외인비율 …)
+ * - AI_INFERRED: Gemini 추론 (사이클/Risk-On/리더/정책/심리 …)
+ *
+ * `StockRecommendation.conditionSourceTiers?: Partial<Record<ChecklistKey, ConditionSourceTier>>`
+ * 로 첨부되어 `classifyDataQuality` 가 메타 우선 분기를 사용한다.
+ */
+export type ConditionSourceTier = 'COMPUTED' | 'API' | 'AI_INFERRED';
+
+/**
  * DataQualityBadge 가 종목 카드에 노출하는 3분류 카운트.
  * - PR-A: sourceMetaAvailable=false → 클라이언트 휴리스틱 fallback (handoff.md §휴리스틱).
  * - PR-B: 서버 enrichment 응답에 sourceTier 메타가 들어오면 정확도 격상.
