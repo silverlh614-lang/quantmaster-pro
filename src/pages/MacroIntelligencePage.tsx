@@ -5,6 +5,7 @@ import { Activity, Globe, TrendingUp, Truck, AlertTriangle, BarChart3 } from 'lu
 import { cn } from '../ui/cn';
 import { useGlobalIntelStore } from '../stores';
 import { GlobalCorrelationCard } from '../components/macro/GlobalCorrelationCard';
+import { PortfolioCorrelationMatrix } from '../components/macro/PortfolioCorrelationMatrix';
 
 // ─── 공통 카드 ─────────────────────────────────────────────────────────────
 
@@ -268,6 +269,9 @@ export function MacroIntelligencePage() {
       <p className="text-[10px] text-white/40 leading-snug">
         각 카드는 데이터 부재 시 자동 placeholder. 매크로 cron 갱신 주기에 따라 1~24h 차이 가능.
       </p>
+
+      {/* PR-N: 보유 종목 직접 상관관계 매트릭스 */}
+      <PortfolioCorrelationMatrix />
     </div>
   );
 }
