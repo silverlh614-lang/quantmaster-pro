@@ -13,6 +13,7 @@ import { Stack } from '../layout/Stack';
 import { DeepAnalysisModal } from '../components/analysis/DeepAnalysisModal';
 import { WatchlistHeader } from '../components/watchlist/WatchlistHeader';
 import { WatchlistFilterPanel } from '../components/watchlist/WatchlistFilterPanel';
+import { CandidatePipelinePanel } from '../components/screener/CandidatePipelinePanel';
 import { WatchlistCard } from '../components/watchlist/WatchlistCard';
 import { GatePyramidVisualization } from '../components/analysis/GatePyramidVisualization';
 import { useWatchlistFilters } from '../hooks/useWatchlistFilters';
@@ -351,6 +352,13 @@ export function DiscoverWatchlistPage({
       )}
 
       <Section>
+        {/* PR-F (ADR-0023): 후보군 파이프라인 — Discover 탭에서만 표시 */}
+        {view === 'DISCOVER' && (
+          <div className="mb-3 sm:mb-4">
+            <CandidatePipelinePanel />
+          </div>
+        )}
+
         {/* Search / Sort / Filter Panel — 검색 탭 & 관심목록에서만 노출 */}
         {(showSearch || view === 'WATCHLIST') && (
         <WatchlistFilterPanel
