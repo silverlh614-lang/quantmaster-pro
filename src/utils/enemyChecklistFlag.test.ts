@@ -1,5 +1,5 @@
 /**
- * @responsibility evaluateEnemyChecklist 단위 테스트 — ADR-0021 PR-D
+ * @responsibility evaluateEnemyChecklist 단위 테스트 — ADR-0031 PR-D
  */
 import { describe, it, expect } from 'vitest';
 import { evaluateEnemyChecklist } from './enemyChecklistFlag';
@@ -22,7 +22,7 @@ function makeStock(opts: {
   } as unknown as StockRecommendation;
 }
 
-describe('evaluateEnemyChecklist — ADR-0021 3-플래그 평가', () => {
+describe('evaluateEnemyChecklist — ADR-0031 3-플래그 평가', () => {
   it('0 WARNING → CLEAR', () => {
     const r = evaluateEnemyChecklist({
       stock: makeStock({ shortTrend: 'DECREASING' }),

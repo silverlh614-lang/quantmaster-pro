@@ -1,4 +1,4 @@
-// @responsibility 손절·익절 4단계 알림 레벨 계산 순수 함수 (ADR-0020 PR-C)
+// @responsibility 손절·익절 4단계 알림 레벨 계산 순수 함수 (ADR-0030 PR-C)
 
 import type { PriceAlertLevel } from '../types/ui';
 

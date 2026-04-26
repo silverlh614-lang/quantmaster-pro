@@ -1,10 +1,10 @@
 /**
- * @responsibility buildConditionSourceTiers 메타 빌드 단위 테스트 — ADR-0019 PR-B
+ * @responsibility buildConditionSourceTiers 메타 빌드 단위 테스트 — ADR-0029 PR-B
  */
 import { describe, it, expect } from 'vitest';
 import { buildConditionSourceTiers } from './enrichment';
 
-describe('buildConditionSourceTiers — ADR-0019 sourceTier 메타 분류', () => {
+describe('buildConditionSourceTiers — ADR-0029 sourceTier 메타 분류', () => {
   it('main path (DART + KIS supply + VCP) → 6 키 격상', () => {
     const meta = buildConditionSourceTiers({
       hasDartFinancials: true,

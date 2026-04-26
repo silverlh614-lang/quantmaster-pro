@@ -1,8 +1,8 @@
-# ADR-0020 — Price Alert Watcher (PR-C)
+# ADR-0030 — Price Alert Watcher (PR-C)
 
 - **Status**: Accepted (2026-04-26)
-- **Scope**: ADR-0018 PR-A 후속. 사용자 P0-2 "손절·목표가 도달 알림" 구현.
-- **Related**: ADR-0018 (UI 재설계 P0-A), ADR-0019 (PR-B Source Tier).
+- **Scope**: ADR-0028 PR-A 후속. 사용자 P0-2 "손절·목표가 도달 알림" 구현.
+- **Related**: ADR-0028 (UI 재설계 P0-A), ADR-0029 (PR-B Source Tier).
 
 ---
 

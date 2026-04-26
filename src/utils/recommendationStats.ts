@@ -1,4 +1,4 @@
-// @responsibility 추천 이력 records → signalType + period 분리 통계 계산 (ADR-0024 PR-G)
+// @responsibility 추천 이력 records → signalType + period 분리 통계 계산 (ADR-0034 PR-G)
 
 import type { ClientRecommendationRecord } from '../api/recommendationsClient';
 

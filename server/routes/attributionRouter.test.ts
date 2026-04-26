@@ -1,5 +1,5 @@
 /**
- * @responsibility attributionRouter 단위 테스트 — ADR-0025 PR-H
+ * @responsibility attributionRouter 단위 테스트 — ADR-0035 PR-H
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -46,7 +46,7 @@ function findHandler(method: string, path: string): RouteHandler {
   throw new Error(`route ${method} ${path} not found`);
 }
 
-describe('attributionRouter — ADR-0025', () => {
+describe('attributionRouter — ADR-0035', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

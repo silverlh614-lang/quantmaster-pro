@@ -1,10 +1,10 @@
 /**
- * @responsibility deriveRegimeLevel 매핑 단위 테스트 — ADR-0018 §1
+ * @responsibility deriveRegimeLevel 매핑 단위 테스트 — ADR-0028 §1
  */
 import { describe, it, expect } from 'vitest';
 import { deriveRegimeLevel } from './regimeMapping';
 
-describe('deriveRegimeLevel — ADR-0018 6레짐 매핑', () => {
+describe('deriveRegimeLevel — ADR-0028 6레짐 매핑', () => {
   it('bearRegime=BEAR → R6_DEFENSE (최우선)', () => {
     expect(deriveRegimeLevel(
       { tradeRegime: 'BULL_AGGRESSIVE', macroHealthScore: 90 },

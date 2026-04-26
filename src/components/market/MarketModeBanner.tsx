@@ -1,4 +1,4 @@
-// @responsibility 항상 표시되는 시장 모드 배너 — MHS+Regime+VKOSPI+USD/KRW+허용·금지 정책 (ADR-0018 §1)
+// @responsibility 항상 표시되는 시장 모드 배너 — MHS+Regime+VKOSPI+USD/KRW+허용·금지 정책 (ADR-0028 §1)
 
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Activity, Globe, Shield } from 'lucide-react';
@@ -48,7 +48,7 @@ function fmtKrw(n: number | null | undefined): string {
  * - non-null → MHS / Regime / VKOSPI / USD/KRW + REGIME_TRADING_POLICY allowed·forbidden.
  * - 모바일: 한 줄 + 펼치기 토글, 데스크탑: 풀 박스 항상 표시.
  *
- * MarketRegimeBanner 와 책임 분리 (ADR-0018 §2): 본 배너는 *항상 렌더 + 정책*,
+ * MarketRegimeBanner 와 책임 분리 (ADR-0028 §2): 본 배너는 *항상 렌더 + 정책*,
  * MarketRegimeBanner 는 *Risk-Off 경보 전용*.
  */
 export function MarketModeBanner() {

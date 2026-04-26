@@ -1,5 +1,5 @@
 /**
- * @responsibility 조건별 수익률 귀인 통계 GET 엔드포인트 (ADR-0025 PR-H)
+ * @responsibility 조건별 수익률 귀인 통계 GET 엔드포인트 (ADR-0035 PR-H)
  */
 
 import { Router, Request, Response } from 'express';

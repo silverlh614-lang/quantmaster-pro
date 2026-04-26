@@ -1,4 +1,4 @@
-// @responsibility 4-체크 라스트 트리거 카드 — "왜 지금?" 표시 (ADR-0021 PR-D)
+// @responsibility 4-체크 라스트 트리거 카드 — "왜 지금?" 표시 (ADR-0031 PR-D)
 
 import React from 'react';
 import { Check, Clock, Zap } from 'lucide-react';
