@@ -66,6 +66,9 @@ When modifying any file, ensure changes stay within the owning module's stated r
 | `server/trading/krxHolidayAudit.ts` | KRX 차년도 휴장일 등록 감사 — 매년 12/1 cron, 미달 시 CRITICAL 텔레그램 (ADR-0045) |
 | `src/services/quant/f2wDriftDetector.ts` | F2W 가중치 σ 변화 감시 — drift 감지 시 LIVE 학습 일시정지 SSOT (ADR-0046) |
 | `server/alerts/f2wDriftAlert.ts` | 클라이언트 F2W drift POST 진입점 — dispatchAlert(JOURNAL) + sendPrivateAlert 일괄 (ADR-0046) |
+| `server/persistence/reflectionImpactRepo.ts` | 13개 reflection 모듈 일자별 meaningful boolean 영속 — 1년 ring buffer (ADR-0047) |
+| `server/learning/reflectionImpactPolicy.ts` | reflection 모듈 status (normal/grace/silent/deprecated) 판정 SSOT — 임계 5%/1% (ADR-0047) |
+| `server/learning/reflectionImpactRecorder.ts` | nightlyReflection report 로부터 13 모듈 meaningful 추론·일괄 영속 헬퍼 (ADR-0047) |
 
 ---
 
@@ -96,6 +99,7 @@ When modifying any file, ensure changes stay within the owning module's stated r
 - **CH4 JOURNAL 주간 자기비판 리포트** (ADR-0041): `server/alerts/weeklySelfCritiqueReport.ts` 가 일요일 19:00 KST (UTC 10:00 Sun) 에 `dispatchAlert(ChannelSemantic.JOURNAL)` 으로 발송한다. 데이터: `aggregateFillStats(trades, range)` 주간 fill 통계 + `getLearningHistory(7).escalatingBiases` 편향 (3일 연속 ≥ 0.5) + `summarizeStopPatterns(weeklyStops)` 손절 패턴 분포 + `buildStopPatternRecommendation` 자동 권고. **개별 종목 정보 절대 포함 금지** (CH4 메타 학습 정체성) — 회귀 테스트가 6자리 코드 패턴 부재 + 잔고 키워드 8종 부재 자동 검증. 자동 권고 휴리스틱은 결정적 (Gemini 호출 0) — 표본 ≥ 3건 + 비율 ≥ 40% 임계 통과 시 R5_CAUTION/R6_DEFENSE/ATR_HARD_STOP/CASCADE 패턴별 권고문 생성. dedupeKey `weekly_self_critique:{KST 일요일}` 로 이중 발송 차단.
 - **/channel_test 4채널 헬스체크 + 손절 카운트다운 sendPrivateAlert** (ADR-0042): `server/telegram/commands/alert/channelTest.cmd.ts` 가 `runChannelHealthCheck()` (alertRouter SSOT) 를 호출해 4채널(EXECUTION/SIGNAL/REGIME/JOURNAL) 동시 발송 후 결과 집계 — `formatChannelHealthCheckResult()` 순수 함수가 정상/미설정/비활성/발송실패 4분기 처리 + 미설정 환경변수 누적 안내. `stopApproachAlert` 손절 접근 3단계 경보(-5%/-3%/-1%)는 `sendTelegramAlert` → `sendPrivateAlert` 시멘틱 정합화 — 사용자 패닉 매도 차단 위해 CH1 EXECUTION 채널이 아닌 개인 DM 만 발송, 실제 손절 발동 시 channelSellSignal 이 사후 보고 (CH1).
 - **F2W Drift Detector boundary** (ADR-0046): `src/services/quant/f2wDriftDetector.ts` 는 자기학습 가중치 σ 변화 감시 SSOT. `feedbackLoopEngine.evaluateFeedbackLoop` 진입부 가드 외에서 `pauseF2W` / `clearF2WPause` 호출 금지 — 운영자 수동 해제는 별도 텔레그램 명령 (`/clear_f2w_pause` 후속 PR) 으로만. shadow=true 호출은 본 가드 우회 (ADR-0027 grace 보존). drift 감지 시 클라이언트가 `POST /api/learning/f2w-drift-alert` → `server/alerts/f2wDriftAlert.ts` 가 `dispatchAlert(ChannelSemantic.JOURNAL)` + `sendPrivateAlert` 일괄 발송. 클라이언트 측 모듈은 server/alerts import 금지 — fetch HTTP 경계만 사용. **개별 종목 정보 절대 포함 금지** (CH4 JOURNAL 정체성) — 회귀 테스트가 6자리 코드 패턴 부재 + 잔고 키워드 8종 부재 자동 검증. `LEARNING_F2W_DRIFT_DISABLED=true` 환경변수로 전체 회로 무력화 가능 — 사고 조사 시 임시 우회 경로.
+- **Reflection Module Half-Life boundary** (ADR-0047): `server/persistence/reflectionImpactRepo.ts` 는 13개 reflection 모듈 영향률 영속 SSOT (1년 ring buffer). `server/learning/reflectionImpactPolicy.ts` 는 임계 5%/1% 정책 SSOT — `getModuleStatus()` 결정 트리: ENV 무력화 → grace period 30일 → 표본 < 20건 grace → 영향률 < 1% deprecated → < 5% silent → 그 외 normal. `reflectionImpactRecorder.ts` 가 nightlyReflectionEngine 의 report 완성 시점에 1회 호출되어 13개 모듈 meaningful 일괄 추론·영속 — 모듈 호출 직접 wrapping 금지 (광범위 변경 회피). 본 PR 은 *측정만* — 실제 silent/deprecated 가드 wiring (실행 스킵 / 출력 억제) 은 데이터 누적 후 후속 PR. 운영자 진단 endpoint `GET /api/learning/reflection-impact?days=180` — status/impactRate/runs 일괄 반환. `LEARNING_REFLECTION_HALFLIFE_DISABLED=true` 환경변수로 모든 모듈 'normal' 강제.
 
 ---
 
