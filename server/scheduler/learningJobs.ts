@@ -14,6 +14,7 @@ import { resolveCounterfactuals, evaluateCounterfactualSuggestion } from '../lea
 import { resolveLedger, evaluateLedgerSuggestion } from '../learning/ledgerSimulator.js';
 import { evaluateKellySurfaceSuggestion } from '../learning/kellySurfaceMap.js';
 import { evaluateRegimeCoverageSuggestion } from '../learning/regimeBalancedSampler.js';
+import { runDeterminismCanary } from '../learning/determinismCanary.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 
 export function registerLearningJobs(): void {
@@ -123,5 +124,22 @@ export function registerLearningJobs(): void {
     await evaluateLedgerSuggestion().catch((e) => console.warn('[Ledger][suggest] 평가 실패:', e));
     await evaluateKellySurfaceSuggestion({}).catch((e) => console.warn('[KellySurface][suggest] 평가 실패:', e));
     await evaluateRegimeCoverageSuggestion().catch((e) => console.warn('[RegimeCoverage][suggest] 평가 실패:', e));
+  }, { timezone: 'UTC' });
+
+  // 결정성 패치 Tier 2 #6 — Determinism Canary 매일 KST 02:00 (UTC 17:00 전일).
+  // fixture 5건 게이트 평가 후 직전 일자와 비교, drift 시 CRITICAL 경보.
+  cron.schedule('0 17 * * *', async () => {
+    try {
+      const report = await runDeterminismCanary();
+      if (report.unexpectedDrift.length > 0) {
+        console.warn(`[DeterminismCanary] ⚠️ unexpected drift ${report.unexpectedDrift.length}건 — 가중치 미변경`);
+      } else if (report.intendedDrift.length > 0) {
+        console.log(`[DeterminismCanary] intended drift ${report.intendedDrift.length}건 — 가중치 변경 동반`);
+      } else {
+        console.log(`[DeterminismCanary] ✅ ${report.matched}/${report.totalFixtures} fixture 일치`);
+      }
+    } catch (e) {
+      console.error('[DeterminismCanary] 실행 실패:', e instanceof Error ? e.message : e);
+    }
   }, { timezone: 'UTC' });
 }

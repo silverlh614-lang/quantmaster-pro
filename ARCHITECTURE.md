@@ -34,6 +34,13 @@ When modifying any file, ensure changes stay within the owning module's stated r
 | `server/clients/naverStockListClient.ts` | Fetch Naver mobile market-cap leaders as Tier 2 fallback (ADR-0013) |
 | `server/data/stockMasterSeed.ts` | Hard-coded KOSPI/KOSDAQ leader seed — Tier 4 ultimate fallback (ADR-0013) |
 | `server/health/diagnostics.ts` | Collect 8-axis system health snapshot — shared by /health Telegram cmd and /api/health/pipeline HTTP route |
+| `server/utils/authGuard.ts` | Verify Bearer OPERATOR_TOKEN for operator-controlled routes (Tier 1 #1) |
+| `server/utils/authRateLimit.ts` | Block IPs already on the auth blacklist and notify Telegram on new lockouts (Tier 1 #3) |
+| `server/persistence/apiAuthBlacklistRepo.ts` | Persist IP-level 401 brute-force lockouts with 5-min/10-fail/1-hour policy (Tier 1 #3) |
+| `server/routes/watchdogRouter.ts` | Expose unauthenticated GET /api/watchdog/heartbeat for external uptime monitors (Tier 1 #2) |
+| `server/utils/schemaSentinel.ts` | Validate external API payloads with zod and quarantine + alert + temporarily block on failure (Tier 2 #5) |
+| `server/learning/decisionReplayLog.ts` | Persist BUY/SELL decision input snapshots and replay them with the same evaluator (Tier 2 #4) |
+| `server/learning/determinismCanary.ts` | Run daily fixtures through gate evaluator and alert when results drift without weight changes (Tier 2 #6) |
 
 ---
 
@@ -47,6 +54,8 @@ When modifying any file, ensure changes stay within the owning module's stated r
 - **autoTradeEngine boundary**: This is the sole channel for real order execution on the server. Client-side modules must not place live orders when `AUTO_TRADE_ENABLED=true`.
 - **multiSourceStockMaster boundary**: AI-recommendation universe must refresh the master via this orchestrator only. Direct calls to `refreshKrxStockMaster()` are forbidden outside the orchestrator and its tests. Shadow DB must only be updated by validated Tier 1 / Tier 2 payloads.
 - **diagnostics boundary**: `server/health/diagnostics.ts` is the SSOT for system health snapshot collection. `/health` Telegram cmd and `/api/health/pipeline` HTTP route must import `collectHealthSnapshot()` — they may not duplicate data-gathering. External probes (Yahoo/DART HTTP) belong in `runExternalProbes()` — keep them out of the snapshot core to keep the function pure for testing.
+- **authGuard boundary**: `requireOperatorToken` is the SSOT for Bearer OPERATOR_TOKEN verification on operator-controlled routes (`/api/auto-trade/*`, `/api/operator/*`, `/api/emergency-stop`, `/api/emergency-reset`, `/api/daily-loss`). Inline token checks inside individual routers are forbidden — apply the middleware once at the mount or single endpoint. The watchdog heartbeat (`/api/watchdog/heartbeat`) is the single intentional unauthenticated endpoint and must never expose tokens, account numbers, or per-symbol fields.
+- **schemaSentinel boundary**: All external API responses (KIS/KRX/Yahoo/DART/Naver/Gemini/FRED/ECOS) that feed learning weights or trading decisions must pass through `validateExternalPayload()` before being trusted. Validation failure → quarantine to `data/quarantine/`, telegram HIGH alert, and temporary source block via `isSourceQuarantined()`. The `data/quarantine/` directory is write-only from the sentinel — readers are operators auditing failed payloads.
 
 ---
 

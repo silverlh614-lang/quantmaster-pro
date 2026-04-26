@@ -63,6 +63,10 @@ import operatorRouter from './routes/operatorRouter.js';
 import monitoringCertRouter from './routes/monitoringCertRouter.js';
 import userWatchlistRouter from './routes/userWatchlistRouter.js';
 import learningRouter from './routes/learningRouter.js';
+import watchdogRouter from './routes/watchdogRouter.js';
+import { requireOperatorToken } from './utils/authGuard.js';
+import { enforceAuthRateLimit } from './utils/authRateLimit.js';
+import { loadApiAuthBlacklist } from './persistence/apiAuthBlacklistRepo.js';
 import { startScheduler } from './scheduler/index.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 import { globalErrorHandler } from './utils/apiResponse.js';
@@ -138,6 +142,16 @@ async function startServer() {
     console.error('[Boot] KIS 블랙리스트 로드 실패:', e instanceof Error ? e.message : e);
   }
 
+  // Tier 1 보안 #3 — API 인증 실패 IP 블랙리스트 로드 (만료 entry 자동 청소).
+  try {
+    const active = loadApiAuthBlacklist();
+    if (active > 0) {
+      console.log(`[Boot] API 인증 IP 블랙리스트 로드: ${active}개 활성 entry`);
+    }
+  } catch (e) {
+    console.error('[Boot] API 인증 블랙리스트 로드 실패:', e instanceof Error ? e.message : e);
+  }
+
   // AI 추천 외부 호출 예산 경보 — 2026-04 사용자 요청으로 enforcement 및 경보 비활성.
   // 사용자가 직접 실행하는 경로라 자동 차단·알림이 불필요. `aiCallBudgetRepo` 는 카운터만 유지.
 
@@ -192,8 +206,9 @@ async function startServer() {
   // ─────────────────────────────────────────────────────────────
   // 자동매매 라우터 → server/routes/autoTradeRouter.ts 로 분리
   // (/api/auto-trade/*, /api/macro/*, /api/shadow/*, /api/real-trade/*, /api/fss/*)
+  // 보안 패치 Tier 1 #1+#3 — Bearer 토큰 + brute-force IP 차단 (authGuard.ts)
   // ─────────────────────────────────────────────────────────────
-  app.use('/api', autoTradeRouter);
+  app.use('/api', enforceAuthRateLimit, requireOperatorToken, autoTradeRouter);
 
   // ─────────────────────────────────────────────────────────────
   // 시스템 라우터 → server/routes/systemRouter.ts 로 분리
@@ -216,7 +231,7 @@ async function startServer() {
   // (POST /api/operator/override, GET /api/operator/override/status/history)
   // Telegram Decision Broker와 동일한 3택을 API로도 노출
   // ─────────────────────────────────────────────────────────────
-  app.use('/api/operator', operatorRouter);
+  app.use('/api/operator', enforceAuthRateLimit, requireOperatorToken, operatorRouter);
 
   // ─────────────────────────────────────────────────────────────
   // P2 #19 Monitoring Cert → server/routes/monitoringCertRouter.ts
@@ -240,6 +255,12 @@ async function startServer() {
   // PR-37 (ADR-0016) — AI 추천 universe 건강성 GET /api/health/ai-universe
   // ─────────────────────────────────────────────────────────────
   app.use('/api/health', aiUniverseHealthRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // Tier 1 보안 #2 — 외부 watchdog ping (UptimeRobot/Better-Uptime/cron-job).
+  // 무인증 GET /api/watchdog/heartbeat — 민감 정보 0건. silent degradation 의 외부 관찰자.
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/watchdog', watchdogRouter);
 
   // ─── 아이디어 1: 오케스트레이터 상태 조회 ────────────────────────────────────
   app.get('/api/orchestrator/state', (_req: Request, res: Response) => {

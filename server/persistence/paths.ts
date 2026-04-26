@@ -250,6 +250,33 @@ export function aiUniverseSnapshotFile(mode: string): string {
  * 운영자가 어떤 소스가 신뢰 가능한지 한눈에 파악하도록 source 별 누적 + ring buffer.
  */
 export const STOCK_MASTER_HEALTH_FILE = path.join(DATA_DIR, 'stock-master-health.json');
+/**
+ * 운영자 API 인증 실패 IP 영속 블랙리스트 (Tier 1 보안 패치 #3).
+ * 5분 윈도우 내 401 누적 10회 도달 시 1시간 차단. kisEndpointBlacklistRepo 패턴 차용.
+ */
+export const API_AUTH_BLACKLIST_FILE = path.join(DATA_DIR, 'api-auth-blacklist.json');
+/**
+ * 매수/매도 결정 입력 스냅샷 (Tier 2 결정성 패치 #4) — 일별 JSONL 롤링.
+ * replayDecision 으로 같은 입력 재계산 후 결과 비교에 사용.
+ */
+export function decisionReplayFile(yyyymmdd: string): string {
+  return path.join(DATA_DIR, `decision-replay-${yyyymmdd}.jsonl`);
+}
+/**
+ * 외부 API 응답 격리 폴더 (Tier 2 결정성 패치 #5) — schemaSentinel 검증 실패 페이로드.
+ * 운영자가 사후에 원본 응답을 재현·디버깅할 수 있게 보존.
+ */
+export const QUARANTINE_DIR = path.join(DATA_DIR, 'quarantine');
+/**
+ * Determinism canary 일별 결과 (Tier 2 결정성 패치 #6) — fixture 5건 평가 결과 영속.
+ * 어제 결과와 비교해 의도되지 않은 변화 탐지.
+ */
+export const DETERMINISM_CANARY_FILE = path.join(DATA_DIR, 'determinism-canary.json');
+
+export function ensureQuarantineDir(): void {
+  ensureDataDir();
+  if (!fs.existsSync(QUARANTINE_DIR)) fs.mkdirSync(QUARANTINE_DIR, { recursive: true });
+}
 
 export function ensureReflectionsDir(): void {
   ensureDataDir();

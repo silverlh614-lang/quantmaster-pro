@@ -10,6 +10,8 @@ import {
   getDailyLossPct, setDailyLoss,
 } from '../state.js';
 import { cancelAllPendingOrders, checkDailyLossLimit } from '../emergency.js';
+import { requireOperatorToken } from '../utils/authGuard.js';
+import { enforceAuthRateLimit } from '../utils/authRateLimit.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { handleTelegramWebhook } from '../telegram/webhookHandler.js';
 import { getApiUsageStats, getGeminiCircuitStats, getGeminiRuntimeState, getBudgetState } from '../clients/geminiClient.js';
@@ -64,14 +66,16 @@ router.get('/emergency-status', (_req: Request, res: Response) => {
   res.json({ emergencyStop: getEmergencyStop(), dailyLossPct: getDailyLossPct() });
 });
 
-router.post('/emergency-stop', async (_req: Request, res: Response) => {
+// Tier 1 보안 #1+#3 — 비상정지/리셋/일일손실 갱신 등 mutate 엔드포인트는 OPERATOR_TOKEN 필요.
+// 단, /emergency-reset 은 기존 EMERGENCY_RESET_SECRET 본문 검증을 보존(2단계 방어).
+router.post('/emergency-stop', enforceAuthRateLimit, requireOperatorToken, async (_req: Request, res: Response) => {
   setEmergencyStop(true);
   console.error('[EMERGENCY] 수동 비상 정지 발동!');
   await cancelAllPendingOrders().catch(console.error);
   res.json({ status: 'STOPPED', stoppedAt: new Date().toISOString() });
 });
 
-router.post('/emergency-reset', (req: Request, res: Response) => {
+router.post('/emergency-reset', enforceAuthRateLimit, requireOperatorToken, (req: Request, res: Response) => {
   const secret = process.env.EMERGENCY_RESET_SECRET;
   if (secret && req.body?.secret !== secret) {
     return res.status(403).json({ error: '인증 실패' });
@@ -88,7 +92,8 @@ router.post('/emergency-reset', (req: Request, res: Response) => {
 router.post('/telegram/webhook', handleTelegramWebhook);
 
 // 일일 손실 외부 업데이트 (프론트엔드에서 Shadow 결과 집계 후 호출)
-router.post('/daily-loss', (req: Request, res: Response) => {
+// Tier 1 보안 #1+#3 — daily-loss 도 외부에서 자유롭게 갱신되면 안 된다.
+router.post('/daily-loss', enforceAuthRateLimit, requireOperatorToken, (req: Request, res: Response) => {
   const { pct } = req.body;
   if (typeof pct === 'number') {
     setDailyLoss(pct);
