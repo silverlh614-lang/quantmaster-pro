@@ -48,6 +48,7 @@ export function formatHealthMessage(s: HealthSnapshot, p: HealthProbeResult): st
     `KIS 토큰: ${s.kisTokenHours > 0 ? `✅ ${s.kisTokenHours}시간 남음` : '❌ 만료'}` +
     (s.realDataTokenHours > 0 ? ` | 실데이터: ✅ ${s.realDataTokenHours}h` : '') +
     `\n` +
+    `KRX OpenAPI: ${formatKrxStatusLine(s)}\n` +
     `Yahoo probe: ${probeLabel(p.yahoo)}\n` +
     `DART probe: ${probeLabel(p.dart)}\n` +
     `Gemini: ${s.geminiRuntime.status}${s.geminiRuntime.reason ? ` (${s.geminiRuntime.reason})` : ''}\n` +
@@ -86,6 +87,38 @@ function formatKstHm(ts: number, fallback = '미실행'): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/**
+ * KRX OpenAPI 회로 상태 라벨 SSOT — 5 분기.
+ *
+ * 우선순위:
+ *   1. AUTH_KEY 미설정 → ⚠️ (회로 카운트 표시 무의미)
+ *   2. 회로 OPEN       → ❌ (Tier-1 차단)
+ *   3. 회로 HALF_OPEN  → 🟡 (재시도 중)
+ *   4. 회로 CLOSED + krxTokenValid=true  → ✅ 정상
+ *   5. 회로 CLOSED + krxTokenValid=false → 🟡 비활성 (DISABLED env 등)
+ *
+ * 외부 export — 단위 테스트 + 회귀 가드용.
+ */
+export function formatKrxStatusLine(s: HealthSnapshot): string {
+  if (!s.krxTokenConfigured) {
+    return '⚠️ 토큰 미설정 (KRX_OPEN_API_AUTH_KEY)';
+  }
+  const failures = s.krxFailures;
+  const failSuffix = `(실패 ${failures}회)`;
+  switch (s.krxCircuitState) {
+    case 'OPEN':
+      return `❌ 회로 OPEN ${failSuffix}`;
+    case 'HALF_OPEN':
+      return `🟡 회복 중 ${failSuffix}`;
+    case 'CLOSED':
+      return s.krxTokenValid
+        ? `✅ 정상 ${failSuffix}`
+        : `🟡 비활성 ${failSuffix}`;
+    default:
+      return `? ${s.krxCircuitState} ${failSuffix}`;
+  }
 }
 
 function formatYahooStatusLine(s: HealthSnapshot): string {
