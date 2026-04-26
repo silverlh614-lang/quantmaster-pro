@@ -18,6 +18,7 @@
  */
 
 import { loadWatchlist, saveWatchlist, type WatchlistEntry, type WatchlistSection } from '../persistence/watchlistRepo.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 // ── 섹션별 상수 ───────────────────────────────────────────────────────────────
 
@@ -94,8 +95,12 @@ export function applyEntryPriceDrift(
   currentPrice: number,
 ): 'REMOVE' | 'UPDATE' | 'KEEP' {
   if (currentPrice <= 0 || entry.entryPrice <= 0) return 'KEEP';
-  const driftPct = ((currentPrice - entry.entryPrice) / entry.entryPrice) * 100;
-  if (driftPct < ENTRY_PRICE_DRIFT_PCT) return 'KEEP';
+  // ADR-0028: stale entryPrice (예: 거래정지/액면분할 후 등록값과 거대 괴리) 시
+  // sanity 위반 → null 반환 → KEEP 으로 안전 fallback (잘못된 REMOVE/UPDATE 차단).
+  const driftPct = safePctChange(currentPrice, entry.entryPrice, {
+    label: `watchlistManager.drift:${entry.code}`,
+  });
+  if (driftPct === null || driftPct < ENTRY_PRICE_DRIFT_PCT) return 'KEEP';
   return entry.addedBy === 'MANUAL' ? 'UPDATE' : 'REMOVE';
 }
 

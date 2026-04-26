@@ -13,6 +13,8 @@
  *   (iii) 섹터 중복 해소 효과 (동일 섹터 2개 이상 보유 중, 신규는 다른 섹터)
  */
 
+import { safePctChange } from '../utils/safePctChange.js';
+
 export const TRADE_REPLACEMENT_MIN_PROFIT_PCT = 1.5;
 export const TRADE_REPLACEMENT_MIN_GATE_DELTA = 1.5;
 export const TRADE_REPLACEMENT_COOLDOWN_MS   = 20 * 60 * 1000;
@@ -100,9 +102,13 @@ export function proposeReplacement(params: {
     if (isInReplacementCooldown(h.stockCode, now)) continue;
 
     // (i) 수익률 ≥ 1.5% 그리고 모멘텀 둔화
+    // ADR-0028: stale currentPrice 또는 sanity 위반 시 교체 평가 스킵 (잘못된
+    // returnPct 로 보유 종목을 임의 교체하는 위험 차단).
     if (h.entryPrice <= 0) continue;
-    const returnPct = ((h.currentPrice - h.entryPrice) / h.entryPrice) * 100;
-    if (returnPct < TRADE_REPLACEMENT_MIN_PROFIT_PCT) continue;
+    const returnPct = safePctChange(h.currentPrice, h.entryPrice, {
+      label: `tradeReplacement:${h.stockCode}`,
+    });
+    if (returnPct === null || returnPct < TRADE_REPLACEMENT_MIN_PROFIT_PCT) continue;
     if (!h.momentumSlowing) continue;
 
     // (ii) gate 우위 ≥ 1.5

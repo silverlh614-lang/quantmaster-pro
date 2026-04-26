@@ -15,6 +15,7 @@ import { appendManualExit } from '../../../persistence/manualExitsRepo.js';
 import { evaluateAndAlertManualOverride } from '../../../alerts/manualOverrideMonitor.js';
 import { escapeHtml } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
+import { safePctChange } from '../../../utils/safePctChange.js';
 import type { TelegramCommand } from '../_types.js';
 
 const sell: TelegramCommand = {
@@ -84,7 +85,11 @@ const sell: TelegramCommand = {
       await reply(`❌ ${code} 현재가 조회 실패 — 매도 중단. KIS 토큰/네트워크 상태를 확인하세요.`);
       return;
     }
-    const returnPct = ((currentPrice - target.shadowEntryPrice) / target.shadowEntryPrice) * 100;
+    // ADR-0028: stale currentPrice 시 0% fallback — UI 표시 + fill.pnlPct 영속화에
+    // 사용되므로 sanity 위반 시 0 으로 안전 처리해 잘못된 학습 입력 차단.
+    const returnPct = safePctChange(currentPrice, target.shadowEntryPrice, {
+      label: `sell.cmd:${target.stockCode}`,
+    }) ?? 0;
 
     const nowIso = new Date().toISOString();
     const sellRes = await placeKisSellOrder(

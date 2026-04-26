@@ -14,6 +14,7 @@ import { getCurrentScanPreset } from './scanPresets.js';
 import { recordMtasAttempt } from './dataCompletenessTracker.js';
 import { MOMENTUM_MAX_SIZE, SWING_MAX_SIZE, addToWatchlist } from './watchlistManager.js';
 import { guardedFetch } from '../utils/egressGuard.js';
+import { safePctChange } from '../utils/safePctChange.js';
 import {
   fetchInvestorTrading as krxFetchInvestorTrading,
   fetchPerPbr as krxFetchPerPbr,
@@ -804,14 +805,17 @@ function buildExtendedFromKisDaily(
   for (let i = 4; i < closes.length; i += 5) weeklyClosesSample.push(closes[i]);
   const weeklyRSI = parseFloat(calcRSI(weeklyClosesSample, 9).toFixed(1));
 
-  // 5거래일 수익률
+  // 5거래일 수익률 — ADR-0028: stale close5dAgo (수년 전 종가 등) 시 sanity 위반 → 0 fallback.
   const close5dAgo = closes.length > 5 ? closes[closes.length - 6] : closes[0] ?? live.price;
-  const return5d = close5dAgo > 0 ? ((live.price - close5dAgo) / close5dAgo) * 100 : 0;
+  const return5d = safePctChange(live.price, close5dAgo, {
+    label: 'stockScreener.return5d',
+  }) ?? 0;
 
-  // 20거래일 수익률 — Gate 24 상대강도(vs KOSPI 20d) 용. 이력 부족 시 첫 종가 기준으로 폴백
-  // (이는 return5d 와 동일한 폴백 패턴). 이력이 정말 없으면 0.
+  // 20거래일 수익률 — Gate 24 상대강도(vs KOSPI 20d) 용. 이력 부족 시 첫 종가 기준으로 폴백.
   const close20dAgo = closes.length > 20 ? closes[closes.length - 21] : closes[0] ?? live.price;
-  const return20d = close20dAgo > 0 ? ((live.price - close20dAgo) / close20dAgo) * 100 : 0;
+  const return20d = safePctChange(live.price, close20dAgo, {
+    label: 'stockScreener.return20d',
+  }) ?? 0;
 
   // Compression Score: BB 폭
   const calcBBWidthAt = (cs: number[], endIdx: number): number => {

@@ -23,6 +23,7 @@ import {
   type KillSwitchRecord,
 } from '../state.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 // ─── 임계값 ────────────────────────────────────────────────────────────────
 const DAILY_LOSS_LIMIT_PCT = Number(process.env.DAILY_LOSS_LIMIT_PCT ?? 5);
@@ -61,7 +62,11 @@ export function updateVkospi(currentValue: number): void {
 }
 export function getVkospiSurgePct(): number {
   if (!lastVkospiOpenValue) return 0;
-  return ((lastVkospiCurrent - lastVkospiOpenValue) / lastVkospiOpenValue) * 100;
+  // ADR-0028: VKOSPI 동일일자 데이터라 stale 위험 적지만 sanity bound (±90%) 으로
+  // 데이터 오류·스토리지 손상 시 비상정지 트리거 오작동 차단.
+  return safePctChange(lastVkospiCurrent, lastVkospiOpenValue, {
+    label: 'killSwitch.vkospiSurge',
+  }) ?? 0;
 }
 
 // ─── 조건 평가 ─────────────────────────────────────────────────────────────

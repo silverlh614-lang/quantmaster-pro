@@ -10,6 +10,7 @@
 import fs from 'fs';
 import { RECOMMENDATIONS_FILE, ensureDataDir } from '../persistence/paths.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
+import { safePctChange } from '../utils/safePctChange.js';
 import type { RecommendationRecord } from './recommendationTracker.js';
 
 function loadRecommendations(): RecommendationRecord[] {
@@ -43,7 +44,11 @@ export async function miniEvaluateSingle(stockCode: string): Promise<number> {
   const EXPIRE_MS = 30 * 24 * 60 * 60 * 1000;
 
   for (const rec of targets) {
-    const returnPct = ((currentPrice - rec.priceAtRecommend) / rec.priceAtRecommend) * 100;
+    // ADR-0028: stale currentPrice 시 sanity 위반 → null. EXPIRED 시 actualReturn
+    // 박제 차단을 위해 위반 시 평가 보류 (다음 평가 사이클에서 재검사).
+    const returnPct = safePctChange(currentPrice, rec.priceAtRecommend, {
+      label: `miniEval:${rec.stockCode}`,
+    });
     const ageMs     = Date.now() - new Date(rec.signalTime).getTime();
 
     if (currentPrice <= rec.stopLoss) {
@@ -58,7 +63,7 @@ export async function miniEvaluateSingle(stockCode: string): Promise<number> {
       rec.resolvedAt   = new Date().toISOString();
       changed++;
       console.log(`[MiniEval] ✅ WIN ${rec.stockName} +${rec.actualReturn}% (즉시 평가)`);
-    } else if (ageMs > EXPIRE_MS) {
+    } else if (ageMs > EXPIRE_MS && returnPct !== null) {
       rec.status       = 'EXPIRED';
       rec.actualReturn = parseFloat(returnPct.toFixed(2));
       rec.resolvedAt   = new Date().toISOString();

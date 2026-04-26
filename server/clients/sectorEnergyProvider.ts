@@ -22,6 +22,7 @@ import {
   type KrxStockDailyRow,
 } from './krxOpenApi.js';
 import { fetchInvestorTrading, type KrxInvestorRow } from './krxClient.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 /** 전략 레벨 12섹터 — sectorEnergyEngine 의 계절성 테이블과 동일한 키. */
 export type StrategicSector =
@@ -120,9 +121,16 @@ function aggregateIndexDeltas(
     const key = t.indexCode || t.indexName;
     const past = pastByCode.get(key);
     if (!past || past.close <= 0) continue;
-    const returnPct = ((t.close - past.close) / past.close) * 100;
+    // ADR-0028: stale past data 시 sanity 위반은 스킵 (섹터 에너지 평균 왜곡 방지).
+    const returnPct = safePctChange(t.close, past.close, {
+      label: `sectorEnergy.return:${key}`,
+    });
+    if (returnPct === null) continue;
     const volumePct = past.volume > 0
-      ? ((t.volume - past.volume) / past.volume) * 100
+      ? (safePctChange(t.volume, past.volume, {
+          label: `sectorEnergy.volume:${key}`,
+          sanityBoundPct: 1000, // 거래량은 ±1000% 까지 허용 (저거래일 → 고거래일 정상)
+        }) ?? 0)
       : 0;
     const acc = bySector.get(canonical) ?? { returns: [], volumes: [] };
     acc.returns.push(returnPct);
