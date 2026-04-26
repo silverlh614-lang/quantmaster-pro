@@ -33,6 +33,8 @@ import { getCachedIntradayYield } from '../alerts/intradayYieldTicker.js';
 import {
   probeMultipleSymbols,
   classifyMultiProbeResult,
+  classifyProbeFailures,
+  type MultiProbeResult,
 } from '../utils/yahooProbeRetry.js';
 import type { ScanSummary } from '../trading/signalScanner/scanDiagnostics.js';
 
@@ -401,6 +403,19 @@ export function classifyDartStatus(status: string): {
  *
  * DART: classifyDartStatus 로 status code → severity 매핑 (013 "데이터 없음" = ✅).
  */
+/**
+ * 다중 probe 실패 사유를 사람이 읽을 수 있는 detail 문자열로 변환.
+ * 예: ` (egress-gated 2, yahoo-5xx 1)` 또는 빈 문자열 (분류 0건이면).
+ */
+export function formatProbeFailureDetail(multi: MultiProbeResult): string {
+  const cls = classifyProbeFailures(multi.results);
+  const parts: string[] = [];
+  if (cls.egressGatedCount > 0) parts.push(`egress-gated ${cls.egressGatedCount}`);
+  if (cls.realFailCount > 0) parts.push(`yahoo-5xx ${cls.realFailCount}`);
+  if (cls.timeoutCount > 0) parts.push(`timeout ${cls.timeoutCount}`);
+  return parts.length > 0 ? ` (${parts.join(', ')})` : '';
+}
+
 export async function runExternalProbes(timeoutMs = 10_000): Promise<HealthProbeResult> {
   const withTimeout = <T,>(p: Promise<T>): Promise<T> =>
     Promise.race([
@@ -411,6 +426,8 @@ export async function runExternalProbes(timeoutMs = 10_000): Promise<HealthProbe
     ]);
 
   // Yahoo: probeMultipleSymbols SSOT (ADR-0056) — 단발성 503 false positive 차단
+  // 진단 메시지는 classifyProbeFailures 로 사유 분해 (egress-gated / yahoo-5xx / timeout)
+  // → 진짜 Yahoo 장애 vs EgressGuard 자기 차단을 운영자가 즉시 구분.
   const yahooProbe: Promise<HealthProbeOutcome> = withTimeout(
     probeMultipleSymbols(undefined, {
       timeoutMs: Math.min(timeoutMs, 8_000),
@@ -420,15 +437,16 @@ export async function runExternalProbes(timeoutMs = 10_000): Promise<HealthProbe
       if (status === 'OK') {
         return { severity: 'OK', message: 'Yahoo probe OK' } satisfies HealthProbeOutcome;
       }
+      const detail = formatProbeFailureDetail(multi);
       if (status === 'DEGRADED') {
         return {
           severity: 'WARN',
-          message: `Yahoo degraded: ${multi.failCount}/${multi.total} probe failed`,
+          message: `Yahoo degraded: ${multi.failCount}/${multi.total} probes failed${detail}`,
         } satisfies HealthProbeOutcome;
       }
       return {
         severity: 'WARN',
-        message: `Yahoo down: ${multi.failCount}/${multi.total} probes failed`,
+        message: `Yahoo down: ${multi.failCount}/${multi.total} probes failed${detail}`,
       } satisfies HealthProbeOutcome;
     }),
   ).catch((e) => ({

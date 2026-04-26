@@ -7,6 +7,7 @@ import {
   collectHealthSnapshot,
   classifyYahooProbe,
   classifyDartStatus,
+  formatProbeFailureDetail,
   type HealthVerdict,
 } from './diagnostics.js';
 import type { ScanSummary } from '../trading/signalScanner/scanDiagnostics.js';
@@ -489,5 +490,77 @@ describe('classifyDartStatus — DART API 상태 코드 severity 매핑', () => 
 
   it('빈 문자열 → WARN', () => {
     expect(classifyDartStatus('').severity).toBe('WARN');
+  });
+});
+
+describe('formatProbeFailureDetail — Yahoo probe 실패 사유 분해 (옵션 2)', () => {
+  it('실패 0건 → 빈 문자열', () => {
+    expect(
+      formatProbeFailureDetail({
+        total: 3,
+        failCount: 0,
+        results: [
+          { symbol: 'A', ok: true, status: 200 },
+          { symbol: 'B', ok: true, status: 200 },
+          { symbol: 'C', ok: true, status: 200 },
+        ],
+      }),
+    ).toBe('');
+  });
+
+  it('3/3 모두 egress-gated → 운영자가 자기 차단 즉시 인지', () => {
+    expect(
+      formatProbeFailureDetail({
+        total: 3,
+        failCount: 3,
+        results: [
+          { symbol: 'A', ok: false, status: 503, egressGated: true },
+          { symbol: 'B', ok: false, status: 503, egressGated: true },
+          { symbol: 'C', ok: false, status: 503, egressGated: true },
+        ],
+      }),
+    ).toBe(' (egress-gated 3)');
+  });
+
+  it('3/3 모두 진짜 Yahoo 503 → "yahoo-5xx 3" 단독 표시', () => {
+    expect(
+      formatProbeFailureDetail({
+        total: 3,
+        failCount: 3,
+        results: [
+          { symbol: 'A', ok: false, status: 503 },
+          { symbol: 'B', ok: false, status: 502 },
+          { symbol: 'C', ok: false, status: 504 },
+        ],
+      }),
+    ).toBe(' (yahoo-5xx 3)');
+  });
+
+  it('혼재 분류 — egress 1 / yahoo 1 / timeout 1 순서대로 표시', () => {
+    expect(
+      formatProbeFailureDetail({
+        total: 3,
+        failCount: 3,
+        results: [
+          { symbol: 'A', ok: false, status: 503, egressGated: true },
+          { symbol: 'B', ok: false, status: 503 },
+          { symbol: 'C', ok: false, error: 'aborted' },
+        ],
+      }),
+    ).toBe(' (egress-gated 1, yahoo-5xx 1, timeout 1)');
+  });
+
+  it('partial DEGRADED — 1/3 만 fail 도 분류 표시', () => {
+    expect(
+      formatProbeFailureDetail({
+        total: 3,
+        failCount: 1,
+        results: [
+          { symbol: 'A', ok: true, status: 200 },
+          { symbol: 'B', ok: true, status: 200 },
+          { symbol: 'C', ok: false, status: 503, egressGated: true },
+        ],
+      }),
+    ).toBe(' (egress-gated 1)');
   });
 });
