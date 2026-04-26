@@ -57,6 +57,9 @@ When modifying any file, ensure changes stay within the owning module's stated r
 | `server/screener/adapters/kisQuoteAdapter.ts` | KIS 시세 + 일봉 캔들 → YahooQuoteExtended 호환 어댑터 (ADR-0029) |
 | `server/screener/adapters/krxScreenerAdapter.ts` | KRX 투자자별 매매 폴백 스크리너 어댑터 (ADR-0029) |
 | `server/screener/adapters/_indicators.ts` | Yahoo·KIS 어댑터 공용 RSI MACD EMA 지표 순수 계산 헬퍼 (ADR-0029) |
+| `server/utils/marketDayClassifier.ts` | KRX 영업일 7분기 분류 SSOT — 자기학습·스케줄러·매매 보수 모드 단일 컨텍스트 (ADR-0037) |
+| `server/scheduler/scheduleGuard.ts` | cron 콜백 자동 가드 래퍼 — ScheduleClass 별 영업일/주말 차단 + 메트릭 기록 (ADR-0037) |
+| `server/learning/learningDataValidator.ts` | 학습 입력 영업일 검증 — 비영업일 레코드 자동 필터링·거부 진단 헬퍼 (ADR-0037) |
 
 ---
 
@@ -75,6 +78,8 @@ When modifying any file, ensure changes stay within the owning module's stated r
 - **GateStatusCard vs GateStatusWidget boundary** (ADR-0018): `GateStatusCard` is the **compact read-only** version embedded in WatchlistCard (no expand/interaction). `GateStatusWidget` is the **full expandable** version inside StockDetailModal. Do not unify with prop modes — interaction code in card would balloon LoC.
 - **REGIME_TRADING_POLICY SSOT**: All future code that maps `RegimeLevel` to allowed/forbidden trading strategies must import from `src/types/ui.ts`. Do not duplicate the 6-level table elsewhere.
 - **exitEngine boundary** (ADR-0028): `server/trading/exitEngine.ts` is a barrel re-export only. All logic lives under `server/trading/exitEngine/`. Adding a new exit rule = create `rules/<name>.ts` exporting an `async (ctx: ExitContext) => Promise<ExitRuleResult>` + add to `EXIT_RULES_IN_ORDER` in `index.ts`. Rule files may NOT import other rule files — shared logic goes through `helpers/*`. The `_exitRunning` mutex (PR-6 #12) lives in `index.ts` only.
+- **marketDayClassifier boundary** (ADR-0037): `server/utils/marketDayClassifier.ts` 는 KRX 영업일 7분기(TRADING_DAY/WEEKEND/KRX_HOLIDAY/PRE_HOLIDAY/POST_HOLIDAY/LONG_HOLIDAY_*) 분류 + 다음/이전 영업일 산술 SSOT. `KRX_HOLIDAYS` Set 직접 import 금지 — `isKrxHoliday()` 또는 `getMarketDayContext()` 만 사용. 외부 의존(state/persistence)을 도입하지 않는 순수 모듈로 유지.
+- **scheduleGuard boundary** (ADR-0037): `scheduledJob(cronExpr, ScheduleClass, jobName, fn)` 래퍼는 `cron.schedule` 의 단일 진입점. 신규 cron 등록 시 ScheduleClass 명시 필수 (TRADING_DAY_ONLY/WEEKEND_MAINTENANCE/MARKET_ADJACENT/ALWAYS_ON 4값). cron 표현식 `1-5`/`0-4` 평일 가드는 1차 방어선, ScheduleClass 가 KRX 공휴일을 평일에 차단하는 진짜 방어선.
 - **stockScreener boundary** (ADR-0029): `server/screener/stockScreener.ts` is a hybrid (core preScreenStocks + autoPopulateWatchlist) + barrel re-export of 6 split modules. Adding a new data source = create `adapters/<name>QuoteAdapter.ts` + barrel re-export. Adapters MUST NOT import other adapters — shared math goes through `adapters/_indicators.ts`. `YahooQuoteExtended` type lives in `yahooQuoteAdapter.ts` and is re-exported. `lastRejectionLog` mutable state lives in `rejectionLog.ts` only — accessed via `getLastRejectionLog`/`setLastRejectionLog` SSOT.
 
 ---

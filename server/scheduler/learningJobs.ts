@@ -1,7 +1,12 @@
 /**
- * @responsibility 자기학습 cron 작업(L3 캘리브레이션·일일 미니 백테스트·Sharpe 경보·F2W 피드백·Nightly Reflection·Phase 1 Learning)을 등록한다.
+ * @responsibility 자기학습 cron 작업 등록 — ScheduleClass 자동 가드(ADR-0037) 적용
+ *
+ * 모든 cron 은 `scheduledJob(cronExpr, ScheduleClass, jobName, fn)` 래퍼를 경유.
+ * ScheduleClass 가 비영업일 진입을 자동 차단 + JobMetrics 에 lastSkipReason 기록.
+ *
+ * cron 표현식의 `1-5` / `0-4` 평일 가드는 1차 방어선(주말 새벽 cron 자체 실행 차단).
+ * ScheduleClass 가 KRX 공휴일을 평일에 차단하는 진짜 방어선.
  */
-import cron from 'node-cron';
 import { runBacktest, runWeeklyMiniBacktest } from '../learning/backtestEngine.js';
 import { learningOrchestrator } from '../orchestrator/learningOrchestrator.js';
 import { checkWeeklySharpeAlert } from '../learning/weeklySharpeMonitor.js';
@@ -15,95 +20,75 @@ import { resolveLedger, evaluateLedgerSuggestion } from '../learning/ledgerSimul
 import { evaluateKellySurfaceSuggestion } from '../learning/kellySurfaceMap.js';
 import { evaluateRegimeCoverageSuggestion } from '../learning/regimeBalancedSampler.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
+import { scheduledJob } from './scheduleGuard.js';
 
 export function registerLearningJobs(): void {
   // OHLCV 기반 백테스트 — 매주 토요일 KST 08:00 (UTC 23:00 금요일).
-  // 전체 추천 이력을 Yahoo 일봉으로 재검증: Sharpe·MDD·WIN률 실계산 + Telegram 발송
-  cron.schedule('0 23 * * 5', async () => { await runBacktest().catch(console.error); }, { timezone: 'UTC' });
+  // 전체 추천 이력을 Yahoo 일봉으로 재검증: Sharpe·MDD·WIN률 실계산 + Telegram 발송.
+  // PR-B: WEEKEND_MAINTENANCE — 평일 차단, 토요일 KST 에 실행되어 거래일 가드 통과.
+  scheduledJob('0 23 * * 5', 'WEEKEND_MAINTENANCE', 'weekly_backtest', async () => {
+    await runBacktest();
+  }, { timezone: 'UTC' });
 
   // L3 주간 경량 캘리브레이션 — 매주 월요일 07:00 KST (UTC 22:00 일요일).
-  // 전주 AttributionRecord 기반 경량 캘리브레이션 + 전주 추천 미니 백테스트.
-  // 워크포워드 동결 시 내부에서 skip. 최소 5건 미달 시 skip.
-  cron.schedule('0 22 * * 0', async () => {
+  // PR-B: WEEKEND_MAINTENANCE — 일요일 UTC = 일요일 KST. 비영업일 가드 통과.
+  scheduledJob('0 22 * * 0', 'WEEKEND_MAINTENANCE', 'weekly_calib', async () => {
     console.log('[Scheduler] L3 주간 경량 캘리브레이션 시작 (월요일 07:00 KST)');
-    await learningOrchestrator.runWeeklyCalib().catch(console.error);
+    await learningOrchestrator.runWeeklyCalib();
   }, { timezone: 'UTC' });
 
   // 일일 미니 백테스트 — 평일 KST 00:30 (UTC 15:30). < 30초 실행.
-  // 전일(월~금) 결산된 추천 신호만 빠르게 재검증.
-  cron.schedule('30 15 * * 0-4', async () => {
+  // PR-B: TRADING_DAY_ONLY — KRX 공휴일이 월요일이면 차단.
+  scheduledJob('30 15 * * 0-4', 'TRADING_DAY_ONLY', 'daily_mini_backtest', async () => {
     console.log('[Scheduler] 일일 미니 백테스트 시작 (00:30 KST)');
-    await runWeeklyMiniBacktest().catch(console.error);
+    await runWeeklyMiniBacktest();
   }, { timezone: 'UTC' });
 
   // 주중 Sharpe 급락 조기 경보 — 매주 수요일 16:30 KST (UTC 07:30).
-  // 각 조건의 이번 주 Sharpe가 이전 4주 평균의 50% 미만이면 월말 전 경보.
-  cron.schedule('30 7 * * 3', async () => {
+  // PR-B: TRADING_DAY_ONLY — 수요일이 KRX 공휴일(예: 광복절 8/15가 수요일에 떨어진 해)이면 차단.
+  scheduledJob('30 7 * * 3', 'TRADING_DAY_ONLY', 'weekly_sharpe_alert', async () => {
     console.log('[Scheduler] 주중 Sharpe 급락 체크 (수요일 16:30 KST)');
-    await checkWeeklySharpeAlert().catch(console.error);
+    await checkWeeklySharpeAlert();
   }, { timezone: 'UTC' });
 
   // F2W 가중치 역피드백 — 평일 KST 03:10 (UTC 일~목 18:10). 일일 백업(UTC 18:00) 직후 동작.
-  //   r ≥ +0.7 → 1.05× 부스트, r ≤ -0.7 → 0.9× 감쇠, 180d 기여 음수 → 0.2× 일몰.
-  // PR-A — UTC 일~목 18:10 = KST 월~금 03:10. 주말 학습 환각 차단.
-  // KRX 공휴일은 cron 차단 불가 — F2W 자체 진입부에서 별도 가드 필요 시 후속 PR.
-  cron.schedule('10 18 * * 0-4', async () => {
-    try {
-      await runF2WReverseLoop({ notifyTelegram: true });
-    } catch (e) {
-      console.error('[F2W] 실행 실패:', e);
-    }
+  // PR-A: 평일 cron 가드(0-4) + PR-B: TRADING_DAY_ONLY 로 KRX 공휴일 자동 차단.
+  scheduledJob('10 18 * * 0-4', 'TRADING_DAY_ONLY', 'f2w_reverse_loop', async () => {
+    await runF2WReverseLoop({ notifyTelegram: true });
   }, { timezone: 'UTC' });
 
   // Nightly Reflection Engine — 평일 KST 19:00 (UTC 월~금 10:00).
-  // Silence Monday / Budget Governor / Integrity Guard 내부 적용.
-  // PR-A — UTC 월~금 10:00 = KST 평일 19:00. 주말 학습 환각 차단 (1차 cron 가드).
-  // KRX 공휴일은 cron 으로 차단 불가 — runNightlyReflection 진입부에서 2차 가드.
-  cron.schedule('0 10 * * 1-5', async () => {
-    try {
-      const res = await runNightlyReflection();
-      console.log(`[NightlyReflection] ${res.date} mode=${res.mode} executed=${res.executed}${res.skipped ? ` skipped=${res.skipped}` : ''}`);
-    } catch (e) {
-      console.error('[NightlyReflection] 실행 실패:', e);
-    }
+  // PR-A: cron 1-5 가드 + 진입부 isKstWeekend/isKrxHoliday 가드 + PR-B: TRADING_DAY_ONLY 일관성.
+  scheduledJob('0 10 * * 1-5', 'TRADING_DAY_ONLY', 'nightly_reflection', async () => {
+    const res = await runNightlyReflection();
+    console.log(`[NightlyReflection] ${res.date} mode=${res.mode} executed=${res.executed}${res.skipped ? ` skipped=${res.skipped}` : ''}`);
   }, { timezone: 'UTC' });
 
-  // Ghost Portfolio 갱신 — 매일 KST 15:40 (UTC 06:40). 장마감 직후 current price 로 수익률 갱신.
-  cron.schedule('40 6 * * 1-5', async () => {
-    try {
-      const res = await refreshGhostPortfolio();
-      console.log(`[GhostPortfolio] updated=${res.updated} closed=${res.closed} skipped=${res.skipped}`);
-    } catch (e) {
-      console.error('[GhostPortfolio] 갱신 실패:', e);
-    }
+  // Ghost Portfolio 갱신 — 평일 KST 15:40 (UTC 06:40). 장마감 직후 current price 로 수익률 갱신.
+  // PR-B: TRADING_DAY_ONLY — KRX 공휴일에 ghost portfolio 갱신해도 KIS 호출만 낭비.
+  scheduledJob('40 6 * * 1-5', 'TRADING_DAY_ONLY', 'ghost_portfolio', async () => {
+    const res = await refreshGhostPortfolio();
+    console.log(`[GhostPortfolio] updated=${res.updated} closed=${res.closed} skipped=${res.skipped}`);
   }, { timezone: 'UTC' });
 
   // Silent Knowledge Distillation — 매주 일요일 KST 18:00 (UTC 09:00).
-  // 지난 7일 반성 리포트 → "이번 주 1줄 교훈" → distilled-weekly.txt append.
-  cron.schedule('0 9 * * 0', async () => {
-    try {
-      const res = await distillWeeklyKnowledge();
-      if (res.executed) console.log(`[Distillation] 축적: ${res.lesson}`);
-      else console.log(`[Distillation] skipped=${res.skipped}`);
-    } catch (e) {
-      console.error('[Distillation] 실행 실패:', e);
-    }
+  // PR-B: WEEKEND_MAINTENANCE — 평일 실행되지 않도록 보호.
+  scheduledJob('0 9 * * 0', 'WEEKEND_MAINTENANCE', 'silent_distillation', async () => {
+    const res = await distillWeeklyKnowledge();
+    if (res.executed) console.log(`[Distillation] 축적: ${res.lesson}`);
+    else console.log(`[Distillation] skipped=${res.skipped}`);
   }, { timezone: 'UTC' });
 
-  // Idea 11 — Walk-Forward Validation: 매월 1일 KST 07:00 (UTC 22:00 전달).
-  // IS(3개월) vs OOS(직전 30일) 승률 격차 > 15%p 시 가중치 동결.
-  cron.schedule('0 22 1 * *', async () => {
-    try {
-      const res = await runWalkForwardValidation();
-      console.log(`[WalkForward] frozen=${res.frozen}`);
-    } catch (e) {
-      console.error('[WalkForward] 실행 실패:', e);
-    }
+  // Walk-Forward Validation — 매월 1일 KST 07:00 (UTC 22:00 전달).
+  // PR-B: ALWAYS_ON — 매월 1일은 KRX 공휴일(신정 등)일 수 있으나 내부 데이터 검증이라 실행 가치 있음.
+  scheduledJob('0 22 1 * *', 'ALWAYS_ON', 'walk_forward_validation', async () => {
+    const res = await runWalkForwardValidation();
+    console.log(`[WalkForward] frozen=${res.frozen}`);
   }, { timezone: 'UTC' });
 
-  // Idea 4 — Counterfactual Shadow resolve: 매일 KST 16:00 (UTC 07:00).
-  // 30·60·90 거래일 경과한 탈락 후보의 현재가 기준 수익률을 채워 넣는다.
-  cron.schedule('0 7 * * 1-5', async () => {
+  // Counterfactual Shadow resolve — 평일 KST 16:00 (UTC 07:00).
+  // PR-B: TRADING_DAY_ONLY — 30/60/90 거래일 경과 후보의 현재가 채움. KRX 공휴일에 KIS 호출 의미 없음.
+  scheduledJob('0 7 * * 1-5', 'TRADING_DAY_ONLY', 'counterfactual_resolve', async () => {
     try {
       const res = await resolveCounterfactuals((code) => fetchCurrentPrice(code).catch(() => null));
       console.log(`[Counterfactual] resolved d30=${res.resolved30d} d60=${res.resolved60d} d90=${res.resolved90d}`);
@@ -114,9 +99,9 @@ export function registerLearningJobs(): void {
     await evaluateCounterfactualSuggestion().catch((e) => console.warn('[Counterfactual][suggest] 평가 실패:', e));
   }, { timezone: 'UTC' });
 
-  // Idea 2 — Parallel Universe Ledger resolve: 매일 KST 16:15 (UTC 07:15).
-  // OPEN 엔트리의 TP/SL/EXPIRED 판정을 단일 현재가 기준 버퍼링.
-  cron.schedule('15 7 * * 1-5', async () => {
+  // Parallel Universe Ledger resolve — 평일 KST 16:15 (UTC 07:15).
+  // PR-B: TRADING_DAY_ONLY — OPEN 엔트리의 TP/SL/EXPIRED 판정. KRX 공휴일에 가격 조회 무의미.
+  scheduledJob('15 7 * * 1-5', 'TRADING_DAY_ONLY', 'ledger_resolve', async () => {
     try {
       const res = await resolveLedger((code) => fetchCurrentPrice(code).catch(() => null));
       console.log(`[Ledger] TP=${res.hitTP} SL=${res.hitSL} EXP=${res.expired}`);
