@@ -1,4 +1,4 @@
-// @responsibility 27 조건 COMPUTED/AI 분류 + Tier 분류기 SSOT — 클라 evolutionEngine.ts 동기 사본 (ADR-0048)
+// @responsibility 27 조건 COMPUTED/AI 분류 + Tier 분류기 SSOT — 클라 evolutionEngine.ts 동기 사본 (ADR-0054)
 //
 // 클라이언트 SSOT 원본: `src/services/quant/evolutionEngine.ts`
 // 본 파일은 절대 규칙 #3 (서버↔클라 직접 import 금지) 준수를 위한 동기 사본.
@@ -21,7 +21,7 @@ export function classifyConditionSource(id: number): ConditionSource | null {
   return null;
 }
 
-// ─── Tier 분류 (ADR-0048 §2.1) ───────────────────────────────────────────
+// ─── Tier 분류 (ADR-0054 §2.1) ───────────────────────────────────────────
 
 export type ConcordanceTier = 'EXCELLENT' | 'GOOD' | 'NEUTRAL' | 'WEAK' | 'POOR';
 

@@ -268,7 +268,7 @@ export function WatchlistCard({
                     </div>
                   )}
 
-                  {/* ADR-0049 PR-Z7: 4-Gate 미니 인디케이터 (즉시 인지) */}
+                  {/* ADR-0055 PR-Z7: 4-Gate 미니 인디케이터 (즉시 인지) */}
                   <div className="shrink-0">
                     <GateMiniIndicator stock={stock} />
                   </div>

@@ -198,13 +198,13 @@ export function AutoTradePage() {
         />
 
         {/*
-          ADR-0043 — Context-Adaptive Layout.
+          ADR-0049 — Context-Adaptive Layout.
           각 섹션이 자기 priorityByContext 를 declare → AutoTradeContextualLayout 가 정렬.
           기존 컴포넌트 본체는 단 한 줄도 수정하지 않음.
         */}
         <AutoTradeContextualLayout>
           {/*
-            ADR-0046 — Today's One Decision Card. 모든 컨텍스트에서 priority=1.
+            ADR-0052 — Today's One Decision Card. 모든 컨텍스트에서 priority=1.
             6 case 우선순위 + VOID 모드. AutoTradeContextSection 안정 정렬로
             survival-gauge 보다 먼저 렌더 (children 선언 순서 보존).
           */}
@@ -223,7 +223,7 @@ export function AutoTradePage() {
           </AutoTradeContextSection>
 
           {/*
-            ADR-0044 — 계좌 생존 게이지. 모든 컨텍스트에서 priority=1 (항상 최상단).
+            ADR-0050 — 계좌 생존 게이지. 모든 컨텍스트에서 priority=1 (항상 최상단).
             일일 손실 여유 / 섹터 집중도 / Kelly 정합도 3 게이지 단일 카드.
           */}
           <AutoTradeContextSection
@@ -241,7 +241,7 @@ export function AutoTradePage() {
           </AutoTradeContextSection>
 
           {/*
-            ADR-0047 — 어젯밤 학습 결과 카드. Pro 모드 한정.
+            ADR-0053 — 어젯밤 학습 결과 카드. Pro 모드 한정.
             POST_MARKET/OVERNIGHT/WEEKEND 우선 (회고 시간), LIVE_MARKET 후순위.
           */}
           {isPro && (

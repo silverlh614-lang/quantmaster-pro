@@ -1,4 +1,4 @@
-# ADR-0048 — Quant × Qual Concordance Matrix
+# ADR-0054 — Quant × Qual Concordance Matrix
 
 - **Status**: Accepted
 - **Date**: 2026-04-26

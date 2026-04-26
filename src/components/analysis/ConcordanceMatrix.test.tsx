@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * @responsibility ConcordanceMatrix 5×5 grid·색상·메타룰·표본부족 회귀 (ADR-0048 PR-Z6)
+ * @responsibility ConcordanceMatrix 5×5 grid·색상·메타룰·표본부족 회귀 (ADR-0054 PR-Z6)
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -74,7 +74,7 @@ function renderWith(matrix: MatrixData | Error) {
   );
 }
 
-describe('ConcordanceMatrix — ADR-0048', () => {
+describe('ConcordanceMatrix — ADR-0054', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

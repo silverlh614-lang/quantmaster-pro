@@ -1,5 +1,5 @@
 /**
- * @responsibility 조건별 수익률 귀인 통계 + 합치도 매트릭스 GET 엔드포인트 (ADR-0035, ADR-0048)
+ * @responsibility 조건별 수익률 귀인 통계 + 합치도 매트릭스 GET 엔드포인트 (ADR-0035, ADR-0054)
  */
 
 import { Router, Request, Response } from 'express';
@@ -31,7 +31,7 @@ router.get('/stats', (_req: Request, res: Response) => {
   }
 });
 
-// ─── ADR-0048 PR-Z6: 5×5 합치도 매트릭스 ─────────────────────────────────
+// ─── ADR-0054 PR-Z6: 5×5 합치도 매트릭스 ─────────────────────────────────
 
 interface ConcordanceCell {
   quantTier: ConcordanceTier;

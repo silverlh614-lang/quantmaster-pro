@@ -1,5 +1,5 @@
 /**
- * @responsibility decisionInputsRouter 회귀 — ADR-0046 PR-Z4
+ * @responsibility decisionInputsRouter 회귀 — ADR-0052 PR-Z4
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -50,7 +50,7 @@ function findHandler(method: string, path: string): RouteHandler {
   throw new Error(`route ${method} ${path} not found`);
 }
 
-describe('decisionInputsRouter — ADR-0046', () => {
+describe('decisionInputsRouter — ADR-0052', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

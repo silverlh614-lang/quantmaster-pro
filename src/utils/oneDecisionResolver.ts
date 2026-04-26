@@ -1,5 +1,5 @@
 /**
- * @responsibility Today's One Decision 6 case 우선순위 평가 + VOID 4 조건 SSOT (ADR-0046 PR-Z4)
+ * @responsibility Today's One Decision 6 case 우선순위 평가 + VOID 4 조건 SSOT (ADR-0052 PR-Z4)
  */
 import type { SurvivalSnapshot } from '../api/survivalClient';
 import type { DecisionInputs, DecisionInputsMacroSignals } from '../api/decisionClient';
@@ -146,7 +146,7 @@ function isAccountCritical(survival: SurvivalSnapshot): boolean {
 
 /**
  * 6 case 우선순위 평가 — 위→아래 첫 매칭 단락. 순수 함수, 외부 의존성 0.
- * ADR-0046 §2.1 표 SSOT.
+ * ADR-0052 §2.1 표 SSOT.
  */
 export function resolveOneDecision(input: OneDecisionInputs): DecisionRecommendation {
   const { survival, positions, inputs } = input;

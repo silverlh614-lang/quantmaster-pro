@@ -1,5 +1,5 @@
 /**
- * @responsibility /api/attribution/concordance + buildConcordanceMatrix 회귀 (ADR-0048)
+ * @responsibility /api/attribution/concordance + buildConcordanceMatrix 회귀 (ADR-0054)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -62,7 +62,7 @@ function makeRecord(overrides: Partial<ServerAttributionRecord> = {}): ServerAtt
 
 // ─── buildConcordanceMatrix 단위 ────────────────────────────────────────
 
-describe('buildConcordanceMatrix — ADR-0048 §2.3', () => {
+describe('buildConcordanceMatrix — ADR-0054 §2.3', () => {
   it('빈 records → 25 cells 모두 sample=0 + diagonalStats null', () => {
     const m = buildConcordanceMatrix([]);
     expect(m.cells).toHaveLength(25);
@@ -147,7 +147,7 @@ describe('buildConcordanceMatrix — ADR-0048 §2.3', () => {
 
 // ─── /concordance 엔드포인트 ────────────────────────────────────────────
 
-describe('GET /concordance — ADR-0048', () => {
+describe('GET /concordance — ADR-0054', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

@@ -1,5 +1,5 @@
 /**
- * @responsibility GET /api/decision/inputs — emergencyStop + pendingApprovals + macroSignals read-only 합성 (ADR-0046 PR-Z4)
+ * @responsibility GET /api/decision/inputs — emergencyStop + pendingApprovals + macroSignals read-only 합성 (ADR-0052 PR-Z4)
  */
 
 import { Router, type Request, type Response } from 'express';

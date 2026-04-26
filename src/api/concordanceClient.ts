@@ -1,5 +1,5 @@
 /**
- * @responsibility Quant×Qual Concordance API 클라이언트 — /api/attribution/concordance (ADR-0048 PR-Z6)
+ * @responsibility Quant×Qual Concordance API 클라이언트 — /api/attribution/concordance (ADR-0054 PR-Z6)
  */
 
 /** 서버 ConcordanceTier 동기 사본. */

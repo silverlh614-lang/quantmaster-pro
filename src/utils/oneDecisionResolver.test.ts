@@ -1,5 +1,5 @@
 /**
- * @responsibility resolveOneDecision + evaluateVoidConditions + computeVolatilityZScore 회귀 (ADR-0046 PR-Z4)
+ * @responsibility resolveOneDecision + evaluateVoidConditions + computeVolatilityZScore 회귀 (ADR-0052 PR-Z4)
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -66,7 +66,7 @@ const baseInput: OneDecisionInputs = {
 
 // ─── Case 0~6 우선순위 ──────────────────────────────────────────────────
 
-describe('resolveOneDecision — 6 case 우선순위 SSOT (ADR-0046 §2.1)', () => {
+describe('resolveOneDecision — 6 case 우선순위 SSOT (ADR-0052 §2.1)', () => {
   it('case 0 — emergencyStop=true → EMERGENCY_STOP (최우선)', () => {
     const r = resolveOneDecision({
       ...baseInput,
@@ -209,7 +209,7 @@ describe('resolveOneDecision — 6 case 우선순위 SSOT (ADR-0046 §2.1)', () 
 
 // ─── VOID 4 조건 ─────────────────────────────────────────────────────────
 
-describe('evaluateVoidConditions — ADR-0046 §2.2', () => {
+describe('evaluateVoidConditions — ADR-0052 §2.2', () => {
   it('4 조건 모두 충족 → met=true', () => {
     const r = evaluateVoidConditions(
       makeSurvival({

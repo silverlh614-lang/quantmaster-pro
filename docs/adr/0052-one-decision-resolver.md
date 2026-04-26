@@ -1,9 +1,9 @@
-# ADR-0046 — Today's One Decision Resolver + VOID Mode
+# ADR-0052 — Today's One Decision Resolver + VOID Mode
 
 - **Status**: Accepted
 - **Date**: 2026-04-26
 - **Related PRs**: PR-Z4 (Phase 2 of UI 재설계)
-- **Related ADRs**: ADR-0043 (Layout), ADR-0044 (Survival Gauge), ADR-0045 (Invalidation Meter)
+- **Related ADRs**: ADR-0049 (Layout), ADR-0050 (Survival Gauge), ADR-0051 (Invalidation Meter)
 
 ## 1. 배경
 

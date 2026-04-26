@@ -1,9 +1,9 @@
-# ADR-0049 — Gate Mini Indicator (AI 추천 카드 우상단)
+# ADR-0055 — Gate Mini Indicator (AI 추천 카드 우상단)
 
 - **Status**: Accepted
 - **Date**: 2026-04-26
 - **Related PRs**: PR-Z7 (Phase 3-3 of UI 재설계)
-- **Related ADRs**: ADR-0028 (UI Redesign P0 — GateStatusCard), ADR-0044~0048 (Phase 1+2+3-1+3-2 cards)
+- **Related ADRs**: ADR-0028 (UI Redesign P0 — GateStatusCard), ADR-0050~0048 (Phase 1+2+3-1+3-2 cards)
 
 ## 1. 배경
 

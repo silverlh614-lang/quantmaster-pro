@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * @responsibility NightlyReflectionCard verdict·placeholder·편향·실험·누락 회귀 (ADR-0047 PR-Z5)
+ * @responsibility NightlyReflectionCard verdict·placeholder·편향·실험·누락 회귀 (ADR-0053 PR-Z5)
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -66,7 +66,7 @@ const baseSnapshot: LearningStatusSnapshot = {
   diagnostics: { healthy: true, warnings: [] },
 };
 
-describe('NightlyReflectionCard — ADR-0047', () => {
+describe('NightlyReflectionCard — ADR-0053', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

@@ -1,4 +1,4 @@
-# ADR-0043 — Context-Adaptive AutoTrade Layout
+# ADR-0049 — Context-Adaptive AutoTrade Layout
 
 - **Status**: Accepted
 - **Date**: 2026-04-26

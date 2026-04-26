@@ -1,5 +1,5 @@
 /**
- * @responsibility evaluateGateMini + classifyGateState 회귀 (ADR-0049 PR-Z7)
+ * @responsibility evaluateGateMini + classifyGateState 회귀 (ADR-0055 PR-Z7)
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -76,7 +76,7 @@ function setScores(checklist: StockRecommendation['checklist'], ids: readonly nu
   }
 }
 
-describe('classifyGateState — ADR-0049 §3.2', () => {
+describe('classifyGateState — ADR-0055 §3.2', () => {
   it('passedRatio ≥ 0.5 → PASS (경계값 포함)', () => {
     expect(classifyGateState(3, 6)).toBe<GateDotState>('PASS');   // 0.5
     expect(classifyGateState(5, 5)).toBe('PASS');                  // 1.0
@@ -109,7 +109,7 @@ describe('classifyGateState — ADR-0049 §3.2', () => {
   });
 });
 
-describe('evaluateGateMini — ADR-0049 4-Gate 평가', () => {
+describe('evaluateGateMini — ADR-0055 4-Gate 평가', () => {
   it('빈 checklist + gateEvaluation 부재 → 모두 NA', () => {
     const stock = makeStock();
     const summary = evaluateGateMini(stock);

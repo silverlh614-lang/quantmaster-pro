@@ -1,5 +1,5 @@
 /**
- * @responsibility 4-Gate 통과 여부 미니 인디케이터 평가 SSOT — PR-A buildGateCardSummary 재활용 (ADR-0049)
+ * @responsibility 4-Gate 통과 여부 미니 인디케이터 평가 SSOT — PR-A buildGateCardSummary 재활용 (ADR-0055)
  */
 import type { StockRecommendation } from '../services/stockService';
 import {
@@ -28,13 +28,13 @@ export interface GateMiniSummary {
   passCount: number;
 }
 
-// ─── 임계값 SSOT (ADR-0049 §3.2) ────────────────────────────────────────
+// ─── 임계값 SSOT (ADR-0055 §3.2) ────────────────────────────────────────
 
 const PASS_RATIO = 0.5;
 const PARTIAL_RATIO = 0.3;
 
 /**
- * passedCount/totalCount → 4-tier 분류 (ADR-0049 §3.2).
+ * passedCount/totalCount → 4-tier 분류 (ADR-0055 §3.2).
  * totalCount = 0 → NA. NaN/Infinity → NA. 음수 입력 → NA.
  */
 export function classifyGateState(passedCount: number, totalCount: number): GateDotState {

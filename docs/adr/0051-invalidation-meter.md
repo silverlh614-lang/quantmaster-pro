@@ -1,9 +1,9 @@
-# ADR-0045 — Position Invalidation Meter
+# ADR-0051 — Position Invalidation Meter
 
 - **Status**: Accepted
 - **Date**: 2026-04-26
 - **Related PRs**: PR-Z3 (Phase 1-3 of UI 재설계 Phase 1)
-- **Related ADRs**: ADR-0043 (Context-Adaptive AutoTrade Layout), ADR-0044 (Account Survival Gauge)
+- **Related ADRs**: ADR-0049 (Context-Adaptive AutoTrade Layout), ADR-0050 (Account Survival Gauge)
 
 ## 1. 배경
 
@@ -30,7 +30,7 @@
 | `STAGE_ESCALATION` | 무효화 조건 (시스템 단계) | `stage in ['ALERT', 'EXIT_PREP', 'FULL_EXIT']` | `stage` 부재 |
 | `TARGET_REACHED` | 목표 시나리오 (긍정 무효화) | `currentPrice ≥ targetPrice1` | `targetPrice1` 부재 |
 
-`TARGET_REACHED` 는 *긍정* 무효화 — 진입 시나리오가 *완료* 되어 다음 행동(익절 검토)이 필요한 상태. `LOSS_THRESHOLD` (-3% 임계) 는 ADR-0044 의 dailyLoss WARN 임계와 동일하지만 *포지션 단위* 적용.
+`TARGET_REACHED` 는 *긍정* 무효화 — 진입 시나리오가 *완료* 되어 다음 행동(익절 검토)이 필요한 상태. `LOSS_THRESHOLD` (-3% 임계) 는 ADR-0050 의 dailyLoss WARN 임계와 동일하지만 *포지션 단위* 적용.
 
 ### 2.2 InvalidationCondition 타입 SSOT
 
@@ -123,4 +123,4 @@ evaluateInvalidationConditions(position) — 순수 함수, 외부 호출 0건
 - 보유 포지션 카드에서 페르소나 4 카테고리 중 몇 개가 무효화되었는지 즉시 인지
 - "매수 근거가 사라졌는데도 보유 중" 상태의 즉시 시각화 → 보유 효과/후회 회피 편향 차단
 - 클라이언트 휴리스틱이라 첫 출시는 *근사값* 이지만 즉시 가치 제공 + 후속 영속 SSOT PR 의 인프라 시드
-- ADR-0044 (SurvivalSnapshot 계좌 단위) 위에 *포지션 단위* 미터 — 두 layer 결합 시 전체 시스템 위험 즉시 가시화
+- ADR-0050 (SurvivalSnapshot 계좌 단위) 위에 *포지션 단위* 미터 — 두 layer 결합 시 전체 시스템 위험 즉시 가시화

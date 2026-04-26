@@ -1,4 +1,4 @@
-// @responsibility 계좌 생존 게이지 — 일일손실/섹터집중도/Kelly정합도 3 게이지 단일 카드 (ADR-0044 PR-Z2)
+// @responsibility 계좌 생존 게이지 — 일일손실/섹터집중도/Kelly정합도 3 게이지 단일 카드 (ADR-0050 PR-Z2)
 
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';

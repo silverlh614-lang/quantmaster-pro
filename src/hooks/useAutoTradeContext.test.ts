@@ -1,5 +1,5 @@
 /**
- * @responsibility useAutoTradeContext 5분기 매핑 회귀 테스트 — ADR-0043 SSOT
+ * @responsibility useAutoTradeContext 5분기 매핑 회귀 테스트 — ADR-0049 SSOT
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -13,7 +13,7 @@ function kstDate(year: number, monthIdx: number, day: number, hour: number, min:
   return new Date(Date.UTC(year, monthIdx, day, hour - 9, min, 0));
 }
 
-describe('classifyAutoTradeContext — ADR-0043 §2.2 매핑', () => {
+describe('classifyAutoTradeContext — ADR-0049 §2.2 매핑', () => {
   // 2026-04-27 = 월요일 (정상 평일)
   // 2026-04-25 = 토요일
   // 2026-04-26 = 일요일

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * @responsibility GateMiniIndicator dot/색상/tooltip 회귀 (ADR-0049 PR-Z7)
+ * @responsibility GateMiniIndicator dot/색상/tooltip 회귀 (ADR-0055 PR-Z7)
  */
 import React from 'react';
 import { describe, it, expect, afterEach } from 'vitest';
@@ -73,7 +73,7 @@ function setScores(checklist: StockRecommendation['checklist'], ids: readonly nu
   }
 }
 
-describe('GateMiniIndicator — ADR-0049', () => {
+describe('GateMiniIndicator — ADR-0055', () => {
   afterEach(() => {
     cleanup();
   });

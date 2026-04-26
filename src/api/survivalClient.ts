@@ -1,5 +1,5 @@
 /**
- * @responsibility 계좌 생존 게이지 API 클라이언트 — survivalRouter 호출 (ADR-0044 PR-Z2)
+ * @responsibility 계좌 생존 게이지 API 클라이언트 — survivalRouter 호출 (ADR-0050 PR-Z2)
  */
 
 /** 서버 SurvivalSnapshot 동기 사본 (절대 규칙 #3 — 서버↔클라 직접 import 금지). */

@@ -1,4 +1,4 @@
-// @responsibility Quant×Qual 5×5 합치도 매트릭스 — 정량 vs 정성 일치 시 승률 검증 (ADR-0048 PR-Z6)
+// @responsibility Quant×Qual 5×5 합치도 매트릭스 — 정량 vs 정성 일치 시 승률 검증 (ADR-0054 PR-Z6)
 
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';

@@ -1,4 +1,4 @@
-// @responsibility 보유 포지션 카드 인라인 무효화 조건 미터 — 4 dot + tier 색상 + expand 상세 (ADR-0045 PR-Z3)
+// @responsibility 보유 포지션 카드 인라인 무효화 조건 미터 — 4 dot + tier 색상 + expand 상세 (ADR-0051 PR-Z3)
 
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';

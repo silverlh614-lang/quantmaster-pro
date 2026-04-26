@@ -1,5 +1,5 @@
 /**
- * @responsibility evaluateInvalidationConditions + composeInvalidationTier 회귀 (ADR-0045 PR-Z3)
+ * @responsibility evaluateInvalidationConditions + composeInvalidationTier 회귀 (ADR-0051 PR-Z3)
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -39,7 +39,7 @@ function findCondition(result: ReturnType<typeof evaluateInvalidationConditions>
   return c;
 }
 
-describe('evaluateInvalidationConditions — 4 카테고리 (ADR-0045 §2.1)', () => {
+describe('evaluateInvalidationConditions — 4 카테고리 (ADR-0051 §2.1)', () => {
   it('정상 보유 (수익 +5%, stage HOLD, 손절가 충분 여유) → 모두 미충족 + tier OK', () => {
     const r = evaluateInvalidationConditions(makePosition({
       currentPrice: 73_500, pnlPct: 5, stage: 'HOLD',
@@ -140,12 +140,12 @@ describe('evaluateInvalidationConditions — 4 카테고리 (ADR-0045 §2.1)', (
     expect(c.detail).toContain('69,825');
   });
 
-  it('STOP_LOSS_APPROACH_RATIO 상수가 ADR-0045 §2.1 (1.05) 와 일치', () => {
+  it('STOP_LOSS_APPROACH_RATIO 상수가 ADR-0051 §2.1 (1.05) 와 일치', () => {
     expect(STOP_LOSS_APPROACH_RATIO).toBe(1.05);
   });
 });
 
-describe('composeInvalidationTier — ADR-0045 §2.3', () => {
+describe('composeInvalidationTier — ADR-0051 §2.3', () => {
   it('evaluableCount=0 → NA (모두 평가 불가)', () => {
     expect(composeInvalidationTier(0, 0)).toBe('NA');
     expect(composeInvalidationTier(2, 0)).toBe('NA'); // 의미 없는 입력도 안전

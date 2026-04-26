@@ -1,6 +1,6 @@
 // @responsibility 계좌 생존 게이지 SSOT — 일일손실/섹터집중도/Kelly정합도 3 게이지를 단일 스냅샷으로 합성
 //
-// ADR-0044 — Account Survival Gauge.
+// ADR-0050 — Account Survival Gauge.
 // 외부 호출 0건 — killSwitch + portfolioRiskEngine + kellySurfaceMap + shadowTradeRepo + macroState 만 read.
 // AutoTradePage 최상단 위젯 (모든 컨텍스트 priority=1).
 
@@ -49,7 +49,7 @@ export interface SurvivalSnapshot {
   capturedAt: string;
 }
 
-// ─── 임계값 SSOT (ADR-0044 §2.2) ────────────────────────────────────────
+// ─── 임계값 SSOT (ADR-0050 §2.2) ────────────────────────────────────────
 
 const HHI_OK_MAX = 2500;
 const HHI_WARN_MAX = 4000;

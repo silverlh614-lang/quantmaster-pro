@@ -1,5 +1,5 @@
 /**
- * @responsibility Nightly Reflection 학습 API 클라이언트 — /api/learning/status read-only (ADR-0047 PR-Z5)
+ * @responsibility Nightly Reflection 학습 API 클라이언트 — /api/learning/status read-only (ADR-0053 PR-Z5)
  */
 
 /** 서버 LearningStatusSnapshot 동기 사본 (절대 규칙 #3 — 서버↔클라 직접 import 금지). */

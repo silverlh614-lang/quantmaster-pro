@@ -1,4 +1,4 @@
-// @responsibility 어젯밤 nightlyReflection 학습 결과 카드 — Pro 모드 전용 (ADR-0047 PR-Z5)
+// @responsibility 어젯밤 nightlyReflection 학습 결과 카드 — Pro 모드 전용 (ADR-0053 PR-Z5)
 
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';

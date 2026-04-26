@@ -1,5 +1,5 @@
 /**
- * @responsibility ADR-0044 SurvivalSnapshot tier 분류·HHI·합성 회귀 테스트
+ * @responsibility ADR-0050 SurvivalSnapshot tier 분류·HHI·합성 회귀 테스트
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -13,7 +13,7 @@ import {
   type KellyTier,
 } from './survival';
 
-describe('classifyDailyLossTier — ADR-0044 §2.2', () => {
+describe('classifyDailyLossTier — ADR-0050 §2.2', () => {
   it('bufferPct=75 → OK (충분 완충)', () => {
     expect(classifyDailyLossTier(75)).toBe<SurvivalTier>('OK');
   });
@@ -40,7 +40,7 @@ describe('classifyDailyLossTier — ADR-0044 §2.2', () => {
   });
 });
 
-describe('classifySectorTier — ADR-0044 §2.2', () => {
+describe('classifySectorTier — ADR-0050 §2.2', () => {
   it('activePositions=0 → NA (위험 없음)', () => {
     expect(classifySectorTier(5000, 0)).toBe<SectorTier>('NA');
   });
@@ -67,7 +67,7 @@ describe('classifySectorTier — ADR-0044 §2.2', () => {
   });
 });
 
-describe('classifyKellyTier — ADR-0044 §2.2', () => {
+describe('classifyKellyTier — ADR-0050 §2.2', () => {
   it('sampleSize=4 → CALIBRATING (표본 부족)', () => {
     expect(classifyKellyTier(0.8, 0.5, 4)).toBe<KellyTier>('CALIBRATING');
   });
@@ -122,7 +122,7 @@ describe('computeHhi — Σ weight² × 10000', () => {
   });
 });
 
-describe('composeOverallTier — ADR-0044 §2.3 max-of-three', () => {
+describe('composeOverallTier — ADR-0050 §2.3 max-of-three', () => {
   it('OK + OK + OK → OK', () => {
     expect(composeOverallTier('OK', 'OK', 'OK')).toBe('OK');
   });

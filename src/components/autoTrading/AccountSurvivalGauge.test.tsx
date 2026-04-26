@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * @responsibility AccountSurvivalGauge tier 색상·placeholder·CALIBRATING 회귀 (ADR-0044 PR-Z2)
+ * @responsibility AccountSurvivalGauge tier 색상·placeholder·CALIBRATING 회귀 (ADR-0050 PR-Z2)
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -42,7 +42,7 @@ const baseSnapshot: SurvivalSnapshot = {
   capturedAt: '2026-04-26T13:00:00.000Z',
 };
 
-describe('AccountSurvivalGauge — ADR-0044', () => {
+describe('AccountSurvivalGauge — ADR-0050', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

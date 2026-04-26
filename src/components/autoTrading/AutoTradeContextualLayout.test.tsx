@@ -1,5 +1,5 @@
 /**
- * @responsibility AutoTradeContextualLayout 정렬·접힘·hidden 회귀 테스트 — ADR-0043 §2.3
+ * @responsibility AutoTradeContextualLayout 정렬·접힘·hidden 회귀 테스트 — ADR-0049 §2.3
  */
 import React from 'react';
 import { describe, it, expect } from 'vitest';
@@ -58,7 +58,7 @@ describe('isHidden — priority ≥ 9 가 hidden', () => {
   });
 });
 
-describe('collectSections — children 정렬 (ADR-0043 §2.3 안정 정렬)', () => {
+describe('collectSections — children 정렬 (ADR-0049 §2.3 안정 정렬)', () => {
   it('priority 오름차순 정렬', () => {
     const children = (
       <>

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * @responsibility TodayOneDecisionCard tier·VOID·case 회귀 (ADR-0046 PR-Z4)
+ * @responsibility TodayOneDecisionCard tier·VOID·case 회귀 (ADR-0052 PR-Z4)
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -59,7 +59,7 @@ const okInputs: DecisionInputs = {
   capturedAt: '2026-04-26T13:00:00.000Z',
 };
 
-describe('TodayOneDecisionCard — ADR-0046', () => {
+describe('TodayOneDecisionCard — ADR-0052', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

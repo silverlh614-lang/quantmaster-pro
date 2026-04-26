@@ -1,5 +1,5 @@
 /**
- * @responsibility 보유 포지션의 페르소나 4 카테고리 무효화 조건 휴리스틱 평가 SSOT (ADR-0045)
+ * @responsibility 보유 포지션의 페르소나 4 카테고리 무효화 조건 휴리스틱 평가 SSOT (ADR-0051)
  */
 import type { PositionItem } from '../services/autoTrading/autoTradingTypes';
 
@@ -27,7 +27,7 @@ export interface InvalidationMeterResult {
   tier: InvalidationTier;
 }
 
-// ─── 임계값 SSOT (ADR-0045 §2.1) ────────────────────────────────────────
+// ─── 임계값 SSOT (ADR-0051 §2.1) ────────────────────────────────────────
 
 /** 손절가 임박 — 현재가가 손절가의 ×1.05 이내. */
 export const STOP_LOSS_APPROACH_RATIO = 1.05;
@@ -114,7 +114,7 @@ export function evaluateInvalidationConditions(position: PositionItem): Invalida
 }
 
 /**
- * 충족 카운트 → tier 분류 SSOT (ADR-0045 §2.3).
+ * 충족 카운트 → tier 분류 SSOT (ADR-0051 §2.3).
  *   evaluableCount === 0  → NA (평가 가능 조건 0건)
  *   metCount === 0        → OK
  *   metCount === 1        → WARN

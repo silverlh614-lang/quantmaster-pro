@@ -1,5 +1,5 @@
 /**
- * @responsibility survivalRouter 단위 테스트 — ADR-0044 PR-Z2
+ * @responsibility survivalRouter 단위 테스트 — ADR-0050 PR-Z2
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -50,7 +50,7 @@ const fakeSnapshot = {
   capturedAt: '2026-04-26T13:00:00.000Z',
 };
 
-describe('survivalRouter — ADR-0044', () => {
+describe('survivalRouter — ADR-0050', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

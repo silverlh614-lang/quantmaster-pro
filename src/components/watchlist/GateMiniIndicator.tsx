@@ -1,4 +1,4 @@
-// @responsibility WatchlistCard 헤더 우측 4-Gate 미니 인디케이터 — 4 dot horizontal + tooltip (ADR-0049 PR-Z7)
+// @responsibility WatchlistCard 헤더 우측 4-Gate 미니 인디케이터 — 4 dot horizontal + tooltip (ADR-0055 PR-Z7)
 
 import React from 'react';
 import { cn } from '../../ui/cn';

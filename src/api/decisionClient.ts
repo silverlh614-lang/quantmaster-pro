@@ -1,5 +1,5 @@
 /**
- * @responsibility Today's One Decision API 클라이언트 — decisionInputsRouter 호출 (ADR-0046 PR-Z4)
+ * @responsibility Today's One Decision API 클라이언트 — decisionInputsRouter 호출 (ADR-0052 PR-Z4)
  */
 
 /** 서버 DecisionInputs 동기 사본 (절대 규칙 #3 — 서버↔클라 직접 import 금지). */

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * @responsibility learningClient fetch 회귀 (ADR-0047 PR-Z5)
+ * @responsibility learningClient fetch 회귀 (ADR-0053 PR-Z5)
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { fetchLearningStatus, type LearningStatusSnapshot } from './learningClient';
@@ -36,7 +36,7 @@ const mockSnapshot: LearningStatusSnapshot = {
   diagnostics: { healthy: true, warnings: [] },
 };
 
-describe('fetchLearningStatus — ADR-0047', () => {
+describe('fetchLearningStatus — ADR-0053', () => {
   let originalFetch: typeof fetch;
   beforeEach(() => {
     originalFetch = global.fetch;

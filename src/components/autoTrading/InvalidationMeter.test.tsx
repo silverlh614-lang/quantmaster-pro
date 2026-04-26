@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * @responsibility InvalidationMeter tier 색상·dot·expand 회귀 (ADR-0045 PR-Z3)
+ * @responsibility InvalidationMeter tier 색상·dot·expand 회귀 (ADR-0051 PR-Z3)
  */
 import React from 'react';
 import { describe, it, expect, afterEach } from 'vitest';
@@ -29,7 +29,7 @@ function makePosition(overrides: Partial<PositionItem> = {}): PositionItem {
   };
 }
 
-describe('InvalidationMeter — ADR-0045', () => {
+describe('InvalidationMeter — ADR-0051', () => {
   afterEach(() => {
     cleanup();
   });

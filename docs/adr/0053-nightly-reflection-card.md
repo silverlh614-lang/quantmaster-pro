@@ -1,9 +1,9 @@
-# ADR-0047 — Nightly Reflection Card
+# ADR-0053 — Nightly Reflection Card
 
 - **Status**: Accepted
 - **Date**: 2026-04-26
 - **Related PRs**: PR-Z5 (Phase 3-1 of UI 재설계)
-- **Related ADRs**: ADR-0007 (Learning Feedback Loop Policy), ADR-0043 (Layout), ADR-0044~0046 (Phase 1+2 cards)
+- **Related ADRs**: ADR-0007 (Learning Feedback Loop Policy), ADR-0049 (Layout), ADR-0050~0046 (Phase 1+2 cards)
 
 ## 1. 배경
 
@@ -108,4 +108,4 @@ NightlyReflectionCard
 - 사용자가 AutoTradePage 진입 시 어젯밤 학습 결과 즉시 확인 (POST_MARKET/OVERNIGHT/WEEKEND 우선)
 - 페르소나 철학 10 ("지속적 학습") 의 사용자 통제 가능성 1차 확보
 - 후속 manual approval PR 의 시드 — 카드 위에 승인/거부 버튼 추가 시 텔레그램 SSOT 와 자연 통합
-- ADR-0044 (계좌) + ADR-0045 (포지션) + ADR-0046 (결정) + ADR-0047 (학습) **4 layer SSOT 결합**으로 시스템 위험·결정·학습 모두 표면화
+- ADR-0050 (계좌) + ADR-0051 (포지션) + ADR-0052 (결정) + ADR-0053 (학습) **4 layer SSOT 결합**으로 시스템 위험·결정·학습 모두 표면화

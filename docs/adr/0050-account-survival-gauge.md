@@ -1,9 +1,9 @@
-# ADR-0044 — Account Survival Gauge
+# ADR-0050 — Account Survival Gauge
 
 - **Status**: Accepted
 - **Date**: 2026-04-26
 - **Related PRs**: PR-Z2 (Phase 1-2 of UI 재설계 Phase 1)
-- **Related ADRs**: ADR-0043 (Context-Adaptive AutoTrade Layout), ADR-0008 (Kelly Time Decay), ADR-0009 (External Call Budget)
+- **Related ADRs**: ADR-0049 (Context-Adaptive AutoTrade Layout), ADR-0008 (Kelly Time Decay), ADR-0009 (External Call Budget)
 
 ## 1. 배경
 
@@ -20,7 +20,7 @@
 
 ## 2. 결정
 
-`AutoTradePage` 최상단에 3개 게이지를 병치한 `<AccountSurvivalGauge>` 카드를 추가한다. 5 컨텍스트 모두에서 priority=1 (PR-Z1 의 ADR-0043 SSOT 위에 올라감). 첫 출시는 **3개 게이지 병치** — 합성 점수(Σ tier × weight 단일 값)는 학습 데이터 누적 후 후속 PR.
+`AutoTradePage` 최상단에 3개 게이지를 병치한 `<AccountSurvivalGauge>` 카드를 추가한다. 5 컨텍스트 모두에서 priority=1 (PR-Z1 의 ADR-0049 SSOT 위에 올라감). 첫 출시는 **3개 게이지 병치** — 합성 점수(Σ tier × weight 단일 값)는 학습 데이터 누적 후 후속 PR.
 
 ### 2.1 SurvivalSnapshot SSOT
 

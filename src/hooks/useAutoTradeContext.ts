@@ -8,7 +8,7 @@ import { classifyClientMarketMode } from './useMarketMode';
 
 /**
  * AutoTrade 페이지가 컴포넌트 정렬 우선순위를 결정할 때 사용하는 5 컨텍스트.
- * ADR-0043 §2.1 표 SSOT.
+ * ADR-0049 §2.1 표 SSOT.
  */
 export type AutoTradeContext =
   | 'PRE_MARKET'
@@ -33,7 +33,7 @@ function kstMinutes(now: Date): number {
 /**
  * MarketDataMode + KST 시각 → AutoTradeContext 매핑 (순수 함수, 테스트 가능).
  *
- * ADR-0043 §2.2 표:
+ * ADR-0049 §2.2 표:
  * - LIVE_TRADING_DAY (`isMarketOpen=true`) → 09:00~15:30 인 LIVE_MARKET. 15:30~16:00 은 POST_MARKET 이지만
  *   `isMarketOpen` 자체가 09:00 ≤ t < 15:30 이므로 POST_MARKET 분기는 별도 시각 검사가 필요.
  * - AFTER_MARKET 분기에서 KST 08:30~08:59 는 PRE_MARKET 으로 승격 (장 시작 직전 워치리스트 우선).

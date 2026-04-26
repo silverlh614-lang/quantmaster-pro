@@ -263,12 +263,12 @@ async function startServer() {
   app.use('/api/health', aiUniverseHealthRouter);
 
   // ─────────────────────────────────────────────────────────────
-  // PR-Z2 (ADR-0044) — 계좌 생존 게이지 GET /api/account/survival
+  // PR-Z2 (ADR-0050) — 계좌 생존 게이지 GET /api/account/survival
   // ─────────────────────────────────────────────────────────────
   app.use('/api/account', survivalRouter);
 
   // ─────────────────────────────────────────────────────────────
-  // PR-Z4 (ADR-0046) — 단일 결정 입력 GET /api/decision/inputs
+  // PR-Z4 (ADR-0052) — 단일 결정 입력 GET /api/decision/inputs
   // ─────────────────────────────────────────────────────────────
   app.use('/api/decision', decisionInputsRouter);
 

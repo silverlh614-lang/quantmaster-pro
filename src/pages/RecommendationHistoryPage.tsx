@@ -201,7 +201,7 @@ export function RecommendationHistoryPage() {
       {/* PR-H (ADR-0035): 조건별 수익률 귀인 차트 */}
       <ConditionAttributionChart />
 
-      {/* PR-Z6 (ADR-0048): Quant × Qual 합치도 매트릭스 */}
+      {/* PR-Z6 (ADR-0054): Quant × Qual 합치도 매트릭스 */}
       <ConcordanceMatrix />
     </div>
   );

@@ -1,4 +1,4 @@
-// @responsibility AutoTradePage 최상단 단일 결정 카드 — 6 case 우선순위 + VOID 모드 가운데 배치 (ADR-0046 PR-Z4)
+// @responsibility AutoTradePage 최상단 단일 결정 카드 — 6 case 우선순위 + VOID 모드 가운데 배치 (ADR-0052 PR-Z4)
 
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';

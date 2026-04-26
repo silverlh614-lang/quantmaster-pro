@@ -1,5 +1,5 @@
 /**
- * @responsibility conditionSourceMap 동기 사본 정합성 + classifyTier 회귀 (ADR-0048)
+ * @responsibility conditionSourceMap 동기 사본 정합성 + classifyTier 회귀 (ADR-0054)
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -38,7 +38,7 @@ describe('conditionSourceMap — 27 조건 분류 SSOT', () => {
   });
 });
 
-describe('classifyTier — ADR-0048 §2.1 임계값', () => {
+describe('classifyTier — ADR-0054 §2.1 임계값', () => {
   it('점수 ≥ 8 → EXCELLENT (경계값 포함)', () => {
     expect(classifyTier(TIER_THRESHOLDS.EXCELLENT)).toBe<ConcordanceTier>('EXCELLENT');
     expect(classifyTier(10)).toBe('EXCELLENT');

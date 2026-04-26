@@ -55,7 +55,7 @@ export function PositionLifecyclePanel({ positions }: PositionLifecyclePanelProp
                 />
               </div>
 
-              {/* ADR-0045 PR-Z3: 페르소나 4 카테고리 무효화 조건 미터 */}
+              {/* ADR-0051 PR-Z3: 페르소나 4 카테고리 무효화 조건 미터 */}
               <div className="mt-3">
                 <InvalidationMeter position={position} />
               </div>
