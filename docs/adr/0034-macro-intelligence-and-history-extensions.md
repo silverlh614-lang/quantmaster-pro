@@ -1,4 +1,4 @@
-# ADR-0024 — Macro Intelligence 탭 + 추천 적중률 시각화 확장 (PR-G)
+# ADR-0034 — Macro Intelligence 탭 + 추천 적중률 시각화 확장 (PR-G)
 
 - **Status**: Accepted (2026-04-26)
 - **Scope**: 사용자 P2-1 (Macro Intelligence 탭) + P2-4 (추천 적중률 통계). P2-3 (수익률 귀인) 은 attribution 데이터 의존 → PR-H 로 분리.

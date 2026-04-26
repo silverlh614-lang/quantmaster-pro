@@ -8,10 +8,19 @@ import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
 import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
-import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
+import { appendShadowLog, syncPositionCache, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 
+/**
+ * @rule R6_EMERGENCY_EXIT
+ * @priority 1
+ * @action PARTIAL_SELL
+ * @ratio 0.30
+ * @trigger currentRegime === 'R6_DEFENSE' && !shadow.r6EmergencySold && shadow.quantity > 0
+ * @regime R6_DEFENSE
+ * @rationale 블랙스완 (시장 -3% 이상 하락 또는 VKOSPI 35+) 진입 시 보유 포지션 30% 즉시 시장가 청산. 1회 한정 (재발 방지 플래그).
+ */
 export async function r6EmergencyExit(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct, currentRegime } = ctx;
 
@@ -32,6 +41,8 @@ export async function r6EmergencyExit(ctx: ExitContext): Promise<ExitRuleResult>
     pnl: (currentPrice - shadow.shadowEntryPrice) * emergencyQty,
     pnlPct: returnPct, reason: 'R6 긴급청산 30%',
     exitRuleTag: 'R6_EMERGENCY_EXIT', timestamp: r6Ts,
+    // PR-S (아이디어 7): attribution 시범 부착 — 학습 루프에 정밀 신호 공급
+    attribution: buildExitAttribution('R6_EMERGENCY_EXIT', ['regime_r6_defense'], currentRegime),
   }, 'R6_EMERGENCY', 'r6EmergencySold');
 
   if (r6Reserve.kind === 'FAILED') {

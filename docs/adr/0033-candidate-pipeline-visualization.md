@@ -1,8 +1,8 @@
-# ADR-0023 — 후보군 파이프라인 시각화 (PR-F)
+# ADR-0033 — 후보군 파이프라인 시각화 (PR-F)
 
 - **Status**: Accepted (2026-04-26)
 - **Scope**: 사용자 P1-1 (가장 우선) — "AI가 아무 종목이나 찍었다" 인상을 지우는 단계별 funnel.
-- **Related**: ADR-0018 (P0-A), ADR-0021 (P1-D), ADR-0022 (P1-E).
+- **Related**: ADR-0028 (P0-A), ADR-0031 (P1-D), ADR-0032 (P1-E).
 
 ---
 

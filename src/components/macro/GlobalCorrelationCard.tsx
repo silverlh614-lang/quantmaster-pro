@@ -1,4 +1,4 @@
-// @responsibility 글로벌 상관관계 4축 카드 (ADR-0025 PR-H)
+// @responsibility 글로벌 상관관계 4축 카드 (ADR-0035 PR-H)
 
 import React from 'react';
 import { GitMerge, AlertTriangle } from 'lucide-react';

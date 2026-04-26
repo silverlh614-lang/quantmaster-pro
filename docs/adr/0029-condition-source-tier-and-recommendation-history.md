@@ -1,15 +1,15 @@
-# ADR-0019 — Condition Source Tier 메타 + Recommendation History 노출 (PR-B)
+# ADR-0029 — Condition Source Tier 메타 + Recommendation History 노출 (PR-B)
 
 - **Status**: Accepted (2026-04-26)
-- **Scope**: ADR-0018 PR-A 후속. PR-A 가 휴리스틱 fallback 으로 노출한 데이터 품질 카운트의 정확도 격상 + 추천 이력 추적 페이지 신설.
-- **Related**: ADR-0018 (UI 재설계 P0-A), 기존 `recommendationTracker` (학습 모듈).
+- **Scope**: ADR-0028 PR-A 후속. PR-A 가 휴리스틱 fallback 으로 노출한 데이터 품질 카운트의 정확도 격상 + 추천 이력 추적 페이지 신설.
+- **Related**: ADR-0028 (UI 재설계 P0-A), 기존 `recommendationTracker` (학습 모듈).
 
 ---
 
 ## Context
 
-ADR-0018 PR-A 는 `DataQualityBadge` 의 분류를 클라이언트 휴리스틱으로 fallback 운영했다.
-ADR-0018 §3 에서 "PR-B 에서 서버 sourceTier 메타 도착 시 정확도 격상" 으로 예고했다.
+ADR-0028 PR-A 는 `DataQualityBadge` 의 분류를 클라이언트 휴리스틱으로 fallback 운영했다.
+ADR-0028 §3 에서 "PR-B 에서 서버 sourceTier 메타 도착 시 정확도 격상" 으로 예고했다.
 
 PR-A 의 문제점:
 - 27 조건의 출처 분류가 키 이름 기반 휴리스틱이라 enrichment 가 실제로 사용한 데이터 출처와 어긋날 수 있음.
@@ -33,7 +33,7 @@ type ConditionSourceTier = 'COMPUTED' | 'API' | 'AI_INFERRED';
 
 interface StockRecommendation {
   // ...
-  /** PR-B (ADR-0019): 27 조건 항목별 실제 데이터 출처. 부재 시 PR-A 휴리스틱 fallback. */
+  /** PR-B (ADR-0029): 27 조건 항목별 실제 데이터 출처. 부재 시 PR-A 휴리스틱 fallback. */
   conditionSourceTiers?: Partial<Record<ChecklistKey, ConditionSourceTier>>;
 }
 ```

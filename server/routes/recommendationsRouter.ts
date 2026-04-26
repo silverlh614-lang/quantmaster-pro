@@ -1,5 +1,5 @@
 /**
- * @responsibility 추천 이력·월간 통계 GET 엔드포인트 (ADR-0019 PR-B)
+ * @responsibility 추천 이력·월간 통계 GET 엔드포인트 (ADR-0029 PR-B)
  */
 
 import { Router, Request, Response } from 'express';

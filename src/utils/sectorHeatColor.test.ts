@@ -1,10 +1,10 @@
 /**
- * @responsibility classifySectorHeat 단위 테스트 — ADR-0022 PR-E
+ * @responsibility classifySectorHeat 단위 테스트 — ADR-0032 PR-E
  */
 import { describe, it, expect } from 'vitest';
 import { classifySectorHeat, SECTOR_HEAT_CSS } from './sectorHeatColor';
 
-describe('classifySectorHeat — ADR-0022 4단계 분류', () => {
+describe('classifySectorHeat — ADR-0032 4단계 분류', () => {
   it('score ≥ 70 → HOT', () => {
     expect(classifySectorHeat(70)).toBe('HOT');
     expect(classifySectorHeat(85)).toBe('HOT');

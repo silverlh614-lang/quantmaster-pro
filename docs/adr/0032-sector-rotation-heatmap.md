@@ -1,8 +1,8 @@
-# ADR-0022 — 섹터 로테이션 히트맵 (PR-E)
+# ADR-0032 — 섹터 로테이션 히트맵 (PR-E)
 
 - **Status**: Accepted (2026-04-26)
 - **Scope**: 사용자 P1-2 (섹터 로테이션 히트맵).
-- **Related**: ADR-0018 (P0-A), ADR-0021 (P1-D).
+- **Related**: ADR-0028 (P0-A), ADR-0031 (P1-D).
 
 ---
 

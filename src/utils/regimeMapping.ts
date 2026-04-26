@@ -1,4 +1,4 @@
-// @responsibility Gate0Result + bearRegimeResult → 6단계 RegimeLevel SSOT 매핑 (ADR-0018)
+// @responsibility Gate0Result + bearRegimeResult → 6단계 RegimeLevel SSOT 매핑 (ADR-0028)
 
 import type { RegimeLevel, Gate0Result } from '../types/core';
 import type { BearRegimeResult } from '../types/quant';

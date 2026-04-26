@@ -84,7 +84,7 @@ export function WatchlistCard({
   // 카드 가격 영역 라벨(주황 LIVE / 파랑 장외 / 회색 주말·공휴일) 분기에 사용.
   const marketMode = useMarketMode();
 
-  // PR-D (ADR-0021): 라스트 트리거 + Enemy 체크리스트 — store 에서 macroEnv 직접 읽기
+  // PR-D (ADR-0031): 라스트 트리거 + Enemy 체크리스트 — store 에서 macroEnv 직접 읽기
   const macroEnv = useGlobalIntelStore(s => s.macroEnv);
   const recentPositiveDisclosure = dartAlerts.some(
     a => a.stock_code.replace(/^A/, '') === stock.code && a.sentiment === 'POSITIVE',
@@ -458,7 +458,7 @@ export function WatchlistCard({
           </div>
         </div>
 
-        {/* Data Quality + Price Alert + Gate 0~3 통과 카드 — ADR-0018 PR-A + ADR-0020 PR-C */}
+        {/* Data Quality + Price Alert + Gate 0~3 통과 카드 — ADR-0028 PR-A + ADR-0030 PR-C */}
         <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-2 sm:gap-3 mb-4 items-start">
           <div className="flex items-center gap-2 flex-wrap">
             <DataQualityBadge count={classifyDataQuality(stock)} compact />
@@ -480,7 +480,7 @@ export function WatchlistCard({
           />
         </div>
 
-        {/* Last Trigger + Enemy Checklist — ADR-0021 PR-D */}
+        {/* Last Trigger + Enemy Checklist — ADR-0031 PR-D */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 mb-4">
           <LastTriggerCard summary={lastTriggerSummary} />
           <EnemyChecklistCard summary={enemyChecklistSummary} />

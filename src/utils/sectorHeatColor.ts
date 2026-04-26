@@ -1,4 +1,4 @@
-// @responsibility 섹터 에너지 점수 → 4단계 히트 톤 분류 (ADR-0022 PR-E)
+// @responsibility 섹터 에너지 점수 → 4단계 히트 톤 분류 (ADR-0032 PR-E)
 
 export type SectorHeatTone = 'HOT' | 'WARM' | 'COOL' | 'COLD';
 

@@ -1,5 +1,5 @@
 /**
- * @responsibility computeSignalBreakdown 단위 테스트 — ADR-0024 PR-G
+ * @responsibility computeSignalBreakdown 단위 테스트 — ADR-0034 PR-G
  */
 import { describe, it, expect } from 'vitest';
 import { computeSignalBreakdown, type StatsPeriod } from './recommendationStats';
@@ -31,7 +31,7 @@ function makeRec(opts: {
   };
 }
 
-describe('computeSignalBreakdown — ADR-0024 PR-G', () => {
+describe('computeSignalBreakdown — ADR-0034 PR-G', () => {
   it('빈 records → 모든 stats 0 + winRate null', () => {
     const r = computeSignalBreakdown([], 'ALL', now);
     expect(r.all.total).toBe(0);

@@ -33,6 +33,12 @@ export interface PositionFill {
   /** 사람이 읽을 수 있는 청산 이유 */
   reason: string;
   exitRuleTag?: string;
+  /**
+   * PR-S (아이디어 7): SELL fill 의 결정 attribution.
+   * 본 phase 옵셔널 — 점진 적용. 후속 PR 에서 SELL fill 생성 경로 모두 강제.
+   * 호출 시: `buildExitAttribution(ruleId, contributingConditions, regime)` 헬퍼 사용.
+   */
+  attribution?: ExitAttribution;
   timestamp: string;   // ISO
   /**
    * LIVE 모드 매도 시 KIS 주문번호 (ODNO).
@@ -286,6 +292,54 @@ export function updateShadow(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 청산 결정 attribution (PR-S / 아이디어 7).
+ *
+ * 모든 SELL fill 에 부착되어 "어느 매도 규칙이 / 어떤 조건이 / 어떤 레짐에서" 발동했는지
+ * 학습 루프(failurePatternDB / attributionRepo) 에 정밀 신호 공급. ADR-0006 attribution
+ * composite key (tradeId, fillId) 와 결합해 부분매도별 기여도까지 추적.
+ *
+ * 페르소나의 "외국인 수급, 거래량, 일목균형표 다요소 합치" 사상의 메타-레벨 적용 —
+ * 매도 결정도 단일 trigger 가 아닌 다요소 합치로 추적.
+ *
+ * 본 phase: 옵셔널 — 점진 적용. 후속 PR 에서 SELL fill 생성 경로 모두 의무화.
+ */
+export interface ExitAttribution {
+  /** 발동 규칙 ID (ExitRuleTag 와 동일 도메인). */
+  ruleId: ExitRuleTag;
+  /**
+   * 결정에 기여한 조건 식별자 배열. 예: `['stopLoss_breach', 'macd_dead_cross']`.
+   * 단일 trigger 일 경우에도 배열 형식 유지 (집계 호환).
+   */
+  contributingConditions: string[];
+  /**
+   * 매도 시점 매크로 레짐 (예: 'R6_DEFENSE'). 레짐별 규칙 정확도 분석용.
+   */
+  regime: string;
+  /** 부착 시각 (ISO) — fill.timestamp 와 보통 일치하지만 디버깅용 별도 보존. */
+  attachedAt?: string;
+}
+
+/**
+ * `ExitAttribution` 빌더 — SELL fill 생성 경로에서 일관된 형식으로 attribution 생성.
+ *
+ * 권장 사용:
+ *   const attribution = buildExitAttribution('R6_EMERGENCY_EXIT', ['regime_r6_defense'], currentRegime);
+ *   appendFill(shadow, { type: 'SELL', ..., attribution });
+ */
+export function buildExitAttribution(
+  ruleId: ExitRuleTag,
+  contributingConditions: string[],
+  regime: string,
+): ExitAttribution {
+  return {
+    ruleId,
+    contributingConditions: contributingConditions.length > 0 ? contributingConditions : [ruleId.toLowerCase()],
+    regime,
+    attachedAt: new Date().toISOString(),
+  };
+}
 
 /**
  * 청산/감축 규칙 태그 (EXIT_RULE_PRIORITY_TABLE 규칙명과 1:1 대응).

@@ -1,4 +1,4 @@
-// @responsibility 3-플래그 Enemy Checklist 평가 순수 함수 (ADR-0021 PR-D)
+// @responsibility 3-플래그 Enemy Checklist 평가 순수 함수 (ADR-0031 PR-D)
 
 import type { StockRecommendation } from '../services/stockService';
 import type { EnemyChecklistFlag, EnemyChecklistSummary } from '../types/ui';

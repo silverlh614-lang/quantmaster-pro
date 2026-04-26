@@ -40,7 +40,7 @@ interface SettingsState {
   autoSyncEnabled: boolean;
   setAutoSyncEnabled: (enabled: boolean) => void;
 
-  // PR-C (ADR-0020) — 가격 알림 watcher opt-in
+  // PR-C (ADR-0030) — 가격 알림 watcher opt-in
   priceAlertsEnabled: boolean;
   setPriceAlertsEnabled: (enabled: boolean) => void;
 
@@ -99,7 +99,7 @@ export const useSettingsStore = create<SettingsState>()(
       autoSyncEnabled: false,
       setAutoSyncEnabled: (autoSyncEnabled) => set({ autoSyncEnabled }),
 
-      // PR-C (ADR-0020) — 가격 알림 opt-in (기본 false)
+      // PR-C (ADR-0030) — 가격 알림 opt-in (기본 false)
       priceAlertsEnabled: false,
       setPriceAlertsEnabled: (priceAlertsEnabled) => set({ priceAlertsEnabled }),
 

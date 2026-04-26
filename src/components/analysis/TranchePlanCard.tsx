@@ -1,4 +1,4 @@
-// @responsibility 분할매수 계획 카드 — 1차/2차/3차 시각화 (ADR-0021 PR-D)
+// @responsibility 분할매수 계획 카드 — 1차/2차/3차 시각화 (ADR-0031 PR-D)
 
 import React from 'react';
 import { Layers, Check, Clock } from 'lucide-react';
