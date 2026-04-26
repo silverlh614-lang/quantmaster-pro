@@ -31,6 +31,7 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '08:45', label: '아침 통합 브리핑', group: 'reports', jobName: 'morning_briefing' },
   { timeKst: '09:00', label: 'MHS 알림 / 거시-섹터 동기화 시작', group: 'alerts', jobName: 'mhs_open', silentWhen: 'MHS 가 RED(<40) 또는 GREEN(≥70) 전환이 아니면 무음' },
   { timeKst: '09:05', label: '보유 포지션 모닝카드', group: 'reports', jobName: 'morning_position_card', silentWhen: '활성 포지션 없으면 무음' },
+  { timeKst: '09:05', label: '연휴 복귀 보수 매매 모드', group: 'alerts', jobName: 'holiday_resume_alert', silentWhen: 'POST_HOLIDAY + isLongHoliday 미충족 시 무음 — 추석/근로자의 날 직후만 발송' },
   { timeKst: '09:10', label: 'newsSupply 추적', group: 'screener', jobName: 'news_supply_tracker' },
   { timeKst: '10:45', label: '장전 방향 카드 (HK 개장 30분 후 재계산)', group: 'alerts', jobName: 'pre_market_card_hk', silentWhen: '|Bias Score| < 40 이면 무음' },
   { timeKst: '12:30', label: '점심 통합 브리핑', group: 'reports', jobName: 'lunch_briefing' },

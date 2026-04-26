@@ -15,6 +15,7 @@ import { runSectorEtfMomentumScan } from '../alerts/sectorEtfMomentum.js';
 import { tickIntradayYield } from '../alerts/intradayYieldTicker.js';
 import { sweepPendingAcks } from '../alerts/ackTracker.js';
 import { checkForeignFlowLeadingAlert } from '../alerts/foreignFlowLeadingAlert.js';
+import { runHolidayResumeAlert } from '../trading/holidayResumeAlert.js';
 
 export function registerAlertJobs(): void {
   // DART 공시 30분 폴링 — 장중 08:30~18:00 KST (UTC 23:30~09:00)
@@ -77,6 +78,15 @@ export function registerAlertJobs(): void {
   // 평일 KST 09:00 ~ 15:30 (UTC 00:00 ~ 06:30) 커버. 런타임 캐시만 갱신 — Telegram 없음.
   cron.schedule('*/30 0-6 * * 1-5', () => {
     try { tickIntradayYield(); } catch (e) { console.error('[IPYL] tick 실패:', e); }
+  }, { timezone: 'UTC' });
+
+  // PR-C ADR-0038 — 연휴 복귀 보수 매매 모드 알림. 평일 09:05 KST (UTC 00:05 월~금).
+  // MHS 모닝 알림(09:00) 직후 5분 슬롯에 분리 — 두 메시지 충돌 방지.
+  // POST_HOLIDAY + isLongHoliday 활성 시에만 1회 발송. dedupeKey 24h cooldown.
+  // 비활성 시 silent return — 평상 영업일은 발송 없음.
+  cron.schedule('5 0 * * 1-5', async () => {
+    await runHolidayResumeAlert().catch((e) =>
+      console.error('[HolidayResumeAlert] 실행 실패:', e instanceof Error ? e.message : e));
   }, { timezone: 'UTC' });
 
   // T1 ACK 폐루프 스윕 — 5분 간격. 30분 미확인 → 재발송, 60분 미확인 → 이메일 에스컬레이션.

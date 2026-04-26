@@ -111,10 +111,12 @@ export function getMarketDayContext(dateYmd?: string): MarketDayContext {
   // 이전 영업일 — 본인이 영업일이면 본인, 아니면 본인 이전 첫 영업일.
   const prev = trading ? date : prevTradingDay(shiftYmd(date, -1));
 
-  // 비영업 간격 — 다음 영업일과 이전 영업일 사이의 달력일 수.
-  // 본인이 영업일이면 next === prev === date 라 nonTradingGap = 0 (PRE/POST 분기에서 별도 계산).
-  const nonTradingGap = next && prev ? daysBetween(next, prev) - 1 : 0;
-  const isLongHoliday = nonTradingGap >= LONG_HOLIDAY_GAP_DAYS;
+  // 비영업 간격 — 영업일/비영업일 분기에 따라 다른 계산.
+  //   * 비영업일: next 와 prev 사이의 달력일 수에서 1을 뺀 것 (양 끝 영업일 제외 비영업 일수).
+  //   * 영업일: 직전 영업일과의 거리(prevPrev gap) 가 ≥ LONG_HOLIDAY_GAP_DAYS+1 일 때 활성.
+  //     예: 5/4 월(직전 영업일 4/30 목, 거리 4일) → 4 ≥ 4 → 연휴 직후 영업일.
+  let isLongHoliday: boolean;
+  let nonTradingGap = 0;
 
   let type: MarketDayType;
   if (trading) {
@@ -125,6 +127,10 @@ export function getMarketDayContext(dateYmd?: string): MarketDayContext {
     const prevPrev = prevTradingDay(shiftYmd(date, -1));
     const gapFromPrev = prevPrev ? daysBetween(date, prevPrev) : 0;
 
+    // 영업일의 isLongHoliday — 직전 영업일과의 거리가 ≥ LONG_HOLIDAY_GAP_DAYS+1.
+    // (4일 거리 = 비영업 클러스터 3일 + 본 영업일 1일)
+    isLongHoliday = gapFromPrev >= LONG_HOLIDAY_GAP_DAYS + 1;
+
     if (gapFromPrev >= 2) {
       type = 'POST_HOLIDAY';
     } else if (gapToNext >= 2) {
@@ -133,6 +139,8 @@ export function getMarketDayContext(dateYmd?: string): MarketDayContext {
       type = 'TRADING_DAY';
     }
   } else {
+    nonTradingGap = next && prev ? daysBetween(next, prev) - 1 : 0;
+    isLongHoliday = nonTradingGap >= LONG_HOLIDAY_GAP_DAYS;
     // 비영업일: WEEKEND / KRX_HOLIDAY / LONG_HOLIDAY_START / LONG_HOLIDAY_END 분기.
     if (isLongHoliday) {
       // 비영업 클러스터의 시작 vs 끝 — 직전 영업일과의 거리로 판정.
