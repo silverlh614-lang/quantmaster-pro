@@ -68,3 +68,29 @@ export async function fetchRecommendationStats(): Promise<RecommendationStatsRes
   }
   return await res.json();
 }
+
+// ─── PR-M: 일별 시계열 ─────────────────────────────────────────────────────
+
+export interface ClientDailyTimeseriesPoint {
+  date: string;
+  total: number;
+  wins: number;
+  losses: number;
+  pending: number;
+  expired: number;
+  winRate: number | null;
+  avgReturn: number | null;
+}
+
+export interface RecommendationTimeseriesResponse {
+  days: number;
+  series: ClientDailyTimeseriesPoint[];
+}
+
+export async function fetchRecommendationTimeseries(days = 7): Promise<RecommendationTimeseriesResponse> {
+  const res = await fetch(`/api/recommendations/timeseries?days=${encodeURIComponent(days)}`);
+  if (!res.ok) {
+    throw new Error(`fetch /api/recommendations/timeseries failed: ${res.status}`);
+  }
+  return await res.json();
+}

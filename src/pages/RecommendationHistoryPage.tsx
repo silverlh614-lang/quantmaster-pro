@@ -11,6 +11,7 @@ import {
 } from '../api/recommendationsClient';
 import { computeSignalBreakdown, type StatsPeriod } from '../utils/recommendationStats';
 import { ConditionAttributionChart } from '../components/analysis/ConditionAttributionChart';
+import { RecommendationTimeseriesChart } from '../components/analysis/RecommendationTimeseriesChart';
 
 const PERIOD_OPTIONS: { id: StatsPeriod; label: string }[] = [
   { id: '7d', label: '7일' },
@@ -192,6 +193,9 @@ export function RecommendationHistoryPage() {
           </div>
         )}
       </section>
+
+      {/* PR-M: 추천 일별 시계열 차트 */}
+      <RecommendationTimeseriesChart />
 
       {/* PR-H (ADR-0025): 조건별 수익률 귀인 차트 */}
       <ConditionAttributionChart />
