@@ -1,10 +1,11 @@
-// @responsibility 워치리스트 가격 알림 watcher — Web Notification + dedupe + opt-in (ADR-0020 PR-C)
+// @responsibility 워치리스트 가격 알림 watcher — Web Notification + SW + dedupe + opt-in (ADR-0020 PR-C + PR-L)
 
 import { useEffect, useRef } from 'react';
 import { useSettingsStore } from '../stores';
 import type { StockRecommendation } from '../services/stockService';
 import type { PriceAlertLevel } from '../types/ui';
 import { computePriceAlertLevel, isActionableAlert } from '../utils/priceAlertLevel';
+import { getPriceAlertRegistration } from '../utils/serviceWorkerRegistration';
 
 /** 같은 종목 + 같은 alertLevel 알림이 5분 내 반복되지 않도록 dedupe 한다. */
 export const ALERT_COOLDOWN_MS = 5 * 60_000;
@@ -79,16 +80,27 @@ function canSendNotification(): boolean {
   return Notification.permission === 'granted';
 }
 
-function sendNotification(stock: StockRecommendation, level: PriceAlertLevel): void {
+async function sendNotification(stock: StockRecommendation, level: PriceAlertLevel): Promise<void> {
   if (!canSendNotification()) return;
   if (level === 'NORMAL') return;
+  const title = ALERT_TITLE[level];
+  const body = buildBody(stock, level);
+  const tag = `qm-price-alert-${stock.code}-${level}`;
+
+  // PR-L: SW registration 가용 시 showNotification — 백그라운드 탭에서도 표시
+  const reg = await getPriceAlertRegistration();
+  if (reg) {
+    try {
+      await reg.showNotification(title, { body, tag });
+      return;
+    } catch {
+      /* SW showNotification 실패 → Notification API fallback */
+    }
+  }
+
+  // Fallback: 클래식 Notification API (foreground 탭에서만 보장)
   try {
-    const title = ALERT_TITLE[level];
-    const body = buildBody(stock, level);
-    new Notification(title, {
-      body,
-      tag: `qm-price-alert-${stock.code}-${level}`,
-    });
+    new Notification(title, { body, tag });
   } catch {
     /* SDS-ignore: Notification 생성 실패 (브라우저 정책) — in-app 배지로 fallback */
   }
@@ -134,7 +146,7 @@ export function usePriceAlertWatcher(stocks: ReadonlyArray<StockRecommendation>)
 
       if (!shouldDispatchAlert(level, previousLevel, lastFiredAt, now)) continue;
 
-      sendNotification(stock, level);
+      void sendNotification(stock, level);
       markFired(stock.code, level, now);
     }
   }, [stocks, enabled]);
@@ -154,13 +166,26 @@ export async function requestPriceAlertPermission(): Promise<'granted' | 'denied
   if (typeof window === 'undefined' || typeof Notification === 'undefined') {
     return 'unsupported';
   }
-  if (Notification.permission === 'granted') return 'granted';
+  // PR-L: 권한 granted 시 SW 도 시도 (등록 실패해도 알림 전송엔 무영향)
+  const ensureSwRegistered = async () => {
+    try {
+      const { registerPriceAlertServiceWorker } = await import('../utils/serviceWorkerRegistration');
+      await registerPriceAlertServiceWorker();
+    } catch { /* SDS-ignore: SW 등록 실패는 로그만 — Notification API fallback */ }
+  };
+
+  if (Notification.permission === 'granted') {
+    await ensureSwRegistered();
+    return 'granted';
+  }
   if (Notification.permission === 'denied') return 'denied';
   try {
     const result = await Notification.requestPermission();
-    return result === 'granted' || result === 'denied' || result === 'default'
-      ? result
-      : 'default';
+    if (result === 'granted') {
+      await ensureSwRegistered();
+      return 'granted';
+    }
+    return result === 'denied' || result === 'default' ? result : 'default';
   } catch {
     return 'default';
   }
