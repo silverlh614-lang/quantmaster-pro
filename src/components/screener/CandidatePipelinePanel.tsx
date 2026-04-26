@@ -8,7 +8,9 @@ import {
   fetchPipelineSummary,
   type ClientPipelineStage,
   type PipelineStageId,
+  type DrilldownStage,
 } from '../../api/screenerPipelineClient';
+import { PipelineStageDrilldown } from './PipelineStageDrilldown';
 
 const STAGE_TONE: Record<PipelineStageId, string> = {
   UNIVERSE:      'bg-white/5     border-white/10  text-white/70',
@@ -19,22 +21,31 @@ const STAGE_TONE: Record<PipelineStageId, string> = {
   ENTRIES:       'bg-green-500/20 border-green-500/40 text-green-200',
 };
 
-function StageRow({ stage }: { stage: ClientPipelineStage }) {
+function StageRow({ stage, onDrilldown }: { stage: ClientPipelineStage; onDrilldown?: (id: DrilldownStage) => void }) {
   const isUniverse = stage.id === 'UNIVERSE';
   const showDropped = stage.droppedAtThisStep != null && stage.droppedAtThisStep > 0;
+  const drilldownEnabled = !isUniverse && onDrilldown != null;
   return (
     <div className="flex items-center gap-2">
-      <div className={cn(
-        'flex-1 rounded border px-3 py-2 flex items-center justify-between',
-        STAGE_TONE[stage.id],
-      )}>
+      <button
+        type="button"
+        disabled={!drilldownEnabled}
+        onClick={() => drilldownEnabled && onDrilldown(stage.id as DrilldownStage)}
+        className={cn(
+          'flex-1 rounded border px-3 py-2 flex items-center justify-between text-left',
+          STAGE_TONE[stage.id],
+          drilldownEnabled && 'hover:bg-white/5 transition-colors cursor-pointer',
+          !drilldownEnabled && 'cursor-default',
+        )}
+        aria-label={drilldownEnabled ? `${stage.label} 종목 드릴다운` : stage.label}
+      >
         <span className="text-[11px] font-bold uppercase tracking-wider opacity-80">
           {stage.label}
         </span>
         <span className="text-base sm:text-lg font-black font-num">
           {isUniverse && stage.count === 0 ? '—' : stage.count.toLocaleString('ko-KR')}
         </span>
-      </div>
+      </button>
       {showDropped && (
         <div className="hidden sm:flex items-center gap-1 text-[10px] text-white/50 w-32 shrink-0">
           <ArrowDown className="w-3 h-3" />
@@ -60,6 +71,7 @@ interface CandidatePipelinePanelProps {
  */
 export function CandidatePipelinePanel({ className }: CandidatePipelinePanelProps) {
   const [expanded, setExpanded] = useState(false);
+  const [drilldownStage, setDrilldownStage] = useState<DrilldownStage | null>(null);
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['screener', 'pipeline-summary'],
     queryFn: fetchPipelineSummary,
@@ -117,9 +129,9 @@ export function CandidatePipelinePanel({ className }: CandidatePipelinePanelProp
           {/* 항상 표시 — Top + Bottom 만 컴팩트 */}
           <div className="space-y-1.5">
             {/* CANDIDATES (시작점) */}
-            <StageRow stage={data.stages.find(s => s.id === 'CANDIDATES')!} />
+            <StageRow stage={data.stages.find(s => s.id === 'CANDIDATES')!} onDrilldown={setDrilldownStage} />
             {/* ENTRIES (최종) */}
-            <StageRow stage={data.stages.find(s => s.id === 'ENTRIES')!} />
+            <StageRow stage={data.stages.find(s => s.id === 'ENTRIES')!} onDrilldown={setDrilldownStage} />
           </div>
 
           {/* 변환률 */}
@@ -134,11 +146,19 @@ export function CandidatePipelinePanel({ className }: CandidatePipelinePanelProp
           {expanded && (
             <div className="mt-3 pt-3 border-t border-white/10 space-y-1.5">
               {data.stages.map(stage => (
-                <StageRow key={stage.id} stage={stage} />
+                <StageRow key={stage.id} stage={stage} onDrilldown={setDrilldownStage} />
               ))}
             </div>
           )}
         </>
+      )}
+
+      {/* PR-J 단계별 종목 드릴다운 모달 */}
+      {drilldownStage && (
+        <PipelineStageDrilldown
+          stage={drilldownStage}
+          onClose={() => setDrilldownStage(null)}
+        />
       )}
     </div>
   );

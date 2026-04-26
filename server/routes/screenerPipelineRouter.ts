@@ -1,10 +1,11 @@
 /**
- * @responsibility 후보군 파이프라인 단계별 카운트 GET 엔드포인트 (ADR-0023 PR-F)
+ * @responsibility 후보군 파이프라인 단계별 카운트·종목 리스트 GET 엔드포인트 (ADR-0023 PR-F + PR-J)
  */
 
 import { Router, Request, Response } from 'express';
 import { getLastScanSummary } from '../trading/signalScanner.js';
 import type { ScanSummary } from '../trading/signalScanner/scanDiagnostics.js';
+import { loadTodayScanTraces, type ScanTrace } from '../trading/scanTracer.js';
 
 const router = Router();
 
@@ -145,6 +146,111 @@ router.get('/pipeline-summary', (_req: Request, res: Response) => {
   } catch (e) {
     console.error('[screenerPipelineRouter] /pipeline-summary 실패:', e);
     res.status(500).json({ error: 'pipeline_summary_failed' });
+  }
+});
+
+// ─── PR-J: 단계별 종목 드릴다운 ───────────────────────────────────────────
+
+export type PipelineDrilldownStage =
+  | 'CANDIDATES' | 'MOMENTUM_PASS' | 'GATE1_PASS' | 'RRR_PASS' | 'ENTRIES';
+
+const VALID_STAGES = new Set<PipelineDrilldownStage>([
+  'CANDIDATES', 'MOMENTUM_PASS', 'GATE1_PASS', 'RRR_PASS', 'ENTRIES',
+]);
+
+export interface PipelineStockEntry {
+  stock: string;
+  name: string;
+  outcome: 'PASSED' | 'DROPPED' | 'EXECUTED';
+  /** DROPPED 일 때 사유 — "yahoo" / "gate" / "rrr" / "price" 등 */
+  dropReason?: string;
+}
+
+export interface PipelineStocksResponse {
+  stage: PipelineDrilldownStage;
+  passed: PipelineStockEntry[];
+  dropped: PipelineStockEntry[];
+  counts: { passed: number; dropped: number };
+}
+
+/**
+ * stage 기준 ScanTrace 분류 — 단계별 통과 / 탈락 분리.
+ *   CANDIDATES: 전체 (탈락 없음)
+ *   MOMENTUM_PASS: yahoo OK / yahoo FAIL 분류
+ *   GATE1_PASS: yahoo OK & gate PASS / gate FAIL 분류
+ *   RRR_PASS: 위 + rrr PASS / rrr FAIL 분류
+ *   ENTRIES: buy SHADOW or LIVE 만 / 실패 진입 시도는 dropped
+ */
+export function partitionTracesByStage(
+  traces: ScanTrace[],
+  stage: PipelineDrilldownStage,
+): PipelineStocksResponse {
+  const passed: PipelineStockEntry[] = [];
+  const dropped: PipelineStockEntry[] = [];
+
+  for (const t of traces) {
+    const yahooFail = t.stages.gate?.startsWith('FAIL(yahoo') ?? false;
+    const gateFail = !yahooFail && (t.stages.gate?.startsWith('FAIL') ?? false);
+    const rrrFail = t.stages.rrr?.startsWith('FAIL') ?? false;
+    const buyDone = t.stages.buy === 'SHADOW' || t.stages.buy === 'LIVE';
+
+    const entry = (outcome: PipelineStockEntry['outcome'], dropReason?: string): PipelineStockEntry => ({
+      stock: t.stock, name: t.name, outcome, dropReason,
+    });
+
+    if (stage === 'CANDIDATES') {
+      passed.push(entry('PASSED'));
+      continue;
+    }
+
+    if (stage === 'MOMENTUM_PASS') {
+      if (yahooFail) dropped.push(entry('DROPPED', 'yahoo'));
+      else passed.push(entry('PASSED'));
+      continue;
+    }
+
+    if (stage === 'GATE1_PASS') {
+      if (yahooFail) continue; // 이전 단계에서 이미 dropped — 본 단계엔 미포함
+      if (gateFail) dropped.push(entry('DROPPED', 'gate'));
+      else passed.push(entry('PASSED'));
+      continue;
+    }
+
+    if (stage === 'RRR_PASS') {
+      if (yahooFail || gateFail) continue;
+      if (rrrFail) dropped.push(entry('DROPPED', 'rrr'));
+      else passed.push(entry('PASSED'));
+      continue;
+    }
+
+    if (stage === 'ENTRIES') {
+      if (yahooFail || gateFail || rrrFail) continue;
+      if (buyDone) passed.push(entry('EXECUTED'));
+      else dropped.push(entry('DROPPED', 'buy_failed'));
+    }
+  }
+
+  return {
+    stage,
+    passed,
+    dropped,
+    counts: { passed: passed.length, dropped: dropped.length },
+  };
+}
+
+router.get('/pipeline-stocks', (req: Request, res: Response) => {
+  const stageRaw = String(req.query.stage ?? '').toUpperCase();
+  if (!VALID_STAGES.has(stageRaw as PipelineDrilldownStage)) {
+    res.status(400).json({ error: 'invalid_stage', allowed: Array.from(VALID_STAGES) });
+    return;
+  }
+  try {
+    const traces = loadTodayScanTraces();
+    const result = partitionTracesByStage(traces, stageRaw as PipelineDrilldownStage);
+    res.json(result);
+  } catch (e) {
+    console.error('[screenerPipelineRouter] /pipeline-stocks 실패:', e);
+    res.status(500).json({ error: 'pipeline_stocks_failed' });
   }
 });
 

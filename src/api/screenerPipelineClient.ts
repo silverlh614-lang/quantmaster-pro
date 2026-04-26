@@ -36,3 +36,30 @@ export async function fetchPipelineSummary(): Promise<ClientPipelineSummary> {
   }
   return await res.json();
 }
+
+// ─── PR-J: 단계별 종목 드릴다운 ───────────────────────────────────────────
+
+export type DrilldownStage =
+  | 'CANDIDATES' | 'MOMENTUM_PASS' | 'GATE1_PASS' | 'RRR_PASS' | 'ENTRIES';
+
+export interface ClientPipelineStockEntry {
+  stock: string;
+  name: string;
+  outcome: 'PASSED' | 'DROPPED' | 'EXECUTED';
+  dropReason?: string;
+}
+
+export interface PipelineStocksResponse {
+  stage: DrilldownStage;
+  passed: ClientPipelineStockEntry[];
+  dropped: ClientPipelineStockEntry[];
+  counts: { passed: number; dropped: number };
+}
+
+export async function fetchPipelineStocks(stage: DrilldownStage): Promise<PipelineStocksResponse> {
+  const res = await fetch(`/api/screener/pipeline-stocks?stage=${encodeURIComponent(stage)}`);
+  if (!res.ok) {
+    throw new Error(`fetch /api/screener/pipeline-stocks failed: ${res.status}`);
+  }
+  return await res.json();
+}
