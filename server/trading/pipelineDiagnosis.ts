@@ -2,8 +2,13 @@
 /**
  * pipelineDiagnosis.ts — 파이프라인 자가진단 (아이디어 11)
  *
- * 새벽 02:00 KST cron에서 호출. 장 시작 7시간 전에 치명 이슈를 감지한다.
+ * 새벽 06:30 KST cron에서 호출 (ADR-0056 v4 — NYSE 마감 직후 + 한국장 개장 2.5h 전).
  * 개별 체크는 독립적으로 실행하여 한 체크 실패가 다른 체크를 막지 않는다.
+ *
+ * 알림 등급 (ADR-0056):
+ *   - issues       : OPERATIONAL CRITICAL — 즉시 텔레그램 푸시 (장 시작 전 조치 필요)
+ *   - warnings     : OPERATIONAL WARNING — 즉시 텔레그램 푸시 (운영 영향 있음)
+ *   - informational: 누적 통계 — 일일 요약에만 (단발성 503 등 운영 무관)
  */
 import fs from 'fs';
 import { DATA_DIR } from '../persistence/paths.js';
@@ -13,12 +18,14 @@ import {
   getCompletenessSnapshot,
   type CompletenessSnapshot,
 } from '../screener/dataCompletenessTracker.js';
-import { guardedFetch } from '../utils/egressGuard.js';
+import { getYahooHealthSnapshot } from './marketDataRefresh.js';
 
 export interface DiagnosisResult {
   hasCriticalIssue: boolean;
   issues: string[];
   warnings: string[];
+  /** ADR-0056 v4 — 운영 무관 정보 (단발성 503 등). 일일 요약에만 노출. */
+  informational: string[];
   checkedAt: string;
   /** 데이터 빈곤 스캔 스냅샷 — 진단 API가 함께 반환해 UI에서 활용. */
   dataCompleteness?: CompletenessSnapshot;
@@ -30,8 +37,9 @@ export interface DiagnosisResult {
  * WARNING:  운영에 영향이 있으나 즉각 대응 불필요
  */
 export async function runPipelineDiagnosis(): Promise<DiagnosisResult> {
-  const issues: string[]   = [];
-  const warnings: string[] = [];
+  const issues: string[]        = [];
+  const warnings: string[]      = [];
+  const informational: string[] = [];
 
   // ① Volume 마운트 / 데이터 디렉터리 쓰기 가능 여부
   try {
@@ -81,26 +89,28 @@ export async function runPipelineDiagnosis(): Promise<DiagnosisResult> {
     warnings.push('🚫 AUTO_TRADE_ENABLED=false — 매수 신호가 발생해도 주문 없음');
   }
 
-  // ⑤ Yahoo Finance 응답성 테스트 (SK하이닉스 000660.KS)
-  try {
-    const controller = new AbortController();
-    const timeout    = setTimeout(() => controller.abort(), 8_000);
-    const res = await guardedFetch(
-      'https://query1.finance.yahoo.com/v8/finance/chart/000660.KS?interval=1d&range=1d',
-      { signal: controller.signal, headers: { 'User-Agent': 'Mozilla/5.0' } },
+  // ⑤ Yahoo Finance 헬스 — SSOT(getYahooHealthSnapshot) 누적 통계 read-only (ADR-0056)
+  //
+  // 자체 fetch 제거 — 단발성 503/timeout 알림 폭주 차단. 대신 24h 누적 통계로 분기:
+  //   OK / STALE        → 알림 없음
+  //   DEGRADED          → informational (일일 요약에만)
+  //   DOWN              → issues (즉시 텔레그램, 5회 연속 실패 = 진짜 장애)
+  //   UNKNOWN           → informational (cron 첫 실행 시 정상)
+  const yahooHealth = getYahooHealthSnapshot();
+  if (yahooHealth.status === 'DOWN') {
+    issues.push(
+      `🌐 Yahoo Finance 장애 (${yahooHealth.consecutiveFailures}회 연속 실패) — Gate 재평가 불가, 매수 신호 차단 위험`,
     );
-    clearTimeout(timeout);
-    if (!res.ok) {
-      warnings.push(`🌐 Yahoo Finance 응답 이상 (HTTP ${res.status}) — Gate 재평가 실패 가능`);
-    }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes('abort') || msg.includes('timeout')) {
-      warnings.push('🌐 Yahoo Finance 응답 타임아웃 (8초) — Gate 재평가 속도 저하 가능');
-    } else {
-      issues.push(`🌐 Yahoo Finance 연결 실패 — Gate 재평가 불가, 매수 신호 차단됨: ${msg}`);
-    }
+  } else if (yahooHealth.status === 'STALE') {
+    // 4시간 이내 success 가 있었으나 1시간 이내엔 없음 — 비활성 시간대 정상.
+    informational.push(
+      `🌐 Yahoo Finance 비활성 (마지막 성공 ${formatLagMinutes(yahooHealth.lastSuccessAt)}분 전) — 새벽 cron 정상 패턴`,
+    );
+  } else if (yahooHealth.status === 'UNKNOWN') {
+    // 부팅 직후 cron 첫 실행 — 호출 이력 0건. informational 으로만 기록.
+    informational.push('🌐 Yahoo Finance 호출 이력 없음 — 부팅 직후 cron 첫 실행');
   }
+  // status === 'OK' → 알림 없음 (정상)
 
   // ⑥ Data Degradation Detector — 종목별 MTAS/DART 완성도 집계
   //
@@ -127,7 +137,15 @@ export async function runPipelineDiagnosis(): Promise<DiagnosisResult> {
     hasCriticalIssue: issues.length > 0,
     issues,
     warnings,
+    informational,
     checkedAt: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) + ' KST',
     dataCompleteness: completeness,
   };
+}
+
+/** lastSuccessAt epoch → 현재 기준 경과 분 (0 = 미수집). */
+function formatLagMinutes(lastSuccessAt: number): string {
+  if (!lastSuccessAt) return '미수집';
+  const minutes = Math.round((Date.now() - lastSuccessAt) / 60_000);
+  return String(minutes);
 }

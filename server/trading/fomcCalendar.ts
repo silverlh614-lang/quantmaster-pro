@@ -4,14 +4,14 @@
  *
  * FOMC 근접도 함수로 Kelly 배율을 자동 조절한다.
  *
- * ┌─ 위상별 동작 (정책 v3 — 2026-04-26 사용자 경험 반영, D-day 1일 차단) ─────────┐
- * │  PRE_3 (D-3) : 정상 운용 (Kelly ×1.00)                                     │
- * │  PRE_2 (D-2) : 정상 운용 (Kelly ×1.00)                                     │
- * │  PRE_1 (D-1) : 보수적 진입 (Kelly ×0.75) | 발표 직전 사이즈 25% 축소        │
- * │  DAY   (D+0) : 신규 진입 금지 | 발표 전 전면 관망                          │
- * │  POST_1(D+1) : 방향 확인 후 최대 진입 허용 (Kelly ×1.30)                   │
- * │  POST_2(D+2) : 모멘텀 가속 구간 (Kelly ×1.15)                              │
- * │  NORMAL      : 정상 운용 (Kelly ×1.00)                                     │
+ * ┌─ 위상별 동작 (정책 v4 — 2026-04-26 사용자 운영 결정, D-3~D-1 보수 + DAY 차단) ─┐
+ * │  PRE_3 (D-3) : 보수적 진입 (Kelly ×0.75)                                     │
+ * │  PRE_2 (D-2) : 보수적 진입 (Kelly ×0.75)                                     │
+ * │  PRE_1 (D-1) : 보수적 진입 (Kelly ×0.75)                                     │
+ * │  DAY   (D+0) : 신규 진입 금지 | 발표 전 전면 관망                            │
+ * │  POST_1(D+1) : 방향 확인 후 최대 진입 허용 (Kelly ×1.30)                     │
+ * │  POST_2(D+2) : 모멘텀 가속 구간 (Kelly ×1.15)                                │
+ * │  NORMAL      : 정상 운용 (Kelly ×1.00)                                       │
  * └─────────────────────────────────────────────────────────────────────────────┘
  *
  * 정책 변경 이력:
@@ -19,8 +19,10 @@
  *   v2 (2026-04-26 1차): PRE_3/PRE_2 정상, PRE_1/DAY 차단 (2일)
  *   v3 (2026-04-26 2차): PRE_3/PRE_2/PRE_1 정상, DAY 만 차단 (1일)
  *   v3.1 (2026-04-26 3차): PRE_1 = Kelly 0.75 (사이즈 25% 축소), DAY 차단 유지
- *     사유: 사용자 추가 요청 — D-1 은 발표 직전이라 *완전 정상* 보다는 약간의
- *     보수성(25% 축소) 유지가 안전. 진입 자체는 허용해 기회 손실 최소화.
+ *   v4 (2026-04-26 4차): PRE_3/PRE_2/PRE_1 모두 Kelly 0.75 — 4일 보수성 균일 (ADR-0057)
+ *     사유: 사용자 운영 결정 — D-3 부터도 발표 영향권 진입으로 간주, 사이즈 보수성을
+ *     4일 전체에 균일 적용해 운영 일관성 확보. v3.1 의 PRE_3/PRE_2 = 1.0 (완전 정상)
+ *     과 PRE_1 = 0.75 사이의 사이즈 격차가 직관적 부담 — v4 는 4일 균일화로 단순화.
  *
  *   - 매도(청산)는 본 게이트와 무관하게 정상 발동 (페르소나 철학 8 — 손절은 운영비).
  *
@@ -58,10 +60,10 @@ export interface FomcProximity {
   nextFomcDate:    string | null;
   lastFomcDate:    string | null;
   kellyMultiplier: number;         // 1.0 = 정상, <1 = 축소, >1 = 부스트
-  noNewEntry:      boolean;        // PRE / DAY 구간
-  hedgeSignal:     boolean;        // PRE_3 전용: 50% 헤지 경보 (v2 에선 항상 false)
+  noNewEntry:      boolean;        // DAY 구간만 (v4)
+  hedgeSignal:     boolean;        // PRE_3 전용: 50% 헤지 경보 (v2 부터 항상 false)
   description:     string;
-  /** v2 우호 환경 완화 적용 여부 (PRE_1/DAY 에서만 의미). true 시 보수적 진입 허용. */
+  /** 우호 환경 완화 적용 여부 (DAY 에서만 의미, v3+). true 시 보수적 진입 허용. */
   relaxed?:        boolean;
   /** 우호/차단 사유 텍스트 — 운영자 가시성. */
   relaxationReason?: string;
@@ -101,19 +103,19 @@ const FOMC_FAVORABLE_REGIMES = new Set<string>([
   'R2_BULL_NORMAL',
 ]);
 
-// Kelly 배율 테이블 (정책 v3.1 — 2026-04-26 사용자 추가 요청 반영)
+// Kelly 배율 테이블 (정책 v4 — 2026-04-26 사용자 운영 결정, ADR-0057)
 //
 // 변경 이력:
 //   v1 (2025):         PRE_3/PRE_2/PRE_1/DAY 모두 0.0 (4일 차단)
 //   v2 (2026-04-26):   PRE_3/PRE_2 = 1.0, PRE_1/DAY = 0.0 (2일 차단)
 //   v3 (2026-04-26):   PRE_3/PRE_2/PRE_1 = 1.0, DAY 만 0.0 (1일 차단)
-//   v3.1 (2026-04-26): PRE_1 = 0.75 (사이즈 25% 축소), DAY 차단 유지 ← 현재
-//     사유: 사용자 추가 요청 — D-1 은 발표 직전이라 *완전 정상* 보다 약간의
-//     보수성(25% 축소) 유지가 안전. 진입은 허용해 기회 손실 최소화.
+//   v3.1 (2026-04-26): PRE_1 = 0.75 (사이즈 25% 축소), DAY 차단 유지
+//   v4 (2026-04-26):   PRE_3/PRE_2/PRE_1 모두 0.75 — 4일 보수성 균일 ← 현재
+//     사유: 사용자 운영 결정 — D-3 부터 사이즈 25% 축소 균일 적용, 4일 일관성.
 const PHASE_KELLY: Record<FomcPhase, number> = {
-  PRE_3:  1.0,   // 정상 운용
-  PRE_2:  1.0,   // 정상 운용
-  PRE_1:  0.75,  // 보수적 진입 (사이즈 25% 축소, v3.1) — 발표 직전 변동성 대비
+  PRE_3:  0.75,  // 보수적 진입 (사이즈 25% 축소, v4) — D-3 부터 발표 영향권
+  PRE_2:  0.75,  // 보수적 진입 (사이즈 25% 축소, v4)
+  PRE_1:  0.75,  // 보수적 진입 (사이즈 25% 축소, v3.1 부터 유지)
   DAY:    0.0,   // 신규 진입 금지 (발표 당일 — 익일 09:00 시초가 점프 회피)
   POST_1: 1.30,  // FOMC 방향 확인 후 최대 진입
   POST_2: 1.15,
@@ -248,8 +250,8 @@ export function getFomcProximity(macro?: FomcRelaxationContext): FomcProximity {
   const hedgeSignal = false;
 
   const descMap: Record<FomcPhase, string> = {
-    PRE_3:  `FOMC D-3 (${nextDate}) — 정상 운용 (D-day 만 차단)`,
-    PRE_2:  `FOMC D-2 (${nextDate}) — 정상 운용 (D-day 만 차단)`,
+    PRE_3:  `FOMC D-3 (${nextDate}) — 보수적 진입 (Kelly ×0.75, 사이즈 25% 축소)`,
+    PRE_2:  `FOMC D-2 (${nextDate}) — 보수적 진입 (Kelly ×0.75, 사이즈 25% 축소)`,
     PRE_1:  `FOMC D-1 (${nextDate}) — 보수적 진입 (Kelly ×0.75, 사이즈 25% 축소)`,
     DAY:    `FOMC 발표일 (${nextDate ?? lastDate}) — 신규 진입 금지`,
     POST_1: `FOMC D+1 (${lastDate}) — 방향 확인 후 최대 진입 (Kelly ×1.30)`,
@@ -304,13 +306,13 @@ export function generateFomcIcs(): string {
       `DTSTART;VALUE=DATE:${dtstart}`,
       `DTEND;VALUE=DATE:${dtend}`,
       `SUMMARY:FOMC 금리 결정 🏦`,
-      `DESCRIPTION:미 연준 FOMC 금리 결정\\nD-day(발표 당일) 신규 진입 자동 차단 (v3 정책)\\nD+1 방향 확인 후 최대 포지션 허용\\n우호 환경 시 D-day 도 보수적 진입 (Kelly ×0.3)`,
+      `DESCRIPTION:미 연준 FOMC 금리 결정\\nD-3~D-1 보수적 진입 (Kelly ×0.75, 사이즈 25% 축소, v4)\\nD-day 신규 진입 자동 차단\\nD+1 방향 확인 후 최대 포지션 허용\\n우호 환경 시 D-day 도 보수적 진입 (Kelly ×0.3)`,
       `UID:${uid}`,
-      // D-1 경보 (v3 — D-1 은 정상 운용, 발표일 예고만)
+      // D-1 경보 (v4 — D-3 부터 보수적 진입, D-day 차단)
       'BEGIN:VALARM',
       'TRIGGER:-P1DT0H0M0S',
       'ACTION:DISPLAY',
-      'DESCRIPTION:📅 FOMC D-1: 내일 발표 — D-day 만 신규 진입 자동 차단 (D-1 은 정상 운용)',
+      'DESCRIPTION:📅 FOMC D-1: 내일 발표 — D-3 부터 보수적 진입(Kelly ×0.75), D-day 신규 진입 자동 차단',
       'END:VALARM',
       'END:VEVENT',
     );
