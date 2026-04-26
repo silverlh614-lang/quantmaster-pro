@@ -20,6 +20,7 @@ import {
 } from '../../clients/kisClient.js';
 import { getRealtimePrice } from '../../clients/kisStreamClient.js';
 import { sendTelegramAlert } from '../../alerts/telegramClient.js';
+import { safePctChange } from '../../utils/safePctChange.js';
 import {
   type ServerShadowTrade,
   appendShadowLog,
@@ -188,7 +189,12 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
       ?? await fetchCurrentPrice(shadow.stockCode).catch(() => null);
     if (!currentPrice) continue;
 
-    const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
+    // ADR-0049: currentPrice 가 stale/이상값(±90% 초과) 이면 청산 평가 자체 스킵.
+    // 잘못된 returnPct 로 트레일링/익절/손절 트리거가 오작동하는 것을 차단.
+    const returnPct = safePctChange(currentPrice, shadow.shadowEntryPrice, {
+      label: `exitEngine:${shadow.stockCode}`,
+    });
+    if (returnPct === null) continue;
     const initialStopLoss = shadow.initialStopLoss ?? shadow.stopLoss;
     const regimeStopLoss = shadow.regimeStopLoss ?? shadow.stopLoss;
     let hardStopLossValue = shadow.hardStopLoss ?? shadow.stopLoss;

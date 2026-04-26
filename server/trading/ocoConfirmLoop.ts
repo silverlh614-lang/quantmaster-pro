@@ -35,6 +35,7 @@ import { appendTradeEvent } from './tradeEventLog.js';
 import type { OcoOrderPair } from './ocoCloseLoop.js';
 import { touchHeartbeat } from '../state.js';
 import { incrementOcoCancelFail, resetOcoCancelFail } from './killSwitch.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 // ─── 영속화 (ocoCloseLoop 와 동일 스키마 공유) ────────────────────────────────
 
@@ -148,7 +149,8 @@ async function resolveFilledLeg(
       const fillQty   = Math.max(1, filledQty || pair.quantity);
       const basis     = shadow.shadowEntryPrice ?? pair.entryPrice;
       const pnl       = (fillPrice - basis) * fillQty;
-      const pnlPct    = basis ? ((fillPrice - basis) / basis) * 100 : 0;
+      // ADR-0049: stale basis 시 0 fallback — fill.pnlPct 영속화 입력 보호.
+      const pnlPct    = basis ? (safePctChange(fillPrice, basis, { label: `ocoConfirm:${shadow.stockCode}` }) ?? 0) : 0;
 
       appendFill(shadow, {
         type: 'SELL',

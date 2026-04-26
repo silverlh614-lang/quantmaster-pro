@@ -75,6 +75,8 @@ export interface FirstPullbackResult {
 // ── 내부 상수 ──────────────────────────────────────────────────────────────────
 
 /** 눌림목 매수 구간 하한 (%) */
+import { safePctChange } from '../../utils/safePctChange';
+
 const PULLBACK_BUY_MIN_PCT = -5;
 /** 눌림목 매수 구간 상한 (%) */
 const PULLBACK_BUY_MAX_PCT = -3;
@@ -112,7 +114,10 @@ export function firstPullbackDetector(input: FirstPullbackInput): FirstPullbackR
     return { signal: 'NONE', stopLoss: 0, reason: '돌파 기준선 미설정' };
   }
 
-  const pricePct = ((currentPrice - breakoutPrice) / breakoutPrice) * 100;
+  // ADR-0049: stale breakoutPrice 시 0 fallback — 눌림목 매수 결정 보호.
+  const pricePct = safePctChange(currentPrice, breakoutPrice, {
+    label: 'autoTradeEngine.pricePct',
+  }) ?? 0;
   const stopLossPrice = breakoutPrice * (1 + STOP_LOSS_PCT);
 
   // ── 포지션 보유 중: 손절 감시 ─────────────────────────────────────────────────

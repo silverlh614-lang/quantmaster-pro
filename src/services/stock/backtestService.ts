@@ -1,6 +1,7 @@
 // @responsibility stock backtestService 서비스 모듈
 import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, withRetry, safeJsonParse, getCachedAIResponse } from './aiClient';
+import { safePctChange } from '../../utils/safePctChange';
 import type {
   BacktestResult,
   BacktestPosition,
@@ -232,7 +233,7 @@ export async function backtestPortfolio(
         cash: state.cash,
         positionsValue,
         drawdown: currentDD * 100,
-        returns: ((state.equity - initialEquity) / initialEquity) * 100,
+        returns: safePctChange(state.equity, initialEquity, { label: 'backtest.returns' }) ?? 0,
         benchmarkValue: (benchmarkVal / firstBenchmark) * 100
       });
 
@@ -291,7 +292,11 @@ export async function backtestPortfolio(
     });
 
     const finalEquity = state.equity;
-    const totalReturn = ((finalEquity - initialEquity) / initialEquity) * 100;
+    // ADR-0049: backtest 결과는 ±수백% 도 가능 — sanity bound override 1000%.
+    const totalReturn = safePctChange(finalEquity, initialEquity, {
+      label: 'backtest.totalReturn',
+      sanityBoundPct: 1000,
+    }) ?? 0;
     const durationYears = sortedDates.length / 252;
     const cagr = (Math.pow(finalEquity / initialEquity, 1 / durationYears) - 1) * 100;
 

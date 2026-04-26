@@ -6,6 +6,7 @@ import { getShadowTrades } from '../../../orchestrator/tradingOrchestrator.js';
 import { isOpenShadowStatus } from '../../../trading/signalScanner.js';
 import { escapeHtml } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
+import { safePctChange } from '../../../utils/safePctChange.js';
 import type { TelegramCommand } from '../_types.js';
 
 const pnl: TelegramCommand = {
@@ -35,7 +36,10 @@ const pnl: TelegramCommand = {
       const realQty = getRemainingQty(s);
       const originalQty = s.originalQuantity ?? s.quantity ?? realQty;
       const realizedPnl = getTotalRealizedPnl(s);
-      const unrealizedPct = ((price - s.shadowEntryPrice) / s.shadowEntryPrice) * 100;
+      // ADR-0049: stale price 시 0 fallback — UI 표기 보호.
+      const unrealizedPct = safePctChange(price, s.shadowEntryPrice, {
+        label: `pnl.cmd:${s.stockCode}`,
+      }) ?? 0;
       const unrealizedAmt = (price - s.shadowEntryPrice) * realQty;
       const totalCost = originalQty * s.shadowEntryPrice;
       const totalPnlAmt = realizedPnl + unrealizedAmt;

@@ -36,6 +36,7 @@ import { fetchCloses } from './marketDataRefresh.js';
 import { MACRO_SYNC_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadPrevRegime, savePrevRegime } from '../learning/learningState.js';
 import { calibrateByRegimeSingle } from '../learning/incrementalCalibrator.js';
+import { safePctChange } from '../utils/safePctChange.js';
 import fs from 'fs';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -137,7 +138,8 @@ async function collectLayerSnapshot(
 
   let vixIntradayChangePct: number | null = null;
   if (currentVix !== null && vixDayOpen !== null && vixDayOpen > 0) {
-    vixIntradayChangePct = ((currentVix - vixDayOpen) / vixDayOpen) * 100;
+    // ADR-0049: 동일일자 데이터지만 sanity 적용으로 데이터 오류·스토리지 손상 차단.
+    vixIntradayChangePct = safePctChange(currentVix, vixDayOpen, { label: 'macroSector.vixIntraday' });
   }
 
   // ── 섹터 레이어 ──────────────────────────────────────────────────────────

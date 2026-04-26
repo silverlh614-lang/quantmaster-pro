@@ -1,5 +1,6 @@
 // @responsibility riskManager 매매 엔진 모듈
 import { type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 export const RRR_MIN_THRESHOLD       = Number(process.env.RRR_MIN_THRESHOLD || 1.8);
 export const MAX_SECTOR_CONCENTRATION = Number(process.env.MAX_SECTOR_CONCENTRATION || 2);
@@ -26,22 +27,27 @@ export function checkEuphoria(shadow: ServerShadowTrade, currentPrice: number): 
   }
 
   // 신호 2: 수익률 ≥ 30% (RSI 80 대용)
-  const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
-  if (returnPct >= 30) {
+  // ADR-0049: currentPrice 가 stale/이상값이면 가짜 익절 트리거 차단 — null 시 분기 스킵.
+  const returnPct = safePctChange(currentPrice, shadow.shadowEntryPrice, {
+    label: `riskManager.euphoria:${shadow.stockCode}`,
+  });
+  if (returnPct !== null && returnPct >= 30) {
     signals.push(`수익률 ${returnPct.toFixed(1)}% (≥30%)`);
   }
 
   // 신호 3: 7일 급등 ≥ 20%
   if (shadow.price7dAgo && shadow.price7dAgo > 0) {
-    const spike7d = ((currentPrice - shadow.price7dAgo) / shadow.price7dAgo) * 100;
-    if (spike7d >= 20) {
+    const spike7d = safePctChange(currentPrice, shadow.price7dAgo, {
+      label: `riskManager.spike7d:${shadow.stockCode}`,
+    });
+    if (spike7d !== null && spike7d >= 20) {
       signals.push(`7일 급등 +${spike7d.toFixed(1)}%`);
     }
   }
 
   // 신호 4: 30일 보유 + 수익률 ≥ 40%
   const holdDays = (Date.now() - new Date(shadow.signalTime).getTime()) / (1000 * 60 * 60 * 24);
-  if (holdDays >= 30 && returnPct >= 40) {
+  if (holdDays >= 30 && returnPct !== null && returnPct >= 40) {
     signals.push(`30일 보유 + 수익률 ${returnPct.toFixed(1)}%`);
   }
 

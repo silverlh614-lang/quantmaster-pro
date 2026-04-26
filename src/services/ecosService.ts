@@ -23,6 +23,7 @@ import type {
   EcosMacroSnapshot,
   EcosQueryParams,
 } from '../types/quant';
+import { safePctChange } from '../utils/safePctChange';
 
 // ─── ECOS 통계표 코드 & 항목 코드 ───────────────────────────────────────────
 
@@ -277,7 +278,8 @@ export async function getM2MoneySupply(months = 24): Promise<EcosM2Data[]> {
     if (i >= 12) {
       const prev = parseFloat(rows[i - 12].DATA_VALUE.replace(/,/g, ''));
       if (!isNaN(prev) && prev > 0) {
-        yoyGrowth = ((amount - prev) / prev) * 100;
+        // ADR-0049: stale prev 시 0 fallback — M2 YoY 매크로 보호.
+        yoyGrowth = safePctChange(amount, prev, { label: 'ecosService.m2.yoy' }) ?? 0;
       }
     }
 
@@ -383,7 +385,7 @@ export async function getTradeData(months = 24): Promise<EcosTradeData[]> {
     if (i >= 12) {
       const prevExp = parseFloat(exportRows[i - 12].DATA_VALUE.replace(/,/g, ''));
       if (!isNaN(prevExp) && prevExp > 0) {
-        exportGrowthYoY = ((expVal - prevExp) / prevExp) * 100;
+        exportGrowthYoY = safePctChange(expVal, prevExp, { label: 'ecosService.export.yoy' }) ?? 0;
       }
     }
 
@@ -430,7 +432,7 @@ export async function getBankLendingGrowth(months = 14): Promise<EcosBankLending
     if (i >= 12) {
       const prev = parseFloat(rows[i - 12].DATA_VALUE.replace(/,/g, ''));
       if (!isNaN(prev) && prev > 0) {
-        yoyGrowth = ((balance - prev) / prev) * 100;
+        yoyGrowth = safePctChange(balance, prev, { label: 'ecosService.bankLending.yoy' }) ?? 0;
       }
     }
 

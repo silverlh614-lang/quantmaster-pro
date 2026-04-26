@@ -30,6 +30,7 @@ import {
   updateShadow,
 } from '../persistence/shadowTradeRepo.js';
 import { appendTradeEvent } from './tradeEventLog.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 // ─── 데이터 모델 ──────────────────────────────────────────────────────────────
 
@@ -278,8 +279,9 @@ export async function pollOcoSurvival(): Promise<void> {
           const fillPrice = pair.stopPrice;
           const fillQty   = pair.quantity;
           const pnl       = (fillPrice - (shadow.shadowEntryPrice ?? pair.entryPrice)) * fillQty;
+          // ADR-0049: stale shadowEntryPrice 시 0 fallback — fill.pnlPct 영속 보호.
           const pnlPct    = shadow.shadowEntryPrice
-            ? ((fillPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100
+            ? (safePctChange(fillPrice, shadow.shadowEntryPrice, { label: `ocoClose:${shadow.stockCode}` }) ?? 0)
             : 0;
           appendFill(shadow, {
             type: 'SELL', subType: 'STOP_LOSS', qty: fillQty, price: fillPrice,
@@ -347,8 +349,9 @@ export async function pollOcoSurvival(): Promise<void> {
           const fillPrice = pair.profitPrice;
           const fillQty   = pair.quantity;
           const pnl       = (fillPrice - (shadow.shadowEntryPrice ?? pair.entryPrice)) * fillQty;
+          // ADR-0049: stale shadowEntryPrice 시 0 fallback — fill.pnlPct 영속 보호.
           const pnlPct    = shadow.shadowEntryPrice
-            ? ((fillPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100
+            ? (safePctChange(fillPrice, shadow.shadowEntryPrice, { label: `ocoClose:${shadow.stockCode}` }) ?? 0)
             : 0;
           appendFill(shadow, {
             type: 'SELL', subType: 'FULL_CLOSE', qty: fillQty, price: fillPrice,

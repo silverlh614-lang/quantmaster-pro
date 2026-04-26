@@ -18,6 +18,8 @@
  */
 
 /** 5거래일 급등 임계값 (%) */
+import { safePctChange } from '../utils/safePctChange.js';
+
 export const FOMO_SURGE_THRESHOLD_PCT = 15;
 
 /** 쿨다운 지속 시간 (ms) — 48시간 */
@@ -91,9 +93,10 @@ export function checkCooldownRelease(
   if (now >= new Date(cooldownUntil)) return true;
 
   // 조건 2: 고점 대비 -5% ~ -8% 되돌림 확인
+  // ADR-0049: stale recentHigh 시 null → 쿨다운 해제 보류 (FOMO 차단 정책 우선).
   if (recentHigh > 0) {
-    const pullbackPct = ((recentHigh - currentPrice) / recentHigh) * 100;
-    if (pullbackPct >= PULLBACK_RELEASE_MIN_PCT && pullbackPct <= PULLBACK_RELEASE_MAX_PCT) {
+    const pullbackPct = safePctChange(recentHigh, currentPrice, { label: 'regretAsymmetry.pullback' });
+    if (pullbackPct !== null && pullbackPct >= PULLBACK_RELEASE_MIN_PCT && pullbackPct <= PULLBACK_RELEASE_MAX_PCT) {
       return true;
     }
   }

@@ -9,6 +9,7 @@ import { fillMonitor } from './fillMonitor.js';
 import { fetchYahooQuote } from '../screener/stockScreener.js';
 import { loadShadowTrades, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { requestBuyApproval } from '../telegram/buyApproval.js';
+import { safePctChange } from '../utils/safePctChange.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getLiveRegime } from './regimeBridge.js';
 import { KRX_HOLIDAYS } from './krxHolidays.js';
@@ -108,7 +109,10 @@ export function evaluateTrancheRevalidation(input: {
   cascadeStep?: 0 | 1 | 2;
   addBuyBlocked?: boolean;
 }): { ok: boolean; reason?: string; dropPct: number } {
-  const dropPct = ((input.currentPrice - input.entryPrice) / input.entryPrice) * 100;
+  // ADR-0049: stale currentPrice/entryPrice 시 0 fallback — 트랜치 재검증 결정 보호.
+  const dropPct = safePctChange(input.currentPrice, input.entryPrice, {
+    label: 'trancheExecutor.dropPct',
+  }) ?? 0;
 
   if (input.currentPrice <= input.stopLoss) {
     return { ok: false, reason: '1차 포지션 손절선 하회', dropPct };

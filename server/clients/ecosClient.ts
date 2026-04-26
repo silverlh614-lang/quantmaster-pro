@@ -53,6 +53,8 @@ export interface EcosSnapshot {
   errors: string[];
 }
 
+import { safePctChange } from '../utils/safePctChange.js';
+
 // ── 설정 ─────────────────────────────────────────────────────────────────────
 
 const ECOS_BASE = process.env.ECOS_API_BASE ?? 'https://ecos.bok.or.kr';
@@ -236,7 +238,8 @@ export async function fetchLatestM2Yoy(): Promise<number | null> {
     setCached('m2', null);
     return null;
   }
-  const yoy = parseFloat((((latest - yearAgo) / yearAgo) * 100).toFixed(2));
+  // ADR-0049: stale yearAgo 시 0 fallback — M2 YoY 매크로 지표 보호.
+  const yoy = parseFloat((safePctChange(latest, yearAgo, { label: 'ecos.m2.yoy' }) ?? 0).toFixed(2));
   setCached('m2', yoy);
   return yoy;
 }
@@ -293,7 +296,9 @@ export async function fetchLatestExportGrowth3mAvg(): Promise<number | null> {
     const cur = toNumStripComma(sorted[i].DATA_VALUE);
     const prev = toNumStripComma(sorted[i - 12].DATA_VALUE);
     if (!Number.isFinite(cur) || !Number.isFinite(prev) || prev <= 0) continue;
-    yoys.push(((cur - prev) / prev) * 100);
+    // ADR-0049: stale prev 시 sanity 위반은 평균에서 제외.
+    const yoy = safePctChange(cur, prev, { label: 'ecos.export.yoy' });
+    if (yoy !== null) yoys.push(yoy);
   }
   if (yoys.length === 0) {
     setCached('export', null);
@@ -327,7 +332,8 @@ export async function fetchLatestBankLendingYoy(): Promise<number | null> {
     setCached('bankLending', null);
     return null;
   }
-  const yoy = parseFloat((((cur - prev) / prev) * 100).toFixed(2));
+  // ADR-0049: stale prev 시 0 fallback — bankLending YoY 매크로 보호.
+  const yoy = parseFloat((safePctChange(cur, prev, { label: 'ecos.bankLending.yoy' }) ?? 0).toFixed(2));
   setCached('bankLending', yoy);
   return yoy;
 }

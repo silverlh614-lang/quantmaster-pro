@@ -15,6 +15,7 @@ import { loadShadowTrades, type ServerShadowTrade } from '../persistence/shadowT
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { sendPrivateAlert } from './telegramClient.js';
 import { channelHeader, CHANNEL_SEPARATOR } from './channelFormatter.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 // ── 카드 1건 ─────────────────────────────────────────────────────────────────
 
@@ -42,7 +43,10 @@ async function buildCard(p: PositionSummary, shadow: ServerShadowTrade | null): 
   let toStopPct: number | null = null;
 
   if (currentPrice && p.entryPrice > 0) {
-    currentReturnPct = ((currentPrice - p.entryPrice) / p.entryPrice) * 100;
+    // ADR-0049: stale currentPrice 시 null 유지 (UI 가 'N/A' 표기).
+    currentReturnPct = safePctChange(currentPrice, p.entryPrice, {
+      label: `positionMorningCard:${p.stockCode}`,
+    });
     const targetPrice = shadow?.targetPrice;
     const stopLoss = shadow?.stopLoss;
     if (typeof targetPrice === 'number' && targetPrice > 0) {

@@ -33,6 +33,7 @@ import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js
 import { GLOBAL_SCAN_FILE, ensureDataDir } from '../persistence/paths.js';
 import { runSupplyChainScan } from './supplyChainAgent.js';
 import { logNewsSupplyEvent } from '../learning/newsSupplyLogger.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -114,9 +115,12 @@ async function fetchSymbolResult(symbol: string, label: string): Promise<SymbolR
   }
   const prev      = closes[closes.length - 2];
   const current   = closes[closes.length - 1];
-  const changePct = ((current - prev) / prev) * 100;
+  // ADR-0049: stale prev/first5d 시 sanity 위반 → 0/null fallback (글로벌 스캔 표시용).
+  const changePct = safePctChange(current, prev, { label: `globalScan.change:${symbol}` }) ?? 0;
   const first5d   = closes[0];
-  const return5d  = first5d > 0 ? ((current - first5d) / first5d) * 100 : null;
+  const return5d  = first5d > 0
+    ? safePctChange(current, first5d, { label: `globalScan.return5d:${symbol}` })
+    : null;
   return {
     symbol,
     label,

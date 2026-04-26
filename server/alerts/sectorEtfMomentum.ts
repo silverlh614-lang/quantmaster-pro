@@ -29,6 +29,7 @@ import { sendTelegramAlert } from './telegramClient.js';
 import { SECTOR_ETF_MOMENTUM_FILE, ensureDataDir } from '../persistence/paths.js';
 import { logNewsSupplyEvent } from '../learning/newsSupplyLogger.js';
 import { guardedFetch } from '../utils/egressGuard.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -129,9 +130,9 @@ async function fetch30mBars(symbol: string, range = '5d'): Promise<IntradayBars 
 
 // ── 모멘텀 계산 ───────────────────────────────────────────────────────────────
 
-function pctChange(cur: number, prev: number): number | null {
-  if (!prev || prev <= 0) return null;
-  return ((cur - prev) / prev) * 100;
+function pctChange(cur: number, prev: number, label?: string): number | null {
+  // ADR-0049: stale prev (장기 미거래 ETF) 시 sanity 위반 → null. 분모 가드는 헬퍼 통합.
+  return safePctChange(cur, prev, { label: label ?? 'sectorEtfMomentum.pctChange' });
 }
 
 function toUtcDateKey(unixSec: number): string {

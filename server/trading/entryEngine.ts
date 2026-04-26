@@ -18,6 +18,7 @@ import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.
 import { callGemini } from '../clients/geminiClient.js';
 import { buildConditionBoostHint } from '../learning/conditionBoostHints.js';
 import { GATE_SCORE_THRESHOLD_BY_REGIME, getEffectiveGateThreshold } from './gateConfig.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 const ENTRY_MIN_GATE_SCORE = 5;
 
@@ -269,24 +270,33 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): { ok: 
     reasons.push(`Gate 재검증 미달 (${(input.quoteGateScore ?? 0).toFixed(1)}/${minGate})`);
   }
 
-  const extensionPct = ((input.currentPrice - input.entryPrice) / input.entryPrice) * 100;
-  if (input.currentPrice >= input.entryPrice && extensionPct > ENTRY_MAX_BREAKOUT_EXTENSION_PCT) {
+  // ADR-0049: stale 가드는 헬퍼가 통합. null 시 해당 조건 평가 스킵 (보수적).
+  const extensionPct = safePctChange(input.currentPrice, input.entryPrice, {
+    label: 'entryEngine.extensionPct',
+  });
+  if (extensionPct !== null && input.currentPrice >= input.entryPrice && extensionPct > ENTRY_MAX_BREAKOUT_EXTENSION_PCT) {
     reasons.push(`돌파 이탈 과열 (+${extensionPct.toFixed(1)}%)`);
   }
 
   if (input.dayOpen && input.dayOpen > 0) {
-    const dropFromOpenPct = ((input.currentPrice - input.dayOpen) / input.dayOpen) * 100;
+    const dropFromOpenPct = safePctChange(input.currentPrice, input.dayOpen, {
+      label: 'entryEngine.dropFromOpen',
+      silent: true, // 30% 가드와 중복 로그 차단
+    });
     // 시가와 현재가 차이가 ±30% 초과이면 데이터 오류로 간주하여 스킵
-    const openSane = Math.abs(dropFromOpenPct) <= 30;
-    if (openSane && input.currentPrice < input.dayOpen && dropFromOpenPct <= ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT) {
+    if (dropFromOpenPct !== null && Math.abs(dropFromOpenPct) <= 30 &&
+        input.currentPrice < input.dayOpen && dropFromOpenPct <= ENTRY_MAX_BEARISH_DROP_FROM_OPEN_PCT) {
       reasons.push(`시가 대비 급락 (${dropFromOpenPct.toFixed(1)}%)`);
     }
   }
 
   if (input.prevClose && input.prevClose > 0 && input.dayOpen && input.dayOpen > 0) {
-    const openGapPct = ((input.dayOpen - input.prevClose) / input.prevClose) * 100;
+    const openGapPct = safePctChange(input.dayOpen, input.prevClose, {
+      label: 'entryEngine.openGap',
+      silent: true,
+    });
     // 30% 초과 갭은 Yahoo Finance 데이터 오류로 간주하여 체크 스킵
-    if (openGapPct < 30 && openGapPct >= ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT) {
+    if (openGapPct !== null && openGapPct < 30 && openGapPct >= ENTRY_MAX_OPEN_GAP_OVERHEAT_PCT) {
       reasons.push(`장초반 갭 과열 (+${openGapPct.toFixed(1)}%)`);
     }
   }

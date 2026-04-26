@@ -22,6 +22,7 @@
 import fs from 'fs';
 import { COUNTERFACTUAL_FILE, ensureDataDir } from '../persistence/paths.js';
 import { sendSuggestAlert } from './suggestNotifier.js';
+import { safePctChange } from '../utils/safePctChange.js';
 import {
   SUGGEST_MIN_SAMPLE_COUNTERFACTUAL,
   SUGGEST_COUNTERFACTUAL_RATIO_THRESHOLD,
@@ -136,7 +137,10 @@ export async function resolveCounterfactuals(
     const currentPrice = await fetchPrice(e.stockCode).catch(() => null);
     if (currentPrice == null || !Number.isFinite(currentPrice) || currentPrice <= 0) continue;
 
-    const ret = ((currentPrice - e.priceAtSignal) / e.priceAtSignal) * 100;
+    // ADR-0049: stale currentPrice 시 0 fallback — counterfactual 학습 영속 입력 보호.
+    const ret = safePctChange(currentPrice, e.priceAtSignal, {
+      label: `counterfactual:${e.stockCode}`,
+    }) ?? 0;
 
     if (elapsedDays >= 30 && e.return30d === undefined) { e.return30d = ret; r30++; }
     if (elapsedDays >= 60 && e.return60d === undefined) { e.return60d = ret; r60++; }

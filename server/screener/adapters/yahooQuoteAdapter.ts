@@ -8,6 +8,7 @@
  */
 
 import { guardedFetch } from '../../utils/egressGuard.js';
+import { safePctChange } from '../../utils/safePctChange.js';
 import { calcRSI, calcRSI14, calcEMAArr, calcMACD } from './_indicators.js';
 
 // 아이디어 5: 확장된 Yahoo 시세 인터페이스 (MA/고가/ATR/RSI/MACD + 가속도 포함)
@@ -98,7 +99,10 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const price = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 0;
     const prevClose = meta.regularMarketPreviousClose ?? closes[closes.length - 2] ?? price;
     const dayOpen = meta.regularMarketOpen ?? price;
-    const changePercent = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
+    // ADR-0049: stale prevClose 시 0 fallback — 일일 변화율 표기 보호.
+    const changePercent = prevClose > 0
+      ? (safePctChange(price, prevClose, { label: 'yahooQuoteAdapter.changePercent' }) ?? 0)
+      : 0;
     const volume = volumes[volumes.length - 1] ?? 0;
 
     // 평균 거래량 (최근 60거래일, 당일 제외 — 2y 범위에서도 일관성 유지)
@@ -180,12 +184,18 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const weeklyRSI = parseFloat(calcRSI(weeklyCloses, 9).toFixed(1));
 
     // 직전 5거래일 수익률 — Regret Asymmetry Filter용
+    // 5거래일 수익률 — ADR-0049: stale close5dAgo (수년 전 종가 등) 시 sanity 위반 → 0 fallback.
     const close5dAgo = closes.length > 5 ? closes[closes.length - 6] : closes[0];
-    const return5d = close5dAgo > 0 ? ((price - close5dAgo) / close5dAgo) * 100 : 0;
+    const return5d = safePctChange(price, close5dAgo, {
+      label: 'yahooQuoteAdapter.return5d',
+    }) ?? 0;
 
     // 직전 20거래일 수익률 — Gate 24 상대강도(vs KOSPI 20d) 입력
+    // 20거래일 수익률 — Gate 24 상대강도 입력. stale close20dAgo 시 0 fallback.
     const close20dAgo = closes.length > 20 ? closes[closes.length - 21] : closes[0];
-    const return20d = close20dAgo > 0 ? ((price - close20dAgo) / close20dAgo) * 100 : 0;
+    const return20d = safePctChange(price, close20dAgo, {
+      label: 'yahooQuoteAdapter.return20d',
+    }) ?? 0;
 
     // ── Compression Score 구성 요소 ──────────────────────────────────────────────
 

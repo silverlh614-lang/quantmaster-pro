@@ -30,6 +30,7 @@ import {
 import { getRealtimePrice } from '../clients/kisStreamClient.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { getSectorByCode } from '../screener/sectorMap.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 // ── Mini-Bar Proxy Labeling ─────────────────────────────────────────────────────
 
@@ -107,7 +108,10 @@ export async function maybeCaptureSnapshots(
 
   const entry = trade.shadowEntryPrice;
   if (entry <= 0) return [];
-  const returnPct = ((currentPrice - entry) / entry) * 100;
+  // ADR-0049: stale currentPrice 시 0 fallback — coldstart snapshot 학습 영속 보호.
+  const returnPct = safePctChange(currentPrice, entry, {
+    label: `coldstart:${trade.stockCode}`,
+  }) ?? 0;
 
   // MAE/MFE 근사 — 이전 snapshot 들의 historical return 과 현재 return 범위에서 극값.
   const priorReturns = mine.map((s) => s.returnPct);
