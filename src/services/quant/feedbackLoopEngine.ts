@@ -18,6 +18,7 @@ import type { ConditionId } from '../../types/core';
 import { ALL_CONDITIONS } from './evolutionEngine';
 import { saveEvolutionWeights } from './evolutionEngine';
 import { getSourceMultiplier, resolveSource } from './sourceWeighting';
+import { getTradeLearningWeight, summarizeLossReasonBreakdown } from './lossReasonWeighting';
 
 // ─── 캘리브레이션 임계값 ──────────────────────────────────────────────────────
 
@@ -75,9 +76,19 @@ export function evaluateFeedbackLoop(
     const relevant = closedTrades.filter(t => (t.conditionScores?.[id] ?? 0) >= 5);
     if (relevant.length < MIN_CONDITION_TRADES) continue;
 
+    // ADR-0022 (PR-E): trade-level confidence weighting — lossReason 별 multiplier 로
+    // winRate / avgReturn 가중평균. 수익 거래는 항상 1.0, 손실 거래는 lossReason
+    // 매핑 (STOP_TOO_TIGHT 0.3 / MACRO_SHOCK 0.2 / OVERHEATED_ENTRY 1.5 등).
+    // lossReason 부재 v1/v2 레코드는 1.0 fallback.
+    const tradeWeights = relevant.map(t => getTradeLearningWeight(t));
+    const weightedTotal = tradeWeights.reduce((s, w) => s + w, 0);
     const wins = relevant.filter(t => (t.returnPct ?? 0) > 0);
-    const winRate = wins.length / relevant.length;
-    const avgReturn = relevant.reduce((s, t) => s + (t.returnPct ?? 0), 0) / relevant.length;
+    const weightedWins = wins.reduce((s, t) => s + getTradeLearningWeight(t), 0);
+    // 0/0 안전 fallback — weightedTotal 이 0 이면 winRate=0 으로 STABLE 진입
+    const winRate = weightedTotal > 0 ? weightedWins / weightedTotal : 0;
+    const avgReturn = weightedTotal > 0
+      ? relevant.reduce((s, t) => s + (t.returnPct ?? 0) * getTradeLearningWeight(t), 0) / weightedTotal
+      : 0;
 
     const prevWeight = currentWeights[id] ?? 1.0;
     let newWeight = prevWeight;
@@ -117,6 +128,10 @@ export function evaluateFeedbackLoop(
       delta,
       source,
       sourceMultiplier,
+      // ADR-0022 (PR-E): 가중평균 진단 메타
+      rawTradeCount: relevant.length,
+      weightedTradeCount: parseFloat(weightedTotal.toFixed(2)),
+      lossReasonBreakdown: summarizeLossReasonBreakdown(relevant),
     });
   }
 

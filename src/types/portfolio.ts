@@ -635,6 +635,13 @@ export interface ConditionCalibration {
   source?: 'COMPUTED' | 'AI';
   /** 본 보정에 적용된 source multiplier (COMPUTED=1.0, AI=0.4) */
   sourceMultiplier?: number;
+  // ADR-0022 (PR-E): 손실 원인별 학습 가중치 보정 — 결과 메타
+  /** 가중평균 분모 (sum of trade-level multipliers) */
+  weightedTradeCount?: number;
+  /** 원래 trade 수 (UI 가 raw vs weighted 표기) */
+  rawTradeCount?: number;
+  /** loss trades 의 lossReason 분포 (진단용) */
+  lossReasonBreakdown?: Partial<Record<LossReason, number>>;
 }
 
 /** 피드백 폐쇄 루프 캘리브레이션 결과 */
