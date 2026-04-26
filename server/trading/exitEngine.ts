@@ -17,6 +17,7 @@ import { getRealtimePrice } from '../clients/kisStreamClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelSellSignal } from '../alerts/channelPipeline.js';
 import { sendStopLossTransparencyReport } from '../alerts/stopLossTransparencyReport.js';
+import { recordDecision } from '../learning/decisionReplayLog.js';
 import {
   type ServerShadowTrade,
   appendShadowLog,
@@ -241,6 +242,33 @@ function reserveSell(
     cumRealizedPnL,
     remainingQty,
   });
+  // Tier 2 #4 — SELL 결정 입력 스냅샷 영속 (PR-52 follow-up wiring).
+  // reserveSell 은 모든 SELL 경로(HIT_TARGET/HIT_STOP/R6/DIVERGENCE/RRR/MA60/EMERGENCY)
+  // 의 SSOT 이므로 본 위치 1곳 wiring 으로 전체 SELL 을 커버한다.
+  // 같은 입력으로 재계산 시 같은 fill 이 기록되는지 사후 감사 가능.
+  recordDecision({
+    id: `SELL:${shadow.stockCode}:${nowIso}:${fill.qty}`,
+    at: nowIso,
+    kind: 'SELL',
+    symbol: shadow.stockCode,
+    price: fill.price,
+    gateScores: {},
+    weights: {
+      entryPrice: shadow.shadowEntryPrice ?? 0,
+      stopLoss: shadow.stopLoss ?? 0,
+      targetPrice: shadow.targetPrice ?? 0,
+    },
+    macro: {
+      reason: evtSubType ?? 'UNKNOWN',
+      isShadow,
+      remainingQty,
+      cumRealizedPnL,
+      ...(shadow.status ? { statusBefore: String(shadow.status) } : {}),
+    },
+    outcome: { action: 'EXECUTE', reason: evtSubType ?? 'SELL', qty: fill.qty },
+    aiInvolved: false,
+  });
+
   // PR-42 M1 — 부분매도 시 PR-19(ADR-0006) attribution 자동 기록.
   // 조건: SHADOW(CONFIRMED 즉시) + 잔량 > 0 + originalQuantity 확정.
   // baseline conditionScores 가 없으면 emitPartialAttribution 가 null 을 반환해

@@ -14,6 +14,8 @@ import { getCurrentScanPreset } from './scanPresets.js';
 import { recordMtasAttempt } from './dataCompletenessTracker.js';
 import { MOMENTUM_MAX_SIZE, SWING_MAX_SIZE, addToWatchlist } from './watchlistManager.js';
 import { guardedFetch } from '../utils/egressGuard.js';
+import { validateExternalPayload } from '../utils/schemaSentinel.js';
+import { yahooChartSchema } from '../clients/externalSchemas.js';
 import {
   fetchInvestorTrading as krxFetchInvestorTrading,
   fetchPerPbr as krxFetchPerPbr,
@@ -1040,7 +1042,12 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
     });
     if (!res.ok) return null;
-    const data = await res.json();
+    const rawData = await res.json();
+    // Tier 2 #5 — schemaSentinel 검증 (PR-52 follow-up wiring).
+    // Yahoo chart 응답이 깨졌을 때 NaN/undefined 가 게이트 평가까지 흘러드는 시나리오 차단.
+    // chart.error 케이스는 schema 가 nullable result 로 흡수 — 기존 분기(`if (!result) return null`) 보존.
+    const data = validateExternalPayload('YAHOO', rawData, yahooChartSchema, { context: { symbol } });
+    if (!data) return null;
     const result = data.chart?.result?.[0];
     if (!result) return null;
 
@@ -1058,9 +1065,11 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
 
     if (closes.length < 5) return null;
 
-    const price = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 0;
-    const prevClose = meta.regularMarketPreviousClose ?? closes[closes.length - 2] ?? price;
-    const dayOpen = meta.regularMarketOpen ?? price;
+    // schemaSentinel 가 meta 를 unknown 으로 보존하므로 (가변 필드 대응) 한 번 좁힌다.
+    const m = (meta ?? {}) as Record<string, number | string | undefined>;
+    const price = (m.regularMarketPrice as number | undefined) ?? closes[closes.length - 1] ?? 0;
+    const prevClose = (m.regularMarketPreviousClose as number | undefined) ?? closes[closes.length - 2] ?? price;
+    const dayOpen = (m.regularMarketOpen as number | undefined) ?? price;
     const changePercent = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
     const volume = volumes[volumes.length - 1] ?? 0;
 
@@ -1115,7 +1124,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       : atr;
 
     // PER — Yahoo meta에서 제공 시 사용
-    const per = parseFloat(meta.trailingPE ?? '999');
+    const per = parseFloat(String(m.trailingPE ?? '999'));
 
     // RSI14 + MACD — 실데이터 계산
     const rsi14 = calcRSI14(closes);

@@ -21,6 +21,7 @@ import { isBlacklisted } from '../../persistence/blacklistRepo.js';
 import { loadKellyDampenerState } from '../kellyDampener.js';
 import { sendTelegramAlert } from '../../alerts/telegramClient.js';
 import { channelBuySignalEmitted } from '../../alerts/channelPipeline.js';
+import { recordDecision } from '../../learning/decisionReplayLog.js';
 import {
   RRR_MIN_THRESHOLD, MAX_SECTOR_CONCENTRATION,
   calcRRR,
@@ -1103,6 +1104,40 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         `손절: ${slBreakdown} | 목표: ${stock.targetPrice.toLocaleString()}원`;
 
       const _rrr = stock.rrr, _sector = stock.sector;
+      // Tier 2 #4 — BUY 결정 직전 입력 스냅샷 영속 (PR-52 follow-up wiring).
+      // 같은 입력으로 재계산 시 같은 결과를 얻는지 사후 감사 가능.
+      // AI 호출(Gemini) 미관여 결정이므로 aiInvolved=false.
+      const _decisionAt = new Date().toISOString();
+      recordDecision({
+        id: `BUY:${stock.code}:${_decisionAt}:${ctx.scanCounters.entries}`,
+        at: _decisionAt,
+        kind: 'BUY',
+        symbol: stock.code,
+        price: currentPrice,
+        gateScores: {
+          live: liveGateScore,
+          stale: stock.gateScore ?? 0,
+          mtas: reCheckGate.mtas,
+          cs: reCheckGate.compressionScore,
+          volumeBonus: ctx.volumeClock.scoreBonus,
+        },
+        weights: {
+          kelly: ctx.kellyMultiplier,
+          mtas: mtasMultiplier,
+          section: sectionFactor,
+          tier: tierDecision.kellyFactor,
+          posPct: positionPct,
+        },
+        macro: {
+          regime: ctx.regime,
+          shadowMode: stockShadowMode,
+          isStrongBuy,
+          ...(stock.sector ? { sector: stock.sector } : {}),
+          ...(typeof stock.rrr === 'number' ? { rrr: stock.rrr } : {}),
+        },
+        outcome: { action: 'EXECUTE', reason: isStrongBuy ? 'STRONG_BUY' : 'BUY', qty: execQty },
+        aiInvolved: false,
+      });
       ctx.mutables.liveBuyQueue.push(await createBuyTask({
         trade, stockCode: stock.code, stockName: stock.name,
         currentPrice, quantity: execQty, entryPrice: shadowEntryPrice,

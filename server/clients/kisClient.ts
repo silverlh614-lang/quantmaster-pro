@@ -10,6 +10,8 @@ import { sendTelegramAlert, escapeHtml } from '../alerts/telegramClient.js';
 import { getTradingMode } from '../state.js';
 import { scheduleKisCall, type KisApiPriority } from './kisRateLimiter.js';
 import { assertModeCompatible } from './kisModeGuard.js';
+import { validateExternalPayload } from '../utils/schemaSentinel.js';
+import { kisInquirePriceSchema } from './externalSchemas.js';
 import {
   isEndpointBlacklisted as _isBlacklisted,
   recordEndpoint404 as _recordBlacklist404,
@@ -799,7 +801,12 @@ export async function fetchCurrentPrice(code: string): Promise<number | null> {
     FID_COND_MRKT_DIV_CODE: 'J',
     FID_INPUT_ISCD: code,
   });
-  const price = parseInt(data?.output?.stck_prpr ?? '0', 10);
+  // Tier 2 #5 — schemaSentinel 검증 (PR-52 follow-up wiring).
+  // KIS inquire-price 응답이 NaN/undefined 로 깨져 학습 가중치까지 흘러드는 시나리오 차단.
+  // 실패 시 null 반환 (기존 실패 경로와 동일) + 5분 차단 + 텔레그램 경보.
+  const validated = validateExternalPayload('KIS', data, kisInquirePriceSchema, { context: { trId: 'FHKST01010100', code } });
+  if (!validated) return null;
+  const price = parseInt(validated.output.stck_prpr, 10);
   return price > 0 ? price : null;
 }
 
