@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { toast } from 'sonner';
-import { useRecommendationStore, useTradeStore, useSettingsStore } from '../stores';
+import { useRecommendationStore, useTradeStore, useSettingsStore, useRecommendationSnapshotStore } from '../stores';
 import { useAttributionStore } from '../stores/useAttributionStore';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { computeConditionPerformance } from '../components/trading/TradeJournal';
@@ -77,8 +77,18 @@ export function useTradeOps() {
     conditionSources?: Record<ConditionId, 'COMPUTED' | 'AI'>,
     evaluationSnapshot?: TradeRecord['evaluationSnapshot'],
   ) => {
+    const tradeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // ADR-0019 (PR-B): RecommendationSnapshot 양방향 추적 — PENDING snapshot 이
+    // 있으면 OPEN 으로 승격 + tradeId 연결. snapshot 이 없는 수동 매수도 허용.
+    const snapStore = useRecommendationSnapshotStore.getState();
+    snapStore.markOpen(stock.code, tradeId);
+    const linkedSnapshot = useRecommendationSnapshotStore
+      .getState()
+      .snapshots.find(s => s.tradeId === tradeId);
+
     const newTrade: TradeRecord = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: tradeId,
       stockCode: stock.code, stockName: stock.name, sector: stock.relatedSectors?.[0] ?? 'Unknown',
       buyDate: new Date().toISOString(), buyPrice, quantity, positionSize,
       systemSignal: stock.type === 'STRONG_BUY' ? 'STRONG_BUY' : stock.type === 'BUY' ? 'BUY' : stock.type === 'SELL' || stock.type === 'STRONG_SELL' ? 'SELL' : 'NEUTRAL',
@@ -91,6 +101,8 @@ export function useTradeOps() {
       conditionSources,
       evaluationSnapshot,
       schemaVersion: 2,
+      // ADR-0019: snapshot 양방향 링크
+      recommendationSnapshotId: linkedSnapshot?.id,
     };
     setTradeRecords((prev: TradeRecord[]) => [...prev, newTrade]);
   };
@@ -104,6 +116,13 @@ export function useTradeOps() {
       const holdingDays = Math.round((Date.now() - new Date(t.buyDate).getTime()) / (1000 * 60 * 60 * 24));
       return { ...t, sellDate: new Date().toISOString(), sellPrice, sellReason, returnPct: parseFloat(returnPct.toFixed(2)), holdingDays, status: 'CLOSED' as const };
     }));
+
+    if (trade) {
+      const returnPctClose = ((sellPrice - trade.buyPrice) / trade.buyPrice) * 100;
+      // ADR-0019 (PR-B): 연결된 snapshot 이 있으면 CLOSED 전이.
+      // 매수 시점에 snapshot 이 없었어도 무영향 (markClosed 가 no-op).
+      useRecommendationSnapshotStore.getState().markClosed(tradeId, returnPctClose);
+    }
 
     if (trade && trade.conditionScores && Object.keys(trade.conditionScores).length > 0) {
       const returnPct = ((sellPrice - trade.buyPrice) / trade.buyPrice) * 100;

@@ -364,6 +364,77 @@ export interface TradeRecord {
   // IDEA 10: Pre-Mortem 무효화 조건 (매수 시점에 사전 명시)
   preMortems?: PreMortemItem[];     // 무효화 조건 목록
   peakPrice?: number;               // 최고가 (고점 대비 낙폭 추적용)
+
+  // ADR-0019 (PR-B): RecommendationSnapshot 양방향 추적
+  recommendationSnapshotId?: string;  // OPEN 시 snapshot.id 연결
+}
+
+// ─── ADR-0019 (PR-B): 추천 스냅샷 lifecycle ──────────────────────────────────
+
+/**
+ * 추천 발령 시점부터 사용자 행동(매수→매도) 까지의 전 lifecycle 영속 단위.
+ *
+ * 자기학습 5계층 확장 시리즈 PR-B 의 핵심 SSOT — 사용자가 받은 AI 추천이
+ * 실제로 얼마나 적중했는지(adoption rate, hit rate, avg return) 정량화한다.
+ *
+ * 서버 `recommendationTracker.RecommendationRecord` 와 별개:
+ *   - 서버: SHADOW 자동매매 신호 (시장가 자동 판정)
+ *   - 본 타입: 사용자 노출 추천 (사용자 행동 기반 lifecycle)
+ */
+export interface RecommendationSnapshot {
+  id: string;                         // 'rec-snap-<timestamp>-<code>'
+  recommendedAt: string;              // ISO
+  stockCode: string;
+  stockName: string;
+  recommendation: 'BUY' | 'STRONG_BUY' | 'STRONG_SELL' | 'SELL' | 'NEUTRAL';
+
+  // 추천 시점 가격/리스크
+  entryPrice: number;
+  targetPrice?: number;
+  stopLossPrice?: number;
+  rrr?: number;
+
+  // 추천 시점 27조건 + Gate (PR-A adapter 산출물 재사용)
+  conditionScores: Record<ConditionId, number>;
+  conditionSources: Record<ConditionId, 'COMPUTED' | 'AI'>;
+  gate1Score: number;
+  gate2Score: number;
+  gate3Score: number;
+  finalScore: number;
+  confluence?: number;
+  sector?: string;
+
+  // Lifecycle
+  status: 'PENDING' | 'OPEN' | 'CLOSED' | 'EXPIRED';
+  openedAt?: string;
+  closedAt?: string;
+  expiredAt?: string;
+  tradeId?: string;                   // OPEN 시 TradeRecord.id 연결
+
+  // 평가 (CLOSED 시점)
+  realizedReturnPct?: number;
+
+  schemaVersion: number;              // 1
+}
+
+/**
+ * RecommendationSnapshot 통계 — UI 적중률 패널 + 학습 입력으로 사용.
+ *
+ * - hitRate: CLOSED 중 realizedReturnPct > 0 비율
+ * - adoptionRate: 추천 → OPEN 전환 비율 (사용자가 시스템 추천을 따른 정도)
+ * - avgReturnClosed: CLOSED 의 평균 실현 수익률
+ */
+export interface SnapshotStats {
+  totalCount: number;
+  pendingCount: number;
+  openCount: number;
+  closedCount: number;
+  expiredCount: number;
+  hitRate: number;                    // 0~1
+  strongBuyHitRate: number;           // 0~1
+  buyHitRate: number;                 // 0~1
+  avgReturnClosed: number;            // %
+  adoptionRate: number;               // 0~1
 }
 
 // ─── 자동매매 엔진 타입 ──────────────────────────────────────────────────────────
