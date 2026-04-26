@@ -70,6 +70,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { getGeminiRuntimeState } from '../clients/geminiClient.js';
 import { isKstWeekend } from '../utils/marketClock.js';
+import { recordReflectionImpactsFromReport } from './reflectionImpactRecorder.js';
 import { isKrxHoliday } from '../trading/krxHolidays.js';
 
 export interface RunReflectionOptions {
@@ -603,6 +604,18 @@ export async function runNightlyReflection(
       mode,
       report.keyLessons,
       report.tomorrowAdjustments,
+    );
+  }
+
+  // ADR-0047 (PR-Y2): Reflection Module Half-Life — 13개 모듈 영향률 영속.
+  // 본 PR 은 측정만 — 실제 silent/deprecated 가드 wiring 은 후속 PR.
+  // 실패는 학습 사이클을 막지 않도록 try/catch 흡수.
+  try {
+    recordReflectionImpactsFromReport(report, date, now);
+  } catch (e: unknown) {
+    console.warn(
+      '[NightlyReflection] reflection impact 기록 실패:',
+      e instanceof Error ? e.message : e,
     );
   }
 

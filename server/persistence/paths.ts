@@ -194,6 +194,8 @@ export const GHOST_PORTFOLIO_FILE      = path.join(DATA_DIR, 'ghost-portfolio.js
 export const DISTILLED_WEEKLY_FILE     = path.join(DATA_DIR, 'knowledge', 'distilled-weekly.txt');
 /** 반성 엔진 Gemini 호출 예산 사용량 — 월별 재집계 */
 export const REFLECTION_BUDGET_FILE    = path.join(DATA_DIR, 'reflection-budget.json');
+/** ADR-0047 (PR-Y2): Reflection Module Half-Life — 모듈별 일자별 영향 영속 */
+export const REFLECTION_IMPACT_FILE     = path.join(DATA_DIR, 'reflection-impact.json');
 /** Meta-Decision Journal — Gate 통과/최종 선택 프로세스 기록 (JSONL 월별) */
 export function metaDecisionFile(yyyymm: string): string {
   return path.join(DATA_DIR, `meta-decisions-${yyyymm}.jsonl`);
