@@ -642,6 +642,15 @@ export interface ConditionCalibration {
   rawTradeCount?: number;
   /** loss trades 의 lossReason 분포 (진단용) */
   lossReasonBreakdown?: Partial<Record<LossReason, number>>;
+  // ADR-0023 (PR-F): 조건별 Profit Factor / Edge Score
+  /** Profit Factor = sum(wins.return) / |sum(losses.return)|. 손실 0 이면 null. */
+  profitFactor?: number | null;
+  /** 승리 거래 가중평균 수익률 (%) */
+  avgReturnPosi?: number;
+  /** 손실 거래 가중평균 손실률 (%, 음수) */
+  avgReturnNeg?: number;
+  /** Edge Score 종합 점수 (-7 ~ +7, 양수=상향 정당화) */
+  edgeScore?: number;
 }
 
 /** 피드백 폐쇄 루프 캘리브레이션 결과 */

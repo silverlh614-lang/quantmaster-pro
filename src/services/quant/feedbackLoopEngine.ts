@@ -19,6 +19,7 @@ import { ALL_CONDITIONS } from './evolutionEngine';
 import { saveEvolutionWeights } from './evolutionEngine';
 import { getSourceMultiplier, resolveSource } from './sourceWeighting';
 import { getTradeLearningWeight, summarizeLossReasonBreakdown } from './lossReasonWeighting';
+import { computeConditionEdge } from './conditionEdgeScore';
 
 // ─── 캘리브레이션 임계값 ──────────────────────────────────────────────────────
 
@@ -116,6 +117,9 @@ export function evaluateFeedbackLoop(
 
     updatedWeights[id] = newWeight;
 
+    // ADR-0023 (PR-F): Profit Factor + Edge Score 진단 메타
+    const edgeStats = computeConditionEdge(relevant, winRate, avgReturn);
+
     calibrations.push({
       conditionId: id,
       conditionName: ALL_CONDITIONS[id].name,
@@ -132,6 +136,11 @@ export function evaluateFeedbackLoop(
       rawTradeCount: relevant.length,
       weightedTradeCount: parseFloat(weightedTotal.toFixed(2)),
       lossReasonBreakdown: summarizeLossReasonBreakdown(relevant),
+      // ADR-0023 (PR-F): Profit Factor / Edge Score
+      profitFactor: edgeStats.profitFactor,
+      avgReturnPosi: edgeStats.avgReturnPosi,
+      avgReturnNeg: edgeStats.avgReturnNeg,
+      edgeScore: edgeStats.edgeScore,
     });
   }
 
