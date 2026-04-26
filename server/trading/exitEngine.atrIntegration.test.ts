@@ -21,6 +21,7 @@ vi.mock('./fillMonitor.js', () => ({
 
 vi.mock('../alerts/telegramClient.js', () => ({
   sendTelegramAlert: vi.fn().mockResolvedValue(undefined),
+  sendPrivateAlert: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../alerts/channelPipeline.js', () => ({
