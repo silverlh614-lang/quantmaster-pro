@@ -6,6 +6,7 @@
 import React from 'react';
 import { StickyMiniHeader } from '../components/common/StickyMiniHeader';
 import { StatusBanner } from '../components/common/StatusBanner';
+import { MarketModeBanner } from '../components/market/MarketModeBanner';
 import { MarketRegimeBanner } from '../components/market/MarketRegimeBanner';
 import { MarketNeutralPanel } from '../components/market/MarketNeutralPanel';
 import { MarketTicker } from '../components/market/MarketTicker';
@@ -33,6 +34,7 @@ export function MarketOverviewHeader({ onRefresh }: MarketOverviewHeaderProps) {
     <>
       <StickyMiniHeader />
       <StatusBanner />
+      <MarketModeBanner />
       <MarketRegimeBanner
         bearRegimeResult={bearRegimeResult}
         vkospiTriggerResult={vkospiTriggerResult}

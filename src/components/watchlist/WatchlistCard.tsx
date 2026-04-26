@@ -8,6 +8,9 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../ui/cn';
 import { ConfidenceBadge } from '../common/ConfidenceBadge';
+import { DataQualityBadge } from '../common/DataQualityBadge';
+import { GateStatusCard, buildGateCardSummary } from './GateStatusCard';
+import { classifyDataQuality } from '../../utils/dataQualityClassifier';
 import { SignalBadge } from '../../ui/badge';
 import { PriceEditCell } from '../common/PriceEditCell';
 import { isMarketOpenFor, nextOpenAtFor, formatNextOpenKst } from '../../utils/marketTime';
@@ -428,6 +431,18 @@ export function WatchlistCard({
               </button>
             )}
           </div>
+        </div>
+
+        {/* Data Quality + Gate 0~3 통과 카드 — ADR-0018 PR-A */}
+        <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-2 sm:gap-3 mb-4 items-start">
+          <div className="flex items-center gap-2 flex-wrap">
+            <DataQualityBadge count={classifyDataQuality(stock)} compact />
+            {stock.dataSourceType && <ConfidenceBadge type={stock.dataSourceType} />}
+          </div>
+          <GateStatusCard
+            summary={buildGateCardSummary(stock)}
+            onExpand={() => onDeepAnalysis(stock)}
+          />
         </div>
 
         {/* External Links & Market Heat */}
