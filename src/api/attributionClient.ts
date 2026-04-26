@@ -1,5 +1,5 @@
 /**
- * @responsibility 조건별 수익률 귀인 fetch (ADR-0025 PR-H)
+ * @responsibility 조건별 수익률 귀인 fetch (ADR-0035 PR-H)
  */
 
 export interface ClientAttributionConditionStat {

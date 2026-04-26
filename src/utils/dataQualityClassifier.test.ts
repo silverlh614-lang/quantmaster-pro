@@ -1,5 +1,5 @@
 /**
- * @responsibility classifyDataQuality 휴리스틱 단위 테스트 — ADR-0018 §3 fallback
+ * @responsibility classifyDataQuality 휴리스틱 단위 테스트 — ADR-0028 §3 fallback
  */
 import { describe, it, expect } from 'vitest';
 import { classifyDataQuality } from './dataQualityClassifier';
@@ -42,7 +42,7 @@ function makeStock(opts: {
   } as unknown as StockRecommendation;
 }
 
-describe('classifyDataQuality — ADR-0018 §3 휴리스틱 fallback', () => {
+describe('classifyDataQuality — ADR-0028 §3 휴리스틱 fallback', () => {
   it('모든 항목 통과 + dataSourceType=REALTIME → computed=10, api=11, aiInferred=7, total=28', () => {
     const stock = makeStock({ computedKeys: 9, apiKeys: 11, aiKeys: 7, dataSourceType: 'REALTIME' });
     const r = classifyDataQuality(stock);

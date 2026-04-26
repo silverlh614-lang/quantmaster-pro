@@ -1,4 +1,4 @@
-// @responsibility 27 조건별 수익률 귀인 막대 차트 (ADR-0025 PR-H)
+// @responsibility 27 조건별 수익률 귀인 막대 차트 (ADR-0035 PR-H)
 
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';

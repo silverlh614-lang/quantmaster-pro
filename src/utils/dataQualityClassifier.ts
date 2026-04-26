@@ -1,4 +1,4 @@
-// @responsibility 종목 카드 27+1 조건 데이터 출처 분류 — 메타 우선 + 휴리스틱 fallback (ADR-0018 §3 + ADR-0019)
+// @responsibility 종목 카드 27+1 조건 데이터 출처 분류 — 메타 우선 + 휴리스틱 fallback (ADR-0028 §3 + ADR-0029)
 
 import type { StockRecommendation } from '../services/stockService';
 import type { DataQualityCount, DataQualityTier, ConditionSourceTier } from '../types/ui';
@@ -74,7 +74,7 @@ const ALL_CHECKLIST_KEYS: readonly ChecklistKey[] = [
 /**
  * StockRecommendation 1건의 데이터 품질을 분류한다.
  *
- * **모드 분기** (ADR-0019):
+ * **모드 분기** (ADR-0029):
  * 1. `stock.conditionSourceTiers` 가 있으면 → 메타 우선. 메타 없는 항목은 휴리스틱 fallback.
  *    `sourceMetaAvailable=true` 는 *모든* 27 조건에 메타가 있을 때만.
  * 2. 부재 시 → PR-A 휴리스틱 그룹 분류 (`COMPUTED_KEYS` / `API_KEYS` / `AI_INFERRED_KEYS`).

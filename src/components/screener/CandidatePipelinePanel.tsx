@@ -1,4 +1,4 @@
-// @responsibility 후보군 파이프라인 5단계 funnel 시각화 (ADR-0023 PR-F)
+// @responsibility 후보군 파이프라인 5단계 funnel 시각화 (ADR-0033 PR-F)
 
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';

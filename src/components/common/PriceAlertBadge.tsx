@@ -1,4 +1,4 @@
-// @responsibility WatchlistCard 4단계 가격 알림 배지 (ADR-0020 PR-C)
+// @responsibility WatchlistCard 4단계 가격 알림 배지 (ADR-0030 PR-C)
 
 import React from 'react';
 import { Target, AlertTriangle, AlertCircle, Check } from 'lucide-react';

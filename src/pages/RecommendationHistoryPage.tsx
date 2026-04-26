@@ -1,4 +1,4 @@
-// @responsibility 추천 이력·승률·평균수익률 표시 페이지 (ADR-0019 PR-B + ADR-0024 PR-G)
+// @responsibility 추천 이력·승률·평균수익률 표시 페이지 (ADR-0029 PR-B + ADR-0034 PR-G)
 
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -65,7 +65,7 @@ export function RecommendationHistoryPage() {
   const records = historyQuery.data?.records ?? [];
   const stats = statsQuery.data;
 
-  // PR-G (ADR-0024): signalType + period 분리 통계
+  // PR-G (ADR-0034): signalType + period 분리 통계
   const breakdown = useMemo(
     () => computeSignalBreakdown(records, period),
     [records, period],
@@ -197,7 +197,7 @@ export function RecommendationHistoryPage() {
       {/* PR-M: 추천 일별 시계열 차트 */}
       <RecommendationTimeseriesChart />
 
-      {/* PR-H (ADR-0025): 조건별 수익률 귀인 차트 */}
+      {/* PR-H (ADR-0035): 조건별 수익률 귀인 차트 */}
       <ConditionAttributionChart />
     </div>
   );

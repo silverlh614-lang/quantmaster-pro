@@ -1,8 +1,8 @@
-# ADR-0021 — Last Trigger + Enemy Checklist + 분할매수 계획 카드 (PR-D)
+# ADR-0031 — Last Trigger + Enemy Checklist + 분할매수 계획 카드 (PR-D)
 
 - **Status**: Accepted (2026-04-26)
 - **Scope**: 사용자 P1 5종 중 3종 (Last Trigger / Enemy Checklist / 분할매수 카드).
-- **Related**: ADR-0018 (PR-A 배너·배지·카드), ADR-0019 (PR-B Source Tier), ADR-0020 (PR-C Price Alert).
+- **Related**: ADR-0028 (PR-A 배너·배지·카드), ADR-0029 (PR-B Source Tier), ADR-0030 (PR-C Price Alert).
 
 ---
 

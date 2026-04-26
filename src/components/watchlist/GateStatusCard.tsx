@@ -1,4 +1,4 @@
-// @responsibility WatchlistCard 임베드용 압축 Gate 0/1/2/3 통과 표 (ADR-0018 §4)
+// @responsibility WatchlistCard 임베드용 압축 Gate 0/1/2/3 통과 표 (ADR-0028 §4)
 
 import React from 'react';
 import { Check, X, AlertTriangle, ChevronRight } from 'lucide-react';
@@ -66,7 +66,7 @@ function gateLine(label: string, line: GateLineSummary | null, isBoolean = false
  *   Gate 3: ❌ 4/10 FAIL
  *   종합: HOLD
  *
- * GateStatusWidget 와 별도 — expand 토글 없는 read-only 카드 (ADR-0018 §4).
+ * GateStatusWidget 와 별도 — expand 토글 없는 read-only 카드 (ADR-0028 §4).
  */
 export function GateStatusCard({ summary, onExpand, className }: GateStatusCardProps) {
   const { gate0Passed, gate1, gate2, gate3, overallVerdict } = summary;
@@ -139,7 +139,7 @@ function buildLine(passed: number, required: number): GateLineSummary {
 
 /**
  * `StockRecommendation` 1건에서 `GateCardSummary` 를 빌드한다.
- * gate0Passed 는 ADR-0018 §4 단순화에 따라 `gateEvaluation.gate1Passed` 또는
+ * gate0Passed 는 ADR-0028 §4 단순화에 따라 `gateEvaluation.gate1Passed` 또는
  * `gateEvaluation.isPassed` 를 alias 로 사용한다.
  */
 export function buildGateCardSummary(stock: StockRecommendation): GateCardSummary {

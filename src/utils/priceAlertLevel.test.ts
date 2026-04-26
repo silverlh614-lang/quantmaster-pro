@@ -1,10 +1,10 @@
 /**
- * @responsibility computePriceAlertLevel 단위 테스트 — ADR-0020 PR-C
+ * @responsibility computePriceAlertLevel 단위 테스트 — ADR-0030 PR-C
  */
 import { describe, it, expect } from 'vitest';
 import { computePriceAlertLevel, isActionableAlert } from './priceAlertLevel';
 
-describe('computePriceAlertLevel — ADR-0020 4단계 우선순위', () => {
+describe('computePriceAlertLevel — ADR-0030 4단계 우선순위', () => {
   it('currentPrice ≥ targetPrice → TAKE_PROFIT (1순위)', () => {
     expect(computePriceAlertLevel({
       currentPrice: 110, stopLoss: 90, targetPrice: 110,
@@ -97,7 +97,7 @@ describe('computePriceAlertLevel — ADR-0020 4단계 우선순위', () => {
   });
 });
 
-describe('isActionableAlert — ADR-0020', () => {
+describe('isActionableAlert — ADR-0030', () => {
   it('NORMAL → false', () => {
     expect(isActionableAlert('NORMAL')).toBe(false);
   });

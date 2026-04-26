@@ -1,4 +1,4 @@
-// @responsibility 워치리스트 가격 알림 watcher — Web Notification + SW + dedupe + opt-in (ADR-0020 PR-C + PR-L)
+// @responsibility 워치리스트 가격 알림 watcher — Web Notification + SW + dedupe + opt-in (ADR-0030 PR-C + PR-L)
 
 import { useEffect, useRef } from 'react';
 import { useSettingsStore } from '../stores';

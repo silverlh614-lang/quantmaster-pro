@@ -1,5 +1,5 @@
 /**
- * @responsibility shouldDispatchAlert + requestPriceAlertPermission 단위 테스트 — ADR-0020 PR-C
+ * @responsibility shouldDispatchAlert + requestPriceAlertPermission 단위 테스트 — ADR-0030 PR-C
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
@@ -8,7 +8,7 @@ import {
   requestPriceAlertPermission,
 } from './usePriceAlertWatcher';
 
-describe('shouldDispatchAlert — ADR-0020 transition + cooldown', () => {
+describe('shouldDispatchAlert — ADR-0030 transition + cooldown', () => {
   const now = 1_700_000_000_000;
 
   it('NORMAL 레벨 → false (알림 대상 아님)', () => {
@@ -67,7 +67,7 @@ describe('shouldDispatchAlert — ADR-0020 transition + cooldown', () => {
   });
 });
 
-describe('requestPriceAlertPermission — ADR-0020 권한 흐름', () => {
+describe('requestPriceAlertPermission — ADR-0030 권한 흐름', () => {
   const originalNotification = (globalThis as { Notification?: unknown }).Notification;
   const originalWindow = (globalThis as { window?: unknown }).window;
 

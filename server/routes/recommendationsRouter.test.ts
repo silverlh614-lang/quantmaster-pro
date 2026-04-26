@@ -1,5 +1,5 @@
 /**
- * @responsibility recommendationsRouter 단위 테스트 — ADR-0019 PR-B
+ * @responsibility recommendationsRouter 단위 테스트 — ADR-0029 PR-B
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -44,7 +44,7 @@ function findHandler(method: string, path: string): RouteHandler {
   throw new Error(`route ${method} ${path} not found`);
 }
 
-describe('recommendationsRouter — ADR-0019', () => {
+describe('recommendationsRouter — ADR-0029', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

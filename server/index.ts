@@ -241,17 +241,17 @@ async function startServer() {
   app.use('/api/learning', learningRouter);
 
   // ─────────────────────────────────────────────────────────────
-  // PR-B (ADR-0019) — 추천 이력·통계 GET /api/recommendations/{history,stats}
+  // PR-B (ADR-0029) — 추천 이력·통계 GET /api/recommendations/{history,stats}
   // ─────────────────────────────────────────────────────────────
   app.use('/api/recommendations', recommendationsRouter);
 
   // ─────────────────────────────────────────────────────────────
-  // PR-F (ADR-0023) — 후보군 파이프라인 GET /api/screener/pipeline-summary
+  // PR-F (ADR-0033) — 후보군 파이프라인 GET /api/screener/pipeline-summary
   // ─────────────────────────────────────────────────────────────
   app.use('/api/screener', screenerPipelineRouter);
 
   // ─────────────────────────────────────────────────────────────
-  // PR-H (ADR-0025) — 조건별 수익률 귀인 GET /api/attribution/stats
+  // PR-H (ADR-0035) — 조건별 수익률 귀인 GET /api/attribution/stats
   // ─────────────────────────────────────────────────────────────
   app.use('/api/attribution', attributionRouter);
 

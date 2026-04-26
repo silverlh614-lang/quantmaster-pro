@@ -1,4 +1,4 @@
-// @responsibility 4-체크 라스트 트리거 평가 순수 함수 (ADR-0021 PR-D)
+// @responsibility 4-체크 라스트 트리거 평가 순수 함수 (ADR-0031 PR-D)
 
 import type { StockRecommendation } from '../services/stockService';
 import type { LastTriggerCheck, LastTriggerSummary } from '../types/ui';
