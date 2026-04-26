@@ -15,6 +15,8 @@ import { updateKrxSectorMap, type UpdateResult } from '../screener/sectorMapUpda
 import { migrateAttributionRecords } from '../persistence/attributionRepo.js';
 import { DATA_DIR } from '../persistence/paths.js';
 import { wrapJob } from './scheduleCatalog.js';
+import { reloadKrxHolidaySet } from '../trading/krxHolidays.js';
+import { runKrxHolidayAudit } from '../trading/krxHolidayAudit.js';
 
 const BACKUP_RETENTION_DAYS = 7;
 
@@ -31,6 +33,14 @@ export function registerMaintenanceJobs(): void {
     }
   } catch (e) {
     console.error('[AttributionMigration] 부팅 마이그레이션 실패:', e);
+  }
+
+  // PR-D ADR-0039 — 부팅 시 KRX 휴장일 patch 1회 reload.
+  // 정적 STATIC_HOLIDAYS + data/krx-holiday-patch.json 합산 → 활성 KRX_HOLIDAYS Set.
+  try {
+    reloadKrxHolidaySet();
+  } catch (e) {
+    console.error('[KrxHolidays] 부팅 patch reload 실패:', e);
   }
 
   // 스캔 트레이스 파일 정리 — 매주 일요일 KST 03:00 (UTC 18:00 토요일).
@@ -149,6 +159,14 @@ export function registerMaintenanceJobs(): void {
     if (shouldRetrySectorMap()) {
       void runSectorMapUpdate('daily-retry');
     }
+  }, { timezone: 'UTC' });
+
+  // PR-D ADR-0039 — KRX 차년도 휴장일 등록 감사. 매년 12/1 09:00 KST = UTC 12/1 00:00.
+  // 차년도 휴장일 ≥ 8개 등록되어 있으면 silent. 미달 시 텔레그램 CRITICAL 경보.
+  // dedupeKey 연도별 분리 (1년 cooldown) → 같은 해 재발송 차단, 다음 해 재발송 허용.
+  cron.schedule('0 0 1 12 *', async () => {
+    await runKrxHolidayAudit().catch((e) =>
+      console.error('[KrxHolidayAudit] 실행 실패:', e instanceof Error ? e.message : e));
   }, { timezone: 'UTC' });
 }
 
