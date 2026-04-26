@@ -9,11 +9,19 @@ import { NO_OP } from '../types.js';
 import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
-import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
+import { appendShadowLog, syncPositionCache, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { checkEuphoria } from '../../riskManager.js';
 
+/**
+ * @rule EUPHORIA_PARTIAL
+ * @priority 16
+ * @action PARTIAL_SELL
+ * @ratio 0.50
+ * @trigger (status==='ACTIVE' || 'PARTIALLY_FILLED') && checkEuphoria(shadow, currentPrice).triggered
+ * @rationale 과열 신호 (RSI 80+/볼린저 상단 이탈/거래량 급증 등) 다중 감지 시 50% 부분 익절. status='EUPHORIA_PARTIAL' 로 전이해 1회 한정 — 잔여 분은 hardStopLoss/trailingStop 가 보호.
+ */
 export async function euphoriaPartialExit(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct } = ctx;
 
@@ -44,6 +52,11 @@ export async function euphoriaPartialExit(ctx: ExitContext): Promise<ExitRuleRes
     pnl: (currentPrice - shadow.shadowEntryPrice) * halfQty,
     pnlPct: returnPct, reason: '과열 감지 50% 익절',
     exitRuleTag: 'EUPHORIA_PARTIAL', timestamp: euphoriaTs,
+    attribution: buildExitAttribution(
+      'EUPHORIA_PARTIAL',
+      ['euphoria_signals', `euphoria_count_${euphoria.count}`],
+      ctx.currentRegime,
+    ),
   }, 'LIMIT_TP1');
 
   if (euphoriaReserve.kind === 'FAILED') {

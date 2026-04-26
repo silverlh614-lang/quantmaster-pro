@@ -9,12 +9,20 @@ import { NO_OP } from '../types.js';
 import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
-import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
+import { appendShadowLog, syncPositionCache, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { detectBearishDivergence } from '../helpers/rsiSeries.js';
 import { fetchPriceAndRsiHistory } from '../helpers/priceHistory.js';
 
+/**
+ * @rule DIVERGENCE_PARTIAL
+ * @priority 13
+ * @action PARTIAL_SELL
+ * @ratio 0.30
+ * @trigger !shadow.divergencePartialSold && currentPrice > shadow.shadowEntryPrice && detectBearishDivergence(prices, rsi)
+ * @rationale 주가 신고가 + RSI 고점 낮아짐 = 하락 다이버전스 → 가짜 돌파·상투 조기 경보. 수익 중인 포지션 30% 부분 익절로 상투 위험 회피. 1회 한정.
+ */
 export async function bearishDivergenceExit(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct } = ctx;
 
@@ -42,6 +50,7 @@ export async function bearishDivergenceExit(ctx: ExitContext): Promise<ExitRuleR
     pnl: (currentPrice - shadow.shadowEntryPrice) * sellQty,
     pnlPct: returnPct, reason: '하락 다이버전스 30% 익절',
     exitRuleTag: 'DIVERGENCE_PARTIAL', timestamp: divTs,
+    attribution: buildExitAttribution('DIVERGENCE_PARTIAL', ['bearish_divergence', 'rsi_lower_high'], ctx.currentRegime),
   }, 'LIMIT_TP1', 'divergencePartialSold');
 
   if (divReserve.kind === 'FAILED') {

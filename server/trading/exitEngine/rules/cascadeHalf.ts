@@ -7,10 +7,18 @@ import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
 import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
-import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
+import { appendShadowLog, syncPositionCache, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 
+/**
+ * @rule CASCADE_HALF_SELL
+ * @priority 10
+ * @action PARTIAL_SELL
+ * @ratio 0.50
+ * @trigger returnPct <= -15 && (shadow.cascadeStep ?? 0) < 2
+ * @rationale 캐스케이드 -15% 도달 시 50% 반매도 (cascadeStep=2). 전량 청산 전 마지막 단계 — 추가 하락 시 cascadeFinal(-25%) 이 잔여 청산. 1회 한정.
+ */
 export async function cascadeHalf(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct } = ctx;
 
@@ -32,6 +40,7 @@ export async function cascadeHalf(ctx: ExitContext): Promise<ExitRuleResult> {
     pnl: (currentPrice - shadow.shadowEntryPrice) * halfQty,
     pnlPct: returnPct, reason: '캐스케이드 -15% 반매도',
     exitRuleTag: 'CASCADE_HALF_SELL', timestamp: cascadeHalfTs,
+    attribution: buildExitAttribution('CASCADE_HALF_SELL', ['drawdown_15_pct', 'cascade_half'], ctx.currentRegime),
   }, 'CASCADE_HALF');
 
   if (cascadeHalfReserve.kind === 'FAILED') {

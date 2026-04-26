@@ -8,11 +8,19 @@ import { NO_OP } from '../types.js';
 import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
-import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
+import { appendShadowLog, updateShadow, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
 
+/**
+ * @rule TRAILING_PROTECTIVE_STOP
+ * @priority 8
+ * @action FULL_SELL
+ * @ratio 1.00
+ * @trigger shadow.trailingEnabled && currentPrice <= shadow.trailingHighWaterMark * (1 - trailPct)
+ * @rationale L3-c 트레일링 스톱 — 고점 대비 trailPct (기본 10%) 하락 시 전량 청산. 상승분의 일부 보호 (이익 보호 손절). 트랜치 모두 소화 후 활성화되어 잔여 분 수익 확정.
+ */
 export async function trailingStop(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct } = ctx;
 
@@ -45,6 +53,11 @@ export async function trailingStop(ctx: ExitContext): Promise<ExitRuleResult> {
     pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
     pnlPct: returnPct, reason: '트레일링 스톱 청산',
     exitRuleTag: 'TRAILING_PROTECTIVE_STOP', timestamp: trailTs,
+    attribution: buildExitAttribution(
+      'TRAILING_PROTECTIVE_STOP',
+      ['trailing_floor_breach', 'profit_protection'],
+      ctx.currentRegime,
+    ),
   }, 'TRAILING_STOP');
   if (trailReserve.kind === 'PENDING') {
     addSellOrder({

@@ -8,11 +8,19 @@ import { NO_OP } from '../types.js';
 import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
-import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
+import { appendShadowLog, updateShadow, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
 
+/**
+ * @rule TARGET_EXIT
+ * @priority 9
+ * @action FULL_SELL
+ * @ratio 1.00
+ * @trigger currentPrice >= shadow.targetPrice
+ * @rationale 트랜치 미설정 구형 포지션의 목표가 도달 시 전량 익절 fallback. 정상 흐름은 LIMIT_TRANCHE_TAKE_PROFIT (PR-S 분할 익절) 가 우선 — 이 규칙은 profitTranches=[] 인 레거시 trade 의 안전망.
+ */
 export async function legacyTakeProfit(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct } = ctx;
 
@@ -39,6 +47,7 @@ export async function legacyTakeProfit(ctx: ExitContext): Promise<ExitRuleResult
     pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
     pnlPct: returnPct, reason: '목표가 달성 전량청산',
     exitRuleTag: 'TARGET_EXIT', timestamp: targetTs,
+    attribution: buildExitAttribution('TARGET_EXIT', ['target_price_hit', 'legacy_full_close'], ctx.currentRegime),
   }, 'FULL_CLOSE');
   if (targetReserve.kind === 'PENDING') {
     addSellOrder({

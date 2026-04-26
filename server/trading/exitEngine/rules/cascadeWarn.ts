@@ -8,6 +8,13 @@ import { NO_OP } from '../types.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { appendShadowLog } from '../../../persistence/shadowTradeRepo.js';
 
+/**
+ * @rule CASCADE_WARN_BLOCK
+ * @priority 11
+ * @action NO_OP
+ * @trigger returnPct <= -7 && (shadow.cascadeStep ?? 0) < 1
+ * @rationale 캐스케이드 -7% 1회 경보 — 추가 매수 차단 + 모니터링 강화 (cascadeStep=1 + addBuyBlocked=true). 매도 행위 없음. 추가 하락 시 cascadeHalf(-15%) 가 본격 청산.
+ */
 export async function cascadeWarn(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, returnPct } = ctx;
 

@@ -10,13 +10,21 @@ import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { sendStopLossTransparencyReport } from '../../../alerts/stopLossTransparencyReport.js';
-import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
+import { appendShadowLog, updateShadow, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
 import { matchExitInvalidation, promoteInvalidationPatternIfRepeated } from '../../preMortemStructured.js';
 import { promoteKellyDriftPattern } from '../../../learning/kellyDriftFailurePromotion.js';
 
+/**
+ * @rule HARD_STOP
+ * @priority 4
+ * @action FULL_SELL
+ * @ratio 1.00
+ * @trigger currentPrice <= hardStopLoss
+ * @rationale 하드 스톱 — 고정 손절 / 레짐 손절 / Profit Protection 도달 시 전량 청산. ATR 트레일링이 손절을 초기/레짐 이상으로 끌어올린 경우 PROFIT_PROTECTION 으로 분류 (수익 보호 청산).
+ */
 export async function hardStopLoss(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct, currentRegime, initialStopLoss, regimeStopLoss, hardStopLoss } = ctx;
 
@@ -78,6 +86,11 @@ export async function hardStopLoss(ctx: ExitContext): Promise<ExitRuleResult> {
     pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
     pnlPct: returnPct, reason: `하드스톱 손절 (${stopLossExitType})`,
     exitRuleTag: 'HARD_STOP', timestamp: hardStopTs,
+    attribution: buildExitAttribution(
+      'HARD_STOP',
+      ['stop_breach', `stop_type_${stopLossExitType.toLowerCase()}`],
+      currentRegime,
+    ),
   }, 'HARD_STOP');
   if (hardStopReserve.kind === 'PENDING') {
     addSellOrder({

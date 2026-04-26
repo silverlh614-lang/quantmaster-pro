@@ -11,12 +11,20 @@ import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { sendStopLossTransparencyReport } from '../../../alerts/stopLossTransparencyReport.js';
-import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
+import { appendShadowLog, updateShadow, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
 import { fetchMaFromCloses, isMA60Death, kstBusinessDateStr } from '../helpers/ma60.js';
 
+/**
+ * @rule MA60_DEATH_FORCE_EXIT
+ * @priority 3
+ * @action FULL_SELL
+ * @ratio 1.00
+ * @trigger !shadow.ma60DeathForced && shadow.ma60ForceExitDate <= todayKst && isMA60Death(ma20, ma60, currentPrice)
+ * @rationale 60일선 역배열 5영업일 유예 만료 후에도 회복 못 하면 "주도주 사이클 종료" 로 판정해 좀비 포지션을 강제 청산. 회복 시 스케줄 초기화 (NO_OP).
+ */
 export async function ma60DeathForceExit(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct } = ctx;
 
@@ -57,6 +65,7 @@ export async function ma60DeathForceExit(ctx: ExitContext): Promise<ExitRuleResu
     pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
     pnlPct: returnPct, reason: 'MA60 역배열 강제청산',
     exitRuleTag: 'MA60_DEATH_FORCE_EXIT', timestamp: ma60Ts,
+    attribution: buildExitAttribution('MA60_DEATH_FORCE_EXIT', ['ma60_death', 'holding_grace_expired'], ctx.currentRegime),
   }, 'MA60_FORCE');
   if (ma60Reserve.kind === 'PENDING') {
     addSellOrder({

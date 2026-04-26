@@ -12,6 +12,13 @@ import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 
+/**
+ * @rule STOP_APPROACH_ALERT
+ * @priority 15
+ * @action NO_OP
+ * @trigger distToStop > 0 && (distToStop < 5 / 3 / 1) && stage < (1 / 2 / 3)
+ * @rationale 손절 접근 3단계 경보 — Stage 1: -5% 이내 🟡 / Stage 2: -3% 이내 🟠 / Stage 3: -1% 이내 🔴. 매도 행위 없음 (운영자 인지). 단계별 dedupeKey 로 중복 차단.
+ */
 export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, hardStopLoss } = ctx;
 

@@ -11,10 +11,18 @@ import { NO_OP } from '../types.js';
 import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
-import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
+import { appendShadowLog, syncPositionCache, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 
+/**
+ * @rule RRR_COLLAPSE_PARTIAL
+ * @priority 12
+ * @action PARTIAL_SELL
+ * @ratio 0.50
+ * @trigger !shadow.rrrCollapsePartialSold && currentPrice > shadow.shadowEntryPrice && liveRRR < 1.0
+ * @rationale 잔여 기대 RRR (target-currentPrice) / (currentPrice-stop) 가 1.0 미만으로 붕괴 시 50% 자동 익절. 수익 중이지만 잔여 보유 정당성 없는 좀비 포지션 자동 정리. 1회 한정.
+ */
 export async function rrrCollapseExit(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct, hardStopLoss } = ctx;
 
@@ -41,6 +49,7 @@ export async function rrrCollapseExit(ctx: ExitContext): Promise<ExitRuleResult>
     pnl: (currentPrice - shadow.shadowEntryPrice) * sellQty,
     pnlPct: returnPct, reason: 'RRR 붕괴 50% 익절',
     exitRuleTag: 'RRR_COLLAPSE_PARTIAL', timestamp: rrrTs,
+    attribution: buildExitAttribution('RRR_COLLAPSE_PARTIAL', ['rrr_collapse', 'live_rrr_below_1'], ctx.currentRegime),
   }, 'LIMIT_TP1', 'rrrCollapsePartialSold');
 
   if (rrrReserve.kind === 'FAILED') {

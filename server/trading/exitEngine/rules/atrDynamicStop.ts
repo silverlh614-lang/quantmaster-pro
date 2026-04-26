@@ -12,6 +12,13 @@ import { appendShadowLog } from '../../../persistence/shadowTradeRepo.js';
 import { regimeToStopRegime } from '../../entryEngine.js';
 import { evaluateDynamicStop } from '../../../../src/services/quant/dynamicStopEngine.js';
 
+/**
+ * @rule ATR_DYNAMIC_STOP_UPDATE
+ * @priority 2
+ * @action TRAILING_STOP
+ * @trigger shadow.entryATR14 > 0 && evaluateDynamicStop().effectiveStop > hardStopLoss
+ * @rationale ATR 기반 동적 손절 갱신 (BEP 보호 / 수익 Lock-in). hardStopLoss 는 오직 상향만 허용 (래칫). 매도하지 않고 다음 규칙(하드스톱/RRR/손절접근)에 갱신된 임계 전파.
+ */
 export async function atrDynamicStop(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct, currentRegime, hardStopLoss } = ctx;
 

@@ -9,12 +9,20 @@ import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { sendStopLossTransparencyReport } from '../../../alerts/stopLossTransparencyReport.js';
-import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
+import { appendShadowLog, updateShadow, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { addToBlacklist } from '../../../persistence/blacklistRepo.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
 
+/**
+ * @rule CASCADE_FINAL
+ * @priority 5
+ * @action FULL_SELL
+ * @ratio 1.00
+ * @trigger returnPct <= -25
+ * @rationale 캐스케이드 -25% 도달 시 전량 청산. -30% 이하면 180일 블랙리스트 추가 등록 — 손실 폭주 종목의 재진입 차단으로 추가 손실 봉쇄.
+ */
 export async function cascadeFinal(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct } = ctx;
 
@@ -42,6 +50,11 @@ export async function cascadeFinal(ctx: ExitContext): Promise<ExitRuleResult> {
     pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
     pnlPct: returnPct, reason: '캐스케이드 전량청산',
     exitRuleTag: 'CASCADE_FINAL', timestamp: cascadeFinalTs,
+    attribution: buildExitAttribution(
+      'CASCADE_FINAL',
+      [isBlacklistStep ? 'drawdown_30_pct' : 'drawdown_25_pct', 'cascade_final'],
+      ctx.currentRegime,
+    ),
   }, 'HARD_STOP');
   if (cascadeFinalReserve.kind === 'FAILED') {
     // BUG #7 fix — 상태 롤백 + CRITICAL 알림.

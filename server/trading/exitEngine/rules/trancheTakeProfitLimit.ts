@@ -9,10 +9,17 @@ import { NO_OP } from '../types.js';
 import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
-import { appendShadowLog, syncPositionCache, updateShadow } from '../../../persistence/shadowTradeRepo.js';
+import { appendShadowLog, syncPositionCache, updateShadow, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 
+/**
+ * @rule LIMIT_TRANCHE_TAKE_PROFIT
+ * @priority 7
+ * @action PARTIAL_SELL
+ * @trigger shadow.profitTranches[i].taken === false && currentPrice >= shadow.profitTranches[i].price
+ * @rationale L3-b LIMIT 트랜치 분할 익절. 진입 시 사전 정의된 가격 트리거 도달 시 ratio 비율 매도. 모든 LIMIT 트랜치 소화 후 트레일링 스톱(trailingStop) 자동 활성화.
+ */
 export async function trancheTakeProfitLimit(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct } = ctx;
 
@@ -39,6 +46,11 @@ export async function trancheTakeProfitLimit(ctx: ExitContext): Promise<ExitRule
         pnl: (currentPrice - shadow.shadowEntryPrice) * sellQty,
         pnlPct: returnPct, reason: `분할익절 트랜치 ${(t.ratio * 100).toFixed(0)}%`,
         exitRuleTag: 'LIMIT_TRANCHE_TAKE_PROFIT', timestamp: trancheTs,
+        attribution: buildExitAttribution(
+          'LIMIT_TRANCHE_TAKE_PROFIT',
+          ['tranche_target_hit', `tranche_ratio_${Math.round(t.ratio * 100)}`],
+          ctx.currentRegime,
+        ),
       }, trancheIdx === 0 ? 'LIMIT_TP1' : 'LIMIT_TP2');
 
       if (trancheReserve.kind === 'FAILED') {

@@ -10,6 +10,13 @@ import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { appendShadowLog } from '../../../persistence/shadowTradeRepo.js';
 import { fetchMaFromCloses, isMA60Death, kstBusinessDateStr } from '../helpers/ma60.js';
 
+/**
+ * @rule MA60_DEATH_WATCH
+ * @priority 14
+ * @action NO_OP
+ * @trigger !shadow.ma60DeathDetectedAt && !shadow.ma60DeathForced && isMA60Death(ma20, ma60, currentPrice)
+ * @rationale 60일선 역배열 최초 감지 시 5영업일 강제 청산 일자 스케줄. 매도 없음. 5영업일 후에도 역배열 지속이면 ma60DeathForceExit 가 강제 청산. 회복 시 자동 초기화.
+ */
 export async function ma60DeathWatch(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice } = ctx;
 
