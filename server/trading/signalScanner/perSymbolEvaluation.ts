@@ -38,7 +38,6 @@ import { checkFailurePattern } from '../../learning/failurePatternDB.js';
 import { buildEntryConditionScores } from '../../learning/entryConditionScores.js';
 import { evaluateCorrelationGate } from '../correlationSlotGate.js';
 import { recordCounterfactual, COUNTERFACTUAL_DAILY_CAP } from '../../learning/counterfactualShadow.js';
-import { recordUniverseEntries } from '../../learning/ledgerSimulator.js';
 import type { FullRegimeConfig } from '../../../src/types/core.js';
 import { REGIME_CONFIGS } from '../../../src/services/quant/regimeEngine.js';
 import { addRecommendation } from '../../learning/recommendationTracker.js';
@@ -65,6 +64,7 @@ import {
   stopLossPolicyResolver,
 } from './sizingDeciders/index.js';
 import { applyApprovalReservation } from './approvalQueue/index.js';
+import { commitEntryDecision } from './commitEntryDecision.js';
 import {
   isOpenShadowStatus,
   buildStopLossPlan,
@@ -921,119 +921,15 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       });
       const { profile, isCatalyst, stopLossPlan, entryATR14 } = stopPolicy;
 
-      // L3 분할 익절 타겟 — PROFIT_TARGETS[ctx.regime]에서 LIMIT 트랜치 추출.
-      // section (CATALYST/SWING) 과 ctx.watchlist 추적자(MOMENTUM = LEADER 추세) 에 따라
-      // 익절 라인을 종목별로 차등 조정 (사용자 P1-1 의견 반영).
-      const symbolProfile: SymbolExitContext = {
-        profileType: isCatalyst ? 'CATALYST'
-          : (stock.section === 'MOMENTUM' || stock.profileType === 'A') ? 'LEADER'
-          : undefined,
-        sector: stock.sector,
-      };
-      const adaptiveProfitTargets = getAdaptiveProfitTargets(ctx.regime, ctx.macroState, symbolProfile);
-      // composite reason 을 로그에 노출 — Telegram 메시지에서 운영자가 조정 사유를 추적 가능.
-      if (adaptiveProfitTargets.reason !== 'macro:기본') {
-        console.log(`[ProfitTargets] ${stock.code} ${stock.name}: ${adaptiveProfitTargets.reason}`);
-      }
-      const limitTranches = adaptiveProfitTargets.targets.filter((t) => t.type === 'LIMIT' && t.trigger !== null);
-      const trailTarget = adaptiveProfitTargets.targets.find((t) => t.type === 'TRAILING');
-
-      const trade = buildBuyTrade({
-        idPrefix: isMomentumShadow ? 'srv_mom_shadow' : 'srv',
-        stockCode: stock.code, stockName: stock.name,
-        currentPrice, shadowEntryPrice, quantity: execQty,
-        stopLossPlan, targetPrice: stock.targetPrice, shadowMode: stockShadowMode, regime: ctx.regime,
-        profileType: profile, watchlistSource: undefined,
-        profitTranches: limitTranches.map((t) => ({
-          price: shadowEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false,
-        })),
-        trailPct: Math.max(0.05, Math.min(0.14, (trailTarget?.trailPct ?? 0.10) + adaptiveProfitTargets.trailPctAdjust)), entryATR14,
-        entryKellySnapshot,
-      });
-
-      addRecommendation({
-        stockCode: stock.code, stockName: stock.name, signalTime: new Date().toISOString(),
-        priceAtRecommend: currentPrice, stopLoss: stopLossPlan.hardStopLoss,
-        targetPrice: stock.targetPrice, kellyPct: Math.round(positionPct * 100),
-        gateScore, signalType: isStrongBuy ? 'STRONG_BUY' : 'BUY',
-        conditionKeys: stock.conditionKeys ?? [], entryRegime: ctx.regime,
-      });
-
-      // ─── SHADOW/LIVE 통합 승인 큐 등록 ──────────────────────────────────────
-      ctx.scanCounters.entries++;
-      setLastBuySignalAt(Date.now());
-      stageLog.buy = stockShadowMode ? 'SHADOW' : 'LIVE'; pushTrace();
-
-      const modeEmoji = stockShadowMode ? '⚡' : '🚀';
-      const modeLabel = isMomentumShadow ? 'Shadow(학습)' : stockShadowMode ? 'Shadow' : 'LIVE';
-      const trancheLabel = isStrongBuy ? ` (1차/${execQty}주, 총${quantity}주)` : '';
-      const gateLabel = `Gate ${liveGateScore.toFixed(1)} | MTAS ${reCheckGate.mtas.toFixed(0)}/10 | CS ${reCheckGate.compressionScore.toFixed(2)}`;
-      const slBreakdown = formatStopLossBreakdown(stopLossPlan);
-      const mainAlertMsg =
-        `${modeEmoji} <b>[${modeLabel}] 매수 ${stockShadowMode ? '신호' : '주문'}${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
-        `종목: ${stock.name} (${stock.code})\n` +
-        `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
-        `📊 ${gateLabel}\n` +
-        `손절: ${slBreakdown} | 목표: ${stock.targetPrice.toLocaleString()}원`;
-
-      const _rrr = stock.rrr, _sector = stock.sector;
-      ctx.mutables.liveBuyQueue.push(await createBuyTask({
-        trade, stockCode: stock.code, stockName: stock.name,
-        currentPrice, quantity: execQty, entryPrice: shadowEntryPrice,
-        stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
-        gateScore, shadowMode: stockShadowMode, effectiveBudget,
-        alertMessage: mainAlertMsg,
-        logEvent: isMomentumShadow ? 'MOMENTUM_SHADOW_SIGNAL' : (stockShadowMode ? 'SIGNAL' : 'ORDER'),
-        onApproved: async (t) => {
-          ctx.shadows.push(t);
-          await channelBuySignalEmitted({
-            mode: stockShadowMode ? 'SHADOW' : 'LIVE', stockName: stock.name, stockCode: stock.code,
-            price: currentPrice, quantity: execQty, gateScore: liveGateScore,
-            mtas: reCheckGate.mtas, cs: reCheckGate.compressionScore,
-            stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
-            rrr: _rrr ?? 0, signalType: isStrongBuy ? 'STRONG_BUY' : 'BUY',
-            sector: _sector,
-          }).catch(console.error);
-
-          // Idea 2 — Parallel Universe Ledger: 승인된 엔트리에 대해 A/B/C 3 세팅을 동시에 가상체결 기록.
-          // 실 진입 = Universe A 와 동형. B/C 는 학습 표본. LIVE/Shadow 양쪽 모두 기록.
-          try {
-            recordUniverseEntries({
-              stockCode: stock.code,
-              stockName: stock.name,
-              entryPrice: shadowEntryPrice,
-              regime: ctx.regime,
-              signalGrade: grade,
-            });
-          } catch (e) {
-            console.warn(`[Ledger] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
-          }
-
-          // BUG #3 fix — ctx.mutables.orderableCash.value 는 큐 푸시 시점에 이미 예약/차감됨.
-          // onApproved 에서는 "예약 확정" 만 수행 (추가 차감 없음).
-          // ctx.mutables.reservedBudgets 는 그대로 두고, 롤백 경로만 참조.
-          if (isStrongBuy && quantity > 1 && !isMomentumShadow) {
-            // MOMENTUM Shadow 는 분할 매수 스케줄 제외 (진입 자체가 관찰 표본)
-            trancheExecutor.scheduleTranches({
-              parentTradeId: t.id, stockCode: stock.code, stockName: stock.name,
-              totalQuantity: quantity, firstQuantity: execQty,
-              entryPrice: shadowEntryPrice, stopLoss: stopLossPlan.hardStopLoss,
-              targetPrice: stock.targetPrice,
-            });
-          }
-        },
-      }));
-      // ── ADR-0031 PR-65: applyApprovalReservation commit 단계 SSOT ───────
-      // 8개 mutable 필드 (reservedSlots / probingReservedSlots / reservedTiers /
-      // reservedIsMomentum / reservedBudgets / orderableCash / pendingSectorValue /
-      // reservedSectorValues) 동시 갱신을 단일 헬퍼로 캡슐화 — 슬롯 예약 롤백 SSOT.
-      applyApprovalReservation({
-        mutables: ctx.mutables,
-        isMomentumShadow,
-        tier: tierDecision.tier,
-        effectiveBudget,
-        stockCode: stock.code,
-        stockSector: stock.sector,
+      // ── ADR-0031 §"commit 단계 분리" (4번 아이디어): 라인 924-1037 (~114 LoC) →
+      // commitEntryDecision 단일 진입점. profitTargets·trade build·addRecommendation·승인 큐
+      // push·applyApprovalReservation 8필드 예약 모두 byte-equivalent 보존.
+      await commitEntryDecision({
+        ctx, stock, stockShadowMode, isMomentumShadow, isStrongBuy,
+        shadowEntryPrice, currentPrice, execQty, quantity, positionPct,
+        gateScore, liveGateScore, reCheckGate, effectiveBudget,
+        entryKellySnapshot, grade, stopPolicy, tierDecision: tierDecision as { tier: 'CONVICTION' | 'STANDARD' | 'PROBING' },
+        stageLog, pushTrace,
       });
     } catch (err: unknown) {
       console.error(`[AutoTrade] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);

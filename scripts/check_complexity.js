@@ -17,6 +17,10 @@
  *   node scripts/check_complexity.js path/to.tsx ... # 경로 직접 지정
  *   SUGGEST=1 node scripts/check_complexity.js       # 초과 시 refactor-suggester 호출
  *   FUNCTION_GUARD=strict                           # 함수 임계 초과 시 빌드 실패 (기본: warn)
+ *   FUNCTION_GUARD_STRICT_SCOPE=server/trading/exitEngine,server/trading/signalScanner/entryGates
+ *                                                   # 콤마 구분 디렉토리 — 해당 prefix 안 offender 만
+ *                                                   # 빌드 실패. 외부 디렉토리는 WARN 만 (분해된
+ *                                                   # 영역의 깨끗한 상태 락-인용).
  */
 
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
@@ -216,7 +220,18 @@ function main() {
   // ─── PR-Q (GodFunctionGuard): 함수 단위 임계 검사 ─────────────────────────
   // 변경 분 (--changed) 또는 `src/` + `server/` 전체 walk 후 임계 초과 함수 보고.
   // 기본은 warn (정보성), `FUNCTION_GUARD=strict` 면 빌드 실패.
+  // PR-67 (5번 아이디어): `FUNCTION_GUARD_STRICT_SCOPE=path1,path2` — 콤마 구분 prefix
+  //   디렉토리 안 offender 만 FAIL, 외부 디렉토리는 WARN 만 출력 (분해 영역 락-인).
   const guardMode = process.env.FUNCTION_GUARD ?? 'warn';
+  const strictScopePrefixes = (process.env.FUNCTION_GUARD_STRICT_SCOPE ?? '')
+    .split(',')
+    .map(s => s.trim().replace(/^\.\//, '').replace(/\/+$/, ''))
+    .filter(Boolean);
+  const isInStrictScope = (file) => {
+    if (strictScopePrefixes.length === 0) return false;
+    const norm = relative(process.cwd(), file).replace(/^\.\//, '');
+    return strictScopePrefixes.some(p => norm === p || norm.startsWith(`${p}/`));
+  };
   const fnTargets = explicit.length > 0
     ? explicit.filter(t => existsSync(t))
     : [...walk('src'), ...(existsSync('server') ? walk('server') : [])];
@@ -225,17 +240,51 @@ function main() {
     .filter(r => r.offenders.length > 0)
     .flatMap(r => r.offenders.map(o => ({ ...o, file: r.file })));
 
+  // strict scope 모드: 분해된 영역(in-scope) FAIL, 그 외(out-of-scope) WARN.
+  // strict 모드 (scope 없음): 모든 offender FAIL.
+  // warn 기본: 모든 offender WARN.
+  const inScopeOffenders = fnOffenders.filter(o => isInStrictScope(o.file));
+  const outOfScopeOffenders = fnOffenders.filter(o => !isInStrictScope(o.file));
+  const scopeMode = strictScopePrefixes.length > 0;
+
   if (fnOffenders.length > 0) {
-    const label = guardMode === 'strict' ? '[GodFunctionGuard][FAIL]' : '[GodFunctionGuard][WARN]';
-    console.error(`\n${label} 함수 단위 임계 초과 ${fnOffenders.length}건 — lines>${FUNCTION_LIMITS.lines} 또는 complexity>${FUNCTION_LIMITS.cyclomaticComplexity}`);
-    for (const o of fnOffenders.slice(0, 15)) {
-      console.error(`  ${o.file}:${o.startLine}  ${o.name}()  lines=${o.lineCount}  cc=${o.complexity}`);
-    }
-    if (fnOffenders.length > 15) console.error(`  ... 외 ${fnOffenders.length - 15}건`);
-    console.error('  해결: 함수를 작은 단위로 분해 (early return / 추출) 또는 분기 매트릭스 → 룩업 테이블 전환.');
-    if (guardMode === 'strict') {
-      console.error('  FUNCTION_GUARD=strict 모드 — 커밋 차단');
-      process.exit(1);
+    if (scopeMode) {
+      // in-scope (락-인 영역) — FAIL 출력
+      if (inScopeOffenders.length > 0) {
+        console.error(`\n[GodFunctionGuard][FAIL] strict-scope 영역 임계 초과 ${inScopeOffenders.length}건 — lines>${FUNCTION_LIMITS.lines} 또는 complexity>${FUNCTION_LIMITS.cyclomaticComplexity}`);
+        console.error(`  scope: ${strictScopePrefixes.join(', ')}`);
+        for (const o of inScopeOffenders.slice(0, 15)) {
+          console.error(`  ${o.file}:${o.startLine}  ${o.name}()  lines=${o.lineCount}  cc=${o.complexity}`);
+        }
+        if (inScopeOffenders.length > 15) console.error(`  ... 외 ${inScopeOffenders.length - 15}건`);
+        console.error('  해결: 분해된 영역의 깨끗한 상태 락-인 — 함수 추출 / 룩업 테이블 전환.');
+      }
+      // out-of-scope — WARN 만
+      if (outOfScopeOffenders.length > 0) {
+        console.warn(`\n[GodFunctionGuard][WARN] strict-scope 외부 임계 초과 ${outOfScopeOffenders.length}건 (정보성)`);
+        for (const o of outOfScopeOffenders.slice(0, 5)) {
+          console.warn(`  ${o.file}:${o.startLine}  ${o.name}()  lines=${o.lineCount}  cc=${o.complexity}`);
+        }
+        if (outOfScopeOffenders.length > 5) console.warn(`  ... 외 ${outOfScopeOffenders.length - 5}건 (보이스카우트 규칙으로 점진 청소)`);
+      }
+      if (inScopeOffenders.length > 0) {
+        console.error('  FUNCTION_GUARD_STRICT_SCOPE 모드 — 커밋 차단');
+        process.exit(1);
+      } else {
+        console.log(`[GodFunctionGuard] OK — strict-scope (${strictScopePrefixes.join(', ')}) 깨끗 (out-of-scope ${outOfScopeOffenders.length}건은 WARN 만)`);
+      }
+    } else {
+      const label = guardMode === 'strict' ? '[GodFunctionGuard][FAIL]' : '[GodFunctionGuard][WARN]';
+      console.error(`\n${label} 함수 단위 임계 초과 ${fnOffenders.length}건 — lines>${FUNCTION_LIMITS.lines} 또는 complexity>${FUNCTION_LIMITS.cyclomaticComplexity}`);
+      for (const o of fnOffenders.slice(0, 15)) {
+        console.error(`  ${o.file}:${o.startLine}  ${o.name}()  lines=${o.lineCount}  cc=${o.complexity}`);
+      }
+      if (fnOffenders.length > 15) console.error(`  ... 외 ${fnOffenders.length - 15}건`);
+      console.error('  해결: 함수를 작은 단위로 분해 (early return / 추출) 또는 분기 매트릭스 → 룩업 테이블 전환.');
+      if (guardMode === 'strict') {
+        console.error('  FUNCTION_GUARD=strict 모드 — 커밋 차단');
+        process.exit(1);
+      }
     }
   } else if (fnTargets.length > 0) {
     console.log(`[GodFunctionGuard] OK — ${fnReports.reduce((s, r) => s + r.totalFunctions, 0)}개 함수 검사 (lines≤${FUNCTION_LIMITS.lines}, cc≤${FUNCTION_LIMITS.cyclomaticComplexity})`);
