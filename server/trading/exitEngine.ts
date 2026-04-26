@@ -36,7 +36,8 @@ import { regimeToStopRegime } from './entryEngine.js';
 import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.js';
 import { fetchCloses } from './marketDataRefresh.js';
 import type { RegimeLevel } from '../../src/types/core.js';
-import type { PositionFill } from '../persistence/shadowTradeRepo.js';
+import type { PositionFill, ExitAttribution } from '../persistence/shadowTradeRepo.js';
+import { buildExitAttribution } from '../persistence/shadowTradeRepo.js';
 import { learningOrchestrator } from '../orchestrator/learningOrchestrator.js';
 import { requestImmediateRescan } from '../orchestrator/adaptiveScanScheduler.js';
 
@@ -567,6 +568,8 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
         pnl: (currentPrice - shadow.shadowEntryPrice) * emergencyQty,
         pnlPct: returnPct, reason: 'R6 긴급청산 30%',
         exitRuleTag: 'R6_EMERGENCY_EXIT', timestamp: r6Ts,
+        // PR-S (아이디어 7): attribution 시범 부착 — 학습 루프에 정밀 신호 공급
+        attribution: buildExitAttribution('R6_EMERGENCY_EXIT', ['regime_r6_defense'], currentRegime),
       }, 'R6_EMERGENCY', 'r6EmergencySold');
 
       if (r6Reserve.kind === 'FAILED') {
