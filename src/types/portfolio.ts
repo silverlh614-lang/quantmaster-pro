@@ -675,4 +675,26 @@ export interface FeedbackLoopResult {
   lastCalibratedAt: string | null;
   /** 요약 메시지 */
   summary: string;
+  /**
+   * ADR-0046 (PR-Y1): F2W Drift 일시정지 상태.
+   * paused=true 면 본 사이클의 saveEvolutionWeights 호출이 차단됨 (LIVE 가중치 동결).
+   * shadow=true 호출은 본 필드와 무관 (ADR-0027 grace 보존).
+   */
+  pauseStatus?: {
+    paused: boolean;
+    until?: string;       // ISO — pausedUntil
+    reason?: string;
+    ratio?: number;
+    sigma7d?: number;
+    sigma30dAvg?: number;
+  };
+  /**
+   * ADR-0048 (PR-Y4): Learning Coverage Heatmap — 데이터 희소 셀 가드.
+   * 어떤 (조건 × 레짐) 셀도 30건 미만인 조건 ID 목록 — 가중치 보정에서 제외됨.
+   */
+  coverageGated?: Array<{
+    conditionId: ConditionId;
+    maxCellCount: number;
+    reason: 'INSUFFICIENT_COVERAGE';
+  }>;
 }

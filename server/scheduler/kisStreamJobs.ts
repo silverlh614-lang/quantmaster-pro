@@ -4,7 +4,7 @@
  * 09:00 이전 연결 거부 → 08:55 연결 시 onerror/onclose 중복 발화 문제 방지.
  * 장중(09:00~15:30 KST) 재배포 시 다음 cron 발화를 기다리지 않고 즉시 연결한다.
  */
-import cron from 'node-cron';
+import { scheduledJob } from './scheduleGuard.js';
 import { MAX_SUBSCRIPTIONS, getStreamStatus, startKisStream, stopKisStream } from '../clients/kisStreamClient.js';
 import { loadWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
 
@@ -38,42 +38,37 @@ function isKstMarketHours(now: Date = new Date()): boolean {
 
 export function registerKisStreamJobs(): void {
   // 시작 — 평일 09:00 KST (UTC 00:00). 5초 지연 후 연결.
-  cron.schedule('0 0 * * 1-5', async () => {
-    try {
-      await new Promise((r) => setTimeout(r, INITIAL_START_DELAY_MS));
-      const entries = loadWatchlist();
-      const codes = selectSubscribableCodes(entries);
-      console.log(`[Scheduler] KIS WebSocket 시작 시도 — 워치리스트 ${entries.length}개 → 상위 ${codes.length}개 구독`);
-      if (codes.length === 0) {
-        console.warn('[Scheduler] KIS WebSocket 스트림 시작 건너뜀 — 워치리스트 비어있음 (08:35 Stage2+3 파이프라인 실패 가능성)');
-        return;
-      }
-      await startKisStream(codes);
-      console.log(`[Scheduler] KIS WebSocket 스트림 시작 — ${codes.length}개 종목 / connected=${getStreamStatus().connected}`);
-    } catch (e) {
-      console.error('[Scheduler] KIS WebSocket 시작 실패:', e);
+  // PR-B-2: TRADING_DAY_ONLY — KRX 공휴일 평일에 스트림 시도 무의미.
+  scheduledJob('0 0 * * 1-5', 'TRADING_DAY_ONLY', 'kis_stream_start', async () => {
+    await new Promise((r) => setTimeout(r, INITIAL_START_DELAY_MS));
+    const entries = loadWatchlist();
+    const codes = selectSubscribableCodes(entries);
+    console.log(`[Scheduler] KIS WebSocket 시작 시도 — 워치리스트 ${entries.length}개 → 상위 ${codes.length}개 구독`);
+    if (codes.length === 0) {
+      console.warn('[Scheduler] KIS WebSocket 스트림 시작 건너뜀 — 워치리스트 비어있음 (08:35 Stage2+3 파이프라인 실패 가능성)');
+      return;
     }
+    await startKisStream(codes);
+    console.log(`[Scheduler] KIS WebSocket 스트림 시작 — ${codes.length}개 종목 / connected=${getStreamStatus().connected}`);
   }, { timezone: 'UTC' });
 
   // 워치독 — 09:05, 09:15, 09:30 KST 재시도. 초기 연결 실패/일시적 장애 복구.
-  cron.schedule('5,15,30 0 * * 1-5', async () => {
-    try {
-      const status = getStreamStatus();
-      if (status.connected) return;
-      const entries = loadWatchlist();
-      const codes = selectSubscribableCodes(entries);
-      if (codes.length === 0) return;
-      console.warn(`[Scheduler] KIS WebSocket 미연결 감지 — 재시작 시도 (구독됐던 ${status.subscribedCount}개, 워치리스트 ${entries.length}개 → 상위 ${codes.length}개, 재연결 ${status.reconnectCount}회)`);
-      await startKisStream(codes);
-      console.log(`[Scheduler] KIS WebSocket 워치독 재시작 — connected=${getStreamStatus().connected}`);
-    } catch (e) {
-      console.error('[Scheduler] KIS WebSocket 워치독 재시작 실패:', e);
-    }
+  // PR-B-2: TRADING_DAY_ONLY.
+  scheduledJob('5,15,30 0 * * 1-5', 'TRADING_DAY_ONLY', 'kis_stream_watchdog', async () => {
+    const status = getStreamStatus();
+    if (status.connected) return;
+    const entries = loadWatchlist();
+    const codes = selectSubscribableCodes(entries);
+    if (codes.length === 0) return;
+    console.warn(`[Scheduler] KIS WebSocket 미연결 감지 — 재시작 시도 (구독됐던 ${status.subscribedCount}개, 워치리스트 ${entries.length}개 → 상위 ${codes.length}개, 재연결 ${status.reconnectCount}회)`);
+    await startKisStream(codes);
+    console.log(`[Scheduler] KIS WebSocket 워치독 재시작 — connected=${getStreamStatus().connected}`);
   }, { timezone: 'UTC' });
 
   // 종료 — 평일 15:20 KST (UTC 06:20). KIS 서버가 이 시각 이후 실시간 송출을 끊으므로
   // 15:35 까지 끌고 가면 재연결 루프가 좀비로 도는 문제가 있어 15:20 으로 앞당긴다.
-  cron.schedule('20 6 * * 1-5', () => {
+  // PR-B-2: TRADING_DAY_ONLY — 공휴일에 스트림 stop 호출 의미 없음 (이미 미연결).
+  scheduledJob('20 6 * * 1-5', 'TRADING_DAY_ONLY', 'kis_stream_stop', () => {
     stopKisStream();
     console.log('[Scheduler] KIS WebSocket 스트림 종료');
   }, { timezone: 'UTC' });
