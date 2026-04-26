@@ -19,6 +19,7 @@ export const VIEW_LABELS: Record<View, string> = {
   AUTO_TRADE: '자동매매',
   PORTFOLIO_EXTRACT: '포트폴리오 추출',
   RECOMMENDATION_HISTORY: '추천 이력',
+  MACRO_INTEL: '매크로 인텔리전스',
 };
 
 /** App name used in browser tab title */

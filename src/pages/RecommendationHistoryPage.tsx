@@ -1,6 +1,6 @@
-// @responsibility 추천 이력·승률·평균수익률 표시 페이지 (ADR-0019 PR-B)
+// @responsibility 추천 이력·승률·평균수익률 표시 페이지 (ADR-0019 PR-B + ADR-0024 PR-G)
 
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { TrendingUp, TrendingDown, Clock, AlertCircle, Award } from 'lucide-react';
 import { cn } from '../ui/cn';
@@ -9,6 +9,14 @@ import {
   fetchRecommendationStats,
   type ClientRecommendationRecord,
 } from '../api/recommendationsClient';
+import { computeSignalBreakdown, type StatsPeriod } from '../utils/recommendationStats';
+
+const PERIOD_OPTIONS: { id: StatsPeriod; label: string }[] = [
+  { id: '7d', label: '7일' },
+  { id: '30d', label: '30일' },
+  { id: '90d', label: '90일' },
+  { id: 'ALL', label: '전체' },
+];
 
 const STATUS_STYLE: Record<ClientRecommendationRecord['status'], { label: string; cls: string; icon: React.ReactNode }> = {
   PENDING:  { label: '진행', cls: 'bg-gray-700/50 text-gray-300 border-gray-500/30', icon: <Clock className="w-3 h-3" /> },
@@ -36,9 +44,11 @@ function fmtKstDate(iso: string | undefined): string {
 }
 
 export function RecommendationHistoryPage() {
+  const [period, setPeriod] = useState<StatsPeriod>('30d');
+
   const historyQuery = useQuery({
-    queryKey: ['recommendations', 'history', 100],
-    queryFn: () => fetchRecommendationHistory(100),
+    queryKey: ['recommendations', 'history', 500],
+    queryFn: () => fetchRecommendationHistory(500),
     staleTime: 60_000,
     retry: 2,
   });
@@ -53,6 +63,12 @@ export function RecommendationHistoryPage() {
   const records = historyQuery.data?.records ?? [];
   const stats = statsQuery.data;
 
+  // PR-G (ADR-0024): signalType + period 분리 통계
+  const breakdown = useMemo(
+    () => computeSignalBreakdown(records, period),
+    [records, period],
+  );
+
   return (
     <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-6">
       <header>
@@ -61,6 +77,38 @@ export function RecommendationHistoryPage() {
           시스템이 STRONG_BUY/BUY 추천한 종목의 이후 성과 — 승/패/만료 분류 + 월간 통계
         </p>
       </header>
+
+      {/* PR-G: signalType + period 분리 통계 */}
+      <section aria-label="기간·시그널별 통계" className="rounded border border-white/10 bg-black/20 p-3 sm:p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[11px] font-black uppercase tracking-widest opacity-70">
+            기간·시그널별 적중률
+          </span>
+          <div role="tablist" className="flex gap-1">
+            {PERIOD_OPTIONS.map(opt => (
+              <button
+                key={opt.id}
+                role="tab"
+                aria-selected={period === opt.id}
+                onClick={() => setPeriod(opt.id)}
+                className={cn(
+                  'text-[10px] font-black px-2 py-1 rounded border transition-colors',
+                  period === opt.id
+                    ? 'bg-violet-500/30 border-violet-500/50 text-violet-100'
+                    : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10',
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
+          <BreakdownCard label="전체" stats={breakdown.all} />
+          <BreakdownCard label="STRONG_BUY" stats={breakdown.strongBuy} accent="violet" />
+          <BreakdownCard label="BUY" stats={breakdown.buy} accent="green" />
+        </div>
+      </section>
 
       {/* 통계 박스 */}
       {statsQuery.isLoading ? (
@@ -173,6 +221,55 @@ function toneByPct(pct: number, threshold: number): 'good' | 'bad' | 'neutral' {
   if (pct > threshold) return 'good';
   if (pct < threshold) return 'bad';
   return 'neutral';
+}
+
+interface BreakdownCardProps {
+  label: string;
+  stats: import('../utils/recommendationStats').BreakdownStats;
+  accent?: 'violet' | 'green' | 'gray';
+}
+
+function BreakdownCard({ label, stats, accent = 'gray' }: BreakdownCardProps) {
+  const accentCls =
+    accent === 'violet' ? 'border-violet-500/30 bg-violet-950/20' :
+    accent === 'green' ? 'border-green-500/30 bg-green-950/20' :
+    'border-white/10 bg-white/5';
+  const winRatePct = stats.winRate != null ? stats.winRate * 100 : null;
+  const tone: 'good' | 'bad' | 'neutral' = stats.sampleSufficient && winRatePct != null
+    ? toneByPct(winRatePct, 50)
+    : 'neutral';
+  return (
+    <div className={cn('rounded border p-3', accentCls)}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] font-black uppercase tracking-widest opacity-70">{label}</span>
+        <span className="text-[10px] font-num text-white/60">{stats.total}건</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-[11px]">
+        <div>
+          <div className="opacity-60">승률</div>
+          <div className={cn('text-base font-black font-num',
+            tone === 'good' ? 'text-green-300' :
+            tone === 'bad'  ? 'text-red-300' : 'text-white/80')}>
+            {stats.sampleSufficient && winRatePct != null
+              ? fmtPct(winRatePct, 1)
+              : '표본 부족'}
+          </div>
+          <div className="text-[10px] opacity-50">{stats.wins}승 / {stats.losses}패</div>
+        </div>
+        <div>
+          <div className="opacity-60">평균 수익률</div>
+          <div className={cn('text-base font-black font-num',
+            stats.avgReturn != null && stats.avgReturn > 0 ? 'text-green-300' :
+            stats.avgReturn != null && stats.avgReturn < 0 ? 'text-red-300' : 'text-white/80')}>
+            {stats.sampleSufficient && stats.avgReturn != null
+              ? fmtPct(stats.avgReturn)
+              : '—'}
+          </div>
+          <div className="text-[10px] opacity-50">진행 {stats.pending} / 만료 {stats.expired}</div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function RecommendationRow({ rec }: { rec: ClientRecommendationRecord }) {
