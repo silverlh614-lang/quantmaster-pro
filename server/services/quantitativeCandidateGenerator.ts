@@ -147,7 +147,7 @@ async function fetchYahooBundle(symbol: string): Promise<YahooBundle | null> {
         'Accept': 'application/json',
       },
       signal: AbortSignal.timeout(10000),
-    });
+    }, 'HISTORICAL');
     if (!res.ok) return null;
     const data = await res.json() as {
       chart?: {

@@ -157,7 +157,7 @@ async function fetchYahooSymbol(symbol: string): Promise<KoreanDailyQuote | null
           'Accept': 'application/json',
         },
         signal: AbortSignal.timeout(YAHOO_TIMEOUT_MS),
-      });
+      }, 'REALTIME');
       if (!res.ok) continue;
       const data = (await res.json()) as YahooChart;
       const result = data?.chart?.result?.[0];

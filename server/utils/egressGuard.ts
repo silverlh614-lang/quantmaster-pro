@@ -53,8 +53,40 @@ export interface EgressDecision {
   readonly reason?: string;
 }
 
-/** 순수 함수 — URL + 현재 시각 → egress 판정. 단위 테스트가 공유. */
-export function evaluateEgress(urlLike: string | URL, now: Date = new Date()): EgressDecision {
+/**
+ * 호출자 의도 — EgressGuard 가 의도별 결정 매트릭스를 적용한다.
+ *
+ *   REALTIME   = 지금 시점 라이브 시세 (정규장만 통과) — PR-29 동작 = 본 타입 기본값
+ *   HISTORICAL = T-1 이상 일봉/시계열 (시간대 무관 모든 시간 통과)
+ *   OVERNIGHT  = 새벽 글로벌 스캔 (REALTIME + NYSE 애프터마켓 추가 통과)
+ *
+ * 결정 매트릭스 SSOT: ADR-0056 §Decision Matrix
+ */
+export type EgressIntent = 'REALTIME' | 'HISTORICAL' | 'OVERNIGHT';
+
+// NYSE 애프터마켓 윈도우 — EST 16:00~20:00 (정규장 종료 직후 4시간)
+// `symbolMarketRegistry.MARKETS.NYSE.tzOffsetHours` 는 EST 고정 (-5).
+// EDT 기간엔 ±1h 수용 오차로 대응 (REALTIME 정규장도 동일 정책, ADR-0056 §Decision).
+const NYSE_TZ_OFFSET_HOURS = -5;
+const NYSE_AFTERHOURS_OPEN_MIN = 16 * 60;
+const NYSE_AFTERHOURS_CLOSE_MIN = 20 * 60;
+
+function isNyseAfterHours(now: Date): boolean {
+  if (process.env.DATA_FETCH_FORCE_OFF === 'true') return false;
+  if (process.env.DATA_FETCH_FORCE_MARKET === 'true') return true;
+  const shifted = new Date(now.getTime() + NYSE_TZ_OFFSET_HOURS * 3_600_000);
+  const day = shifted.getUTCDay();
+  if (day < 1 || day > 5) return false; // 평일만
+  const mins = shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
+  return mins >= NYSE_AFTERHOURS_OPEN_MIN && mins < NYSE_AFTERHOURS_CLOSE_MIN;
+}
+
+/** 순수 함수 — URL + 의도 + 현재 시각 → egress 판정. 단위 테스트가 공유. */
+export function evaluateEgress(
+  urlLike: string | URL,
+  intent: EgressIntent = 'REALTIME',
+  now: Date = new Date(),
+): EgressDecision {
   let u: URL;
   try {
     u = typeof urlLike === 'string' ? new URL(urlLike) : urlLike;
@@ -66,7 +98,17 @@ export function evaluateEgress(urlLike: string | URL, now: Date = new Date()): E
     const symbol = rule.extract(u);
     if (!symbol) return { action: 'pass' };
     const market = classifySymbol(symbol);
+
+    // 정규장 통과 — 모든 의도 동일
     if (isMarketOpenFor(symbol, now)) return { action: 'pass', symbol, market };
+
+    // 정규장 외 — 의도별 추가 통과 결정
+    if (intent === 'HISTORICAL') {
+      return { action: 'pass', symbol, market, reason: 'historical bypass' };
+    }
+    if (intent === 'OVERNIGHT' && market === 'NYSE' && isNyseAfterHours(now)) {
+      return { action: 'pass', symbol, market, reason: 'nyse afterhours' };
+    }
     return { action: 'skip', symbol, market, reason: `${market} closed` };
   }
   return { action: 'pass' };
@@ -105,9 +147,13 @@ export function __resetFetchImplForTests(): void {
 export async function guardedFetch(
   input: string | URL,
   init?: RequestInit,
+  intent: EgressIntent = 'REALTIME',
 ): Promise<Response> {
   if (process.env.EGRESS_GUARD_DISABLED === 'true') return _fetchImpl(input as string, init);
-  const decision = evaluateEgress(typeof input === 'string' ? input : input.toString());
+  const decision = evaluateEgress(
+    typeof input === 'string' ? input : input.toString(),
+    intent,
+  );
   if (decision.action === 'skip') {
     // 1분 throttle 로 과다 로그 억제 (상징만 표시, 본체는 낮은 로그 레벨)
     _logThrottled(decision);

@@ -88,6 +88,7 @@ export async function runPipelineDiagnosis(): Promise<DiagnosisResult> {
     const res = await guardedFetch(
       'https://query1.finance.yahoo.com/v8/finance/chart/000660.KS?interval=1d&range=1d',
       { signal: controller.signal, headers: { 'User-Agent': 'Mozilla/5.0' } },
+      'REALTIME',
     );
     clearTimeout(timeout);
     if (!res.ok) {

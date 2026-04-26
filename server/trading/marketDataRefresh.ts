@@ -278,7 +278,7 @@ export async function fetchDailyBars(symbol: string, range: string): Promise<Dai
     try {
       const ctrl = new AbortController();
       const tid  = setTimeout(() => ctrl.abort(), 12000);
-      const res  = await guardedFetch(url, { headers: YF_HEADERS, signal: ctrl.signal });
+      const res  = await guardedFetch(url, { headers: YF_HEADERS, signal: ctrl.signal }, 'HISTORICAL');
       clearTimeout(tid);
       if (!res.ok) continue;
       const data = await res.json();
