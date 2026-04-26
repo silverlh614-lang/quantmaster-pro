@@ -28,6 +28,7 @@ import { ApiConnectionLamps } from '../components/autoTrading/ApiConnectionLamps
 import { TelegramConnectionTest } from '../components/autoTrading/TelegramConnectionTest';
 import { AutoTradeContextSection } from '../components/autoTrading/AutoTradeContextSection';
 import { AutoTradeContextualLayout } from '../components/autoTrading/AutoTradeContextualLayout';
+import { AccountSurvivalGauge } from '../components/autoTrading/AccountSurvivalGauge';
 import { useAutoTradingDashboard } from '../hooks/useAutoTradingDashboard';
 import { useAutoTradeEngine } from '../hooks/autoTrade';
 import { useEngineArming } from '../hooks/autoTrade/useEngineArming';
@@ -200,6 +201,24 @@ export function AutoTradePage() {
           기존 컴포넌트 본체는 단 한 줄도 수정하지 않음.
         */}
         <AutoTradeContextualLayout>
+          {/*
+            ADR-0044 — 계좌 생존 게이지. 모든 컨텍스트에서 priority=1 (항상 최상단).
+            일일 손실 여유 / 섹터 집중도 / Kelly 정합도 3 게이지 단일 카드.
+          */}
+          <AutoTradeContextSection
+            id="survival-gauge"
+            label="계좌 생존 게이지"
+            priorityByContext={{
+              PRE_MARKET: 1,
+              LIVE_MARKET: 1,
+              POST_MARKET: 1,
+              OVERNIGHT: 1,
+              WEEKEND_HOLIDAY: 1,
+            }}
+          >
+            <AccountSurvivalGauge />
+          </AutoTradeContextSection>
+
           {/* 진단 스트립 — 프로 전용 + LIVE/POST 우선, OVERNIGHT/WEEKEND 접힘 */}
           {isPro && (
             <AutoTradeContextSection
