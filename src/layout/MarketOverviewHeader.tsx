@@ -10,6 +10,7 @@ import { MarketModeBanner } from '../components/market/MarketModeBanner';
 import { MarketRegimeBanner } from '../components/market/MarketRegimeBanner';
 import { MarketNeutralPanel } from '../components/market/MarketNeutralPanel';
 import { MarketTicker } from '../components/market/MarketTicker';
+import { SectorRotationHeatmap } from '../components/sector/SectorRotationHeatmap';
 import { useGlobalIntelStore, useMarketStore } from '../stores';
 
 interface MarketOverviewHeaderProps {
@@ -40,6 +41,7 @@ export function MarketOverviewHeader({ onRefresh }: MarketOverviewHeaderProps) {
         vkospiTriggerResult={vkospiTriggerResult}
         inverseGate1Result={inverseGate1Result}
       />
+      <SectorRotationHeatmap />
       <MarketNeutralPanel marketNeutralResult={marketNeutralResult} />
       <MarketTicker
         data={marketOverview}
