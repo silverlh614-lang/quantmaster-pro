@@ -14,21 +14,23 @@ import { runSupplyChainScan } from '../alerts/supplyChainAgent.js';
 import { trackPendingRecords } from '../learning/newsSupplyLogger.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
+import { withForcedMarket } from '../utils/forceMarketGuard.js';
 
 export function registerScreenerJobs(): void {
   // ─── 2단계 분리 파이프라인 ────────────────────────────────────────────────
   // Stage1(220개 Yahoo 스캔)이 전체 시간의 80% — 전날 16:30에 선행 실행.
 
-  // 1차 Pre-screening — 전날 16:30 KST (UTC 07:30).
+  // 1차 Pre-screening — 전날 16:30 KST (UTC 07:30). 한국 장 마감 후 → withForcedMarket
+  // 으로 시간대 게이트 우회 (KIS 회로/블랙리스트는 그대로 보호).
   scheduledJob('30 7 * * 1-5', 'TRADING_DAY_ONLY', 'stage1_pre_screening',
-    () => runStage1PreScreening(), { timezone: 'UTC' });
+    () => withForcedMarket(() => runStage1PreScreening()), { timezone: 'UTC' });
 
-  // 2차 Final-screening — 당일 08:35 KST (UTC 23:35 전일).
-  scheduledJob('35 23 * * 0-4', 'TRADING_DAY_ONLY', 'stage2_3_final_screening', async () => {
+  // 2차 Final-screening — 당일 08:35 KST (UTC 23:35 전일). 한국 장 25분 전 → withForcedMarket.
+  scheduledJob('35 23 * * 0-4', 'TRADING_DAY_ONLY', 'stage2_3_final_screening', () => withForcedMarket(async () => {
     const macroState = loadMacroState();
     const regime = getLiveRegime(macroState);
     await runStage2_3FinalScreening(regime, macroState);
-  }, { timezone: 'UTC' });
+  }), { timezone: 'UTC' });
 
   // 워치리스트 자동 정리 — 평일 16:00 KST (UTC 07:00).
   scheduledJob('0 7 * * 1-5', 'TRADING_DAY_ONLY', 'cleanup_watchlist',
@@ -42,21 +44,22 @@ export function registerScreenerJobs(): void {
   // 미국 장 시작 직전 확인 — KST 22:25 (UTC 13:25).
   // PR-B-2: ALWAYS_ON — 미국장은 KR 공휴일과 독립적, 한국 장 직전 검증은 평일 가드만.
   // (cron `1-5` 가 1차 가드, US 장은 KR 휴장과 별개 마켓)
-  scheduledJob('25 13 * * 1-5', 'ALWAYS_ON', 'us_premarket_scan', async () => {
+  scheduledJob('25 13 * * 1-5', 'ALWAYS_ON', 'us_premarket_scan', () => withForcedMarket(async () => {
     console.log('[Scheduler] 미국장 프리마켓 스캔 (KST 22:25)');
     await runAutoSignalScan({ sellOnly: false });
-  }, { timezone: 'UTC' });
+  }), { timezone: 'UTC' });
 
   // 미국 장 마감 후 확인 — KST 06:10 (UTC 21:10 전일).
-  scheduledJob('10 21 * * 0-4', 'ALWAYS_ON', 'us_postmarket_scan', async () => {
+  scheduledJob('10 21 * * 0-4', 'ALWAYS_ON', 'us_postmarket_scan', () => withForcedMarket(async () => {
     console.log('[Scheduler] 미국장 마감 후 스캔 (KST 06:10+1d)');
     await runAutoSignalScan({ sellOnly: false });
-  }, { timezone: 'UTC' });
+  }), { timezone: 'UTC' });
 
   // 새벽 글로벌 스캔 에이전트 — 매일 KST 06:00 (UTC 21:00).
   // PR-B-2: ALWAYS_ON — 글로벌 지수는 KR 휴장 무관.
+  // 사용자 보고 (06:00 N/A 폭주) 후속: 시간대 게이트 우회로 강제 통과.
   scheduledJob('0 21 * * 0-4', 'ALWAYS_ON', 'global_scan_agent',
-    () => runGlobalScanAgent(), { timezone: 'UTC' });
+    () => withForcedMarket(() => runGlobalScanAgent()), { timezone: 'UTC' });
 
   // 뉴스-수급 시차 DB 추적 — 평일 KST 09:10 (UTC 00:10).
   scheduledJob('10 0 * * 1-5', 'TRADING_DAY_ONLY', 'news_supply_tracker',

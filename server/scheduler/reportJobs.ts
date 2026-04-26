@@ -35,6 +35,7 @@ import {
 } from '../alerts/shadowProgressBriefing.js';
 import { sendWeeklyIntegrityReport } from '../alerts/weeklyIntegrityReport.js';
 import { sendWeeklyHygieneAudit } from '../alerts/weeklyHygieneAudit.js';
+import { withForcedMarket } from '../utils/forceMarketGuard.js';
 import { runHourlyCanary } from '../learning/mutationCanary.js';
 import { beginUnifiedBriefing, endUnifiedBriefing } from '../alerts/unifiedBriefing.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
@@ -96,9 +97,10 @@ export function registerReportJobs(): void {
   scheduledJob('30 5 * * 1-5', 'TRADING_DAY_ONLY', 'sector_cycle_dashboard',
     () => sendSectorCycleDashboard(), { timezone: 'UTC' });
 
-  // 52주 신고가 모멘텀 스캔 — 평일 16:05 KST.
+  // 52주 신고가 모멘텀 스캔 — 평일 16:05 KST. 한국 장 마감 직후 → withForcedMarket 으로
+  // 시간대 게이트 우회 (KIS 회로/블랙리스트는 그대로 보호).
   scheduledJob('5 7 * * 1-5', 'TRADING_DAY_ONLY', 'high_52w_scan',
-    () => sendNewHighMomentumScan(), { timezone: 'UTC' });
+    () => withForcedMarket(() => sendNewHighMomentumScan()), { timezone: 'UTC' });
 
   // 주간 심층 분석 카드 — 매주 수요일 15:00 KST.
   scheduledJob('0 6 * * 3', 'TRADING_DAY_ONLY', 'weekly_deep_analysis',
