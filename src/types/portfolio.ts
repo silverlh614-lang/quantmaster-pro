@@ -369,6 +369,9 @@ export interface TradeRecord {
   lossReasonAuto?: boolean;                                    // 자동 분류 vs 사용자 수동
   lossReasonClassifiedAt?: string;
 
+  // ADR-0024 (PR-G): 매수 시점 시장 레짐 — Regime Memory Bank 학습 분리 키
+  entryRegime?: string;
+
   // 시스템 vs 직관
   followedSystem: boolean;          // true=기계적 매수, false=직감 매수
 

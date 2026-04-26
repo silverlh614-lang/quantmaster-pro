@@ -88,6 +88,10 @@ export function useTradeOps() {
       .getState()
       .snapshots.find(s => s.tradeId === tradeId);
 
+    // ADR-0024 (PR-G): 매수 시점 시장 레짐 캡처 — Regime Memory Bank 학습 분리 키
+    const currentRegime =
+      useGlobalIntelStore.getState().marketRegimeClassifierResult?.classification;
+
     const newTrade: TradeRecord = {
       id: tradeId,
       stockCode: stock.code, stockName: stock.name, sector: stock.relatedSectors?.[0] ?? 'Unknown',
@@ -104,6 +108,8 @@ export function useTradeOps() {
       schemaVersion: 2,
       // ADR-0019: snapshot 양방향 링크
       recommendationSnapshotId: linkedSnapshot?.id,
+      // ADR-0024 (PR-G): regime 분리 학습용
+      entryRegime: currentRegime,
     };
     setTradeRecords((prev: TradeRecord[]) => [...prev, newTrade]);
   };
