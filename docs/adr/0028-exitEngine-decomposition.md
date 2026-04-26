@@ -116,6 +116,17 @@ export type ExitRule = (ctx: ExitContext) => Promise<ExitRuleResult>;
 16. euphoriaPartialExit
 ```
 
+### EXIT_RULE_PRIORITY_TABLE 보존 의무 (Invariant)
+
+본 ADR 채택 후, 다음 invariant 가 영속적으로 유지되어야 한다 — **PR-53 이후 어떤 변경도 이 의무를 깨뜨릴 수 없다**:
+
+1. **순서 SSOT 정합**: `EXIT_RULES_IN_ORDER` (이 파일) 의 배열 순서는 `entryEngine.ts` 의 `EXIT_RULE_PRIORITY_TABLE` 과 1:1 정합이어야 한다. 한 쪽만 변경하는 PR 은 거부된다.
+2. **추가**: 새 규칙 추가는 (a) `rules/<newRule>.ts` 1개 파일 신설 + (b) `EXIT_RULES_IN_ORDER` 1줄 추가 + (c) `entryEngine.ts EXIT_RULE_PRIORITY_TABLE` 동일 위치에 1줄 추가 + (d) `ExitRuleTag` 유니언(shadowTradeRepo.ts) 갱신 — 4 개 파일을 같은 PR 에서 함께 변경한다.
+3. **순서 변경**: `EXIT_RULES_IN_ORDER` 의 순서 변경은 LIVE 회귀 위험이므로 단독 PR + 회귀 테스트 (각 규칙별 단위 테스트 통과 확인) + 명시적 ADR 후속 (예: ADR-0028-N) 로 정당화한다. 본 PR-53 시점의 16개 순서가 baseline.
+4. **삭제**: 규칙 삭제는 dedupe 플래그 (예: `r6EmergencySold`) 와 ShadowLog event 가 의존하는 trade 들을 마이그레이션 한 후에만 가능. 단순 `EXIT_RULES_IN_ORDER` 에서 빼는 것만으로는 부족 — `ExitRuleTag` 유니언 정합도 함께 검증.
+5. **mutation 격리**: hardStopLoss 갱신은 `atrDynamicStop` 만 허용 (래칫 invariant). 다른 규칙에서 `ctx.hardStopLoss` 를 변경하려면 `hardStopLossUpdate` 반환을 통해 orchestrator 에 명시적으로 전파해야 한다.
+6. **부수효과 캡슐화**: rule 내 KIS 주문/텔레그램/attribution/blacklist 호출은 byte-equivalent 보존 — 메시지 문자열·priority·dedupeKey·`channelSellSignal.reason` 코드 변경은 별도 PR 로 분리 (M5 박스 패턴화 단계).
+
 ## Consequences
 
 - **외부 importer 무수정**: `server/trading/exitEngine.ts` 는 barrel 로 변환되어 `import { updateShadowResults, emitPartialAttributionForSell, detectBearishDivergence, isMA60Death, kstBusinessDateStr } from './exitEngine.js'` 가 그대로 동작.
@@ -130,15 +141,53 @@ export type ExitRule = (ctx: ExitContext) => Promise<ExitRuleResult>;
 2. **분해 안 함 (현재 유지)** — 거부. 1,358 줄 → 다음 규칙 추가 시 1,500 줄 임계 위반 임박.
 3. **`if` 블록을 함수로 추출하되 같은 파일 유지** — 거부. 1 파일 1,500 줄 임계는 해소하나 단위 테스트 가능성 미확보.
 
-## Migration Plan
+## Migration Plan — M1~M5 단계별 PR 계획
 
-1. **Phase 1** (본 PR): ADR-0028 작성.
-2. **Phase 2** (본 PR): `server/trading/exitEngine/types.ts` + `helpers/*` 신설. 기존 `exitEngine.ts` 의 helper export 는 helpers 에서 re-export.
-3. **Phase 3** (본 PR): `rules/*.ts` 16 개 파일 생성. 각 파일은 원본 if 블록을 함수로 감싼 byte-equivalent 본체.
-4. **Phase 4** (본 PR): `exitEngine/index.ts` 오케스트레이터 작성. `_updateShadowResultsImpl` 의 루프 본체를 `EXIT_RULES_IN_ORDER` 순회로 교체.
-5. **Phase 5** (본 PR): `exitEngine.ts` 본체를 barrel re-export 로 축소.
-6. **Phase 6** (본 PR): vitest server/trading 전체 통과 + validate:all + precommit.
-7. **Phase 7** (후속 PR): 각 rule 단위 테스트 + ExitDecision 패턴 점진 전환.
+ADR-0001(signalScanner 분해) 의 7-phase 패턴을 차용하되, exitEngine 은 LIVE 매매 직접 영향이 큰 청산 경로이므로 **rule 단위로 더 세분화**한다.
+
+### M1 — 인터페이스 + helpers (PR-53, ✅ 완료)
+- `exitEngine/types.ts` (ExitContext / ExitRuleResult / ExitRule / NO_OP) 신설
+- `helpers/` 6 파일 분리: reserveSell / rollbackFullClose / attribution / rsiSeries / ma60 / priceHistory
+- 외부 importer 경로 무수정 (barrel re-export)
+- DoD: `npm run lint` + `exitEngineMutex.test.ts` (PR-6) + `exitEngineAttribution.test.ts` (PR-42 M1) + `fullCloseRollback.test.ts` + `atrIntegration.test.ts` 무회귀
+
+### M2 — 단순 규칙 4개 (PR-53, ✅ 완료)
+원본 if 블록 ≤ 30 줄 분량의 byte-equivalent 추출:
+- `trailingPeakUpdate.ts` (16줄, mutation only)
+- `cascadeWarn.ts` (27줄, -7%)
+- `ma60DeathWatch.ts` (36줄, 5영업일 스케줄)
+- `stopApproachAlert.ts` (66줄, 3-stage dedupe)
+- DoD: 각 rule import 시점 부수효과 변화 0 (텔레그램 메시지 고정).
+
+### M3 — 복합 규칙 4개 (PR-53, ✅ 완료)
+부분매도/전량청산 + reserveSell + rollback + attribution 통합 경로:
+- `r6EmergencyExit.ts` (59줄), `rrrCollapseExit.ts` (82줄)
+- `bearishDivergenceExit.ts` (82줄), `euphoriaPartialExit.ts` (87줄)
+- DoD: SHADOW vs LIVE 분기, FAILED outcome rollback, channelSellSignal reason 코드 byte-equivalent.
+
+### M4 — Legacy / fallback 규칙 + ATR + 하드 손절 (PR-53, ✅ 완료)
+원본 가장 큰 if 블록 4종:
+- `atrDynamicStop.ts` (60줄, hardStopLossUpdate 전파 SSOT)
+- `hardStopLoss.ts` (115줄, Profit Protection 4분류 + invalidation 매칭)
+- `cascadeFinal.ts` (88줄, -25%/-30% + 블랙리스트 게이트)
+- `cascadeHalf.ts` (58줄, -15% 50%)
+- `trancheTakeProfitLimit.ts` (92줄, L3-b 트랜치 + trailing 활성화)
+- `trailingStop.ts` (76줄, L3-c HWM)
+- `ma60DeathForceExit.ts` (94줄, 5영업일 만료 전량)
+- `legacyTakeProfit.ts` (70줄, TARGET_EXIT fallback)
+- DoD: orchestrator `index.ts` 가 EXIT_RULES_IN_ORDER 16개 순회 + `_exitRunning` mutex + 학습 훅 결합. vitest server/trading **306/306** + 전체 **2173/2173** pass.
+
+### M5 — 오케스트레이터 박스 패턴화 (후속 PR, 🔜 예정)
+M1~M4 까지는 byte-equivalent **부수효과 패턴** 유지 (rule 함수 안에서 KIS/텔레그램/attribution 직접 호출). M5 는 `Alternatives Considered §1` 의 **순수 ExitDecision 반환 패턴** 으로 점진 전환:
+- 각 rule 이 `{ action, ratio?, reason, severity, dedupeKey?, attribution? }` 만 반환
+- orchestrator (또는 신규 `exitExecutor.ts`) 가 KIS 주문 / 텔레그램 / channelSellSignal / addSellOrder / blacklist / rollback 일괄 실행
+- 메시지 형식 + priority + dedupeKey 일관 executor 로 통합 → 운영자 UX 개선 (예: `[CRITICAL]` prefix 자동화)
+- 단계별 점진 전환 (rule 1개씩 ExitDecision 반환으로 전환, executor 가 두 패턴 동시 지원)
+- DoD: 모든 rule 이 ExitDecision 반환; rule 내 raw `placeKisSellOrder` / `sendTelegramAlert` 호출 0건. vitest 무회귀.
+
+### Phased PR 분리 사유
+
+본 PR-53 은 M1+M2+M3+M4 를 한 PR 에 통합 실행했다 (분할이 가능하지만 각 단계가 byte-equivalent 추출이라 회귀 위험이 균질). M5 는 **부수효과 패턴 → 순수 결정 패턴** 의 의미 변경이라 별도 PR 로 분리하고, 각 rule 의 단위 테스트(아이디어 5) 가 선행되어야 한다 — 메시지 형식 변경이 운영자 알림에 미치는 영향을 격리 검증할 회귀 그리드가 필요하다.
 
 ## Boundary Rules
 
