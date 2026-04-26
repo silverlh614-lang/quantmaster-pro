@@ -4,7 +4,7 @@
  * 클라이언트 resolveShadowTrade 루프의 서버 측 대응 — 브라우저 종료 시에도
  * Shadow 포지션 목표가/손절가 도달 시 자동 청산 처리.
  */
-import cron from 'node-cron';
+import { scheduledJob } from './scheduleGuard.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { loadShadowTrades, saveShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { updateShadowResults } from '../trading/exitEngine.js';
@@ -91,5 +91,7 @@ async function runShadowResolverTick(): Promise<void> {
 
 export function registerShadowResolverJob(): void {
   // 장중 5분 간격 (브라우저 독립). KST 09:00~15:30 = UTC 00:00~06:30 (Mon-Fri).
-  cron.schedule('*/5 0-6 * * 1-5', runShadowResolverTick, { timezone: 'UTC' });
+  // PR-B-2 ADR-0037: TRADING_DAY_ONLY — KRX 공휴일에 Shadow 청산 도는 무의미.
+  scheduledJob('*/5 0-6 * * 1-5', 'TRADING_DAY_ONLY', 'shadow_resolver_tick',
+    runShadowResolverTick, { timezone: 'UTC' });
 }

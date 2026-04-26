@@ -3,7 +3,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import cron from 'node-cron';
+import { scheduledJob } from './scheduleGuard.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { cleanupOldTraceFiles } from '../trading/scanTracer.js';
 import { runDailyBackup } from '../persistence/dailyBackup.js';
@@ -14,7 +14,7 @@ import { resetDataCompleteness } from '../screener/dataCompletenessTracker.js';
 import { updateKrxSectorMap, type UpdateResult } from '../screener/sectorMapUpdater.js';
 import { migrateAttributionRecords } from '../persistence/attributionRepo.js';
 import { DATA_DIR } from '../persistence/paths.js';
-import { wrapJob } from './scheduleCatalog.js';
+// PR-B-2: scheduledJob 래퍼가 wrapJob 메트릭 기록을 흡수.
 import { reloadKrxHolidaySet } from '../trading/krxHolidays.js';
 import { runKrxHolidayAudit } from '../trading/krxHolidayAudit.js';
 
@@ -44,15 +44,14 @@ export function registerMaintenanceJobs(): void {
   }
 
   // 스캔 트레이스 파일 정리 — 매주 일요일 KST 03:00 (UTC 18:00 토요일).
-  // 7일 이상 된 파일 삭제.
-  cron.schedule('0 18 * * 6', () => {
+  // PR-B-2: WEEKEND_MAINTENANCE — 일요일 새벽 정비 작업.
+  scheduledJob('0 18 * * 6', 'WEEKEND_MAINTENANCE', 'cleanup_trace_files', () => {
     cleanupOldTraceFiles();
   }, { timezone: 'UTC' });
 
-  // Phase 2차 C1 — Daily Backup Ceremony: 매일 KST 01:00 (UTC 16:00 전일).
-  // DATA_DIR 의 모든 *.json 을 snapshots/YYYY-MM-DD/ 로 복사 — "어제 자정" 상태
-  // 복원의 표준 기준점. 7일 초과분은 자동 삭제.
-  cron.schedule('0 16 * * *', async () => {
+  // Daily Backup Ceremony — 매일 KST 01:00 (UTC 16:00 전일).
+  // PR-B-2: ALWAYS_ON — 백업은 365일 무중단.
+  scheduledJob('0 16 * * *', 'ALWAYS_ON', 'backup_ceremony', async () => {
     try {
       const r = runBackupCeremony(7);
       console.log(
@@ -70,9 +69,8 @@ export function registerMaintenanceJobs(): void {
   }, { timezone: 'UTC' });
 
   // 일일 데이터 백업 — 매일 KST 03:00 (UTC 18:00).
-  // Railway Volume의 shadow-trades·watchlist·dart·fss 등 주요 JSON을
-  // /backups/YYYY-MM-DD/ 로 복사. 7일 초과 백업은 자동 삭제 (로테이션).
-  cron.schedule('0 18 * * *', async () => {
+  // PR-B-2: ALWAYS_ON — 백업은 365일 무중단.
+  scheduledJob('0 18 * * *', 'ALWAYS_ON', 'daily_backup', async () => {
     try {
       const result = runDailyBackup(BACKUP_RETENTION_DAYS);
       console.log(
@@ -90,24 +88,20 @@ export function registerMaintenanceJobs(): void {
   }, { timezone: 'UTC' });
 
   // 데이터 완성도 트래커 리셋 — 평일 KST 08:00 (UTC 23:00 일~목).
-  // 장 시작 전 전일 표본을 지워 새로운 장의 데이터 빈곤 여부만 측정하도록 한다.
-  cron.schedule('0 23 * * 0-4', () => {
+  // PR-B-2: TRADING_DAY_ONLY — 장 시작 전 리셋이라 KRX 공휴일 무의미.
+  scheduledJob('0 23 * * 0-4', 'TRADING_DAY_ONLY', 'data_completeness_reset', () => {
     try { resetDataCompleteness(); console.log('[DataCompleteness] 일일 리셋 완료 (08:00 KST)'); }
     catch (e) { console.error('[DataCompleteness] 리셋 실패:', e); }
   }, { timezone: 'UTC' });
 
   // 이중 기록 Reconciliation — 매일 KST 23:30 (UTC 14:30).
-  // shadow-log ↔ TradeEvent ↔ shadow-trades 정합성 자동 대조.
-  // 불일치 > 임계치 시 Critical 텔레그램 알림 + DATA_INTEGRITY_BLOCKED 게이팅.
-  cron.schedule('30 14 * * *', wrapJob('daily_reconcile', async () => {
-    await runDailyReconciliation();
-  }), { timezone: 'UTC' });
+  // PR-B-2: ALWAYS_ON — 데이터 정합성 검사는 KRX 공휴일 무관 (오늘 거래 없어도 누적 정합 검사).
+  scheduledJob('30 14 * * *', 'ALWAYS_ON', 'daily_reconcile',
+    () => runDailyReconciliation(), { timezone: 'UTC' });
 
-  // PR-3 #9: 장 마감 후 KST 16:05 (UTC 07:05) — fills↔quantity 자동 드라이런.
-  // /reconcile 명령을 기다리지 않고 매일 스캔하여 drift 가 있으면 텔레그램에 요약 발송.
-  // "/reconcile apply" 안내를 포함해 운영자가 바로 적용 결정을 할 수 있게 한다.
-  // 평일만 실행, 장 종료 +5분 마진.
-  cron.schedule('5 7 * * 1-5', wrapJob('shadow_qty_dryrun_broadcast', async () => {
+  // 장 마감 후 KST 16:05 (UTC 07:05) — fills↔quantity 자동 드라이런.
+  // PR-B-2: TRADING_DAY_ONLY — 평일 장 마감 후 정합성 검사.
+  scheduledJob('5 7 * * 1-5', 'TRADING_DAY_ONLY', 'shadow_qty_dryrun_broadcast', async () => {
     try {
       const result = reconcileShadowQuantities(undefined, { dryRun: true });
       if (result.fixed === 0) {
@@ -128,46 +122,31 @@ export function registerMaintenanceJobs(): void {
     } catch (e) {
       console.error('[ShadowQtyDryRun] 실행 오류:', e);
     }
-  }), { timezone: 'UTC' });
-
-  // KIS 실잔고 vs Shadow DB 정합성 — 15분 간격, 장중 구간 자동 스킵.
-  // exitEngine 의 PROVISIONAL fill 선반영이 실제 KIS 잔고와 괴리되는 구간을 조기에
-  // 포착한다. KIS 잔고 조회 허용 시간대(KST 07:00~15:59)에서만 실행되며,
-  // reconcileKisVsShadow 내부가 SHADOW 모드·점검 시간대를 자동 스킵한다.
-  //
-  // cron 표현식: 0,15,30,45 * * * * — 매 15분.
-  cron.schedule('*/15 * * * *', async () => {
-    try {
-      await reconcileKisVsShadow();
-    } catch (e) {
-      console.error('[KisShadowReconcile] cron 실행 오류:', e);
-    }
   }, { timezone: 'UTC' });
 
+  // KIS 실잔고 vs Shadow DB 정합성 — 15분 간격, 장중 구간 자동 스킵.
+  // PR-B-2: ALWAYS_ON — reconcileKisVsShadow 내부가 SHADOW 모드·점검 시간대 자동 스킵.
+  scheduledJob('*/15 * * * *', 'ALWAYS_ON', 'kis_shadow_reconcile',
+    () => reconcileKisVsShadow(), { timezone: 'UTC' });
+
   // KRX 전종목 섹터맵 갱신 — 매주 월요일 KST 03:00 (UTC 18:00 일요일).
-  // data/krx-sector-map.json 을 원자적으로 교체하여 Stage 2 섹터 커버리지를
-  // 100%로 유지한다. KRX 장애(HTTP 400/500)시 sectorMapUpdater 내부 폴백 체인
-  // (trdDd 역추적 → Yahoo → Gemini) 이 자동 작동하여 최대 커버리지를 보전한다.
-  // 폴백 + 기존 파일로도 임계치 미달 시에만 Telegram 경고.
-  cron.schedule('0 18 * * 0', () => {
+  // PR-B-2: WEEKEND_MAINTENANCE — 일요일 정비 작업.
+  scheduledJob('0 18 * * 0', 'WEEKEND_MAINTENANCE', 'sector_map_weekly', () => {
     void runSectorMapUpdate('weekly');
   }, { timezone: 'UTC' });
 
-  // 일일 재시도 — 평일 KST 04:00 (UTC 19:00 전일). 주간 실패/폴백 진입 시에만 발화.
-  // 정상(주간) 갱신이 성공한 뒤에는 meta.json 의 updatedAt 나이로 스킵한다.
-  cron.schedule('0 19 * * 0-4', () => {
+  // 일일 재시도 — 평일 KST 04:00 (UTC 19:00 전일).
+  // PR-B-2: TRADING_DAY_ONLY — 평일 새벽 재시도.
+  scheduledJob('0 19 * * 0-4', 'TRADING_DAY_ONLY', 'sector_map_daily_retry', () => {
     if (shouldRetrySectorMap()) {
       void runSectorMapUpdate('daily-retry');
     }
   }, { timezone: 'UTC' });
 
   // PR-D ADR-0039 — KRX 차년도 휴장일 등록 감사. 매년 12/1 09:00 KST = UTC 12/1 00:00.
-  // 차년도 휴장일 ≥ 8개 등록되어 있으면 silent. 미달 시 텔레그램 CRITICAL 경보.
-  // dedupeKey 연도별 분리 (1년 cooldown) → 같은 해 재발송 차단, 다음 해 재발송 허용.
-  cron.schedule('0 0 1 12 *', async () => {
-    await runKrxHolidayAudit().catch((e) =>
-      console.error('[KrxHolidayAudit] 실행 실패:', e instanceof Error ? e.message : e));
-  }, { timezone: 'UTC' });
+  // PR-B-2: ALWAYS_ON — 12/1 이 KRX 공휴일이어도 발송 (감사 자체는 휴장과 무관).
+  scheduledJob('0 0 1 12 *', 'ALWAYS_ON', 'krx_holiday_audit',
+    () => runKrxHolidayAudit(), { timezone: 'UTC' });
 }
 
 // ── KRX 섹터맵 갱신 헬퍼 ─────────────────────────────────────────────────────

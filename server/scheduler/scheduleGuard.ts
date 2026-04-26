@@ -78,7 +78,8 @@ export function scheduledJob(
   cronExpr: string,
   scheduleClass: ScheduleClass,
   jobName: string,
-  fn: () => Promise<void> | void,
+  // 반환값은 사용하지 않으므로 unknown 으로 완화 — 호출자가 wrap 코드 추가 불필요.
+  fn: () => Promise<unknown> | unknown,
   options: ScheduleGuardOptions = {},
 ): void {
   const cronOpts = options.timezone ? { timezone: options.timezone } : undefined;
