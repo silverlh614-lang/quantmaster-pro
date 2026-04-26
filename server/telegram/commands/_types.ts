@@ -1,3 +1,4 @@
+// @responsibility _types 텔레그램 모듈
 // @responsibility: TelegramCommand 인터페이스·CommandContext·카테고리 enum 정의 (Stage 2 Phase A SSOT).
 //
 // ADR-0017 §Stage 2 — webhookHandler.ts 거대 switch 를 명령어별 파일로 분해하기 위한

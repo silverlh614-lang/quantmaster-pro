@@ -1,3 +1,4 @@
+// @responsibility quant util 엔진 모듈
 /**
  * sell/util.ts — 매도 레이어 공용 순수 함수
  */

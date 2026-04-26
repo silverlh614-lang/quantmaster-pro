@@ -1,3 +1,4 @@
+// @responsibility navigation 설정 SSOT
 /**
  * Centralized navigation configuration.
  * All sidebar / bottom-nav items and group labels are defined here

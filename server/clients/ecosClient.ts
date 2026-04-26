@@ -1,3 +1,4 @@
+// @responsibility ecosClient 외부 클라이언트 모듈
 /**
  * ecosClient.ts — 서버사이드 한국은행 ECOS OpenAPI 어댑터 (아이디어 11)
  *

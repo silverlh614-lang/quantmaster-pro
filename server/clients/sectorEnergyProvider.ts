@@ -1,3 +1,4 @@
+// @responsibility sectorEnergyProvider 외부 클라이언트 모듈
 /**
  * sectorEnergyProvider.ts — KRX 실데이터를 sectorEnergyEngine 입력으로 가공.
  *

@@ -1,3 +1,4 @@
+// @responsibility useTradeOps React hook
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { useRecommendationStore, useTradeStore, useSettingsStore, useRecommendationSnapshotStore } from '../stores';

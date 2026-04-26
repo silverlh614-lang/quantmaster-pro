@@ -1,3 +1,4 @@
+// @responsibility intradayYieldTicker 알림 모듈
 /**
  * intradayYieldTicker.ts — Intraday Pipeline Yield Live (IPYL)
  *

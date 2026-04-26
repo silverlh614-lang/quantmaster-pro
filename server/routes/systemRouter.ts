@@ -1,3 +1,4 @@
+// @responsibility systemRouter 서버 라우터 모듈
 // server/routes/systemRouter.ts
 // 시스템 라우터 — server.ts에서 분리
 // 포함 대상: GET /health, GET /emergency-status, POST /emergency-stop,
@@ -296,6 +297,9 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
     krxFailures:         s.krxFailures,
     yahooApiStatus:      s.yahoo.status,
     yahooApiDetail:      s.yahoo.detail,
+    telegramConfigured:    s.telegramConfigured,
+    telegramBotTokenOnly:  s.telegramBotTokenOnly,
+    telegramChatIdOnly:    s.telegramChatIdOnly,
     railwayVolumeMount:  s.volume.ok,
     lastScanAt:          formatKstHm(s.lastScanTs),
     lastBuySignalAt:     formatKstHm(s.lastBuyTs),

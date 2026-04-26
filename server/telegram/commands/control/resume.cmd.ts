@@ -1,3 +1,4 @@
+// @responsibility resume.cmd 텔레그램 모듈
 // @responsibility: /resume — 소프트 일시정지 해제 (다음 cron tick 부터 정상 실행). EMR.
 import { getAutoTradePaused, setAutoTradePaused } from '../../../state.js';
 import { commandRegistry } from '../../commandRegistry.js';

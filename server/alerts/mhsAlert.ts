@@ -1,3 +1,4 @@
+// @responsibility mhsAlert 알림 모듈
 import fs from 'fs';
 import { MHS_MORNING_ALERT_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';

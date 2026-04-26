@@ -1,4 +1,4 @@
-// @responsibility 종목 카드 데이터 품질 카운트 배지 — 실계산/API/AI추정 3분류 (ADR-0018 §3)
+// @responsibility 종목 카드 데이터 품질 카운트 배지 — 실계산/API/AI추정 3분류 (ADR-0028 §3)
 
 import React from 'react';
 import { HelpCircle } from 'lucide-react';
@@ -49,7 +49,7 @@ export function DataQualityBadge({ count, compact = true, className }: DataQuali
 
   const fallbackTitle = sourceMetaAvailable
     ? `데이터 품질: ${TIER_LABEL[tier]} (서버 메타 기반)`
-    : `데이터 품질: ${TIER_LABEL[tier]} — 클라이언트 휴리스틱 분류 (ADR-0018 PR-A fallback)`;
+    : `데이터 품질: ${TIER_LABEL[tier]} — 클라이언트 휴리스틱 분류 (ADR-0028 PR-A fallback)`;
 
   if (compact) {
     return (

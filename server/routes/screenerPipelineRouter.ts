@@ -1,5 +1,5 @@
 /**
- * @responsibility 후보군 파이프라인 단계별 카운트·종목 리스트 GET 엔드포인트 (ADR-0023 PR-F + PR-J)
+ * @responsibility 후보군 파이프라인 단계별 카운트·종목 리스트 GET 엔드포인트 (ADR-0033 PR-F + PR-J)
  */
 
 import { Router, Request, Response } from 'express';
@@ -86,7 +86,7 @@ export function buildPipelineSummary(summary: ScanSummary | null): PipelineSumma
     {
       id: 'UNIVERSE',
       label: STAGE_LABELS.UNIVERSE,
-      count: 0, // 정확한 universe size 인프라 부재 — 후속 PR (ADR-0023 §Out of Scope)
+      count: 0, // 정확한 universe size 인프라 부재 — 후속 PR (ADR-0033 §Out of Scope)
     },
     {
       id: 'CANDIDATES',

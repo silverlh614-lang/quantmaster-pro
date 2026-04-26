@@ -1,3 +1,4 @@
+// @responsibility dynamicUniverseExpander 스크리너 모듈
 /**
  * dynamicUniverseExpander.ts — 아이디어 6: STOCK_UNIVERSE 동적 확장
  *

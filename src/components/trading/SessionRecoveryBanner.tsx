@@ -1,3 +1,4 @@
+// @responsibility trading 영역 SessionRecoveryBanner 컴포넌트
 /**
  * SessionRecoveryBanner — 세션 간 설정 복구 배너
  * 마지막 저장된 설정 상태를 감지하고, 복구 여부를 사용자에게 안내합니다.

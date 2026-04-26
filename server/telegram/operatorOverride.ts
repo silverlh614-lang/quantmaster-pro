@@ -1,3 +1,4 @@
+// @responsibility operatorOverride 텔레그램 모듈
 /**
  * operatorOverride.ts — Telegram 인라인 버튼(빈 스캔 Decision Broker) 콜백 처리
  *

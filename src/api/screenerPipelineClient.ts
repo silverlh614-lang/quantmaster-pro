@@ -1,5 +1,5 @@
 /**
- * @responsibility 후보군 파이프라인 통계 fetch (ADR-0023 PR-F)
+ * @responsibility 후보군 파이프라인 통계 fetch (ADR-0033 PR-F)
  */
 
 export type PipelineStageId =

@@ -1,3 +1,4 @@
+// @responsibility preMarketSignal 알림 모듈
 /**
  * preMarketSignal.ts — 홍콩 30분 선행 모델 (장전 방향 최종 교정)
  *

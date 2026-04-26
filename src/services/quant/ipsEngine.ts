@@ -1,3 +1,4 @@
+// @responsibility quant ipsEngine 엔진 모듈
 import {
   IpsSignal,
   IpsSignalId,

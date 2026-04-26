@@ -1,4 +1,4 @@
-// @responsibility 3-플래그 Enemy Checklist 경고 카드 (ADR-0021 PR-D)
+// @responsibility 3-플래그 Enemy Checklist 경고 카드 (ADR-0031 PR-D)
 
 import React from 'react';
 import { Check, AlertTriangle, ShieldAlert } from 'lucide-react';

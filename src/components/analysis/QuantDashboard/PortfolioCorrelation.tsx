@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 PortfolioCorrelation 컴포넌트
 import React from 'react';
 import { Link2 } from 'lucide-react';
 import type { EvaluationResult } from '../../../types/quant';

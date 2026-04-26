@@ -1,3 +1,4 @@
+// @responsibility add.cmd 텔레그램 모듈
 // @responsibility: /add 005380 — 워치리스트 신규 추가. 현재가 조회 후 -8% 손절 / +15% 목표 자동 설정.
 import { loadWatchlist, saveWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import { fetchCurrentPrice, fetchStockName } from '../../../clients/kisClient.js';

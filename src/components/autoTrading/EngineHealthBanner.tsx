@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 EngineHealthBanner 컴포넌트
 /**
  * EngineHealthBanner — 엔진 heartbeat 이상 / Kill Switch 강등 적색 경보.
  *

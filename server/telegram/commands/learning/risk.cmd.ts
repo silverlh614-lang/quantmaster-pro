@@ -1,3 +1,4 @@
+// @responsibility risk.cmd 텔레그램 모듈
 // @responsibility: /risk /risk_budget — 계좌 리스크 예산 + Fractional Kelly 캡 현황 (signalScanner 게이트와 동일 로직).
 import { loadTradingSettings } from '../../../persistence/tradingSettingsRepo.js';
 import {

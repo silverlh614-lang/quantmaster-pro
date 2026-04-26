@@ -1,5 +1,5 @@
 /**
- * @responsibility buildGateCardSummary 테스트 — ADR-0018 §4
+ * @responsibility buildGateCardSummary 테스트 — ADR-0028 §4
  */
 import { describe, it, expect } from 'vitest';
 import { buildGateCardSummary } from './GateStatusCard';
@@ -44,7 +44,7 @@ function makeStock(opts: {
   } as unknown as StockRecommendation;
 }
 
-describe('buildGateCardSummary — ADR-0018 overallVerdict 5분기', () => {
+describe('buildGateCardSummary — ADR-0028 overallVerdict 5분기', () => {
   it('4 PASS (G0+G1+G2+G3) → STRONG_BUY', () => {
     const s = makeStock({ passG1: 5, passG2: 12, passG3: 10, gate0: true });
     const r = buildGateCardSummary(s);

@@ -1,3 +1,4 @@
+// @responsibility animated-number UI 프리미티브 컴포넌트
 /**
  * AnimatedNumber — 값 변화를 부드럽게 카운트업/다운 애니메이션.
  *

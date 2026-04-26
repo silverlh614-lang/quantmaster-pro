@@ -1,3 +1,4 @@
+// @responsibility backtestEngine 학습 엔진 모듈
 /**
  * backtestEngine.ts — Yahoo Finance OHLCV 기반 실데이터 백테스트 엔진
  *

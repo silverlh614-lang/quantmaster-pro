@@ -1,5 +1,5 @@
 /**
- * @responsibility buildPipelineSummary 단위 테스트 — ADR-0023 PR-F
+ * @responsibility buildPipelineSummary 단위 테스트 — ADR-0033 PR-F
  */
 import { describe, it, expect } from 'vitest';
 import { buildPipelineSummary } from './screenerPipelineRouter.js';
@@ -21,7 +21,7 @@ function makeSummary(overrides: Partial<ScanSummary> = {}): ScanSummary {
   };
 }
 
-describe('buildPipelineSummary — ADR-0023 PR-F', () => {
+describe('buildPipelineSummary — ADR-0033 PR-F', () => {
   it('summary=null → 모든 stage count=0 + lastScanTime=null', () => {
     const r = buildPipelineSummary(null);
     expect(r.lastScanTime).toBeNull();

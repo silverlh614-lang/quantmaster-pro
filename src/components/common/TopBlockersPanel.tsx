@@ -1,3 +1,4 @@
+// @responsibility common 영역 TopBlockersPanel 컴포넌트
 /**
  * TopBlockersPanel — 오늘 가장 많이 탈락시킨 Gate 조건 TOP N.
  *

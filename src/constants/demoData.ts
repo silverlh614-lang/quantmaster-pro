@@ -1,3 +1,4 @@
+// @responsibility demoData 모듈
 import type {
   MarketRegime, SectorRotation, EuphoriaSignal, EmergencyStopSignal,
   StockProfile,

@@ -1,3 +1,4 @@
+// @responsibility stock dartDataFetcher 서비스 모듈
 const dartCache = new Map<string, { data: any; timestamp: number }>();
 const DART_CACHE_TTL = 1000 * 60 * 60 * 6; // 6 hours
 

@@ -1,3 +1,4 @@
+// @responsibility kisRankingClient 외부 클라이언트 모듈
 /**
  * kisRankingClient.ts — KIS 순위 기반 TR 단일 책임 클라이언트 (Phase A + 아이디어 5)
  *

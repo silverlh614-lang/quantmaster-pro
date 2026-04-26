@@ -1,3 +1,4 @@
+// @responsibility kisRateLimiter 외부 클라이언트 모듈
 /**
  * kisRateLimiter.ts — KIS API 전역 토큰 버킷 + 우선순위 큐
  *

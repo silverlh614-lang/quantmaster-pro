@@ -1,3 +1,4 @@
+// @responsibility kisChartDataFetcher 스크리너 모듈
 /**
  * kisChartDataFetcher.ts — KIS API 기반 월봉/주봉 차트 데이터 조회
  *

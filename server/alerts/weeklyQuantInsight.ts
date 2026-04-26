@@ -1,3 +1,4 @@
+// @responsibility weeklyQuantInsight 알림 모듈
 /**
  * weeklyQuantInsight.ts — 주간 퀀트 인사이트 (IDEA 12)
  *
@@ -14,7 +15,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadDynamicUniverse } from '../screener/dynamicUniverseExpander.js';
 import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { callGemini } from '../clients/geminiClient.js';
-import { sendTelegramBroadcast } from './telegramClient.js';
+import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 import { channelHeader, CHANNEL_SEPARATOR } from './channelFormatter.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 
@@ -125,12 +126,10 @@ export async function sendWeeklyQuantInsight(): Promise<void> {
 
     const today = new Date().toISOString().slice(0, 10);
 
-    await sendTelegramBroadcast(message, {
+    // ADR-0039: CH4 JOURNAL — 주간 메타 분석 (시간 격리)
+    await dispatchAlert(ChannelSemantic.JOURNAL, message, {
       priority: 'NORMAL',
-      tier: 'T2_REPORT',
-      category: 'weekly_quant_insight',
       dedupeKey: `weekly_insight:${today}`,
-      disableChannelNotification: true,
     });
 
     console.log(`[WeeklyInsight] ${metrics.weekLabel} 발송 완료`);

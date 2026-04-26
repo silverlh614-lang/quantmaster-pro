@@ -1,3 +1,4 @@
+// @responsibility experimentalConditionTester 학습 엔진 모듈
 /**
  * experimentalConditionTester.ts — 아이디어 6 (Phase 3): 제안 조건 A/B 백테스트.
  *

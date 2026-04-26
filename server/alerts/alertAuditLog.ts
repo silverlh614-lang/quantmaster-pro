@@ -1,3 +1,4 @@
+// @responsibility alertAuditLog 알림 모듈
 /**
  * alertAuditLog.ts — 발송된 Telegram 알림을 월별 JSONL에 append.
  *

@@ -1,3 +1,4 @@
+// @responsibility useWatchlistFilters React hook
 import { useRecommendationStore } from '../stores';
 import { useSettingsStore } from '../stores';
 

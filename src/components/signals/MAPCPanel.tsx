@@ -1,3 +1,4 @@
+// @responsibility signals 영역 MAPCPanel 컴포넌트
 /**
  * IDEA 9: MAPC — Macro-Adaptive Position Controller
  *         매크로 임계값 연동 포지션 자동 조절기

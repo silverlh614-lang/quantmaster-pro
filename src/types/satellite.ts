@@ -1,3 +1,4 @@
+// @responsibility satellite 도메인 타입 정의
 // ─── 위성 종목 연쇄 추적 시스템 (Satellite Stock Cascader) 타입 ─────────────────
 
 /** 개별 위성 종목 */

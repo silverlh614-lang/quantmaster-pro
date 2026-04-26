@@ -1,3 +1,4 @@
+// @responsibility macro 영역 RegimeGaugeSection 컴포넌트
 import React, { useState, useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Gate0Result, EconomicRegime, EconomicRegimeData } from '../../types/quant';

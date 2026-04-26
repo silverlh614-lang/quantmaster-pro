@@ -1,3 +1,4 @@
+// @responsibility index 텔레그램 모듈
 // @responsibility: commands/trade/* 10 cmd 자동 등록 (buy/sell/cancel/adjust_qty/reconcile+reconcile_qty/scan/krx_scan/stage1_audit/report/shadow).
 import './adjustQty.cmd.js';
 import './buy.cmd.js';

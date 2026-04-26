@@ -1,3 +1,4 @@
+// @responsibility reflectionBudget 학습 엔진 모듈
 /**
  * reflectionBudget.ts — Reflection Budget Governor (#15).
  *

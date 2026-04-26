@@ -1,3 +1,4 @@
+// @responsibility stock aiClient 서비스 모듈
 import { GoogleGenAI } from "@google/genai";
 import { debugLog } from '../../utils/debug';
 

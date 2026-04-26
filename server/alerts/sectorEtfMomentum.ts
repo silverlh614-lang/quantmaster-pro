@@ -1,3 +1,4 @@
+// @responsibility sectorEtfMomentum 알림 모듈
 /**
  * sectorEtfMomentum.ts — 미국 섹터 ETF 30분봉 모멘텀 교차 스캐너
  *

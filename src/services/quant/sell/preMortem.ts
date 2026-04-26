@@ -1,3 +1,4 @@
+// @responsibility quant preMortem 엔진 모듈
 /**
  * sell/preMortem.ts — L2 펀더멘털 붕괴 (Pre-Mortem 5조건)
  *

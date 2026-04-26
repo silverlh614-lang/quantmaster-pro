@@ -1,3 +1,4 @@
+// @responsibility flowPrediction 도메인 타입 정의
 // ─── 수급 예측 선행 모델 (Flow Prediction Engine) 타입 ─────────────────────────
 
 /**

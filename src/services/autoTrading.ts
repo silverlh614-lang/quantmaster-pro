@@ -1,3 +1,4 @@
+// @responsibility autoTrading 서비스 모듈
 /**
  * autoTrading.ts — 클라이언트사이드 수동 트리거 전용 (메인 오케스트레이터)
  *

@@ -1,3 +1,4 @@
+// @responsibility badge UI 프리미티브 컴포넌트
 /**
  * Neo-Brutalism Badge System
  * Signal badges with pulsing dots + color glow + semantic color unification.

@@ -1,3 +1,4 @@
+// @responsibility intradayScanner 스크리너 모듈
 /**
  * intradayScanner.ts — 장중 Intraday Watchlist 발굴·갱신
  *

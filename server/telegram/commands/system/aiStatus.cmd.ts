@@ -1,3 +1,4 @@
+// @responsibility aiStatus.cmd 텔레그램 모듈
 // @responsibility: /ai_status 명령 — Gemini 예산·서킷·런타임 상태를 1메시지 요약.
 import {
   getBudgetState,

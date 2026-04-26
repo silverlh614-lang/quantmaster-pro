@@ -1,3 +1,4 @@
+// @responsibility dailyBackup 영속화 저장소 모듈
 // server/persistence/dailyBackup.ts
 // DATA_DIR 내 주요 상태 JSON을 일별 백업한다. Railway Volume 마운트 전제.
 // 장애·롤백·디버깅 복원을 위해 7일치 스냅샷을 /backups/YYYY-MM-DD/ 에 보관.

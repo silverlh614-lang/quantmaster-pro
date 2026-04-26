@@ -1,4 +1,4 @@
-// @responsibility 섹터 로테이션 컴팩트 히트맵 — Leading/Lagging 1줄 시각화 (ADR-0022 PR-E)
+// @responsibility 섹터 로테이션 컴팩트 히트맵 — Leading/Lagging 1줄 시각화 (ADR-0032 PR-E)
 
 import React, { useState } from 'react';
 import { Flame, Snowflake, ChevronDown, ChevronUp } from 'lucide-react';

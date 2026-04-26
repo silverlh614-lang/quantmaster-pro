@@ -1,3 +1,4 @@
+// @responsibility shadowTrading 서비스 모듈
 /**
  * shadowTrading.ts — Shadow Trading 모드 (아이디어 5)
  *

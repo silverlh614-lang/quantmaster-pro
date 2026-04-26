@@ -1,3 +1,4 @@
+// @responsibility useAttributionStore Zustand store
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AttributionEntry, ConditionId } from '../types/quant';

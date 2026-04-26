@@ -1,3 +1,4 @@
+// @responsibility weeklyDeepAnalysis 알림 모듈
 /**
  * weeklyDeepAnalysis.ts — 주간 심층 분석 카드 (IDEA 10)
  *
@@ -15,7 +16,7 @@ import { loadWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { callGemini } from '../clients/geminiClient.js';
-import { sendPickChannelAlert } from './telegramClient.js';
+import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 import { channelHeader, CHANNEL_SEPARATOR } from './channelFormatter.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 
@@ -132,7 +133,8 @@ export async function sendWeeklyDeepAnalysis(): Promise<void> {
       narrative,
     });
 
-    await sendPickChannelAlert(message);
+    // ADR-0039: CH4 JOURNAL — 주간 심층 분석 (시간 격리, 정독용)
+    await dispatchAlert(ChannelSemantic.JOURNAL, message);
     console.log(`[WeeklyDeep] ${entry.name} 심층 카드 발송`);
   } catch (e) {
     console.error('[WeeklyDeep] 발송 실패:', e instanceof Error ? e.message : e);

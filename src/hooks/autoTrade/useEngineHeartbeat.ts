@@ -1,3 +1,4 @@
+// @responsibility useEngineHeartbeat React hook
 /**
  * useEngineHeartbeat — 서버 cron tick 의 "실제 가동" 을 UI 측에서 감시.
  *

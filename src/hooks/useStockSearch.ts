@@ -1,3 +1,4 @@
+// @responsibility useStockSearch React hook
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { getStockRecommendations, searchStock, clearSearchCache, getNewsFrequencyScores, StockFilters } from '../services/stockService';

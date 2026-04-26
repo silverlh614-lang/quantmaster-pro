@@ -1,3 +1,4 @@
+// @responsibility regimeAwareCalibrator 학습 엔진 모듈
 /**
  * regimeAwareCalibrator.ts — 아이디어 1: 레짐별 독립 가중치 자기진화
  *

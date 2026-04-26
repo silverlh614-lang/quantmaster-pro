@@ -1,3 +1,4 @@
+// @responsibility engineStreamBus 서버 라우터 모듈
 /**
  * engineStreamBus.ts — SSE 연결 풀 + 이벤트 브로드캐스트 허브.
  *

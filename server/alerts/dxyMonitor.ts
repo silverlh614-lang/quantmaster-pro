@@ -1,3 +1,4 @@
+// @responsibility dxyMonitor 알림 모듈
 /**
  * dxyMonitor.ts — 달러인덱스(DXY) 실시간 수급 방향 전환 예비 경보
  *

@@ -1,3 +1,4 @@
+// @responsibility useEngineGuards React hook
 /**
  * useEngineGuards — EmergencyActionsPanel 3-버튼(블록/일시정지/보유만) 상태 + 액션.
  *

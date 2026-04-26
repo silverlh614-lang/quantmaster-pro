@@ -1,3 +1,4 @@
+// @responsibility ocoCloseLoop 매매 엔진 모듈
 /**
  * ocoCloseLoop.ts — OCO 익절-손절 자동 등록 완결 루프
  *

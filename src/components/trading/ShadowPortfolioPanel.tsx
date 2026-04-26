@@ -1,3 +1,4 @@
+// @responsibility trading 영역 ShadowPortfolioPanel 컴포넌트
 /**
  * ShadowPortfolioPanel — 섀도우 계좌 포트폴리오 대시보드
  * KPI 헤더 · 보유 포지션 · 거래내역(체결 트리 포함) · 통계

@@ -1,3 +1,4 @@
+// @responsibility weeklyConditionScorecard 알림 모듈
 /**
  * weeklyConditionScorecard.ts — 주간 조건 성과 리포트 (IDEA 6)
  *
@@ -14,7 +15,7 @@
 import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { analyzeAttribution, CONDITION_NAMES, type ConditionAttribution } from '../learning/attributionAnalyzer.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
-import { sendTelegramBroadcast } from './telegramClient.js';
+import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 import { channelHeader, CHANNEL_SEPARATOR, kstMMDD } from './channelFormatter.js';
 
 function isoWeekLabel(d: Date = new Date()): string {
@@ -143,12 +144,10 @@ export async function sendWeeklyConditionScorecard(): Promise<void> {
     const message = formatScorecard(inputs);
     const today = new Date().toISOString().slice(0, 10);
 
-    await sendTelegramBroadcast(message, {
+    // ADR-0039: CH4 JOURNAL — 메타 학습 채널 (시간 격리, 주말 정독)
+    await dispatchAlert(ChannelSemantic.JOURNAL, message, {
       priority: 'NORMAL',
-      tier: 'T2_REPORT',
-      category: 'weekly_condition_scorecard',
       dedupeKey: `weekly_scorecard:${today}`,
-      disableChannelNotification: true,
     });
 
     console.log(`[WeeklyScorecard] 발송 완료 — ${inputs.weeklyTotalTrades}건 분석`);

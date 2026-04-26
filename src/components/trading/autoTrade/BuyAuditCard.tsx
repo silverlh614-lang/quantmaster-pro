@@ -1,3 +1,4 @@
+// @responsibility trading 영역 BuyAuditCard 컴포넌트
 import React from 'react';
 import { Shield, ShieldAlert, Timer } from 'lucide-react';
 import { Card } from '../../../ui/card';

@@ -1,3 +1,4 @@
+// @responsibility useReportExport React hook
 import { useRef } from 'react';
 import { toast } from 'sonner';
 import { domToJpeg } from 'modern-screenshot';

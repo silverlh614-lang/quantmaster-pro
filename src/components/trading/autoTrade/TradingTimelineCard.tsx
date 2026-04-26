@@ -1,3 +1,4 @@
+// @responsibility trading 영역 TradingTimelineCard 컴포넌트
 import React from 'react';
 import { Clock } from 'lucide-react';
 import { cn } from '../../../ui/cn';

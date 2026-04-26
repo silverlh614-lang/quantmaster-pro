@@ -1,3 +1,4 @@
+// @responsibility quant volumeDryupAlert 엔진 모듈
 /**
  * sell/volumeDryupAlert.ts — VDA (Volume Dry-up Alert)
  *

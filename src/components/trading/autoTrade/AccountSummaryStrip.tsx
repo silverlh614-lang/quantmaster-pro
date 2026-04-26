@@ -1,3 +1,4 @@
+// @responsibility trading 영역 AccountSummaryStrip 컴포넌트
 import React from 'react';
 import { Wallet } from 'lucide-react';
 import { cn } from '../../../ui/cn';

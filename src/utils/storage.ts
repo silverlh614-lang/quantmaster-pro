@@ -1,3 +1,4 @@
+// @responsibility storage 유틸 함수 모듈
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0

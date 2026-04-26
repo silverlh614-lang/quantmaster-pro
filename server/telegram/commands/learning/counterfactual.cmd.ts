@@ -1,3 +1,4 @@
+// @responsibility counterfactual.cmd 텔레그램 모듈
 // @responsibility: /counterfactual — Gate 탈락 후보의 30/60/90일 수익률 분포 통계.
 import { getCounterfactualStats } from '../../../learning/counterfactualShadow.js';
 import { commandRegistry } from '../../commandRegistry.js';

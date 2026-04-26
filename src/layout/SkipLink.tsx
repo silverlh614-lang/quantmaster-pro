@@ -1,3 +1,4 @@
+// @responsibility SkipLink 레이아웃 컴포넌트
 /**
  * SkipLink — 스크린리더 / 키보드 사용자용 "본문 바로가기" 링크.
  *

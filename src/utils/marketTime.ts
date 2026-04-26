@@ -1,3 +1,4 @@
+// @responsibility marketTime 유틸 함수 모듈
 /**
  * 한국 정규장 판정 + 심볼별 시장 분류 유틸 — 클라이언트 SSOT.
  *

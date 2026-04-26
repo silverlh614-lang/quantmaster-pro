@@ -1,3 +1,4 @@
+// @responsibility conditionAuditor 학습 엔진 모듈
 /**
  * conditionAuditor.ts — 아이디어 5: 조건 폐기 & 신규 조건 후보 감지
  *

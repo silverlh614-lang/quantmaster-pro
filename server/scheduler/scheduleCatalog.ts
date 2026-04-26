@@ -31,6 +31,7 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '08:45', label: '아침 통합 브리핑', group: 'reports', jobName: 'morning_briefing' },
   { timeKst: '09:00', label: 'MHS 알림 / 거시-섹터 동기화 시작', group: 'alerts', jobName: 'mhs_open', silentWhen: 'MHS 가 RED(<40) 또는 GREEN(≥70) 전환이 아니면 무음' },
   { timeKst: '09:05', label: '보유 포지션 모닝카드', group: 'reports', jobName: 'morning_position_card', silentWhen: '활성 포지션 없으면 무음' },
+  { timeKst: '09:05', label: '연휴 복귀 보수 매매 모드', group: 'alerts', jobName: 'holiday_resume_alert', silentWhen: 'POST_HOLIDAY + isLongHoliday 미충족 시 무음 — 추석/근로자의 날 직후만 발송' },
   { timeKst: '09:10', label: 'newsSupply 추적', group: 'screener', jobName: 'news_supply_tracker' },
   { timeKst: '10:45', label: '장전 방향 카드 (HK 개장 30분 후 재계산)', group: 'alerts', jobName: 'pre_market_card_hk', silentWhen: '|Bias Score| < 40 이면 무음' },
   { timeKst: '12:30', label: '점심 통합 브리핑', group: 'reports', jobName: 'lunch_briefing' },
@@ -56,6 +57,7 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '금 17:00', label: 'SYSTEM 채널 주간 요약 flush', group: 'reports', jobName: 'system_weekly_flush', silentWhen: 'SYSTEM 버퍼 비어 있으면 무음' },
   { timeKst: '일 10:00', label: '주간 무결성 + 알림 감사 리포트', group: 'reports', jobName: 'weekly_integrity_report' },
   { timeKst: '1일 07:00', label: 'Walk-Forward Validation (월 1회)', group: 'learning', jobName: 'walk_forward_validation', silentWhen: 'IS↔OOS 승률 격차 ≤ 15%p 이면 무음' },
+  { timeKst: '12/1 09:00', label: 'KRX 차년도 휴장일 감사 (연 1회)', group: 'maintenance', jobName: 'krx_holiday_audit', silentWhen: '차년도 휴장일 ≥ 8개 등록되어 있으면 무음 — 미달 시 CRITICAL' },
 
   // ── 상시 ──────────────────────────────────────────────────────────────────
   { timeKst: '상시',  label: '오케스트레이터 1분 tick', group: 'trading', jobName: 'orchestrator_tick' },
@@ -107,6 +109,12 @@ export interface JobMetrics {
   lastFailureAt?: string;
   /** 마지막 실패 메시지 — note 첫 줄 ≤120자 절삭 */
   lastErrorMessage?: string;
+  /**
+   * 마지막 스킵 사유 — ScheduleGuard(ADR-0043) 가 기록.
+   * 'WEEKEND' / 'KRX_HOLIDAY' / 'LONG_HOLIDAY' / 'TRADING_DAY' / 'NON_TRADING_DAY' 등.
+   * 운영자가 "월요일 자기반성이 정상 실행됐는가" 같은 시계열 진단에 활용.
+   */
+  lastSkipReason?: string;
 }
 
 const _metricsByJob = new Map<string, JobMetrics>();
@@ -140,6 +148,9 @@ export function recordScheduleRun(rec: ScheduleRunRecord): void {
     }
   } else {
     m.skippedCount += 1;
+    if (rec.note) {
+      m.lastSkipReason = rec.note.slice(0, ERROR_MESSAGE_LIMIT);
+    }
   }
 }
 

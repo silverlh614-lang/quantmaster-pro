@@ -1,3 +1,4 @@
+// @responsibility trading 영역 HeroChecklist 컴포넌트
 import React, { useState } from 'react';
 import { ShieldCheck, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';

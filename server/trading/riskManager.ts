@@ -1,3 +1,4 @@
+// @responsibility riskManager 매매 엔진 모듈
 import { type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { safePctChange } from '../utils/safePctChange.js';
 

@@ -1,3 +1,4 @@
+// @responsibility supplyChainAgent 알림 모듈
 /**
  * supplyChainAgent.ts — 공급망 역추적 알고리즘
  *
@@ -15,7 +16,7 @@
  */
 
 import { callGeminiWithSearch } from '../clients/geminiClient.js';
-import { sendTelegramBroadcast } from './telegramClient.js';
+import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 import { logNewsSupplyEvent } from '../learning/newsSupplyLogger.js';
 import { CHANNEL_SEPARATOR } from './channelFormatter.js';
 
@@ -279,7 +280,9 @@ export async function runSupplyChainScan(): Promise<void> {
 
     const isHigh = news.significance === 'HIGH';
 
-    await sendTelegramBroadcast(
+    // ADR-0039: CH3 REGIME — 공급망 매크로 (HIGH 만 진동, NORMAL 은 VIBRATION_POLICY 자동 OFF)
+    await dispatchAlert(
+      ChannelSemantic.REGIME,
       `${emoji} <b>[공급망 수혜 탐지] T+0 선점</b>\n` +
       `${CHANNEL_SEPARATOR}\n` +
       `📡 트리거: ${news.company} ${news.newsType}\n` +
@@ -290,10 +293,7 @@ export async function runSupplyChainScan(): Promise<void> {
       `📊 신뢰도: ${isHigh ? '●●●●○' : '●●●○○'} (Gemini Search 확인)`,
       {
         priority:  isHigh ? 'HIGH' : 'NORMAL',
-        tier:      isHigh ? 'T1_ALARM' : 'T2_REPORT',
-        category:  'supply_chain',
         dedupeKey: `supply_chain:${news.company}:${new Date().toISOString().slice(0, 10)}`,
-        disableChannelNotification: !isHigh,
       },
     ).catch(console.error);
 

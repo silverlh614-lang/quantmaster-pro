@@ -1,3 +1,4 @@
+// @responsibility useFloatingActions React hook
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0

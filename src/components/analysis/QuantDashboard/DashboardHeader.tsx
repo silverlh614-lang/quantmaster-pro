@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 DashboardHeader 컴포넌트
 import React from 'react';
 import { Target, Globe } from 'lucide-react';
 import { cn } from '../../../ui/cn';

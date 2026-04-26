@@ -1,3 +1,4 @@
+// @responsibility globalScanAgent 알림 모듈
 /**
  * globalScanAgent.ts — 새벽 자동 글로벌 스캔 에이전트 (Layer 13·14 통합)
  *

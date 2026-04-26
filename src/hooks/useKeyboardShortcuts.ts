@@ -1,3 +1,4 @@
+// @responsibility useKeyboardShortcuts React hook
 /**
  * useKeyboardShortcuts — 전역 키보드 단축키 관리.
  *

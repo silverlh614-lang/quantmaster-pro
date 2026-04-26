@@ -1,3 +1,4 @@
+// @responsibility trading 영역 TradeRecordModal 컴포넌트
 import React, { useState } from 'react';
 import { X, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -210,7 +211,7 @@ export function TradeRecordModal({ onRecordTrade }: TradeRecordModalProps) {
               confluence: Number.isFinite(tradeRecordStock.confidenceScore)
                 ? tradeRecordStock.confidenceScore
                 : undefined,
-              // ADR-0021 (PR-D): 매수 시점 VKOSPI 캡처 — 청산 시 MACRO_SHOCK 분류 입력.
+              // ADR-0031 (PR-D): 매수 시점 VKOSPI 캡처 — 청산 시 MACRO_SHOCK 분류 입력.
               vkospiAtBuy:
                 typeof macroEnv?.vkospi === 'number' && macroEnv.vkospi > 0
                   ? macroEnv.vkospi

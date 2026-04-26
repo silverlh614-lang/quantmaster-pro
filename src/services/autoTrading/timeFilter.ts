@@ -1,3 +1,4 @@
+// @responsibility timeFilter 서비스 모듈
 /**
  * timeFilter.ts — 장중 타임 필터 + 주문 큐 (아이디어 7)
  *

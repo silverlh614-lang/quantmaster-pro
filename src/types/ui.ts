@@ -1,4 +1,4 @@
-// @responsibility UI redesign P0-A 공유 타입 + REGIME_TRADING_POLICY SSOT (ADR-0018)
+// @responsibility UI redesign P0-A 공유 타입 + REGIME_TRADING_POLICY SSOT (ADR-0028)
 
 import type { RegimeLevel } from './core';
 
@@ -31,7 +31,7 @@ export interface MarketModePolicy {
 export type DataQualityTier = 'HIGH' | 'MEDIUM' | 'LOW';
 
 /**
- * 27 조건 항목별 실제 데이터 출처 (ADR-0019 PR-B).
+ * 27 조건 항목별 실제 데이터 출처 (ADR-0029 PR-B).
  * - COMPUTED: 클라이언트 OHLCV 직접 계산 (RSI/MACD/볼린저/일목/VCP …)
  * - API: DART/Naver/KIS proxy 응답 (ROE/PER/PBR/시총/외인비율 …)
  * - AI_INFERRED: Gemini 추론 (사이클/Risk-On/리더/정책/심리 …)
@@ -41,7 +41,7 @@ export type DataQualityTier = 'HIGH' | 'MEDIUM' | 'LOW';
  */
 export type ConditionSourceTier = 'COMPUTED' | 'API' | 'AI_INFERRED';
 
-// ─── PriceAlertWatcher (ADR-0020 PR-C) ─────────────────────────────────────
+// ─── PriceAlertWatcher (ADR-0030 PR-C) ─────────────────────────────────────
 
 /**
  * 손절·익절 알림 4단계 레벨.
@@ -54,7 +54,7 @@ export type ConditionSourceTier = 'COMPUTED' | 'API' | 'AI_INFERRED';
  */
 export type PriceAlertLevel = 'NORMAL' | 'CAUTION' | 'DANGER' | 'TAKE_PROFIT';
 
-// ─── PR-D (ADR-0021) — Last Trigger / Enemy Checklist ─────────────────────
+// ─── PR-D (ADR-0031) — Last Trigger / Enemy Checklist ─────────────────────
 
 export type TriggerCheckId =
   | 'VCP_BREAKOUT'

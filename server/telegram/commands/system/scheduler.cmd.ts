@@ -1,3 +1,4 @@
+// @responsibility scheduler.cmd 텔레그램 모듈
 // @responsibility: /scheduler /schedule 명령 — 스케줄러 시간표·다음·상세·이력을 4-mode 라우팅.
 import {
   formatSchedulerSummary,

@@ -1,5 +1,5 @@
 /**
- * @responsibility 추천 이력·통계 API 클라이언트 — recommendationsRouter 호출 (ADR-0019 PR-B)
+ * @responsibility 추천 이력·통계 API 클라이언트 — recommendationsRouter 호출 (ADR-0029 PR-B)
  */
 
 /** 서버 `RecommendationRecord` 동기 사본 (절대 규칙 #3 — 서버↔클라 직접 import 금지). */

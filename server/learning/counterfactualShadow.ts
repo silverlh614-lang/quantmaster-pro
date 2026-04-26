@@ -1,3 +1,4 @@
+// @responsibility counterfactualShadow 학습 엔진 모듈
 /**
  * counterfactualShadow.ts — Idea 4: Counterfactual Shadow Ledger.
  *

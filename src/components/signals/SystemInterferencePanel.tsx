@@ -1,3 +1,4 @@
+// @responsibility signals 영역 SystemInterferencePanel 컴포넌트
 /**
  * SystemInterferencePanel.tsx — 시스템 상호간섭 파라미터 충돌 감지 패널
  *

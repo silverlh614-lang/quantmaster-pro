@@ -1,3 +1,4 @@
+// @responsibility quant institutionalFootprintEngine 엔진 모듈
 // src/services/quant/institutionalFootprintEngine.ts
 // ─── 기관 매집 발자국 탐지기 — 5가지 시그니처로 역추적 ─────────────────────────
 //

@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 GateFilterSection 컴포넌트
 import React from 'react';
 import { CheckCircle2, Activity, XCircle } from 'lucide-react';
 import { cn } from '../../../ui/cn';

@@ -1,3 +1,4 @@
+// @responsibility common 영역 StickyMiniHeader 컴포넌트
 /**
  * Neo-Brutalism Sticky Mini Header
  * Scroll-aware compact header with bold border + semantic colors.

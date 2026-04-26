@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 StockDetailModal 컴포넌트
 /**
  * Idea 7: Desktop → slide-in detail panel (list context preserved)
  *         Mobile  → bottom-up modal (full screen)
@@ -75,7 +76,7 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({ stock, onClo
         {/* Gate 통과 현황 미니 위젯 — 27개 조건 체크리스트 */}
         {stock.checklist && <GateStatusWidget stock={stock} />}
 
-        {/* 분할매수 계획 — ADR-0021 PR-D */}
+        {/* 분할매수 계획 — ADR-0031 PR-D */}
         <TranchePlanCard plan={stock.tranchePlan} />
 
         {/* 3-Gate Bar */}

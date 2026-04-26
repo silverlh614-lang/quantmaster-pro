@@ -1,3 +1,4 @@
+// @responsibility bear 영역 BearModeSimulatorPanel 컴포넌트
 /**
  * 아이디어 8: Bear Mode 손익 시뮬레이터 — "지금 인버스 ETF를 샀다면?"
  *

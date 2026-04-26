@@ -1,3 +1,4 @@
+// @responsibility dartPoller 알림 모듈
 import fs from 'fs';
 // Phase 5-⑩: 이메일 채널 제거 — DART 공시 알림은 Telegram 단일 채널로 통합.
 import { DART_FAST_SEEN_FILE, DART_LLM_STATE_FILE, ensureDataDir } from '../persistence/paths.js';

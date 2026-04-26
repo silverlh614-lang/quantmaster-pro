@@ -1,5 +1,5 @@
 /**
- * @responsibility evaluateLastTrigger 단위 테스트 — ADR-0021 PR-D
+ * @responsibility evaluateLastTrigger 단위 테스트 — ADR-0031 PR-D
  */
 import { describe, it, expect } from 'vitest';
 import { evaluateLastTrigger } from './lastTriggerStatus';
@@ -23,7 +23,7 @@ function makeStock(opts: { vcp?: number; volume?: number } = {}): StockRecommend
   } as unknown as StockRecommendation;
 }
 
-describe('evaluateLastTrigger — ADR-0021 4-체크 평가', () => {
+describe('evaluateLastTrigger — ADR-0031 4-체크 평가', () => {
   it('4/4 충족 → EXECUTE', () => {
     const r = evaluateLastTrigger({
       stock: makeStock({ vcp: PASS, volume: PASS }),

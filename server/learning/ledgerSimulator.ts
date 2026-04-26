@@ -1,3 +1,4 @@
+// @responsibility ledgerSimulator 학습 엔진 모듈
 /**
  * ledgerSimulator.ts — Idea 2: Parallel Universe Ledger.
  *

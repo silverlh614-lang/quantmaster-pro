@@ -1,3 +1,4 @@
+// @responsibility entryConditionScores 학습 엔진 모듈
 /**
  * entryConditionScores.ts — 진입 시점 27조건 스코어 벡터 빌더.
  *

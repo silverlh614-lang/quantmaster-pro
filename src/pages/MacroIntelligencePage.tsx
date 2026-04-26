@@ -1,4 +1,4 @@
-// @responsibility 6-layer 매크로 인텔리전스 대시보드 페이지 — global intel store 통합 노출 (ADR-0024 PR-G)
+// @responsibility 6-layer 매크로 인텔리전스 대시보드 페이지 — global intel store 통합 노출 (ADR-0034 PR-G)
 
 import React from 'react';
 import { Activity, Globe, TrendingUp, Truck, AlertTriangle, BarChart3 } from 'lucide-react';

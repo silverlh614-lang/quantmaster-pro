@@ -1,3 +1,4 @@
+// @responsibility tradingOrchestrator 오케스트레이터 모듈
 import fs from 'fs';
 import { ORCHESTRATOR_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';

@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 QuantScreener 컴포넌트
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Search,

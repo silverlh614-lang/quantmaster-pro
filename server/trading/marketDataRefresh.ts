@@ -1,3 +1,4 @@
+// @responsibility marketDataRefresh 매매 엔진 모듈
 /**
  * marketDataRefresh.ts — 서버사이드 RegimeVariables 시장데이터 자동 갱신
  *

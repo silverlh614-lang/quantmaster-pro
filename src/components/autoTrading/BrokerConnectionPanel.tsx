@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 BrokerConnectionPanel 컴포넌트
 import React from 'react';
 import { ShieldAlert, Wifi, WifiOff } from 'lucide-react';
 import type { BrokerConnectionState } from '../../services/autoTrading/autoTradingTypes';

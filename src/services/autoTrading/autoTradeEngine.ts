@@ -1,3 +1,4 @@
+// @responsibility autoTradeEngine 서비스 모듈
 /**
  * autoTradeEngine.ts — 자동 매매 핵심 엔진
  *

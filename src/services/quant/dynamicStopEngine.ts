@@ -1,3 +1,4 @@
+// @responsibility quant dynamicStopEngine 엔진 모듈
 /**
  * dynamicStopEngine.ts — 변동성 적응형 동적 손절 알고리즘
  *

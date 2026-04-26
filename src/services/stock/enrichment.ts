@@ -1,3 +1,4 @@
+// @responsibility stock enrichment 서비스 모듈
 import {
   calculateRSI,
   calculateMACD,
@@ -25,7 +26,7 @@ interface KrxValuation {
 // 세션 스코프 in-memory 캐시 — 한 번의 분석 사이클에서 동일 종목 코드 중복 호출을 줄인다.
 const _valuationCache = new Map<string, KrxValuation | null>();
 
-// ─── PR-B (ADR-0019): 27 조건 sourceTier 메타 빌드 ─────────────────────────
+// ─── PR-B (ADR-0029): 27 조건 sourceTier 메타 빌드 ─────────────────────────
 
 type ChecklistKey = keyof StockRecommendation['checklist'];
 type ConditionSourceTier = 'COMPUTED' | 'API' | 'AI_INFERRED';
@@ -337,7 +338,7 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         ocfQuality: fallbackDart?.ocfGreaterThanNetIncome ? 1 : (stock.checklist?.ocfQuality ?? 0),
         interestCoverage: (fallbackDart?.interestCoverageRatio ?? 0) >= 3 ? 1 : (stock.checklist?.interestCoverage ?? 0),
       },
-      // PR-B (ADR-0019): aiFallback 경로 — DART 만 가용 (vcp/kisSupply 없음)
+      // PR-B (ADR-0029): aiFallback 경로 — DART 만 가용 (vcp/kisSupply 없음)
       conditionSourceTiers: buildConditionSourceTiers({
         hasDartFinancials: fallbackDart != null,
         hasKisSupply: false,
@@ -473,7 +474,7 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       marketCap: (krxValuation?.marketCap && krxValuation.marketCap > 0)
         ? krxValuation.marketCap
         : stock.marketCap,
-      // PR-B (ADR-0019): main path — VCP 실계산 + DART/KIS supply 가용성 반영
+      // PR-B (ADR-0029): main path — VCP 실계산 + DART/KIS supply 가용성 반영
       conditionSourceTiers: buildConditionSourceTiers({
         hasDartFinancials: dartFinancials != null,
         hasKisSupply: kisSupply != null,

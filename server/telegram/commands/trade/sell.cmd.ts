@@ -1,3 +1,4 @@
+// @responsibility sell.cmd 텔레그램 모듈
 // @responsibility: /sell <code> [reason] [memo] — LIVE 포지션 전량 시장가 매도 + MANUAL_EXIT 학습 격리. SHADOW 봉쇄.
 import {
   loadShadowTrades,

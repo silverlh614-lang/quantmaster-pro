@@ -1,3 +1,4 @@
+// @responsibility page-header UI 프리미티브 컴포넌트
 /**
  * Neo-Brutalism Page Header
  * Bold accent bar + large title with gradient text.

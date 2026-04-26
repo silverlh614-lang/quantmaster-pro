@@ -1,3 +1,4 @@
+// @responsibility koreanQuoteBridge 외부 클라이언트 모듈
 /**
  * koreanQuoteBridge.ts — KRX 인증 API ↔ Yahoo Finance 이중화 브릿지.
  *

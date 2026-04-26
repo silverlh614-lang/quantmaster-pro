@@ -1,3 +1,4 @@
+// @responsibility regimeCoverage.cmd 텔레그램 모듈
 // @responsibility: /regime_coverage — 레짐별 학습 샘플 수 / 목표 / 부족 상태.
 import { formatRegimeCoverage } from '../../../learning/regimeBalancedSampler.js';
 import { commandRegistry } from '../../commandRegistry.js';

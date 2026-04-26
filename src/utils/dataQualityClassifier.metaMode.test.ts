@@ -1,5 +1,5 @@
 /**
- * @responsibility classifyDataQuality 메타 우선 모드 테스트 — ADR-0019 PR-B
+ * @responsibility classifyDataQuality 메타 우선 모드 테스트 — ADR-0029 PR-B
  */
 import { describe, it, expect } from 'vitest';
 import { classifyDataQuality } from './dataQualityClassifier';
@@ -37,7 +37,7 @@ function makeStock(opts: {
   } as unknown as StockRecommendation;
 }
 
-describe('classifyDataQuality — ADR-0019 메타 우선 모드', () => {
+describe('classifyDataQuality — ADR-0029 메타 우선 모드', () => {
   it('전체 27키 메타 + 모두 통과 → sourceMetaAvailable=true 격상', () => {
     const meta: Record<string, 'COMPUTED' | 'API' | 'AI_INFERRED'> = {};
     for (const k of ALL_KEYS_27) meta[k] = 'COMPUTED';

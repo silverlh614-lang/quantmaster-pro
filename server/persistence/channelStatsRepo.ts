@@ -1,3 +1,4 @@
+// @responsibility channelStatsRepo 영속화 저장소 모듈
 import fs from 'fs';
 import { CHANNEL_STATS_FILE, ensureDataDir } from './paths.js';
 import { AlertCategory } from '../alerts/alertCategories.js';

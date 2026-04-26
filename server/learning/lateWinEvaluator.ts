@@ -1,3 +1,4 @@
+// @responsibility lateWinEvaluator 학습 엔진 모듈
 /**
  * lateWinEvaluator.ts — 아이디어 5 (Phase 3): EXPIRED 거래 지연 평가 루틴.
  *

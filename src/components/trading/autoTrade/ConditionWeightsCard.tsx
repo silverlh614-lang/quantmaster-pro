@@ -1,3 +1,4 @@
+// @responsibility trading 영역 ConditionWeightsCard 컴포넌트
 import React from 'react';
 import { Settings2 } from 'lucide-react';
 import { cn } from '../../../ui/cn';

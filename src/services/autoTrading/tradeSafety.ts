@@ -1,3 +1,4 @@
+// @responsibility tradeSafety 서비스 모듈
 /**
  * tradeSafety.ts — 상시 가동 안전장치
  *

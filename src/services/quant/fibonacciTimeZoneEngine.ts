@@ -1,3 +1,4 @@
+// @responsibility quant fibonacciTimeZoneEngine 엔진 모듈
 // src/services/quant/fibonacciTimeZoneEngine.ts
 // ─── 피보나치 타임존 엔진 — 시간축 피보나치로 변곡점 예측 ──────────────────────
 //

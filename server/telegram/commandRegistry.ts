@@ -1,3 +1,4 @@
+// @responsibility commandRegistry 텔레그램 모듈
 // @responsibility: TelegramCommand 등록·조회 SSOT. name/alias 일치를 단일 Map 으로 관리하고 중복은 명시 차단.
 //
 // ADR-0017 §Stage 2 Phase A — webhookHandler.ts 가 switch 진입 직전 본 레지스트리를 먼저

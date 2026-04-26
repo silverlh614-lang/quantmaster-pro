@@ -1,3 +1,4 @@
+// @responsibility market 영역 MarketDashboard 컴포넌트
 import React, { useMemo } from 'react';
 import { MarketOverview } from '../../services/stockService';
 import { SectionErrorBoundary } from '../common/SectionErrorBoundary';

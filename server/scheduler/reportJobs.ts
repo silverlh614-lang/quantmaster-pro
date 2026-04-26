@@ -2,11 +2,12 @@
  * @responsibility 정기 리포트 cron(주간 요약 · 일일 픽 · 프리/인트라/포스트마켓 · 점검 브리핑 · 지표 갱신)을 등록한다.
  *
  * Phase 3: 참뮌 스펙 #5에 따라 아침·정오·장마감 3개의 "통합 슬롯" 으로 합쳐
- * 30분 이내 다건 발송되던 중복 인지 부담을 제거한다. 통합 슬롯 안에서 호출된
- * 각 report 함수의 sendTelegramAlert 는 unifiedBriefing이 버퍼로 흡수해
- * 단일 composite 메시지로 발송한다. T1/CRITICAL 은 자동 우회.
+ * 30분 이내 다건 발송되던 중복 인지 부담을 제거한다.
+ *
+ * PR-B-2 ADR-0043: 평일 영업일 의존 cron 은 TRADING_DAY_ONLY,
+ * 주간 리포트(월/일요일)·Mutation Canary(매시간 24/7) 는 ALWAYS_ON / WEEKEND_MAINTENANCE.
  */
-import cron from 'node-cron';
+import { scheduledJob } from './scheduleGuard.js';
 import {
   generateWeeklyReport,
   sendIntradayCheckIn,
@@ -62,19 +63,16 @@ async function runUnifiedBriefing(
 
 export function registerReportJobs(): void {
   // 주간 캘리브레이션 리포트 — 매주 월요일 08:00 KST (UTC 일요일 23:00).
-  // Phase 4: 금요일 16:30 발송은 주말에 잊혀지는 문제가 있어 월요일 아침으로 이동.
-  // "지난 주 움직임 + 이번 주 액션 아이템" narrative 형식.
-  cron.schedule('0 23 * * 0', async () => { await generateWeeklyReport().catch(console.error); }, { timezone: 'UTC' });
+  // PR-B-2: ALWAYS_ON — 월요일이 KRX 공휴일이어도 주간 누적 리포트 가치 있음.
+  scheduledJob('0 23 * * 0', 'ALWAYS_ON', 'weekly_report',
+    () => generateWeeklyReport(), { timezone: 'UTC' });
 
-  // 주간 조건 성과 스코어카드 — 매주 월요일 08:10 KST (UTC 일요일 23:10). IDEA 6.
-  // 27조건 Top3/Bottom3 + 다음주 주목 조건 → DM+채널 브로드캐스트.
-  cron.schedule('10 23 * * 0', async () => { await sendWeeklyConditionScorecard().catch(console.error); }, { timezone: 'UTC' });
+  // 주간 조건 성과 스코어카드 — 매주 월요일 08:10 KST.
+  scheduledJob('10 23 * * 0', 'ALWAYS_ON', 'weekly_condition_scorecard',
+    () => sendWeeklyConditionScorecard(), { timezone: 'UTC' });
 
-  // 저녁 추천 사이클 직전 회로 자동 reset — 평일 KST 16:25 (UTC 07:25).
-  // 사용자 P3-8: 저녁 추천 스캔 시점에 KIS/KRX 회로가 차단된 채로 들어가면
-  // 후보 종목 호출이 모두 null 로 떨어진다. 16:30 종목 픽 리포트 직전에
-  // 회로를 한 번 정리하여 cooldown 누적의 부작용을 끊는다.
-  cron.schedule('25 7 * * 1-5', () => {
+  // 저녁 추천 사이클 직전 회로 자동 reset — 평일 KST 16:25.
+  scheduledJob('25 7 * * 1-5', 'TRADING_DAY_ONLY', 'circuit_auto_reset', () => {
     const cleared = resetKisCircuits();
     try { _resetKrxOpenApiBreaker(); } catch { /* noop */ }
     if (cleared > 0) {
@@ -82,42 +80,43 @@ export function registerReportJobs(): void {
     }
   }, { timezone: 'UTC' });
 
-  // 일일 종목 픽 리포트 — 평일 16:30 KST (UTC 07:30). 구독자용 픽 채널.
-  cron.schedule('30 7 * * 1-5', async () => { await generateDailyPickReport().catch(console.error); }, { timezone: 'UTC' });
+  // 일일 종목 픽 리포트 — 평일 16:30 KST.
+  scheduledJob('30 7 * * 1-5', 'TRADING_DAY_ONLY', 'daily_pick_report',
+    () => generateDailyPickReport(), { timezone: 'UTC' });
 
-  // 오늘 스캔 회고 리포트 — 평일 16:40 KST (UTC 07:40). IDEA 1.
-  // scanTracer + watchlist + shadowTrades 교차 → 탈락 상위 이유 + 내일 후보 → DM+채널 브로드캐스트.
-  cron.schedule('40 7 * * 1-5', async () => { await sendScanReviewReport().catch(console.error); }, { timezone: 'UTC' });
+  // 오늘 스캔 회고 리포트 — 평일 16:40 KST.
+  scheduledJob('40 7 * * 1-5', 'TRADING_DAY_ONLY', 'scan_retrospective',
+    () => sendScanReviewReport(), { timezone: 'UTC' });
 
-  // 보유 포지션 Morning Card — 평일 09:05 KST (UTC 00:05). IDEA 4.
-  // positionAggregator 생애주기 집계 → 활성 포지션별 현재가/손절/목표 격차 카드 → DM+채널.
-  cron.schedule('5 0 * * 1-5', async () => { await sendPositionMorningCard().catch(console.error); }, { timezone: 'UTC' });
+  // 보유 포지션 Morning Card — 평일 09:05 KST.
+  scheduledJob('5 0 * * 1-5', 'TRADING_DAY_ONLY', 'morning_position_card',
+    () => sendPositionMorningCard(), { timezone: 'UTC' });
 
-  // 섹터 사이클 대시보드 — 평일 14:30 KST (UTC 05:30). IDEA 8.
-  // 美 섹터 ETF RS + 국내 워치리스트 섹터 분포 + 매크로 사이클 단계 → DM+채널.
-  cron.schedule('30 5 * * 1-5', async () => { await sendSectorCycleDashboard().catch(console.error); }, { timezone: 'UTC' });
+  // 섹터 사이클 대시보드 — 평일 14:30 KST.
+  scheduledJob('30 5 * * 1-5', 'TRADING_DAY_ONLY', 'sector_cycle_dashboard',
+    () => sendSectorCycleDashboard(), { timezone: 'UTC' });
 
-  // 52주 신고가 모멘텀 스캔 — 평일 16:05 KST (UTC 07:05). IDEA 7.
-  // 당일 동적 유니버스 52W_HIGH 편입 → Gate ≥ 8 필터 → DM+채널.
-  cron.schedule('5 7 * * 1-5', async () => { await sendNewHighMomentumScan().catch(console.error); }, { timezone: 'UTC' });
+  // 52주 신고가 모멘텀 스캔 — 평일 16:05 KST.
+  scheduledJob('5 7 * * 1-5', 'TRADING_DAY_ONLY', 'high_52w_scan',
+    () => sendNewHighMomentumScan(), { timezone: 'UTC' });
 
-  // 주간 심층 분석 카드 — 매주 수요일 15:00 KST (UTC 06:00). IDEA 10.
-  // SWING 워치리스트 Gate 상위 1종목 → 심층 카드 → 픽 채널.
-  cron.schedule('0 6 * * 3', async () => { await sendWeeklyDeepAnalysis().catch(console.error); }, { timezone: 'UTC' });
+  // 주간 심층 분석 카드 — 매주 수요일 15:00 KST.
+  scheduledJob('0 6 * * 3', 'TRADING_DAY_ONLY', 'weekly_deep_analysis',
+    () => sendWeeklyDeepAnalysis(), { timezone: 'UTC' });
 
-  // 주간 퀀트 인사이트 — 매주 금요일 17:00 KST (UTC 08:00). IDEA 12.
-  // 이번 주 MHS·외국인 수급·신고가·결산 → Gemini narrative → DM+채널.
-  cron.schedule('0 8 * * 5', async () => { await sendWeeklyQuantInsight().catch(console.error); }, { timezone: 'UTC' });
+  // 주간 퀀트 인사이트 — 매주 금요일 17:00 KST.
+  scheduledJob('0 8 * * 5', 'TRADING_DAY_ONLY', 'weekly_quant_insight',
+    () => sendWeeklyQuantInsight(), { timezone: 'UTC' });
 
-  // 시장 지표 자동 갱신 — 평일 08:40 KST + 15:30 KST (장 마감 후).
-  // KOSPI/SPX/DXY/USD-KRW Yahoo Finance → classifyRegime() 7축 갱신. Telegram 없음.
-  cron.schedule('40 23 * * 0-4', async () => { await refreshMarketRegimeVars().catch(console.error); }, { timezone: 'UTC' });
-  cron.schedule('30 6 * * 1-5', async () => { await refreshMarketRegimeVars().catch(console.error); }, { timezone: 'UTC' });
+  // 시장 지표 자동 갱신 — 평일 08:40 KST + 15:30 KST.
+  scheduledJob('40 23 * * 0-4', 'TRADING_DAY_ONLY', 'market_regime_refresh_morning',
+    () => refreshMarketRegimeVars(), { timezone: 'UTC' });
+  scheduledJob('30 6 * * 1-5', 'TRADING_DAY_ONLY', 'market_regime_refresh_close',
+    () => refreshMarketRegimeVars(), { timezone: 'UTC' });
 
   // ── Phase 3 통합 슬롯 ─────────────────────────────────────────────────────
-  // 아침 브리핑 — 평일 08:45 KST (UTC 23:45, 일~목).
-  // 기존 08:30 장전 + 08:50 워치리스트 + 08:50 FOMC 근접도를 1건으로 병합.
-  cron.schedule('45 23 * * 0-4', async () => {
+  // 아침 브리핑 — 평일 08:45 KST.
+  scheduledJob('45 23 * * 0-4', 'TRADING_DAY_ONLY', 'morning_briefing', async () => {
     await runUnifiedBriefing('🌅 아침 브리핑', 'T2_REPORT', [
       sendPreMarketReport,
       sendWatchlistBriefing,
@@ -125,9 +124,8 @@ export function registerReportJobs(): void {
     ]);
   }, { timezone: 'UTC' });
 
-  // 정오 점검 — 평일 12:30 KST (UTC 03:30).
-  // 기존 11:30 midday + 12:00 장중 현황 + 14:00 preclose를 1건으로 병합.
-  cron.schedule('30 3 * * 1-5', async () => {
+  // 정오 점검 — 평일 12:30 KST.
+  scheduledJob('30 3 * * 1-5', 'TRADING_DAY_ONLY', 'lunch_briefing', async () => {
     await runUnifiedBriefing('🕛 정오 점검', 'T2_REPORT', [
       () => sendIntradayCheckIn('midday'),
       sendIntradayMarketReport,
@@ -135,9 +133,8 @@ export function registerReportJobs(): void {
     ]);
   }, { timezone: 'UTC' });
 
-  // 장마감 종합 — 평일 16:00 KST (UTC 07:00).
-  // 기존 15:35 포스트 마켓 + 15:40 스코어카드 + 16:40 Shadow 진행률을 1건으로 병합.
-  cron.schedule('0 7 * * 1-5', async () => {
+  // 장마감 종합 — 평일 16:00 KST.
+  scheduledJob('0 7 * * 1-5', 'TRADING_DAY_ONLY', 'eod_briefing', async () => {
     await runUnifiedBriefing('🌙 장마감 종합', 'T2_REPORT', [
       sendPostMarketReport,
       generateQualityScorecard,
@@ -146,27 +143,22 @@ export function registerReportJobs(): void {
     ]);
   }, { timezone: 'UTC' });
 
-  // Phase 3.2 — 주간 무결성 리포트 (일요일 10:00 KST = 일 01:00 UTC).
-  // 주간 신호 발생 패턴 · 조건 활성화 빈도 · 판단 로직 해시값 변동 여부 요약.
-  // Phase 6 — 동일 슬롯에서 알림 감사 리포트도 함께 발송.
-  cron.schedule('0 1 * * 0', async () => {
+  // 주간 무결성 리포트 (일요일 10:00 KST). PR-B-2: WEEKEND_MAINTENANCE.
+  scheduledJob('0 1 * * 0', 'WEEKEND_MAINTENANCE', 'weekly_integrity_report', async () => {
     await sendWeeklyIntegrityReport().catch(console.error);
     await sendWeeklyHygieneAudit().catch(console.error);
   }, { timezone: 'UTC' });
 
-  // INFO 채널 일일 다이제스트 flush (평일 15:35 KST = UTC 06:35)
-  cron.schedule('35 6 * * 1-5', async () => {
-    await flushInfoDailyDigest().catch(console.error);
-  }, { timezone: 'UTC' });
+  // INFO 채널 일일 다이제스트 flush (평일 15:35 KST).
+  scheduledJob('35 6 * * 1-5', 'TRADING_DAY_ONLY', 'info_digest_flush',
+    () => flushInfoDailyDigest(), { timezone: 'UTC' });
 
-  // SYSTEM 채널 주간 요약 flush (금요일 17:00 KST = UTC 08:00)
-  cron.schedule('0 8 * * 5', async () => {
-    await flushSystemWeeklySummary().catch(console.error);
-  }, { timezone: 'UTC' });
+  // SYSTEM 채널 주간 요약 flush (금요일 17:00 KST).
+  scheduledJob('0 8 * * 5', 'TRADING_DAY_ONLY', 'system_weekly_flush',
+    () => flushSystemWeeklySummary(), { timezone: 'UTC' });
 
-  // Phase 2차 C4 — Mutation Canary: 매시간 정각, 고정 입력 → 고정 출력 검증.
-  // 판단 로직에 우발적 변경이 일어난 직후 ≤ 60분 내 CRITICAL 경보.
-  cron.schedule('0 * * * *', async () => {
-    await runHourlyCanary().catch(console.error);
-  }, { timezone: 'UTC' });
+  // Mutation Canary: 매시간 정각.
+  // PR-B-2: ALWAYS_ON — 판단 로직 변경 감시는 24/7.
+  scheduledJob('0 * * * *', 'ALWAYS_ON', 'hourly_canary',
+    () => runHourlyCanary(), { timezone: 'UTC' });
 }

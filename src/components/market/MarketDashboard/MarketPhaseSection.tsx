@@ -1,3 +1,4 @@
+// @responsibility market 영역 MarketPhaseSection 컴포넌트
 import React from 'react';
 import { Activity, Flame, Zap, ShieldAlert } from 'lucide-react';
 import { cn } from '../../../ui/cn';

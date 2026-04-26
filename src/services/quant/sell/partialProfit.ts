@@ -1,3 +1,4 @@
+// @responsibility quant partialProfit 엔진 모듈
 /**
  * sell/partialProfit.ts — L3 분할 익절
  *

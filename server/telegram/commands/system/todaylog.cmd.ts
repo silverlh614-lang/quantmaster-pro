@@ -1,3 +1,4 @@
+// @responsibility todaylog.cmd 텔레그램 모듈
 // @responsibility: /todaylog 명령 — 오늘 KST 00시부터 현재까지의 알림 감사 로그를 티어·카테고리별 집계.
 import { readAlertAuditRange } from '../../../alerts/alertAuditLog.js';
 import { commandRegistry } from '../../commandRegistry.js';

@@ -1,3 +1,4 @@
+// @responsibility state 서버 모듈
 // server/state.ts — 공유 상태 모듈
 // 서버사이드 비상 정지 플래그 & 일일 손실률을 단일 모듈에서 관리
 let EMERGENCY_STOP = false;

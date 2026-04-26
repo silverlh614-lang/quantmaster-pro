@@ -1,3 +1,4 @@
+// @responsibility stock types 서비스 모듈
 import type {
   SectorRotation,
   MultiTimeframe,
@@ -244,7 +245,7 @@ export interface StockRecommendation {
   dataSource?: string;
   dataSourceType?: 'AI' | 'REALTIME' | 'YAHOO' | 'STALE'; // 신뢰도 계층
   /**
-   * PR-B (ADR-0019): 27 조건 항목별 실제 데이터 출처 메타.
+   * PR-B (ADR-0029): 27 조건 항목별 실제 데이터 출처 메타.
    * 부재 시 PR-A 휴리스틱 fallback (`classifyDataQuality` 가 키 그룹 기반 분류).
    */
   conditionSourceTiers?: Partial<Record<keyof StockRecommendation['checklist'], 'COMPUTED' | 'API' | 'AI_INFERRED'>>;

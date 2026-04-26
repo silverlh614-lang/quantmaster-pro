@@ -1,3 +1,4 @@
+// @responsibility quant gateEngine 엔진 모듈
 /**
  * gateEngine.ts — 퀀트 Gate 평가 엔진 (메인 오케스트레이터)
  *

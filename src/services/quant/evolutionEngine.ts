@@ -1,3 +1,4 @@
+// @responsibility quant evolutionEngine 엔진 모듈
 // src/services/quant/evolutionEngine.ts
 import { ConditionId, SellCondition } from '../../types/quant';
 

@@ -1,3 +1,4 @@
+// @responsibility DiscoverWatchlistPage 페이지 컴포넌트
 import React from 'react';
 import {
   RefreshCw, AlertTriangle, X, ChevronRight, HelpCircle,
@@ -180,7 +181,7 @@ export function DiscoverWatchlistPage({
     newsFrequencyScores, addShadowTrade, copiedCode, handleCopy,
   } = useWatchlistData();
 
-  // PR-C (ADR-0020): 가격 알림 watcher — 워치리스트 displayList 의 4단계 alertLevel transition 감지
+  // PR-C (ADR-0030): 가격 알림 watcher — 워치리스트 displayList 의 4단계 alertLevel transition 감지
   usePriceAlertWatcher(displayList);
 
   const {
@@ -352,7 +353,7 @@ export function DiscoverWatchlistPage({
       )}
 
       <Section>
-        {/* PR-F (ADR-0023): 후보군 파이프라인 — Discover 탭에서만 표시 */}
+        {/* PR-F (ADR-0033): 후보군 파이프라인 — Discover 탭에서만 표시 */}
         {view === 'DISCOVER' && (
           <div className="mb-3 sm:mb-4">
             <CandidatePipelinePanel />
