@@ -29,6 +29,7 @@ import {
 } from '../trading/signalScanner.js';
 import { verifyVolumeMount } from '../persistence/paths.js';
 import { getKrxOpenApiStatus, isKrxOpenApiHealthy } from '../clients/krxOpenApi.js';
+import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getCachedIntradayYield } from '../alerts/intradayYieldTicker.js';
 import {
   probeMultipleSymbols,
@@ -96,6 +97,10 @@ export interface HealthSnapshot {
   krxTokenValid: boolean;
   krxCircuitState: string;
   krxFailures: number;
+  /** Phase 1 — 공매도 비율 데이터 출처 (KRX_DIRECT/KRX_OTP/KIS_ESTIMATE 또는 미수집). */
+  shortSellingSource?: 'KRX_DIRECT' | 'KRX_OTP' | 'KIS_ESTIMATE';
+  /** Phase 1 — 공매도 마지막 조회 시각 ISO. */
+  shortSellingFetchedAt?: string;
 
   // ── 6축: Yahoo (집계 상태) ──
   yahoo: {
@@ -160,6 +165,7 @@ export interface HealthProbeOutcome {
 export function collectHealthSnapshot(): HealthSnapshot {
   const watchlist = loadWatchlist();
   const shadows = loadShadowTrades();
+  const macroState = loadMacroState();
   const emergencyStop = getEmergencyStop();
   const dailyLossPct = getDailyLossPct();
   const dailyLossLimit = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
@@ -236,6 +242,8 @@ export function collectHealthSnapshot(): HealthSnapshot {
     krxTokenValid,
     krxCircuitState: krxStatus.circuitState,
     krxFailures: krxStatus.failures,
+    shortSellingSource: macroState?.shortSellingSource,
+    shortSellingFetchedAt: macroState?.shortSellingFetchedAt,
     yahoo: {
       status: yahooStatus,
       detail: yahooDetail,
