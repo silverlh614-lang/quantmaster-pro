@@ -14,22 +14,10 @@ import { CALIBRATION_MIN_TRADES } from './feedbackLoopEngine';
 import type { TradeRecord } from '../../types/portfolio';
 import type { ConditionId } from '../../types/core';
 
+import { attachMockLocalStorage } from './__test-utils__/localStorageMock';
+
 // node env 에서 localStorage 가 부재 → in-memory mock 으로 regimeMemoryBank 동작 검증
-beforeAll(() => {
-  if (typeof globalThis.window === 'undefined') {
-    const store = new Map<string, string>();
-    const mockLs = {
-      getItem: (k: string): string | null => store.get(k) ?? null,
-      setItem: (k: string, v: string): void => { store.set(k, v); },
-      removeItem: (k: string): void => { store.delete(k); },
-      clear: (): void => { store.clear(); },
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (globalThis as any).window = { localStorage: mockLs };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (globalThis as any).localStorage = mockLs;
-  }
-});
+beforeAll(() => { attachMockLocalStorage(); });
 
 const ORIGINAL_ENV = process.env.LEARNING_REGIME_BANK_DISABLED;
 beforeEach(() => {

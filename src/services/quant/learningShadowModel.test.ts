@@ -7,22 +7,10 @@ import { evaluateFeedbackLoop, CALIBRATION_MIN_TRADES } from './feedbackLoopEngi
 import type { TradeRecord } from '../../types/portfolio';
 import type { ConditionId } from '../../types/core';
 
+import { attachMockLocalStorage } from './__test-utils__/localStorageMock';
+
 // localStorage mock — node env 에서 saveEvolutionWeights 가 안전하게 no-op 되도록.
-beforeAll(() => {
-  if (typeof globalThis.window === 'undefined') {
-    const store = new Map<string, string>();
-    const mockLs = {
-      getItem: (k: string): string | null => store.get(k) ?? null,
-      setItem: (k: string, v: string): void => { store.set(k, v); },
-      removeItem: (k: string): void => { store.delete(k); },
-      clear: (): void => { store.clear(); },
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (globalThis as any).window = { localStorage: mockLs };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (globalThis as any).localStorage = mockLs;
-  }
-});
+beforeAll(() => { attachMockLocalStorage(); });
 
 function makeTrade(returnPct: number, conditionId: ConditionId, score: number): TradeRecord {
   const scores = {} as Record<ConditionId, number>;
