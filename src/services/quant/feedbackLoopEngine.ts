@@ -17,6 +17,7 @@ import type { TradeRecord, FeedbackLoopResult, ConditionCalibration } from '../.
 import type { ConditionId } from '../../types/core';
 import { ALL_CONDITIONS } from './evolutionEngine';
 import { saveEvolutionWeights } from './evolutionEngine';
+import { getSourceMultiplier, resolveSource } from './sourceWeighting';
 
 // ─── 캘리브레이션 임계값 ──────────────────────────────────────────────────────
 
@@ -81,10 +82,21 @@ export function evaluateFeedbackLoop(
     const prevWeight = currentWeights[id] ?? 1.0;
     let newWeight = prevWeight;
 
+    // ADR-0020 (PR-C): AI/COMPUTED 차등 학습 — relevant trades 의 conditionSources
+    // 다수결로 trade-level source 결정 (PR-A v2 레코드만 있음). 부재 시 글로벌 SSOT.
+    // Trade 별로 다를 수 있지만 단일 conditionId 의 source 는 안정적으로 동일하므로
+    // 대표 1건의 conditionSources[id] 만 추출해도 충분. 부재 시 SOURCE_MAP fallback.
+    const tradeSourceOverride = relevant
+      .map(t => t.conditionSources?.[id])
+      .find((s): s is 'COMPUTED' | 'AI' => s === 'COMPUTED' || s === 'AI');
+    const source = resolveSource(id, tradeSourceOverride);
+    const sourceMultiplier = getSourceMultiplier(id, tradeSourceOverride);
+    const effectiveStep = WEIGHT_STEP * sourceMultiplier;
+
     if (winRate > 0.60) {
-      newWeight = parseFloat(Math.min(WEIGHT_MAX, prevWeight + WEIGHT_STEP).toFixed(2));
+      newWeight = parseFloat(Math.min(WEIGHT_MAX, prevWeight + effectiveStep).toFixed(2));
     } else if (winRate < 0.40) {
-      newWeight = parseFloat(Math.max(WEIGHT_MIN, prevWeight - WEIGHT_STEP).toFixed(2));
+      newWeight = parseFloat(Math.max(WEIGHT_MIN, prevWeight - effectiveStep).toFixed(2));
     }
 
     const delta = parseFloat((newWeight - prevWeight).toFixed(2));
@@ -103,6 +115,8 @@ export function evaluateFeedbackLoop(
       newWeight,
       direction,
       delta,
+      source,
+      sourceMultiplier,
     });
   }
 

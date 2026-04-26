@@ -607,6 +607,11 @@ export interface ConditionCalibration {
   direction: 'UP' | 'DOWN' | 'STABLE';
   /** 변화량 */
   delta: number;
+  // ADR-0020 (PR-C): AI/COMPUTED 차등 학습 — 결과 메타
+  /** 조건 데이터 출처 (CONDITION_SOURCE_MAP) */
+  source?: 'COMPUTED' | 'AI';
+  /** 본 보정에 적용된 source multiplier (COMPUTED=1.0, AI=0.4) */
+  sourceMultiplier?: number;
 }
 
 /** 피드백 폐쇄 루프 캘리브레이션 결과 */
