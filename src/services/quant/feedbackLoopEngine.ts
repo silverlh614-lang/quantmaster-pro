@@ -33,6 +33,24 @@ const MIN_CONDITION_TRADES = 5;
 const WEIGHT_MIN = 0.5;
 const WEIGHT_MAX = 1.5;
 const WEIGHT_STEP = 0.10;
+const UP_THRESHOLD_DEFAULT = 0.60;
+const DOWN_THRESHOLD_DEFAULT = 0.40;
+
+/**
+ * ADR-0027 (PR-J): Shadow Model — 신규 학습 로직 그림자 검증 옵션.
+ * shadow=true 면 saveEvolutionWeights 호출 차단 (LIVE 가중치 무영향).
+ * weightStep / 임계값 override 로 다른 알고리즘 시뮬레이션 가능.
+ */
+export interface FeedbackLoopOptions {
+  /** true → localStorage 저장 안 함 (LIVE 무영향, 결과만 반환) */
+  shadow?: boolean;
+  /** WEIGHT_STEP override (기본 0.10) */
+  weightStep?: number;
+  /** 가중치 상향 임계 (기본 0.60) */
+  upThreshold?: number;
+  /** 가중치 하향 임계 (기본 0.40) */
+  downThreshold?: number;
+}
 
 // ─── 핵심 로직 ────────────────────────────────────────────────────────────────
 
@@ -47,7 +65,12 @@ const WEIGHT_STEP = 0.10;
 export function evaluateFeedbackLoop(
   closedTrades: TradeRecord[],
   currentWeights: Record<number, number> = {},
+  options?: FeedbackLoopOptions,
 ): FeedbackLoopResult {
+  const isShadow = options?.shadow === true;
+  const weightStep = options?.weightStep ?? WEIGHT_STEP;
+  const upThreshold = options?.upThreshold ?? UP_THRESHOLD_DEFAULT;
+  const downThreshold = options?.downThreshold ?? DOWN_THRESHOLD_DEFAULT;
   const closedCount = closedTrades.length;
   const calibrationActive = closedCount >= CALIBRATION_MIN_TRADES;
   const calibrationProgress = Math.min(1, closedCount / CALIBRATION_MIN_TRADES);
@@ -103,11 +126,11 @@ export function evaluateFeedbackLoop(
       .find((s): s is 'COMPUTED' | 'AI' => s === 'COMPUTED' || s === 'AI');
     const source = resolveSource(id, tradeSourceOverride);
     const sourceMultiplier = getSourceMultiplier(id, tradeSourceOverride);
-    const effectiveStep = WEIGHT_STEP * sourceMultiplier;
+    const effectiveStep = weightStep * sourceMultiplier;
 
-    if (winRate > 0.60) {
+    if (winRate > upThreshold) {
       newWeight = parseFloat(Math.min(WEIGHT_MAX, prevWeight + effectiveStep).toFixed(2));
-    } else if (winRate < 0.40) {
+    } else if (winRate < downThreshold) {
       newWeight = parseFloat(Math.max(WEIGHT_MIN, prevWeight - effectiveStep).toFixed(2));
     }
 
@@ -149,7 +172,8 @@ export function evaluateFeedbackLoop(
   for (const c of calibrations) {
     if (c.newWeight !== c.prevWeight) saveMap[c.conditionId] = c.newWeight;
   }
-  if (Object.keys(saveMap).length > 0) {
+  // ADR-0027 (PR-J): shadow=true → LIVE 가중치 무영향
+  if (Object.keys(saveMap).length > 0 && !isShadow) {
     saveEvolutionWeights({ ...currentWeights, ...saveMap });
   }
 
