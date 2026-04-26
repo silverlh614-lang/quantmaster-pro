@@ -6,25 +6,33 @@ import { cn } from '../../ui/cn';
 import { useGlobalIntelStore } from '../../stores';
 import { classifySectorHeat, SECTOR_HEAT_CSS } from '../../utils/sectorHeatColor';
 import type { SectorEnergyScore } from '../../types/sectorEnergy';
+import { SectorStocksDrilldown } from './SectorStocksDrilldown';
 
 interface SectorChipProps {
   score: SectorEnergyScore;
   showScore?: boolean;
+  onSelect?: (sectorName: string, score: number) => void;
 }
 
-function SectorChip({ score, showScore = true }: SectorChipProps) {
+function SectorChip({ score, showScore = true, onSelect }: SectorChipProps) {
   const tone = classifySectorHeat(score.score);
+  const handleClick = () => onSelect?.(score.name, score.score);
   return (
-    <span
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={!onSelect}
       className={cn(
         'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap border',
         SECTOR_HEAT_CSS[tone],
+        onSelect && 'hover:opacity-80 transition-opacity cursor-pointer',
       )}
-      title={`${score.name} — 에너지 ${score.energyScore.toFixed(1)} / 정규 ${score.score.toFixed(1)}`}
+      title={`${score.name} — 에너지 ${score.energyScore.toFixed(1)} / 정규 ${score.score.toFixed(1)} · 클릭 시 종목 보기`}
+      aria-label={`${score.name} 섹터 종목 드릴다운`}
     >
       <span>{score.name}</span>
       {showScore && <span className="font-num opacity-80">{Math.round(score.score)}</span>}
-    </span>
+    </button>
   );
 }
 
@@ -37,8 +45,11 @@ function SectorChip({ score, showScore = true }: SectorChipProps) {
 export function SectorRotationHeatmap() {
   const result = useGlobalIntelStore(s => s.sectorEnergyResult);
   const [expanded, setExpanded] = useState(false);
+  const [drilldown, setDrilldown] = useState<{ name: string; score: number } | null>(null);
 
   if (!result || !result.scores || result.scores.length === 0) return null;
+
+  const handleSelect = (name: string, score: number) => setDrilldown({ name, score });
 
   const sorted = [...result.scores].sort((a, b) => b.score - a.score);
   const top3 = sorted.slice(0, 3);
@@ -60,7 +71,7 @@ export function SectorRotationHeatmap() {
         {/* Leaders */}
         <div className="flex items-center gap-1.5 shrink-0">
           <span className="text-[9px] text-white/40 font-bold">🔥</span>
-          {top3.map(s => <SectorChip key={s.name} score={s} />)}
+          {top3.map(s => <SectorChip key={s.name} score={s} onSelect={handleSelect} />)}
         </div>
 
         <div className="w-px h-3 bg-white/10 shrink-0" />
@@ -68,7 +79,7 @@ export function SectorRotationHeatmap() {
         {/* Laggers */}
         <div className="flex items-center gap-1.5 shrink-0">
           <span className="text-[9px] text-white/40 font-bold">🧊</span>
-          {bottom3.map(s => <SectorChip key={s.name} score={s} />)}
+          {bottom3.map(s => <SectorChip key={s.name} score={s} onSelect={handleSelect} />)}
         </div>
 
         {/* Season chip */}
@@ -96,7 +107,8 @@ export function SectorRotationHeatmap() {
               return (
                 <li
                   key={s.name}
-                  className="flex items-center gap-2 text-[11px]"
+                  className="flex items-center gap-2 text-[11px] cursor-pointer hover:bg-white/5 px-1 rounded"
+                  onClick={() => handleSelect(s.name, s.score)}
                 >
                   <span className="w-20 text-white/70 font-bold shrink-0 truncate">{s.name}</span>
                   <div className="flex-1 h-2 rounded-full bg-white/5 overflow-hidden min-w-[80px]">
@@ -123,6 +135,15 @@ export function SectorRotationHeatmap() {
             {result.summary || `${result.currentSeason} 시즌 — Leading ${top3.length} / Lagging ${bottom3.length}`}
           </p>
         </div>
+      )}
+
+      {/* PR-K 섹터별 종목 드릴다운 모달 */}
+      {drilldown && (
+        <SectorStocksDrilldown
+          sectorName={drilldown.name}
+          score={drilldown.score}
+          onClose={() => setDrilldown(null)}
+        />
       )}
     </div>
   );
