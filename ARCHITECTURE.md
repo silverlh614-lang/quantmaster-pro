@@ -57,6 +57,9 @@ When modifying any file, ensure changes stay within the owning module's stated r
 | `server/screener/adapters/kisQuoteAdapter.ts` | KIS 시세 + 일봉 캔들 → YahooQuoteExtended 호환 어댑터 (ADR-0029) |
 | `server/screener/adapters/krxScreenerAdapter.ts` | KRX 투자자별 매매 폴백 스크리너 어댑터 (ADR-0029) |
 | `server/screener/adapters/_indicators.ts` | Yahoo·KIS 어댑터 공용 RSI MACD EMA 지표 순수 계산 헬퍼 (ADR-0029) |
+| `src/hooks/useAutoTradeContext.ts` | Map ClientMarketMode + KST time → AutoTradeContext 5-bucket SSOT (PRE_MARKET / LIVE_MARKET / POST_MARKET / OVERNIGHT / WEEKEND_HOLIDAY) — ADR-0043 |
+| `src/components/autoTrading/AutoTradeContextSection.tsx` | Marker component — declares per-context priority/collapsed metadata as props, children pass through (ADR-0043) |
+| `src/components/autoTrading/AutoTradeContextualLayout.tsx` | Stable-sort AutoTradeContextSection children by priorityByContext + render with collapse/hide policy (ADR-0043) |
 
 ---
 
@@ -82,6 +85,7 @@ When modifying any file, ensure changes stay within the owning module's stated r
 - **CH3 REGIME 매크로 다이제스트 정기 발행** (ADR-0040): `server/alerts/macroDigestReport.ts` 가 1일 2회 매크로 다이제스트를 `dispatchAlert(ChannelSemantic.REGIME)` 으로 발송한다. PRE_OPEN KST 08:30 (UTC 23:30 일~목) + POST_CLOSE KST 16:00 (UTC 07:00 월~금). 데이터는 `macroStateRepo.loadMacroState()` 단일 SSOT 만 읽음 — 외부 호출 0건 (다른 cron 이 갱신한 macroState 재사용). **개별 종목 정보 절대 포함 금지** — CH3 정체성은 "시장 전체 상태만". 회귀 테스트가 6자리 코드 패턴 부재 + 잔고 키워드 8종 부재를 자동 검증. dedupeKey `macro_digest:{mode}:{KST 일자}` 로 재시작 시 이중 발송 차단.
 - **CH4 JOURNAL 주간 자기비판 리포트** (ADR-0041): `server/alerts/weeklySelfCritiqueReport.ts` 가 일요일 19:00 KST (UTC 10:00 Sun) 에 `dispatchAlert(ChannelSemantic.JOURNAL)` 으로 발송한다. 데이터: `aggregateFillStats(trades, range)` 주간 fill 통계 + `getLearningHistory(7).escalatingBiases` 편향 (3일 연속 ≥ 0.5) + `summarizeStopPatterns(weeklyStops)` 손절 패턴 분포 + `buildStopPatternRecommendation` 자동 권고. **개별 종목 정보 절대 포함 금지** (CH4 메타 학습 정체성) — 회귀 테스트가 6자리 코드 패턴 부재 + 잔고 키워드 8종 부재 자동 검증. 자동 권고 휴리스틱은 결정적 (Gemini 호출 0) — 표본 ≥ 3건 + 비율 ≥ 40% 임계 통과 시 R5_CAUTION/R6_DEFENSE/ATR_HARD_STOP/CASCADE 패턴별 권고문 생성. dedupeKey `weekly_self_critique:{KST 일요일}` 로 이중 발송 차단.
 - **/channel_test 4채널 헬스체크 + 손절 카운트다운 sendPrivateAlert** (ADR-0042): `server/telegram/commands/alert/channelTest.cmd.ts` 가 `runChannelHealthCheck()` (alertRouter SSOT) 를 호출해 4채널(EXECUTION/SIGNAL/REGIME/JOURNAL) 동시 발송 후 결과 집계 — `formatChannelHealthCheckResult()` 순수 함수가 정상/미설정/비활성/발송실패 4분기 처리 + 미설정 환경변수 누적 안내. `stopApproachAlert` 손절 접근 3단계 경보(-5%/-3%/-1%)는 `sendTelegramAlert` → `sendPrivateAlert` 시멘틱 정합화 — 사용자 패닉 매도 차단 위해 CH1 EXECUTION 채널이 아닌 개인 DM 만 발송, 실제 손절 발동 시 channelSellSignal 이 사후 보고 (CH1).
+- **AutoTradeContextualLayout boundary** (ADR-0043): `useAutoTradeContext()` 가 시각·MarketDataMode → 5 컨텍스트(PRE_MARKET / LIVE_MARKET / POST_MARKET / OVERNIGHT / WEEKEND_HOLIDAY) 매핑 SSOT. 각 자식 섹션은 `AutoTradeContextSection` 으로 wrap 되어 자기 `priorityByContext`/`collapsedByContext` 를 declare — 부모 `AutoTradeContextualLayout` 가 priority 오름차순 + 동률 originalIndex 안정 정렬 후 렌더. priority 9+ 는 hidden, collapsed=true 는 `<details>` 접힘. **기존 자식 컴포넌트 본체 무수정 원칙** — 신규 섹션 추가는 wrap 만으로. 비-AutoTradeContextSection children 은 정렬에서 제외 (별도 위치 배치 권장). Fragment 는 재귀 traverse 하여 조건부 렌더 (`{cond && <Section/>}`) 자연 동작.
 
 ---
 

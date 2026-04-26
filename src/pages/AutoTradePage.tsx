@@ -26,6 +26,8 @@ import { AutoTradeTabbedView } from '../components/autoTrading/AutoTradeTabbedVi
 import { ProDiagnosticsStrip } from '../components/autoTrading/ProDiagnosticsStrip';
 import { ApiConnectionLamps } from '../components/autoTrading/ApiConnectionLamps';
 import { TelegramConnectionTest } from '../components/autoTrading/TelegramConnectionTest';
+import { AutoTradeContextSection } from '../components/autoTrading/AutoTradeContextSection';
+import { AutoTradeContextualLayout } from '../components/autoTrading/AutoTradeContextualLayout';
 import { useAutoTradingDashboard } from '../hooks/useAutoTradingDashboard';
 import { useAutoTradeEngine } from '../hooks/autoTrade';
 import { useEngineArming } from '../hooks/autoTrade/useEngineArming';
@@ -192,69 +194,178 @@ export function AutoTradePage() {
           }
         />
 
-        {/* 프로 전용: 고밀도 진단 스트립 (mono-font, 터미널 스타일) */}
-        {isPro && (
-          <ProDiagnosticsStrip
-            data={data}
-            isRunning={isRunning}
-            killSwitchActive={killSwitchActive}
-          />
-        )}
+        {/*
+          ADR-0043 — Context-Adaptive Layout.
+          각 섹션이 자기 priorityByContext 를 declare → AutoTradeContextualLayout 가 정렬.
+          기존 컴포넌트 본체는 단 한 줄도 수정하지 않음.
+        */}
+        <AutoTradeContextualLayout>
+          {/* 진단 스트립 — 프로 전용 + LIVE/POST 우선, OVERNIGHT/WEEKEND 접힘 */}
+          {isPro && (
+            <AutoTradeContextSection
+              id="pro-diagnostics"
+              label="고밀도 진단 스트립"
+              priorityByContext={{
+                LIVE_MARKET: 1,
+                POST_MARKET: 2,
+                PRE_MARKET: 3,
+                OVERNIGHT: 6,
+                WEEKEND_HOLIDAY: 7,
+              }}
+              collapsedByContext={{ OVERNIGHT: true, WEEKEND_HOLIDAY: true }}
+            >
+              <ProDiagnosticsStrip
+                data={data}
+                isRunning={isRunning}
+                killSwitchActive={killSwitchActive}
+              />
+            </AutoTradeContextSection>
+          )}
 
-        {/* 최상단: 한 눈 파악용 Hero KPI (4-카드 스코어보드) — 클릭 시 해당 탭으로 drill-down */}
-        <AutoTradeHeroKpis
-          state={data}
-          isRunning={isRunning}
-          killSwitchActive={killSwitchActive}
-          viewMode={viewMode}
-          onDrilldown={handleKpiDrilldown}
-        />
-
-        {/* 외부 API 연결 상태 램프 (KIS REST · 실시간 · KRX · Yahoo · Telegram) */}
-        <ApiConnectionLamps />
-
-        {/* PR-P: Telegram 연결 테스트 — 도달성 즉시 검증 */}
-        <TelegramConnectionTest />
-
-        {/* 필수 진단: 엔진 건강 + 종합 평결 + 컨트롤 */}
-        <EngineHealthBanner heartbeat={heartbeat} killSwitch={killSwitch} />
-
-        {viewMode === 'pro' && (
-          <FadeInOnScroll>
-            <CompositeVerdictCard
-              engine={engineStatus}
-              heartbeat={heartbeat}
-              killSwitch={killSwitch}
-              buyAudit={buyAudit}
-              brokerConnected={data.broker.connected}
-              dataIntegrityOk={!data.control.engineStatus.includes('ERROR')}
-              onRefresh={refresh}
+          {/* Hero KPI — 모든 컨텍스트에서 항상 상위 (LIVE/POST 1순위, 그 외 2~3) */}
+          <AutoTradeContextSection
+            id="hero-kpi"
+            label="Hero KPI"
+            priorityByContext={{
+              LIVE_MARKET: 2,
+              POST_MARKET: 1,
+              PRE_MARKET: 2,
+              OVERNIGHT: 3,
+              WEEKEND_HOLIDAY: 3,
+            }}
+          >
+            <AutoTradeHeroKpis
+              state={data}
+              isRunning={isRunning}
+              killSwitchActive={killSwitchActive}
+              viewMode={viewMode}
+              onDrilldown={handleKpiDrilldown}
             />
-          </FadeInOnScroll>
-        )}
+          </AutoTradeContextSection>
 
-        <AutoTradingControlCenter
-          state={data.control}
-          engineToggling={engineToggling}
-          onPause={() => { void toggleEngine(); }}
-          onResume={handleResumeShadow}
-          onArmLive={handleArmLive}
-          onRefresh={refresh}
-          onEmergencyStop={() => { void emergencyStop(); }}
-        />
+          {/* 외부 API 연결 상태 램프 — 모든 컨텍스트에서 중하위 (정상 동작 시 시각 노이즈 최소화) */}
+          <AutoTradeContextSection
+            id="api-lamps"
+            label="외부 API 연결 상태"
+            priorityByContext={{
+              LIVE_MARKET: 4,
+              POST_MARKET: 5,
+              PRE_MARKET: 3,
+              OVERNIGHT: 5,
+              WEEKEND_HOLIDAY: 6,
+            }}
+            collapsedByContext={{ WEEKEND_HOLIDAY: true }}
+          >
+            <ApiConnectionLamps />
+          </AutoTradeContextSection>
 
-        {/* 세부 패널: 탭으로 계층화 — Hero KPI 가 이 영역으로 drill-down */}
-        <FadeInOnScroll delay={0.05}>
-          <AutoTradeTabbedView
-            ref={tabsRef}
-            data={data}
-            gateAudit={gateAudit}
-            viewMode={viewMode}
-            onSelectOrder={setSelectedOrderId}
-            onSelectPosition={setSelectedPositionId}
-            onEmergencyStop={() => { void emergencyStop(); }}
-          />
-        </FadeInOnScroll>
+          {/* Telegram 연결 테스트 — PRE_MARKET 우선 (장 시작 전 도달성 점검) */}
+          <AutoTradeContextSection
+            id="telegram-test"
+            label="텔레그램 연결 테스트"
+            priorityByContext={{
+              PRE_MARKET: 4,
+              LIVE_MARKET: 6,
+              POST_MARKET: 6,
+              OVERNIGHT: 6,
+              WEEKEND_HOLIDAY: 5,
+            }}
+            collapsedByContext={{ LIVE_MARKET: true, POST_MARKET: true, OVERNIGHT: true }}
+          >
+            <TelegramConnectionTest />
+          </AutoTradeContextSection>
+
+          {/* 엔진 건강 — LIVE 시 1순위, 그 외 중상위 */}
+          <AutoTradeContextSection
+            id="engine-health"
+            label="엔진 건강"
+            priorityByContext={{
+              LIVE_MARKET: 3,
+              POST_MARKET: 4,
+              PRE_MARKET: 2,
+              OVERNIGHT: 4,
+              WEEKEND_HOLIDAY: 5,
+            }}
+          >
+            <EngineHealthBanner heartbeat={heartbeat} killSwitch={killSwitch} />
+          </AutoTradeContextSection>
+
+          {/* 종합 평결 — pro 전용 + 모든 컨텍스트에서 중상위 */}
+          {viewMode === 'pro' && (
+            <AutoTradeContextSection
+              id="composite-verdict"
+              label="종합 평결"
+              priorityByContext={{
+                LIVE_MARKET: 4,
+                POST_MARKET: 3,
+                PRE_MARKET: 4,
+                OVERNIGHT: 4,
+                WEEKEND_HOLIDAY: 4,
+              }}
+            >
+              <FadeInOnScroll>
+                <CompositeVerdictCard
+                  engine={engineStatus}
+                  heartbeat={heartbeat}
+                  killSwitch={killSwitch}
+                  buyAudit={buyAudit}
+                  brokerConnected={data.broker.connected}
+                  dataIntegrityOk={!data.control.engineStatus.includes('ERROR')}
+                  onRefresh={refresh}
+                />
+              </FadeInOnScroll>
+            </AutoTradeContextSection>
+          )}
+
+          {/* 컨트롤 센터 — PRE_MARKET 1순위 (엔진 무장 준비), LIVE/POST 중상위 */}
+          <AutoTradeContextSection
+            id="control-center"
+            label="자동매매 컨트롤"
+            priorityByContext={{
+              PRE_MARKET: 1,
+              LIVE_MARKET: 5,
+              POST_MARKET: 6,
+              OVERNIGHT: 5,
+              WEEKEND_HOLIDAY: 6,
+            }}
+          >
+            <AutoTradingControlCenter
+              state={data.control}
+              engineToggling={engineToggling}
+              onPause={() => { void toggleEngine(); }}
+              onResume={handleResumeShadow}
+              onArmLive={handleArmLive}
+              onRefresh={refresh}
+              onEmergencyStop={() => { void emergencyStop(); }}
+            />
+          </AutoTradeContextSection>
+
+          {/* 세부 탭 — LIVE 시 1순위 (신호 큐·포지션 모니터링), 그 외 중하위 */}
+          <AutoTradeContextSection
+            id="tabbed-view"
+            label="세부 탭"
+            priorityByContext={{
+              LIVE_MARKET: 1,
+              POST_MARKET: 2,
+              PRE_MARKET: 5,
+              OVERNIGHT: 6,
+              WEEKEND_HOLIDAY: 7,
+            }}
+            collapsedByContext={{ WEEKEND_HOLIDAY: true }}
+          >
+            <FadeInOnScroll delay={0.05}>
+              <AutoTradeTabbedView
+                ref={tabsRef}
+                data={data}
+                gateAudit={gateAudit}
+                viewMode={viewMode}
+                onSelectOrder={setSelectedOrderId}
+                onSelectPosition={setSelectedPositionId}
+                onEmergencyStop={() => { void emergencyStop(); }}
+              />
+            </FadeInOnScroll>
+          </AutoTradeContextSection>
+        </AutoTradeContextualLayout>
       </Stack>
 
       <OrderDetailModal
