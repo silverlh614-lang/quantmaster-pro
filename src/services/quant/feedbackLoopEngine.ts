@@ -29,6 +29,7 @@ import {
   pauseF2W,
   getTopDeviatingConditions,
 } from './f2wDriftDetector';
+import { evaluateConditionCoverage } from './learningCoverage';
 
 // ─── 캘리브레이션 임계값 ──────────────────────────────────────────────────────
 
@@ -103,11 +104,25 @@ export function evaluateFeedbackLoop(
   const conditionIds = Object.keys(ALL_CONDITIONS).map(Number) as ConditionId[];
   const calibrations: ConditionCalibration[] = [];
   const updatedWeights: Record<number, number> = { ...currentWeights };
+  const coverageGated: NonNullable<FeedbackLoopResult['coverageGated']> = [];
 
   for (const id of conditionIds) {
     // 해당 조건이 ≥ 5점인 거래만 대상
     const relevant = closedTrades.filter(t => (t.conditionScores?.[id] ?? 0) >= 5);
     if (relevant.length < MIN_CONDITION_TRADES) continue;
+
+    // ADR-0048 (PR-Y4): Learning Coverage 게이트 — 어떤 (조건 × 레짐) 셀도
+    // 30건 미만이면 가중치 보정 스킵 (노이즈 학습 차단). LEARNING_COVERAGE_GATE_DISABLED
+    // 환경변수 시 무력화 (evaluateConditionCoverage 내부 처리).
+    const coverage = evaluateConditionCoverage(relevant);
+    if (!coverage.sufficient) {
+      coverageGated.push({
+        conditionId: id,
+        maxCellCount: coverage.maxCellCount,
+        reason: 'INSUFFICIENT_COVERAGE',
+      });
+      continue;
+    }
 
     // ADR-0022 (PR-E): trade-level confidence weighting — lossReason 별 multiplier 로
     // winRate / avgReturn 가중평균. 수익 거래는 항상 1.0, 손실 거래는 lossReason
@@ -253,6 +268,7 @@ export function evaluateFeedbackLoop(
     lastCalibratedAt,
     summary,
     pauseStatus,
+    coverageGated: coverageGated.length > 0 ? coverageGated : undefined,
   };
 }
 

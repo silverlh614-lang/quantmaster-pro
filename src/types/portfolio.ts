@@ -688,4 +688,13 @@ export interface FeedbackLoopResult {
     sigma7d?: number;
     sigma30dAvg?: number;
   };
+  /**
+   * ADR-0048 (PR-Y4): Learning Coverage Heatmap — 데이터 희소 셀 가드.
+   * 어떤 (조건 × 레짐) 셀도 30건 미만인 조건 ID 목록 — 가중치 보정에서 제외됨.
+   */
+  coverageGated?: Array<{
+    conditionId: ConditionId;
+    maxCellCount: number;
+    reason: 'INSUFFICIENT_COVERAGE';
+  }>;
 }
