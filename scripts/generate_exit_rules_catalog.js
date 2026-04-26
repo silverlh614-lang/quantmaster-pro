@@ -15,8 +15,9 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from '
 import { join } from 'path';
 
 const ROOTS = [
-  'server/trading/exitEngine.ts',
-  'server/trading/rules', // 분해 후 디렉토리 (미래)
+  'server/trading/exitEngine.ts',          // PR-53 후 barrel (legacy ref)
+  'server/trading/exitEngine/rules',       // PR-53 분해 후 실제 위치 (ADR-0028)
+  'server/trading/rules',                  // legacy (미사용)
 ];
 
 const OUTPUT = 'docs/exit-rules-catalog.md';

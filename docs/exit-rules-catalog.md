@@ -8,7 +8,7 @@
 
 | # | rule | priority | action | ratio | trigger | rationale | source |
 |---|------|---------:|--------|------:|---------|-----------|--------|
-| 1 | `R6_EMERGENCY_EXIT` | 1 | `PARTIAL_SELL` | 30% | `currentRegime === 'R6_DEFENSE' && !shadow.r6EmergencySold && shadow.quantity > 0` | 블랙스완 (시장 -3% 이상 하락 또는 VKOSPI 35+) 진입 시 보유 포지션 30% 즉시 시장가 청산. 1회 한정 (재발 방지 플래그). | `server/trading/exitEngine.ts:2` |
+| 1 | `R6_EMERGENCY_EXIT` | 1 | `PARTIAL_SELL` | 30% | `currentRegime === 'R6_DEFENSE' && !shadow.r6EmergencySold && shadow.quantity > 0` | 블랙스완 (시장 -3% 이상 하락 또는 VKOSPI 35+) 진입 시 보유 포지션 30% 즉시 시장가 청산. 1회 한정 (재발 방지 플래그). | `server/trading/exitEngine/rules/r6EmergencyExit.ts:2` |
 
 ---
 
