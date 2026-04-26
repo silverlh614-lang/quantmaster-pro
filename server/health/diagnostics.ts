@@ -407,6 +407,8 @@ export async function runExternalProbes(timeoutMs = 3000): Promise<HealthProbeRe
   const yahooProbe: Promise<HealthProbeOutcome> = withTimeout(
     guardedFetch(
       'https://query1.finance.yahoo.com/v7/finance/chart/^KS11?interval=1d&range=1d',
+      undefined,
+      'REALTIME',
     ).then((r) => {
       const cls = classifyYahooProbe(r.status);
       return { severity: cls.severity, statusCode: r.status, message: cls.message };

@@ -62,7 +62,7 @@ async function fetchOHLCV(code: string, from: Date, to: Date): Promise<OHLCVDay[
       try {
         const ctrl = new AbortController();
         const tid  = setTimeout(() => ctrl.abort(), 12_000);
-        const res  = await guardedFetch(url, { headers: YF_HEADERS, signal: ctrl.signal });
+        const res  = await guardedFetch(url, { headers: YF_HEADERS, signal: ctrl.signal }, 'HISTORICAL');
         clearTimeout(tid);
         if (!res.ok) continue;
         const data = await res.json();

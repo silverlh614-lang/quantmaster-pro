@@ -184,7 +184,7 @@ async function fetchYahooHistorical(
           'Pragma': 'no-cache',
         },
         signal: controller.signal,
-      });
+      }, 'REALTIME');
 
       clearTimeout(timeoutId);
 
@@ -366,7 +366,7 @@ router.get('/market-indicators', async (_req: Request, res: Response) => {
             'Accept': 'application/json',
           },
           signal: AbortSignal.timeout(8000),
-        });
+        }, 'REALTIME');
         if (r.ok) {
           const data = await r.json();
           if (data?.chart?.result?.[0]) return data.chart.result[0];

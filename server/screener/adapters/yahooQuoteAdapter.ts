@@ -75,7 +75,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=2y&interval=1d`;
     const res = await guardedFetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-    });
+    }, 'HISTORICAL');
     if (!res.ok) return null;
     const data = await res.json();
     const result = data.chart?.result?.[0];
