@@ -45,7 +45,7 @@ export function detectROETransition(
     const prev = assetTurnoverHistory[assetTurnoverHistory.length - 2];
     const curr = assetTurnoverHistory[assetTurnoverHistory.length - 1];
     if (prev > 0) {
-      // ADR-0028: stale prev 시 0 fallback — assetTurnover dropPct 보호.
+      // ADR-0049: stale prev 시 0 fallback — assetTurnover dropPct 보호.
       assetTurnoverDropPct = safePctChange(prev, curr, { label: 'roeEngine.assetTurnoverDrop' }) ?? 0;
     }
   }

@@ -115,7 +115,7 @@ async function fetchSymbolResult(symbol: string, label: string): Promise<SymbolR
   }
   const prev      = closes[closes.length - 2];
   const current   = closes[closes.length - 1];
-  // ADR-0028: stale prev/first5d 시 sanity 위반 → 0/null fallback (글로벌 스캔 표시용).
+  // ADR-0049: stale prev/first5d 시 sanity 위반 → 0/null fallback (글로벌 스캔 표시용).
   const changePct = safePctChange(current, prev, { label: `globalScan.change:${symbol}` }) ?? 0;
   const first5d   = closes[0];
   const return5d  = first5d > 0

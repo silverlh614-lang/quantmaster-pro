@@ -238,7 +238,7 @@ export async function fetchLatestM2Yoy(): Promise<number | null> {
     setCached('m2', null);
     return null;
   }
-  // ADR-0028: stale yearAgo 시 0 fallback — M2 YoY 매크로 지표 보호.
+  // ADR-0049: stale yearAgo 시 0 fallback — M2 YoY 매크로 지표 보호.
   const yoy = parseFloat((safePctChange(latest, yearAgo, { label: 'ecos.m2.yoy' }) ?? 0).toFixed(2));
   setCached('m2', yoy);
   return yoy;
@@ -296,7 +296,7 @@ export async function fetchLatestExportGrowth3mAvg(): Promise<number | null> {
     const cur = toNumStripComma(sorted[i].DATA_VALUE);
     const prev = toNumStripComma(sorted[i - 12].DATA_VALUE);
     if (!Number.isFinite(cur) || !Number.isFinite(prev) || prev <= 0) continue;
-    // ADR-0028: stale prev 시 sanity 위반은 평균에서 제외.
+    // ADR-0049: stale prev 시 sanity 위반은 평균에서 제외.
     const yoy = safePctChange(cur, prev, { label: 'ecos.export.yoy' });
     if (yoy !== null) yoys.push(yoy);
   }
@@ -332,7 +332,7 @@ export async function fetchLatestBankLendingYoy(): Promise<number | null> {
     setCached('bankLending', null);
     return null;
   }
-  // ADR-0028: stale prev 시 0 fallback — bankLending YoY 매크로 보호.
+  // ADR-0049: stale prev 시 0 fallback — bankLending YoY 매크로 보호.
   const yoy = parseFloat((safePctChange(cur, prev, { label: 'ecos.bankLending.yoy' }) ?? 0).toFixed(2));
   setCached('bankLending', yoy);
   return yoy;

@@ -480,7 +480,7 @@ export async function sendWatchlistBriefing(): Promise<void> {
         const gate = evaluateServerGate(quote);
         const cs = gate.compressionScore;
 
-        // 갭 판단: 시가 vs 전일종가 — ADR-0028: stale prevClose/dayOpen 시 라벨 미부착.
+        // 갭 판단: 시가 vs 전일종가 — ADR-0049: stale prevClose/dayOpen 시 라벨 미부착.
         let gapLabel = '';
         if (quote.prevClose && quote.prevClose > 0 && quote.dayOpen && quote.dayOpen > 0) {
           const gapPct = safePctChange(quote.dayOpen, quote.prevClose, {
@@ -571,7 +571,7 @@ export async function sendIntradayCheckIn(type: 'midday' | 'preclose'): Promise<
       positionLines.push(`• ${shadow.stockName} (시세 없음)`);
       continue;
     }
-    // ADR-0028: stale currentPrice 시 0 fallback — 일일 리포트 표시용.
+    // ADR-0049: stale currentPrice 시 0 fallback — 일일 리포트 표시용.
     const returnPct = safePctChange(currentPrice, shadow.shadowEntryPrice, {
       label: `reportGenerator.return:${shadow.stockCode}`,
     }) ?? 0;
@@ -621,7 +621,7 @@ function fmtPct(v: number | null | undefined): string {
   return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
 }
 
-/** KOSPI 현재가 + 전일대비 변화율 조회 — ADR-0028: stale prev 시 0 fallback. */
+/** KOSPI 현재가 + 전일대비 변화율 조회 — ADR-0049: stale prev 시 0 fallback. */
 async function fetchKospiSnapshot(): Promise<{ price: number; changePct: number } | null> {
   const closes = await fetchCloses('^KS11', '5d').catch(() => null);
   if (!closes || closes.length < 2) return null;
@@ -630,7 +630,7 @@ async function fetchKospiSnapshot(): Promise<{ price: number; changePct: number 
   return { price: current, changePct: safePctChange(current, prev, { label: 'reportGenerator.kospi' }) ?? 0 };
 }
 
-/** USD/KRW 현재 + 전일대비 — ADR-0028: stale prev 시 0 fallback. */
+/** USD/KRW 현재 + 전일대비 — ADR-0049: stale prev 시 0 fallback. */
 async function fetchUsdKrwSnapshot(): Promise<{ rate: number; changePct: number } | null> {
   const closes = await fetchCloses('KRW=X', '5d').catch(() => null);
   if (!closes || closes.length < 2) return null;
@@ -747,7 +747,7 @@ export async function sendIntradayMarketReport(): Promise<void> {
   for (const s of active.slice(0, 8)) {
     const cur = await fetchCurrentPrice(s.stockCode).catch(() => null);
     if (cur) {
-      // ADR-0028: stale 시 0 fallback — 정오 점검 표시용.
+      // ADR-0049: stale 시 0 fallback — 정오 점검 표시용.
       const ret = safePctChange(cur, s.shadowEntryPrice, {
         label: `reportGenerator.posLine:${s.stockCode}`,
       }) ?? 0;

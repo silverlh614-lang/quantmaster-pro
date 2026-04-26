@@ -714,7 +714,7 @@ export async function checkBadNewsAbsorbed(
   }
 
   // 부정 공시 후 주가가 오히려 0% 이상 유지 → 악재 소화 완료
-  // ADR-0028: stale basePrice 시 null → 평가 보류 (악재 소화 잘못 판단 차단).
+  // ADR-0049: stale basePrice 시 null → 평가 보류 (악재 소화 잘못 판단 차단).
   const changePct = safePctChange(currentPrice, basePrice, { label: 'dartPoller.changePct' });
   if (changePct !== null && changePct >= 0) {
     // 악재 소화 완료 알림

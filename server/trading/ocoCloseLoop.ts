@@ -279,7 +279,7 @@ export async function pollOcoSurvival(): Promise<void> {
           const fillPrice = pair.stopPrice;
           const fillQty   = pair.quantity;
           const pnl       = (fillPrice - (shadow.shadowEntryPrice ?? pair.entryPrice)) * fillQty;
-          // ADR-0028: stale shadowEntryPrice 시 0 fallback — fill.pnlPct 영속 보호.
+          // ADR-0049: stale shadowEntryPrice 시 0 fallback — fill.pnlPct 영속 보호.
           const pnlPct    = shadow.shadowEntryPrice
             ? (safePctChange(fillPrice, shadow.shadowEntryPrice, { label: `ocoClose:${shadow.stockCode}` }) ?? 0)
             : 0;
@@ -349,7 +349,7 @@ export async function pollOcoSurvival(): Promise<void> {
           const fillPrice = pair.profitPrice;
           const fillQty   = pair.quantity;
           const pnl       = (fillPrice - (shadow.shadowEntryPrice ?? pair.entryPrice)) * fillQty;
-          // ADR-0028: stale shadowEntryPrice 시 0 fallback — fill.pnlPct 영속 보호.
+          // ADR-0049: stale shadowEntryPrice 시 0 fallback — fill.pnlPct 영속 보호.
           const pnlPct    = shadow.shadowEntryPrice
             ? (safePctChange(fillPrice, shadow.shadowEntryPrice, { label: `ocoClose:${shadow.stockCode}` }) ?? 0)
             : 0;

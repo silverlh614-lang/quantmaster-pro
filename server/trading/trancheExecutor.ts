@@ -109,7 +109,7 @@ export function evaluateTrancheRevalidation(input: {
   cascadeStep?: 0 | 1 | 2;
   addBuyBlocked?: boolean;
 }): { ok: boolean; reason?: string; dropPct: number } {
-  // ADR-0028: stale currentPrice/entryPrice 시 0 fallback — 트랜치 재검증 결정 보호.
+  // ADR-0049: stale currentPrice/entryPrice 시 0 fallback — 트랜치 재검증 결정 보호.
   const dropPct = safePctChange(input.currentPrice, input.entryPrice, {
     label: 'trancheExecutor.dropPct',
   }) ?? 0;

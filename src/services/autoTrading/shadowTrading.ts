@@ -70,7 +70,7 @@ export function resolveShadowTrade(
 
   if (currentPrice >= trade.targetPrice) {
     // 현재가로 체결 (목표가보다 높을 수 있음)
-    // ADR-0028: stale shadowEntryPrice 시 0 fallback — Shadow trade 영속 학습 보호.
+    // ADR-0049: stale shadowEntryPrice 시 0 fallback — Shadow trade 영속 학습 보호.
     const returnPct = parseFloat(
       (safePctChange(currentPrice, trade.shadowEntryPrice, {
         label: `shadowTrading:${trade.stockCode}`,
@@ -80,7 +80,7 @@ export function resolveShadowTrade(
   }
   if (currentPrice <= trade.stopLoss) {
     // 현재가로 체결 (갭다운 시 손절가보다 낮을 수 있음)
-    // ADR-0028: stale shadowEntryPrice 시 0 fallback — Shadow trade 영속 학습 보호.
+    // ADR-0049: stale shadowEntryPrice 시 0 fallback — Shadow trade 영속 학습 보호.
     const returnPct = parseFloat(
       (safePctChange(currentPrice, trade.shadowEntryPrice, {
         label: `shadowTrading:${trade.stockCode}`,

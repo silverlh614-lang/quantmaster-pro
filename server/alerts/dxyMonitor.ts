@@ -106,7 +106,7 @@ function nDayPct(closes: number[], n: number, label?: string): number | null {
   if (closes.length < n + 1) return null;
   const past    = closes[closes.length - 1 - n];
   const current = closes[closes.length - 1];
-  // ADR-0028: stale base price (DXY 외환시장 휴장·OTC 데이터 오류) 시 sanity 위반 → null.
+  // ADR-0049: stale base price (DXY 외환시장 휴장·OTC 데이터 오류) 시 sanity 위반 → null.
   const result = safePctChange(current, past, { label: label ?? `dxy.nDayPct:${n}d` });
   if (result === null) return null;
   return parseFloat(result.toFixed(2));

@@ -122,7 +122,7 @@ function aggregateIndexDeltas(
     const key = t.indexCode || t.indexName;
     const past = pastByCode.get(key);
     if (!past || past.close <= 0) continue;
-    // ADR-0028: stale past data 시 sanity 위반은 스킵 (섹터 에너지 평균 왜곡 방지).
+    // ADR-0049: stale past data 시 sanity 위반은 스킵 (섹터 에너지 평균 왜곡 방지).
     const returnPct = safePctChange(t.close, past.close, {
       label: `sectorEnergy.return:${key}`,
     });

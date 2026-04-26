@@ -43,7 +43,7 @@ async function buildCard(p: PositionSummary, shadow: ServerShadowTrade | null): 
   let toStopPct: number | null = null;
 
   if (currentPrice && p.entryPrice > 0) {
-    // ADR-0028: stale currentPrice 시 null 유지 (UI 가 'N/A' 표기).
+    // ADR-0049: stale currentPrice 시 null 유지 (UI 가 'N/A' 표기).
     currentReturnPct = safePctChange(currentPrice, p.entryPrice, {
       label: `positionMorningCard:${p.stockCode}`,
     });

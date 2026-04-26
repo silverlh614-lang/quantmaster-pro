@@ -27,7 +27,7 @@ export function checkEuphoria(shadow: ServerShadowTrade, currentPrice: number): 
   }
 
   // 신호 2: 수익률 ≥ 30% (RSI 80 대용)
-  // ADR-0028: currentPrice 가 stale/이상값이면 가짜 익절 트리거 차단 — null 시 분기 스킵.
+  // ADR-0049: currentPrice 가 stale/이상값이면 가짜 익절 트리거 차단 — null 시 분기 스킵.
   const returnPct = safePctChange(currentPrice, shadow.shadowEntryPrice, {
     label: `riskManager.euphoria:${shadow.stockCode}`,
   });

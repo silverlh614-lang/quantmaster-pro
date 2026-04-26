@@ -186,7 +186,7 @@ async function fetchYahooSymbol(symbol: string): Promise<KoreanDailyQuote | null
         low: meta.regularMarketDayLow ?? (lastIdx >= 0 ? (q.low?.[lastIdx] ?? 0) : 0),
         volume: meta.regularMarketVolume ?? (lastIdx >= 0 ? (q.volume?.[lastIdx] ?? 0) : 0),
         change: prev != null ? parseFloat((close - prev).toFixed(4)) : 0,
-        // ADR-0028: stale prev 시 0 fallback — 한국 주가 표기 보호.
+        // ADR-0049: stale prev 시 0 fallback — 한국 주가 표기 보호.
         changePct: prev != null && prev !== 0
           ? parseFloat((safePctChange(close, prev, { label: 'koreanQuoteBridge.changePct' }) ?? 0).toFixed(4))
           : 0,

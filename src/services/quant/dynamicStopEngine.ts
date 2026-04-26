@@ -49,7 +49,7 @@ export function evaluateDynamicStop(input: DynamicStopInput): DynamicStopResult 
   // Dynamic_Stop = Entry_Price − (ATR_14 × Multiplier)
   const rawStopPrice = entryPrice - atr14 * multiplier;
   const stopPrice = Math.max(1, Math.round(rawStopPrice));
-  // ADR-0028: stale entryPrice 시 0 fallback — 동적 손절 계산 입력 보호.
+  // ADR-0049: stale entryPrice 시 0 fallback — 동적 손절 계산 입력 보호.
   const stopPct = safePctChange(stopPrice, entryPrice, { label: 'dynamicStop.stopPct' }) ?? 0;
 
   // 현재 수익률

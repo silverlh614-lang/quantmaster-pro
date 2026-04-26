@@ -137,7 +137,7 @@ export async function resolveCounterfactuals(
     const currentPrice = await fetchPrice(e.stockCode).catch(() => null);
     if (currentPrice == null || !Number.isFinite(currentPrice) || currentPrice <= 0) continue;
 
-    // ADR-0028: stale currentPrice 시 0 fallback — counterfactual 학습 영속 입력 보호.
+    // ADR-0049: stale currentPrice 시 0 fallback — counterfactual 학습 영속 입력 보호.
     const ret = safePctChange(currentPrice, e.priceAtSignal, {
       label: `counterfactual:${e.stockCode}`,
     }) ?? 0;

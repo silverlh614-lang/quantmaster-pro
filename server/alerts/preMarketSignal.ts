@@ -108,7 +108,7 @@ async function fetchSnapshot(sym: SignalSymbol): Promise<PreMarketSnapshot> {
   if (!prev || prev === 0) {
     return { symbol: sym.symbol, label: sym.label, last, changePct: null, weight: sym.weight };
   }
-  // ADR-0028: stale prev 시 0 fallback — 장전 신호 글로벌 시장 표기 보호.
+  // ADR-0049: stale prev 시 0 fallback — 장전 신호 글로벌 시장 표기 보호.
   const changePct = safePctChange(last, prev, { label: `preMarketSignal:${sym.symbol}` }) ?? 0;
   return {
     symbol:    sym.symbol,

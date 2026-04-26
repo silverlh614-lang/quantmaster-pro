@@ -270,7 +270,7 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): { ok: 
     reasons.push(`Gate 재검증 미달 (${(input.quoteGateScore ?? 0).toFixed(1)}/${minGate})`);
   }
 
-  // ADR-0028: stale 가드는 헬퍼가 통합. null 시 해당 조건 평가 스킵 (보수적).
+  // ADR-0049: stale 가드는 헬퍼가 통합. null 시 해당 조건 평가 스킵 (보수적).
   const extensionPct = safePctChange(input.currentPrice, input.entryPrice, {
     label: 'entryEngine.extensionPct',
   });

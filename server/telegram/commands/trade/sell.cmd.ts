@@ -86,7 +86,7 @@ const sell: TelegramCommand = {
       await reply(`❌ ${code} 현재가 조회 실패 — 매도 중단. KIS 토큰/네트워크 상태를 확인하세요.`);
       return;
     }
-    // ADR-0028: stale currentPrice 시 0% fallback — UI 표시 + fill.pnlPct 영속화에
+    // ADR-0049: stale currentPrice 시 0% fallback — UI 표시 + fill.pnlPct 영속화에
     // 사용되므로 sanity 위반 시 0 으로 안전 처리해 잘못된 학습 입력 차단.
     const returnPct = safePctChange(currentPrice, target.shadowEntryPrice, {
       label: `sell.cmd:${target.stockCode}`,

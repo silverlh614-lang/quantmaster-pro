@@ -381,7 +381,7 @@ function correctShadowFill(
   if (qtyChanged) fill.qty = filledQty;
   if (priceChanged) fill.price = effectivePrice;
   // pnl / pnlPct 재계산 (entryPrice 기준)
-  // ADR-0028: pnlPct 는 fill 영속화에 사용 — sanity 위반 시 0 fallback (학습 오염 차단).
+  // ADR-0049: pnlPct 는 fill 영속화에 사용 — sanity 위반 시 0 fallback (학습 오염 차단).
   if (trade.shadowEntryPrice > 0) {
     fill.pnl = (effectivePrice - trade.shadowEntryPrice) * filledQty;
     fill.pnlPct = safePctChange(effectivePrice, trade.shadowEntryPrice, {

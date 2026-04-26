@@ -36,7 +36,7 @@ const pnl: TelegramCommand = {
       const realQty = getRemainingQty(s);
       const originalQty = s.originalQuantity ?? s.quantity ?? realQty;
       const realizedPnl = getTotalRealizedPnl(s);
-      // ADR-0028: stale price 시 0 fallback — UI 표기 보호.
+      // ADR-0049: stale price 시 0 fallback — UI 표기 보호.
       const unrealizedPct = safePctChange(price, s.shadowEntryPrice, {
         label: `pnl.cmd:${s.stockCode}`,
       }) ?? 0;

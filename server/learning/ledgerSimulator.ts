@@ -156,7 +156,7 @@ export async function resolveLedger(
     priceCache.set(e.stockCode, current);
     if (current == null || !Number.isFinite(current) || current <= 0) continue;
 
-    // ADR-0028: stale current 시 0 fallback — 학습 ledger 영속화 입력 보호.
+    // ADR-0049: stale current 시 0 fallback — 학습 ledger 영속화 입력 보호.
     const ledgerReturn = safePctChange(current, e.entryPrice, {
       label: `ledger:${e.stockCode}`,
     }) ?? 0;

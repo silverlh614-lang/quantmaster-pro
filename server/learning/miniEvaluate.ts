@@ -45,7 +45,7 @@ export async function miniEvaluateSingle(stockCode: string): Promise<number> {
   const EXPIRE_MS = 30 * 24 * 60 * 60 * 1000;
 
   for (const rec of targets) {
-    // ADR-0028: stale currentPrice 시 sanity 위반 → null. EXPIRED 시 actualReturn
+    // ADR-0049: stale currentPrice 시 sanity 위반 → null. EXPIRED 시 actualReturn
     // 박제 차단을 위해 위반 시 평가 보류 (다음 평가 사이클에서 재검사).
     const returnPct = safePctChange(currentPrice, rec.priceAtRecommend, {
       label: `miniEval:${rec.stockCode}`,

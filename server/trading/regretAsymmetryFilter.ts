@@ -93,7 +93,7 @@ export function checkCooldownRelease(
   if (now >= new Date(cooldownUntil)) return true;
 
   // 조건 2: 고점 대비 -5% ~ -8% 되돌림 확인
-  // ADR-0028: stale recentHigh 시 null → 쿨다운 해제 보류 (FOMO 차단 정책 우선).
+  // ADR-0049: stale recentHigh 시 null → 쿨다운 해제 보류 (FOMO 차단 정책 우선).
   if (recentHigh > 0) {
     const pullbackPct = safePctChange(recentHigh, currentPrice, { label: 'regretAsymmetry.pullback' });
     if (pullbackPct !== null && pullbackPct >= PULLBACK_RELEASE_MIN_PCT && pullbackPct <= PULLBACK_RELEASE_MAX_PCT) {

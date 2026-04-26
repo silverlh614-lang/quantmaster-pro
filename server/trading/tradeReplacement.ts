@@ -103,7 +103,7 @@ export function proposeReplacement(params: {
     if (isInReplacementCooldown(h.stockCode, now)) continue;
 
     // (i) 수익률 ≥ 1.5% 그리고 모멘텀 둔화
-    // ADR-0028: stale currentPrice 또는 sanity 위반 시 교체 평가 스킵 (잘못된
+    // ADR-0049: stale currentPrice 또는 sanity 위반 시 교체 평가 스킵 (잘못된
     // returnPct 로 보유 종목을 임의 교체하는 위험 차단).
     if (h.entryPrice <= 0) continue;
     const returnPct = safePctChange(h.currentPrice, h.entryPrice, {

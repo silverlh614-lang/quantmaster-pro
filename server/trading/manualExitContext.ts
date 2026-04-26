@@ -43,7 +43,7 @@ export function estimateBiasAssessment(
   reasonCode: ManualExitContext['reasonCode'],
 ): ManualExitContext['biasAssessment'] {
   const entry = target.shadowEntryPrice;
-  // ADR-0028: stale entry/currentPrice → 0 fallback (학습 입력으로 부착되므로
+  // ADR-0049: stale entry/currentPrice → 0 fallback (학습 입력으로 부착되므로
   // sanity 위반 시 편향 추정값을 0 으로 안전 처리해 학습 오염 차단).
   const returnPct = entry > 0
     ? (safePctChange(currentPrice, entry, { label: `manualExit:${target.stockCode}` }) ?? 0)

@@ -342,7 +342,7 @@ export async function runPortfolioRiskCheck(): Promise<void> {
         const sorted = sectorPositions
           .map(s => {
             const currentPrice = getRealtimePrice(s.stockCode) ?? s.shadowEntryPrice;
-            // ADR-0028: stale currentPrice 시 0 fallback — 섹터 약체 정렬 입력 보호.
+            // ADR-0049: stale currentPrice 시 0 fallback — 섹터 약체 정렬 입력 보호.
             const pnlPct = safePctChange(currentPrice, s.shadowEntryPrice, {
               label: `portfolioRisk:${s.stockCode}`,
             }) ?? 0;

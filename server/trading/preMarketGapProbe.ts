@@ -123,7 +123,7 @@ export async function probePreMarketGap(input: GapProbeInput): Promise<GapProbeR
     };
   }
 
-  // ADR-0028: 공통 안전 헬퍼로 sanity bound (±90%) 자동 적용 — entryPrice 또는
+  // ADR-0049: 공통 안전 헬퍼로 sanity bound (±90%) 자동 적용 — entryPrice 또는
   // prevClose 가 비정상이면 null 반환 → SKIP_DATA_ERROR. 기존 30% 임계는 별도 분기로 유지.
   const gapPct = safePctChange(entryPrice, prev.prevClose, {
     label: `preMarketGapProbe:${stockCode}`,

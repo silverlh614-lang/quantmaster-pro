@@ -131,7 +131,7 @@ async function fetch30mBars(symbol: string, range = '5d'): Promise<IntradayBars 
 // ── 모멘텀 계산 ───────────────────────────────────────────────────────────────
 
 function pctChange(cur: number, prev: number, label?: string): number | null {
-  // ADR-0028: stale prev (장기 미거래 ETF) 시 sanity 위반 → null. 분모 가드는 헬퍼 통합.
+  // ADR-0049: stale prev (장기 미거래 ETF) 시 sanity 위반 → null. 분모 가드는 헬퍼 통합.
   return safePctChange(cur, prev, { label: label ?? 'sectorEtfMomentum.pctChange' });
 }
 

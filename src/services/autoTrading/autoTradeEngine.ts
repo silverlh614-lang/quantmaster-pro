@@ -114,7 +114,7 @@ export function firstPullbackDetector(input: FirstPullbackInput): FirstPullbackR
     return { signal: 'NONE', stopLoss: 0, reason: '돌파 기준선 미설정' };
   }
 
-  // ADR-0028: stale breakoutPrice 시 0 fallback — 눌림목 매수 결정 보호.
+  // ADR-0049: stale breakoutPrice 시 0 fallback — 눌림목 매수 결정 보호.
   const pricePct = safePctChange(currentPrice, breakoutPrice, {
     label: 'autoTradeEngine.pricePct',
   }) ?? 0;

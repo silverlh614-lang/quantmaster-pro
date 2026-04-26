@@ -63,7 +63,7 @@ export function updateVkospi(currentValue: number): void {
 }
 export function getVkospiSurgePct(): number {
   if (!lastVkospiOpenValue) return 0;
-  // ADR-0028: VKOSPI 동일일자 데이터라 stale 위험 적지만 sanity bound (±90%) 으로
+  // ADR-0049: VKOSPI 동일일자 데이터라 stale 위험 적지만 sanity bound (±90%) 으로
   // 데이터 오류·스토리지 손상 시 비상정지 트리거 오작동 차단.
   return safePctChange(lastVkospiCurrent, lastVkospiOpenValue, {
     label: 'killSwitch.vkospiSurge',

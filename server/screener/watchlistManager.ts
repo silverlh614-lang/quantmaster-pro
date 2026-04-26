@@ -96,7 +96,7 @@ export function applyEntryPriceDrift(
   currentPrice: number,
 ): 'REMOVE' | 'UPDATE' | 'KEEP' {
   if (currentPrice <= 0 || entry.entryPrice <= 0) return 'KEEP';
-  // ADR-0028: stale entryPrice (예: 거래정지/액면분할 후 등록값과 거대 괴리) 시
+  // ADR-0049: stale entryPrice (예: 거래정지/액면분할 후 등록값과 거대 괴리) 시
   // sanity 위반 → null 반환 → KEEP 으로 안전 fallback (잘못된 REMOVE/UPDATE 차단).
   const driftPct = safePctChange(currentPrice, entry.entryPrice, {
     label: `watchlistManager.drift:${entry.code}`,

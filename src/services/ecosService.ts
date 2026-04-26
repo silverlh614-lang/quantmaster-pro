@@ -278,7 +278,7 @@ export async function getM2MoneySupply(months = 24): Promise<EcosM2Data[]> {
     if (i >= 12) {
       const prev = parseFloat(rows[i - 12].DATA_VALUE.replace(/,/g, ''));
       if (!isNaN(prev) && prev > 0) {
-        // ADR-0028: stale prev 시 0 fallback — M2 YoY 매크로 보호.
+        // ADR-0049: stale prev 시 0 fallback — M2 YoY 매크로 보호.
         yoyGrowth = safePctChange(amount, prev, { label: 'ecosService.m2.yoy' }) ?? 0;
       }
     }

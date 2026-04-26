@@ -123,7 +123,7 @@ export function useTradeOps() {
 
     setTradeRecords((prev: TradeRecord[]) => prev.map((t: TradeRecord) => {
       if (t.id !== tradeId) return t;
-      // ADR-0028: stale buyPrice 시 0 fallback — TradeRecord 영속 + 학습 입력 보호.
+      // ADR-0049: stale buyPrice 시 0 fallback — TradeRecord 영속 + 학습 입력 보호.
       const returnPct = safePctChange(sellPrice, t.buyPrice, {
         label: `useTradeOps.closeTrade:${t.stockCode}`,
       }) ?? 0;

@@ -108,7 +108,7 @@ export async function maybeCaptureSnapshots(
 
   const entry = trade.shadowEntryPrice;
   if (entry <= 0) return [];
-  // ADR-0028: stale currentPrice 시 0 fallback — coldstart snapshot 학습 영속 보호.
+  // ADR-0049: stale currentPrice 시 0 fallback — coldstart snapshot 학습 영속 보호.
   const returnPct = safePctChange(currentPrice, entry, {
     label: `coldstart:${trade.stockCode}`,
   }) ?? 0;

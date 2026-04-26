@@ -145,7 +145,7 @@ export async function reEvaluateExpired(): Promise<number> {
         }
       }
 
-      // 60일 / 90일 종가 수익률 스냅샷 — ADR-0028: stale priceRef 시 0 fallback (학습 영속 보호).
+      // 60일 / 90일 종가 수익률 스냅샷 — ADR-0049: stale priceRef 시 0 fallback (학습 영속 보호).
       if (ohlcv[LATE_CHECKPOINT_60D - 1] && rec.return60d === undefined) {
         const c = ohlcv[LATE_CHECKPOINT_60D - 1].close;
         const r60 = safePctChange(c, priceRef, { label: `lateWin.return60d:${rec.stockCode}` });

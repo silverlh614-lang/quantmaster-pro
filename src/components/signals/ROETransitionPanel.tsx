@@ -85,7 +85,7 @@ function AssetTurnoverBar({ history }: { history: number[] }) {
   if (history.length < 2) return null;
   const prev = history[history.length - 2];
   const curr = history[history.length - 1];
-  // ADR-0028: stale prev 시 0 fallback.
+  // ADR-0049: stale prev 시 0 fallback.
   const dropPct = prev > 0 ? (safePctChange(prev, curr, { label: 'ROETransition.dropPct' }) ?? 0) : 0;
   const maxVal = Math.max(prev, curr, 0.01);
 

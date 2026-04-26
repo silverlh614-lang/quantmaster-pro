@@ -149,7 +149,7 @@ async function resolveFilledLeg(
       const fillQty   = Math.max(1, filledQty || pair.quantity);
       const basis     = shadow.shadowEntryPrice ?? pair.entryPrice;
       const pnl       = (fillPrice - basis) * fillQty;
-      // ADR-0028: stale basis 시 0 fallback — fill.pnlPct 영속화 입력 보호.
+      // ADR-0049: stale basis 시 0 fallback — fill.pnlPct 영속화 입력 보호.
       const pnlPct    = basis ? (safePctChange(fillPrice, basis, { label: `ocoConfirm:${shadow.stockCode}` }) ?? 0) : 0;
 
       appendFill(shadow, {

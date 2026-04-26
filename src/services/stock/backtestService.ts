@@ -292,7 +292,7 @@ export async function backtestPortfolio(
     });
 
     const finalEquity = state.equity;
-    // ADR-0028: backtest 결과는 ±수백% 도 가능 — sanity bound override 1000%.
+    // ADR-0049: backtest 결과는 ±수백% 도 가능 — sanity bound override 1000%.
     const totalReturn = safePctChange(finalEquity, initialEquity, {
       label: 'backtest.totalReturn',
       sanityBoundPct: 1000,

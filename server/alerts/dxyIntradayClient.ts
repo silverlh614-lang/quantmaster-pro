@@ -196,7 +196,7 @@ export async function getDxyIntradayReading(windowMinutes = 30): Promise<DxyIntr
       if (bar.ts <= targetTs) basis = bar;
       else break;
     }
-    // ADR-0028: stale basis 시 0 fallback.
+    // ADR-0049: stale basis 시 0 fallback.
     const change = basis.close > 0 ? (safePctChange(last.close, basis.close, { label: 'dxyIntraday.change' }) ?? 0) : 0;
     return {
       source: 'YAHOO',
