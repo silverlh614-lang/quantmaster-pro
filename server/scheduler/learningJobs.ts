@@ -43,9 +43,11 @@ export function registerLearningJobs(): void {
     await checkWeeklySharpeAlert().catch(console.error);
   }, { timezone: 'UTC' });
 
-  // F2W 가중치 역피드백 — 매일 KST 03:10 (UTC 18:10). 일일 백업(UTC 18:00) 직후 동작.
+  // F2W 가중치 역피드백 — 평일 KST 03:10 (UTC 일~목 18:10). 일일 백업(UTC 18:00) 직후 동작.
   //   r ≥ +0.7 → 1.05× 부스트, r ≤ -0.7 → 0.9× 감쇠, 180d 기여 음수 → 0.2× 일몰.
-  cron.schedule('10 18 * * *', async () => {
+  // PR-A — UTC 일~목 18:10 = KST 월~금 03:10. 주말 학습 환각 차단.
+  // KRX 공휴일은 cron 차단 불가 — F2W 자체 진입부에서 별도 가드 필요 시 후속 PR.
+  cron.schedule('10 18 * * 0-4', async () => {
     try {
       await runF2WReverseLoop({ notifyTelegram: true });
     } catch (e) {
@@ -53,9 +55,11 @@ export function registerLearningJobs(): void {
     }
   }, { timezone: 'UTC' });
 
-  // Nightly Reflection Engine — 매일 KST 19:00 (UTC 10:00).
+  // Nightly Reflection Engine — 평일 KST 19:00 (UTC 월~금 10:00).
   // Silence Monday / Budget Governor / Integrity Guard 내부 적용.
-  cron.schedule('0 10 * * *', async () => {
+  // PR-A — UTC 월~금 10:00 = KST 평일 19:00. 주말 학습 환각 차단 (1차 cron 가드).
+  // KRX 공휴일은 cron 으로 차단 불가 — runNightlyReflection 진입부에서 2차 가드.
+  cron.schedule('0 10 * * 1-5', async () => {
     try {
       const res = await runNightlyReflection();
       console.log(`[NightlyReflection] ${res.date} mode=${res.mode} executed=${res.executed}${res.skipped ? ` skipped=${res.skipped}` : ''}`);

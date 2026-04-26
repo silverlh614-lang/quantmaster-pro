@@ -45,3 +45,13 @@ export const KRX_HOLIDAYS: ReadonlySet<string> = new Set<string>([
   '2027-10-09', // 한글날
   '2027-12-25', // 성탄절
 ]);
+
+/**
+ * 주어진 날짜(YYYY-MM-DD KST 기준)가 KRX 공휴일인지 판정.
+ *
+ * 향후 ADR-0037 (MarketDayClassifier SSOT) 도입 시 본 함수가 단일 교체 지점이 된다.
+ * 호출자는 KRX_HOLIDAYS Set 직접 접근 대신 본 헬퍼를 사용해야 한다.
+ */
+export function isKrxHoliday(dateYmd: string): boolean {
+  return KRX_HOLIDAYS.has(dateYmd);
+}
