@@ -419,8 +419,13 @@ export class TradingDayOrchestrator {
           // Phase 2차 C7 — 스모크 테스트 게이트: 실패 시 LIVE 주문 자동 차단.
           // 토큰 갱신 직후에 실행하여 토큰 유효성도 함께 검증.
           await runPreMarketSmokeTest().catch(console.error);
-          // 아이디어 8: 분할 매수 대기 트랜치 실행
-          await trancheExecutor.checkPendingTranches().catch(console.error);
+          // 아이디어 8: 분할 매수 대기 트랜치 실행 — AUTO_TRADE_ENABLED 가드 안에서만.
+          // PR-52 H1: 이전엔 if(enabled) 밖이라 자동매매 일시정지 상태에서도 LIVE
+          // 분할 매수 2·3차 실주문이 발송되는 잠재 위험. trancheExecutor 본체에도
+          // enabled 가드를 추가해 심층 방어, 호출자에서도 명확히 격리한다.
+          if (enabled) {
+            await trancheExecutor.checkPendingTranches().catch(console.error);
+          }
           await preScreenStocks().catch(console.error);
           const wlBefore = new Set(loadWatchlist().map(w => w.code));
           const added = await autoPopulateWatchlist().catch(() => 0) ?? 0;
