@@ -15,6 +15,7 @@ vi.mock('../../commandRegistry.js', () => ({
 import {
   formatHealthMessage,
   formatKrxStatusLine,
+  formatShortSellingSourceLine,
 } from './health.cmd.js';
 import type {
   HealthSnapshot,
@@ -175,5 +176,101 @@ describe('formatHealthMessage — KRX 라인 통합', () => {
     );
     expect(msg).toContain('KRX OpenAPI: ⚠️ 토큰 미설정');
     expect(msg).toContain('KRX_OPEN_API_AUTH_KEY');
+  });
+});
+
+// ── formatShortSellingSourceLine 4 분기 (Phase 1) ────────────────────────
+
+describe('formatShortSellingSourceLine — 공매도 출처 4 분기', () => {
+  it('1) 미수집 (shortSellingSource undefined) → ? 미수집', () => {
+    const s = makeSnapshot({ shortSellingSource: undefined });
+    expect(formatShortSellingSourceLine(s)).toBe('? 미수집');
+  });
+
+  it('2) KRX_DIRECT → ✅ KRX 직접 + KST 시각', () => {
+    // 2026-04-26 23:30 KST = UTC 14:30
+    const s = makeSnapshot({
+      shortSellingSource: 'KRX_DIRECT',
+      shortSellingFetchedAt: '2026-04-26T14:30:00Z',
+    });
+    const line = formatShortSellingSourceLine(s);
+    expect(line).toContain('✅ KRX 직접');
+    expect(line).toMatch(/\(\d{2}:\d{2}\)/); // KST HH:MM
+  });
+
+  it('3) KRX_OTP → 🟡 KRX OTP 폴백', () => {
+    const s = makeSnapshot({
+      shortSellingSource: 'KRX_OTP',
+      shortSellingFetchedAt: '2026-04-26T14:30:00Z',
+    });
+    expect(formatShortSellingSourceLine(s)).toMatch(/^🟡 KRX OTP 폴백 \(/);
+  });
+
+  it('4) KIS_ESTIMATE → ⚠️ KIS 추정값 (운영자 주의 신호)', () => {
+    const s = makeSnapshot({
+      shortSellingSource: 'KIS_ESTIMATE',
+      shortSellingFetchedAt: '2026-04-26T14:30:00Z',
+    });
+    expect(formatShortSellingSourceLine(s)).toMatch(/^⚠️ KIS 추정값 \(/);
+  });
+
+  it('fetchedAt 부재 시 시각 suffix 미표시 (라벨만)', () => {
+    const s = makeSnapshot({
+      shortSellingSource: 'KRX_DIRECT',
+      shortSellingFetchedAt: undefined,
+    });
+    expect(formatShortSellingSourceLine(s)).toBe('✅ KRX 직접');
+  });
+
+  it('잘못된 ISO 문자열 → 시각 suffix 무시', () => {
+    const s = makeSnapshot({
+      shortSellingSource: 'KRX_DIRECT',
+      shortSellingFetchedAt: 'not-an-iso',
+    });
+    expect(formatShortSellingSourceLine(s)).toBe('✅ KRX 직접');
+  });
+});
+
+describe('formatHealthMessage — 공매도 출처 라인 통합', () => {
+  it('정상 KRX_DIRECT 스냅샷에 공매도 출처 라인 정확히 1번', () => {
+    const msg = formatHealthMessage(
+      makeSnapshot({
+        shortSellingSource: 'KRX_DIRECT',
+        shortSellingFetchedAt: '2026-04-26T14:30:00Z',
+      }),
+      PROBES,
+    );
+    const matches = msg.match(/공매도 출처:/g) ?? [];
+    expect(matches).toHaveLength(1);
+    expect(msg).toContain('공매도 출처: ✅ KRX 직접');
+  });
+
+  it('미수집 운영 환경에서도 라인 노출 (운영자 인지)', () => {
+    const msg = formatHealthMessage(makeSnapshot(), PROBES);
+    expect(msg).toContain('공매도 출처: ? 미수집');
+  });
+
+  it('KRX OpenAPI → 공매도 출처 → Yahoo probe 순서 (인접 그룹핑)', () => {
+    const msg = formatHealthMessage(
+      makeSnapshot({ shortSellingSource: 'KRX_OTP' }),
+      PROBES,
+    );
+    const krxIdx = msg.indexOf('KRX OpenAPI:');
+    const shortIdx = msg.indexOf('공매도 출처:');
+    const yahooIdx = msg.indexOf('Yahoo probe:');
+    expect(krxIdx).toBeGreaterThan(0);
+    expect(shortIdx).toBeGreaterThan(krxIdx);
+    expect(yahooIdx).toBeGreaterThan(shortIdx);
+  });
+
+  it('KIS_ESTIMATE 운영 환경 — ⚠️ 마커 노출 (KRX 두 경로 실패 인지)', () => {
+    const msg = formatHealthMessage(
+      makeSnapshot({
+        shortSellingSource: 'KIS_ESTIMATE',
+        shortSellingFetchedAt: '2026-04-26T14:30:00Z',
+      }),
+      PROBES,
+    );
+    expect(msg).toContain('공매도 출처: ⚠️ KIS 추정값');
   });
 });
