@@ -51,7 +51,7 @@ import {
 import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKisIntraday } from '../../screener/stockScreener.js';
 import { fillMonitor } from '../fillMonitor.js';
 import { trancheExecutor } from '../trancheExecutor.js';
-import { ENTRY_GATES_PHASE_B_POC } from './entryGates/index.js';
+import { ENTRY_GATES_PHASE_B } from './entryGates/index.js';
 import {
   isOpenShadowStatus,
   buildStopLossPlan,
@@ -607,112 +607,37 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       );
       if (hasPendingPreMarketOrder) continue;
 
-      // ── Regret Asymmetry Filter — 쿨다운 종목 진입 보류/해제 판단 ────────────
-      if (stock.cooldownUntil) {
-        const released = checkCooldownRelease(
-          stock.cooldownUntil,
-          stock.recentHigh ?? stock.entryPrice,
-          currentPrice,
-        );
-        if (released) {
-          // 쿨다운 해제 — 플래그 제거 후 진입 허용
-          stock.cooldownUntil = undefined;
-          stock.recentHigh    = undefined;
-          ctx.mutables.watchlistMutated.value = true;
-          console.log(`[Regret Asymmetry] ${stock.name}(${stock.code}) 쿨다운 해제 — 진입 재허용`);
-        } else {
-          console.log(
-            `[Regret Asymmetry] ${stock.name}(${stock.code}) 쿨다운 유지` +
-            ` (until ${stock.cooldownUntil}, high ${(stock.recentHigh ?? 0).toLocaleString()}원)`,
-          );
+      // ── ADR-0030 PR-57+58: Phase B EntryGate Chain (7 게이트) ─────────────
+      // cooldown / blacklist / addBuyBlock / rrr / sectorConcentration /
+      // sectorPreGuard / portfolioRisk 모두 byte-equivalent 추출. 후속 PR 잔여:
+      // liveGateRevalidation (다단계 revalidation pipeline) + kellyBudget
+      // (Kelly 사이징) — pure gate 패턴에 부적합, 별도 ADR 예정.
+      let _gateBlocked = false;
+      for (const gate of ENTRY_GATES_PHASE_B) {
+        const result = await gate({
+          stock, shadows: ctx.shadows, scanCounters: ctx.scanCounters,
+          watchlist: ctx.watchlist, mutables: ctx.mutables,
+          currentPrice, totalAssets: ctx.totalAssets, kellyMultiplier: ctx.kellyMultiplier,
+        });
+        if (result.pass) {
+          if (result.passLogMessage) console.log(result.passLogMessage);
+          if (result.passWarnMessage) console.warn(result.passWarnMessage);
           continue;
         }
-      }
-
-      // ── ADR-0030 PR-57: Phase B PoC EntryGate Chain (3 단순 게이트) ────────
-      // blacklistGate / addBuyBlockGate / rrrGate 3 동기 게이트의 byte-equivalent 추출.
-      // 잔여 6 게이트 (cooldown / sector* / portfolioRisk / liveGateRevalidation /
-      // kellyBudget) 는 후속 PR 에서 async 시그니처로 추가.
-      let _gateBlocked = false;
-      for (const gate of ENTRY_GATES_PHASE_B_POC) {
-        const result = gate({ stock, shadows: ctx.shadows, scanCounters: ctx.scanCounters });
-        if (result.pass) continue;
+        // FAIL
         console.log(result.logMessage);
         if (result.counter) ctx.scanCounters[result.counter] += 1;
         if (result.stageLog) stageLog[result.stageLog.key] = result.stageLog.value;
         if (result.pushTrace) pushTrace();
+        if (result.telegramMessage) {
+          await sendTelegramAlert(result.telegramMessage).catch(console.error);
+        }
         _gateBlocked = true;
         break;
       }
       if (_gateBlocked) continue;
       // 원본은 RRR PASS 시 stageLog.rrr='PASS' 만 별도로 기록 — 게이트 통과 후 동등 처리.
       stageLog.rrr = 'PASS';
-
-      // ── 아이디어 4: 섹터 집중도 가드 (Correlation Guard) ──
-      if (stock.sector) {
-        const activeSectorCodes = ctx.watchlist
-          .filter(w => ctx.shadows.some(
-            s => s.stockCode === w.code && isOpenShadowStatus(s.status)
-          ))
-          .map(w => w.sector)
-          .filter(Boolean);
-        const sectorCount = activeSectorCodes.filter(s => s === stock.sector).length;
-        if (sectorCount >= MAX_SECTOR_CONCENTRATION) {
-          console.log(
-            `[CorrelationGuard] ${stock.name}(${stock.sector}) 진입 보류 — ` +
-            `동일 섹터 ${sectorCount}/${MAX_SECTOR_CONCENTRATION}개 포화`
-          );
-          await sendTelegramAlert(
-            `🚧 <b>[가드] ${stock.name} 진입 보류</b>\n` +
-            `섹터: ${stock.sector}\n` +
-            `동일 섹터 보유 ${sectorCount}/${MAX_SECTOR_CONCENTRATION}개 → 분산 한도 초과`
-          ).catch(console.error);
-          continue;
-        }
-      }
-
-      // ── Phase 1-②: 섹터 노출 선검증 (승인 큐 투입 전, 같은 tick 의 pending 포함) ──
-      // 현재 보유 + 같은 스캔에서 이미 큐에 들어간 종목의 섹터 합산으로 투영 비중을 계산해
-      // 단일 섹터 > 40% 또는 상관 그룹 > 50% 를 사전 차단한다. portfolioRiskEngine 의
-      // 사후 점검은 그대로 남아 제2방어선 역할. 위반 시 해당 후보만 SKIP 해 다음 섹터로 교체.
-      {
-        const candidateSector = stock.sector || getSectorByCode(stock.code);
-        // 신규 진입 예상 금액 — 실제 quantity 계산 전이므로 positionPct × ctx.totalAssets 추정.
-        // 후속 포지션 사이징 결과와 10~30% 오차가 있을 수 있으나, 단일 섹터 40% 가드에
-        // 비하면 무시할 수준. 섹터 skip 판단용도의 보수적 추정이면 충분.
-        const estGateScore = stock.gateScore ?? 5;
-        const estRawPct = estGateScore >= 9 ? 0.12 : estGateScore >= 7 ? 0.08 : estGateScore >= 5 ? 0.05 : 0.03;
-        const estCandidateValue = ctx.totalAssets * estRawPct * ctx.kellyMultiplier;
-        const secGuard = checkSectorExposureBefore({
-          candidateSector,
-          candidateValue: estCandidateValue,
-          currentSectorValue: ctx.mutables.currentSectorValue,
-          pendingSectorValue: ctx.mutables.pendingSectorValue,
-          totalAssets: ctx.totalAssets,
-        });
-        if (!secGuard.allowed) {
-          console.log(`[SectorPreGuard] ${stock.name}(${candidateSector ?? '?'}) ${secGuard.reason}`);
-          stageLog.sectorGuard = `BLOCK(${secGuard.projectedSectorWeight.toFixed(2)})`;
-          pushTrace();
-          continue;
-        }
-      }
-
-      // ── 포트폴리오 리스크 엔진 — 섹터 비중/베타/일일 손실 통합 체크 ──────────
-      {
-        const prisk = await evaluatePortfolioRisk(stock.sector);
-        if (!prisk.entryAllowed) {
-          console.log(
-            `[PortfolioRisk] ${stock.name} 진입 차단 — ${prisk.blockReasons.join('; ')}`
-          );
-          stageLog.portfolioRisk = prisk.blockReasons.join('; ');
-          pushTrace();
-          continue;
-        }
-        if (prisk.warnings.length > 0) {
-          console.warn(`[PortfolioRisk] ${stock.name} 경고: ${prisk.warnings.join('; ')}`);
-        }
-      }
 
       const slippage = getExecutionCostConfig().slippageRate;
       const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));

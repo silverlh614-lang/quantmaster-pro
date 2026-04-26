@@ -15,15 +15,15 @@ const { isBlacklisted } = await import('../../../../persistence/blacklistRepo.js
 describe('blacklistGate', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it('블랙리스트 미등재 → pass=true', () => {
+  it('블랙리스트 미등재 → pass=true', async () => {
     (isBlacklisted as any).mockReturnValue(false);
-    const r = blacklistGate(makeMockCtx());
+    const r = await blacklistGate(makeMockCtx());
     expect(r.pass).toBe(true);
   });
 
-  it('블랙리스트 등재 → pass=false + 차단 메시지', () => {
+  it('블랙리스트 등재 → pass=false + 차단 메시지', async () => {
     (isBlacklisted as any).mockReturnValue(true);
-    const r = blacklistGate(makeMockCtx());
+    const r = await blacklistGate(makeMockCtx());
     expect(r.pass).toBe(false);
     if (!r.pass) {
       expect(r.logMessage).toContain('블랙리스트');
@@ -33,16 +33,16 @@ describe('blacklistGate', () => {
     }
   });
 
-  it('isBlacklisted 호출 시 stock.code 정확 전달', () => {
+  it('isBlacklisted 호출 시 stock.code 정확 전달', async () => {
     (isBlacklisted as any).mockReturnValue(false);
     const stock = makeMockStock({ code: '000660', name: 'SK하이닉스' });
     blacklistGate(makeMockCtx({ stock }));
     expect(isBlacklisted).toHaveBeenCalledWith('000660');
   });
 
-  it('차단 시 부수효과 없음 (counter/stageLog/pushTrace 모두 미정의)', () => {
+  it('차단 시 부수효과 없음 (counter/stageLog/pushTrace 모두 미정의)', async () => {
     (isBlacklisted as any).mockReturnValue(true);
-    const r = blacklistGate(makeMockCtx());
+    const r = await blacklistGate(makeMockCtx());
     if (!r.pass) {
       expect(r.counter).toBeUndefined();
       expect(r.stageLog).toBeUndefined();

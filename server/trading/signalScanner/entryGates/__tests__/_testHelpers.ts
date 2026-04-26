@@ -1,10 +1,14 @@
 // @responsibility EntryGate 단위 테스트용 mock context + WatchlistEntry 픽스처 헬퍼
 /**
  * entryGates/__tests__/_testHelpers.ts — EntryGate 테스트 헬퍼 (ADR-0030).
+ *
+ * PR-58 확장: 새 EntryGateContext 필드 (watchlist/mutables/currentPrice/totalAssets/
+ * kellyMultiplier) 의 기본값을 makeMockCtx 가 자동 채워줌.
  */
 
 import type { WatchlistEntry } from '../../../../persistence/watchlistRepo.js';
 import type { ServerShadowTrade } from '../../../../persistence/shadowTradeRepo.js';
+import type { BuyListLoopMutables } from '../../perSymbolEvaluation.js';
 import { createScanCounters } from '../../scanDiagnostics.js';
 import type { EntryGateContext } from '../types.js';
 
@@ -41,10 +45,32 @@ export function makeMockShadow(overrides: Partial<ServerShadowTrade> = {}): Serv
   } as ServerShadowTrade;
 }
 
-export function makeMockCtx(overrides: Partial<EntryGateContext> = {}): EntryGateContext {
+export function makeMockMutables(): BuyListLoopMutables {
   return {
-    stock: overrides.stock ?? makeMockStock(),
+    liveBuyQueue: [],
+    reservedSlots: { value: 0 },
+    probingReservedSlots: { value: 0 },
+    reservedTiers: [],
+    reservedIsMomentum: [],
+    reservedBudgets: [],
+    reservedSectorValues: [],
+    pendingSectorValue: new Map(),
+    currentSectorValue: new Map(),
+    orderableCash: { value: 100_000_000 },
+    watchlistMutated: { value: false },
+  };
+}
+
+export function makeMockCtx(overrides: Partial<EntryGateContext> = {}): EntryGateContext {
+  const stock = overrides.stock ?? makeMockStock();
+  return {
+    stock,
     shadows: overrides.shadows ?? [],
     scanCounters: overrides.scanCounters ?? createScanCounters(),
+    watchlist: overrides.watchlist ?? [],
+    mutables: overrides.mutables ?? makeMockMutables(),
+    currentPrice: overrides.currentPrice ?? stock.entryPrice,
+    totalAssets: overrides.totalAssets ?? 100_000_000,
+    kellyMultiplier: overrides.kellyMultiplier ?? 1.0,
   };
 }
