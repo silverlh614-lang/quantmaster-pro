@@ -96,6 +96,9 @@ export async function runPipelineDiagnosis(): Promise<DiagnosisResult> {
   //   DEGRADED          → informational (일일 요약에만)
   //   DOWN              → issues (즉시 텔레그램, 5회 연속 실패 = 진짜 장애)
   //   UNKNOWN           → informational (cron 첫 실행 시 정상)
+  //
+  // ADR-0058 (EgressGuard IntentTag) 와의 관계: main 의 Yahoo SSOT 통합으로
+  // 본 위치의 자체 fetch 가 제거되어 IntentTag wiring 대상에서 자연 제외됨.
   const yahooHealth = getYahooHealthSnapshot();
   if (yahooHealth.status === 'DOWN') {
     issues.push(
