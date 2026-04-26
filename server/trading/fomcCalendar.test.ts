@@ -1,8 +1,9 @@
 /**
- * @responsibility fomcCalendar v3 정책 (2026-04-26 사용자 경험 반영) 회귀 테스트
+ * @responsibility fomcCalendar v3.1 정책 (2026-04-26 사용자 추가 요청) 회귀 테스트
  *
- * v3 (D-day 1일만 차단):
- *   PRE_3 / PRE_2 / PRE_1 = 1.0 (정상 운용)
+ * v3.1 (D-day 1일만 차단 + D-1 보수적 진입):
+ *   PRE_3 / PRE_2 = 1.0 (정상 운용)
+ *   PRE_1 = 0.75 (보수적 진입, 사이즈 25% 축소) ← v3 의 1.0 → v3.1 0.75
  *   DAY = 0.0 (신규 진입 금지) — 우호 환경 시 ×0.3 보수적 진입 허용
  *   POST_1 = 1.30 / POST_2 = 1.15
  *
@@ -23,7 +24,7 @@ function setNow(iso: string): void {
   vi.setSystemTime(new Date(iso));
 }
 
-describe('fomcCalendar v3 — D-day 1일만 차단 (사용자 경험 2026-04-26)', () => {
+describe('fomcCalendar v3.1 — D-day 1일 차단 + D-1 보수적 진입 (Kelly 0.75)', () => {
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -59,22 +60,23 @@ describe('fomcCalendar v3 — D-day 1일만 차단 (사용자 경험 2026-04-26)
     });
   });
 
-  describe('PRE_1 (D-1) — 정상 운용 (v3 핵심 변경)', () => {
-    it('FOMC 4/29 기준 4/28 (D-1) 은 PRE_1 + Kelly 1.0 + noNewEntry=false', () => {
+  describe('PRE_1 (D-1) — 보수적 진입 Kelly 0.75 (v3.1 핵심 변경)', () => {
+    it('FOMC 4/29 기준 4/28 (D-1) 은 PRE_1 + Kelly 0.75 + noNewEntry=false', () => {
       setNow('2026-04-28T03:00:00Z');
       const p = getFomcProximity();
       expect(p.phase).toBe('PRE_1');
       expect(p.daysUntil).toBe(1);
-      expect(p.kellyMultiplier).toBe(1.0); // v2: 0 → v3: 1.0
-      expect(p.noNewEntry).toBe(false);    // v2: true → v3: false
+      expect(p.kellyMultiplier).toBe(0.75); // v3: 1.0 → v3.1: 0.75
+      expect(p.noNewEntry).toBe(false);
     });
 
-    it('PRE_1 description 은 "정상 운용 (내일 발표일 차단)"', () => {
+    it('PRE_1 description 은 "보수적 진입 (Kelly ×0.75, 사이즈 25% 축소)"', () => {
       setNow('2026-04-28T03:00:00Z');
       const p = getFomcProximity();
       expect(p.description).toContain('FOMC D-1');
-      expect(p.description).toContain('정상 운용');
-      expect(p.description).toContain('내일 발표');
+      expect(p.description).toContain('보수적 진입');
+      expect(p.description).toContain('0.75');
+      expect(p.description).toContain('25%');
       expect(p.description).not.toContain('신규 진입 금지');
     });
   });
@@ -191,10 +193,10 @@ describe('applyFomcRelaxation v3 — DAY 만 우호 환경 완화 적용', () =>
       expect(r.noNewEntry).toBe(false);
     });
 
-    it('PRE_1 도 v3 에선 정상 운용 — 완화 무관', () => {
-      const r = applyFomcRelaxation('PRE_1', 1.0, { mhs: 30, regime: 'NEUTRAL', vkospi: 35 });
+    it('PRE_1 은 v3.1 에서 보수적 진입(0.75) — 완화 무관 (차단 phase 아님)', () => {
+      const r = applyFomcRelaxation('PRE_1', 0.75, { mhs: 30, regime: 'NEUTRAL', vkospi: 35 });
       expect(r.relaxed).toBe(false);
-      expect(r.effectiveKelly).toBe(1.0); // 차단 안 됨, 정상 1.0
+      expect(r.effectiveKelly).toBe(0.75); // 차단 안 됨, default 0.75 그대로
       expect(r.noNewEntry).toBe(false);
     });
 
@@ -325,14 +327,14 @@ describe('applyFomcRelaxation v3 — DAY 만 우호 환경 완화 적용', () =>
       expect(p.noNewEntry).toBe(true);
     });
 
-    it('PRE_1 (D-1) 에선 macro 우호여도 relaxed=false (정상 운용 그대로, v3)', () => {
+    it('PRE_1 (D-1) 에선 macro 우호여도 relaxed=false (보수적 0.75 그대로, v3.1)', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-04-28T03:00:00Z'));
       const p = getFomcProximity({ mhs: 70, regime: 'BULL_NORMAL', vkospi: 18 });
       expect(p.phase).toBe('PRE_1');
       expect(p.relaxed).toBeFalsy();
       expect(p.noNewEntry).toBe(false);
-      expect(p.kellyMultiplier).toBe(1.0);
+      expect(p.kellyMultiplier).toBe(0.75); // v3.1 — 차단 phase 아니라 default 0.75 그대로
     });
 
     it('PRE_3 (D-3) 에선 macro 우호여도 relaxed=false (정상 운용 그대로)', () => {
