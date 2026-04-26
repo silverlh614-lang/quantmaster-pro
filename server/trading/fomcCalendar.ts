@@ -4,15 +4,30 @@
  *
  * FOMC 근접도 함수로 Kelly 배율을 자동 조절한다.
  *
- * ┌─ 위상별 동작 ───────────────────────────────────────────────────────────────┐
- * │  PRE_3 (D-3) : 신규 진입 금지 | 기존 포지션 50% 헤지 경보                  │
- * │  PRE_2 (D-2) : 신규 진입 금지                                              │
- * │  PRE_1 (D-1) : 신규 진입 금지 | 발표 당일 관망 예고                        │
+ * ┌─ 위상별 동작 (정책 v3 — 2026-04-26 사용자 경험 반영, D-day 1일 차단) ─────────┐
+ * │  PRE_3 (D-3) : 정상 운용 (Kelly ×1.00)                                     │
+ * │  PRE_2 (D-2) : 정상 운용 (Kelly ×1.00)                                     │
+ * │  PRE_1 (D-1) : 보수적 진입 (Kelly ×0.75) | 발표 직전 사이즈 25% 축소        │
  * │  DAY   (D+0) : 신규 진입 금지 | 발표 전 전면 관망                          │
  * │  POST_1(D+1) : 방향 확인 후 최대 진입 허용 (Kelly ×1.30)                   │
  * │  POST_2(D+2) : 모멘텀 가속 구간 (Kelly ×1.15)                              │
  * │  NORMAL      : 정상 운용 (Kelly ×1.00)                                     │
  * └─────────────────────────────────────────────────────────────────────────────┘
+ *
+ * 정책 변경 이력:
+ *   v1 (2025): PRE_3/PRE_2/PRE_1/DAY 모두 차단 (4일)
+ *   v2 (2026-04-26 1차): PRE_3/PRE_2 정상, PRE_1/DAY 차단 (2일)
+ *   v3 (2026-04-26 2차): PRE_3/PRE_2/PRE_1 정상, DAY 만 차단 (1일)
+ *   v3.1 (2026-04-26 3차): PRE_1 = Kelly 0.75 (사이즈 25% 축소), DAY 차단 유지
+ *     사유: 사용자 추가 요청 — D-1 은 발표 직전이라 *완전 정상* 보다는 약간의
+ *     보수성(25% 축소) 유지가 안전. 진입 자체는 허용해 기회 손실 최소화.
+ *
+ *   - 매도(청산)는 본 게이트와 무관하게 정상 발동 (페르소나 철학 8 — 손절은 운영비).
+ *
+ * 우호 환경 완화 (DAY 만 적용):
+ *   - 조건: MHS≥60 + 강세 레짐 + VKOSPI≤22 (3조건 모두)
+ *   - 효과: DAY 에서도 Kelly ×0.3 보수적 진입 허용
+ *   - macro 부재 / 일부 미달 시 안전 차단 유지
  *
  * 일정 출처:
  *  2025 — 연준 공식 일정 (확정)
@@ -44,16 +59,62 @@ export interface FomcProximity {
   lastFomcDate:    string | null;
   kellyMultiplier: number;         // 1.0 = 정상, <1 = 축소, >1 = 부스트
   noNewEntry:      boolean;        // PRE / DAY 구간
-  hedgeSignal:     boolean;        // PRE_3 전용: 50% 헤지 경보
+  hedgeSignal:     boolean;        // PRE_3 전용: 50% 헤지 경보 (v2 에선 항상 false)
   description:     string;
+  /** v2 우호 환경 완화 적용 여부 (PRE_1/DAY 에서만 의미). true 시 보수적 진입 허용. */
+  relaxed?:        boolean;
+  /** 우호/차단 사유 텍스트 — 운영자 가시성. */
+  relaxationReason?: string;
 }
 
-// Kelly 배율 테이블
+/**
+ * FOMC 게이트 우호 환경 완화 입력 컨텍스트.
+ * macroState/regime/vkospi 등 외부 SSOT 의 snapshot 만 받음 — fomcCalendar 자체는
+ * macroStateRepo 를 import 하지 않아 boundary 단순.
+ */
+export interface FomcRelaxationContext {
+  mhs?: number;       // Macro Health Score 0~100
+  regime?: string;    // 'BULL_AGGRESSIVE' | 'BULL_NORMAL' | 'NEUTRAL' | ...
+  vkospi?: number;    // VKOSPI 변동성 지수
+}
+
+export interface FomcRelaxationResult {
+  relaxed:         boolean;  // true = 우호 환경, 보수적 진입 허용
+  effectiveKelly:  number;   // 0.0 (차단) / 0.3 (보수적) / 1.0 (정상)
+  noNewEntry:      boolean;  // 신규 진입 차단 여부 (relaxed 시 false)
+  reason:          string;
+}
+
+/** v2 우호 환경 완화 임계값 SSOT. ENV 로 운영자 조정 가능. */
+export const FOMC_RELAXATION_THRESHOLDS = {
+  MHS_MIN:   60,     // Macro Health Score ≥ 60
+  VKOSPI_MAX: 22,    // VKOSPI ≤ 22 (변동성 낮음)
+  /** 완화 시 적용할 Kelly 배율 (정상 1.0 의 30%). */
+  KELLY_RELAXED: 0.3,
+} as const;
+
+/** 우호 강세 레짐 — 사용자 분석 13 (regimePlaybook) 의 BULL 분류와 정합. */
+const FOMC_FAVORABLE_REGIMES = new Set<string>([
+  'BULL_AGGRESSIVE',
+  'BULL_NORMAL',
+  'R1_BULL_AGGRESSIVE',
+  'R2_BULL_NORMAL',
+]);
+
+// Kelly 배율 테이블 (정책 v3.1 — 2026-04-26 사용자 추가 요청 반영)
+//
+// 변경 이력:
+//   v1 (2025):         PRE_3/PRE_2/PRE_1/DAY 모두 0.0 (4일 차단)
+//   v2 (2026-04-26):   PRE_3/PRE_2 = 1.0, PRE_1/DAY = 0.0 (2일 차단)
+//   v3 (2026-04-26):   PRE_3/PRE_2/PRE_1 = 1.0, DAY 만 0.0 (1일 차단)
+//   v3.1 (2026-04-26): PRE_1 = 0.75 (사이즈 25% 축소), DAY 차단 유지 ← 현재
+//     사유: 사용자 추가 요청 — D-1 은 발표 직전이라 *완전 정상* 보다 약간의
+//     보수성(25% 축소) 유지가 안전. 진입은 허용해 기회 손실 최소화.
 const PHASE_KELLY: Record<FomcPhase, number> = {
-  PRE_3:  0.0,   // 신규 진입 금지
-  PRE_2:  0.0,
-  PRE_1:  0.0,
-  DAY:    0.0,
+  PRE_3:  1.0,   // 정상 운용
+  PRE_2:  1.0,   // 정상 운용
+  PRE_1:  0.75,  // 보수적 진입 (사이즈 25% 축소, v3.1) — 발표 직전 변동성 대비
+  DAY:    0.0,   // 신규 진입 금지 (발표 당일 — 익일 09:00 시초가 점프 회피)
   POST_1: 1.30,  // FOMC 방향 확인 후 최대 진입
   POST_2: 1.15,
   NORMAL: 1.0,
@@ -73,10 +134,94 @@ function daysDiff(a: string, b: string): number {
 }
 
 /**
+ * 우호 환경 완화 헬퍼 — DAY (FOMC 발표 당일) 에서 macro 환경이 *우호적* 이면 차단을
+ * 풀고 보수적 진입(Kelly ×0.3) 을 허용한다.
+ *
+ * v3 (2026-04-26): 차단 phase 가 PRE_1+DAY → DAY 단일로 축소. PRE_1 은 정상 운용
+ * 이라 완화 평가 자체가 무의미.
+ *
+ * 우호 환경 조건 (모두 충족):
+ *   1. MHS ≥ FOMC_RELAXATION_THRESHOLDS.MHS_MIN  (강한 매크로 강세)
+ *   2. regime ∈ FOMC_FAVORABLE_REGIMES          (강세 레짐)
+ *   3. VKOSPI ≤ FOMC_RELAXATION_THRESHOLDS.VKOSPI_MAX (변동성 낮음)
+ *
+ * macro snapshot 부재 또는 일부 필드 누락 시 *보수적으로* 차단 유지.
+ *
+ * @param phase   현재 FOMC phase
+ * @param defaultKelly  현재 phase 의 PHASE_KELLY 값 (DAY 가 아니면 그대로)
+ * @param macro   macro snapshot (mhs/regime/vkospi)
+ */
+export function applyFomcRelaxation(
+  phase: FomcPhase,
+  defaultKelly: number,
+  macro?: FomcRelaxationContext,
+): FomcRelaxationResult {
+  const isBlockedPhase = phase === 'DAY';
+
+  // DAY 가 아니면 완화 무관 — 기존 정책 그대로 (PRE_1 도 v3 에선 정상 운용).
+  if (!isBlockedPhase) {
+    return {
+      relaxed: false,
+      effectiveKelly: defaultKelly,
+      noNewEntry: defaultKelly === 0,
+      reason: '게이트 차단 기간 아님',
+    };
+  }
+
+  // macro 부재 시 보수적 차단 유지 (회귀 안전).
+  if (!macro || macro.mhs == null || macro.regime == null) {
+    return {
+      relaxed: false,
+      effectiveKelly: 0,
+      noNewEntry: true,
+      reason: 'macro snapshot 부재 — 차단 유지',
+    };
+  }
+
+  const mhs = macro.mhs;
+  const regime = macro.regime;
+  const vkospi = macro.vkospi;
+
+  const mhsOk    = mhs >= FOMC_RELAXATION_THRESHOLDS.MHS_MIN;
+  const regimeOk = FOMC_FAVORABLE_REGIMES.has(regime);
+  // VKOSPI 부재 시 보수적으로 false 처리 — 셋 다 통과해야 완화.
+  const vkospiOk = vkospi != null && Number.isFinite(vkospi)
+    && vkospi <= FOMC_RELAXATION_THRESHOLDS.VKOSPI_MAX;
+
+  if (mhsOk && regimeOk && vkospiOk) {
+    return {
+      relaxed: true,
+      effectiveKelly: FOMC_RELAXATION_THRESHOLDS.KELLY_RELAXED,
+      noNewEntry: false,
+      reason:
+        `우호 환경 (MHS ${mhs.toFixed(0)} ≥ ${FOMC_RELAXATION_THRESHOLDS.MHS_MIN} + ` +
+        `${regime} + VKOSPI ${vkospi!.toFixed(1)} ≤ ${FOMC_RELAXATION_THRESHOLDS.VKOSPI_MAX}) — ` +
+        `보수적 진입 (Kelly ×${FOMC_RELAXATION_THRESHOLDS.KELLY_RELAXED})`,
+    };
+  }
+
+  // 어느 하나라도 실패 — 차단 유지.
+  const failParts = [
+    `MHS ${mhsOk ? '✅' : '❌'} (${mhs.toFixed(0)})`,
+    `Regime ${regimeOk ? '✅' : '❌'} (${regime})`,
+    `VKOSPI ${vkospiOk ? '✅' : '❌'} (${vkospi != null ? vkospi.toFixed(1) : 'N/A'})`,
+  ];
+  return {
+    relaxed: false,
+    effectiveKelly: 0,
+    noNewEntry: true,
+    reason: `차단 유지 — ${failParts.join(' / ')}`,
+  };
+}
+
+/**
  * 현재 KST 날짜 기준 FOMC 근접도를 반환한다.
  * signalScanner.ts가 매 tick마다 호출한다.
+ *
+ * @param macro 옵셔널 — 우호 환경 완화 컨텍스트(MHS/regime/VKOSPI). 전달 시 PRE_1/DAY
+ *              구간에서 자동 완화 평가, 미전달 시 기존 차단 정책 유지 (호환성 보장).
  */
-export function getFomcProximity(): FomcProximity {
+export function getFomcProximity(macro?: FomcRelaxationContext): FomcProximity {
   const today = todayKst();
 
   // 다음 FOMC, 직전 FOMC 탐색
@@ -97,26 +242,38 @@ export function getFomcProximity(): FomcProximity {
   else if (daysAfter === 2)  phase = 'POST_2';
   else                        phase = 'NORMAL';
 
-  const kellyMultiplier = PHASE_KELLY[phase];
-  const noNewEntry      = kellyMultiplier === 0;
-  const hedgeSignal     = phase === 'PRE_3';
+  const baseKelly = PHASE_KELLY[phase];
+  // hedgeSignal: v2 정책에선 D-3 가 정상 운용으로 격하되어 헤지 신호도 제거.
+  // 헤지 검토는 본 게이트가 아닌 R6 비상 청산·trailingStop 등 exitEngine 룰에서 자체 처리.
+  const hedgeSignal = false;
 
   const descMap: Record<FomcPhase, string> = {
-    PRE_3:  `FOMC D-3 (${nextDate}) — 신규 진입 금지, 50% 헤지 검토`,
-    PRE_2:  `FOMC D-2 (${nextDate}) — 신규 진입 금지`,
-    PRE_1:  `FOMC D-1 (${nextDate}) — 내일 발표, 관망`,
-    DAY:    `FOMC 발표일 (${nextDate ?? lastDate}) — 발표 전 전면 관망`,
+    PRE_3:  `FOMC D-3 (${nextDate}) — 정상 운용 (D-day 만 차단)`,
+    PRE_2:  `FOMC D-2 (${nextDate}) — 정상 운용 (D-day 만 차단)`,
+    PRE_1:  `FOMC D-1 (${nextDate}) — 보수적 진입 (Kelly ×0.75, 사이즈 25% 축소)`,
+    DAY:    `FOMC 발표일 (${nextDate ?? lastDate}) — 신규 진입 금지`,
     POST_1: `FOMC D+1 (${lastDate}) — 방향 확인 후 최대 진입 (Kelly ×1.30)`,
     POST_2: `FOMC D+2 (${lastDate}) — 모멘텀 가속 (Kelly ×1.15)`,
     NORMAL: '정상 운용',
   };
 
+  // v2 우호 환경 완화 — PRE_1 / DAY 에서 macro 가 우호적이면 보수적 진입 허용.
+  // macro 미전달 시 applyFomcRelaxation 이 차단 유지 결과 반환 (회귀 안전).
+  const relaxation = applyFomcRelaxation(phase, baseKelly, macro);
+  const description = relaxation.relaxed
+    ? `${descMap[phase]} | ${relaxation.reason}`
+    : descMap[phase];
+
   return {
     phase, daysUntil, daysAfter,
-    nextFomcDate:    nextDate,
-    lastFomcDate:    lastDate,
-    kellyMultiplier, noNewEntry, hedgeSignal,
-    description:     descMap[phase],
+    nextFomcDate:     nextDate,
+    lastFomcDate:     lastDate,
+    kellyMultiplier:  relaxation.effectiveKelly,
+    noNewEntry:       relaxation.noNewEntry,
+    hedgeSignal,
+    description,
+    relaxed:          relaxation.relaxed || undefined,
+    relaxationReason: relaxation.relaxed ? relaxation.reason : undefined,
   };
 }
 
@@ -147,19 +304,13 @@ export function generateFomcIcs(): string {
       `DTSTART;VALUE=DATE:${dtstart}`,
       `DTEND;VALUE=DATE:${dtend}`,
       `SUMMARY:FOMC 금리 결정 🏦`,
-      `DESCRIPTION:미 연준 FOMC 금리 결정\\nD-3부터 신규 진입 자동 차단\\nD+1 방향 확인 후 최대 포지션 허용`,
+      `DESCRIPTION:미 연준 FOMC 금리 결정\\nD-day(발표 당일) 신규 진입 자동 차단 (v3 정책)\\nD+1 방향 확인 후 최대 포지션 허용\\n우호 환경 시 D-day 도 보수적 진입 (Kelly ×0.3)`,
       `UID:${uid}`,
-      // D-3 경보
-      'BEGIN:VALARM',
-      'TRIGGER:-P3DT0H0M0S',
-      'ACTION:DISPLAY',
-      'DESCRIPTION:⚠️ FOMC D-3: 신규 진입 차단 + 50% 헤지 검토',
-      'END:VALARM',
-      // D-1 경보
+      // D-1 경보 (v3 — D-1 은 정상 운용, 발표일 예고만)
       'BEGIN:VALARM',
       'TRIGGER:-P1DT0H0M0S',
       'ACTION:DISPLAY',
-      'DESCRIPTION:⚠️ FOMC D-1: 내일 발표 — 관망',
+      'DESCRIPTION:📅 FOMC D-1: 내일 발표 — D-day 만 신규 진입 자동 차단 (D-1 은 정상 운용)',
       'END:VALARM',
       'END:VEVENT',
     );

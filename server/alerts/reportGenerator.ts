@@ -361,9 +361,18 @@ export async function generateWeeklyReport(): Promise<void> {
   }
 
   // ── 이번주 액션 아이템 (FOMC + 현재 레짐 기반 narrative) ───────────────────
-  const fomc = getFomcProximity();
+  // v3.1 (2026-04-26): macro snapshot 전달해 우호 환경 완화 일관성 확보.
   const macroNow = loadMacroState();
   const regimeNow = getLiveRegime(macroNow);
+  const fomc = getFomcProximity(
+    macroNow
+      ? {
+          mhs: macroNow.mhs,
+          regime: regimeNow ?? macroNow.regime,
+          vkospi: macroNow.vkospi,
+        }
+      : undefined,
+  );
   const actionLines: string[] = [];
   if (fomc.nextFomcDate) {
     const daysUntil = fomc.daysUntil ?? 999;
@@ -437,7 +446,16 @@ export async function sendWatchlistBriefing(): Promise<void> {
   );
   const macro = loadMacroState();
   const regime = getLiveRegime(macro);
-  const fomc = getFomcProximity();
+  // v3.1 (2026-04-26): macro snapshot 전달해 우호 환경 완화 일관성 확보.
+  const fomc = getFomcProximity(
+    macro
+      ? {
+          mhs: macro.mhs,
+          regime: regime ?? macro.regime,
+          vkospi: macro.vkospi,
+        }
+      : undefined,
+  );
 
   // 레짐 이모지 맵
   const regimeEmoji: Record<string, string> = {
