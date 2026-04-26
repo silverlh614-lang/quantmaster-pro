@@ -63,6 +63,9 @@ import operatorRouter from './routes/operatorRouter.js';
 import monitoringCertRouter from './routes/monitoringCertRouter.js';
 import userWatchlistRouter from './routes/userWatchlistRouter.js';
 import learningRouter from './routes/learningRouter.js';
+import recommendationsRouter from './routes/recommendationsRouter.js';
+import screenerPipelineRouter from './routes/screenerPipelineRouter.js';
+import attributionRouter from './routes/attributionRouter.js';
 import { startScheduler } from './scheduler/index.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 import { globalErrorHandler } from './utils/apiResponse.js';
@@ -235,6 +238,21 @@ async function startServer() {
   // 자기학습 진단 — 운영자용 GET /api/learning/{status,history}
   // ─────────────────────────────────────────────────────────────
   app.use('/api/learning', learningRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // PR-B (ADR-0019) — 추천 이력·통계 GET /api/recommendations/{history,stats}
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/recommendations', recommendationsRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // PR-F (ADR-0023) — 후보군 파이프라인 GET /api/screener/pipeline-summary
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/screener', screenerPipelineRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // PR-H (ADR-0025) — 조건별 수익률 귀인 GET /api/attribution/stats
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/attribution', attributionRouter);
 
   // ─────────────────────────────────────────────────────────────
   // PR-37 (ADR-0016) — AI 추천 universe 건강성 GET /api/health/ai-universe

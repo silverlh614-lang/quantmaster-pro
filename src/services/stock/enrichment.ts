@@ -25,6 +25,65 @@ interface KrxValuation {
 // 세션 스코프 in-memory 캐시 — 한 번의 분석 사이클에서 동일 종목 코드 중복 호출을 줄인다.
 const _valuationCache = new Map<string, KrxValuation | null>();
 
+// ─── PR-B (ADR-0019): 27 조건 sourceTier 메타 빌드 ─────────────────────────
+
+type ChecklistKey = keyof StockRecommendation['checklist'];
+type ConditionSourceTier = 'COMPUTED' | 'API' | 'AI_INFERRED';
+
+/** 27 조건 모든 키 — 메타 미커버 항목은 'AI_INFERRED' 기본값. */
+const ALL_CHECKLIST_KEYS_27: readonly ChecklistKey[] = [
+  'cycleVerified', 'momentumRanking', 'roeType3', 'supplyInflow', 'riskOnEnvironment',
+  'ichimokuBreakout', 'mechanicalStop', 'economicMoatVerified', 'notPreviousLeader',
+  'technicalGoldenCross', 'volumeSurgeVerified', 'institutionalBuying', 'consensusTarget',
+  'earningsSurprise', 'performanceReality', 'policyAlignment', 'psychologicalObjectivity',
+  'turtleBreakout', 'fibonacciLevel', 'elliottWaveVerified', 'ocfQuality',
+  'marginAcceleration', 'interestCoverage', 'relativeStrength', 'vcpPattern',
+  'divergenceCheck', 'catalystAnalysis',
+];
+
+interface SourceTierContext {
+  /** DART fetch 가 실제 데이터를 반환했는가 (null/throw 가 아님). */
+  hasDartFinancials: boolean;
+  /** KIS supply (Naver snapshot stub) 가 실제 외인비율 반환했는가. */
+  hasKisSupply: boolean;
+  /** vcpPattern 이 OHLCV 로 실제 계산되었는가. */
+  hasVcpComputed: boolean;
+}
+
+/**
+ * 27 조건 출처 분류 메타를 빌드한다.
+ *
+ * 본 PR-B 는 enrichment 가 실제 사용한 데이터 소스를 정직하게 반영한다.
+ * 휴리스틱 PR-A 가 "ichimokuBreakout=COMPUTED" 로 가정했던 항목들도 실제로는
+ * `...stock.checklist` (Gemini AI 스코어) 를 그대로 보존하므로 'AI_INFERRED' 로 표기.
+ */
+export function buildConditionSourceTiers(ctx: SourceTierContext): Partial<Record<ChecklistKey, ConditionSourceTier>> {
+  const meta: Partial<Record<ChecklistKey, ConditionSourceTier>> = {};
+
+  // 모든 키 기본 'AI_INFERRED' (Gemini 가 채워준 ChecklistKey 점수 그대로)
+  for (const k of ALL_CHECKLIST_KEYS_27) {
+    meta[k] = 'AI_INFERRED';
+  }
+
+  // COMPUTED — 클라이언트 OHLCV 직접 계산
+  if (ctx.hasVcpComputed) meta.vcpPattern = 'COMPUTED';
+
+  // API — DART 응답 사용
+  if (ctx.hasDartFinancials) {
+    meta.roeType3 = 'API';
+    meta.ocfQuality = 'API';
+    meta.interestCoverage = 'API';
+  }
+
+  // API — KIS 수급 (Naver snapshot stub) 사용
+  if (ctx.hasKisSupply) {
+    meta.institutionalBuying = 'API';
+    meta.supplyInflow = 'API';
+  }
+
+  return meta;
+}
+
 /**
  * PR-25-C: Naver snapshot 의 `foreignerOwnRatio` 를 기존 supplyData 스키마와
  * 호환되는 stub 으로 변환. 일별 순매수·연속일수 는 AI 프롬프트 자체 판단으로
@@ -278,6 +337,12 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         ocfQuality: fallbackDart?.ocfGreaterThanNetIncome ? 1 : (stock.checklist?.ocfQuality ?? 0),
         interestCoverage: (fallbackDart?.interestCoverageRatio ?? 0) >= 3 ? 1 : (stock.checklist?.interestCoverage ?? 0),
       },
+      // PR-B (ADR-0019): aiFallback 경로 — DART 만 가용 (vcp/kisSupply 없음)
+      conditionSourceTiers: buildConditionSourceTiers({
+        hasDartFinancials: fallbackDart != null,
+        hasKisSupply: false,
+        hasVcpComputed: false,
+      }),
       financialUpdatedAt: fallbackDart?.updatedAt || stock.financialUpdatedAt,
     };
     // Enrichment 전체가 실패해도 3-Gate Pyramid 는 checklist 기반 계산이므로 채워둔다.
@@ -408,6 +473,12 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       marketCap: (krxValuation?.marketCap && krxValuation.marketCap > 0)
         ? krxValuation.marketCap
         : stock.marketCap,
+      // PR-B (ADR-0019): main path — VCP 실계산 + DART/KIS supply 가용성 반영
+      conditionSourceTiers: buildConditionSourceTiers({
+        hasDartFinancials: dartFinancials != null,
+        hasKisSupply: kisSupply != null,
+        hasVcpComputed: true,
+      }),
       financialUpdatedAt: dartFinancials?.updatedAt || stock.financialUpdatedAt
     };
 

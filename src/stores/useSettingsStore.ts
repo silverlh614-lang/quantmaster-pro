@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type View = 'DISCOVER' | 'WATCHLIST' | 'BACKTEST' | 'MARKET' | 'WALK_FORWARD' | 'MANUAL_INPUT' | 'SCREENER' | 'SUBSCRIPTION' | 'TRADE_JOURNAL' | 'AUTO_TRADE' | 'PORTFOLIO_EXTRACT';
+export type View = 'DISCOVER' | 'WATCHLIST' | 'BACKTEST' | 'MARKET' | 'WALK_FORWARD' | 'MANUAL_INPUT' | 'SCREENER' | 'SUBSCRIPTION' | 'TRADE_JOURNAL' | 'AUTO_TRADE' | 'PORTFOLIO_EXTRACT' | 'RECOMMENDATION_HISTORY' | 'MACRO_INTEL';
 export type ThemeMode = 'dark' | 'light' | 'high-contrast' | 'ocean' | 'forest';
 /**
  * 점진적 공개(Progressive disclosure) 모드.
@@ -38,6 +38,10 @@ interface SettingsState {
   // Sync
   autoSyncEnabled: boolean;
   setAutoSyncEnabled: (enabled: boolean) => void;
+
+  // PR-C (ADR-0020) — 가격 알림 watcher opt-in
+  priceAlertsEnabled: boolean;
+  setPriceAlertsEnabled: (enabled: boolean) => void;
 
   // Sector Subscriptions
   subscribedSectors: string[];
@@ -93,6 +97,10 @@ export const useSettingsStore = create<SettingsState>()(
       // Sync
       autoSyncEnabled: false,
       setAutoSyncEnabled: (autoSyncEnabled) => set({ autoSyncEnabled }),
+
+      // PR-C (ADR-0020) — 가격 알림 opt-in (기본 false)
+      priceAlertsEnabled: false,
+      setPriceAlertsEnabled: (priceAlertsEnabled) => set({ priceAlertsEnabled }),
 
       // Sector Subscriptions — 기본값은 빈 배열. 사용자가 직접 선택/저장한다.
       subscribedSectors: [],

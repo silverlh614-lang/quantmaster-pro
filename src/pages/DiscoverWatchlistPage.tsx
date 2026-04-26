@@ -13,10 +13,12 @@ import { Stack } from '../layout/Stack';
 import { DeepAnalysisModal } from '../components/analysis/DeepAnalysisModal';
 import { WatchlistHeader } from '../components/watchlist/WatchlistHeader';
 import { WatchlistFilterPanel } from '../components/watchlist/WatchlistFilterPanel';
+import { CandidatePipelinePanel } from '../components/screener/CandidatePipelinePanel';
 import { WatchlistCard } from '../components/watchlist/WatchlistCard';
 import { GatePyramidVisualization } from '../components/analysis/GatePyramidVisualization';
 import { useWatchlistFilters } from '../hooks/useWatchlistFilters';
 import { useWatchlistData } from '../hooks/useWatchlistData';
+import { usePriceAlertWatcher } from '../hooks/usePriceAlertWatcher';
 import type { StockRecommendation } from '../services/stockService';
 import type { ConditionId } from '../types/quant';
 
@@ -177,6 +179,9 @@ export function DiscoverWatchlistPage({
     setTradeRecordStock, setTradeFormData,
     newsFrequencyScores, addShadowTrade, copiedCode, handleCopy,
   } = useWatchlistData();
+
+  // PR-C (ADR-0020): 가격 알림 watcher — 워치리스트 displayList 의 4단계 alertLevel transition 감지
+  usePriceAlertWatcher(displayList);
 
   const {
     filters, setFilters,
@@ -347,6 +352,13 @@ export function DiscoverWatchlistPage({
       )}
 
       <Section>
+        {/* PR-F (ADR-0023): 후보군 파이프라인 — Discover 탭에서만 표시 */}
+        {view === 'DISCOVER' && (
+          <div className="mb-3 sm:mb-4">
+            <CandidatePipelinePanel />
+          </div>
+        )}
+
         {/* Search / Sort / Filter Panel — 검색 탭 & 관심목록에서만 노출 */}
         {(showSearch || view === 'WATCHLIST') && (
         <WatchlistFilterPanel
