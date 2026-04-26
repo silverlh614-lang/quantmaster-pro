@@ -67,8 +67,29 @@ export function classifyDailyLossTier(bufferPct: number): SurvivalTier {
   return 'CRITICAL';
 }
 
-export function classifySectorTier(hhi: number, activePositions: number): SectorTier {
+/**
+ * "Unknown sector" 판정 — 모든 활성 포지션이 sector 미설정으로 단일 키('기타'/'unknown'/'') 에 합쳐진 경우.
+ * watchlist 의 sector 필드 누락 시 portfolioRiskEngine 의 fallback `'기타'` 가 sectorWeights 를 단일 키로 만들어
+ * HHI=10000 false CRITICAL 을 일으키는 데이터 누락 패턴. 이 경우 tier=NA 로 강등하여 분류 불가 처리.
+ */
+const UNKNOWN_SECTOR_KEYS = new Set(['기타', 'unknown', 'UNKNOWN', '']);
+
+export function isUnknownSectorOnly(sectorWeights: Record<string, number>): boolean {
+  const keys = Object.keys(sectorWeights).filter((k) => {
+    const v = sectorWeights[k];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0;
+  });
+  if (keys.length !== 1) return false;
+  return UNKNOWN_SECTOR_KEYS.has(keys[0]);
+}
+
+export function classifySectorTier(
+  hhi: number,
+  activePositions: number,
+  isUnknownOnly: boolean = false,
+): SectorTier {
   if (activePositions <= 0) return 'NA';
+  if (isUnknownOnly) return 'NA';
   if (!Number.isFinite(hhi) || hhi < 0) return 'NA';
   if (hhi <= HHI_OK_MAX) return 'OK';
   if (hhi <= HHI_WARN_MAX) return 'WARN';
@@ -186,12 +207,14 @@ export async function collectSurvivalSnapshot(now: Date = new Date()): Promise<S
   const activePositions = Object.keys(sectorWeights).length > 0
     ? loadShadowTrades().filter((t) => isOpenShadowStatus(t.status)).length
     : 0;
+  // 모든 포지션 sector 미설정 → '기타' 단일 키 fallback → false CRITICAL 차단 (NA 강등)
+  const unknownOnly = isUnknownSectorOnly(sectorWeights);
   const sectorConcentration: SectorConcentrationGauge = {
     hhi,
     topSector: top.sector,
     topWeight: top.weight,
     activePositions,
-    tier: classifySectorTier(hhi, activePositions),
+    tier: classifySectorTier(hhi, activePositions, unknownOnly),
   };
 
   const macroState = loadMacroState();

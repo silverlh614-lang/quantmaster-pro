@@ -8,6 +8,7 @@ import {
   classifyKellyTier,
   composeOverallTier,
   computeHhi,
+  isUnknownSectorOnly,
   type SurvivalTier,
   type SectorTier,
   type KellyTier,
@@ -64,6 +65,37 @@ describe('classifySectorTier — ADR-0050 §2.2', () => {
   });
   it('hhi=음수, active>0 → NA (안전 fallback)', () => {
     expect(classifySectorTier(-100, 3)).toBe('NA');
+  });
+  it('isUnknownOnly=true → NA (모든 포지션 sector 미설정 false-CRITICAL 차단)', () => {
+    expect(classifySectorTier(10000, 6, true)).toBe('NA');
+    expect(classifySectorTier(5000, 3, true)).toBe('NA');
+  });
+  it('isUnknownOnly=false (기본값) → 정상 분기', () => {
+    expect(classifySectorTier(10000, 6, false)).toBe('CRITICAL');
+    expect(classifySectorTier(2000, 3)).toBe('OK');
+  });
+});
+
+describe('isUnknownSectorOnly — sector 미설정 단일 키 감지 (ADR-0050 보강)', () => {
+  it('단일 키 "기타" → true', () => {
+    expect(isUnknownSectorOnly({ '기타': 1.0 })).toBe(true);
+  });
+  it('단일 키 "unknown" / "UNKNOWN" / "" → true', () => {
+    expect(isUnknownSectorOnly({ 'unknown': 1.0 })).toBe(true);
+    expect(isUnknownSectorOnly({ 'UNKNOWN': 1.0 })).toBe(true);
+    expect(isUnknownSectorOnly({ '': 1.0 })).toBe(true);
+  });
+  it('단일 키 정상 섹터 ("반도체") → false', () => {
+    expect(isUnknownSectorOnly({ '반도체': 1.0 })).toBe(false);
+  });
+  it('다중 키 ("기타" 포함) → false (다른 섹터와 혼재면 정상 처리)', () => {
+    expect(isUnknownSectorOnly({ '기타': 0.5, '반도체': 0.5 })).toBe(false);
+  });
+  it('빈 객체 → false (활성 포지션 0건 분기는 별도)', () => {
+    expect(isUnknownSectorOnly({})).toBe(false);
+  });
+  it('NaN/0 weight 무시 — 단일 유효 키 "기타" 만 → true', () => {
+    expect(isUnknownSectorOnly({ '기타': 1.0, '반도체': 0, 'a': NaN })).toBe(true);
   });
 });
 
