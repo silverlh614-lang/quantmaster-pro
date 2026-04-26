@@ -26,7 +26,7 @@ const baseInput = {
     gateScore: 8 as number | undefined,
     signalType: 'NORMAL' as 'STRONG' | 'NORMAL' | 'SKIP' | undefined,
   },
-  regime: 'R3_BULL_MILD',
+  regime: 'R2_BULL',
   marketElapsedMinutes: 390, // 풀장 — elapsedRatio=1, MORNING discount 미적용
 };
 
