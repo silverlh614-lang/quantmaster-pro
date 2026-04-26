@@ -91,7 +91,8 @@ async function generateNarrative(m: WeeklyMetrics): Promise<string> {
     `  BULL (확률): 1문장\n` +
     `  BEAR (확률): 1문장\n\n` +
     `각 시나리오 확률 합은 100%가 되도록 하라. 문장은 간결하게.`;
-  const res = await callGemini(prompt, 'weekly-quant-insight').catch(() => null);
+  // 핵심 데이터 3 + BASE/BULL/BEAR 시나리오 3 다중 출력 — default 2048 token 절삭 방지 (ADR-0058).
+  const res = await callGemini(prompt, 'weekly-quant-insight', { maxOutputTokens: 4096 }).catch(() => null);
   return res?.trim() ?? '(Gemini 응답 없음 — 수치만 공유합니다.)';
 }
 
