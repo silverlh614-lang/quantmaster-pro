@@ -1,12 +1,13 @@
 // @responsibility useTradeOps React hook
 import { useEffect } from 'react';
 import { toast } from 'sonner';
-import { useRecommendationStore, useTradeStore, useSettingsStore } from '../stores';
+import { useRecommendationStore, useTradeStore, useSettingsStore, useRecommendationSnapshotStore } from '../stores';
 import { useAttributionStore } from '../stores/useAttributionStore';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { computeConditionPerformance } from '../components/trading/TradeJournal';
 import { saveEvolutionWeights } from '../services/quant/evolutionEngine';
 import { runAttributionAnalysis, pushAttributionToServer } from '../services/autoTrading';
+import { classifyLossReason } from '../services/quant/lossReasonClassifier';
 import type { StockRecommendation } from '../services/stockService';
 import type { TradeRecord, ConditionId, PreMortemItem } from '../types/quant';
 
@@ -66,9 +67,34 @@ export function useTradeOps() {
     });
   };
 
-  const recordTrade = (stock: StockRecommendation, buyPrice: number, quantity: number, positionSize: number, followedSystem: boolean, conditionScores: Record<ConditionId, number>, gateScores: { g1: number; g2: number; g3: number; final: number }, preMortems?: PreMortemItem[]) => {
+  const recordTrade = (
+    stock: StockRecommendation,
+    buyPrice: number,
+    quantity: number,
+    positionSize: number,
+    followedSystem: boolean,
+    conditionScores: Record<ConditionId, number>,
+    gateScores: { g1: number; g2: number; g3: number; final: number },
+    preMortems?: PreMortemItem[],
+    conditionSources?: Record<ConditionId, 'COMPUTED' | 'AI'>,
+    evaluationSnapshot?: TradeRecord['evaluationSnapshot'],
+  ) => {
+    const tradeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // ADR-0019 (PR-B): RecommendationSnapshot 양방향 추적 — PENDING snapshot 이
+    // 있으면 OPEN 으로 승격 + tradeId 연결. snapshot 이 없는 수동 매수도 허용.
+    const snapStore = useRecommendationSnapshotStore.getState();
+    snapStore.markOpen(stock.code, tradeId);
+    const linkedSnapshot = useRecommendationSnapshotStore
+      .getState()
+      .snapshots.find(s => s.tradeId === tradeId);
+
+    // ADR-0024 (PR-G): 매수 시점 시장 레짐 캡처 — Regime Memory Bank 학습 분리 키
+    const currentRegime =
+      useGlobalIntelStore.getState().marketRegimeClassifierResult?.classification;
+
     const newTrade: TradeRecord = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: tradeId,
       stockCode: stock.code, stockName: stock.name, sector: stock.relatedSectors?.[0] ?? 'Unknown',
       buyDate: new Date().toISOString(), buyPrice, quantity, positionSize,
       systemSignal: stock.type === 'STRONG_BUY' ? 'STRONG_BUY' : stock.type === 'BUY' ? 'BUY' : stock.type === 'SELL' || stock.type === 'STRONG_SELL' ? 'SELL' : 'NEUTRAL',
@@ -77,19 +103,71 @@ export function useTradeOps() {
       conditionScores, followedSystem, status: 'OPEN', currentPrice: stock.currentPrice, unrealizedPct: 0,
       preMortems: preMortems ?? [],
       peakPrice: buyPrice,
+      // ADR-0018: 자기학습 데이터 무결성 — v2 schema
+      conditionSources,
+      evaluationSnapshot,
+      schemaVersion: 2,
+      // ADR-0019: snapshot 양방향 링크
+      recommendationSnapshotId: linkedSnapshot?.id,
+      // ADR-0024 (PR-G): regime 분리 학습용
+      entryRegime: currentRegime,
     };
     setTradeRecords((prev: TradeRecord[]) => [...prev, newTrade]);
   };
 
   const closeTrade = (tradeId: string, sellPrice: number, sellReason: TradeRecord['sellReason']) => {
     const trade = tradeRecords.find((t: TradeRecord) => t.id === tradeId);
+    // ADR-0021 (PR-D): 손실 거래 자동 분류 — 매도 시점 macroEnv.vkospi 캡처.
+    const macroEnvSnapshot = useGlobalIntelStore.getState().macroEnv;
 
     setTradeRecords((prev: TradeRecord[]) => prev.map((t: TradeRecord) => {
       if (t.id !== tradeId) return t;
       const returnPct = ((sellPrice - t.buyPrice) / t.buyPrice) * 100;
       const holdingDays = Math.round((Date.now() - new Date(t.buyDate).getTime()) / (1000 * 60 * 60 * 24));
-      return { ...t, sellDate: new Date().toISOString(), sellPrice, sellReason, returnPct: parseFloat(returnPct.toFixed(2)), holdingDays, status: 'CLOSED' as const };
+
+      // ADR-0021: returnPct < 0 일 때만 lossReason 자동 분류 진입.
+      // 사용자 수동 override 가 이미 있으면 (lossReasonAuto=false) 보존.
+      let lossMeta: Pick<TradeRecord, 'lossReason' | 'lossReasonAuto' | 'lossReasonClassifiedAt'> = {};
+      const userManualSet = t.lossReason && t.lossReasonAuto === false;
+      if (returnPct < 0 && !userManualSet) {
+        const reason = classifyLossReason({
+          returnPct: parseFloat(returnPct.toFixed(2)),
+          holdingDays,
+          buyPrice: t.buyPrice,
+          sellPrice,
+          conditionScores: t.conditionScores,
+          vkospiAtBuy: t.evaluationSnapshot?.vkospiAtBuy,
+          vkospiAtSell:
+            typeof macroEnvSnapshot?.vkospi === 'number' && macroEnvSnapshot.vkospi > 0
+              ? macroEnvSnapshot.vkospi
+              : undefined,
+          sellReason,
+        });
+        lossMeta = {
+          lossReason: reason,
+          lossReasonAuto: true,
+          lossReasonClassifiedAt: new Date().toISOString(),
+        };
+      }
+
+      return {
+        ...t,
+        sellDate: new Date().toISOString(),
+        sellPrice,
+        sellReason,
+        returnPct: parseFloat(returnPct.toFixed(2)),
+        holdingDays,
+        status: 'CLOSED' as const,
+        ...lossMeta,
+      };
     }));
+
+    if (trade) {
+      const returnPctClose = ((sellPrice - trade.buyPrice) / trade.buyPrice) * 100;
+      // ADR-0019 (PR-B): 연결된 snapshot 이 있으면 CLOSED 전이.
+      // 매수 시점에 snapshot 이 없었어도 무영향 (markClosed 가 no-op).
+      useRecommendationSnapshotStore.getState().markClosed(tradeId, returnPctClose);
+    }
 
     if (trade && trade.conditionScores && Object.keys(trade.conditionScores).length > 0) {
       const returnPct = ((sellPrice - trade.buyPrice) / trade.buyPrice) * 100;

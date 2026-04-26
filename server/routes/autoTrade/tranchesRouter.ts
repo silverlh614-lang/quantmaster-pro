@@ -17,6 +17,15 @@ router.get('/auto-trade/tranches', (_req: any, res: any) => {
 });
 
 router.post('/auto-trade/tranches/run', async (_req: any, res: any) => {
+  // PR-52 H1: AUTO_TRADE_ENABLED 가드 — 자동매매 일시정지 상태에서 분할 매수 2·3차
+  // LIVE 실주문 차단. trancheExecutor.checkPendingTranches() 본체에도 동일 가드가
+  // 있어 심층 방어 — 라우터는 정확한 사유를 응답으로 즉시 반환한다.
+  if (process.env.AUTO_TRADE_ENABLED !== 'true') {
+    return res.status(403).json({
+      error: 'AUTO_TRADE_ENABLED=false',
+      reason: '자동매매가 일시정지 상태입니다. 분할 매수 2·3차 실행은 활성화 상태에서만 가능합니다.',
+    });
+  }
   try {
     await trancheExecutor.checkPendingTranches();
     res.json({ ok: true, pending: trancheExecutor.getPendingTranches() });

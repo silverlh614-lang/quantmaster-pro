@@ -18,6 +18,9 @@ import type { TradeRecord, FeedbackLoopResult, ConditionCalibration } from '../.
 import type { ConditionId } from '../../types/core';
 import { ALL_CONDITIONS } from './evolutionEngine';
 import { saveEvolutionWeights } from './evolutionEngine';
+import { getSourceMultiplier, resolveSource } from './sourceWeighting';
+import { getTradeLearningWeight, summarizeLossReasonBreakdown } from './lossReasonWeighting';
+import { computeConditionEdge } from './conditionEdgeScore';
 
 // ─── 캘리브레이션 임계값 ──────────────────────────────────────────────────────
 
@@ -31,6 +34,24 @@ const MIN_CONDITION_TRADES = 5;
 const WEIGHT_MIN = 0.5;
 const WEIGHT_MAX = 1.5;
 const WEIGHT_STEP = 0.10;
+const UP_THRESHOLD_DEFAULT = 0.60;
+const DOWN_THRESHOLD_DEFAULT = 0.40;
+
+/**
+ * ADR-0027 (PR-J): Shadow Model — 신규 학습 로직 그림자 검증 옵션.
+ * shadow=true 면 saveEvolutionWeights 호출 차단 (LIVE 가중치 무영향).
+ * weightStep / 임계값 override 로 다른 알고리즘 시뮬레이션 가능.
+ */
+export interface FeedbackLoopOptions {
+  /** true → localStorage 저장 안 함 (LIVE 무영향, 결과만 반환) */
+  shadow?: boolean;
+  /** WEIGHT_STEP override (기본 0.10) */
+  weightStep?: number;
+  /** 가중치 상향 임계 (기본 0.60) */
+  upThreshold?: number;
+  /** 가중치 하향 임계 (기본 0.40) */
+  downThreshold?: number;
+}
 
 // ─── 핵심 로직 ────────────────────────────────────────────────────────────────
 
@@ -45,7 +66,12 @@ const WEIGHT_STEP = 0.10;
 export function evaluateFeedbackLoop(
   closedTrades: TradeRecord[],
   currentWeights: Record<number, number> = {},
+  options?: FeedbackLoopOptions,
 ): FeedbackLoopResult {
+  const isShadow = options?.shadow === true;
+  const weightStep = options?.weightStep ?? WEIGHT_STEP;
+  const upThreshold = options?.upThreshold ?? UP_THRESHOLD_DEFAULT;
+  const downThreshold = options?.downThreshold ?? DOWN_THRESHOLD_DEFAULT;
   const closedCount = closedTrades.length;
   const calibrationActive = closedCount >= CALIBRATION_MIN_TRADES;
   const calibrationProgress = Math.min(1, closedCount / CALIBRATION_MIN_TRADES);
@@ -75,17 +101,38 @@ export function evaluateFeedbackLoop(
     const relevant = closedTrades.filter(t => (t.conditionScores?.[id] ?? 0) >= 5);
     if (relevant.length < MIN_CONDITION_TRADES) continue;
 
+    // ADR-0022 (PR-E): trade-level confidence weighting — lossReason 별 multiplier 로
+    // winRate / avgReturn 가중평균. 수익 거래는 항상 1.0, 손실 거래는 lossReason
+    // 매핑 (STOP_TOO_TIGHT 0.3 / MACRO_SHOCK 0.2 / OVERHEATED_ENTRY 1.5 등).
+    // lossReason 부재 v1/v2 레코드는 1.0 fallback.
+    const tradeWeights = relevant.map(t => getTradeLearningWeight(t));
+    const weightedTotal = tradeWeights.reduce((s, w) => s + w, 0);
     const wins = relevant.filter(t => (t.returnPct ?? 0) > 0);
-    const winRate = wins.length / relevant.length;
-    const avgReturn = relevant.reduce((s, t) => s + (t.returnPct ?? 0), 0) / relevant.length;
+    const weightedWins = wins.reduce((s, t) => s + getTradeLearningWeight(t), 0);
+    // 0/0 안전 fallback — weightedTotal 이 0 이면 winRate=0 으로 STABLE 진입
+    const winRate = weightedTotal > 0 ? weightedWins / weightedTotal : 0;
+    const avgReturn = weightedTotal > 0
+      ? relevant.reduce((s, t) => s + (t.returnPct ?? 0) * getTradeLearningWeight(t), 0) / weightedTotal
+      : 0;
 
     const prevWeight = currentWeights[id] ?? 1.0;
     let newWeight = prevWeight;
 
-    if (winRate > 0.60) {
-      newWeight = parseFloat(Math.min(WEIGHT_MAX, prevWeight + WEIGHT_STEP).toFixed(2));
-    } else if (winRate < 0.40) {
-      newWeight = parseFloat(Math.max(WEIGHT_MIN, prevWeight - WEIGHT_STEP).toFixed(2));
+    // ADR-0020 (PR-C): AI/COMPUTED 차등 학습 — relevant trades 의 conditionSources
+    // 다수결로 trade-level source 결정 (PR-A v2 레코드만 있음). 부재 시 글로벌 SSOT.
+    // Trade 별로 다를 수 있지만 단일 conditionId 의 source 는 안정적으로 동일하므로
+    // 대표 1건의 conditionSources[id] 만 추출해도 충분. 부재 시 SOURCE_MAP fallback.
+    const tradeSourceOverride = relevant
+      .map(t => t.conditionSources?.[id])
+      .find((s): s is 'COMPUTED' | 'AI' => s === 'COMPUTED' || s === 'AI');
+    const source = resolveSource(id, tradeSourceOverride);
+    const sourceMultiplier = getSourceMultiplier(id, tradeSourceOverride);
+    const effectiveStep = weightStep * sourceMultiplier;
+
+    if (winRate > upThreshold) {
+      newWeight = parseFloat(Math.min(WEIGHT_MAX, prevWeight + effectiveStep).toFixed(2));
+    } else if (winRate < downThreshold) {
+      newWeight = parseFloat(Math.max(WEIGHT_MIN, prevWeight - effectiveStep).toFixed(2));
     }
 
     const delta = parseFloat((newWeight - prevWeight).toFixed(2));
@@ -93,6 +140,9 @@ export function evaluateFeedbackLoop(
       delta > 0 ? 'UP' : delta < 0 ? 'DOWN' : 'STABLE';
 
     updatedWeights[id] = newWeight;
+
+    // ADR-0023 (PR-F): Profit Factor + Edge Score 진단 메타
+    const edgeStats = computeConditionEdge(relevant, winRate, avgReturn);
 
     calibrations.push({
       conditionId: id,
@@ -104,6 +154,17 @@ export function evaluateFeedbackLoop(
       newWeight,
       direction,
       delta,
+      source,
+      sourceMultiplier,
+      // ADR-0022 (PR-E): 가중평균 진단 메타
+      rawTradeCount: relevant.length,
+      weightedTradeCount: parseFloat(weightedTotal.toFixed(2)),
+      lossReasonBreakdown: summarizeLossReasonBreakdown(relevant),
+      // ADR-0023 (PR-F): Profit Factor / Edge Score
+      profitFactor: edgeStats.profitFactor,
+      avgReturnPosi: edgeStats.avgReturnPosi,
+      avgReturnNeg: edgeStats.avgReturnNeg,
+      edgeScore: edgeStats.edgeScore,
     });
   }
 
@@ -112,7 +173,8 @@ export function evaluateFeedbackLoop(
   for (const c of calibrations) {
     if (c.newWeight !== c.prevWeight) saveMap[c.conditionId] = c.newWeight;
   }
-  if (Object.keys(saveMap).length > 0) {
+  // ADR-0027 (PR-J): shadow=true → LIVE 가중치 무영향
+  if (Object.keys(saveMap).length > 0 && !isShadow) {
     saveEvolutionWeights({ ...currentWeights, ...saveMap });
   }
 

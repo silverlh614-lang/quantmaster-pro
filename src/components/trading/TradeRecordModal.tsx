@@ -5,10 +5,15 @@ import { motion } from 'motion/react';
 import { cn } from '../../ui/cn';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
-import { useTradeStore } from '../../stores';
+import { useTradeStore, useGlobalIntelStore } from '../../stores';
 import { DEFAULT_PRE_MORTEMS } from '../../types/quant';
-import type { PreMortemItem } from '../../types/quant';
+import type { PreMortemItem, ConditionId, TradeRecord } from '../../types/quant';
 import type { StockRecommendation } from '../../services/stockService';
+import {
+  checklistToConditionScores,
+  approximateGateScores,
+  getConditionSources,
+} from '../../services/quant/checklistToConditionScores';
 
 interface TradeRecordModalProps {
   onRecordTrade: (
@@ -17,14 +22,17 @@ interface TradeRecordModalProps {
     quantity: number,
     positionSize: number,
     followedSystem: boolean,
-    conditionScores: {},
+    conditionScores: Record<ConditionId, number>,
     scores: { g1: number; g2: number; g3: number; final: number },
     preMortems: PreMortemItem[],
+    conditionSources?: Record<ConditionId, 'COMPUTED' | 'AI'>,
+    evaluationSnapshot?: TradeRecord['evaluationSnapshot'],
   ) => void;
 }
 
 export function TradeRecordModal({ onRecordTrade }: TradeRecordModalProps) {
   const { tradeRecordStock, setTradeRecordStock, tradeFormData, setTradeFormData } = useTradeStore();
+  const macroEnv = useGlobalIntelStore(state => state.macroEnv);
   const [showPreMortem, setShowPreMortem] = useState(false);
   const [selectedPreMortems, setSelectedPreMortems] = useState<Set<string>>(
     () => new Set(DEFAULT_PRE_MORTEMS.map(p => p.id))
@@ -186,12 +194,38 @@ export function TradeRecordModal({ onRecordTrade }: TradeRecordModalProps) {
             const preMortems: PreMortemItem[] = DEFAULT_PRE_MORTEMS
               .filter(pm => selectedPreMortems.has(pm.id))
               .map(pm => ({ ...pm, triggered: false }));
+
+            // ADR-0018: 자기학습 데이터 무결성 — 추천 시점 27조건 점수와
+            // 출처 분류를 무손실 변환해 학습 루프에 전달한다. 기존엔 빈
+            // 객체/0 을 보내 feedbackLoopEngine 이 영구 비활성이었다.
+            const conditionScores = checklistToConditionScores(tradeRecordStock.checklist);
+            const conditionSources = getConditionSources();
+            const gateScores = approximateGateScores(conditionScores);
+            const rrr =
+              tradeRecordStock.targetPrice > 0 && tradeRecordStock.stopLoss > 0 && bp > tradeRecordStock.stopLoss
+                ? (tradeRecordStock.targetPrice - bp) / (bp - tradeRecordStock.stopLoss)
+                : undefined;
+            const evaluationSnapshot = {
+              capturedAt: new Date().toISOString(),
+              rrr: Number.isFinite(rrr) && rrr! > 0 ? Number(rrr!.toFixed(2)) : undefined,
+              confluence: Number.isFinite(tradeRecordStock.confidenceScore)
+                ? tradeRecordStock.confidenceScore
+                : undefined,
+              // ADR-0021 (PR-D): 매수 시점 VKOSPI 캡처 — 청산 시 MACRO_SHOCK 분류 입력.
+              vkospiAtBuy:
+                typeof macroEnv?.vkospi === 'number' && macroEnv.vkospi > 0
+                  ? macroEnv.vkospi
+                  : undefined,
+            };
+
             onRecordTrade(
               tradeRecordStock, bp, qty, ps,
               tradeFormData.followedSystem,
-              {},
-              { g1: 0, g2: 0, g3: 0, final: 0 },
+              conditionScores,
+              gateScores,
               preMortems,
+              conditionSources,
+              evaluationSnapshot,
             );
             setTradeRecordStock(null);
           }}

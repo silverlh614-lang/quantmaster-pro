@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { getStockRecommendations, searchStock, clearSearchCache, getNewsFrequencyScores, StockFilters } from '../services/stockService';
-import { useRecommendationStore, useMarketStore, useGlobalIntelStore } from '../stores';
+import { useRecommendationStore, useMarketStore, useGlobalIntelStore, useRecommendationSnapshotStore } from '../stores';
 import type { StockRecommendation } from '../services/stockService';
 
 export function useStockSearch() {
@@ -49,6 +49,13 @@ export function useStockSearch() {
       setRecommendations(diversified);
       setMarketContext(data.marketContext);
       setLastUpdated(new Date().toISOString());
+
+      // ADR-0019 (PR-B): 추천 발령 시점에 RecommendationSnapshot 영속.
+      // 동일 stockCode active snapshot (PENDING/OPEN) 있으면 무시 (idempotent).
+      // 30일 경과 PENDING 은 자동 EXPIRED 로 전이.
+      const snapStore = useRecommendationSnapshotStore.getState();
+      snapStore.expireStale();
+      snapStore.captureFromRecommendations(diversified);
       const warnings = Array.isArray((data as { warnings?: string[] }).warnings)
         ? ((data as { warnings?: string[] }).warnings ?? [])
         : [];

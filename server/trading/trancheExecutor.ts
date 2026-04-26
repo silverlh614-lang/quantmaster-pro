@@ -182,9 +182,21 @@ export class TrancheExecutor {
    * 장 전 OPENING_AUCTION 핸들러에서 호출.
    * scheduledDate <= 오늘 이고 PENDING인 트랜치를 실행 or 취소.
    * 가드: 현재가가 기준가(entryPrice) 대비 -3% 이하 → 해당 parentTradeId 전체 취소.
+   *
+   * 안전 가드 (PR-52 H1):
+   *   - KIS_APP_KEY 미설정 시 즉시 return
+   *   - AUTO_TRADE_ENABLED !== 'true' 시 즉시 return — 운영자 "자동매매 일시정지"
+   *     의도 존중. PENDING 트랜치는 그대로 보존되어 enabled=true 복귀 시 재실행됨.
+   *     호출자 (tradingOrchestrator / tranchesRouter) 의 개별 가드 누락에 대한
+   *     심층 방어 (Defense in Depth). LIVE 분할 매수 2·3차 실주문이 의도와 무관하게
+   *     발송되는 경로를 단일 SSOT 로 차단.
    */
   async checkPendingTranches(): Promise<void> {
     if (!process.env.KIS_APP_KEY) return;
+    if (process.env.AUTO_TRADE_ENABLED !== 'true') {
+      console.log('[Tranche] AUTO_TRADE_ENABLED=false — checkPendingTranches skip');
+      return;
+    }
     const list = loadTranches();
     const today = kstDateStr();
     const pending = list.filter(t => t.status === 'PENDING' && t.scheduledDate <= today);
