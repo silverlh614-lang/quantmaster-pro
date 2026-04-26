@@ -1,3 +1,4 @@
+// @responsibility quant sellEngine 엔진 모듈
 /**
  * sellEngine.ts — 매도 로직 (thin facade)
  *

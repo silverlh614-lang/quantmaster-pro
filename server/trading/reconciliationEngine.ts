@@ -1,3 +1,4 @@
+// @responsibility reconciliationEngine 매매 엔진 모듈
 /**
  * server/trading/reconciliationEngine.ts
  * 아이디어 6: 이중 기록 Reconciliation

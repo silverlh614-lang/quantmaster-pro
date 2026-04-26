@@ -1,3 +1,4 @@
+// @responsibility kellySurface.cmd 텔레그램 모듈
 // @responsibility: /kelly_surface — signalType × regime 버킷별 (p, b) Kelly 학습 상태 + 신뢰구간 폭.
 import { formatKellySurface } from '../../../learning/kellySurfaceMap.js';
 import { commandRegistry } from '../../commandRegistry.js';

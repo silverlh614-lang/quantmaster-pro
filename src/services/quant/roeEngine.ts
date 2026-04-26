@@ -1,3 +1,4 @@
+// @responsibility quant roeEngine 엔진 모듈
 /**
  * roeEngine.ts — ROE 유형 전이 감지기
  *

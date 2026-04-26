@@ -1,3 +1,4 @@
+// @responsibility failurePatternDB 학습 엔진 모듈
 /**
  * failurePatternDB.ts — 반실패 학습 패턴 DB (Anti-Failure Intelligence)
  *

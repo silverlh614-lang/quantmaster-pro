@@ -1,3 +1,4 @@
+// @responsibility trading 영역 TradingSettingsPanel 컴포넌트
 /**
  * TradingSettingsPanel — Quantus 스타일 트레이딩 설정 패널
  * 매수 조건, 자동 손절, 포지션 한도, 운용 시간, OCO 등록 — 대형 카드 형태

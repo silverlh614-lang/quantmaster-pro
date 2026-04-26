@@ -1,3 +1,4 @@
+// @responsibility autoTradingTypes 서비스 모듈
 ﻿export type TradingMode = 'LIVE' | 'PAPER' | 'SHADOW' | 'MANUAL';
 
 export type EngineStatus =

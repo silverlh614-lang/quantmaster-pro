@@ -1,3 +1,4 @@
+// @responsibility anomalyDetector 학습 엔진 모듈
 /**
  * anomalyDetector.ts — 아이디어 6: 이상 감지 (Anomaly Detection)
  *

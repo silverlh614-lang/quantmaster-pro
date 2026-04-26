@@ -1,3 +1,4 @@
+// @responsibility tradeReplacement 매매 엔진 모듈
 /**
  * tradeReplacement.ts — Phase 4-⑦ 포지션 교체 평가 엔진.
  *

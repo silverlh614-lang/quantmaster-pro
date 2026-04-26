@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 IntelligenceRadar 컴포넌트
 import React, { useMemo } from 'react';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,

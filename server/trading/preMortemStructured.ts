@@ -1,3 +1,4 @@
+// @responsibility preMortemStructured 매매 엔진 모듈
 /**
  * preMortemStructured.ts — Phase 3-⑫: 진입 시 구조화된 실패 시나리오 기록.
  *

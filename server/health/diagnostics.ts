@@ -1,3 +1,4 @@
+// @responsibility diagnostics 헬스 진단 모듈
 // @responsibility: 8축 시스템 헬스 스냅샷 SSOT — /health 텔레그램 cmd 와 /api/health/pipeline HTTP 라우트 공용.
 //
 // ADR-0017 후속 — health.cmd.ts (텍스트 포맷) 와 systemRouter.ts (JSON 포맷) 가

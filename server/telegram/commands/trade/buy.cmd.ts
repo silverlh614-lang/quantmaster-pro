@@ -1,3 +1,4 @@
+// @responsibility buy.cmd 텔레그램 모듈
 // @responsibility: /buy 005930 — 워치리스트 검증 후 forceBuyCodes 로 다음 스캔 주기에 강제 매수 신호 트리거. TRD.
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import { runAutoSignalScan } from '../../../trading/signalScanner.js';

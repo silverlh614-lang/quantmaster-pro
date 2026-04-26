@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 GateStatusWidget 컴포넌트
 /**
  * GateStatusWidget — 실시간 Gate 통과 현황 미니 위젯
  * StockDetailModal 상단에 배치되어 종목의 27개 조건 충족 여부를

@@ -1,3 +1,4 @@
+// @responsibility portfolio 도메인 타입 정의
 // ─── 포트폴리오 · IPS · 매매일지 · 자동매매 도메인 타입 ─────────────────────
 
 import type { ConditionId, EvaluationResult } from './core';

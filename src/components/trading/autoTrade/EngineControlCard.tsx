@@ -1,3 +1,4 @@
+// @responsibility trading 영역 EngineControlCard 컴포넌트
 import React from 'react';
 import { Activity, Power, TrendingUp, Zap } from 'lucide-react';
 import { cn } from '../../../ui/cn';

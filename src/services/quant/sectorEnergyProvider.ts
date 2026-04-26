@@ -1,3 +1,4 @@
+// @responsibility quant sectorEnergyProvider 엔진 모듈
 /**
  * sectorEnergyProvider.ts (client) — /api/krx/sector-energy 프록시 + 세션 캐시.
  *

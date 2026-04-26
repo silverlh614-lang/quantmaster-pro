@@ -1,3 +1,4 @@
+// @responsibility formatAlert 알림 모듈
 import { escapeHtml } from './telegramClient.js';
 import { AlertCategory } from './alertCategories.js';
 

@@ -1,3 +1,4 @@
+// @responsibility macro 영역 GlobalIntelSection 컴포넌트
 import React, { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import {

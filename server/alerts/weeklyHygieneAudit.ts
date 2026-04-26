@@ -1,3 +1,4 @@
+// @responsibility weeklyHygieneAudit 알림 모듈
 /**
  * weeklyHygieneAudit.ts — 주간 알림 감사 리포트.
  *

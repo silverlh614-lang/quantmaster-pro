@@ -1,3 +1,4 @@
+// @responsibility fredClient 외부 클라이언트 모듈
 const FRED_BASE = process.env.FRED_API_BASE ?? 'https://api.stlouisfed.org';
 const FRED_DISABLED = process.env.FRED_API_DISABLED === 'true';
 const REQUEST_TIMEOUT_MS = 8_000;

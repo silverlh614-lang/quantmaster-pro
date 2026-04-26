@@ -1,3 +1,4 @@
+// @responsibility bootReconcile 매매 엔진 모듈
 // @responsibility: 부팅 30초 후 LIVE reconcile dry-run — 재배포 직후 KIS 잔고와 로컬 장부 mismatch 조기 감지.
 //
 // 배경: maintenanceJobs 가 매일 1회 자동 reconcile 을 돌지만 재배포 직후 ~24시간 동안은

@@ -1,3 +1,4 @@
+// @responsibility usePolledFetch React hook
 /**
  * usePolledFetch — "초기 1회 로드 + 장중·가시 상태일 때만 주기 폴링" 패턴을
  *                  재사용 가능한 primitive 로 추상화한 훅.

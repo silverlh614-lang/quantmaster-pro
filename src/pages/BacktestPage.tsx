@@ -1,3 +1,4 @@
+// @responsibility BacktestPage 페이지 컴포넌트
 import React, { useRef, useCallback } from 'react';
 import {
   TrendingUp, TrendingDown, ShieldCheck, ShieldAlert, Play, RefreshCw,

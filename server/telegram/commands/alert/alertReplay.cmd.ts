@@ -1,3 +1,4 @@
+// @responsibility alertReplay.cmd 텔레그램 모듈
 // @responsibility: /alert_replay <id> [TRADE|ANALYSIS|INFO|SYSTEM] — alertHistoryRepo 에서 id 조회 후 dispatchAlert 재발송.
 import { findAlertHistoryById } from '../../../persistence/alertHistoryRepo.js';
 import { AlertCategory } from '../../../alerts/alertCategories.js';

@@ -1,3 +1,4 @@
+// @responsibility macro 영역 SmartMoneySection 컴포넌트
 import React, { useState } from 'react';
 import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
 import { SmartMoneyData } from '../../types/quant';

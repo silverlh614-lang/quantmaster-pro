@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 GatePassRateHeatmap 컴포넌트
 /**
  * GatePassRateHeatmap — 27조건 개별 통과율 시각화 그리드.
  *

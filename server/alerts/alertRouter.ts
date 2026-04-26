@@ -1,3 +1,4 @@
+// @responsibility alertRouter 알림 모듈
 import { AlertCategory, isCategoryEnabled, parseChannelMap } from './alertCategories.js';
 import { sendChannelAlertTo } from './telegramClient.js';
 import { incrementChannelStat } from '../persistence/channelStatsRepo.js';

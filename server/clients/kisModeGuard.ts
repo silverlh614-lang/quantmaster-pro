@@ -1,3 +1,4 @@
+// @responsibility kisModeGuard 외부 클라이언트 모듈
 /**
  * kisModeGuard.ts — KIS TR_ID 와 계좌 모드(VTS vs LIVE) 호환성 검증.
  *

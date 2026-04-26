@@ -1,3 +1,4 @@
+// @responsibility trading 영역 shadowTradeFills 컴포넌트
 /**
  * Server Shadow Trade 의 fills 배열에서 파생되는 지표 계산 유틸.
  * 단일 진실 원천: fills. returnPct/status 는 지연·오염될 수 있으므로,

@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 DeepAnalysisModal 컴포넌트
 import React, { useMemo, useRef, useEffect } from 'react';
 import { RefreshCw, Download, X, CheckCircle2, Sparkles, Radar, CheckSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';

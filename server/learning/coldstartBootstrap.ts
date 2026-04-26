@@ -1,3 +1,4 @@
+// @responsibility coldstartBootstrap 학습 엔진 모듈
 /**
  * coldstartBootstrap.ts — Phase 3-⑨ 자기학습 콜드스타트 해결.
  *

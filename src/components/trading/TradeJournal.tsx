@@ -1,3 +1,4 @@
+// @responsibility trading 영역 TradeJournal 컴포넌트
 import React, { useState, useMemo } from 'react';
 import { BookOpen } from 'lucide-react';
 import {

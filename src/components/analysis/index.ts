@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 index 컴포넌트
 export { AnalysisDashboard } from './AnalysisDashboard';
 export { AnalysisViewToggle, AnalysisViewButtons } from './AnalysisViewToggle';
 export { DeepAnalysisModal } from './DeepAnalysisModal';

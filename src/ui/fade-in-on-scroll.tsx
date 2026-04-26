@@ -1,3 +1,4 @@
+// @responsibility fade-in-on-scroll UI 프리미티브 컴포넌트
 /**
  * FadeInOnScroll — 요소가 뷰포트에 들어올 때 아래→제자리로 페이드 인.
  *

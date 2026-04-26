@@ -1,3 +1,4 @@
+// @responsibility signals 영역 ROETransitionPanel 컴포넌트
 /**
  * IDEA 3: ROE 유형 전이 감지기 (ROE Type Transition Detector)
  *

@@ -1,3 +1,4 @@
+// @responsibility incidentLogRepo 영속화 저장소 모듈
 /**
  * incidentLogRepo.ts — Phase 2차 C5: 치명 버그 감지 타임스탬프 저장소.
  *

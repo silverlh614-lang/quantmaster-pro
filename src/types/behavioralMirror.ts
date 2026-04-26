@@ -1,3 +1,4 @@
+// @responsibility behavioralMirror 도메인 타입 정의
 // ─── 투자자 행동 교정 미러 대시보드 (Behavioral Mirror Dashboard) 타입 ──────────
 
 /** 패널 1: 시스템 vs 직관 6개월 누적 수익률 비교 */

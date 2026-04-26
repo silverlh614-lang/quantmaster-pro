@@ -1,3 +1,4 @@
+// @responsibility health.cmd 텔레그램 모듈
 // @responsibility: /health 명령 — 8축 헬스 스냅샷을 텔레그램 텍스트로 포맷 (수집은 server/health/diagnostics SSOT).
 import {
   collectHealthSnapshot,

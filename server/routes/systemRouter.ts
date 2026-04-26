@@ -1,3 +1,4 @@
+// @responsibility systemRouter 서버 라우터 모듈
 // server/routes/systemRouter.ts
 // 시스템 라우터 — server.ts에서 분리
 // 포함 대상: GET /health, GET /emergency-status, POST /emergency-stop,

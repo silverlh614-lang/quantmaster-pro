@@ -1,3 +1,4 @@
+// @responsibility accountRiskBudget 매매 엔진 모듈
 /**
  * accountRiskBudget.ts — 계좌 레벨 리스크 예산 + Fractional Kelly 강제
  *

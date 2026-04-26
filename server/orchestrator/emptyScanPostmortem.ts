@@ -1,3 +1,4 @@
+// @responsibility emptyScanPostmortem 오케스트레이터 모듈
 /**
  * emptyScanPostmortem.ts — 정상성/병리 자가판별기
  *

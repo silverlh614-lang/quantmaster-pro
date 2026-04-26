@@ -1,3 +1,4 @@
+// @responsibility PageRouter 페이지 컴포넌트
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0

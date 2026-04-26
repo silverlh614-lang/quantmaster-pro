@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 ManualQuantInput 컴포넌트
 import React, { useState } from 'react';
 import {
   Zap,

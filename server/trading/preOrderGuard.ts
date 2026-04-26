@@ -1,3 +1,4 @@
+// @responsibility preOrderGuard 매매 엔진 모듈
 /**
  * preOrderGuard.ts — Phase 2차 C3: Automated Kill Switch (주문 직전 안전 검증).
  *

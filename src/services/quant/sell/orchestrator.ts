@@ -1,3 +1,4 @@
+// @responsibility quant orchestrator 엔진 모듈
 /**
  * sell/orchestrator.ts — Strategy Pattern 기반 통합 매도 사이클 실행기
  *

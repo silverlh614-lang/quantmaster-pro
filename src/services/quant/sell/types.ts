@@ -1,3 +1,4 @@
+// @responsibility quant types 엔진 모듈
 /**
  * sell/types.ts — Strategy Pattern 인터페이스
  *

@@ -1,3 +1,4 @@
+// @responsibility stock priceSync 서비스 모듈
 import { enrichStockWithRealData } from './enrichment';
 import { fetchHistoricalData } from './historicalData';
 import { debugLog } from '../../utils/debug';

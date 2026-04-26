@@ -1,3 +1,4 @@
+// @responsibility killSwitch 매매 엔진 모듈
 /**
  * killSwitch.ts — 4조건 기반 자동 강등 Cascade (LIVE → SHADOW).
  *

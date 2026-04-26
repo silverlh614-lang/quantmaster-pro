@@ -1,3 +1,4 @@
+// @responsibility card UI 프리미티브 컴포넌트
 /**
  * Card — 프로젝트 전역 공용 카드 컨테이너.
  *

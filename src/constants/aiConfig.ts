@@ -1,3 +1,4 @@
+// @responsibility aiConfig 모듈
 // src/constants/aiConfig.ts
 export const AI_MODELS = {
   PRIMARY: 'gemini-3-flash-preview',      // 메인 AI 분석용

@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 MarketPositionSection 컴포넌트
 import React from 'react';
 import { cn } from '../../../ui/cn';
 import type { StockRecommendation } from '../../../services/stockService';

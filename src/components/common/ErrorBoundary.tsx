@@ -1,3 +1,4 @@
+// @responsibility common 영역 ErrorBoundary 컴포넌트
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { toast } from 'sonner';
 

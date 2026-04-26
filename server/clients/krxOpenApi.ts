@@ -1,3 +1,4 @@
+// @responsibility krxOpenApi 외부 클라이언트 모듈
 /**
  * krxOpenApi.ts — 한국거래소(KRX) Data Marketplace Open API **인증 어댑터**.
  *

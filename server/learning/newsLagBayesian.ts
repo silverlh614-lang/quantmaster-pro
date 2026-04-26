@@ -1,3 +1,4 @@
+// @responsibility newsLagBayesian 학습 엔진 모듈
 /**
  * newsLagBayesian.ts — 뉴스-수급 시차 분포 베이지안 사후 분포 학습 (P3-6 구현)
  *

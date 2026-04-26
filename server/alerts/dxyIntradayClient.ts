@@ -1,3 +1,4 @@
+// @responsibility dxyIntradayClient 알림 모듈
 /**
  * dxyIntradayClient.ts — DXY 인트라데이 가격 조회 (P3-7 구현)
  *

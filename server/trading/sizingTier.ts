@@ -1,3 +1,4 @@
+// @responsibility sizingTier 매매 엔진 모듈
 /**
  * sizingTier.ts — Phase 4-⑧ 대체 구현: 신뢰도 티어 기반 사이징.
  *

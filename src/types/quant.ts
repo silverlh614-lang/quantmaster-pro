@@ -1,3 +1,4 @@
+// @responsibility quant 도메인 타입 정의
 /**
  * @deprecated 새 코드는 도메인별 파일에서 직접 import하세요:
  *   import type { MacroEnvironment } from '../types/macro';

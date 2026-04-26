@@ -1,3 +1,4 @@
+// @responsibility localRag 서버 모듈
 /**
  * localRag.ts — 로컬 임베딩 RAG (Idea 11)
  *

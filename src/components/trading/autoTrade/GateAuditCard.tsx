@@ -1,3 +1,4 @@
+// @responsibility trading 영역 GateAuditCard 컴포넌트
 import React from 'react';
 import { BarChart3, Info } from 'lucide-react';
 import { cn } from '../../../ui/cn';

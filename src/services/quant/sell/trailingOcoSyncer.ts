@@ -1,3 +1,4 @@
+// @responsibility quant trailingOcoSyncer 엔진 모듈
 /**
  * sell/trailingOcoSyncer.ts — 트레일링 OCO 동적 갱신 엔진
  *

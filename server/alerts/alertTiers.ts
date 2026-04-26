@@ -1,3 +1,4 @@
+// @responsibility alertTiers 알림 모듈
 /**
  * alertTiers.ts — Telegram 알림 3-티어 체계.
  *

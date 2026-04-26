@@ -1,3 +1,4 @@
+// @responsibility positionMorningCard 알림 모듈
 /**
  * positionMorningCard.ts — 보유 포지션 Morning Card (IDEA 4)
  *

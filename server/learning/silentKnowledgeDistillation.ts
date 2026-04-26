@@ -1,3 +1,4 @@
+// @responsibility silentKnowledgeDistillation 학습 엔진 모듈
 /**
  * silentKnowledgeDistillation.ts — Silent Knowledge Distillation (#7).
  *

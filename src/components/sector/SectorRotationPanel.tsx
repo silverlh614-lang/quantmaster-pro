@@ -1,3 +1,4 @@
+// @responsibility sector 영역 SectorRotationPanel 컴포넌트
 /**
  * Idea 4: Sector Rotation Heat Bar (Side Panel)
  * Shows sector strength as horizontal bar chart with color-coded intensity.

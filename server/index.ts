@@ -1,3 +1,4 @@
+// @responsibility index 서버 모듈
 /// <reference types="node" />
 import express, { Request, Response } from "express";
 import cors from "cors";

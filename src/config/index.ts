@@ -1,3 +1,4 @@
+// @responsibility index 설정 SSOT
 export { NAV_GROUPS, PRIMARY_MOBILE_TABS, MORE_MOBILE_TABS } from './navigation';
 export type { NavItem, NavGroup } from './navigation';
 export { VIEW_LABELS, APP_TITLE, buildPageTitle } from './viewRegistry';

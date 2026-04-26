@@ -1,3 +1,4 @@
+// @responsibility krxHolidays 매매 엔진 모듈
 /**
  * krxHolidays.ts — KRX 휴장일 관리
  *

@@ -1,3 +1,4 @@
+// @responsibility macro 영역 BearRegimeSection 컴포넌트
 import React from 'react';
 import { Shield, Activity, CalendarDays, TrendingDown } from 'lucide-react';
 import { useGlobalIntelStore } from '../../stores/useGlobalIntelStore';

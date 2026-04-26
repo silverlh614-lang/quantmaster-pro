@@ -1,3 +1,4 @@
+// @responsibility kelly.cmd 텔레그램 모듈
 // @responsibility: /kelly — 종목별 Kelly 헬스 카드 (entryKellySnapshot 대비 현재 Kelly/IPS decay + 권고).
 import { loadKellyDampenerState } from '../../../trading/kellyDampener.js';
 import { formatKellyHealthCards } from '../../../trading/kellyHealthCard.js';

@@ -1,3 +1,4 @@
+// @responsibility paths 영속화 저장소 모듈
 import path from 'path';
 import fs from 'fs';
 

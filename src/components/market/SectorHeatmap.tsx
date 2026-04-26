@@ -1,3 +1,4 @@
+// @responsibility market 영역 SectorHeatmap 컴포넌트
 import React, { useMemo } from 'react';
 import {
   TrendingUp,

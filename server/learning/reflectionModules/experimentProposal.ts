@@ -1,3 +1,4 @@
+// @responsibility experimentProposal 학습 엔진 모듈
 /**
  * experimentProposal.ts — Automatic Experiment Proposal (#12).
  *

@@ -1,3 +1,4 @@
+// @responsibility watchlistManager 스크리너 모듈
 /**
  * watchlistManager.ts — 워치리스트 자동 정리 + 3-섹션 구조 관리
  *

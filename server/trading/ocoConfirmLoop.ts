@@ -1,3 +1,4 @@
+// @responsibility ocoConfirmLoop 매매 엔진 모듈
 /**
  * ocoConfirmLoop.ts — OCO 체결 "확정" 폐쇄 루프 (30초 주기 / CCLD 기반).
  *

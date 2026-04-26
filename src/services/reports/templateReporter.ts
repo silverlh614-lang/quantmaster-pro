@@ -1,3 +1,4 @@
+// @responsibility templateReporter 서비스 모듈
 /**
  * templateReporter.ts — 결정적 리포트 생성기 (Idea 6)
  *

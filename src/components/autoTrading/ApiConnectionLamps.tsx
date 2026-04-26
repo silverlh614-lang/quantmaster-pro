@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 ApiConnectionLamps 컴포넌트
 /**
  * ApiConnectionLamps — 자동매매 페이지 상단에 배치되는 외부 API 연결 상태 램프.
  *

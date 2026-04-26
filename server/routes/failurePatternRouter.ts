@@ -1,3 +1,4 @@
+// @responsibility failurePatternRouter 서버 라우터 모듈
 // server/routes/failurePatternRouter.ts
 // 반실패 패턴 DB API 라우터 — apiResponse + zod 표준 적용 예시
 

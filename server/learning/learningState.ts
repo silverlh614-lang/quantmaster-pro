@@ -1,3 +1,4 @@
+// @responsibility learningState 학습 엔진 모듈
 /**
  * learningState.ts — 4티어 자기학습 주기의 공유 상태 저장소
  *

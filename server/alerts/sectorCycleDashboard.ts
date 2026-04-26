@@ -1,3 +1,4 @@
+// @responsibility sectorCycleDashboard 알림 모듈
 /**
  * sectorCycleDashboard.ts — 섹터 사이클 현황 대시보드 (IDEA 8)
  *

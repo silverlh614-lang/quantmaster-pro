@@ -1,3 +1,4 @@
+// @responsibility pnl.cmd 텔레그램 모듈
 // @responsibility: /pnl — 활성 포지션별 realized + unrealized 분리 표시 (PR-8 fills SSOT 기준).
 import { fetchCurrentPrice } from '../../../clients/kisClient.js';
 import { getRemainingQty, getTotalRealizedPnl } from '../../../persistence/shadowTradeRepo.js';

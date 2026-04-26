@@ -1,3 +1,4 @@
+// @responsibility stock enrichment 서비스 모듈
 import {
   calculateRSI,
   calculateMACD,

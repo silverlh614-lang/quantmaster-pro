@@ -1,3 +1,4 @@
+// @responsibility market 영역 MarketTicker 컴포넌트
 import React from 'react';
 import { MarketOverview } from '../../services/stockService';
 import { Activity } from 'lucide-react';

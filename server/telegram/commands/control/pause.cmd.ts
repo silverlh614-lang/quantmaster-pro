@@ -1,3 +1,4 @@
+// @responsibility pause.cmd 텔레그램 모듈
 // @responsibility: /pause — 소프트 일시정지 발동 (신규 tick 차단, 미체결·기존 포지션 유지). EMR.
 import { getEmergencyStop, getAutoTradePaused, setAutoTradePaused } from '../../../state.js';
 import { commandRegistry } from '../../commandRegistry.js';

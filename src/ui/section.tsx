@@ -1,3 +1,4 @@
+// @responsibility section UI 프리미티브 컴포넌트
 /**
  * Section — 섹션 래퍼 (제목 + 서브타이틀 + 액션 + 본문).
  *

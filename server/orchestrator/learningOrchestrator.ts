@@ -1,3 +1,4 @@
+// @responsibility learningOrchestrator 오케스트레이터 모듈
 /**
  * learningOrchestrator.ts — 4티어 자기학습 오케스트레이터 (아이디어 8)
  *

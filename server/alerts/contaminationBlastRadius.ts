@@ -1,3 +1,4 @@
+// @responsibility contaminationBlastRadius 알림 모듈
 /**
  * contaminationBlastRadius.ts — Phase 2차 C6: 오염 반경 계산기.
  *

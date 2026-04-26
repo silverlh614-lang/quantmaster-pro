@@ -1,3 +1,4 @@
+// @responsibility trading 영역 TradeRecordModal 컴포넌트
 import React, { useState } from 'react';
 import { X, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion } from 'motion/react';

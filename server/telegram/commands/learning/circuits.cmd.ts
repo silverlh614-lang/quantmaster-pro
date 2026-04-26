@@ -1,3 +1,4 @@
+// @responsibility circuits.cmd 텔레그램 모듈
 // @responsibility: /circuits — KIS/KRX 회로 차단 상태 진단 (저녁 추천 스캔 빈 결과 디버그용).
 import { getCircuitBreakerStats } from '../../../clients/kisClient.js';
 import { getKrxOpenApiStatus } from '../../../clients/krxOpenApi.js';

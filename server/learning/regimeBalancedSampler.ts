@@ -1,3 +1,4 @@
+// @responsibility regimeBalancedSampler 학습 엔진 모듈
 /**
  * regimeBalancedSampler.ts — Idea 3: Stratified Sampling (레짐 균형 학습).
  *

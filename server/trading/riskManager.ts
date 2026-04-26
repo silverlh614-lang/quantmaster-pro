@@ -1,3 +1,4 @@
+// @responsibility riskManager 매매 엔진 모듈
 import { type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 
 export const RRR_MIN_THRESHOLD       = Number(process.env.RRR_MIN_THRESHOLD || 1.8);

@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 AIIntelligenceSection 컴포넌트
 import React from 'react';
 import {
   TrendingUp, TrendingDown, Info, Zap, Star, ArrowUpRight, ArrowDownRight,

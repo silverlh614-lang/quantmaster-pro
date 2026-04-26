@@ -1,3 +1,4 @@
+// @responsibility ScreenerPage 페이지 컴포넌트
 import React, { useState, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { useQuery } from '@tanstack/react-query';

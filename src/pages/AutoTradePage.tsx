@@ -1,3 +1,4 @@
+// @responsibility AutoTradePage 페이지 컴포넌트
 /**
  * AutoTradePage — 자동매매 관제실.
  *

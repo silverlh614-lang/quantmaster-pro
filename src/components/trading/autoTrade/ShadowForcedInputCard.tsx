@@ -1,3 +1,4 @@
+// @responsibility trading 영역 ShadowForcedInputCard 컴포넌트
 import React, { useMemo, useState } from 'react';
 import { Wrench, AlertTriangle, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { Card } from '../../../ui/card';

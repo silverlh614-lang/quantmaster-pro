@@ -1,3 +1,4 @@
+// @responsibility reflectionRepo 영속화 저장소 모듈
 /**
  * reflectionRepo.ts — Nightly Reflection Engine 저장소.
  *

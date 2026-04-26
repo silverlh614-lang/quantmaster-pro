@@ -1,3 +1,4 @@
+// @responsibility leadershipBridge 스크리너 모듈
 /**
  * leadershipBridge.ts — Phase 4-④ 주도주 분석 → MOMENTUM 다이내믹 레이어 브릿지.
  *

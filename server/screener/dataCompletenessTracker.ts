@@ -1,3 +1,4 @@
+// @responsibility dataCompletenessTracker 스크리너 모듈
 /**
  * dataCompletenessTracker.ts — 종목별 데이터 완성도 스코어링 (당일 롤링)
  *

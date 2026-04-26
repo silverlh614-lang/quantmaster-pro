@@ -1,3 +1,4 @@
+// @responsibility signals 영역 FeedbackLoopPanel 컴포넌트
 /**
  * FeedbackLoopPanel.tsx — 피드백 폐쇄 루프 패널
  *

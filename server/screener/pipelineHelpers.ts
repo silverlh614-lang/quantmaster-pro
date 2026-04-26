@@ -1,3 +1,4 @@
+// @responsibility pipelineHelpers 스크리너 모듈
 /**
  * pipelineHelpers.ts — 자동 발굴 파이프라인 공통 상수 및 유틸리티
  *

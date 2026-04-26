@@ -1,3 +1,4 @@
+// @responsibility market 영역 AiMarketSummarySection 컴포넌트
 import React from 'react';
 import { Zap, Clock, TrendingUp } from 'lucide-react';
 

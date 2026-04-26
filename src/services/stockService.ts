@@ -1,3 +1,4 @@
+// @responsibility stockService 서비스 모듈
 export * from './stock/types';
 export * from './stock/aiClient';
 // PR-25-C (ADR-0011): kisDataFetcher 제거 — AI 추천 경로의 KIS 의존 완전 차단.

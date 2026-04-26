@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 EngineToggleGate 컴포넌트
 /**
  * EngineToggleGate — 실매매 엔진 시동용 3단계 확인 모달.
  *

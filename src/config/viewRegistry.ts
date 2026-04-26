@@ -1,3 +1,4 @@
+// @responsibility viewRegistry 설정 SSOT
 /**
  * View registry — maps each View id to its human-readable label.
  * Used for browser tab titles, breadcrumbs, and anywhere a view name

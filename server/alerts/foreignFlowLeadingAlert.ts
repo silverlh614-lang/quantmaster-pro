@@ -1,3 +1,4 @@
+// @responsibility foreignFlowLeadingAlert 알림 모듈
 /**
  * foreignFlowLeadingAlert.ts — 외국인 수급 선행 경보 (IDEA 9)
  *

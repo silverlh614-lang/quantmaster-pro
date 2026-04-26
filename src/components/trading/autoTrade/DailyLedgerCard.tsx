@@ -1,3 +1,4 @@
+// @responsibility trading 영역 DailyLedgerCard 컴포넌트
 import React, { useMemo, useState } from 'react';
 import { Wallet } from 'lucide-react';
 import { cn } from '../../../ui/cn';

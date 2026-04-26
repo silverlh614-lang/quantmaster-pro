@@ -1,3 +1,4 @@
+// @responsibility kisRouter 서버 라우터 모듈
 // server/routes/kisRouter.ts
 // KIS (한국투자증권) API 라우터 — server.ts에서 분리
 import { Router } from 'express';

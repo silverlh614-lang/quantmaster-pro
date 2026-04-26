@@ -1,3 +1,4 @@
+// @responsibility positionAggregator 매매 엔진 모듈
 /**
  * positionAggregator.ts — 포지션 생애주기 집계 서비스
  *

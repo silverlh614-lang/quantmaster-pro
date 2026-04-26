@@ -1,3 +1,4 @@
+// @responsibility watchlist 영역 WatchlistCard 컴포넌트
 import React from 'react';
 import {
   TrendingUp, TrendingDown, Bookmark, Star, Award, History, Plus, Zap,

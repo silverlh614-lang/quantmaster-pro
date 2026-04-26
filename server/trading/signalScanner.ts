@@ -1,3 +1,4 @@
+// @responsibility signalScanner 매매 엔진 모듈
 /**
  * signalScanner.ts — 장중 자동 신호 스캔 오케스트레이터
  *

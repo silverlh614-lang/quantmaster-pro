@@ -1,3 +1,4 @@
+// @responsibility stock momentumRecommendations 서비스 모듈
 /**
  * momentumRecommendations.ts — MOMENTUM / EARLY_DETECT / SMALL_MID_CAP 모드 AI 추천 로직
  *

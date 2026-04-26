@@ -1,3 +1,4 @@
+// @responsibility learningStatus.cmd 텔레그램 모듈
 // @responsibility: /learning_status 명령 — 직전 nightly reflection 1건 + 편향 + 실험 + suggest 7일 요약.
 import { getLearningStatus } from '../../../learning/learningHistorySummary.js';
 import { formatLearningStatusMessage } from '../../../learning/learningHistoryFormatter.js';

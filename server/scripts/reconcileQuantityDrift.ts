@@ -1,3 +1,4 @@
+// @responsibility reconcileQuantityDrift 서버 모듈
 /**
  * reconcileQuantityDrift.ts — 기존 quantity 캐시 꼬임 일회성 교정 스크립트
  *

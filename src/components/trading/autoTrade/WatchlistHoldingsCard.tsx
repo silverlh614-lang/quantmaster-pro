@@ -1,3 +1,4 @@
+// @responsibility trading 영역 WatchlistHoldingsCard 컴포넌트
 import React, { useState } from 'react';
 import { Eye, Briefcase } from 'lucide-react';
 import { cn } from '../../../ui/cn';

@@ -1,3 +1,4 @@
+// @responsibility dynamicStop 도메인 타입 정의
 // ─── 변동성 적응형 동적 손절 (Volatility-Adaptive Dynamic Stop) ──────────────────
 
 import type { RegimeLevel } from '../core';

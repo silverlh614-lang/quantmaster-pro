@@ -1,3 +1,4 @@
+// @responsibility stock types 서비스 모듈
 import type {
   SectorRotation,
   MultiTimeframe,

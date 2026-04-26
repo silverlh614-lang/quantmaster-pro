@@ -1,3 +1,4 @@
+// @responsibility alertCategories 알림 모듈
 export enum AlertCategory {
   TRADE = 'TRADE',
   ANALYSIS = 'ANALYSIS',

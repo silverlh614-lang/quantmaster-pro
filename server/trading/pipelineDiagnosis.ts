@@ -1,3 +1,4 @@
+// @responsibility pipelineDiagnosis 매매 엔진 모듈
 /**
  * pipelineDiagnosis.ts — 파이프라인 자가진단 (아이디어 11)
  *
