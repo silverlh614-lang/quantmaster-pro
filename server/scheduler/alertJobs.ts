@@ -16,6 +16,7 @@ import { tickIntradayYield } from '../alerts/intradayYieldTicker.js';
 import { sweepPendingAcks } from '../alerts/ackTracker.js';
 import { checkForeignFlowLeadingAlert } from '../alerts/foreignFlowLeadingAlert.js';
 import { runMacroDigest } from '../alerts/macroDigestReport.js';
+import { runWeeklySelfCritique } from '../alerts/weeklySelfCritiqueReport.js';
 
 export function registerAlertJobs(): void {
   // DART 공시 30분 폴링 — 장중 08:30~18:00 KST (UTC 23:30~09:00)
@@ -97,5 +98,13 @@ export function registerAlertJobs(): void {
   cron.schedule('0 7 * * 1-5', async () => {
     await runMacroDigest('POST_CLOSE').catch(e =>
       console.error('[MacroDigest] POST_CLOSE 실패:', e instanceof Error ? e.message : e));
+  }, { timezone: 'UTC' });
+
+  // PR-X5 (ADR-0041) — CH4 JOURNAL 주간 자기비판 리포트.
+  // 페르소나 "보유 효과·후회 회피 경계" 의 자동화된 거울. 시간 격리(주말 정독).
+  // 일요일 KST 19:00 (UTC 10:00 일요일).
+  cron.schedule('0 10 * * 0', async () => {
+    await runWeeklySelfCritique().catch(e =>
+      console.error('[WeeklySelfCritique] 발송 실패:', e instanceof Error ? e.message : e));
   }, { timezone: 'UTC' });
 }
