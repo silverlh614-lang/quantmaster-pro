@@ -6,7 +6,7 @@
 import type { ElementType } from 'react';
 import {
   Zap, Search, Bookmark, Filter, Radar, Calculator,
-  History, Shield, Activity, TrendingUp, Layers,
+  History, Shield, Activity, TrendingUp, Layers, Globe, Trophy,
 } from 'lucide-react';
 import type { View } from '../stores/useSettingsStore';
 
@@ -58,6 +58,14 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'TRADE_JOURNAL', label: '매매일지', icon: TrendingUp },
     ],
   },
+  // PR-I (ADR-0026) — 신규 페이지 진입 동선 (PR-B / PR-G 페이지 등록)
+  {
+    label: '인텔리전스',
+    items: [
+      { id: 'RECOMMENDATION_HISTORY', label: '추천 이력', icon: Trophy },
+      { id: 'MACRO_INTEL', label: '매크로 인텔', icon: Globe },
+    ],
+  },
 ];
 
 // ── Mobile bottom-nav: primary tabs (always visible) ─────────────────────
@@ -73,6 +81,8 @@ export const PRIMARY_MOBILE_TABS: NavItem[] = [
 
 export const MORE_MOBILE_TABS: NavItem[] = [
   { id: 'MARKET', label: '시장', icon: Activity },
+  { id: 'MACRO_INTEL', label: '매크로 인텔', icon: Globe },
+  { id: 'RECOMMENDATION_HISTORY', label: '추천 이력', icon: Trophy },
   { id: 'SCREENER', label: '스크리너', icon: Filter },
   { id: 'SUBSCRIPTION', label: '섹터 구독', icon: Radar },
   { id: 'MANUAL_INPUT', label: '수동 퀀트', icon: Calculator },
