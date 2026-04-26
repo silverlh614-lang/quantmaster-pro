@@ -10,6 +10,7 @@ import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { callGemini } from '../clients/geminiClient.js';
 import { sendTelegramAlert as _sendTelegramAlertRaw, escapeHtml, type AlertPriority } from './telegramClient.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 // ── 인메모리 중복 방지 캐시 (서버 재시작 시 초기화 — 의도적) ─────────────────
 // 파일 기반 seen Set(DART_FAST_SEEN_FILE)에 더해 메모리 캐시로 중복 Gemini 호출을 차단.
@@ -712,8 +713,9 @@ export async function checkBadNewsAbsorbed(
   }
 
   // 부정 공시 후 주가가 오히려 0% 이상 유지 → 악재 소화 완료
-  const changePct = ((currentPrice - basePrice) / basePrice) * 100;
-  if (changePct >= 0) {
+  // ADR-0028: stale basePrice 시 null → 평가 보류 (악재 소화 잘못 판단 차단).
+  const changePct = safePctChange(currentPrice, basePrice, { label: 'dartPoller.changePct' });
+  if (changePct !== null && changePct >= 0) {
     // 악재 소화 완료 알림
     const existing = loadDartAlerts();
     const alertEntry = existing.find(a => a.rcept_no === entry.rceptNo);

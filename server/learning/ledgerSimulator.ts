@@ -18,6 +18,7 @@
 import fs from 'fs';
 import { LEDGER_FILE, ensureDataDir } from '../persistence/paths.js';
 import { sendSuggestAlert } from './suggestNotifier.js';
+import { safePctChange } from '../utils/safePctChange.js';
 import {
   SUGGEST_MIN_SAMPLE_LEDGER,
   SUGGEST_LEDGER_EDGE_PCT,
@@ -154,22 +155,26 @@ export async function resolveLedger(
     priceCache.set(e.stockCode, current);
     if (current == null || !Number.isFinite(current) || current <= 0) continue;
 
+    // ADR-0028: stale current 시 0 fallback — 학습 ledger 영속화 입력 보호.
+    const ledgerReturn = safePctChange(current, e.entryPrice, {
+      label: `ledger:${e.stockCode}`,
+    }) ?? 0;
     if (current >= e.targetPrice) {
       e.status = 'HIT_TP';
       e.exitPrice = current;
-      e.returnPct = ((current - e.entryPrice) / e.entryPrice) * 100;
+      e.returnPct = ledgerReturn;
       e.resolvedAt = now.toISOString();
       hitTP++;
     } else if (current <= e.stopPrice) {
       e.status = 'HIT_SL';
       e.exitPrice = current;
-      e.returnPct = ((current - e.entryPrice) / e.entryPrice) * 100;
+      e.returnPct = ledgerReturn;
       e.resolvedAt = now.toISOString();
       hitSL++;
     } else if (elapsedDays >= LEDGER_HORIZON_DAYS) {
       e.status = 'EXPIRED';
       e.exitPrice = current;
-      e.returnPct = ((current - e.entryPrice) / e.entryPrice) * 100;
+      e.returnPct = ledgerReturn;
       e.resolvedAt = now.toISOString();
       expired++;
     }

@@ -1221,7 +1221,10 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
     //   Stage 2: 손절까지 -3% 이내 → 🟠 임박 경고
     //   Stage 3: 손절까지 -1% 이내 → 🔴 집행 임박 (exitEngine 하드스톱이 곧 발동)
     {
-      const distToStop = ((currentPrice - hardStopLoss) / hardStopLoss) * 100;
+      // ADR-0028: stale hardStopLoss 시 0 fallback — 손절 접근 알림 보호.
+      const distToStop = safePctChange(currentPrice, hardStopLoss, {
+        label: `exitEngine.distToStop:${shadow.stockCode}`,
+      }) ?? 0;
       const stage = shadow.stopApproachStage ?? 0;
 
       if (distToStop > 0 && distToStop < 5 && stage < 1) {

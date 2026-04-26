@@ -29,6 +29,7 @@ import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { analyzeAttribution } from '../learning/attributionAnalyzer.js';
 import { loadTomorrowPriming } from '../persistence/reflectionRepo.js';
 import { getRemainingQty, isOpenShadowStatus } from '../trading/signalScanner.js';
+import { safePctChange } from '../utils/safePctChange.js';
 // scanTracer 요약은 scanReviewReport.ts(16:40) 로 이관되어 이 파일에서는 더 이상 직접 사용하지 않는다.
 
 // ── 당일 실현 이벤트 집계 SSOT (PR-15) ────────────────────────────────────────
@@ -479,13 +480,17 @@ export async function sendWatchlistBriefing(): Promise<void> {
         const gate = evaluateServerGate(quote);
         const cs = gate.compressionScore;
 
-        // 갭 판단: 시가 vs 전일종가
+        // 갭 판단: 시가 vs 전일종가 — ADR-0028: stale prevClose/dayOpen 시 라벨 미부착.
         let gapLabel = '';
         if (quote.prevClose && quote.prevClose > 0 && quote.dayOpen && quote.dayOpen > 0) {
-          const gapPct = ((quote.dayOpen - quote.prevClose) / quote.prevClose) * 100;
-          if (gapPct >= 4) gapLabel = `Gap+${gapPct.toFixed(1)}% 과열`;
-          else if (gapPct >= 1) gapLabel = `Gap+${gapPct.toFixed(1)}%`;
-          else if (gapPct <= -1) gapLabel = `Gap${gapPct.toFixed(1)}%`;
+          const gapPct = safePctChange(quote.dayOpen, quote.prevClose, {
+            label: 'reportGenerator.gapPct',
+          });
+          if (gapPct !== null) {
+            if (gapPct >= 4) gapLabel = `Gap+${gapPct.toFixed(1)}% 과열`;
+            else if (gapPct >= 1) gapLabel = `Gap+${gapPct.toFixed(1)}%`;
+            else if (gapPct <= -1) gapLabel = `Gap${gapPct.toFixed(1)}%`;
+          }
         }
 
         // 진입 상태 판단
@@ -566,7 +571,10 @@ export async function sendIntradayCheckIn(type: 'midday' | 'preclose'): Promise<
       positionLines.push(`• ${shadow.stockName} (시세 없음)`);
       continue;
     }
-    const returnPct = ((currentPrice - shadow.shadowEntryPrice) / shadow.shadowEntryPrice) * 100;
+    // ADR-0028: stale currentPrice 시 0 fallback — 일일 리포트 표시용.
+    const returnPct = safePctChange(currentPrice, shadow.shadowEntryPrice, {
+      label: `reportGenerator.return:${shadow.stockCode}`,
+    }) ?? 0;
     const distToTarget = ((shadow.targetPrice - currentPrice) / currentPrice) * 100;
     const distToStop   = ((currentPrice - shadow.stopLoss) / shadow.stopLoss) * 100;
 
@@ -613,22 +621,22 @@ function fmtPct(v: number | null | undefined): string {
   return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
 }
 
-/** KOSPI 현재가 + 전일대비 변화율 조회 */
+/** KOSPI 현재가 + 전일대비 변화율 조회 — ADR-0028: stale prev 시 0 fallback. */
 async function fetchKospiSnapshot(): Promise<{ price: number; changePct: number } | null> {
   const closes = await fetchCloses('^KS11', '5d').catch(() => null);
   if (!closes || closes.length < 2) return null;
   const current = closes[closes.length - 1];
   const prev    = closes[closes.length - 2];
-  return { price: current, changePct: ((current - prev) / prev) * 100 };
+  return { price: current, changePct: safePctChange(current, prev, { label: 'reportGenerator.kospi' }) ?? 0 };
 }
 
-/** USD/KRW 현재 + 전일대비 */
+/** USD/KRW 현재 + 전일대비 — ADR-0028: stale prev 시 0 fallback. */
 async function fetchUsdKrwSnapshot(): Promise<{ rate: number; changePct: number } | null> {
   const closes = await fetchCloses('KRW=X', '5d').catch(() => null);
   if (!closes || closes.length < 2) return null;
   const current = closes[closes.length - 1];
   const prev    = closes[closes.length - 2];
-  return { rate: current, changePct: ((current - prev) / prev) * 100 };
+  return { rate: current, changePct: safePctChange(current, prev, { label: 'reportGenerator.usdkrw' }) ?? 0 };
 }
 
 /**
@@ -739,7 +747,10 @@ export async function sendIntradayMarketReport(): Promise<void> {
   for (const s of active.slice(0, 8)) {
     const cur = await fetchCurrentPrice(s.stockCode).catch(() => null);
     if (cur) {
-      const ret = ((cur - s.shadowEntryPrice) / s.shadowEntryPrice) * 100;
+      // ADR-0028: stale 시 0 fallback — 정오 점검 표시용.
+      const ret = safePctChange(cur, s.shadowEntryPrice, {
+        label: `reportGenerator.posLine:${s.stockCode}`,
+      }) ?? 0;
       posLines.push(`  ${ret >= 0 ? '📈' : '📉'} ${s.stockName} ${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%`);
     } else {
       posLines.push(`  • ${s.stockName} (시세 없음)`);

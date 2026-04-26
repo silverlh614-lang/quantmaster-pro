@@ -19,6 +19,7 @@ import fs from 'fs';
 import { RECOMMENDATIONS_FILE, ensureDataDir } from '../persistence/paths.js';
 import type { RecommendationRecord } from './recommendationTracker.js';
 import { guardedFetch } from '../utils/egressGuard.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 const YF_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -143,15 +144,17 @@ export async function reEvaluateExpired(): Promise<number> {
         }
       }
 
-      // 60일 / 90일 종가 수익률 스냅샷
+      // 60일 / 90일 종가 수익률 스냅샷 — ADR-0028: stale priceRef 시 0 fallback (학습 영속 보호).
       if (ohlcv[LATE_CHECKPOINT_60D - 1] && rec.return60d === undefined) {
         const c = ohlcv[LATE_CHECKPOINT_60D - 1].close;
-        rec.return60d = parseFloat((((c - priceRef) / priceRef) * 100).toFixed(2));
+        const r60 = safePctChange(c, priceRef, { label: `lateWin.return60d:${rec.stockCode}` });
+        rec.return60d = parseFloat((r60 ?? 0).toFixed(2));
         snapshotted++;
       }
       if (ohlcv[LATE_CHECKPOINT_90D - 1] && rec.return90d === undefined) {
         const c = ohlcv[LATE_CHECKPOINT_90D - 1].close;
-        rec.return90d = parseFloat((((c - priceRef) / priceRef) * 100).toFixed(2));
+        const r90 = safePctChange(c, priceRef, { label: `lateWin.return90d:${rec.stockCode}` });
+        rec.return90d = parseFloat((r90 ?? 0).toFixed(2));
       }
 
       // LATE_WIN 전환
@@ -159,7 +162,8 @@ export async function reEvaluateExpired(): Promise<number> {
         rec.expiredAt = rec.resolvedAt ?? rec.expiredAt; // EXPIRED 시각 보존
         rec.status = 'WIN';
         rec.lateWin = true;
-        rec.actualReturn = parseFloat((((rec.targetPrice - priceRef) / priceRef) * 100).toFixed(2));
+        const lateActual = safePctChange(rec.targetPrice, priceRef, { label: `lateWin.actual:${rec.stockCode}` });
+        rec.actualReturn = parseFloat((lateActual ?? 0).toFixed(2));
         rec.resolvedAt = new Date(Date.parse(hitDay.date)).toISOString();
         converted++;
         console.log(

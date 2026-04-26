@@ -23,6 +23,7 @@
  */
 
 import { guardedFetch } from '../utils/egressGuard.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 const YF_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
@@ -194,7 +195,8 @@ export async function getDxyIntradayReading(windowMinutes = 30): Promise<DxyIntr
       if (bar.ts <= targetTs) basis = bar;
       else break;
     }
-    const change = basis.close > 0 ? ((last.close - basis.close) / basis.close) * 100 : 0;
+    // ADR-0028: stale basis 시 0 fallback.
+    const change = basis.close > 0 ? (safePctChange(last.close, basis.close, { label: 'dxyIntraday.change' }) ?? 0) : 0;
     return {
       source: 'YAHOO',
       asOf: new Date(last.ts).toISOString(),

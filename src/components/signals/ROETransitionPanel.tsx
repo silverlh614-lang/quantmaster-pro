@@ -14,6 +14,7 @@
 import React from 'react';
 import { cn } from '../../ui/cn';
 import type { ROETransitionResult, ROEType } from '../../types/quant';
+import { safePctChange } from '../../utils/safePctChange';
 
 interface ROETransitionPanelProps {
   roeTransition: ROETransitionResult;
@@ -83,7 +84,8 @@ function AssetTurnoverBar({ history }: { history: number[] }) {
   if (history.length < 2) return null;
   const prev = history[history.length - 2];
   const curr = history[history.length - 1];
-  const dropPct = prev > 0 ? ((prev - curr) / prev) * 100 : 0;
+  // ADR-0028: stale prev 시 0 fallback.
+  const dropPct = prev > 0 ? (safePctChange(prev, curr, { label: 'ROETransition.dropPct' }) ?? 0) : 0;
   const maxVal = Math.max(prev, curr, 0.01);
 
   return (

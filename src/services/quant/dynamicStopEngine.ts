@@ -16,6 +16,7 @@
  */
 
 import type { DynamicStopInput, DynamicStopResult, DynamicStopRegime } from '../../types/sell';
+import { safePctChange } from '../../utils/safePctChange';
 
 // ─── 레짐별 ATR 배수 ──────────────────────────────────────────────────────────
 
@@ -47,10 +48,13 @@ export function evaluateDynamicStop(input: DynamicStopInput): DynamicStopResult 
   // Dynamic_Stop = Entry_Price − (ATR_14 × Multiplier)
   const rawStopPrice = entryPrice - atr14 * multiplier;
   const stopPrice = Math.max(1, Math.round(rawStopPrice));
-  const stopPct = ((stopPrice - entryPrice) / entryPrice) * 100;
+  // ADR-0028: stale entryPrice 시 0 fallback — 동적 손절 계산 입력 보호.
+  const stopPct = safePctChange(stopPrice, entryPrice, { label: 'dynamicStop.stopPct' }) ?? 0;
 
   // 현재 수익률
-  const currentReturnPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+  const currentReturnPct = safePctChange(currentPrice, entryPrice, {
+    label: 'dynamicStop.currentReturn',
+  }) ?? 0;
 
   // ── 트레일링 스톱 결정 ───────────────────────────────────────────────────────
   let trailingActive = false;
@@ -73,7 +77,9 @@ export function evaluateDynamicStop(input: DynamicStopInput): DynamicStopResult 
     trailingStopPrice = Math.round(entryPrice);
   }
 
-  const trailingStopPct = ((trailingStopPrice - entryPrice) / entryPrice) * 100;
+  const trailingStopPct = safePctChange(trailingStopPrice, entryPrice, {
+    label: 'dynamicStop.trailingStopPct',
+  }) ?? 0;
 
   // ── 행동 권고 메시지 ────────────────────────────────────────────────────────
   let actionMessage: string;

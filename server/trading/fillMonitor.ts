@@ -6,6 +6,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelBuyFilled } from '../alerts/channelPipeline.js';
 import { registerOcoPair } from './ocoCloseLoop.js';
 import { appendTradeEvent } from './tradeEventLog.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 const FILL_POLL_MAX = 10; // 최대 폴링 횟수 (cron 5분 간격 × 10 = 최대 50분 모니터링)
 
@@ -379,9 +380,12 @@ function correctShadowFill(
   if (qtyChanged) fill.qty = filledQty;
   if (priceChanged) fill.price = effectivePrice;
   // pnl / pnlPct 재계산 (entryPrice 기준)
+  // ADR-0028: pnlPct 는 fill 영속화에 사용 — sanity 위반 시 0 fallback (학습 오염 차단).
   if (trade.shadowEntryPrice > 0) {
     fill.pnl = (effectivePrice - trade.shadowEntryPrice) * filledQty;
-    fill.pnlPct = ((effectivePrice - trade.shadowEntryPrice) / trade.shadowEntryPrice) * 100;
+    fill.pnlPct = safePctChange(effectivePrice, trade.shadowEntryPrice, {
+      label: `fillMonitor.pnlPct:${trade.stockCode}`,
+    }) ?? 0;
   }
   if (finalize) {
     delete fill.ordNo;

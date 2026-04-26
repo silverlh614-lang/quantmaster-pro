@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { TradeRecord, LossReason } from '../types/quant';
 import type { StockRecommendation } from '../services/stockService';
+import { safePctChange } from '../utils/safePctChange';
 type Updater<T> = T | ((prev: T) => T);
 
 /**
@@ -79,7 +80,10 @@ export const useTradeStore = create<TradeState>()(
       closeTrade: (tradeId, sellPrice, sellReason) => set((state) => ({
         tradeRecords: state.tradeRecords.map((t: TradeRecord) => {
           if (t.id !== tradeId) return t;
-          const returnPct = ((sellPrice - t.buyPrice) / t.buyPrice) * 100;
+          // ADR-0028: stale buyPrice 시 0 fallback — TradeRecord 영속 학습 입력 보호.
+          const returnPct = safePctChange(sellPrice, t.buyPrice, {
+            label: `useTradeStore.closeTrade:${t.stockCode}`,
+          }) ?? 0;
           const holdingDays = Math.round((Date.now() - new Date(t.buyDate).getTime()) / (1000 * 60 * 60 * 24));
           return {
             ...t,

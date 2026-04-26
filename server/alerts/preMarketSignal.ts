@@ -27,6 +27,7 @@ import fs from 'fs';
 import { fetchCloses } from '../trading/marketDataRefresh.js';
 import { sendTelegramAlert } from './telegramClient.js';
 import { PRE_MARKET_SIGNAL_FILE, ensureDataDir } from '../persistence/paths.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -106,7 +107,8 @@ async function fetchSnapshot(sym: SignalSymbol): Promise<PreMarketSnapshot> {
   if (!prev || prev === 0) {
     return { symbol: sym.symbol, label: sym.label, last, changePct: null, weight: sym.weight };
   }
-  const changePct = ((last - prev) / prev) * 100;
+  // ADR-0028: stale prev 시 0 fallback — 장전 신호 글로벌 시장 표기 보호.
+  const changePct = safePctChange(last, prev, { label: `preMarketSignal:${sym.symbol}` }) ?? 0;
   return {
     symbol:    sym.symbol,
     label:     sym.label,

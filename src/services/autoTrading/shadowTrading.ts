@@ -6,6 +6,7 @@
  */
 
 import type { EvaluationResult, ShadowTrade } from '../../types/quant';
+import { safePctChange } from '../../utils/safePctChange';
 
 const SLIPPAGE = 0.003; // 0.3% 슬리피지 가정
 
@@ -68,15 +69,21 @@ export function resolveShadowTrade(
 
   if (currentPrice >= trade.targetPrice) {
     // 현재가로 체결 (목표가보다 높을 수 있음)
+    // ADR-0028: stale shadowEntryPrice 시 0 fallback — Shadow trade 영속 학습 보호.
     const returnPct = parseFloat(
-      (((currentPrice - trade.shadowEntryPrice) / trade.shadowEntryPrice) * 100).toFixed(2)
+      (safePctChange(currentPrice, trade.shadowEntryPrice, {
+        label: `shadowTrading:${trade.stockCode}`,
+      }) ?? 0).toFixed(2)
     );
     return { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct };
   }
   if (currentPrice <= trade.stopLoss) {
     // 현재가로 체결 (갭다운 시 손절가보다 낮을 수 있음)
+    // ADR-0028: stale shadowEntryPrice 시 0 fallback — Shadow trade 영속 학습 보호.
     const returnPct = parseFloat(
-      (((currentPrice - trade.shadowEntryPrice) / trade.shadowEntryPrice) * 100).toFixed(2)
+      (safePctChange(currentPrice, trade.shadowEntryPrice, {
+        label: `shadowTrading:${trade.stockCode}`,
+      }) ?? 0).toFixed(2)
     );
     return { status: 'HIT_STOP', exitPrice: currentPrice, exitTime: new Date().toISOString(), returnPct };
   }

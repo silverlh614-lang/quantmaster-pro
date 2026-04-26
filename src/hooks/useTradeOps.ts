@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { useRecommendationStore, useTradeStore, useSettingsStore, useRecommendationSnapshotStore } from '../stores';
+import { safePctChange } from '../utils/safePctChange';
 import { useAttributionStore } from '../stores/useAttributionStore';
 import { useGlobalIntelStore } from '../stores/useGlobalIntelStore';
 import { computeConditionPerformance } from '../components/trading/TradeJournal';
@@ -121,7 +122,10 @@ export function useTradeOps() {
 
     setTradeRecords((prev: TradeRecord[]) => prev.map((t: TradeRecord) => {
       if (t.id !== tradeId) return t;
-      const returnPct = ((sellPrice - t.buyPrice) / t.buyPrice) * 100;
+      // ADR-0028: stale buyPrice 시 0 fallback — TradeRecord 영속 + 학습 입력 보호.
+      const returnPct = safePctChange(sellPrice, t.buyPrice, {
+        label: `useTradeOps.closeTrade:${t.stockCode}`,
+      }) ?? 0;
       const holdingDays = Math.round((Date.now() - new Date(t.buyDate).getTime()) / (1000 * 60 * 60 * 24));
 
       // ADR-0021: returnPct < 0 일 때만 lossReason 자동 분류 진입.
@@ -162,14 +166,18 @@ export function useTradeOps() {
     }));
 
     if (trade) {
-      const returnPctClose = ((sellPrice - trade.buyPrice) / trade.buyPrice) * 100;
+      const returnPctClose = safePctChange(sellPrice, trade.buyPrice, {
+        label: `useTradeOps.snapshot:${trade.stockCode}`,
+      }) ?? 0;
       // ADR-0019 (PR-B): 연결된 snapshot 이 있으면 CLOSED 전이.
       // 매수 시점에 snapshot 이 없었어도 무영향 (markClosed 가 no-op).
       useRecommendationSnapshotStore.getState().markClosed(tradeId, returnPctClose);
     }
 
     if (trade && trade.conditionScores && Object.keys(trade.conditionScores).length > 0) {
-      const returnPct = ((sellPrice - trade.buyPrice) / trade.buyPrice) * 100;
+      const returnPct = safePctChange(sellPrice, trade.buyPrice, {
+        label: `useTradeOps.attribution:${trade.stockCode}`,
+      }) ?? 0;
       const holdingDays = Math.round((Date.now() - new Date(trade.buyDate).getTime()) / (1000 * 60 * 60 * 24));
       const { accumulate } = useAttributionStore.getState();
       runAttributionAnalysis(trade.conditionScores, returnPct, accumulate);
