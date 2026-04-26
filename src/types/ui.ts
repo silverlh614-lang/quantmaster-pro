@@ -41,6 +41,19 @@ export type DataQualityTier = 'HIGH' | 'MEDIUM' | 'LOW';
  */
 export type ConditionSourceTier = 'COMPUTED' | 'API' | 'AI_INFERRED';
 
+// ─── PriceAlertWatcher (ADR-0020 PR-C) ─────────────────────────────────────
+
+/**
+ * 손절·익절 알림 4단계 레벨.
+ * - NORMAL: 계획 범위 내
+ * - CAUTION: 손절가까지 cautionPctToStop (기본 3 %) 이내
+ * - DANGER: 손절가 도달 (currentPrice ≤ stopLoss)
+ * - TAKE_PROFIT: 1차 목표가 도달 (currentPrice ≥ targetPrice)
+ *
+ * 우선순위: TAKE_PROFIT > DANGER > CAUTION > NORMAL.
+ */
+export type PriceAlertLevel = 'NORMAL' | 'CAUTION' | 'DANGER' | 'TAKE_PROFIT';
+
 /**
  * DataQualityBadge 가 종목 카드에 노출하는 3분류 카운트.
  * - PR-A: sourceMetaAvailable=false → 클라이언트 휴리스틱 fallback (handoff.md §휴리스틱).
