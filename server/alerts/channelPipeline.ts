@@ -16,7 +16,7 @@
 
 import { escapeHtml } from './telegramClient.js';
 import { dispatchAlert } from './alertRouter.js';
-import { AlertCategory } from './alertCategories.js';
+import { AlertCategory, ChannelSemantic } from './alertCategories.js';
 import { formatAlert } from './formatAlert.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
 
@@ -415,6 +415,9 @@ export async function channelPerformance(p: ChannelPerformanceParams): Promise<v
     p.worstTrade ? `🔴 최저: ${escapeHtml(p.worstTrade.name)} ${p.worstTrade.pnlPct.toFixed(1)}%` : '',
   ].filter(Boolean).join('\n');
 
-  await dispatchAlert(AlertCategory.INFO, lines).catch(console.error);
+  // ADR-0037 §1 시멘틱 매핑: SYSTEM = 메타 학습·복기 (성과/주간 리포트).
+  // 일일/주간 거래 성과는 JOURNAL(SYSTEM) 채널 — REGIME(INFO) 매크로 사령탑에 끼어들면 안 됨.
+  // SYSTEM 카테고리는 alertRouter 가 weekly_digest 버퍼로 자동 분류.
+  await dispatchAlert(ChannelSemantic.JOURNAL, lines).catch(console.error);
 }
 
