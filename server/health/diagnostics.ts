@@ -30,7 +30,10 @@ import {
 import { verifyVolumeMount } from '../persistence/paths.js';
 import { getKrxOpenApiStatus, isKrxOpenApiHealthy } from '../clients/krxOpenApi.js';
 import { getCachedIntradayYield } from '../alerts/intradayYieldTicker.js';
-import { guardedFetch } from '../utils/egressGuard.js';
+import {
+  probeMultipleSymbols,
+  classifyMultiProbeResult,
+} from '../utils/yahooProbeRetry.js';
 import type { ScanSummary } from '../trading/signalScanner/scanDiagnostics.js';
 
 // ─── 타입 ────────────────────────────────────────────────────────────────
@@ -392,10 +395,13 @@ export function classifyDartStatus(status: string): {
  * Yahoo / DART 라이브 probe. health.cmd 만 사용 (HTTP 라우트는 응답 시간 보호 위해 미사용).
  * timeoutMs 초과 시 각 probe 가 개별 reject — 다른 probe 는 영향 없음.
  *
- * 결과는 `classifyYahooProbe` / `classifyDartStatus` 로 severity 매핑 — 단순 ok/fail
- * 보다 정확하다 (예: DART status=013 "데이터 없음" 은 ❌ 가 아니라 ✅).
+ * Yahoo: probeMultipleSymbols SSOT (ADR-0056) — query1→query2 재시도 + 3종목 다수결.
+ *   단일 심볼 1회 호출 vs 다중 심볼 재시도 → false positive 차단 + Railway egress
+ *   3초 timeout 풍부 (8s × 2회 호스트 = 최대 16s, withTimeout=10s 으로 capped).
+ *
+ * DART: classifyDartStatus 로 status code → severity 매핑 (013 "데이터 없음" = ✅).
  */
-export async function runExternalProbes(timeoutMs = 3000): Promise<HealthProbeResult> {
+export async function runExternalProbes(timeoutMs = 10_000): Promise<HealthProbeResult> {
   const withTimeout = <T,>(p: Promise<T>): Promise<T> =>
     Promise.race([
       p,
@@ -404,14 +410,26 @@ export async function runExternalProbes(timeoutMs = 3000): Promise<HealthProbeRe
       ),
     ]);
 
+  // Yahoo: probeMultipleSymbols SSOT (ADR-0056) — 단발성 503 false positive 차단
   const yahooProbe: Promise<HealthProbeOutcome> = withTimeout(
-    guardedFetch(
-      'https://query1.finance.yahoo.com/v7/finance/chart/^KS11?interval=1d&range=1d',
-      undefined,
-      'REALTIME',
-    ).then((r) => {
-      const cls = classifyYahooProbe(r.status);
-      return { severity: cls.severity, statusCode: r.status, message: cls.message };
+    probeMultipleSymbols(undefined, {
+      timeoutMs: Math.min(timeoutMs, 8_000),
+      backoffMs: 2_000,
+    }).then((multi) => {
+      const status = classifyMultiProbeResult(multi.failCount, multi.total);
+      if (status === 'OK') {
+        return { severity: 'OK', message: 'Yahoo probe OK' } satisfies HealthProbeOutcome;
+      }
+      if (status === 'DEGRADED') {
+        return {
+          severity: 'WARN',
+          message: `Yahoo degraded: ${multi.failCount}/${multi.total} probe failed`,
+        } satisfies HealthProbeOutcome;
+      }
+      return {
+        severity: 'WARN',
+        message: `Yahoo down: ${multi.failCount}/${multi.total} probes failed`,
+      } satisfies HealthProbeOutcome;
     }),
   ).catch((e) => ({
     severity: 'WARN' as HealthProbeSeverity,
