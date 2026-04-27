@@ -2,7 +2,12 @@
 import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, lsGet, withRetry, safeJsonParse, getCachedAIResponse } from './aiClient';
 import { fetchHistoricalData } from './historicalData';
-import type { MarketOverview } from './types';
+import {
+  applyPrefilledOverlay,
+  fetchPrefilledMarketData,
+  type PrefilledMarketData,
+} from './marketOverviewIndicators';
+import type { MarketDataPoint, MarketOverview } from './types';
 
 /** Yahoo Finance 시장 지표 조회 (서버 프록시 경유, CORS 없음) */
 export async function fetchMarketIndicators(): Promise<{
@@ -75,23 +80,64 @@ export async function getMarketOverview(): Promise<MarketOverview | null> {
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
   const todayDate = now.split(' ')[0];
 
-  const [yahooCached] = await Promise.allSettled([fetchMarketIndicators()]);
+  // ADR-0064: 가격성 데이터(지수/환율/원자재) 는 Yahoo 직접 fetch 로 사전 수집한다.
+  // AI 는 더 이상 이 카테고리를 추정하지 않는다 — normalize 에서 overlay 로 강제 덮어쓴다.
+  const [yahooCached, prefilledRes] = await Promise.allSettled([
+    fetchMarketIndicators(),
+    fetchPrefilledMarketData(),
+  ]);
   const yahoo = yahooCached.status === 'fulfilled' ? yahooCached.value : null;
+  const prefilled: PrefilledMarketData = prefilledRes.status === 'fulfilled'
+    ? prefilledRes.value
+    : { indices: [], exchangeRates: [], commodities: [], failedSymbols: [], fetchedAt: new Date().toISOString() };
   const macroCached = lsGet(`macro-environment-${todayDate}`)?.data as Record<string, unknown> | undefined;
+
+  // KOSPI/KOSDAQ 는 fetchMarketIndicators 결과를 indices 에 합친다 (Yahoo intraday 신선도 우수).
+  const kospiKosdaqIndices: MarketDataPoint[] = [];
+  if (yahoo?.kospi) {
+    kospiKosdaqIndices.push({
+      name: 'KOSPI', value: yahoo.kospi.price, change: yahoo.kospi.change, changePercent: yahoo.kospi.changePct,
+    });
+  }
+  if (yahoo?.kosdaq) {
+    kospiKosdaqIndices.push({
+      name: 'KOSDAQ', value: yahoo.kosdaq.price, change: yahoo.kosdaq.change, changePercent: yahoo.kosdaq.changePct,
+    });
+  }
+
+  // USD/KRW 는 macroCached(ECOS) 우선 — JPY/EUR/KRW 는 prefilled 에서 옴.
+  const fxOverlay: MarketDataPoint[] = [];
+  if (typeof macroCached?.usdKrw === 'number' && macroCached.usdKrw > 0) {
+    fxOverlay.push({
+      name: 'USD/KRW', value: macroCached.usdKrw as number, change: 0, changePercent: 0,
+    });
+  }
+  fxOverlay.push(...prefilled.exchangeRates);
 
   const preLines: string[] = [];
   if (yahoo?.kospi)      preLines.push(`- KOSPI: ${yahoo.kospi.price.toFixed(2)} (변동: ${yahoo.kospi.change >= 0 ? '+' : ''}${yahoo.kospi.change.toFixed(2)}, ${yahoo.kospi.changePct >= 0 ? '+' : ''}${yahoo.kospi.changePct.toFixed(2)}%)`);
   if (yahoo?.kosdaq)     preLines.push(`- KOSDAQ: ${yahoo.kosdaq.price.toFixed(2)} (변동: ${yahoo.kosdaq.change >= 0 ? '+' : ''}${yahoo.kosdaq.change.toFixed(2)}, ${yahoo.kosdaq.changePct >= 0 ? '+' : ''}${yahoo.kosdaq.changePct.toFixed(2)}%)`);
+  for (const idx of prefilled.indices) {
+    const sign = idx.change >= 0 ? '+' : '';
+    preLines.push(`- ${idx.name}: ${idx.value.toFixed(2)} (변동: ${sign}${idx.change.toFixed(2)}, ${sign}${idx.changePercent.toFixed(2)}%)`);
+  }
   if (yahoo?.vkospi)     preLines.push(`- VKOSPI: ${yahoo.vkospi.toFixed(2)}`);
   if (yahoo?.vix)        preLines.push(`- VIX: ${yahoo.vix.toFixed(2)}`);
   if (yahoo?.us10yYield) preLines.push(`- 미국 10년물 금리: ${yahoo.us10yYield.toFixed(2)}%`);
   if (macroCached?.usdKrw) preLines.push(`- USD/KRW: ${(macroCached.usdKrw as number).toFixed(0)}원`);
+  for (const fx of prefilled.exchangeRates) {
+    preLines.push(`- ${fx.name}: ${fx.value.toFixed(2)}`);
+  }
+  for (const c of prefilled.commodities) {
+    const sign = c.change >= 0 ? '+' : '';
+    preLines.push(`- ${c.name}: ${c.value.toFixed(2)} (변동: ${sign}${c.change.toFixed(2)}, ${sign}${c.changePercent.toFixed(2)}%)`);
+  }
   if (yahoo?.ewyReturn != null)
     preLines.push(`- EWY(한국 ETF) 5일 수익률: ${yahoo.ewyReturn >= 0 ? '+' : ''}${yahoo.ewyReturn.toFixed(2)}%`);
   if (yahoo?.mtumReturn != null)
     preLines.push(`- MTUM(모멘텀 ETF) 5일 수익률: ${yahoo.mtumReturn >= 0 ? '+' : ''}${yahoo.mtumReturn.toFixed(2)}%`);
   const preFilledSection = preLines.length > 0
-    ? `\n[사전 수집 실데이터 — 아래 값은 이미 확보됨. 이 수치를 그대로 JSON에 반영하라]\n${preLines.join('\n')}\n`
+    ? `\n[사전 수집 실데이터 — 아래 값은 Yahoo 직접 fetch 로 확보됨. 이 수치를 그대로 JSON에 반영하라. AI 가 임의로 다른 값을 추정하면 안 된다.]\n${preLines.join('\n')}\n`
     : '';
 
   const prompt = `
@@ -99,9 +145,9 @@ export async function getMarketOverview(): Promise<MarketOverview | null> {
     현재 글로벌 및 국내 주식 시장 상황을 종합적으로 분석해서 시각화에 적합한 JSON 데이터로 제공해줘.
 ${preFilledSection}
     다음 항목들을 포함해야 해:
-    1. 주요 지수: KOSPI/KOSDAQ는 위 사전 수집값 사용. S&P 500, NASDAQ, Dow Jones, Nikkei 225, CSI 300 등은 최신 지식 기반으로 채워라. (지수 이름은 반드시 영문 대문자로 통일할 것)
-    2. 환율: USD/KRW는 위 사전 수집값 사용. JPY/KRW, EUR/KRW는 최신 지식 기반으로 채워라.
-    3. 원자재: 금, 국제유가(WTI) 등
+    1. 주요 지수(indices): 위 사전 수집값을 그대로 indices 배열에 사용하라. AI 가 임의로 추가 지수를 추정하지 마라. (지수 이름은 반드시 영문 대문자로 통일할 것)
+    2. 환율(exchangeRates): 위 사전 수집값(USD/KRW, JPY/KRW, EUR/KRW) 을 그대로 사용하라. AI 가 임의로 다른 환율을 추정하지 마라.
+    3. 원자재(commodities): 위 사전 수집값(금, WTI 원유) 을 그대로 사용하라.
     4. 금리: 미국 10년물은 위 사전 수집값 사용. 한국 3년물 등은 최신 지식 기반으로 채워라.
     5. 거시경제 지표: 실업률(Unemployment Rate), 인플레이션(CPI/PCE), 중앙은행 기준금리 결정(Fed/BOK Interest Rate Decisions) 등
     6. SNS 시장 감성 (Sentiment): X(트위터), 네이버 종토방, 텔레그램 등 주요 커뮤니티의 현재 분위기를 분석하여 수치화 (0~100점).
@@ -155,6 +201,12 @@ ${preFilledSection}
   const hour = new Date().getHours();
   const cacheKey = `market-overview-${todayDate}-${Math.floor(hour / 6)}`;
 
+  // ADR-0064: 캐시 miss 시점의 prefill 결과가 normalize 의 overlay 입력으로 들어간다.
+  // 캐시 hit 시엔 이전 fetch 시점의 normalize 결과(이미 overlay 된 값) 가 그대로 재사용
+  // 되어 6시간 캐시 윈도우 안에서 가격성 데이터는 동결. PR-β SWR 캐시 정책 도입 후엔
+  // 짧은 fresh 윈도우(예: 60초) 내에서만 동결되고 stale 갱신마다 prefill 재실행.
+  const indicesOverlay = [...kospiKosdaqIndices, ...prefilled.indices];
+
   return getCachedAIResponse(cacheKey, async () => {
     try {
       const response = await withRetry(async () => {
@@ -170,7 +222,11 @@ ${preFilledSection}
         throw new Error("No response from AI");
       }
       const raw = safeJsonParse(text) as Record<string, any>;
-      return normalizeMarketOverview(raw);
+      return normalizeMarketOverview(raw, {
+        indices: indicesOverlay,
+        exchangeRates: fxOverlay,
+        commodities: prefilled.commodities,
+      });
     } catch (error) {
       console.error("Error getting market overview:", error);
       throw error;
@@ -179,7 +235,10 @@ ${preFilledSection}
 }
 
 /** Normalize the AI response to match the MarketOverview interface. */
-function normalizeMarketOverview(raw: Record<string, any>): MarketOverview {
+export function normalizeMarketOverview(
+  raw: Record<string, any>,
+  prefillOverlay?: { indices: MarketDataPoint[]; exchangeRates: MarketDataPoint[]; commodities: MarketDataPoint[] },
+): MarketOverview {
   // sectorRotation: AI returns flat array, but type expects { topSectors: [...] }
   let sectorRotation = raw.sectorRotation;
   if (Array.isArray(sectorRotation)) {
@@ -207,8 +266,25 @@ function normalizeMarketOverview(raw: Record<string, any>): MarketOverview {
       }
     : undefined;
 
+  // ADR-0064: prefill overlay — Yahoo 직접 fetch 로 확보한 가격성 데이터(지수/환율/원자재)
+  // 가 ≥1 항목 있으면 AI 응답을 무시하고 prefill 결과로 덮어쓴다. AI hallucination 차단.
+  // prefill 카테고리가 빈 배열(모든 심볼 fetch 실패) 이면 AI 응답 fallback 유지.
+  const overlayed = prefillOverlay
+    ? applyPrefilledOverlay(
+        { indices: raw.indices, exchangeRates: raw.exchangeRates, commodities: raw.commodities },
+        {
+          indices: prefillOverlay.indices,
+          exchangeRates: prefillOverlay.exchangeRates,
+          commodities: prefillOverlay.commodities,
+          failedSymbols: [],
+          fetchedAt: new Date().toISOString(),
+        },
+      )
+    : null;
+
   return {
     ...raw,
+    ...(overlayed ?? {}),
     sectorRotation,
     regimeShiftDetector,
   } as MarketOverview;
