@@ -375,24 +375,68 @@ function nDayReturn(prices: number[], n: number, label?: string): number {
   return result ?? 0;
 }
 
-/** FSS 레코드 → foreignNetBuy5d(억원) + passiveActiveBoth + foreignContinuousBuyDays */
-function computeFssVars(): { foreignNetBuy5d: number; passiveActiveBoth: boolean; foreignContinuousBuyDays: number } {
+/**
+ * 외국인 연속 일수 카운트 — 최근부터 역순 누적 (테스트 가능한 순수 함수).
+ *
+ * @param records   날짜 오름차순 정렬된 외국인 일별 net buy 레코드 (Pick: passiveNetBuy + activeNetBuy).
+ * @param direction 'BUY' = (passive+active) > 0 연속, 'SELL' = (passive+active) < 0 연속.
+ * @returns 0 이상 정수. 빈 배열 / 직전 일이 반대 방향이면 0.
+ */
+export function tallyConsecutiveForeignFlowDays(
+  records: ReadonlyArray<{ passiveNetBuy: number; activeNetBuy: number }>,
+  direction: 'BUY' | 'SELL',
+): number {
+  let count = 0;
+  for (let i = records.length - 1; i >= 0; i--) {
+    const dayNet = records[i].passiveNetBuy + records[i].activeNetBuy;
+    if (direction === 'BUY' ? dayNet > 0 : dayNet < 0) count++;
+    else break;
+  }
+  return count;
+}
+
+/**
+ * FSS 레코드 → foreignNetBuy5d(억원) + passiveActiveBoth + foreignContinuousBuyDays + foreignContinuousSellDays.
+ *
+ * - foreignContinuousBuyDays: 최근부터 역순 연속 *순매수* 일수.
+ * - foreignContinuousSellDays: 최근부터 역순 연속 *순매도* 일수.
+ *
+ * 두 카운터는 **상호 배타적** (직전 일은 한쪽 방향만 가능 — 한쪽 ≥ 1 이면 다른 쪽 0).
+ * marketDataRefresh 가 foreignFuturesSellDays 필드에 SellDays 를 매핑해 confluenceEngine 의
+ * "외국인 5일+ 매도" 약세 신호 가산점을 작동시킨다 (원래는 선물 의도였으나 KIS/KRX
+ * 선물 fetch 인프라 부담 회피 위해 현물 누적 순매도 카운트로 대체).
+ */
+function computeFssVars(): {
+  foreignNetBuy5d: number;
+  passiveActiveBoth: boolean;
+  foreignContinuousBuyDays: number;
+  foreignContinuousSellDays: number;
+} {
   const records = loadFssRecords()
     .sort((a, b) => a.date.localeCompare(b.date));
   const last5 = records.slice(-5);
-  if (last5.length === 0) return { foreignNetBuy5d: 0, passiveActiveBoth: false, foreignContinuousBuyDays: 0 };
+  if (last5.length === 0) {
+    return {
+      foreignNetBuy5d: 0,
+      passiveActiveBoth: false,
+      foreignContinuousBuyDays: 0,
+      foreignContinuousSellDays: 0,
+    };
+  }
   const foreignNetBuy5d  = last5.reduce((s, r) => s + r.passiveNetBuy + r.activeNetBuy, 0);
   const passiveActiveBoth = last5.every(r => r.passiveNetBuy > 0 && r.activeNetBuy > 0);
 
-  // 최근부터 역순으로 연속 순매수 일수 계산
-  let continuousDays = 0;
-  for (let i = records.length - 1; i >= 0; i--) {
-    const dayNet = records[i].passiveNetBuy + records[i].activeNetBuy;
-    if (dayNet > 0) continuousDays++;
-    else break;
-  }
+  const continuousBuyDays  = tallyConsecutiveForeignFlowDays(records, 'BUY');
+  const continuousSellDays = continuousBuyDays === 0
+    ? tallyConsecutiveForeignFlowDays(records, 'SELL')
+    : 0;
 
-  return { foreignNetBuy5d, passiveActiveBoth, foreignContinuousBuyDays: continuousDays };
+  return {
+    foreignNetBuy5d,
+    passiveActiveBoth,
+    foreignContinuousBuyDays: continuousBuyDays,
+    foreignContinuousSellDays: continuousSellDays,
+  };
 }
 
 /**
@@ -485,7 +529,18 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   computed.foreignNetBuy5d  = fssVars.foreignNetBuy5d;
   computed.passiveActiveBoth = fssVars.passiveActiveBoth;
   computed.foreignContinuousBuyDays = fssVars.foreignContinuousBuyDays;
-  console.log(`[MarketRefresh] 수급: foreignNetBuy5d=${fssVars.foreignNetBuy5d.toFixed(0)}억, passiveActiveBoth=${fssVars.passiveActiveBoth}, 연속매수=${fssVars.foreignContinuousBuyDays}일`);
+  // foreignFuturesSellDays — confluenceEngine 의 "외국인 5일+ 매도" 약세 신호 활성화.
+  // 본 필드는 원래 선물 데이터 의도였으나 KIS/KRX 선물 fetch 인프라 부담 회피 위해
+  // FSS 레코드 기반 외국인 *현물 연속 순매도* 일수로 매핑한다 (의미 근사 — 본질은
+  // "외국인이 N일 연속 빠지고 있다" 약세 신호 동일). foreignContinuousBuyDays 와
+  // 상호 배타적 (한쪽이 ≥1 이면 다른 쪽은 0).
+  computed.foreignFuturesSellDays = fssVars.foreignContinuousSellDays;
+  console.log(
+    `[MarketRefresh] 수급: foreignNetBuy5d=${fssVars.foreignNetBuy5d.toFixed(0)}억, ` +
+    `passiveActiveBoth=${fssVars.passiveActiveBoth}, ` +
+    `연속매수=${fssVars.foreignContinuousBuyDays}일, ` +
+    `연속매도=${fssVars.foreignContinuousSellDays}일`,
+  );
 
   // ── ③-b KIS 코스피 전체 투자자별 수급 (실시간 보강) ─────────────────────
   // FSS 레코드가 0이거나 누락 시 KIS API로 당일 실시간 수급 데이터 보강.
