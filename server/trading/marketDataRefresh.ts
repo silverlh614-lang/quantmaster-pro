@@ -31,6 +31,7 @@ import { evaluateCrossSource } from './crossSourceValidator.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { evaluateSectorEnergy } from '../../src/services/quant/sectorEnergyEngine.js';
 import { getSectorEnergyInputs } from '../clients/sectorEnergyProvider.js';
+import { deriveSectorCycle } from './sectorCycleClassifier.js';
 
 /**
  * FRED API — 최신 유효 관측값 조회 (최근 5건 중 '.' 제외 첫 번째).
@@ -586,6 +587,18 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     console.warn('[MarketRefresh] sectorEnergy 갱신 실패:', e instanceof Error ? e.message : e);
   }
 
+  // ── 섹터 사이클 분류 (sectorEnergyResult → sectorCycleStage / leadingSectorRS) ─
+  // sectorCycleDashboard / regimeBridge / preflight / sizingTierDecider 가 read.
+  // sectorEnergyResult 가 이번 사이클에 갱신된 경우에만 분류 시도 — 분류 결과가
+  // null (leadingSectors=0) 이면 기존 값 보존 정책 (이전 stage 유지).
+  const cycleClassification = sectorEnergyResult ? deriveSectorCycle(sectorEnergyResult) : null;
+  if (cycleClassification) {
+    console.log(
+      `[MarketRefresh] sectorCycleStage=${cycleClassification.sectorCycleStage} ` +
+      `· leadingSectorRS=${cycleClassification.leadingSectorRS}`,
+    );
+  }
+
   // ── MacroState에 MERGE 저장 ───────────────────────────────────────────────
   const updated = {
     ...existing,
@@ -593,6 +606,13 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     updatedAt: new Date().toISOString(),
     // sectorEnergyResult 가 갱신됐을 때만 덮어쓰기 — 실패 시 이전 값 보존.
     ...(sectorEnergyResult ? { sectorEnergyResult, sectorEnergyUpdatedAt } : {}),
+    // 사이클 분류가 가능했을 때만 덮어쓰기 — 실패 시 이전 stage / RS 유지.
+    ...(cycleClassification
+      ? {
+          sectorCycleStage: cycleClassification.sectorCycleStage,
+          leadingSectorRS:  cycleClassification.leadingSectorRS,
+        }
+      : {}),
   };
   saveMacroState(updated as typeof existing);
   console.log(`[MarketRefresh] MacroState 갱신 완료 — ${Object.keys(computed).length}개 필드`);
