@@ -364,3 +364,119 @@ export async function checkFomcProximityAlert(): Promise<void> {
 
   await sendTelegramAlert(msg).catch(console.error);
 }
+
+// ─── FOMC DAY 보유 포지션 강제 청산 정책 (PR-1, ADR-0061) ─────────────────────
+//
+// FOMC 발표 당일(D-day, KST) 14:30~15:20 사이에 활성 LIVE/SHADOW 보유 포지션을
+// 시장가 전량 청산한다. cron(orchestratorJobs) 가 평일 14:30 KST 진입점을 호출
+// 하면 본 SSOT 의 5중 가드(DAY phase / enabled / AUTO_TRADE_ENABLED / emergencyStop
+// / 시각 boundary) 를 모두 통과해야 fomcDayLiquidation.liquidateAllForFomc() 가
+// 실제 reserveSell 을 호출한다.
+
+/** FOMC DAY 청산 정책 설정 SSOT (env 기반 factory 로 생성). */
+export interface FomcDayLiquidationConfig {
+  /** false 면 청산 미실행 (env FOMC_DAY_LIQUIDATION_ENABLED='false' 회로). */
+  enabled: boolean;
+  /** 청산 시작 KST 시각 (HH:MM, 24h). default '14:30' (장마감 60분 전). */
+  liquidationStartKstTime: string;
+  /** 청산 완료 목표 KST 시각 (HH:MM). default '15:20' (장마감 10분 전). */
+  liquidationCompleteKstTime: string;
+  /** 사전 경보 KST 시각 배열 (HH:MM). 본 SSOT 는 운영자 가시성 표기용. */
+  preAlertKstTimes: string[];
+  /** dryRun 모드 — 실제 reserveSell 미호출, 대상만 집계. */
+  dryRun: boolean;
+}
+
+const DEFAULT_LIQUIDATION_START_KST = '14:30';
+const DEFAULT_LIQUIDATION_COMPLETE_KST = '15:20';
+const DEFAULT_PRE_ALERT_KST_TIMES = ['09:00', '14:00', '14:30'];
+
+/** env 기반 default config 생성. ADR-0061. */
+export function getDefaultFomcDayLiquidationConfig(): FomcDayLiquidationConfig {
+  return {
+    enabled: process.env.FOMC_DAY_LIQUIDATION_ENABLED !== 'false',
+    liquidationStartKstTime: process.env.FOMC_DAY_LIQUIDATION_START_KST || DEFAULT_LIQUIDATION_START_KST,
+    liquidationCompleteKstTime: process.env.FOMC_DAY_LIQUIDATION_COMPLETE_KST || DEFAULT_LIQUIDATION_COMPLETE_KST,
+    preAlertKstTimes: [...DEFAULT_PRE_ALERT_KST_TIMES],
+    dryRun: process.env.FOMC_DAY_LIQUIDATION_DRY_RUN === 'true',
+  };
+}
+
+export type LiquidationGuardReason =
+  | 'OK'
+  | 'NOT_DAY_PHASE'
+  | 'DISABLED'
+  | 'AUTO_TRADE_DISABLED'
+  | 'EMERGENCY_STOP'
+  | 'BEFORE_START_TIME'
+  | 'AFTER_COMPLETE_TIME';
+
+export interface LiquidationGuardResult {
+  execute: boolean;
+  reason: LiquidationGuardReason;
+}
+
+/**
+ * 5중 가드 SSOT — 모두 통과하면 { execute: true, reason: 'OK' }, 그 외 즉시 차단.
+ *
+ * 가드 순서 (실패 시 즉시 return):
+ *   1. NOT_DAY_PHASE         — getFomcProximity().phase === 'DAY' 가 아니면 차단 (FOMC 캘린더 SSOT)
+ *   2. DISABLED              — config.enabled === false (env 회로)
+ *   3. AUTO_TRADE_DISABLED   — process.env.AUTO_TRADE_ENABLED !== 'true' (전역 매매 활성)
+ *   4. EMERGENCY_STOP        — getEmergencyStop?.() === true (운영자가 이미 직접 처리 중일 가능성)
+ *   5. BEFORE_START_TIME / AFTER_COMPLETE_TIME — KST 시각 boundary
+ */
+export function shouldExecuteLiquidationAt(
+  now: Date = new Date(),
+  opts?: {
+    config?: FomcDayLiquidationConfig;
+    getEmergencyStop?: () => boolean;
+  },
+): LiquidationGuardResult {
+  const config = opts?.config ?? getDefaultFomcDayLiquidationConfig();
+
+  // 가드 1: FOMC DAY phase
+  // getFomcProximity 의 macro 인자는 본 가드에선 무관 — phase 만 확인.
+  const proximity = getFomcProximity();
+  if (proximity.phase !== 'DAY') {
+    return { execute: false, reason: 'NOT_DAY_PHASE' };
+  }
+
+  // 가드 2: enabled 회로 (env FOMC_DAY_LIQUIDATION_ENABLED='false' 우회)
+  if (!config.enabled) {
+    return { execute: false, reason: 'DISABLED' };
+  }
+
+  // 가드 3: AUTO_TRADE_ENABLED — 청산도 매매의 일부
+  if (process.env.AUTO_TRADE_ENABLED !== 'true') {
+    return { execute: false, reason: 'AUTO_TRADE_DISABLED' };
+  }
+
+  // 가드 4: emergencyStop — 운영자가 이미 직접 처리 중일 가능성
+  if (opts?.getEmergencyStop?.() === true) {
+    return { execute: false, reason: 'EMERGENCY_STOP' };
+  }
+
+  // 가드 5: 시각 boundary (KST)
+  const kstMinutes = ((now.getUTCHours() + 9) * 60 + now.getUTCMinutes()) % (24 * 60);
+  const startMin = parseHmToMinutes(config.liquidationStartKstTime);
+  const completeMin = parseHmToMinutes(config.liquidationCompleteKstTime);
+  if (kstMinutes < startMin) {
+    return { execute: false, reason: 'BEFORE_START_TIME' };
+  }
+  if (kstMinutes >= completeMin) {
+    return { execute: false, reason: 'AFTER_COMPLETE_TIME' };
+  }
+
+  return { execute: true, reason: 'OK' };
+}
+
+/** 'HH:MM' → 분 단위 정수 (자정부터). 잘못된 입력은 0 fallback. */
+function parseHmToMinutes(hm: string): number {
+  const parts = hm.split(':');
+  const h = Number(parts[0]);
+  const m = Number(parts[1]);
+  const hh = Number.isFinite(h) ? h : 0;
+  const mm = Number.isFinite(m) ? m : 0;
+  return hh * 60 + mm;
+}

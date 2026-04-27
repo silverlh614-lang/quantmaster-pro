@@ -362,6 +362,8 @@ export type ExitRuleTag =
   | 'MA60_DEATH_WATCH'           // priority 12 — 60일선 역배열 최초 감지: 유예 스케줄만 설정
   | 'STOP_APPROACH_ALERT'        // priority 13
   | 'EUPHORIA_PARTIAL'           // priority 14
+  | 'FOMC_DAY_LIQUIDATION'       // priority 50 — FOMC 발표 당일 14:30 KST 평일 자동 전량 청산 (ADR-0061)
+                                 //                fomcDayLiquidation.liquidateAllForFomc() 단일 진입점 — 자동 평가 루프 제외.
   | 'MANUAL_EXIT';               // priority 99 — "규칙 외" 수동 청산 (Telegram /sell, UI 수동 매도)
                                  //               자동 평가 루프에서 절대 선택되지 않으며, 오직 외부 주입 전용.
 

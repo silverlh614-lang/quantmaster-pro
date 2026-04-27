@@ -94,6 +94,8 @@ When modifying any file, ensure changes stay within the owning module's stated r
 | `src/utils/gateMiniIndicator.ts` | 4-Gate 미니 인디케이터 평가 SSOT — PR-A buildGateCardSummary 재활용, 4-tier 분류 (ADR-0055) |
 | `src/components/watchlist/GateMiniIndicator.tsx` | WatchlistCard 헤더 우상단 4 dot 미니 인디케이터 — 즉시 인지용 (ADR-0055) |
 | `server/utils/yahooProbeRetry.ts` | Yahoo 다중 호스트 재시도 + 다중 심볼 probe 헬퍼 SSOT — 미래 확장점 (ADR-0056) |
+| `server/trading/fomcDayLiquidation.ts` | FOMC 발표 당일 14:30 KST 평일 보유 포지션 강제 전량 청산 + 사전 경보 3회 단일 진입점 (ADR-0061) |
+| `server/trading/fomcCalendar.ts` (FomcDayLiquidationConfig) | FomcDayLiquidationConfig + getDefault + shouldExecuteLiquidationAt 5중 가드 SSOT (ADR-0061) |
 
 ---
 
@@ -137,6 +139,9 @@ When modifying any file, ensure changes stay within the owning module's stated r
 - **ConcordanceMatrix boundary** (ADR-0054): `server/learning/conditionSourceMap.ts` 가 27 조건 분류(REAL_DATA 9 + AI 18) + classifyTier(8/6/4/2 임계값) SSOT — 클라 `src/services/quant/evolutionEngine.ts CONDITION_SOURCE_MAP` 동기 사본. 회귀 테스트가 양쪽 정합성 검증, 변경 시 동시 수정 의무. `/api/attribution/concordance` 는 `loadCurrentSchemaRecords()` 만 read (외부 호출 0건). 5×5=25 cell 보장. diagonal/off-diagonal 통계 합산. Bucket 임계값 변경은 ADR-0054 §2.1 표 갱신 + 회귀 테스트 동시 수정 의무. UI `ConcordanceMatrix` 는 RecommendationHistoryPage 임베드 — AutoTradePage 가 아님 (분석 페이지 분리).
 - **pipelineDiagnosis Yahoo SSOT boundary** (ADR-0056): `server/trading/pipelineDiagnosis.ts` 는 Yahoo Finance 직접 fetch 금지 — `getYahooHealthSnapshot()` (`server/trading/marketDataRefresh.ts`) SSOT 만 read. 자체 fetch 추가는 24h 누적 통계 기반 판단을 우회해 단발성 503 알림 폭주를 다시 일으킨다. 알림 등급 분리: `issues`(OPERATIONAL CRITICAL — 즉시 텔레그램) / `warnings`(OPERATIONAL — 즉시 텔레그램) / `informational`(INFORMATIONAL — 일일 요약, 텔레그램 미발송). `informational` 필드는 옵셔널 후방호환. `server/utils/yahooProbeRetry.ts` (query1→query2 재시도 + 다중 심볼 헬퍼) 는 미래 확장점 — pipelineDiagnosis 본체에서는 미사용, 향후 수동 진단 명령·관측성 SSOT 에서 활용. cron `30 21 * * 0-4` (UTC = KST 06:30 KST) — NYSE 마감 직후 + 한국장 개장 2.5h 전 데이터 신선도/운영 관련성 동시 극대화.
 - **GateMiniIndicator boundary** (ADR-0055): `src/utils/gateMiniIndicator.ts` 가 4-Gate 미니 인디케이터 평가 SSOT — PR-A `buildGateCardSummary` 와 동일 SSOT(`GATE1_IDS`/`GATE2_IDS`/`GATE3_IDS`/`CONDITION_PASS_THRESHOLD`/`CONDITION_ID_TO_CHECKLIST_KEY`) 재활용. 4-tier classify(PASS≥0.5 / PARTIAL≥0.3 / FAIL>0 / NA totalCount=0). 외부 호출 0건. 본 PR 은 *클라이언트 휴리스틱*, 사용자 원안의 서버 SQLite 캐시 + circuit breaker 인프라는 stock.checklist 부재 케이스 발생 시 후속 PR 분리(ADR-0055 §6 명문화). UI: `GateMiniIndicator` 는 `WatchlistCard` 헤더 우측 컴팩트 4 dot — PR-A `GateStatusCard` (카드 본문 expand 가능 풀카드) 와 책임 분리: 미니=*즉시 인지*, 풀카드=*상세 검토*.
+- **FOMC DAY 청산 단일 진입점** (ADR-0061): `server/trading/fomcDayLiquidation.ts` 의 `liquidateAllForFomc()` 외 경로로 FOMC DAY 강제 청산 금지. 다른 모듈은 import 만 가능 — direct fork (자체 placeKisSellOrder 루프 등) 차단. 사전 경보 (`runFomcDayMorningAlert` / `runFomcDayPreLiquidationAlert`) 도 본 모듈 단일 SSOT.
+- **FOMC DAY reserveSell SSOT 의무** (ADR-0061): `liquidateAllForFomc` 는 `placeKisSellOrder` (kisClient 단일 통로, 절대 규칙 #2) + `reserveSell` (exitEngine.r6EmergencyExit 와 byte-equivalent 패턴, 절대 규칙 #4) 만 사용 — `kisGet`/`kisPost` 직접 호출 금지. fill 회계는 reserveSell 의 PROVISIONAL/CONFIRMED/FAILED 분기에 위임. LIVE PENDING 시 `addSellOrder()` 로 fillMonitor 폴링 등록. attribution 부착은 `buildExitAttribution('FOMC_DAY_LIQUIDATION', ['fomc_day_force_close'], regime)` (PR-S 패턴).
+- **FOMC DAY 가드 자동 silent SSOT** (ADR-0061): 청산 cron 3건 (`fomc_day_morning_alert` 09:00 / `fomc_day_pre_liquidation_alert` 14:00 / `fomc_day_liquidation` 14:30 KST) 은 매일 평일(`1-5`) 등록되지만 `shouldExecuteLiquidationAt` 5중 가드 (DAY phase / config.enabled / AUTO_TRADE_ENABLED / !emergencyStop / KST 시각 boundary) 가 비-DAY 일과 SHADOW/disabled/비상정지 환경을 자동 silent 처리 — FOMC 캘린더 + 매매 활성 상태 단일 SSOT. 운영자 수동 트리거는 별도 텔레그램 명령 후속 PR 로 분리.
 
 ---
 
