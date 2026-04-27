@@ -28,6 +28,7 @@ import { REGIME_CONFIGS } from '../../../src/services/quant/regimeEngine.js';
 import { getVixGating, type VixGating } from '../vixGating.js';
 import { getFomcProximity, type FomcProximity } from '../fomcCalendar.js';
 import { checkVolumeClockWindow, type VolumeClockResult } from '../volumeClock.js';
+import { evaluateMacroStaleness, formatStalenessTier } from '../macroStaleness.js';
 import { isDataStarvedScan, getCompletenessSnapshot } from '../../screener/dataCompletenessTracker.js';
 import { isOpenShadowStatus } from '../entryEngine.js';
 import { updateShadowResults } from '../exitEngine.js';
@@ -181,6 +182,41 @@ export async function runPreflight(
   const macroState = loadMacroState();
   const regime      = getLiveRegime(macroState);
   const regimeConfig = REGIME_CONFIGS[regime];
+
+  // ── 4.5. ADR-0068: macroState 신선도 게이트 ─────────────────────────────────
+  // STALE_BLOCK (24h+) 또는 NO_DATA → 신규 진입 전면 차단 + CRITICAL 알림.
+  // STALE_WARN (8~24h) → 진입 허용 + 운영자 경보 (1회/일 dedupe).
+  const staleness = evaluateMacroStaleness(macroState);
+  if (staleness.shouldBlockEntry) {
+    const ageLabel = staleness.ageHours !== null ? `${staleness.ageHours}h` : '미수집';
+    const updatedLabel = staleness.updatedAt
+      ? new Date(staleness.updatedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
+      : 'N/A';
+    await sendTelegramAlert(
+      `🛑 <b>[MacroState STALE_BLOCK] 자동매매 진입 차단</b>\n` +
+      `${formatStalenessTier(staleness.tier)} · ${staleness.reason}\n` +
+      `마지막 갱신: ${updatedLabel} (${ageLabel} 경과)\n` +
+      `임계: WARN ${staleness.warnThresholdHours}h / BLOCK ${staleness.blockThresholdHours}h\n` +
+      `긴급 우회: <code>MACRO_STALENESS_DISABLED=true</code>`,
+    ).catch(console.error);
+    console.warn(
+      `[AutoTrade] macroState ${staleness.tier} (${ageLabel}) — 신규 진입 전면 차단. ` +
+      `사유: ${staleness.reason}`,
+    );
+    await updateShadowResults(shadows, regime);
+    saveShadowTrades(shadows);
+    return { shouldAbort: true, abortReason: 'MACRO_STATE_STALE', sellOnly };
+  }
+  if (staleness.shouldAlertOperator && staleness.tier === 'STALE_WARN') {
+    const ageLabel = staleness.ageHours !== null ? `${staleness.ageHours}h` : '미수집';
+    await sendTelegramAlert(
+      `⚠️ <b>[MacroState 갱신 지연] 진입 허용·경보</b>\n` +
+      `${formatStalenessTier(staleness.tier)} (${ageLabel} 경과)\n` +
+      `${staleness.reason}\n` +
+      `BLOCK 임계: ${staleness.blockThresholdHours}h`,
+    ).catch(console.error);
+    console.warn(`[AutoTrade] macroState STALE_WARN (${ageLabel}) — 진입 허용·운영자 경보`);
+  }
 
   // ── 5. SELL_ONLY 예외 채널 ────────────────────────────────────────────────
   const sellOnlyExc: SellOnlyExceptionDecision = sellOnly
