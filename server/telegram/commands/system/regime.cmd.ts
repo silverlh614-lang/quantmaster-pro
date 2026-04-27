@@ -18,6 +18,7 @@ const regime: TelegramCommand = {
     }
     const mhsEmoji = (macro.mhs ?? 0) >= 60 ? '🟢' : (macro.mhs ?? 0) >= 40 ? '🟡' : '🔴';
     const regimeEmoji = macro.regime === 'GREEN' ? '🟢' : macro.regime === 'YELLOW' ? '🟡' : '🔴';
+    const freshnessLine = formatRegimeFreshnessLine(macro.updatedAt);
     await reply(
       `🌐 <b>[매크로 레짐 현황]</b>\n` +
       `━━━━━━━━━━━━━━━━\n` +
@@ -30,10 +31,31 @@ const regime: TelegramCommand = {
       `🐻 Bear방어: ${macro.bearDefenseMode ? '🔴 ON' : '🟢 OFF'}\n` +
       `📈 FSS경보: ${macro.fssAlertLevel ?? 'N/A'}\n` +
       `━━━━━━━━━━━━━━━━\n` +
-      `업데이트: ${macro.updatedAt ? new Date(macro.updatedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : 'N/A'}`,
+      freshnessLine,
     );
   },
 };
+
+/**
+ * /regime 메시지의 신선도 라인 SSOT (PR-2 사용자 보고 #5).
+ * 사용자가 "환율 1380 vs 실제 1474" 같은 stale 격차를 즉시 인지할 수 있도록
+ * 마지막 갱신 시각 + N시간 경과 + ⚠️/❌ 마커 동시 노출.
+ */
+export function formatRegimeFreshnessLine(updatedAt?: string): string {
+  if (!updatedAt) return '업데이트: N/A';
+  const t = Date.parse(updatedAt);
+  if (!Number.isFinite(t)) return '업데이트: N/A';
+  const ageMs = Date.now() - t;
+  const ageHours = ageMs / 3600_000;
+  const kstFull = new Date(t).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const ageLabel = ageHours < 24
+    ? `${ageHours.toFixed(1)}h 경과`
+    : `${(ageHours / 24).toFixed(1)}d 경과`;
+  let marker = '';
+  if (ageHours > 24) marker = ' ❌ STALE 24h+ — /health 진단 권장';
+  else if (ageHours > 8) marker = ' ⚠️ 갱신 지연';
+  return `업데이트: ${kstFull} (${ageLabel})${marker}`;
+}
 
 commandRegistry.register(regime);
 

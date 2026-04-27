@@ -50,6 +50,7 @@ export function formatHealthMessage(s: HealthSnapshot, p: HealthProbeResult): st
     `\n` +
     `KRX OpenAPI: ${formatKrxStatusLine(s)}\n` +
     `공매도 출처: ${formatShortSellingSourceLine(s)}\n` +
+    `매크로 신선도: ${formatMacroFreshnessLine(s)}\n` +
     `Yahoo probe: ${probeLabel(p.yahoo)}\n` +
     `DART probe: ${probeLabel(p.dart)}\n` +
     `Gemini: ${s.geminiRuntime.status}${s.geminiRuntime.reason ? ` (${s.geminiRuntime.reason})` : ''}\n` +
@@ -148,6 +149,44 @@ export function formatShortSellingSourceLine(s: HealthSnapshot): string {
       return `? ${exhaustive as string}${suffix}`;
     }
   }
+}
+
+/**
+ * 매크로 신선도 라벨 SSOT — PR-2 사용자 보고 #5 (USD/KRW stale 감지) 표면화.
+ *
+ * 분기:
+ *   1. macroStateUpdatedAt 미수집 → "? 미수집"
+ *   2. age ≤ 8h → "✅ <usdKrw>원 (HH:MM, Nh)"
+ *   3. 8h < age ≤ 24h → "🟡 <usdKrw>원 (HH:MM, Nh) — 갱신 지연"
+ *   4. age > 24h → "❌ <usdKrw>원 (HH:MM, Nd) — STALE 24h+"
+ *
+ * USD/KRW 부재 시 "(N/A)" 표기. 실제 환율과 큰 격차 의심 시 운영자가 즉시 인지 가능.
+ */
+export function formatMacroFreshnessLine(s: HealthSnapshot): string {
+  if (!s.macroStateUpdatedAt) return '? 미수집';
+  const t = Date.parse(s.macroStateUpdatedAt);
+  if (!Number.isFinite(t)) return '? 잘못된 시각';
+  const ageMs = Date.now() - t;
+  const ageHours = ageMs / 3600_000;
+  const kstTime = new Date(t).toLocaleTimeString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const usdKrwLabel = typeof s.macroStateUsdKrw === 'number' && s.macroStateUsdKrw > 0
+    ? `${Math.round(s.macroStateUsdKrw).toLocaleString('ko-KR')}원`
+    : 'N/A';
+  const ageLabel = ageHours < 24
+    ? `${ageHours.toFixed(1)}h`
+    : `${(ageHours / 24).toFixed(1)}d`;
+  if (ageHours <= 8) {
+    return `✅ ${usdKrwLabel} (${kstTime}, ${ageLabel})`;
+  }
+  if (ageHours <= 24) {
+    return `🟡 ${usdKrwLabel} (${kstTime}, ${ageLabel}) — 갱신 지연`;
+  }
+  return `❌ ${usdKrwLabel} (${kstTime}, ${ageLabel}) — STALE 24h+`;
 }
 
 function formatShortSellingFetchedAt(iso: string | undefined): string {

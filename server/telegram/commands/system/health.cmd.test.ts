@@ -16,6 +16,7 @@ import {
   formatHealthMessage,
   formatKrxStatusLine,
   formatShortSellingSourceLine,
+  formatMacroFreshnessLine,
 } from './health.cmd.js';
 import type {
   HealthSnapshot,
@@ -272,5 +273,104 @@ describe('formatHealthMessage — 공매도 출처 라인 통합', () => {
       PROBES,
     );
     expect(msg).toContain('공매도 출처: ⚠️ KIS 추정값');
+  });
+});
+
+// ── PR-2 매크로 신선도 라인 ───────────────────────────────────────────────────
+describe('formatMacroFreshnessLine — PR-2 USD/KRW stale 감지', () => {
+  it('macroStateUpdatedAt 부재 → ? 미수집', () => {
+    expect(formatMacroFreshnessLine(makeSnapshot())).toBe('? 미수집');
+  });
+
+  it('잘못된 ISO → ? 잘못된 시각', () => {
+    expect(formatMacroFreshnessLine(makeSnapshot({ macroStateUpdatedAt: 'not-iso' })))
+      .toBe('? 잘못된 시각');
+  });
+
+  it('age ≤ 8h + USD/KRW 정상 → ✅ 라인', () => {
+    const recent = new Date(Date.now() - 2 * 3600_000).toISOString();
+    const line = formatMacroFreshnessLine(makeSnapshot({
+      macroStateUpdatedAt: recent,
+      macroStateUsdKrw: 1474,
+    }));
+    expect(line).toMatch(/^✅ 1,474원 \(\d{2}:\d{2}, 2\.\dh\)$/);
+  });
+
+  it('8h < age ≤ 24h → 🟡 갱신 지연', () => {
+    const stale = new Date(Date.now() - 12 * 3600_000).toISOString();
+    const line = formatMacroFreshnessLine(makeSnapshot({
+      macroStateUpdatedAt: stale,
+      macroStateUsdKrw: 1474,
+    }));
+    expect(line).toContain('🟡');
+    expect(line).toContain('갱신 지연');
+    expect(line).toContain('12.0h');
+  });
+
+  it('age > 24h → ❌ STALE 24h+', () => {
+    const veryStale = new Date(Date.now() - 36 * 3600_000).toISOString();
+    const line = formatMacroFreshnessLine(makeSnapshot({
+      macroStateUpdatedAt: veryStale,
+      macroStateUsdKrw: 1380,
+    }));
+    expect(line).toContain('❌');
+    expect(line).toContain('STALE 24h+');
+    expect(line).toContain('1,380원');
+    expect(line).toContain('1.5d');
+  });
+
+  it('USD/KRW 부재 (cron 첫 실행 전) → N/A 표기', () => {
+    const recent = new Date(Date.now() - 1 * 3600_000).toISOString();
+    expect(formatMacroFreshnessLine(makeSnapshot({ macroStateUpdatedAt: recent })))
+      .toContain('✅ N/A');
+  });
+
+  it('USD/KRW=0 → N/A 표기 (음수/0 방어)', () => {
+    const recent = new Date(Date.now() - 1 * 3600_000).toISOString();
+    expect(formatMacroFreshnessLine(makeSnapshot({
+      macroStateUpdatedAt: recent,
+      macroStateUsdKrw: 0,
+    }))).toContain('✅ N/A');
+  });
+});
+
+describe('formatHealthMessage — 매크로 신선도 라인 통합', () => {
+  it('정상 신선 스냅샷에 매크로 신선도 라인 정확히 1번', () => {
+    const recent = new Date(Date.now() - 1 * 3600_000).toISOString();
+    const msg = formatHealthMessage(
+      makeSnapshot({ macroStateUpdatedAt: recent, macroStateUsdKrw: 1474 }),
+      PROBES,
+    );
+    const matches = msg.match(/매크로 신선도:/g) ?? [];
+    expect(matches).toHaveLength(1);
+    expect(msg).toContain('매크로 신선도: ✅ 1,474원');
+  });
+
+  it('STALE 24h+ 시나리오 — 운영자 즉시 인지 (사용자 보고 #5)', () => {
+    const veryStale = new Date(Date.now() - 200 * 3600_000).toISOString();
+    const msg = formatHealthMessage(
+      makeSnapshot({ macroStateUpdatedAt: veryStale, macroStateUsdKrw: 1380 }),
+      PROBES,
+    );
+    expect(msg).toContain('매크로 신선도: ❌ 1,380원');
+    expect(msg).toContain('STALE 24h+');
+  });
+
+  it('공매도 출처 → 매크로 신선도 → Yahoo probe 순서', () => {
+    const recent = new Date(Date.now() - 1 * 3600_000).toISOString();
+    const msg = formatHealthMessage(
+      makeSnapshot({
+        shortSellingSource: 'KRX_DIRECT',
+        macroStateUpdatedAt: recent,
+        macroStateUsdKrw: 1474,
+      }),
+      PROBES,
+    );
+    const shortIdx = msg.indexOf('공매도 출처:');
+    const macroIdx = msg.indexOf('매크로 신선도:');
+    const yahooIdx = msg.indexOf('Yahoo probe:');
+    expect(shortIdx).toBeGreaterThan(0);
+    expect(macroIdx).toBeGreaterThan(shortIdx);
+    expect(yahooIdx).toBeGreaterThan(macroIdx);
   });
 });
