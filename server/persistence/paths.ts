@@ -259,6 +259,13 @@ export function aiUniverseSnapshotFile(mode: string): string {
  * 운영자가 어떤 소스가 신뢰 가능한지 한눈에 파악하도록 source 별 누적 + ring buffer.
  */
 export const STOCK_MASTER_HEALTH_FILE = path.join(DATA_DIR, 'stock-master-health.json');
+/**
+ * /api/market-indicators 응답 last-known-good 스냅샷 (ADR-0065, PR-γ).
+ * 11 필드 (vix/us10yYield/usShortRate/samsungIri/vkospi/vkospiDayChange/vkospi5dTrend/
+ * kospi/kosdaq/ewyReturn/mtumReturn) 별로 마지막 정상 응답 + 시각 영속. 일시 fetch 실패
+ * 시 stale fallback 으로 채워 UI flicker 차단. 서버 재배포 후에도 즉시 복구.
+ */
+export const MARKET_INDICATORS_SNAPSHOT_FILE = path.join(DATA_DIR, 'market-indicators-snapshot.json');
 
 export function ensureReflectionsDir(): void {
   ensureDataDir();

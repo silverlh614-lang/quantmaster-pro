@@ -17,6 +17,13 @@ import { isMarketOpen } from '../utils/marketClock.js';
 import { isMarketOpenFor, nextOpenAtFor } from '../utils/symbolMarketRegistry.js';
 import { guardedFetch } from '../utils/egressGuard.js';
 import { getSnapshot, setSnapshot } from '../persistence/offHoursSnapshotRepo.js';
+import {
+  fillMissingFromSnapshot,
+  loadMarketIndicatorsSnapshot,
+  mergeFreshIntoSnapshot,
+  saveMarketIndicatorsSnapshot,
+  type MarketIndicatorsFresh,
+} from '../persistence/marketIndicatorsSnapshotRepo.js';
 
 const router = Router();
 
@@ -423,20 +430,47 @@ router.get('/market-indicators', async (_req: Request, res: Response) => {
     }
   }
 
-  res.json({
-    vix:         getPrice(vixR),
-    us10yYield:  getPrice(us10yR),
-    usShortRate: getPrice(irxR),
+  // ADR-0065 PR-γ: 11 필드를 fresh 응답으로 모은 후 (a) 성공 필드만 snapshot 갱신
+  // (b) 실패 (null) 필드는 snapshot 의 last-known-good 으로 fill + X-Field-Stale 헤더에 기록.
+  const fresh: MarketIndicatorsFresh = {
+    vix:             getPrice(vixR),
+    us10yYield:      getPrice(us10yR),
+    usShortRate:     getPrice(irxR),
     samsungIri,
     vkospi:          getPrice(vkospiR),
-    vkospiDayChange: getQuote(vkospiR)?.changePct ?? null,  // VKOSPI 당일 변화율 (%)
-    vkospi5dTrend:   getEtfReturn(vkospiR),                 // VKOSPI 5일 추세 (%)
-    kospi:       getQuote(ks11R),   // { price, change, changePct }
-    kosdaq:      getQuote(kq11R),   // { price, change, changePct }
-    ewyReturn:   getEtfReturn(ewyR),  // EWY 5일 수익률 (%)
-    mtumReturn:  getEtfReturn(mtumR), // MTUM 5일 수익률 (%)
-    fetchedAt:   new Date().toISOString(),
-  });
+    vkospiDayChange: getQuote(vkospiR)?.changePct ?? null,
+    vkospi5dTrend:   getEtfReturn(vkospiR),
+    kospi:           getQuote(ks11R),
+    kosdaq:          getQuote(kq11R),
+    ewyReturn:       getEtfReturn(ewyR),
+    mtumReturn:      getEtfReturn(mtumR),
+  };
+
+  const capturedAt = new Date().toISOString();
+  let staleFields: string[] = [];
+  try {
+    const current = loadMarketIndicatorsSnapshot();
+    const filled = fillMissingFromSnapshot(fresh, current);
+    staleFields = filled.staleFields;
+    const merged = mergeFreshIntoSnapshot(current, fresh, capturedAt);
+    saveMarketIndicatorsSnapshot(merged);
+
+    if (staleFields.length > 0) {
+      res.set('X-Field-Stale', staleFields.join(','));
+    }
+
+    res.json({
+      ...filled.body,
+      fetchedAt: capturedAt,
+    });
+  } catch (e) {
+    // snapshot I/O 실패 시 graceful — fresh 그대로 반환 (PR-γ 이전 동작과 동일).
+    console.warn('[MarketIndicatorsSnapshot] fill/save 실패 — fresh 응답 그대로 반환:', e instanceof Error ? e.message : e);
+    res.json({
+      ...fresh,
+      fetchedAt: capturedAt,
+    });
+  }
 });
 
 // ─── 글로벌 스캔 보고서 — KST 06:00 자동 생성 결과 조회 ──────────────────────
