@@ -16,6 +16,8 @@ import {
   applyFomcRelaxation,
   FOMC_DATES,
   FOMC_RELAXATION_THRESHOLDS,
+  getDefaultFomcDayLiquidationConfig,
+  shouldExecuteLiquidationAt,
 } from './fomcCalendar.js';
 
 function setNow(iso: string): void {
@@ -381,5 +383,141 @@ describe('generateFomcIcs — v4 정책 반영', () => {
     expect(ics).toContain('D-3 부터 보수적 진입');
     expect(ics).toContain('D-day 신규 진입 자동 차단');
     expect(ics).not.toContain('FOMC D-1: 신규 진입 자동 차단');
+  });
+});
+
+// ─── PR-1 (ADR-0061) FOMC DAY 보유 포지션 강제 청산 정책 ──────────────────────
+
+describe('FomcDayLiquidationConfig — env 기반 default factory (PR-1, ADR-0061)', () => {
+  const ENV_KEYS = [
+    'FOMC_DAY_LIQUIDATION_ENABLED',
+    'FOMC_DAY_LIQUIDATION_DRY_RUN',
+    'FOMC_DAY_LIQUIDATION_START_KST',
+    'FOMC_DAY_LIQUIDATION_COMPLETE_KST',
+  ] as const;
+  const savedEnv: Record<string, string | undefined> = {};
+
+  function clearEnv(): void {
+    for (const k of ENV_KEYS) {
+      savedEnv[k] = process.env[k];
+      delete process.env[k];
+    }
+  }
+  function restoreEnv(): void {
+    for (const k of ENV_KEYS) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
+  }
+
+  afterEach(() => {
+    restoreEnv();
+  });
+
+  it('env 미설정 시 기본값 (enabled=true, 14:30~15:20, dryRun=false, preAlert 3건)', () => {
+    clearEnv();
+    const c = getDefaultFomcDayLiquidationConfig();
+    expect(c.enabled).toBe(true);
+    expect(c.liquidationStartKstTime).toBe('14:30');
+    expect(c.liquidationCompleteKstTime).toBe('15:20');
+    expect(c.dryRun).toBe(false);
+    expect(c.preAlertKstTimes).toEqual(['09:00', '14:00', '14:30']);
+  });
+
+  it('FOMC_DAY_LIQUIDATION_ENABLED=false 시 enabled=false', () => {
+    clearEnv();
+    process.env.FOMC_DAY_LIQUIDATION_ENABLED = 'false';
+    expect(getDefaultFomcDayLiquidationConfig().enabled).toBe(false);
+  });
+
+  it('FOMC_DAY_LIQUIDATION_START_KST 오버라이드 적용', () => {
+    clearEnv();
+    process.env.FOMC_DAY_LIQUIDATION_START_KST = '14:00';
+    process.env.FOMC_DAY_LIQUIDATION_COMPLETE_KST = '15:00';
+    const c = getDefaultFomcDayLiquidationConfig();
+    expect(c.liquidationStartKstTime).toBe('14:00');
+    expect(c.liquidationCompleteKstTime).toBe('15:00');
+  });
+
+  it('FOMC_DAY_LIQUIDATION_DRY_RUN=true 시 dryRun=true', () => {
+    clearEnv();
+    process.env.FOMC_DAY_LIQUIDATION_DRY_RUN = 'true';
+    expect(getDefaultFomcDayLiquidationConfig().dryRun).toBe(true);
+  });
+});
+
+describe('shouldExecuteLiquidationAt — 5중 가드 SSOT (PR-1, ADR-0061)', () => {
+  const savedAutoTrade = process.env.AUTO_TRADE_ENABLED;
+  function setAutoTrade(v: 'true' | 'false' | undefined): void {
+    if (v === undefined) delete process.env.AUTO_TRADE_ENABLED;
+    else process.env.AUTO_TRADE_ENABLED = v;
+  }
+  afterEach(() => {
+    vi.useRealTimers();
+    if (savedAutoTrade === undefined) delete process.env.AUTO_TRADE_ENABLED;
+    else process.env.AUTO_TRADE_ENABLED = savedAutoTrade;
+  });
+
+  // FOMC DAY = 2026-04-29 (수). 14:30 KST = UTC 05:30.
+  // 주의: shouldExecuteLiquidationAt 내부의 getFomcProximity() 는 todayKst() SSOT 를
+  // 사용하므로 phase 판정도 vi.setSystemTime 으로 mock 해야 한다 (인자 now 는 시각 boundary 만 사용).
+  const dayPhase14_30Kst = new Date('2026-04-29T05:30:00Z');
+  const dayPhase14_29Kst = new Date('2026-04-29T05:29:00Z');
+  const dayPhase15_19Kst = new Date('2026-04-29T06:19:00Z');
+  const dayPhase15_20Kst = new Date('2026-04-29T06:20:00Z');
+
+  it('가드 1 NOT_DAY_PHASE — DAY 외 phase (예: PRE_3 4/26) 거부', () => {
+    setAutoTrade('true');
+    setNow('2026-04-26T05:30:00Z'); // PRE_3 phase
+    const result = shouldExecuteLiquidationAt(new Date('2026-04-26T05:30:00Z'), {
+      getEmergencyStop: () => false,
+    });
+    expect(result.execute).toBe(false);
+    expect(result.reason).toBe('NOT_DAY_PHASE');
+  });
+
+  it('가드 2 DISABLED — config.enabled=false 시 차단 (DAY+OK 시각이어도)', () => {
+    setAutoTrade('true');
+    setNow(dayPhase14_30Kst.toISOString());
+    const result = shouldExecuteLiquidationAt(dayPhase14_30Kst, {
+      config: { ...getDefaultFomcDayLiquidationConfig(), enabled: false },
+      getEmergencyStop: () => false,
+    });
+    expect(result.execute).toBe(false);
+    expect(result.reason).toBe('DISABLED');
+  });
+
+  it('가드 3 AUTO_TRADE_DISABLED — process.env.AUTO_TRADE_ENABLED!=="true" 시 차단', () => {
+    setAutoTrade(undefined);
+    setNow(dayPhase14_30Kst.toISOString());
+    const result = shouldExecuteLiquidationAt(dayPhase14_30Kst, {
+      getEmergencyStop: () => false,
+    });
+    expect(result.execute).toBe(false);
+    expect(result.reason).toBe('AUTO_TRADE_DISABLED');
+  });
+
+  it('가드 4 EMERGENCY_STOP — getEmergencyStop()=true 시 차단', () => {
+    setAutoTrade('true');
+    setNow(dayPhase14_30Kst.toISOString());
+    const result = shouldExecuteLiquidationAt(dayPhase14_30Kst, {
+      getEmergencyStop: () => true,
+    });
+    expect(result.execute).toBe(false);
+    expect(result.reason).toBe('EMERGENCY_STOP');
+  });
+
+  it('가드 5 시각 boundary — 14:29 KST → BEFORE_START_TIME / 14:30 → OK / 15:20 → AFTER_COMPLETE_TIME / 15:19 → OK', () => {
+    setAutoTrade('true');
+    const opts = { getEmergencyStop: () => false };
+
+    setNow(dayPhase14_29Kst.toISOString());
+    expect(shouldExecuteLiquidationAt(dayPhase14_29Kst, opts).reason).toBe('BEFORE_START_TIME');
+    setNow(dayPhase14_30Kst.toISOString());
+    expect(shouldExecuteLiquidationAt(dayPhase14_30Kst, opts)).toEqual({ execute: true, reason: 'OK' });
+    setNow(dayPhase15_19Kst.toISOString());
+    expect(shouldExecuteLiquidationAt(dayPhase15_19Kst, opts)).toEqual({ execute: true, reason: 'OK' });
+    setNow(dayPhase15_20Kst.toISOString());
+    expect(shouldExecuteLiquidationAt(dayPhase15_20Kst, opts).reason).toBe('AFTER_COMPLETE_TIME');
   });
 });

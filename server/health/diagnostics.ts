@@ -102,6 +102,12 @@ export interface HealthSnapshot {
   /** Phase 1 — 공매도 마지막 조회 시각 ISO. */
   shortSellingFetchedAt?: string;
 
+  // ── PR-2 매크로 신선도 (USD/KRW stale 검증) ──
+  /** macroState.updatedAt — 마지막 매크로 갱신 시각 ISO (cron 정상 시 ≤8h). */
+  macroStateUpdatedAt?: string;
+  /** macroState.usdKrw — 환율 영속값 (사용자 보고 1380 vs 실제 1474 격차 검증용). */
+  macroStateUsdKrw?: number;
+
   // ── 6축: Yahoo (집계 상태) ──
   yahoo: {
     /** 호환 — 단일 라벨. */
@@ -244,6 +250,8 @@ export function collectHealthSnapshot(): HealthSnapshot {
     krxFailures: krxStatus.failures,
     shortSellingSource: macroState?.shortSellingSource,
     shortSellingFetchedAt: macroState?.shortSellingFetchedAt,
+    macroStateUpdatedAt: macroState?.updatedAt,
+    macroStateUsdKrw: macroState?.usdKrw,
     yahoo: {
       status: yahooStatus,
       detail: yahooDetail,

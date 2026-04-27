@@ -8,6 +8,11 @@ import { runKillSwitchCheck } from '../trading/killSwitch.js';
 import { forceRefreshKisTokens } from '../clients/kisClient.js';
 import { getAutoTradePaused, getEmergencyStop, touchHeartbeat } from '../state.js';
 import { scheduledJob } from './scheduleGuard.js';
+import {
+  runFomcDayMorningAlert,
+  runFomcDayPreLiquidationAlert,
+  liquidateAllForFomc,
+} from '../trading/fomcDayLiquidation.js';
 
 async function runOrchestratorTick(): Promise<void> {
   touchHeartbeat('orchestrator');
@@ -59,4 +64,21 @@ export function registerOrchestratorJobs(): void {
   // ② UTC 00:xx~08:xx (= KST Mon-Fri 09:xx~17:xx, 장중/마감/리포트) — Mon-Fri UTC
   scheduledJob('*/1 0-8 * * 1-5', 'TRADING_DAY_ONLY', 'orchestrator_tick',
     runOrchestratorTick, { timezone: 'UTC' });
+
+  // FOMC DAY 자동 청산 정책 (ADR-0061) — 평일 cron 등록 + DAY phase 가드는 함수 내부에서 처리.
+  // cron 자체는 매일 평일 발동되지만 fomcCalendar SSOT 의 phase==='DAY' 미충족 시
+  // 즉시 silent return → 비-DAY 일은 무영향. ScheduleClass='TRADING_DAY_ONLY' 로
+  // KRX 휴장 평일도 자동 차단.
+
+  // ① 평일 09:00 KST = UTC 00:00 — DAY 사전 경보 (오늘 14:30 청산 예정)
+  scheduledJob('0 0 * * 1-5', 'TRADING_DAY_ONLY', 'fomc_day_morning_alert',
+    () => runFomcDayMorningAlert(), { timezone: 'UTC' });
+
+  // ② 평일 14:00 KST = UTC 05:00 — 30분 전 경보 (활성 포지션 카운트 포함)
+  scheduledJob('0 5 * * 1-5', 'TRADING_DAY_ONLY', 'fomc_day_pre_liquidation_alert',
+    () => runFomcDayPreLiquidationAlert(), { timezone: 'UTC' });
+
+  // ③ 평일 14:30 KST = UTC 05:30 — 청산 시작 (5중 가드 통과 시 reserveSell 루프)
+  scheduledJob('30 5 * * 1-5', 'TRADING_DAY_ONLY', 'fomc_day_liquidation',
+    () => liquidateAllForFomc(), { timezone: 'UTC' });
 }

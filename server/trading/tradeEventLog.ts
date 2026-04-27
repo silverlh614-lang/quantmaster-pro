@@ -22,6 +22,7 @@ export interface TradeEvent {
     | 'CASCADE_HALF'    // STOP_LOSS (cascade -15% 반매도)
     | 'R6_EMERGENCY'    // EMERGENCY (R6 블랙스완)
     | 'MA60_FORCE'      // EMERGENCY (MA60 역배열 강제)
+    | 'FOMC_DAY_LIQ'    // FOMC 발표 당일 14:30 KST 자동 전량 청산 (ADR-0061)
     | 'FULL_CLOSE';     // FULL_CLOSE (목표가 전량)
   quantity: number;       // 이 이벤트의 체결 수량 (불변)
   price: number;          // 이 이벤트의 체결가
