@@ -5,14 +5,28 @@ import {
   getMarketOverview,
   syncMarketOverviewIndices,
 } from '../services/stockService';
+import { fetchMarketIndicators } from '../services/stock/marketOverview';
 import { useMarketStore } from '../stores';
 
 export function useMarketData() {
   const {
     marketOverview, setMarketOverview,
     loadingMarket, setLoadingMarket,
-    syncStatus,
+    syncStatus, setStaleFields,
   } = useMarketStore();
+
+  // ADR-0069: /api/market-indicators 응답 헤더 X-Field-Stale 을 store 에 영속.
+  // 부팅 + 5분 폴링 (장중 신선도 추적). UI 배지 컴포넌트가 store 를 직접 read.
+  useEffect(() => {
+    let cancelled = false;
+    const sync = async () => {
+      const result = await fetchMarketIndicators();
+      if (!cancelled) setStaleFields(result.staleFields ?? []);
+    };
+    sync();
+    const id = setInterval(sync, 5 * 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [setStaleFields]);
 
   // ── Initial Market Sync ─────────────────────────────────────────────────
   // If marketOverview is already hydrated from zustand persist, refresh indices.

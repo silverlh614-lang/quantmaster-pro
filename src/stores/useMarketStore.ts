@@ -22,6 +22,9 @@ interface MarketState {
   setMarketContext: (data: MarketContext | null) => void;
   loadingMarket: boolean;
   setLoadingMarket: (loading: boolean) => void;
+  /** ADR-0069: 서버 X-Field-Stale 헤더로 노출된 stale 필드 이름들. fetchMarketIndicators 마다 갱신. */
+  staleFields: string[];
+  setStaleFields: (fields: string[]) => void;
 
   // Sync
   syncStatus: SyncStatus;
@@ -69,6 +72,8 @@ export const useMarketStore = create<MarketState>()(
       setMarketContext: (marketContext) => set({ marketContext }),
       loadingMarket: false,
       setLoadingMarket: (loadingMarket) => set({ loadingMarket }),
+      staleFields: [],
+      setStaleFields: (staleFields) => set({ staleFields }),
 
       // Sync
       syncStatus: { isSyncing: false, progress: 0, total: 0, currentStock: null, lastSyncTime: null },

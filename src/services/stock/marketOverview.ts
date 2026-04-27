@@ -10,22 +10,45 @@ import {
 } from './marketOverviewIndicators';
 import type { MarketDataPoint, MarketOverview } from './types';
 
-/** Yahoo Finance 시장 지표 조회 (서버 프록시 경유, CORS 없음) */
-export async function fetchMarketIndicators(): Promise<{
+/**
+ * Yahoo Finance 시장 지표 조회 (서버 프록시 경유, CORS 없음).
+ *
+ * ADR-0069: 응답에 옵셔널 `staleFields` 메타 추가 — 서버가 X-Field-Stale 헤더로
+ * stale 필드 이름을 노출하면 클라이언트가 파싱해서 UI 배지로 표시. 헤더 부재 시
+ * undefined (기존 호출자 호환).
+ */
+export interface MarketIndicatorsResult {
   vix: number | null; us10yYield: number | null;
   usShortRate: number | null; samsungIri: number | null;
   vkospi: number | null;
-  vkospiDayChange: number | null;   // VKOSPI 당일 변화율 (%)
-  vkospi5dTrend: number | null;     // VKOSPI 5일 추세 (%)
+  vkospiDayChange: number | null;
+  vkospi5dTrend: number | null;
   kospi:  { price: number; change: number; changePct: number } | null;
   kosdaq: { price: number; change: number; changePct: number } | null;
   ewyReturn:  number | null;
   mtumReturn: number | null;
-}> {
+  /** ADR-0069: 서버가 X-Field-Stale 헤더로 노출한 stale 필드 이름들. 헤더 부재 시 undefined. */
+  staleFields?: string[];
+}
+
+/**
+ * X-Field-Stale 헤더 파싱 SSOT (ADR-0069 §2.1).
+ *
+ * 헤더 형식: "vix,us10yYield,kospi" — 콤마 구분 + 공백 trim. 빈 문자열·null 시 빈 배열.
+ * 알 수 없는 필드명도 그대로 유지 (서버 응답 필드 이름 변경 시 UI 가 자연 적응).
+ */
+export function parseStaleFieldsHeader(header: string | null): string[] {
+  if (!header) return [];
+  return header.split(',').map(s => s.trim()).filter(s => s.length > 0);
+}
+
+export async function fetchMarketIndicators(): Promise<MarketIndicatorsResult> {
   try {
     const res = await fetch('/api/market-indicators');
     if (!res.ok) throw new Error(`market-indicators ${res.status}`);
-    return await res.json();
+    const data = await res.json();
+    const staleFields = parseStaleFieldsHeader(res.headers.get('X-Field-Stale'));
+    return { ...data, staleFields: staleFields.length > 0 ? staleFields : undefined };
   } catch {
     return { vix: null, us10yYield: null, usShortRate: null, samsungIri: null,
              vkospi: null, vkospiDayChange: null, vkospi5dTrend: null,

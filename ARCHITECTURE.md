@@ -100,6 +100,7 @@ When modifying any file, ensure changes stay within the owning module's stated r
 | `server/persistence/marketIndicatorsSnapshotRepo.ts` | /api/market-indicators 11 필드 last-known-good disk 영속 — atomic write + stale fallback + X-Field-Stale 헤더 SSOT (ADR-0065) |
 | `src/services/stock/marketOverviewCache.ts` | marketOverview AI raw 응답 SWR 캐시 SSOT — 60s fresh + 5min stale + 30min hard, inflight coalescing (ADR-0066) |
 | `server/trading/macroStaleness.ts` | macroState 신선도 4-tier 분류 SSOT — FRESH/STALE_WARN/STALE_BLOCK/NO_DATA + 진입 차단 정책 (ADR-0068) |
+| `src/components/common/MarketDataStaleBadge.tsx` | X-Field-Stale 헤더 → 시각 배지 — staleFields 0건 미렌더, ≥1 amber + 한국어 라벨 (ADR-0069) |
 
 ---
 
@@ -151,6 +152,7 @@ When modifying any file, ensure changes stay within the owning module's stated r
 - **FOMC DAY 가드 자동 silent SSOT** (ADR-0061): 청산 cron 3건 (`fomc_day_morning_alert` 09:00 / `fomc_day_pre_liquidation_alert` 14:00 / `fomc_day_liquidation` 14:30 KST) 은 매일 평일(`1-5`) 등록되지만 `shouldExecuteLiquidationAt` 5중 가드 (DAY phase / config.enabled / AUTO_TRADE_ENABLED / !emergencyStop / KST 시각 boundary) 가 비-DAY 일과 SHADOW/disabled/비상정지 환경을 자동 silent 처리 — FOMC 캘린더 + 매매 활성 상태 단일 SSOT. 운영자 수동 트리거는 별도 텔레그램 명령 후속 PR 로 분리.
 - **marketOverview ↔ 자동매매 boundary** (ADR-0067): `server/trading/`, `server/orchestrator/`, `server/scheduler/`, `server/services/aiUniverseService.ts` 에서 `marketOverview` / `marketOverviewCache` / `marketOverviewIndicators` / `useMarketData` / `useMarketStore` import 절대 금지 — `npm run validate:marketOverviewBoundary` 가 자동 차단 (precommit + validate:all 통합). 자동매매 경로는 *반드시* `macroState` (`server/persistence/macroStateRepo.ts`) SSOT 만 사용해야 한다 — AI hallucinate 가능성이 있는 marketOverview 데이터가 LIVE 주문 의사결정을 오염시키지 않도록 코드 레벨 강제. UI 영역 (`src/components/**`, `src/hooks/useMarketData.ts`, `src/stores/useMarketStore.ts`, `src/services/stock/*`) 는 정상 import 허용.
 - **macroState staleness 차단 boundary** (ADR-0068): `server/trading/macroStaleness.ts` `evaluateMacroStaleness(macro?, now?)` SSOT — 자동매매 진입 게이트 (`runPreflight` Step 4.5) 가 24h+ STALE_BLOCK 또는 NO_DATA 시 `shouldAbort: true` + CRITICAL 텔레그램 알림 + shadow update + `abortReason: 'MACRO_STATE_STALE'`. STALE_WARN (8~24h) 은 진입 허용 + 운영자 경보. 임계값 변경은 ADR-0068 §2.1 표 갱신 + 회귀 테스트 동시 수정 의무. `MACRO_STALENESS_DISABLED=true` 긴급 운영 우회 — 권장 안 함, macroState cron 자체 복구 우선. boundary 비교는 `ageHoursRaw` (raw ms / 3_600_000) 사용 (round 된 `ageHours` 는 표시 전용).
+- **X-Field-Stale 헤더 → UI 배지 boundary** (ADR-0069): `src/services/stock/marketOverview.ts` `parseStaleFieldsHeader(header)` SSOT 가 콤마 구분 헤더를 string[] 로 정규화 (공백 trim + 빈 항목 제거). `fetchMarketIndicators` 응답에 `staleFields?: string[]` 옵셔널 필드 노출 — 기존 호출자 4건 (marketOverview/momentumRecommendations/batchIntel ×2) 무영향. `useMarketStore.staleFields` 영속 (partialize 제외 — 부팅 시 빈 배열, 첫 fetch 후 자동 갱신). `useMarketData` hook 이 5분 폴링으로 자동 갱신. UI 배지 `MarketDataStaleBadge` 는 staleFields.length === 0 시 미렌더 — 정상 상태 화면 깨끗. 라벨 매핑은 화이트리스트 (FIELD_LABELS), 미매핑은 raw 키 표시 (서버 신규 필드 즉시 노출).
 
 ---
 
