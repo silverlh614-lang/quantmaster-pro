@@ -272,6 +272,13 @@ export const STOCK_MASTER_HEALTH_FILE = path.join(DATA_DIR, 'stock-master-health
  * 시 stale fallback 으로 채워 UI flicker 차단. 서버 재배포 후에도 즉시 복구.
  */
 export const MARKET_INDICATORS_SNAPSHOT_FILE = path.join(DATA_DIR, 'market-indicators-snapshot.json');
+/**
+ * TradeSignalStatus 상태머신 영속 (ADR-0077).
+ * AI 추천 → 데이터 검증 → 리스크 승인 → 사용자 승인 → 자동매매 직전 6단계 상태 전이를
+ * 영속해 운영자가 "이 종목이 어느 단계에서 멈췄는지" 즉시 추적 가능하게 한다.
+ * FIFO 1000건 trim, atomic write (tmp → rename).
+ */
+export const TRADE_SIGNAL_STATUS_FILE = path.join(DATA_DIR, 'trade-signal-status.json');
 
 export function ensureReflectionsDir(): void {
   ensureDataDir();
