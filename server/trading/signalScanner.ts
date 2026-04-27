@@ -81,6 +81,7 @@ import { fillMonitor } from './fillMonitor.js';
 import { trancheExecutor } from './trancheExecutor.js';
 import { getVixGating } from './vixGating.js';
 import { getFomcProximity } from './fomcCalendar.js';
+import { combineRegimeAndFomcKelly, describeRegimeFomcCombination } from './regimeFomcCombiner.js';
 import {
   MAX_INTRADAY_POSITIONS,
   INTRADAY_POSITION_PCT_FACTOR,
@@ -378,7 +379,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   const accountKellyMultiplier = getAccountScaleKellyMultiplier(totalAssets);
   // Phase 2-③: SELL_ONLY 예외 채널 진입 시 Kelly ×0.5 (kellyFactor) 추가 감쇠
   const exceptionKellyFactor = sellOnlyExc.allow ? sellOnlyExc.kellyFactor : 1;
-  const rawKelly = regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier;
+  // ADR-0076: regime + FOMC 결합 SSOT (옵션 C — FOMC 우선 + R6 보호).
+  // 기존 곱셈 결합은 같은 차원 (Kelly 사이즈 보수성) 의 정책을 두 번 적용해 보수성 누적.
+  // 이제 FOMC 활성 시 regimeKelly 무시, FOMC NORMAL 시 regimeKelly 만 사용.
+  const regimeFomcCombined = combineRegimeAndFomcKelly(
+    regimeConfig.kellyMultiplier, fomcProximity.kellyMultiplier, fomcProximity.phase, regime,
+  );
+  const rawKelly = regimeFomcCombined.value * vixGating.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier;
   const kellyMultiplier = Math.min(
     1.5,  // 상한 캡 (POST 부스트 구간에서도 최대 1.5배)
     Math.max(KELLY_FLOOR, rawKelly),
@@ -395,9 +402,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // 진단 로그: 각 패널티 구성 요소를 분해하여 기록
   if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
     console.log(
-      `[AutoTrade] Kelly 배율 분해: 레짐 ${regime}(×${regimeConfig.kellyMultiplier}) × ` +
-      `VIX(×${vixGating.kellyMultiplier.toFixed(2)}) × FOMC(×${fomcProximity.kellyMultiplier.toFixed(2)}) ` +
-      `× 계좌(×${accountKellyMultiplier.toFixed(2)}) = raw ×${rawKelly.toFixed(3)}` +
+      `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} × ` +
+      `VIX(×${vixGating.kellyMultiplier.toFixed(2)}) × IPS(×${ipsKelly.toFixed(2)}) × ` +
+      `계좌(×${accountKellyMultiplier.toFixed(2)}) = raw ×${rawKelly.toFixed(3)}` +
       `${rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}` : ''} → 유효 ×${kellyMultiplier.toFixed(2)}`,
     );
   }
