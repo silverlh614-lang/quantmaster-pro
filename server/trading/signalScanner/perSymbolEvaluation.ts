@@ -60,6 +60,11 @@ import {
   sellOnlyExceptionStep,
 } from './revalidationSteps/index.js';
 import {
+  applySectorScoreBoost,
+  classifySectorTier,
+  describeSectorBoost,
+} from '../sectorScoreBoost.js';
+import {
   sizingTierDecider,
   kellyBudgetDecider,
   stopLossPolicyResolver,
@@ -685,6 +690,21 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // step 자체는 외부 mutation·부수효과 0건 — fail 시 caller 가 stock.entryFailCount,
       // watchlistMutated, scanCounters.gateMisses, stageLog, pushTrace, counterfactual
       // 기록을 일괄 적용. byte-equivalent: 메시지·counter·stageLog 값 100% 보존.
+      //
+      // ADR-0075 PR-4 wiring: 강세 섹터 Gate Score 가산점 — macroState.sectorEnergyResult
+      // 가 영속되어 있으면 stock.sector 의 LEADING/LAGGING 분류 결과를 quoteGateScore 에
+      // 가산. macroState.sectorEnergyResult 부재 시 boost=0 — 기존 동작과 동일.
+      const sectorEnergyResult = ctx.macroState?.sectorEnergyResult ?? null;
+      const sectorBoost = applySectorScoreBoost(stock.sector, sectorEnergyResult, ctx.regime);
+      const sectorBoostReason = sectorBoost !== 0 && stock.sector && sectorEnergyResult
+        ? describeSectorBoost(
+            stock.sector,
+            sectorBoost,
+            classifySectorTier(stock.sector, sectorEnergyResult),
+            ctx.regime,
+          )
+        : undefined;
+
       const revalResult = entryRevalidationStep({
         stockName: stock.name,
         currentPrice,
@@ -693,6 +713,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         reCheckGate,
         regime: ctx.regime,
         marketElapsedMinutes: getKstMarketElapsedMinutes(),
+        sectorBoost,
+        sectorBoostReason,
       });
       if (!revalResult.proceed) {
         console.log(revalResult.logMessage);

@@ -28,6 +28,8 @@ const regime: TelegramCommand = {
     // 매매 결정에 실제 사용되는 RegimeLevel + Kelly/maxPositions 정책을 1줄로 요약.
     const liveRegime = getLiveRegime(macro);
     const liveRegimeLine = formatLiveRegimeLine(liveRegime);
+    // ADR-0075 PR-4 wiring: 강세/소외 섹터 1줄 노출 — 운영자가 Gate +2/-1 부스트 영향 즉시 인지
+    const sectorEnergyLine = formatSectorEnergyLine(macro);
     await reply(
       `🌐 <b>[매크로 레짐 현황]</b>\n` +
       `━━━━━━━━━━━━━━━━\n` +
@@ -40,11 +42,40 @@ const regime: TelegramCommand = {
       `📉 MHS추세: ${macro.mhsTrend ?? 'N/A'}\n` +
       `🐻 Bear방어: ${macro.bearDefenseMode ? '🔴 ON' : '🟢 OFF'}\n` +
       `📈 FSS경보: ${macro.fssAlertLevel ?? 'N/A'}\n` +
+      `${sectorEnergyLine}\n` +
       `━━━━━━━━━━━━━━━━\n` +
       freshnessLine,
     );
   },
 };
+
+/**
+ * ADR-0075 PR-4 wiring: 강세/소외 섹터 라인 SSOT.
+ *
+ * macroState.sectorEnergyResult (marketDataRefresh 영속) 의 LEADING/LAGGING 결과를
+ * 1줄로 노출. 운영자가 "지금 어떤 섹터가 +2 가산점을 받고 있나" 를 즉시 인지.
+ *
+ * 표시 분기:
+ *   - sectorEnergyResult 부재 → "🎯 강세 섹터: N/A (미수집)"
+ *   - LEADING 0건 + LAGGING 0건 → "🎯 강세 섹터: 데이터 부족"
+ *   - 정상 → "🎯 강세: 반도체, 이차전지, 바이오 / 소외: 건설, 유통"
+ */
+export function formatSectorEnergyLine(macro: {
+  sectorEnergyResult?: {
+    leadingSectors: { name: string }[];
+    laggingSectors: { name: string }[];
+  };
+}): string {
+  const result = macro.sectorEnergyResult;
+  if (!result) return '🎯 섹터 에너지: N/A (미수집)';
+  const leading = result.leadingSectors.map(s => s.name).join(', ');
+  const lagging = result.laggingSectors.map(s => s.name).join(', ');
+  if (!leading && !lagging) return '🎯 섹터 에너지: 데이터 부족';
+  const parts: string[] = [];
+  if (leading) parts.push(`강세 ${leading}`);
+  if (lagging) parts.push(`소외 ${lagging}`);
+  return `🎯 ${parts.join(' / ')}`;
+}
 
 /**
  * ADR-0074: 매매 레짐(R1~R6) 라인 SSOT.

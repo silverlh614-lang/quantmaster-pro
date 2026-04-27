@@ -168,3 +168,49 @@ describe('formatLiveRegimeLine — 매매 레짐 SSOT 노출 (ADR-0074)', () => 
     }
   });
 });
+
+// ── ADR-0075 PR-4 wiring: 강세 섹터 라인 ──────────────────────────────────
+import { formatSectorEnergyLine } from './regime.cmd';
+
+describe('formatSectorEnergyLine — 강세/소외 섹터 노출 (ADR-0075 PR-4 wiring)', () => {
+  it('sectorEnergyResult 부재 → "N/A (미수집)"', () => {
+    expect(formatSectorEnergyLine({})).toBe('🎯 섹터 에너지: N/A (미수집)');
+  });
+
+  it('LEADING 0건 + LAGGING 0건 → "데이터 부족"', () => {
+    const line = formatSectorEnergyLine({
+      sectorEnergyResult: { leadingSectors: [], laggingSectors: [] },
+    });
+    expect(line).toBe('🎯 섹터 에너지: 데이터 부족');
+  });
+
+  it('LEADING 만 → "강세 섹터명들"', () => {
+    const line = formatSectorEnergyLine({
+      sectorEnergyResult: {
+        leadingSectors: [{ name: '반도체' }, { name: '이차전지' }],
+        laggingSectors: [],
+      },
+    });
+    expect(line).toBe('🎯 강세 반도체, 이차전지');
+  });
+
+  it('LAGGING 만 → "소외 섹터명들"', () => {
+    const line = formatSectorEnergyLine({
+      sectorEnergyResult: {
+        leadingSectors: [],
+        laggingSectors: [{ name: '건설/부동산' }, { name: '유통/소비재' }],
+      },
+    });
+    expect(line).toBe('🎯 소외 건설/부동산, 유통/소비재');
+  });
+
+  it('LEADING + LAGGING 둘 다 → 슬래시 구분', () => {
+    const line = formatSectorEnergyLine({
+      sectorEnergyResult: {
+        leadingSectors: [{ name: '반도체' }, { name: '이차전지' }, { name: '바이오/헬스케어' }],
+        laggingSectors: [{ name: '건설/부동산' }, { name: '유통/소비재' }],
+      },
+    });
+    expect(line).toBe('🎯 강세 반도체, 이차전지, 바이오/헬스케어 / 소외 건설/부동산, 유통/소비재');
+  });
+});

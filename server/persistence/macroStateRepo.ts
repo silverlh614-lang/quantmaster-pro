@@ -1,6 +1,7 @@
 // @responsibility macroStateRepo 영속화 저장소 모듈
 import fs from 'fs';
 import { MACRO_STATE_FILE, ensureDataDir } from './paths.js';
+import type { SectorEnergyResult } from '../../src/types/sectorEnergy.js';
 
 export interface MacroState {
   mhs: number;        // Macro Health Score (0~100)
@@ -63,6 +64,18 @@ export interface MacroState {
   // ─── 레짐 승급 보조 필드 (marketDataRefresh 자동 갱신) ──────────────────────
   kospiAboveMA20Pct?: number;       // KOSPI가 MA20 대비 몇 % 위에 있는지
   foreignContinuousBuyDays?: number; // 외국인 연속 순매수 일수
+  // ─── ADR-0075 PR-4 wiring: 강세 섹터 Gate Score 가산점 SSOT ─────────────────
+  /**
+   * marketDataRefresh 가 evaluateSectorEnergy() 결과를 영속화한 스냅샷.
+   * entryEngine 의 Gate Score 산출 시점에 read 만 — applySectorScoreBoost() 입력.
+   * 갱신 실패/입력 부재 시 undefined → 보너스 0 (안전 fallback).
+   *
+   * sectorEnergyEngine 결과는 캘린더일 1회 단위 변동 — 1분 cron 매번 갱신 부담은
+   * 회피하고, marketDataRefresh 의 일일 사이클 (장 마감 후)에서만 갱신한다.
+   */
+  sectorEnergyResult?: SectorEnergyResult;
+  /** sectorEnergyResult 마지막 갱신 시각 (ISO) — /regime 메시지 신선도 표시용. */
+  sectorEnergyUpdatedAt?: string;
 }
 
 export function loadMacroState(): MacroState | null {

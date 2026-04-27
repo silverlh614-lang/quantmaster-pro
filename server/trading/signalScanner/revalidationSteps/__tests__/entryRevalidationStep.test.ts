@@ -116,4 +116,77 @@ describe('entryRevalidationStep', () => {
     expect(result.logMessage).toMatch(/^\[AutoTrade\] 삼성전자 진입 직전 재검증 탈락: .+$/);
     expect(result.failReasons.join(',')).toBe(result.failReasons.join(','));
   });
+
+  // ── ADR-0075 PR-4 wiring: sectorBoost 적용 ─────────────────────────────
+  describe('sectorBoost (ADR-0075 PR-4 wiring)', () => {
+    it('sectorBoost 미전달 → 기존 동작 (gateScore=4, minGate=5 → 탈락)', () => {
+      const result = entryRevalidationStep({
+        ...baseInput,
+        reCheckGate: { gateScore: 4, signalType: 'NORMAL' },
+      });
+      expect(result.proceed).toBe(false);
+    });
+
+    it('sectorBoost=+2 → gateScore 4 → 6, minGate=5 → 통과 (LEADING 섹터 효과)', () => {
+      const result = entryRevalidationStep({
+        ...baseInput,
+        reCheckGate: { gateScore: 4, signalType: 'NORMAL' },
+        sectorBoost: 2,
+        sectorBoostReason: '반도체 +2 (LEADING)',
+      });
+      expect(result.proceed).toBe(true);
+    });
+
+    it('sectorBoost=+2 적용해도 gateScore 2 → 4, minGate=5 → 여전히 탈락', () => {
+      const result = entryRevalidationStep({
+        ...baseInput,
+        reCheckGate: { gateScore: 2, signalType: 'NORMAL' },
+        sectorBoost: 2,
+        sectorBoostReason: '반도체 +2 (LEADING)',
+      });
+      expect(result.proceed).toBe(false);
+      // 진단 메시지에 boost 효과 표시
+      if (!result.proceed) {
+        expect(result.logMessage).toContain('[반도체 +2 (LEADING)]');
+      }
+    });
+
+    it('sectorBoost=-1 (LAGGING Bear regime) → gateScore 5 → 4, minGate=5 → 탈락', () => {
+      const result = entryRevalidationStep({
+        ...baseInput,
+        reCheckGate: { gateScore: 5, signalType: 'NORMAL' },
+        sectorBoost: -1,
+        sectorBoostReason: '건설/부동산 -1 (LAGGING, R6_DEFENSE)',
+        regime: 'R6_DEFENSE',
+      });
+      expect(result.proceed).toBe(false);
+    });
+
+    it('sectorBoost=0 + reason 미전달 → 진단 메시지에 boost 표기 없음', () => {
+      const result = entryRevalidationStep({
+        ...baseInput,
+        reCheckGate: { gateScore: 1, signalType: 'NORMAL' },
+        sectorBoost: 0,
+      });
+      expect(result.proceed).toBe(false);
+      if (!result.proceed) {
+        expect(result.logMessage).not.toContain('[반도체');
+        expect(result.logMessage).not.toContain('[LEADING');
+      }
+    });
+
+    it('sectorBoost 음수지만 reason 미전달 → 진단 메시지에 boost 표기 없음', () => {
+      const result = entryRevalidationStep({
+        ...baseInput,
+        reCheckGate: { gateScore: 5, signalType: 'NORMAL' },
+        sectorBoost: -1,
+      });
+      expect(result.proceed).toBe(false);
+      if (!result.proceed) {
+        // boost reason 미전달 시 "[<reason>]" 형식의 보너스 진단 텍스트 부재
+        // (단, 헤더 "[AutoTrade]" 자체는 항상 존재 — 검증 대상은 sector reason 라벨만)
+        expect(result.logMessage).not.toMatch(/\[[\w가-힣]+\s[+-]\d+\s\([A-Z]+/);
+      }
+    });
+  });
 });
