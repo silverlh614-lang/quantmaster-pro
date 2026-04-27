@@ -302,3 +302,78 @@ describe('SSOT 임계값 검증', () => {
     expect(MARKET_DATA_HEALTH_THRESHOLDS.DEGRADED_MIN).toBe(60);
   });
 });
+
+describe('ADR-0071: usdKrw 다중 소스 격차 axis', () => {
+  it('CRITICAL 격차 → -25점', () => {
+    vi.spyOn(macroStateRepo, 'loadMacroState').mockReturnValue({
+      ...FRESH_MACRO,
+      usdKrwDivergenceTier: 'CRITICAL',
+      usdKrwDivergencePct: 6.4,
+    } as any);
+    const r = computeMarketDataHealthScore(HEALTHY_SNAPSHOT, [], NOW);
+    expect(r.score).toBe(75);
+    const div = r.deductions.find(d => d.axis === 'divergence');
+    expect(div?.deduction).toBe(25);
+    expect(div?.reason).toContain('USD/KRW');
+    expect(div?.reason).toContain('6.40%');
+  });
+
+  it('WARN 격차 → -10점', () => {
+    vi.spyOn(macroStateRepo, 'loadMacroState').mockReturnValue({
+      ...FRESH_MACRO,
+      usdKrwDivergenceTier: 'WARN',
+      usdKrwDivergencePct: 3.5,
+    } as any);
+    const r = computeMarketDataHealthScore(HEALTHY_SNAPSHOT, [], NOW);
+    expect(r.score).toBe(90);
+  });
+
+  it('PRIMARY_ONLY → -5점 (한쪽 단독)', () => {
+    vi.spyOn(macroStateRepo, 'loadMacroState').mockReturnValue({
+      ...FRESH_MACRO,
+      usdKrwDivergenceTier: 'PRIMARY_ONLY',
+      usdKrwDivergencePct: null,
+    } as any);
+    const r = computeMarketDataHealthScore(HEALTHY_SNAPSHOT, [], NOW);
+    expect(r.score).toBe(95);
+    const div = r.deductions.find(d => d.axis === 'divergence');
+    expect(div?.reason).toContain('secondary 미수집');
+  });
+
+  it('AGREED → 차감 없음', () => {
+    vi.spyOn(macroStateRepo, 'loadMacroState').mockReturnValue({
+      ...FRESH_MACRO,
+      usdKrwDivergenceTier: 'AGREED',
+      usdKrwDivergencePct: 0.5,
+    } as any);
+    const r = computeMarketDataHealthScore(HEALTHY_SNAPSHOT, [], NOW);
+    expect(r.score).toBe(100);
+    expect(r.deductions.find(d => d.axis === 'divergence')).toBeUndefined();
+  });
+
+  it('NO_DATA tier 도 차감 없음 (이미 NO_DATA macroState axis 가 -40)', () => {
+    vi.spyOn(macroStateRepo, 'loadMacroState').mockReturnValue({
+      ...FRESH_MACRO,
+      usdKrwDivergenceTier: 'NO_DATA',
+    } as any);
+    const r = computeMarketDataHealthScore(HEALTHY_SNAPSHOT, [], NOW);
+    expect(r.deductions.find(d => d.axis === 'divergence')).toBeUndefined();
+  });
+
+  it('usdKrwDivergenceTier 부재 → 차감 없음 (옵셔널 필드)', () => {
+    const r = computeMarketDataHealthScore(HEALTHY_SNAPSHOT, [], NOW);
+    expect(r.score).toBe(100);
+  });
+
+  it('CRITICAL + macroState STALE_WARN 누적 (-25 + -15 = -40)', () => {
+    vi.spyOn(macroStateRepo, 'loadMacroState').mockReturnValue({
+      ...FRESH_MACRO,
+      updatedAt: new Date(NOW.getTime() - 12 * 3_600_000).toISOString(),
+      usdKrwDivergenceTier: 'CRITICAL',
+      usdKrwDivergencePct: 6.4,
+    } as any);
+    const r = computeMarketDataHealthScore(HEALTHY_SNAPSHOT, [], NOW);
+    expect(r.score).toBe(60);  // 100 - 15 (WARN macro) - 25 (divergence) = 60
+    expect(r.tier).toBe('DEGRADED');
+  });
+});

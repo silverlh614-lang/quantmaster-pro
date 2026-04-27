@@ -29,6 +29,12 @@ export interface MacroState {
   usdKrw?: number;                  // 원달러 환율
   usdKrw20dChange?: number;         // 원달러 20일 변화율
   usdKrwDayChange?: number;         // 원달러 당일 변화율
+  /** ADR-0071: usdKrw 가 어느 소스에서 왔는지 (Yahoo 'PRIMARY' / ECOS 'SECONDARY'). */
+  usdKrwSource?: 'PRIMARY' | 'SECONDARY' | null;
+  /** ADR-0071: Yahoo vs ECOS 격차 % (한쪽 미수집 시 null). */
+  usdKrwDivergencePct?: number | null;
+  /** ADR-0071: 분기 결과 tier — AGREED/WARN/CRITICAL/PRIMARY_ONLY/SECONDARY_ONLY/NO_DATA. */
+  usdKrwDivergenceTier?: string;
   foreignNetBuy5d?: number;         // 외국인 순매수 5일 누적 (억원)
   passiveActiveBoth?: boolean;      // 패시브+액티브 동시 외국인 순매수
   kospiAbove20MA?: boolean;         // KOSPI 20일선 위

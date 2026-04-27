@@ -23,9 +23,12 @@ import { loadFssRecords } from '../persistence/fssRepo.js';
 import { checkAndNotifyRegimeChange } from './regimeBridge.js';
 import { fetchKisMarketSupply } from '../clients/kisClient.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
+import { fetchLatestUsdKrw } from '../clients/ecosClient.js';
 import { computeMacroIndex } from '../engines/macroIndexEngine.js';
 import { guardedFetch } from '../utils/egressGuard.js';
 import { safePctChange } from '../utils/safePctChange.js';
+import { evaluateCrossSource } from './crossSourceValidator.js';
+import { sendTelegramAlert } from '../alerts/telegramClient.js';
 
 /**
  * FRED API — 최신 유효 관측값 조회 (최근 5건 중 '.' 제외 첫 번째).
@@ -421,18 +424,39 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     console.warn('[MarketRefresh] KOSPI 데이터 부족 또는 실패');
   }
 
-  // ── ② USD/KRW (KRW=X) 20일 ───────────────────────────────────────────────
-  const usdkrw = await fetchCloses('KRW=X', '25d');
-  if (usdkrw && usdkrw.length >= 3) {
-    const last = usdkrw[usdkrw.length - 1];
-    computed.usdKrw         = last;
-    computed.usdKrwDayChange = usdkrw.length >= 2
-      ? ((last - usdkrw[usdkrw.length - 2]) / usdkrw[usdkrw.length - 2]) * 100
-      : 0;
-    computed.usdKrw20dChange = nDayReturn(usdkrw, Math.min(20, usdkrw.length - 1));
-    console.log(`[MarketRefresh] USD/KRW: ${last.toFixed(2)}, 20d=${(computed.usdKrw20dChange as number).toFixed(2)}%`);
+  // ── ② USD/KRW (Yahoo `KRW=X` + ECOS 한국은행 공식 교차 검증, ADR-0071) ──────
+  const [usdkrw, ecosUsdKrw] = await Promise.all([
+    fetchCloses('KRW=X', '25d'),
+    fetchLatestUsdKrw().catch(() => null),  // ECOS_API_KEY 미설정/throw graceful
+  ]);
+  const yahooLast = usdkrw && usdkrw.length >= 3 ? usdkrw[usdkrw.length - 1] : null;
+  const xs = evaluateCrossSource(yahooLast, ecosUsdKrw, 'USD/KRW');
+  if (xs.selected !== null) {
+    computed.usdKrw                  = xs.selected;
+    computed.usdKrwSource            = xs.selectedSource;     // 'PRIMARY' | 'SECONDARY'
+    computed.usdKrwDivergencePct     = xs.divergencePct;      // null = 한쪽 미수집
+    computed.usdKrwDivergenceTier    = xs.tier;               // AGREED/WARN/CRITICAL/...
+    if (yahooLast !== null && usdkrw && usdkrw.length >= 2) {
+      computed.usdKrwDayChange = ((yahooLast - usdkrw[usdkrw.length - 2]) / usdkrw[usdkrw.length - 2]) * 100;
+      computed.usdKrw20dChange = nDayReturn(usdkrw, Math.min(20, usdkrw.length - 1));
+    }
+    console.log(
+      `[MarketRefresh] USD/KRW: ${xs.selected.toFixed(2)} ` +
+      `(source=${xs.selectedSource}, tier=${xs.tier}, ` +
+      `Yahoo=${yahooLast?.toFixed(2) ?? 'null'}, ECOS=${ecosUsdKrw?.toFixed(2) ?? 'null'}, ` +
+      `divergence=${xs.divergencePct?.toFixed(2) ?? 'null'}%)`,
+    );
+    if (xs.diverged) {
+      // CRITICAL 격차 → 텔레그램 알림 (운영자가 신뢰 문제 즉시 인지)
+      await sendTelegramAlert(
+        `🛑 <b>[USD/KRW 격차 임계 초과]</b>\n` +
+        `${xs.message}\n` +
+        `사용 값: ${xs.selected.toFixed(2)} (${xs.selectedSource})\n` +
+        `<i>Yahoo / ECOS 두 소스 중 공식(ECOS) 우선 사용 — 자동매매 영향: macroState.usdKrw 가 ECOS 값.</i>`,
+      ).catch(console.error);
+    }
   } else {
-    console.warn('[MarketRefresh] USD/KRW 데이터 부족 또는 실패');
+    console.warn(`[MarketRefresh] USD/KRW 양 소스 모두 실패: ${xs.message}`);
   }
 
   // ── ⑦ S&P500 (^GSPC) 20일 ────────────────────────────────────────────────

@@ -26,6 +26,20 @@ import type { HealthSnapshot } from './diagnostics.js';
 import { evaluateMacroStaleness, type MacroStalenessResult } from '../trading/macroStaleness.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 
+/**
+ * ADR-0071: divergence axis 차감 정책.
+ *   - tier=CRITICAL (격차 ≥5%) → -25
+ *   - tier=WARN     (격차 ≥3%) → -10
+ *   - PRIMARY_ONLY / SECONDARY_ONLY → -5 (한쪽 소스 단독)
+ *   - AGREED / NO_DATA / 미수집 → 0
+ */
+const DIVERGENCE_DEDUCTION: Record<string, number> = {
+  CRITICAL: 25,
+  WARN: 10,
+  PRIMARY_ONLY: 5,
+  SECONDARY_ONLY: 5,
+};
+
 export type MarketDataHealthTier = 'HEALTHY' | 'DEGRADED' | 'CRITICAL';
 
 export interface MarketDataHealthScore {
@@ -119,6 +133,26 @@ export function computeMarketDataHealthScore(
   if (!snapshot.kisConfigured) {
     score -= 5;
     deductions.push({ axis: 'kis', reason: 'KIS_APP_KEY 미설정', deduction: 5 });
+  }
+
+  // ── 6축: ADR-0071 — usdKrw 다중 소스 격차 ──
+  // macroState.usdKrwDivergenceTier 가 CRITICAL/WARN 이면 차감.
+  const macroAny = macro as Record<string, unknown> | null;
+  const divergenceTier = typeof macroAny?.usdKrwDivergenceTier === 'string'
+    ? (macroAny.usdKrwDivergenceTier as string)
+    : null;
+  if (divergenceTier && DIVERGENCE_DEDUCTION[divergenceTier] !== undefined) {
+    const ded = DIVERGENCE_DEDUCTION[divergenceTier];
+    score -= ded;
+    const divPct = typeof macroAny?.usdKrwDivergencePct === 'number'
+      ? macroAny.usdKrwDivergencePct
+      : null;
+    const reasonLabel =
+      divergenceTier === 'CRITICAL' ? `USD/KRW 격차 임계 초과 (${divPct?.toFixed(2) ?? 'N/A'}%)` :
+      divergenceTier === 'WARN'     ? `USD/KRW 격차 경고 (${divPct?.toFixed(2) ?? 'N/A'}%)` :
+      divergenceTier === 'PRIMARY_ONLY'   ? 'USD/KRW secondary 미수집 (Yahoo 단독)' :
+      'USD/KRW primary 미수집 (ECOS 단독)';
+    deductions.push({ axis: 'divergence', reason: reasonLabel, deduction: ded });
   }
 
   // ── 5축: KRX OpenAPI ──
