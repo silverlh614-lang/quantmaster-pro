@@ -27,6 +27,7 @@ import { getLiveRegime } from '../regimeBridge.js';
 import { REGIME_CONFIGS } from '../../../src/services/quant/regimeEngine.js';
 import { getVixGating, type VixGating } from '../vixGating.js';
 import { getFomcProximity, type FomcProximity } from '../fomcCalendar.js';
+import { combineRegimeAndFomcKelly, describeRegimeFomcCombination } from '../regimeFomcCombiner.js';
 import { checkVolumeClockWindow, type VolumeClockResult } from '../volumeClock.js';
 import { evaluateMacroStaleness, formatStalenessTier } from '../macroStaleness.js';
 import { isDataStarvedScan, getCompletenessSnapshot } from '../../screener/dataCompletenessTracker.js';
@@ -321,12 +322,16 @@ export async function runPreflight(
     return { shouldAbort: true, abortReason: 'DATA_STARVED', sellOnly };
   }
 
-  // ── 10. Kelly 배율 합성 ───────────────────────────────────────────────────
+  // ── 10. Kelly 배율 합성 (ADR-0076 옵션 C: FOMC 우선 + R6 보호) ───────────
   const KELLY_FLOOR = 0.15;
   const ipsKelly = getIpsKellyMultiplier();
   const accountKellyMultiplier = getAccountScaleKellyMultiplier(totalAssets);
   const exceptionKellyFactor = sellOnlyExc.allow ? sellOnlyExc.kellyFactor : 1;
-  const rawKelly = regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier;
+  // ADR-0076: regime + FOMC 결합 SSOT — FOMC 활성 시 regimeKelly 무시 (R6_DEFENSE 만 보호)
+  const regimeFomcCombined = combineRegimeAndFomcKelly(
+    regimeConfig.kellyMultiplier, fomcProximity.kellyMultiplier, fomcProximity.phase, regime,
+  );
+  const rawKelly = regimeFomcCombined.value * vixGating.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier;
   const kellyMultiplier = Math.min(
     1.5,
     Math.max(KELLY_FLOOR, rawKelly),
@@ -342,9 +347,9 @@ export async function runPreflight(
   }
   if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
     console.log(
-      `[AutoTrade] Kelly 배율 분해: 레짐 ${regime}(×${regimeConfig.kellyMultiplier}) × ` +
-      `VIX(×${vixGating.kellyMultiplier.toFixed(2)}) × FOMC(×${fomcProximity.kellyMultiplier.toFixed(2)}) ` +
-      `× 계좌(×${accountKellyMultiplier.toFixed(2)}) = raw ×${rawKelly.toFixed(3)}` +
+      `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} × ` +
+      `VIX(×${vixGating.kellyMultiplier.toFixed(2)}) × IPS(×${ipsKelly.toFixed(2)}) × ` +
+      `계좌(×${accountKellyMultiplier.toFixed(2)}) = raw ×${rawKelly.toFixed(3)}` +
       `${rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}` : ''} → 유효 ×${kellyMultiplier.toFixed(2)}`,
     );
   }
