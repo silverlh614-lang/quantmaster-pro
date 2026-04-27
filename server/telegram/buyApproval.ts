@@ -18,6 +18,7 @@ import {
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
 import { formatEnemyCheckSummary, type EnemyCheckResult } from '../clients/enemyCheckClient.js';
 import type { RegimeLevel } from '../../src/types/core.js';
+import { markUserApproved, markBlocked } from '../persistence/tradeSignalStatusRepo.js';
 
 /** 자동 승인까지 대기 시간 (ms) — 기본(레짐 미지정 시) 3분 */
 const AUTO_APPROVE_TIMEOUT_MS = 3 * 60 * 1000;
@@ -61,6 +62,8 @@ interface PendingApproval {
   createdAt: number;
   timer: ReturnType<typeof setTimeout>;
   resolve: (action: ApprovalAction) => void;
+  /** ADR-0077 — 호출자가 buildSignalId 결과를 전달하면 USER_APPROVED/BLOCKED 영속 가능 */
+  signalId?: string;
 }
 
 /** 대기 중인 승인 요청 (tradeId → PendingApproval) */
@@ -88,11 +91,13 @@ export async function requestBuyApproval(params: {
   regime?: string;
   /** 매수 실패 시나리오 사전 체크리스트(Gemini Pre-Mortem). 있으면 메시지에 표시. */
   preMortem?: string | null;
+  /** ADR-0077 — TradeSignalRecord id (`${signalTimeIso}:${stockCode}`). 전달 시 USER_APPROVED/BLOCKED 영속 */
+  signalId?: string;
 }): Promise<ApprovalAction> {
   const {
     tradeId, stockCode, stockName,
     currentPrice, quantity, stopLoss, targetPrice, mode, gateScore, enemyCheck,
-    regime, preMortem,
+    regime, preMortem, signalId,
   } = params;
 
   const modeEmoji = mode === 'LIVE' ? '🔴' : '⚡';
@@ -184,6 +189,7 @@ export async function requestBuyApproval(params: {
       createdAt: Date.now(),
       timer,
       resolve,
+      signalId,
     });
   });
 }
@@ -236,6 +242,24 @@ export async function handleBuyApprovalCallback(
 
   await answerCallbackQuery(callbackQueryId, `${actionLabel} 완료`);
   console.log(`[BuyApproval] ${actionLabel}: ${pending.stockName} (${pending.stockCode})`);
+
+  // ADR-0077 wiring — USER_APPROVED / BLOCKED 영속 (영속 실패 시 매매 결정 차단 안 함)
+  if (pending.signalId) {
+    try {
+      if (action === 'APPROVE') {
+        markUserApproved({ id: pending.signalId, approvedBy: 'telegram' });
+      } else if (action === 'REJECT') {
+        markBlocked({
+          id: pending.signalId,
+          gate: 'USER_REJECT',
+          reason: '사용자 거부 (텔레그램)',
+        });
+      }
+      // SKIP 은 상태 전이 없음 — 같은 신호가 다음 사이클에 다시 평가될 수 있음
+    } catch (e) {
+      console.warn('[TradeSignalStatus] buyApproval callback wiring failed', e);
+    }
+  }
 
   pending.resolve(action);
   return true;
