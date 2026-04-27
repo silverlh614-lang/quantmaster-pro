@@ -30,7 +30,7 @@ export async function legacyTakeProfit(ctx: ExitContext): Promise<ExitRuleResult
   });
   console.log(`[Shadow Close] TARGET_EXIT — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
   appendShadowLog({ event: 'HIT_TARGET', ...shadow, soldQty });
-  console.log(`[AutoTrade] ✅ ${shadow.stockName} 목표가 달성 +${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
+  console.log(`[AutoTrade] ✅ ${shadow.stockName} (${shadow.stockCode}) 목표가 달성 +${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
   const targetRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'TAKE_PROFIT');
   const targetTs = new Date().toISOString();
   const targetReserve = reserveSell(shadow, targetRes, {

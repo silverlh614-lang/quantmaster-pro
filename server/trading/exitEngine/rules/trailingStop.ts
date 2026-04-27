@@ -36,7 +36,7 @@ export async function trailingStop(ctx: ExitContext): Promise<ExitRuleResult> {
   });
   console.log(`[Shadow Close] TRAILING_PROTECTIVE_STOP — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
   appendShadowLog({ event: 'TRAILING_STOP', ...shadow, soldQty });
-  console.log(`[AutoTrade] 📉 ${shadow.stockName} L3 트레일링 스톱 (HWM×${(1 - (shadow.trailPct ?? 0.10)).toFixed(2)}) @${currentPrice.toLocaleString()}`);
+  console.log(`[AutoTrade] 📉 ${shadow.stockName} (${shadow.stockCode}) L3 트레일링 스톱 (HWM×${(1 - (shadow.trailPct ?? 0.10)).toFixed(2)}) @${currentPrice.toLocaleString()}`);
   const trailRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'TAKE_PROFIT');
   const trailTs = new Date().toISOString();
   const trailReserve = reserveSell(shadow, trailRes, {

@@ -26,6 +26,22 @@ const DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h
 /** signature → lastSentAt (epoch ms). 프로세스 재시작 시 초기화 (MVP). */
 const lastSent = new Map<string, number>();
 
+/**
+ * Telegram HTML 모드 escape — `<b>...` 헤더는 빌더가 직접 구성하고 사용자 입력
+ * 5필드(moduleKey/title/rationale/currentValue/suggestedValue/threshold) 만 통과시킨다.
+ * `&` 가 가장 먼저여야 한다 (다른 치환 결과가 다시 entity 로 오해되지 않도록).
+ *
+ * 누수 사례 (2026-04-27): regimeBalancedSampler 의 title 이 "& dry", threshold 가
+ * "current/target<50% & ..." 로 `<` `&` 를 그대로 통과시켜 Telegram HTML 파싱이
+ * 실패하고 plain text 로 강등됐다. ADR-0007 학습 알림 가시성 결함.
+ */
+export function escapeSuggestHtml(s: string): string {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 /** 환경변수 `LEARNING_SUGGEST_ENABLED='false'` 만 disable. 기본 on. */
 export function isSuggestEnabled(): boolean {
   return process.env.LEARNING_SUGGEST_ENABLED !== 'false';
@@ -50,12 +66,12 @@ export async function sendSuggestAlert(payload: SuggestPayload): Promise<boolean
   }
 
   const message =
-    `💡 <b>학습 모듈 Suggest — ${payload.moduleKey}</b>\n` +
-    `${payload.title}\n` +
-    `근거: ${payload.rationale}\n` +
-    `현재: ${payload.currentValue}\n` +
-    `권고: ${payload.suggestedValue}\n` +
-    `임계: ${payload.threshold}\n` +
+    `💡 <b>학습 모듈 Suggest — ${escapeSuggestHtml(payload.moduleKey)}</b>\n` +
+    `${escapeSuggestHtml(payload.title)}\n` +
+    `근거: ${escapeSuggestHtml(payload.rationale)}\n` +
+    `현재: ${escapeSuggestHtml(payload.currentValue)}\n` +
+    `권고: ${escapeSuggestHtml(payload.suggestedValue)}\n` +
+    `임계: ${escapeSuggestHtml(payload.threshold)}\n` +
     `반영: 수동 (/accept-suggest 는 Phase 2)`;
 
   try {

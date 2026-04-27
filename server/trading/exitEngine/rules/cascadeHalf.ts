@@ -23,7 +23,7 @@ export async function cascadeHalf(ctx: ExitContext): Promise<ExitRuleResult> {
   shadow.halfSoldAt  = new Date().toISOString();
   shadow.exitRuleTag = 'CASCADE_HALF_SELL';
   appendShadowLog({ event: 'CASCADE_HALF_SELL', ...shadow, soldQty: halfQty, returnPct });
-  console.log(`[AutoTrade] 🔶 ${shadow.stockName} Cascade -15% — 반매도 ${halfQty}주 (잔여 ${shadow.quantity - halfQty}주)`);
+  console.log(`[AutoTrade] 🔶 ${shadow.stockName} (${shadow.stockCode}) Cascade -15% — 반매도 ${halfQty}주 (잔여 ${shadow.quantity - halfQty}주)`);
   const cascadeHalfRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'STOP_LOSS');
   const cascadeHalfTs = new Date().toISOString();
   const cascadeHalfReserve = reserveSell(shadow, cascadeHalfRes, {

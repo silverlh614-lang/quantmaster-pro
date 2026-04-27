@@ -69,7 +69,7 @@ export async function hardStopLoss(ctx: ExitContext): Promise<ExitRuleResult> {
       }
     }
   }
-  console.log(`[AutoTrade] ❌ ${shadow.stockName} 하드 스톱(${stopLossExitType}) ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
+  console.log(`[AutoTrade] ❌ ${shadow.stockName} (${shadow.stockCode}) 하드 스톱(${stopLossExitType}) ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
   const hardStopRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'STOP_LOSS');
   const hardStopTs = new Date().toISOString();
   const hardStopReserve = reserveSell(shadow, hardStopRes, {

@@ -9,6 +9,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import {
   sendSuggestAlert,
   isSuggestEnabled,
+  escapeSuggestHtml,
   __resetSuggestDedupeForTests,
   type SuggestPayload,
 } from './suggestNotifier.js';
@@ -96,5 +97,72 @@ describe('suggestNotifier', () => {
     expect(second).toBe(true);
     expect(mockSendAlert).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
+  });
+
+  // ── HTML escape (2026-04-27 사용자 보고: regimeCoverage suggest HTML 파싱 실패) ──
+
+  describe('escapeSuggestHtml', () => {
+    it('& 를 &amp; 로 치환 (entity 미완성 차단)', () => {
+      expect(escapeSuggestHtml('샘플 부족 & dry')).toBe('샘플 부족 &amp; dry');
+    });
+
+    it('< 를 &lt; 로 치환 (잘못된 태그 차단)', () => {
+      expect(escapeSuggestHtml('current/target<50%')).toBe('current/target&lt;50%');
+    });
+
+    it('> 를 &gt; 로 치환 (대칭)', () => {
+      expect(escapeSuggestHtml('a>b')).toBe('a&gt;b');
+    });
+
+    it('& 를 가장 먼저 치환 (이미 escape 된 결과가 다시 치환되지 않도록)', () => {
+      expect(escapeSuggestHtml('a & <b>')).toBe('a &amp; &lt;b&gt;');
+    });
+
+    it('치환 대상이 없으면 그대로 반환', () => {
+      expect(escapeSuggestHtml('정상 텍스트 50%')).toBe('정상 텍스트 50%');
+    });
+
+    it('빈 문자열 안전', () => {
+      expect(escapeSuggestHtml('')).toBe('');
+    });
+  });
+
+  it('regimeCoverage 사용자 보고 시나리오: title "& dry" + threshold "<50% & ..." 모두 escape', async () => {
+    // 2026-04-27 Railway 로그 재현 — regimeBalancedSampler 가 보낸 실제 페이로드.
+    await sendSuggestAlert(mkPayload({
+      moduleKey: 'regimeCoverage',
+      signature: 'regime-R5_CAUTION-2026-04-27',
+      title: '레짐 R5_CAUTION 샘플 부족 & 14일 dry',
+      threshold: 'current/target<50% & 14일 dry',
+    }));
+    expect(mockSendAlert).toHaveBeenCalledTimes(1);
+    const [message] = mockSendAlert.mock.calls[0];
+    // 본문에 raw '<' '&' 가 그대로 남으면 파싱 실패 → escape 통과 확인.
+    expect(message).not.toContain('current/target<50%');
+    expect(message).not.toContain('샘플 부족 & 14일');
+    expect(message).toContain('current/target&lt;50%');
+    expect(message).toContain('샘플 부족 &amp; 14일');
+    // <b>...</b> 헤더는 빌더가 직접 구성하므로 그대로 보존.
+    expect(message).toContain('<b>학습 모듈 Suggest — regimeCoverage</b>');
+  });
+
+  it('moduleKey 자체에는 특수문자가 없지만 escape 통과 (회귀 가드)', async () => {
+    await sendSuggestAlert(mkPayload({ moduleKey: 'kellySurface' }));
+    const [message] = mockSendAlert.mock.calls[0];
+    // kellySurface 가 잘못 escape 되면 텍스트가 깨짐.
+    expect(message).toContain('<b>학습 모듈 Suggest — kellySurface</b>');
+  });
+
+  it('rationale/currentValue/suggestedValue 도 escape 통과', async () => {
+    await sendSuggestAlert(mkPayload({
+      rationale: '샘플 45 & ratio<0.84',
+      currentValue: 'Gate ≥ 7 & RRR > 2',
+      suggestedValue: 'Gate ≥ 6 & RRR > 1.8',
+    }));
+    const [message] = mockSendAlert.mock.calls[0];
+    expect(message).not.toContain('& ratio<');
+    expect(message).toContain('&amp; ratio&lt;');
+    expect(message).not.toContain('Gate ≥ 7 & RRR > 2');
+    expect(message).toContain('Gate ≥ 7 &amp; RRR &gt; 2');
   });
 });

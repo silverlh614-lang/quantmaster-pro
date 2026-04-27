@@ -243,6 +243,21 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
   // 청산된 종목이 있으면 다음 tick으로 밀어 learningOrchestrator.onShadowResolved를 트리거.
   // KIS API 부담 최소화를 위해 종목당 1건씩 순차 처리 (Promise.all 미사용).
   if (resolvedNow.size > 0) {
+    // 사이클 요약 stdout — Railway 로그에서 청산 결과를 1줄로 즉시 인지.
+    // 2026-04-27 진단 갭 해소: 텔레그램에만 종목명, stdout 미노출이라 운영자가 손절 종목 식별 불가능.
+    const closedCodes = Array.from(resolvedNow);
+    const targetHits = shadows.filter(s => closedCodes.includes(s.stockCode) && (s.status as string) === 'HIT_TARGET');
+    const stopHits = shadows.filter(s => closedCodes.includes(s.stockCode) && (s.status as string) === 'HIT_STOP');
+    const activeRemaining = shadows.filter(s => s.status === 'ACTIVE' || s.status === 'PARTIALLY_FILLED' || s.status === 'EUPHORIA_PARTIAL').length;
+    const summaryParts: string[] = [];
+    if (stopHits.length > 0) {
+      summaryParts.push(`HIT_STOP ${stopHits.length}건 [${stopHits.map(s => `${s.stockName}(${s.stockCode})`).join(', ')}]`);
+    }
+    if (targetHits.length > 0) {
+      summaryParts.push(`HIT_TARGET ${targetHits.length}건 [${targetHits.map(s => `${s.stockName}(${s.stockCode})`).join(', ')}]`);
+    }
+    console.log(`[ExitEngine] 청산 사이클 요약: ${summaryParts.join(' | ')} | 잔여 활성 ${activeRemaining}개`);
+
     // 슬롯이 회복되었으므로 다음 INTRADAY tick 에서 interval/backoff 를 우회해 즉시 재스캔한다.
     // (기존에는 최대 10분 뒤 다음 decideScan() 까지 빈 슬롯이 방치됨)
     requestImmediateRescan(`exitEngine 청산 ${resolvedNow.size}건 (${Array.from(resolvedNow).join(',')})`);
