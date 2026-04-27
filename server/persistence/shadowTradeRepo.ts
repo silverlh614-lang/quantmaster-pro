@@ -6,6 +6,7 @@
  */
 import fs from 'fs';
 import { SHADOW_FILE, SHADOW_LOG_FILE, ensureDataDir } from './paths.js';
+import { getSectorByCode } from '../screener/sectorMap.js';
 
 // ─── Fill(체결 이벤트) 모델 ────────────────────────────────────────────────────
 
@@ -424,6 +425,12 @@ export interface ServerShadowTrade {
   targetPrice: number;
   /** 거래 모드: 'LIVE' = 실주문, 'SHADOW' = 가상 추적 */
   mode?: 'LIVE' | 'SHADOW';
+  /**
+   * 매수 시점 결정적 섹터 라벨 (getSectorByCode 결과). 진입 후 변경되지 않음.
+   * sectorConcentrationGate / SectorStocksDrilldown 등 섹터 매칭 SSOT.
+   * 레거시 trade 는 loadShadowTrades 진입 시 lazy 백필로 채워진다.
+   */
+  sector?: string;
   status: 'PENDING' | 'ORDER_SUBMITTED' | 'PARTIALLY_FILLED' | 'ACTIVE' | 'REJECTED' | 'HIT_TARGET' | 'HIT_STOP' | 'EUPHORIA_PARTIAL';
   exitPrice?: number;
   exitTime?: string;
@@ -571,7 +578,18 @@ export function loadShadowTrades(): ServerShadowTrade[] {
   ensureDataDir();
   if (!fs.existsSync(SHADOW_FILE)) return [];
   try {
-    return JSON.parse(fs.readFileSync(SHADOW_FILE, 'utf-8'));
+    const arr: ServerShadowTrade[] = JSON.parse(fs.readFileSync(SHADOW_FILE, 'utf-8'));
+    // ADR-0060 lazy backfill — 레거시 trade(sector 미보유) 는 진입 시점에 1회 채움.
+    // 디스크 저장은 다음 saveShadowTrades 호출 시 자연 영속.
+    // KIS/KRX 호출 0 (sectorMap 은 인메모리 lookup). 결정적 라벨이라 중복 호출 안전.
+    for (const t of arr) {
+      if (!t.sector) {
+        const resolved = getSectorByCode(t.stockCode);
+        // getSectorByCode 는 항상 string 반환 ('미분류' fallback 포함). 빈 문자열만 가드.
+        if (resolved) t.sector = resolved;
+      }
+    }
+    return arr;
   } catch {
     return [];
   }

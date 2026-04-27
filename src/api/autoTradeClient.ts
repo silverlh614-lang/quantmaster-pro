@@ -263,6 +263,8 @@ export interface ServerShadowTrade {
   id?: string;
   stockCode: string;
   stockName: string;
+  /** 매수 시점 결정적 섹터 라벨 (서버 getSectorByCode SSOT 박제값, ADR-0060). 진입 후 변경되지 않음. */
+  sector?: string;
   status: 'PENDING' | 'ACTIVE' | 'HIT_TARGET' | 'HIT_STOP' | 'REJECTED' | string;
   signalTime: string;
   signalPrice?: number;
