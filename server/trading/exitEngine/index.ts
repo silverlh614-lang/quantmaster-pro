@@ -46,6 +46,7 @@ import { trailingStop } from './rules/trailingStop.js';
 import { legacyTakeProfit } from './rules/legacyTakeProfit.js';
 import { cascadeHalf } from './rules/cascadeHalf.js';
 import { cascadeWarn } from './rules/cascadeWarn.js';
+import { entryCircuitBreaker } from './rules/entryCircuitBreaker.js';
 import { rrrCollapseExit } from './rules/rrrCollapseExit.js';
 import { bearishDivergenceExit } from './rules/bearishDivergenceExit.js';
 import { ma60DeathWatch } from './rules/ma60DeathWatch.js';
@@ -71,11 +72,12 @@ const EXIT_RULES_IN_ORDER: ExitRule[] = [
   legacyTakeProfit,         // 9. TARGET_EXIT (트랜치 미설정 fallback)
   cascadeHalf,              // 10. -15% 50% 반매도
   cascadeWarn,              // 11. -7% 추가매수 차단
-  rrrCollapseExit,          // 12. RRR 붕괴 50%
-  bearishDivergenceExit,    // 13. 하락 다이버전스 30%
-  ma60DeathWatch,           // 14. MA60 역배열 최초 감지 (5영업일 스케줄)
-  stopApproachAlert,        // 15. 손절 접근 3단계 경보
-  euphoriaPartialExit,      // 16. 과열 50%
+  entryCircuitBreaker,      // 12. ADR-0072: 진입 1h 이내 -5% 50% 즉시 청산
+  rrrCollapseExit,          // 13. RRR 붕괴 50%
+  bearishDivergenceExit,    // 14. 하락 다이버전스 30%
+  ma60DeathWatch,           // 15. MA60 역배열 최초 감지 (5영업일 스케줄)
+  stopApproachAlert,        // 16. 손절 접근 3단계 경보
+  euphoriaPartialExit,      // 17. 과열 50%
 ];
 
 // PR-6 #12: 동시 실행 방지 뮤텍스.

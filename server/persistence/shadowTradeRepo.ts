@@ -362,6 +362,7 @@ export type ExitRuleTag =
   | 'MA60_DEATH_WATCH'           // priority 12 — 60일선 역배열 최초 감지: 유예 스케줄만 설정
   | 'STOP_APPROACH_ALERT'        // priority 13
   | 'EUPHORIA_PARTIAL'           // priority 14
+  | 'ENTRY_CIRCUIT_BREAKER'      // priority 9.5 — 매수 직후 1h 이내 -5% 급락 50% 즉시 청산 (ADR-0072)
   | 'FOMC_DAY_LIQUIDATION'       // priority 50 — FOMC 발표 당일 14:30 KST 평일 자동 전량 청산 (ADR-0061)
                                  //                fomcDayLiquidation.liquidateAllForFomc() 단일 진입점 — 자동 평가 루프 제외.
   | 'MANUAL_EXIT';               // priority 99 — "규칙 외" 수동 청산 (Telegram /sell, UI 수동 매도)
@@ -441,6 +442,12 @@ export interface ServerShadowTrade {
   originalQuantity?: number; // 최초 진입 수량 — EUPHORIA 부분 매도 후 실보유 추적용
   cascadeStep?: 0 | 1 | 2;  // 0=없음, 1=-7% 경고, 2=-15% 반매도
   addBuyBlocked?: boolean;   // -7% 이후 추가 매수 차단 플래그
+  /**
+   * Entry Circuit Breaker 발동 여부 (ADR-0072) — 1회성 가드.
+   * true 면 매수 직후 1h 이내 -5% 50% 청산 규칙이 이미 발동된 종목.
+   * 재발동 차단 + 학습 격리 (exitRuleTag='ENTRY_CIRCUIT_BREAKER').
+   */
+  entryCircuitTriggered?: boolean;
   halfSoldAt?: string;       // -15% 반매도 시각 (ISO)
   stopApproachAlerted?: boolean; // 손절가 5% 이내 접근 경고 발송 여부 (레거시 — stopApproachStage로 대체)
   /** 손절 접근 3단계 경보 단계: 0=없음, 1=접근(-5%), 2=임박(-3%), 3=집행임박(-1%) */
