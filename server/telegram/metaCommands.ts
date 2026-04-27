@@ -18,6 +18,7 @@ import {
 import { getRemainingQty } from '../persistence/shadowTradeRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
 import { getLastBuySignalAt } from '../trading/signalScanner.js';
+import { commandRegistry } from './commandRegistry.js';
 
 // ── Telegram inline keyboard 형태 ────────────────────────────────────────────
 
@@ -420,4 +421,76 @@ export function buildBotMenuCommands(): BotMenuCommand[] {
   }
 
   return entries;
+}
+
+/** Telegram setMyCommands 최대 명령 수 (BotFather API 한도). */
+const TELEGRAM_MAX_COMMANDS = 100;
+
+/**
+ * 자동완성 확장판 메뉴 페이로드 (긴급패치 2026-04-26).
+ *
+ * 사용자 요청 "/ 을 누르면 명령어 목록 호출" — Telegram 클라이언트는 setMyCommands
+ * 결과를 슬래시 입력 자동완성으로 표시한다. 본 함수는 기존 8개 메타 (`buildBotMenuCommands`)
+ * 위에 commandRegistry 등록 명령어를 모두 합쳐 자동완성에 노출한다.
+ *
+ * 정책:
+ *   1. FIXED prelude (`/help /status /now`) 3개 — 항상 첫머리 (사용자 시각 우선순위).
+ *   2. META 메뉴 5개 (`/watch /positions /learning /control /admin`) — 카테고리 진입점.
+ *   3. commandRegistry.all() 의 모든 unique 명령 — 정식 name 만 사용 (alias 중복 제외).
+ *      카테고리별 정렬 (SYS → MKT → WL → POS → TRD → LRN → ALR → EMR), 동일 카테고리 내
+ *      알파벳순. visibility=HIDDEN 도 포함 (자동완성 SSOT).
+ *   4. dedupe — prelude/meta 와 동일 command 명은 1번에서 이미 노출됐으므로 스킵.
+ *   5. Telegram 100 한도 초과 시 절삭 + warning.
+ *
+ * **호출 시점 의존성**: commandRegistry 는 import 시 .cmd.ts 파일들이 register 호출하므로
+ * 본 함수 호출 전에 commands/<group>/index.ts barrel 이 import 되어 있어야 한다.
+ * server 부팅 흐름에서 `systemRouter` → `webhookHandler.ts` → 8개 barrel import 가
+ * 자동 보장하므로 `setTelegramBotCommands()` 호출 시점엔 안전.
+ *
+ * @throws META 키 drift 또는 Telegram 제약 위반 시 (buildBotMenuCommands 와 동일 SSOT 재사용).
+ */
+export function buildBotMenuCommandsExtended(): BotMenuCommand[] {
+  // 베이스 = prelude(3) + meta(5) — 기존 검증 통과.
+  const base = buildBotMenuCommands();
+  const seen = new Set(base.map((e) => e.command));
+
+  // commandRegistry 카테고리 정렬 우선순위 SSOT (자동완성 가시성 최적화).
+  const categoryOrder: Record<string, number> = {
+    SYS: 0, MKT: 1, WL: 2, POS: 3, TRD: 4, LRN: 5, ALR: 6, EMR: 7,
+  };
+
+  // 정식 name 만 사용 (alias 중복 노출 차단). all() 이 unique instance 반환.
+  const registryEntries = commandRegistry
+    .all()
+    .map((cmd) => {
+      const command = cmd.name.replace(/^\//, '').toLowerCase();
+      // Telegram 제약 — `/^[a-z0-9_]{1,32}$/` 미매치는 안전하게 스킵 (등록 시점에도 검증 의무).
+      if (!/^[a-z0-9_]{1,32}$/.test(command)) return null;
+      const desc = (cmd.description ?? '').slice(0, 256).trim();
+      // description 비어있는 경우 카테고리 라벨 fallback (자동완성 가독성 우선).
+      const description = desc.length > 0 ? desc : `[${cmd.category}] 명령`;
+      return {
+        command,
+        description,
+        sortKey: (categoryOrder[cmd.category] ?? 99) * 1000,
+      };
+    })
+    .filter((e): e is { command: string; description: string; sortKey: number } => e !== null)
+    .filter((e) => !seen.has(e.command))
+    // 카테고리 우선, 동일 카테고리 내 알파벳순.
+    .sort((a, b) => a.sortKey - b.sortKey || a.command.localeCompare(b.command))
+    .map(({ command, description }) => ({ command, description }));
+
+  const merged: BotMenuCommand[] = [...base, ...registryEntries];
+
+  // Telegram 한도(100) 초과 시 절삭 — base 는 항상 보존하고 registry tail 만 자른다.
+  if (merged.length > TELEGRAM_MAX_COMMANDS) {
+    console.warn(
+      `[buildBotMenuCommandsExtended] Telegram setMyCommands 한도 ${TELEGRAM_MAX_COMMANDS} 초과 ` +
+      `— ${merged.length - TELEGRAM_MAX_COMMANDS}개 절삭 (registry tail).`,
+    );
+    merged.length = TELEGRAM_MAX_COMMANDS;
+  }
+
+  return merged;
 }

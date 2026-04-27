@@ -329,7 +329,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   }
 
   // ── FOMC 게이팅 ───────────────────────────────────────────────────────────
-  const fomcProximity = getFomcProximity();
+  // v2 (2026-04-26): macroState 를 전달해 PRE_1/DAY 에서도 우호 환경 시 보수적 진입 허용.
+  const fomcProximity = getFomcProximity(
+    macroState
+      ? {
+          mhs: macroState.mhs,
+          regime: regime ?? macroState.regime,
+          vkospi: macroState.vkospi,
+        }
+      : undefined,
+  );
   if (fomcProximity.noNewEntry) {
     console.warn(`[AutoTrade] FOMC 게이팅 — 신규 진입 차단: ${fomcProximity.description}`);
     await sendTelegramAlert(

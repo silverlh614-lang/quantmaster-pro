@@ -48,6 +48,8 @@ export function formatHealthMessage(s: HealthSnapshot, p: HealthProbeResult): st
     `KIS 토큰: ${s.kisTokenHours > 0 ? `✅ ${s.kisTokenHours}시간 남음` : '❌ 만료'}` +
     (s.realDataTokenHours > 0 ? ` | 실데이터: ✅ ${s.realDataTokenHours}h` : '') +
     `\n` +
+    `KRX OpenAPI: ${formatKrxStatusLine(s)}\n` +
+    `공매도 출처: ${formatShortSellingSourceLine(s)}\n` +
     `Yahoo probe: ${probeLabel(p.yahoo)}\n` +
     `DART probe: ${probeLabel(p.dart)}\n` +
     `Gemini: ${s.geminiRuntime.status}${s.geminiRuntime.reason ? ` (${s.geminiRuntime.reason})` : ''}\n` +
@@ -85,6 +87,78 @@ function formatKstHm(ts: number, fallback = '미실행'): string {
     timeZone: 'Asia/Seoul',
     hour: '2-digit',
     minute: '2-digit',
+  });
+}
+
+/**
+ * KRX OpenAPI 회로 상태 라벨 SSOT — 5 분기.
+ *
+ * 우선순위:
+ *   1. AUTH_KEY 미설정 → ⚠️ (회로 카운트 표시 무의미)
+ *   2. 회로 OPEN       → ❌ (Tier-1 차단)
+ *   3. 회로 HALF_OPEN  → 🟡 (재시도 중)
+ *   4. 회로 CLOSED + krxTokenValid=true  → ✅ 정상
+ *   5. 회로 CLOSED + krxTokenValid=false → 🟡 비활성 (DISABLED env 등)
+ *
+ * 외부 export — 단위 테스트 + 회귀 가드용.
+ */
+export function formatKrxStatusLine(s: HealthSnapshot): string {
+  if (!s.krxTokenConfigured) {
+    return '⚠️ 토큰 미설정 (KRX_OPEN_API_AUTH_KEY)';
+  }
+  const failures = s.krxFailures;
+  const failSuffix = `(실패 ${failures}회)`;
+  switch (s.krxCircuitState) {
+    case 'OPEN':
+      return `❌ 회로 OPEN ${failSuffix}`;
+    case 'HALF_OPEN':
+      return `🟡 회복 중 ${failSuffix}`;
+    case 'CLOSED':
+      return s.krxTokenValid
+        ? `✅ 정상 ${failSuffix}`
+        : `🟡 비활성 ${failSuffix}`;
+    default:
+      return `? ${s.krxCircuitState} ${failSuffix}`;
+  }
+}
+
+/**
+ * 공매도 비율 데이터 출처 라벨 SSOT — Phase 1 운영 가시화.
+ *
+ * 우선순위:
+ *   1. shortSellingSource 미수집 (부팅 직후 또는 오래된 운영) → "? 미수집"
+ *   2. KRX_DIRECT  → ✅ KRX 직접 (가장 신뢰도 높음)
+ *   3. KRX_OTP     → 🟡 KRX OTP 폴백 (정상 fallback, 정확도 동일)
+ *   4. KIS_ESTIMATE → ⚠️ KIS 추정값 (KRX 두 경로 모두 실패, 근사값)
+ *   + fetchedAt 이 있으면 KST 시각 ("HH:MM") 부착
+ */
+export function formatShortSellingSourceLine(s: HealthSnapshot): string {
+  if (!s.shortSellingSource) return '? 미수집';
+  const time = formatShortSellingFetchedAt(s.shortSellingFetchedAt);
+  const suffix = time ? ` (${time})` : '';
+  switch (s.shortSellingSource) {
+    case 'KRX_DIRECT':
+      return `✅ KRX 직접${suffix}`;
+    case 'KRX_OTP':
+      return `🟡 KRX OTP 폴백${suffix}`;
+    case 'KIS_ESTIMATE':
+      return `⚠️ KIS 추정값${suffix}`;
+    default: {
+      const exhaustive: never = s.shortSellingSource;
+      return `? ${exhaustive as string}${suffix}`;
+    }
+  }
+}
+
+function formatShortSellingFetchedAt(iso: string | undefined): string {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  return new Date(t).toLocaleTimeString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false, // "23:30" — ko-KR 기본 hour12=true("PM 11:30") 회피
   });
 }
 

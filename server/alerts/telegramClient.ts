@@ -3,20 +3,19 @@
  * Telegram Bot API — setMyCommands로 봇 메뉴에 명령어 목록 등록
  * 서버 기동 시 1회 호출하면 Telegram 앱에서 '/' 입력 시 자동완성 메뉴가 표시된다.
  *
- * 메뉴 SSOT 는 `metaCommands.buildBotMenuCommands()` — META_COMMAND_REGISTRY 에
- * 메타 추가 시 자동 갱신된다. 본 함수에서 직접 명령어 배열을 하드코딩하지 말 것
- * (drift 재발 차단).
+ * 긴급패치(2026-04-26): 사용자 요청 "/ 누르면 명령어 목록 호출" 충족을 위해
+ * `buildBotMenuCommandsExtended()` 사용 — 기존 8개 메타 + commandRegistry 의 모든
+ * 51개 alias 자동완성 노출. ADR-0017 Stage 1 의 8개 압축 정책은 메타 메뉴 자체에는
+ * 그대로 유지되며 (`buildBotMenuCommands()` 회귀 테스트 그대로 통과), 자동완성에만
+ * 전체 명령어가 표시된다.
  */
 export async function setTelegramBotCommands(): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
 
-  // ADR-0017 Stage 1 — 메뉴 노출은 메타 명령어 + /help /status /now 8개 (43→8).
-  // 기존 51개 alias 는 webhookHandler.ts switch / commandRegistry 에서 100% 보존
-  // 되어 직접 입력으로 사용 가능. 메타 명령어 핸들러는 metaCommands.ts.
   let commands;
   try {
-    commands = buildBotMenuCommands();
+    commands = buildBotMenuCommandsExtended();
   } catch (e: unknown) {
     console.error('[Telegram] setMyCommands 빌드 실패:', e instanceof Error ? e.message : e);
     return;
@@ -75,7 +74,7 @@ import {
   isUnifiedBriefingActive,
   shouldBypassCapture,
 } from './unifiedBriefing.js';
-import { buildBotMenuCommands } from '../telegram/metaCommands.js';
+import { buildBotMenuCommandsExtended } from '../telegram/metaCommands.js';
 export type { AlertTier } from './alertTiers.js';
 
 interface AlertCooldownEntry {

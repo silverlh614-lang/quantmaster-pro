@@ -23,6 +23,7 @@ export interface ScheduleEntry {
 
 export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   // ── 리포트 (Telegram 송출 중심) ────────────────────────────────────────────
+  { timeKst: '06:00', label: '글로벌 스캔 에이전트', group: 'screener', jobName: 'global_scan_agent', silentWhen: 'Yahoo 미국 지수·섹터 ETF 종합 스캔 — KR 휴장 무관 ALWAYS_ON' },
   { timeKst: '06:15', label: '미 섹터 ETF 모멘텀 스캔', group: 'reports', jobName: 'sector_etf_momentum' },
   { timeKst: '07:30', label: '외국인 수급 선행 경보', group: 'alerts', jobName: 'foreign_flow_leading', silentWhen: 'EWY·DXY·외인 3축 합치하지 않으면 무음' },
   { timeKst: '08:30', label: '장전 방향 카드', group: 'alerts', jobName: 'pre_market_card', silentWhen: '|Bias Score| < 40 (NEUTRAL) 이면 무음 — BULL/BEAR 일에만 발송' },

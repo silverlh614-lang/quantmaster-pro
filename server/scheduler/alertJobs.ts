@@ -20,6 +20,7 @@ import { checkForeignFlowLeadingAlert } from '../alerts/foreignFlowLeadingAlert.
 import { runHolidayResumeAlert } from '../trading/holidayResumeAlert.js';
 import { runMacroDigest } from '../alerts/macroDigestReport.js';
 import { runWeeklySelfCritique } from '../alerts/weeklySelfCritiqueReport.js';
+import { withForcedMarket } from '../utils/forceMarketGuard.js';
 
 export function registerAlertJobs(): void {
   // DART 공시 30분 폴링 — 장중 08:30~18:00 KST. PR-B-2: TRADING_DAY_ONLY.
@@ -47,9 +48,10 @@ export function registerAlertJobs(): void {
   scheduledJob('0 0 * * 1-5', 'TRADING_DAY_ONLY', 'mhs_morning_alert',
     () => pollMhsMorningAlert(), { timezone: 'UTC' });
 
-  // ADR 역산 갭 모니터 — 평일 08:35 KST (UTC 23:35, 일~목).
+  // ADR 역산 갭 모니터 — 평일 08:35 KST (UTC 23:35, 일~목). 한국 장 25분 전 → withForcedMarket
+  // 으로 시간대 게이트 우회 (KIS 회로/블랙리스트는 그대로 보호).
   scheduledJob('35 23 * * 0-4', 'TRADING_DAY_ONLY', 'adr_gap_scan',
-    () => runAdrGapScan(), { timezone: 'UTC' });
+    () => withForcedMarket(() => runAdrGapScan()), { timezone: 'UTC' });
 
   // 외국인 수급 선행 경보 — 평일 07:30 KST (UTC 22:30, 일~목).
   scheduledJob('30 22 * * 0-4', 'TRADING_DAY_ONLY', 'foreign_flow_leading',
@@ -79,9 +81,9 @@ export function registerAlertJobs(): void {
     () => runDxyIntradayMonitor(), { timezone: 'UTC' });
 
   // 미 섹터 ETF 30분봉 모멘텀 교차 스캔 — 평일 06:15 KST (UTC 21:15 일~목).
-  // PR-B-2: ALWAYS_ON — 미국 ETF (KR 휴장 무관).
+  // PR-B-2: ALWAYS_ON — 미국 ETF (KR 휴장 무관). withForcedMarket 으로 시간대 게이트 우회.
   scheduledJob('15 21 * * 0-4', 'ALWAYS_ON', 'sector_etf_momentum',
-    () => runSectorEtfMomentumScan(), { timezone: 'UTC' });
+    () => withForcedMarket(() => runSectorEtfMomentumScan()), { timezone: 'UTC' });
 
   // IPYL — 장중 30분마다 Pipeline Yield 스냅샷 갱신.
   // PR-B-2: TRADING_DAY_ONLY — 평일 KST 09:00~15:30 장중 캐시 갱신.

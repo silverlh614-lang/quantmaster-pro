@@ -80,6 +80,24 @@ function parsePct(v: unknown): number | null {
 }
 
 /**
+ * 공매도 비율 데이터 출처 — Phase 1 운영 가시화.
+ *
+ *   - KRX_DIRECT   : KRX 공개 JSON 직접 호출 성공 (가장 신뢰도 높음)
+ *   - KRX_OTP      : KRX OTP-token 부트스트랩 후 재호출 성공 (정상 fallback)
+ *   - KIS_ESTIMATE : KRX 두 경로 모두 실패 → KIS 잔고 상위 가중 평균 추정 (근사값)
+ */
+export type ShortSellingSource = 'KRX_DIRECT' | 'KRX_OTP' | 'KIS_ESTIMATE';
+
+export interface ShortSellingResult {
+  /** 공매도 비율 (%) */
+  ratio: number;
+  /** 어느 fallback 단계에서 데이터를 얻었는지 */
+  source: ShortSellingSource;
+  /** 조회 성공 시각 (ISO) — 운영자가 신선도 확인 */
+  fetchedAt: string;
+}
+
+/**
  * KRX 공매도 비율 조회 — 다단계 폴백 체인.
  *
  *   1) KRX 공개 JSON (referer + User-Agent)              ← 1차 (가장 단순, 가장 잘 깨짐)
@@ -87,17 +105,22 @@ function parsePct(v: unknown): number | null {
  *   3) KIS 공매도 잔고 상위(FHPST04020000) 가중 평균 추정 ← 3차 (직접 비율 X — 추정값)
  *
  * 모두 실패하면 null. macroState 의 shortSellingRatio 는 "기존 값 유지" 정책.
+ *
+ * Phase 1 — 반환값에 source 라벨 부착하여 운영자가 어느 fallback 이 작동 중인지 인지.
+ * 본 데이터는 macroState 에 영속(`shortSellingSource`) → /health 에 노출.
  */
-export async function fetchKrxShortSelling(): Promise<number | null> {
+export async function fetchKrxShortSelling(): Promise<ShortSellingResult | null> {
+  const fetchedAt = new Date().toISOString();
+
   // ── 1차: 단순 공개 JSON ─────────────────────────────────────
   const direct = await tryKrxShortDirect();
-  if (direct != null) return direct;
+  if (direct != null) return { ratio: direct, source: 'KRX_DIRECT', fetchedAt };
 
   // ── 2차: OTP-token 부트스트랩 후 재시도 ────────────────────
   // KRX 공개 페이지는 비정기적으로 호출자 검증을 강화한다. generate.cmd 가
   // 발급한 짧은 토큰을 form data 에 OTP 로 함께 보내면 통과하는 케이스가 있다.
   const viaOtp = await tryKrxShortViaOtp();
-  if (viaOtp != null) return viaOtp;
+  if (viaOtp != null) return { ratio: viaOtp, source: 'KRX_OTP', fetchedAt };
 
   // ── 3차: KIS 공매도 잔고 상위 → 가중 평균 추정 ────────────
   // 정확한 "전체 시장 비율" 은 아니지만, top 30 종목의 BAL_QTY/시총 가중 평균은
@@ -105,7 +128,7 @@ export async function fetchKrxShortSelling(): Promise<number | null> {
   const viaKis = await tryKrxShortViaKisRanking();
   if (viaKis != null) {
     console.log(`[MarketRefresh] KRX 공매도 비율 KIS 폴백 추정값: ${viaKis.toFixed(2)}% (top 30 가중 평균)`);
-    return viaKis;
+    return { ratio: viaKis, source: 'KIS_ESTIMATE', fetchedAt };
   }
 
   return null;
@@ -279,7 +302,7 @@ export async function fetchDailyBars(symbol: string, range: string): Promise<Dai
     try {
       const ctrl = new AbortController();
       const tid  = setTimeout(() => ctrl.abort(), 12000);
-      const res  = await guardedFetch(url, { headers: YF_HEADERS, signal: ctrl.signal });
+      const res  = await guardedFetch(url, { headers: YF_HEADERS, signal: ctrl.signal }, 'HISTORICAL');
       clearTimeout(tid);
       if (!res.ok) continue;
       const data = await res.json();
@@ -370,14 +393,14 @@ function computeFssVars(): { foreignNetBuy5d: number; passiveActiveBoth: boolean
  * 시장 지표를 Yahoo Finance + FSS에서 계산해 MacroState에 MERGE 저장.
  * 실패한 개별 지표는 기존 값 유지.
  */
-export async function refreshMarketRegimeVars(): Promise<Record<string, number | boolean | null>> {
+export async function refreshMarketRegimeVars(): Promise<Record<string, number | boolean | string | null>> {
   const existing = loadMacroState();
   if (!existing) {
     console.warn('[MarketRefresh] MacroState 없음 — MHS를 먼저 POST /macro/state로 초기화하세요');
     return {};
   }
 
-  const computed: Record<string, number | boolean | null> = {};
+  const computed: Record<string, number | boolean | string | null> = {};
 
   // ── ④ KOSPI (^KS11) 60일 — MA, 수익률 ──────────────────────────────────────
   const kospi = await fetchCloses('^KS11', '65d');
@@ -455,10 +478,16 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
 
   // ── ⑥ KRX 공매도 비율 (코스피 전체) ──────────────────────────────────────
   // 8% 초과 시 R5_CAUTION 보조 조건 — regime 분류기가 computed.shortSellingRatio를 참조.
-  const shortRatio = await fetchKrxShortSelling();
-  if (shortRatio != null) {
-    computed.shortSellingRatio = shortRatio;
-    console.log(`[MarketRefresh] KRX 공매도비율: ${shortRatio.toFixed(2)}%${shortRatio > 8 ? ' (⚠ R5_CAUTION 보조)' : ''}`);
+  // Phase 1: 출처(source) + 조회 시각(fetchedAt) 도 macroState 에 영속 → /health 에 노출.
+  const shortResult = await fetchKrxShortSelling();
+  if (shortResult != null) {
+    computed.shortSellingRatio = shortResult.ratio;
+    computed.shortSellingSource = shortResult.source;
+    computed.shortSellingFetchedAt = shortResult.fetchedAt;
+    console.log(
+      `[MarketRefresh] KRX 공매도비율: ${shortResult.ratio.toFixed(2)}% ` +
+        `(source=${shortResult.source})${shortResult.ratio > 8 ? ' ⚠ R5_CAUTION 보조' : ''}`,
+    );
   } else {
     console.warn('[MarketRefresh] KRX 공매도 조회 실패 — 기존 값 유지');
   }

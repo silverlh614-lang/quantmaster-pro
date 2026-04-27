@@ -99,7 +99,20 @@ function loadShadowLogCloses(dateKst: string): Map<string, { stockCode: string; 
 
 // ─── trade-events-*.jsonl 분석 ────────────────────────────────────────────────
 
-function loadTradeEventCloses(yyyymm: string): Map<string, boolean> {
+/**
+ * 월별 jsonl 에서 FULL_SELL 이벤트를 로드하되 **`dateKst` 와 동일한 KST 일자**로
+ * 필터링한다.
+ *
+ * 긴급패치(2026-04-26): 기존 구현은 yyyymm 월 전체 FULL_SELL 을 모두 카운트해서
+ * A(shadowLogCloses, dateKst 필터) 와 C(shadowTradeClosedIds, dateKst 필터)와 정확히
+ * 다른 시간 범위를 비교하던 구조적 비대칭이 있었다. 비영업일·재배포 직후·월말 등에
+ * 반드시 mismatch 폭발 → CRITICAL 텔레그램. 본 함수도 dateKst 필터링을 적용해 A/B/C
+ * 가 같은 시간 창을 본다.
+ *
+ * @param yyyymm 월 식별자 (YYYYMM) — 파일명 키
+ * @param dateKst 'YYYY-MM-DD' (KST) — 본 일자 발생 FULL_SELL 만 카운트. 누락 시 전체 (레거시).
+ */
+function loadTradeEventCloses(yyyymm: string, dateKst?: string): Map<string, boolean> {
   const result = new Map<string, boolean>();
   const file = tradeEventsFile(yyyymm);
   if (!fs.existsSync(file)) return result;
@@ -108,7 +121,15 @@ function loadTradeEventCloses(yyyymm: string): Map<string, boolean> {
     for (const line of lines) {
       try {
         const e = JSON.parse(line);
-        if (e.type === 'FULL_SELL') result.set(e.positionId, true);
+        if (e.type !== 'FULL_SELL') continue;
+        if (dateKst) {
+          // ts 가 ISO UTC 이므로 + 9h 후 KST 일자 추출 (shadowLogCloses 와 동일 패턴).
+          if (typeof e.ts !== 'string') continue;
+          const tsKst = new Date(new Date(e.ts).getTime() + 9 * 3_600_000)
+            .toISOString().slice(0, 10);
+          if (tsKst !== dateKst) continue;
+        }
+        result.set(e.positionId, true);
       } catch { /* skip */ }
     }
   } catch { /* skip */ }
@@ -143,8 +164,8 @@ export async function runDailyReconciliation(
   // A: shadow-log 청산 이벤트
   const shadowLogCloses  = loadShadowLogCloses(dateKst);
 
-  // B: TradeEvent FULL_SELL
-  const tradeEventCloses = loadTradeEventCloses(yyyymm);
+  // B: TradeEvent FULL_SELL — **dateKst 필터** 로 A·C 와 같은 시간 창 비교 (긴급패치 2026-04-26).
+  const tradeEventCloses = loadTradeEventCloses(yyyymm, dateKst);
 
   // C: shadow-trades 종결 상태 (오늘 청산된 것 — SELL fill KST 기준)
   const shadowTrades = loadShadowTrades();
@@ -245,9 +266,16 @@ export async function runDailyReconciliation(
         ...mismatches.slice(0, 5).map(m => `• ${m.stockCode}(${m.stockName ?? '?'}): ${m.issue}`),
         ...(mismatches.length > 5 ? [`...외 ${mismatches.length - 5}건`] : []),
       ];
+      // 긴급패치(2026-04-26): dedupeKey 를 날짜별(`reconcile_fail_${dateKst}`) → 안정 키
+      // (`reconcile_fail`) 로 변경. 날짜별 키는 매일 새 키로 갈라져 audit grouping 의 의미를
+      // 잃었고, 새 날짜 진입 시 같은 패턴의 mismatch 가 또 다른 알림으로 발송됐다. 안정 키 +
+      // mismatchCount 로 같은 패턴은 audit 에서 한 그룹으로 누적된다.
+      // priority CRITICAL 자체는 cooldown 0 이라 발송 자체는 즉시 — 데이터 무결성 차단 신호는
+      // 절대 묻히지 않는다.
       await sendTelegramAlert(lines.join('\n'), {
         priority: 'CRITICAL',
-        dedupeKey: `reconcile_fail_${dateKst}`,
+        dedupeKey: `reconcile_fail`,
+        category: 'reconcile',
       }).catch(console.error);
     } else {
       // 정상 — 요약 알림 (선택적)
@@ -259,7 +287,8 @@ export async function runDailyReconciliation(
       ].join('\n');
       await sendTelegramAlert(summary, {
         priority: 'LOW',
-        dedupeKey: `reconcile_ok_${dateKst}`,
+        dedupeKey: `reconcile_ok`,
+        category: 'reconcile',
       }).catch(console.error);
     }
   }

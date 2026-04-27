@@ -135,8 +135,17 @@ async function runPipelineHealthCheck(): Promise<void> {
 async function runSelfDiagnosis(): Promise<void> {
   try {
     const diagnosis = await runPipelineDiagnosis();
+
+    // ADR-0056 v4 — 알림 등급 분리:
+    //   issues / warnings → 텔레그램 즉시 푸시 (OPERATIONAL)
+    //   informational     → 텔레그램 푸시 0건 (console.log 만, 일일 요약 후속 PR)
     if (!diagnosis.hasCriticalIssue && diagnosis.warnings.length === 0) {
-      console.log('[Scheduler] 새벽 자가진단 이상 없음');
+      const infoCount = diagnosis.informational?.length ?? 0;
+      if (infoCount > 0) {
+        console.log(`[Scheduler] 새벽 자가진단 이상 없음 (informational ${infoCount}건 누적)`);
+      } else {
+        console.log('[Scheduler] 새벽 자가진단 이상 없음');
+      }
       return;
     }
     const sections: string[] = [];
@@ -161,8 +170,9 @@ export function registerHealthCheckJobs(): void {
   scheduledJob('5 0 * * 1-5', 'TRADING_DAY_ONLY', 'pipeline_health_check',
     runPipelineHealthCheck, { timezone: 'UTC' });
 
-  // 평일 KST 02:00 (UTC 17:00) 파이프라인 치명 이슈 조기 감지.
+  // 평일 KST 06:30 (UTC 21:30 전일) 파이프라인 치명 이슈 조기 감지.
+  // ADR-0056 v4: 02:00 → 06:30 KST 이동 — NYSE 마감 직후(EST 16:30) + 한국장 개장 2.5h 전.
   // PR-B-2: TRADING_DAY_ONLY — KRX 공휴일에 진단 무의미.
-  scheduledJob('0 17 * * 0-4', 'TRADING_DAY_ONLY', 'self_diagnosis',
+  scheduledJob('30 21 * * 0-4', 'TRADING_DAY_ONLY', 'self_diagnosis',
     runSelfDiagnosis, { timezone: 'UTC' });
 }

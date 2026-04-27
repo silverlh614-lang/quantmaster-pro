@@ -273,7 +273,7 @@ async function fetchYahooSector(code: string): Promise<{ sector: string | null; 
       const res = await guardedFetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; QuantmasterPro/1.0)' },
         signal:  ctrl.signal,
-      });
+      }, 'HISTORICAL');
       if (!res.ok) continue;
       const json = await res.json() as {
         quoteSummary?: { result?: Array<{ assetProfile?: YahooAssetProfile }> };

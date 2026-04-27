@@ -94,9 +94,15 @@ export function registerMaintenanceJobs(): void {
     catch (e) { console.error('[DataCompleteness] 리셋 실패:', e); }
   }, { timezone: 'UTC' });
 
-  // 이중 기록 Reconciliation — 매일 KST 23:30 (UTC 14:30).
-  // PR-B-2: ALWAYS_ON — 데이터 정합성 검사는 KRX 공휴일 무관 (오늘 거래 없어도 누적 정합 검사).
-  scheduledJob('30 14 * * *', 'ALWAYS_ON', 'daily_reconcile',
+  // 이중 기록 Reconciliation — 평일 KST 23:30 (UTC 14:30, 월~금).
+  //
+  // 긴급패치(2026-04-26): TRADING_DAY_ONLY 로 격하 + cron 평일 가드 동시 적용.
+  // 본 함수의 핵심 로직(loadTradeEventCloses) 이 "오늘 KST 발생한 FULL_SELL" 만 카운트해야
+  // 하는데, B(tradeEventCloses)는 yyyymm 월 전체를 읽고 A·C 는 dateKst 필터를 적용해
+  // 구조적 날짜 비대칭이 존재. 비영업일에 실행하면 반드시 A=0, B>0 → mismatch 폭발.
+  // 1차 방어: TRADING_DAY_ONLY 로 KRX 공휴일·주말 자동 스킵. 2차 방어: loadTradeEventCloses
+  // 가 dateKst 필터링 적용 (별도 패치). 한도 위반 알림은 dedupeKey 도 안정 키로 변경.
+  scheduledJob('30 14 * * 1-5', 'TRADING_DAY_ONLY', 'daily_reconcile',
     () => runDailyReconciliation(), { timezone: 'UTC' });
 
   // 장 마감 후 KST 16:05 (UTC 07:05) — fills↔quantity 자동 드라이런.
