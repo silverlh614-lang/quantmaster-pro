@@ -7,6 +7,7 @@
 import React from 'react';
 import { StickyMiniHeader } from '../components/common/StickyMiniHeader';
 import { StatusBanner } from '../components/common/StatusBanner';
+import { MarketDataStaleBadge } from '../components/common/MarketDataStaleBadge';
 import { MarketModeBanner } from '../components/market/MarketModeBanner';
 import { MarketRegimeBanner } from '../components/market/MarketRegimeBanner';
 import { MarketNeutralPanel } from '../components/market/MarketNeutralPanel';
@@ -36,6 +37,9 @@ export function MarketOverviewHeader({ onRefresh }: MarketOverviewHeaderProps) {
     <>
       <StickyMiniHeader />
       <StatusBanner />
+      <div className="px-4 py-1 flex justify-end">
+        <MarketDataStaleBadge variant="compact" />
+      </div>
       <MarketModeBanner />
       <MarketRegimeBanner
         bearRegimeResult={bearRegimeResult}
