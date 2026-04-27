@@ -190,6 +190,12 @@ export function reflectionFile(yyyymmdd: string): string {
 export const TOMORROW_PRIMING_FILE     = path.join(DATA_DIR, 'tomorrow-priming.json');
 /** 고스트 포트폴리오 — Watch/BUY 신호 났으나 매수 안 한 종목 30일 추적 */
 export const GHOST_PORTFOLIO_FILE      = path.join(DATA_DIR, 'ghost-portfolio.json');
+/** ADR-0028 (PR-L): Rejection Shadow — Gate Score 14~17 near-miss 거절 종목 5영업일 추적 */
+export const REJECTION_SHADOW_FILE     = path.join(DATA_DIR, 'rejection-shadow.json');
+/** ADR-0029 (PR-M): Counterfactual Twin Portfolio — 3 Twin (AGGR/DISC/EQUAL) 평행 포트폴리오 */
+export const TWIN_PORTFOLIO_FILE       = path.join(DATA_DIR, 'twin-portfolio.json');
+/** ADR-0031 (PR-O): Order Type Optimizer — 종목별 슬리피지 이력 학습 */
+export const SLIPPAGE_HISTORY_FILE     = path.join(DATA_DIR, 'slippage-history.json');
 /** 지난 7일 반성 리포트에서 추출한 주간 1줄 교훈 (누적) */
 export const DISTILLED_WEEKLY_FILE     = path.join(DATA_DIR, 'knowledge', 'distilled-weekly.txt');
 /** 반성 엔진 Gemini 호출 예산 사용량 — 월별 재집계 */
