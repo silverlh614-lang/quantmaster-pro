@@ -99,7 +99,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const price = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 0;
     const prevClose = meta.regularMarketPreviousClose ?? closes[closes.length - 2] ?? price;
     const dayOpen = meta.regularMarketOpen ?? price;
-    // ADR-0049: stale prevClose 시 0 fallback — 일일 변화율 표기 보호.
+    // ADR-0059: stale prevClose 시 0 fallback — 일일 변화율 표기 보호.
     const changePercent = prevClose > 0
       ? (safePctChange(price, prevClose, { label: 'yahooQuoteAdapter.changePercent' }) ?? 0)
       : 0;
@@ -184,7 +184,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const weeklyRSI = parseFloat(calcRSI(weeklyCloses, 9).toFixed(1));
 
     // 직전 5거래일 수익률 — Regret Asymmetry Filter용
-    // 5거래일 수익률 — ADR-0049: stale close5dAgo (수년 전 종가 등) 시 sanity 위반 → 0 fallback.
+    // 5거래일 수익률 — ADR-0059: stale close5dAgo (수년 전 종가 등) 시 sanity 위반 → 0 fallback.
     const close5dAgo = closes.length > 5 ? closes[closes.length - 6] : closes[0];
     const return5d = safePctChange(price, close5dAgo, {
       label: 'yahooQuoteAdapter.return5d',

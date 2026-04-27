@@ -480,6 +480,8 @@ export interface ShadowTrade {
   signalTime: string;          // ISO
   stockCode: string;
   stockName: string;
+  /** 매수 시점 결정적 섹터 라벨 (서버 getSectorByCode SSOT 박제값, ADR-0060). UI 매칭용 옵셔널. */
+  sector?: string;
   signalPrice: number;         // 신호 발생 시점 가격
   shadowEntryPrice: number;    // 신호가 + 0.3% 슬리피지 가정
   quantity: number;

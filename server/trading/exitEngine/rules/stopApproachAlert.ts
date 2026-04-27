@@ -20,7 +20,7 @@ import { safePctChange } from '../../../utils/safePctChange.js';
 export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, hardStopLoss } = ctx;
 
-  // ADR-0049: stale hardStopLoss 시 0 fallback — 손절 접근 알림 보호.
+  // ADR-0059: stale hardStopLoss 시 0 fallback — 손절 접근 알림 보호.
   const distToStop = safePctChange(currentPrice, hardStopLoss, {
     label: `exitEngine.distToStop:${shadow.stockCode}`,
   }) ?? 0;

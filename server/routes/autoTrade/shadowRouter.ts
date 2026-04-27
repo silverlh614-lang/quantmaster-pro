@@ -26,6 +26,7 @@ import {
 import { loadTradingSettings } from '../../persistence/tradingSettingsRepo.js';
 import { fetchCurrentPrice } from '../../clients/kisClient.js';
 import { getRealtimePrice } from '../../clients/kisStreamClient.js';
+import { getSectorByCode } from '../../screener/sectorMap.js';
 
 const router = Router();
 
@@ -56,6 +57,8 @@ router.post('/auto-trade/shadow-trades', (req: any, res: any) => {
     targetPrice: trade.targetPrice ?? 0,
     mode: 'SHADOW',
     status: trade.status ?? 'PENDING',
+    // ADR-0060: 매수 시점 결정적 섹터 라벨 SSOT — buildBuyTrade 와 정합.
+    sector: getSectorByCode(trade.stockCode) || undefined,
     watchlistSource: 'PRE_MARKET',
   };
   shadows.push(serverTrade);

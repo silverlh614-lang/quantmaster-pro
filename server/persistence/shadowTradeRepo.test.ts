@@ -8,7 +8,7 @@
  * - STRONG_BUY 승률 분리
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -237,5 +237,102 @@ describe('computeShadowMonthlyStats', () => {
     expect(stats2.totalClosed).toBe(5);
     // strongBuyWinRate 은 LEG1(WIN) + LEG2(LOSS) 기준 50%
     expect(stats2.strongBuyWinRate).toBeCloseTo(50, 1);
+  });
+});
+
+// ─── ADR-0060: sector 영속 + lazy 백필 ─────────────────────────────────────────
+
+describe('ADR-0060 sector 영속 + 레거시 백필', () => {
+  let tmpDir: string;
+  let repo: typeof import('./shadowTradeRepo.js');
+  let shadowFilePath: string;
+
+  beforeEach(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shadow-sector-'));
+    process.env.PERSIST_DATA_DIR = tmpDir;
+    // paths.ts 는 module top-level 에서 DATA_DIR 을 박제하므로 vi.resetModules() 로
+    // 캐시 강제 무효화. 같은 프로세스 내 다른 describe 의 PERSIST_DATA_DIR 누수 차단.
+    vi.resetModules();
+    // 동적 import — PERSIST_DATA_DIR 반영된 이후 paths.ts 가 해석되도록.
+    repo = await import('./shadowTradeRepo.js');
+    // 실제 사용된 SHADOW_FILE 경로 — paths.ts 가 module top-level 캐시되므로
+    // import 시점의 DATA_DIR 을 그대로 가져온다.
+    const paths = await import('./paths.js');
+    shadowFilePath = paths.SHADOW_FILE;
+  });
+
+  afterEach(() => {
+    delete process.env.PERSIST_DATA_DIR;
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
+  });
+
+  function makeMinimalTrade(code: string, sector?: string): any {
+    return {
+      id: `T-${code}`,
+      stockCode: code,
+      stockName: `종목${code}`,
+      signalTime: new Date().toISOString(),
+      signalPrice: 10_000,
+      shadowEntryPrice: 10_000,
+      quantity: 10,
+      stopLoss: 9_000,
+      targetPrice: 11_000,
+      status: 'PENDING',
+      ...(sector !== undefined ? { sector } : {}),
+    };
+  }
+
+  it('sector 명시 영속 round-trip — 저장한 값이 그대로 로드', () => {
+    const original = [
+      makeMinimalTrade('005930', '반도체'),
+      makeMinimalTrade('035420', 'IT서비스'),
+    ];
+    repo.saveShadowTrades(original);
+
+    const loaded = repo.loadShadowTrades();
+    expect(loaded).toHaveLength(2);
+    expect(loaded[0]?.sector).toBe('반도체');
+    expect(loaded[1]?.sector).toBe('IT서비스');
+  });
+
+  it('레거시 trade(sector 부재) → loadShadowTrades 진입 시 lazy 백필', () => {
+    // sector 없이 직접 디스크에 기록된 레거시 데이터 시뮬레이션.
+    const legacy = [makeMinimalTrade('005930')]; // 삼성전자 (sector 부재)
+    repo.saveShadowTrades(legacy);
+
+    const loaded = repo.loadShadowTrades();
+    // SECTOR_MAP MANUAL_OVERRIDES 에 005930 → '반도체' 등록되어 있어야 백필.
+    expect(loaded[0]?.sector).toBeDefined();
+    expect(loaded[0]?.sector).toBe('반도체');
+  });
+
+  it('이미 sector 가 있는 trade 는 백필이 덮어쓰지 않음', () => {
+    // 사용자가 일부러 다른 sector 값을 설정한 경우 보존되어야 한다.
+    const explicit = [makeMinimalTrade('005930', '커스텀섹터')];
+    repo.saveShadowTrades(explicit);
+
+    const loaded = repo.loadShadowTrades();
+    expect(loaded[0]?.sector).toBe('커스텀섹터');
+  });
+
+  it('sectorMap 미커버 종목은 "미분류" fallback 으로 sector 채움', () => {
+    // 999999 는 SECTOR_MAP/KRX 자동맵 모두 미커버 → getSectorByCode '미분류' 반환.
+    const unknown = [makeMinimalTrade('999999')];
+    repo.saveShadowTrades(unknown);
+
+    const loaded = repo.loadShadowTrades();
+    // '미분류' 도 truthy string 이라 sector 필드는 채워짐.
+    expect(loaded[0]?.sector).toBe('미분류');
+  });
+
+  it('saveShadowTrades 는 sector 필드를 포함해 디스크 영속', () => {
+    const trades = [makeMinimalTrade('005930', '반도체')];
+    repo.saveShadowTrades(trades);
+
+    // 디스크 raw read — paths.ts 가 module top-level 에서 박제한 SHADOW_FILE 사용.
+    const raw = fs.readFileSync(shadowFilePath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].sector).toBe('반도체');
   });
 });

@@ -189,7 +189,7 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
       ?? await fetchCurrentPrice(shadow.stockCode).catch(() => null);
     if (!currentPrice) continue;
 
-    // ADR-0049: currentPrice 가 stale/이상값(±90% 초과) 이면 청산 평가 자체 스킵.
+    // ADR-0059: currentPrice 가 stale/이상값(±90% 초과) 이면 청산 평가 자체 스킵.
     // 잘못된 returnPct 로 트레일링/익절/손절 트리거가 오작동하는 것을 차단.
     const returnPct = safePctChange(currentPrice, shadow.shadowEntryPrice, {
       label: `exitEngine:${shadow.stockCode}`,

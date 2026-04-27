@@ -89,3 +89,48 @@ describe('filterStocksBySector — PR-K', () => {
     expect(filterStocksBySector([], '반도체')).toEqual([]);
   });
 });
+
+describe('stockMatchesSector — sector 단일 필드 fallback (ADR-0060 §3.1)', () => {
+  /** ShadowTrade-shaped 매칭 후보 (relatedSectors 미보유, sector 단일 필드) */
+  function makeShadowLike(code: string, sector?: string) {
+    return { code, name: `s${code}`, sector };
+  }
+
+  it('stock.sector 단일 필드 매칭 — relatedSectors 부재 fallback', () => {
+    expect(stockMatchesSector(makeShadowLike('1', '반도체'), '반도체')).toBe(true);
+    expect(stockMatchesSector(makeShadowLike('1', '조선·해운'), '조선')).toBe(true);
+    expect(stockMatchesSector(makeShadowLike('1', '반도체'), '바이오')).toBe(false);
+    expect(stockMatchesSector(makeShadowLike('1'), '반도체')).toBe(false); // sector undefined
+    expect(stockMatchesSector(makeShadowLike('1', ''), '반도체')).toBe(false); // sector 빈 문자열
+  });
+
+  it('relatedSectors 우선순위 — relatedSectors 매칭 시 sector 단일 무시', () => {
+    // relatedSectors=['반도체'] + sector='바이오' — relatedSectors 매칭이 먼저 성공
+    const stock = {
+      code: '1',
+      name: 's1',
+      relatedSectors: ['반도체'],
+      sector: '바이오',
+    };
+    expect(stockMatchesSector(stock, '반도체')).toBe(true);
+    // 둘 다 매칭 안 됨
+    expect(stockMatchesSector(stock, '에너지')).toBe(false);
+    // relatedSectors 미매칭이지만 sector 단일 매칭 → fallback 작동
+    expect(stockMatchesSector(stock, '바이오')).toBe(true);
+  });
+
+  it('filterStocksBySector dedupe — relatedSectors 와 sector 양쪽 매칭 시 중복 없음', () => {
+    // 동일 code 의 두 객체: 하나는 relatedSectors 매칭, 다른 하나는 sector 매칭
+    // dedupe (code 기준) 로 한 건만 결과에 포함
+    const items = [
+      { code: '1', name: 's1', relatedSectors: ['반도체'] },
+      { code: '1', name: 's1-dup', sector: '반도체' },
+      { code: '2', name: 's2', sector: '반도체' },
+    ];
+    const r = filterStocksBySector(items, '반도체');
+    expect(r).toHaveLength(2);
+    expect(r.map(s => s.code).sort()).toEqual(['1', '2']);
+    // 첫 항목이 우선 (Set seen 기반)
+    expect(r[0].name).toBe('s1');
+  });
+});
