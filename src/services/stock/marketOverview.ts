@@ -1,7 +1,8 @@
 // @responsibility stock marketOverview 서비스 모듈
 import { AI_MODELS } from "../../constants/aiConfig";
-import { getAI, lsGet, withRetry, safeJsonParse, getCachedAIResponse } from './aiClient';
+import { getAI, lsGet, withRetry, safeJsonParse } from './aiClient';
 import { fetchHistoricalData } from './historicalData';
+import { getOrFetchAiResponse } from './marketOverviewCache';
 import {
   applyPrefilledOverlay,
   fetchPrefilledMarketData,
@@ -198,17 +199,14 @@ ${preFilledSection}
     }
   `;
 
-  const hour = new Date().getHours();
-  const cacheKey = `market-overview-${todayDate}-${Math.floor(hour / 6)}`;
-
-  // ADR-0064: 캐시 miss 시점의 prefill 결과가 normalize 의 overlay 입력으로 들어간다.
-  // 캐시 hit 시엔 이전 fetch 시점의 normalize 결과(이미 overlay 된 값) 가 그대로 재사용
-  // 되어 6시간 캐시 윈도우 안에서 가격성 데이터는 동결. PR-β SWR 캐시 정책 도입 후엔
-  // 짧은 fresh 윈도우(예: 60초) 내에서만 동결되고 stale 갱신마다 prefill 재실행.
+  // ADR-0066 PR-β: 6시간 버킷 키 (`market-overview-${date}-${hour/6}`) 제거. SWR 패턴
+  // (60초 fresh + 5분 stale + 30분 hard expiry) 으로 윈도우 boundary 점프 차단. AI raw
+  // 응답만 캐시하고 prefill 결과는 매 호출마다 새로 적용 — 가격성 데이터는 항상 최신
+  // Yahoo 값 (LRU + coalescing 자동 보호).
   const indicesOverlay = [...kospiKosdaqIndices, ...prefilled.indices];
 
-  return getCachedAIResponse(cacheKey, async () => {
-    try {
+  try {
+    const { raw } = await getOrFetchAiResponse(async () => {
       const response = await withRetry(async () => {
         return await getAI().models.generateContent({
           model: AI_MODELS.PRIMARY,
@@ -221,17 +219,17 @@ ${preFilledSection}
         console.error("Full AI Response:", JSON.stringify(response, null, 2));
         throw new Error("No response from AI");
       }
-      const raw = safeJsonParse(text) as Record<string, any>;
-      return normalizeMarketOverview(raw, {
-        indices: indicesOverlay,
-        exchangeRates: fxOverlay,
-        commodities: prefilled.commodities,
-      });
-    } catch (error) {
-      console.error("Error getting market overview:", error);
-      throw error;
-    }
-  });
+      return safeJsonParse(text) as Record<string, unknown>;
+    });
+    return normalizeMarketOverview(raw as Record<string, any>, {
+      indices: indicesOverlay,
+      exchangeRates: fxOverlay,
+      commodities: prefilled.commodities,
+    });
+  } catch (error) {
+    console.error("Error getting market overview:", error);
+    throw error;
+  }
 }
 
 /** Normalize the AI response to match the MarketOverview interface. */
