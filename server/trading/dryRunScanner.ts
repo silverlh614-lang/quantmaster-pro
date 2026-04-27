@@ -30,6 +30,7 @@ import { isBlacklisted } from '../persistence/blacklistRepo.js';
 import { calcRRR, RRR_MIN_THRESHOLD } from './riskManager.js';
 import { getVixGating } from './vixGating.js';
 import { getFomcProximity } from './fomcCalendar.js';
+import { combineRegimeAndFomcKelly } from './regimeFomcCombiner.js';
 import { checkVolumeClockWindow } from './volumeClock.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
 
@@ -117,9 +118,13 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
       : undefined,
   );
   const volumeClock    = checkVolumeClockWindow();
+  // ADR-0076: regime + FOMC 결합 SSOT — FOMC 활성 시 regimeKelly 무시 (R6_DEFENSE 만 보호)
+  const regimeFomcCombined = combineRegimeAndFomcKelly(
+    regimeConfig.kellyMultiplier, fomcProximity.kellyMultiplier, fomcProximity.phase, regime,
+  );
   const kellyMultiplier = Math.min(
     1.5,
-    regimeConfig.kellyMultiplier * vixGating.kellyMultiplier * fomcProximity.kellyMultiplier,
+    regimeFomcCombined.value * vixGating.kellyMultiplier,
   );
   const activeSwingCount = shadows.filter(
     s => isOpenShadowStatus(s.status) &&
