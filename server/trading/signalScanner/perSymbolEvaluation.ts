@@ -42,6 +42,7 @@ import { recordUniverseEntries } from '../../learning/ledgerSimulator.js';
 import type { FullRegimeConfig } from '../../../src/types/core.js';
 import { REGIME_CONFIGS } from '../../../src/services/quant/regimeEngine.js';
 import { addRecommendation } from '../../learning/recommendationTracker.js';
+import { recordAiCandidate, buildSignalId } from '../../persistence/tradeSignalStatusRepo.js';
 import { getAccountRiskBudget, computeRiskAdjustedSize, FRACTIONAL_KELLY_CAP } from '../accountRiskBudget.js';
 import { evaluateServerGate } from '../../quantFilter.js';
 import {
@@ -409,13 +410,27 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
 
             ctx.shadows.push(followTrade);
 
+            const _signalTimeFollow = new Date().toISOString();
             addRecommendation({
-              stockCode: stock.code, stockName: stock.name, signalTime: new Date().toISOString(),
+              stockCode: stock.code, stockName: stock.name, signalTime: _signalTimeFollow,
               priceAtRecommend: currentPrice, stopLoss: stopLossPlan.hardStopLoss,
               targetPrice: stock.targetPrice, kellyPct: Math.round(posPctFollow * 100),
               gateScore: gateScoreFollow, signalType: 'BUY',
               conditionKeys: ['PRE_BREAKOUT_FOLLOWTHROUGH'], entryRegime: ctx.regime,
             });
+            // ADR-0077 wiring — AI_CANDIDATE 영속 (영속 실패 시 매매 차단 안 함)
+            try {
+              recordAiCandidate({
+                signalTimeIso: _signalTimeFollow,
+                stockCode: stock.code,
+                stockName: stock.name,
+                recommendationType: 'BUY',
+                signalGateScore: gateScoreFollow,
+                reason: '선취매 추종 BUY 진입 후보',
+              });
+            } catch (e) {
+              console.warn('[TradeSignalStatus] PRE_BREAKOUT_FOLLOWTHROUGH recordAiCandidate failed', e);
+            }
 
             const alertMsg =
               `🚀 <b>[선취매 추종] ${stock.name} (${stock.code})</b>\n` +
@@ -429,6 +444,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
               gateScore: gateScoreFollow, shadowMode: ctx.shadowMode, effectiveBudget: followQty * followEntryPrice,
               alertMessage: alertMsg, logEvent: 'PRE_BREAKOUT_FOLLOWTHROUGH',
+              signalId: buildSignalId(_signalTimeFollow, stock.code), // ADR-0077
               onApproved: async () => { ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - followQty * followEntryPrice); },
             }));
             // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
@@ -544,13 +560,27 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
 
                 ctx.shadows.push(pbTrade);
 
+                const _signalTimePb = new Date().toISOString();
                 addRecommendation({
-                  stockCode: stock.code, stockName: stock.name, signalTime: new Date().toISOString(),
+                  stockCode: stock.code, stockName: stock.name, signalTime: _signalTimePb,
                   priceAtRecommend: currentPrice, stopLoss: stopLossPlanPb.hardStopLoss,
                   targetPrice: stock.targetPrice, kellyPct: Math.round(posPctPb * 100),
                   gateScore: gateScorePb, signalType: 'BUY',
                   conditionKeys: ['PRE_BREAKOUT'], entryRegime: ctx.regime,
                 });
+                // ADR-0077 wiring — AI_CANDIDATE 영속
+                try {
+                  recordAiCandidate({
+                    signalTimeIso: _signalTimePb,
+                    stockCode: stock.code,
+                    stockName: stock.name,
+                    recommendationType: 'BUY',
+                    signalGateScore: gateScorePb,
+                    reason: 'PRE_BREAKOUT 매집 감지 30% 선취매',
+                  });
+                } catch (e) {
+                  console.warn('[TradeSignalStatus] PRE_BREAKOUT recordAiCandidate failed', e);
+                }
 
                 console.log(`[PreBreakout] ${stock.name}(${stock.code}) 매집 감지 — 30% 선취매 @${pbEntryPrice} (${pbQty}주/${fullPbQty}주)`);
                 console.log(`[PreBreakout] ${accumResult.summary}`);
@@ -568,6 +598,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                   stopLoss: stopLossPlanPb.hardStopLoss, targetPrice: stock.targetPrice,
                   gateScore: gateScorePb, shadowMode: ctx.shadowMode, effectiveBudget: pbQty * pbEntryPrice,
                   alertMessage: pbAlertMsg, logEvent: 'PRE_BREAKOUT_ENTRY',
+                  signalId: buildSignalId(_signalTimePb, stock.code), // ADR-0077
                   onApproved: async () => { ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - pbQty * pbEntryPrice); },
                 }));
                 // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
@@ -973,13 +1004,27 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         entryKellySnapshot,
       });
 
+      const _signalTimeMain = new Date().toISOString();
       addRecommendation({
-        stockCode: stock.code, stockName: stock.name, signalTime: new Date().toISOString(),
+        stockCode: stock.code, stockName: stock.name, signalTime: _signalTimeMain,
         priceAtRecommend: currentPrice, stopLoss: stopLossPlan.hardStopLoss,
         targetPrice: stock.targetPrice, kellyPct: Math.round(positionPct * 100),
         gateScore, signalType: isStrongBuy ? 'STRONG_BUY' : 'BUY',
         conditionKeys: stock.conditionKeys ?? [], entryRegime: ctx.regime,
       });
+      // ADR-0077 wiring — AI_CANDIDATE 영속 (메인 buyList 진입 후보)
+      try {
+        recordAiCandidate({
+          signalTimeIso: _signalTimeMain,
+          stockCode: stock.code,
+          stockName: stock.name,
+          recommendationType: isStrongBuy ? 'STRONG_BUY' : 'BUY',
+          signalGateScore: gateScore,
+          reason: `메인 buyList 진입 후보 (Gate ${gateScore})`,
+        });
+      } catch (e) {
+        console.warn('[TradeSignalStatus] main buyList recordAiCandidate failed', e);
+      }
 
       // ─── SHADOW/LIVE 통합 승인 큐 등록 ──────────────────────────────────────
       ctx.scanCounters.entries++;
@@ -1006,6 +1051,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         gateScore, shadowMode: stockShadowMode, effectiveBudget,
         alertMessage: mainAlertMsg,
         logEvent: isMomentumShadow ? 'MOMENTUM_SHADOW_SIGNAL' : (stockShadowMode ? 'SIGNAL' : 'ORDER'),
+        signalId: buildSignalId(_signalTimeMain, stock.code), // ADR-0077
         onApproved: async (t) => {
           ctx.shadows.push(t);
           await channelBuySignalEmitted({
@@ -1206,13 +1252,27 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
           const { gate: intradayGate } = await fetchGateData(stock.code, ctx.conditionWeights, ctx.macroState?.kospi20dReturn);
           const intradayGateScore = intradayGate?.gateScore ?? 0;
 
+          const _signalTimeIntra = new Date().toISOString();
           addRecommendation({
-            stockCode: stock.code, stockName: stock.name, signalTime: new Date().toISOString(),
+            stockCode: stock.code, stockName: stock.name, signalTime: _signalTimeIntra,
             priceAtRecommend: currentPrice, stopLoss: intradayStop,
             targetPrice: intradayTarget, kellyPct: Math.round(positionPct * 100),
             gateScore: intradayGateScore, signalType: 'BUY',
             conditionKeys: ['INTRADAY_STRONG'], entryRegime: ctx.regime,
           });
+          // ADR-0077 wiring — AI_CANDIDATE 영속 (장중 강세 후보)
+          try {
+            recordAiCandidate({
+              signalTimeIso: _signalTimeIntra,
+              stockCode: stock.code,
+              stockName: stock.name,
+              recommendationType: 'BUY',
+              signalGateScore: intradayGateScore,
+              reason: `장중 강세 추격 후보 (Gate ${intradayGateScore})`,
+            });
+          } catch (e) {
+            console.warn('[TradeSignalStatus] INTRADAY_STRONG recordAiCandidate failed', e);
+          }
 
           const stopLabel = stopPct === INTRADAY_PULLBACK_STOP_LOSS_PCT ? '-4%' : '-5%';
           const intradaySlotLabel = `${currentIntradayActive + 1}/${MAX_INTRADAY_POSITIONS}`;
@@ -1236,6 +1296,7 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             stopLoss: intradayStop, targetPrice: intradayTarget,
             gateScore: intradayGateScore, shadowMode: ctx.shadowMode, effectiveBudget,
             alertMessage: intradayAlertMsg, logEvent: ctx.shadowMode ? 'INTRADAY_SIGNAL' : 'INTRADAY_ORDER',
+            signalId: buildSignalId(_signalTimeIntra, stock.code), // ADR-0077
             onApproved: async (t) => {
               // 포지션 수 재확인 (큐 플러시 시점에 재검증)
               const latestIntradayCount = ctx.shadows.filter(

@@ -29,6 +29,7 @@ import { buildPreMortemStructured } from './preMortemStructured.js';
 import { placeKisMarketBuyOrder, fetchAccountBalance } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { requestBuyApproval } from '../telegram/buyApproval.js';
+import { markAutoTradeReady } from '../persistence/tradeSignalStatusRepo.js';
 import { fetchEnemyCheckData } from '../clients/enemyCheckClient.js';
 import { fillMonitor } from './fillMonitor.js';
 import { appendShadowLog } from '../persistence/shadowTradeRepo.js';
@@ -254,6 +255,8 @@ export interface CreateBuyTaskParams {
   regime?: string;
   /** 사전 생성된 Pre-Mortem 실패 시나리오 체크리스트 */
   preMortem?: string | null;
+  /** ADR-0077 — TradeSignalRecord id (`${signalTimeIso}:${stockCode}`). buyApproval/markAutoTradeReady 영속용. */
+  signalId?: string;
 }
 
 /**
@@ -343,6 +346,7 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
       enemyCheck,
       regime,
       preMortem,
+      signalId:    p.signalId, // ADR-0077 — buyApproval callback 이 USER_APPROVED/BLOCKED 영속
     }),
     execute: async (approval: ApprovalAction) => {
       if (approval !== 'APPROVE') {
@@ -397,6 +401,15 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
           return;
         }
 
+        // ADR-0077 wiring — KIS 실주문 직전 AUTO_TRADE_READY 영속 (영속 실패 시 매매 차단 안 함)
+        if (p.signalId) {
+          try {
+            markAutoTradeReady({ id: p.signalId, reason: 'KIS LIVE 주문 직전' });
+          } catch (e) {
+            console.warn('[TradeSignalStatus] LIVE markAutoTradeReady failed', e);
+          }
+        }
+
         try {
           ordNo = await placeKisMarketBuyOrder(p.stockCode, p.quantity);
         } catch (e) {
@@ -434,6 +447,14 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
       } else {
         // SHADOW 모드
         console.log(`[BuyPipeline SHADOW] ${p.stockName}(${p.stockCode}) 신호 등록 @${p.currentPrice}`);
+        // ADR-0077 wiring — SHADOW 영속 (RISK_APPROVED → AUTO_TRADE_READY 직접 전이 허용)
+        if (p.signalId) {
+          try {
+            markAutoTradeReady({ id: p.signalId, reason: 'SHADOW 진입 (USER_APPROVED 우회)' });
+          } catch (e) {
+            console.warn('[TradeSignalStatus] SHADOW markAutoTradeReady failed', e);
+          }
+        }
         appendShadowLog({ event: p.logEvent, ...p.trade });
       }
 
