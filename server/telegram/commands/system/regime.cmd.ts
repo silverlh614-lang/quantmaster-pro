@@ -1,15 +1,18 @@
 // @responsibility regime.cmd 텔레그램 모듈
 // @responsibility: /regime 명령 — 매크로 레짐(MHS·VKOSPI·VIX·USD/KRW·Bear방어) 1메시지 요약.
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
+import { getLiveRegime } from '../../../trading/regimeBridge.js';
+import { REGIME_CONFIGS } from '../../../../src/services/quant/regimeEngine.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
+import type { RegimeLevel } from '../../../../src/types/core.js';
 
 const regime: TelegramCommand = {
   name: '/regime',
   category: 'SYS',
   visibility: 'ADMIN',
   riskLevel: 0,
-  description: '매크로 레짐 + MHS + VKOSPI + USD/KRW + Bear방어 현황',
+  description: '매크로 레짐 + 매매 레짐(R1~R6) + MHS + VKOSPI + USD/KRW + Bear방어 현황',
   async execute({ reply }) {
     const macro = loadMacroState();
     if (!macro) {
@@ -21,22 +24,90 @@ const regime: TelegramCommand = {
     const freshnessLine = formatRegimeFreshnessLine(macro.updatedAt);
     // ADR-0071: USD/KRW 출처 + 격차 표시 — 사용자 신뢰도 즉시 인지
     const usdKrwLine = formatUsdKrwLine(macro);
+    // ADR-0074: macroState.regime (GREEN/YELLOW/RED) vs getLiveRegime (R1~R6) 두 SSOT 동시 노출.
+    // 매매 결정에 실제 사용되는 RegimeLevel + Kelly/maxPositions 정책을 1줄로 요약.
+    const liveRegime = getLiveRegime(macro);
+    const liveRegimeLine = formatLiveRegimeLine(liveRegime);
+    // ADR-0075 PR-4 wiring: 강세/소외 섹터 1줄 노출 — 운영자가 Gate +2/-1 부스트 영향 즉시 인지
+    const sectorEnergyLine = formatSectorEnergyLine(macro);
     await reply(
       `🌐 <b>[매크로 레짐 현황]</b>\n` +
       `━━━━━━━━━━━━━━━━\n` +
       `${mhsEmoji} MHS: ${macro.mhs ?? 'N/A'}\n` +
-      `${regimeEmoji} 레짐: ${macro.regime ?? 'N/A'}\n` +
+      `${regimeEmoji} 매크로: ${macro.regime ?? 'N/A'}\n` +
+      `${liveRegimeLine}\n` +
       `📊 VKOSPI: ${macro.vkospi?.toFixed(1) ?? 'N/A'}\n` +
       `📊 VIX: ${macro.vix?.toFixed(1) ?? 'N/A'}\n` +
       `💱 USD/KRW: ${usdKrwLine}\n` +
       `📉 MHS추세: ${macro.mhsTrend ?? 'N/A'}\n` +
       `🐻 Bear방어: ${macro.bearDefenseMode ? '🔴 ON' : '🟢 OFF'}\n` +
       `📈 FSS경보: ${macro.fssAlertLevel ?? 'N/A'}\n` +
+      `${sectorEnergyLine}\n` +
       `━━━━━━━━━━━━━━━━\n` +
       freshnessLine,
     );
   },
 };
+
+/**
+ * ADR-0075 PR-4 wiring: 강세/소외 섹터 라인 SSOT.
+ *
+ * macroState.sectorEnergyResult (marketDataRefresh 영속) 의 LEADING/LAGGING 결과를
+ * 1줄로 노출. 운영자가 "지금 어떤 섹터가 +2 가산점을 받고 있나" 를 즉시 인지.
+ *
+ * 표시 분기:
+ *   - sectorEnergyResult 부재 → "🎯 강세 섹터: N/A (미수집)"
+ *   - LEADING 0건 + LAGGING 0건 → "🎯 강세 섹터: 데이터 부족"
+ *   - 정상 → "🎯 강세: 반도체, 이차전지, 바이오 / 소외: 건설, 유통"
+ */
+export function formatSectorEnergyLine(macro: {
+  sectorEnergyResult?: {
+    leadingSectors: { name: string }[];
+    laggingSectors: { name: string }[];
+  };
+}): string {
+  const result = macro.sectorEnergyResult;
+  if (!result) return '🎯 섹터 에너지: N/A (미수집)';
+  const leading = result.leadingSectors.map(s => s.name).join(', ');
+  const lagging = result.laggingSectors.map(s => s.name).join(', ');
+  if (!leading && !lagging) return '🎯 섹터 에너지: 데이터 부족';
+  const parts: string[] = [];
+  if (leading) parts.push(`강세 ${leading}`);
+  if (lagging) parts.push(`소외 ${lagging}`);
+  return `🎯 ${parts.join(' / ')}`;
+}
+
+/**
+ * ADR-0074: 매매 레짐(R1~R6) 라인 SSOT.
+ *
+ * 사용자 운영 보고 (2026-04-27): "거시 regime 정보에 대한 신뢰도가 떨어진다."
+ * 직접 원인: /regime 메시지가 macroState.regime (GREEN/YELLOW/RED) 만 표시했고
+ * 매매 결정에 실제 사용되는 getLiveRegime() 의 RegimeLevel R1_TURBO~R6_DEFENSE
+ * 를 미노출 — 운영자가 "왜 매매가 안 되지" 같은 질문에 메시지로 답을 못 받음.
+ *
+ * 이모지 분류 (방어 → 공격):
+ *   R6_DEFENSE: 🛑 (매수 전면 차단)
+ *   R5_CAUTION: 🟡 (CONFIRMED_STRONG_BUY 만)
+ *   R4_NEUTRAL: 🟠 (선택적 진입)
+ *   R3_EARLY:   🌱 (선취매)
+ *   R2_BULL:    🟢 (적극 매수)
+ *   R1_TURBO:   🔥 (공격 모드 MAX)
+ */
+export function formatLiveRegimeLine(liveRegime: RegimeLevel): string {
+  const cfg = REGIME_CONFIGS[liveRegime];
+  const emoji =
+    liveRegime === 'R6_DEFENSE' ? '🛑' :
+    liveRegime === 'R5_CAUTION' ? '🟡' :
+    liveRegime === 'R4_NEUTRAL' ? '🟠' :
+    liveRegime === 'R3_EARLY'   ? '🌱' :
+    liveRegime === 'R2_BULL'    ? '🟢' :
+    liveRegime === 'R1_TURBO'   ? '🔥' : '⚙️';
+  if (!cfg) return `⚙️ 매매: ${liveRegime}`;
+  const kellyLabel = cfg.kellyMultiplier === 0
+    ? '신규 진입 차단'
+    : `Kelly ×${cfg.kellyMultiplier.toFixed(2)}`;
+  return `${emoji} 매매: ${liveRegime} (${kellyLabel}, 최대 ${cfg.maxPositions}포지션)`;
+}
 
 /**
  * /regime 메시지의 신선도 라인 SSOT (PR-2 사용자 보고 #5).

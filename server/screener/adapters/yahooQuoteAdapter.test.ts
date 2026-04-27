@@ -121,4 +121,69 @@ describe('fetchYahooQuote', () => {
     const result = await fetchYahooQuote('THROW-TEST.KS');
     expect(result).toBeNull();
   });
+
+  // ── safePctChange 진단 로그에 symbol 포함 (2026-04-27 진단 갭 해소) ──
+  describe('safePctChange label 에 symbol 포함 — 종목별 식별 가능', () => {
+    let warnSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(async () => {
+      // throttle map 을 비워서 매 케이스가 독립적으로 로그 검증.
+      const { __resetSafePctChangeWarnsForTests } = await import('../../utils/safePctChange.js');
+      __resetSafePctChangeWarnsForTests();
+      warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    it('changePercent sanity 위반 시 label 에 symbol 포함', async () => {
+      // prevClose=28,400 → price=115,100 (305% 점프 — 액면분할 상황 재현)
+      const N = 80;
+      const closes = Array.from({ length: N }, (_, i) => 28000 + i * 5);
+      closes[N - 1] = 115100;
+      const highs = closes.map(c => c + 100);
+      const lows = closes.map(c => c - 100);
+      const volumes = Array.from({ length: N }, () => 1000);
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        closes, highs, lows, volumes,
+        meta: {
+          regularMarketPrice: 115100,
+          regularMarketPreviousClose: 28400,
+          regularMarketOpen: 115100,
+        },
+      }));
+      await fetchYahooQuote('SPLIT-CASE.KS');
+      const warnedMessage = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(warnedMessage).toContain('yahooQuoteAdapter.changePercent:SPLIT-CASE.KS');
+      // 종목 식별 가능한 라벨이 노출됐는지 — symbol 미포함 (구버전) 형식이 *없는지* 확인.
+      expect(warnedMessage).not.toMatch(/yahooQuoteAdapter\.changePercent\s/);
+    });
+
+    it('return5d sanity 위반 시 label 에 symbol 포함', async () => {
+      // close5dAgo=115,300 → price=219,500 (90.37% 상승 — stale base 재현)
+      const N = 80;
+      const closes = Array.from({ length: N }, (_, i) => 110000 + i * 100);
+      // closes[N - 6] = 5거래일 전 종가 = 115,300
+      closes[N - 6] = 115300;
+      closes[N - 1] = 219500;
+      const highs = closes.map(c => c + 200);
+      const lows = closes.map(c => c - 200);
+      const volumes = Array.from({ length: N }, () => 1000);
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        closes, highs, lows, volumes,
+        meta: {
+          regularMarketPrice: 219500,
+          regularMarketPreviousClose: 219000,
+          regularMarketOpen: 219500,
+        },
+      }));
+      await fetchYahooQuote('STALE-5D.KS');
+      const warnedMessage = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(warnedMessage).toContain('yahooQuoteAdapter.return5d:STALE-5D.KS');
+    });
+
+    it('정상 종목은 sanity 위반 로그 0건 (회귀 가드)', async () => {
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse());
+      await fetchYahooQuote('NORMAL-CASE.KS');
+      const warnedMessage = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(warnedMessage).not.toContain('sanity 위반');
+    });
+  });
 });

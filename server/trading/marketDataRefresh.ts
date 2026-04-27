@@ -29,6 +29,8 @@ import { guardedFetch } from '../utils/egressGuard.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import { evaluateCrossSource } from './crossSourceValidator.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { evaluateSectorEnergy } from '../../src/services/quant/sectorEnergyEngine.js';
+import { getSectorEnergyInputs } from '../clients/sectorEnergyProvider.js';
 
 /**
  * FRED API — 최신 유효 관측값 조회 (최근 5건 중 '.' 제외 첫 번째).
@@ -560,8 +562,38 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     console.warn('[MarketRefresh] MHS 자체 계산 실패 — 기존 MHS 유지:', e instanceof Error ? e.message : e);
   }
 
+  // ── ADR-0075 PR-4 wiring: 강세 섹터 Gate Score 가산점 SSOT 영속 ─────────────
+  // KRX 12 섹터 4주 수익률 + 거래량 + 외인 합성 → LEADING/NEUTRAL/LAGGING 분류.
+  // entryEngine 의 Gate Score 산출 시점에 macroState.sectorEnergyResult 를 read 만 한다.
+  // 호출 비용: KRX OpenAPI 5건 (캐시 30분, getSectorEnergyInputs 가 자동 분배) — 비싸지만
+  // marketDataRefresh 자체가 일일 cron 이라 부담 없음. 실패 시 graceful — 보너스 0 자연 폴백.
+  let sectorEnergyResult: ReturnType<typeof evaluateSectorEnergy> | undefined;
+  let sectorEnergyUpdatedAt: string | undefined;
+  try {
+    const inputs = await getSectorEnergyInputs();
+    if (inputs.length > 0) {
+      sectorEnergyResult = evaluateSectorEnergy(inputs);
+      sectorEnergyUpdatedAt = new Date().toISOString();
+      console.log(
+        `[MarketRefresh] sectorEnergy 갱신 — ${inputs.length}개 섹터 ` +
+        `(LEADING ${sectorEnergyResult.leadingSectors.length}, ` +
+        `LAGGING ${sectorEnergyResult.laggingSectors.length})`,
+      );
+    } else {
+      console.debug('[MarketRefresh] sectorEnergy 입력 0건 — 갱신 스킵 (이전 값 보존)');
+    }
+  } catch (e) {
+    console.warn('[MarketRefresh] sectorEnergy 갱신 실패:', e instanceof Error ? e.message : e);
+  }
+
   // ── MacroState에 MERGE 저장 ───────────────────────────────────────────────
-  const updated = { ...existing, ...computed, updatedAt: new Date().toISOString() };
+  const updated = {
+    ...existing,
+    ...computed,
+    updatedAt: new Date().toISOString(),
+    // sectorEnergyResult 가 갱신됐을 때만 덮어쓰기 — 실패 시 이전 값 보존.
+    ...(sectorEnergyResult ? { sectorEnergyResult, sectorEnergyUpdatedAt } : {}),
+  };
   saveMacroState(updated as typeof existing);
   console.log(`[MarketRefresh] MacroState 갱신 완료 — ${Object.keys(computed).length}개 필드`);
 

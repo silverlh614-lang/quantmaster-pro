@@ -33,7 +33,7 @@ export async function cascadeFinal(ctx: ExitContext): Promise<ExitRuleResult> {
   });
   console.log(`[Shadow Close] CASCADE_FINAL — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
   appendShadowLog({ event: isBlacklistStep ? 'CASCADE_STOP_BLACKLIST' : 'CASCADE_STOP_FINAL', ...shadow, soldQty });
-  console.log(`[AutoTrade] ❌ ${shadow.stockName} Cascade ${returnPct.toFixed(2)}% — 전량 청산${isBlacklistStep ? ' + 블랙리스트 180일' : ''}`);
+  console.log(`[AutoTrade] ❌ ${shadow.stockName} (${shadow.stockCode}) Cascade ${returnPct.toFixed(2)}% — 전량 청산${isBlacklistStep ? ' + 블랙리스트 180일' : ''}`);
   const cascadeFinalRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'STOP_LOSS');
   const cascadeFinalTs = new Date().toISOString();
   const cascadeFinalReserve = reserveSell(shadow, cascadeFinalRes, {

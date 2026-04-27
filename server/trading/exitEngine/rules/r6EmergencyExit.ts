@@ -32,7 +32,7 @@ export async function r6EmergencyExit(ctx: ExitContext): Promise<ExitRuleResult>
   shadow.exitRuleTag = 'R6_EMERGENCY_EXIT';
   shadow.r6EmergencySold = true;
   appendShadowLog({ event: 'R6_EMERGENCY_EXIT', ...shadow, soldQty: emergencyQty, returnPct });
-  console.log(`[AutoTrade] 🔴 ${shadow.stockName} R6 긴급 청산 30% (${emergencyQty}주) @${currentPrice.toLocaleString()}`);
+  console.log(`[AutoTrade] 🔴 ${shadow.stockName} (${shadow.stockCode}) R6 긴급 청산 30% (${emergencyQty}주) @${currentPrice.toLocaleString()}`);
   const r6Res = await placeKisSellOrder(shadow.stockCode, shadow.stockName, emergencyQty, 'STOP_LOSS');
   const r6Ts = new Date().toISOString();
   const r6Reserve = reserveSell(shadow, r6Res, {

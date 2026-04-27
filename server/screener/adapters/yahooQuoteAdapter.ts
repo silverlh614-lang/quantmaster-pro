@@ -100,8 +100,9 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const prevClose = meta.regularMarketPreviousClose ?? closes[closes.length - 2] ?? price;
     const dayOpen = meta.regularMarketOpen ?? price;
     // ADR-0059: stale prevClose 시 0 fallback — 일일 변화율 표기 보호.
+    // label 에 symbol 포함 — sanity 위반 시 Railway 로그에서 종목 즉시 식별 (2026-04-27 진단 갭 해소).
     const changePercent = prevClose > 0
-      ? (safePctChange(price, prevClose, { label: 'yahooQuoteAdapter.changePercent' }) ?? 0)
+      ? (safePctChange(price, prevClose, { label: `yahooQuoteAdapter.changePercent:${symbol}` }) ?? 0)
       : 0;
     const volume = volumes[volumes.length - 1] ?? 0;
 
@@ -185,16 +186,17 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
 
     // 직전 5거래일 수익률 — Regret Asymmetry Filter용
     // 5거래일 수익률 — ADR-0059: stale close5dAgo (수년 전 종가 등) 시 sanity 위반 → 0 fallback.
+    // label 에 symbol 포함 — 종목별 throttle 분리 + Railway 로그에서 즉시 식별 (2026-04-27 진단 갭).
     const close5dAgo = closes.length > 5 ? closes[closes.length - 6] : closes[0];
     const return5d = safePctChange(price, close5dAgo, {
-      label: 'yahooQuoteAdapter.return5d',
+      label: `yahooQuoteAdapter.return5d:${symbol}`,
     }) ?? 0;
 
     // 직전 20거래일 수익률 — Gate 24 상대강도(vs KOSPI 20d) 입력
     // 20거래일 수익률 — Gate 24 상대강도 입력. stale close20dAgo 시 0 fallback.
     const close20dAgo = closes.length > 20 ? closes[closes.length - 21] : closes[0];
     const return20d = safePctChange(price, close20dAgo, {
-      label: 'yahooQuoteAdapter.return20d',
+      label: `yahooQuoteAdapter.return20d:${symbol}`,
     }) ?? 0;
 
     // ── Compression Score 구성 요소 ──────────────────────────────────────────────

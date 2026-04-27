@@ -20,18 +20,34 @@
 
 const LN2 = Math.log(2);
 
-/** 레짐별 Kelly half-life (영업일). TURBO/BULL 은 짧게 (빠른 감쇠), DEFENSE 는 길게. */
+/**
+ * 레짐별 Kelly half-life (영업일). TURBO/BULL 은 짧게 (빠른 감쇠), DEFENSE 는 길게.
+ *
+ * ADR-0073 (2026-04-27): 사용자 운영 보고 — "레짐 포지션의 생명주기를 조정하자.
+ * Early 단계가 12일인데 10일이면 충분하고 (거래일기준) 나머지도 지금 기준보다
+ * 더 짧아도 된다." 자본 회전율 +25% 목표로 6 레짐 모두 단축.
+ *
+ *   R1_TURBO:   7  → 5  (강세 가속, 빠른 회전)
+ *   R2_BULL:    10 → 8  (정상 강세, 더 빠른 자본 순환)
+ *   R3_EARLY:   12 → 10 (사용자 직접 요청)
+ *   R4_NEUTRAL: 10 → 8
+ *   R5_CAUTION: 8  → 6  (보수 가속)
+ *   R6_DEFENSE: 5  → 4  (방어 최단)
+ *
+ * 효과: 평균 보유일 -20% → 후속 추가매수 자동 차단 + 트림 권고 알림 더 빠른 작동.
+ * 보유 효과/후회 회피 편향 (페르소나 철학 8) 의 시간 압력 강화.
+ */
 export const REGIME_HALF_LIFE_DAYS: Record<string, number> = {
-  R1_TURBO:   7,
-  R2_BULL:    10,
-  R3_EARLY:   12,
-  R4_NEUTRAL: 10,
-  R5_CAUTION: 8,
-  R6_DEFENSE: 5,
+  R1_TURBO:   5,
+  R2_BULL:    8,
+  R3_EARLY:   10,
+  R4_NEUTRAL: 8,
+  R5_CAUTION: 6,
+  R6_DEFENSE: 4,
 };
 
-/** 기본값 — 레짐 미상 시 사용. */
-export const DEFAULT_HALF_LIFE_DAYS = 10;
+/** 기본값 — 레짐 미상 시 사용. ADR-0073: 10 → 8 단축 */
+export const DEFAULT_HALF_LIFE_DAYS = 8;
 
 /**
  * 특정 보유 일수 t 에서의 시간 감쇠 가중치 (0~1).
