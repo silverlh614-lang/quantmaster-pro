@@ -10,14 +10,14 @@ export interface MacroState {
   // 아이디어 10: Bear Regime 보조 지표 (optional — 클라이언트에서 전달 시 저장)
   vkospi?: number;                  // 한국 변동성 지수
   foreignFuturesSellDays?: number;  // 외국인 선물 연속 순매도 일수
-  iri?: number;                     // IRI 위험 지표 델타 (pt)
+  iri?: number;                     // IRI 위험 지표 델타 (pt) — bearRegimeAlert IRI 라인 표시용 (cron writer 부재 시 'N/A')
   // 아이디어 11: IPS 변곡점 엔진 보조 지표 (optional)
   vix?: number;                     // VIX 공포지수
   mhsTrend?: 'IMPROVING' | 'STABLE' | 'DETERIORATING'; // MHS 추세
   vkospiRising?: boolean;           // VKOSPI 상승 추세
-  bearRegimeTriggeredCount?: number; // Bear Regime 발동 조건 수
+  bearRegimeTriggeredCount?: number; // Bear Regime 발동 조건 수 — ipsAlert FSS 음수 +20% 가산점 (cron writer 부재 시 0 fallback)
   bearDefenseMode?: boolean;        // Bear 방어 모드 여부
-  oeciCliKorea?: number;            // OECD 경기선행지수 한국
+  oeciCliKorea?: number;            // OECD 경기선행지수 한국 — ipsAlert TMA 감속 신호 (cron writer 부재 시 100 fallback)
   exportGrowth3mAvg?: number;       // 수출 증가율 3개월 이동평균 (%)
   dxyBullish?: boolean;             // DXY 달러 강세 여부
   kospiBelow120ma?: boolean;        // KOSPI 120일선 하회 여부

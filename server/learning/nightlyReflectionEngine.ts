@@ -610,8 +610,23 @@ export async function runNightlyReflection(
   // ADR-0047 (PR-Y2): Reflection Module Half-Life — 13개 모듈 영향률 영속.
   // 본 PR 은 측정만 — 실제 silent/deprecated 가드 wiring 은 후속 PR.
   // 실패는 학습 사이클을 막지 않도록 try/catch 흡수.
+  // PR-Y2 정확도 보강 (extras wiring):
+  //   - biasMaxScore: 오늘 BiasScore[] 의 max score (단일 day ≥ 0.5 도 meaningful 분류)
+  //   - experimentProposalCount: followUpActions sourceIds 'exp:' prefix 수
+  // 두 extras 미전달 시 sourceIds prefix 만으로 추론 — 단일 day bias 가 false 로 잘못 분류됨.
   try {
-    recordReflectionImpactsFromReport(report, date, now);
+    const biasToday = loadBiasHeatmap().find(e => e.date === date);
+    const biasMaxScore = biasToday && biasToday.scores.length > 0
+      ? biasToday.scores.reduce((m, s) => Math.max(m, s.score), 0)
+      : undefined;
+    const experimentProposalCount = (report.followUpActions ?? [])
+      .flatMap(a => a.sourceIds ?? [])
+      .filter(id => id.startsWith('exp:'))
+      .length;
+    recordReflectionImpactsFromReport(report, date, now, {
+      biasMaxScore,
+      experimentProposalCount,
+    });
   } catch (e: unknown) {
     console.warn(
       '[NightlyReflection] reflection impact 기록 실패:',

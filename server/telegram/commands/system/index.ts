@@ -11,6 +11,7 @@ import './learningHistory.cmd.js';
 import './learningStatus.cmd.js';
 import './market.cmd.js';
 import './refreshSectorMap.cmd.js';
+import './refreshWatchlistSectors.cmd.js';
 import './regime.cmd.js';
 import './scanIndices.cmd.js';
 import './scheduler.cmd.js';

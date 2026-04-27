@@ -132,6 +132,27 @@ async function startServer() {
     console.error('[Boot] SHADOW BUY fill 백필 실패:', e instanceof Error ? e.message : e);
   }
 
+  // ADR-0060 PR-Z1 후속: 워치리스트 sector 일괄 백필 (1회성 멱등).
+  // PR-Z1 이전에 추가된 entries 의 sector 필드가 빈 상태라 sectorCycleDashboard
+  // 의 워치리스트 분포 블록 누락 + sectorConcentrationGate fallback 부담 ↑.
+  // getSectorByCode SSOT 결과로 빈 sector 만 채움 (이미 있는 sector 는 보존).
+  // '미분류' 결과는 미백필 — sectorMap 갱신 후 다음 부팅에서 재시도.
+  try {
+    const { backfillWatchlistSectors } =
+      await import('./persistence/watchlistSectorBackfill.js');
+    const r = backfillWatchlistSectors();
+    if (r.scanned > 0) {
+      console.log(
+        `[Boot] 워치리스트 sector 백필 — total=${r.total} scanned=${r.scanned} ` +
+        `filled=${r.filled} unmatched=${r.unmatched}`,
+      );
+    } else {
+      console.log(`[Boot] 워치리스트 sector 백필 대상 없음 (총 ${r.total}건 모두 정합)`);
+    }
+  } catch (e) {
+    console.error('[Boot] 워치리스트 sector 백필 실패:', e instanceof Error ? e.message : e);
+  }
+
   // PR-24 (ADR-0010): KIS 엔드포인트 영속 블랙리스트 로드 — 만료 entry 자동 청소.
   try {
     const { loadKisEndpointBlacklist } =
