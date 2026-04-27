@@ -1,3 +1,4 @@
+// @responsibility signals 영역 MHSHistoryChart 컴포넌트
 import React, { useEffect, useRef, useMemo } from 'react';
 import { createChart, createSeriesMarkers, LineSeries, HistogramSeries, IChartApi, Time, LineData, HistogramData } from 'lightweight-charts';
 

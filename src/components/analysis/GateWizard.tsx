@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 GateWizard 컴포넌트
 /**
  * GateWizard — 3-Gate 위저드 플로우
  *

@@ -1,3 +1,4 @@
+// @responsibility quant hardStopLoss 엔진 모듈
 /**
  * sell/hardStopLoss.ts — L1 기계적 손절 (최우선, 인간 개입 금지)
  *

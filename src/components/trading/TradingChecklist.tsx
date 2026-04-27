@@ -1,3 +1,4 @@
+// @responsibility trading 영역 TradingChecklist 컴포넌트
 /**
  * TradingChecklist — 아이디어 10
  * 자동매매 최초 설정 시 순서대로 검증하는 내장 체크리스트

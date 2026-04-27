@@ -1,3 +1,4 @@
+// @responsibility sector 영역 SectorSubscription 컴포넌트
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Radar,

@@ -1,3 +1,4 @@
+// @responsibility market 영역 TriageSummarySection 컴포넌트
 import React from 'react';
 import { Activity, TrendingUp, Zap, ShieldAlert } from 'lucide-react';
 

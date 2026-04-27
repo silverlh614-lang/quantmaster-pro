@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 UniverseSelector 컴포넌트
 /**
  * UniverseSelector — Gate-0 유니버스 선택기
  *

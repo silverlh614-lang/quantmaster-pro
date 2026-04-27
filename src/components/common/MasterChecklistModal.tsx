@@ -1,3 +1,4 @@
+// @responsibility common 영역 MasterChecklistModal 컴포넌트
 import React from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { Modal, ModalHeader, ModalBody } from '../../ui/modal';

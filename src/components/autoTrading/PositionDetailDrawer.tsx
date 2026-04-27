@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 PositionDetailDrawer 컴포넌트
 import React from 'react';
 import { X } from 'lucide-react';
 import type { PositionItem } from '../../services/autoTrading/autoTradingTypes';

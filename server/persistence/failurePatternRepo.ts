@@ -1,3 +1,4 @@
+// @responsibility failurePatternRepo 영속화 저장소 모듈
 // server/persistence/failurePatternRepo.ts
 // 반실패 패턴 DB — 손절된 포지션의 진입 스냅샷 저장소
 

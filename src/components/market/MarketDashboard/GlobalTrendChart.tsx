@@ -1,3 +1,4 @@
+// @responsibility market 영역 GlobalTrendChart 컴포넌트
 import React, { useEffect, useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import {

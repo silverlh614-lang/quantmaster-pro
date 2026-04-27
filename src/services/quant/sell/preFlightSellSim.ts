@@ -1,3 +1,4 @@
+// @responsibility quant preFlightSellSim 엔진 모듈
 /**
  * sell/preFlightSellSim.ts — Pre-Flight Sell Simulation
  *

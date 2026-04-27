@@ -1,3 +1,4 @@
+// @responsibility synergyBootstrap 학습 엔진 모듈
 /**
  * synergyBootstrap.ts — 아이디어 3: 시너지 탐지 초기 데이터 부족 해결.
  *

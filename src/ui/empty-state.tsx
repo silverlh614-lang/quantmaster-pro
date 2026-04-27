@@ -1,3 +1,4 @@
+// @responsibility empty-state UI 프리미티브 컴포넌트
 import React from 'react';
 import { cn } from './cn';
 import { Button } from './button';

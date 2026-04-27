@@ -1,3 +1,4 @@
+// @responsibility mockKisClient 외부 클라이언트 모듈
 /**
  * mockKisClient.ts — VTS 모드 전용 가상 KIS 클라이언트
  *

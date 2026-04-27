@@ -1,3 +1,4 @@
+// @responsibility focus.cmd 텔레그램 모듈
 // @responsibility: /focus 명령 — Track B(SWING/CATALYST) 매수 대상 상세를 진입가/손절/목표/등록일과 함께 표시.
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import { escapeHtml } from '../../../alerts/telegramClient.js';

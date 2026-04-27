@@ -1,3 +1,4 @@
+// @responsibility format 유틸 함수 모듈
 /**
  * 숫자 렌더링 안전 유틸 — 트레이딩/거래내역 카드에서 `.toLocaleString()` /
  * `.toFixed()` 를 unchecked 호출해 TypeError 로 카드 전체가 사라지던 이슈를

@@ -1,3 +1,4 @@
+// @responsibility reconnectWs.cmd 텔레그램 모듈
 // @responsibility: /reconnect_ws — KIS WebSocket 강제 재연결 (stop → 1s 대기 → start). 워치리스트 비어있으면 가드. EMR 인프라.
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import {

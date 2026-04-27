@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 SectorAnalysisSection 컴포넌트
 import React from 'react';
 import { TrendingUp, Zap, Layers, Crown, AlertCircle } from 'lucide-react';
 import type { StockRecommendation } from '../../../services/stockService';

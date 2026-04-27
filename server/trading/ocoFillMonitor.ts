@@ -1,3 +1,4 @@
+// @responsibility ocoFillMonitor 매매 엔진 모듈
 /**
  * ocoFillMonitor.ts — Phase 3.1 스켈레톤: LIVE 전환 시 활성화될 OCO 자동 등록 루프.
  *

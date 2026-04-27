@@ -1,3 +1,4 @@
+// @responsibility stock quantScreenRecommendations 서비스 모듈
 /**
  * quantScreenRecommendations.ts — QUANT_SCREEN 정량 파이프라인
  *

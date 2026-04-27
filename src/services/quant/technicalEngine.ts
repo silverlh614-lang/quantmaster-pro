@@ -1,3 +1,4 @@
+// @responsibility quant technicalEngine 엔진 모듈
 // src/services/quant/technicalEngine.ts
 import {
   ConditionId, ConfluenceScore, CycleAnalysis, CyclePosition,

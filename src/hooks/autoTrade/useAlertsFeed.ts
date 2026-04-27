@@ -1,3 +1,4 @@
+// @responsibility useAlertsFeed React hook
 /**
  * useAlertsFeed — 서버측 Telegram 알림 피드를 UI 에 미러링 + 읽음 상태 유지.
  *

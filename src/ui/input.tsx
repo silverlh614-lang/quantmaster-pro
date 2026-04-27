@@ -1,3 +1,4 @@
+// @responsibility input UI 프리미티브 컴포넌트
 import React, { useId } from 'react';
 import { cn } from './cn';
 import { FieldError } from './field-error';

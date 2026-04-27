@@ -1,3 +1,4 @@
+// @responsibility operatorRouter 서버 라우터 모듈
 /**
  * operatorRouter.ts — 운용자 오버라이드 REST 엔드포인트
  *

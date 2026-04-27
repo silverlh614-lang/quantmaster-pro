@@ -1,3 +1,4 @@
+// @responsibility quant contradictionDetector 엔진 모듈
 /**
  * contradictionDetector.ts — 조건 간 상충 감지기 (Contradiction Detector)
  *

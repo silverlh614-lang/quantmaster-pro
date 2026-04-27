@@ -227,7 +227,18 @@ export async function runPreflight(
   }
 
   // ── 8. FOMC 게이팅 ────────────────────────────────────────────────────────
-  const fomcProximity = getFomcProximity();
+  // v2 (2026-04-26): macroState 를 전달해 PRE_1/DAY 에서도 우호 환경 시 보수적 진입 허용.
+  // 우호 환경 조건: MHS≥60 + 강세 레짐(BULL_AGGRESSIVE/BULL_NORMAL) + VKOSPI≤22.
+  // macro 누락 시 보수적 차단 유지 (회귀 안전).
+  const fomcProximity = getFomcProximity(
+    macroState
+      ? {
+          mhs: macroState.mhs,
+          regime: regime ?? macroState.regime,
+          vkospi: macroState.vkospi,
+        }
+      : undefined,
+  );
   if (fomcProximity.noNewEntry) {
     console.warn(`[AutoTrade] FOMC 게이팅 — 신규 진입 차단: ${fomcProximity.description}`);
     await sendTelegramAlert(
@@ -238,6 +249,21 @@ export async function runPreflight(
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return { shouldAbort: true, abortReason: 'FOMC_GATING', sellOnly };
+  }
+  // 우호 환경 완화 적용 시 운영자 알림 (1회/일 dedupeKey).
+  if (fomcProximity.relaxed) {
+    console.log(`[AutoTrade] FOMC 우호 환경 완화 — 보수적 진입 허용: ${fomcProximity.relaxationReason}`);
+    await sendTelegramAlert(
+      `🟢 <b>[FOMC 우호 환경 완화]</b>\n` +
+      `${fomcProximity.description}\n` +
+      `Kelly ×${fomcProximity.kellyMultiplier.toFixed(2)} 보수적 진입 허용 — ` +
+      `규모 축소 + 종목 선별 강화`,
+      {
+        priority: 'NORMAL',
+        dedupeKey: `fomc_relaxed_${fomcProximity.nextFomcDate ?? 'unknown'}`,
+        cooldownMs: 12 * 60 * 60 * 1000,
+      },
+    ).catch(console.error);
   }
 
   // ── 9. Data Degradation Gate ──────────────────────────────────────────────

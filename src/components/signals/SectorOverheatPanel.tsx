@@ -1,3 +1,4 @@
+// @responsibility signals 영역 SectorOverheatPanel 컴포넌트
 /**
  * 아이디어 7: 섹터 과열 감지 + 섹터 인버스 ETF 자동 매칭
  * 섹터 로테이션 히트맵과 연동하여 과열 섹터에 대한 인버스 ETF를 자동 매칭한다.

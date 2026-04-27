@@ -1,3 +1,4 @@
+// @responsibility market 영역 MarketNeutralPanel 컴포넌트
 /**
  * 아이디어 9: Market Neutral 모드 패널
  * TRANSITION 레짐에서 롱/인버스 동시 보유로 변동성 수익을 추구하는

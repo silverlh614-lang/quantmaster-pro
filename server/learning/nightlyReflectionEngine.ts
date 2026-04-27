@@ -69,6 +69,9 @@ import {
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { getGeminiRuntimeState } from '../clients/geminiClient.js';
+import { isKstWeekend } from '../utils/marketClock.js';
+import { recordReflectionImpactsFromReport } from './reflectionImpactRecorder.js';
+import { isKrxHoliday } from '../trading/krxHolidays.js';
 
 export interface RunReflectionOptions {
   /** 기준 시각 (테스트 주입용). 기본값: Date.now() */
@@ -83,7 +86,7 @@ export interface RunReflectionResult {
   date:     string;
   mode:     ReflectionMode;
   executed: boolean;
-  skipped?: 'ALREADY_EXISTS' | 'SILENCE_MONDAY' | 'TEMPLATE_FALLBACK';
+  skipped?: 'ALREADY_EXISTS' | 'SILENCE_MONDAY' | 'TEMPLATE_FALLBACK' | 'NON_TRADING_DAY';
   report?:  ReflectionReport;
   /** Gemini 호출에 소비된 대략 토큰 수 (비용 추적용) */
   tokensUsed?: number;
@@ -348,6 +351,24 @@ export async function runNightlyReflection(
     }
   }
 
+  // PR-A — 주말·KRX 공휴일 환각 차단 가드 (ADR-0043 PR-B 후속에서 SSOT 일원화 예정).
+  // 거래 데이터 없는 날에 자기반성을 실행하면 "오늘 모든 신호가 실패" 로 잘못 학습되어
+  // 가중치가 왜곡된다. opts.force=true 시 가드 우회 (수동 운영 호환).
+  if (!opts.force) {
+    const weekend = isKstWeekend(now);
+    const holiday = isKrxHoliday(date);
+    if (weekend || holiday) {
+      const reason = weekend ? '주말' : 'KRX 공휴일';
+      console.log(`[NightlyReflection] ${date} ${reason} — 학습 가중치 동결, 반성 스킵`);
+      return {
+        date,
+        mode: 'TEMPLATE_ONLY',
+        executed: false,
+        skipped: 'NON_TRADING_DAY',
+      };
+    }
+  }
+
   const mode = decideReflectionMode(date);
   const inputs = collectInputs(date);
   const callsBudget = maxGeminiCalls(mode);
@@ -583,6 +604,18 @@ export async function runNightlyReflection(
       mode,
       report.keyLessons,
       report.tomorrowAdjustments,
+    );
+  }
+
+  // ADR-0047 (PR-Y2): Reflection Module Half-Life — 13개 모듈 영향률 영속.
+  // 본 PR 은 측정만 — 실제 silent/deprecated 가드 wiring 은 후속 PR.
+  // 실패는 학습 사이클을 막지 않도록 try/catch 흡수.
+  try {
+    recordReflectionImpactsFromReport(report, date, now);
+  } catch (e: unknown) {
+    console.warn(
+      '[NightlyReflection] reflection impact 기록 실패:',
+      e instanceof Error ? e.message : e,
     );
   }
 

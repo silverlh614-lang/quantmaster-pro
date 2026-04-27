@@ -1,3 +1,4 @@
+// @responsibility signals 영역 MTFConfluencePanel 컴포넌트
 /**
  * MTFConfluencePanel.tsx — 다중 시간 프레임 합치 스코어 패널
  *

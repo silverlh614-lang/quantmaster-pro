@@ -1,3 +1,4 @@
+// @responsibility index 서버 모듈
 /// <reference types="node" />
 import express, { Request, Response } from "express";
 import cors from "cors";
@@ -63,6 +64,11 @@ import operatorRouter from './routes/operatorRouter.js';
 import monitoringCertRouter from './routes/monitoringCertRouter.js';
 import userWatchlistRouter from './routes/userWatchlistRouter.js';
 import learningRouter from './routes/learningRouter.js';
+import recommendationsRouter from './routes/recommendationsRouter.js';
+import screenerPipelineRouter from './routes/screenerPipelineRouter.js';
+import attributionRouter from './routes/attributionRouter.js';
+import survivalRouter from './routes/survivalRouter.js';
+import decisionInputsRouter from './routes/decisionInputsRouter.js';
 import { startScheduler } from './scheduler/index.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 import { globalErrorHandler } from './utils/apiResponse.js';
@@ -237,9 +243,34 @@ async function startServer() {
   app.use('/api/learning', learningRouter);
 
   // ─────────────────────────────────────────────────────────────
+  // PR-B (ADR-0029) — 추천 이력·통계 GET /api/recommendations/{history,stats}
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/recommendations', recommendationsRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // PR-F (ADR-0033) — 후보군 파이프라인 GET /api/screener/pipeline-summary
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/screener', screenerPipelineRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // PR-H (ADR-0035) — 조건별 수익률 귀인 GET /api/attribution/stats
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/attribution', attributionRouter);
+
+  // ─────────────────────────────────────────────────────────────
   // PR-37 (ADR-0016) — AI 추천 universe 건강성 GET /api/health/ai-universe
   // ─────────────────────────────────────────────────────────────
   app.use('/api/health', aiUniverseHealthRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // PR-Z2 (ADR-0050) — 계좌 생존 게이지 GET /api/account/survival
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/account', survivalRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // PR-Z4 (ADR-0052) — 단일 결정 입력 GET /api/decision/inputs
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/decision', decisionInputsRouter);
 
   // ─── 아이디어 1: 오케스트레이터 상태 조회 ────────────────────────────────────
   app.get('/api/orchestrator/state', (_req: Request, res: Response) => {

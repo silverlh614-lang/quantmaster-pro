@@ -1,3 +1,4 @@
+// @responsibility shadowDataGate 스크리너 모듈
 /**
  * shadowDataGate.ts — Shadow 모드 전용 데이터 게이트 (Phase 1: Shadow-VTS Decoupling)
  *

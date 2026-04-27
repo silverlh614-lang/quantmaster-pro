@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 ModalHeader 컴포넌트
 import React from 'react';
 import { Award, Sparkles, Info, ExternalLink, ShieldCheck } from 'lucide-react';
 import { cn } from '../../../ui/cn';

@@ -1,3 +1,4 @@
+// @responsibility MarketPage 페이지 컴포넌트
 import React, { useEffect, useMemo, Suspense, lazy } from 'react';
 import { motion } from 'motion/react';
 import { RefreshCw, Activity } from 'lucide-react';

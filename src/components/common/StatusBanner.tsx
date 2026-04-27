@@ -1,3 +1,4 @@
+// @responsibility common 영역 StatusBanner 컴포넌트
 /**
  * Neo-Brutalism Status Banner
  * One-line "현재 상태 요약" at the top of the main content area.

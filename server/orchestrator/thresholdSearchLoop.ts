@@ -1,3 +1,4 @@
+// @responsibility thresholdSearchLoop 오케스트레이터 모듈
 /**
  * thresholdSearchLoop.ts — Phase 5-⑪ 빈스캔 5회 → 자동 임계치 탐색 루프.
  *

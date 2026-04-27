@@ -31,6 +31,8 @@ function makeTrade(
     followedSystem: true,
     returnPct,
     status: 'CLOSED',
+    // ADR-0048 (PR-Y4): 테스트 결정성 — entryRegime 명시로 coverage 게이트 단일 셀 통과
+    entryRegime: 'EXPANSION',
   };
 }
 
@@ -90,8 +92,8 @@ describe('evaluateFeedbackLoop — 가중치 상향 (승률 > 60%)', () => {
   // ADR-0020 (PR-C): 조건 1 (주도주 사이클) 은 AI 분류라 multiplier=0.4 가
   // 적용되어 +4% 만 보정된다. 본 테스트는 PR-C 정합 — UP 방향 + AI 보정량 검증.
   it('AI 조건 (1=주도주 사이클) 100% 승률 → +4% (1.0 → 1.04, ADR-0020)', () => {
-    const trades = makeTrades(10, 5, 1 as ConditionId, 8);
-    const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 10 }, () => makeTrade(5));
+    const trades = makeTrades(30, 5, 1 as ConditionId, 8);
+    const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 30 }, () => makeTrade(5));
     const result = evaluateFeedbackLoop([...trades, ...filler], { 1: 1.0 });
     const cal = result.calibrations.find(c => c.conditionId === 1);
     expect(cal).toBeDefined();
@@ -100,8 +102,8 @@ describe('evaluateFeedbackLoop — 가중치 상향 (승률 > 60%)', () => {
   });
 
   it('가중치 최대값 1.5 초과 금지', () => {
-    const trades = makeTrades(10, 5, 1 as ConditionId, 8);
-    const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 10 }, () => makeTrade(5));
+    const trades = makeTrades(30, 5, 1 as ConditionId, 8);
+    const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 30 }, () => makeTrade(5));
     // 이미 1.5에 근접한 가중치
     const result = evaluateFeedbackLoop([...trades, ...filler], { 1: 1.5 });
     const cal = result.calibrations.find(c => c.conditionId === 1);
@@ -116,8 +118,8 @@ describe('evaluateFeedbackLoop — 가중치 상향 (승률 > 60%)', () => {
 describe('evaluateFeedbackLoop — 가중치 하향 (승률 < 40%)', () => {
   // ADR-0020: 조건 2 (모멘텀) 는 COMPUTED 분류라 multiplier=1.0 → -10% 그대로 적용
   it('COMPUTED 조건 (2=모멘텀) 0% 승률 → -10% (1.0 → 0.9)', () => {
-    const trades = makeTrades(10, -5, 2 as ConditionId, 8);
-    const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 10 }, () => makeTrade(5));
+    const trades = makeTrades(30, -5, 2 as ConditionId, 8);
+    const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 30 }, () => makeTrade(5));
     const result = evaluateFeedbackLoop([...trades, ...filler], { 2: 1.0 });
     const cal = result.calibrations.find(c => c.conditionId === 2);
     expect(cal).toBeDefined();
@@ -126,8 +128,8 @@ describe('evaluateFeedbackLoop — 가중치 하향 (승률 < 40%)', () => {
   });
 
   it('가중치 최소값 0.5 미만 금지', () => {
-    const trades = makeTrades(10, -5, 2 as ConditionId, 8);
-    const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 10 }, () => makeTrade(5));
+    const trades = makeTrades(30, -5, 2 as ConditionId, 8);
+    const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 30 }, () => makeTrade(5));
     const result = evaluateFeedbackLoop([...trades, ...filler], { 2: 0.5 });
     const cal = result.calibrations.find(c => c.conditionId === 2);
     if (cal) {
@@ -141,11 +143,10 @@ describe('evaluateFeedbackLoop — 가중치 하향 (승률 < 40%)', () => {
 describe('evaluateFeedbackLoop — 가중치 안정 (승률 40%~60%)', () => {
   it('승률 50% → direction = STABLE, delta = 0', () => {
     const condId = 3 as ConditionId;
-    // 5승 + 5패 (승률 50%)
-    const winTrades  = makeTrades(5, 5,  condId, 8);
-    const loseTrades = makeTrades(5, -5, condId, 8);
-    const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 10 }, () => makeTrade(5));
-    const result = evaluateFeedbackLoop([...winTrades, ...loseTrades, ...filler], { [condId]: 1.0 });
+    // ADR-0048: 15승 + 15패 (승률 50%, coverage 게이트 30건 통과)
+    const winTrades  = makeTrades(15, 5,  condId, 8);
+    const loseTrades = makeTrades(15, -5, condId, 8);
+    const result = evaluateFeedbackLoop([...winTrades, ...loseTrades], { [condId]: 1.0 });
     const cal = result.calibrations.find(c => c.conditionId === condId);
     expect(cal).toBeDefined();
     expect(cal!.direction).toBe('STABLE');
@@ -167,11 +168,10 @@ describe('evaluateFeedbackLoop — 최소 조건 거래 수 (5건 미달 제외)
     expect(cal).toBeUndefined();
   });
 
-  it('특정 조건에 5건 이상 데이터 → 해당 조건 calibrations 포함', () => {
+  it('특정 조건에 30건 이상 데이터 → 해당 조건 calibrations 포함 (ADR-0048 coverage 게이트 통과)', () => {
     const condId = 5 as ConditionId;
-    const trades = makeTrades(5, 5, condId, 8);
-    const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 5 }, () => makeTrade(5));
-    const result = evaluateFeedbackLoop([...trades, ...filler]);
+    const trades = makeTrades(30, 5, condId, 8);
+    const result = evaluateFeedbackLoop(trades);
     const cal = result.calibrations.find(c => c.conditionId === condId);
     expect(cal).toBeDefined();
   });
@@ -180,7 +180,7 @@ describe('evaluateFeedbackLoop — 최소 조건 거래 수 (5건 미달 제외)
     const condId = 6 as ConditionId;
     // 점수 4 (임계값 5 미만) → 집계 제외
     const trades = makeTrades(10, 5, condId, 4);
-    const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 10 }, () => makeTrade(5));
+    const filler = Array.from({ length: CALIBRATION_MIN_TRADES - 30 }, () => makeTrade(5));
     const result = evaluateFeedbackLoop([...trades, ...filler]);
     const cal = result.calibrations.find(c => c.conditionId === condId);
     expect(cal).toBeUndefined();

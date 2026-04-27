@@ -1,3 +1,4 @@
+// @responsibility refreshToken.cmd 텔레그램 모듈
 // @responsibility: /refresh_token — KIS 토큰 무효화 + 강제 갱신 + 잔여 시간 보고. EMR 인프라.
 import {
   invalidateKisToken,

@@ -1,3 +1,4 @@
+// @responsibility overrideLedger 영속화 저장소 모듈
 /**
  * overrideLedger.ts — 운용자 오버라이드 감사 로그 + 일 2회 제한
  *

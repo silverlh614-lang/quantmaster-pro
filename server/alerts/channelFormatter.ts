@@ -1,3 +1,4 @@
+// @responsibility channelFormatter 알림 모듈
 /**
  * channelFormatter.ts — 채널·DM 공통 메시지 포맷 헬퍼
  *

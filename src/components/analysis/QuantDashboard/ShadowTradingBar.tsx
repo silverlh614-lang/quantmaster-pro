@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 ShadowTradingBar 컴포넌트
 import React from 'react';
 import { PlayCircle } from 'lucide-react';
 import { cn } from '../../../ui/cn';

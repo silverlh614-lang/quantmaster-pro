@@ -1,3 +1,4 @@
+// @responsibility signals 영역 SectorEnergyPanel 컴포넌트
 /**
  * SectorEnergyPanel.tsx — 섹터 에너지 맵 & 로테이션 마스터 게이트 패널
  *

@@ -1,3 +1,4 @@
+// @responsibility index React hook
 export {
   useBatchGlobalIntel,
   useBatchSectorIntel,

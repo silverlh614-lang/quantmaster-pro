@@ -1,3 +1,4 @@
+// @responsibility index 레이아웃 컴포넌트
 export { PageContainer } from './PageContainer';
 export { PageGrid } from './PageGrid';
 export { Stack } from './Stack';

@@ -1,3 +1,4 @@
+// @responsibility quant behavioralMirrorEngine 엔진 모듈
 /**
  * behavioralMirrorEngine.ts — 투자자 행동 교정 미러 대시보드 엔진
  *

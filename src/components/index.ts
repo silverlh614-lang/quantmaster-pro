@@ -1,3 +1,4 @@
+// @responsibility index.ts 영역 index 컴포넌트
 // ─── Component Barrel Exports ────────────────────────────────────────────────
 // 도메인별로 그룹화된 컴포넌트를 단일 진입점에서 re-export
 

@@ -1,3 +1,4 @@
+// @responsibility quant bearEngine 엔진 모듈
 /**
  * bearEngine.ts — Bear 모드 엔진 (메인 오케스트레이터)
  *

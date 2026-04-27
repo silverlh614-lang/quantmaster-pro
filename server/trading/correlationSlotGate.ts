@@ -1,3 +1,4 @@
+// @responsibility correlationSlotGate 매매 엔진 모듈
 /**
  * correlationSlotGate.ts — Idea 5: Correlation-Aware Slot Allocation.
  *

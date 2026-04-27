@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 AlertsFeedBell 컴포넌트
 /**
  * AlertsFeedBell — Telegram ↔ UI 알림 동기화 벨 아이콘.
  *

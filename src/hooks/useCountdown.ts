@@ -1,3 +1,4 @@
+// @responsibility useCountdown React hook
 import { useEffect, useState } from 'react';
 
 /**

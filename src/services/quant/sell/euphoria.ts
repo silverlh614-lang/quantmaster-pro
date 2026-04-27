@@ -1,3 +1,4 @@
+// @responsibility quant euphoria 엔진 모듈
 /**
  * sell/euphoria.ts — L4 과열 탐지 (탐욕 차단)
  *

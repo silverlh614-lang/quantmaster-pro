@@ -1,3 +1,4 @@
+// @responsibility useShadowTradeStore Zustand store
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ShadowTrade } from '../types/quant';
@@ -48,6 +49,8 @@ function mapServerToClient(s: ServerShadowTrade): ShadowTrade {
     signalTime: s.signalTime,
     stockCode: s.stockCode,
     stockName: s.stockName,
+    // ADR-0060: 서버에서 sector 부재 시 그대로 undefined 통과 (UI fallback 0건 매칭).
+    sector: s.sector,
     signalPrice: s.signalPrice ?? 0,
     shadowEntryPrice: s.shadowEntryPrice ?? s.signalPrice ?? 0,
     quantity: s.quantity ?? 0,

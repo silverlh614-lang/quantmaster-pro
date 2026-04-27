@@ -1,3 +1,4 @@
+// @responsibility bearRegimeAlert 알림 모듈
 import fs from 'fs';
 import { BEAR_ALERT_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';

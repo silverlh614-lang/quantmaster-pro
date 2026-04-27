@@ -1,3 +1,4 @@
+// @responsibility viewRegistry 설정 SSOT
 /**
  * View registry — maps each View id to its human-readable label.
  * Used for browser tab titles, breadcrumbs, and anywhere a view name
@@ -18,6 +19,8 @@ export const VIEW_LABELS: Record<View, string> = {
   TRADE_JOURNAL: '매매일지',
   AUTO_TRADE: '자동매매',
   PORTFOLIO_EXTRACT: '포트폴리오 추출',
+  RECOMMENDATION_HISTORY: '추천 이력',
+  MACRO_INTEL: '매크로 인텔리전스',
 };
 
 /** App name used in browser tab title */

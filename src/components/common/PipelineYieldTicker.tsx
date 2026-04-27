@@ -1,3 +1,4 @@
+// @responsibility common 영역 PipelineYieldTicker 컴포넌트
 /**
  * PipelineYieldTicker — 장중 Pipeline Yield 실시간 3-막대 티커.
  *

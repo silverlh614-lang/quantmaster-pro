@@ -1,3 +1,4 @@
+// @responsibility channelStats.cmd 텔레그램 모듈
 // @responsibility: /channel_stats — 채널 통계 조회 (today/yesterday/YYYY-MM-DD) — sent/skipped/failed/digested 분리 표시.
 import { getChannelStatsByDate, getRecentDateKeys } from '../../../persistence/channelStatsRepo.js';
 import { AlertCategory } from '../../../alerts/alertCategories.js';

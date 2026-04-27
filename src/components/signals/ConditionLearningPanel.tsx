@@ -1,3 +1,4 @@
+// @responsibility signals 영역 ConditionLearningPanel 컴포넌트
 /**
  * ConditionLearningPanel.tsx — 아이디어 11 (Phase 5): 조건 학습 상태 대시보드.
  *

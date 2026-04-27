@@ -1,3 +1,4 @@
+// @responsibility quant bearVkospiEngine 엔진 모듈
 /**
  * bearVkospiEngine.ts — VKOSPI 공포지수 트리거 & Market Neutral 모드 엔진
  *

@@ -1,3 +1,4 @@
+// @responsibility common 영역 WalkForwardView 컴포넌트
 import React, { useState } from 'react';
 import {
   Info, RefreshCw, ShieldCheck, HelpCircle, Zap, TrendingUp,

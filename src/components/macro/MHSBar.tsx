@@ -1,3 +1,4 @@
+// @responsibility macro 영역 MHSBar 컴포넌트
 export function MHSBar({ score }: { score: number }) {
   const color = score >= 70 ? 'bg-green-600' : score >= 40 ? 'bg-amber-500' : 'bg-red-600';
   const label = score >= 70 ? '정상 운용' : score >= 40 ? `MAPC Kelly ${score}% 운용` : '매수 중단';

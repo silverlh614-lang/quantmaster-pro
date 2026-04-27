@@ -1,3 +1,4 @@
+// @responsibility signals 영역 MacroIntelligenceDashboard 컴포넌트
 import React, { useMemo, useCallback } from 'react';
 import {
   Gate0Result, ROEType,

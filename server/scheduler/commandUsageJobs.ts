@@ -5,7 +5,7 @@
  * 후보가 ≥ 1개일 때만 텔레그램 T2_REPORT 로 발송. 후보 0건이면 채팅 노이즈 방지로 스킵.
  * Stage 3 텔레메트리 폐쇄루프(ADR-0007 §학습 모듈 폐쇄루프 정책) 와 동일 패턴.
  */
-import cron from 'node-cron';
+import { scheduledJob } from './scheduleGuard.js';
 
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import {
@@ -37,18 +37,12 @@ export async function runDeprecationReport(
 
 export function registerCommandUsageJobs(): void {
   // 매주 월요일 09:00 KST = UTC 00:00 월요일.
-  cron.schedule(
-    '0 0 * * 1',
-    async () => {
-      try {
-        const res = await runDeprecationReport();
-        console.log(
-          `[CommandUsageJobs] 폐기 후보 리포트: ${res.sent ? `발송됨 (${res.candidates}건)` : '후보 0건 — 스킵'}`,
-        );
-      } catch (e) {
-        console.error('[CommandUsageJobs] 실행 실패:', e instanceof Error ? e.message : e);
-      }
-    },
-    { timezone: 'UTC' },
-  );
+  // PR-B-2: ALWAYS_ON — 운영 리포트는 KRX 공휴일이어도 발송 가치 있음
+  // (월요일이 공휴일이면 후보 분석 결과만 silent 발송).
+  scheduledJob('0 0 * * 1', 'ALWAYS_ON', 'deprecation_report', async () => {
+    const res = await runDeprecationReport();
+    console.log(
+      `[CommandUsageJobs] 폐기 후보 리포트: ${res.sent ? `발송됨 (${res.candidates}건)` : '후보 0건 — 스킵'}`,
+    );
+  }, { timezone: 'UTC' });
 }

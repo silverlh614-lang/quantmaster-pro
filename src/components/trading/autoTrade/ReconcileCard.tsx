@@ -1,3 +1,4 @@
+// @responsibility trading 영역 ReconcileCard 컴포넌트
 import React from 'react';
 import { ShieldAlert } from 'lucide-react';
 import { cn } from '../../../ui/cn';

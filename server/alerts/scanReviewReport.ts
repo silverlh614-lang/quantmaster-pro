@@ -6,13 +6,13 @@
  *
  * 배선:
  *   - 데이터: scanTracer(오늘 traces) + shadowTradeRepo + watchlistRepo
- *   - 발송: sendTelegramBroadcast (DM + 채널 = TELEGRAM_CHAT_ID)
+ *   - 발송: dispatchAlert(ChannelSemantic.JOURNAL) — CH4 메타 학습 채널
  *   - 스케줄: 평일 16:40 KST (reportJobs.ts)
  */
 import { loadTodayScanTraces, summarizeScanTraces, topFailureReasons, type ScanTraceSummary } from '../trading/scanTracer.js';
 import { loadWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
-import { sendTelegramBroadcast } from './telegramClient.js';
+import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 import { CHANNEL_SEPARATOR, channelHeader, kstMMDD } from './channelFormatter.js';
 import { getRemainingQty, isOpenShadowStatus } from '../trading/signalScanner.js';
 import {
@@ -204,12 +204,10 @@ export async function sendScanReviewReport(): Promise<void> {
       tranches: buyStats.tranches,
     });
 
-    await sendTelegramBroadcast(message, {
+    // ADR-0039: CH4 JOURNAL — 스캔 회고 (장마감 후 메타 학습)
+    await dispatchAlert(ChannelSemantic.JOURNAL, message, {
       priority: 'NORMAL',
-      tier: 'T2_REPORT',
-      category: 'scan_review',
       dedupeKey: `scan_review:${today}`,
-      disableChannelNotification: true,
     });
 
     console.log(`[ScanReview] 리포트 발송 완료 — 스캔 ${summary.totalCandidates}개, 후보 ${tomorrowCandidates.length}개`);

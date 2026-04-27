@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 ApiConnectionLamps 컴포넌트
 /**
  * ApiConnectionLamps — 자동매매 페이지 상단에 배치되는 외부 API 연결 상태 램프.
  *
@@ -40,6 +41,10 @@ interface PipelineHealth {
     connected?: boolean;
     subscribedCount?: number;
   };
+  // PR-P (Telegram health)
+  telegramConfigured?: boolean;
+  telegramBotTokenOnly?: boolean;
+  telegramChatIdOnly?: boolean;
 }
 
 const STATE_COLORS: Record<LampState, { dot: string; pill: string; text: string; ring: string }> = {
@@ -126,6 +131,21 @@ function deriveYahoo(h: PipelineHealth | null): LampInfo {
   }
 }
 
+// PR-P: 텔레그램 연결 상태 (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID 검증)
+export function deriveTelegram(h: PipelineHealth | null): LampInfo {
+  if (!h) return { label: 'Telegram', state: 'unknown', detail: '상태 조회 중' };
+  if (h.telegramConfigured) {
+    return { label: 'Telegram', state: 'ok', detail: 'BOT_TOKEN + CHAT_ID 설정됨' };
+  }
+  if (h.telegramBotTokenOnly) {
+    return { label: 'Telegram', state: 'warn', detail: 'CHAT_ID 미설정 — 발송 불가' };
+  }
+  if (h.telegramChatIdOnly) {
+    return { label: 'Telegram', state: 'warn', detail: 'BOT_TOKEN 미설정 — 발송 불가' };
+  }
+  return { label: 'Telegram', state: 'down', detail: 'BOT_TOKEN/CHAT_ID 둘 다 미설정' };
+}
+
 function Lamp({ lamp }: { lamp: LampInfo }) {
   const style = STATE_COLORS[lamp.state];
   return (
@@ -182,6 +202,7 @@ export function ApiConnectionLamps() {
     deriveKisStream(health),
     deriveKrx(health),
     deriveYahoo(health),
+    deriveTelegram(health),
   ];
 
   const syncedLabel = fetchedAt

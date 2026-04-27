@@ -1,7 +1,12 @@
-import { AlertCategory, isCategoryEnabled, parseChannelMap } from './alertCategories.js';
+// @responsibility alertRouter 4채널 발송 SSOT + 진동 정책 + 디지스트 라우팅
+import { AlertCategory, ChannelSemantic, isCategoryEnabled, parseChannelMap } from './alertCategories.js';
 import { sendChannelAlertTo } from './telegramClient.js';
 import { incrementChannelStat } from '../persistence/channelStatsRepo.js';
 import { appendAlertHistory } from '../persistence/alertHistoryRepo.js';
+
+// 채널 시멘틱 이름 re-export — 호출자가 alertRouter 한 곳만 import 하도록.
+export { ChannelSemantic };
+export type { ChannelSemanticName } from './alertCategories.js';
 
 const fallbackWarned = new Set<string>();
 const categoryCooldown = new Map<string, number>();
@@ -72,12 +77,51 @@ export function getResolvedChannelMap(): Record<AlertCategory, string | undefine
 export interface DispatchAlertOptions {
   disableNotification?: boolean;
   priority?: DispatchPriority;
+  /** AlertSeverity 별칭 — priority 와 동일 의미. 명시 시 priority 보다 우선. */
+  severity?: AlertSeverity;
   dedupeKey?: string;
   cooldownMs?: number;
   delivery?: 'immediate' | 'daily_digest' | 'weekly_digest';
 }
 
 export type DispatchPriority = 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW';
+
+/** AlertSeverity = DispatchPriority 시멘틱 별칭 (ADR-0032 §2). */
+export type AlertSeverity = DispatchPriority;
+
+/**
+ * VIBRATION_POLICY (ADR-0032 §2) — 카테고리 × 심각도 별 진동(알림 소리) 매트릭스.
+ *   true  = 진동 ON (disableNotification: false)
+ *   false = 진동 OFF (disableNotification: true)
+ * 호출자가 options.disableNotification 을 명시하면 정책 무시 (override).
+ *
+ * 페르소나 원칙 매핑:
+ *   EXECUTION — 매도/체결은 즉각 인지 필요 (LOW 까지 진동 ON)
+ *   SIGNAL    — 픽은 FOMO 차단을 위해 조용히 누적 (CRITICAL 만 진동)
+ *   REGIME    — R-레짐 전환만 진동, 일상 매크로는 조용히
+ *   JOURNAL   — 복기용이라 모두 진동 OFF (시간 격리)
+ */
+export const VIBRATION_POLICY: Record<AlertCategory, Record<AlertSeverity, boolean>> = {
+  [AlertCategory.TRADE]:    { CRITICAL: true,  HIGH: true,  NORMAL: true,  LOW: true  },
+  [AlertCategory.ANALYSIS]: { CRITICAL: true,  HIGH: false, NORMAL: false, LOW: false },
+  [AlertCategory.INFO]:     { CRITICAL: true,  HIGH: true,  NORMAL: false, LOW: false },
+  [AlertCategory.SYSTEM]:   { CRITICAL: false, HIGH: false, NORMAL: false, LOW: false },
+};
+
+/**
+ * 진동 정책 결정 SSOT — 호출자 명시값이 있으면 그대로, 아니면 VIBRATION_POLICY.
+ * @returns disableNotification 값 (true=조용히 / false=진동 / undefined=Telegram 기본)
+ */
+export function resolveVibrationDecision(
+  category: AlertCategory,
+  severity: AlertSeverity,
+  override?: boolean,
+): boolean {
+  if (override !== undefined) return override;
+  const vibrate = VIBRATION_POLICY[category]?.[severity];
+  // 매트릭스 미정의 시 안전 기본값: 진동 ON (정보 손실보다 잘못된 알림이 낫다)
+  return vibrate === undefined ? false : !vibrate;
+}
 
 const DEFAULT_PRIORITY_BY_CATEGORY: Record<AlertCategory, DispatchPriority> = {
   [AlertCategory.TRADE]: 'HIGH',
@@ -94,7 +138,7 @@ const COOLDOWN_BY_CATEGORY_PRIORITY: Record<AlertCategory, Record<DispatchPriori
 };
 
 function resolvePriority(category: AlertCategory, options?: DispatchAlertOptions): DispatchPriority {
-  return options?.priority ?? DEFAULT_PRIORITY_BY_CATEGORY[category];
+  return options?.severity ?? options?.priority ?? DEFAULT_PRIORITY_BY_CATEGORY[category];
 }
 
 function shouldSendByCooldown(
@@ -338,9 +382,8 @@ export async function dispatchAlert(
     return;
   }
 
-  const msgId = await sendChannelAlertTo(channelId, message, {
-    disableNotification: options?.disableNotification,
-  });
+  const disableNotification = resolveVibrationDecision(category, priority, options?.disableNotification);
+  const msgId = await sendChannelAlertTo(channelId, message, { disableNotification });
   if (msgId !== undefined) {
     incrementChannelStat(category, 'sent');
     appendAlertHistory({

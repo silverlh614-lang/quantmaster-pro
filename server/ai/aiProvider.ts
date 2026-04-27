@@ -1,3 +1,4 @@
+// @responsibility aiProvider AI provider 모듈
 /**
  * aiProvider.ts — AI 공급자 어댑터 (Idea 10)
  *

@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 OrderDetailModal 컴포넌트
 import React from 'react';
 import { X } from 'lucide-react';
 import type { ExecutionOrder } from '../../services/autoTrading/autoTradingTypes';

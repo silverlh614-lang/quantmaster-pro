@@ -1,3 +1,4 @@
+// @responsibility conditionWeightsRepo 영속화 저장소 모듈
 import fs from 'fs';
 import { CONDITION_WEIGHTS_FILE, conditionWeightsRegimeFile, ensureDataDir } from './paths.js';
 import {

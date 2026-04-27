@@ -1,3 +1,4 @@
+// @responsibility Sidebar 레이아웃 컴포넌트
 /**
  * Neo-Brutalism Sidebar
  * Bold border-right, thick accent indicators, uppercase group labels.

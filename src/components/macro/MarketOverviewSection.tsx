@@ -1,3 +1,4 @@
+// @responsibility macro 영역 MarketOverviewSection 컴포넌트
 import React, { useMemo } from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { EconomicRegime } from '../../types/quant';

@@ -1,3 +1,4 @@
+// @responsibility quant roeEngine 엔진 모듈
 /**
  * roeEngine.ts — ROE 유형 전이 감지기
  *
@@ -6,6 +7,7 @@
  */
 
 import type { ROEType, ROETransitionResult } from '../../types/quant';
+import { safePctChange } from '../../utils/safePctChange';
 
 // ─── IDEA 3: ROE 유형 전이 감지기 ────────────────────────────────────────────
 
@@ -42,7 +44,10 @@ export function detectROETransition(
   if (assetTurnoverHistory.length >= 2) {
     const prev = assetTurnoverHistory[assetTurnoverHistory.length - 2];
     const curr = assetTurnoverHistory[assetTurnoverHistory.length - 1];
-    if (prev > 0) assetTurnoverDropPct = ((prev - curr) / prev) * 100;
+    if (prev > 0) {
+      // ADR-0059: stale prev 시 0 fallback — assetTurnover dropPct 보호.
+      assetTurnoverDropPct = safePctChange(prev, curr, { label: 'roeEngine.assetTurnoverDrop' }) ?? 0;
+    }
   }
   const ruleB = assetTurnoverDropPct >= 5;
 

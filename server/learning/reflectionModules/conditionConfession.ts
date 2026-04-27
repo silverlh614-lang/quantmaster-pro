@@ -1,3 +1,4 @@
+// @responsibility conditionConfession 학습 엔진 모듈
 /**
  * conditionConfession.ts — Condition Confession Log (#6).
  *

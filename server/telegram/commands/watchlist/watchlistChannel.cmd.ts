@@ -1,3 +1,4 @@
+// @responsibility watchlistChannel.cmd 텔레그램 모듈
 // @responsibility: /watchlist_channel — 현재 워치리스트를 텔레그램 픽 채널로 즉시 브로드캐스트 (channelPipeline 위임).
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';

@@ -1,3 +1,4 @@
+// @responsibility stock globalThemeEngine 서비스 모듈
 import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, withRetry, safeJsonParse, getCachedAIResponse } from './aiClient';
 import type {

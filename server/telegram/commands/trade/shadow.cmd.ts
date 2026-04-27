@@ -1,3 +1,4 @@
+// @responsibility shadow.cmd 텔레그램 모듈
 // @responsibility: /shadow — Shadow 월간 성과 (computeShadowMonthlyStats SSOT) + 미체결 모니터링 + STRONG_BUY WIN률.
 import {
   computeShadowMonthlyStats,

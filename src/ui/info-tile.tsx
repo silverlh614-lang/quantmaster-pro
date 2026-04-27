@@ -1,3 +1,4 @@
+// @responsibility info-tile UI 프리미티브 컴포넌트
 /**
  * InfoTile — 라벨 + 값의 반복 쌍을 담는 공용 정보 타일.
  *

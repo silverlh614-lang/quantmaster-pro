@@ -1,3 +1,4 @@
+// @responsibility gateConfig 모듈
 // ─── 3-Gate 시스템 공유 상수 ──────────────────────────────────────────────────
 // GateWizard, GateStatusWidget, WeightConfigPanel 등에서 공통 사용
 

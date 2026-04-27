@@ -1,3 +1,4 @@
+// @responsibility signals 영역 FlowPredictionPanel 컴포넌트
 /**
  * FlowPredictionPanel.tsx — 수급 예측 선행 모델 패널
  *

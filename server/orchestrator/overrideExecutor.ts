@@ -1,3 +1,4 @@
+// @responsibility overrideExecutor 오케스트레이터 모듈
 /**
  * overrideExecutor.ts — 운용자 오버라이드 액션 실행 (안전가드 + 라우팅)
  *

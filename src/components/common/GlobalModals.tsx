@@ -1,3 +1,4 @@
+// @responsibility common 영역 GlobalModals 컴포넌트
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0

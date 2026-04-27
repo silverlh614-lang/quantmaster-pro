@@ -1,3 +1,4 @@
+// @responsibility newsLag.cmd 텔레그램 모듈
 // @responsibility: /news_lag /news_patterns — 베이지안으로 학습된 (newsType × sector) lag 분포 카탈로그.
 import { escapeHtml } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';

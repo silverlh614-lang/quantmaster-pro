@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 SentimentSection 컴포넌트
 import React from 'react';
 import { TrendingUp, TrendingDown, Minus, Users, Newspaper } from 'lucide-react';
 import { cn } from '../../../ui/cn';

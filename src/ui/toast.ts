@@ -1,3 +1,4 @@
+// @responsibility toast UI 프리미티브 컴포넌트
 /**
  * toast — Sonner 기반 토스트 헬퍼.
  *

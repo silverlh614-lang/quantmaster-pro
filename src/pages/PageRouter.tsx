@@ -1,3 +1,4 @@
+// @responsibility PageRouter 페이지 컴포넌트
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -14,6 +15,8 @@ import { SubscriptionPage } from './SubscriptionPage';
 import { BacktestPage } from './BacktestPage';
 import { DiscoverWatchlistPage } from './DiscoverWatchlistPage';
 import { PortfolioExtractPage } from './PortfolioExtractPage';
+import { RecommendationHistoryPage } from './RecommendationHistoryPage';
+import { MacroIntelligencePage } from './MacroIntelligencePage';
 import { WalkForwardView } from '../components/common/WalkForwardView';
 import { SectionErrorBoundary } from '../components/common/SectionErrorBoundary';
 import { FloatingActionButton } from '../components/common/FloatingActionButton';
@@ -116,6 +119,10 @@ export function PageRouter({ onFetchMarketOverview }: PageRouterProps) {
               />
             ) : view === 'PORTFOLIO_EXTRACT' ? (
               <PortfolioExtractPage />
+            ) : view === 'RECOMMENDATION_HISTORY' ? (
+              <RecommendationHistoryPage />
+            ) : view === 'MACRO_INTEL' ? (
+              <MacroIntelligencePage />
             ) : view === 'WALK_FORWARD' ? (
               <WalkForwardView />
             ) : (

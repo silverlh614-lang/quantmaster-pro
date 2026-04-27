@@ -1,3 +1,4 @@
+// @responsibility webhookHandler 텔레그램 모듈
 // server/telegram/webhookHandler.ts
 // Telegram 양방향 봇 Webhook 라우터 — POST /api/telegram/webhook.
 //

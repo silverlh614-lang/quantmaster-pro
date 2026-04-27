@@ -1,3 +1,4 @@
+// @responsibility koreanQuoteBridge 외부 클라이언트 모듈
 /**
  * koreanQuoteBridge.ts — KRX 인증 API ↔ Yahoo Finance 이중화 브릿지.
  *
@@ -27,6 +28,7 @@ import {
   type KrxStockDailyRow,
 } from './krxOpenApi.js';
 import { guardedFetch } from '../utils/egressGuard.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 export type QuoteSource = 'krx-openapi' | 'yahoo' | 'none';
 
@@ -156,7 +158,7 @@ async function fetchYahooSymbol(symbol: string): Promise<KoreanDailyQuote | null
           'Accept': 'application/json',
         },
         signal: AbortSignal.timeout(YAHOO_TIMEOUT_MS),
-      });
+      }, 'REALTIME');
       if (!res.ok) continue;
       const data = (await res.json()) as YahooChart;
       const result = data?.chart?.result?.[0];
@@ -184,7 +186,10 @@ async function fetchYahooSymbol(symbol: string): Promise<KoreanDailyQuote | null
         low: meta.regularMarketDayLow ?? (lastIdx >= 0 ? (q.low?.[lastIdx] ?? 0) : 0),
         volume: meta.regularMarketVolume ?? (lastIdx >= 0 ? (q.volume?.[lastIdx] ?? 0) : 0),
         change: prev != null ? parseFloat((close - prev).toFixed(4)) : 0,
-        changePct: prev != null && prev !== 0 ? parseFloat((((close - prev) / prev) * 100).toFixed(4)) : 0,
+        // ADR-0059: stale prev 시 0 fallback — 한국 주가 표기 보호.
+        changePct: prev != null && prev !== 0
+          ? parseFloat((safePctChange(close, prev, { label: 'koreanQuoteBridge.changePct' }) ?? 0).toFixed(4))
+          : 0,
         baseDate: '',
         source: 'yahoo',
         fetchedAt: isoNow(),

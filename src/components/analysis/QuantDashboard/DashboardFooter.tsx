@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 DashboardFooter 컴포넌트
 import React, { useMemo } from 'react';
 
 export function DashboardFooter() {

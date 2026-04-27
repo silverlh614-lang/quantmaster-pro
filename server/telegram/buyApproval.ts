@@ -1,3 +1,4 @@
+// @responsibility buyApproval 텔레그램 모듈
 /**
  * buyApproval.ts — 매수 신호 인라인 키보드 승인/거부/스킵 처리
  *

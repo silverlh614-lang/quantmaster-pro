@@ -33,6 +33,8 @@ function makeTrade(returnPct: number, conditionId: ConditionId, score: number): 
     returnPct,
     status: 'CLOSED',
     schemaVersion: 2,
+    // ADR-0048 (PR-Y4): coverage 게이트 단일 셀 통과 위해 entryRegime 명시
+    entryRegime: 'EXPANSION',
   };
 }
 
@@ -127,9 +129,9 @@ describe('isPromotable', () => {
 
   it('5개 조건 + 일치 → promotable', () => {
     const trades: TradeRecord[] = [];
-    // 5 conditionId 활성화
+    // ADR-0048: 5 conditionId × 30건 — coverage 게이트 통과
     for (const id of [1, 2, 3, 4, 5] as ConditionId[]) {
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 30; i++) {
         trades.push(makeTrade(5, id, 8));
       }
     }
@@ -142,8 +144,9 @@ describe('isPromotable', () => {
 
   it('큰 weightStep 차이 → avgDelta > 0.05 → not promotable', () => {
     const trades: TradeRecord[] = [];
+    // ADR-0048: 5 conditionId × 30건
     for (const id of [1, 2, 3, 4, 5] as ConditionId[]) {
-      for (let i = 0; i < 6; i++) trades.push(makeTrade(5, id, 8));
+      for (let i = 0; i < 30; i++) trades.push(makeTrade(5, id, 8));
     }
     const cmp = compareShadowVsLive(trades, {}, { weightStep: 0.20 });
     expect(cmp.avgWeightDelta).toBeGreaterThan(0.05);

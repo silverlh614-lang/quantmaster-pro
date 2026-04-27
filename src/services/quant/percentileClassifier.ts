@@ -1,3 +1,4 @@
+// @responsibility quant percentileClassifier 엔진 모듈
 /**
  * percentileClassifier.ts — 퍼센타일 기반 종목 등급 분류기
  *

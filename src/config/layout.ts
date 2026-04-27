@@ -1,3 +1,4 @@
+// @responsibility layout 설정 SSOT
 /**
  * Layout constants — mirrors the CSS custom properties in index.css
  * so that JS logic (e.g. responsive checks, inline styles) can reference

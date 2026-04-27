@@ -1,3 +1,4 @@
+// @responsibility channelHealth.cmd 텔레그램 모듈
 // @responsibility: /channel_health — 4채널 (TRADE/ANALYSIS/INFO/SYSTEM) 상태 점검 후 enabled/configured/reason 표.
 import { runChannelHealthCheck } from '../../../alerts/alertRouter.js';
 import { AlertCategory } from '../../../alerts/alertCategories.js';

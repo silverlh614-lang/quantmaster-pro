@@ -1,3 +1,4 @@
+// @responsibility quant bearSeasonalityEngine 엔진 모듈
 /**
  * bearSeasonalityEngine.ts — 아이디어 11: Bear 계절성 캘린더
  *

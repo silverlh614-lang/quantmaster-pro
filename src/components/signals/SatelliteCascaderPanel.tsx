@@ -1,3 +1,4 @@
+// @responsibility signals 영역 SatelliteCascaderPanel 컴포넌트
 /**
  * SatelliteCascaderPanel.tsx — 위성 종목 연쇄 추적 시스템 패널
  *

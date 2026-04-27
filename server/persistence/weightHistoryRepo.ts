@@ -1,3 +1,4 @@
+// @responsibility weightHistoryRepo 영속화 저장소 모듈
 /**
  * weightHistoryRepo.ts — 아이디어 8 (Phase 4): 가중치 스냅샷 히스토리.
  *

@@ -1,3 +1,4 @@
+// @responsibility useGlobalShortcuts React hook
 /**
  * useGlobalShortcuts — 앱 전역 단축키 바인딩.
  *

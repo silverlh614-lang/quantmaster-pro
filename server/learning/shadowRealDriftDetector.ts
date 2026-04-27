@@ -1,3 +1,4 @@
+// @responsibility shadowRealDriftDetector 학습 엔진 모듈
 /**
  * shadowRealDriftDetector.ts — 아이디어 10 (Phase 5): Shadow vs Real 괴리 감지.
  *

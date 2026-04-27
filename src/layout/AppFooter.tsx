@@ -1,3 +1,4 @@
+// @responsibility AppFooter 레이아웃 컴포넌트
 import React from 'react';
 import { Info } from 'lucide-react';
 

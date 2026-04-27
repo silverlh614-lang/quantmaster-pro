@@ -1,3 +1,4 @@
+// @responsibility regimePlaybook 알림 모듈
 /**
  * regimePlaybook.ts — 레짐별 구체 행동 가이드 (IDEA 5)
  *

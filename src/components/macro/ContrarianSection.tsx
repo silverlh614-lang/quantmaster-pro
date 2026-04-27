@@ -1,3 +1,4 @@
+// @responsibility macro 영역 ContrarianSection 컴포넌트
 import React, { useMemo } from 'react';
 import { Gate0Result, ContrarianSignal } from '../../types/quant';
 import { computeContrarianSignals } from '../../services/quantEngine';

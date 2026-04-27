@@ -1,3 +1,4 @@
+// @responsibility watchlist 영역 WatchlistTable 컴포넌트
 import React from 'react';
 import {
   Search, HelpCircle, RefreshCw, Globe, Zap, History, ChevronRight,

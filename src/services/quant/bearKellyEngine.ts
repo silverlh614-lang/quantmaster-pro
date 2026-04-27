@@ -1,3 +1,4 @@
+// @responsibility quant bearKellyEngine 엔진 모듈
 /**
  * bearKellyEngine.ts — 아이디어 6: Bear Mode Kelly Criterion
  *

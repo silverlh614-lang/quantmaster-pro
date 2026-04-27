@@ -1,3 +1,4 @@
+// @responsibility learningHistory.cmd 텔레그램 모듈
 // @responsibility: /learning_history N 명령 — 최근 N일(1~30) 자기학습 이력 mode/verdict/narrative/편향 표.
 import { getLearningHistory } from '../../../learning/learningHistorySummary.js';
 import { formatLearningHistoryMessage } from '../../../learning/learningHistoryFormatter.js';

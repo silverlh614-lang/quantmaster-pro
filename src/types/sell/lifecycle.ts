@@ -1,3 +1,4 @@
+// @responsibility lifecycle 도메인 타입 정의
 // ─── 포지션 생애주기 자동화 (Position Lifecycle Automation) ─────────────────────
 
 /**

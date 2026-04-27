@@ -1,3 +1,4 @@
+// @responsibility dryRunScanner 매매 엔진 모듈
 /**
  * dryRunScanner.ts — 매수 시뮬레이션 드라이런 (아이디어 8)
  *
@@ -105,7 +106,16 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
 
   // 게이팅 평가
   const vixGating      = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
-  const fomcProximity  = getFomcProximity();
+  // v3.1 (2026-04-26): macro snapshot 전달해 PRE_1/DAY 우호 환경 완화 적용 일관성 확보.
+  const fomcProximity  = getFomcProximity(
+    macroState
+      ? {
+          mhs: macroState.mhs,
+          regime: regime ?? macroState.regime,
+          vkospi: macroState.vkospi,
+        }
+      : undefined,
+  );
   const volumeClock    = checkVolumeClockWindow();
   const kellyMultiplier = Math.min(
     1.5,

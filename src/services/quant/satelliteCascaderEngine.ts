@@ -1,3 +1,4 @@
+// @responsibility quant satelliteCascaderEngine 엔진 모듈
 /**
  * satelliteCascaderEngine.ts — 위성 종목 연쇄 추적 시스템 (Satellite Stock Cascader)
  *

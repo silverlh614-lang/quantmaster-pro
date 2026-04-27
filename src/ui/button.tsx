@@ -1,3 +1,4 @@
+// @responsibility button UI 프리미티브 컴포넌트
 /**
  * Button — 프로젝트 전역 공용 버튼.
  *

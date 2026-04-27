@@ -1,3 +1,4 @@
+// @responsibility data-table UI 프리미티브 컴포넌트
 /**
  * DataTable — 정렬 가능한 반응형 데이터 테이블 프리미티브.
  *

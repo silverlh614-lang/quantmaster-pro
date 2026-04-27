@@ -1,3 +1,4 @@
+// @responsibility usePortfolioStore Zustand store
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Portfolio } from '../types/quant';

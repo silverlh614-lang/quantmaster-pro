@@ -1,3 +1,4 @@
+// @responsibility weeklySharpeMonitor 학습 엔진 모듈
 /**
  * weeklySharpeMonitor.ts — Sharpe 급락 조기 경보 주간 체크.
  *

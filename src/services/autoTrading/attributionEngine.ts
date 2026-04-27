@@ -1,3 +1,4 @@
+// @responsibility attributionEngine 서비스 모듈
 /**
  * attributionEngine.ts — Gate별 수익 귀인 분석 (아이디어 9)
  *

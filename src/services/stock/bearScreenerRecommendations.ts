@@ -1,3 +1,4 @@
+// @responsibility stock bearScreenerRecommendations 서비스 모듈
 /**
  * bearScreenerRecommendations.ts — Bear Regime 전용 하락 수혜주 AI 스크리너
  *

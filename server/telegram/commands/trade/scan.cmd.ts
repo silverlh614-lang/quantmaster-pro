@@ -1,3 +1,4 @@
+// @responsibility scan.cmd 텔레그램 모듈
 // @responsibility: /scan — 비상 정지 가드 후 장중 강제 스캔 트리거 (runAutoSignalScan). TRD.
 import { getEmergencyStop } from '../../../state.js';
 import { runAutoSignalScan } from '../../../trading/signalScanner.js';

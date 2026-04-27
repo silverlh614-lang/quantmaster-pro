@@ -1,3 +1,4 @@
+// @responsibility thresholds 모듈
 // src/constants/thresholds.ts
 // 퀀트 엔진 전역 임계값 — 매직 넘버를 한 곳에서 관리
 

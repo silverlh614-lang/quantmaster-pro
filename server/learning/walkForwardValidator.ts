@@ -1,3 +1,4 @@
+// @responsibility walkForwardValidator 학습 엔진 모듈
 /**
  * walkForwardValidator.ts — 아이디어 4: 워크포워드 자동 검증 루프
  *

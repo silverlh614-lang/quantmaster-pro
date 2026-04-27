@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 AutoTradeTabbedView 컴포넌트
 /**
  * AutoTradeTabbedView — 자동매매 관제실 상세 패널 집합을 탭으로 분리.
  *

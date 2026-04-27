@@ -1,3 +1,4 @@
+// @responsibility mutations React hook
 /**
  * Auto-Trade Mutations — 엔진 토글, reconcile, shadow trade 동기화.
  *

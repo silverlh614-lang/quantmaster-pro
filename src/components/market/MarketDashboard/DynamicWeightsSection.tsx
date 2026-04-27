@@ -1,3 +1,4 @@
+// @responsibility market 영역 DynamicWeightsSection 컴포넌트
 import React from 'react';
 import { Zap, Info } from 'lucide-react';
 import { cn } from '../../../ui/cn';

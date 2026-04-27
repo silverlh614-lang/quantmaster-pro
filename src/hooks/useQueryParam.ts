@@ -1,3 +1,4 @@
+// @responsibility useQueryParam React hook
 import { useCallback, useEffect, useState } from 'react';
 
 /**

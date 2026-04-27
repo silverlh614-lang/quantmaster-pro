@@ -1,3 +1,4 @@
+// @responsibility index UI 프리미티브 컴포넌트
 /**
  * QuantMaster Pro — UI Primitives Barrel
  *

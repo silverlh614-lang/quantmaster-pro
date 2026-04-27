@@ -1,3 +1,4 @@
+// @responsibility mutationCanary 학습 엔진 모듈
 /**
  * mutationCanary.ts — Phase 2차 C4: 판단 로직 돌연변이 카나리아.
  *

@@ -1,5 +1,5 @@
 // @responsibility: diagnostics.ts 회귀 — deriveYahooStatus 6분기 + computeVerdict 12분기 + collectHealthSnapshot 통합.
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import {
   deriveYahooStatus,
@@ -7,6 +7,7 @@ import {
   collectHealthSnapshot,
   classifyYahooProbe,
   classifyDartStatus,
+  formatProbeFailureDetail,
   type HealthVerdict,
 } from './diagnostics.js';
 import type { ScanSummary } from '../trading/signalScanner/scanDiagnostics.js';
@@ -338,6 +339,86 @@ describe('collectHealthSnapshot — 통합 SSOT', () => {
 
 // ── classifyYahooProbe ───────────────────────────────────────────────────────
 
+describe('collectHealthSnapshot — Telegram 환경 변수 (PR-P)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(watchlistRepo, 'loadWatchlist').mockReturnValue([]);
+    vi.spyOn(shadowRepo, 'loadShadowTrades').mockReturnValue([]);
+    vi.spyOn(state, 'getEmergencyStop').mockReturnValue(false);
+    vi.spyOn(state, 'getDailyLossPct').mockReturnValue(0);
+    vi.spyOn(kisClient, 'getKisTokenRemainingHours').mockReturnValue(8);
+    vi.spyOn(kisClient, 'getRealDataTokenRemainingHours').mockReturnValue(8);
+    vi.spyOn(kisStream, 'getStreamStatus').mockReturnValue({
+      connected: true, subscribedCount: 0, activePrices: 0, reconnectCount: 0,
+      lastPongAt: null, recentEvents: [], sessionLifespanEmaMs: null,
+      stableResetThresholdMs: 0, close1006WindowCount: 0,
+    });
+    vi.spyOn(gemini, 'getGeminiRuntimeState').mockReturnValue({
+      status: 'IDLE', label: null, caller: null, reason: null, updatedAt: null,
+    });
+    vi.spyOn(marketRefresh, 'getYahooHealthSnapshot').mockReturnValue(FRESH_HEARTBEAT);
+    vi.spyOn(scheduler, 'getLastScanAt').mockReturnValue(Date.now());
+    vi.spyOn(scanner, 'getLastBuySignalAt').mockReturnValue(Date.now() - 3600_000);
+    vi.spyOn(scanner, 'getLastScanSummary').mockReturnValue(null);
+    vi.spyOn(scanner, 'isOpenShadowStatus').mockReturnValue(false);
+    vi.spyOn(paths, 'verifyVolumeMount').mockReturnValue({ ok: true });
+    vi.spyOn(krxOpenApi, 'getKrxOpenApiStatus').mockReturnValue({
+      enabled: true, authKeyConfigured: true, circuitState: 'CLOSED', failures: 0, cacheKeys: [], base: '',
+    });
+    vi.spyOn(krxOpenApi, 'isKrxOpenApiHealthy').mockReturnValue(true);
+    vi.spyOn(intradayYield, 'getCachedIntradayYield').mockReturnValue({
+      status: 'OK',
+      computedAt: new Date().toISOString(),
+      discoveryYield: 0, gateYield: 0, signalYield: 0,
+      counts: { universeScanned: 0, watchlistCount: 0, scanCandidates: 0, gateReached: 0, gatePassed: 0, buyExecuted: 0 },
+    } as never);
+    process.env.AUTO_TRADE_ENABLED = 'true';
+    process.env.AUTO_TRADE_MODE = 'SHADOW';
+    process.env.KIS_APP_KEY = 'dummy';
+  });
+
+  afterEach(() => {
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    delete process.env.TELEGRAM_CHAT_ID;
+  });
+
+  it('BOT_TOKEN + CHAT_ID 모두 설정됨 → telegramConfigured=true', () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'bot:abc';
+    process.env.TELEGRAM_CHAT_ID = '12345';
+    const s = collectHealthSnapshot();
+    expect(s.telegramConfigured).toBe(true);
+    expect(s.telegramBotTokenOnly).toBe(false);
+    expect(s.telegramChatIdOnly).toBe(false);
+  });
+
+  it('BOT_TOKEN 만 → telegramBotTokenOnly=true', () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'bot:abc';
+    delete process.env.TELEGRAM_CHAT_ID;
+    const s = collectHealthSnapshot();
+    expect(s.telegramConfigured).toBe(false);
+    expect(s.telegramBotTokenOnly).toBe(true);
+    expect(s.telegramChatIdOnly).toBe(false);
+  });
+
+  it('CHAT_ID 만 → telegramChatIdOnly=true', () => {
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    process.env.TELEGRAM_CHAT_ID = '12345';
+    const s = collectHealthSnapshot();
+    expect(s.telegramConfigured).toBe(false);
+    expect(s.telegramBotTokenOnly).toBe(false);
+    expect(s.telegramChatIdOnly).toBe(true);
+  });
+
+  it('둘 다 미설정 → 모든 플래그 false', () => {
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    delete process.env.TELEGRAM_CHAT_ID;
+    const s = collectHealthSnapshot();
+    expect(s.telegramConfigured).toBe(false);
+    expect(s.telegramBotTokenOnly).toBe(false);
+    expect(s.telegramChatIdOnly).toBe(false);
+  });
+});
+
 describe('classifyYahooProbe — HTTP 상태 코드 severity 매핑', () => {
   it('200 → OK', () => {
     expect(classifyYahooProbe(200)).toEqual({ severity: 'OK', message: 'Yahoo probe OK' });
@@ -409,5 +490,77 @@ describe('classifyDartStatus — DART API 상태 코드 severity 매핑', () => 
 
   it('빈 문자열 → WARN', () => {
     expect(classifyDartStatus('').severity).toBe('WARN');
+  });
+});
+
+describe('formatProbeFailureDetail — Yahoo probe 실패 사유 분해 (옵션 2)', () => {
+  it('실패 0건 → 빈 문자열', () => {
+    expect(
+      formatProbeFailureDetail({
+        total: 3,
+        failCount: 0,
+        results: [
+          { symbol: 'A', ok: true, status: 200 },
+          { symbol: 'B', ok: true, status: 200 },
+          { symbol: 'C', ok: true, status: 200 },
+        ],
+      }),
+    ).toBe('');
+  });
+
+  it('3/3 모두 egress-gated → 운영자가 자기 차단 즉시 인지', () => {
+    expect(
+      formatProbeFailureDetail({
+        total: 3,
+        failCount: 3,
+        results: [
+          { symbol: 'A', ok: false, status: 503, egressGated: true },
+          { symbol: 'B', ok: false, status: 503, egressGated: true },
+          { symbol: 'C', ok: false, status: 503, egressGated: true },
+        ],
+      }),
+    ).toBe(' (egress-gated 3)');
+  });
+
+  it('3/3 모두 진짜 Yahoo 503 → "yahoo-5xx 3" 단독 표시', () => {
+    expect(
+      formatProbeFailureDetail({
+        total: 3,
+        failCount: 3,
+        results: [
+          { symbol: 'A', ok: false, status: 503 },
+          { symbol: 'B', ok: false, status: 502 },
+          { symbol: 'C', ok: false, status: 504 },
+        ],
+      }),
+    ).toBe(' (yahoo-5xx 3)');
+  });
+
+  it('혼재 분류 — egress 1 / yahoo 1 / timeout 1 순서대로 표시', () => {
+    expect(
+      formatProbeFailureDetail({
+        total: 3,
+        failCount: 3,
+        results: [
+          { symbol: 'A', ok: false, status: 503, egressGated: true },
+          { symbol: 'B', ok: false, status: 503 },
+          { symbol: 'C', ok: false, error: 'aborted' },
+        ],
+      }),
+    ).toBe(' (egress-gated 1, yahoo-5xx 1, timeout 1)');
+  });
+
+  it('partial DEGRADED — 1/3 만 fail 도 분류 표시', () => {
+    expect(
+      formatProbeFailureDetail({
+        total: 3,
+        failCount: 1,
+        results: [
+          { symbol: 'A', ok: true, status: 200 },
+          { symbol: 'B', ok: true, status: 200 },
+          { symbol: 'C', ok: false, status: 503, egressGated: true },
+        ],
+      }),
+    ).toBe(' (egress-gated 1)');
   });
 });

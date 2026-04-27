@@ -1,3 +1,4 @@
+// @responsibility index 텔레그램 모듈
 // @responsibility: commands/learning/* 8 cmd 자동 등록 트리거 (kelly + kelly_surface + regime_coverage + ledger + counterfactual + risk + circuits + reset_circuits).
 import './circuits.cmd.js';
 import './counterfactual.cmd.js';

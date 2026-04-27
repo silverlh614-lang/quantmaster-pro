@@ -1,3 +1,4 @@
+// @responsibility useRecommendations React hook
 /**
  * useRecommendations — Phase 5-⑬ 리프 노드 분해 템플릿.
  *

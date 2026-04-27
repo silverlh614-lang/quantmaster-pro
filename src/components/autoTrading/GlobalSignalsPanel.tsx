@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 GlobalSignalsPanel 컴포넌트
 /**
  * GlobalSignalsPanel — 진단 탭 하단 "오늘의 글로벌 신호 요약" 카드.
  *

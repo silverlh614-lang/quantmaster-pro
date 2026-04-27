@@ -1,3 +1,4 @@
+// @responsibility stop.cmd 텔레그램 모듈
 // @responsibility: /stop — 비상 정지 발동 + 모든 미체결 주문 취소 (cancelAllPendingOrders). EMR.
 import { setEmergencyStop } from '../../../state.js';
 import { cancelAllPendingOrders } from '../../../emergency.js';

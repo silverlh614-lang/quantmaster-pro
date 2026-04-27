@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 GatePyramid 컴포넌트
 import React from 'react';
 import { Shield, Layers, Zap } from 'lucide-react';
 import type { EvaluationResult } from '../../../types/quant';

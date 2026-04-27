@@ -1,3 +1,4 @@
+// @responsibility status.cmd 텔레그램 모듈
 // @responsibility: /status 명령 — 모드/비상정지/MHS/포지션/오늘 결산/KIS/Yahoo/스캐너 1메시지 요약.
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { getRemainingQty } from '../../../persistence/shadowTradeRepo.js';

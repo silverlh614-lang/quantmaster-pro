@@ -1,3 +1,4 @@
+// @responsibility dxy.cmd 텔레그램 모듈
 // @responsibility: /dxy /dxy_intraday — DXY 인트라데이 스냅샷 (Yahoo 5m 우선 + Alpha Vantage fallback).
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';

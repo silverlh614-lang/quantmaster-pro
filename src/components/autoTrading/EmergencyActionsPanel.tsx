@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 EmergencyActionsPanel 컴포넌트
 ﻿import React from 'react';
 import { Lock, OctagonAlert, PauseCircle, ShieldBan } from 'lucide-react';
 import type { EmergencyActionState } from '../../services/autoTrading/autoTradingTypes';

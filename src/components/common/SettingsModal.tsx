@@ -1,3 +1,4 @@
+// @responsibility common 영역 SettingsModal 컴포넌트
 import React from 'react';
 import { Settings, Key, Trash2, ExternalLink } from 'lucide-react';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '../../ui/modal';

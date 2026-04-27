@@ -1,3 +1,4 @@
+// @responsibility signals 영역 BehavioralMirrorPanel 컴포넌트
 /**
  * BehavioralMirrorPanel.tsx — 투자자 행동 교정 미러 대시보드
  *

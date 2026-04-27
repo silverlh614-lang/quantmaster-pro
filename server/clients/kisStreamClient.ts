@@ -1,3 +1,4 @@
+// @responsibility kisStreamClient 외부 클라이언트 모듈
 /**
  * kisStreamClient.ts — KIS WebSocket 실시간 호가 구독 클라이언트
  *

@@ -1,3 +1,4 @@
+// @responsibility trading 영역 ShadowTradesSection 컴포넌트
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '../../../ui/cn';

@@ -1,3 +1,4 @@
+// @responsibility signals 영역 index 컴포넌트
 export { MacroIntelligenceDashboard } from './MacroIntelligenceDashboard';
 export { DartIntelPanel } from './DartIntelPanel';
 export { DartPreNewsPanel } from './DartPreNewsPanel';

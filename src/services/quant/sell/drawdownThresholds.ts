@@ -1,3 +1,4 @@
+// @responsibility quant drawdownThresholds 엔진 모듈
 /**
  * sell/drawdownThresholds.ts — 레짐×프로파일 2차원 낙폭 역치 테이블
  *

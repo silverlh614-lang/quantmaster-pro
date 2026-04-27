@@ -1,3 +1,4 @@
+// @responsibility quant fxRateCycleEngine 엔진 모듈
 /**
  * fxRateCycleEngine.ts — 환율·금리 사이클 조정 엔진
  *

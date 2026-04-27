@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 MIPDashboard 컴포넌트
 /**
  * IDEA 5: MIPD — Multi-dimensional Inflection Point Dashboard
  *

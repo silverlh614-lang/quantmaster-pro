@@ -1,3 +1,4 @@
+// @responsibility bear 영역 BearScreenerPanel 컴포넌트
 /**
  * 아이디어 3: Bear Regime 전용 종목 발굴 — "하락 수혜주" 자동 탐색
  * Gate -1이 Bear Regime을 감지하면 27조건 Bull 스크리너 대신 자동 활성화되는

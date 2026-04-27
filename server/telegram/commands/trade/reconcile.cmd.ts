@@ -1,3 +1,4 @@
+// @responsibility reconcile.cmd 텔레그램 모듈
 // @responsibility: /reconcile [apply|last|status|push|live [apply]] + /reconcile_qty alias — 서버 장부 vs 실잔고 동기화 (dry-run/apply/push/LIVE).
 import {
   loadShadowTrades,

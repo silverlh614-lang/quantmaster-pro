@@ -1,3 +1,4 @@
+// @responsibility market 영역 GlobalEtfSection 컴포넌트
 import React from 'react';
 import { Globe } from 'lucide-react';
 import { cn } from '../../../ui/cn';

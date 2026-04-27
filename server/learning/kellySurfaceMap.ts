@@ -1,3 +1,4 @@
+// @responsibility kellySurfaceMap 학습 엔진 모듈
 /**
  * kellySurfaceMap.ts — Idea 9: Kelly Surface Mapping (학습 목표 명시화).
  *

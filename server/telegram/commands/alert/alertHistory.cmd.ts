@@ -1,3 +1,4 @@
+// @responsibility alertHistory.cmd 텔레그램 모듈
 // @responsibility: /alert_history [n=8] — 최근 N건(최대 20) 알림 이력을 id/category/status/시각으로 표.
 import { getRecentAlertHistory } from '../../../persistence/alertHistoryRepo.js';
 import { escapeHtml } from '../../../alerts/telegramClient.js';

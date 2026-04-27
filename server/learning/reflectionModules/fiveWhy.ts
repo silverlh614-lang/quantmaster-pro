@@ -1,3 +1,4 @@
+// @responsibility fiveWhy 학습 엔진 모듈
 /**
  * fiveWhy.ts — Five-Why Auto-Interrogator (#2).
  *

@@ -1,3 +1,4 @@
+// @responsibility macroIndexEngine 서버 모듈
 /**
  * macroIndexEngine.ts — 아이디어 11: ECOS + FRED 기반 MHS 자체 계산 엔진
  *

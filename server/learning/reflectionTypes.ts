@@ -1,3 +1,4 @@
+// @responsibility reflectionTypes 학습 엔진 모듈
 /**
  * reflectionTypes.ts — Nightly Reflection Engine 공용 타입.
  *

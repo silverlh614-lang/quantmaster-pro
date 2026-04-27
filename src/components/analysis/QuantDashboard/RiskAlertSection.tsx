@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 RiskAlertSection 컴포넌트
 import React from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { EvaluationResult } from '../../../types/quant';

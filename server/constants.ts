@@ -1,3 +1,4 @@
+// @responsibility constants 서버 모듈
 // server/constants.ts — 서버 전용 AI 상수 (src/constants/aiConfig.ts 복사본)
 // gemini-2.5-flash: Stable — 장중 고빈도 반복 호출 및 서버사이드 AI에 권장
 // gemini-3-flash-preview는 rate limit이 엄격하고 예고 없이 변경될 수 있어 제외

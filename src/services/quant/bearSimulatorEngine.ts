@@ -1,3 +1,4 @@
+// @responsibility quant bearSimulatorEngine 엔진 모듈
 /**
  * bearSimulatorEngine.ts — 아이디어 8: Bear Mode 손익 시뮬레이터
  *

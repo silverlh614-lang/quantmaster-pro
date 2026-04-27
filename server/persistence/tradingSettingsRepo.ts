@@ -1,3 +1,4 @@
+// @responsibility tradingSettingsRepo 영속화 저장소 모듈
 import fs from 'fs';
 import { TRADING_SETTINGS_FILE, SESSION_STATE_FILE, ensureDataDir } from './paths.js';
 

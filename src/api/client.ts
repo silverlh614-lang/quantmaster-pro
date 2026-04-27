@@ -1,3 +1,4 @@
+// @responsibility client API 클라이언트 모듈
 /**
  * 공통 REST 클라이언트 — 모든 브라우저 측 API 호출은 이 모듈을 통해 이뤄진다.
  *

@@ -273,7 +273,7 @@ async function fetchYahooSector(code: string): Promise<{ sector: string | null; 
       const res = await guardedFetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; QuantmasterPro/1.0)' },
         signal:  ctrl.signal,
-      });
+      }, 'HISTORICAL');
       if (!res.ok) continue;
       const json = await res.json() as {
         quoteSummary?: { result?: Array<{ assetProfile?: YahooAssetProfile }> };
@@ -463,6 +463,7 @@ export async function buildSectorMapWithFallback(opts: {
       diagnostics.push('KRX: null 반환 — 폴백 단계로 전환');
     }
   } catch (e) {
+    /* SDS-ignore: 진단 누적 패턴 — diagnostics.push 가 호출자에게 반환되어 폴백 단계 진행 */
     diagnostics.push(`KRX: 실패 — ${e instanceof Error ? e.message : String(e)} → 폴백 단계로 전환`);
   }
 

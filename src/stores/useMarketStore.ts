@@ -1,3 +1,4 @@
+// @responsibility useMarketStore Zustand store
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { MarketOverview, MarketContext, WalkForwardAnalysis } from '../services/stockService';

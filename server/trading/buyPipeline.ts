@@ -1,3 +1,4 @@
+// @responsibility buyPipeline 매매 엔진 모듈
 /**
  * buyPipeline.ts — 매수 실행 파이프라인 공통 헬퍼
  *
@@ -188,6 +189,9 @@ export function buildBuyTrade(p: BuildBuyTradeParams): ServerShadowTrade {
   // Phase 2차 C5 — 현재 활성 incident 가 있으면 해당 시점 이후 생성되는 Shadow 샘플은
   // 자동으로 incidentFlag 가 부착되어 캘리브레이션에서 격리된다.
   const latestIncident = getLatestIncidentAt();
+  // ADR-0060: 매수 시점 결정적 섹터 라벨 박제. p.stockCode 의 SSOT 를 trade 에 영속.
+  // BuildBuyTradeParams 시그니처 무변경 — p.stockCode 만 lookup (호출자 무수정).
+  const sector = getSectorByCode(p.stockCode) || undefined;
   return {
     id:                    `${p.idPrefix}_${Date.now()}_${p.stockCode}`,
     stockCode:             p.stockCode,
@@ -204,6 +208,7 @@ export function buildBuyTrade(p: BuildBuyTradeParams): ServerShadowTrade {
     targetPrice:           p.targetPrice,
     status:                'PENDING',
     mode:                  p.shadowMode ? 'SHADOW' : 'LIVE',
+    sector,
     entryRegime:           p.regime,
     profileType:           p.profileType,
     watchlistSource:       p.watchlistSource,

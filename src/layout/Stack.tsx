@@ -1,3 +1,4 @@
+// @responsibility Stack 레이아웃 컴포넌트
 import React from 'react';
 import { cn } from '../ui/cn';
 

@@ -1,3 +1,4 @@
+// @responsibility SectorRotationSidePanel 레이아웃 컴포넌트
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0

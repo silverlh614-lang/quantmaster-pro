@@ -1,3 +1,4 @@
+// @responsibility signals 영역 TimingSyncPanel 컴포넌트
 /**
  * TimingSyncPanel.tsx — 조건 통과 시점 일치도 스코어 패널
  *

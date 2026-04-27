@@ -1,3 +1,4 @@
+// @responsibility reset.cmd 텔레그램 모듈
 // @responsibility: /reset [pw] — 비상 정지 해제 + 일일 손실 리셋 + circuitBreaker/forcedRegimeDowngrade 동시 해제. EMR.
 import { setEmergencyStop, setDailyLoss } from '../../../state.js';
 import { commandRegistry } from '../../commandRegistry.js';

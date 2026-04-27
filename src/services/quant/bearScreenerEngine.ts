@@ -1,3 +1,4 @@
+// @responsibility quant bearScreenerEngine 엔진 모듈
 /**
  * bearScreenerEngine.ts — 아이디어 3: Bear Regime 전용 종목 발굴
  *

@@ -1,3 +1,4 @@
+// @responsibility preMarketSmokeTest 매매 엔진 모듈
 /**
  * preMarketSmokeTest.ts — Phase 2차 C7: 장 시작 전 스모크 테스트 게이트.
  *
@@ -46,6 +47,7 @@ export async function runPreMarketSmokeTest(): Promise<SmokeTestResult> {
       }
     }
   } catch (e) {
+    /* SDS-ignore: 진단 누적 — failed.push 가 호출자(스모크 테스트 게이트)에게 반환되어 LIVE 차단 결정 */
     failed.push({ check: 'kis-token', reason: e instanceof Error ? e.message : String(e) });
   }
 
@@ -62,6 +64,7 @@ export async function runPreMarketSmokeTest(): Promise<SmokeTestResult> {
       passed.push(`canary (${results.length}/${results.length})`);
     }
   } catch (e) {
+    /* SDS-ignore: 진단 누적 — failed.push 가 호출자에게 반환되어 LIVE 차단 결정 */
     failed.push({ check: 'canary', reason: e instanceof Error ? e.message : String(e) });
   }
 
@@ -81,6 +84,7 @@ export async function runPreMarketSmokeTest(): Promise<SmokeTestResult> {
     _resetRecentOrders();
     passed.push('pre-order-guard (허용 입력 통과)');
   } catch (e) {
+    /* SDS-ignore: 진단 누적 — failed.push 가 호출자에게 반환되어 LIVE 차단 결정 */
     failed.push({ check: 'pre-order-guard', reason: e instanceof Error ? e.message : String(e) });
   }
 

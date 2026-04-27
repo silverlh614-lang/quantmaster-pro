@@ -1,3 +1,4 @@
+// @responsibility common 영역 QueryProvider 컴포넌트
 import { QueryClient, QueryCache, MutationCache } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';

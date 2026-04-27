@@ -1,3 +1,4 @@
+// @responsibility sectorEtfMomentum 알림 모듈
 /**
  * sectorEtfMomentum.ts — 미국 섹터 ETF 30분봉 모멘텀 교차 스캐너
  *
@@ -28,6 +29,7 @@ import { sendTelegramAlert } from './telegramClient.js';
 import { SECTOR_ETF_MOMENTUM_FILE, ensureDataDir } from '../persistence/paths.js';
 import { logNewsSupplyEvent } from '../learning/newsSupplyLogger.js';
 import { guardedFetch } from '../utils/egressGuard.js';
+import { safePctChange } from '../utils/safePctChange.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -104,7 +106,7 @@ async function fetch30mBars(symbol: string, range = '5d'): Promise<IntradayBars 
     try {
       const ctrl = new AbortController();
       const tid  = setTimeout(() => ctrl.abort(), 12000);
-      const res  = await guardedFetch(url, { headers: YF_HEADERS, signal: ctrl.signal });
+      const res  = await guardedFetch(url, { headers: YF_HEADERS, signal: ctrl.signal }, 'REALTIME');
       clearTimeout(tid);
       if (!res.ok) continue;
       const data = await res.json();
@@ -128,9 +130,9 @@ async function fetch30mBars(symbol: string, range = '5d'): Promise<IntradayBars 
 
 // ── 모멘텀 계산 ───────────────────────────────────────────────────────────────
 
-function pctChange(cur: number, prev: number): number | null {
-  if (!prev || prev <= 0) return null;
-  return ((cur - prev) / prev) * 100;
+function pctChange(cur: number, prev: number, label?: string): number | null {
+  // ADR-0059: stale prev (장기 미거래 ETF) 시 sanity 위반 → null. 분모 가드는 헬퍼 통합.
+  return safePctChange(cur, prev, { label: label ?? 'sectorEtfMomentum.pctChange' });
 }
 
 function toUtcDateKey(unixSec: number): string {

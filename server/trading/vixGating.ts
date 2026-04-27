@@ -1,3 +1,4 @@
+// @responsibility vixGating 매매 엔진 모듈
 /**
  * vixGating.ts — VIX 임계값 연동 포지션 게이팅
  *

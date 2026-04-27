@@ -1,3 +1,4 @@
+// @responsibility view-mode-toggle UI 프리미티브 컴포넌트
 /**
  * ViewModeToggle — 점진적 공개(Progressive disclosure) 를 위한 Simple ↔ Pro 토글.
  *

@@ -1,3 +1,4 @@
+// @responsibility pos.cmd 텔레그램 모듈
 // @responsibility: /pos — 활성 포지션 요약 (모드/상태/잔량/진입가/손절/목표/진입시각).
 import { getRemainingQty } from '../../../persistence/shadowTradeRepo.js';
 import { getShadowTrades } from '../../../orchestrator/tradingOrchestrator.js';

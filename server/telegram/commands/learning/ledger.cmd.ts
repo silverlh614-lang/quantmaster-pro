@@ -1,3 +1,4 @@
+// @responsibility ledger.cmd 텔레그램 모듈
 // @responsibility: /ledger — Parallel Universe Ledger Sharpe (A/B/C universe 별 win/μ/σ/Sharpe/PF).
 import { getUniverseStats } from '../../../learning/ledgerSimulator.js';
 import { commandRegistry } from '../../commandRegistry.js';

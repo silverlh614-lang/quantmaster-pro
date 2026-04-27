@@ -1,3 +1,4 @@
+// @responsibility portfolio 영역 KellyRadar 컴포넌트
 /**
  * KellyRadar — Idea 9: 5축 레이더 차트로 보유 포지션의 Kelly 열화 상태 가시화.
  *

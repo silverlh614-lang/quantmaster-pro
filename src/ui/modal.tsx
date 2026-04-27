@@ -1,3 +1,4 @@
+// @responsibility modal UI 프리미티브 컴포넌트
 import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';

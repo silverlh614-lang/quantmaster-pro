@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 ModalFooter 컴포넌트
 import React from 'react';
 import { X, Star, Globe, Clock } from 'lucide-react';
 import { cn } from '../../../ui/cn';

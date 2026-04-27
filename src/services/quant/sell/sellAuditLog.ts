@@ -1,3 +1,4 @@
+// @responsibility quant sellAuditLog 엔진 모듈
 /**
  * sell/sellAuditLog.ts — 매도 결정 감사 로그 (자기 학습의 입력)
  *

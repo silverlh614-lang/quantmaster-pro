@@ -1,3 +1,4 @@
+// @responsibility useEngineArming React hook
 /**
  * useEngineArming — 실매매 시작을 위한 Nuclear Reactor Pattern 상태 머신.
  *

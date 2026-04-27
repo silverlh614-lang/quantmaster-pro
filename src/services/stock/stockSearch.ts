@@ -1,3 +1,4 @@
+// @responsibility stock stockSearch 서비스 모듈
 import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, withRetry, safeJsonParse } from './aiClient';
 import { enrichStockWithRealData } from './enrichment';

@@ -1,3 +1,4 @@
+// @responsibility regimeBridge 매매 엔진 모듈
 /**
  * regimeBridge.ts — MacroState → RegimeVariables 변환 + 라이브 레짐 판정
  *

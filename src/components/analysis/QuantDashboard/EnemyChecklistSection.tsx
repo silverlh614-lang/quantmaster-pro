@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 EnemyChecklistSection 컴포넌트
 import React from 'react';
 import { Skull } from 'lucide-react';
 import type { EvaluationResult } from '../../../types/quant';

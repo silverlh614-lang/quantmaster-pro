@@ -1,3 +1,4 @@
+// @responsibility universeScanner 스크리너 모듈
 /**
  * universeScanner.ts — 자동 발굴 3단계 파이프라인
  *

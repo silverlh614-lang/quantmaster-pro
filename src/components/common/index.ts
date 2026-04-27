@@ -1,3 +1,4 @@
+// @responsibility common 영역 index 컴포넌트
 export { ErrorBoundary } from './ErrorBoundary';
 export { SectionErrorBoundary } from './SectionErrorBoundary';
 export { ConfidenceBadge } from './ConfidenceBadge';

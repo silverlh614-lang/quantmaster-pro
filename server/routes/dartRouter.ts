@@ -1,3 +1,4 @@
+// @responsibility dartRouter 서버 라우터 모듈
 // server/routes/dartRouter.ts
 // DART 공시 API 프록시 라우터 — server.ts에서 분리
 // 공시 목록, 재무제표, 법인코드 검색

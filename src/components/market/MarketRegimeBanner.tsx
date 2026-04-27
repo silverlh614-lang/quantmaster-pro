@@ -1,3 +1,4 @@
+// @responsibility market 영역 MarketRegimeBanner 컴포넌트
 /**
  * Idea 5: Compact one-line Market Regime Banner
  * RISK-ON/OFF state + VKOSPI chip + Foreign flow chip — readable in 10 seconds.

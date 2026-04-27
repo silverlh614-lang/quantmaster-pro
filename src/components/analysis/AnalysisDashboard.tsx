@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 AnalysisDashboard 컴포넌트
 import React, { useState, useEffect } from 'react';
 import { 
   History, 

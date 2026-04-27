@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 ConditionChecklist 컴포넌트
 import React from 'react';
 import { ALL_CONDITIONS, CONDITION_SOURCE_MAP } from '../../../services/quant/evolutionEngine';
 import type { EvaluationResult } from '../../../types/quant';

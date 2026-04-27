@@ -1,3 +1,4 @@
+// @responsibility confluenceEngine 매매 엔진 모듈
 /**
  * confluenceEngine.ts — Phase 2 컨플루언스 스코어링 엔진
  *

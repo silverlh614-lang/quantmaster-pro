@@ -1,3 +1,4 @@
+// @responsibility useQuantRecommendations React hook
 import { useEffect, useMemo, useRef } from 'react';
 import { useRecommendationStore, useSettingsStore } from '../stores';
 import type { StockRecommendation } from '../services/stockService';

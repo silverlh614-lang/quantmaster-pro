@@ -1,3 +1,4 @@
+// @responsibility metaDecisionJournal 학습 엔진 모듈
 /**
  * metaDecisionJournal.ts — Meta-Decision Journal (#10).
  *

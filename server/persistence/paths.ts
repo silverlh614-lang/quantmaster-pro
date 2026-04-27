@@ -1,3 +1,4 @@
+// @responsibility paths 영속화 저장소 모듈
 import path from 'path';
 import fs from 'fs';
 
@@ -199,6 +200,8 @@ export const SLIPPAGE_HISTORY_FILE     = path.join(DATA_DIR, 'slippage-history.j
 export const DISTILLED_WEEKLY_FILE     = path.join(DATA_DIR, 'knowledge', 'distilled-weekly.txt');
 /** 반성 엔진 Gemini 호출 예산 사용량 — 월별 재집계 */
 export const REFLECTION_BUDGET_FILE    = path.join(DATA_DIR, 'reflection-budget.json');
+/** ADR-0047 (PR-Y2): Reflection Module Half-Life — 모듈별 일자별 영향 영속 */
+export const REFLECTION_IMPACT_FILE     = path.join(DATA_DIR, 'reflection-impact.json');
 /** Meta-Decision Journal — Gate 통과/최종 선택 프로세스 기록 (JSONL 월별) */
 export function metaDecisionFile(yyyymm: string): string {
   return path.join(DATA_DIR, `meta-decisions-${yyyymm}.jsonl`);
@@ -227,6 +230,12 @@ export const KRX_STOCK_MASTER_FILE = path.join(DATA_DIR, 'krx-master.json');
  * Google Search / Naver Finance / KRX master refresh 별 호출 수를 KST 자정 단위로 집계.
  */
 export const AI_CALL_BUDGET_FILE = path.join(DATA_DIR, 'ai-call-budget.json');
+
+/**
+ * KRX 휴장일 patch 파일 (PR-D / ADR-0045).
+ * 정적 STATIC_HOLIDAYS 위에 운영자가 추가한 차년도 휴장일을 영속.
+ */
+export const KRX_HOLIDAY_PATCH_FILE = path.join(DATA_DIR, 'krx-holiday-patch.json');
 /**
  * Off-hours 스냅샷 — 성공한 /historical-data 응답의 디스크 영속 캐시 (PR-32).
  * 장외 시 gated miss 를 이 스냅샷으로 폴백해 UI 정보 불일치 원천 차단.
@@ -256,6 +265,13 @@ export function aiUniverseSnapshotFile(mode: string): string {
  * 운영자가 어떤 소스가 신뢰 가능한지 한눈에 파악하도록 source 별 누적 + ring buffer.
  */
 export const STOCK_MASTER_HEALTH_FILE = path.join(DATA_DIR, 'stock-master-health.json');
+/**
+ * /api/market-indicators 응답 last-known-good 스냅샷 (ADR-0065, PR-γ).
+ * 11 필드 (vix/us10yYield/usShortRate/samsungIri/vkospi/vkospiDayChange/vkospi5dTrend/
+ * kospi/kosdaq/ewyReturn/mtumReturn) 별로 마지막 정상 응답 + 시각 영속. 일시 fetch 실패
+ * 시 stale fallback 으로 채워 UI flicker 차단. 서버 재배포 후에도 즉시 복구.
+ */
+export const MARKET_INDICATORS_SNAPSHOT_FILE = path.join(DATA_DIR, 'market-indicators-snapshot.json');
 
 export function ensureReflectionsDir(): void {
   ensureDataDir();

@@ -1,3 +1,4 @@
+// @responsibility unifiedBriefing 알림 모듈
 /**
  * unifiedBriefing.ts — 동일 시간대 여러 리포트를 1건으로 병합 발송한다.
  *

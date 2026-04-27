@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 TechnicalAnalysisColumn 컴포넌트
 import React from 'react';
 import { Activity, TrendingUp, Zap, Sparkles, Target } from 'lucide-react';
 import { cn } from '../../../ui/cn';

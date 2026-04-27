@@ -1,3 +1,4 @@
+// @responsibility quant sectorEngine 엔진 모듈
 import {
   SectorOverheatInput,
   SectorOverheatCondition,

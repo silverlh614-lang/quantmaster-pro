@@ -1,3 +1,4 @@
+// @responsibility useAnalysisStore Zustand store
 import { create } from 'zustand';
 import type { StockRecommendation } from '../services/stockService';
 type Updater<T> = T | ((prev: T) => T);

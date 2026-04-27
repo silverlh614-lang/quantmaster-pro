@@ -1,3 +1,4 @@
+// @responsibility kisProxy 서비스 모듈
 /**
  * kisProxy.ts — KIS API 공통 클라이언트 헬퍼
  *

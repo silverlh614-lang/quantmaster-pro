@@ -1,3 +1,4 @@
+// @responsibility quant flowPredictionEngine 엔진 모듈
 /**
  * flowPredictionEngine.ts — 수급 예측 선행 모델 (Flow Prediction Engine)
  *

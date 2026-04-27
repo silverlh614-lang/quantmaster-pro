@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 StockDetailModal 컴포넌트
 /**
  * Idea 7: Desktop → slide-in detail panel (list context preserved)
  *         Mobile  → bottom-up modal (full screen)
@@ -13,6 +14,7 @@ import { SignalBadge } from '../../ui/badge';
 import { cn } from '../../ui/cn';
 import { debugWarn } from '../../utils/debug';
 import { GateStatusWidget } from './GateStatusWidget';
+import { TranchePlanCard } from './TranchePlanCard';
 
 interface StockDetailModalProps {
   stock: StockRecommendation | null;
@@ -73,6 +75,9 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({ stock, onClo
       <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
         {/* Gate 통과 현황 미니 위젯 — 27개 조건 체크리스트 */}
         {stock.checklist && <GateStatusWidget stock={stock} />}
+
+        {/* 분할매수 계획 — ADR-0031 PR-D */}
+        <TranchePlanCard plan={stock.tranchePlan} />
 
         {/* 3-Gate Bar */}
         {stock.aiConvictionScore && (() => {

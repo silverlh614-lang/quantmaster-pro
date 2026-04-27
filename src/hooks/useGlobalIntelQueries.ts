@@ -1,3 +1,4 @@
+// @responsibility useGlobalIntelQueries React hook
 /**
  * TanStack Query hooks for Global Intelligence data fetching.
  *

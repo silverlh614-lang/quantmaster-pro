@@ -7,6 +7,7 @@
  *   - JSX 최대 중첩 깊이 (단순 토큰 카운팅)
  *   - useEffect 호출 개수
  *   - import 선언 개수
+ *   - PR-Q (아이디어 9): 함수 단위 라인 수 + cyclomatic complexity 근사 (GodFunctionGuard)
  *
  * "코드가 길어지는 것보다 결합도가 높아지는 것이 더 위험하다."
  * — SRP 즉각적 파산을 기계적으로 막기 위한 스크립트.
@@ -15,6 +16,7 @@
  *   node scripts/check_complexity.js                 # 기본 타겟(App.tsx + 상위 경고)
  *   node scripts/check_complexity.js path/to.tsx ... # 경로 직접 지정
  *   SUGGEST=1 node scripts/check_complexity.js       # 초과 시 refactor-suggester 호출
+ *   FUNCTION_GUARD=strict                           # 함수 임계 초과 시 빌드 실패 (기본: warn)
  */
 
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
@@ -26,6 +28,14 @@ const LIMITS = {
   jsxDepth: 18, // 들여쓰기 기반 근사치이므로 느슨하게 설정
   useEffects: 10,
   imports: 50,
+};
+
+// PR-Q (아이디어 9 — GodFunctionGuard): 함수 단위 임계.
+// 페르소나의 "직전 청소된 곳도 다시 더러워질 수 있지만 청소되지 않은 곳보다는 낫다" 코드 버전.
+// 분해 직후의 깨끗한 상태를 락-인하기 위한 사전 차단.
+const FUNCTION_LIMITS = {
+  lines: 300,                 // 함수 본문 최대 줄 수
+  cyclomaticComplexity: 25,   // if/else/case/&&/||/?: 카운트 (근사)
 };
 
 const DEFAULT_TARGETS = ['src/App.tsx'];
@@ -70,6 +80,84 @@ function analyze(file) {
   const useEffects = countMatches(src, /\buseEffect\s*\(/g);
   const imports = countMatches(src, /^\s*import\s[^;]*;/gm);
   return { file, lines, jsxDepth, useEffects, imports };
+}
+
+// ─── PR-Q (아이디어 9 — GodFunctionGuard) ─────────────────────────────────
+// 함수 단위 라인 수 + cyclomatic complexity 근사 추출.
+// AST 파싱 대신 정규식 + 중괄호 깊이 추적으로 의존성 0 환경에서 동작.
+//
+// 인식 패턴 (함수 시작):
+//   function name(...)             — 일반 함수
+//   const name = (...) => {        — 화살표 함수 (중괄호 본문만)
+//   const name = function(...)     — 함수 표현식
+//   async function name(...)       — async 일반 함수
+//   export (default) (async)? function name(...)
+//
+// 무시:
+//   - 한 줄 표현식 화살표 (=> expr) — 본문 없음
+//   - 객체 메소드 단축 표기 (name(...) {}) — 클래스 외 흔치 않음
+//   - 중첩 함수 — 가장 바깥 함수만 카운트 (단순화)
+
+function findFunctionRegions(src) {
+  const lines = src.split('\n');
+  const regions = [];
+  // 함수 시작 패턴: 라인의 명시적 함수 선언만 (중첩 회피)
+  const startRe = /^\s*(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*[(<]/;
+  const arrowStartRe = /^\s*(?:export\s+(?:default\s+)?)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::\s*[^=]+)?\s*=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{/;
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    let name = null;
+    const m1 = line.match(startRe);
+    const m2 = !m1 && line.match(arrowStartRe);
+    if (m1) name = m1[1];
+    else if (m2) name = m2[1];
+
+    if (!name) { i += 1; continue; }
+
+    // 본문 시작 라인 찾기 (이 라인 또는 이후 라인의 첫 `{`)
+    let bodyStart = i;
+    let openCount = (line.match(/\{/g) || []).length;
+    let closeCount = (line.match(/\}/g) || []).length;
+    while (openCount === 0 && bodyStart + 1 < lines.length) {
+      bodyStart += 1;
+      openCount += (lines[bodyStart].match(/\{/g) || []).length;
+      closeCount += (lines[bodyStart].match(/\}/g) || []).length;
+    }
+    if (openCount === 0) { i += 1; continue; } // 본문 없음 (선언만)
+
+    let depth = openCount - closeCount;
+    let bodyEnd = bodyStart;
+    // 함수 종료 ({ 깊이 0 도달) 추적
+    while (depth > 0 && bodyEnd + 1 < lines.length) {
+      bodyEnd += 1;
+      const ln = lines[bodyEnd];
+      // 문자열·정규식 안 중괄호 무시 — 단순화 위해 모든 { } 카운트 (근사)
+      depth += (ln.match(/\{/g) || []).length;
+      depth -= (ln.match(/\}/g) || []).length;
+    }
+
+    const body = lines.slice(i, bodyEnd + 1).join('\n');
+    const lineCount = bodyEnd - i + 1;
+    // cyclomatic 근사: 분기 키워드 카운트
+    const branches = (body.match(/\b(if|else if|case|catch|while|for)\b/g) || []).length;
+    const ternary = (body.match(/\?[^?]/g) || []).length; // 단순 ? 카운트
+    const logical = (body.match(/&&|\|\|/g) || []).length;
+    const complexity = 1 + branches + ternary + logical;
+
+    regions.push({ name, startLine: i + 1, endLine: bodyEnd + 1, lineCount, complexity });
+    i = bodyEnd + 1;
+  }
+  return regions;
+}
+
+function analyzeFunctions(file) {
+  const src = readFileSync(file, 'utf-8');
+  const fns = findFunctionRegions(src);
+  const offenders = fns.filter(f =>
+    f.lineCount > FUNCTION_LIMITS.lines || f.complexity > FUNCTION_LIMITS.cyclomaticComplexity);
+  return { file, totalFunctions: fns.length, offenders };
 }
 
 function over(metric, value) {
@@ -123,6 +211,34 @@ function main() {
       console.log('\n[ACMA] 참고: 한계 초과 가능성이 있는 상위 파일 (경고)');
       for (const r of worst) console.log(formatRow(r));
     }
+  }
+
+  // ─── PR-Q (GodFunctionGuard): 함수 단위 임계 검사 ─────────────────────────
+  // 변경 분 (--changed) 또는 `src/` + `server/` 전체 walk 후 임계 초과 함수 보고.
+  // 기본은 warn (정보성), `FUNCTION_GUARD=strict` 면 빌드 실패.
+  const guardMode = process.env.FUNCTION_GUARD ?? 'warn';
+  const fnTargets = explicit.length > 0
+    ? explicit.filter(t => existsSync(t))
+    : [...walk('src'), ...(existsSync('server') ? walk('server') : [])];
+  const fnReports = fnTargets.map(analyzeFunctions);
+  const fnOffenders = fnReports
+    .filter(r => r.offenders.length > 0)
+    .flatMap(r => r.offenders.map(o => ({ ...o, file: r.file })));
+
+  if (fnOffenders.length > 0) {
+    const label = guardMode === 'strict' ? '[GodFunctionGuard][FAIL]' : '[GodFunctionGuard][WARN]';
+    console.error(`\n${label} 함수 단위 임계 초과 ${fnOffenders.length}건 — lines>${FUNCTION_LIMITS.lines} 또는 complexity>${FUNCTION_LIMITS.cyclomaticComplexity}`);
+    for (const o of fnOffenders.slice(0, 15)) {
+      console.error(`  ${o.file}:${o.startLine}  ${o.name}()  lines=${o.lineCount}  cc=${o.complexity}`);
+    }
+    if (fnOffenders.length > 15) console.error(`  ... 외 ${fnOffenders.length - 15}건`);
+    console.error('  해결: 함수를 작은 단위로 분해 (early return / 추출) 또는 분기 매트릭스 → 룩업 테이블 전환.');
+    if (guardMode === 'strict') {
+      console.error('  FUNCTION_GUARD=strict 모드 — 커밋 차단');
+      process.exit(1);
+    }
+  } else if (fnTargets.length > 0) {
+    console.log(`[GodFunctionGuard] OK — ${fnReports.reduce((s, r) => s + r.totalFunctions, 0)}개 함수 검사 (lines≤${FUNCTION_LIMITS.lines}, cc≤${FUNCTION_LIMITS.cyclomaticComplexity})`);
   }
 
   if (failed.length > 0) {

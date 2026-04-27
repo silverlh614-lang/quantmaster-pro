@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 WeightConfigPanel 컴포넌트
 /**
  * WeightConfigPanel — 27조건 팩터 가중치 컨트롤 패널
  *

@@ -1,3 +1,4 @@
+// @responsibility probingBandit 학습 엔진 모듈
 /**
  * probingBandit.ts — Idea 6: PROBING 슬롯의 Multi-Arm Bandit 확장.
  *

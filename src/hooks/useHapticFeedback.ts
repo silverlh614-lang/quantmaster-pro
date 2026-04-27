@@ -1,3 +1,4 @@
+// @responsibility useHapticFeedback React hook
 /**
  * useHapticFeedback — Vibration API 를 얇게 래핑한 햅틱 헬퍼.
  *

@@ -1,3 +1,4 @@
+// @responsibility ipsAlert 알림 모듈
 import fs from 'fs';
 import { IPS_ALERT_FILE, ensureDataDir } from '../persistence/paths.js';
 import { type MacroState, loadMacroState } from '../persistence/macroStateRepo.js';

@@ -1,3 +1,4 @@
+// @responsibility useAutoTradingDashboard React hook
 /**
  * useAutoTradingDashboard — 자동매매 관제실 (AutoTradePage) 를 위한
  *                          화면 친화 집계 훅.

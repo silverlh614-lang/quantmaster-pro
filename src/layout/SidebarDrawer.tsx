@@ -1,3 +1,4 @@
+// @responsibility SidebarDrawer 레이아웃 컴포넌트
 /**
  * SidebarDrawer — 태블릿/모바일(<lg) 에서 `Sidebar` 를 슬라이드인 드로어로 제공.
  *

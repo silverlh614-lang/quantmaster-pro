@@ -1,3 +1,4 @@
+// @responsibility signals 영역 PositionLifecyclePanel 컴포넌트
 /**
  * 포지션 생애주기 완전 자동화 패널 (Position Lifecycle Automation)
  *

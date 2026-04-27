@@ -1,3 +1,4 @@
+// @responsibility quant index 엔진 모듈
 export * from './gateEngine';
 export * from './macroEngine';
 export * from './fxRateCycleEngine';

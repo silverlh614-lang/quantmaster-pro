@@ -1,3 +1,4 @@
+// @responsibility signals 영역 DartPreNewsPanel 컴포넌트
 import React, { useState } from 'react';
 import { Bell, RefreshCw, Newspaper, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { scanDartDisclosures } from '../../services/stockService';

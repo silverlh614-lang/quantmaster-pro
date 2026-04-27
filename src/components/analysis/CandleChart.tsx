@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 CandleChart 컴포넌트
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, createSeriesMarkers, CandlestickSeries, LineSeries, HistogramSeries, IChartApi, CandlestickData, LineData, HistogramData, Time } from 'lightweight-charts';
 import { calculateEMA, calculateRSI, calculateBollingerBands } from '../../utils/indicators';

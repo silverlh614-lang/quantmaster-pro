@@ -1,3 +1,4 @@
+// @responsibility queryKeys React hook
 /**
  * Auto-Trade Query Keys & Polling Policies — 단일 진실 소스
  *

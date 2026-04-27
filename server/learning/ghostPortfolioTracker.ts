@@ -1,3 +1,4 @@
+// @responsibility ghostPortfolioTracker 학습 엔진 모듈
 /**
  * ghostPortfolioTracker.ts — Ghost Portfolio Tracker (#9).
  *

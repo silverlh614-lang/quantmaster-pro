@@ -1,3 +1,4 @@
+// @responsibility common 영역 FloatingActionButton 컴포넌트
 /**
  * Idea 9: Floating Action Button (FAB) for mobile
  * Bottom-right FAB that fans out into refresh/search/PDF actions.

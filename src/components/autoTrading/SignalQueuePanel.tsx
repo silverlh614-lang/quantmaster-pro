@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 SignalQueuePanel 컴포넌트
 import React, { useCallback, useMemo } from 'react';
 import { Check, Inbox, ShieldBan } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';

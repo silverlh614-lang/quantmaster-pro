@@ -1,3 +1,4 @@
+// @responsibility counterfactual 학습 엔진 모듈
 /**
  * counterfactual.ts — Counterfactual Simulator (#3).
  *

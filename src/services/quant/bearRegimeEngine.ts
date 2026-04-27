@@ -1,3 +1,4 @@
+// @responsibility quant bearRegimeEngine 엔진 모듈
 /**
  * bearRegimeEngine.ts — Bear 레짐 감지 엔진
  *

@@ -1,3 +1,4 @@
+// @responsibility stock recommendations 서비스 모듈
 /**
  * recommendations.ts — AI 추천 오케스트레이터
  *

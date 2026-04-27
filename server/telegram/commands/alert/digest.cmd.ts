@@ -1,3 +1,4 @@
+// @responsibility digest.cmd 텔레그램 모듈
 // @responsibility: /digest_on /digest_off /digest_status — T3 다이제스트 수신 토글 + 현재 상태 조회.
 import { isDigestEnabled, setDigestEnabled } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';

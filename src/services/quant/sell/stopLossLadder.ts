@@ -1,3 +1,4 @@
+// @responsibility quant stopLossLadder 엔진 모듈
 /**
  * sell/stopLossLadder.ts — L1.5 3단 경보 손절 사다리
  *

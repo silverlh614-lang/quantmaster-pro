@@ -1,3 +1,4 @@
+// @responsibility trend-indicator UI 프리미티브 컴포넌트
 /**
  * TrendIndicator — 증감을 색상뿐 아니라 "아이콘·패턴" 으로 함께 표기.
  *

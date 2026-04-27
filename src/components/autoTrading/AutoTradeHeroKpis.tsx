@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 AutoTradeHeroKpis 컴포넌트
 /**
  * AutoTradeHeroKpis — 자동매매 관제실 최상단 4-카드 Hero KPI.
  *

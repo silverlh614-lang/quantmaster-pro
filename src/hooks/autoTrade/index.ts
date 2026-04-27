@@ -1,3 +1,4 @@
+// @responsibility index React hook
 /**
  * src/hooks/autoTrade — 자동매매 데이터 레이어 공용 진입점.
  *

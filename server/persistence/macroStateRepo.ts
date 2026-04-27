@@ -1,3 +1,4 @@
+// @responsibility macroStateRepo 영속화 저장소 모듈
 import fs from 'fs';
 import { MACRO_STATE_FILE, ensureDataDir } from './paths.js';
 
@@ -38,6 +39,10 @@ export interface MacroState {
   sectorCycleStage?: 'EARLY' | 'MID' | 'LATE' | 'TURNING'; // 섹터 사이클
   marginBalance5dChange?: number;   // 신용잔고 5일 변화율
   shortSellingRatio?: number;       // 공매도 비율 (%)
+  /** Phase 1 — 어느 fallback 단계에서 데이터를 얻었는지 (KRX_DIRECT/KRX_OTP/KIS_ESTIMATE). */
+  shortSellingSource?: 'KRX_DIRECT' | 'KRX_OTP' | 'KIS_ESTIMATE';
+  /** Phase 1 — 마지막 조회 성공 시각 (ISO) — /health 신선도 표시용. */
+  shortSellingFetchedAt?: string;
   spx20dReturn?: number;            // S&P500 20일 수익률
   dxy5dChange?: number;             // 달러인덱스 5일 변화율
   // ─── 글로벌 스캔 에이전트 선행 레이어 필드 ──────────────────────────────────

@@ -1,3 +1,4 @@
+// @responsibility pending.cmd 텔레그램 모듈
 // @responsibility: /pending — fillMonitor 기준 PENDING/PARTIAL 미체결 주문을 종목·수량·폴링 카운트와 함께 나열.
 import { fillMonitor } from '../../../trading/fillMonitor.js';
 import { escapeHtml } from '../../../alerts/telegramClient.js';

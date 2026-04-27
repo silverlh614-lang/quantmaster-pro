@@ -1,3 +1,4 @@
+// @responsibility alertsFeedRepo 영속화 저장소 모듈
 /**
  * alertsFeedRepo.ts — Telegram 으로 발송된 알림을 UI 피드에도 축적.
  *

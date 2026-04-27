@@ -1,3 +1,4 @@
+// @responsibility dailyBackupCeremony 영속화 저장소 모듈
 /**
  * dailyBackupCeremony.ts — Phase 2차 C1: 매일 KST 01:00 전체 스냅샷.
  *

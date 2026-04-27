@@ -1,3 +1,4 @@
+// @responsibility adaptiveLearningClock 학습 엔진 모듈
 /**
  * adaptiveLearningClock.ts — 학습 주기 가속/감속 적응 스위치.
  *

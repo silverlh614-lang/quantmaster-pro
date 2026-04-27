@@ -1,3 +1,4 @@
+// @responsibility autoTradeClient API 클라이언트 모듈
 /**
  * Auto-Trade REST 클라이언트 — `/api/auto-trade/*` 와 그에 준하는
  * 자동매매 도메인 엔드포인트를 타입 있는 함수로 노출한다.
@@ -262,6 +263,8 @@ export interface ServerShadowTrade {
   id?: string;
   stockCode: string;
   stockName: string;
+  /** 매수 시점 결정적 섹터 라벨 (서버 getSectorByCode SSOT 박제값, ADR-0060). 진입 후 변경되지 않음. */
+  sector?: string;
   status: 'PENDING' | 'ACTIVE' | 'HIT_TARGET' | 'HIT_STOP' | 'REJECTED' | string;
   signalTime: string;
   signalPrice?: number;

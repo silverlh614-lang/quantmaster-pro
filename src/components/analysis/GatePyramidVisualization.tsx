@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 GatePyramidVisualization 컴포넌트
 import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Shield, TrendingUp, Zap, Triangle, ChevronDown } from 'lucide-react';

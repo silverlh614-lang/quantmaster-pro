@@ -1,3 +1,4 @@
+// @responsibility orderExecution 서비스 모듈
 /**
  * orderExecution.ts — KIS 주문 실행 (아이디어 2 + 4 + 6)
  *

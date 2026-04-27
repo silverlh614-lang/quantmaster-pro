@@ -1,3 +1,4 @@
+// @responsibility preBreakoutAccumulationDetector 매매 엔진 모듈
 /**
  * preBreakoutAccumulationDetector.ts — 돌파 전 매집 징후 사전 감지
  *

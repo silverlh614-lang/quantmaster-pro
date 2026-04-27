@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 SellChecklistSection 컴포넌트
 import React from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { StockRecommendation } from '../../../services/stockService';

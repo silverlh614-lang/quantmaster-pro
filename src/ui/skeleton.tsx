@@ -1,3 +1,4 @@
+// @responsibility skeleton UI 프리미티브 컴포넌트
 /**
  * Skeleton — 로딩 상태를 위한 뼈대(placeholder) 컴포넌트.
  *

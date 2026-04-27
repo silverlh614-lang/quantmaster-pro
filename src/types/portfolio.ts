@@ -1,3 +1,4 @@
+// @responsibility portfolio 도메인 타입 정의
 // ─── 포트폴리오 · IPS · 매매일지 · 자동매매 도메인 타입 ─────────────────────
 
 import type { ConditionId, EvaluationResult } from './core';
@@ -479,6 +480,8 @@ export interface ShadowTrade {
   signalTime: string;          // ISO
   stockCode: string;
   stockName: string;
+  /** 매수 시점 결정적 섹터 라벨 (서버 getSectorByCode SSOT 박제값, ADR-0060). UI 매칭용 옵셔널. */
+  sector?: string;
   signalPrice: number;         // 신호 발생 시점 가격
   shadowEntryPrice: number;    // 신호가 + 0.3% 슬리피지 가정
   quantity: number;
@@ -674,4 +677,26 @@ export interface FeedbackLoopResult {
   lastCalibratedAt: string | null;
   /** 요약 메시지 */
   summary: string;
+  /**
+   * ADR-0046 (PR-Y1): F2W Drift 일시정지 상태.
+   * paused=true 면 본 사이클의 saveEvolutionWeights 호출이 차단됨 (LIVE 가중치 동결).
+   * shadow=true 호출은 본 필드와 무관 (ADR-0027 grace 보존).
+   */
+  pauseStatus?: {
+    paused: boolean;
+    until?: string;       // ISO — pausedUntil
+    reason?: string;
+    ratio?: number;
+    sigma7d?: number;
+    sigma30dAvg?: number;
+  };
+  /**
+   * ADR-0048 (PR-Y4): Learning Coverage Heatmap — 데이터 희소 셀 가드.
+   * 어떤 (조건 × 레짐) 셀도 30건 미만인 조건 ID 목록 — 가중치 보정에서 제외됨.
+   */
+  coverageGated?: Array<{
+    conditionId: ConditionId;
+    maxCellCount: number;
+    reason: 'INSUFFICIENT_COVERAGE';
+  }>;
 }

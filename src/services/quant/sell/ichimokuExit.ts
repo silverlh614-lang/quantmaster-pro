@@ -1,3 +1,4 @@
+// @responsibility quant ichimokuExit 엔진 모듈
 /**
  * sell/ichimokuExit.ts — L5 일목균형표 이탈 감지기
  *

@@ -1,3 +1,4 @@
+// @responsibility stock batchIntel 서비스 모듈
 import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, aiCache, lsSet, withRetry, safeJsonParse, getCachedAIResponse } from './aiClient';
 import { fetchMarketIndicators } from './marketOverview';

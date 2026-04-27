@@ -1,3 +1,4 @@
+// @responsibility core 도메인 타입 정의
 // ─── 핵심 도메인 타입 — ConditionId · Gate · MarketRegime · EvaluationResult ──
 
 import type {

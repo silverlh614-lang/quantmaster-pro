@@ -1,3 +1,4 @@
+// @responsibility quant sectorEnergyEngine 엔진 모듈
 /**
  * sectorEnergyEngine.ts — 섹터 에너지 맵 & 로테이션 마스터 게이트
  *

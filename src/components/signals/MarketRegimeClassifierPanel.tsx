@@ -1,3 +1,4 @@
+// @responsibility signals 영역 MarketRegimeClassifierPanel 컴포넌트
 /**
  * 시장 레짐 자동 분류기 패널 (Market Regime Classifier)
  *

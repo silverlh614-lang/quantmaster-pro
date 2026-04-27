@@ -1,3 +1,4 @@
+// @responsibility trading 영역 AuditTrailModal 컴포넌트
 import React from 'react';
 import { cn } from '../../../ui/cn';
 import type { ServerShadowTrade, PositionEvent } from '../../../api';

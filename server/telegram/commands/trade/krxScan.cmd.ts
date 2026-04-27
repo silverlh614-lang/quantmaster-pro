@@ -1,3 +1,4 @@
+// @responsibility krxScan.cmd 텔레그램 모듈
 // @responsibility: /krx_scan — KRX 서킷·캐시 reset 후 Stage1+2+3 발굴 파이프라인 강제 재실행. TRD.
 import { getEmergencyStop } from '../../../state.js';
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';

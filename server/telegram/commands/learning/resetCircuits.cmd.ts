@@ -1,3 +1,4 @@
+// @responsibility resetCircuits.cmd 텔레그램 모듈
 // @responsibility: /reset_circuits — KIS/KRX 회로 즉시 해제 (저녁 추천 스캔 전 일괄 reset).
 import { resetKisCircuits } from '../../../clients/kisClient.js';
 import { _resetKrxOpenApiBreaker } from '../../../clients/krxOpenApi.js';

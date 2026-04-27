@@ -1,3 +1,4 @@
+// @responsibility index 페이지 컴포넌트
 export { TradeJournalPage } from './TradeJournalPage';
 export { ScreenerPage } from './ScreenerPage';
 export { SubscriptionPage } from './SubscriptionPage';
@@ -7,4 +8,6 @@ export { MarketPage } from './MarketPage';
 export { BacktestPage } from './BacktestPage';
 export { DiscoverWatchlistPage } from './DiscoverWatchlistPage';
 export { PortfolioExtractPage } from './PortfolioExtractPage';
+export { RecommendationHistoryPage } from './RecommendationHistoryPage';
+export { MacroIntelligencePage } from './MacroIntelligencePage';
 export { PageRouter } from './PageRouter';

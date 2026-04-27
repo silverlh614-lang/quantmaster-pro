@@ -1,3 +1,4 @@
+// @responsibility reliabilityScorer 학습 엔진 모듈
 /**
  * reliabilityScorer.ts — 데이터 신뢰도 스코어 계산
  *

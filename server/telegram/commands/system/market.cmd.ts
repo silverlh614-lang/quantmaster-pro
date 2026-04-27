@@ -1,3 +1,4 @@
+// @responsibility market.cmd 텔레그램 모듈
 // @responsibility: /market 명령 — 시장 요약 리포트 생성을 비동기 트리거.
 import { sendMarketSummaryOnDemand } from '../../../alerts/reportGenerator.js';
 import { commandRegistry } from '../../commandRegistry.js';

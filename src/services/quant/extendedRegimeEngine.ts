@@ -1,3 +1,4 @@
+// @responsibility quant extendedRegimeEngine 엔진 모듈
 /**
  * extendedRegimeEngine.ts — 확장 레짐 분류 및 상승 초기 선취매 엔진
  *

@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 ExecutionMonitor 컴포넌트
 import React, { useMemo, useState } from 'react';
 import { Section } from '../../ui/section';
 import { DataTable, type DataTableColumn } from '../../ui/data-table';

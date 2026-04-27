@@ -1,3 +1,4 @@
+// @responsibility analysis 영역 QuantDashboard 컴포넌트
 import React, { useState } from 'react';
 import { EvaluationResult, EconomicRegimeData, ROEType } from '../../types/quant';
 import { MarketOverview } from '../../services/stockService';

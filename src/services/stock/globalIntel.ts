@@ -1,3 +1,4 @@
+// @responsibility stock globalIntel 서비스 모듈
 /**
  * globalIntel.ts — 글로벌 인텔리전스 re-export 배럴
  *

@@ -1,3 +1,4 @@
+// @responsibility narrativeGenerator 학습 엔진 모듈
 /**
  * narrativeGenerator.ts — System Narrative Generator (#13).
  *

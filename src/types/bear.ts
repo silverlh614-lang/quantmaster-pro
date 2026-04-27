@@ -1,3 +1,4 @@
+// @responsibility bear 도메인 타입 정의
 // ─── Bear Market 감지 · 인버스 ETF · 방어 전략 도메인 타입 ──────────────────
 
 // ─── 아이디어 1: Gate -1 "Market Regime Detector" — Bull/Bear 자동 판별 게이트 ──

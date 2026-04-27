@@ -1,3 +1,4 @@
+// @responsibility autoTrading 영역 ProDiagnosticsStrip 컴포넌트
 /**
  * ProDiagnosticsStrip — 프로 모드 전용 고밀도 진단 스트립.
  *

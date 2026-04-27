@@ -23,6 +23,7 @@ export interface ScheduleEntry {
 
 export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   // ── 리포트 (Telegram 송출 중심) ────────────────────────────────────────────
+  { timeKst: '06:00', label: '글로벌 스캔 에이전트', group: 'screener', jobName: 'global_scan_agent', silentWhen: 'Yahoo 미국 지수·섹터 ETF 종합 스캔 — KR 휴장 무관 ALWAYS_ON' },
   { timeKst: '06:15', label: '미 섹터 ETF 모멘텀 스캔', group: 'reports', jobName: 'sector_etf_momentum' },
   { timeKst: '07:30', label: '외국인 수급 선행 경보', group: 'alerts', jobName: 'foreign_flow_leading', silentWhen: 'EWY·DXY·외인 3축 합치하지 않으면 무음' },
   { timeKst: '08:30', label: '장전 방향 카드', group: 'alerts', jobName: 'pre_market_card', silentWhen: '|Bias Score| < 40 (NEUTRAL) 이면 무음 — BULL/BEAR 일에만 발송' },
@@ -30,10 +31,14 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '08:40', label: 'DXY 한국 개장 직전 모니터', group: 'alerts', jobName: 'dxy_kr_open', silentWhen: 'DXY 방향 전환 신호 없을 시 무음' },
   { timeKst: '08:45', label: '아침 통합 브리핑', group: 'reports', jobName: 'morning_briefing' },
   { timeKst: '09:00', label: 'MHS 알림 / 거시-섹터 동기화 시작', group: 'alerts', jobName: 'mhs_open', silentWhen: 'MHS 가 RED(<40) 또는 GREEN(≥70) 전환이 아니면 무음' },
+  { timeKst: '09:00', label: 'FOMC DAY 사전 경보', group: 'alerts', jobName: 'fomc_day_morning_alert', silentWhen: 'FOMC DAY phase 가 아니면 무음 (FOMC 캘린더 단일 SSOT, ADR-0061)' },
   { timeKst: '09:05', label: '보유 포지션 모닝카드', group: 'reports', jobName: 'morning_position_card', silentWhen: '활성 포지션 없으면 무음' },
+  { timeKst: '09:05', label: '연휴 복귀 보수 매매 모드', group: 'alerts', jobName: 'holiday_resume_alert', silentWhen: 'POST_HOLIDAY + isLongHoliday 미충족 시 무음 — 추석/근로자의 날 직후만 발송' },
   { timeKst: '09:10', label: 'newsSupply 추적', group: 'screener', jobName: 'news_supply_tracker' },
   { timeKst: '10:45', label: '장전 방향 카드 (HK 개장 30분 후 재계산)', group: 'alerts', jobName: 'pre_market_card_hk', silentWhen: '|Bias Score| < 40 이면 무음' },
   { timeKst: '12:30', label: '점심 통합 브리핑', group: 'reports', jobName: 'lunch_briefing' },
+  { timeKst: '14:00', label: 'FOMC DAY 30분 전 경보', group: 'alerts', jobName: 'fomc_day_pre_liquidation_alert', silentWhen: 'FOMC DAY phase 가 아니면 무음 (ADR-0061)' },
+  { timeKst: '14:30', label: 'FOMC DAY 자동 청산', group: 'trading', jobName: 'fomc_day_liquidation', silentWhen: 'FOMC DAY phase + 5중 가드(enabled/AUTO_TRADE/emergencyStop/시각 boundary) 미충족 시 무음 (ADR-0061)' },
   { timeKst: '14:30', label: '섹터 사이클 대시보드', group: 'reports', jobName: 'sector_cycle_dashboard' },
   { timeKst: '15:35', label: 'INFO 일일 다이제스트 flush', group: 'reports', jobName: 'info_digest_flush', silentWhen: 'INFO 버퍼 비어 있으면 무음 (당일 INFO 알림 없음)' },
   { timeKst: '15:40', label: 'Ghost Portfolio 갱신', group: 'learning', jobName: 'ghost_portfolio', silentWhen: '내부 캐시 갱신만 — Telegram 송출 없음' },
@@ -56,6 +61,7 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '금 17:00', label: 'SYSTEM 채널 주간 요약 flush', group: 'reports', jobName: 'system_weekly_flush', silentWhen: 'SYSTEM 버퍼 비어 있으면 무음' },
   { timeKst: '일 10:00', label: '주간 무결성 + 알림 감사 리포트', group: 'reports', jobName: 'weekly_integrity_report' },
   { timeKst: '1일 07:00', label: 'Walk-Forward Validation (월 1회)', group: 'learning', jobName: 'walk_forward_validation', silentWhen: 'IS↔OOS 승률 격차 ≤ 15%p 이면 무음' },
+  { timeKst: '12/1 09:00', label: 'KRX 차년도 휴장일 감사 (연 1회)', group: 'maintenance', jobName: 'krx_holiday_audit', silentWhen: '차년도 휴장일 ≥ 8개 등록되어 있으면 무음 — 미달 시 CRITICAL' },
 
   // ── 상시 ──────────────────────────────────────────────────────────────────
   { timeKst: '상시',  label: '오케스트레이터 1분 tick', group: 'trading', jobName: 'orchestrator_tick' },
@@ -107,6 +113,12 @@ export interface JobMetrics {
   lastFailureAt?: string;
   /** 마지막 실패 메시지 — note 첫 줄 ≤120자 절삭 */
   lastErrorMessage?: string;
+  /**
+   * 마지막 스킵 사유 — ScheduleGuard(ADR-0043) 가 기록.
+   * 'WEEKEND' / 'KRX_HOLIDAY' / 'LONG_HOLIDAY' / 'TRADING_DAY' / 'NON_TRADING_DAY' 등.
+   * 운영자가 "월요일 자기반성이 정상 실행됐는가" 같은 시계열 진단에 활용.
+   */
+  lastSkipReason?: string;
 }
 
 const _metricsByJob = new Map<string, JobMetrics>();
@@ -140,6 +152,9 @@ export function recordScheduleRun(rec: ScheduleRunRecord): void {
     }
   } else {
     m.skippedCount += 1;
+    if (rec.note) {
+      m.lastSkipReason = rec.note.slice(0, ERROR_MESSAGE_LIMIT);
+    }
   }
 }
 

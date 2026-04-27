@@ -1,3 +1,4 @@
+// @responsibility quant marketRegimeClassifier 엔진 모듈
 /**
  * marketRegimeClassifier.ts — 시장 레짐 자동 분류기
  *

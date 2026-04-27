@@ -1,3 +1,4 @@
+// @responsibility persistentErrorLog 영속화 저장소 모듈
 /**
  * persistentErrorLog.ts — 기억 보완 회로: 월별 영속 에러 로그.
  *

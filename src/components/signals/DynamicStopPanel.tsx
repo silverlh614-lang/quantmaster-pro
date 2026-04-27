@@ -1,3 +1,4 @@
+// @responsibility signals 영역 DynamicStopPanel 컴포넌트
 /**
  * DynamicStopPanel.tsx — 변동성 적응형 동적 손절 패널
  *

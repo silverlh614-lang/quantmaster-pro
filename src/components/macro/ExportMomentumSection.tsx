@@ -1,3 +1,4 @@
+// @responsibility macro 영역 ExportMomentumSection 컴포넌트
 import React, { useState } from 'react';
 import { RefreshCw, Cpu, Ship } from 'lucide-react';
 import { ExportMomentumData } from '../../types/quant';

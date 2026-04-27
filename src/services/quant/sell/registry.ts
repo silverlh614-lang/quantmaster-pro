@@ -1,3 +1,4 @@
+// @responsibility quant registry 엔진 모듈
 /**
  * sell/registry.ts — SELL_LAYER_REGISTRY 선언형 배열
  *

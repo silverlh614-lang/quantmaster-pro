@@ -1,3 +1,4 @@
+// @responsibility stage1Audit.cmd 텔레그램 모듈
 // @responsibility: /stage1_audit — Stage 1 정량 필터 탈락 사유 분포 리포트 (튜닝 가이드). TRD (read-only).
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';

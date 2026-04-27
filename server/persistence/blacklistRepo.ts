@@ -1,3 +1,4 @@
+// @responsibility blacklistRepo 영속화 저장소 모듈
 import fs from 'fs';
 import { BLACKLIST_FILE, ensureDataDir } from './paths.js';
 

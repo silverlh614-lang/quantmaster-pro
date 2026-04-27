@@ -1,3 +1,4 @@
+// @responsibility watchlist 영역 WatchlistFilterPanel 컴포넌트
 import React from 'react';
 import {
   Search, Filter, RefreshCw, Globe, Newspaper, Settings, Info, X,

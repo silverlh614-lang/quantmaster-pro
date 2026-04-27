@@ -1,3 +1,4 @@
+// @responsibility indicators 유틸 함수 모듈
 /**
  * Technical Indicator Calculation Utilities
  */

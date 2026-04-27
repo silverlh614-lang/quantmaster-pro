@@ -1,3 +1,4 @@
+// @responsibility quant contrarianEngine 엔진 모듈
 /**
  * contrarianEngine.ts — 역발상 카운터사이클 알고리즘
  *

@@ -1,3 +1,4 @@
+// @responsibility usePortfolioOps React hook
 import React from 'react';
 import { toast } from 'sonner';
 import { backtestPortfolio, parsePortfolioFile } from '../services/stockService';

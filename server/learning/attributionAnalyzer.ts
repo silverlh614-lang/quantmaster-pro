@@ -1,3 +1,4 @@
+// @responsibility attributionAnalyzer 학습 엔진 모듈
 /**
  * attributionAnalyzer.ts — 고도화된 귀인 분석 엔진
  *

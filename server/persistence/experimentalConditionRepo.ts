@@ -1,3 +1,4 @@
+// @responsibility experimentalConditionRepo 영속화 저장소 모듈
 /**
  * experimentalConditionRepo.ts — 아이디어 6 (Phase 3): Gemini 제안 조건의 A/B 레지스터.
  *

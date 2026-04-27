@@ -1,3 +1,4 @@
+// @responsibility watchlist 영역 WatchlistCard 컴포넌트
 import React from 'react';
 import {
   TrendingUp, TrendingDown, Bookmark, Star, Award, History, Plus, Zap,
@@ -8,6 +9,17 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../ui/cn';
 import { ConfidenceBadge } from '../common/ConfidenceBadge';
+import { DataQualityBadge } from '../common/DataQualityBadge';
+import { PriceAlertBadge } from '../common/PriceAlertBadge';
+import { GateStatusCard, buildGateCardSummary } from './GateStatusCard';
+import { GateMiniIndicator } from './GateMiniIndicator';
+import { LastTriggerCard } from './LastTriggerCard';
+import { EnemyChecklistCard } from './EnemyChecklistCard';
+import { classifyDataQuality } from '../../utils/dataQualityClassifier';
+import { computePriceAlertLevel } from '../../utils/priceAlertLevel';
+import { evaluateLastTrigger } from '../../utils/lastTriggerStatus';
+import { evaluateEnemyChecklist } from '../../utils/enemyChecklistFlag';
+import { useGlobalIntelStore } from '../../stores';
 import { SignalBadge } from '../../ui/badge';
 import { PriceEditCell } from '../common/PriceEditCell';
 import { isMarketOpenFor, nextOpenAtFor, formatNextOpenKst } from '../../utils/marketTime';
@@ -72,6 +84,23 @@ export function WatchlistCard({
   // ADR-0016 (PR-37): 시장 모드 5분류 SSOT — LIVE / 장외 / 주말 / 공휴일 / 다중실패.
   // 카드 가격 영역 라벨(주황 LIVE / 파랑 장외 / 회색 주말·공휴일) 분기에 사용.
   const marketMode = useMarketMode();
+
+  // PR-D (ADR-0031): 라스트 트리거 + Enemy 체크리스트 — store 에서 macroEnv 직접 읽기
+  const macroEnv = useGlobalIntelStore(s => s.macroEnv);
+  const recentPositiveDisclosure = dartAlerts.some(
+    a => a.stock_code.replace(/^A/, '') === stock.code && a.sentiment === 'POSITIVE',
+  );
+  const lastTriggerSummary = evaluateLastTrigger({
+    stock,
+    vkospi: macroEnv?.vkospi,
+    recentPositiveDisclosure,
+  });
+  const enemyChecklistSummary = evaluateEnemyChecklist({
+    stock,
+    // marginBalance5dChange / weeklyRsi 는 종목별 인프라가 후속 PR — 현재 undefined 안전 fallback
+    marginBalance5dChange: undefined,
+    weeklyRsi: undefined,
+  });
 
   return (
     <motion.div
@@ -238,6 +267,11 @@ export function WatchlistCard({
                       BEST
                     </div>
                   )}
+
+                  {/* ADR-0055 PR-Z7: 4-Gate 미니 인디케이터 (즉시 인지) */}
+                  <div className="shrink-0">
+                    <GateMiniIndicator stock={stock} />
+                  </div>
                 </div>
 
                 {stock.aiConvictionScore && (
@@ -428,6 +462,34 @@ export function WatchlistCard({
               </button>
             )}
           </div>
+        </div>
+
+        {/* Data Quality + Price Alert + Gate 0~3 통과 카드 — ADR-0028 PR-A + ADR-0030 PR-C */}
+        <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-2 sm:gap-3 mb-4 items-start">
+          <div className="flex items-center gap-2 flex-wrap">
+            <DataQualityBadge count={classifyDataQuality(stock)} compact />
+            {stock.dataSourceType && <ConfidenceBadge type={stock.dataSourceType} />}
+            <PriceAlertBadge
+              level={computePriceAlertLevel({
+                currentPrice: stock.currentPrice,
+                stopLoss: stock.stopLoss,
+                targetPrice: stock.targetPrice,
+              })}
+              currentPrice={stock.currentPrice}
+              stopLoss={stock.stopLoss}
+              targetPrice={stock.targetPrice}
+            />
+          </div>
+          <GateStatusCard
+            summary={buildGateCardSummary(stock)}
+            onExpand={() => onDeepAnalysis(stock)}
+          />
+        </div>
+
+        {/* Last Trigger + Enemy Checklist — ADR-0031 PR-D */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 mb-4">
+          <LastTriggerCard summary={lastTriggerSummary} />
+          <EnemyChecklistCard summary={enemyChecklistSummary} />
         </div>
 
         {/* External Links & Market Heat */}

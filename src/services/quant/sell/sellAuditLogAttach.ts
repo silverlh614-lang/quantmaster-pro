@@ -1,3 +1,4 @@
+// @responsibility quant sellAuditLogAttach 엔진 모듈
 /**
  * sell/sellAuditLogAttach.ts — AuditLog를 PositionEventBus에 연결하는 헬퍼
  *

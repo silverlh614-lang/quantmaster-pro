@@ -1,3 +1,4 @@
+// @responsibility kellyDriftFailurePromotion 학습 엔진 모듈
 /**
  * kellyDriftFailurePromotion.ts — Idea 10: Kelly Drift × invalidation 패턴 승급.
  *

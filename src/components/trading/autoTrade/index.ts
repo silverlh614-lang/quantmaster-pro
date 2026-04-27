@@ -1,3 +1,4 @@
+// @responsibility trading 영역 index 컴포넌트
 export { EngineControlCard } from './EngineControlCard';
 export { ReconcileCard } from './ReconcileCard';
 export { ShadowForcedInputCard } from './ShadowForcedInputCard';

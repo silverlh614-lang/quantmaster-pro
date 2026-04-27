@@ -1,3 +1,4 @@
+// @responsibility common 영역 EventCalendar 컴포넌트
 import React from 'react';
 import { 
   Calendar as CalendarIcon, 

@@ -1,3 +1,4 @@
+// @responsibility common 영역 PriceEditCell 컴포넌트
 import React, { useState } from 'react';
 import { Check, X, RefreshCw, Edit2 } from 'lucide-react';
 import { cn } from '../../ui/cn';

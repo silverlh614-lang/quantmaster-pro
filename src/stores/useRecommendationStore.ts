@@ -1,3 +1,4 @@
+// @responsibility useRecommendationStore Zustand store
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { StockRecommendation, StockFilters } from '../services/stockService';

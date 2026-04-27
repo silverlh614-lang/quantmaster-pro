@@ -6,6 +6,7 @@
  */
 import fs from 'fs';
 import { SHADOW_FILE, SHADOW_LOG_FILE, ensureDataDir } from './paths.js';
+import { getSectorByCode } from '../screener/sectorMap.js';
 
 // ─── Fill(체결 이벤트) 모델 ────────────────────────────────────────────────────
 
@@ -33,6 +34,12 @@ export interface PositionFill {
   /** 사람이 읽을 수 있는 청산 이유 */
   reason: string;
   exitRuleTag?: string;
+  /**
+   * PR-S (아이디어 7): SELL fill 의 결정 attribution.
+   * 본 phase 옵셔널 — 점진 적용. 후속 PR 에서 SELL fill 생성 경로 모두 강제.
+   * 호출 시: `buildExitAttribution(ruleId, contributingConditions, regime)` 헬퍼 사용.
+   */
+  attribution?: ExitAttribution;
   timestamp: string;   // ISO
   /**
    * LIVE 모드 매도 시 KIS 주문번호 (ODNO).
@@ -288,6 +295,54 @@ export function updateShadow(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * 청산 결정 attribution (PR-S / 아이디어 7).
+ *
+ * 모든 SELL fill 에 부착되어 "어느 매도 규칙이 / 어떤 조건이 / 어떤 레짐에서" 발동했는지
+ * 학습 루프(failurePatternDB / attributionRepo) 에 정밀 신호 공급. ADR-0006 attribution
+ * composite key (tradeId, fillId) 와 결합해 부분매도별 기여도까지 추적.
+ *
+ * 페르소나의 "외국인 수급, 거래량, 일목균형표 다요소 합치" 사상의 메타-레벨 적용 —
+ * 매도 결정도 단일 trigger 가 아닌 다요소 합치로 추적.
+ *
+ * 본 phase: 옵셔널 — 점진 적용. 후속 PR 에서 SELL fill 생성 경로 모두 의무화.
+ */
+export interface ExitAttribution {
+  /** 발동 규칙 ID (ExitRuleTag 와 동일 도메인). */
+  ruleId: ExitRuleTag;
+  /**
+   * 결정에 기여한 조건 식별자 배열. 예: `['stopLoss_breach', 'macd_dead_cross']`.
+   * 단일 trigger 일 경우에도 배열 형식 유지 (집계 호환).
+   */
+  contributingConditions: string[];
+  /**
+   * 매도 시점 매크로 레짐 (예: 'R6_DEFENSE'). 레짐별 규칙 정확도 분석용.
+   */
+  regime: string;
+  /** 부착 시각 (ISO) — fill.timestamp 와 보통 일치하지만 디버깅용 별도 보존. */
+  attachedAt?: string;
+}
+
+/**
+ * `ExitAttribution` 빌더 — SELL fill 생성 경로에서 일관된 형식으로 attribution 생성.
+ *
+ * 권장 사용:
+ *   const attribution = buildExitAttribution('R6_EMERGENCY_EXIT', ['regime_r6_defense'], currentRegime);
+ *   appendFill(shadow, { type: 'SELL', ..., attribution });
+ */
+export function buildExitAttribution(
+  ruleId: ExitRuleTag,
+  contributingConditions: string[],
+  regime: string,
+): ExitAttribution {
+  return {
+    ruleId,
+    contributingConditions: contributingConditions.length > 0 ? contributingConditions : [ruleId.toLowerCase()],
+    regime,
+    attachedAt: new Date().toISOString(),
+  };
+}
+
+/**
  * 청산/감축 규칙 태그 (EXIT_RULE_PRIORITY_TABLE 규칙명과 1:1 대응).
  * exitRuleTag 필드에 사용되며, EXIT_RULE_PRIORITY_TABLE 우선순위 순서로 평가된다.
  * 새 규칙 추가 시 이 타입과 EXIT_RULE_PRIORITY_TABLE을 함께 갱신해야 한다.
@@ -307,6 +362,8 @@ export type ExitRuleTag =
   | 'MA60_DEATH_WATCH'           // priority 12 — 60일선 역배열 최초 감지: 유예 스케줄만 설정
   | 'STOP_APPROACH_ALERT'        // priority 13
   | 'EUPHORIA_PARTIAL'           // priority 14
+  | 'FOMC_DAY_LIQUIDATION'       // priority 50 — FOMC 발표 당일 14:30 KST 평일 자동 전량 청산 (ADR-0061)
+                                 //                fomcDayLiquidation.liquidateAllForFomc() 단일 진입점 — 자동 평가 루프 제외.
   | 'MANUAL_EXIT';               // priority 99 — "규칙 외" 수동 청산 (Telegram /sell, UI 수동 매도)
                                  //               자동 평가 루프에서 절대 선택되지 않으며, 오직 외부 주입 전용.
 
@@ -370,6 +427,12 @@ export interface ServerShadowTrade {
   targetPrice: number;
   /** 거래 모드: 'LIVE' = 실주문, 'SHADOW' = 가상 추적 */
   mode?: 'LIVE' | 'SHADOW';
+  /**
+   * 매수 시점 결정적 섹터 라벨 (getSectorByCode 결과). 진입 후 변경되지 않음.
+   * sectorConcentrationGate / SectorStocksDrilldown 등 섹터 매칭 SSOT.
+   * 레거시 trade 는 loadShadowTrades 진입 시 lazy 백필로 채워진다.
+   */
+  sector?: string;
   status: 'PENDING' | 'ORDER_SUBMITTED' | 'PARTIALLY_FILLED' | 'ACTIVE' | 'REJECTED' | 'HIT_TARGET' | 'HIT_STOP' | 'EUPHORIA_PARTIAL';
   exitPrice?: number;
   exitTime?: string;
@@ -517,7 +580,18 @@ export function loadShadowTrades(): ServerShadowTrade[] {
   ensureDataDir();
   if (!fs.existsSync(SHADOW_FILE)) return [];
   try {
-    return JSON.parse(fs.readFileSync(SHADOW_FILE, 'utf-8'));
+    const arr: ServerShadowTrade[] = JSON.parse(fs.readFileSync(SHADOW_FILE, 'utf-8'));
+    // ADR-0060 lazy backfill — 레거시 trade(sector 미보유) 는 진입 시점에 1회 채움.
+    // 디스크 저장은 다음 saveShadowTrades 호출 시 자연 영속.
+    // KIS/KRX 호출 0 (sectorMap 은 인메모리 lookup). 결정적 라벨이라 중복 호출 안전.
+    for (const t of arr) {
+      if (!t.sector) {
+        const resolved = getSectorByCode(t.stockCode);
+        // getSectorByCode 는 항상 string 반환 ('미분류' fallback 포함). 빈 문자열만 가드.
+        if (resolved) t.sector = resolved;
+      }
+    }
+    return arr;
   } catch {
     return [];
   }

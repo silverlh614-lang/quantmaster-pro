@@ -1,3 +1,4 @@
+// @responsibility checklist 모듈
 import type { LucideIcon } from 'lucide-react';
 import {
   RefreshCw, BarChart3, Zap, AlertTriangle, Star, Flame, LayoutGrid,

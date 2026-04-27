@@ -1,3 +1,4 @@
+// @responsibility bootManifest 영속화 저장소 모듈
 /**
  * bootManifest.ts — 기억 보완 회로: 부팅/종료 매니페스트.
  *

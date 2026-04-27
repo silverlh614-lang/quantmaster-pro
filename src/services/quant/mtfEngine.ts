@@ -1,3 +1,4 @@
+// @responsibility quant mtfEngine 엔진 모듈
 /**
  * mtfEngine.ts — 다중 시간 프레임 합치 스코어 (MTF Confluence Score)
  *

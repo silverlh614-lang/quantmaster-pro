@@ -1,3 +1,4 @@
+// @responsibility accountRiskBudget 매매 엔진 모듈
 /**
  * accountRiskBudget.ts — 계좌 레벨 리스크 예산 + Fractional Kelly 강제
  *
@@ -24,49 +25,43 @@ import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { isOpenShadowStatus } from './entryEngine.js';
 import { getDailyLossPct } from '../state.js';
 import { applyHalfLifeDecay, type HalfLifeDecayInput } from './kellyHalfLife.js';
+import {
+  type BudgetPolicy,
+  type SignalGrade,
+  defaultBudgetPolicy,
+  getBudgetPolicy,
+  applyFractionalKellyWithPolicy,
+} from './budgetPolicy.js';
 
-// ── 환경 변수 (env override 가능) ──────────────────────────────────────────────
+export type { SignalGrade, BudgetPolicy } from './budgetPolicy.js';
+export { defaultBudgetPolicy, getBudgetPolicy, setBudgetPolicy, withPolicyOverride } from './budgetPolicy.js';
 
-/** 일일 최대 손실 허용 — `DAILY_LOSS_LIMIT` 와 동일 의미. 신규 진입 차단 임계값 (계좌 %). */
-const DAILY_LOSS_LIMIT_PCT     = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
-/** 동시 보유 총 리스크 한도 — 모든 활성 포지션의 (entry-stop) 합 / 총자본 상한. */
-const MAX_CONCURRENT_RISK_PCT  = parseFloat(process.env.MAX_CONCURRENT_RISK_PCT ?? '6');
-/** 단일 포지션 최대 리스크 — (entry-stop)/총자본 상한. R-multiple 1단위 캡. */
-const MAX_PER_TRADE_RISK_PCT   = parseFloat(process.env.MAX_PER_TRADE_RISK_PCT ?? '1.5');
-/** 섹터 편중 한도 — 단일 섹터 합산 시장가 / 총자본 상한 (portfolioRiskEngine 과 정합 30%). */
-const MAX_SECTOR_WEIGHT_PCT    = parseFloat(process.env.MAX_SECTOR_WEIGHT ?? '0.30') * 100;
-
-// ── Fractional Kelly 강제 ────────────────────────────────────────────────────
+// ── Fractional Kelly 강제 (PR-T: 정책 객체로 이전, 후방호환 const 유지) ──────
 //
 // 풀 Kelly 는 추정 오차 + 비대칭 페이오프 가정으로 인해 장기적으로 파산 확률이 높다.
 // 이 테이블은 "어떠한 신호 등급도 풀 Kelly 를 넘지 않는다" 는 안전 캡을 강제한다.
 // kellyDampener (IPS 기반) · sizingTier (CONVICTION/STANDARD/PROBING) 와 곱연산.
-
-export type SignalGrade = 'STRONG_BUY' | 'BUY' | 'HOLD' | 'PROBING';
-
-export const FRACTIONAL_KELLY_CAP: Record<SignalGrade, number> = {
-  STRONG_BUY: 0.50,  // 최고 신뢰도라도 풀 Kelly 의 절반까지만
-  BUY:        0.25,
-  HOLD:       0.10,  // HOLD 성 신규 진입(레짐 보수화 등)
-  PROBING:    0.10,  // 탐색적 소량 진입
-};
+//
+// PR-T (아이디어 8): SSOT 는 budgetPolicy.ts 로 이전됐다. 본 const 는 이전 호출자
+// (perSymbolEvaluation.ts 의 entryKellySnapshot.fractionalCap 등) 호환을 위한 default
+// 정책 스냅샷이다. 백테스트는 setBudgetPolicy() 로 정책을 갈아끼워 사용한다.
+export const FRACTIONAL_KELLY_CAP: Record<SignalGrade, number> = defaultBudgetPolicy().fractionalKellyCap;
 
 /**
  * 신호 등급에 Fractional Kelly 캡을 적용. 입력 multiplier 가 캡을 넘으면 캡으로 잘라낸다.
  *
+ * PR-T: 정책 옵셔널 인자 추가. 미주입 시 활성 정책(getBudgetPolicy()) 사용.
+ *
  * @example
- *   applyFractionalKelly('STRONG_BUY', 0.6) → 0.5  (캡 적용)
+ *   applyFractionalKelly('STRONG_BUY', 0.6) → 0.5  (default 캡 적용)
  *   applyFractionalKelly('BUY',        0.2) → 0.2  (캡 미달, 그대로)
  */
-export function applyFractionalKelly(grade: SignalGrade, kellyMultiplier: number): {
-  capped: number;
-  wasCapped: boolean;
-  cap: number;
-} {
-  const cap = FRACTIONAL_KELLY_CAP[grade];
-  const safe = Math.max(0, kellyMultiplier);
-  if (safe > cap) return { capped: cap, wasCapped: true, cap };
-  return { capped: safe, wasCapped: false, cap };
+export function applyFractionalKelly(
+  grade: SignalGrade,
+  kellyMultiplier: number,
+  policy?: BudgetPolicy,
+): { capped: number; wasCapped: boolean; cap: number } {
+  return applyFractionalKellyWithPolicy(grade, kellyMultiplier, policy ?? getBudgetPolicy());
 }
 
 /**
@@ -80,10 +75,12 @@ export function applyFractionalKelly(grade: SignalGrade, kellyMultiplier: number
  * - ≥ 1: Kelly 가 R-캡 이상 → 정상 사이즈 포지션
  * - < 1: "이 포지션은 자기 리스크 한도조차 감당 못하는 크기" → 청산 후보로 분류
  *        (작은 사이즈 = 약한 확신 + R-캡 풀세이즈 못 채움 = 유지 근거 약함)
+ *
+ * PR-T: maxPerTradeRiskPct 미지정 시 활성 정책(getBudgetPolicy().maxPerTradeRiskPct) 사용.
  */
 export function computeKellyCoverageRatio(
   effectiveKelly: number,
-  maxPerTradeRiskPct: number = MAX_PER_TRADE_RISK_PCT,
+  maxPerTradeRiskPct: number = getBudgetPolicy().maxPerTradeRiskPct,
 ): number {
   if (maxPerTradeRiskPct <= 0) return 0;
   return effectiveKelly / (maxPerTradeRiskPct / 100);
@@ -134,14 +131,17 @@ export function getAccountRiskBudget(input: {
   trades?: ServerShadowTrade[];
   /** 옵션 — Idea 8: 실시간가 맵. 제공 시 trailing hardStop 반영된 activeR 계산 */
   currentPrices?: Map<string, number> | Record<string, number>;
+  /** PR-T (아이디어 8): 정책 주입 — 미주입 시 활성 정책(env 기반 default) 사용 */
+  policy?: BudgetPolicy;
 }): AccountRiskBudgetSnapshot {
   const totalAssets = input.totalAssets;
   const trades = input.trades ?? loadShadowTrades();
   const open = trades.filter(t => isOpenShadowStatus(t.status) && getRemainingQty(t) > 0);
+  const policy = input.policy ?? getBudgetPolicy();
 
   // 현재 누적 일일 손실 — state.ts 가 관리. 양수 = 손실.
   const dailyLossPct = getDailyLossPct();
-  const dailyLossRemainingPct = Math.max(0, DAILY_LOSS_LIMIT_PCT - dailyLossPct);
+  const dailyLossRemainingPct = Math.max(0, policy.dailyLossLimitPct - dailyLossPct);
 
   // ── Idea 8: 활성 포지션 R 합 — 트레일링 hardStop 반영 ────────────────────
   // 기존 로직: Σ max(0, entry - hardStop) × qty 는 하드스톱이 entry 위로 올라간
@@ -172,25 +172,25 @@ export function getAccountRiskBudget(input: {
     openRiskKrw += r;
   }
   const openRiskPct = totalAssets > 0 ? (openRiskKrw / totalAssets) * 100 : 0;
-  const concurrentRiskRemainingPct = Math.max(0, MAX_CONCURRENT_RISK_PCT - openRiskPct);
+  const concurrentRiskRemainingPct = Math.max(0, policy.maxConcurrentRiskPct - openRiskPct);
 
   const blockedReasons: string[] = [];
   if (dailyLossRemainingPct <= 0) {
-    blockedReasons.push(`일일 손실 한도 도달 (${dailyLossPct.toFixed(2)}% ≥ ${DAILY_LOSS_LIMIT_PCT}%)`);
+    blockedReasons.push(`일일 손실 한도 도달 (${dailyLossPct.toFixed(2)}% ≥ ${policy.dailyLossLimitPct}%)`);
   }
   if (concurrentRiskRemainingPct <= 0) {
-    blockedReasons.push(`동시 보유 리스크 한도 도달 (${openRiskPct.toFixed(2)}% ≥ ${MAX_CONCURRENT_RISK_PCT}%)`);
+    blockedReasons.push(`동시 보유 리스크 한도 도달 (${openRiskPct.toFixed(2)}% ≥ ${policy.maxConcurrentRiskPct}%)`);
   }
 
   return {
-    dailyLossLimitPct: DAILY_LOSS_LIMIT_PCT,
+    dailyLossLimitPct: policy.dailyLossLimitPct,
     dailyLossPct,
     dailyLossRemainingPct,
-    maxConcurrentRiskPct: MAX_CONCURRENT_RISK_PCT,
+    maxConcurrentRiskPct: policy.maxConcurrentRiskPct,
     openRiskPct,
     concurrentRiskRemainingPct,
-    maxPerTradeRiskPct: MAX_PER_TRADE_RISK_PCT,
-    maxSectorWeightPct: MAX_SECTOR_WEIGHT_PCT,
+    maxPerTradeRiskPct: policy.maxPerTradeRiskPct,
+    maxSectorWeightPct: policy.maxSectorWeightPct,
     canEnterNew: blockedReasons.length === 0,
     blockedReasons,
   };
@@ -218,6 +218,12 @@ export interface ComputeRiskAdjustedSizeInput {
    * daysHeld=0 이면 weight=1 이라 결과 불변.
    */
   timeDecayInput?: HalfLifeDecayInput;
+  /**
+   * PR-T (아이디어 8): 정책 주입 — 미주입 시 활성 정책(env 기반 default) 사용.
+   * Fractional Kelly 캡 + 단일/동시 R 한도가 본 정책에서 결정된다.
+   * budget 인자가 동일 정책으로 빌드되어야 일관성 유지.
+   */
+  policy?: BudgetPolicy;
 }
 
 export interface ComputeRiskAdjustedSizeResult {
@@ -252,6 +258,7 @@ export interface ComputeRiskAdjustedSizeResult {
 export function computeRiskAdjustedSize(input: ComputeRiskAdjustedSizeInput): ComputeRiskAdjustedSizeResult {
   const { entryPrice, stopLoss, signalGrade, kellyMultiplier, totalAssets, budget } = input;
   const confidence = Math.max(0, Math.min(1.2, input.confidenceModifier ?? 1.0));
+  const policy = input.policy ?? getBudgetPolicy();
 
   // 게이트 1: 계좌 한도 도달
   if (!budget.canEnterNew) {
@@ -267,8 +274,8 @@ export function computeRiskAdjustedSize(input: ComputeRiskAdjustedSizeInput): Co
     };
   }
 
-  // 게이트 2: Fractional Kelly 캡
-  const kelly = applyFractionalKelly(signalGrade, kellyMultiplier);
+  // 게이트 2: Fractional Kelly 캡 (PR-T: 정책 기반)
+  const kelly = applyFractionalKelly(signalGrade, kellyMultiplier, policy);
   // ADR-0008: 보유 중 재평가 경로만 timeDecayInput 을 넘긴다. 신규 진입은 undefined → decayedKelly = kelly.capped.
   const decayedKelly = applyHalfLifeDecay(kelly.capped, input.timeDecayInput);
 

@@ -1,3 +1,4 @@
+// @responsibility index API 클라이언트 모듈
 export { apiFetch, apiFetchSafe, ApiError } from './client';
 export type { ApiRequestOptions } from './client';
 

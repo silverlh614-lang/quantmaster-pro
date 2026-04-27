@@ -1,3 +1,4 @@
+// @responsibility math 유틸 함수 모듈
 // src/utils/math.ts
 // 수학 유틸리티 — 퀀트 엔진 공용
 
