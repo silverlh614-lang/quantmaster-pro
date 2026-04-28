@@ -28,6 +28,62 @@ import { safePctChange } from '../utils/safePctChange.js';
 
 /** 동일 섹터 최대 비중 (30%) */
 const MAX_SECTOR_WEIGHT      = parseFloat(process.env.MAX_SECTOR_WEIGHT ?? '0.30');
+/** 섹터 집중도 자동 대응 시 손절선 긴축 비율 (현재가 ×0.99 = -1% 긴축, ADR-0028 §Phase B). */
+export const SECTOR_TIGHT_STOP_RATIO = 0.99;
+
+/**
+ * 섹터 집중도 자동 대응에서 *실제로 긴축이 적용된* 포지션 메타.
+ * 알림 메시지에 예상 청산 가격 + 거리 + 현재 pnlPct 를 함께 노출하기 위한 SSOT.
+ * 적용 종목이 없으면 null 전달 → 메시지에서 자동 액션 라인 생략.
+ */
+export interface SectorTighteningMeta {
+  stockName: string;
+  stockCode: string;
+  currentPrice: number;
+  tightStop: number;
+  pnlPct: number;
+}
+
+/**
+ * 섹터 집중도 초과 알림 빌더 — ADR-0028 §Phase B.
+ * 기존 단정적 표현 "다음 스캔에서 청산 예정" → 조건부 "긴축선 도달 시 청산".
+ * 예상 청산 가격 + 현재가까지 거리 + 현재 pnlPct 함께 표기 → 운영자가
+ * 발동 가능성을 즉시 판단 가능 (수익권이라 안 떨어질지 / 곧 도달할지).
+ */
+export function buildSectorOverflowAlert(input: {
+  sector: string;
+  weightPct: number;
+  limitPct: number;
+  posNames: string;
+  exitTarget: SectorTighteningMeta | null;
+}): string {
+  const { sector, weightPct, limitPct, posNames, exitTarget } = input;
+  const lines: string[] = [
+    `🚨 <b>[섹터 집중도 초과 — 자동 대응]</b>`,
+    `섹터: <b>${sector}</b> — ${weightPct.toFixed(1)}% (한도 ${limitPct.toFixed(0)}%)`,
+    `보유 종목: ${posNames}`,
+  ];
+
+  if (exitTarget) {
+    const dropPct = exitTarget.currentPrice > 0
+      ? ((exitTarget.currentPrice - exitTarget.tightStop) / exitTarget.currentPrice) * 100
+      : 0;
+    const pnlSign = exitTarget.pnlPct >= 0 ? '+' : '';
+    lines.push(
+      `⚡ 자동 액션: 최저수익 포지션 <b>${exitTarget.stockName}</b>(${exitTarget.stockCode}, ` +
+      `현재 ${pnlSign}${exitTarget.pnlPct.toFixed(2)}%) ` +
+      `손절선을 ${exitTarget.tightStop.toLocaleString()}원으로 긴축`,
+      `   → 가격이 ${exitTarget.tightStop.toLocaleString()}원 도달 시 청산 ` +
+      `(현재가 ${exitTarget.currentPrice.toLocaleString()}원, -${dropPct.toFixed(1)}% 거리)`,
+      `ℹ️ 가격 미도달 시 미발동 — 수동 청산 또는 다음 점검에서 재평가`,
+    );
+  } else {
+    lines.push(`ℹ️ 자동 액션: 적용 가능한 최저수익 포지션 없음 (수동 청산 권고)`);
+  }
+
+  lines.push(`LIVE 전환 전 섹터 분산 필수!`);
+  return lines.join('\n');
+}
 /** 포트폴리오 가중 베타 한도 */
 const MAX_PORTFOLIO_BETA     = parseFloat(process.env.MAX_PORTFOLIO_BETA ?? '1.5');
 /** 상관관계 경보 임계: 상관계수 */
@@ -337,6 +393,7 @@ export async function runPortfolioRiskCheck(): Promise<void> {
         return (wl?.sector ?? '기타') === sector;
       });
 
+      let exitTargetMeta: SectorTighteningMeta | null = null;
       if (sectorPositions.length > 0) {
         // 수익률 기준 오름차순 정렬 → 가장 낮은 수익률 포지션부터 청산 대상
         const sorted = sectorPositions
@@ -352,11 +409,19 @@ export async function runPortfolioRiskCheck(): Promise<void> {
 
         // 최저수익 포지션의 손절선을 현재가 -1%로 긴축 → exitEngine이 다음 틱에서 청산
         const exitTarget = sorted[0];
-        const tightStop = Math.round(exitTarget.currentPrice * 0.99);
+        const tightStop = Math.round(exitTarget.currentPrice * SECTOR_TIGHT_STOP_RATIO);
         if (exitTarget.shadow.stopLoss < tightStop) {
           exitTarget.shadow.stopLoss = tightStop;
           exitTarget.shadow.exitRuleTag = 'HARD_STOP';
           shadowsChanged = true;
+          // 알림 메시지에서 활용할 메타 — *실제로 긴축이 적용된 경우만* 노출.
+          exitTargetMeta = {
+            stockName: exitTarget.shadow.stockName,
+            stockCode: exitTarget.shadow.stockCode,
+            currentPrice: exitTarget.currentPrice,
+            tightStop,
+            pnlPct: exitTarget.pnlPct,
+          };
           console.warn(
             `[PortfolioRisk] 🚨 섹터 ${sector} 비중 ${weightPct}% 초과 → ` +
             `${exitTarget.shadow.stockName}(${exitTarget.shadow.stockCode}) 손절선 ${tightStop.toLocaleString()}원으로 긴축 (PnL: ${exitTarget.pnlPct.toFixed(1)}%)`,
@@ -369,11 +434,13 @@ export async function runPortfolioRiskCheck(): Promise<void> {
         _alertedSectors.add(sector);
         const posNames = sectorPositions.map(s => s.stockName).join(', ');
         await sendTelegramAlert(
-          `🚨 <b>[섹터 집중도 초과 — 자동 대응]</b>\n` +
-          `섹터: <b>${sector}</b> — ${weightPct}% (한도 ${(MAX_SECTOR_WEIGHT * 100).toFixed(0)}%)\n` +
-          `보유 종목: ${posNames}\n` +
-          `⚡ 최저수익 포지션 손절선 긴축 → 다음 스캔에서 청산 예정\n` +
-          `LIVE 전환 전 섹터 분산 필수!`,
+          buildSectorOverflowAlert({
+            sector,
+            weightPct: parseFloat(weightPct),
+            limitPct: MAX_SECTOR_WEIGHT * 100,
+            posNames,
+            exitTarget: exitTargetMeta,
+          }),
           { priority: 'HIGH', dedupeKey: `sector_conc_${sector}_${today}` },
         ).catch(console.error);
       }
