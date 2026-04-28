@@ -320,4 +320,73 @@ describe('fetchYahooQuote', () => {
       expect(warnMsg).not.toMatch(/changePercent.*sanity 위반/);
     });
   });
+
+  describe('ADR-0028 §PR-D3-B: priceMetadata 부착', () => {
+    it('정상 응답 — priceMetadata.value=price, source=YAHOO_INTRADAY 부착', async () => {
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse());
+      const result = await fetchYahooQuote('NORMAL.KS');
+      expect(result).not.toBeNull();
+      expect(result!.priceMetadata).toBeDefined();
+      expect(result!.priceMetadata!.value).toBe(result!.price);
+      expect(result!.priceMetadata!.source).toBe('YAHOO_INTRADAY');
+      // asOf 가 ISO 형식
+      expect(() => new Date(result!.priceMetadata!.asOf)).not.toThrow();
+      expect(Number.isFinite(new Date(result!.priceMetadata!.asOf).getTime())).toBe(true);
+    });
+
+    it('regularMarketTime 명시 — asOf 가 그 시점 (Unix sec → ISO)', async () => {
+      const fixedTimestamp = 1745798400; // 2025-04-28 00:00:00 UTC (예시)
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        meta: {
+          regularMarketPrice: 100,
+          regularMarketPreviousClose: 99,
+          regularMarketOpen: 100,
+          regularMarketTime: fixedTimestamp,
+        },
+      }));
+      const result = await fetchYahooQuote('FIXED-TIME.KS');
+      expect(result!.priceMetadata!.asOf).toBe(new Date(fixedTimestamp * 1000).toISOString());
+    });
+
+    it('regularMarketTime 부재 — asOf 가 fetch 시점 (현재) fallback', async () => {
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        meta: {
+          regularMarketPrice: 100,
+          regularMarketPreviousClose: 99,
+          regularMarketOpen: 100,
+          // regularMarketTime 없음
+        },
+      }));
+      const before = Date.now();
+      const result = await fetchYahooQuote('NO-TIME.KS');
+      const after = Date.now();
+      const asOfMs = new Date(result!.priceMetadata!.asOf).getTime();
+      expect(asOfMs).toBeGreaterThanOrEqual(before);
+      expect(asOfMs).toBeLessThanOrEqual(after);
+    });
+
+    it('regularMarketTime=NaN/Infinity — fetch 시점 fallback', async () => {
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        meta: {
+          regularMarketPrice: 100,
+          regularMarketPreviousClose: 99,
+          regularMarketOpen: 100,
+          regularMarketTime: NaN,
+        },
+      }));
+      const result = await fetchYahooQuote('NAN-TIME.KS');
+      // fetch 시점 fallback — 미래 timestamp 가 아님
+      expect(new Date(result!.priceMetadata!.asOf).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+    });
+
+    it('priceMetadata 가 PriceBase 타입과 정확히 호환 (safePctChange 직접 전달 가능)', async () => {
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse());
+      const result = await fetchYahooQuote('UNION-OK.KS');
+      const { safePctChange } = await import('../../utils/safePctChange.js');
+      // priceMetadata 를 base 로 직접 전달 — PriceBase union 검증
+      const pct = safePctChange(200, result!.priceMetadata!, { mode: 'INTRADAY', silent: true });
+      // priceMetadata.value=179 (closes 마지막 + 1) 또는 비슷한 값. 200 vs 179 → +11.7%
+      expect(pct).not.toBeNull();
+    });
+  });
 });
