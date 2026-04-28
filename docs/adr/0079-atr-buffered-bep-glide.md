@@ -91,7 +91,28 @@ ATR 0 종목    → trailingStopPrice = entryPrice (회귀 — 기존 동작 100
 - 서버 `atrDynamicStop.ts` import 경로 그대로 유지.
 - LIVE 매매 본체 (`signalScanner` / `entryEngine` / `exitEngine` orchestrator) 0줄 변경.
 
-## 후속 PR (scope 외)
+## 후속 PR
+
+### PR-Z7 H1 (본 ADR follow-up commit, 같은 브랜치) — stopApproachAlert BEP Glide 라벨 흡수
+
+**문제**: ADR-0079 본 PR 적용 후 `bepGlideStopPrice(10000, 1500) = 9250` 으로
+손절선 설정. `stopApproachAlert` 의 `classifyStopSource(9250, 10000)` 는 -7.5%
+차이 > BEP_TOLERANCE_PCT(0.5%) 이므로 **`LOSS_STOP` 분류 + "🚨 [손절 임박]
+매수가 -7.50%"** 메시지 발송. ADR-0079 의도(수익 보호 강화)와 *반대 라벨* 로
+운영자에게 패닉 매도 신호 → 사용자 수동 선행 청산 위험.
+
+**수정**: `classifyStopSource` 시그니처에 `entryATR14?` 옵셔널 추가. 분류
+우선순위 (정확 BEP > PROFIT_LOCK_IN > 글라이드 영역 > LOSS_STOP) 에 4번째
+분기로 ADR-0079 글라이드 영역(`entryPrice − 0.5×ATR ≤ hardStopLoss < entryPrice`)
+을 `BEP_PROTECTION` 으로 흡수. `BEP_GLIDE_DISABLED=true` env 시 글라이드 분기
+무시 (기존 LOSS_STOP 동작 회귀). `stopApproachAlert` 가 `shadow.entryATR14`
+전달.
+
+**효과**: PR-Z6 이후 +5~+10% 수익 영역에서 손절선 접근 알림이 "[BEP 청산선
+임박]" 라벨로 표시 → 운영자가 *수익 보호 의도* 정확 인지. 사용자 패닉 매도
+유도 결함 영구 차단. 회귀 테스트 12 케이스 신규 (글라이드 흡수/회귀/ENV/우선순위).
+
+### 추가 후속 PR
 
 - BEP 문제군 아이디어 2 — Two-Bar Confirmation Gate (N분 누적 시간 조건).
 - regime 별 glide multiplier 학습 (nightlyReflection 데이터 누적 후).

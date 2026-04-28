@@ -24,7 +24,7 @@
  */
 
 import { recordIncident } from '../persistence/incidentLogRepo.js';
-import { setEmergencyStop } from '../state.js';
+import { setEmergencyStop, getEmergencyStop, getDailyLossPct } from '../state.js';
 import { cancelAllPendingOrders } from '../emergency.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { sendBlastRadiusReport } from '../alerts/contaminationBlastRadius.js';
@@ -64,7 +64,18 @@ export function _resetRecentOrders(): void {
 export type PreOrderGuardReason =
   | 'POSITION_EXPLOSION'
   | 'STOPLOSS_LOGIC_BROKEN'
-  | 'ORDER_LOOP_SUSPECT';
+  | 'ORDER_LOOP_SUSPECT'
+  | 'EMERGENCY_STOP_ACTIVE'    // PR-Z7 H2: emergencyStop=true 상태에서 우회 시도
+  | 'DAILY_LOSS_LIMIT_HIT';    // PR-Z7 H2: 일일 손실 한도 도달 후 우회 시도
+
+/**
+ * 일일 손실 한도 (%) — env 오버라이드 가능, default 5%.
+ * PR-Z7 H2: assertSafeOrder 진입부 가드 + 기존 emergency.ts:87 / overrideExecutor.ts:64
+ * 와 동일 SSOT (process.env.DAILY_LOSS_LIMIT).
+ */
+function getDailyLossLimitPct(): number {
+  return parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
+}
 
 export class PreOrderGuardError extends Error {
   constructor(public reason: PreOrderGuardReason, message: string) {
@@ -95,6 +106,29 @@ export interface PreOrderContext {
  * 호출부는 이 예외를 catch 해서 REJECTED 상태로 마감해야 한다.
  */
 export function assertSafeOrder(ctx: PreOrderContext): void {
+  // PR-Z7 H2 — cron 외 진입점(텔레그램 /buy, /auto-trade/tranches/run POST 등) 우회 차단.
+  // ADR-0050 (계좌 생존 게이지) 의 emergencyStop / dailyLossLimit SSOT 를 LIVE 주문
+  // 직전 final 게이트로 통합. cron 진입점은 orchestratorJobs.ts:19 에서 이미 차단되지만
+  // assertSafeOrder 가 단일 SSOT 로 모든 진입점 우회를 차단한다.
+  //
+  // 0-A) emergencyStop active — /stop 후 PENDING 트랜치 강제 실행 등 차단
+  if (getEmergencyStop()) {
+    fireKillSwitch('EMERGENCY_STOP_ACTIVE',
+      `${ctx.stockName}(${ctx.stockCode}) emergencyStop=true 상태에서 LIVE 주문 시도 — 우회 차단`,
+      { stockCode: ctx.stockCode, stockName: ctx.stockName },
+    );
+  }
+
+  // 0-B) dailyLossLimit hit — 손실 한도 도달 후 /buy 강제 실행 등 차단
+  const dailyLossPct = getDailyLossPct();
+  const limit = getDailyLossLimitPct();
+  if (Number.isFinite(dailyLossPct) && Number.isFinite(limit) && dailyLossPct >= limit) {
+    fireKillSwitch('DAILY_LOSS_LIMIT_HIT',
+      `${ctx.stockName}(${ctx.stockCode}) 일일 손실 ${dailyLossPct.toFixed(2)}% ≥ 한도 ${limit.toFixed(1)}% — 신규 LIVE 주문 차단`,
+      { stockCode: ctx.stockCode, dailyLossPct, limit },
+    );
+  }
+
   // 1) 포지션 비정상 팽창
   if (ctx.totalAssets != null && ctx.totalAssets > 0) {
     const orderValue = ctx.quantity * ctx.entryPrice;

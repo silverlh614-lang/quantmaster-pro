@@ -250,6 +250,24 @@ describe('computeSlotConsumption — ADR-0080 자본 가중 슬롯 회계', () =
     expect(result.isFull).toBe(true);
   });
 
+  it('PR-S1 사용자 시나리오: 만재 4개 + 30% 잔존 4개 = 5.20/8 (isFull=false)', () => {
+    // 사용자 보고: "만재 4개 + 30% 잔존 4개, effectiveMaxPositions=8" 시나리오에서
+    // 상위 게이트는 통과시키지만 루프 게이트가 단순 카운트(8) 로 break 차단하던 회귀를
+    // 자본 가중 슬롯 회계가 차단하는지 검증. ADR-0080 PR-S1 wiring 회귀 가드.
+    const fullTrades = Array.from({ length: 4 }, (_, i) =>
+      makeShadow({ id: `full-${i}`, stockCode: `f${i}` })
+    );
+    const partialTrades = Array.from({ length: 4 }, (_, i) =>
+      withSellFill(makeShadow({ id: `p-${i}`, stockCode: `p${i}`, originalQuantity: 100 }), 70)
+    );
+    const result = computeSlotConsumption([...fullTrades, ...partialTrades], 8);
+    // 만재 4 × 1.0 + 잔존 4 × 0.3 = 5.20
+    expect(result.consumed).toBeCloseTo(5.2, 5);
+    expect(result.rawCount).toBe(8); // 단순 카운트는 만재 (PR-S1 이전 break 차단 원인)
+    expect(result.isFull).toBe(false); // 자본 가중은 통과 — PR-S1 효과
+    expect(result.available).toBeCloseTo(2.8, 5);
+  });
+
   it('자본 가중 동작 검증: 같은 5개라도 잔존비 다르면 점유 다름', () => {
     const fullTrades = Array.from({ length: 5 }, (_, i) =>
       makeShadow({ id: `t${i}`, stockCode: `code${i}` })

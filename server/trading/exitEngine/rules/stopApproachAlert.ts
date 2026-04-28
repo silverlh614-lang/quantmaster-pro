@@ -32,13 +32,32 @@ export type StopSourceCategory = 'PROFIT_LOCK_IN' | 'BEP_PROTECTION' | 'LOSS_STO
 export const BEP_TOLERANCE_PCT = 0.5;
 
 /**
+ * ADR-0079 BEP Glide 영역의 BEP_PROTECTION 흡수 비율.
+ * trailingStopPrice = entryPrice − BEP_GLIDE_ATR_RATIO × atr14 (dynamicStopEngine).
+ * 본 분류기는 hardStopLoss 가 [entryPrice − BEP_GLIDE_ATR_RATIO × atr14, entryPrice]
+ * 범위면 BEP_PROTECTION 으로 흡수 — "🚨 [손절 임박]" 오분류 차단.
+ */
+const BEP_GLIDE_ATR_RATIO = 0.5;
+
+/**
  * 청산선의 의미 분류 — hardStopLoss 와 진입가 비교로 런타임 결정.
  * shadowEntryPrice 가 0/음수/NaN 이면 안전하게 LOSS_STOP fallback (정보 부족 시 보수적).
+ *
+ * ADR-0079 정합 (PR-Z7 H1 fix): entryATR14 가 양수이고 BEP_GLIDE_DISABLED env 가
+ * set 되지 않았으면 [entryPrice − 0.5×ATR, entryPrice] 범위를 BEP_PROTECTION 으로
+ * 흡수. PR-Z6 BEP Glide 적용 후 ATR=1500 / entryPrice=10000 → trailingStopPrice=9250
+ * 시 -7.5% 차이로 LOSS_STOP 오분류되던 결함 차단.
+ *
+ * @param hardStopLoss 현재 청산선 가격
+ * @param shadowEntryPrice 진입가
+ * @param tolerancePct 정확 BEP 허용 폭 (%, default 0.5)
+ * @param entryATR14 진입 시점 ATR14 (옵셔널 — 부재/0 시 글라이드 분기 무시, 기존 동작)
  */
 export function classifyStopSource(
   hardStopLoss: number,
   shadowEntryPrice: number,
   tolerancePct: number = BEP_TOLERANCE_PCT,
+  entryATR14?: number,
 ): StopSourceCategory {
   if (!Number.isFinite(hardStopLoss) || !Number.isFinite(shadowEntryPrice) || shadowEntryPrice <= 0) {
     return 'LOSS_STOP';
@@ -46,6 +65,22 @@ export function classifyStopSource(
   const diffPct = ((hardStopLoss - shadowEntryPrice) / shadowEntryPrice) * 100;
   if (Math.abs(diffPct) <= tolerancePct) return 'BEP_PROTECTION';
   if (diffPct > 0) return 'PROFIT_LOCK_IN';
+
+  // ADR-0079 BEP Glide 영역 흡수 — entryATR14 양수 + ENV 비활성 + 글라이드 범위 충족 시.
+  // 글라이드 하한 = entryPrice − BEP_GLIDE_ATR_RATIO × ATR14.
+  // hardStopLoss 가 글라이드 하한 이상 + entryPrice 미만 → BEP_PROTECTION 으로 흡수.
+  if (
+    entryATR14 !== undefined &&
+    Number.isFinite(entryATR14) &&
+    entryATR14 > 0 &&
+    process.env.BEP_GLIDE_DISABLED !== 'true'
+  ) {
+    const glideFloor = shadowEntryPrice - BEP_GLIDE_ATR_RATIO * entryATR14;
+    if (hardStopLoss >= glideFloor) {
+      return 'BEP_PROTECTION';
+    }
+  }
+
   return 'LOSS_STOP';
 }
 
@@ -147,7 +182,13 @@ export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResul
     label: `exitEngine.distToStop:${shadow.stockCode}`,
   }) ?? 0;
   const stage = shadow.stopApproachStage ?? 0;
-  const source = classifyStopSource(hardStopLoss, shadow.shadowEntryPrice);
+  // ADR-0079 정합 (PR-Z7 H1): entryATR14 전달로 BEP Glide 영역 BEP_PROTECTION 흡수.
+  const source = classifyStopSource(
+    hardStopLoss,
+    shadow.shadowEntryPrice,
+    BEP_TOLERANCE_PCT,
+    shadow.entryATR14,
+  );
 
   if (distToStop > 0 && distToStop < 5 && stage < 1) {
     shadow.stopApproachStage = 1;
