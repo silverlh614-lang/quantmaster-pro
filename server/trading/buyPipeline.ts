@@ -29,8 +29,9 @@ import { buildPreMortemStructured } from './preMortemStructured.js';
 import { placeKisMarketBuyOrder, fetchAccountBalance } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { requestBuyApproval } from '../telegram/buyApproval.js';
-import { markAutoTradeReady } from '../persistence/tradeSignalStatusRepo.js';
+import { markAutoTradeReady, markBlocked } from '../persistence/tradeSignalStatusRepo.js';
 import { fetchEnemyCheckData } from '../clients/enemyCheckClient.js';
+import { evaluateEnemyAutoBlock } from './enemyAutoBlock.js';
 import { fillMonitor } from './fillMonitor.js';
 import { appendShadowLog } from '../persistence/shadowTradeRepo.js';
 import { getLatestIncidentAt } from '../persistence/incidentLogRepo.js';
@@ -310,6 +311,28 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
           sector,
         }).catch(() => null),
   ]);
+
+  // ADR-0078 — Enemy Checklist 자동 차단 (신용잔고율·개인 비중 BLOCK 임계 통과 시)
+  const enemyDecision = evaluateEnemyAutoBlock(enemyCheck);
+  if (enemyDecision.shouldBlock) {
+    console.warn(
+      `[BuyPipeline] ${p.stockName}(${p.stockCode}) ENEMY 자동 차단 — ${enemyDecision.reason}`,
+    );
+    if (p.signalId) {
+      try {
+        markBlocked({ id: p.signalId, gate: 'ENEMY', reason: enemyDecision.reason });
+      } catch (e) {
+        console.warn('[TradeSignalStatus] ENEMY markBlocked failed', e);
+      }
+    }
+    return {
+      approvalPromise: Promise.resolve<ApprovalAction>('SKIP'),
+      execute: async () => {
+        p.trade.status = 'REJECTED';
+        p.onRejected?.(p.trade, 'SKIP');
+      },
+    };
+  }
 
   // Pre-Mortem을 shadowTrade에 저장 (승인 여부와 무관하게 기록 — 승인 거절 시 복기용)
   if (preMortem) {
