@@ -157,21 +157,22 @@ describe('fetchYahooQuote', () => {
     });
 
     it('return5d sanity 위반 시 label 에 symbol 포함', async () => {
-      // close5dAgo=115,300 → price=219,500 (90.37% 상승 — stale base 재현)
+      // ADR-0028 §모드: return5d 가 RECOMMENDATION_RETURN 300% 적용으로 격상.
+      // 기존 +90% stale 시나리오는 통과되므로 자릿수 mismatch 수준 (+400%) 으로 격상.
+      // close5dAgo=100,000 → price=550,000 (+450% — 명백한 자릿수 mismatch / stale base)
       const N = 80;
-      const closes = Array.from({ length: N }, (_, i) => 110000 + i * 100);
-      // closes[N - 6] = 5거래일 전 종가 = 115,300
-      closes[N - 6] = 115300;
-      closes[N - 1] = 219500;
+      const closes = Array.from({ length: N }, (_, i) => 100000 + i * 100);
+      closes[N - 6] = 100000; // 5거래일 전 종가 = 100,000
+      closes[N - 1] = 550000; // 현재 = 550,000 → +450%
       const highs = closes.map(c => c + 200);
       const lows = closes.map(c => c - 200);
       const volumes = Array.from({ length: N }, () => 1000);
       (guardedFetch as any).mockResolvedValue(makeYahooResponse({
         closes, highs, lows, volumes,
         meta: {
-          regularMarketPrice: 219500,
-          regularMarketPreviousClose: 219000,
-          regularMarketOpen: 219500,
+          regularMarketPrice: 550000,
+          regularMarketPreviousClose: 549000,
+          regularMarketOpen: 550000,
         },
       }));
       await fetchYahooQuote('STALE-5D.KS');

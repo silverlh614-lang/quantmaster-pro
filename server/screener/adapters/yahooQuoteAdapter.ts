@@ -220,18 +220,21 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const weeklyRSI = parseFloat(calcRSI(weeklyCloses, 9).toFixed(1));
 
     // 직전 5거래일 수익률 — Regret Asymmetry Filter용
-    // 5거래일 수익률 — ADR-0059: stale close5dAgo (수년 전 종가 등) 시 sanity 위반 → 0 fallback.
-    // label 에 symbol 포함 — 종목별 throttle 분리 + Railway 로그에서 즉시 식별 (2026-04-27 진단 갭).
+    // ADR-0028 §모드: 5일 수익률은 *테마주 폭등* (예: 광무, 이수페타시스) 에서 정상
+    // +100~+200% 가능 → SANITY_ONLY 90% 는 너무 엄격. RECOMMENDATION_RETURN 300%
+    // 적용으로 정상 통과 + +500% 같은 자릿수 mismatch / stale base 만 차단.
     const close5dAgo = closes.length > 5 ? closes[closes.length - 6] : closes[0];
     const return5d = safePctChange(price, close5dAgo, {
       label: `yahooQuoteAdapter.return5d:${symbol}`,
+      mode: 'RECOMMENDATION_RETURN',
     }) ?? 0;
 
     // 직전 20거래일 수익률 — Gate 24 상대강도(vs KOSPI 20d) 입력
-    // 20거래일 수익률 — Gate 24 상대강도 입력. stale close20dAgo 시 0 fallback.
+    // ADR-0028 §모드: 20일 수익률은 SANITY_ONLY 보다 느슨한 RECOMMENDATION_RETURN 적용.
     const close20dAgo = closes.length > 20 ? closes[closes.length - 21] : closes[0];
     const return20d = safePctChange(price, close20dAgo, {
       label: `yahooQuoteAdapter.return20d:${symbol}`,
+      mode: 'RECOMMENDATION_RETURN',
     }) ?? 0;
 
     // ── Compression Score 구성 요소 ──────────────────────────────────────────────
