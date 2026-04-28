@@ -18,5 +18,6 @@ import './scheduler.cmd.js';
 import './signalStatus.cmd.js';
 import './status.cmd.js';
 import './todaylog.cmd.js';
+import './walkForward.cmd.js';
 
 export {}; // 본 파일은 side-effect import 전용. 명시적 export 없음.
