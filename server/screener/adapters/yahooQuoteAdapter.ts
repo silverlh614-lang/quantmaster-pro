@@ -112,9 +112,23 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const rawHighs: (number | null)[]  = result.indicators?.quote?.[0]?.high ?? [];
     const rawLows: (number | null)[]   = result.indicators?.quote?.[0]?.low ?? [];
     const rawVolumes: (number | null)[] = result.indicators?.quote?.[0]?.volume ?? [];
+    // ADR-0028 §PR-D3-D: Yahoo timestamps[] (Unix sec) — close 인덱스와 1:1 매칭.
+    // null close 와 같이 필터링해 closes 와 closeTimestamps 의 인덱스 정합 보장.
+    const rawTimestamps: number[] = Array.isArray(result.timestamp) ? result.timestamp : [];
 
-    // null 값 제거한 유효 데이터
-    const closes  = rawCloses.filter((v): v is number => v != null && v > 0);
+    // null 값 제거한 유효 데이터 — closes 외 배열은 기존 독립 필터 유지 (회귀 위험 격리).
+    // closes 와 closeTimestamps 만 함께 필터링해 인덱스 정합 보장 (PR-D3-D PriceBase asOf 산출용).
+    const closes: number[] = [];
+    const closeTimestamps: number[] = [];
+    for (let i = 0; i < rawCloses.length; i += 1) {
+      const c = rawCloses[i];
+      if (c == null || c <= 0) continue;
+      closes.push(c);
+      // timestamp 부재 시 0 placeholder — PriceBase 생성 시 0 → fetch 시점 fallback
+      closeTimestamps.push(typeof rawTimestamps[i] === 'number' && Number.isFinite(rawTimestamps[i])
+        ? rawTimestamps[i]
+        : 0);
+    }
     const highs   = rawHighs.filter((v): v is number => v != null && v > 0);
     const lows    = rawLows.filter((v): v is number => v != null && v > 0);
     const volumes = rawVolumes.filter((v): v is number => v != null && v > 0);
@@ -226,20 +240,42 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     for (let i = 4; i < closes.length; i += 5) weeklyCloses.push(closes[i]);
     const weeklyRSI = parseFloat(calcRSI(weeklyCloses, 9).toFixed(1));
 
+    // ADR-0028 §PR-D3-D: PriceBase 객체로 base 전달 — stale 자동 차단.
+    // 사용자 보고 +443% 시나리오 (close20dAgo 가 *6개월 전* 가격) → asOf 가
+    // 30일 임계 (RECOMMENDATION_RETURN) 초과 시 STALE_BASE null 반환.
+    const fetchTime = new Date().toISOString();
+
+    /** close timestamp 인덱스 → ISO. 0 (placeholder) 시 fetch 시점 fallback. */
+    const isoFromCloseIdx = (idx: number): string => {
+      const ts = closeTimestamps[idx];
+      return typeof ts === 'number' && ts > 0
+        ? new Date(ts * 1000).toISOString()
+        : fetchTime;
+    };
+
     // 직전 5거래일 수익률 — Regret Asymmetry Filter용
     // ADR-0028 §모드: 5일 수익률은 *테마주 폭등* (예: 광무, 이수페타시스) 에서 정상
-    // +100~+200% 가능 → SANITY_ONLY 90% 는 너무 엄격. RECOMMENDATION_RETURN 300%
-    // 적용으로 정상 통과 + +500% 같은 자릿수 mismatch / stale base 만 차단.
-    const close5dAgo = closes.length > 5 ? closes[closes.length - 6] : closes[0];
-    const return5d = safePctChange(price, close5dAgo, {
+    // +100~+200% 가능 → RECOMMENDATION_RETURN 300% 임계 + PriceBase stale 차단 결합.
+    const close5dAgoIdx = closes.length > 5 ? closes.length - 6 : 0;
+    const close5dAgo = closes[close5dAgoIdx];
+    const return5d = safePctChange(price, {
+      value: close5dAgo,
+      asOf: isoFromCloseIdx(close5dAgoIdx),
+      source: 'YAHOO_HISTORICAL',
+    }, {
       label: `yahooQuoteAdapter.return5d:${symbol}`,
       mode: 'RECOMMENDATION_RETURN',
     }) ?? 0;
 
     // 직전 20거래일 수익률 — Gate 24 상대강도(vs KOSPI 20d) 입력
-    // ADR-0028 §모드: 20일 수익률은 SANITY_ONLY 보다 느슨한 RECOMMENDATION_RETURN 적용.
-    const close20dAgo = closes.length > 20 ? closes[closes.length - 21] : closes[0];
-    const return20d = safePctChange(price, close20dAgo, {
+    // PR-D3-D: 사용자 보고 +443% 시나리오는 base.asOf 가 30일 초과 → STALE_BASE 차단.
+    const close20dAgoIdx = closes.length > 20 ? closes.length - 21 : 0;
+    const close20dAgo = closes[close20dAgoIdx];
+    const return20d = safePctChange(price, {
+      value: close20dAgo,
+      asOf: isoFromCloseIdx(close20dAgoIdx),
+      source: 'YAHOO_HISTORICAL',
+    }, {
       label: `yahooQuoteAdapter.return20d:${symbol}`,
       mode: 'RECOMMENDATION_RETURN',
     }) ?? 0;
