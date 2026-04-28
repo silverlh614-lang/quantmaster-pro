@@ -104,32 +104,79 @@ function businessDaysAgo(n: number): string {
   return `${y}${m}${d}`;
 }
 
+/**
+ * close 자릿수가 ±10배 를 초과해 어긋났을 때 매칭 미스 의심으로 skip.
+ * (sanity ±90% 보다 보수적인 1차 방어선 — KRX 응답에서 indexCode 체계가
+ * today/past 사이 비대칭일 때 다른 섹터끼리 비교되는 회귀를 차단.)
+ */
+const SECTOR_CLOSE_RATIO_MAX = 10;
+const SECTOR_CLOSE_RATIO_MIN = 0.1;
+
 /** (today 행, past 행) 쌍으로 return/volume 변화율을 집계. 평균값으로 12섹터로 축약. */
-function aggregateIndexDeltas(
+export function aggregateIndexDeltas(
   todayRows: KrxIndexDailyRow[],
   pastRows: KrxIndexDailyRow[],
 ): Map<StrategicSector, { returns: number[]; volumes: number[] }> {
+  // ADR-0059 보강: today 와 past 의 매칭 키 종류를 *일치 강제*.
+  // today 가 indexCode 를 가지면 past 도 indexCode 매칭 만, 없으면 indexName 매칭 만 시도.
+  // 두 응답에서 한쪽만 indexCode 가 채워진 비대칭 응답에서 mismatch 사전 차단.
   const pastByCode = new Map<string, KrxIndexDailyRow>();
+  const pastByName = new Map<string, KrxIndexDailyRow>();
   for (const r of pastRows) {
-    // indexCode가 있으면 우선, 없으면 indexName으로 매칭.
-    const key = r.indexCode || r.indexName;
-    if (key) pastByCode.set(key, r);
+    if (r.indexCode) pastByCode.set(r.indexCode, r);
+    if (r.indexName) pastByName.set(r.indexName, r);
   }
   const bySector = new Map<StrategicSector, { returns: number[]; volumes: number[] }>();
   for (const t of todayRows) {
     const canonical = classifyIndex(t.indexName);
     if (!canonical) continue;
-    const key = t.indexCode || t.indexName;
-    const past = pastByCode.get(key);
-    if (!past || past.close <= 0) continue;
+
+    let past: KrxIndexDailyRow | undefined;
+    let matchKind: 'code' | 'name' | null = null;
+    if (t.indexCode) {
+      past = pastByCode.get(t.indexCode);
+      if (past) matchKind = 'code';
+    }
+    if (!past && t.indexName) {
+      // today 에 indexCode 가 없거나 매칭 실패 → indexName 으로만 시도
+      // (단 today 도 indexCode 가 비어 있을 때만 — 양쪽 키 종류 일치 강제).
+      if (!t.indexCode) {
+        past = pastByName.get(t.indexName);
+        if (past) matchKind = 'name';
+      }
+    }
+    if (!past || past.close <= 0 || matchKind === null) continue;
+
+    // 자릿수 격차 사전 차단 — 매칭 어긋남(다른 섹터 지수끼리 비교) 회귀 방어.
+    const ratio = t.close > 0 ? t.close / past.close : 0;
+    if (!Number.isFinite(ratio) || ratio > SECTOR_CLOSE_RATIO_MAX || ratio < SECTOR_CLOSE_RATIO_MIN) {
+      const tKey = t.indexCode || t.indexName || '?';
+      const pKey = past.indexCode || past.indexName || '?';
+      console.warn(
+        `[sectorEnergy:diag] 자릿수 격차 ${ratio.toFixed(3)}x — skip "${t.indexName}"` +
+        ` (today close=${t.close}@${t.baseDate} ${matchKind}=${tKey}` +
+        ` ↔ past close=${past.close}@${past.baseDate} ${pKey})`,
+      );
+      continue;
+    }
+
+    // baseDate 가 동일 영업일이면 today/past fetch 자체가 같은 일자 — 즉시 skip.
+    if (t.baseDate && past.baseDate && t.baseDate === past.baseDate) {
+      console.warn(
+        `[sectorEnergy:diag] today/past baseDate 동일 ${t.baseDate} — skip "${t.indexName}"`,
+      );
+      continue;
+    }
+
     // ADR-0059: stale past data 시 sanity 위반은 스킵 (섹터 에너지 평균 왜곡 방지).
+    const labelKey = t.indexCode || t.indexName;
     const returnPct = safePctChange(t.close, past.close, {
-      label: `sectorEnergy.return:${key}`,
+      label: `sectorEnergy.return:${labelKey}`,
     });
     if (returnPct === null) continue;
     const volumePct = past.volume > 0
       ? (safePctChange(t.volume, past.volume, {
-          label: `sectorEnergy.volume:${key}`,
+          label: `sectorEnergy.volume:${labelKey}`,
           sanityBoundPct: 1000, // 거래량은 ±1000% 까지 허용 (저거래일 → 고거래일 정상)
         }) ?? 0)
       : 0;
