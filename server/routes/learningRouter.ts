@@ -14,6 +14,12 @@ import {
   isFrameworkDisabled as isWalkForwardDisabled,
   runWalkForwardFramework,
 } from '../learning/walkForwardFramework.js';
+import { loadCurrentSchemaRecords } from '../persistence/attributionRepo.js';
+import {
+  getAllConditionLifecycleStatuses,
+  summarizeConditionLifecycle,
+  isConditionLifecycleDisabled,
+} from '../learning/conditionLifecyclePolicy.js';
 
 const router = Router();
 
@@ -105,6 +111,33 @@ router.get('/walk-forward', (_req: Request, res: Response) => {
   } catch (e) {
     console.error('[learningRouter] /walk-forward 실패:', e);
     res.status(500).json({ error: 'walk_forward_load_failed' });
+  }
+});
+
+/**
+ * ADR-0084 — Condition Lifecycle Status 일괄 조회.
+ *
+ * 27조건의 status (normal/grace/silent/deprecated) + activationRate +
+ * activatedCount + firstSeenAt + ageDays + byRegime 일괄 반환.
+ * 운영자가 어떤 조건이 silent 임계 근처인지 즉시 파악.
+ */
+router.get('/condition-lifecycle', (req: Request, res: Response) => {
+  try {
+    const rawDays = Number(req.query.days);
+    const windowDays = Number.isFinite(rawDays) && rawDays >= 1 && rawDays <= 365
+      ? Math.floor(rawDays)
+      : 180;
+    const records = loadCurrentSchemaRecords();
+    const reports = getAllConditionLifecycleStatuses(records, { windowDays });
+    res.json({
+      windowDays,
+      disabled: isConditionLifecycleDisabled(),
+      conditions: reports,
+      summary: summarizeConditionLifecycle(reports),
+    });
+  } catch (e) {
+    console.error('[learningRouter] /condition-lifecycle 실패:', e);
+    res.status(500).json({ error: 'condition_lifecycle_failed' });
   }
 });
 
