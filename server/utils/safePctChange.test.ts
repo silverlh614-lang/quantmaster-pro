@@ -311,3 +311,283 @@ describe('PctChangeMode + MODE_LIMITS (ADR-0028 §모드 분기)', () => {
     expect(r).toBeNull();
   });
 });
+
+describe('PriceBase + isStaleBase (ADR-0028 §PR-D3-A)', () => {
+  // 고정 시각 — 모든 stale 검증이 결정적 (실시간 Date.now() 의존 회피).
+  const NOW = new Date('2026-04-28T12:00:00.000Z');
+
+  it('PriceSource 9 출처 + STALENESS_LIMITS_BY_MODE SSOT 정합', async () => {
+    const { STALENESS_LIMITS_BY_MODE } = await import('./safePctChange.js');
+    expect(STALENESS_LIMITS_BY_MODE.SANITY_ONLY).toBe(7);
+    expect(STALENESS_LIMITS_BY_MODE.INTRADAY).toBe(1);
+    expect(STALENESS_LIMITS_BY_MODE.DAILY).toBe(3);
+    expect(STALENESS_LIMITS_BY_MODE.RECOMMENDATION_RETURN).toBe(30);
+    expect(STALENESS_LIMITS_BY_MODE.LONG_TERM).toBe(90);
+  });
+
+  it('isStaleBase — 신선 (1시간 전, INTRADAY) → false', async () => {
+    const { isStaleBase } = await import('./safePctChange.js');
+    const fresh = {
+      value: 100,
+      asOf: new Date(NOW.getTime() - 60 * 60 * 1000).toISOString(),
+      source: 'KIS_REALTIME' as const,
+    };
+    expect(isStaleBase(fresh, 'INTRADAY', NOW)).toBe(false);
+  });
+
+  it('isStaleBase — 2일 전 + INTRADAY (1일 임계) → true', async () => {
+    const { isStaleBase } = await import('./safePctChange.js');
+    const stale = {
+      value: 100,
+      asOf: new Date(NOW.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      source: 'YAHOO_HISTORICAL' as const,
+    };
+    expect(isStaleBase(stale, 'INTRADAY', NOW)).toBe(true);
+  });
+
+  it('isStaleBase — 25일 전 + RECOMMENDATION_RETURN (30일 임계) → false', async () => {
+    const { isStaleBase } = await import('./safePctChange.js');
+    const fresh = {
+      value: 100,
+      asOf: new Date(NOW.getTime() - 25 * 24 * 60 * 60 * 1000).toISOString(),
+      source: 'YAHOO_HISTORICAL' as const,
+    };
+    expect(isStaleBase(fresh, 'RECOMMENDATION_RETURN', NOW)).toBe(false);
+  });
+
+  it('isStaleBase — 35일 전 + RECOMMENDATION_RETURN (30일 임계) → true', async () => {
+    const { isStaleBase } = await import('./safePctChange.js');
+    const stale = {
+      value: 100,
+      asOf: new Date(NOW.getTime() - 35 * 24 * 60 * 60 * 1000).toISOString(),
+      source: 'YAHOO_HISTORICAL' as const,
+    };
+    expect(isStaleBase(stale, 'RECOMMENDATION_RETURN', NOW)).toBe(true);
+  });
+
+  it('isStaleBase — staleAfterDays override 우선 (mode 무시)', async () => {
+    const { isStaleBase } = await import('./safePctChange.js');
+    // mode=LONG_TERM (90일) 인데 staleAfterDays=2 override → 3일 전이면 stale
+    const base = {
+      value: 100,
+      asOf: new Date(NOW.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      source: 'CACHE' as const,
+      staleAfterDays: 2,
+    };
+    expect(isStaleBase(base, 'LONG_TERM', NOW)).toBe(true);
+  });
+
+  it('isStaleBase — mode 미지정 → SANITY_ONLY default (7일)', async () => {
+    const { isStaleBase } = await import('./safePctChange.js');
+    const fresh = {
+      value: 100,
+      asOf: new Date(NOW.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      source: 'KIS_DAILY' as const,
+    };
+    const stale = {
+      value: 100,
+      asOf: new Date(NOW.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+      source: 'KIS_DAILY' as const,
+    };
+    expect(isStaleBase(fresh, undefined, NOW)).toBe(false);
+    expect(isStaleBase(stale, undefined, NOW)).toBe(true);
+  });
+
+  it('isStaleBase — 잘못된 ISO → true (보수적 차단)', async () => {
+    const { isStaleBase } = await import('./safePctChange.js');
+    const broken = {
+      value: 100,
+      asOf: 'not-an-iso',
+      source: 'UNKNOWN' as const,
+    };
+    expect(isStaleBase(broken, 'DAILY', NOW)).toBe(true);
+  });
+
+  it('isStaleBase — 미래 시점 → false (시계 어긋남 시 통과)', async () => {
+    const { isStaleBase } = await import('./safePctChange.js');
+    const future = {
+      value: 100,
+      asOf: new Date(NOW.getTime() + 60 * 60 * 1000).toISOString(),
+      source: 'KIS_REALTIME' as const,
+    };
+    expect(isStaleBase(future, 'INTRADAY', NOW)).toBe(false);
+  });
+
+  it('isStaleBase — 정확히 임계값 boundary (DAILY 3일 정확) → false (초과만 stale)', async () => {
+    const { isStaleBase } = await import('./safePctChange.js');
+    const exact = {
+      value: 100,
+      asOf: new Date(NOW.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      source: 'KIS_DAILY' as const,
+    };
+    expect(isStaleBase(exact, 'DAILY', NOW)).toBe(false);
+    // 1ms 더 → stale
+    const justOver = {
+      ...exact,
+      asOf: new Date(NOW.getTime() - 3 * 24 * 60 * 60 * 1000 - 1).toISOString(),
+    };
+    expect(isStaleBase(justOver, 'DAILY', NOW)).toBe(true);
+  });
+});
+
+describe('safePctChange — PriceBase 입력 union (ADR-0028 §PR-D3-A)', () => {
+  beforeEach(() => __resetSafePctChangeWarnsForTests());
+
+  it('후방호환 — number 입력 시 기존 동작 100% 유지', () => {
+    // PR-D3-A 도입 전 호출 패턴이 그대로 동작
+    expect(safePctChange(110, 100)).toBeCloseTo(10, 5);
+    expect(safePctChange(50, 100)).toBeCloseTo(-50, 5);
+    expect(safePctChange(0, 100, { silent: true })).toBeNull(); // sanity 90% 차단
+  });
+
+  it('PriceBase 입력 — 신선 base + sanity 통과 → number 반환', () => {
+    const recentBase = {
+      value: 100,
+      asOf: new Date(Date.now() - 60 * 1000).toISOString(), // 1분 전
+      source: 'KIS_REALTIME' as const,
+    };
+    expect(safePctChange(110, recentBase, { mode: 'INTRADAY' })).toBeCloseTo(10, 5);
+  });
+
+  it('PriceBase 입력 — stale base → null 반환 + STALE_BASE 진단 로그', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const staleBase = {
+      value: 100,
+      asOf: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), // 5일 전
+      source: 'YAHOO_HISTORICAL' as const,
+    };
+    // INTRADAY (1일) 임계 → 5일 전 = stale
+    const r = safePctChange(110, staleBase, { mode: 'INTRADAY', label: 'test:stale' });
+    expect(r).toBeNull();
+    expect(warnSpy).toHaveBeenCalledOnce();
+    const msg = String(warnSpy.mock.calls[0]![0]);
+    expect(msg).toContain('STALE_BASE');
+    expect(msg).toContain('test:stale');
+    expect(msg).toContain('age=5.0일');
+    expect(msg).toContain('source=YAHOO_HISTORICAL');
+    expect(msg).toContain('mode=INTRADAY');
+    warnSpy.mockRestore();
+  });
+
+  it('PriceBase 입력 — 같은 base 가 다른 mode 에서 다른 결과', () => {
+    const base5dAgo = {
+      value: 100,
+      asOf: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      source: 'YAHOO_HISTORICAL' as const,
+    };
+    // INTRADAY (1일) → stale
+    expect(safePctChange(110, base5dAgo, { mode: 'INTRADAY', silent: true })).toBeNull();
+    // RECOMMENDATION_RETURN (30일) → fresh
+    expect(safePctChange(110, base5dAgo, { mode: 'RECOMMENDATION_RETURN' })).toBeCloseTo(10, 5);
+  });
+
+  it('PriceBase 입력 — staleAfterDays override 가 mode 보다 우선', () => {
+    const base = {
+      value: 100,
+      asOf: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      source: 'CACHE' as const,
+      staleAfterDays: 2, // 2일 임계 — mode=LONG_TERM (90일) 무시
+    };
+    expect(safePctChange(110, base, { mode: 'LONG_TERM', silent: true })).toBeNull();
+  });
+
+  it('PriceBase 입력 — base.value=0 → 분모 가드 차단 (stale 검증 전)', () => {
+    const zeroBase = {
+      value: 0,
+      asOf: new Date().toISOString(),
+      source: 'KIS_REALTIME' as const,
+    };
+    expect(safePctChange(110, zeroBase)).toBeNull();
+  });
+
+  it('PriceBase 입력 — base.value=NaN → 분모 가드 차단', () => {
+    const nanBase = {
+      value: NaN,
+      asOf: new Date().toISOString(),
+      source: 'UNKNOWN' as const,
+    };
+    expect(safePctChange(110, nanBase)).toBeNull();
+  });
+
+  it('PriceBase 입력 — silent=true 시 STALE_BASE 진단 로그 미출력', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const staleBase = {
+      value: 100,
+      asOf: new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString(),
+      source: 'CACHE' as const,
+    };
+    safePctChange(110, staleBase, { mode: 'DAILY', silent: true });
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('PriceBase 입력 + sanity 위반 — sanity 진단 로그에도 출처/시점 노출', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // 신선한 base 인데 자릿수 mismatch (sanity 위반)
+    const recentBase = {
+      value: 1399,
+      asOf: new Date().toISOString(),
+      source: 'YAHOO_INTRADAY' as const,
+    };
+    safePctChange(139900, recentBase, { mode: 'RECOMMENDATION_RETURN', label: 'mismatch:test' });
+    expect(warnSpy).toHaveBeenCalledOnce();
+    const msg = String(warnSpy.mock.calls[0]![0]);
+    expect(msg).toContain('sanity 위반');
+    expect(msg).toContain('mismatch:test');
+    expect(msg).toContain('src=YAHOO_INTRADAY');
+    expect(msg).toContain(recentBase.asOf); // 시점 노출
+    warnSpy.mockRestore();
+  });
+
+  it('PriceBase 입력 — stale 차단 시 sanity 계산 자체 스킵 (sanity 위반 로그 미발생)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const staleAndExtreme = {
+      value: 1399, // sanity 도 위반할 자릿수
+      asOf: new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString(), // 100일 전
+      source: 'CACHE' as const,
+    };
+    // stale 우선 차단 → sanity 진단 로그 미발생
+    safePctChange(139900, staleAndExtreme, { mode: 'INTRADAY', label: 'priority:test' });
+    expect(warnSpy).toHaveBeenCalledOnce();
+    const msg = String(warnSpy.mock.calls[0]![0]);
+    expect(msg).toContain('STALE_BASE'); // stale 만 출력
+    expect(msg).not.toContain('sanity 위반');
+    warnSpy.mockRestore();
+  });
+
+  it('PriceBase 입력 — current 음수 → 분자 가드 우선 차단 (stale 검증 전)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const staleBase = {
+      value: 100,
+      asOf: new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString(),
+      source: 'CACHE' as const,
+    };
+    expect(safePctChange(-50, staleBase, { mode: 'INTRADAY' })).toBeNull();
+    // 분자 가드가 stale 검증 전에 차단 → STALE_BASE 로그 없음
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('회귀 가드 — 사용자 보고 +443% 시나리오: stale base 자동 차단', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // 101930.KS return20d = +443.36% (current=52000, base=9570) — stale base 의심
+    // base 가 *6개월 전 가격* (스플릿 전 등) 이라고 가정
+    const staleBase = {
+      value: 9570,
+      asOf: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString(),
+      source: 'YAHOO_HISTORICAL' as const,
+    };
+    // RECOMMENDATION_RETURN (30일 임계) → 180일 전은 stale
+    const r = safePctChange(52000, staleBase, {
+      mode: 'RECOMMENDATION_RETURN',
+      label: 'yahooQuoteAdapter.return20d:101930.KS',
+    });
+    expect(r).toBeNull();
+    expect(warnSpy).toHaveBeenCalledOnce();
+    const msg = String(warnSpy.mock.calls[0]![0]);
+    expect(msg).toContain('STALE_BASE');
+    expect(msg).toContain('101930.KS');
+    expect(msg).toContain('age=180.0일');
+    warnSpy.mockRestore();
+  });
+});
