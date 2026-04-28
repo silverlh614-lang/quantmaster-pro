@@ -36,6 +36,10 @@ export async function atrDynamicStop(ctx: ExitContext): Promise<ExitRuleResult> 
     const newHardStop = effectiveDynamicStop;
     shadow.hardStopLoss = effectiveDynamicStop;
     shadow.dynamicStopPrice = effectiveDynamicStop;
+    // ADR-0028 보강: stopApproachAlert 라벨 분기를 위해 source 메타 영속.
+    // PROFIT_PROTECTION 단일 값으로 BEP 보호 + 수익 Lock-in 모두 표현 — 세부 분류는
+    // stopApproachAlert 가 hardStopLoss vs shadowEntryPrice 런타임 비교로 결정.
+    shadow.stopLossExitType = 'PROFIT_PROTECTION';
 
     if (dynResult.profitLockIn) {
       appendShadowLog({ event: 'ATR_PROFIT_LOCKIN', ...shadow, prevHardStop, newHardStop });

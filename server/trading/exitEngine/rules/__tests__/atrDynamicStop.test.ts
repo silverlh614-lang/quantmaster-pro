@@ -84,4 +84,35 @@ describe('atrDynamicStop (BEP / Lock-in 래칫)', () => {
     const r = await atrDynamicStop(makeMockCtx({ shadow, hardStopLoss: 90 }));
     expect(r.skipRest).toBe(false);
   });
+
+  it('ADR-0028 보강: hardStopLoss 상향 시 stopLossExitType=PROFIT_PROTECTION 영속', async () => {
+    (evaluateDynamicStop as any).mockReturnValue({
+      stopPrice: 103, trailingStopPrice: 103, trailingActive: false,
+      profitLockIn: true, bepProtection: false,
+    });
+    const shadow = makeMockShadow({ entryATR14: 5, hardStopLoss: 90 });
+    expect(shadow.stopLossExitType).toBeUndefined();
+    await atrDynamicStop(makeMockCtx({ shadow, currentPrice: 110, hardStopLoss: 90 }));
+    expect(shadow.stopLossExitType).toBe('PROFIT_PROTECTION');
+  });
+
+  it('hardStopLoss 미상향 → stopLossExitType 변경 없음 (래칫 보호)', async () => {
+    (evaluateDynamicStop as any).mockReturnValue({
+      stopPrice: 80, trailingStopPrice: 80, trailingActive: false,
+      profitLockIn: false, bepProtection: false,
+    });
+    const shadow = makeMockShadow({ entryATR14: 5, hardStopLoss: 90 });
+    await atrDynamicStop(makeMockCtx({ shadow, currentPrice: 95, hardStopLoss: 90 }));
+    expect(shadow.stopLossExitType).toBeUndefined();
+  });
+
+  it('BEP 보호 갱신 시에도 stopLossExitType=PROFIT_PROTECTION (BEP/Lock-in 통합)', async () => {
+    (evaluateDynamicStop as any).mockReturnValue({
+      stopPrice: 100, trailingStopPrice: 100, trailingActive: false,
+      profitLockIn: false, bepProtection: true,
+    });
+    const shadow = makeMockShadow({ entryATR14: 5, hardStopLoss: 90 });
+    await atrDynamicStop(makeMockCtx({ shadow, currentPrice: 105, hardStopLoss: 90 }));
+    expect(shadow.stopLossExitType).toBe('PROFIT_PROTECTION');
+  });
 });

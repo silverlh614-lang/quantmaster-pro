@@ -15,6 +15,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
  */
 export type WatchlistSection = 'SWING' | 'CATALYST' | 'MOMENTUM';
 
+/** 알림 임계 (HIGH priority 텔레그램 발송 기준). soft cap 보다 클 수 있음. */
 const MOMENTUM_ALERT_THRESHOLD = 30;
 
 // PR-3 #8: 섹션별 하드 상한 — watchlistManager.SECTION_MAX 와 동일 값.
@@ -23,13 +24,68 @@ const MOMENTUM_ALERT_THRESHOLD = 30;
 // 기존에는 16:00 KST cleanupWatchlist 스케줄에서만 상한을 강제했기 때문에, 사이
 // 시점에 addToWatchlist 가 연속 호출되면 MOMENTUM 이 50 → 91 까지 방치되는 사례가
 // 발생했다 (2026-04-23 Telegram 경보 이력). saveWatchlist 시점에 즉시 trim.
-const SECTION_HARD_MAX: Record<'SWING' | 'CATALYST' | 'MOMENTUM', number> = {
+const DEFAULT_SECTION_HARD_MAX: Record<WatchlistSection, number> = {
   SWING:     8,
   CATALYST:  5,
   MOMENTUM: 50,
 };
 
-function sectionOf(entry: WatchlistEntry): 'SWING' | 'CATALYST' | 'MOMENTUM' {
+/**
+ * ADR-0028 §모순9: soft cap — 능동 정리 시작 임계.
+ * hard cap 도달 *전에* composite score 하위 entry 를 능동 trim 해
+ * "30~50 deadzone" (위험 인지는 됐는데 시스템 액션 0) 회귀를 차단.
+ *
+ * 기본값:
+ *  - SWING 6  (hard 8 의 75%)
+ *  - CATALYST 4 (hard 5 의 80%)
+ *  - MOMENTUM 30 (hard 50 의 60% — 사용자 보고 사례 임계와 정합)
+ *
+ * env 오버라이드: WATCHLIST_SOFT_CAP_{SECTION}, WATCHLIST_HARD_CAP_{SECTION}.
+ * `WATCHLIST_SOFT_CAP_DISABLED=true` → soft cap 능동 정리 비활성 (기존 동작 복원).
+ */
+const DEFAULT_SECTION_SOFT_CAP: Record<WatchlistSection, number> = {
+  SWING:     6,
+  CATALYST:  4,
+  MOMENTUM: 30,
+};
+
+function envInt(key: string, fallback: number): number {
+  const raw = process.env[key];
+  if (raw === undefined || raw === '') return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+/**
+ * 섹션별 soft/hard cap 해석 SSOT — env 오버라이드 + soft<=hard 정합 보호.
+ * 호출 시점마다 env 를 읽어 운영 중 환경변수 변경 즉시 반영.
+ */
+export function resolveSectionCaps(): {
+  hard: Record<WatchlistSection, number>;
+  soft: Record<WatchlistSection, number>;
+  softDisabled: boolean;
+} {
+  const hard: Record<WatchlistSection, number> = {
+    SWING:    envInt('WATCHLIST_HARD_CAP_SWING',    DEFAULT_SECTION_HARD_MAX.SWING),
+    CATALYST: envInt('WATCHLIST_HARD_CAP_CATALYST', DEFAULT_SECTION_HARD_MAX.CATALYST),
+    MOMENTUM: envInt('WATCHLIST_HARD_CAP_MOMENTUM', DEFAULT_SECTION_HARD_MAX.MOMENTUM),
+  };
+  const softRaw: Record<WatchlistSection, number> = {
+    SWING:    envInt('WATCHLIST_SOFT_CAP_SWING',    DEFAULT_SECTION_SOFT_CAP.SWING),
+    CATALYST: envInt('WATCHLIST_SOFT_CAP_CATALYST', DEFAULT_SECTION_SOFT_CAP.CATALYST),
+    MOMENTUM: envInt('WATCHLIST_SOFT_CAP_MOMENTUM', DEFAULT_SECTION_SOFT_CAP.MOMENTUM),
+  };
+  // soft 가 hard 를 초과하면 능동 정리가 무의미해지므로 hard 로 클램핑.
+  const soft: Record<WatchlistSection, number> = {
+    SWING:    Math.min(softRaw.SWING,    hard.SWING),
+    CATALYST: Math.min(softRaw.CATALYST, hard.CATALYST),
+    MOMENTUM: Math.min(softRaw.MOMENTUM, hard.MOMENTUM),
+  };
+  return { hard, soft, softDisabled: process.env.WATCHLIST_SOFT_CAP_DISABLED === 'true' };
+}
+
+
+function sectionOf(entry: WatchlistEntry): WatchlistSection {
   if (entry.section) return entry.section;
   // 레거시 track 필드 fallback (track='A' = MOMENTUM, 'B' = SWING)
   if (entry.track === 'A') return 'MOMENTUM';
@@ -38,34 +94,137 @@ function sectionOf(entry: WatchlistEntry): 'SWING' | 'CATALYST' | 'MOMENTUM' {
 }
 
 /**
- * 섹션별 하드 상한을 강제한다. gateScore 내림차순으로 정렬해 상위만 유지,
- * 나머지는 드롭. LeadershipBridge(동적 편입) 표식은 같은 점수일 때 먼저 드롭.
+ * ADR-0028 §모순9: composite trim score — 단순 gateScore 가 아닌 다축 가중합.
+ *
+ * 기존 정책의 보수성·정태성 (어제 gateScore 9 로 들어왔지만 오늘 추세 잃은 entry 가
+ * gateScore 만으로 보존되던 회귀) 차단을 위해 다음 4축 합성:
+ *
+ *   + gateScore                 (0~27, 기본 신뢰도)
+ *   - staleness × 1.0/일          (addedAt 기준 일수, 오래될수록 ↓)
+ *   - entryFailCount × 2.0       (진입 시도 실패 누적, 실패 ≥1회 강하게 페널티)
+ *   - TTL 임박 -3                 (expiresAt 잔여 12h 미만)
+ *   - leadershipBridge -0.5       (기존 정책 유지, 동적 편입 우선 드롭)
+ *
+ * 점수가 낮을수록 trim 우선순위 ↑. NaN/Infinity 안전 fallback.
+ *
+ * `WATCHLIST_SOFT_CAP_DISABLED=true` env 시 호출자(enforceSectionCaps soft 단계)는
+ * 본 함수를 사용하지 않고 기존 단순 gateScore 정책으로 폴백 — 점진 적용 안전망.
  */
-function enforceSectionCaps(list: WatchlistEntry[]): {
+export const TTL_NEAR_EXPIRY_MS = 12 * 60 * 60 * 1000;
+
+export function computeTrimScore(entry: WatchlistEntry, now: Date = new Date()): number {
+  const gateScore = Number.isFinite(entry.gateScore) ? Number(entry.gateScore) : 0;
+  const leadershipPenalty = entry.leadershipBridge ? 0.5 : 0;
+
+  let stalenessDays = 0;
+  if (entry.addedAt) {
+    const addedTs = Date.parse(entry.addedAt);
+    if (Number.isFinite(addedTs)) {
+      stalenessDays = Math.max(0, (now.getTime() - addedTs) / (24 * 60 * 60 * 1000));
+    }
+  }
+
+  const failCount = Number.isFinite(entry.entryFailCount)
+    ? Math.max(0, Number(entry.entryFailCount))
+    : 0;
+
+  let ttlPenalty = 0;
+  if (entry.expiresAt) {
+    const expTs = Date.parse(entry.expiresAt);
+    if (Number.isFinite(expTs)) {
+      const remainingMs = expTs - now.getTime();
+      if (remainingMs > 0 && remainingMs < TTL_NEAR_EXPIRY_MS) ttlPenalty = 3;
+    }
+  }
+
+  return gateScore - stalenessDays - failCount * 2 - ttlPenalty - leadershipPenalty;
+}
+
+export interface EnforceCapsResult {
   trimmed: WatchlistEntry[];
-  dropped: Record<'SWING' | 'CATALYST' | 'MOMENTUM', number>;
-} {
-  const dropped = { SWING: 0, CATALYST: 0, MOMENTUM: 0 };
-  const bySection: Record<'SWING' | 'CATALYST' | 'MOMENTUM', WatchlistEntry[]> = {
+  dropped: Record<WatchlistSection, number>;
+  /** soft 단계에서 능동 정리된 카운트 (hard 도달 전 trim). */
+  softDropped: Record<WatchlistSection, number>;
+  /** hard 단계에서 강제 정리된 카운트 (기존 동작). */
+  hardDropped: Record<WatchlistSection, number>;
+  /** ADR-0028 §모순9: 알림 빌더용 메타 — 정리된 entry 의 출처 분포. */
+  removedBySource: Record<'AUTO' | 'MANUAL' | 'DART', number>;
+}
+
+/**
+ * 섹션별 두 단계 cap 강제:
+ *   1. soft cap: composite score 하위 (gateScore - staleness - failCount×2 - TTL 임박 - bridge)
+ *      를 정리해 능동 deadzone 차단. WATCHLIST_SOFT_CAP_DISABLED=true 시 비활성.
+ *   2. hard cap: soft 정리 후에도 hard 초과 시 추가 강제 정리 (기존 동작).
+ *
+ * 두 단계 모두 동일 composite score 사용 — soft 가 활성일 때.
+ * soft 비활성 시에는 hard 단계만 *기존 단순 gateScore* 정책으로 폴백.
+ */
+export function enforceSectionCaps(
+  list: WatchlistEntry[],
+  now: Date = new Date(),
+): EnforceCapsResult {
+  const { hard, soft, softDisabled } = resolveSectionCaps();
+  const softDropped: Record<WatchlistSection, number> = { SWING: 0, CATALYST: 0, MOMENTUM: 0 };
+  const hardDropped: Record<WatchlistSection, number> = { SWING: 0, CATALYST: 0, MOMENTUM: 0 };
+  const removedBySource: Record<'AUTO' | 'MANUAL' | 'DART', number> = { AUTO: 0, MANUAL: 0, DART: 0 };
+
+  const bySection: Record<WatchlistSection, WatchlistEntry[]> = {
     SWING: [], CATALYST: [], MOMENTUM: [],
   };
   for (const entry of list) bySection[sectionOf(entry)].push(entry);
 
-  const rankKey = (e: WatchlistEntry): number =>
-    (e.gateScore ?? 0) - (e.leadershipBridge ? 0.5 : 0);
+  // 점수 함수 — soft 비활성 시 *기존 동작* 정확 보존 (gateScore - bridge×0.5).
+  const scoreFn = softDisabled
+    ? (e: WatchlistEntry): number => (e.gateScore ?? 0) - (e.leadershipBridge ? 0.5 : 0)
+    : (e: WatchlistEntry): number => computeTrimScore(e, now);
+
+  const trackRemoved = (entries: WatchlistEntry[]): void => {
+    for (const e of entries) {
+      const src = (e.addedBy ?? 'AUTO') as 'AUTO' | 'MANUAL' | 'DART';
+      removedBySource[src] = (removedBySource[src] ?? 0) + 1;
+    }
+  };
 
   for (const section of ['SWING', 'CATALYST', 'MOMENTUM'] as const) {
     const arr = bySection[section];
-    const max = SECTION_HARD_MAX[section];
-    if (arr.length <= max) continue;
-    arr.sort((a, b) => rankKey(b) - rankKey(a));
-    bySection[section] = arr.slice(0, max);
-    dropped[section] = arr.length - max;
+    const hardMax = hard[section];
+    const softMax = soft[section];
+
+    // 1) Soft cap 능동 정리 — soft 활성 + hardMax 미초과 + softMax 초과 시
+    if (!softDisabled && arr.length > softMax && arr.length <= hardMax) {
+      arr.sort((a, b) => scoreFn(b) - scoreFn(a));
+      const kept = arr.slice(0, softMax);
+      const removed = arr.slice(softMax);
+      bySection[section] = kept;
+      softDropped[section] = removed.length;
+      trackRemoved(removed);
+      continue;
+    }
+
+    // 2) Hard cap 강제 정리 — 기존 동작 (soft 비활성 또는 hard 초과 시)
+    if (arr.length > hardMax) {
+      arr.sort((a, b) => scoreFn(b) - scoreFn(a));
+      const kept = arr.slice(0, hardMax);
+      const removed = arr.slice(hardMax);
+      bySection[section] = kept;
+      hardDropped[section] = removed.length;
+      trackRemoved(removed);
+    }
   }
+
+  const dropped: Record<WatchlistSection, number> = {
+    SWING:    softDropped.SWING + hardDropped.SWING,
+    CATALYST: softDropped.CATALYST + hardDropped.CATALYST,
+    MOMENTUM: softDropped.MOMENTUM + hardDropped.MOMENTUM,
+  };
 
   return {
     trimmed: [...bySection.SWING, ...bySection.CATALYST, ...bySection.MOMENTUM],
     dropped,
+    softDropped,
+    hardDropped,
+    removedBySource,
   };
 }
 
@@ -119,13 +278,102 @@ export function loadWatchlist(): WatchlistEntry[] {
   }
 }
 
+/**
+ * ADR-0028 §모순9: Watchlist Auto-Trim 알림 빌더 — 능동 정리 결과를 출처 분포 +
+ * 다음 액션 안내와 함께 표기. 기존 단순 "N개 드롭" 메시지 → soft/hard 단계 + 출처별
+ * 분포 + composite score 정책 명시로 운영자가 *왜 정리됐는지* 즉시 인지.
+ */
+export function buildWatchlistAutoTrimAlert(input: {
+  result: EnforceCapsResult;
+  hard: Record<WatchlistSection, number>;
+  soft: Record<WatchlistSection, number>;
+  softDisabled: boolean;
+}): string {
+  const { result, hard, soft, softDisabled } = input;
+  const totalSoft = result.softDropped.SWING + result.softDropped.CATALYST + result.softDropped.MOMENTUM;
+  const totalHard = result.hardDropped.SWING + result.hardDropped.CATALYST + result.hardDropped.MOMENTUM;
+  const total = totalSoft + totalHard;
+
+  const lines: string[] = [
+    `✂️ <b>[Watchlist Auto-Trim]</b>`,
+    `섹션 상한 자동 정리 — 총 ${total}개 (soft ${totalSoft} / hard ${totalHard})`,
+  ];
+
+  for (const sec of ['SWING', 'CATALYST', 'MOMENTUM'] as const) {
+    const sd = result.softDropped[sec];
+    const hd = result.hardDropped[sec];
+    if (sd === 0 && hd === 0) continue;
+    const parts: string[] = [];
+    if (sd > 0) parts.push(`soft -${sd}/${soft[sec]}`);
+    if (hd > 0) parts.push(`hard -${hd}/${hard[sec]}`);
+    lines.push(`  ${sec}: ${parts.join(', ')}`);
+  }
+
+  // 출처 분포 — 어느 출처(AUTO/MANUAL/DART) 가 정리됐는지
+  const sources = (['AUTO', 'MANUAL', 'DART'] as const)
+    .filter(s => result.removedBySource[s] > 0)
+    .map(s => `${s} ${result.removedBySource[s]}`)
+    .join(' · ');
+  if (sources) lines.push(`출처 분포: ${sources}`);
+
+  // 정책 안내 — 운영자가 "왜 이게 빠졌나" 즉시 인지
+  lines.push(
+    softDisabled
+      ? `기준: gateScore 상위 유지, LeadershipBridge 우선 드롭 (soft cap 비활성)`
+      : `기준: composite score = gateScore - staleness/일 - failCount×2 - TTL 임박 - bridge`,
+  );
+
+  return lines.join('\n');
+}
+
+/**
+ * ADR-0028 §모순9: Watchlist 포화 알림 빌더 — soft/hard 정리 *후에도* 임계 초과
+ * 시 발송. 기존 "필터를 재검토하세요" 운영자 의무화 → 출처 분포 + 다음 자동 액션
+ * 안내로 *조건부 액션* 표현화.
+ */
+export function buildWatchlistOverflowAlert(input: {
+  section: WatchlistSection;
+  count: number;
+  alertThreshold: number;
+  softCap: number;
+  hardCap: number;
+  sourceDistribution: Record<'AUTO' | 'MANUAL' | 'DART', number>;
+}): string {
+  const { section, count, alertThreshold, softCap, hardCap, sourceDistribution } = input;
+  const remainingSlots = Math.max(0, hardCap - count);
+  const sources = (['AUTO', 'MANUAL', 'DART'] as const)
+    .filter(s => sourceDistribution[s] > 0)
+    .map(s => `${s} ${sourceDistribution[s]}`)
+    .join(' · ');
+
+  const lines: string[] = [
+    `🚨 <b>[Watchlist 포화]</b>`,
+    `${section} 섹션: ${count}개 (alert ${alertThreshold} / soft ${softCap} / hard ${hardCap})`,
+  ];
+  if (sources) lines.push(`출처 분포: ${sources || '메타 부재'}`);
+  lines.push(
+    count >= hardCap
+      ? `⚡ 자동 액션: 다음 saveWatchlist 사이클에서 hard cap 강제 정리 발동`
+      : count > softCap
+      ? `⚡ 자동 액션: soft cap 능동 정리 진행 중 — composite score 하위 우선 드롭`
+      : `ℹ️ alert 임계 초과지만 soft cap 미달 — 능동 정리 미발동`,
+  );
+  lines.push(`잔여 슬롯: ${remainingSlots}개 (hard cap 까지)`);
+  lines.push(
+    sources && /AUTO\s\d+/.test(sources)
+      ? `ℹ️ AUTO 비중 높음 — autoPopulate 빈도/Gate 임계 검토 권고`
+      : `ℹ️ 분포 안정 — TTL 만료 자연 감소 또는 수동 정리 권고`,
+  );
+  return lines.join('\n');
+}
+
 export function saveWatchlist(list: WatchlistEntry[]): void {
   ensureDataDir();
 
-  // PR-3 #8: 섹션별 하드 상한 강제. 상한 초과 시 gateScore 상위만 유지.
-  // 이전에는 cleanupWatchlist (16:00 KST) 만 상한을 강제해, 사이 시점에 autoPopulate
-  // 가 연속 호출되면 MOMENTUM 91개 누적 사례가 발생했다. 이제 매 저장마다 즉시 trim.
-  const { trimmed, dropped } = enforceSectionCaps(list);
+  // PR-3 #8 + ADR-0028 §모순9: 섹션별 soft/hard 두 단계 cap 강제.
+  // soft cap 도달 시 composite score 하위를 능동 정리해 deadzone 차단.
+  const result = enforceSectionCaps(list);
+  const { trimmed, dropped } = result;
   const totalDropped = dropped.SWING + dropped.CATALYST + dropped.MOMENTUM;
 
   fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(trimmed, null, 2));
@@ -134,16 +382,12 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
     entry.section === 'MOMENTUM' || (!entry.section && entry.track === 'A'),
   ).length;
 
+  const { hard, soft, softDisabled } = resolveSectionCaps();
+
   // 트림이 실제로 일어났다면 운영자에게 알림 (쿨다운 15분 — 과잉 스팸 방지).
   if (totalDropped > 0) {
-    const dropLines = (['SWING', 'CATALYST', 'MOMENTUM'] as const)
-      .filter(sec => dropped[sec] > 0)
-      .map(sec => `  ${sec}: ${dropped[sec]}개 드롭 → ${SECTION_HARD_MAX[sec]}개 유지`)
-      .join('\n');
     void sendTelegramAlert(
-      `✂️ <b>[Watchlist Auto-Trim]</b>\n` +
-      `섹션 상한 초과로 ${totalDropped}개 자동 정리:\n${dropLines}\n` +
-      `기준: gateScore 상위 유지, LeadershipBridge 우선 드롭.`,
+      buildWatchlistAutoTrimAlert({ result, hard, soft, softDisabled }),
       {
         priority: 'NORMAL',
         dedupeKey: 'watchlist-autotrim',
@@ -152,13 +396,25 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
     ).catch(console.error);
   }
 
-  // 자동 trim 이후에도 MOMENTUM 이 여전히 임계치 초과면(= 50/50 근접) 포화 경보.
-  // 의미: gateScore 가 고르게 높아 trim 이 배제하지 못할 만큼 모멘텀 종목이 많다.
+  // 자동 trim 이후에도 MOMENTUM 이 여전히 alert 임계 초과면 포화 경보.
+  // ADR-0028 §모순9: 출처별 분포 + 다음 자동 액션 안내 동봉.
   if (momentumCount > MOMENTUM_ALERT_THRESHOLD) {
+    const sourceDistribution: Record<'AUTO' | 'MANUAL' | 'DART', number> = { AUTO: 0, MANUAL: 0, DART: 0 };
+    for (const entry of trimmed) {
+      const isMomentum = entry.section === 'MOMENTUM' || (!entry.section && entry.track === 'A');
+      if (!isMomentum) continue;
+      const src = (entry.addedBy ?? 'AUTO') as 'AUTO' | 'MANUAL' | 'DART';
+      sourceDistribution[src] = (sourceDistribution[src] ?? 0) + 1;
+    }
     void sendTelegramAlert(
-      `🚨 <b>[Watchlist 포화]</b>\n` +
-      `MOMENTUM 섹션이 상한 근접: ${momentumCount}개 / 경보 기준: ${MOMENTUM_ALERT_THRESHOLD}개\n` +
-      `신호 발굴 필터를 재검토하세요.`,
+      buildWatchlistOverflowAlert({
+        section: 'MOMENTUM',
+        count: momentumCount,
+        alertThreshold: MOMENTUM_ALERT_THRESHOLD,
+        softCap: soft.MOMENTUM,
+        hardCap: hard.MOMENTUM,
+        sourceDistribution,
+      }),
       {
         priority: 'HIGH',
         dedupeKey: 'watchlist-momentum-overflow',
