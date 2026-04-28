@@ -39,6 +39,7 @@ import { buildEntryConditionScores } from '../../learning/entryConditionScores.j
 import { evaluateCorrelationGate } from '../correlationSlotGate.js';
 import { recordCounterfactual, COUNTERFACTUAL_DAILY_CAP } from '../../learning/counterfactualShadow.js';
 import { recordUniverseEntries } from '../../learning/ledgerSimulator.js';
+import { computeSlotConsumption } from '../slotAccounting.js';
 // ADR-0068 (PR-R): Shadow Learning Hooks — PR-L (Rejection Tracker) + PR-M (Twin Portfolio) wiring
 import { recordRejection } from '../../learning/rejectionShadowTracker.js';
 import { recordTwinEntries } from '../../learning/counterfactualTwinPortfolio.js';
@@ -280,16 +281,17 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
     // BUG-09 정합성: 사전 점검(activeSwingCount)이 PRE_BREAKOUT(30% 선취매)을 제외하는 것과
     // 동일 기준을 적용해야 한다. 루프 내에서만 PRE_BREAKOUT을 포함하면 사전 점검은 "여유 있음",
     // 루프는 "만석"이라 판정해 보유 슬롯이 남았음에도 매수가 전혀 발생하지 않는 무성 실패가 난다.
-    const currentActive = ctx.shadows.filter(
-      (s) => isOpenShadowStatus(s.status) &&
-             s.watchlistSource !== 'INTRADAY' &&
-             s.watchlistSource !== 'PRE_BREAKOUT',
-    ).length;
-    const totalCommitted = currentActive + ctx.mutables.reservedSlots.value;
+    //
+    // ADR-0080 PR-S1: 게이트 비교는 자본 가중 슬롯(consumed) 사용 — 30% 잔존 5개 = 1.5 슬롯
+    // 점유로 환산해 만재 차단을 회피. 단, sizing 분모(line ~902 remainingSlots)는 PR-S2 까지
+    // currentActive(rawCount) 유지 — 분할 비율 영향이라 shadow mode 1주 검증 후 분리 적용.
+    const slotResult = computeSlotConsumption(ctx.shadows, ctx.effectiveMaxPositions);
+    const currentActive = slotResult.rawCount;        // sizing 분모용 (PR-S2 후속 변경 대상)
+    const totalCommitted = slotResult.consumed + ctx.mutables.reservedSlots.value;
     if (!isMomentumShadow && totalCommitted >= ctx.effectiveMaxPositions) {
       // MOMENTUM Shadow 는 LIVE 슬롯 한도에 귀속되지 않으므로 이 가드를 건너뛴다.
       console.log(
-        `[AutoTrade] 최대 포지션 도달 (활성 ${currentActive} + 예약 ${ctx.mutables.reservedSlots.value} = ${totalCommitted}/${ctx.effectiveMaxPositions}${ctx.sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${ctx.regime}) — 나머지 종목 스킵`,
+        `[AutoTrade] 최대 포지션 도달 (활성 ${slotResult.consumed.toFixed(2)} + 예약 ${ctx.mutables.reservedSlots.value} = ${totalCommitted.toFixed(2)}/${ctx.effectiveMaxPositions}${ctx.sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${ctx.regime}, raw=${slotResult.rawCount}) — 나머지 종목 스킵`,
       );
       break;
     }

@@ -134,6 +134,33 @@ if (slotResult.isFull) {
 
 ## 후속 PR (scope 외)
 
+### PR-S1 (본 ADR follow-up commit, 같은 브랜치) — 루프 게이트 자본 가중화
+
+**문제**: 본 ADR 의 초기 wiring 이 상위 게이트 2 곳 (signalScanner.ts:430 +
+preflight.ts:365) 만 자본 가중으로 변경했으나, 루프 내부 게이트
+(`perSymbolEvaluation.ts:283-289`) 가 여전히 `shadows.filter(...).length` 단순
+카운트로 비교. 결과적으로 **상위 게이트는 통과 (consumed=5.20/8) 하지만 루프 첫
+종목 평가 직전에 단순 카운트(8/8) 로 break 차단** 되어 ADR-0080 효과가
+perSymbolEvaluation 단계에서 무력화.
+
+**시나리오**: 만재 4개 + 30% 잔존 4개, effectiveMaxPositions=8 →
+- 상위 게이트: consumed=5.20/8, isFull=false → 통과 ✓
+- 루프 게이트: currentActive=8/8 → break ✗
+
+**수정**: `currentActive` 변수를 `slotResult.rawCount` 로 보존하되 게이트 비교는
+`slotResult.consumed + reservedSlots` 로 전환. 진단 로그에 `consumed.toFixed(2)`
++ `raw=N` 동반 표기. 단순 카운트 패턴 회귀 차단을 위한 wiring 회귀 테스트 5
+케이스 추가 (`perSymbolLoopGateWiring.test.ts`).
+
+### PR-S2 (별도 PR, shadow mode 1주 검증 권장) — sizing 분모 자본 가중화
+
+`perSymbolEvaluation.ts:900-903` 의 `remainingSlots = max(1, maxPositions -
+currentActive - reservedSlots)` 가 sizing 분할 비율 분모로 사용. 자본 가중으로
+바꾸면 신규 진입의 *포지션 크기* 가 달라지므로 LIVE 영향 평가 신중 필요.
+PR-S1 효과 데이터 누적 후 별도 PR 분리.
+
+### 추가 후속 PR (그 외)
+
 - 슬롯 회계 아이디어 2 — Reserved-Slot Floor (INFRA_FLOOR=0.3 인프라 부하 하한).
 - 슬롯 회계 아이디어 3 — Tail-Position 분리 슬롯 (PRIMARY_SLOTS + TAIL_SLOTS 두 풀).
 - 슬롯 회계 아이디어 8 — Slot-Pressure-Aware Take Profit (slot pressure 인지 익절선).
