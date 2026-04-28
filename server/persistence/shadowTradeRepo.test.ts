@@ -335,4 +335,94 @@ describe('ADR-0060 sector 영속 + 레거시 백필', () => {
     expect(parsed).toHaveLength(1);
     expect(parsed[0].sector).toBe('반도체');
   });
+
+  // ─── ADR-0028 §PR-D3-C: PriceBase 메타 영속 round-trip ────────────────────
+  it('entryPriceMetadata 영속 round-trip — 저장한 PriceBase 가 그대로 로드', () => {
+    const trade = makeMinimalTrade('005930', '반도체');
+    trade.entryPriceMetadata = {
+      value: 70000,
+      asOf: '2026-04-28T00:00:00.000Z',
+      source: 'KIS_REALTIME',
+    };
+    repo.saveShadowTrades([trade]);
+    const loaded = repo.loadShadowTrades();
+    expect(loaded[0]?.entryPriceMetadata).toBeDefined();
+    expect(loaded[0]?.entryPriceMetadata?.value).toBe(70000);
+    expect(loaded[0]?.entryPriceMetadata?.asOf).toBe('2026-04-28T00:00:00.000Z');
+    expect(loaded[0]?.entryPriceMetadata?.source).toBe('KIS_REALTIME');
+  });
+
+  it('PositionFill.priceMetadata 영속 round-trip — fill 시점 메타 보존', () => {
+    const trade = makeMinimalTrade('005930');
+    trade.fills = [{
+      id: 'f1',
+      type: 'BUY',
+      qty: 10,
+      price: 70000,
+      reason: 'INITIAL_BUY',
+      timestamp: '2026-04-28T01:00:00.000Z',
+      priceMetadata: {
+        value: 70000,
+        asOf: '2026-04-28T01:00:00.000Z',
+        source: 'KIS_REALTIME',
+        staleAfterDays: 1,
+      },
+    }];
+    repo.saveShadowTrades([trade]);
+    const loaded = repo.loadShadowTrades();
+    expect(loaded[0]?.fills?.[0]?.priceMetadata).toBeDefined();
+    expect(loaded[0]?.fills?.[0]?.priceMetadata?.source).toBe('KIS_REALTIME');
+    expect(loaded[0]?.fills?.[0]?.priceMetadata?.staleAfterDays).toBe(1);
+  });
+
+  it('레거시 trade (entryPriceMetadata 부재) 정상 로드 — 후방호환', () => {
+    const legacy = makeMinimalTrade('035420');
+    expect((legacy as Record<string, unknown>).entryPriceMetadata).toBeUndefined();
+    repo.saveShadowTrades([legacy]);
+    const loaded = repo.loadShadowTrades();
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]?.entryPriceMetadata).toBeUndefined();
+    // 다른 필드는 정상 영속
+    expect(loaded[0]?.shadowEntryPrice).toBe(10_000);
+  });
+
+  it('priceMetadata + entryPriceMetadata 동시 영속 — 두 메타 모두 보존', () => {
+    const trade = makeMinimalTrade('005930', '반도체');
+    trade.entryPriceMetadata = {
+      value: 70000,
+      asOf: '2026-04-28T00:00:00.000Z',
+      source: 'KIS_REALTIME',
+    };
+    trade.fills = [{
+      id: 'f1',
+      type: 'SELL',
+      qty: 5,
+      price: 71000,
+      reason: 'PARTIAL_TP',
+      timestamp: '2026-04-28T05:00:00.000Z',
+      priceMetadata: {
+        value: 71000,
+        asOf: '2026-04-28T05:00:00.000Z',
+        source: 'KIS_REALTIME',
+      },
+    }];
+    repo.saveShadowTrades([trade]);
+    const loaded = repo.loadShadowTrades();
+    expect(loaded[0]?.entryPriceMetadata?.value).toBe(70000);
+    expect(loaded[0]?.fills?.[0]?.priceMetadata?.value).toBe(71000);
+  });
+
+  it('디스크 raw read — entryPriceMetadata 가 JSON 직렬화로 그대로 저장', () => {
+    const trade = makeMinimalTrade('005930');
+    trade.entryPriceMetadata = {
+      value: 70000,
+      asOf: '2026-04-28T00:00:00.000Z',
+      source: 'YAHOO_INTRADAY',
+    };
+    repo.saveShadowTrades([trade]);
+    const raw = fs.readFileSync(shadowFilePath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    expect(parsed[0].entryPriceMetadata.source).toBe('YAHOO_INTRADAY');
+    expect(parsed[0].entryPriceMetadata.value).toBe(70000);
+  });
 });

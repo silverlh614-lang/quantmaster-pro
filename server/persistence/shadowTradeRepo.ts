@@ -76,6 +76,15 @@ export interface PositionFill {
     | 'divergencePartialSold'
     | 'rrrCollapsePartialSold'
     | 'r6EmergencySold';
+  /**
+   * ADR-0028 §PR-D3-C: fill 시점 가격의 출처+시점 메타.
+   * 옵셔널 — 기존 fill 영속 데이터 후방호환. 신규 fill 생성 경로 (PR-D3-D 후속) 가
+   * appendFill 호출 시 함께 채울 수 있다. safePctChange 의 PriceBase union 에 직접
+   * 전달 가능 (실현 손익 계산 시 stale 가격 자동 차단).
+   *
+   * 영속 round-trip 시 보존 — sanitize 로직 변경 없이 JSON 직렬화로 충분.
+   */
+  priceMetadata?: import('../utils/safePctChange.js').PriceBase;
 }
 
 /** REVERTED 가 아닌 "살아 있는" fill 만 true. 레거시(status 미정) 는 CONFIRMED 간주. */
@@ -548,6 +557,15 @@ export interface ServerShadowTrade {
    * 이 단일 필드가 /kelly 헬스 카드·포지션 감쇠 추적·사후 복기의 공통 참조점.
    */
   entryKellySnapshot?: EntryKellySnapshot;
+  /**
+   * ADR-0028 §PR-D3-C: 진입가 (shadowEntryPrice) 의 출처+시점 메타.
+   * 옵셔널 — 기존 v2 trade 레코드 후방호환. 신규 trade 생성 경로 (PR-D3-D 후속) 가
+   * 매수 시점에 채울 수 있다. exitEngine 의 PnL 계산이 PriceBase 로 safePctChange
+   * 에 전달하면 stale 진입가 자동 차단 (PR-D3-E 영역).
+   *
+   * 영속 round-trip 시 보존 — JSON 직렬화로 충분 (sanitize 변경 불필요).
+   */
+  entryPriceMetadata?: import('../utils/safePctChange.js').PriceBase;
 }
 
 // ─── Manual Exit Context ──────────────────────────────────────────────────────
