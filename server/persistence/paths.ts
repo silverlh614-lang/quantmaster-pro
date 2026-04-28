@@ -51,6 +51,8 @@ export const TRANCHE_FILE            = path.join(DATA_DIR, 'tranche-schedule.jso
 export const WALK_FORWARD_STATE_FILE = path.join(DATA_DIR, 'walk-forward-state.json');
 /** 워크포워드 Framework (ADR-0083) — Rolling window 결과 누적 진단 SSOT (freeze 정책과 별개) */
 export const WALK_FORWARD_RESULTS_FILE = path.join(DATA_DIR, 'walk-forward-results.json');
+/** Shadow 워크포워드 (ADR-0086) — Rejection + Twin 데이터 IS/OOS 분할 결과 별도 영속 */
+export const WALK_FORWARD_SHADOW_RESULTS_FILE = path.join(DATA_DIR, 'walk-forward-shadow-results.json');
 /** 조건 감사 — 조건별 ACTIVE/PROBATION/SUSPENDED 이력 저장 */
 export const CONDITION_AUDIT_FILE    = path.join(DATA_DIR, 'condition-audit.json');
 /**  이상 감지 — 마지막 경보 상태 저장 (중복 알림 억제) */

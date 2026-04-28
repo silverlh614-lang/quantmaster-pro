@@ -16,6 +16,7 @@ import './refreshWatchlistSectors.cmd.js';
 import './regime.cmd.js';
 import './scanIndices.cmd.js';
 import './scheduler.cmd.js';
+import './shadowWalkForward.cmd.js';
 import './signalStatus.cmd.js';
 import './status.cmd.js';
 import './todaylog.cmd.js';

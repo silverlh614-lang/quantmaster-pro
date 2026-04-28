@@ -14,6 +14,11 @@ import {
   isFrameworkDisabled as isWalkForwardDisabled,
   runWalkForwardFramework,
 } from '../learning/walkForwardFramework.js';
+import { loadShadowWalkForwardResults } from '../persistence/shadowWalkForwardResultsRepo.js';
+import {
+  isShadowFrameworkDisabled,
+  runShadowWalkForward,
+} from '../learning/shadowWalkForwardFramework.js';
 import { loadCurrentSchemaRecords } from '../persistence/attributionRepo.js';
 import {
   getAllConditionLifecycleStatuses,
@@ -138,6 +143,44 @@ router.get('/condition-lifecycle', (req: Request, res: Response) => {
   } catch (e) {
     console.error('[learningRouter] /condition-lifecycle 실패:', e);
     res.status(500).json({ error: 'condition_lifecycle_failed' });
+  }
+});
+
+/**
+ * ADR-0086 — Shadow Walk-Forward Framework 영속 결과 read-only 노출.
+ *
+ * Rejection (PR-L) + Twin (PR-M) 데이터의 IS/OOS 분할 결과 + summary.
+ * windowId='shadow_*' prefix — LIVE walk-forward 결과 (`/walk-forward`) 와 분리.
+ */
+router.get('/shadow-walk-forward', (_req: Request, res: Response) => {
+  try {
+    const results = loadShadowWalkForwardResults();
+    res.json({
+      ...results,
+      disabled: isShadowFrameworkDisabled(),
+    });
+  } catch (e) {
+    console.error('[learningRouter] /shadow-walk-forward 실패:', e);
+    res.status(500).json({ error: 'shadow_walk_forward_load_failed' });
+  }
+});
+
+/**
+ * ADR-0086 — Shadow Walk-Forward Framework 즉시 1회 실행.
+ *
+ * source 쿼리 ('REJECTION' | 'TWIN' | 'ALL', default 'ALL').
+ */
+router.post('/shadow-walk-forward/run', async (req: Request, res: Response) => {
+  try {
+    const sourceRaw = typeof req.query.source === 'string' ? req.query.source.toUpperCase() : '';
+    const source = (sourceRaw === 'REJECTION' || sourceRaw === 'TWIN' || sourceRaw === 'ALL')
+      ? sourceRaw as 'REJECTION' | 'TWIN' | 'ALL'
+      : 'ALL';
+    const result = await runShadowWalkForward({ source });
+    res.json(result);
+  } catch (e) {
+    console.error('[learningRouter] /shadow-walk-forward/run 실패:', e);
+    res.status(500).json({ error: 'shadow_walk_forward_run_failed' });
   }
 });
 
