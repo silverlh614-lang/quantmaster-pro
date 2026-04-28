@@ -16,6 +16,7 @@ import { fetchPerPbr } from '../clients/krxClient.js';
 import { isMarketOpen } from '../utils/marketClock.js';
 import { isMarketOpenFor, nextOpenAtFor } from '../utils/symbolMarketRegistry.js';
 import { guardedFetch } from '../utils/egressGuard.js';
+import { capYahooRange } from '../utils/yahooRangePolicy.js';
 import { getSnapshot, setSnapshot } from '../persistence/offHoursSnapshotRepo.js';
 import {
   fillMissingFromSnapshot,
@@ -121,7 +122,8 @@ router.use((req: Request, res: Response, next) => {
   if (!MARKET_GATED_PATHS.has(req.path)) return next();
   const symbol = String(req.query.symbol ?? '');
   if (!symbol) return next();
-  const range = typeof req.query.range === 'string' && req.query.range.length > 0 ? req.query.range : '1y';
+  // ADR-0082: 클라이언트가 보낸 '2y' / '5y' / 'max' 등 정책 위반 입력은 자동 cap.
+  const range = capYahooRange(typeof req.query.range === 'string' ? req.query.range : undefined);
   const interval = typeof req.query.interval === 'string' && req.query.interval.length > 0 ? req.query.interval : '1d';
   const decision = evaluateMarketGate(symbol, range, interval);
   if (decision.action === 'pass') return next();
@@ -250,7 +252,9 @@ router.get('/historical-data', async (req: Request, res: Response) => {
   if (!symbol) return res.status(400).json({ error: "Symbol is required" });
 
   const symbolStr = String(symbol);
-  const rangeStr = typeof range === 'string' && range.length > 0 ? range : '1y';
+  // ADR-0082: 사용자 명시 "Yahoo 2y 전역 금지" — 모든 자동 호출 outbound URL 의 range 를
+  // 정책 상한 ('1y') 으로 cap. 클라이언트 UI ('2y' 차트 옵션) 가 보내도 서버에서 자동 축소.
+  const rangeStr = capYahooRange(typeof range === 'string' ? range : undefined);
   const intervalStr = typeof interval === 'string' && interval.length > 0 ? interval : '1d';
 
   // ADR-0009: 인프로세스 LRU 캐시.
