@@ -8,7 +8,7 @@
  */
 
 import { guardedFetch } from '../../utils/egressGuard.js';
-import { safePctChange } from '../../utils/safePctChange.js';
+import { safePctChange, type PriceBase } from '../../utils/safePctChange.js';
 import { calcRSI, calcRSI14, calcEMAArr, calcMACD } from './_indicators.js';
 
 /**
@@ -77,6 +77,13 @@ export interface YahooQuoteExtended {
   dailyVolumeDrying: boolean;   // 일봉: 거래량 마름 (vol5d < vol20d × 0.7)
   // 위험 종목 플래그
   isHighRisk: boolean;          // 거래중지/관리종목/위험 분류 감지
+  /**
+   * ADR-0028 §PR-D3-B: 가격 출처+시점 메타.
+   * `price` 필드의 출처 (YAHOO_INTRADAY / Yahoo regularMarketTime 시점) 를 기록.
+   * 호출자가 PriceBase 로 safePctChange 에 전달하면 stale 검증 자동 적용 (PR-D3-D).
+   * 옵셔널 — 기존 호출자 후방호환.
+   */
+  priceMetadata?: PriceBase;
 }
 
 // 스크리너·시그널·리포트가 같은 분 안에 동일 심볼을 여러 번 조회하므로
@@ -356,6 +363,15 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       weeklyLaggingSpanUp,
       dailyVolumeDrying,
       isHighRisk,
+      // ADR-0028 §PR-D3-B: 가격 출처+시점 메타 — Yahoo regularMarketTime 우선, 없으면 fetch 시점.
+      // PR-D3-D 에서 호출자가 PriceBase 로 safePctChange 에 전달 시 stale 검증 자동 적용.
+      priceMetadata: {
+        value: price,
+        asOf: typeof meta.regularMarketTime === 'number' && Number.isFinite(meta.regularMarketTime)
+          ? new Date(meta.regularMarketTime * 1000).toISOString()
+          : new Date().toISOString(),
+        source: 'YAHOO_INTRADAY',
+      },
     };
     _yahooQuoteCache.set(symbol, { data: quote, ts: Date.now() });
     return quote;
