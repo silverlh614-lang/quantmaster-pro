@@ -55,6 +55,7 @@ import { buildEntryConditionScores } from '../learning/entryConditionScores.js';
 import { evaluateCorrelationGate } from './correlationSlotGate.js';
 import { recordCounterfactual, COUNTERFACTUAL_DAILY_CAP } from '../learning/counterfactualShadow.js';
 import { recordUniverseEntries } from '../learning/ledgerSimulator.js';
+import { computeSlotConsumption } from './slotAccounting.js';
 
 // FAILURE_BLOCK_THRESHOLD_PCT, getPrice, SymbolExitContext, getAdaptiveProfitTargets
 // 는 signalScanner/perSymbolEvaluation.ts 에서 이식 후 import.
@@ -427,14 +428,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       ? Math.min(regimeConfig.maxPositions, sellOnlyExc.maxSlots)
       : regimeConfig.maxPositions,
   );
-  const activeSwingCount = shadows.filter(
-    (s) => isOpenShadowStatus(s.status) &&
-           s.watchlistSource !== 'INTRADAY' &&
-           s.watchlistSource !== 'PRE_BREAKOUT',
-  ).length;
-  if (activeSwingCount >= effectiveMaxPositions) {
+  // ADR-0080: 자본 가중 슬롯 회계 — 70% 익절 잔존 30% 포지션 5개 = 1.5 슬롯 점유 환산.
+  // 기존 단순 카운트(activeSwingCount.length)는 잔존 자본을 반영 못해 신규 진입 슬롯 누수.
+  // SLOT_CAPITAL_WEIGHTED_DISABLED=true env 시 단순 카운트 동치 (긴급 롤백).
+  const slotResult = computeSlotConsumption(shadows, effectiveMaxPositions);
+  if (slotResult.isFull) {
     console.log(
-      `[AutoTrade] 최대 동시 포지션 도달 (${activeSwingCount}/${effectiveMaxPositions}${sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${regime}) — 신규 진입 스킵`
+      `[AutoTrade] 최대 동시 포지션 도달 (${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}${sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${regime}, raw=${slotResult.rawCount}) — 신규 진입 스킵`
     );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);

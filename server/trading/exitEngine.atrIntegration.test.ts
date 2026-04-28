@@ -101,21 +101,21 @@ describe('exitEngine — ATR 동적 손절 갱신', () => {
     expect(shadow.hardStopLoss).toBe(47000);
   });
 
-  it('+5% 수익 시 BEP 보호 활성화 → hardStopLoss 진입가로 상향', async () => {
+  it('+5% 수익 시 BEP 글라이드 활성화 → hardStopLoss ATR 가중 상향 (ADR-0079)', async () => {
     const shadow = makeShadow({
       entryATR14: 1500,
       hardStopLoss: 47000,
       dynamicStopPrice: 47000,
     });
-    // 현재가 52500 (+5%) → BEP 보호 활성
-    // trailingStopPrice = round(50000) = 50000
+    // 현재가 52500 (+5%) → BEP 글라이드 활성 (ADR-0079)
+    // trailingStopPrice = round(50000 - 0.5 × 1500) = 49250 (이전: 50000 단순 점프)
     mockFetchCurrentPrice.mockResolvedValue(52500);
 
     await updateShadowResults([shadow], 'R2_BULL');
 
-    // 50000 > 47000 → hardStopLoss 상향
-    expect(shadow.hardStopLoss).toBe(50000);
-    expect(shadow.dynamicStopPrice).toBe(50000);
+    // 49250 > 47000 → hardStopLoss 상향 (ATR 750원 마진으로 noise 흡수)
+    expect(shadow.hardStopLoss).toBe(49250);
+    expect(shadow.dynamicStopPrice).toBe(49250);
   });
 
   it('+10% 수익 시 Lock-in 활성화 → hardStopLoss +3%로 상향', async () => {

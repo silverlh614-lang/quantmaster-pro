@@ -29,9 +29,45 @@ const REGIME_MULTIPLIER: Record<DynamicStopRegime, number> = {
 
 // ─── 트레일링 스톱 임계값 ────────────────────────────────────────────────────
 
-const BEP_TRIGGER   = 0.05;   // +5%: 손절을 진입가(BEP)로 이동
+const BEP_TRIGGER   = 0.05;   // +5%: 손절을 BEP 글라이드로 이동 (ADR-0079)
 const LOCK_TRIGGER  = 0.10;   // +10%: 손절을 +3%로 이동
 const LOCK_FLOOR    = 0.03;   // +3%: 수익 Lock-in 손절선
+
+// ─── ADR-0079 BEP Glide ───────────────────────────────────────────────────────
+
+/**
+ * ATR-Buffered BEP Glide ratio. 0.5 × ATR = 평균 일중 노이즈 마진.
+ * 단일 +5% 트리거의 영구 점프 대신 변동성 가중 글라이드로 noise true-reversal 분리.
+ */
+const BEP_GLIDE_ATR_RATIO = 0.5;
+
+/**
+ * BEP 점프 대신 ATR 가중 글라이드 손절선 산출 (ADR-0079).
+ *
+ * 공식: trailingStopPrice = entryPrice − BEP_GLIDE_ATR_RATIO × atr14
+ *
+ * - atr14 부재(0/NaN/Infinity/음수) → entryPrice fallback (기존 동작 100% 보존)
+ * - BEP_GLIDE_DISABLED=true env → entryPrice 강제 (긴급 롤백)
+ * - 결과는 1원 floor + Math.round (호가 단위 정합)
+ *
+ * @param entryPrice 진입가 (양수)
+ * @param atr14 14일 ATR (옵셔널, 부재 시 entryPrice fallback)
+ * @returns BEP 글라이드 손절가 (정수, ≥1)
+ */
+export function bepGlideStopPrice(entryPrice: number, atr14?: number): number {
+  if (process.env.BEP_GLIDE_DISABLED === 'true') {
+    return Math.max(1, Math.round(entryPrice));
+  }
+  if (
+    !Number.isFinite(atr14) ||
+    !atr14 ||
+    atr14 <= 0
+  ) {
+    return Math.max(1, Math.round(entryPrice));
+  }
+  const glide = entryPrice - BEP_GLIDE_ATR_RATIO * atr14;
+  return Math.max(1, Math.round(glide));
+}
 
 // ─── 공개 API ─────────────────────────────────────────────────────────────────
 
@@ -72,10 +108,11 @@ export function evaluateDynamicStop(input: DynamicStopInput): DynamicStopResult 
     bepProtection = true;
     trailingStopPrice = Math.round(entryPrice * (1 + LOCK_FLOOR));
   } else if (currentReturn >= BEP_TRIGGER) {
-    // +5% 이상: 진입가(BEP)로 이동
+    // +5% 이상: ATR 가중 BEP 글라이드 (ADR-0079)
+    // entryATR14 부재/0 시 entryPrice fallback — 기존 동작 보존.
     trailingActive = true;
     bepProtection = true;
-    trailingStopPrice = Math.round(entryPrice);
+    trailingStopPrice = bepGlideStopPrice(entryPrice, atr14);
   }
 
   const trailingStopPct = safePctChange(trailingStopPrice, entryPrice, {
@@ -87,7 +124,11 @@ export function evaluateDynamicStop(input: DynamicStopInput): DynamicStopResult 
   if (profitLockIn) {
     actionMessage = `수익 Lock-in 활성: 손절선 → +${(LOCK_FLOOR * 100).toFixed(0)}% (현재 +${currentReturnPct.toFixed(1)}% | 손절 ${trailingStopPct.toFixed(1)}%)`;
   } else if (bepProtection) {
-    actionMessage = `BEP 보호 활성: 손절선 → 진입가 이동 (현재 +${currentReturnPct.toFixed(1)}% | 원금 보호)`;
+    // ADR-0079: ATR 글라이드 적용 시 메시지에 마진 표시 (atr14 부재 시 진입가 표기)
+    const glideMarginPct = trailingStopPct;
+    actionMessage = atr14 > 0 && process.env.BEP_GLIDE_DISABLED !== 'true'
+      ? `BEP 글라이드 활성: 손절선 → 진입가 ${glideMarginPct >= 0 ? '+' : ''}${glideMarginPct.toFixed(2)}% (ATR ${BEP_GLIDE_ATR_RATIO}× 마진 | 현재 +${currentReturnPct.toFixed(1)}%)`
+      : `BEP 보호 활성: 손절선 → 진입가 이동 (현재 +${currentReturnPct.toFixed(1)}% | 원금 보호)`;
   } else {
     const regimeLabel = regime === 'RISK_ON' ? 'Risk-On' : regime === 'RISK_OFF' ? 'Risk-Off' : '위기';
     actionMessage = `동적 손절 (${regimeLabel} ×${multiplier}): ATR ${atr14.toLocaleString()}원 → 손절 ${stopPct.toFixed(1)}%`;
