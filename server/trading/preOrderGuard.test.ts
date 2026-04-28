@@ -99,6 +99,180 @@ describe('preOrderGuard — Automated Kill Switch', () => {
   });
 });
 
+// ─── PR-Z7 H2: cron 외 진입점 우회 차단 (emergencyStop + dailyLossLimit) ─────
+// state.ts mock 패턴 사용 — production module-level state 무수정 → 다른 테스트 worker 에 leak 차단.
+
+describe('preOrderGuard — H2 emergencyStop + dailyLossLimit 가드', () => {
+  let tmpDir: string;
+  const originalDailyLossLimit = process.env.DAILY_LOSS_LIMIT;
+  // closure-scoped state — 각 테스트가 직접 mutate 하면 mock getter 가 반영
+  const stateMock = { emergencyStop: false, dailyLoss: 0 };
+
+  beforeEach(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-h2-'));
+    process.env.PERSIST_DATA_DIR = tmpDir;
+    delete process.env.DAILY_LOSS_LIMIT; // default 5% 사용
+    stateMock.emergencyStop = false;
+    stateMock.dailyLoss = 0;
+    vi.resetModules();
+    vi.doMock('../state.js', () => ({
+      getEmergencyStop: () => stateMock.emergencyStop,
+      setEmergencyStop: (v: boolean) => { stateMock.emergencyStop = v; },
+      getDailyLossPct: () => stateMock.dailyLoss,
+      setDailyLoss: (pct: number) => { stateMock.dailyLoss = pct; },
+    }));
+    vi.doMock('../alerts/telegramClient.js', () => ({
+      sendTelegramAlert: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock('../emergency.js', () => ({
+      cancelAllPendingOrders: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock('../alerts/contaminationBlastRadius.js', () => ({
+      sendBlastRadiusReport: vi.fn().mockResolvedValue(true),
+    }));
+  });
+
+  afterEach(() => {
+    delete process.env.PERSIST_DATA_DIR;
+    if (originalDailyLossLimit === undefined) {
+      delete process.env.DAILY_LOSS_LIMIT;
+    } else {
+      process.env.DAILY_LOSS_LIMIT = originalDailyLossLimit;
+    }
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
+    vi.doUnmock('../state.js');
+    vi.doUnmock('../alerts/telegramClient.js');
+    vi.doUnmock('../emergency.js');
+    vi.doUnmock('../alerts/contaminationBlastRadius.js');
+  });
+
+  it('정상 상태 (emergencyStop=false + dailyLoss=0) → 통과 (기존 동작 회귀 보장)', async () => {
+    const { assertSafeOrder, _resetRecentOrders } = await import('./preOrderGuard.js');
+    _resetRecentOrders();
+    expect(() => assertSafeOrder({
+      stockCode: '005930', stockName: '삼성전자',
+      quantity: 10, entryPrice: 70000, stopLoss: 66000,
+      totalAssets: 100_000_000,
+    })).not.toThrow();
+  });
+
+  it('EMERGENCY_STOP_ACTIVE — emergencyStop=true 시 throw + incident 기록', async () => {
+    const { assertSafeOrder, PreOrderGuardError, _resetRecentOrders } = await import('./preOrderGuard.js');
+    stateMock.emergencyStop = true;
+    _resetRecentOrders();
+    expect(() => assertSafeOrder({
+      stockCode: '005930', stockName: '삼성전자',
+      quantity: 10, entryPrice: 70000, stopLoss: 66000,
+      totalAssets: 100_000_000,
+    })).toThrow(PreOrderGuardError);
+
+    const incidentFile = path.join(tmpDir, 'incident-log.json');
+    expect(fs.existsSync(incidentFile)).toBe(true);
+    const entries = JSON.parse(fs.readFileSync(incidentFile, 'utf-8'));
+    expect(entries[0].context.reason).toBe('EMERGENCY_STOP_ACTIVE');
+    expect(entries[0].reason).toContain('emergencyStop=true');
+  });
+
+  it('DAILY_LOSS_LIMIT_HIT — dailyLoss >= 5%(default) 시 throw', async () => {
+    const { assertSafeOrder, PreOrderGuardError, _resetRecentOrders } = await import('./preOrderGuard.js');
+    stateMock.dailyLoss = 5.5; // 한도 5% 초과
+    _resetRecentOrders();
+    expect(() => assertSafeOrder({
+      stockCode: '005930', stockName: '삼성전자',
+      quantity: 10, entryPrice: 70000, stopLoss: 66000,
+      totalAssets: 100_000_000,
+    })).toThrow(PreOrderGuardError);
+
+    const incidentFile = path.join(tmpDir, 'incident-log.json');
+    const entries = JSON.parse(fs.readFileSync(incidentFile, 'utf-8'));
+    expect(entries[0].context.reason).toBe('DAILY_LOSS_LIMIT_HIT');
+    expect(entries[0].reason).toContain('일일 손실');
+    expect(entries[0].reason).toContain('5.50%');
+  });
+
+  it('dailyLoss 경계값 (정확히 5.00%) → throw (>= 비교)', async () => {
+    const { assertSafeOrder, PreOrderGuardError, _resetRecentOrders } = await import('./preOrderGuard.js');
+    stateMock.dailyLoss = 5.0;
+    _resetRecentOrders();
+    expect(() => assertSafeOrder({
+      stockCode: '005930', stockName: '삼성전자',
+      quantity: 10, entryPrice: 70000, stopLoss: 66000,
+      totalAssets: 100_000_000,
+    })).toThrow(PreOrderGuardError);
+  });
+
+  it('dailyLoss 경계 미달 (4.99%) → 통과', async () => {
+    const { assertSafeOrder, _resetRecentOrders } = await import('./preOrderGuard.js');
+    stateMock.dailyLoss = 4.99;
+    _resetRecentOrders();
+    expect(() => assertSafeOrder({
+      stockCode: '005930', stockName: '삼성전자',
+      quantity: 10, entryPrice: 70000, stopLoss: 66000,
+      totalAssets: 100_000_000,
+    })).not.toThrow();
+  });
+
+  it('DAILY_LOSS_LIMIT env override — 10% 한도 시 7% 손실 통과', async () => {
+    process.env.DAILY_LOSS_LIMIT = '10';
+    const { assertSafeOrder, _resetRecentOrders } = await import('./preOrderGuard.js');
+    stateMock.dailyLoss = 7.0;
+    _resetRecentOrders();
+    expect(() => assertSafeOrder({
+      stockCode: '005930', stockName: '삼성전자',
+      quantity: 10, entryPrice: 70000, stopLoss: 66000,
+      totalAssets: 100_000_000,
+    })).not.toThrow();
+  });
+
+  it('emergencyStop 우선순위 — 동시 위반 시 EMERGENCY_STOP_ACTIVE 가 먼저 throw', async () => {
+    const { assertSafeOrder, PreOrderGuardError, _resetRecentOrders } = await import('./preOrderGuard.js');
+    stateMock.emergencyStop = true;
+    stateMock.dailyLoss = 10.0; // 한도 초과
+    _resetRecentOrders();
+    try {
+      assertSafeOrder({
+        stockCode: '005930', stockName: '삼성전자',
+        quantity: 10, entryPrice: 70000, stopLoss: 66000,
+        totalAssets: 100_000_000,
+      });
+      throw new Error('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(PreOrderGuardError);
+      expect((e as { reason: string }).reason).toBe('EMERGENCY_STOP_ACTIVE');
+    }
+  });
+
+  it('NaN dailyLoss (안전 가드) → 통과 (incident 기록 없음)', async () => {
+    const { assertSafeOrder, _resetRecentOrders } = await import('./preOrderGuard.js');
+    stateMock.dailyLoss = NaN;
+    _resetRecentOrders();
+    expect(() => assertSafeOrder({
+      stockCode: '005930', stockName: '삼성전자',
+      quantity: 10, entryPrice: 70000, stopLoss: 66000,
+      totalAssets: 100_000_000,
+    })).not.toThrow();
+  });
+
+  it('새 가드 진입부 우선순위 — POSITION_EXPLOSION 보다 먼저 검증', async () => {
+    // emergencyStop=true + 동시에 POSITION_EXPLOSION 위반 시
+    // EMERGENCY_STOP_ACTIVE 가 먼저 발사 (incident 가 EMERGENCY_STOP 으로 기록)
+    const { assertSafeOrder, PreOrderGuardError, _resetRecentOrders } = await import('./preOrderGuard.js');
+    stateMock.emergencyStop = true;
+    _resetRecentOrders();
+    try {
+      assertSafeOrder({
+        stockCode: '005930', stockName: '삼성전자',
+        quantity: 1000, entryPrice: 200_000, stopLoss: 190_000, // 2억 (POSITION_EXPLOSION)
+        totalAssets: 100_000_000,
+      });
+      throw new Error('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(PreOrderGuardError);
+      expect((e as { reason: string }).reason).toBe('EMERGENCY_STOP_ACTIVE');
+    }
+  });
+});
+
 describe('preOrderGuard — Phase 1-② 섹터 노출 선검증', () => {
   it('포트폴리오 비어있을 때 신규 진입 허용', async () => {
     const { checkSectorExposureBefore } = await import('./preOrderGuard.js');

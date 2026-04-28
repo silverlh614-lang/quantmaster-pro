@@ -2,7 +2,7 @@
  * @responsibility stopApproachAlert 손절 접근 3단계 경보 단위 테스트
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../../../alerts/telegramClient.js', () => ({
   sendPrivateAlert: vi.fn(() => Promise.resolve()),
@@ -107,6 +107,109 @@ describe('classifyStopSource (ADR-0028 보강)', () => {
 
   it('BEP_TOLERANCE_PCT 상수 = 0.5', () => {
     expect(BEP_TOLERANCE_PCT).toBe(0.5);
+  });
+
+  // ─── ADR-0079 PR-Z7 H1: BEP Glide 영역 BEP_PROTECTION 흡수 ─────────────────
+
+  describe('ADR-0079 BEP Glide 영역 (PR-Z7 H1 fix)', () => {
+    const originalDisabled = process.env.BEP_GLIDE_DISABLED;
+
+    beforeEach(() => {
+      delete process.env.BEP_GLIDE_DISABLED;
+    });
+
+    afterEach(() => {
+      if (originalDisabled === undefined) {
+        delete process.env.BEP_GLIDE_DISABLED;
+      } else {
+        process.env.BEP_GLIDE_DISABLED = originalDisabled;
+      }
+    });
+
+    it('ATR=1500 / entryPrice=10000 / hardStopLoss=9250 → BEP_PROTECTION (글라이드 흡수)', () => {
+      // PR-Z6 BEP Glide 적용 결과: trailingStopPrice = 10000 − 0.5 × 1500 = 9250
+      // 기존 동작 (entryATR14 미전달): -7.5% 차이 → LOSS_STOP 오분류
+      // PR-Z7 H1 fix: entryATR14 전달 시 글라이드 영역 BEP_PROTECTION 흡수
+      expect(
+        classifyStopSource(9250, 10000, BEP_TOLERANCE_PCT, 1500),
+      ).toBe('BEP_PROTECTION');
+    });
+
+    it('ATR=300 / entryPrice=10000 / hardStopLoss=9850 → BEP_PROTECTION', () => {
+      // 저변동 종목: 글라이드 = 10000 − 150 = 9850, -1.5% 차이
+      expect(
+        classifyStopSource(9850, 10000, BEP_TOLERANCE_PCT, 300),
+      ).toBe('BEP_PROTECTION');
+    });
+
+    it('글라이드 하한 정확히 = entryPrice − 0.5×ATR 경계 → BEP_PROTECTION', () => {
+      // 경계값 inclusive: hardStopLoss === glideFloor 인 경우도 흡수
+      expect(
+        classifyStopSource(9250, 10000, BEP_TOLERANCE_PCT, 1500),
+      ).toBe('BEP_PROTECTION');
+    });
+
+    it('글라이드 하한 미만 → LOSS_STOP (실손실 청산 정확 분류)', () => {
+      // hardStopLoss = 9249 < glideFloor 9250 → BEP 영역 밖
+      expect(
+        classifyStopSource(9249, 10000, BEP_TOLERANCE_PCT, 1500),
+      ).toBe('LOSS_STOP');
+    });
+
+    it('entryATR14 미전달 (기존 동작 회귀 보장) — 글라이드 영역도 LOSS_STOP', () => {
+      // entryATR14 옵셔널 부재 시 본 fix 미적용 — 기존 호출자 무영향
+      expect(classifyStopSource(9250, 10000)).toBe('LOSS_STOP');
+      expect(classifyStopSource(9250, 10000, BEP_TOLERANCE_PCT)).toBe('LOSS_STOP');
+    });
+
+    it('entryATR14=0 (회귀 보장) — 글라이드 분기 무시', () => {
+      expect(
+        classifyStopSource(9250, 10000, BEP_TOLERANCE_PCT, 0),
+      ).toBe('LOSS_STOP');
+    });
+
+    it('entryATR14=NaN/Infinity (안전 가드) — 글라이드 분기 무시', () => {
+      expect(
+        classifyStopSource(9250, 10000, BEP_TOLERANCE_PCT, NaN),
+      ).toBe('LOSS_STOP');
+      expect(
+        classifyStopSource(9250, 10000, BEP_TOLERANCE_PCT, Infinity),
+      ).toBe('LOSS_STOP');
+    });
+
+    it('entryATR14=음수 (안전 가드) — 글라이드 분기 무시', () => {
+      expect(
+        classifyStopSource(9250, 10000, BEP_TOLERANCE_PCT, -500),
+      ).toBe('LOSS_STOP');
+    });
+
+    it('BEP_GLIDE_DISABLED=true env 시 글라이드 영역도 LOSS_STOP (롤백)', () => {
+      process.env.BEP_GLIDE_DISABLED = 'true';
+      expect(
+        classifyStopSource(9250, 10000, BEP_TOLERANCE_PCT, 1500),
+      ).toBe('LOSS_STOP');
+    });
+
+    it('PROFIT_LOCK_IN 우선순위 보존 — 글라이드 분기보다 먼저 처리', () => {
+      // hardStopLoss > entryPrice 면 글라이드 분기 진입 안 함
+      expect(
+        classifyStopSource(10500, 10000, BEP_TOLERANCE_PCT, 1500),
+      ).toBe('PROFIT_LOCK_IN');
+    });
+
+    it('정확 BEP 우선순위 보존 — ±0.5% 이내는 글라이드 분기 전에 BEP_PROTECTION', () => {
+      // hardStopLoss = 10000 (정확 BEP) 시 ATR 무관 BEP_PROTECTION
+      expect(
+        classifyStopSource(10000, 10000, BEP_TOLERANCE_PCT, 1500),
+      ).toBe('BEP_PROTECTION');
+    });
+
+    it('ATR=2000 / entryPrice=10000 / hardStopLoss=9000 (글라이드 하한 내) → BEP_PROTECTION', () => {
+      // 고변동: 글라이드 하한 = 10000 − 1000 = 9000
+      expect(
+        classifyStopSource(9000, 10000, BEP_TOLERANCE_PCT, 2000),
+      ).toBe('BEP_PROTECTION');
+    });
   });
 });
 
