@@ -10,4 +10,5 @@ export { DiscoverWatchlistPage } from './DiscoverWatchlistPage';
 export { PortfolioExtractPage } from './PortfolioExtractPage';
 export { RecommendationHistoryPage } from './RecommendationHistoryPage';
 export { MacroIntelligencePage } from './MacroIntelligencePage';
+export { default as ShadowLearningPage } from './ShadowLearningPage';
 export { PageRouter } from './PageRouter';

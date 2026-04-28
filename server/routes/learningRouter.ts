@@ -26,6 +26,15 @@ import {
   isConditionLifecycleDisabled,
 } from '../learning/conditionLifecyclePolicy.js';
 import { analyzeShadowAttribution } from '../learning/conditionAttributionShadow.js';
+import {
+  getAllRejectionShadow,
+  summarizeRejectionShadow,
+} from '../learning/rejectionShadowTracker.js';
+import {
+  compareTwinsVsReal,
+  getAllTwinEntries,
+} from '../learning/counterfactualTwinPortfolio.js';
+import { getMonthlyStats } from '../learning/recommendationTracker.js';
 
 const router = Router();
 
@@ -144,6 +153,52 @@ router.get('/condition-lifecycle', (req: Request, res: Response) => {
   } catch (e) {
     console.error('[learningRouter] /condition-lifecycle 실패:', e);
     res.status(500).json({ error: 'condition_lifecycle_failed' });
+  }
+});
+
+/**
+ * ADR-0088 — Rejection Shadow 영속 + 통계 read-only 노출 (UI Dashboard 입력).
+ */
+router.get('/rejection-shadow', (req: Request, res: Response) => {
+  try {
+    const rawLimit = Number(req.query.limit);
+    const limit = Number.isFinite(rawLimit) && rawLimit >= 1 && rawLimit <= 500
+      ? Math.floor(rawLimit) : 50;
+    const allEntries = getAllRejectionShadow();
+    const summary = summarizeRejectionShadow();
+    // 최신순 정렬 (signalDate 내림차순) + limit 절삭
+    const sorted = [...allEntries].sort((a, b) =>
+      Date.parse(`${b.signalDate}T00:00:00Z`) - Date.parse(`${a.signalDate}T00:00:00Z`),
+    );
+    res.json({
+      summary,
+      entries: sorted.slice(0, limit),
+      totalCount: allEntries.length,
+    });
+  } catch (e) {
+    console.error('[learningRouter] /rejection-shadow 실패:', e);
+    res.status(500).json({ error: 'rejection_shadow_failed' });
+  }
+});
+
+/**
+ * ADR-0088 — Twin Portfolio 영속 + 비교 결과 read-only 노출 (UI Dashboard 입력).
+ */
+router.get('/twin-portfolio', (_req: Request, res: Response) => {
+  try {
+    const monthlyStats = getMonthlyStats();
+    const realCumReturnPct = monthlyStats.compoundReturn ?? 0;
+    const comparison = compareTwinsVsReal(realCumReturnPct);
+    const entries = getAllTwinEntries();
+    res.json({
+      comparison,
+      entries,
+      realCumReturnPct,
+      totalCount: entries.length,
+    });
+  } catch (e) {
+    console.error('[learningRouter] /twin-portfolio 실패:', e);
+    res.status(500).json({ error: 'twin_portfolio_failed' });
   }
 });
 
