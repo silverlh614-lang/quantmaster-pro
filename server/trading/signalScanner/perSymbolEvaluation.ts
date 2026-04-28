@@ -39,6 +39,9 @@ import { buildEntryConditionScores } from '../../learning/entryConditionScores.j
 import { evaluateCorrelationGate } from '../correlationSlotGate.js';
 import { recordCounterfactual, COUNTERFACTUAL_DAILY_CAP } from '../../learning/counterfactualShadow.js';
 import { recordUniverseEntries } from '../../learning/ledgerSimulator.js';
+// ADR-0068 (PR-R): Shadow Learning Hooks — PR-L (Rejection Tracker) + PR-M (Twin Portfolio) wiring
+import { recordRejection } from '../../learning/rejectionShadowTracker.js';
+import { recordTwinEntries } from '../../learning/counterfactualTwinPortfolio.js';
 import type { FullRegimeConfig } from '../../../src/types/core.js';
 import { REGIME_CONFIGS } from '../../../src/services/quant/regimeEngine.js';
 import { addRecommendation } from '../../learning/recommendationTracker.js';
@@ -303,6 +306,25 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       const currentPrice = await getPrice(stock.code);
       if (!currentPrice) { stageLog.price = 'FAIL'; pushTrace(); continue; }
       stageLog.price = 'PASS';
+
+      // ADR-0068 (PR-R): Twin Portfolio 학습 hook — 모든 candidate 를 3 Twin 정책 평가.
+      // recordTwinEntries 가 Gate Score 별 정책 (AGGRESSIVE ≥14 / DISCIPLINED ≥22 /
+      // EQUAL_WEIGHT ≥18) 평가 후 통과한 Twin 만 영속. 멱등 dupKey 로 중복 차단.
+      // try/catch 격리 — throw 시 LIVE 매매 흐름 무중단.
+      try {
+        const kstDate = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
+        recordTwinEntries({
+          stockCode: stock.code,
+          stockName: stock.name,
+          signalDate: kstDate,
+          gateScore: stock.gateScore ?? 0,
+          entryPrice: currentPrice,
+          // PR-R 본 PR scope: 0.10 균등 weight (sizingDecider 결과 입력은 후속 wiring)
+          kellyWeight: 0.10,
+        });
+      } catch (e) {
+        console.warn(`[TwinPortfolio] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
+      }
 
       // ── entryPrice 드리프트 체크: 현재가가 10% 이상 올랐으면 갱신/제거 ─────
       const driftAction = applyEntryPriceDrift(stock, currentPrice);
@@ -773,6 +795,23 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           } catch (e) {
             console.warn(`[Counterfactual] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
           }
+        }
+
+        // ADR-0068 (PR-R): Rejection Tracker 학습 hook — Gate 14~17 near-miss 만 추적.
+        // gateScore 가 임계 (REJECTION_NEAR_MISS_MIN/MAX) 밖이면 모듈이 자동 silent skip.
+        // try/catch 격리 — throw 시 LIVE 매매 흐름 무중단.
+        try {
+          const kstDate = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
+          recordRejection({
+            stockCode: stock.code,
+            stockName: stock.name,
+            signalDate: kstDate,
+            signalPriceKrw: currentPrice,
+            gateScore: stock.gateScore ?? 0,
+            rejectionReason: `entryRevalidation:${revalResult.failReasons.join(',')}`,
+          });
+        } catch (e) {
+          console.warn(`[RejectionShadow] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
         }
         continue;
       }

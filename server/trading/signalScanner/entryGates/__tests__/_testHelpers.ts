@@ -72,5 +72,7 @@ export function makeMockCtx(overrides: Partial<EntryGateContext> = {}): EntryGat
     currentPrice: overrides.currentPrice ?? stock.entryPrice,
     totalAssets: overrides.totalAssets ?? 100_000_000,
     kellyMultiplier: overrides.kellyMultiplier ?? 1.0,
+    // ADR-0067 (PR-Q): timeframeConfluence 옵셔널 — undefined fallback 명시
+    timeframeConfluence: overrides.timeframeConfluence,
   };
 }

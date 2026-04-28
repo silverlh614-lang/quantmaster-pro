@@ -22,6 +22,7 @@ import { rrrGate } from './rrrGate.js';
 import { sectorConcentrationGate } from './sectorConcentrationGate.js';
 import { sectorPreGuardGate } from './sectorPreGuardGate.js';
 import { portfolioRiskGate } from './portfolioRiskGate.js';
+import { timeframeConfluenceGate } from './timeframeConfluenceGate.js';
 
 import type { EntryGate } from './types.js';
 
@@ -33,6 +34,8 @@ export const ENTRY_GATES_PHASE_B: EntryGate[] = [
   sectorConcentrationGate,
   sectorPreGuardGate,
   portfolioRiskGate,
+  // ADR-0067 (PR-Q, 페어 B #2): Multi-Timeframe Confluence — 데이터 부재 시 PASS skip
+  timeframeConfluenceGate,
 ];
 
 /** PR-57 호환 alias — 본 PR-58 합류 후 ENTRY_GATES_PHASE_B 사용 권장. */
@@ -46,5 +49,6 @@ export {
   sectorConcentrationGate,
   sectorPreGuardGate,
   portfolioRiskGate,
+  timeframeConfluenceGate,
 };
-export type { EntryGate, EntryGateContext, EntryGateResult } from './types.js';
+export type { EntryGate, EntryGateContext, EntryGateResult, TimeframeAlignment } from './types.js';

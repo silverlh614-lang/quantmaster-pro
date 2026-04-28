@@ -27,6 +27,24 @@ export interface EntryGateContext {
   totalAssets: number;
   /** PR-58: sectorPreGuard 가 ctx.kellyMultiplier 사용. */
   kellyMultiplier: number;
+  /**
+   * ADR-0067 (PR-Q, 페어 B #2): Multi-Timeframe Confluence 입력 (옵셔널).
+   * 데이터 부재 시 timeframeConfluenceGate 가 자동 skip (PASS).
+   * 데이터 주입 wiring 은 후속 PR (perSymbolEvaluation 가 stock 의
+   * 일목/MA20 정렬 boolean 을 채워 ctx 에 첨부).
+   */
+  timeframeConfluence?: TimeframeAlignment;
+}
+
+/**
+ * ADR-0067: 3 timeframe 의 일목균형표 + MA20 정렬 boolean.
+ * 각 필드 true = 해당 timeframe 에서 종가가 일목 구름대 위 AND MA20 정배열.
+ * undefined = 해당 timeframe 데이터 미수집 (게이트가 카운트에서 제외).
+ */
+export interface TimeframeAlignment {
+  daily?: boolean;
+  weekly?: boolean;
+  intraday30m?: boolean;
 }
 
 export type EntryGateResult =
