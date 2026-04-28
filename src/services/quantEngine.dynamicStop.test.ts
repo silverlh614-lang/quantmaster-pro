@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { evaluateDynamicStop } from './quant/dynamicStopEngine';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { bepGlideStopPrice, evaluateDynamicStop } from './quant/dynamicStopEngine';
 import type { DynamicStopInput } from '../types/sell';
 
 // ─── 헬퍼 ────────────────────────────────────────────────────────────────────
@@ -76,21 +76,23 @@ describe('evaluateDynamicStop — 트레일링 스톱 (BEP 보호)', () => {
     expect(result.trailingActive).toBe(false);
   });
 
-  it('수익률 +5% 정확히 → BEP 보호 활성화', () => {
+  it('수익률 +5% 정확히 → BEP 글라이드 활성화 (ADR-0079)', () => {
+    // input default atr14=500, RISK_ON 시 bepGlide = 10000 − 0.5 × 500 = 9750
     const result = evaluateDynamicStop(input({ entryPrice: 10000, currentPrice: 10500 }));
     expect(result.trailingActive).toBe(true);
     expect(result.bepProtection).toBe(true);
     expect(result.profitLockIn).toBe(false);
-    // trailingStopPrice = entryPrice (진입가로 이동)
-    expect(result.trailingStopPrice).toBe(10000);
+    // ADR-0079: trailingStopPrice = entryPrice − 0.5 × atr14 (=9750), 진입가 직박 폐지
+    expect(result.trailingStopPrice).toBe(9750);
   });
 
-  it('수익률 +7% → BEP 보호 활성 (아직 Lock-in 미달)', () => {
+  it('수익률 +7% → BEP 글라이드 활성 (아직 Lock-in 미달, ADR-0079)', () => {
     const result = evaluateDynamicStop(input({ entryPrice: 10000, currentPrice: 10700 }));
     expect(result.trailingActive).toBe(true);
     expect(result.bepProtection).toBe(true);
     expect(result.profitLockIn).toBe(false);
-    expect(result.trailingStopPrice).toBe(10000);
+    // atr14=500 글라이드 동일 — Lock-in 임계 +10% 미달이라 BEP 분기 유지
+    expect(result.trailingStopPrice).toBe(9750);
   });
 });
 
@@ -180,5 +182,183 @@ describe('evaluateDynamicStop — 반환값 구조', () => {
     const result = evaluateDynamicStop(input({ entryPrice: 15300, atr14: 333, regime: 'RISK_ON' }));
     expect(result.stopPrice).toBe(Math.round(15300 - 333 * 2.0));
     expect(Number.isInteger(result.stopPrice)).toBe(true);
+  });
+});
+
+// ─── ADR-0079: bepGlideStopPrice 단위 함수 ────────────────────────────────────
+
+describe('bepGlideStopPrice — ATR-Buffered BEP Glide (ADR-0079)', () => {
+  const originalDisabled = process.env.BEP_GLIDE_DISABLED;
+
+  beforeEach(() => {
+    delete process.env.BEP_GLIDE_DISABLED;
+  });
+
+  afterEach(() => {
+    if (originalDisabled === undefined) {
+      delete process.env.BEP_GLIDE_DISABLED;
+    } else {
+      process.env.BEP_GLIDE_DISABLED = originalDisabled;
+    }
+  });
+
+  it('ATR > 0: 진입가 − 0.5 × ATR 글라이드 적용 (저 ATR)', () => {
+    // 10000 − 0.5 × 300 = 9850 (ATR 300, 마진 1.5%)
+    expect(bepGlideStopPrice(10000, 300)).toBe(9850);
+  });
+
+  it('ATR > 0: 진입가 − 0.5 × ATR 글라이드 적용 (중 ATR)', () => {
+    // 10000 − 0.5 × 1000 = 9500 (ATR 1000, 마진 5%)
+    expect(bepGlideStopPrice(10000, 1000)).toBe(9500);
+  });
+
+  it('ATR > 0: 진입가 − 0.5 × ATR 글라이드 적용 (고 ATR)', () => {
+    // 10000 − 0.5 × 3000 = 8500 (ATR 3000, 마진 15%)
+    expect(bepGlideStopPrice(10000, 3000)).toBe(8500);
+  });
+
+  it('ATR === 0: entryPrice fallback (기존 동작 회귀)', () => {
+    expect(bepGlideStopPrice(10000, 0)).toBe(10000);
+  });
+
+  it('ATR === undefined: entryPrice fallback', () => {
+    expect(bepGlideStopPrice(10000)).toBe(10000);
+  });
+
+  it('ATR === NaN: entryPrice fallback (안전 가드)', () => {
+    expect(bepGlideStopPrice(10000, NaN)).toBe(10000);
+  });
+
+  it('ATR === Infinity: entryPrice fallback (안전 가드)', () => {
+    expect(bepGlideStopPrice(10000, Infinity)).toBe(10000);
+  });
+
+  it('ATR === 음수: entryPrice fallback (안전 가드)', () => {
+    expect(bepGlideStopPrice(10000, -500)).toBe(10000);
+  });
+
+  it('1원 floor — ATR 가 entryPrice 의 2배 초과 시 음수 방지', () => {
+    // 1000 − 0.5 × 5000 = -1500 → 1원 floor
+    expect(bepGlideStopPrice(1000, 5000)).toBe(1);
+  });
+
+  it('Math.round 반올림 — 0.5 × ATR 가 소수점인 경우', () => {
+    // 10000 − 0.5 × 333 = 9833.5 → 9834
+    expect(bepGlideStopPrice(10000, 333)).toBe(9834);
+  });
+
+  it('BEP_GLIDE_DISABLED=true env: ATR 무시하고 entryPrice (긴급 롤백)', () => {
+    process.env.BEP_GLIDE_DISABLED = 'true';
+    expect(bepGlideStopPrice(10000, 1000)).toBe(10000);
+  });
+
+  it('BEP_GLIDE_DISABLED=true env: ATR 0 일 때도 entryPrice', () => {
+    process.env.BEP_GLIDE_DISABLED = 'true';
+    expect(bepGlideStopPrice(10000, 0)).toBe(10000);
+  });
+
+  it('BEP_GLIDE_DISABLED=false (기본값): ATR 글라이드 정상 작동', () => {
+    delete process.env.BEP_GLIDE_DISABLED;
+    expect(bepGlideStopPrice(10000, 500)).toBe(9750);
+  });
+});
+
+// ─── ADR-0079: evaluateDynamicStop BEP 분기 ATR 반영 통합 검증 ────────────────
+
+describe('evaluateDynamicStop — ADR-0079 BEP Glide 통합', () => {
+  const originalDisabled = process.env.BEP_GLIDE_DISABLED;
+
+  beforeEach(() => {
+    delete process.env.BEP_GLIDE_DISABLED;
+  });
+
+  afterEach(() => {
+    if (originalDisabled === undefined) {
+      delete process.env.BEP_GLIDE_DISABLED;
+    } else {
+      process.env.BEP_GLIDE_DISABLED = originalDisabled;
+    }
+  });
+
+  it('+5% & ATR=1500 (고변동): trailingStopPrice = 9250 (-7.5% 마진)', () => {
+    const result = evaluateDynamicStop(input({
+      entryPrice: 10000,
+      atr14: 1500,
+      currentPrice: 10500,
+    }));
+    expect(result.trailingStopPrice).toBe(9250);
+    expect(result.bepProtection).toBe(true);
+  });
+
+  it('+5% & ATR=300 (저변동): trailingStopPrice = 9850 (-1.5% 마진)', () => {
+    const result = evaluateDynamicStop(input({
+      entryPrice: 10000,
+      atr14: 300,
+      currentPrice: 10500,
+    }));
+    expect(result.trailingStopPrice).toBe(9850);
+    expect(result.bepProtection).toBe(true);
+  });
+
+  it('+5% & ATR=0 (회귀 보장): trailingStopPrice = entryPrice (기존 동작)', () => {
+    const result = evaluateDynamicStop(input({
+      entryPrice: 10000,
+      atr14: 0,
+      currentPrice: 10500,
+    }));
+    expect(result.trailingStopPrice).toBe(10000);
+    expect(result.bepProtection).toBe(true);
+  });
+
+  it('+5% & BEP_GLIDE_DISABLED=true: trailingStopPrice = entryPrice (롤백)', () => {
+    process.env.BEP_GLIDE_DISABLED = 'true';
+    const result = evaluateDynamicStop(input({
+      entryPrice: 10000,
+      atr14: 1500,
+      currentPrice: 10500,
+    }));
+    expect(result.trailingStopPrice).toBe(10000);
+    expect(result.bepProtection).toBe(true);
+  });
+
+  it('+10% Lock-in 분기 무영향: ATR 클라이트 적용 안 됨 (entryPrice × 1.03)', () => {
+    // ADR-0079 scope: BEP 분기(+5%) 만 변경, Lock-in(+10%) 분기는 그대로
+    const result = evaluateDynamicStop(input({
+      entryPrice: 10000,
+      atr14: 1500,  // 고 ATR 도 Lock-in 분기엔 영향 없어야 함
+      currentPrice: 11000,
+    }));
+    expect(result.trailingStopPrice).toBe(10300);
+    expect(result.profitLockIn).toBe(true);
+  });
+
+  it('+5% & ATR=500: actionMessage 가 "BEP 글라이드" 표기', () => {
+    const result = evaluateDynamicStop(input({
+      entryPrice: 10000,
+      atr14: 500,
+      currentPrice: 10500,
+    }));
+    expect(result.actionMessage).toContain('BEP 글라이드');
+    expect(result.actionMessage).toContain('ATR');
+  });
+
+  it('+5% & ATR=0: actionMessage 가 기존 "BEP 보호" 표기 (회귀)', () => {
+    const result = evaluateDynamicStop(input({
+      entryPrice: 10000,
+      atr14: 0,
+      currentPrice: 10500,
+    }));
+    expect(result.actionMessage).toContain('BEP 보호');
+    expect(result.actionMessage).toContain('원금 보호');
+  });
+
+  it('+5% & BEP_GLIDE_DISABLED=true: actionMessage 가 기존 "BEP 보호" 표기', () => {
+    process.env.BEP_GLIDE_DISABLED = 'true';
+    const result = evaluateDynamicStop(input({
+      entryPrice: 10000,
+      atr14: 500,
+      currentPrice: 10500,
+    }));
+    expect(result.actionMessage).toContain('BEP 보호');
   });
 });
