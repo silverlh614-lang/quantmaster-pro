@@ -65,7 +65,7 @@ PR-Y2 `reflectionImpactPolicy.ts` 패턴을 27 조건에 그대로 적용.
 ### 비-범위 (후속 PR)
 
 - 실제 silent/deprecated 가드 wiring (signalScanner / entryRevalidationStep 가 status
-  를 읽어 score 가중치 0 처리) — **데이터 누적 6개월 후 후속 PR**
+  를 읽어 score 가중치 0 처리) — **데이터 누적 6개월 후 후속 PR** (사용자 결정 2026-04-28)
 - `f2wDriftDetector` 와 결합한 자동 deprecation 트리거 — 운영 데이터 검증 후
 - 별도 영속 SSOT (일자별 활성률 추세) — attributionRepo 의 closedAt 시간 분포로 산출
   가능하므로 본 PR 미포함
