@@ -25,6 +25,7 @@ import {
   summarizeConditionLifecycle,
   isConditionLifecycleDisabled,
 } from '../learning/conditionLifecyclePolicy.js';
+import { analyzeShadowAttribution } from '../learning/conditionAttributionShadow.js';
 
 const router = Router();
 
@@ -143,6 +144,22 @@ router.get('/condition-lifecycle', (req: Request, res: Response) => {
   } catch (e) {
     console.error('[learningRouter] /condition-lifecycle 실패:', e);
     res.status(500).json({ error: 'condition_lifecycle_failed' });
+  }
+});
+
+/**
+ * ADR-0087 — Shadow Condition Attribution 분석 결과 read-only 노출.
+ *
+ * 27조건의 Over-Strict / Good Defense 분류 + summary.
+ * 거절 종목 사후 성과 + conditionScores 결합 분석.
+ */
+router.get('/condition-attribution-shadow', (_req: Request, res: Response) => {
+  try {
+    const result = analyzeShadowAttribution();
+    res.json(result);
+  } catch (e) {
+    console.error('[learningRouter] /condition-attribution-shadow 실패:', e);
+    res.status(500).json({ error: 'condition_attribution_shadow_failed' });
   }
 });
 

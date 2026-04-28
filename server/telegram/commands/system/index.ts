@@ -6,6 +6,7 @@
 // 한 줄을 추가하면 webhookHandler 가 자동으로 인식한다.
 
 import './aiStatus.cmd.js';
+import './conditionAttributionShadow.cmd.js';
 import './conditionLifecycle.cmd.js';
 import './health.cmd.js';
 import './learningHistory.cmd.js';
