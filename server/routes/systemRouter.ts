@@ -27,6 +27,7 @@ import { loadGateAudit } from '../persistence/gateAuditRepo.js';
 import { getCacheEntry, setCacheEntry, deleteCacheEntry, getAiCacheSnapshot } from '../persistence/aiCacheRepo.js';
 import { buildRagIndex, queryRag, generateAdvice, getRagStats } from '../rag/localRag.js';
 import { collectHealthSnapshot } from '../health/diagnostics.js';
+import { runCoherenceAudit } from '../persistence/cacheCoherenceAuditor.js';
 import fs from 'fs';
 
 const router = Router();
@@ -173,6 +174,20 @@ router.delete('/system/ai-cache/:key', (req: Request, res: Response) => {
 
 router.get('/system/ai-cache', (_req: Request, res: Response) => {
   res.json(getAiCacheSnapshot());
+});
+
+// ─── ADR-0090 Cache Coherence Audit ─────────────────────────────────────────
+// 79개 영속 파일 중 5종 invariant (OCO/PENDING ↔ SHADOW 참조 / Attribution
+// schema / TradeSignal finalizedAt / ConditionWeights 범위) 를 read-only 검사.
+// 외부 호출 0건. 파일 수정 0건. 회로 ENV: CACHE_COHERENCE_AUDIT_DISABLED=true.
+router.get('/system/coherence-audit', (_req: Request, res: Response) => {
+  try {
+    const report = runCoherenceAudit();
+    res.json(report);
+  } catch (e) {
+    console.error('[systemRouter] /system/coherence-audit 실패:', e);
+    res.status(500).json({ error: 'coherence_audit_failed' });
+  }
 });
 
 // ─── Idea 11: 로컬 RAG ────────────────────────────────────────────────────────

@@ -1,0 +1,75 @@
+// @responsibility MasterRadarChart 헬퍼 회귀 테스트 (cc 분해 검증)
+import { describe, it, expect } from 'vitest';
+import { getRadarData, getPassedConditionCount } from './MasterRadarChart';
+import type { StockRecommendation } from '../../../services/stockService';
+
+function buildStock(checklist: Partial<StockRecommendation['checklist']>): StockRecommendation {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return { code: 'X', name: 'X', checklist } as any;
+}
+
+describe('getRadarData', () => {
+  it('5 카테고리 반환 (기본/기술/수급/시장/전략)', () => {
+    const data = getRadarData(buildStock({}));
+    expect(data).toHaveLength(5);
+    expect(data.map((d) => d.subject)).toEqual([
+      '기본적 분석',
+      '기술적 분석',
+      '수급 분석',
+      '시장 주도력',
+      '전략/심리',
+    ]);
+  });
+
+  it('각 카테고리 fullMark=100', () => {
+    const data = getRadarData(buildStock({}));
+    expect(data.every((d) => d.fullMark === 100)).toBe(true);
+  });
+
+  it('빈 checklist 시 모든 카테고리 A=0', () => {
+    const data = getRadarData(buildStock({}));
+    expect(data.every((d) => d.A === 0)).toBe(true);
+  });
+
+  it('일부 통과 시 해당 카테고리만 비례 점수', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = getRadarData(buildStock({ roeType3: true } as any));
+    const fundamental = data.find((d) => d.subject === '기본적 분석');
+    // 7개 중 1개 통과 = round(100/7) = 14
+    expect(fundamental?.A).toBe(14);
+  });
+
+  it('전체 통과 시 A=100', () => {
+    const allTrue = {
+      roeType3: true, earningsSurprise: true, performanceReality: true, ocfQuality: true,
+      marginAcceleration: true, interestCoverage: true, economicMoatVerified: true,
+      momentumRanking: true, ichimokuBreakout: true, technicalGoldenCross: true,
+      volumeSurgeVerified: true, turtleBreakout: true, fibonacciLevel: true,
+      elliottWaveVerified: true, vcpPattern: true, divergenceCheck: true,
+      supplyInflow: true, institutionalBuying: true, consensusTarget: true,
+      cycleVerified: true, riskOnEnvironment: true, notPreviousLeader: true,
+      policyAlignment: true, mechanicalStop: true, psychologicalObjectivity: true,
+      catalystAnalysis: true,
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = getRadarData(buildStock(allTrue as any));
+    expect(data.every((d) => d.A === 100)).toBe(true);
+  });
+});
+
+describe('getPassedConditionCount', () => {
+  it('빈 checklist 시 0', () => {
+    expect(getPassedConditionCount(buildStock({}))).toBe(0);
+  });
+
+  it('checklist 부재 시 0', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(getPassedConditionCount({ code: 'X' } as any)).toBe(0);
+  });
+
+  it('truthy 값만 카운트', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stock = buildStock({ roeType3: true, earningsSurprise: false, ocfQuality: true } as any);
+    expect(getPassedConditionCount(stock)).toBe(2);
+  });
+});

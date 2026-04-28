@@ -1,12 +1,7 @@
 // @responsibility analysis 영역 DeepAnalysisModal 컴포넌트
-import React, { useMemo, useRef, useEffect } from 'react';
-import { RefreshCw, Download, X, CheckCircle2, Sparkles, Radar, CheckSquare } from 'lucide-react';
+import React, { useMemo, useRef, useEffect, useCallback } from 'react';
+import { RefreshCw, Download, X, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import {
-  Radar as RechartsRadar, RadarChart, PolarGrid,
-  PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer
-} from 'recharts';
-import { cn } from '../../ui/cn';
 import { QuantDashboard } from './QuantDashboard';
 import { CandleChart } from './CandleChart';
 import { AnalysisViewToggle, AnalysisViewButtons } from './AnalysisViewToggle';
@@ -16,10 +11,8 @@ import { useAnalysisStore } from '../../stores';
 import { useShadowTradeStore } from '../../stores/useShadowTradeStore';
 import { buildShadowTrade } from '../../services/autoTrading';
 import { syncStockPrice } from '../../services/stockService';
-import { MASTER_CHECKLIST_STEPS } from '../../constants/checklist';
 import type { StockRecommendation } from '../../services/stockService';
-import type { ChecklistKey } from '../../types/quant';
-import { CHECKLIST_KEY_TO_CONDITION_ID } from '../../types/quant';
+import type { EvaluationResult } from '../../types/core';
 import { debugLog, debugWarn } from '../../utils/debug';
 
 // Sub-components
@@ -34,6 +27,12 @@ import { FundamentalsColumn } from './DeepAnalysisModal/FundamentalsColumn';
 import { SentimentSection } from './DeepAnalysisModal/SentimentSection';
 import { RiskChecklistSection } from './DeepAnalysisModal/RiskChecklistSection';
 import { ModalFooter } from './DeepAnalysisModal/ModalFooter';
+import { MasterRadarChart } from './DeepAnalysisModal/MasterRadarChart';
+import { KeyChecklistOverview } from './DeepAnalysisModal/KeyChecklistOverview';
+import { buildDeepAnalysisEvaluateInput } from './DeepAnalysisModal/buildEvaluateInput';
+import { buildMockShadowSignal } from './DeepAnalysisModal/buildMockShadowSignal';
+
+const KIS_BALANCE_DEFAULT = 100_000_000;
 
 interface DeepAnalysisModalProps {
   stock: StockRecommendation | null;
@@ -72,25 +71,16 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
   }, [stock?.code]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const globalIntelStore = useGlobalIntelStore();
-  const macroEnv = globalIntelStore.macroEnv;
-  const exportRatio = globalIntelStore.exportRatio;
-  const currentRoeType = globalIntelStore.currentRoeType;
-  const economicRegimeData = globalIntelStore.economicRegimeData;
-  const extendedRegimeData = globalIntelStore.extendedRegimeData;
-  const smartMoneyData = globalIntelStore.smartMoneyData;
-  const exportMomentumData = globalIntelStore.exportMomentumData;
-  const geoRiskData = globalIntelStore.geoRiskData;
-  const creditSpreadData = globalIntelStore.creditSpreadData;
-  const globalCorrelation = globalIntelStore.globalCorrelation;
-  const newsFrequencyScores = globalIntelStore.newsFrequencyScores;
-  const supplyChainData = globalIntelStore.supplyChainData;
-  const financialStressData = globalIntelStore.financialStressData;
+  const {
+    macroEnv, exportRatio, currentRoeType,
+    economicRegimeData, extendedRegimeData,
+    smartMoneyData, exportMomentumData, geoRiskData, creditSpreadData,
+    globalCorrelation, newsFrequencyScores, supplyChainData, financialStressData,
+  } = globalIntelStore;
   const { marketOverview } = useMarketStore();
   const { watchlist, setWatchlist } = useRecommendationStore();
   const { setView } = useSettingsStore();
   const { addShadowTrade } = useShadowTradeStore();
-
-  const kisBalance = 100_000_000;
 
   const deepAnalysisGateSignals = useMemo(() => {
     if (!stock) return [];
@@ -100,20 +90,13 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
     return [];
   }, [stock?.code, stock?.type]);
 
-  const getRadarData = (s: StockRecommendation) => {
-    const categories = [
-      { name: '기본적 분석', keys: ['roeType3', 'earningsSurprise', 'performanceReality', 'ocfQuality', 'marginAcceleration', 'interestCoverage', 'economicMoatVerified'] },
-      { name: '기술적 분석', keys: ['momentumRanking', 'ichimokuBreakout', 'technicalGoldenCross', 'volumeSurgeVerified', 'turtleBreakout', 'fibonacciLevel', 'elliottWaveVerified', 'vcpPattern', 'divergenceCheck'] },
-      { name: '수급 분석', keys: ['supplyInflow', 'institutionalBuying', 'consensusTarget'] },
-      { name: '시장 주도력', keys: ['cycleVerified', 'riskOnEnvironment', 'notPreviousLeader', 'policyAlignment'] },
-      { name: '전략/심리', keys: ['mechanicalStop', 'psychologicalObjectivity', 'catalystAnalysis'] }
-    ];
-    return categories.map(cat => {
-      const passed = cat.keys.filter(key => s.checklist ? s.checklist[key as keyof StockRecommendation['checklist']] : 0).length;
-      const total = cat.keys.length;
-      return { subject: cat.name, A: Math.round((passed / total) * 100), fullMark: 100 };
-    });
-  };
+  const handleShadowTrade = useCallback((code: string, name: string, price: number) => {
+    if (!stock) return;
+    const mockSignal = buildMockShadowSignal(stock) as EvaluationResult;
+    const trade = buildShadowTrade(mockSignal, code, name, price, KIS_BALANCE_DEFAULT);
+    addShadowTrade(trade);
+    setView('AUTO_TRADE');
+  }, [stock, addShadowTrade, setView]);
 
   const canCloseRef = useRef(false);
   useEffect(() => {
@@ -174,84 +157,31 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
             {/* Modal Body */}
             <div className="flex-1 overflow-y-auto p-5 md:p-7 custom-scrollbar">
               {analysisView === 'QUANT' ? (
-                <QuantDashboard result={evaluateStock({
-                  rawStockData: Object.fromEntries(
-                    MASTER_CHECKLIST_STEPS.map(step => [
-                      CHECKLIST_KEY_TO_CONDITION_ID[step.key as ChecklistKey],
-                      stock?.checklist?.[step.key as keyof typeof stock.checklist] ? 10 : 0
-                    ])
-                  ) as Record<number, number>,
-                  regime: {
-                    type: (['BULL', 'RISK_ON'].includes(stock.aiConvictionScore?.marketPhase || '') ? '상승초기' :
-                           ['BEAR', 'RISK_OFF'].includes(stock.aiConvictionScore?.marketPhase || '') ? '하락' :
-                           stock.aiConvictionScore?.marketPhase === 'SIDEWAYS' ? '횡보' : '변동성'),
-                    weightMultipliers: marketOverview?.dynamicWeights || {},
-                    vKospi: stock.marketSentiment?.vkospi || 15,
-                    samsungIri: stock.marketSentiment?.iri || 3.5
-                  },
-                  profileType: stock.marketCapCategory === 'LARGE' ? 'A' : 'B',
-                  sectorRotation: {
-                    name: stock.relatedSectors?.[0] || 'Unknown',
-                    rank: 1,
-                    strength: stock.confidenceScore || 0,
-                    isLeading: stock.isSectorTopPick || false,
-                    sectorLeaderNewHigh: stock.sectorLeaderNewHigh || false
-                  },
-                  euphoriaSignals: 0,
-                  emergencyStop: false,
-                  rrr: stock.currentPrice > 0 && stock.stopLoss > 0 && stock.targetPrice > stock.currentPrice
-                    ? (stock.targetPrice - stock.currentPrice) / (stock.currentPrice - stock.stopLoss)
-                    : 2.1,
-                  sellSignals: (stock.sellSignals || []).map((_, i) => i),
-                  multiTimeframe: stock.multiTimeframe,
-                  enemyChecklist: stock.enemyChecklist,
-                  seasonality: stock.seasonality,
-                  attribution: stock.attribution,
-                  isPullbackVolumeLow: stock.isPullbackVolumeLow || false,
-                  macroEnv: macroEnv ?? undefined,
-                  stockExportRatio: exportRatio,
-                  advancedContext: {
-                    smartMoney: smartMoneyData ?? undefined,
-                    exportMomentum: exportMomentumData ?? undefined,
-                    geoRisk: geoRiskData ?? undefined,
-                    creditSpread: creditSpreadData ?? undefined,
-                    economicRegime: extendedRegimeData?.regime ?? economicRegimeData?.regime,
-                    supplyChain: supplyChainData ?? undefined,
-                    financialStress: financialStressData ?? undefined,
-                    newsPhase: (newsFrequencyScores.find((n: any) => n.code === stock.code)?.phase) as any ?? undefined,
-                    catalystDescription: stock.reason,
-                    weeklyRsiValues: weeklyRsiValues.length > 0 ? weeklyRsiValues : undefined,
-                    institutionalAmounts: stock.supplyData?.institutionalDailyAmounts ?? undefined,
-                  },
-                  extendedRegimeOptions: {
-                    kospi60dVolatility: extendedRegimeData?.uncertaintyMetrics?.kospi60dVolatility,
-                    leadingSectorCount: extendedRegimeData?.uncertaintyMetrics?.leadingSectorCount,
-                    foreignFlowDirection: extendedRegimeData?.uncertaintyMetrics?.foreignFlowDirection,
-                    kospiSp500Correlation: globalCorrelation?.kospiSp500,
-                    financialStress: financialStressData ?? undefined,
-                  },
-                  stockSector: stock.relatedSectors?.[0],
-                })}
-                economicRegime={extendedRegimeData ?? economicRegimeData ?? undefined}
-                currentRoeType={currentRoeType}
-                marketOverview={marketOverview}
-                stockCode={stock?.code}
-                stockName={stock?.name}
-                currentPrice={stock?.currentPrice}
-                onShadowTrade={(code, name, price) => {
-                  const totalAssets = kisBalance;
-                  const mockSignal = {
-                    positionSize: stock?.confidenceScore && stock.confidenceScore >= 80 ? 20 : 10,
-                    rrr: 2,
-                    lastTrigger: stock?.type === 'STRONG_BUY',
-                    recommendation: stock?.type === 'STRONG_BUY' ? '풀 포지션' : '절반 포지션',
-                    profile: { stopLoss: -8 },
-                  } as any;
-                  const trade = buildShadowTrade(mockSignal, code, name, price, totalAssets);
-                  addShadowTrade(trade);
-                  setView('AUTO_TRADE');
-                }}
-              />
+                <QuantDashboard
+                  result={evaluateStock(buildDeepAnalysisEvaluateInput(stock, {
+                    marketOverview,
+                    macroEnv,
+                    exportRatio,
+                    smartMoneyData,
+                    exportMomentumData,
+                    geoRiskData,
+                    creditSpreadData,
+                    extendedRegimeData,
+                    economicRegimeData,
+                    supplyChainData,
+                    financialStressData,
+                    newsFrequencyScores,
+                    globalCorrelation,
+                    weeklyRsiValues,
+                  }))}
+                  economicRegime={extendedRegimeData ?? economicRegimeData ?? undefined}
+                  currentRoeType={currentRoeType}
+                  marketOverview={marketOverview}
+                  stockCode={stock?.code}
+                  stockName={stock?.name}
+                  currentPrice={stock?.currentPrice}
+                  onShadowTrade={handleShadowTrade}
+                />
               ) : (
                 <>
                   <ModalHeader stock={stock} />
@@ -279,82 +209,8 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
 
                   {/* Radar Chart & Checklist Overview */}
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-8">
-                    <div className="glass-3d rounded-2xl p-5 sm:p-6 border border-white/10 flex flex-col">
-                      <div className="w-full flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2.5">
-                          <Radar className="w-5 h-5 text-orange-500" />
-                          <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.25em]">27단계 마스터 레이더</span>
-                        </div>
-                        <div className="px-3 py-1 bg-orange-500/10 rounded-lg border border-orange-500/20">
-                          <span className="text-[11px] font-black text-orange-500">{Object.values(stock?.checklist || {}).filter(Boolean).length} / 27</span>
-                        </div>
-                      </div>
-
-                      <div className="w-full h-[280px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <RadarChart cx="50%" cy="50%" outerRadius="78%" data={getRadarData(stock)}>
-                            <PolarGrid stroke="rgba(255,255,255,0.1)" />
-                            <PolarAngleAxis
-                              dataKey="subject"
-                              tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 800 }}
-                            />
-                            <PolarRadiusAxis
-                              angle={30}
-                              domain={[0, 100]}
-                              tick={false}
-                              axisLine={false}
-                            />
-                            <RechartsRadar
-                              name={stock.name}
-                              dataKey="A"
-                              stroke="#f97316"
-                              fill="#f97316"
-                              fillOpacity={0.5}
-                            />
-                          </RadarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-
-                    <div className="glass-3d rounded-2xl p-5 sm:p-6 border border-white/10">
-                      <div className="flex items-center gap-2.5 mb-4">
-                        <CheckSquare className="w-5 h-5 text-green-400" />
-                        <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.25em]">핵심 체크리스트 현황</span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
-                        {[
-                          { label: '성장성 (Growth)', keys: ['roeType3', 'earningsSurprise', 'performanceReality', 'ocfQuality', 'marginAcceleration'] },
-                          { label: '기술적 분석 (Technical)', keys: ['momentumRanking', 'ichimokuBreakout', 'technicalGoldenCross', 'volumeSurgeVerified', 'turtleBreakout'] },
-                          { label: '수급 (Supply)', keys: ['supplyInflow', 'institutionalBuying', 'consensusTarget'] },
-                          { label: '시장 주도력 (Market)', keys: ['cycleVerified', 'riskOnEnvironment', 'notPreviousLeader', 'policyAlignment'] },
-                        ].map((group, gIdx) => (
-                          <div key={gIdx} className="space-y-1.5">
-                            <h5 className="text-[10px] font-black text-white/25 uppercase tracking-widest mb-2 border-b border-white/5 pb-1.5">{group.label}</h5>
-                            {group.keys.map(key => {
-                              const step = MASTER_CHECKLIST_STEPS.find(s => s.key === key);
-                              const isPassed = stock.checklist?.[key as keyof StockRecommendation['checklist']];
-                              return (
-                                <div key={key} className="flex items-center gap-2">
-                                  <div className={cn(
-                                    "w-4 h-4 rounded flex items-center justify-center border transition-all shrink-0",
-                                    isPassed ? "bg-green-500/20 border-green-500/30" : "bg-white/5 border-white/10 opacity-30"
-                                  )}>
-                                    {isPassed && <CheckCircle2 className="w-2.5 h-2.5 text-green-400" />}
-                                  </div>
-                                  <span className={cn(
-                                    "text-[11px] font-bold transition-colors truncate",
-                                    isPassed ? "text-white/80" : "text-white/20"
-                                  )}>
-                                    {step?.title.split(' (')[0]}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    <MasterRadarChart stock={stock} />
+                    <KeyChecklistOverview stock={stock} />
                   </div>
 
                   <MarketPositionSection stock={stock} />
