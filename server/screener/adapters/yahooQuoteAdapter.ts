@@ -11,6 +11,24 @@ import { guardedFetch } from '../../utils/egressGuard.js';
 import { safePctChange } from '../../utils/safePctChange.js';
 import { calcRSI, calcRSI14, calcEMAArr, calcMACD } from './_indicators.js';
 
+/**
+ * ADR-0028 §모순 보강: Yahoo 응답의 가격 필드 검증 SSOT.
+ *
+ * 기존 `meta.regularMarketPrice ?? closes[-1] ?? 0` 패턴의 함정:
+ *   - `??` (nullish coalescing) 은 *null/undefined 만* fallback. 0 은 통과.
+ *   - Yahoo 가 일부 KRX 종목 (예: 신규상장/거래정지) 에 `regularMarketPrice=0`
+ *     으로 응답하면 0 이 그대로 price 로 사용됨 → safePctChange 가 -100% 산출
+ *     → sanity 위반 누적 (2026-04-28 12:00 KST Railway 로그 222160.KQ 시나리오).
+ *
+ * `validPrice(v)` 는 0/NaN/Infinity/음수/null/undefined/non-numeric 모두 null 반환.
+ * 호출자가 chain 으로 `validPrice(a) ?? validPrice(b) ?? validPrice(c)` 처럼 묶어
+ * 첫 *유효 양수 가격* 만 채택하도록 강제.
+ */
+function validPrice(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 // 아이디어 5: 확장된 Yahoo 시세 인터페이스 (MA/고가/ATR/RSI/MACD + 가속도 포함)
 export interface YahooQuoteExtended {
   price: number;
@@ -96,12 +114,29 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
 
     if (closes.length < 5) return null;
 
-    const price = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 0;
-    const prevClose = meta.regularMarketPreviousClose ?? closes[closes.length - 2] ?? price;
-    const dayOpen = meta.regularMarketOpen ?? price;
-    // ADR-0059: stale prevClose 시 0 fallback — 일일 변화율 표기 보호.
-    // label 에 symbol 포함 — sanity 위반 시 Railway 로그에서 종목 즉시 식별 (2026-04-27 진단 갭 해소).
-    const changePercent = prevClose > 0
+    // ADR-0028 §모순 보강: Yahoo 가 KRX 종목 일부에 regularMarketPrice=0 응답하는
+    // 케이스 차단. validPrice chain 이 0/NaN/음수 모두 null → 다음 fallback 시도.
+    // 모두 실패하면 함수 자체 null 반환 (호출자에게 PRICE_MISSING 신호).
+    const price = validPrice(meta.regularMarketPrice)
+      ?? validPrice(closes[closes.length - 1]);
+    if (price === null) {
+      console.warn(
+        `[yahooQuoteAdapter] ${symbol} price=null — Yahoo regularMarketPrice ` +
+        `(raw=${meta.regularMarketPrice}) 누락 + closes 부재. PRICE_MISSING.`,
+      );
+      return null;
+    }
+
+    // prevClose: 4 출처 chain. 모두 실패 시 changePercent 계산 자체 스킵 (0 fallback X).
+    const prevClose = validPrice(meta.regularMarketPreviousClose)
+      ?? validPrice(closes[closes.length - 2])
+      ?? validPrice((meta as { chartPreviousClose?: number }).chartPreviousClose);
+
+    const dayOpen = validPrice(meta.regularMarketOpen) ?? price;
+
+    // ADR-0028: prevClose 가 null 이면 changePercent 계산 자체 미수행 — 0 fallback 차단.
+    // safePctChange 가 -100% 패턴을 만들지 못하도록 입력 단계에서 차단.
+    const changePercent = prevClose !== null
       ? (safePctChange(price, prevClose, { label: `yahooQuoteAdapter.changePercent:${symbol}` }) ?? 0)
       : 0;
     const volume = volumes[volumes.length - 1] ?? 0;
@@ -291,7 +326,8 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const quote: YahooQuoteExtended = {
       price: Math.round(price), changePercent, volume, avgVolume,
       dayOpen: Math.round(dayOpen),
-      prevClose: Math.round(prevClose),
+      // prevClose 가 null 이면 0 표기 (changePercent 는 이미 0). UI/메시지 표시용 안전 fallback.
+      prevClose: prevClose !== null ? Math.round(prevClose) : 0,
       ma5, ma20, ma60, high5d, high20d, high60d, atr, atr20avg, per,
       rsi14: parseFloat(rsi14.toFixed(1)),
       macd:  parseFloat(macd.toFixed(2)),

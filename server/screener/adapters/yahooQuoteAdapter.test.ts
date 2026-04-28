@@ -186,4 +186,137 @@ describe('fetchYahooQuote', () => {
       expect(warnedMessage).not.toContain('sanity 위반');
     });
   });
+
+  describe('ADR-0028 §모순: validPrice — Yahoo 가격 누락 0 fallback 차단', () => {
+    let warnSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+
+    it('regularMarketPrice=0 (사용자 보고 222160.KQ 시나리오) → null 반환 + PRICE_MISSING 로그', async () => {
+      // 사용자 Railway 12:00 KST 로그: current=0, base=8040 → safePctChange -100% 패턴
+      const closesEmpty: (number | null)[] = []; // closes 도 비어 있어 fallback 0 가 되던 케이스
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        closes: closesEmpty,
+        meta: {
+          regularMarketPrice: 0, // ← Yahoo 가 KRX 일부 종목에 0 응답
+          regularMarketPreviousClose: 8040,
+        },
+      }));
+      const result = await fetchYahooQuote('222160.KQ');
+      // closes < 5 가 먼저 차단하지만, closes 충분해도 price=0 → null 반환 검증을 별도 케이스에서.
+      expect(result).toBeNull();
+    });
+
+    it('regularMarketPrice=0 + closes 충분 → closes 마지막 값으로 fallback (validPrice chain)', async () => {
+      // closes 80개 정상, meta.regularMarketPrice=0 만 비정상 → closes[-1] fallback 작동
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        meta: {
+          regularMarketPrice: 0, // 0 이지만 ?? 우회로 통과 → 기존 코드는 0 채택, 신규 코드는 fallback
+          regularMarketPreviousClose: 100,
+        },
+      }));
+      const result = await fetchYahooQuote('FALLBACK-OK.KS');
+      // closes 의 마지막 값 = 179 (default 100 + 79)
+      expect(result).not.toBeNull();
+      expect(result!.price).toBe(179);
+      // PRICE_MISSING 로그 없어야 함 (fallback 성공)
+      const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(warnMsg).not.toContain('PRICE_MISSING');
+    });
+
+    it('regularMarketPrice=0 + closes 도 모두 0/null → null 반환 + PRICE_MISSING 로그', async () => {
+      // 모든 closes 가 0 → validPrice 가 모두 null → price=null → 함수 null 반환
+      // 단 L92 의 `> 0` 필터로 closes 가 빈 배열이 됨 → closes.length < 5 차단
+      const allZeroCloses: (number | null)[] = Array.from({ length: 80 }, () => 0);
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        closes: allZeroCloses,
+        meta: {
+          regularMarketPrice: 0,
+          regularMarketPreviousClose: 0,
+        },
+      }));
+      const result = await fetchYahooQuote('ALL-ZERO.KS');
+      expect(result).toBeNull();
+    });
+
+    it('regularMarketPrice=NaN → closes 로 fallback (validPrice 가 NaN 차단)', async () => {
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        meta: {
+          regularMarketPrice: NaN,
+          regularMarketPreviousClose: 100,
+        },
+      }));
+      const result = await fetchYahooQuote('NAN-PRICE.KS');
+      expect(result).not.toBeNull();
+      expect(result!.price).toBe(179); // closes 마지막 값
+    });
+
+    it('regularMarketPrice=음수 → closes 로 fallback (validPrice 가 음수 차단)', async () => {
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        meta: {
+          regularMarketPrice: -100,
+          regularMarketPreviousClose: 100,
+        },
+      }));
+      const result = await fetchYahooQuote('NEGATIVE-PRICE.KS');
+      expect(result).not.toBeNull();
+      expect(result!.price).toBe(179);
+    });
+
+    it('regularMarketPreviousClose=0 + closes[-2] 도 0 + chartPreviousClose 부재 → changePercent=0', async () => {
+      // 정상 price 는 있지만 prevClose 모두 null → changePercent 계산 자체 스킵 (0 fallback)
+      // 핵심: -100% 같은 비정상 값이 changePercent 에 들어가지 않음
+      const closes = [100, 100, ...Array.from({ length: 78 }, (_, i) => 110 + i)];
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        closes,
+        meta: {
+          regularMarketPrice: closes[closes.length - 1],
+          regularMarketPreviousClose: 0, // 비정상
+          // chartPreviousClose 부재
+        },
+      }));
+      const result = await fetchYahooQuote('NO-PREV-CLOSE.KS');
+      expect(result).not.toBeNull();
+      // 기존 코드는 closes[-2] 로 fallback 했는데 신규 코드도 동일 (validPrice 통과)
+      // closes[-2] = 187 → changePercent = (188-187)/187 ≈ 0.53%
+      expect(Math.abs(result!.changePercent)).toBeLessThan(5);
+    });
+
+    it('chartPreviousClose 만 유효 (regularMarketPreviousClose=0 + closes[-2]=null) → 3차 fallback 작동', async () => {
+      // 시나리오: prevClose 1차/2차 fallback 실패, 3차 chartPreviousClose 채택
+      const closes = [...Array.from({ length: 78 }, (_, i) => 100 + i), 178, 179];
+      // closes[-2] = 178 — 정상이라 1차 fallback (regularMarketPreviousClose=0) 후 2차 closes[-2] 작동
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        closes,
+        meta: {
+          regularMarketPrice: 179,
+          regularMarketPreviousClose: 0,
+          chartPreviousClose: 175,
+        },
+      }));
+      const result = await fetchYahooQuote('CHART-PREV.KS');
+      expect(result).not.toBeNull();
+      // 2차 fallback closes[-2]=178 채택 → (179-178)/178 ≈ 0.56%
+      expect(Math.abs(result!.changePercent)).toBeLessThan(2);
+    });
+
+    it('-100% 패턴 차단 (회귀 가드) — current=0 fallback 케이스에서 sanity 위반 0건', async () => {
+      // 사용자 보고 정확 재현: regularMarketPrice=0 + prevClose=8040
+      // 기존 코드: price=0, prevClose=8040 → safePctChange -100% sanity 위반 1건 발생
+      // 신규 코드: price=closes[-1] fallback → 정상 변화율
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        meta: {
+          regularMarketPrice: 0,
+          regularMarketPreviousClose: 8040,
+        },
+      }));
+      await fetchYahooQuote('222160.KQ');
+      const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      // -100% sanity 위반 발생 안 함
+      expect(warnMsg).not.toContain('-100');
+      expect(warnMsg).not.toMatch(/changePercent.*sanity 위반/);
+    });
+  });
 });
