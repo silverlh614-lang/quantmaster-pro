@@ -6,6 +6,7 @@
 // 한 줄을 추가하면 webhookHandler 가 자동으로 인식한다.
 
 import './aiStatus.cmd.js';
+import './conditionLifecycle.cmd.js';
 import './health.cmd.js';
 import './learningHistory.cmd.js';
 import './learningStatus.cmd.js';
@@ -18,5 +19,6 @@ import './scheduler.cmd.js';
 import './signalStatus.cmd.js';
 import './status.cmd.js';
 import './todaylog.cmd.js';
+import './walkForward.cmd.js';
 
 export {}; // 본 파일은 side-effect import 전용. 명시적 export 없음.

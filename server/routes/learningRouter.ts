@@ -9,6 +9,17 @@ import {
   KNOWN_REFLECTION_MODULES,
   getAllModuleStatuses,
 } from '../learning/reflectionImpactPolicy.js';
+import { loadWalkForwardResults } from '../persistence/walkForwardResultsRepo.js';
+import {
+  isFrameworkDisabled as isWalkForwardDisabled,
+  runWalkForwardFramework,
+} from '../learning/walkForwardFramework.js';
+import { loadCurrentSchemaRecords } from '../persistence/attributionRepo.js';
+import {
+  getAllConditionLifecycleStatuses,
+  summarizeConditionLifecycle,
+  isConditionLifecycleDisabled,
+} from '../learning/conditionLifecyclePolicy.js';
 
 const router = Router();
 
@@ -81,6 +92,67 @@ router.get('/reflection-impact', (req: Request, res: Response) => {
   } catch (e) {
     console.error('[learningRouter] /reflection-impact 실패:', e);
     res.status(500).json({ error: 'reflection_impact_failed' });
+  }
+});
+
+/**
+ * ADR-0083 — Walk-Forward Framework 영속 결과 read-only 노출.
+ *
+ * 윈도우 별 IS/OOS WindowMetrics + degradation + summary (avgDegradation /
+ * decayTrend / overfitFlagged) 일괄 반환. 운영자가 윈도우별 추세 점검.
+ */
+router.get('/walk-forward', (_req: Request, res: Response) => {
+  try {
+    const results = loadWalkForwardResults();
+    res.json({
+      ...results,
+      disabled: isWalkForwardDisabled(),
+    });
+  } catch (e) {
+    console.error('[learningRouter] /walk-forward 실패:', e);
+    res.status(500).json({ error: 'walk_forward_load_failed' });
+  }
+});
+
+/**
+ * ADR-0084 — Condition Lifecycle Status 일괄 조회.
+ *
+ * 27조건의 status (normal/grace/silent/deprecated) + activationRate +
+ * activatedCount + firstSeenAt + ageDays + byRegime 일괄 반환.
+ * 운영자가 어떤 조건이 silent 임계 근처인지 즉시 파악.
+ */
+router.get('/condition-lifecycle', (req: Request, res: Response) => {
+  try {
+    const rawDays = Number(req.query.days);
+    const windowDays = Number.isFinite(rawDays) && rawDays >= 1 && rawDays <= 365
+      ? Math.floor(rawDays)
+      : 180;
+    const records = loadCurrentSchemaRecords();
+    const reports = getAllConditionLifecycleStatuses(records, { windowDays });
+    res.json({
+      windowDays,
+      disabled: isConditionLifecycleDisabled(),
+      conditions: reports,
+      summary: summarizeConditionLifecycle(reports),
+    });
+  } catch (e) {
+    console.error('[learningRouter] /condition-lifecycle 실패:', e);
+    res.status(500).json({ error: 'condition_lifecycle_failed' });
+  }
+});
+
+/**
+ * ADR-0083 — Walk-Forward Framework 즉시 1회 실행 (동기 윈도우 산출).
+ *
+ * 비동기 cron 외에 운영자가 텔레그램 명령에서 수동 트리거. records 부족 시 skipped.
+ */
+router.post('/walk-forward/run', async (_req: Request, res: Response) => {
+  try {
+    const result = await runWalkForwardFramework();
+    res.json(result);
+  } catch (e) {
+    console.error('[learningRouter] /walk-forward/run 실패:', e);
+    res.status(500).json({ error: 'walk_forward_run_failed' });
   }
 });
 

@@ -566,6 +566,13 @@ export interface ServerShadowTrade {
    * 영속 round-trip 시 보존 — JSON 직렬화로 충분 (sanitize 변경 불필요).
    */
   entryPriceMetadata?: import('../utils/safePctChange.js').PriceBase;
+  /**
+   * ADR-0085 — BEP 글라이드 1차 터치 KST 영업일 (YYYY-MM-DD).
+   * Two-Bar Confirmation Gate 에서 1차 터치 시점에 영속 → 2개 봉 연속 미달 시 청산.
+   * 회복 시 호출자가 reset (undefined). 본 PR 은 schema 확장만 — 실제 청산 wiring 은
+   * 후속 PR (`exitEngine/rules/hardStopLoss.ts` BEP_PROTECTION 분기).
+   */
+  bepGlideTouchAt?: string;
 }
 
 // ─── Manual Exit Context ──────────────────────────────────────────────────────

@@ -97,8 +97,10 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     return cached.data;
   }
   try {
-    // range=2y — MTAS(월봉/주봉) 계산에 충분한 데이터 확보 (MA60, 가속도 지표 포함)
-    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=2y&interval=1d`;
+    // ADR-0082 — Yahoo range 전역 ≤1y 정책. 1y = 252영업일은 MA60+5일전MA60(65일) /
+    // ATR14 / BB20 / 주봉 RSI(9, 45영업일) / 60일 최고가 / 5일·20일 수익률 모두 충분.
+    // 13개월 월봉은 12개월로 graceful (KIS MTAS 보강 별도). 사용자 명시 "2y 금지".
+    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?range=1y&interval=1d`;
     const res = await guardedFetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
     }, 'HISTORICAL');
