@@ -488,6 +488,100 @@ describe('fetchYahooQuote', () => {
       expect(result!.return20d).toBeGreaterThan(0);
     });
 
+    // ─── ADR-0028 §PR-D3-D-2: changePercent prevClose PriceBase + DAILY mode ─
+    it('PR-D3-D-2: changePercent 신선 prevClose → 정상 산출', async () => {
+      const N = 80;
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      const timestamps = Array.from({ length: N }, (_, i) => Math.floor((now - (N - 1 - i) * dayMs) / 1000));
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({ timestamps }));
+      const result = await fetchYahooQuote('PR-D3D2-FRESH.KS');
+      // changePercent 신선 — closes[78]=178, closes[79]=179 → +0.56%
+      expect(result!.changePercent).toBeGreaterThan(0);
+      expect(result!.changePercent).toBeLessThan(2);
+      const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(warnMsg).not.toContain('STALE_BASE');
+    });
+
+    it('PR-D3-D-2: prevClose timestamp *5일 전* → DAILY 3일 임계 초과 → STALE_BASE', async () => {
+      const N = 80;
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      // closes[N-2] (prevClose) timestamp 만 *5일 전*
+      const timestamps = Array.from({ length: N }, (_, i) => {
+        if (i === N - 2) return Math.floor((now - 5 * dayMs) / 1000);
+        return Math.floor((now - (N - 1 - i) * dayMs) / 1000);
+      });
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({ timestamps }));
+      const result = await fetchYahooQuote('PR-D3D2-STALE.KS');
+      expect(result!.changePercent).toBe(0); // STALE_BASE 차단
+      const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(warnMsg).toContain('STALE_BASE @yahooQuoteAdapter.changePercent:PR-D3D2-STALE.KS');
+      expect(warnMsg).toContain('age=5');
+      expect(warnMsg).toContain('source=YAHOO_HISTORICAL');
+      expect(warnMsg).toContain('mode=DAILY');
+    });
+
+    it('PR-D3-D-2: timestamps 부재 → fetch-1일 fallback → DAILY 임계 안 통과', async () => {
+      // timestamps 미명시 → closeTimestamps[i]=0 → isoFromCloseIdx=fetchTime fallback
+      // prevClose asOf 는 *fetch 시점 - 1일* (변경 코드의 또 다른 fallback)
+      // → DAILY 3일 임계 안 → 정상 통과
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse());
+      const result = await fetchYahooQuote('PR-D3D2-NOTIME.KS');
+      expect(result!.changePercent).toBeGreaterThan(0);
+      expect(result!.changePercent).toBeLessThan(2);
+      const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(warnMsg).not.toContain('STALE_BASE');
+    });
+
+    it('PR-D3-D-2: 사용자 보고 +121.36% changePercent — DAILY 50% 임계 초과 차단', async () => {
+      // 005070.KQ: current=139900, base=63200 → +121.36%
+      const N = 80;
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      const closes = Array.from({ length: N }, (_, i) => 63000 + i * 2);
+      closes[N - 2] = 63200; // prevClose
+      closes[N - 1] = 139900; // current
+      const timestamps = Array.from({ length: N }, (_, i) => Math.floor((now - (N - 1 - i) * dayMs) / 1000));
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        closes,
+        timestamps,
+        meta: {
+          regularMarketPrice: 139900,
+          regularMarketPreviousClose: 63200,
+          regularMarketOpen: 139900,
+        },
+      }));
+      const result = await fetchYahooQuote('PR-D3D2-CASE-005070.KQ');
+      expect(result!.changePercent).toBe(0); // DAILY 50% 임계 초과
+      const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      // sanity 위반 라벨 (STALE_BASE 가 아님)
+      expect(warnMsg).toContain('sanity 위반 @yahooQuoteAdapter.changePercent:PR-D3D2-CASE-005070.KQ');
+      expect(warnMsg).toContain('50%'); // DAILY 임계
+      expect(warnMsg).toContain('src=YAHOO_HISTORICAL');
+    });
+
+    it('PR-D3-D-2: 정상 +30% 상한가 — DAILY 50% 안 통과', async () => {
+      const N = 80;
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      const closes = Array.from({ length: N }, (_, i) => 100 + i);
+      closes[N - 2] = 100; // prevClose
+      closes[N - 1] = 130; // current — +30%
+      const timestamps = Array.from({ length: N }, (_, i) => Math.floor((now - (N - 1 - i) * dayMs) / 1000));
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({
+        closes,
+        timestamps,
+        meta: {
+          regularMarketPrice: 130,
+          regularMarketPreviousClose: 100,
+          regularMarketOpen: 130,
+        },
+      }));
+      const result = await fetchYahooQuote('PR-D3D2-LIMIT-UP.KS');
+      expect(result!.changePercent).toBeCloseTo(30, 0);
+    });
+
     it('close5dAgo 가 *50일 전* timestamp — RECOMMENDATION_RETURN 30일 임계 초과 → STALE_BASE', async () => {
       const N = 80;
       const now = Date.now();

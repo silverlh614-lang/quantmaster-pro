@@ -133,6 +133,16 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const lows    = rawLows.filter((v): v is number => v != null && v > 0);
     const volumes = rawVolumes.filter((v): v is number => v != null && v > 0);
 
+    // ADR-0028 §PR-D3-D: PriceBase asOf 산출 헬퍼 — closeTimestamps 정의 직후 노출.
+    // changePercent / return5d / return20d 모두 사용. 0 placeholder 시 fetch 시점 fallback.
+    const fetchTime = new Date().toISOString();
+    const isoFromCloseIdx = (idx: number): string => {
+      const ts = closeTimestamps[idx];
+      return typeof ts === 'number' && ts > 0
+        ? new Date(ts * 1000).toISOString()
+        : fetchTime;
+    };
+
     if (closes.length < 5) return null;
 
     // ADR-0028 §모순 보강: Yahoo 가 KRX 종목 일부에 regularMarketPrice=0 응답하는
@@ -157,8 +167,22 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
 
     // ADR-0028: prevClose 가 null 이면 changePercent 계산 자체 미수행 — 0 fallback 차단.
     // safePctChange 가 -100% 패턴을 만들지 못하도록 입력 단계에서 차단.
+    //
+    // PR-D3-D-2: prevClose 도 PriceBase 로 전달 — DAILY 모드 (50% 임계) + stale 자동 차단.
+    // 사용자 보고 +121.36% / +217.24% 같은 changePercent 위반 패턴 (전일 +30% 상한가
+    // 초과 = 상한가+갭 조합도 50% 안) 자동 차단. asOf 는 closes[length-2] timestamp.
+    const prevCloseAsOf = closes.length >= 2
+      ? isoFromCloseIdx(closes.length - 2)
+      : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const changePercent = prevClose !== null
-      ? (safePctChange(price, prevClose, { label: `yahooQuoteAdapter.changePercent:${symbol}` }) ?? 0)
+      ? (safePctChange(price, {
+          value: prevClose,
+          asOf: prevCloseAsOf,
+          source: 'YAHOO_HISTORICAL',
+        }, {
+          label: `yahooQuoteAdapter.changePercent:${symbol}`,
+          mode: 'DAILY',
+        }) ?? 0)
       : 0;
     const volume = volumes[volumes.length - 1] ?? 0;
 
@@ -243,15 +267,6 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     // ADR-0028 §PR-D3-D: PriceBase 객체로 base 전달 — stale 자동 차단.
     // 사용자 보고 +443% 시나리오 (close20dAgo 가 *6개월 전* 가격) → asOf 가
     // 30일 임계 (RECOMMENDATION_RETURN) 초과 시 STALE_BASE null 반환.
-    const fetchTime = new Date().toISOString();
-
-    /** close timestamp 인덱스 → ISO. 0 (placeholder) 시 fetch 시점 fallback. */
-    const isoFromCloseIdx = (idx: number): string => {
-      const ts = closeTimestamps[idx];
-      return typeof ts === 'number' && ts > 0
-        ? new Date(ts * 1000).toISOString()
-        : fetchTime;
-    };
 
     // 직전 5거래일 수익률 — Regret Asymmetry Filter용
     // ADR-0028 §모드: 5일 수익률은 *테마주 폭등* (예: 광무, 이수페타시스) 에서 정상
