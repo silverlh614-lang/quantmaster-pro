@@ -2,7 +2,7 @@
  * @responsibility yahooQuoteAdapter 단위 테스트 (PR-56) — Yahoo HTTP mock + cache + 데이터 부족
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../utils/egressGuard.js', () => ({
   guardedFetch: vi.fn(),
@@ -18,6 +18,8 @@ function makeYahooResponse(opts: {
   lows?: (number | null)[];
   volumes?: (number | null)[];
   meta?: Record<string, unknown>;
+  /** ADR-0028 §PR-D3-D: 일자별 Unix sec timestamps. 미명시 시 result.timestamp 부재. */
+  timestamps?: number[];
 } = {}): Response {
   // ma60TrendUp 은 closes5dAgo (length-5) 에서 MA60 도 계산하므로 65 미만이면 fallback 0.
   // 80 으로 잡아 두 경로 모두 안정 산출.
@@ -31,10 +33,11 @@ function makeYahooResponse(opts: {
     regularMarketPreviousClose: closes[closes.length - 2] ?? 100,
     regularMarketOpen: closes[closes.length - 1] ?? 100,
   };
-  const body = {
+  const body: Record<string, unknown> = {
     chart: {
       result: [{
         meta,
+        ...(opts.timestamps !== undefined ? { timestamp: opts.timestamps } : {}),
         indicators: { quote: [{ close: closes, high: highs, low: lows, volume: volumes }] },
       }],
     },
@@ -387,6 +390,119 @@ describe('fetchYahooQuote', () => {
       const pct = safePctChange(200, result!.priceMetadata!, { mode: 'INTRADAY', silent: true });
       // priceMetadata.value=179 (closes 마지막 + 1) 또는 비슷한 값. 200 vs 179 → +11.7%
       expect(pct).not.toBeNull();
+    });
+  });
+
+  describe('ADR-0028 §PR-D3-D: return5d/return20d PriceBase wiring + STALE_BASE 차단', () => {
+    let warnSpy: ReturnType<typeof vi.spyOn>;
+    beforeEach(async () => {
+      const { __resetSafePctChangeWarnsForTests } = await import('../../utils/safePctChange.js');
+      __resetSafePctChangeWarnsForTests();
+      warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+    afterEach(() => warnSpy.mockRestore());
+
+    it('정상 timestamps — return5d 신선 base 통과', async () => {
+      // 80일 시계열 — 마지막 timestamp 가 *오늘* (close5dAgo timestamp 도 5일 전)
+      const N = 80;
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      const timestamps = Array.from({ length: N }, (_, i) => Math.floor((now - (N - 1 - i) * dayMs) / 1000));
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({ timestamps }));
+      const result = await fetchYahooQuote('FRESH-TIMESTAMPS.KS');
+      expect(result).not.toBeNull();
+      // return5d 가 정상 산출 (5일 전 = closes[74]=174 vs 마지막=179 → +2.87%)
+      expect(result!.return5d).toBeGreaterThan(0);
+      // STALE_BASE 진단 로그 부재
+      const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(warnMsg).not.toContain('STALE_BASE');
+    });
+
+    it('사용자 보고 +443% 시나리오 — close20dAgo 가 *6개월 전* 시점 → STALE_BASE 차단', async () => {
+      // 시나리오: closes 시계열은 80개지만 timestamps 가 *6개월 전 부터 오늘까지* 매핑 안 됨
+      // 첫 인덱스 (close20dAgo 위치) timestamp 가 *180일 전*
+      const N = 80;
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      // close20dAgo = closes[59] (= length 80 - 21)
+      const timestamps = Array.from({ length: N }, (_, i) => {
+        if (i === N - 21) {
+          // close20dAgo 인덱스 — *180일 전* timestamp (stale)
+          return Math.floor((now - 180 * dayMs) / 1000);
+        }
+        return Math.floor((now - (N - 1 - i) * dayMs) / 1000);
+      });
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({ timestamps }));
+      const result = await fetchYahooQuote('STALE-20D.KS');
+      expect(result).not.toBeNull();
+      // return20d=0 (STALE_BASE 차단으로 0 fallback)
+      expect(result!.return20d).toBe(0);
+      // STALE_BASE 진단 로그 발생
+      const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(warnMsg).toContain('STALE_BASE');
+      expect(warnMsg).toContain('return20d:STALE-20D.KS');
+      expect(warnMsg).toContain('age=180');
+      expect(warnMsg).toContain('source=YAHOO_HISTORICAL');
+    });
+
+    it('timestamps 부재 — fetch 시점 fallback (기존 동작 보존)', async () => {
+      // makeYahooResponse 가 timestamps 미명시 → result.timestamp 부재
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse());
+      const result = await fetchYahooQuote('NO-TIMESTAMPS.KS');
+      expect(result).not.toBeNull();
+      // timestamp 부재 → fetch 시점 (현재) fallback → stale 검증 통과
+      expect(result!.return5d).toBeGreaterThan(0);
+      expect(result!.return20d).toBeGreaterThan(0);
+    });
+
+    it('timestamps 0 placeholder — 해당 close 만 fetch 시점 fallback (인덱스 정합)', async () => {
+      const N = 80;
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      // close5dAgo 인덱스 (74) 의 timestamp 만 0 (placeholder), 나머지는 정상
+      const timestamps = Array.from({ length: N }, (_, i) => {
+        if (i === N - 6) return 0; // close5dAgo placeholder
+        return Math.floor((now - (N - 1 - i) * dayMs) / 1000);
+      });
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({ timestamps }));
+      const result = await fetchYahooQuote('PARTIAL-TIME.KS');
+      expect(result).not.toBeNull();
+      // 0 placeholder → fetch 시점 fallback → stale 검증 통과 → return5d 정상 산출
+      expect(result!.return5d).toBeGreaterThan(0);
+    });
+
+    it('null close 와 같은 인덱스 timestamp 도 함께 필터링 — 정합 보장', async () => {
+      // 인덱스 30 의 close 가 null → close 80 → 79개로 줄어듦
+      // timestamp 도 같은 인덱스 30 이 제거되어야 정합
+      const N = 80;
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      const closes: (number | null)[] = Array.from({ length: N }, (_, i) => 100 + i);
+      closes[30] = null; // 인덱스 30 close 부재
+      const timestamps = Array.from({ length: N }, (_, i) => Math.floor((now - (N - 1 - i) * dayMs) / 1000));
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({ closes, timestamps }));
+      const result = await fetchYahooQuote('NULL-FILTER.KS');
+      expect(result).not.toBeNull();
+      // closes 79개, timestamps 79개 — 인덱스 정합으로 stale 검증 정상 작동
+      expect(result!.return5d).toBeGreaterThan(0);
+      expect(result!.return20d).toBeGreaterThan(0);
+    });
+
+    it('close5dAgo 가 *50일 전* timestamp — RECOMMENDATION_RETURN 30일 임계 초과 → STALE_BASE', async () => {
+      const N = 80;
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      const timestamps = Array.from({ length: N }, (_, i) => {
+        if (i === N - 6) return Math.floor((now - 50 * dayMs) / 1000); // close5dAgo *50일 전*
+        return Math.floor((now - (N - 1 - i) * dayMs) / 1000);
+      });
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({ timestamps }));
+      // 종목코드 새로 — 기존 line 159 의 STALE-5D.KS 5분 캐시 hit 회피
+      const result = await fetchYahooQuote('PR-D3D-STALE5.KS');
+      expect(result!.return5d).toBe(0); // STALE_BASE 차단
+      const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(warnMsg).toContain('STALE_BASE @yahooQuoteAdapter.return5d:PR-D3D-STALE5.KS');
+      expect(warnMsg).toContain('age=50');
     });
   });
 });
