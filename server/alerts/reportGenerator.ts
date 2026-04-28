@@ -235,6 +235,19 @@ export async function generateDailyReport(): Promise<void> {
       } | 평균 ${stats.avgReturn.toFixed(2)}% | 복리 ${stats.compoundReturn.toFixed(2)}%`
     : `[월간 ${stats.month}] 표본 ${stats.total}건 — 통계 신뢰 위해 5건 이상 필요`;
 
+  // ADR-0089 — Shadow 학습 일일 라인 (Rejection alpha 누락 + Top Twin 비교).
+  // 데이터 부족 시 reportLine 빈 문자열 → filter Boolean 으로 자연 생략.
+  let shadowReportLine = '';
+  let shadowNarrativeLine = '';
+  try {
+    const { buildShadowLearningSummary } = await import('./shadowLearningSummary.js');
+    const summary = buildShadowLearningSummary(stats.compoundReturn ?? 0);
+    shadowReportLine = summary.reportLine;
+    shadowNarrativeLine = summary.narrativeLine;
+  } catch (e) {
+    console.warn('[DailyReport] Shadow 학습 요약 실패:', e instanceof Error ? e.message : e);
+  }
+
   const baseReport = [
     `[QuantMaster Pro] ${today} 자동매매 일일 리포트`,
     '',
@@ -245,12 +258,13 @@ export async function generateDailyReport(): Promise<void> {
     dailyStatsLine,
     `▶ MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})`,
     `▶ 워치리스트: ${watchlist.length}개`,
+    shadowReportLine ? `▶ ${shadowReportLine}` : '',
     '',
     tradeLines,
     '',
     monthlyLine,
     `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? 'SHADOW (가상매매)' : 'LIVE (실매매)'}`,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 
   // ── Gemini AI 내러티브 생성 (googleSearch 없음 — 비용 절감) ─────────────────
   const realizedDetail = realizations.length > 0
@@ -273,6 +287,7 @@ export async function generateDailyReport(): Promise<void> {
     `월간 통계 (${stats.month}): 전체 ${stats.total}건 / WIN률 ${stats.winRate.toFixed(1)}% / 평균수익 ${stats.avgReturn.toFixed(2)}%`,
     `STRONG_BUY 적중률: ${stats.strongBuyWinRate.toFixed(1)}%`,
     realizedDetail ? `오늘 실현 상세: ${realizedDetail}` : '',
+    shadowNarrativeLine,
   ].filter(Boolean).join('\n');
 
   const geminiPrompt = [

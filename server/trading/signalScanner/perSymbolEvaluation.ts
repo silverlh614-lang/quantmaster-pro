@@ -802,8 +802,10 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         // ADR-0068 (PR-R): Rejection Tracker 학습 hook — Gate 14~17 near-miss 만 추적.
         // gateScore 가 임계 (REJECTION_NEAR_MISS_MIN/MAX) 밖이면 모듈이 자동 silent skip.
         // try/catch 격리 — throw 시 LIVE 매매 흐름 무중단.
+        // ADR-0087 PR-F-2: conditionScores 전달 — Over-Strict / Good Defense 분류 입력.
         try {
           const kstDate = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
+          const conditionScores = buildEntryConditionScores(stock.conditionKeys);
           recordRejection({
             stockCode: stock.code,
             stockName: stock.name,
@@ -811,6 +813,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             signalPriceKrw: currentPrice,
             gateScore: stock.gateScore ?? 0,
             rejectionReason: `entryRevalidation:${revalResult.failReasons.join(',')}`,
+            conditionScores,
           });
         } catch (e) {
           console.warn(`[RejectionShadow] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
