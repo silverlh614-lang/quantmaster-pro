@@ -14,12 +14,27 @@ import {
   isFrameworkDisabled as isWalkForwardDisabled,
   runWalkForwardFramework,
 } from '../learning/walkForwardFramework.js';
+import { loadShadowWalkForwardResults } from '../persistence/shadowWalkForwardResultsRepo.js';
+import {
+  isShadowFrameworkDisabled,
+  runShadowWalkForward,
+} from '../learning/shadowWalkForwardFramework.js';
 import { loadCurrentSchemaRecords } from '../persistence/attributionRepo.js';
 import {
   getAllConditionLifecycleStatuses,
   summarizeConditionLifecycle,
   isConditionLifecycleDisabled,
 } from '../learning/conditionLifecyclePolicy.js';
+import { analyzeShadowAttribution } from '../learning/conditionAttributionShadow.js';
+import {
+  getAllRejectionShadow,
+  summarizeRejectionShadow,
+} from '../learning/rejectionShadowTracker.js';
+import {
+  compareTwinsVsReal,
+  getAllTwinEntries,
+} from '../learning/counterfactualTwinPortfolio.js';
+import { getMonthlyStats } from '../learning/recommendationTracker.js';
 
 const router = Router();
 
@@ -138,6 +153,106 @@ router.get('/condition-lifecycle', (req: Request, res: Response) => {
   } catch (e) {
     console.error('[learningRouter] /condition-lifecycle 실패:', e);
     res.status(500).json({ error: 'condition_lifecycle_failed' });
+  }
+});
+
+/**
+ * ADR-0088 — Rejection Shadow 영속 + 통계 read-only 노출 (UI Dashboard 입력).
+ */
+router.get('/rejection-shadow', (req: Request, res: Response) => {
+  try {
+    const rawLimit = Number(req.query.limit);
+    const limit = Number.isFinite(rawLimit) && rawLimit >= 1 && rawLimit <= 500
+      ? Math.floor(rawLimit) : 50;
+    const allEntries = getAllRejectionShadow();
+    const summary = summarizeRejectionShadow();
+    // 최신순 정렬 (signalDate 내림차순) + limit 절삭
+    const sorted = [...allEntries].sort((a, b) =>
+      Date.parse(`${b.signalDate}T00:00:00Z`) - Date.parse(`${a.signalDate}T00:00:00Z`),
+    );
+    res.json({
+      summary,
+      entries: sorted.slice(0, limit),
+      totalCount: allEntries.length,
+    });
+  } catch (e) {
+    console.error('[learningRouter] /rejection-shadow 실패:', e);
+    res.status(500).json({ error: 'rejection_shadow_failed' });
+  }
+});
+
+/**
+ * ADR-0088 — Twin Portfolio 영속 + 비교 결과 read-only 노출 (UI Dashboard 입력).
+ */
+router.get('/twin-portfolio', (_req: Request, res: Response) => {
+  try {
+    const monthlyStats = getMonthlyStats();
+    const realCumReturnPct = monthlyStats.compoundReturn ?? 0;
+    const comparison = compareTwinsVsReal(realCumReturnPct);
+    const entries = getAllTwinEntries();
+    res.json({
+      comparison,
+      entries,
+      realCumReturnPct,
+      totalCount: entries.length,
+    });
+  } catch (e) {
+    console.error('[learningRouter] /twin-portfolio 실패:', e);
+    res.status(500).json({ error: 'twin_portfolio_failed' });
+  }
+});
+
+/**
+ * ADR-0087 — Shadow Condition Attribution 분석 결과 read-only 노출.
+ *
+ * 27조건의 Over-Strict / Good Defense 분류 + summary.
+ * 거절 종목 사후 성과 + conditionScores 결합 분석.
+ */
+router.get('/condition-attribution-shadow', (_req: Request, res: Response) => {
+  try {
+    const result = analyzeShadowAttribution();
+    res.json(result);
+  } catch (e) {
+    console.error('[learningRouter] /condition-attribution-shadow 실패:', e);
+    res.status(500).json({ error: 'condition_attribution_shadow_failed' });
+  }
+});
+
+/**
+ * ADR-0086 — Shadow Walk-Forward Framework 영속 결과 read-only 노출.
+ *
+ * Rejection (PR-L) + Twin (PR-M) 데이터의 IS/OOS 분할 결과 + summary.
+ * windowId='shadow_*' prefix — LIVE walk-forward 결과 (`/walk-forward`) 와 분리.
+ */
+router.get('/shadow-walk-forward', (_req: Request, res: Response) => {
+  try {
+    const results = loadShadowWalkForwardResults();
+    res.json({
+      ...results,
+      disabled: isShadowFrameworkDisabled(),
+    });
+  } catch (e) {
+    console.error('[learningRouter] /shadow-walk-forward 실패:', e);
+    res.status(500).json({ error: 'shadow_walk_forward_load_failed' });
+  }
+});
+
+/**
+ * ADR-0086 — Shadow Walk-Forward Framework 즉시 1회 실행.
+ *
+ * source 쿼리 ('REJECTION' | 'TWIN' | 'ALL', default 'ALL').
+ */
+router.post('/shadow-walk-forward/run', async (req: Request, res: Response) => {
+  try {
+    const sourceRaw = typeof req.query.source === 'string' ? req.query.source.toUpperCase() : '';
+    const source = (sourceRaw === 'REJECTION' || sourceRaw === 'TWIN' || sourceRaw === 'ALL')
+      ? sourceRaw as 'REJECTION' | 'TWIN' | 'ALL'
+      : 'ALL';
+    const result = await runShadowWalkForward({ source });
+    res.json(result);
+  } catch (e) {
+    console.error('[learningRouter] /shadow-walk-forward/run 실패:', e);
+    res.status(500).json({ error: 'shadow_walk_forward_run_failed' });
   }
 });
 

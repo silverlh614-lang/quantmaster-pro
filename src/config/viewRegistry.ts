@@ -21,6 +21,7 @@ export const VIEW_LABELS: Record<View, string> = {
   PORTFOLIO_EXTRACT: '포트폴리오 추출',
   RECOMMENDATION_HISTORY: '추천 이력',
   MACRO_INTEL: '매크로 인텔리전스',
+  SHADOW_LEARNING: 'Shadow 학습',
 };
 
 /** App name used in browser tab title */

@@ -7,7 +7,7 @@
 import type { ElementType } from 'react';
 import {
   Zap, Search, Bookmark, Filter, Radar, Calculator,
-  History, Shield, Activity, TrendingUp, Layers, Globe, Trophy,
+  History, Shield, Activity, TrendingUp, Layers, Globe, Trophy, Brain,
 } from 'lucide-react';
 import type { View } from '../stores/useSettingsStore';
 
@@ -65,6 +65,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'RECOMMENDATION_HISTORY', label: '추천 이력', icon: Trophy },
       { id: 'MACRO_INTEL', label: '매크로 인텔', icon: Globe },
+      { id: 'SHADOW_LEARNING', label: 'Shadow 학습', icon: Brain },
     ],
   },
 ];

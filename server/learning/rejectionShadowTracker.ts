@@ -46,6 +46,12 @@ export interface RejectionShadowEntry {
   lastUpdatedAt?: string;
   /** trackUntil 도달 또는 명시적 종결 */
   closed?: boolean;
+  /**
+   * ADR-0087 PR-F — 거절 시점 27조건 점수 (1~27 → 0~10).
+   * Over-Strict / Good Defense 분류 분석 입력. 옵셔널 — 호출자 wiring 후속 PR.
+   * 미전달 시 분석 모듈이 graceful fallback (해당 entry 제외).
+   */
+  conditionScores?: Record<number, number>;
 }
 
 export interface RejectionRecordInput {
@@ -55,6 +61,8 @@ export interface RejectionRecordInput {
   signalPriceKrw: number;
   gateScore: number;
   rejectionReason: string;
+  /** ADR-0087 — 옵셔널 27조건 점수 스냅샷 (호출자 wiring 후속 PR) */
+  conditionScores?: Record<number, number>;
 }
 
 export interface RejectionShadowSummary {
@@ -150,6 +158,7 @@ export function recordRejection(input: RejectionRecordInput): number {
     rejectionReason: input.rejectionReason,
     trackUntil,
     closed: false,
+    ...(input.conditionScores !== undefined && { conditionScores: input.conditionScores }),
   });
 
   saveEntries(entries);
