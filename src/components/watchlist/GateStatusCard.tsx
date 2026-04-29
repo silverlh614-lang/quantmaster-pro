@@ -8,12 +8,18 @@ import type {
   GateLineSummary,
   OverallVerdict,
 } from '../../types/ui';
+import { useUIVerbosity } from '../../hooks/useUIVerbosity';
 
 interface GateStatusCardProps {
   summary: GateCardSummary;
   /** 클릭 시 풀 디테일(StockDetailModal) 열기 콜백. 미지정 시 호버 비활성. */
   onExpand?: () => void;
   className?: string;
+  /**
+   * Verbosity 분기 강제 override — props 명시 시 useUIVerbosity 무시.
+   * ADR-0110 PR-Verbose-Wiring-5 — minimal/balanced 시 미렌더, verbose 한정.
+   */
+  forceShow?: boolean;
 }
 
 const VERDICT_STYLE: Record<OverallVerdict, { label: string; chip: string }> = {
@@ -68,7 +74,11 @@ function gateLine(label: string, line: GateLineSummary | null, isBoolean = false
  *
  * GateStatusWidget 와 별도 — expand 토글 없는 read-only 카드 (ADR-0028 §4).
  */
-export function GateStatusCard({ summary, onExpand, className }: GateStatusCardProps) {
+export function GateStatusCard({ summary, onExpand, className, forceShow }: GateStatusCardProps) {
+  // ADR-0110 PR-Verbose-Wiring-5: shouldShow('gate-status') 분기 — verbose 한정 (사용자 #12 매트릭스)
+  const vbs = useUIVerbosity();
+  const shouldRender = forceShow !== undefined ? forceShow : vbs.shouldShow('gate-status');
+  if (!shouldRender) return null;
   const { gate0Passed, gate1, gate2, gate3, overallVerdict } = summary;
   const v = VERDICT_STYLE[overallVerdict];
   const interactive = typeof onExpand === 'function';
