@@ -12,10 +12,17 @@
  * 7) compact / !compact 두 모드 모두 5-tier 격상
  * 8) useUILang() 라벨 사용 — UI_LANG.tier SSOT 정합 (KO 라벨)
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import { DataQualityBadge } from './DataQualityBadge';
 import type { DataQualityCount } from '../../types/ui';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+
+// ADR-0109 PR-Verbose-Wiring-4: DataQualityBadge default 'balanced' 라 무영향이지만
+// 명시적 보호 — minimal 시 미렌더 회귀 차단 위해 balanced 강제.
+beforeEach(() => {
+  useSettingsStore.getState().setUIVerbosity('balanced');
+});
 
 afterEach(() => cleanup());
 

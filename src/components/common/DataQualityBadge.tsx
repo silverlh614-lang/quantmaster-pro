@@ -5,12 +5,18 @@ import { HelpCircle } from 'lucide-react';
 import { cn } from '../../ui/cn';
 import type { DataQualityCount, DataQualityTier } from '../../types/ui';
 import { useUILang } from '../../hooks/useUILang';
+import { useUIVerbosity } from '../../hooks/useUIVerbosity';
 
 interface DataQualityBadgeProps {
   count: DataQualityCount;
   /** 컴팩트 모드 (카드용 한 줄). 기본 true. */
   compact?: boolean;
   className?: string;
+  /**
+   * Verbosity 분기 강제 override — props 명시 시 useUIVerbosity 무시 (테스트/특수 케이스).
+   * ADR-0109 PR-Verbose-Wiring-4 — minimal 시 미렌더, balanced/verbose 렌더.
+   */
+  forceShow?: boolean;
 }
 
 const TIER_STYLE: Record<DataQualityTier, string> = {
@@ -35,7 +41,11 @@ const TIER_LABEL: Record<DataQualityTier, string> = {
  *
  * 라벨은 UI_LANG.tier (ADR-0094 SSOT) 사용 — 향후 KO/EN 토글 시 자동 격상.
  */
-export function DataQualityBadge({ count, compact = true, className }: DataQualityBadgeProps) {
+export function DataQualityBadge({ count, compact = true, className, forceShow }: DataQualityBadgeProps) {
+  // ADR-0109 PR-Verbose-Wiring-4: shouldShow('data-quality') 분기 — minimal 시 미렌더, balanced/verbose 렌더
+  const verbosityState = useUIVerbosity();
+  const shouldRender = forceShow !== undefined ? forceShow : verbosityState.shouldShow('data-quality');
+  if (!shouldRender) return null;
   const t = useUILang();
   const { computed, api, aiInferred, delayed = 0, manual = 0, total, tier, sourceMetaAvailable } = count;
 
