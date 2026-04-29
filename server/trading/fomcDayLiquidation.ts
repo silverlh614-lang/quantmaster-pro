@@ -157,11 +157,14 @@ export async function liquidateAllForFomc(
         regime,
       });
 
+      // ADR-0104 — FOMC DAY 자동 청산은 'FOMC_DAY_LIQUIDATION' reason 으로 발송 →
+      // 텔레그램 메시지가 "🔴 [SHADOW 손절]" 가 아닌 "📅 [SHADOW FOMC 자동청산]" 로 표기.
+      // 사용자 보고 (4/29): "수익인 종목도 손실 표현됨" 의 오해 차단.
       const orderRes = await placeKisSellOrder(
         trade.stockCode,
         trade.stockName,
         qty,
-        'STOP_LOSS',
+        'FOMC_DAY_LIQUIDATION',
       );
 
       const ts = new Date().toISOString();
@@ -200,13 +203,13 @@ export async function liquidateAllForFomc(
       } else {
         syncPositionCache(trade);
         if (r.kind === 'PENDING') {
-          // LIVE 주문 접수 성공 → fillMonitor 폴링 등록
+          // LIVE 주문 접수 성공 → fillMonitor 폴링 등록 (ADR-0104 — originalReason 도 정합)
           addSellOrder({
             ordNo: r.ordNo,
             stockCode: trade.stockCode,
             stockName: trade.stockName,
             quantity: qty,
-            originalReason: 'STOP_LOSS',
+            originalReason: 'FOMC_DAY_LIQUIDATION',
             placedAt: ts,
             relatedTradeId: trade.id,
           });
