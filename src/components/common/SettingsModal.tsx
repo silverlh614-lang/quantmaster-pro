@@ -1,11 +1,12 @@
-// @responsibility common 영역 SettingsModal 컴포넌트
+// @responsibility common 영역 SettingsModal 컴포넌트 (UIVerbosityToggle 임베드 — ADR-0100)
 import React from 'react';
-import { Settings, Key, Trash2, ExternalLink } from 'lucide-react';
+import { Settings, Key, Trash2, ExternalLink, Layers } from 'lucide-react';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '../../ui/modal';
 import { Button } from '../../ui/button';
 import { cn } from '../../ui/cn';
 import { useSettingsStore } from '../../stores';
 import { THEME_OPTIONS } from '../../config';
+import { UIVerbosityToggle } from './UIVerbosityToggle';
 
 export function SettingsModal() {
   const {
@@ -68,6 +69,19 @@ export function SettingsModal() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* UI 정보 밀도 — ADR-0100 (사용자 #12) */}
+        <div className="space-y-2">
+          <label className="text-xs font-black text-theme-text-muted uppercase tracking-widest flex items-center gap-2">
+            <Layers className="w-3.5 h-3.5" />
+            정보 밀도
+          </label>
+          <UIVerbosityToggle className="w-full justify-between" />
+          <p className="text-[11px] text-theme-text-muted leading-snug">
+            카드/배지의 정보 노출량을 직접 제어합니다. <b>간결</b>은 핵심 결정만, <b>균형</b>은
+            V-E-R 3 슬롯, <b>상세</b>는 합치도·결손 사유·신뢰 띠까지 (운영자).
+          </p>
         </div>
       </ModalBody>
 
