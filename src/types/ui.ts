@@ -31,15 +31,22 @@ export interface MarketModePolicy {
 export type DataQualityTier = 'HIGH' | 'MEDIUM' | 'LOW';
 
 /**
- * 27 조건 항목별 실제 데이터 출처 (ADR-0029 PR-B).
- * - COMPUTED: 클라이언트 OHLCV 직접 계산 (RSI/MACD/볼린저/일목/VCP …)
- * - API: DART/Naver/KIS proxy 응답 (ROE/PER/PBR/시총/외인비율 …)
- * - AI_INFERRED: Gemini 추론 (사이클/Risk-On/리더/정책/심리 …)
+ * 27 조건 항목별 실제 데이터 출처 (ADR-0029 PR-B + ADR-0095 PR-Phase-A-2).
+ *
+ * **3-tier (PR-A 기존, 후방호환 유지)**:
+ * - COMPUTED: 클라이언트 OHLCV 직접 계산 (RSI/MACD/볼린저/일목/VCP …) — UI_LANG.tier.VERIFIED
+ * - API: DART/Naver/KIS proxy 응답 (ROE/PER/PBR/시총/외인비율 …) — UI_LANG.tier.EXTERNAL
+ * - AI_INFERRED: Gemini 추론 (사이클/Risk-On/리더/정책/심리 …) — UI_LANG.tier.ESTIMATED
+ *
+ * **5-tier 확장 (PR-Phase-A-2 신규, 옵셔널)**:
+ * - DELAYED: 시장 외 시간 / stale 캐시 데이터 — UI_LANG.tier.DELAYED
+ * - MANUAL: 사용자 직접 입력 (TradeRecordModal 등) — UI_LANG.tier.MANUAL
  *
  * `StockRecommendation.conditionSourceTiers?: Partial<Record<ChecklistKey, ConditionSourceTier>>`
- * 로 첨부되어 `classifyDataQuality` 가 메타 우선 분기를 사용한다.
+ * 로 첨부되어 `classifyDataQuality` 가 메타 우선 분기를 사용한다. 메타가 5-tier 값을 포함하면
+ * 자동으로 더 정확한 분류로 격상 (사용자 #3 아이디어 — 자동 사다리).
  */
-export type ConditionSourceTier = 'COMPUTED' | 'API' | 'AI_INFERRED';
+export type ConditionSourceTier = 'COMPUTED' | 'API' | 'AI_INFERRED' | 'DELAYED' | 'MANUAL';
 
 // ─── PriceAlertWatcher (ADR-0030 PR-C) ─────────────────────────────────────
 
@@ -98,25 +105,40 @@ export interface EnemyChecklistSummary {
 }
 
 /**
- * DataQualityBadge 가 종목 카드에 노출하는 3분류 카운트.
+ * DataQualityBadge 가 종목 카드에 노출하는 분류 카운트.
+ *
+ * **3-tier (PR-A 기존, 후방호환 의무)**:
  * - PR-A: sourceMetaAvailable=false → 클라이언트 휴리스틱 fallback (handoff.md §휴리스틱).
  * - PR-B: 서버 enrichment 응답에 sourceTier 메타가 들어오면 정확도 격상.
  *
- * tier 산출:
+ * **5-tier 확장 (PR-Phase-A-2 ADR-0095, 옵셔널)**:
+ * - delayed?: 시장 외 시간 / stale 캐시 카운트 — dataSourceType === 'STALE' 또는 메타 'DELAYED'
+ * - manual?: 사용자 수동 입력 카운트 — 메타 'MANUAL'
+ *
+ * 옵셔널 필드라 기존 호출자 무수정 (delayed/manual 미정의 시 기존 동작). 사용자 #3 아이디어
+ * (자동 사다리) — 휴리스틱 모드는 STALE 만 자동 분류, 메타 모드는 5-tier 정확 분류.
+ *
+ * tier 산출 (변경 없음 — 후방호환):
  *   HIGH:   computed/total ≥ 0.6
  *   MEDIUM: computed/total ≥ 0.3
  *   LOW:    그 외
+ *
+ * 향후 5-tier 종합 등급 산출은 후속 PR (DataQualityRibbon 등) 에서 별도 도입.
  */
 export interface DataQualityCount {
-  /** 🟢 실계산 — RSI/MACD/볼린저/일목/VCP 같이 클라이언트가 OHLCV 로 직접 계산한 항목 수 */
+  /** 🟢 실계산 — RSI/MACD/볼린저/일목/VCP 같이 클라이언트가 OHLCV 로 직접 계산한 항목 수 (UI_LANG.tier.VERIFIED) */
   computed: number;
-  /** 🟡 API — DART/Naver/KIS proxy 가 반환한 객관 수치 (ROE/PER/PBR/시총/외인비율) */
+  /** 🟡 API — DART/Naver/KIS proxy 가 반환한 객관 수치 (UI_LANG.tier.EXTERNAL) */
   api: number;
-  /** 🔴 AI추정 — Gemini 가 추론·요약·생성한 항목 (theme/sectorAnalysis/strategicInsight) */
+  /** 🔴 AI추정 — Gemini 가 추론·요약·생성한 항목 (UI_LANG.tier.ESTIMATED) */
   aiInferred: number;
-  /** computed + api + aiInferred. 표시 용도. */
+  /** ⏳ 지연 — 시장 외 시간 / stale 캐시 (PR-Phase-A-2 신규, UI_LANG.tier.DELAYED). 옵셔널 */
+  delayed?: number;
+  /** ✏️ 수동 — 사용자 직접 입력 (PR-Phase-A-2 신규, UI_LANG.tier.MANUAL). 옵셔널 */
+  manual?: number;
+  /** computed + api + aiInferred + delayed + manual. 표시 용도. */
   total: number;
-  /** 데이터 품질 종합 등급 */
+  /** 데이터 품질 종합 등급 (현재 computed/total 비율 기반 — 5-tier 산출은 후속 PR) */
   tier: DataQualityTier;
   /** 서버 sourceTier 메타가 들어왔는지 — false 면 fallback 휴리스틱 사용 표기 (작은 회색 ?) */
   sourceMetaAvailable: boolean;
