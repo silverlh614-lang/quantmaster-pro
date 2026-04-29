@@ -1138,10 +1138,20 @@ export async function placeKisSellOrder(
   stockCode: string,
   stockName: string,
   quantity: number,
-  reason: 'STOP_LOSS' | 'TAKE_PROFIT' | 'EUPHORIA',
+  reason: 'STOP_LOSS' | 'TAKE_PROFIT' | 'EUPHORIA' | 'FOMC_DAY_LIQUIDATION',
 ): Promise<SellOrderResult> {
-  const emoji = reason === 'STOP_LOSS' ? '🔴' : reason === 'TAKE_PROFIT' ? '🟢' : '🌡️';
-  const label = reason === 'STOP_LOSS' ? '손절' : reason === 'TAKE_PROFIT' ? '익절' : '과열부분매도';
+  // ADR-0104 — FOMC DAY 자동 청산은 손절(🔴)이 아닌 별도 라벨(📅 FOMC 자동청산)로
+  // 표기. 사용자 보고 (4/29): "수익인 종목도 손실 표현됨" 의 오해 차단.
+  const emoji =
+    reason === 'STOP_LOSS' ? '🔴'
+    : reason === 'TAKE_PROFIT' ? '🟢'
+    : reason === 'EUPHORIA' ? '🌡️'
+    : '📅'; // FOMC_DAY_LIQUIDATION
+  const label =
+    reason === 'STOP_LOSS' ? '손절'
+    : reason === 'TAKE_PROFIT' ? '익절'
+    : reason === 'EUPHORIA' ? '과열부분매도'
+    : 'FOMC 자동청산'; // FOMC_DAY_LIQUIDATION
 
   // Shadow 모드: 실주문 없이 로그 + Telegram만
   // KIS_IS_REAL=false(VTS) 또는 런타임 모드가 LIVE 가 아닐 때 모두 차단.

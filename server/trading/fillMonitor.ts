@@ -284,7 +284,7 @@ export interface PendingSellOrder {
   stockName: string;
   quantity: number;
   orderType: 'MARKET' | 'LIMIT';      // 현재 주문 유형
-  originalReason: 'STOP_LOSS' | 'TAKE_PROFIT' | 'EUPHORIA';
+  originalReason: 'STOP_LOSS' | 'TAKE_PROFIT' | 'EUPHORIA' | 'FOMC_DAY_LIQUIDATION';
   placedAt: string;
   pollCount: number;
   status: 'PENDING' | 'FILLED' | 'PARTIAL' | 'REISSUED_MARKET' | 'FAILED';
@@ -293,6 +293,20 @@ export interface PendingSellOrder {
   filledAt?: string;
   relatedTradeId?: string;
   reissuedOrdNo?: string;              // 시장가 재발행 시 새 주문번호
+}
+
+/**
+ * ADR-0104 — fillMonitor 체결 확인 메시지에 사용할 한국어 라벨.
+ * 사용자 보고 (4/29): "수익인 종목도 손실 표현됨" — 'FOMC_DAY_LIQUIDATION' 같은
+ * raw enum 노출 차단. placeKisSellOrder 의 emoji/label 분기와 정합.
+ */
+export function originalReasonLabel(reason: PendingSellOrder['originalReason']): string {
+  switch (reason) {
+    case 'STOP_LOSS': return '손절';
+    case 'TAKE_PROFIT': return '익절';
+    case 'EUPHORIA': return '과열부분매도';
+    case 'FOMC_DAY_LIQUIDATION': return 'FOMC 자동청산';
+  }
 }
 
 function loadPendingSellOrders(): PendingSellOrder[] {
@@ -524,7 +538,7 @@ export async function pollSellFills(): Promise<void> {
         await sendTelegramAlert(
           `✅ <b>[매도 체결 확인]</b> ${order.stockName} (${order.stockCode})\n` +
           `체결: ${filledQty}주 @${avgPrice.toLocaleString()}원\n` +
-          `사유: ${order.originalReason} | 주문번호: ${order.ordNo}` +
+          `사유: ${originalReasonLabel(order.originalReason)} | 주문번호: ${order.ordNo}` +
           remainingLine,
         ).catch(console.error);
       } else if (filledQty > 0) {
