@@ -72,7 +72,7 @@ export async function sendSuggestAlert(payload: SuggestPayload): Promise<boolean
     `현재: ${escapeSuggestHtml(payload.currentValue)}\n` +
     `권고: ${escapeSuggestHtml(payload.suggestedValue)}\n` +
     `임계: ${escapeSuggestHtml(payload.threshold)}\n` +
-    `반영: 수동 (/accept-suggest 는 Phase 2)`;
+    `반영: 수동 — 운영자 검토 후 ENV/가중치 직접 조정 (자동 적용 없음)`;
 
   try {
     await sendTelegramAlert(message, {
