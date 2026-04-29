@@ -30,10 +30,13 @@ const regime: TelegramCommand = {
     const liveRegimeLine = formatLiveRegimeLine(liveRegime);
     // ADR-0075 PR-4 wiring: 강세/소외 섹터 1줄 노출 — 운영자가 Gate +2/-1 부스트 영향 즉시 인지
     const sectorEnergyLine = formatSectorEnergyLine(macro);
+    // ADR-0107 (사용자 진단 4/29 "MHS 70 을 벗어난 적이 없다"): 4-axis 분해 노출.
+    const mhsAxisLine = formatMhsAxisLine(macro);
     await reply(
       `🌐 <b>[매크로 레짐 현황]</b>\n` +
       `━━━━━━━━━━━━━━━━\n` +
       `${mhsEmoji} MHS: ${macro.mhs ?? 'N/A'}\n` +
+      `${mhsAxisLine}\n` +
       `${regimeEmoji} 매크로: ${macro.regime ?? 'N/A'}\n` +
       `${liveRegimeLine}\n` +
       `📊 VKOSPI: ${macro.vkospi?.toFixed(1) ?? 'N/A'}\n` +
@@ -172,6 +175,33 @@ export function formatUsdKrwLine(macro: {
   const divLabel = typeof divPct === 'number' ? `${divPct.toFixed(2)}%` : 'N/A';
   const marker = tier === 'CRITICAL' ? '❌' : '⚠️';
   return `${valueLabel} (${sourceLabel}) ${marker} 격차 ${divLabel}`;
+}
+
+/**
+ * ADR-0107 (사용자 진단 4/29): MHS 4-axis 분해 라인 SSOT.
+ *
+ * 사용자 보고: "MHS 가 계속 70 을 벗어난 적이 없는 것 같다 — 제대로 나오는건지?".
+ * 코드 분석 결과 MHS 70 은 *함수 정상 작동* 의 narrow band 자연 수렴 — 4 axis
+ * (금리=20, 유동성=15, 경기=15, 리스크=25 → 합 75) fallback 합산. 시장이
+ * 중립 zone 에 머무르는 한 70 근방.
+ *
+ * 본 라인은 axis 분해를 운영자에게 직접 노출 — 어느 축이 *변동* 하고 어느 축이
+ * *fallback 으로 고정* 되어 있는지 즉시 진단 가능.
+ *
+ * 표시 분기:
+ *   - mhsAxis 부재 → "🧮 axis: N/A (다음 marketDataRefresh 사이클부터 노출)"
+ *   - 정상 → "🧮 axis: 금리 20 / 유동성 15 / 경기 15 / 리스크 25 (합 75)"
+ */
+export function formatMhsAxisLine(macro: {
+  mhsAxis?: { interestRate: number; liquidity: number; economy: number; risk: number };
+}): string {
+  const a = macro.mhsAxis;
+  if (!a) return '🧮 axis: N/A (다음 marketDataRefresh 사이클부터 노출)';
+  const sum = a.interestRate + a.liquidity + a.economy + a.risk;
+  return (
+    `🧮 axis: 금리 ${a.interestRate} / 유동성 ${a.liquidity} / 경기 ${a.economy} / 리스크 ${a.risk}` +
+    ` (합 ${sum})`
+  );
 }
 
 commandRegistry.register(regime);

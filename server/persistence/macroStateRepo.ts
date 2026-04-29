@@ -76,6 +76,20 @@ export interface MacroState {
   sectorEnergyResult?: SectorEnergyResult;
   /** sectorEnergyResult 마지막 갱신 시각 (ISO) — /regime 메시지 신선도 표시용. */
   sectorEnergyUpdatedAt?: string;
+  /**
+   * MHS 4-axis 분해 (interestRate / liquidity / economy / risk).
+   * macroIndexEngine.computeMacroIndex 의 idx.axis 결과 — 사용자 진단 (4/29):
+   * "MHS 70 을 벗어난 적이 없다" — axis 분해 노출로 변동성 가시화.
+   * 각 axis 는 0~25 범위, 합산 = mhs.
+   */
+  mhsAxis?: {
+    interestRate: number;
+    liquidity: number;
+    economy: number;
+    risk: number;
+  };
+  /** mhsAxis 마지막 갱신 시각 — `marketDataRefresh` 사이클 종료 시점. */
+  mhsAxisUpdatedAt?: string;
 }
 
 export function loadMacroState(): MacroState | null {
