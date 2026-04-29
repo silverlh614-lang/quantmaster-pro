@@ -27,6 +27,7 @@
  */
 import type { ReactElement } from 'react';
 import { cn } from '../../ui/cn';
+import { useUIVerbosity } from '../../hooks/useUIVerbosity';
 
 export type ConfluenceAxisId = 'FUNDAMENTAL' | 'FLOW' | 'TECHNICAL' | 'MACRO';
 
@@ -43,6 +44,11 @@ interface ConfluenceMeterProps {
   /** 컴팩트 모드 (한 줄 4 막대만, 결손 사유 미표시). 기본 false. */
   compact?: boolean;
   className?: string;
+  /**
+   * Verbosity 분기 강제 override — props 명시 시 useUIVerbosity 무시 (테스트/특수 케이스).
+   * ADR-0102 PR-Verbose-Wiring-2 — minimal/balanced 시 미렌더, verbose 한정.
+   */
+  forceShow?: boolean;
 }
 
 const AXIS_LABEL: Record<ConfluenceAxisId, string> = {
@@ -98,7 +104,13 @@ function formatScore(score: number): string {
   return score.toFixed(1);
 }
 
-export function ConfluenceMeter({ axes, compact = false, className }: ConfluenceMeterProps): ReactElement {
+export function ConfluenceMeter({ axes, compact = false, className, forceShow }: ConfluenceMeterProps): ReactElement | null {
+  // ADR-0102 PR-Verbose-Wiring-2: atLeast('verbose') 분기 — verbose 모드 한정 렌더 (사용자 #12)
+  // shouldShow('confluence') 매트릭스: minimal/balanced ❌, verbose ✅
+  const v = useUIVerbosity();
+  const shouldRender = forceShow !== undefined ? forceShow : v.shouldShow('confluence');
+  if (!shouldRender) return null;
+
   if (axes.length === 0) {
     return (
       <div

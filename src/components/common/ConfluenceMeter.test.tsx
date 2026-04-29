@@ -13,10 +13,17 @@
  * 8) ARIA 접근성 (role + aria-label + progressbar)
  * 9) 안전 가드 — 빈 배열 / NaN 점수
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import { ConfluenceMeter, classifyAxisScore, classifyConfluence, shouldShowReason, type ConfluenceAxis } from './ConfluenceMeter';
 import { VerdictCard } from './VerdictCard';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+
+// ADR-0102 PR-Verbose-Wiring-2 후속: ConfluenceMeter 가 verbose 모드 한정 렌더이므로
+// 본 컴포넌트 본체 검증 시 verbose 강제. verbosity 분기 자체는 별도 ConfluenceMeter.verbosity.test.tsx
+beforeEach(() => {
+  useSettingsStore.getState().setUIVerbosity('verbose');
+});
 
 afterEach(() => cleanup());
 
