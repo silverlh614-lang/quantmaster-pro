@@ -521,6 +521,34 @@ export async function autoPopulateWatchlist(): Promise<number> {
       continue;
     }
 
+    // Stage 2-2: enemy 자동 차단 — 신용잔고율 ≥ 12% 또는 개인 비중 ≥ 88% 종목 거부.
+    // ADR-0078 (buyPipeline 진입 직전 wired) 의 동일 SSOT 를 *AUTO gate 단계*에서도
+    // 호출 — 매수 직전 차단 vs *후보 등록 차단* 양쪽 안전망.
+    // 비용 절감: Stage 1 (gateScore≥7.8) + Stage 2-1 (거래대금≥5억) 통과한 종목만
+    // enemy check 호출. 50개 universe 중 보통 5~10개만 통과 → KIS 호출 부담 ↓.
+    // ENV 우회: AUTO_ENEMY_GATE_DISABLED=true 시 skip.
+    if (process.env.AUTO_ENEMY_GATE_DISABLED !== 'true') {
+      try {
+        const { fetchEnemyCheckData } = await import('../clients/enemyCheckClient.js');
+        const { evaluateEnemyAutoBlock } = await import('../trading/enemyAutoBlock.js');
+        const enemyData = await fetchEnemyCheckData(stock.code).catch(() => null);
+        if (enemyData) {
+          const decision = evaluateEnemyAutoBlock(enemyData);
+          if (decision.shouldBlock) {
+            rejectionLog.push({
+              code: stock.code,
+              name: stock.name,
+              reason: `enemy 차단 — ${decision.reason}`,
+            });
+            continue;
+          }
+        }
+      } catch (e) {
+        console.warn(`[AutoPopulate] enemy gate 평가 실패 (${stock.code}):`, e instanceof Error ? e.message : e);
+        // 평가 실패는 차단 사유 아님 — graceful degradation (다음 단계 진행)
+      }
+    }
+
     // 섹션 분류: SKIP이 아닌 고득점 종목은 SWING 후보, 나머지는 MOMENTUM
     const section: WatchlistSection = gate.signalType !== 'SKIP' ? 'SWING' : 'MOMENTUM';
     const track: 'A' | 'B' = section === 'MOMENTUM' ? 'A' : 'B';
