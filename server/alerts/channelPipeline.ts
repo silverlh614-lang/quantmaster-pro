@@ -104,6 +104,15 @@ export interface ChannelSellSignalParams {
   soldQty?: number;
   /** 포지션 원래 전체 수량 */
   originalQty?: number;
+  /**
+   * ADR-0092 — 청산 *후* 정확한 잔량 (fills SSOT 누적 반영).
+   * `reserveSell()` 가 `appendFill('SELL') + getRemainingQty(shadow)` 로 산출한 값.
+   *
+   * 미명시 시 후방호환 — `originalQty - soldQty` 폴백 (단일 회차 청산만 정확).
+   * 명시 시 — 누적 매도 fill 반영된 정확한 잔량 사용 (사용자 보고 4주→50% 청산
+   * 후 25% 청산 시 잔여 1주가 정확).
+   */
+  remainingQtyAfter?: number;
 }
 
 export async function channelSellSignal(p: ChannelSellSignalParams): Promise<void> {
@@ -127,12 +136,25 @@ export async function channelSellSignal(p: ChannelSellSignalParams): Promise<voi
     MANUAL:       '👤 수동 청산',
   };
 
-  const isPartial =
-    p.soldQty !== undefined &&
-    p.originalQty !== undefined &&
-    p.soldQty < p.originalQty;
-  const pct       = isPartial ? Math.round((p.soldQty! / p.originalQty!) * 100) : 100;
-  const remaining = isPartial ? p.originalQty! - p.soldQty! : 0;
+  // ADR-0092 — 호출자 우선순위:
+  //   1. remainingQtyAfter 명시 시 (reserveSell.remainingQty 전달) → 정확한 잔량 사용,
+  //      isPartial = remainingQtyAfter > 0
+  //   2. 미명시 시 후방호환 → originalQty - soldQty (단일 회차 청산만 정확)
+  // 사용자 보고 시나리오 (4주 → 50%(2주) → 25%(1주) → 25%(1주)) 에서:
+  //   기존: 매번 originalQty(4) - soldQty(1) = 3주 잘못 표기
+  //   수정: reserveSell.remainingQty 가 fills SSOT 기반 정확한 잔량 반환
+  const hasAccurateRemaining = typeof p.remainingQtyAfter === 'number'
+    && Number.isFinite(p.remainingQtyAfter)
+    && p.remainingQtyAfter >= 0;
+  const isPartial = hasAccurateRemaining
+    ? p.remainingQtyAfter! > 0
+    : (p.soldQty !== undefined && p.originalQty !== undefined && p.soldQty < p.originalQty);
+  const pct = isPartial && p.soldQty !== undefined && p.originalQty !== undefined && p.originalQty > 0
+    ? Math.round((p.soldQty / p.originalQty) * 100)
+    : 100;
+  const remaining = hasAccurateRemaining
+    ? p.remainingQtyAfter!
+    : (isPartial && p.originalQty !== undefined && p.soldQty !== undefined ? p.originalQty - p.soldQty : 0);
 
   const header = isPartial
     ? `🟡 <b>[부분청산 ${pct}%] ${escapeHtml(p.stockName)} (${escapeHtml(p.stockCode)})</b>`

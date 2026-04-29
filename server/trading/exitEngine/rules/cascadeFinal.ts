@@ -68,6 +68,7 @@ export async function cascadeFinal(ctx: ExitContext): Promise<ExitRuleResult> {
     pnlPct:      returnPct,
     reason:      'CASCADE',
     holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+    remainingQtyAfter: cascadeFinalReserve.remainingQty,
   }).catch(console.error);
   // IDEA 11 — 손절 투명성 리포트
   await sendStopLossTransparencyReport(shadow, {

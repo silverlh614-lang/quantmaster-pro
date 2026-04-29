@@ -71,6 +71,7 @@ export async function trailingStop(ctx: ExitContext): Promise<ExitRuleResult> {
     pnlPct:      returnPct,
     reason:      'TRAILING',
     holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+    remainingQtyAfter: trailReserve.remainingQty,
   }).catch(console.error);
   return { skipRest: true };
 }

@@ -75,6 +75,7 @@ export async function rrrCollapseExit(ctx: ExitContext): Promise<ExitRuleResult>
       holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
       soldQty:     sellQty,
       originalQty: shadow.originalQuantity,
+      remainingQtyAfter: rrrReserve.remainingQty,
     }).catch(console.error);
   }
   if (shadow.quantity <= 0) return { skipRest: true };
