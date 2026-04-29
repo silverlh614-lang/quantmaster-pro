@@ -19,6 +19,17 @@ export type ViewDensity = 'simple' | 'pro';
  */
 export type AutoTradeTabId = 'positions' | 'execution' | 'signals' | 'diagnostics';
 
+/**
+ * UI 정보 밀도 토글 — 사용자가 자기 인지 부하를 직접 제어 (ADR-0099 PR-Verbose, 사용자 #12).
+ *
+ * - `minimal`: Verdict 만 표시 — 신규 사용자, 빠른 결정 인지
+ * - `balanced`: V-E-R 3 슬롯 (Verdict + Evidence + Risk) — 균형 잡힌 디폴트
+ * - `verbose`: V-E-R + ConfluenceMeter + 축 결손 사유 + DataQuality 5-tier — 시스템 운영자
+ *
+ * Phase B/C/D 모든 컴포넌트가 본 토글로 자기 가시성 분기 — `useUIVerbosity()` hook 사용.
+ */
+export type UIVerbosity = 'minimal' | 'balanced' | 'verbose';
+
 interface SettingsState {
   // Navigation
   view: View;
@@ -69,6 +80,10 @@ interface SettingsState {
   // 자동매매 관제실 활성 탭 (영속)
   autoTradeActiveTab: AutoTradeTabId;
   setAutoTradeActiveTab: (tab: AutoTradeTabId) => void;
+
+  // UI 정보 밀도 (ADR-0099 PR-Verbose, 사용자 #12)
+  uiVerbosity: UIVerbosity;
+  setUIVerbosity: (verbosity: UIVerbosity) => void;
 
   // Responsive sidebar drawer (<lg 화면) — 휘발성, persist X
   sidebarDrawerOpen: boolean;
@@ -135,6 +150,10 @@ export const useSettingsStore = create<SettingsState>()(
       autoTradeActiveTab: 'positions',
       setAutoTradeActiveTab: (autoTradeActiveTab) => set({ autoTradeActiveTab }),
 
+      // UI 정보 밀도 — 기본 'balanced' (V-E-R 3 슬롯)
+      uiVerbosity: 'balanced',
+      setUIVerbosity: (uiVerbosity) => set({ uiVerbosity }),
+
       // Responsive sidebar drawer
       sidebarDrawerOpen: false,
       setSidebarDrawerOpen: (sidebarDrawerOpen) => set({ sidebarDrawerOpen }),
@@ -152,6 +171,7 @@ export const useSettingsStore = create<SettingsState>()(
         subscribedSectors: state.subscribedSectors,
         autoTradeViewMode: state.autoTradeViewMode,
         autoTradeActiveTab: state.autoTradeActiveTab,
+        uiVerbosity: state.uiVerbosity,
       }),
     }
   )
