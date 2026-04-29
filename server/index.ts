@@ -410,15 +410,12 @@ async function startServer() {
     // ─── cron 스케줄러 기동 ───────────────────────────────────────────────────
     startScheduler();
 
-    // ─── KIS 토큰 기동 시 선행 갱신 ─────────────────────────────────────────────
-    // cron 은 08:30 / 20:30 KST 에만 돌기 때문에, 재배포 직후·이 시점 사이에 서버가
-    // 시작되면 사용자가 "주도주 분석 시작" 을 눌렀을 때 lazy-refresh 가 발동한다.
-    // 부팅 시 1회 선행 갱신해 두면 첫 버튼 클릭에서 추가 OAuth2 요청이 없다.
-    // fire-and-forget — 기동을 막지 않는다.
-    import('./clients/kisClient.js')
-      .then(({ forceRefreshKisTokens }) => forceRefreshKisTokens())
-      .then((r) => console.log(`[KIS] 기동 시 토큰 선행 갱신 — main=${r.main}, realData=${r.realData}`))
-      .catch((e) => console.warn('[KIS] 기동 시 토큰 선행 갱신 실패 (cron 이후 자동 복구):', e));
+    // ─── KIS 토큰 갱신 정책 (사용자 요청 2026-04-29) ─────────────────────────
+    // 부팅 시 자동 갱신 *제거* — 정해진 cron 시각에만 자동 갱신.
+    // 이전에는 서버 재배포마다 forceRefreshKisTokens 가 호출되어 KIS OAuth2 호출
+    // 빈도가 운영 의도보다 자주 발생했다. cron 은 08:30 / 20:30 KST 정상 갱신
+    // (kisStreamJobs.ts) + 사용자가 첫 KIS 조회 시 lazy-refresh fallback 으로
+    // 충분 — 부팅 시 선행 갱신은 불필요.
 
     console.log('[AutoTrade] 오케스트레이터 + DART 폴링 + Bear Regime 알림 + MHS 모닝 알림 + IPS 변곡점 경보 가동 완료');
 

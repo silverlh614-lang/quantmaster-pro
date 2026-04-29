@@ -73,6 +73,13 @@ export default function ShadowLearningPage(): React.ReactElement {
         </p>
       </header>
 
+      <ShadowAdvisorySection
+        rejection={rejection}
+        twin={twin}
+        attribution={attribution}
+        loading={rejectionQuery.isLoading || twinQuery.isLoading || attributionQuery.isLoading}
+      />
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <MissedAlphaCard data={rejection} loading={rejectionQuery.isLoading} error={rejectionQuery.error} />
         <GoodRejectionCard data={rejection} loading={rejectionQuery.isLoading} error={rejectionQuery.error} />
@@ -81,6 +88,82 @@ export default function ShadowLearningPage(): React.ReactElement {
         <GoodDefenseCard data={attribution} loading={attributionQuery.isLoading} error={attributionQuery.error} />
       </div>
     </div>
+  );
+}
+
+// ── Advisory Section (사용자 요청 4/29) — 3축 통합 1줄 진단 + 의사결정 안내 ────
+
+interface ShadowAdvisorySectionProps {
+  rejection: RejectionShadowResponse | undefined;
+  twin: TwinPortfolioResponse | undefined;
+  attribution: ShadowAttributionResponse | undefined;
+  loading: boolean;
+}
+
+export function ShadowAdvisorySection({ rejection, twin, attribution, loading }: ShadowAdvisorySectionProps): React.ReactElement {
+  if (loading && !rejection && !twin && !attribution) {
+    return (
+      <Card title="🌑 Shadow Advisory" subtitle="과엄격 / 방어성공 / 트윈우월 통합 진단" data-testid="shadow-advisory-section">
+        <p className="text-xs text-zinc-500">데이터 로딩 중…</p>
+      </Card>
+    );
+  }
+
+  // 1축: 과엄격 (alpha 누락률)
+  const fnRate = rejection?.summary.reliable ? rejection.summary.falseNegativeRate : null;
+  const overStrictTone =
+    fnRate === null ? 'text-zinc-500' :
+    fnRate >= 0.30 ? 'text-rose-400' :
+    fnRate >= 0.15 ? 'text-amber-400' : 'text-emerald-400';
+  const overStrictText = fnRate === null
+    ? '표본 부족'
+    : `${(fnRate * 100).toFixed(0)}% (${rejection?.summary.closedCount}건 종결)`;
+
+  // 2축: 방어성공 (Good Defense 후보 카운트)
+  const goodDefenseCount = attribution?.conditions.filter((c) => c.classification === 'good_defense_candidate').length ?? 0;
+  const goodDefenseTone = goodDefenseCount >= 3 ? 'text-emerald-400' : goodDefenseCount >= 1 ? 'text-cyan-400' : 'text-zinc-500';
+
+  // 3축: 트윈우월
+  const winningEntries = twin
+    ? (Object.entries(twin.comparison.weekWinning) as Array<[string, boolean]>)
+        .filter(([, win]) => win === true)
+    : [];
+  const twinWinningKey: string | null = winningEntries[0]?.[0] ?? null;
+  const twinTone = twinWinningKey ? 'text-amber-400' : 'text-emerald-400';
+  const twinText = twinWinningKey
+    ? `${twinWinningKey} 우월 (CURRENT 정책 재검토 신호)`
+    : 'CURRENT 가 모든 Twin 보다 우월 — 현 정책 유지';
+
+  return (
+    <Card
+      title="🌑 Shadow Advisory"
+      subtitle="과엄격 / 방어성공 / 트윈우월 통합 진단"
+      data-testid="shadow-advisory-section"
+    >
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="space-y-1">
+          <div className="text-xs font-semibold text-zinc-400">⚠️ 과엄격 의심</div>
+          <div className={`text-sm font-mono ${overStrictTone}`} data-testid="advisory-over-strict">
+            Alpha 누락 {overStrictText}
+          </div>
+        </div>
+        <div className="space-y-1">
+          <div className="text-xs font-semibold text-zinc-400">🛡️ 방어성공 후보</div>
+          <div className={`text-sm font-mono ${goodDefenseTone}`} data-testid="advisory-good-defense">
+            {goodDefenseCount}개 조건 (강화 검토)
+          </div>
+        </div>
+        <div className="space-y-1">
+          <div className="text-xs font-semibold text-zinc-400">👯 트윈우월</div>
+          <div className={`text-sm font-mono ${twinTone}`} data-testid="advisory-twin-winning">
+            {twinText}
+          </div>
+        </div>
+      </div>
+      <p className="mt-3 text-xs text-zinc-500 italic">
+        ⚠️ 자동 임계 조정 금지 — 운영자 검토 후 수동 적용. 텔레그램 <code>/shadow_advisory</code> 명령으로 상세 진단 조회 가능.
+      </p>
+    </Card>
   );
 }
 

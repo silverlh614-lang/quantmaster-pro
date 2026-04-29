@@ -18,6 +18,7 @@ import './refreshWatchlistSectors.cmd.js';
 import './regime.cmd.js';
 import './rejected.cmd.js';
 import './scanIndices.cmd.js';
+import './shadowAdvisory.cmd.js';
 import './scheduler.cmd.js';
 import './shadowWalkForward.cmd.js';
 import './signalStatus.cmd.js';

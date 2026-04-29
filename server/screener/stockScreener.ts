@@ -494,6 +494,33 @@ export async function autoPopulateWatchlist(): Promise<number> {
     // 아이디어 11: Gate 조건 통과/탈락 — 메모리 캐시에만 누적 (루프 후 flushGateAudit으로 파일 저장)
     recordGateAudit(gate.conditionKeys);
 
+    // ─── 사용자 요청 4 (2026-04-29) — AUTO gate 품질 강화 ───────────────────
+    // Stage 1: AUTO 최소 score 임계 — 기존엔 SKIP 도 MOMENTUM 으로 등록되어
+    // watchlist 가 "한 번 들어오면 안 나가는 창고" 가 되었음. 사용자 통찰
+    // "자동 시스템이 자기증식하기 시작" 의 차단.
+    const AUTO_MIN_SCORE = parseFloat(process.env.AUTO_MIN_SCORE ?? '7.8');
+    if (gate.signalType === 'SKIP' && gate.gateScore < AUTO_MIN_SCORE) {
+      rejectionLog.push({
+        code: stock.code,
+        name: stock.name,
+        reason: `AUTO 최소 점수 미달 ${gate.gateScore.toFixed(1)}/10 (임계 ${AUTO_MIN_SCORE.toFixed(1)})`,
+      });
+      continue;
+    }
+
+    // Stage 2-1: 거래대금 하위 제거 — 가격×거래량 < AUTO_MIN_TURNOVER_KRW
+    // (default 5억원 — 거래대금 충분해야 진입/청산 시 슬리피지 ↓)
+    const AUTO_MIN_TURNOVER_KRW = parseFloat(process.env.AUTO_MIN_TURNOVER_KRW ?? '500000000');
+    const turnoverKrw = quote.price * quote.volume;
+    if (turnoverKrw < AUTO_MIN_TURNOVER_KRW) {
+      rejectionLog.push({
+        code: stock.code,
+        name: stock.name,
+        reason: `거래대금 부족 ${(turnoverKrw / 1e8).toFixed(1)}억원 (최소 ${(AUTO_MIN_TURNOVER_KRW / 1e8).toFixed(1)}억)`,
+      });
+      continue;
+    }
+
     // 섹션 분류: SKIP이 아닌 고득점 종목은 SWING 후보, 나머지는 MOMENTUM
     const section: WatchlistSection = gate.signalType !== 'SKIP' ? 'SWING' : 'MOMENTUM';
     const track: 'A' | 'B' = section === 'MOMENTUM' ? 'A' : 'B';

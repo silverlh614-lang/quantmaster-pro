@@ -13,6 +13,7 @@ import {
   runFomcDayPreLiquidationAlert,
   liquidateAllForFomc,
 } from '../trading/fomcDayLiquidation.js';
+import { fetchDailyBars } from '../trading/marketDataRefresh.js';
 
 async function runOrchestratorTick(): Promise<void> {
   touchHeartbeat('orchestrator');
@@ -81,4 +82,23 @@ export function registerOrchestratorJobs(): void {
   // ③ 평일 14:30 KST = UTC 05:30 — 청산 시작 (5중 가드 통과 시 reserveSell 루프)
   scheduledJob('30 5 * * 1-5', 'TRADING_DAY_ONLY', 'fomc_day_liquidation',
     () => liquidateAllForFomc(), { timezone: 'UTC' });
+
+  // ─── Yahoo heartbeat warmup (사용자 요청 2026-04-29) ───────────────────────
+  // 장시작 5분 전 (KST 08:55 = UTC 23:55) Yahoo KOSPI 지수 fetch 1회 호출로
+  // _yahooLastSuccessAt heartbeat 갱신. ADR-0091 STALE_BASE 결함 (Yahoo base
+  // price 가 stale 상태에서 sanity 위반 발생) 의 사전 예방 — 장시작 직전에
+  // Yahoo 가용성 확인되어 있어야 stockScreener autoPopulateWatchlist 의 base
+  // price fetch 가 정상값 받을 가능성 ↑.
+  // intent='HISTORICAL' (fetchDailyBars) 라 EgressGuard 시간 무관 통과.
+  scheduledJob('55 23 * * 0-4', 'TRADING_DAY_ONLY', 'yahoo_heartbeat_warmup',
+    async () => {
+      try {
+        const bars = await fetchDailyBars('^KS11', '5d');
+        const ok = bars && bars.length > 0;
+        console.log(`[Yahoo] 장시작 전 heartbeat warmup ${ok ? 'OK' : '응답 빈약'} — KOSPI bars=${bars?.length ?? 0}`);
+      } catch (e) {
+        console.warn('[Yahoo] heartbeat warmup 실패:', e instanceof Error ? e.message : e);
+      }
+    },
+    { timezone: 'UTC' });
 }
