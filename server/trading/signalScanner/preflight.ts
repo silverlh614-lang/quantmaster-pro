@@ -254,10 +254,13 @@ export async function runPreflight(
   const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
   if (vixGating.noNewEntry) {
     console.warn(`[AutoTrade] VIX 게이팅 — 신규 진입 중단: ${vixGating.reason}`);
+    // ADR-0093 — KST 일자 1회 dedupe (preflight 도 매 cron 사이클 호출 도배 차단).
+    const kstDateStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     await sendTelegramAlert(
       `🚨 <b>[VIX 게이팅] 신규 진입 차단</b>\n` +
       `${vixGating.reason}\n` +
       `포지션 모니터링만 수행합니다.`,
+      { dedupeKey: `vix_gating_block:${kstDateStr}`, cooldownMs: 12 * 60 * 60 * 1000 },
     ).catch(console.error);
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
@@ -279,10 +282,15 @@ export async function runPreflight(
   );
   if (fomcProximity.noNewEntry) {
     console.warn(`[AutoTrade] FOMC 게이팅 — 신규 진입 차단: ${fomcProximity.description}`);
+    // ADR-0093 — nextFomcDate 기반 dedupe. fomc_relaxed_${date} (라인 301) 와 정합.
     await sendTelegramAlert(
       `📅 <b>[FOMC 게이팅] 신규 진입 차단</b>\n` +
       `${fomcProximity.description}\n` +
       `포지션 모니터링만 수행합니다.`,
+      {
+        dedupeKey: `fomc_gating_block:${fomcProximity.nextFomcDate ?? 'unknown'}`,
+        cooldownMs: 12 * 60 * 60 * 1000,
+      },
     ).catch(console.error);
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
