@@ -287,6 +287,8 @@ export async function generateQualityScorecard(): Promise<void> {
     `${yieldEmoji(gateYield)} <b>② Gate Yield</b> (Gate 평가 → 통과)\n` +
     `   ${yieldBar(gateYield)} ${gateYield}%\n` +
     `   ${gateReached}개 평가 → ${gatePassed}개 통과\n` +
+    // ADR-0107 (사용자 진단 4/29): 0개 평가 시 차단 사유 맥락 안내 — Gate 결함 vs 게이팅 차단 구분.
+    (gateReached === 0 ? `   ${formatGateZeroContext(macro)}\n` : '') +
     `\n` +
     `${yieldEmoji(signalYield)} <b>③ Signal Yield</b> (Gate 통과 → 매수 신호)\n` +
     `   ${yieldBar(signalYield)} ${signalYield}%\n` +
@@ -339,4 +341,37 @@ export async function generateQualityScorecard(): Promise<void> {
     `[Scorecard] 완료 — Discovery ${discoveryYield}% | Gate ${gateYield}% | ` +
     `Signal ${signalYield}% | Trade ${tradeYield}%`,
   );
+}
+
+/**
+ * ADR-0107 (사용자 진단 4/29): Gate 0개 평가 시 맥락 안내 SSOT.
+ *
+ * 사용자 보고 (4/29 PM 3:35 Pipeline Yield): "Gate 0% (0개 평가 → 0개 통과)" —
+ * 7일 평균 14.1% 와 충돌해 운영자 결함 의심.
+ *
+ * 진단 결과: Gate 0개 평가는 *결함이 아니라 의도된 시그널* — FOMC DAY /
+ * R6_DEFENSE / VIX 게이팅 등 macro 게이트 차단으로 *Gate 평가 단계 도달 자체*
+ * 가 차단된 결과. 본 헬퍼는 macroState 기반 차단 사유 분기 안내 라인 생성 —
+ * 운영자가 결함 vs 정책 즉시 구분.
+ *
+ * 분기 우선순위:
+ *   - bearDefenseMode=true → "🛑 Bear 방어 모드 — Gate 평가 차단 (R6_DEFENSE)"
+ *   - mhs < 30 (DEFENSE 임계) → "🛑 MHS 매수중단 임계 — Gate 평가 차단"
+ *   - regime='RED' → "🟠 매크로 RED — Gate 평가 차단"
+ *   - 그 외 → "ℹ️ 평가 도달 0건 — 운영자 진단 필요 (스캔 cron 점검)"
+ */
+export function formatGateZeroContext(
+  macro: { mhs?: number; regime?: string; bearDefenseMode?: boolean } | null,
+): string {
+  if (!macro) return 'ℹ️ 평가 도달 0건 — macroState 부재';
+  if (macro.bearDefenseMode === true) {
+    return '🛑 Bear 방어 모드 — Gate 평가 차단 (R6_DEFENSE)';
+  }
+  if (typeof macro.mhs === 'number' && macro.mhs < 30) {
+    return `🛑 MHS ${macro.mhs} (매수중단 임계 30 미만) — Gate 평가 차단`;
+  }
+  if (macro.regime === 'RED') {
+    return '🟠 매크로 RED — Gate 평가 차단';
+  }
+  return 'ℹ️ 평가 도달 0건 — 운영자 진단 필요 (FOMC/VIX 게이팅 또는 스캔 cron 점검)';
 }

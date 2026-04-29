@@ -598,6 +598,9 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   // 기존 MHS 는 클라이언트 batchIntel Phase A 가 Gemini 에게 추론시켰지만,
   // 서버에서 ECOS 실데이터 + FRED 지표만으로 결정적으로 도출한다.
   // 시장 보조(vkospi/vix/samsungIri)는 이 함수 상단에서 계산된 computed 를 재사용.
+  // ADR-0107 (사용자 진단 4/29): mhsAxis 4-axis 분해 영속 — 별도 변수로 추출 후 updated 객체에 직접 저장.
+  let mhsAxisSnapshot: { interestRate: number; liquidity: number; economy: number; risk: number } | undefined;
+  let mhsAxisSnapshotAt: string | undefined;
   try {
     const vkospiHint    = typeof existing.vkospi === 'number' ? existing.vkospi : undefined;
     const vixHint       = null;  // VIX 는 marketDataRefresh 가 수집하지 않음 — 엔진 기본값 사용
@@ -609,10 +612,13 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
       usShortRate: typeof computed.sofr === 'number' ? computed.sofr : undefined,
     });
     computed.mhs = idx.mhs;
+    mhsAxisSnapshot = idx.axis;
+    mhsAxisSnapshotAt = new Date().toISOString();
     // regime 필드는 기존에 classifyRegime 이 덮어쓰므로 그대로 두되, MHS 만 반영.
     console.log(
       `[MarketRefresh] MHS 자체 계산 완료 — ${idx.mhs}/100 (${idx.regime}` +
-      `${idx.buyingHalted ? ', 매수중단' : ''}) | 소스 ecos=${idx.sourcesOk.ecos} fred=${idx.sourcesOk.fred}`,
+      `${idx.buyingHalted ? ', 매수중단' : ''}) | 소스 ecos=${idx.sourcesOk.ecos} fred=${idx.sourcesOk.fred}` +
+      ` | axis 금리=${idx.axis.interestRate} 유동성=${idx.axis.liquidity} 경기=${idx.axis.economy} 리스크=${idx.axis.risk}`,
     );
   } catch (e) {
     console.warn('[MarketRefresh] MHS 자체 계산 실패 — 기존 MHS 유지:', e instanceof Error ? e.message : e);
@@ -668,6 +674,8 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
           leadingSectorRS:  cycleClassification.leadingSectorRS,
         }
       : {}),
+    // ADR-0107 mhsAxis 4-axis 영속 — computeMacroIndex 성공 시에만 덮어쓰기.
+    ...(mhsAxisSnapshot ? { mhsAxis: mhsAxisSnapshot, mhsAxisUpdatedAt: mhsAxisSnapshotAt } : {}),
   };
   saveMacroState(updated as typeof existing);
   console.log(`[MarketRefresh] MacroState 갱신 완료 — ${Object.keys(computed).length}개 필드`);
