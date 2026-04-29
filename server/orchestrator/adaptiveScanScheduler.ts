@@ -299,6 +299,11 @@ export function recordScanResult(signalCount: number, opts?: { positionFull?: bo
     // 게이트가 병리적으로 닫힌 것인지를 엔진이 스스로 결론낸다.
     const postmortem = notifyEmptyScan();
     if (postmortem && postmortem.verdict === 'PATHOLOGICAL_BLOCK' && isBuyableKstWindow()) {
+      // ADR-0094 — KST 일자 + 레짐 기반 dedupe (PR-Z6 FOMC/VIX 게이팅 정합 패턴).
+      // 시장 빈곤기에 매 3회 빈 스캔마다 도배되던 결함 차단. 4h cooldown — 운영자가
+      // *진짜 신호* 에 집중. 레짐이 바뀌면 새 dedupeKey 로 재발송 (R4_NEUTRAL →
+      // R6_DEFENSE 같은 의미 있는 전환은 즉시 알림).
+      const kstDateStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
       sendTelegramAlert(
         `🔬 <b>[빈스캔 포스트모템] PATHOLOGICAL_BLOCK</b>\n` +
         `레짐: ${postmortem.regime} | 원인: ${postmortem.dominantCause}\n` +
@@ -310,6 +315,10 @@ export function recordScanResult(signalCount: number, opts?: { positionFull?: bo
           : '') +
         `권고: ${postmortem.recommendedAction}\n` +
         `${postmortem.reason}`,
+        {
+          dedupeKey: `empty_scan_pathological:${kstDateStr}:${postmortem.regime}`,
+          cooldownMs: 4 * 60 * 60 * 1000,
+        },
       ).catch(console.error);
     }
 

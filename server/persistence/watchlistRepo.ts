@@ -398,7 +398,13 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
 
   // 자동 trim 이후에도 MOMENTUM 이 여전히 alert 임계 초과면 포화 경보.
   // ADR-0028 §모순9: 출처별 분포 + 다음 자동 액션 안내 동봉.
-  if (momentumCount > MOMENTUM_ALERT_THRESHOLD) {
+  // ADR-0094 — alert < count <= softCap 분기 (능동 정리 미발동) 는 *운영자 액션
+  // 불필요* 한 정보성 메시지 → 알림 미발송. 사용자 보고 (4/29) 도배 핵심 원인.
+  // 진짜 행동 필요한 두 경우만 발송:
+  //   (a) count > softCap → soft cap 능동 정리 진행 중
+  //   (b) count >= hardCap → hard cap 강제 정리 발동
+  const needsAlert = momentumCount > soft.MOMENTUM;
+  if (needsAlert) {
     const sourceDistribution: Record<'AUTO' | 'MANUAL' | 'DART', number> = { AUTO: 0, MANUAL: 0, DART: 0 };
     for (const entry of trimmed) {
       const isMomentum = entry.section === 'MOMENTUM' || (!entry.section && entry.track === 'A');
