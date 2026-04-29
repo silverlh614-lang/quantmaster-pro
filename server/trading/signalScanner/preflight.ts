@@ -17,6 +17,7 @@ import type { ServerShadowTrade } from '../../persistence/shadowTradeRepo.js';
 
 import { fetchAccountBalance } from '../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../alerts/telegramClient.js';
+import { getGatingAlertSession } from '../../utils/gatingAlertWindow.js';
 import { loadMacroState } from '../../persistence/macroStateRepo.js';
 import { computeShadowAccount } from '../../persistence/shadowAccountRepo.js';
 import { loadTradingSettings } from '../../persistence/tradingSettingsRepo.js';
@@ -254,14 +255,20 @@ export async function runPreflight(
   const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
   if (vixGating.noNewEntry) {
     console.warn(`[AutoTrade] VIX 게이팅 — 신규 진입 중단: ${vixGating.reason}`);
-    // ADR-0093 — KST 일자 1회 dedupe (preflight 도 매 cron 사이클 호출 도배 차단).
-    const kstDateStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    await sendTelegramAlert(
-      `🚨 <b>[VIX 게이팅] 신규 진입 차단</b>\n` +
-      `${vixGating.reason}\n` +
-      `포지션 모니터링만 수행합니다.`,
-      { dedupeKey: `vix_gating_block:${kstDateStr}`, cooldownMs: 12 * 60 * 60 * 1000 },
-    ).catch(console.error);
+    // ADR-0104 — 장시작/장마감 윈도우(09:00~10:00 / 15:00~16:00)만 발송. 그 외 시간 도배 차단.
+    const session = getGatingAlertSession();
+    if (session) {
+      const kstDateStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      await sendTelegramAlert(
+        `🚨 <b>[VIX 게이팅] 신규 진입 차단</b>\n` +
+        `${vixGating.reason}\n` +
+        `포지션 모니터링만 수행합니다.`,
+        {
+          dedupeKey: `vix_gating_block:${kstDateStr}:${session.toLowerCase()}`,
+          cooldownMs: 12 * 60 * 60 * 1000,
+        },
+      ).catch(console.error);
+    }
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return { shouldAbort: true, abortReason: 'VIX_GATING', sellOnly };
@@ -282,16 +289,19 @@ export async function runPreflight(
   );
   if (fomcProximity.noNewEntry) {
     console.warn(`[AutoTrade] FOMC 게이팅 — 신규 진입 차단: ${fomcProximity.description}`);
-    // ADR-0093 — nextFomcDate 기반 dedupe. fomc_relaxed_${date} (라인 301) 와 정합.
-    await sendTelegramAlert(
-      `📅 <b>[FOMC 게이팅] 신규 진입 차단</b>\n` +
-      `${fomcProximity.description}\n` +
-      `포지션 모니터링만 수행합니다.`,
-      {
-        dedupeKey: `fomc_gating_block:${fomcProximity.nextFomcDate ?? 'unknown'}`,
-        cooldownMs: 12 * 60 * 60 * 1000,
-      },
-    ).catch(console.error);
+    // ADR-0104 — 장시작/장마감 윈도우만 발송 (1일 2회 보장 — open/close session 별 dedupe).
+    const session = getGatingAlertSession();
+    if (session) {
+      await sendTelegramAlert(
+        `📅 <b>[FOMC 게이팅] 신규 진입 차단</b>\n` +
+        `${fomcProximity.description}\n` +
+        `포지션 모니터링만 수행합니다.`,
+        {
+          dedupeKey: `fomc_gating_block:${fomcProximity.nextFomcDate ?? 'unknown'}:${session.toLowerCase()}`,
+          cooldownMs: 12 * 60 * 60 * 1000,
+        },
+      ).catch(console.error);
+    }
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return { shouldAbort: true, abortReason: 'FOMC_GATING', sellOnly };

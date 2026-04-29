@@ -51,6 +51,7 @@ vi.mock('./regimeBridge.js', () => ({
 
 vi.mock('../persistence/shadowTradeRepo.js', () => ({
   loadShadowTrades: vi.fn(() => []),
+  saveShadowTrades: vi.fn(),
   getRemainingQty: vi.fn((t: { quantity?: number }) => t?.quantity ?? 0),
   appendShadowLog: vi.fn(),
   syncPositionCache: vi.fn(),
@@ -94,6 +95,7 @@ import { sendPrivateAlert } from '../alerts/telegramClient.js';
 import { addSellOrder } from './fillMonitor.js';
 import {
   loadShadowTrades,
+  saveShadowTrades,
   buildExitAttribution,
   syncPositionCache,
   appendShadowLog,
@@ -320,6 +322,106 @@ describe('liquidateAllForFomc — 활성 포지션 처리', () => {
     const args = vi.mocked(addSellOrder).mock.calls[0]?.[0] as { ordNo?: string; relatedTradeId?: string };
     expect(args.ordNo).toBe('ODNO-12345');
     expect(args.relatedTradeId).toBe('t-1');
+  });
+});
+
+// ── ADR-0104 hotfix (2026-04-29): saveShadowTrades 영속화 ────────────────────
+// 사용자 보고: 14:30 KST 청산 알림 5건 발송됐지만 /pos /pnl 잔고 그대로.
+// 원인: reserveSell 가 in-memory trade.fills 변경했지만 saveShadowTrades 호출
+// 부재 → 다음 cron 시 원본 수량 재로드. 본 describe 가 영구 회귀 차단.
+
+describe('liquidateAllForFomc — saveShadowTrades 영속화 (ADR-0104 hotfix)', () => {
+  it('SHADOW 청산 후 saveShadowTrades(trades) 호출 — in-memory 변경 디스크 영속', async () => {
+    const t1 = makeMockTrade({ id: 't-1', stockCode: '192820' });
+    const t2 = makeMockTrade({ id: 't-2', stockCode: '161890' });
+    vi.mocked(loadShadowTrades).mockReturnValueOnce([t1, t2] as never);
+    vi.mocked(placeKisSellOrder).mockResolvedValue({
+      ordNo: null,
+      placed: false,
+      outcome: 'SHADOW_ONLY',
+    });
+    vi.mocked(reserveSell).mockReturnValue({
+      kind: 'SHADOW',
+      recorded: true,
+      remainingQty: 0,
+      statusPrefix: '🎭',
+      statusSuffix: '',
+    } as never);
+
+    const r = await liquidateAllForFomc(SAMPLE_DATE_KST);
+
+    expect(r.successCount).toBe(2);
+    expect(saveShadowTrades).toHaveBeenCalledTimes(1);
+    // saveShadowTrades 인자가 loadShadowTrades 결과(=trades 전체)
+    const savedTrades = vi.mocked(saveShadowTrades).mock.calls[0]?.[0] as Array<{ id: string }>;
+    expect(savedTrades).toHaveLength(2);
+    expect(savedTrades[0].id).toBe('t-1');
+    expect(savedTrades[1].id).toBe('t-2');
+  });
+
+  it('LIVE 청산 후에도 saveShadowTrades 호출 — PROVISIONAL fill 영속', async () => {
+    const t1 = makeMockTrade({ mode: 'LIVE' });
+    vi.mocked(loadShadowTrades).mockReturnValueOnce([t1] as never);
+    vi.mocked(placeKisSellOrder).mockResolvedValue({
+      ordNo: 'ODNO-99',
+      placed: true,
+      outcome: 'LIVE_ORDERED',
+    });
+    vi.mocked(reserveSell).mockReturnValue({
+      kind: 'PENDING',
+      recorded: true,
+      remainingQty: 0,
+      statusPrefix: '⏳',
+      statusSuffix: '',
+      ordNo: 'ODNO-99',
+    } as never);
+
+    await liquidateAllForFomc(SAMPLE_DATE_KST);
+
+    expect(saveShadowTrades).toHaveBeenCalledTimes(1);
+  });
+
+  it('dryRun=true 시 saveShadowTrades 미호출 — 변경 0건 idempotent 보장', async () => {
+    const t1 = makeMockTrade();
+    vi.mocked(loadShadowTrades).mockReturnValueOnce([t1] as never);
+
+    await liquidateAllForFomc(SAMPLE_DATE_KST, { dryRunOverride: true });
+
+    expect(saveShadowTrades).not.toHaveBeenCalled();
+  });
+
+  it('활성 포지션 0건 시 saveShadowTrades 미호출 — 변경 0건 short-circuit', async () => {
+    vi.mocked(loadShadowTrades).mockReturnValueOnce([]);
+
+    await liquidateAllForFomc(SAMPLE_DATE_KST);
+
+    expect(saveShadowTrades).not.toHaveBeenCalled();
+  });
+
+  it('saveShadowTrades throw 시 catch 후 결과 반환 흐름 유지 — graceful degradation', async () => {
+    const t1 = makeMockTrade();
+    vi.mocked(loadShadowTrades).mockReturnValueOnce([t1] as never);
+    vi.mocked(placeKisSellOrder).mockResolvedValue({
+      ordNo: null,
+      placed: false,
+      outcome: 'SHADOW_ONLY',
+    });
+    vi.mocked(reserveSell).mockReturnValue({
+      kind: 'SHADOW',
+      recorded: true,
+      remainingQty: 0,
+      statusPrefix: '🎭',
+      statusSuffix: '',
+    } as never);
+    vi.mocked(saveShadowTrades).mockImplementationOnce(() => {
+      throw new Error('disk full');
+    });
+
+    const r = await liquidateAllForFomc(SAMPLE_DATE_KST);
+    // saveShadowTrades 가 throw 해도 결과 객체는 정상 반환 (텔레그램 발송 흐름 보호).
+    expect(r.executed).toBe(true);
+    expect(r.successCount).toBe(1);
+    expect(saveShadowTrades).toHaveBeenCalledTimes(1);
   });
 });
 

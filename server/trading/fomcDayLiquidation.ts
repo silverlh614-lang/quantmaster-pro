@@ -17,6 +17,7 @@
 
 import {
   loadShadowTrades,
+  saveShadowTrades,
   getRemainingQty,
   syncPositionCache,
   buildExitAttribution,
@@ -157,11 +158,14 @@ export async function liquidateAllForFomc(
         regime,
       });
 
+      // ADR-0104 — FOMC DAY 자동 청산은 'FOMC_DAY_LIQUIDATION' reason 으로 발송 →
+      // 텔레그램 메시지가 "🔴 [SHADOW 손절]" 가 아닌 "📅 [SHADOW FOMC 자동청산]" 로 표기.
+      // 사용자 보고 (4/29): "수익인 종목도 손실 표현됨" 의 오해 차단.
       const orderRes = await placeKisSellOrder(
         trade.stockCode,
         trade.stockName,
         qty,
-        'STOP_LOSS',
+        'FOMC_DAY_LIQUIDATION',
       );
 
       const ts = new Date().toISOString();
@@ -200,13 +204,13 @@ export async function liquidateAllForFomc(
       } else {
         syncPositionCache(trade);
         if (r.kind === 'PENDING') {
-          // LIVE 주문 접수 성공 → fillMonitor 폴링 등록
+          // LIVE 주문 접수 성공 → fillMonitor 폴링 등록 (ADR-0104 — originalReason 도 정합)
           addSellOrder({
             ordNo: r.ordNo,
             stockCode: trade.stockCode,
             stockName: trade.stockName,
             quantity: qty,
-            originalReason: 'STOP_LOSS',
+            originalReason: 'FOMC_DAY_LIQUIDATION',
             placedAt: ts,
             relatedTradeId: trade.id,
           });
@@ -238,6 +242,18 @@ export async function liquidateAllForFomc(
 
   const successCount = results.filter((r) => r.status === 'SUCCESS').length;
   const failedCount = results.filter((r) => r.status === 'FAILED').length;
+
+  // ADR-0104 hotfix (2026-04-29): reserveSell 가 in-memory 의 trade.fills/quantity 를
+  // 변경하지만 디스크 영속화 부재로 다음 cron 시 원본 수량 재로드되던 결함 차단.
+  // dryRun=true 시에도 저장은 무해 (변경 0건). config.dryRun 분기는 placeKisSellOrder
+  // 호출 자체를 건너뛰므로 trades 변경이 없어 saveShadowTrades 가 idempotent.
+  if (!config.dryRun) {
+    try {
+      saveShadowTrades(trades);
+    } catch (e) {
+      console.error('[fomcDayLiquidation] saveShadowTrades 실패 — 청산 영속화 누락:', e);
+    }
+  }
 
   await sendPrivateAlert(
     formatLiquidationResultMessage({
