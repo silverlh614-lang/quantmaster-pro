@@ -274,6 +274,126 @@ export function isSanePct(pct: number, sanityBoundPct = DEFAULT_SANITY_BOUND_PCT
   return Number.isFinite(pct) && Math.abs(pct) <= sanityBoundPct;
 }
 
+/**
+ * ─── ADR-0091 PR-Z4 — 사용자 패치 직접 반영 ──────────────────────────────────
+ *
+ * 사용자 진단: "지금 문제는 Sanity 체크가 없는 게 아니라, Sanity 실패 후에도
+ * Yahoo base 를 계속 신뢰하는 구조". `?? 0` 패턴이 sanity 위반을 silent 0 으로
+ * 흡수해 enrichment 가 정상값처럼 받아들이고 의사결정에 사용하던 구조적 결함.
+ *
+ * 본 헬퍼는 *추가* 함수 — 기존 `safePctChange` (number | null 반환) 51 호출
+ * site 후방호환 보존. 신규 호출자만 detailed 사용 권장.
+ *
+ * 호출자 의무 (사용자 명시):
+ *   1. valid=false 시 Yahoo 등락률 폐기 (0 fallback 금지)
+ *   2. KIS 등락률 우선 사용
+ *   3. KIS 도 없으면 0% + dataQuality marker 부여
+ *   4. Gate/MOMENTUM 에서 해당 종목 감점 또는 제외
+ *
+ * reason 분류:
+ *   - 'OK' — 정상 통과
+ *   - 'INVALID_PRICE' — current/base NaN/Infinity/음수
+ *   - 'STALE_BASE_OR_SPLIT_ADJUSTMENT' — sanity bound 위반 (액면분할/병합/조정 누락 의심)
+ *   - 'STALE_BASE_AGE' — PriceBase.asOf 가 stale 임계 초과
+ */
+export type SafePctChangeReason =
+  | 'OK'
+  | 'INVALID_PRICE'
+  | 'STALE_BASE_OR_SPLIT_ADJUSTMENT'
+  | 'STALE_BASE_AGE';
+
+export interface SafePctChangeResult {
+  /** sanity 통과 시 계산값, 실패 시 0 (호출자가 .valid 검사 후 사용 결정). */
+  value: number;
+  /** true 면 .value 신뢰, false 면 *반드시* 다른 출처 폴백 또는 데이터 폐기. */
+  valid: boolean;
+  /** 분기 이유 — 운영자 진단 + 호출자 분기 키. */
+  reason: SafePctChangeReason;
+}
+
+/**
+ * 사용자 패치 §"valid=false 면 Yahoo 등락률 폐기 + KIS 우선 사용" 직접 구현.
+ * 기존 `safePctChange` 와 동일 로직 + 결과 객체 반환.
+ *
+ * @example
+ *   const pctResult = safePctChangeDetailed(current, prevClose, {
+ *     label: 'yahooQuoteAdapter.changePercent:189300.KS',
+ *     mode: 'DAILY',
+ *   });
+ *   const changePercent = pctResult.valid
+ *     ? pctResult.value
+ *     : (kisChangePercent ?? 0);
+ *   if (!pctResult.valid) {
+ *     dataQuality = 'STALE_BASE';
+ *     // Gate/MOMENTUM 감점 또는 제외 (호출자 책임)
+ *   }
+ */
+export function safePctChangeDetailed(
+  current: number,
+  base: number | PriceBase,
+  opts: SafePctChangeOptions = {},
+): SafePctChangeResult {
+  const baseValue = extractBaseValue(base);
+  const isPriceBase = typeof base !== 'number';
+
+  // 1. 분모/분자 가드 — 사용자 패치 §"INVALID_PRICE"
+  if (!Number.isFinite(baseValue) || baseValue <= 0) {
+    return { value: 0, valid: false, reason: 'INVALID_PRICE' };
+  }
+  if (!Number.isFinite(current) || current < 0) {
+    return { value: 0, valid: false, reason: 'INVALID_PRICE' };
+  }
+
+  // 2. PriceBase stale 검증 — sanity 계산 *전에* 차단
+  if (isPriceBase && isStaleBase(base, opts.mode)) {
+    if (!opts.silent) {
+      const label = opts.label ?? 'unknown';
+      const staleLabel = `${label}:STALE_BASE_AGE`;
+      const now = Date.now();
+      const last = _lastWarnAt.get(staleLabel) ?? 0;
+      if (now - last >= LOG_THROTTLE_MS) {
+        _lastWarnAt.set(staleLabel, now);
+        const ageDays = ((now - new Date(base.asOf).getTime()) / (24 * 60 * 60 * 1000)).toFixed(1);
+        console.warn(
+          `[safePctChangeDetailed] STALE_BASE_AGE @${label} — base.asOf=${base.asOf} ` +
+          `(age=${ageDays}일, source=${base.source}, mode=${opts.mode ?? 'SANITY_ONLY'}). ` +
+          `Yahoo 등락률 폐기 권고.`,
+        );
+      }
+    }
+    return { value: 0, valid: false, reason: 'STALE_BASE_AGE' };
+  }
+
+  const pct = ((current - baseValue) / baseValue) * 100;
+  if (!Number.isFinite(pct)) {
+    return { value: 0, valid: false, reason: 'INVALID_PRICE' };
+  }
+
+  // 3. Sanity bound — 사용자 패치 §"STALE_BASE_OR_SPLIT_ADJUSTMENT"
+  const bound = resolveSanityBound(opts);
+  if (Math.abs(pct) > bound) {
+    if (!opts.silent) {
+      const label = opts.label ?? 'unknown';
+      const now = Date.now();
+      const last = _lastWarnAt.get(label) ?? 0;
+      if (now - last >= LOG_THROTTLE_MS) {
+        _lastWarnAt.set(label, now);
+        const baseDetail = isPriceBase
+          ? `(current=${current}, base=${baseValue}@${base.asOf} src=${base.source})`
+          : `(current=${current}, base=${baseValue})`;
+        console.warn(
+          `[safePctChangeDetailed] STALE_BASE_OR_SPLIT_ADJUSTMENT @${label} — ` +
+          `|${pct.toFixed(2)}%| > ${bound}% ${baseDetail}. ` +
+          `Yahoo 등락률 폐기 권고 — KIS 폴백 또는 종목 감점/제외 필수.`,
+        );
+      }
+    }
+    return { value: 0, valid: false, reason: 'STALE_BASE_OR_SPLIT_ADJUSTMENT' };
+  }
+
+  return { value: pct, valid: true, reason: 'OK' };
+}
+
 /** 테스트 전용 — 진단 로그 throttle 상태 초기화. */
 export function __resetSafePctChangeWarnsForTests(): void {
   _lastWarnAt.clear();

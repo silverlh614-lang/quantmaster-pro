@@ -516,7 +516,7 @@ describe('fetchYahooQuote', () => {
       const result = await fetchYahooQuote('PR-D3D2-STALE.KS');
       expect(result!.changePercent).toBe(0); // STALE_BASE 차단
       const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
-      expect(warnMsg).toContain('STALE_BASE @yahooQuoteAdapter.changePercent:PR-D3D2-STALE.KS');
+      expect(warnMsg).toContain('STALE_BASE_AGE @yahooQuoteAdapter.changePercent:PR-D3D2-STALE.KS');
       expect(warnMsg).toContain('age=5');
       expect(warnMsg).toContain('source=YAHOO_HISTORICAL');
       expect(warnMsg).toContain('mode=DAILY');
@@ -556,7 +556,7 @@ describe('fetchYahooQuote', () => {
       expect(result!.changePercent).toBe(0); // DAILY 50% 임계 초과
       const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
       // sanity 위반 라벨 (STALE_BASE 가 아님)
-      expect(warnMsg).toContain('sanity 위반 @yahooQuoteAdapter.changePercent:PR-D3D2-CASE-005070.KQ');
+      expect(warnMsg).toContain('STALE_BASE_OR_SPLIT_ADJUSTMENT @yahooQuoteAdapter.changePercent:PR-D3D2-CASE-005070.KQ');
       expect(warnMsg).toContain('50%'); // DAILY 임계
       expect(warnMsg).toContain('src=YAHOO_HISTORICAL');
     });
@@ -595,8 +595,94 @@ describe('fetchYahooQuote', () => {
       const result = await fetchYahooQuote('PR-D3D-STALE5.KS');
       expect(result!.return5d).toBe(0); // STALE_BASE 차단
       const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
-      expect(warnMsg).toContain('STALE_BASE @yahooQuoteAdapter.return5d:PR-D3D-STALE5.KS');
+      expect(warnMsg).toContain('STALE_BASE_AGE @yahooQuoteAdapter.return5d:PR-D3D-STALE5.KS');
       expect(warnMsg).toContain('age=50');
+    });
+  });
+
+  describe('ADR-0091 PR-Z4: dataQuality marker (STALE_BASE / OK)', () => {
+    let warnSpy: any;
+    beforeEach(() => {
+      warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+    afterEach(() => warnSpy.mockRestore());
+
+    it('정상 시세 → dataQuality=OK, dataQualityIssues=undefined', async () => {
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse());
+      const result = await fetchYahooQuote('PR-Z4-NORMAL.KS');
+      expect(result!.dataQuality).toBe('OK');
+      expect(result!.dataQualityIssues).toBeUndefined();
+    });
+
+    it('changePercent sanity 위반 (이미지 시나리오 -71%) → dataQuality=STALE_BASE + issues=[changePercent]', async () => {
+      const N = 80;
+      const closes = Array.from({ length: N }, (_, i) => 100 + i);
+      // 마지막 가격을 분할 후 가격으로 — prevClose=178, current=50 → -71%
+      closes[N - 1] = 50;
+      const highs = closes.map(c => c + 1);
+      const lows = closes.map(c => c - 1);
+      const volumes = Array.from({ length: N }, () => 1000);
+      const meta = {
+        regularMarketPrice: 50,
+        regularMarketPreviousClose: 178,
+        regularMarketOpen: 50,
+      };
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({ closes, highs, lows, volumes, meta }));
+      const result = await fetchYahooQuote('PR-Z4-SPLIT.KS');
+      expect(result!.dataQuality).toBe('STALE_BASE');
+      expect(result!.dataQualityIssues).toContain('changePercent');
+      expect(result!.changePercent).toBe(0); // ?? 0 fallback 대신 명시적 0
+    });
+
+    it('return5d sanity 위반 → dataQualityIssues=[return5d] (changePercent 정상)', async () => {
+      const N = 80;
+      const closes = Array.from({ length: N }, (_, i) => 100);
+      // close5dAgo = 25 (분할 전), price = 100 (정상) → return5d = +300% > 300 임계 boundary
+      // 더 확실히 위반시키기 위해 close5dAgo = 10 → +900%
+      closes[N - 6] = 10;
+      const highs = closes.map(c => c + 1);
+      const lows = closes.map(c => c - 1);
+      const volumes = Array.from({ length: N }, () => 1000);
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({ closes, highs, lows, volumes }));
+      const result = await fetchYahooQuote('PR-Z4-RETURN5D-VIOLATION.KS');
+      expect(result!.dataQuality).toBe('STALE_BASE');
+      expect(result!.dataQualityIssues).toContain('return5d');
+      expect(result!.return5d).toBe(0);
+    });
+
+    it('다중 위반 → dataQualityIssues 누적', async () => {
+      const N = 80;
+      const closes = Array.from({ length: N }, () => 100);
+      // changePercent 위반: prevClose=300 → -67%
+      // return5d 위반: close5dAgo=10 → +900%
+      closes[N - 1] = 100;
+      closes[N - 2] = 300;
+      closes[N - 6] = 10;
+      const highs = closes.map(c => c + 1);
+      const lows = closes.map(c => c - 1);
+      const volumes = Array.from({ length: N }, () => 1000);
+      const meta = { regularMarketPrice: 100, regularMarketPreviousClose: 300, regularMarketOpen: 100 };
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({ closes, highs, lows, volumes, meta }));
+      const result = await fetchYahooQuote('PR-Z4-MULTI.KS');
+      expect(result!.dataQuality).toBe('STALE_BASE');
+      expect(result!.dataQualityIssues).toEqual(
+        expect.arrayContaining(['changePercent', 'return5d'])
+      );
+    });
+
+    it('STALE_BASE_OR_SPLIT_ADJUSTMENT 진단 로그 출력 확인 (Yahoo 등락률 폐기 권고)', async () => {
+      const N = 80;
+      const closes = Array.from({ length: N }, () => 100);
+      closes[N - 2] = 250; // -60% 위반
+      const highs = closes.map(c => c + 1);
+      const lows = closes.map(c => c - 1);
+      const volumes = Array.from({ length: N }, () => 1000);
+      const meta = { regularMarketPrice: 100, regularMarketPreviousClose: 250, regularMarketOpen: 100 };
+      (guardedFetch as any).mockResolvedValue(makeYahooResponse({ closes, highs, lows, volumes, meta }));
+      await fetchYahooQuote('PR-Z4-LOG-CHECK.KS');
+      const allWarns = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(allWarns).toContain('STALE_BASE_OR_SPLIT_ADJUSTMENT');
+      expect(allWarns).toContain('Yahoo 등락률 폐기 권고');
     });
   });
 });

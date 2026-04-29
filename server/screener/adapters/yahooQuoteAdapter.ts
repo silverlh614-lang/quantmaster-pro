@@ -8,7 +8,7 @@
  */
 
 import { guardedFetch } from '../../utils/egressGuard.js';
-import { safePctChange, type PriceBase } from '../../utils/safePctChange.js';
+import { safePctChange, safePctChangeDetailed, type PriceBase } from '../../utils/safePctChange.js';
 import { calcRSI, calcRSI14, calcEMAArr, calcMACD } from './_indicators.js';
 
 /**
@@ -84,6 +84,15 @@ export interface YahooQuoteExtended {
    * 옵셔널 — 기존 호출자 후방호환.
    */
   priceMetadata?: PriceBase;
+  /**
+   * ADR-0091 PR-Z4 — Yahoo 변화율 데이터 품질 marker.
+   * `OK` (모두 valid) / `STALE_BASE` (changePercent / return5d / return20d 중 1개 이상 sanity 위반).
+   * 사용자 패치 §"valid=false 면 Yahoo 등락률 폐기 + KIS 우선 사용 + Gate/MOMENTUM 감점/제외".
+   * 호출자(stockScreener)가 STALE_BASE 종목을 universe 에서 제외하거나 momentum 점수 감점.
+   */
+  dataQuality?: 'OK' | 'STALE_BASE';
+  /** dataQuality=STALE_BASE 시 어느 필드가 위반했는지 진단 — 운영 로그 추적용. */
+  dataQualityIssues?: Array<'changePercent' | 'return5d' | 'return20d'>;
 }
 
 // 스크리너·시그널·리포트가 같은 분 안에 동일 심볼을 여러 번 조회하므로
@@ -173,19 +182,29 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     // PR-D3-D-2: prevClose 도 PriceBase 로 전달 — DAILY 모드 (50% 임계) + stale 자동 차단.
     // 사용자 보고 +121.36% / +217.24% 같은 changePercent 위반 패턴 (전일 +30% 상한가
     // 초과 = 상한가+갭 조합도 50% 안) 자동 차단. asOf 는 closes[length-2] timestamp.
+    //
+    // ADR-0091 PR-Z4: safePctChangeDetailed 로 전환 — `?? 0` silent fallback 제거.
+    // valid=false 시 dataQualityIssues 에 'changePercent' 누적 + 후속 KIS 폴백 wiring.
     const prevCloseAsOf = closes.length >= 2
       ? isoFromCloseIdx(closes.length - 2)
       : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const changePercent = prevClose !== null
-      ? (safePctChange(price, {
-          value: prevClose,
-          asOf: prevCloseAsOf,
-          source: 'YAHOO_HISTORICAL',
-        }, {
-          label: `yahooQuoteAdapter.changePercent:${symbol}`,
-          mode: 'DAILY',
-        }) ?? 0)
-      : 0;
+    const dataQualityIssues: Array<'changePercent' | 'return5d' | 'return20d'> = [];
+    let changePercent = 0;
+    if (prevClose !== null) {
+      const result = safePctChangeDetailed(price, {
+        value: prevClose,
+        asOf: prevCloseAsOf,
+        source: 'YAHOO_HISTORICAL',
+      }, {
+        label: `yahooQuoteAdapter.changePercent:${symbol}`,
+        mode: 'DAILY',
+      });
+      if (result.valid) {
+        changePercent = result.value;
+      } else {
+        dataQualityIssues.push('changePercent');
+      }
+    }
     const volume = volumes[volumes.length - 1] ?? 0;
 
     // 평균 거래량 (최근 60거래일, 당일 제외 — 2y 범위에서도 일관성 유지)
@@ -273,29 +292,34 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     // 직전 5거래일 수익률 — Regret Asymmetry Filter용
     // ADR-0028 §모드: 5일 수익률은 *테마주 폭등* (예: 광무, 이수페타시스) 에서 정상
     // +100~+200% 가능 → RECOMMENDATION_RETURN 300% 임계 + PriceBase stale 차단 결합.
+    // ADR-0091 PR-Z4: detailed 결과 valid=false 시 dataQualityIssues 누적.
     const close5dAgoIdx = closes.length > 5 ? closes.length - 6 : 0;
     const close5dAgo = closes[close5dAgoIdx];
-    const return5d = safePctChange(price, {
+    const return5dResult = safePctChangeDetailed(price, {
       value: close5dAgo,
       asOf: isoFromCloseIdx(close5dAgoIdx),
       source: 'YAHOO_HISTORICAL',
     }, {
       label: `yahooQuoteAdapter.return5d:${symbol}`,
       mode: 'RECOMMENDATION_RETURN',
-    }) ?? 0;
+    });
+    const return5d = return5dResult.valid ? return5dResult.value : 0;
+    if (!return5dResult.valid) dataQualityIssues.push('return5d');
 
     // 직전 20거래일 수익률 — Gate 24 상대강도(vs KOSPI 20d) 입력
     // PR-D3-D: 사용자 보고 +443% 시나리오는 base.asOf 가 30일 초과 → STALE_BASE 차단.
     const close20dAgoIdx = closes.length > 20 ? closes.length - 21 : 0;
     const close20dAgo = closes[close20dAgoIdx];
-    const return20d = safePctChange(price, {
+    const return20dResult = safePctChangeDetailed(price, {
       value: close20dAgo,
       asOf: isoFromCloseIdx(close20dAgoIdx),
       source: 'YAHOO_HISTORICAL',
     }, {
       label: `yahooQuoteAdapter.return20d:${symbol}`,
       mode: 'RECOMMENDATION_RETURN',
-    }) ?? 0;
+    });
+    const return20d = return20dResult.valid ? return20dResult.value : 0;
+    if (!return20dResult.valid) dataQualityIssues.push('return20d');
 
     // ── Compression Score 구성 요소 ──────────────────────────────────────────────
 
@@ -425,6 +449,10 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
           : new Date().toISOString(),
         source: 'YAHOO_INTRADAY',
       },
+      // ADR-0091 PR-Z4: changePercent / return5d / return20d 중 1개 이상 sanity 위반 시 STALE_BASE.
+      // 호출자(stockScreener)가 universe 제외 또는 momentum 점수 감점.
+      dataQuality: dataQualityIssues.length > 0 ? 'STALE_BASE' : 'OK',
+      dataQualityIssues: dataQualityIssues.length > 0 ? dataQualityIssues : undefined,
     };
     _yahooQuoteCache.set(symbol, { data: quote, ts: Date.now() });
     return quote;
