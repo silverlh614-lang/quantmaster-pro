@@ -21,6 +21,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { Clock, BarChart3, Moon, AlertCircle } from 'lucide-react';
 import { cn } from '../../ui/cn';
 import { useUILang } from '../../hooks/useUILang';
+import { useUIVerbosity } from '../../hooks/useUIVerbosity';
 
 interface VariantProps {
   /** 기본 메시지를 override. 부재 시 UI_LANG.empty.* SSOT 사용. */
@@ -30,6 +31,11 @@ interface VariantProps {
   className?: string;
   /** 컴팩트 모드 (배지 형태). 기본 false (배너 형태). */
   compact?: boolean;
+  /**
+   * Verbosity 분기 강제 override — props 명시 시 useUIVerbosity 무시 (테스트/특수 케이스).
+   * ADR-0103 PR-Verbose-Wiring-3 — minimal 시 미렌더, balanced/verbose 렌더.
+   */
+  forceShow?: boolean;
 }
 
 interface VariantStyleSpec {
@@ -86,7 +92,12 @@ const VARIANT_STYLES: Record<'DELAYED' | 'INSUFFICIENT' | 'STALE' | 'CONFLICTED'
 };
 
 function makeVariant(emptyKey: 'DELAYED' | 'INSUFFICIENT' | 'STALE' | 'CONFLICTED') {
-  return function VariantComponent({ message, action, className, compact = false }: VariantProps): ReactElement {
+  return function VariantComponent({ message, action, className, compact = false, forceShow }: VariantProps): ReactElement | null {
+    // ADR-0103 PR-Verbose-Wiring-3: shouldShow('idontknow') 분기 — minimal 시 미렌더, balanced/verbose 렌더
+    const v = useUIVerbosity();
+    const shouldRender = forceShow !== undefined ? forceShow : v.shouldShow('idontknow');
+    if (!shouldRender) return null;
+
     const t = useUILang();
     const spec = VARIANT_STYLES[emptyKey];
     const Icon = spec.icon;

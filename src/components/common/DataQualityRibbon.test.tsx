@@ -11,10 +11,17 @@
  * 6) ARIA 접근성 (role="img" + aria-label 5-tier 정합)
  * 7) 카운트 0 segment 자동 생략
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import { DataQualityRibbon, computeRibbonRatios } from './DataQualityRibbon';
 import type { DataQualityCount } from '../../types/ui';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+
+// ADR-0103 PR-Verbose-Wiring-3: DataQualityRibbon 이 verbose 모드 한정 렌더이므로
+// 본 컴포넌트 본체 검증 시 verbose 강제. verbosity 분기는 별도 *.verbosity.test.tsx
+beforeEach(() => {
+  useSettingsStore.getState().setUIVerbosity('verbose');
+});
 
 afterEach(() => cleanup());
 

@@ -18,6 +18,7 @@
 import type { ReactElement } from 'react';
 import { cn } from '../../ui/cn';
 import { useUILang } from '../../hooks/useUILang';
+import { useUIVerbosity } from '../../hooks/useUIVerbosity';
 import type { DataQualityCount } from '../../types/ui';
 
 interface DataQualityRibbonProps {
@@ -26,6 +27,11 @@ interface DataQualityRibbonProps {
   className?: string;
   /** 띠 높이 (px). 기본 3px. */
   height?: number;
+  /**
+   * Verbosity 분기 강제 override — props 명시 시 useUIVerbosity 무시 (테스트/특수 케이스).
+   * ADR-0103 PR-Verbose-Wiring-3 — minimal/balanced 시 미렌더, verbose 한정.
+   */
+  forceShow?: boolean;
 }
 
 /**
@@ -110,7 +116,12 @@ const GRADE_LABEL = {
   WARN: '신뢰도 경계',
 };
 
-export function DataQualityRibbon({ counts, className, height = 3 }: DataQualityRibbonProps): ReactElement {
+export function DataQualityRibbon({ counts, className, height = 3, forceShow }: DataQualityRibbonProps): ReactElement | null {
+  // ADR-0103 PR-Verbose-Wiring-3: shouldShow('data-quality-ribbon') 분기 — verbose 한정 렌더 (사용자 #12 매트릭스)
+  const v = useUIVerbosity();
+  const shouldRender = forceShow !== undefined ? forceShow : v.shouldShow('data-quality-ribbon');
+  if (!shouldRender) return null;
+
   const t = useUILang();
   const ratios = computeRibbonRatios(counts);
 
