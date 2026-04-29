@@ -40,7 +40,7 @@ afterEach(() => {
 });
 
 describe('callReflectionGemini — ADR-0009 옵션 pass-through', () => {
-  it('provider 경로에 prependPersona:false / stripPreamble:false / maxOutputTokens:4096 전달', async () => {
+  it('provider 경로에 prependPersona:false / stripPreamble:false / maxOutputTokens:8192 전달', async () => {
     providerSpy.mockResolvedValue('{"ok":true}');
     const out = await callReflectionGemini('prompt-1', 'mainReflection');
     expect(out).toBe('{"ok":true}');
@@ -48,7 +48,7 @@ describe('callReflectionGemini — ADR-0009 옵션 pass-through', () => {
     const [, opts] = providerSpy.mock.calls[0];
     expect(opts.caller).toBe('mainReflection');
     expect(opts.temperature).toBe(0.2);
-    expect(opts.maxOutputTokens).toBe(4096);
+    expect(opts.maxOutputTokens).toBe(8192);
     expect(opts.prependPersona).toBe(false);
     expect(opts.stripPreamble).toBe(false);
   });

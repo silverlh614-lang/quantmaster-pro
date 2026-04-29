@@ -46,8 +46,18 @@ function getKstDateStr(): string {
 /**
  * 일일 종목 픽 리포트 생성 및 발송.
  * scheduler.ts에서 평일 16:30 KST (UTC 07:30)에 호출.
+ *
+ * ADR-0108 (사용자 요청 4/29): default OFF — 메시지가 매번 "조건 충족 종목 없음"
+ * 형태로 발송되어 운영자 가치 부재. 구독자 대상 발송 정책이 정해지면 ENV
+ * `DAILY_PICK_REPORT_ENABLED=true` 로 명시 활성화.
  */
 export async function generateDailyPickReport(): Promise<void> {
+  // ADR-0108 — default 비활성 (사용자 요청 4/29).
+  if (process.env.DAILY_PICK_REPORT_ENABLED !== 'true') {
+    console.log('[PickReport] DAILY_PICK_REPORT_ENABLED!=true — 발송 skip (ADR-0108)');
+    return;
+  }
+
   const macroState = loadMacroState();
   const regime     = getLiveRegime(macroState);
   const dateStr    = getKstDateStr();

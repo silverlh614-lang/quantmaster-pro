@@ -384,21 +384,29 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
 
   const { hard, soft, softDisabled } = resolveSectionCaps();
 
-  // 트림이 실제로 일어났다면 운영자에게 알림 (쿨다운 15분 — 과잉 스팸 방지).
-  if (totalDropped > 0) {
+  // ADR-0108 (사용자 요청 4/29 "노이즈 너무 심함"):
+  //   - Auto-Trim cooldown 15분 → 8시간 (1일 1~2회 발송, 운영자 인지 부담 ↓)
+  //   - 발송 임계 강화: totalDropped >= 3 (단순 1~2개 trim 은 무음)
+  //   - 포화 cooldown 30분 → 12시간 + soft cap 90% 임박 시에만 발송 (단순 alert 임계 통과 발송 차단)
+  //   - ENV 우회: WATCHLIST_TRIM_ALERT_DISABLED=true / WATCHLIST_OVERFLOW_ALERT_DISABLED=true
+  const trimAlertEnabled = process.env.WATCHLIST_TRIM_ALERT_DISABLED !== 'true';
+  if (trimAlertEnabled && totalDropped >= 3) {
     void sendTelegramAlert(
       buildWatchlistAutoTrimAlert({ result, hard, soft, softDisabled }),
       {
         priority: 'NORMAL',
         dedupeKey: 'watchlist-autotrim',
-        cooldownMs: 15 * 60 * 1000,
+        cooldownMs: 8 * 60 * 60 * 1000,  // 8시간
       },
     ).catch(console.error);
   }
 
-  // 자동 trim 이후에도 MOMENTUM 이 여전히 alert 임계 초과면 포화 경보.
-  // ADR-0028 §모순9: 출처별 분포 + 다음 자동 액션 안내 동봉.
-  if (momentumCount > MOMENTUM_ALERT_THRESHOLD) {
+  // 자동 trim 이후에도 MOMENTUM 이 soft cap 90% 임박이면 포화 경보.
+  // 단순 alert 임계 통과는 발송 차단 — 운영자 행동 불필요한 정보 노이즈 제거.
+  const overflowAlertEnabled = process.env.WATCHLIST_OVERFLOW_ALERT_DISABLED !== 'true';
+  // soft 비활성 시 hard cap 90% 임박 사용
+  const overflowThreshold = softDisabled ? hard.MOMENTUM * 0.9 : soft.MOMENTUM * 0.9;
+  if (overflowAlertEnabled && momentumCount >= overflowThreshold) {
     const sourceDistribution: Record<'AUTO' | 'MANUAL' | 'DART', number> = { AUTO: 0, MANUAL: 0, DART: 0 };
     for (const entry of trimmed) {
       const isMomentum = entry.section === 'MOMENTUM' || (!entry.section && entry.track === 'A');
@@ -418,7 +426,7 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
       {
         priority: 'HIGH',
         dedupeKey: 'watchlist-momentum-overflow',
-        cooldownMs: 30 * 60 * 1000,
+        cooldownMs: 12 * 60 * 60 * 1000,  // 12시간
       },
     ).catch(console.error);
   }

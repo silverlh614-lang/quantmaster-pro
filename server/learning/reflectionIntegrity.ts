@@ -23,7 +23,10 @@ import type {
 export const REFLECTION_TEMPERATURE = 0.2;
 // ADR-0009: JSON 응답 길이 상한 상향 (2048 → 4096). 기존 2048 에서 JSON 이 잘려 파싱
 // 실패 → template fallback 로그가 매일 반복되던 문제를 해소한다.
-export const REFLECTION_MAX_OUTPUT_TOKENS = 4096;
+// ADR-0108 (사용자 요청 4/29): 4096 → 8192. 자기반성 narrative 가 본문 중간에서
+// 잘리는 사례 ("이익 실현을 저해할 ...") 발생 — narrative 본체가 700자+ 한국어
+// 텍스트 + JSON 구조 + claims/sources 배열 포함되면 4096 토큰 초과 가능.
+export const REFLECTION_MAX_OUTPUT_TOKENS = 8192;
 
 /** 원천 검증 통과한 claim 만 남긴다. 삭제된 claim 텍스트는 removed[] 에 기록. */
 function filterClaims(
