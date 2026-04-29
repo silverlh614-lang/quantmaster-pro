@@ -374,6 +374,34 @@ export async function cleanupWatchlist(): Promise<void> {
     );
   }
 
+  // ─── Stage 3 — MOMENTUM 약세 강등 (사용자 요청 4 ADR-0106) ────────────────
+  // 기존엔 expiresAt(2영업일) 이후에만 자동 제거. 그 사이 promotion 안 된 약한
+  // MOMENTUM 종목이 watchlist 노이즈 누적. 본 단계는 *조기 demotion*:
+  //   - 등록 후 1영업일+ 경과 (24h 단순 비교 — 영업일 라이브러리 부재로 단순화)
+  //   - gateScore < AUTO_MIN_SCORE - 1.0 (default 7.8 - 1.0 = 6.8 미만)
+  // → 즉시 제거. expiresAt 만료 대기 안 함. 사용자 통찰: "약한 종목은 자연 탈락".
+  // ENV 우회: AUTO_MOMENTUM_DECAY_DISABLED=true 시 skip.
+  if (process.env.AUTO_MOMENTUM_DECAY_DISABLED !== 'true') {
+    const decayThreshold = parseFloat(process.env.AUTO_MIN_SCORE ?? '7.8') - 1.0;
+    const oneDayAgoMs = now.getTime() - 24 * 3600 * 1000;
+    const decayed: WatchlistEntry[] = [];
+    cleaned = cleaned.filter((w) => {
+      if (w.section !== 'MOMENTUM') return true;
+      if (!w.addedAt) return true;
+      const addedMs = new Date(w.addedAt).getTime();
+      if (!Number.isFinite(addedMs) || addedMs >= oneDayAgoMs) return true; // 1일 미경과
+      if ((w.gateScore ?? 0) >= decayThreshold) return true; // 임계 통과
+      decayed.push(w);
+      return false;
+    });
+    if (decayed.length > 0) {
+      console.log(
+        `[Watchlist] MOMENTUM 약세 강등 ${decayed.length}개 (임계 G${decayThreshold.toFixed(1)} + 1일 경과): ` +
+        decayed.map((w) => `${w.name}(G${w.gateScore ?? 0})`).join(', '),
+      );
+    }
+  }
+
   if (
     cleaned.length !== watchlist.length ||
     cleaned.some((w) => {
