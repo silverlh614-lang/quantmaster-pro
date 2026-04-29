@@ -81,6 +81,7 @@ export async function euphoriaPartialExit(ctx: ExitContext): Promise<ExitRuleRes
       holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
       soldQty:     halfQty,
       originalQty: shadow.originalQuantity,
+      remainingQtyAfter: euphoriaReserve.remainingQty,
     }).catch(console.error);
   }
   return NO_OP;

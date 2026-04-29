@@ -65,6 +65,7 @@ export async function legacyTakeProfit(ctx: ExitContext): Promise<ExitRuleResult
     pnlPct:      returnPct,
     reason:      'TARGET',
     holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+    remainingQtyAfter: targetReserve.remainingQty,
   }).catch(console.error);
   return { skipRest: true };
 }

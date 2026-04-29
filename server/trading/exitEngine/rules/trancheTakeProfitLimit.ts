@@ -72,6 +72,7 @@ export async function trancheTakeProfitLimit(ctx: ExitContext): Promise<ExitRule
         holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
         soldQty:     sellQty,
         originalQty: baseQty,
+        remainingQtyAfter: trancheReserve.remainingQty,
       }).catch(console.error);
     }
   }

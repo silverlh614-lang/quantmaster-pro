@@ -83,6 +83,7 @@ export async function ma60DeathForceExit(ctx: ExitContext): Promise<ExitRuleResu
     pnlPct:      returnPct,
     reason:      'STOP',
     holdingDays: Math.floor((Date.now() - new Date(shadow.signalTime).getTime()) / 86_400_000),
+    remainingQtyAfter: ma60Reserve.remainingQty,
   }).catch(console.error);
   // IDEA 11 — 손절 투명성 리포트
   await sendStopLossTransparencyReport(shadow, {
