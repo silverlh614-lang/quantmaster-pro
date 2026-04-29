@@ -420,6 +420,38 @@ export async function autoPopulateWatchlist(): Promise<number> {
       continue;
     }
 
+    // ─── ADR-0091 PR-Z4 — Yahoo dataQuality=STALE_BASE 시 KIS 폴백 + 종목 제외 ───
+    // 사용자 진단: "Sanity 실패 후에도 Yahoo base 를 계속 신뢰하는 구조" 차단.
+    // changePercent 위반 시 KIS intraday 로 재산출 시도 (KIS 는 자체 prevClose 보유).
+    // KIS 폴백 실패 또는 return5d/return20d 까지 STALE 인 경우 → universe 제외.
+    if (quote.dataQuality === 'STALE_BASE') {
+      const issues = quote.dataQualityIssues ?? [];
+      const onlyChangePercent = issues.length === 1 && issues[0] === 'changePercent';
+      let kisRecovered = false;
+      if (onlyChangePercent) {
+        const kisIntraday = await fetchKisIntraday(stock.code).catch(() => null);
+        if (kisIntraday && kisIntraday.prevClose > 0) {
+          const kisChangePct = ((kisIntraday.price - kisIntraday.prevClose) / kisIntraday.prevClose) * 100;
+          if (Number.isFinite(kisChangePct) && Math.abs(kisChangePct) <= 30) {
+            quote.changePercent = parseFloat(kisChangePct.toFixed(2));
+            quote.prevClose = kisIntraday.prevClose;
+            quote.dataQuality = 'OK';
+            quote.dataQualityIssues = undefined;
+            kisRecovered = true;
+            console.log(`[AutoPopulate] ${stock.code} ${stock.name} — Yahoo STALE_BASE → KIS changePercent ${kisChangePct.toFixed(2)}% 폴백`);
+          }
+        }
+      }
+      if (!kisRecovered) {
+        rejectionLog.push({
+          code: stock.code,
+          name: stock.name,
+          reason: `Yahoo 데이터 오염 (STALE_BASE: ${issues.join(',')}) — KIS 폴백 실패 또는 다중 위반`,
+        });
+        continue;
+      }
+    }
+
     // ── 시간대별 프리셋 적용: MORNING/MIDDAY/CLOSE/OFFHOURS ──────────────────
     // 단일 임계값이 아닌 시간 커브를 가진 필터.
     if (quote.changePercent >= preset.changePercentMax) {
