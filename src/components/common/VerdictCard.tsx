@@ -31,6 +31,7 @@ import { useState, type ReactElement, type ReactNode } from 'react';
 import { ShieldAlert, Target, AlertTriangle } from 'lucide-react';
 import { cn } from '../../ui/cn';
 import { useUILang } from '../../hooks/useUILang';
+import { useUIVerbosity } from '../../hooks/useUIVerbosity';
 import type { OverallVerdict } from '../../types/ui';
 import type { RegimeLevel } from '../../types/core';
 import { TimeBand } from './TimeBand';
@@ -92,9 +93,15 @@ function VerdictSlot({ verdict, regime, expired, className }: VerdictSlotProps):
 interface EvidenceSlotProps {
   children?: ReactNode;
   className?: string;
+  /** Verbosity 분기 강제 override — props 명시 시 useUIVerbosity 무시 (테스트/특수 케이스). */
+  forceShow?: boolean;
 }
 
-function EvidenceSlot({ children, className }: EvidenceSlotProps): ReactElement {
+function EvidenceSlot({ children, className, forceShow }: EvidenceSlotProps): ReactElement | null {
+  // ADR-0101 PR-Verbose-Wiring-1: shouldShow('evidence') 분기 — minimal 시 미렌더, balanced/verbose 시 렌더
+  const v = useUIVerbosity();
+  const shouldRender = forceShow !== undefined ? forceShow : v.shouldShow('evidence');
+  if (!shouldRender) return null;
   return (
     <div className={cn('text-xs space-y-1', className)} data-vcard-slot="evidence">
       {children ?? <span className="opacity-50">근거 미수집</span>}
@@ -116,6 +123,8 @@ interface RiskSlotProps {
   /** 시나리오 메모 (가장 작은 폰트) */
   scenarios?: string[];
   className?: string;
+  /** Verbosity 분기 강제 override — props 명시 시 useUIVerbosity 무시 (테스트/특수 케이스). */
+  forceShow?: boolean;
 }
 
 function formatKrw(n: number | undefined): string {
@@ -123,7 +132,12 @@ function formatKrw(n: number | undefined): string {
   return new Intl.NumberFormat('ko-KR').format(Math.round(n));
 }
 
-function RiskSlot({ stopLoss, entryPrice, invalidation, targetPrice, scenarios, className }: RiskSlotProps): ReactElement {
+function RiskSlot({ stopLoss, entryPrice, invalidation, targetPrice, scenarios, className, forceShow }: RiskSlotProps): ReactElement | null {
+  // ADR-0101 PR-Verbose-Wiring-1: shouldShow('risk') 분기 — minimal 시 미렌더, balanced/verbose 시 렌더
+  const v = useUIVerbosity();
+  const shouldRender = forceShow !== undefined ? forceShow : v.shouldShow('risk');
+  if (!shouldRender) return null;
+
   const stopPct = entryPrice && entryPrice > 0 && Number.isFinite(stopLoss)
     ? ((stopLoss - entryPrice) / entryPrice) * 100
     : null;
@@ -231,8 +245,10 @@ function VerdictCardRoot({
     );
   }
 
-  // V-E-R 모드
-  const showTimeBand = createdAt !== undefined && expiresAt !== undefined;
+  // V-E-R 모드 — TimeBand 는 verbosity 분기 적용 (ADR-0101 PR-Verbose-Wiring-1)
+  const v = useUIVerbosity();
+  const showTimeBand =
+    createdAt !== undefined && expiresAt !== undefined && v.shouldShow('time-band');
 
   // children 안에서 Verdict slot 자동 인지하여 expired prop 주입
   const enhancedChildren = expired
