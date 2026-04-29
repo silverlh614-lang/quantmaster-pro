@@ -67,18 +67,21 @@ describe('classifyDataQuality — ADR-0028 §3 휴리스틱 fallback', () => {
     expect(r.aiInferred).toBe(8); // 7 + AI 1
   });
 
-  it('dataSourceType 미지정 → aiInferred +1 (기본 STALE/AI 취급)', () => {
+  it('dataSourceType 미지정 → aiInferred +1 (기본 AI/undefined 보수적 처리)', () => {
     const stock = makeStock({ computedKeys: 0, apiKeys: 0, aiKeys: 0 });
     const r = classifyDataQuality(stock);
     expect(r.computed).toBe(0);
     expect(r.api).toBe(0);
     expect(r.aiInferred).toBe(1);
+    expect(r.delayed).toBe(0); // ADR-0095 — undefined 는 DELAYED 가 아닌 ESTIMATED 보수적 분류
     expect(r.total).toBe(1);
   });
 
-  it('모두 falsy + 데이터 소스 STALE → total=1, tier=LOW', () => {
+  it('모두 falsy + 데이터 소스 STALE → delayed=1 (ADR-0095 자동 사다리)', () => {
     const stock = makeStock({ computedKeys: 0, apiKeys: 0, aiKeys: 0, dataSourceType: 'STALE' });
     const r = classifyDataQuality(stock);
+    expect(r.delayed).toBe(1); // ADR-0095 — STALE 은 DELAYED 로 자동 분리 (기존 aiInferred 흡수에서 분리)
+    expect(r.aiInferred).toBe(0);
     expect(r.total).toBe(1);
     expect(r.tier).toBe('LOW');
   });
@@ -122,5 +125,44 @@ describe('classifyDataQuality — ADR-0028 §3 휴리스틱 fallback', () => {
     // 5/9 = 통과, 4 는 FAIL=3 으로 미통과
     expect(r.computed).toBe(5);
     expect(r.api).toBe(5);
+  });
+
+  // ============================================================
+  // ADR-0095 PR-Phase-A-2 — 5-tier 자동 사다리 격상
+  // ============================================================
+  it('ADR-0095: STALE dataSourceType → delayed +1 (DELAYED 자동 분리, aiInferred 흡수 차단)', () => {
+    const stock = makeStock({ computedKeys: 9, apiKeys: 11, aiKeys: 7, dataSourceType: 'STALE' });
+    const r = classifyDataQuality(stock);
+    expect(r.computed).toBe(9);
+    expect(r.api).toBe(11);
+    expect(r.aiInferred).toBe(7); // STALE 가 aiInferred 로 흡수되지 않음
+    expect(r.delayed).toBe(1); // 신규 — STALE 자동 사다리
+    expect(r.manual).toBe(0);
+    expect(r.total).toBe(28); // 9 + 11 + 7 + 1 + 0
+  });
+
+  it('ADR-0095: REALTIME 출처 → computed +1, delayed/manual=0 (자동 사다리 미발동)', () => {
+    const stock = makeStock({ computedKeys: 0, apiKeys: 0, aiKeys: 0, dataSourceType: 'REALTIME' });
+    const r = classifyDataQuality(stock);
+    expect(r.computed).toBe(1);
+    expect(r.delayed).toBe(0);
+    expect(r.manual).toBe(0);
+  });
+
+  it('ADR-0095: 후방호환 — 기존 3-tier 호출자가 delayed/manual 옵셔널 인지 가능', () => {
+    const stock = makeStock({ computedKeys: 5 });
+    const r = classifyDataQuality(stock);
+    // delayed/manual 은 옵셔널이지만 항상 number 반환 (undefined 가 아님)
+    expect(typeof r.delayed).toBe('number');
+    expect(typeof r.manual).toBe('number');
+    expect(r.delayed).toBe(0);
+    expect(r.manual).toBe(0);
+  });
+
+  it('ADR-0095: total 계산이 5 카테고리 모두 합산', () => {
+    const stock = makeStock({ computedKeys: 9, apiKeys: 11, aiKeys: 7, dataSourceType: 'STALE' });
+    const r = classifyDataQuality(stock);
+    const sum = r.computed + r.api + r.aiInferred + (r.delayed ?? 0) + (r.manual ?? 0);
+    expect(r.total).toBe(sum);
   });
 });
