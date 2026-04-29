@@ -320,10 +320,13 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
   if (vixGating.noNewEntry) {
     console.warn(`[AutoTrade] VIX 게이팅 — 신규 진입 중단: ${vixGating.reason}`);
+    // ADR-0093 — KST 일자 1회 dedupe (orchestrator_tick 매 분 호출 도배 차단).
+    const kstDateStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     await sendTelegramAlert(
       `🚨 <b>[VIX 게이팅] 신규 진입 차단</b>\n` +
       `${vixGating.reason}\n` +
-      `포지션 모니터링만 수행합니다.`
+      `포지션 모니터링만 수행합니다.`,
+      { dedupeKey: `vix_gating_block:${kstDateStr}`, cooldownMs: 12 * 60 * 60 * 1000 },
     ).catch(console.error);
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
@@ -343,10 +346,16 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   );
   if (fomcProximity.noNewEntry) {
     console.warn(`[AutoTrade] FOMC 게이팅 — 신규 진입 차단: ${fomcProximity.description}`);
+    // ADR-0093 — nextFomcDate 기반 dedupe (FOMC DAY 약 480 분 매 분 호출 도배 차단).
+    // fomc_relaxed_${date} (preflight.ts:301) 와 동일 정합 패턴.
     await sendTelegramAlert(
       `📅 <b>[FOMC 게이팅] 신규 진입 차단</b>\n` +
       `${fomcProximity.description}\n` +
-      `포지션 모니터링만 수행합니다.`
+      `포지션 모니터링만 수행합니다.`,
+      {
+        dedupeKey: `fomc_gating_block:${fomcProximity.nextFomcDate ?? 'unknown'}`,
+        cooldownMs: 12 * 60 * 60 * 1000,
+      },
     ).catch(console.error);
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
