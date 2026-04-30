@@ -30,7 +30,7 @@ import { safePctChange } from '../utils/safePctChange.js';
 import { evaluateCrossSource } from './crossSourceValidator.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { evaluateSectorEnergy } from '../../src/services/quant/sectorEnergyEngine.js';
-import { getSectorEnergyInputs } from '../clients/sectorEnergyProvider.js';
+import { getSectorEnergyInputs, buildSectorEnergyInputsWithMeta } from '../clients/sectorEnergyProvider.js';
 import { deriveSectorCycle } from './sectorCycleClassifier.js';
 
 /**
@@ -625,27 +625,41 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   }
 
   // ── ADR-0075 PR-4 wiring: 강세 섹터 Gate Score 가산점 SSOT 영속 ─────────────
-  // KRX 12 섹터 4주 수익률 + 거래량 + 외인 합성 → LEADING/NEUTRAL/LAGGING 분류.
-  // entryEngine 의 Gate Score 산출 시점에 macroState.sectorEnergyResult 를 read 만 한다.
-  // 호출 비용: KRX OpenAPI 5건 (캐시 30분, getSectorEnergyInputs 가 자동 분배) — 비싸지만
-  // marketDataRefresh 자체가 일일 cron 이라 부담 없음. 실패 시 graceful — 보너스 0 자연 폴백.
+  // ADR-0125 (PR-1) 격상: buildSectorEnergyInputsWithMeta 사용 — dataQuality 4값
+  // (OK/PARTIAL/STALE/FAILED) + validSectorCount + reasons 동시 영속.
+  // applySectorScoreBoost 가 read 후 dataQuality 분기로 boost 강도 분기.
   let sectorEnergyResult: ReturnType<typeof evaluateSectorEnergy> | undefined;
   let sectorEnergyUpdatedAt: string | undefined;
+  let sectorEnergyDataQuality: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED' | undefined;
+  let sectorEnergyValidSectorCount: number | undefined;
+  let sectorEnergyReasons: string[] | undefined;
   try {
-    const inputs = await getSectorEnergyInputs();
-    if (inputs.length > 0) {
-      sectorEnergyResult = evaluateSectorEnergy(inputs);
+    // ADR-0125: WithMeta 사용 — symmetry 검증 + dataQuality 동시 산출 (캐시 우회).
+    // marketDataRefresh 일일 cron 이라 캐시 부담 없음. 진단 정확성 우선.
+    const meta = await buildSectorEnergyInputsWithMeta();
+    sectorEnergyDataQuality = meta.dataQuality;
+    sectorEnergyValidSectorCount = meta.validSectorCount;
+    sectorEnergyReasons = meta.reasons;
+
+    if (meta.inputs.length > 0) {
+      sectorEnergyResult = evaluateSectorEnergy(meta.inputs);
       sectorEnergyUpdatedAt = new Date().toISOString();
       console.log(
-        `[MarketRefresh] sectorEnergy 갱신 — ${inputs.length}개 섹터 ` +
-        `(LEADING ${sectorEnergyResult.leadingSectors.length}, ` +
+        `[MarketRefresh] sectorEnergy 갱신 — ${meta.inputs.length}개 섹터 ` +
+        `(dataQuality=${meta.dataQuality}, valid=${meta.validSectorCount}/12, ` +
+        `LEADING ${sectorEnergyResult.leadingSectors.length}, ` +
         `LAGGING ${sectorEnergyResult.laggingSectors.length})`,
       );
     } else {
-      console.debug('[MarketRefresh] sectorEnergy 입력 0건 — 갱신 스킵 (이전 값 보존)');
+      console.debug(
+        `[MarketRefresh] sectorEnergy 입력 0건 — dataQuality=${meta.dataQuality}, ` +
+        `이전 sectorEnergyResult 캐시 보존 (STALE reference).`,
+      );
     }
   } catch (e) {
     console.warn('[MarketRefresh] sectorEnergy 갱신 실패:', e instanceof Error ? e.message : e);
+    sectorEnergyDataQuality = 'FAILED';
+    sectorEnergyReasons = ['buildSectorEnergyInputsWithMeta throw'];
   }
 
   // ── 섹터 사이클 분류 (sectorEnergyResult → sectorCycleStage / leadingSectorRS) ─
@@ -667,6 +681,14 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     updatedAt: new Date().toISOString(),
     // sectorEnergyResult 가 갱신됐을 때만 덮어쓰기 — 실패 시 이전 값 보존.
     ...(sectorEnergyResult ? { sectorEnergyResult, sectorEnergyUpdatedAt } : {}),
+    // ADR-0125: dataQuality 메타는 항상 영속 (이전 캐시 reference 활용 시 STALE 판정 입력).
+    ...(sectorEnergyDataQuality !== undefined
+      ? {
+          sectorEnergyDataQuality,
+          sectorEnergyValidSectorCount,
+          sectorEnergyReasons,
+        }
+      : {}),
     // 사이클 분류가 가능했을 때만 덮어쓰기 — 실패 시 이전 stage / RS 유지.
     ...(cycleClassification
       ? {

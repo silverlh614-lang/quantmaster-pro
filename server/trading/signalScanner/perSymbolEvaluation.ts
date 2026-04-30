@@ -877,8 +877,10 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // ADR-0075 PR-4 wiring: 강세 섹터 Gate Score 가산점 — macroState.sectorEnergyResult
       // 가 영속되어 있으면 stock.sector 의 LEADING/LAGGING 분류 결과를 quoteGateScore 에
       // 가산. macroState.sectorEnergyResult 부재 시 boost=0 — 기존 동작과 동일.
+      // ADR-0125 (PR-1): dataQuality 4값 분기 추가 — STALE/FAILED 시 boost=0 강제.
       const sectorEnergyResult = ctx.macroState?.sectorEnergyResult ?? null;
-      const sectorBoost = applySectorScoreBoost(stock.sector, sectorEnergyResult, ctx.regime);
+      const sectorEnergyDataQuality = ctx.macroState?.sectorEnergyDataQuality;
+      const sectorBoost = applySectorScoreBoost(stock.sector, sectorEnergyResult, ctx.regime, sectorEnergyDataQuality);
       const sectorBoostReason = sectorBoost !== 0 && stock.sector && sectorEnergyResult
         ? describeSectorBoost(
             stock.sector,

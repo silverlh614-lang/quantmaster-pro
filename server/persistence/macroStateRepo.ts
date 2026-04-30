@@ -77,6 +77,20 @@ export interface MacroState {
   /** sectorEnergyResult 마지막 갱신 시각 (ISO) — /regime 메시지 신선도 표시용. */
   sectorEnergyUpdatedAt?: string;
   /**
+   * ADR-0125 (PR-1 후속): sectorEnergy 데이터 품질 — buildSectorEnergyInputsWithMeta
+   * 결과의 dataQuality 영속. applySectorScoreBoost 가 read 후 OK/PARTIAL/STALE/FAILED
+   * 분기로 boost 강도 분기.
+   *   - OK     → boost full (기본)
+   *   - PARTIAL→ boost × 0.5 → Math.round
+   *   - STALE  → boost 0 (단, sectorEnergyResult 는 이전 캐시 보존됨 — reference 표시)
+   *   - FAILED → boost 0
+   */
+  sectorEnergyDataQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
+  /** ADR-0125: 12 섹터 중 유효 (returns.length>0) 섹터 수 — /scan_blockers 진단용. */
+  sectorEnergyValidSectorCount?: number;
+  /** ADR-0125: dataQuality 분류 사유 (debug용). 빈 배열 가능. */
+  sectorEnergyReasons?: string[];
+  /**
    * MHS 4-axis 분해 (interestRate / liquidity / economy / risk).
    * macroIndexEngine.computeMacroIndex 의 idx.axis 결과 — 사용자 진단 (4/29):
    * "MHS 70 을 벗어난 적이 없다" — axis 분해 노출로 변동성 가시화.
