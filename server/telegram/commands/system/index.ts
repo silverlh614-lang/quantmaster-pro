@@ -34,5 +34,6 @@ import './status.cmd.js';
 import './todaylog.cmd.js';
 import './twins.cmd.js';
 import './walkForward.cmd.js';
+import './yahooHealthCheck.cmd.js';
 
 export {}; // 본 파일은 side-effect import 전용. 명시적 export 없음.
