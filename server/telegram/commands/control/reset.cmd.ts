@@ -26,7 +26,10 @@ const reset: TelegramCommand = {
     );
     clearCircuitBreaker();
     clearForcedRegimeDowngrade();
-    await reply('🟢 <b>비상 정지 해제</b> — 자동매매 재개 (서킷브레이커/다운그레이드 해제)');
+    await reply(
+      '🟢 <b>비상 정지 해제</b> — 자동매매 재개 (서킷브레이커/다운그레이드 해제)\n' +
+      '⏱️ 손절 카운터 baseline 리셋 (ADR-0111) — *이전* 손절은 무시, *이후* 손절만 카운트',
+    );
   },
 };
 

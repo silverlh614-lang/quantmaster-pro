@@ -38,6 +38,13 @@ export interface LearningState {
    * 로그 용도. 실제 거래 차단은 setEmergencyStop(true) 로 처리.
    */
   circuitBreakerTrippedAt: string | null;
+  /**
+   * ADR-0111 hotfix (사용자 4/30 보고): /reset 으로 circuitBreaker 해제 후
+   * countRecentConsecutiveLosses 가 *동일한 4시간 안 손절* 을 다시 카운트해
+   * 다음 5분 cron 에서 즉시 재발동하던 결함 차단. clearCircuitBreaker 호출 시
+   * baseline 시각을 영속 → 카운터가 그 시각 *이후* 손절만 카운트.
+   */
+  circuitBreakerClearedAt: string | null;
 }
 
 const DEFAULT_STATE: LearningState = {
@@ -49,6 +56,7 @@ const DEFAULT_STATE: LearningState = {
   tradingHoldUntil:         null,
   forcedRegimeDowngradeUntil: null,
   circuitBreakerTrippedAt:  null,
+  circuitBreakerClearedAt:  null,
 };
 
 function loadState(): LearningState {
@@ -179,5 +187,16 @@ export function getCircuitBreakerTrippedAt(): string | null {
 export function clearCircuitBreaker(): void {
   const state = loadState();
   state.circuitBreakerTrippedAt = null;
+  // ADR-0111 hotfix: baseline 시각 영속 — countRecentConsecutiveLosses 가 그
+  // 시각 *이후* 손절만 카운트해 즉시 재발동 차단.
+  state.circuitBreakerClearedAt = new Date().toISOString();
   saveState(state);
+}
+
+/**
+ * ADR-0111 hotfix: clearCircuitBreaker 의 baseline 시각 read-only 조회.
+ * countRecentConsecutiveLosses 의 시간 윈도우 lower bound 로 사용.
+ */
+export function getCircuitBreakerClearedAt(): string | null {
+  return loadState().circuitBreakerClearedAt;
 }

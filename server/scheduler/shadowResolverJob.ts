@@ -14,6 +14,7 @@ import { getLiveRegime } from '../trading/regimeBridge.js';
 import { setEmergencyStop } from '../state.js';
 import {
   getCircuitBreakerTrippedAt,
+  getCircuitBreakerClearedAt,
   isForcedRegimeDowngradeActive,
   isTradingHeld,
   setForcedRegimeDowngrade,
@@ -27,9 +28,18 @@ const FORCED_DOWNGRADE_MS = 4 * 60 * 60 * 1000;
 
 type ShadowTrade = ReturnType<typeof loadShadowTrades>[number];
 
-function countRecentConsecutiveLosses(shadows: ShadowTrade[]): number {
+export function countRecentConsecutiveLosses(shadows: ShadowTrade[]): number {
+  // ADR-0111 hotfix (사용자 4/30 보고 "리셋해도 똑같음"):
+  //   /reset 으로 circuitBreaker 해제했지만 동일한 4시간 안 손절을 다시 카운트해
+  //   다음 5분 cron 에서 즉시 재발동하던 결함 차단.
+  //   clearCircuitBreaker 시 영속한 baseline 시각 *이후* 손절만 카운트.
+  const clearedAt = getCircuitBreakerClearedAt();
+  const clearedMs = clearedAt ? new Date(clearedAt).getTime() : 0;
+  // 두 lower bound 중 더 *최근* 시각 사용 — clearedMs 가 4시간 전보다 최근이면 그 시각이 baseline.
+  const cutoffMs = Math.max(Date.now() - FOUR_H_MS, clearedMs);
+
   const recentClosed = shadows
-    .filter((s) => s.exitTime && Date.now() - new Date(s.exitTime).getTime() < FOUR_H_MS)
+    .filter((s) => s.exitTime && new Date(s.exitTime).getTime() > cutoffMs)
     .sort((a, b) => new Date(b.exitTime!).getTime() - new Date(a.exitTime!).getTime());
   let consec = 0;
   for (const s of recentClosed) {
