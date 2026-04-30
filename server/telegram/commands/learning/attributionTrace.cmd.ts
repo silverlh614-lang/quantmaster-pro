@@ -2,6 +2,7 @@
 import fs from 'fs';
 import {
   loadShadowTrades,
+  getWeightedPnlPct,
   type ServerShadowTrade,
 } from '../../../persistence/shadowTradeRepo.js';
 import {
@@ -79,6 +80,17 @@ function formatPctSigned(n: number | undefined): string {
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
 }
 
+/**
+ * trade.returnPct 가 invariant 보호 규칙 (shadowTradeRepo.updateShadow:287-290) 으로
+ * 영원히 저장 차단된다. fills SSOT (PR-15~19, getWeightedPnlPct) 에서 가중평균 산출.
+ * fills 부재 시 trade.returnPct 레거시 fallback (PR-15 이전 trade).
+ */
+export function resolveReturnPctForDisplay(t: ServerShadowTrade): number | undefined {
+  if (t.returnPct !== undefined && Number.isFinite(t.returnPct)) return t.returnPct;
+  const weighted = getWeightedPnlPct(t);
+  return Number.isFinite(weighted) && weighted !== 0 ? weighted : undefined;
+}
+
 function formatDateOnly(iso: string | undefined): string {
   if (!iso) return 'N/A';
   return iso.slice(0, 10);
@@ -119,7 +131,7 @@ export function formatAttributionTraceMessage(
     lines.push(`   closed: ${formatDateOnly(t.exitTime)}`);
     lines.push(`   status: ${t.status}`);
     lines.push(`   exitRuleTag: ${t.exitRuleTag ?? '?'}`);
-    lines.push(`   returnPct: ${formatPctSigned(t.returnPct)}`);
+    lines.push(`   returnPct: ${formatPctSigned(resolveReturnPctForDisplay(t))}`);
     lines.push('');
     lines.push('   📋 Attribution 레코드:');
     lines.push(
