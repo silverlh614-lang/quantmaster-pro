@@ -76,6 +76,11 @@ import {
 } from './sizingDeciders/index.js';
 import { applyApprovalReservation } from './approvalQueue/index.js';
 import {
+  isEntryPriceAutoCorrectDisabled,
+  isPreBreakoutFailCountDisabled,
+  shouldIncrementFailCount,
+} from './failureClassifier.js';
+import {
   isOpenShadowStatus,
   buildStopLossPlan,
   formatStopLossBreakdown,
@@ -330,38 +335,73 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
 
       // ── entryPrice 드리프트 체크: 현재가가 10% 이상 올랐으면 갱신/제거 ─────
       const driftAction = applyEntryPriceDrift(stock, currentPrice);
-      // ADR-0113: drift > 150% 분할/병합/권리락 의심 → entryPrice 자동 재설정.
+      // ADR-0115: drift > 150% Corporate Action 의심 — RAW immutable 원칙 준수.
+      // entryPrice 자동 재설정 *제거* (ADR-0113 의 자동 보정 정책 폐기).
+      // 사용자 절대 원칙: "RAW PRICE 는 절대 수정 금지."
+      // 처리: 진단 텔레그램 + universe 제외 (다음 영업일 운영자 검토 후 수동 재진입).
+      // ENV ENTRY_PRICE_AUTO_CORRECT_DISABLED=false 명시 시에만 ADR-0113 동작 복원.
       if (driftAction === 'CORPORATE_ACTION') {
         const oldEntry = stock.entryPrice;
         const driftPctText = (((currentPrice - oldEntry) / oldEntry) * 100).toFixed(1);
-        stock.entryPrice = currentPrice;
-        stock.corporateActionAdjusted = true;
-        stock.corporateActionAdjustedAt = new Date().toISOString();
-        ctx.mutables.watchlistMutated.value = true;
-        console.warn(
-          `[AutoTrade] 🔧 ${stock.name}(${stock.code}) Corporate Action 의심 ` +
-          `(drift ${driftPctText}%) — entryPrice ${oldEntry.toLocaleString()} → ` +
-          `${currentPrice.toLocaleString()} 자동 보정. DART 조회 권고.`,
-        );
-        // HIGH priority 텔레그램 알림 (24h dedupeKey)
-        try {
-          const { sendTelegramAlert } = await import('../../alerts/telegramClient.js');
-          await sendTelegramAlert(
-            `🔧 <b>[Corporate Action 의심]</b> ${stock.name} (${stock.code})\n` +
-            `━━━━━━━━━━━━━━━━\n` +
-            `• drift: ${driftPctText}% (분할/병합/권리락 추정)\n` +
-            `• entryPrice 자동 보정: ${oldEntry.toLocaleString()} → ${currentPrice.toLocaleString()}\n` +
-            `• 권고: DART 공시 확인 (분할/병합/권리락) 후 워치리스트 검토`,
-            {
-              priority: 'HIGH',
-              dedupeKey: `corp_action:${stock.code}`,
-              cooldownMs: 24 * 60 * 60 * 1000,
-            },
-          ).catch(() => undefined);
-        } catch (e) {
-          console.warn('[CorporateAction] 텔레그램 알림 실패:', e instanceof Error ? e.message : e);
+        if (isEntryPriceAutoCorrectDisabled()) {
+          // 정책 적용 (default) — entryPrice 보존 + universe 제외.
+          console.warn(
+            `[AutoTrade] 🔧 ${stock.name}(${stock.code}) Corporate Action 의심 ` +
+            `(drift ${driftPctText}%) — entryPrice ${oldEntry.toLocaleString()} 보존 (RAW immutable, ADR-0115). ` +
+            `universe 제외 + DART 조회 권고.`,
+          );
+          try {
+            const { sendTelegramAlert } = await import('../../alerts/telegramClient.js');
+            await sendTelegramAlert(
+              `🔧 <b>[Corporate Action 의심 — universe 제외]</b> ${stock.name} (${stock.code})\n` +
+              `━━━━━━━━━━━━━━━━\n` +
+              `• drift: ${driftPctText}% (분할/병합/권리락 추정)\n` +
+              `• entryPrice <b>${oldEntry.toLocaleString()}원 보존</b> (RAW immutable, ADR-0115)\n` +
+              `• 처리: 워치리스트에서 제외 (다음 영업일 운영자 검토 후 수동 entryPrice 갱신 또는 새 진입)\n` +
+              `• 권고: DART 공시 확인 (분할/병합/권리락)`,
+              {
+                priority: 'HIGH',
+                dedupeKey: `corp_action_immutable:${stock.code}`,
+                cooldownMs: 24 * 60 * 60 * 1000,
+              },
+            ).catch(() => undefined);
+          } catch (e) {
+            console.warn('[CorporateAction] 텔레그램 알림 실패:', e instanceof Error ? e.message : e);
+          }
+          // universe 제외 (REMOVE 동작과 동일)
+          const idx = ctx.watchlist.findIndex(w => w.code === stock.code);
+          if (idx >= 0) { ctx.watchlist.splice(idx, 1); ctx.mutables.watchlistMutated.value = true; }
+          stageLog.drift = 'CORPORATE_ACTION_REMOVE';
+        } else {
+          // 레거시 ADR-0113 동작 (ENV ENTRY_PRICE_AUTO_CORRECT_DISABLED=false 명시 시에만)
+          stock.entryPrice = currentPrice;
+          stock.corporateActionAdjusted = true;
+          stock.corporateActionAdjustedAt = new Date().toISOString();
+          ctx.mutables.watchlistMutated.value = true;
+          console.warn(
+            `[AutoTrade] 🔧 ${stock.name}(${stock.code}) Corporate Action 의심 ` +
+            `(drift ${driftPctText}%) — entryPrice ${oldEntry.toLocaleString()} → ` +
+            `${currentPrice.toLocaleString()} 자동 보정 (ADR-0113 레거시 동작, ENV 우회).`,
+          );
+          try {
+            const { sendTelegramAlert } = await import('../../alerts/telegramClient.js');
+            await sendTelegramAlert(
+              `🔧 <b>[Corporate Action 의심 — 자동 보정]</b> ${stock.name} (${stock.code})\n` +
+              `━━━━━━━━━━━━━━━━\n` +
+              `• drift: ${driftPctText}% (분할/병합/권리락 추정)\n` +
+              `• entryPrice 자동 보정: ${oldEntry.toLocaleString()} → ${currentPrice.toLocaleString()}\n` +
+              `• 권고: DART 공시 확인 (분할/병합/권리락) 후 워치리스트 검토`,
+              {
+                priority: 'HIGH',
+                dedupeKey: `corp_action:${stock.code}`,
+                cooldownMs: 24 * 60 * 60 * 1000,
+              },
+            ).catch(() => undefined);
+          } catch (e) {
+            console.warn('[CorporateAction] 텔레그램 알림 실패:', e instanceof Error ? e.message : e);
+          }
+          stageLog.drift = 'CORPORATE_ACTION';
         }
-        stageLog.drift = 'CORPORATE_ACTION';
         pushTrace();
         continue;
       }
@@ -673,20 +713,31 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             }
           }
         }
-        // 진입가 미도달 → failCount 증가 (3회 누적 시 cleanupWatchlist에서 자동 제거)
-        stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
-        ctx.mutables.watchlistMutated.value = true;
-        console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — failCount=${stock.entryFailCount}`);
+        // ADR-0115: pre-breakout 미도달은 NON_CRITICAL — failCount 미증가, WAIT 상태
+        // 사용자 18단계 §10 "Pre-breakout 조건 완화" — REJECT 가 아니라 HOLD/WAIT.
+        // ENV PRE_BREAKOUT_FAILCOUNT_DISABLED=false 명시 시 ADR-0113 동작 복원.
+        if (shouldIncrementFailCount('PRE_BREAKOUT_MISS')) {
+          stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
+          ctx.mutables.watchlistMutated.value = true;
+          console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — failCount=${stock.entryFailCount}`);
+        } else {
+          console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — WAIT (ADR-0115 — failCount 미증가)`);
+        }
         continue; // 진입가 미도달 — 일반 진입 로직 건너뜀
       }
 
       // C4 수정: 명시적 진입 조건 체크 (INTRADAY 경로와 동일한 방어 패턴)
       // (!nearEntry && !breakout) 케이스는 위 pre-breakout 블록이 처리하지만,
       // 방어적 가드를 명시하여 미래 코드 변경 시 조건 없는 진입을 차단한다.
+      // ADR-0115: 진입가 이탈도 NON_CRITICAL (ENTRY_PRICE_DEVIATION) — WAIT.
       if (!(nearEntry || breakout)) {
-        stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
-        ctx.mutables.watchlistMutated.value = true;
-        console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 이탈 — failCount=${stock.entryFailCount}`);
+        if (shouldIncrementFailCount('ENTRY_PRICE_DEVIATION')) {
+          stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
+          ctx.mutables.watchlistMutated.value = true;
+          console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 이탈 — failCount=${stock.entryFailCount}`);
+        } else {
+          console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 이탈 — WAIT (ADR-0115 — failCount 미증가)`);
+        }
         continue;
       }
 
@@ -809,8 +860,12 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       if (!revalResult.proceed) {
         console.log(revalResult.logMessage);
         // BUG-07 fix: MANUAL 종목도 entryFailCount 추적 — 반복 실패 시 자동 제거 대상에 포함
-        stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
-        ctx.mutables.watchlistMutated.value = true;
+        // ADR-0115: Gate 재검증 미달은 NON_CRITICAL — failCount 미증가 (default).
+        // ENV PRE_BREAKOUT_FAILCOUNT_DISABLED=false 명시 시 ADR-0113 동작 복원.
+        if (shouldIncrementFailCount('GATE_REVALIDATION_FAIL')) {
+          stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
+          ctx.mutables.watchlistMutated.value = true;
+        }
         ctx.scanCounters.gateMisses++;
         stageLog.gate = revalResult.stageLogValue;
         pushTrace();
