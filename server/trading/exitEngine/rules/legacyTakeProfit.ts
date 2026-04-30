@@ -12,6 +12,7 @@ import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeR
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
+import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
 import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
 
 export async function legacyTakeProfit(ctx: ExitContext): Promise<ExitRuleResult> {
@@ -31,6 +32,18 @@ export async function legacyTakeProfit(ctx: ExitContext): Promise<ExitRuleResult
     exitOutcome: classifyExitOutcome(returnPct, 'TARGET_EXIT'),
     quantity: 0,
   });
+  // PR-3 (ADR-0006) — FULL_CLOSE attribution 영속.
+  try {
+    emitFullCloseAttributionForExit({
+      shadow,
+      exitPrice: currentPrice,
+      returnPct,
+      closedAt: shadow.exitTime ?? new Date().toISOString(),
+      exitRuleTag: 'TARGET_EXIT',
+    });
+  } catch (e) {
+    console.warn(`[legacyTakeProfit] attribution 영속 실패 ${shadow.stockCode}:`, e instanceof Error ? e.message : e);
+  }
   console.log(`[Shadow Close] TARGET_EXIT — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
   appendShadowLog({ event: 'HIT_TARGET', ...shadow, soldQty });
   console.log(`[AutoTrade] ✅ ${shadow.stockName} (${shadow.stockCode}) 목표가 달성 +${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
