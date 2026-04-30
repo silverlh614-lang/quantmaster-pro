@@ -71,8 +71,12 @@ export interface RefreshOptions {
  * 활성 Ghost 포지션의 currentReturnPct 갱신 + trackUntil 초과 종결.
  *
  * silent catch 결함 차단: 실패 사유를 카테고리화한 분포 (failureReasons) 를 함께 반환.
- * PRICE_NULL / PRICE_NON_POSITIVE / SIGNAL_PRICE_INVALID / Error.message 첫 30자 또는
- * UNKNOWN_THROW 로 분류. 첫 에러는 console.error 로 기록 (이후는 카운터로만 집계).
+ * PRICE_NULL / PRICE_NON_POSITIVE / Error.message 첫 30자 또는 UNKNOWN_THROW 로 분류.
+ * 첫 에러는 console.error 로 기록 (이후는 카운터로만 집계).
+ *
+ * signalPriceKrw=0 backfill: nightlyReflectionEngine 이 missed signal 을 0 으로
+ * placeholder 등록한 종목은 첫 refresh 시점의 KIS 현재가로 backfill 하고 그 시점부터
+ * 30일 추적 재시작 (signalDate/trackUntil 도 함께 재설정). 적체 자동 해소.
  *
  * @returns { updated, closed, skipped, failureReasons }
  */
@@ -92,6 +96,7 @@ export async function refreshGhostPortfolio(
   let updated = 0, closed = 0, skipped = 0;
   const failureReasons: Record<string, number> = {};
   let firstErrorLogged = false;
+  let firstBackfillLogged = false;
 
   for (const p of all) {
     if (p.closed) continue;
@@ -113,10 +118,27 @@ export async function refreshGhostPortfolio(
         failureReasons['PRICE_NON_POSITIVE'] = (failureReasons['PRICE_NON_POSITIVE'] || 0) + 1;
         continue;
       }
+      // ── signalPriceKrw=0 backfill (nightlyReflectionEngine.ts:709 결함 우회) ──
+      // enqueueMissedSignals 가 가격을 알 수 없을 때 0 으로 placeholder 등록 →
+      // 기존엔 SIGNAL_PRICE_INVALID 로 영원히 skip 되어 학습 freeze 의 진원지였음.
+      // 첫 refresh 시점의 KIS 현재가로 backfill 하고 그 시점부터 30일 추적 재시작.
       if (p.signalPriceKrw <= 0) {
-        skipped++;
-        failureReasons['SIGNAL_PRICE_INVALID'] = (failureReasons['SIGNAL_PRICE_INVALID'] || 0) + 1;
-        continue;
+        p.signalPriceKrw = price;
+        p.lastUpdatedAt = now.toISOString();
+        // signalDate 가 today 보다 과거 → backfill 시점부터 30일 윈도우 재계산
+        if (p.signalDate && p.signalDate < today) {
+          p.signalDate = today;
+          p.trackUntil = addDays(today, TRACK_DAYS);
+        }
+        p.currentReturnPct = 0; // backfill 시점이라 수익률 0 부터 시작
+        updated++;
+        if (!firstBackfillLogged) {
+          firstBackfillLogged = true;
+          console.log(
+            `[GhostPortfolio] signalPrice backfill: ${p.stockCode} @ ${price}`,
+          );
+        }
+        continue; // 이번 cycle 은 backfill 만 — 정상 추적은 다음 cron 부터
       }
       p.currentReturnPct = Number(((price - p.signalPriceKrw) / p.signalPriceKrw * 100).toFixed(2));
       p.lastUpdatedAt = now.toISOString();
