@@ -634,6 +634,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
 
   // ── 진단 영속화 (scanDiagnostics 모듈로 위임) ────────────────────────────────
   // pendingTraces 파일 기록 + ScanSummary 갱신 + 3회 침묵 시 텔레그램 알림.
+  // ADR-0127 (PR-3): sectorEnergy dataQuality carry-over — macroState 에서 read 후
+  // /scan_blockers 에 노출 + emptyScanReason DATA_INVALID 가중.
   await persistScanResults(_counters, {
     sellOnly: options?.sellOnly,
     buyListLength: buyList.length,
@@ -641,6 +643,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     swingListLength: swingList.length,
     catalystListLength: catalystList.length,
     momentumListLength: momentumList.length,
+    sectorEnergyQuality: macroState?.sectorEnergyDataQuality,
+    validSectorCount: macroState?.sectorEnergyValidSectorCount,
+    sectorEnergyReasons: macroState?.sectorEnergyReasons,
   });
 
   await updateShadowResults(shadows, regime);

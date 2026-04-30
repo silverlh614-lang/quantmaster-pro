@@ -41,17 +41,48 @@ export const SECTOR_BOOST_LAGGING_BEAR = -1;
 const BEAR_REGIMES = new Set(['R5_CAUTION', 'R6_DEFENSE']);
 
 /**
+ * ADR-0125 (PR-1): sectorEnergy dataQuality 4값 — buildSectorEnergyInputsWithMeta 결과.
+ *   OK     → boost full
+ *   PARTIAL→ boost × 0.5 → Math.round
+ *   STALE  → boost 0 (이전 캐시 reference)
+ *   FAILED → boost 0
+ */
+export type SectorEnergyDataQuality = 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
+
+/**
+ * ADR-0125: dataQuality 기반 boost multiplier SSOT.
+ * 호출자 (applySectorScoreBoost) 가 raw boost 에 곱해 최종 적용.
+ */
+export function getSectorBoostMultiplier(dataQuality?: SectorEnergyDataQuality): number {
+  if (!dataQuality) return 1; // 미전달 = OK 기본 (후방호환)
+  switch (dataQuality) {
+    case 'OK':      return 1;
+    case 'PARTIAL': return 0.5;
+    case 'STALE':   return 0;
+    case 'FAILED':  return 0;
+  }
+}
+
+/**
  * 종목의 섹터 라벨 + sectorEnergyResult + 현재 레짐을 입력받아 Gate Score 보너스 반환.
+ *
+ * ADR-0125 (PR-1): dataQuality 4값 분기 추가 — 데이터 신뢰도에 따라 boost 강도 분기:
+ *   OK / 미전달 → boost full (기본)
+ *   PARTIAL    → boost × 0.5 → Math.round
+ *   STALE      → boost 0
+ *   FAILED     → boost 0
  *
  * @param sectorName 종목 섹터 라벨 (예: '반도체', '이차전지'). undefined 면 0.
  * @param sectorResult evaluateSectorEnergy() 결과. null 면 0.
  * @param regime 현재 RegimeLevel (예: 'R2_BULL'). LAGGING 차감 분기에 사용.
- * @returns Gate Score 보너스 (정수). +2 / 0 / -1 분기.
+ * @param dataQuality (옵셔널, ADR-0125) sectorEnergy 데이터 품질 4값 — 미전달 시 OK 동작.
+ * @returns Gate Score 보너스 (정수). +2 / +1 / 0 / -1 분기.
  */
 export function applySectorScoreBoost(
   sectorName: string | undefined | null,
   sectorResult: SectorEnergyResult | null,
   regime?: string,
+  dataQuality?: SectorEnergyDataQuality,
 ): number {
   // ENV 롤백 스위치
   if (process.env.SECTOR_SCORE_BOOST_DISABLED === 'true') return 0;
@@ -59,18 +90,23 @@ export function applySectorScoreBoost(
   if (!sectorName) return 0;
   if (!sectorResult) return 0;
 
+  // ADR-0125: dataQuality multiplier 사전 계산 — STALE/FAILED 시 즉시 0 반환.
+  const multiplier = getSectorBoostMultiplier(dataQuality);
+  if (multiplier === 0) return 0;
+
   const tier = classifySectorTier(sectorName, sectorResult);
 
-  if (tier === 'LEADING') return SECTOR_BOOST_LEADING;
-
-  if (tier === 'LAGGING') {
+  let raw = 0;
+  if (tier === 'LEADING') raw = SECTOR_BOOST_LEADING;
+  else if (tier === 'LAGGING') {
     // Bear/Caution regime 에서만 차감 — BULL/EARLY/NEUTRAL 에서는 보너스 없음 (회귀 위험 격리)
-    if (regime && BEAR_REGIMES.has(regime)) return SECTOR_BOOST_LAGGING_BEAR;
-    return 0;
+    if (regime && BEAR_REGIMES.has(regime)) raw = SECTOR_BOOST_LAGGING_BEAR;
   }
+  // NEUTRAL or 미매칭 → raw 0
 
-  // NEUTRAL or 미매칭
-  return 0;
+  // ADR-0125: PARTIAL 시 boost × 0.5 (Math.round). multiplier=1 일 때 raw 그대로.
+  if (multiplier === 1) return raw;
+  return Math.round(raw * multiplier);
 }
 
 /**

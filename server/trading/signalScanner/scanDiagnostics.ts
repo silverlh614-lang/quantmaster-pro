@@ -95,6 +95,12 @@ export interface ScanSummary {
   emptyScanReason?: EmptyScanReason;
   /** ADR-0120 (PR-B): Gate 1/2/3 통과 분포 (옵셔널 — 후방호환). */
   gatePassDistribution?: GatePassDistribution;
+  /** ADR-0127 (PR-3): sectorEnergy 데이터 품질 — macroState 에서 carry-over. */
+  sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
+  /** ADR-0127 (PR-3): 12 섹터 중 유효 섹터 수 (returns.length>0). */
+  validSectorCount?: number;
+  /** ADR-0127 (PR-3): sectorEnergy 분류 사유 (debug용, 빈 배열 가능). */
+  sectorEnergyReasons?: string[];
 }
 
 let _lastBuySignalAt = 0;
@@ -256,6 +262,27 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (mg.watchlistEmpty) lines.push(`  • 워치리스트: <b>0개 ⚠️</b>`);
   }
 
+  // ADR-0127 (PR-3): sectorEnergy 데이터 품질 진단 표시
+  if (summary.sectorEnergyQuality !== undefined) {
+    lines.push('');
+    lines.push('🌐 <b>섹터 에너지 데이터 품질:</b>');
+    const qualityIcon =
+      summary.sectorEnergyQuality === 'OK' ? '✅'
+      : summary.sectorEnergyQuality === 'PARTIAL' ? '🟡'
+      : summary.sectorEnergyQuality === 'STALE' ? '🟠'
+      : '❌'; // FAILED
+    lines.push(`  • dataQuality: ${qualityIcon} <b>${summary.sectorEnergyQuality}</b>`);
+    if (summary.validSectorCount !== undefined) {
+      lines.push(`  • validSectorCount: ${summary.validSectorCount}/12`);
+    }
+    if (summary.sectorEnergyReasons && summary.sectorEnergyReasons.length > 0) {
+      lines.push(`  • reasons: ${summary.sectorEnergyReasons.slice(0, 3).join('; ')}`);
+    }
+    if (summary.sectorEnergyQuality === 'FAILED') {
+      lines.push('  • <i>FAILED → emptyScanReason DATA_INVALID 자동 가중 (ADR-0127)</i>');
+    }
+  }
+
   // 종목별 차단 분포
   lines.push('');
   lines.push(`📋 <b>종목별 차단</b> (후보 ${summary.candidates}개):`);
@@ -300,6 +327,12 @@ export interface PersistScanResultsOptions {
   momentumListLength: number;
   /** ADR-0118: 거시 게이트 상태 (옵셔널 — 미전달 시 ScanSummary.macroGateState 미부여). */
   macroGateState?: MacroGateState;
+  /** ADR-0127 (PR-3): sectorEnergy dataQuality (macroState 에서 carry-over). */
+  sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
+  /** ADR-0127 (PR-3): 유효 섹터 수. */
+  validSectorCount?: number;
+  /** ADR-0127 (PR-3): sectorEnergy 분류 사유. */
+  sectorEnergyReasons?: string[];
 }
 
 /**
@@ -336,6 +369,14 @@ export async function persistScanResults(
     ...(options.macroGateState ? { macroGateState: options.macroGateState } : {}),
     // ADR-0120 (PR-B): Gate 1/2/3 통과 분포 영속.
     gatePassDistribution: buildGatePassDistribution(counters),
+    // ADR-0127 (PR-3): sectorEnergy dataQuality carry-over.
+    ...(options.sectorEnergyQuality !== undefined
+      ? {
+          sectorEnergyQuality: options.sectorEnergyQuality,
+          validSectorCount: options.validSectorCount,
+          sectorEnergyReasons: options.sectorEnergyReasons,
+        }
+      : {}),
   };
   // ADR-0119: 빈스캔 원인 자동 분류 SSOT — entries > 0 시 null 반환.
   const emptyReason = classifyEmptyScanReason(summaryDraft);
