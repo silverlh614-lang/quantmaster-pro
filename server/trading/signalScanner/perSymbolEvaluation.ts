@@ -314,6 +314,20 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       if (!currentPrice) { stageLog.price = 'FAIL'; pushTrace(); continue; }
       stageLog.price = 'PASS';
 
+      // ADR-0120 (PR-B): Gate 1/2/3 통과 카운터 누적 — emptyScanClassifier
+      // NO_LEADERSHIP / NO_TIMING 분기 입력 데이터 제공 + R3 Sanity Check 입력.
+      // stock.gateEvaluation 은 enrichment 단계에서 사전 산출된 값 (StockRecommendation
+      // 에 정의되어 있으나 WatchlistEntry 에는 부재). inline cast 로 영속 schema
+      // 변경 회피. try/catch 격리 — throw 시 LIVE 매매 흐름 무중단.
+      try {
+        const ge = (stock as { gateEvaluation?: { gate1Passed?: boolean; gate2Passed?: boolean; gate3Passed?: boolean } }).gateEvaluation;
+        if (ge?.gate1Passed) ctx.scanCounters.gate1Pass++;
+        if (ge?.gate2Passed) ctx.scanCounters.gate2Pass++;
+        if (ge?.gate3Passed) ctx.scanCounters.gate3Pass++;
+      } catch (e) {
+        console.warn('[ADR-0120] Gate pass 카운터 누적 실패:', e);
+      }
+
       // ADR-0068 (PR-R): Twin Portfolio 학습 hook — 모든 candidate 를 3 Twin 정책 평가.
       // recordTwinEntries 가 Gate Score 별 정책 (AGGRESSIVE ≥14 / DISCIPLINED ≥22 /
       // EQUAL_WEIGHT ≥18) 평가 후 통과한 Twin 만 영속. 멱등 dupKey 로 중복 차단.

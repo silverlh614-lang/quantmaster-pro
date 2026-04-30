@@ -12,6 +12,12 @@
 
 import { sendTelegramAlert } from '../../alerts/telegramClient.js';
 import { appendScanTraces, type ScanTrace } from '../scanTracer.js';
+import {
+  classifyEmptyScanReason,
+  describeEmptyScanReason,
+  type EmptyScanReason,
+} from './emptyScanClassifier.js';
+import { evaluateR3Sanity } from './r3SanityCheck.js';
 
 /** ADR-0118: WAIT 사유별 분포 — 매수 0건 시 *어떤 게이트가 차단했는지* 즉시 진단. */
 export interface WaitDistribution {
@@ -31,6 +37,23 @@ export interface WaitDistribution {
   volumeDrop: number;
   /** 분류 안된 기타 reject */
   other: number;
+}
+
+/**
+ * ADR-0120 (PR-B): Gate 1/2/3 통과 분포 — *어느 단계까지 통과했는지* 진단.
+ * 사용자 9번 §5 의 NO_LEADERSHIP/NO_TIMING 분류 + §6 R3 Sanity Check 입력.
+ *
+ * stock.gateEvaluation.gate1Passed / gate2Passed / gate3Passed 에서 carry-over.
+ */
+export interface GatePassDistribution {
+  /** Gate 1 (생존 필터) 통과 종목 수 — 27조건 중 6조건 (1/2/3/5/7/9) */
+  gate1Pass: number;
+  /** Gate 2 (성장 검증) 통과 종목 수 — 27조건 중 12조건 */
+  gate2Pass: number;
+  /** Gate 3 (정밀 타이밍) 통과 종목 수 — 27조건 중 9조건 */
+  gate3Pass: number;
+  /** lastTrigger (매수 트리거) 발동 종목 수 */
+  lastTriggerPass: number;
 }
 
 /**
@@ -68,6 +91,10 @@ export interface ScanSummary {
   waitDistribution?: WaitDistribution;
   /** ADR-0118: 거시 게이트 상태 (옵셔널 — 후방호환). */
   macroGateState?: MacroGateState;
+  /** ADR-0119: 빈스캔 원인 7값 코드 (옵셔널 — entries=0 시에만 부여). */
+  emptyScanReason?: EmptyScanReason;
+  /** ADR-0120 (PR-B): Gate 1/2/3 통과 분포 (옵셔널 — 후방호환). */
+  gatePassDistribution?: GatePassDistribution;
 }
 
 let _lastBuySignalAt = 0;
@@ -103,6 +130,12 @@ export interface ScanCounters {
   waitDriftCorpAction: number;
   waitVolumeDrop: number;
   waitOther: number;
+
+  // ADR-0120 (PR-B): Gate 1/2/3 통과 카운터 (perSymbolEvaluation 가 stock.gateEvaluation 기반 mutate).
+  gate1Pass: number;
+  gate2Pass: number;
+  gate3Pass: number;
+  lastTriggerPass: number;
 }
 
 export function createScanCounters(): ScanCounters {
@@ -121,6 +154,23 @@ export function createScanCounters(): ScanCounters {
     waitDriftCorpAction: 0,
     waitVolumeDrop: 0,
     waitOther: 0,
+    gate1Pass: 0,
+    gate2Pass: 0,
+    gate3Pass: 0,
+    lastTriggerPass: 0,
+  };
+}
+
+/**
+ * ADR-0120 (PR-B): ScanCounters → GatePassDistribution 변환 SSOT.
+ * persistScanResults 가 ScanSummary.gatePassDistribution 영속 시 사용.
+ */
+export function buildGatePassDistribution(counters: ScanCounters): GatePassDistribution {
+  return {
+    gate1Pass:       counters.gate1Pass,
+    gate2Pass:       counters.gate2Pass,
+    gate3Pass:       counters.gate3Pass,
+    lastTriggerPass: counters.lastTriggerPass,
   };
 }
 
@@ -225,31 +275,17 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(`  • RRR 미달: ${summary.rrrMisses}개`);
   }
 
-  // 진단 추정
+  // ADR-0119: 빈스캔 원인 7값 SSOT 분류 결과 노출
   lines.push('');
-  lines.push('💡 <b>추정 원인:</b>');
-  if (mg?.emergencyStop) {
-    lines.push('  비상정지 활성 — /resume 으로 해제 후 매수 재개.');
-  } else if (mg && !mg.autoTradeEnabled) {
-    lines.push('  AUTO_TRADE_ENABLED=false — 환경변수 활성화 필요.');
-  } else if (mg?.sellOnlyMode) {
-    lines.push('  SELL_ONLY 시간대 — 점심(12~13) 또는 장외. 시간대 재개 후 매수 가능.');
-  } else if (mg?.watchlistEmpty) {
-    lines.push('  워치리스트 0개 — autoPopulateWatchlist 결과 + universe 점검.');
-  } else if (mg?.regime === 'R6_DEFENSE') {
-    lines.push('  R6_DEFENSE 레짐 — Kelly ×0.0. 시장 회복 또는 운영자 강제 격하 검토.');
-  } else if (mg?.bearDefenseMode) {
-    lines.push('  Bear Defense 모드 — 매크로 위험 회피. 매크로 회복 대기.');
-  } else if (wd && wd.dataHold > Math.max(1, summary.candidates * 0.3)) {
-    lines.push(`  DATA_HOLD 30%+ — sanity 위반 다수 (Yahoo stale base 의심). /scan_blockers 재호출 모니터링.`);
-  } else if (wd && wd.gateFail > Math.max(1, summary.candidates * 0.5)) {
-    lines.push(`  Gate 재검증 미달 50%+ — minGate 임계 + sectorBoost 검토 (EXECUTION_RELAXATION_ENABLED 시도).`);
-  } else if (wd && wd.preBreakout > Math.max(1, summary.candidates * 0.5)) {
-    lines.push('  Pre-breakout 미도달 다수 — 시장 약세 또는 entry 임계 ±1% 초과 종목 다수.');
-  } else if (summary.candidates === 0) {
-    lines.push('  스캔 후보 0개 — 워치리스트 비었거나 universe 발굴 실패.');
+  if (summary.emptyScanReason) {
+    const desc = describeEmptyScanReason(summary.emptyScanReason);
+    lines.push(`💡 <b>빈스캔 원인 (ADR-0119):</b> ${summary.emptyScanReason}`);
+    lines.push(`  • ${desc.label}`);
+    lines.push(`  • ${desc.advice}`);
+  } else if (summary.entries > 0) {
+    lines.push(`✅ <b>매수 발생:</b> ${summary.entries}개 (분류 대상 아님)`);
   } else {
-    lines.push('  명백한 차단 게이트 부재 — 종목별 진입 조건 점검 필요 (/scheduler / /health).');
+    lines.push('💡 <b>빈스캔 원인:</b> 분류 데이터 부족 (waitDistribution 미수집)');
   }
 
   return lines.join('\n');
@@ -284,7 +320,7 @@ export async function persistScanResults(
 
   const kstNow = new Date(Date.now() + 9 * 3_600_000);
   const timeLabel = kstNow.toISOString().slice(11, 16) + ' KST';
-  _lastScanSummary = {
+  const summaryDraft: ScanSummary = {
     time:       timeLabel,
     candidates: options.buyListLength + options.intradayBuyListLength,
     trackB:     options.buyListLength,
@@ -298,7 +334,15 @@ export async function persistScanResults(
     // ADR-0118: WAIT 사유 분포 + 거시 게이트 상태 영속.
     waitDistribution: buildWaitDistribution(counters),
     ...(options.macroGateState ? { macroGateState: options.macroGateState } : {}),
+    // ADR-0120 (PR-B): Gate 1/2/3 통과 분포 영속.
+    gatePassDistribution: buildGatePassDistribution(counters),
   };
+  // ADR-0119: 빈스캔 원인 자동 분류 SSOT — entries > 0 시 null 반환.
+  const emptyReason = classifyEmptyScanReason(summaryDraft);
+  if (emptyReason) {
+    summaryDraft.emptyScanReason = emptyReason;
+  }
+  _lastScanSummary = summaryDraft;
 
   if (counters.entries === 0 && _lastScanSummary.candidates > 0) {
     _consecutiveZeroScans++;
@@ -317,5 +361,21 @@ export async function persistScanResults(
       `- 진입 성공: 0개\n` +
       `⚠️ 3회 연속 진입 없음 — 파이프라인 점검 필요`
     ).catch(console.error);
+  }
+
+  // ADR-0120 (PR-B): R3 Sanity Check — R3 레짐 + Gate 1 통과 0 시 시스템 결함 의심.
+  // try/catch 격리 — 진단 알림 실패가 LIVE 매매 흐름 차단 안 함.
+  try {
+    const sanity = evaluateR3Sanity(_lastScanSummary);
+    if (sanity.violation !== 'NONE' && sanity.message) {
+      await sendTelegramAlert(sanity.message, {
+        priority: 'HIGH',
+        category: 'r3_sanity',
+        dedupeKey: sanity.dedupeKey,
+        cooldownMs: 24 * 3_600_000, // 24h — KST 일자별 1회
+      } as Parameters<typeof sendTelegramAlert>[1]).catch(console.error);
+    }
+  } catch (e) {
+    console.warn('[ADR-0120] R3 Sanity Check 실패:', e);
   }
 }

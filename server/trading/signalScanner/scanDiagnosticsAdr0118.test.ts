@@ -181,25 +181,30 @@ describe('formatScanBlockersMessage — 진단 메시지 SSOT', () => {
     expect(msg).toMatch(/진단 데이터 없음/);
   });
 
-  it('정상 흐름 — 거시 게이트 + 종목 분포 + 추정 원인', () => {
-    const msg = formatScanBlockersMessage(SUMMARY_BASE);
+  it('정상 흐름 — 거시 게이트 + 종목 분포 + ADR-0119 빈스캔 원인', () => {
+    // gateFail=25/candidates=43=58% → TOO_STRICT
+    const summary: ScanSummary = { ...SUMMARY_BASE };
+    summary.emptyScanReason = 'TOO_STRICT';
+    const msg = formatScanBlockersMessage(summary);
     expect(msg).toMatch(/12:34 KST/);
     expect(msg).toMatch(/R4_NEUTRAL/);
     expect(msg).toMatch(/POST_1/);
     expect(msg).toMatch(/×1\.30/);
     expect(msg).toMatch(/Gate 재검증 미달: 25개/);
     expect(msg).toMatch(/Pre-breakout WAIT: 7개/);
-    expect(msg).toMatch(/💡 .*추정 원인/);
+    expect(msg).toMatch(/💡 .*빈스캔 원인.*TOO_STRICT/);
+    expect(msg).toMatch(/EXECUTION_RELAXATION_ENABLED/);
   });
 
-  it('emergencyStop=true → 추정 원인 "비상정지"', () => {
+  it('emergencyStop=true → ADR-0119 ORDER_BLOCKED', () => {
     const summary: ScanSummary = {
       ...SUMMARY_BASE,
       macroGateState: { ...SUMMARY_BASE.macroGateState!, emergencyStop: true },
+      emptyScanReason: 'ORDER_BLOCKED',
     };
     const msg = formatScanBlockersMessage(summary);
     expect(msg).toMatch(/emergencyStop:.*ON/);
-    expect(msg).toMatch(/비상정지 활성/);
+    expect(msg).toMatch(/ORDER_BLOCKED/);
   });
 
   it('R6_DEFENSE → 추정 원인 "R6_DEFENSE 레짐"', () => {
@@ -217,28 +222,30 @@ describe('formatScanBlockersMessage — 진단 메시지 SSOT', () => {
     expect(msg).toMatch(/Kelly ×0\.0/);
   });
 
-  it('SELL_ONLY=true → 추정 원인 "SELL_ONLY 시간대"', () => {
+  it('SELL_ONLY=true → ADR-0119 ORDER_BLOCKED', () => {
     const summary: ScanSummary = {
       ...SUMMARY_BASE,
       macroGateState: { ...SUMMARY_BASE.macroGateState!, sellOnlyMode: true },
+      emptyScanReason: 'ORDER_BLOCKED',
     };
     const msg = formatScanBlockersMessage(summary);
     expect(msg).toMatch(/SELL_ONLY:.*ON/);
-    expect(msg).toMatch(/SELL_ONLY 시간대/);
+    expect(msg).toMatch(/ORDER_BLOCKED/);
   });
 
-  it('워치리스트 0건 → 추정 원인 "워치리스트 0개"', () => {
+  it('워치리스트 0건 → ADR-0119 ORDER_BLOCKED', () => {
     const summary: ScanSummary = {
       ...SUMMARY_BASE,
       candidates: 0,
       macroGateState: { ...SUMMARY_BASE.macroGateState!, watchlistEmpty: true },
+      emptyScanReason: 'ORDER_BLOCKED',
     };
     const msg = formatScanBlockersMessage(summary);
     expect(msg).toMatch(/워치리스트:.*0개/);
-    expect(msg).toMatch(/워치리스트 0개/);
+    expect(msg).toMatch(/ORDER_BLOCKED/);
   });
 
-  it('DATA_HOLD 30%+ → 추정 원인 "sanity 위반 다수"', () => {
+  it('DATA_HOLD 30%+ → ADR-0119 DATA_INVALID', () => {
     const summary: ScanSummary = {
       ...SUMMARY_BASE,
       candidates: 10,
@@ -246,13 +253,15 @@ describe('formatScanBlockersMessage — 진단 메시지 SSOT', () => {
         dataHold: 5, preBreakout: 0, gateFail: 0, sizingBlocked: 0,
         driftRemove: 0, corpAction: 0, volumeDrop: 0, other: 0,
       },
+      emptyScanReason: 'DATA_INVALID',
     };
     const msg = formatScanBlockersMessage(summary);
     expect(msg).toMatch(/DATA_HOLD: 5개/);
-    expect(msg).toMatch(/sanity 위반 다수/);
+    expect(msg).toMatch(/DATA_INVALID/);
+    expect(msg).toMatch(/sanity 위반/);
   });
 
-  it('Gate 재검증 50%+ → 추정 원인 "minGate 임계 검토"', () => {
+  it('Gate 재검증 50%+ → ADR-0119 TOO_STRICT', () => {
     const summary: ScanSummary = {
       ...SUMMARY_BASE,
       candidates: 10,
@@ -260,28 +269,36 @@ describe('formatScanBlockersMessage — 진단 메시지 SSOT', () => {
         dataHold: 0, preBreakout: 0, gateFail: 8, sizingBlocked: 0,
         driftRemove: 0, corpAction: 0, volumeDrop: 0, other: 0,
       },
+      emptyScanReason: 'TOO_STRICT',
     };
     const msg = formatScanBlockersMessage(summary);
     expect(msg).toMatch(/Gate 재검증 미달/);
-    expect(msg).toMatch(/minGate 임계.*검토|EXECUTION_RELAXATION/);
+    expect(msg).toMatch(/TOO_STRICT/);
+    expect(msg).toMatch(/EXECUTION_RELAXATION_ENABLED/);
   });
 
-  it('autoTradeEnabled=false → 추정 원인 "AUTO_TRADE_ENABLED=false"', () => {
+  it('autoTradeEnabled=false → ADR-0119 ORDER_BLOCKED', () => {
     const summary: ScanSummary = {
       ...SUMMARY_BASE,
       macroGateState: { ...SUMMARY_BASE.macroGateState!, autoTradeEnabled: false },
+      emptyScanReason: 'ORDER_BLOCKED',
     };
     const msg = formatScanBlockersMessage(summary);
-    expect(msg).toMatch(/AUTO_TRADE_ENABLED=false/);
+    expect(msg).toMatch(/autoTradeEnabled:.*OFF/);
+    expect(msg).toMatch(/ORDER_BLOCKED/);
   });
 
-  it('waitDistribution 부재 (레거시) → 기존 카운터 폴백 표시', () => {
+  it('waitDistribution 부재 (레거시) → 기존 카운터 폴백 + ADR-0119 분류 데이터 부족 안내', () => {
     const summary: ScanSummary = {
       ...SUMMARY_BASE,
       waitDistribution: undefined,
+      // emptyScanReason 미부여 (waitDistribution 부재 시 분류 SSOT 가 UNKNOWN 부여 가능하지만,
+      // 본 케이스는 호출자가 미부여한 시나리오 시뮬)
+      emptyScanReason: undefined,
     };
     const msg = formatScanBlockersMessage(summary);
     expect(msg).toMatch(/waitDistribution 미수집/);
+    expect(msg).toMatch(/분류 데이터 부족/);
   });
 
   it('macroGateState 부재 → 거시 게이트 섹션 미표시', () => {
@@ -293,14 +310,15 @@ describe('formatScanBlockersMessage — 진단 메시지 SSOT', () => {
     expect(msg).not.toMatch(/거시 게이트:/);
   });
 
-  it('Bear Defense → 추정 원인 "Bear Defense 모드"', () => {
+  it('Bear Defense → ADR-0119 MARKET_WEAK', () => {
     const summary: ScanSummary = {
       ...SUMMARY_BASE,
       macroGateState: { ...SUMMARY_BASE.macroGateState!, bearDefenseMode: true },
+      emptyScanReason: 'MARKET_WEAK',
     };
     const msg = formatScanBlockersMessage(summary);
     expect(msg).toMatch(/bearDefenseMode:.*ON/);
-    expect(msg).toMatch(/Bear Defense/);
+    expect(msg).toMatch(/MARKET_WEAK/);
   });
 });
 

@@ -87,13 +87,30 @@ describe('aggregateIndexDeltas — 매칭 어긋남 회귀 차단', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('today/past 양쪽 모두 indexCode 부재 → indexName 매칭 fallback 정상 작동', () => {
+  it('today/past 양쪽 모두 indexCode 부재 → indexName fallback 비활성 (ADR-0122 default OFF)', () => {
+    // ADR-0122 (사용자 §2): KRX 동일 indexName + 다른 indexCode sub-index 다중성으로
+    // indexName fallback 매칭은 본질적으로 불안전. default OFF 로 격하.
+    // ENV SECTOR_ENERGY_INDEX_NAME_FALLBACK=true 시에만 복원 (회귀 분석용).
     const today = [row({ indexCode: '', indexName: 'KOSPI 반도체', close: 1100, baseDate: '20260427' })];
     const past = [row({ indexCode: '', indexName: 'KOSPI 반도체', close: 1000, baseDate: '20260330' })];
     const result = aggregateIndexDeltas(today, past);
-    const sem = result.get('반도체');
-    expect(sem).toBeDefined();
-    expect(sem!.returns[0]).toBeCloseTo(10, 5);
+    expect(result.get('반도체')).toBeUndefined();
+  });
+
+  it('ADR-0122 ENV 우회 — SECTOR_ENERGY_INDEX_NAME_FALLBACK=true 시 indexName 매칭 복원', () => {
+    const original = process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK;
+    process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK = 'true';
+    try {
+      const today = [row({ indexCode: '', indexName: 'KOSPI 반도체', close: 1100, baseDate: '20260427' })];
+      const past = [row({ indexCode: '', indexName: 'KOSPI 반도체', close: 1000, baseDate: '20260330' })];
+      const result = aggregateIndexDeltas(today, past);
+      const sem = result.get('반도체');
+      expect(sem).toBeDefined();
+      expect(sem!.returns[0]).toBeCloseTo(10, 5);
+    } finally {
+      if (original === undefined) delete process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK;
+      else process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK = original;
+    }
   });
 
   it('past 행에 indexCode + indexName 둘 다 등록 → today indexCode 매칭 우선', () => {
