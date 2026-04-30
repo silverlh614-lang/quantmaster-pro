@@ -355,6 +355,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         console.warn(`[WatchlistManager] drift update skipped: ${reason}`);
         console.log(`[AutoTrade] ${stock.name}(${stock.code}) → WAIT / DATA_HOLD / DATA_HOLD_STALE_BASE_OR_SPLIT_ADJUSTMENT`);
         stageLog.drift = 'DATA_HOLD';
+        ctx.scanCounters.waitDataHold++;  // ADR-0118
         pushTrace();
         continue;
       }
@@ -425,6 +426,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           }
           stageLog.drift = 'CORPORATE_ACTION';
         }
+        ctx.scanCounters.waitDriftCorpAction++;  // ADR-0118
         pushTrace();
         continue;
       }
@@ -437,6 +439,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         const idx = ctx.watchlist.findIndex(w => w.code === stock.code);
         if (idx >= 0) { ctx.watchlist.splice(idx, 1); ctx.mutables.watchlistMutated.value = true; }
         stageLog.drift = 'REMOVE';
+        ctx.scanCounters.waitDriftRemove++;  // ADR-0118
         pushTrace();
         continue;
       }
@@ -746,6 +749,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         } else {
           console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — WAIT (ADR-0115 — failCount 미증가)`);
         }
+        ctx.scanCounters.waitPreBreakout++;  // ADR-0118
         continue; // 진입가 미도달 — 일반 진입 로직 건너뜀
       }
 
@@ -761,6 +765,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         } else {
           console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 이탈 — WAIT (ADR-0115 — failCount 미증가)`);
         }
+        ctx.scanCounters.waitPreBreakout++;  // ADR-0118 (entry deviation 도 pre-breakout 분류로 통합 카운트)
         continue;
       }
 
@@ -890,6 +895,12 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           ctx.mutables.watchlistMutated.value = true;
         }
         ctx.scanCounters.gateMisses++;
+        // ADR-0118: WAIT 사유 분류 — DATA_HOLD 와 일반 Gate 미달 분리.
+        if (revalResult.waitReason === 'DATA_HOLD') {
+          ctx.scanCounters.waitDataHold++;
+        } else {
+          ctx.scanCounters.waitGateFail++;
+        }
         stageLog.gate = revalResult.stageLogValue;
         pushTrace();
 
@@ -988,6 +999,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       });
       if (!tierResult.ok) {
         console.log(tierResult.logMessage);
+        // ADR-0118: sizingTier BLOCKED — DATA_QUARANTINE / 티어 미달 / PROBING 포화 모두 카운트.
+        ctx.scanCounters.waitSizingBlocked++;
         continue;
       }
       const tierDecision = tierResult.tierDecision;

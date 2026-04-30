@@ -13,6 +13,45 @@
 import { sendTelegramAlert } from '../../alerts/telegramClient.js';
 import { appendScanTraces, type ScanTrace } from '../scanTracer.js';
 
+/** ADR-0118: WAIT 사유별 분포 — 매수 0건 시 *어떤 게이트가 차단했는지* 즉시 진단. */
+export interface WaitDistribution {
+  /** ADR-0117 DATA_HOLD 분기 진입 (sanity 위반 거래 차단) */
+  dataHold: number;
+  /** pre-breakout 미도달 (ADR-0115 WAIT) */
+  preBreakout: number;
+  /** Gate 재검증 미달 (entryRevalidationStep fail) */
+  gateFail: number;
+  /** sizingTier BLOCKED (DATA_QUARANTINE 또는 tier=null) */
+  sizingBlocked: number;
+  /** entryPrice drift +10% AUTO 제거 */
+  driftRemove: number;
+  /** ADR-0113 CORPORATE_ACTION 분기 */
+  corpAction: number;
+  /** 거래량 급감 reject */
+  volumeDrop: number;
+  /** 분류 안된 기타 reject */
+  other: number;
+}
+
+/**
+ * ADR-0118: 거시 게이트 활성화 상태 진단 SSOT.
+ * /scan_blockers 텔레그램 명령이 표시할 *왜 매수가 안 되는지* 의 1차 원인 분류.
+ */
+export interface MacroGateState {
+  emergencyStop: boolean;
+  autoTradeEnabled: boolean;
+  regime: string;                  // R1~R6 / NORMAL
+  kellyMultiplierFromRegime: number;
+  fomcPhase: string;               // NORMAL / PRE_3 / PRE_2 / PRE_1 / DAY / POST_1 / POST_2
+  fomcKellyMultiplier: number;
+  finalKellyMultiplier: number;    // combineRegimeAndFomcKelly 결과
+  vixGatingActive: boolean;
+  bearDefenseMode: boolean;
+  mhsBelow30: boolean;
+  watchlistEmpty: boolean;
+  sellOnlyMode: boolean;
+}
+
 export interface ScanSummary {
   time: string;          // "HH:MM KST"
   candidates: number;    // SWING + CATALYST + Intraday 합산
@@ -25,6 +64,10 @@ export interface ScanSummary {
   gateMisses: number;    // entryRevalidation 탈락 수
   rrrMisses: number;     // RRR < 최솟값 탈락 수
   entries: number;       // 실제 진입(Shadow 포함 신호 등록) 수
+  /** ADR-0118: WAIT 사유 분포 (옵셔널 — 후방호환). */
+  waitDistribution?: WaitDistribution;
+  /** ADR-0118: 거시 게이트 상태 (옵셔널 — 후방호환). */
+  macroGateState?: MacroGateState;
 }
 
 let _lastBuySignalAt = 0;
@@ -50,6 +93,16 @@ export interface ScanCounters {
   entries: number;
   counterfactualRecordedToday: number;
   pendingTraces: ScanTrace[];
+
+  // ADR-0118: WAIT 사유 분포 카운터 (perSymbolEvaluation 가 분기별 mutate).
+  waitDataHold: number;
+  waitPreBreakout: number;
+  waitGateFail: number;
+  waitSizingBlocked: number;
+  waitDriftRemove: number;
+  waitDriftCorpAction: number;
+  waitVolumeDrop: number;
+  waitOther: number;
 }
 
 export function createScanCounters(): ScanCounters {
@@ -60,7 +113,146 @@ export function createScanCounters(): ScanCounters {
     entries: 0,
     counterfactualRecordedToday: 0,
     pendingTraces: [],
+    waitDataHold: 0,
+    waitPreBreakout: 0,
+    waitGateFail: 0,
+    waitSizingBlocked: 0,
+    waitDriftRemove: 0,
+    waitDriftCorpAction: 0,
+    waitVolumeDrop: 0,
+    waitOther: 0,
   };
+}
+
+/**
+ * ADR-0118: ScanCounters → WaitDistribution 변환 SSOT.
+ * persistScanResults 가 ScanSummary.waitDistribution 영속 시 사용.
+ */
+export function buildWaitDistribution(counters: ScanCounters): WaitDistribution {
+  return {
+    dataHold:      counters.waitDataHold,
+    preBreakout:   counters.waitPreBreakout,
+    gateFail:      counters.waitGateFail,
+    sizingBlocked: counters.waitSizingBlocked,
+    driftRemove:   counters.waitDriftRemove,
+    corpAction:    counters.waitDriftCorpAction,
+    volumeDrop:    counters.waitVolumeDrop,
+    other:         counters.waitOther,
+  };
+}
+
+/**
+ * ADR-0118: 거시 게이트 상태 빌더 SSOT.
+ * preflight + macroState + autoTradeSettings 합성 결과를 단일 형태로 노출.
+ * 호출자: persistScanResults / scanBlockers 텔레그램 명령.
+ */
+export function buildMacroGateState(input: {
+  emergencyStop: boolean;
+  autoTradeEnabled: boolean;
+  regime: string;
+  regimeKelly: number;
+  fomcPhase: string;
+  fomcKelly: number;
+  finalKelly: number;
+  vixGatingActive: boolean;
+  bearDefenseMode: boolean;
+  mhsBelow30: boolean;
+  watchlistEmpty: boolean;
+  sellOnlyMode: boolean;
+}): MacroGateState {
+  return {
+    emergencyStop: input.emergencyStop,
+    autoTradeEnabled: input.autoTradeEnabled,
+    regime: input.regime,
+    kellyMultiplierFromRegime: input.regimeKelly,
+    fomcPhase: input.fomcPhase,
+    fomcKellyMultiplier: input.fomcKelly,
+    finalKellyMultiplier: input.finalKelly,
+    vixGatingActive: input.vixGatingActive,
+    bearDefenseMode: input.bearDefenseMode,
+    mhsBelow30: input.mhsBelow30,
+    watchlistEmpty: input.watchlistEmpty,
+    sellOnlyMode: input.sellOnlyMode,
+  };
+}
+
+/**
+ * ADR-0118: /scan_blockers 텔레그램 메시지 포맷 SSOT.
+ * 진단 추정 (`💡 추정 원인:`) 자동 분기.
+ */
+export function formatScanBlockersMessage(summary: ScanSummary | null): string {
+  if (!summary) {
+    return '📊 <b>[매수 차단 사유]</b>\n━━━━━━━━━━━━━━━━\n진단 데이터 없음 (스캔 미실행).';
+  }
+
+  const wd = summary.waitDistribution;
+  const mg = summary.macroGateState;
+  const lines: string[] = [];
+  lines.push(`📊 <b>[매수 차단 사유 분포]</b> 직전 스캔 (${summary.time})`);
+  lines.push('━━━━━━━━━━━━━━━━');
+
+  // 거시 게이트 상태
+  if (mg) {
+    lines.push('');
+    lines.push('🛑 <b>거시 게이트:</b>');
+    lines.push(`  • emergencyStop: ${mg.emergencyStop ? '<b>ON ⚠️</b>' : 'off'}`);
+    lines.push(`  • autoTradeEnabled: ${mg.autoTradeEnabled ? 'on' : '<b>OFF ⚠️</b>'}`);
+    lines.push(`  • 레짐: ${mg.regime} (Kelly ×${mg.kellyMultiplierFromRegime.toFixed(2)})`);
+    lines.push(`  • FOMC: ${mg.fomcPhase} (Kelly ×${mg.fomcKellyMultiplier.toFixed(2)}) → 결합 ×${mg.finalKellyMultiplier.toFixed(2)}`);
+    if (mg.vixGatingActive) lines.push(`  • VIX 게이팅: <b>ON ⚠️</b>`);
+    if (mg.bearDefenseMode) lines.push(`  • bearDefenseMode: <b>ON ⚠️</b>`);
+    if (mg.mhsBelow30)     lines.push(`  • MHS<30: <b>ON ⚠️</b>`);
+    if (mg.sellOnlyMode)   lines.push(`  • SELL_ONLY: <b>ON ⚠️</b> (점심/장외 시간대)`);
+    if (mg.watchlistEmpty) lines.push(`  • 워치리스트: <b>0개 ⚠️</b>`);
+  }
+
+  // 종목별 차단 분포
+  lines.push('');
+  lines.push(`📋 <b>종목별 차단</b> (후보 ${summary.candidates}개):`);
+  lines.push(`  • 진입: <b>${summary.entries}개</b>`);
+  if (wd) {
+    if (wd.dataHold > 0)      lines.push(`  • DATA_HOLD: ${wd.dataHold}개 ⚠️`);
+    if (wd.gateFail > 0)      lines.push(`  • Gate 재검증 미달: ${wd.gateFail}개`);
+    if (wd.preBreakout > 0)   lines.push(`  • Pre-breakout WAIT: ${wd.preBreakout}개`);
+    if (wd.sizingBlocked > 0) lines.push(`  • Sizing BLOCKED: ${wd.sizingBlocked}개 ⚠️`);
+    if (wd.volumeDrop > 0)    lines.push(`  • 거래량 급감: ${wd.volumeDrop}개`);
+    if (wd.driftRemove > 0)   lines.push(`  • Drift REMOVE: ${wd.driftRemove}개`);
+    if (wd.corpAction > 0)    lines.push(`  • Corporate Action: ${wd.corpAction}개`);
+    if (wd.other > 0)         lines.push(`  • 기타: ${wd.other}개`);
+  } else {
+    lines.push(`  • Gate 미달: ${summary.gateMisses}개 (waitDistribution 미수집)`);
+    lines.push(`  • Yahoo 실패: ${summary.yahooFails}개`);
+    lines.push(`  • RRR 미달: ${summary.rrrMisses}개`);
+  }
+
+  // 진단 추정
+  lines.push('');
+  lines.push('💡 <b>추정 원인:</b>');
+  if (mg?.emergencyStop) {
+    lines.push('  비상정지 활성 — /resume 으로 해제 후 매수 재개.');
+  } else if (mg && !mg.autoTradeEnabled) {
+    lines.push('  AUTO_TRADE_ENABLED=false — 환경변수 활성화 필요.');
+  } else if (mg?.sellOnlyMode) {
+    lines.push('  SELL_ONLY 시간대 — 점심(12~13) 또는 장외. 시간대 재개 후 매수 가능.');
+  } else if (mg?.watchlistEmpty) {
+    lines.push('  워치리스트 0개 — autoPopulateWatchlist 결과 + universe 점검.');
+  } else if (mg?.regime === 'R6_DEFENSE') {
+    lines.push('  R6_DEFENSE 레짐 — Kelly ×0.0. 시장 회복 또는 운영자 강제 격하 검토.');
+  } else if (mg?.bearDefenseMode) {
+    lines.push('  Bear Defense 모드 — 매크로 위험 회피. 매크로 회복 대기.');
+  } else if (wd && wd.dataHold > Math.max(1, summary.candidates * 0.3)) {
+    lines.push(`  DATA_HOLD 30%+ — sanity 위반 다수 (Yahoo stale base 의심). /scan_blockers 재호출 모니터링.`);
+  } else if (wd && wd.gateFail > Math.max(1, summary.candidates * 0.5)) {
+    lines.push(`  Gate 재검증 미달 50%+ — minGate 임계 + sectorBoost 검토 (EXECUTION_RELAXATION_ENABLED 시도).`);
+  } else if (wd && wd.preBreakout > Math.max(1, summary.candidates * 0.5)) {
+    lines.push('  Pre-breakout 미도달 다수 — 시장 약세 또는 entry 임계 ±1% 초과 종목 다수.');
+  } else if (summary.candidates === 0) {
+    lines.push('  스캔 후보 0개 — 워치리스트 비었거나 universe 발굴 실패.');
+  } else {
+    lines.push('  명백한 차단 게이트 부재 — 종목별 진입 조건 점검 필요 (/scheduler / /health).');
+  }
+
+  return lines.join('\n');
 }
 
 export interface PersistScanResultsOptions {
@@ -70,6 +262,8 @@ export interface PersistScanResultsOptions {
   swingListLength: number;
   catalystListLength: number;
   momentumListLength: number;
+  /** ADR-0118: 거시 게이트 상태 (옵셔널 — 미전달 시 ScanSummary.macroGateState 미부여). */
+  macroGateState?: MacroGateState;
 }
 
 /**
@@ -101,6 +295,9 @@ export async function persistScanResults(
     gateMisses: counters.gateMisses,
     rrrMisses:  counters.rrrMisses,
     entries:    counters.entries,
+    // ADR-0118: WAIT 사유 분포 + 거시 게이트 상태 영속.
+    waitDistribution: buildWaitDistribution(counters),
+    ...(options.macroGateState ? { macroGateState: options.macroGateState } : {}),
   };
 
   if (counters.entries === 0 && _lastScanSummary.candidates > 0) {
