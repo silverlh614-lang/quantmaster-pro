@@ -30,7 +30,10 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '08:35', label: 'ADR 갭 스캔 / 최종 스크리닝', group: 'alerts', jobName: 'adr_gap_scan', silentWhen: '|ADR 역산 갭| < 2% 이면 무음' },
   { timeKst: '08:40', label: 'DXY 한국 개장 직전 모니터', group: 'alerts', jobName: 'dxy_kr_open', silentWhen: 'DXY 방향 전환 신호 없을 시 무음' },
   { timeKst: '08:45', label: '아침 통합 브리핑', group: 'reports', jobName: 'morning_briefing' },
-  { timeKst: '09:00', label: 'MHS 알림 / 거시-섹터 동기화 시작', group: 'alerts', jobName: 'mhs_open', silentWhen: 'MHS 가 RED(<40) 또는 GREEN(≥70) 전환이 아니면 무음' },
+  // umbrella 라벨이라 jobName 은 실제 등록된 primary cron (mhs_morning_alert) 을 가리킨다.
+  // 09:00 KST = '0 0 * * 1-5' UTC, alertJobs.ts:48 / TRADING_DAY_ONLY / pollMhsMorningAlert.
+  // 거시-섹터 동기화는 동일 시각 macro_sync_day_open(trading) 으로 별도 등록되어 있음.
+  { timeKst: '09:00', label: 'MHS 알림 / 거시-섹터 동기화 시작', group: 'alerts', jobName: 'mhs_morning_alert', silentWhen: 'MHS 가 RED(<40) 또는 GREEN(≥70) 전환이 아니면 무음' },
   { timeKst: '09:00', label: 'FOMC DAY 사전 경보', group: 'alerts', jobName: 'fomc_day_morning_alert', silentWhen: 'FOMC DAY phase 가 아니면 무음 (FOMC 캘린더 단일 SSOT, ADR-0061)' },
   { timeKst: '09:05', label: '보유 포지션 모닝카드', group: 'reports', jobName: 'morning_position_card', silentWhen: '활성 포지션 없으면 무음' },
   { timeKst: '09:05', label: '연휴 복귀 보수 매매 모드', group: 'alerts', jobName: 'holiday_resume_alert', silentWhen: 'POST_HOLIDAY + isLongHoliday 미충족 시 무음 — 추석/근로자의 날 직후만 발송' },
@@ -65,9 +68,13 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
 
   // ── 상시 ──────────────────────────────────────────────────────────────────
   { timeKst: '상시',  label: '오케스트레이터 1분 tick', group: 'trading', jobName: 'orchestrator_tick' },
-  { timeKst: '상시',  label: 'OCO/매도 체결 감시', group: 'trading', jobName: 'oco_close_loop' },
-  { timeKst: '상시',  label: 'DART/IPS/ACK 폴링', group: 'alerts', jobName: 'dart_ips_ack_poll' },
-  { timeKst: '상시',  label: 'DXY 인트라데이 5분 모니터 (US 장중)', group: 'alerts', jobName: 'dxy_intraday' },
+  // umbrella 라벨이라 jobName 은 각 그룹의 primary cron 을 가리킨다.
+  // OCO 감시 그룹: oco_confirm(30s primary) / oco_survival(15m) / oco_recovery_round(5m) — tradeFlowJobs.ts.
+  { timeKst: '상시',  label: 'OCO/매도 체결 감시', group: 'trading', jobName: 'oco_confirm' },
+  // DART/IPS/ACK 그룹: dart_poll_30min(primary) / dart_fast_check / ips_alert / ack_sweep — alertJobs.ts.
+  { timeKst: '상시',  label: 'DART/IPS/ACK 폴링', group: 'alerts', jobName: 'dart_poll_30min' },
+  // DXY 인트라데이 그룹: dxy_intraday_us_session(primary, US 장 5m) + dxy_intraday_lunch(KST 점심 5m) — alertJobs.ts:78.
+  { timeKst: '상시',  label: 'DXY 인트라데이 5분 모니터 (US 장중)', group: 'alerts', jobName: 'dxy_intraday_us_session' },
 ];
 
 const GROUP_LABELS: Record<ScheduleEntry['group'], string> = {
