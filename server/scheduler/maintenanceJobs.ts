@@ -17,6 +17,8 @@ import { DATA_DIR } from '../persistence/paths.js';
 // PR-B-2: scheduledJob 래퍼가 wrapJob 메트릭 기록을 흡수.
 import { reloadKrxHolidaySet } from '../trading/krxHolidays.js';
 import { runKrxHolidayAudit } from '../trading/krxHolidayAudit.js';
+// ADR-0128 — 데이터 검증 배치 (정책 #2 주 검증, KST 평일 16:30)
+import { runDataVerificationBatch } from '../data/dataVerificationBatch.js';
 
 const BACKUP_RETENTION_DAYS = 7;
 
@@ -153,6 +155,28 @@ export function registerMaintenanceJobs(): void {
   // PR-B-2: ALWAYS_ON — 12/1 이 KRX 공휴일이어도 발송 (감사 자체는 휴장과 무관).
   scheduledJob('0 0 1 12 *', 'ALWAYS_ON', 'krx_holiday_audit',
     () => runKrxHolidayAudit(), { timezone: 'UTC' });
+
+  // ADR-0128 정책 #2 — 데이터 검증 배치 (장 마감 1시간 후, KST 평일 16:30 = UTC 07:30).
+  // 모든 워치리스트 종목을 KIS daily quote 로 sanity 검증 → 위반 시 verificationQueue 에
+  // 누적 + 워치리스트 entry 격리 마커 부착. 3회+ 누적 시 manualReviewState='QUEUED' 격상.
+  // ScheduleClass: TRADING_DAY_ONLY (KRX 휴장일 자동 스킵).
+  // ENV `DATA_VERIFICATION_BATCH_DISABLED=true` 시 함수 진입부에서 즉시 skipped 반환.
+  scheduledJob('30 7 * * 1-5', 'TRADING_DAY_ONLY', 'data_verification_batch', async () => {
+    try {
+      const result = await runDataVerificationBatch();
+      if (result.skipped) {
+        console.log(`[DataVerificationBatch] skipped (${result.reason})`);
+      } else {
+        console.log(
+          `[DataVerificationBatch] total=${result.total} ok=${result.ok} `
+          + `failed=${result.failed} manualReview=${result.manualReviewQueued} `
+          + `duration=${result.durationMs}ms`,
+        );
+      }
+    } catch (e) {
+      console.error('[DataVerificationBatch] 실행 오류:', e);
+    }
+  }, { timezone: 'UTC' });
 }
 
 // ── KRX 섹터맵 갱신 헬퍼 ─────────────────────────────────────────────────────

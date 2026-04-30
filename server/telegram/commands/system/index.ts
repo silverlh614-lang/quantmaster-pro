@@ -9,6 +9,7 @@ import './aiStatus.cmd.js';
 import './coherenceAudit.cmd.js';
 import './conditionAttributionShadow.cmd.js';
 import './conditionLifecycle.cmd.js';
+import './dataVerificationReview.cmd.js';
 import './health.cmd.js';
 import './learningHistory.cmd.js';
 import './learningStatus.cmd.js';

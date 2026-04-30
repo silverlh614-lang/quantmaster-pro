@@ -465,3 +465,43 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
     ).catch(console.error);
   }
 }
+
+// ─── ADR-0128: DataQuality 격리 마커 helper (verification batch / incremental 사용) ───
+/**
+ * 워치리스트 entry 에 DataQuality 격리 마커 부착.
+ * `safePctChangeStrict` 위반 시 verification batch / incremental 가 호출.
+ *
+ * @returns true = 마커 부착됨, false = entry 없음 (no-op)
+ */
+export function markDataQuarantine(
+  stockCode: string,
+  dataQuality: import('../types/dataQuality.js').DataQualityInfo,
+): boolean {
+  const list = loadWatchlist();
+  const idx = list.findIndex((e) => e.code === stockCode);
+  if (idx < 0) return false;
+  const prev = list[idx]!;
+  list[idx] = { ...prev, isDataQuarantined: true, dataQuality };
+  // 직접 영속 — saveWatchlist 의 cap trim 우회 (격리 갱신은 단일 entry mutate).
+  fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list, null, 2));
+  return true;
+}
+
+/**
+ * 워치리스트 entry 의 DataQuality 격리 마커 해제 (verification batch OK 시).
+ *
+ * @returns true = 마커 해제됨, false = entry 없음 또는 이미 격리 안 됨
+ */
+export function clearDataQuarantineMark(stockCode: string): boolean {
+  const list = loadWatchlist();
+  const idx = list.findIndex((e) => e.code === stockCode);
+  if (idx < 0) return false;
+  const prev = list[idx]!;
+  if (!prev.isDataQuarantined && !prev.dataQuality) return false;
+  const next: WatchlistEntry = { ...prev };
+  delete next.isDataQuarantined;
+  delete next.dataQuality;
+  list[idx] = next;
+  fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list, null, 2));
+  return true;
+}
