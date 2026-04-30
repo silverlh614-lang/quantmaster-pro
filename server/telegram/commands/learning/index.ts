@@ -1,5 +1,6 @@
 // @responsibility index 텔레그램 모듈
-// @responsibility: commands/learning/* 11 cmd 자동 등록 트리거 (kelly + kellySurface + regimeCoverage + ledger + counterfactual + risk + circuits + resetCircuits + learningPulse + ghostInspect + ghostKisDiag).
+// @responsibility: commands/learning/* 12 cmd 자동 등록 트리거 (kelly + kellySurface + regimeCoverage + ledger + counterfactual + risk + circuits + resetCircuits + learningPulse + ghostInspect + ghostKisDiag + attributionTrace).
+import './attributionTrace.cmd.js';
 import './circuits.cmd.js';
 import './counterfactual.cmd.js';
 import './ghostInspect.cmd.js';
