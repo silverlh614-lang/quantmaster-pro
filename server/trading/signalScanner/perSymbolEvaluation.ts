@@ -69,6 +69,7 @@ import {
   classifySectorTier,
   describeSectorBoost,
 } from '../sectorScoreBoost.js';
+import { evaluateDataQualityFromStock } from '../priceSourcePolicy.js';
 import {
   sizingTierDecider,
   kellyBudgetDecider,
@@ -1004,6 +1005,20 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // ── ADR-0031 PR-62: sizingTierDecider — 신뢰도 티어 + PROBING 슬롯 ──
       // Phase 4-⑧(수정): 신뢰도 티어 기반 사이징 — 카테고리 신설 대신 Kelly 만 차등.
       // Idea 6: bandit 이 결정한 동적 예산으로 PROBING 슬롯 제어.
+      //
+      // ADR-0126 (PR-2 wiring): 매수 직전 final 방어선 — KIS canonicalPrice +
+      // Yahoo 괴리 검증 → DataQualityInfo 합성 → sizingTier BLOCKED 트리거.
+      // ENV PRICE_SOURCE_POLICY_EXECUTION_GATE_DISABLED=true 시 무력화.
+      // WatchlistEntry 는 priceKrw 필드가 옵셔널 미선언 — inline cast 로 후방호환.
+      const priceSourceDataQuality = evaluateDataQualityFromStock(
+        { priceKrw: (stock as { priceKrw?: number | null }).priceKrw ?? null },
+        currentPrice,
+        `final-candidate:${stock.code}`,
+      );
+      // 기존 stock.dataQuality (drift sanity ADR-0117) 와 priceSourceDataQuality (PR-2)
+      // OR 결합 — 어느 한쪽이라도 차단 분류면 BLOCKED. 우선순위: drift sanity > priceSource.
+      const mergedDataQuality = stock.dataQuality ?? priceSourceDataQuality;
+
       const tierResult = sizingTierDecider({
         stockName: stock.name,
         liveGateScore,
@@ -1012,6 +1027,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         macroState: ctx.macroState,
         banditDecision: ctx.banditDecision,
         probingReservedSlots: ctx.mutables.probingReservedSlots.value,
+        dataQuality: mergedDataQuality,
       });
       if (!tierResult.ok) {
         console.log(tierResult.logMessage);

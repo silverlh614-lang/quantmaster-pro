@@ -228,3 +228,84 @@ export function shouldAllowExecution(quality: DataQualityResult): boolean {
 export function shouldQuarantine(status: DataQualityStatus): boolean {
   return status === 'INVALID' || status === 'CORPORATE_ACTION_SUSPECT' || status === 'STALE' || status === 'MISSING';
 }
+
+/**
+ * ADR-0126 (PR-2) ENV 우회 — true 시 evaluateDataQualityFromStock + sizingTier wiring 무력화.
+ * 회귀 위험 격리용.
+ */
+export function isPriceSourceExecutionGateDisabled(): boolean {
+  return process.env.PRICE_SOURCE_POLICY_EXECUTION_GATE_DISABLED === 'true';
+}
+
+/**
+ * ADR-0126 (PR-2): DataQualityResult → DataQualityInfo (ADR-0117) 매핑 SSOT.
+ *
+ * 두 schema 의 호환성을 위한 단일 변환 함수. 호출자 (perSymbolEvaluation) 가
+ * `sizingTierDecider.dataQuality` 입력으로 전달 → BLOCKED 분기 자동 활성.
+ *
+ * 매핑:
+ *   - VALID/WARN                 → OK (매수 허용)
+ *   - INVALID                    → STALE_BASE_OR_SPLIT_ADJUSTMENT (괴리 10~30%)
+ *   - CORPORATE_ACTION_SUSPECT   → STALE_BASE_OR_SPLIT_ADJUSTMENT (괴리 30%+, 액면분할 의심)
+ *   - STALE                      → SOURCE_UNTRUSTED (KIS 부재)
+ *   - MISSING                    → ZERO_OR_INVALID_PRICE (둘 다 부재)
+ */
+export function toDataQualityInfo(
+  result: DataQualityResult,
+  context?: string,
+): import('../types/dataQuality.js').DataQualityInfo | undefined {
+  // OK / WARN → DataQualityInfo 미부여 (sizingTier BLOCKED 분기 미진입)
+  if (result.status === 'VALID' || result.status === 'WARN') return undefined;
+
+  let status: import('../types/dataQuality.js').DataQualityStatus;
+  switch (result.status) {
+    case 'INVALID':
+    case 'CORPORATE_ACTION_SUSPECT':
+      status = 'STALE_BASE_OR_SPLIT_ADJUSTMENT';
+      break;
+    case 'STALE':
+      status = 'SOURCE_UNTRUSTED';
+      break;
+    case 'MISSING':
+      status = 'ZERO_OR_INVALID_PRICE';
+      break;
+    default:
+      return undefined;
+  }
+
+  return {
+    status,
+    reason: result.reasons.join('; ') || `priceSourcePolicy: ${result.status}`,
+    current: result.kisPrice ?? undefined,
+    base: result.yahooPrice ?? undefined,
+    source: 'priceSourcePolicy',
+    context: context ?? `discrepancy=${result.discrepancyPct?.toFixed(2) ?? 'N/A'}%`,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * ADR-0126 헬퍼 — stock + currentPrice 입력 → DataQualityInfo 변환 합성 SSOT.
+ *
+ * 호출자 (perSymbolEvaluation) 가 매수 직전 sizingTier 호출 직전에 호출.
+ * ENV PRICE_SOURCE_POLICY_EXECUTION_GATE_DISABLED=true 시 undefined 반환 (gate 무력화).
+ *
+ * @param stock 종목 — priceKrw (Yahoo) 입력
+ * @param currentPrice KIS 실시간 현재가 입력
+ * @param context 진단 문자열 (선택)
+ * @returns DataQualityInfo | undefined — undefined = 매수 허용, 분류 = sizingTier BLOCKED 트리거
+ */
+export function evaluateDataQualityFromStock(
+  stock: { priceKrw?: number | null },
+  currentPrice: number | null,
+  context?: string,
+): import('../types/dataQuality.js').DataQualityInfo | undefined {
+  if (isPriceSourceExecutionGateDisabled()) return undefined;
+
+  const result = evaluateDataQuality({
+    kisPrice: currentPrice,
+    yahooPrice: stock.priceKrw ?? undefined,
+  });
+
+  return toDataQualityInfo(result, context);
+}
