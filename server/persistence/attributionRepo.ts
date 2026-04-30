@@ -357,3 +357,77 @@ export function emitPartialAttribution(input: EmitPartialAttributionInput): Serv
   appendAttributionRecord(rec);
   return rec;
 }
+
+// ── 전량 청산 attribution emitter (FULL_CLOSE, PR-2) ────────────────────────
+//
+// exitEngine 의 전량 청산 경로 (hardStopLoss/legacyTakeProfit/cascadeFinal/
+// ma60DeathForceExit/r6EmergencyExit + ocoCloseLoop) 가 closedAt + returnPct +
+// 학습용 conditionScores baseline 을 함께 전달해 1.0 qtyRatio 로 영속한다.
+// baseline 부재 시 null 반환 — 학습 오염 차단 (PR-19 정책 정합).
+//
+// 이전 결함: emitPartialAttribution 만 export 되어 reserveSell.ts 가 부분매도만
+// 자동 emit. 전량 청산 (remainingQty=0) 은 attribution.ts:32 에서 즉시 null 반환,
+// 별도 FULL_CLOSE 경로 미구현으로 자동 청산 5/5 모두 attribution 0건.
+//
+// 본 SSOT 가 그 갭 차단. PR-3 (5 청산 규칙 wiring) + PR-4 (OCO LIVE wiring)
+// 가 emitFullCloseAttributionForExit (helpers/attribution.ts) 경유로 호출.
+//
+// ENV 우회: ATTRIBUTION_FULL_CLOSE_DISABLED=true 시 즉시 null 반환 (긴급 롤백).
+
+export interface EmitFullCloseAttributionInput {
+  tradeId: string;
+  stockCode: string;
+  stockName: string;
+  /** 거래 종료 시각 (ISO) */
+  closedAt: string;
+  returnPct: number;
+  holdingDays: number;
+  entryRegime?: string;
+  sellReason?: string;
+  /** exitRuleTag (HARD_STOP / TARGET_EXIT / CASCADE_FINAL / 등) — sellReason 미전달 시 fallback */
+  exitRuleTag?: string;
+  /**
+   * 진입 시점 27조건 점수 baseline (PR-1 ServerShadowTrade.entryConditionScores).
+   * 빈 객체 또는 미전달 시 null 반환 — 학습 오염 차단.
+   */
+  conditionScores: Record<number, number>;
+}
+
+export function isFullCloseAttributionDisabled(): boolean {
+  return process.env.ATTRIBUTION_FULL_CLOSE_DISABLED === 'true';
+}
+
+/**
+ * 전량 청산 attribution 영속.
+ *
+ * 반환:
+ *   - 저장된 record (성공)
+ *   - null: ENV 우회 / conditionScores baseline 부재 / NaN returnPct
+ */
+export function emitFullCloseAttribution(
+  input: EmitFullCloseAttributionInput,
+): ServerAttributionRecord | null {
+  if (isFullCloseAttributionDisabled()) return null;
+  if (!input.conditionScores || Object.keys(input.conditionScores).length === 0) {
+    return null;
+  }
+  if (!Number.isFinite(input.returnPct)) return null;
+
+  const rec: ServerAttributionRecord = {
+    schemaVersion:   CURRENT_ATTRIBUTION_SCHEMA_VERSION,
+    tradeId:         input.tradeId,
+    attributionType: 'FULL_CLOSE',
+    qtyRatio:        1.0,
+    stockCode:       input.stockCode,
+    stockName:       input.stockName,
+    closedAt:        input.closedAt,
+    returnPct:       input.returnPct,
+    isWin:           input.returnPct > 0,
+    entryRegime:     input.entryRegime,
+    conditionScores: input.conditionScores,
+    holdingDays:     Math.max(0, Math.floor(input.holdingDays)),
+    sellReason:      input.sellReason ?? input.exitRuleTag,
+  };
+  appendAttributionRecord(rec);
+  return rec;
+}
