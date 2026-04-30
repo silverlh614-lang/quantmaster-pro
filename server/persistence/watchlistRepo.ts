@@ -270,10 +270,25 @@ export interface WatchlistEntry {
    * ADR-0113: Corporate Action 감지로 entryPrice 가 자동 재설정된 종목 마커.
    * applyEntryPriceDrift 가 drift > 150% 감지 시 currentPrice 로 entryPrice 갱신.
    * 후속 PR 에서 24h 신호 스캔 격리 입력으로 활용.
+   *
+   * **ADR-0115 deprecated**: entryPrice 자동 재설정 정책 폐기됨. 본 마커는 ADR-0113
+   * 레거시 동작 (ENV ENTRY_PRICE_AUTO_CORRECT_DISABLED=false 명시 시) 에만 부착.
    */
   corporateActionAdjusted?: boolean;
   /** corporateActionAdjusted 갱신 시각 (ISO). */
   corporateActionAdjustedAt?: string;
+  /**
+   * ADR-0116: 진입 시점 RAW 가격 (불변 원장).
+   * 분할/병합 후에도 *절대* 수정 금지. entryPrice 와 별도 보강 layer.
+   * 신규 진입 (autoPopulateWatchlist) 시 entryPrice 와 동일 값 영속.
+   * P3 Corporate Action Ledger 후속 PR 에서 adjusted = entryPriceRaw / factor 산출.
+   */
+  entryPriceRaw?: number;
+  /**
+   * ADR-0116: cumulativeAdjustmentFactor (분할/병합 누적 보정 계수, 1.0 default).
+   * priceAdjustment.ts SSOT 사용.
+   */
+  cumulativeAdjustmentFactor?: number;
 }
 
 export function loadWatchlist(): WatchlistEntry[] {

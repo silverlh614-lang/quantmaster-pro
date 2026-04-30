@@ -201,6 +201,11 @@ export function buildBuyTrade(p: BuildBuyTradeParams): ServerShadowTrade {
     signalTime:            new Date().toISOString(),
     signalPrice:           p.currentPrice,
     shadowEntryPrice:      p.shadowEntryPrice,
+    // ADR-0116: RAW 불변 원장 — shadowEntryPrice 와 동일 값 영속.
+    // P3 Corporate Action Ledger 후속 PR 에서 cumulativeFactor 갱신 시
+    // adjusted = entryPriceRaw / factor 산출 — RAW 자체는 영원히 보존.
+    entryPriceRaw:              p.shadowEntryPrice,
+    cumulativeAdjustmentFactor: 1.0,
     quantity:              p.quantity,
     originalQuantity:      p.originalQuantity ?? p.quantity,
     stopLoss:              p.stopLossPlan.hardStopLoss,

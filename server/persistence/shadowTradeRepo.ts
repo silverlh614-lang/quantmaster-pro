@@ -421,6 +421,21 @@ export interface ServerShadowTrade {
   signalTime: string;
   signalPrice: number;
   shadowEntryPrice: number;
+  /**
+   * ADR-0116: 진입 시점 RAW 가격 (불변 원장).
+   * 분할/병합 후에도 *절대* 수정 금지. shadowEntryPrice / signalPrice 와 별도
+   * 보강 layer — 기존 필드는 후방호환 보존. 본 PR 단계: buildBuyTrade 가
+   * shadowEntryPrice 와 동일 값 영속 (factor=1 default identity).
+   * P3 후속 PR (Corporate Action Ledger) 에서 cumulativeFactor 갱신 시
+   * adjusted = entryPriceRaw / factor 산출 — RAW 자체는 영원히 보존.
+   */
+  entryPriceRaw?: number;
+  /**
+   * ADR-0116: cumulativeAdjustmentFactor (분할/병합 누적 보정 계수).
+   * 1.0 default — adjusted = entryPriceRaw / factor. P3 Corporate Action Ledger
+   * 에서 진입 시점 + 현재 시점 factor 비교로 갱신. priceAdjustment.ts SSOT 사용.
+   */
+  cumulativeAdjustmentFactor?: number;
   quantity: number;
   stopLoss: number;
   /**
