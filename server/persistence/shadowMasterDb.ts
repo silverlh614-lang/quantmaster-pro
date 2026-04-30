@@ -18,7 +18,7 @@ export interface ShadowMasterSnapshot {
   validatedCount: number;
 }
 
-const VALID_SHADOW_SOURCES: ReadonlyArray<StockMasterSource> = ['KRX_CSV', 'NAVER_LIST'];
+const VALID_SHADOW_SOURCES: ReadonlyArray<StockMasterSource> = ['KRX_OPENAPI', 'KRX_CSV', 'NAVER_LIST'];
 
 let _cached: ShadowMasterSnapshot | null = null;
 let _loadedFromDisk = false;
