@@ -17,6 +17,8 @@
  * 강제. 기존 코드의 "stale 시 0% 로 정상 처리되던" silent degradation 차단.
  */
 
+import { isDataQualityStrictDisabled } from '../types/dataQuality.js';
+
 const DEFAULT_SANITY_BOUND_PCT = 90;
 const LOG_THROTTLE_MS = 60_000;
 
@@ -510,4 +512,165 @@ export function safePctChangeDetailed(
 /** 테스트 전용 — 진단 로그 throttle 상태 초기화. */
 export function __resetSafePctChangeWarnsForTests(): void {
   _lastWarnAt.clear();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADR-0117: safePctChangeStrict — 거래 차단 게이트 (DataQuality Quarantine)
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * 사용자 18단계 설계안 §6 "Drift Sanity Hard Filter" + §15 "DATA_HOLD" 직접 반영.
+ *
+ * `safePctChange` / `safePctChangeDetailed` 가 *경고기* 라면 본 함수는 *거래 차단
+ * 게이트*. 호출자(entryEngine/watchlistManager/sizingTier)가 ok=false 시 *반드시*
+ * trading/drift/sizing 차단 의무. shouldBlockTradingByDataQuality 와 정합.
+ *
+ * 차단 정책 SSOT:
+ *   1. ZERO_OR_INVALID_PRICE — current/base ≤ 0 또는 NaN/Infinity
+ *   2. STALE_BASE_OR_SPLIT_ADJUSTMENT — |pct| > maxAbsPct (default 90%)
+ *   3. SOURCE_UNTRUSTED — source === 'YAHOO_HISTORICAL' AND forbidYahooHistorical=true
+ *   4. OK — 정상 (3종 차단 모두 false)
+ *
+ * ENV `DATA_QUALITY_STRICT_DISABLED=true` 우회 — 위반 시 ok=true + 경고 로그만.
+ * default OFF (정책 적용).
+ */
+
+export type SafePctStrictStatus =
+  | 'OK'
+  | 'STALE_BASE_OR_SPLIT_ADJUSTMENT'
+  | 'ZERO_OR_INVALID_PRICE'
+  | 'SOURCE_UNTRUSTED';
+
+export interface SafePctStrictResult {
+  /** sanity 통과 여부. false 시 호출자 *반드시* 거래/drift/sizing 차단. */
+  ok: boolean;
+  /** 통과 시 계산값 (%), 위반 시 null. */
+  pct: number | null;
+  status: SafePctStrictStatus;
+  current: number;
+  base: number;
+  source: string;
+  /** 호출자 경로 라벨 (예: 'entryEngine.extensionPct'). */
+  context: string;
+  reason: string;
+  blockTrading: boolean;
+  blockDriftUpdate: boolean;
+  blockSizing: boolean;
+}
+
+export interface SafePctStrictInput {
+  current: number;
+  base: number;
+  source?: string;
+  context: string;
+  /** default 90 (%) */
+  maxAbsPct?: number;
+  /**
+   * trading-critical 경로에서 source === 'YAHOO_HISTORICAL' 차단 여부.
+   * default false — entryEngine.extensionPct 등 거래 결정 경로에서만 true 권장.
+   */
+  forbidYahooHistorical?: boolean;
+}
+
+const DEFAULT_MAX_ABS_PCT = 90;
+const STRICT_LOG_THROTTLE_MS = 60_000;
+const _lastStrictWarnAt = new Map<string, number>();
+
+function buildStrictResult(
+  partial: Omit<SafePctStrictResult, 'blockTrading' | 'blockDriftUpdate' | 'blockSizing'>,
+): SafePctStrictResult {
+  const block = !partial.ok;
+  return {
+    ...partial,
+    blockTrading: block,
+    blockDriftUpdate: block,
+    blockSizing: block,
+  };
+}
+
+export function safePctChangeStrict(params: SafePctStrictInput): SafePctStrictResult {
+  const {
+    current,
+    base,
+    source = 'UNKNOWN',
+    context,
+    maxAbsPct = DEFAULT_MAX_ABS_PCT,
+    forbidYahooHistorical = false,
+  } = params;
+
+  // ENV 우회 — 검증은 진행하지만 ok=true 반환 (위반 시 console.warn 만).
+  const strictDisabled = isDataQualityStrictDisabled();
+
+  // 1. 분모/분자 가드
+  if (
+    !Number.isFinite(current)
+    || !Number.isFinite(base)
+    || current <= 0
+    || base <= 0
+  ) {
+    const reason = `[${context}] invalid price current=${current}, base=${base}, source=${source}`;
+    if (strictDisabled) {
+      console.warn(`[safePctChangeStrict:ENV_DISABLED] ${reason}`);
+      return buildStrictResult({
+        ok: true, pct: null, status: 'OK',
+        current, base, source, context, reason: `${reason} (ENV uncritical)`,
+      });
+    }
+    return buildStrictResult({
+      ok: false, pct: null, status: 'ZERO_OR_INVALID_PRICE',
+      current, base, source, context, reason,
+    });
+  }
+
+  const pct = ((current - base) / base) * 100;
+  const absPct = Math.abs(pct);
+
+  // 2. Sanity bound 위반
+  if (absPct > maxAbsPct) {
+    const reason =
+      `[${context}] sanity violation absPct=${absPct.toFixed(2)}% > ${maxAbsPct}% `
+      + `current=${current}, base=${base}, source=${source}`;
+    // 60s throttle 진단 로그
+    const now = Date.now();
+    const last = _lastStrictWarnAt.get(context) ?? 0;
+    if (now - last >= STRICT_LOG_THROTTLE_MS) {
+      _lastStrictWarnAt.set(context, now);
+      console.warn(`[safePctChangeStrict] ${reason}`);
+    }
+    if (strictDisabled) {
+      return buildStrictResult({
+        ok: true, pct, status: 'OK',
+        current, base, source, context, reason: `${reason} (ENV uncritical)`,
+      });
+    }
+    return buildStrictResult({
+      ok: false, pct: null, status: 'STALE_BASE_OR_SPLIT_ADJUSTMENT',
+      current, base, source, context, reason,
+    });
+  }
+
+  // 3. SOURCE_UNTRUSTED — Yahoo historical 차단 (옵셔널)
+  if (forbidYahooHistorical && source === 'YAHOO_HISTORICAL') {
+    const reason = `[${context}] Yahoo historical base is not allowed for trading-critical calculation`;
+    if (strictDisabled) {
+      console.warn(`[safePctChangeStrict:ENV_DISABLED] ${reason}`);
+      return buildStrictResult({
+        ok: true, pct, status: 'OK',
+        current, base, source, context, reason: `${reason} (ENV uncritical)`,
+      });
+    }
+    return buildStrictResult({
+      ok: false, pct: null, status: 'SOURCE_UNTRUSTED',
+      current, base, source, context, reason,
+    });
+  }
+
+  return buildStrictResult({
+    ok: true, pct, status: 'OK',
+    current, base, source, context, reason: `[${context}] OK pct=${pct.toFixed(2)}%`,
+  });
+}
+
+/** 테스트 전용 — strict 진단 로그 throttle 초기화. */
+export function __resetSafePctChangeStrictWarnsForTests(): void {
+  _lastStrictWarnAt.clear();
 }

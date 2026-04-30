@@ -270,10 +270,36 @@ export interface WatchlistEntry {
    * ADR-0113: Corporate Action 감지로 entryPrice 가 자동 재설정된 종목 마커.
    * applyEntryPriceDrift 가 drift > 150% 감지 시 currentPrice 로 entryPrice 갱신.
    * 후속 PR 에서 24h 신호 스캔 격리 입력으로 활용.
+   *
+   * **ADR-0115 deprecated**: entryPrice 자동 재설정 정책 폐기됨. 본 마커는 ADR-0113
+   * 레거시 동작 (ENV ENTRY_PRICE_AUTO_CORRECT_DISABLED=false 명시 시) 에만 부착.
    */
   corporateActionAdjusted?: boolean;
   /** corporateActionAdjusted 갱신 시각 (ISO). */
   corporateActionAdjustedAt?: string;
+  /**
+   * ADR-0116: 진입 시점 RAW 가격 (불변 원장).
+   * 분할/병합 후에도 *절대* 수정 금지. entryPrice 와 별도 보강 layer.
+   * 신규 진입 (autoPopulateWatchlist) 시 entryPrice 와 동일 값 영속.
+   * P3 Corporate Action Ledger 후속 PR 에서 adjusted = entryPriceRaw / factor 산출.
+   */
+  entryPriceRaw?: number;
+  /**
+   * ADR-0116: cumulativeAdjustmentFactor (분할/병합 누적 보정 계수, 1.0 default).
+   * priceAdjustment.ts SSOT 사용.
+   */
+  cumulativeAdjustmentFactor?: number;
+  /**
+   * ADR-0117: DataQuality 격리 마커. drift sanity 위반 (DATA_HOLD) 시 true.
+   * isDataQuarantined=true 인 종목은 drift 업데이트 금지 + Gate/Sizing 차단.
+   */
+  isDataQuarantined?: boolean;
+  /**
+   * ADR-0117: 격리 메타. status='OK' 가 아닐 때 호출자 거래 차단 의무
+   * (shouldBlockTradingByDataQuality SSOT 사용). 본 PR 단계에서는 호출자가 영속만,
+   * 후속 PR 에서 진단 UI / 텔레그램 리포트에 노출.
+   */
+  dataQuality?: import('../types/dataQuality.js').DataQualityInfo;
 }
 
 export function loadWatchlist(): WatchlistEntry[] {

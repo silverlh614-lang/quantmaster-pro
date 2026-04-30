@@ -285,11 +285,11 @@ describe('applyEntryPriceDrift', () => {
       expect(applyEntryPriceDrift(entry, 2_700)).toBe('CORPORATE_ACTION');
     });
 
-    it('drift +149% (INVALID 영역) → REMOVE (CORPORATE_ACTION 아님)', () => {
-      // INVALID 영역 (60~150) 인데 driftPct 자체로는 safePctChange 가 null 반환 → KEEP 폴백.
+    it('drift +149% (INVALID 영역) → DATA_HOLD (ADR-0117 — 90% 임계 초과 거래 차단)', () => {
+      // ADR-0117: safePctChangeStrict 가 ok=false 반환 → applyEntryPriceDrift 가 'DATA_HOLD'.
+      // 이전 ADR-0113 동작: KEEP 폴백 (sanity 위반 → null → KEEP).
       const entry = makeEntry({ code: 'A', entryPrice: 1_000, addedBy: 'AUTO' });
-      // driftPct=149% 는 safePctChange 의 default sanity bound (90%) 위반 → null → KEEP
-      expect(applyEntryPriceDrift(entry, 2_490)).toBe('KEEP');
+      expect(applyEntryPriceDrift(entry, 2_490)).toBe('DATA_HOLD');
     });
 
     it('MANUAL entry 도 drift > 150% 면 CORPORATE_ACTION 우선', () => {
@@ -297,28 +297,26 @@ describe('applyEntryPriceDrift', () => {
       expect(applyEntryPriceDrift(entry, 3_500)).toBe('CORPORATE_ACTION');
     });
 
-    it('ENV CORPORATE_ACTION_DETECTOR_DISABLED=true → CORPORATE_ACTION 미감지', () => {
+    it('ENV CORPORATE_ACTION_DETECTOR_DISABLED=true → DATA_HOLD (ADR-0117 sanity 차단)', () => {
       const original = process.env.CORPORATE_ACTION_DETECTOR_DISABLED;
       process.env.CORPORATE_ACTION_DETECTOR_DISABLED = 'true';
       try {
         const entry = makeEntry({ code: 'A', entryPrice: 1_000, addedBy: 'AUTO' });
-        // detector disabled → KEEP (sanity 위반 → null fallback)
-        expect(applyEntryPriceDrift(entry, 3_000)).toBe('KEEP');
+        // ADR-0117: detector disabled → CORPORATE_ACTION 미감지 → safePctChangeStrict 차단 → DATA_HOLD.
+        // 이전 ADR-0113 동작: KEEP (sanity null fallback). 본 PR 가 *명시적 거래 차단* 격상.
+        expect(applyEntryPriceDrift(entry, 3_000)).toBe('DATA_HOLD');
       } finally {
         if (original === undefined) delete process.env.CORPORATE_ACTION_DETECTOR_DISABLED;
         else process.env.CORPORATE_ACTION_DETECTOR_DISABLED = original;
       }
     });
 
-    it('drift -200% (음수 거대) — abs 분류로 CORPORATE_ACTION', () => {
-      // current=10, entry=100 → drift=-90% (CORPORATE_ACTION_MIN 미만)
-      // current=1, entry=100 → drift=-99% (CORPORATE_ACTION_MIN 미만)
-      // current=1, entry=10 → drift=-90% (미감지)
-      // 실제로 음수에서 abs > 150% 는 거의 불가능 (가격은 음수 안 됨, base 도 양수 의무)
-      // 따라서 본 테스트는 양수 case 만 의미 있음 — skip 안 하고 명시적 분기 검증
+    it('drift -99% (음수 거대) — ADR-0117 sanity 90% 위반 → DATA_HOLD', () => {
+      // ADR-0117: drift=-99% (90% 초과) → safePctChangeStrict 차단 → DATA_HOLD.
+      // 이전 ADR-0113 동작: KEEP (sanity null fallback). corporateActionDetector
+      // 는 abs>150% 만 감지라 -99% 는 미감지.
       const entry = makeEntry({ code: 'A', entryPrice: 100, addedBy: 'AUTO' });
-      // drift = (1-100)/100*100 = -99% → abs<150 → KEEP (sanity 위반 null)
-      expect(applyEntryPriceDrift(entry, 1)).toBe('KEEP');
+      expect(applyEntryPriceDrift(entry, 1)).toBe('DATA_HOLD');
     });
   });
 });

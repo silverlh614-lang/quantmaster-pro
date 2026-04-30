@@ -1,6 +1,7 @@
 // @responsibility liveGate 재검증 결과를 RevalidationStep 시그니처로 분기하는 PoC 단계
 
 import { evaluateEntryRevalidation, getMinGateScore } from '../../entryEngine.js';
+import { isExecutionRelaxationEnabled } from '../failureClassifier.js';
 import type { RevalidationStepResult } from './types.js';
 
 export interface EntryRevalidationStepInput {
@@ -54,6 +55,13 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
   const boost = input.sectorBoost ?? 0;
   const boostedGateScore = typeof rawGateScore === 'number' ? rawGateScore + boost : rawGateScore;
 
+  // ADR-0116 wiring: ADR-0115 의 EXECUTION_RELAXATION_ENABLED ENV 를 이곳에서 적용.
+  // ENV ON 시 minGate -1 (Gate3 7→6) — 사용자 18단계 §12 "임시 완화".
+  // 최소 5 보장으로 과도한 완화 차단. default OFF — 회귀 위험 격리.
+  const minGateBase = getMinGateScore(input.regime);
+  const relaxedDelta = isExecutionRelaxationEnabled() ? 1 : 0;
+  const minGate = Math.max(minGateBase - relaxedDelta, 5);
+
   const revalidation = evaluateEntryRevalidation({
     currentPrice: input.currentPrice,
     entryPrice: input.entryPrice,
@@ -63,7 +71,7 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
     prevClose: input.reCheckQuote?.prevClose,
     volume: input.reCheckQuote?.volume,
     avgVolume: input.reCheckQuote?.avgVolume,
-    minGateScore: getMinGateScore(input.regime),
+    minGateScore: minGate,
     marketElapsedMinutes: input.marketElapsedMinutes,
   });
 
@@ -74,10 +82,22 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
   const boostNote = boost !== 0 && input.sectorBoostReason
     ? ` [${input.sectorBoostReason}]`
     : '';
+
+  // ADR-0117: evaluateEntryRevalidation 이 dataQuality + waitReason 반환 시 propagate.
+  // 호출자(perSymbolEvaluation) 가 WAIT / DATA_HOLD 분기로 처리.
+  const stageLogValue = revalidation.waitReason === 'DATA_HOLD'
+    ? 'DATA_HOLD'
+    : `FAIL(${reasons.join(',')})`;
+  const logMessage = revalidation.waitReason === 'DATA_HOLD'
+    ? `[AutoTrade] ${input.stockName} → WAIT / DATA_HOLD / ${reasons.join(', ')}`
+    : `[AutoTrade] ${input.stockName} 진입 직전 재검증 탈락: ${reasons.join(', ')}${boostNote}`;
+
   return {
     proceed: false,
-    logMessage: `[AutoTrade] ${input.stockName} 진입 직전 재검증 탈락: ${reasons.join(', ')}${boostNote}`,
+    logMessage,
     failReasons: reasons,
-    stageLogValue: `FAIL(${reasons.join(',')})`,
+    stageLogValue,
+    dataQuality: revalidation.dataQuality,
+    waitReason: revalidation.waitReason,
   };
 }

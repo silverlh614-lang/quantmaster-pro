@@ -18,7 +18,8 @@ import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.
 import { callGemini } from '../clients/geminiClient.js';
 import { buildConditionBoostHint } from '../learning/conditionBoostHints.js';
 import { GATE_SCORE_THRESHOLD_BY_REGIME, getEffectiveGateThreshold } from './gateConfig.js';
-import { safePctChange } from '../utils/safePctChange.js';
+import { safePctChange, safePctChangeStrict } from '../utils/safePctChange.js';
+import type { DataQualityInfo, WaitReason } from '../types/dataQuality.js';
 
 const ENTRY_MIN_GATE_SCORE = 5;
 
@@ -262,7 +263,20 @@ interface EntryRevalidationInput {
   marketElapsedMinutes?: number;
 }
 
-export function evaluateEntryRevalidation(input: EntryRevalidationInput): { ok: boolean; reasons: string[] } {
+/**
+ * ADR-0117: evaluateEntryRevalidation 반환 타입 — dataQuality + waitReason 옵셔널.
+ * sanity 위반 시 호출자(perSymbolEvaluation) 가 DATA_HOLD WAIT 분기 의무.
+ */
+export interface EntryRevalidationResult {
+  ok: boolean;
+  reasons: string[];
+  /** ADR-0117: sanity 위반 시 격리 메타 (status='OK' 가 아닐 때만 호출자 trade 차단). */
+  dataQuality?: DataQualityInfo;
+  /** ADR-0117: WAIT 분기 사유 (DATA_HOLD 등). */
+  waitReason?: WaitReason;
+}
+
+export function evaluateEntryRevalidation(input: EntryRevalidationInput): EntryRevalidationResult {
   const reasons: string[] = [];
 
   const minGate = input.minGateScore ?? ENTRY_MIN_GATE_SCORE;
@@ -270,10 +284,36 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): { ok: 
     reasons.push(`Gate 재검증 미달 (${(input.quoteGateScore ?? 0).toFixed(1)}/${minGate})`);
   }
 
-  // ADR-0059: stale 가드는 헬퍼가 통합. null 시 해당 조건 평가 스킵 (보수적).
-  const extensionPct = safePctChange(input.currentPrice, input.entryPrice, {
-    label: 'entryEngine.extensionPct',
+  // ADR-0117: extensionPct 산출은 *거래 차단 게이트* — sanity 위반 시 즉시 DATA_HOLD 반환.
+  // entryPrice 가 분할 전 값으로 박제되어 currentPrice 와 거대 괴리 시 silent
+  // degradation 차단. dropFromOpenPct / openGapPct 는 본 PR scope 밖 (silent + 30% 자체 가드).
+  const extensionStrict = safePctChangeStrict({
+    current: input.currentPrice,
+    base: input.entryPrice,
+    source: 'KIS_REALTIME',  // entryPrice 는 진입 시점 시그널 가격 (KIS 또는 Yahoo intraday)
+    context: 'entryEngine.extensionPct',
+    maxAbsPct: 90,
   });
+
+  if (!extensionStrict.ok) {
+    console.warn(`[EntryEngine] DATA_HOLD: ${extensionStrict.reason}`);
+    return {
+      ok: false,
+      reasons: [`DATA_HOLD_${extensionStrict.status}`],
+      dataQuality: {
+        status: extensionStrict.status,
+        reason: extensionStrict.reason,
+        current: extensionStrict.current,
+        base: extensionStrict.base,
+        source: extensionStrict.source,
+        context: extensionStrict.context,
+        updatedAt: new Date().toISOString(),
+      },
+      waitReason: 'DATA_HOLD',
+    };
+  }
+
+  const extensionPct = extensionStrict.pct;
   if (extensionPct !== null && input.currentPrice >= input.entryPrice && extensionPct > ENTRY_MAX_BREAKOUT_EXTENSION_PCT) {
     reasons.push(`돌파 이탈 과열 (+${extensionPct.toFixed(1)}%)`);
   }

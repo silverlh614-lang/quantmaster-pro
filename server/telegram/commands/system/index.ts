@@ -17,6 +17,7 @@ import './refreshSectorMap.cmd.js';
 import './refreshWatchlistSectors.cmd.js';
 import './regime.cmd.js';
 import './rejected.cmd.js';
+import './scanBlockers.cmd.js';
 import './scanIndices.cmd.js';
 import './scheduler.cmd.js';
 import './shadowWalkForward.cmd.js';

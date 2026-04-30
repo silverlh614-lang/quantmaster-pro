@@ -21,6 +21,13 @@ export interface RevalidationStepFail {
   failReasons: string[];
   /** stageLog.gate 에 기록될 값 (예: "FAIL(reason1,reason2)"). */
   stageLogValue: string;
+  /**
+   * ADR-0117: sanity 위반 격리 메타. status='OK' 가 아닐 때 호출자가
+   * shouldBlockTradingByDataQuality 통과 후 DATA_HOLD WAIT 분기 의무.
+   */
+  dataQuality?: import('../../../types/dataQuality.js').DataQualityInfo;
+  /** ADR-0117: WAIT 분기 사유 (DATA_HOLD 등). */
+  waitReason?: import('../../../types/dataQuality.js').WaitReason;
 }
 
 export interface RevalidationStepPass {

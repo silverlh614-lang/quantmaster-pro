@@ -21,6 +21,7 @@
 import { loadWatchlist, saveWatchlist, type WatchlistEntry, type WatchlistSection } from '../persistence/watchlistRepo.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import { detectCorporateAction } from '../trading/corporateActionDetector.js';
+import { safePctChangeStrict } from '../utils/safePctChange.js';
 
 // ── 섹션별 상수 ───────────────────────────────────────────────────────────────
 
@@ -90,28 +91,35 @@ export const ENTRY_PRICE_DRIFT_PCT = 10;
  *
  *  - AUTO 항목: 10% 이상 올랐으면 'REMOVE' (발굴 시점 대비 너무 멀리 상승)
  *  - MANUAL 항목: 'UPDATE' (사용자 확신 종목 → entryPrice를 현재가로 트레일 업)
- *  - drift > 150% (ADR-0113): 'CORPORATE_ACTION' — 분할/병합/권리락 의심,
- *    호출자가 entryPrice 를 currentPrice 로 재설정 + corporateActionAdjusted 마커.
+ *  - drift > 150% (ADR-0113): 'CORPORATE_ACTION' — 분할/병합/권리락 의심.
+ *    ADR-0115: default 동작 universe 제외 + entryPrice 보존.
+ *  - **drift sanity 위반 (ADR-0117): 'DATA_HOLD' — drift 업데이트 금지 + 격리.
+ *    호출자가 isDataQuarantined=true + dataQuality 영속 의무.**
  *  - 그 외 또는 미도달: 'KEEP'
  */
 export function applyEntryPriceDrift(
   entry: WatchlistEntry,
   currentPrice: number,
-): 'REMOVE' | 'UPDATE' | 'KEEP' | 'CORPORATE_ACTION' {
+): 'REMOVE' | 'UPDATE' | 'KEEP' | 'CORPORATE_ACTION' | 'DATA_HOLD' {
   if (currentPrice <= 0 || entry.entryPrice <= 0) return 'KEEP';
   // ADR-0113: drift > 150% 시 corporateActionDetector 매칭 → CORPORATE_ACTION 반환.
   // 1차 로그 098460 고영 +221% / 336260 두산테스나 +207% 사례 영구 차단.
-  // entry.entryPrice 가 분할 전 값으로 박제되어 sanity 위반 무한 반복하던 결함 해소.
   const absDriftRaw = Math.abs(((currentPrice - entry.entryPrice) / entry.entryPrice) * 100);
   if (Number.isFinite(absDriftRaw) && absDriftRaw > 150) {
     const action = detectCorporateAction({ driftPct: absDriftRaw });
     if (action.detected) return 'CORPORATE_ACTION';
   }
-  // ADR-0059: stale entryPrice (예: 거래정지/액면분할 후 등록값과 거대 괴리) 시
-  // sanity 위반 → null 반환 → KEEP 으로 안전 fallback (잘못된 REMOVE/UPDATE 차단).
-  const driftPct = safePctChange(currentPrice, entry.entryPrice, {
-    label: `watchlistManager.drift:${entry.code}`,
+  // ADR-0117: drift 산출은 *거래 차단 게이트* — sanity 위반 시 DATA_HOLD 반환.
+  // 호출자(perSymbolEvaluation) 가 entry.dataQuality 영속 + isDataQuarantined 마커 부여.
+  const driftStrict = safePctChangeStrict({
+    current: currentPrice,
+    base: entry.entryPrice,
+    source: 'KIS_REALTIME',
+    context: `watchlistManager.drift:${entry.code}`,
+    maxAbsPct: 90,
   });
+  if (!driftStrict.ok) return 'DATA_HOLD';
+  const driftPct = driftStrict.pct;
   if (driftPct === null || driftPct < ENTRY_PRICE_DRIFT_PCT) return 'KEEP';
   return entry.addedBy === 'MANUAL' ? 'UPDATE' : 'REMOVE';
 }
