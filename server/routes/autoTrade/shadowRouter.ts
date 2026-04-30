@@ -60,6 +60,14 @@ router.post('/auto-trade/shadow-trades', (req: any, res: any) => {
     // ADR-0060: 매수 시점 결정적 섹터 라벨 SSOT — buildBuyTrade 와 정합.
     sector: getSectorByCode(trade.stockCode) || undefined,
     watchlistSource: 'PRE_MARKET',
+    // ADR-0006 (PR-2/3): 클라이언트 trade 동기화 시 entryConditionScores propagate.
+    // 빈 객체 또는 미전달 시 미영속 — emitFullCloseAttributionForExit 가 null 반환
+    // (학습 오염 차단). buildBuyTrade (자동매매) 와 정합.
+    ...(trade.entryConditionScores
+      && typeof trade.entryConditionScores === 'object'
+      && Object.keys(trade.entryConditionScores).length > 0
+      ? { entryConditionScores: trade.entryConditionScores as Record<number, number> }
+      : {}),
   };
   shadows.push(serverTrade);
   saveShadowTrades(shadows);

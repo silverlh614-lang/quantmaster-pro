@@ -8,7 +8,12 @@
 
 import { describe, it, expect } from 'vitest';
 import type { ServerShadowTrade, PositionFill } from '../../../persistence/shadowTradeRepo.js';
-import { resolveReturnPctForDisplay } from './attributionTrace.cmd.js';
+import type { ServerAttributionRecord } from '../../../persistence/attributionRepo.js';
+import {
+  resolveReturnPctForDisplay,
+  buildTraceEntry,
+  formatAttributionTraceMessage,
+} from './attributionTrace.cmd.js';
 
 function makeTrade(overrides: Partial<ServerShadowTrade> = {}): ServerShadowTrade {
   return {
@@ -92,5 +97,88 @@ describe('/at resolveReturnPctForDisplay (결함 A 1차 수리)', () => {
     });
     // 가중평균: (10 × 30 + -2 × 70) / 100 = (300 - 140) / 100 = 1.6
     expect(resolveReturnPctForDisplay(t)).toBeCloseTo(1.6, 2);
+  });
+});
+
+describe('/at conditionScoresAtEntry baseline 진단 (PR 2 — 결함 B 진단 도구)', () => {
+  it('buildTraceEntry — entryConditionScores 27/27 영속 trade', () => {
+    const scores: Record<number, number> = {};
+    for (let i = 1; i <= 27; i++) scores[i] = 5;
+    const t = makeTrade({ entryConditionScores: scores });
+    const entry = buildTraceEntry(t, []);
+    expect(entry.conditionScoresCount).toBe(27);
+  });
+
+  it('buildTraceEntry — entryConditionScores 부재 → 0 (PR-1 이전 trade)', () => {
+    const t = makeTrade({ entryConditionScores: undefined });
+    const entry = buildTraceEntry(t, []);
+    expect(entry.conditionScoresCount).toBe(0);
+  });
+
+  it('buildTraceEntry — entryConditionScores 빈 객체 → 0', () => {
+    const t = makeTrade({ entryConditionScores: {} });
+    const entry = buildTraceEntry(t, []);
+    expect(entry.conditionScoresCount).toBe(0);
+  });
+
+  it('formatAttributionTraceMessage — 표시 라인 "conditionScoresAtEntry: N/27"', () => {
+    const t = makeTrade({ entryConditionScores: undefined, exitTime: '2026-04-30T05:00:00.000Z' });
+    const entries = [buildTraceEntry(t, [])];
+    const msg = formatAttributionTraceMessage(entries);
+    expect(msg).toContain('conditionScoresAtEntry: 0/27');
+  });
+
+  it('formatAttributionTraceMessage — 27/27 영속 시', () => {
+    const scores: Record<number, number> = {};
+    for (let i = 1; i <= 27; i++) scores[i] = 5;
+    const t = makeTrade({ entryConditionScores: scores, exitTime: '2026-05-01T05:00:00.000Z' });
+    const entries = [buildTraceEntry(t, [])];
+    const msg = formatAttributionTraceMessage(entries);
+    expect(msg).toContain('conditionScoresAtEntry: 27/27');
+  });
+
+  it('formatAttributionTraceMessage 진단 분기 — baseline 0/N → "PR-1 이전 trade. wiring 정상"', () => {
+    const t = makeTrade({ entryConditionScores: undefined, exitTime: '2026-04-30T05:00:00.000Z' });
+    const entries = [buildTraceEntry(t, [])];
+    const msg = formatAttributionTraceMessage(entries);
+    expect(msg).toContain('baseline 영속 (entryConditionScores): 0/1');
+    expect(msg).toContain('PR-1 (#467) 이전 trade. wiring 정상');
+  });
+
+  it('formatAttributionTraceMessage 진단 분기 — baseline 전체 영속 + attribution 부재 → "exitEngine/ocoCloseLoop"', () => {
+    const scores: Record<number, number> = {};
+    for (let i = 1; i <= 27; i++) scores[i] = 5;
+    const t = makeTrade({ entryConditionScores: scores, exitTime: '2026-05-01T05:00:00.000Z' });
+    const entries = [buildTraceEntry(t, [])];
+    const msg = formatAttributionTraceMessage(entries);
+    expect(msg).toContain('baseline 영속 (entryConditionScores): 1/1');
+    expect(msg).toContain('emitFullCloseAttribution 호출 누락');
+  });
+
+  it('formatAttributionTraceMessage — attribution 영속 시 권장 조사 위치 미렌더', () => {
+    const scores: Record<number, number> = {};
+    for (let i = 1; i <= 27; i++) scores[i] = 5;
+    const t = makeTrade({
+      entryConditionScores: scores,
+      exitTime: '2026-05-01T05:00:00.000Z',
+      id: 'TT2',
+    });
+    const rec: ServerAttributionRecord = {
+      schemaVersion: 2,
+      tradeId: 'TT2',
+      stockCode: t.stockCode,
+      stockName: t.stockName ?? '',
+      closedAt: '2026-05-01T05:00:00.000Z',
+      returnPct: -3.45,
+      isWin: false,
+      conditionScores: scores,
+      holdingDays: 1,
+      attributionType: 'FULL_CLOSE',
+      qtyRatio: 1.0,
+    };
+    const entries = [buildTraceEntry(t, [rec])];
+    const msg = formatAttributionTraceMessage(entries);
+    expect(msg).not.toContain('권장 조사 위치');
+    expect(msg).toContain('🟢 모든 closed trade 에 attribution 존재');
   });
 });

@@ -23,6 +23,8 @@ export interface AttributionTraceEntry {
   hasRecord: boolean;
   fillIds: string[];
   earliestClosedAt?: string;
+  /** baseline 영속 카운트 — entryConditionScores 의 conditionId 수 (0 또는 27). */
+  conditionScoresCount: number;
 }
 
 export function parseTraceArg(args: string[] | undefined): number {
@@ -50,12 +52,18 @@ export function buildTraceEntry(
   const matched = records.filter((r) => r.tradeId === trade.id);
   const fillIds = matched.map((r) => r.fillId).filter((s): s is string => !!s);
   const closedAts = matched.map((r) => r.closedAt).filter(Boolean).sort();
+  // baseline 영속 카운트 — buildEntryConditionScores 가 27조건 모두 NEUTRAL=5 default 채움.
+  // 따라서 wiring 정상이면 27, 미캡처 (PR-1 이전 trade) 이면 0.
+  const conditionScoresCount = trade.entryConditionScores
+    ? Object.keys(trade.entryConditionScores).length
+    : 0;
   return {
     trade,
     records: matched,
     hasRecord: matched.length > 0,
     fillIds,
     earliestClosedAt: closedAts[0],
+    conditionScoresCount,
   };
 }
 
@@ -144,6 +152,9 @@ export function formatAttributionTraceMessage(
     );
     lines.push(`     fillId 수: ${entry.fillIds.length}`);
     lines.push(`     생성 시각: ${formatTs(entry.earliestClosedAt)}`);
+    lines.push(
+      `     conditionScoresAtEntry: ${entry.conditionScoresCount}/27`,
+    );
     lines.push('');
     lines.push('   진단:');
     if (entry.hasRecord) {
@@ -158,19 +169,33 @@ export function formatAttributionTraceMessage(
     idx++;
   }
 
+  // baseline 영속 카운트 — wiring 결함 vs PR-1 이전 trade 구분 진단.
+  const baselinePresent = entries.filter((e) => e.conditionScoresCount > 0).length;
+
   lines.push('━━━━━━━━━━━━━━━━');
   lines.push('');
   lines.push('🎯 종합:');
   lines.push(
     `   직전 ${entries.length}건 중 attribution 생성: ${present}/${entries.length}`,
   );
+  lines.push(
+    `   baseline 영속 (entryConditionScores): ${baselinePresent}/${entries.length}`,
+  );
   lines.push('');
   lines.push(`   ${buildVerdict(present, entries.length)}`);
   if (present < entries.length) {
     lines.push('');
     lines.push('권장 조사 위치:');
-    lines.push('   server/trading/exitEngine 또는 ocoCloseLoop 에서');
-    lines.push('   trade close 시 saveAttribution 또는 동등 호출 누락 확인');
+    if (baselinePresent === 0) {
+      lines.push('   📌 baseline 0/N — PR-1 (#467) 이전 trade. wiring 정상.');
+      lines.push('   다음 신규 buy 발생 시 attribution 자동 영속 시작.');
+    } else if (baselinePresent < entries.length) {
+      lines.push('   📌 baseline 일부 부재 — 신규 trade 부터 wiring 적용 중.');
+      lines.push('   baseline 27/27 trade 의 attribution 부재 시 exitEngine 점검.');
+    } else {
+      lines.push('   📌 baseline 전체 영속 — wiring 정상, attribution 결함은');
+      lines.push('   exitEngine/ocoCloseLoop 의 emitFullCloseAttribution 호출 누락.');
+    }
   }
   if (fileMtime) {
     lines.push('');
