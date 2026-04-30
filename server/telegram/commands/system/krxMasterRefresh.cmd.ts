@@ -37,7 +37,7 @@ export function formatKrxMasterRefreshMessage(input: {
 }): string {
   const min = input.acceptableMin ?? MIN_ACCEPTABLE_FINAL_COUNT;
   const accepted = input.finalCount >= min && input.finalSource !== 'NONE';
-  const live = input.finalSource === 'KRX_CSV' || input.finalSource === 'NAVER_LIST';
+  const live = input.finalSource === 'KRX_OPENAPI' || input.finalSource === 'KRX_CSV' || input.finalSource === 'NAVER_LIST';
   const lines: string[] = [];
 
   // 헤더

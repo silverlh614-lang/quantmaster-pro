@@ -96,20 +96,20 @@ describe('multiSourceStockMaster (ADR-0013)', () => {
   it('attempts 배열 — skip 한 tier 는 attempts 에 포함되지 않음', async () => {
     // Shadow 에 데이터 적재 (Tier 3 진입을 위해)
     (await import('../persistence/shadowMasterDb.js')).updateShadowMaster('KRX_CSV', generateValidEntries(100));
-    const result = await refreshMultiSourceMaster({ skipKrx: true, skipNaver: true });
+    const result = await refreshMultiSourceMaster({ skipOpenApi: true, skipKrx: true, skipNaver: true });
     expect(result.attempts).toHaveLength(1);
     expect(result.attempts[0].source).toBe('SHADOW_DB');
     expect(result.attempts[0].ok).toBe(true);
   });
 
-  it('getMasterDiagnostic — 4 source 의 score + activeCount 노출', async () => {
+  it('getMasterDiagnostic — 5 source 의 score + activeCount 노출 (Tier 0 KRX_OPENAPI 포함)', async () => {
     // 미리 active master 적재
     setStockMaster([{ code: '005930', name: '삼성전자', market: 'KOSPI' }]);
     const diag = getMasterDiagnostic();
     expect(diag.activeCount).toBe(1);
-    expect(diag.sources).toHaveLength(4);
+    expect(diag.sources).toHaveLength(5);
     const sources = diag.sources.map((s) => s.source).sort();
-    expect(sources).toEqual(['KRX_CSV', 'NAVER_LIST', 'SHADOW_DB', 'STATIC_SEED']);
+    expect(sources).toEqual(['KRX_CSV', 'KRX_OPENAPI', 'NAVER_LIST', 'SHADOW_DB', 'STATIC_SEED']);
     expect(diag.overallHealth).toBeGreaterThanOrEqual(0);
     expect(diag.overallHealth).toBeLessThanOrEqual(100);
   });

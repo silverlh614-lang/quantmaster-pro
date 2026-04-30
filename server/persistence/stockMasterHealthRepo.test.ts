@@ -17,7 +17,7 @@ describe('stockMasterHealthRepo (ADR-0013)', () => {
 
   it('초기 상태 — 모든 source 가 50점 (UNKNOWN)', () => {
     const snapshot = getHealthSnapshot();
-    expect(snapshot).toHaveLength(4);
+    expect(snapshot).toHaveLength(5); // KRX_OPENAPI(Tier 0) + KRX_CSV + NAVER + SHADOW + SEED
     for (const s of snapshot) {
       expect(s.score).toBe(50);
       expect(s.state.successCount).toBe(0);
@@ -114,14 +114,15 @@ describe('stockMasterHealthRepo (ADR-0013)', () => {
     expect(score).toBeLessThanOrEqual(100);
   });
 
-  it('computeOverallHealth — KRX 50% / Naver 30% / Shadow 15% / Seed 5% 가중 평균', () => {
+  it('computeOverallHealth — KRX_OPENAPI 45% / KRX_CSV 25% / Naver 15% / Shadow 10% / Seed 5% 가중 평균', () => {
     const now = 1700000000000;
-    // KRX 100점, Naver 100점, Shadow 50점, Seed 50점 → 50*1 + 30*1 + 15*0.5 + 5*0.5 = 90
+    // KRX_OPENAPI 100, KRX_CSV 100, Naver 100, Shadow 50(UNKNOWN), Seed 50(UNKNOWN)
+    // → 45*1 + 25*1 + 15*1 + 10*0.5 + 5*0.5 = 92.5 → round 93
+    recordRun('KRX_OPENAPI', { ok: true, count: 2700 }, now);
     recordRun('KRX_CSV', { ok: true, count: 2700 }, now);
     recordRun('NAVER_LIST', { ok: true, count: 200 }, now);
-    // Shadow/Seed 는 미실행 → 50점 (UNKNOWN)
     const overall = computeOverallHealth(now);
-    expect(overall).toBe(90);
+    expect(overall).toBe(93);
   });
 
   it('영속화 — recordRun 후 메모리 리셋해도 디스크에서 복원', () => {

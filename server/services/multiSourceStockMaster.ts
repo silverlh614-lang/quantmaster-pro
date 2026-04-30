@@ -1,9 +1,9 @@
 /**
- * @responsibility 종목 마스터 4-tier fallback orchestrator + 검증 + 경보 (ADR-0013)
+ * @responsibility 종목 마스터 5-tier fallback orchestrator + 검증 + 경보 (ADR-0013 + 인증 OpenAPI Tier 0)
  *
  * AI 추천 universe 발굴이 본 모듈을 통해서만 종목 마스터를 갱신하도록 보장한다.
- * Tier 1 KRX → Tier 2 Naver → Tier 3 Shadow → Tier 4 Seed. 각 시도 결과는
- * stockMasterHealthRepo 에 기록되어 운영자가 source 별 신뢰도를 추적할 수 있다.
+ * Tier 0 KRX OpenAPI(인증) → Tier 1 KRX CSV(비인증) → Tier 2 Naver → Tier 3 Shadow → Tier 4 Seed.
+ * 각 시도 결과는 stockMasterHealthRepo 에 기록되어 운영자가 source 별 신뢰도를 추적한다.
  */
 
 import {
@@ -13,6 +13,7 @@ import {
   validateMasterPayload,
   type StockMasterEntry,
 } from '../persistence/krxStockMasterRepo.js';
+import { fetchMasterFromOpenApi } from '../clients/krxOpenApiMasterFetcher.js';
 import {
   recordRun,
   getSourceHealth,
@@ -66,6 +67,19 @@ interface TierResult {
   ok: boolean;
   entries: StockMasterEntry[];
   reason?: string;
+}
+
+async function tryKrxOpenApi(): Promise<TierResult> {
+  const r = await fetchMasterFromOpenApi();
+  if (!r.ok) {
+    const detail = r.detail ? `_${r.detail.slice(0, 40)}` : '';
+    return { ok: false, entries: [], reason: `${r.reason ?? 'UNKNOWN'}${detail}` };
+  }
+  const v = validateMasterPayload(r.entries, KRX_MIN_VALID_ENTRIES);
+  if (!v.valid) {
+    return { ok: false, entries: [], reason: `VALIDATION_${v.reason}_${v.detail ?? ''}` };
+  }
+  return { ok: true, entries: r.entries };
 }
 
 async function tryKrx(): Promise<TierResult> {
@@ -122,18 +136,30 @@ function trySeed(): TierResult {
  * 3. Naver 실패 시 Shadow 적용 → active 만 갱신 (shadow 자체는 갱신 X).
  * 4. Shadow 부재 시 Seed 적용 → active 만 갱신.
  *
- * @param options.skipNaver Naver tier 건너뜀 (테스트·진단용)
- * @param options.skipKrx   KRX tier 건너뜀 (테스트·진단용)
+ * @param options.skipNaver  Naver tier 건너뜀 (테스트·진단용)
+ * @param options.skipKrx    KRX CSV(비인증) tier 건너뜀 (테스트·진단용)
+ * @param options.skipOpenApi KRX OpenAPI(인증) tier 건너뜀 (테스트·진단용)
  */
 export async function refreshMultiSourceMaster(
-  options: { skipKrx?: boolean; skipNaver?: boolean } = {},
+  options: { skipKrx?: boolean; skipNaver?: boolean; skipOpenApi?: boolean } = {},
 ): Promise<MultiSourceRefreshResult> {
   const attempts: MultiSourceRefreshResult['attempts'] = [];
   let final: { source: StockMasterSource; entries: StockMasterEntry[] } | null = null;
   let usedFallback = false;
 
-  // Tier 1 — KRX
-  if (!options.skipKrx) {
+  // Tier 0 — KRX OpenAPI (인증). 4/27 LOGOUT 결함 영구 회피용 1순위.
+  // 주말에도 시도 (OpenAPI 는 fileDn 과 달리 주말 영향 없음).
+  if (!options.skipOpenApi) {
+    const r = await tryKrxOpenApi();
+    attempts.push({ source: 'KRX_OPENAPI', ok: r.ok, count: r.entries.length, reason: r.reason });
+    recordRun('KRX_OPENAPI', { ok: r.ok, count: r.entries.length, reason: r.reason });
+    if (r.ok) {
+      final = { source: 'KRX_OPENAPI', entries: r.entries };
+    }
+  }
+
+  // Tier 1 — KRX CSV (비인증, fallback). 4/27 이후 LOGOUT 응답 가능 — Tier 0 OpenAPI 우선.
+  if (!final && !options.skipKrx) {
     if (isKstWeekend()) {
       attempts.push({ source: 'KRX_CSV', ok: false, count: 0, reason: 'WEEKEND' });
       // 주말은 일반 폴백 흐름이 아닌 disk-cache 보존 동작 — health 에는 silent (debug only).
@@ -205,8 +231,8 @@ export async function refreshMultiSourceMaster(
   // active master 갱신
   setStockMaster(final.entries);
 
-  // Tier 1/2 만 shadow 갱신 (Tier 3 은 자기 자신, Tier 4 는 seed → 오염 방지)
-  if (final.source === 'KRX_CSV' || final.source === 'NAVER_LIST') {
+  // Tier 0/1/2 만 shadow 갱신 (Tier 3 은 자기 자신, Tier 4 는 seed → 오염 방지)
+  if (final.source === 'KRX_OPENAPI' || final.source === 'KRX_CSV' || final.source === 'NAVER_LIST') {
     updateShadowMaster(final.source, final.entries);
   }
 

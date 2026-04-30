@@ -9,7 +9,7 @@
 import fs from 'fs';
 import { STOCK_MASTER_HEALTH_FILE, ensureDataDir } from './paths.js';
 
-export type StockMasterSource = 'KRX_CSV' | 'NAVER_LIST' | 'SHADOW_DB' | 'STATIC_SEED';
+export type StockMasterSource = 'KRX_OPENAPI' | 'KRX_CSV' | 'NAVER_LIST' | 'SHADOW_DB' | 'STATIC_SEED';
 
 export interface SourceRunRecord {
   ts: number;
@@ -38,7 +38,7 @@ export interface HealthStore {
 const RECENT_RUNS_MAX = 20;
 const STALE_SUCCESS_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
-const SOURCES: StockMasterSource[] = ['KRX_CSV', 'NAVER_LIST', 'SHADOW_DB', 'STATIC_SEED'];
+const SOURCES: StockMasterSource[] = ['KRX_OPENAPI', 'KRX_CSV', 'NAVER_LIST', 'SHADOW_DB', 'STATIC_SEED'];
 
 function emptyState(source: StockMasterSource): SourceHealthState {
   return {
@@ -57,6 +57,7 @@ function emptyState(source: StockMasterSource): SourceHealthState {
 function emptyStore(): HealthStore {
   return {
     byCases: {
+      KRX_OPENAPI: emptyState('KRX_OPENAPI'),
       KRX_CSV: emptyState('KRX_CSV'),
       NAVER_LIST: emptyState('NAVER_LIST'),
       SHADOW_DB: emptyState('SHADOW_DB'),
@@ -198,13 +199,14 @@ export function getSourceHealth(source: StockMasterSource, now: number = Date.no
 
 /**
  * 전체 health 의 가중 평균 — 운영자가 한 줄 요약을 보고 싶을 때.
- * KRX 가 primary 이므로 가중치 50%, Naver 30%, Shadow 15%, Seed 5%.
+ * KRX_OPENAPI 가 Tier 0 primary 이므로 가중치 45%, KRX_CSV 25%, Naver 15%, Shadow 10%, Seed 5%.
  */
 export function computeOverallHealth(now: number = Date.now()): number {
   const weights: Record<StockMasterSource, number> = {
-    KRX_CSV: 0.5,
-    NAVER_LIST: 0.3,
-    SHADOW_DB: 0.15,
+    KRX_OPENAPI: 0.45,
+    KRX_CSV: 0.25,
+    NAVER_LIST: 0.15,
+    SHADOW_DB: 0.10,
     STATIC_SEED: 0.05,
   };
   const store = getStore();
