@@ -555,6 +555,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               profileType: profile, watchlistSource: 'PRE_BREAKOUT_FOLLOWTHROUGH',
               profitTranches: limitTranches.map(t => ({ price: followEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false })),
               trailPct: Math.max(0.05, Math.min(0.14, (trailTarget?.trailPct ?? 0.10) + adaptiveFollowProfitTargets.trailPctAdjust)), entryATR14: followATR14,
+              // ADR-0006 PR-19 baseline (PR-1) — entryConditionScores 영속.
+              entryConditionScores: buildEntryConditionScores(['PRE_BREAKOUT_FOLLOWTHROUGH']),
             });
 
             ctx.shadows.push(followTrade);
@@ -719,6 +721,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                   profileType: profilePb, watchlistSource: 'PRE_BREAKOUT',
                   profitTranches: limitTranchesPb.map(t => ({ price: pbEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false })),
                   trailPct: Math.max(0.05, Math.min(0.14, (trailTargetPb?.trailPct ?? 0.10) + adaptivePreBreakoutTargets.trailPctAdjust)), entryATR14: pbATR14,
+                  // ADR-0006 PR-19 baseline (PR-1) — entryConditionScores 영속.
+                  entryConditionScores: buildEntryConditionScores(['PRE_BREAKOUT']),
                 });
 
                 ctx.shadows.push(pbTrade);
@@ -1240,6 +1244,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         })),
         trailPct: Math.max(0.05, Math.min(0.14, (trailTarget?.trailPct ?? 0.10) + adaptiveProfitTargets.trailPctAdjust)), entryATR14,
         entryKellySnapshot,
+        // ADR-0006 PR-19 baseline (PR-1) — 메인 buyList 의 진짜 27조건 점수 baseline.
+        entryConditionScores: buildEntryConditionScores(stock.conditionKeys ?? []),
       });
 
       // ADR-0128 §Wiring 1A: 메인 buyList 진입 후보 incremental 검증 (BUY_CANDIDATE role).
@@ -1497,6 +1503,8 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             profileType: 'C', watchlistSource: 'INTRADAY',
             profitTranches: [], // Intraday는 분할익절 없음
             trailPct: 0.05,    // 장중: 5% 트레일링
+            // ADR-0006 PR-19 baseline (PR-1) — entryConditionScores 영속.
+            entryConditionScores: buildEntryConditionScores(['INTRADAY_STRONG']),
           });
 
           // BUG-10 fix: 실시간 Gate 평가로 Intraday 종목의 gateScore 추정

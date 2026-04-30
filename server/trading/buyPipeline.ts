@@ -181,6 +181,12 @@ export interface BuildBuyTradeParams {
   entryATR14?: number;
   /** Idea 1 — 진입 시점 Kelly 의사결정 스냅샷. 누락 시 snapshot 필드는 undefined 로 기록. */
   entryKellySnapshot?: EntryKellySnapshot;
+  /**
+   * ADR-0006 PR-19 baseline: 진입 시점 27조건 점수 스냅샷.
+   * 호출자 (perSymbolEvaluation) 가 buildEntryConditionScores(stock.conditionKeys) 결과 전달.
+   * 미전달 시 trade.entryConditionScores 미영속 — 학습 baseline 부재로 attribution 호출 null 반환.
+   */
+  entryConditionScores?: Record<number, number>;
 }
 
 /**
@@ -227,6 +233,10 @@ export function buildBuyTrade(p: BuildBuyTradeParams): ServerShadowTrade {
     dynamicStopPrice:      p.stopLossPlan.dynamicStopLoss,
     ...(latestIncident ? { incidentFlag: latestIncident } : {}),
     ...(p.entryKellySnapshot ? { entryKellySnapshot: p.entryKellySnapshot } : {}),
+    // ADR-0006 PR-19 baseline 영속 — 미전달 시 미영속 (학습 오염 차단).
+    ...(p.entryConditionScores && Object.keys(p.entryConditionScores).length > 0
+      ? { entryConditionScores: p.entryConditionScores }
+      : {}),
   };
 }
 
