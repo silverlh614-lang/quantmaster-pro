@@ -375,6 +375,15 @@ async function startServer() {
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
 
+    // PR-Diag-5: JobMetrics 영속 복원 진단 로그 — Railway 로그에서 영속화 작동 여부 즉시 확인.
+    // scheduleCatalog 모듈 로드 시점에 이미 복원됐고, 본 라인은 부팅 끝 시점에서 누적 수치 가시화.
+    import('./scheduler/scheduleCatalog.js')
+      .then(({ getAllJobMetrics }) => {
+        const restored = getAllJobMetrics().length;
+        console.log(`[Boot] JobMetrics 복원: ${restored}개 cron`);
+      })
+      .catch(() => { /* noop — 진단 로그 실패가 부팅 차단 안 함 */ });
+
     // 부팅 완료 시점 기록 — 기억 보완 회로 (startupMs).
     markBootReady(bootInfo.current.bootId, Date.now() - bootStartNs);
 
