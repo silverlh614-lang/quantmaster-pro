@@ -132,7 +132,7 @@ const ERROR_MESSAGE_LIMIT = 120;
 
 import { loadJobMetrics, saveJobMetrics, __resetJobMetricsFileForTests } from '../persistence/jobMetricsRepo.js';
 
-const PERSISTENCE_DEBOUNCE_MS = 1000; // orchestrator_tick 매 분 호출 부하 흡수
+const PERSISTENCE_DEBOUNCE_MS = 30000; // 30초 throttle — orchestrator_tick 매 분 호출 부하 흡수, 디스크 쓰기 부하 방어
 let _persistTimer: NodeJS.Timeout | null = null;
 let _persistenceLoaded = false;
 
@@ -147,10 +147,25 @@ function loadPersistedMetricsOnce(): void {
       restored++;
     }
     if (restored > 0) {
-      console.log(`[Boot] JobMetrics 복원: ${restored}개 (디스크 → 메모리)`);
+      console.log(`[Boot] JobMetrics 복원: ${restored}개 cron (디스크 → 메모리)`);
     }
   } catch (e) {
     console.warn('[Boot] JobMetrics 복원 실패 — 빈 메모리로 시작:', e instanceof Error ? e.message : e);
+  }
+}
+
+/** debounce 우회 즉시 디스크 저장 (fail 발생 시 디버깅 우선) */
+function flushMetricsImmediate(): void {
+  if (_persistTimer) {
+    clearTimeout(_persistTimer);
+    _persistTimer = null;
+  }
+  try {
+    const snapshot: Record<string, JobMetrics> = {};
+    for (const [k, v] of _metricsByJob) snapshot[k] = { ...v };
+    saveJobMetrics(snapshot);
+  } catch (e) {
+    console.warn('[scheduleCatalog] JobMetrics 즉시 영속화 실패:', e instanceof Error ? e.message : e);
   }
 }
 
@@ -205,8 +220,13 @@ export function recordScheduleRun(rec: ScheduleRunRecord): void {
       m.lastSkipReason = rec.note.slice(0, ERROR_MESSAGE_LIMIT);
     }
   }
-  // PR-Diag-5: 갱신 후 영속화 (debounce 1s — orchestrator_tick 부하 흡수)
-  schedulePersistMetrics();
+  // PR-Diag-5: 갱신 후 영속화 — fail 은 디버깅 우선으로 즉시 저장,
+  // success/skipped 는 30초 throttle 로 디스크 부하 방어 (orchestrator_tick 매 분 호출 흡수).
+  if (rec.status === 'failure') {
+    flushMetricsImmediate();
+  } else {
+    schedulePersistMetrics();
+  }
 }
 
 export function getScheduleHistory(limit = 20): ScheduleRunRecord[] {
