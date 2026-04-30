@@ -21,6 +21,9 @@ import { registerLearningJobs } from './learningJobs.js';
 import { registerTradeFlowJobs } from './tradeFlowJobs.js';
 import { registerMaintenanceJobs } from './maintenanceJobs.js';
 import { registerCommandUsageJobs } from './commandUsageJobs.js';
+import { registerHealthLoop } from './healthLoop.js';
+import { registerPostHolidayKickstart } from './postHolidayKickstart.js';
+import { registerCredentialExpiryWatchdog } from '../health/credentialExpiryWatchdog.js';
 import { getRegisteredJobNames } from './scheduleGuard.js';
 import { SCHEDULE_CATALOG, getAllJobMetrics } from './scheduleCatalog.js';
 
@@ -31,6 +34,10 @@ export function startScheduler(): void {
   registerScreenerJobs();
   registerShadowResolverJob();
   registerHealthCheckJobs();
+  // ADR-0131 — 자가점검 헬스 루프 + 인증키 만료 + 휴장 후 첫 거래일 가속 점검
+  registerHealthLoop();
+  registerCredentialExpiryWatchdog();
+  registerPostHolidayKickstart();
   registerKisStreamJobs();
   registerLearningJobs();
   registerTradeFlowJobs();

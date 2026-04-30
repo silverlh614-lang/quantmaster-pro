@@ -66,6 +66,14 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '1일 07:00', label: 'Walk-Forward Validation (월 1회)', group: 'learning', jobName: 'walk_forward_validation', silentWhen: 'IS↔OOS 승률 격차 ≤ 15%p 이면 무음' },
   { timeKst: '12/1 09:00', label: 'KRX 차년도 휴장일 감사 (연 1회)', group: 'maintenance', jobName: 'krx_holiday_audit', silentWhen: '차년도 휴장일 ≥ 8개 등록되어 있으면 무음 — 미달 시 CRITICAL' },
 
+  // ── 자가점검 헬스 루프 (ADR-0131) ─────────────────────────────────────────
+  { timeKst: '상시',  label: '자가점검 헬스 루프 Tier 1 (5분)', group: 'maintenance', jobName: 'health_loop_tier1', silentWhen: '임계 변화 없으면 무음 (KIS 토큰 6h bucket / master 50% drop / Tier 4 / autoTrade 토글)' },
+  { timeKst: '상시',  label: '자가점검 헬스 루프 Tier 2 (1시간)', group: 'maintenance', jobName: 'health_loop_tier2', silentWhen: '임계 변화 없으면 무음 (시드 — 향후 Yahoo/KRX/Gemini 임계 확장)' },
+  { timeKst: '09:00', label: '자가점검 헬스 루프 Tier 3 (일일 종합)', group: 'maintenance', jobName: 'health_loop_tier3', silentWhen: '임계 변화 없으면 무음 (시드 — 향후 일일 종합 보고)' },
+  { timeKst: '09:30', label: '인증키 만료 watchdog', group: 'maintenance', jobName: 'credential_expiry_watchdog', silentWhen: 'D-90/30/7/1 임계 미도달 시 무음 (KRX_API_KEY 2027-04-19 등)' },
+  { timeKst: '07:30', label: 'Pre-Market Kickstart (휴장 후 첫날)', group: 'maintenance', jobName: 'post_holiday_kickstart', silentWhen: '일반 거래일은 무음 — 휴장 직후 첫 거래일에만 발송' },
+  { timeKst: '08:30', label: 'Pre-Market Kickstart 추적 점검', group: 'maintenance', jobName: 'post_holiday_followup', silentWhen: '일반 거래일은 무음 — 1차 fail 해소 여부 비교' },
+
   // ── 상시 ──────────────────────────────────────────────────────────────────
   { timeKst: '상시',  label: '오케스트레이터 1분 tick', group: 'trading', jobName: 'orchestrator_tick' },
   // umbrella 라벨이라 jobName 은 각 그룹의 primary cron 을 가리킨다.
