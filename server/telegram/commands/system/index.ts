@@ -15,6 +15,7 @@ import './dataVerificationReview.cmd.js';
 import './gateAudit.cmd.js';
 import './ghostForceRun.cmd.js';
 import './health.cmd.js';
+import './krxCsvProbe.cmd.js';
 import './krxMasterStatus.cmd.js';
 import './krxMasterRefresh.cmd.js';
 import './learningHistory.cmd.js';
