@@ -273,7 +273,15 @@ export function summarizeTodaysRealizationsForLearning(inputs: ReflectionInputs)
       const sumPnl = fills.reduce((s, f) => s + (f.pnl ?? 0), 0);
       const totalQty = fills.reduce((s, f) => s + f.qty, 0);
       const pct = totalQty > 0 ? fills.reduce((s, f) => s + (f.pnlPct ?? 0) * f.qty, 0) / totalQty : 0;
-      const kind = t.status === 'HIT_TARGET' ? '전량익절' : '전량손절';
+      // ADR-0129: status 단독 분기는 BE 분류 누락 — fills 가중평균 pct 기반 분기 우선.
+      // ADR-0112 임계 (-0.5~+0.5 BE) 준수. 사용자 4/30 보고: '전량손절 +3.35%' 모순 해소.
+      // BE_CLASSIFICATION_DISABLED=true ENV 시 legacy 동작 (status 단독 분기) 복원.
+      const beDisabled = process.env.BE_CLASSIFICATION_DISABLED === 'true';
+      const kind = beDisabled
+        ? (t.status === 'HIT_TARGET' ? '전량익절' : '전량손절')
+        : (pct >= 1.0 ? '전량익절'
+          : pct >= -0.5 && pct <= 1.0 ? '전량본절'
+          : '전량손절');
       labels.push(`${t.stockName} ${kind} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}% (${Math.round(sumPnl).toLocaleString()}원)`);
     }
   }
