@@ -14,6 +14,7 @@
  */
 
 import { getRecommendations, type RecommendationRecord } from './recommendationTracker.js';
+import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { sendSuggestAlert } from './suggestNotifier.js';
 import {
   SUGGEST_REGIME_COVERAGE_RATIO,
@@ -123,22 +124,61 @@ export function formatRegimeCoverage(report?: RegimeCoverageReport): string {
 }
 
 /**
+ * ADR-0124 (사용자 4/30 보고): regimeCoverage suggest false positive 차단.
+ * 기존 결함 — `history = getRecommendations()` 만 read 라 *실제 진입* (SHADOW/LIVE
+ * 거래) 은 카운트 0. 사용자 보고: "실제 진입이 발생했는데도 메시지 출력".
+ *
+ * 수정: 30일 dry 카운트에 `loadShadowTrades()` 합산 — recommendationTracker 진입 +
+ * shadowTradeRepo 진입 양쪽 모두 0 일 때만 dry. SHADOW/LIVE 진입이 발생한 레짐은
+ * suggest 발송 자동 차단.
+ *
+ * ENV `LEARNING_REGIME_COVERAGE_SUGGEST_DISABLED=true` 비상 우회 — 진단 시 사용.
+ */
+export function isRegimeCoverageSuggestDisabled(): boolean {
+  return process.env.LEARNING_REGIME_COVERAGE_SUGGEST_DISABLED === 'true';
+}
+
+/**
  * Suggest 판정 — (목표 대비 current/target < 50%) 이고 최근 N일간 해당 레짐 진입이 0건이면
  * 가장 부족한 레짐 1건만 suggest 한다. 0건 판정은 signalTime 기반 (KST 날짜가 아니라 ms 기준).
+ *
+ * ADR-0124: recommendationTracker + shadowTradeRepo 양쪽 SSOT 합산 카운트 — 실제 진입 발생 시 false positive 차단.
  */
 export async function evaluateRegimeCoverageSuggestion(now: Date = new Date()): Promise<boolean> {
   try {
+    if (isRegimeCoverageSuggestDisabled()) return false;
+
     const report = regimeCoverage();
     const cutoffMs = now.getTime() - SUGGEST_REGIME_DRY_DAYS * 24 * 3600 * 1000;
     const history = getRecommendations();
 
+    // ADR-0124: shadow trade 영속도 read — 실제 진입한 SHADOW/LIVE 거래 카운트 합산.
+    // shadowTradeRepo 의 entryRegime 은 buyPipeline.buildBuyTrade 가 ctx.regime 으로 영속.
+    let shadowTrades: Array<{ entryRegime?: string; signalTime: string }> = [];
+    try {
+      shadowTrades = loadShadowTrades();
+    } catch (e) {
+      console.warn(
+        '[regimeBalancedSampler] loadShadowTrades 실패 — recommendation 만 사용:',
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+
     const dry = report.entries
       .filter(e => e.target > 0 && e.current / e.target < SUGGEST_REGIME_COVERAGE_RATIO)
       .map(e => {
-        const recentEntries = history.filter(r =>
+        const recentRecommendations = history.filter(r =>
           r.entryRegime === e.regime && new Date(r.signalTime).getTime() >= cutoffMs,
         );
-        return { entry: e, recentCount: recentEntries.length };
+        const recentShadowEntries = shadowTrades.filter(s =>
+          s.entryRegime === e.regime && new Date(s.signalTime).getTime() >= cutoffMs,
+        );
+        return {
+          entry: e,
+          recentCount: recentRecommendations.length + recentShadowEntries.length,
+          recommendationCount: recentRecommendations.length,
+          shadowCount: recentShadowEntries.length,
+        };
       })
       .filter(x => x.recentCount === 0)
       .sort((a, b) => b.entry.deficit - a.entry.deficit);
@@ -155,7 +195,7 @@ export async function evaluateRegimeCoverageSuggestion(now: Date = new Date()): 
       title: `레짐 ${top.entry.regime} 샘플 부족 & ${SUGGEST_REGIME_DRY_DAYS}일 dry`,
       rationale:
         `현재 ${top.entry.current}/${top.entry.target} (${pct.toFixed(0)}%) · ` +
-        `최근 ${SUGGEST_REGIME_DRY_DAYS}일 진입 0건`,
+        `최근 ${SUGGEST_REGIME_DRY_DAYS}일 진입 0건 (추천 ${top.recommendationCount}건 + 실거래 ${top.shadowCount}건)`,
       currentValue: `${top.entry.regime} 커버리지 ${pct.toFixed(0)}%`,
       suggestedValue: 'Walk-Forward replay 보충 또는 PROBING 슬롯 확장',
       threshold:
