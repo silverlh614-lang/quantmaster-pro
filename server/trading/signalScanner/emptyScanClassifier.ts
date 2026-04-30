@@ -43,7 +43,7 @@ export const EMPTY_SCAN_CLASSIFIER_THRESHOLDS = {
  * 2. candidates === 0 → PIPELINE_ERROR (스캔 후보 0)
  * 3. macro 차단 → MARKET_WEAK (R6_DEFENSE / Bear / MHS<30 / VIX 게이팅 / FOMC DAY)
  * 4. order 차단 → ORDER_BLOCKED (emergencyStop / !autoTrade / sellOnly / watchlistEmpty / sizingBlocked)
- * 5. dataHold + corpAction ≥ 30% → DATA_INVALID
+ * 5. dataHold + corpAction ≥ 30% OR sectorEnergyQuality=FAILED → DATA_INVALID (ADR-0127 가중)
  * 6. gate1Pass>0 && gate2Pass=0 → NO_LEADERSHIP (ADR-0120 PR-B 활성)
  * 7. gate2Pass>0 && gate3Pass=0 → NO_TIMING (ADR-0120 PR-B 활성)
  * 8. gate3Pass>0 && lastTriggerPass=0 → NO_TIMING (ADR-0120 PR-B 활성)
@@ -92,13 +92,18 @@ export function classifyEmptyScanReason(summary: ScanSummary | null): EmptyScanR
     return 'ORDER_BLOCKED';
   }
 
-  // 5. DATA_INVALID — dataHold + corpAction 30%+
+  // 5. DATA_INVALID — dataHold + corpAction 30%+ OR sectorEnergyQuality=FAILED (ADR-0127 PR-3 가중)
   if (wd && summary.candidates > 0) {
     const dataInvalidCount = wd.dataHold + wd.corpAction;
     const dataInvalidRatio = dataInvalidCount / summary.candidates;
     if (dataInvalidRatio >= EMPTY_SCAN_CLASSIFIER_THRESHOLDS.DATA_INVALID_RATIO) {
       return 'DATA_INVALID';
     }
+  }
+  // ADR-0127: sectorEnergy 데이터 품질 FAILED 시 DATA_INVALID 우선 분류.
+  // FAILED = KRX 응답 비대칭 또는 fetch 실패 — 섹터 에너지 입력 자체 폐기 상태.
+  if (summary.sectorEnergyQuality === 'FAILED') {
+    return 'DATA_INVALID';
   }
 
   // 6~8. ADR-0120 (PR-B): GatePassDistribution 기반 정밀 분류
