@@ -43,6 +43,8 @@ export const IPS_ALERT_FILE          = path.join(DATA_DIR, 'ips-alert-state.json
 export const KELLY_DAMPENER_FILE     = path.join(DATA_DIR, 'kelly-dampener-state.json');
 /** F2W(Failure-to-Weight) 감사 로그 — 매 실행마다의 가중치 조정 이력을 append. */
 export const F2W_AUDIT_FILE          = path.join(DATA_DIR, 'f2w-audit-log.json');
+/** JobMetrics 영속화 — scheduleCatalog 의 runCount/lastRun 등을 디스크에 저장해 Railway 재배포 시 reset 방지 (PR-Diag-5 결함 수리). */
+export const JOB_METRICS_FILE        = path.join(DATA_DIR, 'job-metrics.json');
 export const REAL_TRADE_FLAG_FILE    = path.join(DATA_DIR, 'real-trade-ready.flag');
 export const DART_FAST_SEEN_FILE     = path.join(DATA_DIR, 'dart-fast-seen.json');
 export const ORCHESTRATOR_STATE_FILE = path.join(DATA_DIR, 'orchestrator-state.json');

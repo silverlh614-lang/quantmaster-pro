@@ -124,6 +124,55 @@ export interface JobMetrics {
 const _metricsByJob = new Map<string, JobMetrics>();
 const ERROR_MESSAGE_LIMIT = 120;
 
+// ── PR-Diag-5: JobMetrics 영속화 (Railway 재배포 시 reset 방지) ─────────────
+// 메모리 _metricsByJob 만으로는 프로세스 재시작 시 runCount=0 으로 초기화되어
+// /cron_introspect 가 모든 cron 을 CONTRADICTION_METRICS_LIES 로 보고하던 결함.
+// 본 모듈 로드 시 1회 디스크 복원 + recordScheduleRun() 마다 debounce save.
+// 순환 참조 부재 (scheduleCatalog → jobMetricsRepo → paths) — top-level static import 안전.
+
+import { loadJobMetrics, saveJobMetrics, __resetJobMetricsFileForTests } from '../persistence/jobMetricsRepo.js';
+
+const PERSISTENCE_DEBOUNCE_MS = 1000; // orchestrator_tick 매 분 호출 부하 흡수
+let _persistTimer: NodeJS.Timeout | null = null;
+let _persistenceLoaded = false;
+
+function loadPersistedMetricsOnce(): void {
+  if (_persistenceLoaded) return;
+  _persistenceLoaded = true;
+  try {
+    const persisted = loadJobMetrics();
+    let restored = 0;
+    for (const [jobName, entry] of Object.entries(persisted)) {
+      _metricsByJob.set(jobName, { ...entry });
+      restored++;
+    }
+    if (restored > 0) {
+      console.log(`[Boot] JobMetrics 복원: ${restored}개 (디스크 → 메모리)`);
+    }
+  } catch (e) {
+    console.warn('[Boot] JobMetrics 복원 실패 — 빈 메모리로 시작:', e instanceof Error ? e.message : e);
+  }
+}
+
+function schedulePersistMetrics(): void {
+  if (_persistTimer) return; // debounce window 안 — skip
+  _persistTimer = setTimeout(() => {
+    _persistTimer = null;
+    try {
+      const snapshot: Record<string, JobMetrics> = {};
+      for (const [k, v] of _metricsByJob) snapshot[k] = { ...v };
+      saveJobMetrics(snapshot);
+    } catch (e) {
+      console.warn('[scheduleCatalog] JobMetrics 영속화 실패:', e instanceof Error ? e.message : e);
+    }
+  }, PERSISTENCE_DEBOUNCE_MS);
+  // 프로세스 종료 차단 안 함
+  if (typeof _persistTimer.unref === 'function') _persistTimer.unref();
+}
+
+// 모듈 로드 시 1회 자동 복원
+loadPersistedMetricsOnce();
+
 function ensureMetrics(jobName: string): JobMetrics {
   let m = _metricsByJob.get(jobName);
   if (!m) {
@@ -156,6 +205,8 @@ export function recordScheduleRun(rec: ScheduleRunRecord): void {
       m.lastSkipReason = rec.note.slice(0, ERROR_MESSAGE_LIMIT);
     }
   }
+  // PR-Diag-5: 갱신 후 영속화 (debounce 1s — orchestrator_tick 부하 흡수)
+  schedulePersistMetrics();
 }
 
 export function getScheduleHistory(limit = 20): ScheduleRunRecord[] {
@@ -184,11 +235,36 @@ export function getAllJobMetrics(): JobMetrics[] {
     });
 }
 
-/** 테스트 전용 — 메트릭/이력 초기화. */
+/** 테스트 전용 — 메트릭/이력 초기화 + 영속 파일 삭제 + debounce 타이머 청소 */
 export function __resetScheduleMetricsForTests(): void {
   _history.length = 0;
   _lastByJob.clear();
   _metricsByJob.clear();
+  if (_persistTimer) {
+    clearTimeout(_persistTimer);
+    _persistTimer = null;
+  }
+  _persistenceLoaded = false; // 다음 recordScheduleRun 또는 재로드 시 디스크 복원 재시도
+  try {
+    __resetJobMetricsFileForTests();
+  } catch {
+    /* noop — paths 미설정 환경 */
+  }
+}
+
+/** 테스트 전용 — 디스크에서 현재 영속 상태 즉시 강제 저장 (debounce 우회) */
+export function __flushJobMetricsForTests(): void {
+  if (_persistTimer) {
+    clearTimeout(_persistTimer);
+    _persistTimer = null;
+  }
+  try {
+    const snapshot: Record<string, JobMetrics> = {};
+    for (const [k, v] of _metricsByJob) snapshot[k] = { ...v };
+    saveJobMetrics(snapshot);
+  } catch {
+    /* noop */
+  }
 }
 
 /**
