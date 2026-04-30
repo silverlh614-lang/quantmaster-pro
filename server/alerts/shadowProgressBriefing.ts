@@ -44,16 +44,49 @@ function addDaysKst(baseIso: string, days: number): string {
   return kstDateStr(base);
 }
 
+/**
+ * ADR-0129: trade 단위 BE 분리 SSOT.
+ * `exitOutcome === 'BE'` 인 trade 는 LOSS 로 카운트 안 함 — 사용자 4/30 보고
+ * "WIN 2/LOSS 8" 중 일부는 PROFIT_PROTECTION (BE) 청산. ADR-0123 학습 격리 정합.
+ *
+ * BE_CLASSIFICATION_DISABLED=true ENV 시 자동 fallback (legacy 동작).
+ */
+function classifyTradeOutcome(shadows: ServerShadowTrade[]): {
+  beCount: number;
+  winCount: number;
+  lossCount: number;
+} {
+  const beDisabled = process.env.BE_CLASSIFICATION_DISABLED === 'true';
+  const isBe = (s: ServerShadowTrade): boolean =>
+    !beDisabled
+    && (s.status === 'HIT_TARGET' || s.status === 'HIT_STOP')
+    && (s as { exitOutcome?: string }).exitOutcome === 'BE';
+  return {
+    beCount:   shadows.filter(isBe).length,
+    winCount:  shadows.filter(s => s.status === 'HIT_TARGET' && !isBe(s)).length,
+    lossCount: shadows.filter(s => s.status === 'HIT_STOP' && !isBe(s)).length,
+  };
+}
+
+export { classifyTradeOutcome as _classifyTradeOutcomeForTests };
+
 // ── 공개 API: 진행 현황 ──────────────────────────────────────────────────────
 
 export interface ShadowProgress {
   dayElapsed: number;      // 첫 샘플 생성 후 경과일 (0 = 당일)
   totalDays:  number;      // SHADOW_MONITORING_DAYS
-  /** 전량 청산된 trade 단위 WIN 수 (graduation 샘플 기준) */
+  /** 전량 청산된 trade 단위 WIN 수 (graduation 샘플 기준, ADR-0129: BE 제외) */
   winCount:   number;
-  /** 전량 청산된 trade 단위 LOSS 수 */
+  /** 전량 청산된 trade 단위 LOSS 수 (ADR-0129: BE 제외) */
   lossCount:  number;
+  /**
+   * ADR-0129: 전량 청산된 trade 단위 BE 수.
+   * `(s.status === 'HIT_TARGET' || 'HIT_STOP') && s.exitOutcome === 'BE'`
+   * 옵셔널 — 기존 호출자 무영향. BE_CLASSIFICATION_DISABLED=true 시 0 (legacy).
+   */
+  beCount?:   number;
   activeCount: number;
+  /** WIN + LOSS 만 (BE 제외) — 승률 분모 정합 (ADR-0129). */
   totalClosed: number;
   totalSamples: number;
   targetSamples: number;   // SHADOW_SAMPLE_TARGET
@@ -78,10 +111,11 @@ export function computeShadowProgress(now: Date = new Date()): ShadowProgress {
   const todayKst = kstDateStr(now);
   const shadows = loadShadowTrades();
 
-  const winCount   = shadows.filter(s => s.status === 'HIT_TARGET').length;
-  const lossCount  = shadows.filter(s => s.status === 'HIT_STOP').length;
+  // ADR-0129: BE 분리 SSOT — trade 단위 BE 카운터.
+  const { beCount, winCount, lossCount } = classifyTradeOutcome(shadows);
   const activeCount = shadows.filter(s => isOpenShadowStatus(s.status)).length;
   const totalSamples = shadows.length;
+  // 승률 분모는 WIN + LOSS 만 (BE 제외).
   const totalClosed  = winCount + lossCount;
   const winRatePct   = totalClosed > 0 ? (winCount / totalClosed) * 100 : 0;
 
@@ -117,7 +151,7 @@ export function computeShadowProgress(now: Date = new Date()): ShadowProgress {
   return {
     dayElapsed,
     totalDays: SHADOW_MONITORING_DAYS,
-    winCount, lossCount, activeCount,
+    winCount, lossCount, beCount, activeCount,
     totalClosed, totalSamples,
     targetSamples: SHADOW_SAMPLE_TARGET,
     winRatePct,
@@ -142,12 +176,16 @@ export function formatShadowProgress(p: ShadowProgress): string {
       (p.partialOnlyCount > 0 ? ` · 부분매도만 ${p.partialOnlyCount}건` : '') +
       ` · 가중 P&L ${p.fillWeightedReturnPct >= 0 ? '+' : ''}${p.fillWeightedReturnPct.toFixed(2)}%`
     : '';
+  // ADR-0129: trade 단위 BE 라인 — beCount > 0 시에만 노출 (BE_CLASSIFICATION_DISABLED 자연 호환).
+  const beTradeCount = p.beCount ?? 0;
+  const beTradeLine = beTradeCount > 0 ? `⚪ BE: ${beTradeCount}건` : '';
   return [
     `📊 <b>[SHADOW 진행률 Day ${p.dayElapsed}/${p.totalDays}]</b>`,
     `신규 신호: ${p.newToday}건 | 전체 샘플: ${p.totalSamples}/${p.targetSamples}`,
     `━━━━━━━━━━━━━━━━━━`,
     `✅ WIN: ${p.winCount}건${closedPct}`,
     `❌ LOSS: ${p.lossCount}건`,
+    beTradeLine,
     `⏳ ACTIVE: ${p.activeCount}건`,
     realizedLine,
     `━━━━━━━━━━━━━━━━━━`,
@@ -249,8 +287,8 @@ export function _computeProgressFromShadows(
 ): ShadowProgress {
   // computeShadowProgress 의 핵심 로직을 그대로 재사용하되 loadShadowTrades 우회.
   const todayKst = kstDateStr(now);
-  const winCount   = shadows.filter(s => s.status === 'HIT_TARGET').length;
-  const lossCount  = shadows.filter(s => s.status === 'HIT_STOP').length;
+  // ADR-0129: BE 분리 SSOT — trade 단위 BE 카운터.
+  const { beCount, winCount, lossCount } = classifyTradeOutcome(shadows);
   const activeCount = shadows.filter(s => isOpenShadowStatus(s.status)).length;
   const totalSamples = shadows.length;
   const totalClosed  = winCount + lossCount;
@@ -276,7 +314,7 @@ export function _computeProgressFromShadows(
   const fillAgg = aggregateFillStats(shadows);
   return {
     dayElapsed, totalDays: SHADOW_MONITORING_DAYS,
-    winCount, lossCount, activeCount, totalClosed, totalSamples,
+    winCount, lossCount, beCount, activeCount, totalClosed, totalSamples,
     targetSamples: SHADOW_SAMPLE_TARGET, winRatePct,
     newToday, etaDate, etaDaysRemain,
     fillWins: fillAgg.winFills,

@@ -10,6 +10,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { loadShadowTrades, getWeightedPnlPct } from '../persistence/shadowTradeRepo.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { computeNetPnL } from '../trading/executionCosts.js';
+import { computeMaxDrawdown } from './mddCalculator.js';
 
 /** v2 이후 fills 데이터가 있는 거래가 이 수에 도달해야 가중치 재조정이 허용된다. */
 export const CALIBRATION_MIN_TRADES = 30;
@@ -252,12 +253,10 @@ export async function evaluateRecommendations(): Promise<void> {
   const calibrationSet = cleanTrades.length >= CALIBRATION_MIN_TRADES ? cleanTrades : closedShadows;
   const shadowReturns  = calibrationSet.map(s => getWeightedPnlPct(s));
 
-  let peak = 0, mdd = 0, cumReturn = 0;
-  for (const r of shadowReturns) {
-    cumReturn += r;
-    peak = Math.max(peak, cumReturn);
-    mdd = Math.min(mdd, cumReturn - peak);
-  }
+  // ADR-0129: MDD SSOT — compound 수학 + NEGATIVE 부호.
+  // 기존 인라인 additive 계산은 부호는 음수였지만 수학이 단순 가산이라
+  // walkForwardFramework (compound) 와 drift. 이제 단일 SSOT 로 통합.
+  const mdd = computeMaxDrawdown(shadowReturns, 'compound');
 
   const totalWin  = shadowReturns.filter((r) => r > 0).reduce((a, b) => a + b, 0);
   const totalLoss = Math.abs(shadowReturns.filter((r) => r <= 0).reduce((a, b) => a + b, 0));

@@ -17,6 +17,11 @@
 
 import { getRecommendations, type RecommendationRecord } from './recommendationTracker.js';
 import {
+  computeMaxDrawdown as computeMaxDrawdownSsot,
+  computeMaxDrawdownLegacyPositive,
+  isMddLegacySignDisabled,
+} from './mddCalculator.js';
+import {
   WALK_FORWARD_SCHEMA_VERSION,
   appendWalkForwardWindow,
   loadWalkForwardResults,
@@ -93,22 +98,24 @@ function pickClosedInRange(
 
 // ── 통계 산출 ──────────────────────────────────────────────────────────────────
 
+/**
+ * ADR-0129: MDD SSOT 통합 — `mddCalculator` 위임.
+ *
+ * 부호 정합 정책:
+ * - default: 기존 walkForwardFramework 동작 (POSITIVE 반환) 유지 — 영속 schema +
+ *   호출자 (formatWalkForwardMessage / WindowMetrics.maxDrawdown) 후방호환.
+ * - ENV `MDD_SSOT_LEGACY_SIGN_DISABLED=true` 명시 시 NEGATIVE 반환 (mddCalculator
+ *   기본 SSOT 와 정합 — 텔레그램 메시지 부호 일관성 강제).
+ *
+ * 수학은 단일 SSOT (compound) 라 양수/음수 변환만 다름.
+ */
 export function computeMaxDrawdown(returnsPct: number[]): number {
-  if (returnsPct.length === 0) return 0;
-  // 누적 자본 시계열 (시작 1.0)
-  let equity = 1;
-  let peak = 1;
-  let maxDd = 0;
-  for (const r of returnsPct) {
-    const safe = Number.isFinite(r) ? r : 0;
-    equity *= 1 + safe / 100;
-    if (equity > peak) peak = equity;
-    if (peak > 0) {
-      const dd = (peak - equity) / peak;
-      if (dd > maxDd) maxDd = dd;
-    }
+  if (isMddLegacySignDisabled()) {
+    // ENV 명시 시: 음수 반환 (mddCalculator default)
+    return computeMaxDrawdownSsot(returnsPct, 'compound');
   }
-  return maxDd * 100;
+  // Default (후방호환): 양수 반환 (walkForwardFramework 기존 동작)
+  return computeMaxDrawdownLegacyPositive(returnsPct);
 }
 
 export function computeSharpe(returnsPct: number[]): number {

@@ -143,7 +143,9 @@ import {
   setLastBuySignalAt,
   createScanCounters,
   persistScanResults,
+  buildMacroGateState,
 } from './signalScanner/scanDiagnostics.js';
+import { getEmergencyStop } from '../state.js';
 
 // PR-42 M3: getAccountScaleKellyMultiplier 의 inline 정의를 제거하고 preflight 의
 // export 단일 SSOT 만 사용한다. 이전엔 byte 동일한 본체가 양쪽에 병존해 drift 위험.
@@ -636,6 +638,24 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // pendingTraces 파일 기록 + ScanSummary 갱신 + 3회 침묵 시 텔레그램 알림.
   // ADR-0127 (PR-3): sectorEnergy dataQuality carry-over — macroState 에서 read 후
   // /scan_blockers 에 노출 + emptyScanReason DATA_INVALID 가중.
+  // ADR-0129 (PR-Z19): macroGateState propagate — /scan_blockers 거시 게이트 섹션
+  // 활성화. 운영자가 매수 차단 1차 원인 (emergencyStop / regime / FOMC / VIX) 즉시 인지.
+  const macroGateStateForDiagnostics = buildMacroGateState({
+    emergencyStop: getEmergencyStop(),
+    autoTradeEnabled: process.env.AUTO_TRADE_ENABLED === 'true',
+    regime: regime ?? 'UNKNOWN',
+    regimeKelly: regimeConfig.kellyMultiplier,
+    fomcPhase: fomcProximity.phase,
+    fomcKelly: fomcProximity.kellyMultiplier,
+    finalKelly: kellyMultiplier,
+    vixGatingActive: vixGating.noNewEntry,
+    // R6_DEFENSE 는 line 311 에서 이미 early return — 여기 도달 시 항상 false.
+    // ADR-0129 후속 PR 에서 R6 분기 자체에서도 persistScanResults 호출 활성화 검토.
+    bearDefenseMode: false,
+    mhsBelow30: (macroState?.mhs ?? 100) < 30,
+    watchlistEmpty: watchlist.length === 0,
+    sellOnlyMode: options?.sellOnly === true,
+  });
   await persistScanResults(_counters, {
     sellOnly: options?.sellOnly,
     buyListLength: buyList.length,
@@ -643,6 +663,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     swingListLength: swingList.length,
     catalystListLength: catalystList.length,
     momentumListLength: momentumList.length,
+    macroGateState: macroGateStateForDiagnostics,
     sectorEnergyQuality: macroState?.sectorEnergyDataQuality,
     validSectorCount: macroState?.sectorEnergyValidSectorCount,
     sectorEnergyReasons: macroState?.sectorEnergyReasons,
