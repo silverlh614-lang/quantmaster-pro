@@ -10,6 +10,7 @@ import './coherenceAudit.cmd.js';
 import './conditionAttributionShadow.cmd.js';
 import './conditionLifecycle.cmd.js';
 import './cronStatus.cmd.js';
+import './cronIntrospect.cmd.js';
 import './dataVerificationReview.cmd.js';
 import './health.cmd.js';
 import './learningHistory.cmd.js';
