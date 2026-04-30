@@ -212,6 +212,11 @@ export interface TodaysRealizationSummary {
   partialOnlyCount: number;
   winFills: number;
   lossFills: number;
+  /**
+   * ADR-0123: 본절(BE) fill 수 — pnlPct 가 -0.5%~+0.5% 범위 (ADR-0112 classifyFillOutcome).
+   * 학습/리포트에서 LOSS 로 잘못 카운트되어 데이터 오염 발생하던 결함 차단.
+   */
+  beFills?: number;
   totalRealizedKrw: number;
   weightedReturnPct: number;
   /** 종목 단위 라벨 (사람이 읽는 요약). 예: "현대제철 전량손절 -7.42%, 포스코인터 부분익절 +5.00%" */
@@ -222,13 +227,32 @@ export function summarizeTodaysRealizationsForLearning(inputs: ReflectionInputs)
   const fullClosed = inputs.closedTrades;
   const partial    = inputs.partialRealizationsToday;
 
-  // fill 수 기반 승/패 카운트
+  // fill 수 기반 승/패 카운트 + ADR-0123 BE 격리
   let winFills  = 0;
   let lossFills = 0;
+  let beFills   = 0;
   let totalRealizedKrw = 0;
   let weightedNum = 0;
   let weightedDen = 0;
   const labels: string[] = [];
+
+  // ADR-0123 (사용자 4/30 보고): 본절은 손절/이익으로 분류 안 함, BE 격리 학습.
+  // ADR-0112 classifyFillOutcome 비율 기반 분류 (WIN ≥ +1%, BE -0.5%~+0.5%, LOSS ≤ -0.5%).
+  // pnlPct 부재 시에만 절대값 fallback (후방호환).
+  const classifyFill = (f: { pnl?: number; pnlPct?: number }): 'WIN' | 'LOSS' | 'BE' => {
+    const pct = f.pnlPct;
+    if (typeof pct === 'number' && Number.isFinite(pct)) {
+      if (pct >= 1.0) return 'WIN';
+      if (pct >= -0.5 && pct <= 0.5) return 'BE';
+      if (pct <= -0.5) return 'LOSS';
+      // +0.5 < pct < +1.0 → BE 보수적 fallback (ADR-0112 정합)
+      return 'BE';
+    }
+    // 절대값 fallback (pnlPct 부재 시 — 회귀 호환)
+    if ((f.pnl ?? 0) > 0) return 'WIN';
+    if ((f.pnl ?? 0) < 0) return 'LOSS';
+    return 'BE';
+  };
 
   for (const t of fullClosed) {
     // 전량 청산 trade 는 오늘(KST) SELL fill 들 중 해당 날짜만 집계.
@@ -237,8 +261,10 @@ export function summarizeTodaysRealizationsForLearning(inputs: ReflectionInputs)
       && isoInKstDate(f.confirmedAt ?? f.timestamp, inputs.date),
     );
     for (const f of fills) {
-      if ((f.pnl ?? 0) > 0) winFills++;
-      else if ((f.pnl ?? 0) < 0) lossFills++;
+      const outcome = classifyFill(f);
+      if (outcome === 'WIN') winFills++;
+      else if (outcome === 'LOSS') lossFills++;
+      else beFills++;
       totalRealizedKrw += f.pnl ?? 0;
       weightedNum += (f.pnlPct ?? 0) * f.qty;
       weightedDen += f.qty;
@@ -254,8 +280,11 @@ export function summarizeTodaysRealizationsForLearning(inputs: ReflectionInputs)
 
   for (const p of partial) {
     for (const f of p.todaysSells) {
-      if ((f.pnl ?? 0) > 0) winFills++;
-      else if ((f.pnl ?? 0) < 0) lossFills++;
+      // ADR-0123: BE 격리 (pnlPct 비율 기반).
+      const outcome = classifyFill(f);
+      if (outcome === 'WIN') winFills++;
+      else if (outcome === 'LOSS') lossFills++;
+      else beFills++;
       totalRealizedKrw += f.pnl ?? 0;
       weightedNum += (f.pnlPct ?? 0) * f.qty;
       weightedDen += f.qty;
@@ -271,6 +300,7 @@ export function summarizeTodaysRealizationsForLearning(inputs: ReflectionInputs)
     partialOnlyCount: partial.length,
     winFills,
     lossFills,
+    beFills, // ADR-0123: BE fill 수 영속 (학습/리포트가 LOSS 와 분리 표시 가능).
     totalRealizedKrw,
     weightedReturnPct: weightedDen > 0 ? weightedNum / weightedDen : 0,
     labels,

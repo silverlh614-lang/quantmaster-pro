@@ -116,21 +116,39 @@ function scoreLossAversion(i: BiasHeatmapInputs): BiasScore {
   // PR-17: fill SSOT 기반으로 "오늘 손실 fill" 과 "오늘 이익 fill" 을 동시에 센다.
   // 부분 익절이 함께 있는 날엔 단순 "손실만 N건" 이 아니라 순 손실 비율로 판정해
   // 과적 편향 경보를 차단한다.
+  // ADR-0123 (사용자 4/30 보고): 본절(BE) 은 손절/이익으로 분류 안 함 — 학습 데이터
+  // 오염 차단. ADR-0112 classifyFillOutcome 비율 기반 (WIN ≥ +1%, BE -0.5%~+0.5%, LOSS ≤ -0.5%).
+  const classifyFill = (f: { pnl?: number; pnlPct?: number }): 'WIN' | 'LOSS' | 'BE' => {
+    const pct = f.pnlPct;
+    if (typeof pct === 'number' && Number.isFinite(pct)) {
+      if (pct >= 1.0) return 'WIN';
+      if (pct >= -0.5 && pct <= 0.5) return 'BE';
+      if (pct <= -0.5) return 'LOSS';
+      return 'BE'; // +0.5 < pct < +1.0 보수적 fallback
+    }
+    if ((f.pnl ?? 0) > 0) return 'WIN';
+    if ((f.pnl ?? 0) < 0) return 'LOSS';
+    return 'BE';
+  };
+
   let winFills = 0;
   let lossFills = 0;
   // 전량 청산 trade 오늘 fill
   for (const t of i.closedToday) {
     for (const f of t.fills ?? []) {
       if (f.type !== 'SELL' || f.status === 'REVERTED') continue;
-      if ((f.pnl ?? 0) > 0) winFills++;
-      else if ((f.pnl ?? 0) < 0) lossFills++;
+      const outcome = classifyFill(f);
+      if (outcome === 'WIN') winFills++;
+      else if (outcome === 'LOSS') lossFills++;
+      // BE 는 lossAversion 편향 점수에 미카운트 (ADR-0123 학습 격리)
     }
   }
   // 부분매도 fill (ACTIVE)
   for (const p of i.partialRealizationsToday ?? []) {
     for (const f of p.todaysSells) {
-      if ((f.pnl ?? 0) > 0) winFills++;
-      else if ((f.pnl ?? 0) < 0) lossFills++;
+      const outcome = classifyFill(f);
+      if (outcome === 'WIN') winFills++;
+      else if (outcome === 'LOSS') lossFills++;
     }
   }
   // 레거시 폴백 — fills 없는 오래된 trade 대비.
