@@ -12,6 +12,7 @@ import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { appendShadowLog, syncPositionCache, updateShadow } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
+import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
 
 export async function trancheTakeProfitLimit(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct } = ctx;
@@ -87,6 +88,21 @@ export async function trancheTakeProfitLimit(ctx: ExitContext): Promise<ExitRule
   if (shadow.quantity <= 0) {
     updateShadow(shadow, { status: 'HIT_TARGET', exitPrice: currentPrice, exitTime: new Date().toISOString() });
     appendShadowLog({ event: 'FULLY_CLOSED_TRANCHES', ...shadow });
+    // PR-Fix-Attribution-FullClose (ADR-0006) — FULL_CLOSE attribution 영속.
+    // 마지막 트랜치 fill 은 emitPartialAttributionForSell 의 remainingQty>0 가드로
+    // null 반환 → 본 분기에서 FULL_CLOSE baseline 보장. baseline (entryConditionScores)
+    // 부재 시 null 반환 — 학습 오염 차단. try/catch 격리로 매매 흐름 무중단.
+    try {
+      emitFullCloseAttributionForExit({
+        shadow,
+        exitPrice: currentPrice,
+        returnPct,
+        closedAt: shadow.exitTime ?? new Date().toISOString(),
+        exitRuleTag: 'LIMIT_TRANCHE_TAKE_PROFIT',
+      });
+    } catch (e) {
+      console.warn(`[trancheTakeProfitLimit] attribution 영속 실패 ${shadow.stockCode}:`, e instanceof Error ? e.message : e);
+    }
     return { skipRest: true };
   }
   return NO_OP;

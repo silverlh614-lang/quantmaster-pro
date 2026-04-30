@@ -12,6 +12,7 @@ import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeR
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
+import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
 import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
 
 export async function trailingStop(ctx: ExitContext): Promise<ExitRuleResult> {
@@ -39,6 +40,20 @@ export async function trailingStop(ctx: ExitContext): Promise<ExitRuleResult> {
     exitOutcome: classifyExitOutcome(trailReturnPct, 'TRAILING_PROTECTIVE_STOP', 'PROFIT_PROTECTION'),
     quantity: 0,
   });
+  // PR-Fix-Attribution-FullClose (ADR-0006) — FULL_CLOSE attribution 영속.
+  // baseline (entryConditionScores) 부재 시 null 반환 — 학습 오염 차단.
+  // try/catch 격리로 매매 흐름 무중단.
+  try {
+    emitFullCloseAttributionForExit({
+      shadow,
+      exitPrice: currentPrice,
+      returnPct: trailReturnPct,
+      closedAt: shadow.exitTime ?? new Date().toISOString(),
+      exitRuleTag: 'TRAILING_PROTECTIVE_STOP',
+    });
+  } catch (e) {
+    console.warn(`[trailingStop] attribution 영속 실패 ${shadow.stockCode}:`, e instanceof Error ? e.message : e);
+  }
   console.log(`[Shadow Close] TRAILING_PROTECTIVE_STOP — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
   appendShadowLog({ event: 'TRAILING_STOP', ...shadow, soldQty });
   console.log(`[AutoTrade] 📉 ${shadow.stockName} (${shadow.stockCode}) L3 트레일링 스톱 (HWM×${(1 - (shadow.trailPct ?? 0.10)).toFixed(2)}) @${currentPrice.toLocaleString()}`);
