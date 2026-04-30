@@ -23,6 +23,7 @@ import './regime.cmd.js';
 import './rejected.cmd.js';
 import './scanBlockers.cmd.js';
 import './scanIndices.cmd.js';
+import './scheduleClassDiag.cmd.js';
 import './scheduler.cmd.js';
 import './shadowWalkForward.cmd.js';
 import './signalStatus.cmd.js';
