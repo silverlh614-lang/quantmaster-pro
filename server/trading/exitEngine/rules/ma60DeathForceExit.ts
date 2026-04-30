@@ -15,6 +15,7 @@ import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeR
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
+import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
 import { fetchMaFromCloses, isMA60Death, kstBusinessDateStr } from '../helpers/ma60.js';
 import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
 
@@ -49,6 +50,18 @@ export async function ma60DeathForceExit(ctx: ExitContext): Promise<ExitRuleResu
     ma60DeathForced: true,
     quantity: 0,
   });
+  // PR-3 (ADR-0006) — FULL_CLOSE attribution 영속.
+  try {
+    emitFullCloseAttributionForExit({
+      shadow,
+      exitPrice: currentPrice,
+      returnPct,
+      closedAt: shadow.exitTime ?? new Date().toISOString(),
+      exitRuleTag: 'MA60_DEATH_FORCE_EXIT',
+    });
+  } catch (e) {
+    console.warn(`[ma60DeathForceExit] attribution 영속 실패 ${shadow.stockCode}:`, e instanceof Error ? e.message : e);
+  }
   console.log(`[Shadow Close] MA60_DEATH_FORCE_EXIT — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
   appendShadowLog({ event: 'MA60_DEATH_FORCE_EXIT', ...shadow, soldQty });
   console.log(`[AutoTrade] ⚰️ ${shadow.stockName} MA60 죽음 강제 청산 ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);

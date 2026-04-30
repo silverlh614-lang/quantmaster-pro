@@ -31,6 +31,7 @@ import {
 } from '../persistence/shadowTradeRepo.js';
 import { appendTradeEvent } from './tradeEventLog.js';
 import { safePctChange } from '../utils/safePctChange.js';
+import { emitFullCloseAttributionForExit } from './exitEngine/helpers/attribution.js';
 
 // ─── 데이터 모델 ──────────────────────────────────────────────────────────────
 
@@ -298,6 +299,22 @@ export async function pollOcoSurvival(): Promise<void> {
             quantity: remaining,
           });
           saveShadowTrades(shadows);
+          // PR-4 (ADR-0006) — LIVE OCO STOP_FILLED 전량 청산 시 FULL_CLOSE attribution.
+          // baseline (shadow.entryConditionScores) 부재 시 null 반환 (학습 오염 차단).
+          // try/catch 격리 — attribution 실패가 OCO 정리 흐름 차단 안 함.
+          if (remaining === 0) {
+            try {
+              emitFullCloseAttributionForExit({
+                shadow,
+                exitPrice: fillPrice,
+                returnPct: pnlPct,
+                closedAt: pair.resolvedAt!,
+                exitRuleTag: 'HARD_STOP',
+              });
+            } catch (e) {
+              console.warn(`[ocoCloseLoop:STOP] attribution 영속 실패 ${shadow.stockCode}:`, e instanceof Error ? e.message : e);
+            }
+          }
           const cumPnL = (shadow.fills ?? [])
             .filter(f => f.type === 'SELL')
             .reduce((s, f) => s + (f.pnl ?? 0), 0);
@@ -368,6 +385,20 @@ export async function pollOcoSurvival(): Promise<void> {
             quantity: remaining,
           });
           saveShadowTrades(shadows);
+          // PR-4 (ADR-0006) — LIVE OCO PROFIT_FILLED 전량 익절 시 FULL_CLOSE attribution.
+          if (remaining === 0) {
+            try {
+              emitFullCloseAttributionForExit({
+                shadow,
+                exitPrice: fillPrice,
+                returnPct: pnlPct,
+                closedAt: pair.resolvedAt!,
+                exitRuleTag: 'TARGET_EXIT',
+              });
+            } catch (e) {
+              console.warn(`[ocoCloseLoop:PROFIT] attribution 영속 실패 ${shadow.stockCode}:`, e instanceof Error ? e.message : e);
+            }
+          }
           const cumPnL = (shadow.fills ?? [])
             .filter(f => f.type === 'SELL')
             .reduce((s, f) => s + (f.pnl ?? 0), 0);

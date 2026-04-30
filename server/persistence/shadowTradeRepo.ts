@@ -489,6 +489,13 @@ export interface ServerShadowTrade {
   stopApproachStage?: 0 | 1 | 2 | 3;
   // ─── 레짐 연결 필드 (regimeBridge 연결 후 신규 거래부터 기록) ──────────────
   entryRegime?: string;          // 진입 시점 RegimeLevel (예: 'R2_BULL')
+  /**
+   * ADR-0006 PR-19 baseline: 진입 시점 27조건 점수 스냅샷 (1~27 → 0~10).
+   * emitFullCloseAttribution / emitPartialAttribution 가 학습 baseline 으로 사용.
+   * 미설정 시 attribution 호출이 null 반환 — 학습 오염 차단.
+   * buildEntryConditionScores(stock.conditionKeys) 결과를 buildBuyTrade 가 영속.
+   */
+  entryConditionScores?: Record<number, number>;
   profileType?: 'A' | 'B' | 'C' | 'D'; // 종목 프로파일 (A=대형주도 B=중형성장 C=소형모멘텀 D=촉매)
   profitTranches?: { price: number; ratio: number; taken: boolean }[]; // L3 분할 익절 타겟
   trailingHighWaterMark?: number; // 트레일링 스톱 고점 기준
