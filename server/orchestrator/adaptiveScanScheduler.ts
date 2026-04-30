@@ -190,8 +190,11 @@ export function decideScan(): ScanDecision {
     lastLunchBlockSeenAt = now; // 점심 구간 통과 중 — 해제 감지용 기록
   }
   else if (t < 1430) { baseInterval = 5;  phase = '오후 재개장'; }
-  else if (t < 1455) { baseInterval = 2;  phase = '마감전(급변)'; }
-  else               { baseInterval = 2;  phase = '마감동시호가(SELL_ONLY)'; forceSellOnly = true; }
+  // ADR-0122 (사용자 보고 4/30): SELL_ONLY 시작 14:55 → 15:00 KST 조정.
+  // 14:30~15:00 은 일반 마감전 정규 매매, 15:00~15:20 정규 매매 + 15:20~15:30 동시호가.
+  // 사용자 의도: SELL_ONLY 는 15시부터 (마감 30분 전 신규 진입 차단).
+  else if (t < 1500) { baseInterval = 2;  phase = '마감전(급변)'; }
+  else               { baseInterval = 2;  phase = '마감(SELL_ONLY)'; forceSellOnly = true; }
 
   // ── 4. 레짐 배율 적용 ────────────────────────────────────────────────────
   const multiplier = REGIME_MULTIPLIER[regime] ?? 1.0;

@@ -112,6 +112,86 @@ function businessDaysAgo(n: number): string {
 const SECTOR_CLOSE_RATIO_MAX = 10;
 const SECTOR_CLOSE_RATIO_MIN = 0.1;
 
+/** ADR-0122 (사용자 §4): 12 섹터 중 returns.length>0 섹터 최소 임계 — 미달 시 결과 폐기. */
+export const SECTOR_ENERGY_MIN_VALID_DEFAULT = 8;
+
+/** ADR-0122 (사용자 §1): today/past 응답 indexCode 충실도 임계 (90% 이상). */
+export const SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD = 0.9;
+
+/** sectorEnergy 결과 신뢰도 4값 union (사용자 §7). */
+export type SectorEnergyDataQuality =
+  | 'OK'           // 12섹터 모두 정상 + indexCode 충실도 정상
+  | 'PARTIAL'      // 8~11 섹터 통과 + 일부 skip
+  | 'STALE'        // 유효 섹터 < 8 (이전 캐시 fallback 권장)
+  | 'FAILED';      // KRX 응답 비대칭 또는 fetch 실패
+
+/** ADR-0122 §1: today/past 응답 indexCode 정합성 검증 SSOT. */
+export interface SymmetryValidationResult {
+  valid: boolean;
+  todayCodeFillRatio: number;
+  pastCodeFillRatio: number;
+  reasons: string[];
+}
+
+/**
+ * ADR-0122 §1: KRX OpenAPI today/past 응답의 indexCode 정합성 1차 검증.
+ *
+ * 사용자 §1 의도: "양쪽에 indexCode가 90% 이상 채워졌는지" 검증 후 미통과 시
+ * 응답 페어 자체를 폐기. indexName fallback 매칭은 본질적으로 불안전 (KRX 가
+ * 동일 indexName + 다른 indexCode 쌍 반환 가능).
+ */
+export function validateIndexResponseSymmetry(
+  todayRows: KrxIndexDailyRow[],
+  pastRows: KrxIndexDailyRow[],
+): SymmetryValidationResult {
+  const reasons: string[] = [];
+
+  if (todayRows.length === 0 || pastRows.length === 0) {
+    reasons.push(`empty rows: today=${todayRows.length}, past=${pastRows.length}`);
+    return { valid: false, todayCodeFillRatio: 0, pastCodeFillRatio: 0, reasons };
+  }
+
+  const todayCodeCount = todayRows.filter((r) => Boolean(r.indexCode)).length;
+  const pastCodeCount = pastRows.filter((r) => Boolean(r.indexCode)).length;
+  const todayCodeFillRatio = todayCodeCount / todayRows.length;
+  const pastCodeFillRatio = pastCodeCount / pastRows.length;
+
+  if (todayCodeFillRatio < SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD) {
+    reasons.push(
+      `today indexCode 충실도 ${(todayCodeFillRatio * 100).toFixed(1)}% < ` +
+      `${(SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD * 100).toFixed(0)}%`,
+    );
+  }
+  if (pastCodeFillRatio < SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD) {
+    reasons.push(
+      `past indexCode 충실도 ${(pastCodeFillRatio * 100).toFixed(1)}% < ` +
+      `${(SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD * 100).toFixed(0)}%`,
+    );
+  }
+
+  return {
+    valid: reasons.length === 0,
+    todayCodeFillRatio,
+    pastCodeFillRatio,
+    reasons,
+  };
+}
+
+/** ADR-0122 ENV 우회 헬퍼들. */
+export function isSectorEnergySymmetryDisabled(): boolean {
+  return process.env.SECTOR_ENERGY_SYMMETRY_DISABLED === 'true';
+}
+export function isSectorEnergyIndexNameFallbackEnabled(): boolean {
+  // default: false (사용자 §2 — indexName fallback 제거).
+  // 회귀 위험 시 ENV `SECTOR_ENERGY_INDEX_NAME_FALLBACK=true` 로 복원.
+  return process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK === 'true';
+}
+export function getSectorEnergyMinValid(): number {
+  const env = Number(process.env.SECTOR_ENERGY_MIN_VALID);
+  if (Number.isFinite(env) && env > 0 && env <= 12) return env;
+  return SECTOR_ENERGY_MIN_VALID_DEFAULT;
+}
+
 /** (today 행, past 행) 쌍으로 return/volume 변화율을 집계. 평균값으로 12섹터로 축약. */
 export function aggregateIndexDeltas(
   todayRows: KrxIndexDailyRow[],
@@ -137,9 +217,10 @@ export function aggregateIndexDeltas(
       past = pastByCode.get(t.indexCode);
       if (past) matchKind = 'code';
     }
-    if (!past && t.indexName) {
-      // today 에 indexCode 가 없거나 매칭 실패 → indexName 으로만 시도
-      // (단 today 도 indexCode 가 비어 있을 때만 — 양쪽 키 종류 일치 강제).
+    // ADR-0122 (사용자 §2): indexName fallback 매칭 제거 (default).
+    // 사유: KRX 가 동일 indexName + 다른 indexCode 쌍 반환 가능 (sub-index 다중성).
+    // 회귀 위험 시 ENV SECTOR_ENERGY_INDEX_NAME_FALLBACK=true 로 복원.
+    if (!past && t.indexName && isSectorEnergyIndexNameFallbackEnabled()) {
       if (!t.indexCode) {
         past = pastByName.get(t.indexName);
         if (past) matchKind = 'name';
@@ -230,11 +311,31 @@ function buildStockSectorMap(stocks: KrxStockDailyRow[]): Map<string, StrategicS
   return out;
 }
 
+/** ADR-0122 §7: sectorEnergy 결과 진단 메타. */
+export interface SectorEnergyBuildResult {
+  inputs: SectorEnergyInput[];
+  dataQuality: SectorEnergyDataQuality;
+  validSectorCount: number;
+  totalSectorCount: number;
+  symmetryValidation?: SymmetryValidationResult;
+  reasons: string[];
+}
+
 /**
  * sectorEnergyEngine 가 그대로 소비할 수 있는 `SectorEnergyInput[]` 를 반환.
- * 모든 외부 호출 실패 시 빈 배열.
+ * 모든 외부 호출 실패 시 빈 배열 (후방호환).
  */
 export async function buildSectorEnergyInputs(): Promise<SectorEnergyInput[]> {
+  const result = await buildSectorEnergyInputsWithMeta();
+  return result.inputs;
+}
+
+/**
+ * ADR-0122 신규 SSOT — dataQuality + 유효 섹터 수 + symmetry 진단 정보 동반 반환.
+ * 호출자 (sectorEnergyEngine + sectorScoreBoost) 가 dataQuality 기반 매수 영향
+ * 차단 가능. 호출자 wiring 은 후속 PR (회귀 위험 격리).
+ */
+export async function buildSectorEnergyInputsWithMeta(): Promise<SectorEnergyBuildResult> {
   const today = undefined; // krxOpenApi 가 최근 영업일 자동 선택
   const past = businessDaysAgo(20);
 
@@ -251,7 +352,32 @@ export async function buildSectorEnergyInputs(): Promise<SectorEnergyInput[]> {
 
   const todayIdx = [...todayKospiIdx, ...todayKosdaqIdx];
   const pastIdx = [...pastKospiIdx, ...pastKosdaqIdx];
-  if (todayIdx.length === 0) return [];
+  if (todayIdx.length === 0) {
+    return {
+      inputs: [],
+      dataQuality: 'FAILED',
+      validSectorCount: 0,
+      totalSectorCount: 12,
+      reasons: ['todayIdx empty — KRX OpenAPI 응답 부재'],
+    };
+  }
+
+  // ADR-0122 §1: today/past 응답 indexCode 정합성 1차 검증.
+  const symmetry = validateIndexResponseSymmetry(todayIdx, pastIdx);
+  if (!symmetry.valid && !isSectorEnergySymmetryDisabled()) {
+    console.warn(
+      `[sectorEnergy:diag] ADR-0122 symmetry 검증 실패 — 응답 페어 폐기: ` +
+      symmetry.reasons.join('; '),
+    );
+    return {
+      inputs: [],
+      dataQuality: 'FAILED',
+      validSectorCount: 0,
+      totalSectorCount: 12,
+      symmetryValidation: symmetry,
+      reasons: ['symmetry validation failed', ...symmetry.reasons],
+    };
+  }
 
   const deltas = aggregateIndexDeltas(todayIdx, pastIdx);
   const stockSectorMap = buildStockSectorMap([...kospiStocks, ...kosdaqStocks]);
@@ -264,10 +390,12 @@ export async function buildSectorEnergyInputs(): Promise<SectorEnergyInput[]> {
   ];
 
   const out: SectorEnergyInput[] = [];
+  let validSectorCount = 0;
   for (const sector of canonicalSectors) {
     const d = deltas.get(sector);
     const returns = d?.returns ?? [];
     const volumes = d?.volumes ?? [];
+    if (returns.length > 0) validSectorCount++;
     const avg = (xs: number[]): number =>
       xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length;
     const return4w = avg(returns);
@@ -280,7 +408,38 @@ export async function buildSectorEnergyInputs(): Promise<SectorEnergyInput[]> {
       foreignConcentration: Number(foreignConcentration.toFixed(1)),
     });
   }
-  return out;
+
+  // ADR-0122 §4: 유효 섹터 임계 검증 — 미달 시 결과 폐기 (이전 캐시 fallback 유도).
+  const minValid = getSectorEnergyMinValid();
+  const reasons: string[] = [];
+  if (validSectorCount < minValid) {
+    console.warn(
+      `[sectorEnergy:diag] ADR-0122 유효 섹터 ${validSectorCount}/12 < 임계 ${minValid} — 결과 폐기 (STALE).`,
+    );
+    return {
+      inputs: [],
+      dataQuality: 'STALE',
+      validSectorCount,
+      totalSectorCount: 12,
+      symmetryValidation: symmetry,
+      reasons: [`validSectorCount=${validSectorCount} < min=${minValid}`],
+    };
+  }
+
+  // ADR-0122 §7: dataQuality 분류 — 12 섹터 모두 통과 OK / 일부 skip PARTIAL.
+  const dataQuality: SectorEnergyDataQuality = validSectorCount === 12 ? 'OK' : 'PARTIAL';
+  if (dataQuality === 'PARTIAL') {
+    reasons.push(`PARTIAL: validSectorCount=${validSectorCount}/12`);
+  }
+
+  return {
+    inputs: out,
+    dataQuality,
+    validSectorCount,
+    totalSectorCount: 12,
+    symmetryValidation: symmetry,
+    reasons,
+  };
 }
 
 // ── 캐시 ─────────────────────────────────────────────────────────────────────
