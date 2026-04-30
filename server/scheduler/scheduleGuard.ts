@@ -31,6 +31,14 @@ export interface ScheduleGuardOptions {
   force?: boolean;
 }
 
+// 부팅 검증용 — scheduledJob 진입(cron.schedule 호출 전)에서 add.
+// registerXxxJobs() 가 throw 하면 그 줄 이후 jobName 은 누락되어 즉시 식별 가능.
+const _registeredJobs = new Set<string>();
+/** scheduledJob 으로 등록 진입한 jobName 목록 — 부팅 검증 로그 전용 */
+export function getRegisteredJobNames(): string[] {
+  return Array.from(_registeredJobs).sort();
+}
+
 /**
  * 주어진 ScheduleClass 가 현재(또는 주입 날짜) 시점에 스킵 대상인지 판정.
  * 순수 함수 — 단위 테스트에서 직접 호출 가능. cron 콜백이 진입부에서 호출.
@@ -83,6 +91,9 @@ export function scheduledJob(
   options: ScheduleGuardOptions = {},
 ): void {
   const cronOpts = options.timezone ? { timezone: options.timezone } : undefined;
+
+  // cron.schedule 호출 *전* 에 추적 — register 함수가 throw 해도 이전 jobName 은 보존.
+  _registeredJobs.add(jobName);
 
   cron.schedule(cronExpr, async () => {
     const decision = options.force

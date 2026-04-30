@@ -21,6 +21,8 @@ import { registerLearningJobs } from './learningJobs.js';
 import { registerTradeFlowJobs } from './tradeFlowJobs.js';
 import { registerMaintenanceJobs } from './maintenanceJobs.js';
 import { registerCommandUsageJobs } from './commandUsageJobs.js';
+import { getRegisteredJobNames } from './scheduleGuard.js';
+import { SCHEDULE_CATALOG, getAllJobMetrics } from './scheduleCatalog.js';
 
 export function startScheduler(): void {
   registerOrchestratorJobs();
@@ -35,5 +37,23 @@ export function startScheduler(): void {
   registerMaintenanceJobs();
   registerCommandUsageJobs();
 
-  console.log('[Scheduler] cron 작업 등록 완료 (장중 Intraday Watchlist는 Orchestrator INTRADAY tick 내부에서 처리)');
+  // ── 부팅 검증 (cron 미실행 결함 식별 도구) ─────────────────────────────────
+  // scheduledJob() 통과 jobName + JobMetrics 영속 복원 entry + SCHEDULE_CATALOG.
+  // 1) scheduledJob 통과 갯수 = 코드 실제 등록 수 (registerXxxJobs throw 시 부족)
+  // 2) JobMetrics restored = 직전 배포까지 한 번이라도 트리거된 cron 수
+  // 3) SCHEDULE_CATALOG = 사람이 읽는 시간표 SSOT (jobName 보유 항목만)
+  // 셋 사이 갭이 결함 위치를 정확히 가리킨다.
+  const registered = getRegisteredJobNames();
+  const restoredMetrics = getAllJobMetrics().map((m) => m.jobName);
+  const catalogJobs = SCHEDULE_CATALOG.filter((e) => e.jobName).map((e) => e.jobName as string);
+  console.log(`[Scheduler] cron 작업 등록 완료 — scheduledJob 통과: ${registered.length}개 / JobMetrics 복원: ${restoredMetrics.length}개 / SCHEDULE_CATALOG: ${catalogJobs.length}개`);
+
+  const catalogMissingFromRegistered = catalogJobs.filter((n) => !registered.includes(n));
+  if (catalogMissingFromRegistered.length > 0) {
+    console.warn(`[Scheduler] ⚠️ catalog 에는 있지만 scheduledJob 으로 등록 안 된 jobName: ${catalogMissingFromRegistered.join(', ')}`);
+  }
+  const registeredMissingFromCatalog = registered.filter((n) => !catalogJobs.includes(n));
+  if (registeredMissingFromCatalog.length > 0) {
+    console.warn(`[Scheduler] ⚠️ scheduledJob 등록되었으나 SCHEDULE_CATALOG 에 없는 jobName: ${registeredMissingFromCatalog.join(', ')}`);
+  }
 }
