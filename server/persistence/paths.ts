@@ -292,6 +292,22 @@ export const TRADE_SIGNAL_STATUS_FILE = path.join(DATA_DIR, 'trade-signal-status
  * + FIFO trim 500. ENV `VERIFICATION_QUEUE_DISABLED=true` 시 record* no-op.
  */
 export const VERIFICATION_QUEUE_FILE = path.join(DATA_DIR, 'verification-queue.json');
+/**
+ * 자가점검 헬스 루프 영속 (ADR-0131).
+ * Tier 1/2/3 헬스 루프의 마지막 임계 bucket·count 스냅샷 + alertedKeys 영속.
+ * 정상→정상 무알림 + 임계 변화 시에만 Telegram 발송 (한 임계당 24h dedupe).
+ */
+export const HEALTH_LOOP_STATE_FILE = path.join(DATA_DIR, 'health-loop-state.json');
+/**
+ * 인증키 만료 watchdog 영속 (ADR-0131).
+ * KNOWN_CREDENTIALS 별 마지막 알림 임계(D-90/30/7/1/0) 영속해 임계 변화 시에만 알림.
+ */
+export const CREDENTIAL_EXPIRY_STATE_FILE = path.join(DATA_DIR, 'credential-expiry-state.json');
+/**
+ * 휴장 후 첫 거래일 가속 점검 영속 (ADR-0131).
+ * 4/27~5/01 패턴 재발 방지 — 1차/2차 점검 결과 비교용 lastChecks 영속.
+ */
+export const POST_HOLIDAY_KICKSTART_STATE_FILE = path.join(DATA_DIR, 'post-holiday-kickstart-state.json');
 
 export function ensureReflectionsDir(): void {
   ensureDataDir();
