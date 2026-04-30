@@ -13,6 +13,8 @@ import {
 import { getMinGateScore } from '../../entryEngine.js';
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
 import type { SizingDeciderFail } from './types.js';
+import type { DataQualityInfo } from '../../../types/dataQuality.js';
+import { shouldBlockTradingByDataQuality } from '../../../types/dataQuality.js';
 
 export interface SizingTierDeciderInput {
   stockName: string;
@@ -22,6 +24,11 @@ export interface SizingTierDeciderInput {
   macroState: MacroState | null;
   banditDecision: BanditDecision;
   probingReservedSlots: number;
+  /**
+   * ADR-0117: DataQuality 격리 입력. status='OK' 가 아닐 때 BLOCKED 반환 의무.
+   * 부재 시 기존 동작 (후방호환).
+   */
+  dataQuality?: DataQualityInfo;
 }
 
 export interface SizingTierDeciderPass {
@@ -45,6 +52,16 @@ export function sizingTierDecider(input: SizingTierDeciderInput): SizingTierDeci
   const {
     stockName, liveGateScore, reCheckGate, regime, macroState, banditDecision, probingReservedSlots,
   } = input;
+
+  // ADR-0117: DataQuality 격리 게이트 — sanity 위반 시 BLOCKED 반환.
+  // entryEngine extensionPct strict 와 정합 — 같은 종목이 entryEngine 통과해도
+  // 다른 경로의 dataQuality 위반 (예: drift) 이 sizingTier 입력으로 들어오면 차단.
+  if (input.dataQuality && shouldBlockTradingByDataQuality(input.dataQuality)) {
+    return {
+      ok: false,
+      logMessage: `[SizingTier] BLOCKED / DATA_QUARANTINE_${input.dataQuality.status} — ${stockName}`,
+    };
+  }
 
   const _gate1Pass = liveGateScore >= getMinGateScore(regime);
   const _rs = macroState?.leadingSectorRS ?? 0;

@@ -82,10 +82,22 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
   const boostNote = boost !== 0 && input.sectorBoostReason
     ? ` [${input.sectorBoostReason}]`
     : '';
+
+  // ADR-0117: evaluateEntryRevalidation 이 dataQuality + waitReason 반환 시 propagate.
+  // 호출자(perSymbolEvaluation) 가 WAIT / DATA_HOLD 분기로 처리.
+  const stageLogValue = revalidation.waitReason === 'DATA_HOLD'
+    ? 'DATA_HOLD'
+    : `FAIL(${reasons.join(',')})`;
+  const logMessage = revalidation.waitReason === 'DATA_HOLD'
+    ? `[AutoTrade] ${input.stockName} → WAIT / DATA_HOLD / ${reasons.join(', ')}`
+    : `[AutoTrade] ${input.stockName} 진입 직전 재검증 탈락: ${reasons.join(', ')}${boostNote}`;
+
   return {
     proceed: false,
-    logMessage: `[AutoTrade] ${input.stockName} 진입 직전 재검증 탈락: ${reasons.join(', ')}${boostNote}`,
+    logMessage,
     failReasons: reasons,
-    stageLogValue: `FAIL(${reasons.join(',')})`,
+    stageLogValue,
+    dataQuality: revalidation.dataQuality,
+    waitReason: revalidation.waitReason,
   };
 }

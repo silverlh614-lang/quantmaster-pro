@@ -289,6 +289,17 @@ export interface WatchlistEntry {
    * priceAdjustment.ts SSOT 사용.
    */
   cumulativeAdjustmentFactor?: number;
+  /**
+   * ADR-0117: DataQuality 격리 마커. drift sanity 위반 (DATA_HOLD) 시 true.
+   * isDataQuarantined=true 인 종목은 drift 업데이트 금지 + Gate/Sizing 차단.
+   */
+  isDataQuarantined?: boolean;
+  /**
+   * ADR-0117: 격리 메타. status='OK' 가 아닐 때 호출자 거래 차단 의무
+   * (shouldBlockTradingByDataQuality SSOT 사용). 본 PR 단계에서는 호출자가 영속만,
+   * 후속 PR 에서 진단 UI / 텔레그램 리포트에 노출.
+   */
+  dataQuality?: import('../types/dataQuality.js').DataQualityInfo;
 }
 
 export function loadWatchlist(): WatchlistEntry[] {

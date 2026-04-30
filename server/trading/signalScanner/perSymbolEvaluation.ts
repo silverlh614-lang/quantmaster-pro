@@ -335,6 +335,29 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
 
       // ── entryPrice 드리프트 체크: 현재가가 10% 이상 올랐으면 갱신/제거 ─────
       const driftAction = applyEntryPriceDrift(stock, currentPrice);
+      // ADR-0117: DATA_HOLD — drift sanity 위반 (60~150% 추정) → 거래 차단 게이트.
+      // entry.entryPrice 갱신 금지 + isDataQuarantined=true + dataQuality 영속.
+      // failCount 미증가 (NON_CRITICAL — 다음 사이클 재시도 가능).
+      if (driftAction === 'DATA_HOLD') {
+        const absDriftPct = Math.abs(((currentPrice - stock.entryPrice) / stock.entryPrice) * 100);
+        const reason = `[watchlistManager.drift:${stock.code}] sanity violation absPct=${absDriftPct.toFixed(2)}% > 90% current=${currentPrice}, base=${stock.entryPrice}`;
+        stock.isDataQuarantined = true;
+        stock.dataQuality = {
+          status: 'STALE_BASE_OR_SPLIT_ADJUSTMENT',
+          reason,
+          current: currentPrice,
+          base: stock.entryPrice,
+          source: 'KIS_REALTIME',
+          context: `watchlistManager.drift:${stock.code}`,
+          updatedAt: new Date().toISOString(),
+        };
+        ctx.mutables.watchlistMutated.value = true;
+        console.warn(`[WatchlistManager] drift update skipped: ${reason}`);
+        console.log(`[AutoTrade] ${stock.name}(${stock.code}) → WAIT / DATA_HOLD / DATA_HOLD_STALE_BASE_OR_SPLIT_ADJUSTMENT`);
+        stageLog.drift = 'DATA_HOLD';
+        pushTrace();
+        continue;
+      }
       // ADR-0115: drift > 150% Corporate Action 의심 — RAW immutable 원칙 준수.
       // entryPrice 자동 재설정 *제거* (ADR-0113 의 자동 보정 정책 폐기).
       // 사용자 절대 원칙: "RAW PRICE 는 절대 수정 금지."
