@@ -81,6 +81,9 @@ import {
   isPreBreakoutFailCountDisabled,
   shouldIncrementFailCount,
 } from './failureClassifier.js';
+// ADR-0128 §Wiring 1+2 — DataHoldRolePolicy SSOT 위임 + verifyStockIncremental BUY_CANDIDATE.
+import { verifyStockIncremental } from '../../data/dataVerificationIncremental.js';
+import { resolveDataHoldAction } from '../../data/dataHoldRolePolicy.js';
 import {
   isOpenShadowStatus,
   buildStopLossPlan,
@@ -351,24 +354,30 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // ── entryPrice 드리프트 체크: 현재가가 10% 이상 올랐으면 갱신/제거 ─────
       const driftAction = applyEntryPriceDrift(stock, currentPrice);
       // ADR-0117: DATA_HOLD — drift sanity 위반 (60~150% 추정) → 거래 차단 게이트.
+      // ADR-0128 §Decision §1: BUY_CANDIDATE role SSOT 위임. dataQuality 영속 본체는 보존.
       // entry.entryPrice 갱신 금지 + isDataQuarantined=true + dataQuality 영속.
       // failCount 미증가 (NON_CRITICAL — 다음 사이클 재시도 가능).
       if (driftAction === 'DATA_HOLD') {
+        const action = resolveDataHoldAction('BUY_CANDIDATE');
         const absDriftPct = Math.abs(((currentPrice - stock.entryPrice) / stock.entryPrice) * 100);
         const reason = `[watchlistManager.drift:${stock.code}] sanity violation absPct=${absDriftPct.toFixed(2)}% > 90% current=${currentPrice}, base=${stock.entryPrice}`;
-        stock.isDataQuarantined = true;
-        stock.dataQuality = {
-          status: 'STALE_BASE_OR_SPLIT_ADJUSTMENT',
-          reason,
-          current: currentPrice,
-          base: stock.entryPrice,
-          source: 'KIS_REALTIME',
-          context: `watchlistManager.drift:${stock.code}`,
-          updatedAt: new Date().toISOString(),
-        };
+        // BUY_CANDIDATE 의 uiMarker='NONE' 이지만 보수적으로 영속 마커 유지 (다음 batch 가 정리)
+        if (action.blockBuy) {
+          stock.isDataQuarantined = true;
+          stock.dataQuality = {
+            status: 'STALE_BASE_OR_SPLIT_ADJUSTMENT',
+            reason,
+            current: currentPrice,
+            base: stock.entryPrice,
+            source: 'KIS_REALTIME',
+            context: `watchlistManager.drift:${stock.code}`,
+            updatedAt: new Date().toISOString(),
+          };
+        }
         ctx.mutables.watchlistMutated.value = true;
         console.warn(`[WatchlistManager] drift update skipped: ${reason}`);
-        console.log(`[AutoTrade] ${stock.name}(${stock.code}) → WAIT / DATA_HOLD / DATA_HOLD_STALE_BASE_OR_SPLIT_ADJUSTMENT`);
+        // ADR-0128 §Decision §1: action.reason SSOT 정합 (운영자 진단 텍스트).
+        console.log(`[AutoTrade] ${stock.name}(${stock.code}) → WAIT / DATA_HOLD / ${action.reason}`);
         stageLog.drift = 'DATA_HOLD';
         ctx.scanCounters.waitDataHold++;  // ADR-0118
         pushTrace();
@@ -550,6 +559,20 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
 
             ctx.shadows.push(followTrade);
 
+            // ADR-0128 §Wiring 1A: 당일 신규 매수 후보 incremental 검증 (BUY_CANDIDATE role).
+            // VERIFICATION_QUEUE_DISABLED=true 시 회로 통과. try/catch 격리 — verify throw 가 매매 흐름 차단 안 함.
+            let _verifyOkFollow = true;
+            try {
+              const _verifyResultFollow = await verifyStockIncremental(stock.code, 'BUY_CANDIDATE');
+              if (!_verifyResultFollow.verified && _verifyResultFollow.action?.blockBuy) {
+                _verifyOkFollow = false;
+                console.log(`[AutoTrade] ${stock.name}(${stock.code}) → DATA_HOLD / ${_verifyResultFollow.reason} / ${_verifyResultFollow.source}`);
+              }
+            } catch (err) {
+              console.warn(`[AutoTrade] verifyStockIncremental error (안전 통과): ${stock.code} — ${(err as Error).message}`);
+            }
+            if (!_verifyOkFollow) continue;
+
             const _signalTimeFollow = new Date().toISOString();
             addRecommendation({
               stockCode: stock.code, stockName: stock.name, signalTime: _signalTimeFollow,
@@ -699,6 +722,19 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                 });
 
                 ctx.shadows.push(pbTrade);
+
+                // ADR-0128 §Wiring 1A: 당일 신규 매수 후보 incremental 검증 (BUY_CANDIDATE role).
+                let _verifyOkPb = true;
+                try {
+                  const _verifyResultPb = await verifyStockIncremental(stock.code, 'BUY_CANDIDATE');
+                  if (!_verifyResultPb.verified && _verifyResultPb.action?.blockBuy) {
+                    _verifyOkPb = false;
+                    console.log(`[AutoTrade] ${stock.name}(${stock.code}) → DATA_HOLD / ${_verifyResultPb.reason} / ${_verifyResultPb.source}`);
+                  }
+                } catch (err) {
+                  console.warn(`[AutoTrade] verifyStockIncremental error (안전 통과): ${stock.code} — ${(err as Error).message}`);
+                }
+                if (!_verifyOkPb) continue;
 
                 const _signalTimePb = new Date().toISOString();
                 addRecommendation({
@@ -1206,6 +1242,19 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         entryKellySnapshot,
       });
 
+      // ADR-0128 §Wiring 1A: 메인 buyList 진입 후보 incremental 검증 (BUY_CANDIDATE role).
+      let _verifyOkMain = true;
+      try {
+        const _verifyResultMain = await verifyStockIncremental(stock.code, 'BUY_CANDIDATE');
+        if (!_verifyResultMain.verified && _verifyResultMain.action?.blockBuy) {
+          _verifyOkMain = false;
+          console.log(`[AutoTrade] ${stock.name}(${stock.code}) → DATA_HOLD / ${_verifyResultMain.reason} / ${_verifyResultMain.source}`);
+        }
+      } catch (err) {
+        console.warn(`[AutoTrade] verifyStockIncremental error (안전 통과): ${stock.code} — ${(err as Error).message}`);
+      }
+      if (!_verifyOkMain) continue;
+
       const _signalTimeMain = new Date().toISOString();
       addRecommendation({
         stockCode: stock.code, stockName: stock.name, signalTime: _signalTimeMain,
@@ -1453,6 +1502,19 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
           // BUG-10 fix: 실시간 Gate 평가로 Intraday 종목의 gateScore 추정
           const { gate: intradayGate } = await fetchGateData(stock.code, ctx.conditionWeights, ctx.macroState?.kospi20dReturn);
           const intradayGateScore = intradayGate?.gateScore ?? 0;
+
+          // ADR-0128 §Wiring 1A: 장중 강세 후보 incremental 검증 (BUY_CANDIDATE role).
+          let _verifyOkIntra = true;
+          try {
+            const _verifyResultIntra = await verifyStockIncremental(stock.code, 'BUY_CANDIDATE');
+            if (!_verifyResultIntra.verified && _verifyResultIntra.action?.blockBuy) {
+              _verifyOkIntra = false;
+              console.log(`[AutoTrade] ${stock.name}(${stock.code}) → DATA_HOLD / ${_verifyResultIntra.reason} / ${_verifyResultIntra.source}`);
+            }
+          } catch (err) {
+            console.warn(`[AutoTrade] verifyStockIncremental error (안전 통과): ${stock.code} — ${(err as Error).message}`);
+          }
+          if (!_verifyOkIntra) continue;
 
           const _signalTimeIntra = new Date().toISOString();
           addRecommendation({

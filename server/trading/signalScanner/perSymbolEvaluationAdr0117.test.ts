@@ -29,9 +29,10 @@ describe('ADR-0117 perSymbolEvaluation DATA_HOLD 분기 — 정적 가드', () =
     expect(src).toMatch(/status:\s*['"]STALE_BASE_OR_SPLIT_ADJUSTMENT['"]/);
   });
 
-  it("WAIT 메시지 형식: '→ WAIT / DATA_HOLD / DATA_HOLD_STALE_BASE_OR_SPLIT_ADJUSTMENT'", () => {
+  it("WAIT 메시지 형식 (ADR-0128 §Decision §1 후): '→ WAIT / DATA_HOLD / ${action.reason}' SSOT", () => {
     const src = readSource();
-    expect(src).toMatch(/→ WAIT \/ DATA_HOLD \/ DATA_HOLD_STALE_BASE_OR_SPLIT_ADJUSTMENT/);
+    // ADR-0128 SSOT 위임 — resolveDataHoldAction('BUY_CANDIDATE').reason 사용
+    expect(src).toMatch(/→ WAIT \/ DATA_HOLD \/ \$\{action\.reason\}/);
   });
 
   it('failCount 미증가 — DATA_HOLD 분기에 stock.entryFailCount 증가 코드 없음', () => {

@@ -31,6 +31,10 @@ import { type RejectionEntry, setLastRejectionLog } from './rejectionLog.js';
 import { fetchYahooQuote, type YahooQuoteExtended } from './adapters/yahooQuoteAdapter.js';
 import { fetchKisQuoteFallback, fetchKisIntraday, enrichQuoteWithKisMTAS } from './adapters/kisQuoteAdapter.js';
 import { fetchKrxScreenerFallback } from './adapters/krxScreenerAdapter.js';
+// ADR-0128 §Wiring 1B: 워치리스트 신규 후보 incremental 검증 (WATCHLIST role).
+// 워치리스트 등록 자체는 차단 금지 — alert 보류 + UI 마킹만 영향 (markDataQuarantine).
+import { verifyStockIncremental } from '../data/dataVerificationIncremental.js';
+import { markDataQuarantine } from '../persistence/watchlistRepo.js';
 
 // ── 본 모듈 자체에서 정의·노출하는 핵심 타입 ──────────────────────────────
 export interface ScreenedStock {
@@ -383,6 +387,16 @@ export async function autoPopulateWatchlist(): Promise<number> {
       existingCodes.add(s.code);
       added++;
       console.log(`[AutoPopulate] 스크리너 → 워치리스트 [MOMENTUM]: ${s.name}(${s.code}) @${s.currentPrice.toLocaleString()}`);
+
+      // ADR-0128 §Wiring 1B: 등록 자체는 보존, sanity 위반 시 markDataQuarantine 으로 alert 보류.
+      try {
+        const _verifyKis = await verifyStockIncremental(s.code, 'WATCHLIST');
+        if (!_verifyKis.verified && _verifyKis.dataQuality) {
+          markDataQuarantine(s.code, _verifyKis.dataQuality);
+        }
+      } catch (err) {
+        console.warn(`[autoPopulateWatchlist] verify error (skip): ${s.code} — ${(err as Error).message}`);
+      }
     }
   }
 
@@ -531,6 +545,16 @@ export async function autoPopulateWatchlist(): Promise<number> {
       `@${quote.price.toLocaleString()} (+${quote.changePercent.toFixed(1)}% / ${(quote.volume / 10000).toFixed(0)}만주) ` +
       `gate=${gate.gateScore}/10 [${gate.signalType}] ${gate.details.join(', ')}`
     );
+
+    // ADR-0128 §Wiring 1B: 등록 자체는 보존, sanity 위반 시 markDataQuarantine 으로 alert 보류.
+    try {
+      const _verifyYahoo = await verifyStockIncremental(stock.code, 'WATCHLIST');
+      if (!_verifyYahoo.verified && _verifyYahoo.dataQuality) {
+        markDataQuarantine(stock.code, _verifyYahoo.dataQuality);
+      }
+    } catch (err) {
+      console.warn(`[autoPopulateWatchlist] verify error (skip): ${stock.code} — ${(err as Error).message}`);
+    }
 
     // Yahoo rate limit 방지
     await new Promise(r => setTimeout(r, 300));
