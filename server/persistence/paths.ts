@@ -290,6 +290,17 @@ export const TRADE_SIGNAL_STATUS_FILE = path.join(DATA_DIR, 'trade-signal-status
  * + FIFO trim 500. ENV `VERIFICATION_QUEUE_DISABLED=true` 시 record* no-op.
  */
 export const VERIFICATION_QUEUE_FILE = path.join(DATA_DIR, 'verification-queue.json');
+/**
+ * JobMetrics 영속 SSOT — Railway 재배포 안전성 (PR-50 ADR § JobMetrics 후속).
+ *
+ * 결함: `scheduleCatalog._metricsByJob` 가 in-memory Map 이라 재배포 시 휘발 →
+ * `/cron_introspect` 가 모든 cron 의 runCount=0 표시 (실제 파일은 갱신되었음에도
+ * 메트릭이 거짓말). 본 영속 SSOT 가 부팅 시 복원 + recordScheduleRun 직후 throttle
+ * 저장으로 "메트릭이 거짓말하지 않게" 보장.
+ *
+ * 영속 정책: atomic write (tmp→rename) + 30s throttle + 손상 JSON 빈 객체 fallback.
+ */
+export const JOB_METRICS_FILE = path.join(DATA_DIR, 'job-metrics.json');
 
 export function ensureReflectionsDir(): void {
   ensureDataDir();

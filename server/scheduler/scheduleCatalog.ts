@@ -3,7 +3,19 @@
  *
  * SCHEDULE_CATALOG 가 사람이 읽는 시간표 SSOT, recordScheduleRun() 이 실행 이력을
  * 기록해 /scheduler history 에서 조회 가능하다.
+ *
+ * JobMetrics 영속화 (PR-50 ADR § 후속 hotfix): in-memory Map 만으로는 Railway
+ * 재배포 시 휘발 → /cron_introspect 가 모든 cron 의 runCount=0 표시
+ * (CONTRADICTION_METRICS_LIES). `jobMetricsRepo` 가 부팅 시 복원 + 갱신 시
+ * 30s throttle 저장으로 거짓말 영구 차단.
  */
+import {
+  loadJobMetrics,
+  scheduleSaveJobMetrics,
+  flushJobMetrics,
+  type JobMetricsRecord,
+  type JobMetricsSnapshot,
+} from '../persistence/jobMetricsRepo.js';
 
 export interface ScheduleEntry {
   timeKst: string;
@@ -124,6 +136,32 @@ export interface JobMetrics {
 const _metricsByJob = new Map<string, JobMetrics>();
 const ERROR_MESSAGE_LIMIT = 120;
 
+/**
+ * 부팅 시 디스크에서 JobMetrics 복원. server/index.ts 가 한 번 호출.
+ * 이미 메모리에 같은 jobName 이 있으면 디스크 값으로 덮어쓰지 않음 (race 보호).
+ *
+ * @returns 복원된 entry 수 (진단 로그용).
+ */
+export function restoreJobMetricsFromDisk(): number {
+  const snapshot: JobMetricsSnapshot = loadJobMetrics();
+  let restored = 0;
+  for (const [name, rec] of Object.entries(snapshot)) {
+    if (_metricsByJob.has(name)) continue;
+    _metricsByJob.set(name, { ...rec });
+    restored += 1;
+  }
+  return restored;
+}
+
+/** 현재 in-memory 메트릭을 영속 snapshot 으로 직렬화 (jobMetricsRepo 입력용). */
+function buildSnapshot(): JobMetricsSnapshot {
+  const out: JobMetricsSnapshot = {};
+  for (const [name, m] of _metricsByJob.entries()) {
+    out[name] = { ...m } as JobMetricsRecord;
+  }
+  return out;
+}
+
 function ensureMetrics(jobName: string): JobMetrics {
   let m = _metricsByJob.get(jobName);
   if (!m) {
@@ -156,6 +194,15 @@ export function recordScheduleRun(rec: ScheduleRunRecord): void {
       m.lastSkipReason = rec.note.slice(0, ERROR_MESSAGE_LIMIT);
     }
   }
+
+  // 영속화 — 30s throttle (jobMetricsRepo 가 디스크 부하 흡수).
+  // Railway 재배포 시 휘발 차단의 핵심.
+  scheduleSaveJobMetrics(buildSnapshot());
+}
+
+/** SIGTERM/테스트 즉시 flush — pending throttle 무시하고 디스크 쓰기. */
+export function flushJobMetricsToDisk(): void {
+  flushJobMetrics();
 }
 
 export function getScheduleHistory(limit = 20): ScheduleRunRecord[] {
@@ -189,6 +236,13 @@ export function __resetScheduleMetricsForTests(): void {
   _history.length = 0;
   _lastByJob.clear();
   _metricsByJob.clear();
+}
+
+/** 테스트 전용 — 메모리 상태 직접 주입 (영속화 round-trip 검증용). */
+export function __injectMetricsForTests(snapshot: JobMetricsSnapshot): void {
+  for (const [name, rec] of Object.entries(snapshot)) {
+    _metricsByJob.set(name, { ...rec });
+  }
 }
 
 /**

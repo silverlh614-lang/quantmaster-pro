@@ -369,6 +369,17 @@ async function startServer() {
     ).catch(console.error);
   }
 
+  // JobMetrics 디스크 복원 — Railway 재배포 안전성 (PR-50 ADR § 후속).
+  // /cron_introspect 가 모든 cron 의 runCount=0 표시하던 결함 차단:
+  // in-memory Map 만으로는 재배포 시 휘발 → 디스크 영속 + 부팅 복원 SSOT.
+  try {
+    const { restoreJobMetricsFromDisk } = await import('./scheduler/scheduleCatalog.js');
+    const restored = restoreJobMetricsFromDisk();
+    console.log(`[Boot] JobMetrics 복원: ${restored}개`);
+  } catch (e) {
+    console.warn('[Boot] JobMetrics 복원 실패:', e instanceof Error ? e.message : String(e));
+  }
+
   // VTS Mock 주입은 HTTP 서버·스케줄러 기동 전에 동기적으로 완료
   await initVtsMockIfNeeded();
 
@@ -386,6 +397,10 @@ async function startServer() {
       // Idea 4: AI 캐시 강제 flush — debounce 타이머 대기 없이 디스크에 저장
       import('./persistence/aiCacheRepo.js')
         .then(({ flushAiCache }) => flushAiCache())
+        .catch(() => { /* noop */ });
+      // JobMetrics throttle pending flush — SIGTERM 직전 확정.
+      import('./scheduler/scheduleCatalog.js')
+        .then(({ flushJobMetricsToDisk }) => flushJobMetricsToDisk())
         .catch(() => { /* noop */ });
       server.close(() => {
         console.log('[Server] HTTP 서버 종료 완료');
