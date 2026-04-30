@@ -16,6 +16,7 @@ import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
 import { matchExitInvalidation, promoteInvalidationPatternIfRepeated } from '../../preMortemStructured.js';
 import { promoteKellyDriftPattern } from '../../../learning/kellyDriftFailurePromotion.js';
+import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
 
 export async function hardStopLoss(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct, currentRegime, initialStopLoss, regimeStopLoss, hardStopLoss } = ctx;
@@ -35,12 +36,17 @@ export async function hardStopLoss(ctx: ExitContext): Promise<ExitRuleResult> {
   const soldQty = shadow.quantity;
   // BUG #7 fix — 전량 청산 전 스냅샷. 주문 실패 시 HIT_STOP → 이전 상태로 복귀.
   const hardStopSnapshot = captureFullCloseSnapshot(shadow);
+  // ADR-0112: PROFIT_PROTECTION 본절 청산은 exitOutcome='BE' 로 분류 → 서킷 카운트 제외.
+  // 1차 로그 09:10/09:15/09:45 의 -0.18~-0.45% 손절 3건이 LOSS 와 동일하게 카운트되어
+  // 서킷 무한 루프를 트리거하던 결함 영구 차단. classifyExitOutcome SSOT 사용.
+  const hardStopOutcome = classifyExitOutcome(returnPct, 'HARD_STOP', stopLossExitType);
   updateShadow(shadow, {
     status: 'HIT_STOP',
     exitPrice: currentPrice,
     exitTime: new Date().toISOString(),
     stopLossExitType,
     exitRuleTag: 'HARD_STOP',
+    exitOutcome: hardStopOutcome,
     quantity: 0,
   });
   console.log(`[Shadow Close] HARD_STOP — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);

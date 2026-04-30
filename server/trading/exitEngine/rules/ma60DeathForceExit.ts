@@ -16,6 +16,7 @@ import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
 import { fetchMaFromCloses, isMA60Death, kstBusinessDateStr } from '../helpers/ma60.js';
+import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
 
 export async function ma60DeathForceExit(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct } = ctx;
@@ -38,11 +39,13 @@ export async function ma60DeathForceExit(ctx: ExitContext): Promise<ExitRuleResu
   const soldQty = shadow.quantity;
   // BUG #7 fix — 전량 청산 전 상태 스냅샷. 주문 실패 시 되돌린다.
   const ma60Snapshot = captureFullCloseSnapshot(shadow);
+  // ADR-0112: MA60 역배열 강제 청산은 BE band 가능성 거의 0 — classifyExitOutcome 정합 영속.
   updateShadow(shadow, {
     status: 'HIT_STOP',
     exitPrice: currentPrice,
     exitTime: new Date().toISOString(),
     exitRuleTag: 'MA60_DEATH_FORCE_EXIT',
+    exitOutcome: classifyExitOutcome(returnPct, 'MA60_DEATH_FORCE_EXIT'),
     ma60DeathForced: true,
     quantity: 0,
   });

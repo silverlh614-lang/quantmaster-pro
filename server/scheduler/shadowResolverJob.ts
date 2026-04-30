@@ -38,12 +38,18 @@ export function countRecentConsecutiveLosses(shadows: ShadowTrade[]): number {
   // 두 lower bound 중 더 *최근* 시각 사용 — clearedMs 가 4시간 전보다 최근이면 그 시각이 baseline.
   const cutoffMs = Math.max(Date.now() - FOUR_H_MS, clearedMs);
 
+  // ADR-0112: BREAKEVEN(BE) 청산은 LOSS 카운트에서 제외. 1차 로그(2026-04-30) 의
+  // PROFIT_PROTECTION -0.18~-0.45% 청산 3건이 status='HIT_STOP' 이지만
+  // exitOutcome='BE' 로 분류되어 서킷 무한 루프 영구 차단.
+  // BE_CLASSIFICATION_DISABLED=true 시 ENV 우회 → 모든 HIT_STOP 카운트(기존 동작).
+  const beDisabled = process.env.BE_CLASSIFICATION_DISABLED === 'true';
   const recentClosed = shadows
     .filter((s) => s.exitTime && new Date(s.exitTime).getTime() > cutoffMs)
     .sort((a, b) => new Date(b.exitTime!).getTime() - new Date(a.exitTime!).getTime());
   let consec = 0;
   for (const s of recentClosed) {
-    if (s.status === 'HIT_STOP') consec++;
+    const isRealLoss = s.status === 'HIT_STOP' && (beDisabled || s.exitOutcome !== 'BE');
+    if (isRealLoss) consec++;
     else break;
   }
   return consec;

@@ -266,6 +266,14 @@ export interface WatchlistEntry {
   lastSkipReason?: string;
   /** lastSkipReason 이 기록된 시각 (ISO). */
   lastSkipAt?: string;
+  /**
+   * ADR-0113: Corporate Action 감지로 entryPrice 가 자동 재설정된 종목 마커.
+   * applyEntryPriceDrift 가 drift > 150% 감지 시 currentPrice 로 entryPrice 갱신.
+   * 후속 PR 에서 24h 신호 스캔 격리 입력으로 활용.
+   */
+  corporateActionAdjusted?: boolean;
+  /** corporateActionAdjusted 갱신 시각 (ISO). */
+  corporateActionAdjustedAt?: string;
 }
 
 export function loadWatchlist(): WatchlistEntry[] {

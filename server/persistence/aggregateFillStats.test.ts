@@ -6,7 +6,7 @@
  * 처리함을 보장한다.
  */
 
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { aggregateFillStats } from './shadowTradeRepo.js';
 import type { ServerShadowTrade, PositionFill } from './shadowTradeRepo.js';
 
@@ -146,5 +146,147 @@ describe('aggregateFillStats', () => {
     expect(agg.partialOnlyCount).toBe(0);
     expect(agg.weightedReturnPct).toBe(0);
     expect(agg.totalRealizedKrw).toBe(0);
+  });
+});
+
+describe('aggregateFillStats — ADR-0112 BE 3-way 분류', () => {
+  const ORIGINAL = process.env.BE_CLASSIFICATION_DISABLED;
+
+  beforeEach(() => {
+    delete process.env.BE_CLASSIFICATION_DISABLED;
+  });
+
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.BE_CLASSIFICATION_DISABLED;
+    else process.env.BE_CLASSIFICATION_DISABLED = ORIGINAL;
+  });
+
+  it('PROFIT_PROTECTION 본절 fill 3건 (-0.30 / -0.18 / -0.45) → beFills=3 / lossFills=0', () => {
+    // 1차 로그 시뮬: pnlPct 가 -0.5~+0.5 영역이면 BE
+    const trades = [
+      trade({
+        id: '192820',
+        fills: [
+          { id: 'b1', type: 'BUY', qty: 2, price: 215_500, reason: 'init', timestamp: T0, status: 'CONFIRMED' },
+          sell({ id: 's1', qty: 2, pnl: -1_290, pnlPct: -0.30, ts: T1 }),
+        ],
+      }),
+      trade({
+        id: '161890',
+        fills: [
+          { id: 'b2', type: 'BUY', qty: 12, price: 87_257, reason: 'init', timestamp: T0, status: 'CONFIRMED' },
+          sell({ id: 's2', qty: 12, pnl: -1_884, pnlPct: -0.18, ts: T1 }),
+        ],
+      }),
+      trade({
+        id: '383310',
+        fills: [
+          { id: 'b3', type: 'BUY', qty: 5, price: 32_094, reason: 'init', timestamp: T0, status: 'CONFIRMED' },
+          sell({ id: 's3', qty: 5, pnl: -722, pnlPct: -0.45, ts: T1 }),
+        ],
+      }),
+    ];
+    const agg = aggregateFillStats(trades);
+    expect(agg.fillCount).toBe(3);
+    expect(agg.winFills).toBe(0);
+    expect(agg.lossFills).toBe(0);
+    expect(agg.beFills).toBe(3);
+  });
+
+  it('WIN/LOSS/BE 혼재 — Win Rate 계산용 분리', () => {
+    const trades = [
+      trade({
+        id: 'mix',
+        fills: [
+          { id: 'b', type: 'BUY', qty: 10, price: 10_000, reason: 'init', timestamp: T0, status: 'CONFIRMED' },
+          sell({ id: 's-win', qty: 3, pnl: 600, pnlPct: 5, ts: T1 }),     // WIN
+          sell({ id: 's-be',  qty: 3, pnl: 30,  pnlPct: 0.3, ts: T1 }),    // BE
+          sell({ id: 's-loss', qty: 4, pnl: -300, pnlPct: -3.0, ts: T1 }),// LOSS
+        ],
+      }),
+    ];
+    const agg = aggregateFillStats(trades);
+    expect(agg.fillCount).toBe(3);
+    expect(agg.winFills).toBe(1);
+    expect(agg.beFills).toBe(1);
+    expect(agg.lossFills).toBe(1);
+  });
+
+  it('boundary +0.5% 정확 → BE', () => {
+    const trades = [
+      trade({
+        id: 'b',
+        fills: [
+          { id: 'b1', type: 'BUY', qty: 1, price: 1000, reason: 'init', timestamp: T0, status: 'CONFIRMED' },
+          sell({ id: 's', qty: 1, pnl: 5, pnlPct: 0.5, ts: T1 }),
+        ],
+      }),
+    ];
+    const agg = aggregateFillStats(trades);
+    expect(agg.beFills).toBe(1);
+    expect(agg.winFills).toBe(0);
+  });
+
+  it('boundary +1.0% 정확 → WIN', () => {
+    const trades = [
+      trade({
+        id: 'w',
+        fills: [
+          { id: 'b1', type: 'BUY', qty: 1, price: 1000, reason: 'init', timestamp: T0, status: 'CONFIRMED' },
+          sell({ id: 's', qty: 1, pnl: 10, pnlPct: 1.0, ts: T1 }),
+        ],
+      }),
+    ];
+    const agg = aggregateFillStats(trades);
+    expect(agg.beFills).toBe(0);
+    expect(agg.winFills).toBe(1);
+  });
+
+  it('boundary -0.5% 정확 → BE', () => {
+    const trades = [
+      trade({
+        id: 'be',
+        fills: [
+          { id: 'b1', type: 'BUY', qty: 1, price: 1000, reason: 'init', timestamp: T0, status: 'CONFIRMED' },
+          sell({ id: 's', qty: 1, pnl: -5, pnlPct: -0.5, ts: T1 }),
+        ],
+      }),
+    ];
+    const agg = aggregateFillStats(trades);
+    expect(agg.beFills).toBe(1);
+    expect(agg.lossFills).toBe(0);
+  });
+
+  it('+0.7% (보수적 fallback) → LOSS', () => {
+    const trades = [
+      trade({
+        id: 'mid',
+        fills: [
+          { id: 'b1', type: 'BUY', qty: 1, price: 1000, reason: 'init', timestamp: T0, status: 'CONFIRMED' },
+          sell({ id: 's', qty: 1, pnl: 7, pnlPct: 0.7, ts: T1 }),
+        ],
+      }),
+    ];
+    const agg = aggregateFillStats(trades);
+    expect(agg.lossFills).toBe(1);
+    expect(agg.winFills).toBe(0);
+    expect(agg.beFills).toBe(0);
+  });
+
+  it('ENV BE_CLASSIFICATION_DISABLED=true → 기존 동작 (beFills=0)', () => {
+    process.env.BE_CLASSIFICATION_DISABLED = 'true';
+    const trades = [
+      trade({
+        id: 'env',
+        fills: [
+          { id: 'b1', type: 'BUY', qty: 1, price: 1000, reason: 'init', timestamp: T0, status: 'CONFIRMED' },
+          sell({ id: 's-be', qty: 1, pnl: -3, pnlPct: -0.3, ts: T1 }),
+        ],
+      }),
+    ];
+    const agg = aggregateFillStats(trades);
+    // BE 분류 비활성 → -0.3% 도 lossFills 카운트 (pnl < 0)
+    expect(agg.lossFills).toBe(1);
+    expect(agg.beFills).toBe(0);
   });
 });

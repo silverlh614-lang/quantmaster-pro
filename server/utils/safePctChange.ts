@@ -300,7 +300,40 @@ export type SafePctChangeReason =
   | 'OK'
   | 'INVALID_PRICE'
   | 'STALE_BASE_OR_SPLIT_ADJUSTMENT'
-  | 'STALE_BASE_AGE';
+  | 'STALE_BASE_AGE'
+  /** ADR-0113 — drift > 150% 강제 의심 (워치리스트 격리 + DART 조회) */
+  | 'CORPORATE_ACTION_SUSPECTED';
+
+/**
+ * ADR-0113 drift 4단계 분류:
+ *   - NORMAL (< 25%) — 정상 통과
+ *   - WARN (25~60%) — value 유효하지만 진단 마커
+ *   - INVALID (60~150%) — KIS 폴백 + 종목 격리
+ *   - CORPORATE_ACTION (> 150%) — 워치리스트 entryPrice 자동 보정 + DART 조회
+ */
+export type DriftTier = 'NORMAL' | 'WARN' | 'INVALID' | 'CORPORATE_ACTION';
+
+/** ADR-0113 임계값 SSOT. classifyDriftTier 가 단일 진실. */
+export const DRIFT_TIER_THRESHOLDS = {
+  NORMAL_MAX: 25,
+  WARN_MAX: 60,
+  INVALID_MAX: 150,
+  CORPORATE_ACTION_MIN: 150,
+} as const;
+
+/** drift 절대값 → tier 분류 SSOT (NaN/Infinity → CORPORATE_ACTION 보수적). */
+export function classifyDriftTier(absDriftPct: number): DriftTier {
+  if (!Number.isFinite(absDriftPct)) return 'CORPORATE_ACTION';
+  if (absDriftPct < DRIFT_TIER_THRESHOLDS.NORMAL_MAX) return 'NORMAL';
+  if (absDriftPct < DRIFT_TIER_THRESHOLDS.WARN_MAX) return 'WARN';
+  if (absDriftPct < DRIFT_TIER_THRESHOLDS.INVALID_MAX) return 'INVALID';
+  return 'CORPORATE_ACTION';
+}
+
+/** ADR-0113 ENV 우회 — true 시 4단계 분기 비활성, 기존 단일 ±90% bound 복원. */
+export function isDriftTieredSanityDisabled(): boolean {
+  return process.env.DRIFT_TIERED_SANITY_DISABLED === 'true';
+}
 
 export interface SafePctChangeResult {
   /** sanity 통과 시 계산값, 실패 시 0 (호출자가 .valid 검사 후 사용 결정). */
@@ -309,6 +342,11 @@ export interface SafePctChangeResult {
   valid: boolean;
   /** 분기 이유 — 운영자 진단 + 호출자 분기 키. */
   reason: SafePctChangeReason;
+  /**
+   * ADR-0113 drift tier (옵셔널 — 후방호환).
+   * NORMAL → 정상 / WARN → 진단 마커 / INVALID → KIS 폴백 / CORPORATE_ACTION → 워치리스트 격리.
+   */
+  tier?: DriftTier;
 }
 
 /**
@@ -369,9 +407,84 @@ export function safePctChangeDetailed(
     return { value: 0, valid: false, reason: 'INVALID_PRICE' };
   }
 
-  // 3. Sanity bound — 사용자 패치 §"STALE_BASE_OR_SPLIT_ADJUSTMENT"
+  // 3. Sanity bound — 4단계 tier (ADR-0113) + 후방호환 분기
+  // 호출자가 sanityBoundPct override 명시 (예: sectorEnergyProvider ±1000%) /
+  // mode 명시 (yahooQuoteAdapter DAILY/RECOMMENDATION_RETURN) /
+  // ENV DRIFT_TIERED_SANITY_DISABLED → 기존 단일 임계 bound 사용.
+  // mode 명시는 호출자가 *목적별 stale 임계* 를 의도적으로 지정한 것이므로 존중.
+  // ADR-0113 4단계 분기는 mode 미명시 + sanityBoundPct 미명시 raw 호출자에만 적용.
+  const overrideBound = typeof opts.sanityBoundPct === 'number' && Number.isFinite(opts.sanityBoundPct);
+  const modeSpecified = opts.mode !== undefined;
+  const tieredEnabled = !overrideBound && !modeSpecified && !isDriftTieredSanityDisabled();
   const bound = resolveSanityBound(opts);
-  if (Math.abs(pct) > bound) {
+  const absPct = Math.abs(pct);
+
+  if (tieredEnabled) {
+    const tier = classifyDriftTier(absPct);
+    if (tier === 'CORPORATE_ACTION') {
+      // > 150% — 분할/병합/권리락 강제 의심. 워치리스트 격리 + DART 조회 권고.
+      if (!opts.silent) {
+        const label = opts.label ?? 'unknown';
+        const corpLabel = `${label}:CORPORATE_ACTION`;
+        const now = Date.now();
+        const last = _lastWarnAt.get(corpLabel) ?? 0;
+        if (now - last >= LOG_THROTTLE_MS) {
+          _lastWarnAt.set(corpLabel, now);
+          const baseDetail = isPriceBase
+            ? `(current=${current}, base=${baseValue}@${base.asOf} src=${base.source})`
+            : `(current=${current}, base=${baseValue})`;
+          console.warn(
+            `[safePctChangeDetailed] CORPORATE_ACTION_SUSPECTED @${label} — ` +
+            `|${pct.toFixed(2)}%| > ${DRIFT_TIER_THRESHOLDS.CORPORATE_ACTION_MIN}% ${baseDetail}. ` +
+            `워치리스트 자동 격리 + DART 공시 조회 권고 (분할/병합/권리락 의심).`,
+          );
+        }
+      }
+      return { value: 0, valid: false, reason: 'CORPORATE_ACTION_SUSPECTED', tier };
+    }
+    if (tier === 'INVALID') {
+      // 60~150% — 기존 STALE_BASE 처리
+      if (!opts.silent) {
+        const label = opts.label ?? 'unknown';
+        const now = Date.now();
+        const last = _lastWarnAt.get(label) ?? 0;
+        if (now - last >= LOG_THROTTLE_MS) {
+          _lastWarnAt.set(label, now);
+          const baseDetail = isPriceBase
+            ? `(current=${current}, base=${baseValue}@${base.asOf} src=${base.source})`
+            : `(current=${current}, base=${baseValue})`;
+          console.warn(
+            `[safePctChangeDetailed] STALE_BASE_OR_SPLIT_ADJUSTMENT @${label} — ` +
+            `|${pct.toFixed(2)}%| > ${DRIFT_TIER_THRESHOLDS.WARN_MAX}% ${baseDetail}. ` +
+            `Yahoo 등락률 폐기 권고 — KIS 폴백 또는 종목 감점/제외 필수.`,
+          );
+        }
+      }
+      return { value: 0, valid: false, reason: 'STALE_BASE_OR_SPLIT_ADJUSTMENT', tier };
+    }
+    if (tier === 'WARN') {
+      // 25~60% — value 유효하지만 진단 마커. 기존 호출자 영향 없음 (valid=true).
+      if (!opts.silent) {
+        const label = opts.label ?? 'unknown';
+        const warnLabel = `${label}:WARN_DRIFT`;
+        const now = Date.now();
+        const last = _lastWarnAt.get(warnLabel) ?? 0;
+        if (now - last >= LOG_THROTTLE_MS) {
+          _lastWarnAt.set(warnLabel, now);
+          console.warn(
+            `[safePctChangeDetailed] WARN_DRIFT @${label} — |${pct.toFixed(2)}%| in ` +
+            `${DRIFT_TIER_THRESHOLDS.NORMAL_MAX}~${DRIFT_TIER_THRESHOLDS.WARN_MAX}%.`,
+          );
+        }
+      }
+      return { value: pct, valid: true, reason: 'OK', tier };
+    }
+    // NORMAL → 정상 통과
+    return { value: pct, valid: true, reason: 'OK', tier };
+  }
+
+  // 후방호환: override sanityBoundPct 명시 또는 ENV 우회 시 기존 단일 임계.
+  if (absPct > bound) {
     if (!opts.silent) {
       const label = opts.label ?? 'unknown';
       const now = Date.now();
