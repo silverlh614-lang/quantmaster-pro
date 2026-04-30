@@ -1,13 +1,14 @@
 // @responsibility fillMonitor 매매 엔진 모듈
 import fs from 'fs';
 import { PENDING_ORDERS_FILE, PENDING_SELL_ORDERS_FILE, ensureDataDir } from '../persistence/paths.js';
-import { loadShadowTrades, saveShadowTrades, appendFill, syncPositionCache, getRemainingQty, revertProvisionalFill } from '../persistence/shadowTradeRepo.js';
+import { loadShadowTrades, saveShadowTrades, appendFill, syncPositionCache, getRemainingQty, getWeightedPnlPct, revertProvisionalFill } from '../persistence/shadowTradeRepo.js';
 import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL, SELL_TR_ID } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelBuyFilled } from '../alerts/channelPipeline.js';
 import { registerOcoPair } from './ocoCloseLoop.js';
 import { appendTradeEvent } from './tradeEventLog.js';
 import { safePctChange } from '../utils/safePctChange.js';
+import { emitFullCloseAttributionForExit } from './exitEngine/helpers/attribution.js';
 
 const FILL_POLL_MAX = 10; // 최대 폴링 횟수 (cron 5분 간격 × 10 = 최대 50분 모니터링)
 
@@ -450,6 +451,22 @@ function correctShadowFill(
   // 저장 성공 후에만 사용자 가시 로그 방출 — 실패 시 "자동 닫힘" 오보를 막는다.
   if (autoClosed) {
     console.log(`[SellFillMonitor] 🏁 자동 닫힘: ${trade.stockCode} 잔량 0 → HIT_STOP`);
+    // PR-Fix-Attribution-FullClose-Followup (ADR-0006) — 누적 부분청산이 잔량 0
+    // 도달한 경로에 FULL_CLOSE attribution baseline 보장. 마지막 부분 fill 의
+    // emitPartialAttributionForSell 가 remainingQty<=0 가드로 null 반환했으므로
+    // 본 분기에서만 baseline 생성 가능. baseline (entryConditionScores) 부재 시
+    // SSOT 가 null 반환 — 학습 오염 차단. try/catch 격리로 매매 흐름 무중단.
+    try {
+      emitFullCloseAttributionForExit({
+        shadow: trade,
+        exitPrice: effectivePrice,
+        returnPct: getWeightedPnlPct(trade),
+        closedAt: trade.exitTime ?? new Date().toISOString(),
+        exitRuleTag: trade.exitRuleTag ?? 'FILL_MONITOR_AUTO_CLOSE',
+      });
+    } catch (e) {
+      console.warn(`[SellFillMonitor] auto-close attribution 영속 실패 ${trade.stockCode}:`, e instanceof Error ? e.message : e);
+    }
   }
   const action = finalize ? '최종 보정' : '중간 보정';
   console.log(`[SellFillMonitor] 🔧 Fill ${action}: ${trade.stockCode} ordNo=${ordNo} qty=${filledQty} @${effectivePrice.toLocaleString()}원 pnl=${fill.pnl?.toFixed(0)}`);
