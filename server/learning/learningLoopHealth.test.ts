@@ -276,6 +276,161 @@ describe('collectLearningLoopHealth', () => {
   });
 });
 
+describe('resolveWindowDays + resolveBiasStatelessThreshold (ADR-0130 옵션 B)', () => {
+  let mod: typeof import('./learningLoopHealth.js');
+  beforeEach(async () => {
+    delete process.env.LEARNING_BIAS_STATELESS_VARIANCE_THRESHOLD;
+    vi.resetModules();
+    mod = await import('./learningLoopHealth.js');
+  });
+  afterEach(() => {
+    delete process.env.LEARNING_BIAS_STATELESS_VARIANCE_THRESHOLD;
+  });
+
+  it('1. resolveWindowDays default — undefined → 7', () => {
+    expect(mod.resolveWindowDays(undefined)).toBe(7);
+  });
+  it('2. resolveWindowDays clamp — 1 → 3 (MIN), 100 → 30 (MAX)', () => {
+    expect(mod.resolveWindowDays(1)).toBe(3);
+    expect(mod.resolveWindowDays(100)).toBe(30);
+  });
+  it('3. resolveWindowDays 정상 범위 통과 — 14 → 14', () => {
+    expect(mod.resolveWindowDays(14)).toBe(14);
+  });
+  it('4. resolveWindowDays 정수화 — 14.7 → 14', () => {
+    expect(mod.resolveWindowDays(14.7)).toBe(14);
+  });
+  it('5. resolveBiasStatelessThreshold default — undefined → 0', () => {
+    expect(mod.resolveBiasStatelessThreshold(undefined)).toBe(0);
+  });
+  it('6. resolveBiasStatelessThreshold ENV 우선 — 0.02 명시 → 0.02', () => {
+    process.env.LEARNING_BIAS_STATELESS_VARIANCE_THRESHOLD = '0.02';
+    expect(mod.resolveBiasStatelessThreshold(0)).toBe(0.02);
+    expect(mod.resolveBiasStatelessThreshold(undefined)).toBe(0.02);
+  });
+  it('7. resolveBiasStatelessThreshold opts 적용 (ENV 부재)', () => {
+    expect(mod.resolveBiasStatelessThreshold(0.05)).toBe(0.05);
+  });
+  it('8. resolveBiasStatelessThreshold 음수 입력 → default 0', () => {
+    expect(mod.resolveBiasStatelessThreshold(-1)).toBe(0);
+  });
+  it('9. resolveBiasStatelessThreshold ENV 잘못된 값 → opts fallback', () => {
+    process.env.LEARNING_BIAS_STATELESS_VARIANCE_THRESHOLD = 'NaN';
+    expect(mod.resolveBiasStatelessThreshold(0.03)).toBe(0.03);
+  });
+});
+
+describe('collectLearningLoopHealth opts (windowDays + biasStatelessVarianceThreshold)', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'llh-opts-'));
+    process.env.PERSIST_DATA_DIR = tmpDir;
+    delete process.env.LEARNING_BIAS_STATELESS_VARIANCE_THRESHOLD;
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    delete process.env.PERSIST_DATA_DIR;
+    delete process.env.LEARNING_BIAS_STATELESS_VARIANCE_THRESHOLD;
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
+  });
+
+  it('1. windowDays opts 미지정 → default 7', async () => {
+    const { collectLearningLoopHealth } = await import('./learningLoopHealth.js');
+    const snap = collectLearningLoopHealth(NOW);
+    expect(snap.windowDays).toBe(7);
+    expect(snap.biasStatelessVarianceThreshold).toBe(0);
+  });
+
+  it('2. windowDays=14 명시 → snapshot 에 14 + clamp 통과', async () => {
+    const { collectLearningLoopHealth } = await import('./learningLoopHealth.js');
+    const snap = collectLearningLoopHealth(NOW, { windowDays: 14 });
+    expect(snap.windowDays).toBe(14);
+  });
+
+  it('3. windowDays=1 → clamp 3 (MIN)', async () => {
+    const { collectLearningLoopHealth } = await import('./learningLoopHealth.js');
+    const snap = collectLearningLoopHealth(NOW, { windowDays: 1 });
+    expect(snap.windowDays).toBe(3);
+  });
+
+  it('4. biasStatelessVarianceThreshold=0.05 → variance ≤ 0.05 인 BiasType statelessCount', async () => {
+    // 7일 다양 narrative + 모든 BiasType 분산 0.01 (작지만 0 아님)
+    const sameNarrative = (d: string) => `${d} 다양 narrative`;
+    for (let i = 0; i < 7; i++) {
+      const date = shiftDate(TODAY, -6 + i);
+      writeReflection(tmpDir, buildReflection(date, { narrative: sameNarrative(date) }));
+    }
+    const heatmap: BiasHeatmapDailyEntry[] = [];
+    for (let i = 0; i < 7; i++) {
+      heatmap.push({
+        date: shiftDate(TODAY, -6 + i),
+        // 0.50, 0.51, 0.50, 0.51 ... 분산 ≈ 0.0003
+        scores: ALL_BIAS_TYPES.map((b) => ({
+          bias: b,
+          score: i % 2 === 0 ? 0.50 : 0.51,
+          evidence: 'tiny',
+        })),
+      });
+    }
+    writeBiasHeatmap(tmpDir, heatmap);
+    const { collectLearningLoopHealth } = await import('./learningLoopHealth.js');
+    // threshold=0 (default) — 분산이 0 보다 크므로 statelessCount 0
+    const strict = collectLearningLoopHealth(NOW);
+    expect(strict.biasScoreVariance7d.statelessCount).toBe(0);
+    // threshold=0.05 → 0.0003 ≤ 0.05 라 모두 stateless
+    const lenient = collectLearningLoopHealth(NOW, { biasStatelessVarianceThreshold: 0.05 });
+    expect(lenient.biasScoreVariance7d.statelessCount).toBe(10);
+    expect(lenient.biasStatelessVarianceThreshold).toBe(0.05);
+  });
+
+  it('5. ENV LEARNING_BIAS_STATELESS_VARIANCE_THRESHOLD 우선 (opts 무시)', async () => {
+    process.env.LEARNING_BIAS_STATELESS_VARIANCE_THRESHOLD = '0.02';
+    const { collectLearningLoopHealth } = await import('./learningLoopHealth.js');
+    const snap = collectLearningLoopHealth(NOW, { biasStatelessVarianceThreshold: 0 });
+    expect(snap.biasStatelessVarianceThreshold).toBe(0.02);
+  });
+
+  it('6. windowDays=14 + 14일 fixture → 14건 narrative samples', async () => {
+    for (let i = 0; i < 14; i++) {
+      const date = shiftDate(TODAY, -13 + i);
+      writeReflection(tmpDir, buildReflection(date, { narrative: `${date} 다양` }));
+    }
+    const { collectLearningLoopHealth } = await import('./learningLoopHealth.js');
+    const snap = collectLearningLoopHealth(NOW, { windowDays: 14 });
+    expect(snap.windowDays).toBe(14);
+    expect(snap.narrativeSimilarity7d.samples).toBeGreaterThanOrEqual(7);
+  });
+});
+
+describe('parseWindowDaysArg (cmd 인자 파싱)', () => {
+  beforeEach(() => vi.resetModules());
+
+  it('1. args 부재 → undefined (cmd default 적용)', async () => {
+    const mod = await import('../telegram/commands/system/learningLoopHealth.cmd.js');
+    expect(mod.parseWindowDaysArg(undefined)).toBeUndefined();
+    expect(mod.parseWindowDaysArg([])).toBeUndefined();
+  });
+
+  it('2. 숫자 인자 → 정수 반환', async () => {
+    const mod = await import('../telegram/commands/system/learningLoopHealth.cmd.js');
+    expect(mod.parseWindowDaysArg(['14'])).toBe(14);
+    expect(mod.parseWindowDaysArg(['7.9'])).toBe(7);
+  });
+
+  it('3. 잘못된 인자 → undefined (cmd default fallback)', async () => {
+    const mod = await import('../telegram/commands/system/learningLoopHealth.cmd.js');
+    expect(mod.parseWindowDaysArg(['abc'])).toBeUndefined();
+  });
+
+  it('4. clamp 는 cmd 가 안 함 — collectLearningLoopHealth 위임', async () => {
+    const mod = await import('../telegram/commands/system/learningLoopHealth.cmd.js');
+    // 100 입력해도 cmd 는 100 그대로 — 내부 resolveWindowDays 가 clamp
+    expect(mod.parseWindowDaysArg(['100'])).toBe(100);
+  });
+});
+
 describe('formatLearningLoopHealthMessage', () => {
   let tmpDir: string;
   beforeEach(() => {

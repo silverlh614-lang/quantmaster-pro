@@ -24,6 +24,10 @@ export type LearningLoopVerdict = 'HEALTHY' | 'DEGRADED' | 'STATELESS' | 'INSUFF
 
 export interface LearningLoopHealthSnapshot {
   capturedAt: string;
+  /** 진단 윈도우 (일) — opts.windowDays 정규화 결과. default 7. */
+  windowDays: number;
+  /** Bias variance ≤ 이 임계 시 stateless 카운트 (default 0). ENV/opts override. */
+  biasStatelessVarianceThreshold: number;
   narrativeSimilarity7d: {
     samples: number;
     avgSimilarity: number;
@@ -69,7 +73,7 @@ export interface LearningLoopHealthSnapshot {
 const CONSTANTS = {
   /** narrativeSimilarity 평균이 이 이상이면 STATELESS */
   NARRATIVE_SIMILARITY_STATELESS_THRESHOLD: 0.7,
-  /** statelessCount (variance == 0 인 BiasType 수) 이 이상이면 STATELESS */
+  /** statelessCount (variance ≤ threshold 인 BiasType 수) 이 이상이면 STATELESS */
   BIAS_VARIANCE_STATELESS_COUNT_THRESHOLD: 5,
   /** tomorrow ↔ narrative 첫 문장 Jaccard 유사도 이 이상이면 identical */
   TOMORROW_OVERLAP_IDENTICAL_THRESHOLD: 0.85,
@@ -77,11 +81,45 @@ const CONSTANTS = {
   TOMORROW_OVERLAP_RATIO_THRESHOLD: 0.7,
   /** Reflection 수가 이 미만이면 INSUFFICIENT_DATA */
   MIN_SAMPLES_FOR_VERDICT: 3,
-  /** 진단 윈도우 (일) */
-  WINDOW_DAYS: 7,
+  /** 진단 윈도우 default (일) — opts.windowDays 미지정 시 사용 */
+  DEFAULT_WINDOW_DAYS: 7,
+  /** 윈도우 인자 clamp 범위 (사용자 N 입력 정규화) */
+  MIN_WINDOW_DAYS: 3,
+  MAX_WINDOW_DAYS: 30,
+  /** biasStatelessVarianceThreshold default — 0 (정확 stateless 만). ENV/opts 로 0.02 같은 관대 임계 가능. */
+  DEFAULT_BIAS_STATELESS_VARIANCE_THRESHOLD: 0,
 } as const;
 
 export const LEARNING_LOOP_HEALTH_CONSTANTS = CONSTANTS;
+
+/** 옵셔널 진단 옵션 — windowDays 인자 + 분산 임계 ENV 우회 (사용자 두 번째 진단 요청 흡수) */
+export interface LearningLoopHealthOptions {
+  /** 진단 윈도우 (일). default 7. clamp 3~30. */
+  windowDays?: number;
+  /** BiasType variance ≤ threshold 시 stateless 카운트. default 0 (정확 일치). ENV LEARNING_BIAS_STATELESS_VARIANCE_THRESHOLD 우선. */
+  biasStatelessVarianceThreshold?: number;
+}
+
+export function resolveWindowDays(input?: number): number {
+  if (input === undefined || !Number.isFinite(input)) return CONSTANTS.DEFAULT_WINDOW_DAYS;
+  return Math.max(
+    CONSTANTS.MIN_WINDOW_DAYS,
+    Math.min(CONSTANTS.MAX_WINDOW_DAYS, Math.floor(input as number)),
+  );
+}
+
+export function resolveBiasStatelessThreshold(input?: number): number {
+  // ENV 우선 (운영 환경 주입 가능 — 0.02 권장)
+  const envRaw = process.env.LEARNING_BIAS_STATELESS_VARIANCE_THRESHOLD;
+  if (envRaw !== undefined && envRaw !== '') {
+    const envParsed = Number(envRaw);
+    if (Number.isFinite(envParsed) && envParsed >= 0) return envParsed;
+  }
+  if (input !== undefined && Number.isFinite(input) && (input as number) >= 0) {
+    return input as number;
+  }
+  return CONSTANTS.DEFAULT_BIAS_STATELESS_VARIANCE_THRESHOLD;
+}
 
 // ── Jaccard 유사도 ─────────────────────────────────────────────────────────────
 
@@ -145,8 +183,10 @@ function computeNarrativeSimilarity7d(
 
 function computeBiasScoreVariance7d(
   now: Date,
+  windowDays: number,
+  varianceThreshold: number,
 ): LearningLoopHealthSnapshot['biasScoreVariance7d'] {
-  const cutoffMs = now.getTime() - CONSTANTS.WINDOW_DAYS * 24 * 3600 * 1000;
+  const cutoffMs = now.getTime() - windowDays * 24 * 3600 * 1000;
   const entries = loadBiasHeatmap().filter((e) => {
     const t = new Date(e.date + 'T00:00:00Z').getTime();
     return Number.isFinite(t) && t >= cutoffMs;
@@ -171,7 +211,7 @@ function computeBiasScoreVariance7d(
   for (const [bias, values] of byBias) {
     const variance = computeVariance(values);
     avgVariancePerBias[bias] = variance;
-    if (variance === 0) statelessCount++;
+    if (variance <= varianceThreshold) statelessCount++;
   }
   const verdict =
     statelessCount >= CONSTANTS.BIAS_VARIANCE_STATELESS_COUNT_THRESHOLD
@@ -253,7 +293,7 @@ function composeOverallVerdict(
   if (totalReflections < CONSTANTS.MIN_SAMPLES_FOR_VERDICT) {
     return {
       verdict: 'INSUFFICIENT_DATA',
-      warnings: [`최근 ${CONSTANTS.WINDOW_DAYS}일 reflection 부족 (${totalReflections}건 < ${CONSTANTS.MIN_SAMPLES_FOR_VERDICT})`],
+      warnings: [`최근 ${partial.windowDays}일 reflection 부족 (${totalReflections}건 < ${CONSTANTS.MIN_SAMPLES_FOR_VERDICT})`],
     };
   }
   const narrativeStateless = partial.narrativeSimilarity7d.verdict === 'STATELESS';
@@ -290,16 +330,23 @@ function composeOverallVerdict(
 
 // ── 진입점 ──────────────────────────────────────────────────────────────────────
 
-export function collectLearningLoopHealth(now: Date = new Date()): LearningLoopHealthSnapshot {
-  const reports = loadRecentReflections(CONSTANTS.WINDOW_DAYS);
+export function collectLearningLoopHealth(
+  now: Date = new Date(),
+  opts: LearningLoopHealthOptions = {},
+): LearningLoopHealthSnapshot {
+  const windowDays = resolveWindowDays(opts.windowDays);
+  const biasStatelessVarianceThreshold = resolveBiasStatelessThreshold(opts.biasStatelessVarianceThreshold);
+  const reports = loadRecentReflections(windowDays);
   const narrativeSimilarity7d = computeNarrativeSimilarity7d(reports);
-  const biasScoreVariance7d = computeBiasScoreVariance7d(now);
+  const biasScoreVariance7d = computeBiasScoreVariance7d(now, windowDays, biasStatelessVarianceThreshold);
   const failurePatternIngestion = computeFailurePatternIngestion();
   const reflectionImpactPhase = computeReflectionImpactPhase();
   const tomorrowVsNarrativeOverlap7d = computeTomorrowVsNarrativeOverlap7d(reports);
   const signalScannerWeightLastUpdate = computeSignalScannerWeightLastUpdate();
   const silentVerdictRatio7d = computeSilentVerdictRatio7d(reports);
   const partial = {
+    windowDays,
+    biasStatelessVarianceThreshold,
     narrativeSimilarity7d,
     biasScoreVariance7d,
     failurePatternIngestion,
@@ -328,16 +375,19 @@ const VERDICT_EMOJI: Record<LearningLoopVerdict, string> = {
 
 export function formatLearningLoopHealthMessage(snap: LearningLoopHealthSnapshot): string {
   const emoji = VERDICT_EMOJI[snap.overallVerdict];
+  const win = snap.windowDays;
+  const thr = snap.biasStatelessVarianceThreshold;
+  const thrLabel = thr > 0 ? `≤${thr}` : '=0';
   const lines: string[] = [
-    `🩺 <b>자기학습 루프 헬스</b> ${emoji} ${snap.overallVerdict}`,
+    `🩺 <b>자기학습 루프 헬스</b> ${emoji} ${snap.overallVerdict} (윈도우 ${win}일)`,
     '',
-    `📝 narrative 유사도 7d: ${(snap.narrativeSimilarity7d.avgSimilarity * 100).toFixed(0)}% (${snap.narrativeSimilarity7d.verdict}, ${snap.narrativeSimilarity7d.samples}건)`,
-    `📊 biasHeatmap variance 7d: ${snap.biasScoreVariance7d.statelessCount}개 BiasType variance=0 (${snap.biasScoreVariance7d.verdict}, ${snap.biasScoreVariance7d.samples}일)`,
+    `📝 narrative 유사도 ${win}d: ${(snap.narrativeSimilarity7d.avgSimilarity * 100).toFixed(0)}% (${snap.narrativeSimilarity7d.verdict}, ${snap.narrativeSimilarity7d.samples}건)`,
+    `📊 biasHeatmap variance ${win}d: ${snap.biasScoreVariance7d.statelessCount}개 BiasType variance${thrLabel} (${snap.biasScoreVariance7d.verdict}, ${snap.biasScoreVariance7d.samples}일)`,
     `🚨 failurePattern: 활성 ${snap.failurePatternIngestion.activePatterns}건 / reflection 주입: ${snap.failurePatternIngestion.ingestedToReflection ? '✅' : '❌'}`,
     `🔁 reflectionImpact Phase: 1=${snap.reflectionImpactPhase.phase1Active ? '✅' : '❌'} 2=${snap.reflectionImpactPhase.phase2Active ? '✅' : '❌'}`,
-    `📋 tomorrow ↔ narrative 첫 문장 일치 7d: ${(snap.tomorrowVsNarrativeOverlap7d.ratio * 100).toFixed(0)}% (${snap.tomorrowVsNarrativeOverlap7d.verdict}, ${snap.tomorrowVsNarrativeOverlap7d.identicalCount}/${snap.tomorrowVsNarrativeOverlap7d.samples}건)`,
+    `📋 tomorrow ↔ narrative 첫 문장 일치 ${win}d: ${(snap.tomorrowVsNarrativeOverlap7d.ratio * 100).toFixed(0)}% (${snap.tomorrowVsNarrativeOverlap7d.verdict}, ${snap.tomorrowVsNarrativeOverlap7d.identicalCount}/${snap.tomorrowVsNarrativeOverlap7d.samples}건)`,
     `⚙️ signalScanner 가중치 reflection-driven: ${snap.signalScannerWeightLastUpdate.hasReflectionDriven ? '✅' : '❌'}`,
-    `🌙 SILENT 평결 7d: ${(snap.silentVerdictRatio7d.ratio * 100).toFixed(0)}% (${snap.silentVerdictRatio7d.silentCount}/${snap.silentVerdictRatio7d.totalReflections}일)`,
+    `🌙 SILENT 평결 ${win}d: ${(snap.silentVerdictRatio7d.ratio * 100).toFixed(0)}% (${snap.silentVerdictRatio7d.silentCount}/${snap.silentVerdictRatio7d.totalReflections}일)`,
   ];
   if (snap.warnings.length > 0) {
     lines.push('', '⚠️ <b>경고</b>:');
