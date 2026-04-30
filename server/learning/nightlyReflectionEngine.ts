@@ -66,6 +66,13 @@ import {
   appendBiasHeatmap,
   loadBiasHeatmap,
 } from '../persistence/reflectionRepo.js';
+// ADR-0130 PR-Fix-2: 누적 실패 패턴 active 주입
+import { loadFailurePatterns } from '../persistence/failurePatternRepo.js';
+import type {
+  RecentReflectionContext,
+  ActiveFailurePatternSummary,
+  MainReflectionInputs,
+} from './reflectionModules/mainReflection.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { getGeminiRuntimeState } from '../clients/geminiClient.js';
@@ -426,7 +433,18 @@ export async function runNightlyReflection(
     report = buildTemplateReport(date, mode, inputs, 'TEMPLATE_ONLY');
   } else {
     // ── Gemini 메인 반성 (1 call) ─────────────────────────────────────────
-    const mainInput = {
+    // ADR-0130 PR-Fix-1/2: 누적 컨텍스트 주입 (ENV 우회 2종, default=정책 적용)
+    const recentReflectionsEnabled =
+      process.env.LEARNING_RECENT_REFLECTIONS_DISABLED !== 'true';
+    const failurePatternsEnabled =
+      process.env.LEARNING_FAILURE_PATTERN_INPUT_DISABLED !== 'true';
+    const recentReflections = recentReflectionsEnabled
+      ? buildRecentReflectionContexts(date, 7)
+      : undefined;
+    const activeFailurePatterns = failurePatternsEnabled
+      ? buildActiveFailurePatternSummaries(5)
+      : undefined;
+    const mainInput: MainReflectionInputs = {
       date,
       closedTrades: inputs.closedTrades,
       // PR-16: 부분매도 실현도 Gemini narrative 에 포함해 "이익 실종" 편향 차단.
@@ -434,6 +452,9 @@ export async function runNightlyReflection(
       attributionToday: inputs.attributionToday,
       incidentsToday: inputs.incidentsToday,
       missedSignals: inputs.missedSignals,
+      // ADR-0130: stateless 결함 차단 — Gemini 가 매일 백지 상태 → 7일 누적 컨텍스트 인지.
+      recentReflections,
+      activeFailurePatterns,
     };
     const main = await generateMainReflection(mainInput).catch(() => null);
     trackCall(1500); // 메인 프롬프트 대략치
@@ -730,6 +751,67 @@ function buildPriming(dateKst: string, report: ReflectionReport): TomorrowPrimin
     adjustments: report.tomorrowAdjustments ?? [],
     followUps:   report.followUpActions ?? [],
   };
+}
+
+// ── ADR-0130 PR-Fix-1/2 헬퍼 — 누적 컨텍스트 빌더 ────────────────────────────
+
+/**
+ * 직전 N일 reflection 누적 컨텍스트 빌드 (PR-Fix-1).
+ * loadRecentReflections(N) + loadBiasHeatmap() 를 결합해 RecentReflectionContext[] 반환.
+ * 부재 일자는 자동 skip — 신규 사용자 환경 graceful (빈 배열 → narrative 섹션 미렌더).
+ */
+export function buildRecentReflectionContexts(
+  currentDate: string,
+  days: number,
+): RecentReflectionContext[] {
+  const reports = loadRecentReflections(days);
+  const biasMap = new Map<string, ReturnType<typeof loadBiasHeatmap>[number]>();
+  for (const e of loadBiasHeatmap()) biasMap.set(e.date, e);
+  return reports
+    .filter((r) => r.date < currentDate)
+    .map((r) => {
+      const biasEntry = biasMap.get(r.date);
+      const biasTop3 = (biasEntry?.scores ?? [])
+        .slice()
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map((s) => ({ bias: s.bias, score: s.score }));
+      const narrativeFirstSentence = r.narrative
+        ?.split(/[.。\n]/)[0]
+        ?.trim()
+        ?.slice(0, 200);
+      return {
+        date: r.date,
+        verdict: r.dailyVerdict,
+        keyLessonsCount: r.keyLessons.length,
+        tomorrowAdjustments: (r.tomorrowAdjustments ?? []).map((c) => c.text).slice(0, 3),
+        biasTop3,
+        narrativeFirstSentence,
+      };
+    });
+}
+
+/**
+ * 활성 실패 패턴 Top N 빌드 (PR-Fix-2). loadFailurePatterns() (TTL 180일 자동 필터)
+ * 결과를 exitDate 내림차순 정렬 + Top N 절삭. 코사인 유사도 매칭은 호출자 (signalScanner)
+ * 책임 — 본 빌더는 narrative 입력용 단순 요약.
+ */
+export function buildActiveFailurePatternSummaries(topN: number): ActiveFailurePatternSummary[] {
+  const patterns = loadFailurePatterns();
+  return patterns
+    .slice()
+    .sort((a, b) => b.exitDate.localeCompare(a.exitDate))
+    .slice(0, Math.max(0, topN))
+    .map((p) => ({
+      id: p.id,
+      stockName: p.stockName,
+      stockCode: p.stockCode,
+      exitDate: p.exitDate.slice(0, 10),
+      returnPct: p.returnPct,
+      gate2PassCount: p.gate2PassCount ?? null,
+      marketRegime: p.marketRegime ?? null,
+      sector: p.sector ?? null,
+    }));
 }
 
 // 테스트용 export — 내부 유틸 접근.

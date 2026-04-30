@@ -12,6 +12,7 @@ import type {
   ReflectionMode,
   TraceableClaim,
   ReflectionReport,
+  BiasType,
 } from '../reflectionTypes.js';
 import {
   getWeightedPnlPct,
@@ -21,6 +22,38 @@ import {
 } from '../../persistence/shadowTradeRepo.js';
 import type { IncidentEntry } from '../../persistence/incidentLogRepo.js';
 import type { ServerAttributionRecord } from '../../persistence/attributionRepo.js';
+
+/**
+ * ADR-0130 PR-Fix-1: 직전 N일 reflection 누적 컨텍스트 — Gemini 가 매일 백지 상태에서
+ * 오늘만 보는 stateless 결함을 차단하기 위한 입력 채널.
+ */
+export interface RecentReflectionContext {
+  date: string;
+  verdict: DailyVerdict;
+  keyLessonsCount: number;
+  /** 직전 일자 "내일 조정" 텍스트 배열 (sourceIds 제외 — 토큰 절약) */
+  tomorrowAdjustments: string[];
+  /** 점수 내림차순 Top 3 */
+  biasTop3: Array<{ bias: BiasType; score: number }>;
+  /** narrative 첫 문장 (200자 상한, 누락 가능) */
+  narrativeFirstSentence?: string;
+}
+
+/**
+ * ADR-0130 PR-Fix-2: 활성 실패 패턴 요약 — TTL 180일 내 손절 패턴이 누적 active 임을
+ * Gemini 가 매일 인지하도록 narrative input 에 주입.
+ */
+export interface ActiveFailurePatternSummary {
+  id: string;
+  stockName: string;
+  stockCode: string;
+  exitDate: string;
+  /** 음수 — 손실률 */
+  returnPct: number;
+  gate2PassCount?: number | null;
+  marketRegime?: string | null;
+  sector?: string | null;
+}
 
 export interface MainReflectionInputs {
   date: string;                 // YYYY-MM-DD KST
@@ -36,6 +69,10 @@ export interface MainReflectionInputs {
   attributionToday: ServerAttributionRecord[];
   incidentsToday: IncidentEntry[];
   missedSignals: Array<{ stockCode: string; reason: string }>;
+  /** ADR-0130 PR-Fix-1: 직전 7일 누적 컨텍스트 (옵셔널 — 후방호환) */
+  recentReflections?: RecentReflectionContext[];
+  /** ADR-0130 PR-Fix-2: 활성 실패 패턴 Top N (옵셔널 — 후방호환) */
+  activeFailurePatterns?: ActiveFailurePatternSummary[];
 }
 
 const SCHEMA_HINT = `
@@ -60,8 +97,12 @@ const SCHEMA_HINT = `
   "손실만 있었다" 고 단정 짓지 말고 각 실현 항목 부호와 가중 P&L 부호를 그대로 따라 서술하라.
 `.trim();
 
-/** 오늘(KST) fill 단위 집계 — closed + partial 을 전부 모은 후 Gemini 가 편향 없이 읽도록 서사화. */
-function formatNarrativeInput(inputs: MainReflectionInputs): string {
+/** 오늘(KST) fill 단위 집계 — closed + partial 을 전부 모은 후 Gemini 가 편향 없이 읽도록 서사화.
+ *
+ * ADR-0130 PR-Fix-1/2: recentReflections + activeFailurePatterns 옵셔널 입력을 narrative
+ * 끝부분에 별도 섹션으로 추가한다. export 는 단위 테스트용 — 실제 호출은 generateMainReflection 만.
+ */
+export function formatNarrativeInput(inputs: MainReflectionInputs): string {
   const partial = inputs.partialRealizationsToday ?? [];
 
   // 전량 청산 trade 의 오늘자 sell fill 합계 (보통 1건, 트랜치 여러 개일 수 있음).
@@ -119,6 +160,57 @@ function formatNarrativeInput(inputs: MainReflectionInputs): string {
     `- [놓침:${m.stockCode}] ${m.reason}`,
   );
 
+  // ADR-0130 PR-Fix-1: 직전 7일 누적 컨텍스트 + 어제 약속 평가 요청
+  const recent = inputs.recentReflections ?? [];
+  const recentLines: string[] = [];
+  let yesterdayPromptLines: string[] = [];
+  if (recent.length > 0) {
+    recentLines.push('', `📅 직전 ${recent.length}일 자기반성 누적 컨텍스트:`);
+    for (const r of recent) {
+      const verdictEmoji =
+        r.verdict === 'GOOD_DAY' ? '✅' :
+        r.verdict === 'BAD_DAY' ? '❌' :
+        r.verdict === 'MIXED' ? '⚖️' : '🌙';
+      const tomorrowFirst = r.tomorrowAdjustments[0]
+        ? `내일조정: "${r.tomorrowAdjustments[0].slice(0, 80)}"`
+        : '내일조정 없음';
+      const biasStr =
+        r.biasTop3.length > 0
+          ? r.biasTop3.map((b) => `${b.bias} ${b.score.toFixed(2)}`).join(' / ')
+          : '편향 없음';
+      recentLines.push(
+        `- ${r.date} ${verdictEmoji} ${r.verdict} · 교훈 ${r.keyLessonsCount}건 · ${tomorrowFirst} · 편향TOP3: ${biasStr}`,
+      );
+    }
+    // 어제 약속 평가 요청 — 가장 최신 (recent[recent.length-1]) tomorrowAdjustments
+    const yesterday = recent[recent.length - 1];
+    if (yesterday && yesterday.tomorrowAdjustments.length > 0) {
+      const promises = yesterday.tomorrowAdjustments.slice(0, 3).map((t) => `"${t.slice(0, 100)}"`).join('; ');
+      yesterdayPromptLines = [
+        '',
+        `❓ 어제(${yesterday.date}) 너는 다음과 같이 조정한다고 했다: ${promises}`,
+        '   그것이 *오늘* 적용되었는가? narrative 에서 어제 약속의 결과도 함께 평가하라.',
+      ];
+    }
+  }
+
+  // ADR-0130 PR-Fix-2: 누적 실패 패턴 active (TTL 180일)
+  const activePatterns = inputs.activeFailurePatterns ?? [];
+  const failurePatternLines: string[] = [];
+  if (activePatterns.length > 0) {
+    failurePatternLines.push('', `🚨 누적 실패 패턴 ${activePatterns.length}건 active (최근 180일):`);
+    for (const p of activePatterns) {
+      const ctxParts: string[] = [];
+      if (p.gate2PassCount != null) ctxParts.push(`Gate2 ${p.gate2PassCount}/12`);
+      if (p.sector) ctxParts.push(p.sector);
+      if (p.marketRegime) ctxParts.push(p.marketRegime);
+      const ctx = ctxParts.length > 0 ? ` [${ctxParts.join(' / ')}]` : '';
+      failurePatternLines.push(
+        `- [패턴:${p.id}] ${p.stockName}(${p.stockCode}) ${p.returnPct.toFixed(1)}% @ ${p.exitDate}${ctx}`,
+      );
+    }
+  }
+
   return [
     `## 오늘의 서사 (${inputs.date} KST)`,
     '',
@@ -135,6 +227,9 @@ function formatNarrativeInput(inputs: MainReflectionInputs): string {
     ...partialLines,
     ...incidentLines,
     ...missedLines,
+    ...recentLines,
+    ...yesterdayPromptLines,
+    ...failurePatternLines,
   ].join('\n');
 }
 
