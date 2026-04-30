@@ -283,6 +283,13 @@ export const MARKET_INDICATORS_SNAPSHOT_FILE = path.join(DATA_DIR, 'market-indic
  * FIFO 1000건 trim, atomic write (tmp → rename).
  */
 export const TRADE_SIGNAL_STATUS_FILE = path.join(DATA_DIR, 'trade-signal-status.json');
+/**
+ * Data Verification Queue 영속 (ADR-0128).
+ * batch + incremental 검증 실패 누적을 종목별로 누적해 3회+ 시 manual review queue
+ * 에 격상. retry backoff (1·2회 +24h, 3회+ 수동 검토 대기) + atomic write tmp→rename
+ * + FIFO trim 500. ENV `VERIFICATION_QUEUE_DISABLED=true` 시 record* no-op.
+ */
+export const VERIFICATION_QUEUE_FILE = path.join(DATA_DIR, 'verification-queue.json');
 
 export function ensureReflectionsDir(): void {
   ensureDataDir();
