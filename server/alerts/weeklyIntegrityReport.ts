@@ -66,6 +66,11 @@ export interface WeeklyIntegrityStats {
   /** PR-18: fill SSOT — 이번 주 실현 이벤트(부분매도 포함) 기준 승/손/가중 P&L */
   fillWins: number;
   fillLosses: number;
+  /**
+   * ADR-0124: 본절 fill 수 (-0.5 ≤ pnlPct ≤ +0.5, ADR-0112 정합).
+   * 옵셔널 — 기존 호출자 무영향. BE_CLASSIFICATION_DISABLED=true 시 0.
+   */
+  beFills?: number;
   fillWeightedReturnPct: number;
   fillRealizedKrw: number;
   partialOnlyCount: number;
@@ -122,6 +127,7 @@ export function computeWeeklyIntegrityStats(now: Date = new Date()): WeeklyInteg
     activeCount, winCount, lossCount, winRatePct,
     fillWins: fillAgg.winFills,
     fillLosses: fillAgg.lossFills,
+    beFills: fillAgg.beFills,
     fillWeightedReturnPct: fillAgg.weightedReturnPct,
     fillRealizedKrw: fillAgg.totalRealizedKrw,
     partialOnlyCount: fillAgg.partialOnlyCount,
@@ -170,6 +176,7 @@ export function formatWeeklyIntegrityReport(stats: WeeklyIntegrityStats): string
     ``,
     `<b>실현 이벤트 (부분매도 포함, fill 단위)</b>`,
     `  익 fill: ${stats.fillWins}건 / 손 fill: ${stats.fillLosses}건` +
+      ((stats.beFills ?? 0) > 0 ? ` / 본절 fill: ${stats.beFills}건` : '') +
       (stats.partialOnlyCount > 0 ? ` · 부분매도만 ${stats.partialOnlyCount}건` : ''),
     `  가중 P&L: ${stats.fillWeightedReturnPct >= 0 ? '+' : ''}${stats.fillWeightedReturnPct.toFixed(2)}%` +
       ` · 실현 ${Math.round(stats.fillRealizedKrw).toLocaleString()}원`,
@@ -226,6 +233,7 @@ export function _computeFromShadows(shadows: ServerShadowTrade[], now: Date): We
     winRatePct: closed > 0 ? (winCount / closed) * 100 : 0,
     fillWins: fillAgg.winFills,
     fillLosses: fillAgg.lossFills,
+    beFills: fillAgg.beFills,
     fillWeightedReturnPct: fillAgg.weightedReturnPct,
     fillRealizedKrw: fillAgg.totalRealizedKrw,
     partialOnlyCount: fillAgg.partialOnlyCount,
