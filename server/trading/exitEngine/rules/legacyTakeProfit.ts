@@ -12,6 +12,7 @@ import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeR
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
+import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
 
 export async function legacyTakeProfit(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct } = ctx;
@@ -21,11 +22,13 @@ export async function legacyTakeProfit(ctx: ExitContext): Promise<ExitRuleResult
   const soldQty = shadow.quantity;
   // BUG #7 fix — 전량 청산 전 스냅샷.
   const targetSnapshot = captureFullCloseSnapshot(shadow);
+  // ADR-0112: TARGET_EXIT → 명시 WIN (classifyExitOutcome 우선순위 3).
   updateShadow(shadow, {
     status: 'HIT_TARGET',
     exitPrice: currentPrice,
     exitTime: new Date().toISOString(),
     exitRuleTag: 'TARGET_EXIT',
+    exitOutcome: classifyExitOutcome(returnPct, 'TARGET_EXIT'),
     quantity: 0,
   });
   console.log(`[Shadow Close] TARGET_EXIT — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);

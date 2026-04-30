@@ -330,6 +330,41 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
 
       // ── entryPrice 드리프트 체크: 현재가가 10% 이상 올랐으면 갱신/제거 ─────
       const driftAction = applyEntryPriceDrift(stock, currentPrice);
+      // ADR-0113: drift > 150% 분할/병합/권리락 의심 → entryPrice 자동 재설정.
+      if (driftAction === 'CORPORATE_ACTION') {
+        const oldEntry = stock.entryPrice;
+        const driftPctText = (((currentPrice - oldEntry) / oldEntry) * 100).toFixed(1);
+        stock.entryPrice = currentPrice;
+        stock.corporateActionAdjusted = true;
+        stock.corporateActionAdjustedAt = new Date().toISOString();
+        ctx.mutables.watchlistMutated.value = true;
+        console.warn(
+          `[AutoTrade] 🔧 ${stock.name}(${stock.code}) Corporate Action 의심 ` +
+          `(drift ${driftPctText}%) — entryPrice ${oldEntry.toLocaleString()} → ` +
+          `${currentPrice.toLocaleString()} 자동 보정. DART 조회 권고.`,
+        );
+        // HIGH priority 텔레그램 알림 (24h dedupeKey)
+        try {
+          const { sendTelegramAlert } = await import('../../alerts/telegramClient.js');
+          await sendTelegramAlert(
+            `🔧 <b>[Corporate Action 의심]</b> ${stock.name} (${stock.code})\n` +
+            `━━━━━━━━━━━━━━━━\n` +
+            `• drift: ${driftPctText}% (분할/병합/권리락 추정)\n` +
+            `• entryPrice 자동 보정: ${oldEntry.toLocaleString()} → ${currentPrice.toLocaleString()}\n` +
+            `• 권고: DART 공시 확인 (분할/병합/권리락) 후 워치리스트 검토`,
+            {
+              priority: 'HIGH',
+              dedupeKey: `corp_action:${stock.code}`,
+              cooldownMs: 24 * 60 * 60 * 1000,
+            },
+          ).catch(() => undefined);
+        } catch (e) {
+          console.warn('[CorporateAction] 텔레그램 알림 실패:', e instanceof Error ? e.message : e);
+        }
+        stageLog.drift = 'CORPORATE_ACTION';
+        pushTrace();
+        continue;
+      }
       if (driftAction === 'REMOVE') {
         const driftPct = ((currentPrice - stock.entryPrice) / stock.entryPrice * 100).toFixed(1);
         console.log(

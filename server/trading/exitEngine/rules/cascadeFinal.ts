@@ -14,6 +14,7 @@ import { addSellOrder } from '../../fillMonitor.js';
 import { addToBlacklist } from '../../../persistence/blacklistRepo.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
+import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
 
 export async function cascadeFinal(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct } = ctx;
@@ -24,11 +25,13 @@ export async function cascadeFinal(ctx: ExitContext): Promise<ExitRuleResult> {
   const soldQty = shadow.quantity;
   // BUG #7 fix — 전량 청산 전 스냅샷.
   const cascadeSnapshot = captureFullCloseSnapshot(shadow);
+  // ADR-0112: -25% 이하 cascade 청산은 명백한 LOSS — classifyExitOutcome 으로 정합 영속.
   updateShadow(shadow, {
     status: 'HIT_STOP',
     exitPrice: currentPrice,
     exitTime: new Date().toISOString(),
     exitRuleTag: 'CASCADE_FINAL',
+    exitOutcome: classifyExitOutcome(returnPct, 'CASCADE_FINAL'),
     quantity: 0,
   });
   console.log(`[Shadow Close] CASCADE_FINAL — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);

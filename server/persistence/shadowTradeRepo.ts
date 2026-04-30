@@ -444,6 +444,17 @@ export interface ServerShadowTrade {
    */
   sector?: string;
   status: 'PENDING' | 'ORDER_SUBMITTED' | 'PARTIALLY_FILLED' | 'ACTIVE' | 'REJECTED' | 'HIT_TARGET' | 'HIT_STOP' | 'EUPHORIA_PARTIAL';
+  /**
+   * 청산 결과 분류 (ADR-0112) — WIN/LOSS/BE.
+   * - WIN: returnPct ≥ +1.0% 또는 TARGET_EXIT/EUPHORIA_PARTIAL 류
+   * - LOSS: returnPct < -0.5% (방향 실패)
+   * - BE:   -0.5% ≤ returnPct ≤ +0.5% AND PROFIT_PROTECTION 또는 entry circuit
+   *
+   * status='HIT_STOP' 이라도 exitOutcome='BE' 인 경우 서킷 카운트 제외.
+   * 미설정/undefined 는 LOSS 로 간주(후방 호환).
+   * classifyExitOutcome() SSOT 헬퍼 사용 의무.
+   */
+  exitOutcome?: 'WIN' | 'LOSS' | 'BE';
   exitPrice?: number;
   exitTime?: string;
   returnPct?: number;
@@ -686,10 +697,17 @@ export interface FillRange {
 export interface FillAggregateStats {
   /** 집계에 포함된 fill 수 (SELL·CONFIRMED·비REVERTED) */
   fillCount: number;
-  /** 이익 fill 수 (pnl > 0) */
+  /** 이익 fill 수 (pnlPct ≥ +1.0 — ADR-0112) */
   winFills: number;
-  /** 손실 fill 수 (pnl < 0) */
+  /** 손실 fill 수 (pnlPct < -0.5 — ADR-0112) */
   lossFills: number;
+  /**
+   * 본절 fill 수 (-0.5 ≤ pnlPct ≤ +0.5 — ADR-0112).
+   * 옵셔널 — 기존 호출자 무영향. 신규 호출자는 Win Rate = WIN/(WIN+LOSS) +
+   * Scratch Rate = BE/total 으로 분리 표기 권장.
+   * BE_CLASSIFICATION_DISABLED=true 시 항상 0.
+   */
+  beFills?: number;
   /** fill 에 연관된 고유 trade 수 */
   uniqueTradeCount: number;
   /** 이 기간에 전량 청산된 trade 수 (trade.status === HIT_TARGET|HIT_STOP 그리고 마지막 SELL fill 이 범위 안) */
@@ -722,9 +740,15 @@ export function aggregateFillStats(
   let fillCount = 0;
   let winFills  = 0;
   let lossFills = 0;
+  let beFills   = 0;
   let weightedNum = 0;
   let weightedDen = 0;
   let totalRealizedKrw = 0;
+  // ADR-0112: BE 분류 임계 (classifyFillOutcome SSOT 와 정합)
+  const BE_CLASSIFICATION_DISABLED = process.env.BE_CLASSIFICATION_DISABLED === 'true';
+  const WIN_PCT_MIN = 1.0;
+  const BE_PCT_MIN = -0.5;
+  const BE_PCT_MAX = 0.5;
 
   for (const t of trades) {
     const fills = t.fills ?? [];
@@ -752,11 +776,25 @@ export function aggregateFillStats(
 
     for (const f of candidateSells) {
       fillCount++;
-      if ((f.pnl ?? 0) > 0) winFills++;
-      else if ((f.pnl ?? 0) < 0) lossFills++;
-      weightedNum += (f.pnlPct ?? 0) * f.qty;
+      const pnl = f.pnl ?? 0;
+      const pnlPct = f.pnlPct ?? 0;
+      // ADR-0112: WIN/LOSS/BE 3-way 분류 (BE_CLASSIFICATION_DISABLED 시 기존 2-way)
+      if (BE_CLASSIFICATION_DISABLED) {
+        if (pnl > 0) winFills++;
+        else if (pnl < 0) lossFills++;
+      } else if (Number.isFinite(pnlPct) && pnlPct >= WIN_PCT_MIN) {
+        winFills++;
+      } else if (Number.isFinite(pnlPct) && pnlPct >= BE_PCT_MIN && pnlPct <= BE_PCT_MAX) {
+        beFills++;
+      } else if (pnl < 0 || pnlPct < BE_PCT_MIN) {
+        lossFills++;
+      } else {
+        // +0.5 < pnlPct < +1.0 보수적 fallback (또는 NaN) → LOSS
+        lossFills++;
+      }
+      weightedNum += pnlPct * f.qty;
       weightedDen += f.qty;
-      totalRealizedKrw += f.pnl ?? 0;
+      totalRealizedKrw += pnl;
     }
   }
 
@@ -764,6 +802,7 @@ export function aggregateFillStats(
     fillCount,
     winFills,
     lossFills,
+    beFills: BE_CLASSIFICATION_DISABLED ? 0 : beFills,
     uniqueTradeCount: tradeIdsInRange.size,
     fullClosedCount: fullClosedIds.size,
     partialOnlyCount: partialOnlyIds.size,
