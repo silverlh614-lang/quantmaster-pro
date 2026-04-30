@@ -135,6 +135,11 @@ export interface WeeklySelfCritiqueInputs {
     fillCount: number;
     winFills: number;
     lossFills: number;
+    /**
+     * ADR-0124: 본절 fill 수 (-0.5 ≤ pnlPct ≤ +0.5, ADR-0112 정합).
+     * 옵셔널 — 기존 호출자 무영향. BE_CLASSIFICATION_DISABLED=true 시 0.
+     */
+    beFills?: number;
     weightedReturnPct: number;
     totalRealizedKrw: number;
     fullClosedCount: number;
@@ -162,9 +167,12 @@ export function formatWeeklySelfCritique(inputs: WeeklySelfCritiqueInputs, now: 
   });
 
   const fs = inputs.fillStats;
+  const beFills = fs.beFills ?? 0;
   const tradesLine = fs.fillCount === 0
     ? '실현 fill 없음 (이번 주 매매 없음 또는 청산 없음)'
-    : `실현 fill: ${fs.fillCount}건 (승 ${fs.winFills} / 패 ${fs.lossFills}) | 가중 P&L: ${fmtPctSigned(fs.weightedReturnPct)} | 실현: ${fmtKrw(fs.totalRealizedKrw)}원`;
+    : `실현 fill: ${fs.fillCount}건 (승 ${fs.winFills} / 패 ${fs.lossFills}` +
+      (beFills > 0 ? ` / 본절 ${beFills}` : '') +
+      `) | 가중 P&L: ${fmtPctSigned(fs.weightedReturnPct)} | 실현: ${fmtKrw(fs.totalRealizedKrw)}원`;
   const partialLine = fs.fillCount === 0
     ? ''
     : `부분익절 ${fs.partialOnlyCount}건 / 전량청산 ${fs.fullClosedCount}건 (총 ${fs.uniqueTradeCount}개 trade)`;
@@ -302,6 +310,7 @@ export async function runWeeklySelfCritique(now: Date = new Date()): Promise<voi
         fillCount: fillStats.fillCount,
         winFills: fillStats.winFills,
         lossFills: fillStats.lossFills,
+        beFills: fillStats.beFills,
         weightedReturnPct: fillStats.weightedReturnPct,
         totalRealizedKrw: fillStats.totalRealizedKrw,
         fullClosedCount: fillStats.fullClosedCount,

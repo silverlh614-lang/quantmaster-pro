@@ -64,6 +64,11 @@ export interface ShadowProgress {
   /** PR-18: fill SSOT — 전체 기간 실현 이벤트(부분매도 포함) */
   fillWins:    number;
   fillLosses:  number;
+  /**
+   * ADR-0124: 본절 fill 수 (-0.5 ≤ pnlPct ≤ +0.5, ADR-0112 정합).
+   * 옵셔널 — 기존 호출자 무영향. BE_CLASSIFICATION_DISABLED=true 시 0.
+   */
+  fillBeFills?: number;
   fillWeightedReturnPct: number;
   fillRealizedKrw: number;
   partialOnlyCount: number;
@@ -119,6 +124,7 @@ export function computeShadowProgress(now: Date = new Date()): ShadowProgress {
     newToday, etaDate, etaDaysRemain,
     fillWins: fillAgg.winFills,
     fillLosses: fillAgg.lossFills,
+    fillBeFills: fillAgg.beFills,
     fillWeightedReturnPct: fillAgg.weightedReturnPct,
     fillRealizedKrw: fillAgg.totalRealizedKrw,
     partialOnlyCount: fillAgg.partialOnlyCount,
@@ -129,8 +135,10 @@ export function formatShadowProgress(p: ShadowProgress): string {
   const closedPct = p.totalClosed > 0
     ? ` (승률 ${p.winRatePct.toFixed(1)}%)`
     : '';
-  const realizedLine = (p.fillWins + p.fillLosses) > 0
+  const beFills = p.fillBeFills ?? 0;
+  const realizedLine = (p.fillWins + p.fillLosses + beFills) > 0
     ? `🎯 실현 fill: ${p.fillWins}익 / ${p.fillLosses}손` +
+      (beFills > 0 ? ` / ${beFills}본절` : '') +
       (p.partialOnlyCount > 0 ? ` · 부분매도만 ${p.partialOnlyCount}건` : '') +
       ` · 가중 P&L ${p.fillWeightedReturnPct >= 0 ? '+' : ''}${p.fillWeightedReturnPct.toFixed(2)}%`
     : '';
@@ -273,6 +281,7 @@ export function _computeProgressFromShadows(
     newToday, etaDate, etaDaysRemain,
     fillWins: fillAgg.winFills,
     fillLosses: fillAgg.lossFills,
+    fillBeFills: fillAgg.beFills,
     fillWeightedReturnPct: fillAgg.weightedReturnPct,
     fillRealizedKrw: fillAgg.totalRealizedKrw,
     partialOnlyCount: fillAgg.partialOnlyCount,
