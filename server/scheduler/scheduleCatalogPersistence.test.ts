@@ -164,7 +164,7 @@ describe('scheduleCatalog JobMetrics persistence (PR-Diag-5 결함 수리)', () 
     expect(getJobMetrics('ghost_portfolio')?.runCount).toBe(1);
   });
 
-  it('8. debounce — 매 record 마다 즉시 디스크 write 안 함 (1초 throttle)', async () => {
+  it('8. debounce — success 빠른 연속 호출 시 즉시 디스크 write 안 함 (30초 throttle)', async () => {
     const { recordScheduleRun, __resetScheduleMetricsForTests } = await import('./scheduleCatalog.js');
     __resetScheduleMetricsForTests();
     // 빠른 연속 호출 (orchestrator_tick 시뮬)
@@ -177,8 +177,71 @@ describe('scheduleCatalog JobMetrics persistence (PR-Diag-5 결함 수리)', () 
         status: 'success',
       });
     }
-    // 즉시는 영속 안 됨 (debounce timer 대기 중)
+    // 즉시는 영속 안 됨 (debounce 30s timer 대기 중)
     expect(fs.existsSync(path.join(tmpDir, 'job-metrics.json'))).toBe(false);
+  });
+
+  it('10. **PR follow-up 핵심** failure → 30s throttle 우회 즉시 저장 (디버깅 우선)', async () => {
+    const { recordScheduleRun, __resetScheduleMetricsForTests } = await import('./scheduleCatalog.js');
+    __resetScheduleMetricsForTests();
+    recordScheduleRun({
+      jobName: 'f2w_reverse_loop',
+      startedAt: '2026-04-30T03:10:00Z',
+      finishedAt: '2026-04-30T03:10:02Z',
+      durationMs: 2000,
+      status: 'failure',
+      note: 'Pearson correlation samples insufficient',
+    });
+    // failure 는 debounce 우회 즉시 디스크 저장
+    const file = path.join(tmpDir, 'job-metrics.json');
+    expect(fs.existsSync(file)).toBe(true);
+    const persisted = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    expect(persisted.f2w_reverse_loop.failCount).toBe(1);
+    expect(persisted.f2w_reverse_loop.lastErrorMessage).toContain('Pearson');
+  });
+
+  it('11. skipped → 30s throttle 적용 (failure 와 분리, 즉시 저장 안 됨)', async () => {
+    const { recordScheduleRun, __resetScheduleMetricsForTests } = await import('./scheduleCatalog.js');
+    __resetScheduleMetricsForTests();
+    recordScheduleRun({
+      jobName: 'ghost_portfolio',
+      startedAt: '2026-05-02T06:40:00Z',
+      finishedAt: '2026-05-02T06:40:00Z',
+      durationMs: 0,
+      status: 'skipped',
+      note: 'WEEKEND',
+    });
+    // skipped 는 throttle 적용 (failure 와 다름) — 즉시 영속 안 됨
+    expect(fs.existsSync(path.join(tmpDir, 'job-metrics.json'))).toBe(false);
+  });
+
+  it('12. success 후 failure 즉시 저장 — 누적 메모리 카운트 모두 영속', async () => {
+    const { recordScheduleRun, __resetScheduleMetricsForTests } = await import('./scheduleCatalog.js');
+    __resetScheduleMetricsForTests();
+    // 1) success 5회 (throttle 대기, 디스크 미저장)
+    for (let i = 0; i < 5; i++) {
+      recordScheduleRun({
+        jobName: 'orchestrator_tick',
+        startedAt: '2026-04-30T06:40:00Z',
+        finishedAt: '2026-04-30T06:40:00.500Z',
+        durationMs: 500,
+        status: 'success',
+      });
+    }
+    expect(fs.existsSync(path.join(tmpDir, 'job-metrics.json'))).toBe(false);
+    // 2) failure 1회 → 즉시 저장 (success 5회 누적 카운트 포함)
+    recordScheduleRun({
+      jobName: 'orchestrator_tick',
+      startedAt: '2026-04-30T06:41:00Z',
+      finishedAt: '2026-04-30T06:41:01Z',
+      durationMs: 1000,
+      status: 'failure',
+      note: 'KIS rate limit',
+    });
+    const persisted = JSON.parse(fs.readFileSync(path.join(tmpDir, 'job-metrics.json'), 'utf-8'));
+    expect(persisted.orchestrator_tick.successCount).toBe(5);
+    expect(persisted.orchestrator_tick.failCount).toBe(1);
+    expect(persisted.orchestrator_tick.runCount).toBe(6);
   });
 
   it('9. __resetScheduleMetricsForTests → 영속 파일도 삭제', async () => {
