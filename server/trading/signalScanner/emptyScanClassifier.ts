@@ -44,11 +44,12 @@ export const EMPTY_SCAN_CLASSIFIER_THRESHOLDS = {
  * 3. macro 차단 → MARKET_WEAK (R6_DEFENSE / Bear / MHS<30 / VIX 게이팅 / FOMC DAY)
  * 4. order 차단 → ORDER_BLOCKED (emergencyStop / !autoTrade / sellOnly / watchlistEmpty / sizingBlocked)
  * 5. dataHold + corpAction ≥ 30% → DATA_INVALID
- * 6. gateFail ≥ 50% → TOO_STRICT
- * 7. preBreakout ≥ 50% → NO_TIMING
- * 8. 그 외 → UNKNOWN
- *
- * NO_LEADERSHIP 은 PR-B 에서 gate1/2 카운터 분리 후 활성.
+ * 6. gate1Pass>0 && gate2Pass=0 → NO_LEADERSHIP (ADR-0120 PR-B 활성)
+ * 7. gate2Pass>0 && gate3Pass=0 → NO_TIMING (ADR-0120 PR-B 활성)
+ * 8. gate3Pass>0 && lastTriggerPass=0 → NO_TIMING (ADR-0120 PR-B 활성)
+ * 9. gateFail ≥ 50% → TOO_STRICT
+ * 10. preBreakout ≥ 50% → NO_TIMING
+ * 11. 그 외 → UNKNOWN
  *
  * @returns null = 분류 대상 아님 (entries > 0) / EmptyScanReason = 분류 결과
  */
@@ -100,7 +101,24 @@ export function classifyEmptyScanReason(summary: ScanSummary | null): EmptyScanR
     }
   }
 
-  // 6. TOO_STRICT — gateFail 50%+ (사용자 R3 시나리오의 가장 유력한 가설)
+  // 6~8. ADR-0120 (PR-B): GatePassDistribution 기반 정밀 분류
+  const gpd = summary.gatePassDistribution;
+  if (gpd) {
+    // 6. NO_LEADERSHIP — Gate 1 통과는 있으나 Gate 2 통과 0 (생존했으나 성장주 부재)
+    if (gpd.gate1Pass > 0 && gpd.gate2Pass === 0) {
+      return 'NO_LEADERSHIP';
+    }
+    // 7. NO_TIMING — Gate 2 통과는 있으나 Gate 3 통과 0 (성장은 있으나 타이밍 부재)
+    if (gpd.gate2Pass > 0 && gpd.gate3Pass === 0) {
+      return 'NO_TIMING';
+    }
+    // 8. NO_TIMING — Gate 3 통과는 있으나 lastTrigger 미발동 (정밀 타이밍은 있으나 트리거 부재)
+    if (gpd.gate3Pass > 0 && gpd.lastTriggerPass === 0) {
+      return 'NO_TIMING';
+    }
+  }
+
+  // 9. TOO_STRICT — gateFail 50%+ (사용자 R3 시나리오의 가장 유력한 가설)
   if (wd && summary.candidates > 0) {
     const gateFailRatio = wd.gateFail / summary.candidates;
     if (gateFailRatio >= EMPTY_SCAN_CLASSIFIER_THRESHOLDS.TOO_STRICT_RATIO) {
@@ -108,7 +126,7 @@ export function classifyEmptyScanReason(summary: ScanSummary | null): EmptyScanR
     }
   }
 
-  // 7. NO_TIMING — preBreakout 50%+
+  // 10. NO_TIMING — preBreakout 50%+
   if (wd && summary.candidates > 0) {
     const preBreakoutRatio = wd.preBreakout / summary.candidates;
     if (preBreakoutRatio >= EMPTY_SCAN_CLASSIFIER_THRESHOLDS.NO_TIMING_RATIO) {
@@ -116,7 +134,7 @@ export function classifyEmptyScanReason(summary: ScanSummary | null): EmptyScanR
     }
   }
 
-  // 8. 분류 불가 fallback
+  // 11. 분류 불가 fallback
   return 'UNKNOWN';
 }
 

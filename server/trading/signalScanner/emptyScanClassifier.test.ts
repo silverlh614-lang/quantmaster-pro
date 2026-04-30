@@ -310,6 +310,69 @@ describe('NO_TIMING — Pre-breakout 미발동 50%+', () => {
   });
 });
 
+describe('ADR-0120 PR-B: NO_LEADERSHIP / NO_TIMING — GatePassDistribution 활성', () => {
+  it('gate1Pass>0 && gate2Pass=0 → NO_LEADERSHIP', () => {
+    const summary = makeSummary({
+      candidates: 10,
+      entries: 0,
+      gatePassDistribution: { gate1Pass: 5, gate2Pass: 0, gate3Pass: 0, lastTriggerPass: 0 },
+    });
+    expect(classifyEmptyScanReason(summary)).toBe('NO_LEADERSHIP');
+  });
+
+  it('gate1Pass>0 && gate2Pass>0 && gate3Pass=0 → NO_TIMING', () => {
+    const summary = makeSummary({
+      candidates: 10,
+      entries: 0,
+      gatePassDistribution: { gate1Pass: 5, gate2Pass: 3, gate3Pass: 0, lastTriggerPass: 0 },
+    });
+    expect(classifyEmptyScanReason(summary)).toBe('NO_TIMING');
+  });
+
+  it('gate3Pass>0 && lastTriggerPass=0 → NO_TIMING', () => {
+    const summary = makeSummary({
+      candidates: 10,
+      entries: 0,
+      gatePassDistribution: { gate1Pass: 5, gate2Pass: 3, gate3Pass: 1, lastTriggerPass: 0 },
+    });
+    expect(classifyEmptyScanReason(summary)).toBe('NO_TIMING');
+  });
+
+  it('gate3Pass>0 && lastTriggerPass>0 (entries=0) → 다른 분기 (UNKNOWN 또는 시장 차단)', () => {
+    // lastTrigger 발동했는데 entries=0 → 주문 단계 차단 가능성. 하지만 본 분류기는
+    // ORDER_BLOCKED 분기는 이미 macro 단계에서 처리. lastTrigger 통과 후 매수 0건은
+    // PR-B scope 외 (orderBlocked 별도 카운터 필요). 현재는 UNKNOWN.
+    const summary = makeSummary({
+      candidates: 10,
+      entries: 0,
+      gatePassDistribution: { gate1Pass: 5, gate2Pass: 3, gate3Pass: 1, lastTriggerPass: 1 },
+    });
+    expect(classifyEmptyScanReason(summary)).toBe('UNKNOWN');
+  });
+
+  it('GatePassDistribution 부재 → 기존 6값 분류 (NO_LEADERSHIP 미진입)', () => {
+    const summary = makeSummary({
+      candidates: 10,
+      entries: 0,
+      gatePassDistribution: undefined,
+      waitDistribution: { ...baseWait, gateFail: 6 },
+    });
+    expect(classifyEmptyScanReason(summary)).toBe('TOO_STRICT');
+  });
+
+  it('R3 사용자 시나리오 — gate1Pass=5 + gate2Pass=0 → NO_LEADERSHIP (TOO_STRICT 보다 우선)', () => {
+    // 사용자 진단 의도: Gate 1 통과는 있으나 Gate 2 미달 = 주도주 부재
+    // gateFail 50%+ 시나리오와 동시 발생 시 NO_LEADERSHIP 우선 (정밀 분류 우선)
+    const summary = makeSummary({
+      candidates: 10,
+      entries: 0,
+      gatePassDistribution: { gate1Pass: 5, gate2Pass: 0, gate3Pass: 0, lastTriggerPass: 0 },
+      waitDistribution: { ...baseWait, gateFail: 6 },
+    });
+    expect(classifyEmptyScanReason(summary)).toBe('NO_LEADERSHIP');
+  });
+});
+
 describe('UNKNOWN — 분류 임계 미충족 fallback', () => {
   it('모든 카운터 0 + macro 정상 + candidates>0 → UNKNOWN', () => {
     const summary = makeSummary({ candidates: 5, entries: 0 });
