@@ -69,17 +69,29 @@ export interface RefreshOptions {
 
 /**
  * 활성 Ghost 포지션의 currentReturnPct 갱신 + trackUntil 초과 종결.
- * @returns { updated, closed, skipped }
+ *
+ * silent catch 결함 차단: 실패 사유를 카테고리화한 분포 (failureReasons) 를 함께 반환.
+ * PRICE_NULL / PRICE_NON_POSITIVE / SIGNAL_PRICE_INVALID / Error.message 첫 30자 또는
+ * UNKNOWN_THROW 로 분류. 첫 에러는 console.error 로 기록 (이후는 카운터로만 집계).
+ *
+ * @returns { updated, closed, skipped, failureReasons }
  */
 export async function refreshGhostPortfolio(
   opts: RefreshOptions = {},
-): Promise<{ updated: number; closed: number; skipped: number }> {
+): Promise<{
+  updated: number;
+  closed: number;
+  skipped: number;
+  failureReasons?: Record<string, number>;
+}> {
   const now = opts.now ?? new Date();
   const today = now.toISOString().slice(0, 10);
   const fetcher = opts.priceFetcher ?? fetchCurrentPrice;
 
   const all = loadGhostPortfolio();
   let updated = 0, closed = 0, skipped = 0;
+  const failureReasons: Record<string, number> = {};
+  let firstErrorLogged = false;
 
   for (const p of all) {
     if (p.closed) continue;
@@ -91,20 +103,52 @@ export async function refreshGhostPortfolio(
     }
     try {
       const price = await fetcher(p.stockCode);
-      if (price == null || price <= 0 || p.signalPriceKrw <= 0) {
+      if (price == null) {
         skipped++;
+        failureReasons['PRICE_NULL'] = (failureReasons['PRICE_NULL'] || 0) + 1;
+        continue;
+      }
+      if (price <= 0) {
+        skipped++;
+        failureReasons['PRICE_NON_POSITIVE'] = (failureReasons['PRICE_NON_POSITIVE'] || 0) + 1;
+        continue;
+      }
+      if (p.signalPriceKrw <= 0) {
+        skipped++;
+        failureReasons['SIGNAL_PRICE_INVALID'] = (failureReasons['SIGNAL_PRICE_INVALID'] || 0) + 1;
         continue;
       }
       p.currentReturnPct = Number(((price - p.signalPriceKrw) / p.signalPriceKrw * 100).toFixed(2));
       p.lastUpdatedAt = now.toISOString();
       updated++;
-    } catch {
+    } catch (e) {
       skipped++;
+      const errType = e instanceof Error
+        ? (e.message.split(':')[0] || 'UNKNOWN_THROW').slice(0, 30)
+        : 'UNKNOWN_THROW';
+      failureReasons[errType] = (failureReasons[errType] || 0) + 1;
+      // 첫 번째 에러는 console 에 기록 (이후는 카운터로만 집계 — 188건 폭주 차단)
+      if (!firstErrorLogged) {
+        firstErrorLogged = true;
+        console.error(
+          `[GhostPortfolio] 첫 에러 ${p.stockCode}:`,
+          e instanceof Error ? e.message : e,
+        );
+      }
     }
   }
 
   saveGhostPortfolio(all);
-  return { updated, closed, skipped };
+
+  // 진단 로그 — 실패 사유 분포 (skipped > 0 일 때만, silent fail 영구 차단)
+  if (skipped > 0) {
+    console.log(
+      `[GhostPortfolio] skipped=${skipped} 사유 분포:`,
+      JSON.stringify(failureReasons),
+    );
+  }
+
+  return { updated, closed, skipped, failureReasons };
 }
 
 export interface GhostComparison {
