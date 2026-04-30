@@ -14,6 +14,7 @@ import { addSellOrder } from '../../fillMonitor.js';
 import { addToBlacklist } from '../../../persistence/blacklistRepo.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
+import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
 import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
 
 export async function cascadeFinal(ctx: ExitContext): Promise<ExitRuleResult> {
@@ -34,6 +35,18 @@ export async function cascadeFinal(ctx: ExitContext): Promise<ExitRuleResult> {
     exitOutcome: classifyExitOutcome(returnPct, 'CASCADE_FINAL'),
     quantity: 0,
   });
+  // PR-3 (ADR-0006) — FULL_CLOSE attribution 영속.
+  try {
+    emitFullCloseAttributionForExit({
+      shadow,
+      exitPrice: currentPrice,
+      returnPct,
+      closedAt: shadow.exitTime ?? new Date().toISOString(),
+      exitRuleTag: 'CASCADE_FINAL',
+    });
+  } catch (e) {
+    console.warn(`[cascadeFinal] attribution 영속 실패 ${shadow.stockCode}:`, e instanceof Error ? e.message : e);
+  }
   console.log(`[Shadow Close] CASCADE_FINAL — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
   appendShadowLog({ event: isBlacklistStep ? 'CASCADE_STOP_BLACKLIST' : 'CASCADE_STOP_FINAL', ...shadow, soldQty });
   console.log(`[AutoTrade] ❌ ${shadow.stockName} (${shadow.stockCode}) Cascade ${returnPct.toFixed(2)}% — 전량 청산${isBlacklistStep ? ' + 블랙리스트 180일' : ''}`);

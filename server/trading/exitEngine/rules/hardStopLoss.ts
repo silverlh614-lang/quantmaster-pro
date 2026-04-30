@@ -14,6 +14,7 @@ import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeR
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
+import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
 import { matchExitInvalidation, promoteInvalidationPatternIfRepeated } from '../../preMortemStructured.js';
 import { promoteKellyDriftPattern } from '../../../learning/kellyDriftFailurePromotion.js';
 import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
@@ -49,6 +50,19 @@ export async function hardStopLoss(ctx: ExitContext): Promise<ExitRuleResult> {
     exitOutcome: hardStopOutcome,
     quantity: 0,
   });
+  // PR-3 (ADR-0006) — FULL_CLOSE attribution 영속. baseline (entryConditionScores)
+  // 부재 시 null 반환 — 학습 오염 차단. try/catch 격리로 매매 흐름 무중단.
+  try {
+    emitFullCloseAttributionForExit({
+      shadow,
+      exitPrice: currentPrice,
+      returnPct,
+      closedAt: shadow.exitTime ?? new Date().toISOString(),
+      exitRuleTag: 'HARD_STOP',
+    });
+  } catch (e) {
+    console.warn(`[hardStopLoss] attribution 영속 실패 ${shadow.stockCode}:`, e instanceof Error ? e.message : e);
+  }
   console.log(`[Shadow Close] HARD_STOP — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
   appendShadowLog({ event: 'HIT_STOP', ...shadow, stopLossExitType, soldQty });
   // Phase 3-⑫: 구조화 Pre-Mortem 매칭 + 반복 패턴 자동 승급
