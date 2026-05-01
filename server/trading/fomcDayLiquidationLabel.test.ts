@@ -16,14 +16,14 @@ function readFile(rel: string): string {
 
 describe('ADR-0104 — placeKisSellOrder reason union 확장', () => {
   it('kisClient.ts placeKisSellOrder reason 시그니처에 FOMC_DAY_LIQUIDATION 포함', () => {
-    const src = readFile('server/clients/kisClient.ts');
+    const src = readFile('server/clients/kisClient/orders.ts');
     expect(src).toContain('placeKisSellOrder');
     // reason union 4값 모두 포함
     expect(src).toContain("'STOP_LOSS' | 'TAKE_PROFIT' | 'EUPHORIA' | 'FOMC_DAY_LIQUIDATION'");
   });
 
   it('kisClient.ts emoji 분기에 📅 + FOMC_DAY_LIQUIDATION fallback', () => {
-    const src = readFile('server/clients/kisClient.ts');
+    const src = readFile('server/clients/kisClient/orders.ts');
     // emoji 분기 본문이 4-way 분기 (3 분기 + fallback) 패턴 사용
     expect(src).toContain("reason === 'STOP_LOSS' ? '🔴'");
     expect(src).toContain("reason === 'TAKE_PROFIT' ? '🟢'");
@@ -32,7 +32,7 @@ describe('ADR-0104 — placeKisSellOrder reason union 확장', () => {
   });
 
   it('kisClient.ts label 분기에 "FOMC 자동청산" fallback', () => {
-    const src = readFile('server/clients/kisClient.ts');
+    const src = readFile('server/clients/kisClient/orders.ts');
     expect(src).toContain("'손절'");
     expect(src).toContain("'익절'");
     expect(src).toContain("'과열부분매도'");
