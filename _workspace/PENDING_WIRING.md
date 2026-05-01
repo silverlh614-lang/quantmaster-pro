@@ -49,6 +49,14 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | C4 | 0140 Naver 외인 추세 | `server/persistence/foreignerRatioRepo.ts` | INFRASTRUCTURE_ONLY | P2 | enrichment 시그널 + signalScanner 가중치 + enemyChecklist 외인 이탈 플래그 wiring — 6영업일 누적 후 |
 | C5 | 0142 FSS Mapping | `server/persistence/fssMappingPolicy.ts` | BLOCKED | P2 | `FSS_MAPPING_ENABLED=true` ENV 활성화 — 운영자가 `/fss_mapping` 검증 + 시장 행동 일치도 확인 + 1~2주 데이터 누적 후 결정 |
 | C6 | 0136 PR-1 후속 | `server/trading/regimeBridge.ts` | INFRASTRUCTURE_ONLY | P1 | `passiveActiveBoth=null → R3_EARLY 트리거 보수화` wiring — regime 의사결정 회귀 격리 |
+| C7 | 0149 Phase 1 DART 마무리 | `src/services/stock/enrichment.ts` | INFRASTRUCTURE_ONLY | P0 | `performanceReality` (#15) ← `epsGrowth > 0` + `economicMoatVerified` (#8) ← `debtRatio < 50% AND netProfitMargin > X` 합성 + `buildConditionSourceTiers` 'API' 분류 갱신 — PR-Phase0-MappingFix 머지 후 진입, 추정 ~30~50 LoC |
+| C8 | 0149 Phase 2 KIS supply wiring | `src/services/stock/enrichment.ts` | INFRASTRUCTURE_ONLY | P1 | `supplyInflow` (#4) + `institutionalBuying` (#12) checklist 매핑 — ADR-0137/0138 페치 인프라 위, 추정 ~80 LoC, Phase 1 머지 후 |
+| C9 | 0149 Phase 3 globalIntel 합성 | `src/services/stock/enrichment.ts` | INFRASTRUCTURE_ONLY | P1 | 신규 `synthesizeRiskOnEnvironment / synthesizeCycleVerified / synthesizePolicyAlignment` 합성 헬퍼 (#5/#1/#16) — globalIntel 12 레이어 부분 격상, 추정 ~150~200 LoC |
+| C10 | 0149 Phase 4 외부 컨센서스 | (외부 source 신규 client) | BLOCKED | P2 | `consensusTarget` (#13) + `earningsSurprise` (#14) — 외부 컨센서스 source (FnGuide / WiseFn 등) 도입 필요, 별도 ADR 후 |
+| C11 | 0149 #9 notPreviousLeader | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | 정성 항목 (직전 사이클 주도주 회피) — 자동 격상 불가능, AI 추정 영구 잔존 |
+| C12 | 0149 #17 psychologicalObjectivity | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | 정성 항목 (사용자 메타 인지) — 자동 격상 불가능 |
+| C13 | 0149 #20 elliottWaveVerified | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | 정성 항목 (엘리엇 파동 분석) — 자동 격상 불가능 |
+| C14 | 0149 #26 divergenceCheck | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | 정성 항목 (역전 판단) — 자동 격상 불가능 |
 
 ### D. UI Phase B/C/D wiring
 
@@ -79,15 +87,16 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 |----------|---------|----|----|----|----|
 | A. 학습 시리즈 | 7 | 1 | 3 | 3 | 0 |
 | B. 매매 본체 | 7 | 1 | 3 | 3 | 0 |
-| C. 시그널 입력 | 6 | 0 | 1 | 5 | 0 |
+| C. 시그널 입력 | 14 | 1 | 3 | 6 | 4 |
 | D. UI Phase | 7 | 0 | 3 | 4 | 0 |
 | E. 영속/진단 | 6 | 0 | 0 | 3 | 3 |
-| **합계** | **33** | **2** | **9** | **19** | **3** |
+| **합계** | **41** | **3** | **12** | **20** | **7** |
 
 ## P0 즉시 wiring 권장 (자기학습 freeze 진원지)
 
 1. **A3 emitFullCloseAttribution** (4 PR 분할, 2026-04-30 audit) — `attributionRepo.ts` `emitFullCloseAttribution(input)` SSOT 신설 + `helpers/attribution.ts` `emitFullCloseAttributionForExit(shadow, exit)` wrapper + 5 청산 규칙 try/catch 격리 wiring + 2 OCO 분기 동일 + `entryConditionScores` 영속 audit (전제 조건 PR).
 2. **B1 TwoBar Confirmation BEP_PROTECTION** — `exitEngine/rules/hardStopLoss.ts` BEP_PROTECTION 분기에 `evaluateTwoBarConfirmation()` 호출 추가 — 단봉 노이즈 청산 차단 즉시 효과 + `bepGlideTouchAt` 영속 갱신.
+3. **C7 Phase 1 DART 마무리** (PR-Phase0-MappingFix 머지 후 진입) — `performanceReality` (#15) + `economicMoatVerified` (#8) DART 격상. 추정 ~50 LoC. 27 조건 격상 로드맵의 다음 단계.
 
 ## 후속 PR — 자동 audit 정적 스크립트
 
@@ -98,3 +107,4 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 날짜 | PR | 내용 |
 |------|----|------|
 | 2026-05-01 | PR-Governance-1 | 초기 백로그 작성 — 5 카테고리 32 항목 + 4 상태 / 3 우선순위 SSOT |
+| 2026-05-01 | PR-Phase0-MappingFix | C7~C14 신규 8 항목 — 27 조건 격상 후속 (Phase 1~4 INFRASTRUCTURE_ONLY/BLOCKED 4 + DECIDED_NOT_WIRING 정성 4). 합계 33→41 / P0 2→3 / P1 9→12 / P2 19→20 / P3 3→7 |

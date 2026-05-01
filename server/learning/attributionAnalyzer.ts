@@ -21,51 +21,73 @@ import {
 
 // ── 상수 ─────────────────────────────────────────────────────────────────────
 
-/** 클라이언트 conditionId(1~27) → 조건명 */
+/**
+ * 클라이언트 conditionId(1~27) → 조건명.
+ *
+ * ADR-0149: 클라이언트 SSOT (`evolutionEngine.ALL_CONDITIONS` + `CHECKLIST_TO_CONDITION_ID`)
+ * 의 27/27 일치 의미를 진실의 출처로 채택. 본 라벨은 그 SSOT 와 정합 의무.
+ * 변경 시 `conditionMappingFix.test.ts` 회귀 자동 fail.
+ */
 export const CONDITION_NAMES: Record<number, string> = {
   1:  '주도주 사이클 (Cycle)',
-  2:  'ROE 유형 3 (ROE Type 3)',
-  3:  '시장 환경 (Risk-On)',
-  4:  '기계적 손절 (-30%)',
-  5:  '신규 주도주 (New Leader)',
-  6:  '수급 질 개선 (Supply)',
-  7:  '일목균형표 (Ichimoku)',
+  2:  '모멘텀 (Momentum)',
+  3:  'ROE 유형 3 (ROE Type 3)',
+  4:  '수급 질 (Supply)',
+  5:  '시장 환경 Risk-On',
+  6:  '일목균형표 (Ichimoku)',
+  7:  '기계적 손절 (Stop-Loss)',
   8:  '경제적 해자 (Moat)',
-  9:  '기술적 정배열 (Technical)',
-  10: '거래량 실체 (Volume)',
-  11: '기관/외인 수급 (Institutional)',
-  12: '목표가 여력 (Upside)',
-  13: '실적 서프라이즈 (Earnings)',
-  14: '실체적 펀더멘털 (Reality)',
-  15: '정책/매크로 부합 (Policy)',
-  16: '이익의 질 (OCF)',
-  17: '상대 강도 (RS)',
-  18: '모멘텀 순위 (Momentum)',
-  19: '심리적 객관성 (Psychology)',
-  20: '터틀 돌파 (Turtle)',
-  21: '피보나치 레벨 (Fibonacci)',
-  22: '엘리엇 파동 (Elliott)',
-  23: '마진 가속도 (OPM)',
-  24: '재무 방어력 (ICR)',
-  25: '변동성 축소 (VCP)',
+  9:  '신규 주도주 (New Leader)',
+  10: '기술적 정배열 (Technical)',
+  11: '거래량 (Volume)',
+  12: '기관/외인 수급 (Institutional)',
+  13: '목표가 여력 (Upside)',
+  14: '실적 서프라이즈 (Earnings)',
+  15: '실체적 펀더멘털 (Reality)',
+  16: '정책/매크로 (Policy)',
+  17: '심리적 객관성 (Psychology)',
+  18: '터틀 돌파 (Turtle)',
+  19: '피보나치 (Fibonacci)',
+  20: '엘리엇 파동 (Elliott)',
+  21: '이익의 질 OCF',
+  22: '마진 가속도 (OPM)',
+  23: '재무 방어력 ICR',
+  24: '상대강도 RS',
+  25: 'VCP (변동성 축소)',
   26: '다이버전스 (Divergence)',
-  27: '촉매제 분석 (Catalyst)',
+  27: '촉매제 (Catalyst)',
 };
 
 const ALL_CONDITION_IDS = Array.from({ length: 27 }, (_, i) => i + 1);
 
 /**
  * 클라이언트 conditionId → 서버 ConditionKey 매핑.
- * 서버가 Yahoo Finance 데이터로 자동 평가하는 조건만 매핑된다.
- * null 인 조건은 분석은 하지만 가중치 조정 경로에서 제외.
+ *
+ * ADR-0149: 클라이언트 ID 의미 (`evolutionEngine.ALL_CONDITIONS`) 기준 정정.
+ * 이전 매핑 (PR-19 ADR-0006 시점) 은 서버 ID 의미를 가정해 클라이언트와 mismatch.
+ * 본 매핑은 서버가 자동 평가하는 조건 (`server/quantFilter.ts CONDITION_KEYS`)
+ * 중 클라이언트 27 조건 의미와 정합 가능한 8 키만 매핑. null 인 조건은 분석은
+ * 하지만 가중치 조정 경로에서 제외.
+ *
+ * 변경 시 `conditionMappingFix.test.ts` 회귀 자동 fail — drift 영구 차단.
  */
 const CONDITION_TO_SERVER_KEY: Record<number, ConditionKey | null> = {
-  9:  'ma_alignment',      // technicalGoldenCross — 정배열
-  10: 'volume_breakout',   // volumeSurgeVerified — 거래량 돌파
-  17: 'relative_strength', // relativeStrength — 상대강도
-  18: 'momentum',          // momentumRanking — 모멘텀 순위
-  20: 'turtle_high',       // turtleBreakout — 터틀 돌파
-  25: 'vcp',               // vcpPattern — VCP 변동성 축소
+  // 클라 ID 2 = momentumRanking 모멘텀 ↔ 서버 'momentum' (Gate 2 +2%/RSI 가속)
+  2:  'momentum',
+  // 클라 ID 4 = supplyInflow 수급 질 ↔ 서버 'supply_confluence' (KIS 기관/외인)
+  4:  'supply_confluence',
+  // 클라 ID 10 = technicalGoldenCross 정배열 ↔ 서버 'ma_alignment'
+  10: 'ma_alignment',
+  // 클라 ID 11 = volumeSurgeVerified 거래량 ↔ 서버 'volume_breakout' (5일 평균 2배)
+  11: 'volume_breakout',
+  // 클라 ID 18 = turtleBreakout 터틀 돌파 ↔ 서버 'turtle_high'
+  18: 'turtle_high',
+  // 클라 ID 21 = ocfQuality OCF 품질 ↔ 서버 'earnings_quality' (DART OCF)
+  21: 'earnings_quality',
+  // 클라 ID 24 = relativeStrength 상대강도 ↔ 서버 'relative_strength'
+  24: 'relative_strength',
+  // 클라 ID 25 = vcpPattern VCP ↔ 서버 'vcp'
+  25: 'vcp',
 };
 
 const REGIME_LEVELS = ['R1_TURBO', 'R2_BULL', 'R3_EARLY', 'R4_NEUTRAL', 'R5_CAUTION', 'R6_DEFENSE'] as const;
