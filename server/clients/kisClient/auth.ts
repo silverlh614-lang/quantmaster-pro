@@ -4,9 +4,24 @@
  * ADR-0135 (PR-Refactor-3) — kisClient.ts 분해 시 토큰 라이프사이클 격리.
  * 두 토큰 캐시 (cachedToken / cachedRealDataToken) 와 invalidateKisToken 을 같은 모듈에
  * 두어 invalidate 가 둘 다 reset 하는 결합 보존.
+ *
+ * ADR-0147 — 디스크 영속 hydrate. 모듈 로드 시 `data/kis-tokens.json` 에서 캐시 hydrate
+ * → 재부팅 시 23h TTL 안이면 OAuth2 호출 없이 재사용. 정기 cron (KST 08:30 / 20:30) 갱신
+ * 후 디스크 영속 → 다음 재부팅도 신선. `KIS_TOKEN_PERSIST_DISABLED=true` ENV 시 영속 비활성
+ * (legacy 동작 — 매 재부팅마다 OAuth2 호출).
  */
 
 import { KIS_BASE, REAL_DATA_BASE, HAS_REAL_DATA_CLIENT } from './constants.js';
+import {
+  loadKisTokens,
+  persistKisToken,
+  clearKisTokens,
+  type PersistedToken,
+} from '../../persistence/kisTokenRepo.js';
+
+function isPersistDisabled(): boolean {
+  return process.env.KIS_TOKEN_PERSIST_DISABLED === 'true';
+}
 
 let cachedToken: { token: string; expiry: number } | null = null;
 // Single-flight: 동시 토큰 갱신 요청을 하나로 합쳐 OAuth2 엔드포인트 중복 호출을 방지.
@@ -16,6 +31,56 @@ let inFlightMainTokenRefresh: Promise<string> | null = null;
 
 let cachedRealDataToken: { token: string; expiry: number } | null = null;
 let inFlightRealDataTokenRefresh: Promise<string> | null = null;
+
+/**
+ * 모듈 로드 시 1회 hydrate — 재부팅 시 디스크 영속 토큰을 메모리 캐시로 복원.
+ * KIS_TOKEN_PERSIST_DISABLED=true ENV 시 skip.
+ */
+function hydrateFromDisk(): void {
+  if (isPersistDisabled()) return;
+  try {
+    const bundle = loadKisTokens();
+    if (bundle.main) {
+      cachedToken = { token: bundle.main.token, expiry: bundle.main.expiry };
+      console.log('[KIS] 토큰 hydrate (main) — 재부팅 시 OAuth2 호출 차단 (ADR-0147)');
+    }
+    if (bundle.realData) {
+      cachedRealDataToken = { token: bundle.realData.token, expiry: bundle.realData.expiry };
+      console.log('[KIS] 토큰 hydrate (realData) — 재부팅 시 OAuth2 호출 차단 (ADR-0147)');
+    }
+  } catch (e) {
+    console.warn('[KIS] hydrate 실패 (cron 시점에 자동 갱신 예정):', e);
+  }
+}
+
+// 모듈 초기 로드 시 1회 자동 hydrate
+hydrateFromDisk();
+
+/**
+ * 갱신된 토큰을 디스크에 영속화. `KIS_TOKEN_PERSIST_DISABLED=true` 시 skip.
+ * persist 실패는 비동기 / 비차단 — OAuth2 갱신 자체는 이미 성공.
+ */
+function persistTokenSafe(slot: 'main' | 'realData', token: string, expiry: number): void {
+  if (isPersistDisabled()) return;
+  const persisted: PersistedToken = {
+    token,
+    expiry,
+    issuedAt: new Date().toISOString(),
+  };
+  try {
+    persistKisToken(slot, persisted);
+  } catch (e) {
+    console.warn(`[KIS] 토큰 영속 실패 (${slot}, 메모리 캐시는 유효):`, e);
+  }
+}
+
+/** 테스트 전용 — 메모리 캐시 강제 초기화 (디스크 영향 없음) */
+export function __resetKisAuthCacheForTests(): void {
+  cachedToken = null;
+  cachedRealDataToken = null;
+  inFlightMainTokenRefresh = null;
+  inFlightRealDataTokenRefresh = null;
+}
 
 /**
  * KIS 토큰 응답에서 안전한 오류 정보만 추출. 원본 응답에는 `access_token`·
@@ -56,8 +121,10 @@ export async function refreshKisToken(): Promise<string> {
       if (!data.access_token) {
         throw new Error(`KIS 토큰 갱신 실패 (status=${res.status}): ${sanitizeTokenErrorInfo(data)}`);
       }
-      cachedToken = { token: data.access_token, expiry: Date.now() + 23 * 60 * 60 * 1000 };
-      console.log('[KIS] 토큰 갱신 완료');
+      const expiry = Date.now() + 23 * 60 * 60 * 1000;
+      cachedToken = { token: data.access_token, expiry };
+      persistTokenSafe('main', data.access_token, expiry);
+      console.log('[KIS] 토큰 갱신 완료 (디스크 영속, ADR-0147)');
       return cachedToken.token;
     } finally {
       inFlightMainTokenRefresh = null;
@@ -80,7 +147,15 @@ export function getKisTokenRemainingHours(): number {
 export function invalidateKisToken(): void {
   cachedToken = null;
   cachedRealDataToken = null;
-  console.log('[KIS] 토큰 캐시 강제 초기화');
+  // 디스크 영속도 함께 삭제 — 다음 호출 시 OAuth2 강제 재발급 (ADR-0147)
+  if (!isPersistDisabled()) {
+    try {
+      clearKisTokens();
+    } catch (e) {
+      console.warn('[KIS] 디스크 토큰 삭제 실패 (메모리 캐시는 초기화됨):', e);
+    }
+  }
+  console.log('[KIS] 토큰 캐시 + 디스크 영속 강제 초기화 (ADR-0147)');
 }
 
 // ─── 실계좌 데이터 전용 토큰 관리 ────────────────────────────────────────────
@@ -105,8 +180,10 @@ export async function refreshRealDataToken(): Promise<string> {
       if (!data.access_token) {
         throw new Error(`KIS 실계좌 데이터 토큰 갱신 실패 (status=${res.status}): ${sanitizeTokenErrorInfo(data)}`);
       }
-      cachedRealDataToken = { token: data.access_token, expiry: Date.now() + 23 * 60 * 60 * 1000 };
-      console.log('[KIS-RealData] 실계좌 데이터 전용 토큰 갱신 완료');
+      const expiry = Date.now() + 23 * 60 * 60 * 1000;
+      cachedRealDataToken = { token: data.access_token, expiry };
+      persistTokenSafe('realData', data.access_token, expiry);
+      console.log('[KIS-RealData] 실계좌 데이터 전용 토큰 갱신 완료 (디스크 영속, ADR-0147)');
       return cachedRealDataToken.token;
     } finally {
       inFlightRealDataTokenRefresh = null;
@@ -137,6 +214,14 @@ export function getRealDataTokenRemainingHours(): number {
 export async function forceRefreshKisTokens(): Promise<{ main: boolean; realData: boolean | 'SKIPPED' }> {
   cachedToken = null;
   cachedRealDataToken = null;
+  // 디스크 영속도 함께 삭제 — refreshKisToken/refreshRealDataToken 이 새 토큰으로 재영속 (ADR-0147)
+  if (!isPersistDisabled()) {
+    try {
+      clearKisTokens();
+    } catch (e) {
+      console.warn('[KIS] 디스크 토큰 삭제 실패 (forceRefresh 진행):', e);
+    }
+  }
 
   const mainTask = refreshKisToken();
   const realTask: Promise<string> | null = HAS_REAL_DATA_CLIENT ? refreshRealDataToken() : null;

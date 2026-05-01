@@ -327,6 +327,14 @@ export const CREDENTIAL_EXPIRY_STATE_FILE = path.join(DATA_DIR, 'credential-expi
  * 4/27~5/01 패턴 재발 방지 — 1차/2차 점검 결과 비교용 lastChecks 영속.
  */
 export const POST_HOLIDAY_KICKSTART_STATE_FILE = path.join(DATA_DIR, 'post-holiday-kickstart-state.json');
+/**
+ * KIS OAuth2 토큰 디스크 영속 (ADR-0147).
+ * 재부팅 시 디스크 hydrate → 23h TTL 안이면 OAuth2 호출 없이 재사용.
+ * 정기 cron (KST 08:30 / 20:30) 자동 갱신 → 디스크 영속 → 다음 재부팅도 신선.
+ *
+ * data/ 디렉토리는 .gitignore 등재 (비밀 누출 차단).
+ */
+export const KIS_TOKEN_FILE = path.join(DATA_DIR, 'kis-tokens.json');
 
 export function ensureReflectionsDir(): void {
   ensureDataDir();

@@ -419,15 +419,31 @@ async function startServer() {
     // ─── cron 스케줄러 기동 ───────────────────────────────────────────────────
     startScheduler();
 
-    // ─── KIS 토큰 기동 시 선행 갱신 ─────────────────────────────────────────────
-    // cron 은 08:30 / 20:30 KST 에만 돌기 때문에, 재배포 직후·이 시점 사이에 서버가
-    // 시작되면 사용자가 "주도주 분석 시작" 을 눌렀을 때 lazy-refresh 가 발동한다.
-    // 부팅 시 1회 선행 갱신해 두면 첫 버튼 클릭에서 추가 OAuth2 요청이 없다.
-    // fire-and-forget — 기동을 막지 않는다.
-    import('./clients/kisClient.js')
-      .then(({ forceRefreshKisTokens }) => forceRefreshKisTokens())
-      .then((r) => console.log(`[KIS] 기동 시 토큰 선행 갱신 — main=${r.main}, realData=${r.realData}`))
-      .catch((e) => console.warn('[KIS] 기동 시 토큰 선행 갱신 실패 (cron 이후 자동 복구):', e));
+    // ─── KIS 토큰 부팅 정책 (ADR-0147) ────────────────────────────────────────
+    // 재부팅 시마다 OAuth2 갱신 호출하던 결함 차단. auth.ts 모듈 로드 시 디스크에서
+    // 토큰 hydrate (data/kis-tokens.json) → 23h TTL 안이면 OAuth2 호출 0건.
+    // 만료된 토큰은 첫 KIS 호출 시 lazy refresh 1회 또는 정기 cron (KST 08:30/20:30)
+    // 에서 자동 갱신. `KIS_TOKEN_BOOT_REFRESH=true` ENV 시에만 부팅 강제 갱신
+    // (legacy 동작 — 토큰 영속 파일 손실/긴급 운영 시).
+    if (process.env.KIS_TOKEN_BOOT_REFRESH === 'true') {
+      import('./clients/kisClient.js')
+        .then(({ forceRefreshKisTokens }) => forceRefreshKisTokens())
+        .then((r) => console.log(`[KIS] 기동 시 강제 갱신 (ENV opt-in) — main=${r.main}, realData=${r.realData}`))
+        .catch((e) => console.warn('[KIS] 기동 시 강제 갱신 실패 (cron 이후 자동 복구):', e));
+    } else {
+      // hydrate 결과 진단 로그 (auth.ts 자체에서도 [KIS] 토큰 hydrate 로그 출력)
+      import('./persistence/kisTokenRepo.js')
+        .then(({ getPersistedTokenRemainingHours }) => {
+          const mainHrs = getPersistedTokenRemainingHours('main');
+          const realDataHrs = getPersistedTokenRemainingHours('realData');
+          console.log(
+            `[KIS] 부팅 시 OAuth2 호출 없음 (ADR-0147) — ` +
+              `main=${mainHrs}h 잔여, realData=${realDataHrs}h 잔여. ` +
+              `만료 시 lazy refresh 또는 정기 cron (KST 08:30/20:30) 갱신.`,
+          );
+        })
+        .catch((e) => console.warn('[KIS] 부팅 토큰 진단 실패:', e));
+    }
 
     console.log('[AutoTrade] 오케스트레이터 + DART 폴링 + Bear Regime 알림 + MHS 모닝 알림 + IPS 변곡점 경보 가동 완료');
 
