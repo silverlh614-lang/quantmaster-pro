@@ -131,7 +131,7 @@ describe('/supply_health command', () => {
     expect(msg).toContain('⚠️ 기관/외인 수급: zero-filled 의심 10/10');
   });
 
-  it('OK / STALE / MISSING / N/A 마커와 상세 명령 안내 표시', async () => {
+  it('OK / STALE / MISSING 마커와 상세 명령 안내 표시', async () => {
     writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
     writeJson(path.join(tmpDir, 'fss-records.json'), [
       { date: '2026-04-20', passiveNetBuy: 1, activeNetBuy: 1 },
@@ -154,7 +154,8 @@ describe('/supply_health command', () => {
     expect(msg).toContain('1. 🟢 기관/외인 수급');
     expect(msg).toContain('2. 🔴 종목 프로그램매매');
     expect(msg).toContain('4. 🟡 FSS Passive/Active');
-    expect(msg).toContain('5. ⚪ 공매도/대차잔고');
+    // ADR-0145: macroState 에 shortSelling 필드가 없으면 ⚪ N/A 가 아닌 🔴 MISSING.
+    expect(msg).toContain('5. 🔴 공매도/대차잔고');
     expect(msg).toContain('상세: /program_today');
     expect(msg).toContain('상세: /program_market');
     expect(msg).toContain('상세: /fss_status');
@@ -176,13 +177,22 @@ describe('/supply_health command', () => {
     expect(msg.indexOf('1. 🟢 기관/외인 수급')).toBeLessThan(msg.indexOf('2. 🟢 종목 프로그램매매'));
     expect(msg.indexOf('2. 🟢 종목 프로그램매매')).toBeLessThan(msg.indexOf('3. 🔴 시장 프로그램매매'));
     expect(msg.indexOf('3. 🔴 시장 프로그램매매')).toBeLessThan(msg.indexOf('4. 🔴 FSS Passive/Active'));
-    expect(msg.indexOf('4. 🔴 FSS Passive/Active')).toBeLessThan(msg.indexOf('5. ⚪ 공매도/대차잔고'));
-    expect(msg.indexOf('5. ⚪ 공매도/대차잔고')).toBeLessThan(msg.indexOf('6. 🔴 외인 보유율 추세'));
+    // ADR-0145: macro-state 파일이 없는 케이스 → 공매도도 🔴 MISSING.
+    expect(msg.indexOf('4. 🔴 FSS Passive/Active')).toBeLessThan(msg.indexOf('5. 🔴 공매도/대차잔고'));
+    expect(msg.indexOf('5. 🔴 공매도/대차잔고')).toBeLessThan(msg.indexOf('6. 🔴 외인 보유율 추세'));
     expect(msg.indexOf('6. 🔴 외인 보유율 추세')).toBeLessThan(msg.indexOf('7. 🔴 신용잔고'));
   });
 
-  it('공매도/대차잔고는 전용 health 미구현이면 N/A로 표시', async () => {
+  // ADR-0145: 4-way 분기 (MISSING / KIS_ESTIMATE STALE / age STALE / OK)
+
+  it('ADR-0145 — macroState shortSellingSource 부재 시 MISSING', async () => {
     writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(1));
+    writeJson(path.join(tmpDir, 'macro-state.json'), {
+      // shortSelling* 필드 모두 부재
+      mhs: 50,
+      regime: 'R4_NEUTRAL',
+      updatedAt: '2026-05-01T00:00:00.000Z',
+    });
     investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
     stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
     marketProgramMock.mockResolvedValue(null);
@@ -190,9 +200,77 @@ describe('/supply_health command', () => {
 
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
-    expect(msg).toContain('5. ⚪ 공매도/대차잔고');
-    expect(msg).toContain('status: N/A');
-    expect(msg).toContain('reason: 전용 fetcher/health 미구현');
+    expect(msg).toContain('5. 🔴 공매도/대차잔고');
+    expect(msg).toContain('macroState 결손');
+    expect(msg).toContain('source: N/A');
+    expect(msg).toContain('ratio: N/A');
+  });
+
+  it('ADR-0145 — source=KRX_DIRECT + 신선한 fetchedAt → OK', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(1));
+    writeJson(path.join(tmpDir, 'macro-state.json'), {
+      mhs: 50,
+      regime: 'R4_NEUTRAL',
+      updatedAt: '2026-05-01T00:00:00.000Z',
+      shortSellingRatio: 4.85,
+      shortSellingSource: 'KRX_DIRECT',
+      shortSellingFetchedAt: '2026-04-30T17:00:00.000Z',
+    });
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
+
+    expect(msg).toContain('5. 🟢 공매도/대차잔고');
+    expect(msg).toContain('source: KRX_DIRECT');
+    expect(msg).toContain('ratio: 4.85%');
+  });
+
+  it('ADR-0145 — source=KIS_ESTIMATE → STALE (KRX 폴백 실패 격상)', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(1));
+    writeJson(path.join(tmpDir, 'macro-state.json'), {
+      mhs: 50,
+      regime: 'R4_NEUTRAL',
+      updatedAt: '2026-05-01T00:00:00.000Z',
+      shortSellingRatio: 5.20,
+      shortSellingSource: 'KIS_ESTIMATE',
+      shortSellingFetchedAt: '2026-05-01T00:30:00.000Z',
+    });
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
+
+    expect(msg).toContain('5. 🟡 공매도/대차잔고');
+    expect(msg).toContain('KIS_ESTIMATE');
+    expect(msg).toContain('source: KIS_ESTIMATE');
+  });
+
+  it('ADR-0145 — source=KRX_DIRECT but updated 3일 전 → STALE (age)', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(1));
+    writeJson(path.join(tmpDir, 'macro-state.json'), {
+      mhs: 50,
+      regime: 'R4_NEUTRAL',
+      updatedAt: '2026-05-01T00:00:00.000Z',
+      shortSellingRatio: 4.50,
+      shortSellingSource: 'KRX_DIRECT',
+      shortSellingFetchedAt: '2026-04-28T01:00:00.000Z',
+    });
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
+
+    expect(msg).toContain('5. 🟡 공매도/대차잔고');
+    expect(msg).toContain('source: KRX_DIRECT');
+    // age 3일 → "3일 전" 또는 "72h ago" 형태
+    expect(msg).toMatch(/updated.+(?:3일 전|7\dh ago)/);
   });
 
   it('30초 TTL 캐시 동작', async () => {

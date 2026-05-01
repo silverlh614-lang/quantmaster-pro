@@ -1,4 +1,4 @@
-// @responsibility fetchKisStockProgramTrade 회귀 테스트 — ADR-0137 KIS Open API comp-program-trade-today.
+// @responsibility fetchKisStockProgramTrade 회귀 테스트 — ADR-0144 KIS program-trade-by-stock 정정.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const _realDataKisGet = vi.fn();
@@ -27,6 +27,7 @@ beforeEach(async () => {
   _getKisOverrides.mockReturnValue({});
   _HAS_REAL_DATA_CLIENT.value = false;
   delete process.env.KIS_STOCK_PROGRAM_TRADE_TR_ID;
+  delete process.env.KIS_STOCK_PROGRAM_TRADE_PATH;
   process.env.KIS_APP_KEY = 'test-key';
 
   const mod = await import('./query.js');
@@ -36,10 +37,11 @@ beforeEach(async () => {
 afterEach(() => {
   delete process.env.KIS_APP_KEY;
   delete process.env.KIS_STOCK_PROGRAM_TRADE_TR_ID;
+  delete process.env.KIS_STOCK_PROGRAM_TRADE_PATH;
   vi.clearAllMocks();
 });
 
-describe('fetchKisStockProgramTrade (ADR-0137)', () => {
+describe('fetchKisStockProgramTrade (ADR-0137 → ADR-0144 정정)', () => {
   it('KIS_APP_KEY 미설정 + 실계좌 클라이언트 부재 시 null', async () => {
     delete process.env.KIS_APP_KEY;
     _HAS_REAL_DATA_CLIENT.value = false;
@@ -96,18 +98,31 @@ describe('fetchKisStockProgramTrade (ADR-0137)', () => {
     expect(result?.fetchedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
 
-  it('output 필드 다중 키 매칭 — _2 변형 필드명 자동 흡수', async () => {
+  it('ADR-0144 — KIS program-trade-by-stock 1차 키 (whol_smtn_*) 매칭', async () => {
     _realDataKisGet.mockResolvedValue({
       output: {
-        prgm_ntby_qty_2: '500',
-        prgm_ntby_tr_pbmn_2: '40000000',
-        prgm_byov_rate_2: '8.0',
+        whol_smtn_ntby_qty: '500',
+        whol_smtn_ntby_tr_pbmn: '40000000',
+        prgm_byov_rate: '8.0',
       },
     });
     const result = await fetchKisStockProgramTrade('005930');
     expect(result?.programNetBuyQty).toBe(500);
     expect(result?.programNetBuyAmount).toBe(40_000_000);
     expect(result?.programBuyRatio).toBe(8.0);
+  });
+
+  it('ADR-0144 — whol_smtn_* 부재 시 prgm_ntby_* fallback', async () => {
+    _realDataKisGet.mockResolvedValue({
+      output: {
+        // 새 1차 키는 부재, 구 endpoint 키만 존재
+        prgm_ntby_qty: '700',
+        prgm_ntby_tr_pbmn: '56000000',
+      },
+    });
+    const result = await fetchKisStockProgramTrade('005930');
+    expect(result?.programNetBuyQty).toBe(700);
+    expect(result?.programNetBuyAmount).toBe(56_000_000);
   });
 
   it('output 필드 다중 키 매칭 — 영문 약어 대문자 필드명 자동 흡수', async () => {
@@ -184,12 +199,12 @@ describe('fetchKisStockProgramTrade (ADR-0137)', () => {
     );
   });
 
-  it('TR ID default = FHPPG04650201 (KIS 공식 endpoint)', async () => {
-    _realDataKisGet.mockResolvedValue({ output: { prgm_ntby_qty: '0', prgm_ntby_tr_pbmn: '0' } });
+  it('ADR-0144 — TR ID default = FHPPG04650101 + path = program-trade-by-stock', async () => {
+    _realDataKisGet.mockResolvedValue({ output: { whol_smtn_ntby_qty: '0', whol_smtn_ntby_tr_pbmn: '0' } });
     await fetchKisStockProgramTrade('005930');
     expect(_realDataKisGet).toHaveBeenCalledWith(
-      'FHPPG04650201',
-      '/uapi/domestic-stock/v1/quotations/comp-program-trade-today',
+      'FHPPG04650101',
+      '/uapi/domestic-stock/v1/quotations/program-trade-by-stock',
       expect.any(Object),
     );
   });
@@ -198,11 +213,24 @@ describe('fetchKisStockProgramTrade (ADR-0137)', () => {
     process.env.KIS_STOCK_PROGRAM_TRADE_TR_ID = 'CUSTOM_TR_ID_001';
     vi.resetModules();
     const mod = await import('./query.js');
-    _realDataKisGet.mockResolvedValue({ output: { prgm_ntby_qty: '0', prgm_ntby_tr_pbmn: '0' } });
+    _realDataKisGet.mockResolvedValue({ output: { whol_smtn_ntby_qty: '0', whol_smtn_ntby_tr_pbmn: '0' } });
     await mod.fetchKisStockProgramTrade('005930');
     expect(_realDataKisGet).toHaveBeenCalledWith(
       'CUSTOM_TR_ID_001',
       expect.any(String),
+      expect.any(Object),
+    );
+  });
+
+  it('ADR-0144 — ENV KIS_STOCK_PROGRAM_TRADE_PATH override 적용', async () => {
+    process.env.KIS_STOCK_PROGRAM_TRADE_PATH = '/uapi/custom/program-trade';
+    vi.resetModules();
+    const mod = await import('./query.js');
+    _realDataKisGet.mockResolvedValue({ output: { whol_smtn_ntby_qty: '0', whol_smtn_ntby_tr_pbmn: '0' } });
+    await mod.fetchKisStockProgramTrade('005930');
+    expect(_realDataKisGet).toHaveBeenCalledWith(
+      'FHPPG04650101',
+      '/uapi/custom/program-trade',
       expect.any(Object),
     );
   });

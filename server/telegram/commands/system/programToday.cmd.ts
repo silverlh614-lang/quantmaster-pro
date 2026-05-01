@@ -1,5 +1,5 @@
 // @responsibility programToday.cmd 텔레그램 모듈
-// @responsibility: /program_today — KIS comp-program-trade-today 종목별 진단. SYS ADMIN read-only KIS 1회.
+// @responsibility: /program_today — KIS program-trade-by-stock 종목별 진단. SYS ADMIN read-only KIS 1회.
 //
 // ADR-0137 — 페르소나 자료 #6 "외국인 프로그램/비프로그램" 시그널 데이터 페치 인프라.
 // 운영자가 종목코드를 인자로 입력하면 KIS Open API 단발성 호출 → 결과 표기.
@@ -62,7 +62,8 @@ export async function buildProgramTodayMessage(args: string[]): Promise<string> 
       '💡 <i>운영자 안내</i>:',
       '  • <code>KIS_APP_KEY</code> 또는 실계좌 클라이언트 미설정 가능성',
       '  • KIS 회로차단 활성 또는 24h 블랙리스트 가능성',
-      '  • TR ID 검증 필요 — <code>KIS_STOCK_PROGRAM_TRADE_TR_ID</code> ENV 우회',
+      '  • TR ID 검증 — <code>KIS_STOCK_PROGRAM_TRADE_TR_ID</code> ENV 우회',
+      '  • Path 검증 — <code>KIS_STOCK_PROGRAM_TRADE_PATH</code> ENV 우회',
       '  • 잘못된 종목코드 또는 비상장 종목 가능성',
     ].join('\n');
   }

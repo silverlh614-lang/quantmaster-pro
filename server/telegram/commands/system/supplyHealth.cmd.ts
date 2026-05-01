@@ -18,6 +18,8 @@ const KIS_STALE_MS = 5 * 60 * 1000;
 const DAY_MS = 86_400_000;
 const TWO_DAYS = 2;
 const FSS_STALE_DAYS = 4;
+/** ADR-0145: 공매도 신선도 임계 — KRX 일별 데이터는 영업일 1회 갱신, 2일 초과는 stale. */
+const SHORT_STALE_DAYS = 2;
 
 type Marker = 'OK' | 'STALE' | 'MISSING' | 'N/A';
 
@@ -248,14 +250,54 @@ function diagnoseFss(macro: MacroState | null, nowMs: number): ChannelStatus {
   };
 }
 
-function diagnoseShort(): ChannelStatus {
+/**
+ * ADR-0145 — 공매도/대차잔고 진단을 macroState 직접 읽기로 전환.
+ *
+ * `fetchKrxShortSelling` 의 3단 폴백 (KRX_DIRECT → KRX_OTP → KIS_ESTIMATE) 결과가
+ * 이미 macroState 에 적재되므로 read-only 진단으로 즉시 가시화 가능. 이전 구현은
+ * 하드코드 N/A 라 *macroState 결손* 과 *기능 미구현* 을 구분하지 못했다.
+ *
+ * 4-way 분기:
+ *   - source 부재 또는 ratio 부재          → MISSING (macroState 결손)
+ *   - source = 'KIS_ESTIMATE'              → STALE  (KRX 두 경로 모두 실패한 fallback)
+ *   - fetchedAt 이 SHORT_STALE_DAYS 초과   → STALE  (cron 미동작 또는 데이터 정체)
+ *   - 그 외                                → OK
+ *
+ * read-only 보장 — macroState 갱신/외부 fetch 호출 없음.
+ */
+function diagnoseShort(macro: MacroState | null, nowMs: number): ChannelStatus {
+  if (!macro?.shortSellingSource || macro.shortSellingRatio === undefined) {
+    return {
+      title: '공매도/대차잔고',
+      marker: 'MISSING',
+      riskReason: 'macroState 결손 — fetchKrxShortSelling 호출 부재',
+      lines: [
+        'source: N/A',
+        'ratio: N/A',
+        'updated: N/A',
+        '상세: /short_status 예정',
+      ],
+    };
+  }
+
+  const age = elapsedMs(macro.shortSellingFetchedAt, nowMs);
+  const ageStale = age !== null && age > SHORT_STALE_DAYS * DAY_MS;
+  // KIS_ESTIMATE 는 KRX 두 경로 모두 실패한 fallback — 정확도 낮음, STALE 격상.
+  const sourceStale = macro.shortSellingSource === 'KIS_ESTIMATE';
+  const stale = ageStale || sourceStale;
+
   return {
     title: '공매도/대차잔고',
-    marker: 'N/A',
-    riskReason: '전용 fetcher/health 미구현',
+    marker: stale ? 'STALE' : 'OK',
+    riskReason: sourceStale
+      ? 'KIS_ESTIMATE — KRX 폴백 실패, 정확도 ↓'
+      : ageStale
+        ? `updated ${formatAgo(age)}`
+        : undefined,
     lines: [
-      'status: N/A',
-      'reason: 전용 fetcher/health 미구현',
+      `source: ${macro.shortSellingSource}`,
+      `ratio: ${macro.shortSellingRatio.toFixed(2)}%`,
+      `updated: ${formatAgo(age)}`,
       '상세: /short_status 예정',
     ],
   };
@@ -365,7 +407,7 @@ export async function buildSupplyHealthMessage(now: Date = new Date()): Promise<
     await diagnoseStockProgram(targets),
     await diagnoseMarketProgram(macro, nowMs),
     diagnoseFss(macro, nowMs),
-    diagnoseShort(),
+    diagnoseShort(macro, nowMs),
     diagnoseForeignerRatio(targets, nowMs),
     diagnoseMargin(macro, nowMs),
   ];

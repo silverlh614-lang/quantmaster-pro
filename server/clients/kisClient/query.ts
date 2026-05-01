@@ -11,13 +11,22 @@ import { getKisOverrides } from './overrides.js';
 import type { KisInvestorFlow, KisMarketProgramTrade, KisStockProgramTrade, PrevClose } from './types.js';
 import type { KisApiPriority } from '../kisRateLimiter.js';
 
-// ─── ADR-0137: 종목별 당일 프로그램 매매 ─────────────────────────────────────
+// ─── ADR-0137 (정정 ADR-0144): 종목별 프로그램 매매 (체결) ────────────────────
 // 사용자 12 아이디어 #3 — 페르소나 자료 #6 "외국인 프로그램/비프로그램" 시그널의
-// 데이터 입력. KIS Open API `comp-program-trade-today` 공식 endpoint.
+// 데이터 입력.
+//
+// KIS 공식 GitHub 검증 (`koreainvestment/open-trading-api`, 2026-05-01):
+//   - examples_llm/domestic_stock/program_trade_by_stock/program_trade_by_stock.py
+//   - 카테고리: [v1_국내주식-044]  HTS 화면: [0465]
+//
+// 직전 추정값(`comp-program-trade-today` + `FHPPG04650201`)은 *시장 시간 path* 와
+// *종목 일별 tr_id* 를 보내던 교차 미스매치 → 200 OK + 빈 output → 카드 0/10.
 
-/** ADR-0137: KIS comp-program-trade-today TR ID — ENV 우회 가능. */
-const STOCK_PROGRAM_TRADE_TR_ID = process.env.KIS_STOCK_PROGRAM_TRADE_TR_ID ?? 'FHPPG04650201';
-const STOCK_PROGRAM_TRADE_PATH = '/uapi/domestic-stock/v1/quotations/comp-program-trade-today';
+/** ADR-0144: KIS program-trade-by-stock TR ID + path — 둘 다 ENV 우회 가능. */
+const STOCK_PROGRAM_TRADE_TR_ID = process.env.KIS_STOCK_PROGRAM_TRADE_TR_ID ?? 'FHPPG04650101';
+const STOCK_PROGRAM_TRADE_PATH =
+  process.env.KIS_STOCK_PROGRAM_TRADE_PATH
+  ?? '/uapi/domestic-stock/v1/quotations/program-trade-by-stock';
 
 /**
  * KIS 응답 output 의 한글 약어 필드에서 첫 번째 매칭 값을 추출.
@@ -65,17 +74,18 @@ export async function fetchKisStockProgramTrade(
     const out = (data as { output?: Record<string, string> } | null)?.output;
     if (!out) return null;
 
-    // ADR-0137: 다중 키 매칭 — KIS output 필드 변동 흡수 (한글 약어 / 영문 약어 / _2 변형).
+    // ADR-0144: KIS 공식 chk_program_trade_by_stock.py COLUMN_MAPPING 정합 — `whol_smtn_*`
+    // (전체 합계 순매수) 가 1차 키. 구 endpoint(`prgm_ntby_*`) 는 fallback 으로 보존.
     const programNetBuyQty = extractKisNumber(
       out,
-      ['prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY'],
+      ['whol_smtn_ntby_qty', 'prgm_ntby_qty', 'PRGM_NTBY_QTY'],
     );
     const programNetBuyAmount = extractKisNumber(
       out,
-      ['prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN'],
+      ['whol_smtn_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn', 'PRGM_NTBY_TR_PBMN'],
     );
-    // 비중 필드는 부재 가능 — 강제 0 fallback 금지 (의미 단절 차단).
-    const ratioRaw = out.prgm_byov_rate ?? out.PRGM_BYOV_RATE ?? out.prgm_byov_rate_2 ?? '';
+    // 비중 필드는 부재 가능 — 강제 0 fallback 금지 (ADR-0136 의미 단절 차단).
+    const ratioRaw = out.prgm_byov_rate ?? out.PRGM_BYOV_RATE ?? '';
     const ratioNum = ratioRaw === '' ? Number.NaN : Number(String(ratioRaw).replace(/,/g, ''));
     const programBuyRatio = Number.isFinite(ratioNum) ? ratioNum : null;
 
@@ -96,14 +106,18 @@ export async function fetchKisStockProgramTrade(
   }
 }
 
-// ─── ADR-0138: 시장 종합 프로그램 매매 추이 ──────────────────────────────────
+// ─── ADR-0138 (정정 ADR-0144): 시장 종합 프로그램 매매 추이 ───────────────────
 // 사용자 12 아이디어 #4 — 시장 단위 프로그램 자금 흐름 (코스피 전체).
 // ADR-0137 종목별 데이터와 *별도* — 시장 방향성 신호 (regime 가중치 입력).
+//
+// KIS 공식 검증: `FHPPG04600101` = 프로그램매매 종합현황(시간) → `comp-program-trade-today`
+// 직전 코드: tr_id=FHPPG04600101 (시간) + path=...-daily (일별) 교차 미스매치.
+// 일별이 필요한 경우: tr_id=FHPPG04600001 + path=...-daily (별도 ENV 로 전환).
 
 const MARKET_PROGRAM_TRADE_TR_ID = process.env.KIS_MARKET_PROGRAM_TRADE_TR_ID ?? 'FHPPG04600101';
 const MARKET_PROGRAM_TRADE_PATH =
   process.env.KIS_MARKET_PROGRAM_TRADE_PATH
-  ?? '/uapi/domestic-stock/v1/quotations/comp-program-trade-daily';
+  ?? '/uapi/domestic-stock/v1/quotations/comp-program-trade-today';
 
 /**
  * ADR-0138 — KIS 시장 종합 프로그램 매매 추이 조회 (코스피 시장 단위).

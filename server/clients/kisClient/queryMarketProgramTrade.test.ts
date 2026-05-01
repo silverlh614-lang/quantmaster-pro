@@ -1,4 +1,4 @@
-// @responsibility fetchKisMarketProgramTrade 회귀 테스트 — ADR-0138 KIS 시장 종합 프로그램 매매.
+// @responsibility fetchKisMarketProgramTrade 회귀 테스트 — ADR-0138 + ADR-0144 정정.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const _realDataKisGet = vi.fn();
@@ -182,12 +182,12 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
     expect(result).toBeNull();
   });
 
-  it('TR ID + endpoint default 호출 (KIS_MARKET_PROGRAM_*)', async () => {
+  it('ADR-0144 — TR ID + endpoint default = comp-program-trade-today (시간)', async () => {
     _realDataKisGet.mockResolvedValue({ output: { prgm_ntby_qty: '0', prgm_ntby_tr_pbmn: '0' } });
     await fetchKisMarketProgramTrade();
     expect(_realDataKisGet).toHaveBeenCalledWith(
       'FHPPG04600101',
-      '/uapi/domestic-stock/v1/quotations/comp-program-trade-daily',
+      '/uapi/domestic-stock/v1/quotations/comp-program-trade-today',
       expect.objectContaining({
         FID_COND_MRKT_DIV_CODE: 'U',  // U = 시장 전체
         FID_INPUT_ISCD: '0001',       // 코스피
