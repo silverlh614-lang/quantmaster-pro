@@ -14,6 +14,7 @@ import './cronIntrospect.cmd.js';
 import './dataVerificationReview.cmd.js';
 import './foreignerTrend.cmd.js';
 import './fssDetail.cmd.js';
+import './fssMapping.cmd.js';
 import './fssStatus.cmd.js';
 import './gateAudit.cmd.js';
 import './ghostForceRun.cmd.js';
