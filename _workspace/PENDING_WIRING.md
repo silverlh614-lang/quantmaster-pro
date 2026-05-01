@@ -49,7 +49,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | C4 | 0140 Naver 외인 추세 | `server/persistence/foreignerRatioRepo.ts` | INFRASTRUCTURE_ONLY | P2 | enrichment 시그널 + signalScanner 가중치 + enemyChecklist 외인 이탈 플래그 wiring — 6영업일 누적 후 |
 | C5 | 0142 FSS Mapping | `server/persistence/fssMappingPolicy.ts` | BLOCKED | P2 | `FSS_MAPPING_ENABLED=true` ENV 활성화 — 운영자가 `/fss_mapping` 검증 + 시장 행동 일치도 확인 + 1~2주 데이터 누적 후 결정 |
 | C6 | 0136 PR-1 후속 | `server/trading/regimeBridge.ts` | INFRASTRUCTURE_ONLY | P1 | `passiveActiveBoth=null → R3_EARLY 트리거 보수화` wiring — regime 의사결정 회귀 격리 |
-| C7 | 0149 Phase 1 DART 마무리 | `src/services/stock/enrichment.ts` | INFRASTRUCTURE_ONLY | P0 | `performanceReality` (#15) ← `epsGrowth > 0` + `economicMoatVerified` (#8) ← `debtRatio < 50% AND netProfitMargin > X` 합성 + `buildConditionSourceTiers` 'API' 분류 갱신 — PR-Phase0-MappingFix 머지 후 진입, 추정 ~30~50 LoC |
+| C7 | 0149/0150 Phase 1 DART 마무리 | `src/services/stock/enrichment.ts` | DECIDED_NOT_WIRING | P0 | **PR-Phase1-DartFinalize (2026-05-01) 완료** — `performanceReality` (#15) ← `epsGrowth > 0` + `economicMoatVerified` (#8) ← `debtRatio < 50% AND netProfitMargin > 5%` 합성 main + aiFallback 두 경로 격상 + `buildConditionSourceTiers` 5 키 'API' 격상. ADR-0150 발행. 27 조건 격상 진행도 44% → 52% (12 → 14개). |
 | C8 | 0149 Phase 2 KIS supply wiring | `src/services/stock/enrichment.ts` | INFRASTRUCTURE_ONLY | P1 | `supplyInflow` (#4) + `institutionalBuying` (#12) checklist 매핑 — ADR-0137/0138 페치 인프라 위, 추정 ~80 LoC, Phase 1 머지 후 |
 | C9 | 0149 Phase 3 globalIntel 합성 | `src/services/stock/enrichment.ts` | INFRASTRUCTURE_ONLY | P1 | 신규 `synthesizeRiskOnEnvironment / synthesizeCycleVerified / synthesizePolicyAlignment` 합성 헬퍼 (#5/#1/#16) — globalIntel 12 레이어 부분 격상, 추정 ~150~200 LoC |
 | C10 | 0149 Phase 4 외부 컨센서스 | (외부 source 신규 client) | BLOCKED | P2 | `consensusTarget` (#13) + `earningsSurprise` (#14) — 외부 컨센서스 source (FnGuide / WiseFn 등) 도입 필요, 별도 ADR 후 |
@@ -92,11 +92,18 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | E. 영속/진단 | 6 | 0 | 0 | 3 | 3 |
 | **합계** | **41** | **3** | **12** | **20** | **7** |
 
+> 주: C7 P0 는 PR-Phase1-DartFinalize (2026-05-01) 로 *DECIDED_NOT_WIRING* 격상 완료. 카운트는 *결정 완료* 도 포함한 백로그 영속화로 보존 (drift 추적). C 카테고리 *진행 중* P0 = 0건, 최우선 *진행 중* 항목은 C8 P1 Phase 2 KIS supply wiring.
+
 ## P0 즉시 wiring 권장 (자기학습 freeze 진원지)
 
-1. **A3 emitFullCloseAttribution** (4 PR 분할, 2026-04-30 audit) — `attributionRepo.ts` `emitFullCloseAttribution(input)` SSOT 신설 + `helpers/attribution.ts` `emitFullCloseAttributionForExit(shadow, exit)` wrapper + 5 청산 규칙 try/catch 격리 wiring + 2 OCO 분기 동일 + `entryConditionScores` 영속 audit (전제 조건 PR).
-2. **B1 TwoBar Confirmation BEP_PROTECTION** — `exitEngine/rules/hardStopLoss.ts` BEP_PROTECTION 분기에 `evaluateTwoBarConfirmation()` 호출 추가 — 단봉 노이즈 청산 차단 즉시 효과 + `bepGlideTouchAt` 영속 갱신.
-3. **C7 Phase 1 DART 마무리** (PR-Phase0-MappingFix 머지 후 진입) — `performanceReality` (#15) + `economicMoatVerified` (#8) DART 격상. 추정 ~50 LoC. 27 조건 격상 로드맵의 다음 단계.
+1. **A3 emitFullCloseAttribution** — ✅ **완료** (PR-A3-Audit 2026-04-30 — 100% wired 확정, DECIDED_NOT_WIRING 격상).
+2. **B1 TwoBar Confirmation BEP_PROTECTION** — ✅ **SHADOW only 활성** (PR-B1-1 2026-05-01, ADR-0085, hardStopLoss BEP_PROTECTION wiring). LIVE 활성화는 SHADOW 1주 검증 후 PR-B1-Audit 결정.
+3. **C7 Phase 1 DART 마무리** — ✅ **완료** (PR-Phase1-DartFinalize 2026-05-01, ADR-0150, performanceReality + economicMoatVerified 격상). 27 조건 격상 진행도 52%.
+
+## 진행 중 P1 우선순위
+
+1. **C8 Phase 2 KIS supply wiring** — `supplyInflow` (#4) + `institutionalBuying` (#12) checklist 매핑. ADR-0137/0138 인프라 위, 추정 ~80 LoC.
+2. **C9 Phase 3 globalIntel 합성** — `synthesizeRiskOnEnvironment / synthesizeCycleVerified / synthesizePolicyAlignment` 합성 헬퍼 (#5/#1/#16). 추정 ~150~200 LoC.
 
 ## 후속 PR — 자동 audit 정적 스크립트
 
@@ -108,3 +115,4 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 |------|----|------|
 | 2026-05-01 | PR-Governance-1 | 초기 백로그 작성 — 5 카테고리 32 항목 + 4 상태 / 3 우선순위 SSOT |
 | 2026-05-01 | PR-Phase0-MappingFix | C7~C14 신규 8 항목 — 27 조건 격상 후속 (Phase 1~4 INFRASTRUCTURE_ONLY/BLOCKED 4 + DECIDED_NOT_WIRING 정성 4). 합계 33→41 / P0 2→3 / P1 9→12 / P2 19→20 / P3 3→7 |
+| 2026-05-01 | PR-Phase1-DartFinalize | C7 → DECIDED_NOT_WIRING (Phase 1 완료). performanceReality (#15) + economicMoatVerified (#8) DART 격상 main + aiFallback 두 경로. 27 조건 격상 진행도 44% → 52% (12 → 14개). ADR-0150 발행. 카테고리 카운트 동일 (C 14 / 합계 41). |

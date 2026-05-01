@@ -69,11 +69,13 @@ export function buildConditionSourceTiers(ctx: SourceTierContext): Partial<Recor
   // COMPUTED — 클라이언트 OHLCV 직접 계산
   if (ctx.hasVcpComputed) meta.vcpPattern = 'COMPUTED';
 
-  // API — DART 응답 사용
+  // API — DART 응답 사용 (ADR-0150 Phase 1 마무리: 3 → 5 키 격상)
   if (ctx.hasDartFinancials) {
     meta.roeType3 = 'API';
     meta.ocfQuality = 'API';
     meta.interestCoverage = 'API';
+    meta.performanceReality = 'API';     // ADR-0150: epsGrowth > 0
+    meta.economicMoatVerified = 'API';   // ADR-0150: debtRatio + netProfitMargin 합성
   }
 
   // API — KIS 수급 (Naver snapshot stub) 사용
@@ -337,6 +339,13 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         roeType3: (fallbackDart?.roe ?? 0) >= 15 ? 1 : (stock.checklist?.roeType3 ?? 0),
         ocfQuality: fallbackDart?.ocfGreaterThanNetIncome ? 1 : (stock.checklist?.ocfQuality ?? 0),
         interestCoverage: (fallbackDart?.interestCoverageRatio ?? 0) >= 3 ? 1 : (stock.checklist?.interestCoverage ?? 0),
+        // ADR-0150: aiFallback 경로도 동일 격상 (Phase 1 마무리, main path 정합)
+        performanceReality: (fallbackDart?.epsGrowth ?? 0) > 0 ? 1 : (stock.checklist?.performanceReality ?? 0),
+        economicMoatVerified:
+          (fallbackDart?.debtRatio ?? 100) < 50 &&
+          (fallbackDart?.netProfitMargin ?? 0) > 5
+            ? 1
+            : (stock.checklist?.economicMoatVerified ?? 0),
       },
       // PR-B (ADR-0029): aiFallback 경로 — DART 만 가용 (vcp/kisSupply 없음)
       conditionSourceTiers: buildConditionSourceTiers({
@@ -459,6 +468,16 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         roeType3: (dartFinancials?.roe ?? 0) >= 15 ? 1 : 0,
         ocfQuality: dartFinancials?.ocfGreaterThanNetIncome ? 1 : 0,
         interestCoverage: (dartFinancials?.interestCoverageRatio ?? 0) >= 3 ? 1 : 0,
+        // ADR-0150: DART 펀더멘털 4개 → 5개 격상 (Phase 1 마무리)
+        // performanceReality (#15) ← epsGrowth > 0 (전년 대비 당기순이익 성장 검증)
+        performanceReality: (dartFinancials?.epsGrowth ?? 0) > 0 ? 1 : 0,
+        // economicMoatVerified (#8) ← debtRatio < 50% AND netProfitMargin > 5%
+        // (낮은 부채 + 높은 자산 대비 순이익률 = 경제적 해자 정량 검증)
+        economicMoatVerified:
+          (dartFinancials?.debtRatio ?? 100) < 50 &&
+          (dartFinancials?.netProfitMargin ?? 0) > 5
+            ? 1
+            : (stock.checklist?.economicMoatVerified ?? 0),
         institutionalBuying: (kisSupply?.institutionNet ?? 0) > 0 ? 1 : 0,
         supplyInflow: (kisSupply?.foreignNet ?? 0) > 0 ? 1 : 0,
       },
