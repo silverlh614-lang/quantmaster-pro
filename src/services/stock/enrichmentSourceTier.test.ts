@@ -5,22 +5,25 @@ import { describe, it, expect } from 'vitest';
 import { buildConditionSourceTiers } from './enrichment';
 
 describe('buildConditionSourceTiers — ADR-0029 sourceTier 메타 분류', () => {
-  it('main path (DART + KIS supply + VCP) → 8 키 격상 (ADR-0150 Phase 1 마무리)', () => {
+  it('main path (DART + VCP) → 6 키 격상 (ADR-0151 Phase 2: hasKisSupply 라벨 제거)', () => {
     const meta = buildConditionSourceTiers({
       hasDartFinancials: true,
-      hasKisSupply: true,
+      hasKisSupply: true, // ADR-0151: 후방호환 인자 — 라벨 부여 안 함 (의미 mismatch)
       hasVcpComputed: true,
     });
-    // ADR-0150: VCP 1 (COMPUTED) + DART 5 (API: roe/ocf/icr + 신규 #15/#8) + KIS supply 2 (API) = 8 키 격상
+    // ADR-0151 (Phase 2): VCP 1 (COMPUTED) + DART 5 (API) = 6 키 격상
+    // hasKisSupply 가 true 여도 institutionalBuying / supplyInflow 는 'API' 부여 안 함
+    // (Naver foreignerOwnRatio 정적 값은 #4/#12 *흐름* 의미와 mismatch).
     expect(meta.vcpPattern).toBe('COMPUTED');
     expect(meta.roeType3).toBe('API');
     expect(meta.ocfQuality).toBe('API');
     expect(meta.interestCoverage).toBe('API');
     expect(meta.performanceReality).toBe('API');     // ADR-0150 신규
     expect(meta.economicMoatVerified).toBe('API');   // ADR-0150 신규
-    expect(meta.institutionalBuying).toBe('API');
-    expect(meta.supplyInflow).toBe('API');
-    // 나머지 19 키는 AI_INFERRED 기본값
+    // ADR-0151: institutionalBuying / supplyInflow 는 hasKisSupply 와 무관 AI_INFERRED 유지
+    expect(meta.institutionalBuying).toBe('AI_INFERRED');
+    expect(meta.supplyInflow).toBe('AI_INFERRED');
+    // 나머지 19 키도 AI_INFERRED 기본값
     expect(meta.cycleVerified).toBe('AI_INFERRED');
     expect(meta.ichimokuBreakout).toBe('AI_INFERRED');
     expect(meta.catalystAnalysis).toBe('AI_INFERRED');
@@ -38,7 +41,7 @@ describe('buildConditionSourceTiers — ADR-0029 sourceTier 메타 분류', () =
     expect(meta.interestCoverage).toBe('API');
     expect(meta.performanceReality).toBe('API');     // ADR-0150 신규
     expect(meta.economicMoatVerified).toBe('API');   // ADR-0150 신규
-    // VCP/supply 는 AI_INFERRED 기본 유지
+    // ADR-0151: VCP/supply 는 AI_INFERRED 기본 유지 (hasKisSupply 무관)
     expect(meta.vcpPattern).toBe('AI_INFERRED');
     expect(meta.institutionalBuying).toBe('AI_INFERRED');
     expect(meta.supplyInflow).toBe('AI_INFERRED');

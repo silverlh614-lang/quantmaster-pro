@@ -78,11 +78,13 @@ export function buildConditionSourceTiers(ctx: SourceTierContext): Partial<Recor
     meta.economicMoatVerified = 'API';   // ADR-0150: debtRatio + netProfitMargin 합성
   }
 
-  // API — KIS 수급 (Naver snapshot stub) 사용
-  if (ctx.hasKisSupply) {
-    meta.institutionalBuying = 'API';
-    meta.supplyInflow = 'API';
-  }
+  // ADR-0151: hasKisSupply 라벨 deprecated — ADR-0011 PR-25-C 가 KIS 수급 호출 제거
+  // 후 `buildSnapshotSupplyStub` 가 foreignNet/institutionNet=0 박제. Naver snapshot
+  // 의 정적 `foreignerOwnRatio` 는 *외인 보유율* (정적 % 값) 이라 #4 supplyInflow
+  // (수급 *흐름*) / #12 institutionalBuying (기관/외인 *순매수*) 의미와 mismatch.
+  // 따라서 ctx.hasKisSupply=true 여도 'API' 라벨 부여 안 함 (의미 정합 유지).
+  // 진정한 KIS supply 격상은 ADR-0011 정책 변경 후 별도 ADR + 신규 ctx 필드.
+  // 호출자 ctx.hasKisSupply 는 후방호환 (옵셔널, 무시) — 본 PR 에서 호출자 무수정.
 
   return meta;
 }
@@ -478,8 +480,13 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
           (dartFinancials?.netProfitMargin ?? 0) > 5
             ? 1
             : (stock.checklist?.economicMoatVerified ?? 0),
-        institutionalBuying: (kisSupply?.institutionNet ?? 0) > 0 ? 1 : 0,
-        supplyInflow: (kisSupply?.foreignNet ?? 0) > 0 ? 1 : 0,
+        // ADR-0151: ADR-0011 PR-25-C 가 KIS 수급 호출 제거 후 buildSnapshotSupplyStub 가
+        // foreignNet/institutionNet=0 박제 → 이전 코드의 kisSupply.foreignNet/institutionNet
+        // 비교 분기가 *항상 0 으로 평가* 되어 AI 추정 stock.checklist 점수를 silent 0 덮어쓰던 결함.
+        // Phase 2 정정: AI 자체 판단 stock.checklist 보존 (ADR-0011 정책 정합).
+        // 진정한 KIS supply 호출은 ADR-0011 정책 변경 후 별도 ADR.
+        institutionalBuying: stock.checklist?.institutionalBuying ?? 0,
+        supplyInflow: stock.checklist?.supplyInflow ?? 0,
       },
       valuation: {
         ...stock.valuation,

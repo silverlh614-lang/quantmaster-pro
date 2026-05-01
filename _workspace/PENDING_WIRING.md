@@ -50,7 +50,8 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | C5 | 0142 FSS Mapping | `server/persistence/fssMappingPolicy.ts` | BLOCKED | P2 | `FSS_MAPPING_ENABLED=true` ENV 활성화 — 운영자가 `/fss_mapping` 검증 + 시장 행동 일치도 확인 + 1~2주 데이터 누적 후 결정 |
 | C6 | 0136 PR-1 후속 | `server/trading/regimeBridge.ts` | INFRASTRUCTURE_ONLY | P1 | `passiveActiveBoth=null → R3_EARLY 트리거 보수화` wiring — regime 의사결정 회귀 격리 |
 | C7 | 0149/0150 Phase 1 DART 마무리 | `src/services/stock/enrichment.ts` | DECIDED_NOT_WIRING | P0 | **PR-Phase1-DartFinalize (2026-05-01) 완료** — `performanceReality` (#15) ← `epsGrowth > 0` + `economicMoatVerified` (#8) ← `debtRatio < 50% AND netProfitMargin > 5%` 합성 main + aiFallback 두 경로 격상 + `buildConditionSourceTiers` 5 키 'API' 격상. ADR-0150 발행. 27 조건 격상 진행도 44% → 52% (12 → 14개). |
-| C8 | 0149 Phase 2 KIS supply wiring | `src/services/stock/enrichment.ts` | INFRASTRUCTURE_ONLY | P1 | `supplyInflow` (#4) + `institutionalBuying` (#12) checklist 매핑 — ADR-0137/0138 페치 인프라 위, 추정 ~80 LoC, Phase 1 머지 후 |
+| C8 | 0149/0151 Phase 2 KIS supply audit | `src/services/stock/enrichment.ts` | DECIDED_NOT_WIRING | P1 | **PR-Phase2-KisSupplyAudit (2026-05-01) 완료** — audit findings §B 권고가 부정확 함을 확정. ADR-0011 PR-25-C 정책 (KIS 호출 금지 + AI 위임) 후 main path 의 0 박제가 silent degradation 결함이었음. 정정: AI 추정 stock.checklist 보존 + buildConditionSourceTiers 'API' 라벨 폐기. ADR-0151 발행. 진정한 #4/#12 격상은 ADR-0011 정책 변경 (옵션 A) 또는 ADR-0140 endpoint 신설 (C15 옵션 B) 후 별도 ADR. |
+| C15 | 0151 Naver 외인 추세 endpoint 신설 | `server/routes/foreignerRatioRouter.ts` (신규) | INFRASTRUCTURE_ONLY | P2 | ADR-0140 추세 영속 (5d/20d 변화율) 클라이언트 endpoint 신설 — `GET /api/foreigner-ratio/trend?code=...` + 클라 enrichment 호출 wiring + #4 supplyInflow 격상 (changePct5d > 0 AND sampleSize ≥ 6 임계). ADR-0011 정책 무영향 — Naver 만 사용. 진정한 *흐름* 의미 정합 |
 | C9 | 0149 Phase 3 globalIntel 합성 | `src/services/stock/enrichment.ts` | INFRASTRUCTURE_ONLY | P1 | 신규 `synthesizeRiskOnEnvironment / synthesizeCycleVerified / synthesizePolicyAlignment` 합성 헬퍼 (#5/#1/#16) — globalIntel 12 레이어 부분 격상, 추정 ~150~200 LoC |
 | C10 | 0149 Phase 4 외부 컨센서스 | (외부 source 신규 client) | BLOCKED | P2 | `consensusTarget` (#13) + `earningsSurprise` (#14) — 외부 컨센서스 source (FnGuide / WiseFn 등) 도입 필요, 별도 ADR 후 |
 | C11 | 0149 #9 notPreviousLeader | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | 정성 항목 (직전 사이클 주도주 회피) — 자동 격상 불가능, AI 추정 영구 잔존 |
@@ -87,23 +88,24 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 |----------|---------|----|----|----|----|
 | A. 학습 시리즈 | 7 | 1 | 3 | 3 | 0 |
 | B. 매매 본체 | 7 | 1 | 3 | 3 | 0 |
-| C. 시그널 입력 | 14 | 1 | 3 | 6 | 4 |
+| C. 시그널 입력 | 15 | 1 | 3 | 7 | 4 |
 | D. UI Phase | 7 | 0 | 3 | 4 | 0 |
 | E. 영속/진단 | 6 | 0 | 0 | 3 | 3 |
-| **합계** | **41** | **3** | **12** | **20** | **7** |
+| **합계** | **42** | **3** | **12** | **21** | **7** |
 
-> 주: C7 P0 는 PR-Phase1-DartFinalize (2026-05-01) 로 *DECIDED_NOT_WIRING* 격상 완료. 카운트는 *결정 완료* 도 포함한 백로그 영속화로 보존 (drift 추적). C 카테고리 *진행 중* P0 = 0건, 최우선 *진행 중* 항목은 C8 P1 Phase 2 KIS supply wiring.
+> 주: C7 (Phase 1) 은 PR-Phase1-DartFinalize 로, C8 (Phase 2) 는 PR-Phase2-KisSupplyAudit 로 *DECIDED_NOT_WIRING* 격상 완료. 카운트는 *결정 완료* 도 포함한 백로그 영속화로 보존 (drift 추적). C 카테고리 *진행 중* P0/P1 우선순위 1 = C9 (Phase 3 globalIntel 합성). C15 (Naver 외인 추세 endpoint) 는 ADR-0140 인프라 위에 새 endpoint 신설 + #4 격상 — Phase 2 의 진정한 후속.
 
 ## P0 즉시 wiring 권장 (자기학습 freeze 진원지)
 
-1. **A3 emitFullCloseAttribution** — ✅ **완료** (PR-A3-Audit 2026-04-30 — 100% wired 확정, DECIDED_NOT_WIRING 격상).
-2. **B1 TwoBar Confirmation BEP_PROTECTION** — ✅ **SHADOW only 활성** (PR-B1-1 2026-05-01, ADR-0085, hardStopLoss BEP_PROTECTION wiring). LIVE 활성화는 SHADOW 1주 검증 후 PR-B1-Audit 결정.
-3. **C7 Phase 1 DART 마무리** — ✅ **완료** (PR-Phase1-DartFinalize 2026-05-01, ADR-0150, performanceReality + economicMoatVerified 격상). 27 조건 격상 진행도 52%.
+1. **A3 emitFullCloseAttribution** — ✅ **완료** (PR-A3-Audit 2026-04-30 — 100% wired 확정).
+2. **B1 TwoBar Confirmation BEP_PROTECTION** — ✅ **SHADOW only 활성** (PR-B1-1 2026-05-01, ADR-0085).
+3. **C7 Phase 1 DART 마무리** — ✅ **완료** (PR-Phase1-DartFinalize 2026-05-01, ADR-0150). 27 조건 격상 52%.
+4. **C8 Phase 2 KIS supply audit** — ✅ **완료** (PR-Phase2-KisSupplyAudit 2026-05-01, ADR-0151) — *audit findings §B 권고 정정 + silent degradation 차단*. 진행도 52% 그대로 (격상 0, 결함 1건 차단).
 
 ## 진행 중 P1 우선순위
 
-1. **C8 Phase 2 KIS supply wiring** — `supplyInflow` (#4) + `institutionalBuying` (#12) checklist 매핑. ADR-0137/0138 인프라 위, 추정 ~80 LoC.
-2. **C9 Phase 3 globalIntel 합성** — `synthesizeRiskOnEnvironment / synthesizeCycleVerified / synthesizePolicyAlignment` 합성 헬퍼 (#5/#1/#16). 추정 ~150~200 LoC.
+1. **C9 Phase 3 globalIntel 합성** — `synthesizeRiskOnEnvironment / synthesizeCycleVerified / synthesizePolicyAlignment` 합성 헬퍼 (#5/#1/#16). 추정 ~150~200 LoC.
+2. **C15 Naver 외인 추세 endpoint 신설** (P2) — Phase 2 의 진정한 후속. ADR-0140 추세 영속 위에 클라 endpoint + #4 supplyInflow 격상.
 
 ## 후속 PR — 자동 audit 정적 스크립트
 
@@ -116,3 +118,4 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 2026-05-01 | PR-Governance-1 | 초기 백로그 작성 — 5 카테고리 32 항목 + 4 상태 / 3 우선순위 SSOT |
 | 2026-05-01 | PR-Phase0-MappingFix | C7~C14 신규 8 항목 — 27 조건 격상 후속 (Phase 1~4 INFRASTRUCTURE_ONLY/BLOCKED 4 + DECIDED_NOT_WIRING 정성 4). 합계 33→41 / P0 2→3 / P1 9→12 / P2 19→20 / P3 3→7 |
 | 2026-05-01 | PR-Phase1-DartFinalize | C7 → DECIDED_NOT_WIRING (Phase 1 완료). performanceReality (#15) + economicMoatVerified (#8) DART 격상 main + aiFallback 두 경로. 27 조건 격상 진행도 44% → 52% (12 → 14개). ADR-0150 발행. 카테고리 카운트 동일 (C 14 / 합계 41). |
+| 2026-05-01 | PR-Phase2-KisSupplyAudit | C8 → DECIDED_NOT_WIRING (Phase 2 audit + silent degradation 차단 완료). audit findings §B 권고 정정 (KIS supply 격상 wired 표기는 부정확). ADR-0011 정책 정합 + AI 추정 보존. C15 (Naver 외인 추세 endpoint) 신규 P2 등재. ADR-0151 발행. 27 조건 격상 진행도 52% 그대로 (격상 0, 결함 1건 차단). 카운트 변경 — C 14→15 / P2 6→7 / 합계 41→42. |
