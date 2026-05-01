@@ -37,6 +37,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | B4 | 0008 kellyHalfLife | `server/trading/kellyHalfLife.ts` | PARTIAL | P2 | 보유 중 재평가 wiring 미완성 (현재 호출자 모두 신규 진입, `timeDecayInput` 미전달) — 운영 데이터 누적 후 |
 | B5 | 0117/0128 entryRevalidationStep | `server/trading/signalScanner/revalidationSteps/entryRevalidationStep.ts` | PARTIAL | P1 | DATA_HOLD 분기 SSOT 위임 격상 (현재 진단 디테일 보존 vs 일관성 trade-off) — 사용자 결정 대기 |
 | B6 | ADR-0001 Phase B | `server/trading/signalScanner/perSymbol/buyListLoop.ts` | PARTIAL | P2 | evaluateBuyList god function (cc=244) 본체 추가 분해 (인라인 데이터 페치 / Gate revalidation wrapping / 진단 메시지 빌더) — 운영 데이터 누적 후, LIVE 회귀 격리 |
+| B7 | 과열 신호 #3 price7dAgo | `server/persistence/shadowTradeRepo.ts` | INFRASTRUCTURE_ONLY | P2 | `riskManager.ts:39` 가 reader 사용 (과열 부분 매도). 매수 시점 7일 lookback OHLCV 영속 wiring 미구현 — buyPipeline.buildBuyTrade 또는 신규 cron 에서 외부 OHLCV fetch 후 영속 |
 
 ### C. 시그널 입력 (Diag-2~5 의사결정 wiring)
 
@@ -77,11 +78,11 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 카테고리 | 항목 수 | P0 | P1 | P2 | P3 |
 |----------|---------|----|----|----|----|
 | A. 학습 시리즈 | 7 | 1 | 3 | 3 | 0 |
-| B. 매매 본체 | 6 | 1 | 2 | 3 | 0 |
+| B. 매매 본체 | 7 | 1 | 3 | 3 | 0 |
 | C. 시그널 입력 | 6 | 0 | 1 | 5 | 0 |
 | D. UI Phase | 7 | 0 | 3 | 4 | 0 |
 | E. 영속/진단 | 6 | 0 | 0 | 3 | 3 |
-| **합계** | **32** | **2** | **9** | **18** | **3** |
+| **합계** | **33** | **2** | **9** | **19** | **3** |
 
 ## P0 즉시 wiring 권장 (자기학습 freeze 진원지)
 

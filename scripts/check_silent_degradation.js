@@ -38,15 +38,28 @@ const EXTS = new Set(['.ts', '.tsx']);
 const IGNORED_SUFFIX = ['.d.ts', '.test.ts', '.test.tsx', '.spec.ts', '.spec.tsx'];
 
 // 검사 대상 영속 schema 파일 화이트리스트.
-// 시작은 macroStateRepo.ts (ADR-0136 silent degradation 진원지, 49 옵셔널 필드).
-// 추후 PR 에서 점진 확장 가능 (shadowTradeRepo / watchlistRepo 등).
+// 시작 (PR-Governance-2): macroStateRepo.ts (ADR-0136 진원지, 49 옵셔널 필드).
+// 확장 (PR-Governance-Followup): 4 영속 SSOT 추가
+//   - shadowTradeRepo.ts: 자기학습 핵심 SSOT (ServerShadowTrade v2 schema)
+//   - watchlistRepo.ts: 사용자 관심 종목 영속
+//   - attributionRepo.ts: 27조건 학습 가중치 (ADR-0006 composite key)
+//   - failurePatternRepo.ts: 실패 패턴 학습 (TTL 180일)
 const SCHEMA_FILES = [
   'server/persistence/macroStateRepo.ts',
+  'server/persistence/shadowTradeRepo.ts',
+  'server/persistence/watchlistRepo.ts',
+  'server/persistence/attributionRepo.ts',
+  'server/persistence/failurePatternRepo.ts',
 ];
 
 // 검사 대상 인터페이스 이름 (해당 파일 안의 export interface 매칭).
+// 같은 파일에 여러 인터페이스가 있어도 본 set 에 등재된 이름만 검사.
 const SCHEMA_INTERFACES = new Set([
   'MacroState',
+  'ServerShadowTrade',
+  'WatchlistEntry',
+  'ServerAttributionRecord',
+  'FailurePatternEntry',
 ]);
 
 /**
@@ -60,8 +73,20 @@ const SCHEMA_INTERFACES = new Set([
  * 신규 등재 시 사유 + ADR + 후속 PR 명시 의무.
  */
 const BASELINE_SILENT_DEGRADATION = [
-  // 현재 등재 0건 — 향후 PR 에서 발견 시 등재.
-  // 형식: { schema: 'MacroState', field: 'fieldName', reason: 'ADR-XXXX wiring 대기 (PENDING_WIRING A3)' }
+  // ServerShadowTrade.bepGlideTouchAt — ADR-0085 TwoBar Confirmation infrastructure.
+  // hardStopLoss.ts BEP_PROTECTION 분기 wiring 대기 (PENDING_WIRING B1, P0).
+  {
+    schema: 'ServerShadowTrade',
+    field: 'bepGlideTouchAt',
+    reason: 'ADR-0085 TwoBar Confirmation BEP_PROTECTION wiring 대기 (PENDING_WIRING B1, P0)',
+  },
+  // ServerShadowTrade.price7dAgo — 과열 탐지 신호 #3 (7일 전 가격).
+  // riskManager.ts:39 가 reader. 매수 시점 7일 lookback OHLCV 영속 wiring 미구현.
+  {
+    schema: 'ServerShadowTrade',
+    field: 'price7dAgo',
+    reason: '과열 탐지 신호 #3 — 매수 시점 7일 lookback OHLCV 영속 wiring 미구현 (PENDING_WIRING 후속 등재 필요)',
+  },
 ];
 
 const BASELINE_KEYS = new Set(

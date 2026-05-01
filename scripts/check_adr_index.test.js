@@ -1,0 +1,384 @@
+/**
+ * @responsibility check_adr_index.js 회귀 테스트 (PR-Governance 후속 자동화 #1)
+ *
+ * 검증:
+ *   - baseline EXIT=0 (현재 INDEX.md 정합)
+ *   - scanAdrFiles: 정상/충돌/잘못된 파일명 분류
+ *   - parseIndex: 4 섹션 파싱 (다음 발급 / 충돌 / 누락 / 전체 인덱스)
+ *   - validate: 6 카테고리 (A~F) 각각 위반 시나리오
+ *   - computeMaxAdrNumber + formatAdrNumber 헬퍼
+ */
+
+import { describe, it, expect } from 'vitest';
+import { execSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import {
+  scanAdrFiles,
+  parseIndex,
+  validate,
+  computeMaxAdrNumber,
+  formatAdrNumber,
+} from './check_adr_index.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const ROOT = join(__dirname, '..');
+
+function runLint(args = '') {
+  try {
+    const out = execSync(`node scripts/check_adr_index.js ${args}`.trim(), {
+      cwd: ROOT,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return { exitCode: 0, output: out };
+  } catch (err) {
+    return {
+      exitCode: err.status ?? 1,
+      output: (err.stdout?.toString() ?? '') + (err.stderr?.toString() ?? ''),
+    };
+  }
+}
+
+describe('check_adr_index — baseline', () => {
+  it('현재 INDEX.md 정합 EXIT=0', () => {
+    const result = runLint();
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain('OK');
+    expect(result.output).toContain('충돌 8그룹');
+    expect(result.output).toContain('누락 6건');
+  });
+
+  it('--json 출력 violations 빈 배열', () => {
+    const result = runLint('--json');
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.output);
+    expect(parsed.violations).toEqual([]);
+    expect(parsed.summary.totalAdrFiles).toBeGreaterThan(140);
+    expect(parsed.summary.uniqueNumbers).toBeGreaterThan(130);
+    expect(parsed.summary.nextNumber).toMatch(/^\d{4}$/);
+  });
+});
+
+describe('scanAdrFiles', () => {
+  function makeTmpDir(files) {
+    const dir = mkdtempSync(join(tmpdir(), 'adr-test-'));
+    for (const name of files) {
+      writeFileSync(join(dir, name), '# stub\n');
+    }
+    return dir;
+  }
+
+  it('정상 파일 단일 그룹화', () => {
+    const dir = makeTmpDir(['0001-foo.md', '0002-bar-baz.md']);
+    try {
+      const { byNumber, invalidNames } = scanAdrFiles(dir);
+      expect(byNumber.size).toBe(2);
+      expect(byNumber.get('0001')).toEqual(['0001-foo.md']);
+      expect(byNumber.get('0002')).toEqual(['0002-bar-baz.md']);
+      expect(invalidNames).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('동일 번호 충돌 그룹', () => {
+    const dir = makeTmpDir(['0028-a.md', '0028-b.md', '0028-c.md']);
+    try {
+      const { byNumber } = scanAdrFiles(dir);
+      expect(byNumber.get('0028')).toHaveLength(3);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('잘못된 파일명 invalidNames 분리', () => {
+    const dir = makeTmpDir(['28-foo.md', '0028a-foo.md', 'foo.md', '0001-Bar.md']);
+    try {
+      const { byNumber, invalidNames } = scanAdrFiles(dir);
+      // 0001-Bar.md 는 camelCase 허용 (relaxed regex)
+      expect(byNumber.has('0001')).toBe(true);
+      expect(invalidNames).toEqual(expect.arrayContaining(['28-foo.md', '0028a-foo.md', 'foo.md']));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('INDEX.md / README.md 자동 제외', () => {
+    const dir = makeTmpDir(['INDEX.md', 'README.md', '0001-foo.md']);
+    try {
+      const { byNumber, invalidNames } = scanAdrFiles(dir);
+      expect(byNumber.size).toBe(1);
+      expect(invalidNames).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('비-md 파일 무시', () => {
+    const dir = makeTmpDir(['0001-foo.md', '0002-bar.txt', 'random.json']);
+    try {
+      const { byNumber, invalidNames } = scanAdrFiles(dir);
+      expect(byNumber.size).toBe(1);
+      expect(invalidNames).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('parseIndex', () => {
+  it('§"다음 발급" 추출', () => {
+    const src = `## 다음 발급\n\n**다음 ADR 번호: \`0148\`**\n`;
+    const { nextNumber } = parseIndex(src);
+    expect(nextNumber).toBe('0148');
+  });
+
+  it('§"다음 발급" 부재 시 null', () => {
+    const src = `## 다른 섹션\n내용\n`;
+    const { nextNumber } = parseIndex(src);
+    expect(nextNumber).toBeNull();
+  });
+
+  it('§"알려진 충돌" 표 행 추출', () => {
+    const src = [
+      '## 알려진 충돌',
+      '| 0028 | `0028-a.md` | 설명 | PR-1 | 비고 |',
+      '| 0028 | `0028-b.md` | 설명 | PR-2 | 비고 |',
+      '| 0029 | `0029-c.md` | 설명 | PR-3 | 비고 |',
+    ].join('\n');
+    const { conflicts } = parseIndex(src);
+    expect(conflicts).toEqual([
+      { number: '0028', file: '0028-a.md' },
+      { number: '0028', file: '0028-b.md' },
+      { number: '0029', file: '0029-c.md' },
+    ]);
+  });
+
+  it('§"누락" 표 추출 + §"전체 인덱스" 누락 마커', () => {
+    const src = [
+      '## 누락 (Gap)',
+      '| 0062 | rebase 충돌 |',
+      '| 0143 | 누락 |',
+      '## 전체 인덱스',
+      '| 0001 | foo | refactor |',
+      '| **0143** | *(누락)* | — |',
+      '| 0144 | bar | data |',
+    ].join('\n');
+    const { gaps, mainIndex } = parseIndex(src);
+    expect(gaps).toContain('0062');
+    expect(gaps).toContain('0143');
+    expect(mainIndex.get('0143').isGap).toBe(true);
+    expect(mainIndex.get('0001').isGap).toBe(false);
+    expect(mainIndex.get('0144').isGap).toBe(false);
+  });
+
+  it('§"전체 인덱스" 행 파싱 — 제목/도메인 분리', () => {
+    const src = [
+      '## 전체 인덱스',
+      '| 0001 | signalScanner-decomposition | refactor |',
+      '| 0028 | A / B / C | conflict ×3 |',
+    ].join('\n');
+    const { mainIndex } = parseIndex(src);
+    expect(mainIndex.get('0001').title).toBe('signalScanner-decomposition');
+    expect(mainIndex.get('0001').domain).toBe('refactor');
+    expect(mainIndex.get('0028').domain).toBe('conflict ×3');
+  });
+});
+
+describe('validate', () => {
+  function build({
+    files = [],
+    invalidNames = [],
+    nextNumber = null,
+    indexed = [],
+    conflicts = [],
+    gaps = [],
+  } = {}) {
+    const byNumber = new Map();
+    for (const name of files) {
+      const m = name.match(/^(\d{4})-/);
+      if (!m) continue;
+      const num = m[1];
+      if (!byNumber.has(num)) byNumber.set(num, []);
+      byNumber.get(num).push(name);
+    }
+    const mainIndex = new Map();
+    for (const e of indexed) {
+      mainIndex.set(e.number, {
+        title: e.title || 'stub',
+        domain: e.domain || 'data',
+        isGap: e.isGap || false,
+      });
+    }
+    return {
+      scan: { byNumber, invalidNames },
+      parsed: { nextNumber, mainIndex, conflicts, gaps },
+    };
+  }
+
+  it('A — 파일 존재 + 인덱스 미등재 시 위반', () => {
+    const { scan, parsed } = build({
+      files: ['0150-foo.md'],
+      indexed: [],
+      nextNumber: '0151',
+    });
+    const { violations } = validate(scan, parsed);
+    const a = violations.filter((v) => v.category === 'A_MISSING_INDEX_ENTRY');
+    expect(a.length).toBeGreaterThan(0);
+  });
+
+  it('A — 충돌 파일이 충돌 표 미등재 시 위반', () => {
+    const { scan, parsed } = build({
+      files: ['0028-a.md', '0028-b.md'],
+      indexed: [{ number: '0028', title: 'conflict', domain: 'conflict ×2' }],
+      conflicts: [{ number: '0028', file: '0028-a.md' }], // b 는 미등재
+      nextNumber: '0029',
+    });
+    const { violations } = validate(scan, parsed);
+    const a = violations.filter((v) => v.category === 'A_MISSING_CONFLICT_ENTRY');
+    expect(a.length).toBe(1);
+    expect(a[0].message).toContain('0028-b.md');
+  });
+
+  it('B — 인덱스 등재 + 파일 부재 시 위반 (stale entry)', () => {
+    const { scan, parsed } = build({
+      files: [],
+      indexed: [{ number: '0001', title: 'stale' }],
+      nextNumber: '0001',
+    });
+    const { violations } = validate(scan, parsed);
+    const b = violations.filter((v) => v.category === 'B_STALE_INDEX_ENTRY');
+    expect(b.length).toBe(1);
+  });
+
+  it('B — 누락 마커 등재는 stale 로 안 잡힘', () => {
+    const { scan, parsed } = build({
+      files: [],
+      indexed: [{ number: '0143', title: '(누락)', isGap: true }],
+      nextNumber: '0001',
+    });
+    const { violations } = validate(scan, parsed);
+    const b = violations.filter((v) => v.category === 'B_STALE_INDEX_ENTRY');
+    expect(b).toEqual([]);
+  });
+
+  it('C — 다음 발급 ≠ max+1 시 위반', () => {
+    const { scan, parsed } = build({
+      files: ['0001-a.md', '0002-b.md'],
+      indexed: [
+        { number: '0001', title: 'a' },
+        { number: '0002', title: 'b' },
+      ],
+      nextNumber: '0010', // 기대 0003
+    });
+    const { violations } = validate(scan, parsed);
+    const c = violations.filter((v) => v.category === 'C_NEXT_NUMBER_MISMATCH');
+    expect(c.length).toBe(1);
+    expect(c[0].message).toContain('0010');
+    expect(c[0].message).toContain('0003');
+  });
+
+  it('C — 다음 발급 정상 시 위반 없음', () => {
+    const { scan, parsed } = build({
+      files: ['0001-a.md', '0002-b.md'],
+      indexed: [
+        { number: '0001', title: 'a' },
+        { number: '0002', title: 'b' },
+      ],
+      nextNumber: '0003',
+    });
+    const { violations } = validate(scan, parsed);
+    expect(violations.filter((v) => v.category.startsWith('C_'))).toEqual([]);
+  });
+
+  it('C — 다음 발급 섹션 부재 시 위반', () => {
+    const { scan, parsed } = build({
+      files: ['0001-a.md'],
+      indexed: [{ number: '0001', title: 'a' }],
+      nextNumber: null,
+    });
+    const { violations } = validate(scan, parsed);
+    const c = violations.filter((v) => v.category === 'C_NEXT_NUMBER_MISSING');
+    expect(c.length).toBe(1);
+  });
+
+  it('D — 누락 등재된 번호가 실제 파일 존재 시 위반 (false gap)', () => {
+    const { scan, parsed } = build({
+      files: ['0143-foo.md'],
+      indexed: [{ number: '0143', title: 'foo' }],
+      gaps: ['0143'],
+      nextNumber: '0144',
+    });
+    const { violations } = validate(scan, parsed);
+    const d = violations.filter((v) => v.category === 'D_FALSE_GAP');
+    expect(d.length).toBe(1);
+  });
+
+  it('E — 충돌 표 entry 가 파일 시스템 부재 시 위반', () => {
+    const { scan, parsed } = build({
+      files: [],
+      conflicts: [{ number: '0028', file: '0028-stale.md' }],
+      nextNumber: '0001',
+    });
+    const { violations } = validate(scan, parsed);
+    const e = violations.filter((v) => v.category === 'E_STALE_CONFLICT_ENTRY');
+    expect(e.length).toBe(1);
+  });
+
+  it('F — 잘못된 파일명 위반', () => {
+    const { scan, parsed } = build({
+      files: [],
+      invalidNames: ['28-foo.md', '0028a-bar.md'],
+      nextNumber: '0001',
+    });
+    const { violations } = validate(scan, parsed);
+    const f = violations.filter((v) => v.category === 'F_INVALID_FILENAME');
+    expect(f.length).toBe(2);
+  });
+
+  it('정상 입력 (충돌 + 누락 등재 정합) 위반 0건', () => {
+    const { scan, parsed } = build({
+      files: ['0001-a.md', '0028-x.md', '0028-y.md', '0029-z.md'],
+      indexed: [
+        { number: '0001', title: 'a' },
+        { number: '0028', title: 'x / y', domain: 'conflict ×2' },
+        { number: '0029', title: 'z' },
+        { number: '0143', title: '(누락)', isGap: true },
+      ],
+      conflicts: [
+        { number: '0028', file: '0028-x.md' },
+        { number: '0028', file: '0028-y.md' },
+      ],
+      gaps: ['0143'],
+      nextNumber: '0030',
+    });
+    const { violations } = validate(scan, parsed);
+    expect(violations).toEqual([]);
+  });
+});
+
+describe('헬퍼', () => {
+  it('computeMaxAdrNumber — 빈 입력 0', () => {
+    expect(computeMaxAdrNumber(new Map())).toBe(0);
+  });
+
+  it('computeMaxAdrNumber — 최대값 반환', () => {
+    const m = new Map([
+      ['0001', ['a']],
+      ['0050', ['b']],
+      ['0010', ['c']],
+    ]);
+    expect(computeMaxAdrNumber(m)).toBe(50);
+  });
+
+  it('formatAdrNumber — 4자리 zero-pad', () => {
+    expect(formatAdrNumber(1)).toBe('0001');
+    expect(formatAdrNumber(50)).toBe('0050');
+    expect(formatAdrNumber(148)).toBe('0148');
+    expect(formatAdrNumber(1000)).toBe('1000');
+  });
+});

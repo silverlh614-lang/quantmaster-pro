@@ -51,14 +51,36 @@ describe('check_silent_degradation — baseline', () => {
     expect(result.output).toContain('신규 위반 0건');
   });
 
-  it('--json 출력 baseline 0건 + violations 0건', () => {
+  it('--json 출력 baseline 흡수 + violations 0건', () => {
     const result = runLint('--json');
     expect(result.exitCode).toBe(0);
     const parsed = JSON.parse(result.output);
     expect(Array.isArray(parsed.findings)).toBe(true);
-    expect(parsed.findings.length).toBeGreaterThan(40); // MacroState 옵셔널 ≥ 49
+    // MacroState (49+) + ServerShadowTrade + WatchlistEntry + ServerAttributionRecord +
+    // FailurePatternEntry 옵셔널 합산 — 확장 후 100+ 기대
+    expect(parsed.findings.length).toBeGreaterThan(100);
     expect(parsed.violations).toEqual([]);
-    expect(parsed.baselined).toEqual([]);
+    // 본 PR 확장 후 baseline 흡수 2건 (bepGlideTouchAt + price7dAgo)
+    expect(parsed.baselined.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('확장된 SCHEMA_FILES 5개 인터페이스 모두 추출 (PR-Governance 후속)', () => {
+    const result = runLint('--json');
+    const parsed = JSON.parse(result.output);
+    const schemas = new Set(parsed.findings.map((f) => f.schema));
+    expect(schemas.has('MacroState')).toBe(true);
+    expect(schemas.has('ServerShadowTrade')).toBe(true);
+    expect(schemas.has('WatchlistEntry')).toBe(true);
+    expect(schemas.has('ServerAttributionRecord')).toBe(true);
+    expect(schemas.has('FailurePatternEntry')).toBe(true);
+  });
+
+  it('BASELINE_SILENT_DEGRADATION 등재 항목 흡수 — bepGlideTouchAt + price7dAgo', () => {
+    const result = runLint('--json');
+    const parsed = JSON.parse(result.output);
+    const baselineFields = new Set(parsed.baselined.map((b) => b.field));
+    expect(baselineFields.has('bepGlideTouchAt')).toBe(true);
+    expect(baselineFields.has('price7dAgo')).toBe(true);
   });
 });
 
