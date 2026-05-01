@@ -53,11 +53,11 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | C8 | 0149/0151 Phase 2 KIS supply audit | `src/services/stock/enrichment.ts` | DECIDED_NOT_WIRING | P1 | **PR-Phase2-KisSupplyAudit (2026-05-01) 완료** — audit findings §B 권고가 부정확 함을 확정. ADR-0011 PR-25-C 정책 (KIS 호출 금지 + AI 위임) 후 main path 의 0 박제가 silent degradation 결함이었음. 정정: AI 추정 stock.checklist 보존 + buildConditionSourceTiers 'API' 라벨 폐기. ADR-0151 발행. 진정한 #4/#12 격상은 ADR-0011 정책 변경 (옵션 A) 또는 ADR-0140 endpoint 신설 (C15 옵션 B) 후 별도 ADR. |
 | C15 | 0151/0152 Naver 외인 추세 endpoint 신설 | `server/routes/foreignerRatioRouter.ts` | DECIDED_NOT_WIRING | P2 | **PR-Phase2-Real-Phase3 (2026-05-01) 완료** — `GET /api/foreigner-ratio/trend?code=...` HTTP endpoint + 클라 SDK + main path enrichment wiring + #4 supplyInflow 격상 (changePct5d ≥ +1.0%p AND sampleSize ≥ 6 임계). ADR-0152 발행. ADR-0011 정책 무영향. 27 조건 격상 진행도 52% → 56% (14 → 15개). |
 | C9 | 0149/0153 Phase 3 globalIntel 합성 | `src/services/quant/globalIntelSynthesis.ts` | DECIDED_NOT_WIRING | P1 | **PR-Phase2-Real-Phase3 (2026-05-01) 완료** — synthesizeRiskOnEnvironment / synthesizeCycleVerified / synthesizePolicyAlignment 3 합성 헬퍼 SSOT + main + aiFallback 두 경로 wiring + 'API' tier 격상 (3 키). ADR-0153 발행. 27 조건 격상 진행도 56% → 67% (15 → 18개). |
-| C10 | 0149 Phase 4 외부 컨센서스 | (외부 source 신규 client) | BLOCKED | P2 | `consensusTarget` (#13) + `earningsSurprise` (#14) — 외부 컨센서스 source (FnGuide / WiseFn 등) 도입 필요, 별도 ADR 후 |
-| C11 | 0149 #9 notPreviousLeader | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | 정성 항목 (직전 사이클 주도주 회피) — 자동 격상 불가능, AI 추정 영구 잔존 |
-| C12 | 0149 #17 psychologicalObjectivity | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | 정성 항목 (사용자 메타 인지) — 자동 격상 불가능 |
-| C13 | 0149 #20 elliottWaveVerified | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | 정성 항목 (엘리엇 파동 분석) — 자동 격상 불가능 |
-| C14 | 0149 #26 divergenceCheck | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | 정성 항목 (역전 판단) — 자동 격상 불가능 |
+| C10 | 0149/0154 Phase 4 외부 컨센서스 | (외부 source 신규 client) | BLOCKED | P2 | **ADR-0154 영구 정책 명문화** — `consensusTarget` (#13) + `earningsSurprise` (#14) — 옵션 A (FnGuide/WiseFn API 인증 키 + 비용 정책) / 옵션 B (사용자 수동 입력 schema) / 옵션 C (Naver scraping) 중 1 진입 트리거 시 별도 ADR. 진행 트리거 없을 시 영구 22% AI 추정 잔존. |
+| C11 | 0149/0154 #9 notPreviousLeader | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | **ADR-0154 영구 정책** — 정성 항목 (직전 사이클 주도주 회피, 시점 의존 + 정성 평가) — AI 추정 영구 잔존 |
+| C12 | 0149/0154 #17 psychologicalObjectivity | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | **ADR-0154 영구 정책** — 정성 항목 (사용자 메타 인지, 정량 대리 지표 없음) — AI 추정 영구 잔존 |
+| C13 | 0149/0154 #20 elliottWaveVerified | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | **ADR-0154 영구 정책** — 정성 항목 (엘리엇 파동 카운팅) — AI 추정 영구 잔존 |
+| C14 | 0149/0154 #26 divergenceCheck | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | **ADR-0154 영구 정책** — 정성 항목 (역전 판단) — AI 추정 영구 잔존 |
 
 ### D. UI Phase B/C/D wiring
 
@@ -106,8 +106,9 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 
 ## 진행 중 잔여
 
-- **#12 institutionalBuying 격상** — ADR-0011 정책 변경 후 별도 ADR (옵션 A) 또는 KRX 기관 순매수 데이터 source 도입 (옵션 C).
-- **C10 Phase 4 외부 컨센서스 #14/#13** — BLOCKED, 외부 source (FnGuide/WiseFn 등) 도입 후 별도 ADR.
+- **#12 institutionalBuying 격상** — ADR-0154 권장 옵션 C (KRX OpenAPI 기관 순매수 — 공개 통계 + ADR-0011 정책 무영향 + foreignerRatioRepo 패턴 차용) 후 별도 ADR. 옵션 A (ADR-0011 변경) 는 KIS quota 영향 평가 필요.
+- **C10 Phase 4 외부 컨센서스 #14/#13** — ADR-0154 영구 정책 BLOCKED. 옵션 A (FnGuide/WiseFn API 인증 키) / 옵션 B (사용자 수동 입력) / 옵션 C (Naver scraping) 중 1 진입 트리거 시 별도 ADR.
+- **driftGuard 근본 해결** — `evaluateFeedbackLoop` 옵셔널 `now?: Date` 인자 추가 (LIVE 매매 영향 평가 후 별도 PR). PR-Phase4-Closeout 에서 `vi.useFakeTimers` 격리만 적용.
 
 ## 후속 PR — 자동 audit 정적 스크립트
 
@@ -122,3 +123,4 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 2026-05-01 | PR-Phase1-DartFinalize | C7 → DECIDED_NOT_WIRING (Phase 1 완료). performanceReality (#15) + economicMoatVerified (#8) DART 격상 main + aiFallback 두 경로. 27 조건 격상 진행도 44% → 52% (12 → 14개). ADR-0150 발행. 카테고리 카운트 동일 (C 14 / 합계 41). |
 | 2026-05-01 | PR-Phase2-KisSupplyAudit | C8 → DECIDED_NOT_WIRING (Phase 2 audit + silent degradation 차단 완료). audit findings §B 권고 정정 (KIS supply 격상 wired 표기는 부정확). ADR-0011 정책 정합 + AI 추정 보존. C15 (Naver 외인 추세 endpoint) 신규 P2 등재. ADR-0151 발행. 27 조건 격상 진행도 52% 그대로 (격상 0, 결함 1건 차단). 카운트 변경 — C 14→15 / P2 6→7 / 합계 41→42. |
 | 2026-05-01 | PR-Phase2-Real-Phase3 | C9 (Phase 3 globalIntel 합성) + C15 (Naver 외인 추세 endpoint) 동시 → DECIDED_NOT_WIRING. ADR-0152 + ADR-0153 발행. #4 supplyInflow + #5 riskOnEnvironment + #1 cycleVerified + #16 policyAlignment 4 키 격상. 27 조건 격상 진행도 52% → 67% (14 → 18개). 카테고리 카운트 동일 (C 15 / 합계 42). |
+| 2026-05-01 | PR-Phase4-Closeout | ADR-0154 발행 — Phase 4 BLOCKED 영구 정책 + 정성 4 항목 영구 DECIDED_NOT_WIRING + #12 옵션 C 권장 + driftGuard 시간 의존 결함 차단. C10 + C11~C14 정책 SSOT 명문화. 진행 통계 무변경 (정책 ADR 만). 27 조건 격상 시리즈 마무리. |
