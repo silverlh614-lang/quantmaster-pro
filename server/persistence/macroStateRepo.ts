@@ -74,7 +74,17 @@ export interface MacroState {
   kospiDayReturn?: number;          // KOSPI 당일 수익률
   leadingSectorRS?: number;         // 선행 섹터 상대강도 (0~100)
   sectorCycleStage?: 'EARLY' | 'MID' | 'LATE' | 'TURNING'; // 섹터 사이클
-  marginBalance5dChange?: number;   // 신용잔고 5일 변화율
+  marginBalance5dChange?: number;   // 신용잔고 5일 변화율 (ADR-0139)
+  /**
+   * ADR-0139: marginBalance5dChange 갱신 시각 (ISO) — `/margin_balance` 신선도.
+   */
+  marginBalanceFetchedAt?: string;
+  /**
+   * ADR-0139: 마지막 갱신 출처 — silent degradation 차단 마커 (ADR-0136 정합).
+   *   - 'ECOS_API' : ECOS 공식 데이터로 정상 갱신
+   *   - 'NONE'     : 마지막 cron 사이클 ECOS 호출 실패 (기존 값 보존)
+   */
+  marginBalanceSource?: 'ECOS_API' | 'NONE';
   shortSellingRatio?: number;       // 공매도 비율 (%)
   /** Phase 1 — 어느 fallback 단계에서 데이터를 얻었는지 (KRX_DIRECT/KRX_OTP/KIS_ESTIMATE). */
   shortSellingSource?: 'KRX_DIRECT' | 'KRX_OTP' | 'KIS_ESTIMATE';

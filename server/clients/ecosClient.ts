@@ -41,6 +41,16 @@ export interface BokRateLatest {
   direction: BokRateDirection;
 }
 
+/**
+ * ADR-0139 — 신용공여잔액 5영업일 변화율 결과.
+ */
+export interface MarginBalance5dResult {
+  changePct: number;
+  latestDate: string;
+  fetchedAt: string;
+  source: 'ECOS_API';
+}
+
 export interface EcosSnapshot {
   bokRate:           BokRateLatest | null;
   m2YoyPct:          number | null;
@@ -70,6 +80,21 @@ export const ECOS_STAT = {
   GDP_GROWTH:   { code: '111Y002', item1: '10111' },
   EXPORT:       { code: '403Y003', item1: '000000', item2: '1' },
   BANK_LENDING: { code: '104Y015', item1: 'BBGA00' },
+  /**
+   * ADR-0139: 신용공여잔액 (시장 단위 5일 변화율 — 일별 D 주기).
+   *
+   * default code/item 은 추정값. 운영 환경 첫 호출 시 검증 필수 — 미작동 시
+   * `ECOS_MARGIN_LOAN_STAT_CODE` + `ECOS_MARGIN_LOAN_ITEM_CODE` ENV override.
+   *
+   * 후보:
+   *   - 901Y014 (예금취급기관 가계대출 — 일별 잔액)
+   *   - 159Y004 (증권회사 신용공여)
+   *   - 가장 정확한 신용잔고 시리즈는 KRX 정보데이터시스템에 있으나 ECOS 우선
+   */
+  MARGIN_LOAN:  {
+    code: process.env.ECOS_MARGIN_LOAN_STAT_CODE ?? '901Y014',
+    item1: process.env.ECOS_MARGIN_LOAN_ITEM_CODE ?? 'A01',
+  },
 } as const;
 
 // ── 캐시 ─────────────────────────────────────────────────────────────────────
@@ -363,6 +388,71 @@ export async function fetchLatestUsdKrw(): Promise<number | null> {
   const rounded = parseFloat(last.toFixed(2));
   setCached('usdKrw', rounded);
   return rounded;
+}
+
+/**
+ * ADR-0139 — ECOS 신용공여잔액 5영업일 변화율 (시장 단위).
+ *
+ * - ECOS_API_KEY 미설정 또는 ECOS_API_DISABLED=true → null
+ * - 표본 < 6 (5일 변화율 산출 불가) → null
+ * - safePctChange null → null (sanity 위반 시 silent degradation 차단)
+ * - throw → null 안전 흡수
+ *
+ * MARGIN_LOAN STAT_CODE/ITEM_CODE 는 default 값 추정 — 운영 환경 첫 호출 시
+ * 검증 필수. 미작동 시 ENV `ECOS_MARGIN_LOAN_STAT_CODE` + `ECOS_MARGIN_LOAN_ITEM_CODE`
+ * 즉시 override.
+ */
+export async function fetchLatestMarginBalance5dChange(): Promise<MarginBalance5dResult | null> {
+  const cached = getCached<MarginBalance5dResult | null>('marginBalance5d');
+  if (cached !== null) return cached;
+
+  try {
+    const end = nowKst();
+    const start = addMonths(end, -1);  // 1개월 — 영업일 5+ 표본 충분
+    const rows = await fetchEcos(
+      ECOS_STAT.MARGIN_LOAN.code, 'D',
+      formatDateYYYYMMDD(start), formatDateYYYYMMDD(end),
+      ECOS_STAT.MARGIN_LOAN.item1,
+    );
+    if (rows.length < 6) {
+      setCached('marginBalance5d', null);
+      return null;
+    }
+    const sorted = [...rows].sort((a, b) => a.TIME.localeCompare(b.TIME));
+    const last = sorted[sorted.length - 1];
+    const fiveAgo = sorted[sorted.length - 1 - 5];
+    const cur = toNumStripComma(last.DATA_VALUE);
+    const prev = toNumStripComma(fiveAgo.DATA_VALUE);
+    if (!Number.isFinite(cur) || !Number.isFinite(prev) || prev <= 0) {
+      setCached('marginBalance5d', null);
+      return null;
+    }
+    const changePctRaw = safePctChange(cur, prev, { label: 'ecos.marginBalance.5d' });
+    if (changePctRaw === null) {
+      setCached('marginBalance5d', null);
+      return null;
+    }
+    const changePct = parseFloat(changePctRaw.toFixed(2));
+    // ECOS TIME 형식 'YYYYMMDD' → 'YYYY-MM-DD'
+    const latestDate = last.TIME.length === 8
+      ? `${last.TIME.slice(0, 4)}-${last.TIME.slice(4, 6)}-${last.TIME.slice(6, 8)}`
+      : last.TIME;
+    const result: MarginBalance5dResult = {
+      changePct,
+      latestDate,
+      fetchedAt: new Date().toISOString(),
+      source: 'ECOS_API',
+    };
+    setCached('marginBalance5d', result);
+    return result;
+  } catch (e) {
+    console.error(
+      '[ECOS] 신용공여잔액 5d 변화율 조회 실패:',
+      e instanceof Error ? e.message : e,
+    );
+    setCached('marginBalance5d', null);
+    return null;
+  }
 }
 
 // ── 통합 스냅샷 ─────────────────────────────────────────────────────────────

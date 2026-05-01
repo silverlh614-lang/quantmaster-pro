@@ -23,6 +23,7 @@ import './krxMasterRefresh.cmd.js';
 import './learningHistory.cmd.js';
 import './learningLoopHealth.cmd.js';
 import './learningStatus.cmd.js';
+import './marginBalance.cmd.js';
 import './market.cmd.js';
 import './programMarket.cmd.js';
 import './programToday.cmd.js';

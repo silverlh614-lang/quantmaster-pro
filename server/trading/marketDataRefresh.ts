@@ -24,7 +24,7 @@ import type { FssRecordsAgeInfo } from '../persistence/fssRepo.js';
 import { checkAndNotifyRegimeChange } from './regimeBridge.js';
 import { fetchKisMarketSupply, fetchKisMarketProgramTrade } from '../clients/kisClient.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
-import { fetchLatestUsdKrw } from '../clients/ecosClient.js';
+import { fetchLatestUsdKrw, fetchLatestMarginBalance5dChange } from '../clients/ecosClient.js';
 import { computeMacroIndex } from '../engines/macroIndexEngine.js';
 import { guardedFetch } from '../utils/egressGuard.js';
 import { safePctChange } from '../utils/safePctChange.js';
@@ -616,6 +616,23 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     );
   } else {
     console.warn('[MarketRefresh] KRX 공매도 조회 실패 — 기존 값 유지');
+  }
+
+  // ── ⑥-b ADR-0139: ECOS 신용공여잔액 5영업일 변화율 ───────────────────────
+  // 사용자 12 아이디어 #7 — marginBalance5dChange 결손 해소.
+  // 호출 실패 시 marginBalanceSource='NONE' + 기존 값 보존 (silent degradation 차단).
+  const marginResult = await fetchLatestMarginBalance5dChange().catch(() => null);
+  if (marginResult) {
+    computed.marginBalance5dChange = marginResult.changePct;
+    computed.marginBalanceFetchedAt = marginResult.fetchedAt;
+    computed.marginBalanceSource = 'ECOS_API';
+    console.log(
+      `[MarketRefresh] 신용공여 5d 변화율: ${marginResult.changePct >= 0 ? '+' : ''}${marginResult.changePct.toFixed(2)}% ` +
+      `(latest=${marginResult.latestDate})${marginResult.changePct >= 5 ? ' ⚠ 신용잔고 과열' : ''}`,
+    );
+  } else {
+    computed.marginBalanceSource = 'NONE';
+    console.warn('[MarketRefresh] ECOS 신용공여 조회 실패 — marginBalanceSource=NONE, 기존 값 보존');
   }
 
   // ── ⑧ FRED 거시 지표 (병렬 조회) ────────────────────────────────────────
