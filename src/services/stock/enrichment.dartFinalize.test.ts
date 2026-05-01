@@ -133,19 +133,20 @@ describe('ADR-0150 — buildConditionSourceTiers Phase 1 격상 정합', () => {
     expect(meta.economicMoatVerified).toBe('AI_INFERRED');
   });
 
-  it('main path (DART + KIS supply + VCP) → 8 키 격상 합계', () => {
+  it('main path (DART + VCP) → 6 키 격상 합계 (ADR-0151 Phase 2: hasKisSupply 라벨 제거)', () => {
     const meta = buildConditionSourceTiers({
       hasDartFinancials: true,
-      hasKisSupply: true,
+      hasKisSupply: true, // 후방호환 인자, 라벨 부여 안 함
       hasVcpComputed: true,
     });
-    // VCP 1 (COMPUTED) + DART 5 (API) + KIS supply 2 (API) = 8 키 격상
+    // ADR-0151: VCP 1 (COMPUTED) + DART 5 (API) = 6 키 격상
+    // KIS supply 2 키는 'AI_INFERRED' 유지 (Naver foreignerOwnRatio 의미 mismatch)
     const apiCount = Object.values(meta).filter((v) => v === 'API').length;
     const computedCount = Object.values(meta).filter((v) => v === 'COMPUTED').length;
     const aiCount = Object.values(meta).filter((v) => v === 'AI_INFERRED').length;
-    expect(apiCount).toBe(7); // DART 5 + KIS supply 2
+    expect(apiCount).toBe(5); // DART 5
     expect(computedCount).toBe(1); // VCP
-    expect(aiCount).toBe(19); // 27 - 8 격상 = 19
+    expect(aiCount).toBe(21); // 27 - 6 격상 = 21
     expect(apiCount + computedCount + aiCount).toBe(27);
   });
 });
