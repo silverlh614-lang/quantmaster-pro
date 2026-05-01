@@ -12,6 +12,7 @@ import './conditionLifecycle.cmd.js';
 import './cronStatus.cmd.js';
 import './cronIntrospect.cmd.js';
 import './dataVerificationReview.cmd.js';
+import './fssStatus.cmd.js';
 import './gateAudit.cmd.js';
 import './ghostForceRun.cmd.js';
 import './health.cmd.js';

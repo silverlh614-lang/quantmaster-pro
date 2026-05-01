@@ -19,7 +19,8 @@
  */
 
 import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js';
-import { loadFssRecords } from '../persistence/fssRepo.js';
+import { loadFssRecords, getFssRecordsAge } from '../persistence/fssRepo.js';
+import type { FssRecordsAgeInfo } from '../persistence/fssRepo.js';
 import { checkAndNotifyRegimeChange } from './regimeBridge.js';
 import { fetchKisMarketSupply } from '../clients/kisClient.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
@@ -406,23 +407,37 @@ export function tallyConsecutiveForeignFlowDays(
  * "외국인 5일+ 매도" 약세 신호 가산점을 작동시킨다 (원래는 선물 의도였으나 KIS/KRX
  * 선물 fetch 인프라 부담 회피 위해 현물 누적 순매도 카운트로 대체).
  */
-function computeFssVars(): {
+/**
+ * ADR-0136 격상: 반환 타입에 `passiveActiveBoth: boolean | null` (null = 평가 제외)
+ * + `fssRecordsAge` 신선도 진단 추가. `FSS_STATUS_DIAGNOSTIC_DISABLED=true` ENV 시
+ * 기존 동작 (false fallback) 100% 복원.
+ */
+export function computeFssVars(now: Date = new Date()): {
   foreignNetBuy5d: number;
-  passiveActiveBoth: boolean;
+  passiveActiveBoth: boolean | null;
+  fssRecordsAge: FssRecordsAgeInfo;
   foreignContinuousBuyDays: number;
   foreignContinuousSellDays: number;
 } {
   const records = loadFssRecords()
     .sort((a, b) => a.date.localeCompare(b.date));
+  const fssRecordsAge = getFssRecordsAge(now);
+  const diagnosticDisabled = process.env.FSS_STATUS_DIAGNOSTIC_DISABLED === 'true';
   const last5 = records.slice(-5);
-  if (last5.length === 0) {
+
+  // ADR-0136: STALE/MISSING 시 passiveActiveBoth=null (평가 제외 명시).
+  // 표본 < 3일도 통계 신뢰도 부족 → null. ENV 우회 시 기존 false fallback.
+  const insufficientSample = fssRecordsAge.status !== 'OK' || last5.length < 3;
+  if (insufficientSample) {
     return {
-      foreignNetBuy5d: 0,
-      passiveActiveBoth: false,
-      foreignContinuousBuyDays: 0,
+      foreignNetBuy5d: last5.reduce((s, r) => s + r.passiveNetBuy + r.activeNetBuy, 0),
+      passiveActiveBoth: diagnosticDisabled ? false : null,
+      fssRecordsAge,
+      foreignContinuousBuyDays: tallyConsecutiveForeignFlowDays(records, 'BUY'),
       foreignContinuousSellDays: 0,
     };
   }
+
   const foreignNetBuy5d  = last5.reduce((s, r) => s + r.passiveNetBuy + r.activeNetBuy, 0);
   const passiveActiveBoth = last5.every(r => r.passiveNetBuy > 0 && r.activeNetBuy > 0);
 
@@ -434,6 +449,7 @@ function computeFssVars(): {
   return {
     foreignNetBuy5d,
     passiveActiveBoth,
+    fssRecordsAge,
     foreignContinuousBuyDays: continuousBuyDays,
     foreignContinuousSellDays: continuousSellDays,
   };
@@ -527,8 +543,10 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   // ── ③ FSS 수급 (서버 로컬 레코드) ────────────────────────────────────────
   const fssVars = computeFssVars();
   computed.foreignNetBuy5d  = fssVars.foreignNetBuy5d;
-  computed.passiveActiveBoth = fssVars.passiveActiveBoth;
+  computed.passiveActiveBoth = fssVars.passiveActiveBoth;  // ADR-0136: boolean | null
   computed.foreignContinuousBuyDays = fssVars.foreignContinuousBuyDays;
+  // ADR-0136: fssRecordsAge 영속 — saveMacroState merge 단계에서 spread.
+  const fssRecordsAgeSnapshot = fssVars.fssRecordsAge;
   // foreignFuturesSellDays — confluenceEngine 의 "외국인 5일+ 매도" 약세 신호 활성화.
   // 본 필드는 원래 선물 데이터 의도였으나 KIS/KRX 선물 fetch 인프라 부담 회피 위해
   // FSS 레코드 기반 외국인 *현물 연속 순매도* 일수로 매핑한다 (의미 근사 — 본질은
@@ -539,7 +557,9 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     `[MarketRefresh] 수급: foreignNetBuy5d=${fssVars.foreignNetBuy5d.toFixed(0)}억, ` +
     `passiveActiveBoth=${fssVars.passiveActiveBoth}, ` +
     `연속매수=${fssVars.foreignContinuousBuyDays}일, ` +
-    `연속매도=${fssVars.foreignContinuousSellDays}일`,
+    `연속매도=${fssVars.foreignContinuousSellDays}일, ` +
+    `fssRecordsAge=${fssVars.fssRecordsAge.status}` +
+    `${fssVars.fssRecordsAge.ageDays !== null ? `(${fssVars.fssRecordsAge.ageDays}일전)` : '(MISSING)'}`,
   );
 
   // ── ③-b KIS 코스피 전체 투자자별 수급 (실시간 보강) ─────────────────────
@@ -698,6 +718,8 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
       : {}),
     // ADR-0107 mhsAxis 4-axis 영속 — computeMacroIndex 성공 시에만 덮어쓰기.
     ...(mhsAxisSnapshot ? { mhsAxis: mhsAxisSnapshot, mhsAxisUpdatedAt: mhsAxisSnapshotAt } : {}),
+    // ADR-0136 fssRecordsAge 진단 영속 — getFssRecordsAge 항상 객체 반환 (MISSING 포함).
+    fssRecordsAge: fssRecordsAgeSnapshot,
   };
   saveMacroState(updated as typeof existing);
   console.log(`[MarketRefresh] MacroState 갱신 완료 — ${Object.keys(computed).length}개 필드`);
