@@ -71,6 +71,12 @@ export async function fetchKisStockProgramTrade(
       },
       priority,
     );
+    // [임시 진단 도구 — 5/4 영업일 검증 후 제거 예정]
+    // 사용자 P1 #4 (DEBUG_PROGRAM_RAW ENV 우회) — 응답 필드 키 미스매치 vs 휴장일 효과 구분.
+    // 정상 검증 후 별도 PR 로 본 블록 제거 의무.
+    if (process.env.DEBUG_PROGRAM_RAW === 'true') {
+      console.log('[DEBUG_PROGRAM_RAW] stock', code, JSON.stringify(data));
+    }
     const out = (data as { output?: Record<string, string> } | null)?.output;
     if (!out) return null;
 
@@ -144,6 +150,12 @@ export async function fetchKisMarketProgramTrade(
       },
       priority,
     );
+    // [임시 진단 도구 — 5/4 영업일 검증 후 제거 예정]
+    // 사용자 P1 #4 (DEBUG_PROGRAM_RAW ENV 우회) — 응답 필드 키 미스매치 vs 휴장일 효과 구분.
+    // 정상 검증 후 별도 PR 로 본 블록 제거 의무.
+    if (process.env.DEBUG_PROGRAM_RAW === 'true') {
+      console.log('[DEBUG_PROGRAM_RAW] market', JSON.stringify(data));
+    }
 
     // KIS 응답: output (단일 객체) 또는 output1 (당일 객체) 또는 output2[0] (배열 첫 요소).
     // 본 PR 은 가장 일반적 패턴 우선 시도 + 실패 시 null.
