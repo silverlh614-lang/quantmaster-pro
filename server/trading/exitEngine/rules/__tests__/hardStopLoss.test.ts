@@ -2,7 +2,7 @@
  * @responsibility hardStopLoss 고정/레짐/Profit Protection 손절 전량청산 단위 테스트
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../../../clients/kisClient.js', () => ({
   placeKisSellOrder: vi.fn(() => Promise.resolve({ ordNo: null, placed: false, outcome: 'SHADOW_ONLY' })),
@@ -37,7 +37,16 @@ const { sendTelegramAlert } = await import('../../../../alerts/telegramClient.js
 const { sendStopLossTransparencyReport } = await import('../../../../alerts/stopLossTransparencyReport.js');
 
 describe('hardStopLoss (고정/레짐/Profit Protection)', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  // ADR-0085 PR-B1-1 — Two-Bar Confirmation Gate 가 PROFIT_PROTECTION 1차 터치 시 WAIT
+  // 분기로 빠지므로, 본 테스트 suite 의 *분류 로직 검증* 영향을 격리한다. 게이트 자체
+  // 회귀는 helpers/twoBarBepGate.test.ts + rules/__tests__/hardStopLossBepWiring.test.ts.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.BEP_PROTECTION_DISABLED = 'true';
+  });
+  afterEach(() => {
+    delete process.env.BEP_PROTECTION_DISABLED;
+  });
 
   it('currentPrice > hardStopLoss → NO_OP', async () => {
     const shadow = makeMockShadow();

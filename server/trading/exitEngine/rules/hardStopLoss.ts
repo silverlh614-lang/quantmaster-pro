@@ -15,6 +15,7 @@ import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
 import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
+import { applyTwoBarBepGate } from '../helpers/twoBarBepGate.js';
 import { matchExitInvalidation, promoteInvalidationPatternIfRepeated } from '../../preMortemStructured.js';
 import { promoteKellyDriftPattern } from '../../../learning/kellyDriftFailurePromotion.js';
 import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
@@ -34,6 +35,35 @@ export async function hardStopLoss(ctx: ExitContext): Promise<ExitRuleResult> {
       ? 'INITIAL_AND_REGIME'
       : (initialStopLoss > regimeStopLoss ? 'INITIAL' : 'REGIME');
   }
+
+  // === ADR-0085 PR-B1-1 — Two-Bar Confirmation Gate (BEP_PROTECTION 단봉 노이즈 차단) ===
+  // BEP 글라이드 영역 (PROFIT_PROTECTION) 손절선 도달 시 1차 터치는 영속만, 2개 봉 연속
+  // 미달 후 청산 — 단봉 노이즈 (장중 일시 급락 후 회복) 에서 진짜 추세 반전이 아닌데
+  // 청산하던 손실 차단. ENV 롤백:
+  //   - BEP_PROTECTION_DISABLED=true → 즉시 legacy (게이트 비활성, 즉시 청산 진행)
+  //   - BEP_TWO_BAR_LIVE_ENABLED 미설정 + LIVE 모드 → SKIP (회귀 격리, SHADOW 만 활성)
+  const bepGate = applyTwoBarBepGate({
+    shadow,
+    currentPrice,
+    hardStopLoss,
+    isBepProtection: stopLossExitType === 'PROFIT_PROTECTION',
+  });
+  if (bepGate.action === 'WAIT') {
+    if (bepGate.shadowUpdate) updateShadow(shadow, bepGate.shadowUpdate);
+    console.log(`[hardStopLoss] BEP_PROTECTION WAIT — ${shadow.stockCode} ${bepGate.reason}`);
+    return NO_OP;
+  }
+  if (bepGate.action === 'RESET') {
+    if (bepGate.shadowUpdate) updateShadow(shadow, bepGate.shadowUpdate);
+    console.log(`[hardStopLoss] BEP_PROTECTION RESET — ${shadow.stockCode} ${bepGate.reason}`);
+    return NO_OP;
+  }
+  if (bepGate.action === 'CONTINUE_EXIT') {
+    console.log(`[hardStopLoss] BEP_PROTECTION CONFIRM_EXIT — ${shadow.stockCode} ${bepGate.reason}`);
+  }
+  // SKIP → fallthrough (BEP_PROTECTION 영역 아님 또는 ENV 우회 — 기존 청산 진행)
+  // =====================================================================================
+
   const soldQty = shadow.quantity;
   // BUG #7 fix — 전량 청산 전 스냅샷. 주문 실패 시 HIT_STOP → 이전 상태로 복귀.
   const hardStopSnapshot = captureFullCloseSnapshot(shadow);
