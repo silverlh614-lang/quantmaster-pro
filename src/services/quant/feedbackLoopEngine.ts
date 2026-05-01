@@ -60,6 +60,13 @@ export interface FeedbackLoopOptions {
   upThreshold?: number;
   /** 가중치 하향 임계 (기본 0.40) */
   downThreshold?: number;
+  /**
+   * ADR-0157 (PR-Phase5): drift 가드 시점 명시 inject. 미전달 시 new Date()
+   * (기본 LIVE 동작). 테스트 측 deterministic 시점 부여 시 사용 — vi.useFakeTimers
+   * 의존 차단. recordWeightSnapshot / evaluateDrift / isF2WPausedUntil / pauseF2W
+   * 호출 모두 동일 시점 사용.
+   */
+  now?: Date;
 }
 
 // ─── 핵심 로직 ────────────────────────────────────────────────────────────────
@@ -202,7 +209,10 @@ export function evaluateFeedbackLoop(
   //   2. drift 판정 (sigma7d ≥ sigma30dAvg × 2)
   //   3. drift 시 LIVE saveEvolutionWeights 차단 + pause flag 7일 설정
   //   4. shadow=true 호출은 본 가드 우회 (ADR-0027 grace 보존)
-  const now = new Date();
+  // ADR-0157 (PR-Phase5): options.now 옵셔널 — 호출자 명시 inject 시 deterministic 시점.
+  //   미전달 시 new Date() 그대로 (LIVE 매매 영향 0). 테스트 측 vi.useFakeTimers
+  //   의존 차단 — 시점 결정 책임을 호출자에게 위임.
+  const now = options?.now ?? new Date();
   let pauseStatus: FeedbackLoopResult['pauseStatus'] = undefined;
   let driftBlockedSave = false;
 

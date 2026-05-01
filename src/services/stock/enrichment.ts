@@ -12,6 +12,8 @@ import { fetchCorpCode, fetchDartFinancials } from './dartDataFetcher';
 import { fetchHistoricalData } from './historicalData';
 import { fetchAiUniverseSnapshot, type AiUniverseValuation } from '../../api/aiUniverseClient';
 import { fetchForeignerRatioTrend } from '../../api/foreignerRatioClient';
+import { fetchKrxInvestorTrend } from '../../api/krxInvestorClient';
+import { fetchYahooConsensus } from '../../api/yahooConsensusClient';
 import {
   synthesizeRiskOnEnvironment,
   synthesizeCycleVerified,
@@ -61,6 +63,10 @@ interface SourceTierContext {
   hasForeignerTrend?: boolean;
   /** ADR-0153: globalIntel 12 레이어 합성 ctx 가용 (4 필드 중 1+ 비-null). */
   hasGlobalIntelSynth?: boolean;
+  /** ADR-0155: KRX 기관 5영업일 순매수 (sampleSize ≥ 3) 가 실제 데이터 반환했는가. */
+  hasKrxInvestor?: boolean;
+  /** ADR-0156: Yahoo 컨센서스 (source='yahoo') 가 실제 데이터 반환했는가. */
+  hasYahooConsensus?: boolean;
 }
 
 /**
@@ -93,6 +99,17 @@ export function buildConditionSourceTiers(ctx: SourceTierContext): Partial<Recor
   // ADR-0152: Naver 외인 추세 (5d 변화율) — #4 supplyInflow 격상
   if (ctx.hasForeignerTrend) {
     meta.supplyInflow = 'API';
+  }
+
+  // ADR-0155: KRX 기관 5영업일 순매수 — #12 institutionalBuying 격상
+  if (ctx.hasKrxInvestor) {
+    meta.institutionalBuying = 'API';
+  }
+
+  // ADR-0156: Yahoo 컨센서스 — #13 consensusTarget + #14 earningsSurprise 격상 (Phase 4)
+  if (ctx.hasYahooConsensus) {
+    meta.consensusTarget = 'API';
+    meta.earningsSurprise = 'API';
   }
 
   // ADR-0153: globalIntel 12 레이어 합성 — #5/#1/#16 격상 (3 키)
@@ -458,6 +475,10 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
     let krxValuation: KrxValuation | null = null;
     // ADR-0152: ADR-0140 Naver 외인 보유율 추세 (5d 변화율) — #4 supplyInflow 격상 입력
     let foreignerTrend: { current: number | null; changePct5d: number | null; sampleSize: number } | null = null;
+    // ADR-0155: KRX 기관 순매수 5영업일 누적 — #12 institutionalBuying 격상 입력
+    let krxInvestorTrend: { institutionNet5d: number; sampleSize: number } | null = null;
+    // ADR-0156: Yahoo 컨센서스 — Phase 4 #13/#14 격상 입력 (옵션 A 변형)
+    let yahooConsensus: { recommendationStrength: number | null; earningsSurpriseAvg: number | null; source: 'yahoo' | 'unavailable' } | null = null;
     const isKoreanStock = /^\d{6}$/.test(stock.code.split('.')[0]);
     if (isKoreanStock) {
       const baseCode = stock.code.split('.')[0];
@@ -469,6 +490,16 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       // ADR-0152: 외인 추세 fetch — 영속 부재 시 null fallback (호출자 stock.checklist 보존)
       try { foreignerTrend = await fetchForeignerRatioTrend(baseCode); }
       catch { /* SDS-ignore: 추세 fetch 실패 시 fallback */ }
+      // ADR-0155: KRX 기관 순매수 5d fetch — 응답 부재 시 null fallback
+      try {
+        const r = await fetchKrxInvestorTrend(baseCode);
+        if (r) krxInvestorTrend = { institutionNet5d: r.institutionNet5d, sampleSize: r.sampleSize };
+      } catch { /* SDS-ignore: KRX fetch 실패 시 fallback */ }
+      // ADR-0156: Yahoo 컨센서스 fetch — source='unavailable' 시 stock.checklist fallback
+      try {
+        const r = await fetchYahooConsensus(baseCode);
+        if (r) yahooConsensus = { recommendationStrength: r.recommendationStrength, earningsSurpriseAvg: r.earningsSurpriseAvg, source: r.source };
+      } catch { /* SDS-ignore: Yahoo 컨센서스 실패 시 fallback */ }
       kisSupply = buildSnapshotSupplyStub(snap);
       krxValuation = await fetchKrxValuation(baseCode);
     }
@@ -546,8 +577,31 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         // ADR-0152: #4 supplyInflow 는 ADR-0140 Naver 외인 보유율 5d 변화율 추세로 격상.
         //   임계: changePct5d ≥ +1.0%p AND sampleSize ≥ 6 → 1 (구조적 매수 신호)
         //   추세 부재 또는 미달 → stock.checklist?.supplyInflow ?? 0 (AI 추정 보존)
-        // #12 institutionalBuying 은 ADR-0011 정책 변경 후 별도 ADR.
-        institutionalBuying: stock.checklist?.institutionalBuying ?? 0,
+        // ADR-0155: #12 institutionalBuying 은 KRX 기관 5영업일 누적 순매수로 격상 (옵션 C).
+        //   임계: institutionNet5d > 0 AND sampleSize ≥ 3 → 1 (5일 누적 매수)
+        //   부재/미달 → stock.checklist?.institutionalBuying ?? 0 (AI 추정 보존)
+        institutionalBuying:
+          krxInvestorTrend != null &&
+          krxInvestorTrend.institutionNet5d > 0 &&
+          krxInvestorTrend.sampleSize >= 3
+            ? 1
+            : (stock.checklist?.institutionalBuying ?? 0),
+        // ADR-0156: #13 consensusTarget + #14 earningsSurprise 는 Yahoo 무료 quoteSummary 격상.
+        //   #13: recommendationStrength ≥ 0.5 (strongBuy + buy 비율 ≥ 50%) → 1
+        //   #14: earningsSurpriseAvg > 0 (최근 분기 평균 beat) → 1
+        //   source='unavailable' / 부재 → stock.checklist 보존 (AI 추정)
+        consensusTarget:
+          yahooConsensus?.source === 'yahoo' &&
+          yahooConsensus.recommendationStrength != null &&
+          yahooConsensus.recommendationStrength >= 0.5
+            ? 1
+            : (stock.checklist?.consensusTarget ?? 0),
+        earningsSurprise:
+          yahooConsensus?.source === 'yahoo' &&
+          yahooConsensus.earningsSurpriseAvg != null &&
+          yahooConsensus.earningsSurpriseAvg > 0
+            ? 1
+            : (stock.checklist?.earningsSurprise ?? 0),
         supplyInflow:
           foreignerTrend?.changePct5d != null &&
           foreignerTrend.changePct5d >= 1.0 &&
@@ -581,6 +635,8 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       // PR-B (ADR-0029): main path — VCP 실계산 + DART/KIS supply 가용성 반영
       // ADR-0152: hasForeignerTrend — 5d 표본 ≥ 6 시 #4 supplyInflow 'API' 격상
       // ADR-0153: hasGlobalIntelSynth — store ctx 가용 시 #5/#1/#16 'API' 격상
+      // ADR-0155: hasKrxInvestor — KRX 5d 표본 ≥ 3 시 #12 institutionalBuying 'API' 격상
+      // ADR-0156: hasYahooConsensus — Yahoo source='yahoo' 시 #13/#14 'API' 격상 (Phase 4)
       conditionSourceTiers: buildConditionSourceTiers({
         hasDartFinancials: dartFinancials != null,
         hasKisSupply: kisSupply != null,
@@ -591,6 +647,8 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
           _globalIntelCtx.bearRegimeResult != null ||
           _globalIntelCtx.marketRegimeResult != null ||
           _globalIntelCtx.sectorEnergyResult != null,
+        hasKrxInvestor: (krxInvestorTrend?.sampleSize ?? 0) >= 3,
+        hasYahooConsensus: yahooConsensus?.source === 'yahoo',
       }),
       financialUpdatedAt: dartFinancials?.updatedAt || stock.financialUpdatedAt
     };

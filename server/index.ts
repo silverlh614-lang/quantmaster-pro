@@ -70,6 +70,8 @@ import attributionRouter from './routes/attributionRouter.js';
 import survivalRouter from './routes/survivalRouter.js';
 import decisionInputsRouter from './routes/decisionInputsRouter.js';
 import { foreignerRatioRouter } from './routes/foreignerRatioRouter.js';
+import { krxInvestorRouter } from './routes/krxInvestorRouter.js';
+import { yahooConsensusRouter } from './routes/yahooConsensusRouter.js';
 import { startScheduler } from './scheduler/index.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 import { globalErrorHandler } from './utils/apiResponse.js';
@@ -299,6 +301,18 @@ async function startServer() {
   // ADR-0140 영속 시계열 노출 — 클라 enrichment 의 #4 supplyInflow 격상 입력
   // ─────────────────────────────────────────────────────────────
   app.use('/api/foreigner-ratio', foreignerRatioRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // PR-Phase5 (ADR-0155) — KRX 기관 순매수 N영업일 GET /api/krx-investor/trend
+  // ADR-0154 §2 옵션 C — KRX OpenAPI 공개 통계 (ADR-0011 정합) 통한 #12 격상
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/krx-investor', krxInvestorRouter);
+
+  // ─────────────────────────────────────────────────────────────
+  // PR-Phase5 (ADR-0156) — Yahoo 컨센서스 GET /api/yahoo-consensus/snapshot
+  // ADR-0154 §1 옵션 A 변형 — Yahoo 무료 quoteSummary 통한 Phase 4 #13/#14 격상
+  // ─────────────────────────────────────────────────────────────
+  app.use('/api/yahoo-consensus', yahooConsensusRouter);
 
   // ─── 아이디어 1: 오케스트레이터 상태 조회 ────────────────────────────────────
   app.get('/api/orchestrator/state', (_req: Request, res: Response) => {

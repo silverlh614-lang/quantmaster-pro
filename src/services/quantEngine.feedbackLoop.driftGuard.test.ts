@@ -152,28 +152,22 @@ describe('feedbackLoopEngine drift 가드', () => {
 
 describe('feedbackLoopEngine 신규 drift 감지', () => {
   it('LIVE 호출 시 신규 drift → pause 생성 + saveEvolutionWeights 차단', () => {
-    // ADR-0154 (PR-Phase4-Closeout): 시간 의존 결함 차단 — seedDriftHistory(2026-04-26)
-    // 후 evaluateFeedbackLoop 가 실시간 Date.now() 사용해 7일 윈도우에 시드된
-    // σ=0.4 6건 일부가 빠지던 결함. vi.useFakeTimers 로 시점 고정.
+    // ADR-0157 (PR-Phase5): driftGuard 근본 해결 — options.now 옵셔널 inject 채용.
+    // ADR-0154 (PR-Phase4) 의 vi.useFakeTimers 의존 폐기, deterministic 시점은
+    // evaluateFeedbackLoop options.now 로 명시 전달. 호출자가 시점 결정 책임 보유.
     const now = new Date('2026-04-26T00:00:00.000Z');
-    vi.useFakeTimers();
-    vi.setSystemTime(now);
-    try {
-      seedDriftHistory(now);
-      expect(isF2WPausedUntil(now)).toBeNull();
+    seedDriftHistory(now);
+    expect(isF2WPausedUntil(now)).toBeNull();
 
-      const trades = makeWinningTrades(1, CALIBRATION_MIN_TRADES);
-      const saveSpy = vi.spyOn(evolutionEngine, 'saveEvolutionWeights');
+    const trades = makeWinningTrades(1, CALIBRATION_MIN_TRADES);
+    const saveSpy = vi.spyOn(evolutionEngine, 'saveEvolutionWeights');
 
-      // 본 호출이 새 snapshot 추가 + drift 판정
-      // 새 snapshot 의 σ 가 기존 24+6 패턴에 합류해 σ7d 평균이 더 커짐
-      const result = evaluateFeedbackLoop(trades, { 1: 1.0 });
+    // 본 호출이 새 snapshot 추가 + drift 판정 (시점 명시 inject)
+    // 새 snapshot 의 σ 가 기존 24+6 패턴에 합류해 σ7d 평균이 더 커짐
+    const result = evaluateFeedbackLoop(trades, { 1: 1.0 }, { now });
 
-      expect(result.pauseStatus?.paused).toBe(true);
-      expect(saveSpy).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(result.pauseStatus?.paused).toBe(true);
+    expect(saveSpy).not.toHaveBeenCalled();
   });
 });
 

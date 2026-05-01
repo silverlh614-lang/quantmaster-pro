@@ -14,9 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0155`**
+**다음 ADR 번호: `0158`**
 
-(2026-05-01 기준, 마지막 발급 0154, 누락 6개 — 0062/0063/0089/0105/0106/0143)
+(2026-05-01 기준, 마지막 발급 0157, 누락 6개 — 0062/0063/0089/0105/0106/0143)
 
 ## 알려진 충돌 (Known Conflicts)
 
@@ -220,8 +220,11 @@
 | 0152 | naver-foreigner-trend-endpoint | learning |
 | 0153 | phase3-globalintel-synthesis | learning |
 | 0154 | phase4-closeout-and-residual-policy | learning |
+| 0155 | krx-investor-trend-endpoint | learning |
+| 0156 | yahoo-consensus-endpoint | learning |
+| 0157 | feedback-loop-now-injection | learning |
 
-**총 발급 154건** (160 파일 − 충돌 그룹 17건 + 충돌 그룹 표 카운트 = 154 unique 번호) / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0155**.
+**총 발급 157건** (163 파일 − 충돌 그룹 17건 + 충돌 그룹 표 카운트 = 157 unique 번호) / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0158**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
