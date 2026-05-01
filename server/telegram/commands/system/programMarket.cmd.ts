@@ -1,0 +1,124 @@
+// @responsibility programMarket.cmd 텔레그램 모듈
+// @responsibility: /program_market — KIS 시장 종합 프로그램 매매 추이 진단. SYS ADMIN read-only KIS 1회.
+//
+// ADR-0138 — 코스피 시장 단위 프로그램 자금 흐름. ADR-0137 (/program_today) 종목 단위와 별도.
+// 운영자가 macroState 영속 값 + 직전 KIS 응답을 비교 진단 가능.
+
+import { fetchKisMarketProgramTrade } from '../../../clients/kisClient/index.js';
+import { loadMacroState } from '../../../persistence/macroStateRepo.js';
+import { commandRegistry } from '../../commandRegistry.js';
+import type { TelegramCommand } from '../_types.js';
+
+/** 억원 변환 — ADR-0137 패턴 차용. 음수 부호 보존, 소수점 1자리. */
+function formatKrwInEokwon(amountWon: number | null): string {
+  if (amountWon === null || !Number.isFinite(amountWon)) return 'N/A';
+  const eokwon = amountWon / 100_000_000;
+  if (Math.abs(eokwon) < 0.05) return '0억원';
+  const sign = eokwon > 0 ? '+' : '';
+  return `${sign}${eokwon.toFixed(1)}억원`;
+}
+
+/** macroState 영속값(이미 억원 단위) 포맷. */
+function formatEokwonSaved(eokwon: number | null | undefined): string {
+  if (eokwon === null || eokwon === undefined || !Number.isFinite(eokwon)) return 'N/A';
+  if (Math.abs(eokwon) < 0.05) return '0억원';
+  const sign = eokwon > 0 ? '+' : '';
+  return `${sign}${eokwon.toFixed(1)}억원`;
+}
+
+/**
+ * /program_market 메시지 빌더 SSOT (단위 테스트 가능).
+ *
+ * 단계:
+ *   1. KIS 단발성 호출 (실시간 데이터)
+ *   2. macroState 영속값 로드 (직전 cron 갱신 결과)
+ *   3. 두 값 비교 진단 — 불일치 시 운영자 인지
+ */
+export async function buildProgramMarketMessage(): Promise<string> {
+  const live = await fetchKisMarketProgramTrade();
+  const macro = loadMacroState();
+
+  const lines: string[] = [];
+  lines.push('📊 <b>[시장 종합 프로그램 매매]</b>');
+  lines.push('');
+
+  if (live === null) {
+    lines.push('❌ KIS 실시간 조회 실패');
+    lines.push('');
+    lines.push('💡 <i>운영자 안내</i>:');
+    lines.push('  • <code>KIS_APP_KEY</code> 또는 실계좌 클라이언트 미설정 가능성');
+    lines.push('  • KIS 회로차단 활성 또는 24h 블랙리스트 가능성');
+    lines.push('  • TR ID 검증 — <code>KIS_MARKET_PROGRAM_TRADE_TR_ID</code> ENV 우회');
+    lines.push('  • Path 검증 — <code>KIS_MARKET_PROGRAM_TRADE_PATH</code> ENV 우회');
+  } else {
+    const qtyEmoji = live.programNetBuyQty > 0 ? '🟢'
+      : live.programNetBuyQty < 0 ? '🔴' : '⚪';
+    const qtyLabel = live.programNetBuyQty > 0 ? '시장 프로그램 순매수'
+      : live.programNetBuyQty < 0 ? '시장 프로그램 순매도' : '중립';
+
+    lines.push('📡 <b>실시간 (KIS 직접 호출)</b>');
+    lines.push(`${qtyEmoji} ${qtyLabel}: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
+
+    if (live.programArbitrageNetBuy !== null) {
+      lines.push(`📈 차익거래 순매수: ${formatKrwInEokwon(live.programArbitrageNetBuy)}`);
+    } else {
+      lines.push(`📈 차익거래 순매수: <i>미수집</i> (KIS 응답 부재)`);
+    }
+    try {
+      const kst = new Date(live.fetchedAt);
+      lines.push(`⏱️ 응답 시각 (KST): ${kst.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false })}`);
+    } catch {
+      lines.push(`⏱️ 응답 시각: ${live.fetchedAt}`);
+    }
+  }
+
+  // macroState 영속값 비교 진단
+  lines.push('');
+  lines.push('💾 <b>macroState 영속 (직전 cron)</b>');
+  if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined) {
+    lines.push(`  • 순매수: ${formatEokwonSaved(macro.programNetBuyAmount)}`);
+    if (macro.programArbitrageNetBuy !== undefined) {
+      const arbLabel = macro.programArbitrageNetBuy === null
+        ? '미수집'
+        : formatEokwonSaved(macro.programArbitrageNetBuy);
+      lines.push(`  • 차익: ${arbLabel}`);
+    }
+    if (macro.programFetchedAt) {
+      try {
+        const kst = new Date(macro.programFetchedAt);
+        lines.push(`  • 수집 시각 (KST): ${kst.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false })}`);
+      } catch {
+        lines.push(`  • 수집 시각: ${macro.programFetchedAt}`);
+      }
+    }
+  } else if (macro?.programSource === 'NONE') {
+    lines.push('  • <i>마지막 cron 사이클 KIS 호출 실패</i>');
+  } else {
+    lines.push('  • <i>미수집</i> (cron 1회 미실행 또는 KIS 미연동)');
+  }
+
+  return lines.join('\n');
+}
+
+const programMarket: TelegramCommand = {
+  name: '/program_market',
+  aliases: ['/prog_market', '/pm'],
+  category: 'SYS',
+  visibility: 'ADMIN',
+  riskLevel: 0,
+  description: 'KIS 시장 종합 프로그램 매매 추이 진단 (ADR-0138, 코스피 시장 단위)',
+  usage: '/program_market',
+  async execute({ reply }) {
+    try {
+      const message = await buildProgramMarketMessage();
+      await reply(message);
+    } catch (err) {
+      console.error('[programMarket.cmd] failed', err);
+      await reply('❌ 시장 프로그램 매매 진단 실패 — 서버 로그 확인 필요');
+    }
+  },
+};
+
+commandRegistry.register(programMarket);
+
+export default programMarket;
