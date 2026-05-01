@@ -9,6 +9,7 @@
 
 import { googleSearch } from '../clients/googleSearchClient.js';
 import { fetchNaverStockSnapshots, fetchNaverStockSnapshot, type NaverStockSnapshot } from '../clients/naverFinanceClient.js';
+import { appendForeignerRatio } from '../persistence/foreignerRatioRepo.js';
 import {
   extractStocksFromText,
   getStockByCode,
@@ -236,7 +237,21 @@ async function tryTier4Naver(
   // 부담을 더 낮춰 negative cache 활성 시 즉시 0건으로 끝남.
   for (const entry of seed) {
     const snap = await fetchNaverStockSnapshot(entry.code);
-    if (snap) snapshotMap.set(entry.code, snap);
+    if (snap) {
+      snapshotMap.set(entry.code, snap);
+      // ADR-0140: 외인 보유율 시계열 영속 (5d/20d 추세 입력).
+      // foreignerOwnRatio > 0 가드 + try/catch 격리 — 영속 throw 가 enrich 차단 안 함.
+      if (snap.foreignerOwnRatio > 0) {
+        try {
+          appendForeignerRatio(entry.code, {
+            date: todayKstDate(),
+            ratio: snap.foreignerOwnRatio,
+          });
+        } catch (e) {
+          console.warn(`[ForeignerRatio] append failed ${entry.code}:`, e);
+        }
+      }
+    }
   }
   if (snapshotMap.size === 0) return null;
   const ranked = seed
@@ -403,6 +418,22 @@ export async function discoverUniverse(
     snapshots = await fetchNaverStockSnapshots(ranked.map((r) => r.entry.code));
   } else {
     snapshots = new Map<string, NaverStockSnapshot>();
+  }
+
+  // ADR-0140: 외인 보유율 시계열 영속 — 5d/20d 추세 입력 (Naver foreignerOwnRatio).
+  // foreignerOwnRatio > 0 가드 + try/catch 격리 (enrich 차단 안 함). Tier 4 경로는
+  // 이미 위에서 영속됐으므로 *신규 fetch 한 snapshot 만* 영속 (중복 영속 방지).
+  if (!tier4SnapshotMap && snapshots.size > 0) {
+    const todayKst = todayKstDate();
+    for (const [code, snap] of snapshots.entries()) {
+      if (snap.foreignerOwnRatio > 0) {
+        try {
+          appendForeignerRatio(code, { date: todayKst, ratio: snap.foreignerOwnRatio });
+        } catch (e) {
+          console.warn(`[ForeignerRatio] append failed ${code}:`, e);
+        }
+      }
+    }
   }
 
   const candidates: AiUniverseCandidate[] = ranked.map((r) => {
