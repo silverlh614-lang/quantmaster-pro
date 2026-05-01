@@ -222,22 +222,80 @@ npm run dev
 
 | 영역 | 완성도 | 비고 |
 |------|--------|------|
-| 투자 철학·알고리즘 | 95% | 27조건·Gate·Kelly·역발상 |
+| 투자 철학·알고리즘 | 96% | 27조건·Gate·Kelly·역발상 + Multi-Timeframe Confluence + 27조건 Lifecycle SSOT |
 | 판단엔진 고도화 | 99% | 7개 함수 실데이터 연동 완료 |
 | 글로벌 인텔리전스 | 97% | 12레이어 A~L 완전 구현 |
-| 시각화 | 93% | 캔들·레이더·MHS·매매일지 |
-| 아키텍처 | 95% | Zustand 7스토어·TanStack Query |
-| 자기진화 루프 | 90% | 구조 완성, 실전 데이터 누적 필요 |
-| 데이터 신뢰성 | 55% | AI 추정 항목 교차검증 필요 |
-| 자동매매 | 0% | 추후 KIS 주문 API 연결 예정 |
+| 시각화 | 95% | UI Phase A~D + Verbosity 토글 + V-E-R Card + TimeBand + Account Survival Gauge |
+| 아키텍처 | 96% | Data Trust Layer 3-tier + signalScanner Phase A 분해 + kisClient 분해 + exitEngine 분해 |
+| 자기진화 루프 | 93% | Walk-Forward (LIVE + Shadow) + Condition Lifecycle + Cumulative Reflection Context + F2W Drift |
+| 데이터 신뢰성 | 88% | Trust Layer + Drift Tiered Sanity + Cross-Source Validation + Sanity Trade-Block Gate + 7 진단 인프라 |
+| 자동매매 | 75% | KIS 단일 통로 + FOMC DAY 자동 청산 + Verify state machine + Holiday Policy + BE 분류 + Sanity Gate |
 
 ---
 
 ## 최근 업데이트
 
-**2026-04-19**
-- StickyMiniHeader: `lastUpdated`가 파싱 불가능한 값일 때 "Invalid Date"가 노출되던 문제 수정 → 유효성 검증 후 `--:--`로 대체
-- FusionMatrixSection: 현재 ROE 유형 행 레이블이 다크 모드에서 흰 배경 위 흰 글씨로 보이지 않던 문제 수정 (`text-white` → `text-theme-bg`로 테마 반전 적용)
+**2026-04-20 ~ 2026-05-01** — 100+ ADR (0028~0145) 누적 격상
+
+### 자동매매 안전 게이트
+- FOMC DAY 자동 전량 청산 (ADR-0061) + FOMC vs Regime Kelly 결합 SSOT (ADR-0076)
+- Sanity Trade-Block Gate — extensionPct 위반 시 즉시 DATA_HOLD WAIT (ADR-0117)
+- Data Verification Timing + DATA_HOLD State Machine 3 역할 분리 (ADR-0128)
+- Holiday Resume Policy + Holiday Enter Alert (ADR-0044, ADR-0132)
+- BE 분류 + 서킷 카운트 격리 — 본절 거래 LOSS 오분류 차단 (ADR-0112)
+- preOrderGuard SSOT — cron 외 진입점 우회 차단 (ADR-0081)
+- BEP Glide ATR Buffered + Two-Bar Confirmation (ADR-0079, ADR-0085)
+- Capital-Weighted Slot Accounting (ADR-0080)
+
+### 학습 메타 안전망
+- Walk-Forward Framework Rolling 24 windows + Regime breakdown + Alpha decay (ADR-0083)
+- Shadow Walk-Forward Framework — Rejection + Twin 시간 분할 검증 (ADR-0086)
+- F2W Drift Detector — σ 변화의 변화 감시 + 7일 자동 일시정지 (ADR-0046)
+- Reflection Module Half-Life — 13 모듈 자연 선택 영속 (ADR-0047)
+- Condition Lifecycle Status Policy — 27조건 자동 분류 (ADR-0084)
+- Cumulative Reflection Context — Gemini stateless → stateful (ADR-0130)
+- Learning Coverage Heatmap — 27 × 6 셀 데이터 밀도 게이트 (ADR-0048)
+
+### 데이터 신뢰 격상
+- Data Trust Layer 3-tier — TRUTH/INDICATOR/INTERPRETATION SSOT (ADR-0114)
+- Drift Tiered Sanity 4단계 + Corporate Action Detector (ADR-0113)
+- Cross-Source Validation — USD/KRW Yahoo + ECOS dual-source (ADR-0071)
+- MarketOverview Prefill Overlay + Snapshot 영속 + SWR Cache (ADR-0064/0065/0066)
+- Yahoo Stale Base Fallback + KIS 폴백 + STALE_BASE 종목 제외 (ADR-0091)
+- 진단 인프라 7종 — FSS records age + KIS 종목/시장 프로그램매매 + ECOS 신용공여 + Naver 외인 추세 + Investor Detail (ADR-0136~0142)
+- KIS 프로그램매매 endpoint 정정 + /sh 공매도 카드 macroState 진단 (ADR-0144/0145)
+
+### UI 격상 (Phase A → D + Verbosity)
+- UI Language SSOT + 게이트키퍼 훅 + 정적 검증 (ADR-0094)
+- 5-tier Data Quality Auto-Ladder (ADR-0095)
+- IDontKnow 4-variant + DataQualityRibbon (ADR-0096)
+- VerdictCard V-E-R Migration Gate + Stop-loss First + TimeBand (ADR-0097)
+- ConfluenceMeter 4-axis + 축 결손 자동 표기 (ADR-0098)
+- Verbosity Toggle 3-way + 5 컴포넌트 wiring (ADR-0099~0103, 0109, 0110)
+- Auto Trade Context Layout + Account Survival Gauge + Invalidation Meter + One Decision Card (ADR-0049~0055)
+- Concordance Matrix 정량 × 정성 5×5 합치도 (ADR-0054)
+
+### 텔레그램 4채널 운영
+- alertRouter SSOT + Vibration Policy 매트릭스 + Channel ID Boundary 가드 (ADR-0037)
+- Private vs Channel 분리 — 잔고 키워드 누출 차단 lint (ADR-0038)
+- 12 callsite 시멘틱 별칭 마이그레이션 + sendPickChannelAlert 삭제 (ADR-0039)
+- CH3 매크로 다이제스트 cron + CH4 주간 자기비판 리포트 (ADR-0040, ADR-0041)
+- Gating Alert Window + 12h dedupe — 채팅창 도배 영구 차단 (ADR-0093, ADR-0104)
+
+### 리팩토링 + 게이트 무결성
+- check_complexity 게이트 — 1500줄 절대 규칙 walk 모드 강제 (ADR-0133)
+- signalScanner perSymbolEvaluation 1617 → 30 LoC barrel 분해 (ADR-0134, Phase A)
+- kisClient 1382 → 23 LoC barrel 분해 — 51 importer 무수정 (ADR-0135)
+- exitEngine 1233 → 18 LoC barrel 분해 — 16 rule 분리 (ADR-0028)
+- stockScreener 1571 → 542 LoC 분해 — 4-tier adapter 격리 (ADR-0029)
+- webhookHandler 1858 → 155 LoC 분해 — 8 카테고리 51 cmd (ADR-0017 Stage 1+2+3)
+
+### 진단 명령 (Telegram /)
+`/scan_blockers /signal_status /fss_status /fss_detail /fss_mapping /program_today /program_market /margin_balance /foreigner_trend /data_verification_review /sh /walk_forward /shadow_walk_forward /condition_lifecycle /learning_loop_health /coherence_audit /channel_test /scan_offhours /scan_indices /force_watch_scan /refresh_sector_map /rejected /twins /shadow_attribution /llh /now /watch /positions /learning /control /admin` 등 30+ 운영자 진단 명령
+
+**2026-04-19** (이전)
+- StickyMiniHeader: `lastUpdated` 파싱 불가능한 값 시 "Invalid Date" 노출 차단 → `--:--` 대체
+- FusionMatrixSection: 현재 ROE 유형 행 라벨 다크 모드 흰 배경 흰 글씨 가독성 수정
 
 ---
 
@@ -269,6 +327,6 @@ npm run dev
 
 **"판단의 틀은 기관급, 판단의 재료는 지속적으로 고도화 중"**
 
-*v13 · 2026.04.19*
+*v14 · 2026.05.01 · ADR 0001~0145 누적 145건*
 
 </div>
