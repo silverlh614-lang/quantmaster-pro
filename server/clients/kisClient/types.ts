@@ -30,6 +30,57 @@ export interface KisInvestorFlow {
 }
 
 /**
+ * ADR-0137 — 종목별 당일 프로그램 매매 (comp-program-trade-today).
+ *
+ * KIS Open API 의 `/uapi/domestic-stock/v1/quotations/comp-program-trade-today` 응답.
+ * 페르소나 자료 #6 — *외국인 프로그램/비프로그램* 시그널의 데이터 입력.
+ *
+ * - programNetBuyQty : 프로그램 순매수 수량 (주, 양수=순매수 / 음수=순매도)
+ * - programNetBuyAmount : 프로그램 순매수 금액 (원, 단위 KRW)
+ * - programBuyRatio : 프로그램 매수 비중 (%) — 응답 부재 시 null
+ * - source : 본 PR 인프라는 데이터 페치만, 의사결정 wiring 후속 PR.
+ *
+ * KIS 응답 필드명 (한글 약어):
+ *   - prgm_ntby_qty / prgm_ntby_qty_2 : 프로그램 순매수량
+ *   - prgm_ntby_tr_pbmn               : 프로그램 순매수 거래대금
+ *   - prgm_byov_rate                  : 프로그램 매수 비중
+ *
+ * fetchedAt : 응답 수신 시각 (ISO) — 캐시 stale 판정용.
+ */
+export interface KisStockProgramTrade {
+  stockCode: string;
+  programNetBuyQty: number;
+  programNetBuyAmount: number;
+  programBuyRatio: number | null;
+  fetchedAt: string;
+  source: 'KIS_API';
+}
+
+/**
+ * ADR-0138 — 시장 종합 프로그램 매매 추이 (코스피 시장 단위).
+ *
+ * KIS Open API 의 시장 단위 프로그램 매매 endpoint 응답.
+ * ADR-0137 종목별 데이터와 *별도* — 시장 전체 방향성 신호.
+ *
+ * - programNetBuyQty       : 시장 전체 프로그램 순매수 수량 (주)
+ * - programNetBuyAmount    : 시장 전체 프로그램 순매수 금액 (원, KRW)
+ * - programArbitrageNetBuy : 차익거래 순매수 (원). 부재 시 null
+ *                           (강제 0 fallback 차단 — ADR-0136 의미 단절 정책 정합)
+ *
+ * KIS 응답 필드명 (한글 약어):
+ *   - prgm_ntby_qty / prgm_ntby_qty_2     : 프로그램 순매수량
+ *   - prgm_ntby_tr_pbmn / prgm_ntby_tr_pbmn_2 : 프로그램 거래대금
+ *   - arbt_ntby_tr_pbmn                    : 차익 거래대금
+ */
+export interface KisMarketProgramTrade {
+  programNetBuyQty: number;
+  programNetBuyAmount: number;
+  programArbitrageNetBuy: number | null;
+  fetchedAt: string;
+  source: 'KIS_API';
+}
+
+/**
  * KIS 전일종가 응답 — ADR-0004 대체 경로에서 장전 갭 계산의 기준가로 사용.
  */
 export interface PrevClose {
@@ -87,5 +138,7 @@ export interface KisClientOverrides {
   fetchAccountBalance?: () => Promise<number | null>;
   fetchKisHoldings?: () => Promise<KisHolding[] | null>;
   fetchKisInvestorFlow?: (code: string) => Promise<KisInvestorFlow | null>;
+  fetchKisStockProgramTrade?: (code: string) => Promise<KisStockProgramTrade | null>;
+  fetchKisMarketProgramTrade?: () => Promise<KisMarketProgramTrade | null>;
   realDataKisGet?: (trId: string, apiPath: string, params: Record<string, string>) => Promise<unknown>;
 }

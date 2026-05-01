@@ -8,7 +8,163 @@
 import { HAS_REAL_DATA_CLIENT } from './constants.js';
 import { realDataKisGet } from './http.js';
 import { getKisOverrides } from './overrides.js';
-import type { KisInvestorFlow, PrevClose } from './types.js';
+import type { KisInvestorFlow, KisMarketProgramTrade, KisStockProgramTrade, PrevClose } from './types.js';
+
+// ─── ADR-0137: 종목별 당일 프로그램 매매 ─────────────────────────────────────
+// 사용자 12 아이디어 #3 — 페르소나 자료 #6 "외국인 프로그램/비프로그램" 시그널의
+// 데이터 입력. KIS Open API `comp-program-trade-today` 공식 endpoint.
+
+/** ADR-0137: KIS comp-program-trade-today TR ID — ENV 우회 가능. */
+const STOCK_PROGRAM_TRADE_TR_ID = process.env.KIS_STOCK_PROGRAM_TRADE_TR_ID ?? 'FHPPG04650201';
+const STOCK_PROGRAM_TRADE_PATH = '/uapi/domestic-stock/v1/quotations/comp-program-trade-today';
+
+/**
+ * KIS 응답 output 의 한글 약어 필드에서 첫 번째 매칭 값을 추출.
+ * 미발견/파싱 실패 시 fallback (default 0).
+ */
+function extractKisNumber(out: Record<string, string> | undefined, keys: string[], fallback = 0): number {
+  if (!out) return fallback;
+  for (const k of keys) {
+    const raw = out[k];
+    if (raw === undefined || raw === null || raw === '') continue;
+    const cleaned = String(raw).replace(/,/g, '').trim();
+    const n = Number(cleaned);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
+}
+
+/**
+ * ADR-0137 — KIS comp-program-trade-today 종목별 당일 프로그램 매매 조회.
+ *
+ * - KIS_APP_KEY 미설정 + 실계좌 클라이언트 부재 → null (안전 fallback).
+ * - realDataKisGet SSOT 경유 — 회로차단/블랙리스트/jitter 자동 적용 (절대 규칙 #2).
+ * - output 필드명 한글 약어 + 영문 약어 대체값 모두 시도 (KIS 응답 변동 안전).
+ * - programBuyRatio 부재 시 null (강제 0 fallback 차단 — 의미 단절 방지).
+ *
+ * @param code 종목코드 (6자리 zero-padded 자동 적용)
+ */
+export async function fetchKisStockProgramTrade(code: string): Promise<KisStockProgramTrade | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisStockProgramTrade) return overrides.fetchKisStockProgramTrade(code);
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  try {
+    const data = await realDataKisGet(
+      STOCK_PROGRAM_TRADE_TR_ID,
+      STOCK_PROGRAM_TRADE_PATH,
+      {
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_INPUT_ISCD: code.padStart(6, '0'),
+      },
+    );
+    const out = (data as { output?: Record<string, string> } | null)?.output;
+    if (!out) return null;
+
+    // ADR-0137: 다중 키 매칭 — KIS output 필드 변동 흡수 (한글 약어 / 영문 약어 / _2 변형).
+    const programNetBuyQty = extractKisNumber(
+      out,
+      ['prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY'],
+    );
+    const programNetBuyAmount = extractKisNumber(
+      out,
+      ['prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN'],
+    );
+    // 비중 필드는 부재 가능 — 강제 0 fallback 금지 (의미 단절 차단).
+    const ratioRaw = out.prgm_byov_rate ?? out.PRGM_BYOV_RATE ?? out.prgm_byov_rate_2 ?? '';
+    const ratioNum = ratioRaw === '' ? Number.NaN : Number(String(ratioRaw).replace(/,/g, ''));
+    const programBuyRatio = Number.isFinite(ratioNum) ? ratioNum : null;
+
+    return {
+      stockCode: code.padStart(6, '0'),
+      programNetBuyQty,
+      programNetBuyAmount,
+      programBuyRatio,
+      fetchedAt: new Date().toISOString(),
+      source: 'KIS_API',
+    };
+  } catch (e) {
+    console.error(
+      `[KIS] 종목별 프로그램 매매 조회 실패 (${code}):`,
+      e instanceof Error ? e.message : e,
+    );
+    return null;
+  }
+}
+
+// ─── ADR-0138: 시장 종합 프로그램 매매 추이 ──────────────────────────────────
+// 사용자 12 아이디어 #4 — 시장 단위 프로그램 자금 흐름 (코스피 전체).
+// ADR-0137 종목별 데이터와 *별도* — 시장 방향성 신호 (regime 가중치 입력).
+
+const MARKET_PROGRAM_TRADE_TR_ID = process.env.KIS_MARKET_PROGRAM_TRADE_TR_ID ?? 'FHPPG04600101';
+const MARKET_PROGRAM_TRADE_PATH =
+  process.env.KIS_MARKET_PROGRAM_TRADE_PATH
+  ?? '/uapi/domestic-stock/v1/quotations/comp-program-trade-daily';
+
+/**
+ * ADR-0138 — KIS 시장 종합 프로그램 매매 추이 조회 (코스피 시장 단위).
+ *
+ * - KIS_APP_KEY 미설정 + 실계좌 클라이언트 부재 → null (안전 fallback).
+ * - realDataKisGet SSOT 경유 — 회로차단/블랙리스트/jitter 자동 적용 (절대 규칙 #2).
+ * - output 필드 다중 키 매칭 — 한글 약어 + 영문 약어 + `_2` 변형 (ADR-0137 패턴).
+ * - programArbitrageNetBuy 부재 시 null (강제 0 fallback 차단 — ADR-0136 의미 단절 정책).
+ * - 일별 데이터 — output 배열 첫 요소 (당일) 또는 단일 output 객체 모두 지원.
+ */
+export async function fetchKisMarketProgramTrade(): Promise<KisMarketProgramTrade | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisMarketProgramTrade) return overrides.fetchKisMarketProgramTrade();
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  try {
+    const data = await realDataKisGet(
+      MARKET_PROGRAM_TRADE_TR_ID,
+      MARKET_PROGRAM_TRADE_PATH,
+      {
+        FID_COND_MRKT_DIV_CODE: 'U',  // U = 시장 전체 (J = 종목)
+        FID_INPUT_ISCD: '0001',       // 0001 = 코스피
+      },
+    );
+
+    // KIS 응답: output (단일 객체) 또는 output1 (당일 객체) 또는 output2[0] (배열 첫 요소).
+    // 본 PR 은 가장 일반적 패턴 우선 시도 + 실패 시 null.
+    type KisOutput = Record<string, string>;
+    const root = data as { output?: KisOutput; output1?: KisOutput; output2?: KisOutput[] } | null;
+    const out: KisOutput | undefined =
+      root?.output
+      ?? root?.output1
+      ?? (Array.isArray(root?.output2) && root.output2.length > 0 ? root.output2[0] : undefined);
+    if (!out) return null;
+
+    const programNetBuyQty = extractKisNumber(
+      out,
+      ['prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY'],
+    );
+    const programNetBuyAmount = extractKisNumber(
+      out,
+      ['prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN'],
+    );
+    // 차익거래 부재 가능 — 강제 0 fallback 금지.
+    const arbitrageRaw =
+      out.arbt_ntby_tr_pbmn
+      ?? out.ARBT_NTBY_TR_PBMN
+      ?? out.arbt_ntby_tr_pbmn_2
+      ?? '';
+    const arbNum = arbitrageRaw === '' ? Number.NaN : Number(String(arbitrageRaw).replace(/,/g, ''));
+    const programArbitrageNetBuy = Number.isFinite(arbNum) ? arbNum : null;
+
+    return {
+      programNetBuyQty,
+      programNetBuyAmount,
+      programArbitrageNetBuy,
+      fetchedAt: new Date().toISOString(),
+      source: 'KIS_API',
+    };
+  } catch (e) {
+    console.error(
+      '[KIS] 시장 종합 프로그램 매매 조회 실패:',
+      e instanceof Error ? e.message : e,
+    );
+    return null;
+  }
+}
 
 // ─── 종목별 투자자 수급 조회 ─────────────────────────────────────────────────
 

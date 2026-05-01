@@ -51,6 +51,23 @@ export interface MacroState {
    * 가 매 사이클 갱신.
    */
   fssRecordsAge?: FssRecordsAgeInfo;
+  /**
+   * ADR-0138: KIS 시장 종합 프로그램 매매 추이 — 코스피 시장 단위 프로그램 자금 흐름.
+   * `marketDataRefresh.refreshMarketRegimeVars` 가 매 사이클 갱신, 실패 시 기존 값 보존.
+   *
+   * 단위 환산: KIS 응답은 원 단위 → macroState 는 *억원* 환산 (다른 macroState
+   * 자금 흐름 필드 (foreignNetBuy5d) 와 단위 정합).
+   *
+   * - programNetBuyAmount      : 시장 전체 프로그램 순매수 금액 (억원, 양수=순매수)
+   * - programArbitrageNetBuy   : 차익거래 순매수 (억원). 부재 시 null
+   *                             (강제 0 fallback 차단 — ADR-0136 의미 단절 정책 정합)
+   * - programFetchedAt         : KIS 응답 시각 (ISO) — `/program_market` 신선도
+   * - programSource            : 'KIS_API' (정상) / 'NONE' (마지막 갱신 실패)
+   */
+  programNetBuyAmount?: number;
+  programArbitrageNetBuy?: number | null;
+  programFetchedAt?: string;
+  programSource?: 'KIS_API' | 'NONE';
   kospiAbove20MA?: boolean;         // KOSPI 20일선 위
   kospiAbove60MA?: boolean;         // KOSPI 60일선 위
   kospi20dReturn?: number;          // KOSPI 20일 수익률

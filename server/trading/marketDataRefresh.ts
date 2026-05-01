@@ -22,7 +22,7 @@ import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js
 import { loadFssRecords, getFssRecordsAge } from '../persistence/fssRepo.js';
 import type { FssRecordsAgeInfo } from '../persistence/fssRepo.js';
 import { checkAndNotifyRegimeChange } from './regimeBridge.js';
-import { fetchKisMarketSupply } from '../clients/kisClient.js';
+import { fetchKisMarketSupply, fetchKisMarketProgramTrade } from '../clients/kisClient.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
 import { fetchLatestUsdKrw } from '../clients/ecosClient.js';
 import { computeMacroIndex } from '../engines/macroIndexEngine.js';
@@ -576,6 +576,30 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
       computed.foreignContinuousBuyDays = 1;
       console.log('[MarketRefresh] KIS 당일 외국인 순매수 양수 — foreignContinuousBuyDays 1일 보정');
     }
+  }
+
+  // ── ③-c ADR-0138: KIS 시장 종합 프로그램 매매 추이 (코스피 시장 단위) ────
+  // 사용자 12 아이디어 #4 — 시장 단위 프로그램 자금 흐름. KIS 응답은 원 단위 →
+  // macroState 는 *억원* 환산 (foreignNetBuy5d 등 다른 자금 흐름 필드와 단위 정합).
+  // 호출 실패 시 programSource='NONE' 마커 + 기존 값 보존 (silent degradation 차단).
+  const marketProgram = await fetchKisMarketProgramTrade().catch(() => null);
+  if (marketProgram) {
+    const eokwon = marketProgram.programNetBuyAmount / 100_000_000;
+    const arbEokwon = marketProgram.programArbitrageNetBuy === null
+      ? null
+      : marketProgram.programArbitrageNetBuy / 100_000_000;
+    computed.programNetBuyAmount = eokwon;
+    computed.programArbitrageNetBuy = arbEokwon;
+    computed.programFetchedAt = marketProgram.fetchedAt;
+    computed.programSource = 'KIS_API';
+    console.log(
+      `[MarketRefresh] KIS 시장 프로그램 매매: ` +
+      `${eokwon >= 0 ? '+' : ''}${eokwon.toFixed(1)}억원` +
+      (arbEokwon !== null ? ` (차익 ${arbEokwon >= 0 ? '+' : ''}${arbEokwon.toFixed(1)}억원)` : ' (차익 미수집)'),
+    );
+  } else {
+    computed.programSource = 'NONE';
+    console.warn('[MarketRefresh] KIS 시장 프로그램 매매 조회 실패 — programSource=NONE, 기존 값 보존');
   }
 
   // ── ⑥ KRX 공매도 비율 (코스피 전체) ──────────────────────────────────────
