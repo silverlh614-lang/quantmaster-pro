@@ -16,13 +16,15 @@ import { dirname, resolve } from 'node:path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const PER_SYMBOL_PATH = resolve(__dirname, '../perSymbolEvaluation.ts');
+// ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts 로 이주.
+const BUY_LIST_LOOP_PATH = resolve(__dirname, '../perSymbol/buyListLoop.ts');
 
 describe('perSymbolEvaluation — ADR-0080 PR-S1 루프 게이트 wiring', () => {
-  const src = readFileSync(PER_SYMBOL_PATH, 'utf-8');
+  const src = readFileSync(BUY_LIST_LOOP_PATH, 'utf-8');
 
   it('computeSlotConsumption import 존재', () => {
-    expect(src).toContain("import { computeSlotConsumption } from '../slotAccounting.js'");
+    // ADR-0134: import path 깊이 무관 — 모듈 소속만 검증
+    expect(src).toMatch(/import\s*\{\s*computeSlotConsumption\s*\}\s*from\s*['"][^'"]*slotAccounting\.js['"]/);
   });
 
   it('루프 게이트가 slotResult.consumed (자본 가중) 사용', () => {

@@ -128,6 +128,7 @@ When modifying any file, ensure changes stay within the owning module's stated r
 
 ## Boundary Rules
 
+- **perSymbolEvaluation barrel + perSymbol/ 디렉토리 분해 SSOT** (ADR-0134 PR-Refactor-2): `server/trading/signalScanner/perSymbolEvaluation.ts` 는 분해 후 **얇은 barrel re-export 만 유지** (1617→30 LoC). 본체는 `signalScanner/perSymbol/` 디렉토리 5 파일로 분리: `types.ts` (Context+Mutables 4 인터페이스) / `helpers.ts` (getPrice + SymbolExitContext + getAdaptiveProfitTargets + FAILURE_BLOCK_THRESHOLD_PCT) / `buyListLoop.ts` (evaluateBuyList 메인 루프, 1190 LoC) / `intradayLoop.ts` (evaluateIntradayList 장중 루프, 247 LoC) / `index.ts` (barrel). 외부 importer (signalScanner.ts + 35 회귀 테스트) 경로 변경 0건 — barrel 호환 유지. ADR-0001 (signalScanner-decomposition) Phase B 완주. evaluateBuyList god function (cc=244) 본체 추가 분해는 후속 PR-Refactor-2-B (운영 데이터 누적 후).
 - **gateEngine boundary**: Functions named `evaluateGate*`, `evaluateStock`, `computeSignalVerdict`, and related scoring helpers belong here. Do not add data-fetching or order logic.
 - **bearEngine boundary**: Functions named `evaluateBear*`, `evaluateInverseGate*`, `evaluateMarketNeutral`, `evaluateIPS`, `evaluateFSS` belong here. Do not mix with bull-market Gate evaluation.
 - **kisClient boundary**: All raw KIS REST calls (`kisGet`, `kisPost`, `getKisToken`) must go through this module. No other module may call the KIS API directly.

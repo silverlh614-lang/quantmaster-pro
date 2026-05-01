@@ -6,16 +6,20 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const TARGET_FILE = path.resolve(__dirname, 'perSymbolEvaluation.ts');
+// ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts + intradayLoop.ts.
+// 정적 grep 가드는 두 파일 합친 source 를 검사한다 (byte-equivalent 정합 검증).
+const BUY_LIST_LOOP = path.resolve(__dirname, 'perSymbol/buyListLoop.ts');
+const INTRADAY_LOOP = path.resolve(__dirname, 'perSymbol/intradayLoop.ts');
 
 function readSource(): string {
-  return fs.readFileSync(TARGET_FILE, 'utf-8');
+  return fs.readFileSync(BUY_LIST_LOOP, 'utf-8') + '\n' + fs.readFileSync(INTRADAY_LOOP, 'utf-8');
 }
 
 describe('ADR-0128 §Wiring 1A — verifyStockIncremental BUY_CANDIDATE 4 site wiring', () => {
   it('verifyStockIncremental import 존재', () => {
     const src = readSource();
-    expect(src).toMatch(/import\s*\{\s*verifyStockIncremental\s*\}\s*from\s*['"]\.\.\/\.\.\/data\/dataVerificationIncremental\.js['"]/);
+    // ADR-0134: import path 깊이 무관 — 모듈 소속만 검증 (분해 후 ../../.. 로 깊어짐)
+    expect(src).toMatch(/import\s*\{\s*verifyStockIncremental\s*\}\s*from\s*['"][^'"]*data\/dataVerificationIncremental\.js['"]/);
   });
 
   it('site 1 — _signalTimeFollow 직전 verifyStockIncremental("...", "BUY_CANDIDATE") 호출', () => {
@@ -63,7 +67,8 @@ describe('ADR-0128 §Wiring 1A — verifyStockIncremental BUY_CANDIDATE 4 site w
 describe('ADR-0128 §Wiring 2 — DATA_HOLD 분기 resolveDataHoldAction(BUY_CANDIDATE) 위임', () => {
   it('resolveDataHoldAction import 존재', () => {
     const src = readSource();
-    expect(src).toMatch(/import\s*\{\s*resolveDataHoldAction\s*\}\s*from\s*['"]\.\.\/\.\.\/data\/dataHoldRolePolicy\.js['"]/);
+    // ADR-0134: import path 깊이 무관
+    expect(src).toMatch(/import\s*\{\s*resolveDataHoldAction\s*\}\s*from\s*['"][^'"]*data\/dataHoldRolePolicy\.js['"]/);
   });
 
   it("driftAction === 'DATA_HOLD' 분기에서 resolveDataHoldAction('BUY_CANDIDATE') 호출", () => {

@@ -147,11 +147,16 @@ describe('evaluateDataQualityFromStock — stock + currentPrice 합성 SSOT', ()
 });
 
 describe('PR-2 perSymbolEvaluation wiring 정적 검증', () => {
-  const sourcePath = path.resolve(__dirname, 'signalScanner', 'perSymbolEvaluation.ts');
-  const source = fs.readFileSync(sourcePath, 'utf-8');
+  // ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts + intradayLoop.ts.
+  const buyListLoopPath = path.resolve(__dirname, 'signalScanner', 'perSymbol', 'buyListLoop.ts');
+  const intradayLoopPath = path.resolve(__dirname, 'signalScanner', 'perSymbol', 'intradayLoop.ts');
+  const source =
+    fs.readFileSync(buyListLoopPath, 'utf-8') + '\n' +
+    fs.readFileSync(intradayLoopPath, 'utf-8');
 
   it('evaluateDataQualityFromStock import 존재', () => {
-    expect(source).toMatch(/import\s*{\s*evaluateDataQualityFromStock\s*}\s*from\s*'\.\.\/priceSourcePolicy\.js'/);
+    // ADR-0134: import path 깊이 무관 (분해 후 ../../ 가 됨)
+    expect(source).toMatch(/import\s*{\s*evaluateDataQualityFromStock\s*}\s*from\s*'[^']*priceSourcePolicy\.js'/);
   });
 
   it('sizingTierDecider 호출에 dataQuality 인자 전달', () => {

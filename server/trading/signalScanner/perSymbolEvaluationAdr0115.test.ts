@@ -6,17 +6,21 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const TARGET_FILE = path.resolve(__dirname, 'perSymbolEvaluation.ts');
+// ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts + intradayLoop.ts.
+// 정적 grep 가드는 두 파일 합친 source 를 검사한다 (byte-equivalent 정합 검증).
+const BUY_LIST_LOOP = path.resolve(__dirname, 'perSymbol/buyListLoop.ts');
+const INTRADAY_LOOP = path.resolve(__dirname, 'perSymbol/intradayLoop.ts');
 
 function readSource(): string {
-  return fs.readFileSync(TARGET_FILE, 'utf-8');
+  return fs.readFileSync(BUY_LIST_LOOP, 'utf-8') + '\n' + fs.readFileSync(INTRADAY_LOOP, 'utf-8');
 }
 
 describe('ADR-0115 perSymbolEvaluation wiring — 정적 회귀 가드', () => {
   describe('failureClassifier import 정착', () => {
     it('shouldIncrementFailCount import', () => {
       const src = readSource();
-      expect(src).toMatch(/import\s*\{[^}]*shouldIncrementFailCount[^}]*\}\s*from\s*['"]\.\/failureClassifier\.js['"]/);
+      // ADR-0134: import path 깊이 무관 (분해 후 ../failureClassifier.js 가 됨)
+      expect(src).toMatch(/import\s*\{[^}]*shouldIncrementFailCount[^}]*\}\s*from\s*['"][^'"]*failureClassifier\.js['"]/);
     });
 
     it('isEntryPriceAutoCorrectDisabled import', () => {

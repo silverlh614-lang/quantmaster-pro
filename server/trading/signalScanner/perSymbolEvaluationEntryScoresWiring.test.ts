@@ -6,15 +6,16 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
-const SOURCE = fs.readFileSync(
-  path.join(__dirname, 'perSymbolEvaluation.ts'),
-  'utf-8',
-);
+// ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts + intradayLoop.ts.
+const SOURCE =
+  fs.readFileSync(path.join(__dirname, 'perSymbol/buyListLoop.ts'), 'utf-8') + '\n' +
+  fs.readFileSync(path.join(__dirname, 'perSymbol/intradayLoop.ts'), 'utf-8');
 
 describe('perSymbolEvaluation 4 매수 site entryConditionScores 정적 wiring (PR-1)', () => {
   it('buildEntryConditionScores import 존재', () => {
+    // ADR-0134: import path 깊이 무관하게 모듈 소속만 검증 (분해 후 ../../.. 로 깊어짐)
     expect(SOURCE).toMatch(
-      /import\s*\{\s*buildEntryConditionScores\s*\}\s*from\s*['"]\.\.\/\.\.\/learning\/entryConditionScores\.js['"]/,
+      /import\s*\{\s*buildEntryConditionScores\s*\}\s*from\s*['"][^'"]*learning\/entryConditionScores\.js['"]/,
     );
   });
 

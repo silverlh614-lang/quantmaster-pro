@@ -73,9 +73,10 @@ describe('PR-F-2 wiring — conditionScores 전달', () => {
   it('perSymbolEvaluation — recordRejection 호출 인접 패턴 검증 (소스 정합)', async () => {
     // perSymbolEvaluation.ts 가 buildEntryConditionScores 를 import 하고
     // recordRejection 직전에 호출하는 패턴 정합 확인.
+    // ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts 로 이주.
     const { readFileSync } = await import('fs');
     const src = readFileSync(
-      'server/trading/signalScanner/perSymbolEvaluation.ts',
+      'server/trading/signalScanner/perSymbol/buyListLoop.ts',
       'utf-8',
     );
     expect(src).toContain('buildEntryConditionScores');

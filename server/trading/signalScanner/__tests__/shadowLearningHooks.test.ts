@@ -132,21 +132,24 @@ describe('PR-R LIVE 매매 무영향 — try/catch 격리 패턴', () => {
 
 describe('PR-R wiring import 검증', () => {
   it('perSymbolEvaluation 가 recordRejection 을 import', async () => {
-    const filePath = path.resolve(__dirname, '../perSymbolEvaluation.ts');
+    // ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts 로 이주.
+    const filePath = path.resolve(__dirname, '../perSymbol/buyListLoop.ts');
     const source = fs.readFileSync(filePath, 'utf-8');
-    expect(source).toContain("from '../../learning/rejectionShadowTracker.js'");
+    expect(source).toMatch(/from\s*['"][^'"]*learning\/rejectionShadowTracker\.js['"]/);
     expect(source).toContain('recordRejection');
   });
 
   it('perSymbolEvaluation 가 recordTwinEntries 를 import', async () => {
-    const filePath = path.resolve(__dirname, '../perSymbolEvaluation.ts');
+    // ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts 로 이주.
+    const filePath = path.resolve(__dirname, '../perSymbol/buyListLoop.ts');
     const source = fs.readFileSync(filePath, 'utf-8');
-    expect(source).toContain("from '../../learning/counterfactualTwinPortfolio.js'");
+    expect(source).toMatch(/from\s*['"][^'"]*learning\/counterfactualTwinPortfolio\.js['"]/);
     expect(source).toContain('recordTwinEntries');
   });
 
   it('perSymbolEvaluation 의 두 hook 모두 try/catch 격리', () => {
-    const filePath = path.resolve(__dirname, '../perSymbolEvaluation.ts');
+    // ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts 로 이주.
+    const filePath = path.resolve(__dirname, '../perSymbol/buyListLoop.ts');
     const source = fs.readFileSync(filePath, 'utf-8');
     // try 블록 안에 recordTwinEntries / recordRejection 호출
     expect(source).toMatch(/try\s*\{[^}]*recordTwinEntries\(/s);
@@ -157,7 +160,8 @@ describe('PR-R wiring import 검증', () => {
   });
 
   it('PR-R wiring 이 recordCounterfactual 패턴과 동일 위치 사용', () => {
-    const filePath = path.resolve(__dirname, '../perSymbolEvaluation.ts');
+    // ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts 로 이주.
+    const filePath = path.resolve(__dirname, '../perSymbol/buyListLoop.ts');
     const source = fs.readFileSync(filePath, 'utf-8');
     // 두 hook 모두 try/catch 패턴 — recordCounterfactual 같은 위치
     const counterfactualIdx = source.indexOf('recordCounterfactual');
