@@ -3,7 +3,8 @@ build/
 coverage/
 data/
 !server/data/
-_workspace/
+_workspace/*
+!_workspace/PENDING_WIRING.md
 .DS_Store
 *.log
 *.debug.txt
