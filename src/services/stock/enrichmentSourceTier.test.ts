@@ -5,34 +5,39 @@ import { describe, it, expect } from 'vitest';
 import { buildConditionSourceTiers } from './enrichment';
 
 describe('buildConditionSourceTiers — ADR-0029 sourceTier 메타 분류', () => {
-  it('main path (DART + KIS supply + VCP) → 6 키 격상', () => {
+  it('main path (DART + KIS supply + VCP) → 8 키 격상 (ADR-0150 Phase 1 마무리)', () => {
     const meta = buildConditionSourceTiers({
       hasDartFinancials: true,
       hasKisSupply: true,
       hasVcpComputed: true,
     });
-    // VCP 1 (COMPUTED) + DART 3 (API) + KIS supply 2 (API) = 6 키 격상
+    // ADR-0150: VCP 1 (COMPUTED) + DART 5 (API: roe/ocf/icr + 신규 #15/#8) + KIS supply 2 (API) = 8 키 격상
     expect(meta.vcpPattern).toBe('COMPUTED');
     expect(meta.roeType3).toBe('API');
     expect(meta.ocfQuality).toBe('API');
     expect(meta.interestCoverage).toBe('API');
+    expect(meta.performanceReality).toBe('API');     // ADR-0150 신규
+    expect(meta.economicMoatVerified).toBe('API');   // ADR-0150 신규
     expect(meta.institutionalBuying).toBe('API');
     expect(meta.supplyInflow).toBe('API');
-    // 나머지 21 키는 AI_INFERRED 기본값
+    // 나머지 19 키는 AI_INFERRED 기본값
     expect(meta.cycleVerified).toBe('AI_INFERRED');
     expect(meta.ichimokuBreakout).toBe('AI_INFERRED');
     expect(meta.catalystAnalysis).toBe('AI_INFERRED');
   });
 
-  it('aiFallback path (DART 만) → 3 API 키만 격상, vcp/supply 미적용', () => {
+  it('aiFallback path (DART 만) → 5 API 키만 격상 (ADR-0150 Phase 1 마무리)', () => {
     const meta = buildConditionSourceTiers({
       hasDartFinancials: true,
       hasKisSupply: false,
       hasVcpComputed: false,
     });
+    // ADR-0150: DART 5 키 (roe/ocf/icr/performanceReality/economicMoatVerified)
     expect(meta.roeType3).toBe('API');
     expect(meta.ocfQuality).toBe('API');
     expect(meta.interestCoverage).toBe('API');
+    expect(meta.performanceReality).toBe('API');     // ADR-0150 신규
+    expect(meta.economicMoatVerified).toBe('API');   // ADR-0150 신규
     // VCP/supply 는 AI_INFERRED 기본 유지
     expect(meta.vcpPattern).toBe('AI_INFERRED');
     expect(meta.institutionalBuying).toBe('AI_INFERRED');
