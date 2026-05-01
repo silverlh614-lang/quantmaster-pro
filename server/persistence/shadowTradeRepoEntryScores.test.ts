@@ -32,8 +32,10 @@ describe('ServerShadowTrade.entryConditionScores schema (PR-1, ADR-0006)', () =>
     const { loadShadowTrades, saveShadowTrades } = await fresh();
     const scores: Record<number, number> = {};
     for (let i = 1; i <= 27; i++) scores[i] = 5;
-    scores[9] = 7; // ma_alignment HIGH
-    scores[18] = 7; // momentum HIGH
+    // ADR-0149: schema round-trip 만 검증 — ID 위치는 임의. 의미 매핑은
+    // server/learning/conditionMappingFix.test.ts 가 별도 검증.
+    scores[9] = 7;  // 클라 ID 9 = notPreviousLeader (임의 HIGH)
+    scores[18] = 7; // 클라 ID 18 = turtleBreakout (임의 HIGH)
 
     const trade: any = {
       id: 't1', stockCode: '005930', stockName: '삼성전자',

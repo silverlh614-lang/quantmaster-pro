@@ -41,6 +41,8 @@ describe('buildBuyTrade entryConditionScores wiring (PR-1, ADR-0006)', () => {
   it('27 키 객체 전달 시 영속 — 모든 키 보존', () => {
     const scores: Record<number, number> = {};
     for (let i = 1; i <= 27; i++) scores[i] = 5;
+    // ADR-0149: round-trip schema 검증 — ID 위치 임의. 의미 매핑은
+    // server/learning/conditionMappingFix.test.ts 가 별도 검증.
     scores[9] = 7;
     scores[18] = 7;
     const trade = buildBuyTrade({ ...baseParams, entryConditionScores: scores });
