@@ -107,11 +107,13 @@ export function promoteKellyDriftPattern(
   }
 
   const recent = decayLosses[decayLosses.length - 1];
-  const recentKeys = recent.entryKellySnapshot ? [] : [];
-  // 대표 벡터 — 가장 최근 샘플의 conditionKeys 를 27조건 벡터로 변환.
-  // (현재 ServerShadowTrade 에 conditionKeys 가 직접 저장되지 않는 경우 빈 벡터 → 유사도는
-  // 섹터/regime 등 메타만으로 평가됨. 향후 trade 에 conditionKeys 스냅샷 저장 시 정밀도↑.)
-  const scores = buildEntryConditionScores(recentKeys);
+  // 결함 수리 (Layer 2 wiring 1/5): 기존 `recent.entryKellySnapshot ? [] : []` 는 양쪽
+  // 분기 모두 빈 배열을 반환해 conditionKeys 가 영구 비어있던 작성 중 사고였다.
+  // ServerShadowTrade 에 conditionKeys 원본은 영속되지 않으나, ADR-0006 PR-19 가
+  // buildEntryConditionScores 결과(entryConditionScores, 27조건 벡터)를 매수 시점에
+  // 영속시키므로 baseline 으로 직접 사용한다. 부재 시(레거시 trade) 중립 27 벡터
+  // fallback — failurePatternDB cosine 매칭이 섹터/regime 메타만으로 평가됨.
+  const scores = recent.entryConditionScores ?? buildEntryConditionScores([]);
 
   appendFailurePattern({
     id: `kdrift_${id}_${Date.now()}`,
