@@ -12,6 +12,15 @@
  *   D) 카테고리 파싱 정합 — 5 카테고리 (A. 학습 / B. 매매 / C. 시그널 / D. UI / E. 영속) 모두 존재
  *   E) 진행 통계 자동 갱신 — §"진행 통계" 표가 실제 카테고리 카운트와 일치
  *   F) ID 형식 — `[A-E][0-9]+` 엄격
+ *   G) 백로그 등재 vs 실제 wiring 정합성 (PR-Governance-Followup-2):
+ *      G1 — 모듈 경로 백틱 안 파일이 실제 존재 (placeholder 제외)
+ *      G2 — DECIDED_NOT_WIRING 항목은 reason 에 PR 인용 (`PR-` / `완료` / audit 산출물 인용) 의무
+ *      G3 — INFRASTRUCTURE_ONLY / PARTIAL / BLOCKED 항목은 reason 에 차단 사유 / 다음 액션 명시 의무
+ *
+ *      배경: A3 (emitFullCloseAttribution) 가 6개월간 INFRASTRUCTURE_ONLY stale 로 남았던
+ *      이유 — 백로그 등재가 *실제 코드 상태와 정합* 하는지 검사 부재. G 카테고리는
+ *      "코드는 wired 되었는데 백로그가 갱신 안 됨" / "신규 항목인데 모듈 경로 오타" 등
+ *      drift 영구 차단.
  *
  * 본 PR (Governance 후속): baseline 0건 위반 — 신규 회귀만 차단.
  *
@@ -20,7 +29,7 @@
  *   node scripts/check_pending_wiring.js --json         # JSON 진단
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -41,10 +50,21 @@ export const VALID_PRIORITIES = new Set(['P0', 'P1', 'P2', 'P3']);
 export const EXPECTED_CATEGORIES = ['A', 'B', 'C', 'D', 'E'];
 
 const ID_RE = /^[A-E]\d+$/;
+// PR-Governance-Followup-2: 6 컬럼 모두 캡처 (id/adr/모듈/상태/우선순위/사유)
 const ROW_RE =
-  /^\|\s*([A-Z]\d+)\s*\|\s*([^|]+?)\s*\|\s*[^|]+?\s*\|\s*([A-Z_]+)\s*\|\s*(P\d)\s*\|\s*[^|]+?\s*\|/;
+  /^\|\s*([A-Z]\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([A-Z_]+)\s*\|\s*(P\d)\s*\|\s*(.+?)\s*\|\s*$/;
 const CATEGORY_RE = /^###\s+([A-E])\.\s+/;
 const ADR_REF_RE = /\b(\d{4})\b/g;
+// PR-Governance-Followup-2: 모듈 경로 백틱 추출 (예: `server/persistence/x.ts`)
+const MODULE_PATH_RE = /`([^`]+)`/g;
+// PR-Governance-Followup-2: placeholder 패턴 — 모듈 경로 검증 skip 대상
+const MODULE_PLACEHOLDER_RE = /\(\s*신규\s*\)|\(\s*정성[^)]*\)|\(\s*예정[^)]*\)/;
+// PR-Governance-Followup-2: DECIDED_NOT_WIRING 의 reason 에 audit 추적성 인용 패턴
+//   - PR 인용 / "완료" / audit 산출물 / `_workspace/` / ADR 인용 (정책 SSOT 명시)
+const DECIDED_REASON_REF_RE =
+  /(PR-[가-힣A-Za-z0-9_-]+|완료|audit|_workspace\/|ADR-\d{4})/i;
+// PR-Governance-Followup-2: 와일드카드 / glob 경로 — 파일 단위 검증 skip
+const WILDCARD_RE = /[*?]/;
 
 /* ───────── PENDING_WIRING 파싱 ───────── */
 
@@ -52,7 +72,16 @@ const ADR_REF_RE = /\b(\d{4})\b/g;
  * parsePendingWiring(src) — 백로그 본문 파싱.
  *
  * @returns {{
- *   entries: Array<{ id: string, adrRefs: string[], status: string, priority: string, category: string }>,
+ *   entries: Array<{
+ *     id: string,
+ *     adrRefs: string[],
+ *     module: string,           // PR-Governance-Followup-2: raw 모듈 컬럼 텍스트
+ *     modulePaths: string[],    // PR-Governance-Followup-2: 백틱 안 파일 경로 추출
+ *     status: string,
+ *     priority: string,
+ *     category: string,
+ *     reason: string,           // PR-Governance-Followup-2: raw 사유 컬럼 텍스트
+ *   }>,
  *   categories: Set<string>,
  *   stats: Map<string, { total: number, p0: number, p1: number, p2: number, p3: number }> | null
  * }}
@@ -107,17 +136,35 @@ export function parsePendingWiring(src) {
     if (m) {
       const id = m[1];
       const adrField = m[2].trim();
+      const moduleField = m[3].trim();
+      const status = m[4];
+      const priority = m[5];
+      const reason = m[6].trim();
+
       const adrRefs = [];
       let r;
+      ADR_REF_RE.lastIndex = 0;
       while ((r = ADR_REF_RE.exec(adrField)) !== null) {
         adrRefs.push(r[1]);
       }
+
+      // PR-Governance-Followup-2: 모듈 컬럼에서 백틱 안 파일 경로 추출
+      const modulePaths = [];
+      let p;
+      MODULE_PATH_RE.lastIndex = 0;
+      while ((p = MODULE_PATH_RE.exec(moduleField)) !== null) {
+        modulePaths.push(p[1]);
+      }
+
       entries.push({
         id,
         adrRefs,
-        status: m[3],
-        priority: m[4],
+        module: moduleField,
+        modulePaths,
+        status,
+        priority,
         category: id.charAt(0),
+        reason,
       });
     }
   }
@@ -155,11 +202,50 @@ export function extractAllAdrNumbers(indexSrc) {
 /* ───────── 검증 ───────── */
 
 /**
- * validate(parsed, knownAdrNumbers) — 6 카테고리 적용.
+ * fileExistsAtRoot(rootDir, relPath) — 모듈 경로 파일 존재 검증 헬퍼 (G1).
+ *
+ * 절대 경로면 그대로, 상대면 rootDir 기준 join. 와일드카드는 false 반환 후
+ * 호출자가 skip. 디렉토리도 true (예: `server/clients/kisClient/`).
  */
-export function validate(parsed, knownAdrNumbers = new Set()) {
+export function fileExistsAtRoot(rootDir, relPath) {
+  if (!relPath || typeof relPath !== 'string') return false;
+  if (WILDCARD_RE.test(relPath)) return false; // glob 은 검증 skip
+  const abs = relPath.startsWith('/') ? relPath : join(rootDir, relPath);
+  try {
+    statSync(abs); // 디렉토리 / 파일 모두 OK
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * isWildcardPath(p) — glob/wildcard 패턴 판정.
+ */
+export function isWildcardPath(p) {
+  return typeof p === 'string' && WILDCARD_RE.test(p);
+}
+
+/**
+ * isModulePlaceholder(moduleField) — `(신규)` `(정성 — 격상 불가)` 등 placeholder 판정.
+ */
+export function isModulePlaceholder(moduleField) {
+  if (!moduleField) return false;
+  return MODULE_PLACEHOLDER_RE.test(moduleField);
+}
+
+/**
+ * validate(parsed, knownAdrNumbers, options) — 7 카테고리 적용.
+ *
+ * @param {object} parsed - parsePendingWiring 결과
+ * @param {Set<string>} knownAdrNumbers - INDEX.md 등재 ADR 번호
+ * @param {object} [options]
+ * @param {string} [options.rootDir] - 모듈 경로 검증 기준 디렉토리 (G1). 미전달 시 G1 skip.
+ */
+export function validate(parsed, knownAdrNumbers = new Set(), options = {}) {
   const violations = [];
   const { entries, categories, stats } = parsed;
+  const { rootDir } = options;
 
   // F) ID 형식
   for (const e of entries) {
@@ -261,6 +347,63 @@ export function validate(parsed, knownAdrNumbers = new Set()) {
     }
   }
 
+  // G) 백로그 등재 vs 실제 wiring 정합성 (PR-Governance-Followup-2)
+  for (const e of entries) {
+    // G1) 모듈 경로 파일 존재 검증
+    //   - rootDir 미전달 시 skip (단위 테스트용)
+    //   - placeholder (`(신규)` / `(정성)`) skip
+    //   - 와일드카드 skip
+    //   - 백틱 안 경로 0건 + placeholder 도 아니면 형식 오류
+    if (rootDir) {
+      const isPlaceholder = isModulePlaceholder(e.module);
+      if (e.modulePaths.length === 0 && !isPlaceholder) {
+        violations.push({
+          category: 'G_MODULE_FORMAT',
+          message: `${e.id}: 모듈 컬럼에 백틱 안 파일 경로 부재 — \`server/path.ts\` 또는 \`(신규)\` placeholder 필요. 현재: "${e.module.slice(0, 80)}"`,
+        });
+      } else if (!isPlaceholder) {
+        for (const mp of e.modulePaths) {
+          if (isWildcardPath(mp)) continue; // glob 은 skip
+          if (!fileExistsAtRoot(rootDir, mp)) {
+            violations.push({
+              category: 'G_MODULE_FILE_MISSING',
+              message: `${e.id}: 모듈 경로 \`${mp}\` 파일 부재 — 코드 이동·삭제·오타 의심. 백로그 SSOT drift 차단을 위해 경로 정정 또는 항목 제거 필요.`,
+            });
+          }
+        }
+      }
+    }
+
+    // G2) DECIDED_NOT_WIRING 항목은 reason 에 audit 추적성 인용 의무
+    //   - PR 인용 / "완료" 키워드 / audit 산출물 인용 (`_workspace/`)
+    //   - audit 추적성 부재 시 결정 근거 불명 (A3 stale 같은 결함 차단)
+    if (e.status === 'DECIDED_NOT_WIRING') {
+      if (!DECIDED_REASON_REF_RE.test(e.reason)) {
+        violations.push({
+          category: 'G_DECIDED_NO_AUDIT_REF',
+          message: `${e.id}: DECIDED_NOT_WIRING 항목 reason 에 audit 추적성 인용 부재 — \`PR-...\` / \`완료\` / \`_workspace/...\` 중 하나 필수. 결정 근거 명시 의무.`,
+        });
+      }
+    }
+
+    // G3) INFRASTRUCTURE_ONLY / PARTIAL / BLOCKED 항목 reason 비어있음
+    //   - 차단 사유 / 다음 액션 명시 의무
+    //   - 6개월 stale 결함 (예: A3) 차단
+    if (
+      e.status === 'INFRASTRUCTURE_ONLY' ||
+      e.status === 'PARTIAL' ||
+      e.status === 'BLOCKED'
+    ) {
+      const trimmed = e.reason.replace(/[\s\-—|]+/g, '');
+      if (trimmed.length < 5) {
+        violations.push({
+          category: 'G_EMPTY_REASON',
+          message: `${e.id} (${e.status}): reason 컬럼이 비어있거나 너무 짧음 — 차단 사유 / 다음 액션 명시 의무.`,
+        });
+      }
+    }
+  }
+
   return {
     violations,
     summary: {
@@ -287,7 +430,7 @@ function main() {
   const indexSrc = existsSync(INDEX_PATH) ? readFileSync(INDEX_PATH, 'utf-8') : '';
   const knownAdrNumbers = extractAllAdrNumbers(indexSrc);
   const parsed = parsePendingWiring(pendingSrc);
-  const { violations, summary } = validate(parsed, knownAdrNumbers);
+  const { violations, summary } = validate(parsed, knownAdrNumbers, { rootDir: ROOT });
 
   if (json) {
     console.log(JSON.stringify({ summary, violations }, null, 2));

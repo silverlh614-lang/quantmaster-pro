@@ -76,10 +76,10 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | ID | ADR | 모듈 | 상태 | 우선순위 | 차단 사유 / 다음 액션 |
 |----|-----|------|------|----------|----------------------|
 | E1 | 0113 Corporate Action Ledger | `server/data/corporateActions.ts` (신규) | INFRASTRUCTURE_ONLY | P3 | DART 공시 매칭 + PriceSnapshot 4 필드 영속 + 24h 격리 + KRX/DART 출처 cumulativeFactor + `getAdjustmentFactor(code, date)` — 외부 API 인증 키 확보 후 |
-| E2 | 0128 dartPoller | `server/scheduler/dartPoller.ts` | PARTIAL | P2 | `getCorpEventLookback` wiring (corp event 타입별 lookback 차등 90/60/30/14/7일) |
+| E2 | 0128 dartPoller | `server/alerts/dartPoller.ts` | PARTIAL | P2 | `getCorpEventLookback` wiring (corp event 타입별 lookback 차등 90/60/30/14/7일) |
 | E3 | 0128 HELD_POSITION 자동 탐지 | `server/data/dataHoldRolePolicy.ts` | INFRASTRUCTURE_ONLY | P2 | 현재 호출자가 명시 전달, 자동 분류 SSOT — 별도 ADR + 운영 데이터 누적 후 |
 | E4 | 0090 Cache Coherence Auditor | `server/persistence/cacheCoherenceAuditor.ts` | INFRASTRUCTURE_ONLY | P2 | invariant 확장 (WATCHLIST/MACRO_STATE 등) + Phase 2 cron 자동 audit 발행 + Phase 3 자동 수정 도구 |
-| E5 | 0145 KIS GitHub 재검증 | `server/clients/kisClient/query.ts` | DECIDED_NOT_WIRING | P3 | 6개월 주기 검증 (다음: 2026-11-01) — 현재 endpoint/TR ID 정합 운영 모니터링 |
+| E5 | 0145 KIS GitHub 재검증 | `server/clients/kisClient/query.ts` | DECIDED_NOT_WIRING | P3 | **ADR-0145 정책** — 6개월 주기 검증 (다음: 2026-11-01) — 현재 endpoint/TR ID 정합 운영 모니터링 |
 | E6 | 0136~0140 dual-source cross-validation | `server/trading/crossSourceValidator.ts` | INFRASTRUCTURE_ONLY | P3 | KRX 외인 + Naver / ECOS + KRX 신용공여 dual-source — ADR-0071 패턴 차용한 별도 후속 PR |
 
 ## 진행 통계
