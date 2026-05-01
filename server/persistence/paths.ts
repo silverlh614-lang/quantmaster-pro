@@ -19,6 +19,18 @@ export function conditionWeightsRegimeFile(regime: string): string {
   return path.join(DATA_DIR, `condition-weights-${safe}.json`);
 }
 export const SHADOW_FILE             = path.join(DATA_DIR, 'shadow-trades.json');
+
+/**
+ * ADR-0140: 외인 보유율 시계열 영속 디렉토리.
+ * 종목별 1 파일 (`data/foreigner-ratio/{code}.json`) — 30영업일 보관.
+ * 사용자 12 아이디어 #8 — Naver foreignerOwnRatio 5d/20d 추세 가공.
+ */
+export const FOREIGNER_RATIO_DIR     = path.join(DATA_DIR, 'foreigner-ratio');
+export function foreignerRatioFile(code: string): string {
+  // 6자리 숫자 외 파일명 차단 (path traversal 방어)
+  const safe = code.replace(/[^0-9]/g, '').slice(0, 6).padStart(6, '0');
+  return path.join(FOREIGNER_RATIO_DIR, `${safe}.json`);
+}
 /** data/trade-events-YYYYMM.jsonl — 월별 롤링 append-only 이벤트 로그 */
 export function tradeEventsFile(yyyymm: string): string {
   return path.join(DATA_DIR, `trade-events-${yyyymm}.jsonl`);
