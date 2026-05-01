@@ -19,9 +19,10 @@
  */
 
 import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js';
-import { loadFssRecords, getFssRecordsAge } from '../persistence/fssRepo.js';
+import { loadFssRecords, getFssRecordsAge, upsertFssRecord } from '../persistence/fssRepo.js';
 import type { FssRecordsAgeInfo } from '../persistence/fssRepo.js';
 import { appendFssDetailRecord } from '../persistence/fssDetailRepo.js';
+import { isFssMappingEnabled, mapPassiveActive } from '../persistence/fssMappingPolicy.js';
 import { fetchInvestorTradingDetail } from '../clients/krxClient.js';
 import { checkAndNotifyRegimeChange } from './regimeBridge.js';
 import { fetchKisMarketSupply, fetchKisMarketProgramTrade } from '../clients/kisClient.js';
@@ -659,6 +660,31 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
           `[MarketRefresh] FSS 11분류 raw 영속: ${detailRows.length} 카테고리 ` +
           `(date=${todayKst})`,
         );
+
+        // ── ⑥-d ADR-0142 Stage 2: Passive/Active 매핑 (ENV gate, default OFF) ──
+        // FSS_MAPPING_ENABLED=true 명시 시에만 작동. 사용자 명시 *통념 추정 위험*
+        // 차단을 위해 운영자가 1~2주 데이터 검증 후 활성화 결정.
+        if (isFssMappingEnabled()) {
+          try {
+            const mapped = mapPassiveActive(detailRows, todayKst);
+            upsertFssRecord({
+              date: mapped.date,
+              passiveNetBuy: mapped.passiveNetBuy,
+              activeNetBuy: mapped.activeNetBuy,
+            });
+            console.log(
+              `[MarketRefresh] FSS 매핑 영속 (ENV ON): ` +
+              `passive=${mapped.passiveNetBuy.toFixed(0)}억, ` +
+              `active=${mapped.activeNetBuy.toFixed(0)}억, ` +
+              `foreign=${mapped.foreignNetBuy.toFixed(0)}억` +
+              (mapped.unmatched.length > 0 ? ` (unmatched: ${mapped.unmatched.join(',')})` : ''),
+            );
+          } catch (e) {
+            console.warn(
+              `[MarketRefresh] FSS 매핑 적용 실패 — ${e instanceof Error ? e.message : e}`,
+            );
+          }
+        }
       } else {
         computed.fssDetailSource = 'NONE';
         console.warn('[MarketRefresh] FSS 11분류 응답 빈 배열 — 기존 영속 보존');
