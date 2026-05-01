@@ -52,6 +52,16 @@ export interface MacroState {
    */
   fssRecordsAge?: FssRecordsAgeInfo;
   /**
+   * ADR-0141 Stage 1: KRX 11분류 raw fetcher 마지막 갱신 시각 (ISO).
+   */
+  fssDetailFetchedAt?: string;
+  /**
+   * ADR-0141 Stage 1: 마지막 갱신 출처 — silent degradation 차단 마커.
+   *   - 'KRX_BLD' : 정상 갱신
+   *   - 'NONE'    : 마지막 cron 사이클 KRX 호출 실패 (기존 영속 보존)
+   */
+  fssDetailSource?: 'KRX_BLD' | 'NONE';
+  /**
    * ADR-0138: KIS 시장 종합 프로그램 매매 추이 — 코스피 시장 단위 프로그램 자금 흐름.
    * `marketDataRefresh.refreshMarketRegimeVars` 가 매 사이클 갱신, 실패 시 기존 값 보존.
    *

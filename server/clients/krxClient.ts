@@ -94,6 +94,14 @@ const BLD_PER_PBR =
 const BLD_SHORT_BALANCE =
   process.env.KRX_BLD_SHORT_BALANCE ?? 'dbms/MDC/STAT/srt/MDCSTAT30001';
 
+/**
+ * ADR-0141 Stage 1: KRX 11분류 투자자별 매매 BLD.
+ * default `MDCSTAT02301` 추정 — 운영 환경 첫 호출 시 검증 필수.
+ * 미작동 시 `KRX_BLD_INVESTOR_DETAIL` ENV 즉시 override.
+ */
+const BLD_INVESTOR_DETAIL =
+  process.env.KRX_BLD_INVESTOR_DETAIL ?? 'dbms/MDC/STAT/standard/MDCSTAT02301';
+
 // ── 캐시 ─────────────────────────────────────────────────────────────────────
 
 interface CacheEntry<T> { data: T; expiresAt: number }
@@ -375,6 +383,78 @@ export async function fetchInvestorTrading(date?: string): Promise<KrxInvestorRo
   }
   setCached(cacheKey, out);
   return out;
+}
+
+/**
+ * ADR-0141 Stage 1: KRX 11분류 투자자별 매매 (시장 단위, 일자별).
+ *
+ * MDCSTAT02301 (추정) — 11 카테고리 raw 데이터:
+ *   금융투자 / 보험 / 투신 / 사모 / 은행 / 기타금융 / 연기금 등 / 기타법인 /
+ *   개인 / 외국인 / 기타외국인
+ *
+ * 본 함수는 *raw 데이터만* 반환 — Passive/Active 매핑 미적용 (ADR-0142 별도 PR).
+ * 사용자 명시 *통념 추정 위험* 차단을 위해 매핑 정책은 운영 데이터 누적 후
+ * 데이터 기반 검증.
+ *
+ * - 빈 응답/throw → 빈 배열 (silent degradation 차단은 macroState.fssDetailSource 마커)
+ * - 한글 키 다중 fallback (보고서 버전 변동 안전)
+ * - 10분 캐시 (다른 KRX 시리즈 정합)
+ */
+export interface KrxInvestorDetailRow {
+  /** 카테고리 한글명 raw 보존 (예: "금융투자", "외국인") */
+  category: string;
+  /** 순매수 수량 (주, 양수=순매수) */
+  netBuyQty: number;
+  /** 순매수 거래대금 (원) */
+  netBuyKrw: number;
+}
+
+export async function fetchInvestorTradingDetail(date?: string): Promise<KrxInvestorDetailRow[]> {
+  const tradeDate = resolveTradeDate(date);
+  const cacheKey = `investorDetail:${tradeDate}`;
+  const cached = getCached<KrxInvestorDetailRow[]>(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const raw = await krxPost(BLD_INVESTOR_DETAIL, {
+      searchType:   '2',         // 2=투자자별 (1=종목별)
+      mktId:        'STK',       // STK=KOSPI (KSQ=KOSDAQ, ALL=양시장)
+      strtDd:       tradeDate,
+      endDd:        tradeDate,
+      trdVolVal:    '1',
+      share:        '1',
+      money:        '1',
+      csvxls_isNo:  'false',
+    });
+    const rows = extractRows(raw);
+
+    const out: KrxInvestorDetailRow[] = [];
+    for (const r of rows) {
+      // 카테고리명 — 한글 키 (INVSTR_NM / INVSTR_TP_NM / 등) 다중 fallback
+      const category = String(
+        r.INVSTR_NM ?? r.INVSTR_TP_NM ?? r.INVSTR ?? r.TRDR_NM ?? '',
+      ).trim();
+      if (!category) continue;
+
+      // 순매수 수량 (주) + 거래대금 (원)
+      const netBuyQty = toNum(
+        r.NETBY_QTY ?? r.NETBY_TRDVOL ?? r.NETBY_VOLUME ?? 0,
+      );
+      const netBuyKrw = toNum(
+        r.NETBY_TR_PBMN ?? r.NETBY_TRDVAL ?? r.NETBY_AMT ?? 0,
+      );
+
+      out.push({ category, netBuyQty, netBuyKrw });
+    }
+
+    setCached(cacheKey, out);
+    return out;
+  } catch (e) {
+    console.warn(
+      `[KRX:InvestorDetail] ${tradeDate} 조회 실패: ${e instanceof Error ? e.message : e}`,
+    );
+    return [];
+  }
 }
 
 /**

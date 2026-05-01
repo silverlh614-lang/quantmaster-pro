@@ -21,6 +21,8 @@
 import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js';
 import { loadFssRecords, getFssRecordsAge } from '../persistence/fssRepo.js';
 import type { FssRecordsAgeInfo } from '../persistence/fssRepo.js';
+import { appendFssDetailRecord } from '../persistence/fssDetailRepo.js';
+import { fetchInvestorTradingDetail } from '../clients/krxClient.js';
 import { checkAndNotifyRegimeChange } from './regimeBridge.js';
 import { fetchKisMarketSupply, fetchKisMarketProgramTrade } from '../clients/kisClient.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
@@ -633,6 +635,40 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   } else {
     computed.marginBalanceSource = 'NONE';
     console.warn('[MarketRefresh] ECOS 신용공여 조회 실패 — marginBalanceSource=NONE, 기존 값 보존');
+  }
+
+  // ── ⑥-c ADR-0141 Stage 1: KRX 11분류 raw 데이터 영속 ───────────────────
+  // 사용자 후속 보강 P0-2 — FSS 자동 fetcher Stage 1 (raw 만, 매핑 미적용).
+  // Passive/Active 매핑은 ADR-0142 별도 PR (운영 데이터 1~2주 누적 후 데이터 기반 검증).
+  // FSS_DETAIL_FETCHER_DISABLED=true 시 fetch skip (긴급 우회).
+  if (process.env.FSS_DETAIL_FETCHER_DISABLED !== 'true') {
+    try {
+      const detailRows = await fetchInvestorTradingDetail();
+      if (detailRows.length > 0) {
+        // resolveTradeDate KST 일자 — 최신 영업일.
+        const todayKst = new Date(Date.now() + 9 * 3_600_000)
+          .toISOString().slice(0, 10);
+        appendFssDetailRecord({
+          date: todayKst,
+          rows: detailRows,
+          fetchedAt: new Date().toISOString(),
+        });
+        computed.fssDetailFetchedAt = new Date().toISOString();
+        computed.fssDetailSource = 'KRX_BLD';
+        console.log(
+          `[MarketRefresh] FSS 11분류 raw 영속: ${detailRows.length} 카테고리 ` +
+          `(date=${todayKst})`,
+        );
+      } else {
+        computed.fssDetailSource = 'NONE';
+        console.warn('[MarketRefresh] FSS 11분류 응답 빈 배열 — 기존 영속 보존');
+      }
+    } catch (e) {
+      computed.fssDetailSource = 'NONE';
+      console.warn(
+        `[MarketRefresh] FSS 11분류 조회 실패 — ${e instanceof Error ? e.message : e}`,
+      );
+    }
   }
 
   // ── ⑧ FRED 거시 지표 (병렬 조회) ────────────────────────────────────────

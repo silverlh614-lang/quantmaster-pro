@@ -18,6 +18,13 @@ export function conditionWeightsRegimeFile(regime: string): string {
   const safe = regime.replace(/[^A-Za-z0-9_]/g, '_');
   return path.join(DATA_DIR, `condition-weights-${safe}.json`);
 }
+/**
+ * ADR-0141 Stage 1: FSS 11분류 투자자별 매매 raw 영속 (시장 단위 일자별).
+ * Passive/Active 매핑 미적용 — 매핑은 ADR-0142 별도 PR (운영 데이터 1~2주
+ * 누적 후 데이터 기반 검증).
+ */
+export const FSS_DETAIL_FILE       = path.join(DATA_DIR, 'fss-detail.json');
+
 export const SHADOW_FILE             = path.join(DATA_DIR, 'shadow-trades.json');
 
 /**
