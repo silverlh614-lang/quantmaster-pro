@@ -48,18 +48,18 @@ const DEFAULT_TARGETS = ['src/App.tsx'];
 /**
  * BASELINE_TECHNICAL_DEBT — ADR-0133 도입 시점의 *기존* 1500줄+ 위반 파일.
  *
- * 본 카탈로그는 PR-Refactor-2/3/.. 분해 PR 진행을 차단하지 않기 위한 일시 화이트리스트.
+ * 본 카탈로그는 분해 PR 진행을 차단하지 않기 위한 일시 화이트리스트.
  * 각 파일 분해 PR 머지 시 본 카탈로그에서 *제거* 하면 회귀 가드가 자동 강화 — 해당 파일이
  * 다시 1500줄 초과 시 즉시 fail.
  *
- * 분해 우선순위 (CLAUDE.md "기존 복잡도 위반" 표 정합):
- *   1. server/trading/signalScanner/perSymbolEvaluation.ts  — PR-Refactor-2 (1616줄)
+ * 분해 진행 상황:
+ *   ✅ server/trading/signalScanner/perSymbolEvaluation.ts (1617→30 LoC) — PR-Refactor-2 (ADR-0134) 완료, 본 카탈로그에서 정식 제거.
  *
  * NOTE: explicit 인자 모드 (예: `node scripts/check_complexity.js path/to.ts`) 는
  * BASELINE 무시 — 명시 호출은 *강제 검증*. PR 마이그레이션 검증 시 사용.
  */
 const BASELINE_TECHNICAL_DEBT = [
-  'server/trading/signalScanner/perSymbolEvaluation.ts',
+  // (현재 1500줄+ 위반 0건)
 ];
 
 function isBaseline(file) {

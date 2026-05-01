@@ -59,9 +59,9 @@ describe('check_complexity — ADR-0133 게이트 무결성', () => {
     const result = runCheck();
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('[ACMA] OK');
-    // baseline=1 (perSymbolEvaluation.ts 분해 PR-Refactor-2 전까지)
-    expect(result.output).toContain('baseline 1건 제외');
-    // 검사 파일 수 노출 — 현재 1497 정도, 변동 가능하므로 패턴만 확인
+    // ADR-0134 (PR-Refactor-2) 후 baseline 0건 — perSymbolEvaluation.ts 분해 완료로 카탈로그 비움.
+    expect(result.output).toContain('baseline 0건 제외');
+    // 검사 파일 수 노출 — 변동 가능하므로 패턴만 확인
     expect(result.output).toMatch(/\d+개 파일 검사/);
   });
 
@@ -98,16 +98,20 @@ describe('check_complexity — ADR-0133 게이트 무결성', () => {
     expect(result.exitCode).toBe(0);
   });
 
-  it('explicit 인자 모드는 BASELINE 무시 (강제 검사) — perSymbolEvaluation.ts 호출 시 EXIT=1', () => {
-    const result = runCheck('server/trading/signalScanner/perSymbolEvaluation.ts');
+  it('explicit 인자 모드는 BASELINE 무시 (강제 검사) — fixture 1500+ 호출 시 EXIT=1', () => {
+    // ADR-0134 후 BASELINE 카탈로그 비었으므로 fixture 로 검증
+    mkdirSync(FIXTURE_DIR, { recursive: true });
+    makeBigFile(join(FIXTURE_DIR, 'forced.ts'), 1501);
+    const result = runCheck('server/__complexity_fixtures__/forced.ts');
     expect(result.exitCode).toBe(1);
-    expect(result.output).toContain('perSymbolEvaluation.ts');
-    expect(result.output).toMatch(/lines=1\d{3}/);
+    expect(result.output).toContain('forced.ts');
+    expect(result.output).toMatch(/lines=1501/);
   });
 
-  it('walk 모드는 BASELINE 통과 (perSymbolEvaluation.ts 등록 시 미차단)', () => {
+  it('walk 모드 — perSymbolEvaluation.ts 가 barrel 로 축소되어 미차단 (lines=30)', () => {
+    // ADR-0134: perSymbolEvaluation.ts 1617 → 30 LoC barrel 로 축소.
+    // BASELINE 카탈로그 비었어도 30 LoC < 1500 한계 — 자연 통과.
     const result = runCheck();
-    // perSymbolEvaluation.ts 가 출력에 포함되면 안 됨 (baseline 제외 처리)
     expect(result.exitCode).toBe(0);
     expect(result.output).not.toContain('perSymbolEvaluation.ts: lines=');
   });
@@ -171,12 +175,13 @@ describe('check_complexity — ADR-0133 게이트 무결성', () => {
     expect(result.output).toMatch(/imports=51/);
   });
 
-  it('BASELINE_TECHNICAL_DEBT 카탈로그가 perSymbolEvaluation.ts 를 포함', () => {
-    // 카탈로그 정합성 검증 — PR-Refactor-2 머지 시 본 케이스 갱신 의무
+  it('BASELINE_TECHNICAL_DEBT 카탈로그 SSOT 정합 (현재 0건)', () => {
+    // ADR-0134 (PR-Refactor-2) 후 카탈로그 비움 — 향후 신규 위반 발생 시 재등록.
     const src = execSync('cat scripts/check_complexity.js', { cwd: ROOT, encoding: 'utf-8' });
-    expect(src).toContain('server/trading/signalScanner/perSymbolEvaluation.ts');
     expect(src).toContain('BASELINE_TECHNICAL_DEBT');
     expect(src).toContain('ADR-0133');
+    // perSymbolEvaluation.ts 는 카탈로그 active 항목에서 제거됐어야 함 (주석 안 언급은 OK)
+    expect(src).toMatch(/const BASELINE_TECHNICAL_DEBT = \[\s*(?:\/\/[^\n]*\n\s*)*\];/);
   });
 
   it('기존 ACMA 1500줄 한계 상수 보존 (LIMITS.lines = 1500)', () => {
