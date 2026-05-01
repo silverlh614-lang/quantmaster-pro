@@ -2,6 +2,7 @@
 import fs from 'fs';
 import { MACRO_STATE_FILE, ensureDataDir } from './paths.js';
 import type { SectorEnergyResult } from '../../src/types/sectorEnergy.js';
+import type { FssRecordsAgeInfo } from './fssRepo.js';
 
 export interface MacroState {
   mhs: number;        // Macro Health Score (0~100)
@@ -37,7 +38,19 @@ export interface MacroState {
   /** ADR-0071: 분기 결과 tier — AGREED/WARN/CRITICAL/PRIMARY_ONLY/SECONDARY_ONLY/NO_DATA. */
   usdKrwDivergenceTier?: string;
   foreignNetBuy5d?: number;         // 외국인 순매수 5일 누적 (억원)
-  passiveActiveBoth?: boolean;      // 패시브+액티브 동시 외국인 순매수
+  /**
+   * ADR-0136: 격상 *boolean → boolean | null*. null = STALE/MISSING 으로 평가
+   * 자체 불가 (페르소나 의사결정에서 *데이터 결손* 과 *시그널 부재* 구분).
+   * `regimeBridge.buildRegimeVars` 에서 `?? false` fallback 으로 RegimeVariables
+   * 시그니처 (boolean) 후방호환 유지.
+   */
+  passiveActiveBoth?: boolean | null;
+  /**
+   * ADR-0136: FSS 레코드 신선도 진단 — `/fss_status` 텔레그램 명령 + 후속
+   * 의사결정 wiring 의 데이터 입력. `marketDataRefresh.refreshMarketRegimeVars`
+   * 가 매 사이클 갱신.
+   */
+  fssRecordsAge?: FssRecordsAgeInfo;
   kospiAbove20MA?: boolean;         // KOSPI 20일선 위
   kospiAbove60MA?: boolean;         // KOSPI 60일선 위
   kospi20dReturn?: number;          // KOSPI 20일 수익률
