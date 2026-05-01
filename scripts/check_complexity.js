@@ -38,7 +38,34 @@ const FUNCTION_LIMITS = {
   cyclomaticComplexity: 25,   // if/else/case/&&/||/?: 카운트 (근사)
 };
 
+// ADR-0133: 인자 없을 때 walk 대상.
+// CLAUDE.md 절대 규칙 6번 — 모든 ts/tsx 파일에 1500줄 한계 강제.
+const WALK_ROOTS = ['src', 'server'];
+
+// 명시 호출용 default (legacy). explicit 모드에서 인자 없으면 사용 — 현재 호출자 0.
 const DEFAULT_TARGETS = ['src/App.tsx'];
+
+/**
+ * BASELINE_TECHNICAL_DEBT — ADR-0133 도입 시점의 *기존* 1500줄+ 위반 파일.
+ *
+ * 본 카탈로그는 PR-Refactor-2/3/.. 분해 PR 진행을 차단하지 않기 위한 일시 화이트리스트.
+ * 각 파일 분해 PR 머지 시 본 카탈로그에서 *제거* 하면 회귀 가드가 자동 강화 — 해당 파일이
+ * 다시 1500줄 초과 시 즉시 fail.
+ *
+ * 분해 우선순위 (CLAUDE.md "기존 복잡도 위반" 표 정합):
+ *   1. server/trading/signalScanner/perSymbolEvaluation.ts  — PR-Refactor-2 (1616줄)
+ *
+ * NOTE: explicit 인자 모드 (예: `node scripts/check_complexity.js path/to.ts`) 는
+ * BASELINE 무시 — 명시 호출은 *강제 검증*. PR 마이그레이션 검증 시 사용.
+ */
+const BASELINE_TECHNICAL_DEBT = [
+  'server/trading/signalScanner/perSymbolEvaluation.ts',
+];
+
+function isBaseline(file) {
+  const norm = file.replace(/^\.\//, '');
+  return BASELINE_TECHNICAL_DEBT.some((b) => norm === b || norm.endsWith('/' + b));
+}
 
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
@@ -181,8 +208,14 @@ function main() {
   const args = process.argv.slice(2);
   const explicit = args.filter((a) => !a.startsWith('-'));
 
-  // 기본 동작: 지정된 타겟을 검사하고, 동시에 src 전체에서 경고 수준으로 상위 오프렌더를 리포트한다.
-  const targets = explicit.length > 0 ? explicit : DEFAULT_TARGETS;
+  // ADR-0133: 인자 없을 때 src/ + server/ 전체 walk 후 1500줄 한계 강제.
+  // 인자 명시 시 해당 파일만 검사 (BASELINE 무시 — 강제 검증).
+  const isExplicit = explicit.length > 0;
+  const allFiles = isExplicit
+    ? explicit
+    : WALK_ROOTS.flatMap((root) => (existsSync(root) ? walk(root) : []));
+  const targets = isExplicit ? allFiles : allFiles.filter((f) => !isBaseline(f));
+  const baselineSkipped = isExplicit ? 0 : allFiles.length - targets.length;
 
   const failed = [];
   for (const t of targets) {
@@ -191,26 +224,21 @@ function main() {
       continue;
     }
     const r = analyze(t);
+    // walk 모드: lines 한계만 강제 (jsxDepth/useEffects/imports 는 *.tsx 만 의미).
+    // explicit 모드: 모든 임계 강제 + 정보 출력 (App.tsx 등 명시 호출 보존).
+    const isTsx = t.endsWith('.tsx');
     const bad =
       over('lines', r.lines) ||
-      over('jsxDepth', r.jsxDepth) ||
-      over('useEffects', r.useEffects) ||
-      over('imports', r.imports);
-    console.log(formatRow(r));
+      (isExplicit &&
+        (over('jsxDepth', r.jsxDepth) ||
+          over('useEffects', r.useEffects) ||
+          over('imports', r.imports))) ||
+      (!isExplicit && isTsx &&
+        (over('jsxDepth', r.jsxDepth) ||
+          over('useEffects', r.useEffects) ||
+          over('imports', r.imports)));
+    if (isExplicit) console.log(formatRow(r));
     if (bad) failed.push(r);
-  }
-
-  // 정보성 상위 경고 (실패는 시키지 않음)
-  if (explicit.length === 0 && existsSync('src')) {
-    const all = walk('src').map(analyze);
-    const worst = all
-      .filter((r) => r.lines > LIMITS.lines || r.useEffects > LIMITS.useEffects)
-      .sort((a, b) => b.lines - a.lines)
-      .slice(0, 5);
-    if (worst.length > 0) {
-      console.log('\n[ACMA] 참고: 한계 초과 가능성이 있는 상위 파일 (경고)');
-      for (const r of worst) console.log(formatRow(r));
-    }
   }
 
   // ─── PR-Q (GodFunctionGuard): 함수 단위 임계 검사 ─────────────────────────
@@ -243,7 +271,13 @@ function main() {
 
   if (failed.length > 0) {
     console.error('\n[ACMA] 한계치 초과 — 커밋 차단');
-    console.error('  해결: 파일을 페이지/섹션 단위로 분리하거나 커스텀 훅으로 effect를 추출하세요.');
+    for (const r of failed) {
+      console.error(
+        `  ${r.file}: lines=${r.lines}/${LIMITS.lines} jsxDepth=${r.jsxDepth}/${LIMITS.jsxDepth} useEffects=${r.useEffects}/${LIMITS.useEffects} imports=${r.imports}/${LIMITS.imports}`,
+      );
+    }
+    console.error('  해결: 파일을 책임 단위로 분리하세요 (ARCHITECTURE.md boundary 참조).');
+    console.error('  ADR-0133: 분해 진행 중인 파일은 BASELINE_TECHNICAL_DEBT 카탈로그 참조.');
     if (process.env.SUGGEST === '1') {
       for (const r of failed) {
         console.error(`\n[ACMA] ${r.file} 리팩토링 후보 분석:`);
@@ -255,7 +289,13 @@ function main() {
     process.exit(1);
   }
 
-  console.log('\n[ACMA] OK — 복잡도 한계 내');
+  if (isExplicit) {
+    console.log('\n[ACMA] OK — 복잡도 한계 내');
+  } else {
+    console.log(
+      `\n[ACMA] OK — ${targets.length}개 파일 검사 (lines≤${LIMITS.lines}, baseline ${baselineSkipped}건 제외)`,
+    );
+  }
 }
 
 main();
