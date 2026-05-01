@@ -15,6 +15,7 @@ export type {
   KisPostIdempotency,
   KisPostOptions,
   KisInvestorFlow,
+  KisStockProgramTrade,
   PrevClose,
   KisHolding,
   SellOrderOutcome,
@@ -63,6 +64,7 @@ export { kisGet, kisPost, realDataKisGet } from './http.js';
 export {
   fetchKisInvestorFlow,
   fetchKisMarketSupply,
+  fetchKisStockProgramTrade,
   fetchCurrentPrice,
   fetchKisPrevClose,
   fetchStockName,
