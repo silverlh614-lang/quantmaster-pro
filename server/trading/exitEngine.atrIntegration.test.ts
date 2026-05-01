@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import type { ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 
 // ─── 모듈 모킹 (exitEngine의 외부 의존성) ─────────────────────────────���──────────
@@ -74,6 +74,17 @@ beforeEach(() => {
 // ─── ATR 동적 손절 갱신 테스트 ─────────────────────────────────────────────────
 
 describe('exitEngine — ATR 동적 손절 갱신', () => {
+  // ADR-0085 PR-B1-1 — Two-Bar Confirmation Gate 가 PROFIT_PROTECTION 1차 터치 시
+  // WAIT 분기로 빠지므로 본 통합 suite 의 PROFIT_PROTECTION *분류 영속* 검증을 위해
+  // 게이트 비활성화. 게이트 자체 회귀는 helpers/twoBarBepGate.test.ts +
+  // rules/__tests__/hardStopLossBepWiring.test.ts.
+  beforeEach(() => {
+    process.env.BEP_PROTECTION_DISABLED = 'true';
+  });
+  afterEach(() => {
+    delete process.env.BEP_PROTECTION_DISABLED;
+  });
+
   it('entryATR14 없는 포지션은 hardStopLoss 변경 없음 (하위 호환)', async () => {
     const shadow = makeShadow(); // entryATR14 미설정
     mockFetchCurrentPrice.mockResolvedValue(52000);
