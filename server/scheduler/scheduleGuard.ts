@@ -39,6 +39,50 @@ export function getRegisteredJobNames(): string[] {
   return Array.from(_registeredJobs).sort();
 }
 
+// ── Edge-Trigger Logging (ADR-0132) ─────────────────────────────────────────
+// SKIP console.log 가 cron tick 마다 폭주하던 회귀 차단. jobName 별 직전 SKIP 사유를
+// Map 에 보관하여 *사유가 다를 때만* 로깅. 동일 사유 연속 SKIP 은 silent.
+// success / failure 분기에서 Map entry 제거 — 다음 SKIP 시 재로깅으로 상태 전환 가시화.
+//
+// recordScheduleRun 메트릭(skippedCount/lastSkipReason)은 본 Map 과 *무관하게* 매 호출
+// 갱신 — 영속 SSOT 정밀도 100% 보존.
+const _lastSkipLogged = new Map<string, string>();
+
+function isEdgeLoggingDisabled(): boolean {
+  return process.env.SCHEDULE_EDGE_LOGGING_DISABLED === 'true';
+}
+
+/** 테스트 전용 — 모듈 로컬 Map 초기화. */
+export function __resetEdgeLoggingForTests(): void {
+  _lastSkipLogged.clear();
+}
+
+/**
+ * 본 SKIP 호출이 console.log 를 발행해야 하는지 판정 (edge-trigger).
+ * 같은 jobName + 같은 reason 연속 호출은 silent.
+ *
+ * 부수효과: 발행 결정 시 Map 갱신 (다음 호출 비교 기준).
+ */
+export function shouldEmitSkipLog(jobName: string, reason: string): boolean {
+  if (isEdgeLoggingDisabled()) {
+    return true; // 디버깅용: 모든 SKIP 발행
+  }
+  const prev = _lastSkipLogged.get(jobName);
+  if (prev === reason) {
+    return false; // 동일 사유 연속 SKIP — silent
+  }
+  _lastSkipLogged.set(jobName, reason);
+  return true;
+}
+
+/**
+ * success / failure 시 Map entry 제거 — 다음 SKIP 시 1줄 재로깅으로 상태 전환 가시화.
+ * (skipped → success → skipped 사이클을 운영자가 console 에서 인지)
+ */
+export function clearSkipEdgeState(jobName: string): void {
+  _lastSkipLogged.delete(jobName);
+}
+
 /**
  * 주어진 ScheduleClass 가 현재(또는 주입 날짜) 시점에 스킵 대상인지 판정.
  * 순수 함수 — 단위 테스트에서 직접 호출 가능. cron 콜백이 진입부에서 호출.
@@ -103,7 +147,12 @@ export function scheduledJob(
     const startedAt = new Date().toISOString();
 
     if (decision.skip) {
-      console.log(`[Scheduler:${jobName}] SKIP — ${scheduleClass} 가드 (${decision.reason})`);
+      const reason = decision.reason ?? 'UNKNOWN';
+      // ADR-0132: Edge-trigger logging — 동일 사유 연속 SKIP 은 silent.
+      // 메트릭(recordScheduleRun)은 매 호출 갱신 — 영속 SSOT 정밀도 보존.
+      if (shouldEmitSkipLog(jobName, reason)) {
+        console.log(`[Scheduler:${jobName}] SKIP — ${scheduleClass} 가드 (${reason})`);
+      }
       recordScheduleRun({
         jobName,
         startedAt,
@@ -118,6 +167,9 @@ export function scheduledJob(
     const t0 = Date.now();
     try {
       await fn();
+      // ADR-0132: success 시 edge-trigger Map entry 제거 — 다음 SKIP 시 재로깅
+      // (skipped → success → skipped 사이클 가시화).
+      clearSkipEdgeState(jobName);
       recordScheduleRun({
         jobName,
         startedAt,
@@ -127,6 +179,8 @@ export function scheduledJob(
       });
     } catch (e) {
       const note = e instanceof Error ? e.message.split('\n')[0] : String(e);
+      // ADR-0132: failure 시에도 edge-trigger Map 클리어 — 다음 SKIP 재로깅.
+      clearSkipEdgeState(jobName);
       recordScheduleRun({
         jobName,
         startedAt,
