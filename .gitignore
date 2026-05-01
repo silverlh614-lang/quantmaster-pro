@@ -5,6 +5,7 @@ data/
 !server/data/
 _workspace/*
 !_workspace/PENDING_WIRING.md
+!_workspace/audit-template.md
 .DS_Store
 *.log
 *.debug.txt

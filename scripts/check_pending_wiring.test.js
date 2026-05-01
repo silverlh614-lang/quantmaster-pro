@@ -19,6 +19,9 @@ import {
   VALID_STATES,
   VALID_PRIORITIES,
   EXPECTED_CATEGORIES,
+  fileExistsAtRoot,
+  isWildcardPath,
+  isModulePlaceholder,
 } from './check_pending_wiring.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -107,6 +110,23 @@ describe('parsePendingWiring', () => {
     expect(entries[1].adrRefs).toEqual(['0006', '0019']);
   });
 
+  it('PR-Governance-Followup-2 — module/modulePaths/reason 캡처', () => {
+    const src = [
+      '### A. 학습',
+      '| A1 | 0030 모듈 | `server/x.ts` | INFRASTRUCTURE_ONLY | P2 | 차단 사유 / 다음 액션 |',
+      '| A2 | 0031 emit | (정성 — 격상 불가) | DECIDED_NOT_WIRING | P3 | **ADR-0154 영구 정책** — 정성 항목 |',
+      '| A3 | 0032 multi | `path/a.ts` 와 `path/b.ts` 둘 | PARTIAL | P1 | 사유 |',
+    ].join('\n');
+    const { entries } = parsePendingWiring(src);
+    expect(entries).toHaveLength(3);
+    expect(entries[0].module).toBe('`server/x.ts`');
+    expect(entries[0].modulePaths).toEqual(['server/x.ts']);
+    expect(entries[0].reason).toBe('차단 사유 / 다음 액션');
+    expect(entries[1].modulePaths).toEqual([]);
+    expect(entries[1].reason).toBe('**ADR-0154 영구 정책** — 정성 항목');
+    expect(entries[2].modulePaths).toEqual(['path/a.ts', 'path/b.ts']);
+  });
+
   it('통계 표 파싱', () => {
     const src = [
       '## 진행 통계',
@@ -175,6 +195,24 @@ describe('extractAllAdrNumbers', () => {
 });
 
 describe('validate', () => {
+  /**
+   * PR-Governance-Followup-2: entry 시그니처 확장 — module/modulePaths/reason 옵셔널.
+   * 기존 테스트 케이스 호환을 위해 default 값 부여 (모두 G 검증 통과 형태).
+   */
+  function makeEntry(overrides) {
+    return {
+      id: 'A1',
+      adrRefs: [],
+      module: '`server/path.ts`',
+      modulePaths: ['server/path.ts'],
+      status: 'PARTIAL',
+      priority: 'P0',
+      category: 'A',
+      reason: '사유 / 다음 액션 명시',
+      ...overrides,
+    };
+  }
+
   function build(entries, categories = ['A', 'B', 'C', 'D', 'E'], stats = null) {
     return {
       entries,
@@ -184,36 +222,28 @@ describe('validate', () => {
   }
 
   it('정상 입력 위반 0건', () => {
-    const parsed = build([
-      { id: 'A1', adrRefs: ['0001'], status: 'INFRASTRUCTURE_ONLY', priority: 'P0', category: 'A' },
-    ]);
+    const parsed = build([makeEntry({ adrRefs: ['0001'], status: 'INFRASTRUCTURE_ONLY' })]);
     const known = new Set(['0001']);
     const { violations } = validate(parsed, known);
     expect(violations).toEqual([]);
   });
 
   it('A — 무효 상태', () => {
-    const parsed = build([
-      { id: 'A1', adrRefs: [], status: 'DEAD_CODE', priority: 'P0', category: 'A' },
-    ]);
+    const parsed = build([makeEntry({ status: 'DEAD_CODE' })]);
     const { violations } = validate(parsed);
     const a = violations.filter((v) => v.category === 'A_INVALID_STATE');
     expect(a).toHaveLength(1);
   });
 
   it('B — 무효 우선순위', () => {
-    const parsed = build([
-      { id: 'A1', adrRefs: [], status: 'PARTIAL', priority: 'P9', category: 'A' },
-    ]);
+    const parsed = build([makeEntry({ priority: 'P9' })]);
     const { violations } = validate(parsed);
     const b = violations.filter((v) => v.category === 'B_INVALID_PRIORITY');
     expect(b).toHaveLength(1);
   });
 
   it('C — 알 수 없는 ADR 참조', () => {
-    const parsed = build([
-      { id: 'A1', adrRefs: ['9999'], status: 'PARTIAL', priority: 'P0', category: 'A' },
-    ]);
+    const parsed = build([makeEntry({ adrRefs: ['9999'] })]);
     const known = new Set(['0001', '0002']);
     const { violations } = validate(parsed, known);
     const c = violations.filter((v) => v.category === 'C_UNKNOWN_ADR_REF');
@@ -222,9 +252,7 @@ describe('validate', () => {
   });
 
   it('C — knownAdrNumbers 빈 set 시 검증 skip', () => {
-    const parsed = build([
-      { id: 'A1', adrRefs: ['9999'], status: 'PARTIAL', priority: 'P0', category: 'A' },
-    ]);
+    const parsed = build([makeEntry({ adrRefs: ['9999'] })]);
     const { violations } = validate(parsed, new Set());
     const c = violations.filter((v) => v.category === 'C_UNKNOWN_ADR_REF');
     expect(c).toEqual([]);
@@ -239,11 +267,7 @@ describe('validate', () => {
 
   it('E — 통계 mismatch (total)', () => {
     const stats = new Map([['A', { total: 99, p0: 0, p1: 0, p2: 0, p3: 0 }]]);
-    const parsed = build(
-      [{ id: 'A1', adrRefs: [], status: 'PARTIAL', priority: 'P2', category: 'A' }],
-      ['A', 'B', 'C', 'D', 'E'],
-      stats
-    );
+    const parsed = build([makeEntry({ priority: 'P2' })], ['A', 'B', 'C', 'D', 'E'], stats);
     const { violations } = validate(parsed);
     const e = violations.filter((v) => v.category === 'E_STATS_MISMATCH');
     expect(e.length).toBeGreaterThan(0);
@@ -252,11 +276,7 @@ describe('validate', () => {
 
   it('E — 통계 mismatch (priority count)', () => {
     const stats = new Map([['A', { total: 1, p0: 1, p1: 0, p2: 0, p3: 0 }]]);
-    const parsed = build(
-      [{ id: 'A1', adrRefs: [], status: 'PARTIAL', priority: 'P2', category: 'A' }],
-      ['A', 'B', 'C', 'D', 'E'],
-      stats
-    );
+    const parsed = build([makeEntry({ priority: 'P2' })], ['A', 'B', 'C', 'D', 'E'], stats);
     const { violations } = validate(parsed);
     const e = violations.filter((v) => v.category === 'E_STATS_MISMATCH');
     expect(e.some((v) => v.message.includes('A.P0=1'))).toBe(true);
@@ -264,21 +284,282 @@ describe('validate', () => {
   });
 
   it('F — 잘못된 ID 형식', () => {
-    const parsed = build([
-      { id: 'AA1', adrRefs: [], status: 'PARTIAL', priority: 'P0', category: 'A' },
-      { id: '1A', adrRefs: [], status: 'PARTIAL', priority: 'P0', category: 'A' },
-    ]);
+    const parsed = build([makeEntry({ id: 'AA1' }), makeEntry({ id: '1A' })]);
     const { violations } = validate(parsed);
     const f = violations.filter((v) => v.category === 'F_INVALID_ID');
     expect(f.length).toBe(2);
   });
 
   it('F — ID prefix 와 카테고리 불일치', () => {
-    const parsed = build([
-      { id: 'B1', adrRefs: [], status: 'PARTIAL', priority: 'P0', category: 'A' }, // B1 인데 A 섹션 안
-    ]);
+    // B1 인데 A 섹션 안
+    const parsed = build([makeEntry({ id: 'B1', category: 'A' })]);
     const { violations } = validate(parsed);
     const f = violations.filter((v) => v.category === 'F_CATEGORY_MISMATCH');
     expect(f).toHaveLength(1);
+  });
+
+  /* ───────── PR-Governance-Followup-2 — G 카테고리 ───────── */
+
+  describe('G — 백로그 등재 vs 실제 wiring 정합성', () => {
+    it('rootDir 미전달 시 G1 skip (단위 테스트 기본 동작)', () => {
+      // 존재하지 않는 파일이지만 rootDir 미전달이라 검증 skip
+      const parsed = build([
+        makeEntry({ modulePaths: ['nonexistent/fake.ts'], module: '`nonexistent/fake.ts`' }),
+      ]);
+      const { violations } = validate(parsed);
+      const g = violations.filter((v) => v.category === 'G_MODULE_FILE_MISSING');
+      expect(g).toEqual([]);
+    });
+
+    it('G1 — 모듈 경로 파일 부재 검출', () => {
+      const parsed = build([
+        makeEntry({
+          modulePaths: ['server/nonexistent/fake.ts'],
+          module: '`server/nonexistent/fake.ts`',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter((v) => v.category === 'G_MODULE_FILE_MISSING');
+      expect(g).toHaveLength(1);
+      expect(g[0].message).toContain('server/nonexistent/fake.ts');
+    });
+
+    it('G1 — 실제 존재하는 파일 통과', () => {
+      const parsed = build([
+        makeEntry({
+          modulePaths: ['scripts/check_pending_wiring.js'],
+          module: '`scripts/check_pending_wiring.js`',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter((v) => v.category === 'G_MODULE_FILE_MISSING');
+      expect(g).toEqual([]);
+    });
+
+    it('G1 — `(신규)` placeholder skip', () => {
+      const parsed = build([
+        makeEntry({
+          modulePaths: [],
+          module: '`server/foo.ts` (신규)',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter(
+        (v) => v.category === 'G_MODULE_FILE_MISSING' || v.category === 'G_MODULE_FORMAT'
+      );
+      expect(g).toEqual([]);
+    });
+
+    it('G1 — `(정성 — 격상 불가)` placeholder skip', () => {
+      const parsed = build([
+        makeEntry({
+          modulePaths: [],
+          module: '(정성 — 격상 불가)',
+          status: 'DECIDED_NOT_WIRING',
+          priority: 'P3',
+          reason: '**ADR-0154 영구 정책** — 정성 항목',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter(
+        (v) => v.category === 'G_MODULE_FILE_MISSING' || v.category === 'G_MODULE_FORMAT'
+      );
+      expect(g).toEqual([]);
+    });
+
+    it('G1 — 와일드카드 glob 경로 skip', () => {
+      const parsed = build([
+        makeEntry({
+          modulePaths: ['src/components/**/*.tsx'],
+          module: '`src/components/**/*.tsx`',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter((v) => v.category === 'G_MODULE_FILE_MISSING');
+      expect(g).toEqual([]);
+    });
+
+    it('G_MODULE_FORMAT — 백틱 안 경로 0건 + placeholder 도 아님', () => {
+      const parsed = build([
+        makeEntry({
+          modulePaths: [],
+          module: '서버 학습 모듈 — 경로 명시 안 됨',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter((v) => v.category === 'G_MODULE_FORMAT');
+      expect(g).toHaveLength(1);
+    });
+
+    it('G2 — DECIDED_NOT_WIRING reason 에 PR 인용', () => {
+      const parsed = build([
+        makeEntry({
+          status: 'DECIDED_NOT_WIRING',
+          reason: '**PR-A3-Audit (2026-05-01) 결과 — 100% wired 확정**',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter((v) => v.category === 'G_DECIDED_NO_AUDIT_REF');
+      expect(g).toEqual([]);
+    });
+
+    it('G2 — DECIDED_NOT_WIRING reason 에 ADR 인용 (정성 영구 항목)', () => {
+      const parsed = build([
+        makeEntry({
+          status: 'DECIDED_NOT_WIRING',
+          module: '(정성 — 격상 불가)',
+          modulePaths: [],
+          reason: '**ADR-0154 영구 정책** — 정성 항목',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter((v) => v.category === 'G_DECIDED_NO_AUDIT_REF');
+      expect(g).toEqual([]);
+    });
+
+    it('G2 — DECIDED_NOT_WIRING reason 에 audit 인용 부재 시 차단', () => {
+      const parsed = build([
+        makeEntry({
+          status: 'DECIDED_NOT_WIRING',
+          reason: '결정됨 — 후속 wiring 안 함',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter((v) => v.category === 'G_DECIDED_NO_AUDIT_REF');
+      expect(g).toHaveLength(1);
+    });
+
+    it('G2 — INFRASTRUCTURE_ONLY 는 G2 적용 안 함 (DECIDED_NOT_WIRING 만)', () => {
+      const parsed = build([
+        makeEntry({
+          status: 'INFRASTRUCTURE_ONLY',
+          reason: '단순 사유',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter((v) => v.category === 'G_DECIDED_NO_AUDIT_REF');
+      expect(g).toEqual([]);
+    });
+
+    it('G3 — INFRASTRUCTURE_ONLY 빈 reason 차단', () => {
+      const parsed = build([
+        makeEntry({
+          status: 'INFRASTRUCTURE_ONLY',
+          reason: '',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter((v) => v.category === 'G_EMPTY_REASON');
+      expect(g).toHaveLength(1);
+    });
+
+    it('G3 — PARTIAL 너무 짧은 reason (separator 만) 차단', () => {
+      const parsed = build([
+        makeEntry({
+          status: 'PARTIAL',
+          reason: '— —',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter((v) => v.category === 'G_EMPTY_REASON');
+      expect(g).toHaveLength(1);
+    });
+
+    it('G3 — BLOCKED 정상 reason 통과', () => {
+      const parsed = build([
+        makeEntry({
+          status: 'BLOCKED',
+          reason: '운영자 ENV 활성화 + 1주 검증 후',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter((v) => v.category === 'G_EMPTY_REASON');
+      expect(g).toEqual([]);
+    });
+
+    it('G3 — DECIDED_NOT_WIRING 은 G3 적용 안 함', () => {
+      // DECIDED_NOT_WIRING 항목은 G2 만 적용 (audit 인용 의무), reason 길이 제약 없음
+      const parsed = build([
+        makeEntry({
+          status: 'DECIDED_NOT_WIRING',
+          reason: '완료',
+        }),
+      ]);
+      const { violations } = validate(parsed, new Set(), { rootDir: ROOT });
+      const g = violations.filter((v) => v.category === 'G_EMPTY_REASON');
+      expect(g).toEqual([]);
+    });
+  });
+});
+
+/* ───────── PR-Governance-Followup-2 헬퍼 ───────── */
+
+describe('헬퍼 함수 (G 카테고리)', () => {
+  describe('fileExistsAtRoot', () => {
+    it('존재하는 파일 true', () => {
+      expect(fileExistsAtRoot(ROOT, 'scripts/check_pending_wiring.js')).toBe(true);
+    });
+
+    it('존재하는 디렉토리 true', () => {
+      expect(fileExistsAtRoot(ROOT, 'server')).toBe(true);
+    });
+
+    it('부재 파일 false', () => {
+      expect(fileExistsAtRoot(ROOT, 'nonexistent/fake.ts')).toBe(false);
+    });
+
+    it('와일드카드 false (skip 의도)', () => {
+      expect(fileExistsAtRoot(ROOT, 'src/**/*.tsx')).toBe(false);
+    });
+
+    it('빈 문자열 false', () => {
+      expect(fileExistsAtRoot(ROOT, '')).toBe(false);
+    });
+
+    it('null 안전 false', () => {
+      expect(fileExistsAtRoot(ROOT, null)).toBe(false);
+    });
+  });
+
+  describe('isWildcardPath', () => {
+    it('* 검출', () => {
+      expect(isWildcardPath('src/**/*.tsx')).toBe(true);
+    });
+
+    it('? 검출', () => {
+      expect(isWildcardPath('file?.ts')).toBe(true);
+    });
+
+    it('일반 경로 false', () => {
+      expect(isWildcardPath('src/foo.ts')).toBe(false);
+    });
+
+    it('빈/null 안전', () => {
+      expect(isWildcardPath('')).toBe(false);
+      expect(isWildcardPath(null)).toBe(false);
+    });
+  });
+
+  describe('isModulePlaceholder', () => {
+    it('(신규) 검출', () => {
+      expect(isModulePlaceholder('`server/foo.ts` (신규)')).toBe(true);
+    });
+
+    it('(정성 — 격상 불가) 검출', () => {
+      expect(isModulePlaceholder('(정성 — 격상 불가)')).toBe(true);
+    });
+
+    it('(예정) 검출', () => {
+      expect(isModulePlaceholder('(예정 — 후속 PR)')).toBe(true);
+    });
+
+    it('일반 경로 false', () => {
+      expect(isModulePlaceholder('`server/foo.ts`')).toBe(false);
+    });
+
+    it('빈/null 안전', () => {
+      expect(isModulePlaceholder('')).toBe(false);
+      expect(isModulePlaceholder(null)).toBe(false);
+    });
   });
 });
