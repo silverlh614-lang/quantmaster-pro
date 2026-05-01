@@ -209,12 +209,17 @@ export function kisPost(
  * 실계좌 데이터 전용 GET 요청 (rate-limited).
  * KIS_REAL_DATA_APP_KEY 설정 시 실계좌 서버로, 미설정 시 기존 kisGet 폴백.
  */
-export function realDataKisGet(trId: string, apiPath: string, params: Record<string, string>) {
+export function realDataKisGet(
+  trId: string,
+  apiPath: string,
+  params: Record<string, string>,
+  priority: KisApiPriority = 'LOW',
+) {
   const overrides = getKisOverrides();
   if (overrides.realDataKisGet) return overrides.realDataKisGet(trId, apiPath, params);
-  if (!HAS_REAL_DATA_CLIENT) return kisGet(trId, apiPath, params, 'LOW');
+  if (!HAS_REAL_DATA_CLIENT) return kisGet(trId, apiPath, params, priority);
 
-  return scheduleKisCall('LOW', `REAL_GET ${trId}`, async () => {
+  return scheduleKisCall(priority, `REAL_GET ${trId}`, async () => {
     if (_isCircuitOpen(trId)) {
       console.warn(`[KIS-RealData] 회로 차단 상태 — ${trId} 호출 건너뜀 (cooldown 중)`);
       return null;

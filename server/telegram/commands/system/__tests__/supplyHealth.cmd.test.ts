@@ -1,0 +1,249 @@
+/**
+ * @responsibility supplyHealth.cmd read-only 수급 데이터 신뢰성 진단 회귀 테스트.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
+const investorMock = vi.fn();
+const stockProgramMock = vi.fn();
+const marketProgramMock = vi.fn();
+
+vi.mock('../../../../clients/kisClient/index.js', () => ({
+  fetchKisInvestorFlow: investorMock,
+  fetchKisStockProgramTrade: stockProgramMock,
+  fetchKisMarketProgramTrade: marketProgramMock,
+}));
+
+function writeJson(file: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(value, null, 2));
+}
+
+function makeWatchlist(count: number): unknown[] {
+  return Array.from({ length: count }, (_, i) => {
+    const n = i + 1;
+    return {
+      code: String(100000 + n),
+      name: `S${n}`,
+      entryPrice: 1000,
+      stopLoss: 900,
+      targetPrice: 1200,
+      addedAt: '2026-05-01T00:00:00.000Z',
+      addedBy: 'AUTO',
+      stage2Score: n,
+    };
+  });
+}
+
+async function importCommand() {
+  const registry = await import('../../../commandRegistry.js');
+  registry.commandRegistry.__resetForTests();
+  const mod = await import('../supplyHealth.cmd.js');
+  return { registry, mod };
+}
+
+describe('/supply_health command', () => {
+  let tmpDir: string;
+  const originalDataDir = process.env.PERSIST_DATA_DIR;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'supply-health-'));
+    process.env.PERSIST_DATA_DIR = tmpDir;
+    investorMock.mockReset();
+    stockProgramMock.mockReset();
+    marketProgramMock.mockReset();
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    if (originalDataDir === undefined) delete process.env.PERSIST_DATA_DIR;
+    else process.env.PERSIST_DATA_DIR = originalDataDir;
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('/supply_health and /sh 등록 + 메타데이터', async () => {
+    const { registry } = await importCommand();
+    const cmd = registry.commandRegistry.resolve('/supply_health');
+    expect(cmd).toBeDefined();
+    expect(registry.commandRegistry.resolve('/sh')).toBe(cmd);
+    expect(cmd?.category).toBe('SYS');
+    expect(cmd?.visibility).toBe('ADMIN');
+    expect(cmd?.riskLevel).toBe(0);
+  });
+
+  it('execute는 한 메시지로 reply 한다', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(1));
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue(null);
+    const { registry } = await importCommand();
+    const reply = vi.fn();
+
+    await registry.commandRegistry.resolve('/sh')?.execute({ args: [], reply });
+
+    expect(reply).toHaveBeenCalledTimes(1);
+    expect(reply.mock.calls[0][0]).toContain('Supply Health');
+  });
+
+  it('watchlist 10개 초과 시 stage2Score 상위 10개만 사용', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(12));
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue({ programNetBuyQty: 1, programNetBuyAmount: 100_000_000, programArbitrageNetBuy: null, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    const { mod } = await importCommand();
+
+    const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
+
+    expect(msg).toContain('검증 종목: stage2Score 상위 10개 중 10개');
+    expect(investorMock).toHaveBeenCalledTimes(10);
+    expect(stockProgramMock).toHaveBeenCalledTimes(10);
+    const investorCodes = investorMock.mock.calls.map((c) => c[0]);
+    expect(investorCodes).toEqual(['100012', '100011', '100010', '100009', '100008', '100007', '100006', '100005', '100004', '100003']);
+    expect(investorMock.mock.calls.every((c) => c[1] === 'MEDIUM')).toBe(true);
+    expect(stockProgramMock.mock.calls.every((c) => c[1] === 'MEDIUM')).toBe(true);
+  });
+
+  it('10개 미만이면 있는 만큼 표시', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(7));
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
+
+    expect(msg).toContain('검증 종목: stage2Score 상위 7개');
+    expect(investorMock).toHaveBeenCalledTimes(7);
+  });
+
+  it('zero-filled 의심 3/10 이상이면 경고 표시', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
+    investorMock.mockResolvedValue({ foreignNetBuy: 0, institutionalNetBuy: 0, individualNetBuy: 0, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
+
+    expect(msg).toContain('zero-filled 의심: 10/10 ⚠️');
+    expect(msg).toContain('⚠️ 기관/외인 수급: zero-filled 의심 10/10');
+  });
+
+  it('OK / STALE / MISSING / N/A 마커와 상세 명령 안내 표시', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
+    writeJson(path.join(tmpDir, 'fss-records.json'), [
+      { date: '2026-04-20', passiveNetBuy: 1, activeNetBuy: 1 },
+    ]);
+    writeJson(path.join(tmpDir, 'macro-state.json'), {
+      mhs: 50,
+      regime: 'R4_NEUTRAL',
+      updatedAt: '2026-05-01T00:00:00.000Z',
+      marginBalanceSource: 'ECOS_API',
+      marginBalance5dChange: 1,
+      marginBalanceFetchedAt: '2026-05-01T00:00:00.000Z',
+    });
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue(null);
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
+
+    expect(msg).toContain('1. 🟢 기관/외인 수급');
+    expect(msg).toContain('2. 🔴 종목 프로그램매매');
+    expect(msg).toContain('4. 🟡 FSS Passive/Active');
+    expect(msg).toContain('5. ⚪ 공매도/대차잔고');
+    expect(msg).toContain('상세: /program_today');
+    expect(msg).toContain('상세: /program_market');
+    expect(msg).toContain('상세: /fss_status');
+    expect(msg).toContain('상세: /short_status 예정');
+    expect(msg).toContain('상세: /foreigner_trend');
+    expect(msg).toContain('상세: /margin_balance');
+    expect(msg.length).toBeLessThan(4096);
+  });
+
+  it('하단 상세는 7채널 고정 순서로 출력', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
+
+    expect(msg.indexOf('1. 🟢 기관/외인 수급')).toBeLessThan(msg.indexOf('2. 🟢 종목 프로그램매매'));
+    expect(msg.indexOf('2. 🟢 종목 프로그램매매')).toBeLessThan(msg.indexOf('3. 🔴 시장 프로그램매매'));
+    expect(msg.indexOf('3. 🔴 시장 프로그램매매')).toBeLessThan(msg.indexOf('4. 🔴 FSS Passive/Active'));
+    expect(msg.indexOf('4. 🔴 FSS Passive/Active')).toBeLessThan(msg.indexOf('5. ⚪ 공매도/대차잔고'));
+    expect(msg.indexOf('5. ⚪ 공매도/대차잔고')).toBeLessThan(msg.indexOf('6. 🔴 외인 보유율 추세'));
+    expect(msg.indexOf('6. 🔴 외인 보유율 추세')).toBeLessThan(msg.indexOf('7. 🔴 신용잔고'));
+  });
+
+  it('공매도/대차잔고는 전용 health 미구현이면 N/A로 표시', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(1));
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
+
+    expect(msg).toContain('5. ⚪ 공매도/대차잔고');
+    expect(msg).toContain('status: N/A');
+    expect(msg).toContain('reason: 전용 fetcher/health 미구현');
+  });
+
+  it('30초 TTL 캐시 동작', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    const first = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
+    const second = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:12.000Z'));
+
+    expect(first).toContain('캐시: fresh');
+    expect(second).toContain('캐시: 12s');
+    expect(investorMock).toHaveBeenCalledTimes(10);
+    expect(stockProgramMock).toHaveBeenCalledTimes(10);
+  });
+
+  it('30초 TTL 만료 후 새로 진단한다', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
+    await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:31.000Z'));
+
+    expect(investorMock).toHaveBeenCalledTimes(20);
+    expect(stockProgramMock).toHaveBeenCalledTimes(20);
+  });
+
+  it('개별 KIS 실패가 전체 명령 실패로 전파되지 않음', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
+    investorMock.mockImplementation((code: string) => {
+      if (code === '100010') throw new Error('boom');
+      return { foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' };
+    });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    await expect(mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'))).resolves.toContain('success: 9/10');
+  });
+
+  it('read-only: 데이터 저장/수정 함수와 refresh 호출 없음', () => {
+    const source = fs.readFileSync(path.join(process.cwd(), 'server/telegram/commands/system/supplyHealth.cmd.ts'), 'utf-8');
+    expect(source).not.toMatch(/\bsave[A-Z]\w*\(/);
+    expect(source).not.toMatch(/\bappend[A-Z]\w*\(/);
+    expect(source).not.toMatch(/\bupsert[A-Z]\w*\(/);
+    expect(source).not.toMatch(/\brefresh[A-Z]\w*\(/);
+    expect(source).not.toMatch(/krxMasterRefresh|masterRefresh|saveMacroState|saveFssRecords|appendForeignerRatio/);
+  });
+}, 15_000);

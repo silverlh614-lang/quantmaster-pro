@@ -9,6 +9,7 @@ import { HAS_REAL_DATA_CLIENT } from './constants.js';
 import { realDataKisGet } from './http.js';
 import { getKisOverrides } from './overrides.js';
 import type { KisInvestorFlow, KisMarketProgramTrade, KisStockProgramTrade, PrevClose } from './types.js';
+import type { KisApiPriority } from '../kisRateLimiter.js';
 
 // ─── ADR-0137: 종목별 당일 프로그램 매매 ─────────────────────────────────────
 // 사용자 12 아이디어 #3 — 페르소나 자료 #6 "외국인 프로그램/비프로그램" 시그널의
@@ -44,7 +45,10 @@ function extractKisNumber(out: Record<string, string> | undefined, keys: string[
  *
  * @param code 종목코드 (6자리 zero-padded 자동 적용)
  */
-export async function fetchKisStockProgramTrade(code: string): Promise<KisStockProgramTrade | null> {
+export async function fetchKisStockProgramTrade(
+  code: string,
+  priority: KisApiPriority = 'LOW',
+): Promise<KisStockProgramTrade | null> {
   const overrides = getKisOverrides();
   if (overrides.fetchKisStockProgramTrade) return overrides.fetchKisStockProgramTrade(code);
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
@@ -56,6 +60,7 @@ export async function fetchKisStockProgramTrade(code: string): Promise<KisStockP
         FID_COND_MRKT_DIV_CODE: 'J',
         FID_INPUT_ISCD: code.padStart(6, '0'),
       },
+      priority,
     );
     const out = (data as { output?: Record<string, string> } | null)?.output;
     if (!out) return null;
@@ -109,7 +114,9 @@ const MARKET_PROGRAM_TRADE_PATH =
  * - programArbitrageNetBuy 부재 시 null (강제 0 fallback 차단 — ADR-0136 의미 단절 정책).
  * - 일별 데이터 — output 배열 첫 요소 (당일) 또는 단일 output 객체 모두 지원.
  */
-export async function fetchKisMarketProgramTrade(): Promise<KisMarketProgramTrade | null> {
+export async function fetchKisMarketProgramTrade(
+  priority: KisApiPriority = 'LOW',
+): Promise<KisMarketProgramTrade | null> {
   const overrides = getKisOverrides();
   if (overrides.fetchKisMarketProgramTrade) return overrides.fetchKisMarketProgramTrade();
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
@@ -121,6 +128,7 @@ export async function fetchKisMarketProgramTrade(): Promise<KisMarketProgramTrad
         FID_COND_MRKT_DIV_CODE: 'U',  // U = 시장 전체 (J = 종목)
         FID_INPUT_ISCD: '0001',       // 0001 = 코스피
       },
+      priority,
     );
 
     // KIS 응답: output (단일 객체) 또는 output1 (당일 객체) 또는 output2[0] (배열 첫 요소).
@@ -172,7 +180,10 @@ export async function fetchKisMarketProgramTrade(): Promise<KisMarketProgramTrad
  * FHKST01010300 — 주식현재가 투자자별 순매수 조회.
  * KIS_APP_KEY 미설정 시 null 반환. 실계좌/VTS 모두 지원.
  */
-export async function fetchKisInvestorFlow(code: string): Promise<KisInvestorFlow | null> {
+export async function fetchKisInvestorFlow(
+  code: string,
+  priority: KisApiPriority = 'LOW',
+): Promise<KisInvestorFlow | null> {
   const overrides = getKisOverrides();
   if (overrides.fetchKisInvestorFlow) return overrides.fetchKisInvestorFlow(code);
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
@@ -184,6 +195,7 @@ export async function fetchKisInvestorFlow(code: string): Promise<KisInvestorFlo
         FID_COND_MRKT_DIV_CODE: 'J',
         FID_INPUT_ISCD: code.padStart(6, '0'),
       },
+      priority,
     );
     const out = (data as { output?: Record<string, string> } | null)?.output;
     if (!out) return null;
