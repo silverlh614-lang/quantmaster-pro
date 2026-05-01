@@ -186,6 +186,57 @@ describe('fssStatus.cmd execute', () => {
   });
 });
 
+describe('PR-A: ADR-0141 자동 fetcher 안내 (운영자 혼동 차단)', () => {
+  it('MISSING — ADR-0141 자동화 예정 명시 + 자동 fetcher 미구현 안내', () => {
+    _getFssRecordsAge.mockReturnValue({
+      status: 'MISSING', latestDate: null, ageDays: null, recordCount: 0,
+    });
+    _loadFssRecords.mockReturnValue([]);
+    _loadMacroState.mockReturnValue(null);
+
+    const msg = formatFssStatusMessage();
+    expect(msg).toContain('FSS 자동 fetcher 미구현');
+    expect(msg).toContain('ADR-0136 fast-track');
+    expect(msg).toContain('ADR-0141 예정');
+    // *"cron 점검 필요"* 같은 잘못된 안내가 누락됐는지 회귀 가드
+    expect(msg).not.toContain('cron 점검');
+    expect(msg).not.toContain('cron writer');
+  });
+
+  it('STALE — 자동 fetcher 미구현 + ADR-0141 예정 명시 + 잘못된 cron 안내 미노출', () => {
+    _getFssRecordsAge.mockReturnValue({
+      status: 'STALE', latestDate: '2026-04-25', ageDays: 6, recordCount: 5,
+    });
+    _loadFssRecords.mockReturnValue([
+      { date: '2026-04-25', passiveNetBuy: 100, activeNetBuy: 50 },
+    ]);
+    _loadMacroState.mockReturnValue({ passiveActiveBoth: null });
+
+    const msg = formatFssStatusMessage();
+    expect(msg).toContain('FSS 자동 fetcher 미구현');
+    expect(msg).toContain('ADR-0141 예정');
+    // 회귀 가드 — 정정 이전 잘못된 안내 ("cron writer 점검 또는 외부 데이터 출처 확인 필요")
+    expect(msg).not.toContain('cron writer 점검');
+    expect(msg).not.toContain('외부 데이터 출처 확인');
+  });
+
+  it('OK 정상 시 운영자 안내 미노출 (회귀 가드)', () => {
+    _getFssRecordsAge.mockReturnValue({
+      status: 'OK', latestDate: '2026-05-01', ageDays: 0, recordCount: 30,
+    });
+    _loadFssRecords.mockReturnValue([
+      { date: '2026-04-29', passiveNetBuy: 100, activeNetBuy: 50 },
+      { date: '2026-04-30', passiveNetBuy: 80, activeNetBuy: 30 },
+      { date: '2026-05-01', passiveNetBuy: 60, activeNetBuy: 20 },
+    ]);
+    _loadMacroState.mockReturnValue({ passiveActiveBoth: true });
+
+    const msg = formatFssStatusMessage();
+    expect(msg).not.toContain('FSS 자동 fetcher 미구현');
+    expect(msg).not.toContain('ADR-0141');
+  });
+});
+
 describe('fssStatus 메타데이터', () => {
   it('name=/fss_status + alias=/fss', () => {
     expect(fssStatus.name).toBe('/fss_status');
