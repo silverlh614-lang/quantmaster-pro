@@ -19,7 +19,7 @@ jobs:
       - run: node scripts/scan_exposure.js
 
   complexity:
-    name: ACMA — App.tsx complexity
+    name: ACMA — file complexity (1500-line limit, ADR-0133)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
