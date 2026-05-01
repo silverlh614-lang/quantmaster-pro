@@ -18,6 +18,7 @@ import { tickIntradayYield } from '../alerts/intradayYieldTicker.js';
 import { sweepPendingAcks } from '../alerts/ackTracker.js';
 import { checkForeignFlowLeadingAlert } from '../alerts/foreignFlowLeadingAlert.js';
 import { runHolidayResumeAlert } from '../trading/holidayResumeAlert.js';
+import { runHolidayEnterAlert } from '../trading/holidayEnterAlert.js';
 import { runMacroDigest } from '../alerts/macroDigestReport.js';
 import { runWeeklySelfCritique } from '../alerts/weeklySelfCritiqueReport.js';
 import { withForcedMarket } from '../utils/forceMarketGuard.js';
@@ -100,6 +101,11 @@ export function registerAlertJobs(): void {
   // PR-B-2: TRADING_DAY_ONLY — 활성 정책은 함수 내부에서 결정, 비활성 시 silent.
   scheduledJob('5 0 * * 1-5', 'TRADING_DAY_ONLY', 'holiday_resume_alert',
     () => runHolidayResumeAlert(), { timezone: 'UTC' });
+
+  // ADR-0132 — 휴장 진입 직전 알림. 평일 15:15 KST (UTC 06:15 월~금).
+  // 본일 영업일 + 다음 영업일까지 ≥ 3일 비영업 간격 시 1회 발송. 단순 금→월 silent.
+  scheduledJob('15 6 * * 1-5', 'TRADING_DAY_ONLY', 'holiday_enter_alert',
+    () => runHolidayEnterAlert(), { timezone: 'UTC' });
 
   // PR-X4 (ADR-0040) — CH3 REGIME 매크로 다이제스트 1일 2회 정기 발행.
   // PR-B-2: TRADING_DAY_ONLY — KR 영업일에만 발송 (KR 매크로 컨텍스트).

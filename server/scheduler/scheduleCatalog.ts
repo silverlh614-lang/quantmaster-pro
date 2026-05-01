@@ -43,6 +43,7 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '14:00', label: 'FOMC DAY 30분 전 경보', group: 'alerts', jobName: 'fomc_day_pre_liquidation_alert', silentWhen: 'FOMC DAY phase 가 아니면 무음 (ADR-0061)' },
   { timeKst: '14:30', label: 'FOMC DAY 자동 청산', group: 'trading', jobName: 'fomc_day_liquidation', silentWhen: 'FOMC DAY phase + 5중 가드(enabled/AUTO_TRADE/emergencyStop/시각 boundary) 미충족 시 무음 (ADR-0061)' },
   { timeKst: '14:30', label: '섹터 사이클 대시보드', group: 'reports', jobName: 'sector_cycle_dashboard' },
+  { timeKst: '15:15', label: '휴장 진입 직전 알림 (ADR-0132)', group: 'alerts', jobName: 'holiday_enter_alert', silentWhen: '다음 영업일까지 비영업 간격 < 3일이면 무음 — LONG_HOLIDAY 진입 직전에만 발송' },
   { timeKst: '15:35', label: 'INFO 일일 다이제스트 flush', group: 'reports', jobName: 'info_digest_flush', silentWhen: 'INFO 버퍼 비어 있으면 무음 (당일 INFO 알림 없음)' },
   { timeKst: '15:40', label: 'Ghost Portfolio 갱신', group: 'learning', jobName: 'ghost_portfolio', silentWhen: '내부 캐시 갱신만 — Telegram 송출 없음' },
   { timeKst: '16:00', label: '장마감 통합 브리핑', group: 'reports', jobName: 'eod_briefing' },
