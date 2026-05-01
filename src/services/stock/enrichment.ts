@@ -11,6 +11,14 @@ import {
 import { fetchCorpCode, fetchDartFinancials } from './dartDataFetcher';
 import { fetchHistoricalData } from './historicalData';
 import { fetchAiUniverseSnapshot, type AiUniverseValuation } from '../../api/aiUniverseClient';
+import { fetchForeignerRatioTrend } from '../../api/foreignerRatioClient';
+import {
+  synthesizeRiskOnEnvironment,
+  synthesizeCycleVerified,
+  synthesizePolicyAlignment,
+  type GlobalIntelSynthesisCtx,
+} from '../quant/globalIntelSynthesis';
+import { useGlobalIntelStore } from '../../stores/useGlobalIntelStore';
 import type { StockRecommendation } from './types';
 import type { TranchePlan } from '../../types/quant';
 
@@ -49,6 +57,10 @@ interface SourceTierContext {
   hasKisSupply: boolean;
   /** vcpPattern 이 OHLCV 로 실제 계산되었는가. */
   hasVcpComputed: boolean;
+  /** ADR-0152: Naver 외인 추세 (5d 표본 ≥ 6) 가 실제 데이터 반환했는가. */
+  hasForeignerTrend?: boolean;
+  /** ADR-0153: globalIntel 12 레이어 합성 ctx 가용 (4 필드 중 1+ 비-null). */
+  hasGlobalIntelSynth?: boolean;
 }
 
 /**
@@ -76,6 +88,19 @@ export function buildConditionSourceTiers(ctx: SourceTierContext): Partial<Recor
     meta.interestCoverage = 'API';
     meta.performanceReality = 'API';     // ADR-0150: epsGrowth > 0
     meta.economicMoatVerified = 'API';   // ADR-0150: debtRatio + netProfitMargin 합성
+  }
+
+  // ADR-0152: Naver 외인 추세 (5d 변화율) — #4 supplyInflow 격상
+  if (ctx.hasForeignerTrend) {
+    meta.supplyInflow = 'API';
+  }
+
+  // ADR-0153: globalIntel 12 레이어 합성 — #5/#1/#16 격상 (3 키)
+  // 입력 자체가 외부 데이터 (KRX/ECOS/FRED 매크로) 이므로 'API' 정합 (ADR-0114).
+  if (ctx.hasGlobalIntelSynth) {
+    meta.riskOnEnvironment = 'API';
+    meta.cycleVerified = 'API';
+    meta.policyAlignment = 'API';
   }
 
   // ADR-0151: hasKisSupply 라벨 deprecated — ADR-0011 PR-25-C 가 KIS 수급 호출 제거
@@ -348,18 +373,48 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
           (fallbackDart?.netProfitMargin ?? 0) > 5
             ? 1
             : (stock.checklist?.economicMoatVerified ?? 0),
+        // ADR-0153: aiFallback 경로도 globalIntel 합성 (#5/#1/#16) — main path 정합.
+        // Naver 외인 추세 (#4 supplyInflow) 는 외부 API 호출 회로 부담 차단으로
+        // aiFallback 경로 미적용 (stock.checklist 보존). main path 만 격상.
+        riskOnEnvironment:
+          synthesizeRiskOnEnvironment(_globalIntelCtx) ??
+          (stock.checklist?.riskOnEnvironment ?? 0),
+        cycleVerified:
+          synthesizeCycleVerified(_globalIntelCtx) ??
+          (stock.checklist?.cycleVerified ?? 0),
+        policyAlignment:
+          synthesizePolicyAlignment(_globalIntelCtx) ??
+          (stock.checklist?.policyAlignment ?? 0),
       },
       // PR-B (ADR-0029): aiFallback 경로 — DART 만 가용 (vcp/kisSupply 없음)
+      // ADR-0153: aiFallback 도 globalIntel 합성 ctx 활용 (외부 호출 0 — store read).
+      // ADR-0152 외인 추세는 main path 전용 (외부 endpoint 호출 회로 부담 격리).
       conditionSourceTiers: buildConditionSourceTiers({
         hasDartFinancials: fallbackDart != null,
         hasKisSupply: false,
         hasVcpComputed: false,
+        hasForeignerTrend: false,
+        hasGlobalIntelSynth:
+          _globalIntelCtx.macroEnv != null ||
+          _globalIntelCtx.bearRegimeResult != null ||
+          _globalIntelCtx.marketRegimeResult != null ||
+          _globalIntelCtx.sectorEnergyResult != null,
       }),
       financialUpdatedAt: fallbackDart?.updatedAt || stock.financialUpdatedAt,
     };
     // Enrichment 전체가 실패해도 3-Gate Pyramid 는 checklist 기반 계산이므로 채워둔다.
     merged.gateEvaluation = computeGateEvaluation(merged);
     return merged;
+  };
+
+  // ADR-0153: globalIntel 12 레이어 합성 ctx — store.getState() 한 번 가져옴.
+  // synthesize* 헬퍼는 순수 함수 (ctx 입력만 사용), 옵셔널 필드 부재 시 null fallback.
+  const _intelStore = useGlobalIntelStore.getState();
+  const _globalIntelCtx: GlobalIntelSynthesisCtx = {
+    macroEnv: _intelStore.macroEnv,
+    bearRegimeResult: _intelStore.bearRegimeResult,
+    marketRegimeResult: _intelStore.marketRegimeClassifierResult,
+    sectorEnergyResult: _intelStore.sectorEnergyResult,
   };
 
   try {
@@ -401,6 +456,8 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
     let kisSupply = null;
     let kisShort = null;
     let krxValuation: KrxValuation | null = null;
+    // ADR-0152: ADR-0140 Naver 외인 보유율 추세 (5d 변화율) — #4 supplyInflow 격상 입력
+    let foreignerTrend: { current: number | null; changePct5d: number | null; sampleSize: number } | null = null;
     const isKoreanStock = /^\d{6}$/.test(stock.code.split('.')[0]);
     if (isKoreanStock) {
       const baseCode = stock.code.split('.')[0];
@@ -409,6 +466,9 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       // 판단(PR-13 정렬 유지). 자동매매는 그대로 server/clients/kisClient.ts 사용.
       // Naver 는 DART 가 제공하지 않는 시장가 기반 PER/PBR/시총 만 보강 (2순위).
       const snap = await fetchAiUniverseSnapshot(baseCode);
+      // ADR-0152: 외인 추세 fetch — 영속 부재 시 null fallback (호출자 stock.checklist 보존)
+      try { foreignerTrend = await fetchForeignerRatioTrend(baseCode); }
+      catch { /* SDS-ignore: 추세 fetch 실패 시 fallback */ }
       kisSupply = buildSnapshotSupplyStub(snap);
       krxValuation = await fetchKrxValuation(baseCode);
     }
@@ -483,10 +543,28 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         // ADR-0151: ADR-0011 PR-25-C 가 KIS 수급 호출 제거 후 buildSnapshotSupplyStub 가
         // foreignNet/institutionNet=0 박제 → 이전 코드의 kisSupply.foreignNet/institutionNet
         // 비교 분기가 *항상 0 으로 평가* 되어 AI 추정 stock.checklist 점수를 silent 0 덮어쓰던 결함.
-        // Phase 2 정정: AI 자체 판단 stock.checklist 보존 (ADR-0011 정책 정합).
-        // 진정한 KIS supply 호출은 ADR-0011 정책 변경 후 별도 ADR.
+        // ADR-0152: #4 supplyInflow 는 ADR-0140 Naver 외인 보유율 5d 변화율 추세로 격상.
+        //   임계: changePct5d ≥ +1.0%p AND sampleSize ≥ 6 → 1 (구조적 매수 신호)
+        //   추세 부재 또는 미달 → stock.checklist?.supplyInflow ?? 0 (AI 추정 보존)
+        // #12 institutionalBuying 은 ADR-0011 정책 변경 후 별도 ADR.
         institutionalBuying: stock.checklist?.institutionalBuying ?? 0,
-        supplyInflow: stock.checklist?.supplyInflow ?? 0,
+        supplyInflow:
+          foreignerTrend?.changePct5d != null &&
+          foreignerTrend.changePct5d >= 1.0 &&
+          foreignerTrend.sampleSize >= 6
+            ? 1
+            : (stock.checklist?.supplyInflow ?? 0),
+        // ADR-0153: globalIntel 12 레이어 합성 — riskOnEnvironment (#5) / cycleVerified (#1) /
+        //   policyAlignment (#16) 3 키 격상. ctx 부재 시 null → stock.checklist 보존.
+        riskOnEnvironment:
+          synthesizeRiskOnEnvironment(_globalIntelCtx) ??
+          (stock.checklist?.riskOnEnvironment ?? 0),
+        cycleVerified:
+          synthesizeCycleVerified(_globalIntelCtx) ??
+          (stock.checklist?.cycleVerified ?? 0),
+        policyAlignment:
+          synthesizePolicyAlignment(_globalIntelCtx) ??
+          (stock.checklist?.policyAlignment ?? 0),
       },
       valuation: {
         ...stock.valuation,
@@ -501,10 +579,18 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         ? krxValuation.marketCap
         : stock.marketCap,
       // PR-B (ADR-0029): main path — VCP 실계산 + DART/KIS supply 가용성 반영
+      // ADR-0152: hasForeignerTrend — 5d 표본 ≥ 6 시 #4 supplyInflow 'API' 격상
+      // ADR-0153: hasGlobalIntelSynth — store ctx 가용 시 #5/#1/#16 'API' 격상
       conditionSourceTiers: buildConditionSourceTiers({
         hasDartFinancials: dartFinancials != null,
         hasKisSupply: kisSupply != null,
         hasVcpComputed: true,
+        hasForeignerTrend: (foreignerTrend?.sampleSize ?? 0) >= 6,
+        hasGlobalIntelSynth:
+          _globalIntelCtx.macroEnv != null ||
+          _globalIntelCtx.bearRegimeResult != null ||
+          _globalIntelCtx.marketRegimeResult != null ||
+          _globalIntelCtx.sectorEnergyResult != null,
       }),
       financialUpdatedAt: dartFinancials?.updatedAt || stock.financialUpdatedAt
     };
