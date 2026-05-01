@@ -186,6 +186,66 @@ describe('fssStatus.cmd execute', () => {
   });
 });
 
+describe('PR-A rescue: ADR-0141 Stage 1 + ADR-0142 ENV 안내 (운영자 혼동 차단)', () => {
+  it('MISSING — ADR-0141 Stage 1 작동 중 + ADR-0142 ENV 대기 명시', () => {
+    _getFssRecordsAge.mockReturnValue({
+      status: 'MISSING', latestDate: null, ageDays: null, recordCount: 0,
+    });
+    _loadFssRecords.mockReturnValue([]);
+    _loadMacroState.mockReturnValue(null);
+
+    const msg = formatFssStatusMessage();
+    // 새 안내 메시지 — ADR-0141 작동 중 + ADR-0142 default OFF 명시
+    expect(msg).toContain('FSS 자동 fetcher');
+    expect(msg).toContain('ADR-0141 Stage 1');
+    expect(msg).toContain('ADR-0142');
+    expect(msg).toContain('FSS_MAPPING_ENABLED');
+    expect(msg).toContain('default OFF');
+    expect(msg).toContain('KRX_BLD_INVESTOR_DETAIL');
+    expect(msg).toContain('/fss_detail');
+    // 잘못된 cron 안내 회귀 가드
+    expect(msg).not.toContain('cron 점검 필요');
+    expect(msg).not.toContain('cron writer 점검');
+    expect(msg).not.toContain('외부 데이터 출처 확인');
+  });
+
+  it('STALE — ADR-0141 Stage 1 cron 점검 + KRX BLD ID 검증 안내', () => {
+    _getFssRecordsAge.mockReturnValue({
+      status: 'STALE', latestDate: '2026-04-25', ageDays: 6, recordCount: 5,
+    });
+    _loadFssRecords.mockReturnValue([
+      { date: '2026-04-25', passiveNetBuy: 100, activeNetBuy: 50 },
+    ]);
+    _loadMacroState.mockReturnValue({ passiveActiveBoth: null });
+
+    const msg = formatFssStatusMessage();
+    expect(msg).toContain('ADR-0141 Stage 1');
+    expect(msg).toContain('KRX_BLD_INVESTOR_DETAIL');
+    expect(msg).toContain('/fss_detail');
+    expect(msg).toContain('6일 전');
+    // 회귀 가드
+    expect(msg).not.toContain('cron writer 점검');
+    expect(msg).not.toContain('외부 데이터 출처 확인');
+  });
+
+  it('OK 정상 시 ADR-0141/0142 안내 미노출 (운영자 안내 자체 미노출)', () => {
+    _getFssRecordsAge.mockReturnValue({
+      status: 'OK', latestDate: '2026-05-01', ageDays: 0, recordCount: 30,
+    });
+    _loadFssRecords.mockReturnValue([
+      { date: '2026-04-29', passiveNetBuy: 100, activeNetBuy: 50 },
+      { date: '2026-04-30', passiveNetBuy: 80, activeNetBuy: 30 },
+      { date: '2026-05-01', passiveNetBuy: 60, activeNetBuy: 20 },
+    ]);
+    _loadMacroState.mockReturnValue({ passiveActiveBoth: true });
+
+    const msg = formatFssStatusMessage();
+    expect(msg).not.toContain('ADR-0141');
+    expect(msg).not.toContain('ADR-0142');
+    expect(msg).not.toContain('FSS 자동 fetcher');
+  });
+});
+
 describe('fssStatus 메타데이터', () => {
   it('name=/fss_status + alias=/fss', () => {
     expect(fssStatus.name).toBe('/fss_status');

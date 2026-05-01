@@ -56,13 +56,16 @@ export function formatFssStatusMessage(now: Date = new Date()): string {
   // 운영자 안내
   if (ageInfo.status === 'MISSING') {
     lines.push('💡 <i>운영자 안내</i>:');
-    lines.push('  • FSS 레코드 영속 파일 부재. <code>POST /api/macro/fss-records</code> 로');
-    lines.push('    수동 보강 또는 cron 점검 필요.');
+    lines.push('  • FSS 자동 fetcher (KRX 11분류 raw, ADR-0141 Stage 1) 작동 중 — 첫 cron 사이클 후 영속 시작.');
+    lines.push('  • 영속 부재 시: <code>KRX_BLD_INVESTOR_DETAIL</code> ENV 검증 또는 <code>/fss_detail</code> 진단.');
+    lines.push('  • passiveActiveBoth 평가는 ADR-0142 매핑 ENV (<code>FSS_MAPPING_ENABLED</code>, default OFF) 활성화 후 작동.');
+    lines.push('  • 즉시 보강: <code>POST /api/macro/fss-records</code> (수동).');
     lines.push('  • passiveActiveBoth=null → 페르소나 의사결정에서 평가 제외.');
   } else if (ageInfo.status === 'STALE') {
     lines.push('💡 <i>운영자 안내</i>:');
     lines.push(`  • 최신 레코드 ${ageInfo.ageDays}일 전 — 4영업일+ 미갱신 (STALE).`);
-    lines.push('  • cron writer 점검 또는 외부 데이터 출처 확인 필요.');
+    lines.push('  • FSS 자동 fetcher (ADR-0141 Stage 1) cron 점검 또는 <code>KRX_BLD_INVESTOR_DETAIL</code> ENV 검증.');
+    lines.push('  • <code>/fss_detail</code> 로 KRX 11분류 raw 영속 상태 확인.');
   } else if (last5.length < 3) {
     lines.push('💡 <i>운영자 안내</i>: 표본 < 3건 — passiveActiveBoth 평가 자동 제외.');
   }
