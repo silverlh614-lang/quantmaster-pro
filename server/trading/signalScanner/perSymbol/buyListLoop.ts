@@ -100,6 +100,8 @@ import {
 import { setLastBuySignalAt } from '../scanDiagnostics.js';
 import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
+// ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
+import { applyPositionSizingEngine } from '../../sizing/positionSizingEngineWiring.js';
 
 export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
   for (const stock of ctx.buyList) {
@@ -1011,7 +1013,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         snapshotAt: new Date().toISOString(),
       };
 
-      const { quantity, effectiveBudget } = calculateOrderQuantity({
+      const { quantity: legacyQuantity, effectiveBudget } = calculateOrderQuantity({
         totalAssets: ctx.totalAssets,
         orderableCash: ctx.mutables.orderableCash.value,
         positionPct,
@@ -1020,11 +1022,64 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         accountKellyMultiplier: ctx.accountKellyMultiplier,
       });
 
-      if (quantity < 1) continue;
+      if (legacyQuantity < 1) continue;
+
+      // ── ADR-0162 Phase 2-D: 신규 6 티어 × 7축 사이징 엔진 (SHADOW only, ENV default OFF) ──
+      // 활성 조건: stockShadowMode=true + ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true`.
+      // LIVE 모드는 본 분기 자동 skip — 기존 SSOT 결과 (legacyQuantity) 100% 보존.
+      // 매핑 실패 / engine blocked / quantity<1 시 안전 fallback (legacyQuantity 사용).
+      const sizingApply = applyPositionSizingEngine(stockShadowMode, {
+        totalAssets: ctx.totalAssets,
+        shadowEntryPrice,
+        stopLoss: stock.stopLoss,
+        signalGrade: isStrongBuy ? 'STRONG_BUY' : 'BUY',
+        regimeKelly: ctx.kellyMultiplier,
+        confidenceModifier,
+        rrr: stock.rrr ?? 0,
+        // marketCap/avgDailyVolume20d 미수집 — universe 차단 회피 위해 큰 수 전달.
+        // 본 PR scope = 사이징 매트릭스 검증, universe 결합은 후속 PR (preScreenStocks 결과 ctx 노출).
+        marketCap: 1_000_000_000_000_000,
+        avgDailyVolume20d: 1_000_000_000_000_000,
+        currentSectorWeight: 0,            // 안전 fallback — sectorPreGuard 결과 영속은 후속 PR
+        isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
+        enemyChecklistPassed: true,        // 도달 시점 enemyAutoBlock 통과 확정
+        highDataReliability: true,         // 안전 default — 후속 PR 에서 sourceTier 결합
+        gate1AllPassed: true,              // 도달 시점 entryRevalidation 통과 확정 (Gate1 만점)
+        notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
+      });
+
+      const finalQuantity = sizingApply.applied ? sizingApply.quantity : legacyQuantity;
+      const sizingSource = sizingApply.sizingSource;
+      const sizingEngineSnapshot = sizingApply.applied && sizingApply.result ? {
+        tierName:               sizingApply.result.tier.name,
+        basePct:                sizingApply.result.basePct,
+        finalPositionPct:       sizingApply.result.finalPositionPct,
+        finalPositionKrw:       sizingApply.result.finalPosition,
+        drawdownMultiplier:     sizingApply.result.drawdownMultiplier,
+        lossStreakMultiplier:   sizingApply.result.lossStreakMultiplier,
+        liquidityMultiplier:    sizingApply.result.liquidityMultiplier,
+        sectorExposureMultiplier: sizingApply.result.sectorExposureMultiplier,
+        expectedStopLossDamagePct: sizingApply.result.expectedStopLossDamagePct,
+        signalPriorityApplied:  sizingApply.result.signalPriorityApplied,
+        adjustmentReasons:      sizingApply.result.adjustmentReasons,
+        snapshotAt:             new Date().toISOString(),
+      } : undefined;
+
+      if (sizingApply.applied) {
+        console.log(
+          `[Sizing-NewEngine] ${stock.code} ${stock.name} → tier=${sizingEngineSnapshot!.tierName} ` +
+          `qty=${finalQuantity} (legacy=${legacyQuantity}) ` +
+          `pct=${(sizingEngineSnapshot!.finalPositionPct * 100).toFixed(2)}% ` +
+          `damage=${(sizingEngineSnapshot!.expectedStopLossDamagePct * 100).toFixed(2)}%`,
+        );
+      } else if (sizingApply.skipReason && sizingApply.skipReason !== 'ENV_DISABLED' && sizingApply.skipReason !== 'LIVE_MODE') {
+        // ENV_DISABLED / LIVE_MODE 는 정상 운영 경로 — 로그 노이즈 차단.
+        console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} → skip ${sizingApply.skipReason} (legacy 사용)`);
+      }
 
       // 아이디어 8: STRONG_BUY → 분할 매수 1차 진입 (전체 수량의 50%)
       // 잔여 30%·20%는 trancheExecutor가 3일·7일 후 실행
-      const execQty = isStrongBuy ? Math.max(1, Math.floor(quantity * 0.5)) : quantity;
+      const execQty = isStrongBuy ? Math.max(1, Math.floor(finalQuantity * 0.5)) : finalQuantity;
 
       // ── ADR-0031 PR-64: stopLossPolicyResolver — 손절 정책 분리 순수 헬퍼 ─
       // CATALYST 섹션: 고정 -5% 타이트 손절 (ATR 동적 손절 비사용)
@@ -1069,6 +1124,9 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         entryKellySnapshot,
         // ADR-0006 PR-19 baseline (PR-1) — 메인 buyList 의 진짜 27조건 점수 baseline.
         entryConditionScores: buildEntryConditionScores(stock.conditionKeys ?? []),
+        // ADR-0162 Phase 2-D — sizingSource marker + 스냅샷 영속 (학습 데이터 격리).
+        sizingSource,
+        sizingEngineSnapshot,
       });
 
       // ADR-0128 §Wiring 1A: 메인 buyList 진입 후보 incremental 검증 (BUY_CANDIDATE role).
@@ -1113,13 +1171,13 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
 
       const modeEmoji = stockShadowMode ? '⚡' : '🚀';
       const modeLabel = isMomentumShadow ? 'Shadow(학습)' : stockShadowMode ? 'Shadow' : 'LIVE';
-      const trancheLabel = isStrongBuy ? ` (1차/${execQty}주, 총${quantity}주)` : '';
+      const trancheLabel = isStrongBuy ? ` (1차/${execQty}주, 총${finalQuantity}주)` : '';
       const gateLabel = `Gate ${liveGateScore.toFixed(1)} | MTAS ${reCheckGate.mtas.toFixed(0)}/10 | CS ${reCheckGate.compressionScore.toFixed(2)}`;
       const slBreakdown = formatStopLossBreakdown(stopLossPlan);
       const mainAlertMsg =
         `${modeEmoji} <b>[${modeLabel}] 매수 ${stockShadowMode ? '신호' : '주문'}${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
         `종목: ${stock.name} (${stock.code})\n` +
-        `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${quantity}주)` : ''}\n` +
+        `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${finalQuantity}주)` : ''}\n` +
         `📊 ${gateLabel}\n` +
         `손절: ${slBreakdown} | 목표: ${stock.targetPrice.toLocaleString()}원`;
 
@@ -1160,11 +1218,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           // BUG #3 fix — ctx.mutables.orderableCash.value 는 큐 푸시 시점에 이미 예약/차감됨.
           // onApproved 에서는 "예약 확정" 만 수행 (추가 차감 없음).
           // ctx.mutables.reservedBudgets 는 그대로 두고, 롤백 경로만 참조.
-          if (isStrongBuy && quantity > 1 && !isMomentumShadow) {
+          if (isStrongBuy && finalQuantity > 1 && !isMomentumShadow) {
             // MOMENTUM Shadow 는 분할 매수 스케줄 제외 (진입 자체가 관찰 표본)
             trancheExecutor.scheduleTranches({
               parentTradeId: t.id, stockCode: stock.code, stockName: stock.name,
-              totalQuantity: quantity, firstQuantity: execQty,
+              totalQuantity: finalQuantity, firstQuantity: execQty,
               entryPrice: shadowEntryPrice, stopLoss: stopLossPlan.hardStopLoss,
               targetPrice: stock.targetPrice,
             });

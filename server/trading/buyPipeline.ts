@@ -187,6 +187,10 @@ export interface BuildBuyTradeParams {
    * 미전달 시 trade.entryConditionScores 미영속 — 학습 baseline 부재로 attribution 호출 null 반환.
    */
   entryConditionScores?: Record<number, number>;
+  /** ADR-0162 Phase 2-D — 사이징 결정 출처 marker. 부재 시 영속 0 (default 'LEGACY_SSOT' 동등). */
+  sizingSource?: 'NEW_TIER_ENGINE' | 'LEGACY_SSOT';
+  /** ADR-0162 — sizingSource='NEW_TIER_ENGINE' 일 때만 채워짐. 운영자 검증/사후 복기용. */
+  sizingEngineSnapshot?: ServerShadowTrade['sizingEngineSnapshot'];
 }
 
 /**
@@ -237,6 +241,9 @@ export function buildBuyTrade(p: BuildBuyTradeParams): ServerShadowTrade {
     ...(p.entryConditionScores && Object.keys(p.entryConditionScores).length > 0
       ? { entryConditionScores: p.entryConditionScores }
       : {}),
+    // ADR-0162 Phase 2-D — sizingSource marker + 스냅샷 영속 (학습 데이터 격리).
+    ...(p.sizingSource ? { sizingSource: p.sizingSource } : {}),
+    ...(p.sizingEngineSnapshot ? { sizingEngineSnapshot: p.sizingEngineSnapshot } : {}),
   };
 }
 
