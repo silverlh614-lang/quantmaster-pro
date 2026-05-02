@@ -151,6 +151,11 @@ export interface StockRecommendation {
     marketPhase: 'BULL' | 'BEAR' | 'SIDEWAYS' | 'TRANSITION' | 'NEUTRAL' | 'RISK_ON' | 'RISK_OFF';
     description: string;
   };
+  quantGateScore?: {
+    value: number;
+    regime: string;
+    threshold: number;
+  };
   riskFactors: string[];
   targetPrice: number;
   targetPrice2?: number;

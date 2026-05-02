@@ -23,6 +23,7 @@ import {
 import { useGlobalIntelStore } from '../../stores/useGlobalIntelStore';
 import type { StockRecommendation } from './types';
 import type { TranchePlan } from '../../types/quant';
+import { getQuantGateScore } from '../../utils/recommendationScore';
 
 interface KrxValuation {
   per: number;
@@ -421,6 +422,7 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
     };
     // Enrichment 전체가 실패해도 3-Gate Pyramid 는 checklist 기반 계산이므로 채워둔다.
     merged.gateEvaluation = computeGateEvaluation(merged);
+    merged.quantGateScore = getQuantGateScore(merged) ?? undefined;
     return merged;
   };
 
@@ -655,6 +657,7 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
 
     // 3-Gate Pyramid 세부 점수 계산 — checklist 기반이므로 enrichment 이후에 산출.
     enriched.gateEvaluation = computeGateEvaluation(enriched);
+    enriched.quantGateScore = getQuantGateScore(enriched) ?? undefined;
 
     // 섹터 대장주 시가총액 실데이터 주입 (AI 플레이스홀더 덮어쓰기)
     if (enriched.sectorAnalysis?.leadingStocks?.length) {

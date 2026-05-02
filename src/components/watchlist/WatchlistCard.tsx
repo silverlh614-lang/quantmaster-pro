@@ -29,6 +29,7 @@ import type { NewsFrequencyScore } from '../../types/quant';
 import type { ConditionId } from '../../types/quant';
 import type { View } from '../../stores/useSettingsStore';
 import { buildShadowTrade } from '../../services/autoTrading';
+import { classifyScoreConcordance, getQuantGateScore } from '../../utils/recommendationScore';
 
 export interface WatchlistCardProps {
   stock: StockRecommendation;
@@ -101,6 +102,11 @@ export function WatchlistCard({
     marginBalance5dChange: undefined,
     weeklyRsi: undefined,
   });
+  const quantGateScore = getQuantGateScore(stock);
+  const aiScore = stock.aiConvictionScore?.totalScore ?? null;
+  const concordance = aiScore !== null && quantGateScore
+    ? classifyScoreConcordance(aiScore, quantGateScore.normalized)
+    : null;
 
   return (
     <motion.div
@@ -276,7 +282,7 @@ export function WatchlistCard({
 
                 {stock.aiConvictionScore && (
                   <div className="flex flex-col items-end shrink-0">
-                    <span className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-0.5">Score</span>
+                    <span className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-0.5">AI Score</span>
                     <span className={cn(
                       "text-lg sm:text-xl font-black tracking-tighter font-num",
                       stock.aiConvictionScore.totalScore >= 80 ? "text-orange-500" :
@@ -284,9 +290,40 @@ export function WatchlistCard({
                     )}>
                       {stock.aiConvictionScore.totalScore}
                     </span>
+                    {concordance && (
+                      <span className={cn(
+                        "mt-1 rounded-full border px-2 py-0.5 text-[8px] font-black tracking-widest",
+                        concordance.tier === 'EXCELLENT' || concordance.tier === 'GOOD'
+                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                          : concordance.tier === 'NEUTRAL'
+                            ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                            : "border-red-500/30 bg-red-500/10 text-red-300"
+                      )}>
+                        {concordance.tier === 'WEAK' || concordance.tier === 'POOR' ? '⚠ ' : ''}{concordance.label}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
+
+              {stock.aiConvictionScore && (
+                <div className="mt-2 text-[10px] text-orange-300/60">
+                  ⓘ Gemini 정성 평가 — 자동매매 진입 기준 아님
+                </div>
+              )}
+              {quantGateScore && (
+                <div className={cn(
+                  "mt-2 rounded-xl border px-3 py-2 text-[11px] font-bold",
+                  quantGateScore.pass
+                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200"
+                    : "border-red-500/20 bg-red-500/10 text-red-200"
+                )}>
+                  AI Score {stock.aiConvictionScore?.totalScore ?? '-'} | Gate {quantGateScore.value.toFixed(1)}/10{' '}
+                  {quantGateScore.pass ? '✅ 자동매매 진입 가능' : '❌ 자동매매 진입 불가'}{' '}
+                  ({quantGateScore.regime.replace(/_.+$/, '')} 임계 {quantGateScore.threshold}
+                  {quantGateScore.pass ? '' : ' 미달'})
+                </div>
+              )}
 
               {stock.chartPattern && (
                 <div className="flex items-center gap-2 mt-1">
@@ -323,7 +360,7 @@ export function WatchlistCard({
           </button>
         </div>
 
-        {/* 3-Gate Visualization Bar (Idea 2) */}
+        {/* AI qualitative factor bar */}
         {stock.aiConvictionScore && (() => {
           const factors = stock.aiConvictionScore.factors || [];
           const total = stock.aiConvictionScore.totalScore;
@@ -339,7 +376,7 @@ export function WatchlistCard({
           return (
             <div className="mb-4 sm:mb-6">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">Gate Score</span>
+                <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">AI 정성 평가</span>
                 <span className="text-[11px] font-black text-white/70 font-num">
                   {total}/100
                 </span>

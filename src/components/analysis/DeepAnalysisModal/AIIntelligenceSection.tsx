@@ -38,6 +38,9 @@ export function AIIntelligenceSection({ stock }: Props) {
             <span className="text-4xl font-black text-white tracking-tighter">{stock.aiConvictionScore?.totalScore || 0}</span>
             <span className="text-sm font-bold text-white/20">/ 100</span>
           </div>
+          <div className="text-[10px] text-orange-300/60 -mt-2 mb-4">
+            ⓘ Gemini 정성 평가 — 자동매매 진입 기준 아님
+          </div>
           <div className="bg-orange-500/10 p-3 rounded-xl border border-orange-500/20 mb-4">
             <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest block mb-1">Market Context Weighting</span>
             <p className="text-[11px] text-orange-400/80 font-bold leading-tight">

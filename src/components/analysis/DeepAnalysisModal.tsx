@@ -29,6 +29,7 @@ import { RiskChecklistSection } from './DeepAnalysisModal/RiskChecklistSection';
 import { ModalFooter } from './DeepAnalysisModal/ModalFooter';
 import { MasterRadarChart } from './DeepAnalysisModal/MasterRadarChart';
 import { KeyChecklistOverview } from './DeepAnalysisModal/KeyChecklistOverview';
+import { ScoreAlignmentGrid } from './DeepAnalysisModal/ScoreAlignmentGrid';
 import { buildDeepAnalysisEvaluateInput } from './DeepAnalysisModal/buildEvaluateInput';
 import { buildMockShadowSignal } from './DeepAnalysisModal/buildMockShadowSignal';
 
@@ -185,6 +186,8 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
               ) : (
                 <>
                   <ModalHeader stock={stock} />
+
+                  <ScoreAlignmentGrid stock={stock} />
 
                   {/* AI 분석결과 요약 — 한 줄 요약으로 밀도 향상 */}
                   <div className="mb-5 p-4 sm:p-5 rounded-2xl bg-orange-500/5 border border-orange-500/10 flex gap-3 items-start">

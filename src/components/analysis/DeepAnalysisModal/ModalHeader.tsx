@@ -104,6 +104,9 @@ export function ModalHeader({ stock }: ModalHeaderProps) {
             <span className="text-lg sm:text-xl font-black text-orange-500 tracking-tighter">{stock.aiConvictionScore?.totalScore || 0}</span>
             <span className="text-[9px] font-bold text-white/20">/ 100</span>
           </div>
+          <div className="text-[8px] font-black text-orange-300/50 uppercase tracking-tight mt-0.5">
+            Gemini 정성 평가
+          </div>
         </div>
       </div>
     </div>

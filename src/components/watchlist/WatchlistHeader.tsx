@@ -14,6 +14,7 @@ import { OffHoursBanner } from '../common/OffHoursBanner';
 import { RecommendationWarningsBanner } from '../common/RecommendationWarningsBanner';
 import { MASTER_CHECKLIST_STEPS } from '../../constants/checklist';
 import type { StockRecommendation, MarketContext, StockFilters } from '../../services/stockService';
+import { getQuantGateScore } from '../../utils/recommendationScore';
 
 export interface WatchlistHeaderProps {
   filters: StockFilters;
@@ -250,10 +251,29 @@ export function WatchlistHeader({
                     <div className="bg-theme-card rounded-2xl p-4 border border-theme-border">
                       <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest mb-1">AI Score</div>
                       <div className="text-2xl font-black text-orange-500">{stock.aiConvictionScore?.totalScore || 0}</div>
+                      <div className="text-[10px] text-orange-300/60 mt-1">Gemini 정성 평가</div>
                     </div>
                     <div className="bg-theme-card rounded-2xl p-4 border border-theme-border">
-                      <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest mb-1">Checklist</div>
-                      <div className="text-2xl font-black text-theme-text">{Object.values(stock.checklist || {}).filter(Boolean).length}/27</div>
+                      {(() => {
+                        const quant = getQuantGateScore(stock);
+                        if (!quant) {
+                          return (
+                            <>
+                              <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest mb-1">Checklist</div>
+                              <div className="text-2xl font-black text-theme-text">{Object.values(stock.checklist || {}).filter(Boolean).length}/27</div>
+                            </>
+                          );
+                        }
+                        return (
+                          <>
+                            <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest mb-1">Gate</div>
+                            <div className={cn("text-2xl font-black", quant.pass ? "text-emerald-400" : "text-red-400")}>{quant.value.toFixed(1)}/10</div>
+                            <div className="text-[10px] text-theme-text-muted mt-1">
+                              {quant.pass ? '자동매매 가능' : '자동매매 불가'} · {quant.regime.replace(/_.+$/, '')} 임계 {quant.threshold}
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
 

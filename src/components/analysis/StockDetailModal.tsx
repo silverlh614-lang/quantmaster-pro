@@ -79,7 +79,7 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({ stock, onClo
         {/* 분할매수 계획 — ADR-0031 PR-D */}
         <TranchePlanCard plan={stock.tranchePlan} />
 
-        {/* 3-Gate Bar */}
+        {/* AI qualitative factor bar */}
         {stock.aiConvictionScore && (() => {
           const factors = stock.aiConvictionScore.factors || [];
           const total = stock.aiConvictionScore.totalScore;
@@ -94,8 +94,11 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({ stock, onClo
           return (
             <div className="glass-3d rounded-xl p-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest">Gate Score</span>
+                <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest">AI 정성 평가</span>
                 <span className="text-sm font-black text-theme-text font-num">{total}/100</span>
+              </div>
+              <div className="text-[10px] text-orange-300/60 mb-2">
+                ⓘ Gemini 정성 평가 — 자동매매 진입 기준 아님
               </div>
               <div className="gate-bar h-3">
                 <div className="gate-bar-g1 rounded-l-full" style={{ width: `${Math.min(g1 / g1Max * 33.3, 33.3)}%` }} />
