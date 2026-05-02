@@ -25,7 +25,7 @@ import {
 } from '../../../screener/intradayScanner.js';
 import { type ApprovalAction } from '../../../telegram/buyApproval.js';
 import { setLastBuySignalAt } from '../scanDiagnostics.js';
-import { getPrice, buildExposureBudgetMacroInput } from './helpers.js';
+import { getPrice, buildExposureBudgetMacroInput, computeSizingLiquidityInputs } from './helpers.js';
 import type { IntradayLoopContext } from './types.js';
 // ADR-0163 Phase 2-D Extension — INTRADAY_STRONG 경로 SHADOW only 사이징 엔진 wiring.
 // ADR-0166 — Exposure Budget cap 추가 (default OFF).
@@ -129,13 +129,21 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
 
           // ── ADR-0163 (Phase 2-D Extension): INTRADAY_STRONG 경로 wiring ──
           // BUY 매핑 (장중 강세 = 보수적 진입) + 100% (분할 없음).
-          // INTRADAY 는 universe 기준 미부합 가능성 → 큰 수 전달로 차단 회피.
+          // ADR-0172: currentSectorWeight 실데이터 교체.
+          // INTRADAY 는 rrr=0 → rrrMultiplier=0 → engine blocked → legacy fallback 경로 유지.
+          // avgDailyVolume20d: INTRADAY 는 실시간 quote 미조회 — 큰 수 fallback 유지 (universe 차단 회피).
+          const _sizingInputIntra = computeSizingLiquidityInputs(
+            null,           // INTRADAY 경로는 Yahoo quote 미조회 — avgVolume fallback 유지
+            stock.code,
+            stock.sector,
+            ctx.shadows,
+          );
           const sizingApplyIntra = applyPositionSizingEngine(ctx.shadowMode, {
             totalAssets: ctx.totalAssets, shadowEntryPrice, stopLoss: intradayStop,
             signalGrade: 'BUY', regimeKelly: ctx.kellyMultiplier, confidenceModifier: 1.0,
             rrr: 0,  // INTRADAY 는 RRR 평가 부재 — 본 모듈 rrrMultiplier=0 → engine 차단 → legacy fallback
             marketCap: 1_000_000_000_000_000, avgDailyVolume20d: 1_000_000_000_000_000,
-            currentSectorWeight: 0,
+            currentSectorWeight: _sizingInputIntra.currentSectorWeight, // ADR-0172
             isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
             enemyChecklistPassed: true, highDataReliability: true, gate1AllPassed: true,
             notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',

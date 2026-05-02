@@ -98,7 +98,7 @@ import {
   type LiveBuyTask,
 } from '../../buyPipeline.js';
 import { setLastBuySignalAt } from '../scanDiagnostics.js';
-import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, type SymbolExitContext } from './helpers.js';
+import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
 // ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
 import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/positionSizingEngineWiring.js';
@@ -362,12 +362,20 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             });
             // ── ADR-0163 (Phase 2-D Extension): PRE_BREAKOUT_FOLLOWTHROUGH 경로 wiring ──
             // STRONG_BUY 매핑 (추세 추격 = 돌파 확정 후) + ENV+SHADOW 활성 시 본 모듈 override.
+            // ADR-0172: reCheckQuoteFollow 실데이터로 유동성·섹터 입력 교체.
+            const _sizingInputFollow = computeSizingLiquidityInputs(
+              reCheckQuoteFollow ?? null,
+              stock.code,
+              stock.sector,
+              ctx.shadows,
+            );
             const sizingApplyFollow = applyPositionSizingEngine(ctx.shadowMode, {
               totalAssets: ctx.totalAssets, shadowEntryPrice: followEntryPrice, stopLoss: stock.stopLoss,
               signalGrade: 'STRONG_BUY', regimeKelly: ctx.kellyMultiplier, confidenceModifier: 1.0,
               rrr: stock.rrr ?? 0,
-              marketCap: 1_000_000_000_000_000, avgDailyVolume20d: 1_000_000_000_000_000,
-              currentSectorWeight: 0,
+              marketCap: 1_000_000_000_000_000,  // marketCap 미노출 — universe 차단 회피 유지
+              avgDailyVolume20d: _sizingInputFollow.avgDailyVolume20d,   // ADR-0172
+              currentSectorWeight: _sizingInputFollow.currentSectorWeight, // ADR-0172
               isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
               enemyChecklistPassed: true, highDataReliability: true, gate1AllPassed: true,
               notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
@@ -585,12 +593,20 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               });
               // ── ADR-0163 (Phase 2-D Extension): PRE_BREAKOUT 30% 선취매 경로 wiring ──
               // BUY 매핑 (선취매 = 사전 진입, 보수적) + 30% 비율은 호출자 측 보존.
+              // ADR-0172: reCheckQuotePb 실데이터로 유동성·섹터 입력 교체.
+              const _sizingInputPb = computeSizingLiquidityInputs(
+                reCheckQuotePb ?? null,
+                stock.code,
+                stock.sector,
+                ctx.shadows,
+              );
               const sizingApplyPb = applyPositionSizingEngine(ctx.shadowMode, {
                 totalAssets: ctx.totalAssets, shadowEntryPrice: pbEntryPrice, stopLoss: stock.stopLoss,
                 signalGrade: 'BUY', regimeKelly: ctx.kellyMultiplier, confidenceModifier: 1.0,
                 rrr: stock.rrr ?? 0,
-                marketCap: 1_000_000_000_000_000, avgDailyVolume20d: 1_000_000_000_000_000,
-                currentSectorWeight: 0,
+                marketCap: 1_000_000_000_000_000,  // marketCap 미노출 — universe 차단 회피 유지
+                avgDailyVolume20d: _sizingInputPb.avgDailyVolume20d,   // ADR-0172
+                currentSectorWeight: _sizingInputPb.currentSectorWeight, // ADR-0172
                 isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
                 enemyChecklistPassed: true, highDataReliability: true, gate1AllPassed: true,
                 notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
@@ -1137,6 +1153,13 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // 활성 조건: stockShadowMode=true + ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true`.
       // LIVE 모드는 본 분기 자동 skip — 기존 SSOT 결과 (legacyQuantity) 100% 보존.
       // 매핑 실패 / engine blocked / quantity<1 시 안전 fallback (legacyQuantity 사용).
+      // ADR-0172: reCheckQuote 실데이터로 유동성·섹터 입력 교체.
+      const _sizingInputMain = computeSizingLiquidityInputs(
+        reCheckQuote ?? null,
+        stock.code,
+        stock.sector,
+        ctx.shadows,
+      );
       const sizingApply = applyPositionSizingEngine(stockShadowMode, {
         totalAssets: ctx.totalAssets,
         shadowEntryPrice,
@@ -1145,11 +1168,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         regimeKelly: ctx.kellyMultiplier,
         confidenceModifier,
         rrr: stock.rrr ?? 0,
-        // marketCap/avgDailyVolume20d 미수집 — universe 차단 회피 위해 큰 수 전달.
-        // 본 PR scope = 사이징 매트릭스 검증, universe 결합은 후속 PR (preScreenStocks 결과 ctx 노출).
+        // marketCap: Yahoo Finance chart API 에서 미제공 — universe 차단 회피 위해 큰 수 유지.
+        // 후속 PR: KIS 기업 정보 API (CTPF1002R) 결합 후 실값 전달 예정.
         marketCap: 1_000_000_000_000_000,
-        avgDailyVolume20d: 1_000_000_000_000_000,
-        currentSectorWeight: 0,            // 안전 fallback — sectorPreGuard 결과 영속은 후속 PR
+        avgDailyVolume20d: _sizingInputMain.avgDailyVolume20d,   // ADR-0172: reCheckQuote.vol20dAvg × price
+        currentSectorWeight: _sizingInputMain.currentSectorWeight, // ADR-0172: shadows 기준 동일 섹터 비중
         isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
         enemyChecklistPassed: true,        // 도달 시점 enemyAutoBlock 통과 확정
         highDataReliability: true,         // 안전 default — 후속 PR 에서 sourceTier 결합

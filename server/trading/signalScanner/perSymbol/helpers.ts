@@ -120,6 +120,76 @@ export function getAdaptiveProfitTargets(
 }
 
 /**
+ * ADR-0172 — 포지션 사이징 엔진 유동성·섹터 실입력 헬퍼.
+ *
+ * 기존 dummy 값(1_000_000_000_000_000 / 0) 을 실제 데이터로 교체한다.
+ *
+ * avgDailyVolume20d: reCheckQuote.vol20dAvg × price (거래량 → 거래대금 환산)
+ *   - vol20dAvg 는 YahooQuoteExtended 에 이미 계산된 20일 평균 거래량
+ *   - 거래대금(원) = 거래량 × 현재가
+ *   - 부재 시 안전 fallback: 큰 수(감쇄 없음) — universe 차단 회피
+ *
+ * currentSectorWeight: 현재 보유 포트폴리오에서 동일 섹터 비중
+ *   - sectorConcentrationGate 와 동일 로직 (shadows + getSectorByCode)
+ *   - 총 활성 포지션 수 대비 동일 섹터 수의 비율
+ *   - 부재 시 안전 fallback: 0 (감쇄 없음)
+ */
+import { isOpenShadowStatus } from '../../entryEngine.js';
+import { getSectorByCode } from '../../../screener/sectorMap.js';
+import type { ServerShadowTrade } from '../../../persistence/shadowTradeRepo.js';
+import type { YahooQuoteExtended } from '../../../screener/adapters/yahooQuoteAdapter.js';
+
+export interface SizingLiquidityInputs {
+  avgDailyVolume20d: number;
+  currentSectorWeight: number;
+}
+
+/**
+ * applyPositionSizingEngine 에 전달할 유동성·섹터 실입력을 계산한다.
+ *
+ * @param quote       reCheckQuote (YahooQuoteExtended | null)
+ * @param stockCode   종목코드
+ * @param stockSector stock.sector (WatchlistEntry.sector — 옵셔널)
+ * @param shadows     활성 shadow trade 목록
+ */
+export function computeSizingLiquidityInputs(
+  quote: YahooQuoteExtended | null,
+  stockCode: string,
+  stockSector: string | undefined,
+  shadows: ServerShadowTrade[],
+): SizingLiquidityInputs {
+  // ── 1. 20일 평균 거래대금 (원) ────────────────────────────────────────────
+  // vol20dAvg(주) × price(원) = 거래대금(원)
+  // vol20dAvg 가 0 이거나 quote 없으면 큰 수 fallback (universe 차단 회피)
+  const FALLBACK_VOLUME = 1_000_000_000_000_000;
+  let avgDailyVolume20d = FALLBACK_VOLUME;
+  if (quote && quote.vol20dAvg > 0 && quote.price > 0) {
+    avgDailyVolume20d = Math.round(quote.vol20dAvg * quote.price);
+  }
+
+  // ── 2. 현재 포트폴리오 동일 섹터 비중 ────────────────────────────────────
+  // sectorConcentrationGate 와 동일 로직: shadows 기준 활성 포지션 수 대비 동일 섹터 수
+  const candidateSector =
+    stockSector ?? getSectorByCode(stockCode) ?? null;
+
+  let currentSectorWeight = 0;
+  if (candidateSector) {
+    const activeTrades = shadows.filter(s => isOpenShadowStatus(s.status));
+    const total = activeTrades.length;
+    if (total > 0) {
+      const sameSector = activeTrades.filter(s => {
+        // shadowTrade 에는 sector 직접 영속 없음 — getSectorByCode fallback
+        const tradeSector = getSectorByCode(s.stockCode) ?? null;
+        return tradeSector === candidateSector;
+      }).length;
+      currentSectorWeight = sameSector / total;
+    }
+  }
+
+  return { avgDailyVolume20d, currentSectorWeight };
+}
+
+/**
  * ADR-0170 §M4 — `applyExposureBudgetCap` 의 macro 입력 헬퍼.
  *
  * macroState 부재 시 undefined 반환 → ADR-0166 기존 매핑 그대로 (회귀 위험 격리).
