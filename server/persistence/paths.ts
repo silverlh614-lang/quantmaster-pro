@@ -336,6 +336,13 @@ export const POST_HOLIDAY_KICKSTART_STATE_FILE = path.join(DATA_DIR, 'post-holid
  */
 export const KIS_TOKEN_FILE = path.join(DATA_DIR, 'kis-tokens.json');
 
+/**
+ * ADR-0164 — peakEquity 영속 SSOT.
+ * `server/trading/sizing/positionSizingEngine` 의 drawdown 자동 차단 (-10/-15/-25/-30% 4단계) 입력.
+ * 부재 시 SSOT 가 빈 상태 fallback (currentEquity = peakEquity 로 가정 — drawdown 0).
+ */
+export const PEAK_EQUITY_FILE = path.join(DATA_DIR, 'peak-equity.json');
+
 export function ensureReflectionsDir(): void {
   ensureDataDir();
   if (!fs.existsSync(REFLECTIONS_DIR)) fs.mkdirSync(REFLECTIONS_DIR, { recursive: true });
