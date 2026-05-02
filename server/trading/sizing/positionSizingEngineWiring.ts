@@ -24,6 +24,16 @@ import {
   updatePeakEquityIfHigher,
   type PeakEquityMode,
 } from '../../persistence/peakEquityRepo.js';
+import {
+  computePortfolioExposureBudget,
+  applyPortfolioExposureCap,
+  isExposureBudgetEnabled,
+  mapInternalToExposureRegime,
+  type MarketRegimeLevel,
+  type PortfolioExposureBudget,
+  type ApplyPortfolioExposureCapResult,
+} from './regimeExposurePolicy.js';
+import type { RegimeLevel } from '../../../src/types/core.js';
 
 // ─── ENV 우회 SSOT ──────────────────────────────────────────────────────────
 
@@ -93,6 +103,18 @@ export interface MapToInputContext {
    * 미전달 시 'SHADOW' default (본 PR scope 는 SHADOW only — LIVE wiring 후속 PR).
    */
   peakEquityMode?: PeakEquityMode;
+  /**
+   * ADR-0166 — 레짐 노출 예산 입력 (옵셔널).
+   * 호출자 명시 전달 시 `applyExposureBudgetCap` 통합 진입점에서 사용.
+   * 미전달 또는 ENV OFF 시 sizing 결과 그대로 (exposure cap 미적용).
+   */
+  currentEquityExposureAmount?: number;
+  currentCashAmount?: number;
+  /**
+   * ADR-0166 — 신규 매수 vs 추매 분류 (호출자 결정).
+   * 본 모듈은 *분류만 사용*, 실제 주문 결정은 호출자 책임.
+   */
+  isAddOnBuy?: boolean;
 }
 
 export function mapToPositionSizingInput(ctx: MapToInputContext): PositionSizingInput | null {
@@ -232,5 +254,105 @@ export function applyPositionSizingEngine(
     quantity,
     sizingSource: 'NEW_TIER_ENGINE',
     result,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADR-0166 — 레짐 노출 예산 통합 진입점 (positionSizingEngine 상위 계층)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface ApplyExposureBudgetCapInput {
+  /** sizing 단계 결과 quantity (applyPositionSizingEngine.quantity 또는 legacy quantity) */
+  rawQuantity: number;
+  /** 매수가 (rawQuantity × shadowEntryPrice = rawPositionAmount) */
+  shadowEntryPrice: number;
+  /** 계좌 총액 */
+  accountEquity: number;
+  /** 현재 보유 주식 평가금액 총합 (호출자 ctx 에서 수집) */
+  currentEquityExposureAmount: number;
+  /** 현재 현금 (UI/진단용) */
+  currentCashAmount: number;
+  /** 시장 레짐 (기존 RegimeLevel — 매핑 자동 적용) */
+  regime: RegimeLevel;
+  /** 신규 매수 vs 추매 (호출자 분류) */
+  isAddOnBuy: boolean;
+  /** 호출자 명시 매핑 — 미전달 시 mapInternalToExposureRegime 자동 적용 */
+  exposureRegime?: MarketRegimeLevel;
+}
+
+export interface ApplyExposureBudgetCapResult {
+  /** 본 cap 적용 여부 — false 면 호출자가 rawQuantity 그대로 사용 */
+  applied: boolean;
+  /** 적용 시 cap 후 quantity (주식 수) — applied=false 면 rawQuantity 그대로 */
+  finalQuantity: number;
+  /** 본 cap 결과 — 진단/UI 용 */
+  capResult?: ApplyPortfolioExposureCapResult;
+  /** 본 cap 입력 — 진단/UI 용 */
+  budget?: PortfolioExposureBudget;
+  /** 미적용 사유 (진단 로그용) */
+  skipReason?: 'ENV_DISABLED' | 'INPUT_MISSING';
+}
+
+/**
+ * ADR-0166 통합 진입점 — sizing 결과 quantity 에 레짐 노출 예산 cap 적용.
+ *
+ * 4 분기:
+ *   1. ENV OFF (default) → applied=false / skipReason='ENV_DISABLED' / rawQuantity 그대로
+ *   2. 입력 누락 (currentEquityExposureAmount NaN) → applied=false / skipReason='INPUT_MISSING'
+ *   3. 정상 → computePortfolioExposureBudget + applyPortfolioExposureCap → finalQuantity 산출
+ *   4. cap 결과 finalPositionAmount=0 → applied=true / finalQuantity=0 (차단)
+ *
+ * 호출자 패턴:
+ *   const sizingApply = applyPositionSizingEngine(shadowMode, ctx);
+ *   const baseQty = sizingApply.applied ? sizingApply.quantity : legacyQuantity;
+ *   const exposureCap = applyExposureBudgetCap({ rawQuantity: baseQty, ... });
+ *   const finalQty = exposureCap.applied ? exposureCap.finalQuantity : baseQty;
+ */
+export function applyExposureBudgetCap(input: ApplyExposureBudgetCapInput): ApplyExposureBudgetCapResult {
+  if (!isExposureBudgetEnabled()) {
+    return {
+      applied: false,
+      finalQuantity: input.rawQuantity,
+      skipReason: 'ENV_DISABLED',
+    };
+  }
+
+  // 입력 검증
+  if (
+    !Number.isFinite(input.accountEquity) || input.accountEquity <= 0 ||
+    !Number.isFinite(input.currentEquityExposureAmount) || input.currentEquityExposureAmount < 0 ||
+    !Number.isFinite(input.shadowEntryPrice) || input.shadowEntryPrice <= 0 ||
+    !Number.isFinite(input.rawQuantity) || input.rawQuantity < 0
+  ) {
+    return {
+      applied: false,
+      finalQuantity: input.rawQuantity,
+      skipReason: 'INPUT_MISSING',
+    };
+  }
+
+  const exposureRegime = input.exposureRegime ?? mapInternalToExposureRegime(input.regime);
+
+  const budget = computePortfolioExposureBudget({
+    accountEquity: input.accountEquity,
+    currentEquityExposureAmount: input.currentEquityExposureAmount,
+    currentCashAmount: input.currentCashAmount,
+    regime: exposureRegime,
+  });
+
+  const rawPositionAmount = input.rawQuantity * input.shadowEntryPrice;
+  const capResult = applyPortfolioExposureCap({
+    rawPositionAmount,
+    exposureBudget: budget,
+    isAddOnBuy: input.isAddOnBuy,
+  });
+
+  const finalQuantity = Math.floor(capResult.finalPositionAmount / input.shadowEntryPrice);
+
+  return {
+    applied: true,
+    finalQuantity,
+    capResult,
+    budget,
   };
 }

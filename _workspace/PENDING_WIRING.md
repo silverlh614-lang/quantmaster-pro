@@ -67,6 +67,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | B6 | 0001 Phase B | `server/trading/signalScanner/perSymbol/buyListLoop.ts` | 2026-05-02 | PARTIAL | P2 | 운영 데이터 누적 후 + LIVE 회귀 격리 — evaluateBuyList god function (cc=244) 본체 추가 분해 (인라인 데이터 페치 / Gate revalidation wrapping / 진단 메시지 빌더) |
 | B7 | 0085 price7dAgo | `server/persistence/shadowTradeRepo.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 누적 후 — `riskManager.ts:39` 가 reader 사용 (과열 부분 매도). 매수 시점 7일 lookback OHLCV 영속 wiring 미구현 — buyPipeline.buildBuyTrade 또는 신규 cron 에서 외부 OHLCV fetch 후 영속 |
 | B8 | 0161~0165 PositionSizingEngine | `server/trading/sizing/positionSizingEngine.ts` | 2026-05-02 | PARTIAL | P2 | **Phase1+2D+Extension+Drawdown+LIVE Activation wiring 완료** (ADR-0161~0165) — P0 SLA 충족 (2026-05-23 만기 21일 전 LIVE Activation 완료). 4 진입 경로 + peakEquity 영속 (SHADOW/LIVE 분리) + drawdown 자동 차단 + LIVE 활성화 ENV `POSITION_SIZING_ENGINE_LIVE_ENABLED=true` (default OFF). **잔여 2 PR (P2)**: lossStreak 외부 학습 SSOT 결합 + universe/sectorWeight 결합. 운영자 활성화 절차 (ADR-0165 §3): SHADOW 1주 검증 → ENV 활성화 → 만족 시 운영 유지. |
+| B9 | 0166 RegimeExposureBudget | `server/trading/sizing/regimeExposurePolicy.ts` | 2026-05-02 | PARTIAL | P2 | **Phase A 인프라 + Phase B 4 wiring 통합 완료** (ADR-0166) — 7 레짐 매트릭스 (R0~R6) + computePortfolioExposureBudget + applyPortfolioExposureCap + applyExposureBudgetCap 통합 진입점 + 4 진입 경로 wiring. ENV `POSITION_SIZING_EXPOSURE_BUDGET_ENABLED=true` (default OFF). **잔여 4 PR (P2)**: currentEquityExposureAmount 정확 산출 (활성 trade 합산) + isAddOnBuy 추매 진입점 wiring (trancheExecutor) + UI 출력 항목 + 매크로 신호 기반 R0~R6 자동 분류. 운영자 활성화 절차 (ADR-0166 §7): SHADOW APPLY → SHADOW 검증 → ENV 활성 → LIVE 활성화 4단계. |
 
 ### C. 시그널 입력 (Diag-2~5 의사결정 wiring)
 
@@ -117,11 +118,11 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 카테고리 | 항목 수 | P0 | P1 | P2 | P3 |
 |----------|---------|----|----|----|----|
 | A. 학습 시리즈 | 9 | 1 | 3 | 5 | 0 |
-| B. 매매 본체 | 8 | 1 | 3 | 4 | 0 |
+| B. 매매 본체 | 9 | 1 | 3 | 5 | 0 |
 | C. 시그널 입력 | 15 | 1 | 3 | 7 | 4 |
 | D. UI Phase | 7 | 0 | 3 | 4 | 0 |
 | E. 영속/진단 | 7 | 0 | 0 | 4 | 3 |
-| **합계** | **46** | **3** | **12** | **24** | **7** |
+| **합계** | **47** | **3** | **12** | **25** | **7** |
 
 > 주: C7 (Phase 1) / C8 (Phase 2 audit) / C9 (Phase 3 globalIntel) + C15 (Naver 외인 추세) / **C10 (Phase 4 Yahoo 컨센서스) + #12 institutionalBuying (KRX 5d) PR-Phase5** 모두 *DECIDED_NOT_WIRING* 격상 완료. 27 조건 격상 시리즈 *데이터 가용 한계 도달 — 78% (21/27)*. 잔여 22% (5 키 — #9/#13/#17/#20/#26) 정성 영구 (ADR-0154). 정량 격상 후속 0건. 운영자 집중 영역 = Gemini 프롬프트 품질 + AI 추정 가중치 학습.
 

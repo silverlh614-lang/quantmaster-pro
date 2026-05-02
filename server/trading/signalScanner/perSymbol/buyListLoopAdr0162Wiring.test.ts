@@ -32,8 +32,10 @@ describe('ADR-0162 Phase 2-D wiring 정적 가드 — buyListLoop.ts', () => {
     expect(SOURCE).toMatch(/const\s*\{\s*quantity:\s*legacyQuantity[^}]*\}\s*=\s*calculateOrderQuantity/);
   });
 
-  it('finalQuantity 변수 — sizingApply.applied 분기 결정', () => {
-    expect(SOURCE).toMatch(/const\s+finalQuantity\s*=\s*sizingApply\.applied\s*\?\s*sizingApply\.quantity\s*:\s*legacyQuantity/);
+  it('baseQuantity 변수 — sizingApply.applied 분기 결정 (ADR-0166: finalQuantity → baseQuantity rename + exposure cap 추가)', () => {
+    expect(SOURCE).toMatch(/const\s+baseQuantity\s*=\s*sizingApply\.applied\s*\?\s*sizingApply\.quantity\s*:\s*legacyQuantity/);
+    // ADR-0166 — finalQuantity 는 exposure cap 적용 후 변수
+    expect(SOURCE).toMatch(/const\s+finalQuantity\s*=\s*exposureCapMain\.applied\s*\?\s*exposureCapMain\.finalQuantity\s*:\s*baseQuantity/);
   });
 
   it('execQty 산출 — finalQuantity 기반 (legacyQuantity 직접 사용 안 함)', () => {

@@ -28,10 +28,12 @@ describe('ADR-0163 Phase 2-D Extension — buyListLoop.ts 2 신규 분기 정적
     expect(followSection).toMatch(/signalGrade:\s*['"]STRONG_BUY['"]/);
   });
 
-  it('PRE_BREAKOUT_FOLLOWTHROUGH — 70% 비율 보존 (legacyFullQty rename + fullQty 분기)', () => {
+  it('PRE_BREAKOUT_FOLLOWTHROUGH — 70% 비율 보존 (legacyFullQty + fullQty + followQtyRaw → followQty exposure cap, ADR-0166)', () => {
     expect(BUYLIST_SRC).toMatch(/const\s*\{\s*quantity:\s*legacyFullQty\s*\}/);
     expect(BUYLIST_SRC).toMatch(/const\s+fullQty\s*=\s*sizingApplyFollow\.applied\s*\?\s*sizingApplyFollow\.quantity\s*:\s*legacyFullQty/);
-    expect(BUYLIST_SRC).toMatch(/const\s+followQty\s*=\s*Math\.max\(1,\s*Math\.ceil\(fullQty\s*\*\s*0\.7\)\)/);
+    // ADR-0166 — followQtyRaw rename + exposure cap 적용 → followQty 최종
+    expect(BUYLIST_SRC).toMatch(/const\s+followQtyRaw\s*=\s*Math\.max\(1,\s*Math\.ceil\(fullQty\s*\*\s*0\.7\)\)/);
+    expect(BUYLIST_SRC).toMatch(/const\s+followQty\s*=\s*exposureCapFollow\.applied\s*\?\s*exposureCapFollow\.finalQuantity\s*:\s*followQtyRaw/);
   });
 
   it('PRE_BREAKOUT 30% 선취매 분기 — BUY 매핑 + sizingApplyPb 변수', () => {
@@ -41,10 +43,12 @@ describe('ADR-0163 Phase 2-D Extension — buyListLoop.ts 2 신규 분기 정적
     expect(pbSection).toMatch(/signalGrade:\s*['"]BUY['"]/);
   });
 
-  it('PRE_BREAKOUT 30% — 30% 비율 보존 (legacyFullPbQty rename + fullPbQty 분기)', () => {
+  it('PRE_BREAKOUT 30% — 30% 비율 보존 (legacyFullPbQty + fullPbQty + pbQtyRaw → pbQty exposure cap, ADR-0166)', () => {
     expect(BUYLIST_SRC).toMatch(/const\s*\{\s*quantity:\s*legacyFullPbQty\s*\}/);
     expect(BUYLIST_SRC).toMatch(/const\s+fullPbQty\s*=\s*sizingApplyPb\.applied\s*\?\s*sizingApplyPb\.quantity\s*:\s*legacyFullPbQty/);
-    expect(BUYLIST_SRC).toMatch(/const\s+pbQty\s*=\s*Math\.max\(1,\s*Math\.floor\(fullPbQty\s*\*\s*0\.3\)\)/);
+    // ADR-0166 — pbQtyRaw rename + exposure cap → pbQty 최종
+    expect(BUYLIST_SRC).toMatch(/const\s+pbQtyRaw\s*=\s*Math\.max\(1,\s*Math\.floor\(fullPbQty\s*\*\s*0\.3\)\)/);
+    expect(BUYLIST_SRC).toMatch(/const\s+pbQty\s*=\s*exposureCapPb\.applied\s*\?\s*exposureCapPb\.finalQuantity\s*:\s*pbQtyRaw/);
   });
 
   it('PRE_BREAKOUT_FOLLOWTHROUGH buildBuyTrade 호출에 sizingSourceFollow + sizingEngineSnapshotFollow 전달', () => {
@@ -92,9 +96,11 @@ describe('ADR-0163 Phase 2-D Extension — intradayLoop.ts 1 분기 정적 가�
     expect(intraSection).toMatch(/rrr:\s*0/);
   });
 
-  it('INTRADAY_STRONG — 100% 비율 (분할 없음, legacyIntradayQty rename + quantity 분기)', () => {
+  it('INTRADAY_STRONG — 100% 비율 (legacyIntradayQty + baseIntradayQty + quantity exposure cap, ADR-0166)', () => {
     expect(INTRADAY_SRC).toMatch(/const\s*\{\s*quantity:\s*legacyIntradayQty[^}]*\}\s*=\s*calculateOrderQuantity/);
-    expect(INTRADAY_SRC).toMatch(/const\s+quantity\s*=\s*sizingApplyIntra\.applied\s*\?\s*sizingApplyIntra\.quantity\s*:\s*legacyIntradayQty/);
+    // ADR-0166 — baseIntradayQty rename + exposure cap → quantity 최종
+    expect(INTRADAY_SRC).toMatch(/const\s+baseIntradayQty\s*=\s*sizingApplyIntra\.applied\s*\?\s*sizingApplyIntra\.quantity\s*:\s*legacyIntradayQty/);
+    expect(INTRADAY_SRC).toMatch(/const\s+quantity\s*=\s*exposureCapIntra\.applied\s*\?\s*exposureCapIntra\.finalQuantity\s*:\s*baseIntradayQty/);
   });
 
   it('INTRADAY_STRONG buildBuyTrade — sizingSourceIntra + sizingEngineSnapshotIntra 전달', () => {

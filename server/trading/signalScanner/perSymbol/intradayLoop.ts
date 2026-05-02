@@ -28,7 +28,8 @@ import { setLastBuySignalAt } from '../scanDiagnostics.js';
 import { getPrice } from './helpers.js';
 import type { IntradayLoopContext } from './types.js';
 // ADR-0163 Phase 2-D Extension — INTRADAY_STRONG 경로 SHADOW only 사이징 엔진 wiring.
-import { applyPositionSizingEngine } from '../../sizing/positionSizingEngineWiring.js';
+// ADR-0166 — Exposure Budget cap 추가 (default OFF).
+import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/positionSizingEngineWiring.js';
 
 /**
  * 장중(Intraday) Watchlist 처리 — Step 4c 이식 본체.
@@ -135,7 +136,22 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             enemyChecklistPassed: true, highDataReliability: true, gate1AllPassed: true,
             notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
           });
-          const quantity = sizingApplyIntra.applied ? sizingApplyIntra.quantity : legacyIntradayQty;
+          const baseIntradayQty = sizingApplyIntra.applied ? sizingApplyIntra.quantity : legacyIntradayQty;
+          // ── ADR-0166: INTRADAY_STRONG 노출 예산 cap (default OFF) ──
+          const exposureCapIntra = applyExposureBudgetCap({
+            rawQuantity: baseIntradayQty,
+            shadowEntryPrice,
+            accountEquity: ctx.totalAssets,
+            currentEquityExposureAmount: Math.max(0, ctx.totalAssets - ctx.mutables.orderableCash.value),
+            currentCashAmount: ctx.mutables.orderableCash.value,
+            regime: ctx.regime,
+            isAddOnBuy: false,  // INTRADAY = 신규 진입 (장중 강세)
+          });
+          const quantity = exposureCapIntra.applied ? exposureCapIntra.finalQuantity : baseIntradayQty;
+          if (exposureCapIntra.applied && exposureCapIntra.capResult?.cappedByExposureBudget) {
+            console.log(`[Sizing-ExposureBudget] ${stock.code} ${stock.name} (INTRADAY_STRONG) → qty=${quantity} (raw=${baseIntradayQty}) ${exposureCapIntra.capResult.blockReason ?? ''}`);
+          }
+          if (quantity < 1) continue;  // exposure cap 0 차단 시 진입 스킵
           const sizingSourceIntra = sizingApplyIntra.sizingSource;
           const sizingEngineSnapshotIntra = sizingApplyIntra.applied && sizingApplyIntra.result ? {
             tierName: sizingApplyIntra.result.tier.name, basePct: sizingApplyIntra.result.basePct,
