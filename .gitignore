@@ -6,6 +6,9 @@ data/
 _workspace/*
 !_workspace/PENDING_WIRING.md
 !_workspace/audit-template.md
+# ADR-0146 §"강제 트리거" audit-only PR 영속 의무 — audit-pr-*/findings.md 화이트리스트
+!_workspace/audit-pr-*/
+!_workspace/audit-pr-*/findings.md
 .DS_Store
 *.log
 *.debug.txt
