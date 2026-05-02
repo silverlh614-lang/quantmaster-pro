@@ -73,19 +73,16 @@ const SCHEMA_INTERFACES = new Set([
  * 신규 등재 시 사유 + ADR + 후속 PR 명시 의무.
  */
 const BASELINE_SILENT_DEGRADATION = [
-  // ServerShadowTrade.bepGlideTouchAt — ADR-0085 TwoBar Confirmation infrastructure.
-  // hardStopLoss.ts BEP_PROTECTION 분기 wiring 대기 (PENDING_WIRING B1, P0).
-  {
-    schema: 'ServerShadowTrade',
-    field: 'bepGlideTouchAt',
-    reason: 'ADR-0085 TwoBar Confirmation BEP_PROTECTION wiring 대기 (PENDING_WIRING B1, P0)',
-  },
+  // ServerShadowTrade.bepGlideTouchAt — PR-B1-1 (#509, 2026-05-01, ADR-0085) wiring 완료로
+  //   카탈로그에서 정식 제거. hardStopLoss.ts BEP_PROTECTION 분기에서 writer 3건 활성화.
+  //   PR-Governance-3-SLA (#510, 2026-05-02) 가 사전 baseline 4 fail 동시 차단.
   // ServerShadowTrade.price7dAgo — 과열 탐지 신호 #3 (7일 전 가격).
   // riskManager.ts:39 가 reader. 매수 시점 7일 lookback OHLCV 영속 wiring 미구현.
+  // PENDING_WIRING B7 등재 (P2, ADR-0085 후속 운영 데이터 누적 후).
   {
     schema: 'ServerShadowTrade',
     field: 'price7dAgo',
-    reason: '과열 탐지 신호 #3 — 매수 시점 7일 lookback OHLCV 영속 wiring 미구현 (PENDING_WIRING 후속 등재 필요)',
+    reason: '과열 탐지 신호 #3 — 매수 시점 7일 lookback OHLCV 영속 wiring 미구현 (PENDING_WIRING B7, P2, ADR-0085 후속)',
   },
 ];
 

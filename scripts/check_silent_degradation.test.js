@@ -43,13 +43,19 @@ function runLint(args = '') {
   }
 }
 
+// PR-Governance-3-SLA (2026-05-02): script execSync 가 5 SCHEMA_FILES * 144 옵셔널 필드 *
+// allFiles walk + reader/writer regex 매칭으로 ~24s 소요. vitest default 5s 초과 → 30s 부여.
 describe('check_silent_degradation — baseline', () => {
-  it('현재 baseline (MacroState 옵셔널 필드 전수) 통과 EXIT=0', () => {
-    const result = runLint();
-    expect(result.exitCode).toBe(0);
-    expect(result.output).toContain('OK');
-    expect(result.output).toContain('신규 위반 0건');
-  });
+  it(
+    '현재 baseline (MacroState 옵셔널 필드 전수) 통과 EXIT=0',
+    () => {
+      const result = runLint();
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('OK');
+      expect(result.output).toContain('신규 위반 0건');
+    },
+    30000
+  );
 
   it('--json 출력 baseline 흡수 + violations 0건', () => {
     const result = runLint('--json');
@@ -60,9 +66,10 @@ describe('check_silent_degradation — baseline', () => {
     // FailurePatternEntry 옵셔널 합산 — 확장 후 100+ 기대
     expect(parsed.findings.length).toBeGreaterThan(100);
     expect(parsed.violations).toEqual([]);
-    // 본 PR 확장 후 baseline 흡수 2건 (bepGlideTouchAt + price7dAgo)
-    expect(parsed.baselined.length).toBeGreaterThanOrEqual(2);
-  });
+    // PR-Governance-3-SLA (#510, 2026-05-02): bepGlideTouchAt PR-B1-1 wiring 후 카탈로그
+    // 정식 제거 → baseline 흡수 ≥1건 (price7dAgo 만).
+    expect(parsed.baselined.length).toBeGreaterThanOrEqual(1);
+  }, 30000);
 
   it('확장된 SCHEMA_FILES 5개 인터페이스 모두 추출 (PR-Governance 후속)', () => {
     const result = runLint('--json');
@@ -73,15 +80,19 @@ describe('check_silent_degradation — baseline', () => {
     expect(schemas.has('WatchlistEntry')).toBe(true);
     expect(schemas.has('ServerAttributionRecord')).toBe(true);
     expect(schemas.has('FailurePatternEntry')).toBe(true);
-  });
+  }, 30000);
 
-  it('BASELINE_SILENT_DEGRADATION 등재 항목 흡수 — bepGlideTouchAt + price7dAgo', () => {
+  it('BASELINE_SILENT_DEGRADATION 등재 항목 흡수 — price7dAgo (bepGlideTouchAt PR-B1-1 wiring)', () => {
+    // PR-Governance-3-SLA (#510, 2026-05-02): bepGlideTouchAt 는 PR-B1-1 (#509, ADR-0085)
+    // wiring 후 writer=3 활성화 → silent degradation 아님 → 카탈로그에서 정식 제거.
+    // price7dAgo 는 PENDING_WIRING B7 (P2, ADR-0085 후속) 영속 wiring 미구현 — baseline 유지.
     const result = runLint('--json');
     const parsed = JSON.parse(result.output);
     const baselineFields = new Set(parsed.baselined.map((b) => b.field));
-    expect(baselineFields.has('bepGlideTouchAt')).toBe(true);
     expect(baselineFields.has('price7dAgo')).toBe(true);
-  });
+    // bepGlideTouchAt 는 wired 후 baseline 카탈로그에서 정식 제거 — baselined 아님
+    expect(baselineFields.has('bepGlideTouchAt')).toBe(false);
+  }, 30000);
 });
 
 describe('stripComments', () => {
