@@ -351,11 +351,37 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                   ).length
                 - ctx.mutables.reservedSlots.value,
             );
-            const { quantity: fullQty } = calculateOrderQuantity({
+            const { quantity: legacyFullQty } = calculateOrderQuantity({
               totalAssets: ctx.totalAssets, orderableCash: ctx.mutables.orderableCash.value, positionPct: posPctFollow,
               price: followEntryPrice, remainingSlots: remSlots,
               accountKellyMultiplier: ctx.accountKellyMultiplier,
             });
+            // ── ADR-0163 (Phase 2-D Extension): PRE_BREAKOUT_FOLLOWTHROUGH 경로 wiring ──
+            // STRONG_BUY 매핑 (추세 추격 = 돌파 확정 후) + ENV+SHADOW 활성 시 본 모듈 override.
+            const sizingApplyFollow = applyPositionSizingEngine(ctx.shadowMode, {
+              totalAssets: ctx.totalAssets, shadowEntryPrice: followEntryPrice, stopLoss: stock.stopLoss,
+              signalGrade: 'STRONG_BUY', regimeKelly: ctx.kellyMultiplier, confidenceModifier: 1.0,
+              rrr: stock.rrr ?? 0,
+              marketCap: 1_000_000_000_000_000, avgDailyVolume20d: 1_000_000_000_000_000,
+              currentSectorWeight: 0,
+              isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
+              enemyChecklistPassed: true, highDataReliability: true, gate1AllPassed: true,
+              notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
+            });
+            const fullQty = sizingApplyFollow.applied ? sizingApplyFollow.quantity : legacyFullQty;
+            const sizingSourceFollow = sizingApplyFollow.sizingSource;
+            const sizingEngineSnapshotFollow = sizingApplyFollow.applied && sizingApplyFollow.result ? {
+              tierName: sizingApplyFollow.result.tier.name, basePct: sizingApplyFollow.result.basePct,
+              finalPositionPct: sizingApplyFollow.result.finalPositionPct, finalPositionKrw: sizingApplyFollow.result.finalPosition,
+              drawdownMultiplier: sizingApplyFollow.result.drawdownMultiplier, lossStreakMultiplier: sizingApplyFollow.result.lossStreakMultiplier,
+              liquidityMultiplier: sizingApplyFollow.result.liquidityMultiplier, sectorExposureMultiplier: sizingApplyFollow.result.sectorExposureMultiplier,
+              expectedStopLossDamagePct: sizingApplyFollow.result.expectedStopLossDamagePct,
+              signalPriorityApplied: sizingApplyFollow.result.signalPriorityApplied,
+              adjustmentReasons: sizingApplyFollow.result.adjustmentReasons, snapshotAt: new Date().toISOString(),
+            } : undefined;
+            if (sizingApplyFollow.applied) {
+              console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} (PRE_BREAKOUT_FOLLOWTHROUGH) → tier=${sizingEngineSnapshotFollow!.tierName} qty=${fullQty} (legacy=${legacyFullQty})`);
+            }
             const followQty = Math.max(1, Math.ceil(fullQty * 0.7));
             const profile    = stock.profileType ?? 'B';
             const profileKey = `profile${profile}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
@@ -382,6 +408,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               trailPct: Math.max(0.05, Math.min(0.14, (trailTarget?.trailPct ?? 0.10) + adaptiveFollowProfitTargets.trailPctAdjust)), entryATR14: followATR14,
               // ADR-0006 PR-19 baseline (PR-1) — entryConditionScores 영속.
               entryConditionScores: buildEntryConditionScores(['PRE_BREAKOUT_FOLLOWTHROUGH']),
+              // ADR-0163 Phase 2-D Extension — sizingSource marker + 스냅샷 영속.
+              sizingSource: sizingSourceFollow, sizingEngineSnapshot: sizingEngineSnapshotFollow,
             });
 
             ctx.shadows.push(followTrade);
@@ -521,11 +549,37 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                     ).length
                   - ctx.mutables.reservedSlots.value,
               );
-              const { quantity: fullPbQty } = calculateOrderQuantity({
+              const { quantity: legacyFullPbQty } = calculateOrderQuantity({
                 totalAssets: ctx.totalAssets, orderableCash: ctx.mutables.orderableCash.value, positionPct: posPctPb,
                 price: pbEntryPrice, remainingSlots: remSlotsPb,
                 accountKellyMultiplier: ctx.accountKellyMultiplier,
               });
+              // ── ADR-0163 (Phase 2-D Extension): PRE_BREAKOUT 30% 선취매 경로 wiring ──
+              // BUY 매핑 (선취매 = 사전 진입, 보수적) + 30% 비율은 호출자 측 보존.
+              const sizingApplyPb = applyPositionSizingEngine(ctx.shadowMode, {
+                totalAssets: ctx.totalAssets, shadowEntryPrice: pbEntryPrice, stopLoss: stock.stopLoss,
+                signalGrade: 'BUY', regimeKelly: ctx.kellyMultiplier, confidenceModifier: 1.0,
+                rrr: stock.rrr ?? 0,
+                marketCap: 1_000_000_000_000_000, avgDailyVolume20d: 1_000_000_000_000_000,
+                currentSectorWeight: 0,
+                isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
+                enemyChecklistPassed: true, highDataReliability: true, gate1AllPassed: true,
+                notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
+              });
+              const fullPbQty = sizingApplyPb.applied ? sizingApplyPb.quantity : legacyFullPbQty;
+              const sizingSourcePb = sizingApplyPb.sizingSource;
+              const sizingEngineSnapshotPb = sizingApplyPb.applied && sizingApplyPb.result ? {
+                tierName: sizingApplyPb.result.tier.name, basePct: sizingApplyPb.result.basePct,
+                finalPositionPct: sizingApplyPb.result.finalPositionPct, finalPositionKrw: sizingApplyPb.result.finalPosition,
+                drawdownMultiplier: sizingApplyPb.result.drawdownMultiplier, lossStreakMultiplier: sizingApplyPb.result.lossStreakMultiplier,
+                liquidityMultiplier: sizingApplyPb.result.liquidityMultiplier, sectorExposureMultiplier: sizingApplyPb.result.sectorExposureMultiplier,
+                expectedStopLossDamagePct: sizingApplyPb.result.expectedStopLossDamagePct,
+                signalPriorityApplied: sizingApplyPb.result.signalPriorityApplied,
+                adjustmentReasons: sizingApplyPb.result.adjustmentReasons, snapshotAt: new Date().toISOString(),
+              } : undefined;
+              if (sizingApplyPb.applied) {
+                console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} (PRE_BREAKOUT 30%) → tier=${sizingEngineSnapshotPb!.tierName} qty=${fullPbQty} (legacy=${legacyFullPbQty})`);
+              }
               const pbQty = Math.max(1, Math.floor(fullPbQty * 0.3)); // 30% 선취매
 
               if (pbQty >= 1) {
@@ -548,6 +602,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                   trailPct: Math.max(0.05, Math.min(0.14, (trailTargetPb?.trailPct ?? 0.10) + adaptivePreBreakoutTargets.trailPctAdjust)), entryATR14: pbATR14,
                   // ADR-0006 PR-19 baseline (PR-1) — entryConditionScores 영속.
                   entryConditionScores: buildEntryConditionScores(['PRE_BREAKOUT']),
+                  // ADR-0163 Phase 2-D Extension — sizingSource marker + 스냅샷 영속.
+                  sizingSource: sizingSourcePb, sizingEngineSnapshot: sizingEngineSnapshotPb,
                 });
 
                 ctx.shadows.push(pbTrade);
