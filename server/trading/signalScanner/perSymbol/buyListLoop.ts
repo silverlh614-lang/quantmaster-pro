@@ -101,7 +101,7 @@ import { setLastBuySignalAt } from '../scanDiagnostics.js';
 import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
 // ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
-import { applyPositionSizingEngine } from '../../sizing/positionSizingEngineWiring.js';
+import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/positionSizingEngineWiring.js';
 
 export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
   for (const stock of ctx.buyList) {
@@ -382,7 +382,22 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             if (sizingApplyFollow.applied) {
               console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} (PRE_BREAKOUT_FOLLOWTHROUGH) → tier=${sizingEngineSnapshotFollow!.tierName} qty=${fullQty} (legacy=${legacyFullQty})`);
             }
-            const followQty = Math.max(1, Math.ceil(fullQty * 0.7));
+            const followQtyRaw = Math.max(1, Math.ceil(fullQty * 0.7));
+            // ── ADR-0166: PRE_BREAKOUT_FOLLOWTHROUGH 노출 예산 cap (default OFF) ──
+            const exposureCapFollow = applyExposureBudgetCap({
+              rawQuantity: followQtyRaw,
+              shadowEntryPrice: followEntryPrice,
+              accountEquity: ctx.totalAssets,
+              currentEquityExposureAmount: Math.max(0, ctx.totalAssets - ctx.mutables.orderableCash.value),
+              currentCashAmount: ctx.mutables.orderableCash.value,
+              regime: ctx.regime,
+              isAddOnBuy: false,  // 추세 추격 = 신규 진입
+            });
+            const followQty = exposureCapFollow.applied ? exposureCapFollow.finalQuantity : followQtyRaw;
+            if (exposureCapFollow.applied && exposureCapFollow.capResult?.cappedByExposureBudget) {
+              console.log(`[Sizing-ExposureBudget] ${stock.code} ${stock.name} (PRE_BREAKOUT_FOLLOWTHROUGH) → qty=${followQty} (raw=${followQtyRaw}) ${exposureCapFollow.capResult.blockReason ?? ''}`);
+            }
+            if (followQty < 1) continue;  // exposure cap 으로 0 차단 시 진입 스킵
             const profile    = stock.profileType ?? 'B';
             const profileKey = `profile${profile}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
             const regimeStopRate = REGIME_CONFIGS[ctx.regime].stopLoss[profileKey];
@@ -580,7 +595,21 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               if (sizingApplyPb.applied) {
                 console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} (PRE_BREAKOUT 30%) → tier=${sizingEngineSnapshotPb!.tierName} qty=${fullPbQty} (legacy=${legacyFullPbQty})`);
               }
-              const pbQty = Math.max(1, Math.floor(fullPbQty * 0.3)); // 30% 선취매
+              const pbQtyRaw = Math.max(1, Math.floor(fullPbQty * 0.3)); // 30% 선취매
+              // ── ADR-0166: PRE_BREAKOUT 30% 선취매 노출 예산 cap (default OFF) ──
+              const exposureCapPb = applyExposureBudgetCap({
+                rawQuantity: pbQtyRaw,
+                shadowEntryPrice: pbEntryPrice,
+                accountEquity: ctx.totalAssets,
+                currentEquityExposureAmount: Math.max(0, ctx.totalAssets - ctx.mutables.orderableCash.value),
+                currentCashAmount: ctx.mutables.orderableCash.value,
+                regime: ctx.regime,
+                isAddOnBuy: false,  // 선취매 = 신규 진입 (사전 진입)
+              });
+              const pbQty = exposureCapPb.applied ? exposureCapPb.finalQuantity : pbQtyRaw;
+              if (exposureCapPb.applied && exposureCapPb.capResult?.cappedByExposureBudget) {
+                console.log(`[Sizing-ExposureBudget] ${stock.code} ${stock.name} (PRE_BREAKOUT 30%) → qty=${pbQty} (raw=${pbQtyRaw}) ${exposureCapPb.capResult.blockReason ?? ''}`);
+              }
 
               if (pbQty >= 1) {
                 const profilePb = stock.profileType ?? 'B';
@@ -1104,7 +1133,27 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
       });
 
-      const finalQuantity = sizingApply.applied ? sizingApply.quantity : legacyQuantity;
+      const baseQuantity = sizingApply.applied ? sizingApply.quantity : legacyQuantity;
+
+      // ── ADR-0166 (Phase 2-D Exposure Budget): 레짐별 총 노출 예산 cap ──
+      // 활성 조건: ENV `POSITION_SIZING_EXPOSURE_BUDGET_ENABLED=true` (default OFF).
+      // ENV OFF 시 baseQuantity 그대로 (회귀 위험 격리).
+      const exposureCapMain = applyExposureBudgetCap({
+        rawQuantity: baseQuantity,
+        shadowEntryPrice,
+        accountEquity: ctx.totalAssets,
+        currentEquityExposureAmount: Math.max(0, ctx.totalAssets - ctx.mutables.orderableCash.value),
+        currentCashAmount: ctx.mutables.orderableCash.value,
+        regime: ctx.regime,
+        isAddOnBuy: false,  // 메인 buyList = 신규 진입
+      });
+      const finalQuantity = exposureCapMain.applied ? exposureCapMain.finalQuantity : baseQuantity;
+      if (exposureCapMain.applied && exposureCapMain.capResult?.cappedByExposureBudget) {
+        console.log(
+          `[Sizing-ExposureBudget] ${stock.code} ${stock.name} → regime=${exposureCapMain.budget!.regime} ` +
+          `qty=${finalQuantity} (raw=${baseQuantity}) ${exposureCapMain.capResult.blockReason ?? ''}`,
+        );
+      }
       const sizingSource = sizingApply.sizingSource;
       const sizingEngineSnapshot = sizingApply.applied && sizingApply.result ? {
         tierName:               sizingApply.result.tier.name,
