@@ -85,6 +85,7 @@ import { trancheExecutor } from './trancheExecutor.js';
 import { getVixGating } from './vixGating.js';
 import { getFomcProximity } from './fomcCalendar.js';
 import { combineRegimeAndFomcKelly, describeRegimeFomcCombination } from './regimeFomcCombiner.js';
+import { applyKellyClamp, KELLY_FLOOR } from './sizing/kellyClamp.js';
 import {
   MAX_INTRADAY_POSITIONS,
   INTRADAY_POSITION_PCT_FACTOR,
@@ -396,8 +397,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   }
 
   // 레짐 Kelly × VIX Kelly × FOMC Kelly × IPS 변곡 감쇠 → 유효 배율
-  // 최소 하한선 0.15 — 누적 패널티가 과도하게 쌓여 포지션이 의미 없이 작아지는 것을 방지
-  const KELLY_FLOOR = 0.15;
+  // ADR-0168: clamp 수치 정책 (KELLY_CAP=1.5 + KELLY_FLOOR=0.15) SSOT 통합 (preflight.ts 와 drift 차단)
   const ipsKelly = getIpsKellyMultiplier();
   const accountKellyMultiplier = getAccountScaleKellyMultiplier(totalAssets);
   const biasPositionPenalty = computeBiasPositionPenalty();
@@ -411,10 +411,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     regimeConfig.kellyMultiplier, fomcProximity.kellyMultiplier, fomcProximity.phase, regime,
   );
   const rawKelly = regimeFomcCombined.value * vixGating.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier * biasMultiplier;
-  const kellyMultiplier = Math.min(
-    1.5,  // 상한 캡 (POST 부스트 구간에서도 최대 1.5배)
-    Math.max(KELLY_FLOOR, rawKelly),
-  );
+  const kellyMultiplier = applyKellyClamp(rawKelly);
   if (ipsKelly < 1.0) {
     console.log(`[AutoTrade] IPS 변곡 Kelly 감쇠 적용 — ×${ipsKelly.toFixed(2)}`);
   }

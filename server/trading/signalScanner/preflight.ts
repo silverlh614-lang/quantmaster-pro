@@ -29,6 +29,7 @@ import { REGIME_CONFIGS } from '../../../src/services/quant/regimeEngine.js';
 import { getVixGating, type VixGating } from '../vixGating.js';
 import { getFomcProximity, type FomcProximity } from '../fomcCalendar.js';
 import { combineRegimeAndFomcKelly, describeRegimeFomcCombination } from '../regimeFomcCombiner.js';
+import { applyKellyClamp, KELLY_FLOOR } from '../sizing/kellyClamp.js';
 import { checkVolumeClockWindow, type VolumeClockResult } from '../volumeClock.js';
 import { evaluateMacroStaleness, formatStalenessTier } from '../macroStaleness.js';
 import { isDataStarvedScan, getCompletenessSnapshot } from '../../screener/dataCompletenessTracker.js';
@@ -344,7 +345,7 @@ export async function runPreflight(
   }
 
   // ── 10. Kelly 배율 합성 (ADR-0076 옵션 C: FOMC 우선 + R6 보호) ───────────
-  const KELLY_FLOOR = 0.15;
+  // ADR-0168: clamp 수치 정책 (KELLY_CAP=1.5 + KELLY_FLOOR=0.15) SSOT 통합
   const ipsKelly = getIpsKellyMultiplier();
   const accountKellyMultiplier = getAccountScaleKellyMultiplier(totalAssets);
   const biasPositionPenalty = computeBiasPositionPenalty();
@@ -355,10 +356,7 @@ export async function runPreflight(
     regimeConfig.kellyMultiplier, fomcProximity.kellyMultiplier, fomcProximity.phase, regime,
   );
   const rawKelly = regimeFomcCombined.value * vixGating.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier * biasMultiplier;
-  const kellyMultiplier = Math.min(
-    1.5,
-    Math.max(KELLY_FLOOR, rawKelly),
-  );
+  const kellyMultiplier = applyKellyClamp(rawKelly);
   if (ipsKelly < 1.0) {
     console.log(`[AutoTrade] IPS 변곡 Kelly 감쇠 적용 — ×${ipsKelly.toFixed(2)}`);
   }
