@@ -20,12 +20,12 @@ describe('ADR-0162 Phase 2-D wiring 정적 가드 — buyListLoop.ts', () => {
     expect(matches!.length).toBe(1);
   });
 
-  it('applyPositionSizingEngine 호출 정확 1건 (메인 buyList 만)', () => {
-    // `applyPositionSizingEngine(stockShadowMode, { ... })` 패턴
+  it('applyPositionSizingEngine 호출 정확 3건 (ADR-0163 Phase 2-D Extension — 메인 buyList + PRE_BREAKOUT_FOLLOWTHROUGH + PRE_BREAKOUT 30%)', () => {
+    // `applyPositionSizingEngine(...)` 호출 패턴 (import 제외, 함수 호출만)
     const calls = SOURCE.match(/applyPositionSizingEngine\s*\(/g);
     expect(calls).not.toBeNull();
-    // import 1 + 호출 1 = 2 (import 도 패턴 매칭하지만 다른 정규식이라 분리)
-    expect(calls!.length).toBe(1);
+    // ADR-0162 (메인 buyList 1건) + ADR-0163 (PRE_BREAKOUT_FOLLOWTHROUGH 1건 + PRE_BREAKOUT 30% 1건) = 3건
+    expect(calls!.length).toBe(3);
   });
 
   it('legacyQuantity rename — calculateOrderQuantity 결과 변수', () => {
@@ -53,7 +53,8 @@ describe('ADR-0162 Phase 2-D wiring 정적 가드 — buyListLoop.ts', () => {
       const matches = line.match(/\bquantity\b/g);
       if (!matches) return;
       // 허용 패턴 (sed 후 잔존 가능)
-      const allowed = /(originalQuantity|legacyQuantity|finalQuantity|quantity:|p\.quantity|trade\.quantity|sized\.quantity|firstQuantity|totalQuantity|sizingApply\.quantity|: number|: quantity)/;
+      // ADR-0163 추가 — legacyFullQty/legacyFullPbQty + sizingApplyFollow/sizingApplyPb.quantity 패턴 허용.
+      const allowed = /(originalQuantity|legacyQuantity|legacyFullQty|legacyFullPbQty|legacyIntradayQty|finalQuantity|fullQty|fullPbQty|quantity:|p\.quantity|trade\.quantity|sized\.quantity|firstQuantity|totalQuantity|sizingApply\w*\.quantity|: number|: quantity)/;
       if (!allowed.test(line)) {
         violations.push(`${idx + 1}: ${line.trim().slice(0, 100)}`);
       }

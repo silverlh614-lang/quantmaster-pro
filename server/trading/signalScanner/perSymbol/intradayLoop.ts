@@ -27,6 +27,8 @@ import { type ApprovalAction } from '../../../telegram/buyApproval.js';
 import { setLastBuySignalAt } from '../scanDiagnostics.js';
 import { getPrice } from './helpers.js';
 import type { IntradayLoopContext } from './types.js';
+// ADR-0163 Phase 2-D Extension — INTRADAY_STRONG 경로 SHADOW only 사이징 엔진 wiring.
+import { applyPositionSizingEngine } from '../../sizing/positionSizingEngineWiring.js';
 
 /**
  * 장중(Intraday) Watchlist 처리 — Step 4c 이식 본체.
@@ -109,7 +111,7 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
           const rawPositionPct  = 0.05; // Intraday 기본 포지션
           const positionPct     = rawPositionPct * ctx.kellyMultiplier * INTRADAY_POSITION_PCT_FACTOR;
           const remainingSlots  = Math.max(1, MAX_INTRADAY_POSITIONS - currentIntradayActive);
-          const { quantity, effectiveBudget } = calculateOrderQuantity({
+          const { quantity: legacyIntradayQty, effectiveBudget } = calculateOrderQuantity({
             totalAssets: ctx.totalAssets,
             orderableCash: ctx.mutables.orderableCash.value,
             positionPct,
@@ -118,7 +120,35 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             accountKellyMultiplier: ctx.accountKellyMultiplier,
           });
 
-          if (quantity < 1) continue;
+          if (legacyIntradayQty < 1) continue;
+
+          // ── ADR-0163 (Phase 2-D Extension): INTRADAY_STRONG 경로 wiring ──
+          // BUY 매핑 (장중 강세 = 보수적 진입) + 100% (분할 없음).
+          // INTRADAY 는 universe 기준 미부합 가능성 → 큰 수 전달로 차단 회피.
+          const sizingApplyIntra = applyPositionSizingEngine(ctx.shadowMode, {
+            totalAssets: ctx.totalAssets, shadowEntryPrice, stopLoss: intradayStop,
+            signalGrade: 'BUY', regimeKelly: ctx.kellyMultiplier, confidenceModifier: 1.0,
+            rrr: 0,  // INTRADAY 는 RRR 평가 부재 — 본 모듈 rrrMultiplier=0 → engine 차단 → legacy fallback
+            marketCap: 1_000_000_000_000_000, avgDailyVolume20d: 1_000_000_000_000_000,
+            currentSectorWeight: 0,
+            isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
+            enemyChecklistPassed: true, highDataReliability: true, gate1AllPassed: true,
+            notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
+          });
+          const quantity = sizingApplyIntra.applied ? sizingApplyIntra.quantity : legacyIntradayQty;
+          const sizingSourceIntra = sizingApplyIntra.sizingSource;
+          const sizingEngineSnapshotIntra = sizingApplyIntra.applied && sizingApplyIntra.result ? {
+            tierName: sizingApplyIntra.result.tier.name, basePct: sizingApplyIntra.result.basePct,
+            finalPositionPct: sizingApplyIntra.result.finalPositionPct, finalPositionKrw: sizingApplyIntra.result.finalPosition,
+            drawdownMultiplier: sizingApplyIntra.result.drawdownMultiplier, lossStreakMultiplier: sizingApplyIntra.result.lossStreakMultiplier,
+            liquidityMultiplier: sizingApplyIntra.result.liquidityMultiplier, sectorExposureMultiplier: sizingApplyIntra.result.sectorExposureMultiplier,
+            expectedStopLossDamagePct: sizingApplyIntra.result.expectedStopLossDamagePct,
+            signalPriorityApplied: sizingApplyIntra.result.signalPriorityApplied,
+            adjustmentReasons: sizingApplyIntra.result.adjustmentReasons, snapshotAt: new Date().toISOString(),
+          } : undefined;
+          if (sizingApplyIntra.applied) {
+            console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} (INTRADAY_STRONG) → tier=${sizingEngineSnapshotIntra!.tierName} qty=${quantity} (legacy=${legacyIntradayQty})`);
+          }
 
           // C3 수정: regimeStopLoss = intradayStop → exitEngine 일관된 손절 계산
           const intradayStopPlan = {
@@ -136,6 +166,8 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             trailPct: 0.05,    // 장중: 5% 트레일링
             // ADR-0006 PR-19 baseline (PR-1) — entryConditionScores 영속.
             entryConditionScores: buildEntryConditionScores(['INTRADAY_STRONG']),
+            // ADR-0163 Phase 2-D Extension — sizingSource marker + 스냅샷 영속.
+            sizingSource: sizingSourceIntra, sizingEngineSnapshot: sizingEngineSnapshotIntra,
           });
 
           // BUG-10 fix: 실시간 Gate 평가로 Intraday 종목의 gateScore 추정
