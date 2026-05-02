@@ -78,17 +78,19 @@ describe('shouldApplyPositionSizingEngine — ENV + SHADOW 분기 SSOT', () => {
   });
 });
 
-// ─── isLivePositionSizingEngineEnabled (ADR-0162 §"잘못된 해결 방법" 영구 차단) ─
+// ─── isLivePositionSizingEngineEnabled (ADR-0165 — ENV 기반 동적 결정) ──────
 
-describe('isLivePositionSizingEngineEnabled — LIVE 활성화 영구 차단 (본 PR scope 외)', () => {
-  it('항상 false (후속 PR 도입 자리)', () => {
+describe('isLivePositionSizingEngineEnabled — ADR-0165 ENV 동적 결정 (default OFF)', () => {
+  it('LIVE_ENABLED ENV 미설정 (default) → false', () => {
     expect(isLivePositionSizingEngineEnabled()).toBe(false);
   });
 
-  it('SHADOW APPLY ENV 활성화도 LIVE enabled 무영향', () => {
+  it('SHADOW APPLY ENV 활성화 → LIVE_ENABLED 무영향 (default false)', () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'true';
     expect(isLivePositionSizingEngineEnabled()).toBe(false);
   });
+
+  // ADR-0165 정합: LIVE_ENABLED ENV 활성/비활성 상세 분기는 positionSizingEngineWiringPhase3.test.ts 에서 검증.
 });
 
 // ─── mapToPositionSizingInput — 입력 매핑 + 안전 fallback ──────────────────

@@ -1,12 +1,13 @@
 /**
- * @responsibility ADR-0162 Phase 2-D wiring SSOT — ENV 우회 + 입력 매핑 + 안전 fallback 진입점
+ * @responsibility ADR-0162+0163+0164+0165 통합 wiring SSOT — ENV 우회 + 입력 매핑 + LIVE 활성화 진입점
  *
- * 호출자: `server/trading/signalScanner/perSymbol/buyListLoop.ts` 메인 buyList 한 곳만.
- * PRE_BREAKOUT_FOLLOWTHROUGH / PRE_BREAKOUT / INTRADAY_STRONG 3 곳은 후속 PR.
+ * 호출자 (4 진입 경로): buyListLoop.ts 3 곳 (메인 + PRE_BREAKOUT_FOLLOWTHROUGH + PRE_BREAKOUT 30%) + intradayLoop.ts 1 곳.
  *
  * 절대 규칙:
- * 1. ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY` 미설정 또는 'true' 외 값 → 본 모듈 미적용 (기존 SSOT 100% 보존).
- * 2. LIVE 모드 (`shadowMode=false`) → 본 모듈 미적용 (LIVE 회귀 위험 격리, 후속 PR 별도 ENV).
+ * 1. SHADOW 모드 활성: ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 (default OFF).
+ * 2. LIVE 모드 활성 (ADR-0165): ENV `POSITION_SIZING_ENGINE_LIVE_ENABLED=true` 명시 (default OFF, 운영자 의무).
+ *    - LIVE 활성 시 SHADOW APPLY 도 자동 활성 (LIVE only 모드 부재).
+ *    - LIVE 모드 시 peakEquityMode='LIVE' 자동 매핑 → SHADOW peak 와 영속 격리.
  * 3. 입력 매핑 실패 (NaN/누락) → null 반환 = 기존 SSOT 사용 (안전 fallback).
  * 4. 본 모듈 결과 quantity < 1 → 기존 quantity 사용 (사이즈 0 진입 차단).
  */
@@ -27,26 +28,36 @@ import {
 // ─── ENV 우회 SSOT ──────────────────────────────────────────────────────────
 
 /**
- * 본 모듈 적용 여부 결정 — ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY` + 모드 분기.
+ * 본 모듈 적용 여부 결정 — ENV + 모드 분기 SSOT.
  *
- * 활성 조건 (모두 충족):
- *   1. `shadowMode === true` (SHADOW 모드만, LIVE 회귀 위험 격리)
- *   2. `process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY === 'true'` (명시 활성화)
+ * 활성 조건 (모드별 OR):
+ *   - SHADOW: `shadowMode === true` AND `POSITION_SIZING_ENGINE_SHADOW_APPLY === 'true'`
+ *   - LIVE (ADR-0165): `shadowMode === false` AND `isLivePositionSizingEngineEnabled() === true`
+ *     (LIVE ENV 활성 시 SHADOW ENV 자동 활성 — LIVE only 모드 부재)
  *
- * default OFF — PR 머지 후 운영자가 명시 활성화 의무.
+ * default 둘 다 OFF — PR 머지 후 운영자가 명시 활성화 의무.
  */
 export function shouldApplyPositionSizingEngine(shadowMode: boolean): boolean {
-  if (!shadowMode) return false; // LIVE 회귀 위험 격리
-  return process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY === 'true';
+  if (shadowMode) {
+    return process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY === 'true';
+  }
+  // LIVE 모드 — ADR-0165 활성화 정책
+  return isLivePositionSizingEngineEnabled();
 }
 
 /**
- * ADR-0162 §"잘못된 해결 방법" 영구 차단 — LIVE 활성화는 별도 ENV `_LIVE_ENABLED=true` (후속 PR).
- * 본 함수는 *현재 PR scope 외* — 후속 PR 도입 시점에 본 모듈에 추가될 자리.
+ * ADR-0165 — LIVE 모드 활성화 정책 (ENV 기반 동적 결정).
+ *
+ * 활성 조건: `process.env.POSITION_SIZING_ENGINE_LIVE_ENABLED === 'true'`.
+ * default OFF — 운영자가 SHADOW 1주 검증 후 명시 활성화 의무.
+ *
+ * 활성 시 효과:
+ * - LIVE 모드에서도 본 모듈 결정 사용 (사이징 직접 영향)
+ * - LIVE peak 자동 갱신 (`livePeakEquity` 영속 활성)
+ * - 사용자 자본 (LIVE 시 재확인) 정확한 6 티어 매트릭스 적용
  */
 export function isLivePositionSizingEngineEnabled(): boolean {
-  // 후속 PR (Phase 3) 에서 활성화. 본 PR 시점은 영원히 false.
-  return false;
+  return process.env.POSITION_SIZING_ENGINE_LIVE_ENABLED === 'true';
 }
 
 // ─── 입력 매핑 (안전 fallback) ──────────────────────────────────────────────
@@ -158,6 +169,9 @@ export function applyPositionSizingEngine(
   ctx: MapToInputContext,
 ): ApplyPositionSizingResult {
   if (!shouldApplyPositionSizingEngine(shadowMode)) {
+    // ADR-0165 — skip 사유 분기:
+    // SHADOW + ENV OFF → ENV_DISABLED
+    // LIVE + ENV OFF → LIVE_MODE (LIVE 활성화 ENV 미설정)
     return {
       applied: false,
       quantity: 0,
@@ -166,10 +180,10 @@ export function applyPositionSizingEngine(
     };
   }
 
-  // ADR-0164 — 본 모듈 활성 시 peakEquity 자동 갱신 (totalAssets > peak 시 영속 갱신).
+  // ADR-0164+0165 — peakEquity 자동 갱신 hook (mode 자동 결정).
+  // 호출자 ctx.peakEquityMode 명시 우선, 미전달 시 shadowMode 기반 자동 결정 (SHADOW vs LIVE 격리).
   // 갱신 실패 (영속 throw) 는 silent skip — 매매 흐름 무중단.
-  // SHADOW only 활성 (shouldApplyPositionSizingEngine 통과 후) 이라 mode='SHADOW' 보장.
-  const peakMode: PeakEquityMode = ctx.peakEquityMode ?? 'SHADOW';
+  const peakMode: PeakEquityMode = ctx.peakEquityMode ?? (shadowMode ? 'SHADOW' : 'LIVE');
   try {
     const updated = updatePeakEquityIfHigher(peakMode, ctx.totalAssets);
     if (updated) {
@@ -179,7 +193,9 @@ export function applyPositionSizingEngine(
     console.warn(`[PeakEquity] ${peakMode} 갱신 실패 (안전 통과): ${(err as Error).message}`);
   }
 
-  const input = mapToPositionSizingInput(ctx);
+  // ADR-0165 — peakMode 자동 결정 결과를 ctx 에 주입하여 mapToPositionSizingInput 정합 보장.
+  // 호출자가 명시 전달한 경우 보존, 미전달 시 자동 결정값 사용.
+  const input = mapToPositionSizingInput({ ...ctx, peakEquityMode: peakMode });
   if (!input) {
     return {
       applied: false,
