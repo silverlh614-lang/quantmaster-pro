@@ -25,7 +25,7 @@ import {
 } from '../../../screener/intradayScanner.js';
 import { type ApprovalAction } from '../../../telegram/buyApproval.js';
 import { setLastBuySignalAt } from '../scanDiagnostics.js';
-import { getPrice } from './helpers.js';
+import { getPrice, buildExposureBudgetMacroInput } from './helpers.js';
 import type { IntradayLoopContext } from './types.js';
 // ADR-0163 Phase 2-D Extension — INTRADAY_STRONG 경로 SHADOW only 사이징 엔진 wiring.
 // ADR-0166 — Exposure Budget cap 추가 (default OFF).
@@ -148,6 +148,7 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             currentCashAmount: ctx.mutables.orderableCash.value,
             regime: ctx.regime,
             isAddOnBuy: false,  // INTRADAY = 신규 진입 (장중 강세)
+            macro: buildExposureBudgetMacroInput(ctx.macroState),  // ADR-0170 §M4 — R1_DEFENSIVE 자동 격상
           });
           const quantity = exposureCapIntra.applied ? exposureCapIntra.finalQuantity : baseIntradayQty;
           if (exposureCapIntra.applied && exposureCapIntra.capResult?.cappedByExposureBudget) {

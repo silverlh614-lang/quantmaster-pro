@@ -118,3 +118,22 @@ export function getAdaptiveProfitTargets(
     reason,
   };
 }
+
+/**
+ * ADR-0170 §M4 — `applyExposureBudgetCap` 의 macro 입력 헬퍼.
+ *
+ * macroState 부재 시 undefined 반환 → ADR-0166 기존 매핑 그대로 (회귀 위험 격리).
+ * 매크로 신호 부재 시 R5_CAUTION → R2_WEAK 매핑 그대로, 매크로 활성 시 R1_DEFENSIVE 자동 격상.
+ *
+ * 4 호출자 (buyListLoop 3 + intradayLoop 1) drift 차단 단일 진입점.
+ */
+export function buildExposureBudgetMacroInput(
+  macroState: MacroState | null | undefined,
+): { vix?: number; vkospi?: number; bearDefenseMode?: boolean } | undefined {
+  if (!macroState) return undefined;
+  return {
+    vix: macroState.vix,
+    vkospi: macroState.vkospi,
+    bearDefenseMode: macroState.bearDefenseMode,
+  };
+}

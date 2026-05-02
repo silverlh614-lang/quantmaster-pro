@@ -29,7 +29,9 @@ import {
   applyPortfolioExposureCap,
   isExposureBudgetEnabled,
   mapInternalToExposureRegime,
+  mapInternalToExposureRegimeWithMacro,
   type MarketRegimeLevel,
+  type ExposureRegimeMacroInput,
   type PortfolioExposureBudget,
   type ApplyPortfolioExposureCapResult,
 } from './regimeExposurePolicy.js';
@@ -276,8 +278,13 @@ export interface ApplyExposureBudgetCapInput {
   regime: RegimeLevel;
   /** 신규 매수 vs 추매 (호출자 분류) */
   isAddOnBuy: boolean;
-  /** 호출자 명시 매핑 — 미전달 시 mapInternalToExposureRegime 자동 적용 */
+  /** 호출자 명시 매핑 — 미전달 시 mapInternalToExposureRegimeWithMacro 자동 적용 (ADR-0170) */
   exposureRegime?: MarketRegimeLevel;
+  /**
+   * ADR-0170 §M4 — 매크로 신호 입력 (R1_DEFENSIVE 자동 격상용).
+   * 미전달 시 기존 mapInternalToExposureRegime 매핑 그대로 (회귀 위험 격리).
+   */
+  macro?: ExposureRegimeMacroInput;
 }
 
 export interface ApplyExposureBudgetCapResult {
@@ -331,7 +338,11 @@ export function applyExposureBudgetCap(input: ApplyExposureBudgetCapInput): Appl
     };
   }
 
-  const exposureRegime = input.exposureRegime ?? mapInternalToExposureRegime(input.regime);
+  // ADR-0170 §M4 — 매크로 신호 입력 시 R1_DEFENSIVE 자동 격상 (R5_CAUTION + bearDefenseMode/VIX/VKOSPI)
+  const exposureRegime = input.exposureRegime
+    ?? (input.macro
+      ? mapInternalToExposureRegimeWithMacro(input.regime, input.macro)
+      : mapInternalToExposureRegime(input.regime));
 
   const budget = computePortfolioExposureBudget({
     accountEquity: input.accountEquity,

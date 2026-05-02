@@ -98,7 +98,7 @@ import {
   type LiveBuyTask,
 } from '../../buyPipeline.js';
 import { setLastBuySignalAt } from '../scanDiagnostics.js';
-import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, type SymbolExitContext } from './helpers.js';
+import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
 // ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
 import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/positionSizingEngineWiring.js';
@@ -394,6 +394,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               currentCashAmount: ctx.mutables.orderableCash.value,
               regime: ctx.regime,
               isAddOnBuy: false,  // 추세 추격 = 신규 진입
+              macro: buildExposureBudgetMacroInput(ctx.macroState),  // ADR-0170 §M4 — R1_DEFENSIVE 자동 격상
             });
             const followQty = exposureCapFollow.applied ? exposureCapFollow.finalQuantity : followQtyRaw;
             if (exposureCapFollow.applied && exposureCapFollow.capResult?.cappedByExposureBudget) {
@@ -607,6 +608,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                 currentCashAmount: ctx.mutables.orderableCash.value,
                 regime: ctx.regime,
                 isAddOnBuy: false,  // 선취매 = 신규 진입 (사전 진입)
+                macro: buildExposureBudgetMacroInput(ctx.macroState),  // ADR-0170 §M4 — R1_DEFENSIVE 자동 격상
               });
               const pbQty = exposureCapPb.applied ? exposureCapPb.finalQuantity : pbQtyRaw;
               if (exposureCapPb.applied && exposureCapPb.capResult?.cappedByExposureBudget) {
@@ -1148,6 +1150,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         currentCashAmount: ctx.mutables.orderableCash.value,
         regime: ctx.regime,
         isAddOnBuy: false,  // 메인 buyList = 신규 진입
+        macro: buildExposureBudgetMacroInput(ctx.macroState),  // ADR-0170 §M4 — R1_DEFENSIVE 자동 격상
       });
       const finalQuantity = exposureCapMain.applied ? exposureCapMain.finalQuantity : baseQuantity;
       if (exposureCapMain.applied && exposureCapMain.capResult?.cappedByExposureBudget) {
