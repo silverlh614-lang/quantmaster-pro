@@ -29,7 +29,9 @@ import { getPrice } from './helpers.js';
 import type { IntradayLoopContext } from './types.js';
 // ADR-0163 Phase 2-D Extension — INTRADAY_STRONG 경로 SHADOW only 사이징 엔진 wiring.
 // ADR-0166 — Exposure Budget cap 추가 (default OFF).
+// ADR-0167 — currentEquityExposureAmount 정확 산출 (default OFF, ENV `POSITION_SIZING_ACCURATE_EXPOSURE_ENABLED=true`).
 import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/positionSizingEngineWiring.js';
+import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
 
 /**
  * 장중(Intraday) Watchlist 처리 — Step 4c 이식 본체.
@@ -142,7 +144,7 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             rawQuantity: baseIntradayQty,
             shadowEntryPrice,
             accountEquity: ctx.totalAssets,
-            currentEquityExposureAmount: Math.max(0, ctx.totalAssets - ctx.mutables.orderableCash.value),
+            currentEquityExposureAmount: resolveCurrentEquityExposure(ctx.totalAssets, ctx.mutables.orderableCash.value, ctx.shadows),
             currentCashAmount: ctx.mutables.orderableCash.value,
             regime: ctx.regime,
             isAddOnBuy: false,  // INTRADAY = 신규 진입 (장중 강세)
