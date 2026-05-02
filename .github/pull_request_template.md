@@ -29,9 +29,10 @@ LIVE 매매 회귀 위험 격리를 위해 모든 PR 이 본 체크리스트 답
 
 ### 🔌 wiring 완료 vs 인프라만
 
-- [ ] 본 PR 이 *영속 schema + SSOT 함수만 신설* + 호출자 wiring 부재인 경우, `_workspace/PENDING_WIRING.md` 등재 (ADR + 차단 사유 + 우선순위 P0/P1/P2/P3).
+- [ ] 본 PR 이 *영속 schema + SSOT 함수만 신설* + 호출자 wiring 부재인 경우, `_workspace/PENDING_WIRING.md` 등재 (ADR + **등재일 (PR 머지일)** + 차단 사유 + 우선순위 P0/P1/P2/P3).
 - [ ] 본 PR 이 *인프라 + wiring 통합* 인 경우, PENDING_WIRING 잔여 항목 갱신 또는 제거.
-- [ ] *영원히 dead code 로 남는* 의도된 SSOT (helper / 백테스트 전용) 는 `DECIDED_NOT_WIRING` 명시.
+- [ ] *영원히 dead code 로 남는* 의도된 SSOT (helper / 백테스트 전용) 는 `DECIDED_NOT_WIRING` 명시 (등재일은 결정 PR 머지일 또는 `—`).
+- [ ] **INFRASTRUCTURE_ONLY 등재 시** *wiring 약속 PR 번호* 또는 *SLA 만기일* 둘 중 하나 reason 컬럼에 명시 (ADR-0158 SLA 매트릭스: P0=21일 / P1=45일 / P2=120일 / P3=무기한, grace 14일 후 빌드 FAIL).
 
 ### 📜 ADR 발급
 
@@ -42,7 +43,7 @@ LIVE 매매 회귀 위험 격리를 위해 모든 PR 이 본 체크리스트 답
 ### ✅ 검증
 
 - [ ] `npm run lint` EXIT=0 (client + server tsc).
-- [ ] `npm run validate:all` 13종 모두 OK (Gemini / ACMA / SDS / PRES / Responsibility / SymbolBoundary / ChannelBoundary / SensitiveAlerts / MarketOverviewBoundary / YahooRange / UILanguage / DataTrust / SilentDegradation).
+- [ ] `npm run validate:all` 16종 모두 OK (Gemini / ACMA / SDS / PRES / Responsibility / SymbolBoundary / ChannelBoundary / SensitiveAlerts / MarketOverviewBoundary / YahooRange / UILanguage / DataTrust / SilentDegradation / ADRIndex / PendingWiring / PrPaceAudit). PendingWiring 은 **카테고리 H — Wiring SLA 자동 만료 (ADR-0158)** 포함 — H_SLA_FAIL EXIT=1.
 - [ ] `ALLOW_DEPLOY_WINDOW=1 npm run precommit` 본체 EXIT=0.
 - [ ] `git merge-tree` 충돌 검사 통과 (또는 충돌 해소 명시).
 

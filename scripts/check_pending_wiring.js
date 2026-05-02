@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @responsibility PENDING_WIRING.md ↔ INDEX.md / 백로그 SSOT 정합 정적 검증
+ * @responsibility PENDING_WIRING.md ↔ INDEX.md / 백로그 SSOT 정합 + SLA 자동 만료 정적 검증
  *
  * 사용자 4-항목 추천 후속 자동화 #2 — *"PR-L/N/O 같은 게 영원히 dead code 로 남는 결함"*
  * 영구 차단. PENDING_WIRING.md 가 단일 wiring 추적 SSOT 임을 정적 강제.
@@ -16,11 +16,19 @@
  *      G1 — 모듈 경로 백틱 안 파일이 실제 존재 (placeholder 제외)
  *      G2 — DECIDED_NOT_WIRING 항목은 reason 에 PR 인용 (`PR-` / `완료` / audit 산출물 인용) 의무
  *      G3 — INFRASTRUCTURE_ONLY / PARTIAL / BLOCKED 항목은 reason 에 차단 사유 / 다음 액션 명시 의무
+ *   H) SLA 자동 만료 (ADR-0158, PR-Governance-3-SLA):
+ *      H1 — SLA 초과 (WARN, EXIT=0) — `now - 등재일 > SLA_DAYS[priority]`. P3/DECIDED_NOT_WIRING 면제.
+ *      H2 — SLA + grace 초과 (FAIL, EXIT=1) — `now - 등재일 > SLA_DAYS[priority] + GRACE_DAYS`.
+ *      H3 — 등재일 형식 정합 — `YYYY-MM-DD` 또는 `—` 외 차단. (잘못된 형식 FAIL)
+ *      H4 — BLOCKED 면제 사유 명시 — BLOCKED + reason 에 면제 사유 패턴 부재 + SLA 초과 시 H1/H2 그대로 적용.
  *
  *      배경: A3 (emitFullCloseAttribution) 가 6개월간 INFRASTRUCTURE_ONLY stale 로 남았던
- *      이유 — 백로그 등재가 *실제 코드 상태와 정합* 하는지 검사 부재. G 카테고리는
- *      "코드는 wired 되었는데 백로그가 갱신 안 됨" / "신규 항목인데 모듈 경로 오타" 등
- *      drift 영구 차단.
+ *      이유 — 백로그 등재 시점에 *언제까지 wiring 의무인지* 부재. H 카테고리는 우선순위별
+ *      SLA (P0=21/P1=45/P2=120/P3=무기한) + grace 14일 + 면제 정책으로 영구 차단.
+ *
+ *      ENV 우회:
+ *        - WIRING_SLA_GRACE_DAYS=N (기본 14, 0~30일 조정, 0 시 즉시 FAIL)
+ *        - WIRING_SLA_DISABLED=true (긴급 운영 우회 — 정책 즉시 비활성)
  *
  * 본 PR (Governance 후속): baseline 0건 위반 — 신규 회귀만 차단.
  *
@@ -50,9 +58,10 @@ export const VALID_PRIORITIES = new Set(['P0', 'P1', 'P2', 'P3']);
 export const EXPECTED_CATEGORIES = ['A', 'B', 'C', 'D', 'E'];
 
 const ID_RE = /^[A-E]\d+$/;
-// PR-Governance-Followup-2: 6 컬럼 모두 캡처 (id/adr/모듈/상태/우선순위/사유)
+// PR-Governance-3-SLA: 7 컬럼 모두 캡처 (id/adr/모듈/등재일/상태/우선순위/사유)
+//   - 등재일은 `YYYY-MM-DD` 또는 `—` (em dash) 또는 `-` (hyphen). H3 형식 검증은 별도 함수.
 const ROW_RE =
-  /^\|\s*([A-Z]\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([A-Z_]+)\s*\|\s*(P\d)\s*\|\s*(.+?)\s*\|\s*$/;
+  /^\|\s*([A-Z]\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([A-Z_]+)\s*\|\s*(P\d)\s*\|\s*(.+?)\s*\|\s*$/;
 const CATEGORY_RE = /^###\s+([A-E])\.\s+/;
 const ADR_REF_RE = /\b(\d{4})\b/g;
 // PR-Governance-Followup-2: 모듈 경로 백틱 추출 (예: `server/persistence/x.ts`)
@@ -66,6 +75,30 @@ const DECIDED_REASON_REF_RE =
 // PR-Governance-Followup-2: 와일드카드 / glob 경로 — 파일 단위 검증 skip
 const WILDCARD_RE = /[*?]/;
 
+// PR-Governance-3-SLA (ADR-0158): SLA 자동 만료 SSOT
+//   - P0=21일 / P1=45일 / P2=120일 / P3=무기한 (null = SLA 미적용)
+//   - DECIDED_NOT_WIRING / 등재일 `—` 도 SLA 미적용
+export const SLA_DAYS = Object.freeze({
+  P0: 21,
+  P1: 45,
+  P2: 120,
+  P3: null,
+});
+
+// PR-Governance-3-SLA (ADR-0158): grace 임계 (default 14일)
+//   - WIRING_SLA_GRACE_DAYS ENV 우회 시 0~30 범위 클램프, 미설정 시 default
+//   - 0 시 즉시 FAIL (grace 비활성)
+export const DEFAULT_GRACE_DAYS = 14;
+
+// PR-Governance-3-SLA (ADR-0158): BLOCKED 면제 사유 패턴 SSOT
+//   - reason 에 다음 패턴 매칭 시 BLOCKED 항목 SLA 면제
+const SLA_EXEMPTION_RE =
+  /(외부\s*의존성|외부\s*API|운영자\s*결정|사용자\s*결정|데이터\s*누적|데이터\s*가용|데이터\s*기반|ADR-\d{4}\s*정책|검증\s*후|1~2주|1\s*~\s*2주|\d+개월\s*후)/;
+
+// PR-Governance-3-SLA (ADR-0158): 등재일 형식 — YYYY-MM-DD 또는 `—` (em dash) 또는 `-` (단일 hyphen)
+const ENTERED_AT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const ENTERED_AT_DASH_RE = /^[—-]$/;
+
 /* ───────── PENDING_WIRING 파싱 ───────── */
 
 /**
@@ -77,6 +110,7 @@ const WILDCARD_RE = /[*?]/;
  *     adrRefs: string[],
  *     module: string,           // PR-Governance-Followup-2: raw 모듈 컬럼 텍스트
  *     modulePaths: string[],    // PR-Governance-Followup-2: 백틱 안 파일 경로 추출
+ *     enteredAt: string,        // PR-Governance-3-SLA: 등재일 (YYYY-MM-DD 또는 `—`)
  *     status: string,
  *     priority: string,
  *     category: string,
@@ -137,9 +171,11 @@ export function parsePendingWiring(src) {
       const id = m[1];
       const adrField = m[2].trim();
       const moduleField = m[3].trim();
-      const status = m[4];
-      const priority = m[5];
-      const reason = m[6].trim();
+      // PR-Governance-3-SLA: 7 컬럼 — 등재일은 4번째, 상태 5, 우선순위 6, 사유 7
+      const enteredAt = m[4].trim();
+      const status = m[5];
+      const priority = m[6];
+      const reason = m[7].trim();
 
       const adrRefs = [];
       let r;
@@ -161,6 +197,7 @@ export function parsePendingWiring(src) {
         adrRefs,
         module: moduleField,
         modulePaths,
+        enteredAt,
         status,
         priority,
         category: id.charAt(0),
@@ -234,18 +271,128 @@ export function isModulePlaceholder(moduleField) {
   return MODULE_PLACEHOLDER_RE.test(moduleField);
 }
 
+/* ───────── PR-Governance-3-SLA (ADR-0158): SLA 헬퍼 ───────── */
+
 /**
- * validate(parsed, knownAdrNumbers, options) — 7 카테고리 적용.
+ * isWiringSlaDisabled() — `WIRING_SLA_DISABLED=true` ENV 시 SLA 정책 즉시 비활성.
+ */
+export function isWiringSlaDisabled() {
+  const v = process.env.WIRING_SLA_DISABLED;
+  return v === 'true' || v === '1';
+}
+
+/**
+ * getWiringSlaGraceDays() — `WIRING_SLA_GRACE_DAYS=N` ENV 우회 (0~30일 범위 클램프).
+ *   - 미설정 → DEFAULT_GRACE_DAYS (14)
+ *   - 잘못된 값 (NaN / 음수 / >30) → DEFAULT_GRACE_DAYS fallback
+ */
+export function getWiringSlaGraceDays() {
+  const raw = process.env.WIRING_SLA_GRACE_DAYS;
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_GRACE_DAYS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || n > 30) return DEFAULT_GRACE_DAYS;
+  return Math.floor(n);
+}
+
+/**
+ * isValidEnteredAt(s) — 등재일 형식 검증 (YYYY-MM-DD 또는 `—` / `-`).
+ *   - YYYY-MM-DD: 정확히 그 형식 + 유효한 날짜
+ *   - `—` (em dash) / `-` (hyphen): SLA 미적용 명시 (DECIDED_NOT_WIRING 등)
+ *   - 그 외: 잘못된 형식 (H3 FAIL)
+ */
+export function isValidEnteredAt(s) {
+  if (typeof s !== 'string') return false;
+  if (ENTERED_AT_DASH_RE.test(s)) return true;
+  if (!ENTERED_AT_DATE_RE.test(s)) return false;
+  // 유효한 날짜 검증 (예: 2026-02-30 거부)
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+/**
+ * computeAgeDays(enteredAt, now) — 등재일 기준 경과 일수 (정수).
+ *   - 잘못된 enteredAt 또는 `—`/`-` → null (SLA 미적용)
+ *   - now 보다 미래 → 0 (clock skew 방어)
+ */
+export function computeAgeDays(enteredAt, now) {
+  if (!isValidEnteredAt(enteredAt)) return null;
+  if (ENTERED_AT_DASH_RE.test(enteredAt)) return null;
+  const [y, m, d] = enteredAt.split('-').map(Number);
+  const enteredMs = Date.UTC(y, m - 1, d);
+  const nowMs = now instanceof Date ? now.getTime() : Number(now);
+  if (!Number.isFinite(nowMs)) return 0;
+  const diffMs = nowMs - enteredMs;
+  if (diffMs < 0) return 0;
+  return Math.floor(diffMs / (24 * 60 * 60 * 1000));
+}
+
+/**
+ * isSlaExempt(entry) — SLA 면제 판정.
+ *   - DECIDED_NOT_WIRING → 면제
+ *   - 우선순위 P3 (또는 SLA_DAYS[priority] === null) → 면제
+ *   - BLOCKED + reason 에 면제 사유 패턴 매칭 → 면제
+ *   - 등재일 `—` / `-` → 면제
+ */
+export function isSlaExempt(entry) {
+  if (!entry) return true;
+  if (entry.status === 'DECIDED_NOT_WIRING') return true;
+  if (SLA_DAYS[entry.priority] === null || SLA_DAYS[entry.priority] === undefined) return true;
+  if (typeof entry.enteredAt === 'string' && ENTERED_AT_DASH_RE.test(entry.enteredAt)) return true;
+  if (entry.status === 'BLOCKED' && typeof entry.reason === 'string') {
+    if (SLA_EXEMPTION_RE.test(entry.reason)) return true;
+  }
+  return false;
+}
+
+/**
+ * evaluateSla(entry, now, graceDays) — SLA 평가 결과 분류.
+ *
+ * @returns {'EXEMPT' | 'OK' | 'WARN' | 'FAIL' | 'INVALID_DATE'}
+ *   - EXEMPT: SLA 미적용 (P3 / DECIDED / BLOCKED 면제 / 등재일 dash)
+ *   - OK: ageDays ≤ SLA
+ *   - WARN: SLA < ageDays ≤ SLA + grace (H1)
+ *   - FAIL: ageDays > SLA + grace (H2)
+ *   - INVALID_DATE: 등재일 형식 오류 (H3)
+ */
+export function evaluateSla(entry, now, graceDays) {
+  if (!entry) return 'EXEMPT';
+  if (typeof entry.enteredAt !== 'string') return 'INVALID_DATE';
+  if (!isValidEnteredAt(entry.enteredAt)) return 'INVALID_DATE';
+  if (isSlaExempt(entry)) return 'EXEMPT';
+
+  const sla = SLA_DAYS[entry.priority];
+  if (sla === null || sla === undefined) return 'EXEMPT';
+
+  const ageDays = computeAgeDays(entry.enteredAt, now);
+  if (ageDays === null) return 'EXEMPT';
+
+  const grace = typeof graceDays === 'number' && graceDays >= 0 ? graceDays : DEFAULT_GRACE_DAYS;
+  if (ageDays <= sla) return 'OK';
+  if (ageDays <= sla + grace) return 'WARN';
+  return 'FAIL';
+}
+
+/**
+ * validate(parsed, knownAdrNumbers, options) — 8 카테고리 적용.
  *
  * @param {object} parsed - parsePendingWiring 결과
  * @param {Set<string>} knownAdrNumbers - INDEX.md 등재 ADR 번호
  * @param {object} [options]
  * @param {string} [options.rootDir] - 모듈 경로 검증 기준 디렉토리 (G1). 미전달 시 G1 skip.
+ * @param {Date}   [options.now]     - SLA 평가 기준 시각 (H1~H2). 미전달 시 new Date() (ADR-0157 패턴).
+ * @param {number} [options.graceDays] - SLA grace 일수 (H2). 미전달 시 ENV `WIRING_SLA_GRACE_DAYS` 또는 14.
+ * @param {boolean}[options.slaDisabled] - SLA 정책 비활성 (긴급 운영 우회). 미전달 시 ENV `WIRING_SLA_DISABLED`.
  */
 export function validate(parsed, knownAdrNumbers = new Set(), options = {}) {
   const violations = [];
   const { entries, categories, stats } = parsed;
-  const { rootDir } = options;
+  const {
+    rootDir,
+    now = new Date(),
+    graceDays = getWiringSlaGraceDays(),
+    slaDisabled = isWiringSlaDisabled(),
+  } = options;
 
   // F) ID 형식
   for (const e of entries) {
@@ -404,6 +551,44 @@ export function validate(parsed, knownAdrNumbers = new Set(), options = {}) {
     }
   }
 
+  // H) SLA 자동 만료 (ADR-0158, PR-Governance-3-SLA)
+  //    - H3 (등재일 형식) 은 항상 검증 — slaDisabled 와 무관
+  //    - H1/H2 (SLA WARN/FAIL) 은 slaDisabled=true 시 skip (긴급 우회)
+  for (const e of entries) {
+    // H3) 등재일 형식 검증 — `YYYY-MM-DD` 또는 `—` / `-` 외 차단
+    if (typeof e.enteredAt !== 'string' || !isValidEnteredAt(e.enteredAt)) {
+      violations.push({
+        category: 'H_INVALID_ENTERED_AT',
+        message: `${e.id}: 등재일 형식 오류 "${e.enteredAt ?? '(부재)'}" — \`YYYY-MM-DD\` 또는 \`—\` 필요`,
+      });
+      continue; // 형식 오류 시 H1/H2 평가 건너뜀
+    }
+
+    // ENV 우회 — 정책 비활성 시 H1/H2 skip
+    if (slaDisabled) continue;
+
+    const sla = SLA_DAYS[e.priority];
+    if (sla === null || sla === undefined) continue; // P3 / 알 수 없는 우선순위 면제
+    if (isSlaExempt(e)) continue;
+
+    const ageDays = computeAgeDays(e.enteredAt, now);
+    if (ageDays === null) continue;
+
+    if (ageDays > sla + graceDays) {
+      // H2) SLA + grace 초과 — FAIL
+      violations.push({
+        category: 'H_SLA_FAIL',
+        message: `${e.id} (${e.priority} ${e.status}): SLA 만료 — 등재일 ${e.enteredAt} 기준 ${ageDays}일 경과 (SLA ${sla}일 + grace ${graceDays}일 초과). wiring 완료 또는 BLOCKED 면제 사유 명시 필요.`,
+      });
+    } else if (ageDays > sla) {
+      // H1) SLA 초과 — WARN (violations 에는 등재하되 카테고리로 EXIT 코드 분리)
+      violations.push({
+        category: 'H_SLA_WARN',
+        message: `${e.id} (${e.priority} ${e.status}): SLA 임박 — 등재일 ${e.enteredAt} 기준 ${ageDays}일 경과 (SLA ${sla}일 초과, grace ${graceDays}일 윈도우 내). ${sla + graceDays - ageDays}일 후 빌드 FAIL.`,
+      });
+    }
+  }
+
   return {
     violations,
     summary: {
@@ -411,11 +596,16 @@ export function validate(parsed, knownAdrNumbers = new Set(), options = {}) {
       categoryCount: categories.size,
       knownAdrCount: knownAdrNumbers.size,
       hasStats: stats !== null,
+      slaDisabled,
+      graceDays,
     },
   };
 }
 
 /* ───────── 메인 ───────── */
+
+// PR-Governance-3-SLA: H_SLA_WARN 은 informational (EXIT=0), 그 외 위반은 FAIL (EXIT=1)
+const WARN_ONLY_CATEGORIES = new Set(['H_SLA_WARN']);
 
 function main() {
   const args = process.argv.slice(2);
@@ -432,9 +622,13 @@ function main() {
   const parsed = parsePendingWiring(pendingSrc);
   const { violations, summary } = validate(parsed, knownAdrNumbers, { rootDir: ROOT });
 
+  // PR-Governance-3-SLA: WARN-only 와 FAIL 분리
+  const warns = violations.filter((v) => WARN_ONLY_CATEGORIES.has(v.category));
+  const fails = violations.filter((v) => !WARN_ONLY_CATEGORIES.has(v.category));
+
   if (json) {
-    console.log(JSON.stringify({ summary, violations }, null, 2));
-    process.exit(violations.length === 0 ? 0 : 1);
+    console.log(JSON.stringify({ summary, violations, warns, fails }, null, 2));
+    process.exit(fails.length === 0 ? 0 : 1);
   }
 
   if (violations.length === 0) {
@@ -442,14 +636,23 @@ function main() {
       `[PendingWiring] OK — ${summary.entryCount}개 항목 / ` +
         `${summary.categoryCount}개 카테고리 / ` +
         `통계 표 ${summary.hasStats ? '정합' : '부재'} / ` +
-        `참조 ADR ${summary.knownAdrCount}건 검증`
+        `참조 ADR ${summary.knownAdrCount}건 검증` +
+        (summary.slaDisabled ? ' / ⚠️ SLA disabled (ENV)' : ` / SLA grace ${summary.graceDays}일`)
     );
     return;
   }
 
-  console.error(`[PendingWiring] FAIL — ${violations.length}건 위반:`);
+  // WARN 만 있고 FAIL 부재 시 informational 모드
+  if (fails.length === 0 && warns.length > 0) {
+    console.warn(`[PendingWiring] WARN — ${warns.length}건 SLA 임박 (informational, EXIT=0):`);
+    for (const w of warns.slice(0, 20)) console.warn(`  ⚠️  ${w.message}`);
+    if (warns.length > 20) console.warn(`  ... ${warns.length - 20}건 더`);
+    return;
+  }
+
+  console.error(`[PendingWiring] FAIL — ${fails.length}건 위반${warns.length > 0 ? ` + WARN ${warns.length}건` : ''}:`);
   const byCategory = new Map();
-  for (const v of violations) {
+  for (const v of fails) {
     if (!byCategory.has(v.category)) byCategory.set(v.category, []);
     byCategory.get(v.category).push(v.message);
   }
@@ -458,9 +661,17 @@ function main() {
     for (const m of msgs.slice(0, 10)) console.error(`    - ${m}`);
     if (msgs.length > 10) console.error(`    ... ${msgs.length - 10}건 더`);
   }
+  if (warns.length > 0) {
+    console.warn(`  [H_SLA_WARN] ${warns.length}건 (informational):`);
+    for (const w of warns.slice(0, 5)) console.warn(`    ⚠️  ${w.message}`);
+    if (warns.length > 5) console.warn(`    ... ${warns.length - 5}건 더`);
+  }
   console.error('');
   console.error(
     '해결: _workspace/PENDING_WIRING.md 갱신 — 신규 PR 머지 시 wiring 미완 항목 등재 + 완료 시 제거 의무.'
+  );
+  console.error(
+    'SLA 우회: WIRING_SLA_GRACE_DAYS=N (0~30 일) / WIRING_SLA_DISABLED=true (긴급 운영).'
   );
   process.exit(1);
 }
