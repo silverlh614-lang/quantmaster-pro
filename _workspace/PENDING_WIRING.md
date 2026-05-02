@@ -68,6 +68,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | B7 | 0085 price7dAgo | `server/persistence/shadowTradeRepo.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 누적 후 — `riskManager.ts:39` 가 reader 사용 (과열 부분 매도). 매수 시점 7일 lookback OHLCV 영속 wiring 미구현 — buyPipeline.buildBuyTrade 또는 신규 cron 에서 외부 OHLCV fetch 후 영속 |
 | B8 | 0161~0165 PositionSizingEngine | `server/trading/sizing/positionSizingEngine.ts` | 2026-05-02 | PARTIAL | P2 | **Phase1+2D+Extension+Drawdown+LIVE Activation wiring 완료** (ADR-0161~0165) — P0 SLA 충족 (2026-05-23 만기 21일 전 LIVE Activation 완료). 4 진입 경로 + peakEquity 영속 (SHADOW/LIVE 분리) + drawdown 자동 차단 + LIVE 활성화 ENV `POSITION_SIZING_ENGINE_LIVE_ENABLED=true` (default OFF). **잔여 2 PR (P2)**: lossStreak 외부 학습 SSOT 결합 + universe/sectorWeight 결합. 운영자 활성화 절차 (ADR-0165 §3): SHADOW 1주 검증 → ENV 활성화 → 만족 시 운영 유지. |
 | B9 | 0166+0167+0169+0170 RegimeExposureBudget | `server/trading/sizing/regimeExposurePolicy.ts` | 2026-05-02 | PARTIAL | P2 | **Phase A+B+AccurateExposure+AddOnBuy+AutoMapping wiring 완료** (ADR-0166+0167+0169+0170) — 7 레짐 매트릭스 + 4 wiring + 정확 산출 SSOT + trancheExecutor 추매 진입점 (`isAddOnBuy=true`) + 매크로 신호 R1_DEFENSIVE 자동 격상 (`mapInternalToExposureRegimeWithMacro`, ENV `EXPOSURE_REGIME_AUTO_MAPPING_DISABLED=true` default OFF). audit-PR-520 §M1+§M2+§M4 수리 완료 (PR #525 + #527 + #528) — **§"Medium 4건" 모두 수리 완료**. **잔여 2 PR (P2)**: currentPriceMap 시가 평가 (KIS 호출) + UI 출력. 활성화 절차 (ADR-0166 §7 + ADR-0167 §7): SHADOW APPLY → EXPOSURE BUDGET → ACCURATE EXPOSURE → LIVE 4단계. |
+| B10 | 0172 SizingEngine marketCap 잔여 | `server/trading/signalScanner/perSymbol/buyListLoop.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | **PR-Sizing-Engine-Real-Data (2026-05-02, ADR-0172) 부분 완료** — `avgDailyVolume20d` + `currentSectorWeight` 2 axis 실데이터 wiring 완료 (`computeSizingLiquidityInputs` SSOT + 4 호출자 wiring). **잔여 1 axis (P2)**: `marketCap` Yahoo Finance chart API 미제공 → KIS 기업 정보 API (CTPF1002R) 결합 후 실값 전달 필요. 외부 의존성 — KIS quota 영향 평가 + ADR-0011 정책 검토 후 진행. SLA 미적용 (외부 의존성 면제 — ADR-0158 §"면제 정책"). |
 
 ### C. 시그널 입력 (Diag-2~5 의사결정 wiring)
 
@@ -118,11 +119,11 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 카테고리 | 항목 수 | P0 | P1 | P2 | P3 |
 |----------|---------|----|----|----|----|
 | A. 학습 시리즈 | 9 | 1 | 3 | 5 | 0 |
-| B. 매매 본체 | 9 | 1 | 3 | 5 | 0 |
+| B. 매매 본체 | 10 | 1 | 3 | 6 | 0 |
 | C. 시그널 입력 | 15 | 1 | 3 | 7 | 4 |
 | D. UI Phase | 7 | 0 | 3 | 4 | 0 |
 | E. 영속/진단 | 7 | 0 | 0 | 4 | 3 |
-| **합계** | **47** | **3** | **12** | **25** | **7** |
+| **합계** | **48** | **3** | **12** | **26** | **7** |
 
 > 주: C7 (Phase 1) / C8 (Phase 2 audit) / C9 (Phase 3 globalIntel) + C15 (Naver 외인 추세) / **C10 (Phase 4 Yahoo 컨센서스) + #12 institutionalBuying (KRX 5d) PR-Phase5** 모두 *DECIDED_NOT_WIRING* 격상 완료. 27 조건 격상 시리즈 *데이터 가용 한계 도달 — 78% (21/27)*. 잔여 22% (5 키 — #9/#13/#17/#20/#26) 정성 영구 (ADR-0154). 정량 격상 후속 0건. 운영자 집중 영역 = Gemini 프롬프트 품질 + AI 추정 가중치 학습.
 
