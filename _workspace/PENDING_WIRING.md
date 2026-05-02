@@ -52,6 +52,8 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | A5 | 0084 conditionLifecyclePolicy | `server/learning/conditionLifecyclePolicy.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 데이터 6개월 누적 후 — 27조건 silent/deprecated 가드 wiring (signalScanner / entryRevalidationStep score 보수화) |
 | A6 | 0123/0124 recommendationTracker | `server/learning/recommendationTracker.ts` | 2026-05-02 | PARTIAL | P1 | 학습 SSOT 변경 회귀 위험 — monthlyStats.winRate fill 단위 격상 (현재 trade 단위 WIN/LOSS 만, fill 수준 BE 분류 미반영) |
 | A7 | 0124 shadowLearningSummary | `server/alerts/shadowLearningSummary.ts` | 2026-05-02 | PARTIAL | P1 | PR-H 후속 — 일일 리포트 라인 BE 표기 추가 |
+| A8 | 0160 learningLoopHealth | `server/learning/learningLoopHealth.ts` | 2026-05-02 | PARTIAL | P2 | commit 2258621 머지 시 508 → 460 LoC 변경 (변경 의도 불명확) — 본 모듈 단위 테스트 보강 + ADR-0160 §3 호출자 wiring 검증 |
+| A9 | 0160 loadReflectionImpactRecords 활용 | `server/learning/failureToWeight.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | ADR-0160 §1 명시 — F2W reflection multiplier 가 `loadRecentReflections` + `loadFailurePatterns` 만 활용 / `loadReflectionImpactRecords` 본 PR scope 외 — silent/deprecated 모듈 자동 가드 wiring 후속 ADR |
 
 ### B. 매매 본체 / 사이징
 
@@ -107,17 +109,18 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | E4 | 0090 Cache Coherence Auditor | `server/persistence/cacheCoherenceAuditor.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 누적 후 — invariant 확장 (WATCHLIST/MACRO_STATE 등) + Phase 2 cron 자동 audit 발행 + Phase 3 자동 수정 도구 |
 | E5 | 0145 KIS GitHub 재검증 | `server/clients/kisClient/query.ts` | 2026-05-01 | DECIDED_NOT_WIRING | P3 | **ADR-0145 정책** — 6개월 주기 검증 (다음: 2026-11-01) — 현재 endpoint/TR ID 정합 운영 모니터링 |
 | E6 | 0136~0140 dual-source cross-validation | `server/trading/crossSourceValidator.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P3 | 외부 의존성 변경 후 — KRX 외인 + Naver / ECOS + KRX 신용공여 dual-source. ADR-0071 패턴 차용한 별도 후속 PR |
+| E7 | 0160 check:learning-boundary validate:all 통합 | `scripts/check_learning_channel_boundary.js` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | ADR-0160 §4 명시 — 현재 standalone 명령 (`npm run check:learning-boundary`). `validate:all` 17종 격상으로 precommit 자동 차단 — 회귀 위험 격리를 위해 후속 PR 분리 |
 
 ## 진행 통계
 
 | 카테고리 | 항목 수 | P0 | P1 | P2 | P3 |
 |----------|---------|----|----|----|----|
-| A. 학습 시리즈 | 7 | 1 | 3 | 3 | 0 |
+| A. 학습 시리즈 | 9 | 1 | 3 | 5 | 0 |
 | B. 매매 본체 | 7 | 1 | 3 | 3 | 0 |
 | C. 시그널 입력 | 15 | 1 | 3 | 7 | 4 |
 | D. UI Phase | 7 | 0 | 3 | 4 | 0 |
-| E. 영속/진단 | 6 | 0 | 0 | 3 | 3 |
-| **합계** | **42** | **3** | **12** | **20** | **7** |
+| E. 영속/진단 | 7 | 0 | 0 | 4 | 3 |
+| **합계** | **45** | **3** | **12** | **23** | **7** |
 
 > 주: C7 (Phase 1) / C8 (Phase 2 audit) / C9 (Phase 3 globalIntel) + C15 (Naver 외인 추세) / **C10 (Phase 4 Yahoo 컨센서스) + #12 institutionalBuying (KRX 5d) PR-Phase5** 모두 *DECIDED_NOT_WIRING* 격상 완료. 27 조건 격상 시리즈 *데이터 가용 한계 도달 — 78% (21/27)*. 잔여 22% (5 키 — #9/#13/#17/#20/#26) 정성 영구 (ADR-0154). 정량 격상 후속 0건. 운영자 집중 영역 = Gemini 프롬프트 품질 + AI 추정 가중치 학습.
 
