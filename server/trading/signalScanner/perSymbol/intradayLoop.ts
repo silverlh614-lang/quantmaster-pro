@@ -32,6 +32,8 @@ import type { IntradayLoopContext } from './types.js';
 // ADR-0167 — currentEquityExposureAmount 정확 산출 (default OFF, ENV `POSITION_SIZING_ACCURATE_EXPOSURE_ENABLED=true`).
 import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/positionSizingEngineWiring.js';
 import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
+// ADR-0171 — 10 필드 SSOT formatter (default OFF, ENV `SIZING_EXPOSURE_BUDGET_VERBOSE_LOG=true`).
+import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
 
 /**
  * 장중(Intraday) Watchlist 처리 — Step 4c 이식 본체.
@@ -152,7 +154,16 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
           });
           const quantity = exposureCapIntra.applied ? exposureCapIntra.finalQuantity : baseIntradayQty;
           if (exposureCapIntra.applied && exposureCapIntra.capResult?.cappedByExposureBudget) {
-            console.log(`[Sizing-ExposureBudget] ${stock.code} ${stock.name} (INTRADAY_STRONG) → qty=${quantity} (raw=${baseIntradayQty}) ${exposureCapIntra.capResult.blockReason ?? ''}`);
+            // ADR-0171 — 10 필드 SSOT formatter.
+            console.log(formatExposureBudgetLog({
+              stockCode: stock.code,
+              stockName: stock.name,
+              pathLabel: 'INTRADAY_STRONG',
+              rawQuantity: baseIntradayQty,
+              finalQuantity: quantity,
+              budget: exposureCapIntra.budget,
+              capResult: exposureCapIntra.capResult,
+            }));
           }
           if (quantity < 1) continue;  // exposure cap 0 차단 시 진입 스킵
           const sizingSourceIntra = sizingApplyIntra.sizingSource;

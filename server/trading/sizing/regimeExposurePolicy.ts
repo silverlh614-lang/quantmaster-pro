@@ -368,3 +368,87 @@ export function applyPortfolioExposureCap(params: {
 export function isExposureBudgetEnabled(): boolean {
   return process.env.POSITION_SIZING_EXPOSURE_BUDGET_ENABLED === 'true';
 }
+
+// ─── ADR-0171 — 진단 로그 10 필드 SSOT formatter ───────────────────────────
+
+/**
+ * ADR-0171 — Verbose 로그 ENV.
+ * default OFF — `[Sizing-ExposureBudget]` 4 필드 (code/name/regime/qty/raw/blockReason) 출력.
+ * `=true` 활성화 시 10 필드 출력 (사용자 §4 권장):
+ *   targetEquityExposurePct / maxEquityExposurePct / currentExposurePct /
+ *   remainingBuyBudgetToTarget / remainingBuyBudgetToMax / cappedByExposureBudget +
+ *   기존 4 필드.
+ *
+ * 운영자 인지 부담 vs Railway 로그 비용 trade-off 격리 — 진단 시점에만 활성화.
+ */
+export function isExposureBudgetVerboseLogEnabled(): boolean {
+  return process.env.SIZING_EXPOSURE_BUDGET_VERBOSE_LOG === 'true';
+}
+
+/**
+ * 4 호출 site 공통 SSOT — drift 차단 의무.
+ * 본 함수는 `console.log` *문자열만 합성* — 호출자가 로그 발행 책임.
+ *
+ * 우선순위 SSOT:
+ *   1. budget 부재 (ENV OFF / INPUT_MISSING) → 경량 한 줄 ("skip" 마커).
+ *   2. budget 존재 + verbose OFF → 4 필드 (기존 동작 byte-equivalent).
+ *   3. budget 존재 + verbose ON → 10 필드.
+ *
+ * 차단 사유 (capResult.blockReason) 는 항상 마지막에 노출 (호출자 즉시 인지).
+ */
+export interface FormatExposureBudgetLogInput {
+  /** 종목 코드 (6자리) */
+  stockCode: string;
+  /** 종목명 */
+  stockName: string;
+  /** 진입 경로 라벨 (PRE_BREAKOUT_FOLLOWTHROUGH / PRE_BREAKOUT 30% / INTRADAY_STRONG / 빈문자=메인 buyList) */
+  pathLabel?: string;
+  /** sizing 결과 quantity (legacy 또는 NewEngine) */
+  rawQuantity: number;
+  /** cap 적용 후 quantity (rawQuantity == finalQuantity 시 cap 미적용) */
+  finalQuantity: number;
+  /** ApplyExposureBudgetCap 결과 — applied=false 시 budget/capResult 부재 */
+  budget?: PortfolioExposureBudget;
+  capResult?: ApplyPortfolioExposureCapResult;
+  /** 진단 로그 verbose 강제 (테스트 시 ENV 우회) — undefined 시 ENV gate 사용 */
+  verboseOverride?: boolean;
+}
+
+export function formatExposureBudgetLog(input: FormatExposureBudgetLogInput): string {
+  const pathSuffix = input.pathLabel && input.pathLabel.length > 0 ? ` (${input.pathLabel})` : '';
+  const blockReason = input.capResult?.blockReason ?? '';
+  const verbose = input.verboseOverride ?? isExposureBudgetVerboseLogEnabled();
+
+  // 분기 1: budget 부재 (ENV OFF / INPUT_MISSING) — 경량 한 줄.
+  if (!input.budget) {
+    return (
+      `[Sizing-ExposureBudget] ${input.stockCode} ${input.stockName}${pathSuffix} → ` +
+      `qty=${input.finalQuantity} (raw=${input.rawQuantity}) ${blockReason}`
+    ).trimEnd();
+  }
+
+  // 분기 2: budget 존재 + verbose OFF — 기존 4 필드 (regime 포함, byte-equivalent).
+  if (!verbose) {
+    return (
+      `[Sizing-ExposureBudget] ${input.stockCode} ${input.stockName}${pathSuffix} → ` +
+      `regime=${input.budget.regime} qty=${input.finalQuantity} (raw=${input.rawQuantity}) ${blockReason}`
+    ).trimEnd();
+  }
+
+  // 분기 3: budget 존재 + verbose ON — 10 필드 (사용자 §4 권장).
+  // 6 신규 필드: targetEquityExposurePct / maxEquityExposurePct / currentExposurePct /
+  //              remainingBuyBudgetToTarget / remainingBuyBudgetToMax / cappedByExposureBudget.
+  const cappedByBudget = input.capResult?.cappedByExposureBudget ?? false;
+  const policy = REGIME_EXPOSURE_POLICIES[input.budget.regime];
+  return (
+    `[Sizing-ExposureBudget] ${input.stockCode} ${input.stockName}${pathSuffix} → ` +
+    `regime=${input.budget.regime} ` +
+    `targetPct=${(policy.targetEquityExposurePct * 100).toFixed(0)}% ` +
+    `maxPct=${(policy.maxEquityExposurePct * 100).toFixed(0)}% ` +
+    `currentPct=${(input.budget.currentExposurePct * 100).toFixed(2)}% ` +
+    `toTarget=${input.budget.remainingBuyBudgetToTarget.toFixed(0)}원 ` +
+    `toMax=${input.budget.remainingBuyBudgetToMax.toFixed(0)}원 ` +
+    `cappedByBudget=${cappedByBudget} ` +
+    `qty=${input.finalQuantity} (raw=${input.rawQuantity}) ${blockReason}`
+  ).trimEnd();
+}
