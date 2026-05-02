@@ -102,6 +102,8 @@ import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, type S
 import type { BuyListLoopContext } from './types.js';
 // ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
 import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/positionSizingEngineWiring.js';
+// ADR-0167 — currentEquityExposureAmount 정확 산출 SSOT (default OFF, ENV `POSITION_SIZING_ACCURATE_EXPOSURE_ENABLED=true` 활성화).
+import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
 
 export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
   for (const stock of ctx.buyList) {
@@ -388,7 +390,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               rawQuantity: followQtyRaw,
               shadowEntryPrice: followEntryPrice,
               accountEquity: ctx.totalAssets,
-              currentEquityExposureAmount: Math.max(0, ctx.totalAssets - ctx.mutables.orderableCash.value),
+              currentEquityExposureAmount: resolveCurrentEquityExposure(ctx.totalAssets, ctx.mutables.orderableCash.value, ctx.shadows),
               currentCashAmount: ctx.mutables.orderableCash.value,
               regime: ctx.regime,
               isAddOnBuy: false,  // 추세 추격 = 신규 진입
@@ -601,7 +603,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                 rawQuantity: pbQtyRaw,
                 shadowEntryPrice: pbEntryPrice,
                 accountEquity: ctx.totalAssets,
-                currentEquityExposureAmount: Math.max(0, ctx.totalAssets - ctx.mutables.orderableCash.value),
+                currentEquityExposureAmount: resolveCurrentEquityExposure(ctx.totalAssets, ctx.mutables.orderableCash.value, ctx.shadows),
                 currentCashAmount: ctx.mutables.orderableCash.value,
                 regime: ctx.regime,
                 isAddOnBuy: false,  // 선취매 = 신규 진입 (사전 진입)
@@ -1142,7 +1144,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         rawQuantity: baseQuantity,
         shadowEntryPrice,
         accountEquity: ctx.totalAssets,
-        currentEquityExposureAmount: Math.max(0, ctx.totalAssets - ctx.mutables.orderableCash.value),
+        currentEquityExposureAmount: resolveCurrentEquityExposure(ctx.totalAssets, ctx.mutables.orderableCash.value, ctx.shadows),
         currentCashAmount: ctx.mutables.orderableCash.value,
         regime: ctx.regime,
         isAddOnBuy: false,  // 메인 buyList = 신규 진입
