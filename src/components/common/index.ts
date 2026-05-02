@@ -16,3 +16,5 @@ export { PipelineYieldTicker } from './PipelineYieldTicker';
 export { TopBlockersPanel } from './TopBlockersPanel';
 export { ConnectionStatus, formatRelative } from './ConnectionStatus';
 export type { ConnectionState } from './ConnectionStatus';
+export { SampleProgressBar } from './SampleProgressBar';
+export type { SampleProgress } from './SampleProgressBar';

@@ -36,6 +36,8 @@ export const SHADOW_ATTRIBUTION_CONSTANTS = {
   LOW_SCORE_THRESHOLD: 6,
   /** 분류 후보로 등록되려면 빈도 ≥ 본 임계 */
   MIN_FREQUENCY: 3,
+  /** UI operator-facing sample sufficiency target. */
+  SAMPLE_SUFFICIENT_TARGET: 30,
 } as const;
 
 export interface ShadowConditionStat {
@@ -64,6 +66,11 @@ export interface ShadowAttributionReport {
   status: 'OK' | 'DISABLED' | 'NO_DATA';
   /** 분석된 종결 entry 수 (closed=true 만) */
   closedSampleSize: number;
+  progressTowardSampleSufficient?: {
+    current: number;
+    target: number;
+    eta: string | null;
+  };
   conditions: ShadowConditionStat[];
   summary: {
     overStrictCandidates: number;
@@ -88,6 +95,34 @@ function eligibleEntries(entries: RejectionShadowEntry[]): RejectionShadowEntry[
     e.conditionScores !== undefined &&
     Number.isFinite(e.currentReturnPct ?? NaN),
   );
+}
+
+function estimateSampleEta(entries: RejectionShadowEntry[], current: number, target: number): string | null {
+  if (current >= target) return 'complete';
+  const sortedDates = entries
+    .filter((e) => e.closed === true && e.conditionScores !== undefined)
+    .map((e) => Date.parse(`${e.signalDate}T00:00:00Z`))
+    .filter((t) => Number.isFinite(t))
+    .sort((a, b) => a - b);
+  if (sortedDates.length < 2) return null;
+  const first = sortedDates[0];
+  const last = sortedDates[sortedDates.length - 1];
+  const spanDays = Math.max(1, (last - first) / 86_400_000);
+  const perDay = sortedDates.length / spanDays;
+  if (!Number.isFinite(perDay) || perDay <= 0) return null;
+  return `${Math.ceil((target - current) / perDay)}d`;
+}
+
+function buildSampleProgress(
+  allEntries: RejectionShadowEntry[],
+  current: number,
+): ShadowAttributionReport['progressTowardSampleSufficient'] {
+  const target = SHADOW_ATTRIBUTION_CONSTANTS.SAMPLE_SUFFICIENT_TARGET;
+  return {
+    current,
+    target,
+    eta: estimateSampleEta(allEntries, current, target),
+  };
 }
 
 function classifyStat(stat: Pick<ShadowConditionStat, 'overStrictCount' | 'goodDefenseCount' | 'ratio'>): ShadowConditionStat['classification'] {
@@ -115,6 +150,7 @@ export function analyzeShadowAttribution(): ShadowAttributionReport {
       totalConditions: 0,
       status: 'DISABLED',
       closedSampleSize: 0,
+      progressTowardSampleSufficient: buildSampleProgress([], 0),
       conditions: [],
       summary: { overStrictCandidates: 0, goodDefenseCandidates: 0, insufficient: 0, normal: 0 },
     };
@@ -126,6 +162,7 @@ export function analyzeShadowAttribution(): ShadowAttributionReport {
       totalConditions: 0,
       status: 'NO_DATA',
       closedSampleSize: 0,
+      progressTowardSampleSufficient: buildSampleProgress(allEntries, 0),
       conditions: [],
       summary: { overStrictCandidates: 0, goodDefenseCandidates: 0, insufficient: 0, normal: 0 },
     };
@@ -191,6 +228,7 @@ export function analyzeShadowAttribution(): ShadowAttributionReport {
     totalConditions: 27,
     status: 'OK',
     closedSampleSize: eligible.length,
+    progressTowardSampleSufficient: buildSampleProgress(allEntries, eligible.length),
     conditions,
     summary,
   };

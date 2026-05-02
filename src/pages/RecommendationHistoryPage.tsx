@@ -13,6 +13,7 @@ import { computeSignalBreakdown, type StatsPeriod } from '../utils/recommendatio
 import { ConditionAttributionChart } from '../components/analysis/ConditionAttributionChart';
 import { RecommendationTimeseriesChart } from '../components/analysis/RecommendationTimeseriesChart';
 import { ConcordanceMatrix } from '../components/analysis/ConcordanceMatrix';
+import { SampleProgressBar } from '../components/common/SampleProgressBar';
 
 const PERIOD_OPTIONS: { id: StatsPeriod; label: string }[] = [
   { id: '7d', label: '7일' },
@@ -280,6 +281,12 @@ function BreakdownCard({ label, stats, accent = 'gray' }: BreakdownCardProps) {
           <div className="text-[10px] opacity-50">진행 {stats.pending} / 만료 {stats.expired}</div>
         </div>
       </div>
+      {!stats.sampleSufficient && (
+        <SampleProgressBar
+          className="mt-3"
+          progress={{ current: stats.total, target: 5, eta: null }}
+        />
+      )}
     </div>
   );
 }

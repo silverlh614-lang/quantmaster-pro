@@ -28,6 +28,12 @@ export interface ControlCenterState {
   todayPnL: number;
 }
 
+export interface PartialControlCenterState extends ControlCenterState {
+  status: 'PARTIAL';
+  reason: 'BALANCE_API_FAILED';
+  lastKnown: ControlCenterState;
+}
+
 export interface ExecutionOrder {
   id: string;
   symbol: string;
@@ -118,7 +124,7 @@ export interface EmergencyActionState {
 }
 
 export interface AutoTradingDashboardState {
-  control: ControlCenterState;
+  control: ControlCenterState | PartialControlCenterState;
   orders: ExecutionOrder[];
   positions: PositionItem[];
   riskRules: RiskRuleState[];

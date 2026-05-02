@@ -317,7 +317,9 @@ export function AutoTradePage() {
             }}
             collapsedByContext={{ WEEKEND_HOLIDAY: true }}
           >
-            <ApiConnectionLamps />
+            <ApiConnectionLamps
+              partialApis={'status' in data.control && data.control.status === 'PARTIAL' ? ['KIS'] : []}
+            />
           </AutoTradeContextSection>
 
           {/* Telegram 연결 테스트 — PRE_MARKET 우선 (장 시작 전 도달성 점검) */}

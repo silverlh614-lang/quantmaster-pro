@@ -53,8 +53,21 @@ export function useAutoTradingDashboard(): UseAutoTradingDashboardResult {
       return null;
     }
 
+    const control = toControlCenterState(engine.engineStatus, engine.accountSummary);
+    const isPartialBalance =
+      Boolean(engine.engineStatus?.running) &&
+      engine.balanceApiFailed &&
+      engine.holdings.length === 0;
+
     return {
-      control: toControlCenterState(engine.engineStatus, engine.accountSummary),
+      control: isPartialBalance
+        ? {
+            ...control,
+            status: 'PARTIAL',
+            reason: 'BALANCE_API_FAILED',
+            lastKnown: control,
+          }
+        : control,
       orders: toExecutionOrders(engine.serverShadowTrades),
       positions: toPositions(engine.holdings),
       riskRules: toRiskRules(engine.engineStatus, engine.buyAudit),
@@ -69,6 +82,7 @@ export function useAutoTradingDashboard(): UseAutoTradingDashboardResult {
     engine.accountSummary,
     engine.serverShadowTrades,
     engine.holdings,
+    engine.balanceApiFailed,
     engine.buyAudit,
   ]);
 

@@ -15,6 +15,7 @@ import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { runPipelineDiagnosis } from '../trading/pipelineDiagnosis.js';
 import { getLearningInterval } from '../learning/adaptiveLearningClock.js';
 import { loadLearningState } from '../learning/learningState.js';
+import { collectDailyDataDiagnosticDigest } from '../health/diagnostics.js';
 
 function toKstHm(ts: number): string {
   return new Date(ts).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
@@ -165,7 +166,24 @@ async function runSelfDiagnosis(): Promise<void> {
   }
 }
 
+async function runDailyDataDiagnosticDigest(): Promise<void> {
+  try {
+    const digest = collectDailyDataDiagnosticDigest();
+    await sendTelegramAlert(digest.text, {
+      priority: digest.lines.some((l) => l.status === 'missing') ? 'HIGH' : 'NORMAL',
+      dedupeKey: `daily-data-diagnostic:${new Date().toISOString().slice(0, 10)}`,
+      category: 'data_diagnostic',
+    }).catch(console.error);
+  } catch (e) {
+    console.error('[Scheduler] daily data diagnostic digest failed:', e);
+  }
+}
+
 export function registerHealthCheckJobs(): void {
+  // Weekday KST 09:00 (UTC 00:00): data absence/staleness digest.
+  scheduledJob('0 0 * * 1-5', 'TRADING_DAY_ONLY', 'daily_data_diagnostic_digest',
+    runDailyDataDiagnosticDigest, { timezone: 'UTC' });
+
   // 평일 KST 09:05 (UTC 00:05) Telegram 자동 전송. PR-B-2: TRADING_DAY_ONLY.
   scheduledJob('5 0 * * 1-5', 'TRADING_DAY_ONLY', 'pipeline_health_check',
     runPipelineHealthCheck, { timezone: 'UTC' });

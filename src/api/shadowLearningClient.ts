@@ -106,6 +106,11 @@ export interface ShadowAttributionResponse {
   totalConditions: number;
   status: 'OK' | 'DISABLED' | 'NO_DATA';
   closedSampleSize: number;
+  progressTowardSampleSufficient?: {
+    current: number;
+    target: number;
+    eta: string | null;
+  };
   conditions: ClientShadowConditionStat[];
   summary: {
     overStrictCandidates: number;

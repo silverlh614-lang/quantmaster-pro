@@ -88,6 +88,7 @@ export interface UseAutoTradeEngineReturn {
   ocoOrders: OcoOrdersResponse;
   reconcileData: ReconcileResponse | null;
   accountSummary: AccountSummary | null;
+  balanceApiFailed: boolean;
 
   // 메타 상태
   /** 모든 필수 쿼리 중 하나라도 첫 로드 중이면 true. */
@@ -211,6 +212,7 @@ export function useAutoTradeEngine(): UseAutoTradeEngineReturn {
     ocoOrders: ocoOrdersQ.data ?? { active: [], history: [] },
     reconcileData: reconcileQ.data ?? null,
     accountSummary,
+    balanceApiFailed: balanceQ.isError || holdingsQ.isError,
 
     isLoading,
     isInitialLoading,

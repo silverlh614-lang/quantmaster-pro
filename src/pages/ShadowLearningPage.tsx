@@ -13,6 +13,7 @@ import {
   type ShadowAttributionResponse,
   type TwinPortfolioResponse,
 } from '../api/shadowLearningClient';
+import { SampleProgressBar } from '../components/common/SampleProgressBar';
 
 const STALE_MS = 60_000;
 const REFETCH_MS = 60_000;
@@ -238,7 +239,12 @@ export function OverStrictCard({ data, loading, error }: CardProps<ShadowAttribu
       {loading && !data && <LoadingState />}
       {data && data.status === 'DISABLED' && <EmptyState message="비활성 (SHADOW_CONDITION_ATTRIBUTION_DISABLED)" />}
       {data && data.status === 'NO_DATA' && (
-        <EmptyState message="conditionScores 호출자 wiring (PR-F-2 후속) 후 노출" />
+        <div className="space-y-3">
+          {data.progressTowardSampleSufficient && (
+            <SampleProgressBar progress={data.progressTowardSampleSufficient} />
+          )}
+          <EmptyState message="conditionScores 호출자 wiring (PR-F-2 후속) 후 노출" />
+        </div>
       )}
       {data && data.status === 'OK' && (() => {
         const overStrict = data.conditions
@@ -277,7 +283,12 @@ export function GoodDefenseCard({ data, loading, error }: CardProps<ShadowAttrib
       {loading && !data && <LoadingState />}
       {data && data.status === 'DISABLED' && <EmptyState message="비활성 (SHADOW_CONDITION_ATTRIBUTION_DISABLED)" />}
       {data && data.status === 'NO_DATA' && (
-        <EmptyState message="conditionScores 호출자 wiring (PR-F-2 후속) 후 노출" />
+        <div className="space-y-3">
+          {data.progressTowardSampleSufficient && (
+            <SampleProgressBar progress={data.progressTowardSampleSufficient} />
+          )}
+          <EmptyState message="conditionScores 호출자 wiring (PR-F-2 후속) 후 노출" />
+        </div>
       )}
       {data && data.status === 'OK' && (() => {
         const goodDefense = data.conditions

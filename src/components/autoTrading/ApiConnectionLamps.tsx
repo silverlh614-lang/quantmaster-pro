@@ -45,6 +45,11 @@ interface PipelineHealth {
   telegramConfigured?: boolean;
   telegramBotTokenOnly?: boolean;
   telegramChatIdOnly?: boolean;
+  geminiRuntime?: {
+    status?: 'IDLE' | 'SUCCESS' | 'FAILED' | 'BLOCKED';
+    reason?: string | null;
+    updatedAt?: string | null;
+  };
 }
 
 const STATE_COLORS: Record<LampState, { dot: string; pill: string; text: string; ring: string }> = {
@@ -81,6 +86,13 @@ function deriveKisRest(h: PipelineHealth | null): LampInfo {
   const hrs = h.kisTokenHoursLeft ?? 0;
   if (hrs > 0 && hrs <= 2) return { label: 'KIS REST', state: 'warn', detail: `토큰 ${hrs}시간 남음` };
   return { label: 'KIS REST', state: 'ok', detail: hrs > 0 ? `토큰 ${hrs}시간 유효` : '연결됨' };
+}
+
+function markPartial(lamp: LampInfo, source: ApiLampSource): LampInfo {
+  if (source === 'KIS') {
+    return { label: 'KIS', state: 'warn', detail: 'Balance API partial' };
+  }
+  return lamp;
 }
 
 function deriveKisStream(h: PipelineHealth | null): LampInfo {
@@ -146,6 +158,15 @@ export function deriveTelegram(h: PipelineHealth | null): LampInfo {
   return { label: 'Telegram', state: 'down', detail: 'BOT_TOKEN/CHAT_ID 둘 다 미설정' };
 }
 
+function deriveGemini(h: PipelineHealth | null): LampInfo {
+  if (!h) return { label: 'Gemini', state: 'unknown', detail: 'Loading' };
+  const status = h.geminiRuntime?.status ?? 'IDLE';
+  if (status === 'FAILED') return { label: 'Gemini', state: 'warn', detail: h.geminiRuntime?.reason ?? 'Last call failed' };
+  if (status === 'BLOCKED') return { label: 'Gemini', state: 'down', detail: h.geminiRuntime?.reason ?? 'Blocked' };
+  if (status === 'SUCCESS') return { label: 'Gemini', state: 'ok', detail: 'Last call OK' };
+  return { label: 'Gemini', state: 'unknown', detail: 'Idle' };
+}
+
 function Lamp({ lamp }: { lamp: LampInfo }) {
   const style = STATE_COLORS[lamp.state];
   return (
@@ -173,7 +194,9 @@ function Lamp({ lamp }: { lamp: LampInfo }) {
   );
 }
 
-export function ApiConnectionLamps() {
+export type ApiLampSource = 'KIS' | 'KRX' | 'TELEGRAM' | 'GEMINI';
+
+export function ApiConnectionLamps({ partialApis = [] }: { partialApis?: ApiLampSource[] }) {
   const [health, setHealth] = useState<PipelineHealth | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
 
@@ -197,12 +220,12 @@ export function ApiConnectionLamps() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
+  const partial = new Set(partialApis);
   const lamps: LampInfo[] = [
-    deriveKisRest(health),
-    deriveKisStream(health),
+    partial.has('KIS') ? markPartial(deriveKisRest(health), 'KIS') : { ...deriveKisRest(health), label: 'KIS' },
     deriveKrx(health),
-    deriveYahoo(health),
     deriveTelegram(health),
+    deriveGemini(health),
   ];
 
   const syncedLabel = fetchedAt

@@ -331,6 +331,7 @@ router.get('/health/pipeline', (_req: Request, res: Response) => {
       recentEvents:    s.stream.recentEvents,
     },
     intradayYield:       s.intradayYield,
+    geminiRuntime:       s.geminiRuntime,
     verdict:             s.verdict,
   });
 });

@@ -16,7 +16,7 @@ import {
   getRealDataTokenRemainingHours,
 } from '../clients/kisClient.js';
 import { getStreamStatus } from '../clients/kisStreamClient.js';
-import { getGeminiRuntimeState, type GeminiRuntimeState } from '../clients/geminiClient.js';
+import { getBudgetState, getGeminiRuntimeState, type GeminiRuntimeState } from '../clients/geminiClient.js';
 import {
   getYahooHealthSnapshot,
   type YahooHealthSnapshot,
@@ -150,6 +150,19 @@ export interface HealthProbeResult {
   dart: HealthProbeOutcome;
 }
 
+export interface DailyDataDiagnosticLine {
+  name: 'Macro' | 'Sector' | 'Smart Money';
+  status: 'fresh' | 'stale' | 'missing';
+  ageHours: number | null;
+  detail?: string;
+}
+
+export interface DailyDataDiagnosticDigest {
+  title: string;
+  lines: DailyDataDiagnosticLine[];
+  text: string;
+}
+
 /**
  * 외부 probe 결과 분류 — 단순 ok/fail 보다 정확한 severity 매핑.
  * - OK       : 응답 정상 또는 의미상 정상 (예: DART status=013 "데이터 없음")
@@ -270,6 +283,70 @@ export function collectHealthSnapshot(): HealthSnapshot {
     intradayYield: getCachedIntradayYield(),
     verdict,
   };
+}
+
+function ageHours(iso: string | undefined, now: Date): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  return Math.max(0, (now.getTime() - t) / 3_600_000);
+}
+
+function classifyFreshness(age: number | null, freshMaxHours: number, staleMaxHours: number): DailyDataDiagnosticLine['status'] {
+  if (age === null) return 'missing';
+  if (age <= freshMaxHours) return 'fresh';
+  if (age <= staleMaxHours) return 'stale';
+  return 'missing';
+}
+
+function formatAge(age: number | null): string {
+  if (age === null) return 'no timestamp';
+  if (age < 1) return '<1h ago';
+  return `${Math.round(age)}h ago`;
+}
+
+function iconForStatus(status: DailyDataDiagnosticLine['status']): string {
+  if (status === 'fresh') return '✅';
+  if (status === 'stale') return '⚠️';
+  return '❌';
+}
+
+function formatDataDiagnosticLine(line: DailyDataDiagnosticLine): string {
+  const statusText = line.status === 'missing' ? 'stale' : line.status;
+  const suffix = line.detail ? ` (${line.detail})` : '';
+  const action = line.status === 'missing' ? ' — manual check required' : '';
+  return `${iconForStatus(line.status)} ${line.name}: ${formatAge(line.ageHours)} ${statusText}${suffix}${action}`;
+}
+
+export function collectDailyDataDiagnosticDigest(now: Date = new Date()): DailyDataDiagnosticDigest {
+  const macro = loadMacroState();
+  const budget = getBudgetState();
+  const macroAge = ageHours(macro?.updatedAt, now);
+  const sectorAge = ageHours(macro?.sectorEnergyUpdatedAt, now);
+  const smartMoneyAge = ageHours(
+    macro?.fssDetailFetchedAt ?? macro?.programFetchedAt ?? macro?.shortSellingFetchedAt ?? macro?.marginBalanceFetchedAt,
+    now,
+  );
+  const lines: DailyDataDiagnosticLine[] = [
+    {
+      name: 'Macro',
+      status: classifyFreshness(macroAge, 2, 8),
+      ageHours: macroAge,
+    },
+    {
+      name: 'Sector',
+      status: classifyFreshness(sectorAge, 4, 12),
+      ageHours: sectorAge,
+      detail: budget.pctUsed >= 50 ? `Gemini quota ${Math.round(budget.pctUsed)}%` : undefined,
+    },
+    {
+      name: 'Smart Money',
+      status: classifyFreshness(smartMoneyAge, 8, 24),
+      ageHours: smartMoneyAge,
+    },
+  ];
+  const text = ['📊 일일 데이터 진단', ...lines.map(formatDataDiagnosticLine)].join('\n');
+  return { title: '일일 데이터 진단', lines, text };
 }
 
 // ─── Yahoo 상태 분류 ─────────────────────────────────────────────────────

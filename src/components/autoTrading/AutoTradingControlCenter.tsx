@@ -44,6 +44,7 @@ export function AutoTradingControlCenter({
 }: AutoTradingControlCenterProps) {
   const isRunning = state.engineStatus === 'RUNNING';
   const isLive = state.mode === 'LIVE';
+  const isPartial = 'status' in state && state.status === 'PARTIAL';
 
   return (
     <Section
@@ -117,6 +118,18 @@ export function AutoTradingControlCenter({
             <div className="mt-1 text-xs text-red-300/80">
               시동 시 3단계 안전 게이트(ARMED → 날짜 입력 → 실행)가 강제됩니다.
               주문 전 리스크 상태를 재확인하세요.
+            </div>
+          </Card>
+        )}
+
+        {isPartial && (
+          <Card variant="ghost" tone="warning" padding="sm">
+            <div className="flex items-center gap-2 font-semibold text-amber-200">
+              <WifiOff className="h-4 w-4" />
+              Partial data: balance API failed
+            </div>
+            <div className="mt-1 text-xs text-amber-200/80">
+              Engine is still reporting RUNNING. Holdings and account values may be stale until KIS balance recovers.
             </div>
           </Card>
         )}
