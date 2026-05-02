@@ -104,6 +104,8 @@ import type { BuyListLoopContext } from './types.js';
 import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/positionSizingEngineWiring.js';
 // ADR-0167 — currentEquityExposureAmount 정확 산출 SSOT (default OFF, ENV `POSITION_SIZING_ACCURATE_EXPOSURE_ENABLED=true` 활성화).
 import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
+// ADR-0171 — Sizing-ExposureBudget 진단 로그 10 필드 SSOT formatter (default OFF, ENV `SIZING_EXPOSURE_BUDGET_VERBOSE_LOG=true` 명시 활성화).
+import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
 
 export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
   for (const stock of ctx.buyList) {
@@ -398,7 +400,16 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             });
             const followQty = exposureCapFollow.applied ? exposureCapFollow.finalQuantity : followQtyRaw;
             if (exposureCapFollow.applied && exposureCapFollow.capResult?.cappedByExposureBudget) {
-              console.log(`[Sizing-ExposureBudget] ${stock.code} ${stock.name} (PRE_BREAKOUT_FOLLOWTHROUGH) → qty=${followQty} (raw=${followQtyRaw}) ${exposureCapFollow.capResult.blockReason ?? ''}`);
+              // ADR-0171 — 10 필드 SSOT formatter (verbose ENV ON 시 6 신규 필드 노출, default 4 필드).
+              console.log(formatExposureBudgetLog({
+                stockCode: stock.code,
+                stockName: stock.name,
+                pathLabel: 'PRE_BREAKOUT_FOLLOWTHROUGH',
+                rawQuantity: followQtyRaw,
+                finalQuantity: followQty,
+                budget: exposureCapFollow.budget,
+                capResult: exposureCapFollow.capResult,
+              }));
             }
             if (followQty < 1) continue;  // exposure cap 으로 0 차단 시 진입 스킵
             const profile    = stock.profileType ?? 'B';
@@ -612,7 +623,16 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               });
               const pbQty = exposureCapPb.applied ? exposureCapPb.finalQuantity : pbQtyRaw;
               if (exposureCapPb.applied && exposureCapPb.capResult?.cappedByExposureBudget) {
-                console.log(`[Sizing-ExposureBudget] ${stock.code} ${stock.name} (PRE_BREAKOUT 30%) → qty=${pbQty} (raw=${pbQtyRaw}) ${exposureCapPb.capResult.blockReason ?? ''}`);
+                // ADR-0171 — 10 필드 SSOT formatter.
+                console.log(formatExposureBudgetLog({
+                  stockCode: stock.code,
+                  stockName: stock.name,
+                  pathLabel: 'PRE_BREAKOUT 30%',
+                  rawQuantity: pbQtyRaw,
+                  finalQuantity: pbQty,
+                  budget: exposureCapPb.budget,
+                  capResult: exposureCapPb.capResult,
+                }));
               }
 
               if (pbQty >= 1) {
@@ -1154,10 +1174,15 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       });
       const finalQuantity = exposureCapMain.applied ? exposureCapMain.finalQuantity : baseQuantity;
       if (exposureCapMain.applied && exposureCapMain.capResult?.cappedByExposureBudget) {
-        console.log(
-          `[Sizing-ExposureBudget] ${stock.code} ${stock.name} → regime=${exposureCapMain.budget!.regime} ` +
-          `qty=${finalQuantity} (raw=${baseQuantity}) ${exposureCapMain.capResult.blockReason ?? ''}`,
-        );
+        // ADR-0171 — 10 필드 SSOT formatter (메인 buyList = pathLabel 미전달, regime 노출 4 필드 default).
+        console.log(formatExposureBudgetLog({
+          stockCode: stock.code,
+          stockName: stock.name,
+          rawQuantity: baseQuantity,
+          finalQuantity,
+          budget: exposureCapMain.budget,
+          capResult: exposureCapMain.capResult,
+        }));
       }
       const sizingSource = sizingApply.sizingSource;
       const sizingEngineSnapshot = sizingApply.applied && sizingApply.result ? {
