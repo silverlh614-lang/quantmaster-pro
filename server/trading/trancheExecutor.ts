@@ -3,11 +3,15 @@ import fs from 'fs';
 import { TRANCHE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
-import { kisPost, BUY_TR_ID, fetchCurrentPrice } from '../clients/kisClient.js';
+import { kisPost, BUY_TR_ID, fetchCurrentPrice, fetchAccountBalance } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fillMonitor } from './fillMonitor.js';
 import { fetchYahooQuote } from '../screener/stockScreener.js';
 import { loadShadowTrades, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
+import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
+import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
+import { applyExposureBudgetCap } from './sizing/positionSizingEngineWiring.js';
+import { resolveCurrentEquityExposure } from './sizing/currentEquityExposure.js';
 import { requestBuyApproval } from '../telegram/buyApproval.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
@@ -209,8 +213,27 @@ export class TrancheExecutor {
     console.log(`[Tranche] 실행 대상 ${pending.length}건 점검`);
     const isLive = process.env.AUTO_TRADE_MODE === 'LIVE';
     let changed = false;
-    const shadowsById = new Map(loadShadowTrades().map((s) => [s.id, s]));
+    const allShadows = loadShadowTrades();
+    const shadowsById = new Map(allShadows.map((s) => [s.id, s]));
     const currentRegime = getLiveRegime(loadMacroState());
+
+    // ADR-0166 §M2 (audit-PR-520) — 추매 진입점 노출 예산 cap 입력 합성.
+    // checkPendingTranches batch 처리이므로 accountSnapshot 함수 진입부 1회 fetch + 캐싱.
+    // SHADOW 모드 → computeShadowAccount(독립 원장), LIVE 모드 → fetchAccountBalance(KIS 잔고).
+    let totalAssets = 0;
+    let orderableCash = 0;
+    if (isLive) {
+      const balance = await fetchAccountBalance().catch(() => null);
+      totalAssets = Number(process.env.AUTO_TRADE_ASSETS || 0) || (balance ?? 30_000_000);
+      orderableCash = balance ?? totalAssets;
+    } else {
+      const settings = loadTradingSettings();
+      const startingCapital = Number(process.env.AUTO_TRADE_ASSETS || settings.startingCapital);
+      const account = computeShadowAccount(allShadows, startingCapital);
+      totalAssets = account.totalAssets;
+      orderableCash = Math.max(0, account.cashBalance);
+    }
+    const currentEquityExposureAmount = resolveCurrentEquityExposure(totalAssets, orderableCash, allShadows);
 
     // parentTradeId별로 취소 여부를 캐싱 (현재가는 한 번만 조회)
     const cancelledParents = new Set<string>();
@@ -318,6 +341,43 @@ export class TrancheExecutor {
             continue;
           }
         }
+
+        // ADR-0166 §M2 (audit-PR-520) — 추매 진입점 노출 예산 cap 적용.
+        // ENV `POSITION_SIZING_EXPOSURE_BUDGET_ENABLED=true` 활성 시에만 작동.
+        // isAddOnBuy=true 명시 → regimeExposurePolicy.allowAddOnBuys 정책 활성화 (R3+ 추매 허용).
+        // cap 결과 finalQuantity=0 → 트랜치 취소 + 운영자 알림.
+        // cap 결과 0 < finalQuantity < t.quantity → 수량 축소 후 진행 + 알림.
+        // cap 결과 ≥ t.quantity → 그대로 진행 (정상 통과).
+        const exposureCap = applyExposureBudgetCap({
+          rawQuantity: t.quantity,
+          shadowEntryPrice: currentPrice,
+          accountEquity: totalAssets,
+          currentEquityExposureAmount,
+          currentCashAmount: orderableCash,
+          regime: currentRegime,
+          isAddOnBuy: true,
+        });
+        const cappedQty = exposureCap.applied ? Math.min(exposureCap.finalQuantity, t.quantity) : t.quantity;
+        if (exposureCap.applied && cappedQty <= 0) {
+          t.status = 'CANCELLED';
+          t.cancelReason = `노출 예산 cap (regime=${currentRegime}, exposure=${currentEquityExposureAmount.toLocaleString()}원)`;
+          changed = true;
+          console.warn(`[Tranche] ${t.stockName}(${t.stockCode}) ${t.trancheNumber}차 취소 — 노출 예산 cap 차단`);
+          await sendTelegramAlert(
+            `🚫 <b>[분할 매수 ${t.trancheNumber}차 취소]</b> ${t.stockName}(${t.stockCode})\n` +
+            `노출 예산 cap — 보유 ${(currentEquityExposureAmount / 1_0000).toFixed(0)}만원 / 자산 ${(totalAssets / 1_0000).toFixed(0)}만원 (regime ${currentRegime})`
+          ).catch(console.error);
+          continue;
+        }
+        if (exposureCap.applied && cappedQty < t.quantity) {
+          console.log(`[Tranche] ${t.stockName}(${t.stockCode}) ${t.trancheNumber}차 수량 축소 ${t.quantity}→${cappedQty}주 (노출 예산 cap)`);
+          await sendTelegramAlert(
+            `⚠️ <b>[분할 매수 ${t.trancheNumber}차 수량 축소]</b> ${t.stockName}(${t.stockCode})\n` +
+            `${t.quantity}주 → ${cappedQty}주 (노출 예산 cap, regime ${currentRegime})`
+          ).catch(console.error);
+          t.quantity = cappedQty;
+        }
+
         if (isLive) {
           const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
             CANO:         process.env.KIS_ACCOUNT_NO ?? '',
