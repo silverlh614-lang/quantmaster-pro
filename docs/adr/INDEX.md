@@ -14,38 +14,40 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0159`**
+**다음 ADR 번호: `0160`**
 
-(2026-05-02 기준, 마지막 발급 0158, 누락 6개 — 0062/0063/0089/0105/0106/0143)
+(2026-05-02 기준, 마지막 발급 0159, 누락 6개 — 0062/0063/0089/0105/0106/0143)
 
 ## 알려진 충돌 (Known Conflicts)
 
 머지된 ADR 들의 번호 중복. 향후 신규 발급 시 본 인덱스 검증으로 영구 차단. 기존 ADR 번호 변경은 git diff·외부 참조 무결성 보호를 위해 *금지* — 본 표가 단일 진실 출처.
 
-| 번호 | 파일 | 의도 도메인 | PR / 머지 시점 | 비고 |
-|------|------|-------------|----------------|------|
-| 0028 | `0028-exitEngine-decomposition.md` | exitEngine 분해 (P2) | PR-53 (2026-04-26) | 절대 규칙 #6 (1500줄) |
-| 0028 | `0028-rejection-universe-tracker.md` | 거절 종목 사후 추적 | PR-L (2026-04-26) | 자기학습 시리즈 |
-| 0028 | `0028-ui-redesign-p0-banners-badges-cards.md` | UI P0-A 배너/배지/카드 | PR-A (2026-04-26) | UI 재설계 |
-| 0029 | `0029-condition-source-tier-and-recommendation-history.md` | UI P0-B 조건 출처 + 이력 | PR-B (2026-04-26) | UI 재설계 |
-| 0029 | `0029-counterfactual-twin-portfolio.md` | Twin Portfolio Ranking | PR-M (2026-04-26) | 자기학습 시리즈 |
-| 0029 | `0029-stockScreener-decomposition.md` | stockScreener 분해 (P1) | PR-55 (2026-04-26) | 절대 규칙 #6 |
-| 0030 | `0030-latent-signal-scorer.md` | VCP + Catalyst 사전 신호 | PR-N (2026-04-26) | 자기학습 시리즈 |
-| 0030 | `0030-price-alert-watcher.md` | UI P0-C Web Notification | PR-C (2026-04-26) | UI 재설계 |
-| 0030 | `0030-signalScanner-entry-gates-phase-b.md` | EntryGate Chain Phase B | PR-57 (2026-04-26) | signalScanner 분해 |
-| 0031 | `0031-last-trigger-enemy-tranche-cards.md` | Last Trigger + Enemy Card | PR-D (2026-04-26) | UI 재설계 |
-| 0031 | `0031-order-type-optimizer.md` | 슬리피지 학습 + 주문 타입 | PR-O (2026-04-26) | 자기학습 시리즈 |
-| 0031 | `0031-signalScanner-revalidation-and-sizing-patterns.md` | RevalidationStep 패턴 | PR-59 (2026-04-26) | signalScanner 분해 |
-| 0032 | `0032-sector-rotation-heatmap.md` | UI P1-E 섹터 히트맵 | PR-E (2026-04-26) | UI 재설계 |
-| 0032 | `0032-self-learning-series-overview.md` | 자기학습 시리즈 통합 SSOT | PR-P (2026-04-26) | 자기학습 시리즈 |
-| 0067 | `0067-marketoverview-boundary-guard.md` | MarketOverview boundary lint | PR-α 후속 (2026-04-27) | 데이터 안정성 |
-| 0067 | `0067-multi-timeframe-confluence-gate.md` | MTF Confluence Gate | PR-Q (2026-04-26) | EntryGate Phase B |
-| 0068 | `0068-macrostate-stale-block.md` | macroState stale 차단 | PR-α 후속 (2026-04-27) | 데이터 안정성 |
-| 0068 | `0068-shadow-learning-hooks-wiring.md` | Rejection + Twin wiring | PR-R (2026-04-28) | 자기학습 시리즈 |
-| 0124 | `0124-regime-coverage-suggest-false-positive.md` | regimeCoverage 표본 임계 | (날짜 추가 필요) | 학습 시그널 정합 |
-| 0124 | `0124-telegram-reports-be-visibility.md` | 텔레그램 리포트 BE 표기 | PR-ADR-0124 (2026-04-30) | BE 정합 |
+**별칭 정책 (ADR-0159, 2026-05-02 도입)** — 충돌 ADR 인용 시 *별칭 사용 권장* (예: `ADR-0028a` exitEngine 분해 / `ADR-0028b` rejection-universe-tracker / `ADR-0028c` ui-redesign-p0). 비충돌 ADR 은 기존 형식 그대로 (예: `ADR-0085`). 별칭 부여 기준 — 동일 그룹 내 PR 머지 시점 오름차순 (a → b → c). 강제 검증 default OFF (회귀 위험 격리, 6개월 운영 후 활성화 검토).
 
-**충돌 그룹 8개 / 충돌 ADR 17개**. 향후 신규 발급은 §"다음 발급" 번호 사용 → 충돌 0건 유지.
+| 번호 | 별칭 | 파일 | 의도 도메인 | PR / 머지 시점 | 비고 |
+|------|------|------|-------------|----------------|------|
+| 0028 | **0028a** | `0028-exitEngine-decomposition.md` | exitEngine 분해 (P2) | PR-53 (2026-04-26) | 절대 규칙 #6 (1500줄) |
+| 0028 | **0028b** | `0028-rejection-universe-tracker.md` | 거절 종목 사후 추적 | PR-L (2026-04-26) | 자기학습 시리즈 |
+| 0028 | **0028c** | `0028-ui-redesign-p0-banners-badges-cards.md` | UI P0-A 배너/배지/카드 | PR-A (2026-04-26) | UI 재설계 |
+| 0029 | **0029a** | `0029-condition-source-tier-and-recommendation-history.md` | UI P0-B 조건 출처 + 이력 | PR-B (2026-04-26) | UI 재설계 |
+| 0029 | **0029b** | `0029-counterfactual-twin-portfolio.md` | Twin Portfolio Ranking | PR-M (2026-04-26) | 자기학습 시리즈 |
+| 0029 | **0029c** | `0029-stockScreener-decomposition.md` | stockScreener 분해 (P1) | PR-55 (2026-04-26) | 절대 규칙 #6 |
+| 0030 | **0030a** | `0030-latent-signal-scorer.md` | VCP + Catalyst 사전 신호 | PR-N (2026-04-26) | 자기학습 시리즈 |
+| 0030 | **0030b** | `0030-price-alert-watcher.md` | UI P0-C Web Notification | PR-C (2026-04-26) | UI 재설계 |
+| 0030 | **0030c** | `0030-signalScanner-entry-gates-phase-b.md` | EntryGate Chain Phase B | PR-57 (2026-04-26) | signalScanner 분해 |
+| 0031 | **0031a** | `0031-last-trigger-enemy-tranche-cards.md` | Last Trigger + Enemy Card | PR-D (2026-04-26) | UI 재설계 |
+| 0031 | **0031b** | `0031-order-type-optimizer.md` | 슬리피지 학습 + 주문 타입 | PR-O (2026-04-26) | 자기학습 시리즈 |
+| 0031 | **0031c** | `0031-signalScanner-revalidation-and-sizing-patterns.md` | RevalidationStep 패턴 | PR-59 (2026-04-26) | signalScanner 분해 |
+| 0032 | **0032a** | `0032-sector-rotation-heatmap.md` | UI P1-E 섹터 히트맵 | PR-E (2026-04-26) | UI 재설계 |
+| 0032 | **0032b** | `0032-self-learning-series-overview.md` | 자기학습 시리즈 통합 SSOT | PR-P (2026-04-26) | 자기학습 시리즈 |
+| 0067 | **0067a** | `0067-multi-timeframe-confluence-gate.md` | MTF Confluence Gate | PR-Q (2026-04-26) | EntryGate Phase B |
+| 0067 | **0067b** | `0067-marketoverview-boundary-guard.md` | MarketOverview boundary lint | PR-α 후속 (2026-04-27) | 데이터 안정성 |
+| 0068 | **0068a** | `0068-macrostate-stale-block.md` | macroState stale 차단 | PR-α 후속 (2026-04-27) | 데이터 안정성 |
+| 0068 | **0068b** | `0068-shadow-learning-hooks-wiring.md` | Rejection + Twin wiring | PR-R (2026-04-28) | 자기학습 시리즈 |
+| 0124 | **0124a** | `0124-regime-coverage-suggest-false-positive.md` | regimeCoverage 표본 임계 | (날짜 추가 필요) | 학습 시그널 정합 |
+| 0124 | **0124b** | `0124-telegram-reports-be-visibility.md` | 텔레그램 리포트 BE 표기 | PR-ADR-0124 (2026-04-30) | BE 정합 |
+
+**충돌 그룹 8개 / 충돌 ADR 17개 (별칭 17건 부여, ADR-0159)**. 향후 신규 발급은 §"다음 발급" 번호 사용 → 충돌 0건 유지.
 
 ## 누락 (Gap)
 
@@ -224,8 +226,9 @@
 | 0156 | yahoo-consensus-endpoint | learning |
 | 0157 | feedback-loop-now-injection | learning |
 | 0158 | wiring-sla-auto-expiry | governance |
+| 0159 | adr-alias-diaspora | governance |
 
-**총 발급 158건** (164 파일 − 충돌 그룹 17건 + 충돌 그룹 표 카운트 = 158 unique 번호) / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0159**.
+**총 발급 159건** (165 파일 − 충돌 그룹 17건 + 충돌 그룹 표 카운트 = 159 unique 번호, 별칭 17건 부여 ADR-0159) / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0160**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
