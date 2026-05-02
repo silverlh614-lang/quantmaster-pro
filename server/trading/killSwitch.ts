@@ -25,6 +25,11 @@ import {
 } from '../state.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { safePctChange } from '../utils/safePctChange.js';
+export type KillSwitchLearningLoopLevel =
+  | 'HEALTHY'
+  | 'DEGRADED'
+  | 'STATELESS'
+  | 'INSUFFICIENT_DATA';
 
 // ─── 임계값 ────────────────────────────────────────────────────────────────
 const DAILY_LOSS_LIMIT_PCT = Number(process.env.DAILY_LOSS_LIMIT_PCT ?? 5);
@@ -74,21 +79,28 @@ export function getVkospiSurgePct(): number {
 export interface KillSwitchAssessment {
   shouldDowngrade: boolean;
   triggers: string[];
+  warnings?: string[];
   details: {
     dailyLossPct: number;
     ocoCancelFails: number;
     kisTokenFailRecent: boolean;
     vkospiSurgePct: number;
+    learningLoopLevel?: KillSwitchLearningLoopLevel;
   };
 }
 
-export function assessKillSwitch(): KillSwitchAssessment {
+export interface KillSwitchInputs {
+  learningLoopLevel?: KillSwitchLearningLoopLevel;
+}
+
+export function assessKillSwitch(inputs: KillSwitchInputs = {}): KillSwitchAssessment {
   const dailyLossPct = getDailyLossPct();
   const ocoFails = ocoCancelFailCount;
   const tokenFail = hasRecentKisTokenFail();
   const vkospiSurge = getVkospiSurgePct();
 
   const triggers: string[] = [];
+  const warnings: string[] = [];
   if (dailyLossPct >= DAILY_LOSS_LIMIT_PCT) {
     triggers.push(`DAILY_LOSS (${dailyLossPct.toFixed(2)}% ≥ ${DAILY_LOSS_LIMIT_PCT}%)`);
   }
@@ -101,15 +113,26 @@ export function assessKillSwitch(): KillSwitchAssessment {
   if (vkospiSurge >= VKOSPI_SURGE_PCT) {
     triggers.push(`VKOSPI_SURGE (+${vkospiSurge.toFixed(1)}%)`);
   }
+  if (process.env.LEARNING_LOOP_KILL_SWITCH_DISABLED !== 'true') {
+    if (inputs.learningLoopLevel === 'STATELESS') {
+      triggers.push('LEARNING_LOOP_STATELESS');
+    } else if (inputs.learningLoopLevel === 'DEGRADED') {
+      warnings.push('LEARNING_LOOP_DEGRADED');
+    } else if (inputs.learningLoopLevel === 'INSUFFICIENT_DATA') {
+      warnings.push('LEARNING_LOOP_INSUFFICIENT_DATA');
+    }
+  }
 
   return {
     shouldDowngrade: triggers.length > 0,
     triggers,
+    warnings,
     details: {
       dailyLossPct,
       ocoCancelFails: ocoFails,
       kisTokenFailRecent: tokenFail,
       vkospiSurgePct: vkospiSurge,
+      learningLoopLevel: inputs.learningLoopLevel,
     },
   };
 }
@@ -119,8 +142,8 @@ export function assessKillSwitch(): KillSwitchAssessment {
  * 평가 결과가 `shouldDowngrade` 이고 현재 모드가 LIVE 일 때만 강등 수행.
  * 이미 SHADOW 라면 no-op. 텔레그램 CRITICAL 알림 + KillSwitchRecord 보존.
  */
-export async function runKillSwitchCheck(): Promise<KillSwitchAssessment> {
-  const assessment = assessKillSwitch();
+export async function runKillSwitchCheck(inputs: KillSwitchInputs = {}): Promise<KillSwitchAssessment> {
+  const assessment = assessKillSwitch(inputs);
   const currentMode = getTradingMode();
 
   if (!assessment.shouldDowngrade) return assessment;

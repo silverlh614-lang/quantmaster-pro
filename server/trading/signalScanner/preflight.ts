@@ -36,6 +36,7 @@ import { isOpenShadowStatus } from '../entryEngine.js';
 import { updateShadowResults } from '../exitEngine.js';
 import { getManualBlockNewBuy, getManualManageOnly } from '../../state.js';
 import { computeSlotConsumption } from '../slotAccounting.js';
+import { computeBiasPositionPenalty, type BiasPositionPenalty } from '../../learning/biasPositionPenalty.js';
 
 export interface SellOnlyExceptionDecision {
   allow: boolean;
@@ -74,6 +75,7 @@ export interface PreflightOutcome {
   fomcProximity?: FomcProximity;
   ipsKelly?: number;
   accountKellyMultiplier?: number;
+  biasPositionPenalty?: BiasPositionPenalty;
   kellyMultiplier?: number;
   sellOnlyExc?: SellOnlyExceptionDecision;
   effectiveMaxPositions?: number;
@@ -345,12 +347,14 @@ export async function runPreflight(
   const KELLY_FLOOR = 0.15;
   const ipsKelly = getIpsKellyMultiplier();
   const accountKellyMultiplier = getAccountScaleKellyMultiplier(totalAssets);
+  const biasPositionPenalty = computeBiasPositionPenalty();
+  const biasMultiplier = biasPositionPenalty.multiplier;
   const exceptionKellyFactor = sellOnlyExc.allow ? sellOnlyExc.kellyFactor : 1;
   // ADR-0076: regime + FOMC 결합 SSOT — FOMC 활성 시 regimeKelly 무시 (R6_DEFENSE 만 보호)
   const regimeFomcCombined = combineRegimeAndFomcKelly(
     regimeConfig.kellyMultiplier, fomcProximity.kellyMultiplier, fomcProximity.phase, regime,
   );
-  const rawKelly = regimeFomcCombined.value * vixGating.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier;
+  const rawKelly = regimeFomcCombined.value * vixGating.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier * biasMultiplier;
   const kellyMultiplier = Math.min(
     1.5,
     Math.max(KELLY_FLOOR, rawKelly),
@@ -364,11 +368,14 @@ export async function runPreflight(
   if (fomcProximity.kellyMultiplier !== 1) {
     console.log(`[AutoTrade] FOMC 게이팅 적용 — ${fomcProximity.description}`);
   }
+  if (biasMultiplier < 1) {
+    console.log(`[AutoTrade] learning bias position penalty applied — x${biasMultiplier.toFixed(2)} (${biasPositionPenalty.reasons.join('; ')})`);
+  }
   if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
     console.log(
       `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} × ` +
       `VIX(×${vixGating.kellyMultiplier.toFixed(2)}) × IPS(×${ipsKelly.toFixed(2)}) × ` +
-      `계좌(×${accountKellyMultiplier.toFixed(2)}) = raw ×${rawKelly.toFixed(3)}` +
+      `계좌(×${accountKellyMultiplier.toFixed(2)}) × Bias(×${biasMultiplier.toFixed(2)}) = raw ×${rawKelly.toFixed(3)}` +
       `${rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}` : ''} → 유효 ×${kellyMultiplier.toFixed(2)}`,
     );
   }
@@ -425,6 +432,7 @@ export async function runPreflight(
     fomcProximity,
     ipsKelly,
     accountKellyMultiplier,
+    biasPositionPenalty,
     kellyMultiplier,
     sellOnlyExc,
     effectiveMaxPositions,

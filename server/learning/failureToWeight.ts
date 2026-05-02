@@ -29,6 +29,9 @@ import { serverConditionKey, CONDITION_NAMES } from './attributionAnalyzer.js';
 import { type ConditionKey } from '../quantFilter.js';
 import { F2W_AUDIT_FILE, ensureDataDir } from '../persistence/paths.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { loadRecentReflections } from '../persistence/reflectionRepo.js';
+import { loadFailurePatterns } from '../persistence/failurePatternRepo.js';
+import { loadReflectionImpactRecords } from '../persistence/reflectionImpactRepo.js';
 
 // ─── 상수 ─────────────────────────────────────────────────────────────────
 
@@ -47,6 +50,10 @@ export const MIN_SAMPLE_SIZE = 10;
 /** 가중치 클램프 범위 */
 export const WEIGHT_FLOOR = 0.1;
 export const WEIGHT_CAP = 2.0;
+export const REFLECTION_CONFESSION_3D_DECAY = 0.95;
+export const REFLECTION_CONFESSION_5D_DECAY = 0.90;
+export const REFLECTION_FAILURE_PATTERN_DECAY = 0.95;
+export const REFLECTION_FAILURE_PATTERN_SCORE_THRESHOLD = 7;
 
 // ─── 수학 유틸 ────────────────────────────────────────────────────────────
 
@@ -82,6 +89,8 @@ export interface F2WAdjustment {
   nextWeight: number;
   /** 'BOOST' | 'DECAY' | 'SUNSET' | 'NONE' */
   action: 'BOOST' | 'DECAY' | 'SUNSET' | 'NONE';
+  source?: 'CORRELATION' | 'REFLECTION_ADJUSTMENT' | 'COMBINED';
+  reflectionMultiplier?: number;
   /** 180일 누적 기여 수익률 (sunset 판정용) */
   contribution180d: number;
   reason: string;
@@ -159,6 +168,7 @@ function decideAdjustment(
     correlation: +analysis.correlation.toFixed(3),
     prevWeight,
     contribution180d: +analysis.contribution180d.toFixed(2),
+    source: 'CORRELATION',
   };
 
   // Sunset 우선: 180일 기여 수익률 음수 + 충분한 표본
@@ -196,6 +206,83 @@ function decideAdjustment(
   return { ...base, action: 'NONE', nextWeight: prevWeight, reason: `|r|=${Math.abs(analysis.correlation).toFixed(2)} — 임계 미달` };
 }
 
+function multiplyMapValue(map: Map<number, number>, conditionId: number, factor: number): void {
+  map.set(conditionId, (map.get(conditionId) ?? 1) * factor);
+}
+
+function countConditionConfessions(days: number): Map<number, number> {
+  const counts = new Map<number, number>();
+  for (const report of loadRecentReflections(days)) {
+    const seenForDate = new Set<number>();
+    for (const entry of report.conditionConfession ?? []) {
+      if (Number.isFinite(entry.conditionId)) seenForDate.add(entry.conditionId);
+    }
+    for (const conditionId of seenForDate) {
+      counts.set(conditionId, (counts.get(conditionId) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+function recentMeaningfulReflectionImpactRatio(days: number): number {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days + 1);
+  const cutoffDate = cutoff.toISOString().slice(0, 10);
+  const records = loadReflectionImpactRecords().filter((record) => record.date >= cutoffDate);
+  if (records.length === 0) return 0;
+  return records.filter((record) => record.meaningful).length / records.length;
+}
+
+export function computeReflectionAdjustment(): Map<number, number> {
+  const disabled = process.env.LEARNING_REFLECTION_F2W_DISABLED === 'true';
+  const adjustments = new Map<number, number>();
+  if (disabled) return adjustments;
+  const meaningfulImpactRatio7d = recentMeaningfulReflectionImpactRatio(7);
+
+  const confessions3d = countConditionConfessions(3);
+  for (const [conditionId, count] of confessions3d) {
+    if (count >= 2) multiplyMapValue(adjustments, conditionId, REFLECTION_CONFESSION_3D_DECAY);
+  }
+
+  const confessions5d = countConditionConfessions(5);
+  for (const [conditionId, count] of confessions5d) {
+    if (count >= 3) multiplyMapValue(adjustments, conditionId, REFLECTION_CONFESSION_5D_DECAY);
+  }
+
+  const failurePatternCounts = new Map<number, number>();
+  for (const pattern of loadFailurePatterns()) {
+    for (const [conditionIdRaw, score] of Object.entries(pattern.conditionScores ?? {})) {
+      const conditionId = Number(conditionIdRaw);
+      if (Number.isFinite(conditionId) && Number(score) >= REFLECTION_FAILURE_PATTERN_SCORE_THRESHOLD) {
+        failurePatternCounts.set(conditionId, (failurePatternCounts.get(conditionId) ?? 0) + 1);
+      }
+    }
+  }
+  for (const [conditionId, count] of failurePatternCounts) {
+    if (count >= 2) multiplyMapValue(adjustments, conditionId, REFLECTION_FAILURE_PATTERN_DECAY);
+  }
+
+  // Read-only telemetry input for auditability. A zero ratio does not block the
+  // bridge in shadow mode; F2W remains the only writer and final clamp.
+  if (meaningfulImpactRatio7d < 0) return adjustments;
+
+  return adjustments;
+}
+
+function applyReflectionAdjustment(adj: F2WAdjustment, multiplier: number): F2WAdjustment {
+  if (multiplier === 1) return adj;
+  const correlationChanged = adj.action !== 'NONE';
+  const nextWeight = clamp(adj.nextWeight * multiplier);
+  return {
+    ...adj,
+    action: correlationChanged ? adj.action : 'DECAY',
+    nextWeight,
+    source: correlationChanged ? 'COMBINED' : 'REFLECTION_ADJUSTMENT',
+    reflectionMultiplier: +multiplier.toFixed(4),
+    reason: `${adj.reason}; reflection adjustment x${multiplier.toFixed(2)}`,
+  };
+}
+
 // ─── 감사 로그 ────────────────────────────────────────────────────────────
 
 function appendAuditLog(result: F2WRunResult): void {
@@ -221,6 +308,7 @@ export async function runF2WReverseLoop(options: F2WRunOptions = {}): Promise<F2
   const records = loadAttributionRecords();
   const weightsBefore = loadConditionWeights();
   const weightsAfter: ConditionWeights = { ...weightsBefore };
+  const reflectionAdjustments = computeReflectionAdjustment();
 
   const adjustments: F2WAdjustment[] = [];
   for (let conditionId = 1; conditionId <= 27; conditionId++) {
@@ -228,7 +316,8 @@ export async function runF2WReverseLoop(options: F2WRunOptions = {}): Promise<F2
     if (!serverKey) continue; // 서버 자동평가 대상만 가중치 조정
     const prev = weightsBefore[serverKey] ?? 1.0;
     const analysis = analyzeCondition(conditionId, records);
-    const adj = decideAdjustment(conditionId, serverKey, prev, analysis);
+    const baseAdj = decideAdjustment(conditionId, serverKey, prev, analysis);
+    const adj = applyReflectionAdjustment(baseAdj, reflectionAdjustments.get(conditionId) ?? 1);
     adjustments.push(adj);
     if (adj.action !== 'NONE') weightsAfter[serverKey] = adj.nextWeight;
   }

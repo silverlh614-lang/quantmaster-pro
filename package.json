@@ -19,6 +19,7 @@
     "validate:responsibility": "node scripts/check_responsibility.js",
     "validate:boundary": "node scripts/check_symbol_boundary.js",
     "validate:channelBoundary": "node scripts/check_channel_boundary.js",
+    "check:learning-boundary": "node scripts/check_learning_channel_boundary.js",
     "validate:sensitiveAlerts": "node scripts/check_sensitive_alerts.js",
     "validate:marketOverviewBoundary": "node scripts/check_market_overview_boundary.js",
     "validate:yahooRange": "node scripts/check_yahoo_range.js",
@@ -30,7 +31,7 @@
     "validate:prPaceAudit": "node scripts/check_pr_pace_audit.js",
     "build:exit-catalog": "node scripts/generate_exit_rules_catalog.js",
     "validate:exit-catalog": "node scripts/generate_exit_rules_catalog.js --check",
-    "validate:all": "npm run validate:gemini && npm run validate:complexity && npm run validate:sds && npm run validate:exposure && npm run validate:responsibility && npm run validate:boundary && npm run validate:channelBoundary && npm run validate:sensitiveAlerts && npm run validate:marketOverviewBoundary && npm run validate:yahooRange && npm run validate:uiLanguage && npm run validate:dataTrust && npm run validate:silentDegradation && npm run validate:adrIndex && npm run validate:pendingWiring && npm run validate:prPaceAudit",
+    "validate:all": "npm run validate:gemini && npm run validate:complexity && npm run validate:sds && npm run validate:exposure && npm run validate:responsibility && npm run validate:boundary && npm run validate:channelBoundary && npm run check:learning-boundary && npm run validate:sensitiveAlerts && npm run validate:marketOverviewBoundary && npm run validate:yahooRange && npm run validate:uiLanguage && npm run validate:dataTrust && npm run validate:silentDegradation && npm run validate:adrIndex && npm run validate:pendingWiring && npm run validate:prPaceAudit",
     "precommit": "node scripts/check_deploy_window.js && node scripts/scan_exposure.js --no-history && node scripts/check_complexity.js && node scripts/check_responsibility.js --changed && node scripts/check_symbol_boundary.js && node scripts/check_channel_boundary.js && node scripts/check_sensitive_alerts.js && node scripts/check_market_overview_boundary.js && node scripts/check_yahoo_range.js && node scripts/check_ui_language.js --changed && node scripts/check_data_trust.js && node scripts/check_silent_degradation.js && node scripts/check_adr_index.js && node scripts/check_pending_wiring.js && npm run validate:gemini && npm run lint",
     "install:hooks": "node scripts/install_git_hooks.js",
     "update:sector-map": "tsx scripts/updateSectorMap.ts"

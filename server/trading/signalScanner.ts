@@ -57,6 +57,7 @@ import { evaluateCorrelationGate } from './correlationSlotGate.js';
 import { recordCounterfactual, COUNTERFACTUAL_DAILY_CAP } from '../learning/counterfactualShadow.js';
 import { recordUniverseEntries } from '../learning/ledgerSimulator.js';
 import { computeSlotConsumption } from './slotAccounting.js';
+import { computeBiasPositionPenalty } from '../learning/biasPositionPenalty.js';
 
 // FAILURE_BLOCK_THRESHOLD_PCT, getPrice, SymbolExitContext, getAdaptiveProfitTargets
 // 는 signalScanner/perSymbolEvaluation.ts 에서 이식 후 import.
@@ -399,6 +400,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   const KELLY_FLOOR = 0.15;
   const ipsKelly = getIpsKellyMultiplier();
   const accountKellyMultiplier = getAccountScaleKellyMultiplier(totalAssets);
+  const biasPositionPenalty = computeBiasPositionPenalty();
+  const biasMultiplier = biasPositionPenalty.multiplier;
   // Phase 2-③: SELL_ONLY 예외 채널 진입 시 Kelly ×0.5 (kellyFactor) 추가 감쇠
   const exceptionKellyFactor = sellOnlyExc.allow ? sellOnlyExc.kellyFactor : 1;
   // ADR-0076: regime + FOMC 결합 SSOT (옵션 C — FOMC 우선 + R6 보호).
@@ -407,7 +410,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   const regimeFomcCombined = combineRegimeAndFomcKelly(
     regimeConfig.kellyMultiplier, fomcProximity.kellyMultiplier, fomcProximity.phase, regime,
   );
-  const rawKelly = regimeFomcCombined.value * vixGating.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier;
+  const rawKelly = regimeFomcCombined.value * vixGating.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier * biasMultiplier;
   const kellyMultiplier = Math.min(
     1.5,  // 상한 캡 (POST 부스트 구간에서도 최대 1.5배)
     Math.max(KELLY_FLOOR, rawKelly),
@@ -422,6 +425,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     console.log(`[AutoTrade] FOMC 게이팅 적용 — ${fomcProximity.description}`);
   }
   // 진단 로그: 각 패널티 구성 요소를 분해하여 기록
+  if (biasMultiplier < 1) {
+    console.log(`[AutoTrade] learning bias position penalty applied — x${biasMultiplier.toFixed(2)} (${biasPositionPenalty.reasons.join('; ')})`);
+  }
   if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
     console.log(
       `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} × ` +
