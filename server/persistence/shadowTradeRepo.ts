@@ -606,6 +606,36 @@ export interface ServerShadowTrade {
    * 후속 PR (`exitEngine/rules/hardStopLoss.ts` BEP_PROTECTION 분기).
    */
   bepGlideTouchAt?: string;
+  /**
+   * ADR-0162 (Phase 2-D wiring) — 매수 시점 사이징 결정의 *출처* marker.
+   * `'NEW_TIER_ENGINE'` = `server/trading/sizing/positionSizingEngine.computeFinalPosition` 결과 적용
+   *   (ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` + SHADOW 모드 + 매핑 성공 시).
+   * `'LEGACY_SSOT'` = 기존 `sizingTierDecider + kellyBudgetDecider + calculateOrderQuantity` 결과.
+   * 부재(undefined) = 기존 동작 (PR 도입 이전 영속 또는 ENV OFF).
+   *
+   * 학습 데이터 격리 — `attribution`/`failurePatternDB` 가 본 marker 로 두 SSOT 결과 분리 분석 가능.
+   * LIVE 모드는 본 PR 영향 0 — 영속 marker 도 LEGACY_SSOT 또는 부재.
+   */
+  sizingSource?: 'NEW_TIER_ENGINE' | 'LEGACY_SSOT';
+  /**
+   * ADR-0162 — 본 모듈 사이징 적용 시 진입 시점 결정 스냅샷 (운영자 검증용).
+   * 6 티어 매트릭스 + 7축 배수 + 차단 사유 영속. 기존 `entryKellySnapshot` 와 별도 영속 (책임 분리).
+   * `sizingSource='NEW_TIER_ENGINE'` 일 때만 채워짐.
+   */
+  sizingEngineSnapshot?: {
+    tierName: string;
+    basePct: number;
+    finalPositionPct: number;
+    finalPositionKrw: number;
+    drawdownMultiplier: number;
+    lossStreakMultiplier: number;
+    liquidityMultiplier: number;
+    sectorExposureMultiplier: number;
+    expectedStopLossDamagePct: number;
+    signalPriorityApplied: boolean;
+    adjustmentReasons: string[];
+    snapshotAt: string;
+  };
 }
 
 // ─── Manual Exit Context ──────────────────────────────────────────────────────
