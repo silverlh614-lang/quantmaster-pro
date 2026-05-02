@@ -153,6 +153,87 @@ export function mapInternalToExposureRegime(internal: RegimeLevel): MarketRegime
   return REGIME_MAPPING[internal] ?? 'R3_NEUTRAL';
 }
 
+// ─── ADR-0170: 매크로 신호 기반 R1_DEFENSIVE 자동 격상 (audit-PR-520 §M4) ─────
+
+/**
+ * `mapInternalToExposureRegimeWithMacro` 입력 — 매크로 신호 부분 schema (호출자 책임).
+ *
+ * 모든 필드 옵셔널 — 부재 시 기존 매핑 그대로. ADR-0146 §"위반 5건" 회귀 위험 격리 정합.
+ */
+export interface ExposureRegimeMacroInput {
+  /** VIX 공포지수 (>30 위험, >25 + 손실 누적 시 R1 격상 후보) */
+  vix?: number;
+  /** VKOSPI (한국 변동성, >30 격상 후보) */
+  vkospi?: number;
+  /** Bear 방어 모드 (true 시 R5_CAUTION → R1_DEFENSIVE 격상) */
+  bearDefenseMode?: boolean;
+  /** 일일 손실 비율 (-3% 미만 + VIX>25 시 R1 격상 — 자본 보호 강화) */
+  dailyLossPct?: number;
+}
+
+/**
+ * 매크로 신호 기반 *R1_DEFENSIVE 자동 격상* SSOT — audit-PR-520 §M4 직속 수리.
+ *
+ * **핵심 결함**: 기존 `REGIME_MAPPING` 은 6 → 7 매핑 (R5_CAUTION → R2_WEAK / R6_DEFENSE → R0_CRISIS)
+ * 만 정의해 R1_DEFENSIVE 정책 (target 20% / max 25% / 매우 보수적) 이 *영원히 미사용*.
+ *
+ * **격상 규칙** (우선순위 SSOT):
+ *  1. R6_DEFENSE → R0_CRISIS (기존 매핑, 매크로 신호 무관 — 시장 전체 붕괴)
+ *  2. R5_CAUTION + bearDefenseMode=true → **R1_DEFENSIVE** (방어 모드 진입)
+ *  3. R5_CAUTION + (vix>30 OR vkospi>30) → **R1_DEFENSIVE** (변동성 폭증)
+ *  4. R5_CAUTION + (vix>25 AND dailyLossPct<-3) → **R1_DEFENSIVE** (자본 보호)
+ *  5. 그 외 → 기존 `REGIME_MAPPING` 적용
+ *
+ * **회귀 위험 격리**:
+ *  - ENV `EXPOSURE_REGIME_AUTO_MAPPING_DISABLED=true` → 격상 비활성, 기존 매핑 그대로
+ *  - 매크로 입력 부재 → 기존 매핑 그대로 (NaN/undefined 모두 false 평가)
+ *  - 격상은 R5_CAUTION 단일 분기만 (R3_EARLY 같은 상위 레짐은 매크로 신호 무관)
+ *  - default ON — `applyExposureBudgetCap` 자체가 ENV 게이트 (`POSITION_SIZING_EXPOSURE_BUDGET_ENABLED`)
+ *    뒤라 정책 활성화 시점에서만 영향
+ */
+export function mapInternalToExposureRegimeWithMacro(
+  internal: RegimeLevel,
+  macro?: ExposureRegimeMacroInput,
+): MarketRegimeLevel {
+  // ENV 비활성 → 기존 매핑
+  if (process.env.EXPOSURE_REGIME_AUTO_MAPPING_DISABLED === 'true') {
+    return mapInternalToExposureRegime(internal);
+  }
+
+  // R6_DEFENSE 는 매크로 무관 — 시장 전체 붕괴
+  if (internal === 'R6_DEFENSE') {
+    return 'R0_CRISIS';
+  }
+
+  // R5_CAUTION 만 매크로 격상 평가
+  if (internal === 'R5_CAUTION' && macro) {
+    // 우선순위 1: bearDefenseMode 활성
+    if (macro.bearDefenseMode === true) {
+      return 'R1_DEFENSIVE';
+    }
+    // 우선순위 2: 변동성 폭증 (VIX 또는 VKOSPI)
+    const vixSpike = Number.isFinite(macro.vix) && (macro.vix as number) > 30;
+    const vkospiSpike = Number.isFinite(macro.vkospi) && (macro.vkospi as number) > 30;
+    if (vixSpike || vkospiSpike) {
+      return 'R1_DEFENSIVE';
+    }
+    // 우선순위 3: VIX 경고 + 일일 손실 누적
+    const vixWarn = Number.isFinite(macro.vix) && (macro.vix as number) > 25;
+    const lossAccum = Number.isFinite(macro.dailyLossPct) && (macro.dailyLossPct as number) < -3;
+    if (vixWarn && lossAccum) {
+      return 'R1_DEFENSIVE';
+    }
+  }
+
+  // 그 외 → 기존 매핑
+  return mapInternalToExposureRegime(internal);
+}
+
+/** 매크로 자동 매핑 ENV 비활성 검사 (테스트/진단용 export) */
+export function isExposureRegimeAutoMappingDisabled(): boolean {
+  return process.env.EXPOSURE_REGIME_AUTO_MAPPING_DISABLED === 'true';
+}
+
 // ─── 사용자 §2 — 총 노출 예산 계산 ──────────────────────────────────────────
 
 export interface PortfolioExposureInput {
