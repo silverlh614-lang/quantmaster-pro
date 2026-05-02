@@ -18,6 +18,11 @@ import {
   type SignalGrade,
 } from './index.js';
 import type { LossStreakState } from './coolingOffEngine.js';
+import {
+  getEffectivePeakEquity,
+  updatePeakEquityIfHigher,
+  type PeakEquityMode,
+} from '../../persistence/peakEquityRepo.js';
 
 // ─── ENV 우회 SSOT ──────────────────────────────────────────────────────────
 
@@ -72,6 +77,11 @@ export interface MapToInputContext {
   notInDowntrend: boolean;
   /** 외부 SSOT 에서 조회 — null 이면 default streak (0건) 사용 */
   lossStreakState?: LossStreakState | null;
+  /**
+   * ADR-0164 — peakEquity 영속 SSOT 모드 (SHADOW vs LIVE 분리).
+   * 미전달 시 'SHADOW' default (본 PR scope 는 SHADOW only — LIVE wiring 후속 PR).
+   */
+  peakEquityMode?: PeakEquityMode;
 }
 
 export function mapToPositionSizingInput(ctx: MapToInputContext): PositionSizingInput | null {
@@ -88,10 +98,15 @@ export function mapToPositionSizingInput(ctx: MapToInputContext): PositionSizing
     coolOffUntil: null,
   };
 
+  // ADR-0164 — peakEquity 영속 SSOT (drawdown 자동 차단 입력).
+  // mode 미전달 시 SHADOW default (LIVE wiring 부재 — 본 PR scope 밖).
+  // 영속 부재 / 0 시 안전 fallback (currentEquity = peakEquity → drawdown 0).
+  const mode: PeakEquityMode = ctx.peakEquityMode ?? 'SHADOW';
+  const peakEquity = getEffectivePeakEquity(mode, ctx.totalAssets);
+
   return {
     accountEquity: ctx.totalAssets,
-    // 현재 = 고점 가정 (drawdown 추적은 후속 PR — peakEquity 영속 SSOT 필요)
-    peakEquity: ctx.totalAssets,
+    peakEquity,
     signalGrade: ctx.signalGrade,
     stopLossPct,
     regimeMultiplier: Number.isFinite(ctx.regimeKelly) && ctx.regimeKelly > 0 ? ctx.regimeKelly : 1.0,
@@ -149,6 +164,19 @@ export function applyPositionSizingEngine(
       sizingSource: 'LEGACY_SSOT',
       skipReason: shadowMode ? 'ENV_DISABLED' : 'LIVE_MODE',
     };
+  }
+
+  // ADR-0164 — 본 모듈 활성 시 peakEquity 자동 갱신 (totalAssets > peak 시 영속 갱신).
+  // 갱신 실패 (영속 throw) 는 silent skip — 매매 흐름 무중단.
+  // SHADOW only 활성 (shouldApplyPositionSizingEngine 통과 후) 이라 mode='SHADOW' 보장.
+  const peakMode: PeakEquityMode = ctx.peakEquityMode ?? 'SHADOW';
+  try {
+    const updated = updatePeakEquityIfHigher(peakMode, ctx.totalAssets);
+    if (updated) {
+      console.log(`[PeakEquity] ${peakMode} peak 갱신 → ${ctx.totalAssets.toLocaleString()}원`);
+    }
+  } catch (err) {
+    console.warn(`[PeakEquity] ${peakMode} 갱신 실패 (안전 통과): ${(err as Error).message}`);
   }
 
   const input = mapToPositionSizingInput(ctx);
