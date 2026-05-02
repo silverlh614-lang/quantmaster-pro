@@ -9,7 +9,7 @@
  *   - computeMaxAdrNumber + formatAdrNumber 헬퍼
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { execSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +21,11 @@ import {
   validate,
   computeMaxAdrNumber,
   formatAdrNumber,
+  // PR-Diaspora (ADR-0159): 별칭 시스템 SSOT
+  ALIAS_MAPPING,
+  CONFLICT_NUMBERS,
+  isAdrAliasStrictEnabled,
+  validateAliasReferences,
 } from './check_adr_index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -380,5 +385,168 @@ describe('헬퍼', () => {
     expect(formatAdrNumber(50)).toBe('0050');
     expect(formatAdrNumber(148)).toBe('0148');
     expect(formatAdrNumber(1000)).toBe('1000');
+  });
+});
+
+/* ───────── PR-Diaspora (ADR-0159) — 별칭 시스템 SSOT ───────── */
+
+describe('ALIAS_MAPPING SSOT (ADR-0159)', () => {
+  it('8 충돌 그룹 모두 등재', () => {
+    const groups = Object.keys(ALIAS_MAPPING).sort();
+    expect(groups).toEqual(['0028', '0029', '0030', '0031', '0032', '0067', '0068', '0124']);
+  });
+
+  it('17 충돌 ADR 별칭 모두 부여 (3+3+3+3+2+2+2+2)', () => {
+    const totalCount = Object.values(ALIAS_MAPPING).reduce((sum, list) => sum + list.length, 0);
+    expect(totalCount).toBe(20); // 0028×3 + 0029×3 + 0030×3 + 0031×3 + 0032×2 + 0067×2 + 0068×2 + 0124×2 = 20
+  });
+
+  it('각 별칭은 a/b/c suffix + 그룹 번호', () => {
+    for (const [number, list] of Object.entries(ALIAS_MAPPING)) {
+      list.forEach((entry, idx) => {
+        const expectedSuffix = String.fromCharCode(97 + idx); // a, b, c
+        expect(entry.alias).toBe(`${number}${expectedSuffix}`);
+      });
+    }
+  });
+
+  it('각 별칭 entry 는 alias/file/intent/pr 4 필드', () => {
+    for (const list of Object.values(ALIAS_MAPPING)) {
+      for (const entry of list) {
+        expect(entry).toHaveProperty('alias');
+        expect(entry).toHaveProperty('file');
+        expect(entry).toHaveProperty('intent');
+        expect(entry).toHaveProperty('pr');
+      }
+    }
+  });
+
+  it('파일 prefix 가 그룹 번호와 일치', () => {
+    for (const [number, list] of Object.entries(ALIAS_MAPPING)) {
+      for (const entry of list) {
+        expect(entry.file.startsWith(`${number}-`)).toBe(true);
+        expect(entry.file.endsWith('.md')).toBe(true);
+      }
+    }
+  });
+
+  it('ALIAS_MAPPING frozen — drift 차단', () => {
+    expect(Object.isFrozen(ALIAS_MAPPING)).toBe(true);
+    for (const list of Object.values(ALIAS_MAPPING)) {
+      expect(Object.isFrozen(list)).toBe(true);
+    }
+  });
+
+  it('CONFLICT_NUMBERS = ALIAS_MAPPING keys', () => {
+    expect([...CONFLICT_NUMBERS].sort()).toEqual(Object.keys(ALIAS_MAPPING).sort());
+  });
+
+  it('실제 파일 시스템에 모든 alias 파일 존재', () => {
+    const scan = scanAdrFiles(join(ROOT, 'docs', 'adr'));
+    for (const list of Object.values(ALIAS_MAPPING)) {
+      for (const entry of list) {
+        const matchedFiles = scan.byNumber.get(entry.alias.slice(0, 4)) ?? [];
+        expect(matchedFiles).toContain(entry.file);
+      }
+    }
+  });
+});
+
+describe('isAdrAliasStrictEnabled', () => {
+  const ORIG = process.env.ADR_ALIAS_STRICT;
+  afterEach(() => {
+    if (ORIG === undefined) delete process.env.ADR_ALIAS_STRICT;
+    else process.env.ADR_ALIAS_STRICT = ORIG;
+  });
+
+  it('미설정 시 false (default OFF)', () => {
+    delete process.env.ADR_ALIAS_STRICT;
+    expect(isAdrAliasStrictEnabled()).toBe(false);
+  });
+
+  it('"true" 시 true', () => {
+    process.env.ADR_ALIAS_STRICT = 'true';
+    expect(isAdrAliasStrictEnabled()).toBe(true);
+  });
+
+  it('"1" 시 true', () => {
+    process.env.ADR_ALIAS_STRICT = '1';
+    expect(isAdrAliasStrictEnabled()).toBe(true);
+  });
+
+  it('"false" 시 false', () => {
+    process.env.ADR_ALIAS_STRICT = 'false';
+    expect(isAdrAliasStrictEnabled()).toBe(false);
+  });
+});
+
+describe('validateAliasReferences', () => {
+  it('빈 입력 위반 0건', () => {
+    expect(validateAliasReferences('').violations).toEqual([]);
+    expect(validateAliasReferences(null).violations).toEqual([]);
+    expect(validateAliasReferences(undefined).violations).toEqual([]);
+  });
+
+  it('비충돌 ADR 인용 무시 (ADR-0085)', () => {
+    const src = '본 PR 은 ADR-0085 후속 진행. ADR-0148 구조 정합.';
+    expect(validateAliasReferences(src).violations).toEqual([]);
+  });
+
+  it('별칭 사용 (ADR-0028a) 위반 0건', () => {
+    const src = '본 PR 은 ADR-0028a (exitEngine 분해) 후속.';
+    expect(validateAliasReferences(src).violations).toEqual([]);
+  });
+
+  it('별칭 미사용 (ADR-0028) 위반 1건', () => {
+    const src = '본 PR 은 ADR-0028 후속.';
+    const result = validateAliasReferences(src);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0].number).toBe('0028');
+    expect(result.violations[0].line).toBe(1);
+  });
+
+  it('다중 그룹 별칭 미사용 검출 (ADR-0028 + ADR-0124)', () => {
+    const src = 'ADR-0028 + ADR-0124 결합';
+    const result = validateAliasReferences(src);
+    expect(result.violations).toHaveLength(2);
+    const numbers = result.violations.map((v) => v.number).sort();
+    expect(numbers).toEqual(['0028', '0124']);
+  });
+
+  it('한 줄에 별칭 사용 + 미사용 혼재', () => {
+    const src = 'ADR-0028a 와 ADR-0029 둘 다 인용';
+    const result = validateAliasReferences(src);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0].number).toBe('0029');
+  });
+
+  it('다중 라인 인용 line 번호 정확', () => {
+    const src = ['', 'ADR-0028 line 2', '', 'ADR-0067 line 4'].join('\n');
+    const result = validateAliasReferences(src);
+    expect(result.violations).toHaveLength(2);
+    expect(result.violations[0]).toMatchObject({ number: '0028', line: 2 });
+    expect(result.violations[1]).toMatchObject({ number: '0067', line: 4 });
+  });
+
+  it('non-string 안전 fallback', () => {
+    expect(validateAliasReferences(123).violations).toEqual([]);
+    expect(validateAliasReferences({}).violations).toEqual([]);
+  });
+
+  it('영문자 후행 별칭은 매칭 안 함 (ADR-0028a, ADR-0028b)', () => {
+    const src = 'ADR-0028a 와 ADR-0028b 와 ADR-0028c 모두 별칭 사용';
+    expect(validateAliasReferences(src).violations).toEqual([]);
+  });
+
+  it('충돌 그룹 8 모두 검출 (alias 미사용)', () => {
+    const src = 'ADR-0028 ADR-0029 ADR-0030 ADR-0031 ADR-0032 ADR-0067 ADR-0068 ADR-0124';
+    const result = validateAliasReferences(src);
+    expect(result.violations).toHaveLength(8);
+  });
+
+  it('ADR-0028e (알 수 없는 영문자) 별칭 처리 — 매칭 안 함 (negative lookahead)', () => {
+    // 정책: 알 수 없는 영문자라도 후행 영문자가 있으면 별칭 의도 인정 (추가 검증은 별도)
+    const src = 'ADR-0028e (typo) 인용';
+    expect(validateAliasReferences(src).violations).toEqual([]);
   });
 });

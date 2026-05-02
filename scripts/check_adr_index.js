@@ -93,11 +93,21 @@ export function parseIndex(src) {
     }
   }
 
-  // §"알려진 충돌" 테이블 행: `| NNNN | \`NNNN-name.md\` | ... |`
+  // §"알려진 충돌" 테이블 행 — 6 컬럼 schema (ADR-0159 별칭 추가) + 5 컬럼 후방호환:
+  //   - 6 컬럼: `| NNNN | **NNNNa** | \`NNNN-name.md\` | ... |`
+  //   - 5 컬럼 (legacy): `| NNNN | \`NNNN-name.md\` | ... |`
+  // 두 형식 모두 매칭 — 파일 추출 우선.
+  const CONFLICT_ROW_6COL = /^\|\s*(\d{4})\s*\|\s*\*?\*?\d{4}[a-z]?\*?\*?\s*\|\s*`(\d{4}-[^`]+\.md)`\s*\|/;
+  const CONFLICT_ROW_5COL = /^\|\s*(\d{4})\s*\|\s*`(\d{4}-[^`]+\.md)`\s*\|/;
   for (const line of lines) {
-    const m = line.match(/^\|\s*(\d{4})\s*\|\s*`(\d{4}-[^`]+\.md)`\s*\|/);
-    if (m) {
-      conflicts.push({ number: m[1], file: m[2] });
+    const m6 = line.match(CONFLICT_ROW_6COL);
+    if (m6) {
+      conflicts.push({ number: m6[1], file: m6[2] });
+      continue;
+    }
+    const m5 = line.match(CONFLICT_ROW_5COL);
+    if (m5) {
+      conflicts.push({ number: m5[1], file: m5[2] });
     }
   }
 
@@ -334,6 +344,102 @@ function main() {
   console.error('');
   console.error('해결: INDEX.md 갱신 — 신규 ADR 발급 시 §"다음 발급" 번호 사용 + §"전체 인덱스" 한 줄 추가.');
   process.exit(1);
+}
+
+/* ───────── PR-Diaspora (ADR-0159): ADR 별칭 시스템 SSOT ───────── */
+
+/**
+ * ALIAS_MAPPING — 17 충돌 ADR 의 별칭 정규 표기 SSOT (ADR-0159, 2026-05-02).
+ *
+ * 부여 정책: 동일 그룹 내 PR 머지 시점 오름차순 (a → b → c).
+ * 파일명·git history·기존 인용 무변경. 본 매트릭스 변경 시 ADR-0159 + INDEX.md 동시 정정 의무.
+ *
+ * 강제 검증 default OFF — 6개월 운영 후 활성화 검토. ENV `ADR_ALIAS_STRICT=true` 또는
+ * `validateAliasReferences(src, { strict: true })` 명시 호출 시 활성화.
+ */
+export const ALIAS_MAPPING = Object.freeze({
+  '0028': Object.freeze([
+    { alias: '0028a', file: '0028-exitEngine-decomposition.md', intent: 'exitEngine 분해', pr: 'PR-53' },
+    { alias: '0028b', file: '0028-rejection-universe-tracker.md', intent: '거절 종목 사후 추적', pr: 'PR-L' },
+    { alias: '0028c', file: '0028-ui-redesign-p0-banners-badges-cards.md', intent: 'UI P0-A 배너/배지/카드', pr: 'PR-A' },
+  ]),
+  '0029': Object.freeze([
+    { alias: '0029a', file: '0029-condition-source-tier-and-recommendation-history.md', intent: 'UI P0-B 조건 출처 + 이력', pr: 'PR-B' },
+    { alias: '0029b', file: '0029-counterfactual-twin-portfolio.md', intent: 'Twin Portfolio Ranking', pr: 'PR-M' },
+    { alias: '0029c', file: '0029-stockScreener-decomposition.md', intent: 'stockScreener 분해', pr: 'PR-55' },
+  ]),
+  '0030': Object.freeze([
+    { alias: '0030a', file: '0030-latent-signal-scorer.md', intent: 'VCP + Catalyst 사전 신호', pr: 'PR-N' },
+    { alias: '0030b', file: '0030-price-alert-watcher.md', intent: 'UI P0-C Web Notification', pr: 'PR-C' },
+    { alias: '0030c', file: '0030-signalScanner-entry-gates-phase-b.md', intent: 'EntryGate Chain Phase B', pr: 'PR-57' },
+  ]),
+  '0031': Object.freeze([
+    { alias: '0031a', file: '0031-last-trigger-enemy-tranche-cards.md', intent: 'Last Trigger + Enemy Card', pr: 'PR-D' },
+    { alias: '0031b', file: '0031-order-type-optimizer.md', intent: '슬리피지 학습 + 주문 타입', pr: 'PR-O' },
+    { alias: '0031c', file: '0031-signalScanner-revalidation-and-sizing-patterns.md', intent: 'RevalidationStep 패턴', pr: 'PR-59' },
+  ]),
+  '0032': Object.freeze([
+    { alias: '0032a', file: '0032-sector-rotation-heatmap.md', intent: 'UI P1-E 섹터 히트맵', pr: 'PR-E' },
+    { alias: '0032b', file: '0032-self-learning-series-overview.md', intent: '자기학습 시리즈 통합 SSOT', pr: 'PR-P' },
+  ]),
+  '0067': Object.freeze([
+    { alias: '0067a', file: '0067-multi-timeframe-confluence-gate.md', intent: 'MTF Confluence Gate', pr: 'PR-Q' },
+    { alias: '0067b', file: '0067-marketoverview-boundary-guard.md', intent: 'MarketOverview boundary lint', pr: 'PR-α 후속' },
+  ]),
+  '0068': Object.freeze([
+    { alias: '0068a', file: '0068-macrostate-stale-block.md', intent: 'macroState stale 차단', pr: 'PR-α 후속' },
+    { alias: '0068b', file: '0068-shadow-learning-hooks-wiring.md', intent: 'Rejection + Twin wiring', pr: 'PR-R' },
+  ]),
+  '0124': Object.freeze([
+    { alias: '0124a', file: '0124-regime-coverage-suggest-false-positive.md', intent: 'regimeCoverage 표본 임계', pr: '(날짜 추가 필요)' },
+    { alias: '0124b', file: '0124-telegram-reports-be-visibility.md', intent: '텔레그램 리포트 BE 표기', pr: 'PR-ADR-0124' },
+  ]),
+});
+
+/** 충돌 그룹 번호 set (별칭 인용 검증 대상) */
+export const CONFLICT_NUMBERS = Object.freeze(new Set(Object.keys(ALIAS_MAPPING)));
+
+/**
+ * isAdrAliasStrictEnabled() — ENV `ADR_ALIAS_STRICT=true` 시 별칭 강제 활성화.
+ *
+ * default OFF — 6개월 운영 후 활성화 검토 (회귀 위험 격리).
+ */
+export function isAdrAliasStrictEnabled() {
+  const v = process.env.ADR_ALIAS_STRICT;
+  return v === 'true' || v === '1';
+}
+
+/**
+ * validateAliasReferences(src, options) — 충돌 ADR 인용 시 별칭 사용 검증.
+ *
+ * 패턴: `ADR-(0028|0029|0030|0031|0032|0067|0068|0124)\b(?![a-z])`
+ *   - 그룹 번호 후 영문자 부재 = 별칭 미사용
+ *   - 매칭 시 WARN (default) 또는 FAIL (strict)
+ *
+ * @param {string} src — 검사 대상 텍스트 (코드 / 변경 이력 / PR 노트)
+ * @param {object} [options]
+ * @param {boolean} [options.strict] — true 시 위반 1건도 fail (default OFF)
+ * @returns {{ violations: Array<{number: string, line: number, context: string}> }}
+ */
+export function validateAliasReferences(src, options = {}) {
+  const violations = [];
+  if (typeof src !== 'string' || src.length === 0) return { violations };
+  const numbers = [...CONFLICT_NUMBERS].join('|');
+  const re = new RegExp(`ADR-(${numbers})\\b(?![a-z])`, 'g');
+  const lines = src.split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    let m;
+    re.lastIndex = 0;
+    while ((m = re.exec(line)) !== null) {
+      violations.push({
+        number: m[1],
+        line: i + 1,
+        context: line.slice(Math.max(0, m.index - 20), m.index + 30).trim(),
+      });
+    }
+  }
+  return { violations };
 }
 
 const isMain =
