@@ -66,6 +66,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | B5 | 0117/0128 entryRevalidationStep | `server/trading/signalScanner/revalidationSteps/entryRevalidationStep.ts` | 2026-05-02 | PARTIAL | P1 | 사용자 결정 대기 — DATA_HOLD 분기 SSOT 위임 격상 (현재 진단 디테일 보존 vs 일관성 trade-off) |
 | B6 | 0001 Phase B | `server/trading/signalScanner/perSymbol/buyListLoop.ts` | 2026-05-02 | PARTIAL | P2 | 운영 데이터 누적 후 + LIVE 회귀 격리 — evaluateBuyList god function (cc=244) 본체 추가 분해 (인라인 데이터 페치 / Gate revalidation wrapping / 진단 메시지 빌더) |
 | B7 | 0085 price7dAgo | `server/persistence/shadowTradeRepo.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 누적 후 — `riskManager.ts:39` 가 reader 사용 (과열 부분 매도). 매수 시점 7일 lookback OHLCV 영속 wiring 미구현 — buyPipeline.buildBuyTrade 또는 신규 cron 에서 외부 OHLCV fetch 후 영속 |
+| B8 | 0161 PositionSizingEngine | `server/trading/sizing/positionSizingEngine.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P0 | **PR-Sizing-Engine-Phase1 (2026-05-02, ADR-0161) 8 파일 신설 + 20 회귀 케이스** — Phase 2 wiring 결정 대기 (옵션 A 최종 SSOT / B 병렬 결정 / C 대형 계좌 한정). signalScanner / autoTradeEngine 사이징 결정 경로 wiring + ENV 우회 (`POSITION_SIZING_ENGINE_DISABLED` + `_SHADOW_ONLY`) 의무 + SHADOW 1주 검증 후 LIVE 활성화. SLA 만기일: **2026-05-23** |
 
 ### C. 시그널 입력 (Diag-2~5 의사결정 wiring)
 
@@ -116,11 +117,11 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 카테고리 | 항목 수 | P0 | P1 | P2 | P3 |
 |----------|---------|----|----|----|----|
 | A. 학습 시리즈 | 9 | 1 | 3 | 5 | 0 |
-| B. 매매 본체 | 7 | 1 | 3 | 3 | 0 |
+| B. 매매 본체 | 8 | 2 | 3 | 3 | 0 |
 | C. 시그널 입력 | 15 | 1 | 3 | 7 | 4 |
 | D. UI Phase | 7 | 0 | 3 | 4 | 0 |
 | E. 영속/진단 | 7 | 0 | 0 | 4 | 3 |
-| **합계** | **45** | **3** | **12** | **23** | **7** |
+| **합계** | **46** | **4** | **12** | **23** | **7** |
 
 > 주: C7 (Phase 1) / C8 (Phase 2 audit) / C9 (Phase 3 globalIntel) + C15 (Naver 외인 추세) / **C10 (Phase 4 Yahoo 컨센서스) + #12 institutionalBuying (KRX 5d) PR-Phase5** 모두 *DECIDED_NOT_WIRING* 격상 완료. 27 조건 격상 시리즈 *데이터 가용 한계 도달 — 78% (21/27)*. 잔여 22% (5 키 — #9/#13/#17/#20/#26) 정성 영구 (ADR-0154). 정량 격상 후속 0건. 운영자 집중 영역 = Gemini 프롬프트 품질 + AI 추정 가중치 학습.
 
