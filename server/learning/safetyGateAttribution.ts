@@ -19,15 +19,14 @@
  *   4. ENV `SAFETY_GATE_ATTRIBUTION_ENABLED` default OFF (`=== 'true'` 정확 비교)
  *   5. 호출자 0건 Phase 2a dead code (정적 grep 가드)
  *
- * 게이트 매핑 SSOT (ADR-0174 §2.1, ShadowLearningOnlyScanReason 8 union → 5 GateName):
+ * 게이트 매핑 SSOT (ADR-0174 §2.1, ShadowLearningOnlyScanReason union → GateName):
  *   - FOMC_BLOCK → FOMC
  *   - VIX_SPIKE → VIX
  *   - RISK_OFF_REGIME / R0_CRISIS / R1_DEFENSIVE → R0_R1_REGIME (3:1 통합)
  *   - LIQUIDITY_BLOCK → LIQUIDITY
  *   - MANUAL_BLOCK / KRX_HOLIDAY_REPLAY → 분류 제외 (운영자 수동 / 휴장일 replay)
  *
- * 잔여 2 게이트 (DATA_SANITY / EXPOSURE_BUDGET / ENEMY_CHECKLIST):
- *   - ShadowLearningOnlyScanReason 직접 매핑 부재 — Phase 3 wiring 후 활성화
+ * DATA_SANITY is activated by R3_SANITY_BLOCK.
  *   - 본 PR 은 7 GateName 모두 entry 반환 (sampleSize=0 dead 일관성)
  *
  * 해석 (사용자 §3 정합):
@@ -83,6 +82,8 @@ export interface SafetyGateAttributionOptions {
   lookbackDays?: number;
   /** future return 평가 horizon (1/3/5/20일). default 5. */
   futureReturnHorizon?: 1 | 3 | 5 | 20;
+  /** Closed-loop policy callers may opt into their own ENV gate. */
+  ignoreEnvGate?: boolean;
 }
 
 // ─── 상수 SSOT ────────────────────────────────────────────────────────────────
@@ -135,6 +136,8 @@ function mapReasonToGate(reason: ShadowLearningOnlyScanReason): GateName | null 
       return 'R0_R1_REGIME';
     case 'LIQUIDITY_BLOCK':
       return 'LIQUIDITY';
+    case 'R3_SANITY_BLOCK':
+      return 'DATA_SANITY';
     case 'MANUAL_BLOCK':
     case 'KRX_HOLIDAY_REPLAY':
       return null;
@@ -216,7 +219,7 @@ export function computeSafetyGateAttribution(
   signals: ShadowLearningOnlySignal[],
   options?: SafetyGateAttributionOptions,
 ): GateAttributionResult[] {
-  if (!isSafetyGateAttributionEnabled()) return [];
+  if (!options?.ignoreEnvGate && !isSafetyGateAttributionEnabled()) return [];
 
   const lookbackDays = options?.lookbackDays ?? DEFAULT_LOOKBACK_DAYS;
   const horizon = options?.futureReturnHorizon ?? DEFAULT_FUTURE_RETURN_HORIZON;

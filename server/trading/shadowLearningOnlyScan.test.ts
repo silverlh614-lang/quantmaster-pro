@@ -169,9 +169,9 @@ describe('bypassMacroEntryBlock 검증', () => {
   });
 });
 
-// ─── 8 reason union 분기 ─────────────────────────────────────────────────────
+// ─── 9 reason union 분기 ─────────────────────────────────────────────────────
 
-describe('8 ShadowLearningOnlyScanReason union', () => {
+describe('9 ShadowLearningOnlyScanReason union', () => {
   const reasons = [
     'FOMC_BLOCK',
     'VIX_SPIKE',
@@ -181,6 +181,7 @@ describe('8 ShadowLearningOnlyScanReason union', () => {
     'KRX_HOLIDAY_REPLAY',
     'LIQUIDITY_BLOCK',
     'MANUAL_BLOCK',
+    'R3_SANITY_BLOCK',
   ] as const;
   for (const reason of reasons) {
     it(`reason='${reason}' → 정상 진행 + result.reason 정합`, async () => {
@@ -408,7 +409,7 @@ describe('호출자 제한 (signalScanner helper만 허용)', () => {
       expect(helperCalls!.length).toBe(1);  // helper 안 단일 호출
       const wiringCalls = src.match(/recordBlockedDayShadowScan\(['"]/g);
       expect(wiringCalls).not.toBeNull();
-      expect(wiringCalls!.length).toBe(4);  // 4 site wiring
+      expect(wiringCalls!.length).toBe(5);  // 4 macro sites + R3 sanity latch
     }
   });
 

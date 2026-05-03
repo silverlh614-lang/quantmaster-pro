@@ -1,6 +1,7 @@
 // @responsibility read-only bias heatmap to position-size multiplier
 import { loadBiasHeatmap } from '../persistence/reflectionRepo.js';
 import type { BiasType } from './reflectionTypes.js';
+import { freshnessWeightFromMeta } from './learningFreshnessGuard.js';
 
 export interface BiasPositionPenalty {
   generatedAt: string;
@@ -37,6 +38,16 @@ export function computeBiasPositionPenalty(now: Date = new Date()): BiasPosition
   const entries = loadBiasHeatmap()
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date))
+    .map((entry) => ({
+      ...entry,
+      scores: (entry.scores ?? [])
+        .map((score) => ({
+          ...score,
+          score: score.score * freshnessWeightFromMeta({ date: entry.date }, undefined, now),
+        }))
+        .filter((score) => score.score > 0),
+    }))
+    .filter((entry) => (entry.scores ?? []).length > 0)
     .slice(-7);
 
   if (entries.length < 3) {

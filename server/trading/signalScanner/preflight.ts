@@ -22,7 +22,8 @@ import { loadMacroState } from '../../persistence/macroStateRepo.js';
 import { computeShadowAccount } from '../../persistence/shadowAccountRepo.js';
 import { loadTradingSettings } from '../../persistence/tradingSettingsRepo.js';
 import { loadShadowTrades, saveShadowTrades } from '../../persistence/shadowTradeRepo.js';
-import { loadConditionWeights } from '../../persistence/conditionWeightsRepo.js';
+import { acknowledgeR3SanityBlock, loadR3SanityBlockState } from '../../persistence/r3SanityBlockRepo.js';
+import { loadConditionWeights, getConditionWeightsUpdatedAt } from '../../persistence/conditionWeightsRepo.js';
 import { getKellyMultiplier as getIpsKellyMultiplier } from '../kellyDampener.js';
 import { getLiveRegime } from '../regimeBridge.js';
 import { REGIME_CONFIGS } from '../../../src/services/quant/regimeEngine.js';
@@ -38,6 +39,12 @@ import { updateShadowResults } from '../exitEngine.js';
 import { getManualBlockNewBuy, getManualManageOnly } from '../../state.js';
 import { computeSlotConsumption } from '../slotAccounting.js';
 import { computeBiasPositionPenalty, type BiasPositionPenalty } from '../../learning/biasPositionPenalty.js';
+import { applyFreshnessDecayToNeutralWeightedRecord } from '../../learning/learningFreshnessGuard.js';
+import { computeSafetyGatePolicyFeedback, type SafetyGatePolicyFeedback } from '../../learning/safetyGatePolicyFeedback.js';
+import {
+  isShadowLearningOnBlockedDaysEnabled,
+  runShadowLearningOnlyScan,
+} from '../shadowLearningOnlyScan.js';
 
 export interface SellOnlyExceptionDecision {
   allow: boolean;
@@ -77,6 +84,7 @@ export interface PreflightOutcome {
   ipsKelly?: number;
   accountKellyMultiplier?: number;
   biasPositionPenalty?: BiasPositionPenalty;
+  safetyGatePolicyFeedback?: SafetyGatePolicyFeedback;
   kellyMultiplier?: number;
   sellOnlyExc?: SellOnlyExceptionDecision;
   effectiveMaxPositions?: number;
@@ -124,6 +132,22 @@ export function getAccountScaleKellyMultiplier(totalAssets: number): number {
   return 1.0;
 }
 
+async function recordR3SanityShadowScan(): Promise<void> {
+  if (!isShadowLearningOnBlockedDaysEnabled()) return;
+  try {
+    const kstScanDate = new Date(Date.now() + 9 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    await runShadowLearningOnlyScan({
+      allowRealOrder: false,
+      bypassMacroEntryBlock: true,
+      reason: 'R3_SANITY_BLOCK',
+      scanDate: kstScanDate,
+    });
+  } catch (e) {
+    console.warn('[R3SanityBlock] shadow-only scan failed:', e);
+  }
+}
+
 /**
  * 스캔 진입 전 매크로·시스템 게이트 통합 평가.
  *
@@ -169,7 +193,7 @@ export async function runPreflight(
     if (!totalAssets) totalAssets = balance ?? 30_000_000;
     orderableCash = balance ?? totalAssets;
   }
-  const conditionWeights = loadConditionWeights();
+  let conditionWeights = loadConditionWeights();
 
   // 레거시 호환: shadowMode + activeHoldingValue==0 시 fills 기반으로 한 번 더 확인.
   if (shadowMode && activeHoldingValue === 0) {
@@ -188,6 +212,30 @@ export async function runPreflight(
   const macroState = loadMacroState();
   const regime      = getLiveRegime(macroState);
   const regimeConfig = REGIME_CONFIGS[regime];
+  conditionWeights = applyFreshnessDecayToNeutralWeightedRecord(
+    conditionWeights,
+    { generatedAt: getConditionWeightsUpdatedAt() ?? undefined, regime },
+    regime,
+  );
+
+  const r3SanityBlock = loadR3SanityBlockState();
+  if (r3SanityBlock.active) {
+    if (process.env.R3_SANITY_OPERATOR_ACK === 'true') {
+      acknowledgeR3SanityBlock('R3_SANITY_OPERATOR_ACK');
+    } else {
+      await sendTelegramAlert(
+        `🚨 <b>[R3 Sanity Block Active]</b>\n` +
+        `신규 매수 차단 + shadow-only 전환 유지\n` +
+        `위반: ${r3SanityBlock.violation} / ${r3SanityBlock.regime}\n` +
+        `운영자 확인 후 <code>R3_SANITY_OPERATOR_ACK=true</code> 로 해제`,
+        { priority: 'HIGH', dedupeKey: 'r3_sanity_block_active', cooldownMs: 60 * 60_000 },
+      ).catch(console.error);
+      await recordR3SanityShadowScan();
+      await updateShadowResults(shadows, regime);
+      saveShadowTrades(shadows);
+      return { shouldAbort: true, abortReason: 'R3_SANITY_BLOCK', sellOnly };
+    }
+  }
 
   // ── 4.5. ADR-0068: macroState 신선도 게이트 ─────────────────────────────────
   // STALE_BLOCK (24h+) 또는 NO_DATA → 신규 진입 전면 차단 + CRITICAL 알림.
@@ -350,12 +398,14 @@ export async function runPreflight(
   const accountKellyMultiplier = getAccountScaleKellyMultiplier(totalAssets);
   const biasPositionPenalty = computeBiasPositionPenalty();
   const biasMultiplier = biasPositionPenalty.multiplier;
+  const safetyGatePolicyFeedback = computeSafetyGatePolicyFeedback();
+  const safetyGateMultiplier = safetyGatePolicyFeedback.multiplier;
   const exceptionKellyFactor = sellOnlyExc.allow ? sellOnlyExc.kellyFactor : 1;
   // ADR-0076: regime + FOMC 결합 SSOT — FOMC 활성 시 regimeKelly 무시 (R6_DEFENSE 만 보호)
   const regimeFomcCombined = combineRegimeAndFomcKelly(
     regimeConfig.kellyMultiplier, fomcProximity.kellyMultiplier, fomcProximity.phase, regime,
   );
-  const rawKelly = regimeFomcCombined.value * vixGating.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier * biasMultiplier;
+  const rawKelly = regimeFomcCombined.value * vixGating.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier * biasMultiplier * safetyGateMultiplier;
   const kellyMultiplier = applyKellyClamp(rawKelly);
   if (ipsKelly < 1.0) {
     console.log(`[AutoTrade] IPS 변곡 Kelly 감쇠 적용 — ×${ipsKelly.toFixed(2)}`);
@@ -368,6 +418,9 @@ export async function runPreflight(
   }
   if (biasMultiplier < 1) {
     console.log(`[AutoTrade] learning bias position penalty applied — x${biasMultiplier.toFixed(2)} (${biasPositionPenalty.reasons.join('; ')})`);
+  }
+  if (safetyGatePolicyFeedback.active) {
+    console.log(`[AutoTrade] safety gate policy feedback applied — x${safetyGateMultiplier.toFixed(2)} (${safetyGatePolicyFeedback.reasons.join('; ')})`);
   }
   if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
     console.log(
@@ -431,6 +484,7 @@ export async function runPreflight(
     ipsKelly,
     accountKellyMultiplier,
     biasPositionPenalty,
+    safetyGatePolicyFeedback,
     kellyMultiplier,
     sellOnlyExc,
     effectiveMaxPositions,

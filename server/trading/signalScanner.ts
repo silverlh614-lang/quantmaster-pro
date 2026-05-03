@@ -31,6 +31,7 @@ import { loadIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
+import { acknowledgeR3SanityBlock, loadR3SanityBlockState } from '../persistence/r3SanityBlockRepo.js';
 import {
   type ServerShadowTrade,
   type EntryKellySnapshot,
@@ -58,6 +59,8 @@ import { recordCounterfactual, COUNTERFACTUAL_DAILY_CAP } from '../learning/coun
 import { recordUniverseEntries } from '../learning/ledgerSimulator.js';
 import { computeSlotConsumption } from './slotAccounting.js';
 import { computeBiasPositionPenalty } from '../learning/biasPositionPenalty.js';
+import { applyFreshnessDecayToNeutralWeightedRecord } from '../learning/learningFreshnessGuard.js';
+import { computeSafetyGatePolicyFeedback } from '../learning/safetyGatePolicyFeedback.js';
 
 // FAILURE_BLOCK_THRESHOLD_PCT, getPrice, SymbolExitContext, getAdaptiveProfitTargets
 // 는 signalScanner/perSymbolEvaluation.ts 에서 이식 후 import.
@@ -72,7 +75,7 @@ import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
 import { addRecommendation } from '../learning/recommendationTracker.js';
 import { getAccountRiskBudget, computeRiskAdjustedSize, FRACTIONAL_KELLY_CAP } from './accountRiskBudget.js';
-import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
+import { loadConditionWeights, getConditionWeightsUpdatedAt } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import {
   computeFocusCodes, applyEntryPriceDrift, assignSection,
@@ -299,7 +302,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     if (!totalAssets) totalAssets = balance ?? 30_000_000; // 모의계좌 기본 3천만원
     orderableCash = balance ?? totalAssets;
   }
-  const conditionWeights = loadConditionWeights();
+  let conditionWeights = loadConditionWeights();
 
   console.log(
     `[AutoTrade] 스캔 시작 — 워치리스트 ${watchlist.length}개 (SWING ${swingList.length}개 / CATALYST ${catalystList.length}개 / MOMENTUM ${momentumList.length}개) / Intraday Ready ${intradayBuyList.length}개 / 모드: ${shadowMode ? 'SHADOW' : 'LIVE'}`
@@ -324,6 +327,33 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   const macroState = loadMacroState();
   const regime      = getLiveRegime(macroState);
   const regimeConfig = REGIME_CONFIGS[regime];
+  conditionWeights = applyFreshnessDecayToNeutralWeightedRecord(
+    conditionWeights,
+    { generatedAt: getConditionWeightsUpdatedAt() ?? undefined, regime },
+    regime,
+  );
+
+  const r3SanityBlock = loadR3SanityBlockState();
+  if (r3SanityBlock.active) {
+    if (process.env.R3_SANITY_OPERATOR_ACK === 'true') {
+      acknowledgeR3SanityBlock('R3_SANITY_OPERATOR_ACK');
+    } else {
+      console.warn(
+        `[AutoTrade] R3 sanity block active — 신규 매수 차단 (${r3SanityBlock.violation}, ${r3SanityBlock.regime})`,
+      );
+      await sendTelegramAlert(
+        `🚨 <b>[R3 Sanity Block Active]</b>\n` +
+        `신규 매수 차단 + shadow-only 전환 유지\n` +
+        `위반: ${r3SanityBlock.violation} / ${r3SanityBlock.regime}\n` +
+        `운영자 확인 후 <code>R3_SANITY_OPERATOR_ACK=true</code> 로 해제`,
+        { priority: 'HIGH', dedupeKey: 'r3_sanity_block_active', cooldownMs: 60 * 60_000 },
+      ).catch(console.error);
+      await recordBlockedDayShadowScan('R3_SANITY_BLOCK');
+      await updateShadowResults(shadows, regime);
+      saveShadowTrades(shadows);
+      return {};
+    }
+  }
 
   // SELL_ONLY 모드: 신규 매수 없이 기존 포지션 모니터링만 실행
   // (adaptiveScanScheduler — VKOSPI 급등·R6_DEFENSE·마감 급변 구간 호출)
@@ -443,6 +473,8 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   const accountKellyMultiplier = getAccountScaleKellyMultiplier(totalAssets);
   const biasPositionPenalty = computeBiasPositionPenalty();
   const biasMultiplier = biasPositionPenalty.multiplier;
+  const safetyGatePolicyFeedback = computeSafetyGatePolicyFeedback();
+  const safetyGateMultiplier = safetyGatePolicyFeedback.multiplier;
   // Phase 2-③: SELL_ONLY 예외 채널 진입 시 Kelly ×0.5 (kellyFactor) 추가 감쇠
   const exceptionKellyFactor = sellOnlyExc.allow ? sellOnlyExc.kellyFactor : 1;
   // ADR-0076: regime + FOMC 결합 SSOT (옵션 C — FOMC 우선 + R6 보호).
@@ -451,7 +483,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   const regimeFomcCombined = combineRegimeAndFomcKelly(
     regimeConfig.kellyMultiplier, fomcProximity.kellyMultiplier, fomcProximity.phase, regime,
   );
-  const rawKelly = regimeFomcCombined.value * vixGating.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier * biasMultiplier;
+  const rawKelly = regimeFomcCombined.value * vixGating.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier * biasMultiplier * safetyGateMultiplier;
   const kellyMultiplier = applyKellyClamp(rawKelly);
   if (ipsKelly < 1.0) {
     console.log(`[AutoTrade] IPS 변곡 Kelly 감쇠 적용 — ×${ipsKelly.toFixed(2)}`);
@@ -465,6 +497,9 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
   // 진단 로그: 각 패널티 구성 요소를 분해하여 기록
   if (biasMultiplier < 1) {
     console.log(`[AutoTrade] learning bias position penalty applied — x${biasMultiplier.toFixed(2)} (${biasPositionPenalty.reasons.join('; ')})`);
+  }
+  if (safetyGatePolicyFeedback.active) {
+    console.log(`[AutoTrade] safety gate policy feedback applied — x${safetyGateMultiplier.toFixed(2)} (${safetyGatePolicyFeedback.reasons.join('; ')})`);
   }
   if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
     console.log(

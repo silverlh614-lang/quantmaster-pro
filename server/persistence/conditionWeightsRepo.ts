@@ -20,6 +20,16 @@ export function loadConditionWeights(): ConditionWeights {
   }
 }
 
+export function getConditionWeightsUpdatedAt(): string | null {
+  ensureDataDir();
+  if (!fs.existsSync(CONDITION_WEIGHTS_FILE)) return null;
+  try {
+    return fs.statSync(CONDITION_WEIGHTS_FILE).mtime.toISOString();
+  } catch {
+    return null;
+  }
+}
+
 export function saveConditionWeights(w: ConditionWeights): void {
   ensureDataDir();
   fs.writeFileSync(CONDITION_WEIGHTS_FILE, JSON.stringify(w, null, 2));

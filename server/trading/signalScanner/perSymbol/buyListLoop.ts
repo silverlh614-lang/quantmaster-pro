@@ -1062,7 +1062,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // MOMENTUM Shadow 는 학습 표본이 목적이므로 이 게이트를 건너뛴다.
       if (!isMomentumShadow) {
         const candidateScores = buildEntryConditionScores(stock.conditionKeys);
-        const failureWarning = checkFailurePattern(candidateScores);
+        const failureWarning = checkFailurePattern(candidateScores, undefined, ctx.regime);
         if (failureWarning.hasWarning && failureWarning.maxSimilarity >= FAILURE_BLOCK_THRESHOLD_PCT) {
           console.log(
             `[AutoTrade/FailureDB] ${stock.name}(${stock.code}) 진입 차단 — ${failureWarning.message}`,

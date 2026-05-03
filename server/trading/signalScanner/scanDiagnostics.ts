@@ -18,6 +18,7 @@ import {
   type EmptyScanReason,
 } from './emptyScanClassifier.js';
 import { evaluateR3Sanity } from './r3SanityCheck.js';
+import { activateR3SanityBlock } from '../../persistence/r3SanityBlockRepo.js';
 
 /** ADR-0118: WAIT 사유별 분포 — 매수 0건 시 *어떤 게이트가 차단했는지* 즉시 진단. */
 export interface WaitDistribution {
@@ -409,6 +410,11 @@ export async function persistScanResults(
   try {
     const sanity = evaluateR3Sanity(_lastScanSummary);
     if (sanity.violation !== 'NONE' && sanity.message) {
+      activateR3SanityBlock({
+        violation: sanity.violation,
+        regime: _lastScanSummary.macroGateState?.regime ?? '',
+        message: sanity.message,
+      });
       await sendTelegramAlert(sanity.message, {
         priority: 'HIGH',
         category: 'r3_sanity',

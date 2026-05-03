@@ -89,7 +89,7 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
     it('정확 4 호출 site (호출 수 정확)', () => {
       const matches = src.match(/recordBlockedDayShadowScan\(['"]/g);
       expect(matches).toBeDefined();
-      expect(matches!.length).toBe(4);
+      expect(matches!.length).toBe(5);
     });
 
     it('데이터 빈곤 site 제외 (DATA_*, LIQUIDITY_BLOCK 미사용)', () => {
@@ -99,7 +99,7 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
       expect(callMatches).toBeDefined();
       const reasons = callMatches!.map((m) => m.match(/['"]([^'"]+)['"]/)![1]);
       expect(reasons).toEqual(
-        expect.arrayContaining(['MANUAL_BLOCK', 'RISK_OFF_REGIME', 'VIX_SPIKE', 'FOMC_BLOCK']),
+        expect.arrayContaining(['MANUAL_BLOCK', 'RISK_OFF_REGIME', 'VIX_SPIKE', 'FOMC_BLOCK', 'R3_SANITY_BLOCK']),
       );
       expect(reasons).not.toContain('LIQUIDITY_BLOCK');
       expect(reasons).not.toContain('KRX_HOLIDAY_REPLAY');

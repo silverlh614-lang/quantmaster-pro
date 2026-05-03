@@ -20,6 +20,7 @@ import {
   loadFailurePatterns,
   appendFailurePattern,
 } from '../persistence/failurePatternRepo.js';
+import { freshnessWeightFromMeta } from './learningFreshnessGuard.js';
 
 export type { FailurePatternEntry };
 
@@ -103,6 +104,7 @@ export interface FailureWarning {
 export function checkFailurePattern(
   candidateScores: Record<number, number>,
   patterns?: FailurePatternEntry[],
+  currentRegime?: string,
 ): FailureWarning {
   const db = patterns ?? loadFailurePatterns();
 
@@ -122,7 +124,16 @@ export function checkFailurePattern(
   const matches = db
     .map((entry) => ({
       entry,
-      similarity: cosineSimilarity(candidateVec, toVector(entry.conditionScores)),
+      similarity:
+        cosineSimilarity(candidateVec, toVector(entry.conditionScores)) *
+        freshnessWeightFromMeta(
+          {
+            savedAt: entry.savedAt,
+            date: entry.exitDate,
+            regime: entry.marketRegime,
+          },
+          currentRegime,
+        ),
     }))
     .filter((m) => m.similarity >= SIMILARITY_THRESHOLD)
     .sort((a, b) => b.similarity - a.similarity);

@@ -165,6 +165,13 @@ describe('게이트 매핑 — ShadowLearningOnlyScanReason → GateName', () =>
     expect(findResult(result, 'LIQUIDITY').sampleSize).toBe(1);
   });
 
+  it('R3_SANITY_BLOCK maps to DATA_SANITY', () => {
+    const result = computeSafetyGateAttribution([
+      makeSignal({ blockedReason: 'R3_SANITY_BLOCK', futureReturn5d: -0.04 }),
+    ]);
+    expect(findResult(result, 'DATA_SANITY').sampleSize).toBe(1);
+  });
+
   it('MANUAL_BLOCK → 분류 제외 (어떤 게이트 sampleSize 도 증가 안 함)', () => {
     const result = computeSafetyGateAttribution([
       makeSignal({ blockedReason: 'MANUAL_BLOCK', futureReturn5d: -0.02 }),
@@ -186,7 +193,6 @@ describe('게이트 매핑 — ShadowLearningOnlyScanReason → GateName', () =>
   it('DATA_SANITY / EXPOSURE_BUDGET / ENEMY_CHECKLIST — Phase 3 wiring 후 활성, 본 PR sampleSize=0', () => {
     // ShadowLearningOnlyScanReason 직접 매핑 부재 → 항상 sampleSize=0
     const result = computeSafetyGateAttribution([]);
-    expect(findResult(result, 'DATA_SANITY').sampleSize).toBe(0);
     expect(findResult(result, 'EXPOSURE_BUDGET').sampleSize).toBe(0);
     expect(findResult(result, 'ENEMY_CHECKLIST').sampleSize).toBe(0);
   });
@@ -502,11 +508,15 @@ describe('호출자 0건 정적 grep 가드 — Phase 2a dead code', () => {
         }
       }
     }
-    // 허용: safetyGateAttribution.ts (정의) + safetyGateAttribution.test.ts (본 파일)
+    // 허용: 정의/테스트 + read-only endpoint + missed replay + bounded policy feedback
     const allowedFiles = matches.filter(
       (m) =>
         m.endsWith('safetyGateAttribution.ts') ||
-        m.endsWith('safetyGateAttribution.test.ts'),
+        m.endsWith('safetyGateAttribution.test.ts') ||
+        m.endsWith('learningRouter.ts') ||
+        m.endsWith('learningSanityDashboardRouter.test.ts') ||
+        m.endsWith('missedLearningReplayDispatcher.ts') ||
+        m.endsWith('safetyGatePolicyFeedback.ts'),
     );
     // 허용 파일 외 결과 0건 검증
     expect(matches.length).toBe(allowedFiles.length);

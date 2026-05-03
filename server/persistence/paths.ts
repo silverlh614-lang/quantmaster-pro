@@ -105,6 +105,8 @@ export const MACRO_SYNC_STATE_FILE    = path.join(DATA_DIR, 'macro-sync-state.js
 export const TRADING_SETTINGS_FILE    = path.join(DATA_DIR, 'trading-settings.json');
 /** 세션 상태 저장 — Gate 가중치, 유니버스, 초기투자금 등 마지막 설정 스냅샷 */
 export const SESSION_STATE_FILE       = path.join(DATA_DIR, 'session-state.json');
+/** R3 sanity violation latch. Active state blocks new buys until operator ack/clear. */
+export const R3_SANITY_BLOCK_FILE     = path.join(DATA_DIR, 'r3-sanity-block.json');
 /** 이중 기록 Reconciliation 마지막 결과 — 텔레그램·이벤트로그·섀도우상태 정합성 */
 export const RECONCILE_STATE_FILE     = path.join(DATA_DIR, 'reconcile-state.json');
 /** 텔레그램 알림 발송 로그 — 청산·진입 알림 건별 기록 (최근 1000건) */

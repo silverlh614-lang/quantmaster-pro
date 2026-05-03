@@ -36,6 +36,13 @@ export interface LessonWithMeta {
   regime?: string;
 }
 
+export interface FreshnessDatedLessonMeta {
+  date?: string;
+  generatedAt?: string;
+  savedAt?: string;
+  regime?: string | null;
+}
+
 // ─── 상수 SSOT ────────────────────────────────────────────────────────────────
 
 /** ageDays > 14 시 감쇠 비율 — 사용자 §5 명세. */
@@ -58,6 +65,52 @@ export const FRESHNESS_EXPIRY_AGE_DAYS = 30;
  */
 export function isFreshnessGuardEnabled(): boolean {
   return process.env.LEARNING_FRESHNESS_GUARD_ENABLED === 'true';
+}
+
+export function ageDaysFromDateLike(
+  dateLike: string | undefined | null,
+  now: Date = new Date(),
+): number | null {
+  if (!dateLike) return null;
+  const ms = Date.parse(dateLike.length === 10 ? `${dateLike}T00:00:00Z` : dateLike);
+  const nowMs = now.getTime();
+  if (!Number.isFinite(ms) || !Number.isFinite(nowMs)) return null;
+  return Math.floor((nowMs - ms) / (24 * 60 * 60 * 1000));
+}
+
+export function freshnessWeightFromMeta(
+  meta: FreshnessDatedLessonMeta,
+  currentRegime?: string,
+  now: Date = new Date(),
+): number {
+  const ageDays = ageDaysFromDateLike(meta.generatedAt ?? meta.savedAt ?? meta.date, now);
+  if (ageDays === null) return 1;
+  return applyFreshnessDecay(
+    {
+      weight: 1,
+      ageDays,
+      regime: typeof meta.regime === 'string' ? meta.regime : undefined,
+    },
+    currentRegime,
+    now,
+  ).weight;
+}
+
+export function applyFreshnessDecayToNeutralWeightedRecord<T extends Record<string, number>>(
+  weights: T,
+  meta: FreshnessDatedLessonMeta,
+  currentRegime?: string,
+  now: Date = new Date(),
+): T {
+  const freshnessWeight = freshnessWeightFromMeta(meta, currentRegime, now);
+  if (freshnessWeight === 1) return weights;
+
+  const adjusted: Record<string, number> = {};
+  for (const [key, value] of Object.entries(weights)) {
+    const n = Number(value);
+    adjusted[key] = Number.isFinite(n) ? 1 + (n - 1) * freshnessWeight : value;
+  }
+  return adjusted as T;
 }
 
 // ─── 진입점 ───────────────────────────────────────────────────────────────────

@@ -42,6 +42,7 @@ import { getScreenerCache, type ScreenedStock } from '../screener/stockScreener.
  *   - 거래대금 / 시총 임계 미달 → `LIQUIDITY_BLOCK`
  *   - KRX 휴장일 다음 영업일 missed-learning replay → `KRX_HOLIDAY_REPLAY`
  *   - regime R1_DEFENSIVE → `R1_DEFENSIVE`
+ *   - R3 sanity latch → `R3_SANITY_BLOCK`
  */
 export type ShadowLearningOnlyScanReason =
   | 'FOMC_BLOCK'
@@ -51,7 +52,8 @@ export type ShadowLearningOnlyScanReason =
   | 'R1_DEFENSIVE'
   | 'KRX_HOLIDAY_REPLAY'
   | 'LIQUIDITY_BLOCK'
-  | 'MANUAL_BLOCK';
+  | 'MANUAL_BLOCK'
+  | 'R3_SANITY_BLOCK';
 
 export interface ShadowLearningOnlyScanInput {
   /**
