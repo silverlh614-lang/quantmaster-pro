@@ -44,6 +44,8 @@ import { computeShadowVsLiveDelta } from '../learning/shadowVsLiveDelta.js';
 import { loadMissedLearningQueue } from '../persistence/missedLearningQueueRepo.js';
 // ADR-0180 — Phase 4-B-2-b1 Rejection Shadow stats endpoint
 // (summarizeRejectionShadow 는 위 라인 31 에서 이미 import — entries 제외 summary 전용 endpoint)
+// ADR-0182 — Phase 4-B-2-b3 Counterfactual unresolved stats endpoint
+import { summarizeUnresolvedCounterfactuals } from '../learning/counterfactualShadow.js';
 
 const router = Router();
 
@@ -386,6 +388,23 @@ router.get('/missed-learning-queue-stats', (_req: Request, res: Response) => {
   } catch (e) {
     console.error('[learningRouter] /missed-learning-queue-stats 실패:', e);
     res.status(500).json({ error: 'missed_learning_queue_stats_failed' });
+  }
+});
+
+/**
+ * ADR-0182 §2.2 — Counterfactual Unresolved stats endpoint (Phase 4-B-2-b3).
+ *
+ * `loadCounterfactuals()` 의 *해결 진행도* 진단 — `getCounterfactualStats(horizon)`
+ * (분포 분석) 와 분리. 운영자가 cron 미실행 / 가격 fetcher 실패 / 표본 부족
+ * 즉시 인지 (Learning Sanity Dashboard 6번째 카드).
+ */
+router.get('/counterfactual-unresolved-stats', (_req: Request, res: Response) => {
+  try {
+    const summary = summarizeUnresolvedCounterfactuals();
+    res.json(summary);
+  } catch (e) {
+    console.error('[learningRouter] /counterfactual-unresolved-stats 실패:', e);
+    res.status(500).json({ error: 'counterfactual_unresolved_stats_failed' });
   }
 });
 
