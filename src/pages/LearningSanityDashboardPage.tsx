@@ -4,11 +4,14 @@ import { useQuery } from '@tanstack/react-query';
 import {
   fetchSafetyGateAttribution,
   fetchShadowVsLiveDelta,
+  fetchMissedLearningQueueStats,
   type ClientGateAttributionResult,
   type ClientDeltaCategoryResult,
+  type ClientMissedLearningQueueStats,
 } from '../api/learningDashboardClient';
 import { SafetyGateAttributionCard } from '../components/learning/SafetyGateAttributionCard';
 import { ShadowVsLiveDeltaCard } from '../components/learning/ShadowVsLiveDeltaCard';
+import { MissedLearningQueueStatsCard } from '../components/learning/MissedLearningQueueStatsCard';
 
 const STALE_MS = 60_000;
 const REFETCH_MS = 60_000;
@@ -30,23 +33,30 @@ export default function LearningSanityDashboardPage(): React.ReactElement {
     retry: 2,
   });
 
+  const missedQueueQuery = useQuery<ClientMissedLearningQueueStats>({
+    queryKey: ['learning-sanity', 'missed-learning-queue-stats'],
+    queryFn: fetchMissedLearningQueueStats,
+    staleTime: STALE_MS,
+    refetchInterval: REFETCH_MS,
+    retry: 2,
+  });
+
   return (
     <div className="px-4 py-6 space-y-6" data-testid="learning-sanity-dashboard-page">
       <header className="space-y-2">
         <h1 className="text-xl font-bold text-zinc-100">🧠 Learning Sanity Dashboard</h1>
         <p className="text-sm text-zinc-400">
-          ADR-0178 Phase 4-B-1 — Phase 2a 영속 분석 SSOT 의 *2 핵심 지표* 가시화.
-          ENV `SAFETY_GATE_ATTRIBUTION_ENABLED` / `SHADOW_LIVE_DELTA_REPORT_ENABLED`
-          활성화 + SHADOW 검증 데이터 누적 시 자연 가시화.
+          ADR-0178 Phase 4-B-1 + ADR-0179 Phase 4-B-2-a — Phase 2a 영속 분석 SSOT *2 핵심 지표*
+          + MissedLearningQueue 큐 상태 가시화.
         </p>
         <p className="text-xs text-zinc-500">
-          잔여 9 지표 (skipped jobs / replayed / failed replay / unresolved counterfactuals /
-          stale reflections / rejected winners / gate opportunity cost / reflection injection
-          rate / learning freshness score) 는 Phase 4-B-2 후속 PR.
+          잔여 6 지표 (unresolved counterfactuals / stale reflections / rejected winners /
+          gate opportunity cost / reflection injection rate / learning freshness score) 는
+          Phase 4-B-2-b/c 후속 PR.
         </p>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
         <SafetyGateAttributionCard
           results={safetyQuery.data}
           loading={safetyQuery.isLoading}
@@ -56,6 +66,11 @@ export default function LearningSanityDashboardPage(): React.ReactElement {
           results={deltaQuery.data}
           loading={deltaQuery.isLoading}
           error={deltaQuery.error}
+        />
+        <MissedLearningQueueStatsCard
+          stats={missedQueueQuery.data}
+          loading={missedQueueQuery.isLoading}
+          error={missedQueueQuery.error}
         />
       </div>
     </div>
