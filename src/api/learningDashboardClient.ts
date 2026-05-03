@@ -89,3 +89,20 @@ export async function fetchShadowVsLiveDelta(
   if (!r.ok) throw new Error(`shadow-vs-live-delta ${r.status}`);
   return (await r.json()) as ClientDeltaCategoryResult[];
 }
+
+// ── ClientMissedLearningQueueStats (서버 응답 schema 동기 사본, ADR-0179) ─────
+
+export interface ClientMissedLearningQueueStats {
+  pending: number;
+  replayed: number;
+  failed: number;
+  dropped: number;
+  total: number;
+  lastEnqueuedAt?: string;
+}
+
+export async function fetchMissedLearningQueueStats(): Promise<ClientMissedLearningQueueStats> {
+  const r = await fetch(`${BASE_URL}/missed-learning-queue-stats`);
+  if (!r.ok) throw new Error(`missed-learning-queue-stats ${r.status}`);
+  return (await r.json()) as ClientMissedLearningQueueStats;
+}

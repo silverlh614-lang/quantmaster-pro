@@ -40,6 +40,8 @@ import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnly
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { computeSafetyGateAttribution } from '../learning/safetyGateAttribution.js';
 import { computeShadowVsLiveDelta } from '../learning/shadowVsLiveDelta.js';
+// ADR-0179 — Phase 4-B-2-a MissedLearningQueue stats endpoint
+import { loadMissedLearningQueue } from '../persistence/missedLearningQueueRepo.js';
 
 const router = Router();
 
@@ -333,6 +335,39 @@ router.get('/shadow-vs-live-delta', (req: Request, res: Response) => {
   } catch (e) {
     console.error('[learningRouter] /shadow-vs-live-delta 실패:', e);
     res.status(500).json({ error: 'shadow_vs_live_delta_failed' });
+  }
+});
+
+/**
+ * ADR-0179 §2.2 — MissedLearningQueue stats endpoint.
+ *
+ * 4 status (PENDING/REPLAYED/FAILED/DROPPED) 카운트 + total + lastEnqueuedAt.
+ * Phase 1 영속 read-only — ENV gate 부재 (빈 큐 시 모든 카운트 0).
+ */
+router.get('/missed-learning-queue-stats', (_req: Request, res: Response) => {
+  try {
+    const jobs = loadMissedLearningQueue();
+    let pending = 0, replayed = 0, failed = 0, dropped = 0;
+    let lastEnqueuedAt: string | undefined;
+    for (const job of jobs) {
+      switch (job.status) {
+        case 'PENDING': pending++; break;
+        case 'REPLAYED': replayed++; break;
+        case 'FAILED': failed++; break;
+        case 'DROPPED': dropped++; break;
+      }
+      if (!lastEnqueuedAt || job.skippedAt > lastEnqueuedAt) {
+        lastEnqueuedAt = job.skippedAt;
+      }
+    }
+    res.json({
+      pending, replayed, failed, dropped,
+      total: jobs.length,
+      lastEnqueuedAt,
+    });
+  } catch (e) {
+    console.error('[learningRouter] /missed-learning-queue-stats 실패:', e);
+    res.status(500).json({ error: 'missed_learning_queue_stats_failed' });
   }
 });
 

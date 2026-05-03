@@ -6,8 +6,10 @@ import {
   ALL_DELTA_CATEGORIES,
   fetchSafetyGateAttribution,
   fetchShadowVsLiveDelta,
+  fetchMissedLearningQueueStats,
   type ClientGateAttributionResult,
   type ClientDeltaCategoryResult,
+  type ClientMissedLearningQueueStats,
 } from './learningDashboardClient';
 
 const fetchMock = vi.fn();
@@ -124,6 +126,36 @@ describe('learningDashboardClient', () => {
       fetchMock.mockResolvedValueOnce(mockResponse(null, false, 500));
       await expect(fetchShadowVsLiveDelta()).rejects.toThrow(
         'shadow-vs-live-delta 500',
+      );
+    });
+  });
+
+  describe('fetchMissedLearningQueueStats (ADR-0179)', () => {
+    it('정상 응답 + URL', async () => {
+      const fakeStats: ClientMissedLearningQueueStats = {
+        pending: 2, replayed: 5, failed: 1, dropped: 0,
+        total: 8, lastEnqueuedAt: '2026-05-02T12:00:00.000Z',
+      };
+      fetchMock.mockResolvedValueOnce(mockResponse(fakeStats));
+      const r = await fetchMissedLearningQueueStats();
+      expect(r).toEqual(fakeStats);
+      expect(fetchMock).toHaveBeenCalledWith('/api/learning/missed-learning-queue-stats');
+    });
+
+    it('빈 큐 응답', async () => {
+      const fakeStats: ClientMissedLearningQueueStats = {
+        pending: 0, replayed: 0, failed: 0, dropped: 0, total: 0,
+      };
+      fetchMock.mockResolvedValueOnce(mockResponse(fakeStats));
+      const r = await fetchMissedLearningQueueStats();
+      expect(r.total).toBe(0);
+      expect(r.lastEnqueuedAt).toBeUndefined();
+    });
+
+    it('500 응답 — throw', async () => {
+      fetchMock.mockResolvedValueOnce(mockResponse(null, false, 500));
+      await expect(fetchMissedLearningQueueStats()).rejects.toThrow(
+        'missed-learning-queue-stats 500',
       );
     });
   });
