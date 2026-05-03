@@ -12,6 +12,12 @@
 import cron from 'node-cron';
 import { recordScheduleRun } from './scheduleCatalog.js';
 import { getMarketDayContext } from '../utils/marketDayClassifier.js';
+import {
+  enqueueMissedLearningJob,
+  isMissedLearningQueueEnabled,
+  type MissedLearningJobName,
+  type ReplayPolicy,
+} from '../learning/missedLearningQueue.js';
 
 export type ScheduleClass =
   | 'TRADING_DAY_ONLY'    // KRX 영업일 전용 — 주말 + 공휴일 차단
@@ -29,6 +35,20 @@ export interface ScheduleGuardOptions {
   timezone?: string;
   /** 테스트/긴급 우회 — true 면 가드 무시. 기본 false. */
   force?: boolean;
+  /**
+   * ADR-0176 — TRADING_DAY_ONLY silent skip 시 MissedLearningQueue enqueue.
+   *
+   * **옵셔널** — 미전달 시 hook 미실행 (기존 동작 100% 보존, 회귀 위험 0).
+   * **ENV gate** — `MISSED_LEARNING_QUEUE_ENABLED === 'true'` 통과 시에만 활성.
+   * **화이트리스트** — 5 학습 cron 만 옵션 전달 (counterfactual_resolve / ledger_resolve /
+   *   ghost_portfolio / nightly_reflection / daily_mini_backtest). 다른 cron 에 전달 시
+   *   `enqueueMissedLearningJob` 내부 schema 가 `MissedLearningJobName` union 검증으로 차단.
+   * **enqueue throw catch** — cron 흐름 차단 안 함.
+   */
+  enqueueOnSkip?: {
+    /** default 'SAFE_NEXT_TRADING_DAY' — 다음 영업일 안전 시간대 replay. */
+    replayPolicy?: ReplayPolicy;
+  };
 }
 
 // 부팅 검증용 — scheduledJob 진입(cron.schedule 호출 전)에서 add.
@@ -161,6 +181,29 @@ export function scheduledJob(
         status: 'skipped',
         note: decision.reason,
       });
+
+      // ADR-0176 — MissedLearningQueue enqueue hook (옵셔널 + ENV gate + 화이트리스트).
+      // 옵션 미전달 시 hook 미실행 — 기존 동작 100% 보존 (회귀 위험 0).
+      // ENV `MISSED_LEARNING_QUEUE_ENABLED !== 'true'` 시 hook 미실행 — default OFF.
+      // jobName cast 안전: enqueueMissedLearningJob 내부 schema 가 MissedLearningJobName
+      // union 검증 — 잘못된 jobName 전달 시 schema 에러 발생 → 본 catch 블록이 흡수.
+      if (options.enqueueOnSkip && isMissedLearningQueueEnabled()) {
+        try {
+          enqueueMissedLearningJob({
+            jobName: jobName as MissedLearningJobName,
+            // decision.reason 가능 값 (scheduleGuard 내부): WEEKEND / KRX_HOLIDAY /
+            // LONG_HOLIDAY / NON_TRADING_DAY / TRADING_DAY (WEEKEND_MAINTENANCE 분기).
+            // KRX_HOLIDAY 만 1:1 매핑, 나머지는 MARKET_DATA_MISSING fallback.
+            reason: decision.reason === 'KRX_HOLIDAY' ? 'KRX_HOLIDAY' : 'MARKET_DATA_MISSING',
+            skippedAt: startedAt,
+            replayPolicy: options.enqueueOnSkip.replayPolicy ?? 'SAFE_NEXT_TRADING_DAY',
+            idempotencyKey: `${jobName}:${startedAt.slice(0, 10)}`,
+          });
+        } catch (err) {
+          console.error(`[Scheduler:${jobName}] enqueueOnSkip 실패:`, err);
+        }
+      }
+
       return;
     }
 
