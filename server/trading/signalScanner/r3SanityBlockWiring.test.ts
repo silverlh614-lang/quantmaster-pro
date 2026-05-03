@@ -19,7 +19,7 @@ describe('R3 sanity block wiring', () => {
     const src = read('server/trading/signalScanner.ts');
     expect(src).toContain('loadR3SanityBlockState');
     expect(src).toContain("recordBlockedDayShadowScan('R3_SANITY_BLOCK')");
-    expect(src).toContain('R3_SANITY_OPERATOR_ACK');
+    expect(src).toContain('isR3SanityAckTokenValid');
   });
 
   it('preflight module preserves same R3 sanity block behavior for migrated path', () => {
@@ -27,5 +27,13 @@ describe('R3 sanity block wiring', () => {
     expect(src).toContain('loadR3SanityBlockState');
     expect(src).toContain("reason: 'R3_SANITY_BLOCK'");
     expect(src).toContain("abortReason: 'R3_SANITY_BLOCK'");
+    expect(src).toContain('isR3SanityAckTokenValid');
+  });
+
+  it('GATE_PASS_DATA_MISSING remains diagnostic and does not activate block latch', () => {
+    const src = read('server/trading/signalScanner/scanDiagnostics.ts');
+    expect(src).toContain("sanity.violation === 'CANDIDATES_ZERO'");
+    expect(src).toContain("sanity.violation === 'GATE1_PASS_ZERO'");
+    expect(src).not.toContain("sanity.violation === 'GATE_PASS_DATA_MISSING'");
   });
 });

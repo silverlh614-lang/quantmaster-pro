@@ -81,6 +81,14 @@ export function acknowledgeR3SanityBlock(
   return state;
 }
 
+export function isR3SanityAckTokenValid(
+  state: R3SanityBlockState,
+  token: string | undefined,
+): boolean {
+  if (!state.active || !token) return false;
+  return token === state.triggeredAt || token === `ACK:${state.triggeredAt}`;
+}
+
 export function __resetR3SanityBlockForTests(): void {
   ensureDataDir();
   if (fs.existsSync(R3_SANITY_BLOCK_FILE)) fs.unlinkSync(R3_SANITY_BLOCK_FILE);

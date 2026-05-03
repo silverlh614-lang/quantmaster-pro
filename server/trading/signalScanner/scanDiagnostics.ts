@@ -410,11 +410,13 @@ export async function persistScanResults(
   try {
     const sanity = evaluateR3Sanity(_lastScanSummary);
     if (sanity.violation !== 'NONE' && sanity.message) {
-      activateR3SanityBlock({
-        violation: sanity.violation,
-        regime: _lastScanSummary.macroGateState?.regime ?? '',
-        message: sanity.message,
-      });
+      if (sanity.violation === 'CANDIDATES_ZERO' || sanity.violation === 'GATE1_PASS_ZERO') {
+        activateR3SanityBlock({
+          violation: sanity.violation,
+          regime: _lastScanSummary.macroGateState?.regime ?? '',
+          message: sanity.message,
+        });
+      }
       await sendTelegramAlert(sanity.message, {
         priority: 'HIGH',
         category: 'r3_sanity',

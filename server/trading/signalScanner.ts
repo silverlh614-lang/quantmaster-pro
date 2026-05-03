@@ -31,7 +31,11 @@ import { loadIntradayWatchlist } from '../persistence/intradayWatchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
-import { acknowledgeR3SanityBlock, loadR3SanityBlockState } from '../persistence/r3SanityBlockRepo.js';
+import {
+  acknowledgeR3SanityBlock,
+  isR3SanityAckTokenValid,
+  loadR3SanityBlockState,
+} from '../persistence/r3SanityBlockRepo.js';
 import {
   type ServerShadowTrade,
   type EntryKellySnapshot,
@@ -335,7 +339,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
 
   const r3SanityBlock = loadR3SanityBlockState();
   if (r3SanityBlock.active) {
-    if (process.env.R3_SANITY_OPERATOR_ACK === 'true') {
+    if (isR3SanityAckTokenValid(r3SanityBlock, process.env.R3_SANITY_OPERATOR_ACK)) {
       acknowledgeR3SanityBlock('R3_SANITY_OPERATOR_ACK');
     } else {
       console.warn(
@@ -345,7 +349,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         `🚨 <b>[R3 Sanity Block Active]</b>\n` +
         `신규 매수 차단 + shadow-only 전환 유지\n` +
         `위반: ${r3SanityBlock.violation} / ${r3SanityBlock.regime}\n` +
-        `운영자 확인 후 <code>R3_SANITY_OPERATOR_ACK=true</code> 로 해제`,
+        `운영자 확인 후 <code>R3_SANITY_OPERATOR_ACK=${r3SanityBlock.triggeredAt}</code> 로 해제`,
         { priority: 'HIGH', dedupeKey: 'r3_sanity_block_active', cooldownMs: 60 * 60_000 },
       ).catch(console.error);
       await recordBlockedDayShadowScan('R3_SANITY_BLOCK');
