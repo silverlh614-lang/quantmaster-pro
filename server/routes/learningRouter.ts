@@ -35,6 +35,11 @@ import {
   getAllTwinEntries,
 } from '../learning/counterfactualTwinPortfolio.js';
 import { getMonthlyStats } from '../learning/recommendationTracker.js';
+// ADR-0177 — Phase 4-A Learning Sanity Dashboard endpoint
+import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnlySignalRepo.js';
+import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
+import { computeSafetyGateAttribution } from '../learning/safetyGateAttribution.js';
+import { computeShadowVsLiveDelta } from '../learning/shadowVsLiveDelta.js';
 
 const router = Router();
 
@@ -268,6 +273,66 @@ router.post('/walk-forward/run', async (_req: Request, res: Response) => {
   } catch (e) {
     console.error('[learningRouter] /walk-forward/run 실패:', e);
     res.status(500).json({ error: 'walk_forward_run_failed' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// ADR-0177 — Learning Sanity Dashboard HTTP endpoint (Phase 4-A)
+// ────────────────────────────────────────────────────────────────────────────
+
+type FutureReturnHorizon = 1 | 3 | 5 | 20;
+
+function parseDashboardQueryParams(
+  req: Request,
+): { lookbackDays: number; futureReturnHorizon: FutureReturnHorizon } {
+  const daysRaw = Number(req.query.days);
+  const lookbackDays =
+    Number.isFinite(daysRaw) && daysRaw >= 1 && daysRaw <= 365 ? Math.floor(daysRaw) : 90;
+  const horizonRaw = Number(req.query.horizon);
+  const futureReturnHorizon: FutureReturnHorizon =
+    horizonRaw === 1 || horizonRaw === 3 || horizonRaw === 5 || horizonRaw === 20
+      ? horizonRaw
+      : 5;
+  return { lookbackDays, futureReturnHorizon };
+}
+
+/**
+ * ADR-0177 §2.2 — SafetyGateAttribution endpoint.
+ *
+ * 7 GateName entry (FOMC / VIX / R0_R1_REGIME / LIQUIDITY / DATA_SANITY /
+ * EXPOSURE_BUDGET / ENEMY_CHECKLIST) 의 사후 효과 read-only 노출.
+ * ENV `SAFETY_GATE_ATTRIBUTION_ENABLED` OFF 시 응답 빈 배열 [].
+ */
+router.get('/safety-gate-attribution', (req: Request, res: Response) => {
+  try {
+    const options = parseDashboardQueryParams(req);
+    const signals = loadShadowLearningOnlySignals();
+    const results = computeSafetyGateAttribution(signals, options);
+    res.json(results);
+  } catch (e) {
+    console.error('[learningRouter] /safety-gate-attribution 실패:', e);
+    res.status(500).json({ error: 'safety_gate_attribution_failed' });
+  }
+});
+
+/**
+ * ADR-0177 §2.2 — ShadowVsLiveDelta endpoint.
+ *
+ * 5 DeltaCategory entry (SHADOW_BUY_LIVE_BLOCKED / LIVE_BUY_SHADOW_BETTER_SIZE /
+ * EXPOSURE_CAP_REDUCED / MACRO_GATE_BLOCKED / LIQUIDITY_GATE_BLOCKED) 의
+ * missedAlpha (= shadowReturn - liveReturn) read-only 노출.
+ * ENV `SHADOW_LIVE_DELTA_REPORT_ENABLED` OFF 시 응답 빈 배열 [].
+ */
+router.get('/shadow-vs-live-delta', (req: Request, res: Response) => {
+  try {
+    const options = parseDashboardQueryParams(req);
+    const shadowSignals = loadShadowLearningOnlySignals();
+    const liveTrades = loadShadowTrades();
+    const results = computeShadowVsLiveDelta({ shadowSignals, liveTrades, options });
+    res.json(results);
+  } catch (e) {
+    console.error('[learningRouter] /shadow-vs-live-delta 실패:', e);
+    res.status(500).json({ error: 'shadow_vs_live_delta_failed' });
   }
 });
 
