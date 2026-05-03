@@ -169,3 +169,24 @@ export async function fetchReflectionImpact(
   if (!r.ok) throw new Error(`reflection-impact ${r.status}`);
   return (await r.json()) as ClientReflectionImpactSummary;
 }
+
+// ── ClientCounterfactualUnresolvedStats (서버 CounterfactualUnresolvedSummary 동기 사본, ADR-0182) ─────
+
+export interface ClientCounterfactualUnresolvedStats {
+  totalCount: number;
+  resolved30dCount: number;
+  resolved60dCount: number;
+  resolved90dCount: number;
+  pending30dCount: number;
+  pending60dCount: number;
+  pending90dCount: number;
+  /** signalDate 30 영업일 미경과 (정상 대기) */
+  awaitingHorizonCount: number;
+  oldestSignalDate?: string;
+}
+
+export async function fetchCounterfactualUnresolvedStats(): Promise<ClientCounterfactualUnresolvedStats> {
+  const r = await fetch(`${BASE_URL}/counterfactual-unresolved-stats`);
+  if (!r.ok) throw new Error(`counterfactual-unresolved-stats ${r.status}`);
+  return (await r.json()) as ClientCounterfactualUnresolvedStats;
+}

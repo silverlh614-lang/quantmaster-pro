@@ -181,6 +181,102 @@ export function getCounterfactualStats(horizon: 30 | 60 | 90): CounterfactualSta
   return { samples: returns.length, mean, median, stdDev, winRate, p25, p75 };
 }
 
+// ── ADR-0182 — Phase 4-B-2-b3 Unresolved Counterfactuals stats SSOT ─────
+
+/**
+ * Counterfactual 학습 영속의 *해결 진행도* 진단 통계.
+ *
+ * `getCounterfactualStats(horizon)` 가 *분포 분석* 이라면, 본 함수는
+ * *학습 입력 누락 진단* — 운영자가 cron 미실행 / 가격 fetcher 실패 /
+ * 표본 부족 즉시 인지 (사이드바 Learning Sanity Dashboard 6번째 카드).
+ *
+ * **resolved**: `return{30,60,90}d` 채워진 entry 수.
+ * **pending**: signalDate 로부터 N 영업일 경과 + `return{30,60,90}d` 부재.
+ *   resolveCounterfactuals 가 *calendar day* 로 elapsed 산정 (line 133)
+ *   하므로 본 함수도 동일 기준 (정합성). KRX 휴장일 미반영 — 후속 PR.
+ * **awaitingHorizonCount**: signalDate 30 영업일 미경과 (정상 대기).
+ * **oldestSignalDate**: 최오래된 signalDate (KST). 영속 누적 진행도 추적.
+ *
+ * 본 함수는 read-only — 영속 변경 0건. ADR-0182 §3 안전 invariant 정합.
+ */
+export interface CounterfactualUnresolvedSummary {
+  totalCount: number;
+  resolved30dCount: number;
+  resolved60dCount: number;
+  resolved90dCount: number;
+  pending30dCount: number;
+  pending60dCount: number;
+  pending90dCount: number;
+  awaitingHorizonCount: number;
+  oldestSignalDate?: string;
+}
+
+export function summarizeUnresolvedCounterfactuals(
+  now: Date = new Date(),
+): CounterfactualUnresolvedSummary {
+  const entries = load();
+  const totalCount = entries.length;
+
+  let resolved30dCount = 0;
+  let resolved60dCount = 0;
+  let resolved90dCount = 0;
+  let pending30dCount = 0;
+  let pending60dCount = 0;
+  let pending90dCount = 0;
+  let awaitingHorizonCount = 0;
+  let oldestSignalDate: string | undefined;
+
+  for (const e of entries) {
+    if (oldestSignalDate === undefined || e.signalDate < oldestSignalDate) {
+      oldestSignalDate = e.signalDate;
+    }
+
+    const signalMs = new Date(e.signalTime).getTime();
+    const elapsedDays = Number.isFinite(signalMs)
+      ? Math.floor((now.getTime() - signalMs) / (24 * 3600 * 1000))
+      : 0;
+
+    // 30 영업일 미경과 — 정상 대기 (resolved 못 채워졌어도 시간 부족만)
+    if (elapsedDays < 30) {
+      awaitingHorizonCount++;
+      continue;
+    }
+
+    // 30+ 일 — 해결 또는 미해결 분기
+    if (typeof e.return30d === 'number' && Number.isFinite(e.return30d)) {
+      resolved30dCount++;
+    } else {
+      pending30dCount++;
+    }
+    if (elapsedDays >= 60) {
+      if (typeof e.return60d === 'number' && Number.isFinite(e.return60d)) {
+        resolved60dCount++;
+      } else {
+        pending60dCount++;
+      }
+    }
+    if (elapsedDays >= 90) {
+      if (typeof e.return90d === 'number' && Number.isFinite(e.return90d)) {
+        resolved90dCount++;
+      } else {
+        pending90dCount++;
+      }
+    }
+  }
+
+  return {
+    totalCount,
+    resolved30dCount,
+    resolved60dCount,
+    resolved90dCount,
+    pending30dCount,
+    pending60dCount,
+    pending90dCount,
+    awaitingHorizonCount,
+    oldestSignalDate,
+  };
+}
+
 /**
  * Suggest 판정 — resolved (return30d) 30건 이상이고, 탈락 후보(gateScore<7)의 평균 수익률이
  * 통과 후보(gateScore≥7) 평균의 80% 이상이면 Gate 기준 과잉 의심으로 suggest 를 발동한다.

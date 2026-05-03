@@ -9,11 +9,13 @@ import {
   fetchMissedLearningQueueStats,
   fetchRejectionShadowStats,
   fetchReflectionImpact,
+  fetchCounterfactualUnresolvedStats,
   type ClientGateAttributionResult,
   type ClientDeltaCategoryResult,
   type ClientMissedLearningQueueStats,
   type ClientRejectionShadowSummary,
   type ClientReflectionImpactSummary,
+  type ClientCounterfactualUnresolvedStats,
 } from './learningDashboardClient';
 
 const fetchMock = vi.fn();
@@ -251,6 +253,50 @@ describe('learningDashboardClient', () => {
       fetchMock.mockResolvedValueOnce(mockResponse(null, false, 500));
       await expect(fetchReflectionImpact()).rejects.toThrow(
         'reflection-impact 500',
+      );
+    });
+  });
+
+  describe('fetchCounterfactualUnresolvedStats (ADR-0182)', () => {
+    it('정상 응답 + URL — pending30dCount ≥ 5 (cron 미실행 의심)', async () => {
+      const fakeStats: ClientCounterfactualUnresolvedStats = {
+        totalCount: 12,
+        resolved30dCount: 2,
+        resolved60dCount: 0,
+        resolved90dCount: 0,
+        pending30dCount: 7,
+        pending60dCount: 5,
+        pending90dCount: 3,
+        awaitingHorizonCount: 3,
+        oldestSignalDate: '2026-01-15',
+      };
+      fetchMock.mockResolvedValueOnce(mockResponse(fakeStats));
+      const r = await fetchCounterfactualUnresolvedStats();
+      expect(r).toEqual(fakeStats);
+      expect(fetchMock).toHaveBeenCalledWith('/api/learning/counterfactual-unresolved-stats');
+    });
+
+    it('빈 영속 응답 — totalCount=0', async () => {
+      const fakeStats: ClientCounterfactualUnresolvedStats = {
+        totalCount: 0,
+        resolved30dCount: 0,
+        resolved60dCount: 0,
+        resolved90dCount: 0,
+        pending30dCount: 0,
+        pending60dCount: 0,
+        pending90dCount: 0,
+        awaitingHorizonCount: 0,
+      };
+      fetchMock.mockResolvedValueOnce(mockResponse(fakeStats));
+      const r = await fetchCounterfactualUnresolvedStats();
+      expect(r.totalCount).toBe(0);
+      expect(r.oldestSignalDate).toBeUndefined();
+    });
+
+    it('500 응답 — throw', async () => {
+      fetchMock.mockResolvedValueOnce(mockResponse(null, false, 500));
+      await expect(fetchCounterfactualUnresolvedStats()).rejects.toThrow(
+        'counterfactual-unresolved-stats 500',
       );
     });
   });
