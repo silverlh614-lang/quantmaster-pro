@@ -18,6 +18,7 @@ import { PortfolioExtractPage } from './PortfolioExtractPage';
 import { RecommendationHistoryPage } from './RecommendationHistoryPage';
 import { MacroIntelligencePage } from './MacroIntelligencePage';
 import ShadowLearningPage from './ShadowLearningPage';
+import LearningSanityDashboardPage from './LearningSanityDashboardPage';
 import { WalkForwardView } from '../components/common/WalkForwardView';
 import { SectionErrorBoundary } from '../components/common/SectionErrorBoundary';
 import { FloatingActionButton } from '../components/common/FloatingActionButton';
@@ -126,6 +127,8 @@ export function PageRouter({ onFetchMarketOverview }: PageRouterProps) {
               <MacroIntelligencePage />
             ) : view === 'SHADOW_LEARNING' ? (
               <ShadowLearningPage />
+            ) : view === 'LEARNING_SANITY' ? (
+              <LearningSanityDashboardPage />
             ) : view === 'WALK_FORWARD' ? (
               <WalkForwardView />
             ) : (
