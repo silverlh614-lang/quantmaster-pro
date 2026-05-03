@@ -22,6 +22,7 @@ export const VIEW_LABELS: Record<View, string> = {
   RECOMMENDATION_HISTORY: '추천 이력',
   MACRO_INTEL: '매크로 인텔리전스',
   SHADOW_LEARNING: 'Shadow 학습',
+  LEARNING_SANITY: 'Learning Sanity',
 };
 
 /** App name used in browser tab title */
