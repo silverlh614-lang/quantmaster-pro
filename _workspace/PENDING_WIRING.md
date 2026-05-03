@@ -54,6 +54,8 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | A7 | 0124 shadowLearningSummary | `server/alerts/shadowLearningSummary.ts` | 2026-05-02 | PARTIAL | P1 | PR-H 후속 — 일일 리포트 라인 BE 표기 추가 |
 | A8 | 0160 learningLoopHealth | `server/learning/learningLoopHealth.ts` | 2026-05-02 | PARTIAL | P2 | commit 2258621 머지 시 508 → 460 LoC 변경 (변경 의도 불명확) — 본 모듈 단위 테스트 보강 + ADR-0160 §3 호출자 wiring 검증 |
 | A9 | 0160 loadReflectionImpactRecords 활용 | `server/learning/failureToWeight.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | ADR-0160 §1 명시 — F2W reflection multiplier 가 `loadRecentReflections` + `loadFailurePatterns` 만 활용 / `loadReflectionImpactRecords` 본 PR scope 외 — silent/deprecated 모듈 자동 가드 wiring 후속 ADR |
+| A10 | 0173 §1 MissedLearningQueue | `server/learning/missedLearningQueue.ts` | 2026-05-03 | INFRASTRUCTURE_ONLY | P1 | **PR-Shadow-Learning-Persistence-Phase1 (2026-05-03, ADR-0173)** — 호출자 0건 dead code. Phase 2 cron wiring 후 활성화: `maintenanceJobs.ts` 다음 영업일 09:30 KST cron + ScheduleClass='TRADING_DAY_ONLY' (PR-D ADR-0045) + KRX 휴장일 자동 enqueue (jobName 7종) + 휴장 종료 후 `replayMissedLearningJobs` 호출 + `MISSED_LEARNING_QUEUE_ENABLED=true` 명시 활성화. SLA 만기 2026-06-17. |
+| A11 | 0173 §5 LearningFreshnessGuard | `server/learning/learningFreshnessGuard.ts` | 2026-05-03 | INFRASTRUCTURE_ONLY | P1 | **PR-Shadow-Learning-Persistence-Phase1 (2026-05-03, ADR-0173)** — 호출자 0건 dead code. Phase 3 ReflectionInjectionBus 결합 후 활성화: `mainReflection` / `scoreBuyCandidate` / `condition weight engine` / `position sizing adjustment` 5 lesson 타입 (recentReflections / conditionLessons / biasHeatmap / counterfactualLessons / gateAttributionLessons) 에 `applyFreshnessDecay` 호출 wiring + `LEARNING_FRESHNESS_GUARD_ENABLED=true` 명시 활성화. SLA 만기 2026-06-17. |
 
 ### B. 매매 본체 / 사이징
 
@@ -69,6 +71,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | B8 | 0161~0165 PositionSizingEngine | `server/trading/sizing/positionSizingEngine.ts` | 2026-05-02 | PARTIAL | P2 | **Phase1+2D+Extension+Drawdown+LIVE Activation wiring 완료** (ADR-0161~0165) — P0 SLA 충족 (2026-05-23 만기 21일 전 LIVE Activation 완료). 4 진입 경로 + peakEquity 영속 (SHADOW/LIVE 분리) + drawdown 자동 차단 + LIVE 활성화 ENV `POSITION_SIZING_ENGINE_LIVE_ENABLED=true` (default OFF). **잔여 2 PR (P2)**: lossStreak 외부 학습 SSOT 결합 + universe/sectorWeight 결합. 운영자 활성화 절차 (ADR-0165 §3): SHADOW 1주 검증 → ENV 활성화 → 만족 시 운영 유지. |
 | B9 | 0166+0167+0169+0170 RegimeExposureBudget | `server/trading/sizing/regimeExposurePolicy.ts` | 2026-05-02 | PARTIAL | P2 | **Phase A+B+AccurateExposure+AddOnBuy+AutoMapping wiring 완료** (ADR-0166+0167+0169+0170) — 7 레짐 매트릭스 + 4 wiring + 정확 산출 SSOT + trancheExecutor 추매 진입점 (`isAddOnBuy=true`) + 매크로 신호 R1_DEFENSIVE 자동 격상 (`mapInternalToExposureRegimeWithMacro`, ENV `EXPOSURE_REGIME_AUTO_MAPPING_DISABLED=true` default OFF). audit-PR-520 §M1+§M2+§M4 수리 완료 (PR #525 + #527 + #528) — **§"Medium 4건" 모두 수리 완료**. **잔여 2 PR (P2)**: currentPriceMap 시가 평가 (KIS 호출) + UI 출력. 활성화 절차 (ADR-0166 §7 + ADR-0167 §7): SHADOW APPLY → EXPOSURE BUDGET → ACCURATE EXPOSURE → LIVE 4단계. |
 | B10 | 0172 SizingEngine marketCap 잔여 | `server/trading/signalScanner/perSymbol/buyListLoop.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | **PR-Sizing-Engine-Real-Data (2026-05-02, ADR-0172) 부분 완료** — `avgDailyVolume20d` + `currentSectorWeight` 2 axis 실데이터 wiring 완료 (`computeSizingLiquidityInputs` SSOT + 4 호출자 wiring). **잔여 1 axis (P2)**: `marketCap` Yahoo Finance chart API 미제공 → KIS 기업 정보 API (CTPF1002R) 결합 후 실값 전달 필요. 외부 의존성 — KIS quota 영향 평가 + ADR-0011 정책 검토 후 진행. SLA 미적용 (외부 의존성 면제 — ADR-0158 §"면제 정책"). |
+| B11 | 0173 §2 ShadowLearningOnlyScan | `server/trading/shadowLearningOnlyScan.ts` | 2026-05-03 | INFRASTRUCTURE_ONLY | P1 | **PR-Shadow-Learning-Persistence-Phase1 (2026-05-03, ADR-0173)** — 호출자 0건 dead code. Phase 2/3 wiring 후 활성화: signalScanner.ts 5 early-return (L300/313/326/359/396) 직전에 `if (isShadowLearningOnBlockedDaysEnabled()) await runShadowLearningOnlyScan({ allowRealOrder: false, bypassMacroEntryBlock: true, reason, scanDate }).catch(console.error);` wiring + reason 매핑 (R6_DEFENSE → R0_CRISIS / VIX_BLOCK → VIX_SPIKE / SELL_ONLY_REJECT 그대로 / FOMC_BLOCK 그대로 / DATA_DEGRADATION_BLOCK 별도 ENV gate) + Phase 3 LIVE 활성화 (`SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED=true`). LIVE 결합 — SHADOW 1주 검증 후 운영자 결정. SLA 만기 2026-06-17. |
 
 ### C. 시그널 입력 (Diag-2~5 의사결정 wiring)
 
@@ -118,12 +121,12 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 
 | 카테고리 | 항목 수 | P0 | P1 | P2 | P3 |
 |----------|---------|----|----|----|----|
-| A. 학습 시리즈 | 9 | 1 | 3 | 5 | 0 |
-| B. 매매 본체 | 10 | 1 | 3 | 6 | 0 |
+| A. 학습 시리즈 | 11 | 1 | 5 | 5 | 0 |
+| B. 매매 본체 | 11 | 1 | 4 | 6 | 0 |
 | C. 시그널 입력 | 15 | 1 | 3 | 7 | 4 |
 | D. UI Phase | 7 | 0 | 3 | 4 | 0 |
 | E. 영속/진단 | 7 | 0 | 0 | 4 | 3 |
-| **합계** | **48** | **3** | **12** | **26** | **7** |
+| **합계** | **51** | **3** | **15** | **26** | **7** |
 
 > 주: C7 (Phase 1) / C8 (Phase 2 audit) / C9 (Phase 3 globalIntel) + C15 (Naver 외인 추세) / **C10 (Phase 4 Yahoo 컨센서스) + #12 institutionalBuying (KRX 5d) PR-Phase5** 모두 *DECIDED_NOT_WIRING* 격상 완료. 27 조건 격상 시리즈 *데이터 가용 한계 도달 — 78% (21/27)*. 잔여 22% (5 키 — #9/#13/#17/#20/#26) 정성 영구 (ADR-0154). 정량 격상 후속 0건. 운영자 집중 영역 = Gemini 프롬프트 품질 + AI 추정 가중치 학습.
 
@@ -156,3 +159,4 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 2026-05-01 | PR-Phase4-Closeout | ADR-0154 발행 — Phase 4 BLOCKED 영구 정책 + 정성 4 항목 영구 DECIDED_NOT_WIRING + #12 옵션 C 권장 + driftGuard 시간 의존 결함 차단. C10 + C11~C14 정책 SSOT 명문화. 진행 통계 무변경 (정책 ADR 만). 27 조건 격상 시리즈 마무리. |
 | 2026-05-01 | PR-Phase5 | ADR-0155 + ADR-0156 + ADR-0157 발행 — #12 KRX 5d 기관 (옵션 C) + Phase 4 Yahoo 컨센서스 (옵션 A 변형) + driftGuard 근본 해결 (`now?: Date` 옵셔널). C10 → DECIDED_NOT_WIRING. 27 조건 격상 **67% → 78% (3 키 격상, 18 → 21 개)** — 데이터 가용 한계 도달. 잔여 22% 정성 영구. driftGuard baseline 1 fail 영구 차단. |
 | 2026-05-02 | PR-Governance-3-SLA | ADR-0158 발행 — Wiring SLA 자동 만료 정책 SSOT (P0=21일 / P1=45일 / P2=120일 / P3=무기한 + grace 14일 + 면제 정책 + ENV 우회 2종). 7번째 컬럼 *등재일* 추가 + 47 baseline 항목 일괄 부여. `check_pending_wiring.js` 카테고리 H 추가 (H1 SLA 초과 WARN / H2 grace 초과 FAIL / H3 등재일 형식 / H4 BLOCKED 면제). PR 템플릿 강제 필드 추가 — INFRASTRUCTURE_ONLY 등재 시 wiring 약속 PR 또는 SLA 만기일 둘 중 하나 명시 의무. 카테고리 카운트 동일 (5 카테고리 42 항목). |
+| 2026-05-03 | PR-Shadow-Learning-Persistence-Phase1 | A10 + B11 + A11 신규 3 항목 등재 — ADR-0173 §1 MissedLearningQueue (A10 P1) + §2 ShadowLearningOnlyScan (B11 P1) + §5 LearningFreshnessGuard (A11 P1) 모두 INFRASTRUCTURE_ONLY (호출자 0건 dead code) + SLA 만기 2026-06-17. 4 Phase 시리즈 (Phase 1 인프라 / Phase 2 분석 / Phase 3 wiring + LIVE / Phase 4 UI). 합계 48→51 / A 9→11 / B 10→11 / P1 12→15. |
