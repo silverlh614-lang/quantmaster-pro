@@ -10,6 +10,13 @@
  * 는 barrel 로 유지되며 본 파일은 그 barrel 의 단일 진입 export 만 담당한다.
  */
 
+import { runPreflight } from './preflight.js';
+import { selectCandidates } from './candidateSelect.js';
+import { evaluateMainCandidates, evaluateIntradayCandidates } from './perSymbolEvaluation.js';
+import { createApprovalQueueState, flushApprovalQueue } from './approvalQueue.js';
+import { dispatchApprovedBuy } from './orderDispatch.js';
+import { createScanCounters, persistScanResults } from './scanDiagnostics.js';
+
 export interface RunAutoSignalScanOptions {
   sellOnly?: boolean;
   forceBuyCodes?: string[];
@@ -24,9 +31,44 @@ export interface RunAutoSignalScanResult {
  * 기존 `server/trading/signalScanner.ts` 의 동일 export 가 활성 경로다.
  */
 export async function runAutoSignalScan(
-  _options?: RunAutoSignalScanOptions,
+  options?: RunAutoSignalScanOptions,
 ): Promise<RunAutoSignalScanResult> {
-  throw new Error(
-    'TODO: migrate from signalScanner.ts (ADR-0001 Phase 3 — index orchestrator)',
-  );
+  const counters = createScanCounters();
+
+  // 1. Preflight (거시/시스템 환경 평가 및 게이팅)
+  const preflightResult = await runPreflight(options);
+  if (preflightResult.shouldAbort) {
+    if (!preflightResult.skipPersist) {
+      await persistScanResults(counters, {
+        sellOnly: options?.sellOnly,
+        ...preflightResult.diagnosticData
+      });
+    }
+    return { positionFull: preflightResult.positionFull };
+  }
+
+  // 2. Candidate Select (관심종목 3섹션 및 Intraday 후보군 선정)
+  const candidates = await selectCandidates(preflightResult.context, options);
+
+  // 3. Per-Symbol Evaluation (매수 조건 검증, 큐/포지션/가용현금 상태관리 공유)
+  const queueState = createApprovalQueueState(preflightResult.context.orderableCash);
+  await evaluateMainCandidates(candidates, preflightResult.context, counters, queueState);
+
+  // 4. Approval Queue (승인 일괄 처리 및 실패한 가용 현금 롤백)
+  const approvedTasks = await flushApprovalQueue(queueState);
+
+  // 4.5. Intraday Evaluation (장중 스캔은 환불된 현금을 반영한 후 평가)
+  await evaluateIntradayCandidates(candidates, preflightResult.context, counters, queueState, options);
+
+  // 5. Order Dispatch (실 KIS 주문 발송 및 알림)
+  await dispatchApprovedBuy(approvedTasks, preflightResult.context);
+
+  // 6. Diagnostics (스캔 이력, 차단 사유 통계 및 영속화)
+  await persistScanResults(counters, {
+    sellOnly: options?.sellOnly,
+    ...candidates.lengths,
+    macroGateState: preflightResult.macroGateState
+  });
+
+  return { positionFull: false };
 }

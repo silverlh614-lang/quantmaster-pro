@@ -235,10 +235,12 @@ npm run dev
 
 ## 최근 업데이트
 
-**2026-04-20 ~ 2026-05-01** — 100+ ADR (0028~0145) 누적 격상
+**2026-04-20 ~ 2026-05-03** — 100+ ADR (0028~0147) 누적 격상
 
 ### 자동매매 안전 게이트
 - FOMC DAY 자동 전량 청산 (ADR-0061) + FOMC vs Regime Kelly 결합 SSOT (ADR-0076)
+- R3 Sanity Block 텔레그램 운영자 제어 명령 (`/sanity`) 도입 (ADR-0146)
+- signalScanner 오케스트레이션 6단계 마이그레이션 적용 (ADR-0147)
 - Sanity Trade-Block Gate — extensionPct 위반 시 즉시 DATA_HOLD WAIT (ADR-0117)
 - Data Verification Timing + DATA_HOLD State Machine 3 역할 분리 (ADR-0128)
 - Holiday Resume Policy + Holiday Enter Alert (ADR-0044, ADR-0132)
@@ -291,7 +293,7 @@ npm run dev
 - webhookHandler 1858 → 155 LoC 분해 — 8 카테고리 51 cmd (ADR-0017 Stage 1+2+3)
 
 ### 진단 명령 (Telegram /)
-`/scan_blockers /signal_status /fss_status /fss_detail /fss_mapping /program_today /program_market /margin_balance /foreigner_trend /data_verification_review /sh /walk_forward /shadow_walk_forward /condition_lifecycle /learning_loop_health /coherence_audit /channel_test /scan_offhours /scan_indices /force_watch_scan /refresh_sector_map /rejected /twins /shadow_attribution /llh /now /watch /positions /learning /control /admin` 등 30+ 운영자 진단 명령
+`/scan_blockers /sanity /signal_status /fss_status /fss_detail /fss_mapping /program_today /program_market /margin_balance /foreigner_trend /data_verification_review /sh /walk_forward /shadow_walk_forward /condition_lifecycle /learning_loop_health /coherence_audit /channel_test /scan_offhours /scan_indices /force_watch_scan /refresh_sector_map /rejected /twins /shadow_attribution /llh /now /watch /positions /learning /control /admin` 등 30+ 운영자 진단 명령
 
 **2026-04-19** (이전)
 - StickyMiniHeader: `lastUpdated` 파싱 불가능한 값 시 "Invalid Date" 노출 차단 → `--:--` 대체
@@ -327,6 +329,6 @@ npm run dev
 
 **"판단의 틀은 기관급, 판단의 재료는 지속적으로 고도화 중"**
 
-*v14 · 2026.05.01 · ADR 0001~0145 누적 145건*
+*v16 · 2026.05.03 · ADR 0001~0147 누적 147건*
 
 </div>
