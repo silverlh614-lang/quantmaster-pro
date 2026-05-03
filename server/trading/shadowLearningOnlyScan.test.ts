@@ -1,0 +1,382 @@
+/**
+ * @responsibility ADR-0173 §2 ShadowLearningOnlyScan 회귀 — invariant + ENV + 8 reason + 호출자 0건 가드
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
+// PERSIST_DATA_DIR 격리
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'slo-test-'));
+process.env.PERSIST_DATA_DIR = tmpDir;
+
+const ENV_KEY = 'SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED';
+
+let mod: typeof import('./shadowLearningOnlyScan.js');
+let repo: typeof import('../persistence/shadowLearningOnlySignalRepo.js');
+
+beforeEach(async () => {
+  delete process.env[ENV_KEY];
+  vi.resetModules();
+  mod = await import('./shadowLearningOnlyScan.js');
+  repo = await import('../persistence/shadowLearningOnlySignalRepo.js');
+  repo.__resetShadowLearningOnlySignalsForTests();
+});
+
+afterEach(() => {
+  delete process.env[ENV_KEY];
+  try {
+    fs.readdirSync(tmpDir).forEach((f) => {
+      try {
+        fs.unlinkSync(path.join(tmpDir, f));
+      } catch {
+        /* ignore */
+      }
+    });
+  } catch {
+    /* ignore */
+  }
+});
+
+// ─── ENV 분기 ────────────────────────────────────────────────────────────────
+
+describe('ENV 분기 (default OFF)', () => {
+  it('ENV 미설정 → skipped: ENV_DISABLED', async () => {
+    delete process.env[ENV_KEY];
+    const result = await mod.runShadowLearningOnlyScan({
+      allowRealOrder: false,
+      bypassMacroEntryBlock: true,
+      reason: 'FOMC_BLOCK',
+      scanDate: '2026-05-04',
+    });
+    expect(result).toEqual({ skipped: true, reason: 'ENV_DISABLED' });
+  });
+
+  it("ENV='true' → 활성 (skipped:false)", async () => {
+    process.env[ENV_KEY] = 'true';
+    const result = await mod.runShadowLearningOnlyScan({
+      allowRealOrder: false,
+      bypassMacroEntryBlock: true,
+      reason: 'FOMC_BLOCK',
+      scanDate: '2026-05-04',
+    });
+    expect(result.skipped).toBe(false);
+  });
+
+  it("ENV='false' → skipped: ENV_DISABLED", async () => {
+    process.env[ENV_KEY] = 'false';
+    const result = await mod.runShadowLearningOnlyScan({
+      allowRealOrder: false,
+      bypassMacroEntryBlock: true,
+      reason: 'FOMC_BLOCK',
+      scanDate: '2026-05-04',
+    });
+    expect(result).toEqual({ skipped: true, reason: 'ENV_DISABLED' });
+  });
+
+  it("ENV 임의 truthy ('1' / 'TRUE' / 'yes') → 모두 skipped (정확 비교)", async () => {
+    for (const v of ['1', 'TRUE', 'yes']) {
+      process.env[ENV_KEY] = v;
+      const result = await mod.runShadowLearningOnlyScan({
+        allowRealOrder: false,
+        bypassMacroEntryBlock: true,
+        reason: 'FOMC_BLOCK',
+        scanDate: '2026-05-04',
+      });
+      expect(result).toEqual({ skipped: true, reason: 'ENV_DISABLED' });
+    }
+  });
+});
+
+// ─── 안전 invariant — allowRealOrder ─────────────────────────────────────────
+
+describe('안전 invariant — allowRealOrder', () => {
+  it('allowRealOrder=true throw (literal type 우회 차단)', async () => {
+    process.env[ENV_KEY] = 'true';
+    await expect(
+      mod.runShadowLearningOnlyScan({
+        // literal type 우회 — runtime throw 강제 검증
+        allowRealOrder: true as unknown as false,
+        bypassMacroEntryBlock: true,
+        reason: 'FOMC_BLOCK',
+        scanDate: '2026-05-04',
+      }),
+    ).rejects.toThrow(/allowRealOrder=false invariant violated/);
+  });
+
+  it('allowRealOrder=undefined throw (호출자 의도 명시 강제)', async () => {
+    process.env[ENV_KEY] = 'true';
+    await expect(
+      mod.runShadowLearningOnlyScan({
+        // undefined — runtime throw
+        allowRealOrder: undefined as unknown as false,
+        bypassMacroEntryBlock: true,
+        reason: 'FOMC_BLOCK',
+        scanDate: '2026-05-04',
+      }),
+    ).rejects.toThrow(/allowRealOrder=false invariant violated/);
+  });
+
+  it('allowRealOrder=false + ENV ON → 정상 진행', async () => {
+    process.env[ENV_KEY] = 'true';
+    const result = await mod.runShadowLearningOnlyScan({
+      allowRealOrder: false,
+      bypassMacroEntryBlock: true,
+      reason: 'FOMC_BLOCK',
+      scanDate: '2026-05-04',
+    });
+    expect(result.skipped).toBe(false);
+  });
+
+  it('allowRealOrder invariant 가 ENV OFF 보다 먼저 검증 (literal type 우회 시도가 ENV gate 보다 우선 차단)', async () => {
+    delete process.env[ENV_KEY];
+    await expect(
+      mod.runShadowLearningOnlyScan({
+        allowRealOrder: true as unknown as false,
+        bypassMacroEntryBlock: true,
+        reason: 'FOMC_BLOCK',
+        scanDate: '2026-05-04',
+      }),
+    ).rejects.toThrow(/allowRealOrder=false invariant violated/);
+  });
+});
+
+// ─── bypassMacroEntryBlock 검증 ──────────────────────────────────────────────
+
+describe('bypassMacroEntryBlock 검증', () => {
+  it('boolean 미전달 → throw (호출자 의도 명시 강제)', async () => {
+    process.env[ENV_KEY] = 'true';
+    await expect(
+      mod.runShadowLearningOnlyScan({
+        allowRealOrder: false,
+        bypassMacroEntryBlock: undefined as unknown as boolean,
+        reason: 'FOMC_BLOCK',
+        scanDate: '2026-05-04',
+      }),
+    ).rejects.toThrow(/bypassMacroEntryBlock 은 boolean 의무/);
+  });
+
+  it('bypassMacroEntryBlock=false → 정상 진행', async () => {
+    process.env[ENV_KEY] = 'true';
+    const result = await mod.runShadowLearningOnlyScan({
+      allowRealOrder: false,
+      bypassMacroEntryBlock: false,
+      reason: 'FOMC_BLOCK',
+      scanDate: '2026-05-04',
+    });
+    expect(result.skipped).toBe(false);
+  });
+});
+
+// ─── 8 reason union 분기 ─────────────────────────────────────────────────────
+
+describe('8 ShadowLearningOnlyScanReason union', () => {
+  const reasons = [
+    'FOMC_BLOCK',
+    'VIX_SPIKE',
+    'RISK_OFF_REGIME',
+    'R0_CRISIS',
+    'R1_DEFENSIVE',
+    'KRX_HOLIDAY_REPLAY',
+    'LIQUIDITY_BLOCK',
+    'MANUAL_BLOCK',
+  ] as const;
+  for (const reason of reasons) {
+    it(`reason='${reason}' → 정상 진행 + result.reason 정합`, async () => {
+      process.env[ENV_KEY] = 'true';
+      const result = await mod.runShadowLearningOnlyScan({
+        allowRealOrder: false,
+        bypassMacroEntryBlock: true,
+        reason,
+        scanDate: '2026-05-04',
+      });
+      expect(result.skipped).toBe(false);
+      if (!result.skipped) {
+        expect(result.reason).toBe(reason);
+      }
+    });
+  }
+});
+
+// ─── ENV ON + 정상 입력 — Phase 1 dead code 빈 결과 검증 ─────────────────────
+
+describe('Phase 1 dead code — 빈 결과 반환', () => {
+  it('ENV ON + 정상 입력 → candidates=0, wouldBuyCount=0, signalsRecorded=0', async () => {
+    process.env[ENV_KEY] = 'true';
+    const result = await mod.runShadowLearningOnlyScan({
+      allowRealOrder: false,
+      bypassMacroEntryBlock: true,
+      reason: 'FOMC_BLOCK',
+      scanDate: '2026-05-04',
+    });
+    expect(result.skipped).toBe(false);
+    if (!result.skipped) {
+      expect(result.candidates).toBe(0);
+      expect(result.wouldBuyCount).toBe(0);
+      expect(result.signalsRecorded).toBe(0);
+    }
+  });
+});
+
+// ─── 영속 round-trip (signal repo) ──────────────────────────────────────────
+
+describe('shadowLearningOnlySignalRepo — round-trip', () => {
+  it('appendShadowLearningOnlySignal + load → 동일', () => {
+    const signal = {
+      symbol: '005930',
+      signalDate: '2026-05-04',
+      blockedReason: 'FOMC_BLOCK' as const,
+      wouldHaveBought: true,
+      hypotheticalEntryPrice: 75000,
+      hypotheticalStopLoss: 71000,
+      hypotheticalTargetPrice: 82000,
+      signalGrade: 'STRONG_BUY' as const,
+      gateScore: 22,
+      regime: 'R3_EARLY',
+      macroBlockReason: 'FOMC DAY phase',
+      dataQualityStatus: 'OK' as const,
+    };
+    repo.appendShadowLearningOnlySignal(signal);
+    const all = repo.loadShadowLearningOnlySignals();
+    expect(all).toHaveLength(1);
+    expect(all[0]!.symbol).toBe('005930');
+    expect(all[0]!.blockedReason).toBe('FOMC_BLOCK');
+  });
+});
+
+// ─── 정적 grep 가드 — KIS 주문 import 0건 (절대 규칙 #2) ─────────────────────
+
+/** 주석 제거 헬퍼 — block comment + line comment strip 후 코드 영역만 검사. */
+function stripComments(src: string): string {
+  // /* ... */ block comment 제거
+  let out = src.replace(/\/\*[\s\S]*?\*\//g, '');
+  // // ... line comment 제거
+  out = out.replace(/(^|[^:])\/\/.*$/gm, '$1');
+  return out;
+}
+
+describe('KIS 주문 함수 import 정적 grep 가드', () => {
+  it('shadowLearningOnlyScan.ts 본체에 KIS 주문 함수 import 0건 (주석 제외)', () => {
+    const src = fs.readFileSync(
+      path.resolve(__dirname, 'shadowLearningOnlyScan.ts'),
+      'utf-8',
+    );
+    const code = stripComments(src);
+    expect(code).not.toMatch(/placeKisMarketOrder/);
+    expect(code).not.toMatch(/placeKisSellOrder/);
+    expect(code).not.toMatch(/cancelKisOrder/);
+    expect(code).not.toMatch(/placeKisStopLossOrder/);
+    expect(code).not.toMatch(/placeKisTakeProfitOrder/);
+    // kisClient 자체 import 도 금지 (raw 함수 호출 위험)
+    expect(code).not.toMatch(/from ['"][^'"]*kisClient/);
+    expect(code).not.toMatch(/from ['"][^'"]*tranchesRouter/);
+  });
+
+  it('signalRepo 본체에 KIS 주문 함수 import 0건', () => {
+    const src = fs.readFileSync(
+      path.resolve(__dirname, '../persistence/shadowLearningOnlySignalRepo.ts'),
+      'utf-8',
+    );
+    const code = stripComments(src);
+    expect(code).not.toMatch(/placeKisMarketOrder/);
+    expect(code).not.toMatch(/placeKisSellOrder/);
+    expect(code).not.toMatch(/from ['"][^'"]*kisClient/);
+  });
+});
+
+// ─── runAutoSignalScan 직접 호출 grep 가드 (무한 루프 차단) ──────────────────
+
+describe('runAutoSignalScan 호출 정적 grep 가드 (무한 루프 차단)', () => {
+  it('shadowLearningOnlyScan.ts 본체에 runAutoSignalScan 호출 0건 (주석 제외)', () => {
+    const src = fs.readFileSync(
+      path.resolve(__dirname, 'shadowLearningOnlyScan.ts'),
+      'utf-8',
+    );
+    const code = stripComments(src);
+    expect(code).not.toMatch(/runAutoSignalScan/);
+  });
+});
+
+// ─── 호출자 0건 정적 grep 가드 (Phase 1 dead code 보장) ─────────────────────
+
+describe('호출자 0건 (Phase 1 dead code)', () => {
+  function readSrcSafely(absPath: string): string | null {
+    try {
+      return fs.readFileSync(absPath, 'utf-8');
+    } catch {
+      return null;
+    }
+  }
+
+  function rejectsImports(src: string | null, importBase: string): boolean {
+    if (src === null) return true; // 파일 부재 = 호출자 0건 자연 만족
+    // 파일 안에 본 모듈 import 가 0건이어야 함.
+    const re = new RegExp(`from ['"][^'"]*${importBase}`);
+    return !re.test(src);
+  }
+
+  it('signalScanner.ts 본체에 runShadowLearningOnlyScan 호출 0건', () => {
+    const src = readSrcSafely(
+      path.resolve(__dirname, 'signalScanner.ts'),
+    );
+    expect(src).not.toBeNull();
+    if (src !== null) {
+      expect(src).not.toMatch(/runShadowLearningOnlyScan/);
+      expect(rejectsImports(src, 'shadowLearningOnlyScan')).toBe(true);
+    }
+  });
+
+  it('entryEngine.ts 본체에 runShadowLearningOnlyScan 호출 0건', () => {
+    const src = readSrcSafely(
+      path.resolve(__dirname, 'entryEngine.ts'),
+    );
+    if (src !== null) {
+      expect(src).not.toMatch(/runShadowLearningOnlyScan/);
+      expect(rejectsImports(src, 'shadowLearningOnlyScan')).toBe(true);
+    }
+  });
+
+  it('signalScanner/perSymbol/buyListLoop.ts 본체에 runShadowLearningOnlyScan 호출 0건', () => {
+    const src = readSrcSafely(
+      path.resolve(__dirname, 'signalScanner/perSymbol/buyListLoop.ts'),
+    );
+    if (src !== null) {
+      expect(src).not.toMatch(/runShadowLearningOnlyScan/);
+      expect(rejectsImports(src, 'shadowLearningOnlyScan')).toBe(true);
+    }
+  });
+
+  it('signalScanner/perSymbol/intradayLoop.ts 본체에 runShadowLearningOnlyScan 호출 0건', () => {
+    const src = readSrcSafely(
+      path.resolve(__dirname, 'signalScanner/perSymbol/intradayLoop.ts'),
+    );
+    if (src !== null) {
+      expect(src).not.toMatch(/runShadowLearningOnlyScan/);
+      expect(rejectsImports(src, 'shadowLearningOnlyScan')).toBe(true);
+    }
+  });
+
+  it('exitEngine 디렉토리 어느 파일도 호출 0건', () => {
+    const exitDir = path.resolve(__dirname, 'exitEngine');
+    if (!fs.existsSync(exitDir)) return;
+    const collect = (dir: string): string[] => {
+      const out: string[] = [];
+      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, ent.name);
+        if (ent.isDirectory()) out.push(...collect(full));
+        else if (ent.isFile() && ent.name.endsWith('.ts') && !ent.name.endsWith('.test.ts')) {
+          out.push(full);
+        }
+      }
+      return out;
+    };
+    const files = collect(exitDir);
+    for (const f of files) {
+      const src = fs.readFileSync(f, 'utf-8');
+      expect(src, `exitEngine/${path.relative(exitDir, f)} 가 runShadowLearningOnlyScan 을 호출`).not.toMatch(
+        /runShadowLearningOnlyScan/,
+      );
+    }
+  });
+});
