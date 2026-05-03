@@ -343,6 +343,22 @@ export const KIS_TOKEN_FILE = path.join(DATA_DIR, 'kis-tokens.json');
  */
 export const PEAK_EQUITY_FILE = path.join(DATA_DIR, 'peak-equity.json');
 
+/**
+ * ADR-0173 §1 — MissedLearningQueue 영속 SSOT.
+ * 휴일·서버 장애·배포·API 실패 시 스킵된 학습 작업을 다음 영업일에 안전하게
+ * 복구하는 큐. atomic write tmp→rename + FIFO 1000 trim + 손상 JSON 빈 배열 fallback.
+ * KIS 주문 함수 import 절대 금지 — 학습 복구 전용 (정적 grep 가드).
+ */
+export const MISSED_LEARNING_QUEUE_FILE = path.join(DATA_DIR, 'missed-learning-queue.json');
+
+/**
+ * ADR-0173 §2 — ShadowLearningOnlyScan 신호 영속 SSOT.
+ * 매매 금지일 (FOMC/VIX/R0/R1/Liquidity/Manual/KRX_HOLIDAY_REPLAY) 에 생성한
+ * 가상 매수 판단 샘플 (15+ 필드) 영속. atomic write + FIFO 5000 trim.
+ * 1/3/5/20일 후 future return resolve 결과 (Phase 2 cron) 가 동일 entry 에 갱신.
+ */
+export const SHADOW_LEARNING_ONLY_SIGNAL_FILE = path.join(DATA_DIR, 'shadow-learning-only-signals.json');
+
 export function ensureReflectionsDir(): void {
   ensureDataDir();
   if (!fs.existsSync(REFLECTIONS_DIR)) fs.mkdirSync(REFLECTIONS_DIR, { recursive: true });
