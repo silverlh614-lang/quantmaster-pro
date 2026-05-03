@@ -498,16 +498,21 @@ describe('정적 grep 가드 — 안전 invariant', () => {
       .trim()
       .split('\n')
       .filter((l) => l.length > 0);
-    // 정확히 3개 — 모듈 본체 + 본 테스트 + cron 등록 (learningJobs.ts)
-    const expected = new Set([
+    // 화이트리스트 — 모듈 본체 + 본 테스트 + cron 등록 (learningJobs.ts) + ADR-0176 mock (missedLearningReplay.test.ts)
+    // missedLearningReplay.test.ts 는 registerLearningJobs() 호출 시 다른 학습 함수 본체가 실제 실행되지
+    // 않도록 vi.mock 으로 격리한 결과 식별자 등장 — 정상 회귀 가드.
+    const allowed = new Set([
       'server/learning/futureReturnResolver.ts',
       'server/learning/futureReturnResolver.test.ts',
       'server/scheduler/learningJobs.ts',
+      'server/scheduler/missedLearningReplay.test.ts',
     ]);
-    expect(files.length).toBe(3);
     for (const f of files) {
-      expect(expected.has(f)).toBe(true);
+      expect(allowed.has(f), `예상치 못한 호출자: ${f}`).toBe(true);
     }
+    // 최소 — 모듈 본체 + cron 등록 포함
+    expect(files).toContain('server/learning/futureReturnResolver.ts');
+    expect(files).toContain('server/scheduler/learningJobs.ts');
   });
 });
 

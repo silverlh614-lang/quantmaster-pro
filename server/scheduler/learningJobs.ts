@@ -23,6 +23,10 @@ import {
   resolveFutureReturns,
   isFutureReturnResolverEnabled,
 } from '../learning/futureReturnResolver.js';
+import {
+  isMissedLearningQueueEnabled,
+  replayMissedLearningJobs,
+} from '../learning/missedLearningQueue.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { scheduledJob } from './scheduleGuard.js';
 
@@ -43,10 +47,11 @@ export function registerLearningJobs(): void {
 
   // 일일 미니 백테스트 — 평일 KST 00:30 (UTC 15:30). < 30초 실행.
   // PR-B: TRADING_DAY_ONLY — KRX 공휴일이 월요일이면 차단.
+  // ADR-0176 — TRADING_DAY_ONLY silent skip 시 MissedLearningQueue enqueue (ENV gate).
   scheduledJob('30 15 * * 0-4', 'TRADING_DAY_ONLY', 'daily_mini_backtest', async () => {
     console.log('[Scheduler] 일일 미니 백테스트 시작 (00:30 KST)');
     await runWeeklyMiniBacktest();
-  }, { timezone: 'UTC' });
+  }, { timezone: 'UTC', enqueueOnSkip: {} });
 
   // 주중 Sharpe 급락 조기 경보 — 매주 수요일 16:30 KST (UTC 07:30).
   // PR-B: TRADING_DAY_ONLY — 수요일이 KRX 공휴일(예: 광복절 8/15가 수요일에 떨어진 해)이면 차단.
@@ -63,17 +68,19 @@ export function registerLearningJobs(): void {
 
   // Nightly Reflection Engine — 평일 KST 19:00 (UTC 월~금 10:00).
   // PR-A: cron 1-5 가드 + 진입부 isKstWeekend/isKrxHoliday 가드 + PR-B: TRADING_DAY_ONLY 일관성.
+  // ADR-0176 — TRADING_DAY_ONLY silent skip 시 MissedLearningQueue enqueue (ENV gate).
   scheduledJob('0 10 * * 1-5', 'TRADING_DAY_ONLY', 'nightly_reflection', async () => {
     const res = await runNightlyReflection();
     console.log(`[NightlyReflection] ${res.date} mode=${res.mode} executed=${res.executed}${res.skipped ? ` skipped=${res.skipped}` : ''}`);
-  }, { timezone: 'UTC' });
+  }, { timezone: 'UTC', enqueueOnSkip: {} });
 
   // Ghost Portfolio 갱신 — 평일 KST 15:40 (UTC 06:40). 장마감 직후 current price 로 수익률 갱신.
   // PR-B: TRADING_DAY_ONLY — KRX 공휴일에 ghost portfolio 갱신해도 KIS 호출만 낭비.
+  // ADR-0176 — TRADING_DAY_ONLY silent skip 시 MissedLearningQueue enqueue (ENV gate).
   scheduledJob('40 6 * * 1-5', 'TRADING_DAY_ONLY', 'ghost_portfolio', async () => {
     const res = await refreshGhostPortfolio();
     console.log(`[GhostPortfolio] updated=${res.updated} closed=${res.closed} skipped=${res.skipped}`);
-  }, { timezone: 'UTC' });
+  }, { timezone: 'UTC', enqueueOnSkip: {} });
 
   // Silent Knowledge Distillation — 매주 일요일 KST 18:00 (UTC 09:00).
   // PR-B: WEEKEND_MAINTENANCE — 평일 실행되지 않도록 보호.
@@ -92,6 +99,7 @@ export function registerLearningJobs(): void {
 
   // Counterfactual Shadow resolve — 평일 KST 16:00 (UTC 07:00).
   // PR-B: TRADING_DAY_ONLY — 30/60/90 거래일 경과 후보의 현재가 채움. KRX 공휴일에 KIS 호출 의미 없음.
+  // ADR-0176 — TRADING_DAY_ONLY silent skip 시 MissedLearningQueue enqueue (ENV gate).
   scheduledJob('0 7 * * 1-5', 'TRADING_DAY_ONLY', 'counterfactual_resolve', async () => {
     try {
       const res = await resolveCounterfactuals((code) => fetchCurrentPrice(code).catch(() => null));
@@ -101,10 +109,11 @@ export function registerLearningJobs(): void {
     }
     // PR-22 / ADR-0007 — resolve 직후 하이브리드 suggest 평가. 실패는 전체 cron 을 깨뜨리지 않음.
     await evaluateCounterfactualSuggestion().catch((e) => console.warn('[Counterfactual][suggest] 평가 실패:', e));
-  }, { timezone: 'UTC' });
+  }, { timezone: 'UTC', enqueueOnSkip: {} });
 
   // Parallel Universe Ledger resolve — 평일 KST 16:15 (UTC 07:15).
   // PR-B: TRADING_DAY_ONLY — OPEN 엔트리의 TP/SL/EXPIRED 판정. KRX 공휴일에 가격 조회 무의미.
+  // ADR-0176 — TRADING_DAY_ONLY silent skip 시 MissedLearningQueue enqueue (ENV gate).
   scheduledJob('15 7 * * 1-5', 'TRADING_DAY_ONLY', 'ledger_resolve', async () => {
     try {
       const res = await resolveLedger((code) => fetchCurrentPrice(code).catch(() => null));
@@ -116,7 +125,7 @@ export function registerLearningJobs(): void {
     await evaluateLedgerSuggestion().catch((e) => console.warn('[Ledger][suggest] 평가 실패:', e));
     await evaluateKellySurfaceSuggestion({}).catch((e) => console.warn('[KellySurface][suggest] 평가 실패:', e));
     await evaluateRegimeCoverageSuggestion().catch((e) => console.warn('[RegimeCoverage][suggest] 평가 실패:', e));
-  }, { timezone: 'UTC' });
+  }, { timezone: 'UTC', enqueueOnSkip: {} });
 
   // Future Return Resolver — 평일 KST 16:30 (UTC 07:30). KRX 장 마감 30분 후.
   // ADR-0175 (Phase 2b-1): ShadowLearningOnlySignal 영속의 1/3/5/20일 후 future return
@@ -130,6 +139,24 @@ export function registerLearningJobs(): void {
     const result = await resolveFutureReturns();
     console.log(
       `[FutureReturnResolver] resolved=${result.resolvedCount}/${result.totalSignals} outcomes=${result.outcomesUpdated} errors=${result.errors} (${result.durationMs}ms)`,
+    );
+  }, { timezone: 'UTC' });
+
+  // MissedLearningQueue replay — 평일 KST 09:30 (UTC 00:30). KRX 장 시작 30분 전 안전 시간대.
+  // ADR-0176 (Phase 2b-2): KRX 휴장일·서버 장애로 silent skip 된 5 학습 cron 의 작업을
+  //   다음 영업일 시점에 자동 복구 시도. enqueue 본체는 scheduleGuard hook (옵셔널 + ENV gate) 가
+  //   처리하고, 본 cron 은 *복구 사이클* 의 단일 호출자.
+  // ENV `MISSED_LEARNING_QUEUE_ENABLED=true` default OFF — 운영자 명시 활성화 의무.
+  // ScheduleClass='TRADING_DAY_ONLY' (ADR-0045) — 휴장일 자체는 자동 silent skip
+  //   (다음 영업일 cron 호출 시 자연 복구 시도).
+  // 호출자 1건 — replayMissedLearningJobs 는 본 cron + 모듈/테스트 외 호출 0건 (정적 grep 가드).
+  // mock dispatcher (ADR-0173 §1) — jobName → 실제 함수 매핑은 후속 PR scope.
+  scheduledJob('30 0 * * 1-5', 'TRADING_DAY_ONLY', 'missed_learning_replay', async () => {
+    if (!isMissedLearningQueueEnabled()) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const result = await replayMissedLearningJobs({ tradingDate: today, maxJobsPerRun: 10 });
+    console.log(
+      `[MissedLearningReplay] replayed=${result.replayed} failed=${result.failed} dropped=${result.dropped}`,
     );
   }, { timezone: 'UTC' });
 }
