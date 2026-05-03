@@ -7,9 +7,11 @@ import {
   fetchSafetyGateAttribution,
   fetchShadowVsLiveDelta,
   fetchMissedLearningQueueStats,
+  fetchRejectionShadowStats,
   type ClientGateAttributionResult,
   type ClientDeltaCategoryResult,
   type ClientMissedLearningQueueStats,
+  type ClientRejectionShadowSummary,
 } from './learningDashboardClient';
 
 const fetchMock = vi.fn();
@@ -156,6 +158,48 @@ describe('learningDashboardClient', () => {
       fetchMock.mockResolvedValueOnce(mockResponse(null, false, 500));
       await expect(fetchMissedLearningQueueStats()).rejects.toThrow(
         'missed-learning-queue-stats 500',
+      );
+    });
+  });
+
+  describe('fetchRejectionShadowStats (ADR-0180)', () => {
+    it('정상 응답 + URL — falseNegativeRate ≥ 0.3 (게이트 완화 후보)', async () => {
+      const fakeSummary: ClientRejectionShadowSummary = {
+        totalCount: 12,
+        closedCount: 8,
+        activeCount: 4,
+        avgClosedReturnPct: 3.5,
+        medianClosedReturnPct: 2.0,
+        falseNegativeRate: 0.375,
+        quartiles: { q1: -1.0, q2: 2.0, q3: 7.5 },
+        reliable: true,
+      };
+      fetchMock.mockResolvedValueOnce(mockResponse(fakeSummary));
+      const r = await fetchRejectionShadowStats();
+      expect(r).toEqual(fakeSummary);
+      expect(fetchMock).toHaveBeenCalledWith('/api/learning/rejection-shadow-stats');
+    });
+
+    it('빈 영속 응답 — closedCount=0 + reliable=false', async () => {
+      const fakeSummary: ClientRejectionShadowSummary = {
+        totalCount: 0,
+        closedCount: 0,
+        activeCount: 0,
+        avgClosedReturnPct: 0,
+        medianClosedReturnPct: 0,
+        falseNegativeRate: 0,
+        reliable: false,
+      };
+      fetchMock.mockResolvedValueOnce(mockResponse(fakeSummary));
+      const r = await fetchRejectionShadowStats();
+      expect(r.closedCount).toBe(0);
+      expect(r.reliable).toBe(false);
+    });
+
+    it('500 응답 — throw', async () => {
+      fetchMock.mockResolvedValueOnce(mockResponse(null, false, 500));
+      await expect(fetchRejectionShadowStats()).rejects.toThrow(
+        'rejection-shadow-stats 500',
       );
     });
   });

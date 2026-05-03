@@ -106,3 +106,24 @@ export async function fetchMissedLearningQueueStats(): Promise<ClientMissedLearn
   if (!r.ok) throw new Error(`missed-learning-queue-stats ${r.status}`);
   return (await r.json()) as ClientMissedLearningQueueStats;
 }
+
+// ── ClientRejectionShadowSummary (서버 RejectionShadowSummary 동기 사본, ADR-0180) ─────
+
+export interface ClientRejectionShadowSummary {
+  totalCount: number;
+  closedCount: number;
+  activeCount: number;
+  avgClosedReturnPct: number;
+  medianClosedReturnPct: number;
+  /** 종결된 entry 중 +5% 이상 비율 (0~1) — 거짓 부정율 */
+  falseNegativeRate: number;
+  quartiles?: { q1: number; q2: number; q3: number };
+  /** 표본 충분 여부 — false 시 falseNegativeRate 신뢰 ↓ */
+  reliable?: boolean;
+}
+
+export async function fetchRejectionShadowStats(): Promise<ClientRejectionShadowSummary> {
+  const r = await fetch(`${BASE_URL}/rejection-shadow-stats`);
+  if (!r.ok) throw new Error(`rejection-shadow-stats ${r.status}`);
+  return (await r.json()) as ClientRejectionShadowSummary;
+}

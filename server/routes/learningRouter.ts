@@ -42,6 +42,8 @@ import { computeSafetyGateAttribution } from '../learning/safetyGateAttribution.
 import { computeShadowVsLiveDelta } from '../learning/shadowVsLiveDelta.js';
 // ADR-0179 — Phase 4-B-2-a MissedLearningQueue stats endpoint
 import { loadMissedLearningQueue } from '../persistence/missedLearningQueueRepo.js';
+// ADR-0180 — Phase 4-B-2-b1 Rejection Shadow stats endpoint
+// (summarizeRejectionShadow 는 위 라인 31 에서 이미 import — entries 제외 summary 전용 endpoint)
 
 const router = Router();
 
@@ -335,6 +337,22 @@ router.get('/shadow-vs-live-delta', (req: Request, res: Response) => {
   } catch (e) {
     console.error('[learningRouter] /shadow-vs-live-delta 실패:', e);
     res.status(500).json({ error: 'shadow_vs_live_delta_failed' });
+  }
+});
+
+/**
+ * ADR-0180 §2.2 — Rejection Shadow stats endpoint (Phase 4-B-2-b1).
+ *
+ * 기존 `/api/learning/rejection-shadow` 와 분리 — entries 제외, summary 전용.
+ * UI 카드 부담 ↓ (entries[] limit 절삭 + 클라 계산 부재).
+ */
+router.get('/rejection-shadow-stats', (_req: Request, res: Response) => {
+  try {
+    const summary = summarizeRejectionShadow();
+    res.json(summary);
+  } catch (e) {
+    console.error('[learningRouter] /rejection-shadow-stats 실패:', e);
+    res.status(500).json({ error: 'rejection_shadow_stats_failed' });
   }
 });
 
