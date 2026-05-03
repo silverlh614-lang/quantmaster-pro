@@ -127,3 +127,45 @@ export async function fetchRejectionShadowStats(): Promise<ClientRejectionShadow
   if (!r.ok) throw new Error(`rejection-shadow-stats ${r.status}`);
   return (await r.json()) as ClientRejectionShadowSummary;
 }
+
+// ── ClientReflectionImpactSummary (서버 응답 schema 동기 사본, ADR-0181 / ADR-0084 endpoint 재사용) ─────
+
+export type ClientReflectionModuleStatus = 'normal' | 'grace' | 'silent' | 'deprecated';
+
+export interface ClientReflectionModuleReport {
+  module: string;
+  status: ClientReflectionModuleStatus;
+  impactRate: number;
+  runs: number;
+  meaningfulRuns: number;
+  firstSeenAt: string | null;
+  ageDays: number | null;
+}
+
+export interface ClientReflectionImpactSummary {
+  windowDays: number;
+  modules: ClientReflectionModuleReport[];
+  summary: {
+    total: number;
+    normal: number;
+    grace: number;
+    silent: number;
+    deprecated: number;
+  };
+}
+
+export interface ReflectionImpactFetchOptions {
+  /** 분석 윈도우 (일). 1~365, default 180 */
+  days?: number;
+}
+
+export async function fetchReflectionImpact(
+  opts?: ReflectionImpactFetchOptions,
+): Promise<ClientReflectionImpactSummary> {
+  const params: string[] = [];
+  if (opts?.days !== undefined) params.push(`days=${encodeURIComponent(opts.days)}`);
+  const qs = params.length > 0 ? `?${params.join('&')}` : '';
+  const r = await fetch(`${BASE_URL}/reflection-impact${qs}`);
+  if (!r.ok) throw new Error(`reflection-impact ${r.status}`);
+  return (await r.json()) as ClientReflectionImpactSummary;
+}
