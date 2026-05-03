@@ -23,6 +23,7 @@ beforeEach(async () => {
   repo = await import('../persistence/missedLearningQueueRepo.js');
   repo.__resetMissedLearningQueueForTests();
   q.__resetMissedLearningQueueCounterForTests();
+  q.__setMissedLearningReplayDispatcherForTests(async () => {});
 });
 
 afterEach(() => {
@@ -170,7 +171,7 @@ describe('replayMissedLearningJobs', () => {
     expect(all[0]!.status).toBe('PENDING');
   });
 
-  it('PENDING → REPLAYED 전이 (mock dispatcher 성공)', async () => {
+  it('PENDING → REPLAYED 전이 (injected dispatcher 성공)', async () => {
     process.env[ENV_KEY] = 'true';
     q.enqueueMissedLearningJob({
       jobName: 'nightly_reflection',

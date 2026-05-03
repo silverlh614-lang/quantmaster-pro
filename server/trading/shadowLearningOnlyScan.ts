@@ -1,27 +1,32 @@
 // @responsibility ADR-0173 §2 ShadowLearningOnlyScan — 매매 금지일 가상 매수 판단 학습 SSOT
 /**
- * shadowLearningOnlyScan.ts (ADR-0173 §2) — Phase 1 SSOT (호출자 0건 dead code).
+ * shadowLearningOnlyScan.ts (ADR-0173 §2) — blocked-day shadow learning SSOT.
  *
  * 매매 금지일 (FOMC/VIX/R0/R1/Liquidity/Manual/KRX_HOLIDAY_REPLAY/RISK_OFF_REGIME) 에도
  * **실제 주문 없이** Shadow 판단 샘플 생성 — 학습 채널 단절 차단.
  *
- * Phase 1 dead code:
- *   - 호출자 0건 (signalScanner / entryEngine / exitEngine 본체 무수정)
- *   - Phase 2 wiring 별도 PR (5 early-return 직전 + ENV 활성화)
- *   - Phase 3 LIVE 활성화 별도 PR + 별도 ENV
+ * Active MVP wiring:
+ *   - signalScanner blocked-day helper is the only production caller.
+ *   - entryEngine / exitEngine remain isolated.
+ *   - LIVE activation remains impossible here because allowRealOrder must be false.
  *
  * 안전 invariant 5종 (ADR-0173 §3, ARCHITECTURE.md):
  *   1. LIVE 매매 본체 0줄 변경
  *   2. KIS 주문 함수 import 0건 — `placeKisMarketOrder` / `placeKisSellOrder` 등 모두 정적 grep 가드
  *   3. `allowRealOrder=true` runtime throw + literal type 2중 강제
  *   4. ENV `SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED` default OFF (`=== 'true'` 정확 비교)
- *   5. 호출자 0건 Phase 1 dead code (정적 grep 가드)
+ *   5. blocked-day caller wiring only; no LIVE order dispatch.
  *
- * Phase 2 wiring 시 candidate 평가 / 데이터 sanity / 영속 저장 로직 추가 (TODO 주석 + Phase 2 안내).
- * 본 PR 은 invariant 검증 통과 시 *빈 결과* 반환 — 실제 candidate 평가 미구현.
+ * Candidate scoring is conservative MVP logic; richer scoring can replace it later.
+ * This module persists conservative shadow-only signals for blocked days.
  */
 
-import { appendShadowLearningOnlySignal } from '../persistence/shadowLearningOnlySignalRepo.js';
+import {
+  appendShadowLearningOnlySignal,
+  loadShadowLearningOnlySignals,
+} from '../persistence/shadowLearningOnlySignalRepo.js';
+import { loadWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
+import { getScreenerCache, type ScreenedStock } from '../screener/stockScreener.js';
 
 // ─── 타입 SSOT ────────────────────────────────────────────────────────────────
 
@@ -100,6 +105,19 @@ export type ShadowLearningOnlyScanResult =
       signalsRecorded: number;
     };
 
+interface ShadowScanCandidate {
+  symbol: string;
+  entryPrice: number;
+  stopLoss: number;
+  targetPrice: number;
+  gateScore: number;
+  signalGrade: ShadowLearningOnlySignal['signalGrade'];
+  dataQualityStatus: ShadowLearningOnlySignal['dataQualityStatus'];
+  regime: string;
+  source: 'WATCHLIST' | 'SCREENER';
+  wouldHaveBought: boolean;
+}
+
 // ─── ENV 헬퍼 ─────────────────────────────────────────────────────────────────
 
 /**
@@ -111,21 +129,114 @@ export function isShadowLearningOnBlockedDaysEnabled(): boolean {
   return process.env.SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED === 'true';
 }
 
+function finitePositive(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function normalizeGateScore(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+}
+
+function gradeFromGateScore(gateScore: number): ShadowLearningOnlySignal['signalGrade'] {
+  if (gateScore >= 9) return 'STRONG_BUY';
+  if (gateScore >= 5) return 'BUY';
+  if (gateScore > 0) return 'WATCH';
+  return 'NONE';
+}
+
+function buildFromWatchlist(entry: WatchlistEntry): ShadowScanCandidate | null {
+  const entryPrice = finitePositive(entry.entryPrice);
+  if (entryPrice === null) return null;
+
+  const rawStop = finitePositive(entry.stopLoss);
+  const rawTarget = finitePositive(entry.targetPrice);
+  const stopLoss = rawStop !== null && rawStop < entryPrice
+    ? rawStop
+    : Math.round(entryPrice * 0.92);
+  const targetPrice = rawTarget !== null && rawTarget > entryPrice
+    ? rawTarget
+    : Math.round(entryPrice * 1.2);
+  const gateScore = normalizeGateScore(entry.gateScore);
+  const section = entry.section ?? (entry.track === 'B' ? 'SWING' : 'MOMENTUM');
+  const signalGrade = gradeFromGateScore(gateScore);
+
+  return {
+    symbol: entry.code,
+    entryPrice,
+    stopLoss,
+    targetPrice,
+    gateScore,
+    signalGrade,
+    dataQualityStatus: entry.isDataQuarantined ? 'STALE' : 'OK',
+    regime: entry.entryRegime ?? 'UNKNOWN',
+    source: 'WATCHLIST',
+    wouldHaveBought: section === 'SWING' || section === 'CATALYST' || gateScore >= 8,
+  };
+}
+
+function estimateScreenerGateScore(stock: ScreenedStock): number {
+  let score = 0;
+  if (stock.changeRate >= 0 && stock.changeRate < 8) score += 2;
+  if (stock.volume >= 50_000) score += 2;
+  if (stock.foreignNetBuy > 0) score += 2;
+  if (stock.per > 0 && stock.per <= 30) score += 1;
+  if (stock.turnoverRate > 0) score += 1;
+  return score;
+}
+
+function buildFromScreener(stock: ScreenedStock): ShadowScanCandidate | null {
+  const entryPrice = finitePositive(stock.currentPrice);
+  if (entryPrice === null) return null;
+
+  const gateScore = estimateScreenerGateScore(stock);
+  return {
+    symbol: stock.code,
+    entryPrice,
+    stopLoss: Math.round(entryPrice * 0.92),
+    targetPrice: Math.round(entryPrice * 1.2),
+    gateScore,
+    signalGrade: gradeFromGateScore(gateScore),
+    dataQualityStatus: 'OK',
+    regime: 'UNKNOWN',
+    source: 'SCREENER',
+    wouldHaveBought: gateScore >= 5,
+  };
+}
+
+function loadShadowScanCandidates(): ShadowScanCandidate[] {
+  const bySymbol = new Map<string, ShadowScanCandidate>();
+
+  for (const entry of loadWatchlist()) {
+    const candidate = buildFromWatchlist(entry);
+    if (candidate && !bySymbol.has(candidate.symbol)) bySymbol.set(candidate.symbol, candidate);
+  }
+
+  if (bySymbol.size === 0) {
+    for (const stock of getScreenerCache().slice(0, 30)) {
+      const candidate = buildFromScreener(stock);
+      if (candidate && !bySymbol.has(candidate.symbol)) bySymbol.set(candidate.symbol, candidate);
+    }
+  }
+
+  return Array.from(bySymbol.values()).slice(0, 30);
+}
+
 // ─── 진입점 ───────────────────────────────────────────────────────────────────
 
 /**
  * 매매 금지일 가상 매수 판단 — 학습 전용 SSOT.
  *
- * **Phase 1 (본 PR)**: 안전 invariant 검증만, 실제 candidate 평가 / 영속 저장 미구현
- * (호출자 0건 dead code). Phase 2 wiring 시 `preScreenStocks` / `scoreBuyCandidate` /
- * `safePctChangeStrict` (ADR-0117) / `getDataTrustTier` (ADR-0114) 결합.
+ * Active MVP: load watchlist or screener-cache candidates, compute a conservative
+ * would-have-bought signal, and persist ShadowLearningOnlySignal rows for labels.
  *
  * 안전 invariant:
  *   - `allowRealOrder !== false` → throw (LIVE 주문 격리 invariant)
  *   - ENV OFF → skipped 즉시 반환
  *   - KIS 주문 함수 호출 0건 (정적 grep 가드 회귀 테스트로 강제)
  *
- * @returns Phase 1 dead code → 빈 결과 (`candidates:0, wouldBuyCount:0, signalsRecorded:0`)
+ * @returns candidate counts and persisted shadow-only signal count.
  */
 export async function runShadowLearningOnlyScan(
   input: ShadowLearningOnlyScanInput,
@@ -152,27 +263,46 @@ export async function runShadowLearningOnlyScan(
     );
   }
 
-  // Phase 1 dead code — 실제 candidate 평가 미구현.
-  // Phase 2 wiring 시 다음 plumbing 추가:
-  //   1. preScreenStocks(input.scanDate) → candidates
-  //   2. 각 candidate: safePctChangeStrict (ADR-0117) + getDataTrustTier (ADR-0114) 검증
-  //   3. wouldHaveBought 판단 (gateScore / signalGrade / RRR)
-  //   4. appendShadowLearningOnlySignal(signal) 영속 (학습 채널)
-  //   5. counterfactualShadow.recordCounterfactual(...) (학습 5채널 중 #1)
-  //   6. rejectionShadowTracker.recordRejection(...) (학습 5채널 중 #2)
-  //   7. shadowTradeRepo.appendShadow(...) wouldHaveBought=true 시 (학습 5채널 중 #3)
+  const candidates = loadShadowScanCandidates();
+  const existingKeys = new Set(
+    loadShadowLearningOnlySignals().map((s) =>
+      `${s.symbol}:${s.signalDate.slice(0, 10)}:${s.blockedReason}`,
+    ),
+  );
 
-  // Phase 1 dead code: 호출자 0건이지만 ENV ON 시 정합 검증 통과 결과 반환.
-  // Phase 2 wiring 후 본 빈 결과는 실제 카운트로 교체.
-  void input.scanDate;
-  void input.reason;
-  void appendShadowLearningOnlySignal; // import 검증 (Phase 2 wiring 입력)
+  let wouldBuyCount = 0;
+  let signalsRecorded = 0;
+
+  for (const candidate of candidates) {
+    if (candidate.wouldHaveBought) wouldBuyCount++;
+
+    const key = `${candidate.symbol}:${input.scanDate}:${input.reason}`;
+    if (existingKeys.has(key)) continue;
+
+    appendShadowLearningOnlySignal({
+      symbol: candidate.symbol,
+      signalDate: input.scanDate,
+      blockedReason: input.reason,
+      wouldHaveBought: candidate.wouldHaveBought,
+      hypotheticalEntryPrice: candidate.entryPrice,
+      hypotheticalStopLoss: candidate.stopLoss,
+      hypotheticalTargetPrice: candidate.targetPrice,
+      signalGrade: candidate.signalGrade,
+      gateScore: candidate.gateScore,
+      regime: candidate.regime,
+      macroBlockReason: `${input.reason}:${candidate.source}`,
+      dataQualityStatus: candidate.dataQualityStatus,
+      outcome: 'PENDING',
+    });
+    existingKeys.add(key);
+    signalsRecorded++;
+  }
 
   return {
     skipped: false,
     reason: input.reason,
-    candidates: 0,
-    wouldBuyCount: 0,
-    signalsRecorded: 0,
+    candidates: candidates.length,
+    wouldBuyCount,
+    signalsRecorded,
   };
 }

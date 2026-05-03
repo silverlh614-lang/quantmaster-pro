@@ -489,15 +489,25 @@ describe('정적 grep 가드 — 안전 invariant', () => {
   });
 
   it('호출자 1건 (cron 만) — server 코드베이스 grep', async () => {
-    const { execSync } = await import('child_process');
-    const output = execSync(
-      "grep -rln 'resolveFutureReturns\\b\\|isFutureReturnResolverEnabled\\b' server/ --include='*.ts'",
-      { encoding: 'utf-8' },
-    );
-    const files = output
-      .trim()
-      .split('\n')
-      .filter((l) => l.length > 0);
+    const serverDir = path.resolve('server');
+    const files: string[] = [];
+    function walk(dir: string): void {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+          walk(full);
+          continue;
+        }
+        if (!entry.isFile() || !full.endsWith('.ts') || full.endsWith('.d.ts')) continue;
+        const src = fs.readFileSync(full, 'utf-8');
+        if (/\bresolveFutureReturns\b|\bisFutureReturnResolverEnabled\b/.test(src)) {
+          files.push(path.relative(process.cwd(), full).replace(/\\/g, '/'));
+        }
+      }
+    }
+    walk(serverDir);
     // 화이트리스트 — 모듈 본체 + 본 테스트 + cron 등록 (learningJobs.ts) + ADR-0176 mock (missedLearningReplay.test.ts)
     // missedLearningReplay.test.ts 는 registerLearningJobs() 호출 시 다른 학습 함수 본체가 실제 실행되지
     // 않도록 vi.mock 으로 격리한 결과 식별자 등장 — 정상 회귀 가드.
@@ -505,6 +515,7 @@ describe('정적 grep 가드 — 안전 invariant', () => {
       'server/learning/futureReturnResolver.ts',
       'server/learning/futureReturnResolver.test.ts',
       'server/scheduler/learningJobs.ts',
+      'server/scheduler/learningJobsCronWiring.test.ts',
       'server/scheduler/missedLearningReplay.test.ts',
     ]);
     for (const f of files) {

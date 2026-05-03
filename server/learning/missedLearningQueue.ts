@@ -13,11 +13,11 @@
  *   5. replay 실패 시 FAILED 영속 + 재시도 횟수 제한 (default 3)
  *   6. **실제 주문 경로와 절대 결합 금지** — 학습 복구 전용 (KIS 주문 함수 import 0건)
  *
- * Phase 1 dead code — Phase 2 cron wiring 별도 PR (ENV `MISSED_LEARNING_QUEUE_ENABLED=true` 활성화 후).
+ * Active replay queue behind ENV `MISSED_LEARNING_QUEUE_ENABLED=true`.
  *
  * 본 PR scope:
  *   - 타입 SSOT + enqueue/replay/dropStale API
- *   - replay 는 jobName → 실제 함수 매핑 plumbing 만 (mock dispatcher) — Phase 2 wiring 시 실제 작업 연결
+ *   - replay maps jobName to real learning recovery functions via dispatcher
  *   - 호출자 0건 — `signalScanner` / `entryEngine` / `exitEngine` 본체 무수정
  */
 
@@ -25,6 +25,7 @@ import {
   loadMissedLearningQueue,
   saveMissedLearningQueue,
 } from '../persistence/missedLearningQueueRepo.js';
+import { dispatchMissedLearningReplay } from './missedLearningReplayDispatcher.js';
 
 // ─── 타입 SSOT ────────────────────────────────────────────────────────────────
 
@@ -152,22 +153,9 @@ export function enqueueMissedLearningJob(
 
 // ─── replay ───────────────────────────────────────────────────────────────────
 
-/**
- * Phase 1: 학습 작업 → 실제 함수 매핑 plumbing 만 (mock dispatcher).
- *
- * Phase 2 cron wiring 시 실제 학습 작업 함수 (counterfactualShadow / ledgerSimulator /
- * ghostPortfolioTracker / nightlyReflectionEngine / 등) 호출 대체.
- *
- * 본 PR 은 status 'PENDING' → 'REPLAYED' 전이만 (실제 작업 미수행) — 호출자 0건 dead code.
- *
- * @returns true = replay 성공 (mock), false = replay 실패 (jobName 미매핑)
- */
-async function dispatchMockReplay(jobName: MissedLearningJobName): Promise<boolean> {
-  // Phase 2 wiring 시 jobName → 실제 함수 매핑 plumbing 추가 자리.
-  // 본 PR 에서는 7 jobName 모두 수용 (no-op success).
-  void jobName;
-  return true;
-}
+type MissedLearningReplayDispatcher = (jobName: MissedLearningJobName) => Promise<void>;
+
+let replayDispatcher: MissedLearningReplayDispatcher = dispatchMissedLearningReplay;
 
 export interface ReplayMissedLearningJobsOptions {
   /** 다음 영업일 (YYYY-MM-DD KST). caller 가 trading day 검증 후 전달. */
@@ -244,10 +232,10 @@ export async function replayMissedLearningJobs(
     // tradingDate 가 작업 KST 일자 이후 (또는 같음) — caller 가 ScheduleClass='TRADING_DAY_ONLY' 가드.
     void opts.tradingDate;
 
-    // mock dispatch — Phase 2 wiring 시 실제 작업 함수 호출.
     let success = false;
     try {
-      success = await dispatchMockReplay(job.jobName);
+      await replayDispatcher(job.jobName);
+      success = true;
     } catch (e) {
       success = false;
       job.failureReason = e instanceof Error ? e.message : String(e);
@@ -264,7 +252,7 @@ export async function replayMissedLearningJobs(
       job.status = 'FAILED';
       job.replayedAt = now.toISOString();
       job.retryCount = (job.retryCount ?? 0) + 1;
-      job.failureReason = job.failureReason ?? 'mock_dispatch_failed';
+      job.failureReason = job.failureReason ?? 'replay_dispatch_failed';
       failed++;
     }
     processed++;
@@ -311,4 +299,11 @@ export function dropStaleJobs(now: Date = new Date()): number {
  */
 export function __resetMissedLearningQueueCounterForTests(): void {
   _idCounter = 0;
+  replayDispatcher = dispatchMissedLearningReplay;
+}
+
+export function __setMissedLearningReplayDispatcherForTests(
+  dispatcher: MissedLearningReplayDispatcher,
+): void {
+  replayDispatcher = dispatcher;
 }

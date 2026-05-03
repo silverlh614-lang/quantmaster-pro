@@ -23,6 +23,7 @@ import {
   resolveFutureReturns,
   isFutureReturnResolverEnabled,
 } from '../learning/futureReturnResolver.js';
+import { fetchHistoricalClosePrice } from '../clients/historicalClosePrice.js';
 import {
   isMissedLearningQueueEnabled,
   replayMissedLearningJobs,
@@ -131,12 +132,14 @@ export function registerLearningJobs(): void {
   // ADR-0175 (Phase 2b-1): ShadowLearningOnlySignal 영속의 1/3/5/20일 후 future return
   // 갱신 + outcome 분류 (WIN/LOSS/BE, ADR-0112 임계 정합).
   // ENV `FUTURE_RETURN_RESOLVER_ENABLED=true` default OFF — 운영자 명시 활성화 의무.
-  // priceFetcher 미전달 (본 PR scope) — 모든 signal errors + console.warn 1회. Phase 2b-2/3
+  // Historical close priceFetcher is required here; do not fall back to current price.
   // wiring 후 KIS 일봉 / Yahoo historical API 결합 시 cron 인자에 전달.
   // ScheduleClass='TRADING_DAY_ONLY' (ADR-0045) — KRX 휴장일 자동 silent skip.
   scheduledJob('30 7 * * 1-5', 'TRADING_DAY_ONLY', 'future_return_resolve', async () => {
     if (!isFutureReturnResolverEnabled()) return;
-    const result = await resolveFutureReturns();
+    const result = await resolveFutureReturns({
+      priceFetcher: (symbol, asOf) => fetchHistoricalClosePrice(symbol, asOf),
+    });
     console.log(
       `[FutureReturnResolver] resolved=${result.resolvedCount}/${result.totalSignals} outcomes=${result.outcomesUpdated} errors=${result.errors} (${result.durationMs}ms)`,
     );
@@ -150,7 +153,7 @@ export function registerLearningJobs(): void {
   // ScheduleClass='TRADING_DAY_ONLY' (ADR-0045) — 휴장일 자체는 자동 silent skip
   //   (다음 영업일 cron 호출 시 자연 복구 시도).
   // 호출자 1건 — replayMissedLearningJobs 는 본 cron + 모듈/테스트 외 호출 0건 (정적 grep 가드).
-  // mock dispatcher (ADR-0173 §1) — jobName → 실제 함수 매핑은 후속 PR scope.
+  // Real dispatcher maps jobName to recovery functions; failures remain FAILED, not fake success.
   scheduledJob('30 0 * * 1-5', 'TRADING_DAY_ONLY', 'missed_learning_replay', async () => {
     if (!isMissedLearningQueueEnabled()) return;
     const today = new Date().toISOString().slice(0, 10);

@@ -1,5 +1,5 @@
 /**
- * @responsibility ADR-0173 §2 ShadowLearningOnlyScan 회귀 — invariant + ENV + 8 reason + 호출자 0건 가드
+ * @responsibility ADR-0173 §2 ShadowLearningOnlyScan 회귀 — invariant + ENV + 8 reason + blocked-day wiring guard
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -199,9 +199,9 @@ describe('8 ShadowLearningOnlyScanReason union', () => {
   }
 });
 
-// ─── ENV ON + 정상 입력 — Phase 1 dead code 빈 결과 검증 ─────────────────────
+// ─── ENV ON + 정상 입력 — candidate persistence 검증 ─────────────────────
 
-describe('Phase 1 dead code — 빈 결과 반환', () => {
+describe('blocked-day shadow scan persistence', () => {
   it('ENV ON + 정상 입력 → candidates=0, wouldBuyCount=0, signalsRecorded=0', async () => {
     process.env[ENV_KEY] = 'true';
     const result = await mod.runShadowLearningOnlyScan({
@@ -216,6 +216,81 @@ describe('Phase 1 dead code — 빈 결과 반환', () => {
       expect(result.wouldBuyCount).toBe(0);
       expect(result.signalsRecorded).toBe(0);
     }
+  });
+
+  it('ENV ON + watchlist 후보 존재 → ShadowLearningOnlySignal 영속', async () => {
+    process.env[ENV_KEY] = 'true';
+    fs.writeFileSync(
+      path.join(tmpDir, 'watchlist.json'),
+      JSON.stringify([
+        {
+          code: '005930',
+          name: 'SAMSUNG',
+          entryPrice: 75000,
+          stopLoss: 71000,
+          targetPrice: 84000,
+          addedAt: '2026-05-04T00:00:00.000Z',
+          addedBy: 'AUTO',
+          section: 'SWING',
+          gateScore: 9.5,
+          entryRegime: 'R3_EARLY',
+        },
+      ]),
+      'utf-8',
+    );
+
+    const result = await mod.runShadowLearningOnlyScan({
+      allowRealOrder: false,
+      bypassMacroEntryBlock: true,
+      reason: 'FOMC_BLOCK',
+      scanDate: '2026-05-04',
+    });
+
+    expect(result.skipped).toBe(false);
+    if (!result.skipped) {
+      expect(result.candidates).toBe(1);
+      expect(result.wouldBuyCount).toBe(1);
+      expect(result.signalsRecorded).toBe(1);
+    }
+    const signals = repo.loadShadowLearningOnlySignals();
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.symbol).toBe('005930');
+    expect(signals[0]!.hypotheticalEntryPrice).toBe(75000);
+    expect(signals[0]!.outcome).toBe('PENDING');
+  });
+
+  it('동일 날짜/사유/symbol 재실행 → 중복 append 차단', async () => {
+    process.env[ENV_KEY] = 'true';
+    fs.writeFileSync(
+      path.join(tmpDir, 'watchlist.json'),
+      JSON.stringify([
+        {
+          code: '005930',
+          name: 'SAMSUNG',
+          entryPrice: 75000,
+          stopLoss: 71000,
+          targetPrice: 84000,
+          addedAt: '2026-05-04T00:00:00.000Z',
+          addedBy: 'AUTO',
+          section: 'SWING',
+          gateScore: 9.5,
+        },
+      ]),
+      'utf-8',
+    );
+    const input = {
+      allowRealOrder: false as const,
+      bypassMacroEntryBlock: true,
+      reason: 'FOMC_BLOCK' as const,
+      scanDate: '2026-05-04',
+    };
+
+    await mod.runShadowLearningOnlyScan(input);
+    const result = await mod.runShadowLearningOnlyScan(input);
+
+    expect(result.skipped).toBe(false);
+    if (!result.skipped) expect(result.signalsRecorded).toBe(0);
+    expect(repo.loadShadowLearningOnlySignals()).toHaveLength(1);
   });
 });
 
@@ -298,9 +373,9 @@ describe('runAutoSignalScan 호출 정적 grep 가드 (무한 루프 차단)', (
   });
 });
 
-// ─── 호출자 0건 정적 grep 가드 (Phase 1 dead code 보장) ─────────────────────
+// ─── 호출자 정적 grep 가드 (signalScanner helper만 허용) ─────────────────────
 
-describe('호출자 0건 (Phase 1 dead code)', () => {
+describe('호출자 제한 (signalScanner helper만 허용)', () => {
   function readSrcSafely(absPath: string): string | null {
     try {
       return fs.readFileSync(absPath, 'utf-8');
@@ -317,7 +392,7 @@ describe('호출자 0건 (Phase 1 dead code)', () => {
   }
 
   it('signalScanner.ts — ADR-0183 Phase 3 Stage A 후 *예상된* 호출자 (4 site wiring + helper)', () => {
-    // Phase 1 dead code 가드 → ADR-0183 Phase 3 Stage A 로 전환 (2026-05-03).
+    // ADR-0183 Stage A wiring: signalScanner helper is the expected production caller.
     // signalScanner.ts 는 이제 *예상된* 호출자 — recordBlockedDayShadowScan SSOT 헬퍼 안에서
     // ENV gate 통과 시에만 runShadowLearningOnlyScan 호출. 안전 invariant 7종 (ADR-0183 §3)
     // 준수 확인은 server/trading/signalScannerAdr0183Wiring.test.ts 의 22 케이스에서.

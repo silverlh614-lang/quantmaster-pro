@@ -193,4 +193,15 @@ describe('ADR-0176 — learningJobs.ts 5 학습 cron `enqueueOnSkip` 옵션 wiri
       /scheduledJob\(\s*['"]30 0 \* \* 1-5['"]\s*,\s*['"]TRADING_DAY_ONLY['"]\s*,\s*['"]missed_learning_replay['"]/,
     );
   });
+  it('16. future_return_resolve cron passes historical close priceFetcher', () => {
+    const src = loadSource();
+    const code = stripComments(src);
+    const region = extractCronOptions(src, 'future_return_resolve');
+    expect(code).toMatch(/fetchHistoricalClosePrice/);
+    expect(region).toMatch(/resolveFutureReturns\s*\(\s*\{/);
+    expect(region).toMatch(/priceFetcher\s*:/);
+    expect(region).toMatch(/fetchHistoricalClosePrice\s*\(/);
+    expect(region).not.toMatch(/resolveFutureReturns\s*\(\s*\)/);
+    expect(region).not.toMatch(/fetchCurrentPrice\s*\(/);
+  });
 });

@@ -99,6 +99,9 @@ vi.mock('../learning/futureReturnResolver.js', () => ({
 vi.mock('../clients/kisClient.js', () => ({
   fetchCurrentPrice: async () => null,
 }));
+vi.mock('../clients/historicalClosePrice.js', () => ({
+  fetchHistoricalClosePrice: async () => null,
+}));
 
 const ENV_KEY = 'MISSED_LEARNING_QUEUE_ENABLED';
 
@@ -277,12 +280,13 @@ describe('ADR-0176 — missed_learning_replay cron 회귀 (Phase 2b-2)', () => {
       'server/scheduler/learningJobsCronWiring.test.ts',
     ];
     for (const file of callerFiles) {
-      const isAllowed = allowedSuffixes.some((suffix) => file.endsWith(suffix));
+      const normalized = file.replace(/\\/g, '/');
+      const isAllowed = allowedSuffixes.some((suffix) => normalized.endsWith(suffix));
       expect(isAllowed, `예상치 못한 replayMissedLearningJobs 호출자: ${file}`).toBe(true);
     }
     // 최소 — learningJobs.ts (replay cron) + missedLearningQueue.ts (모듈 본체) 포함
-    expect(callerFiles.some((f) => f.endsWith('server/scheduler/learningJobs.ts'))).toBe(true);
-    expect(callerFiles.some((f) => f.endsWith('server/learning/missedLearningQueue.ts'))).toBe(true);
+    expect(callerFiles.some((f) => f.replace(/\\/g, '/').endsWith('server/scheduler/learningJobs.ts'))).toBe(true);
+    expect(callerFiles.some((f) => f.replace(/\\/g, '/').endsWith('server/learning/missedLearningQueue.ts'))).toBe(true);
   });
 
   // ─── KIS 주문 import 0건 ─────────────────────────────────────────────────────
