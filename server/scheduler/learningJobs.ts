@@ -19,6 +19,10 @@ import { resolveCounterfactuals, evaluateCounterfactualSuggestion } from '../lea
 import { resolveLedger, evaluateLedgerSuggestion } from '../learning/ledgerSimulator.js';
 import { evaluateKellySurfaceSuggestion } from '../learning/kellySurfaceMap.js';
 import { evaluateRegimeCoverageSuggestion } from '../learning/regimeBalancedSampler.js';
+import {
+  resolveFutureReturns,
+  isFutureReturnResolverEnabled,
+} from '../learning/futureReturnResolver.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { scheduledJob } from './scheduleGuard.js';
 
@@ -112,5 +116,20 @@ export function registerLearningJobs(): void {
     await evaluateLedgerSuggestion().catch((e) => console.warn('[Ledger][suggest] 평가 실패:', e));
     await evaluateKellySurfaceSuggestion({}).catch((e) => console.warn('[KellySurface][suggest] 평가 실패:', e));
     await evaluateRegimeCoverageSuggestion().catch((e) => console.warn('[RegimeCoverage][suggest] 평가 실패:', e));
+  }, { timezone: 'UTC' });
+
+  // Future Return Resolver — 평일 KST 16:30 (UTC 07:30). KRX 장 마감 30분 후.
+  // ADR-0175 (Phase 2b-1): ShadowLearningOnlySignal 영속의 1/3/5/20일 후 future return
+  // 갱신 + outcome 분류 (WIN/LOSS/BE, ADR-0112 임계 정합).
+  // ENV `FUTURE_RETURN_RESOLVER_ENABLED=true` default OFF — 운영자 명시 활성화 의무.
+  // priceFetcher 미전달 (본 PR scope) — 모든 signal errors + console.warn 1회. Phase 2b-2/3
+  // wiring 후 KIS 일봉 / Yahoo historical API 결합 시 cron 인자에 전달.
+  // ScheduleClass='TRADING_DAY_ONLY' (ADR-0045) — KRX 휴장일 자동 silent skip.
+  scheduledJob('30 7 * * 1-5', 'TRADING_DAY_ONLY', 'future_return_resolve', async () => {
+    if (!isFutureReturnResolverEnabled()) return;
+    const result = await resolveFutureReturns();
+    console.log(
+      `[FutureReturnResolver] resolved=${result.resolvedCount}/${result.totalSignals} outcomes=${result.outcomesUpdated} errors=${result.errors} (${result.durationMs}ms)`,
+    );
   }, { timezone: 'UTC' });
 }
