@@ -8,10 +8,12 @@ import {
   fetchShadowVsLiveDelta,
   fetchMissedLearningQueueStats,
   fetchRejectionShadowStats,
+  fetchReflectionImpact,
   type ClientGateAttributionResult,
   type ClientDeltaCategoryResult,
   type ClientMissedLearningQueueStats,
   type ClientRejectionShadowSummary,
+  type ClientReflectionImpactSummary,
 } from './learningDashboardClient';
 
 const fetchMock = vi.fn();
@@ -200,6 +202,55 @@ describe('learningDashboardClient', () => {
       fetchMock.mockResolvedValueOnce(mockResponse(null, false, 500));
       await expect(fetchRejectionShadowStats()).rejects.toThrow(
         'rejection-shadow-stats 500',
+      );
+    });
+  });
+
+  describe('fetchReflectionImpact (ADR-0181)', () => {
+    it('정상 응답 + default URL', async () => {
+      const fakeData: ClientReflectionImpactSummary = {
+        windowDays: 180,
+        modules: [
+          { module: 'mainReflection', status: 'normal', impactRate: 0.6,
+            runs: 100, meaningfulRuns: 60, firstSeenAt: '2026-04-01T00:00:00.000Z',
+            ageDays: 32 },
+        ],
+        summary: { total: 1, normal: 1, grace: 0, silent: 0, deprecated: 0 },
+      };
+      fetchMock.mockResolvedValueOnce(mockResponse(fakeData));
+      const r = await fetchReflectionImpact();
+      expect(r).toEqual(fakeData);
+      expect(fetchMock).toHaveBeenCalledWith('/api/learning/reflection-impact');
+    });
+
+    it('opts.days query 전달', async () => {
+      fetchMock.mockResolvedValueOnce(mockResponse({
+        windowDays: 90,
+        modules: [],
+        summary: { total: 0, normal: 0, grace: 0, silent: 0, deprecated: 0 },
+      }));
+      await fetchReflectionImpact({ days: 90 });
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/learning/reflection-impact?days=90',
+      );
+    });
+
+    it('빈 모듈 + summary 모두 0 (운영 데이터 부재)', async () => {
+      const fakeData: ClientReflectionImpactSummary = {
+        windowDays: 180,
+        modules: [],
+        summary: { total: 0, normal: 0, grace: 0, silent: 0, deprecated: 0 },
+      };
+      fetchMock.mockResolvedValueOnce(mockResponse(fakeData));
+      const r = await fetchReflectionImpact();
+      expect(r.modules).toHaveLength(0);
+      expect(r.summary.total).toBe(0);
+    });
+
+    it('500 응답 — throw', async () => {
+      fetchMock.mockResolvedValueOnce(mockResponse(null, false, 500));
+      await expect(fetchReflectionImpact()).rejects.toThrow(
+        'reflection-impact 500',
       );
     });
   });
