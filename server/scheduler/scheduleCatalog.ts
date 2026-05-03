@@ -46,11 +46,14 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '15:15', label: '휴장 진입 직전 알림 (ADR-0132)', group: 'alerts', jobName: 'holiday_enter_alert', silentWhen: '다음 영업일까지 비영업 간격 < 3일이면 무음 — LONG_HOLIDAY 진입 직전에만 발송' },
   { timeKst: '15:35', label: 'INFO 일일 다이제스트 flush', group: 'reports', jobName: 'info_digest_flush', silentWhen: 'INFO 버퍼 비어 있으면 무음 (당일 INFO 알림 없음)' },
   { timeKst: '15:40', label: 'Ghost Portfolio 갱신', group: 'learning', jobName: 'ghost_portfolio', silentWhen: '내부 캐시 갱신만 — Telegram 송출 없음' },
+  { timeKst: '16:00', label: 'Counterfactual Resolve (ADR-0007)', group: 'learning', jobName: 'counterfactual_resolve', silentWhen: '내부 학습 영속만 — Telegram 송출 없음' },
   { timeKst: '16:00', label: '장마감 통합 브리핑', group: 'reports', jobName: 'eod_briefing' },
+  { timeKst: '16:15', label: 'Ledger Resolve (ADR-0007)', group: 'learning', jobName: 'ledger_resolve', silentWhen: '내부 학습 영속만 — Telegram 송출 없음' },
   { timeKst: '16:05', label: '52주 신고가 모멘텀 스캔', group: 'reports', jobName: 'high_52w_scan', silentWhen: '편입 후보 0건이면 무음' },
   { timeKst: '16:05', label: 'Shadow 수량 drift 점검 (DRY-RUN)', group: 'maintenance', jobName: 'shadow_qty_dryrun_broadcast', silentWhen: 'drift 0건이면 무음' },
   { timeKst: '16:25', label: '저녁 사이클 회로 자동 reset', group: 'maintenance', jobName: 'circuit_auto_reset', silentWhen: '내부 회로 reset 만 — Telegram 송출 없음' },
   { timeKst: '16:30', label: '일일 종목 픽 리포트', group: 'reports', jobName: 'daily_pick_report' },
+  { timeKst: '16:30', label: 'Future Return Resolve (ADR-0175)', group: 'learning', jobName: 'future_return_resolve', silentWhen: 'ENV `FUTURE_RETURN_RESOLVER_ENABLED` 미활성 또는 활성 signal 없으면 무음' },
   { timeKst: '16:40', label: '스캔 회고 리포트', group: 'reports', jobName: 'scan_retrospective' },
   { timeKst: '19:00', label: 'Nightly Reflection', group: 'learning', jobName: 'nightly_reflection' },
   { timeKst: '20:30', label: 'KIS 토큰 강제 갱신', group: 'trading', jobName: 'kis_token_refresh', silentWhen: '성공 시 내부 로그만' },
@@ -78,6 +81,8 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   // ── 상시 ──────────────────────────────────────────────────────────────────
   { timeKst: '상시',  label: '오케스트레이터 1분 tick', group: 'trading', jobName: 'orchestrator_tick' },
   // umbrella 라벨이라 jobName 은 각 그룹의 primary cron 을 가리킨다.
+  { timeKst: '00:30', label: 'Daily Mini Backtest', group: 'learning', jobName: 'daily_mini_backtest', silentWhen: '내부 학습 영속만 — Telegram 송출 없음' },
+  { timeKst: '09:30', label: 'MissedLearningQueue replay (ADR-0176)', group: 'learning', jobName: 'missed_learning_replay', silentWhen: 'ENV `MISSED_LEARNING_QUEUE_ENABLED` 미활성 또는 큐 비어 있으면 무음' },
   // OCO 감시 그룹: oco_confirm(30s primary) / oco_survival(15m) / oco_recovery_round(5m) — tradeFlowJobs.ts.
   { timeKst: '상시',  label: 'OCO/매도 체결 감시', group: 'trading', jobName: 'oco_confirm' },
   // DART/IPS/ACK 그룹: dart_poll_30min(primary) / dart_fast_check / ips_alert / ack_sweep — alertJobs.ts.
