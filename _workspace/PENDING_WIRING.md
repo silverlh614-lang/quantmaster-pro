@@ -58,6 +58,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | A11 | 0173 §5 LearningFreshnessGuard | `server/learning/learningFreshnessGuard.ts` | 2026-05-03 | INFRASTRUCTURE_ONLY | P1 | **PR-Shadow-Learning-Persistence-Phase1 (2026-05-03, ADR-0173)** — 호출자 0건 dead code. Phase 3 ReflectionInjectionBus 결합 후 활성화: `mainReflection` / `scoreBuyCandidate` / `condition weight engine` / `position sizing adjustment` 5 lesson 타입 (recentReflections / conditionLessons / biasHeatmap / counterfactualLessons / gateAttributionLessons) 에 `applyFreshnessDecay` 호출 wiring + `LEARNING_FRESHNESS_GUARD_ENABLED=true` 명시 활성화. SLA 만기 2026-06-17. |
 | A12 | 0174 §2.1 SafetyGateAttribution | `server/learning/safetyGateAttribution.ts` | 2026-05-03 | INFRASTRUCTURE_ONLY | P1 | **PR-Shadow-Learning-Phase2a (2026-05-03, ADR-0174)** — 호출자 0건 dead code 영속 분석 SSOT. Phase 2b cron wiring + Phase 4 Dashboard read 후 활성화: `maintenanceJobs.ts` 일일 cron 또는 `/api/learning/safety-gate-attribution` HTTP endpoint + `SAFETY_GATE_ATTRIBUTION_ENABLED=true` 명시 활성화. **잔여 2 dead 게이트** (DATA_SANITY / EXPOSURE_BUDGET / ENEMY_CHECKLIST sampleSize=0) Phase 3 ReflectionInjectionBus wiring 후 추가 reason 컨텍스트 전달 시 활성화. SLA 만기 2026-06-17. |
 | A13 | 0174 §2.2 ShadowVsLiveDelta | `server/learning/shadowVsLiveDelta.ts` | 2026-05-03 | INFRASTRUCTURE_ONLY | P1 | **PR-Shadow-Learning-Phase2a (2026-05-03, ADR-0174)** — 호출자 0건 dead code 영속 분석 SSOT. Phase 2b cron wiring + Phase 4 Dashboard read 후 활성화: `maintenanceJobs.ts` 일일 cron 또는 `/api/learning/shadow-vs-live-delta` HTTP endpoint + `SHADOW_LIVE_DELTA_REPORT_ENABLED=true` 명시 활성화. **LIVE_BUY_SHADOW_BETTER_SIZE plumbing only** — `sizingEngineSnapshot` 비교 알고리즘 Phase 3 wiring 후 정확 산출 wiring. SLA 만기 2026-06-17. |
+| A14 | 0175 FutureReturnResolver cron | `server/learning/futureReturnResolver.ts` | 2026-05-03 | INFRASTRUCTURE_ONLY | P1 | **PR-Shadow-Learning-Phase2b1 (2026-05-03, ADR-0175)** — cron 등록 완료 (`30 7 * * 1-5` UTC = KST 평일 16:30 + ScheduleClass='TRADING_DAY_ONLY'), 호출자 1건 cron 만 + ENV `FUTURE_RETURN_RESOLVER_ENABLED` default OFF. **잔여 wiring**: (1) `priceFetcher` default 미전달 (KIS API 과거 시점 가격 fetch 한계, errors=totalSignals 안전 default) — KIS 일봉 API 또는 Yahoo historical wiring 후 활성화 / (2) Phase 3 LIVE 활성화 후 데이터 누적 시작 시 cron 실효 / (3) ENV `=true` 명시 활성화 의무. SLA 만기 2026-06-17. |
 
 ### B. 매매 본체 / 사이징
 
@@ -123,12 +124,12 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 
 | 카테고리 | 항목 수 | P0 | P1 | P2 | P3 |
 |----------|---------|----|----|----|----|
-| A. 학습 시리즈 | 13 | 1 | 7 | 5 | 0 |
+| A. 학습 시리즈 | 14 | 1 | 8 | 5 | 0 |
 | B. 매매 본체 | 11 | 1 | 4 | 6 | 0 |
 | C. 시그널 입력 | 15 | 1 | 3 | 7 | 4 |
 | D. UI Phase | 7 | 0 | 3 | 4 | 0 |
 | E. 영속/진단 | 7 | 0 | 0 | 4 | 3 |
-| **합계** | **53** | **3** | **17** | **26** | **7** |
+| **합계** | **54** | **3** | **18** | **26** | **7** |
 
 > 주: C7 (Phase 1) / C8 (Phase 2 audit) / C9 (Phase 3 globalIntel) + C15 (Naver 외인 추세) / **C10 (Phase 4 Yahoo 컨센서스) + #12 institutionalBuying (KRX 5d) PR-Phase5** 모두 *DECIDED_NOT_WIRING* 격상 완료. 27 조건 격상 시리즈 *데이터 가용 한계 도달 — 78% (21/27)*. 잔여 22% (5 키 — #9/#13/#17/#20/#26) 정성 영구 (ADR-0154). 정량 격상 후속 0건. 운영자 집중 영역 = Gemini 프롬프트 품질 + AI 추정 가중치 학습.
 
@@ -163,3 +164,4 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 2026-05-02 | PR-Governance-3-SLA | ADR-0158 발행 — Wiring SLA 자동 만료 정책 SSOT (P0=21일 / P1=45일 / P2=120일 / P3=무기한 + grace 14일 + 면제 정책 + ENV 우회 2종). 7번째 컬럼 *등재일* 추가 + 47 baseline 항목 일괄 부여. `check_pending_wiring.js` 카테고리 H 추가 (H1 SLA 초과 WARN / H2 grace 초과 FAIL / H3 등재일 형식 / H4 BLOCKED 면제). PR 템플릿 강제 필드 추가 — INFRASTRUCTURE_ONLY 등재 시 wiring 약속 PR 또는 SLA 만기일 둘 중 하나 명시 의무. 카테고리 카운트 동일 (5 카테고리 42 항목). |
 | 2026-05-03 | PR-Shadow-Learning-Persistence-Phase1 | A10 + B11 + A11 신규 3 항목 등재 — ADR-0173 §1 MissedLearningQueue (A10 P1) + §2 ShadowLearningOnlyScan (B11 P1) + §5 LearningFreshnessGuard (A11 P1) 모두 INFRASTRUCTURE_ONLY (호출자 0건 dead code) + SLA 만기 2026-06-17. 4 Phase 시리즈 (Phase 1 인프라 / Phase 2 분석 / Phase 3 wiring + LIVE / Phase 4 UI). 합계 48→51 / A 9→11 / B 10→11 / P1 12→15. |
 | 2026-05-03 | PR-Shadow-Learning-Phase2a | A12 + A13 신규 2 항목 등재 — ADR-0174 §2.1 SafetyGateAttribution (A12 P1) + §2.2 ShadowVsLiveDelta (A13 P1) 모두 INFRASTRUCTURE_ONLY (호출자 0건 dead code 영속 분석 SSOT) + SLA 만기 2026-06-17. Phase 2 분할 정책 (2a 분석 dead code / 2b cron LIVE 결합). 합계 51→53 / A 11→13 / P1 15→17. |
+| 2026-05-03 | PR-Shadow-Learning-Phase2b1 | A14 신규 1 항목 등재 — ADR-0175 FutureReturnResolver cron (A14 P1) INFRASTRUCTURE_ONLY (cron 등록 완료, ENV `FUTURE_RETURN_RESOLVER_ENABLED` default OFF) + SLA 만기 2026-06-17. Phase 2b 분할 정책 (2b-1 future return resolve 단일 cron / 2b-2 MissedLearningQueue replay cron + 7 학습 작업 enqueue wiring). 합계 53→54 / A 13→14 / P1 17→18. |
