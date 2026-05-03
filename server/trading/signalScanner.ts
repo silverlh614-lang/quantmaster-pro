@@ -153,6 +153,42 @@ import { getEmergencyStop } from '../state.js';
 // export 단일 SSOT 만 사용한다. 이전엔 byte 동일한 본체가 양쪽에 병존해 drift 위험.
 import { getAccountScaleKellyMultiplier } from './signalScanner/preflight.js';
 
+// ADR-0183 — Phase 3 Stage A: 차단된 날 Shadow learning 데이터 수집 wiring.
+// ENV `SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED` default OFF, try/catch 격리.
+// LIVE 매매 본체 0줄 변경 — early-return 분기 자체 무수정, 호출 추가만.
+import {
+  isShadowLearningOnBlockedDaysEnabled,
+  runShadowLearningOnlyScan,
+  type ShadowLearningOnlyScanReason,
+} from './shadowLearningOnlyScan.js';
+
+/**
+ * ADR-0183 §2.3 — 4 early-return site SSOT 헬퍼 (drift 차단).
+ *
+ * 안전 invariant 7종 (ADR-0183 §3 + ADR-0173 §3):
+ *   - ENV default OFF (운영자 명시 활성화 의무)
+ *   - try/catch 격리 (scan throw → 매매 흐름 차단 차단)
+ *   - allowRealOrder=false literal type + runtime throw 2중 강제 (Phase 1 SSOT)
+ *   - bypassMacroEntryBlock=true 명시 (차단된 날 우회 의도)
+ */
+async function recordBlockedDayShadowScan(
+  reason: ShadowLearningOnlyScanReason,
+): Promise<void> {
+  if (!isShadowLearningOnBlockedDaysEnabled()) return;
+  try {
+    const kstScanDate = new Date(Date.now() + 9 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    await runShadowLearningOnlyScan({
+      allowRealOrder: false,
+      bypassMacroEntryBlock: true,
+      reason,
+      scanDate: kstScanDate,
+    });
+  } catch (e) {
+    console.warn(`[ShadowLearningOnly] scan 실패 (${reason}):`, e);
+  }
+}
+
 // SymbolExitContext / getAdaptiveProfitTargets 는 signalScanner/perSymbolEvaluation.ts
 // 로 이동 (Step 4a). 외부 노출은 본 파일 상단의 import 를 통해 유지.
 export type { SymbolExitContext };
@@ -277,10 +313,11 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       .reduce((sum, s) => sum + (s.shadowEntryPrice * s.quantity), 0);
   }
 
+  // Railway console.log only (운영자 진단용, 텔레그램 발송 무관)
   console.log(
     shadowMode
-      ? `[AutoTrade] [SHADOW] 가상 계좌 기준 — 시작원금: ${totalAssets.toLocaleString()}원 / 현금: ${orderableCash.toLocaleString()}원 / 보유가치: ${activeHoldingValue.toLocaleString()}원 / 모드: SHADOW`
-      : `[AutoTrade] [LIVE] 실계좌 기준 — 총자산: ${totalAssets.toLocaleString()}원 / 주문가능현금: ${orderableCash.toLocaleString()}원 / 모드: LIVE`
+      ? `[AutoTrade] [SHADOW] virtual account — equity=${totalAssets.toLocaleString()}원 / cash=${orderableCash.toLocaleString()}원 / holding=${activeHoldingValue.toLocaleString()}원 / mode=SHADOW`
+      : `[AutoTrade] [LIVE] real account — equity=${totalAssets.toLocaleString()}원 / orderable_cash=${orderableCash.toLocaleString()}원 / mode=LIVE`
   );
 
   // ── 레짐 분류 (classifyRegime — backtestPortfolio와 동일 로직) ──────────────
@@ -299,6 +336,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
     : { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'not-sellOnly' };
   if (options?.sellOnly && !sellOnlyExc.allow) {
     console.log(`[AutoTrade] SELL_ONLY 모드 — 포지션 모니터링 전용 (예외 불가: ${sellOnlyExc.reason})`);
+    await recordBlockedDayShadowScan('MANUAL_BLOCK');  // ADR-0183
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return {};
@@ -316,6 +354,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
       `MHS: ${macroState?.mhs ?? 'N/A'} | 블랙스완 감지 — 기존 포지션 모니터링만 수행`
     ).catch(console.error);
     console.warn(`[AutoTrade] R6_DEFENSE (MHS=${macroState?.mhs}) — 신규 진입 전면 차단`);
+    await recordBlockedDayShadowScan('RISK_OFF_REGIME');  // ADR-0183
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return {};
@@ -340,6 +379,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         },
       ).catch(console.error);
     }
+    await recordBlockedDayShadowScan('VIX_SPIKE');  // ADR-0183
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return {};
@@ -371,6 +411,7 @@ export async function runAutoSignalScan(options?: { sellOnly?: boolean; forceBuy
         },
       ).catch(console.error);
     }
+    await recordBlockedDayShadowScan('FOMC_BLOCK');  // ADR-0183
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return {};
