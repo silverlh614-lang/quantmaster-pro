@@ -7,6 +7,9 @@
  *
  * PR-575: 시장 프로그램매매 rawDiag 가 ACCEPTED_EMPTY 인데 live fetch null/0 객체가
  * OK로 승격되는 경로를 차단한다. accepted-empty 는 정상 0억이 아니라 데이터 body 부재다.
+ *
+ * PR-576: macroState 에 공매도 필드가 아직 없을 때 `/sh` 에서 read-only live probe 를
+ * 1회 수행해 KRX_DIRECT/KRX_OTP/KIS_ESTIMATE 상태를 분리한다. 저장은 하지 않는다.
  */
 
 import fs from 'fs';
@@ -16,6 +19,7 @@ import { FSS_RECORDS_FILE, MACRO_STATE_FILE } from '../../../persistence/paths.j
 import { loadForeignerRatioSeries } from '../../../persistence/foreignerRatioRepo.js';
 import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
+import { fetchKrxShortSelling } from '../../../trading/marketDataRefresh.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -366,40 +370,17 @@ function diagnoseFss(macro: MacroState | null, nowMs: number): ChannelStatus {
   };
 }
 
-/**
- * ADR-0145 — 공매도/대차잔고 진단을 macroState 직접 읽기로 전환.
- *
- * `fetchKrxShortSelling` 의 3단 폴백 (KRX_DIRECT → KRX_OTP → KIS_ESTIMATE) 결과가
- * 이미 macroState 에 적재되므로 read-only 진단으로 즉시 가시화 가능. 이전 구현은
- * 하드코드 N/A 라 *macroState 결손* 과 *기능 미구현* 을 구분하지 못했다.
- *
- * 4-way 분기:
- *   - source 부재 또는 ratio 부재          → MISSING (macroState 결손)
- *   - source = 'KIS_ESTIMATE'              → STALE  (KRX 두 경로 모두 실패한 fallback)
- *   - fetchedAt 이 SHORT_STALE_DAYS 초과   → STALE  (cron 미동작 또는 데이터 정체)
- *   - 그 외                                → OK
- *
- * read-only 보장 — macroState 갱신/외부 fetch 호출 없음.
- */
-function diagnoseShort(macro: MacroState | null, nowMs: number): ChannelStatus {
-  if (!macro?.shortSellingSource || macro.shortSellingRatio === undefined) {
-    return {
-      title: '공매도/대차잔고',
-      marker: 'MISSING',
-      riskReason: 'macroState 결손 — fetchKrxShortSelling 호출 부재',
-      lines: [
-        'source: N/A',
-        'ratio: N/A',
-        'updated: N/A',
-        '상세: /short_status 예정',
-      ],
-    };
-  }
-
-  const age = elapsedMs(macro.shortSellingFetchedAt, nowMs);
+function renderShortStatus(
+  source: MacroState['shortSellingSource'],
+  ratio: number,
+  fetchedAt: string | undefined,
+  nowMs: number,
+  via: 'macroState' | 'liveProbe',
+): ChannelStatus {
+  const age = elapsedMs(fetchedAt, nowMs);
   const ageStale = age !== null && age > SHORT_STALE_DAYS * DAY_MS;
   // KIS_ESTIMATE 는 KRX 두 경로 모두 실패한 fallback — 정확도 낮음, STALE 격상.
-  const sourceStale = macro.shortSellingSource === 'KIS_ESTIMATE';
+  const sourceStale = source === 'KIS_ESTIMATE';
   const stale = ageStale || sourceStale;
 
   return {
@@ -411,9 +392,54 @@ function diagnoseShort(macro: MacroState | null, nowMs: number): ChannelStatus {
         ? `updated ${formatAgo(age)}`
         : undefined,
     lines: [
-      `source: ${macro.shortSellingSource}`,
-      `ratio: ${macro.shortSellingRatio.toFixed(2)}%`,
+      `source: ${source}`,
+      `ratio: ${ratio.toFixed(2)}%`,
       `updated: ${formatAgo(age)}`,
+      `via: ${via}`,
+      '상세: /short_status 예정',
+    ],
+  };
+}
+
+/**
+ * ADR-0145 + PR-576 — macroState 직접 읽기 우선, 결손 시 read-only live probe.
+ *
+ * macroState 에 shortSelling* 필드가 있으면 기존 영속값을 그대로 진단한다.
+ * 없으면 `/sh` 에서 `fetchKrxShortSelling()` 을 1회 호출해 KRX_DIRECT/KRX_OTP/KIS_ESTIMATE
+ * 중 실제 가능한 경로를 확인한다. 이 live probe 는 저장하지 않으므로 cron/refresh wiring
+ * 결손과 provider 가용성을 분리해서 보여준다.
+ */
+async function diagnoseShort(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
+  if (macro?.shortSellingSource && macro.shortSellingRatio !== undefined) {
+    return renderShortStatus(
+      macro.shortSellingSource,
+      macro.shortSellingRatio,
+      macro.shortSellingFetchedAt,
+      nowMs,
+      'macroState',
+    );
+  }
+
+  try {
+    const live = await fetchKrxShortSelling();
+    if (live) {
+      const status = renderShortStatus(live.source, live.ratio, live.fetchedAt, nowMs, 'liveProbe');
+      status.lines.push('판정: macroState 결손이나 live probe 성공 — refresh wiring 필요');
+      return status;
+    }
+  } catch {
+    // fall through to missing card
+  }
+
+  return {
+    title: '공매도/대차잔고',
+    marker: 'MISSING',
+    riskReason: 'macroState 결손 + live probe 실패',
+    lines: [
+      'source: N/A',
+      'ratio: N/A',
+      'updated: N/A',
+      '판정: macroState 결손 + KRX/KIS live probe 실패',
       '상세: /short_status 예정',
     ],
   };
@@ -525,7 +551,7 @@ export async function buildSupplyHealthMessage(now: Date = new Date()): Promise<
     await diagnoseStockProgram(targets),
     await diagnoseMarketProgram(macro, nowMs),
     diagnoseFss(macro, nowMs),
-    diagnoseShort(macro, nowMs),
+    await diagnoseShort(macro, nowMs),
     diagnoseForeignerRatio(targets, nowMs),
     diagnoseMargin(macro, nowMs),
   ];
