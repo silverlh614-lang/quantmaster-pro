@@ -30,6 +30,7 @@ import './learningHistory.cmd.js';
 import './learningLoopHealth.cmd.js';
 import './learningStatus.cmd.js';
 import './marginBalance.cmd.js';
+import './marginBalanceBackfill.cmd.js';
 import './market.cmd.js';
 import './programMarket.cmd.js';
 import './programMarketProbe.cmd.js';
