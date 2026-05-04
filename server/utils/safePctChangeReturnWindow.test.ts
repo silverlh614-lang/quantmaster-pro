@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { isStaleBase, safePctChangeDetailed, STALENESS_LIMITS_BY_MODE } from './safePctChange.js';
+import { DAILY_STALE_AFTER_DAYS, RECOMMENDATION_RETURN_STALE_AFTER_DAYS } from './safePctChangeCalendarPatch.js';
 
-describe('RECOMMENDATION_RETURN calendar staleness — PR-551', () => {
+describe('Yahoo/KRX calendar staleness windows — PR-551/553', () => {
   const NOW = new Date('2026-05-04T02:00:00.000Z');
 
-  it('uses 45 calendar days for recommendation return windows', () => {
-    expect(STALENESS_LIMITS_BY_MODE.RECOMMENDATION_RETURN).toBe(45);
+  it('uses patched calendar windows for daily and recommendation returns', () => {
+    expect(STALENESS_LIMITS_BY_MODE.DAILY).toBe(DAILY_STALE_AFTER_DAYS);
+    expect(STALENESS_LIMITS_BY_MODE.RECOMMENDATION_RETURN).toBe(RECOMMENDATION_RETURN_STALE_AFTER_DAYS);
+    expect(STALENESS_LIMITS_BY_MODE.INTRADAY).toBe(1);
   });
 
   it('does not mark a 31.1-day 20-trading-day base as stale', () => {
@@ -30,10 +33,19 @@ describe('RECOMMENDATION_RETURN calendar staleness — PR-551', () => {
     expect(isStaleBase(base, 'RECOMMENDATION_RETURN', NOW)).toBe(true);
   });
 
-  it('keeps DAILY stale strict at 3 days', () => {
+  it('allows a 4.1-day DAILY base for weekend/holiday market gaps', () => {
     const base = {
       value: 100,
       asOf: new Date(NOW.getTime() - 4.1 * 24 * 60 * 60 * 1000).toISOString(),
+      source: 'YAHOO_HISTORICAL' as const,
+    };
+    expect(isStaleBase(base, 'DAILY', NOW)).toBe(false);
+  });
+
+  it('still marks a 7-day DAILY base as stale', () => {
+    const base = {
+      value: 100,
+      asOf: new Date(NOW.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
       source: 'YAHOO_HISTORICAL' as const,
     };
     expect(isStaleBase(base, 'DAILY', NOW)).toBe(true);
