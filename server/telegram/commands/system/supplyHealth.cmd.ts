@@ -1,6 +1,6 @@
 /**
  * @responsibility 수급 데이터 채널의 source/freshness/coverage/zero-filled 의심을 read-only로 진단한다.
- * PR-574~580: fake-zero/accepted-empty/provider-mismatch/unwired-collection 상태를 red failure가 아닌 neutral로 격리한다.
+ * PR-574~582: fake-zero/accepted-empty/provider-mismatch/unwired-collection 상태를 red failure가 아닌 neutral로 격리하고 provider route 를 표시한다.
  */
 
 import fs from 'fs';
@@ -10,6 +10,7 @@ import { FSS_RECORDS_FILE, MACRO_STATE_FILE } from '../../../persistence/paths.j
 import { loadForeignerRatioSeries } from '../../../persistence/foreignerRatioRepo.js';
 import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
+import { describeProviderRoute, type SupplySignalKey } from '../../../supply/supplyProviderPolicy.js';
 import { fetchKrxShortSelling } from '../../../trading/marketDataRefresh.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -25,7 +26,7 @@ const ZERO_FILLED_MIN_COUNT = 3;
 const ZERO_FILLED_RATIO_WARN = 0.8;
 
 type Marker = 'OK' | 'STALE' | 'DEGRADED' | 'MISSING' | 'NEUTRAL' | 'N/A';
-interface ChannelStatus { title: string; marker: Marker; lines: string[]; riskReason?: string; zeroSuspect?: { count: number; total: number } }
+interface ChannelStatus { key: SupplySignalKey; title: string; marker: Marker; lines: string[]; riskReason?: string; zeroSuspect?: { count: number; total: number } }
 interface FssRecordRow { date: string; passiveNetBuy: number; activeNetBuy: number }
 
 let cache: { message: string; builtAt: number } | null = null;
@@ -101,7 +102,7 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelS
   const providerMismatch = success === 0 && isInvestorFlowProviderMismatchRaw(rawDiagLine);
   const marker: Marker = providerMismatch ? 'NEUTRAL' : total === 0 || success === 0 ? 'MISSING' : zeroSuspicious ? 'DEGRADED' : 'OK';
   return {
-    title: '기관/외인 수급', marker,
+    key: 'investorFlow', title: '기관/외인 수급', marker,
     riskReason: marker === 'MISSING' ? investorFlowMissingReason(rawDiagLine, success) : zeroSuspicious ? zeroFilledRiskReason(zero, total) : undefined,
     zeroSuspect: { count: zero, total },
     lines: [
@@ -122,7 +123,7 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
   const marker: Marker = total === 0 || success === 0 ? 'MISSING' : zeroSuspicious ? 'DEGRADED' : 'OK';
   const rawDiagLine = zeroSuspicious && firstTargetCode(targets) ? formatKisRawSupplyDiagnostic(await diagnoseKisStockProgramRaw(firstTargetCode(targets) as string, 'MEDIUM')) : null;
   return {
-    title: '종목 프로그램매매', marker,
+    key: 'stockProgram', title: '종목 프로그램매매', marker,
     riskReason: marker === 'MISSING' ? '조회 성공 0건' : zeroSuspicious ? zeroFilledRiskReason(zero, total) : missing > 0 ? `missing ${missing}` : undefined,
     zeroSuspect: { count: zero, total },
     lines: ['source: KIS_API', `success: ${success}/${total}`, `missing: ${missing}`, `zero-filled 의심: ${zeroWarn(zero, total)}`, zeroSuspicious ? '판정: DEGRADED — 프로그램 수급 점수 입력 제외 권장' : '판정: OK', ...(rawDiagLine ? [rawDiagLine] : []), '상세: /program_today'],
@@ -130,31 +131,31 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
 }
 
 function renderAcceptedEmptyMarketProgram(rawDiagLine: string): ChannelStatus {
-  return { title: '시장 프로그램매매', marker: 'NEUTRAL', lines: ['source: KIS_API', 'status: ACCEPTED_EMPTY', 'latest: N/A', 'updated: N/A', '판정: KIS 정상 수락, output 없음 — 점수 입력 제외', rawDiagLine, '상세: /program_market'] };
+  return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'NEUTRAL', lines: ['source: KIS_API', 'status: ACCEPTED_EMPTY', 'latest: N/A', 'updated: N/A', '판정: KIS 정상 수락, output 없음 — 점수 입력 제외', rawDiagLine, '상세: /program_market'] };
 }
 async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
   const rawDiagLine = formatKisRawSupplyDiagnostic(await diagnoseKisMarketProgramRaw('HIGH'));
   if (isAcceptedEmptyRaw(rawDiagLine)) return renderAcceptedEmptyMarketProgram(rawDiagLine);
   const macroAge = elapsedMs(macro?.programFetchedAt, nowMs);
   if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined && macroAge !== null && macroAge <= KIS_STALE_MS) {
-    return { title: '시장 프로그램매매', marker: 'OK', lines: ['source: KIS_API', `latest: ${formatEokwon(macro.programNetBuyAmount)}`, `updated: ${formatAgo(macroAge)}`, rawDiagLine, '상세: /program_market'] };
+    return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'OK', lines: ['source: KIS_API', `latest: ${formatEokwon(macro.programNetBuyAmount)}`, `updated: ${formatAgo(macroAge)}`, rawDiagLine, '상세: /program_market'] };
   }
   try {
     const live = await fetchKisMarketProgramTrade('MEDIUM');
-    if (live) return { title: '시장 프로그램매매', marker: 'OK', lines: ['source: KIS_API', `latest: ${formatEokwon(live.programNetBuyAmount / 100_000_000)}`, 'updated: 0s ago', rawDiagLine, '상세: /program_market'] };
+    if (live) return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'OK', lines: ['source: KIS_API', `latest: ${formatEokwon(live.programNetBuyAmount / 100_000_000)}`, 'updated: 0s ago', rawDiagLine, '상세: /program_market'] };
   } catch {}
   if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined) {
     const stale = macroAge !== null && macroAge > KIS_STALE_MS;
-    return { title: '시장 프로그램매매', marker: stale ? 'STALE' : 'MISSING', riskReason: stale ? `updated ${formatAgo(macroAge)}` : 'updatedAt 없음', lines: ['source: KIS_API', `latest: ${formatEokwon(macro.programNetBuyAmount)}`, `updated: ${formatAgo(macroAge)}`, rawDiagLine, '상세: /program_market'] };
+    return { key: 'marketProgram', title: '시장 프로그램매매', marker: stale ? 'STALE' : 'MISSING', riskReason: stale ? `updated ${formatAgo(macroAge)}` : 'updatedAt 없음', lines: ['source: KIS_API', `latest: ${formatEokwon(macro.programNetBuyAmount)}`, `updated: ${formatAgo(macroAge)}`, rawDiagLine, '상세: /program_market'] };
   }
-  return { title: '시장 프로그램매매', marker: 'MISSING', riskReason: 'KIS/macroState 결손', lines: ['source: KIS_API', 'latest: N/A', 'updated: N/A', rawDiagLine, '상세: /program_market'] };
+  return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'MISSING', riskReason: 'KIS/macroState 결손', lines: ['source: KIS_API', 'latest: N/A', 'updated: N/A', rawDiagLine, '상세: /program_market'] };
 }
 
 function diagnoseFss(macro: MacroState | null, nowMs: number): ChannelStatus {
   const rows = loadFssRecordsReadOnly().sort((a, b) => a.date.localeCompare(b.date));
   if (rows.length === 0) {
     return {
-      title: 'FSS Passive/Active', marker: 'NEUTRAL',
+      key: 'fssPassiveActive', title: 'FSS Passive/Active', marker: 'NEUTRAL',
       lines: [
         'source: FSS_RECORDS', 'status: COLLECTION_EMPTY',
         `passiveActiveBoth: ${macro?.passiveActiveBoth === undefined ? 'N/A' : String(macro.passiveActiveBoth)}`,
@@ -166,7 +167,7 @@ function diagnoseFss(macro: MacroState | null, nowMs: number): ChannelStatus {
   const latest = rows[rows.length - 1].date;
   const days = elapsedDays(latest, nowMs);
   const marker: Marker = days !== null && days > FSS_STALE_DAYS ? 'STALE' : 'OK';
-  return { title: 'FSS Passive/Active', marker, riskReason: marker === 'STALE' ? `${days}영업일 stale` : undefined, lines: [`status: ${marker}`, `passiveActiveBoth: ${macro?.passiveActiveBoth === undefined ? 'N/A' : String(macro.passiveActiveBoth)}`, `updated: ${days === null ? 'N/A' : `${days}영업일 전`}`, '상세: /fss_status'] };
+  return { key: 'fssPassiveActive', title: 'FSS Passive/Active', marker, riskReason: marker === 'STALE' ? `${days}영업일 stale` : undefined, lines: [`status: ${marker}`, `passiveActiveBoth: ${macro?.passiveActiveBoth === undefined ? 'N/A' : String(macro.passiveActiveBoth)}`, `updated: ${days === null ? 'N/A' : `${days}영업일 전`}`, '상세: /fss_status'] };
 }
 
 function renderShortStatus(source: MacroState['shortSellingSource'], ratio: number, fetchedAt: string | undefined, nowMs: number, via: 'macroState' | 'liveProbe'): ChannelStatus {
@@ -174,12 +175,12 @@ function renderShortStatus(source: MacroState['shortSellingSource'], ratio: numb
   const ageStale = age !== null && age > SHORT_STALE_DAYS * DAY_MS;
   const sourceStale = source === 'KIS_ESTIMATE';
   const stale = ageStale || sourceStale;
-  return { title: '공매도/대차잔고', marker: stale ? 'STALE' : 'OK', riskReason: sourceStale ? 'KIS_ESTIMATE — KRX 폴백 실패, 정확도 ↓' : ageStale ? `updated ${formatAgo(age)}` : undefined, lines: [`source: ${source}`, `ratio: ${ratio.toFixed(2)}%`, `updated: ${formatAgo(age)}`, `via: ${via}`, '상세: /short_status 예정'] };
+  return { key: 'shortSelling', title: '공매도/대차잔고', marker: stale ? 'STALE' : 'OK', riskReason: sourceStale ? 'KIS_ESTIMATE — KRX 폴백 실패, 정확도 ↓' : ageStale ? `updated ${formatAgo(age)}` : undefined, lines: [`source: ${source}`, `ratio: ${ratio.toFixed(2)}%`, `updated: ${formatAgo(age)}`, `via: ${via}`, '상세: /short_status 예정'] };
 }
 async function diagnoseShort(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
   if (macro?.shortSellingSource && macro.shortSellingRatio !== undefined) return renderShortStatus(macro.shortSellingSource, macro.shortSellingRatio, macro.shortSellingFetchedAt, nowMs, 'macroState');
   try { const live = await fetchKrxShortSelling(); if (live) { const status = renderShortStatus(live.source, live.ratio, live.fetchedAt, nowMs, 'liveProbe'); status.lines.push('판정: macroState 결손이나 live probe 성공 — refresh wiring 필요'); return status; } } catch {}
-  return { title: '공매도/대차잔고', marker: 'NEUTRAL', lines: ['source: N/A', 'status: PROVIDER_UNAVAILABLE', 'ratio: N/A', 'updated: N/A', '판정: 현재 사용 가능한 provider 없음 — 점수 입력 제외', '대체 후보: KRX 공매도 통계 / KIND·KRX CSV·OTP / Naver 공매도 / 공공데이터포털', '상세: /short_status 예정'] };
+  return { key: 'shortSelling', title: '공매도/대차잔고', marker: 'NEUTRAL', lines: ['source: N/A', 'status: PROVIDER_UNAVAILABLE', 'ratio: N/A', 'updated: N/A', '판정: 현재 사용 가능한 provider 없음 — 점수 입력 제외', '대체 후보: KRX 공매도 통계 / KIND·KRX CSV·OTP / Naver 공매도 / 공공데이터포털', '상세: /short_status 예정'] };
 }
 
 function diagnoseForeignerRatio(targets: WatchlistEntry[], nowMs: number): ChannelStatus {
@@ -189,15 +190,15 @@ function diagnoseForeignerRatio(targets: WatchlistEntry[], nowMs: number): Chann
     seriesCount++; const days = elapsedDays(series[series.length - 1]?.date, nowMs); if (days !== null && days > TWO_DAYS) stale++;
   }
   const total = targets.length;
-  if (total > 0 && seriesCount === 0) return { title: '외인 보유율 추세', marker: 'NEUTRAL', lines: ['source: NAVER', 'status: COLLECTION_EMPTY', `series: ${seriesCount}/${total}`, `stale: ${stale}`, '판정: Naver 외인 보유율 시계열 미누적 — 점수 입력 제외', '수집 후보: aiUniverseService enrichment / Naver negative cache 해제 / 수동 warm-up', '상세: /foreigner_trend'] };
+  if (total > 0 && seriesCount === 0) return { key: 'foreignerRatioTrend', title: '외인 보유율 추세', marker: 'NEUTRAL', lines: ['source: NAVER', 'status: COLLECTION_EMPTY', `series: ${seriesCount}/${total}`, `stale: ${stale}`, '판정: Naver 외인 보유율 시계열 미누적 — 점수 입력 제외', '수집 후보: aiUniverseService enrichment / Naver negative cache 해제 / 수동 warm-up', '상세: /foreigner_trend'] };
   const marker: Marker = total === 0 ? 'MISSING' : stale > 0 ? 'STALE' : 'OK';
-  return { title: '외인 보유율 추세', marker, riskReason: marker === 'STALE' ? `stale ${stale}/${seriesCount}` : marker === 'MISSING' ? 'watchlist 없음' : undefined, lines: ['source: NAVER', `series: ${seriesCount}/${total}`, `stale: ${stale}`, '상세: /foreigner_trend'] };
+  return { key: 'foreignerRatioTrend', title: '외인 보유율 추세', marker, riskReason: marker === 'STALE' ? `stale ${stale}/${seriesCount}` : marker === 'MISSING' ? 'watchlist 없음' : undefined, lines: ['source: NAVER', `series: ${seriesCount}/${total}`, `stale: ${stale}`, '상세: /foreigner_trend'] };
 }
 
 function diagnoseMargin(macro: MacroState | null, nowMs: number): ChannelStatus {
   if (macro?.marginBalanceSource !== 'ECOS_API' || macro.marginBalance5dChange === undefined) {
     return {
-      title: '신용잔고', marker: 'NEUTRAL',
+      key: 'marginBalance', title: '신용잔고', marker: 'NEUTRAL',
       lines: [
         'source: ECOS', 'status: PROVIDER_UNAVAILABLE', 'updated: N/A',
         `reason: ${macro?.marginBalanceSource === 'NONE' ? '최근 ECOS 조회 실패' : 'macroState 결손'}`,
@@ -209,7 +210,7 @@ function diagnoseMargin(macro: MacroState | null, nowMs: number): ChannelStatus 
   }
   const age = elapsedMs(macro.marginBalanceFetchedAt, nowMs);
   const stale = age !== null && age > TWO_DAYS * DAY_MS;
-  return { title: '신용잔고', marker: stale ? 'STALE' : 'OK', riskReason: stale ? `updated ${formatAgo(age)}` : undefined, lines: ['source: ECOS', `updated: ${formatAgo(age)}`, '상세: /margin_balance'] };
+  return { key: 'marginBalance', title: '신용잔고', marker: stale ? 'STALE' : 'OK', riskReason: stale ? `updated ${formatAgo(age)}` : undefined, lines: ['source: ECOS', `updated: ${formatAgo(age)}`, '상세: /margin_balance'] };
 }
 
 function buildRiskTop3(channels: ChannelStatus[]): string[] {
@@ -227,7 +228,12 @@ function renderMessage(channels: ChannelStatus[], targetLine: string, cacheLine:
   const missing = channels.filter((c) => c.marker === 'MISSING').length;
   const risks = buildRiskTop3(channels);
   const lines = [`📊 Supply Health: ${ok}/${channels.length} OK | ${neutral} NEUTRAL | ${degraded} DEGRADED | ${stale} STALE | ${missing} MISSING`, targetLine, cacheLine, '', '⚠️ 위험 TOP 3', ...(risks.length > 0 ? risks : ['- 🟢 주요 위험 없음']), ''];
-  channels.forEach((channel, index) => { lines.push(`${index + 1}. ${markerIcon(channel.marker)} ${channel.title}`); for (const line of channel.lines) lines.push(`  ${line}`); if (index !== channels.length - 1) lines.push(''); });
+  channels.forEach((channel, index) => {
+    lines.push(`${index + 1}. ${markerIcon(channel.marker)} ${channel.title}`);
+    if (channel.marker === 'NEUTRAL') lines.push(`  route: ${describeProviderRoute(channel.key)}`);
+    for (const line of channel.lines) lines.push(`  ${line}`);
+    if (index !== channels.length - 1) lines.push('');
+  });
   const message = lines.join('\n');
   return message.length < 4096 ? message : `${message.slice(0, 4050)}\n...`;
 }
