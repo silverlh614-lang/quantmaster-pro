@@ -10,7 +10,7 @@ import {
   getKrxOpenApiStatus,
   resetKrxOpenApiCache,
 } from '../../../clients/krxOpenApi.js';
-import { runFullDiscoveryPipeline } from '../../../screener/universeScanner.js';
+import { runGuardedFullDiscoveryPipeline } from '../../../screener/guardedDiscoveryPipeline.js';
 import { escapeHtml } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -39,7 +39,15 @@ const krxScan: TelegramCommand = {
     try {
       const macroState = loadMacroState();
       const regime = getLiveRegime(macroState);
-      await runFullDiscoveryPipeline(regime, macroState);
+      const result = await runGuardedFullDiscoveryPipeline(regime, macroState);
+      if (!result.ok) {
+        await reply(
+          `🛑 <b>KRX 강제 스캔 중단</b>\n` +
+          `${escapeHtml(result.reason ?? result.status)}\n` +
+          `추천 0개가 아니라 데이터 품질 차단입니다.`,
+        );
+        return;
+      }
       const after = getKrxOpenApiStatus();
       const wl = loadWatchlist();
       await reply(
