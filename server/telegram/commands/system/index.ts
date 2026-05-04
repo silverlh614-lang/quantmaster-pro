@@ -29,6 +29,7 @@ import './learningStatus.cmd.js';
 import './marginBalance.cmd.js';
 import './market.cmd.js';
 import './programMarket.cmd.js';
+import './programMarketProbe.cmd.js';
 import './programToday.cmd.js';
 import './refreshSectorMap.cmd.js';
 import './refreshWatchlistSectors.cmd.js';
