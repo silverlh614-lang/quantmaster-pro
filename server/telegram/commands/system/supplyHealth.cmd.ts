@@ -24,7 +24,7 @@ const SHORT_STALE_DAYS = 2;
 const ZERO_FILLED_MIN_COUNT = 3;
 const ZERO_FILLED_RATIO_WARN = 0.8;
 
-type Marker = 'OK' | 'STALE' | 'DEGRADED' | 'MISSING' | 'N/A';
+type Marker = 'OK' | 'STALE' | 'DEGRADED' | 'MISSING' | 'NEUTRAL' | 'N/A';
 
 interface ChannelStatus {
   title: string;
@@ -41,6 +41,7 @@ function markerIcon(marker: Marker): string {
   if (marker === 'STALE') return '🟡';
   if (marker === 'DEGRADED') return '🟠';
   if (marker === 'MISSING') return '🔴';
+  if (marker === 'NEUTRAL') return '⚪';
   return '⚪';
 }
 
@@ -150,6 +151,10 @@ function renderInvestorFlowDecision(marker: Marker, zeroSuspicious: boolean, suc
   }
   if (zeroSuspicious) return '판정: DEGRADED — 수급 점수 입력 제외 권장';
   return '판정: OK';
+}
+
+function isAcceptedEmptyRaw(rawDiagLine: string): boolean {
+  return rawDiagLine.includes('rawDiag=MARKET_PROGRAM') && rawDiagLine.includes('zeroReason=ACCEPTED_EMPTY');
 }
 
 async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelStatus> {
@@ -272,6 +277,22 @@ async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): P
     }
   } catch {
     // Fall back to persisted state below.
+  }
+
+  if (isAcceptedEmptyRaw(rawDiagLine)) {
+    return {
+      title: '시장 프로그램매매',
+      marker: 'NEUTRAL',
+      lines: [
+        'source: KIS_API',
+        'status: ACCEPTED_EMPTY',
+        'latest: N/A',
+        'updated: N/A',
+        '판정: KIS 정상 수락, output 없음 — 점수 입력 제외',
+        rawDiagLine,
+        '상세: /program_market',
+      ],
+    };
   }
 
   if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined) {
@@ -421,7 +442,7 @@ function buildRiskTop3(channels: ChannelStatus[]): string[] {
     }
   }
   for (const channel of channels) {
-    if (channel.marker !== 'OK' && channel.marker !== 'N/A') {
+    if (channel.marker !== 'OK' && channel.marker !== 'N/A' && channel.marker !== 'NEUTRAL') {
       risks.push(`- ${markerIcon(channel.marker)} ${channel.title}: ${channel.riskReason ?? channel.marker}`);
     }
   }
@@ -435,12 +456,13 @@ function buildRiskTop3(channels: ChannelStatus[]): string[] {
 
 function renderMessage(channels: ChannelStatus[], targetLine: string, cacheLine: string): string {
   const ok = channels.filter((c) => c.marker === 'OK').length;
+  const neutral = channels.filter((c) => c.marker === 'NEUTRAL').length;
   const stale = channels.filter((c) => c.marker === 'STALE').length;
   const degraded = channels.filter((c) => c.marker === 'DEGRADED').length;
   const missing = channels.filter((c) => c.marker === 'MISSING').length;
   const risks = buildRiskTop3(channels);
   const lines: string[] = [
-    `📊 Supply Health: ${ok}/${channels.length} OK | ${degraded} DEGRADED | ${stale} STALE | ${missing} MISSING`,
+    `📊 Supply Health: ${ok}/${channels.length} OK | ${neutral} NEUTRAL | ${degraded} DEGRADED | ${stale} STALE | ${missing} MISSING`,
     targetLine,
     cacheLine,
     '',
