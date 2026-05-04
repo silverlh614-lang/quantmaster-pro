@@ -4,6 +4,9 @@
  * PR-574: KIS investor-flow rawDiag 가 `MCA00000 + output array` 이지만 투자자 순매수
  * 필드가 없는 경우는 live 장애가 아니라 endpoint/TR 목적 불일치다. fake-zero 투입을
  * 막고 PROVIDER_MISMATCH neutral 로 분리해 다음 대체 provider 작업을 명확히 한다.
+ *
+ * PR-575: 시장 프로그램매매 rawDiag 가 ACCEPTED_EMPTY 인데 live fetch null/0 객체가
+ * OK로 승격되는 경로를 차단한다. accepted-empty 는 정상 0억이 아니라 데이터 body 부재다.
  */
 
 import fs from 'fs';
@@ -267,8 +270,26 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
   };
 }
 
+function renderAcceptedEmptyMarketProgram(rawDiagLine: string): ChannelStatus {
+  return {
+    title: '시장 프로그램매매',
+    marker: 'NEUTRAL',
+    lines: [
+      'source: KIS_API',
+      'status: ACCEPTED_EMPTY',
+      'latest: N/A',
+      'updated: N/A',
+      '판정: KIS 정상 수락, output 없음 — 점수 입력 제외',
+      rawDiagLine,
+      '상세: /program_market',
+    ],
+  };
+}
+
 async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
   const rawDiagLine = formatKisRawSupplyDiagnostic(await diagnoseKisMarketProgramRaw('HIGH'));
+  if (isAcceptedEmptyRaw(rawDiagLine)) return renderAcceptedEmptyMarketProgram(rawDiagLine);
+
   const macroAge = elapsedMs(macro?.programFetchedAt, nowMs);
   if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined && macroAge !== null && macroAge <= KIS_STALE_MS) {
     return {
@@ -301,22 +322,6 @@ async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): P
     }
   } catch {
     // Fall back to persisted state below.
-  }
-
-  if (isAcceptedEmptyRaw(rawDiagLine)) {
-    return {
-      title: '시장 프로그램매매',
-      marker: 'NEUTRAL',
-      lines: [
-        'source: KIS_API',
-        'status: ACCEPTED_EMPTY',
-        'latest: N/A',
-        'updated: N/A',
-        '판정: KIS 정상 수락, output 없음 — 점수 입력 제외',
-        rawDiagLine,
-        '상세: /program_market',
-      ],
-    };
   }
 
   if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined) {

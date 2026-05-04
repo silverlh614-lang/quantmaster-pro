@@ -75,6 +75,18 @@ function pickKisOutput(data: unknown): KisOutput | undefined {
   return undefined;
 }
 
+function isAcceptedEmptyKisResponse(data: unknown): boolean {
+  const root = data as { rt_cd?: unknown; msg_cd?: unknown; output?: unknown; output1?: unknown; output2?: unknown } | null;
+  if (!root || typeof root !== 'object') return false;
+  const accepted = String(root.rt_cd ?? '') === '0' && String(root.msg_cd ?? '') === 'MCA00000';
+  if (!accepted) return false;
+  const hasEmptyOutputArray = Array.isArray(root.output) && root.output.length === 0;
+  const hasEmptyOutput1Array = Array.isArray(root.output1) && root.output1.length === 0;
+  const hasEmptyOutput2Array = Array.isArray(root.output2) && root.output2.length === 0;
+  const hasNoPickedOutput = !pickKisOutput(data);
+  return hasNoPickedOutput && (hasEmptyOutputArray || hasEmptyOutput1Array || hasEmptyOutput2Array || !('output' in root));
+}
+
 /**
  * KIS 응답 output 의 한글 약어 필드에서 첫 번째 매칭 값을 추출.
  * 미발견/파싱 실패 시 fallback (default 0).
@@ -180,6 +192,7 @@ const MARKET_PROGRAM_TRADE_PATH =
  * - output 필드 다중 키 매칭 — 한글 약어 + 영문 약어 + `_2` 변형 (ADR-0137 패턴).
  * - programArbitrageNetBuy 부재 시 null (강제 0 fallback 차단 — ADR-0136 의미 단절 정책).
  * - 일별 데이터 — output 배열 첫 요소 (당일) 또는 단일 output 객체 모두 지원.
+ * - PR-575: `MCA00000 + output: []` 는 정상 데이터 0이 아니라 accepted-empty. null 반환.
  */
 export async function fetchKisMarketProgramTrade(
   priority: KisApiPriority = 'LOW',
@@ -207,6 +220,8 @@ export async function fetchKisMarketProgramTrade(
     if (process.env.DEBUG_PROGRAM_RAW === 'true') {
       console.log('[DEBUG_PROGRAM_RAW] market', JSON.stringify(data));
     }
+
+    if (isAcceptedEmptyKisResponse(data)) return null;
 
     const out = pickKisOutput(data);
     if (!out) return null;
@@ -451,9 +466,9 @@ export async function fetchStockName(code: string): Promise<string | null> {
   if (overrides.fetchStockName) return overrides.fetchStockName(code);
   try {
     const data = await realDataKisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
-      FID_COND_MRKT_DIV_CODE: 'J',
-      FID_INPUT_ISCD: code.padStart(6, '0'),
-    });
+    FID_COND_MRKT_DIV_CODE: 'J',
+    FID_INPUT_ISCD: code.padStart(6, '0'),
+  });
     const name = (data as { output?: Record<string, string> } | null)?.output?.hts_kor_isnm?.trim();
     return name && name.length > 0 ? name : null;
   } catch { return null; }
