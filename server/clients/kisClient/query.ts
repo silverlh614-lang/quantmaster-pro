@@ -39,7 +39,12 @@ const MARKET_PROGRAM_INDEX_CODE = process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? '
  * 시장 프로그램매매 endpoint 는 시장 분류 필드가 필수다. KIS 값이 계정/문서 버전에 따라
  * 다를 수 있어 ENV 로 즉시 우회 가능하게 둔다.
  */
-const MARKET_PROGRAM_MARKET_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? 'KOSPI';
+const MARKET_PROGRAM_MARKET_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? '1';
+/**
+ * ADR-0148: PR #564 적용 후 `ERROR INPUT FIELD NOT FOUND [FID_SCTN_CLS_CODE]` 확인.
+ * section class code도 시장 프로그램매매 endpoint 필수 파라미터다.
+ */
+const MARKET_PROGRAM_SECTION_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0';
 
 type KisOutput = Record<string, string>;
 
@@ -187,6 +192,7 @@ export async function fetchKisMarketProgramTrade(
       {
         FID_COND_MRKT_DIV_CODE: MARKET_PROGRAM_DIV_CODE,
         FID_MRKT_CLS_CODE: MARKET_PROGRAM_MARKET_CLASS_CODE,
+        FID_SCTN_CLS_CODE: MARKET_PROGRAM_SECTION_CLASS_CODE,
         FID_INPUT_ISCD: MARKET_PROGRAM_INDEX_CODE,
       },
       priority,
