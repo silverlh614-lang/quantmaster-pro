@@ -23,6 +23,9 @@ const INVESTOR_FLOW_TR_ID = process.env.KIS_INVESTOR_FLOW_TR_ID ?? 'FHKST0101030
 const INVESTOR_FLOW_PATH =
   process.env.KIS_INVESTOR_FLOW_PATH
   ?? '/uapi/domestic-stock/v1/quotations/inquire-investor';
+const INVESTOR_FIELD_MISSING_LOG_TTL_MS = 10 * 60 * 1000;
+let lastInvestorFieldMissingLogAt = 0;
+let suppressedInvestorFieldMissingLogs = 0;
 
 function pickKisOutput(data: unknown): KisOutput | undefined {
   const root = data as { output?: unknown; output1?: unknown; output2?: unknown } | null;
@@ -42,6 +45,29 @@ function maybeKisNumber(out: KisOutput, keys: string[]): number | null {
     if (Number.isFinite(n)) return n;
   }
   return null;
+}
+
+function logInvestorFieldMissingOnce(code: string, out: KisOutput): void {
+  if (process.env.DEBUG_INVESTOR_FLOW_RAW !== 'true') {
+    suppressedInvestorFieldMissingLogs++;
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastInvestorFieldMissingLogAt < INVESTOR_FIELD_MISSING_LOG_TTL_MS) {
+    suppressedInvestorFieldMissingLogs++;
+    return;
+  }
+
+  console.warn('[KIS] investor flow fields missing; suppress zero fallback', {
+    code,
+    trId: INVESTOR_FLOW_TR_ID,
+    path: INVESTOR_FLOW_PATH,
+    outputKeys: Object.keys(out).slice(0, 12),
+    suppressedSinceLastLog: suppressedInvestorFieldMissingLogs,
+  });
+  lastInvestorFieldMissingLogAt = now;
+  suppressedInvestorFieldMissingLogs = 0;
 }
 
 export async function fetchKisInvestorFlow(
@@ -70,12 +96,7 @@ export async function fetchKisInvestorFlow(
     const individualNetBuy = maybeKisNumber(out, ['prsn_ntby_qty', 'INDV_NETBUY_QTY']);
 
     if (foreignNetBuy === null || institutionalNetBuy === null || individualNetBuy === null) {
-      console.warn('[KIS] investor flow fields missing; suppress zero fallback', {
-        code,
-        trId: INVESTOR_FLOW_TR_ID,
-        path: INVESTOR_FLOW_PATH,
-        outputKeys: Object.keys(out).slice(0, 12),
-      });
+      logInvestorFieldMissingOnce(code, out);
       return null;
     }
 
