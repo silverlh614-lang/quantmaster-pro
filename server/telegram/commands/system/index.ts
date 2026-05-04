@@ -45,6 +45,7 @@ import './shadowWalkForward.cmd.js';
 import './signalStatus.cmd.js';
 import './status.cmd.js';
 import './supplyHealth.cmd.js';
+import './supplyHealthForce.cmd.js';
 import './todaylog.cmd.js';
 import './twins.cmd.js';
 import './walkForward.cmd.js';
