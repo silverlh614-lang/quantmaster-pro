@@ -8,6 +8,10 @@
  * PR-568: `/pmp` 결과가 전부 `FIELD NOT FOUND [FID_COND_MRKT_DIV_CODE1]` 로
  * 막혔다. 값 후보 문제가 아니라 필드명 suffix 문제이므로 일반형/1-suffix/동시전송
  * 변형을 함께 탐색한다.
+ *
+ * PR-569: SUFFIX1 단독은 `FIELD NOT FOUND [FID_COND_MRKT_DIV_CODE]` 를 반환했다.
+ * STD 단독은 `FIELD NOT FOUND [FID_COND_MRKT_DIV_CODE1]` 였으므로 BOTH 가능성이
+ * 가장 높다. BOTH 후보를 선두로 올려 기본 `/pmp` 안에서 반드시 검증되게 한다.
  */
 
 import { realDataKisGet } from '../../../clients/kisClient/http.js';
@@ -52,7 +56,7 @@ function unique(values: string[]): string[] {
 }
 
 function buildCandidates(limit: number): ProbeCandidate[] {
-  const divModes: DivFieldMode[] = ['SUFFIX1', 'BOTH', 'STD'];
+  const divModes: DivFieldMode[] = ['BOTH', 'SUFFIX1', 'STD'];
   const conds = unique([process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J', 'J', 'U']);
   const markets = unique([process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? '1', '1', '0', 'K', 'Q', 'J']);
   const sections = unique([process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0', '0', '1', '01', '02']);
@@ -151,8 +155,8 @@ export async function buildProgramMarketProbeMessage(args: string[] = []): Promi
     `trId=${TR_ID}`,
     `path=${API_PATH}`,
     `tested=${results.length}/${candidates.length}`,
-    'div=SUFFIX1 → FID_COND_MRKT_DIV_CODE1 전송',
     'div=BOTH → FID_COND_MRKT_DIV_CODE + FID_COND_MRKT_DIV_CODE1 동시 전송',
+    'div=SUFFIX1 → FID_COND_MRKT_DIV_CODE1 전송',
     '',
   ];
 
