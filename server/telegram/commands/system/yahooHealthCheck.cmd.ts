@@ -1,10 +1,14 @@
-// @responsibility Yahoo 데이터 무결성 진단 — 워치리스트 종목 fetchYahooQuote sanity 위반 read-only 검증
+// @responsibility Yahoo 데이터 무결성 진단 — 워치리스트 종목 fetchYahooQuote sanity 위반 검증 + KIS changePercent 복구
 //
-// ADR-0091 PR-Z4 후속 — 4/28 Railway 로그 sanity 위반 폭주 (101930.KQ +443% / 036930.KQ +114%)
-// 재발 / PR-D3-D 우회 케이스 운영자 즉시 진단. 본 PR 은 *진단만* — 캐시 클리어 / 워치리스트 수정
-// 별도 PR. KIS 호출 0 (yahooQuoteAdapter SSOT + 5분 캐시 재활용). 200줄 미만.
+// ADR-0091 PR-Z4 후속. PR-549: STALE_BASE 감지에서 끝내지 않고 KIS intraday 로 복구 가능한
+// changePercent 단일 위반은 회복 상태를 표시한다. return5d/return20d stale 은 0% fallback 금지 —
+// momentum/RS 입력으로 쓰면 안 되므로 DATA_STALE_PRICE 로 분리한다.
 
 import { fetchYahooQuote, type YahooQuoteExtended } from '../../../screener/adapters/yahooQuoteAdapter.js';
+import {
+  recoverYahooStaleQuoteWithKis,
+  type YahooStaleRecoveryStatus,
+} from '../../../screener/adapters/yahooStaleRecovery.js';
 import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import { getStockByCode } from '../../../persistence/krxStockMasterRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';
@@ -26,6 +30,8 @@ export interface YahooHealthIssueDetail {
   return5d?: number;
   return20d?: number;
   issues?: Array<'changePercent' | 'return5d' | 'return20d'>;
+  recoveryStatus?: YahooStaleRecoveryStatus;
+  recoveryNote?: string;
 }
 
 export interface YahooHealthSummary {
@@ -33,6 +39,8 @@ export interface YahooHealthSummary {
   checkedCount: number;
   okCount: number;
   failCount: number;
+  recoveredCount: number;
+  staleUnrecoveredCount: number;
   details: YahooHealthIssueDetail[];
 }
 
@@ -75,12 +83,13 @@ export function classifyQuote(
   return { ...base, kinds: issues.map(classifyIssueKind), issues };
 }
 
-/** 워치리스트 → fetchYahooQuote (배치) → 결과 분류. KIS 호출 0 (yahoo SSOT 만). */
+/** 워치리스트 → fetchYahooQuote (배치) → 결과 분류 + KIS changePercent 복구. */
 export async function runYahooHealthCheck(
   options: {
     limit?: number;
     fetcher?: (symbol: string) => Promise<YahooQuoteExtended | null>;
     now?: Date;
+    recover?: boolean;
   } = {},
 ): Promise<YahooHealthSummary> {
   const limit = Math.max(1, options.limit ?? YAHOO_HEALTH_LIMIT);
@@ -89,6 +98,9 @@ export async function runYahooHealthCheck(
   const watchlist = loadWatchlist().slice(0, limit);
   const details: YahooHealthIssueDetail[] = [];
   let okCount = 0;
+  let recoveredCount = 0;
+  let staleUnrecoveredCount = 0;
+
   for (let i = 0; i < watchlist.length; i += YAHOO_HEALTH_BATCH_SIZE) {
     const batch = watchlist.slice(i, i + YAHOO_HEALTH_BATCH_SIZE);
     const results = await Promise.allSettled(
@@ -100,16 +112,46 @@ export async function runYahooHealthCheck(
     );
     for (const r of results) {
       if (r.status !== 'fulfilled') continue;
-      const detail = classifyQuote(r.value.entry, r.value.quote);
+      const { entry, quote } = r.value;
+      if (options.recover && quote?.dataQuality === 'STALE_BASE') {
+        const recovery = await recoverYahooStaleQuoteWithKis(entry.code, quote);
+        if (recovery.status === 'KIS_CHANGE_PERCENT_RECOVERED') {
+          okCount += 1;
+          recoveredCount += 1;
+          details.push({
+            code: entry.code,
+            name: entry.name,
+            symbol: resolveYahooSymbolForCode(entry.code),
+            kinds: [],
+            recoveryStatus: recovery.status,
+            recoveryNote: recovery.note,
+            changePercent: recovery.quote?.changePercent,
+            return5d: recovery.quote?.return5d,
+            return20d: recovery.quote?.return20d,
+          });
+          continue;
+        }
+        if (recovery.status === 'STALE_UNRECOVERED') staleUnrecoveredCount += 1;
+        const detail = classifyQuote(entry, quote);
+        if (detail) details.push({ ...detail, recoveryStatus: recovery.status, recoveryNote: recovery.note });
+        continue;
+      }
+
+      const detail = classifyQuote(entry, quote);
       if (detail === null) okCount += 1;
-      else details.push(detail);
+      else {
+        if (detail.kinds.some((k) => k !== 'FETCH_FAIL')) staleUnrecoveredCount += 1;
+        details.push(detail);
+      }
     }
   }
   return {
     capturedAt,
     checkedCount: watchlist.length,
     okCount,
-    failCount: details.length,
+    failCount: details.filter((d) => d.kinds.length > 0).length,
+    recoveredCount,
+    staleUnrecoveredCount,
     details,
   };
 }
@@ -131,6 +173,9 @@ function formatPct(v: number | undefined): string {
 function formatDetailLine(d: YahooHealthIssueDetail, idx: number): string {
   const sym = d.symbol ?? `${d.code}(?)`;
   const head = `${idx}. ${sym} ${d.name}`;
+  if (d.recoveryStatus === 'KIS_CHANGE_PERCENT_RECOVERED') {
+    return `${head}\n   ✅ KIS_FALLBACK_RECOVERED — changePercent ${formatPct(d.changePercent)}\n   ${d.recoveryNote ?? ''}`;
+  }
   if (d.kinds[0] === 'FETCH_FAIL') {
     return `${head}\n   FETCH_FAIL — Yahoo quote 부재 (캐시/네트워크 실패 또는 KONEX/OTHER)`;
   }
@@ -139,8 +184,8 @@ function formatDetailLine(d: YahooHealthIssueDetail, idx: number): string {
   if (d.kinds.includes('STALE_BASE_5D')) parts.push(`return5d: ${formatPct(d.return5d)}`);
   if (d.kinds.includes('STALE_BASE_20D')) parts.push(`return20d: ${formatPct(d.return20d)}`);
   if (d.kinds.includes('UNKNOWN')) parts.push('UNKNOWN — STALE_BASE marker 만, issues 부재');
-  const reason = '진단: STALE_BASE — base.asOf 30일 초과 / 분할·병합 미반영 / 가격 inversion 의심';
-  return `${head}\n   ${parts.join(' / ') || '?'}\n   ${reason}`;
+  const reason = '진단: DATA_STALE_PRICE — Yahoo base.asOf 만료 / 분할·병합 미반영 / 가격 inversion 의심';
+  return `${head}\n   ${parts.join(' / ') || '?'}\n   ${reason}${d.recoveryNote ? `\n   recovery: ${d.recoveryNote}` : ''}`;
 }
 
 export function formatYahooHealthMessage(s: YahooHealthSummary): string {
@@ -150,19 +195,21 @@ export function formatYahooHealthMessage(s: YahooHealthSummary): string {
     `📅 검증 시각: ${formatKstHm(s.capturedAt)} KST`,
     `🔍 검증 종목 수: ${s.checkedCount}개`, '',
     `✅ 정상: ${s.okCount}건`,
+    `🟢 KIS 복구: ${s.recoveredCount}건`,
     `⚠️ Sanity 위반: ${s.failCount}건`,
+    `🧊 DATA_STALE_PRICE: ${s.staleUnrecoveredCount}건`,
   ];
-  if (s.failCount > 0) {
-    L.push('', '📍 위반 상세:');
+  if (s.details.length > 0) {
+    L.push('', '📍 상세:');
     const visible = s.details.slice(0, YAHOO_HEALTH_DETAIL_LIMIT);
     visible.forEach((d, i) => L.push(formatDetailLine(d, i + 1)));
     if (s.details.length > visible.length) {
       L.push(`   외 ${s.details.length - visible.length}건 절삭됨`);
     }
     L.push('', '🎯 권장 조치:',
-      '   - yahoo 캐시 강제 재새로고침 (별도 PR)',
-      '   - KIS API 가격으로 cross-check',
-      '   - 분할/병합 발생 종목 일시 제외');
+      '   - changePercent 단일 stale: KIS fallback 회복 가능',
+      '   - return5d/return20d stale: 0% 대체 금지, momentum/RS 제외',
+      '   - 반복 종목은 Yahoo symbol / corporate action / 캐시 경로 점검');
   } else if (s.checkedCount === 0) {
     L.push('', 'ℹ️ 워치리스트가 비어있어 검증 대상 0건.');
   } else {
@@ -178,12 +225,12 @@ const yahooHealthCheck: TelegramCommand = {
   visibility: 'ADMIN',
   riskLevel: 0,
   description:
-    '워치리스트 종목의 Yahoo 데이터 sanity 검증 — STALE_BASE / 가격 inversion / 분할/병합 미반영 진단 (read-only).',
+    '워치리스트 종목의 Yahoo 데이터 sanity 검증 — STALE_BASE / KIS fallback / DATA_STALE_PRICE 진단.',
   usage: '/yahoo_health   — alias: /yh',
   async execute({ reply }) {
     try {
-      await reply('🩺 Yahoo Health Check 시작 — 워치리스트 검증 중...');
-      const summary = await runYahooHealthCheck();
+      await reply('🩺 Yahoo Health Check 시작 — 워치리스트 검증 + KIS fallback 진단 중...');
+      const summary = await runYahooHealthCheck({ recover: true });
       await reply(formatYahooHealthMessage(summary));
     } catch (e) {
       console.error('[TelegramBot] /yahoo_health 실패:', e);
