@@ -8,6 +8,7 @@
  * PR-594: providerTried 요약에 reason 을 포함해 Telegram /sh 에서 진단 문자열이 실제로 보이게 한다.
  * PR-595: KRX 공개 bld 가 전일자 전체 empty rows 를 반환하면 단순 종목 미매칭이 아니라
  * provider upstream unavailable 로 분류한다.
+ * PR-596: 장외/주말에는 KRX public investor provider 를 호출하지 않고 OFF_HOURS 로 스킵한다.
  */
 
 import { fetchKisInvestorFlow } from '../clients/kisClient/index.js';
@@ -33,6 +34,7 @@ export type InvestorFlowAttemptStatus =
   | 'CACHE_EMPTY'
   | 'PROVIDER_MISMATCH'
   | 'NO_OUTPUT'
+  | 'OFF_HOURS'
   | 'ERROR';
 
 export interface InvestorFlowAttempt {
@@ -53,11 +55,14 @@ interface KrxLookupResult {
   data: InvestorFlowSample | null;
   diagnostic: string;
   unavailable: boolean;
+  offHours: boolean;
 }
 
 const KRX_INVESTOR_FLOW_DAYS = 5;
 const KRX_INVESTOR_FLOW_MIN_SAMPLE = 1;
 const ATTEMPT_REASON_MAX_LEN = 220;
+const KRX_INVESTOR_CALL_START_MIN = 9 * 60;
+const KRX_INVESTOR_CALL_END_MIN = 15 * 60 + 30;
 
 function hasRealInvestorFields(value: unknown): value is { foreignNetBuy: number; institutionalNetBuy: number; individualNetBuy: number } {
   if (!value || typeof value !== 'object') return false;
@@ -68,6 +73,20 @@ function hasRealInvestorFields(value: unknown): value is { foreignNetBuy: number
 function normalizeCode(code: string): string {
   const digits = code.replace(/[^0-9]/g, '');
   return digits.length >= 6 ? digits.slice(-6) : digits.padStart(6, '0');
+}
+
+function nowKstParts(now = new Date()): { dow: number; minutes: number; label: string } {
+  const kst = new Date(now.getTime() + 9 * 60 * 60_000);
+  const dow = kst.getUTCDay();
+  const hh = kst.getUTCHours();
+  const mm = kst.getUTCMinutes();
+  return { dow, minutes: hh * 60 + mm, label: `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} KST` };
+}
+
+function isKrxInvestorCallWindow(now = new Date()): boolean {
+  const kst = nowKstParts(now);
+  if (kst.dow === 0 || kst.dow === 6) return false;
+  return kst.minutes >= KRX_INVESTOR_CALL_START_MIN && kst.minutes <= KRX_INVESTOR_CALL_END_MIN;
 }
 
 function previousBusinessDayYmd(now: Date, offset: number): string {
@@ -99,7 +118,17 @@ function sampleCodes(codes: string[]): string {
 
 async function fetchKrxInvestorFlow(code: string): Promise<KrxLookupResult> {
   const safeCode = normalizeCode(code);
-  if (!/^\d{6}$/.test(safeCode)) return { data: null, diagnostic: `invalid_code:${code}`, unavailable: false };
+  if (!/^\d{6}$/.test(safeCode)) return { data: null, diagnostic: `invalid_code:${code}`, unavailable: false, offHours: false };
+
+  if (!isKrxInvestorCallWindow()) {
+    const kst = nowKstParts();
+    return {
+      data: null,
+      diagnostic: `code=${safeCode};window=09:00-15:30 KST;now=${kst.label};reason=KRX_PUBLIC_CALL_SKIPPED_OFF_HOURS`,
+      unavailable: false,
+      offHours: true,
+    };
+  }
 
   let foreignNetBuy = 0;
   let institutionalNetBuy = 0;
@@ -143,7 +172,7 @@ async function fetchKrxInvestorFlow(code: string): Promise<KrxLookupResult> {
     `upstream=${upstream}`,
   ].join(';');
 
-  if (sampleSize < KRX_INVESTOR_FLOW_MIN_SAMPLE || !latestDate) return { data: null, diagnostic, unavailable: allDatesEmpty };
+  if (sampleSize < KRX_INVESTOR_FLOW_MIN_SAMPLE || !latestDate) return { data: null, diagnostic, unavailable: allDatesEmpty, offHours: false };
 
   const sample: InvestorFlowSample = {
     stockCode: safeCode,
@@ -164,7 +193,7 @@ async function fetchKrxInvestorFlow(code: string): Promise<KrxLookupResult> {
     fetchedAt: sample.fetchedAt,
   });
 
-  return { data: sample, diagnostic, unavailable: false };
+  return { data: sample, diagnostic, unavailable: false, offHours: false };
 }
 
 async function fetchNaverInvestorTrend(_code: string): Promise<InvestorFlowSample | null> {
@@ -201,7 +230,7 @@ export async function fetchInvestorFlowWithPolicy(code: string): Promise<Investo
       pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'OK', krx.diagnostic);
       return { stockCode: code, data: krx.data, attempts, status: 'OK', source: 'KRX_INVESTOR_FLOW' };
     }
-    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', krx.unavailable ? 'ERROR' : 'NO_OUTPUT', krx.diagnostic);
+    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', krx.offHours ? 'OFF_HOURS' : krx.unavailable ? 'ERROR' : 'NO_OUTPUT', krx.diagnostic);
   } catch (err) {
     pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'ERROR', err instanceof Error ? err.message : String(err));
   }
