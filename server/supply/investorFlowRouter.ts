@@ -2,11 +2,12 @@
  * @responsibility 기관/외인 수급을 provider policy 순서대로 조회하는 안전 라우터.
  *
  * PR-584: KIS 를 기관/외인 수급 primary 에서 제외하고 KRX/Naver/cache 우선 라우터를 만든다.
- * 현재 PR 은 skeleton 단계다. KRX/Naver/cache 실제 수집기가 연결되기 전까지는 NOT_WIRED/CACHE_EMPTY 로
- * 안전 반환하고, KIS 는 diagnostic 으로만 호출한다. 실데이터 없이 fake-zero 를 만들지 않는다.
+ * PR-585: CACHE provider 를 실제 영속 cache 로 연결한다. KRX/Naver 는 아직 NOT_WIRED 이며,
+ * KIS 는 diagnostic 으로만 호출한다. 실데이터 없이 fake-zero 를 만들지 않는다.
  */
 
 import { fetchKisInvestorFlow } from '../clients/kisClient/index.js';
+import { loadInvestorFlowCache as loadInvestorFlowCacheFromRepo } from '../persistence/investorFlowCacheRepo.js';
 import type { SupplyProvider } from './supplyProviderPolicy.js';
 
 export interface InvestorFlowSample {
@@ -47,18 +48,17 @@ function hasRealInvestorFields(value: unknown): value is { foreignNetBuy: number
 }
 
 async function fetchKrxInvestorFlow(_code: string): Promise<InvestorFlowSample | null> {
-  // TODO(PR-585): wire KRX investor-by-stock/provider endpoint or CSV/OTP collector.
+  // TODO(PR-586): wire KRX investor-by-stock/provider endpoint or CSV/OTP collector.
   return null;
 }
 
 async function fetchNaverInvestorTrend(_code: string): Promise<InvestorFlowSample | null> {
-  // TODO(PR-586): wire Naver investor trend parser with semantic field validation.
+  // TODO(PR-587): wire Naver investor trend parser with semantic field validation.
   return null;
 }
 
-async function loadInvestorFlowCache(_code: string): Promise<InvestorFlowSample | null> {
-  // TODO(PR-587): read same-day/previous-valid investor-flow cache with confidence decay.
-  return null;
+async function loadInvestorFlowCache(code: string): Promise<InvestorFlowSample | null> {
+  return loadInvestorFlowCacheFromRepo(code);
 }
 
 function pushAttempt(attempts: InvestorFlowAttempt[], provider: SupplyProvider, status: InvestorFlowAttemptStatus, reason?: string): void {
