@@ -12,6 +12,10 @@
  * PR-569: SUFFIX1 단독은 `FIELD NOT FOUND [FID_COND_MRKT_DIV_CODE]` 를 반환했다.
  * STD 단독은 `FIELD NOT FOUND [FID_COND_MRKT_DIV_CODE1]` 였으므로 BOTH 가능성이
  * 가장 높다. BOTH 후보를 선두로 올려 기본 `/pmp` 안에서 반드시 검증되게 한다.
+ *
+ * PR-570: 텔레그램 출력이 최근 결과만 보여 cond=J 후보의 실패 원인을 숨겼다.
+ * 첫 결과/최근 결과/cond별·msg별 요약/가장 진전된 후보를 함께 출력해 다음 원인을
+ * 한 번에 식별한다.
  */
 
 import { realDataKisGet } from '../../../clients/kisClient/http.js';
@@ -57,7 +61,7 @@ function unique(values: string[]): string[] {
 
 function buildCandidates(limit: number): ProbeCandidate[] {
   const divModes: DivFieldMode[] = ['BOTH', 'SUFFIX1', 'STD'];
-  const conds = unique([process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J', 'J', 'U']);
+  const conds = unique(['J', process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J', 'U']);
   const markets = unique([process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? '1', '1', '0', 'K', 'Q', 'J']);
   const sections = unique([process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0', '0', '1', '01', '02']);
   const inputs = unique([process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? '0001', '0001', '0000', '']);
@@ -130,13 +134,37 @@ async function probeOne(candidate: ProbeCandidate): Promise<ProbeResult> {
 
 function shortMsg(msg: string): string {
   if (!msg) return 'NO_MSG';
-  return msg.length > 72 ? `${msg.slice(0, 69)}...` : msg;
+  return msg.length > 64 ? `${msg.slice(0, 61)}...` : msg;
 }
 
 function renderResultLine(index: number, result: ProbeResult): string {
   const c = result.candidate;
   const status = result.success ? '✅' : result.rtCd === '0' ? '🟡' : '❌';
-  return `${index}. ${status} div=${c.divMode} cond=${c.cond} mrkt=${c.market} sctn=${c.section} iscd=${c.input || 'OMIT'} | ${result.msgCd || 'NO_CD'} ${shortMsg(result.msg1)} | path=${result.outputPath} keys=${result.outputKeys.join('|') || 'NONE'}`;
+  return `${index}. ${status} ${c.divMode} c=${c.cond} m=${c.market} s=${c.section} i=${c.input || 'OMIT'} | ${result.msgCd || 'NO_CD'} ${shortMsg(result.msg1)} | ${result.outputPath} ${result.outputKeys.join('|') || 'NONE'}`;
+}
+
+function summarizeBy<T extends string>(results: ProbeResult[], keyFn: (r: ProbeResult) => T): string[] {
+  const buckets = new Map<T, number>();
+  for (const result of results) buckets.set(keyFn(result), (buckets.get(keyFn(result)) ?? 0) + 1);
+  return [...buckets.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([key, count]) => `- ${key}: ${count}`);
+}
+
+function progressScore(result: ProbeResult): number {
+  if (result.success) return 100;
+  if (result.outputPath !== 'NONE') return 90;
+  if (result.rtCd === '0') return 80;
+  const msg = result.msg1;
+  if (msg.includes('FIELD NOT FOUND')) return 10;
+  if (msg.includes('INVALID INPUT_FILED_SIZE') || msg.includes('INVALID INPUT_FIELD_SIZE')) return 30;
+  if (msg.includes('INVALID')) return 25;
+  return 15;
+}
+
+function bestProgress(results: ProbeResult[]): ProbeResult | undefined {
+  return [...results].sort((a, b) => progressScore(b) - progressScore(a))[0];
 }
 
 export async function buildProgramMarketProbeMessage(args: string[] = []): Promise<string> {
@@ -150,13 +178,15 @@ export async function buildProgramMarketProbeMessage(args: string[] = []): Promi
   }
 
   const best = results.find((r) => r.success);
+  const progressed = bestProgress(results);
   const lines: string[] = [
     '🧪 KIS 시장 프로그램매매 파라미터 Probe',
     `trId=${TR_ID}`,
     `path=${API_PATH}`,
     `tested=${results.length}/${candidates.length}`,
+    `envCond=${process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'unset'} / envMrkt=${process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? 'unset'} / envSctn=${process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? 'unset'} / envIscd=${process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? 'unset'}`,
     'div=BOTH → FID_COND_MRKT_DIV_CODE + FID_COND_MRKT_DIV_CODE1 동시 전송',
-    'div=SUFFIX1 → FID_COND_MRKT_DIV_CODE1 전송',
+    'cond 후보는 J를 ENV 값보다 먼저 테스트',
     '',
   ];
 
@@ -166,11 +196,20 @@ export async function buildProgramMarketProbeMessage(args: string[] = []): Promi
     lines.push('');
   } else {
     lines.push('🎯 BEST CANDIDATE: 없음');
+    if (progressed) lines.push(`최진전 후보: ${renderResultLine(1, progressed)}`);
     lines.push('');
   }
 
+  lines.push('📊 cond 요약');
+  lines.push(...summarizeBy(results, (r) => `cond=${r.candidate.cond}/${r.msgCd || 'NO_CD'}`));
+  lines.push('📊 msg 요약');
+  lines.push(...summarizeBy(results, (r) => `${r.msgCd || 'NO_CD'} ${shortMsg(r.msg1)}`));
+  lines.push('');
+
+  lines.push('처음 결과');
+  results.slice(0, 8).forEach((result, idx) => lines.push(renderResultLine(idx + 1, result)));
   lines.push('최근 결과');
-  results.slice(-12).forEach((result, idx) => lines.push(renderResultLine(idx + 1, result)));
+  results.slice(-8).forEach((result, idx) => lines.push(renderResultLine(idx + 1, result)));
   lines.push('');
   lines.push('판정: ✅=output 확보 / 🟡=rt_cd 0이지만 output 없음 / ❌=KIS 파라미터 오류');
 
