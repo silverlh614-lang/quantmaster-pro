@@ -4,10 +4,12 @@
  * PR-586: KRX/Naver 실제 collector 연결 전, cache 경로가 /sh 를 초록으로 바꿀 수 있는지 검증하는
  * 관리자 전용 warm-up 명령. fake-zero 방지를 위해 명시 입력값만 저장한다.
  * PR-589: 여러 종목을 한 번에 seed 하는 bulk 명령을 추가해 운영 피로도를 줄인다.
+ * PR-590: stage2Score 상위 10개 중 cache 미보유 종목의 /ifsb 템플릿을 자동 생성한다.
  */
 
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
+import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import {
   clearInvestorFlowCache,
   countInvestorFlowCacheCodes,
@@ -17,6 +19,8 @@ import {
   upsertInvestorFlowCache,
   type InvestorFlowCacheRow,
 } from '../../../persistence/investorFlowCacheRepo.js';
+
+const DEFAULT_TEMPLATE_LIMIT = 10;
 
 interface ParsedSeedRow {
   code: string;
@@ -58,12 +62,14 @@ function usage(): string {
     '사용법:',
     '/investor_flow_seed <종목코드> <외인순매수> <기관순매수> <개인순매수> [YYYY-MM-DD]',
     '/investor_flow_seed_bulk <code> <foreign> <institution> <individual>; <code> <foreign> <institution> <individual>; ...',
+    '/investor_flow_seed_template [limit]',
     '/investor_flow_cache [종목코드]',
     '/investor_flow_cache_clear [종목코드]',
     '',
     '예:',
     '/investor_flow_seed 041910 1000000 500000 -1500000',
     '/ifsb 041910 1000000 500000 -1500000; 045390 -200000 800000 -600000',
+    '/ifst 10',
   ].join('\n');
 }
 
@@ -98,6 +104,19 @@ function splitBulkRows(args: string[]): string[][] {
     .map((row) => row.trim())
     .filter(Boolean)
     .map((row) => row.replace(/,/g, ' ').split(/\s+/g).filter(Boolean));
+}
+
+function selectTopWatchlist(limit: number): WatchlistEntry[] {
+  return [...loadWatchlist()]
+    .sort((a, b) => Number((b as any).stage2Score ?? b.gateScore ?? 0) - Number((a as any).stage2Score ?? a.gateScore ?? 0))
+    .slice(0, limit);
+}
+
+function placeholderFor(index: number): { foreignNetBuy: number; institutionalNetBuy: number; individualNetBuy: number } {
+  // fake-zero 방지용 non-zero 템플릿. 운영자가 실제값으로 바꾸기 쉽도록 규칙적인 작은 값 사용.
+  const foreignNetBuy = (index % 2 === 0 ? 1 : -1) * (100_000 + index * 10_000);
+  const institutionalNetBuy = (index % 3 === 0 ? 1 : -1) * (200_000 + index * 10_000);
+  return { foreignNetBuy, institutionalNetBuy, individualNetBuy: -(foreignNetBuy + institutionalNetBuy) };
 }
 
 export async function buildInvestorFlowSeedMessage(args: string[]): Promise<string> {
@@ -152,6 +171,27 @@ export async function buildInvestorFlowBulkSeedMessage(args: string[]): Promise<
   return lines.join('\n');
 }
 
+export async function buildInvestorFlowSeedTemplateMessage(args: string[]): Promise<string> {
+  const requested = Number.parseInt(args[0] ?? String(DEFAULT_TEMPLATE_LIMIT), 10);
+  const limit = Number.isFinite(requested) ? Math.max(1, Math.min(20, requested)) : DEFAULT_TEMPLATE_LIMIT;
+  const top = selectTopWatchlist(limit);
+  const missing = top.filter((entry) => !loadInvestorFlowCache(entry.code));
+  if (missing.length === 0) {
+    return `✅ stage2Score 상위 ${top.length}개 모두 investor-flow cache 존재\n다음 확인: /sh`;
+  }
+  const rows = missing.map((entry, index) => {
+    const p = placeholderFor(index);
+    return `${entry.code} ${p.foreignNetBuy} ${p.institutionalNetBuy} ${p.individualNetBuy}`;
+  });
+  return [
+    '🧩 기관/외인 수급 missing seed 템플릿',
+    `top=${top.length} missing=${missing.length}`,
+    '주의: 아래 값은 non-zero 임시값입니다. 실제 수급값으로 교체 권장.',
+    '',
+    `/ifsb ${rows.join('; ')}`,
+  ].join('\n');
+}
+
 export async function buildInvestorFlowCacheMessage(args: string[]): Promise<string> {
   const code = args[0] ? normalizeCode(args[0]) : undefined;
   return renderRows(listInvestorFlowCacheRows(code), code ? `기관/외인 수급 cache ${code}` : '기관/외인 수급 cache');
@@ -191,6 +231,20 @@ const investorFlowBulkSeed: TelegramCommand = {
   },
 };
 
+const investorFlowSeedTemplate: TelegramCommand = {
+  name: '/investor_flow_seed_template',
+  aliases: ['/ifst'],
+  category: 'SYS',
+  visibility: 'ADMIN',
+  riskLevel: 0,
+  description: 'stage2Score 상위 종목 중 investor-flow cache 미보유 seed 템플릿 생성',
+  usage: '/investor_flow_seed_template [limit]',
+  async execute({ args, reply }) {
+    try { await reply(await buildInvestorFlowSeedTemplateMessage(args)); }
+    catch (err) { console.error('[investorFlowSeedTemplate.cmd] failed', err); await reply('❌ investor flow seed template 실패 — 서버 로그 확인 필요'); }
+  },
+};
+
 const investorFlowCache: TelegramCommand = {
   name: '/investor_flow_cache',
   aliases: ['/ifc'],
@@ -221,6 +275,7 @@ const investorFlowCacheClear: TelegramCommand = {
 
 commandRegistry.register(investorFlowSeed);
 commandRegistry.register(investorFlowBulkSeed);
+commandRegistry.register(investorFlowSeedTemplate);
 commandRegistry.register(investorFlowCache);
 commandRegistry.register(investorFlowCacheClear);
 
