@@ -1,5 +1,5 @@
 // @responsibility index 텔레그램 모듈
-// @responsibility: commands/system/* 13개 .cmd.ts 파일을 로드해 commandRegistry 자동 등록 트리거.
+// @responsibility: commands/system/* .cmd.ts 파일을 로드해 commandRegistry 자동 등록 트리거.
 //
 // ADR-0017 §Stage 2 Phase A — 본 파일을 import 하기만 해도 read-only 명령들이
 // commandRegistry 에 등록된다. 새 read-only 명령 추가 시 파일을 떨구고 본 barrel 에
@@ -20,6 +20,7 @@ import './gateAudit.cmd.js';
 import './ghostForceRun.cmd.js';
 import './health.cmd.js';
 import './healthLoopStatus.cmd.js';
+import './investorFlowCache.cmd.js';
 import './krxCsvProbe.cmd.js';
 import './krxMasterStatus.cmd.js';
 import './krxMasterRefresh.cmd.js';
