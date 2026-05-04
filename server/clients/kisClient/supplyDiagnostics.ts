@@ -36,6 +36,8 @@ const MARKET_PROGRAM_TRADE_TR_ID = process.env.KIS_MARKET_PROGRAM_TRADE_TR_ID ??
 const MARKET_PROGRAM_TRADE_PATH =
   process.env.KIS_MARKET_PROGRAM_TRADE_PATH
   ?? '/uapi/domestic-stock/v1/quotations/comp-program-trade-today';
+const MARKET_PROGRAM_DIV_CODE = process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J';
+const MARKET_PROGRAM_INDEX_CODE = process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? '0001';
 
 function rootKeys(data: unknown): string[] {
   return data && typeof data === 'object' ? Object.keys(data as Record<string, unknown>).slice(0, 20) : [];
@@ -243,14 +245,14 @@ export async function diagnoseKisMarketProgramRaw(
   priority: KisApiPriority = 'LOW',
 ): Promise<KisRawSupplyDiagnostic> {
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) {
-    return fail('MARKET_PROGRAM', '0001', MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, 'FETCH_FAIL', 'KIS_APP_KEY missing');
+    return fail('MARKET_PROGRAM', MARKET_PROGRAM_INDEX_CODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, 'FETCH_FAIL', 'KIS_APP_KEY missing');
   }
   try {
     const data = await realDataKisGet(MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, {
-      FID_COND_MRKT_DIV_CODE: 'U',
-      FID_INPUT_ISCD: '0001',
+      FID_COND_MRKT_DIV_CODE: MARKET_PROGRAM_DIV_CODE,
+      FID_INPUT_ISCD: MARKET_PROGRAM_INDEX_CODE,
     }, priority);
-    if (!data) return failNullResponse('MARKET_PROGRAM', '0001', MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH);
+    if (!data) return failNullResponse('MARKET_PROGRAM', MARKET_PROGRAM_INDEX_CODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH);
     const { path: outputPath, out } = firstOutput(data);
     const parsed = {
       programNetBuyQty: parseNum(out, ['prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY']),
@@ -259,7 +261,7 @@ export async function diagnoseKisMarketProgramRaw(
     };
     return {
       kind: 'MARKET_PROGRAM',
-      code: '0001',
+      code: MARKET_PROGRAM_INDEX_CODE,
       ok: Boolean(out),
       trId: MARKET_PROGRAM_TRADE_TR_ID,
       path: MARKET_PROGRAM_TRADE_PATH,
@@ -272,6 +274,6 @@ export async function diagnoseKisMarketProgramRaw(
       rootSample: pickRootSample(data),
     };
   } catch (e) {
-    return fail('MARKET_PROGRAM', '0001', MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, 'FETCH_FAIL', e instanceof Error ? e.message : String(e));
+    return fail('MARKET_PROGRAM', MARKET_PROGRAM_INDEX_CODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, 'FETCH_FAIL', e instanceof Error ? e.message : String(e));
   }
 }

@@ -28,6 +28,13 @@ const STOCK_PROGRAM_TRADE_PATH =
   process.env.KIS_STOCK_PROGRAM_TRADE_PATH
   ?? '/uapi/domestic-stock/v1/quotations/program-trade-by-stock';
 
+/**
+ * ADR-0146: comp-program-trade-today 의 시장구분코드는 `U` 가 아니라 국내주식 공통값 `J`.
+ * `/sh` rawDiag 에서 `msg_cd=OPSQ2001 ERROR INVALID FID_COND_MRKT_DIV_CODE` 로 확인됨.
+ */
+const MARKET_PROGRAM_DIV_CODE = process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J';
+const MARKET_PROGRAM_INDEX_CODE = process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? '0001';
+
 type KisOutput = Record<string, string>;
 
 /**
@@ -172,8 +179,8 @@ export async function fetchKisMarketProgramTrade(
       MARKET_PROGRAM_TRADE_TR_ID,
       MARKET_PROGRAM_TRADE_PATH,
       {
-        FID_COND_MRKT_DIV_CODE: 'U',  // U = 시장 전체 (J = 종목)
-        FID_INPUT_ISCD: '0001',       // 0001 = 코스피
+        FID_COND_MRKT_DIV_CODE: MARKET_PROGRAM_DIV_CODE,
+        FID_INPUT_ISCD: MARKET_PROGRAM_INDEX_CODE,
       },
       priority,
     );
@@ -367,7 +374,7 @@ export async function fetchKisPrevClose(stockCode: string): Promise<PrevClose | 
     const ymd = latest?.stck_bsop_date ?? '';
     if (close > 0 && /^\d{8}$/.test(ymd)) {
       const tradingDate = `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
-      return { stockCode: code, prevClose: close, tradingDate, fetchedAt: nowIso };
+      return { stockCode: code, prevClose, tradingDate, fetchedAt: nowIso };
     }
   } catch (err) {
     console.warn(
