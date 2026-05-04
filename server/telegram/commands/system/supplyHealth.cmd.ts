@@ -205,12 +205,12 @@ function diagnoseForeignerRatio(targets: WatchlistEntry[], nowMs: number): Chann
 }
 
 function diagnoseMargin(macro: MacroState | null, nowMs: number): ChannelStatus {
-  if (macro?.marginBalanceSource !== 'ECOS_API' || macro.marginBalance5dChange === undefined) {
-    return { key: 'marginBalance', title: '신용잔고', marker: 'NEUTRAL', lines: ['source: ECOS', 'status: PROVIDER_UNAVAILABLE', 'updated: N/A', `reason: ${macro?.marginBalanceSource === 'NONE' ? '최근 ECOS 조회 실패' : 'macroState 결손'}`, '판정: provider/wiring 미확정 — 점수 제외', '대체: KRX / 금투협 / ECOS 재시도 / CACHE', '상세: /margin_balance'] };
+  if (!macro?.marginBalanceSource || macro.marginBalance5dChange === undefined) {
+    return { key: 'marginBalance', title: '신용잔고', marker: 'NEUTRAL', lines: ['source: ECOS', 'status: PROVIDER_UNAVAILABLE', 'updated: N/A', 'reason: macroState 결손', '판정: provider/wiring 미확정 — 점수 제외', '대체: KRX / 금투협 / ECOS 재시도 / CACHE', '상세: /margin_balance'] };
   }
   const age = elapsedMs(macro.marginBalanceFetchedAt, nowMs);
   const stale = age !== null && age > TWO_DAYS * DAY_MS;
-  return { key: 'marginBalance', title: '신용잔고', marker: stale ? 'STALE' : 'OK', riskReason: stale ? `updated ${formatAgo(age)}` : undefined, lines: ['source: ECOS', `updated: ${formatAgo(age)}`, '상세: /margin_balance'] };
+  return { key: 'marginBalance', title: '신용잔고', marker: stale ? 'STALE' : 'OK', riskReason: stale ? `updated ${formatAgo(age)}` : undefined, lines: [`source: ${macro.marginBalanceSource}`, `change5d: ${macro.marginBalance5dChange.toFixed(2)}%`, `updated: ${formatAgo(age)}`, 'via: macroState', '상세: /margin_balance'] };
 }
 
 function buildRiskTop3(channels: ChannelStatus[]): string[] {
