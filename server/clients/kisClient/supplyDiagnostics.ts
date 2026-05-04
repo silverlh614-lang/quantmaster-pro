@@ -38,7 +38,8 @@ const MARKET_PROGRAM_TRADE_PATH =
   ?? '/uapi/domestic-stock/v1/quotations/comp-program-trade-today';
 const MARKET_PROGRAM_DIV_CODE = process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J';
 const MARKET_PROGRAM_INDEX_CODE = process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? '0001';
-const MARKET_PROGRAM_MARKET_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? 'KOSPI';
+const MARKET_PROGRAM_MARKET_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? '1';
+const MARKET_PROGRAM_SECTION_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0';
 
 function rootKeys(data: unknown): string[] {
   return data && typeof data === 'object' ? Object.keys(data as Record<string, unknown>).slice(0, 20) : [];
@@ -252,6 +253,7 @@ export async function diagnoseKisMarketProgramRaw(
     const data = await realDataKisGet(MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, {
       FID_COND_MRKT_DIV_CODE: MARKET_PROGRAM_DIV_CODE,
       FID_MRKT_CLS_CODE: MARKET_PROGRAM_MARKET_CLASS_CODE,
+      FID_SCTN_CLS_CODE: MARKET_PROGRAM_SECTION_CLASS_CODE,
       FID_INPUT_ISCD: MARKET_PROGRAM_INDEX_CODE,
     }, priority);
     if (!data) return failNullResponse('MARKET_PROGRAM', MARKET_PROGRAM_INDEX_CODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH);
