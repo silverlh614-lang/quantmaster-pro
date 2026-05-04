@@ -2,9 +2,9 @@
  * @responsibility 기관/외인 수급을 provider policy 순서대로 조회하는 안전 라우터.
  *
  * PR-584: KIS 를 기관/외인 수급 primary 에서 제외하고 KRX/Naver/cache 우선 라우터를 만든다.
- * PR-585: CACHE provider 를 실제 영속 cache 로 연결한다. KRX/Naver 는 아직 NOT_WIRED 이며,
- * KIS 는 diagnostic 으로만 호출한다. 실데이터 없이 fake-zero 를 만들지 않는다.
+ * PR-585: CACHE provider 를 실제 영속 cache 로 연결한다.
  * PR-592: 기존 KRX `fetchInvestorTrading` 공개 통계 client 를 KRX_INVESTOR_FLOW provider 로 연결한다.
+ * PR-593: KRX no-output 원인을 date/rowCount/sampleCodes 진단 문자열로 노출한다.
  */
 
 import { fetchKisInvestorFlow } from '../clients/kisClient/index.js';
@@ -46,6 +46,11 @@ export interface InvestorFlowRouteResult {
   source: SupplyProvider | null;
 }
 
+interface KrxLookupResult {
+  data: InvestorFlowSample | null;
+  diagnostic: string;
+}
+
 const KRX_INVESTOR_FLOW_DAYS = 5;
 const KRX_INVESTOR_FLOW_MIN_SAMPLE = 1;
 
@@ -56,7 +61,8 @@ function hasRealInvestorFields(value: unknown): value is { foreignNetBuy: number
 }
 
 function normalizeCode(code: string): string {
-  return code.replace(/[^0-9]/g, '').slice(0, 6).padStart(6, '0');
+  const digits = code.replace(/[^0-9]/g, '');
+  return digits.length >= 6 ? digits.slice(-6) : digits.padStart(6, '0');
 }
 
 function previousBusinessDayYmd(now: Date, offset: number): string {
@@ -82,21 +88,36 @@ function ymdToDate(ymd: string): string {
   return `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
 }
 
-async function fetchKrxInvestorFlow(code: string): Promise<InvestorFlowSample | null> {
+function sampleCodes(codes: string[]): string {
+  return codes.length > 0 ? codes.slice(0, 6).join(',') : 'NONE';
+}
+
+async function fetchKrxInvestorFlow(code: string): Promise<KrxLookupResult> {
   const safeCode = normalizeCode(code);
-  if (!/^\d{6}$/.test(safeCode)) return null;
+  if (!/^\d{6}$/.test(safeCode)) return { data: null, diagnostic: `invalid_code:${code}` };
 
   let foreignNetBuy = 0;
   let institutionalNetBuy = 0;
   let individualNetBuy = 0;
   let sampleSize = 0;
   let latestDate: string | null = null;
+  let totalRows = 0;
+  const datesTried: string[] = [];
+  const sampleCodeSet = new Set<string>();
+  const emptyDates: string[] = [];
   const now = new Date();
 
   for (let i = 0; i < KRX_INVESTOR_FLOW_DAYS; i += 1) {
     const ymd = previousBusinessDayYmd(now, i);
+    datesTried.push(ymd);
     const rows = await fetchInvestorTrading(ymd);
-    const row = rows.find((r) => r.code === safeCode);
+    totalRows += rows.length;
+    if (rows.length === 0) {
+      emptyDates.push(ymd);
+      continue;
+    }
+    for (const r of rows.slice(0, 10)) sampleCodeSet.add(normalizeCode(String(r.code ?? '')));
+    const row = rows.find((r) => normalizeCode(String(r.code ?? '')) === safeCode);
     if (!row) continue;
     foreignNetBuy += Number(row.foreignNetBuy ?? 0);
     institutionalNetBuy += Number(row.institutionNetBuy ?? 0);
@@ -105,7 +126,16 @@ async function fetchKrxInvestorFlow(code: string): Promise<InvestorFlowSample | 
     if (!latestDate) latestDate = ymdToDate(ymd);
   }
 
-  if (sampleSize < KRX_INVESTOR_FLOW_MIN_SAMPLE || !latestDate) return null;
+  const diagnostic = [
+    `code=${safeCode}`,
+    `sample=${sampleSize}`,
+    `dates=${datesTried.join(',')}`,
+    `rows=${totalRows}`,
+    `empty=${emptyDates.length > 0 ? emptyDates.join(',') : 'NONE'}`,
+    `sampleCodes=${sampleCodes([...sampleCodeSet])}`,
+  ].join(';');
+
+  if (sampleSize < KRX_INVESTOR_FLOW_MIN_SAMPLE || !latestDate) return { data: null, diagnostic };
 
   const sample: InvestorFlowSample = {
     stockCode: safeCode,
@@ -126,7 +156,7 @@ async function fetchKrxInvestorFlow(code: string): Promise<InvestorFlowSample | 
     fetchedAt: sample.fetchedAt,
   });
 
-  return sample;
+  return { data: sample, diagnostic };
 }
 
 async function fetchNaverInvestorTrend(_code: string): Promise<InvestorFlowSample | null> {
@@ -152,11 +182,11 @@ export async function fetchInvestorFlowWithPolicy(code: string): Promise<Investo
 
   try {
     const krx = await fetchKrxInvestorFlow(code);
-    if (krx && hasRealInvestorFields(krx)) {
-      pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'OK');
-      return { stockCode: code, data: krx, attempts, status: 'OK', source: 'KRX_INVESTOR_FLOW' };
+    if (krx.data && hasRealInvestorFields(krx.data)) {
+      pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'OK', krx.diagnostic);
+      return { stockCode: code, data: krx.data, attempts, status: 'OK', source: 'KRX_INVESTOR_FLOW' };
     }
-    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'NO_OUTPUT', 'KRX investor trading row not available');
+    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'NO_OUTPUT', krx.diagnostic);
   } catch (err) {
     pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'ERROR', err instanceof Error ? err.message : String(err));
   }
