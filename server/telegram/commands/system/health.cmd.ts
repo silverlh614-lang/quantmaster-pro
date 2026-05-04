@@ -8,6 +8,8 @@ import {
   type HealthProbeOutcome,
 } from '../../../health/diagnostics.js';
 import { computeMarketDataHealthScore, formatMarketDataHealthLine } from '../../../health/marketDataHealth.js';
+import { getMasterSize, isMasterStale } from '../../../persistence/krxStockMasterRepo.js';
+import { DEFAULT_KRX_MASTER_GUARD } from '../../../dataQuality/emergencyDataQualityGuards.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -42,10 +44,12 @@ export function formatHealthMessage(s: HealthSnapshot, p: HealthProbeResult): st
   // ADR-0070: 시장 데이터 통합 품질 점수. staleFields 는 서버측에서 헤더 cache 미보유로 빈 배열 — 후속 PR 에서 보완.
   const mdhScore = computeMarketDataHealthScore(s, [], new Date());
   const mdhLine = formatMarketDataHealthLine(mdhScore);
+  const krxMasterLine = formatKrxMasterUsabilityLine();
+  const finalVerdict = resolveHealthVerdict(s.verdict, krxMasterLine.blocked);
 
   return (
     `🩺 <b>[파이프라인 헬스체크]</b> (uptime ${s.uptimeHours}h / mem ${s.memMB}MB / build ${s.commitSha})\n` +
-    `판정: ${s.verdict}\n` +
+    `판정: ${finalVerdict}\n` +
     `─────────────────────\n` +
     `워치리스트: ${s.watchlistCount}개 | 활성 포지션: ${s.activePositions}개\n` +
     `자동매매: ${s.autoTradeEnabled ? '✅ 켜짐' : '❌ 꺼짐'} (${s.autoTradeMode})\n` +
@@ -53,9 +57,10 @@ export function formatHealthMessage(s: HealthSnapshot, p: HealthProbeResult): st
     (s.realDataTokenHours > 0 ? ` | 실데이터: ✅ ${s.realDataTokenHours}h` : '') +
     `\n` +
     `KRX OpenAPI: ${formatKrxStatusLine(s)}\n` +
+    `KRX Master: ${krxMasterLine.line}\n` +
     `공매도 출처: ${formatShortSellingSourceLine(s)}\n` +
     `매크로 신선도: ${formatMacroFreshnessLine(s)}\n` +
-    `시장 데이터 품질: ${mdhLine}\n` +
+    `시장 데이터 품질: ${krxMasterLine.blocked ? '❌ CRITICAL — KRX master unusable / scanner BLOCKED' : mdhLine}\n` +
     `Yahoo probe: ${probeLabel(p.yahoo)}\n` +
     `DART probe: ${probeLabel(p.dart)}\n` +
     `Gemini: ${s.geminiRuntime.status}${s.geminiRuntime.reason ? ` (${s.geminiRuntime.reason})` : ''}\n` +
@@ -68,6 +73,33 @@ export function formatHealthMessage(s: HealthSnapshot, p: HealthProbeResult): st
     `─────────────────────\n` +
     `<i>/refresh_token — KIS 토큰 강제 갱신</i>`
   );
+}
+
+export function resolveHealthVerdict(originalVerdict: string, krxMasterBlocked: boolean): string {
+  if (!krxMasterBlocked) return originalVerdict;
+  return '🔴 DEGRADED — KRX master unusable / scanner BLOCKED';
+}
+
+export function formatKrxMasterUsabilityLine(): { line: string; blocked: boolean } {
+  const total = getMasterSize();
+  const stale = isMasterStale();
+  const min = DEFAULT_KRX_MASTER_GUARD.minTotal;
+  if (total < min) {
+    return {
+      blocked: true,
+      line: `❌ master unusable — total ${total} < ${min} / production scan BLOCKED`,
+    };
+  }
+  if (stale) {
+    return {
+      blocked: true,
+      line: `❌ TTL expired > ${DEFAULT_KRX_MASTER_GUARD.ttlHours}h / production scan BLOCKED`,
+    };
+  }
+  return {
+    blocked: false,
+    line: `✅ usable — total ${total} ≥ ${min}`,
+  };
 }
 
 /**
@@ -121,7 +153,7 @@ export function formatKrxStatusLine(s: HealthSnapshot): string {
       return `🟡 회복 중 ${failSuffix}`;
     case 'CLOSED':
       return s.krxTokenValid
-        ? `✅ 정상 ${failSuffix}`
+        ? `✅ connection OK ${failSuffix}`
         : `🟡 비활성 ${failSuffix}`;
     default:
       return `? ${s.krxCircuitState} ${failSuffix}`;

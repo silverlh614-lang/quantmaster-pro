@@ -1,4 +1,4 @@
-// @responsibility: /krx_master_status — KRX stock master 상태 진단 + Tier 추정 + 워치리스트 미등록 식별 (read-only, ADR-0013).
+// @responsibility: /krx_master_status — KRX stock master 상태 진단 + Tier 추정 + 워치리스트 미등록 식별 (read-only, ADR-0013/0168).
 //
 // master size 로 Tier (1≥2500 / 2≥2000 / 3≥500 / 4~100 SEED) 추정 + 워치리스트 미등록 카운트
 // (/yahoo_health FETCH_FAIL 교차 검증) + per-source health score. 강제 갱신 0건.
@@ -14,6 +14,7 @@ import {
 import { getHealthSnapshot, computeOverallHealth } from '../../../persistence/stockMasterHealthRepo.js';
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import { KRX_STOCK_MASTER_FILE } from '../../../persistence/paths.js';
+import { DEFAULT_KRX_MASTER_GUARD } from '../../../dataQuality/emergencyDataQualityGuards.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -81,6 +82,19 @@ export function findWatchlistMissingFromMaster(
   return { registered, missing };
 }
 
+export function resolveKrxMasterProductionBlock(input: {
+  size: number;
+  isStale: boolean;
+  tier: TierEstimate;
+}): { blocked: boolean; reason: string } {
+  const min = DEFAULT_KRX_MASTER_GUARD.minTotal;
+  if (input.size === 0) return { blocked: true, reason: 'KRX_MASTER_MISSING' };
+  if (input.size < min) return { blocked: true, reason: `KRX_MASTER_TOO_SMALL total=${input.size} < ${min}` };
+  if (input.isStale) return { blocked: true, reason: `KRX_MASTER_TTL_EXPIRED > ${DEFAULT_KRX_MASTER_GUARD.ttlHours}h` };
+  if (input.tier.tier === 4) return { blocked: true, reason: 'STATIC_SEED_NOT_ALLOWED_FOR_SCAN' };
+  return { blocked: false, reason: 'OK' };
+}
+
 /** 진단 메시지 포맷터 SSOT — 단위 테스트 가능. */
 export function formatKrxMasterStatusMessage(input: {
   size: number;
@@ -96,6 +110,12 @@ export function formatKrxMasterStatusMessage(input: {
   now?: number;
 }): string {
   const lines: string[] = [];
+  const production = resolveKrxMasterProductionBlock({
+    size: input.size,
+    isStale: input.isStale,
+    tier: input.tier,
+  });
+
   lines.push('📊 <b>KRX Stock Master Status</b>');
   lines.push('');
   lines.push(`🗓️ 마지막 업데이트: ${formatKstAge(input.fetchedAtMs, input.now)}`);
@@ -111,6 +131,20 @@ export function formatKrxMasterStatusMessage(input: {
   lines.push('🚦 Tier 추정:');
   lines.push(`   ${input.tier.label}`);
   lines.push('   (Tier 1 ≥2500 / Tier 2 ≥2000 / Tier 3 ≥500 / Tier 4 ~100)');
+  lines.push('');
+  lines.push('🛡️ Production Use:');
+  if (production.blocked) {
+    lines.push('   scanner: 🛑 BLOCKED');
+    lines.push('   recommendation: 🛑 BLOCKED');
+    lines.push('   autotrade: 🛑 BLOCKED');
+    lines.push('   shadow learning: 🟡 DEGRADED_ONLY');
+    lines.push(`   reason: ${production.reason}`);
+  } else {
+    lines.push('   scanner: ✅ ALLOWED');
+    lines.push('   recommendation: ✅ ALLOWED');
+    lines.push('   autotrade: ✅ ALLOWED');
+    lines.push('   shadow learning: ✅ NORMAL');
+  }
   lines.push('');
   lines.push('🔍 워치리스트 종목 master 검증:');
   lines.push(`   등록: ${input.watchlistRegistered}/${input.watchlistTotal}`);
@@ -138,12 +172,10 @@ export function formatKrxMasterStatusMessage(input: {
   lines.push('🎯 권장 조치:');
   if (input.size === 0) {
     lines.push('   ❌ 디스크 파일 부재 — 재배포 또는 부팅 cron 점검');
-  } else if (input.tier.tier === 4) {
-    lines.push('   ⚠️ Tier 4 fallback — KRX/Naver/Shadow 모두 실패 의심, 강제 갱신 검토');
+  } else if (production.blocked) {
+    lines.push('   🚨 master production 차단 — /kmr 강제 갱신 후 /health 재확인');
   } else if (input.watchlistMissing.length >= 3) {
     lines.push('   ⚠️ 워치리스트 다수 미등록 — 신규/코드변경/부분 fallback 가능, 강제 갱신 권장');
-  } else if (input.isStale) {
-    lines.push('   🟡 master TTL 만료 — 다음 cron 사이클에서 자동 갱신');
   } else {
     lines.push('   ✅ master 정상 — 다른 진원지 (Yahoo / Sanity / Gate) 점검');
   }

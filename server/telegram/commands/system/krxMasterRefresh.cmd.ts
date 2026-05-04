@@ -1,8 +1,8 @@
-// @responsibility: /krx_master_refresh — KRX/Naver master 강제 갱신 + ≥1000 검증 게이트 (Tier 4 fallback 회복, ADR-0013).
+// @responsibility: /krx_master_refresh — KRX/Naver master 강제 갱신 + ≥2000 검증 게이트 (Tier 4 fallback 회복, ADR-0013/0168).
 //
 // 9일+ 진단 여정 단일 진원지 (KRX_CSV 4/27 이후 0회 성공 → Tier 4 SEED 396건) 즉시 회복용.
 // refreshMultiSourceMaster 본체 호출 — 4-tier (KRX→Naver→Shadow→Seed) 검증 게이트는 orchestrator 가
-// 이미 적용 (KRX_MIN/NAVER_MIN). 본 handler 는 *추가* user-facing 게이트로 finalCount<1000 거부 안내.
+// 이미 적용 (KRX_MIN/NAVER_MIN). 본 handler 는 *추가* user-facing 게이트로 finalCount<2000 거부 안내.
 //
 // 안전:
 // - 10분 rate-limit (KRX/Naver 외부 호출 폭주 차단)
@@ -12,10 +12,11 @@
 
 import { refreshMultiSourceMaster } from '../../../services/multiSourceStockMaster.js';
 import { getMasterSize } from '../../../persistence/krxStockMasterRepo.js';
+import { DEFAULT_KRX_MASTER_GUARD } from '../../../dataQuality/emergencyDataQualityGuards.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
-const MIN_ACCEPTABLE_FINAL_COUNT = 1000;
+const MIN_ACCEPTABLE_FINAL_COUNT = DEFAULT_KRX_MASTER_GUARD.minTotal;
 const REFRESH_RATE_LIMIT_MS = 10 * 60_000; // 10분
 let _lastRefreshAt = 0;
 
@@ -75,9 +76,11 @@ export function formatKrxMasterRefreshMessage(input: {
     lines.push('   → /kms 로 현재 상태 재확인');
   } else if (!accepted) {
     lines.push('🚨 partial fetch 의심 — 별도 진단 PR 필요');
+    lines.push(`   → production usable 기준: TOTAL ≥${min}`);
+    lines.push('   → /health 에서 KRX Master / Production scan BLOCKED 여부 확인');
   } else if (live) {
     lines.push('🎯 다음 단계:');
-    lines.push('   - /kms 로 TOTAL ≥2500 확인');
+    lines.push(`   - /kms 로 TOTAL ≥${min} 확인`);
     lines.push('   - /yahoo_health 재실행하여 FETCH_FAIL 감소 확인');
     lines.push('   - 다음 거래일 자동매매 정상 동작 관찰');
   } else {
@@ -95,7 +98,7 @@ const krxMasterRefresh: TelegramCommand = {
   category: 'SYS',
   visibility: 'ADMIN',
   riskLevel: 1,
-  description: 'KRX/Naver master 강제 갱신 — 4-tier fallback + ≥1000 검증 게이트 (ADR-0013, Tier 4 회복용)',
+  description: 'KRX/Naver master 강제 갱신 — 4-tier fallback + ≥2000 검증 게이트 (ADR-0013/0168, Tier 4 회복용)',
   usage: '/krx_master_refresh (alias /kmr)',
   async execute({ reply }) {
     const now = Date.now();
