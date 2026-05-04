@@ -9,7 +9,7 @@ import { HAS_REAL_DATA_CLIENT } from './constants.js';
 import { realDataKisGet } from './http.js';
 import type { KisApiPriority } from '../kisRateLimiter.js';
 
-export type KisSupplyDiagnosticKind = 'INVESTOR_FLOW' | 'STOCK_PROGRAM';
+export type KisSupplyDiagnosticKind = 'INVESTOR_FLOW' | 'STOCK_PROGRAM' | 'MARKET_PROGRAM';
 
 export interface KisRawSupplyDiagnostic {
   kind: KisSupplyDiagnosticKind;
@@ -31,6 +31,11 @@ const STOCK_PROGRAM_TRADE_TR_ID = process.env.KIS_STOCK_PROGRAM_TRADE_TR_ID ?? '
 const STOCK_PROGRAM_TRADE_PATH =
   process.env.KIS_STOCK_PROGRAM_TRADE_PATH
   ?? '/uapi/domestic-stock/v1/quotations/program-trade-by-stock';
+
+const MARKET_PROGRAM_TRADE_TR_ID = process.env.KIS_MARKET_PROGRAM_TRADE_TR_ID ?? 'FHPPG04600101';
+const MARKET_PROGRAM_TRADE_PATH =
+  process.env.KIS_MARKET_PROGRAM_TRADE_PATH
+  ?? '/uapi/domestic-stock/v1/quotations/comp-program-trade-today';
 
 function rootKeys(data: unknown): string[] {
   return data && typeof data === 'object' ? Object.keys(data as Record<string, unknown>).slice(0, 20) : [];
@@ -231,5 +236,42 @@ export async function diagnoseKisStockProgramRaw(
     };
   } catch (e) {
     return fail('STOCK_PROGRAM', code, STOCK_PROGRAM_TRADE_TR_ID, STOCK_PROGRAM_TRADE_PATH, 'FETCH_FAIL', e instanceof Error ? e.message : String(e));
+  }
+}
+
+export async function diagnoseKisMarketProgramRaw(
+  priority: KisApiPriority = 'LOW',
+): Promise<KisRawSupplyDiagnostic> {
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) {
+    return fail('MARKET_PROGRAM', '0001', MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, 'FETCH_FAIL', 'KIS_APP_KEY missing');
+  }
+  try {
+    const data = await realDataKisGet(MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, {
+      FID_COND_MRKT_DIV_CODE: 'U',
+      FID_INPUT_ISCD: '0001',
+    }, priority);
+    if (!data) return failNullResponse('MARKET_PROGRAM', '0001', MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH);
+    const { path: outputPath, out } = firstOutput(data);
+    const parsed = {
+      programNetBuyQty: parseNum(out, ['prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY']),
+      programNetBuyAmount: parseNum(out, ['prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN']),
+      programArbitrageNetBuy: parseNum(out, ['arbt_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn_2', 'ARBT_NTBY_TR_PBMN']),
+    };
+    return {
+      kind: 'MARKET_PROGRAM',
+      code: '0001',
+      ok: Boolean(out),
+      trId: MARKET_PROGRAM_TRADE_TR_ID,
+      path: MARKET_PROGRAM_TRADE_PATH,
+      rootKeys: rootKeys(data),
+      outputPath,
+      outputKeys: out ? Object.keys(out).slice(0, 30) : [],
+      parsed,
+      zeroReason: out ? classifyZero(parsed) : 'NO_OUTPUT',
+      sample: pickSample(out, ['prgm_ntby_qty', 'prgm_ntby_tr_pbmn', 'prgm_ntby_qty_2', 'prgm_ntby_tr_pbmn_2', 'arbt_ntby_tr_pbmn']),
+      rootSample: pickRootSample(data),
+    };
+  } catch (e) {
+    return fail('MARKET_PROGRAM', '0001', MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, 'FETCH_FAIL', e instanceof Error ? e.message : String(e));
   }
 }

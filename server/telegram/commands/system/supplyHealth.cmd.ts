@@ -4,7 +4,7 @@
 
 import fs from 'fs';
 import { fetchKisInvestorFlow, fetchKisMarketProgramTrade, fetchKisStockProgramTrade } from '../../../clients/kisClient/index.js';
-import { diagnoseKisInvestorFlowRaw, diagnoseKisStockProgramRaw, formatKisRawSupplyDiagnostic } from '../../../clients/kisClient/supplyDiagnostics.js';
+import { diagnoseKisInvestorFlowRaw, diagnoseKisMarketProgramRaw, diagnoseKisStockProgramRaw, formatKisRawSupplyDiagnostic } from '../../../clients/kisClient/supplyDiagnostics.js';
 import { FSS_RECORDS_FILE, MACRO_STATE_FILE } from '../../../persistence/paths.js';
 import { loadForeignerRatioSeries } from '../../../persistence/foreignerRatioRepo.js';
 import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
@@ -239,6 +239,7 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
 }
 
 async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
+  const rawDiagLine = formatKisRawSupplyDiagnostic(await diagnoseKisMarketProgramRaw('HIGH'));
   const macroAge = elapsedMs(macro?.programFetchedAt, nowMs);
   if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined && macroAge !== null && macroAge <= KIS_STALE_MS) {
     return {
@@ -248,6 +249,7 @@ async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): P
         'source: KIS_API',
         `latest: ${formatEokwon(macro.programNetBuyAmount)}`,
         `updated: ${formatAgo(macroAge)}`,
+        rawDiagLine,
         '상세: /program_market',
       ],
     };
@@ -263,6 +265,7 @@ async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): P
           'source: KIS_API',
           `latest: ${formatEokwon(live.programNetBuyAmount / 100_000_000)}`,
           'updated: 0s ago',
+          rawDiagLine,
           '상세: /program_market',
         ],
       };
@@ -281,6 +284,7 @@ async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): P
         'source: KIS_API',
         `latest: ${formatEokwon(macro.programNetBuyAmount)}`,
         `updated: ${formatAgo(macroAge)}`,
+        rawDiagLine,
         '상세: /program_market',
       ],
     };
@@ -290,7 +294,7 @@ async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): P
     title: '시장 프로그램매매',
     marker: 'MISSING',
     riskReason: 'KIS/macroState 결손',
-    lines: ['source: KIS_API', 'latest: N/A', 'updated: N/A', '상세: /program_market'],
+    lines: ['source: KIS_API', 'latest: N/A', 'updated: N/A', rawDiagLine, '상세: /program_market'],
   };
 }
 
