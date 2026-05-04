@@ -21,7 +21,7 @@ export interface KisRawSupplyDiagnostic {
   outputPath: string;
   outputKeys: string[];
   parsed: Record<string, number | null>;
-  zeroReason: 'RAW_ZERO' | 'FIELD_MISSING' | 'NO_OUTPUT' | 'FETCH_FAIL' | 'NON_ZERO';
+  zeroReason: 'RAW_ZERO' | 'FIELD_MISSING' | 'NO_OUTPUT' | 'ACCEPTED_EMPTY' | 'FETCH_FAIL' | 'NON_ZERO';
   sample: Record<string, string | number | null>;
   rootSample: Record<string, string | number | boolean | null>;
   error?: string;
@@ -40,6 +40,7 @@ const MARKET_PROGRAM_DIV_CODE = process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J';
 const MARKET_PROGRAM_INDEX_CODE = process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? '0001';
 const MARKET_PROGRAM_MARKET_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? '1';
 const MARKET_PROGRAM_SECTION_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0';
+const MARKET_PROGRAM_INPUT_HOUR_1 = process.env.KIS_MARKET_PROGRAM_INPUT_HOUR_1 ?? '000000';
 
 function rootKeys(data: unknown): string[] {
   return data && typeof data === 'object' ? Object.keys(data as Record<string, unknown>).slice(0, 20) : [];
@@ -252,9 +253,11 @@ export async function diagnoseKisMarketProgramRaw(
   try {
     const data = await realDataKisGet(MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, {
       FID_COND_MRKT_DIV_CODE: MARKET_PROGRAM_DIV_CODE,
+      FID_COND_MRKT_DIV_CODE1: MARKET_PROGRAM_DIV_CODE,
       FID_MRKT_CLS_CODE: MARKET_PROGRAM_MARKET_CLASS_CODE,
       FID_SCTN_CLS_CODE: MARKET_PROGRAM_SECTION_CLASS_CODE,
       FID_INPUT_ISCD: MARKET_PROGRAM_INDEX_CODE,
+      FID_INPUT_HOUR_1: MARKET_PROGRAM_INPUT_HOUR_1,
     }, priority);
     if (!data) return failNullResponse('MARKET_PROGRAM', MARKET_PROGRAM_INDEX_CODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH);
     const { path: outputPath, out } = firstOutput(data);
@@ -263,17 +266,19 @@ export async function diagnoseKisMarketProgramRaw(
       programNetBuyAmount: parseNum(out, ['prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN']),
       programArbitrageNetBuy: parseNum(out, ['arbt_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn_2', 'ARBT_NTBY_TR_PBMN']),
     };
+    const root = data as { rt_cd?: string; msg_cd?: string } | null;
+    const acceptedEmpty = root?.rt_cd === '0' && root?.msg_cd === 'MCA00000' && !out;
     return {
       kind: 'MARKET_PROGRAM',
       code: MARKET_PROGRAM_INDEX_CODE,
-      ok: Boolean(out),
+      ok: Boolean(out) || acceptedEmpty,
       trId: MARKET_PROGRAM_TRADE_TR_ID,
       path: MARKET_PROGRAM_TRADE_PATH,
       rootKeys: rootKeys(data),
       outputPath,
       outputKeys: out ? Object.keys(out).slice(0, 30) : [],
       parsed,
-      zeroReason: out ? classifyZero(parsed) : 'NO_OUTPUT',
+      zeroReason: acceptedEmpty ? 'ACCEPTED_EMPTY' : (out ? classifyZero(parsed) : 'NO_OUTPUT'),
       sample: pickSample(out, ['prgm_ntby_qty', 'prgm_ntby_tr_pbmn', 'prgm_ntby_qty_2', 'prgm_ntby_tr_pbmn_2', 'arbt_ntby_tr_pbmn']),
       rootSample: pickRootSample(data),
     };
