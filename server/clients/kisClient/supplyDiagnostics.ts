@@ -41,8 +41,14 @@ function firstOutput(data: unknown): { path: string; out: Record<string, string>
   if (root?.output && typeof root.output === 'object' && !Array.isArray(root.output)) {
     return { path: 'output', out: root.output as Record<string, string> };
   }
+  if (Array.isArray(root?.output) && root.output.length > 0 && typeof root.output[0] === 'object') {
+    return { path: 'output[0]', out: root.output[0] as Record<string, string> };
+  }
   if (root?.output1 && typeof root.output1 === 'object' && !Array.isArray(root.output1)) {
     return { path: 'output1', out: root.output1 as Record<string, string> };
+  }
+  if (Array.isArray(root?.output1) && root.output1.length > 0 && typeof root.output1[0] === 'object') {
+    return { path: 'output1[0]', out: root.output1[0] as Record<string, string> };
   }
   if (Array.isArray(root?.output2) && root.output2.length > 0 && typeof root.output2[0] === 'object') {
     return { path: 'output2[0]', out: root.output2[0] as Record<string, string> };

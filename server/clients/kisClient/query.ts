@@ -28,6 +28,33 @@ const STOCK_PROGRAM_TRADE_PATH =
   process.env.KIS_STOCK_PROGRAM_TRADE_PATH
   ?? '/uapi/domestic-stock/v1/quotations/program-trade-by-stock';
 
+type KisOutput = Record<string, string>;
+
+/**
+ * KIS는 동일 TR에서도 output 객체, output 배열, output1 객체, output2 배열을 섞어 반환한다.
+ * PR-557: 수급 endpoint가 `output: array(30)` 으로 내려오면서 기존 object-only 파서가
+ * 전부 0 fallback 처리하던 문제를 해결한다.
+ */
+function pickKisOutput(data: unknown): KisOutput | undefined {
+  const root = data as { output?: unknown; output1?: unknown; output2?: unknown } | null;
+  if (root?.output && typeof root.output === 'object' && !Array.isArray(root.output)) {
+    return root.output as KisOutput;
+  }
+  if (Array.isArray(root?.output) && root.output.length > 0 && typeof root.output[0] === 'object') {
+    return root.output[0] as KisOutput;
+  }
+  if (root?.output1 && typeof root.output1 === 'object' && !Array.isArray(root.output1)) {
+    return root.output1 as KisOutput;
+  }
+  if (Array.isArray(root?.output1) && root.output1.length > 0 && typeof root.output1[0] === 'object') {
+    return root.output1[0] as KisOutput;
+  }
+  if (Array.isArray(root?.output2) && root.output2.length > 0 && typeof root.output2[0] === 'object') {
+    return root.output2[0] as KisOutput;
+  }
+  return undefined;
+}
+
 /**
  * KIS 응답 output 의 한글 약어 필드에서 첫 번째 매칭 값을 추출.
  * 미발견/파싱 실패 시 fallback (default 0).
@@ -77,7 +104,7 @@ export async function fetchKisStockProgramTrade(
     if (process.env.DEBUG_PROGRAM_RAW === 'true') {
       console.log('[DEBUG_PROGRAM_RAW] stock', code, JSON.stringify(data));
     }
-    const out = (data as { output?: Record<string, string> } | null)?.output;
+    const out = pickKisOutput(data);
     if (!out) return null;
 
     // ADR-0144: KIS 공식 chk_program_trade_by_stock.py COLUMN_MAPPING 정합 — `whol_smtn_*`
@@ -157,14 +184,7 @@ export async function fetchKisMarketProgramTrade(
       console.log('[DEBUG_PROGRAM_RAW] market', JSON.stringify(data));
     }
 
-    // KIS 응답: output (단일 객체) 또는 output1 (당일 객체) 또는 output2[0] (배열 첫 요소).
-    // 본 PR 은 가장 일반적 패턴 우선 시도 + 실패 시 null.
-    type KisOutput = Record<string, string>;
-    const root = data as { output?: KisOutput; output1?: KisOutput; output2?: KisOutput[] } | null;
-    const out: KisOutput | undefined =
-      root?.output
-      ?? root?.output1
-      ?? (Array.isArray(root?.output2) && root.output2.length > 0 ? root.output2[0] : undefined);
+    const out = pickKisOutput(data);
     if (!out) return null;
 
     const programNetBuyQty = extractKisNumber(
@@ -223,12 +243,12 @@ export async function fetchKisInvestorFlow(
       },
       priority,
     );
-    const out = (data as { output?: Record<string, string> } | null)?.output;
+    const out = pickKisOutput(data);
     if (!out) return null;
     return {
-      foreignNetBuy:       parseInt(out.frgn_ntby_qty ?? '0', 10),
-      institutionalNetBuy: parseInt(out.orgn_ntby_qty  ?? '0', 10),
-      individualNetBuy:    parseInt(out.prsn_ntby_qty  ?? '0', 10),
+      foreignNetBuy:       extractKisNumber(out, ['frgn_ntby_qty', 'FRGN_NETBUY_QTY']),
+      institutionalNetBuy: extractKisNumber(out, ['orgn_ntby_qty', 'INST_NETBUY_QTY']),
+      individualNetBuy:    extractKisNumber(out, ['prsn_ntby_qty', 'INDV_NETBUY_QTY']),
       source: 'KIS_API',
     };
   } catch { return null; }
@@ -254,7 +274,7 @@ export async function fetchKisMarketSupply(): Promise<{
         FID_INPUT_ISCD: '0001',
       },
     );
-    const out = (data as { output?: Record<string, string> } | null)?.output;
+    const out = pickKisOutput(data);
     if (!out) return null;
     return {
       foreignNetBuy:     Number(out.frgn_ntby_qty ?? out.FRGN_NETBUY_QTY ?? 0),
