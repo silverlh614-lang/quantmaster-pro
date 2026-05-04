@@ -4,6 +4,10 @@
  * PR-567: comp-program-trade-today 가 필드 누락/값 길이 오류를 순차적으로 반환하므로,
  * 단일 파라미터 추측 PR 반복 대신 작은 후보군을 안전하게 순회해 KIS가 실제로
  * 수용하는 조합을 찾는다. 외부 상태 저장 없음, read-only GET만 수행.
+ *
+ * PR-568: `/pmp` 결과가 전부 `FIELD NOT FOUND [FID_COND_MRKT_DIV_CODE1]` 로
+ * 막혔다. 값 후보 문제가 아니라 필드명 suffix 문제이므로 일반형/1-suffix/동시전송
+ * 변형을 함께 탐색한다.
  */
 
 import { realDataKisGet } from '../../../clients/kisClient/http.js';
@@ -13,12 +17,14 @@ import type { TelegramCommand } from '../_types.js';
 const TR_ID = process.env.KIS_MARKET_PROGRAM_TRADE_TR_ID ?? 'FHPPG04600101';
 const API_PATH = process.env.KIS_MARKET_PROGRAM_TRADE_PATH
   ?? '/uapi/domestic-stock/v1/quotations/comp-program-trade-today';
-const DEFAULT_LIMIT = 24;
-const MAX_LIMIT = 40;
+const DEFAULT_LIMIT = 36;
+const MAX_LIMIT = 80;
 
 type ProbeRoot = Record<string, unknown> | null;
+type DivFieldMode = 'STD' | 'SUFFIX1' | 'BOTH';
 
 interface ProbeCandidate {
+  divMode: DivFieldMode;
   cond: string;
   market: string;
   section: string;
@@ -46,18 +52,21 @@ function unique(values: string[]): string[] {
 }
 
 function buildCandidates(limit: number): ProbeCandidate[] {
+  const divModes: DivFieldMode[] = ['SUFFIX1', 'BOTH', 'STD'];
   const conds = unique([process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J', 'J', 'U']);
-  const markets = unique([process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? '1', '0', '1', 'K', 'Q', 'J']);
+  const markets = unique([process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? '1', '1', '0', 'K', 'Q', 'J']);
   const sections = unique([process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0', '0', '1', '01', '02']);
   const inputs = unique([process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? '0001', '0001', '0000', '']);
 
   const candidates: ProbeCandidate[] = [];
-  for (const cond of conds) {
-    for (const market of markets) {
-      for (const section of sections) {
-        for (const input of inputs) {
-          candidates.push({ cond, market, section, input });
-          if (candidates.length >= limit) return candidates;
+  for (const divMode of divModes) {
+    for (const cond of conds) {
+      for (const market of markets) {
+        for (const section of sections) {
+          for (const input of inputs) {
+            candidates.push({ divMode, cond, market, section, input });
+            if (candidates.length >= limit) return candidates;
+          }
         }
       }
     }
@@ -81,15 +90,24 @@ function rootString(data: ProbeRoot, key: string): string {
   return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
 }
 
-async function probeOne(candidate: ProbeCandidate): Promise<ProbeResult> {
+function buildParams(candidate: ProbeCandidate): Record<string, string> {
   const params: Record<string, string> = {
-    FID_COND_MRKT_DIV_CODE: candidate.cond,
     FID_MRKT_CLS_CODE: candidate.market,
     FID_SCTN_CLS_CODE: candidate.section,
   };
-  if (candidate.input !== '') params.FID_INPUT_ISCD = candidate.input;
 
-  const data = await realDataKisGet(TR_ID, API_PATH, params, 'LOW') as ProbeRoot;
+  if (candidate.divMode === 'STD' || candidate.divMode === 'BOTH') {
+    params.FID_COND_MRKT_DIV_CODE = candidate.cond;
+  }
+  if (candidate.divMode === 'SUFFIX1' || candidate.divMode === 'BOTH') {
+    params.FID_COND_MRKT_DIV_CODE1 = candidate.cond;
+  }
+  if (candidate.input !== '') params.FID_INPUT_ISCD = candidate.input;
+  return params;
+}
+
+async function probeOne(candidate: ProbeCandidate): Promise<ProbeResult> {
+  const data = await realDataKisGet(TR_ID, API_PATH, buildParams(candidate), 'LOW') as ProbeRoot;
   const { path, out } = firstOutput(data);
   const rtCd = rootString(data, 'rt_cd');
   const msgCd = rootString(data, 'msg_cd');
@@ -114,7 +132,7 @@ function shortMsg(msg: string): string {
 function renderResultLine(index: number, result: ProbeResult): string {
   const c = result.candidate;
   const status = result.success ? '✅' : result.rtCd === '0' ? '🟡' : '❌';
-  return `${index}. ${status} cond=${c.cond} mrkt=${c.market} sctn=${c.section} iscd=${c.input || 'OMIT'} | ${result.msgCd || 'NO_CD'} ${shortMsg(result.msg1)} | path=${result.outputPath} keys=${result.outputKeys.join('|') || 'NONE'}`;
+  return `${index}. ${status} div=${c.divMode} cond=${c.cond} mrkt=${c.market} sctn=${c.section} iscd=${c.input || 'OMIT'} | ${result.msgCd || 'NO_CD'} ${shortMsg(result.msg1)} | path=${result.outputPath} keys=${result.outputKeys.join('|') || 'NONE'}`;
 }
 
 export async function buildProgramMarketProbeMessage(args: string[] = []): Promise<string> {
@@ -133,6 +151,8 @@ export async function buildProgramMarketProbeMessage(args: string[] = []): Promi
     `trId=${TR_ID}`,
     `path=${API_PATH}`,
     `tested=${results.length}/${candidates.length}`,
+    'div=SUFFIX1 → FID_COND_MRKT_DIV_CODE1 전송',
+    'div=BOTH → FID_COND_MRKT_DIV_CODE + FID_COND_MRKT_DIV_CODE1 동시 전송',
     '',
   ];
 
@@ -161,7 +181,7 @@ const programMarketProbe: TelegramCommand = {
   visibility: 'ADMIN',
   riskLevel: 0,
   description: 'KIS 시장 프로그램매매 파라미터 후보 조합 probe',
-  usage: '/program_market_probe [limit=24]',
+  usage: '/program_market_probe [limit=36]',
   async execute({ args, reply }) {
     try {
       await reply(await buildProgramMarketProbeMessage(args));
