@@ -6,7 +6,7 @@
 //
 // 옵션 C 채택 (architect 결정, force-watch-scan-design.md):
 //   인자 없음 → light (autoPopulateWatchlist 만, ~5s)
-//   'full' 인자 → heavy (runFullDiscoveryPipeline + autoPopulateWatchlist, ~30s)
+//   'full' 인자 → heavy (runGuardedFullDiscoveryPipeline + autoPopulateWatchlist, ~30s)
 //
 // 안전 가드 3중:
 //   1. 60s rate-limit (모듈 로컬 _lastForceScanAt) — ADR-0014 reconcile 패턴 차용
@@ -17,6 +17,7 @@ import { getEmergencyStop } from '../../../state.js';
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import { getLiveRegime } from '../../../trading/regimeBridge.js';
+import { escapeHtml } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -71,11 +72,18 @@ const forceWatchScan: TelegramCommand = {
     try {
       let universeRan = false;
       if (isFull) {
-        // dynamic import — 모듈 결합도 최소화 (텔레그램 명령 모듈이 거대 스크리너를 직접 import 안 함)
-        const { runFullDiscoveryPipeline } = await import('../../../screener/universeScanner.js');
+        const { runGuardedFullDiscoveryPipeline } = await import('../../../screener/guardedDiscoveryPipeline.js');
         const macroState = loadMacroState();
         const regime = getLiveRegime(macroState);
-        await runFullDiscoveryPipeline(regime, macroState);
+        const result = await runGuardedFullDiscoveryPipeline(regime, macroState);
+        if (!result.ok) {
+          await reply(
+            `🛑 FULL 재스캔 중단\n` +
+            `${escapeHtml(result.reason ?? result.status)}\n` +
+            `추천 0개가 아니라 데이터 품질 차단입니다.`,
+          );
+          return;
+        }
         universeRan = true;
       }
 
