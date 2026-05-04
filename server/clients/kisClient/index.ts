@@ -62,8 +62,8 @@ export {
 export { kisGet, kisPost, realDataKisGet } from './http.js';
 
 // ─── query (시세 조회) ─────────────────────────────────────────────────────
+export { fetchKisInvestorFlow } from './investorFlowStrict.js';
 export {
-  fetchKisInvestorFlow,
   fetchKisMarketSupply,
   fetchKisStockProgramTrade,
   fetchKisMarketProgramTrade,
