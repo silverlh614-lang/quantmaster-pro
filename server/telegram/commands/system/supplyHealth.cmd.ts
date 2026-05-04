@@ -1,6 +1,6 @@
 /**
  * @responsibility 수급 데이터 채널의 source/freshness/coverage/zero-filled 의심을 read-only로 진단한다.
- * PR-574~579: fake-zero/accepted-empty/provider-mismatch/unwired-collection 상태를 red failure가 아닌 neutral로 격리한다.
+ * PR-574~580: fake-zero/accepted-empty/provider-mismatch/unwired-collection 상태를 red failure가 아닌 neutral로 격리한다.
  */
 
 import fs from 'fs';
@@ -195,7 +195,18 @@ function diagnoseForeignerRatio(targets: WatchlistEntry[], nowMs: number): Chann
 }
 
 function diagnoseMargin(macro: MacroState | null, nowMs: number): ChannelStatus {
-  if (macro?.marginBalanceSource !== 'ECOS_API' || macro.marginBalance5dChange === undefined) return { title: '신용잔고', marker: 'MISSING', riskReason: macro?.marginBalanceSource === 'NONE' ? '최근 ECOS 조회 실패' : 'macroState 결손', lines: ['source: ECOS', 'updated: N/A', '상세: /margin_balance'] };
+  if (macro?.marginBalanceSource !== 'ECOS_API' || macro.marginBalance5dChange === undefined) {
+    return {
+      title: '신용잔고', marker: 'NEUTRAL',
+      lines: [
+        'source: ECOS', 'status: PROVIDER_UNAVAILABLE', 'updated: N/A',
+        `reason: ${macro?.marginBalanceSource === 'NONE' ? '최근 ECOS 조회 실패' : 'macroState 결손'}`,
+        '판정: 신용잔고 provider/wiring 미확정 — 점수 입력 제외',
+        '대체 후보: KRX 신용잔고 / 금융투자협회 / ECOS 재시도 / 저장 cache',
+        '상세: /margin_balance',
+      ],
+    };
+  }
   const age = elapsedMs(macro.marginBalanceFetchedAt, nowMs);
   const stale = age !== null && age > TWO_DAYS * DAY_MS;
   return { title: '신용잔고', marker: stale ? 'STALE' : 'OK', riskReason: stale ? `updated ${formatAgo(age)}` : undefined, lines: ['source: ECOS', `updated: ${formatAgo(age)}`, '상세: /margin_balance'] };
