@@ -16,6 +16,9 @@
  * PR-570: 텔레그램 출력이 최근 결과만 보여 cond=J 후보의 실패 원인을 숨겼다.
  * 첫 결과/최근 결과/cond별·msg별 요약/가장 진전된 후보를 함께 출력해 다음 원인을
  * 한 번에 식별한다.
+ *
+ * PR-571: BOTH + cond=J 조합에서 `FIELD NOT FOUND [FID_INPUT_HOUR_1]` 가 확인됐다.
+ * 시간 입력 후보를 추가해 comp-program-trade-today 의 시간 필드 요구사항을 탐색한다.
  */
 
 import { realDataKisGet } from '../../../clients/kisClient/http.js';
@@ -25,8 +28,8 @@ import type { TelegramCommand } from '../_types.js';
 const TR_ID = process.env.KIS_MARKET_PROGRAM_TRADE_TR_ID ?? 'FHPPG04600101';
 const API_PATH = process.env.KIS_MARKET_PROGRAM_TRADE_PATH
   ?? '/uapi/domestic-stock/v1/quotations/comp-program-trade-today';
-const DEFAULT_LIMIT = 36;
-const MAX_LIMIT = 80;
+const DEFAULT_LIMIT = 48;
+const MAX_LIMIT = 120;
 
 type ProbeRoot = Record<string, unknown> | null;
 type DivFieldMode = 'STD' | 'SUFFIX1' | 'BOTH';
@@ -37,6 +40,7 @@ interface ProbeCandidate {
   market: string;
   section: string;
   input: string;
+  hour: string;
 }
 
 interface ProbeResult {
@@ -59,12 +63,26 @@ function unique(values: string[]): string[] {
   return [...new Set(values.filter((v) => v !== undefined && v !== null))];
 }
 
+function kstTimeHHMMSS(): string {
+  const d = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  return d.toISOString().slice(11, 19).replace(/:/g, '');
+}
+
 function buildCandidates(limit: number): ProbeCandidate[] {
   const divModes: DivFieldMode[] = ['BOTH', 'SUFFIX1', 'STD'];
   const conds = unique(['J', process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J', 'U']);
   const markets = unique([process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? '1', '1', '0', 'K', 'Q', 'J']);
   const sections = unique([process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0', '0', '1', '01', '02']);
   const inputs = unique([process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? '0001', '0001', '0000', '']);
+  const hours = unique([
+    process.env.KIS_MARKET_PROGRAM_INPUT_HOUR_1 ?? '',
+    kstTimeHHMMSS(),
+    '000000',
+    '090000',
+    '153000',
+    '235959',
+    '',
+  ]);
 
   const candidates: ProbeCandidate[] = [];
   for (const divMode of divModes) {
@@ -72,8 +90,10 @@ function buildCandidates(limit: number): ProbeCandidate[] {
       for (const market of markets) {
         for (const section of sections) {
           for (const input of inputs) {
-            candidates.push({ divMode, cond, market, section, input });
-            if (candidates.length >= limit) return candidates;
+            for (const hour of hours) {
+              candidates.push({ divMode, cond, market, section, input, hour });
+              if (candidates.length >= limit) return candidates;
+            }
           }
         }
       }
@@ -111,6 +131,7 @@ function buildParams(candidate: ProbeCandidate): Record<string, string> {
     params.FID_COND_MRKT_DIV_CODE1 = candidate.cond;
   }
   if (candidate.input !== '') params.FID_INPUT_ISCD = candidate.input;
+  if (candidate.hour !== '') params.FID_INPUT_HOUR_1 = candidate.hour;
   return params;
 }
 
@@ -134,13 +155,13 @@ async function probeOne(candidate: ProbeCandidate): Promise<ProbeResult> {
 
 function shortMsg(msg: string): string {
   if (!msg) return 'NO_MSG';
-  return msg.length > 64 ? `${msg.slice(0, 61)}...` : msg;
+  return msg.length > 56 ? `${msg.slice(0, 53)}...` : msg;
 }
 
 function renderResultLine(index: number, result: ProbeResult): string {
   const c = result.candidate;
   const status = result.success ? '✅' : result.rtCd === '0' ? '🟡' : '❌';
-  return `${index}. ${status} ${c.divMode} c=${c.cond} m=${c.market} s=${c.section} i=${c.input || 'OMIT'} | ${result.msgCd || 'NO_CD'} ${shortMsg(result.msg1)} | ${result.outputPath} ${result.outputKeys.join('|') || 'NONE'}`;
+  return `${index}. ${status} ${c.divMode} c=${c.cond} m=${c.market} s=${c.section} i=${c.input || 'OMIT'} h=${c.hour || 'OMIT'} | ${result.msgCd || 'NO_CD'} ${shortMsg(result.msg1)} | ${result.outputPath} ${result.outputKeys.join('|') || 'NONE'}`;
 }
 
 function summarizeBy<T extends string>(results: ProbeResult[], keyFn: (r: ProbeResult) => T): string[] {
@@ -184,9 +205,9 @@ export async function buildProgramMarketProbeMessage(args: string[] = []): Promi
     `trId=${TR_ID}`,
     `path=${API_PATH}`,
     `tested=${results.length}/${candidates.length}`,
-    `envCond=${process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'unset'} / envMrkt=${process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? 'unset'} / envSctn=${process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? 'unset'} / envIscd=${process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? 'unset'}`,
+    `envCond=${process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'unset'} / envMrkt=${process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? 'unset'} / envSctn=${process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? 'unset'} / envIscd=${process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? 'unset'} / envHour=${process.env.KIS_MARKET_PROGRAM_INPUT_HOUR_1 ?? 'unset'}`,
     'div=BOTH → FID_COND_MRKT_DIV_CODE + FID_COND_MRKT_DIV_CODE1 동시 전송',
-    'cond 후보는 J를 ENV 값보다 먼저 테스트',
+    'h=FID_INPUT_HOUR_1 후보값',
     '',
   ];
 
@@ -202,6 +223,8 @@ export async function buildProgramMarketProbeMessage(args: string[] = []): Promi
 
   lines.push('📊 cond 요약');
   lines.push(...summarizeBy(results, (r) => `cond=${r.candidate.cond}/${r.msgCd || 'NO_CD'}`));
+  lines.push('📊 hour 요약');
+  lines.push(...summarizeBy(results, (r) => `h=${r.candidate.hour || 'OMIT'}/${r.msgCd || 'NO_CD'}`));
   lines.push('📊 msg 요약');
   lines.push(...summarizeBy(results, (r) => `${r.msgCd || 'NO_CD'} ${shortMsg(r.msg1)}`));
   lines.push('');
@@ -224,7 +247,7 @@ const programMarketProbe: TelegramCommand = {
   visibility: 'ADMIN',
   riskLevel: 0,
   description: 'KIS 시장 프로그램매매 파라미터 후보 조합 probe',
-  usage: '/program_market_probe [limit=36]',
+  usage: '/program_market_probe [limit=48]',
   async execute({ args, reply }) {
     try {
       await reply(await buildProgramMarketProbeMessage(args));
