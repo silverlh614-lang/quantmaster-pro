@@ -23,6 +23,7 @@ export interface KisRawSupplyDiagnostic {
   parsed: Record<string, number | null>;
   zeroReason: 'RAW_ZERO' | 'FIELD_MISSING' | 'NO_OUTPUT' | 'FETCH_FAIL' | 'NON_ZERO';
   sample: Record<string, string | number | null>;
+  rootSample: Record<string, string | number | boolean | null>;
   error?: string;
 }
 
@@ -66,6 +67,25 @@ function pickSample(out: Record<string, string> | undefined, keys: string[]): Re
   return sample;
 }
 
+function pickRootSample(data: unknown): Record<string, string | number | boolean | null> {
+  const sample: Record<string, string | number | boolean | null> = {};
+  if (!data || typeof data !== 'object') return sample;
+  const root = data as Record<string, unknown>;
+  const preferred = ['rt_cd', 'msg_cd', 'msg1', 'tr_id', 'output', 'output1', 'output2'];
+  for (const key of preferred) {
+    const value = root[key];
+    if (value === undefined) continue;
+    if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) {
+      sample[key] = value as string | number | boolean | null;
+    } else if (Array.isArray(value)) {
+      sample[key] = `array(${value.length})`;
+    } else if (typeof value === 'object') {
+      sample[key] = `object(${Object.keys(value as Record<string, unknown>).length})`;
+    }
+  }
+  return sample;
+}
+
 function classifyZero(parsed: Record<string, number | null>): KisRawSupplyDiagnostic['zeroReason'] {
   const values = Object.values(parsed);
   if (values.every((v) => v === null)) return 'FIELD_MISSING';
@@ -73,16 +93,25 @@ function classifyZero(parsed: Record<string, number | null>): KisRawSupplyDiagno
   return 'RAW_ZERO';
 }
 
+function fmtSample(sample: Record<string, string | number | boolean | null>): string {
+  const entries = Object.entries(sample).slice(0, 8);
+  if (entries.length === 0) return 'NONE';
+  return entries.map(([k, v]) => `${k}:${v ?? 'NULL'}`).join(',');
+}
+
 export function formatKisRawSupplyDiagnostic(diag: KisRawSupplyDiagnostic): string {
-  if (!diag.ok) return `rawDiag=${diag.kind} ${diag.code} fail:${diag.zeroReason}${diag.error ? ` ${diag.error}` : ''}`;
   return [
     `rawDiag=${diag.kind}`,
+    `code=${diag.code}`,
+    `ok=${diag.ok}`,
     `path=${diag.outputPath}`,
     `rootKeys=${diag.rootKeys.join('|') || 'NONE'}`,
+    `rootSample=${fmtSample(diag.rootSample)}`,
     `outputKeys=${diag.outputKeys.slice(0, 8).join('|') || 'NONE'}`,
-    `parsed=${Object.entries(diag.parsed).map(([k, v]) => `${k}:${v ?? 'NULL'}`).join(',')}`,
+    `parsed=${Object.entries(diag.parsed).map(([k, v]) => `${k}:${v ?? 'NULL'}`).join(',') || 'NONE'}`,
     `zeroReason=${diag.zeroReason}`,
-  ].join(';');
+    diag.error ? `error=${diag.error}` : '',
+  ].filter(Boolean).join(';');
 }
 
 export async function diagnoseKisInvestorFlowRaw(
@@ -117,6 +146,7 @@ export async function diagnoseKisInvestorFlowRaw(
       parsed,
       zeroReason: out ? classifyZero(parsed) : 'NO_OUTPUT',
       sample: pickSample(out, ['frgn_ntby_qty', 'orgn_ntby_qty', 'prsn_ntby_qty', 'FRGN_NETBUY_QTY', 'INST_NETBUY_QTY', 'INDV_NETBUY_QTY']),
+      rootSample: pickRootSample(data),
     };
   } catch (e) {
     return fail('INVESTOR_FLOW', code, trId, path, 'FETCH_FAIL', e instanceof Error ? e.message : String(e));
@@ -153,6 +183,7 @@ export async function diagnoseKisStockProgramRaw(
       parsed,
       zeroReason: out ? classifyZero(parsed) : 'NO_OUTPUT',
       sample: pickSample(out, ['whol_smtn_ntby_qty', 'whol_smtn_ntby_tr_pbmn', 'prgm_ntby_qty', 'prgm_ntby_tr_pbmn', 'prgm_byov_rate']),
+      rootSample: pickRootSample(data),
     };
   } catch (e) {
     return fail('STOCK_PROGRAM', code, STOCK_PROGRAM_TRADE_TR_ID, STOCK_PROGRAM_TRADE_PATH, 'FETCH_FAIL', e instanceof Error ? e.message : String(e));
@@ -179,6 +210,7 @@ function fail(
     parsed: {},
     zeroReason,
     sample: {},
+    rootSample: {},
     error,
   };
 }
