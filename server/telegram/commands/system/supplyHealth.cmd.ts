@@ -1,5 +1,9 @@
 /**
  * @responsibility 수급 데이터 채널의 source/freshness/coverage/zero-filled 의심을 read-only로 진단한다.
+ *
+ * PR-574: KIS investor-flow rawDiag 가 `MCA00000 + output array` 이지만 투자자 순매수
+ * 필드가 없는 경우는 live 장애가 아니라 endpoint/TR 목적 불일치다. fake-zero 투입을
+ * 막고 PROVIDER_MISMATCH neutral 로 분리해 다음 대체 provider 작업을 명확히 한다.
  */
 
 import fs from 'fs';
@@ -133,10 +137,18 @@ function firstTargetCode(targets: WatchlistEntry[]): string | null {
   return targets[0]?.code ?? null;
 }
 
+function isInvestorFlowProviderMismatchRaw(rawDiagLine: string | null): boolean {
+  return Boolean(
+    rawDiagLine?.includes('rawDiag=INVESTOR_FLOW')
+    && rawDiagLine.includes('ok=true')
+    && rawDiagLine.includes('zeroReason=FIELD_MISSING')
+  );
+}
+
 function investorFlowMissingReason(rawDiagLine: string | null, success: number): string {
   if (success > 0) return '';
-  if (rawDiagLine?.includes('zeroReason=FIELD_MISSING')) {
-    return 'KIS 응답에 투자자 순매수 필드 없음 — endpoint/TR 재검증 필요';
+  if (isInvestorFlowProviderMismatchRaw(rawDiagLine)) {
+    return 'KIS TR 목적 불일치 — 투자자 순매수 필드 없음, 대체 provider 필요';
   }
   if (rawDiagLine?.includes('zeroReason=FETCH_FAIL')) {
     return 'KIS raw diagnostic fetch 실패 — circuit/rate-limit/http 확인 필요';
@@ -145,6 +157,9 @@ function investorFlowMissingReason(rawDiagLine: string | null, success: number):
 }
 
 function renderInvestorFlowDecision(marker: Marker, zeroSuspicious: boolean, success: number, rawDiagLine: string | null): string {
+  if (marker === 'NEUTRAL') {
+    return '판정: PROVIDER_MISMATCH — KIS 정상 응답이나 투자자 순매수 필드 없음; 수급 점수 입력 제외';
+  }
   if (marker === 'MISSING') {
     const reason = investorFlowMissingReason(rawDiagLine, success);
     return `판정: MISSING — ${reason || '실데이터 없음'}; 수급 점수 입력 제외`;
@@ -177,7 +192,14 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelS
   }
   const total = targets.length;
   const zeroSuspicious = isZeroFilledSuspicious(zero, total);
-  const marker: Marker = total === 0 || success === 0 ? 'MISSING' : zeroSuspicious ? 'DEGRADED' : 'OK';
+  const providerMismatch = success === 0 && isInvestorFlowProviderMismatchRaw(rawDiagLine);
+  const marker: Marker = providerMismatch
+    ? 'NEUTRAL'
+    : total === 0 || success === 0
+      ? 'MISSING'
+      : zeroSuspicious
+        ? 'DEGRADED'
+        : 'OK';
   const missingReason = investorFlowMissingReason(rawDiagLine, success);
   return {
     title: '기관/외인 수급',
@@ -190,10 +212,12 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelS
     zeroSuspect: { count: zero, total },
     lines: [
       'source: KIS_API',
+      ...(providerMismatch ? ['status: PROVIDER_MISMATCH'] : []),
       `success: ${success}/${total}`,
       'stale: 0',
       `zero-filled 의심: ${zeroWarn(zero, total)}`,
       renderInvestorFlowDecision(marker, zeroSuspicious, success, rawDiagLine),
+      ...(providerMismatch ? ['대체 후보: KRX 투자자별 매매 / Naver 투자자동향 / 저장 cache'] : []),
       ...(rawDiagLine ? [rawDiagLine] : []),
       '상세: /investor_flow 예정',
     ],
