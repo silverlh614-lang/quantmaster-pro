@@ -12,6 +12,7 @@ import './conditionLifecycle.cmd.js';
 import './cronStatus.cmd.js';
 import './cronIntrospect.cmd.js';
 import './dataVerificationReview.cmd.js';
+import './foreignerRatioBackfill.cmd.js';
 import './foreignerTrend.cmd.js';
 import './fssBackfill.cmd.js';
 import './fssDetail.cmd.js';
