@@ -13,6 +13,7 @@ import './cronStatus.cmd.js';
 import './cronIntrospect.cmd.js';
 import './dataVerificationReview.cmd.js';
 import './foreignerTrend.cmd.js';
+import './fssBackfill.cmd.js';
 import './fssDetail.cmd.js';
 import './fssMapping.cmd.js';
 import './fssStatus.cmd.js';
