@@ -13,8 +13,11 @@ import {
   fetchKosdaqBaseInfo,
   isKrxOpenApiHealthy,
   getKrxOpenApiStatus,
+  recentBusinessDaysKst,
+  getKrxOpenApiEndpointPath,
   type KrxIsuBaseInfoRow,
 } from './krxOpenApi.js';
+import { formatRawProbeSummary, probeKrxOpenApiBases } from './krxOpenApiRawProbe.js';
 import type { StockMasterEntry } from '../persistence/krxStockMasterRepo.js';
 
 /** OpenAPI 페치 결과 사유 — orchestrator 가 attempts[].reason 에 그대로 노출. */
@@ -42,6 +45,8 @@ export interface KrxOpenApiMasterDiagnostics {
   authKeyConfigured: boolean;
   enabled: boolean;
   cacheKeys: string[];
+  basDd?: string;
+  dateAttempts?: string[];
   kospiRows: number;
   kosdaqRows: number;
   kospiMapped: number;
@@ -51,6 +56,7 @@ export interface KrxOpenApiMasterDiagnostics {
   actualKosdaqSampleKeys: string[];
   actualKospiSample: Record<string, unknown> | null;
   actualKosdaqSample: Record<string, unknown> | null;
+  rawProbeSummary?: string;
 }
 
 const EXPECTED_BASE_INFO_FIELDS = [
@@ -80,6 +86,9 @@ export function buildOpenApiMasterDiagnostics(input: {
   kosdaqRows: KrxIsuBaseInfoRow[];
   kospiMapped: number;
   kosdaqMapped: number;
+  basDd?: string;
+  dateAttempts?: string[];
+  rawProbeSummary?: string;
 }): KrxOpenApiMasterDiagnostics {
   const status = getKrxOpenApiStatus();
   return {
@@ -90,6 +99,8 @@ export function buildOpenApiMasterDiagnostics(input: {
     authKeyConfigured: status.authKeyConfigured,
     enabled: status.enabled,
     cacheKeys: status.cacheKeys.slice(0, 8),
+    basDd: input.basDd,
+    dateAttempts: input.dateAttempts,
     kospiRows: input.kospiRows.length,
     kosdaqRows: input.kosdaqRows.length,
     kospiMapped: input.kospiMapped,
@@ -99,6 +110,7 @@ export function buildOpenApiMasterDiagnostics(input: {
     actualKosdaqSampleKeys: sampleKeys(input.kosdaqRows[0]),
     actualKospiSample: sampleRow(input.kospiRows[0]),
     actualKosdaqSample: sampleRow(input.kosdaqRows[0]),
+    rawProbeSummary: input.rawProbeSummary,
   };
 }
 
@@ -106,6 +118,8 @@ export function formatOpenApiMasterDiagnostics(d: KrxOpenApiMasterDiagnostics): 
   return [
     `branch=${d.parserBranch}`,
     `base=${d.base}`,
+    d.basDd ? `basDd=${d.basDd}` : '',
+    d.dateAttempts?.length ? `dateAttempts=${d.dateAttempts.join('|')}` : '',
     `enabled=${d.enabled}`,
     `auth=${d.authKeyConfigured}`,
     `circuit=${d.circuitState}`,
@@ -115,7 +129,8 @@ export function formatOpenApiMasterDiagnostics(d: KrxOpenApiMasterDiagnostics): 
     `expected=${d.expectedFields.join('|')}`,
     `kospiKeys=${d.actualKospiSampleKeys.join('|') || 'NONE'}`,
     `kosdaqKeys=${d.actualKosdaqSampleKeys.join('|') || 'NONE'}`,
-  ].join(';');
+    d.rawProbeSummary ? `rawProbe=${d.rawProbeSummary}` : '',
+  ].filter(Boolean).join(';');
 }
 
 function logOpenApiMasterParseFailure(reason: KrxOpenApiFetchReason, d: KrxOpenApiMasterDiagnostics): void {
@@ -123,6 +138,8 @@ function logOpenApiMasterParseFailure(reason: KrxOpenApiFetchReason, d: KrxOpenA
     reason,
     parserBranch: d.parserBranch,
     base: d.base,
+    basDd: d.basDd,
+    dateAttempts: d.dateAttempts,
     enabled: d.enabled,
     authKeyConfigured: d.authKeyConfigured,
     circuitState: d.circuitState,
@@ -138,6 +155,7 @@ function logOpenApiMasterParseFailure(reason: KrxOpenApiFetchReason, d: KrxOpenA
       kospi: d.actualKospiSample,
       kosdaq: d.actualKosdaqSample,
     },
+    rawProbeSummary: d.rawProbeSummary,
     cacheKeys: d.cacheKeys,
   });
 }
@@ -163,11 +181,20 @@ export function mapBaseInfoToMaster(
   return out;
 }
 
+async function buildRawProbeSummaryForDate(basDd: string): Promise<string> {
+  const [kospi, kosdaq] = await Promise.all([
+    probeKrxOpenApiBases(getKrxOpenApiEndpointPath('kospiBaseInfo'), { basDd }),
+    probeKrxOpenApiBases(getKrxOpenApiEndpointPath('kosdaqBaseInfo'), { basDd }),
+  ]);
+  return `KOSPI[${formatRawProbeSummary(kospi)}] KOSDAQ[${formatRawProbeSummary(kosdaq)}]`;
+}
+
 /**
  * KOSPI + KOSDAQ 종목기본정보 병렬 호출 후 단일 entries 배열로 합성.
  *
  * 정책:
  * - AUTH_KEY 미설정/서킷 OPEN/DISABLED: 즉시 ok=false + reason='DISABLED' (fallback 진입).
+ * - 최근 5영업일을 순차 시도한다. 특정 basDd 가 빈 응답이면 이전 영업일을 확인한다.
  * - 양쪽 모두 0건: ok=false + reason='EMPTY_PARSE'.
  * - 한쪽만 0건: 남은 쪽 entries 보존 + ok=false + reason 으로 호출자에게 보고
  *   (호출자가 검증 게이트로 결정 — 부분 데이터로는 KRX_MIN_VALID_ENTRIES=2000 통과 불가).
@@ -178,38 +205,54 @@ export async function fetchMasterFromOpenApi(): Promise<KrxOpenApiFetchResult> {
     return { ok: false, entries: [], kospiCount: 0, kosdaqCount: 0, reason: 'DISABLED' };
   }
   try {
-    const [kospiRows, kosdaqRows] = await Promise.all([
-      fetchKospiBaseInfo(),
-      fetchKosdaqBaseInfo(),
-    ]);
-    const kospiEntries = mapBaseInfoToMaster(kospiRows, 'KOSPI');
-    const kosdaqEntries = mapBaseInfoToMaster(kosdaqRows, 'KOSDAQ');
-    const diag = buildOpenApiMasterDiagnostics({
-      kospiRows,
-      kosdaqRows,
-      kospiMapped: kospiEntries.length,
-      kosdaqMapped: kosdaqEntries.length,
-    });
-    const detail = formatOpenApiMasterDiagnostics(diag);
+    const dateAttempts = recentBusinessDaysKst(5);
+    let lastFailure: KrxOpenApiFetchResult | null = null;
+    let lastDiag: KrxOpenApiMasterDiagnostics | null = null;
 
-    if (kospiEntries.length === 0 && kosdaqEntries.length === 0) {
-      logOpenApiMasterParseFailure('EMPTY_PARSE', diag);
-      return { ok: false, entries: [], kospiCount: 0, kosdaqCount: 0, reason: 'EMPTY_PARSE', detail };
-    }
-    if (kospiEntries.length === 0) {
-      logOpenApiMasterParseFailure('KOSPI_EMPTY', diag);
-      return {
-        ok: false,
-        entries: kosdaqEntries,
-        kospiCount: 0,
-        kosdaqCount: kosdaqEntries.length,
-        reason: 'KOSPI_EMPTY',
-        detail,
-      };
-    }
-    if (kosdaqEntries.length === 0) {
-      logOpenApiMasterParseFailure('KOSDAQ_EMPTY', diag);
-      return {
+    for (const basDd of dateAttempts) {
+      const [kospiRows, kosdaqRows] = await Promise.all([
+        fetchKospiBaseInfo(basDd),
+        fetchKosdaqBaseInfo(basDd),
+      ]);
+      const kospiEntries = mapBaseInfoToMaster(kospiRows, 'KOSPI');
+      const kosdaqEntries = mapBaseInfoToMaster(kosdaqRows, 'KOSDAQ');
+      const diag = buildOpenApiMasterDiagnostics({
+        kospiRows,
+        kosdaqRows,
+        kospiMapped: kospiEntries.length,
+        kosdaqMapped: kosdaqEntries.length,
+        basDd,
+        dateAttempts,
+      });
+      const detail = formatOpenApiMasterDiagnostics(diag);
+
+      if (kospiEntries.length > 0 && kosdaqEntries.length > 0) {
+        return {
+          ok: true,
+          entries: [...kospiEntries, ...kosdaqEntries],
+          kospiCount: kospiEntries.length,
+          kosdaqCount: kosdaqEntries.length,
+          detail: `selectedBasDd=${basDd};dateAttempts=${dateAttempts.join('|')}`,
+        };
+      }
+
+      lastDiag = diag;
+      if (kospiEntries.length === 0 && kosdaqEntries.length === 0) {
+        lastFailure = { ok: false, entries: [], kospiCount: 0, kosdaqCount: 0, reason: 'EMPTY_PARSE', detail };
+        continue;
+      }
+      if (kospiEntries.length === 0) {
+        lastFailure = {
+          ok: false,
+          entries: kosdaqEntries,
+          kospiCount: 0,
+          kosdaqCount: kosdaqEntries.length,
+          reason: 'KOSPI_EMPTY',
+          detail,
+        };
+        continue;
+      }
+      lastFailure = {
         ok: false,
         entries: kospiEntries,
         kospiCount: kospiEntries.length,
@@ -218,12 +261,19 @@ export async function fetchMasterFromOpenApi(): Promise<KrxOpenApiFetchResult> {
         detail,
       };
     }
-    return {
-      ok: true,
-      entries: [...kospiEntries, ...kosdaqEntries],
-      kospiCount: kospiEntries.length,
-      kosdaqCount: kosdaqEntries.length,
-    };
+
+    if (lastDiag) {
+      const rawProbeSummary = await buildRawProbeSummaryForDate(lastDiag.basDd ?? dateAttempts[0]);
+      lastDiag = { ...lastDiag, rawProbeSummary };
+      const detail = formatOpenApiMasterDiagnostics(lastDiag);
+      logOpenApiMasterParseFailure((lastFailure?.reason ?? 'EMPTY_PARSE') as KrxOpenApiFetchReason, lastDiag);
+      return {
+        ...(lastFailure ?? { ok: false, entries: [], kospiCount: 0, kosdaqCount: 0, reason: 'EMPTY_PARSE' as const }),
+        detail,
+      };
+    }
+
+    return { ok: false, entries: [], kospiCount: 0, kosdaqCount: 0, reason: 'EMPTY_PARSE' };
   } catch (e) {
     return {
       ok: false,
