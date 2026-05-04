@@ -4,13 +4,17 @@
 // 사용 예:
 //   /frb 041910 2026-05-04 7.2; 041910 2026-05-01 7.0
 //   /frb 041910 2026-05-04 7.2 2026-05-01 7.0 2026-04-30 6.8
+//   /frbt 10
 //
 // ratio 단위: %. 0~100 범위만 허용.
 
-import { appendForeignerRatio, computeForeignerRatioTrend } from '../../../persistence/foreignerRatioRepo.js';
+import { appendForeignerRatio, computeForeignerRatioTrend, loadForeignerRatioSeries } from '../../../persistence/foreignerRatioRepo.js';
+import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import { __resetSupplyHealthCacheForTests as resetSupplyHealthCache } from './supplyHealth.cmd.js';
+
+const DEFAULT_TEMPLATE_LIMIT = 10;
 
 interface ParsedForeignerRatioSeed {
   code: string;
@@ -102,6 +106,55 @@ function trendSummary(code: string): string {
   return `${code}: series=${trend.sampleSize} latest=${trend.latestDate} current=${trend.current.toFixed(2)}% 5d=${ch5}`;
 }
 
+function selectTopWatchlist(limit: number): WatchlistEntry[] {
+  return [...loadWatchlist()]
+    .sort((a, b) => Number((b as any).stage2Score ?? b.gateScore ?? 0) - Number((a as any).stage2Score ?? a.gateScore ?? 0))
+    .slice(0, limit);
+}
+
+function todayKst(): string {
+  return new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+}
+
+function addDays(date: string, delta: number): string {
+  const t = Date.parse(`${date}T00:00:00Z`);
+  return new Date(t + delta * 86_400_000).toISOString().slice(0, 10);
+}
+
+function placeholderRatio(index: number, offset: number): number {
+  // fake-zero 방지용 non-zero 템플릿. 운영자가 실제 외인 보유율로 교체하기 쉽도록 3~12% 범위의 작은 값 사용.
+  return parseFloat((3 + (index % 10) * 0.37 + offset * 0.08).toFixed(2));
+}
+
+export async function buildForeignerRatioSeedTemplateMessage(args: string[]): Promise<string> {
+  const requested = Number.parseInt(args[0] ?? String(DEFAULT_TEMPLATE_LIMIT), 10);
+  const limit = Number.isFinite(requested) ? Math.max(1, Math.min(20, requested)) : DEFAULT_TEMPLATE_LIMIT;
+  const top = selectTopWatchlist(limit);
+  const missing = top.filter((entry) => loadForeignerRatioSeries(entry.code).length === 0);
+  if (missing.length === 0) {
+    return `✅ stage2Score 상위 ${top.length}개 모두 외인 보유율 시계열 존재\n다음 확인: /sh`;
+  }
+
+  const d0 = todayKst();
+  const d1 = addDays(d0, -3);
+  const d2 = addDays(d0, -4);
+  const rows = missing.map((entry, index) => {
+    const r0 = placeholderRatio(index, 0);
+    const r1 = placeholderRatio(index, -1);
+    const r2 = placeholderRatio(index, -2);
+    return `${entry.code} ${d0} ${r0} ${d1} ${r1} ${d2} ${r2}`;
+  });
+
+  return [
+    '🧩 외인 보유율 추세 missing seed 템플릿',
+    `top=${top.length} missing=${missing.length}`,
+    '주의: 아래 ratio는 non-zero 임시값입니다. 실제 외인 보유율로 교체 권장.',
+    '목표: /sh series 0/10 → N/10 상승 확인',
+    '',
+    `/frb ${rows.join('; ')}`,
+  ].join('\n');
+}
+
 const foreignerRatioBackfill: TelegramCommand = {
   name: '/foreigner_ratio_backfill',
   aliases: ['/frb'],
@@ -117,7 +170,8 @@ const foreignerRatioBackfill: TelegramCommand = {
         '🧩 <b>외인 보유율 추세 backfill</b>\n' +
         '사용법:\n' +
         '<code>/frb 041910 2026-05-04 7.2; 041910 2026-05-01 7.0</code>\n' +
-        '<code>/frb 041910 2026-05-04 7.2 2026-05-01 7.0 2026-04-30 6.8</code>\n\n' +
+        '<code>/frb 041910 2026-05-04 7.2 2026-05-01 7.0 2026-04-30 6.8</code>\n' +
+        '<code>/frbt 10</code>\n\n' +
         '단위: %, 허용 범위 0~100\n' +
         '확인: <code>/foreigner_trend 041910</code> 또는 <code>/sh</code>',
       );
@@ -154,6 +208,21 @@ const foreignerRatioBackfill: TelegramCommand = {
   },
 };
 
+const foreignerRatioSeedTemplate: TelegramCommand = {
+  name: '/foreigner_ratio_seed_template',
+  aliases: ['/frbt'],
+  category: 'SYS',
+  visibility: 'ADMIN',
+  riskLevel: 0,
+  description: 'stage2Score 상위 종목 중 외인 보유율 시계열 미보유 seed 템플릿 생성',
+  usage: '/foreigner_ratio_seed_template [limit]',
+  async execute({ args, reply }) {
+    try { await reply(await buildForeignerRatioSeedTemplateMessage(args)); }
+    catch (err) { console.error('[foreignerRatioSeedTemplate.cmd] failed', err); await reply('❌ foreigner ratio seed template 실패 — 서버 로그 확인 필요'); }
+  },
+};
+
 commandRegistry.register(foreignerRatioBackfill);
+commandRegistry.register(foreignerRatioSeedTemplate);
 
 export default foreignerRatioBackfill;
