@@ -34,6 +34,12 @@ const STOCK_PROGRAM_TRADE_PATH =
  */
 const MARKET_PROGRAM_DIV_CODE = process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J';
 const MARKET_PROGRAM_INDEX_CODE = process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? '0001';
+/**
+ * ADR-0147: PR #562 적용 후 `ERROR INPUT FIELD NOT FOUND [FID_MRKT_CLS_CODE]` 확인.
+ * 시장 프로그램매매 endpoint 는 시장 분류 필드가 필수다. KIS 값이 계정/문서 버전에 따라
+ * 다를 수 있어 ENV 로 즉시 우회 가능하게 둔다.
+ */
+const MARKET_PROGRAM_MARKET_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? 'KOSPI';
 
 type KisOutput = Record<string, string>;
 
@@ -180,6 +186,7 @@ export async function fetchKisMarketProgramTrade(
       MARKET_PROGRAM_TRADE_PATH,
       {
         FID_COND_MRKT_DIV_CODE: MARKET_PROGRAM_DIV_CODE,
+        FID_MRKT_CLS_CODE: MARKET_PROGRAM_MARKET_CLASS_CODE,
         FID_INPUT_ISCD: MARKET_PROGRAM_INDEX_CODE,
       },
       priority,
