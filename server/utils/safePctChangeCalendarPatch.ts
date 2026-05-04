@@ -2,18 +2,21 @@
  * @responsibility Runtime calendar-window patch for Yahoo/KRX staleness windows.
  *
  * Yahoo/KRX bases are trading-day based, but the guard receives calendar age.
- * Weekends and exchange holidays can make the latest valid daily base appear 4+ calendar
- * days old. Keep INTRADAY strict, but widen DAILY enough for weekend/holiday gaps and
- * RECOMMENDATION_RETURN enough for normal 20-trading-day windows.
+ * This patch derives the DAILY window from the KRX trading calendar instead of a
+ * fixed blanket window, so weekends/holidays are accepted while week-old bases remain stale.
  */
 
+import { recommendedDailyStaleWindowDays } from '../calendar/krxTradingCalendar.js';
 import { STALENESS_LIMITS_BY_MODE } from './safePctChange.js';
 
-export const DAILY_STALE_AFTER_DAYS = 6;
 export const RECOMMENDATION_RETURN_STALE_AFTER_DAYS = 45;
 
-export function installYahooTradingCalendarWindows(): void {
-  STALENESS_LIMITS_BY_MODE.DAILY = DAILY_STALE_AFTER_DAYS;
+export function currentDailyStaleAfterDays(now: Date = new Date()): number {
+  return recommendedDailyStaleWindowDays(now);
+}
+
+export function installYahooTradingCalendarWindows(now: Date = new Date()): void {
+  STALENESS_LIMITS_BY_MODE.DAILY = currentDailyStaleAfterDays(now);
   STALENESS_LIMITS_BY_MODE.RECOMMENDATION_RETURN = RECOMMENDATION_RETURN_STALE_AFTER_DAYS;
 }
 
