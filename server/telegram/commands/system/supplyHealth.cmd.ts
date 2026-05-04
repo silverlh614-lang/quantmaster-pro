@@ -13,6 +13,9 @@
  *
  * PR-577: macroState 결손 + live probe 실패는 시스템 장애가 아니라 공매도 provider 미확정
  * 상태로 분리한다. PROVIDER_UNAVAILABLE neutral 로 표기하고 점수 입력/위험 TOP 3에서 제외한다.
+ *
+ * PR-578: Naver 외인 보유율 시계열이 아직 0건인 상태는 live 장애가 아니라 enrichment 누적 전
+ * COLLECTION_EMPTY 상태다. red MISSING 대신 neutral 로 분리해 점수 입력/위험 TOP 3에서 제외한다.
  */
 
 import fs from 'fs';
@@ -463,11 +466,27 @@ function diagnoseForeignerRatio(targets: WatchlistEntry[], nowMs: number): Chann
     if (days !== null && days > TWO_DAYS) stale++;
   }
   const total = targets.length;
-  const marker: Marker = total === 0 || seriesCount === 0 ? 'MISSING' : stale > 0 ? 'STALE' : 'OK';
+  if (total > 0 && seriesCount === 0) {
+    return {
+      title: '외인 보유율 추세',
+      marker: 'NEUTRAL',
+      lines: [
+        'source: NAVER',
+        'status: COLLECTION_EMPTY',
+        `series: ${seriesCount}/${total}`,
+        `stale: ${stale}`,
+        '판정: Naver 외인 보유율 시계열 미누적 — 점수 입력 제외',
+        '수집 후보: aiUniverseService enrichment / Naver negative cache 해제 / 수동 warm-up',
+        '상세: /foreigner_trend',
+      ],
+    };
+  }
+
+  const marker: Marker = total === 0 ? 'MISSING' : stale > 0 ? 'STALE' : 'OK';
   return {
     title: '외인 보유율 추세',
     marker,
-    riskReason: marker === 'STALE' ? `stale ${stale}/${seriesCount}` : marker === 'MISSING' ? 'series 없음' : undefined,
+    riskReason: marker === 'STALE' ? `stale ${stale}/${seriesCount}` : marker === 'MISSING' ? 'watchlist 없음' : undefined,
     lines: [
       'source: NAVER',
       `series: ${seriesCount}/${total}`,
