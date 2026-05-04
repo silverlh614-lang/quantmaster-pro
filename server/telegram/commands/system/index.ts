@@ -43,6 +43,7 @@ import './scanIndices.cmd.js';
 import './scheduleClassDiag.cmd.js';
 import './scheduler.cmd.js';
 import './shadowWalkForward.cmd.js';
+import './shortBackfill.cmd.js';
 import './signalStatus.cmd.js';
 import './status.cmd.js';
 import './supplyHealth.cmd.js';
