@@ -132,6 +132,26 @@ function firstTargetCode(targets: WatchlistEntry[]): string | null {
   return targets[0]?.code ?? null;
 }
 
+function investorFlowMissingReason(rawDiagLine: string | null, success: number): string {
+  if (success > 0) return '';
+  if (rawDiagLine?.includes('zeroReason=FIELD_MISSING')) {
+    return 'KIS 응답에 투자자 순매수 필드 없음 — endpoint/TR 재검증 필요';
+  }
+  if (rawDiagLine?.includes('zeroReason=FETCH_FAIL')) {
+    return 'KIS raw diagnostic fetch 실패 — circuit/rate-limit/http 확인 필요';
+  }
+  return '조회 성공 0건';
+}
+
+function renderInvestorFlowDecision(marker: Marker, zeroSuspicious: boolean, success: number, rawDiagLine: string | null): string {
+  if (marker === 'MISSING') {
+    const reason = investorFlowMissingReason(rawDiagLine, success);
+    return `판정: MISSING — ${reason || '실데이터 없음'}; 수급 점수 입력 제외`;
+  }
+  if (zeroSuspicious) return '판정: DEGRADED — 수급 점수 입력 제외 권장';
+  return '판정: OK';
+}
+
 async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelStatus> {
   // PR-558: raw diagnostic first. Bulk scan can consume rate-limit tokens and leave
   // the diagnostic call as null/rootKeys=NONE, which hides the real KIS response branch.
@@ -153,11 +173,12 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelS
   const total = targets.length;
   const zeroSuspicious = isZeroFilledSuspicious(zero, total);
   const marker: Marker = total === 0 || success === 0 ? 'MISSING' : zeroSuspicious ? 'DEGRADED' : 'OK';
+  const missingReason = investorFlowMissingReason(rawDiagLine, success);
   return {
     title: '기관/외인 수급',
     marker,
     riskReason: marker === 'MISSING'
-      ? '조회 성공 0건'
+      ? missingReason
       : zeroSuspicious
         ? zeroFilledRiskReason(zero, total)
         : undefined,
@@ -167,7 +188,7 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelS
       `success: ${success}/${total}`,
       'stale: 0',
       `zero-filled 의심: ${zeroWarn(zero, total)}`,
-      zeroSuspicious ? '판정: DEGRADED — 수급 점수 입력 제외 권장' : '판정: OK',
+      renderInvestorFlowDecision(marker, zeroSuspicious, success, rawDiagLine),
       ...(rawDiagLine ? [rawDiagLine] : []),
       '상세: /investor_flow 예정',
     ],
