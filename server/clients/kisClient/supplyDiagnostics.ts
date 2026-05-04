@@ -105,11 +105,47 @@ function fmtSample(sample: Record<string, string | number | boolean | null>): st
   return entries.map(([k, v]) => `${k}:${v ?? 'NULL'}`).join(',');
 }
 
+function fail(
+  kind: KisSupplyDiagnosticKind,
+  code: string,
+  trId: string,
+  path: string,
+  zeroReason: KisRawSupplyDiagnostic['zeroReason'],
+  error: string,
+): KisRawSupplyDiagnostic {
+  return {
+    kind,
+    code,
+    ok: false,
+    trId,
+    path,
+    rootKeys: [],
+    outputPath: 'NONE',
+    outputKeys: [],
+    parsed: {},
+    zeroReason,
+    sample: {},
+    rootSample: {},
+    error,
+  };
+}
+
+function failNullResponse(
+  kind: KisSupplyDiagnosticKind,
+  code: string,
+  trId: string,
+  path: string,
+): KisRawSupplyDiagnostic {
+  return fail(kind, code, trId, path, 'FETCH_FAIL', 'realDataKisGet returned null — circuit/rate-limit/http/json-empty likely');
+}
+
 export function formatKisRawSupplyDiagnostic(diag: KisRawSupplyDiagnostic): string {
   return [
     `rawDiag=${diag.kind}`,
     `code=${diag.code}`,
     `ok=${diag.ok}`,
+    `trId=${diag.trId}`,
+    `apiPath=${diag.path}`,
     `path=${diag.outputPath}`,
     `rootKeys=${diag.rootKeys.join('|') || 'NONE'}`,
     `rootSample=${fmtSample(diag.rootSample)}`,
@@ -134,6 +170,7 @@ export async function diagnoseKisInvestorFlowRaw(
       FID_COND_MRKT_DIV_CODE: 'J',
       FID_INPUT_ISCD: code.padStart(6, '0'),
     }, priority);
+    if (!data) return failNullResponse('INVESTOR_FLOW', code, trId, path);
     const { path: outputPath, out } = firstOutput(data);
     const parsed = {
       foreignNetBuy: parseNum(out, ['frgn_ntby_qty', 'FRGN_NETBUY_QTY']),
@@ -171,6 +208,7 @@ export async function diagnoseKisStockProgramRaw(
       FID_COND_MRKT_DIV_CODE: 'J',
       FID_INPUT_ISCD: code.padStart(6, '0'),
     }, priority);
+    if (!data) return failNullResponse('STOCK_PROGRAM', code, STOCK_PROGRAM_TRADE_TR_ID, STOCK_PROGRAM_TRADE_PATH);
     const { path: outputPath, out } = firstOutput(data);
     const parsed = {
       programNetBuyQty: parseNum(out, ['whol_smtn_ntby_qty', 'prgm_ntby_qty', 'PRGM_NTBY_QTY']),
@@ -194,29 +232,4 @@ export async function diagnoseKisStockProgramRaw(
   } catch (e) {
     return fail('STOCK_PROGRAM', code, STOCK_PROGRAM_TRADE_TR_ID, STOCK_PROGRAM_TRADE_PATH, 'FETCH_FAIL', e instanceof Error ? e.message : String(e));
   }
-}
-
-function fail(
-  kind: KisSupplyDiagnosticKind,
-  code: string,
-  trId: string,
-  path: string,
-  zeroReason: KisRawSupplyDiagnostic['zeroReason'],
-  error: string,
-): KisRawSupplyDiagnostic {
-  return {
-    kind,
-    code,
-    ok: false,
-    trId,
-    path,
-    rootKeys: [],
-    outputPath: 'NONE',
-    outputKeys: [],
-    parsed: {},
-    zeroReason,
-    sample: {},
-    rootSample: {},
-    error,
-  };
 }
