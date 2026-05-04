@@ -1,5 +1,5 @@
 /**
- * @responsibility krxOpenApiMasterFetcher 회귀 테스트 — KRX OpenAPI 응답 매핑 + 5 분기 결과
+ * @responsibility krxOpenApiMasterFetcher 회귀 테스트 — KRX OpenAPI 응답 매핑 + 5 분기 결과 + EMPTY_PARSE 진단
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -7,22 +7,34 @@ vi.mock('./krxOpenApi.js', () => ({
   fetchKospiBaseInfo: vi.fn(),
   fetchKosdaqBaseInfo: vi.fn(),
   isKrxOpenApiHealthy: vi.fn(),
+  getKrxOpenApiStatus: vi.fn(() => ({
+    enabled: true,
+    authKeyConfigured: true,
+    circuitState: 'CLOSED',
+    failures: 0,
+    cacheKeys: ['kospi-base:20260501', 'kosdaq-base:20260501'],
+    base: 'https://data-dbg.krx.co.kr/svc/apis',
+  })),
 }));
 
 import {
   mapBaseInfoToMaster,
   fetchMasterFromOpenApi,
+  buildOpenApiMasterDiagnostics,
+  formatOpenApiMasterDiagnostics,
 } from './krxOpenApiMasterFetcher.js';
 import {
   fetchKospiBaseInfo,
   fetchKosdaqBaseInfo,
   isKrxOpenApiHealthy,
+  getKrxOpenApiStatus,
   type KrxIsuBaseInfoRow,
 } from './krxOpenApi.js';
 
 const mFetchKospi = fetchKospiBaseInfo as unknown as ReturnType<typeof vi.fn>;
 const mFetchKosdaq = fetchKosdaqBaseInfo as unknown as ReturnType<typeof vi.fn>;
 const mHealthy = isKrxOpenApiHealthy as unknown as ReturnType<typeof vi.fn>;
+const mStatus = getKrxOpenApiStatus as unknown as ReturnType<typeof vi.fn>;
 
 function row(code: string, name: string, overrides: Partial<KrxIsuBaseInfoRow> = {}): KrxIsuBaseInfoRow {
   return {
@@ -42,6 +54,14 @@ function row(code: string, name: string, overrides: Partial<KrxIsuBaseInfoRow> =
 beforeEach(() => {
   vi.clearAllMocks();
   mHealthy.mockReturnValue(true);
+  mStatus.mockReturnValue({
+    enabled: true,
+    authKeyConfigured: true,
+    circuitState: 'CLOSED',
+    failures: 0,
+    cacheKeys: ['kospi-base:20260501', 'kosdaq-base:20260501'],
+    base: 'https://data-dbg.krx.co.kr/svc/apis',
+  });
 });
 
 afterEach(() => {
@@ -91,6 +111,38 @@ describe('mapBaseInfoToMaster', () => {
   });
 });
 
+describe('OpenAPI master diagnostics', () => {
+  it('builds parser branch, row counts, mapped counts, expected fields and sample keys', () => {
+    const diag = buildOpenApiMasterDiagnostics({
+      kospiRows: [row('', '', { isin: 'KR7005930003' })],
+      kosdaqRows: [row('', '', { market: 'KOSDAQ' })],
+      kospiMapped: 0,
+      kosdaqMapped: 0,
+    });
+    expect(diag.parserBranch).toBe('KOSPI_BASE_INFO+KOSDAQ_BASE_INFO');
+    expect(diag.kospiRows).toBe(1);
+    expect(diag.kosdaqRows).toBe(1);
+    expect(diag.kospiMapped).toBe(0);
+    expect(diag.kosdaqMapped).toBe(0);
+    expect(diag.expectedFields).toContain('code');
+    expect(diag.actualKospiSampleKeys).toContain('isin');
+    expect(diag.actualKosdaqSampleKeys).toContain('market');
+  });
+
+  it('formats compact attempt detail for /kmr attempts[].reason/detail', () => {
+    const detail = formatOpenApiMasterDiagnostics(buildOpenApiMasterDiagnostics({
+      kospiRows: [],
+      kosdaqRows: [],
+      kospiMapped: 0,
+      kosdaqMapped: 0,
+    }));
+    expect(detail).toContain('branch=KOSPI_BASE_INFO+KOSDAQ_BASE_INFO');
+    expect(detail).toContain('rows=0/0');
+    expect(detail).toContain('mapped=0/0');
+    expect(detail).toContain('kospiKeys=NONE');
+  });
+});
+
 describe('fetchMasterFromOpenApi — 5 분기', () => {
   it('AUTH_KEY 미설정/서킷 OPEN → ok=false reason=DISABLED + 호출 없음', async () => {
     mHealthy.mockReturnValue(false);
@@ -113,16 +165,29 @@ describe('fetchMasterFromOpenApi — 5 분기', () => {
     expect(r.entries.find((e) => e.code === '068270')?.market).toBe('KOSDAQ');
   });
 
-  it('양쪽 모두 빈 응답 → ok=false reason=EMPTY_PARSE', async () => {
+  it('양쪽 모두 빈 응답 → ok=false reason=EMPTY_PARSE + 진단 detail', async () => {
     mFetchKospi.mockResolvedValue([]);
     mFetchKosdaq.mockResolvedValue([]);
     const r = await fetchMasterFromOpenApi();
     expect(r.ok).toBe(false);
     expect(r.reason).toBe('EMPTY_PARSE');
     expect(r.entries).toEqual([]);
+    expect(r.detail).toContain('rows=0/0');
+    expect(r.detail).toContain('mapped=0/0');
   });
 
-  it('KOSPI 만 0건 → ok=false reason=KOSPI_EMPTY + KOSDAQ entries 보존', async () => {
+  it('양쪽 row는 있지만 mapping 0건 → EMPTY_PARSE + sample keys detail', async () => {
+    mFetchKospi.mockResolvedValue([row('', '', { isin: 'x' })]);
+    mFetchKosdaq.mockResolvedValue([row('', '', { isin: 'y' })]);
+    const r = await fetchMasterFromOpenApi();
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('EMPTY_PARSE');
+    expect(r.detail).toContain('rows=1/1');
+    expect(r.detail).toContain('mapped=0/0');
+    expect(r.detail).toContain('kospiKeys=code|name|isin');
+  });
+
+  it('KOSPI 만 0건 → ok=false reason=KOSPI_EMPTY + KOSDAQ entries 보존 + detail', async () => {
     mFetchKospi.mockResolvedValue([]);
     mFetchKosdaq.mockResolvedValue([row('068270', '셀트리온')]);
     const r = await fetchMasterFromOpenApi();
@@ -131,9 +196,10 @@ describe('fetchMasterFromOpenApi — 5 분기', () => {
     expect(r.entries).toHaveLength(1);
     expect(r.kosdaqCount).toBe(1);
     expect(r.kospiCount).toBe(0);
+    expect(r.detail).toContain('mapped=0/1');
   });
 
-  it('KOSDAQ 만 0건 → ok=false reason=KOSDAQ_EMPTY + KOSPI entries 보존', async () => {
+  it('KOSDAQ 만 0건 → ok=false reason=KOSDAQ_EMPTY + KOSPI entries 보존 + detail', async () => {
     mFetchKospi.mockResolvedValue([row('005930', '삼성전자')]);
     mFetchKosdaq.mockResolvedValue([]);
     const r = await fetchMasterFromOpenApi();
@@ -142,6 +208,7 @@ describe('fetchMasterFromOpenApi — 5 분기', () => {
     expect(r.entries).toHaveLength(1);
     expect(r.kospiCount).toBe(1);
     expect(r.kosdaqCount).toBe(0);
+    expect(r.detail).toContain('mapped=1/0');
   });
 
   it('Promise.all 예외 → ok=false reason=EXCEPTION + detail 보존', async () => {
@@ -159,7 +226,6 @@ describe('fetchMasterFromOpenApi — 5 분기', () => {
     mFetchKospi.mockImplementation(async () => {
       await new Promise((r) => setTimeout(r, 10));
       kospiResolved = true;
-      // KOSDAQ 가 시작은 됐어야 함 (병렬). resolve 순서는 보장되지 않으니 시작 여부만 확인.
       return [row('005930', '삼성전자')];
     });
     mFetchKosdaq.mockImplementation(async () => {
