@@ -20,8 +20,10 @@ const TWO_DAYS = 2;
 const FSS_STALE_DAYS = 4;
 /** ADR-0145: 공매도 신선도 임계 — KRX 일별 데이터는 영업일 1회 갱신, 2일 초과는 stale. */
 const SHORT_STALE_DAYS = 2;
+const ZERO_FILLED_MIN_COUNT = 3;
+const ZERO_FILLED_RATIO_WARN = 0.8;
 
-type Marker = 'OK' | 'STALE' | 'MISSING' | 'N/A';
+type Marker = 'OK' | 'STALE' | 'DEGRADED' | 'MISSING' | 'N/A';
 
 interface ChannelStatus {
   title: string;
@@ -36,6 +38,7 @@ let cache: { message: string; builtAt: number } | null = null;
 function markerIcon(marker: Marker): string {
   if (marker === 'OK') return '🟢';
   if (marker === 'STALE') return '🟡';
+  if (marker === 'DEGRADED') return '🟠';
   if (marker === 'MISSING') return '🔴';
   return '⚪';
 }
@@ -105,14 +108,23 @@ function elapsedDays(date: string | null | undefined, nowMs: number): number | n
   return Math.max(0, Math.round((today - then) / DAY_MS));
 }
 
+function isZeroFilledSuspicious(count: number, total: number): boolean {
+  if (total <= 0) return false;
+  return count >= ZERO_FILLED_MIN_COUNT && count / total >= ZERO_FILLED_RATIO_WARN;
+}
+
 function zeroWarn(count: number, total: number): string {
-  return `${count}/${total}${total > 0 && count >= 3 ? ' ⚠️' : ''}`;
+  return `${count}/${total}${isZeroFilledSuspicious(count, total) ? ' ⚠️' : ''}`;
 }
 
 function formatEokwon(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return 'N/A';
   if (Math.abs(value) < 0.05) return '0억';
   return `${value > 0 ? '+' : ''}${value.toFixed(0)}억`;
+}
+
+function zeroFilledRiskReason(count: number, total: number): string {
+  return `zero-filled 의심 ${count}/${total} — KIS success지만 실데이터 신뢰 불가`;
 }
 
 async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelStatus> {
@@ -129,17 +141,23 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelS
     }
   }
   const total = targets.length;
-  const marker: Marker = total === 0 || success === 0 ? 'MISSING' : 'OK';
+  const zeroSuspicious = isZeroFilledSuspicious(zero, total);
+  const marker: Marker = total === 0 || success === 0 ? 'MISSING' : zeroSuspicious ? 'DEGRADED' : 'OK';
   return {
     title: '기관/외인 수급',
     marker,
-    riskReason: marker === 'MISSING' ? '조회 성공 0건' : undefined,
+    riskReason: marker === 'MISSING'
+      ? '조회 성공 0건'
+      : zeroSuspicious
+        ? zeroFilledRiskReason(zero, total)
+        : undefined,
     zeroSuspect: { count: zero, total },
     lines: [
       'source: KIS_API',
       `success: ${success}/${total}`,
       'stale: 0',
       `zero-filled 의심: ${zeroWarn(zero, total)}`,
+      zeroSuspicious ? '판정: DEGRADED — 수급 점수 입력 제외 권장' : '판정: OK',
       '상세: /investor_flow 예정',
     ],
   };
@@ -160,17 +178,25 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
   }
   const total = targets.length;
   const missing = Math.max(0, total - success);
-  const marker: Marker = total === 0 || success === 0 ? 'MISSING' : 'OK';
+  const zeroSuspicious = isZeroFilledSuspicious(zero, total);
+  const marker: Marker = total === 0 || success === 0 ? 'MISSING' : zeroSuspicious ? 'DEGRADED' : 'OK';
   return {
     title: '종목 프로그램매매',
     marker,
-    riskReason: marker === 'MISSING' ? '조회 성공 0건' : missing > 0 ? `missing ${missing}` : undefined,
+    riskReason: marker === 'MISSING'
+      ? '조회 성공 0건'
+      : zeroSuspicious
+        ? zeroFilledRiskReason(zero, total)
+        : missing > 0
+          ? `missing ${missing}`
+          : undefined,
     zeroSuspect: { count: zero, total },
     lines: [
       'source: KIS_API',
       `success: ${success}/${total}`,
       `missing: ${missing}`,
       `zero-filled 의심: ${zeroWarn(zero, total)}`,
+      zeroSuspicious ? '판정: DEGRADED — 프로그램 수급 점수 입력 제외 권장' : '판정: OK',
       '상세: /program_today',
     ],
   };
@@ -350,8 +376,8 @@ function diagnoseMargin(macro: MacroState | null, nowMs: number): ChannelStatus 
 function buildRiskTop3(channels: ChannelStatus[]): string[] {
   const risks: string[] = [];
   for (const channel of channels) {
-    if (channel.zeroSuspect && channel.zeroSuspect.total > 0 && channel.zeroSuspect.count >= 3) {
-      risks.push(`- ⚠️ ${channel.title}: zero-filled 의심 ${channel.zeroSuspect.count}/${channel.zeroSuspect.total}`);
+    if (channel.zeroSuspect && isZeroFilledSuspicious(channel.zeroSuspect.count, channel.zeroSuspect.total)) {
+      risks.push(`- 🟠 ${channel.title}: ${zeroFilledRiskReason(channel.zeroSuspect.count, channel.zeroSuspect.total)}`);
     }
   }
   for (const channel of channels) {
@@ -370,10 +396,11 @@ function buildRiskTop3(channels: ChannelStatus[]): string[] {
 function renderMessage(channels: ChannelStatus[], targetLine: string, cacheLine: string): string {
   const ok = channels.filter((c) => c.marker === 'OK').length;
   const stale = channels.filter((c) => c.marker === 'STALE').length;
+  const degraded = channels.filter((c) => c.marker === 'DEGRADED').length;
   const missing = channels.filter((c) => c.marker === 'MISSING').length;
   const risks = buildRiskTop3(channels);
   const lines: string[] = [
-    `📊 Supply Health: ${ok}/${channels.length} OK | ${stale} STALE | ${missing} MISSING`,
+    `📊 Supply Health: ${ok}/${channels.length} OK | ${degraded} DEGRADED | ${stale} STALE | ${missing} MISSING`,
     targetLine,
     cacheLine,
     '',
