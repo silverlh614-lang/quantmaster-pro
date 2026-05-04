@@ -1,14 +1,18 @@
-// @responsibility Yahoo 데이터 무결성 진단 — 워치리스트 종목 fetchYahooQuote sanity 위반 검증 + KIS changePercent 복구
+// @responsibility Yahoo 데이터 무결성 진단 — 워치리스트 종목 fetchYahooQuote sanity 위반 검증 + KIS changePercent 복구 + historical refresh
 //
-// ADR-0091 PR-Z4 후속. PR-549: STALE_BASE 감지에서 끝내지 않고 KIS intraday 로 복구 가능한
-// changePercent 단일 위반은 회복 상태를 표시한다. return5d/return20d stale 은 0% fallback 금지 —
-// momentum/RS 입력으로 쓰면 안 되므로 DATA_STALE_PRICE 로 분리한다.
+// ADR-0091 PR-Z4 후속. PR-549: KIS intraday 로 changePercent 단일 위반 복구.
+// PR-550: return5d/return20d stale 은 cache-busting Yahoo historical refresh 로 재검증한다.
+// 그래도 stale이면 0% fallback 금지 — momentum/RS 입력에서 제외한다.
 
 import { fetchYahooQuote, type YahooQuoteExtended } from '../../../screener/adapters/yahooQuoteAdapter.js';
 import {
   recoverYahooStaleQuoteWithKis,
   type YahooStaleRecoveryStatus,
 } from '../../../screener/adapters/yahooStaleRecovery.js';
+import {
+  refreshYahooHistoricalReturns,
+  formatYahooHistoricalRefresh,
+} from '../../../screener/adapters/yahooHistoricalRefresh.js';
 import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import { getStockByCode } from '../../../persistence/krxStockMasterRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';
@@ -30,7 +34,7 @@ export interface YahooHealthIssueDetail {
   return5d?: number;
   return20d?: number;
   issues?: Array<'changePercent' | 'return5d' | 'return20d'>;
-  recoveryStatus?: YahooStaleRecoveryStatus;
+  recoveryStatus?: YahooStaleRecoveryStatus | 'HISTORICAL_REFRESH_RECOVERED' | 'HISTORICAL_REFRESH_FAILED';
   recoveryNote?: string;
 }
 
@@ -40,6 +44,8 @@ export interface YahooHealthSummary {
   okCount: number;
   failCount: number;
   recoveredCount: number;
+  historicalRefreshRecoveredCount: number;
+  historicalRefreshFailedCount: number;
   staleUnrecoveredCount: number;
   details: YahooHealthIssueDetail[];
 }
@@ -83,13 +89,37 @@ export function classifyQuote(
   return { ...base, kinds: issues.map(classifyIssueKind), issues };
 }
 
-/** 워치리스트 → fetchYahooQuote (배치) → 결과 분류 + KIS changePercent 복구. */
+async function tryHistoricalRefresh(detail: YahooHealthIssueDetail): Promise<YahooHealthIssueDetail> {
+  if (!detail.symbol) return detail;
+  const hasHistoricalIssue = detail.kinds.includes('STALE_BASE_5D') || detail.kinds.includes('STALE_BASE_20D');
+  if (!hasHistoricalIssue) return detail;
+  const refresh = await refreshYahooHistoricalReturns(detail.symbol);
+  if (refresh.ok && refresh.return20d !== null) {
+    return {
+      ...detail,
+      kinds: [],
+      recoveryStatus: 'HISTORICAL_REFRESH_RECOVERED',
+      recoveryNote: formatYahooHistoricalRefresh(refresh),
+      changePercent: refresh.changePercent ?? detail.changePercent,
+      return5d: refresh.return5d ?? detail.return5d,
+      return20d: refresh.return20d,
+    };
+  }
+  return {
+    ...detail,
+    recoveryStatus: 'HISTORICAL_REFRESH_FAILED',
+    recoveryNote: formatYahooHistoricalRefresh(refresh),
+  };
+}
+
+/** 워치리스트 → fetchYahooQuote (배치) → 결과 분류 + KIS/historical 복구. */
 export async function runYahooHealthCheck(
   options: {
     limit?: number;
     fetcher?: (symbol: string) => Promise<YahooQuoteExtended | null>;
     now?: Date;
     recover?: boolean;
+    historicalRefresh?: boolean;
   } = {},
 ): Promise<YahooHealthSummary> {
   const limit = Math.max(1, options.limit ?? YAHOO_HEALTH_LIMIT);
@@ -99,6 +129,8 @@ export async function runYahooHealthCheck(
   const details: YahooHealthIssueDetail[] = [];
   let okCount = 0;
   let recoveredCount = 0;
+  let historicalRefreshRecoveredCount = 0;
+  let historicalRefreshFailedCount = 0;
   let staleUnrecoveredCount = 0;
 
   for (let i = 0; i < watchlist.length; i += YAHOO_HEALTH_BATCH_SIZE) {
@@ -131,9 +163,20 @@ export async function runYahooHealthCheck(
           });
           continue;
         }
+
+        let detail = classifyQuote(entry, quote);
+        if (detail && options.historicalRefresh) {
+          detail = await tryHistoricalRefresh(detail);
+          if (detail.recoveryStatus === 'HISTORICAL_REFRESH_RECOVERED') {
+            okCount += 1;
+            historicalRefreshRecoveredCount += 1;
+            details.push(detail);
+            continue;
+          }
+          if (detail.recoveryStatus === 'HISTORICAL_REFRESH_FAILED') historicalRefreshFailedCount += 1;
+        }
         if (recovery.status === 'STALE_UNRECOVERED') staleUnrecoveredCount += 1;
-        const detail = classifyQuote(entry, quote);
-        if (detail) details.push({ ...detail, recoveryStatus: recovery.status, recoveryNote: recovery.note });
+        if (detail) details.push({ ...detail, recoveryStatus: detail.recoveryStatus ?? recovery.status, recoveryNote: detail.recoveryNote ?? recovery.note });
         continue;
       }
 
@@ -151,6 +194,8 @@ export async function runYahooHealthCheck(
     okCount,
     failCount: details.filter((d) => d.kinds.length > 0).length,
     recoveredCount,
+    historicalRefreshRecoveredCount,
+    historicalRefreshFailedCount,
     staleUnrecoveredCount,
     details,
   };
@@ -176,6 +221,9 @@ function formatDetailLine(d: YahooHealthIssueDetail, idx: number): string {
   if (d.recoveryStatus === 'KIS_CHANGE_PERCENT_RECOVERED') {
     return `${head}\n   ✅ KIS_FALLBACK_RECOVERED — changePercent ${formatPct(d.changePercent)}\n   ${d.recoveryNote ?? ''}`;
   }
+  if (d.recoveryStatus === 'HISTORICAL_REFRESH_RECOVERED') {
+    return `${head}\n   ✅ HISTORICAL_REFRESH_RECOVERED — return20d ${formatPct(d.return20d)}\n   ${d.recoveryNote ?? ''}`;
+  }
   if (d.kinds[0] === 'FETCH_FAIL') {
     return `${head}\n   FETCH_FAIL — Yahoo quote 부재 (캐시/네트워크 실패 또는 KONEX/OTHER)`;
   }
@@ -185,7 +233,7 @@ function formatDetailLine(d: YahooHealthIssueDetail, idx: number): string {
   if (d.kinds.includes('STALE_BASE_20D')) parts.push(`return20d: ${formatPct(d.return20d)}`);
   if (d.kinds.includes('UNKNOWN')) parts.push('UNKNOWN — STALE_BASE marker 만, issues 부재');
   const reason = '진단: DATA_STALE_PRICE — Yahoo base.asOf 만료 / 분할·병합 미반영 / 가격 inversion 의심';
-  return `${head}\n   ${parts.join(' / ') || '?'}\n   ${reason}${d.recoveryNote ? `\n   recovery: ${d.recoveryNote}` : ''}`;
+  return `${head}\n   ${parts.join(' / ') || '?'}\n   ${reason}${d.recoveryNote ? `\n   refresh: ${d.recoveryNote}` : ''}`;
 }
 
 export function formatYahooHealthMessage(s: YahooHealthSummary): string {
@@ -196,6 +244,8 @@ export function formatYahooHealthMessage(s: YahooHealthSummary): string {
     `🔍 검증 종목 수: ${s.checkedCount}개`, '',
     `✅ 정상: ${s.okCount}건`,
     `🟢 KIS 복구: ${s.recoveredCount}건`,
+    `🔄 History refresh 복구: ${s.historicalRefreshRecoveredCount}건`,
+    `❌ History refresh 실패: ${s.historicalRefreshFailedCount}건`,
     `⚠️ Sanity 위반: ${s.failCount}건`,
     `🧊 DATA_STALE_PRICE: ${s.staleUnrecoveredCount}건`,
   ];
@@ -208,7 +258,7 @@ export function formatYahooHealthMessage(s: YahooHealthSummary): string {
     }
     L.push('', '🎯 권장 조치:',
       '   - changePercent 단일 stale: KIS fallback 회복 가능',
-      '   - return5d/return20d stale: 0% 대체 금지, momentum/RS 제외',
+      '   - return5d/return20d stale: Yahoo history refresh 후에도 실패하면 momentum/RS 제외',
       '   - 반복 종목은 Yahoo symbol / corporate action / 캐시 경로 점검');
   } else if (s.checkedCount === 0) {
     L.push('', 'ℹ️ 워치리스트가 비어있어 검증 대상 0건.');
@@ -225,12 +275,12 @@ const yahooHealthCheck: TelegramCommand = {
   visibility: 'ADMIN',
   riskLevel: 0,
   description:
-    '워치리스트 종목의 Yahoo 데이터 sanity 검증 — STALE_BASE / KIS fallback / DATA_STALE_PRICE 진단.',
+    '워치리스트 종목의 Yahoo 데이터 sanity 검증 — STALE_BASE / KIS fallback / historical refresh / DATA_STALE_PRICE 진단.',
   usage: '/yahoo_health   — alias: /yh',
   async execute({ reply }) {
     try {
-      await reply('🩺 Yahoo Health Check 시작 — 워치리스트 검증 + KIS fallback 진단 중...');
-      const summary = await runYahooHealthCheck({ recover: true });
+      await reply('🩺 Yahoo Health Check 시작 — 워치리스트 검증 + KIS fallback + history refresh 진단 중...');
+      const summary = await runYahooHealthCheck({ recover: true, historicalRefresh: true });
       await reply(formatYahooHealthMessage(summary));
     } catch (e) {
       console.error('[TelegramBot] /yahoo_health 실패:', e);
