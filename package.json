@@ -8,7 +8,7 @@
     "dev": "npm run snapshot && tsx server/index.ts",
     "prebuild": "node scripts/validate_gemini_calls.js",
     "build": "vite build",
-    "start": "NODE_ENV=production npx tsx server/index.ts",
+    "start": "NODE_ENV=production node --import tsx --import ./server/utils/safePctChangeCalendarPatch.ts server/index.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
