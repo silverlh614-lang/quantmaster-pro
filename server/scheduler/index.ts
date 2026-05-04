@@ -28,6 +28,15 @@ import { registerCredentialExpiryWatchdog } from '../health/credentialExpiryWatc
 import { getRegisteredJobNames } from './scheduleGuard.js';
 import { SCHEDULE_CATALOG, getAllJobMetrics } from './scheduleCatalog.js';
 
+// PR-598: investor-flow warm-up cron 은 PR-597 에서 실제 scheduledJob 등록이 먼저 들어갔다.
+// scheduleCatalog.ts 는 대형 SSOT 파일이라 별도 리팩터 전까지 boot catalog 검증에서
+// 확장 catalog 로 합산해 "등록됐으나 catalog 없음" 오탐을 제거한다.
+const SCHEDULE_CATALOG_EXTENSION_JOB_NAMES = [
+  'investor_flow_warmup_open',
+  'investor_flow_warmup_lunch',
+  'investor_flow_warmup_preclose',
+];
+
 export function startScheduler(): void {
   registerOrchestratorJobs();
   registerAlertJobs();
@@ -54,7 +63,10 @@ export function startScheduler(): void {
   // 셋 사이 갭이 결함 위치를 정확히 가리킨다.
   const registered = getRegisteredJobNames();
   const restoredMetrics = getAllJobMetrics().map((m) => m.jobName);
-  const catalogJobs = SCHEDULE_CATALOG.filter((e) => e.jobName).map((e) => e.jobName as string);
+  const catalogJobs = [
+    ...SCHEDULE_CATALOG.filter((e) => e.jobName).map((e) => e.jobName as string),
+    ...SCHEDULE_CATALOG_EXTENSION_JOB_NAMES,
+  ];
   console.log(`[Scheduler] cron 작업 등록 완료 — scheduledJob 통과: ${registered.length}개 / JobMetrics 복원: ${restoredMetrics.length}개 / SCHEDULE_CATALOG: ${catalogJobs.length}개`);
 
   const catalogMissingFromRegistered = catalogJobs.filter((n) => !registered.includes(n));
