@@ -10,6 +10,9 @@
  *
  * PR-576: macroState 에 공매도 필드가 아직 없을 때 `/sh` 에서 read-only live probe 를
  * 1회 수행해 KRX_DIRECT/KRX_OTP/KIS_ESTIMATE 상태를 분리한다. 저장은 하지 않는다.
+ *
+ * PR-577: macroState 결손 + live probe 실패는 시스템 장애가 아니라 공매도 provider 미확정
+ * 상태로 분리한다. PROVIDER_UNAVAILABLE neutral 로 표기하고 점수 입력/위험 TOP 3에서 제외한다.
  */
 
 import fs from 'fs';
@@ -402,12 +405,15 @@ function renderShortStatus(
 }
 
 /**
- * ADR-0145 + PR-576 — macroState 직접 읽기 우선, 결손 시 read-only live probe.
+ * ADR-0145 + PR-576 + PR-577 — macroState 직접 읽기 우선, 결손 시 read-only live probe.
  *
  * macroState 에 shortSelling* 필드가 있으면 기존 영속값을 그대로 진단한다.
  * 없으면 `/sh` 에서 `fetchKrxShortSelling()` 을 1회 호출해 KRX_DIRECT/KRX_OTP/KIS_ESTIMATE
  * 중 실제 가능한 경로를 확인한다. 이 live probe 는 저장하지 않으므로 cron/refresh wiring
  * 결손과 provider 가용성을 분리해서 보여준다.
+ *
+ * live probe 까지 실패하면 현재는 자동매매 필수 장애가 아니라 provider 미확정 상태다.
+ * 따라서 PROVIDER_UNAVAILABLE neutral 로 격리하고 점수 입력/위험 TOP 3에서 제외한다.
  */
 async function diagnoseShort(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
   if (macro?.shortSellingSource && macro.shortSellingRatio !== undefined) {
@@ -428,18 +434,19 @@ async function diagnoseShort(macro: MacroState | null, nowMs: number): Promise<C
       return status;
     }
   } catch {
-    // fall through to missing card
+    // fall through to provider-unavailable neutral card
   }
 
   return {
     title: '공매도/대차잔고',
-    marker: 'MISSING',
-    riskReason: 'macroState 결손 + live probe 실패',
+    marker: 'NEUTRAL',
     lines: [
       'source: N/A',
+      'status: PROVIDER_UNAVAILABLE',
       'ratio: N/A',
       'updated: N/A',
-      '판정: macroState 결손 + KRX/KIS live probe 실패',
+      '판정: 현재 사용 가능한 provider 없음 — 점수 입력 제외',
+      '대체 후보: KRX 공매도 통계 / KIND·KRX CSV·OTP / Naver 공매도 / 공공데이터포털',
       '상세: /short_status 예정',
     ],
   };
