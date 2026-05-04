@@ -1,15 +1,16 @@
 /**
  * @responsibility 수급 데이터 채널의 source/freshness/coverage/zero-filled 의심을 read-only로 진단한다.
- * PR-574~583: fake-zero/accepted-empty/provider-mismatch/unwired-collection 상태를 neutral 로 격리하고 운영용 compact route 를 표시한다.
+ * PR-574~584: fake-zero/accepted-empty/provider-mismatch/unwired-collection 상태를 neutral 로 격리하고 investor-flow policy route 를 표시한다.
  */
 
 import fs from 'fs';
-import { fetchKisInvestorFlow, fetchKisMarketProgramTrade, fetchKisStockProgramTrade } from '../../../clients/kisClient/index.js';
-import { diagnoseKisInvestorFlowRaw, diagnoseKisMarketProgramRaw, diagnoseKisStockProgramRaw, formatKisRawSupplyDiagnostic } from '../../../clients/kisClient/supplyDiagnostics.js';
+import { fetchKisMarketProgramTrade, fetchKisStockProgramTrade } from '../../../clients/kisClient/index.js';
+import { diagnoseKisMarketProgramRaw, diagnoseKisStockProgramRaw, formatKisRawSupplyDiagnostic } from '../../../clients/kisClient/supplyDiagnostics.js';
 import { FSS_RECORDS_FILE, MACRO_STATE_FILE } from '../../../persistence/paths.js';
 import { loadForeignerRatioSeries } from '../../../persistence/foreignerRatioRepo.js';
 import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
+import { fetchInvestorFlowWithPolicy, summarizeInvestorFlowAttempts } from '../../../supply/investorFlowRouter.js';
 import { getSupplyProviderPolicy, type SupplyProvider, type SupplySignalKey } from '../../../supply/supplyProviderPolicy.js';
 import { fetchKrxShortSelling } from '../../../trading/marketDataRefresh.js';
 import { commandRegistry } from '../../commandRegistry.js';
@@ -75,9 +76,6 @@ function formatEokwon(value: number | null | undefined): string {
 }
 function zeroFilledRiskReason(count: number, total: number): string { return `zero-filled 의심 ${count}/${total} — KIS success지만 실데이터 신뢰 불가`; }
 function firstTargetCode(targets: WatchlistEntry[]): string | null { return targets[0]?.code ?? null; }
-function isInvestorFlowProviderMismatchRaw(rawDiagLine: string | null): boolean {
-  return Boolean(rawDiagLine?.includes('rawDiag=INVESTOR_FLOW') && rawDiagLine.includes('ok=true') && rawDiagLine.includes('zeroReason=FIELD_MISSING'));
-}
 function compactProviderName(provider: SupplyProvider): string {
   const names: Partial<Record<SupplyProvider, string>> = {
     KIS_API: 'KIS', KRX_INVESTOR_FLOW: 'KRX', KRX_MARKET_PROGRAM: 'KRX', KRX_SHORT_SELLING: 'KRX', KRX_MARGIN_BALANCE: 'KRX',
@@ -93,38 +91,41 @@ function compactProviderRoute(key: SupplySignalKey): string {
   const diagnostic = p.diagnostic.length > 0 ? p.diagnostic.map(compactProviderName).join('>') : 'NONE';
   return `route: ${primary} | fb=${fallback} | diag=${diagnostic} | scoring=${p.scoringMode}`;
 }
-function investorFlowMissingReason(rawDiagLine: string | null, success: number): string {
-  if (success > 0) return '';
-  if (isInvestorFlowProviderMismatchRaw(rawDiagLine)) return 'KIS TR 목적 불일치 — 투자자 순매수 필드 없음, 대체 provider 필요';
-  if (rawDiagLine?.includes('zeroReason=FETCH_FAIL')) return 'KIS raw diagnostic fetch 실패 — circuit/rate-limit/http 확인 필요';
-  return '조회 성공 0건';
-}
-function renderInvestorFlowDecision(marker: Marker, zeroSuspicious: boolean, success: number, rawDiagLine: string | null): string {
-  if (marker === 'NEUTRAL') return '판정: KIS는 진단용, 실제 수급은 대체 provider 필요 — 점수 제외';
-  if (marker === 'MISSING') return `판정: MISSING — ${investorFlowMissingReason(rawDiagLine, success) || '실데이터 없음'}; 수급 점수 입력 제외`;
-  return zeroSuspicious ? '판정: DEGRADED — 수급 점수 입력 제외 권장' : '판정: OK';
+function renderInvestorFlowDecision(marker: Marker): string {
+  return marker === 'OK' ? '판정: OK — policy provider 실데이터 사용 가능' : '판정: KRX/NAVER/CACHE 미연결 — KIS는 진단용, 점수 제외';
 }
 function isAcceptedEmptyRaw(rawDiagLine: string): boolean { return rawDiagLine.includes('rawDiag=MARKET_PROGRAM') && rawDiagLine.includes('zeroReason=ACCEPTED_EMPTY'); }
 
 async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelStatus> {
-  const rawDiagLine = firstTargetCode(targets) ? formatKisRawSupplyDiagnostic(await diagnoseKisInvestorFlowRaw(firstTargetCode(targets) as string, 'HIGH')) : null;
   let success = 0, zero = 0;
+  const attemptSummaries: string[] = [];
+  let source: SupplyProvider | null = null;
   for (const stock of targets) {
-    try { const data = await fetchKisInvestorFlow(stock.code, 'MEDIUM'); if (!data) continue; success++; if (data.foreignNetBuy + data.institutionalNetBuy === 0) zero++; } catch {}
+    const routed = await fetchInvestorFlowWithPolicy(stock.code);
+    if (attemptSummaries.length < 3) attemptSummaries.push(`${stock.code}:${summarizeInvestorFlowAttempts(routed.attempts)}`);
+    if (!routed.data) continue;
+    success++;
+    source = routed.source;
+    if (routed.data.foreignNetBuy + routed.data.institutionalNetBuy === 0) zero++;
   }
   const total = targets.length;
   const zeroSuspicious = isZeroFilledSuspicious(zero, total);
-  const providerMismatch = success === 0 && isInvestorFlowProviderMismatchRaw(rawDiagLine);
-  const marker: Marker = providerMismatch ? 'NEUTRAL' : total === 0 || success === 0 ? 'MISSING' : zeroSuspicious ? 'DEGRADED' : 'OK';
+  const marker: Marker = total === 0 ? 'MISSING' : success === 0 ? 'NEUTRAL' : zeroSuspicious ? 'DEGRADED' : 'OK';
   return {
     key: 'investorFlow', title: '기관/외인 수급', marker,
-    riskReason: marker === 'MISSING' ? investorFlowMissingReason(rawDiagLine, success) : zeroSuspicious ? zeroFilledRiskReason(zero, total) : undefined,
+    riskReason: zeroSuspicious ? zeroFilledRiskReason(zero, total) : undefined,
     zeroSuspect: { count: zero, total },
     lines: [
-      'source: KIS_API', ...(providerMismatch ? ['status: PROVIDER_MISMATCH'] : []), `success: ${success}/${total}`, 'stale: 0',
-      `zero-filled 의심: ${zeroWarn(zero, total)}`, renderInvestorFlowDecision(marker, zeroSuspicious, success, rawDiagLine),
-      ...(providerMismatch ? ['대체: KRX / NAVER / CACHE', 'rawDiag: hidden (/investor_flow raw 예정)'] : []),
-      ...(!providerMismatch && rawDiagLine ? [rawDiagLine] : []), '상세: /investor_flow 예정',
+      `source: ${source ?? 'POLICY_ROUTER'}`,
+      `status: ${marker === 'OK' ? 'OK' : 'PROVIDER_MISMATCH'}`,
+      `success: ${success}/${total}`,
+      'stale: 0',
+      `zero-filled 의심: ${zeroWarn(zero, total)}`,
+      `providerTried: ${attemptSummaries[0] ?? 'N/A'}`,
+      ...(attemptSummaries.length > 1 ? [`providerTried2: ${attemptSummaries[1]}`] : []),
+      renderInvestorFlowDecision(marker),
+      '대체: KRX / NAVER / CACHE',
+      '상세: /investor_flow 예정',
     ],
   };
 }
