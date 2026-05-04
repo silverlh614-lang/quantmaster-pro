@@ -133,6 +133,11 @@ function firstTargetCode(targets: WatchlistEntry[]): string | null {
 }
 
 async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelStatus> {
+  // PR-558: raw diagnostic first. Bulk scan can consume rate-limit tokens and leave
+  // the diagnostic call as null/rootKeys=NONE, which hides the real KIS response branch.
+  const rawDiagLine = firstTargetCode(targets)
+    ? formatKisRawSupplyDiagnostic(await diagnoseKisInvestorFlowRaw(firstTargetCode(targets) as string, 'HIGH'))
+    : null;
   let success = 0;
   let zero = 0;
   for (const stock of targets) {
@@ -148,9 +153,6 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelS
   const total = targets.length;
   const zeroSuspicious = isZeroFilledSuspicious(zero, total);
   const marker: Marker = total === 0 || success === 0 ? 'MISSING' : zeroSuspicious ? 'DEGRADED' : 'OK';
-  const rawDiagLine = zeroSuspicious && firstTargetCode(targets)
-    ? formatKisRawSupplyDiagnostic(await diagnoseKisInvestorFlowRaw(firstTargetCode(targets) as string, 'MEDIUM'))
-    : null;
   return {
     title: '기관/외인 수급',
     marker,
