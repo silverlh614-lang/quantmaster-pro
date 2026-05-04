@@ -5,6 +5,7 @@
  * PR-585: CACHE provider 를 실제 영속 cache 로 연결한다.
  * PR-592: 기존 KRX `fetchInvestorTrading` 공개 통계 client 를 KRX_INVESTOR_FLOW provider 로 연결한다.
  * PR-593: KRX no-output 원인을 date/rowCount/sampleCodes 진단 문자열로 노출한다.
+ * PR-594: providerTried 요약에 reason 을 포함해 Telegram /sh 에서 진단 문자열이 실제로 보이게 한다.
  */
 
 import { fetchKisInvestorFlow } from '../clients/kisClient/index.js';
@@ -53,6 +54,7 @@ interface KrxLookupResult {
 
 const KRX_INVESTOR_FLOW_DAYS = 5;
 const KRX_INVESTOR_FLOW_MIN_SAMPLE = 1;
+const ATTEMPT_REASON_MAX_LEN = 220;
 
 function hasRealInvestorFields(value: unknown): value is { foreignNetBuy: number; institutionalNetBuy: number; individualNetBuy: number } {
   if (!value || typeof value !== 'object') return false;
@@ -173,8 +175,15 @@ function pushAttempt(attempts: InvestorFlowAttempt[], provider: SupplyProvider, 
   attempts.push({ provider, status, ...(reason ? { reason } : {}) });
 }
 
+function compactReason(reason: string): string {
+  const oneLine = reason.replace(/\s+/g, ' ').trim();
+  return oneLine.length > ATTEMPT_REASON_MAX_LEN ? `${oneLine.slice(0, ATTEMPT_REASON_MAX_LEN)}…` : oneLine;
+}
+
 export function summarizeInvestorFlowAttempts(attempts: InvestorFlowAttempt[]): string {
-  return attempts.map((a) => `${a.provider}:${a.status}`).join(' / ');
+  return attempts
+    .map((a) => `${a.provider}:${a.status}${a.reason ? `(${compactReason(a.reason)})` : ''}`)
+    .join(' / ');
 }
 
 export async function fetchInvestorFlowWithPolicy(code: string): Promise<InvestorFlowRouteResult> {
