@@ -4,6 +4,7 @@
 
 import fs from 'fs';
 import { fetchKisInvestorFlow, fetchKisMarketProgramTrade, fetchKisStockProgramTrade } from '../../../clients/kisClient/index.js';
+import { diagnoseKisInvestorFlowRaw, diagnoseKisStockProgramRaw, formatKisRawSupplyDiagnostic } from '../../../clients/kisClient/supplyDiagnostics.js';
 import { FSS_RECORDS_FILE, MACRO_STATE_FILE } from '../../../persistence/paths.js';
 import { loadForeignerRatioSeries } from '../../../persistence/foreignerRatioRepo.js';
 import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
@@ -127,6 +128,10 @@ function zeroFilledRiskReason(count: number, total: number): string {
   return `zero-filled 의심 ${count}/${total} — KIS success지만 실데이터 신뢰 불가`;
 }
 
+function firstTargetCode(targets: WatchlistEntry[]): string | null {
+  return targets[0]?.code ?? null;
+}
+
 async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelStatus> {
   let success = 0;
   let zero = 0;
@@ -143,6 +148,9 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelS
   const total = targets.length;
   const zeroSuspicious = isZeroFilledSuspicious(zero, total);
   const marker: Marker = total === 0 || success === 0 ? 'MISSING' : zeroSuspicious ? 'DEGRADED' : 'OK';
+  const rawDiagLine = zeroSuspicious && firstTargetCode(targets)
+    ? formatKisRawSupplyDiagnostic(await diagnoseKisInvestorFlowRaw(firstTargetCode(targets) as string, 'MEDIUM'))
+    : null;
   return {
     title: '기관/외인 수급',
     marker,
@@ -158,6 +166,7 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelS
       'stale: 0',
       `zero-filled 의심: ${zeroWarn(zero, total)}`,
       zeroSuspicious ? '판정: DEGRADED — 수급 점수 입력 제외 권장' : '판정: OK',
+      ...(rawDiagLine ? [rawDiagLine] : []),
       '상세: /investor_flow 예정',
     ],
   };
@@ -180,6 +189,9 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
   const missing = Math.max(0, total - success);
   const zeroSuspicious = isZeroFilledSuspicious(zero, total);
   const marker: Marker = total === 0 || success === 0 ? 'MISSING' : zeroSuspicious ? 'DEGRADED' : 'OK';
+  const rawDiagLine = zeroSuspicious && firstTargetCode(targets)
+    ? formatKisRawSupplyDiagnostic(await diagnoseKisStockProgramRaw(firstTargetCode(targets) as string, 'MEDIUM'))
+    : null;
   return {
     title: '종목 프로그램매매',
     marker,
@@ -197,6 +209,7 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
       `missing: ${missing}`,
       `zero-filled 의심: ${zeroWarn(zero, total)}`,
       zeroSuspicious ? '판정: DEGRADED — 프로그램 수급 점수 입력 제외 권장' : '판정: OK',
+      ...(rawDiagLine ? [rawDiagLine] : []),
       '상세: /program_today',
     ],
   };
