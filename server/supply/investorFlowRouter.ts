@@ -6,6 +6,8 @@
  * PR-592: 기존 KRX `fetchInvestorTrading` 공개 통계 client 를 KRX_INVESTOR_FLOW provider 로 연결한다.
  * PR-593: KRX no-output 원인을 date/rowCount/sampleCodes 진단 문자열로 노출한다.
  * PR-594: providerTried 요약에 reason 을 포함해 Telegram /sh 에서 진단 문자열이 실제로 보이게 한다.
+ * PR-595: KRX 공개 bld 가 전일자 전체 empty rows 를 반환하면 단순 종목 미매칭이 아니라
+ * provider upstream unavailable 로 분류한다.
  */
 
 import { fetchKisInvestorFlow } from '../clients/kisClient/index.js';
@@ -50,6 +52,7 @@ export interface InvestorFlowRouteResult {
 interface KrxLookupResult {
   data: InvestorFlowSample | null;
   diagnostic: string;
+  unavailable: boolean;
 }
 
 const KRX_INVESTOR_FLOW_DAYS = 5;
@@ -96,7 +99,7 @@ function sampleCodes(codes: string[]): string {
 
 async function fetchKrxInvestorFlow(code: string): Promise<KrxLookupResult> {
   const safeCode = normalizeCode(code);
-  if (!/^\d{6}$/.test(safeCode)) return { data: null, diagnostic: `invalid_code:${code}` };
+  if (!/^\d{6}$/.test(safeCode)) return { data: null, diagnostic: `invalid_code:${code}`, unavailable: false };
 
   let foreignNetBuy = 0;
   let institutionalNetBuy = 0;
@@ -128,6 +131,8 @@ async function fetchKrxInvestorFlow(code: string): Promise<KrxLookupResult> {
     if (!latestDate) latestDate = ymdToDate(ymd);
   }
 
+  const allDatesEmpty = datesTried.length > 0 && totalRows === 0 && emptyDates.length === datesTried.length;
+  const upstream = allDatesEmpty ? 'KRX_PUBLIC_EMPTY_ROWS_OR_HTTP400' : 'OK';
   const diagnostic = [
     `code=${safeCode}`,
     `sample=${sampleSize}`,
@@ -135,9 +140,10 @@ async function fetchKrxInvestorFlow(code: string): Promise<KrxLookupResult> {
     `rows=${totalRows}`,
     `empty=${emptyDates.length > 0 ? emptyDates.join(',') : 'NONE'}`,
     `sampleCodes=${sampleCodes([...sampleCodeSet])}`,
+    `upstream=${upstream}`,
   ].join(';');
 
-  if (sampleSize < KRX_INVESTOR_FLOW_MIN_SAMPLE || !latestDate) return { data: null, diagnostic };
+  if (sampleSize < KRX_INVESTOR_FLOW_MIN_SAMPLE || !latestDate) return { data: null, diagnostic, unavailable: allDatesEmpty };
 
   const sample: InvestorFlowSample = {
     stockCode: safeCode,
@@ -158,7 +164,7 @@ async function fetchKrxInvestorFlow(code: string): Promise<KrxLookupResult> {
     fetchedAt: sample.fetchedAt,
   });
 
-  return { data: sample, diagnostic };
+  return { data: sample, diagnostic, unavailable: false };
 }
 
 async function fetchNaverInvestorTrend(_code: string): Promise<InvestorFlowSample | null> {
@@ -195,7 +201,7 @@ export async function fetchInvestorFlowWithPolicy(code: string): Promise<Investo
       pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'OK', krx.diagnostic);
       return { stockCode: code, data: krx.data, attempts, status: 'OK', source: 'KRX_INVESTOR_FLOW' };
     }
-    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'NO_OUTPUT', krx.diagnostic);
+    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', krx.unavailable ? 'ERROR' : 'NO_OUTPUT', krx.diagnostic);
   } catch (err) {
     pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'ERROR', err instanceof Error ? err.message : String(err));
   }
