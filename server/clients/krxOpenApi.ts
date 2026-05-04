@@ -155,18 +155,26 @@ export function resetKrxOpenApiCache(): void { _cache.clear(); }
 
 /** KST 기준 최근 영업일 YYYYMMDD — 주말이면 직전 평일, 그 외 하루 전. */
 function recentBusinessDayKst(): string {
-  const now = new Date();
+  return recentBusinessDaysKst(1)[0];
+}
+
+export function recentBusinessDaysKst(count: number, now = new Date()): string[] {
   const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
   const kst = new Date(utcMs + 9 * 60 * 60_000);
   // 하루 전부터 시작 (당일 데이터는 장마감 후 KRX 반영까지 지연).
   kst.setUTCDate(kst.getUTCDate() - 1);
-  while (kst.getUTCDay() === 0 || kst.getUTCDay() === 6) {
+
+  const out: string[] = [];
+  while (out.length < Math.max(1, count)) {
+    if (kst.getUTCDay() !== 0 && kst.getUTCDay() !== 6) {
+      const y = kst.getUTCFullYear();
+      const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(kst.getUTCDate()).padStart(2, '0');
+      out.push(`${y}${m}${d}`);
+    }
     kst.setUTCDate(kst.getUTCDate() - 1);
   }
-  const y = kst.getUTCFullYear();
-  const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(kst.getUTCDate()).padStart(2, '0');
-  return `${y}${m}${d}`;
+  return out;
 }
 
 function isValidYyyymmdd(v: string): boolean {
@@ -398,6 +406,10 @@ export function fetchKospiBaseInfo(date?: string): Promise<KrxIsuBaseInfoRow[]> 
 /** 코스닥 종목기본정보. */
 export function fetchKosdaqBaseInfo(date?: string): Promise<KrxIsuBaseInfoRow[]> {
   return fetchIsuBaseInfo(EP.kosdaqBaseInfo, 'kosdaq-base', date);
+}
+
+export function getKrxOpenApiEndpointPath(kind: 'kospiBaseInfo' | 'kosdaqBaseInfo'): string {
+  return EP[kind];
 }
 
 // ── 공개 API : 지수 ──────────────────────────────────────────────────────────
