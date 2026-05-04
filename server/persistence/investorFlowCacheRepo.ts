@@ -2,6 +2,7 @@
  * @responsibility 기관/외인 수급 cache 저장소.
  *
  * PR-585: investor-flow policy router 의 CACHE provider 를 실제 파일 cache 로 연결한다.
+ * PR-586: 관리자 seed/조회 명령을 위해 cache inspection helper 를 노출한다.
  * 이 repo 는 실데이터 검증을 통과한 KRX/Naver/manual backfill row 만 신뢰한다.
  * KIS diagnostic / provider-mismatch / accepted-empty 결과는 저장 대상이 아니다.
  */
@@ -79,7 +80,7 @@ function saveAll(cache: InvestorFlowCacheShape): void {
   }
 }
 
-function todayKst(): string {
+export function todayKst(): string {
   return new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
 }
 
@@ -104,6 +105,16 @@ export function loadInvestorFlowCache(code: string, asOfDate = todayKst()): Inve
   return previous ? toSample(previous) : null;
 }
 
+export function listInvestorFlowCacheRows(code?: string): InvestorFlowCacheRow[] {
+  const cache = loadAll();
+  if (code) return [...(cache[normalizeCode(code)] ?? [])].sort((a, b) => b.date.localeCompare(a.date));
+  return Object.values(cache).flat().sort((a, b) => b.date.localeCompare(a.date) || a.stockCode.localeCompare(b.stockCode));
+}
+
+export function countInvestorFlowCacheCodes(): number {
+  return Object.keys(loadAll()).length;
+}
+
 export function upsertInvestorFlowCache(row: InvestorFlowCacheRow): void {
   if (!isValidRow(row)) return;
   const safe = normalizeCode(row.stockCode);
@@ -115,6 +126,20 @@ export function upsertInvestorFlowCache(row: InvestorFlowCacheRow): void {
   const merged = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
   cache[safe] = merged.slice(Math.max(0, merged.length - INVESTOR_FLOW_CACHE_MAX_DAYS));
   saveAll(cache);
+}
+
+export function clearInvestorFlowCache(code?: string): number {
+  if (!code) {
+    const rows = listInvestorFlowCacheRows().length;
+    try { fs.unlinkSync(INVESTOR_FLOW_CACHE_FILE); } catch { /* idempotent */ }
+    return rows;
+  }
+  const safe = normalizeCode(code);
+  const cache = loadAll();
+  const removed = cache[safe]?.length ?? 0;
+  delete cache[safe];
+  saveAll(cache);
+  return removed;
 }
 
 export function __resetInvestorFlowCacheForTests(): void {
