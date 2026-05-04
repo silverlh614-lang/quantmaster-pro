@@ -10,6 +10,7 @@
 import { loadMacroState, saveMacroState } from '../../../persistence/macroStateRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
+import { __resetSupplyHealthCacheForTests as resetSupplyHealthCache } from './supplyHealth.cmd.js';
 
 interface ParsedShortSeed {
   date: string;
@@ -68,6 +69,7 @@ function saveLatestShortSelling(rows: ParsedShortSeed[]): ParsedShortSeed | null
     shortSellingFetchedAt: now,
     updatedAt: now,
   });
+  resetSupplyHealthCache();
   return latest;
 }
 
