@@ -45,6 +45,8 @@ const MARKET_PROGRAM_MARKET_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_MARKET_C
  * section class code도 시장 프로그램매매 endpoint 필수 파라미터다.
  */
 const MARKET_PROGRAM_SECTION_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0';
+/** PR-572: `/pmp`에서 `FID_INPUT_HOUR_1` 존재 시 MCA00000 accepted-empty 확인. */
+const MARKET_PROGRAM_INPUT_HOUR_1 = process.env.KIS_MARKET_PROGRAM_INPUT_HOUR_1 ?? '000000';
 
 type KisOutput = Record<string, string>;
 
@@ -191,9 +193,11 @@ export async function fetchKisMarketProgramTrade(
       MARKET_PROGRAM_TRADE_PATH,
       {
         FID_COND_MRKT_DIV_CODE: MARKET_PROGRAM_DIV_CODE,
+        FID_COND_MRKT_DIV_CODE1: MARKET_PROGRAM_DIV_CODE,
         FID_MRKT_CLS_CODE: MARKET_PROGRAM_MARKET_CLASS_CODE,
         FID_SCTN_CLS_CODE: MARKET_PROGRAM_SECTION_CLASS_CODE,
         FID_INPUT_ISCD: MARKET_PROGRAM_INDEX_CODE,
+        FID_INPUT_HOUR_1: MARKET_PROGRAM_INPUT_HOUR_1,
       },
       priority,
     );

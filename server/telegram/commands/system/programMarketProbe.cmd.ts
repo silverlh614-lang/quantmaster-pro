@@ -19,6 +19,9 @@
  *
  * PR-571: BOTH + cond=J 조합에서 `FIELD NOT FOUND [FID_INPUT_HOUR_1]` 가 확인됐다.
  * 시간 입력 후보를 추가해 comp-program-trade-today 의 시간 필드 요구사항을 탐색한다.
+ *
+ * PR-572: `MCA00000 정상처리` + output 없음은 파라미터가 수용된 accepted-empty 상태다.
+ * output 확보(✅)와 accepted-empty(🟡)를 분리해 성공 후보를 놓치지 않게 한다.
  */
 
 import { realDataKisGet } from '../../../clients/kisClient/http.js';
@@ -51,6 +54,7 @@ interface ProbeResult {
   outputPath: string;
   outputKeys: string[];
   success: boolean;
+  accepted: boolean;
 }
 
 function parseLimit(args: string[]): number {
@@ -142,6 +146,7 @@ async function probeOne(candidate: ProbeCandidate): Promise<ProbeResult> {
   const msgCd = rootString(data, 'msg_cd');
   const msg1 = rootString(data, 'msg1');
   const outputKeys = out ? Object.keys(out).slice(0, 10) : [];
+  const accepted = rtCd === '0' && msgCd === 'MCA00000';
   return {
     candidate,
     rtCd,
@@ -149,7 +154,8 @@ async function probeOne(candidate: ProbeCandidate): Promise<ProbeResult> {
     msg1,
     outputPath: path,
     outputKeys,
-    success: rtCd === '0' && Boolean(out),
+    success: accepted && Boolean(out),
+    accepted,
   };
 }
 
@@ -160,7 +166,7 @@ function shortMsg(msg: string): string {
 
 function renderResultLine(index: number, result: ProbeResult): string {
   const c = result.candidate;
-  const status = result.success ? '✅' : result.rtCd === '0' ? '🟡' : '❌';
+  const status = result.success ? '✅' : result.accepted ? '🟡' : '❌';
   return `${index}. ${status} ${c.divMode} c=${c.cond} m=${c.market} s=${c.section} i=${c.input || 'OMIT'} h=${c.hour || 'OMIT'} | ${result.msgCd || 'NO_CD'} ${shortMsg(result.msg1)} | ${result.outputPath} ${result.outputKeys.join('|') || 'NONE'}`;
 }
 
@@ -175,6 +181,7 @@ function summarizeBy<T extends string>(results: ProbeResult[], keyFn: (r: ProbeR
 
 function progressScore(result: ProbeResult): number {
   if (result.success) return 100;
+  if (result.accepted) return 85;
   if (result.outputPath !== 'NONE') return 90;
   if (result.rtCd === '0') return 80;
   const msg = result.msg1;
@@ -199,6 +206,7 @@ export async function buildProgramMarketProbeMessage(args: string[] = []): Promi
   }
 
   const best = results.find((r) => r.success);
+  const accepted = results.find((r) => r.accepted);
   const progressed = bestProgress(results);
   const lines: string[] = [
     '🧪 KIS 시장 프로그램매매 파라미터 Probe',
@@ -208,12 +216,18 @@ export async function buildProgramMarketProbeMessage(args: string[] = []): Promi
     `envCond=${process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'unset'} / envMrkt=${process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? 'unset'} / envSctn=${process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? 'unset'} / envIscd=${process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? 'unset'} / envHour=${process.env.KIS_MARKET_PROGRAM_INPUT_HOUR_1 ?? 'unset'}`,
     'div=BOTH → FID_COND_MRKT_DIV_CODE + FID_COND_MRKT_DIV_CODE1 동시 전송',
     'h=FID_INPUT_HOUR_1 후보값',
+    '✅=output 확보 / 🟡=MCA00000 accepted-empty / ❌=KIS 오류',
     '',
   ];
 
   if (best) {
     lines.push('🎯 BEST CANDIDATE');
     lines.push(renderResultLine(1, best));
+    lines.push('');
+  } else if (accepted) {
+    lines.push('🟡 ACCEPTED EMPTY CANDIDATE');
+    lines.push(renderResultLine(1, accepted));
+    lines.push('해석: KIS 파라미터는 수용됐지만 output body 없음 — 점수 입력 제외/진단 성공으로 처리 대상');
     lines.push('');
   } else {
     lines.push('🎯 BEST CANDIDATE: 없음');
@@ -233,8 +247,6 @@ export async function buildProgramMarketProbeMessage(args: string[] = []): Promi
   results.slice(0, 8).forEach((result, idx) => lines.push(renderResultLine(idx + 1, result)));
   lines.push('최근 결과');
   results.slice(-8).forEach((result, idx) => lines.push(renderResultLine(idx + 1, result)));
-  lines.push('');
-  lines.push('판정: ✅=output 확보 / 🟡=rt_cd 0이지만 output 없음 / ❌=KIS 파라미터 오류');
 
   const message = lines.join('\n');
   return message.length <= 4096 ? message : `${message.slice(0, 4050)}\n...`;
