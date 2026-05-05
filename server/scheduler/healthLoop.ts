@@ -8,6 +8,7 @@ import { scheduledJob } from './scheduleGuard.js';
 import { collectHealthSnapshot, type HealthSnapshot } from '../health/diagnostics.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { HEALTH_LOOP_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
+import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 
 // ─── 영속 SSOT ────────────────────────────────────────────────────────────
 
@@ -31,6 +32,31 @@ export interface HealthLoopState {
 function todayKstYmd(now = new Date()): string {
   const kst = new Date(now.getTime() + 9 * 3600_000);
   return kst.toISOString().slice(0, 10);
+}
+
+function isKrxClosedCriticalDowngradeActive(now = new Date()): boolean {
+  if (process.env.HEALTH_LOOP_CRITICAL_ON_KRX_CLOSED === 'true') return false;
+  return !isKrxTradingDay(toKstDateKey(now));
+}
+
+function kisTokenAlertProfile(now = new Date()): {
+  priority: 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW';
+  label: string;
+  suffix: string;
+} {
+  if (!isKrxClosedCriticalDowngradeActive(now)) {
+    return {
+      priority: 'CRITICAL',
+      label: '🚨 KIS 토큰 만료',
+      suffix: '자동 갱신 cron 또는 운영자 수동 갱신 필요.',
+    };
+  }
+  return {
+    priority: 'NORMAL',
+    label: '🛠 KIS 토큰 만료 — 휴장일 점검',
+    suffix:
+      'KRX 휴장일/비거래일이므로 TRADING_CRITICAL 로 에스컬레이션하지 않습니다. 장 시작 전 갱신만 확인하세요.',
+  };
 }
 
 export function loadHealthLoopState(): HealthLoopState {
@@ -153,20 +179,24 @@ export async function runTier1(now = new Date()): Promise<HealthLoopState> {
   const kisHours = snapshot.kisTokenHours;
   const kisBucket = kisHours > 0 ? Math.floor(kisHours / 6) : -1;
   const lastBucket = state.kisTokenLastBucket;
+  const downgradeKrxClosed = isKrxClosedCriticalDowngradeActive(now);
   if (lastBucket !== undefined && kisBucket < lastBucket && kisHours > 0 && kisHours <= 12) {
     await alertOnce(
       state,
       `kis_token_bucket_${kisBucket}`,
-      `🟡 KIS 토큰 잔여 ${kisHours.toFixed(1)}h 진입\n남은 시간이 6시간 단위로 감소했습니다 — 만료 전 갱신 검토.`,
-      { priority: 'HIGH' },
+      downgradeKrxClosed
+        ? `🛠 KIS 토큰 잔여 ${kisHours.toFixed(1)}h — 휴장일 점검\nKRX 휴장일/비거래일이므로 긴급 에스컬레이션 대신 장전 갱신 대상으로 기록합니다.`
+        : `🟡 KIS 토큰 잔여 ${kisHours.toFixed(1)}h 진입\n남은 시간이 6시간 단위로 감소했습니다 — 만료 전 갱신 검토.`,
+      { priority: downgradeKrxClosed ? 'NORMAL' : 'HIGH' },
       now,
     );
   } else if (lastBucket !== undefined && kisHours === 0 && lastBucket >= 0) {
+    const profile = kisTokenAlertProfile(now);
     await alertOnce(
       state,
-      'kis_token_expired',
-      `🚨 KIS 토큰 만료\n자동 갱신 cron 또는 운영자 수동 갱신 필요.`,
-      { priority: 'CRITICAL' },
+      downgradeKrxClosed ? 'kis_token_expired_maintenance' : 'kis_token_expired',
+      `${profile.label}\n${profile.suffix}`,
+      { priority: profile.priority },
       now,
     );
   }
