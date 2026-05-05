@@ -2,6 +2,10 @@
 import fs from 'fs';
 import { WATCHLIST_FILE, ensureDataDir } from './paths.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import {
+  isEmergencyWatchlistCodeGuardEnabled,
+  normalizeKrxCode,
+} from '../dataQuality/emergencyDataQualityGuards.js';
 
 /**
  * 워치리스트 섹션 — 신호 품질에 따라 매매 파라미터를 차등 적용
@@ -403,6 +407,27 @@ export function buildWatchlistOverflowAlert(input: {
 
 export function saveWatchlist(list: WatchlistEntry[]): void {
   ensureDataDir();
+
+  // ADR-0184 (PR-B12-A) — invalid KRX code filter (site 2 watchlist sanity).
+  // `0070X0` 같은 잘못된 code 가 watchlist 에 영원히 박제되던 결함 영구 차단.
+  // default ON. ENV `EMERGENCY_WATCHLIST_CODE_GUARD_DISABLED=true` 시 legacy 동작.
+  const filtered: WatchlistEntry[] = [];
+  let droppedInvalidCodes = 0;
+  if (isEmergencyWatchlistCodeGuardEnabled()) {
+    for (const entry of list) {
+      if (normalizeKrxCode(entry.code) !== null) {
+        filtered.push(entry);
+      } else {
+        droppedInvalidCodes++;
+        console.warn(
+          `[Watchlist/CodeGuard] invalid KRX code 자동 필터링 — code="${entry.code}" name="${entry.name ?? 'N/A'}" (ADR-0184)`,
+        );
+      }
+    }
+  } else {
+    filtered.push(...list);
+  }
+  list = filtered;
 
   // PR-3 #8 + ADR-0028 §모순9: 섹션별 soft/hard 두 단계 cap 강제.
   // soft cap 도달 시 composite score 하위를 능동 정리해 deadzone 차단.

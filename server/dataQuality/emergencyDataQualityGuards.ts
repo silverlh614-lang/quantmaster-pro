@@ -266,3 +266,29 @@ export function makeStaleQuoteResult(params: {
 export function formatNullablePct(value: number | null | undefined): string {
   return Number.isFinite(value) ? `${(value as number).toFixed(2)}%` : 'N/A';
 }
+
+// ─── ADR-0184 (PR-B12-A) ENV 우회 헬퍼 ──────────────────────────────────────
+/**
+ * ADR-0168b §"Future wiring" 의 *scanner start* (universeScanner 3 함수) wiring 활성화 여부.
+ *
+ * default OFF — productionMasterGuard SSOT 와의 일관성을 운영자가 검증한 후 ENV 활성화로 결정.
+ * 활성 시 runStage1PreScreening / runStage2_3FinalScreening / runFullDiscoveryPipeline 진입부에서
+ * `assertProductionMasterUsable('SCANNER')` 호출 → master 결손 시 SCAN_ABORTED early return.
+ *
+ * @returns true = wiring 활성, false = legacy 동작 (master guard 우회)
+ */
+export function isEmergencyMasterGuardScanEnabled(): boolean {
+  return process.env.EMERGENCY_MASTER_GUARD_SCAN_ENABLED === 'true';
+}
+
+/**
+ * ADR-0168b §"Future wiring" 의 *watchlist sanity* (saveWatchlist invalid code filter) wiring 활성화 여부.
+ *
+ * default ON — `0070X0` 같은 잘못된 code 가 watchlist 에 영원히 박제되던 결함을 자동 차단.
+ * ENV `EMERGENCY_WATCHLIST_CODE_GUARD_DISABLED=true` 명시 시 legacy 동작 (필터 비활성).
+ *
+ * @returns true = wiring 활성 (default), false = legacy 동작 (필터 우회)
+ */
+export function isEmergencyWatchlistCodeGuardEnabled(): boolean {
+  return process.env.EMERGENCY_WATCHLIST_CODE_GUARD_DISABLED !== 'true';
+}
