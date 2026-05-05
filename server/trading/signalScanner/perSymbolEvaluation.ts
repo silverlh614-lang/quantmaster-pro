@@ -10,10 +10,13 @@ import type { ApprovalQueueState } from './approvalQueue.js';
 import type { RunAutoSignalScanOptions } from './index.js';
 
 // ADR-0134: barrel exports 복원
+// ADR-0188 (lint baseline cleanup): perSymbol/index.ts 의 SSOT 통합 barrel 을 그대로 re-export.
+// 이전엔 buyListLoop + intradayLoop 만 re-export 하여 helpers.SymbolExitContext + types.BuyListLoopMutables/
+// IntradayLoopMutables/BuyListLoopContext/IntradayLoopContext 가 누락 — entryGates/types.ts +
+// approvalQueue/applyApprovalReservation.ts + signalScanner.ts 의 import 경로 단절.
 import { evaluateBuyList as executeBuyList } from './perSymbol/buyListLoop.js';
 import { evaluateIntradayList as executeIntradayList } from './perSymbol/intradayLoop.js';
-export * from './perSymbol/buyListLoop.js';
-export * from './perSymbol/intradayLoop.js';
+export * from './perSymbol/index.js';
 
 export async function evaluateMainCandidates(
   candidates: any,

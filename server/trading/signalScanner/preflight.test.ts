@@ -118,14 +118,16 @@ describe('preflight.ts byte-equivalent tests', () => {
     process.env.KIS_APP_KEY = 'test-key';
     process.env.AUTO_TRADE_MODE = 'SHADOW';
 
-    mockedLoadWatchlist.mockReturnValue([{ code: '005930', name: 'Samsung' }]);
-    mockedLoadR3SanityBlockState.mockReturnValue({ active: false });
+    // ADR-0188 (lint baseline cleanup): mock 반환값 type 정합 — `as ReturnType<...>` cast 로
+    // schema 진화에 자동 정합 (필수 필드 직접 명시는 schema 변경 시 drift 위험).
+    mockedLoadWatchlist.mockReturnValue([{ code: '005930', name: 'Samsung' }] as ReturnType<typeof loadWatchlist>);
+    mockedLoadR3SanityBlockState.mockReturnValue({ active: false } as ReturnType<typeof loadR3SanityBlockState>);
     mockedGetLiveRegime.mockReturnValue('R2_BULL');
-    mockedGetVixGating.mockReturnValue({ noNewEntry: false, kellyMultiplier: 1.0, reason: '' });
-    mockedGetFomcProximity.mockReturnValue({ noNewEntry: false, kellyMultiplier: 1.0, phase: 'NORMAL', description: '' });
+    mockedGetVixGating.mockReturnValue({ noNewEntry: false, kellyMultiplier: 1.0, reason: '' } as ReturnType<typeof getVixGating>);
+    mockedGetFomcProximity.mockReturnValue({ noNewEntry: false, kellyMultiplier: 1.0, phase: 'NORMAL', description: '' } as ReturnType<typeof getFomcProximity>);
     mockedIsDataStarvedScan.mockReturnValue(false);
-    mockedComputeSlotConsumption.mockReturnValue({ isFull: false, consumed: 2, rawCount: 2 });
-    mockedCheckVolumeClockWindow.mockReturnValue({ allowEntry: true, scoreBonus: 0, reason: '' });
+    mockedComputeSlotConsumption.mockReturnValue({ isFull: false, consumed: 2, rawCount: 2 } as ReturnType<typeof computeSlotConsumption>);
+    mockedCheckVolumeClockWindow.mockReturnValue({ allowEntry: true, scoreBonus: 0, reason: '' } as ReturnType<typeof checkVolumeClockWindow>);
   });
 
   afterEach(() => {
@@ -145,7 +147,7 @@ describe('preflight.ts byte-equivalent tests', () => {
   });
 
   it('should abort if R3 sanity block is active and not acknowledged', async () => {
-    mockedLoadR3SanityBlockState.mockReturnValue({ active: true, violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', triggeredAt: 'ts' });
+    mockedLoadR3SanityBlockState.mockReturnValue({ active: true, violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', triggeredAt: 'ts' } as ReturnType<typeof loadR3SanityBlockState>);
     mockedIsR3SanityAckTokenValid.mockReturnValue(false);
     const result = await runPreflight();
     expect(result).toEqual({ shouldAbort: true, skipPersist: true });
@@ -158,13 +160,13 @@ describe('preflight.ts byte-equivalent tests', () => {
   });
 
   it('should abort if VIX gating is active', async () => {
-    mockedGetVixGating.mockReturnValue({ noNewEntry: true, kellyMultiplier: 0.5, reason: 'VIX spike' });
+    mockedGetVixGating.mockReturnValue({ noNewEntry: true, kellyMultiplier: 0.5, reason: 'VIX spike' } as ReturnType<typeof getVixGating>);
     const result = await runPreflight();
     expect(result).toEqual({ shouldAbort: true, skipPersist: true });
   });
 
   it('should abort if position slots are full', async () => {
-    mockedComputeSlotConsumption.mockReturnValue({ isFull: true, consumed: 8, rawCount: 8 });
+    mockedComputeSlotConsumption.mockReturnValue({ isFull: true, consumed: 8, rawCount: 8 } as ReturnType<typeof computeSlotConsumption>);
     const result = await runPreflight();
     expect(result).toEqual({ shouldAbort: true, skipPersist: true, positionFull: true });
   });

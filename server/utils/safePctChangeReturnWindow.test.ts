@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { isStaleBase, safePctChangeDetailed, STALENESS_LIMITS_BY_MODE } from './safePctChange.js';
-import { DAILY_STALE_AFTER_DAYS, RECOMMENDATION_RETURN_STALE_AFTER_DAYS } from './safePctChangeCalendarPatch.js';
+// ADR-0188 (lint baseline cleanup): `DAILY_STALE_AFTER_DAYS` 정적 export 폐지 후 동적
+// 산출 함수 `currentDailyStaleAfterDays` 사용 (calendar-based 가변 값).
+// `RECOMMENDATION_RETURN_STALE_AFTER_DAYS` 는 정적 상수 그대로.
+import {
+  RECOMMENDATION_RETURN_STALE_AFTER_DAYS,
+  currentDailyStaleAfterDays,
+} from './safePctChangeCalendarPatch.js';
 
 describe('Yahoo/KRX calendar staleness windows — PR-551/553', () => {
   const NOW = new Date('2026-05-04T02:00:00.000Z');
 
   it('uses patched calendar windows for daily and recommendation returns', () => {
-    expect(STALENESS_LIMITS_BY_MODE.DAILY).toBe(DAILY_STALE_AFTER_DAYS);
+    expect(STALENESS_LIMITS_BY_MODE.DAILY).toBe(currentDailyStaleAfterDays());
     expect(STALENESS_LIMITS_BY_MODE.RECOMMENDATION_RETURN).toBe(RECOMMENDATION_RETURN_STALE_AFTER_DAYS);
     expect(STALENESS_LIMITS_BY_MODE.INTRADAY).toBe(1);
   });
