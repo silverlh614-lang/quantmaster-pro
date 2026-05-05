@@ -16,7 +16,7 @@
 
 **다음 ADR 번호: `0184`**
 
-(2026-05-03 기준, 마지막 발급 0183, 누락 6개 — 0062/0063/0089/0105/0106/0143)
+(2026-05-05 기준, 마지막 발급 0183, 누락 6개 — 0062/0063/0089/0105/0106/0143. 충돌 그룹 11개 (0146/0147/0168 신규 — 별칭 0146a/b·0147a/b·0168a/b 부여, ADR-0159 정합))
 
 ## 알려진 충돌 (Known Conflicts)
 
@@ -46,8 +46,14 @@
 | 0068 | **0068b** | `0068-shadow-learning-hooks-wiring.md` | Rejection + Twin wiring | PR-R (2026-04-28) | 자기학습 시리즈 |
 | 0124 | **0124a** | `0124-regime-coverage-suggest-false-positive.md` | regimeCoverage 표본 임계 | (날짜 추가 필요) | 학습 시그널 정합 |
 | 0124 | **0124b** | `0124-telegram-reports-be-visibility.md` | 텔레그램 리포트 BE 표기 | PR-ADR-0124 (2026-04-30) | BE 정합 |
+| 0146 | **0146a** | `0146-pr-pace-audit-rule.md` | 10-PR audit 룰 + 자가 review 체크리스트 | PR-Governance-3 (2026-05-01) | 거버넌스 |
+| 0146 | **0146b** | `0146-telegram-sanity-unlock-cmd.md` | `/sanity` 텔레그램 명령 R3 Block 즉시 해제 | (2026-05-03) | 운영 명령어 |
+| 0147 | **0147a** | `0147-kis-token-disk-persistence.md` | KIS 토큰 디스크 영속 (재부팅 OAuth2 차단) | (2026-05-01) | 인프라 |
+| 0147 | **0147b** | `0147-signalScanner-orchestration-migration.md` | signalScanner Phase 3 6단계 오케스트레이터 승격 | (2026-05-03) | 리팩토링 |
+| 0168 | **0168a** | `0168-kelly-clamp-ssot.md` | Kelly clamp 수치 정책 SSOT | PR-Kelly-Clamp-SSOT (2026-05-02) | 사이징 |
+| 0168 | **0168b** | `0168-emergency-data-quality-circuit-breaker.md` | Emergency Data Quality Circuit Breaker | (2026-05-03~05-05) | 데이터 안전 |
 
-**충돌 그룹 8개 / 충돌 ADR 17개 (별칭 17건 부여, ADR-0159)**. 향후 신규 발급은 §"다음 발급" 번호 사용 → 충돌 0건 유지.
+**충돌 그룹 11개 / 충돌 ADR 26개 (별칭 26건 부여, ADR-0159)**. 향후 신규 발급은 §"다음 발급" 번호 사용 → 충돌 0건 유지.
 
 ## 누락 (Gap)
 
@@ -214,7 +220,9 @@
 | 0144 | kis-program-trade-endpoint-correction | data |
 | 0145 | diagnose-short-macro-state | telegram |
 | 0146 | pr-pace-audit-rule | governance |
+| 0146 | telegram-sanity-unlock-cmd (별칭 0146b) | telegram |
 | 0147 | kis-token-disk-persistence | infra |
+| 0147 | signalScanner-orchestration-migration (별칭 0147b) | refactor |
 | 0148 | governance-followup-static-checks | governance |
 | 0149 | condition-mapping-fix | learning |
 | 0150 | phase1-dart-finalize | learning |
@@ -236,6 +244,7 @@
 | 0166 | regime-exposure-budget | trading |
 | 0167 | current-equity-exposure-accurate | trading |
 | 0168 | kelly-clamp-ssot | trading |
+| 0168 | emergency-data-quality-circuit-breaker (별칭 0168b) | data |
 | 0169 | tranche-executor-exposure-budget-wiring | trading |
 | 0170 | exposure-regime-auto-mapping | trading |
 | 0171 | sizing-exposure-budget-verbose-log | trading |
@@ -252,7 +261,7 @@
 | 0182 | unresolved-counterfactuals-card | learning |
 | 0183 | shadow-learning-blocked-day-wiring | trading |
 
-**총 발급 183건** (189 파일 − 충돌 그룹 17건 + 충돌 그룹 표 카운트 = 183 unique 번호, 별칭 17건 부여 ADR-0159) / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0184**.
+**총 발급 183 unique 번호** (193 ADR 파일 − 충돌 그룹 11개의 추가 16 파일 + 충돌 그룹 11개 = 177 unique 번호 + 누락 미사용 6건 = 183 — 마지막 발급 0183) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0184**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
