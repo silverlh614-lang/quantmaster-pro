@@ -119,7 +119,7 @@ describe('Phase 3 #9 — ghostPortfolioTracker', () => {
       signalDate: '2026-04-20', signalPriceKrw: 70_000,
       rejectionReason: 'GATE2_FAIL',
     }]);
-    const now = new Date('2026-04-25T07:00:00Z');
+    const now = new Date('2026-04-24T07:00:00Z');
     const res = await refreshGhostPortfolio({ now });
     expect(res.updated).toBe(1);
     const { loadGhostPortfolio } = await import('../../persistence/reflectionRepo.js');
@@ -137,9 +137,26 @@ describe('Phase 3 #9 — ghostPortfolioTracker', () => {
       signalDate: '2026-03-01', signalPriceKrw: 70_000,
       rejectionReason: 'EXPIRED',
     }]);
-    const now = new Date('2026-04-25T07:00:00Z');
+    const now = new Date('2026-04-24T07:00:00Z');
     const res = await refreshGhostPortfolio({ now });
     expect(res.closed).toBe(1);
+  });
+
+  it('KRX 휴장일에는 가격 fetch를 호출하지 않고 MARKET_CLOSED_SKIPPED로 반환', async () => {
+    const fetchCurrentPrice = vi.fn().mockResolvedValue(70_000);
+    vi.doMock('../../clients/kisClient.js', () => ({
+      fetchCurrentPrice,
+    }));
+    const { enqueueMissedSignals, refreshGhostPortfolio } = await import('../ghostPortfolioTracker.js');
+    enqueueMissedSignals([{
+      stockCode: '005930', stockName: 'SAMSUNG',
+      signalDate: '2026-04-30', signalPriceKrw: 70_000,
+      rejectionReason: 'HOLIDAY_GUARD',
+    }]);
+    const res = await refreshGhostPortfolio({ now: new Date('2026-05-05T06:49:49.449Z') });
+    expect(fetchCurrentPrice).not.toHaveBeenCalled();
+    expect(res.updated).toBe(0);
+    expect(res.failureReasons?.MARKET_CLOSED_SKIPPED).toBe(1);
   });
 
   it('compareGhostVsReal — divergence > 2 → FILTER_TOO_CONSERVATIVE', async () => {
@@ -153,7 +170,7 @@ describe('Phase 3 #9 — ghostPortfolioTracker', () => {
       rejectionReason: 'FILTER',
     }));
     enqueueMissedSignals(input);
-    await refreshGhostPortfolio({ now: new Date('2026-04-25T07:00:00Z') });
+    await refreshGhostPortfolio({ now: new Date('2026-04-24T07:00:00Z') });
     const cmp = compareGhostVsReal(3);
     expect(cmp.ghostCount).toBe(5);
     expect(cmp.ghostAvgReturnPct).toBe(10);

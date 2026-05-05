@@ -6,6 +6,7 @@ import os from 'os';
 import type { GhostPosition } from '../../../learning/reflectionTypes.js';
 
 const NOW = new Date('2026-04-30T06:00:00Z');
+const CHILDREN_DAY = new Date('2026-05-05T06:49:49.449Z');
 
 function shiftDate(today: string, deltaDays: number): string {
   const d = new Date(`${today}T00:00:00Z`);
@@ -103,7 +104,7 @@ describe('classifyBlocker', () => {
 
   it('5. daysOpen >= 30 + 최근 갱신 + trackUntil 미초과(없음) → STATUS_UNKNOWN', () => {
     const p = makeGhost({
-      signalDate: shiftDate('2026-04-30', -35),
+      signalDate: shiftDate('2026-04-30', -50),
       trackUntil: shiftDate('2026-04-30', 5), // 미래로 설정 → 초과 아님
       lastUpdatedAt: new Date(NOW.getTime() - 1 * 3600 * 1000).toISOString(),
     });
@@ -127,6 +128,15 @@ describe('classifyBlocker', () => {
       lastUpdatedAt: 'invalid-iso',
     });
     expect(mod.classifyBlocker(p, NOW)).toBe('KIS_PRICE_FETCH_FAIL');
+  });
+
+  it('8. KRX 휴장일 stale price는 KIS 장애가 아니라 MARKET_CLOSED_SKIPPED', () => {
+    const p = makeGhost({
+      signalDate: '2026-04-30',
+      trackUntil: '2026-05-30',
+      lastUpdatedAt: '2026-05-04T06:40:00.000Z',
+    });
+    expect(mod.classifyBlocker(p, CHILDREN_DAY)).toBe('MARKET_CLOSED_SKIPPED');
   });
 });
 
@@ -191,6 +201,22 @@ describe('collectGhostInspect', () => {
     expect(snap.blockerDistribution.KIS_PRICE_FETCH_FAIL).toBe(50);
     expect(snap.blockerDistribution.TRACK_EXPIRED_NOT_CLOSED).toBe(38);
     expect(snap.blockerDistribution.STATUS_UNKNOWN).toBe(0);
+  });
+
+  it('2-1. 어린이날에는 4/30 신호를 1거래일 open으로 보고 MARKET_CLOSED_SKIPPED로 집계', async () => {
+    const ghosts: GhostPosition[] = [makeGhost({
+      stockCode: '373220',
+      signalDate: '2026-04-30',
+      trackUntil: '2026-05-30',
+      lastUpdatedAt: '2026-05-04T06:40:00.000Z',
+    })];
+    writeGhosts(tmpDir, ghosts);
+    const { collectGhostInspect } = await import('./ghostInspect.cmd.js');
+    const snap = collectGhostInspect(10, CHILDREN_DAY);
+    expect(snap.oldestOpen[0].daysOpen).toBe(1);
+    expect(snap.oldestOpen[0].blocker).toBe('MARKET_CLOSED_SKIPPED');
+    expect(snap.blockerDistribution.MARKET_CLOSED_SKIPPED).toBe(1);
+    expect(snap.blockerDistribution.KIS_PRICE_FETCH_FAIL).toBe(0);
   });
 
   it('3. topBlocker 우선순위 — TRACK_EXPIRED > KIS_FETCH > HOLD (count 동률 시)', async () => {
@@ -299,6 +325,7 @@ describe('formatGhostInspectMessage', () => {
     const { collectGhostInspect, formatGhostInspectMessage } = await import('./ghostInspect.cmd.js');
     const msg = formatGhostInspectMessage(collectGhostInspect(10, NOW));
     expect(msg).toContain('TRACK_EXPIRED_NOT_CLOSED');
+    expect(msg).toContain('MARKET_CLOSED_SKIPPED');
     expect(msg).toContain('KIS_PRICE_FETCH_FAIL');
     expect(msg).toContain('HOLD_DAYS_NOT_REACHED');
     expect(msg).toContain('STATUS_UNKNOWN');

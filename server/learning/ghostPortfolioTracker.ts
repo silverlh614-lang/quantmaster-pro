@@ -13,15 +13,20 @@
  *   - compareGhostVsReal()   : 월 1회 또는 주간 — 고스트 vs 실제 수익률 비교 경보.
  */
 
-import { fetchCurrentPrice } from '../clients/kisClient.js';
 import {
   loadGhostPortfolio,
   saveGhostPortfolio,
   appendGhostPositions,
 } from '../persistence/reflectionRepo.js';
 import type { GhostPosition } from './reflectionTypes.js';
+import { isTradingDay } from '../utils/marketDayClassifier.js';
 
 const TRACK_DAYS = 30;
+const KST_OFFSET_MS = 9 * 3_600_000;
+
+function toKstYmd(date: Date): string {
+  return new Date(date.getTime() + KST_OFFSET_MS).toISOString().slice(0, 10);
+}
 
 function daysBetween(fromIso: string, toIso: string): number {
   const ms = new Date(toIso).getTime() - new Date(fromIso).getTime();
@@ -33,6 +38,11 @@ function addDays(yyyymmdd: string, days: number): string {
   const t = new Date(Date.UTC(y, m - 1, d));
   t.setUTCDate(t.getUTCDate() + days);
   return t.toISOString().slice(0, 10);
+}
+
+async function fetchCurrentPriceDefault(code: string): Promise<number | null> {
+  const { fetchCurrentPrice } = await import('../clients/kisClient.js');
+  return fetchCurrentPrice(code);
 }
 
 export interface MissedSignalInput {
@@ -89,8 +99,17 @@ export async function refreshGhostPortfolio(
   failureReasons?: Record<string, number>;
 }> {
   const now = opts.now ?? new Date();
-  const today = now.toISOString().slice(0, 10);
-  const fetcher = opts.priceFetcher ?? fetchCurrentPrice;
+  const today = toKstYmd(now);
+  const fetcher = opts.priceFetcher ?? fetchCurrentPriceDefault;
+
+  if (!isTradingDay(today)) {
+    return {
+      updated: 0,
+      closed: 0,
+      skipped: 0,
+      failureReasons: { MARKET_CLOSED_SKIPPED: 1 },
+    };
+  }
 
   const all = loadGhostPortfolio();
   let updated = 0, closed = 0, skipped = 0;

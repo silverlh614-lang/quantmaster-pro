@@ -7,6 +7,7 @@ import {
 import type { GhostPosition } from '../../../learning/reflectionTypes.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
+import { isTradingDay } from '../../../utils/marketDayClassifier.js';
 
 /** TRACK_DAYS=30 (ghostPortfolioTracker.ts SSOT 정합). signalDate + 30일 = trackUntil. */
 const GHOST_TRACK_DAYS = 30;
@@ -16,8 +17,10 @@ const ARG_MIN = 1;
 const ARG_MAX = 30;
 const ARG_DEFAULT = 10;
 const GHOST_JOB_NAME = 'ghost_portfolio';
+const KST_OFFSET_MS = 9 * 3_600_000;
 
 export type GhostBlocker =
+  | 'MARKET_CLOSED_SKIPPED'
   | 'KIS_PRICE_FETCH_FAIL'
   | 'HOLD_DAYS_NOT_REACHED'
   | 'TRACK_EXPIRED_NOT_CLOSED'
@@ -39,10 +42,24 @@ export function parseGhostInspectArg(args: string[] | undefined): number {
   return Math.max(ARG_MIN, Math.min(ARG_MAX, Math.floor(n)));
 }
 
+function toKstYmd(date: Date): string {
+  return new Date(date.getTime() + KST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+function shiftYmd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const t = Date.UTC(y, m - 1, d) + days * 24 * 3600 * 1000;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
 function daysOpenFor(p: GhostPosition, now: Date): number {
-  const t = new Date(`${p.signalDate}T00:00:00Z`).getTime();
-  if (!Number.isFinite(t)) return 0;
-  return Math.max(0, Math.floor((now.getTime() - t) / (24 * 3600 * 1000)));
+  const today = toKstYmd(now);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(p.signalDate) || p.signalDate >= today) return 0;
+  let count = 0;
+  for (let d = shiftYmd(p.signalDate, 1); d <= today; d = shiftYmd(d, 1)) {
+    if (isTradingDay(d)) count++;
+  }
+  return count;
 }
 
 /**
@@ -51,8 +68,10 @@ function daysOpenFor(p: GhostPosition, now: Date): number {
  */
 export function classifyBlocker(p: GhostPosition, now: Date): GhostBlocker {
   const daysOpen = daysOpenFor(p, now);
+  const today = toKstYmd(now);
+  if (!isTradingDay(today)) return 'MARKET_CLOSED_SKIPPED';
   // 1) trackUntil 초과인데 closed 안 됨 → cron 미실행 또는 close 로직 누락 (진짜 적체)
-  if (p.trackUntil && now.toISOString().slice(0, 10) > p.trackUntil && !p.closed) {
+  if (p.trackUntil && today > p.trackUntil && !p.closed) {
     return 'TRACK_EXPIRED_NOT_CLOSED';
   }
   // 2) lastUpdatedAt 부재 또는 24h+ 미갱신 → KIS fetcher throw → skipped 만 됨
@@ -92,6 +111,8 @@ export interface GhostInspectSnapshot {
 }
 
 const RECOMMENDATIONS: Record<GhostBlocker, string> = {
+  MARKET_CLOSED_SKIPPED:
+    'KRX 휴장/비거래일 정상 스킵 — 가격 fetch 장애가 아니며 다음 영업일 refresh 에서 재평가',
   TRACK_EXPIRED_NOT_CLOSED:
     'cron 실행 점검 필요 — `/scheduler` 로 ghost_portfolio 마지막 실행 확인 + 운영자 수동 trigger 검토',
   KIS_PRICE_FETCH_FAIL:
@@ -132,6 +153,7 @@ export function collectGhostInspect(
   });
 
   const blockerDistribution: Record<GhostBlocker, number> = {
+    MARKET_CLOSED_SKIPPED: 0,
     KIS_PRICE_FETCH_FAIL: 0,
     HOLD_DAYS_NOT_REACHED: 0,
     TRACK_EXPIRED_NOT_CLOSED: 0,
@@ -146,6 +168,7 @@ export function collectGhostInspect(
     'TRACK_EXPIRED_NOT_CLOSED',
     'KIS_PRICE_FETCH_FAIL',
     'STATUS_UNKNOWN',
+    'MARKET_CLOSED_SKIPPED',
     'HOLD_DAYS_NOT_REACHED',
   ];
   let topBlocker: GhostInspectSnapshot['topBlocker'] = null;
@@ -217,6 +240,7 @@ export function formatGhostInspectMessage(snap: GhostInspectSnapshot): string {
   lines.push('━━━━━━━━━━━━━━━━');
   lines.push(`Blocker 분류 (${snap.openCount}건 OPEN):`);
   lines.push(`- TRACK_EXPIRED_NOT_CLOSED: ${snap.blockerDistribution.TRACK_EXPIRED_NOT_CLOSED}건`);
+  lines.push(`- MARKET_CLOSED_SKIPPED: ${snap.blockerDistribution.MARKET_CLOSED_SKIPPED}건 (휴장/비거래일 정상 스킵)`);
   lines.push(`- KIS_PRICE_FETCH_FAIL: ${snap.blockerDistribution.KIS_PRICE_FETCH_FAIL}건`);
   lines.push(`- HOLD_DAYS_NOT_REACHED: ${snap.blockerDistribution.HOLD_DAYS_NOT_REACHED}건 (정상 추적)`);
   lines.push(`- STATUS_UNKNOWN: ${snap.blockerDistribution.STATUS_UNKNOWN}건`);
