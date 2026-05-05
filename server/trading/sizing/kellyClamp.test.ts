@@ -93,9 +93,13 @@ describe('ADR-0168 §3 호출자 정합 정적 가드 — drift 차단', () => {
     return readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
   }
 
-  it('signalScanner.ts — applyKellyClamp import 보유', () => {
+  // ADR-0147b (signalScanner Phase 3 6단계 오케스트레이터 승격, PR #523):
+  // signalScanner.ts 본체는 분해 후 orchestrator 역할만 보유. Kelly clamp wiring 은
+  // signalScanner/preflight.ts 단일 위치로 이주. 본 회귀 테스트는 preflight 측
+  // 존재 단언 + signalScanner.ts 측 부재 단언 (drift 차단) 으로 정합.
+  it('signalScanner.ts — applyKellyClamp 직접 import 부재 (분해 후 preflight 단일 사용)', () => {
     const src = readSrc('server/trading/signalScanner.ts');
-    expect(src).toMatch(/import\s+\{[^}]*\bapplyKellyClamp\b[^}]*\}\s+from\s+['"]\.\/sizing\/kellyClamp\.js['"]/);
+    expect(src).not.toMatch(/import\s+\{[^}]*\bapplyKellyClamp\b/);
   });
 
   it('preflight.ts — applyKellyClamp import 보유', () => {
@@ -103,9 +107,9 @@ describe('ADR-0168 §3 호출자 정합 정적 가드 — drift 차단', () => {
     expect(src).toMatch(/import\s+\{[^}]*\bapplyKellyClamp\b[^}]*\}\s+from\s+['"]\.\.\/sizing\/kellyClamp\.js['"]/);
   });
 
-  it('signalScanner.ts — kellyMultiplier 산출에 applyKellyClamp 사용', () => {
+  it('signalScanner.ts — kellyMultiplier 직접 산출 부재 (preflight 위임)', () => {
     const src = readSrc('server/trading/signalScanner.ts');
-    expect(src).toContain('const kellyMultiplier = applyKellyClamp(rawKelly);');
+    expect(src).not.toContain('const kellyMultiplier = applyKellyClamp(rawKelly);');
   });
 
   it('preflight.ts — kellyMultiplier 산출에 applyKellyClamp 사용', () => {
@@ -133,23 +137,21 @@ describe('ADR-0168 §3 호출자 정합 정적 가드 — drift 차단', () => {
     expect(src).not.toMatch(/^\s*const\s+KELLY_FLOOR\s*=\s*0\.15/m);
   });
 
-  it('진단 로그 형식 보존 — signalScanner.ts (KELLY_FLOOR 노출 보존)', () => {
-    const src = readSrc('server/trading/signalScanner.ts');
-    expect(src).toContain('rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}`');
-  });
-
-  it('진단 로그 형식 보존 — preflight.ts (KELLY_FLOOR 노출 보존)', () => {
+  it('진단 로그 형식 보존 — preflight.ts (KELLY_FLOOR 노출 보존, signalScanner.ts 는 분해 후 진단 로그 부재)', () => {
     const src = readSrc('server/trading/signalScanner/preflight.ts');
     expect(src).toContain('rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}`');
   });
 
-  it('ADR-0168 추적 주석 존재 — signalScanner.ts', () => {
+  it('signalScanner.ts — KELLY_FLOOR 진단 로그 부재 (preflight 단일 위치, drift 차단)', () => {
     const src = readSrc('server/trading/signalScanner.ts');
-    expect(src).toMatch(/ADR-0168/);
+    expect(src).not.toContain('rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}`');
   });
 
-  it('ADR-0168 추적 주석 존재 — preflight.ts', () => {
-    const src = readSrc('server/trading/signalScanner/preflight.ts');
-    expect(src).toMatch(/ADR-0168/);
+  it('ADR-0168 추적 주석 존재 — preflight.ts 또는 signalScanner.ts (분해 후 wiring 단일 위치)', () => {
+    // ADR-0147b 분해 후 추적 주석은 preflight.ts (실제 wiring 위치) 또는 signalScanner.ts
+    // (barrel) 중 어디에 있어도 통과. drift 추적성 본 검증의 핵심.
+    const preflight = readSrc('server/trading/signalScanner/preflight.ts');
+    const monolith = readSrc('server/trading/signalScanner.ts');
+    expect(/ADR-0168/.test(preflight) || /ADR-0168/.test(monolith)).toBe(true);
   });
 });

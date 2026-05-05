@@ -17,16 +17,25 @@ describe('signalScanner ↔ preflight 단일 SSOT (PR-42 M3)', () => {
   });
 
   it('signalScanner.ts 본체는 inline 정의 미보유 (drift 차단)', () => {
+    // ADR-0147b (signalScanner Phase 3 분해, PR #523): signalScanner.ts 는
+    // barrel re-export 35줄로 축소. preflight 호출은 signalScanner/index.ts
+    // 오케스트레이터 내부에서 수행. 본 가드는 본체에 inline 정의가 *재진입*
+    // 하는 회귀를 차단하는 의도이므로 부재 단언만 유지 (import 검증은 새 위치).
     const src = fs.readFileSync(
       path.resolve(__dirname, '..', 'signalScanner.ts'),
       'utf-8',
     );
-    // inline 함수/타입 시그니처가 다시 들어오면 즉시 실패.
     expect(src).not.toMatch(/^function\s+evaluateSellOnlyException\s*\(/m);
     expect(src).not.toMatch(/^function\s+getAccountScaleKellyMultiplier\s*\(/m);
     expect(src).not.toMatch(/^interface\s+SellOnlyExceptionDecision\b/m);
-    // import 는 반드시 preflight 에서.
-    expect(src).toContain("from './signalScanner/preflight.js'");
+  });
+
+  it('signalScanner/index.ts 가 preflight 를 import (분해 후 단일 호출자)', () => {
+    const src = fs.readFileSync(
+      path.resolve(__dirname, 'index.ts'),
+      'utf-8',
+    );
+    expect(src).toContain("from './preflight.js'");
   });
 
   it('getAccountScaleKellyMultiplier — 계좌 규모 별 정확한 배수', () => {

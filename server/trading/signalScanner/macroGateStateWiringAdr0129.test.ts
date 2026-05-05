@@ -1,10 +1,14 @@
 /**
  * macroGateStateWiringAdr0129.test.ts — ADR-0129 macroGateState propagate wiring 회귀
  *
- * signalScanner.ts:639 의 persistScanResults 호출에 buildMacroGateState 결과를
+ * preflight.ts 의 persistScanResults 호출에 buildMacroGateState 결과를
  * propagate 하는 wiring 검증. ADR-0118 의 후속 PR scope 였던 거시 게이트 상태
- * 전달이 본 PR 에서 활성화 — /scan_blockers 텔레그램 메시지의 거시 게이트 섹션
- * 노출 보장.
+ * 전달이 ADR-0129 PR-Z19 에서 활성화 — /scan_blockers 텔레그램 메시지의 거시
+ * 게이트 섹션 노출 보장.
+ *
+ * Audit-fix (2026-05-05): ADR-0147b (signalScanner Phase 3 6단계 오케스트레이터
+ * 승격, PR #523) 머지 시 grep 대상 경로 갱신 누락. wiring 코드는 분해 후
+ * `signalScanner/preflight.ts` 로 이주. 본 회귀 테스트 grep 경로를 새 위치로 정합.
  *
  * 정적 grep 가드 — wiring 코드 누락 시 자동 fail.
  */
@@ -12,11 +16,13 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-const SIGNAL_SCANNER_PATH = join(process.cwd(), 'server/trading/signalScanner.ts');
+const PREFLIGHT_PATH = join(process.cwd(), 'server/trading/signalScanner/preflight.ts');
+const SCAN_INDEX_PATH = join(process.cwd(), 'server/trading/signalScanner/index.ts');
 const SCAN_DIAGNOSTICS_PATH = join(process.cwd(), 'server/trading/signalScanner/scanDiagnostics.ts');
 
 describe('ADR-0129 macroGateState propagate wiring', () => {
-  const signalScanner = readFileSync(SIGNAL_SCANNER_PATH, 'utf-8');
+  const signalScanner = readFileSync(PREFLIGHT_PATH, 'utf-8');
+  const scanIndex = readFileSync(SCAN_INDEX_PATH, 'utf-8');
   const scanDiagnostics = readFileSync(SCAN_DIAGNOSTICS_PATH, 'utf-8');
 
   it('signalScanner 가 buildMacroGateState 를 import', () => {
@@ -27,13 +33,11 @@ describe('ADR-0129 macroGateState propagate wiring', () => {
     expect(signalScanner).toMatch(/import.*getEmergencyStop.*from.*state/);
   });
 
-  it('persistScanResults 호출에 macroGateState 인자 전달', () => {
-    // persistScanResults({ ... macroGateState: ... }) 형식
-    const persistCall = signalScanner.match(
-      /await persistScanResults\([\s\S]*?\}\);/,
-    );
-    expect(persistCall).toBeTruthy();
-    expect(persistCall![0]).toMatch(/macroGateState:\s*\w+/);
+  it('persistScanResults 호출에 macroGateState 인자 전달 (signalScanner/index.ts 가 호출자)', () => {
+    // ADR-0147b 분해 후 persistScanResults 호출자는 signalScanner/index.ts.
+    // 두 호출 site (라인 46 abort 분기, 라인 82 정상 분기) 중 정상 분기만
+    // macroGateState 전달 (abort 분기는 preflight 단계에서 종료라 의미 없음).
+    expect(scanIndex).toMatch(/macroGateState:\s*preflightResult\.macroGateState/);
   });
 
   it('macroGateState 11 필드 모두 합성 (emergencyStop / autoTradeEnabled / regime / regimeKelly / fomcPhase / fomcKelly / finalKelly / vixGatingActive / bearDefenseMode / mhsBelow30 / watchlistEmpty / sellOnlyMode)', () => {
@@ -81,8 +85,12 @@ describe('ADR-0129 macroGateState propagate wiring', () => {
     expect(signalScanner).toMatch(/finalKelly:\s*kellyMultiplier/);
   });
 
-  it('ADR-0129 주석 명시 (PR-Z19 marker)', () => {
-    expect(signalScanner).toMatch(/ADR-0129/);
+  it('ADR-0129 주석 명시 — signalScanner.ts 또는 preflight.ts 또는 index.ts (PR-Z19 marker)', () => {
+    // ADR-0147b 분해 시 추적 주석이 어느 위치에 있어도 통과 — 본 가드는
+    // 주석 자체의 *존재* 만 검증 (drift 추적성 보존).
+    const monolith = readFileSync(join(process.cwd(), 'server/trading/signalScanner.ts'), 'utf-8');
+    const found = /ADR-0129/.test(monolith) || /ADR-0129/.test(signalScanner) || /ADR-0129/.test(scanIndex);
+    expect(found).toBe(true);
   });
 
   it('buildMacroGateState SSOT 가 scanDiagnostics 에서 export 되어 있음', () => {
