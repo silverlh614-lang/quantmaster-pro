@@ -34,7 +34,43 @@ import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/
 import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
 // ADR-0171 — 10 필드 SSOT formatter (default OFF, ENV `SIZING_EXPOSURE_BUDGET_VERBOSE_LOG=true`).
 import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
-import { applySupplyHealthToSignal, determineExecutionMode } from '../../../learning/supplyHealthLearning.js';
+import {
+  applySupplyHealthToSignal,
+  createLearningSampleFromDecision,
+  determineExecutionMode,
+} from '../../../learning/supplyHealthLearning.js';
+import { appendLearningSample } from '../../../persistence/learningSampleRepo.js';
+
+function kstDecisionDate(): string {
+  return new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
+}
+
+function recordIntradaySupplyHealthLearningSample(params: {
+  ctx: IntradayLoopContext;
+  stockCode: string;
+  stockName: string;
+  currentPrice: number;
+  rawScore: number;
+  requestedSize: number;
+}): void {
+  const snapshot = params.ctx.supplyHealthSnapshot;
+  if (!snapshot) return;
+  try {
+    appendLearningSample(createLearningSampleFromDecision({
+      symbol: params.stockCode,
+      name: params.stockName,
+      market: 'UNKNOWN',
+      date: kstDecisionDate(),
+      currentPrice: params.currentPrice,
+      rawSignal: 'BUY',
+      rawScore: params.rawScore,
+      positionSize: params.requestedSize,
+      supplyHealthSnapshot: snapshot,
+    }));
+  } catch (e) {
+    console.warn('[SupplyHealthLearning] intraday sample append failed:', e);
+  }
+}
 
 /**
  * 장중(Intraday) Watchlist 처리 — Step 4c 이식 본체.
@@ -187,6 +223,16 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
                 supplyHealthSnapshot: ctx.supplyHealthSnapshot,
               })
             : undefined;
+          if (ctx.supplyHealthSnapshot) {
+            recordIntradaySupplyHealthLearningSample({
+              ctx,
+              stockCode: stock.code,
+              stockName: stock.name,
+              currentPrice,
+              rawScore: intradayGateScore,
+              requestedSize: quantity,
+            });
+          }
           if (intradayHealthDecision && ctx.supplyHealthSnapshot) {
             const executionMode = determineExecutionMode({
               rawSignal: 'BUY',

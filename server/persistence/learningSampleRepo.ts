@@ -43,3 +43,19 @@ export function saveLearningSamples(samples: LearningSample[]): void {
   fs.writeFileSync(tmp, JSON.stringify(toSave, null, 2), 'utf-8');
   fs.renameSync(tmp, LEARNING_SAMPLES_FILE);
 }
+
+export function appendLearningSample(sample: LearningSample): void {
+  const samples = loadLearningSamples();
+  samples.push(sample);
+  saveLearningSamples(samples);
+}
+
+export function __resetLearningSamplesForTests(): void {
+  try {
+    if (fs.existsSync(LEARNING_SAMPLES_FILE)) fs.unlinkSync(LEARNING_SAMPLES_FILE);
+    const tmp = `${LEARNING_SAMPLES_FILE}.tmp`;
+    if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+  } catch {
+    // test cleanup only
+  }
+}

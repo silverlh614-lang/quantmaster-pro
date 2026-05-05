@@ -106,11 +106,50 @@ import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/
 import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
 // ADR-0171 — Sizing-ExposureBudget 진단 로그 10 필드 SSOT formatter (default OFF, ENV `SIZING_EXPOSURE_BUDGET_VERBOSE_LOG=true` 명시 활성화).
 import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
-import { applySupplyHealthToSignal, determineExecutionMode, type TradingSignal } from '../../../learning/supplyHealthLearning.js';
+import {
+  applySupplyHealthToSignal,
+  createLearningSampleFromDecision,
+  determineExecutionMode,
+  type TradingSignal,
+} from '../../../learning/supplyHealthLearning.js';
+import { appendLearningSample } from '../../../persistence/learningSampleRepo.js';
+
+function kstDecisionDate(): string {
+  return new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
+}
+
+function recordSupplyHealthLearningSample(params: {
+  stockCode: string;
+  stockName: string;
+  currentPrice: number;
+  rawSignal: TradingSignal;
+  rawScore: number;
+  requestedSize: number;
+  ctx: BuyListLoopContext;
+}): void {
+  const snapshot = params.ctx.supplyHealthSnapshot;
+  if (!snapshot) return;
+  try {
+    appendLearningSample(createLearningSampleFromDecision({
+      symbol: params.stockCode,
+      name: params.stockName,
+      market: 'UNKNOWN',
+      date: kstDecisionDate(),
+      currentPrice: params.currentPrice,
+      rawSignal: params.rawSignal,
+      rawScore: params.rawScore,
+      positionSize: params.requestedSize,
+      supplyHealthSnapshot: snapshot,
+    }));
+  } catch (e) {
+    console.warn('[SupplyHealthLearning] sample append failed:', e);
+  }
+}
 
 function applyBuySupplyHealthPolicy(params: {
   stockCode: string;
   stockName: string;
+  currentPrice: number;
   rawSignal: TradingSignal;
   rawScore: number;
   requestedSize: number;
@@ -139,6 +178,7 @@ function applyBuySupplyHealthPolicy(params: {
     positionSize: params.requestedSize,
     supplyHealthSnapshot: snapshot,
   });
+  recordSupplyHealthLearningSample(params);
   const executionMode = determineExecutionMode({
     rawSignal: params.rawSignal,
     finalSignal: healthDecision.finalSignal,
@@ -480,6 +520,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             const followHealth = applyBuySupplyHealthPolicy({
               stockCode: stock.code,
               stockName: stock.name,
+              currentPrice,
               rawSignal: 'STRONG_BUY',
               rawScore: gateScoreFollow,
               requestedSize: followQty,
@@ -730,6 +771,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               const pbHealth = applyBuySupplyHealthPolicy({
                 stockCode: stock.code,
                 stockName: stock.name,
+                currentPrice,
                 rawSignal: 'BUY',
                 rawScore: gateScorePb,
                 requestedSize: pbQty,
@@ -1344,6 +1386,15 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           rawScore: gateScore,
           positionSize: finalQuantity,
           supplyHealthSnapshot,
+        });
+        recordSupplyHealthLearningSample({
+          stockCode: stock.code,
+          stockName: stock.name,
+          currentPrice,
+          rawSignal: rawSignalLevel,
+          rawScore: gateScore,
+          requestedSize: finalQuantity,
+          ctx,
         });
 
         const executionMode = determineExecutionMode({
