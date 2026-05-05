@@ -12,6 +12,7 @@ import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { setEmergencyStop } from '../state.js';
+import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import {
   getCircuitBreakerTrippedAt,
   getCircuitBreakerClearedAt,
@@ -27,6 +28,11 @@ const HOLD_MS = 30 * 60 * 1000;
 const FORCED_DOWNGRADE_MS = 4 * 60 * 60 * 1000;
 
 type ShadowTrade = ReturnType<typeof loadShadowTrades>[number];
+
+function isKrxClosedShadowResolverSkip(now = new Date()): boolean {
+  if (process.env.SHADOW_RESOLVER_ON_KRX_CLOSED === 'true') return false;
+  return !isKrxTradingDay(toKstDateKey(now));
+}
 
 export function countRecentConsecutiveLosses(shadows: ShadowTrade[]): number {
   // ADR-0111 hotfix (사용자 4/30 보고 "리셋해도 똑같음"):
@@ -94,6 +100,10 @@ async function reactToLossStreak(consecLoss: number): Promise<void> {
 }
 
 async function runShadowResolverTick(): Promise<void> {
+  if (isKrxClosedShadowResolverSkip()) {
+    console.log('[Scheduler] KRX 휴장일/비거래일 — shadow_resolver_tick 스킵');
+    return;
+  }
   const shadows = loadShadowTrades();
   if (!shadows.some((s) => isOpenShadowStatus(s.status))) return;
   try {
