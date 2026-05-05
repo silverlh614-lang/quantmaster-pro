@@ -76,6 +76,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | B9 | 0166+0167+0169+0170 RegimeExposureBudget | `server/trading/sizing/regimeExposurePolicy.ts` | 2026-05-02 | PARTIAL | P2 | **Phase A+B+AccurateExposure+AddOnBuy+AutoMapping wiring 완료** (ADR-0166+0167+0169+0170) — 7 레짐 매트릭스 + 4 wiring + 정확 산출 SSOT + trancheExecutor 추매 진입점 (`isAddOnBuy=true`) + 매크로 신호 R1_DEFENSIVE 자동 격상 (`mapInternalToExposureRegimeWithMacro`, ENV `EXPOSURE_REGIME_AUTO_MAPPING_DISABLED=true` default OFF). audit-PR-520 §M1+§M2+§M4 수리 완료 (PR #525 + #527 + #528) — **§"Medium 4건" 모두 수리 완료**. **잔여 2 PR (P2)**: currentPriceMap 시가 평가 (KIS 호출) + UI 출력. 활성화 절차 (ADR-0166 §7 + ADR-0167 §7): SHADOW APPLY → EXPOSURE BUDGET → ACCURATE EXPOSURE → LIVE 4단계. |
 | B10 | 0172 SizingEngine marketCap 잔여 | `server/trading/signalScanner/perSymbol/buyListLoop.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | **PR-Sizing-Engine-Real-Data (2026-05-02, ADR-0172) 부분 완료** — `avgDailyVolume20d` + `currentSectorWeight` 2 axis 실데이터 wiring 완료 (`computeSizingLiquidityInputs` SSOT + 4 호출자 wiring). **잔여 1 axis (P2)**: `marketCap` Yahoo Finance chart API 미제공 → KIS 기업 정보 API (CTPF1002R) 결합 후 실값 전달 필요. 외부 의존성 — KIS quota 영향 평가 + ADR-0011 정책 검토 후 진행. SLA 미적용 (외부 의존성 면제 — ADR-0158 §"면제 정책"). |
 | B11 | 0173+0183 ShadowLearningOnlyScan wiring | `server/trading/shadowLearningOnlyScan.ts` | 2026-05-03 | PARTIAL | P0 | **PR-Shadow-Learning-Phase3-StageA (2026-05-03, ADR-0183) 4 site wiring 완료** — signalScanner.ts 의 4 early-return (L338 SELL_ONLY → MANUAL_BLOCK / L356 R6_DEFENSE → RISK_OFF_REGIME / L381 VIX → VIX_SPIKE / L413 FOMC → FOMC_BLOCK) wiring + `recordBlockedDayShadowScan` SSOT 헬퍼 (drift 차단). 데이터 빈곤 site (L430) 제외 (ADR-0173 §5 데이터 신뢰성 부재 정합). **운영자 활성화 대기 (P0-2)**: ENV `SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED=true` 명시 활성화 → 1주 누적 후 Phase 4-B Dashboard 데이터 입력 가시화. **잔여 (P2)**: Phase 3 Stage B (replayMissedLearningJobs dispatcher) + Stage C (ReflectionInjectionBus). SLA 만기 (운영자 ENV 활성화 결정) 2026-06-17. |
+| B12 | 0168b emergencyDataQualityGuards | `server/dataQuality/emergencyDataQualityGuards.ts` | 2026-05-05 | INFRASTRUCTURE_ONLY | P1 | **ADR-0168b (별칭) emergency-data-quality-circuit-breaker** — 모듈은 신설되어 있으나 ADR §"Future wiring" 명시 핵심 경계 (scanner start / watchlist sanity / autotrade candidate generation) 호출자 0건. 현재 wiring: productionMasterGuard / 텔레그램 health/krxMaster 명령 / historicalClosePrice (read-only 진단·정규화 경로만). **잔여 P1 wiring**: `signalScanner.ts` 진입부 master health guard / `watchlistManager.ts` 또는 `watchlistRepo.ts` 잘못된 code 정규화 가드 / `buyPipeline.ts` candidate quote sanity circuit breaker / `stockScreener.ts` Stage1 strict reject classification. SLA 만기 2026-06-19 (P1 45일). |
 
 ### C. 시그널 입력 (Diag-2~5 의사결정 wiring)
 
@@ -126,11 +127,11 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 카테고리 | 항목 수 | P0 | P1 | P2 | P3 |
 |----------|---------|----|----|----|----|
 | A. 학습 시리즈 | 15 | 1 | 9 | 5 | 0 |
-| B. 매매 본체 | 11 | 2 | 3 | 6 | 0 |
+| B. 매매 본체 | 12 | 2 | 4 | 6 | 0 |
 | C. 시그널 입력 | 15 | 1 | 3 | 7 | 4 |
 | D. UI Phase | 7 | 0 | 3 | 4 | 0 |
 | E. 영속/진단 | 7 | 0 | 0 | 4 | 3 |
-| **합계** | **55** | **4** | **18** | **26** | **7** |
+| **합계** | **56** | **4** | **19** | **26** | **7** |
 
 > 주: C7 (Phase 1) / C8 (Phase 2 audit) / C9 (Phase 3 globalIntel) + C15 (Naver 외인 추세) / **C10 (Phase 4 Yahoo 컨센서스) + #12 institutionalBuying (KRX 5d) PR-Phase5** 모두 *DECIDED_NOT_WIRING* 격상 완료. 27 조건 격상 시리즈 *데이터 가용 한계 도달 — 78% (21/27)*. 잔여 22% (5 키 — #9/#13/#17/#20/#26) 정성 영구 (ADR-0154). 정량 격상 후속 0건. 운영자 집중 영역 = Gemini 프롬프트 품질 + AI 추정 가중치 학습.
 
@@ -167,3 +168,4 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 2026-05-03 | PR-Shadow-Learning-Phase2a | A12 + A13 신규 2 항목 등재 — ADR-0174 §2.1 SafetyGateAttribution (A12 P1) + §2.2 ShadowVsLiveDelta (A13 P1) 모두 INFRASTRUCTURE_ONLY (호출자 0건 dead code 영속 분석 SSOT) + SLA 만기 2026-06-17. Phase 2 분할 정책 (2a 분석 dead code / 2b cron LIVE 결합). 합계 51→53 / A 11→13 / P1 15→17. |
 | 2026-05-03 | PR-Shadow-Learning-Phase2b1 | A14 신규 1 항목 등재 — ADR-0175 FutureReturnResolver cron (A14 P1) INFRASTRUCTURE_ONLY (cron 등록 완료, ENV `FUTURE_RETURN_RESOLVER_ENABLED` default OFF) + SLA 만기 2026-06-17. Phase 2b 분할 정책 (2b-1 future return resolve 단일 cron / 2b-2 MissedLearningQueue replay cron + 7 학습 작업 enqueue wiring). 합계 53→54 / A 13→14 / P1 17→18. |
 | 2026-05-03 | PR-Shadow-Learning-Phase2b2 | A10 INFRASTRUCTURE_ONLY → PARTIAL 격상 (MissedLearningQueue wiring 완료) + A15 신규 등재 — ADR-0176 MissedLearningReplay cron (A15 P1) INFRASTRUCTURE_ONLY (cron 등록 완료, replayMissedLearningJobs dispatcher 매핑 Phase 3 후속) + SLA 만기 2026-06-17. Phase 2b-2 — scheduleGuard hook 옵셔널 + 5 학습 cron `enqueueOnSkip: {}` wiring + 신규 replay cron. 합계 54→55 / A 14→15 / P1 18→19. |
+| 2026-05-05 | PR-Governance-Recovery-505 | B12 신규 등재 — ADR-0168b (별칭) emergency-data-quality-circuit-breaker (`server/dataQuality/emergencyDataQualityGuards.ts`) INFRASTRUCTURE_ONLY P1 (호출자 0건 critical 경로 — signalScanner / watchlistManager / buyPipeline / stockScreener) + SLA 만기 2026-06-19. 본 PR 거버넌스 정합 회복 — INDEX.md ADR-0146/0147/0168 신규 충돌 별칭 부여 (0146a/b·0147a/b·0168a/b, ADR-0159 정합) + 전체 인덱스 3 항목 추가. 합계 55→56 / B 11→12 / P1 18→19. |
