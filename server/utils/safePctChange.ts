@@ -18,6 +18,7 @@
  */
 
 import { isDataQualityStrictDisabled } from '../types/dataQuality.js';
+import { isAcceptableKrxDailyBase } from '../calendar/krxTradingCalendar.js';
 
 const DEFAULT_SANITY_BOUND_PCT = 90;
 const LOG_THROTTLE_MS = 60_000;
@@ -151,12 +152,33 @@ export function resolveSanityBound(opts: SafePctChangeOptions): number {
 }
 
 /**
+ * ADR-0190 ENV 우회 — true 시 mode='DAILY' 의 KRX 거래일 분기 비활성, 기존
+ * STALENESS_LIMITS_BY_MODE.DAILY=3 calendar 일 비교로 복원. default OFF (정책 적용).
+ *
+ * ADR-0157 정확 비교 의무 — `=== 'true'` 만 활성화. '1'·'TRUE'·'yes' 거부.
+ */
+export function isSafePctChangeKrxCalendarDisabled(): boolean {
+  return process.env.SAFE_PCT_CHANGE_KRX_CALENDAR_DISABLED === 'true';
+}
+
+/** mode='DAILY' KRX 거래일 분기 적용 대상 출처 — 한국 주식 일봉 base 만. */
+const KRX_DAILY_PRICE_SOURCES: ReadonlySet<PriceSource> = new Set<PriceSource>([
+  'YAHOO_HISTORICAL',
+  'KIS_DAILY',
+  'KRX_OPENAPI',
+  'NAVER_FINANCE',
+]);
+
+/**
  * PriceBase 입력의 stale 검증 — asOf 가 *너무 오래됐는지* 판정.
  *
  * 우선순위:
  *   1. base.staleAfterDays 명시 → 그 값 (호출자 출처 특성 직접 지정)
- *   2. opts.mode 명시 → STALENESS_LIMITS_BY_MODE[mode]
- *   3. 둘 다 미명시 → SANITY_ONLY default (7일)
+ *   2. mode === 'DAILY' AND source ∈ KRX_DAILY_PRICE_SOURCES AND ENV 미우회
+ *      → KRX 거래일 기준 (`isAcceptableKrxDailyBase`, ADR-0190).
+ *      Calendar 6일이라도 KRX 거래일 grace 안이면 통과 (5/1·5/5 휴장일 클러스터 대응).
+ *   3. opts.mode 명시 → STALENESS_LIMITS_BY_MODE[mode] calendar 일 비교
+ *   4. 모두 미명시 → SANITY_ONLY default (7일)
  *
  * @returns
  *   - true: stale (sanity 위반과 별개로 차단 대상)
@@ -175,8 +197,28 @@ export function isStaleBase(
   const ageMs = now.getTime() - asOfTime;
   if (ageMs < 0) return false; // 미래 시점은 stale 아님 (시계 어긋남 시 통과)
 
-  const limitDays = base.staleAfterDays
-    ?? (mode ? STALENESS_LIMITS_BY_MODE[mode] : STALENESS_LIMITS_BY_MODE.SANITY_ONLY);
+  // 1. 호출자 명시 staleAfterDays override 우선 (출처 특성 직접 지정)
+  if (typeof base.staleAfterDays === 'number') {
+    const limitMs = base.staleAfterDays * 24 * 60 * 60 * 1000;
+    return ageMs > limitMs;
+  }
+
+  // 2. ADR-0190: mode='DAILY' + KR 일봉 출처 → KRX 거래일 기준 grace policy.
+  // calendar 일수 비교가 5/1 (근로자의 날) + 5/5 (어린이날) 같은 휴장일 클러스터에서
+  // 정상 base (4/30) 를 STALE_BASE_AGE 로 잘못 판정하던 결함 차단.
+  // ENV 우회 시 ADR-0190 이전 동작 byte-equivalent (legacy calendar 일 비교).
+  if (
+    mode === 'DAILY'
+    && KRX_DAILY_PRICE_SOURCES.has(base.source)
+    && !isSafePctChangeKrxCalendarDisabled()
+  ) {
+    return !isAcceptableKrxDailyBase(base.asOf, now);
+  }
+
+  // 3. mode 기반 default (legacy calendar 일 비교)
+  const limitDays = mode
+    ? STALENESS_LIMITS_BY_MODE[mode]
+    : STALENESS_LIMITS_BY_MODE.SANITY_ONLY;
   const limitMs = limitDays * 24 * 60 * 60 * 1000;
   return ageMs > limitMs;
 }
