@@ -103,7 +103,10 @@ describe('candidateSelect.ts byte-equivalent tests', () => {
       { code: 'FORCE', name: 'Forced' }, // WILL be assigned an UNKNOWN section, but should be forced
     ] as any[];
 
-    mockedAssignSection.mockReturnValue('UNKNOWN');
+    // ADR-0188 (lint baseline cleanup): WatchlistSection union ('SWING'|'CATALYST'|'MOMENTUM')
+    // 외 'UNKNOWN' literal 은 *의도된 invalid input* 으로 forceBuyCodes 가 section 무관하게
+    // 강제 통과시키는 동작 검증. `as unknown as <Type>` cast 로 의도 명시.
+    mockedAssignSection.mockReturnValue('UNKNOWN' as unknown as ReturnType<typeof assignSection>);
 
     const result = await selectCandidates({ watchlist: mockWatchlist }, { forceBuyCodes: ['FORCE'] });
     

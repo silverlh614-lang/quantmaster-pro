@@ -103,9 +103,19 @@ describe('classifyQuote — quote → IssueDetail (null=정상)', () => {
 
 describe('formatYahooHealthMessage — 텔레그램 출력 포맷', () => {
   function summary(over: Partial<YahooHealthSummary> = {}): YahooHealthSummary {
+    // ADR-0188 (lint baseline cleanup): YahooHealthSummary 의 4 신규 필드
+    // (recoveredCount / historicalRefreshRecoveredCount / historicalRefreshFailedCount /
+    // staleUnrecoveredCount) 정합 — test factory 에 0 default 추가.
     return {
       capturedAt: '2026-05-01T07:15:00.000Z',
-      checkedCount: 0, okCount: 0, failCount: 0, details: [],
+      checkedCount: 0,
+      okCount: 0,
+      failCount: 0,
+      recoveredCount: 0,
+      historicalRefreshRecoveredCount: 0,
+      historicalRefreshFailedCount: 0,
+      staleUnrecoveredCount: 0,
+      details: [],
       ...over,
     };
   }
@@ -133,9 +143,11 @@ describe('formatYahooHealthMessage — 텔레그램 출력 포맷', () => {
     }));
     expect(msg).toContain('1. 101930.KQ 의료기기A');
     expect(msg).toContain('return5d: +443.36%');
-    expect(msg).toContain('STALE_BASE — base.asOf 30일 초과');
+    // ADR-0188 (lint baseline cleanup): production 메시지 형식 갱신 정합 — `STALE_BASE`
+    // → `DATA_STALE_PRICE` 라벨링 변경 + 권장 조치 문구 갱신.
+    expect(msg).toContain('DATA_STALE_PRICE — Yahoo base.asOf 만료');
     expect(msg).toContain('🎯 권장 조치');
-    expect(msg).toContain('yahoo 캐시 강제 재새로고침');
+    expect(msg).toContain('Yahoo history refresh');
   });
   it('FETCH_FAIL 출력', () => {
     const msg = formatYahooHealthMessage(summary({

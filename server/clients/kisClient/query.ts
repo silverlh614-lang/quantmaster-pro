@@ -406,7 +406,9 @@ export async function fetchKisPrevClose(stockCode: string): Promise<PrevClose | 
     const ymd = latest?.stck_bsop_date ?? '';
     if (close > 0 && /^\d{8}$/.test(ymd)) {
       const tradingDate = `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
-      return { stockCode: code, prevClose, tradingDate, fetchedAt: nowIso };
+      // ADR-0188 (lint baseline cleanup): `prevClose` shorthand 결함 수리 — `close` 변수가
+      // 일봉 종가지만 본 함수는 *전일 종가* 반환이라 `prevClose: close` 명시 매핑.
+      return { stockCode: code, prevClose: close, tradingDate, fetchedAt: nowIso };
     }
   } catch (err) {
     console.warn(
