@@ -52,6 +52,48 @@ import {
   getStage1RejectionCounts,
 } from './pipelineHelpers.js';
 import { getSectorByCode } from './sectorMap.js';
+import {
+  assertProductionMasterUsable,
+  formatProductionMasterBlockedMessage,
+} from '../dataQuality/productionMasterGuard.js';
+import { isEmergencyMasterGuardScanEnabled } from '../dataQuality/emergencyDataQualityGuards.js';
+
+// ─── ADR-0184 (PR-B12-A) — scanner start master guard SSOT ─────────────────
+//
+// universeScanner 의 3 진입점 (runStage1PreScreening / runStage2_3FinalScreening /
+// runFullDiscoveryPipeline) 이 *cron 직접 호출* 경로에서 productionMasterGuard 를
+// 거치지 않던 갭 차단. ENV `EMERGENCY_MASTER_GUARD_SCAN_ENABLED=true` 명시 활성 시
+// 진입부에서 `assertProductionMasterUsable('SCANNER')` 호출 → master 결손 시
+// SCAN_ABORTED telegram + early return.
+//
+// default OFF (회귀 위험 격리) — 운영자가 productionMasterGuard SSOT 와의 일관성을
+// 검증한 후 ENV 활성화 결정. ADR-0173 Phase 3 패턴 정합 (P1 SLA 만기 2026-06-19).
+//
+// 호출자 측 try/catch 격리로 fatal throw 가 cron 흐름을 차단 안 함.
+async function ensureScannerMasterUsable(jobLabel: string): Promise<boolean> {
+  if (!isEmergencyMasterGuardScanEnabled()) return true;
+  try {
+    assertProductionMasterUsable('SCANNER');
+    return true;
+  } catch (err) {
+    const reason = formatProductionMasterBlockedMessage(err);
+    console.error(`[Pipeline/${jobLabel}] ${reason}`);
+    await sendTelegramAlert(
+      `🚨 <b>[${jobLabel}] Scan aborted</b>\n` +
+      `${reason}\n` +
+      `Action:\n` +
+      `- /kmr 강제 갱신\n` +
+      `- /kms master total/TTL 확인\n` +
+      `- /health KRX Master 상태 확인`,
+      {
+        priority: 'HIGH',
+        dedupeKey: `scan_aborted_master_unusable:${jobLabel}`,
+        cooldownMs: 10 * 60 * 1000,
+      },
+    ).catch(console.error);
+    return false;
+  }
+}
 
 // ── Stage 1 ───────────────────────────────────────────────────────────────────
 
@@ -512,6 +554,9 @@ export async function runFullDiscoveryPipeline(
   const start = Date.now();
   console.log(`[Pipeline] 자동 발굴 파이프라인 시작 (레짐: ${regime})`);
 
+  // ADR-0184 (PR-B12-A) — master health guard. ENV default OFF.
+  if (!(await ensureScannerMasterUsable('Pipeline'))) return;
+
   try {
     // Stage 1 — 양적 1차 필터
     const stage1 = await stage1QuantFilter();
@@ -581,6 +626,9 @@ export async function runStage1PreScreening(): Promise<void> {
   const start = Date.now();
   console.log('[Pipeline/PreScreen] 1차 Pre-screening 시작 (Stage1 only)');
 
+  // ADR-0184 (PR-B12-A) — master health guard. ENV default OFF.
+  if (!(await ensureScannerMasterUsable('PreScreen'))) return;
+
   try {
     const stage1 = await stage1QuantFilter();
     if (stage1.length === 0) {
@@ -620,6 +668,10 @@ export async function runStage2_3FinalScreening(
   macroState: MacroState | null,
 ): Promise<void> {
   const start = Date.now();
+
+  // ADR-0184 (PR-B12-A) — master health guard. ENV default OFF.
+  if (!(await ensureScannerMasterUsable('FinalScreen'))) return;
+
   const cache = loadStage1Cache();
 
   // 캐시 유효성 검증: 존재 + 24시간 이내
