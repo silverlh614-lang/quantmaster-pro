@@ -425,6 +425,68 @@ export function buildBotMenuCommands(): BotMenuCommand[] {
 
 /** Telegram setMyCommands 최대 명령 수 (BotFather API 한도). */
 const TELEGRAM_MAX_COMMANDS = 100;
+/** 운영 메뉴는 한도보다 여유를 두고 큐레이션한다. registry 전체 접근은 /help 로 유지한다. */
+export const TELEGRAM_MENU_SOFT_CAP = 90;
+
+const MENU_ALWAYS_INCLUDE = new Set([
+  'ai_status',
+  'buy',
+  'cancel',
+  'circuits',
+  'cron_status',
+  'ghost_inspect',
+  'health',
+  'health_loop',
+  'learning_pulse',
+  'learning_status',
+  'market',
+  'pending',
+  'pnl',
+  'pos',
+  'program_market',
+  'program_today',
+  'regime',
+  'report',
+  'scan',
+  'scan_blockers',
+  'scheduler',
+  'sell',
+  'shadow',
+  'signal_status',
+  'status',
+  'supply_health',
+  'watchlist',
+]);
+
+const MENU_LOW_VALUE_PATTERNS = [
+  /(?:^|_)backfill(?:_|$)/,
+  /(?:^|_)bulk(?:_|$)/,
+  /(?:^|_)clear(?:_|$)/,
+  /(?:^|_)debug(?:_|$)/,
+  /(?:^|_)diag(?:_|$)/,
+  /(?:^|_)force(?:_|$)/,
+  /(?:^|_)probe(?:_|$)/,
+  /(?:^|_)raw(?:_|$)/,
+  /(?:^|_)seed(?:_|$)/,
+  /(?:^|_)template(?:_|$)/,
+] as const;
+
+function inferMenuPriority(command: string, category: string, riskLevel: number): number {
+  if (MENU_ALWAYS_INCLUDE.has(command)) return 0;
+  const categoryBase: Record<string, number> = {
+    TRD: 100,
+    POS: 140,
+    WL: 180,
+    SYS: 220,
+    MKT: 260,
+    LRN: 320,
+    ALR: 420,
+    EMR: 520,
+  };
+  const lowValuePenalty = MENU_LOW_VALUE_PATTERNS.some((pattern) => pattern.test(command)) ? 600 : 0;
+  const riskPenalty = riskLevel >= 2 ? 40 : riskLevel >= 1 ? 20 : 0;
+  return (categoryBase[category] ?? 900) + lowValuePenalty + riskPenalty;
+}
 
 /**
  * 자동완성 확장판 메뉴 페이로드 (긴급패치 2026-04-26).
@@ -462,6 +524,7 @@ export function buildBotMenuCommandsExtended(): BotMenuCommand[] {
   // 정식 name 만 사용 (alias 중복 노출 차단). all() 이 unique instance 반환.
   const registryEntries = commandRegistry
     .all()
+    .filter((cmd) => cmd.showInMenu !== false)
     .map((cmd) => {
       const command = cmd.name.replace(/^\//, '').toLowerCase();
       // Telegram 제약 — `/^[a-z0-9_]{1,32}$/` 미매치는 안전하게 스킵 (등록 시점에도 검증 의무).
@@ -469,27 +532,31 @@ export function buildBotMenuCommandsExtended(): BotMenuCommand[] {
       const desc = (cmd.description ?? '').slice(0, 256).trim();
       // description 비어있는 경우 카테고리 라벨 fallback (자동완성 가독성 우선).
       const description = desc.length > 0 ? desc : `[${cmd.category}] 명령`;
+      const menuPriority = cmd.menuPriority ?? inferMenuPriority(command, cmd.category, cmd.riskLevel);
       return {
         command,
         description,
+        menuPriority,
         sortKey: (categoryOrder[cmd.category] ?? 99) * 1000,
       };
     })
-    .filter((e): e is { command: string; description: string; sortKey: number } => e !== null)
+    .filter((e): e is { command: string; description: string; menuPriority: number; sortKey: number } => e !== null)
     .filter((e) => !seen.has(e.command))
     // 카테고리 우선, 동일 카테고리 내 알파벳순.
-    .sort((a, b) => a.sortKey - b.sortKey || a.command.localeCompare(b.command))
+    .sort((a, b) => a.menuPriority - b.menuPriority || a.sortKey - b.sortKey || a.command.localeCompare(b.command))
     .map(({ command, description }) => ({ command, description }));
 
-  const merged: BotMenuCommand[] = [...base, ...registryEntries];
+  const menuCap = Math.min(TELEGRAM_MENU_SOFT_CAP, TELEGRAM_MAX_COMMANDS);
+  const registryLimit = Math.max(0, menuCap - base.length);
+  const visibleRegistryEntries = registryEntries.slice(0, registryLimit);
+  const merged: BotMenuCommand[] = [...base, ...visibleRegistryEntries];
 
-  // Telegram 한도(100) 초과 시 절삭 — base 는 항상 보존하고 registry tail 만 자른다.
-  if (merged.length > TELEGRAM_MAX_COMMANDS) {
+  // Telegram 메뉴는 한도보다 여유 있게 큐레이션한다. 숨긴 명령도 registry 와 /help 로 접근 가능하다.
+  if (registryEntries.length > visibleRegistryEntries.length) {
     console.warn(
-      `[buildBotMenuCommandsExtended] Telegram setMyCommands 한도 ${TELEGRAM_MAX_COMMANDS} 초과 ` +
-      `— ${merged.length - TELEGRAM_MAX_COMMANDS}개 절삭 (registry tail).`,
+      `[buildBotMenuCommandsExtended] Telegram setMyCommands menu cap ${menuCap} applied ` +
+      `— hidden=${registryEntries.length - visibleRegistryEntries.length} (available via /help).`,
     );
-    merged.length = TELEGRAM_MAX_COMMANDS;
   }
 
   return merged;

@@ -58,6 +58,13 @@ export interface TelegramCommand {
   visibility: CommandVisibility;
   /** 0 = read-only, 1 = light mutate, 2 = trade/money. */
   riskLevel: CommandRiskLevel;
+  /**
+   * Telegram setMyCommands 노출 제어.
+   * commandRegistry 등록/직접 실행과는 별개이며, 메뉴는 자주 쓰는 조종판으로만 큐레이션한다.
+   */
+  showInMenu?: boolean;
+  /** 낮을수록 Telegram 메뉴 우선순위가 높다. 미지정 시 카테고리/이름 휴리스틱을 사용한다. */
+  menuPriority?: number;
   /** setMyCommands 또는 /help 표시용 한 줄 설명. ≤ 100자. */
   description: string;
   /** 사용 형식 안내 (예: '/add <code>'). 옵셔널. */
