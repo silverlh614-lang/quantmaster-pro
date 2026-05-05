@@ -1,5 +1,5 @@
 /**
- * @responsibility Emergency data-quality guards for KRX master, KRX codes, Yahoo stale quote, sanity circuit breaker, and Stage1 reject classification.
+ * @responsibility 데이터 품질 비상 회로차단 SSOT (KRX master/code 정규화/Yahoo stale quote/Stage1 분류).
  *
  * Production invariant:
  * - missing/stale/fetch-failed market data is never coerced to 0.

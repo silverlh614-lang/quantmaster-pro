@@ -1,5 +1,5 @@
 /**
- * @responsibility 최종 승인된 주문 내역 로깅 및 사후 처리
+ * @responsibility 최종 승인된 주문 내역의 사후 로깅·집계 SSOT.
  * (실제 KIS 실주문 발송은 approvalQueue 플러시 중 task.execute 내부에서 병렬/순차 완료됨)
  */
 import type { LiveBuyTask } from '../buyPipeline.js';
