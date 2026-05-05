@@ -91,9 +91,20 @@ ADR-0187 (PR #610 — macroState dead-read wiring) 작업 중 사전 baseline li
 - ADR-0157 `now` injection 패턴 (D — `as ReturnType<typeof <fn>>`) 차용 변형 — 시간 의존 mock 자동 정합.
 - PENDING_WIRING.md 등재 **불필요** — lint 결함은 *코드 부채* 자체이고 wiring 미완 (영속 / 외부 호출자 0건) 과 다름. 본 PR 으로 즉시 종결.
 
-## 7. 잔여 사전 baseline (별도 PR)
+## 7. 잔여 사전 baseline 정리 (commit 0e41538 후속)
 
-`npm run vitest run server/utils/safePctChangeReturnWindow.test.ts` 의 `"allows a 4.1-day DAILY base for weekend/holiday market gaps"` 1건 fail (사전 baseline, lint 와 무관) — *시간 의존 runtime regression*. KRX trading calendar 의 5/1~5/5 연휴로 `recommendedDailyStaleWindowDays(NOW)` 값이 계산 시점에 따라 다르게 산출. test fixture NOW (2026-05-04) 와 module-load NOW (현재) 가 분리되어 발생. lint 정정 범위 외, 별도 후속 PR 권장.
+### 7.1 시간 의존 runtime regression — `safePctChangeReturnWindow.test.ts` (해소 완료)
+
+`"allows a 4.1-day DAILY base for weekend/holiday market gaps"` 1건 fail — *시간 의존 runtime regression*. KRX trading calendar 5/1~5/5 연휴 영향:
+
+- module-load NOW (실제 5/5) 기반: `recommendedDailyStaleWindowDays` = **3** (5/5 어린이날 휴장 → 직전 거래일 5/4, gap 1+2=3)
+- test fixture NOW (5/4) 기반: 동일 함수 = **6** (5/4 → 직전 거래일 4/30, gap 4+2=6)
+
+`installYahooTradingCalendarWindows()` 가 module-load 시 1회 박제 → `STALENESS_LIMITS_BY_MODE.DAILY=3` 고정 → 4.1-day base 가 stale 판정 (3 < 4.1).
+
+**해결**: test 의 `beforeEach` 에서 `installYahooTradingCalendarWindows(NOW)` 명시 호출하여 fixture NOW 기반으로 재박제. `afterEach` 에서 module-load 시점 값 복원으로 다른 test 영향 격리. test isolation 격상 + production code 무영향.
+
+검증: `npx vitest run server/utils/safePctChangeReturnWindow.test.ts` **6/6 pass** + `server/utils` 인접 13 files **364/364 무회귀**.
 
 ## 8. 운영 효과
 
