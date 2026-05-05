@@ -47,6 +47,10 @@ import {
 } from '../dataQuality/emergencyDataQualityGuards.js';
 import { getSmokeTestLiveBlocked, getSmokeTestLastFailedReason } from '../state.js';
 import { lastManualExitAtForCode } from '../persistence/manualExitsRepo.js';
+import {
+  decideOrderType,
+  isOrderTypeOptimizerEnabled,
+} from './orderTypeOptimizer.js';
 
 // ── 진행 중 매수 주문 예약 테이블 ────────────────────────────────────────────
 // kisPost 가 수초(시장가 경합/재시도 포함) 걸리는 동안 다른 스캔 사이클이
@@ -304,6 +308,12 @@ export interface CreateBuyTaskParams {
   preMortem?: string | null;
   /** ADR-0077 — TradeSignalRecord id (`${signalTimeIso}:${stockCode}`). buyApproval/markAutoTradeReady 영속용. */
   signalId?: string;
+  /**
+   * ADR-0186 (PR-A2-Wiring-1) — Order Type Optimizer 의사결정 입력.
+   * 미전달 시 0 fallback (LIMIT 결정으로 자연 분기). 호출자가 있을 때만 주입 권장.
+   */
+  volumeZ?: number;
+  priceMomentumPct?: number;
 }
 
 /**
@@ -340,6 +350,33 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
         p.onRejected?.(p.trade, 'SKIP');
       },
     };
+  }
+
+  // ADR-0186 (PR-A2-Wiring-1) — Order Type Optimizer 의사결정 가시화.
+  // ENV `ORDER_TYPE_OPTIMIZER_ENABLED=true` 명시 시에만 호출. default OFF.
+  // **본 PR scope: 영속 + 진단 로그만** — 실제 placeKisMarketBuyOrder 호출 시 orderType
+  // 무변경 (LIMIT 그대로). LIVE 매매 본체 영향 0. 후속 PR (A2-Wiring-3) 에서 LIVE 적용.
+  if (isOrderTypeOptimizerEnabled()) {
+    try {
+      const decision = decideOrderType({
+        stockCode: p.stockCode,
+        volumeZ: p.volumeZ,
+        priceMomentumPct: p.priceMomentumPct,
+      });
+      p.trade.orderTypeDecision = {
+        orderType: decision.orderType,
+        reason: decision.reason,
+        limitOffsetTicks: decision.limitOffsetTicks,
+        chasePolicy: decision.chasePolicy,
+        decidedAt: new Date().toISOString(),
+      };
+      console.log(
+        `[OrderTypeOptimizer] ${p.stockName}(${p.stockCode}) → ${decision.orderType} — ${decision.reason} (ADR-0186, SHADOW-only 가시화)`,
+      );
+    } catch (e) {
+      // 의사결정 실패는 매수 흐름 차단 안 함 — try/catch 격리
+      console.warn('[OrderTypeOptimizer] decideOrderType failed', e);
+    }
   }
 
   // P2 #18 — 수동 청산 후 72h 재매수 냉각 가드. 승인 요청 전에 즉시 차단.

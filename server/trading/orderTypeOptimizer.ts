@@ -110,3 +110,20 @@ export function decideOrderType(input: OrderDecisionInput): OrderDecision {
 export function requiresUnsafeIdempotency(decision: OrderDecision): boolean {
   return decision.orderType === 'IOC_MARKET';
 }
+
+// ─── ADR-0186 (PR-A2-Wiring-1) ENV 우회 헬퍼 ────────────────────────────────
+/**
+ * ADR-0031 (PR-O) Order Type Optimizer wiring 활성화 여부.
+ *
+ * default OFF — buyPipeline.createBuyTask 진입부에서 `decideOrderType` 호출 + 결과
+ * 영속 + 진단 로그만 활성화. **실제 placeKisMarketBuyOrder 호출 시 orderType 무변경**
+ * (LIMIT 그대로) — LIVE 매매 본체 영향 0. 운영자 SHADOW 1주 검증 후 후속 PR
+ * (A2-Wiring-2: fillMonitor slippage 영속 / A2-Wiring-3: LIVE 적용 IOC + chase) 진입.
+ *
+ * ENV `ORDER_TYPE_OPTIMIZER_ENABLED=true` 명시 시 의사결정 가시화 활성.
+ *
+ * @returns true = wiring 활성 (의사결정 영속 + 로그), false = wiring 비활성 (default)
+ */
+export function isOrderTypeOptimizerEnabled(): boolean {
+  return process.env.ORDER_TYPE_OPTIMIZER_ENABLED === 'true';
+}

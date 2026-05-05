@@ -649,6 +649,22 @@ export interface ServerShadowTrade {
     adjustmentReasons: string[];
     snapshotAt: string;
   };
+  /**
+   * ADR-0186 (PR-A2-Wiring-1) — Order Type Optimizer 의사결정 스냅샷.
+   * `ORDER_TYPE_OPTIMIZER_ENABLED=true` ENV 활성 시 buyPipeline.createBuyTask 진입부에서
+   * `decideOrderType` 호출 결과 영속. 본 PR 은 *가시화만* — 실제 placeKisMarketBuyOrder
+   * 호출 시 orderType 무변경 (LIMIT 그대로). 후속 PR (A2-Wiring-3) 에서 LIVE 적용.
+   *
+   * 운영자 SHADOW 1주 검증 — orderType 분포 (IOC_MARKET / LIMIT / AGGRESSIVE_LIMIT) +
+   * reason 빈도 누적 후 LIVE 활성화 결정 입력.
+   */
+  orderTypeDecision?: {
+    orderType: 'IOC_MARKET' | 'LIMIT' | 'AGGRESSIVE_LIMIT';
+    reason: string;
+    limitOffsetTicks?: number;
+    chasePolicy?: { waitSeconds: number; priceDeltaPct: number };
+    decidedAt: string;
+  };
 }
 
 // ─── Manual Exit Context ──────────────────────────────────────────────────────
