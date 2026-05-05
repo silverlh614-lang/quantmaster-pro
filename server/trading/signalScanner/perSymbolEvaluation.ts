@@ -26,7 +26,7 @@ export async function evaluateMainCandidates(
     watchlist, shadows, shadowMode, totalAssets, effectiveMaxPositions,
     regime, regimeConfig, macroState, vixGating, fomcProximity,
     kellyMultiplier, accountKellyMultiplier, sellOnlyExc, volumeClock,
-    conditionWeights
+    conditionWeights, supplyHealthSnapshot
   } = context;
 
   const _banditCandidateArms: string[] = [];
@@ -74,6 +74,7 @@ export async function evaluateMainCandidates(
     sellOnlyExc,
     volumeClock,
     conditionWeights,
+    supplyHealthSnapshot,
     scanCounters: counters,
     mutables: {
       liveBuyQueue: queueState.liveBuyQueue,
@@ -106,13 +107,14 @@ export async function evaluateIntradayCandidates(
   const { intradayList: intradayBuyList } = candidates;
   const {
     watchlist, shadows, shadowMode, totalAssets, accountKellyMultiplier,
-    kellyMultiplier, regime, regimeConfig, macroState, conditionWeights
+    kellyMultiplier, regime, regimeConfig, macroState, conditionWeights, supplyHealthSnapshot
   } = context;
 
   const intradayMutables = { orderableCash: { value: queueState.orderableCash } };
   await executeIntradayList({
     intradayBuyList, shadows, shadowMode, totalAssets, accountKellyMultiplier,
     kellyMultiplier, regime, regimeConfig, macroState, conditionWeights,
+    supplyHealthSnapshot,
     options: options ?? {},
     scanCounters: counters,
     mutables: intradayMutables,

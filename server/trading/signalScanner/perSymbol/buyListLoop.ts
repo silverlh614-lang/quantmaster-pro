@@ -106,6 +106,7 @@ import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/
 import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
 // ADR-0171 — Sizing-ExposureBudget 진단 로그 10 필드 SSOT formatter (default OFF, ENV `SIZING_EXPOSURE_BUDGET_VERBOSE_LOG=true` 명시 활성화).
 import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
+import { applySupplyHealthToSignal, determineExecutionMode, type TradingSignal } from '../../../learning/supplyHealthLearning.js';
 
 export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
   for (const stock of ctx.buyList) {
@@ -114,6 +115,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
     // 이 플래그가 true 인 스톡은 슬롯/섹터/오더 현금 예약에서 제외된다.
     const isMomentumShadow = stock.section === 'MOMENTUM';
     const stockShadowMode = ctx.shadowMode || isMomentumShadow;
+    let stockShadowMode = ctx.shadowMode || isMomentumShadow;
 
     // 아이디어 7: 루프 내에서도 포지션 수 재확인 (같은 스캔 중 복수 진입 방지)
     // BUG-09 정합성: 사전 점검(activeSwingCount)이 PRE_BREAKOUT(30% 선취매)을 제외하는 것과
@@ -1235,6 +1237,47 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} → skip ${sizingApply.skipReason} (legacy 사용)`);
       }
 
+      // ── ADR-0173: Supply Health 기반 신호 강등 및 실행 모드 강제 라우팅 ──
+      // 실시간 수급 데이터 장애 시 즉각적으로 SHADOW 강등 또는 BLOCKED 처리
+      const supplyHealthSnapshot = ctx.supplyHealthSnapshot;
+      const rawSignalLevel: TradingSignal = isStrongBuy ? 'STRONG_BUY' : 'BUY';
+      let finalSignalLevel: TradingSignal = rawSignalLevel;
+      let healthDecision: ReturnType<typeof applySupplyHealthToSignal> | undefined = undefined;
+      
+      if (supplyHealthSnapshot) {
+        healthDecision = applySupplyHealthToSignal({
+          rawSignal: rawSignalLevel,
+          rawScore: gateScore,
+          positionSize: finalQuantity,
+          supplyHealthSnapshot,
+        });
+
+        const executionMode = determineExecutionMode({
+          rawSignal: rawSignalLevel,
+          finalSignal: healthDecision.finalSignal,
+          dataConfidence: healthDecision.dataConfidence,
+          overallStatus: supplyHealthSnapshot.summary.overallStatus,
+          wasDowngradedBySupplyHealth: healthDecision.wasDowngradedBySupplyHealth,
+        });
+
+        if (executionMode === 'BLOCKED') {
+          console.log(`[AutoTrade/SupplyHealth] ${stock.name}(${stock.code}) 수급 데이터 BROKEN — 진입 차단`);
+          continue;
+        }
+        if (executionMode === 'WATCHLIST') {
+          console.log(`[AutoTrade/SupplyHealth] ${stock.name}(${stock.code}) 수급 데이터 불안정 — WATCHLIST 유지 (진입 보류)`);
+          continue;
+        }
+        if (executionMode === 'SHADOW' && !stockShadowMode) {
+          console.log(`[AutoTrade/SupplyHealth] ⚠️ ${stock.name}(${stock.code}) 수급 데이터 저신뢰 — 강제 SHADOW 모드 전환`);
+          stockShadowMode = true; // LIVE 모드를 SHADOW로 안전하게 우회
+        }
+
+        finalQuantity = healthDecision.positionSizeAfterHealth ?? finalQuantity;
+        finalSignalLevel = healthDecision.finalSignal;
+      }
+      if (finalQuantity < 1) continue;
+
       // 아이디어 8: STRONG_BUY → 분할 매수 1차 진입 (전체 수량의 50%)
       // 잔여 30%·20%는 trancheExecutor가 3일·7일 후 실행
       const execQty = isStrongBuy ? Math.max(1, Math.floor(finalQuantity * 0.5)) : finalQuantity;
@@ -1285,6 +1328,14 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         // ADR-0162 Phase 2-D — sizingSource marker + 스냅샷 영속 (학습 데이터 격리).
         sizingSource,
         sizingEngineSnapshot,
+          // ADR-0173: Supply Health 학습 메타데이터 영속화 (SHADOW 초점)
+          rawSignal: rawSignalLevel,
+          finalSignal: finalSignalLevel,
+          dataConfidence: healthDecision?.dataConfidence,
+          dataQualityBucket: healthDecision?.dataQualityBucket,
+          supplyHealthSnapshot: supplyHealthSnapshot,
+          wasDowngradedBySupplyHealth: healthDecision?.wasDowngradedBySupplyHealth,
+          downgradeReasons: healthDecision?.downgradeReasons,
       });
 
       // ADR-0128 §Wiring 1A: 메인 buyList 진입 후보 incremental 검증 (BUY_CANDIDATE role).
@@ -1305,7 +1356,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         stockCode: stock.code, stockName: stock.name, signalTime: _signalTimeMain,
         priceAtRecommend: currentPrice, stopLoss: stopLossPlan.hardStopLoss,
         targetPrice: stock.targetPrice, kellyPct: Math.round(positionPct * 100),
-        gateScore, signalType: isStrongBuy ? 'STRONG_BUY' : 'BUY',
+          gateScore, signalType: (finalSignalLevel === 'STRONG_BUY' ? 'STRONG_BUY' : 'BUY'),
         conditionKeys: stock.conditionKeys ?? [], entryRegime: ctx.regime,
       });
       // ADR-0077 wiring — AI_CANDIDATE 영속 (메인 buyList 진입 후보)
@@ -1314,7 +1365,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           signalTimeIso: _signalTimeMain,
           stockCode: stock.code,
           stockName: stock.name,
-          recommendationType: isStrongBuy ? 'STRONG_BUY' : 'BUY',
+            recommendationType: (finalSignalLevel === 'STRONG_BUY' ? 'STRONG_BUY' : 'BUY'),
           signalGateScore: gateScore,
           reason: `메인 buyList 진입 후보 (Gate ${gateScore})`,
         });

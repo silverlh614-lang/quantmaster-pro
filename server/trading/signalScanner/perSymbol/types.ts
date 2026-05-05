@@ -15,6 +15,7 @@ import type { FullRegimeConfig } from '../../../../src/types/core.js';
 import type { REGIME_CONFIGS } from '../../../../src/services/quant/regimeEngine.js';
 import type { LiveBuyTask } from '../../buyPipeline.js';
 import type { ScanCounters } from '../scanDiagnostics.js';
+import type { SupplyHealthSnapshot } from '../../../learning/supplyHealthLearning.js';
 
 // ── Step 4b: 메인 buyList 루프 컨텍스트 ──────────────────────────────────────
 // signalScanner.ts 의 `for (const stock of buyList)` 루프 본체를 perSymbolEvaluation
@@ -63,6 +64,7 @@ export interface BuyListLoopContext {
   sellOnlyExc: { allow: boolean; minLiveGate: number; minMtas: number; kellyFactor: number; maxSlots?: number };
   volumeClock: { allowEntry?: boolean; scoreBonus: number; reason?: string };
   conditionWeights: ReturnType<typeof import('../../../persistence/conditionWeightsRepo.js')['loadConditionWeights']>;
+  supplyHealthSnapshot?: SupplyHealthSnapshot;
   // 출력 / mutable
   scanCounters: ScanCounters;
   mutables: BuyListLoopMutables;
@@ -93,6 +95,7 @@ export interface IntradayLoopContext {
   regimeConfig: FullRegimeConfig;
   macroState: MacroState | null;
   conditionWeights: ReturnType<typeof import('../../../persistence/conditionWeightsRepo.js')['loadConditionWeights']>;
+  supplyHealthSnapshot?: SupplyHealthSnapshot;
   options: { sellOnly?: boolean; forceBuyCodes?: string[] };
   scanCounters: ScanCounters;
   mutables: IntradayLoopMutables;
