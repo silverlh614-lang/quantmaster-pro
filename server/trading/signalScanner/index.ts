@@ -39,9 +39,18 @@ export async function runAutoSignalScan(
   const preflightResult = await runPreflight(options);
   if (preflightResult.shouldAbort) {
     if (!preflightResult.skipPersist) {
+      // ADR-0187: preflight abort 경로도 sectorEnergy meta carry-over (정상 경로와 정합).
+      const abortMacro = preflightResult.context?.macroState as
+        | { sectorEnergyDataQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED'; sectorEnergyValidSectorCount?: number; sectorEnergyReasons?: string[] }
+        | undefined;
       await persistScanResults(counters, {
         sellOnly: options?.sellOnly,
-        ...preflightResult.diagnosticData
+        ...preflightResult.diagnosticData,
+        ...(abortMacro?.sectorEnergyDataQuality !== undefined ? {
+          sectorEnergyQuality: abortMacro.sectorEnergyDataQuality,
+          validSectorCount: abortMacro.sectorEnergyValidSectorCount,
+          sectorEnergyReasons: abortMacro.sectorEnergyReasons,
+        } : {}),
       });
     }
     return { positionFull: preflightResult.positionFull };
@@ -64,10 +73,21 @@ export async function runAutoSignalScan(
   await dispatchApprovedBuy(approvedTasks, preflightResult.context);
 
   // 6. Diagnostics (스캔 이력, 차단 사유 통계 및 영속화)
+  // ADR-0187: macroState.sectorEnergy* 3 필드 carry-over → ScanSummary.sectorEnergyQuality/
+  // validSectorCount/sectorEnergyReasons 영속 → /scan_blockers 메시지의 §"섹터 에너지 데이터
+  // 품질" 섹션 활성. 이전엔 macroState 영속만 있고 read 호출자 0건 (silent dead-read).
+  const macro = preflightResult.context?.macroState as
+    | { sectorEnergyDataQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED'; sectorEnergyValidSectorCount?: number; sectorEnergyReasons?: string[] }
+    | undefined;
   await persistScanResults(counters, {
     sellOnly: options?.sellOnly,
     ...candidates.lengths,
-    macroGateState: preflightResult.macroGateState
+    macroGateState: preflightResult.macroGateState,
+    ...(macro?.sectorEnergyDataQuality !== undefined ? {
+      sectorEnergyQuality: macro.sectorEnergyDataQuality,
+      validSectorCount: macro.sectorEnergyValidSectorCount,
+      sectorEnergyReasons: macro.sectorEnergyReasons,
+    } : {}),
   });
 
   return { positionFull: false };
