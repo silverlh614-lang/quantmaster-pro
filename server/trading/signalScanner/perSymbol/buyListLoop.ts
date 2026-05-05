@@ -114,7 +114,6 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
     // LIVE 모드 스캔 중에도 MOMENTUM 후보는 실 자본을 쓰지 않고 학습 표본만 남긴다.
     // 이 플래그가 true 인 스톡은 슬롯/섹터/오더 현금 예약에서 제외된다.
     const isMomentumShadow = stock.section === 'MOMENTUM';
-    const stockShadowMode = ctx.shadowMode || isMomentumShadow;
     let stockShadowMode = ctx.shadowMode || isMomentumShadow;
 
     // 아이디어 7: 루프 내에서도 포지션 수 재확인 (같은 스캔 중 복수 진입 방지)
