@@ -52,3 +52,56 @@ describe('formatMhsAxisLine — MHS 4-axis 분해 노출 (ADR-0107)', () => {
     ).toBe('🧮 axis: 금리 25 / 유동성 25 / 경기 25 / 리스크 25 (합 100)');
   });
 });
+
+describe('formatMhsAxisLine — mhsAxisUpdatedAt 신선도 suffix (ADR-0187)', () => {
+  const baseAxis = { interestRate: 20, liquidity: 15, economy: 15, risk: 25 };
+
+  it('updatedAt 부재 시 suffix 미표시 (후방호환)', () => {
+    expect(formatMhsAxisLine({ mhsAxis: baseAxis })).toBe(
+      '🧮 axis: 금리 20 / 유동성 15 / 경기 15 / 리스크 25 (합 75)',
+    );
+  });
+
+  it('갱신 30분 전 → "30m 전"', () => {
+    const now = new Date('2026-05-05T10:00:00Z');
+    const updatedAt = '2026-05-05T09:30:00Z';
+    const result = formatMhsAxisLine({ mhsAxis: baseAxis, mhsAxisUpdatedAt: updatedAt }, now);
+    expect(result).toContain(' · 갱신 30m 전');
+  });
+
+  it('갱신 5시간 전 → "5h 전"', () => {
+    const now = new Date('2026-05-05T15:00:00Z');
+    const updatedAt = '2026-05-05T10:00:00Z';
+    const result = formatMhsAxisLine({ mhsAxis: baseAxis, mhsAxisUpdatedAt: updatedAt }, now);
+    expect(result).toContain(' · 갱신 5h 전');
+  });
+
+  it('갱신 30시간 전 → "1일 전 ⚠️ STALE" (24h+)', () => {
+    const now = new Date('2026-05-05T10:00:00Z');
+    const updatedAt = '2026-05-04T04:00:00Z';
+    const result = formatMhsAxisLine({ mhsAxis: baseAxis, mhsAxisUpdatedAt: updatedAt }, now);
+    expect(result).toContain(' · 갱신 1일 전 ⚠️ STALE');
+  });
+
+  it('잘못된 ISO 형식 → suffix 미표시 (안전 fallback)', () => {
+    const now = new Date('2026-05-05T10:00:00Z');
+    const result = formatMhsAxisLine(
+      { mhsAxis: baseAxis, mhsAxisUpdatedAt: 'not-a-date' },
+      now,
+    );
+    expect(result).toBe('🧮 axis: 금리 20 / 유동성 15 / 경기 15 / 리스크 25 (합 75)');
+  });
+
+  it('미래 시각 (now < updatedAt) → suffix 미표시 (음수 ageMs 안전)', () => {
+    const now = new Date('2026-05-05T10:00:00Z');
+    const updatedAt = '2026-05-05T11:00:00Z';
+    const result = formatMhsAxisLine({ mhsAxis: baseAxis, mhsAxisUpdatedAt: updatedAt }, now);
+    expect(result).toBe('🧮 axis: 금리 20 / 유동성 15 / 경기 15 / 리스크 25 (합 75)');
+  });
+
+  it('mhsAxis 부재 + updatedAt 동반 → axis 부재 안내 (suffix 무시)', () => {
+    const now = new Date('2026-05-05T10:00:00Z');
+    expect(formatMhsAxisLine({ mhsAxisUpdatedAt: '2026-05-05T09:00:00Z' }, now))
+      .toBe('🧮 axis: N/A (다음 marketDataRefresh 사이클부터 노출)');
+  });
+});

@@ -191,17 +191,34 @@ export function formatUsdKrwLine(macro: {
  * 표시 분기:
  *   - mhsAxis 부재 → "🧮 axis: N/A (다음 marketDataRefresh 사이클부터 노출)"
  *   - 정상 → "🧮 axis: 금리 20 / 유동성 15 / 경기 15 / 리스크 25 (합 75)"
+ *   - mhsAxisUpdatedAt 동반 (ADR-0187): " · 갱신 Nh 전" 또는 " · 갱신 Nm 전" suffix
+ *     ageHours ≥ 24 시 ⚠️ STALE 마커 (운영자 cron 미실행 즉시 인지).
  */
 export function formatMhsAxisLine(macro: {
   mhsAxis?: { interestRate: number; liquidity: number; economy: number; risk: number };
-}): string {
+  mhsAxisUpdatedAt?: string;
+}, now: Date = new Date()): string {
   const a = macro.mhsAxis;
   if (!a) return '🧮 axis: N/A (다음 marketDataRefresh 사이클부터 노출)';
   const sum = a.interestRate + a.liquidity + a.economy + a.risk;
-  return (
+  const base =
     `🧮 axis: 금리 ${a.interestRate} / 유동성 ${a.liquidity} / 경기 ${a.economy} / 리스크 ${a.risk}` +
-    ` (합 ${sum})`
-  );
+    ` (합 ${sum})`;
+  // ADR-0187: 갱신 시각 read wiring — mhsAxisUpdatedAt 영속만 되고 read 누락이던 dead-read 차단.
+  if (!macro.mhsAxisUpdatedAt) return base;
+  const t = Date.parse(macro.mhsAxisUpdatedAt);
+  if (!Number.isFinite(t)) return base;
+  const ageMs = now.getTime() - t;
+  if (ageMs < 0) return base;
+  const ageMin = Math.floor(ageMs / 60_000);
+  const ageHours = Math.floor(ageMs / 3_600_000);
+  const suffix =
+    ageHours >= 24
+      ? ` · 갱신 ${Math.floor(ageHours / 24)}일 전 ⚠️ STALE`
+      : ageHours >= 1
+        ? ` · 갱신 ${ageHours}h 전`
+        : ` · 갱신 ${ageMin}m 전`;
+  return base + suffix;
 }
 
 commandRegistry.register(regime);

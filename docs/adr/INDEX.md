@@ -14,9 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0187`**
+**다음 ADR 번호: `0188`**
 
-(2026-05-05 기준, 마지막 발급 0186, 누락 6개 — 0062/0063/0089/0105/0106/0143. 충돌 그룹 11개 (0146/0147/0168 — 별칭 0146a/b·0147a/b·0168a/b 부여, ADR-0159 정합))
+(2026-05-05 기준, 마지막 발급 0187, 누락 6개 — 0062/0063/0089/0105/0106/0143. 충돌 그룹 11개 (0146/0147/0168 — 별칭 0146a/b·0147a/b·0168a/b 부여, ADR-0159 정합))
 
 ## 알려진 충돌 (Known Conflicts)
 
@@ -263,6 +263,7 @@
 | 0184 | emergency-data-quality-guards-wiring-phase-a | dataQuality |
 | 0185 | emergency-data-quality-guards-wiring-phase-b | dataQuality |
 | 0186 | order-type-optimizer-wiring-phase-1 | trading |
+| 0187 | macro-state-dead-read-wiring | persistence |
 
 **총 발급 186 unique 번호** (196 ADR 파일 − 충돌 그룹 11개의 추가 16 파일 + 충돌 그룹 11개 = 180 unique 번호 + 누락 미사용 6건 = 186 — 마지막 발급 0186) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0187**.
 
