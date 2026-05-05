@@ -77,6 +77,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | B10 | 0172 SizingEngine marketCap 잔여 | `server/trading/signalScanner/perSymbol/buyListLoop.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | **PR-Sizing-Engine-Real-Data (2026-05-02, ADR-0172) 부분 완료** — `avgDailyVolume20d` + `currentSectorWeight` 2 axis 실데이터 wiring 완료 (`computeSizingLiquidityInputs` SSOT + 4 호출자 wiring). **잔여 1 axis (P2)**: `marketCap` Yahoo Finance chart API 미제공 → KIS 기업 정보 API (CTPF1002R) 결합 후 실값 전달 필요. 외부 의존성 — KIS quota 영향 평가 + ADR-0011 정책 검토 후 진행. SLA 미적용 (외부 의존성 면제 — ADR-0158 §"면제 정책"). |
 | B11 | 0173+0183 ShadowLearningOnlyScan wiring | `server/trading/shadowLearningOnlyScan.ts` | 2026-05-03 | PARTIAL | P0 | **PR-Shadow-Learning-Phase3-StageA (2026-05-03, ADR-0183) 4 site wiring 완료** — signalScanner.ts 의 4 early-return (L338 SELL_ONLY → MANUAL_BLOCK / L356 R6_DEFENSE → RISK_OFF_REGIME / L381 VIX → VIX_SPIKE / L413 FOMC → FOMC_BLOCK) wiring + `recordBlockedDayShadowScan` SSOT 헬퍼 (drift 차단). 데이터 빈곤 site (L430) 제외 (ADR-0173 §5 데이터 신뢰성 부재 정합). **운영자 활성화 대기 (P0-2)**: ENV `SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED=true` 명시 활성화 → 1주 누적 후 Phase 4-B Dashboard 데이터 입력 가시화. **잔여 (P2)**: Phase 3 Stage B (replayMissedLearningJobs dispatcher) + Stage C (ReflectionInjectionBus). SLA 만기 (운영자 ENV 활성화 결정) 2026-06-17. |
 | B12 | 0168b/0184/0185 emergencyDataQualityGuards | `server/dataQuality/emergencyDataQualityGuards.ts` | 2026-05-05 | DECIDED_NOT_WIRING | P1 | **PR-B12-A (2026-05-05, ADR-0184) + PR-B12-B (2026-05-05, ADR-0185) site 1~4 wiring 100% 완료** — site 1 (universeScanner master guard, ENV `EMERGENCY_MASTER_GUARD_SCAN_ENABLED` default OFF) + site 2 (watchlistRepo invalid KRX code filter, default ON) + site 3 (buyPipeline.createBuyTask KRX code sanity, default ON) + site 4 (pipelineHelpers.evaluateStage1Filter strict 분기 + DATA_MISSING_* 5종 union 확장, default OFF). ENV 헬퍼 SSOT 4종 신규. ADR-0168b §"Future wiring" 4 boundary 모두 처리 완료. SLA 만기 2026-06-19 21일 전 충족. |
+| B13 | 0093 fomc_relaxed_ 알림 wiring 복원 | `server/trading/signalScanner/preflight.ts` | 2026-05-05 | INFRASTRUCTURE_ONLY | P2 | ADR-0147b (signalScanner Phase 3 분해, PR #523) 머지 시 preflight.ts 의 `fomc_relaxed_${date}` dedupeKey + "우호 환경 완화" 텔레그램 알림 wiring 누락 (정책 회귀). `gatingAlertDedupe.test.ts` 의 `it.skip` 으로 등재. `fomcCalendar.ts` 정책 자체는 적용 (자금 안전 영향 0) — 운영자 인지 결함만. wiring 복원 후 `it.skip` → `it` 활성화 + 본 행 DECIDED_NOT_WIRING 격상 |
 
 ### C. 시그널 입력 (Diag-2~5 의사결정 wiring)
 
@@ -127,11 +128,11 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 카테고리 | 항목 수 | P0 | P1 | P2 | P3 |
 |----------|---------|----|----|----|----|
 | A. 학습 시리즈 | 15 | 1 | 9 | 5 | 0 |
-| B. 매매 본체 | 12 | 2 | 4 | 6 | 0 |
+| B. 매매 본체 | 13 | 2 | 4 | 7 | 0 |
 | C. 시그널 입력 | 15 | 1 | 3 | 7 | 4 |
 | D. UI Phase | 7 | 0 | 3 | 4 | 0 |
 | E. 영속/진단 | 7 | 0 | 0 | 4 | 3 |
-| **합계** | **56** | **4** | **19** | **26** | **7** |
+| **합계** | **57** | **4** | **19** | **27** | **7** |
 
 > 주: C7 (Phase 1) / C8 (Phase 2 audit) / C9 (Phase 3 globalIntel) + C15 (Naver 외인 추세) / **C10 (Phase 4 Yahoo 컨센서스) + #12 institutionalBuying (KRX 5d) PR-Phase5** 모두 *DECIDED_NOT_WIRING* 격상 완료. 27 조건 격상 시리즈 *데이터 가용 한계 도달 — 78% (21/27)*. 잔여 22% (5 키 — #9/#13/#17/#20/#26) 정성 영구 (ADR-0154). 정량 격상 후속 0건. 운영자 집중 영역 = Gemini 프롬프트 품질 + AI 추정 가중치 학습.
 
