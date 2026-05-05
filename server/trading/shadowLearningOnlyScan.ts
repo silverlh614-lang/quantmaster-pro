@@ -27,6 +27,12 @@ import {
 } from '../persistence/shadowLearningOnlySignalRepo.js';
 import { loadWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
 import { getScreenerCache, type ScreenedStock } from '../screener/stockScreener.js';
+import type {
+  DataQualityBucket,
+  SupplyHealthSnapshot,
+  TradingSignal,
+} from '../learning/supplyHealthLearning.js';
+import { applySupplyHealthToSignal } from '../learning/supplyHealthLearning.js';
 
 // ─── 타입 SSOT ────────────────────────────────────────────────────────────────
 
@@ -69,6 +75,8 @@ export interface ShadowLearningOnlyScanInput {
   reason: ShadowLearningOnlyScanReason;
   /** YYYY-MM-DD KST. */
   scanDate: string;
+  /** Optional supply_health snapshot captured at decision time for self-validation learning. */
+  supplyHealthSnapshot?: SupplyHealthSnapshot;
 }
 
 /**
@@ -95,6 +103,14 @@ export interface ShadowLearningOnlySignal {
   futureReturn5d?: number;
   futureReturn20d?: number;
   outcome?: 'WIN' | 'LOSS' | 'BE' | 'PENDING';
+  /** supply_health 기반 자기학습 확장 메타. 기존 샘플 호환을 위해 optional. */
+  rawSignal?: TradingSignal;
+  finalSignal?: TradingSignal;
+  dataConfidence?: number;
+  dataQualityBucket?: DataQualityBucket;
+  supplyHealthSnapshot?: SupplyHealthSnapshot;
+  wasDowngradedBySupplyHealth?: boolean;
+  downgradeReasons?: string[];
 }
 
 export type ShadowLearningOnlyScanResult =
@@ -146,6 +162,11 @@ function gradeFromGateScore(gateScore: number): ShadowLearningOnlySignal['signal
   if (gateScore >= 5) return 'BUY';
   if (gateScore > 0) return 'WATCH';
   return 'NONE';
+}
+
+function tradingSignalFromGrade(signalGrade: ShadowLearningOnlySignal['signalGrade']): TradingSignal {
+  if (signalGrade === 'NONE') return 'NO_DECISION';
+  return signalGrade;
 }
 
 function buildFromWatchlist(entry: WatchlistEntry): ShadowScanCandidate | null {
@@ -281,6 +302,16 @@ export async function runShadowLearningOnlyScan(
     const key = `${candidate.symbol}:${input.scanDate}:${input.reason}`;
     if (existingKeys.has(key)) continue;
 
+    const rawSignal = tradingSignalFromGrade(candidate.signalGrade);
+    const healthDecision = input.supplyHealthSnapshot
+      ? applySupplyHealthToSignal({
+          rawSignal,
+          rawScore: candidate.gateScore,
+          positionSize: candidate.wouldHaveBought ? 1 : 0,
+          supplyHealthSnapshot: input.supplyHealthSnapshot,
+        })
+      : null;
+
     appendShadowLearningOnlySignal({
       symbol: candidate.symbol,
       signalDate: input.scanDate,
@@ -295,6 +326,15 @@ export async function runShadowLearningOnlyScan(
       macroBlockReason: `${input.reason}:${candidate.source}`,
       dataQualityStatus: candidate.dataQualityStatus,
       outcome: 'PENDING',
+      ...(healthDecision ? {
+        rawSignal,
+        finalSignal: healthDecision.finalSignal,
+        dataConfidence: healthDecision.dataConfidence,
+        dataQualityBucket: healthDecision.dataQualityBucket,
+        supplyHealthSnapshot: input.supplyHealthSnapshot,
+        wasDowngradedBySupplyHealth: healthDecision.wasDowngradedBySupplyHealth,
+        downgradeReasons: healthDecision.downgradeReasons,
+      } : {}),
     });
     existingKeys.add(key);
     signalsRecorded++;

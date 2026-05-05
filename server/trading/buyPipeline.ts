@@ -13,6 +13,11 @@
  */
 
 import type { ServerShadowTrade, EntryKellySnapshot } from '../persistence/shadowTradeRepo.js';
+import type {
+  DataQualityBucket,
+  SupplyHealthSnapshot,
+  TradingSignal,
+} from '../learning/supplyHealthLearning.js';
 import type { ApprovalAction } from '../telegram/buyApproval.js';
 import type { EnemyCheckResult } from '../clients/enemyCheckClient.js';
 import type { StopLossPlan } from './entryEngine.js';
@@ -191,6 +196,14 @@ export interface BuildBuyTradeParams {
   sizingSource?: 'NEW_TIER_ENGINE' | 'LEGACY_SSOT';
   /** ADR-0162 — sizingSource='NEW_TIER_ENGINE' 일 때만 채워짐. 운영자 검증/사후 복기용. */
   sizingEngineSnapshot?: ServerShadowTrade['sizingEngineSnapshot'];
+  /** supply_health 기반 자기검증 학습 메타. 호출자가 제공할 때 shadow/live trade에 영속한다. */
+  rawSignal?: TradingSignal;
+  finalSignal?: TradingSignal;
+  dataConfidence?: number;
+  dataQualityBucket?: DataQualityBucket;
+  supplyHealthSnapshot?: SupplyHealthSnapshot;
+  wasDowngradedBySupplyHealth?: boolean;
+  downgradeReasons?: string[];
 }
 
 /**
@@ -244,6 +257,13 @@ export function buildBuyTrade(p: BuildBuyTradeParams): ServerShadowTrade {
     // ADR-0162 Phase 2-D — sizingSource marker + 스냅샷 영속 (학습 데이터 격리).
     ...(p.sizingSource ? { sizingSource: p.sizingSource } : {}),
     ...(p.sizingEngineSnapshot ? { sizingEngineSnapshot: p.sizingEngineSnapshot } : {}),
+    ...(p.rawSignal ? { rawSignal: p.rawSignal } : {}),
+    ...(p.finalSignal ? { finalSignal: p.finalSignal } : {}),
+    ...(p.dataConfidence !== undefined ? { dataConfidence: p.dataConfidence } : {}),
+    ...(p.dataQualityBucket ? { dataQualityBucket: p.dataQualityBucket } : {}),
+    ...(p.supplyHealthSnapshot ? { supplyHealthSnapshot: p.supplyHealthSnapshot } : {}),
+    ...(p.wasDowngradedBySupplyHealth !== undefined ? { wasDowngradedBySupplyHealth: p.wasDowngradedBySupplyHealth } : {}),
+    ...(p.downgradeReasons ? { downgradeReasons: p.downgradeReasons } : {}),
   };
 }
 

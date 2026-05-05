@@ -7,6 +7,11 @@
 import fs from 'fs';
 import { SHADOW_FILE, SHADOW_LOG_FILE, ensureDataDir } from './paths.js';
 import { getSectorByCode } from '../screener/sectorMap.js';
+import type {
+  DataQualityBucket,
+  SupplyHealthSnapshot,
+  TradingSignal,
+} from '../learning/supplyHealthLearning.js';
 
 // ─── Fill(체결 이벤트) 모델 ────────────────────────────────────────────────────
 
@@ -516,6 +521,14 @@ export interface ServerShadowTrade {
   ma60DeathForced?: boolean;
   /** 워치리스트 출처 — Pre-Market(기본), Intraday(장중 발굴), Pre-Breakout(돌파 전 선취매) */
   watchlistSource?: 'PRE_MARKET' | 'INTRADAY' | 'PRE_BREAKOUT' | 'PRE_BREAKOUT_FOLLOWTHROUGH';
+  /** supply_health 기반 자기검증 학습 메타. 기존 shadow trade 호환을 위해 optional. */
+  rawSignal?: TradingSignal;
+  finalSignal?: TradingSignal;
+  dataConfidence?: number;
+  dataQualityBucket?: DataQualityBucket;
+  supplyHealthSnapshot?: SupplyHealthSnapshot;
+  wasDowngradedBySupplyHealth?: boolean;
+  downgradeReasons?: string[];
   /** 진입 시점 14일 ATR — ATR 기반 동적 손절 계산에 사용 */
   entryATR14?: number;
   /** ATR 기반 동적 손절가 — evaluateDynamicStop()으로 계산된 초기 동적 손절 */

@@ -15,6 +15,7 @@ import { getSupplyProviderPolicy, type SupplyProvider, type SupplySignalKey } fr
 import { fetchKrxShortSelling } from '../../../trading/marketDataRefresh.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
+import type { SourceHealth, SupplyHealthSnapshot } from '../../../learning/supplyHealthLearning.js';
 
 export const SUPPLY_HEALTH_CACHE_TTL_MS = 30_000;
 const TOP_N = 10;
@@ -280,17 +281,125 @@ function renderMessage(channels: ChannelStatus[], targetLine: string, cacheLine:
   return message.length < 4096 ? message : `${message.slice(0, 4050)}\n...`;
 }
 
+function sourceFromLine(lines: string[]): SourceHealth['source'] {
+  const line = lines.find((l) => l.startsWith('source:')) ?? '';
+  if (line.includes('KIS')) return 'KIS_API';
+  if (line.includes('KRX')) return 'KRX';
+  if (line.includes('NAVER')) return 'NAVER';
+  if (line.includes('CACHE')) return 'CACHE';
+  if (line.includes('FSS')) return 'FSS';
+  if (line.includes('macroState')) return 'MACRO_STATE';
+  return 'UNKNOWN';
+}
+
+function sourceHealthFromChannel(channel: ChannelStatus): SourceHealth {
+  const successLine = channel.lines.find((l) => l.startsWith('success:'));
+  const missingLine = channel.lines.find((l) => l.startsWith('missing:'));
+  const staleLine = channel.lines.find((l) => l.startsWith('stale:'));
+  const updatedLine = channel.lines.find((l) => l.startsWith('updated:'));
+  const latestLine = channel.lines.find((l) => l.startsWith('latest:'));
+  const successMatch = successLine?.match(/(\d+)\/(\d+)/);
+  const providerTried = channel.lines
+    .filter((l) => l.startsWith('providerTried'))
+    .map((l) => l.split(':').slice(1).join(':').trim())
+    .filter(Boolean);
+  const status: SourceHealth['status'] =
+    channel.marker === 'OK' ? 'OK' :
+    channel.marker === 'NEUTRAL' ? 'NEUTRAL' :
+    channel.marker === 'DEGRADED' ? 'DEGRADED' :
+    channel.marker === 'STALE' ? 'STALE' :
+    'MISSING';
+  return {
+    status,
+    source: sourceFromLine(channel.lines),
+    coverage: successMatch ? `${successMatch[1]}/${successMatch[2]}` : undefined,
+    success: successMatch ? Number(successMatch[1]) : undefined,
+    missing: missingLine ? Number(missingLine.match(/\d+/)?.[0] ?? Number.NaN) : undefined,
+    stale: staleLine ? Number(staleLine.match(/\d+/)?.[0] ?? Number.NaN) : undefined,
+    latest: latestLine?.replace(/^latest:\s*/, ''),
+    updatedAt: updatedLine?.replace(/^updated:\s*/, ''),
+    reason: channel.riskReason,
+    providerTried: providerTried.length > 0 ? providerTried : undefined,
+  };
+}
+
+function overallStatusFromChannels(channels: ChannelStatus[]): SupplyHealthSnapshot['summary']['overallStatus'] {
+  const missing = channels.filter((c) => c.marker === 'MISSING').length;
+  const degraded = channels.filter((c) => c.marker === 'DEGRADED').length;
+  const stale = channels.filter((c) => c.marker === 'STALE').length;
+  const zeroFilled = channels.some((c) => c.zeroSuspect && isZeroFilledSuspicious(c.zeroSuspect.count, c.zeroSuspect.total));
+  const investor = channels.find((c) => c.key === 'investorFlow');
+  const foreigner = channels.find((c) => c.key === 'foreignerRatioTrend');
+  if (missing >= 3 || channels.every((c) => c.marker !== 'OK')) return 'BROKEN';
+  if (zeroFilled || (investor?.marker === 'DEGRADED' && foreigner?.marker === 'DEGRADED')) return 'UNSAFE';
+  if (degraded > 0 || stale > 0) return 'DEGRADED';
+  if (channels.some((c) => c.marker === 'NEUTRAL')) return 'USABLE';
+  return 'OK';
+}
+
+function snapshotFromChannels(channels: ChannelStatus[]): SupplyHealthSnapshot {
+  const total = Math.max(1, channels.length);
+  const ok = channels.filter((c) => c.marker === 'OK').length;
+  const neutral = channels.filter((c) => c.marker === 'NEUTRAL').length;
+  const degraded = channels.filter((c) => c.marker === 'DEGRADED').length;
+  const missing = channels.filter((c) => c.marker === 'MISSING').length;
+  const stale = channels.filter((c) => c.marker === 'STALE').length;
+  const byKey = new Map(channels.map((c) => [c.key, sourceHealthFromChannel(c)]));
+  const providerTried = [...new Set(channels.flatMap((c) =>
+    c.lines.filter((l) => l.startsWith('providerTried')).map((l) => l.split(':').slice(1).join(':').trim()),
+  ).filter(Boolean))];
+  const providerUsed = [...new Set([...byKey.values()].map((s) => s.source).filter((s) => s !== 'UNKNOWN'))];
+  const providerFailed = [...new Set(channels.filter((c) => c.marker === 'MISSING' || c.marker === 'STALE').map((c) => sourceHealthFromChannel(c).source))];
+  const zeroFilledSuspected = channels.some((c) => c.zeroSuspect && isZeroFilledSuspicious(c.zeroSuspect.count, c.zeroSuspect.total));
+  return {
+    summary: { ok, neutral, degraded, missing, stale, cacheStatus: stale > 0 ? 'stale' : 'fresh', overallStatus: overallStatusFromChannels(channels) },
+    coverage: { totalSources: channels.length, okRatio: ok / total, degradedRatio: degraded / total, missingRatio: missing / total, minCriticalCoverage: ok / total },
+    sources: {
+      investorFlow: byKey.get('investorFlow'),
+      programTrading: byKey.get('stockProgram'),
+      marketProgramTrading: byKey.get('marketProgram'),
+      passiveActive: byKey.get('fssPassiveActive'),
+      shortBalance: byKey.get('shortSelling'),
+      foreignerTrend: byKey.get('foreignerRatioTrend'),
+      marginBalance: byKey.get('marginBalance'),
+    },
+    providerTried,
+    providerFailed,
+    providerUsed,
+    criticalFlags: {
+      investorFlowDegraded: byKey.get('investorFlow')?.status === 'DEGRADED' || byKey.get('investorFlow')?.status === 'STALE',
+      programTradingMissing: byKey.get('stockProgram')?.status === 'MISSING',
+      foreignerTrendDegraded: byKey.get('foreignerRatioTrend')?.status === 'DEGRADED' || byKey.get('foreignerRatioTrend')?.status === 'STALE',
+      zeroFilledSuspected,
+      offHoursMode: channels.some((c) => c.lines.some((l) => l.includes('OFF_HOURS') || l.includes('ACCEPTED_EMPTY'))),
+    },
+  };
+}
+
+async function collectSupplyHealthChannels(now: Date): Promise<{ channels: ChannelStatus[]; targetLine: string }> {
+  const nowMs = now.getTime();
+  const watchlist = loadWatchlist();
+  const targets = selectTopWatchlist(TOP_N);
+  const macro = loadMacroStateReadOnly();
+  return {
+    channels: [await diagnoseInvestorFlow(targets, now, nowMs), await diagnoseStockProgram(targets), await diagnoseMarketProgram(macro, nowMs), diagnoseFss(macro, nowMs), await diagnoseShort(macro, nowMs), diagnoseForeignerRatio(targets, nowMs), diagnoseMargin(macro, nowMs)],
+    targetLine: formatTargetLine(watchlist.length, targets.length),
+  };
+}
+
+export async function buildSupplyHealthSnapshot(now: Date = new Date()): Promise<SupplyHealthSnapshot> {
+  const { channels } = await collectSupplyHealthChannels(now);
+  return snapshotFromChannels(channels);
+}
+
 export async function buildSupplyHealthMessage(now: Date = new Date()): Promise<string> {
   const nowMs = now.getTime();
   if (cache && nowMs - cache.builtAt < SUPPLY_HEALTH_CACHE_TTL_MS) {
     const ageSec = Math.max(0, Math.floor((nowMs - cache.builtAt) / 1000));
     return cache.message.replace('캐시: fresh', `캐시: ${ageSec}s`);
   }
-  const watchlist = loadWatchlist();
-  const targets = selectTopWatchlist(TOP_N);
-  const macro = loadMacroStateReadOnly();
-  const channels = [await diagnoseInvestorFlow(targets, now, nowMs), await diagnoseStockProgram(targets), await diagnoseMarketProgram(macro, nowMs), diagnoseFss(macro, nowMs), await diagnoseShort(macro, nowMs), diagnoseForeignerRatio(targets, nowMs), diagnoseMargin(macro, nowMs)];
-  const message = renderMessage(channels, formatTargetLine(watchlist.length, targets.length), '캐시: fresh');
+  const { channels, targetLine } = await collectSupplyHealthChannels(now);
+  const message = renderMessage(channels, targetLine, '캐시: fresh');
   cache = { message, builtAt: nowMs };
   return message;
 }

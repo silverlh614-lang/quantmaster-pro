@@ -27,6 +27,7 @@ vi.mock('../persistence/incidentLogRepo.js', () => ({
 
 import { buildBuyTrade, type BuildBuyTradeParams } from './buyPipeline.js';
 import type { StopLossPlan } from './entryEngine.js';
+import type { SupplyHealthSnapshot } from '../learning/supplyHealthLearning.js';
 
 const stopLossPlan: StopLossPlan = {
   initialStopLoss: 9_000,
@@ -56,6 +57,38 @@ function makeParams(overrides: Partial<BuildBuyTradeParams> = {}): BuildBuyTrade
   };
 }
 
+function makeSupplyHealthSnapshot(): SupplyHealthSnapshot {
+  return {
+    summary: {
+      ok: 4,
+      neutral: 0,
+      degraded: 3,
+      missing: 0,
+      stale: 0,
+      cacheStatus: 'fresh',
+      overallStatus: 'DEGRADED',
+    },
+    coverage: {
+      totalSources: 7,
+      okRatio: 4 / 7,
+      degradedRatio: 3 / 7,
+      missingRatio: 0,
+      minCriticalCoverage: 0.5,
+    },
+    sources: {},
+    providerTried: ['KIS_API', 'KRX'],
+    providerFailed: ['KRX'],
+    providerUsed: ['CACHE'],
+    criticalFlags: {
+      investorFlowDegraded: true,
+      programTradingMissing: true,
+      foreignerTrendDegraded: false,
+      zeroFilledSuspected: false,
+      offHoursMode: false,
+    },
+  };
+}
+
 describe('buildBuyTrade — ADR-0060 sector 영속', () => {
   it('SECTOR_MAP 매핑 종목은 결정적 sector 라벨 채움', () => {
     const trade = buildBuyTrade(makeParams({ stockCode: '005930' }));
@@ -80,5 +113,26 @@ describe('buildBuyTrade — ADR-0060 sector 영속', () => {
     // shadowRouter.ts:60 의 `sector: getSectorByCode(trade.stockCode) || undefined`
     // 패턴은 '미분류' 도 truthy 라 결과적으로 sector 필드가 채워진다.
     // (`|| undefined` 는 빈 문자열/0 falsy 가드 — 정상 동작에선 영향 없음)
+  });
+
+  it('supply_health 학습 메타를 trade 객체에 보존한다', () => {
+    const supplyHealthSnapshot = makeSupplyHealthSnapshot();
+    const trade = buildBuyTrade(makeParams({
+      rawSignal: 'STRONG_BUY',
+      finalSignal: 'BUY',
+      dataConfidence: 0.52,
+      dataQualityBucket: 'LOW_CONFIDENCE',
+      supplyHealthSnapshot,
+      wasDowngradedBySupplyHealth: true,
+      downgradeReasons: ['supply_health DEGRADED'],
+    }));
+
+    expect(trade.rawSignal).toBe('STRONG_BUY');
+    expect(trade.finalSignal).toBe('BUY');
+    expect(trade.dataConfidence).toBe(0.52);
+    expect(trade.dataQualityBucket).toBe('LOW_CONFIDENCE');
+    expect(trade.supplyHealthSnapshot).toBe(supplyHealthSnapshot);
+    expect(trade.wasDowngradedBySupplyHealth).toBe(true);
+    expect(trade.downgradeReasons).toEqual(['supply_health DEGRADED']);
   });
 });

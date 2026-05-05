@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import type { SupplyHealthSnapshot } from '../learning/supplyHealthLearning.js';
 
 // PERSIST_DATA_DIR 격리
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'slo-test-'));
@@ -15,6 +16,39 @@ const ENV_KEY = 'SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED';
 
 let mod: typeof import('./shadowLearningOnlyScan.js');
 let repo: typeof import('../persistence/shadowLearningOnlySignalRepo.js');
+
+function supplyHealthSnapshot(overrides: Partial<SupplyHealthSnapshot['summary']> = {}): SupplyHealthSnapshot {
+  return {
+    summary: {
+      ok: 4,
+      neutral: 0,
+      degraded: 3,
+      missing: 0,
+      stale: 0,
+      cacheStatus: 'fresh',
+      overallStatus: 'DEGRADED',
+      ...overrides,
+    },
+    coverage: {
+      totalSources: 7,
+      okRatio: 4 / 7,
+      degradedRatio: 3 / 7,
+      missingRatio: 0,
+      minCriticalCoverage: 0.5,
+    },
+    sources: {},
+    providerTried: ['KIS_API', 'KRX'],
+    providerFailed: ['KRX'],
+    providerUsed: ['CACHE'],
+    criticalFlags: {
+      investorFlowDegraded: true,
+      programTradingMissing: true,
+      foreignerTrendDegraded: false,
+      zeroFilledSuspected: false,
+      offHoursMode: false,
+    },
+  };
+}
 
 beforeEach(async () => {
   delete process.env[ENV_KEY];
@@ -258,6 +292,45 @@ describe('blocked-day shadow scan persistence', () => {
     expect(signals[0]!.symbol).toBe('005930');
     expect(signals[0]!.hypotheticalEntryPrice).toBe(75000);
     expect(signals[0]!.outcome).toBe('PENDING');
+  });
+
+  it('supply_health snapshot이 있으면 Shadow 신호에 raw/final/confidence를 함께 저장한다', async () => {
+    process.env[ENV_KEY] = 'true';
+    fs.writeFileSync(
+      path.join(tmpDir, 'watchlist.json'),
+      JSON.stringify([
+        {
+          code: '005930',
+          name: 'SAMSUNG',
+          entryPrice: 75000,
+          stopLoss: 71000,
+          targetPrice: 84000,
+          addedAt: '2026-05-04T00:00:00.000Z',
+          addedBy: 'AUTO',
+          section: 'SWING',
+          gateScore: 9.5,
+          entryRegime: 'R3_EARLY',
+        },
+      ]),
+      'utf-8',
+    );
+
+    await mod.runShadowLearningOnlyScan({
+      allowRealOrder: false,
+      bypassMacroEntryBlock: true,
+      reason: 'FOMC_BLOCK',
+      scanDate: '2026-05-04',
+      supplyHealthSnapshot: supplyHealthSnapshot(),
+    });
+
+    const signals = repo.loadShadowLearningOnlySignals();
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.rawSignal).toBe('STRONG_BUY');
+    expect(signals[0]!.finalSignal).toBe('BUY');
+    expect(signals[0]!.wasDowngradedBySupplyHealth).toBe(true);
+    expect(signals[0]!.dataQualityBucket).toBe('LOW_CONFIDENCE');
+    expect(signals[0]!.supplyHealthSnapshot?.summary.overallStatus).toBe('DEGRADED');
+    expect(signals[0]!.downgradeReasons?.length).toBeGreaterThan(0);
   });
 
   it('동일 날짜/사유/symbol 재실행 → 중복 append 차단', async () => {
