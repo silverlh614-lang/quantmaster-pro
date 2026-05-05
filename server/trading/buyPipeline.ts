@@ -41,6 +41,10 @@ import { fillMonitor } from './fillMonitor.js';
 import { appendShadowLog } from '../persistence/shadowTradeRepo.js';
 import { getLatestIncidentAt } from '../persistence/incidentLogRepo.js';
 import { assertSafeOrder } from './preOrderGuard.js';
+import {
+  isEmergencyBuyPipelineCodeGuardEnabled,
+  normalizeKrxCode,
+} from '../dataQuality/emergencyDataQualityGuards.js';
 import { getSmokeTestLiveBlocked, getSmokeTestLastFailedReason } from '../state.js';
 import { lastManualExitAtForCode } from '../persistence/manualExitsRepo.js';
 
@@ -309,6 +313,34 @@ export interface CreateBuyTaskParams {
 export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask> {
   const regime = p.regime ?? p.trade.entryRegime;
   const sector = getSectorByCode(p.stockCode);
+
+  // ADR-0185 (PR-B12-B) site 3 — KRX code sanity guard. default ON.
+  // ENV `EMERGENCY_BUY_PIPELINE_CODE_GUARD_DISABLED=true` 시 legacy 동작.
+  // 잘못된 code (예: `0070X0`) 가 우회 경로로 진입 시 즉시 SKIP — throw 가 아닌 early SKIP
+  // 패턴으로 매수 흐름 차단 위험 격리. site 2 (watchlist) 와 정합.
+  if (isEmergencyBuyPipelineCodeGuardEnabled() && normalizeKrxCode(p.stockCode) === null) {
+    console.warn(
+      `[BuyPipeline/CodeGuard] invalid KRX code 자동 SKIP — code="${p.stockCode}" name="${p.stockName}" (ADR-0185)`,
+    );
+    if (p.signalId) {
+      try {
+        markBlocked({
+          id: p.signalId,
+          gate: 'DATA',
+          reason: `INVALID_KRX_CODE: ${p.stockCode}`,
+        });
+      } catch (e) {
+        console.warn('[TradeSignalStatus] INVALID_KRX_CODE markBlocked failed', e);
+      }
+    }
+    return {
+      approvalPromise: Promise.resolve<ApprovalAction>('SKIP'),
+      execute: async () => {
+        p.trade.status = 'REJECTED';
+        p.onRejected?.(p.trade, 'SKIP');
+      },
+    };
+  }
 
   // P2 #18 — 수동 청산 후 72h 재매수 냉각 가드. 승인 요청 전에 즉시 차단.
   const cooldown = checkManualExitCooldown(p.stockCode);

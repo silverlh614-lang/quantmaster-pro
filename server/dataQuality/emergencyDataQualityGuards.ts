@@ -292,3 +292,37 @@ export function isEmergencyMasterGuardScanEnabled(): boolean {
 export function isEmergencyWatchlistCodeGuardEnabled(): boolean {
   return process.env.EMERGENCY_WATCHLIST_CODE_GUARD_DISABLED !== 'true';
 }
+
+// ─── ADR-0185 (PR-B12-B) ENV 우회 헬퍼 ──────────────────────────────────────
+/**
+ * ADR-0168b §"Future wiring" 의 *autotrade candidate generation* (buyPipeline.createBuyTask
+ * KRX code sanity) wiring 활성화 여부.
+ *
+ * default ON — site 2 (watchlist) 의 잘못된 code 필터 와 정합. 잘못된 code 가 수동 추가
+ * 또는 우회 경로로 buyPipeline 진입 시 추가 안전망 제공. 매수 흐름 중단 위험 격리를 위해
+ * normalizeKrxCode null 시 throw 가 아닌 *early SKIP* (REJECTED + onRejected) 패턴 사용.
+ *
+ * ENV `EMERGENCY_BUY_PIPELINE_CODE_GUARD_DISABLED=true` 명시 시 legacy 동작.
+ *
+ * @returns true = wiring 활성 (default), false = legacy 동작 (가드 우회)
+ */
+export function isEmergencyBuyPipelineCodeGuardEnabled(): boolean {
+  return process.env.EMERGENCY_BUY_PIPELINE_CODE_GUARD_DISABLED !== 'true';
+}
+
+/**
+ * ADR-0168b §"Future wiring" 의 *Stage1 strict reject classification*
+ * (pipelineHelpers.evaluateStage1Filter 의 DATA_MISSING_* 분리) wiring 활성화 여부.
+ *
+ * default OFF — Stage1 통계 분포 (resetStage1RejectionCounts / getStage1RejectionCounts)
+ * 영향이 있어 운영자가 통계 변동 영향 검증 후 결정. 활성 시 LOW_VOLUME / HIGH_PER 같은
+ * 실제 reject 와 데이터 결손 reject (DATA_MISSING_PRICE / VOLUME / PER / RETURN / QUOTE)
+ * 5종 분리 — Stage1 audit 정확도 격상.
+ *
+ * ENV `EMERGENCY_STAGE1_STRICT_ENABLED=true` 명시 시 strict 분기 활성.
+ *
+ * @returns true = wiring 활성 (strict), false = legacy 동작 (default)
+ */
+export function isEmergencyStage1StrictEnabled(): boolean {
+  return process.env.EMERGENCY_STAGE1_STRICT_ENABLED === 'true';
+}

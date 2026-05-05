@@ -22,6 +22,10 @@ import type { YahooQuoteExtended } from './stockScreener.js';
 import type { ConfluenceResult } from '../trading/confluenceEngine.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import type { RegimeLevel } from '../../src/types/core.js';
+import {
+  classifyStage1RejectStrict,
+  isEmergencyStage1StrictEnabled,
+} from '../dataQuality/emergencyDataQualityGuards.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -284,15 +288,22 @@ export const STAGE1_THRESHOLDS = {
  * `evaluateStage1Filter` 는 어느 조건에서 탈락했는지 반환하여 집계/진단에 활용.
  */
 export type Stage1RejectionReason =
-  | 'MIN_PRICE'           // price < 3,000원
-  | 'HIGH_RISK'           // 관리종목/거래정지/투자경고 등
-  | 'OVERHEAT'            // 당일 상승률 ≥ +8%
-  | 'NEGATIVE_DAY'        // 음봉 + 눌림목 아님
-  | 'EXCESSIVE_DRAWDOWN'  // 당일 하락률 < -2%
-  | 'LOW_VOLUME'          // 거래량 < avgVolume × 1.2 & !VCP & !pullback
-  | 'HIGH_PER'            // PER > 60
-  | 'BELOW_MA20'          // 가격 < MA20 & !pullback
-  | 'OVEREXTENDED';       // 5일 누적 수익률 > 15%
+  | 'MIN_PRICE'             // price < 3,000원
+  | 'HIGH_RISK'             // 관리종목/거래정지/투자경고 등
+  | 'OVERHEAT'              // 당일 상승률 ≥ +8%
+  | 'NEGATIVE_DAY'          // 음봉 + 눌림목 아님
+  | 'EXCESSIVE_DRAWDOWN'    // 당일 하락률 < -2%
+  | 'LOW_VOLUME'            // 거래량 < avgVolume × 1.2 & !VCP & !pullback
+  | 'HIGH_PER'              // PER > 60
+  | 'BELOW_MA20'            // 가격 < MA20 & !pullback
+  | 'OVEREXTENDED'          // 5일 누적 수익률 > 15%
+  // ADR-0185 (PR-B12-B) site 4 — strict 분기 (DATA_MISSING_* 5종 분리)
+  // ENV `EMERGENCY_STAGE1_STRICT_ENABLED=true` 활성 시에만 분류됨. default OFF (legacy).
+  | 'DATA_MISSING_QUOTE'    // quote 자체 부재 또는 usableForSignal=false
+  | 'DATA_MISSING_PRICE'    // price NaN/Infinity
+  | 'DATA_MISSING_VOLUME'   // volume NaN/Infinity
+  | 'DATA_MISSING_PER'      // per NaN/Infinity
+  | 'DATA_MISSING_RETURN';  // return20d NaN/Infinity
 
 export interface Stage1FilterResult {
   pass: boolean;
@@ -302,9 +313,34 @@ export interface Stage1FilterResult {
 /**
  * Stage 1 정량 필터 (사유 동반). passesStage1Filter 는 하위 호환 wrapper.
  * 필터 순서는 저비용 → 고비용 순서로 정렬 — 조기 탈락으로 평균 비용 최소화.
+ *
+ * ADR-0185 (PR-B12-B) site 4 — strict 분기. ENV `EMERGENCY_STAGE1_STRICT_ENABLED=true` 활성 시
+ * `classifyStage1RejectStrict` 우선 호출 → DATA_MISSING_* 5종 분리. legacy 기본값 (OFF) 시
+ * 기존 동작 100% 보존 (LOW_VOLUME / HIGH_PER 등 조건 분류 그대로).
  */
 export function evaluateStage1Filter(quote: YahooQuoteExtended): Stage1FilterResult {
   const t = STAGE1_THRESHOLDS;
+
+  // ADR-0185 strict 분기 — DATA_MISSING_* 5종 우선 분류
+  if (isEmergencyStage1StrictEnabled()) {
+    const strictReason = classifyStage1RejectStrict({
+      quote: {
+        usableForSignal: true,  // YahooQuoteExtended 는 호출자가 fetch 시점에 검증
+        currentPrice: quote.price,
+        volume: quote.volume,
+        return20d: quote.return20d,
+      },
+      fundamental: { per: quote.per },
+      // legacy 임계와 분리 — DATA_MISSING_* 만 선별
+      minPrice: 0,
+      minVolume: 0,
+      maxPer: Infinity,
+    });
+    if (strictReason !== 'PASS' && strictReason.startsWith('DATA_MISSING_')) {
+      return { pass: false, reason: strictReason as Stage1RejectionReason };
+    }
+  }
+
   if (quote.price < t.MIN_PRICE) return { pass: false, reason: 'MIN_PRICE' };
   if (quote.isHighRisk) return { pass: false, reason: 'HIGH_RISK' };
   if (quote.changePercent >= t.MAX_OVERHEAT_PCT) return { pass: false, reason: 'OVERHEAT' };
@@ -352,6 +388,9 @@ const EMPTY_REASON_COUNTS: Record<Stage1RejectionReason, number> = {
   MIN_PRICE: 0, HIGH_RISK: 0, OVERHEAT: 0, NEGATIVE_DAY: 0,
   EXCESSIVE_DRAWDOWN: 0, LOW_VOLUME: 0, HIGH_PER: 0,
   BELOW_MA20: 0, OVEREXTENDED: 0,
+  // ADR-0185 site 4 — strict 분기 5종 (legacy OFF 시 0 유지)
+  DATA_MISSING_QUOTE: 0, DATA_MISSING_PRICE: 0, DATA_MISSING_VOLUME: 0,
+  DATA_MISSING_PER: 0, DATA_MISSING_RETURN: 0,
 };
 
 let _stage1Stats: Stage1RejectionCounts = {
