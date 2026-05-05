@@ -92,6 +92,7 @@ function toSample(row: InvestorFlowCacheRow): InvestorFlowSample {
     individualNetBuy: Number(row.individualNetBuy),
     provider: 'CACHE',
     fetchedAt: row.fetchedAt,
+    tradingDate: row.date,
   };
 }
 

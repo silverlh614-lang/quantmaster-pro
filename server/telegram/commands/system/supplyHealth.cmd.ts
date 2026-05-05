@@ -10,7 +10,7 @@ import { FSS_RECORDS_FILE, MACRO_STATE_FILE } from '../../../persistence/paths.j
 import { loadForeignerRatioSeries } from '../../../persistence/foreignerRatioRepo.js';
 import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
-import { fetchInvestorFlowWithPolicy, summarizeInvestorFlowAttempts } from '../../../supply/investorFlowRouter.js';
+import { fetchInvestorFlowWithPolicy, summarizeInvestorFlowAttempts, type InvestorFlowSample } from '../../../supply/investorFlowRouter.js';
 import { getSupplyProviderPolicy, type SupplyProvider, type SupplySignalKey } from '../../../supply/supplyProviderPolicy.js';
 import { fetchKrxShortSelling } from '../../../trading/marketDataRefresh.js';
 import { commandRegistry } from '../../commandRegistry.js';
@@ -23,6 +23,7 @@ const DAY_MS = 86_400_000;
 const TWO_DAYS = 2;
 const FSS_STALE_DAYS = 4;
 const SHORT_STALE_DAYS = 2;
+const INVESTOR_FLOW_CACHE_STALE_DAYS = 2;
 const ZERO_FILLED_MIN_COUNT = 3;
 const ZERO_FILLED_RATIO_WARN = 0.8;
 
@@ -92,34 +93,73 @@ function compactProviderRoute(key: SupplySignalKey): string {
   return `route: ${primary} | fb=${fallback} | diag=${diagnostic} | scoring=${p.scoringMode}`;
 }
 function renderInvestorFlowDecision(marker: Marker): string {
-  return marker === 'OK' ? '판정: OK — policy provider 실데이터 사용 가능' : '판정: KRX/NAVER/CACHE 미연결 — KIS는 진단용, 점수 제외';
+  if (marker === 'OK') return '판정: OK — policy provider 실데이터 사용 가능';
+  if (marker === 'STALE') return '판정: STALE — CACHE는 있으나 최신성 확인 필요';
+  if (marker === 'DEGRADED') return '판정: DEGRADED — coverage/zero-filled 확인 필요';
+  return '판정: KRX/NAVER/CACHE 미연결 — KIS는 진단용, 점수 제외';
 }
 function isAcceptedEmptyRaw(rawDiagLine: string): boolean { return rawDiagLine.includes('rawDiag=MARKET_PROGRAM') && rawDiagLine.includes('zeroReason=ACCEPTED_EMPTY'); }
 
-async function diagnoseInvestorFlow(targets: WatchlistEntry[]): Promise<ChannelStatus> {
+function bumpProviderCount(counts: Map<SupplyProvider, number>, provider: SupplyProvider | null): void {
+  if (!provider) return;
+  counts.set(provider, (counts.get(provider) ?? 0) + 1);
+}
+
+function formatProviderCounts(counts: Map<SupplyProvider, number>): string {
+  if (counts.size === 0) return 'POLICY_ROUTER';
+  return [...counts.entries()].map(([provider, count]) => `${provider}:${count}`).join(',');
+}
+
+function cacheAgeMs(sample: InvestorFlowSample, nowMs: number): number | null {
+  const ts = Date.parse(sample.fetchedAt);
+  return Number.isFinite(ts) ? Math.max(0, nowMs - ts) : null;
+}
+
+function cacheDate(sample: InvestorFlowSample): string {
+  return sample.tradingDate ?? (Number.isFinite(Date.parse(sample.fetchedAt)) ? new Date(sample.fetchedAt).toISOString().slice(0, 10) : 'N/A');
+}
+
+async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs: number): Promise<ChannelStatus> {
   let success = 0, zero = 0;
   const attemptSummaries: string[] = [];
-  let source: SupplyProvider | null = null;
+  const sourceCounts = new Map<SupplyProvider, number>();
+  const cacheSamples: InvestorFlowSample[] = [];
   for (const stock of targets) {
-    const routed = await fetchInvestorFlowWithPolicy(stock.code);
+    const routed = await fetchInvestorFlowWithPolicy(stock.code, now);
     if (attemptSummaries.length < 3) attemptSummaries.push(`${stock.code}:${summarizeInvestorFlowAttempts(routed.attempts)}`);
     if (!routed.data) continue;
     success++;
-    source = routed.source;
+    bumpProviderCount(sourceCounts, routed.source);
+    if (routed.source === 'CACHE') cacheSamples.push(routed.data);
     if (routed.data.foreignNetBuy + routed.data.institutionalNetBuy === 0) zero++;
   }
   const total = targets.length;
+  const missing = Math.max(0, total - success);
   const zeroSuspicious = isZeroFilledSuspicious(zero, total);
-  const marker: Marker = total === 0 ? 'MISSING' : success === 0 ? 'NEUTRAL' : zeroSuspicious ? 'DEGRADED' : 'OK';
+  const cacheAges = cacheSamples.map((sample) => cacheAgeMs(sample, nowMs)).filter((age): age is number => age !== null);
+  const staleCache = cacheAges.filter((age) => age > INVESTOR_FLOW_CACHE_STALE_DAYS * DAY_MS).length;
+  const oldestCacheAge = cacheAges.length > 0 ? Math.max(...cacheAges) : null;
+  const cacheDates = [...new Set(cacheSamples.map(cacheDate))].filter((v) => v !== 'N/A');
+  const partial = total > 0 && success > 0 && success < total;
+  const marker: Marker = total === 0 ? 'MISSING' : success === 0 ? 'NEUTRAL' : zeroSuspicious || partial ? 'DEGRADED' : staleCache > 0 ? 'STALE' : 'OK';
+  const riskReason = zeroSuspicious
+    ? zeroFilledRiskReason(zero, total)
+    : partial
+      ? `coverage ${success}/${total}`
+      : staleCache > 0
+        ? `CACHE stale ${staleCache}/${cacheSamples.length}, oldest ${formatAgo(oldestCacheAge)}`
+        : undefined;
   return {
     key: 'investorFlow', title: '기관/외인 수급', marker,
-    riskReason: zeroSuspicious ? zeroFilledRiskReason(zero, total) : undefined,
+    riskReason,
     zeroSuspect: { count: zero, total },
     lines: [
-      `source: ${source ?? 'POLICY_ROUTER'}`,
-      `status: ${marker === 'OK' ? 'OK' : 'PROVIDER_MISMATCH'}`,
+      `source: ${formatProviderCounts(sourceCounts)}`,
+      `status: ${marker}`,
       `success: ${success}/${total}`,
-      'stale: 0',
+      `missing: ${missing}`,
+      `stale: ${staleCache}`,
+      `cache: ${cacheSamples.length}/${total}${oldestCacheAge !== null ? `, oldest=${formatAgo(oldestCacheAge)}` : ''}${cacheDates.length > 0 ? `, dates=${cacheDates.join(',')}` : ''}`,
       `zero-filled 의심: ${zeroWarn(zero, total)}`,
       `providerTried: ${attemptSummaries[0] ?? 'N/A'}`,
       ...(attemptSummaries.length > 1 ? [`providerTried2: ${attemptSummaries[1]}`] : []),
@@ -137,13 +177,13 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
   }
   const total = targets.length, missing = Math.max(0, total - success);
   const zeroSuspicious = isZeroFilledSuspicious(zero, total);
-  const marker: Marker = total === 0 || success === 0 ? 'MISSING' : zeroSuspicious ? 'DEGRADED' : 'OK';
+  const marker: Marker = total === 0 || success === 0 ? 'MISSING' : zeroSuspicious || missing > 0 ? 'DEGRADED' : 'OK';
   const rawDiagLine = zeroSuspicious && firstTargetCode(targets) ? formatKisRawSupplyDiagnostic(await diagnoseKisStockProgramRaw(firstTargetCode(targets) as string, 'MEDIUM')) : null;
   return {
     key: 'stockProgram', title: '종목 프로그램매매', marker,
     riskReason: marker === 'MISSING' ? '조회 성공 0건' : zeroSuspicious ? zeroFilledRiskReason(zero, total) : missing > 0 ? `missing ${missing}` : undefined,
     zeroSuspect: { count: zero, total },
-    lines: ['source: KIS_API', `success: ${success}/${total}`, `missing: ${missing}`, `zero-filled 의심: ${zeroWarn(zero, total)}`, zeroSuspicious ? '판정: DEGRADED — 프로그램 수급 점수 입력 제외 권장' : '판정: OK', ...(rawDiagLine ? [rawDiagLine] : []), '상세: /program_today'],
+    lines: ['source: KIS_API', `success: ${success}/${total}`, `missing: ${missing}`, `zero-filled 의심: ${zeroWarn(zero, total)}`, marker === 'OK' ? '판정: OK' : `판정: ${marker} — 프로그램 수급 coverage/zero-filled 확인 필요`, ...(rawDiagLine ? [rawDiagLine] : []), '상세: /program_today'],
   };
 }
 
@@ -200,8 +240,9 @@ function diagnoseForeignerRatio(targets: WatchlistEntry[], nowMs: number): Chann
   }
   const total = targets.length;
   if (total > 0 && seriesCount === 0) return { key: 'foreignerRatioTrend', title: '외인 보유율 추세', marker: 'NEUTRAL', lines: ['source: NAVER', 'status: COLLECTION_EMPTY', `series: ${seriesCount}/${total}`, `stale: ${stale}`, '판정: 시계열 미누적 — 점수 제외', '수집: aiUniverseService / negative cache 해제 / warm-up', '상세: /foreigner_trend'] };
-  const marker: Marker = total === 0 ? 'MISSING' : stale > 0 ? 'STALE' : 'OK';
-  return { key: 'foreignerRatioTrend', title: '외인 보유율 추세', marker, riskReason: marker === 'STALE' ? `stale ${stale}/${seriesCount}` : marker === 'MISSING' ? 'watchlist 없음' : undefined, lines: ['source: NAVER', `series: ${seriesCount}/${total}`, `stale: ${stale}`, '상세: /foreigner_trend'] };
+  const partial = total > 0 && seriesCount > 0 && seriesCount < total;
+  const marker: Marker = total === 0 ? 'MISSING' : stale > 0 ? 'STALE' : partial ? 'DEGRADED' : 'OK';
+  return { key: 'foreignerRatioTrend', title: '외인 보유율 추세', marker, riskReason: marker === 'STALE' ? `stale ${stale}/${seriesCount}` : marker === 'DEGRADED' ? `coverage ${seriesCount}/${total}` : marker === 'MISSING' ? 'watchlist 없음' : undefined, lines: ['source: NAVER', `series: ${seriesCount}/${total}`, `stale: ${stale}`, '상세: /foreigner_trend'] };
 }
 
 function diagnoseMargin(macro: MacroState | null, nowMs: number): ChannelStatus {
@@ -217,6 +258,7 @@ function buildRiskTop3(channels: ChannelStatus[]): string[] {
   const risks: string[] = [];
   for (const channel of channels) if (channel.zeroSuspect && isZeroFilledSuspicious(channel.zeroSuspect.count, channel.zeroSuspect.total)) risks.push(`- 🟠 ${channel.title}: ${zeroFilledRiskReason(channel.zeroSuspect.count, channel.zeroSuspect.total)}`);
   for (const channel of channels) if (channel.marker !== 'OK' && channel.marker !== 'N/A' && channel.marker !== 'NEUTRAL') risks.push(`- ${markerIcon(channel.marker)} ${channel.title}: ${channel.riskReason ?? channel.marker}`);
+  for (const channel of channels) if (channel.marker === 'NEUTRAL') risks.push(`- ${markerIcon(channel.marker)} ${channel.title}: ${channel.riskReason ?? '점수 제외/관찰 필요'}`);
   for (const channel of channels) if (channel.marker === 'N/A') risks.push(`- ${markerIcon(channel.marker)} ${channel.title}: ${channel.riskReason ?? channel.marker}`);
   return risks.slice(0, 3);
 }
@@ -247,7 +289,7 @@ export async function buildSupplyHealthMessage(now: Date = new Date()): Promise<
   const watchlist = loadWatchlist();
   const targets = selectTopWatchlist(TOP_N);
   const macro = loadMacroStateReadOnly();
-  const channels = [await diagnoseInvestorFlow(targets), await diagnoseStockProgram(targets), await diagnoseMarketProgram(macro, nowMs), diagnoseFss(macro, nowMs), await diagnoseShort(macro, nowMs), diagnoseForeignerRatio(targets, nowMs), diagnoseMargin(macro, nowMs)];
+  const channels = [await diagnoseInvestorFlow(targets, now, nowMs), await diagnoseStockProgram(targets), await diagnoseMarketProgram(macro, nowMs), diagnoseFss(macro, nowMs), await diagnoseShort(macro, nowMs), diagnoseForeignerRatio(targets, nowMs), diagnoseMargin(macro, nowMs)];
   const message = renderMessage(channels, formatTargetLine(watchlist.length, targets.length), '캐시: fresh');
   cache = { message, builtAt: nowMs };
   return message;

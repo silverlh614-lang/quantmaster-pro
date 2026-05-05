@@ -17,6 +17,7 @@ import {
   loadInvestorFlowCache as loadInvestorFlowCacheFromRepo,
   upsertInvestorFlowCache,
 } from '../persistence/investorFlowCacheRepo.js';
+import { isTradingDay } from '../utils/marketDayClassifier.js';
 import type { SupplyProvider } from './supplyProviderPolicy.js';
 
 export interface InvestorFlowSample {
@@ -26,6 +27,7 @@ export interface InvestorFlowSample {
   individualNetBuy: number;
   provider: Extract<SupplyProvider, 'KRX_INVESTOR_FLOW' | 'NAVER_INVESTOR_TREND' | 'CACHE'>;
   fetchedAt: string;
+  tradingDate?: string;
 }
 
 export type InvestorFlowAttemptStatus =
@@ -63,6 +65,7 @@ const KRX_INVESTOR_FLOW_MIN_SAMPLE = 1;
 const ATTEMPT_REASON_MAX_LEN = 220;
 const KRX_INVESTOR_CALL_START_MIN = 9 * 60;
 const KRX_INVESTOR_CALL_END_MIN = 15 * 60 + 30;
+const KST_OFFSET_MS = 9 * 60 * 60_000;
 
 function hasRealInvestorFields(value: unknown): value is { foreignNetBuy: number; institutionalNetBuy: number; individualNetBuy: number } {
   if (!value || typeof value !== 'object') return false;
@@ -76,36 +79,41 @@ function normalizeCode(code: string): string {
 }
 
 function nowKstParts(now = new Date()): { dow: number; minutes: number; label: string } {
-  const kst = new Date(now.getTime() + 9 * 60 * 60_000);
+  const kst = new Date(now.getTime() + KST_OFFSET_MS);
   const dow = kst.getUTCDay();
   const hh = kst.getUTCHours();
   const mm = kst.getUTCMinutes();
   return { dow, minutes: hh * 60 + mm, label: `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} KST` };
 }
 
+function toKstDateYmd(now = new Date()): string {
+  return new Date(now.getTime() + KST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+function shiftYmd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const t = Date.UTC(y, m - 1, d) + days * 86_400_000;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
 function isKrxInvestorCallWindow(now = new Date()): boolean {
   const kst = nowKstParts(now);
   if (kst.dow === 0 || kst.dow === 6) return false;
+  if (!isTradingDay(toKstDateYmd(now))) return false;
   return kst.minutes >= KRX_INVESTOR_CALL_START_MIN && kst.minutes <= KRX_INVESTOR_CALL_END_MIN;
 }
 
 function previousBusinessDayYmd(now: Date, offset: number): string {
-  const t = new Date(now.getTime());
+  let cursor = toKstDateYmd(now);
   let consumed = 0;
-  while (consumed <= offset) {
-    if (consumed > 0) t.setUTCDate(t.getUTCDate() - 1);
-    const dow = t.getUTCDay();
-    if (dow !== 0 && dow !== 6) {
-      if (consumed === offset) break;
+  for (let i = 0; i < 32; i += 1) {
+    if (isTradingDay(cursor)) {
+      if (consumed === offset) return cursor.replace(/-/g, '');
       consumed += 1;
-    } else {
-      t.setUTCDate(t.getUTCDate() - 1);
     }
+    cursor = shiftYmd(cursor, -1);
   }
-  const y = t.getUTCFullYear();
-  const m = String(t.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(t.getUTCDate()).padStart(2, '0');
-  return `${y}${m}${d}`;
+  return cursor.replace(/-/g, '');
 }
 
 function ymdToDate(ymd: string): string {
@@ -116,12 +124,12 @@ function sampleCodes(codes: string[]): string {
   return codes.length > 0 ? codes.slice(0, 6).join(',') : 'NONE';
 }
 
-async function fetchKrxInvestorFlow(code: string): Promise<KrxLookupResult> {
+async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<KrxLookupResult> {
   const safeCode = normalizeCode(code);
   if (!/^\d{6}$/.test(safeCode)) return { data: null, diagnostic: `invalid_code:${code}`, unavailable: false, offHours: false };
 
-  if (!isKrxInvestorCallWindow()) {
-    const kst = nowKstParts();
+  if (!isKrxInvestorCallWindow(now)) {
+    const kst = nowKstParts(now);
     return {
       data: null,
       diagnostic: `code=${safeCode};window=09:00-15:30 KST;now=${kst.label};reason=KRX_PUBLIC_CALL_SKIPPED_OFF_HOURS`,
@@ -139,8 +147,6 @@ async function fetchKrxInvestorFlow(code: string): Promise<KrxLookupResult> {
   const datesTried: string[] = [];
   const sampleCodeSet = new Set<string>();
   const emptyDates: string[] = [];
-  const now = new Date();
-
   for (let i = 0; i < KRX_INVESTOR_FLOW_DAYS; i += 1) {
     const ymd = previousBusinessDayYmd(now, i);
     datesTried.push(ymd);
@@ -181,6 +187,7 @@ async function fetchKrxInvestorFlow(code: string): Promise<KrxLookupResult> {
     individualNetBuy,
     provider: 'KRX_INVESTOR_FLOW',
     fetchedAt: new Date().toISOString(),
+    tradingDate: latestDate,
   };
 
   upsertInvestorFlowCache({
@@ -202,8 +209,8 @@ async function fetchNaverInvestorTrend(_code: string): Promise<InvestorFlowSampl
   return null;
 }
 
-async function loadInvestorFlowCache(code: string): Promise<InvestorFlowSample | null> {
-  return loadInvestorFlowCacheFromRepo(code);
+async function loadInvestorFlowCache(code: string, now = new Date()): Promise<InvestorFlowSample | null> {
+  return loadInvestorFlowCacheFromRepo(code, toKstDateYmd(now));
 }
 
 function pushAttempt(attempts: InvestorFlowAttempt[], provider: SupplyProvider, status: InvestorFlowAttemptStatus, reason?: string): void {
@@ -221,11 +228,11 @@ export function summarizeInvestorFlowAttempts(attempts: InvestorFlowAttempt[]): 
     .join(' / ');
 }
 
-export async function fetchInvestorFlowWithPolicy(code: string): Promise<InvestorFlowRouteResult> {
+export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()): Promise<InvestorFlowRouteResult> {
   const attempts: InvestorFlowAttempt[] = [];
 
   try {
-    const krx = await fetchKrxInvestorFlow(code);
+    const krx = await fetchKrxInvestorFlow(code, now);
     if (krx.data && hasRealInvestorFields(krx.data)) {
       pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'OK', krx.diagnostic);
       return { stockCode: code, data: krx.data, attempts, status: 'OK', source: 'KRX_INVESTOR_FLOW' };
@@ -247,7 +254,7 @@ export async function fetchInvestorFlowWithPolicy(code: string): Promise<Investo
   }
 
   try {
-    const cached = await loadInvestorFlowCache(code);
+    const cached = await loadInvestorFlowCache(code, now);
     if (cached && hasRealInvestorFields(cached)) {
       pushAttempt(attempts, 'CACHE', 'OK');
       return { stockCode: code, data: cached, attempts, status: 'OK', source: 'CACHE' };

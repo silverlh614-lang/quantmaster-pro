@@ -37,6 +37,25 @@ function makeWatchlist(count: number): unknown[] {
   });
 }
 
+function writeInvestorFlowCache(dir: string, codes: string[], opts: { zero?: boolean; fetchedAt?: string; date?: string } = {}): void {
+  const zero = opts.zero ?? false;
+  const fetchedAt = opts.fetchedAt ?? '2026-05-01T00:30:00.000Z';
+  const date = opts.date ?? '2026-04-30';
+  const cache: Record<string, unknown[]> = {};
+  for (const code of codes) {
+    cache[code] = [{
+      stockCode: code,
+      date,
+      foreignNetBuy: zero ? 0 : 100,
+      institutionalNetBuy: zero ? 0 : 200,
+      individualNetBuy: zero ? 0 : -300,
+      provider: 'KRX_INVESTOR_FLOW',
+      fetchedAt,
+    }];
+  }
+  writeJson(path.join(dir, 'investor-flow-cache.json'), cache);
+}
+
 async function importCommand() {
   const registry = await import('../../../commandRegistry.js');
   registry.commandRegistry.__resetForTests();
@@ -101,7 +120,7 @@ describe('/supply_health command', () => {
     expect(stockProgramMock).toHaveBeenCalledTimes(10);
     const investorCodes = investorMock.mock.calls.map((c) => c[0]);
     expect(investorCodes).toEqual(['100012', '100011', '100010', '100009', '100008', '100007', '100006', '100005', '100004', '100003']);
-    expect(investorMock.mock.calls.every((c) => c[1] === 'MEDIUM')).toBe(true);
+    expect(investorMock.mock.calls.every((c) => c[1] === 'LOW')).toBe(true);
     expect(stockProgramMock.mock.calls.every((c) => c[1] === 'MEDIUM')).toBe(true);
   });
 
@@ -120,6 +139,7 @@ describe('/supply_health command', () => {
 
   it('zero-filled 의심 3/10 이상이면 경고 표시', async () => {
     writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
+    writeInvestorFlowCache(tmpDir, Array.from({ length: 10 }, (_, i) => String(100001 + i)), { zero: true });
     investorMock.mockResolvedValue({ foreignNetBuy: 0, institutionalNetBuy: 0, individualNetBuy: 0, source: 'KIS_API' });
     stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
     marketProgramMock.mockResolvedValue(null);
@@ -128,11 +148,30 @@ describe('/supply_health command', () => {
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
     expect(msg).toContain('zero-filled 의심: 10/10 ⚠️');
-    expect(msg).toContain('⚠️ 기관/외인 수급: zero-filled 의심 10/10');
+    expect(msg).toContain('🟠 기관/외인 수급: zero-filled 의심 10/10');
+    expect(msg).toContain('cache: 10/10');
+  });
+
+  it('기관/외인 CACHE age가 오래되면 STALE로 표시', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
+    writeInvestorFlowCache(tmpDir, Array.from({ length: 10 }, (_, i) => String(100001 + i)), {
+      fetchedAt: '2026-04-27T00:00:00.000Z',
+    });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
+
+    expect(msg).toContain('1. 🟡 기관/외인 수급');
+    expect(msg).toContain('status: STALE');
+    expect(msg).toContain('stale: 10');
+    expect(msg).toContain('CACHE stale 10/10');
   });
 
   it('OK / STALE / MISSING 마커와 상세 명령 안내 표시', async () => {
     writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
+    writeInvestorFlowCache(tmpDir, Array.from({ length: 10 }, (_, i) => String(100001 + i)));
     writeJson(path.join(tmpDir, 'fss-records.json'), [
       { date: '2026-04-20', passiveNetBuy: 1, activeNetBuy: 1 },
     ]);
@@ -154,8 +193,7 @@ describe('/supply_health command', () => {
     expect(msg).toContain('1. 🟢 기관/외인 수급');
     expect(msg).toContain('2. 🔴 종목 프로그램매매');
     expect(msg).toContain('4. 🟡 FSS Passive/Active');
-    // ADR-0145: macroState 에 shortSelling 필드가 없으면 ⚪ N/A 가 아닌 🔴 MISSING.
-    expect(msg).toContain('5. 🔴 공매도/대차잔고');
+    expect(msg).toContain('5. ⚪ 공매도/대차잔고');
     expect(msg).toContain('상세: /program_today');
     expect(msg).toContain('상세: /program_market');
     expect(msg).toContain('상세: /fss_status');
@@ -167,6 +205,7 @@ describe('/supply_health command', () => {
 
   it('하단 상세는 7채널 고정 순서로 출력', async () => {
     writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
+    writeInvestorFlowCache(tmpDir, Array.from({ length: 10 }, (_, i) => String(100001 + i)));
     investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
     stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
     marketProgramMock.mockResolvedValue(null);
@@ -176,16 +215,15 @@ describe('/supply_health command', () => {
 
     expect(msg.indexOf('1. 🟢 기관/외인 수급')).toBeLessThan(msg.indexOf('2. 🟢 종목 프로그램매매'));
     expect(msg.indexOf('2. 🟢 종목 프로그램매매')).toBeLessThan(msg.indexOf('3. 🔴 시장 프로그램매매'));
-    expect(msg.indexOf('3. 🔴 시장 프로그램매매')).toBeLessThan(msg.indexOf('4. 🔴 FSS Passive/Active'));
-    // ADR-0145: macro-state 파일이 없는 케이스 → 공매도도 🔴 MISSING.
-    expect(msg.indexOf('4. 🔴 FSS Passive/Active')).toBeLessThan(msg.indexOf('5. 🔴 공매도/대차잔고'));
-    expect(msg.indexOf('5. 🔴 공매도/대차잔고')).toBeLessThan(msg.indexOf('6. 🔴 외인 보유율 추세'));
-    expect(msg.indexOf('6. 🔴 외인 보유율 추세')).toBeLessThan(msg.indexOf('7. 🔴 신용잔고'));
+    expect(msg.indexOf('3. 🔴 시장 프로그램매매')).toBeLessThan(msg.indexOf('4. ⚪ FSS Passive/Active'));
+    expect(msg.indexOf('4. ⚪ FSS Passive/Active')).toBeLessThan(msg.indexOf('5. ⚪ 공매도/대차잔고'));
+    expect(msg.indexOf('5. ⚪ 공매도/대차잔고')).toBeLessThan(msg.indexOf('6. ⚪ 외인 보유율 추세'));
+    expect(msg.indexOf('6. ⚪ 외인 보유율 추세')).toBeLessThan(msg.indexOf('7. ⚪ 신용잔고'));
   });
 
   // ADR-0145: 4-way 분기 (MISSING / KIS_ESTIMATE STALE / age STALE / OK)
 
-  it('ADR-0145 — macroState shortSellingSource 부재 시 MISSING', async () => {
+  it('ADR-0145 — macroState shortSellingSource 부재 시 NEUTRAL 점수 제외', async () => {
     writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(1));
     writeJson(path.join(tmpDir, 'macro-state.json'), {
       // shortSelling* 필드 모두 부재
@@ -200,8 +238,8 @@ describe('/supply_health command', () => {
 
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
-    expect(msg).toContain('5. 🔴 공매도/대차잔고');
-    expect(msg).toContain('macroState 결손');
+    expect(msg).toContain('5. ⚪ 공매도/대차잔고');
+    expect(msg).toContain('PROVIDER_UNAVAILABLE');
     expect(msg).toContain('source: N/A');
     expect(msg).toContain('ratio: N/A');
   });
@@ -305,6 +343,7 @@ describe('/supply_health command', () => {
 
   it('개별 KIS 실패가 전체 명령 실패로 전파되지 않음', async () => {
     writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
+    writeInvestorFlowCache(tmpDir, Array.from({ length: 9 }, (_, i) => String(100001 + i)));
     investorMock.mockImplementation((code: string) => {
       if (code === '100010') throw new Error('boom');
       return { foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' };

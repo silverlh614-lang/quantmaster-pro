@@ -9,13 +9,14 @@ import {
 describe('krxTradingCalendar', () => {
   it('skips weekend and configured KRX holidays', () => {
     expect(isKrxTradingDay('2026-05-04')).toBe(true);
+    expect(isKrxTradingDay('2026-05-01')).toBe(false);
     expect(isKrxTradingDay('2026-05-05')).toBe(false);
     expect(isKrxTradingDay('2026-05-02')).toBe(false);
   });
 
   it('resolves previous KRX trading day across weekend/holiday gap', () => {
     const now = new Date('2026-05-04T02:00:00.000Z');
-    expect(previousKrxTradingDay(now)).toBe('2026-05-01');
+    expect(previousKrxTradingDay(now)).toBe('2026-04-30');
   });
 
   it('accepts recent daily base but rejects deeper stale base', () => {
