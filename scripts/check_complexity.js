@@ -54,12 +54,14 @@ const DEFAULT_TARGETS = ['src/App.tsx'];
  *
  * 분해 진행 상황:
  *   ✅ server/trading/signalScanner/perSymbolEvaluation.ts (1617→30 LoC) — PR-Refactor-2 (ADR-0134) 완료, 본 카탈로그에서 정식 제거.
+ *   ⏳ server/trading/signalScanner/perSymbol/buyListLoop.ts (1606 LoC) — Phase B 분해 진행 중. PR-B12-A (2026-05-05, ADR-0184) 시점 등재.
+ *      perSymbolEvaluation.ts 분해 (PR-Refactor-2) 후속으로 evaluateBuyList 메인 루프 자체를 작은 단위로 추가 분해 예정. 분해 PR 머지 시 본 카탈로그에서 정식 제거.
  *
  * NOTE: explicit 인자 모드 (예: `node scripts/check_complexity.js path/to.ts`) 는
  * BASELINE 무시 — 명시 호출은 *강제 검증*. PR 마이그레이션 검증 시 사용.
  */
 const BASELINE_TECHNICAL_DEBT = [
-  // (현재 1500줄+ 위반 0건)
+  'server/trading/signalScanner/perSymbol/buyListLoop.ts',
 ];
 
 function isBaseline(file) {
