@@ -415,10 +415,13 @@ describe('PriceBase + isStaleBase (ADR-0028 §PR-D3-A)', () => {
 
   it('isStaleBase — 정확히 임계값 boundary (DAILY 3일 정확) → false (초과만 stale)', async () => {
     const { isStaleBase } = await import('./safePctChange.js');
+    // ADR-0190: mode='DAILY' + KR 일봉 출처는 KRX 거래일 grace 우선 적용. 본 케이스는
+    // 1ms calendar boundary 의도이므로 staleAfterDays override 명시로 calendar 일 비교 강제.
     const exact = {
       value: 100,
       asOf: new Date(NOW.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(),
       source: 'KIS_DAILY' as const,
+      staleAfterDays: 3,
     };
     expect(isStaleBase(exact, 'DAILY', NOW)).toBe(false);
     // 1ms 더 → stale

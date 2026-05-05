@@ -504,22 +504,35 @@ describe('fetchYahooQuote', () => {
     });
 
     it('PR-D3-D-2: prevClose timestamp *5일 전* → DAILY 3일 임계 초과 → STALE_BASE', async () => {
-      const N = 80;
-      const now = Date.now();
-      const dayMs = 24 * 60 * 60 * 1000;
-      // closes[N-2] (prevClose) timestamp 만 *5일 전*
-      const timestamps = Array.from({ length: N }, (_, i) => {
-        if (i === N - 2) return Math.floor((now - 5 * dayMs) / 1000);
-        return Math.floor((now - (N - 1 - i) * dayMs) / 1000);
-      });
-      (guardedFetch as any).mockResolvedValue(makeYahooResponse({ timestamps }));
-      const result = await fetchYahooQuote('PR-D3D2-STALE.KS');
-      expect(result!.changePercent).toBe(0); // STALE_BASE 차단
-      const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
-      expect(warnMsg).toContain('STALE_BASE_AGE @yahooQuoteAdapter.changePercent:PR-D3D2-STALE.KS');
-      expect(warnMsg).toContain('age=5');
-      expect(warnMsg).toContain('source=YAHOO_HISTORICAL');
-      expect(warnMsg).toContain('mode=DAILY');
+      // ADR-0190: KRX 거래일 grace 정책이 default 활성화되면 5일 전 base 가 휴장일
+      // 클러스터 안에서 정상 통과될 수 있음 (5/1·5/5 등). 본 케이스는 calendar 5일
+      // boundary 의도 검증이라 ENV 우회로 legacy calendar 일 비교 강제.
+      const ORIGINAL = process.env.SAFE_PCT_CHANGE_KRX_CALENDAR_DISABLED;
+      process.env.SAFE_PCT_CHANGE_KRX_CALENDAR_DISABLED = 'true';
+      try {
+        const N = 80;
+        const now = Date.now();
+        const dayMs = 24 * 60 * 60 * 1000;
+        // closes[N-2] (prevClose) timestamp 만 *5일 전*
+        const timestamps = Array.from({ length: N }, (_, i) => {
+          if (i === N - 2) return Math.floor((now - 5 * dayMs) / 1000);
+          return Math.floor((now - (N - 1 - i) * dayMs) / 1000);
+        });
+        (guardedFetch as any).mockResolvedValue(makeYahooResponse({ timestamps }));
+        const result = await fetchYahooQuote('PR-D3D2-STALE.KS');
+        expect(result!.changePercent).toBe(0); // STALE_BASE 차단
+        const warnMsg = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+        expect(warnMsg).toContain('STALE_BASE_AGE @yahooQuoteAdapter.changePercent:PR-D3D2-STALE.KS');
+        expect(warnMsg).toContain('age=5');
+        expect(warnMsg).toContain('source=YAHOO_HISTORICAL');
+        expect(warnMsg).toContain('mode=DAILY');
+      } finally {
+        if (ORIGINAL === undefined) {
+          delete process.env.SAFE_PCT_CHANGE_KRX_CALENDAR_DISABLED;
+        } else {
+          process.env.SAFE_PCT_CHANGE_KRX_CALENDAR_DISABLED = ORIGINAL;
+        }
+      }
     });
 
     it('PR-D3-D-2: timestamps 부재 → fetch-1일 fallback → DAILY 임계 안 통과', async () => {
