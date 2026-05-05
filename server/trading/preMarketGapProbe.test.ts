@@ -70,22 +70,24 @@ describe('preMarketGapProbe — decision 분기', () => {
     expect(res.reason).toContain('데이터 오류');
   });
 
-  // ── SKIP_STALE: tradingDate 2영업일 이상 과거 ─────────────────────────
-  it('SKIP_STALE — tradingDate 가 5일 전이면 stale 스킵', async () => {
-    // 5일 전 (주말 포함해도 최소 3영업일 이상 격차)
-    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // ── SKIP_STALE: tradingDate 가 KRX 거래일 grace 초과 ─────────────────
+  // ADR-0189: NOW 시간 격리로 KRX 휴장일 영향 deterministic. 14일 전은 KRX
+  // 거래일 달력 grace (1 거래일) 를 명백히 초과 → SKIP_STALE 보장.
+  it('SKIP_STALE — tradingDate 가 14일 전이면 stale 스킵', async () => {
+    vi.setSystemTime(new Date('2026-04-22T00:00:00Z')); // KST 2026-04-22 09:00 (수, 정상 거래일)
     vi.doMock('../clients/kisClient.js', () => ({
       fetchKisPrevClose: vi.fn().mockResolvedValue({
         stockCode: '005930',
         prevClose: 70_000,
-        tradingDate: fiveDaysAgo,
+        tradingDate: '2026-04-08', // 2주 전 — KRX 거래일 grace 명백 초과
         fetchedAt: new Date().toISOString(),
       }),
     }));
     const { probePreMarketGap } = await import('./preMarketGapProbe.js');
     const res = await probePreMarketGap({ stockCode: '005930', entryPrice: 70_500 });
     expect(res.decision).toBe('SKIP_STALE');
-    expect(res.reason).toMatch(/영업일 전/);
+    expect(res.reason).toMatch(/(영업일 전|KRX 거래일 stale)/);
+    vi.useRealTimers();
   });
 
   // ── SKIP_NO_DATA: fetchKisPrevClose 실패 ──────────────────────────────

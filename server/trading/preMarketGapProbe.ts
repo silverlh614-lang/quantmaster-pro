@@ -5,9 +5,14 @@
  * preMarketOrderPrep() 가 각 워치리스트 종목에 대해 probe 를 호출하고
  * decision 에 따라 주문 진행/경보/스킵을 결정한다.
  *
+ * ADR-0189: stale 분기를 KRX 거래일 달력 SSOT (`isAcceptableKrxDailyBase`) 경유.
+ * `businessDaysBetween()` 의 KRX 휴장일 미반영 결함 차단 — 5/1 근로자의 날, 5/5 어린이날
+ * 같은 휴장일이 끼는 시점에 정상 전일종가가 SKIP_STALE 로 잘못 분류되던 경로 종결.
+ * ENV `PRE_MARKET_GAP_KRX_CALENDAR_DISABLED=true` 시 legacy 동작 (회귀 격리).
+ *
  * 결정 규칙:
  *   - fetchKisPrevClose 실패       → SKIP_NO_DATA
- *   - tradingDate 2영업일 이상 과거 → SKIP_STALE
+ *   - KRX 거래일 달력 stale         → SKIP_STALE (ADR-0189 default)
  *   - |gapPct| >= 30              → SKIP_DATA_ERROR (명백한 데이터 오류)
  *   - |gapPct| >= 2               → WARN (진행 — 갭 경보만 부착)
  *   - 그 외                        → PROCEED
@@ -15,6 +20,7 @@
 
 import { fetchKisPrevClose } from '../clients/kisClient.js';
 import { safePctChange } from '../utils/safePctChange.js';
+import { isAcceptableKrxDailyBase } from '../calendar/krxTradingCalendar.js';
 
 // ── 임계값 ────────────────────────────────────────────────────────────────────
 
@@ -48,12 +54,30 @@ export interface GapProbeResult {
   tradingDate?: string;
 }
 
+// ── ENV 우회 (ADR-0189) ──────────────────────────────────────────────────────
+
+/**
+ * KRX 거래일 달력 SSOT 적용 비활성화 ENV gate.
+ * default OFF (정책 적용) — 운영 회귀 발견 시 ENV 1줄 즉시 롤백 → legacy
+ * `businessDaysBetween()` 분기 동작.
+ *
+ * ADR-0157 정확 비교 의무 — `=== 'true'` 만, `'1'`/`'TRUE'`/`'yes'` 거부.
+ */
+export function isPreMarketGapKrxCalendarDisabled(): boolean {
+  return process.env.PRE_MARKET_GAP_KRX_CALENDAR_DISABLED === 'true';
+}
+
 // ── 영업일 계산 ──────────────────────────────────────────────────────────────
 
 /**
  * 오늘 KST 기준 tradingDate 와의 영업일 격차 (오늘=0, 어제=1, 그저께=2, ...).
  * 토·일은 건너뛴다. 한국 공휴일은 별도 달력 없이 주말만 반영 — 공휴일 당일은
  * "어제"처럼 보이지만 실제로는 2영업일 전일 수 있으므로 경계 오차 1일 허용.
+ *
+ * ADR-0189: 이 함수의 KRX 휴장일 미반영 결함이 정상 전일종가를 SKIP_STALE 로
+ * 오분류하던 결함 차단을 위해 default 경로는 `isAcceptableKrxDailyBase()` 사용.
+ * 본 함수는 ENV `PRE_MARKET_GAP_KRX_CALENDAR_DISABLED=true` 시 legacy 분기 +
+ * 진단 로그용으로 보존.
  */
 export function businessDaysBetween(tradingDate: string, now: Date = new Date()): number {
   // KST 오늘 YYYY-MM-DD
@@ -111,16 +135,38 @@ export async function probePreMarketGap(input: GapProbeInput): Promise<GapProbeR
     };
   }
 
-  const stalenessDays = businessDaysBetween(prev.tradingDate);
-  if (stalenessDays >= MAX_STALENESS_BUSINESS_DAYS) {
-    return {
-      stockCode,
-      prevClose: prev.prevClose,
-      gapPct: null,
-      decision: 'SKIP_STALE',
-      reason: `전일종가 ${stalenessDays}영업일 전 (${prev.tradingDate})`,
-      tradingDate: prev.tradingDate,
-    };
+  // ADR-0189: KRX 거래일 달력 SSOT 우선 — 5/1 근로자의 날·5/5 어린이날 같은
+  // KRX 휴장일이 끼는 구간에서 `businessDaysBetween()` 가 휴장일을 weekday 로
+  // 카운트해 정상 전일종가를 SKIP_STALE 로 오분류하던 결함 차단.
+  // ENV `PRE_MARKET_GAP_KRX_CALENDAR_DISABLED=true` 시 legacy 분기 (회귀 격리).
+  if (isPreMarketGapKrxCalendarDisabled()) {
+    const stalenessDays = businessDaysBetween(prev.tradingDate);
+    if (stalenessDays >= MAX_STALENESS_BUSINESS_DAYS) {
+      return {
+        stockCode,
+        prevClose: prev.prevClose,
+        gapPct: null,
+        decision: 'SKIP_STALE',
+        reason: `전일종가 ${stalenessDays}영업일 전 (${prev.tradingDate})`,
+        tradingDate: prev.tradingDate,
+      };
+    }
+  } else {
+    // 장 마감 시각 (15:30 KST) 기준으로 ISO 합성 — `toKstDateKey` 가 +9h 오프셋 후
+    // YYYY-MM-DD 절단이라 자정·정오·장마감 모두 동일 일자 반환. KRX 거래일 정합.
+    const baseAsOf = `${prev.tradingDate}T15:30:00+09:00`;
+    if (!isAcceptableKrxDailyBase(baseAsOf)) {
+      // 진단 로그용 영업일 격차 (legacy `businessDaysBetween()` — KRX 휴장일 미반영)
+      const stalenessDays = businessDaysBetween(prev.tradingDate);
+      return {
+        stockCode,
+        prevClose: prev.prevClose,
+        gapPct: null,
+        decision: 'SKIP_STALE',
+        reason: `전일종가 KRX 거래일 stale (${prev.tradingDate}, ~${stalenessDays}영업일 전)`,
+        tradingDate: prev.tradingDate,
+      };
+    }
   }
 
   // ADR-0059: 공통 안전 헬퍼로 sanity bound (±90%) 자동 적용 — entryPrice 또는
