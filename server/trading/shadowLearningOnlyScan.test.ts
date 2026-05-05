@@ -398,12 +398,12 @@ describe('호출자 제한 (signalScanner helper만 허용)', () => {
     // ENV gate 통과 시에만 runShadowLearningOnlyScan 호출. 안전 invariant 7종 (ADR-0183 §3)
     // 준수 확인은 server/trading/signalScannerAdr0183Wiring.test.ts 의 22 케이스에서.
     const src = readSrcSafely(
-      path.resolve(__dirname, 'signalScanner.ts'),
+      path.resolve(__dirname, 'signalScanner/preflight.ts'),
     );
     expect(src).not.toBeNull();
     if (src !== null) {
       // ADR-0183 wiring 정합 — 정확 1 import + 정확 1 helper 호출 + 정확 4 site 호출
-      expect(src).toMatch(/from ['"]\.\/shadowLearningOnlyScan\.js['"]/);
+      expect(src).toMatch(/from ['"]\.\.\/shadowLearningOnlyScan\.js['"]/);
       const helperCalls = src.match(/runShadowLearningOnlyScan\(/g);
       expect(helperCalls).not.toBeNull();
       expect(helperCalls!.length).toBe(1);  // helper 안 단일 호출

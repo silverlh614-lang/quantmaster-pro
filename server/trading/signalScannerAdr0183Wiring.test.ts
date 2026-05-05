@@ -5,13 +5,13 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 
-const SCANNER_PATH = path.resolve(__dirname, 'signalScanner.ts');
+const SCANNER_PATH = path.resolve(__dirname, 'signalScanner/preflight.ts');
 const src = fs.readFileSync(SCANNER_PATH, 'utf-8');
 
 describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', () => {
   describe('SSOT 헬퍼 import + 정의', () => {
     it('isShadowLearningOnBlockedDaysEnabled / runShadowLearningOnlyScan import', () => {
-      expect(src).toContain("from './shadowLearningOnlyScan.js'");
+      expect(src).toContain("from '../shadowLearningOnlyScan.js'");
       expect(src).toMatch(/isShadowLearningOnBlockedDaysEnabled[\s,]/);
       expect(src).toMatch(/runShadowLearningOnlyScan[\s,]/);
     });
@@ -114,28 +114,28 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
       const next200 = sellOnlyBlock!.slice(0, 200);
       expect(next200).toContain('await updateShadowResults(shadows, regime)');
       expect(next200).toContain('saveShadowTrades(shadows)');
-      expect(next200).toContain('return {}');
+      expect(next200).toContain('return { shouldAbort: true, skipPersist: true }');
     });
 
     it('R6_DEFENSE early-return 직전 호출', () => {
       const r6Block = src.split("recordBlockedDayShadowScan('RISK_OFF_REGIME')")[1];
       const next200 = r6Block!.slice(0, 200);
       expect(next200).toContain('await updateShadowResults(shadows, regime)');
-      expect(next200).toContain('return {}');
+      expect(next200).toContain('return { shouldAbort: true, skipPersist: true }');
     });
 
     it('VIX early-return 직전 호출', () => {
       const vixBlock = src.split("recordBlockedDayShadowScan('VIX_SPIKE')")[1];
       const next200 = vixBlock!.slice(0, 200);
       expect(next200).toContain('await updateShadowResults(shadows, regime)');
-      expect(next200).toContain('return {}');
+      expect(next200).toContain('return { shouldAbort: true, skipPersist: true }');
     });
 
     it('FOMC early-return 직전 호출', () => {
       const fomcBlock = src.split("recordBlockedDayShadowScan('FOMC_BLOCK')")[1];
       const next200 = fomcBlock!.slice(0, 200);
       expect(next200).toContain('await updateShadowResults(shadows, regime)');
-      expect(next200).toContain('return {}');
+      expect(next200).toContain('return { shouldAbort: true, skipPersist: true }');
     });
   });
 

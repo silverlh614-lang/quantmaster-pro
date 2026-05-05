@@ -43,6 +43,7 @@ vi.mock('../persistence/shadowAccountRepo.js', () => ({
 
 vi.mock('../screener/watchlistManager.js', () => ({
   computeFocusCodes: vi.fn(() => new Set<string>()),
+  assignSection: vi.fn((entry: { section?: string }) => entry.section ?? 'MOMENTUM'),
 }));
 
 vi.mock('../screener/stockScreener.js', () => ({
@@ -104,6 +105,7 @@ vi.mock('../../src/services/quant/sellEngine.js', () => ({
 import { runDryRunScan } from './dryRunScanner.js';
 import { fetchAccountBalance } from '../clients/kisClient.js';
 import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
+import { loadWatchlist } from '../persistence/watchlistRepo.js';
 
 describe('dryRunScanner — PR-5 #11 SHADOW account isolation', () => {
   const ORIGINAL_ENV = { ...process.env };
@@ -156,5 +158,28 @@ describe('dryRunScanner — PR-5 #11 SHADOW account isolation', () => {
 
     expect(fetchAccountBalance).not.toHaveBeenCalled();
     expect(computeShadowAccount).toHaveBeenCalledOnce();
+  });
+
+  it('실제 scanner처럼 MOMENTUM 후보도 shadow dry-run 평가 대상에 포함한다', async () => {
+    process.env.AUTO_TRADE_MODE = 'SHADOW';
+    vi.mocked(loadWatchlist).mockReturnValueOnce([
+      {
+        code: '005930',
+        name: 'SAMSUNG',
+        entryPrice: 75_000,
+        stopLoss: 71_000,
+        targetPrice: 84_000,
+        addedAt: '2026-05-04T00:00:00.000Z',
+        addedBy: 'AUTO',
+        section: 'MOMENTUM',
+        gateScore: 8,
+      },
+    ]);
+
+    const result = await runDryRunScan();
+
+    expect(result.totalCandidates).toBe(1);
+    expect(result.results[0]?.stockCode).toBe('005930');
+    expect(result.results[0]?.blockedBy).toBe('PRICE_FETCH_FAIL');
   });
 });

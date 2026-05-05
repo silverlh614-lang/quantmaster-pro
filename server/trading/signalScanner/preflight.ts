@@ -65,6 +65,7 @@ export function evaluateSellOnlyException(regimeConfig: any, macroState: any): a
   };
 }
 
+// ADR-0183: blocked-day shadow learning is isolated here so entry blocks do not call order paths.
 async function recordBlockedDayShadowScan(reason: ShadowLearningOnlyScanReason): Promise<void> {
   if (!isShadowLearningOnBlockedDaysEnabled()) return;
   try {

@@ -11,7 +11,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
-import { computeFocusCodes } from '../screener/watchlistManager.js';
+import { assignSection, computeFocusCodes } from '../screener/watchlistManager.js';
 import { fetchCurrentPrice, fetchAccountBalance } from '../clients/kisClient.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKisIntraday } from '../screener/stockScreener.js';
 import { evaluateServerGate } from '../quantFilter.js';
@@ -73,8 +73,15 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
   const regime           = getLiveRegime(macroState);
   const regimeConfig     = REGIME_CONFIGS[regime];
   const liveFocusCodes   = computeFocusCodes(watchlist);
+  for (const w of watchlist) {
+    w.section = assignSection(w, liveFocusCodes);
+  }
+  const AUTO_SHADOW_FROM_MOMENTUM = process.env.AUTO_SHADOW_FROM_MOMENTUM !== 'false';
   const buyList          = watchlist.filter(
-    w => w.addedBy === 'MANUAL' || liveFocusCodes.has(w.code),
+    (w) =>
+      w.section === 'SWING' ||
+      w.section === 'CATALYST' ||
+      (AUTO_SHADOW_FROM_MOMENTUM && w.section === 'MOMENTUM'),
   );
 
   // 자금 산정 — signalScanner.ts:284~297 패턴 정합 (PR-5 #11 follow-up)
