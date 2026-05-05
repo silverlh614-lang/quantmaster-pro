@@ -39,6 +39,7 @@ import { applyFreshnessDecayToNeutralWeightedRecord } from '../../learning/learn
 import { isOpenShadowStatus } from '../entryEngine.js';
 import type { RunAutoSignalScanOptions } from './index.js';
 import { buildMacroGateState } from './scanDiagnostics.js';
+import type { SupplyHealthSnapshot } from '../../learning/supplyHealthLearning.js';
 
 export function getAccountScaleKellyMultiplier(totalAssets: number): number {
   if (totalAssets >= 300_000_000) return 1.15;
@@ -65,17 +66,32 @@ export function evaluateSellOnlyException(regimeConfig: any, macroState: any): a
   };
 }
 
+async function captureSupplyHealthSnapshot(): Promise<SupplyHealthSnapshot | undefined> {
+  if (process.env.NODE_ENV === 'test' && process.env.SUPPLY_HEALTH_LEARNING_ENABLED !== 'true') {
+    return undefined;
+  }
+  try {
+    const mod = await import('../../telegram/commands/system/supplyHealth.cmd.js');
+    return await mod.buildSupplyHealthSnapshot();
+  } catch (e) {
+    console.warn('[SupplyHealth] snapshot capture failed:', e);
+    return undefined;
+  }
+}
+
 // ADR-0183: blocked-day shadow learning is isolated here so entry blocks do not call order paths.
 async function recordBlockedDayShadowScan(reason: ShadowLearningOnlyScanReason): Promise<void> {
   if (!isShadowLearningOnBlockedDaysEnabled()) return;
   try {
     const kstScanDate = new Date(Date.now() + 9 * 60 * 60 * 1000)
       .toISOString().slice(0, 10);
+    const supplyHealthSnapshot = await captureSupplyHealthSnapshot();
     await runShadowLearningOnlyScan({
       allowRealOrder: false,
       bypassMacroEntryBlock: true,
       reason,
       scanDate: kstScanDate,
+      ...(supplyHealthSnapshot ? { supplyHealthSnapshot } : {}),
     });
   } catch (e) {
     console.warn(`[ShadowLearningOnly] scan 실패 (${reason}):`, e);
@@ -277,6 +293,8 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     console.log(volumeClock.reason);
   }
 
+  const supplyHealthSnapshot = await captureSupplyHealthSnapshot();
+
   const macroGateState = buildMacroGateState({
     emergencyStop: getEmergencyStop(),
     autoTradeEnabled: process.env.AUTO_TRADE_ENABLED === 'true',
@@ -311,6 +329,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       sellOnlyExc,
       volumeClock,
       conditionWeights,
+      supplyHealthSnapshot,
       shadows,
       watchlist,
       optSellOnly,

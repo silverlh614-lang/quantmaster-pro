@@ -34,6 +34,7 @@ import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/
 import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
 // ADR-0171 — 10 필드 SSOT formatter (default OFF, ENV `SIZING_EXPOSURE_BUDGET_VERBOSE_LOG=true`).
 import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
+import { applySupplyHealthToSignal, determineExecutionMode } from '../../../learning/supplyHealthLearning.js';
 
 /**
  * 장중(Intraday) Watchlist 처리 — Step 4c 이식 본체.
@@ -174,6 +175,34 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             }));
           }
           if (quantity < 1) continue;  // exposure cap 0 차단 시 진입 스킵
+          const { gate: intradayGate } = await fetchGateData(stock.code, ctx.conditionWeights, ctx.macroState?.kospi20dReturn);
+          const intradayGateScore = intradayGate?.gateScore ?? 0;
+          let intradayShadowMode = ctx.shadowMode;
+          let quantityAfterHealth = quantity;
+          const intradayHealthDecision = ctx.supplyHealthSnapshot
+            ? applySupplyHealthToSignal({
+                rawSignal: 'BUY',
+                rawScore: intradayGateScore,
+                positionSize: quantity,
+                supplyHealthSnapshot: ctx.supplyHealthSnapshot,
+              })
+            : undefined;
+          if (intradayHealthDecision && ctx.supplyHealthSnapshot) {
+            const executionMode = determineExecutionMode({
+              rawSignal: 'BUY',
+              finalSignal: intradayHealthDecision.finalSignal,
+              dataConfidence: intradayHealthDecision.dataConfidence,
+              overallStatus: ctx.supplyHealthSnapshot.summary.overallStatus,
+              wasDowngradedBySupplyHealth: intradayHealthDecision.wasDowngradedBySupplyHealth,
+            });
+            if (executionMode === 'BLOCKED' || executionMode === 'WATCHLIST') {
+              console.log(`[AutoTrade/SupplyHealth] ${stock.name}(${stock.code}) ${executionMode} by supply_health`);
+              continue;
+            }
+            if (executionMode === 'SHADOW') intradayShadowMode = true;
+            quantityAfterHealth = Math.max(0, Math.floor(intradayHealthDecision.positionSizeAfterHealth ?? quantity));
+            if (quantityAfterHealth < 1) continue;
+          }
           const sizingSourceIntra = sizingApplyIntra.sizingSource;
           const sizingEngineSnapshotIntra = sizingApplyIntra.applied && sizingApplyIntra.result ? {
             tierName: sizingApplyIntra.result.tier.name, basePct: sizingApplyIntra.result.basePct,
@@ -185,7 +214,7 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             adjustmentReasons: sizingApplyIntra.result.adjustmentReasons, snapshotAt: new Date().toISOString(),
           } : undefined;
           if (sizingApplyIntra.applied) {
-            console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} (INTRADAY_STRONG) → tier=${sizingEngineSnapshotIntra!.tierName} qty=${quantity} (legacy=${legacyIntradayQty})`);
+            console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} (INTRADAY_STRONG) → tier=${sizingEngineSnapshotIntra!.tierName} qty=${quantityAfterHealth} (legacy=${legacyIntradayQty})`);
           }
 
           // C3 수정: regimeStopLoss = intradayStop → exitEngine 일관된 손절 계산
@@ -196,9 +225,9 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
           } as const;
           const trade = buildBuyTrade({
             idPrefix: 'srv_intraday', stockCode: stock.code, stockName: stock.name,
-            currentPrice, shadowEntryPrice, quantity,
+            currentPrice, shadowEntryPrice, quantity: quantityAfterHealth,
             stopLossPlan: intradayStopPlan,
-            targetPrice: intradayTarget, shadowMode: ctx.shadowMode, regime: ctx.regime,
+            targetPrice: intradayTarget, shadowMode: intradayShadowMode, regime: ctx.regime,
             profileType: 'C', watchlistSource: 'INTRADAY',
             profitTranches: [], // Intraday는 분할익절 없음
             trailPct: 0.05,    // 장중: 5% 트레일링
@@ -206,11 +235,14 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             entryConditionScores: buildEntryConditionScores(['INTRADAY_STRONG']),
             // ADR-0163 Phase 2-D Extension — sizingSource marker + 스냅샷 영속.
             sizingSource: sizingSourceIntra, sizingEngineSnapshot: sizingEngineSnapshotIntra,
+            rawSignal: 'BUY',
+            finalSignal: intradayHealthDecision?.finalSignal ?? 'BUY',
+            dataConfidence: intradayHealthDecision?.dataConfidence,
+            dataQualityBucket: intradayHealthDecision?.dataQualityBucket,
+            supplyHealthSnapshot: ctx.supplyHealthSnapshot,
+            wasDowngradedBySupplyHealth: intradayHealthDecision?.wasDowngradedBySupplyHealth,
+            downgradeReasons: intradayHealthDecision?.downgradeReasons,
           });
-
-          // BUG-10 fix: 실시간 Gate 평가로 Intraday 종목의 gateScore 추정
-          const { gate: intradayGate } = await fetchGateData(stock.code, ctx.conditionWeights, ctx.macroState?.kospi20dReturn);
-          const intradayGateScore = intradayGate?.gateScore ?? 0;
 
           // ADR-0128 §Wiring 1A: 장중 강세 후보 incremental 검증 (BUY_CANDIDATE role).
           let _verifyOkIntra = true;
@@ -254,21 +286,21 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
           ctx.scanCounters.entries++;
           setLastBuySignalAt(Date.now());
 
-          const intradayModeEmoji = ctx.shadowMode ? '📈' : '🚀';
-          const intradayModeLabel = ctx.shadowMode ? 'Shadow' : 'LIVE';
+          const intradayModeEmoji = intradayShadowMode ? '📈' : '🚀';
+          const intradayModeLabel = intradayShadowMode ? 'Shadow' : 'LIVE';
           const intradayAlertMsg =
-            `${intradayModeEmoji} <b>[${intradayModeLabel}] 장중 매수 ${ctx.shadowMode ? '신호' : '주문'}</b>\n` +
+            `${intradayModeEmoji} <b>[${intradayModeLabel}] 장중 매수 ${intradayShadowMode ? '신호' : '주문'}</b>\n` +
             `종목: ${stock.name} (${stock.code})\n` +
-            `현재가: ${currentPrice.toLocaleString()}원 × ${quantity}주\n` +
+            `현재가: ${currentPrice.toLocaleString()}원 × ${quantityAfterHealth}주\n` +
             `손절: ${intradayStop.toLocaleString()} (${stopLabel}) | 목표: ${intradayTarget.toLocaleString()}\n` +
             `⚡ Intraday 포지션 ${intradaySlotLabel}`;
 
           intradayLiveBuyQueue.push(await createBuyTask({
             trade, stockCode: stock.code, stockName: stock.name,
-            currentPrice, quantity, entryPrice: shadowEntryPrice,
+            currentPrice, quantity: quantityAfterHealth, entryPrice: shadowEntryPrice,
             stopLoss: intradayStop, targetPrice: intradayTarget,
-            gateScore: intradayGateScore, shadowMode: ctx.shadowMode, effectiveBudget,
-            alertMessage: intradayAlertMsg, logEvent: ctx.shadowMode ? 'INTRADAY_SIGNAL' : 'INTRADAY_ORDER',
+            gateScore: intradayGateScore, shadowMode: intradayShadowMode, effectiveBudget,
+            alertMessage: intradayAlertMsg, logEvent: intradayShadowMode ? 'INTRADAY_SIGNAL' : 'INTRADAY_ORDER',
             signalId: buildSignalId(_signalTimeIntra, stock.code), // ADR-0077
             onApproved: async (t) => {
               // 포지션 수 재확인 (큐 플러시 시점에 재검증)

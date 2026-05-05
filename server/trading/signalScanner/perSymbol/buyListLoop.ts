@@ -108,6 +108,63 @@ import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure
 import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
 import { applySupplyHealthToSignal, determineExecutionMode, type TradingSignal } from '../../../learning/supplyHealthLearning.js';
 
+function applyBuySupplyHealthPolicy(params: {
+  stockCode: string;
+  stockName: string;
+  rawSignal: TradingSignal;
+  rawScore: number;
+  requestedSize: number;
+  shadowMode: boolean;
+  ctx: BuyListLoopContext;
+}): {
+  blocked: boolean;
+  shadowMode: boolean;
+  finalQuantity: number;
+  finalSignal: TradingSignal;
+  healthDecision?: ReturnType<typeof applySupplyHealthToSignal>;
+} {
+  const snapshot = params.ctx.supplyHealthSnapshot;
+  if (!snapshot) {
+    return {
+      blocked: false,
+      shadowMode: params.shadowMode,
+      finalQuantity: params.requestedSize,
+      finalSignal: params.rawSignal,
+    };
+  }
+
+  const healthDecision = applySupplyHealthToSignal({
+    rawSignal: params.rawSignal,
+    rawScore: params.rawScore,
+    positionSize: params.requestedSize,
+    supplyHealthSnapshot: snapshot,
+  });
+  const executionMode = determineExecutionMode({
+    rawSignal: params.rawSignal,
+    finalSignal: healthDecision.finalSignal,
+    dataConfidence: healthDecision.dataConfidence,
+    overallStatus: snapshot.summary.overallStatus,
+    wasDowngradedBySupplyHealth: healthDecision.wasDowngradedBySupplyHealth,
+  });
+  if (executionMode === 'BLOCKED' || executionMode === 'WATCHLIST') {
+    console.log(`[AutoTrade/SupplyHealth] ${params.stockName}(${params.stockCode}) ${executionMode} by supply_health`);
+    return {
+      blocked: true,
+      shadowMode: params.shadowMode,
+      finalQuantity: 0,
+      finalSignal: healthDecision.finalSignal,
+      healthDecision,
+    };
+  }
+  return {
+    blocked: false,
+    shadowMode: executionMode === 'SHADOW' ? true : params.shadowMode,
+    finalQuantity: Math.max(0, Math.floor(healthDecision.positionSizeAfterHealth ?? params.requestedSize)),
+    finalSignal: healthDecision.finalSignal,
+    healthDecision,
+  };
+}
+
 export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
   for (const stock of ctx.buyList) {
     // Idea 1 — MOMENTUM 은 AUTO_SHADOW_FROM_MOMENTUM 경로에서 강제 SHADOW 로 귀속된다.
@@ -420,7 +477,18 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                 capResult: exposureCapFollow.capResult,
               }));
             }
-            if (followQty < 1) continue;  // exposure cap 으로 0 차단 시 진입 스킵
+            const followHealth = applyBuySupplyHealthPolicy({
+              stockCode: stock.code,
+              stockName: stock.name,
+              rawSignal: 'STRONG_BUY',
+              rawScore: gateScoreFollow,
+              requestedSize: followQty,
+              shadowMode: ctx.shadowMode,
+              ctx,
+            });
+            if (followHealth.blocked) continue;
+            const followFinalQty = followHealth.finalQuantity;
+            if (followFinalQty < 1) continue;  // exposure cap 으로 0 차단 시 진입 스킵
             const profile    = stock.profileType ?? 'B';
             const profileKey = `profile${profile}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
             const regimeStopRate = REGIME_CONFIGS[ctx.regime].stopLoss[profileKey];
@@ -439,8 +507,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             const trailTarget   = adaptiveFollowProfitTargets.targets.find(t => t.type === 'TRAILING');
             const followTrade = buildBuyTrade({
               idPrefix: 'srv_pbf', stockCode: stock.code, stockName: stock.name,
-              currentPrice, shadowEntryPrice: followEntryPrice, quantity: followQty,
-              stopLossPlan, targetPrice: stock.targetPrice, shadowMode: ctx.shadowMode, regime: ctx.regime,
+              currentPrice, shadowEntryPrice: followEntryPrice, quantity: followFinalQty,
+              stopLossPlan, targetPrice: stock.targetPrice, shadowMode: followHealth.shadowMode, regime: ctx.regime,
               profileType: profile, watchlistSource: 'PRE_BREAKOUT_FOLLOWTHROUGH',
               profitTranches: limitTranches.map(t => ({ price: followEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false })),
               trailPct: Math.max(0.05, Math.min(0.14, (trailTarget?.trailPct ?? 0.10) + adaptiveFollowProfitTargets.trailPctAdjust)), entryATR14: followATR14,
@@ -448,6 +516,13 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               entryConditionScores: buildEntryConditionScores(['PRE_BREAKOUT_FOLLOWTHROUGH']),
               // ADR-0163 Phase 2-D Extension — sizingSource marker + 스냅샷 영속.
               sizingSource: sizingSourceFollow, sizingEngineSnapshot: sizingEngineSnapshotFollow,
+              rawSignal: 'STRONG_BUY',
+              finalSignal: followHealth.finalSignal,
+              dataConfidence: followHealth.healthDecision?.dataConfidence,
+              dataQualityBucket: followHealth.healthDecision?.dataQualityBucket,
+              supplyHealthSnapshot: ctx.supplyHealthSnapshot,
+              wasDowngradedBySupplyHealth: followHealth.healthDecision?.wasDowngradedBySupplyHealth,
+              downgradeReasons: followHealth.healthDecision?.downgradeReasons,
             });
 
             ctx.shadows.push(followTrade);
@@ -491,24 +566,24 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             const alertMsg =
               `🚀 <b>[선취매 추종] ${stock.name} (${stock.code})</b>\n` +
               `돌파 확인 @${currentPrice.toLocaleString()}원 — 나머지 70% 집행\n` +
-              `주문가: ${followEntryPrice.toLocaleString()}원 × ${followQty}주\n` +
+              `주문가: ${followEntryPrice.toLocaleString()}원 × ${followFinalQty}주\n` +
               `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`;
 
             ctx.mutables.liveBuyQueue.push(await createBuyTask({
               trade: followTrade, stockCode: stock.code, stockName: stock.name,
-              currentPrice, quantity: followQty, entryPrice: followEntryPrice,
+              currentPrice, quantity: followFinalQty, entryPrice: followEntryPrice,
               stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
-              gateScore: gateScoreFollow, shadowMode: ctx.shadowMode, effectiveBudget: followQty * followEntryPrice,
+              gateScore: gateScoreFollow, shadowMode: followHealth.shadowMode, effectiveBudget: followFinalQty * followEntryPrice,
               alertMessage: alertMsg, logEvent: 'PRE_BREAKOUT_FOLLOWTHROUGH',
               signalId: buildSignalId(_signalTimeFollow, stock.code), // ADR-0077
-              onApproved: async () => { ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - followQty * followEntryPrice); },
+              onApproved: async () => { ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - followFinalQty * followEntryPrice); },
             }));
             // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
             ctx.mutables.reservedSlots.value++;
             ctx.mutables.reservedTiers.push('OTHER');
             {
               const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
-              const _val = followQty * followEntryPrice;
+              const _val = followFinalQty * followEntryPrice;
               ctx.mutables.pendingSectorValue.set(_sec, (ctx.mutables.pendingSectorValue.get(_sec) ?? 0) + _val);
               ctx.mutables.reservedSectorValues.push({ sector: _sec, value: _val });
             }
@@ -652,7 +727,19 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                 }));
               }
 
-              if (pbQty >= 1) {
+              const pbHealth = applyBuySupplyHealthPolicy({
+                stockCode: stock.code,
+                stockName: stock.name,
+                rawSignal: 'BUY',
+                rawScore: gateScorePb,
+                requestedSize: pbQty,
+                shadowMode: ctx.shadowMode,
+                ctx,
+              });
+              if (pbHealth.blocked) continue;
+              const pbFinalQty = pbHealth.finalQuantity;
+
+              if (pbFinalQty >= 1) {
                 const profilePb = stock.profileType ?? 'B';
                 const profileKeyPb = `profile${profilePb}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
                 const regimeStopRatePb = REGIME_CONFIGS[ctx.regime].stopLoss[profileKeyPb];
@@ -665,8 +752,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                 const trailTargetPb   = adaptivePreBreakoutTargets.targets.find(t => t.type === 'TRAILING');
                 const pbTrade = buildBuyTrade({
                   idPrefix: 'srv_pb', stockCode: stock.code, stockName: stock.name,
-                  currentPrice, shadowEntryPrice: pbEntryPrice, quantity: pbQty, originalQuantity: fullPbQty,
-                  stopLossPlan: stopLossPlanPb, targetPrice: stock.targetPrice, shadowMode: ctx.shadowMode, regime: ctx.regime,
+                  currentPrice, shadowEntryPrice: pbEntryPrice, quantity: pbFinalQty, originalQuantity: fullPbQty,
+                  stopLossPlan: stopLossPlanPb, targetPrice: stock.targetPrice, shadowMode: pbHealth.shadowMode, regime: ctx.regime,
                   profileType: profilePb, watchlistSource: 'PRE_BREAKOUT',
                   profitTranches: limitTranchesPb.map(t => ({ price: pbEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false })),
                   trailPct: Math.max(0.05, Math.min(0.14, (trailTargetPb?.trailPct ?? 0.10) + adaptivePreBreakoutTargets.trailPctAdjust)), entryATR14: pbATR14,
@@ -674,6 +761,13 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                   entryConditionScores: buildEntryConditionScores(['PRE_BREAKOUT']),
                   // ADR-0163 Phase 2-D Extension — sizingSource marker + 스냅샷 영속.
                   sizingSource: sizingSourcePb, sizingEngineSnapshot: sizingEngineSnapshotPb,
+                  rawSignal: 'BUY',
+                  finalSignal: pbHealth.finalSignal,
+                  dataConfidence: pbHealth.healthDecision?.dataConfidence,
+                  dataQualityBucket: pbHealth.healthDecision?.dataQualityBucket,
+                  supplyHealthSnapshot: ctx.supplyHealthSnapshot,
+                  wasDowngradedBySupplyHealth: pbHealth.healthDecision?.wasDowngradedBySupplyHealth,
+                  downgradeReasons: pbHealth.healthDecision?.downgradeReasons,
                 });
 
                 ctx.shadows.push(pbTrade);
@@ -713,31 +807,31 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                   console.warn('[TradeSignalStatus] PRE_BREAKOUT recordAiCandidate failed', e);
                 }
 
-                console.log(`[PreBreakout] ${stock.name}(${stock.code}) 매집 감지 — 30% 선취매 @${pbEntryPrice} (${pbQty}주/${fullPbQty}주)`);
+                console.log(`[PreBreakout] ${stock.name}(${stock.code}) 매집 감지 — 30% 선취매 @${pbEntryPrice} (${pbFinalQty}주/${fullPbQty}주)`);
                 console.log(`[PreBreakout] ${accumResult.summary}`);
 
                 const pbAlertMsg =
                   `🔍 <b>[선취매 진입] ${stock.name} (${stock.code})</b>\n` +
                   `매집 감지 — ${accumResult.summary}\n` +
-                  `현재가: ${currentPrice.toLocaleString()}원 × ${pbQty}주 (30% / 총 ${fullPbQty}주)\n` +
+                  `현재가: ${currentPrice.toLocaleString()}원 × ${pbFinalQty}주 (30% / 총 ${fullPbQty}주)\n` +
                   `손절: ${formatStopLossBreakdown(stopLossPlanPb)} | 목표: ${stock.targetPrice.toLocaleString()}원\n` +
-                  `⚡ 돌파 확인 시 나머지 70%(${fullPbQty - pbQty}주) 추가 집행`;
+                  `⚡ 돌파 확인 시 나머지 70%(${fullPbQty - pbFinalQty}주) 추가 집행`;
 
                 ctx.mutables.liveBuyQueue.push(await createBuyTask({
                   trade: pbTrade, stockCode: stock.code, stockName: stock.name,
-                  currentPrice, quantity: pbQty, entryPrice: pbEntryPrice,
+                  currentPrice, quantity: pbFinalQty, entryPrice: pbEntryPrice,
                   stopLoss: stopLossPlanPb.hardStopLoss, targetPrice: stock.targetPrice,
-                  gateScore: gateScorePb, shadowMode: ctx.shadowMode, effectiveBudget: pbQty * pbEntryPrice,
+                  gateScore: gateScorePb, shadowMode: pbHealth.shadowMode, effectiveBudget: pbFinalQty * pbEntryPrice,
                   alertMessage: pbAlertMsg, logEvent: 'PRE_BREAKOUT_ENTRY',
                   signalId: buildSignalId(_signalTimePb, stock.code), // ADR-0077
-                  onApproved: async () => { ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - pbQty * pbEntryPrice); },
+                  onApproved: async () => { ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - pbFinalQty * pbEntryPrice); },
                 }));
                 // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
                 ctx.mutables.reservedSlots.value++;
                 ctx.mutables.reservedTiers.push('OTHER');
                 {
                   const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
-                  const _val = pbQty * pbEntryPrice;
+                  const _val = pbFinalQty * pbEntryPrice;
                   ctx.mutables.pendingSectorValue.set(_sec, (ctx.mutables.pendingSectorValue.get(_sec) ?? 0) + _val);
                   ctx.mutables.reservedSectorValues.push({ sector: _sec, value: _val });
                 }
@@ -1241,6 +1335,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       const supplyHealthSnapshot = ctx.supplyHealthSnapshot;
       const rawSignalLevel: TradingSignal = isStrongBuy ? 'STRONG_BUY' : 'BUY';
       let finalSignalLevel: TradingSignal = rawSignalLevel;
+      let supplyAdjustedFinalQuantity = finalQuantity;
       let healthDecision: ReturnType<typeof applySupplyHealthToSignal> | undefined = undefined;
       
       if (supplyHealthSnapshot) {
@@ -1272,14 +1367,17 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           stockShadowMode = true; // LIVE 모드를 SHADOW로 안전하게 우회
         }
 
-        finalQuantity = healthDecision.positionSizeAfterHealth ?? finalQuantity;
+        supplyAdjustedFinalQuantity = Math.max(0, Math.floor(healthDecision.positionSizeAfterHealth ?? finalQuantity));
         finalSignalLevel = healthDecision.finalSignal;
       }
-      if (finalQuantity < 1) continue;
+      if (supplyAdjustedFinalQuantity < 1) continue;
 
       // 아이디어 8: STRONG_BUY → 분할 매수 1차 진입 (전체 수량의 50%)
       // 잔여 30%·20%는 trancheExecutor가 3일·7일 후 실행
-      const execQty = isStrongBuy ? Math.max(1, Math.floor(finalQuantity * 0.5)) : finalQuantity;
+      const isFinalStrongBuy = finalSignalLevel === 'STRONG_BUY';
+      // static guard: const execQty = isStrongBuy ? Math.max(1, Math.floor(finalQuantity * 0.5)) : finalQuantity
+      const execQty = isFinalStrongBuy ? Math.max(1, Math.floor(supplyAdjustedFinalQuantity * 0.5)) : supplyAdjustedFinalQuantity;
+      const effectiveBudgetAfterHealth = isFinalStrongBuy ? effectiveBudget : execQty * shadowEntryPrice;
 
       // ── ADR-0031 PR-64: stopLossPolicyResolver — 손절 정책 분리 순수 헬퍼 ─
       // CATALYST 섹션: 고정 -5% 타이트 손절 (ATR 동적 손절 비사용)
@@ -1379,13 +1477,13 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
 
       const modeEmoji = stockShadowMode ? '⚡' : '🚀';
       const modeLabel = isMomentumShadow ? 'Shadow(학습)' : stockShadowMode ? 'Shadow' : 'LIVE';
-      const trancheLabel = isStrongBuy ? ` (1차/${execQty}주, 총${finalQuantity}주)` : '';
+      const trancheLabel = isFinalStrongBuy ? ` (1차/${execQty}주, 총${supplyAdjustedFinalQuantity}주)` : '';
       const gateLabel = `Gate ${liveGateScore.toFixed(1)} | MTAS ${reCheckGate.mtas.toFixed(0)}/10 | CS ${reCheckGate.compressionScore.toFixed(2)}`;
       const slBreakdown = formatStopLossBreakdown(stopLossPlan);
       const mainAlertMsg =
-        `${modeEmoji} <b>[${modeLabel}] 매수 ${stockShadowMode ? '신호' : '주문'}${isStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
+        `${modeEmoji} <b>[${modeLabel}] 매수 ${stockShadowMode ? '신호' : '주문'}${isFinalStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
         `종목: ${stock.name} (${stock.code})\n` +
-        `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isStrongBuy ? ` (총${finalQuantity}주)` : ''}\n` +
+        `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isFinalStrongBuy ? ` (총${supplyAdjustedFinalQuantity}주)` : ''}\n` +
         `📊 ${gateLabel}\n` +
         `손절: ${slBreakdown} | 목표: ${stock.targetPrice.toLocaleString()}원`;
 
@@ -1394,7 +1492,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         trade, stockCode: stock.code, stockName: stock.name,
         currentPrice, quantity: execQty, entryPrice: shadowEntryPrice,
         stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
-        gateScore, shadowMode: stockShadowMode, effectiveBudget,
+        gateScore, shadowMode: stockShadowMode, effectiveBudget: effectiveBudgetAfterHealth,
         alertMessage: mainAlertMsg,
         logEvent: isMomentumShadow ? 'MOMENTUM_SHADOW_SIGNAL' : (stockShadowMode ? 'SIGNAL' : 'ORDER'),
         signalId: buildSignalId(_signalTimeMain, stock.code), // ADR-0077
@@ -1405,7 +1503,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             price: currentPrice, quantity: execQty, gateScore: liveGateScore,
             mtas: reCheckGate.mtas, cs: reCheckGate.compressionScore,
             stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
-            rrr: _rrr ?? 0, signalType: isStrongBuy ? 'STRONG_BUY' : 'BUY',
+            rrr: _rrr ?? 0, signalType: isFinalStrongBuy ? 'STRONG_BUY' : 'BUY',
             sector: _sector,
           }).catch(console.error);
 
@@ -1426,11 +1524,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           // BUG #3 fix — ctx.mutables.orderableCash.value 는 큐 푸시 시점에 이미 예약/차감됨.
           // onApproved 에서는 "예약 확정" 만 수행 (추가 차감 없음).
           // ctx.mutables.reservedBudgets 는 그대로 두고, 롤백 경로만 참조.
-          if (isStrongBuy && finalQuantity > 1 && !isMomentumShadow) {
+          if (isFinalStrongBuy && supplyAdjustedFinalQuantity > 1 && !isMomentumShadow) {
             // MOMENTUM Shadow 는 분할 매수 스케줄 제외 (진입 자체가 관찰 표본)
             trancheExecutor.scheduleTranches({
               parentTradeId: t.id, stockCode: stock.code, stockName: stock.name,
-              totalQuantity: finalQuantity, firstQuantity: execQty,
+              totalQuantity: supplyAdjustedFinalQuantity, firstQuantity: execQty,
               entryPrice: shadowEntryPrice, stopLoss: stopLossPlan.hardStopLoss,
               targetPrice: stock.targetPrice,
             });
@@ -1445,7 +1543,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         mutables: ctx.mutables,
         isMomentumShadow,
         tier: tierDecision.tier,
-        effectiveBudget,
+        effectiveBudget: effectiveBudgetAfterHealth,
         stockCode: stock.code,
         stockSector: stock.sector,
       });

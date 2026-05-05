@@ -1,14 +1,14 @@
 /**
  * @responsibility 장 마감 후 Supply Health 학습 샘플의 미래 수익률(1d~60d)을 갱신하는 크론 작업
  */
-import { updateLearningSampleFutureReturns, type LearningSample } from '../../learning/supplyHealthLearning.js';
-import { fetchCurrentPrice } from '../../clients/kisClient.js';
-import { addBusinessDaysFromKstDate } from '../../trading/trancheExecutor.js';
-import { sendTelegramAlert } from '../../alerts/telegramClient.js';
+import { updateLearningSampleFutureReturns } from '../learning/supplyHealthLearning.js';
+import { fetchCurrentPrice } from '../clients/kisClient.js';
+import { addBusinessDaysFromKstDate } from './trancheExecutor.js';
+import { sendTelegramAlert } from '../alerts/telegramClient.js';
 
 // NOTE: 실제 프로젝트의 영속성 저장소 경로에 맞게 수정이 필요합니다.
 // (아직 없다면 shadowLearningOnlySignalRepo.ts와 유사한 형태로 구현해야 합니다.)
-import { loadLearningSamples, saveLearningSamples } from '../../persistence/learningSampleRepo.js';
+import { loadLearningSamples, saveLearningSamples } from '../persistence/learningSampleRepo.js';
 
 /**
  * 오늘 KST 날짜 반환 (YYYY-MM-DD)
