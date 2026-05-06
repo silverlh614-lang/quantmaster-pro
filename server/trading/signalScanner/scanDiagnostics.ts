@@ -25,6 +25,9 @@ import {
   type R3ViolationStateResult,
 } from './r3ViolationStateMachine.js';
 import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
+// ADR-0412: Frozen Quote Detector — 입력 데이터 오염 + Holiday-aware streak skip 진단 표시.
+import type { FrozenQuoteResult } from './frozenQuoteDetector.js';
+import type { StreakSkipReason } from './r3StreakSkipPolicy.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -83,6 +86,17 @@ export interface ScanSummary {
    * Persist 시 정상 분기 (state ≠ CLEAN) 만 기록 — CLEAN 시 undefined.
    */
   r3ViolationState?: R3ViolationStateResult;
+  /**
+   * ADR-0412 — Frozen Quote Detector 결과 (옵셔널).
+   * 입력 데이터 품질 진단. dataQuality !== 'OK' 시 /scan_blockers 노출.
+   * 매수 직접 차단 0건 — R3 guard + streak skip 에 합성 (절대 원칙 #3).
+   */
+  frozenQuote?: FrozenQuoteResult;
+  /**
+   * ADR-0412 — R3 streak +1 skip 결과 (옵셔널).
+   * Holiday/blocked-day/frozen quote 시 skip — 영속 streak 무영향.
+   */
+  r3StreakSkipped?: { skipped: boolean; reason?: StreakSkipReason };
 }
 
 let _lastBuySignalAt = 0;
@@ -257,6 +271,17 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(`  • RRR 미달: ${summary.rrrMisses}개`);
   }
 
+  // ADR-0412 — Frozen Quote 진단 + R3 streak skip 라인 (R3 state machine 노출 *전*).
+  const frozenSection = formatFrozenQuoteSection(summary.frozenQuote);
+  if (frozenSection) {
+    lines.push(frozenSection);
+  }
+  const streakSkipLine = formatR3StreakSkipLine(summary.r3StreakSkipped);
+  if (streakSkipLine) {
+    lines.push('');
+    lines.push(streakSkipLine);
+  }
+
   // ADR-0401 — R3 Sanity state machine 결과 노출 (CLEAN 외 분기에서만).
   if (summary.r3ViolationState && summary.r3ViolationState.state !== 'CLEAN') {
     const r3 = summary.r3ViolationState;
@@ -318,6 +343,19 @@ export interface PersistScanResultsOptions {
    * 부재 시 true 가정 (preflight non-abort 경로 도달 = 정상 시간대 추론).
    */
   volumeClockAllowsEntry?: boolean;
+  /**
+   * ADR-0412 — Frozen Quote Detector 결과 (옵셔널).
+   * 호출자 (signalScanner/index.ts) 가 후보 평가 후 합성하여 전달.
+   * 부재 시 ScanSummary.frozenQuote 미영속 + R3 guard `frozenQuoteDataQuality=undefined`.
+   */
+  frozenQuote?: FrozenQuoteResult;
+  /**
+   * ADR-0412 — R3 streak +1 skip 결정 (옵셔널).
+   * 호출자가 `evaluateStreakIncrementAllowed` 결과 그대로 전달.
+   * `skipped=true` 시 R3 state machine 분기에서 streak 갱신 호출 자체 skip
+   * (영속 무영향 + 24h decay 보존).
+   */
+  r3StreakSkipped?: { skipped: boolean; reason?: StreakSkipReason };
 }
 
 export async function persistScanResults(
@@ -353,6 +391,9 @@ export async function persistScanResults(
           sectorEnergyReasons: options.sectorEnergyReasons,
         }
       : {}),
+    // ADR-0412 — Frozen Quote 진단 + R3 streak skip 영속 (옵셔널, 후방호환).
+    ...(options.frozenQuote ? { frozenQuote: options.frozenQuote } : {}),
+    ...(options.r3StreakSkipped ? { r3StreakSkipped: options.r3StreakSkipped } : {}),
   };
 
   const emptyReason = classifyEmptyScanReason(summaryDraft);
@@ -386,9 +427,16 @@ export async function persistScanResults(
   // ADR-0401 — R3 Violation 5단계 state machine wiring.
   // 단일 스캔 1회 위반 → hard latch 즉시 활성화하던 결함 차단. profile + guards +
   // streak decay 평가 후 state.action='HARD_BLOCK_LATCH' 일 때만 activateR3SanityBlock.
+  //
+  // ADR-0412 — Holiday/blocked-day/frozen quote 시 streak skip:
+  //   - r3StreakSkipped.skipped=true 시 evaluateR3ViolationState 자체 호출 skip
+  //     → 영속 streak 무영향 + 24h decay 보존.
+  //   - frozenQuoteDataQuality (옵셔널) 를 R3 guard 6번째로 전달 → STALE/SUSPECT 시
+  //     hardBlockAllowed=false → SHADOW_ONLY cap.
   try {
     const sanity = evaluateR3Sanity(_lastScanSummary);
-    if (sanity.violation !== 'NONE') {
+    const skipStreak = options.r3StreakSkipped?.skipped === true;
+    if (sanity.violation !== 'NONE' && !skipStreak) {
       const regime = _lastScanSummary.macroGateState?.regime ?? '';
       const guards = {
         candidates: _lastScanSummary.candidates,
@@ -400,6 +448,8 @@ export async function persistScanResults(
         gatePassDistributionFresh:
           _lastScanSummary.gatePassDistribution !== undefined &&
           sanity.violation !== 'GATE_PASS_DATA_MISSING',
+        // ADR-0412 — 6번째 guard. options.frozenQuote 부재 시 undefined (legacy 호환).
+        frozenQuoteDataQuality: options.frozenQuote?.dataQuality,
       };
       const scanId = `${kstNow.toISOString().slice(0, 10)}:${timeLabel}`;
       const stateResult = evaluateR3ViolationState({
@@ -560,4 +610,61 @@ export function formatTechnicalProviderDegradedSection(
   lines.push('  • WATCHLIST_HOLD — universe 보존');
 
   return lines.join('\n');
+}
+
+// ─── ADR-0412 — Frozen Quote Detector + R3 Streak Skip 표시 ───
+/**
+ * Frozen Quote 섹션 SSOT 빌더 — `/scan_blockers` 메시지 추가용.
+ *
+ * dataQuality === 'OK' 시 null (간결성 — 정상 시 미노출).
+ * 사용자 명시 정책:
+ *   - "매수 차단" 표현 금지 (frozen quote 는 데이터 품질 진단, 매수 차단 아님)
+ *   - "결함" / "에러" 표현 금지 — "데이터 품질 문제" 로 분류
+ */
+export function formatFrozenQuoteSection(fq: FrozenQuoteResult | undefined | null): string | null {
+  if (!fq) return null;
+  if (fq.dataQuality === 'OK') return null;
+
+  const icon = fq.dataQuality === 'STALE' ? '🔴' : '🟠';
+  const label = fq.dataQuality === 'STALE' ? 'STALE' : 'SUSPECT';
+  const ratioPct = (fq.frozenRatio * 100).toFixed(1);
+  const lines: string[] = [];
+  lines.push('');
+  lines.push(`${icon} <b>[Frozen Quote — 데이터 품질 진단]</b>`);
+  lines.push(
+    `  • dataQuality: <b>${label}</b> (${ratioPct}%, ${fq.frozenCount}/${fq.comparableCount} 종목)`,
+  );
+  lines.push(`  • 사유: ${fq.reason}`);
+  if (fq.symbols.length > 0) {
+    lines.push(`  • 영향 종목: ${fq.symbols.slice(0, 5).join(', ')}${fq.symbols.length > 5 ? ` 외 ${fq.symbols.length - 5}개` : ''}`);
+  }
+  lines.push('');
+  lines.push('영향 (ADR-0412):');
+  lines.push('  • R3 hard block 누적 제외 (입력 데이터 오염 — guard 활성)');
+  lines.push('  • Shadow learning 유지 — 학습 데이터 보존');
+  lines.push('  • <i>가격 데이터 품질 문제 — 다음 스캔 시 자동 회복 가능</i>');
+
+  return lines.join('\n');
+}
+
+/**
+ * R3 Streak Skip 라인 빌더 — `/scan_blockers` 메시지 추가용.
+ *
+ * `skipped=false` 시 null (정상 누적 — 미노출).
+ * 사용자 명시:
+ *   - "R3 hard block 누적 제외" 표현 사용 (매수 차단 아님)
+ */
+export function formatR3StreakSkipLine(skip: { skipped: boolean; reason?: string } | undefined | null): string | null {
+  if (!skip || !skip.skipped) return null;
+
+  const reasonLabels: Record<string, string> = {
+    KRX_NON_TRADING_DAY: 'KRX_NON_TRADING_DAY (휴장일/주말)',
+    VOLUME_CLOCK_CLOSED: 'VOLUME_CLOCK_CLOSED (점심·장외 시간대)',
+    SELL_ONLY_MODE: 'SELL_ONLY_MODE (운영자 정책 차단)',
+    BLOCKED_DAY_SCAN: 'BLOCKED_DAY_SCAN (R6/FOMC/VIX 거시 게이트)',
+    FROZEN_QUOTE_STALE: 'FROZEN_QUOTE_STALE (입력 데이터 오염)',
+  };
+  const label = skip.reason ? (reasonLabels[skip.reason] ?? skip.reason) : '미상';
+
+  return `⏸ <b>[R3 Streak]</b> R3 hard block 누적 제외 — ${label} (ADR-0412)`;
 }

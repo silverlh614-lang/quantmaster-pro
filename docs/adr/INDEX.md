@@ -14,9 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0412`**
+**다음 ADR 번호: `0413`**
 
-(2026-05-06 기준, 마지막 발급 0411 — fast-iteration 세션 commit-label ADR (0402~0411 범위) §"전체 인덱스" 미등재 — 별도 retrofit PR 작업 대상. ADR-0401 (R3 Sanity Violation State Machine) 은 본 PR 등재 완료. 누락 47개 — 0062/0063/0089/0105/0106/0143/0196~0210/0212~0220/0222~0230/0232~0233/0236/0238~0240/0243~0244/0246~0247/0253~0254/0257. 충돌 그룹 11개 (0146/0147/0168 — 별칭 0146a/b·0147a/b·0168a/b 부여, ADR-0159 정합))
+(2026-05-06 기준, 마지막 발급 0412 — Frozen Quote Detector + Holiday-Aware R3 Streak Guard 본 PR 등재 완료. fast-iteration 세션 commit-label ADR (0402~0411 범위) §"전체 인덱스" 미등재 — 별도 retrofit PR 작업 대상. ADR-0401 (R3 Sanity Violation State Machine) 등재 완료. 누락 47개 — 0062/0063/0089/0105/0106/0143/0196~0210/0212~0220/0222~0230/0232~0233/0236/0238~0240/0243~0244/0246~0247/0253~0254/0257. 충돌 그룹 11개 (0146/0147/0168 — 별칭 0146a/b·0147a/b·0168a/b 부여, ADR-0159 정합))
 
 **세션 2026-05-06 (#622~#634, #655~#658)**: fast iteration 으로 0211~0260 + 0387~0390 범위가 commit message 라벨로 등재. 본 INDEX.md §"전체 인덱스" 미등재 — 별도 retrofit PR 작업 대상. ADR-0391 (본 PR) 은 §"전체 인덱스" 등재 의무 유지.
 **포기 결정 (회귀 위험 큼)**: ADR-0253 (Yahoo→KIS 시계열 합성), ADR-0254 (점심 회로 절전 — ADR-0237 와 책임 중복). DECIDED_NOT_WIRING 영구 — 누락 처리.
@@ -329,8 +329,9 @@
 | 0399 | sector-energy-source-restoration (사용자 명시 ADR-0374 = 실제 발급 0399 — KRX 원천 복구 + SECTOR_INDEX_MASTER SSOT 12 표준 섹터 + 4-tier 호출 순서 SSOT (L1 KRX_CODE → L2 STOCK_DAILY → L3 CACHE → L4 YAHOO_ETF) + ADR-0396 4-axis 영속 writer 활성 + diagnostics 메타 (candidateDates/sourceTierAttempts/finalSourceTier/confidence/fallbackReason) + indexName 단독 매칭 영구 차단) | clients |
 | 0400 | wire-sector-energy-strong-buy-gate (ADR-0398 dead code 종결 — buyListLoop.ts:1130 단일 STRONG_BUY 결정 지점 wiring + macroState 4-axis 영속 read SSOT + STRONG_BUY → BUY 강등 패턴 (절대 원칙 #2 — 일반 BUY 차단 금지) + 보수 fallback (macroState 부재 시 FAILED 강제) + ENV `SECTOR_ENERGY_STRONG_BUY_GATE_WIRING_DISABLED` default OFF + 정적 grep 가드 10 + 동작 매트릭스 16 = 26 회귀) | trading |
 | 0401 | r3-sanity-violation-state-machine (R3 Sanity 5단계 state machine — CLEAN→WARNING→ELEVATED→SHADOW_ONLY→HARD_BLOCK + Regime-Aware Threshold (R3_EARLY 5회 / R3_CONFIRMED·EXPANSION·DEFAULT 3회) + Guard 체인 5종 OR (candidates<5 / sectorEnergy DEGRADED+FAILED / freshness EXPIRED / volumeClock false / GPD missing) + 24h decay + scanId 중복 차단 + state별 dedupeKey 분리 + /r3_status 신규 + /r3_unblock streak reset wiring + 영속 SSOT data/r3-violation-streak.json) | trading |
+| 0412 | frozen-quote-detector-and-holiday-r3-streak-guard (ADR-0401 직속 후속 — Frozen Quote Detector SSOT (`MIN_COMPARABLE=10` / `SUSPECT_RATIO=0.1` / `STALE_RATIO=0.3` / `EPSILON_PCT=0.0001` 임계 + currentPrice/previousClose comparable + volume>0 frozen 카운트 + dataQuality 'OK'/'SUSPECT'/'STALE') + R3 Guard 6번째 OR 추가 (frozenQuoteDataQuality STALE/SUSPECT 시 hardBlockAllowed=false + SHADOW_ONLY cap, ADR-0401 결정 트리 본체 무수정) + Streak Increment Skip 정책 SSOT (KRX_NON_TRADING_DAY / VOLUME_CLOCK_CLOSED / SELL_ONLY_MODE / BLOCKED_DAY_SCAN / FROZEN_QUOTE_STALE 5 reason — 24h decay 보존) + ScanSummary.frozenQuote? + r3StreakSkipped? 옵셔널 영속 + /scan_blockers 표시 (formatFrozenQuoteSection + formatR3StreakSkipLine SSOT) — LIVE 매매 본체 0줄 + KIS 주문 함수 import 0건 + ENV 신규 0종) | trading |
 
-**총 발급 210 unique 번호** (마지막 발급 0401) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0412**.
+**총 발급 211 unique 번호** (마지막 발급 0412) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0413**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
