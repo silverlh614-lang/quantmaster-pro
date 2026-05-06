@@ -42,6 +42,8 @@ export interface ServerGateResult {
   conditionKeys: string[];                    // 통과한 조건 키 (Signal Calibrator용)
   compressionScore: number;                   // CS (0~1) — 변동성 압축도 정량화 지수
   mtas: number;                               // MTAS (0~10) — 멀티타임프레임 정렬도
+  /** ADR-0387 — 평가 outputs 배열 (status 분류 포함). recordGateAuditByStatus 입력. */
+  outputs?: Array<{ key: string; output: { score: number; status?: string } | null }>;
 }
 
 /** 조건 키 상수 — condition-weights.json의 키와 1:1 매핑 */
@@ -248,5 +250,14 @@ export function evaluateServerGate(
     }
   }
 
-  return { gateScore: score, signalType, positionPct, details, conditionKeys, compressionScore: cs, mtas };
+  return {
+    gateScore: score,
+    signalType,
+    positionPct,
+    details,
+    conditionKeys,
+    compressionScore: cs,
+    mtas,
+    outputs: run.outputs, // ADR-0387 — recordGateAuditByStatus 입력
+  };
 }
