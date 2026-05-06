@@ -14,7 +14,7 @@ import {
   formatYahooHistoricalRefresh,
 } from '../../../screener/adapters/yahooHistoricalRefresh.js';
 import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
-import { getStockByCode } from '../../../persistence/krxStockMasterRepo.js';
+import { resolveYahooSymbolForCode } from '../../../screener/adapters/yahooSymbolResolver.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -59,14 +59,10 @@ export function classifyIssueKind(
   return 'STALE_BASE_20D';
 }
 
-/** WatchlistEntry → Yahoo symbol 변환 SSOT. KOSPI .KS / KOSDAQ .KQ / 그 외 null. */
-export function resolveYahooSymbolForCode(code: string): string | null {
-  const entry = getStockByCode(code);
-  if (!entry) return null;
-  if (entry.market === 'KOSPI') return `${code}.KS`;
-  if (entry.market === 'KOSDAQ') return `${code}.KQ`;
-  return null;
-}
+// ADR-0231: WatchlistEntry → Yahoo symbol 변환 SSOT 는
+// `server/screener/adapters/yahooSymbolResolver.ts` 로 이동 (5+ 운영 경로 wiring).
+// 본 파일은 re-export 만 유지 — 기존 호출자 (yahooHealthCheck.test.ts) 후방호환.
+export { resolveYahooSymbolForCode };
 
 /** quote 결과를 issue detail 로 분류. quote=null → FETCH_FAIL. 정상 quote → null 반환. */
 export function classifyQuote(

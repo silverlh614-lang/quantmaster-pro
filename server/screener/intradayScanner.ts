@@ -30,6 +30,7 @@ import { loadIntradayWatchlist, saveIntradayWatchlist, type IntradayWatchlistEnt
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { isBlacklisted } from '../persistence/blacklistRepo.js';
 import { fetchYahooQuote, getScreenerCache, STOCK_UNIVERSE } from './stockScreener.js';
+import { fetchYahooQuoteByCode } from './adapters/yahooSymbolResolver.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { isPullbackSetup } from './pipelineHelpers.js';
 import { getKstMarketElapsedMinutes, MORNING_VOLUME_DISCOUNT, MORNING_END_MINUTES } from '../trading/entryEngine.js';
@@ -261,10 +262,10 @@ async function discoverIntradayCandidates(): Promise<void> {
 
   for (const stock of candidates) {
     try {
+      // ADR-0231: stock.symbol 명시 시 직접 사용, 그 외 KRX 마스터 정확 매핑.
       const quote = stock.symbol
         ? (await fetchYahooQuote(stock.symbol).catch(() => null))
-        : (await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)) ??
-          (await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null));
+        : (await fetchYahooQuoteByCode(stock.code, fetchYahooQuote));
 
       if (!quote || quote.price <= 0) continue;
 
@@ -344,9 +345,8 @@ async function updateIntradayReadiness(): Promise<void> {
 
   for (const entry of intradayList) {
     try {
-      const quote =
-        (await fetchYahooQuote(`${entry.code}.KS`).catch(() => null)) ??
-        (await fetchYahooQuote(`${entry.code}.KQ`).catch(() => null));
+      // ADR-0231: KRX 마스터 기반 정확 매핑 → 1회 fetch + fallback.
+      const quote = await fetchYahooQuoteByCode(entry.code, fetchYahooQuote);
 
       if (!quote || quote.price <= 0) continue;
 
