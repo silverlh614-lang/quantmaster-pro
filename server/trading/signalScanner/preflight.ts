@@ -4,6 +4,7 @@
  * ADR-0129: macroGateState 11 필드 합성 + persistScanResults propagate (signalScanner/index.ts 호출자)
  * ADR-0168: Kelly clamp SSOT (applyKellyClamp + KELLY_FLOOR) — 매직 넘버 1.5 직접 사용 금지
  * ADR-0147b: signalScanner Phase 3 분해 후 게이팅·sanity·sizing wiring 단일 위치 (drift 차단)
+ * ADR-0367: volumeClock abort도 /scan_blockers 진단 summary를 남긴다.
  */
 
 import { fetchAccountBalance } from '../../clients/kisClient.js';
@@ -171,8 +172,6 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       acknowledgeR3SanityBlock('R3_SANITY_OPERATOR_ACK');
     } else {
       console.warn(`[AutoTrade] R3 sanity block active — 신규 매수 차단 (${r3SanityBlock.violation}, ${r3SanityBlock.regime})`);
-      // ADR-0195: cooldown 60min → 24h (사용자 9번 §6 정합 — 1일 1회 알림).
-      // 텔레그램 즉시 해제: /r3_unblock (ADR-0195) 또는 ENV `R3_SANITY_OPERATOR_ACK=<triggeredAt>` (ADR-0120).
       await sendTelegramAlert(
         `🚨 <b>[R3 Sanity Block Active]</b>\n신규 매수 차단 + shadow-only 전환 유지\n위반: ${r3SanityBlock.violation} / ${r3SanityBlock.regime}\n` +
         `즉시 해제: <code>/r3_unblock</code> (텔레그램, ADR-0195)\n` +
@@ -290,19 +289,6 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   }
 
   const volumeClock = checkVolumeClockWindow();
-  if (!volumeClock.allowEntry) {
-    console.log(volumeClock.reason);
-    console.log(`[AutoTrade] 매수 대기 종목 대기 중 (허용 구간: 09:30~11:30, 13:00~15:20 KST)`);
-    await updateShadowResults(shadows, regime);
-    saveShadowTrades(shadows);
-    return { shouldAbort: true, skipPersist: true };
-  }
-  if (volumeClock.scoreBonus !== 0) {
-    console.log(volumeClock.reason);
-  }
-
-  const supplyHealthSnapshot = await captureSupplyHealthSnapshot();
-
   const macroGateState = buildMacroGateState({
     emergencyStop: getEmergencyStop(),
     autoTradeEnabled: process.env.AUTO_TRADE_ENABLED === 'true',
@@ -315,8 +301,33 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     bearDefenseMode: false,
     mhsBelow30: (macroState?.mhs ?? 100) < 30,
     watchlistEmpty: watchlist.length === 0,
-    sellOnlyMode: optSellOnly === true,
+    sellOnlyMode: optSellOnly === true || !volumeClock.allowEntry,
   });
+
+  if (!volumeClock.allowEntry) {
+    console.log(volumeClock.reason);
+    console.log(`[AutoTrade] 매수 대기 종목 대기 중 (허용 구간: 09:30~11:30, 13:00~15:20 KST)`);
+    await updateShadowResults(shadows, regime);
+    saveShadowTrades(shadows);
+    return {
+      shouldAbort: true,
+      skipPersist: false,
+      diagnosticData: {
+        buyListLength: watchlist.length,
+        intradayBuyListLength: 0,
+        swingListLength: 0,
+        catalystListLength: 0,
+        momentumListLength: watchlist.length,
+        macroGateState,
+      },
+      context: { macroState },
+    };
+  }
+  if (volumeClock.scoreBonus !== 0) {
+    console.log(volumeClock.reason);
+  }
+
+  const supplyHealthSnapshot = await captureSupplyHealthSnapshot();
 
   return {
     shouldAbort: false,
