@@ -29,6 +29,7 @@
     "validate:adrIndex": "node scripts/check_adr_index.js",
     "validate:pendingWiring": "node scripts/check_pending_wiring.js",
     "validate:prPaceAudit": "node scripts/check_pr_pace_audit.js",
+    "validate:bug-ledger": "node scripts/check_bug_ledger.js",
     "build:exit-catalog": "node scripts/generate_exit_rules_catalog.js",
     "validate:exit-catalog": "node scripts/generate_exit_rules_catalog.js --check",
     "validate:all": "npm run validate:gemini && npm run validate:complexity && npm run validate:sds && npm run validate:exposure && npm run validate:responsibility && npm run validate:boundary && npm run validate:channelBoundary && npm run check:learning-boundary && npm run validate:sensitiveAlerts && npm run validate:marketOverviewBoundary && npm run validate:yahooRange && npm run validate:uiLanguage && npm run validate:dataTrust && npm run validate:silentDegradation && npm run validate:adrIndex && npm run validate:pendingWiring && npm run validate:prPaceAudit",
