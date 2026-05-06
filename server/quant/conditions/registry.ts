@@ -17,6 +17,38 @@ import type {
 } from './types.js';
 import type { ConditionKey } from '../../quantFilter.js';
 
+/**
+ * ADR-0411 — Yahoo 시계열 파생 지표 (closes[]/highs[]/volumes[]/MA/RSI/MACD/ATR/BB/MTAS)
+ * 의존 evaluator 카탈로그 SSOT. quote.yahooDerivedIndicatorsReliable=false 시 registry.run
+ * 진입부에서 자동 PROVIDER_DEGRADED 강등 → score / details / conditionKeys 미합산.
+ *
+ * 비포함 (yahooDerivedIndicatorsReliable 무관):
+ *   - per                — Yahoo PER (가격 *시점* derived 가 아닌 fundamental, ADR-0387 P0-3 별도 처리)
+ *   - supply_confluence  — KIS Investor Flow (Yahoo 무관)
+ *   - earnings_quality   — DART 재무 (Yahoo 무관)
+ *
+ * 포함 (14 evaluator):
+ *   - momentum / vcp / volume_surge (ADR-0389 status 적용)
+ *   - ma_alignment / volume_breakout / turtle_high / relative_strength / breakout_momentum (ADR-0390)
+ *   - rsi_zone / macd_bull / pullback / ma60_rising / weekly_rsi_zone / trend_acceleration (status 미적용 — legacy null fallback)
+ */
+export const TIMESERIES_DEPENDENT_EVALUATORS: ReadonlySet<ConditionKey> = new Set<ConditionKey>([
+  'momentum',
+  'vcp',
+  'volume_surge',
+  'ma_alignment',
+  'volume_breakout',
+  'turtle_high',
+  'relative_strength',
+  'breakout_momentum',
+  'rsi_zone',
+  'macd_bull',
+  'pullback',
+  'ma60_rising',
+  'weekly_rsi_zone',
+  'trend_acceleration',
+]);
+
 export interface ConditionRunResult {
   totalScore: number;
   details: string[];
@@ -70,8 +102,32 @@ export class ConditionRegistry {
     const outputs: ConditionRunResult['outputs'] = [];
     const isThrowMode = process.env.CONDITION_REGISTRY_THROW_DISABLED === 'true';
 
+    // ADR-0411: yahooDerivedIndicatorsReliable=false 시 시계열 의존 evaluator 자동 PROVIDER_DEGRADED.
+    // ENV `ADR_0411_PROVIDER_DEGRADED_DISABLED=true` 우회 (default OFF, ADR-0157 정합) — 강등 비활성화.
+    // - 미설정 (legacy quote — yahooDerivedIndicatorsReliable undefined): 강등 미적용 (기존 동작 보존).
+    // - true: evaluator 호출 자체 skip + PROVIDER_DEGRADED status output 영속 (recordGateAuditByStatus 가
+    //   `unavailable` 카운터 누적 — `failed` 와 분리, 진단 오염 차단).
+    const isProviderDegradedDisabled = process.env.ADR_0411_PROVIDER_DEGRADED_DISABLED === 'true';
+    const yahooDerivedReliable = ctx.quote?.yahooDerivedIndicatorsReliable;
+    const downgradeTimeseriesEvaluators = !isProviderDegradedDisabled
+      && yahooDerivedReliable === false;
+
     for (const ev of this.evaluators.values()) {
       let out: ConditionEvalOutput | null = null;
+      // ADR-0411 — 시계열 의존 evaluator + Yahoo derived 신뢰성 손상 시 evaluator 호출 자체 skip
+      // (evaluator 가 stale closes[] 로 잘못된 점수 산출하기 전 차단).
+      if (downgradeTimeseriesEvaluators && TIMESERIES_DEPENDENT_EVALUATORS.has(ev.key)) {
+        const dataQualityLabel = ctx.quote?.dataQuality ?? 'unknown';
+        out = {
+          score: 0,
+          conditionKey: ev.key,
+          detail: `Yahoo 시계열 신뢰성 손상 (dataQuality=${dataQualityLabel}) — PROVIDER_DEGRADED`,
+          status: 'PROVIDER_DEGRADED',
+        };
+        outputs.push({ key: ev.key, output: out });
+        // PROVIDER_DEGRADED 는 score / details / conditionKeys 미합산 (아래 분기와 동일).
+        continue;
+      }
       try {
         out = ev.evaluate(ctx);
       } catch (err) {

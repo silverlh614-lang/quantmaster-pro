@@ -434,6 +434,22 @@ export async function autoPopulateWatchlist(): Promise<number> {
       continue;
     }
 
+    // ─── ADR-0411 — Yahoo↔KIS 50% 초과 괴리 시 universe 보존 + WATCHLIST_HOLD 마커 ───
+    // 사용자 micro-correction: STRONG→BUY 강등 대신 시계열 evaluator 자동 강등으로 자연 진입 차단.
+    // ADR-0263 원안 (return null) 폐기 — universe 손실 + 운영자 추적 불가 차단.
+    // 본 분기는 KIS 가격 채택된 종목 (price 신뢰성 OK) → universe 통과 + 진단 마커만 부착.
+    // 시계열 의존 14 evaluator 는 registry.run 에서 자동 PROVIDER_DEGRADED 강등 (score=0).
+    // 후속 watchlistEntry 에 technicalProviderDegraded=true 영속 (라인 ~538 참조).
+    let technicalProviderDegraded = false;
+    if (quote.dataQuality === 'KIS_PRIMARY_YAHOO_STALE_DETECTED') {
+      technicalProviderDegraded = true;
+      console.warn(
+        `[AutoPopulate] ${stock.code} ${stock.name} — WATCHLIST_HOLD ` +
+        `(Yahoo↔KIS divergence: ${quote.yahooKisRecovery?.divergencePct.toFixed(1) ?? '?'}%, ` +
+        `KIS price 채택, 시계열 evaluator PROVIDER_DEGRADED 강등). ADR-0411.`,
+      );
+    }
+
     // ─── ADR-0091 PR-Z4 — Yahoo dataQuality=STALE_BASE 시 KIS 폴백 + 종목 제외 ───
     // 사용자 진단: "Sanity 실패 후에도 Yahoo base 를 계속 신뢰하는 구조" 차단.
     // changePercent 위반 시 KIS intraday 로 재산출 시도 (KIS 는 자체 prevClose 보유).
@@ -537,6 +553,10 @@ export async function autoPopulateWatchlist(): Promise<number> {
       section,
       track,
       expiresAt: addBusinessDays(new Date(), expireDays).toISOString(),
+      // ADR-0411 — Yahoo↔KIS 괴리 KIS recovery 종목 라벨링 (운영자 진단·텔레그램용).
+      ...(technicalProviderDegraded
+        ? { technicalProviderDegraded: true, technicalProviderDegradedAt: new Date().toISOString() }
+        : {}),
     });
     if (!addResult.added) {
       const sectionCount = watchlist.filter(w => w.section === section).length;
