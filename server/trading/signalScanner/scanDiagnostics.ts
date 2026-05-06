@@ -69,7 +69,7 @@ export interface ScanSummary {
   macroGateState?: MacroGateState;
   emptyScanReason?: EmptyScanReason;
   gatePassDistribution?: GatePassDistribution;
-  sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
+  sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
   validSectorCount?: number;
   sectorEnergyReasons?: string[];
 }
@@ -208,10 +208,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   if (summary.sectorEnergyQuality !== undefined) {
     lines.push('');
     lines.push('🌐 <b>섹터 에너지 데이터 품질:</b>');
+    // ADR-0396 (= 사용자 명시 ADR-0371): 5단계 union — DEGRADED 신규 마커 추가.
     const qualityIcon =
       summary.sectorEnergyQuality === 'OK' ? '✅'
       : summary.sectorEnergyQuality === 'PARTIAL' ? '🟡'
       : summary.sectorEnergyQuality === 'STALE' ? '🟠'
+      : summary.sectorEnergyQuality === 'DEGRADED' ? '🔶'
       : '❌';
     lines.push(`  • dataQuality: ${qualityIcon} <b>${summary.sectorEnergyQuality}</b>`);
     if (summary.validSectorCount !== undefined) {
@@ -220,8 +222,9 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (summary.sectorEnergyReasons && summary.sectorEnergyReasons.length > 0) {
       lines.push(`  • reasons: ${summary.sectorEnergyReasons.slice(0, 3).join('; ')}`);
     }
-    if (summary.sectorEnergyQuality === 'FAILED') {
-      lines.push('  • <i>FAILED → emptyScanReason DATA_INVALID 자동 가중 (ADR-0127)</i>');
+    // ADR-0396: FAILED 외 DEGRADED 도 DATA_INVALID 후보 (emptyScanClassifier wiring 정합).
+    if (summary.sectorEnergyQuality === 'FAILED' || summary.sectorEnergyQuality === 'DEGRADED') {
+      lines.push(`  • <i>${summary.sectorEnergyQuality} → emptyScanReason DATA_INVALID 자동 가중 (ADR-0127/0396)</i>`);
     }
   }
 
@@ -266,7 +269,7 @@ export interface PersistScanResultsOptions {
   catalystListLength: number;
   momentumListLength: number;
   macroGateState?: MacroGateState;
-  sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
+  sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
   validSectorCount?: number;
   sectorEnergyReasons?: string[];
 }

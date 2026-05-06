@@ -101,8 +101,11 @@ export function classifyEmptyScanReason(summary: ScanSummary | null): EmptyScanR
     }
   }
   // ADR-0127: sectorEnergy 데이터 품질 FAILED 시 DATA_INVALID 우선 분류.
-  // FAILED = KRX 응답 비대칭 또는 fetch 실패 — 섹터 에너지 입력 자체 폐기 상태.
-  if (summary.sectorEnergyQuality === 'FAILED') {
+  // ADR-0396 (= 사용자 명시 ADR-0371): DEGRADED 도 DATA_INVALID 후보 격상.
+  //   - FAILED (validSectorCount 0~2): 섹터 에너지 입력 자체 폐기 상태
+  //   - DEGRADED (validSectorCount 3~5): 심각한 부족, 보조 신호로만 사용 가능
+  //   - STALE (validSectorCount 6~8): fallback 진입 후 충분한 표본 — DATA_INVALID 부적합
+  if (summary.sectorEnergyQuality === 'FAILED' || summary.sectorEnergyQuality === 'DEGRADED') {
     return 'DATA_INVALID';
   }
 
