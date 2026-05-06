@@ -23,20 +23,51 @@ function weightFor(weights: Record<string, number>, key: string): number {
 
 // ─── 조건 2: 모멘텀 ──────────────────────────────────────────────────────────
 
+/**
+ * ADR-0283: momentum 계단형 점수 (binary cliff 제거).
+ * 기존 +2% / +0.5%+RSI 2 단계 → +0.5 / +1.0 / +2.0 / +3.0% 4 단계 + 보너스.
+ * ENV `MOMENTUM_STEP_SCORING_DISABLED=true` 시 ADR-0283 이전 동작 복원.
+ */
 export const momentumEvaluator: ConditionEvaluator = {
   key: 'momentum',
-  description: '당일 +2% 이상 또는 (소폭 상승 + RSI 가속 + 5일 비과급등) 시 모멘텀 인정',
+  description: '당일 변화율 계단형 점수 — +0.5/+1.0/+2.0/+3.0% 4 단계 (ADR-0283)',
   inputs: ['quote.changePercent', 'quote.rsi14', 'quote.rsi5dAgo', 'quote.return5d'],
   evaluate({ quote, weights }) {
     const w = weightFor(weights, 'momentum');
     const rsiAccel = (quote.rsi14 - quote.rsi5dAgo) >= 3;
-    if (quote.changePercent >= 2) {
-      return { score: w, conditionKey: 'momentum',
-        detail: `모멘텀 +${quote.changePercent.toFixed(1)}%` };
+    const pct = quote.changePercent;
+
+    // Legacy 동작 — ENV 활성 시 ADR-0283 이전 cliff 점수.
+    if (process.env.MOMENTUM_STEP_SCORING_DISABLED === 'true') {
+      if (pct >= 2) {
+        return { score: w, conditionKey: 'momentum', detail: `모멘텀 +${pct.toFixed(1)}%` };
+      }
+      if (pct >= 0.5 && rsiAccel && quote.return5d < 8) {
+        return { score: w * 0.7, conditionKey: 'momentum',
+          detail: `모멘텀(RSI가속) +${pct.toFixed(1)}% RSI${quote.rsi14.toFixed(0)}` };
+      }
+      return null;
     }
-    if (quote.changePercent >= 0.5 && rsiAccel && quote.return5d < 8) {
+
+    // ADR-0283 default — 계단형.
+    if (pct >= 3.0) {
+      return { score: w * 1.2, conditionKey: 'momentum',
+        detail: `강한 모멘텀 +${pct.toFixed(1)}% (보너스)` };
+    }
+    if (pct >= 2.0) {
+      return { score: w, conditionKey: 'momentum', detail: `모멘텀 +${pct.toFixed(1)}%` };
+    }
+    if (pct >= 1.0) {
       return { score: w * 0.7, conditionKey: 'momentum',
-        detail: `모멘텀(RSI가속) +${quote.changePercent.toFixed(1)}% RSI${quote.rsi14.toFixed(0)}` };
+        detail: `중간 모멘텀 +${pct.toFixed(1)}%` };
+    }
+    if (pct >= 0.5) {
+      // 5일 과급등 (return5d ≥ 8%) 시 RSI 가속 보너스 차단 — 추격 위험 격리.
+      const overheated = quote.return5d >= 8;
+      const score = (rsiAccel && !overheated) ? w * 0.7 : w * 0.4;
+      const flag = (rsiAccel && !overheated) ? ' (RSI가속)' : '';
+      return { score, conditionKey: 'momentum',
+        detail: `약한 모멘텀 +${pct.toFixed(1)}%${flag}` };
     }
     return null;
   },
@@ -192,19 +223,44 @@ function calculateCompressionScore(quote: {
   return Math.max(0, Math.min(1, cs));
 }
 
+/**
+ * ADR-0282: VCP Mode A (압축형) + Mode B (정배열 + ATR 안정).
+ *
+ * 기존 Mode A (CS ≥ 0.4 / 0.6) 보존 + Mode B 신규 — 강세장 추격 패턴.
+ * Mode B: bbWidth 확장 중이지만 ATR 5d/20d 격차 ≤ 10% (안정 추세) + MA 정배열.
+ *
+ * ENV `VCP_MODE_B_DISABLED=true` 시 ADR-0282 Mode B 비활성 (기존 Mode A 만).
+ */
 export const vcpEvaluator: ConditionEvaluator = {
   key: 'vcp',
-  description: 'Compression Score ≥ 0.6 강한압축 / ≥ 0.4 중간압축',
+  description: '압축형 (CS ≥ 0.4) 또는 정배열 + ATR 안정 가속형 (ADR-0282)',
   inputs: [
     'quote.bbWidthCurrent', 'quote.bbWidth20dAvg',
     'quote.vol5dAvg', 'quote.vol20dAvg',
     'quote.atr5d', 'quote.atr20avg',
+    'quote.ma5', 'quote.ma20', 'quote.ma60',
   ],
   evaluate({ quote, weights }) {
     const cs = calculateCompressionScore(quote);
     const w = weightFor(weights, 'vcp');
+
+    // Mode A — 전통 VCP (압축 후 돌파).
     if (cs >= 0.6) return { score: w,       conditionKey: 'vcp', detail: `VCP 강한압축 (CS=${cs.toFixed(2)})` };
     if (cs >= 0.4) return { score: w * 0.5, conditionKey: 'vcp', detail: `VCP 중간압축 (CS=${cs.toFixed(2)})` };
+
+    // Mode B (ADR-0282) — 정배열 + ATR 안정 (강세장 가속 추격).
+    if (process.env.VCP_MODE_B_DISABLED === 'true') return null;
+    const aligned = quote.ma5 > quote.ma20 && quote.ma20 > quote.ma60;
+    const atrStable = quote.atr20avg > 0
+      && Math.abs(quote.atr5d - quote.atr20avg) / quote.atr20avg < 0.1;
+    if (aligned && atrStable) {
+      const atrDeltaPct = ((Math.abs(quote.atr5d - quote.atr20avg) / quote.atr20avg) * 100).toFixed(0);
+      return {
+        score: w * 0.4,
+        conditionKey: 'vcp',
+        detail: `정배열 + ATR 안정 ±${atrDeltaPct}% (ADR-0282 Mode B)`,
+      };
+    }
     return null;
   },
 };
@@ -367,6 +423,74 @@ export const earningsQualityEvaluator: ConditionEvaluator = {
     }
     if (dartFin.ocfRatio >= 1.0) {
       return { score: w * 0.5, conditionKey: 'earnings_quality', detail: `OCF기본 ${dartFin.ocfRatio.toFixed(1)}%` };
+    }
+    return null;
+  },
+};
+
+// ─── 조건 28: 강세장 가속 추격 (ADR-0281) ────────────────────────────────────
+
+/**
+ * ADR-0281: trend_acceleration — R1/R2/R3 강세장 가속 중인 주도주 추격.
+ *
+ * 페르소나 원칙 5 — "직전 주도주보다 새 주도주 초기 신호 우선" + "강세장 가속 추격".
+ * momentum (당일) / relative_strength (20일 vs KOSPI) / ma_alignment 와 *독립* 입력
+ * — 정배열 + 5일/20일 가속 비율 + KOSPI outperform + 거래량 활성 4 조건 합성.
+ *
+ * 점수 분기:
+ *   - 가속 + outperform + 거래량 활성 → w × 1.2 (강한 가속 보너스)
+ *   - outperform + 거래량 활성 → w × 0.6
+ *   - 그 외 → null
+ *
+ * ENV `TREND_ACCELERATION_DISABLED=true` 시 본 evaluator 비활성 (ADR-0281 이전 동작).
+ */
+export const trendAccelerationEvaluator: ConditionEvaluator = {
+  key: 'trend_acceleration',
+  description: '강세장 가속 추격 — 정배열 + 5일/20일 가속 + KOSPI outperform + 거래량 (ADR-0281)',
+  inputs: [
+    'quote.changePercent', 'quote.return5d', 'quote.return20d',
+    'quote.volume', 'quote.avgVolume',
+    'quote.ma5', 'quote.ma20', 'quote.ma60',
+    'ctx.kospi20dReturn',
+  ],
+  evaluate({ quote, weights, kospi20dReturn }) {
+    if (process.env.TREND_ACCELERATION_DISABLED === 'true') return null;
+
+    const w = weightFor(weights, 'trend_acceleration');
+
+    // 1. 정배열 — MA5 > MA20 > MA60.
+    const aligned = quote.ma5 > quote.ma20 && quote.ma20 > quote.ma60;
+    if (!aligned) return null;
+
+    // 2. 가속 시그니처 — 5일 수익률이 20일 수익률의 30% 이상 (단기 가속).
+    const fiveDayShare = quote.return20d > 0 ? quote.return5d / quote.return20d : 0;
+    const accelerating = fiveDayShare >= 0.3;
+
+    // 3. KOSPI outperform — 벤치마크 미제공 시 default true (보수적 통과).
+    const outperforming = kospi20dReturn !== undefined
+      ? quote.return20d > kospi20dReturn
+      : true;
+
+    // 4. 거래량 활성 — 평균의 1.3배 이상.
+    const volumeAlive = quote.avgVolume > 0 && quote.volume >= quote.avgVolume * 1.3;
+
+    const gapStr = kospi20dReturn !== undefined
+      ? ` vs KOSPI +${(quote.return20d - kospi20dReturn).toFixed(1)}%p`
+      : '';
+
+    if (accelerating && outperforming && volumeAlive) {
+      return {
+        score: w * 1.2,
+        conditionKey: 'trend_acceleration',
+        detail: `가속추격 (5d점유 ${(fiveDayShare * 100).toFixed(0)}%${gapStr})`,
+      };
+    }
+    if (outperforming && volumeAlive) {
+      return {
+        score: w * 0.6,
+        conditionKey: 'trend_acceleration',
+        detail: `정배열 outperform${gapStr}`,
+      };
     }
     return null;
   },

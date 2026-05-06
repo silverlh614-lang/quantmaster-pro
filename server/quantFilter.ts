@@ -66,6 +66,9 @@ export const CONDITION_KEYS = {
   WEEKLY_RSI_ZONE:   'weekly_rsi_zone',   // 주봉 RSI 40~70 (타임프레임 정렬)
   SUPPLY_CONFLUENCE: 'supply_confluence', // KIS 기관/외인 수급 합치 (신뢰도 HIGH)
   EARNINGS_QUALITY:  'earnings_quality',  // DART OCF 품질 (분기 데이터)
+  // ADR-0281: 강세장 (R1/R2/R3) 에서 정배열 + 가속 + 거래량 활성 종목 추격.
+  // momentum (당일) / relative_strength (20일 vs KOSPI) / ma_alignment 와 독립 입력.
+  TREND_ACCELERATION: 'trend_acceleration',
 } as const;
 
 export type ConditionKey = (typeof CONDITION_KEYS)[keyof typeof CONDITION_KEYS];
@@ -90,6 +93,7 @@ export const DEFAULT_CONDITION_WEIGHTS: ConditionWeights = {
   weekly_rsi_zone:   0.8,  // 일봉보다 낮은 가중치 (타임프레임 보조)
   supply_confluence: 1.2,  // 허위신호 차단 효과 최대 (신뢰도 HIGH)
   earnings_quality:  0.7,  // 분기 데이터라 실시간성 없음 — 스크리닝 보조용
+  trend_acceleration: 1.0, // ADR-0281 — 강세장 가속 추격 (페르소나 원칙 5)
 };
 
 /**
