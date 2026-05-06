@@ -46,7 +46,7 @@ export type R3SanityAction =
   | 'HARD_BLOCK_LATCH';
 
 /**
- * Guard 입력 — 5종 OR 평가.
+ * Guard 입력 — 5종 OR 평가 (+ ADR-0412 옵셔널 6번째 frozenQuoteDataQuality).
  *
  * 1건이라도 true 면 hardBlockAllowed=false (정상 시스템 비활성 상태).
  * 모두 false 시에만 HARD_BLOCK 격상 가능.
@@ -62,6 +62,16 @@ export interface R3SanityGuardInput {
   volumeClockAllowsEntry: boolean;
   /** GatePassDistribution 산출 정상 — false 시 차단 (절대 원칙 #8) */
   gatePassDistributionFresh: boolean;
+  /**
+   * ADR-0412 옵셔널 6번째 guard — FrozenQuoteDetector 결과.
+   *
+   * - 'STALE'   → hardBlockAllowed=false + reasons.push('FROZEN_QUOTE_STALE')
+   * - 'SUSPECT' → hardBlockAllowed=false + reasons.push('FROZEN_QUOTE_SUSPECT') (보수적)
+   * - 'OK' / undefined → 영향 없음 (legacy 호출자 후방호환)
+   *
+   * 핵심: "데이터 오염 상태에서 R3 streak hard block 누적 금지" (ADR-0412 절대 원칙 #5).
+   */
+  frozenQuoteDataQuality?: 'OK' | 'SUSPECT' | 'STALE';
 }
 
 export interface R3ViolationStateInput {
@@ -136,6 +146,14 @@ export function evaluateGuards(
 
   if (guards.gatePassDistributionFresh === false) {
     reasons.push('gatePassDistributionFresh=false (GPD 미수집)');
+  }
+
+  // ADR-0412 6번째 guard — FrozenQuoteDetector (입력 데이터 오염).
+  // 절대 원칙 #5 — 데이터 오염 상태에서 R3 hard block 누적 금지.
+  if (guards.frozenQuoteDataQuality === 'STALE') {
+    reasons.push('FROZEN_QUOTE_STALE (ADR-0412 — 입력 데이터 오염)');
+  } else if (guards.frozenQuoteDataQuality === 'SUSPECT') {
+    reasons.push('FROZEN_QUOTE_SUSPECT (ADR-0412 — 입력 데이터 의심)');
   }
 
   return { hardBlockAllowed: reasons.length === 0, reasons };
