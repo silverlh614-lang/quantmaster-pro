@@ -47,11 +47,15 @@ export function formatHealthMessage(s: HealthSnapshot, p: HealthProbeResult): st
   const krxMasterLine = formatKrxMasterUsabilityLine();
   const finalVerdict = resolveHealthVerdict(s.verdict, krxMasterLine.blocked);
 
+  // ADR-0191 §Wiring 3 — Position Truth Divergence 라인 (정상은 침묵, divergent=true 시 ❌ 노출).
+  const ptdLine = formatPositionTruthDivergenceLine(s);
+
   return (
     `🩺 <b>[파이프라인 헬스체크]</b> (uptime ${s.uptimeHours}h / mem ${s.memMB}MB / build ${s.commitSha})\n` +
     `판정: ${finalVerdict}\n` +
     `─────────────────────\n` +
     `워치리스트: ${s.watchlistCount}개 | 활성 포지션: ${s.activePositions}개\n` +
+    (ptdLine ? `${ptdLine}\n` : '') +
     `자동매매: ${s.autoTradeEnabled ? '✅ 켜짐' : '❌ 꺼짐'} (${s.autoTradeMode})\n` +
     `KIS 토큰: ${s.kisTokenHours > 0 ? `✅ ${s.kisTokenHours}시간 남음` : '❌ 만료'}` +
     (s.realDataTokenHours > 0 ? ` | 실데이터: ✅ ${s.realDataTokenHours}h` : '') +
@@ -236,6 +240,30 @@ function formatShortSellingFetchedAt(iso: string | undefined): string {
     minute: '2-digit',
     hour12: false, // "23:30" — ko-KR 기본 hour12=true("PM 11:30") 회피
   });
+}
+
+/**
+ * Position Truth Divergence 라벨 SSOT — ADR-0191 §Wiring 3.
+ *
+ * 우선순위:
+ *   1. positionTruthDivergence 부재 (검출 throw / ENV 우회) → 빈 문자열 (라인 미노출)
+ *   2. divergent=false → 빈 문자열 (정상은 침묵)
+ *   3. divergent=true → "❌ Position Truth Divergence: shadow=N vs aggregate=M (codes: ...)"
+ *
+ * 외부 export — 단위 테스트 + 회귀 가드용.
+ * divergentStockCodes 가 5개 초과 시 첫 5개 + "외 N개" 형식 (메시지 폭주 차단).
+ */
+export function formatPositionTruthDivergenceLine(s: HealthSnapshot): string {
+  const ptd = s.positionTruthDivergence;
+  if (!ptd) return '';
+  if (!ptd.divergent) return '';
+  const codes = ptd.divergentStockCodes;
+  const codesLabel = codes.length === 0
+    ? 'codes: N/A'
+    : codes.length <= 5
+      ? `codes: ${codes.join(',')}`
+      : `codes: ${codes.slice(0, 5).join(',')} 외 ${codes.length - 5}개`;
+  return `❌ <b>Position Truth Divergence</b>: shadow=${ptd.shadowOpenCount} vs aggregate=${ptd.aggregateActiveCount} (${codesLabel})`;
 }
 
 function formatYahooStatusLine(s: HealthSnapshot): string {

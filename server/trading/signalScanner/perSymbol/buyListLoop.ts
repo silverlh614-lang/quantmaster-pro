@@ -78,6 +78,8 @@ import {
 // ADR-0128 §Wiring 1+2 — DataHoldRolePolicy SSOT 위임 + verifyStockIncremental BUY_CANDIDATE.
 import { verifyStockIncremental } from '../../../data/dataVerificationIncremental.js';
 import { resolveDataHoldAction } from '../../../data/dataHoldRolePolicy.js';
+// ADR-0191 §Wiring 2 — 자기 보유 가드 SSOT (positionTruth) — 동일 종목 12회 매수 (물타기) 차단.
+import { loadOpenPositions } from '../../../persistence/positionTruth.js';
 import {
   isOpenShadowStatus,
   buildStopLossPlan,
@@ -1233,6 +1235,25 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             effectiveIndependentCount: Number(corrGate.effectiveIndependentCount.toFixed(2)),
           });
           continue;
+        }
+
+        // ADR-0191 §Wiring 2 — 자기 보유 가드 (belt-and-suspenders).
+        // L921 의 `alreadyTraded` 가드 위에 positionTruth SSOT 기반 2중 안전망.
+        // 동일 종목 12회 매수 (물타기) 시스템 차단 — 페르소나 9번 (보유 효과 경계) 정반대 차단.
+        // ENV `BUY_LIST_SELF_HOLDING_GUARD_DISABLED=true` 우회 (default OFF).
+        if (process.env.BUY_LIST_SELF_HOLDING_GUARD_DISABLED !== 'true') {
+          const openPositions = loadOpenPositions();
+          const alreadyHeld = openPositions.some(p => p.stockCode === stock.code);
+          if (alreadyHeld) {
+            console.log(
+              `[AutoTrade/SelfHoldingGuard] ${stock.name}(${stock.code}) 이미 보유 중 — 물타기 차단 (ADR-0191)`,
+            );
+            appendShadowLog({
+              event: 'BLOCKED_SELF_HOLDING',
+              code: stock.code,
+            });
+            continue;
+          }
         }
       }
 
