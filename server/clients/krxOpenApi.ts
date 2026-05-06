@@ -1,143 +1,102 @@
 // @responsibility krxOpenApi 외부 클라이언트 모듈
 /**
- * krxOpenApi.ts — 한국거래소(KRX) Data Marketplace Open API **인증 어댑터**.
- *
- * 기존 `krxClient.ts`는 data.krx.co.kr 의 공개(비인증) JSON 엔드포인트를 사용한다.
- * 이 모듈은 그것과 별개로, KRX가 공식 발급한 AUTH_KEY 를 사용해
- * openapi.krx.co.kr / data-dbg.krx.co.kr 의 **인가된 서비스**만 호출한다.
- *
- * 적용 서비스 (승인 받은 항목만):
- *   - /sto/stk_bydd_trd        — 유가증권(KOSPI) 일별매매정보
- *   - /sto/ksq_bydd_trd        — 코스닥(KOSDAQ) 일별매매정보
- *   - /sto/stk_isu_base_info   — 유가증권 종목기본정보
- *   - /sto/ksq_isu_base_info   — 코스닥 종목기본정보
- *   - /idx/kospi_dd_trd        — KOSPI 시리즈 일별시세정보
- *   - /idx/kosdaq_dd_trd       — KOSDAQ 시리즈 일별시세정보
- *   - /idx/krx_dd_trd          — KRX 시리즈 일별시세정보
- *   - /idx/drvprod_dd_trd      — 파생상품지수 시세정보
- *
- * 설계 원칙:
- *   1. 민감한 외부 쿼터(일 10,000회 제한)를 아끼기 위해 응답은 메모리 캐시(기본 15분).
- *   2. 인증 실패·네트워크 실패·비정상 JSON 은 모두 빈 배열/ null 반환 — throw 하지 않는다.
- *   3. 서킷브레이커(createCircuitBreaker)로 연속 실패 시 일정 시간 호출을 단락.
- *   4. `KRX_OPENAPI_AUTH_KEY` 미설정 또는 `KRX_OPENAPI_DISABLED=true` 이면 즉시 null/[].
- *   5. 호출자는 `isKrxOpenApiHealthy()` 로 상태를 물어 fallback 여부를 결정.
+ * krxOpenApi.ts — 한국거래소(KRX) Data Marketplace Open API 인증 어댑터.
+ * ADR-0361: default base 를 beta(data-dbg) 가 아닌 official(openapi.krx.co.kr) 로 전환.
  */
 
 import { createCircuitBreaker, CircuitOpenError } from '../utils/circuitBreaker.js';
-import { isKrxTradingDay, previousKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
+import { isKrxTradingDay, previousKrxTradingDay } from '../calendar/krxTradingCalendar.js';
 
-// ── 타입 ─────────────────────────────────────────────────────────────────────
-
-/** KOSPI / KOSDAQ 일별매매정보의 단일 종목 행 (stk_bydd_trd · ksq_bydd_trd) */
 export interface KrxStockDailyRow {
-  baseDate: string;    // YYYYMMDD
-  code: string;        // 단축종목코드 (6자리)
-  isin: string;        // ISIN 코드
-  name: string;        // 한글 종목명
-  market: string;      // 시장구분 (KOSPI/KOSDAQ/KOSDAQ GLOBAL 등)
-  sector: string;      // 소속부/섹터명 (비어있을 수 있음)
-  close: number;       // 종가
-  change: number;      // 대비 (전일비)
-  changePct: number;   // 등락률(%)
-  open: number;        // 시가
-  high: number;        // 고가
-  low: number;         // 저가
-  volume: number;      // 거래량 (주)
-  value: number;       // 거래대금 (원)
-  marketCap: number;   // 시가총액 (원)
-  listedShares: number;// 상장주식수 (주)
+  baseDate: string;
+  code: string;
+  isin: string;
+  name: string;
+  market: string;
+  sector: string;
+  close: number;
+  change: number;
+  changePct: number;
+  open: number;
+  high: number;
+  low: number;
+  volume: number;
+  value: number;
+  marketCap: number;
+  listedShares: number;
 }
 
-/** 종목 기본정보 (stk_isu_base_info · ksq_isu_base_info) */
 export interface KrxIsuBaseInfoRow {
-  code: string;        // 단축종목코드
-  isin: string;        // ISIN
-  name: string;        // 한글 종목명
-  nameEng: string;     // 영문 종목명
-  listDate: string;    // 상장일 YYYYMMDD
-  market: string;      // 시장구분
-  securityType: string;// 주식종류
-  parValue: number;    // 액면가
-  listedShares: number;// 상장주식수
+  code: string;
+  isin: string;
+  name: string;
+  nameEng: string;
+  listDate: string;
+  market: string;
+  securityType: string;
+  parValue: number;
+  listedShares: number;
 }
 
-/** 지수 일별시세 (kospi_dd_trd · kosdaq_dd_trd · krx_dd_trd · drvprod_dd_trd) */
 export interface KrxIndexDailyRow {
   baseDate: string;
-  indexCode: string;   // 지수코드
-  indexName: string;   // 지수명
-  close: number;       // 종가
-  change: number;      // 대비
-  changePct: number;   // 등락률(%)
-  open: number;        // 시가
-  high: number;        // 고가
-  low: number;         // 저가
-  volume: number;      // 거래량
-  value: number;       // 거래대금
-  marketCap: number;   // 시가총액 (주식 지수 한정)
+  indexCode: string;
+  indexName: string;
+  close: number;
+  change: number;
+  changePct: number;
+  open: number;
+  high: number;
+  low: number;
+  volume: number;
+  value: number;
+  marketCap: number;
 }
 
-// ── 설정 ──────────────────────────────────────────────────────────────────────
-
-const DEFAULT_BASE = 'https://data-dbg.krx.co.kr/svc/apis';
+const DEFAULT_BASE = 'https://openapi.krx.co.kr/svc/apis';
 const REQUEST_TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
-/**
- * Base URL 우선순위:
- *   1. KRX_OPENAPI_BASE (레거시)
- *   2. KRX_API_BASE (블루프린트 표준 — 호스트만 입력돼도 /svc/apis 자동 부착)
- *   3. https://data-dbg.krx.co.kr/svc/apis
- * 블루프린트는 KRX_API_BASE=http://data-dbg.krx.co.kr 처럼 호스트만 지정하므로
- * 경로 prefix(/svc/apis)가 없으면 자동으로 붙여 과거 호환을 유지한다.
- */
+function normalizeBaseUrl(base: string): string {
+  const cleaned = base.trim().replace(/\/+$/u, '');
+  return /\/svc\/apis$/iu.test(cleaned) ? cleaned : `${cleaned}/svc/apis`;
+}
+
 function readBaseUrl(): string {
   const legacy = process.env.KRX_OPENAPI_BASE?.trim();
-  if (legacy) return legacy.replace(/\/+$/, '');
+  if (legacy) return normalizeBaseUrl(legacy);
   const canonical = process.env.KRX_API_BASE?.trim();
-  if (canonical) {
-    const cleaned = canonical.replace(/\/+$/, '');
-    return /\/svc\/apis$/i.test(cleaned) ? cleaned : `${cleaned}/svc/apis`;
-  }
+  if (canonical) return normalizeBaseUrl(canonical);
   return DEFAULT_BASE;
 }
-/**
- * Auth key 우선순위:
- *   1. KRX_API_KEY (블루프린트 표준 — .env.example 에 기재)
- *   2. KRX_OPENAPI_AUTH_KEY (레거시 호환)
- */
+
 function readAuthKey(): string {
   const canonical = (process.env.KRX_API_KEY ?? '').trim();
   if (canonical) return canonical;
   return (process.env.KRX_OPENAPI_AUTH_KEY ?? '').trim();
 }
+
 function readDisabled(): boolean {
   return process.env.KRX_OPENAPI_DISABLED === 'true' || process.env.KRX_API_DISABLED === 'true';
 }
 
-// 엔드포인트 경로 — KRX가 구조를 바꿀 경우 env로 오버라이드 가능.
 const EP = {
-  kospiDailyTrade:   process.env.KRX_OPENAPI_EP_STK_BYDD ?? 'sto/stk_bydd_trd',
-  kosdaqDailyTrade:  process.env.KRX_OPENAPI_EP_KSQ_BYDD ?? 'sto/ksq_bydd_trd',
-  kospiBaseInfo:     process.env.KRX_OPENAPI_EP_STK_BASE ?? 'sto/stk_isu_base_info',
-  kosdaqBaseInfo:    process.env.KRX_OPENAPI_EP_KSQ_BASE ?? 'sto/ksq_isu_base_info',
-  kospiIndexDaily:   process.env.KRX_OPENAPI_EP_KOSPI_IDX ?? 'idx/kospi_dd_trd',
-  kosdaqIndexDaily:  process.env.KRX_OPENAPI_EP_KOSDAQ_IDX ?? 'idx/kosdaq_dd_trd',
-  krxIndexDaily:     process.env.KRX_OPENAPI_EP_KRX_IDX ?? 'idx/krx_dd_trd',
-  derivIndexDaily:   process.env.KRX_OPENAPI_EP_DRV_IDX ?? 'idx/drvprod_dd_trd',
+  kospiDailyTrade: process.env.KRX_OPENAPI_EP_STK_BYDD ?? 'sto/stk_bydd_trd',
+  kosdaqDailyTrade: process.env.KRX_OPENAPI_EP_KSQ_BYDD ?? 'sto/ksq_bydd_trd',
+  kospiBaseInfo: process.env.KRX_OPENAPI_EP_STK_BASE ?? 'sto/stk_isu_base_info',
+  kosdaqBaseInfo: process.env.KRX_OPENAPI_EP_KSQ_BASE ?? 'sto/ksq_isu_base_info',
+  kospiIndexDaily: process.env.KRX_OPENAPI_EP_KOSPI_IDX ?? 'idx/kospi_dd_trd',
+  kosdaqIndexDaily: process.env.KRX_OPENAPI_EP_KOSDAQ_IDX ?? 'idx/kosdaq_dd_trd',
+  krxIndexDaily: process.env.KRX_OPENAPI_EP_KRX_IDX ?? 'idx/krx_dd_trd',
+  derivIndexDaily: process.env.KRX_OPENAPI_EP_DRV_IDX ?? 'idx/drvprod_dd_trd',
 } as const;
-
-// ── 서킷브레이커 ──────────────────────────────────────────────────────────────
 
 const breaker = createCircuitBreaker({
   name: 'krx-openapi',
   failureThreshold: 5,
   windowMs: 60_000,
-  cooldownMs: 5 * 60_000, // 5분 — 쿼터 보호를 위해 기본 서킷보다 길게.
+  cooldownMs: 5 * 60_000,
 });
-
-// ── 캐시 ─────────────────────────────────────────────────────────────────────
 
 interface CacheEntry<T> { data: T; expiresAt: number }
 const _cache = new Map<string, CacheEntry<unknown>>();
@@ -147,35 +106,26 @@ function cacheGet<T>(key: string): T | null {
   if (!hit || hit.expiresAt <= Date.now()) return null;
   return hit.data as T;
 }
+
 function cacheSet<T>(key: string, data: T): void {
   _cache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
 }
-export function resetKrxOpenApiCache(): void { _cache.clear(); }
 
-// ── 유틸 ─────────────────────────────────────────────────────────────────────
+export function resetKrxOpenApiCache(): void {
+  _cache.clear();
+}
 
-/** KST 기준 최근 영업일 YYYYMMDD — 주말이면 직전 평일, 그 외 하루 전. */
 function recentBusinessDayKst(): string {
   return recentBusinessDaysKst(1)[0];
 }
 
-/** ADR-0341 ENV legacy gate — true 시 weekday-only 분기 (구 동작 복원). */
 export function isKrxTradingCalendarLegacy(): boolean {
   return process.env.KRX_TRADING_CALENDAR_LEGACY === 'true';
 }
 
-/**
- * ADR-0341 — yyyymmdd ↔ YYYY-MM-DD 변환 헬퍼 + 한국 공휴일 검증 포함 영업일 산출.
- *
- * 기존 `kst.getUTCDay() !== 0/6` 분기는 weekday 만 검증 → KRX 휴장일 (5/1 근로자의 날 /
- * 5/5 어린이날 / 9/24~26 추석 / 12/25 등) 에 빈 응답 받던 결함 차단.
- *
- * ENV `KRX_TRADING_CALENDAR_LEGACY=true` (default OFF) 시 weekday-only 분기 복원.
- */
 export function recentBusinessDaysKst(count: number, now = new Date()): string[] {
   const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
   const kst = new Date(utcMs + 9 * 60 * 60_000);
-  // 하루 전부터 시작 (당일 데이터는 장마감 후 KRX 반영까지 지연).
   kst.setUTCDate(kst.getUTCDate() - 1);
 
   const useLegacy = isKrxTradingCalendarLegacy();
@@ -186,11 +136,11 @@ export function recentBusinessDaysKst(count: number, now = new Date()): string[]
     const y = kst.getUTCFullYear();
     const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
     const d = String(kst.getUTCDate()).padStart(2, '0');
-    const dateKey = `${y}-${m}-${d}`; // YYYY-MM-DD for krxTradingCalendar
+    const dateKey = `${y}-${m}-${d}`;
     const yyyymmdd = `${y}${m}${d}`;
     const accept = useLegacy
       ? (kst.getUTCDay() !== 0 && kst.getUTCDay() !== 6)
-      : isKrxTradingDay(dateKey); // ADR-0341 — weekday + 한국 공휴일 정합
+      : isKrxTradingDay(dateKey);
     if (accept) out.push(yyyymmdd);
     kst.setUTCDate(kst.getUTCDate() - 1);
   }
@@ -217,11 +167,9 @@ function toStr(s: string | number | undefined | null): string {
 
 function normalizeCode(s: string | undefined | null): string {
   if (!s) return '';
-  const stripped = String(s).trim().replace(/^[A-Z]/, '');
+  const stripped = String(s).trim().replace(/^[A-Z]/u, '');
   return /^\d{6}$/.test(stripped) ? stripped : '';
 }
-
-// ── HTTP ─────────────────────────────────────────────────────────────────────
 
 interface KrxOpenApiResponse {
   OutBlock_1?: Record<string, string | number>[];
@@ -239,18 +187,7 @@ function extractRows(raw: KrxOpenApiResponse | null): Record<string, string | nu
   return [];
 }
 
-/**
- * KRX OpenAPI GET 호출. 성공 시 JSON, 실패 시 null.
- * - 서킷브레이커로 감싸 연속 실패를 단락시킨다.
- * - AbortSignal 타임아웃으로 hung 호출 방지.
- * - AUTH_KEY 미설정·DISABLED 플래그 시 즉시 null.
- *
- * `export` — `krxClient.ts` 블루프린트 파사드가 재사용한다.
- */
-export async function krxGet(
-  endpoint: string,
-  params: Record<string, string>,
-): Promise<KrxOpenApiResponse | null> {
+export async function krxGet(endpoint: string, params: Record<string, string>): Promise<KrxOpenApiResponse | null> {
   if (readDisabled()) return null;
   const authKey = readAuthKey();
   if (!authKey) return null;
@@ -260,19 +197,14 @@ export async function krxGet(
 
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
-
   try {
     return await breaker.exec(async () => {
       const res = await fetch(url, {
         method: 'GET',
-        headers: {
-          'AUTH_KEY': authKey,
-          'Accept': 'application/json',
-        },
+        headers: { AUTH_KEY: authKey, Accept: 'application/json' },
         signal: ac.signal,
       });
       if (!res.ok) {
-        // 인증 오류(401/403)는 스팸이 되므로 1회만 명확히 로깅.
         if (res.status === 401 || res.status === 403) {
           console.warn(`[KRX-OPEN] ${endpoint} 인증 실패 HTTP ${res.status} — AUTH_KEY 확인 필요`);
         } else {
@@ -290,20 +222,14 @@ export async function krxGet(
       }
     });
   } catch (e) {
-    if (e instanceof CircuitOpenError) {
-      // 서킷 OPEN — 호출하지 않고 즉시 null. 로그는 서킷브레이커가 담당.
-      return null;
-    }
+    if (e instanceof CircuitOpenError) return null;
     const msg = e instanceof Error ? e.message : String(e);
-    // 타임아웃/네트워크 에러는 WARN (에러는 서킷브레이커가 누적 판단).
     console.warn(`[KRX-OPEN] ${endpoint} 실패: ${msg}`);
     return null;
   } finally {
     clearTimeout(timer);
   }
 }
-
-// ── 매퍼 ─────────────────────────────────────────────────────────────────────
 
 function mapStockDailyRow(r: Record<string, string | number>): KrxStockDailyRow | null {
   const code = normalizeCode(toStr(r.ISU_SRT_CD ?? r.ISU_CD));
@@ -363,93 +289,59 @@ function mapIndexDailyRow(r: Record<string, string | number>): KrxIndexDailyRow 
   };
 }
 
-// ── 공개 API : 주식 ──────────────────────────────────────────────────────────
+function previousBusinessDayYyyymmdd(yyyymmdd: string): string | null {
+  if (!isValidYyyymmdd(yyyymmdd)) return null;
+  const y = yyyymmdd.slice(0, 4);
+  const m = yyyymmdd.slice(4, 6);
+  const d = yyyymmdd.slice(6, 8);
+  const noonKst = new Date(`${y}-${m}-${d}T03:00:00.000Z`);
+  if (!Number.isFinite(noonKst.getTime())) return null;
+  const prev = previousKrxTradingDay(noonKst);
+  return /^\d{4}-\d{2}-\d{2}$/.test(prev) ? prev.replace(/-/g, '') : null;
+}
 
-const KRX_STOCK_RETRY_MAX = 5;
+export function isKrxAutoRetryOnEmptyDisabled(): boolean {
+  return process.env.KRX_AUTO_RETRY_ON_EMPTY_DISABLED === 'true';
+}
 
-/**
- * ADR-0342 — fetchStockDaily 빈 응답 자동 재시도 (사용자 추가 요청).
- *
- * KRX OpenAPI 가 휴장일 진입 직후 또는 데이터 미반영 시 빈 응답 반환.
- * basDd 빈 응답 시 이전 KRX 거래일 (krxTradingCalendar SSOT) 자동 재시도.
- *
- * fetchIndexDaily 와 동일 패턴 — 재귀 깊이 ≤ 5 + ENV 우회 동일.
- */
-async function fetchStockDaily(
-  endpoint: string,
-  cachePrefix: string,
-  date?: string,
-  retryDepth: number = 0,
-): Promise<KrxStockDailyRow[]> {
+async function fetchStockDaily(endpoint: string, cachePrefix: string, date?: string, retryDepth = 0): Promise<KrxStockDailyRow[]> {
   const basDd = date && isValidYyyymmdd(date) ? date : recentBusinessDayKst();
   const key = `${cachePrefix}:${basDd}`;
   const hit = cacheGet<KrxStockDailyRow[]>(key);
   if (hit) return hit;
-
   const raw = await krxGet(endpoint, { basDd });
-  const rows = extractRows(raw);
-  const out: KrxStockDailyRow[] = [];
-  for (const r of rows) {
-    const mapped = mapStockDailyRow(r);
-    if (mapped) out.push(mapped);
+  const out = extractRows(raw).map(mapStockDailyRow).filter((r): r is KrxStockDailyRow => Boolean(r));
+  if (out.length === 0 && !isKrxAutoRetryOnEmptyDisabled() && retryDepth < 5) {
+    const prev = previousBusinessDayYyyymmdd(basDd);
+    if (prev && prev !== basDd) return fetchStockDaily(endpoint, cachePrefix, prev, retryDepth + 1);
   }
-  // ADR-0342: 빈 응답 시 직전 KRX 거래일 자동 재시도 (한국 공휴일 정합).
-  if (
-    out.length === 0
-    && !isKrxAutoRetryOnEmptyDisabled()
-    && retryDepth < KRX_STOCK_RETRY_MAX
-  ) {
-    const prevYyyymmdd = previousBusinessDayYyyymmdd(basDd);
-    if (prevYyyymmdd && prevYyyymmdd !== basDd) {
-      console.warn(
-        `[krxOpenApi] ${endpoint} basDd=${basDd} 빈 응답 — `
-        + `직전 KRX 거래일 ${prevYyyymmdd} 자동 재시도 (depth=${retryDepth + 1}/${KRX_STOCK_RETRY_MAX}, ADR-0342)`,
-      );
-      return fetchStockDaily(endpoint, cachePrefix, prevYyyymmdd, retryDepth + 1);
-    }
-  }
-  // 빈 결과는 캐시하지 않는다 (일시 장애 시 스팸 방지).
   if (out.length > 0) cacheSet(key, out);
   return out;
 }
 
-/** 유가증권(KOSPI) 일별매매정보. */
 export function fetchKospiDailyTrade(date?: string): Promise<KrxStockDailyRow[]> {
   return fetchStockDaily(EP.kospiDailyTrade, 'kospi-bydd', date);
 }
 
-/** 코스닥(KOSDAQ) 일별매매정보. */
 export function fetchKosdaqDailyTrade(date?: string): Promise<KrxStockDailyRow[]> {
   return fetchStockDaily(EP.kosdaqDailyTrade, 'kosdaq-bydd', date);
 }
 
-async function fetchIsuBaseInfo(
-  endpoint: string,
-  cachePrefix: string,
-  date?: string,
-): Promise<KrxIsuBaseInfoRow[]> {
+async function fetchIsuBaseInfo(endpoint: string, cachePrefix: string, date?: string): Promise<KrxIsuBaseInfoRow[]> {
   const basDd = date && isValidYyyymmdd(date) ? date : recentBusinessDayKst();
   const key = `${cachePrefix}:${basDd}`;
   const hit = cacheGet<KrxIsuBaseInfoRow[]>(key);
   if (hit) return hit;
-
   const raw = await krxGet(endpoint, { basDd });
-  const rows = extractRows(raw);
-  const out: KrxIsuBaseInfoRow[] = [];
-  for (const r of rows) {
-    const mapped = mapIsuBaseInfoRow(r);
-    if (mapped) out.push(mapped);
-  }
+  const out = extractRows(raw).map(mapIsuBaseInfoRow).filter((r): r is KrxIsuBaseInfoRow => Boolean(r));
   if (out.length > 0) cacheSet(key, out);
   return out;
 }
 
-/** 유가증권 종목기본정보 (상장일·액면가·상장주식수). */
 export function fetchKospiBaseInfo(date?: string): Promise<KrxIsuBaseInfoRow[]> {
   return fetchIsuBaseInfo(EP.kospiBaseInfo, 'kospi-base', date);
 }
 
-/** 코스닥 종목기본정보. */
 export function fetchKosdaqBaseInfo(date?: string): Promise<KrxIsuBaseInfoRow[]> {
   return fetchIsuBaseInfo(EP.kosdaqBaseInfo, 'kosdaq-base', date);
 }
@@ -458,104 +350,37 @@ export function getKrxOpenApiEndpointPath(kind: 'kospiBaseInfo' | 'kosdaqBaseInf
   return EP[kind];
 }
 
-// ── 공개 API : 지수 ──────────────────────────────────────────────────────────
-
-/** ADR-0342 — yyyymmdd → 직전 KRX 거래일 yyyymmdd 변환 헬퍼. */
-function previousBusinessDayYyyymmdd(yyyymmdd: string): string | null {
-  if (!isValidYyyymmdd(yyyymmdd)) return null;
-  const y = yyyymmdd.slice(0, 4);
-  const m = yyyymmdd.slice(4, 6);
-  const d = yyyymmdd.slice(6, 8);
-  const noonKst = new Date(`${y}-${m}-${d}T03:00:00.000Z`); // 12:00 KST
-  if (!Number.isFinite(noonKst.getTime())) return null;
-  const prev = previousKrxTradingDay(noonKst); // YYYY-MM-DD
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(prev)) return null;
-  return prev.replace(/-/g, '');
-}
-
-/** ADR-0342 ENV gate — true 시 자동 재시도 비활성. */
-export function isKrxAutoRetryOnEmptyDisabled(): boolean {
-  return process.env.KRX_AUTO_RETRY_ON_EMPTY_DISABLED === 'true';
-}
-
-const KRX_INDEX_RETRY_MAX = 5;
-
-/**
- * ADR-0342 — fetchIndexDaily 빈 응답 자동 재시도.
- *
- * KRX OpenAPI 가 휴장일 진입 직후 또는 데이터 미반영 시 빈 응답을 반환하던 결함 차단.
- * basDd 빈 응답 시 이전 KRX 거래일 (krxTradingCalendar SSOT, 한국 공휴일 정합) 자동 재시도.
- *
- * 안전 제약:
- *   - 재귀 깊이 ≤ KRX_INDEX_RETRY_MAX (5) → 긴 명절 (추석 7일) 도 1회 사슬로 회복
- *   - 빈 응답 캐시 미저장 → 재시도 가치 보존
- *   - ENV `KRX_AUTO_RETRY_ON_EMPTY_DISABLED=true` 1줄 즉시 비활성
- */
-async function fetchIndexDaily(
-  endpoint: string,
-  cachePrefix: string,
-  date?: string,
-  retryDepth: number = 0,
-): Promise<KrxIndexDailyRow[]> {
+async function fetchIndexDaily(endpoint: string, cachePrefix: string, date?: string, retryDepth = 0): Promise<KrxIndexDailyRow[]> {
   const basDd = date && isValidYyyymmdd(date) ? date : recentBusinessDayKst();
   const key = `${cachePrefix}:${basDd}`;
   const hit = cacheGet<KrxIndexDailyRow[]>(key);
   if (hit) return hit;
-
   const raw = await krxGet(endpoint, { basDd });
-  const rows = extractRows(raw);
-  const out: KrxIndexDailyRow[] = [];
-  for (const r of rows) {
-    const mapped = mapIndexDailyRow(r);
-    if (mapped) out.push(mapped);
-  }
-  // ADR-0342: 빈 응답 시 직전 KRX 거래일 자동 재시도 (한국 공휴일 정합).
-  if (
-    out.length === 0
-    && !isKrxAutoRetryOnEmptyDisabled()
-    && retryDepth < KRX_INDEX_RETRY_MAX
-  ) {
-    const prevYyyymmdd = previousBusinessDayYyyymmdd(basDd);
-    if (prevYyyymmdd && prevYyyymmdd !== basDd) {
-      console.warn(
-        `[krxOpenApi] ${endpoint} basDd=${basDd} 빈 응답 — `
-        + `직전 KRX 거래일 ${prevYyyymmdd} 자동 재시도 (depth=${retryDepth + 1}/${KRX_INDEX_RETRY_MAX}, ADR-0342)`,
-      );
-      return fetchIndexDaily(endpoint, cachePrefix, prevYyyymmdd, retryDepth + 1);
-    }
+  const out = extractRows(raw).map(mapIndexDailyRow).filter((r): r is KrxIndexDailyRow => Boolean(r));
+  if (out.length === 0 && !isKrxAutoRetryOnEmptyDisabled() && retryDepth < 5) {
+    const prev = previousBusinessDayYyyymmdd(basDd);
+    if (prev && prev !== basDd) return fetchIndexDaily(endpoint, cachePrefix, prev, retryDepth + 1);
   }
   if (out.length > 0) cacheSet(key, out);
   return out;
 }
 
-/** KOSPI 시리즈 일별시세정보. */
 export function fetchKospiIndexDaily(date?: string): Promise<KrxIndexDailyRow[]> {
   return fetchIndexDaily(EP.kospiIndexDaily, 'kospi-idx', date);
 }
 
-/** KOSDAQ 시리즈 일별시세정보. */
 export function fetchKosdaqIndexDaily(date?: string): Promise<KrxIndexDailyRow[]> {
   return fetchIndexDaily(EP.kosdaqIndexDaily, 'kosdaq-idx', date);
 }
 
-/** KRX 시리즈 일별시세정보 (통합 지수). */
 export function fetchKrxIndexDaily(date?: string): Promise<KrxIndexDailyRow[]> {
   return fetchIndexDaily(EP.krxIndexDaily, 'krx-idx', date);
 }
 
-/** 파생상품지수 시세정보. */
 export function fetchDerivativesIndexDaily(date?: string): Promise<KrxIndexDailyRow[]> {
   return fetchIndexDaily(EP.derivIndexDaily, 'drv-idx', date);
 }
 
-// ── 상태 / 진단 ──────────────────────────────────────────────────────────────
-
-/**
- * KRX OpenAPI 호출이 현재 가능한 상태인지. 호출자(fallback 판단)가 사용.
- * - AUTH_KEY 없음 → false
- * - DISABLED=true → false
- * - 서킷 OPEN   → false
- */
 export function isKrxOpenApiHealthy(): boolean {
   if (readDisabled()) return false;
   if (!readAuthKey()) return false;
@@ -581,7 +406,6 @@ export function getKrxOpenApiStatus(): {
   };
 }
 
-/** 테스트 전용 — 서킷 리셋. */
 export function _resetKrxOpenApiBreaker(): void {
   breaker.reset();
 }
