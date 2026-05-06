@@ -1,8 +1,8 @@
 // @responsibility sectorEnergyProvider 외부 클라이언트 모듈
 /**
  * sectorEnergyProvider.ts — KRX 실데이터를 sectorEnergyEngine 입력으로 가공.
- * ADR-0343 Phase 2: KRX 휴장일/빈 응답에 견디도록 날짜 계산, today retry,
- * macroState fallback wiring 을 이 모듈 내부에서 완결한다.
+ * ADR-0343 Phase 3: public meta builder itself is fallback-aware, so callers such as
+ * marketDataRefresh that still import buildSectorEnergyInputsWithMeta() no longer bypass fallback.
  */
 
 import {
@@ -83,9 +83,11 @@ function shiftedKstDateKey(kst: Date): string {
   const d = String(kst.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
-function toYyyymmdd(dateKey: string): string { return dateKey.replace(/-/g, ''); }
 
-/** KST 기준 오늘에서 N KRX 거래일 전 YYYYMMDD. */
+function toYyyymmdd(dateKey: string): string {
+  return dateKey.replace(/-/g, '');
+}
+
 function businessDaysAgo(n: number): string {
   const now = new Date();
   const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
@@ -134,8 +136,14 @@ export function validateIndexResponseSymmetry(
   return { valid: reasons.length === 0, todayCodeFillRatio, pastCodeFillRatio, reasons };
 }
 
-export function isSectorEnergySymmetryDisabled(): boolean { return process.env.SECTOR_ENERGY_SYMMETRY_DISABLED === 'true'; }
-export function isSectorEnergyIndexNameFallbackEnabled(): boolean { return process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK === 'true'; }
+export function isSectorEnergySymmetryDisabled(): boolean {
+  return process.env.SECTOR_ENERGY_SYMMETRY_DISABLED === 'true';
+}
+
+export function isSectorEnergyIndexNameFallbackEnabled(): boolean {
+  return process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK === 'true';
+}
+
 export function getSectorEnergyMinValid(): number {
   const env = Number(process.env.SECTOR_ENERGY_MIN_VALID);
   if (Number.isFinite(env) && env > 0 && env <= TOTAL_SECTOR_COUNT) return env;
@@ -203,7 +211,9 @@ function aggregateForeignConcentration(
     for (const [k] of rawBySector) normalized.set(k, 50);
     return normalized;
   }
-  for (const [sector, v] of rawBySector) normalized.set(sector, ((v - min) / (max - min)) * 100);
+  for (const [sector, v] of rawBySector) {
+    normalized.set(sector, ((v - min) / (max - min)) * 100);
+  }
   return normalized;
 }
 
@@ -226,11 +236,15 @@ export interface SectorEnergyBuildResult {
 }
 
 export async function buildSectorEnergyInputs(): Promise<SectorEnergyInput[]> {
-  const result = await buildSectorEnergyInputsWithMetaWithFallback();
+  const result = await buildSectorEnergyInputsWithMeta();
   return result.inputs;
 }
 
 export async function buildSectorEnergyInputsWithMeta(): Promise<SectorEnergyBuildResult> {
+  return buildSectorEnergyInputsWithMetaWithFallback();
+}
+
+async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildResult> {
   const todayCandidates: Array<string | undefined> = [undefined, ...recentBusinessDaysKst(5)];
   const past = businessDaysAgo(20);
   let selectedToday: string | undefined;
@@ -324,7 +338,7 @@ export const SECTOR_ENERGY_FALLBACK_MAX_AGE_HOURS = 48;
 export function isSectorEnergyFallbackDisabled(): boolean { return process.env.SECTOR_ENERGY_FALLBACK_DISABLED === 'true'; }
 
 export async function buildSectorEnergyInputsWithMetaWithFallback(): Promise<SectorEnergyBuildResult> {
-  const result = await buildSectorEnergyInputsWithMeta();
+  const result = await buildSectorEnergyInputsWithMetaRaw();
   if (isSectorEnergyFallbackDisabled()) return result;
   if (result.dataQuality !== 'FAILED') return result;
   let cached: { sectorEnergyInputs?: SectorEnergyInput[]; sectorEnergyInputsUpdatedAt?: string } | null;
@@ -342,7 +356,7 @@ export async function buildSectorEnergyInputsWithMetaWithFallback(): Promise<Sec
     dataQuality: 'STALE',
     validSectorCount: cached.sectorEnergyInputs.length,
     totalSectorCount: TOTAL_SECTOR_COUNT,
-    reasons: [...result.reasons, `fallback to macroState cache (${ageHours.toFixed(1)}h old)`],
+    reasons: [...result.reasons, `fallback to macroState cache (${ageHours.toFixed(1)}h old, ADR-0343)`],
   };
 }
 
