@@ -30,27 +30,81 @@ export function resolveYahooSymbolForCode(code: string): string | null {
 }
 
 /**
+ * ADR-0241: Yahoo quote 응답 sanity 검증 SSOT.
+ *
+ * 기존 nullish (`??`) 폴백 결함 — `.KS` 응답이 *non-null + STALE_BASE* 일 때
+ * `.KQ` fallback 미작동. 사용자 5/6 보고 "코스닥 12종목 즉시 정상화" 패턴.
+ *
+ * sanity 기준: dataQuality !== 'STALE_BASE' (yahooQuoteAdapter ADR-0091/0235
+ * 가 STALE_BASE marker 부착 — changePercent / return5d / return20d sanity
+ * 위반 또는 closeTimestamps 7일+ stale).
+ *
+ * 향후 확장 가능 (price > 0 / volume > 0 / meta.symbol 일치 등).
+ */
+export function isQuoteSane(quote: YahooQuoteExtended): boolean {
+  return quote.dataQuality !== 'STALE_BASE';
+}
+
+/**
  * code → Yahoo quote fetch 통합. 마스터 매칭 시 정확한 1회 fetch.
  * 마스터 부재 시 보수적 양쪽 시도 fallback (마이그레이션 그레이스).
  *
+ * ADR-0241: sanity 검증 추가 — non-null 이지만 STALE_BASE 응답은 거부 + 다른
+ * 시장 fallback (마스터 매칭 시) / 양쪽 sanity 검증 (마스터 부재 시).
+ *
  * fetcher 는 호출자가 전달 — 순환 import 회피 (yahooQuoteAdapter ↔ yahooSymbolResolver).
  */
-export async function fetchYahooQuoteByCode(
+export async function fetchYahooQuoteWithMarketFallback(
   code: string,
   fetcher: (sym: string) => Promise<YahooQuoteExtended | null>,
 ): Promise<YahooQuoteExtended | null> {
   const resolved = resolveYahooSymbolForCode(code);
   if (resolved) {
     const quote = await fetcher(resolved).catch(() => null);
-    if (quote) return quote;
-    // 마스터가 정확한데 조회 실패 → 시장 분류 갱신 필요 의심, 양쪽 시도하지 않음.
-    console.warn(
-      `[yahooSymbolResolver] ${code} 마스터 매칭 실패 ` +
-      `(resolved=${resolved}, market mismatch?, ADR-0231)`,
-    );
+    if (quote && isQuoteSane(quote)) return quote;
+
+    // ADR-0241: 마스터 매칭됐으나 null 또는 sanity 위반 → 다른 시장 fallback.
+    // 사용자 5/6 보고: KOSPI 마스터 매칭 .KS 응답이 STALE_BASE → .KQ 시도.
+    // KRX 시장 이전 종목 / 마스터 stale / Yahoo 측 매핑 결함 모두 자동 회복.
+    const otherSym = resolved.endsWith('.KS') ? `${code}.KQ` : `${code}.KS`;
+    const otherQuote = await fetcher(otherSym).catch(() => null);
+    if (otherQuote && isQuoteSane(otherQuote)) {
+      console.warn(
+        `[yahooSymbolResolver] ${code} 마스터 매칭(${resolved}) sane 실패 → ` +
+        `${otherSym} sane fallback (ADR-0241)`,
+      );
+      return otherQuote;
+    }
+
+    // 양쪽 모두 실패 시 진단 로그.
+    if (!quote && !otherQuote) {
+      console.warn(
+        `[yahooSymbolResolver] ${code} 양 시장 fetch 모두 실패 ` +
+        `(resolved=${resolved}, otherSym=${otherSym}, ADR-0241).`,
+      );
+    } else if (quote && !isQuoteSane(quote) && !otherQuote) {
+      console.warn(
+        `[yahooSymbolResolver] ${code} 마스터(${resolved}) STALE_BASE + ` +
+        `${otherSym} fetch 실패 — KIS fallback 트리거 (ADR-0241).`,
+      );
+    }
     return null;
   }
-  // 마스터 부재 → 보수적 양쪽 시도 fallback.
-  return (await fetcher(`${code}.KS`).catch(() => null))
-      ?? (await fetcher(`${code}.KQ`).catch(() => null));
+
+  // 마스터 부재 → 양쪽 시도 + sanity 검증 (ADR-0241).
+  const ksQuote = await fetcher(`${code}.KS`).catch(() => null);
+  if (ksQuote && isQuoteSane(ksQuote)) return ksQuote;
+
+  // ADR-0241 핵심: ksQuote 가 null 이 아니어도 STALE_BASE 면 .KQ 시도.
+  const kqQuote = await fetcher(`${code}.KQ`).catch(() => null);
+  if (kqQuote && isQuoteSane(kqQuote)) return kqQuote;
+
+  return null;
 }
+
+/**
+ * Legacy alias — 기존 5 호출자 (ADR-0231 PR #624 wiring) 후방호환.
+ * buyPipeline / trancheExecutor / buyListLoop / intradayScanner / dryRunScanner
+ * 가 본 명칭으로 호출 중 — 재 wiring 회피.
+ */
+export const fetchYahooQuoteByCode = fetchYahooQuoteWithMarketFallback;
