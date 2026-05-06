@@ -1,11 +1,17 @@
-// @responsibility ADR-0398 STRONG_BUY 4 조건 OR confidence gate SSOT
+// @responsibility ADR-0398 STRONG_BUY 6 조건 OR confidence gate SSOT (ADR-0415 STALE + PARTIAL_VOLUME 추가)
 /**
  * sectorEnergyStrongBuyGate.ts (ADR-0398 = 사용자 명시 ADR-0373)
  *
  * STRONG_BUY 차단 정책 SSOT — 섹터에너지 신뢰도가 낮으면 *최고 등급 승격을 막는* 구조.
  * 사용자 명시 정책 (절대 변경 금지):
  *   - 일반 BUY 차단 금지 (섹터에너지는 보조 신호, 개별 종목 수급/기술/펀더멘털 우선)
- *   - 4 조건 OR (confidence<0.6 / dataQuality∈{DEGRADED,FAILED} / sourceTier='YAHOO_ETF')
+ *   - 6 조건 OR (ADR-0398 4 + ADR-0415 2):
+ *       1. confidence<0.6
+ *       2. dataQuality='DEGRADED'
+ *       3. dataQuality='FAILED'
+ *       4. sourceTier='YAHOO_ETF'
+ *       5. dataQuality='STALE' (ADR-0415 — ADR-0398 누락 결함 차단)
+ *       6. dataQuality='PARTIAL_VOLUME' (ADR-0415 — BUY 까지만)
  *
  * Phase 1 dead code — 호출자 0건. 실제 매매 결정 wiring 후속 PR (회귀 위험 격리).
  *
@@ -106,6 +112,19 @@ export function evaluateSectorEnergyStrongBuyGate(
   // 조건 4: sourceTier === 'YAHOO_ETF' (해외 ETF 프록시 보조 신호)
   if (input.sourceTier === 'YAHOO_ETF') {
     reasons.push('sourceTier=YAHOO_ETF (해외 ETF 프록시 보조 신호)');
+  }
+
+  // 조건 5 (ADR-0415): dataQuality === 'STALE' (6~8 섹터 정상, 신뢰도 부족)
+  // ADR-0398 4 조건 OR 매트릭스에서 STALE 누락 결함 차단 — 사용자 명시 정책
+  // *"STALE → STRONG_BUY 금지"* 정합화. 일반 BUY 진입 영향 0 (절대 원칙 #1 보존).
+  if (input.dataQuality === 'STALE') {
+    reasons.push('dataQuality=STALE (6~8 섹터 정상, 신뢰도 부족)');
+  }
+
+  // 조건 6 (ADR-0415): dataQuality === 'PARTIAL_VOLUME' (가격은 정상이나 거래량/일부 섹터 누락)
+  // 사용자 명시 정책 *"PARTIAL_VOLUME → BUY 까지만"* — STRONG_BUY 차단, BUY 통과.
+  if (input.dataQuality === 'PARTIAL_VOLUME') {
+    reasons.push('dataQuality=PARTIAL_VOLUME (거래량/일부 섹터 누락 — BUY 까지만)');
   }
 
   return {

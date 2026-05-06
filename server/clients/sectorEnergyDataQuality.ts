@@ -19,8 +19,27 @@
  * 호출자 측 inline ENV 검사 0건 — SSOT 위임 (ADR-0185~0189 정합).
  */
 
-/** ADR-0396: 5단계 union — DEGRADED 신규 (심각한 부족, 보조 신호로만 사용 가능). */
-export type SectorEnergyDataQuality5 = 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
+/**
+ * ADR-0396: 5단계 union — DEGRADED 신규 (심각한 부족, 보조 신호로만 사용 가능).
+ * ADR-0415: PARTIAL_VOLUME 신규 — 가격은 정상이나 거래량/일부 섹터 누락 (BUY 까지만).
+ *
+ * 6단계 분기 (사용자 명시 정책 절대 변경 금지):
+ *   - OK            : 모든 섹터 정상 (validSectorCount=12)
+ *   - PARTIAL       : 9~11 섹터 정상 (보조 신호 가능)
+ *   - PARTIAL_VOLUME: 가격은 정상이나 거래량/일부 섹터 누락 (BUY 까지만, ADR-0415)
+ *   - STALE         : 6~8 섹터 정상 (STRONG_BUY 금지, ADR-0415)
+ *   - DEGRADED      : 3~5 섹터 정상 (STRONG_BUY 금지, ADR-0398)
+ *   - FAILED        : 0~2 섹터 또는 산출 불가 (STRONG_BUY 금지, ADR-0398)
+ *
+ * 이름은 보존 (호출자 정합) — value 만 6단계 격상.
+ */
+export type SectorEnergyDataQuality5 =
+  | 'OK'
+  | 'PARTIAL'
+  | 'PARTIAL_VOLUME'
+  | 'STALE'
+  | 'DEGRADED'
+  | 'FAILED';
 
 /** ADR-0396: 원천 데이터 출처 — 4-tier fallback chain + FAILED. */
 export type SectorEnergySourceTier = 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_ETF' | 'FAILED';
@@ -191,13 +210,14 @@ export function isLegacy4StateDataQuality(
   return q === 'OK' || q === 'PARTIAL' || q === 'STALE' || q === 'FAILED';
 }
 
-/** 5-state 검증 — type guard. */
+/** 6-state 검증 — type guard (ADR-0415 PARTIAL_VOLUME 추가). */
 export function isSectorEnergyDataQuality5(
   q: string | undefined | null,
 ): q is SectorEnergyDataQuality5 {
   return (
     q === 'OK' ||
     q === 'PARTIAL' ||
+    q === 'PARTIAL_VOLUME' ||
     q === 'STALE' ||
     q === 'DEGRADED' ||
     q === 'FAILED'

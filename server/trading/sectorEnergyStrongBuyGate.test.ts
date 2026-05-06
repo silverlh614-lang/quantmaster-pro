@@ -78,14 +78,17 @@ describe('ADR-0398: 4 조건 OR 차단 결정 SSOT', () => {
     expect(result.reasons.some((r) => r.includes('YAHOO_ETF'))).toBe(true);
   });
 
-  it('STALE 단독 → 통과 (사용자 명시 — STALE 6-8 섹터는 fallback 충분)', () => {
+  it('STALE 단독 → 차단 (ADR-0415 정합 정정 — ADR-0398 누락 결함 차단)', () => {
+    // ADR-0415 (사용자 명시) — STALE 도 STRONG_BUY 차단 6 조건 OR 에 추가.
+    // 이전 ADR-0398 *원래 가정* (STALE 6-8 섹터 fallback 충분 → 통과) 은
+    // "Defensive Cascade Failure 입력 layer" 보호 측면에서 보수적 격상 — 사용자 자본 보호.
     const result = evaluateSectorEnergyStrongBuyGate({
       confidence: 0.7,
       dataQuality: 'STALE',
       sourceTier: 'STOCK_DAILY',
     });
-    expect(result.forbidStrongBuy).toBe(false);
-    expect(result.reasons).toEqual([]);
+    expect(result.forbidStrongBuy).toBe(true);
+    expect(result.reasons.some((r) => r.includes('STALE'))).toBe(true);
   });
 
   it('PARTIAL 단독 → 통과', () => {
