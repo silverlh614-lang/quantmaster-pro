@@ -465,24 +465,27 @@ describe('호출자 제한 (signalScanner helper만 허용)', () => {
     return !re.test(src);
   }
 
-  it('signalScanner.ts — ADR-0183 Phase 3 Stage A 후 *예상된* 호출자 (4 site wiring + helper)', () => {
+  it('signalScanner.ts — ADR-0183 Phase 3 Stage A 후 *예상된* 호출자 (4 site wiring + helper) + ADR-0401 SHADOW_ONLY pre-scan', () => {
     // ADR-0183 Stage A wiring: signalScanner helper is the expected production caller.
     // signalScanner.ts 는 이제 *예상된* 호출자 — recordBlockedDayShadowScan SSOT 헬퍼 안에서
     // ENV gate 통과 시에만 runShadowLearningOnlyScan 호출. 안전 invariant 7종 (ADR-0183 §3)
     // 준수 확인은 server/trading/signalScannerAdr0183Wiring.test.ts 의 22 케이스에서.
+    //
+    // ADR-0401 — SHADOW_ONLY ephemeral pre-scan 1 site 추가 (R3 violation streak 누적
+    // 후 다음 스캔 차단). 총 6회 — 4 macro + 1 R3 latch active + 1 R3 SHADOW_ONLY pre.
     const src = readSrcSafely(
       path.resolve(__dirname, 'signalScanner/preflight.ts'),
     );
     expect(src).not.toBeNull();
     if (src !== null) {
-      // ADR-0183 wiring 정합 — 정확 1 import + 정확 1 helper 호출 + 정확 4 site 호출
+      // ADR-0183 wiring 정합 — 정확 1 import + 정확 1 helper 호출 + 정확 6 site 호출
       expect(src).toMatch(/from ['"]\.\.\/shadowLearningOnlyScan\.js['"]/);
       const helperCalls = src.match(/runShadowLearningOnlyScan\(/g);
       expect(helperCalls).not.toBeNull();
       expect(helperCalls!.length).toBe(1);  // helper 안 단일 호출
       const wiringCalls = src.match(/recordBlockedDayShadowScan\(['"]/g);
       expect(wiringCalls).not.toBeNull();
-      expect(wiringCalls!.length).toBe(5);  // 4 macro sites + R3 sanity latch
+      expect(wiringCalls!.length).toBe(6);  // 4 macro + R3 latch + R3 SHADOW_ONLY pre-scan
     }
   });
 

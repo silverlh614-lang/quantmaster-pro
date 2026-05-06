@@ -19,6 +19,11 @@ import {
 } from './emptyScanClassifier.js';
 import { evaluateR3Sanity } from './r3SanityCheck.js';
 import { activateR3SanityBlock } from '../../persistence/r3SanityBlockRepo.js';
+// ADR-0401: R3 Sanity 단계형 state machine — 단일 스캔 1회 위반으로 hard latch 차단.
+import {
+  evaluateR3ViolationState,
+  type R3ViolationStateResult,
+} from './r3ViolationStateMachine.js';
 import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
 
 export interface WaitDistribution {
@@ -72,6 +77,12 @@ export interface ScanSummary {
   sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
   validSectorCount?: number;
   sectorEnergyReasons?: string[];
+  /**
+   * ADR-0401 — 직전 스캔의 R3 Sanity state machine 결과 (옵셔널).
+   * `/r3_status` 명령 + /scan_blockers 에서 운영자 노출.
+   * Persist 시 정상 분기 (state ≠ CLEAN) 만 기록 — CLEAN 시 undefined.
+   */
+  r3ViolationState?: R3ViolationStateResult;
 }
 
 let _lastBuySignalAt = 0;
@@ -246,6 +257,31 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(`  • RRR 미달: ${summary.rrrMisses}개`);
   }
 
+  // ADR-0401 — R3 Sanity state machine 결과 노출 (CLEAN 외 분기에서만).
+  if (summary.r3ViolationState && summary.r3ViolationState.state !== 'CLEAN') {
+    const r3 = summary.r3ViolationState;
+    const stateIcon: Record<typeof r3.state, string> = {
+      CLEAN: '✅',
+      WARNING: '🟡',
+      ELEVATED: '🟠',
+      SHADOW_ONLY: '⚫️',
+      HARD_BLOCK: '🚨',
+    };
+    lines.push('');
+    lines.push(`${stateIcon[r3.state]} <b>R3 Sanity 단계 (ADR-0401):</b> ${r3.state}`);
+    lines.push(
+      `  • 누적 ${r3.consecutiveCount}회 / 임계 hard ${r3.profile.hardBlockAt} (regime ${r3.regime})`,
+    );
+    if (r3.guardReasons.length > 0) {
+      lines.push(`  • guard 활성: ${r3.guardReasons.slice(0, 2).join('; ')}`);
+    }
+    if (r3.state === 'HARD_BLOCK') {
+      lines.push('  • <code>/r3_unblock</code> 으로 해제');
+    } else if (r3.state === 'SHADOW_ONLY') {
+      lines.push('  • ephemeral — 다음 정상 스캔 시 자동 회복');
+    }
+  }
+
   lines.push('');
   if (summary.emptyScanReason) {
     const desc = describeEmptyScanReason(summary.emptyScanReason);
@@ -272,6 +308,16 @@ export interface PersistScanResultsOptions {
   sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
   validSectorCount?: number;
   sectorEnergyReasons?: string[];
+  /**
+   * ADR-0401 — R3 Sanity state machine 의 marketDataFreshness 입력 (옵셔널).
+   * 부재 시 'FRESH' 가정 (정상 운영 시 기본 — guards 무영향).
+   */
+  marketDataFreshness?: 'FRESH' | 'STALE' | 'EXPIRED';
+  /**
+   * ADR-0401 — volumeClock 진입 허용 여부 (옵셔널).
+   * 부재 시 true 가정 (preflight non-abort 경로 도달 = 정상 시간대 추론).
+   */
+  volumeClockAllowsEntry?: boolean;
 }
 
 export async function persistScanResults(
@@ -337,26 +383,93 @@ export async function persistScanResults(
     ).catch(console.error);
   }
 
+  // ADR-0401 — R3 Violation 5단계 state machine wiring.
+  // 단일 스캔 1회 위반 → hard latch 즉시 활성화하던 결함 차단. profile + guards +
+  // streak decay 평가 후 state.action='HARD_BLOCK_LATCH' 일 때만 activateR3SanityBlock.
   try {
     const sanity = evaluateR3Sanity(_lastScanSummary);
-    if (sanity.violation !== 'NONE' && sanity.message) {
-      if (sanity.violation === 'CANDIDATES_ZERO' || sanity.violation === 'GATE1_PASS_ZERO') {
+    if (sanity.violation !== 'NONE') {
+      const regime = _lastScanSummary.macroGateState?.regime ?? '';
+      const guards = {
+        candidates: _lastScanSummary.candidates,
+        sectorEnergyDataQuality: _lastScanSummary.sectorEnergyQuality,
+        marketDataFreshness: options.marketDataFreshness ?? 'FRESH',
+        volumeClockAllowsEntry: options.volumeClockAllowsEntry ?? true,
+        // GatePassDistribution 산출 정상 — _lastScanSummary.gatePassDistribution 존재 +
+        // sanity.violation !== 'GATE_PASS_DATA_MISSING' (별도 분기에서 hardBlock 차단됨).
+        gatePassDistributionFresh:
+          _lastScanSummary.gatePassDistribution !== undefined &&
+          sanity.violation !== 'GATE_PASS_DATA_MISSING',
+      };
+      const scanId = `${kstNow.toISOString().slice(0, 10)}:${timeLabel}`;
+      const stateResult = evaluateR3ViolationState({
+        violation: sanity.violation,
+        regime,
+        scanId,
+        guards,
+      });
+
+      _lastScanSummary.r3ViolationState = stateResult;
+
+      // HARD_BLOCK_LATCH 일 때만 영속 latch 생성 (ADR-0120 정합).
+      if (stateResult.action === 'HARD_BLOCK_LATCH') {
         activateR3SanityBlock({
           violation: sanity.violation,
-          regime: _lastScanSummary.macroGateState?.regime ?? '',
+          regime,
           message: sanity.message,
         });
       }
-      await sendTelegramAlert(sanity.message, {
-        priority: 'HIGH',
-        category: 'r3_sanity',
-        dedupeKey: sanity.dedupeKey,
-        cooldownMs: 24 * 3_600_000,
-      } as Parameters<typeof sendTelegramAlert>[1]).catch(console.error);
+
+      // 상태별 텔레그램 알림 — dedupeKey 에 state + count 포함하여 단계 전이 시 정상 발송.
+      if (stateResult.action !== 'NONE' && sanity.message) {
+        const stateLabel = stateResult.state.toLowerCase();
+        const kstDate = kstNow.toISOString().slice(0, 10);
+        const dedupeKey = `r3_sanity:${stateLabel}:${kstDate}:${stateResult.consecutiveCount}`;
+        const message = formatR3StateMessage(stateResult, sanity.message);
+        await sendTelegramAlert(message, {
+          priority: 'HIGH',
+          category: 'r3_sanity',
+          dedupeKey,
+          cooldownMs: 24 * 3_600_000,
+        } as Parameters<typeof sendTelegramAlert>[1]).catch(console.error);
+      }
     }
   } catch (e) {
-    console.warn('[ADR-0120] R3 Sanity Check 실패:', e);
+    console.warn('[ADR-0401] R3 Violation State Machine 평가 실패:', e);
   }
+}
+
+/**
+ * ADR-0401 — 5단계 state 별 메시지 빌더 SSOT.
+ * 본문은 ADR-0120 의 r3SanityCheck 메시지 그대로 + state 헤더 + 누적 count + guard 사유.
+ */
+function formatR3StateMessage(state: R3ViolationStateResult, baseMessage: string): string {
+  const stateHeader: Record<R3ViolationStateResult['state'], string> = {
+    CLEAN: '✅ <b>[R3 Sanity — CLEAN]</b>',
+    WARNING: '🟡 <b>[R3 Sanity — WARNING]</b>',
+    ELEVATED: '🟠 <b>[R3 Sanity — ELEVATED]</b>',
+    SHADOW_ONLY: '⚫️ <b>[R3 Sanity — SHADOW_ONLY (신규 진입 차단, 학습 유지)]</b>',
+    HARD_BLOCK: '🚨 <b>[R3 Sanity — HARD_BLOCK (영속 latch 활성)]</b>',
+  };
+  const lines: string[] = [];
+  lines.push(stateHeader[state.state]);
+  lines.push(
+    `누적 ${state.consecutiveCount}회 (임계: warning ${state.profile.warningAt}/elevated ${state.profile.elevatedAt}/` +
+      `shadow ${state.profile.shadowOnlyAt}/hard ${state.profile.hardBlockAt}, regime=${state.regime})`,
+  );
+  if (state.guardReasons.length > 0) {
+    lines.push(`hardBlock guards 활성: ${state.guardReasons.slice(0, 3).join('; ')}`);
+  }
+  lines.push('');
+  lines.push(baseMessage);
+  if (state.state === 'HARD_BLOCK') {
+    lines.push('');
+    lines.push('해제: <code>/r3_unblock</code> (텔레그램, ADR-0195) 또는 ENV ACK (ADR-0120)');
+  } else if (state.state === 'SHADOW_ONLY') {
+    lines.push('');
+    lines.push('<i>다음 정상 스캔 (위반 없음 또는 24h decay) 시 자동 회복 — 영속 latch 없음 (ADR-0401).</i>');
+  }
+  return lines.join('\n');
 }
 
 // ─── ADR-0118 §"진단 추정" 확장 — TECHNICAL_PROVIDER_DEGRADED 운영자 노출 ───
