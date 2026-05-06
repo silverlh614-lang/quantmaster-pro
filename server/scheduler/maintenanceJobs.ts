@@ -19,6 +19,7 @@ import { reloadKrxHolidaySet } from '../trading/krxHolidays.js';
 import { runKrxHolidayAudit } from '../trading/krxHolidayAudit.js';
 // ADR-0128 — 데이터 검증 배치 (정책 #2 주 검증, KST 평일 16:30)
 import { runDataVerificationBatch } from '../data/dataVerificationBatch.js';
+import { autoEnrichAndVerifyStockMaster } from '../data/stockMasterAutoEnrichment.js';
 
 const BACKUP_RETENTION_DAYS = 7;
 
@@ -175,6 +176,26 @@ export function registerMaintenanceJobs(): void {
       }
     } catch (e) {
       console.error('[DataVerificationBatch] 실행 오류:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  // ADR-0242 + ADR-0245: stockMaster 자동 보완 + 정합성 검증 cron.
+  // KST 평일 06:00 (UTC 21:00 전일) — 장 시작 전 master 갱신 + watchlist 커버리지 진단.
+  // refreshMultiSourceMaster 가 KRX→Naver→Shadow→Seed 4-tier 자동 갱신 + 시장 분류
+  // mismatch 자동 수정. 본 cron 은 *전후 비교 + 알림*. ScheduleClass: TRADING_DAY_ONLY
+  // (KRX 휴장일 자동 skip — fetchKrxMasterEntries 가 WEEKEND 자체 처리하지만 cron 단계
+  // 도 명시 가드).
+  // ENV `STOCK_MASTER_AUTO_ENRICHMENT_DISABLED=true` 시 본체 진입부에서 즉시 return.
+  scheduledJob('0 21 * * 0-4', 'TRADING_DAY_ONLY', 'stock_master_auto_enrichment', async () => {
+    try {
+      const report = await autoEnrichAndVerifyStockMaster();
+      console.log(
+        `[StockMasterAutoEnrichment] source=${report.refreshSource ?? 'NONE'} `
+        + `total=${report.totalMasterAfter} added=${report.added.length} `
+        + `marketChanged=${report.marketChanged.length} watchlistMissing=${report.watchlistMissing.length}`,
+      );
+    } catch (e) {
+      console.error('[StockMasterAutoEnrichment] 실행 오류:', e);
     }
   }, { timezone: 'UTC' });
 }
