@@ -8,7 +8,7 @@
  */
 
 import { fetchAccountBalance } from '../../clients/kisClient.js';
-import { getManualBlockNewBuy, getManualManageOnly, getEmergencyStop } from '../../state.js';
+import { getManualBlockNewBuy, getManualManageOnly, getEmergencyStop, getTradingMode } from '../../state.js';
 import { sendTelegramAlert } from '../../alerts/telegramClient.js';
 import { getGatingAlertSession } from '../../utils/gatingAlertWindow.js';
 import { loadMacroState } from '../../persistence/macroStateRepo.js';
@@ -123,7 +123,8 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     return { shouldAbort: true, skipPersist: true };
   }
 
-  const shadowMode = process.env.AUTO_TRADE_MODE !== 'LIVE';
+  // ADR-0392 P0-B — env 직접 참조 → getTradingMode() SSOT 통일.
+  const shadowMode = getTradingMode() !== 'LIVE';
   const shadows = loadShadowTrades();
   let totalAssets: number;
   let orderableCash: number;

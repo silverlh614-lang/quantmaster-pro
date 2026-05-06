@@ -9,6 +9,8 @@ vi.mock('../../state.js', () => ({
   getManualBlockNewBuy: vi.fn().mockReturnValue(false),
   getManualManageOnly: vi.fn().mockReturnValue(false),
   getEmergencyStop: vi.fn().mockReturnValue(false),
+  // ADR-0392 P0-B — preflight 가 getTradingMode() 사용 → mock 추가.
+  getTradingMode: vi.fn().mockReturnValue('SHADOW'),
 }));
 vi.mock('../../alerts/telegramClient.js', () => ({
   sendTelegramAlert: vi.fn().mockResolvedValue(undefined),
