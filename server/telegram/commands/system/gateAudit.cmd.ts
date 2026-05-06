@@ -6,6 +6,7 @@ import {
   type ServerShadowTrade,
 } from '../../../persistence/shadowTradeRepo.js';
 import { loadGhostPortfolio } from '../../../persistence/reflectionRepo.js';
+import { loadGateAudit } from '../../../persistence/gateAuditRepo.js';
 import type { GhostPosition } from '../../../learning/reflectionTypes.js';
 import { loadMacroState, type MacroState } from '../../../persistence/macroStateRepo.js';
 import {
@@ -160,7 +161,57 @@ const CASE_HINT: Record<DiagnosticCase, string> = {
   NO_OBVIOUS_BLOCK:     'ℹ️ 명백한 차단 게이트 없음 — `/scan_blockers` + `/learning_status` 종합 검토',
 };
 
-/** 메시지 빌더 SSOT — 5 섹션 (헤더/거시/Top 사유/일별/진단). */
+/**
+ * ADR-0387/0388 — 조건별 status 분포 한 줄 요약.
+ * 표본 ≥ 5 인 조건 중 unavailable/error/failed 비율이 임계 초과인 항목 우선 정렬.
+ *
+ * 우선순위 (가장 위험한 항목 위로):
+ *   1. error 비율 ≥ 10%        — evaluator 깨짐 (최우선)
+ *   2. unavailable 비율 ≥ 50%  — 데이터 부재 우세
+ *   3. failed 비율 ≥ 70%       — 임계 미달 우세
+ *   4. 그 외 — 표본 큰 순
+ */
+export interface ConditionStatusRow {
+  key: string;
+  passed: number;
+  failed: number;
+  unavailable: number;
+  error: number;
+  total: number;
+  worstStatus: 'ERROR' | 'UNAVAILABLE' | 'FAILED' | 'OK';
+}
+
+export function buildConditionStatusRows(
+  audit: Record<string, { passed: number; failed: number; unavailable?: number; error?: number }>,
+  topN = 8,
+): ConditionStatusRow[] {
+  const rows: ConditionStatusRow[] = [];
+  for (const [key, s] of Object.entries(audit)) {
+    const unavailable = s.unavailable ?? 0;
+    const error = s.error ?? 0;
+    const total = s.passed + s.failed + unavailable + error;
+    if (total < 5) continue;
+    const errorRate = error / total;
+    const unavailableRate = unavailable / total;
+    const failedRate = s.failed / total;
+    let worstStatus: ConditionStatusRow['worstStatus'] = 'OK';
+    if (errorRate >= 0.1) worstStatus = 'ERROR';
+    else if (unavailableRate >= 0.5) worstStatus = 'UNAVAILABLE';
+    else if (failedRate >= 0.7) worstStatus = 'FAILED';
+    rows.push({ key, passed: s.passed, failed: s.failed, unavailable, error, total, worstStatus });
+  }
+  // 정렬: ERROR > UNAVAILABLE > FAILED > OK 그룹화 + 그룹 내 표본 큰 순
+  const rank: Record<ConditionStatusRow['worstStatus'], number> = {
+    ERROR: 0, UNAVAILABLE: 1, FAILED: 2, OK: 3,
+  };
+  rows.sort((a, b) => {
+    const r = rank[a.worstStatus] - rank[b.worstStatus];
+    return r !== 0 ? r : b.total - a.total;
+  });
+  return rows.slice(0, topN);
+}
+
+/** 메시지 빌더 SSOT — 6 섹션 (헤더/거시/Top 사유/일별/조건 status/진단). */
 export function formatGateAuditMessage(input: {
   windowDays: number;
   buckets: RejectionBucket[];
@@ -174,6 +225,8 @@ export function formatGateAuditMessage(input: {
   autoTradePaused: boolean;
   autoTradeEnabled: boolean;
   autoTradeMode: string;
+  /** ADR-0387/0388 — 조건별 status 분포 (옵셔널 — 데이터 부재 시 섹션 미노출). */
+  conditionStatusRows?: ConditionStatusRow[];
 }): string {
   const L: string[] = [];
   L.push(`📊 Gate Audit (last ${input.windowDays} days)`);
@@ -212,6 +265,25 @@ export function formatGateAuditMessage(input: {
       const g = input.scan.gatePassDistribution;
       L.push(`   gate1Pass=${g.gate1Pass}  gate2Pass=${g.gate2Pass}  gate3Pass=${g.gate3Pass}  lastTriggerPass=${g.lastTriggerPass}`);
     }
+  }
+
+  // ADR-0387/0388 — 조건별 status 분포 (passed/failed/unavailable/error 4 카운터).
+  if (input.conditionStatusRows && input.conditionStatusRows.length > 0) {
+    L.push('', '📐 조건별 status (ADR-0387/0388):');
+    for (const r of input.conditionStatusRows) {
+      const marker
+        = r.worstStatus === 'ERROR' ? ' ❌'
+        : r.worstStatus === 'UNAVAILABLE' ? ' ⚠️'
+        : r.worstStatus === 'FAILED' ? ' 🚧'
+        : '';
+      const totalSafe = r.total > 0 ? r.total : 1;
+      const ePct = ((r.error / totalSafe) * 100).toFixed(0);
+      const uPct = ((r.unavailable / totalSafe) * 100).toFixed(0);
+      L.push(
+        `   ${r.key}: passed=${r.passed} failed=${r.failed} unavailable=${r.unavailable}(${uPct}%) error=${r.error}(${ePct}%)${marker}`,
+      );
+    }
+    L.push('   ❌=evaluator 결함 / ⚠️=데이터 부재 / 🚧=임계 미달');
   }
 
   L.push('', '🎯 진단:');
@@ -271,6 +343,10 @@ const gateAudit: TelegramCommand = {
         topReason,
       });
 
+      // ADR-0387/0388 — 조건별 status 분포 SSOT (loadGateAudit + buildConditionStatusRows).
+      const gateAuditStore = loadGateAudit();
+      const conditionStatusRows = buildConditionStatusRows(gateAuditStore, 8);
+
       await reply(formatGateAuditMessage({
         windowDays,
         buckets,
@@ -284,6 +360,7 @@ const gateAudit: TelegramCommand = {
         autoTradePaused,
         autoTradeEnabled,
         autoTradeMode,
+        conditionStatusRows,
       }));
     } catch (e) {
       console.error('[TelegramBot] /gate_audit 실패:', e);

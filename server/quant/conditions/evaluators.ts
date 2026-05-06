@@ -30,46 +30,81 @@ function weightFor(weights: Record<string, number>, key: string): number {
  */
 export const momentumEvaluator: ConditionEvaluator = {
   key: 'momentum',
-  description: '당일 변화율 계단형 점수 — +0.5/+1.0/+2.0/+3.0% 4 단계 (ADR-0283)',
+  description: '당일 변화율 계단형 점수 — +0.5/+1.0/+2.0/+3.0% 4 단계 (ADR-0283 + ADR-0388 status)',
   inputs: ['quote.changePercent', 'quote.rsi14', 'quote.rsi5dAgo', 'quote.return5d'],
   evaluate({ quote, weights }) {
     const w = weightFor(weights, 'momentum');
-    const rsiAccel = (quote.rsi14 - quote.rsi5dAgo) >= 3;
     const pct = quote.changePercent;
+
+    // ADR-0387: changePercent 부재 시 DATA_UNAVAILABLE.
+    if (!Number.isFinite(pct)) {
+      return {
+        score: 0, conditionKey: 'momentum',
+        detail: 'changePercent 데이터 부재',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
+
+    // RSI 가속 입력 부재 — PROVIDER_DEGRADED 마커 (전체 평가 유효, 가속 보정만 비활성).
+    const rsiUnavailable = !Number.isFinite(quote.rsi14) || !Number.isFinite(quote.rsi5dAgo);
+    const rsiAccel = !rsiUnavailable && (quote.rsi14 - quote.rsi5dAgo) >= 3;
 
     // Legacy 동작 — ENV 활성 시 ADR-0283 이전 cliff 점수.
     if (process.env.MOMENTUM_STEP_SCORING_DISABLED === 'true') {
       if (pct >= 2) {
-        return { score: w, conditionKey: 'momentum', detail: `모멘텀 +${pct.toFixed(1)}%` };
+        return { score: w, conditionKey: 'momentum', detail: `모멘텀 +${pct.toFixed(1)}%`, status: 'FIRED' };
       }
       if (pct >= 0.5 && rsiAccel && quote.return5d < 8) {
-        return { score: w * 0.7, conditionKey: 'momentum',
-          detail: `모멘텀(RSI가속) +${pct.toFixed(1)}% RSI${quote.rsi14.toFixed(0)}` };
+        return {
+          score: w * 0.7, conditionKey: 'momentum',
+          detail: `모멘텀(RSI가속) +${pct.toFixed(1)}% RSI${quote.rsi14.toFixed(0)}`,
+          status: 'FIRED',
+        };
       }
-      return null;
+      return {
+        score: 0, conditionKey: 'momentum',
+        detail: `모멘텀 +${pct.toFixed(1)}% 임계 미달 (legacy)`,
+        status: 'THRESHOLD_NOT_MET',
+      };
     }
 
     // ADR-0283 default — 계단형.
     if (pct >= 3.0) {
-      return { score: w * 1.2, conditionKey: 'momentum',
-        detail: `강한 모멘텀 +${pct.toFixed(1)}% (보너스)` };
+      return {
+        score: w * 1.2, conditionKey: 'momentum',
+        detail: `강한 모멘텀 +${pct.toFixed(1)}% (보너스)`,
+        status: 'FIRED',
+      };
     }
     if (pct >= 2.0) {
-      return { score: w, conditionKey: 'momentum', detail: `모멘텀 +${pct.toFixed(1)}%` };
+      return { score: w, conditionKey: 'momentum', detail: `모멘텀 +${pct.toFixed(1)}%`, status: 'FIRED' };
     }
     if (pct >= 1.0) {
-      return { score: w * 0.7, conditionKey: 'momentum',
-        detail: `중간 모멘텀 +${pct.toFixed(1)}%` };
+      return {
+        score: w * 0.7, conditionKey: 'momentum',
+        detail: `중간 모멘텀 +${pct.toFixed(1)}%`,
+        status: 'FIRED',
+      };
     }
     if (pct >= 0.5) {
       // 5일 과급등 (return5d ≥ 8%) 시 RSI 가속 보너스 차단 — 추격 위험 격리.
       const overheated = quote.return5d >= 8;
-      const score = (rsiAccel && !overheated) ? w * 0.7 : w * 0.4;
-      const flag = (rsiAccel && !overheated) ? ' (RSI가속)' : '';
-      return { score, conditionKey: 'momentum',
-        detail: `약한 모멘텀 +${pct.toFixed(1)}%${flag}` };
+      const useAccel = rsiAccel && !overheated;
+      const score = useAccel ? w * 0.7 : w * 0.4;
+      // ADR-0388: RSI 데이터 부재 시 PROVIDER_DEGRADED 표기 (점수 자체는 산출).
+      // RSI 부재로 가속 보정 실패해도 점수 부여 (FIRED) 유지 — 기존 동작 보존.
+      const flag = useAccel ? ' (RSI가속)' : (rsiUnavailable ? ' (RSI부재)' : '');
+      return {
+        score, conditionKey: 'momentum',
+        detail: `약한 모멘텀 +${pct.toFixed(1)}%${flag}`,
+        status: 'FIRED',
+      };
     }
-    return null;
+    return {
+      score: 0, conditionKey: 'momentum',
+      detail: `모멘텀 ${pct.toFixed(1)}% 임계 미달`,
+      status: 'THRESHOLD_NOT_MET',
+    };
   },
 };
 
@@ -295,7 +330,7 @@ function calculateCompressionScore(quote: {
  */
 export const vcpEvaluator: ConditionEvaluator = {
   key: 'vcp',
-  description: '압축형 (CS ≥ 0.4) 또는 정배열 + ATR 안정 가속형 (ADR-0282)',
+  description: '압축형 (CS ≥ 0.4) 또는 정배열 + ATR 안정 가속형 (ADR-0282 + ADR-0388 status)',
   inputs: [
     'quote.bbWidthCurrent', 'quote.bbWidth20dAvg',
     'quote.vol5dAvg', 'quote.vol20dAvg',
@@ -303,27 +338,65 @@ export const vcpEvaluator: ConditionEvaluator = {
     'quote.ma5', 'quote.ma20', 'quote.ma60',
   ],
   evaluate({ quote, weights }) {
-    const cs = calculateCompressionScore(quote);
     const w = weightFor(weights, 'vcp');
 
+    // ADR-0387: VCP 입력 9 필드 검증 — 일부 부재 시 DATA_UNAVAILABLE.
+    // calculateCompressionScore 가 누락 입력에 0 반환 → cs<0.4 분기로 잘못된 임계 미달
+    // 분류되던 결함 영구 차단.
+    const dataReady
+      = quote.bbWidthCurrent > 0 && quote.bbWidth20dAvg > 0
+        && quote.vol5dAvg > 0 && quote.vol20dAvg > 0
+        && quote.atr5d > 0 && quote.atr20avg > 0
+        && quote.ma5 > 0 && quote.ma20 > 0 && quote.ma60 > 0;
+    if (!dataReady) {
+      return {
+        score: 0, conditionKey: 'vcp',
+        detail: 'VCP 입력 데이터 부재 (bbWidth/vol/atr/ma 일부 0)',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
+
+    const cs = calculateCompressionScore(quote);
+
     // Mode A — 전통 VCP (압축 후 돌파).
-    if (cs >= 0.6) return { score: w,       conditionKey: 'vcp', detail: `VCP 강한압축 (CS=${cs.toFixed(2)})` };
-    if (cs >= 0.4) return { score: w * 0.5, conditionKey: 'vcp', detail: `VCP 중간압축 (CS=${cs.toFixed(2)})` };
+    if (cs >= 0.6) {
+      return {
+        score: w, conditionKey: 'vcp',
+        detail: `VCP 강한압축 (CS=${cs.toFixed(2)})`,
+        status: 'FIRED',
+      };
+    }
+    if (cs >= 0.4) {
+      return {
+        score: w * 0.5, conditionKey: 'vcp',
+        detail: `VCP 중간압축 (CS=${cs.toFixed(2)})`,
+        status: 'FIRED',
+      };
+    }
 
     // Mode B (ADR-0282) — 정배열 + ATR 안정 (강세장 가속 추격).
-    if (process.env.VCP_MODE_B_DISABLED === 'true') return null;
+    if (process.env.VCP_MODE_B_DISABLED === 'true') {
+      return {
+        score: 0, conditionKey: 'vcp',
+        detail: `VCP CS=${cs.toFixed(2)} 임계 미달 (Mode B 비활성)`,
+        status: 'THRESHOLD_NOT_MET',
+      };
+    }
     const aligned = quote.ma5 > quote.ma20 && quote.ma20 > quote.ma60;
-    const atrStable = quote.atr20avg > 0
-      && Math.abs(quote.atr5d - quote.atr20avg) / quote.atr20avg < 0.1;
+    const atrStable = Math.abs(quote.atr5d - quote.atr20avg) / quote.atr20avg < 0.1;
     if (aligned && atrStable) {
       const atrDeltaPct = ((Math.abs(quote.atr5d - quote.atr20avg) / quote.atr20avg) * 100).toFixed(0);
       return {
-        score: w * 0.4,
-        conditionKey: 'vcp',
+        score: w * 0.4, conditionKey: 'vcp',
         detail: `정배열 + ATR 안정 ±${atrDeltaPct}% (ADR-0282 Mode B)`,
+        status: 'FIRED',
       };
     }
-    return null;
+    return {
+      score: 0, conditionKey: 'vcp',
+      detail: `VCP CS=${cs.toFixed(2)} + 정배열/ATR 미충족`,
+      status: 'THRESHOLD_NOT_MET',
+    };
   },
 };
 
@@ -334,14 +407,37 @@ export { calculateCompressionScore };
 
 export const volumeSurgeEvaluator: ConditionEvaluator = {
   key: 'volume_surge',
-  description: '거래량 5일 평균 3배 이상 AND 당일 +1% 이상',
+  description: '거래량 5일 평균 3배 이상 AND 당일 +1% 이상 (ADR-0388 status)',
   inputs: ['quote.volume', 'quote.avgVolume', 'quote.changePercent'],
   evaluate({ quote, weights }) {
-    if (!(quote.avgVolume > 0 && quote.volume >= quote.avgVolume * 3 && quote.changePercent >= 1)) return null;
+    // ADR-0387: avgVolume 부재 (5일 평균 산출 불가) → DATA_UNAVAILABLE.
+    if (!(quote.avgVolume > 0)) {
+      return {
+        score: 0, conditionKey: 'volume_surge',
+        detail: 'avgVolume(5일 평균) 데이터 부재',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
+    // ADR-0387: volume / changePercent NaN → DATA_UNAVAILABLE.
+    if (!Number.isFinite(quote.volume) || !Number.isFinite(quote.changePercent)) {
+      return {
+        score: 0, conditionKey: 'volume_surge',
+        detail: 'volume 또는 changePercent 부재',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
+    if (quote.volume >= quote.avgVolume * 3 && quote.changePercent >= 1) {
+      return {
+        score: weightFor(weights, 'volume_surge'),
+        conditionKey: 'volume_surge',
+        detail: '거래량 급증+상승',
+        status: 'FIRED',
+      };
+    }
     return {
-      score: weightFor(weights, 'volume_surge'),
-      conditionKey: 'volume_surge',
-      detail: '거래량 급증+상승',
+      score: 0, conditionKey: 'volume_surge',
+      detail: `거래량 ${(quote.volume / quote.avgVolume).toFixed(1)}배 또는 +${quote.changePercent.toFixed(1)}% 임계 미달`,
+      status: 'THRESHOLD_NOT_MET',
     };
   },
 };

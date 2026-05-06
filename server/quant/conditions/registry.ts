@@ -90,8 +90,12 @@ export class ConditionRegistry {
       }
       outputs.push({ key: ev.key, output: out });
       if (!out) continue;
-      // ADR-0388: ERROR status 는 score 합산 / details / conditionKeys 모두 제외 (정상 통과 아님).
+      // ADR-0388: ERROR status 는 score / details / conditionKeys 모두 제외.
       if (out.status === 'ERROR') continue;
+      // ADR-0387/0389: status 명시 + non-FIRED 시 score/details/conditionKeys 미합산.
+      // (DATA_UNAVAILABLE/THRESHOLD_NOT_MET/PROVIDER_DEGRADED/SKIPPED_BY_POLICY/SANITY_REJECTED)
+      // legacy null/status 미명시 시 후방호환 — 기존 score>0 동작 보존.
+      if (out.status !== undefined && out.status !== 'FIRED') continue;
       totalScore += out.score;
       details.push(out.detail);
       conditionKeys.push(out.conditionKey);
