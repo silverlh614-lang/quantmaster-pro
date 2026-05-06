@@ -107,6 +107,17 @@ export const TRADING_SETTINGS_FILE    = path.join(DATA_DIR, 'trading-settings.js
 export const SESSION_STATE_FILE       = path.join(DATA_DIR, 'session-state.json');
 /** R3 sanity violation latch. Active state blocks new buys until operator ack/clear. */
 export const R3_SANITY_BLOCK_FILE     = path.join(DATA_DIR, 'r3-sanity-block.json');
+/**
+ * ADR-0401 — R3 Violation streak 영속 SSOT.
+ *
+ * 같은 violation+regime 의 *연속 발생 횟수* 영속해 단계형 (CLEAN→WARNING→ELEVATED→
+ * SHADOW_ONLY→HARD_BLOCK) state machine 의 입력으로 사용. 24h decay (default,
+ * ENV `R3_VIOLATION_STREAK_DECAY_HOURS`) 로 무한 누적 차단 (사용자 절대 원칙 #9).
+ *
+ * atomic write (tmp → rename) + 손상 JSON 빈 상태 fallback + scanIds[] 마지막
+ * 1건 비교로 같은 스캔 사이클 중복 증가 차단.
+ */
+export const R3_VIOLATION_STREAK_FILE = path.join(DATA_DIR, 'r3-violation-streak.json');
 /** 이중 기록 Reconciliation 마지막 결과 — 텔레그램·이벤트로그·섀도우상태 정합성 */
 export const RECONCILE_STATE_FILE     = path.join(DATA_DIR, 'reconcile-state.json');
 /** 텔레그램 알림 발송 로그 — 청산·진입 알림 건별 기록 (최근 1000건) */

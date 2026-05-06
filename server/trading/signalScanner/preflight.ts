@@ -20,6 +20,9 @@ import {
   isR3SanityAckTokenValid,
   loadR3SanityBlockState,
 } from '../../persistence/r3SanityBlockRepo.js';
+// ADR-0401: R3 Violation streak pre-scan check (SHADOW_ONLY ephemeral 차단).
+import { getEffectiveR3ViolationStreak } from '../../persistence/r3ViolationStreakRepo.js';
+import { getR3SanityProfile } from './r3SanityProfiles.js';
 import { loadShadowTrades, saveShadowTrades } from '../../persistence/shadowTradeRepo.js';
 import { computeShadowAccount } from '../../persistence/shadowAccountRepo.js';
 import { loadTradingSettings } from '../../persistence/tradingSettingsRepo.js';
@@ -178,6 +181,35 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
         `즉시 해제: <code>/r3_unblock</code> (텔레그램, ADR-0195)\n` +
         `또는 ENV <code>R3_SANITY_OPERATOR_ACK=${r3SanityBlock.triggeredAt}</code> (ADR-0120)`,
         { priority: 'HIGH', dedupeKey: 'r3_sanity_block_active', cooldownMs: 24 * 60 * 60_000 },
+      ).catch(console.error);
+      await recordBlockedDayShadowScan('R3_SANITY_BLOCK');
+      await updateShadowResults(shadows, regime);
+      saveShadowTrades(shadows);
+      return { shouldAbort: true, skipPersist: true };
+    }
+  }
+
+  // ADR-0401: SHADOW_ONLY ephemeral 차단 — streak count >= profile.shadowOnlyAt + decay 안 지남.
+  // 영속 latch (data/r3-sanity-block.json) 와 무관, streak repo 의 24h decay 로 자연 회복.
+  // HARD_BLOCK latch 는 위 분기에서 이미 처리됨 (절대 원칙 #11/12 — 자동 해제 0).
+  const effectiveStreak = getEffectiveR3ViolationStreak();
+  if (effectiveStreak.violation === 'GATE1_PASS_ZERO' && effectiveStreak.consecutiveCount > 0) {
+    const profile = getR3SanityProfile(effectiveStreak.regime);
+    if (effectiveStreak.consecutiveCount >= profile.shadowOnlyAt) {
+      console.warn(
+        `[AutoTrade] R3 SHADOW_ONLY ephemeral block — streak=${effectiveStreak.consecutiveCount}/${profile.shadowOnlyAt} ` +
+        `(${effectiveStreak.violation}, ${effectiveStreak.regime}) — ADR-0401`,
+      );
+      await sendTelegramAlert(
+        `⚫️ <b>[R3 Sanity — SHADOW_ONLY pre-scan]</b>\n` +
+        `직전 스캔 누적 ${effectiveStreak.consecutiveCount}회 (임계 ${profile.shadowOnlyAt}) — ` +
+        `신규 진입 차단 + shadow learning 유지.\n` +
+        `<i>다음 정상 스캔 (위반 NONE 또는 24h decay) 시 자동 회복 — 영속 latch 없음 (ADR-0401).</i>`,
+        {
+          priority: 'HIGH',
+          dedupeKey: `r3_sanity_shadow_only_pre:${effectiveStreak.regime}:${effectiveStreak.consecutiveCount}`,
+          cooldownMs: 6 * 60 * 60_000,
+        },
       ).catch(console.error);
       await recordBlockedDayShadowScan('R3_SANITY_BLOCK');
       await updateShadowResults(shadows, regime);

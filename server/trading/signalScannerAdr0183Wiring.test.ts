@@ -86,10 +86,13 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
       expect(src).toContain("recordBlockedDayShadowScan('FOMC_BLOCK')");
     });
 
-    it('정확 4 호출 site (호출 수 정확)', () => {
+    it('정확 5 호출 site (호출 수 정확) — ADR-0401 SHADOW_ONLY pre-scan 추가', () => {
+      // ADR-0183 4 site (MANUAL/RISK_OFF/VIX/FOMC) + ADR-0120 R3 latch active 1 site +
+      // ADR-0401 SHADOW_ONLY ephemeral pre-scan 1 site = 총 6회
+      // 모두 reason='R3_SANITY_BLOCK' 또는 ADR-0183 reason 5종 union 안.
       const matches = src.match(/recordBlockedDayShadowScan\(['"]/g);
       expect(matches).toBeDefined();
-      expect(matches!.length).toBe(5);
+      expect(matches!.length).toBe(6);
     });
 
     it('데이터 빈곤 site 제외 (DATA_*, LIQUIDITY_BLOCK 미사용)', () => {

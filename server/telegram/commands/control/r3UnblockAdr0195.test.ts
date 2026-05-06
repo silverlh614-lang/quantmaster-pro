@@ -107,6 +107,47 @@ describe('ADR-0195 동작 매트릭스 — /r3_unblock', () => {
     expect(captured).toContain('이미 R3 sanity block 비활성');
   });
 
+  it('ADR-0401 — latch 해제 시 streak 도 reset', async () => {
+    const repo = await import('../../../persistence/r3SanityBlockRepo.js');
+    const streakRepo = await import('../../../persistence/r3ViolationStreakRepo.js');
+    repo.activateR3SanityBlock({
+      violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', message: 'test',
+    });
+    streakRepo.updateR3ViolationStreak({
+      violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', scanId: 'A',
+      now: new Date('2026-05-06T01:00:00.000Z'),
+    });
+    expect(streakRepo.loadR3ViolationStreakState().consecutiveCount).toBe(1);
+
+    const cmd = commandRegistry.resolve('/r3_unblock');
+    let captured = '';
+    await cmd!.execute({ args: [], reply: async (m: string) => { captured = m; } });
+
+    // latch 해제됨
+    expect(repo.loadR3SanityBlockState().active).toBe(false);
+    // streak 도 reset
+    expect(streakRepo.loadR3ViolationStreakState().consecutiveCount).toBe(0);
+    expect(captured).toContain('ADR-0401');
+  });
+
+  it('ADR-0401 — latch 비활성 분기에서도 streak reset', async () => {
+    const streakRepo = await import('../../../persistence/r3ViolationStreakRepo.js');
+    streakRepo.updateR3ViolationStreak({
+      violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', scanId: 'A',
+      now: new Date('2026-05-06T01:00:00.000Z'),
+    });
+    expect(streakRepo.loadR3ViolationStreakState().consecutiveCount).toBe(1);
+
+    const cmd = commandRegistry.resolve('/r3_unblock');
+    let captured = '';
+    await cmd!.execute({ args: [], reply: async (m: string) => { captured = m; } });
+
+    // latch 는 처음부터 비활성
+    // streak 만 reset 됨
+    expect(streakRepo.loadR3ViolationStreakState().consecutiveCount).toBe(0);
+    expect(captured).toContain('R3 violation streak 도 reset');
+  });
+
   it('alias /r3_clear + /clear_r3_sanity 동일 인스턴스', () => {
     const a = commandRegistry.resolve('/r3_unblock');
     const b = commandRegistry.resolve('/r3_clear');
