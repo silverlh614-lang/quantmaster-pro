@@ -2,8 +2,9 @@
 /**
  * sectorEnergyProvider.ts — KRX 실데이터를 sectorEnergyEngine 입력으로 가공.
  * ADR-0343: public meta builder itself is fallback-aware.
- * ADR-0362: KRX index daily 가 empty 일 때 종목별 KRX 일별거래 + sector map 으로
- * sectorEnergy 를 합성해 `validSectorCount: 0/12` hard-fail 을 피한다.
+ * ADR-0362: KRX index daily 가 empty 일 때 종목별 KRX 일별거래 + sector map 으로 합성.
+ * ADR-0365: data-dbg index rows 는 IDX_IND_CD 없이 IDX_NM 만 올 수 있으므로
+ * indexCode symmetry 실패 시 indexName 매칭 또는 stock-daily synthetic fallback 으로 강등.
  */
 
 import {
@@ -147,7 +148,7 @@ export function isSectorEnergySymmetryDisabled(): boolean {
 }
 
 export function isSectorEnergyIndexNameFallbackEnabled(): boolean {
-  return process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK === 'true';
+  return process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK !== 'false';
 }
 
 export function getSectorEnergyMinValid(): number {
@@ -176,7 +177,7 @@ export function aggregateIndexDeltas(
       past = pastByCode.get(t.indexCode);
       if (past) matchKind = 'code';
     }
-    if (!past && t.indexName && isSectorEnergyIndexNameFallbackEnabled() && !t.indexCode) {
+    if (!past && t.indexName && isSectorEnergyIndexNameFallbackEnabled()) {
       past = pastByName.get(t.indexName);
       if (past) matchKind = 'name';
     }
@@ -282,6 +283,31 @@ function buildInputsFromDeltas(
   return { inputs, validSectorCount };
 }
 
+function buildStockDailyFallbackResult(
+  todayStocks: KrxStockDailyRow[],
+  pastStocks: KrxStockDailyRow[],
+  foreignMap: Map<StrategicSector, number>,
+  prefixReasons: string[],
+  qualityIfComplete: SectorEnergyDataQuality = 'STALE',
+): SectorEnergyBuildResult | null {
+  const deltas = aggregateStockDeltas(todayStocks, pastStocks);
+  const { inputs, validSectorCount } = buildInputsFromDeltas(deltas, foreignMap);
+  const minValid = getSectorEnergyMinValid();
+  if (validSectorCount >= minValid) {
+    return {
+      inputs,
+      dataQuality: validSectorCount === TOTAL_SECTOR_COUNT ? qualityIfComplete : 'STALE',
+      validSectorCount,
+      totalSectorCount: TOTAL_SECTOR_COUNT,
+      reasons: [
+        ...prefixReasons,
+        `ADR-0365 stock-daily fallback sector energy validSectorCount=${validSectorCount}/${TOTAL_SECTOR_COUNT}`,
+      ],
+    };
+  }
+  return null;
+}
+
 export interface SectorEnergyBuildResult {
   inputs: SectorEnergyInput[];
   dataQuality: SectorEnergyDataQuality;
@@ -335,44 +361,69 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
   const foreignMap = aggregateForeignConcentration(investors, stockSectorMap);
 
   if (todayIdx.length === 0) {
-    const deltas = aggregateStockDeltas(todayStocks, pastStocks);
-    const { inputs, validSectorCount } = buildInputsFromDeltas(deltas, foreignMap);
-    const minValid = getSectorEnergyMinValid();
-    if (validSectorCount >= minValid) {
-      return {
-        inputs,
-        dataQuality: validSectorCount === TOTAL_SECTOR_COUNT ? 'PARTIAL' : 'STALE',
-        validSectorCount,
-        totalSectorCount: TOTAL_SECTOR_COUNT,
-        reasons: [
-          'todayIdx empty — KRX index OpenAPI 응답 부재',
-          `attempted=${attemptedTodayDates.join(',') || 'default'}`,
-          `ADR-0362 stock-daily synthesized sector energy validSectorCount=${validSectorCount}/${TOTAL_SECTOR_COUNT}`,
-        ],
-      };
-    }
+    const fallback = buildStockDailyFallbackResult(
+      todayStocks,
+      pastStocks,
+      foreignMap,
+      ['todayIdx empty — KRX index OpenAPI 응답 부재', `attempted=${attemptedTodayDates.join(',') || 'default'}`],
+      'PARTIAL',
+    );
+    if (fallback) return fallback;
     return {
       inputs: [],
       dataQuality: 'FAILED',
-      validSectorCount,
+      validSectorCount: 0,
       totalSectorCount: TOTAL_SECTOR_COUNT,
       reasons: [
         'todayIdx empty — KRX OpenAPI 응답 부재',
         `attempted=${attemptedTodayDates.join(',') || 'default'}`,
-        `stock-daily fallback insufficient validSectorCount=${validSectorCount} < min=${minValid}`,
+        `stock-daily fallback insufficient validSectorCount=0 < min=${getSectorEnergyMinValid()}`,
       ],
     };
   }
 
   const symmetry = validateIndexResponseSymmetry(todayIdx, pastIdx);
   if (!symmetry.valid && !isSectorEnergySymmetryDisabled()) {
+    // ADR-0365: data-dbg 응답은 indexCode 없이 indexName만 정상 제공될 수 있다.
+    // 먼저 indexName 기반 매칭을 시도하고, 부족하면 stock-daily 합성 fallback으로 강등한다.
+    const nameDeltas = aggregateIndexDeltas(todayIdx, pastIdx);
+    const nameBuilt = buildInputsFromDeltas(nameDeltas, foreignMap);
+    const minValid = getSectorEnergyMinValid();
+    if (nameBuilt.validSectorCount >= minValid) {
+      return {
+        inputs: nameBuilt.inputs,
+        dataQuality: nameBuilt.validSectorCount === TOTAL_SECTOR_COUNT ? 'PARTIAL' : 'STALE',
+        validSectorCount: nameBuilt.validSectorCount,
+        totalSectorCount: TOTAL_SECTOR_COUNT,
+        symmetryValidation: symmetry,
+        reasons: [
+          'symmetry validation failed but indexName fallback succeeded',
+          ...symmetry.reasons,
+          `ADR-0365 indexName matched sector energy validSectorCount=${nameBuilt.validSectorCount}/${TOTAL_SECTOR_COUNT}`,
+        ],
+      };
+    }
+    const fallback = buildStockDailyFallbackResult(
+      todayStocks,
+      pastStocks,
+      foreignMap,
+      ['symmetry validation failed', ...symmetry.reasons],
+      'STALE',
+    );
+    if (fallback) {
+      return { ...fallback, symmetryValidation: symmetry };
+    }
     return {
       inputs: [],
       dataQuality: 'FAILED',
-      validSectorCount: 0,
+      validSectorCount: nameBuilt.validSectorCount,
       totalSectorCount: TOTAL_SECTOR_COUNT,
       symmetryValidation: symmetry,
-      reasons: ['symmetry validation failed', ...symmetry.reasons],
+      reasons: [
+        'symmetry validation failed',
+        ...symmetry.reasons,
+        `indexName fallback insufficient validSectorCount=${nameBuilt.validSectorCount} < min=${minValid}`,
+      ],
     };
   }
 
