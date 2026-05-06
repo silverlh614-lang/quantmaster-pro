@@ -183,18 +183,36 @@ export function decideScan(): ScanDecision {
   let phase: string;
   let forceSellOnly = false;
 
-  if      (t < 930)  { baseInterval = 2;  phase = '시초가(급변)'; }
-  else if (t < 1130) { baseInterval = 3;  phase = '오전 주도주'; }
-  else if (t < 1300) {
-    baseInterval = 10; phase = '점심(SELL_ONLY)'; forceSellOnly = true;
-    lastLunchBlockSeenAt = now; // 점심 구간 통과 중 — 해제 감지용 기록
+  // ADR-0192 (사용자 5/6): 매매 허용 시간 09:30~12:00 + 13:00~15:30.
+  //   - 09:00~09:30 시초가 SELL_ONLY (변동성 회피, 기존 09:00 매수 시작에서 30분 후퇴)
+  //   - 점심 차단 12:00~13:00 (기존 11:30~13:00 → 점심 30분 단축, 오전 매매 +30분)
+  //   - 오후 정상 매매 13:00~15:00 (기존 13:00~14:30 → +30분)
+  //   - 마감 SELL_ONLY 15:00~15:30 (ADR-0122 정합 보존)
+  // ENV `TRADE_WINDOW_LEGACY_HOURS=true` 우회 시 기존 동작 복원 (isBuyableKstWindow 와 정합).
+  const useLegacy = process.env.TRADE_WINDOW_LEGACY_HOURS === 'true';
+  if (useLegacy) {
+    if      (t < 930)  { baseInterval = 2;  phase = '시초가(급변)'; }
+    else if (t < 1130) { baseInterval = 3;  phase = '오전 주도주'; }
+    else if (t < 1300) {
+      baseInterval = 10; phase = '점심(SELL_ONLY)'; forceSellOnly = true;
+      lastLunchBlockSeenAt = now;
+    }
+    else if (t < 1430) { baseInterval = 5;  phase = '오후 재개장'; }
+    else if (t < 1500) { baseInterval = 2;  phase = '마감전(급변)'; }
+    else               { baseInterval = 2;  phase = '마감(SELL_ONLY)'; forceSellOnly = true; }
+  } else {
+    if      (t < 930)  {
+      baseInterval = 5;  phase = '시초가(SELL_ONLY/변동성 회피)'; forceSellOnly = true;
+    }
+    else if (t < 1200) { baseInterval = 3;  phase = '오전 주도주'; }
+    else if (t < 1300) {
+      baseInterval = 10; phase = '점심(SELL_ONLY)'; forceSellOnly = true;
+      lastLunchBlockSeenAt = now; // 점심 구간 통과 중 — 해제 감지용 기록
+    }
+    else if (t < 1500) { baseInterval = 3;  phase = '오후 재개장'; }
+    // ADR-0122 정합 보존 — 마감 30분 전 SELL_ONLY (15:00~15:30).
+    else               { baseInterval = 2;  phase = '마감(SELL_ONLY)'; forceSellOnly = true; }
   }
-  else if (t < 1430) { baseInterval = 5;  phase = '오후 재개장'; }
-  // ADR-0122 (사용자 보고 4/30): SELL_ONLY 시작 14:55 → 15:00 KST 조정.
-  // 14:30~15:00 은 일반 마감전 정규 매매, 15:00~15:20 정규 매매 + 15:20~15:30 동시호가.
-  // 사용자 의도: SELL_ONLY 는 15시부터 (마감 30분 전 신규 진입 차단).
-  else if (t < 1500) { baseInterval = 2;  phase = '마감전(급변)'; }
-  else               { baseInterval = 2;  phase = '마감(SELL_ONLY)'; forceSellOnly = true; }
 
   // ── 4. 레짐 배율 적용 ────────────────────────────────────────────────────
   const multiplier = REGIME_MULTIPLIER[regime] ?? 1.0;
@@ -265,14 +283,27 @@ export function decideScan(): ScanDecision {
   };
 }
 
-/** 매수 가능 시간대(KST) 판정 — 점심/마감동시호가/장외 제외. */
+/**
+ * 매수 가능 시간대(KST) 판정 — 점심/시초가/마감전 SELL_ONLY/장외 제외.
+ *
+ * ADR-0192 (사용자 5/6): 09:30~12:00 (오전) + 13:00~15:30 (오후) 정책 적용.
+ *   - 시초가 09:00~09:30: 변동성 회피 — SELL_ONLY (신규 진입 차단)
+ *   - 점심 12:00~13:00: 차단 (기존 11:30~13:00 → 점심 30분 단축)
+ *   - 마감 15:30 까지 신규 매매 허용 (기존 14:30 → 1h 추가)
+ *
+ * ENV `TRADE_WINDOW_LEGACY_HOURS=true` 우회 → ADR-0122 정합 09:00~14:30 동작 복원.
+ */
 function isBuyableKstWindow(now = Date.now()): boolean {
   const kst = new Date(now + 9 * 60 * 60 * 1000);
   const dow = kst.getUTCDay();
   if (dow === 0 || dow === 6) return false;
   const t = kst.getUTCHours() * 100 + kst.getUTCMinutes();
-  // 09:00~11:30 (오전) + 13:00~14:30 (오후 정상 매매) = 매수 가능 구간
-  return (t >= 900 && t < 1130) || (t >= 1300 && t < 1430);
+  if (process.env.TRADE_WINDOW_LEGACY_HOURS === 'true') {
+    // Legacy: 09:00~11:30 (오전) + 13:00~14:30 (오후) — ADR-0122 정합.
+    return (t >= 900 && t < 1130) || (t >= 1300 && t < 1430);
+  }
+  // ADR-0192: 09:30~12:00 + 13:00~15:30 신규 정책.
+  return (t >= 930 && t < 1200) || (t >= 1300 && t < 1530);
 }
 
 /**

@@ -29,20 +29,25 @@ describe('ADR-0122 SELL_ONLY 시간 조정 — 14:55 → 15:00 KST', () => {
     expect(source).toMatch(/마감\(SELL_ONLY\)/);
   });
 
-  it('ADR-0122 주석 — 사용자 보고 명시', () => {
-    expect(source).toMatch(/ADR-0122.*사용자 보고/);
-    expect(source).toMatch(/14:55.*15:00/);
+  it('ADR-0122 주석 — legacy 분기 정합 보존 (ADR-0192 갱신 후)', () => {
+    // ADR-0192 (2026-05-06) 가 phase 분기를 useLegacy 분기 안으로 이동.
+    // ADR-0122 정책 자체는 보존 (legacy 분기 = 14:55→15:00 의도 그대로).
+    expect(source).toMatch(/ADR-0122/);
   });
 
-  it('점심 SELL_ONLY 11:30~13:00 보존 (회귀 차단)', () => {
+  it('점심 SELL_ONLY 11:30~13:00 보존 (legacy 분기, ADR-0192 호환)', () => {
+    // ADR-0192 (2026-05-06): 신규 정책은 12:00~13:00 점심, legacy 분기는 11:30~13:00 보존.
     expect(source).toMatch(/t < 1130/);
     expect(source).toMatch(/t < 1300/);
     expect(source).toMatch(/점심\(SELL_ONLY\)/);
   });
 
-  it('forceSellOnly 토글 분기 2개 보존 (점심 + 마감)', () => {
+  it('forceSellOnly 토글 분기 — legacy 2 (점심+마감) + ADR-0192 신규 3 (시초가+점심+마감) = 5', () => {
+    // ADR-0122 (2026-04-30): 점심 + 마감 SELL_ONLY = 2개
+    // ADR-0192 (2026-05-06): 신규 시초가(09:00~09:30) + 점심(12:00~13:00) + 마감(15:00~) = 3개 추가
+    // legacy 분기 보존 (TRADE_WINDOW_LEGACY_HOURS=true 시 ADR-0122 동작 복원).
     const matches = source.match(/forceSellOnly = true/g);
     expect(matches).toBeDefined();
-    expect(matches!.length).toBe(2);
+    expect(matches!.length).toBe(5);
   });
 });
