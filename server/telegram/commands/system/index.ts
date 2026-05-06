@@ -7,6 +7,7 @@
 
 import './aiStatus.cmd.js';
 import './bugs.cmd.js';            // PR #669/#670 후속 P2-A — /bugs BUG_LEDGER 영속 조회
+import './bugCandidates.cmd.js';   // PR #669~#674 후속 P3 — /bug_candidates 후보 review/dismiss/promote
 import './coherenceAudit.cmd.js';
 import './conditionAttributionShadow.cmd.js';
 import './conditionLifecycle.cmd.js';
