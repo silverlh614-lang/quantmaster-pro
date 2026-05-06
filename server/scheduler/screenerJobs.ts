@@ -8,7 +8,6 @@ import { scheduledJob } from './scheduleGuard.js';
 import { runStage1PreScreening, runStage2_3FinalScreening } from '../screener/universeScanner.js';
 import { cleanupWatchlist } from '../screener/watchlistManager.js';
 import { runDynamicUniverseExpansion } from '../screener/dynamicUniverseExpander.js';
-import { runAutoSignalScan } from '../trading/signalScanner.js';
 import { runGlobalScanAgent } from '../alerts/globalScanAgent.js';
 import { runSupplyChainScan } from '../alerts/supplyChainAgent.js';
 import { trackPendingRecords } from '../learning/newsSupplyLogger.js';
@@ -17,68 +16,47 @@ import { getLiveRegime } from '../trading/regimeBridge.js';
 import { withForcedMarket } from '../utils/forceMarketGuard.js';
 
 export function registerScreenerJobs(): void {
-  // ─── 2단계 분리 파이프라인 ────────────────────────────────────────────────
-  // Stage1(220개 Yahoo 스캔)이 전체 시간의 80% — 전날 16:30에 선행 실행.
-
-  // 1차 Pre-screening — 전날 16:30 KST (UTC 07:30). 한국 장 마감 후 → withForcedMarket
-  // 으로 시간대 게이트 우회 (KIS 회로/블랙리스트는 그대로 보호).
   scheduledJob('30 7 * * 1-5', 'TRADING_DAY_ONLY', 'stage1_pre_screening',
     () => withForcedMarket(() => runStage1PreScreening()), { timezone: 'UTC' });
 
-  // 2차 Final-screening — 당일 08:35 KST (UTC 23:35 전일). 한국 장 25분 전 → withForcedMarket.
   scheduledJob('35 23 * * 0-4', 'TRADING_DAY_ONLY', 'stage2_3_final_screening', () => withForcedMarket(async () => {
     const macroState = loadMacroState();
     const regime = getLiveRegime(macroState);
     await runStage2_3FinalScreening(regime, macroState);
   }), { timezone: 'UTC' });
 
-  // 워치리스트 자동 정리 — 평일 16:00 KST (UTC 07:00).
   scheduledJob('0 7 * * 1-5', 'TRADING_DAY_ONLY', 'cleanup_watchlist',
     () => cleanupWatchlist(), { timezone: 'UTC' });
 
-  // 장중 안전망 — 평일 30분마다 워치리스트 재정리. KST timezone (장중 시각 기준).
   scheduledJob('0,30 9-15 * * 1-5', 'TRADING_DAY_ONLY', 'cleanup_watchlist_intraday',
     () => cleanupWatchlist(), { timezone: 'Asia/Seoul' });
 
-  // ─── 미국장 전후 스캐닝 — KR 휴장과 무관 ──────────────────────
-  // 미국 장 시작 직전 확인 — KST 22:25 (UTC 13:25).
-  // PR-B-2: ALWAYS_ON — 미국장은 KR 공휴일과 독립적, 한국 장 직전 검증은 평일 가드만.
-  // (cron `1-5` 가 1차 가드, US 장은 KR 휴장과 별개 마켓)
+  // ADR-0403: US-market cron slots must not invoke the KR auto-signal scan path.
+  // They now run the global market diagnostic agent only, so KR R3/Gate1 streaks are not touched.
   scheduledJob('25 13 * * 1-5', 'ALWAYS_ON', 'us_premarket_scan', () => withForcedMarket(async () => {
-    console.log('[Scheduler] 미국장 프리마켓 스캔 (KST 22:25)');
-    await runAutoSignalScan({ sellOnly: false });
+    console.log('[Scheduler] US premarket global diagnostics (KST 22:25)');
+    await runGlobalScanAgent();
   }), { timezone: 'UTC' });
 
-  // 미국 장 마감 후 확인 — KST 06:10 (UTC 21:10 전일).
-  // ADR-0403: 06:10 KST 에 KR runAutoSignalScan 을 실행하면 장전 R3 Sanity 가
-  // `GATE1_PASS_ZERO / R3_EARLY` 를 한국장 결함처럼 누적·알림할 수 있다.
-  // 글로벌 진단은 바로 위 06:00 global_scan_agent 가 담당하므로, 본 job 은 더 이상
-  // 한국장 auto signal scan 을 호출하지 않는다. KR 진입 스캔은 08:35 final screening 및
-  // 장중 정규 스캔 경로에서만 수행한다.
-  scheduledJob('10 21 * * 0-4', 'ALWAYS_ON', 'us_postmarket_scan', () => {
-    console.log('[Scheduler] 미국장 마감 후 KR auto signal scan 생략 — global_scan_agent가 06:00 데이터 진단 담당');
-  }, { timezone: 'UTC' });
+  scheduledJob('10 21 * * 0-4', 'ALWAYS_ON', 'us_postmarket_scan', () => withForcedMarket(async () => {
+    console.log('[Scheduler] US postmarket global diagnostics (KST 06:10)');
+    await runGlobalScanAgent();
+  }), { timezone: 'UTC' });
 
-  // 새벽 글로벌 스캔 에이전트 — 매일 KST 06:00 (UTC 21:00).
-  // PR-B-2: ALWAYS_ON — 글로벌 지수는 KR 휴장 무관.
-  // 사용자 보고 (06:00 N/A 폭주) 후속: 시간대 게이트 우회로 강제 통과.
   scheduledJob('0 21 * * 0-4', 'ALWAYS_ON', 'global_scan_agent',
     () => withForcedMarket(() => runGlobalScanAgent()), { timezone: 'UTC' });
 
-  // 뉴스-수급 시차 DB 추적 — 평일 KST 09:10 (UTC 00:10).
   scheduledJob('10 0 * * 1-5', 'TRADING_DAY_ONLY', 'news_supply_tracker',
     () => trackPendingRecords(), { timezone: 'UTC' });
 
-  // 동적 유니버스 확장 — 매주 토요일 09:00 KST (UTC 00:00).
   scheduledJob('0 0 * * 6', 'WEEKEND_MAINTENANCE', 'dynamic_universe_expansion',
     () => runDynamicUniverseExpansion(), { timezone: 'UTC' });
 
-  // ─── 주말 해외 뉴스·공급망 스캔 ───────────────────────────────────────────
-  // 토요일·일요일 KST 02:00 / 10:00.
   scheduledJob('0 17 * * 5,6', 'WEEKEND_MAINTENANCE', 'supply_chain_scan_02kst', async () => {
     console.log('[Scheduler] 주말 해외 뉴스 스캔 (KST 02:00)');
     await runSupplyChainScan();
   }, { timezone: 'UTC' });
+
   scheduledJob('0 1 * * 6,0', 'WEEKEND_MAINTENANCE', 'supply_chain_scan_10kst', async () => {
     console.log('[Scheduler] 주말 해외 뉴스 재스캔 (KST 10:00)');
     await runSupplyChainScan();
