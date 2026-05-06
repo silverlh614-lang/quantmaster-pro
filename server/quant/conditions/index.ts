@@ -26,6 +26,7 @@ import {
   weeklyRsiZoneEvaluator,
   supplyConfluenceEvaluator,
   earningsQualityEvaluator,
+  trendAccelerationEvaluator,
 } from './evaluators.js';
 
 export { ConditionRegistry } from './registry.js';
@@ -57,4 +58,5 @@ export const defaultRegistry: ConditionRegistry = new ConditionRegistry()
   .register(ma60RisingEvaluator)
   .register(weeklyRsiZoneEvaluator)
   .register(supplyConfluenceEvaluator)
-  .register(earningsQualityEvaluator);
+  .register(earningsQualityEvaluator)
+  .register(trendAccelerationEvaluator); // ADR-0281
