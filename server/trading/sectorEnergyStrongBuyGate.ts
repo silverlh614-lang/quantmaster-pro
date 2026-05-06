@@ -52,6 +52,19 @@ export function isSectorEnergyStrongBuyGateDisabled(): boolean {
 }
 
 /**
+ * ADR-0400: ENV `SECTOR_ENERGY_STRONG_BUY_GATE_WIRING_DISABLED=true` SSOT 헬퍼.
+ * 정확 비교 (=== 'true') ADR-0157 의무. default OFF.
+ *
+ * 본 ENV 활성 시 STRONG_BUY → BUY 강등 wiring 자체 비활성화 →
+ * ADR-0398 dead code 동작 100% 복원 (회귀 1줄 즉시 롤백 안전망).
+ *
+ * 호출자 측 inline ENV 검사 0건 — SSOT 위임 (ADR-0185~0189 정합).
+ */
+export function isSectorEnergyStrongBuyGateWiringDisabled(): boolean {
+  return process.env.SECTOR_ENERGY_STRONG_BUY_GATE_WIRING_DISABLED === 'true';
+}
+
+/**
  * STRONG_BUY 차단 결정 SSOT — 4 조건 OR (사용자 명시 절대 변경 금지).
  *
  * @param input ADR-0396 4-axis 합성 결과 부분 (confidence + dataQuality + sourceTier)

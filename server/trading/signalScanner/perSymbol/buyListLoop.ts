@@ -64,6 +64,11 @@ import {
   classifySectorTier,
   describeSectorBoost,
 } from '../../sectorScoreBoost.js';
+// ADR-0400: STRONG_BUY 4 조건 OR confidence gate wiring (ADR-0398 dead code 종결).
+import {
+  evaluateSectorEnergyStrongBuyGate,
+  isSectorEnergyStrongBuyGateWiringDisabled,
+} from '../../sectorEnergyStrongBuyGate.js';
 import { evaluateDataQualityFromStock } from '../../priceSourcePolicy.js';
 import {
   sizingTierDecider,
@@ -1122,7 +1127,34 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       const liveGateScore = reCheckGate.gateScore ?? (stock.gateScore ?? 0);
       const gateScore = liveGateScore + ctx.volumeClock.scoreBonus;
       // 서버 Gate 최대 13점(11조건 × 1.0 + ctx.volumeClock +2) 기준 임계값
-      const isStrongBuy = gateScore >= 9;
+      let isStrongBuy = gateScore >= 9;
+
+      // ── ADR-0400: STRONG_BUY → BUY 강등 (4 조건 OR) ─────────────────────
+      // ADR-0398 dead code wiring 종결 — sectorEnergy 신뢰도가 낮으면 *최고 등급
+      // 승격을 막는* 구조. 일반 BUY 차단 금지 (절대 원칙 #1) — 강등 패턴만 허용.
+      // ENV `SECTOR_ENERGY_STRONG_BUY_GATE_WIRING_DISABLED=true` (default OFF) →
+      // 회귀 발견 시 1줄 즉시 ADR-0398 dead code 동작 100% 복원.
+      // macroState 부재 / 4-axis 영속 부재 (ADR-0396 격상 전 데이터) → 보수 fallback
+      // (confidence=0 + dataQuality='FAILED' + sourceTier='FAILED') → STRONG_BUY 차단.
+      if (isStrongBuy && !isSectorEnergyStrongBuyGateWiringDisabled()) {
+        const m = ctx.macroState;
+        const gateResult = evaluateSectorEnergyStrongBuyGate({
+          confidence: typeof m?.sectorEnergyConfidence === 'number' ? m.sectorEnergyConfidence : 0,
+          dataQuality: m?.sectorEnergyDataQuality ?? 'FAILED',
+          sourceTier: m?.sectorEnergySourceTier ?? 'FAILED',
+        });
+        if (gateResult.forbidStrongBuy) {
+          isStrongBuy = false;
+          if (!m || m.sectorEnergyConfidence === undefined || m.sectorEnergyDataQuality === undefined || m.sectorEnergySourceTier === undefined) {
+            console.log(
+              `[SectorEnergyGate] macroState.sectorEnergy* 부재 — 보수 fallback 적용 (STRONG_BUY 차단) 종목=${stock.code}`,
+            );
+          }
+          console.log(
+            `[SectorEnergyGate] STRONG_BUY → BUY 강등 (사유: ${gateResult.reasons.join(', ')}) 종목=${stock.code} ${stock.name}`,
+          );
+        }
+      }
 
       // ── ADR-0031 PR-61: mtasGateStep + sellOnlyExceptionStep ────────────
       // MTAS 기반 진입 차단: 타임프레임 불일치 시 진입 금지
