@@ -21,6 +21,7 @@ import './fssStatus.cmd.js';
 import './gateAudit.cmd.js';
 import './ghostForceRun.cmd.js';
 import './health.cmd.js';
+import './healthFull.cmd.js';
 import './healthLoopStatus.cmd.js';
 import './investorFlowCache.cmd.js';
 import './krxCsvProbe.cmd.js';
