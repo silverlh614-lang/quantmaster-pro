@@ -269,7 +269,7 @@ describe('applyEntryPriceDrift', () => {
     expect(applyEntryPriceDrift(entry, 11_000)).toBe('KEEP');
   });
 
-  describe('ADR-0113 — CORPORATE_ACTION 분기', () => {
+  describe('ADR-0113 + ADR-0301 — CORPORATE_ACTION 분기 (default 80% / DEAD_ZONE 250%)', () => {
     it('drift +221% (1차 로그 098460 고영) → CORPORATE_ACTION', () => {
       const entry = makeEntry({ code: '098460', entryPrice: 12_610, addedBy: 'AUTO' });
       expect(applyEntryPriceDrift(entry, 40_500)).toBe('CORPORATE_ACTION');
@@ -280,19 +280,60 @@ describe('applyEntryPriceDrift', () => {
       expect(applyEntryPriceDrift(entry, 61_300)).toBe('CORPORATE_ACTION');
     });
 
+    it('ADR-0301 — drift +100% (2:1 분할 시나리오) → CORPORATE_ACTION (이전 DATA_HOLD)', () => {
+      // ADR-0301: STRONG 임계 80% 로 완화 → 2:1 분할 +100% 도 CORPORATE_ACTION 분류.
+      // 이전 ADR-0113 동작: 90~150 범위는 sanity 위반(>90) → DATA_HOLD.
+      const entry = makeEntry({ code: 'A', entryPrice: 1_000, addedBy: 'AUTO' });
+      expect(applyEntryPriceDrift(entry, 2_000)).toBe('CORPORATE_ACTION');
+    });
+
+    it('ADR-0301 — drift +85% → CORPORATE_ACTION (default 80% 임계 초과)', () => {
+      const entry = makeEntry({ code: 'A', entryPrice: 1_000, addedBy: 'AUTO' });
+      expect(applyEntryPriceDrift(entry, 1_850)).toBe('CORPORATE_ACTION');
+    });
+
+    it('ADR-0301 — drift +260% (DEAD_ZONE 초과) → DATA_HOLD (실제 데이터 오염, 코퍼레이트 액션 아님)', () => {
+      const entry = makeEntry({ code: 'A', entryPrice: 1_000, addedBy: 'AUTO' });
+      expect(applyEntryPriceDrift(entry, 3_600)).toBe('DATA_HOLD');
+    });
+
+    it('ADR-0301 — drift +1000% (극단 데이터 오염) → DATA_HOLD', () => {
+      const entry = makeEntry({ code: 'A', entryPrice: 1_000, addedBy: 'AUTO' });
+      expect(applyEntryPriceDrift(entry, 11_000)).toBe('DATA_HOLD');
+    });
+
     it('drift +160% (CORPORATE_ACTION_MIN 초과) → CORPORATE_ACTION', () => {
       const entry = makeEntry({ code: 'A', entryPrice: 1_000, addedBy: 'AUTO' });
       expect(applyEntryPriceDrift(entry, 2_700)).toBe('CORPORATE_ACTION');
     });
 
-    it('drift +149% (INVALID 영역) → DATA_HOLD (ADR-0117 — 90% 임계 초과 거래 차단)', () => {
-      // ADR-0117: safePctChangeStrict 가 ok=false 반환 → applyEntryPriceDrift 가 'DATA_HOLD'.
-      // 이전 ADR-0113 동작: KEEP 폴백 (sanity 위반 → null → KEEP).
-      const entry = makeEntry({ code: 'A', entryPrice: 1_000, addedBy: 'AUTO' });
-      expect(applyEntryPriceDrift(entry, 2_490)).toBe('DATA_HOLD');
+    it('legacy ENV — drift +149% → DATA_HOLD (legacy 150% 임계, sanity 90% 차단)', () => {
+      // legacy ENV 활성 시 ADR-0113 동작 복원: STRONG 150 미달 + sanity 90 초과 → DATA_HOLD.
+      const original = process.env.CORPORATE_ACTION_LEGACY_THRESHOLDS;
+      process.env.CORPORATE_ACTION_LEGACY_THRESHOLDS = 'true';
+      try {
+        const entry = makeEntry({ code: 'A', entryPrice: 1_000, addedBy: 'AUTO' });
+        expect(applyEntryPriceDrift(entry, 2_490)).toBe('DATA_HOLD');
+      } finally {
+        if (original === undefined) delete process.env.CORPORATE_ACTION_LEGACY_THRESHOLDS;
+        else process.env.CORPORATE_ACTION_LEGACY_THRESHOLDS = original;
+      }
     });
 
-    it('MANUAL entry 도 drift > 150% 면 CORPORATE_ACTION 우선', () => {
+    it('legacy ENV — drift +1000% → CORPORATE_ACTION (legacy DEAD_ZONE=Infinity)', () => {
+      // legacy: ABSOLUTE_DEAD_ZONE 비활성 → STRONG 150 초과 시 CORPORATE_ACTION 영구 분류.
+      const original = process.env.CORPORATE_ACTION_LEGACY_THRESHOLDS;
+      process.env.CORPORATE_ACTION_LEGACY_THRESHOLDS = 'true';
+      try {
+        const entry = makeEntry({ code: 'A', entryPrice: 1_000, addedBy: 'AUTO' });
+        expect(applyEntryPriceDrift(entry, 11_000)).toBe('CORPORATE_ACTION');
+      } finally {
+        if (original === undefined) delete process.env.CORPORATE_ACTION_LEGACY_THRESHOLDS;
+        else process.env.CORPORATE_ACTION_LEGACY_THRESHOLDS = original;
+      }
+    });
+
+    it('MANUAL entry 도 drift > 80% 면 CORPORATE_ACTION 우선 (ADR-0301)', () => {
       const entry = makeEntry({ code: 'M', entryPrice: 1_000, addedBy: 'MANUAL' });
       expect(applyEntryPriceDrift(entry, 3_500)).toBe('CORPORATE_ACTION');
     });

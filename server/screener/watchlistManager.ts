@@ -20,7 +20,11 @@
 
 import { loadWatchlist, saveWatchlist, type WatchlistEntry, type WatchlistSection } from '../persistence/watchlistRepo.js';
 import { safePctChange } from '../utils/safePctChange.js';
-import { detectCorporateAction } from '../trading/corporateActionDetector.js';
+import {
+  detectCorporateAction,
+  isAbsoluteDeadZoneDrift,
+  isStrongDriftSuspected,
+} from '../trading/corporateActionDetector.js';
 import { safePctChangeStrict } from '../utils/safePctChange.js';
 
 // ── 섹션별 상수 ───────────────────────────────────────────────────────────────
@@ -91,8 +95,11 @@ export const ENTRY_PRICE_DRIFT_PCT = 10;
  *
  *  - AUTO 항목: 10% 이상 올랐으면 'REMOVE' (발굴 시점 대비 너무 멀리 상승)
  *  - MANUAL 항목: 'UPDATE' (사용자 확신 종목 → entryPrice를 현재가로 트레일 업)
- *  - drift > 150% (ADR-0113): 'CORPORATE_ACTION' — 분할/병합/권리락 의심.
- *    ADR-0115: default 동작 universe 제외 + entryPrice 보존.
+ *  - **drift > 250% (ADR-0301 ABSOLUTE_DEAD_ZONE): 'DATA_HOLD' — 실제 데이터 오염**
+ *    (drift 업데이트 금지 + 격리, 호출자가 isDataQuarantined=true 의무)
+ *  - drift > 80% (ADR-0301 STRONG, ADR-0113): 'CORPORATE_ACTION' — 분할/병합/권리락 의심.
+ *    ADR-0115: default 동작 universe 제외 + entryPrice 보존. 2:1 분할 +100% 시나리오 포함.
+ *    ENV `CORPORATE_ACTION_LEGACY_THRESHOLDS=true` 시 150% 임계 복원 (ADR-0113 동작).
  *  - **drift sanity 위반 (ADR-0117): 'DATA_HOLD' — drift 업데이트 금지 + 격리.
  *    호출자가 isDataQuarantined=true + dataQuality 영속 의무.**
  *  - 그 외 또는 미도달: 'KEEP'
@@ -102,10 +109,12 @@ export function applyEntryPriceDrift(
   currentPrice: number,
 ): 'REMOVE' | 'UPDATE' | 'KEEP' | 'CORPORATE_ACTION' | 'DATA_HOLD' {
   if (currentPrice <= 0 || entry.entryPrice <= 0) return 'KEEP';
-  // ADR-0113: drift > 150% 시 corporateActionDetector 매칭 → CORPORATE_ACTION 반환.
-  // 1차 로그 098460 고영 +221% / 336260 두산테스나 +207% 사례 영구 차단.
   const absDriftRaw = Math.abs(((currentPrice - entry.entryPrice) / entry.entryPrice) * 100);
-  if (Number.isFinite(absDriftRaw) && absDriftRaw > 150) {
+  // ADR-0301: ABSOLUTE_DEAD_ZONE (>250%) — 실제 데이터 오염, 코퍼레이트 액션 아님 → DATA_HOLD 우선.
+  if (isAbsoluteDeadZoneDrift(absDriftRaw)) return 'DATA_HOLD';
+  // ADR-0113 + ADR-0301: drift > STRONG 임계 (default 80%, legacy 150%) 시 CORPORATE_ACTION 분류.
+  // 1차 로그 098460 고영 +221% / 336260 두산테스나 +207% + 2:1 분할 +100% 사례 영구 차단.
+  if (isStrongDriftSuspected(absDriftRaw)) {
     const action = detectCorporateAction({ driftPct: absDriftRaw });
     if (action.detected) return 'CORPORATE_ACTION';
   }
