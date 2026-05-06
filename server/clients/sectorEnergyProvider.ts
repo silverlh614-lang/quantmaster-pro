@@ -1,10 +1,13 @@
 // @responsibility sectorEnergyProvider 외부 클라이언트 모듈
 /**
  * sectorEnergyProvider.ts — KRX 실데이터를 sectorEnergyEngine 입력으로 가공.
+ *
  * ADR-0343: public meta builder itself is fallback-aware.
  * ADR-0362: KRX index daily 가 empty 일 때 종목별 KRX 일별거래 + sector map 으로 합성.
- * ADR-0365: data-dbg index rows 는 IDX_IND_CD 없이 IDX_NM 만 올 수 있으므로
- * indexCode symmetry 실패 시 indexName 매칭 또는 stock-daily synthetic fallback 으로 강등.
+ * ADR-0365: data-dbg index rows 는 IDX_IND_CD 없이 IDX_NM 만 올 수 있다.
+ * ADR-0369: indexName fallback 은 기본 OFF. 서로 다른 KRX 지수를 이름/정규식으로 잘못
+ * 매칭하면 -100%~-500% 수익률과 1000%+ 거래량 이상치가 발생한다. 기본 경로는
+ * stock-daily synthetic sectorEnergy 이며, indexName fallback 은 ENV opt-in 전용이다.
  */
 
 import {
@@ -64,24 +67,42 @@ const KRX_INDEX_TO_SECTOR: Array<[RegExp, StrategicSector]> = [
   [/통신|전기가스|유틸리티/, '통신/유틸리티'],
 ];
 
-function classifyStockSector(stockSector: string): StrategicSector | null {
-  if (!stockSector) return null;
+const RETURN_SANITY_BOUND_PCT = Number(process.env.SECTOR_ENERGY_RETURN_SANITY_BOUND_PCT ?? '90');
+const VOLUME_SANITY_BOUND_PCT = Number(process.env.SECTOR_ENERGY_VOLUME_SANITY_BOUND_PCT ?? '1000');
+export const SECTOR_ENERGY_MIN_VALID_DEFAULT = 8;
+export const SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD = 0.9;
+export type SectorEnergyDataQuality = 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
+
+export interface SymmetryValidationResult {
+  valid: boolean;
+  todayCodeFillRatio: number;
+  pastCodeFillRatio: number;
+  reasons: string[];
+}
+
+export interface SectorEnergyBuildResult {
+  inputs: SectorEnergyInput[];
+  dataQuality: SectorEnergyDataQuality;
+  validSectorCount: number;
+  totalSectorCount: number;
+  symmetryValidation?: SymmetryValidationResult;
+  reasons: string[];
+}
+
+function classifySector(label: string): StrategicSector | null {
+  if (!label) return null;
   for (const [pattern, canonical] of KRX_INDEX_TO_SECTOR) {
-    if (pattern.test(stockSector)) return canonical;
+    if (pattern.test(label)) return canonical;
   }
   return null;
 }
 
 function classifyIndex(indexName: string): StrategicSector | null {
-  if (!indexName) return null;
-  for (const [pattern, canonical] of KRX_INDEX_TO_SECTOR) {
-    if (pattern.test(indexName)) return canonical;
-  }
-  return null;
+  return classifySector(indexName);
 }
 
 function resolveStockSector(row: KrxStockDailyRow): StrategicSector | null {
-  return classifyStockSector(row.sector) ?? classifyStockSector(getSectorByCode(row.code));
+  return classifySector(row.sector) ?? classifySector(getSectorByCode(row.code));
 }
 
 function shiftedKstDateKey(kst: Date): string {
@@ -110,17 +131,19 @@ function businessDaysAgo(n: number): string {
   return toYyyymmdd(shiftedKstDateKey(kst));
 }
 
-const SECTOR_CLOSE_RATIO_MAX = 10;
-const SECTOR_CLOSE_RATIO_MIN = 0.1;
-export const SECTOR_ENERGY_MIN_VALID_DEFAULT = 8;
-export const SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD = 0.9;
-export type SectorEnergyDataQuality = 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
+export function isSectorEnergySymmetryDisabled(): boolean {
+  return process.env.SECTOR_ENERGY_SYMMETRY_DISABLED === 'true';
+}
 
-export interface SymmetryValidationResult {
-  valid: boolean;
-  todayCodeFillRatio: number;
-  pastCodeFillRatio: number;
-  reasons: string[];
+export function isSectorEnergyIndexNameFallbackEnabled(): boolean {
+  // ADR-0369: unsafe fallback is opt-in only.
+  return process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK === 'true';
+}
+
+export function getSectorEnergyMinValid(): number {
+  const env = Number(process.env.SECTOR_ENERGY_MIN_VALID);
+  if (Number.isFinite(env) && env > 0 && env <= TOTAL_SECTOR_COUNT) return env;
+  return SECTOR_ENERGY_MIN_VALID_DEFAULT;
 }
 
 export function validateIndexResponseSymmetry(
@@ -143,18 +166,18 @@ export function validateIndexResponseSymmetry(
   return { valid: reasons.length === 0, todayCodeFillRatio, pastCodeFillRatio, reasons };
 }
 
-export function isSectorEnergySymmetryDisabled(): boolean {
-  return process.env.SECTOR_ENERGY_SYMMETRY_DISABLED === 'true';
-}
-
-export function isSectorEnergyIndexNameFallbackEnabled(): boolean {
-  return process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK !== 'false';
-}
-
-export function getSectorEnergyMinValid(): number {
-  const env = Number(process.env.SECTOR_ENERGY_MIN_VALID);
-  if (Number.isFinite(env) && env > 0 && env <= TOTAL_SECTOR_COUNT) return env;
-  return SECTOR_ENERGY_MIN_VALID_DEFAULT;
+function pushDelta(
+  bySector: Map<StrategicSector, { returns: number[]; volumes: number[] }>,
+  sector: StrategicSector,
+  returnPct: number,
+  volumePct: number,
+): void {
+  if (!Number.isFinite(returnPct) || Math.abs(returnPct) > RETURN_SANITY_BOUND_PCT) return;
+  if (!Number.isFinite(volumePct) || Math.abs(volumePct) > VOLUME_SANITY_BOUND_PCT) return;
+  const acc = bySector.get(sector) ?? { returns: [], volumes: [] };
+  acc.returns.push(returnPct);
+  acc.volumes.push(volumePct);
+  bySector.set(sector, acc);
 }
 
 export function aggregateIndexDeltas(
@@ -167,34 +190,27 @@ export function aggregateIndexDeltas(
     if (r.indexCode) pastByCode.set(r.indexCode, r);
     if (r.indexName) pastByName.set(r.indexName, r);
   }
+
   const bySector = new Map<StrategicSector, { returns: number[]; volumes: number[] }>();
   for (const t of todayRows) {
-    const canonical = classifyIndex(t.indexName);
-    if (!canonical) continue;
+    const sector = classifyIndex(t.indexName);
+    if (!sector) continue;
+
     let past: KrxIndexDailyRow | undefined;
-    let matchKind: 'code' | 'name' | null = null;
-    if (t.indexCode) {
-      past = pastByCode.get(t.indexCode);
-      if (past) matchKind = 'code';
-    }
+    if (t.indexCode) past = pastByCode.get(t.indexCode);
     if (!past && t.indexName && isSectorEnergyIndexNameFallbackEnabled()) {
       past = pastByName.get(t.indexName);
-      if (past) matchKind = 'name';
     }
-    if (!past || past.close <= 0 || matchKind === null) continue;
-    const ratio = t.close > 0 ? t.close / past.close : 0;
-    if (!Number.isFinite(ratio) || ratio > SECTOR_CLOSE_RATIO_MAX || ratio < SECTOR_CLOSE_RATIO_MIN) continue;
+    if (!past || past.close <= 0 || t.close <= 0) continue;
     if (t.baseDate && past.baseDate && t.baseDate === past.baseDate) continue;
+
     const labelKey = t.indexCode || t.indexName;
     const returnPct = safePctChange(t.close, past.close, { label: `sectorEnergy.return:${labelKey}` });
     if (returnPct === null) continue;
     const volumePct = past.volume > 0
-      ? (safePctChange(t.volume, past.volume, { label: `sectorEnergy.volume:${labelKey}`, sanityBoundPct: 1000 }) ?? 0)
+      ? (safePctChange(t.volume, past.volume, { label: `sectorEnergy.volume:${labelKey}`, sanityBoundPct: VOLUME_SANITY_BOUND_PCT }) ?? 0)
       : 0;
-    const acc = bySector.get(canonical) ?? { returns: [], volumes: [] };
-    acc.returns.push(returnPct);
-    acc.volumes.push(volumePct);
-    bySector.set(canonical, acc);
+    pushDelta(bySector, sector, returnPct, volumePct);
   }
   return bySector;
 }
@@ -207,6 +223,7 @@ function aggregateStockDeltas(
   for (const row of pastStocks) {
     if (row.code && row.close > 0) pastByCode.set(row.code, row);
   }
+
   const bySector = new Map<StrategicSector, { returns: number[]; volumes: number[] }>();
   for (const today of todayStocks) {
     if (!today.code || today.close <= 0) continue;
@@ -214,15 +231,13 @@ function aggregateStockDeltas(
     if (!sector) continue;
     const past = pastByCode.get(today.code);
     if (!past || past.close <= 0) continue;
+
     const returnPct = safePctChange(today.close, past.close, { label: `sectorEnergy.stockReturn:${today.code}` });
     if (returnPct === null) continue;
     const volumePct = past.volume > 0
-      ? (safePctChange(today.volume, past.volume, { label: `sectorEnergy.stockVolume:${today.code}`, sanityBoundPct: 5000 }) ?? 0)
+      ? (safePctChange(today.volume, past.volume, { label: `sectorEnergy.stockVolume:${today.code}`, sanityBoundPct: VOLUME_SANITY_BOUND_PCT }) ?? 0)
       : 0;
-    const acc = bySector.get(sector) ?? { returns: [], volumes: [] };
-    acc.returns.push(returnPct);
-    acc.volumes.push(volumePct);
-    bySector.set(sector, acc);
+    pushDelta(bySector, sector, returnPct, volumePct);
   }
   return bySector;
 }
@@ -246,9 +261,7 @@ function aggregateForeignConcentration(
     for (const [k] of rawBySector) normalized.set(k, 50);
     return normalized;
   }
-  for (const [sector, v] of rawBySector) {
-    normalized.set(sector, ((v - min) / (max - min)) * 100);
-  }
+  for (const [sector, v] of rawBySector) normalized.set(sector, ((v - min) / (max - min)) * 100);
   return normalized;
 }
 
@@ -267,12 +280,13 @@ function buildInputsFromDeltas(
 ): { inputs: SectorEnergyInput[]; validSectorCount: number } {
   const inputs: SectorEnergyInput[] = [];
   let validSectorCount = 0;
+  const avg = (xs: number[]): number => xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length;
+
   for (const sector of CANONICAL_SECTORS) {
     const d = deltas.get(sector);
     const returns = d?.returns ?? [];
     const volumes = d?.volumes ?? [];
     if (returns.length > 0) validSectorCount++;
-    const avg = (xs: number[]): number => xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length;
     inputs.push({
       name: sector,
       return4w: Number(avg(returns).toFixed(2)),
@@ -293,28 +307,17 @@ function buildStockDailyFallbackResult(
   const deltas = aggregateStockDeltas(todayStocks, pastStocks);
   const { inputs, validSectorCount } = buildInputsFromDeltas(deltas, foreignMap);
   const minValid = getSectorEnergyMinValid();
-  if (validSectorCount >= minValid) {
-    return {
-      inputs,
-      dataQuality: validSectorCount === TOTAL_SECTOR_COUNT ? qualityIfComplete : 'STALE',
-      validSectorCount,
-      totalSectorCount: TOTAL_SECTOR_COUNT,
-      reasons: [
-        ...prefixReasons,
-        `ADR-0365 stock-daily fallback sector energy validSectorCount=${validSectorCount}/${TOTAL_SECTOR_COUNT}`,
-      ],
-    };
-  }
-  return null;
-}
-
-export interface SectorEnergyBuildResult {
-  inputs: SectorEnergyInput[];
-  dataQuality: SectorEnergyDataQuality;
-  validSectorCount: number;
-  totalSectorCount: number;
-  symmetryValidation?: SymmetryValidationResult;
-  reasons: string[];
+  if (validSectorCount < minValid) return null;
+  return {
+    inputs,
+    dataQuality: validSectorCount === TOTAL_SECTOR_COUNT ? qualityIfComplete : 'STALE',
+    validSectorCount,
+    totalSectorCount: TOTAL_SECTOR_COUNT,
+    reasons: [
+      ...prefixReasons,
+      `ADR-0369 stock-daily synthetic sector energy validSectorCount=${validSectorCount}/${TOTAL_SECTOR_COUNT}`,
+    ],
+  };
 }
 
 export async function buildSectorEnergyInputs(): Promise<SectorEnergyInput[]> {
@@ -333,6 +336,7 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
   let todayKospiIdx: KrxIndexDailyRow[] = [];
   let todayKosdaqIdx: KrxIndexDailyRow[] = [];
   const attemptedTodayDates: string[] = [];
+
   for (const candidate of todayCandidates) {
     if (candidate) attemptedTodayDates.push(candidate);
     const [kospiIdx, kosdaqIdx] = await Promise.all([fetchKospiIndexDaily(candidate), fetchKosdaqIndexDaily(candidate)]);
@@ -343,6 +347,7 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
       break;
     }
   }
+
   const [pastKospiIdx, pastKosdaqIdx, kospiStocks, kosdaqStocks, pastKospiStocks, pastKosdaqStocks, investors] = await Promise.all([
     fetchKospiIndexDaily(past),
     fetchKosdaqIndexDaily(past),
@@ -374,56 +379,47 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
       dataQuality: 'FAILED',
       validSectorCount: 0,
       totalSectorCount: TOTAL_SECTOR_COUNT,
-      reasons: [
-        'todayIdx empty — KRX OpenAPI 응답 부재',
-        `attempted=${attemptedTodayDates.join(',') || 'default'}`,
-        `stock-daily fallback insufficient validSectorCount=0 < min=${getSectorEnergyMinValid()}`,
-      ],
+      reasons: ['todayIdx empty — KRX OpenAPI 응답 부재', `attempted=${attemptedTodayDates.join(',') || 'default'}`],
     };
   }
 
   const symmetry = validateIndexResponseSymmetry(todayIdx, pastIdx);
   if (!symmetry.valid && !isSectorEnergySymmetryDisabled()) {
-    // ADR-0365: data-dbg 응답은 indexCode 없이 indexName만 정상 제공될 수 있다.
-    // 먼저 indexName 기반 매칭을 시도하고, 부족하면 stock-daily 합성 fallback으로 강등한다.
-    const nameDeltas = aggregateIndexDeltas(todayIdx, pastIdx);
-    const nameBuilt = buildInputsFromDeltas(nameDeltas, foreignMap);
-    const minValid = getSectorEnergyMinValid();
-    if (nameBuilt.validSectorCount >= minValid) {
-      return {
-        inputs: nameBuilt.inputs,
-        dataQuality: nameBuilt.validSectorCount === TOTAL_SECTOR_COUNT ? 'PARTIAL' : 'STALE',
-        validSectorCount: nameBuilt.validSectorCount,
-        totalSectorCount: TOTAL_SECTOR_COUNT,
-        symmetryValidation: symmetry,
-        reasons: [
-          'symmetry validation failed but indexName fallback succeeded',
-          ...symmetry.reasons,
-          `ADR-0365 indexName matched sector energy validSectorCount=${nameBuilt.validSectorCount}/${TOTAL_SECTOR_COUNT}`,
-        ],
-      };
-    }
-    const fallback = buildStockDailyFallbackResult(
+    const stockFallback = buildStockDailyFallbackResult(
       todayStocks,
       pastStocks,
       foreignMap,
-      ['symmetry validation failed', ...symmetry.reasons],
+      ['symmetry validation failed — indexCode missing, stock-daily fallback preferred', ...symmetry.reasons],
       'STALE',
     );
-    if (fallback) {
-      return { ...fallback, symmetryValidation: symmetry };
+    if (stockFallback) return { ...stockFallback, symmetryValidation: symmetry };
+
+    if (isSectorEnergyIndexNameFallbackEnabled()) {
+      const nameDeltas = aggregateIndexDeltas(todayIdx, pastIdx);
+      const nameBuilt = buildInputsFromDeltas(nameDeltas, foreignMap);
+      if (nameBuilt.validSectorCount >= getSectorEnergyMinValid()) {
+        return {
+          inputs: nameBuilt.inputs,
+          dataQuality: nameBuilt.validSectorCount === TOTAL_SECTOR_COUNT ? 'PARTIAL' : 'STALE',
+          validSectorCount: nameBuilt.validSectorCount,
+          totalSectorCount: TOTAL_SECTOR_COUNT,
+          symmetryValidation: symmetry,
+          reasons: [
+            'symmetry validation failed but explicit indexName fallback succeeded',
+            ...symmetry.reasons,
+            `ADR-0369 indexName fallback opt-in validSectorCount=${nameBuilt.validSectorCount}/${TOTAL_SECTOR_COUNT}`,
+          ],
+        };
+      }
     }
+
     return {
       inputs: [],
       dataQuality: 'FAILED',
-      validSectorCount: nameBuilt.validSectorCount,
+      validSectorCount: 0,
       totalSectorCount: TOTAL_SECTOR_COUNT,
       symmetryValidation: symmetry,
-      reasons: [
-        'symmetry validation failed',
-        ...symmetry.reasons,
-        `indexName fallback insufficient validSectorCount=${nameBuilt.validSectorCount} < min=${minValid}`,
-      ],
+      reasons: ['symmetry validation failed', ...symmetry.reasons, 'stock-daily fallback insufficient and indexName fallback disabled'],
     };
   }
 
@@ -431,15 +427,17 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
   const { inputs, validSectorCount } = buildInputsFromDeltas(deltas, foreignMap);
   const minValid = getSectorEnergyMinValid();
   if (validSectorCount < minValid) {
-    return {
-      inputs: [],
-      dataQuality: 'STALE',
-      validSectorCount,
-      totalSectorCount: TOTAL_SECTOR_COUNT,
-      symmetryValidation: symmetry,
-      reasons: [`validSectorCount=${validSectorCount} < min=${minValid}`],
-    };
+    const fallback = buildStockDailyFallbackResult(
+      todayStocks,
+      pastStocks,
+      foreignMap,
+      [`index-code sector validSectorCount=${validSectorCount} < min=${minValid}`],
+      'STALE',
+    );
+    if (fallback) return { ...fallback, symmetryValidation: symmetry };
+    return { inputs: [], dataQuality: 'STALE', validSectorCount, totalSectorCount: TOTAL_SECTOR_COUNT, symmetryValidation: symmetry, reasons: [`validSectorCount=${validSectorCount} < min=${minValid}`] };
   }
+
   const dataQuality: SectorEnergyDataQuality = validSectorCount === TOTAL_SECTOR_COUNT ? 'OK' : 'PARTIAL';
   return {
     inputs,
@@ -458,16 +456,19 @@ export async function buildSectorEnergyInputsWithMetaWithFallback(): Promise<Sec
   const result = await buildSectorEnergyInputsWithMetaRaw();
   if (isSectorEnergyFallbackDisabled()) return result;
   if (result.dataQuality !== 'FAILED') return result;
+
   let cached: { sectorEnergyInputs?: SectorEnergyInput[]; sectorEnergyInputsUpdatedAt?: string } | null;
   try {
     const { loadMacroState } = await import('../persistence/macroStateRepo.js');
     cached = loadMacroState();
   } catch { cached = null; }
-  if (!cached || !cached.sectorEnergyInputs || !cached.sectorEnergyInputsUpdatedAt) return result;
+  if (!cached?.sectorEnergyInputs || !cached.sectorEnergyInputsUpdatedAt) return result;
+
   const updatedAtMs = new Date(cached.sectorEnergyInputsUpdatedAt).getTime();
   if (!Number.isFinite(updatedAtMs)) return result;
   const ageHours = (Date.now() - updatedAtMs) / (3600 * 1000);
   if (ageHours < 0 || ageHours >= SECTOR_ENERGY_FALLBACK_MAX_AGE_HOURS) return result;
+
   return {
     inputs: cached.sectorEnergyInputs,
     dataQuality: 'STALE',
