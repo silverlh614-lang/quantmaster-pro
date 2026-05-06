@@ -367,6 +367,9 @@ export const YAHOO_FRESHNESS_LEDGER_FILE = path.join(DATA_DIR, 'yahoo-freshness-
 // ADR-0260: 결함 진화 ledger — 한 결함 패치가 다른 결함을 노출하는 패턴 학습.
 export const DEFECT_EVOLUTION_LEDGER_FILE = path.join(DATA_DIR, 'defect-evolution-ledger.json');
 
+// ADR-0250: 사용자 진단 단서 ledger — 결함 추적 성공 패턴 학습 데이터.
+export const USER_DIAGNOSTIC_HINTS_FILE = path.join(DATA_DIR, 'user-diagnostic-hints.json');
+
 export function ensureReflectionsDir(): void {
   ensureDataDir();
   if (!fs.existsSync(REFLECTIONS_DIR)) fs.mkdirSync(REFLECTIONS_DIR, { recursive: true });

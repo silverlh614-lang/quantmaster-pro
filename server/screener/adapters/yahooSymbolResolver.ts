@@ -141,3 +141,42 @@ export async function fetchYahooQuoteWithMarketFallback(
  * 가 본 명칭으로 호출 중 — 재 wiring 회피.
  */
 export const fetchYahooQuoteByCode = fetchYahooQuoteWithMarketFallback;
+
+/**
+ * ADR-0249: 마스터 미등록 종목 진단용 에러 — 호출자가 catch 후 ADR-0242
+ * autoEnrichStockMaster() 트리거 가능. 일반 코드 경로는 tryGetYahooSymbol 사용 권장.
+ */
+export class MarketUnknownError extends Error {
+  readonly code: string;
+  constructor(code: string, hint: string) {
+    super(`[MarketUnknownError] code=${code}: ${hint}`);
+    this.name = 'MarketUnknownError';
+    this.code = code;
+  }
+}
+
+/**
+ * ADR-0249: 글로벌 Yahoo 심볼 SSOT — 한국 종목 코드 → .KS / .KQ 변환 단일 진입점.
+ *
+ * 마스터 부재 시 throw → 호출자가 ADR-0242 autoEnrichStockMaster() 트리거 가능.
+ * try/catch 회피 호출자는 tryGetYahooSymbol() 사용 권장.
+ *
+ * 모든 신규 코드는 본 함수 또는 tryGetYahooSymbol 사용 — `${code}.KS` / `.KQ`
+ * 직접 조립 금지 (ADR-0231 정합).
+ */
+export function getYahooSymbol(code: string): string {
+  const symbol = resolveYahooSymbolForCode(code);
+  if (!symbol) {
+    throw new MarketUnknownError(
+      code,
+      '마스터 미등록 — autoEnrichStockMaster() 호출 필요 (ADR-0242)',
+    );
+  }
+  return symbol;
+}
+
+/**
+ * ADR-0249: try-pattern — 마스터 부재 시 null 반환. resolveYahooSymbolForCode 별칭.
+ * 신규 호출자는 본 함수 사용 권장 (예외 처리 부담 회피).
+ */
+export const tryGetYahooSymbol = resolveYahooSymbolForCode;
