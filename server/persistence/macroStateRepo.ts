@@ -1,7 +1,7 @@
 // @responsibility macroStateRepo 영속화 저장소 모듈
 import fs from 'fs';
 import { MACRO_STATE_FILE, ensureDataDir } from './paths.js';
-import type { SectorEnergyResult } from '../../src/types/sectorEnergy.js';
+import type { SectorEnergyInput, SectorEnergyResult } from '../../src/types/sectorEnergy.js';
 import type { FssRecordsAgeInfo } from './fssRepo.js';
 
 export interface MacroState {
@@ -140,6 +140,20 @@ export interface MacroState {
   sectorEnergyValidSectorCount?: number;
   /** ADR-0125: dataQuality 분류 사유 (debug용). 빈 배열 가능. */
   sectorEnergyReasons?: string[];
+  /**
+   * ADR-0343 — sectorEnergy build 입력 (SectorEnergyInput[]) 영속.
+   *
+   * `buildSectorEnergyInputsWithMeta` 가 OK/PARTIAL 시 inputs 배열 영속 → FAILED 진입 시
+   * `buildSectorEnergyInputsWithMetaWithFallback` wrapper 가 직전 캐시 read 후 STALE 마커
+   * 부여 반환. KRX OpenAPI 일시 장애 / 휴장일 클러스터 진입 시 sectorScoreBoost 영구
+   * 비활성 결함 차단.
+   *
+   * 본 PR Phase 1 — 영속 schema 만 추가. saver wiring (`buildSectorEnergyInputsWithMeta`
+   * 성공 분기에서 영속) 은 후속 PR (회귀 위험 격리).
+   */
+  sectorEnergyInputs?: SectorEnergyInput[];
+  /** ADR-0343 — sectorEnergyInputs 마지막 갱신 시각 (ISO). */
+  sectorEnergyInputsUpdatedAt?: string;
   /**
    * MHS 4-axis 분해 (interestRate / liquidity / economy / risk).
    * macroIndexEngine.computeMacroIndex 의 idx.axis 결과 — 사용자 진단 (4/29):

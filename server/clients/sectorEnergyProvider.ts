@@ -442,6 +442,57 @@ export async function buildSectorEnergyInputsWithMeta(): Promise<SectorEnergyBui
   };
 }
 
+// ── ADR-0343: FAILED 시 macroState 캐시 fallback ────────────────────────────────
+/**
+ * `buildSectorEnergyInputsWithMeta` 가 FAILED 반환 시 macroState 의 직전 영속 inputs
+ * 사용 (48h 이내). KRX OpenAPI 일시 장애 / 휴장일 클러스터 진입 시 sectorScoreBoost
+ * 영구 비활성 결함 차단.
+ *
+ * Phase 1 — wrapper 만 신설 (호출자 0건 dead code). saver wiring (성공 분기 영속)
+ * + 호출자 마이그레이션 후속 PR.
+ *
+ * ENV `SECTOR_ENERGY_FALLBACK_DISABLED=true` (default OFF) → wrapper 비활성, 원본 결과 그대로.
+ */
+export const SECTOR_ENERGY_FALLBACK_MAX_AGE_HOURS = 48;
+
+export function isSectorEnergyFallbackDisabled(): boolean {
+  return process.env.SECTOR_ENERGY_FALLBACK_DISABLED === 'true';
+}
+
+export async function buildSectorEnergyInputsWithMetaWithFallback(): Promise<SectorEnergyBuildResult> {
+  const result = await buildSectorEnergyInputsWithMeta();
+  if (isSectorEnergyFallbackDisabled()) return result;
+  if (result.dataQuality !== 'FAILED') return result;
+  // FAILED 진입 — macroState 직전 영속 read.
+  let cached: { sectorEnergyInputs?: SectorEnergyInput[]; sectorEnergyInputsUpdatedAt?: string } | null;
+  try {
+    const { loadMacroState } = await import('../persistence/macroStateRepo.js');
+    cached = loadMacroState();
+  } catch {
+    cached = null;
+  }
+  if (!cached || !cached.sectorEnergyInputs || !cached.sectorEnergyInputsUpdatedAt) {
+    return result;
+  }
+  const updatedAtMs = new Date(cached.sectorEnergyInputsUpdatedAt).getTime();
+  if (!Number.isFinite(updatedAtMs)) return result;
+  const ageHours = (Date.now() - updatedAtMs) / (3600 * 1000);
+  if (ageHours < 0 || ageHours >= SECTOR_ENERGY_FALLBACK_MAX_AGE_HOURS) return result;
+  console.warn(
+    `[sectorEnergy] FAILED — macroState 캐시 fallback (${ageHours.toFixed(1)}h 전 데이터, ADR-0343)`,
+  );
+  return {
+    inputs: cached.sectorEnergyInputs,
+    dataQuality: 'STALE',
+    validSectorCount: cached.sectorEnergyInputs.length,
+    totalSectorCount: 12,
+    reasons: [
+      ...result.reasons,
+      `fallback to macroState cache (${ageHours.toFixed(1)}h old)`,
+    ],
+  };
+}
+
 // ── 캐시 ─────────────────────────────────────────────────────────────────────
 // 장중 변동을 실시간 반영할 필요는 없으므로 30분 캐시. 동시 요청은 단일 Promise로 합친다.
 
