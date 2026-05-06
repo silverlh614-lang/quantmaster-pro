@@ -14,11 +14,11 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0261`**
+**다음 ADR 번호: `0392`**
 
-(2026-05-06 기준, 마지막 발급 0260, 누락 47개 — 0062/0063/0089/0105/0106/0143/0196~0210/0212~0220/0222~0230/0232~0233/0236/0238~0240/0243~0244/0246~0247/0253~0254/0257. 충돌 그룹 11개 (0146/0147/0168 — 별칭 0146a/b·0147a/b·0168a/b 부여, ADR-0159 정합))
+(2026-05-06 기준, 마지막 발급 0391 (P0-A Mode 관측 계측), 누락 47개 — 0062/0063/0089/0105/0106/0143/0196~0210/0212~0220/0222~0230/0232~0233/0236/0238~0240/0243~0244/0246~0247/0253~0254/0257. 충돌 그룹 11개 (0146/0147/0168 — 별칭 0146a/b·0147a/b·0168a/b 부여, ADR-0159 정합))
 
-**세션 2026-05-06 (#622~#634)**: fast iteration 으로 0211~0260 범위가 commit message 라벨로 등재. 본 INDEX.md 가 사용된 번호의 SSOT — 신규 ADR 은 0261 부터 발급 (충돌 회피).
+**세션 2026-05-06 (#622~#634, #655~#658)**: fast iteration 으로 0211~0260 + 0387~0390 범위가 commit message 라벨로 등재. 본 INDEX.md §"전체 인덱스" 미등재 — 별도 retrofit PR 작업 대상. ADR-0391 (본 PR) 은 §"전체 인덱스" 등재 의무 유지.
 **포기 결정 (회귀 위험 큼)**: ADR-0253 (Yahoo→KIS 시계열 합성), ADR-0254 (점심 회로 절전 — ADR-0237 와 책임 중복). DECIDED_NOT_WIRING 영구 — 누락 처리.
 
 ## 알려진 충돌 (Known Conflicts)
@@ -305,8 +305,21 @@
 | 0258 | health-full-diagnostic-command (PR #634) | telegram |
 | 0259 | krx-cooldown-probe-mode (PR #630/#631) | clients |
 | 0260 | defect-evolution-ledger (PR #631) | learning |
+| 0323 | gate-pass-rate-sla (retrofit, ADR-0391 동시 등재) | learning |
+| 0324 | gate-contribution-analyzer (retrofit) | learning |
+| 0325 | gate-threshold-auto-tuning (retrofit) | learning |
+| 0329 | persona-balance-ledger (retrofit) | learning |
+| 0341 | krx-trading-calendar-wiring (retrofit) | clients |
+| 0342 | krx-empty-response-auto-retry (retrofit) | clients |
+| 0343 | sector-energy-cache-fallback (retrofit) | clients |
+| 0364 | sector-energy-yahoo-etf-fallback (retrofit, PR #645) | clients |
+| 0387 | condition-eval-status-data-unavailable (PR #655) | quant/conditions |
+| 0388 | condition-eval-status-error-isolation (PR #656) | quant/conditions |
+| 0389 | evaluator-status-migration-and-gate-audit-extension (PR #657) | quant/conditions |
+| 0390 | five-evaluator-status-migration (PR #658) | quant/conditions |
+| 0391 | p0a-mode-observability (P0-A Mode 관측 계측 — /mode_consistency + /exec_matrix + /exec_paths + /gate_audit 표시 개선 + executionStatsSsot) | telegram |
 
-**총 발급 188 unique 번호** (198 ADR 파일 − 충돌 그룹 11개의 추가 16 파일 + 충돌 그룹 11개 = 182 unique 번호 + 누락 미사용 6건 = 188 — 마지막 발급 0190) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0191**.
+**총 발급 200 unique 번호** (209 ADR 파일 − 충돌 그룹 11개의 추가 16 파일 + 충돌 그룹 11개 = 194 unique 번호 + 누락 미사용 6건 = 200 — 마지막 발급 0391) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0392**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

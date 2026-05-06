@@ -13,7 +13,7 @@ import {
   getLastScanSummary,
   type ScanSummary,
 } from '../../../trading/signalScanner/scanDiagnostics.js';
-import { getEmergencyStop, getAutoTradePaused } from '../../../state.js';
+import { getEmergencyStop, getAutoTradePaused, getTradingMode, getKillSwitchLast } from '../../../state.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -225,6 +225,11 @@ export function formatGateAuditMessage(input: {
   autoTradePaused: boolean;
   autoTradeEnabled: boolean;
   autoTradeMode: string;
+  /** ADR-0391 P0-A §A-4 — 진단 보강 4 필드 (옵셔널, 후방호환). */
+  envMode?: string;
+  runtimeMode?: string;
+  killSwitchReason?: string | null;
+  modeConsistency?: 'CONSISTENT' | 'INTENDED_OVERRIDE' | 'UNINTENDED_DIVERGENCE';
   /** ADR-0387/0388 — 조건별 status 분포 (옵셔널 — 데이터 부재 시 섹션 미노출). */
   conditionStatusRows?: ConditionStatusRow[];
 }): string {
@@ -239,6 +244,19 @@ export function formatGateAuditMessage(input: {
   L.push(`   AUTO_TRADE_ENABLED: ${input.autoTradeEnabled}` + (input.autoTradeEnabled ? '' : ' ⛔'));
   L.push(`   emergencyStop: ${input.emergencyStop}` + (input.emergencyStop ? ' 🛑' : ''));
   L.push(`   autoTradePaused: ${input.autoTradePaused}` + (input.autoTradePaused ? ' ⏸️' : ''));
+  // ADR-0391 P0-A §A-4 — env/runtime/killSwitch 진단 4 라인 (옵셔널, 후방호환).
+  if (input.envMode !== undefined) L.push(`   envMode: ${input.envMode}`);
+  if (input.runtimeMode !== undefined) L.push(`   runtimeMode: ${input.runtimeMode}`);
+  if (input.killSwitchReason !== undefined) {
+    L.push(`   killSwitchReason: ${input.killSwitchReason ?? 'none'}`);
+  }
+  if (input.modeConsistency !== undefined) {
+    const marker =
+      input.modeConsistency === 'CONSISTENT' ? '' :
+      input.modeConsistency === 'INTENDED_OVERRIDE' ? ' ⚠️' :
+      ' 🚨';
+    L.push(`   modeConsistency: ${input.modeConsistency}${marker}`);
+  }
 
   L.push('', `🚧 직전 ${input.windowDays}일 Ghost 거절 사유 (총 ${input.totalGhostsInWindow}건):`);
   if (input.buckets.length === 0) {
@@ -327,6 +345,16 @@ const gateAudit: TelegramCommand = {
       const emergencyStop = getEmergencyStop();
       const autoTradePaused = getAutoTradePaused();
 
+      // ADR-0391 P0-A §A-4 — env/runtime/killSwitch 진단 4 필드 합성 (read-only).
+      const envMode = process.env.AUTO_TRADE_MODE ?? 'SHADOW';
+      const runtimeMode = getTradingMode();
+      const killSwitch = getKillSwitchLast();
+      const killSwitchReason = killSwitch ? killSwitch.reason : null;
+      const modeConsistency: 'CONSISTENT' | 'INTENDED_OVERRIDE' | 'UNINTENDED_DIVERGENCE' =
+        envMode.toUpperCase() === runtimeMode ? 'CONSISTENT' :
+        killSwitch && killSwitch.to === runtimeMode ? 'INTENDED_OVERRIDE' :
+        'UNINTENDED_DIVERGENCE';
+
       const watchlistEmpty = scan?.macroGateState?.watchlistEmpty;
       const bearDefenseMode = macro?.bearDefenseMode ?? scan?.macroGateState?.bearDefenseMode;
 
@@ -360,6 +388,10 @@ const gateAudit: TelegramCommand = {
         autoTradePaused,
         autoTradeEnabled,
         autoTradeMode,
+        envMode,
+        runtimeMode,
+        killSwitchReason,
+        modeConsistency,
         conditionStatusRows,
       }));
     } catch (e) {
