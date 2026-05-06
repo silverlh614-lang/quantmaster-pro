@@ -106,18 +106,80 @@ export const volumeBreakoutEvaluator: ConditionEvaluator = {
   },
 };
 
-// ─── 조건 13: PER 밸류에이션 (0 < PER < 20) ──────────────────────────────────
+// ─── 조건 13: PER 밸류에이션 (ADR-0387 — status 분리 + 다단 점수) ─────────────
+
+/** ADR-0387 ENV legacy gate — true 시 단일 버킷 (PER<20) flat 점수 (구 동작 복원). */
+function isPerEvaluatorLegacy(): boolean {
+  return process.env.PER_EVALUATOR_LEGACY === 'true';
+}
 
 export const perEvaluator: ConditionEvaluator = {
   key: 'per',
-  description: 'PER 0~20 (적정 밸류에이션)',
+  description: 'PER 다단 (저평가/적정/성장주 허용권/고평가) — ADR-0387',
   inputs: ['quote.per'],
   evaluate({ quote, weights }) {
-    if (!(quote.per > 0 && quote.per < 20)) return null;
+    const per = quote.per;
+    const w = weightFor(weights, 'per');
+
+    // ADR-0387: 데이터 부재 vs 임계 미달 분리.
+    // PER 부재 (0/음수/Infinity/NaN/999 placeholder) → DATA_UNAVAILABLE.
+    if (!Number.isFinite(per) || per <= 0 || per >= 999) {
+      return {
+        score: 0,
+        conditionKey: 'per',
+        detail: 'PER 데이터 부재',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
+
+    // ADR-0387 ENV legacy — 구 단일 버킷 (PER<20) flat 점수 동작 복원.
+    if (isPerEvaluatorLegacy()) {
+      if (per < 20) {
+        return {
+          score: w,
+          conditionKey: 'per',
+          detail: `PER ${per.toFixed(1)}`,
+          status: 'FIRED',
+        };
+      }
+      return {
+        score: 0,
+        conditionKey: 'per',
+        detail: `PER ${per.toFixed(1)} (legacy)`,
+        status: 'THRESHOLD_NOT_MET',
+      };
+    }
+
+    // ADR-0387 신규 — 다단 점수 (저평가 1.2× / 적정 1.0× / 성장주 0.5× / 고평가 0).
+    if (per < 15) {
+      return {
+        score: w * 1.2,
+        conditionKey: 'per',
+        detail: `PER ${per.toFixed(1)} 저평가`,
+        status: 'FIRED',
+      };
+    }
+    if (per < 25) {
+      return {
+        score: w,
+        conditionKey: 'per',
+        detail: `PER ${per.toFixed(1)} 적정`,
+        status: 'FIRED',
+      };
+    }
+    if (per < 35) {
+      return {
+        score: w * 0.5,
+        conditionKey: 'per',
+        detail: `PER ${per.toFixed(1)} 성장주 허용권`,
+        status: 'FIRED',
+      };
+    }
     return {
-      score: weightFor(weights, 'per'),
+      score: 0,
       conditionKey: 'per',
-      detail: `PER ${quote.per.toFixed(1)}`,
+      detail: `PER ${per.toFixed(1)} 고평가`,
+      status: 'THRESHOLD_NOT_MET',
     };
   },
 };

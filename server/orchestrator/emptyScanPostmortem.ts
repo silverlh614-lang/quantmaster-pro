@@ -67,7 +67,11 @@ export interface PostmortemReport {
     buyExecuted: number;
   };
   topBlockerCondition: string | null;
-  topBlockerFailRate: number;  // 0~1
+  topBlockerFailRate: number;  // 0~1 (THRESHOLD_NOT_MET — 진짜 임계 미달)
+  /** ADR-0387 — 데이터 부재 비율 (DATA_UNAVAILABLE/SANITY_REJECTED, 0~1). */
+  topBlockerUnavailableRate?: number;
+  /** ADR-0387 — 가장 데이터 부재율 높은 조건 키. */
+  topUnavailableCondition?: string | null;
   reason: string;
   analyzedAt: string;  // ISO
 }
@@ -153,20 +157,46 @@ function summarize(traces: ScanTrace[]): Metrics {
   return { scanCandidates, gateReached, gateFail, gateFailRatio, yahooFail, priceFail, rrrFail, buyExecuted };
 }
 
-function findTopBlocker(): { key: string | null; failRate: number } {
+/**
+ * ADR-0387 — failRate (THRESHOLD_NOT_MET) + unavailableRate (DATA_UNAVAILABLE) 분리 보고.
+ *
+ * 두 비율을 별도 추적해 운영자가 *진짜 종목 결함* 과 *데이터 부재* 구분 가능.
+ * 기존 `gate_audit.json` 영속 파일은 unavailable 부재 가능 → `?? 0` 안전 fallback.
+ */
+function findTopBlocker(): {
+  key: string | null;
+  failRate: number;
+  unavailableKey: string | null;
+  unavailableRate: number;
+} {
   const audit = loadGateAudit();
-  let worstKey: string | null = null;
-  let worstRate = 0;
+  let worstFailKey: string | null = null;
+  let worstFailRate = 0;
+  let worstUnavailableKey: string | null = null;
+  let worstUnavailableRate = 0;
   for (const [key, s] of Object.entries(audit)) {
-    const total = s.passed + s.failed;
+    const unavailable = s.unavailable ?? 0;
+    const total = s.passed + s.failed + unavailable;
     if (total < 5) continue; // 샘플 부족 — 무시
-    const rate = s.failed / total;
-    if (rate > worstRate) {
-      worstRate = rate;
-      worstKey = key;
+    // ADR-0387: 진짜 임계 미달 (THRESHOLD_NOT_MET)
+    const failRate = s.failed / total;
+    if (failRate > worstFailRate) {
+      worstFailRate = failRate;
+      worstFailKey = key;
+    }
+    // ADR-0387: 데이터 부재 (DATA_UNAVAILABLE/SANITY_REJECTED)
+    const unavailableRate = unavailable / total;
+    if (unavailableRate > worstUnavailableRate) {
+      worstUnavailableRate = unavailableRate;
+      worstUnavailableKey = key;
     }
   }
-  return { key: worstKey, failRate: worstRate };
+  return {
+    key: worstFailKey,
+    failRate: worstFailRate,
+    unavailableKey: worstUnavailableKey,
+    unavailableRate: worstUnavailableRate,
+  };
 }
 
 // ── 메인 분석 ─────────────────────────────────────────────────────────────────
@@ -199,7 +229,13 @@ export function runPostmortem(): PostmortemReport {
     reason  = (
       `${regime}에서 gateFail/gateReached=${(metrics.gateFailRatio * 100).toFixed(1)}% — ` +
       `레짐은 매수 가능인데 게이트가 과도하게 타이트. 임계치 완화 검토.` +
-      (blocker.key ? ` 가장 타이트한 조건: ${blocker.key} (실패율 ${(blocker.failRate * 100).toFixed(1)}%).` : '')
+      (blocker.key
+        ? ` 가장 타이트한 조건: ${blocker.key} (실패율 ${(blocker.failRate * 100).toFixed(1)}%).`
+        : '') +
+      // ADR-0387: 데이터 부재 비율 별도 보고 — 운영자가 *진짜 결함* vs *데이터 부재* 구분 가능.
+      (blocker.unavailableKey && blocker.unavailableRate > 0.3
+        ? ` ⚠️ 데이터 부재 의심: ${blocker.unavailableKey} (부재율 ${(blocker.unavailableRate * 100).toFixed(1)}% — 종목 결함 아님 가능).`
+        : '')
     );
   } else if (metrics.scanCandidates > 0 && metrics.yahooFail === metrics.scanCandidates) {
     verdict = 'PATHOLOGICAL_BLOCK';
@@ -237,6 +273,9 @@ export function runPostmortem(): PostmortemReport {
     metrics,
     topBlockerCondition: blocker.key,
     topBlockerFailRate:  blocker.failRate,
+    // ADR-0387 — 데이터 부재 별도 보고 필드.
+    topBlockerUnavailableRate: blocker.unavailableRate,
+    topUnavailableCondition: blocker.unavailableKey,
     reason,
     analyzedAt: new Date().toISOString(),
   };

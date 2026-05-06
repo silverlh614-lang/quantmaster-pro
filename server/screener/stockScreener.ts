@@ -20,7 +20,7 @@ import { evaluateServerGate } from '../quantFilter.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, hasKisClientOverrides } from '../clients/kisClient.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { isPullbackSetup, addBusinessDays } from './pipelineHelpers.js';
-import { recordGateAudit, flushGateAudit } from '../persistence/gateAuditRepo.js';
+import { recordGateAudit, recordGateAuditByStatus, flushGateAudit } from '../persistence/gateAuditRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { getCurrentScanPreset } from './scanPresets.js';
 import { MOMENTUM_MAX_SIZE, SWING_MAX_SIZE, addToWatchlist } from './watchlistManager.js';
@@ -506,7 +506,12 @@ export async function autoPopulateWatchlist(): Promise<number> {
     const gate = evaluateServerGate(enrichedQuote, presetWeights, macroState?.kospi20dReturn, null, null, regime);
 
     // 아이디어 11: Gate 조건 통과/탈락 — 메모리 캐시에만 누적 (루프 후 flushGateAudit으로 파일 저장)
-    recordGateAudit(gate.conditionKeys);
+    // ADR-0387: outputs (status 분류 포함) 가 있으면 정밀 audit, 없으면 legacy passedKeys.
+    if (gate.outputs && gate.outputs.length > 0) {
+      recordGateAuditByStatus(gate.outputs);
+    } else {
+      recordGateAudit(gate.conditionKeys);
+    }
 
     // 섹션 분류: SKIP이 아닌 고득점 종목은 SWING 후보, 나머지는 MOMENTUM
     const section: WatchlistSection = gate.signalType !== 'SKIP' ? 'SWING' : 'MOMENTUM';
