@@ -171,9 +171,13 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       acknowledgeR3SanityBlock('R3_SANITY_OPERATOR_ACK');
     } else {
       console.warn(`[AutoTrade] R3 sanity block active — 신규 매수 차단 (${r3SanityBlock.violation}, ${r3SanityBlock.regime})`);
+      // ADR-0195: cooldown 60min → 24h (사용자 9번 §6 정합 — 1일 1회 알림).
+      // 텔레그램 즉시 해제: /r3_unblock (ADR-0195) 또는 ENV `R3_SANITY_OPERATOR_ACK=<triggeredAt>` (ADR-0120).
       await sendTelegramAlert(
-        `🚨 <b>[R3 Sanity Block Active]</b>\n신규 매수 차단 + shadow-only 전환 유지\n위반: ${r3SanityBlock.violation} / ${r3SanityBlock.regime}\n운영자 확인 후 <code>R3_SANITY_OPERATOR_ACK=${r3SanityBlock.triggeredAt}</code> 로 해제`,
-        { priority: 'HIGH', dedupeKey: 'r3_sanity_block_active', cooldownMs: 60 * 60_000 },
+        `🚨 <b>[R3 Sanity Block Active]</b>\n신규 매수 차단 + shadow-only 전환 유지\n위반: ${r3SanityBlock.violation} / ${r3SanityBlock.regime}\n` +
+        `즉시 해제: <code>/r3_unblock</code> (텔레그램, ADR-0195)\n` +
+        `또는 ENV <code>R3_SANITY_OPERATOR_ACK=${r3SanityBlock.triggeredAt}</code> (ADR-0120)`,
+        { priority: 'HIGH', dedupeKey: 'r3_sanity_block_active', cooldownMs: 24 * 60 * 60_000 },
       ).catch(console.error);
       await recordBlockedDayShadowScan('R3_SANITY_BLOCK');
       await updateShadowResults(shadows, regime);
