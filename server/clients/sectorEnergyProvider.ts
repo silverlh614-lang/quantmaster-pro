@@ -1,22 +1,14 @@
 // @responsibility sectorEnergyProvider 외부 클라이언트 모듈
 /**
  * sectorEnergyProvider.ts — KRX 실데이터를 sectorEnergyEngine 입력으로 가공.
- *
- * sectorEnergyEngine.ts 는 순수 계산기(연료 없음). 이 모듈은 KRX Open API
- * (인증) + KRX 공개 엔드포인트에서 섹터별 return4w / volumeChangePct /
- * foreignConcentration 세 축을 뽑아 `SectorEnergyInput[]` 으로 변환한다.
- *
- * 설계 원칙:
- *   1. 호출 비용 최소화 — 20영업일 전/후 스냅샷 2회(+ 오늘 투자자별 1회)만 사용.
- *      (섹터별 풀 OHLCV 시리즈를 매번 40회 쿼리하지 않는다.)
- *   2. KRX 지수명 → 전략 12섹터 매핑을 하나의 테이블로 관리.
- *      미매칭 KRX 지수는 NEUTRAL 처리로 귀결되도록 0 기본값만 남긴다.
- *   3. 실패·권한·타임아웃 전부 빈 배열 — 상위 엔진이 `summary: '입력 없음'` 으로 처리.
+ * ADR-0343 Phase 2: KRX 휴장일/빈 응답에 견디도록 날짜 계산, today retry,
+ * macroState fallback wiring 을 이 모듈 내부에서 완결한다.
  */
 
 import {
   fetchKospiIndexDaily,
   fetchKosdaqIndexDaily,
+  recentBusinessDaysKst,
   fetchKospiDailyTrade,
   fetchKosdaqDailyTrade,
   type KrxIndexDailyRow,
@@ -24,8 +16,8 @@ import {
 } from './krxOpenApi.js';
 import { fetchInvestorTrading, type KrxInvestorRow } from './krxClient.js';
 import { safePctChange } from '../utils/safePctChange.js';
+import { isKrxTradingDay } from '../calendar/krxTradingCalendar.js';
 
-/** 전략 레벨 12섹터 — sectorEnergyEngine 의 계절성 테이블과 동일한 키. */
 export type StrategicSector =
   | '반도체'
   | '이차전지'
@@ -47,12 +39,13 @@ export interface SectorEnergyInput {
   foreignConcentration: number;
 }
 
-/**
- * KRX 지수명 → 전략 12섹터.
- * KRX 는 "KOSPI 전기전자", "KOSDAQ IT S/W & SVC" 처럼 접두사·하위 분류가 혼재한다.
- * 대소문자·공백 없이 포함 여부(includes)로 매칭한다. 한 KRX 지수가 여러 후보에
- * 걸리면 선언 순서대로 첫 매칭을 채택 — 더 구체적인 키워드를 앞에 둔다.
- */
+const CANONICAL_SECTORS: StrategicSector[] = [
+  '반도체', '이차전지', '바이오/헬스케어', '인터넷/플랫폼',
+  '자동차', '조선', '방산', '금융',
+  '유통/소비재', '건설/부동산', '에너지/화학', '통신/유틸리티',
+];
+const TOTAL_SECTOR_COUNT = CANONICAL_SECTORS.length;
+
 const KRX_INDEX_TO_SECTOR: Array<[RegExp, StrategicSector]> = [
   [/반도체|전기전자|IT\s*하드|IT\s*H\/W/i, '반도체'],
   [/이차\s*전지|배터리|2차\s*전지|전지/, '이차전지'],
@@ -68,7 +61,6 @@ const KRX_INDEX_TO_SECTOR: Array<[RegExp, StrategicSector]> = [
   [/통신|전기가스|유틸리티/, '통신/유틸리티'],
 ];
 
-/** 개별 종목의 KRX 섹터 필드 → 전략 12섹터 (없으면 null). */
 function classifyStockSector(stockSector: string): StrategicSector | null {
   if (!stockSector) return null;
   for (const [pattern, canonical] of KRX_INDEX_TO_SECTOR) {
@@ -77,7 +69,6 @@ function classifyStockSector(stockSector: string): StrategicSector | null {
   return null;
 }
 
-/** KRX 지수행(indexName) → 전략 12섹터 (없으면 null). */
 function classifyIndex(indexName: string): StrategicSector | null {
   if (!indexName) return null;
   for (const [pattern, canonical] of KRX_INDEX_TO_SECTOR) {
@@ -86,46 +77,36 @@ function classifyIndex(indexName: string): StrategicSector | null {
   return null;
 }
 
-/** KST 기준 오늘에서 N영업일 전 YYYYMMDD. */
+function shiftedKstDateKey(kst: Date): string {
+  const y = kst.getUTCFullYear();
+  const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(kst.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+function toYyyymmdd(dateKey: string): string { return dateKey.replace(/-/g, ''); }
+
+/** KST 기준 오늘에서 N KRX 거래일 전 YYYYMMDD. */
 function businessDaysAgo(n: number): string {
   const now = new Date();
   const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
   const kst = new Date(utcMs + 9 * 60 * 60_000);
-  // 오늘은 장 마감 후에야 KRX에 반영되므로 기준은 하루 전부터.
   kst.setUTCDate(kst.getUTCDate() - 1);
   let remaining = n;
-  while (remaining > 0) {
+  let guard = 0;
+  while (remaining > 0 && guard < 80) {
     kst.setUTCDate(kst.getUTCDate() - 1);
-    if (kst.getUTCDay() !== 0 && kst.getUTCDay() !== 6) remaining -= 1;
+    if (isKrxTradingDay(shiftedKstDateKey(kst))) remaining -= 1;
+    guard += 1;
   }
-  const y = kst.getUTCFullYear();
-  const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(kst.getUTCDate()).padStart(2, '0');
-  return `${y}${m}${d}`;
+  return toYyyymmdd(shiftedKstDateKey(kst));
 }
 
-/**
- * close 자릿수가 ±10배 를 초과해 어긋났을 때 매칭 미스 의심으로 skip.
- * (sanity ±90% 보다 보수적인 1차 방어선 — KRX 응답에서 indexCode 체계가
- * today/past 사이 비대칭일 때 다른 섹터끼리 비교되는 회귀를 차단.)
- */
 const SECTOR_CLOSE_RATIO_MAX = 10;
 const SECTOR_CLOSE_RATIO_MIN = 0.1;
-
-/** ADR-0122 (사용자 §4): 12 섹터 중 returns.length>0 섹터 최소 임계 — 미달 시 결과 폐기. */
 export const SECTOR_ENERGY_MIN_VALID_DEFAULT = 8;
-
-/** ADR-0122 (사용자 §1): today/past 응답 indexCode 충실도 임계 (90% 이상). */
 export const SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD = 0.9;
+export type SectorEnergyDataQuality = 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
 
-/** sectorEnergy 결과 신뢰도 4값 union (사용자 §7). */
-export type SectorEnergyDataQuality =
-  | 'OK'           // 12섹터 모두 정상 + indexCode 충실도 정상
-  | 'PARTIAL'      // 8~11 섹터 통과 + 일부 skip
-  | 'STALE'        // 유효 섹터 < 8 (이전 캐시 fallback 권장)
-  | 'FAILED';      // KRX 응답 비대칭 또는 fetch 실패
-
-/** ADR-0122 §1: today/past 응답 indexCode 정합성 검증 SSOT. */
 export interface SymmetryValidationResult {
   valid: boolean;
   todayCodeFillRatio: number;
@@ -133,73 +114,38 @@ export interface SymmetryValidationResult {
   reasons: string[];
 }
 
-/**
- * ADR-0122 §1: KRX OpenAPI today/past 응답의 indexCode 정합성 1차 검증.
- *
- * 사용자 §1 의도: "양쪽에 indexCode가 90% 이상 채워졌는지" 검증 후 미통과 시
- * 응답 페어 자체를 폐기. indexName fallback 매칭은 본질적으로 불안전 (KRX 가
- * 동일 indexName + 다른 indexCode 쌍 반환 가능).
- */
 export function validateIndexResponseSymmetry(
   todayRows: KrxIndexDailyRow[],
   pastRows: KrxIndexDailyRow[],
 ): SymmetryValidationResult {
   const reasons: string[] = [];
-
   if (todayRows.length === 0 || pastRows.length === 0) {
     reasons.push(`empty rows: today=${todayRows.length}, past=${pastRows.length}`);
     return { valid: false, todayCodeFillRatio: 0, pastCodeFillRatio: 0, reasons };
   }
-
-  const todayCodeCount = todayRows.filter((r) => Boolean(r.indexCode)).length;
-  const pastCodeCount = pastRows.filter((r) => Boolean(r.indexCode)).length;
-  const todayCodeFillRatio = todayCodeCount / todayRows.length;
-  const pastCodeFillRatio = pastCodeCount / pastRows.length;
-
+  const todayCodeFillRatio = todayRows.filter((r) => Boolean(r.indexCode)).length / todayRows.length;
+  const pastCodeFillRatio = pastRows.filter((r) => Boolean(r.indexCode)).length / pastRows.length;
   if (todayCodeFillRatio < SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD) {
-    reasons.push(
-      `today indexCode 충실도 ${(todayCodeFillRatio * 100).toFixed(1)}% < ` +
-      `${(SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD * 100).toFixed(0)}%`,
-    );
+    reasons.push(`today indexCode 충실도 ${(todayCodeFillRatio * 100).toFixed(1)}% < ${(SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD * 100).toFixed(0)}%`);
   }
   if (pastCodeFillRatio < SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD) {
-    reasons.push(
-      `past indexCode 충실도 ${(pastCodeFillRatio * 100).toFixed(1)}% < ` +
-      `${(SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD * 100).toFixed(0)}%`,
-    );
+    reasons.push(`past indexCode 충실도 ${(pastCodeFillRatio * 100).toFixed(1)}% < ${(SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD * 100).toFixed(0)}%`);
   }
-
-  return {
-    valid: reasons.length === 0,
-    todayCodeFillRatio,
-    pastCodeFillRatio,
-    reasons,
-  };
+  return { valid: reasons.length === 0, todayCodeFillRatio, pastCodeFillRatio, reasons };
 }
 
-/** ADR-0122 ENV 우회 헬퍼들. */
-export function isSectorEnergySymmetryDisabled(): boolean {
-  return process.env.SECTOR_ENERGY_SYMMETRY_DISABLED === 'true';
-}
-export function isSectorEnergyIndexNameFallbackEnabled(): boolean {
-  // default: false (사용자 §2 — indexName fallback 제거).
-  // 회귀 위험 시 ENV `SECTOR_ENERGY_INDEX_NAME_FALLBACK=true` 로 복원.
-  return process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK === 'true';
-}
+export function isSectorEnergySymmetryDisabled(): boolean { return process.env.SECTOR_ENERGY_SYMMETRY_DISABLED === 'true'; }
+export function isSectorEnergyIndexNameFallbackEnabled(): boolean { return process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK === 'true'; }
 export function getSectorEnergyMinValid(): number {
   const env = Number(process.env.SECTOR_ENERGY_MIN_VALID);
-  if (Number.isFinite(env) && env > 0 && env <= 12) return env;
+  if (Number.isFinite(env) && env > 0 && env <= TOTAL_SECTOR_COUNT) return env;
   return SECTOR_ENERGY_MIN_VALID_DEFAULT;
 }
 
-/** (today 행, past 행) 쌍으로 return/volume 변화율을 집계. 평균값으로 12섹터로 축약. */
 export function aggregateIndexDeltas(
   todayRows: KrxIndexDailyRow[],
   pastRows: KrxIndexDailyRow[],
 ): Map<StrategicSector, { returns: number[]; volumes: number[] }> {
-  // ADR-0059 보강: today 와 past 의 매칭 키 종류를 *일치 강제*.
-  // today 가 indexCode 를 가지면 past 도 indexCode 매칭 만, 없으면 indexName 매칭 만 시도.
-  // 두 응답에서 한쪽만 indexCode 가 채워진 비대칭 응답에서 mismatch 사전 차단.
   const pastByCode = new Map<string, KrxIndexDailyRow>();
   const pastByName = new Map<string, KrxIndexDailyRow>();
   for (const r of pastRows) {
@@ -210,56 +156,25 @@ export function aggregateIndexDeltas(
   for (const t of todayRows) {
     const canonical = classifyIndex(t.indexName);
     if (!canonical) continue;
-
     let past: KrxIndexDailyRow | undefined;
     let matchKind: 'code' | 'name' | null = null;
     if (t.indexCode) {
       past = pastByCode.get(t.indexCode);
       if (past) matchKind = 'code';
     }
-    // ADR-0122 (사용자 §2): indexName fallback 매칭 제거 (default).
-    // 사유: KRX 가 동일 indexName + 다른 indexCode 쌍 반환 가능 (sub-index 다중성).
-    // 회귀 위험 시 ENV SECTOR_ENERGY_INDEX_NAME_FALLBACK=true 로 복원.
-    if (!past && t.indexName && isSectorEnergyIndexNameFallbackEnabled()) {
-      if (!t.indexCode) {
-        past = pastByName.get(t.indexName);
-        if (past) matchKind = 'name';
-      }
+    if (!past && t.indexName && isSectorEnergyIndexNameFallbackEnabled() && !t.indexCode) {
+      past = pastByName.get(t.indexName);
+      if (past) matchKind = 'name';
     }
     if (!past || past.close <= 0 || matchKind === null) continue;
-
-    // 자릿수 격차 사전 차단 — 매칭 어긋남(다른 섹터 지수끼리 비교) 회귀 방어.
     const ratio = t.close > 0 ? t.close / past.close : 0;
-    if (!Number.isFinite(ratio) || ratio > SECTOR_CLOSE_RATIO_MAX || ratio < SECTOR_CLOSE_RATIO_MIN) {
-      const tKey = t.indexCode || t.indexName || '?';
-      const pKey = past.indexCode || past.indexName || '?';
-      console.warn(
-        `[sectorEnergy:diag] 자릿수 격차 ${ratio.toFixed(3)}x — skip "${t.indexName}"` +
-        ` (today close=${t.close}@${t.baseDate} ${matchKind}=${tKey}` +
-        ` ↔ past close=${past.close}@${past.baseDate} ${pKey})`,
-      );
-      continue;
-    }
-
-    // baseDate 가 동일 영업일이면 today/past fetch 자체가 같은 일자 — 즉시 skip.
-    if (t.baseDate && past.baseDate && t.baseDate === past.baseDate) {
-      console.warn(
-        `[sectorEnergy:diag] today/past baseDate 동일 ${t.baseDate} — skip "${t.indexName}"`,
-      );
-      continue;
-    }
-
-    // ADR-0059: stale past data 시 sanity 위반은 스킵 (섹터 에너지 평균 왜곡 방지).
+    if (!Number.isFinite(ratio) || ratio > SECTOR_CLOSE_RATIO_MAX || ratio < SECTOR_CLOSE_RATIO_MIN) continue;
+    if (t.baseDate && past.baseDate && t.baseDate === past.baseDate) continue;
     const labelKey = t.indexCode || t.indexName;
-    const returnPct = safePctChange(t.close, past.close, {
-      label: `sectorEnergy.return:${labelKey}`,
-    });
+    const returnPct = safePctChange(t.close, past.close, { label: `sectorEnergy.return:${labelKey}` });
     if (returnPct === null) continue;
     const volumePct = past.volume > 0
-      ? (safePctChange(t.volume, past.volume, {
-          label: `sectorEnergy.volume:${labelKey}`,
-          sanityBoundPct: 1000, // 거래량은 ±1000% 까지 허용 (저거래일 → 고거래일 정상)
-        }) ?? 0)
+      ? (safePctChange(t.volume, past.volume, { label: `sectorEnergy.volume:${labelKey}`, sanityBoundPct: 1000 }) ?? 0)
       : 0;
     const acc = bySector.get(canonical) ?? { returns: [], volumes: [] };
     acc.returns.push(returnPct);
@@ -269,12 +184,6 @@ export function aggregateIndexDeltas(
   return bySector;
 }
 
-/**
- * 오늘 투자자별 거래실적(주식 단위) → 섹터별 외국인 집중도.
- * 외국인 순매수 수량만으로는 거래대금 대비 비율을 정확히 구하기 어렵다 — 주식 단위
- * 순매수 절대치를 합산해 섹터간 상대비교(min-max 0~100)로 대체 지표를 만든다.
- * 완벽한 4주 거래대금 비율은 아니지만, 섹터간 순위 신호로는 충분.
- */
 function aggregateForeignConcentration(
   investors: KrxInvestorRow[],
   stockSectorMap: Map<string, StrategicSector>,
@@ -283,11 +192,9 @@ function aggregateForeignConcentration(
   for (const row of investors) {
     const canonical = stockSectorMap.get(row.code);
     if (!canonical) continue;
-    const prev = rawBySector.get(canonical) ?? 0;
-    rawBySector.set(canonical, prev + row.foreignNetBuy);
+    rawBySector.set(canonical, (rawBySector.get(canonical) ?? 0) + row.foreignNetBuy);
   }
   if (rawBySector.size === 0) return rawBySector;
-
   const values = Array.from(rawBySector.values());
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -296,9 +203,7 @@ function aggregateForeignConcentration(
     for (const [k] of rawBySector) normalized.set(k, 50);
     return normalized;
   }
-  for (const [sector, v] of rawBySector) {
-    normalized.set(sector, ((v - min) / (max - min)) * 100);
-  }
+  for (const [sector, v] of rawBySector) normalized.set(sector, ((v - min) / (max - min)) * 100);
   return normalized;
 }
 
@@ -311,7 +216,6 @@ function buildStockSectorMap(stocks: KrxStockDailyRow[]): Map<string, StrategicS
   return out;
 }
 
-/** ADR-0122 §7: sectorEnergy 결과 진단 메타. */
 export interface SectorEnergyBuildResult {
   inputs: SectorEnergyInput[];
   dataQuality: SectorEnergyDataQuality;
@@ -321,34 +225,35 @@ export interface SectorEnergyBuildResult {
   reasons: string[];
 }
 
-/**
- * sectorEnergyEngine 가 그대로 소비할 수 있는 `SectorEnergyInput[]` 를 반환.
- * 모든 외부 호출 실패 시 빈 배열 (후방호환).
- */
 export async function buildSectorEnergyInputs(): Promise<SectorEnergyInput[]> {
-  const result = await buildSectorEnergyInputsWithMeta();
+  const result = await buildSectorEnergyInputsWithMetaWithFallback();
   return result.inputs;
 }
 
-/**
- * ADR-0122 신규 SSOT — dataQuality + 유효 섹터 수 + symmetry 진단 정보 동반 반환.
- * 호출자 (sectorEnergyEngine + sectorScoreBoost) 가 dataQuality 기반 매수 영향
- * 차단 가능. 호출자 wiring 은 후속 PR (회귀 위험 격리).
- */
 export async function buildSectorEnergyInputsWithMeta(): Promise<SectorEnergyBuildResult> {
-  const today = undefined; // krxOpenApi 가 최근 영업일 자동 선택
+  const todayCandidates: Array<string | undefined> = [undefined, ...recentBusinessDaysKst(5)];
   const past = businessDaysAgo(20);
-
-  const [todayKospiIdx, todayKosdaqIdx, pastKospiIdx, pastKosdaqIdx, kospiStocks, kosdaqStocks, investors] =
-    await Promise.all([
-      fetchKospiIndexDaily(today),
-      fetchKosdaqIndexDaily(today),
-      fetchKospiIndexDaily(past),
-      fetchKosdaqIndexDaily(past),
-      fetchKospiDailyTrade(today),
-      fetchKosdaqDailyTrade(today),
-      fetchInvestorTrading(),
-    ]);
+  let selectedToday: string | undefined;
+  let todayKospiIdx: KrxIndexDailyRow[] = [];
+  let todayKosdaqIdx: KrxIndexDailyRow[] = [];
+  const attemptedTodayDates: string[] = [];
+  for (const candidate of todayCandidates) {
+    if (candidate) attemptedTodayDates.push(candidate);
+    const [kospiIdx, kosdaqIdx] = await Promise.all([fetchKospiIndexDaily(candidate), fetchKosdaqIndexDaily(candidate)]);
+    if (kospiIdx.length + kosdaqIdx.length > 0) {
+      selectedToday = candidate;
+      todayKospiIdx = kospiIdx;
+      todayKosdaqIdx = kosdaqIdx;
+      break;
+    }
+  }
+  const [pastKospiIdx, pastKosdaqIdx, kospiStocks, kosdaqStocks, investors] = await Promise.all([
+    fetchKospiIndexDaily(past),
+    fetchKosdaqIndexDaily(past),
+    fetchKospiDailyTrade(selectedToday),
+    fetchKosdaqDailyTrade(selectedToday),
+    fetchInvestorTrading(),
+  ]);
 
   const todayIdx = [...todayKospiIdx, ...todayKosdaqIdx];
   const pastIdx = [...pastKospiIdx, ...pastKosdaqIdx];
@@ -357,23 +262,18 @@ export async function buildSectorEnergyInputsWithMeta(): Promise<SectorEnergyBui
       inputs: [],
       dataQuality: 'FAILED',
       validSectorCount: 0,
-      totalSectorCount: 12,
-      reasons: ['todayIdx empty — KRX OpenAPI 응답 부재'],
+      totalSectorCount: TOTAL_SECTOR_COUNT,
+      reasons: ['todayIdx empty — KRX OpenAPI 응답 부재', `attempted=${attemptedTodayDates.join(',') || 'default'}`],
     };
   }
 
-  // ADR-0122 §1: today/past 응답 indexCode 정합성 1차 검증.
   const symmetry = validateIndexResponseSymmetry(todayIdx, pastIdx);
   if (!symmetry.valid && !isSectorEnergySymmetryDisabled()) {
-    console.warn(
-      `[sectorEnergy:diag] ADR-0122 symmetry 검증 실패 — 응답 페어 폐기: ` +
-      symmetry.reasons.join('; '),
-    );
     return {
       inputs: [],
       dataQuality: 'FAILED',
       validSectorCount: 0,
-      totalSectorCount: 12,
+      totalSectorCount: TOTAL_SECTOR_COUNT,
       symmetryValidation: symmetry,
       reasons: ['symmetry validation failed', ...symmetry.reasons],
     };
@@ -382,119 +282,69 @@ export async function buildSectorEnergyInputsWithMeta(): Promise<SectorEnergyBui
   const deltas = aggregateIndexDeltas(todayIdx, pastIdx);
   const stockSectorMap = buildStockSectorMap([...kospiStocks, ...kosdaqStocks]);
   const foreignMap = aggregateForeignConcentration(investors, stockSectorMap);
-
-  const canonicalSectors: StrategicSector[] = [
-    '반도체', '이차전지', '바이오/헬스케어', '인터넷/플랫폼',
-    '자동차', '조선', '방산', '금융',
-    '유통/소비재', '건설/부동산', '에너지/화학', '통신/유틸리티',
-  ];
-
   const out: SectorEnergyInput[] = [];
   let validSectorCount = 0;
-  for (const sector of canonicalSectors) {
+  for (const sector of CANONICAL_SECTORS) {
     const d = deltas.get(sector);
     const returns = d?.returns ?? [];
     const volumes = d?.volumes ?? [];
     if (returns.length > 0) validSectorCount++;
-    const avg = (xs: number[]): number =>
-      xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length;
-    const return4w = avg(returns);
-    const volumeChangePct = avg(volumes);
-    const foreignConcentration = foreignMap.get(sector) ?? 0;
+    const avg = (xs: number[]): number => xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length;
     out.push({
       name: sector,
-      return4w: Number(return4w.toFixed(2)),
-      volumeChangePct: Number(volumeChangePct.toFixed(2)),
-      foreignConcentration: Number(foreignConcentration.toFixed(1)),
+      return4w: Number(avg(returns).toFixed(2)),
+      volumeChangePct: Number(avg(volumes).toFixed(2)),
+      foreignConcentration: Number((foreignMap.get(sector) ?? 0).toFixed(1)),
     });
   }
 
-  // ADR-0122 §4: 유효 섹터 임계 검증 — 미달 시 결과 폐기 (이전 캐시 fallback 유도).
   const minValid = getSectorEnergyMinValid();
-  const reasons: string[] = [];
   if (validSectorCount < minValid) {
-    console.warn(
-      `[sectorEnergy:diag] ADR-0122 유효 섹터 ${validSectorCount}/12 < 임계 ${minValid} — 결과 폐기 (STALE).`,
-    );
     return {
       inputs: [],
       dataQuality: 'STALE',
       validSectorCount,
-      totalSectorCount: 12,
+      totalSectorCount: TOTAL_SECTOR_COUNT,
       symmetryValidation: symmetry,
       reasons: [`validSectorCount=${validSectorCount} < min=${minValid}`],
     };
   }
-
-  // ADR-0122 §7: dataQuality 분류 — 12 섹터 모두 통과 OK / 일부 skip PARTIAL.
-  const dataQuality: SectorEnergyDataQuality = validSectorCount === 12 ? 'OK' : 'PARTIAL';
-  if (dataQuality === 'PARTIAL') {
-    reasons.push(`PARTIAL: validSectorCount=${validSectorCount}/12`);
-  }
-
+  const dataQuality: SectorEnergyDataQuality = validSectorCount === TOTAL_SECTOR_COUNT ? 'OK' : 'PARTIAL';
   return {
     inputs: out,
     dataQuality,
     validSectorCount,
-    totalSectorCount: 12,
+    totalSectorCount: TOTAL_SECTOR_COUNT,
     symmetryValidation: symmetry,
-    reasons,
+    reasons: dataQuality === 'PARTIAL' ? [`PARTIAL: validSectorCount=${validSectorCount}/${TOTAL_SECTOR_COUNT}`] : [],
   };
 }
 
-// ── ADR-0343: FAILED 시 macroState 캐시 fallback ────────────────────────────────
-/**
- * `buildSectorEnergyInputsWithMeta` 가 FAILED 반환 시 macroState 의 직전 영속 inputs
- * 사용 (48h 이내). KRX OpenAPI 일시 장애 / 휴장일 클러스터 진입 시 sectorScoreBoost
- * 영구 비활성 결함 차단.
- *
- * Phase 1 — wrapper 만 신설 (호출자 0건 dead code). saver wiring (성공 분기 영속)
- * + 호출자 마이그레이션 후속 PR.
- *
- * ENV `SECTOR_ENERGY_FALLBACK_DISABLED=true` (default OFF) → wrapper 비활성, 원본 결과 그대로.
- */
 export const SECTOR_ENERGY_FALLBACK_MAX_AGE_HOURS = 48;
-
-export function isSectorEnergyFallbackDisabled(): boolean {
-  return process.env.SECTOR_ENERGY_FALLBACK_DISABLED === 'true';
-}
+export function isSectorEnergyFallbackDisabled(): boolean { return process.env.SECTOR_ENERGY_FALLBACK_DISABLED === 'true'; }
 
 export async function buildSectorEnergyInputsWithMetaWithFallback(): Promise<SectorEnergyBuildResult> {
   const result = await buildSectorEnergyInputsWithMeta();
   if (isSectorEnergyFallbackDisabled()) return result;
   if (result.dataQuality !== 'FAILED') return result;
-  // FAILED 진입 — macroState 직전 영속 read.
   let cached: { sectorEnergyInputs?: SectorEnergyInput[]; sectorEnergyInputsUpdatedAt?: string } | null;
   try {
     const { loadMacroState } = await import('../persistence/macroStateRepo.js');
     cached = loadMacroState();
-  } catch {
-    cached = null;
-  }
-  if (!cached || !cached.sectorEnergyInputs || !cached.sectorEnergyInputsUpdatedAt) {
-    return result;
-  }
+  } catch { cached = null; }
+  if (!cached || !cached.sectorEnergyInputs || !cached.sectorEnergyInputsUpdatedAt) return result;
   const updatedAtMs = new Date(cached.sectorEnergyInputsUpdatedAt).getTime();
   if (!Number.isFinite(updatedAtMs)) return result;
   const ageHours = (Date.now() - updatedAtMs) / (3600 * 1000);
   if (ageHours < 0 || ageHours >= SECTOR_ENERGY_FALLBACK_MAX_AGE_HOURS) return result;
-  console.warn(
-    `[sectorEnergy] FAILED — macroState 캐시 fallback (${ageHours.toFixed(1)}h 전 데이터, ADR-0343)`,
-  );
   return {
     inputs: cached.sectorEnergyInputs,
     dataQuality: 'STALE',
     validSectorCount: cached.sectorEnergyInputs.length,
-    totalSectorCount: 12,
-    reasons: [
-      ...result.reasons,
-      `fallback to macroState cache (${ageHours.toFixed(1)}h old)`,
-    ],
+    totalSectorCount: TOTAL_SECTOR_COUNT,
+    reasons: [...result.reasons, `fallback to macroState cache (${ageHours.toFixed(1)}h old)`],
   };
 }
-
-// ── 캐시 ─────────────────────────────────────────────────────────────────────
-// 장중 변동을 실시간 반영할 필요는 없으므로 30분 캐시. 동시 요청은 단일 Promise로 합친다.
 
 const CACHE_TTL_MS = 30 * 60 * 1000;
 let _cache: { data: SectorEnergyInput[]; expiresAt: number } | null = null;
@@ -506,9 +356,7 @@ export async function getSectorEnergyInputs(force = false): Promise<SectorEnergy
   _inflight = (async () => {
     try {
       const data = await buildSectorEnergyInputs();
-      if (data.length > 0) {
-        _cache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
-      }
+      if (data.length > 0) _cache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
       return data;
     } finally {
       _inflight = null;
