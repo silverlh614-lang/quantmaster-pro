@@ -8,8 +8,10 @@
  */
 
 import { guardedFetch } from '../../utils/egressGuard.js';
-import { safePctChange, safePctChangeDetailed, type PriceBase } from '../../utils/safePctChange.js';
+import { safePctChange, safePctChangeDetailed, type PriceBase, type PriceSource } from '../../utils/safePctChange.js';
 import { calcRSI, calcRSI14, calcEMAArr, calcMACD } from './_indicators.js';
+import { fetchKisIntraday } from './kisQuoteAdapter.js';
+import { previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 
 /**
  * ADR-0028 §모순 보강: Yahoo 응답의 가격 필드 검증 SSOT.
@@ -169,10 +171,46 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       return null;
     }
 
-    // prevClose: 4 출처 chain. 모두 실패 시 changePercent 계산 자체 스킵 (0 fallback X).
-    const prevClose = validPrice(meta.regularMarketPreviousClose)
-      ?? validPrice(closes[closes.length - 2])
-      ?? validPrice((meta as { chartPreviousClose?: number }).chartPreviousClose);
+    // ADR-0221: prevClose 출처 위계 재정립 — KIS 1차 / Yahoo 2차 fallback.
+    // 휴장 클러스터 직후 (5/1·5/5·추석 등) Yahoo meta 의 prevClose 가 calendar
+    // gap stale base 를 반환해 STALE_BASE 누적 위반 / +121% 같은 잘못된
+    // changePercent 산출 결함 차단. KIS API 는 KRX 거래일 캘린더 기반이므로
+    // 직전 거래일 종가가 정확. KIS 실패 시에만 Yahoo fallback.
+    const yahooMetaPrev = validPrice(meta.regularMarketPreviousClose);
+    const yahooClosesPrev = validPrice(closes[closes.length - 2]);
+    const yahooChartPrev = validPrice((meta as { chartPreviousClose?: number }).chartPreviousClose);
+
+    let prevClose: number | null = null;
+    let prevCloseAsOf = '';
+    let prevCloseSource: PriceSource = 'YAHOO_HISTORICAL';
+
+    // KIS prevClose 1차 시도 — KR 종목 (.KS/.KQ) 만 적용.
+    const krMatch = symbol.match(/^(\d{6})\.K[SQ]$/);
+    const krCode = krMatch ? krMatch[1] : null;
+    const kisSnap = krCode ? await fetchKisIntraday(krCode).catch(() => null) : null;
+
+    if (kisSnap && kisSnap.prevClose > 0) {
+      // KIS 채택 — KRX 거래일 캘린더 기반 직전 거래일 종가 (장 마감 15:30 KST).
+      prevClose = kisSnap.prevClose;
+      prevCloseAsOf = `${previousKrxTradingDay(new Date())}T15:30:00+09:00`;
+      prevCloseSource = 'KIS_REALTIME';
+
+      // Yahoo 값과 비교 — 5% 초과 괴리 시 진단 로그 (영속 변경 0, 진단만).
+      if (yahooMetaPrev && Math.abs((yahooMetaPrev - kisSnap.prevClose) / kisSnap.prevClose) > 0.05) {
+        console.warn(
+          `[yahooQuoteAdapter] ${symbol} KIS prevClose=${kisSnap.prevClose} ` +
+          `vs Yahoo meta=${yahooMetaPrev} 괴리 5%↑ — KIS 채택 ` +
+          `(휴장 클러스터 고립 거래일 추정, ADR-0221)`,
+        );
+      }
+    } else {
+      // KIS 실패/미연동/비KR 종목 → Yahoo fallback (기존 chain).
+      prevClose = yahooMetaPrev ?? yahooClosesPrev ?? yahooChartPrev;
+      prevCloseAsOf = closes.length >= 2
+        ? isoFromCloseIdx(closes.length - 2)
+        : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      prevCloseSource = 'YAHOO_HISTORICAL';
+    }
 
     const dayOpen = validPrice(meta.regularMarketOpen) ?? price;
 
@@ -181,20 +219,19 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     //
     // PR-D3-D-2: prevClose 도 PriceBase 로 전달 — DAILY 모드 (50% 임계) + stale 자동 차단.
     // 사용자 보고 +121.36% / +217.24% 같은 changePercent 위반 패턴 (전일 +30% 상한가
-    // 초과 = 상한가+갭 조합도 50% 안) 자동 차단. asOf 는 closes[length-2] timestamp.
+    // 초과 = 상한가+갭 조합도 50% 안) 자동 차단.
     //
     // ADR-0091 PR-Z4: safePctChangeDetailed 로 전환 — `?? 0` silent fallback 제거.
     // valid=false 시 dataQualityIssues 에 'changePercent' 누적 + 후속 KIS 폴백 wiring.
-    const prevCloseAsOf = closes.length >= 2
-      ? isoFromCloseIdx(closes.length - 2)
-      : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    //
+    // ADR-0221: source 동적화 — KIS_REALTIME / YAHOO_HISTORICAL 분기.
     const dataQualityIssues: Array<'changePercent' | 'return5d' | 'return20d'> = [];
     let changePercent = 0;
     if (prevClose !== null) {
       const result = safePctChangeDetailed(price, {
         value: prevClose,
         asOf: prevCloseAsOf,
-        source: 'YAHOO_HISTORICAL',
+        source: prevCloseSource,
       }, {
         label: `yahooQuoteAdapter.changePercent:${symbol}`,
         mode: 'DAILY',
