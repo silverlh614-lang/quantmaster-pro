@@ -220,6 +220,26 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const krCode = krMatch ? krMatch[1] : null;
     const kisSnap = krCode ? await fetchKisIntraday(krCode).catch(() => null) : null;
 
+    // ADR-0263: KIS vs Yahoo *현재가* 50% 초과 괴리 시 종목 매핑 결함 의심 → 응답 폐기.
+    // 마스터 시장 분류 결함 / Yahoo 측 코드 재할당 / 동명이 ticker 충돌 자동 차단.
+    // ADR-0221 의 kisSnap 재사용 — 추가 KIS 호출 0건.
+    // ENV `YAHOO_KIS_PRICE_DIVERGENCE_DISABLED=true` 우회 (default OFF, ADR-0157 정합).
+    if (
+      kisSnap && kisSnap.price > 0
+      && process.env.YAHOO_KIS_PRICE_DIVERGENCE_DISABLED !== 'true'
+    ) {
+      const divergence = Math.abs(price - kisSnap.price) / kisSnap.price;
+      if (divergence > 0.5) {
+        console.error(
+          `[yahooQuoteAdapter] ${symbol} 종목 매핑 결함 의심 — ` +
+          `Yahoo price=${price} vs KIS price=${kisSnap.price} ` +
+          `(${(divergence * 100).toFixed(1)}% 괴리). 마스터 시장 분류 또는 ` +
+          `코드 재할당 가능성. 응답 폐기 (ADR-0263).`,
+        );
+        return null;
+      }
+    }
+
     if (kisSnap && kisSnap.prevClose > 0) {
       // KIS 채택 — KRX 거래일 캘린더 기반 직전 거래일 종가 (장 마감 15:30 KST).
       prevClose = kisSnap.prevClose;
