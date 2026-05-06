@@ -121,6 +121,19 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     if (!result) return null;
 
     const meta = result.meta;
+
+    // ADR-0234: Yahoo 응답 self-identification 검증 — meta.symbol 이 요청 symbol 과
+    // 일치하지 않으면 응답 폐기. Yahoo 측 심볼 매핑 결함 (예: 신규상장/병합/폐지
+    // 후 다른 종목 데이터 반환) 자동 차단. 호출자는 null 받아 fallback 트리거.
+    const respondedSymbol = (meta as { symbol?: string } | undefined)?.symbol;
+    if (respondedSymbol && respondedSymbol !== symbol) {
+      console.warn(
+        `[yahooQuoteAdapter] 심볼 불일치 — 요청=${symbol} 응답=${respondedSymbol}. ` +
+        `Yahoo 측 심볼 매핑 결함 의심 — 응답 폐기 (ADR-0234).`,
+      );
+      return null;
+    }
+
     const rawCloses: (number | null)[] = result.indicators?.quote?.[0]?.close ?? [];
     const rawHighs: (number | null)[]  = result.indicators?.quote?.[0]?.high ?? [];
     const rawLows: (number | null)[]   = result.indicators?.quote?.[0]?.low ?? [];
