@@ -87,14 +87,38 @@ export interface YahooQuoteExtended {
    */
   priceMetadata?: PriceBase;
   /**
-   * ADR-0091 PR-Z4 — Yahoo 변화율 데이터 품질 marker.
-   * `OK` (모두 valid) / `STALE_BASE` (changePercent / return5d / return20d 중 1개 이상 sanity 위반).
-   * 사용자 패치 §"valid=false 면 Yahoo 등락률 폐기 + KIS 우선 사용 + Gate/MOMENTUM 감점/제외".
-   * 호출자(stockScreener)가 STALE_BASE 종목을 universe 에서 제외하거나 momentum 점수 감점.
+   * ADR-0091 PR-Z4 + ADR-0411 — Yahoo 데이터 품질 marker.
+   * `OK` (모두 valid) / `STALE_BASE` (changePercent / return5d / return20d 중 1개 이상 sanity 위반)
+   *   / `KIS_PRIMARY_YAHOO_STALE_DETECTED` (ADR-0411 — Yahoo↔KIS 가격 50% 초과 괴리, KIS price recovery).
+   *
+   * ADR-0411: ADR-0263 의 `return null` 대신 KIS 현재가 채택 (universe 손실 차단) + 시계열 의존
+   * evaluator 를 registry 단계에서 PROVIDER_DEGRADED 강등. 호출자(perSymbolEvaluation)
+   * 에서 `WATCHLIST_HOLD` 정책으로 자동 진입 보류.
    */
-  dataQuality?: 'OK' | 'STALE_BASE';
+  dataQuality?: 'OK' | 'STALE_BASE' | 'KIS_PRIMARY_YAHOO_STALE_DETECTED';
   /** dataQuality=STALE_BASE 시 어느 필드가 위반했는지 진단 — 운영 로그 추적용. */
   dataQualityIssues?: Array<'changePercent' | 'return5d' | 'return20d'>;
+  /**
+   * ADR-0411 — Yahoo 시계열 파생 지표 (MA/RSI/MACD/ATR/return5d/20d/BB폭/MTAS) 신뢰성 marker.
+   * `false` 면 시계열 의존 evaluator (momentum/ma_alignment/vcp/volume_breakout/turtle_high/
+   * relative_strength/breakout_momentum/volume_surge/rsi_zone/macd_bull/pullback/ma60_rising/
+   * weekly_rsi_zone/trend_acceleration) 가 registry 단계에서 자동 PROVIDER_DEGRADED 강등.
+   *
+   * `KIS_PRIMARY_YAHOO_STALE_DETECTED` 시 자동 false. `STALE_BASE` 도 이미 잘못된 base 이라 false.
+   * 미설정 (legacy) 또는 `OK` 시 true.
+   */
+  yahooDerivedIndicatorsReliable?: boolean;
+  /**
+   * ADR-0411 — KIS recovery 진단 메타.
+   * KIS price recovery 적용 시 `{ source: 'KIS_REALTIME', divergencePct, recoveredAt }` 영속.
+   * UI/`/health` /운영자 진단용. 미설정 (정상 흐름) 시 undefined.
+   */
+  yahooKisRecovery?: {
+    readonly originalYahooPrice: number;
+    readonly recoveredKisPrice: number;
+    readonly divergencePct: number;
+    readonly recoveredAt: string; // ISO
+  };
 }
 
 // 스크리너·시그널·리포트가 같은 분 안에 동일 심볼을 여러 번 조회하므로
@@ -192,7 +216,8 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     // ADR-0028 §모순 보강: Yahoo 가 KRX 종목 일부에 regularMarketPrice=0 응답하는
     // 케이스 차단. validPrice chain 이 0/NaN/음수 모두 null → 다음 fallback 시도.
     // 모두 실패하면 함수 자체 null 반환 (호출자에게 PRICE_MISSING 신호).
-    const price = validPrice(meta.regularMarketPrice)
+    // ADR-0411: `let` 으로 변경 — Yahoo↔KIS 50% 초과 괴리 시 KIS 가격 채택 (recovery).
+    let price = validPrice(meta.regularMarketPrice)
       ?? validPrice(closes[closes.length - 1]);
     if (price === null) {
       console.warn(
@@ -220,23 +245,54 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const krCode = krMatch ? krMatch[1] : null;
     const kisSnap = krCode ? await fetchKisIntraday(krCode).catch(() => null) : null;
 
-    // ADR-0263: KIS vs Yahoo *현재가* 50% 초과 괴리 시 종목 매핑 결함 의심 → 응답 폐기.
-    // 마스터 시장 분류 결함 / Yahoo 측 코드 재할당 / 동명이 ticker 충돌 자동 차단.
-    // ADR-0221 의 kisSnap 재사용 — 추가 KIS 호출 0건.
-    // ENV `YAHOO_KIS_PRICE_DIVERGENCE_DISABLED=true` 우회 (default OFF, ADR-0157 정합).
+    // ADR-0263 (원안) → ADR-0411 (개정): KIS vs Yahoo *현재가* 50% 초과 괴리 처리 정책 변경.
+    // 기존 `return null` (마스터 매핑 결함 의심 → 응답 폐기) 은 Yahoo 가 분할/증자/정정 직후
+    // stale price 를 반환하는 *데이터 품질* 케이스에서도 universe 에서 종목을 통째로 제거 →
+    // 정상 종목 손실 + dataQuality marker 도 부재 → 운영자가 사라진 이유 추적 불가.
+    //
+    // ADR-0411 정책: divergence > 50% 시 KIS 현재가 채택 (recovery) + dataQuality marker
+    // (`KIS_PRIMARY_YAHOO_STALE_DETECTED`) + `yahooDerivedIndicatorsReliable=false` →
+    // registry.run 이 시계열 의존 evaluator (momentum/MA/VCP/...) 자동 PROVIDER_DEGRADED 강등 →
+    // 호출자(perSymbolEvaluation)가 WATCHLIST_HOLD 정책으로 보유만 / 신규 진입 차단.
+    //
+    // ENV `YAHOO_KIS_PRICE_DIVERGENCE_DISABLED=true` 우회 (default OFF, ADR-0157 정합) — 기존 동작.
+    // ENV `ADR_0411_KIS_RECOVERY_DISABLED=true` 시 ADR-0263 원안 동작 (return null) 복원 — 회귀 안전장치.
+    let yahooKisDiverged = false;
+    let yahooKisRecoveryMeta: YahooQuoteExtended['yahooKisRecovery'] = undefined;
+    let priceSource: PriceSource = 'YAHOO_INTRADAY';
     if (
       kisSnap && kisSnap.price > 0
       && process.env.YAHOO_KIS_PRICE_DIVERGENCE_DISABLED !== 'true'
     ) {
       const divergence = Math.abs(price - kisSnap.price) / kisSnap.price;
       if (divergence > 0.5) {
-        console.error(
-          `[yahooQuoteAdapter] ${symbol} 종목 매핑 결함 의심 — ` +
-          `Yahoo price=${price} vs KIS price=${kisSnap.price} ` +
-          `(${(divergence * 100).toFixed(1)}% 괴리). 마스터 시장 분류 또는 ` +
-          `코드 재할당 가능성. 응답 폐기 (ADR-0263).`,
+        if (process.env.ADR_0411_KIS_RECOVERY_DISABLED === 'true') {
+          // ADR-0263 원안 — 응답 폐기 (legacy 동작 복원)
+          console.error(
+            `[yahooQuoteAdapter] ${symbol} 종목 매핑 결함 의심 — ` +
+            `Yahoo price=${price} vs KIS price=${kisSnap.price} ` +
+            `(${(divergence * 100).toFixed(1)}% 괴리). 응답 폐기 (ADR-0263 legacy).`,
+          );
+          return null;
+        }
+        // ADR-0411 — KIS recovery
+        const originalYahooPrice = price;
+        const divergencePct = divergence * 100;
+        console.warn(
+          `[yahooQuoteAdapter] ${symbol} Yahoo↔KIS ${divergencePct.toFixed(1)}% 괴리 ` +
+          `(Yahoo=${originalYahooPrice} → KIS=${kisSnap.price}) — KIS 가격 채택 + ` +
+          `dataQuality=KIS_PRIMARY_YAHOO_STALE_DETECTED. 시계열 의존 evaluator 는 ` +
+          `registry 에서 PROVIDER_DEGRADED 자동 강등 (ADR-0411).`,
         );
-        return null;
+        price = kisSnap.price;
+        priceSource = 'KIS_REALTIME';
+        yahooKisDiverged = true;
+        yahooKisRecoveryMeta = {
+          originalYahooPrice,
+          recoveredKisPrice: kisSnap.price,
+          divergencePct,
+          recoveredAt: new Date().toISOString(),
+        };
       }
     }
 
@@ -529,18 +585,30 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       dailyVolumeDrying,
       isHighRisk,
       // ADR-0028 §PR-D3-B: 가격 출처+시점 메타 — Yahoo regularMarketTime 우선, 없으면 fetch 시점.
-      // PR-D3-D 에서 호출자가 PriceBase 로 safePctChange 에 전달 시 stale 검증 자동 적용.
+      // ADR-0411: priceSource 동적화 — KIS recovery 시 KIS_REALTIME, 그 외 YAHOO_INTRADAY.
       priceMetadata: {
         value: price,
-        asOf: typeof meta.regularMarketTime === 'number' && Number.isFinite(meta.regularMarketTime)
-          ? new Date(meta.regularMarketTime * 1000).toISOString()
-          : new Date().toISOString(),
-        source: 'YAHOO_INTRADAY',
+        asOf: yahooKisDiverged
+          ? new Date().toISOString() // KIS recovery 시 fetch 시점 사용 (Yahoo regularMarketTime 신뢰성 손상)
+          : (typeof meta.regularMarketTime === 'number' && Number.isFinite(meta.regularMarketTime)
+            ? new Date(meta.regularMarketTime * 1000).toISOString()
+            : new Date().toISOString()),
+        source: priceSource,
       },
-      // ADR-0091 PR-Z4: changePercent / return5d / return20d 중 1개 이상 sanity 위반 시 STALE_BASE.
-      // 호출자(stockScreener)가 universe 제외 또는 momentum 점수 감점.
-      dataQuality: dataQualityIssues.length > 0 ? 'STALE_BASE' : 'OK',
+      // ADR-0091 PR-Z4 + ADR-0411: dataQuality 우선순위 SSOT —
+      // (1) KIS recovery 적용 → 'KIS_PRIMARY_YAHOO_STALE_DETECTED' (최우선, base price 자체가 KIS 라
+      //     Yahoo 시계열 derived 지표 모두 신뢰성 손상).
+      // (2) Yahoo 변화율 sanity 위반 → 'STALE_BASE' (base 는 Yahoo 인데 changePercent/return5d/20d 위반).
+      // (3) 정상 → 'OK'.
+      dataQuality: yahooKisDiverged
+        ? 'KIS_PRIMARY_YAHOO_STALE_DETECTED'
+        : (dataQualityIssues.length > 0 ? 'STALE_BASE' : 'OK'),
       dataQualityIssues: dataQualityIssues.length > 0 ? dataQualityIssues : undefined,
+      // ADR-0411: Yahoo 시계열 파생 지표 (MA/RSI/MACD/ATR/return5d/20d/BB폭/MTAS) 신뢰성.
+      // KIS recovery 또는 STALE_BASE 시 false → registry 가 시계열 의존 evaluator 자동 강등.
+      yahooDerivedIndicatorsReliable: !yahooKisDiverged && dataQualityIssues.length === 0,
+      // ADR-0411: KIS recovery 진단 메타 — 미적용 시 undefined.
+      yahooKisRecovery: yahooKisRecoveryMeta,
     };
     _yahooQuoteCache.set(symbol, { data: quote, ts: Date.now() });
     return quote;

@@ -304,6 +304,16 @@ export interface WatchlistEntry {
    * 후속 PR 에서 진단 UI / 텔레그램 리포트에 노출.
    */
   dataQuality?: import('../types/dataQuality.js').DataQualityInfo;
+  /**
+   * ADR-0411 — Yahoo 시계열 신뢰성 손상 (`KIS_PRIMARY_YAHOO_STALE_DETECTED`) 마커.
+   * 사용자 micro-correction: WATCHLIST_HOLD 정책 (STRONG → BUY 강등 대신 신규 진입 자동 보류).
+   * 이유: 14 시계열 evaluator 가 PROVIDER_DEGRADED 강등되면 score=0 → 잔여 점수 (per/supply_confluence/
+   * earnings_quality) max 합 ~3.0 이라 R3_EARLY NORMAL 임계 (4점) 미달 → 자연 진입 차단.
+   * 본 마커는 운영자 진단·텔레그램 라벨링용 (TECHNICAL_PROVIDER_DEGRADED).
+   */
+  technicalProviderDegraded?: boolean;
+  /** technicalProviderDegraded 마킹 시각 ISO. */
+  technicalProviderDegradedAt?: string;
 }
 
 export function loadWatchlist(): WatchlistEntry[] {
