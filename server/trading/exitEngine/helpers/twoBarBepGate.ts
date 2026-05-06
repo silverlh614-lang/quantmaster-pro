@@ -56,8 +56,14 @@ export function isBepProtectionPolicyDisabled(): boolean {
   return process.env.BEP_PROTECTION_DISABLED === 'true';
 }
 
+/**
+ * ENV `BEP_TWO_BAR_LIVE_ENABLED` default ON (운영자 명시 활성화 결정 — PR-P0-Activation, 2026-05-06).
+ *   - `'false'` 정확 비교 시만 비활성 (ADR-0157 정확 비교 의무)
+ *   - 미설정 / `'true'` / 임의 truthy 모두 default ON — LIVE 모드 BEP_PROTECTION 분기 활성화
+ *   - 회귀 발견 시 ENV `=false` 1줄 즉시 롤백 → ADR-0085 default OFF 동작 복원
+ */
 export function isBepTwoBarLiveEnabled(): boolean {
-  return process.env.BEP_TWO_BAR_LIVE_ENABLED === 'true';
+  return process.env.BEP_TWO_BAR_LIVE_ENABLED !== 'false';
 }
 
 export function applyTwoBarBepGate(input: TwoBarBepGateInput): TwoBarBepGateResult {

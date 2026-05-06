@@ -135,3 +135,30 @@ export function evaluateSlotSizing(input: {
 - ADR-0079 ATR-Buffered BEP Glide (PR-Z6)
 - ADR-0080 Capital-Weighted Slot Accounting (PR-S1)
 - ADR-0080 §"후속 PR" — BEP #2 + PR-S2 명문화
+
+## PR-P0-Activation (2026-05-06) — default OFF → ON
+
+### 배경
+
+ADR-0085 PR-B1-1 (PR #486, 2026-05-01) 에서 hardStopLoss BEP_PROTECTION 분기에 `applyTwoBarBepGate` wiring 완료. SHADOW only 활성 default — `BEP_TWO_BAR_LIVE_ENABLED=true` 명시 시에만 LIVE 모드 활성. 운영자 명시 결정 대기 패턴.
+
+PR-A (#665) 머지 후 사용자 명시 *"P0 패치 후 머지 실시"* — 본 PR 으로 **default ON 전환**.
+
+### 변경
+
+`isBepTwoBarLiveEnabled()` SSOT 정확 비교 패턴 격상:
+
+- **이전**: `process.env.BEP_TWO_BAR_LIVE_ENABLED === 'true'` (default OFF)
+- **신규**: `process.env.BEP_TWO_BAR_LIVE_ENABLED !== 'false'` (default ON, ADR-0157 정확 비교 의무)
+
+회귀 발견 시 ENV `BEP_TWO_BAR_LIVE_ENABLED=false` 1줄 즉시 롤백 → ADR-0085 PR-B1-1 default OFF 동작 byte-equivalent 복원.
+
+### 회귀 테스트 정합 정정
+
+- `isBepTwoBarLiveEnabled() default false` → `default true` (PR-P0-Activation 정합)
+- `BEP_TWO_BAR_LIVE_ENABLED=false 명시 → false` 신규 케이스 추가
+- LIVE 회귀 격리 분기 — `=false` 명시 시 SKIP (legacy 회귀 격리 보존)
+
+### 운영 효과
+
+LIVE 모드 진입 시 BEP_PROTECTION 분기 자동 활성 — 단봉 노이즈 손절 회피 즉시 작동. SHADOW 1주 검증 (PR-B1-1 머지일 2026-05-01 ~ 2026-05-06) 충분 + 사용자 명시 SHADOW only 운영 (LIVE 미진입) 이라 회귀 위험 0.
