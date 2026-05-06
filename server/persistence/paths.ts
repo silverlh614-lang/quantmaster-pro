@@ -370,6 +370,17 @@ export const DEFECT_EVOLUTION_LEDGER_FILE = path.join(DATA_DIR, 'defect-evolutio
 // ADR-0250: 사용자 진단 단서 ledger — 결함 추적 성공 패턴 학습 데이터.
 export const USER_DIAGNOSTIC_HINTS_FILE = path.join(DATA_DIR, 'user-diagnostic-hints.json');
 
+/**
+ * ADR-0395 P2 — ExecutionMode 영속 override.
+ *
+ * RUNTIME_EXECUTION_MODE (Kill Switch / 운영자 명령) → 본 파일 (운영자 영속 강등) → env.
+ * 재배포 시 RUNTIME 메모리는 사라지지만 본 파일은 보존되어 강등 상태 유지.
+ *
+ * 형식: { mode: 'OFF'|'PAPER'|'LIVE', reason?: string, setBy?: string, setAt: string }
+ * 기록자: state.ts setExecutionModeOverride 만 (단일 진입점).
+ */
+export const EXECUTION_MODE_OVERRIDE_FILE = path.join(DATA_DIR, 'execution_mode_override.json');
+
 export function ensureReflectionsDir(): void {
   ensureDataDir();
   if (!fs.existsSync(REFLECTIONS_DIR)) fs.mkdirSync(REFLECTIONS_DIR, { recursive: true });
