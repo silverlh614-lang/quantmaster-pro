@@ -112,15 +112,29 @@ export const momentumEvaluator: ConditionEvaluator = {
 
 export const maAlignmentEvaluator: ConditionEvaluator = {
   key: 'ma_alignment',
-  description: '5일 > 20일 > 60일 이동평균 정배열',
+  description: '5일 > 20일 > 60일 이동평균 정배열 (ADR-0390 status)',
   inputs: ['quote.ma5', 'quote.ma20', 'quote.ma60'],
   evaluate({ quote, weights }) {
-    if (!(quote.ma5 > 0 && quote.ma20 > 0 && quote.ma60 > 0)) return null;
-    if (!(quote.ma5 > quote.ma20 && quote.ma20 > quote.ma60)) return null;
+    // ADR-0387: 이동평균 입력 부재 (Yahoo 시계열 < 60일 등) → DATA_UNAVAILABLE.
+    if (!(quote.ma5 > 0 && quote.ma20 > 0 && quote.ma60 > 0)) {
+      return {
+        score: 0, conditionKey: 'ma_alignment',
+        detail: 'MA5/MA20/MA60 데이터 부재',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
+    if (!(quote.ma5 > quote.ma20 && quote.ma20 > quote.ma60)) {
+      return {
+        score: 0, conditionKey: 'ma_alignment',
+        detail: `MA5=${quote.ma5.toFixed(0)}/MA20=${quote.ma20.toFixed(0)}/MA60=${quote.ma60.toFixed(0)} 정배열 미충족`,
+        status: 'THRESHOLD_NOT_MET',
+      };
+    }
     return {
       score: weightFor(weights, 'ma_alignment'),
       conditionKey: 'ma_alignment',
       detail: '정배열 (MA5>MA20>MA60)',
+      status: 'FIRED',
     };
   },
 };
@@ -129,14 +143,36 @@ export const maAlignmentEvaluator: ConditionEvaluator = {
 
 export const volumeBreakoutEvaluator: ConditionEvaluator = {
   key: 'volume_breakout',
-  description: '거래량 5일 평균 2배 이상',
+  description: '거래량 5일 평균 2배 이상 (ADR-0390 status)',
   inputs: ['quote.volume', 'quote.avgVolume'],
   evaluate({ quote, weights }) {
-    if (!(quote.avgVolume > 0 && quote.volume >= quote.avgVolume * 2)) return null;
+    // ADR-0387: avgVolume / volume 부재 → DATA_UNAVAILABLE.
+    if (!(quote.avgVolume > 0)) {
+      return {
+        score: 0, conditionKey: 'volume_breakout',
+        detail: 'avgVolume(5일 평균) 데이터 부재',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
+    if (!Number.isFinite(quote.volume)) {
+      return {
+        score: 0, conditionKey: 'volume_breakout',
+        detail: 'volume 데이터 부재',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
+    if (quote.volume < quote.avgVolume * 2) {
+      return {
+        score: 0, conditionKey: 'volume_breakout',
+        detail: `거래량 ${(quote.volume / quote.avgVolume).toFixed(1)}배 (2배 미달)`,
+        status: 'THRESHOLD_NOT_MET',
+      };
+    }
     return {
       score: weightFor(weights, 'volume_breakout'),
       conditionKey: 'volume_breakout',
       detail: `거래량 ${(quote.volume / quote.avgVolume).toFixed(1)}배`,
+      status: 'FIRED',
     };
   },
 };
@@ -223,14 +259,36 @@ export const perEvaluator: ConditionEvaluator = {
 
 export const turtleHighEvaluator: ConditionEvaluator = {
   key: 'turtle_high',
-  description: '20일 신고가 돌파',
+  description: '20일 신고가 돌파 (ADR-0390 status)',
   inputs: ['quote.high20d', 'quote.price'],
   evaluate({ quote, weights }) {
-    if (!(quote.high20d > 0 && quote.price >= quote.high20d)) return null;
+    // ADR-0387: high20d / price 부재 → DATA_UNAVAILABLE (Yahoo 시계열 < 20일).
+    if (!(quote.high20d > 0)) {
+      return {
+        score: 0, conditionKey: 'turtle_high',
+        detail: 'high20d(20일 고점) 데이터 부재',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
+    if (!(quote.price > 0)) {
+      return {
+        score: 0, conditionKey: 'turtle_high',
+        detail: 'price 데이터 부재',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
+    if (quote.price < quote.high20d) {
+      return {
+        score: 0, conditionKey: 'turtle_high',
+        detail: `현재가 ${quote.price.toFixed(0)} < 20일고점 ${quote.high20d.toFixed(0)}`,
+        status: 'THRESHOLD_NOT_MET',
+      };
+    }
     return {
       score: weightFor(weights, 'turtle_high'),
       conditionKey: 'turtle_high',
       detail: '20일 신고가 돌파',
+      status: 'FIRED',
     };
   },
 };
@@ -254,16 +312,38 @@ export const turtleHighEvaluator: ConditionEvaluator = {
 
 export const relativeStrengthEvaluator: ConditionEvaluator = {
   key: 'relative_strength',
-  description: 'KOSPI 대비 20일 누적 +3.0%p 초과 — momentum 과 시간축·입력 모두 분리',
+  description: 'KOSPI 대비 20일 누적 +3.0%p 초과 — momentum 과 시간축·입력 모두 분리 (ADR-0390 status)',
   inputs: ['quote.return20d', 'ctx.kospi20dReturn'],
   evaluate({ quote, weights, kospi20dReturn }) {
-    if (kospi20dReturn === undefined) return null; // 벤치마크 없이 발화 금지
+    // ADR-0387: 벤치마크 (KOSPI 20일 누적) 없이 발화 금지 — DATA_UNAVAILABLE.
+    if (kospi20dReturn === undefined || !Number.isFinite(kospi20dReturn)) {
+      return {
+        score: 0, conditionKey: 'relative_strength',
+        detail: 'kospi20dReturn 벤치마크 부재',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
+    // ADR-0387: 종목 20일 수익률 부재 → DATA_UNAVAILABLE.
+    if (!Number.isFinite(quote.return20d)) {
+      return {
+        score: 0, conditionKey: 'relative_strength',
+        detail: 'return20d 데이터 부재',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
     const gap = quote.return20d - kospi20dReturn;
-    if (!(gap > 3.0)) return null;
+    if (!(gap > 3.0)) {
+      return {
+        score: 0, conditionKey: 'relative_strength',
+        detail: `상대강도 +${gap.toFixed(1)}%p (3.0%p 미달)`,
+        status: 'THRESHOLD_NOT_MET',
+      };
+    }
     return {
       score: weightFor(weights, 'relative_strength'),
       conditionKey: 'relative_strength',
       detail: `상대강도 20d +${gap.toFixed(1)}%p (종목 ${quote.return20d.toFixed(1)}% vs KOSPI ${kospi20dReturn.toFixed(1)}%)`,
+      status: 'FIRED',
     };
   },
 };
@@ -281,10 +361,24 @@ export const relativeStrengthEvaluator: ConditionEvaluator = {
 
 export const breakoutMomentumEvaluator: ConditionEvaluator = {
   key: 'breakout_momentum',
-  description: '5일 고점 돌파 + 거래량 확인 (momentum 과 입력 독립)',
+  description: '5일 고점 돌파 + 거래량 확인 — momentum 과 입력 독립 (ADR-0390 status)',
   inputs: ['quote.high5d', 'quote.price', 'quote.volume', 'quote.avgVolume'],
   evaluate({ quote, weights }) {
-    if (!(quote.high5d > 0 && quote.price > 0 && quote.avgVolume > 0)) return null;
+    // ADR-0387: 4 입력 부재 시 DATA_UNAVAILABLE.
+    if (!(quote.high5d > 0 && quote.price > 0 && quote.avgVolume > 0)) {
+      return {
+        score: 0, conditionKey: 'breakout_momentum',
+        detail: 'high5d/price/avgVolume 데이터 부재',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
+    if (!Number.isFinite(quote.volume)) {
+      return {
+        score: 0, conditionKey: 'breakout_momentum',
+        detail: 'volume 데이터 부재',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
     const posVsHigh = quote.price / quote.high5d;
     const volRatio  = quote.volume / quote.avgVolume;
     const w = weightFor(weights, 'breakout_momentum');
@@ -293,6 +387,7 @@ export const breakoutMomentumEvaluator: ConditionEvaluator = {
         score: w,
         conditionKey: 'breakout_momentum',
         detail: `5일돌파 ${((posVsHigh - 1) * 100).toFixed(1)}% + 거래량 ${volRatio.toFixed(1)}배`,
+        status: 'FIRED',
       };
     }
     if (posVsHigh >= 0.99 && volRatio >= 1.2) {
@@ -300,9 +395,14 @@ export const breakoutMomentumEvaluator: ConditionEvaluator = {
         score: w * 0.6,
         conditionKey: 'breakout_momentum',
         detail: `5일고점근접 (${((posVsHigh - 1) * 100).toFixed(1)}%) 거래량 ${volRatio.toFixed(1)}배`,
+        status: 'FIRED',
       };
     }
-    return null;
+    return {
+      score: 0, conditionKey: 'breakout_momentum',
+      detail: `5일고점 위치 ${(posVsHigh * 100).toFixed(1)}% / 거래량 ${volRatio.toFixed(1)}배 임계 미달`,
+      status: 'THRESHOLD_NOT_MET',
+    };
   },
 };
 
