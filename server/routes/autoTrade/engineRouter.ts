@@ -177,8 +177,14 @@ router.post('/auto-trade/engine/manage-only', (req: any, res: any) => {
     ? !getManualManageOnly()
     : Boolean(req.body.enabled);
   setManualManageOnly(next);
-  // 보유만 관리 ON 이면 신규 매수는 자연스럽게 차단되어야 한다 — 함께 설정.
-  if (next) setManualBlockNewBuy(true);
+  // ADR-0193: 대칭 coupling — ON 시 차단·OFF 시 해제 양방향.
+  // 사용자 5/6 보고: "신규매수차단 해제기능이 구현안된건가? 해제가 안됨" — 비대칭 결함 차단.
+  // ENV `MANAGE_ONLY_SYMMETRIC_COUPLING_DISABLED=true` 우회 시 기존 ON-only coupling 복원.
+  if (process.env.MANAGE_ONLY_SYMMETRIC_COUPLING_DISABLED === 'true') {
+    if (next) setManualBlockNewBuy(true);
+  } else {
+    setManualBlockNewBuy(next);
+  }
   console.warn(`[Engine] 보유만 관리 모드 → ${next ? 'ON' : 'OFF'} (수동)`);
   res.json({
     manageOnly: next,
