@@ -94,8 +94,12 @@ describe('sectorEnergyProvider.ts 정적 가드 (ADR-0343)', () => {
     expect(SOURCE).toMatch(/result\.dataQuality\s*!==\s*'FAILED'/);
   });
 
-  it('ENV DISABLED 우회 — 원본 결과 그대로', () => {
-    expect(SOURCE).toMatch(/if\s*\(isSectorEnergyFallbackDisabled\(\)\)\s*return\s+result/);
+  it('ENV DISABLED 우회 — 원본 결과 그대로 (ADR-0399 attachDiagnostics 적용 후 정합 정정)', () => {
+    // ADR-0399: 본 PR 머지 후 `if (isSectorEnergyFallbackDisabled()) return result;` 패턴이
+    // `return attachDiagnostics(result, ...)` 로 격상. 진단 메타 영속 의도 보존.
+    expect(SOURCE).toMatch(
+      /if\s*\(isSectorEnergyFallbackDisabled\(\)\)\s*return\s+attachDiagnostics\(/,
+    );
   });
 
   it('진단 로그 ADR-0343 마커', () => {

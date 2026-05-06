@@ -158,6 +158,30 @@ export interface MacroState {
   /** ADR-0396: 합성 confidence (sourceWeight × freshnessWeight × coverage, 0~1 clamp). */
   sectorEnergyConfidence?: number;
   /**
+   * ADR-0399 (= 사용자 명시 ADR-0374): KRX 원천 복구 진단 메타.
+   *
+   * 운영자 `/sector_energy_diag` 명령에서 *어느 layer 가 작동했는지* 추적용:
+   *   - candidateDates: T → T-1 → T-2 → T-3 → T-5 시도한 날짜 후보
+   *   - sourceTierAttempts: 4-tier (KRX_CODE/STOCK_DAILY/CACHE/YAHOO_ETF) 별 시도 결과
+   *   - finalSourceTier: 최종 채택 tier
+   *   - confidence: ADR-0396 합성 confidence
+   *   - fallbackReason: L4 도달 사유 (KRX 실패 + cache 부재/EXPIRED 등)
+   *
+   * 사용자 명시 9 핵심 원칙 #9 — fallback 작동 시 UI 와 diagnostics 에 반드시 표시.
+   * 옵셔널 필드 — 후방호환 (ADR-0399 이전 영속 데이터 그대로 보존).
+   */
+  sectorEnergyDiagnostics?: {
+    candidateDates: string[];
+    sourceTierAttempts: Array<{
+      tier: 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_ETF' | 'FAILED';
+      validCount: number;
+      reason?: string;
+    }>;
+    finalSourceTier: 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_ETF' | 'FAILED';
+    confidence: number;
+    fallbackReason?: string;
+  };
+  /**
    * ADR-0343 — sectorEnergy build 입력 (SectorEnergyInput[]) 영속.
    *
    * `buildSectorEnergyInputsWithMeta` 가 OK/PARTIAL 시 inputs 배열 영속 → FAILED 진입 시

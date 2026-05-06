@@ -753,16 +753,61 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   // applySectorScoreBoost 가 read 후 dataQuality 분기로 boost 강도 분기.
   let sectorEnergyResult: ReturnType<typeof evaluateSectorEnergy> | undefined;
   let sectorEnergyUpdatedAt: string | undefined;
-  let sectorEnergyDataQuality: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED' | undefined;
+  // ADR-0396: 5단계 union (DEGRADED 신규).
+  let sectorEnergyDataQuality: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED' | undefined;
   let sectorEnergyValidSectorCount: number | undefined;
   let sectorEnergyReasons: string[] | undefined;
+  // ADR-0396 4-axis 영속 (사용자 명시 ADR-0371) + ADR-0399 진단 메타 (사용자 명시 ADR-0374).
+  let sectorEnergySourceTier: 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_ETF' | 'FAILED' | undefined;
+  let sectorEnergyFreshness: 'FRESH' | 'DEGRADED' | 'EXPIRED' | undefined;
+  let sectorEnergyCoverage: number | undefined;
+  let sectorEnergyConfidence: number | undefined;
+  let sectorEnergyDiagnostics: NonNullable<typeof existing.sectorEnergyDiagnostics> | undefined;
   try {
     // ADR-0125: WithMeta 사용 — symmetry 검증 + dataQuality 동시 산출 (캐시 우회).
+    // ADR-0399: WithMetaWithFallback 으로 격상 — L1 KRX_CODE → L2 STOCK_DAILY → L3 CACHE → L4 YAHOO_ETF.
     // marketDataRefresh 일일 cron 이라 캐시 부담 없음. 진단 정확성 우선.
     const meta = await buildSectorEnergyInputsWithMeta();
     sectorEnergyDataQuality = meta.dataQuality;
     sectorEnergyValidSectorCount = meta.validSectorCount;
     sectorEnergyReasons = meta.reasons;
+
+    // ADR-0399: meta.diagnostics + meta.sourceTier 가 부착되어 있으면 4-axis 영속.
+    if (meta.diagnostics) {
+      sectorEnergyDiagnostics = meta.diagnostics;
+      sectorEnergySourceTier = meta.diagnostics.finalSourceTier;
+      sectorEnergyConfidence = meta.diagnostics.confidence;
+      // ADR-0396: coverage = validSectorCount / totalSectorCount, freshness 는 sourceTier 기반.
+      sectorEnergyCoverage = meta.totalSectorCount > 0
+        ? Math.max(0, Math.min(1, meta.validSectorCount / meta.totalSectorCount))
+        : 0;
+      // freshness 분기: KRX_CODE/STOCK_DAILY → FRESH (raw fetch 직후), CACHE → ageMs 기반,
+      // YAHOO_ETF → FRESH (raw fetch), FAILED → EXPIRED.
+      sectorEnergyFreshness =
+        meta.diagnostics.finalSourceTier === 'CACHE' ? 'DEGRADED'
+          : meta.diagnostics.finalSourceTier === 'FAILED' ? 'EXPIRED'
+          : 'FRESH';
+    } else if (meta.sourceTier) {
+      // ADR-0399: diagnostics 부재 + sourceTier 만 있을 때 (raw 결과 정상 분기).
+      sectorEnergySourceTier = meta.sourceTier;
+      sectorEnergyCoverage = meta.totalSectorCount > 0
+        ? Math.max(0, Math.min(1, meta.validSectorCount / meta.totalSectorCount))
+        : 0;
+      sectorEnergyFreshness = meta.sourceTier === 'FAILED' ? 'EXPIRED' : 'FRESH';
+      // ADR-0396 SSOT 호출 — 신규 산출식 도입 금지.
+      try {
+        const { buildSectorEnergyQualityComposite } = await import('../clients/sectorEnergyDataQuality.js');
+        const composite = buildSectorEnergyQualityComposite(
+          meta.validSectorCount,
+          meta.sourceTier,
+          0,
+          meta.totalSectorCount,
+        );
+        sectorEnergyConfidence = composite.confidence;
+      } catch {
+        sectorEnergyConfidence = 0;
+      }
+    }
 
     if (meta.inputs.length > 0) {
       sectorEnergyResult = evaluateSectorEnergy(meta.inputs);
@@ -805,11 +850,18 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     // sectorEnergyResult 가 갱신됐을 때만 덮어쓰기 — 실패 시 이전 값 보존.
     ...(sectorEnergyResult ? { sectorEnergyResult, sectorEnergyUpdatedAt } : {}),
     // ADR-0125: dataQuality 메타는 항상 영속 (이전 캐시 reference 활용 시 STALE 판정 입력).
+    // ADR-0399 (= 사용자 명시 ADR-0374): 4-axis (sourceTier/freshness/coverage/confidence)
+    // + diagnostics 동시 영속 — `/sector_energy_diag` 명령 처음 실제 데이터 표시.
     ...(sectorEnergyDataQuality !== undefined
       ? {
           sectorEnergyDataQuality,
           sectorEnergyValidSectorCount,
           sectorEnergyReasons,
+          ...(sectorEnergySourceTier !== undefined ? { sectorEnergySourceTier } : {}),
+          ...(sectorEnergyFreshness !== undefined ? { sectorEnergyFreshness } : {}),
+          ...(sectorEnergyCoverage !== undefined ? { sectorEnergyCoverage } : {}),
+          ...(sectorEnergyConfidence !== undefined ? { sectorEnergyConfidence } : {}),
+          ...(sectorEnergyDiagnostics !== undefined ? { sectorEnergyDiagnostics } : {}),
         }
       : {}),
     // 사이클 분류가 가능했을 때만 덮어쓰기 — 실패 시 이전 stage / RS 유지.

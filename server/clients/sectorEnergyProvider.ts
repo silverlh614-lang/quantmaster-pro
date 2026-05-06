@@ -92,6 +92,38 @@ export interface SymmetryValidationResult {
   reasons: string[];
 }
 
+/**
+ * ADR-0399 (= 사용자 명시 ADR-0374): KRX 원천 복구 진단 메타 SSOT.
+ *
+ * sectorEnergy build 결과에 옵셔널 부착 — 호출자가 macroState 로 영속화하면
+ * `/sector_energy_diag` 텔레그램 명령에서 *어느 layer 가 작동했는지* 즉시 추적.
+ *
+ * 사용자 명시 9 핵심 원칙 #9 — fallback 작동 시 UI 와 diagnostics 에 반드시 표시.
+ */
+export type SectorEnergySourceTierForDiag =
+  | 'KRX_CODE'
+  | 'STOCK_DAILY'
+  | 'CACHE'
+  | 'YAHOO_ETF'
+  | 'FAILED';
+
+export interface SectorEnergyDiagnosticsMeta {
+  /** T → T-1 → T-2 → T-3 → T-5 시도한 날짜 후보 (yyyymmdd 또는 'default'). */
+  candidateDates: string[];
+  /** 4-tier 별 시도 결과 (시도 순서대로). */
+  sourceTierAttempts: Array<{
+    tier: SectorEnergySourceTierForDiag;
+    validCount: number;
+    reason?: string;
+  }>;
+  /** 최종 채택 tier. */
+  finalSourceTier: SectorEnergySourceTierForDiag;
+  /** ADR-0396 합성 confidence (sourceWeight × freshnessWeight × coverage, 0~1). */
+  confidence: number;
+  /** L4 (Yahoo ETF) 도달 사유 등. */
+  fallbackReason?: string;
+}
+
 export interface SectorEnergyBuildResult {
   inputs: SectorEnergyInput[];
   dataQuality: SectorEnergyDataQuality;
@@ -99,6 +131,16 @@ export interface SectorEnergyBuildResult {
   totalSectorCount: number;
   symmetryValidation?: SymmetryValidationResult;
   reasons: string[];
+  /**
+   * ADR-0399: 채택된 sourceTier (옵셔널 — 후방호환).
+   * L1 KRX_CODE / L2 STOCK_DAILY / L3 CACHE / L4 YAHOO_ETF / FAILED.
+   */
+  sourceTier?: SectorEnergySourceTierForDiag;
+  /**
+   * ADR-0399: 진단 메타 (옵셔널 — 후방호환).
+   * `buildSectorEnergyInputsWithMetaWithFallback` 진입점에서만 채워짐.
+   */
+  diagnostics?: SectorEnergyDiagnosticsMeta;
 }
 
 function classifySector(label: string): StrategicSector | null {
@@ -422,6 +464,16 @@ export async function buildSectorEnergyInputsWithMeta(): Promise<SectorEnergyBui
   return buildSectorEnergyInputsWithMetaWithFallback();
 }
 
+// ADR-0399: buildSectorEnergyInputsWithMetaRaw 의 attemptedTodayDates 를
+// withFallback wrapper 가 진단 메타에 사용할 수 있도록 export.
+let _lastAttemptedTodayDates: string[] = [];
+export function __getLastAttemptedTodayDatesForTests(): string[] {
+  return [..._lastAttemptedTodayDates];
+}
+export function __setLastAttemptedTodayDatesForTests(v: string[]): void {
+  _lastAttemptedTodayDates = [...v];
+}
+
 async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildResult> {
   const todayCandidates: Array<string | undefined> = [undefined, ...recentBusinessDaysKst(5)];
   const past = businessDaysAgo(20);
@@ -440,6 +492,7 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
       break;
     }
   }
+  _lastAttemptedTodayDates = [...attemptedTodayDates];
 
   const [pastKospiIdx, pastKosdaqIdx, kospiStocks, kosdaqStocks, pastKospiStocks, pastKosdaqStocks, investors] = await Promise.all([
     fetchKospiIndexDaily(past),
@@ -466,13 +519,15 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
       ['todayIdx empty — KRX index OpenAPI 응답 부재', `attempted=${attemptedTodayDates.join(',') || 'default'}`],
       'PARTIAL',
     );
-    if (fallback) return fallback;
+    // ADR-0399: STOCK_DAILY fallback 채택 시 sourceTier 부착.
+    if (fallback) return { ...fallback, sourceTier: 'STOCK_DAILY' };
     return {
       inputs: [],
       dataQuality: 'FAILED',
       validSectorCount: 0,
       totalSectorCount: TOTAL_SECTOR_COUNT,
       reasons: ['todayIdx empty — KRX OpenAPI 응답 부재', `attempted=${attemptedTodayDates.join(',') || 'default'}`],
+      sourceTier: 'FAILED',
     };
   }
 
@@ -485,9 +540,12 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
       ['symmetry validation failed — indexCode missing, stock-daily fallback preferred', ...symmetry.reasons],
       'STALE',
     );
-    if (stockFallback) return { ...stockFallback, symmetryValidation: symmetry };
+    // ADR-0399: STOCK_DAILY fallback 채택 시 sourceTier 부착.
+    if (stockFallback) return { ...stockFallback, symmetryValidation: symmetry, sourceTier: 'STOCK_DAILY' };
 
     if (isSectorEnergyIndexNameFallbackEnabled()) {
+      // ADR-0399: indexName fallback 은 ENV opt-in 전용 — default 영구 차단.
+      // 활성 시에도 sourceTier='KRX_CODE' 가 아닌 STOCK_DAILY 분류 (정확 매칭이 아니라 휴리스틱 매칭이라).
       const nameDeltas = aggregateIndexDeltas(todayIdx, pastIdx);
       const nameBuilt = buildInputsFromDeltas(nameDeltas, foreignMap);
       if (nameBuilt.validSectorCount >= getSectorEnergyMinValid()) {
@@ -502,6 +560,8 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
             ...symmetry.reasons,
             `ADR-0369 indexName fallback opt-in validSectorCount=${nameBuilt.validSectorCount}/${TOTAL_SECTOR_COUNT}`,
           ],
+          // ADR-0399: indexName fallback 은 KRX_CODE 정확 매칭이 아니므로 STOCK_DAILY 분류.
+          sourceTier: 'STOCK_DAILY',
         };
       }
     }
@@ -513,6 +573,7 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
       totalSectorCount: TOTAL_SECTOR_COUNT,
       symmetryValidation: symmetry,
       reasons: ['symmetry validation failed', ...symmetry.reasons, 'stock-daily fallback insufficient and indexName fallback disabled'],
+      sourceTier: 'FAILED',
     };
   }
 
@@ -527,11 +588,21 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
       [`index-code sector validSectorCount=${validSectorCount} < min=${minValid}`],
       'STALE',
     );
-    if (fallback) return { ...fallback, symmetryValidation: symmetry };
-    return { inputs: [], dataQuality: 'STALE', validSectorCount, totalSectorCount: TOTAL_SECTOR_COUNT, symmetryValidation: symmetry, reasons: [`validSectorCount=${validSectorCount} < min=${minValid}`] };
+    // ADR-0399: STOCK_DAILY fallback 채택 시 sourceTier 부착.
+    if (fallback) return { ...fallback, symmetryValidation: symmetry, sourceTier: 'STOCK_DAILY' };
+    return {
+      inputs: [],
+      dataQuality: 'STALE',
+      validSectorCount,
+      totalSectorCount: TOTAL_SECTOR_COUNT,
+      symmetryValidation: symmetry,
+      reasons: [`validSectorCount=${validSectorCount} < min=${minValid}`],
+      sourceTier: 'FAILED',
+    };
   }
 
   const dataQuality: SectorEnergyDataQuality = validSectorCount === TOTAL_SECTOR_COUNT ? 'OK' : 'PARTIAL';
+  // ADR-0399: KRX_CODE 정확 매칭 성공 — L1 채택.
   return {
     inputs,
     dataQuality,
@@ -539,6 +610,7 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
     totalSectorCount: TOTAL_SECTOR_COUNT,
     symmetryValidation: symmetry,
     reasons: dataQuality === 'PARTIAL' ? [`PARTIAL: validSectorCount=${validSectorCount}/${TOTAL_SECTOR_COUNT}`] : [],
+    sourceTier: 'KRX_CODE',
   };
 }
 
@@ -570,10 +642,39 @@ function applyYahooEtfDegradation(yahooResult: SectorEnergyBuildResult): SectorE
   };
 }
 
+/**
+ * ADR-0399 (= 사용자 명시 ADR-0374): 4-tier 호출 순서 SSOT (절대 변경 금지).
+ *
+ *   L1: KRX_CODE exact match → buildSectorEnergyInputsWithMetaRaw 의 정상 분기
+ *   L2: STOCK_DAILY synthetic → raw 함수 내부 buildStockDailyFallbackResult
+ *   L3: CACHE (≤ 48h, ADR-0343) → macroState.sectorEnergyInputs read
+ *   L4: YAHOO_ETF (ADR-0397) → buildSectorEnergyFromYahooETF, confidence × 0.5 + DEGRADED 강제
+ *
+ * 모든 진입에 sourceTierAttempts 누적 + 최종 채택 tier 부착. 운영자 진단용.
+ */
 export async function buildSectorEnergyInputsWithMetaWithFallback(): Promise<SectorEnergyBuildResult> {
+  // ADR-0399: 진단 메타 누적 (각 layer 시도 결과).
+  const sourceTierAttempts: SectorEnergyDiagnosticsMeta['sourceTierAttempts'] = [];
+
   const result = await buildSectorEnergyInputsWithMetaRaw();
-  if (isSectorEnergyFallbackDisabled()) return result;
-  if (result.dataQuality !== 'FAILED') return result;
+
+  // ADR-0399: raw 결과의 sourceTier 를 진단 메타에 기록 (L1/L2/FAILED 분기).
+  const rawTier: SectorEnergySourceTierForDiag = result.sourceTier ?? 'FAILED';
+  sourceTierAttempts.push({
+    tier: rawTier,
+    validCount: result.validSectorCount,
+    reason: rawTier === 'FAILED' ? result.reasons.slice(0, 1).join('; ') || 'raw FAILED' : undefined,
+  });
+
+  const candidateDates = __getLastAttemptedTodayDatesForTests();
+
+  // ADR-0399: ENV `SECTOR_ENERGY_SOURCE_RESTORATION_DISABLED=true` 활성 시 진단 메타 부착 없이 raw 그대로.
+  if (isSectorEnergySourceRestorationDisabled()) {
+    return result;
+  }
+
+  if (isSectorEnergyFallbackDisabled()) return attachDiagnostics(result, candidateDates, sourceTierAttempts);
+  if (result.dataQuality !== 'FAILED') return attachDiagnostics(result, candidateDates, sourceTierAttempts);
 
   // L3: macroState cache (48h, ADR-0343) — 우선 시도
   let cached: { sectorEnergyInputs?: SectorEnergyInput[]; sectorEnergyInputsUpdatedAt?: string } | null;
@@ -587,18 +688,33 @@ export async function buildSectorEnergyInputsWithMetaWithFallback(): Promise<Sec
     if (Number.isFinite(updatedAtMs)) {
       const ageHours = (Date.now() - updatedAtMs) / (3600 * 1000);
       if (ageHours >= 0 && ageHours < SECTOR_ENERGY_FALLBACK_MAX_AGE_HOURS) {
-        return {
+        sourceTierAttempts.push({
+          tier: 'CACHE',
+          validCount: cached.sectorEnergyInputs.length,
+          reason: `cache age=${ageHours.toFixed(1)}h`,
+        });
+        const cacheResult: SectorEnergyBuildResult = {
           inputs: cached.sectorEnergyInputs,
           dataQuality: 'STALE',
           validSectorCount: cached.sectorEnergyInputs.length,
           totalSectorCount: TOTAL_SECTOR_COUNT,
           reasons: [...result.reasons, `fallback to macroState cache (${ageHours.toFixed(1)}h old, ADR-0343)`],
+          sourceTier: 'CACHE',
         };
+        return attachDiagnostics(cacheResult, candidateDates, sourceTierAttempts);
+      } else {
+        sourceTierAttempts.push({
+          tier: 'CACHE',
+          validCount: 0,
+          reason: `cache EXPIRED (age=${ageHours.toFixed(1)}h ≥ ${SECTOR_ENERGY_FALLBACK_MAX_AGE_HOURS}h)`,
+        });
       }
     }
+  } else {
+    sourceTierAttempts.push({ tier: 'CACHE', validCount: 0, reason: 'cache 부재' });
   }
 
-  // L4: Yahoo ETF fallback (ADR-0397, 본 PR — 신규).
+  // L4: Yahoo ETF fallback (ADR-0397).
   // 진입 조건: KRX 실패 (L1+L2) + macroState cache 부재/EXPIRED (L3) 모두 충족 시.
   // 호출 순서 SSOT 절대 변경 금지 — L1 → L2 → L3 → L4.
   if (!isSectorEnergyEtfFallbackDisabled()) {
@@ -606,14 +722,92 @@ export async function buildSectorEnergyInputsWithMetaWithFallback(): Promise<Sec
       const { buildSectorEnergyFromYahooETF } = await import('./sectorEnergyFallbackProvider.js');
       const yahoo = await buildSectorEnergyFromYahooETF();
       if (yahoo.dataQuality !== 'FAILED' && yahoo.validSectorCount > 0) {
-        return applyYahooEtfDegradation(yahoo);
+        sourceTierAttempts.push({
+          tier: 'YAHOO_ETF',
+          validCount: yahoo.validSectorCount,
+          reason: 'L4 보험 — KRX 실패 + cache 부재/EXPIRED',
+        });
+        const degraded = applyYahooEtfDegradation(yahoo);
+        return attachDiagnostics(
+          { ...degraded, sourceTier: 'YAHOO_ETF' },
+          candidateDates,
+          sourceTierAttempts,
+          'KRX 실패 + cache 부재/EXPIRED → Yahoo ETF L4 (ADR-0397)',
+        );
+      } else {
+        sourceTierAttempts.push({
+          tier: 'YAHOO_ETF',
+          validCount: yahoo.validSectorCount,
+          reason: `Yahoo ETF FAILED (validCount=${yahoo.validSectorCount})`,
+        });
       }
-    } catch {
-      // L4 자체 throw 시 L1~L4 모두 실패 처리 (본 result 그대로 반환)
+    } catch (e) {
+      sourceTierAttempts.push({
+        tier: 'YAHOO_ETF',
+        validCount: 0,
+        reason: `Yahoo ETF throw: ${e instanceof Error ? e.message : 'unknown'}`,
+      });
     }
   }
 
-  return result; // L1~L4 모두 실패 시 FAILED 그대로
+  // L1~L4 모두 실패
+  return attachDiagnostics(
+    { ...result, sourceTier: 'FAILED' },
+    candidateDates,
+    sourceTierAttempts,
+    'L1~L4 모두 실패 — 데이터 입력 부재',
+  );
+}
+
+/**
+ * ADR-0399: SectorEnergyBuildResult 에 진단 메타 부착 SSOT.
+ * confidence 산출은 ADR-0396 SSOT (`buildSectorEnergyQualityComposite`) 위임.
+ */
+function attachDiagnostics(
+  result: SectorEnergyBuildResult,
+  candidateDates: string[],
+  sourceTierAttempts: SectorEnergyDiagnosticsMeta['sourceTierAttempts'],
+  fallbackReason?: string,
+): SectorEnergyBuildResult {
+  const finalSourceTier: SectorEnergySourceTierForDiag = result.sourceTier ?? 'FAILED';
+
+  // ADR-0396 SSOT 호출 — 신규 산출식 도입 금지.
+  // ageMs=0 (KRX 정상 fetch 시 FRESH 자동 분류) — CACHE/YAHOO_ETF 분기는 호출자 측 wiring.
+  let confidence = 0;
+  try {
+    // dynamic import — circular 회피.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { buildSectorEnergyQualityComposite } = require('./sectorEnergyDataQuality.js');
+    const composite = buildSectorEnergyQualityComposite(
+      result.validSectorCount,
+      finalSourceTier,
+      0, // FRESH (raw fetch 직후)
+      result.totalSectorCount,
+    );
+    confidence = composite.confidence;
+  } catch {
+    confidence = 0;
+  }
+
+  return {
+    ...result,
+    diagnostics: {
+      candidateDates,
+      sourceTierAttempts,
+      finalSourceTier,
+      confidence,
+      ...(fallbackReason ? { fallbackReason } : {}),
+    },
+  };
+}
+
+/**
+ * ADR-0399: ENV `SECTOR_ENERGY_SOURCE_RESTORATION_DISABLED=true` 우회.
+ * 회귀 발견 시 1줄 즉시 ADR-0398 이전 동작 복원.
+ * 정확 비교 (=== 'true') ADR-0157 정합.
+ */
+export function isSectorEnergySourceRestorationDisabled(): boolean {
+  return process.env.SECTOR_ENERGY_SOURCE_RESTORATION_DISABLED === 'true';
 }
 
 /**

@@ -87,6 +87,28 @@ export function formatSectorEnergyDiagMessage(): string {
     lines.push(`🎯 confidence: <i>미수집</i>`);
   }
 
+  // ADR-0399 (= 사용자 명시 ADR-0374): KRX 원천 복구 진단 메타.
+  // sourceTierAttempts / candidateDates / fallbackReason — 운영자 *어느 layer 가 작동했는지* 추적.
+  // 사용자 명시 9 핵심 원칙 #9 — fallback 작동 시 UI 와 diagnostics 에 반드시 표시.
+  const diag = macro.sectorEnergyDiagnostics;
+  if (diag) {
+    lines.push('');
+    lines.push('🔍 <b>[KRX 원천 복구 진단 (ADR-0399)]</b>');
+    if (diag.candidateDates && diag.candidateDates.length > 0) {
+      lines.push(`📅 candidateDates: <code>${diag.candidateDates.join(', ')}</code>`);
+    }
+    if (diag.sourceTierAttempts && diag.sourceTierAttempts.length > 0) {
+      lines.push(`🪜 sourceTierAttempts:`);
+      for (const a of diag.sourceTierAttempts) {
+        const reason = a.reason ? ` — ${a.reason}` : '';
+        lines.push(`  • <b>${a.tier}</b>: validCount=${a.validCount}${reason}`);
+      }
+    }
+    if (diag.fallbackReason) {
+      lines.push(`⚠️ fallbackReason: <i>${diag.fallbackReason}</i>`);
+    }
+  }
+
   // ADR-0398 STRONG_BUY 게이트 결과
   lines.push('');
   if (isSectorEnergyStrongBuyGateDisabled()) {
