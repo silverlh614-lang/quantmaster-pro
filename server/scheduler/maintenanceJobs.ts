@@ -187,18 +187,16 @@ export function registerMaintenanceJobs(): void {
   // (KRX 휴장일 자동 skip — fetchKrxMasterEntries 가 WEEKEND 자체 처리하지만 cron 단계
   // 도 명시 가드).
   // ENV `STOCK_MASTER_AUTO_ENRICHMENT_DISABLED=true` 시 본체 진입부에서 즉시 return.
-  scheduledJob('0 21 * * 0-4', 'TRADING_DAY_ONLY', 'stock_master_auto_enrichment', async () => {
-    try {
-      const report = await autoEnrichAndVerifyStockMaster();
-      console.log(
-        `[StockMasterAutoEnrichment] source=${report.refreshSource ?? 'NONE'} `
-        + `total=${report.totalMasterAfter} added=${report.added.length} `
-        + `marketChanged=${report.marketChanged.length} watchlistMissing=${report.watchlistMissing.length}`,
-      );
-    } catch (e) {
-      console.error('[StockMasterAutoEnrichment] 실행 오류:', e);
-    }
-  }, { timezone: 'UTC' });
+  // ADR-0413: KIS 토큰 갱신 패턴 (08:30 + 20:30) 정합 — 동일 jobName 으로 1일 2회 발동.
+  // 장전 (06:00) + 장후 (19:00) 두 번 갱신해 저녁 시간대 master staleness 차단.
+  scheduledJob('0 21 * * 0-4', 'TRADING_DAY_ONLY', 'stock_master_auto_enrichment',
+    () => runStockMasterEnrichmentCron('장전 06:00 KST'), { timezone: 'UTC' });
+
+  // ADR-0413: 저녁 갱신 — KST 평일 19:00 (UTC 10:00).
+  // 장 마감 (15:30 KST) 3시간 30분 후, KIS 토큰 갱신 (20:30) 1시간 30분 전.
+  // 동일 jobName 으로 metric 합산 (KIS 토큰 cron 패턴 정합 — ADR-0192/0195).
+  scheduledJob('0 10 * * 1-5', 'TRADING_DAY_ONLY', 'stock_master_auto_enrichment',
+    () => runStockMasterEnrichmentCron('장후 19:00 KST'), { timezone: 'UTC' });
 
   // ADR-0248: 워치리스트 시장 다양성 모니터 cron — KST 평일 06:30 (UTC 21:30 전일).
   // ADR-0242 master enrichment 30분 후 — fresh master 위에서 정확한 분포 산출.
@@ -218,6 +216,27 @@ export function registerMaintenanceJobs(): void {
       console.error('[WatchlistDiversityMonitor] 실행 오류:', e);
     }
   }, { timezone: 'UTC' });
+}
+
+// ── stockMaster 자동 보완 cron 헬퍼 (ADR-0413) ───────────────────────────────
+
+/**
+ * stockMaster 자동 보완 + 검증 실행 (KIS 토큰 cron 패턴 정합).
+ * label 은 진단 로그 prefix 에 포함되어 운영자가 어느 시간대 발동인지 식별.
+ *
+ * @param label '장전 06:00 KST' | '장후 19:00 KST'
+ */
+async function runStockMasterEnrichmentCron(label: string): Promise<void> {
+  try {
+    const report = await autoEnrichAndVerifyStockMaster();
+    console.log(
+      `[StockMasterAutoEnrichment] (${label}) source=${report.refreshSource ?? 'NONE'} `
+      + `total=${report.totalMasterAfter} added=${report.added.length} `
+      + `marketChanged=${report.marketChanged.length} watchlistMissing=${report.watchlistMissing.length}`,
+    );
+  } catch (e) {
+    console.error(`[StockMasterAutoEnrichment] (${label}) 실행 오류:`, e);
+  }
 }
 
 // ── KRX 섹터맵 갱신 헬퍼 ─────────────────────────────────────────────────────
