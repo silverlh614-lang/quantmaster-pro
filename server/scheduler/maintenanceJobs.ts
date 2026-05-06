@@ -20,6 +20,7 @@ import { runKrxHolidayAudit } from '../trading/krxHolidayAudit.js';
 // ADR-0128 — 데이터 검증 배치 (정책 #2 주 검증, KST 평일 16:30)
 import { runDataVerificationBatch } from '../data/dataVerificationBatch.js';
 import { autoEnrichAndVerifyStockMaster } from '../data/stockMasterAutoEnrichment.js';
+import { runWatchlistDiversityMonitor } from '../learning/watchlistDiversityMonitor.js';
 
 const BACKUP_RETENTION_DAYS = 7;
 
@@ -196,6 +197,25 @@ export function registerMaintenanceJobs(): void {
       );
     } catch (e) {
       console.error('[StockMasterAutoEnrichment] 실행 오류:', e);
+    }
+  }, { timezone: 'UTC' });
+
+  // ADR-0248: 워치리스트 시장 다양성 모니터 cron — KST 평일 06:30 (UTC 21:30 전일).
+  // ADR-0242 master enrichment 30분 후 — fresh master 위에서 정확한 분포 산출.
+  // 코스닥 비중 < 30% 또는 마스터 미커버 ≥ 5% → Telegram 알림 (24h dedupe).
+  // ENV `WATCHLIST_DIVERSITY_MONITOR_DISABLED=true` 우회.
+  scheduledJob('30 21 * * 0-4', 'TRADING_DAY_ONLY', 'watchlist_diversity_monitor', async () => {
+    try {
+      const report = await runWatchlistDiversityMonitor();
+      console.log(
+        `[WatchlistDiversityMonitor] swing=${report.swingCount} `
+        + `KOSPI=${(report.kospiRatio * 100).toFixed(0)}% `
+        + `KOSDAQ=${(report.kosdaqRatio * 100).toFixed(0)}% `
+        + `UNKNOWN=${(report.unknownRatio * 100).toFixed(0)}% `
+        + `level=${report.alertLevel}`,
+      );
+    } catch (e) {
+      console.error('[WatchlistDiversityMonitor] 실행 오류:', e);
     }
   }, { timezone: 'UTC' });
 }
