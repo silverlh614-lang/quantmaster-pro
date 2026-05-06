@@ -14,9 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0400`**
+**다음 ADR 번호: `0401`**
 
-(2026-05-06 기준, 마지막 발급 0399 (Sector Energy Source Restoration, 사용자 명시 ADR-0374), 누락 47개 — 0062/0063/0089/0105/0106/0143/0196~0210/0212~0220/0222~0230/0232~0233/0236/0238~0240/0243~0244/0246~0247/0253~0254/0257. 충돌 그룹 11개 (0146/0147/0168 — 별칭 0146a/b·0147a/b·0168a/b 부여, ADR-0159 정합))
+(2026-05-06 기준, 마지막 발급 0400 (Wire SectorEnergyStrongBuyGate into Signal Decision Path), 누락 47개 — 0062/0063/0089/0105/0106/0143/0196~0210/0212~0220/0222~0230/0232~0233/0236/0238~0240/0243~0244/0246~0247/0253~0254/0257. 충돌 그룹 11개 (0146/0147/0168 — 별칭 0146a/b·0147a/b·0168a/b 부여, ADR-0159 정합))
 
 **세션 2026-05-06 (#622~#634, #655~#658)**: fast iteration 으로 0211~0260 + 0387~0390 범위가 commit message 라벨로 등재. 본 INDEX.md §"전체 인덱스" 미등재 — 별도 retrofit PR 작업 대상. ADR-0391 (본 PR) 은 §"전체 인덱스" 등재 의무 유지.
 **포기 결정 (회귀 위험 큼)**: ADR-0253 (Yahoo→KIS 시계열 합성), ADR-0254 (점심 회로 절전 — ADR-0237 와 책임 중복). DECIDED_NOT_WIRING 영구 — 누락 처리.
@@ -327,8 +327,9 @@
 | 0397 | sector-energy-yahoo-etf-fallback-wiring (사용자 명시 ADR-0372 = 실제 발급 0397 — Yahoo ETF L4 fallback wiring + sourceTier='YAHOO_ETF' + confidence × 0.5 + allowStrongBuy=false + dataQuality='DEGRADED' 강제 정책) | clients |
 | 0398 | sector-energy-strong-buy-confidence-gate (사용자 명시 ADR-0373 = 실제 발급 0398 — STRONG_BUY 4 조건 OR 차단 SSOT (confidence<0.6 / dataQuality∈{DEGRADED,FAILED} / sourceTier='YAHOO_ETF') + UI Language SSOT 8번째 카테고리 sectorEnergy + /sector_energy_diag 텔레그램 명령) | trading |
 | 0399 | sector-energy-source-restoration (사용자 명시 ADR-0374 = 실제 발급 0399 — KRX 원천 복구 + SECTOR_INDEX_MASTER SSOT 12 표준 섹터 + 4-tier 호출 순서 SSOT (L1 KRX_CODE → L2 STOCK_DAILY → L3 CACHE → L4 YAHOO_ETF) + ADR-0396 4-axis 영속 writer 활성 + diagnostics 메타 (candidateDates/sourceTierAttempts/finalSourceTier/confidence/fallbackReason) + indexName 단독 매칭 영구 차단) | clients |
+| 0400 | wire-sector-energy-strong-buy-gate (ADR-0398 dead code 종결 — buyListLoop.ts:1130 단일 STRONG_BUY 결정 지점 wiring + macroState 4-axis 영속 read SSOT + STRONG_BUY → BUY 강등 패턴 (절대 원칙 #2 — 일반 BUY 차단 금지) + 보수 fallback (macroState 부재 시 FAILED 강제) + ENV `SECTOR_ENERGY_STRONG_BUY_GATE_WIRING_DISABLED` default OFF + 정적 grep 가드 10 + 동작 매트릭스 16 = 26 회귀) | trading |
 
-**총 발급 208 unique 번호** (마지막 발급 0399) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0400**.
+**총 발급 209 unique 번호** (마지막 발급 0400) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0401**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
