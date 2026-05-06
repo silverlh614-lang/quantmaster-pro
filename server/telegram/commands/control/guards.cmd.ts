@@ -15,6 +15,8 @@ import {
   getSmokeTestLiveBlocked,
   getSmokeTestLastFailedReason,
 } from '../../../state.js';
+// ADR-0195: 8번째 가드 — R3 sanity block 영속 latch 가시화.
+import { loadR3SanityBlockState } from '../../../persistence/r3SanityBlockRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -36,8 +38,11 @@ const guards: TelegramCommand = {
     const dailyLossPct = getDailyLossPct();
     const dailyLossLimit = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
     const dailyLossHit = dailyLossPct >= dailyLossLimit;
+    // ADR-0195: 8번째 가드 — R3 sanity block 영속 latch.
+    const r3Sanity = loadR3SanityBlockState();
+    const r3Active = r3Sanity.active;
 
-    const anyBlocked = emergencyStop || paused || integrity || blockNewBuy || manageOnly || smokeBlocked || dailyLossHit;
+    const anyBlocked = emergencyStop || paused || integrity || blockNewBuy || manageOnly || smokeBlocked || dailyLossHit || r3Active;
 
     const lines = [
       `🛡️ <b>[신규 매수 가드 상태]</b>`,
@@ -49,6 +54,8 @@ const guards: TelegramCommand = {
       `보유만 관리 (/unmanage_only): ${manageOnly ? '🔒 활성' : '✅ 비활성'}`,
       `Pre-Market Smoke Test: ${smokeBlocked ? `🟡 LIVE 차단 (${smokeReason ?? '사유 미상'}, 다음 08:45 자동 해제)` : '✅ 통과'}`,
       `일일 손실 한도: ${dailyLossPct.toFixed(2)}% / ${dailyLossLimit}% ${dailyLossHit ? '🔴 도달' : '✅ 여유'}`,
+      // ADR-0195: 8번째 가드 — R3 sanity block 영속 latch (활성 시에만 운영자 인지용 라인 추가).
+      `R3 Sanity Block (/r3_unblock): ${r3Active ? `🚨 활성 (${r3Sanity.violation}/${r3Sanity.regime})` : '✅ 비활성'}`,
       `─────────────────────`,
       anyBlocked ? '⚠️ <b>일부 가드 활성</b> — 위 명령으로 개별 해제 가능' : '🟢 <b>모든 가드 정상</b> — 신규 매수 가능 시간대 자동 진입',
     ];
