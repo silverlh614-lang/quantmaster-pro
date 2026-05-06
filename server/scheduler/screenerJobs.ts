@@ -50,10 +50,14 @@ export function registerScreenerJobs(): void {
   }), { timezone: 'UTC' });
 
   // 미국 장 마감 후 확인 — KST 06:10 (UTC 21:10 전일).
-  scheduledJob('10 21 * * 0-4', 'ALWAYS_ON', 'us_postmarket_scan', () => withForcedMarket(async () => {
-    console.log('[Scheduler] 미국장 마감 후 스캔 (KST 06:10+1d)');
-    await runAutoSignalScan({ sellOnly: false });
-  }), { timezone: 'UTC' });
+  // ADR-0403: 06:10 KST 에 KR runAutoSignalScan 을 실행하면 장전 R3 Sanity 가
+  // `GATE1_PASS_ZERO / R3_EARLY` 를 한국장 결함처럼 누적·알림할 수 있다.
+  // 글로벌 진단은 바로 위 06:00 global_scan_agent 가 담당하므로, 본 job 은 더 이상
+  // 한국장 auto signal scan 을 호출하지 않는다. KR 진입 스캔은 08:35 final screening 및
+  // 장중 정규 스캔 경로에서만 수행한다.
+  scheduledJob('10 21 * * 0-4', 'ALWAYS_ON', 'us_postmarket_scan', () => {
+    console.log('[Scheduler] 미국장 마감 후 KR auto signal scan 생략 — global_scan_agent가 06:00 데이터 진단 담당');
+  }, { timezone: 'UTC' });
 
   // 새벽 글로벌 스캔 에이전트 — 매일 KST 06:00 (UTC 21:00).
   // PR-B-2: ALWAYS_ON — 글로벌 지수는 KR 휴장 무관.
