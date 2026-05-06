@@ -106,8 +106,12 @@ describe('sectorEnergyProvider.ts 정적 가드 (ADR-0343)', () => {
     expect(SOURCE).toMatch(/Number\.isFinite\(updatedAtMs\)/);
   });
 
-  it('inputs 부재 또는 updatedAt 부재 시 원본 반환', () => {
-    expect(SOURCE).toMatch(/!cached\.sectorEnergyInputs\s*\|\|\s*!cached\.sectorEnergyInputsUpdatedAt/);
+  it('inputs 부재 또는 updatedAt 부재 시 원본 반환 (ADR-0397 wiring 후 chain 패턴 정합)', () => {
+    // ADR-0397 (PR-2) 가 L4 Yahoo ETF wiring 추가 시 분기 패턴을 if-early-return 에서
+    // chain (`if (cached?.X && cached.Y) { ... }`) 로 변경. 둘 다 정합 — 의미 동일.
+    const negCheck = /!cached\.sectorEnergyInputs\s*\|\|\s*!cached\.sectorEnergyInputsUpdatedAt/;
+    const posCheck = /cached\?\.sectorEnergyInputs\s+&&\s+cached\.sectorEnergyInputsUpdatedAt/;
+    expect(SOURCE.match(negCheck) || SOURCE.match(posCheck)).toBeTruthy();
   });
 
   it('호출자 0건 (Phase 1 dead code) — 본 PR scope', () => {

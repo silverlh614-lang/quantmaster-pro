@@ -14,9 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0397`**
+**다음 ADR 번호: `0398`**
 
-(2026-05-06 기준, 마지막 발급 0396 (Sector Energy DataQuality Decomposition, 사용자 명시 ADR-0371), 누락 47개 — 0062/0063/0089/0105/0106/0143/0196~0210/0212~0220/0222~0230/0232~0233/0236/0238~0240/0243~0244/0246~0247/0253~0254/0257. 충돌 그룹 11개 (0146/0147/0168 — 별칭 0146a/b·0147a/b·0168a/b 부여, ADR-0159 정합))
+(2026-05-06 기준, 마지막 발급 0397 (Yahoo ETF Fallback Wiring, 사용자 명시 ADR-0372), 누락 47개 — 0062/0063/0089/0105/0106/0143/0196~0210/0212~0220/0222~0230/0232~0233/0236/0238~0240/0243~0244/0246~0247/0253~0254/0257. 충돌 그룹 11개 (0146/0147/0168 — 별칭 0146a/b·0147a/b·0168a/b 부여, ADR-0159 정합))
 
 **세션 2026-05-06 (#622~#634, #655~#658)**: fast iteration 으로 0211~0260 + 0387~0390 범위가 commit message 라벨로 등재. 본 INDEX.md §"전체 인덱스" 미등재 — 별도 retrofit PR 작업 대상. ADR-0391 (본 PR) 은 §"전체 인덱스" 등재 의무 유지.
 **포기 결정 (회귀 위험 큼)**: ADR-0253 (Yahoo→KIS 시계열 합성), ADR-0254 (점심 회로 절전 — ADR-0237 와 책임 중복). DECIDED_NOT_WIRING 영구 — 누락 처리.
@@ -324,8 +324,9 @@
 | 0394 | p1.5-execution-terminology-ssot (P1.5 — 용어 SSOT, TERMINOLOGY_MAP + DISPLAY_LABELS + SHADOW_LEDGER_ENABLED) | types |
 | 0395 | p2-persistent-execution-mode-override (P2 — 영속 ExecutionMode override `data/execution_mode_override.json` + RUNTIME → persistent → env 우선순위 체인) | persistence |
 | 0396 | sector-energy-dataquality-decomposition (사용자 명시 ADR-0371 = 실제 발급 0396 — STALE 단일 라벨 → 5단계 union (OK/PARTIAL/STALE/DEGRADED/FAILED) + sourceTier/freshness/coverage/confidence 4-axis 분리 + 계단화 매트릭스 SSOT) | clients |
+| 0397 | sector-energy-yahoo-etf-fallback-wiring (사용자 명시 ADR-0372 = 실제 발급 0397 — Yahoo ETF L4 fallback wiring + sourceTier='YAHOO_ETF' + confidence × 0.5 + allowStrongBuy=false + dataQuality='DEGRADED' 강제 정책) | clients |
 
-**총 발급 205 unique 번호** (마지막 발급 0396) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0397**.
+**총 발급 206 unique 번호** (마지막 발급 0397) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0398**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

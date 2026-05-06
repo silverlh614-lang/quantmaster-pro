@@ -82,7 +82,8 @@ const RETURN_SANITY_BOUND_PCT = Number(
 const VOLUME_SANITY_BOUND_PCT = Number(process.env.SECTOR_ENERGY_VOLUME_SANITY_BOUND_PCT ?? '1000');
 export const SECTOR_ENERGY_MIN_VALID_DEFAULT = 8;
 export const SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD = 0.9;
-export type SectorEnergyDataQuality = 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
+// ADR-0396 (= 사용자 명시 ADR-0371): 5단계 union 격상 — DEGRADED 신규 (심각한 부족, 보조 신호로만).
+export type SectorEnergyDataQuality = 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
 
 export interface SymmetryValidationResult {
   valid: boolean;
@@ -544,30 +545,91 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
 export const SECTOR_ENERGY_FALLBACK_MAX_AGE_HOURS = 48;
 export function isSectorEnergyFallbackDisabled(): boolean { return process.env.SECTOR_ENERGY_FALLBACK_DISABLED === 'true'; }
 
+/**
+ * ADR-0397 (= 사용자 명시 ADR-0372): Yahoo ETF L4 fallback degradation 정책 SSOT.
+ *
+ * Yahoo ETF 는 KRX 섹터지수의 *원천 대체재 아님* — L4 보험 레이어.
+ * 사용자 명시 절대 변경 금지 정책:
+ *   - confidence × 0.5 (호출자 측 합성 후 한 번 더 강등)
+ *   - allowStrongBuy=false (ADR-0398 STRONG_BUY 게이트 입력)
+ *   - dataQuality='DEGRADED' 강제 (5-state union, ADR-0396)
+ *
+ * 한계 사유 (ADR-0397 §"Yahoo ETF 한계"):
+ *   1. volumeChangePct=0 (Yahoo ETF 는 KRX 섹터 거래량 미제공)
+ *   2. foreignConcentration=0 (외인 수급 미제공)
+ *   3. 4주 수익률 단일 축 의존 위험
+ */
+function applyYahooEtfDegradation(yahooResult: SectorEnergyBuildResult): SectorEnergyBuildResult {
+  return {
+    ...yahooResult,
+    dataQuality: 'DEGRADED',
+    reasons: [
+      ...yahooResult.reasons,
+      'L4 Yahoo ETF fallback (ADR-0397) — confidence × 0.5, allowStrongBuy=false, dataQuality=DEGRADED 강제',
+    ],
+  };
+}
+
 export async function buildSectorEnergyInputsWithMetaWithFallback(): Promise<SectorEnergyBuildResult> {
   const result = await buildSectorEnergyInputsWithMetaRaw();
   if (isSectorEnergyFallbackDisabled()) return result;
   if (result.dataQuality !== 'FAILED') return result;
 
+  // L3: macroState cache (48h, ADR-0343) — 우선 시도
   let cached: { sectorEnergyInputs?: SectorEnergyInput[]; sectorEnergyInputsUpdatedAt?: string } | null;
   try {
     const { loadMacroState } = await import('../persistence/macroStateRepo.js');
     cached = loadMacroState();
   } catch { cached = null; }
-  if (!cached?.sectorEnergyInputs || !cached.sectorEnergyInputsUpdatedAt) return result;
 
-  const updatedAtMs = new Date(cached.sectorEnergyInputsUpdatedAt).getTime();
-  if (!Number.isFinite(updatedAtMs)) return result;
-  const ageHours = (Date.now() - updatedAtMs) / (3600 * 1000);
-  if (ageHours < 0 || ageHours >= SECTOR_ENERGY_FALLBACK_MAX_AGE_HOURS) return result;
+  if (cached?.sectorEnergyInputs && cached.sectorEnergyInputsUpdatedAt) {
+    const updatedAtMs = new Date(cached.sectorEnergyInputsUpdatedAt).getTime();
+    if (Number.isFinite(updatedAtMs)) {
+      const ageHours = (Date.now() - updatedAtMs) / (3600 * 1000);
+      if (ageHours >= 0 && ageHours < SECTOR_ENERGY_FALLBACK_MAX_AGE_HOURS) {
+        return {
+          inputs: cached.sectorEnergyInputs,
+          dataQuality: 'STALE',
+          validSectorCount: cached.sectorEnergyInputs.length,
+          totalSectorCount: TOTAL_SECTOR_COUNT,
+          reasons: [...result.reasons, `fallback to macroState cache (${ageHours.toFixed(1)}h old, ADR-0343)`],
+        };
+      }
+    }
+  }
 
-  return {
-    inputs: cached.sectorEnergyInputs,
-    dataQuality: 'STALE',
-    validSectorCount: cached.sectorEnergyInputs.length,
-    totalSectorCount: TOTAL_SECTOR_COUNT,
-    reasons: [...result.reasons, `fallback to macroState cache (${ageHours.toFixed(1)}h old, ADR-0343)`],
-  };
+  // L4: Yahoo ETF fallback (ADR-0397, 본 PR — 신규).
+  // 진입 조건: KRX 실패 (L1+L2) + macroState cache 부재/EXPIRED (L3) 모두 충족 시.
+  // 호출 순서 SSOT 절대 변경 금지 — L1 → L2 → L3 → L4.
+  if (!isSectorEnergyEtfFallbackDisabled()) {
+    try {
+      const { buildSectorEnergyFromYahooETF } = await import('./sectorEnergyFallbackProvider.js');
+      const yahoo = await buildSectorEnergyFromYahooETF();
+      if (yahoo.dataQuality !== 'FAILED' && yahoo.validSectorCount > 0) {
+        return applyYahooEtfDegradation(yahoo);
+      }
+    } catch {
+      // L4 자체 throw 시 L1~L4 모두 실패 처리 (본 result 그대로 반환)
+    }
+  }
+
+  return result; // L1~L4 모두 실패 시 FAILED 그대로
+}
+
+/**
+ * ADR-0397: Yahoo ETF L4 fallback ENV 헬퍼 SSOT.
+ * 정확 비교 (=== 'true') ADR-0157 의무. default OFF — 활성화 시 즉시 L4 비활성.
+ *
+ * 호출자 측 inline ENV 검사 0건 — SSOT 위임 (ADR-0185~0189 정합).
+ *
+ * NOTE: ADR-0364 의 sectorEnergyFallbackProvider 는 자체 ENV
+ * `SECTOR_ENERGY_ETF_FALLBACK_DISABLED` 도 가짐 — 본 함수와 동일한 SSOT 통합.
+ */
+export function isSectorEnergyEtfFallbackDisabled(): boolean {
+  // ADR-0364 동일 ENV 변수명 정합 — sectorEnergyFallbackProvider.isSectorEnergyEtfFallbackDisabled() 와 동일.
+  // 사용자 명시 ADR-0372 ENV `SECTOR_ENERGY_YAHOO_ETF_FALLBACK_DISABLED` 도 함께 우회 (alias).
+  if (process.env.SECTOR_ENERGY_YAHOO_ETF_FALLBACK_DISABLED === 'true') return true;
+  return process.env.SECTOR_ENERGY_ETF_FALLBACK_DISABLED === 'true';
 }
 
 const CACHE_TTL_MS = 30 * 60 * 1000;
