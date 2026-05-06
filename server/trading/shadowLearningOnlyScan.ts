@@ -139,12 +139,13 @@ interface ShadowScanCandidate {
 // ─── ENV 헬퍼 ─────────────────────────────────────────────────────────────────
 
 /**
- * ENV `SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED=true` 정확 비교.
- *   - `'1'` / `'TRUE'` / 임의 truthy 모두 거부
- *   - default OFF — 운영자 명시 활성화 의무
+ * ENV `SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED` default ON (운영자 명시 활성화 결정 — PR-P0-Activation, 2026-05-06).
+ *   - `'false'` 정확 비교 시만 비활성 (ADR-0157 정확 비교 의무)
+ *   - 미설정 / `'true'` / 빈 문자열 / 임의 truthy 모두 default ON
+ *   - 회귀 발견 시 ENV `=false` 1줄 즉시 롤백 → ADR-0173 default OFF 동작 복원
  */
 export function isShadowLearningOnBlockedDaysEnabled(): boolean {
-  return process.env.SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED === 'true';
+  return process.env.SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED !== 'false';
 }
 
 function finitePositive(value: unknown): number | null {

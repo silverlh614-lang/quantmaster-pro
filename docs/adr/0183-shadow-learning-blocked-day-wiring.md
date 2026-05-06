@@ -122,3 +122,43 @@ return {};
 - 차단된 날 (휴장일 / R6_DEFENSE / VIX panic / FOMC DAY / SELL_ONLY) Shadow learning 표본 자동 누적 → 학습 freeze 영구 차단
 - Phase 4-B Dashboard 6 카드 placeholder → 실제 데이터 노출
 - Phase 3 Stage B/C 진입 전제 조건 충족
+
+## PR-P0-Activation (2026-05-06) — default OFF → ON
+
+### 배경
+
+ADR-0183 (PR #543, 2026-05-03) 에서 signalScanner 4 early-return wiring 완료. ENV `SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED=true` 명시 시에만 활성. 운영자 명시 결정 대기 패턴.
+
+PR-A (#665) 머지 후 사용자 명시 *"P0 패치 후 머지 실시"* — 본 PR 으로 **default ON 전환**. PENDING_WIRING B11 (P0 SLA 만기 2026-05-24) 즉시 충족.
+
+### 변경
+
+`isShadowLearningOnBlockedDaysEnabled()` SSOT 정확 비교 패턴 격상:
+
+- **이전**: `process.env.SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED === 'true'` (default OFF)
+- **신규**: `process.env.SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED !== 'false'` (default ON, ADR-0157 정확 비교 의무)
+
+회귀 발견 시 ENV `SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED=false` 1줄 즉시 롤백 → ADR-0183 default OFF 동작 byte-equivalent 복원.
+
+### 회귀 테스트 정합 정정
+
+- `describe('ENV 분기 (default OFF)')` → `describe('ENV 분기 (default ON, PR-P0-Activation 2026-05-06)')`
+- `ENV 미설정 → skipped` → `ENV 미설정 → 활성 (default ON)` (skipped:false)
+- `ENV='false' 정확 비교 → ENV_DISABLED` 신규 케이스 (운영자 명시 비활성)
+- `ENV 임의 truthy → 모두 skipped` → `default ON, ADR-0157 정확 비교` (비활성은 'false' 정확 매치만)
+
+### LIVE 매매 안전성
+
+ADR-0183 §"안전 invariant 7종" 그대로 보존:
+
+- `allowRealOrder: false` literal type + runtime throw 2중 강제 (LIVE 주문 격리)
+- KIS 주문 함수 import 0건 (정적 grep 가드)
+- 데이터 빈곤 site 제외 (ADR-0173 §5)
+- `bypassMacroEntryBlock` boolean 명시 의무
+- 데이터 품질/가격 sanity 우회 금지
+
+본 default 변경은 *데이터 수집 활성화* 만 — LIVE 매매 본체 영향 0 (SHADOW only 격리).
+
+### 운영 효과 (즉시)
+
+차단된 날 (R6_DEFENSE / VIX panic / FOMC DAY / SELL_ONLY) Shadow learning 표본 자동 누적 시작 → Phase 4-B Dashboard 6 카드 placeholder → 실제 데이터 노출. PENDING_WIRING B11 P0 즉시 충족.

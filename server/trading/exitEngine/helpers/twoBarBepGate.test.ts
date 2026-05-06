@@ -58,7 +58,13 @@ describe('twoBarBepGate (ADR-0085 PR-B1-1)', () => {
       expect(isBepProtectionPolicyDisabled()).toBe(false);
     });
 
-    it('isBepTwoBarLiveEnabled() default false', () => {
+    it('isBepTwoBarLiveEnabled() default true (PR-P0-Activation 2026-05-06)', () => {
+      // ADR-0085 PR-P0-Activation — default OFF → ON 전환. 운영자 명시 결정.
+      expect(isBepTwoBarLiveEnabled()).toBe(true);
+    });
+
+    it('BEP_TWO_BAR_LIVE_ENABLED=false 정확 비교 → isBepTwoBarLiveEnabled()=false', () => {
+      process.env.BEP_TWO_BAR_LIVE_ENABLED = 'false';
       expect(isBepTwoBarLiveEnabled()).toBe(false);
     });
 
@@ -81,8 +87,10 @@ describe('twoBarBepGate (ADR-0085 PR-B1-1)', () => {
     });
   });
 
-  describe('LIVE 회귀 격리 분기', () => {
-    it('LIVE 모드 + BEP_TWO_BAR_LIVE_ENABLED 미설정 → SKIP', () => {
+  describe('LIVE 회귀 격리 분기 (PR-P0-Activation default ON)', () => {
+    it('LIVE 모드 + BEP_TWO_BAR_LIVE_ENABLED=false 명시 → SKIP (legacy 회귀 격리)', () => {
+      // ADR-0085 PR-P0-Activation — default ON 후 운영자가 명시 비활성 시 legacy 동작 복원.
+      process.env.BEP_TWO_BAR_LIVE_ENABLED = 'false';
       (getTradingMode as any).mockReturnValue('LIVE');
       const r = applyTwoBarBepGate({
         shadow: makeMockShadow(),

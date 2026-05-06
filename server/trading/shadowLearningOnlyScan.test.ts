@@ -75,8 +75,8 @@ afterEach(() => {
 
 // ─── ENV 분기 ────────────────────────────────────────────────────────────────
 
-describe('ENV 분기 (default OFF)', () => {
-  it('ENV 미설정 → skipped: ENV_DISABLED', async () => {
+describe('ENV 분기 (default ON, PR-P0-Activation 2026-05-06)', () => {
+  it('ENV 미설정 → 활성 (default ON)', async () => {
     delete process.env[ENV_KEY];
     const result = await mod.runShadowLearningOnlyScan({
       allowRealOrder: false,
@@ -84,10 +84,10 @@ describe('ENV 분기 (default OFF)', () => {
       reason: 'FOMC_BLOCK',
       scanDate: '2026-05-04',
     });
-    expect(result).toEqual({ skipped: true, reason: 'ENV_DISABLED' });
+    expect(result.skipped).toBe(false);
   });
 
-  it("ENV='true' → 활성 (skipped:false)", async () => {
+  it("ENV='true' → 활성", async () => {
     process.env[ENV_KEY] = 'true';
     const result = await mod.runShadowLearningOnlyScan({
       allowRealOrder: false,
@@ -98,7 +98,7 @@ describe('ENV 분기 (default OFF)', () => {
     expect(result.skipped).toBe(false);
   });
 
-  it("ENV='false' → skipped: ENV_DISABLED", async () => {
+  it("ENV='false' 정확 비교 → skipped: ENV_DISABLED (운영자 명시 비활성)", async () => {
     process.env[ENV_KEY] = 'false';
     const result = await mod.runShadowLearningOnlyScan({
       allowRealOrder: false,
@@ -109,8 +109,8 @@ describe('ENV 분기 (default OFF)', () => {
     expect(result).toEqual({ skipped: true, reason: 'ENV_DISABLED' });
   });
 
-  it("ENV 임의 truthy ('1' / 'TRUE' / 'yes') → 모두 skipped (정확 비교)", async () => {
-    for (const v of ['1', 'TRUE', 'yes']) {
+  it("ENV 임의 truthy ('1' / 'TRUE' / 'yes' / '') → 모두 활성 (default ON, ADR-0157 정확 비교)", async () => {
+    for (const v of ['1', 'TRUE', 'yes', '']) {
       process.env[ENV_KEY] = v;
       const result = await mod.runShadowLearningOnlyScan({
         allowRealOrder: false,
@@ -118,7 +118,7 @@ describe('ENV 분기 (default OFF)', () => {
         reason: 'FOMC_BLOCK',
         scanDate: '2026-05-04',
       });
-      expect(result).toEqual({ skipped: true, reason: 'ENV_DISABLED' });
+      expect(result.skipped).toBe(false);
     }
   });
 });
