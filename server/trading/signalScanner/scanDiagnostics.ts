@@ -19,6 +19,7 @@ import {
 } from './emptyScanClassifier.js';
 import { evaluateR3Sanity } from './r3SanityCheck.js';
 import { activateR3SanityBlock } from '../../persistence/r3SanityBlockRepo.js';
+import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -353,4 +354,94 @@ export async function persistScanResults(
   } catch (e) {
     console.warn('[ADR-0120] R3 Sanity Check 실패:', e);
   }
+}
+
+// ─── ADR-0118 §"진단 추정" 확장 — TECHNICAL_PROVIDER_DEGRADED 운영자 노출 ───
+/**
+ * ADR-0411 의 Yahoo↔KIS 괴리 KIS recovery 종목 마커 (`technicalProviderDegraded=true`)
+ * 를 운영자가 `/scan_blockers` 1 명령으로 즉시 인지하도록 표면화. 시계열 evaluator
+ * 14개 PROVIDER_DEGRADED 강등 → score=0 자연 진입 차단 상태 가시화.
+ *
+ * ENV `SCAN_BLOCKERS_PROVIDER_DEGRADED_DISABLED=true` 시 섹션 미노출 (default ON).
+ * ADR-0157 정확 비교 의무 정합.
+ */
+const TECHNICAL_PROVIDER_DEGRADED_TOP_N = 5;
+
+export function isScanBlockersProviderDegradedDisabled(): boolean {
+  return process.env.SCAN_BLOCKERS_PROVIDER_DEGRADED_DISABLED === 'true';
+}
+
+function formatKstHm(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const ts = Date.parse(iso);
+  if (!Number.isFinite(ts)) return null;
+  const kst = new Date(ts + 9 * 3_600_000);
+  const hh = String(kst.getUTCHours()).padStart(2, '0');
+  const mm = String(kst.getUTCMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+/**
+ * TECHNICAL_PROVIDER_DEGRADED 종목 섹션 SSOT 빌더.
+ *
+ * 입력: WatchlistEntry 배열 (호출자 책임 — `loadWatchlist()` 결과 그대로).
+ * 출력: 섹션 string 또는 null.
+ *
+ * null 반환 조건:
+ *   - ENV `SCAN_BLOCKERS_PROVIDER_DEGRADED_DISABLED=true`
+ *   - degraded 종목 0건
+ *
+ * 정렬: `technicalProviderDegradedAt` 내림차순 (최신 먼저), 부재 시 `addedAt` fallback,
+ * 잘못된 ISO 도 안전 fallback (정렬 후순위).
+ *
+ * Top N 기본 5, 초과 시 "외 M개" 라벨.
+ */
+export function formatTechnicalProviderDegradedSection(
+  entries: ReadonlyArray<WatchlistEntry>,
+  options: { topN?: number } = {},
+): string | null {
+  if (isScanBlockersProviderDegradedDisabled()) return null;
+
+  const degraded = entries.filter((e) => e.technicalProviderDegraded === true);
+  if (degraded.length === 0) return null;
+
+  const topN = Math.max(1, options.topN ?? TECHNICAL_PROVIDER_DEGRADED_TOP_N);
+
+  const sorted = [...degraded].sort((a, b) => {
+    const aIso = a.technicalProviderDegradedAt ?? a.addedAt;
+    const bIso = b.technicalProviderDegradedAt ?? b.addedAt;
+    const aTs = Date.parse(aIso);
+    const bTs = Date.parse(bIso);
+    const aValid = Number.isFinite(aTs);
+    const bValid = Number.isFinite(bTs);
+    if (!aValid && !bValid) return 0;
+    if (!aValid) return 1; // invalid → after valid
+    if (!bValid) return -1;
+    return bTs - aTs; // desc
+  });
+
+  const shown = sorted.slice(0, topN);
+  const remaining = degraded.length - shown.length;
+
+  const lines: string[] = [];
+  lines.push('');
+  lines.push('━━━━━━━━━━━━━━━━');
+  lines.push('⚠️ <b>[기술 데이터 PROVIDER_DEGRADED]</b>');
+  lines.push('Yahoo↔KIS 괴리로 시계열 evaluator 강등 (ADR-0411)');
+  lines.push('');
+  lines.push(`대상 ${degraded.length}개${remaining > 0 ? ` — Top ${topN}` : ''}:`);
+  for (const entry of shown) {
+    const tsLabel = formatKstHm(entry.technicalProviderDegradedAt);
+    lines.push(`  • ${entry.code} ${entry.name}${tsLabel ? ` (${tsLabel} KST)` : ''}`);
+  }
+  if (remaining > 0) {
+    lines.push(`  • 외 ${remaining}개`);
+  }
+  lines.push('');
+  lines.push('영향:');
+  lines.push('  • 신규 진입 자연 차단 (시계열 evaluator score=0)');
+  lines.push('  • 학습 데이터 계속 수집');
+  lines.push('  • WATCHLIST_HOLD — universe 보존');
+
+  return lines.join('\n');
 }

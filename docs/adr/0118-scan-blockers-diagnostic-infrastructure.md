@@ -167,8 +167,83 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string;
 2. **PR-A Yahoo 강등 정책** (`PRICE_SOURCE_POLICY` SSOT)
 3. orchestrator/autoTradeEngine 최종 결정 직전 `shouldBlockTradingByDataQuality` wiring
 
+## 확장 — TECHNICAL_PROVIDER_DEGRADED 운영자 노출 (2026-05-06, ADR 발급 0건)
+
+### 배경
+ADR-0411 가 Yahoo↔KIS 50% 초과 괴리 시 universe 보존 + KIS 가격 채택 +
+`watchlistEntry.technicalProviderDegraded=true` 영속 마커 부착. 시계열 evaluator 14개
+가 PROVIDER_DEGRADED 강등 (score=0) → 잔여 점수 ~3.0 < R3_EARLY NORMAL 임계 (4점)
+미달 → *자연 진입 차단*.
+
+그러나 `/scan_blockers` 명령은 `getLastScanSummary()` 만 표시 — *어느 종목이
+WATCHLIST_HOLD 상태인지* 운영자가 단일 명령으로 인지 불가. silent 진입 차단 — 운영자가
+"왜 매수 안 되지?" 질문에 단일 명령 답변 부재.
+
+### 결정
+
+`scanDiagnostics.ts` 에 `formatTechnicalProviderDegradedSection(entries, options?)`
+SSOT 신설 — `WatchlistEntry[]` 입력 → `technicalProviderDegraded=true` 필터 →
+`technicalProviderDegradedAt` 내림차순 정렬 → Top 5 표시 + "외 N개" 라벨.
+
+`scanBlockers.cmd.ts` 가 `loadWatchlist()` 호출 후 SSOT 헬퍼에 전달, base message
+뒤에 섹션 concatenation. try/catch 격리 — watchlist 영속 throw 가 base 메시지 차단
+안 함.
+
+### ENV 우회
+
+`SCAN_BLOCKERS_PROVIDER_DEGRADED_DISABLED=true` (default OFF, 정확 비교 ADR-0157)
+시 섹션 미노출. 회귀 발견 시 1줄 즉시 롤백.
+
+### 출력 형식
+
+```
+━━━━━━━━━━━━━━━━
+⚠️ [기술 데이터 PROVIDER_DEGRADED]
+Yahoo↔KIS 괴리로 시계열 evaluator 강등 (ADR-0411)
+
+대상 N개 — Top 5:
+  • 005930 삼성전자 (18:23 KST)
+  • 035420 NAVER (14:05 KST)
+  ...
+  • 외 M개
+
+영향:
+  • 신규 진입 자연 차단 (시계열 evaluator score=0)
+  • 학습 데이터 계속 수집
+  • WATCHLIST_HOLD — universe 보존
+```
+
+### 안전 invariant
+
+- LIVE 매매 본체 0줄 변경 — 진단 표시 layer 만
+- KIS 호출 0건 — `loadWatchlist()` 영속 read-only
+- 정렬 시 잘못된 ISO 안전 fallback (정렬 후순위, 시각 라벨 미노출)
+- topN ≤ 0 → 1 floor 가드 (안전 default)
+- ENV 정확 비교 의무 (ADR-0157) — `=== 'true'` 만 활성
+
+### 회귀 테스트 21 케이스
+
+`scanBlockersTechnicalProviderDegradedAdr0118.test.ts`:
+- ENV gate 정확 비교 6 (default / "true" / "1" / "TRUE" / "false" / "")
+- null 반환 분기 4 (빈 / degraded 0건 / ENV disabled / `=false` 명시)
+- 정상 출력 11 (1 entry / 5 entry / 6 entry Top 5 + 외 1개 / 정렬 / fallback /
+  잘못된 ISO 안전 / KST 시각 정합 / topN override / topN ≤ 0 floor / 혼재 /
+  Yahoo↔KIS 사유 명시)
+
+### 확장 영향 범위
+
+| 영역 | 변경 |
+|------|------|
+| `scanDiagnostics.ts` | `formatTechnicalProviderDegradedSection` SSOT +`isScanBlockersProviderDegradedDisabled` ENV 헬퍼 + `formatKstHm` 모듈 로컬 헬퍼 |
+| `scanBlockers.cmd.ts` | wiring +loadWatchlist + try/catch 격리 + section concat |
+| LIVE 매매 본체 | 0줄 변경 |
+| KIS/KRX quota | 0건 (영속 read-only) |
+| 새 ADR 발급 | 0건 (본 ADR 확장) |
+
 ## 참조
 - ADR-0057 FOMC v4 POST_1 부스트
 - ADR-0076 Kelly 결합 정책 FOMC 우선
 - ADR-0115/0116/0117 entryPrice/RAW/DataQuality
+- ADR-0157 ENV 정확 비교 의무
+- ADR-0411 Yahoo↔KIS 시계열 신뢰성 손상 마커 (TECHNICAL_PROVIDER_DEGRADED)
 - 사용자 18단계 §15 "DATA_HOLD 상태"
