@@ -3,6 +3,7 @@
  *
  * ADR-0135 (PR-Refactor-3) — kisClient.ts 분해 시 HTTP 레이어 격리.
  * ADR-0014 retry safety (idempotency 'unsafe' 5xx 차단) + PR-21 회로차단 + PR-24 24h 블랙리스트.
+ * ADR-0368: realDataKisGet 5xx에도 retry/backoff/circuit를 적용해 KIS 500 로그 폭주 차단.
  */
 
 import { scheduleKisCall, type KisApiPriority } from '../kisRateLimiter.js';
@@ -206,6 +207,38 @@ export function kisPost(
 // 실계좌 키 미설정 시 모의계좌 kisGet으로 자동 폴백.
 
 /**
+ * 실계좌 데이터 GET 에서 실패가 반복되는 endpoint/trId 를 짧게 차단한다.
+ * 기존 circuit 은 3회 누적 후 10분 차단이라 충분하지만, realDataKisGet 은 스캔 루프에서
+ * 같은 TR 이 다수 종목에 반복될 수 있어 첫 5xx 직후에도 짧은 micro-cooldown 이 필요하다.
+ */
+const _realData5xxCooldownUntil = new Map<string, number>();
+
+function realDataCooldownKey(trId: string, apiPath: string): string {
+  return `${trId}:${apiPath}`;
+}
+
+function realData5xxCooldownMs(status: number): number {
+  const env = Number(process.env.KIS_REALDATA_5XX_COOLDOWN_MS);
+  if (Number.isFinite(env) && env >= 0) return env;
+  return status >= 500 && status < 600 ? 60_000 : 0;
+}
+
+function isRealData5xxCooldownActive(trId: string, apiPath: string): boolean {
+  const until = _realData5xxCooldownUntil.get(realDataCooldownKey(trId, apiPath)) ?? 0;
+  return Date.now() < until;
+}
+
+function recordRealData5xxCooldown(trId: string, apiPath: string, status: number): void {
+  const cooldownMs = realData5xxCooldownMs(status);
+  if (cooldownMs <= 0) return;
+  _realData5xxCooldownUntil.set(realDataCooldownKey(trId, apiPath), Date.now() + cooldownMs);
+}
+
+function clearRealData5xxCooldown(trId: string, apiPath: string): void {
+  _realData5xxCooldownUntil.delete(realDataCooldownKey(trId, apiPath));
+}
+
+/**
  * 실계좌 데이터 전용 GET 요청 (rate-limited).
  * KIS_REAL_DATA_APP_KEY 설정 시 실계좌 서버로, 미설정 시 기존 kisGet 폴백.
  */
@@ -224,6 +257,10 @@ export function realDataKisGet(
       console.warn(`[KIS-RealData] 회로 차단 상태 — ${trId} 호출 건너뜀 (cooldown 중)`);
       return null;
     }
+    if (isRealData5xxCooldownActive(trId, apiPath)) {
+      console.warn(`[KIS-RealData] 5xx micro-cooldown — ${trId} ${apiPath} 호출 건너뜀`);
+      return null;
+    }
 
     const doFetch = async (token: string) => fetch(
       `${REAL_DATA_BASE}${apiPath}?${new URLSearchParams(params)}`,
@@ -239,34 +276,60 @@ export function realDataKisGet(
       },
     );
 
+    let retriesLeft = _isKisRetryEnabled() ? 2 : 0;
     let token = await refreshRealDataToken();
-    let res = await doFetch(token);
 
-    // 401 감지 → 실계좌 데이터 토큰 강제 무효화 후 1회 재시도
-    if (res.status === 401) {
-      console.warn(`[KIS-RealData] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도`);
-      invalidateKisToken();
-      token = await refreshRealDataToken();
-      res = await doFetch(token);
-    }
+    for (;;) {
+      let res = await doFetch(token);
 
-    if (!res.ok) {
-      console.error(`[KIS-RealData] API 오류 ${res.status} (${trId})`);
-      // 5xx(일시 장애) + 404/403(엔드포인트/권한 불일치 — 자연 복구 불가)은 회로 차단.
-      // 400/429는 호출자 파라미터 조정·재시도로 해결 여지가 있어 카운팅에서 제외.
-      if (
-        (res.status >= 500 && res.status < 600)
-        || res.status === 404
-        || res.status === 403
-      ) {
-        _recordCircuitFailure(trId, res.status);
+      // 401 감지 → 실계좌 데이터 토큰 강제 무효화 후 1회 재시도
+      if (res.status === 401 && retriesLeft > 0) {
+        console.warn(`[KIS-RealData] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도`);
+        invalidateKisToken();
+        token = await refreshRealDataToken();
+        retriesLeft -= 1;
+        res = await doFetch(token);
       }
-      return null;
-    }
 
-    _recordCircuitSuccess(trId);
-    const text = await res.text();
-    if (!text.trim()) return null;
-    try { return JSON.parse(text); } catch { return null; }
+      if (res.status === 429 && retriesLeft > 0) {
+        const delay = _kis429DelayMs();
+        console.warn(`[KIS-RealData] 429 Rate Limit (${trId}) — ${delay}ms 대기 후 재시도 (${retriesLeft}회 남음)`);
+        await _kisSleep(delay);
+        retriesLeft -= 1;
+        continue;
+      }
+
+      if (res.status >= 500 && res.status < 600) {
+        _recordCircuitFailure(trId, res.status);
+        recordRealData5xxCooldown(trId, apiPath, res.status);
+        if (retriesLeft > 0) {
+          const delay = _kisBackoffDelayMs(retriesLeft);
+          console.warn(`[KIS-RealData] ${res.status} (${trId}) 재시도 ${retriesLeft}회 남음, ${delay}ms 대기`);
+          await _kisSleep(delay);
+          retriesLeft -= 1;
+          continue;
+        }
+      }
+
+      if (!res.ok) {
+        console.error(`[KIS-RealData] API 오류 ${res.status} (${trId})`);
+        // 5xx(일시 장애) + 404/403(엔드포인트/권한 불일치 — 자연 복구 불가)은 회로 차단.
+        // 400/429는 호출자 파라미터 조정·재시도로 해결 여지가 있어 카운팅에서 제외.
+        if (
+          (res.status >= 500 && res.status < 600)
+          || res.status === 404
+          || res.status === 403
+        ) {
+          _recordCircuitFailure(trId, res.status);
+        }
+        return null;
+      }
+
+      _recordCircuitSuccess(trId);
+      clearRealData5xxCooldown(trId, apiPath);
+      const text = await res.text();
+      if (!text.trim()) return null;
+      try { return JSON.parse(text); } catch { return null; }
+    }
   });
 }
