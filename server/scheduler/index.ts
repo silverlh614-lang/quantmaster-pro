@@ -22,6 +22,7 @@ import { registerTradeFlowJobs } from './tradeFlowJobs.js';
 import { registerMaintenanceJobs } from './maintenanceJobs.js';
 import { registerCommandUsageJobs } from './commandUsageJobs.js';
 import { registerBugLedgerSummaryJob } from './bugLedgerSummaryJob.js';
+import { registerBugCandidateJob } from './bugCandidateJob.js';
 import { registerHealthLoop } from './healthLoop.js';
 import { registerPostHolidayKickstart } from './postHolidayKickstart.js';
 import { registerInvestorFlowWarmupJobs } from './investorFlowWarmupJob.js';
@@ -56,6 +57,7 @@ export function startScheduler(): void {
   registerMaintenanceJobs();
   registerCommandUsageJobs();
   registerBugLedgerSummaryJob();  // PR #669/#670/#671/#672/#673 후속 P2-B — 매월 1일 10:00 KST
+  registerBugCandidateJob();       // PR #669~#674 후속 P3 — 매일 09:30 KST CRITICAL 패턴 검출
 
   // ── 부팅 검증 (cron 미실행 결함 식별 도구) ─────────────────────────────────
   // scheduledJob() 통과 jobName + JobMetrics 영속 복원 entry + SCHEDULE_CATALOG.

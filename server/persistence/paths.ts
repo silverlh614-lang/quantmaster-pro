@@ -25,6 +25,13 @@ export function conditionWeightsRegimeFile(regime: string): string {
  */
 export const FSS_DETAIL_FILE       = path.join(DATA_DIR, 'fss-detail.json');
 
+/**
+ * P3 (PR #669/#670/#671/#672/#673/#674 후속) — CRITICAL 알림 패턴 기반 BUG 후보 영속.
+ * BUG_LEDGER 와 분리 — 자동 BUG 생성 영구 금지, 운영자가 수동으로 BUG_LEDGER.md 에 전사.
+ * 후보 ID 는 `BUG-CANDIDATE-YYYY-MM-DD-NNN` (BUG-YYYY-MM-DD-NNN 와 prefix 분리).
+ */
+export const BUG_CANDIDATES_FILE   = path.join(DATA_DIR, 'bug-candidates.json');
+
 export const SHADOW_FILE             = path.join(DATA_DIR, 'shadow-trades.json');
 
 /**
