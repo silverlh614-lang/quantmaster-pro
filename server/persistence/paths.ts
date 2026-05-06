@@ -361,6 +361,9 @@ export const MISSED_LEARNING_QUEUE_FILE = path.join(DATA_DIR, 'missed-learning-q
  */
 export const SHADOW_LEARNING_ONLY_SIGNAL_FILE = path.join(DATA_DIR, 'shadow-learning-only-signals.json');
 
+// ADR-0255: 종목별 Yahoo 갱신 신뢰도 ledger — 만성 stale 종목 진단용.
+export const YAHOO_FRESHNESS_LEDGER_FILE = path.join(DATA_DIR, 'yahoo-freshness-ledger.json');
+
 export function ensureReflectionsDir(): void {
   ensureDataDir();
   if (!fs.existsSync(REFLECTIONS_DIR)) fs.mkdirSync(REFLECTIONS_DIR, { recursive: true });

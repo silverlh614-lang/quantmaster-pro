@@ -160,6 +160,87 @@ function recordBldSuccess(bld: string): void {
   _bldFailureState.set(bld, s);
 }
 
+/**
+ * ADR-0256: KRX 호출 시간대 게이팅 — 통계 무의미 / 미확정 시간대 호출 차단.
+ * 카운터 미누적 (ADR-0251 정합) — 정상 동작 인지 + 외부 호출 부담 절감.
+ *
+ * 차단 시간대 (KST):
+ *   - PRE_DAWN (00:00~05:59): 통계 확정 전, 호출 무의미
+ *   - LUNCH_BREAK (11:31~12:59): 매수 차단 구간 (volumeClock 정합)
+ *   - POST_CLOSE_PRE_PUBLISH (15:30~17:59): 장 마감 후 통계 미확정
+ *
+ * ENV `KRX_TIME_WINDOW_GATING_DISABLED=true` → 게이팅 비활성, 모든 시각 호출 허용.
+ */
+function isKrxTimeWindowGatingDisabled(): boolean {
+  return process.env.KRX_TIME_WINDOW_GATING_DISABLED === 'true';
+}
+
+export function shouldSkipKrxCallByTimeWindow(now: Date = new Date()):
+  { skip: boolean; reason?: 'PRE_DAWN' | 'LUNCH_BREAK' | 'POST_CLOSE_PRE_PUBLISH' } {
+  if (isKrxTimeWindowGatingDisabled()) return { skip: false };
+  const kstMs = now.getTime() + 9 * 60 * 60 * 1000;
+  const kst = new Date(kstMs);
+  const totalMin = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+
+  // 새벽 (00:00~05:59) — 통계 확정 전
+  if (totalMin < 6 * 60) return { skip: true, reason: 'PRE_DAWN' };
+
+  // 점심 (11:31~12:59) — 매수 차단 구간 (volumeClock 정합)
+  if (totalMin >= 11 * 60 + 31 && totalMin <= 12 * 60 + 59) {
+    return { skip: true, reason: 'LUNCH_BREAK' };
+  }
+
+  // 장 마감 후 ~ 18:00 (15:30~17:59) — KRX 통계 미확정
+  if (totalMin >= 15 * 60 + 30 && totalMin < 18 * 60) {
+    return { skip: true, reason: 'POST_CLOSE_PRE_PUBLISH' };
+  }
+
+  return { skip: false };
+}
+
+/**
+ * ADR-0259: cooldown 만료 후 30분 이내 → probe mode (1회만 시도).
+ * 운영자가 무의미한 재호출을 회피하면서도 회복 감지 가능.
+ *
+ * cooldownUntilMs > 0 (이전 cooldown 발생) AND now > cooldownUntilMs (만료) AND
+ * now < cooldownUntilMs + 30 min (만료 직후 윈도우) → probe 시도.
+ */
+function isBldInRecoveryProbe(bld: string): boolean {
+  const s = _bldFailureState.get(bld);
+  if (!s) return false;
+  const PROBE_WINDOW_MS = 30 * 60 * 1000;
+  return s.cooldownUntilMs > 0
+      && Date.now() > s.cooldownUntilMs
+      && Date.now() < s.cooldownUntilMs + PROBE_WINDOW_MS;
+}
+
+/** 진단 — 외부 노출 (예: /health_full 명령). */
+export function getKrxBldFailureStates(): Array<{
+  bld: string;
+  consecutiveFailures: number;
+  cooldownActive: boolean;
+  cooldownRemainingMs: number;
+  recoveryProbe: boolean;
+}> {
+  const out: Array<{
+    bld: string;
+    consecutiveFailures: number;
+    cooldownActive: boolean;
+    cooldownRemainingMs: number;
+    recoveryProbe: boolean;
+  }> = [];
+  for (const [bld, s] of _bldFailureState.entries()) {
+    out.push({
+      bld,
+      consecutiveFailures: s.consecutiveFailures,
+      cooldownActive: s.cooldownUntilMs > Date.now(),
+      cooldownRemainingMs: Math.max(0, s.cooldownUntilMs - Date.now()),
+      recoveryProbe: isBldInRecoveryProbe(bld),
+    });
+  }
+  return out;
+}
+
 // ── 날짜 유틸 ────────────────────────────────────────────────────────────────
 
 /** KST 기준 오늘(YYYYMMDD). 외부 조회 기본값. */
@@ -240,6 +321,15 @@ async function krxPost(
   params: Record<string, string>,
 ): Promise<KrxRawResponse | null> {
   if (KRX_DISABLED) return null;
+
+  // ADR-0256: 시간대 게이팅 — 통계 무의미 / 미확정 시간대 호출 차단.
+  // 카운터 미누적 (ADR-0251 정합).
+  const gating = shouldSkipKrxCallByTimeWindow();
+  if (gating.skip) {
+    console.debug(`[KRX] ${bld} 시간대 게이팅 스킵 (${gating.reason}, ADR-0256)`);
+    return null;
+  }
+
   if (isBldCooldown(bld)) {
     // ADR-0009 soft cooldown — 이미 실패가 누적된 bld 는 쿨다운 동안 skip.
     return null;

@@ -13,6 +13,7 @@
  */
 
 import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
+import { updateYahooFreshness } from '../../persistence/yahooFreshnessLedger.js';
 import type { YahooQuoteExtended } from './yahooQuoteAdapter.js';
 
 /**
@@ -58,10 +59,27 @@ export async function fetchYahooQuoteWithMarketFallback(
   code: string,
   fetcher: (sym: string) => Promise<YahooQuoteExtended | null>,
 ): Promise<YahooQuoteExtended | null> {
+  // ADR-0255: ledger 갱신은 *최종 결과* 시점 1회만 — 양 시장 fallback 시도 중간
+  // 결과는 trail 안 함 (consecutiveStaleCount 폭주 방지).
+  let finalSymbol = `${code}.UNKNOWN`;
+  let finalQuote: YahooQuoteExtended | null = null;
+  const recordResult = (): YahooQuoteExtended | null => {
+    try {
+      updateYahooFreshness(code, finalSymbol, finalQuote);
+    } catch (e) {
+      console.warn(`[yahooSymbolResolver] ADR-0255 ledger 갱신 실패 (code=${code}):`, e);
+    }
+    return finalQuote;
+  };
+
   const resolved = resolveYahooSymbolForCode(code);
   if (resolved) {
     const quote = await fetcher(resolved).catch(() => null);
-    if (quote && isQuoteSane(quote)) return quote;
+    if (quote && isQuoteSane(quote)) {
+      finalSymbol = resolved;
+      finalQuote = quote;
+      return recordResult();
+    }
 
     // ADR-0241: 마스터 매칭됐으나 null 또는 sanity 위반 → 다른 시장 fallback.
     // 사용자 5/6 보고: KOSPI 마스터 매칭 .KS 응답이 STALE_BASE → .KQ 시도.
@@ -73,7 +91,9 @@ export async function fetchYahooQuoteWithMarketFallback(
         `[yahooSymbolResolver] ${code} 마스터 매칭(${resolved}) sane 실패 → ` +
         `${otherSym} sane fallback (ADR-0241)`,
       );
-      return otherQuote;
+      finalSymbol = otherSym;
+      finalQuote = otherQuote;
+      return recordResult();
     }
 
     // 양쪽 모두 실패 시 진단 로그.
@@ -88,17 +108,30 @@ export async function fetchYahooQuoteWithMarketFallback(
         `${otherSym} fetch 실패 — KIS fallback 트리거 (ADR-0241).`,
       );
     }
-    return null;
+    finalSymbol = resolved;
+    finalQuote = quote ?? otherQuote ?? null; // 더 sane 한 쪽 (둘 다 STALE 이면 quote)
+    return recordResult();
   }
 
   // 마스터 부재 → 양쪽 시도 + sanity 검증 (ADR-0241).
   const ksQuote = await fetcher(`${code}.KS`).catch(() => null);
-  if (ksQuote && isQuoteSane(ksQuote)) return ksQuote;
+  if (ksQuote && isQuoteSane(ksQuote)) {
+    finalSymbol = `${code}.KS`;
+    finalQuote = ksQuote;
+    return recordResult();
+  }
 
   // ADR-0241 핵심: ksQuote 가 null 이 아니어도 STALE_BASE 면 .KQ 시도.
   const kqQuote = await fetcher(`${code}.KQ`).catch(() => null);
-  if (kqQuote && isQuoteSane(kqQuote)) return kqQuote;
+  if (kqQuote && isQuoteSane(kqQuote)) {
+    finalSymbol = `${code}.KQ`;
+    finalQuote = kqQuote;
+    return recordResult();
+  }
 
+  finalSymbol = `${code}.KS`; // 실패 시 .KS 로 ledger 등록 (관용)
+  finalQuote = ksQuote ?? kqQuote ?? null;
+  recordResult();
   return null;
 }
 
