@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { UI_LANG, type UILangKeys, type UILangCategory } from './uiLanguage';
 
 describe('UI_LANG SSOT', () => {
-  it('7 카테고리 모두 export (nav/card/tier/regime/gate/empty/action)', () => {
+  it('8 카테고리 모두 export — nav/card/tier/regime/gate/empty/action + sectorEnergy (ADR-0398 격상)', () => {
     expect(UI_LANG.nav).toBeDefined();
     expect(UI_LANG.card).toBeDefined();
     expect(UI_LANG.tier).toBeDefined();
@@ -23,6 +23,8 @@ describe('UI_LANG SSOT', () => {
     expect(UI_LANG.gate).toBeDefined();
     expect(UI_LANG.empty).toBeDefined();
     expect(UI_LANG.action).toBeDefined();
+    // ADR-0398 (= 사용자 명시 ADR-0373) — sectorEnergy 8번째 카테고리 신규
+    expect(UI_LANG.sectorEnergy).toBeDefined();
   });
 
   it('모든 카테고리의 모든 값이 비어있지 않은 string', () => {
@@ -93,5 +95,31 @@ describe('UI_LANG SSOT', () => {
       const found = allValues.filter((v) => v.includes(term));
       expect(found, `"${term}" 가 SSOT 값에 등장: ${found.join(' / ')}`).toEqual([]);
     }
+  });
+
+  // ADR-0398 (= 사용자 명시 ADR-0373): sectorEnergy 8번째 카테고리
+  describe('ADR-0398: sectorEnergy 8번째 카테고리', () => {
+    it('7 키 모두 정합 — BOOST_DISABLED/OK/PARTIAL/STALE/DEGRADED/FAILED/YAHOO_ETF', () => {
+      const expected = ['BOOST_DISABLED', 'OK', 'PARTIAL', 'STALE', 'DEGRADED', 'FAILED', 'YAHOO_ETF'];
+      const actual = Object.keys(UI_LANG.sectorEnergy);
+      expect(actual.sort()).toEqual(expected.sort());
+      expect(actual.length).toBe(7);
+    });
+
+    it('사용자 명시 정확 문구 정합 — DEGRADED', () => {
+      expect(UI_LANG.sectorEnergy.DEGRADED).toBe('섹터 신호 저신뢰, STRONG BUY 승격 제한');
+    });
+
+    it('사용자 명시 정확 문구 정합 — FAILED', () => {
+      expect(UI_LANG.sectorEnergy.FAILED).toBe('섹터 신호 사용 불가, 개별 종목 판단만 사용');
+    });
+
+    it('사용자 명시 정확 문구 정합 — YAHOO_ETF', () => {
+      expect(UI_LANG.sectorEnergy.YAHOO_ETF).toBe('해외 ETF 프록시 기반 보조 신호, 고신뢰 아님');
+    });
+
+    it('사용자 명시 정확 문구 정합 — BOOST_DISABLED', () => {
+      expect(UI_LANG.sectorEnergy.BOOST_DISABLED).toBe('섹터 가산점 미적용');
+    });
   });
 });

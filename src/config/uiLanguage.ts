@@ -99,6 +99,21 @@ export const UI_LANG = {
     COLLAPSE: '접기',
     CLOSE: '닫기',
   },
+
+  /**
+   * ADR-0398 (= 사용자 명시 ADR-0373): sectorEnergy 8번째 카테고리.
+   * 5단계 dataQuality + YAHOO_ETF 보조 신호 한계 + boost 비활성 메시지 SSOT.
+   * /sector_energy_diag 텔레그램 명령 + UI 진단 뱃지 단일 출처.
+   */
+  sectorEnergy: {
+    BOOST_DISABLED: '섹터 가산점 미적용',
+    OK: '섹터 신호 정상',
+    PARTIAL: '섹터 신호 부분 수신',
+    STALE: '섹터 신호 지연 데이터, fallback 진행 중',
+    DEGRADED: '섹터 신호 저신뢰, STRONG BUY 승격 제한',
+    FAILED: '섹터 신호 사용 불가, 개별 종목 판단만 사용',
+    YAHOO_ETF: '해외 ETF 프록시 기반 보조 신호, 고신뢰 아님',
+  },
 } as const;
 
 export type UILangKeys = typeof UI_LANG;
