@@ -25,6 +25,7 @@
  */
 
 import { createCircuitBreaker, CircuitOpenError } from '../utils/circuitBreaker.js';
+import { isKrxTradingDay, previousKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 
 // ── 타입 ─────────────────────────────────────────────────────────────────────
 
@@ -158,20 +159,39 @@ function recentBusinessDayKst(): string {
   return recentBusinessDaysKst(1)[0];
 }
 
+/** ADR-0341 ENV legacy gate — true 시 weekday-only 분기 (구 동작 복원). */
+export function isKrxTradingCalendarLegacy(): boolean {
+  return process.env.KRX_TRADING_CALENDAR_LEGACY === 'true';
+}
+
+/**
+ * ADR-0341 — yyyymmdd ↔ YYYY-MM-DD 변환 헬퍼 + 한국 공휴일 검증 포함 영업일 산출.
+ *
+ * 기존 `kst.getUTCDay() !== 0/6` 분기는 weekday 만 검증 → KRX 휴장일 (5/1 근로자의 날 /
+ * 5/5 어린이날 / 9/24~26 추석 / 12/25 등) 에 빈 응답 받던 결함 차단.
+ *
+ * ENV `KRX_TRADING_CALENDAR_LEGACY=true` (default OFF) 시 weekday-only 분기 복원.
+ */
 export function recentBusinessDaysKst(count: number, now = new Date()): string[] {
   const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
   const kst = new Date(utcMs + 9 * 60 * 60_000);
   // 하루 전부터 시작 (당일 데이터는 장마감 후 KRX 반영까지 지연).
   kst.setUTCDate(kst.getUTCDate() - 1);
 
+  const useLegacy = isKrxTradingCalendarLegacy();
   const out: string[] = [];
-  while (out.length < Math.max(1, count)) {
-    if (kst.getUTCDay() !== 0 && kst.getUTCDay() !== 6) {
-      const y = kst.getUTCFullYear();
-      const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
-      const d = String(kst.getUTCDate()).padStart(2, '0');
-      out.push(`${y}${m}${d}`);
-    }
+  let safety = 0;
+  while (out.length < Math.max(1, count) && safety < 60) {
+    safety += 1;
+    const y = kst.getUTCFullYear();
+    const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(kst.getUTCDate()).padStart(2, '0');
+    const dateKey = `${y}-${m}-${d}`; // YYYY-MM-DD for krxTradingCalendar
+    const yyyymmdd = `${y}${m}${d}`;
+    const accept = useLegacy
+      ? (kst.getUTCDay() !== 0 && kst.getUTCDay() !== 6)
+      : isKrxTradingDay(dateKey); // ADR-0341 — weekday + 한국 공휴일 정합
+    if (accept) out.push(yyyymmdd);
     kst.setUTCDate(kst.getUTCDate() - 1);
   }
   return out;
@@ -345,10 +365,21 @@ function mapIndexDailyRow(r: Record<string, string | number>): KrxIndexDailyRow 
 
 // ── 공개 API : 주식 ──────────────────────────────────────────────────────────
 
+const KRX_STOCK_RETRY_MAX = 5;
+
+/**
+ * ADR-0342 — fetchStockDaily 빈 응답 자동 재시도 (사용자 추가 요청).
+ *
+ * KRX OpenAPI 가 휴장일 진입 직후 또는 데이터 미반영 시 빈 응답 반환.
+ * basDd 빈 응답 시 이전 KRX 거래일 (krxTradingCalendar SSOT) 자동 재시도.
+ *
+ * fetchIndexDaily 와 동일 패턴 — 재귀 깊이 ≤ 5 + ENV 우회 동일.
+ */
 async function fetchStockDaily(
   endpoint: string,
   cachePrefix: string,
   date?: string,
+  retryDepth: number = 0,
 ): Promise<KrxStockDailyRow[]> {
   const basDd = date && isValidYyyymmdd(date) ? date : recentBusinessDayKst();
   const key = `${cachePrefix}:${basDd}`;
@@ -361,6 +392,21 @@ async function fetchStockDaily(
   for (const r of rows) {
     const mapped = mapStockDailyRow(r);
     if (mapped) out.push(mapped);
+  }
+  // ADR-0342: 빈 응답 시 직전 KRX 거래일 자동 재시도 (한국 공휴일 정합).
+  if (
+    out.length === 0
+    && !isKrxAutoRetryOnEmptyDisabled()
+    && retryDepth < KRX_STOCK_RETRY_MAX
+  ) {
+    const prevYyyymmdd = previousBusinessDayYyyymmdd(basDd);
+    if (prevYyyymmdd && prevYyyymmdd !== basDd) {
+      console.warn(
+        `[krxOpenApi] ${endpoint} basDd=${basDd} 빈 응답 — `
+        + `직전 KRX 거래일 ${prevYyyymmdd} 자동 재시도 (depth=${retryDepth + 1}/${KRX_STOCK_RETRY_MAX}, ADR-0342)`,
+      );
+      return fetchStockDaily(endpoint, cachePrefix, prevYyyymmdd, retryDepth + 1);
+    }
   }
   // 빈 결과는 캐시하지 않는다 (일시 장애 시 스팸 방지).
   if (out.length > 0) cacheSet(key, out);
@@ -414,10 +460,42 @@ export function getKrxOpenApiEndpointPath(kind: 'kospiBaseInfo' | 'kosdaqBaseInf
 
 // ── 공개 API : 지수 ──────────────────────────────────────────────────────────
 
+/** ADR-0342 — yyyymmdd → 직전 KRX 거래일 yyyymmdd 변환 헬퍼. */
+function previousBusinessDayYyyymmdd(yyyymmdd: string): string | null {
+  if (!isValidYyyymmdd(yyyymmdd)) return null;
+  const y = yyyymmdd.slice(0, 4);
+  const m = yyyymmdd.slice(4, 6);
+  const d = yyyymmdd.slice(6, 8);
+  const noonKst = new Date(`${y}-${m}-${d}T03:00:00.000Z`); // 12:00 KST
+  if (!Number.isFinite(noonKst.getTime())) return null;
+  const prev = previousKrxTradingDay(noonKst); // YYYY-MM-DD
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(prev)) return null;
+  return prev.replace(/-/g, '');
+}
+
+/** ADR-0342 ENV gate — true 시 자동 재시도 비활성. */
+export function isKrxAutoRetryOnEmptyDisabled(): boolean {
+  return process.env.KRX_AUTO_RETRY_ON_EMPTY_DISABLED === 'true';
+}
+
+const KRX_INDEX_RETRY_MAX = 5;
+
+/**
+ * ADR-0342 — fetchIndexDaily 빈 응답 자동 재시도.
+ *
+ * KRX OpenAPI 가 휴장일 진입 직후 또는 데이터 미반영 시 빈 응답을 반환하던 결함 차단.
+ * basDd 빈 응답 시 이전 KRX 거래일 (krxTradingCalendar SSOT, 한국 공휴일 정합) 자동 재시도.
+ *
+ * 안전 제약:
+ *   - 재귀 깊이 ≤ KRX_INDEX_RETRY_MAX (5) → 긴 명절 (추석 7일) 도 1회 사슬로 회복
+ *   - 빈 응답 캐시 미저장 → 재시도 가치 보존
+ *   - ENV `KRX_AUTO_RETRY_ON_EMPTY_DISABLED=true` 1줄 즉시 비활성
+ */
 async function fetchIndexDaily(
   endpoint: string,
   cachePrefix: string,
   date?: string,
+  retryDepth: number = 0,
 ): Promise<KrxIndexDailyRow[]> {
   const basDd = date && isValidYyyymmdd(date) ? date : recentBusinessDayKst();
   const key = `${cachePrefix}:${basDd}`;
@@ -430,6 +508,21 @@ async function fetchIndexDaily(
   for (const r of rows) {
     const mapped = mapIndexDailyRow(r);
     if (mapped) out.push(mapped);
+  }
+  // ADR-0342: 빈 응답 시 직전 KRX 거래일 자동 재시도 (한국 공휴일 정합).
+  if (
+    out.length === 0
+    && !isKrxAutoRetryOnEmptyDisabled()
+    && retryDepth < KRX_INDEX_RETRY_MAX
+  ) {
+    const prevYyyymmdd = previousBusinessDayYyyymmdd(basDd);
+    if (prevYyyymmdd && prevYyyymmdd !== basDd) {
+      console.warn(
+        `[krxOpenApi] ${endpoint} basDd=${basDd} 빈 응답 — `
+        + `직전 KRX 거래일 ${prevYyyymmdd} 자동 재시도 (depth=${retryDepth + 1}/${KRX_INDEX_RETRY_MAX}, ADR-0342)`,
+      );
+      return fetchIndexDaily(endpoint, cachePrefix, prevYyyymmdd, retryDepth + 1);
+    }
   }
   if (out.length > 0) cacheSet(key, out);
   return out;
