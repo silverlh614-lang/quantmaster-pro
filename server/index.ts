@@ -405,6 +405,23 @@ async function startServer() {
       })
       .catch(() => { /* noop — 진단 로그 실패가 부팅 차단 안 함 */ });
 
+    // ADR-0258 부팅 seed wiring: ledger 비어있으면 본 세션 INC-2026-05-06-001
+    // 첫 record 자동 영속. 이후 호출 idempotent (existing record 감지 시 skip).
+    // dynamic import + try/catch 격리 — 부팅 흐름 무중단.
+    import('./learning/defectEvolutionLedger.js')
+      .then(({ seedFirstIncidentIfEmpty }) => {
+        const seeded = seedFirstIncidentIfEmpty();
+        if (seeded) console.log('[Boot] defectEvolutionLedger seed 완료 (INC-2026-05-06-001)');
+      })
+      .catch(() => { /* noop — seed 실패가 부팅 차단 안 함 */ });
+
+    import('./learning/userDiagnosticHints.js')
+      .then(({ seedSessionHintsIfEmpty }) => {
+        const seeded = seedSessionHintsIfEmpty();
+        if (seeded) console.log('[Boot] userDiagnosticHints seed 완료 (7 hints)');
+      })
+      .catch(() => { /* noop — seed 실패가 부팅 차단 안 함 */ });
+
     // 부팅 완료 시점 기록 — 기억 보완 회로 (startupMs).
     markBootReady(bootInfo.current.bootId, Date.now() - bootStartNs);
 

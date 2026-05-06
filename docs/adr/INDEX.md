@@ -14,9 +14,12 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0196`**
+**다음 ADR 번호: `0261`**
 
-(2026-05-06 기준, 마지막 발급 0195, 누락 6개 — 0062/0063/0089/0105/0106/0143. 충돌 그룹 11개 (0146/0147/0168 — 별칭 0146a/b·0147a/b·0168a/b 부여, ADR-0159 정합))
+(2026-05-06 기준, 마지막 발급 0260, 누락 47개 — 0062/0063/0089/0105/0106/0143/0196~0210/0212~0220/0222~0230/0232~0233/0236/0238~0240/0243~0244/0246~0247/0253~0254/0257. 충돌 그룹 11개 (0146/0147/0168 — 별칭 0146a/b·0147a/b·0168a/b 부여, ADR-0159 정합))
+
+**세션 2026-05-06 (#622~#634)**: fast iteration 으로 0211~0260 범위가 commit message 라벨로 등재. 본 INDEX.md 가 사용된 번호의 SSOT — 신규 ADR 은 0261 부터 발급 (충돌 회피).
+**포기 결정 (회귀 위험 큼)**: ADR-0253 (Yahoo→KIS 시계열 합성), ADR-0254 (점심 회로 절전 — ADR-0237 와 책임 중복). DECIDED_NOT_WIRING 영구 — 누락 처리.
 
 ## 알려진 충돌 (Known Conflicts)
 
@@ -67,8 +70,19 @@
 | 0105 | UI Phase 시리즈 stack rebase 시 누락 |
 | 0106 | 동일 |
 | 0143 | KIS GitHub 검증 PR rebase 시 누락 (0144/0145 그룹) |
+| 0196~0210 | 세션 2026-05-06 fast iteration — commit message 가 0211 부터 시작, INDEX.md 등재 안 됨 |
+| 0212~0220 | 동일 (0211 다음 0221 점프) |
+| 0222~0230 | 동일 (0221 다음 0231 점프) |
+| 0232~0233 | 동일 (0231 다음 0234) |
+| 0236 | 동일 (0235 다음 0237) |
+| 0238~0240 | 동일 (0237 다음 0241) |
+| 0243~0244 | 동일 (0242 다음 0245) |
+| 0246~0247 | 동일 (0245 다음 0248) |
+| 0253 | **포기 결정** — Yahoo→KIS 시계열 합성 (회귀 위험 큼, DECIDED_NOT_WIRING) |
+| 0254 | **포기 결정** — 점심 회로 절전 (ADR-0237 와 책임 중복, DECIDED_NOT_WIRING) |
+| 0257 | 세션 fast iteration — commit message 가 0258 점프 |
 
-총 누락 6개. 누락 분석은 본 인덱스 read-only — 번호 재사용 시도 금지.
+총 누락 47개 (기존 6 + 세션 2026-05-06 41). 번호 재사용 금지 (git history 추적성 보호).
 
 ## 전체 인덱스
 
@@ -272,6 +286,25 @@
 | 0193 | block-new-buy-manage-only-symmetric-coupling | trading |
 | 0194 | telegram-block-guard-commands | telegram |
 | 0195 | r3-sanity-block-telegram-unblock | telegram |
+| 0211 | gate-evaluation-fallback (PR #622) | trading |
+| 0221 | kis-prevclose-priority (PR #623) | trading |
+| 0231 | krx-master-symbol-resolver-ssot (PR #624) | trading |
+| 0234 | yahoo-meta-symbol-validation (PR #625) | trading |
+| 0235 | yahoo-close-timestamps-stale (PR #626) | trading |
+| 0237 | volumeclock-blocked-empty-scan (PR #627) | orchestrator |
+| 0241 | yahoo-sanity-aware-fallback (PR #628) | trading |
+| 0242 | stockmaster-auto-enrichment (PR #632) | data |
+| 0245 | stockmaster-integrity-check (PR #632) | data |
+| 0248 | watchlist-diversity-monitor (PR #633) | learning |
+| 0249 | global-yahoo-symbol-ssot-api (PR #633) | trading |
+| 0250 | user-diagnostic-hints-ledger (PR #633) | learning |
+| 0251 | krx-off-hours-counter-isolation (PR #629) | clients |
+| 0252 | krx-business-day-grace-extension (PR #629) | utils |
+| 0255 | yahoo-freshness-ledger (PR #630) | persistence |
+| 0256 | krx-time-window-gating (PR #630) | clients |
+| 0258 | health-full-diagnostic-command (PR #634) | telegram |
+| 0259 | krx-cooldown-probe-mode (PR #630/#631) | clients |
+| 0260 | defect-evolution-ledger (PR #631) | learning |
 
 **총 발급 188 unique 번호** (198 ADR 파일 − 충돌 그룹 11개의 추가 16 파일 + 충돌 그룹 11개 = 182 unique 번호 + 누락 미사용 6건 = 188 — 마지막 발급 0190) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 6건** (0062/0063/0089/0105/0106/0143) / **다음 발급 0191**.
 
