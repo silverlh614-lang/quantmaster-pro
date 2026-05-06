@@ -129,15 +129,47 @@ export function resetKrxCache(): void {
 interface BldFailureState {
   consecutiveFailures: number;
   cooldownUntilMs: number;
+  /** ADR-0259: probe 윈도우 안 마지막 시도 시각 — 30분 안 추가 호출 skip 용. */
+  recoveryProbedAt?: number;
 }
 const _bldFailureState = new Map<string, BldFailureState>();
 const BLD_FAILURE_THRESHOLD = 5;
 const BLD_COOLDOWN_MS = 60 * 60 * 1000; // 1시간
+const RECOVERY_PROBE_WINDOW_MS = 30 * 60 * 1000; // 30분
 
 function isBldCooldown(bld: string): boolean {
   const s = _bldFailureState.get(bld);
   if (!s) return false;
   return s.cooldownUntilMs > Date.now();
+}
+
+/**
+ * ADR-0259 wiring: probe 윈도우 안 추가 호출 skip — cooldown 만료 후 30분 안에는
+ * 1회만 시도. 이미 probed 했으면 다음 일반 호출 (윈도우 종료 후) 까지 skip.
+ *
+ * 시간 분기:
+ *   - cooldownUntilMs === 0: 처음부터 cooldown 없음 → false (정상 호출)
+ *   - cooldown 활성: false (별도 isBldCooldown 분기에서 처리)
+ *   - cooldown 만료 + 30분 윈도우 안: recoveryProbedAt > cooldownUntilMs 이면 true
+ *   - 30분 지난 후: false (일반 호출)
+ */
+function shouldSkipForRecoveryProbe(bld: string): boolean {
+  const s = _bldFailureState.get(bld);
+  if (!s || s.cooldownUntilMs === 0) return false;
+  if (s.cooldownUntilMs > Date.now()) return false;
+  const probeWindowEnd = s.cooldownUntilMs + RECOVERY_PROBE_WINDOW_MS;
+  if (Date.now() >= probeWindowEnd) return false;
+  return (s.recoveryProbedAt ?? 0) >= s.cooldownUntilMs;
+}
+
+/** ADR-0259: probe 시도 시점 마킹 — 30분 안 추가 호출 skip 트리거. */
+function markRecoveryProbed(bld: string): void {
+  const s = _bldFailureState.get(bld);
+  if (!s || s.cooldownUntilMs === 0) return;
+  if (Date.now() < s.cooldownUntilMs + RECOVERY_PROBE_WINDOW_MS) {
+    s.recoveryProbedAt = Date.now();
+    _bldFailureState.set(bld, s);
+  }
 }
 
 function recordBldFailure(bld: string): void {
@@ -334,6 +366,19 @@ async function krxPost(
     // ADR-0009 soft cooldown — 이미 실패가 누적된 bld 는 쿨다운 동안 skip.
     return null;
   }
+
+  // ADR-0259 wiring: probe 윈도우 (cooldown 만료 후 30분) 안 추가 호출 skip.
+  // 1회만 시도 → 성공 시 recordBldSuccess 가 cooldownUntilMs=0 으로 reset →
+  // 이후 호출은 정상 동작. 실패 시 markRecoveryProbed 마킹된 상태 유지 →
+  // 다음 30분 윈도우 안 호출은 skip (또 실패해서 cooldown 재발 방지).
+  if (shouldSkipForRecoveryProbe(bld)) {
+    console.debug(`[KRX] ${bld} probe 윈도우 안 추가 호출 skip (ADR-0259)`);
+    return null;
+  }
+
+  // probe 윈도우 안 첫 시도 시점 마킹 — 다음 호출은 skip.
+  markRecoveryProbed(bld);
+
   const body = new URLSearchParams({ bld, ...params }).toString();
 
   const ac = new AbortController();
