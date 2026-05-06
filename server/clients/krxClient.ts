@@ -270,12 +270,14 @@ async function krxPost(
       if (res.status === 400 && isKstWeekend()) {
         return null;
       }
-      // 평일 18:00 이전 통계 미확정 창에서의 400 은 debug, 그 외는 warn 유지.
+      // ADR-0251: 평일 off-hours (장 시작 전 / 점심 / 마감 후 통계 미확정 창)
+      // 의 400 은 정상 동작 — 카운터 미누적 (주말과 동일 정책). 사용자 5/6
+      // 보고: 점심시간 KRX 400 누적이 cooldown 트리거하던 결함 차단.
       if (res.status === 400 && !isMarketDataPublished()) {
-        console.debug(`[KRX] ${bld} HTTP 400 (off-hours fallback — suppressed)`);
-      } else {
-        console.warn(`[KRX] ${bld} HTTP ${res.status}`);
+        console.debug(`[KRX] ${bld} HTTP 400 (off-hours fallback — suppressed, ADR-0251)`);
+        return null;
       }
+      console.warn(`[KRX] ${bld} HTTP ${res.status}`);
       recordBldFailure(bld);
       return null;
     }

@@ -80,6 +80,43 @@ export function isAcceptableKrxDailyBase(asOf: string, now: Date = new Date()): 
   return false;
 }
 
+/**
+ * ADR-0252: N 영업일 grace 일반화 — DAILY (1 영업일) / RECOMMENDATION_RETURN
+ * (20 영업일) 등 mode 별 다른 임계 적용. 사용자 5/6 보고: 휴장일 클러스터
+ * (5/1·5/5) 에서 정상 영업일 base 가 calendar 일 비교로 STALE 오판되던 결함 차단.
+ *
+ * - businessDaysGrace=1: ADR-0190 (DAILY) 동작 정합 — 직전 영업일 + 1 일 grace
+ * - businessDaysGrace=20: RECOMMENDATION_RETURN 5일/20일 수익률 base 허용
+ *
+ * 휴장일을 영업일에서 자연 제외 — 5/6 시점 20 영업일 = 약 4/3 (calendar 33일).
+ */
+export function isAcceptableKrxBusinessDayBase(
+  asOf: string,
+  now: Date = new Date(),
+  businessDaysGrace: number = 1,
+): boolean {
+  const baseKey = toKstDateKey(asOf);
+  if (!baseKey) return false;
+  const expected = previousKrxTradingDay(now);
+  if (baseKey >= expected) return true;
+
+  // expected 부터 N 영업일 거꾸로 walk — 휴장일은 자동 skip.
+  // calendar 일 buffer = businessDaysGrace × 2 + 14 (추석/신정 같은 ≤ 7일 연휴 + 주말).
+  let cursor = expected;
+  let walked = 0;
+  const maxWalk = businessDaysGrace * 2 + 14;
+  for (let i = 0; i < maxWalk; i += 1) {
+    cursor = addDays(cursor, -1);
+    if (isKrxTradingDay(cursor)) {
+      walked++;
+      if (walked >= businessDaysGrace) {
+        return baseKey >= cursor;
+      }
+    }
+  }
+  return false;
+}
+
 export function recommendedDailyStaleWindowDays(now: Date = new Date()): number {
   const expected = previousKrxTradingDay(now);
   const nowMs = now.getTime();

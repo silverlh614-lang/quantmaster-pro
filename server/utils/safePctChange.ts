@@ -18,7 +18,7 @@
  */
 
 import { isDataQualityStrictDisabled } from '../types/dataQuality.js';
-import { isAcceptableKrxDailyBase } from '../calendar/krxTradingCalendar.js';
+import { isAcceptableKrxBusinessDayBase } from '../calendar/krxTradingCalendar.js';
 
 const DEFAULT_SANITY_BOUND_PCT = 90;
 const LOG_THROTTLE_MS = 60_000;
@@ -203,16 +203,22 @@ export function isStaleBase(
     return ageMs > limitMs;
   }
 
-  // 2. ADR-0190: mode='DAILY' + KR 일봉 출처 → KRX 거래일 기준 grace policy.
+  // 2. ADR-0190 + ADR-0252: KR 일봉 출처 + KRX 거래일 grace policy 일반화.
+  // mode 별 영업일 임계: DAILY=1, RECOMMENDATION_RETURN=20 (5일/20일 수익률).
   // calendar 일수 비교가 5/1 (근로자의 날) + 5/5 (어린이날) 같은 휴장일 클러스터에서
-  // 정상 base (4/30) 를 STALE_BASE_AGE 로 잘못 판정하던 결함 차단.
+  // 정상 base 를 STALE_BASE_AGE 로 잘못 판정하던 결함 차단.
   // ENV 우회 시 ADR-0190 이전 동작 byte-equivalent (legacy calendar 일 비교).
+  const KRX_GRACE_BUSINESS_DAYS: Partial<Record<PctChangeMode, number>> = {
+    DAILY: 1,
+    RECOMMENDATION_RETURN: 20,
+  };
+  const businessDaysGrace = mode ? KRX_GRACE_BUSINESS_DAYS[mode] : undefined;
   if (
-    mode === 'DAILY'
+    businessDaysGrace !== undefined
     && KRX_DAILY_PRICE_SOURCES.has(base.source)
     && !isSafePctChangeKrxCalendarDisabled()
   ) {
-    return !isAcceptableKrxDailyBase(base.asOf, now);
+    return !isAcceptableKrxBusinessDayBase(base.asOf, now, businessDaysGrace);
   }
 
   // 3. mode 기반 default (legacy calendar 일 비교)
