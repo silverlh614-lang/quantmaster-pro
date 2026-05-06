@@ -313,6 +313,7 @@
 | 0342 | krx-empty-response-auto-retry (retrofit) | clients |
 | 0343 | sector-energy-cache-fallback (retrofit) | clients |
 | 0364 | sector-energy-yahoo-etf-fallback (retrofit, PR #645) | clients |
+| 0370 | sector-energy-hardening-phase-1 (PR-Sector-Energy-Hardening-Phase-1) | clients |
 | 0387 | condition-eval-status-data-unavailable (PR #655) | quant/conditions |
 | 0388 | condition-eval-status-error-isolation (PR #656) | quant/conditions |
 | 0389 | evaluator-status-migration-and-gate-audit-extension (PR #657) | quant/conditions |

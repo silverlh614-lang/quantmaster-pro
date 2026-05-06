@@ -8,6 +8,11 @@
  * ADR-0369: indexName fallback 은 기본 OFF. 서로 다른 KRX 지수를 이름/정규식으로 잘못
  * 매칭하면 -100%~-500% 수익률과 1000%+ 거래량 이상치가 발생한다. 기본 경로는
  * stock-daily synthetic sectorEnergy 이며, indexName fallback 은 ENV opt-in 전용이다.
+ * ADR-0370 (Phase 1): RETURN_SANITY_BOUND_PCT default 90 → 30 강화 (한국 섹터 일일
+ * 변화 ±15%·주간 ±30% 초과는 데이터 결함 의심). indexName fallback ENV 활성 시
+ * 부팅 1회 console.warn. aggregateIndexDeltas 키 합성 시 indexCode 우선 + indexName
+ * 단독 매칭은 fallback OFF 시 호출 0건 보장. 동일 key 중복 silent overwrite 금지
+ * (console.warn skip).
  */
 
 import {
@@ -67,7 +72,13 @@ const KRX_INDEX_TO_SECTOR: Array<[RegExp, StrategicSector]> = [
   [/통신|전기가스|유틸리티/, '통신/유틸리티'],
 ];
 
-const RETURN_SANITY_BOUND_PCT = Number(process.env.SECTOR_ENERGY_RETURN_SANITY_BOUND_PCT ?? '90');
+// ADR-0370: default 90 → 30. 한국 섹터 일일 ±15% / 주간 ±30% 가 정상 상한.
+// 30 초과는 데이터 결함 의심 (자릿수 격차, 액면병합/분할, 잘못된 indexName 매칭 등).
+// 회귀 발견 시 SECTOR_ENERGY_RETURN_SANITY_BOUND_PCT=90 ENV 1줄로 즉시 롤백.
+export const RETURN_SANITY_BOUND_PCT_DEFAULT = 30;
+const RETURN_SANITY_BOUND_PCT = Number(
+  process.env.SECTOR_ENERGY_RETURN_SANITY_BOUND_PCT ?? String(RETURN_SANITY_BOUND_PCT_DEFAULT),
+);
 const VOLUME_SANITY_BOUND_PCT = Number(process.env.SECTOR_ENERGY_VOLUME_SANITY_BOUND_PCT ?? '1000');
 export const SECTOR_ENERGY_MIN_VALID_DEFAULT = 8;
 export const SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD = 0.9;
@@ -137,8 +148,28 @@ export function isSectorEnergySymmetryDisabled(): boolean {
 
 export function isSectorEnergyIndexNameFallbackEnabled(): boolean {
   // ADR-0369: unsafe fallback is opt-in only.
+  // ADR-0370: 정확 비교 (=== 'true') 의무 (ADR-0157 정합).
   return process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK === 'true';
 }
+
+// ADR-0370: 부팅 시점 1회 unsafe fallback 활성 경고. 모듈 로드 시 1회만 실행.
+// ENV 정확 비교 (=== 'true') — 'TRUE'/'1'/'yes' 거부 (ADR-0157 정합).
+let _indexNameFallbackWarningEmitted = false;
+export function emitIndexNameFallbackWarningIfEnabled(): boolean {
+  if (_indexNameFallbackWarningEmitted) return false;
+  if (process.env.SECTOR_ENERGY_INDEX_NAME_FALLBACK !== 'true') return false;
+  console.warn(
+    '[SECTOR_ENERGY] unsafe indexName fallback is enabled. ' +
+      'This may produce unreliable sector deltas (ADR-0369/0370).',
+  );
+  _indexNameFallbackWarningEmitted = true;
+  return true;
+}
+export function __resetIndexNameFallbackWarningForTests(): void {
+  _indexNameFallbackWarningEmitted = false;
+}
+// 모듈 로드 시 1회 실행 (부팅 시점 진단).
+emitIndexNameFallbackWarningIfEnabled();
 
 export function getSectorEnergyMinValid(): number {
   const env = Number(process.env.SECTOR_ENERGY_MIN_VALID);
@@ -172,7 +203,15 @@ function pushDelta(
   returnPct: number,
   volumePct: number,
 ): void {
-  if (!Number.isFinite(returnPct) || Math.abs(returnPct) > RETURN_SANITY_BOUND_PCT) return;
+  // ADR-0370: sanity bound default 90 → 30. 초과 시 진단 로그 + skip.
+  if (!Number.isFinite(returnPct)) return;
+  if (Math.abs(returnPct) > RETURN_SANITY_BOUND_PCT) {
+    console.warn(
+      `[SectorEnergy] sanity-violation pct=${returnPct.toFixed(2)}% sector=${sector} ` +
+        `bound=${RETURN_SANITY_BOUND_PCT}% (ADR-0370)`,
+    );
+    return;
+  }
   if (!Number.isFinite(volumePct) || Math.abs(volumePct) > VOLUME_SANITY_BOUND_PCT) return;
   const acc = bySector.get(sector) ?? { returns: [], volumes: [] };
   acc.returns.push(returnPct);
@@ -180,15 +219,60 @@ function pushDelta(
   bySector.set(sector, acc);
 }
 
+/**
+ * ADR-0370: composite key (`${market}:${indexCode|indexName}`) 우선순위.
+ * 1) indexCode 있으면 → `${market}:${indexCode}` (정확 매칭, 동일 indexName 다른 시장 분리)
+ * 2) 그 외 → `${market}:${indexName}` (indexName fallback, ENV 활성 시에만 사용)
+ *
+ * KOSPI:반도체 와 KOSDAQ:반도체 같은 동일 이름 다른 시장 sub-index 의 silent overwrite
+ * 영구 차단. KrxIndexDailyRow.market 필드 부재 시 빈 문자열 — 단일 시장 호환.
+ */
+function indexRowMarket(row: KrxIndexDailyRow): string {
+  // KrxIndexDailyRow 의 market 필드는 옵셔널 — 부재 시 빈 문자열 (호환).
+  // ts-ignore: 외부 타입 변경 없이 옵셔널 access.
+  const m = (row as unknown as { market?: string }).market;
+  return typeof m === 'string' ? m : '';
+}
+
+// ADR-0370: indexRowKey 헬퍼 — composite key 합성 SSOT (외부 reference 가능).
+// `${market}:code:${indexCode}` 우선 / useNameFallback=true 시 `${market}:name:${indexName}` fallback.
+export function indexRowKey(row: KrxIndexDailyRow, useNameFallback: boolean): string | null {
+  const market = indexRowMarket(row);
+  if (row.indexCode) return `${market}:code:${row.indexCode}`;
+  if (useNameFallback && row.indexName) return `${market}:name:${row.indexName}`;
+  return null;
+}
+
 export function aggregateIndexDeltas(
   todayRows: KrxIndexDailyRow[],
   pastRows: KrxIndexDailyRow[],
 ): Map<StrategicSector, { returns: number[]; volumes: number[] }> {
+  const useNameFallback = isSectorEnergyIndexNameFallbackEnabled();
+
+  // ADR-0370: composite key 합성. 동일 key 중복 시 silent overwrite 금지 → console.warn skip.
+  // 두 layer 분리:
+  //  (1) pastByCode = `${market}:code:${indexCode}` — 정확 매칭 (KOSPI vs KOSDAQ 분리)
+  //  (2) pastByName = `${market}:name:${indexName}` — useNameFallback=true 시에만 활성
   const pastByCode = new Map<string, KrxIndexDailyRow>();
   const pastByName = new Map<string, KrxIndexDailyRow>();
   for (const r of pastRows) {
-    if (r.indexCode) pastByCode.set(r.indexCode, r);
-    if (r.indexName) pastByName.set(r.indexName, r);
+    const market = indexRowMarket(r);
+    if (r.indexCode) {
+      const codeKey = `${market}:code:${r.indexCode}`;
+      if (pastByCode.has(codeKey)) {
+        console.warn(
+          `[SectorEnergy] duplicate past key=${codeKey} skipped (ADR-0370). ` +
+            `existing.close=${pastByCode.get(codeKey)!.close} duplicate.close=${r.close}`,
+        );
+      } else {
+        pastByCode.set(codeKey, r);
+      }
+    }
+    if (useNameFallback && r.indexName) {
+      const nameKey = `${market}:name:${r.indexName}`;
+      if (!pastByName.has(nameKey)) pastByName.set(nameKey, r);
+      // pastByName 중복은 silent (fallback 자체가 unsafe opt-in 이라 첫 번째만 사용)
+    }
   }
 
   const bySector = new Map<StrategicSector, { returns: number[]; volumes: number[] }>();
@@ -196,11 +280,19 @@ export function aggregateIndexDeltas(
     const sector = classifyIndex(t.indexName);
     if (!sector) continue;
 
+    // ADR-0370: 우선순위 SSOT
+    //  1) today.indexCode 있으면 → pastByCode (KOSPI vs KOSDAQ 분리, default 경로)
+    //  2) useNameFallback=true 이고 매칭 실패 시 → pastByName (회귀 분석 ENV opt-in)
+    //  useNameFallback=false (default) 시 indexName fallback 경로 호출 0건 보장.
+    const market = indexRowMarket(t);
     let past: KrxIndexDailyRow | undefined;
-    if (t.indexCode) past = pastByCode.get(t.indexCode);
-    if (!past && t.indexName && isSectorEnergyIndexNameFallbackEnabled()) {
-      past = pastByName.get(t.indexName);
+    if (t.indexCode) {
+      past = pastByCode.get(`${market}:code:${t.indexCode}`);
     }
+    if (!past && useNameFallback && t.indexName) {
+      past = pastByName.get(`${market}:name:${t.indexName}`);
+    }
+
     if (!past || past.close <= 0 || t.close <= 0) continue;
     if (t.baseDate && past.baseDate && t.baseDate === past.baseDate) continue;
 
