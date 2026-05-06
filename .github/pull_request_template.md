@@ -53,6 +53,30 @@ LIVE 매매 회귀 위험 격리를 위해 모든 PR 이 본 체크리스트 답
 - [ ] 본 PR 이 N0 boundary (PR-100/110/120/...) 에 *근접* 한 경우, 직전 10 PR audit-only PR 트리거 일정 인지.
 - [ ] CLAUDE.md "변경 이력" 한 줄 추가 (PR 의도 + 도메인 + 검증 + KIS/LIVE 영향).
 
+### 🐛 BUG 참조 (BUG_LEDGER, PR #669/#670)
+
+<!--
+docs/ops/BUG_LEDGER.md 의 결함을 닫는 Hotfix PR 인 경우 아래 Fixes 섹션에 ID 명시 의무.
+BUG 무관 PR (신규 기능 / 리팩토링 / 거버넌스) 는 "BUG 무관" 체크 후 Fixes 섹션 비워둠.
+형식: `Fixes BUG-YYYY-MM-DD-NNN` (heading 등장만 차단, frontmatter id: 매칭만 인정)
+검증: `node scripts/check_bug_ledger.js --text "<PR body>"` (UNKNOWN_BUG_REFERENCE 시 EXIT=1)
+-->
+
+- [ ] 이 PR 이 결함 (BUG) 을 닫는 Hotfix PR 인 경우, 아래 §"Fixes" 에 `Fixes BUG-YYYY-MM-DD-NNN` 형식으로 BUG ID 1건 이상 명시.
+- [ ] 명시한 BUG ID 가 `docs/ops/BUG_LEDGER.md` 의 frontmatter `id:` 와 정확히 일치 (heading 만으로는 통과 차단).
+- [ ] 본 PR 으로 BUG status 가 OPEN → PATCHED 로 전이되는 경우, BUG_LEDGER 의 해당 항목 `Resolution` 섹션에 *수정 PR 번호* + *해결 방법* + *검증 방법* + *회귀 테스트* 갱신.
+- [ ] 같은 결함이 재발한 경우 신규 BUG ID *발급 금지* — 기존 BUG 의 `recurrence_count` 증가 + `Watch` 섹션 갱신.
+- [ ] 본 PR 이 BUG 와 무관한 경우 (신규 기능 / 리팩토링 / 거버넌스 / 진단 가시화 등), 아래 §"Fixes" 비워둠 + 본 항목에 *"BUG 무관"* 명시.
+
+## Fixes
+
+<!--
+이 PR 이 닫는 BUG_LEDGER 항목을 명시 (없으면 "BUG 무관" 한 줄):
+  Fixes BUG-2026-05-07-001
+또는
+  BUG 무관 (신규 기능 / 리팩토링 / 거버넌스)
+-->
+
 ## Test plan
 
 - [ ] (수동 / 자동 테스트 항목)
