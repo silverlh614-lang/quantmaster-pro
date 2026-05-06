@@ -1,6 +1,13 @@
 // @responsibility state 서버 모듈
 // server/state.ts — 공유 상태 모듈
 // 서버사이드 비상 정지 플래그 & 일일 손실률을 단일 모듈에서 관리
+import {
+  loadPersistentExecutionMode,
+  savePersistentExecutionMode,
+  clearPersistentExecutionMode as clearPersistentOverride,
+  __resetPersistentExecutionModeForTests,
+  type ExecutionModeOverrideRecord,
+} from './persistence/executionModeOverrideRepo.js';
 let EMERGENCY_STOP = false;
 let DAILY_LOSS_PCT = 0;
 
@@ -181,26 +188,97 @@ export function readEnvExecutionMode(): ExecutionMode {
 }
 
 /**
- * 실행 모드 조회 — RUNTIME override 우선, 그 외 env 해석.
- * 본 함수가 신규 SSOT — getTradingMode() 는 deprecated wrapper.
+ * 실행 모드 조회 — ADR-0395 P2 우선순위 체인.
+ *
+ * 우선순위:
+ *   1. RUNTIME_EXECUTION_MODE (메모리 — Kill Switch 즉시 강등) — 휘발성, 재시작 시 사라짐
+ *   2. 영속 override (data/execution_mode_override.json — 운영자 영속 강등) — Railway 재배포 후에도 유지
+ *   3. env (EXECUTION_MODE / AUTO_TRADE_MODE) — 운영 default
+ *
+ * 본 함수가 ADR-0393/0395 SSOT — getTradingMode() 는 deprecated wrapper.
+ *
+ * 영속 override read 는 try/catch 격리 — 디스크 read 결함이 매매 흐름 차단 안 함.
+ * `EXECUTION_MODE_PERSISTENT_OVERRIDE_DISABLED=true` 환경변수 시 영속 layer skip
+ * (ADR-0395 회귀 위험 격리, default OFF).
  */
-export const getExecutionMode = (): ExecutionMode =>
-  RUNTIME_EXECUTION_MODE ?? readEnvExecutionMode();
+export const getExecutionMode = (): ExecutionMode => {
+  if (RUNTIME_EXECUTION_MODE !== null) return RUNTIME_EXECUTION_MODE;
+  if (process.env.EXECUTION_MODE_PERSISTENT_OVERRIDE_DISABLED !== 'true') {
+    try {
+      const persisted = loadPersistentExecutionMode();
+      if (persisted) return persisted.mode;
+    } catch {
+      // 디스크 read 결함 fallback — env 로 정상 동작 유지.
+    }
+  }
+  return readEnvExecutionMode();
+};
 
 /**
- * RUNTIME override 설정 — Kill switch / 운영자 강등 시 호출.
- * P1 Stage A 단계는 호출자 0건 (P1-Wiring 후속 PR 에서 wiring).
+ * RUNTIME override 설정 — Kill switch / 운영자 일회성 강등 시 호출.
+ *
+ * 본 함수는 *메모리만* 변경 — 재시작 시 사라짐.
+ * 영속 강등은 `setPersistentExecutionMode` 사용 (ADR-0395).
  */
 export const setExecutionMode = (mode: ExecutionMode): void => {
   RUNTIME_EXECUTION_MODE = mode;
 };
 
 /**
- * 테스트 격리 헬퍼 — RUNTIME_EXECUTION_MODE 초기화.
+ * 영속 override 설정 — 운영자 영속 강등 시 호출 (ADR-0395 P2).
+ *
+ * 본 함수는 *디스크 영속* 변경 — Railway 재배포 후에도 유지.
+ * RUNTIME_EXECUTION_MODE 도 동시 갱신 — 즉시 효과 보장.
+ *
+ * 호출자: 운영자 명령 (`/exec_mode_persist OFF` 등 후속 PR), Kill Switch escalation,
+ * 자동 강등 정책 (ADR-0395 §운영자 활성화).
+ *
+ * @param mode 강등할 ExecutionMode
+ * @param meta 강등 사유 + 설정자 (감사 추적용)
+ */
+export const setPersistentExecutionMode = (
+  mode: ExecutionMode,
+  meta?: { reason?: string; setBy?: string },
+): void => {
+  RUNTIME_EXECUTION_MODE = mode;
+  savePersistentExecutionMode({ mode, reason: meta?.reason, setBy: meta?.setBy });
+};
+
+/**
+ * 영속 override 제거 — 영속 강등 해제 (ADR-0395 P2).
+ *
+ * RUNTIME_EXECUTION_MODE 도 함께 초기화 — env default 즉시 회복.
+ *
+ * 호출자: 운영자 명령 (`/exec_mode_clear` 후속 PR), 자동 회복 정책.
+ */
+export const clearPersistentExecutionMode = (): void => {
+  RUNTIME_EXECUTION_MODE = null;
+  clearPersistentOverride();
+};
+
+/**
+ * 영속 override 조회 — 진단·UI 용 (메모리 RUNTIME 과 별개).
+ *
+ * `getExecutionMode()` 가 internal 우선순위 체인 적용한 *최종 결정값* 을 반환한다면,
+ * 본 함수는 *영속 layer 의 raw record* 를 반환 — `/mode_consistency` 같은 진단 명령에서
+ * RUNTIME vs persistent vs env 3-way 비교에 사용.
+ */
+export const getPersistentExecutionModeRecord = (): ExecutionModeOverrideRecord | null => {
+  if (process.env.EXECUTION_MODE_PERSISTENT_OVERRIDE_DISABLED === 'true') return null;
+  try {
+    return loadPersistentExecutionMode();
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 테스트 격리 헬퍼 — RUNTIME_EXECUTION_MODE + 영속 파일 모두 초기화.
  * 운영 코드는 호출 금지 (테스트 전용).
  */
 export const __resetExecutionModeForTests = (): void => {
   RUNTIME_EXECUTION_MODE = null;
+  __resetPersistentExecutionModeForTests();
 };
 
 // ─── Kill Switch Cascade 원인 추적 ──────────────────────────────────────────
