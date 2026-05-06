@@ -1,8 +1,9 @@
 // @responsibility sectorEnergyProvider 외부 클라이언트 모듈
 /**
  * sectorEnergyProvider.ts — KRX 실데이터를 sectorEnergyEngine 입력으로 가공.
- * ADR-0343 Phase 3: public meta builder itself is fallback-aware, so callers such as
- * marketDataRefresh that still import buildSectorEnergyInputsWithMeta() no longer bypass fallback.
+ * ADR-0343: public meta builder itself is fallback-aware.
+ * ADR-0362: KRX index daily 가 empty 일 때 종목별 KRX 일별거래 + sector map 으로
+ * sectorEnergy 를 합성해 `validSectorCount: 0/12` hard-fail 을 피한다.
  */
 
 import {
@@ -17,6 +18,7 @@ import {
 import { fetchInvestorTrading, type KrxInvestorRow } from './krxClient.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import { isKrxTradingDay } from '../calendar/krxTradingCalendar.js';
+import { getSectorByCode } from '../screener/sectorMap.js';
 
 export type StrategicSector =
   | '반도체'
@@ -75,6 +77,10 @@ function classifyIndex(indexName: string): StrategicSector | null {
     if (pattern.test(indexName)) return canonical;
   }
   return null;
+}
+
+function resolveStockSector(row: KrxStockDailyRow): StrategicSector | null {
+  return classifyStockSector(row.sector) ?? classifyStockSector(getSectorByCode(row.code));
 }
 
 function shiftedKstDateKey(kst: Date): string {
@@ -192,6 +198,34 @@ export function aggregateIndexDeltas(
   return bySector;
 }
 
+function aggregateStockDeltas(
+  todayStocks: KrxStockDailyRow[],
+  pastStocks: KrxStockDailyRow[],
+): Map<StrategicSector, { returns: number[]; volumes: number[] }> {
+  const pastByCode = new Map<string, KrxStockDailyRow>();
+  for (const row of pastStocks) {
+    if (row.code && row.close > 0) pastByCode.set(row.code, row);
+  }
+  const bySector = new Map<StrategicSector, { returns: number[]; volumes: number[] }>();
+  for (const today of todayStocks) {
+    if (!today.code || today.close <= 0) continue;
+    const sector = resolveStockSector(today);
+    if (!sector) continue;
+    const past = pastByCode.get(today.code);
+    if (!past || past.close <= 0) continue;
+    const returnPct = safePctChange(today.close, past.close, { label: `sectorEnergy.stockReturn:${today.code}` });
+    if (returnPct === null) continue;
+    const volumePct = past.volume > 0
+      ? (safePctChange(today.volume, past.volume, { label: `sectorEnergy.stockVolume:${today.code}`, sanityBoundPct: 5000 }) ?? 0)
+      : 0;
+    const acc = bySector.get(sector) ?? { returns: [], volumes: [] };
+    acc.returns.push(returnPct);
+    acc.volumes.push(volumePct);
+    bySector.set(sector, acc);
+  }
+  return bySector;
+}
+
 function aggregateForeignConcentration(
   investors: KrxInvestorRow[],
   stockSectorMap: Map<string, StrategicSector>,
@@ -220,10 +254,32 @@ function aggregateForeignConcentration(
 function buildStockSectorMap(stocks: KrxStockDailyRow[]): Map<string, StrategicSector> {
   const out = new Map<string, StrategicSector>();
   for (const s of stocks) {
-    const canonical = classifyStockSector(s.sector);
+    const canonical = resolveStockSector(s);
     if (canonical) out.set(s.code, canonical);
   }
   return out;
+}
+
+function buildInputsFromDeltas(
+  deltas: Map<StrategicSector, { returns: number[]; volumes: number[] }>,
+  foreignMap: Map<StrategicSector, number>,
+): { inputs: SectorEnergyInput[]; validSectorCount: number } {
+  const inputs: SectorEnergyInput[] = [];
+  let validSectorCount = 0;
+  for (const sector of CANONICAL_SECTORS) {
+    const d = deltas.get(sector);
+    const returns = d?.returns ?? [];
+    const volumes = d?.volumes ?? [];
+    if (returns.length > 0) validSectorCount++;
+    const avg = (xs: number[]): number => xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length;
+    inputs.push({
+      name: sector,
+      return4w: Number(avg(returns).toFixed(2)),
+      volumeChangePct: Number(avg(volumes).toFixed(2)),
+      foreignConcentration: Number((foreignMap.get(sector) ?? 0).toFixed(1)),
+    });
+  }
+  return { inputs, validSectorCount };
 }
 
 export interface SectorEnergyBuildResult {
@@ -261,23 +317,50 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
       break;
     }
   }
-  const [pastKospiIdx, pastKosdaqIdx, kospiStocks, kosdaqStocks, investors] = await Promise.all([
+  const [pastKospiIdx, pastKosdaqIdx, kospiStocks, kosdaqStocks, pastKospiStocks, pastKosdaqStocks, investors] = await Promise.all([
     fetchKospiIndexDaily(past),
     fetchKosdaqIndexDaily(past),
     fetchKospiDailyTrade(selectedToday),
     fetchKosdaqDailyTrade(selectedToday),
+    fetchKospiDailyTrade(past),
+    fetchKosdaqDailyTrade(past),
     fetchInvestorTrading(),
   ]);
 
   const todayIdx = [...todayKospiIdx, ...todayKosdaqIdx];
   const pastIdx = [...pastKospiIdx, ...pastKosdaqIdx];
+  const todayStocks = [...kospiStocks, ...kosdaqStocks];
+  const pastStocks = [...pastKospiStocks, ...pastKosdaqStocks];
+  const stockSectorMap = buildStockSectorMap(todayStocks);
+  const foreignMap = aggregateForeignConcentration(investors, stockSectorMap);
+
   if (todayIdx.length === 0) {
+    const deltas = aggregateStockDeltas(todayStocks, pastStocks);
+    const { inputs, validSectorCount } = buildInputsFromDeltas(deltas, foreignMap);
+    const minValid = getSectorEnergyMinValid();
+    if (validSectorCount >= minValid) {
+      return {
+        inputs,
+        dataQuality: validSectorCount === TOTAL_SECTOR_COUNT ? 'PARTIAL' : 'STALE',
+        validSectorCount,
+        totalSectorCount: TOTAL_SECTOR_COUNT,
+        reasons: [
+          'todayIdx empty — KRX index OpenAPI 응답 부재',
+          `attempted=${attemptedTodayDates.join(',') || 'default'}`,
+          `ADR-0362 stock-daily synthesized sector energy validSectorCount=${validSectorCount}/${TOTAL_SECTOR_COUNT}`,
+        ],
+      };
+    }
     return {
       inputs: [],
       dataQuality: 'FAILED',
-      validSectorCount: 0,
+      validSectorCount,
       totalSectorCount: TOTAL_SECTOR_COUNT,
-      reasons: ['todayIdx empty — KRX OpenAPI 응답 부재', `attempted=${attemptedTodayDates.join(',') || 'default'}`],
+      reasons: [
+        'todayIdx empty — KRX OpenAPI 응답 부재',
+        `attempted=${attemptedTodayDates.join(',') || 'default'}`,
+        `stock-daily fallback insufficient validSectorCount=${validSectorCount} < min=${minValid}`,
+      ],
     };
   }
 
@@ -294,24 +377,7 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
   }
 
   const deltas = aggregateIndexDeltas(todayIdx, pastIdx);
-  const stockSectorMap = buildStockSectorMap([...kospiStocks, ...kosdaqStocks]);
-  const foreignMap = aggregateForeignConcentration(investors, stockSectorMap);
-  const out: SectorEnergyInput[] = [];
-  let validSectorCount = 0;
-  for (const sector of CANONICAL_SECTORS) {
-    const d = deltas.get(sector);
-    const returns = d?.returns ?? [];
-    const volumes = d?.volumes ?? [];
-    if (returns.length > 0) validSectorCount++;
-    const avg = (xs: number[]): number => xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length;
-    out.push({
-      name: sector,
-      return4w: Number(avg(returns).toFixed(2)),
-      volumeChangePct: Number(avg(volumes).toFixed(2)),
-      foreignConcentration: Number((foreignMap.get(sector) ?? 0).toFixed(1)),
-    });
-  }
-
+  const { inputs, validSectorCount } = buildInputsFromDeltas(deltas, foreignMap);
   const minValid = getSectorEnergyMinValid();
   if (validSectorCount < minValid) {
     return {
@@ -325,7 +391,7 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
   }
   const dataQuality: SectorEnergyDataQuality = validSectorCount === TOTAL_SECTOR_COUNT ? 'OK' : 'PARTIAL';
   return {
-    inputs: out,
+    inputs,
     dataQuality,
     validSectorCount,
     totalSectorCount: TOTAL_SECTOR_COUNT,
