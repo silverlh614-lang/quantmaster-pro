@@ -506,9 +506,10 @@ export async function autoPopulateWatchlist(): Promise<number> {
     const gate = evaluateServerGate(enrichedQuote, presetWeights, macroState?.kospi20dReturn, null, null, regime);
 
     // 아이디어 11: Gate 조건 통과/탈락 — 메모리 캐시에만 누적 (루프 후 flushGateAudit으로 파일 저장)
-    // ADR-0387: outputs (status 분류 포함) 가 있으면 정밀 audit, 없으면 legacy passedKeys.
+    // ADR-0387/0388: outputs (status 분류 포함) 가 있으면 정밀 audit, 없으면 legacy passedKeys.
     if (gate.outputs && gate.outputs.length > 0) {
-      recordGateAuditByStatus(gate.outputs);
+      // ADR-0388 — context 옵셔널 (호출자가 hadRequiredData/skippedByPolicy 제공 가능, 점진 확장).
+      recordGateAuditByStatus(gate.outputs.map(o => ({ key: o.key, output: o.output })));
     } else {
       recordGateAudit(gate.conditionKeys);
     }

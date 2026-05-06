@@ -68,10 +68,14 @@ export interface PostmortemReport {
   };
   topBlockerCondition: string | null;
   topBlockerFailRate: number;  // 0~1 (THRESHOLD_NOT_MET — 진짜 임계 미달)
-  /** ADR-0387 — 데이터 부재 비율 (DATA_UNAVAILABLE/SANITY_REJECTED, 0~1). */
+  /** ADR-0387 — 데이터 부재 비율 (DATA_UNAVAILABLE/PROVIDER_DEGRADED/SKIPPED_BY_POLICY/SANITY_REJECTED, 0~1). */
   topBlockerUnavailableRate?: number;
   /** ADR-0387 — 가장 데이터 부재율 높은 조건 키. */
   topUnavailableCondition?: string | null;
+  /** ADR-0388 — evaluator 런타임 결함 비율 (ERROR, 0~1). failed 와 분리 의무. */
+  topBlockerErrorRate?: number;
+  /** ADR-0388 — 가장 evaluator 결함률 높은 조건 키. */
+  topErrorCondition?: string | null;
   reason: string;
   analyzedAt: string;  // ISO
 }
@@ -163,20 +167,30 @@ function summarize(traces: ScanTrace[]): Metrics {
  * 두 비율을 별도 추적해 운영자가 *진짜 종목 결함* 과 *데이터 부재* 구분 가능.
  * 기존 `gate_audit.json` 영속 파일은 unavailable 부재 가능 → `?? 0` 안전 fallback.
  */
+/**
+ * ADR-0387 + ADR-0388 — failRate / unavailableRate / errorRate 3분리 추적.
+ *
+ * 기존 `gate_audit.json` 영속 파일은 unavailable / error 부재 가능 → `?? 0` 안전 fallback.
+ */
 function findTopBlocker(): {
   key: string | null;
   failRate: number;
   unavailableKey: string | null;
   unavailableRate: number;
+  errorKey: string | null;
+  errorRate: number;
 } {
   const audit = loadGateAudit();
   let worstFailKey: string | null = null;
   let worstFailRate = 0;
   let worstUnavailableKey: string | null = null;
   let worstUnavailableRate = 0;
+  let worstErrorKey: string | null = null;
+  let worstErrorRate = 0;
   for (const [key, s] of Object.entries(audit)) {
     const unavailable = s.unavailable ?? 0;
-    const total = s.passed + s.failed + unavailable;
+    const error = s.error ?? 0;
+    const total = s.passed + s.failed + unavailable + error;
     if (total < 5) continue; // 샘플 부족 — 무시
     // ADR-0387: 진짜 임계 미달 (THRESHOLD_NOT_MET)
     const failRate = s.failed / total;
@@ -184,11 +198,17 @@ function findTopBlocker(): {
       worstFailRate = failRate;
       worstFailKey = key;
     }
-    // ADR-0387: 데이터 부재 (DATA_UNAVAILABLE/SANITY_REJECTED)
+    // ADR-0387: 데이터 부재 (DATA_UNAVAILABLE/PROVIDER_DEGRADED/SKIPPED_BY_POLICY/SANITY_REJECTED)
     const unavailableRate = unavailable / total;
     if (unavailableRate > worstUnavailableRate) {
       worstUnavailableRate = unavailableRate;
       worstUnavailableKey = key;
+    }
+    // ADR-0388: evaluator 런타임 결함 (ERROR) — failed 와 분리 의무
+    const errorRate = error / total;
+    if (errorRate > worstErrorRate) {
+      worstErrorRate = errorRate;
+      worstErrorKey = key;
     }
   }
   return {
@@ -196,6 +216,8 @@ function findTopBlocker(): {
     failRate: worstFailRate,
     unavailableKey: worstUnavailableKey,
     unavailableRate: worstUnavailableRate,
+    errorKey: worstErrorKey,
+    errorRate: worstErrorRate,
   };
 }
 
@@ -235,6 +257,10 @@ export function runPostmortem(): PostmortemReport {
       // ADR-0387: 데이터 부재 비율 별도 보고 — 운영자가 *진짜 결함* vs *데이터 부재* 구분 가능.
       (blocker.unavailableKey && blocker.unavailableRate > 0.3
         ? ` ⚠️ 데이터 부재 의심: ${blocker.unavailableKey} (부재율 ${(blocker.unavailableRate * 100).toFixed(1)}% — 종목 결함 아님 가능).`
+        : '') +
+      // ADR-0388: evaluator 런타임 결함 비율 별도 보고 — *evaluator 깨짐* 즉시 식별.
+      (blocker.errorKey && blocker.errorRate > 0.1
+        ? ` ❌ evaluator 결함 의심: ${blocker.errorKey} (오류율 ${(blocker.errorRate * 100).toFixed(1)}% — patch 또는 provider parsing 결함 가능).`
         : '')
     );
   } else if (metrics.scanCandidates > 0 && metrics.yahooFail === metrics.scanCandidates) {
@@ -276,6 +302,9 @@ export function runPostmortem(): PostmortemReport {
     // ADR-0387 — 데이터 부재 별도 보고 필드.
     topBlockerUnavailableRate: blocker.unavailableRate,
     topUnavailableCondition: blocker.unavailableKey,
+    // ADR-0388 — evaluator 런타임 결함 별도 보고 필드.
+    topBlockerErrorRate: blocker.errorRate,
+    topErrorCondition: blocker.errorKey,
     reason,
     analyzedAt: new Date().toISOString(),
   };

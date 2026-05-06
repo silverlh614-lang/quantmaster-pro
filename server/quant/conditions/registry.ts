@@ -53,17 +53,45 @@ export class ConditionRegistry {
     return this.evaluators.has(key);
   }
 
-  /** 등록된 모든 평가기를 순서대로 실행하고 결과를 합산 */
+  /**
+   * 등록된 모든 평가기를 순서대로 실행하고 결과를 합산.
+   *
+   * ADR-0388: evaluator 예외 try/catch 격리 — 한 evaluator 의 throw 가 전체 run 차단 안 함.
+   * 잡힌 예외는 `{score: 0, status: 'ERROR', detail}` 로 변환 → recordGateAuditByStatus 가
+   * `error` 카운터에 별도 누적 (failed 와 분리, "evaluator 깨짐" vs "임계 미달" 구분 의무).
+   *
+   * ENV `CONDITION_REGISTRY_THROW_DISABLED=true` (default OFF — try/catch 활성) 시
+   * 기존 동작 (예외 그대로 throw) 복원. default 는 ADR-0388 안전 정책 적용.
+   */
   run(ctx: ConditionEvalContext): ConditionRunResult {
     let totalScore = 0;
     const details: string[] = [];
     const conditionKeys: string[] = [];
     const outputs: ConditionRunResult['outputs'] = [];
+    const isThrowMode = process.env.CONDITION_REGISTRY_THROW_DISABLED === 'true';
 
     for (const ev of this.evaluators.values()) {
-      const out = ev.evaluate(ctx);
+      let out: ConditionEvalOutput | null = null;
+      try {
+        out = ev.evaluate(ctx);
+      } catch (err) {
+        if (isThrowMode) throw err; // ENV 우회 — legacy 동작 복원
+        // ADR-0388 default — ERROR status 로 변환, run 자체는 계속.
+        const errMsg = err instanceof Error ? err.message : String(err);
+        out = {
+          score: 0,
+          conditionKey: ev.key,
+          detail: `evaluator 예외: ${errMsg}`,
+          status: 'ERROR',
+        };
+        console.warn(
+          `[ConditionRegistry] evaluator ${ev.key} 예외 — ERROR status 로 변환 (ADR-0388): ${errMsg}`,
+        );
+      }
       outputs.push({ key: ev.key, output: out });
       if (!out) continue;
+      // ADR-0388: ERROR status 는 score 합산 / details / conditionKeys 모두 제외 (정상 통과 아님).
+      if (out.status === 'ERROR') continue;
       totalScore += out.score;
       details.push(out.detail);
       conditionKeys.push(out.conditionKey);

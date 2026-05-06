@@ -29,23 +29,32 @@ export interface ConditionEvalContext {
 }
 
 /**
- * ADR-0387 (2026-05-06) — 평가 결과 status 분류 SSOT.
+ * ADR-0387 (2026-05-06) + ADR-0388 (2026-05-06 확장) — 평가 결과 status 분류 SSOT.
  *
  * 사용자 명시 + 외부 분석 권고: "데이터 부재" vs "임계 미달" 구분 필수.
  * `null` 만으로는 두 케이스 표현 불가 → recordGateAudit 가 둘 다 failed 로 카운트 →
  * 포스트모템이 "per 100% 실패" 로 잘못 보고 → 운영자 confirmation bias 연쇄.
  *
- * 4 status 분류 — 결함 사슬 11 layer 전체를 표현 가능한 가장 작은 어휘:
+ * ADR-0388 확장 — 6 status 분류로 격상 (ERROR 별도 카운트 의무):
  *   - FIRED              — 점수 부여 (임계 통과)
- *   - DATA_UNAVAILABLE   — 입력 데이터 부재 (PER 없음, Yahoo stale, KIS 일시 500 등)
- *   - THRESHOLD_NOT_MET  — 데이터는 정상이지만 임계 미달 (진짜 종목 결함)
- *   - SANITY_REJECTED    — 데이터가 비정상 영역 (drift 데드존, layer 8 정합)
+ *   - THRESHOLD_NOT_MET  — 정상 평가 + 임계 미달 (진짜 종목 결함)
+ *   - DATA_UNAVAILABLE   — 입력 데이터 부재 (PER 없음, KIS 일시 500 등)
+ *   - PROVIDER_DEGRADED  — 데이터 신뢰성 손상 (Yahoo stale, KRX indexCode 누락 등 layer 3·9·10)
+ *   - SKIPPED_BY_POLICY  — 정책상 평가 생략 (Volume Clock, R6 차단 등)
+ *   - SANITY_REJECTED    — 데이터 비정상 영역 (drift 데드존, layer 8)
+ *   - ERROR              — evaluator 예외 (try/catch 잡힘) — failed 와 분리 의무
+ *
+ * 사용자 명시 핵심 — ERROR 를 failed 로 합산 시 "evaluator 깨짐" vs "임계 미달"
+ * 구분 손실 → 진단 오염의 작은 버전 재발. 별도 `error` 카운터 의무.
  */
 export type ConditionEvalStatus =
   | 'FIRED'
-  | 'DATA_UNAVAILABLE'
   | 'THRESHOLD_NOT_MET'
-  | 'SANITY_REJECTED';
+  | 'DATA_UNAVAILABLE'
+  | 'PROVIDER_DEGRADED'
+  | 'SKIPPED_BY_POLICY'
+  | 'SANITY_REJECTED'
+  | 'ERROR';
 
 /**
  * 평가 결과 — null 이면 "조건 미충족, 점수 0, detail 없음".
