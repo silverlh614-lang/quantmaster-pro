@@ -9,6 +9,11 @@
 // 스냅샷 코어는 순수 (외부 fetch 없음) — 단위 테스트 가능.
 
 import { loadShadowTrades, getRemainingQty } from '../persistence/shadowTradeRepo.js';
+// ADR-0191 §Wiring 3 — Position Truth Divergence 자동 검출 SSOT.
+import {
+  detectPositionTruthDivergence,
+  type PositionTruthDivergenceReport,
+} from '../persistence/positionTruth.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { getEmergencyStop, getDailyLossPct } from '../state.js';
 import {
@@ -140,6 +145,15 @@ export interface HealthSnapshot {
 
   // ── 부가: IPYL (systemRouter 표시용) ──
   intradayYield: ReturnType<typeof getCachedIntradayYield>;
+
+  // ── ADR-0191: Position Truth Divergence (12 vs 1 사고 자동 검출) ──
+  /**
+   * (a) loadShadowTrades().filter(isOpen) 와 (b) aggregateAllPositions().filter(stage!=CLOSED)
+   * 의 카운트·종목 비교 결과. divergent=false 는 정상 (메시지 미노출),
+   * divergent=true 는 영속 SSOT drift 발생 → /health 에 ❌ 라인 표시 + 향후 CRITICAL Telegram (후속 PR).
+   * ENV `POSITION_TRUTH_DIVERGENCE_CHECK_DISABLED=true` 우회 시 항상 정합 결과.
+   */
+  positionTruthDivergence?: PositionTruthDivergenceReport;
 
   // ── 종합 ──
   verdict: HealthVerdict;
@@ -281,8 +295,23 @@ export function collectHealthSnapshot(): HealthSnapshot {
     lastBuyTs,
     lastScanSummary,
     intradayYield: getCachedIntradayYield(),
+    // ADR-0191 §Wiring 3 — try/catch 격리 (영속 SSOT 결함이 health 흐름 차단 안 됨).
+    positionTruthDivergence: safeDetectPositionTruthDivergence(),
     verdict,
   };
+}
+
+/**
+ * Position Truth Divergence 검출 — try/catch 격리 (positionAggregator throw 시
+ * undefined 반환, /health 메시지에서 라인 미노출). ADR-0191 §"안전 invariant 4".
+ */
+function safeDetectPositionTruthDivergence(): PositionTruthDivergenceReport | undefined {
+  try {
+    return detectPositionTruthDivergence();
+  } catch (e) {
+    console.warn('[Diagnostics] positionTruthDivergence 검출 실패 — undefined fallback:', e);
+    return undefined;
+  }
 }
 
 function ageHours(iso: string | undefined, now: Date): number | null {

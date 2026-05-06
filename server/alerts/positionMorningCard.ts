@@ -134,9 +134,15 @@ export async function sendPositionMorningCard(): Promise<void> {
       cards.push(card);
     }
 
+    // ADR-0191: AUTO_TRADE_MODE 가시화 — SHADOW 모드에서는 헤더에 명시.
+    // 사용자 5/6 12회 가짜 매수 사고 후속 — "왜 안 사졌지?" 같은 잘못된 질문 사전 차단.
+    // 페르소나 10번 ("과장된 확신 회피, 조건부 판단 함께 제시") UI 구현체.
+    // ENV `MORNING_CARD_SHADOW_HEADER_DISABLED=true` 우회 시 기존 라벨 (default OFF).
+    const isShadowMode = (process.env.AUTO_TRADE_MODE ?? 'SHADOW') === 'SHADOW';
+    const showShadowHeader = isShadowMode && process.env.MORNING_CARD_SHADOW_HEADER_DISABLED !== 'true';
     const header = channelHeader({
-      icon: '📊',
-      title: '보유 포지션 Morning Card',
+      icon: showShadowHeader ? '🟡' : '📊',
+      title: showShadowHeader ? '[SHADOW MODE] 보유 포지션 Morning Card' : '보유 포지션 Morning Card',
       suffix: '09:05 KST',
     });
 
