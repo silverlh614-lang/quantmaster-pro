@@ -292,7 +292,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const volumeClock = checkVolumeClockWindow();
   if (!volumeClock.allowEntry) {
     console.log(volumeClock.reason);
-    console.log(`[AutoTrade] 매수 대기 종목 대기 중 (허용 구간: 10:00~11:30, 14:00~14:50 KST)`);
+    console.log(`[AutoTrade] 매수 대기 종목 대기 중 (허용 구간: 09:30~11:30, 13:00~15:20 KST)`);
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return { shouldAbort: true, skipPersist: true };

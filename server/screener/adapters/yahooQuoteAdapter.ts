@@ -171,6 +171,24 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
 
     if (closes.length < 5) return null;
 
+    // ADR-0235: closeTimestamps 최신성 검증 — 마지막 close 가 7일 이상 stale 이면
+    // 응답 폐기. Yahoo 가 거래정지/상장폐지/장기 휴장 종목에 *과거 시계열* 을
+    // 그대로 반환하는 케이스 (사용자 보고 "5개월 stale" 패턴) 자동 차단.
+    // 호출자는 null 받아 fallback 트리거 (KIS quote / 양쪽 시도).
+    const lastTimestamp = closeTimestamps[closeTimestamps.length - 1];
+    if (lastTimestamp > 0) {
+      const lastDataAge = Date.now() - lastTimestamp * 1000;
+      const MAX_DATA_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7일
+      if (lastDataAge > MAX_DATA_AGE_MS) {
+        console.warn(
+          `[yahooQuoteAdapter] ${symbol} 시계열 stale — ` +
+          `마지막 close = ${new Date(lastTimestamp * 1000).toISOString()} ` +
+          `(${(lastDataAge / 86400_000).toFixed(0)}일 전). 응답 폐기 (ADR-0235).`,
+        );
+        return null;
+      }
+    }
+
     // ADR-0028 §모순 보강: Yahoo 가 KRX 종목 일부에 regularMarketPrice=0 응답하는
     // 케이스 차단. validPrice chain 이 0/NaN/음수 모두 null → 다음 fallback 시도.
     // 모두 실패하면 함수 자체 null 반환 (호출자에게 PRICE_MISSING 신호).

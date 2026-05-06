@@ -26,13 +26,13 @@ describe('checkVolumeClockWindow', () => {
     expect(result.allowEntry).toBe(false);
   });
 
-  it('blocks entry at 14:55 (마감 동시호가 시작)', () => {
-    const result = checkVolumeClockWindow(kstTime(14, 55));
+  it('blocks entry at 15:21 (마감 동시호가 시작)', () => {
+    const result = checkVolumeClockWindow(kstTime(15, 21));
     expect(result.allowEntry).toBe(false);
   });
 
-  it('blocks entry at 15:00 (마감 동시호가 내부)', () => {
-    const result = checkVolumeClockWindow(kstTime(15, 0));
+  it('blocks entry at 15:25 (마감 동시호가 내부)', () => {
+    const result = checkVolumeClockWindow(kstTime(15, 25));
     expect(result.allowEntry).toBe(false);
   });
 
@@ -63,29 +63,29 @@ describe('checkVolumeClockWindow', () => {
     });
   });
 
-  describe('패널티 -2: 14:30~14:54 마감 30분 전 변동성 확대', () => {
+  describe('패널티 -2: 14:30~15:20 마감 50분 전~동시호가 직전 변동성 확대', () => {
     it('applies -2 at 14:30 (구간 시작)', () => {
       const result = checkVolumeClockWindow(kstTime(14, 30));
       expect(result.allowEntry).toBe(true);
       expect(result.scoreBonus).toBe(-2);
     });
 
-    it('applies -2 at 14:45 (구간 중간)', () => {
-      const result = checkVolumeClockWindow(kstTime(14, 45));
+    it('applies -2 at 14:55 (구간 중간 - 이전 차단 시점)', () => {
+      const result = checkVolumeClockWindow(kstTime(14, 55));
       expect(result.allowEntry).toBe(true);
       expect(result.scoreBonus).toBe(-2);
     });
 
-    it('applies -2 at 14:54 (구간 끝)', () => {
-      const result = checkVolumeClockWindow(kstTime(14, 54));
+    it('applies -2 at 15:20 (구간 끝)', () => {
+      const result = checkVolumeClockWindow(kstTime(15, 20));
       expect(result.allowEntry).toBe(true);
       expect(result.scoreBonus).toBe(-2);
     });
   });
 
-  describe('절대 차단: 11:30~13:00 점심 구간', () => {
-    it('blocks entry at 11:30 (구간 시작)', () => {
-      const result = checkVolumeClockWindow(kstTime(11, 30));
+  describe('절대 차단: 11:31~12:59 점심 구간', () => {
+    it('blocks entry at 11:31 (구간 시작)', () => {
+      const result = checkVolumeClockWindow(kstTime(11, 31));
       expect(result.allowEntry).toBe(false);
       expect(result.scoreBonus).toBe(0);
     });
@@ -102,24 +102,24 @@ describe('checkVolumeClockWindow', () => {
       expect(result.scoreBonus).toBe(0);
     });
 
-    it('blocks entry at 12:59 (구간 내부)', () => {
+    it('blocks entry at 12:59 (구간 끝)', () => {
       const result = checkVolumeClockWindow(kstTime(12, 59));
       expect(result.allowEntry).toBe(false);
       expect(result.scoreBonus).toBe(0);
     });
 
-    it('blocks entry at 13:00 (구간 끝)', () => {
+    it('allows entry at 13:00 (점심 종료 직후, 매수 허용 시작)', () => {
       const result = checkVolumeClockWindow(kstTime(13, 0));
-      expect(result.allowEntry).toBe(false);
-      expect(result.scoreBonus).toBe(0);
+      expect(result.allowEntry).toBe(true);
+      expect(result.scoreBonus).toBe(-2);
     });
   });
 
   // ── 패널티 -1 구간 ─────────────────────────────────────────────────────────
 
-  describe('패널티 -2: 13:01~13:14 점심 직후 회복 초기', () => {
-    it('applies -2 at 13:01 (구간 시작)', () => {
-      const result = checkVolumeClockWindow(kstTime(13, 1));
+  describe('패널티 -2: 13:00~13:14 점심 직후 회복 초기', () => {
+    it('applies -2 at 13:00 (구간 시작)', () => {
+      const result = checkVolumeClockWindow(kstTime(13, 0));
       expect(result.allowEntry).toBe(true);
       expect(result.scoreBonus).toBe(-2);
     });
@@ -145,15 +145,21 @@ describe('checkVolumeClockWindow', () => {
     });
   });
 
-  describe('패널티 -1: 11:00~11:29 오전 후반 모멘텀 약화', () => {
+  describe('패널티 -1: 11:00~11:30 오전 후반 모멘텀 약화', () => {
     it('applies -1 at 11:00 (구간 시작)', () => {
       const result = checkVolumeClockWindow(kstTime(11, 0));
       expect(result.allowEntry).toBe(true);
       expect(result.scoreBonus).toBe(-1);
     });
 
-    it('applies -1 at 11:29 (구간 끝)', () => {
+    it('applies -1 at 11:29 (구간 중간)', () => {
       const result = checkVolumeClockWindow(kstTime(11, 29));
+      expect(result.allowEntry).toBe(true);
+      expect(result.scoreBonus).toBe(-1);
+    });
+
+    it('allows entry at 11:30 (구간 끝, 매수 허용 마지막 분)', () => {
+      const result = checkVolumeClockWindow(kstTime(11, 30));
       expect(result.allowEntry).toBe(true);
       expect(result.scoreBonus).toBe(-1);
     });
@@ -225,18 +231,18 @@ describe('checkVolumeClockWindow', () => {
       expect(checkVolumeClockWindow(kstTime(11, 0)).scoreBonus).toBe(-1);
     });
 
-    it('11:29→11:30: 패널티 -1 → 절대 차단(점심) 전환', () => {
-      const at1129 = checkVolumeClockWindow(kstTime(11, 29));
-      expect(at1129.allowEntry).toBe(true);
-      expect(at1129.scoreBonus).toBe(-1);
-      expect(checkVolumeClockWindow(kstTime(11, 30)).allowEntry).toBe(false);
+    it('11:30→11:31: 패널티 -1 → 절대 차단(점심) 전환', () => {
+      const at1130 = checkVolumeClockWindow(kstTime(11, 30));
+      expect(at1130.allowEntry).toBe(true);
+      expect(at1130.scoreBonus).toBe(-1);
+      expect(checkVolumeClockWindow(kstTime(11, 31)).allowEntry).toBe(false);
     });
 
-    it('13:00→13:01: 절대 차단(점심) → 패널티 -2 전환', () => {
-      expect(checkVolumeClockWindow(kstTime(13, 0)).allowEntry).toBe(false);
-      const at1301 = checkVolumeClockWindow(kstTime(13, 1));
-      expect(at1301.allowEntry).toBe(true);
-      expect(at1301.scoreBonus).toBe(-2);
+    it('12:59→13:00: 절대 차단(점심) → 패널티 -2 전환', () => {
+      expect(checkVolumeClockWindow(kstTime(12, 59)).allowEntry).toBe(false);
+      const at1300 = checkVolumeClockWindow(kstTime(13, 0));
+      expect(at1300.allowEntry).toBe(true);
+      expect(at1300.scoreBonus).toBe(-2);
     });
 
     it('13:14→13:15: 패널티 -2 → 패널티 -1 전환', () => {
@@ -254,11 +260,11 @@ describe('checkVolumeClockWindow', () => {
       expect(checkVolumeClockWindow(kstTime(14, 30)).scoreBonus).toBe(-2);
     });
 
-    it('14:54→14:55: 패널티 -2 → 절대 차단 전환', () => {
-      const at1454 = checkVolumeClockWindow(kstTime(14, 54));
-      expect(at1454.allowEntry).toBe(true);
-      expect(at1454.scoreBonus).toBe(-2);
-      expect(checkVolumeClockWindow(kstTime(14, 55)).allowEntry).toBe(false);
+    it('15:20→15:21: 패널티 -2 → 절대 차단(마감 동시호가) 전환', () => {
+      const at1520 = checkVolumeClockWindow(kstTime(15, 20));
+      expect(at1520.allowEntry).toBe(true);
+      expect(at1520.scoreBonus).toBe(-2);
+      expect(checkVolumeClockWindow(kstTime(15, 21)).allowEntry).toBe(false);
     });
   });
 
