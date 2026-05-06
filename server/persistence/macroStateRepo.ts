@@ -135,11 +135,52 @@ export interface MacroState {
    *   - STALE  → boost 0 (단, sectorEnergyResult 는 이전 캐시 보존됨 — reference 표시)
    *   - FAILED → boost 0
    */
-  sectorEnergyDataQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
+  sectorEnergyDataQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
   /** ADR-0125: 12 섹터 중 유효 (returns.length>0) 섹터 수 — /scan_blockers 진단용. */
   sectorEnergyValidSectorCount?: number;
   /** ADR-0125: dataQuality 분류 사유 (debug용). 빈 배열 가능. */
   sectorEnergyReasons?: string[];
+  /**
+   * ADR-0396 (= 사용자 명시 ADR-0371): 4-axis 분리 영속 — sourceTier / freshness / coverage / confidence.
+   * 기존 영속 데이터 (sectorEnergyDataQuality 단일 라벨) 그대로 보존 — 사용자 4/30 정책
+   * "강제 마이그레이션 금지" 정합. 신규 영속 시점부터 본 4 필드 동시 영속 + 호출자 read SSOT.
+   *
+   * - sourceTier: 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_ETF' | 'FAILED'
+   * - freshness: 'FRESH' | 'DEGRADED' | 'EXPIRED' (cache age 30분/4h 임계)
+   * - coverage: validSectorCount / totalSectorCount, 0~1
+   * - confidence: sourceWeight × freshnessWeight × coverage, 0~1 (clamp)
+   */
+  sectorEnergySourceTier?: 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_ETF' | 'FAILED';
+  /** ADR-0396: cache age 기반 freshness 분기. */
+  sectorEnergyFreshness?: 'FRESH' | 'DEGRADED' | 'EXPIRED';
+  /** ADR-0396: 12 섹터 중 유효 비율 (0~1, clamp). */
+  sectorEnergyCoverage?: number;
+  /** ADR-0396: 합성 confidence (sourceWeight × freshnessWeight × coverage, 0~1 clamp). */
+  sectorEnergyConfidence?: number;
+  /**
+   * ADR-0399 (= 사용자 명시 ADR-0374): KRX 원천 복구 진단 메타.
+   *
+   * 운영자 `/sector_energy_diag` 명령에서 *어느 layer 가 작동했는지* 추적용:
+   *   - candidateDates: T → T-1 → T-2 → T-3 → T-5 시도한 날짜 후보
+   *   - sourceTierAttempts: 4-tier (KRX_CODE/STOCK_DAILY/CACHE/YAHOO_ETF) 별 시도 결과
+   *   - finalSourceTier: 최종 채택 tier
+   *   - confidence: ADR-0396 합성 confidence
+   *   - fallbackReason: L4 도달 사유 (KRX 실패 + cache 부재/EXPIRED 등)
+   *
+   * 사용자 명시 9 핵심 원칙 #9 — fallback 작동 시 UI 와 diagnostics 에 반드시 표시.
+   * 옵셔널 필드 — 후방호환 (ADR-0399 이전 영속 데이터 그대로 보존).
+   */
+  sectorEnergyDiagnostics?: {
+    candidateDates: string[];
+    sourceTierAttempts: Array<{
+      tier: 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_ETF' | 'FAILED';
+      validCount: number;
+      reason?: string;
+    }>;
+    finalSourceTier: 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_ETF' | 'FAILED';
+    confidence: number;
+    fallbackReason?: string;
+  };
   /**
    * ADR-0343 — sectorEnergy build 입력 (SectorEnergyInput[]) 영속.
    *

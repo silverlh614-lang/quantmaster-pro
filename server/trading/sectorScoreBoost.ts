@@ -47,19 +47,24 @@ const BEAR_REGIMES = new Set(['R5_CAUTION', 'R6_DEFENSE']);
  *   STALE  → boost 0 (이전 캐시 reference)
  *   FAILED → boost 0
  */
-export type SectorEnergyDataQuality = 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
+// ADR-0396 (= 사용자 명시 ADR-0371): 5단계 union 격상 — DEGRADED 신규.
+// DEGRADED (validSectorCount 3-5) = 심각한 부족 → boost 0 (FAILED 와 동급 차단).
+// 영향: ADR-0125 4-state 정책 그대로 보존 (OK/PARTIAL/STALE/FAILED 분기 무변경).
+export type SectorEnergyDataQuality = 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
 
 /**
  * ADR-0125: dataQuality 기반 boost multiplier SSOT.
+ * ADR-0396: DEGRADED 분기 추가 (boost 0, FAILED 와 동급).
  * 호출자 (applySectorScoreBoost) 가 raw boost 에 곱해 최종 적용.
  */
 export function getSectorBoostMultiplier(dataQuality?: SectorEnergyDataQuality): number {
   if (!dataQuality) return 1; // 미전달 = OK 기본 (후방호환)
   switch (dataQuality) {
-    case 'OK':      return 1;
-    case 'PARTIAL': return 0.5;
-    case 'STALE':   return 0;
-    case 'FAILED':  return 0;
+    case 'OK':       return 1;
+    case 'PARTIAL':  return 0.5;
+    case 'STALE':    return 0;
+    case 'DEGRADED': return 0; // ADR-0396 — 심각한 부족, boost 0
+    case 'FAILED':   return 0;
   }
 }
 
