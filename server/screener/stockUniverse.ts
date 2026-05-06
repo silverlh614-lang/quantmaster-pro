@@ -130,7 +130,7 @@ export const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = 
   { symbol: '211050.KQ', code: '211050', name: '인카금융서비스' },
   { symbol: '322510.KQ', code: '322510', name: '제이엘케이' },
   { symbol: '352480.KQ', code: '352480', name: '씨이랩' },
-  { symbol: '443060.KQ', code: '443060', name: '유투바이오' },
+  { symbol: '443060.KS', code: '443060', name: 'HD현대마린솔루션' },
   { symbol: '086900.KQ', code: '086900', name: '메디톡스' },
   { symbol: '099430.KQ', code: '099430', name: '바이오플러스' },
   { symbol: '348150.KQ', code: '348150', name: 'GRT' },
@@ -158,7 +158,7 @@ export const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = 
   { symbol: '044490.KS', code: '044490', name: '태웅' },
   { symbol: '075580.KS', code: '075580', name: '세진중공업' },
   // ── 방산 확장 ──
-  { symbol: '079550.KQ', code: '079550', name: 'LIG넥스원' },
+  { symbol: '079550.KS', code: '079550', name: 'LIG넥스원' },
   { symbol: '273640.KS', code: '273640', name: '한화시스템' },
   { symbol: '000880.KS', code: '000880', name: '한화' },
   { symbol: '067390.KQ', code: '067390', name: '아스트' },
@@ -264,7 +264,7 @@ export const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = 
   { symbol: '056190.KQ', code: '056190', name: '에스에프에이' },
   // ── 추가 중소형 모멘텀 — 통신장비·원자력·철강 ──
   { symbol: '189300.KQ', code: '189300', name: '인텔리안테크' },
-  { symbol: '105840.KQ', code: '105840', name: '우진' },
+  { symbol: '105840.KS', code: '105840', name: '우진' },
   { symbol: '001430.KS', code: '001430', name: '세아베스틸지주' },
 ];
 
