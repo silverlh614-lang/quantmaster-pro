@@ -1,7 +1,8 @@
 // @responsibility krxOpenApi 외부 클라이언트 모듈
 /**
  * krxOpenApi.ts — 한국거래소(KRX) Data Marketplace Open API 인증 어댑터.
- * ADR-0361: default base 를 beta(data-dbg) 가 아닌 official(openapi.krx.co.kr) 로 전환.
+ * ADR-0364: official openapi.krx.co.kr 이 특정 endpoint 에서 404를 반환할 수 있으므로
+ * runtime primary base 실패 시 data-dbg 후보까지 자동 fallback 한다.
  */
 
 import { createCircuitBreaker, CircuitOpenError } from '../utils/circuitBreaker.js';
@@ -53,7 +54,7 @@ export interface KrxIndexDailyRow {
   marketCap: number;
 }
 
-const DEFAULT_BASE = 'https://openapi.krx.co.kr/svc/apis';
+const DEFAULT_BASE = 'https://data-dbg.krx.co.kr/svc/apis';
 const REQUEST_TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
@@ -62,12 +63,26 @@ function normalizeBaseUrl(base: string): string {
   return /\/svc\/apis$/iu.test(cleaned) ? cleaned : `${cleaned}/svc/apis`;
 }
 
-function readBaseUrl(): string {
+function readPrimaryBaseUrl(): string {
   const legacy = process.env.KRX_OPENAPI_BASE?.trim();
   if (legacy) return normalizeBaseUrl(legacy);
   const canonical = process.env.KRX_API_BASE?.trim();
   if (canonical) return normalizeBaseUrl(canonical);
   return DEFAULT_BASE;
+}
+
+function readBaseUrl(): string {
+  return readPrimaryBaseUrl();
+}
+
+function readBaseUrlCandidates(): string[] {
+  if (process.env.KRX_OPENAPI_BASE_FALLBACK_DISABLED === 'true') return [readPrimaryBaseUrl()];
+  return Array.from(new Set([
+    readPrimaryBaseUrl(),
+    'https://data-dbg.krx.co.kr/svc/apis',
+    'http://data-dbg.krx.co.kr/svc/apis',
+    'https://openapi.krx.co.kr/svc/apis',
+  ].map(normalizeBaseUrl)));
 }
 
 function readAuthKey(): string {
@@ -187,47 +202,67 @@ function extractRows(raw: KrxOpenApiResponse | null): Record<string, string | nu
   return [];
 }
 
+async function krxGetFromBase(
+  base: string,
+  endpoint: string,
+  params: Record<string, string>,
+  authKey: string,
+): Promise<KrxOpenApiResponse> {
+  const url = new URL(`${base}/${endpoint}`);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { AUTH_KEY: authKey, Accept: 'application/json' },
+      signal: ac.signal,
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      const preview = text.slice(0, 80).replace(/\s+/g, ' ');
+      throw new Error(`HTTP_${res.status}${preview ? `:${preview}` : ''}`);
+    }
+    if (!text.trim()) throw new Error('EMPTY_BODY');
+    try {
+      return JSON.parse(text) as KrxOpenApiResponse;
+    } catch {
+      throw new Error(`JSON_PARSE:${text.slice(0, 120)}`);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function krxGet(endpoint: string, params: Record<string, string>): Promise<KrxOpenApiResponse | null> {
   if (readDisabled()) return null;
   const authKey = readAuthKey();
   if (!authKey) return null;
 
-  const url = new URL(`${readBaseUrl()}/${endpoint}`);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
   try {
     return await breaker.exec(async () => {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: { AUTH_KEY: authKey, Accept: 'application/json' },
-        signal: ac.signal,
-      });
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          console.warn(`[KRX-OPEN] ${endpoint} 인증 실패 HTTP ${res.status} — AUTH_KEY 확인 필요`);
-        } else {
-          console.warn(`[KRX-OPEN] ${endpoint} HTTP ${res.status}`);
+      const bases = readBaseUrlCandidates();
+      let lastError: Error | null = null;
+      for (const base of bases) {
+        try {
+          const raw = await krxGetFromBase(base, endpoint, params, authKey);
+          if (base !== bases[0]) {
+            console.warn(`[KRX-OPEN] ${endpoint} primary=${bases[0]} 실패 후 fallback base=${base} 성공`);
+          }
+          return raw;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          lastError = e instanceof Error ? e : new Error(msg);
+          console.warn(`[KRX-OPEN] ${endpoint} base=${base} 실패: ${msg}`);
         }
-        throw new Error(`HTTP_${res.status}`);
       }
-      const text = await res.text();
-      if (!text.trim()) throw new Error('EMPTY_BODY');
-      try {
-        return JSON.parse(text) as KrxOpenApiResponse;
-      } catch {
-        console.warn(`[KRX-OPEN] ${endpoint} JSON 파싱 실패 (앞 120자: ${text.slice(0, 120)})`);
-        throw new Error('JSON_PARSE');
-      }
+      throw lastError ?? new Error('ALL_BASES_FAILED');
     });
   } catch (e) {
     if (e instanceof CircuitOpenError) return null;
     const msg = e instanceof Error ? e.message : String(e);
-    console.warn(`[KRX-OPEN] ${endpoint} 실패: ${msg}`);
+    console.warn(`[KRX-OPEN] ${endpoint} 전체 base 실패: ${msg}`);
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
