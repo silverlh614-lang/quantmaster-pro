@@ -14,6 +14,7 @@ import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
 import { assignSection, computeFocusCodes } from '../screener/watchlistManager.js';
 import { fetchCurrentPrice, fetchAccountBalance } from '../clients/kisClient.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKisIntraday } from '../screener/stockScreener.js';
+import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { getLiveRegime } from './regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
@@ -237,8 +238,8 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
 
     // ── Yahoo Gate 재평가 ─────────────────────────────────────────────────────
     const shadowEntryPrice = Math.round(currentPrice * 1.003);
-    const reCheckQuoteRaw  = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
-                          ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null)
+    // ADR-0231: KRX 마스터 기반 정확 매핑 → 1회 fetch + KIS fallback.
+    const reCheckQuoteRaw  = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote)
                           ?? await fetchKisQuoteFallback(stock.code).catch(() => null);
     const reCheckQuote = reCheckQuoteRaw
       ? await enrichQuoteWithKisMTAS(reCheckQuoteRaw, stock.code)

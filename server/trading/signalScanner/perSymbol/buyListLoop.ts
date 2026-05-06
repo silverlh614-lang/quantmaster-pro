@@ -48,6 +48,7 @@ import {
   CATALYST_POSITION_FACTOR, CATALYST_FIXED_STOP_PCT,
 } from '../../../screener/watchlistManager.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKisIntraday } from '../../../screener/stockScreener.js';
+import { fetchYahooQuoteByCode } from '../../../screener/adapters/yahooSymbolResolver.js';
 import { fillMonitor } from '../../fillMonitor.js';
 import { trancheExecutor } from '../../trancheExecutor.js';
 import { ENTRY_GATES_PHASE_B } from '../entryGates/index.js';
@@ -666,8 +667,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           `[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달 — ` +
           `현재가 ${currentPrice.toLocaleString()} vs 진입가 ${stock.entryPrice.toLocaleString()} (${priceDiffPct}%, 기준 ±${(nearEntryThreshold * 100).toFixed(0)}%) → Pre-Breakout 판별`,
         );
-        const reCheckQuotePb = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
-                            ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null)
+        // ADR-0231: KRX 마스터 기반 정확 매핑 → 1회 fetch + KIS fallback.
+        const reCheckQuotePb = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote)
                             ?? await fetchKisQuoteFallback(stock.code).catch(() => null);
         if (
           reCheckQuotePb != null &&
@@ -984,8 +985,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // ── 실시간 Gate 재평가 (타점 판단 연동) ──────────────────────────────────
       // 워치리스트 stale gateScore 대신 실시간 evaluateServerGate 결과를 포지션 사이징에 반영
       // 아이디어 9: KIS API로 MTAS 월봉/주봉 보강 (매수 결정 직전 정확도 향상)
-      const reCheckQuoteRaw = await fetchYahooQuote(`${stock.code}.KS`).catch(() => null)
-                           ?? await fetchYahooQuote(`${stock.code}.KQ`).catch(() => null)
+      // ADR-0231: KRX 마스터 기반 정확 매핑 → 1회 fetch + KIS fallback.
+      const reCheckQuoteRaw = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote)
                            ?? await fetchKisQuoteFallback(stock.code).catch(() => null);
       const reCheckQuote = reCheckQuoteRaw
         ? await enrichQuoteWithKisMTAS(reCheckQuoteRaw, stock.code)

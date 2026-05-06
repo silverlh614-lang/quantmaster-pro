@@ -22,6 +22,7 @@ import type { ApprovalAction } from '../telegram/buyApproval.js';
 import type { EnemyCheckResult } from '../clients/enemyCheckClient.js';
 import type { StopLossPlan } from './entryEngine.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, type YahooQuoteExtended } from '../screener/stockScreener.js';
+import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
 import { fetchKisInvestorFlow } from '../clients/kisClient.js';
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { evaluateServerGate, type ServerGateResult } from '../quantFilter.js';
@@ -147,8 +148,9 @@ export async function fetchGateData(
   kospi20dReturn?: number,
 ): Promise<GateData> {
   const weights = conditionWeights ?? loadConditionWeights();
-  const quote = await fetchYahooQuote(`${stockCode}.KS`).catch(() => null)
-             ?? await fetchYahooQuote(`${stockCode}.KQ`).catch(() => null)
+  // ADR-0231: KRX 마스터 기반 정확 매핑 (KOSPI .KS / KOSDAQ .KQ) → 1회 fetch.
+  // 마스터 부재 시 양쪽 시도 fallback. 모두 실패 시 KIS quote fallback.
+  const quote = await fetchYahooQuoteByCode(stockCode, fetchYahooQuote)
              ?? await fetchKisQuoteFallback(stockCode).catch(() => null);
 
   if (!quote) return { quote: null, gate: null };
