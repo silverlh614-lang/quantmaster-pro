@@ -252,9 +252,20 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // stock.gateEvaluation 은 enrichment 단계에서 사전 산출된 값 (StockRecommendation
       // 에 정의되어 있으나 WatchlistEntry 에는 부재). inline cast 로 영속 schema
       // 변경 회피. try/catch 격리 — throw 시 LIVE 매매 흐름 무중단.
+      //
+      // ADR-0211 (P0 응급 패치): WatchlistEntry 에는 gateEvaluation 이 영속되지
+      // 않아 ge?.gate1Passed 가 항상 undefined → gate1Pass 카운터 영구 0 →
+      // R3 Sanity Check (GATE1_PASS_ZERO) false positive 로 latch 활성 →
+      // 신규 매수 영구 차단. 폴백: stock.gateScore ≥ 5.0 (evaluateServerGate
+      // SWING/STRONG_BUY 임계 정합) 시 Gate 1 통과 추정.
       try {
         const ge = (stock as { gateEvaluation?: { gate1Passed?: boolean; gate2Passed?: boolean; gate3Passed?: boolean } }).gateEvaluation;
-        if (ge?.gate1Passed) ctx.scanCounters.gate1Pass++;
+        if (ge?.gate1Passed) {
+          ctx.scanCounters.gate1Pass++;
+        } else if (typeof stock.gateScore === 'number' && stock.gateScore >= 5.0) {
+          // ADR-0211 폴백: gateEvaluation 미영속 시 gateScore ≥ 5.0 으로 Gate 1 통과 추정
+          ctx.scanCounters.gate1Pass++;
+        }
         if (ge?.gate2Passed) ctx.scanCounters.gate2Pass++;
         if (ge?.gate3Passed) ctx.scanCounters.gate3Pass++;
       } catch (e) {
