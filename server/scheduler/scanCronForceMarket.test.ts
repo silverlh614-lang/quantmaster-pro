@@ -3,17 +3,10 @@
  *
  * 검증:
  *   - SCHEDULE_CATALOG 에 06:00 global_scan_agent 항목 등록
- *   - 8개 스캔 cron 의 콜백이 withForcedMarket() 으로 wrap 되어
- *     호출 시 시간대 게이트가 강제 통과됨
- *
- * 대상 cron (시간대 게이트 차단 가능성 있는 스캔):
- *   - screenerJobs: stage1_pre_screening / stage2_3_final_screening /
- *                   us_premarket_scan / us_postmarket_scan / global_scan_agent
- *   - alertJobs:    adr_gap_scan / sector_etf_momentum
- *   - reportJobs:   high_52w_scan
- *
- * 패턴: scheduledJob mock 으로 콜백 캡처 → 콜백 호출 시 withForcedMarket spy
- *       가 호출됐는지 + 본체 함수 호출 카운트 검증.
+ *   - 시간대 게이트 차단 가능성 있는 스캔 cron 의 콜백이 withForcedMarket() 으로
+ *     wrap 되어 호출 시 시간대 게이트가 강제 통과됨
+ *   - ADR-0403: us_premarket_scan / us_postmarket_scan 은 KR runAutoSignalScan() 을
+ *     호출하지 않고 global diagnostics 만 실행한다.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -116,9 +109,7 @@ afterEach(() => {
 
 function findCallback(jobName: string): () => Promise<unknown> | unknown {
   const call = _scheduledJob.mock.calls.find((c) => c[2] === jobName);
-  if (!call) {
-    throw new Error(`scheduledJob('${jobName}', ...) 미등록`);
-  }
+  if (!call) throw new Error(`scheduledJob('${jobName}', ...) 미등록`);
   return call[3];
 }
 
@@ -133,7 +124,7 @@ describe('SCHEDULE_CATALOG — 06:00 global_scan_agent 항목 등록', () => {
   });
 });
 
-describe('screenerJobs — 5 스캔 cron 콜백이 withForcedMarket wrap', () => {
+describe('screenerJobs — 스캔 cron force-market 격리', () => {
   beforeEach(async () => {
     const { registerScreenerJobs } = await import('./screenerJobs.js');
     registerScreenerJobs();
@@ -153,18 +144,20 @@ describe('screenerJobs — 5 스캔 cron 콜백이 withForcedMarket wrap', () =>
     expect(_runStage2_3).toHaveBeenCalledOnce();
   });
 
-  it('us_premarket_scan 콜백 호출 시 withForcedMarket + runAutoSignalScan', async () => {
+  it('us_premarket_scan 콜백 호출 시 global diagnostics만 실행하고 KR runAutoSignalScan은 호출하지 않는다', async () => {
     const cb = findCallback('us_premarket_scan');
     await cb();
     expect(_withForcedMarket).toHaveBeenCalledOnce();
-    expect(_runAutoSignal).toHaveBeenCalledOnce();
+    expect(_runGlobalScan).toHaveBeenCalledOnce();
+    expect(_runAutoSignal).not.toHaveBeenCalled();
   });
 
-  it('us_postmarket_scan 콜백 호출 시 withForcedMarket + runAutoSignalScan', async () => {
+  it('us_postmarket_scan 콜백 호출 시 global diagnostics만 실행하고 KR runAutoSignalScan은 호출하지 않는다', async () => {
     const cb = findCallback('us_postmarket_scan');
     await cb();
     expect(_withForcedMarket).toHaveBeenCalledOnce();
-    expect(_runAutoSignal).toHaveBeenCalledOnce();
+    expect(_runGlobalScan).toHaveBeenCalledOnce();
+    expect(_runAutoSignal).not.toHaveBeenCalled();
   });
 
   it('global_scan_agent 콜백 호출 시 withForcedMarket + runGlobalScanAgent', async () => {
