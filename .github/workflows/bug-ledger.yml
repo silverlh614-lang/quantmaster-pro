@@ -1,0 +1,55 @@
+name: bug-ledger
+
+# PR #670 (BUG_LEDGER validation guard) + PR #671 (Fixes BUG PR template) 후속 P1-C —
+# PR body 의 `Fixes BUG-...` 참조 무결성 + BUG_LEDGER 형식을 자동 검증.
+#
+# Job 1: validate-format — push/PR 양쪽에서 BUG_LEDGER.md 형식 검증.
+# Job 2: validate-pr-body-fixes — PR body 의 Fixes BUG 참조가 BUG_LEDGER frontmatter id: 와
+#                                  매칭하는지 검증. heading 만으로는 통과 차단.
+#
+# 안전 가드:
+#  - LIVE 매매 본체 영향 0 (workflow 정적 검증)
+#  - 외부 패키지 0 (node 빌트인 + scripts/check_bug_ledger.js)
+#  - PR body 의 따옴표/백틱 escape 안전 (heredoc + 직접 stdin)
+#  - PR 의 push 만 트리거 (`opened|synchronize|edited|reopened`)
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+    types: [opened, synchronize, edited, reopened]
+
+jobs:
+  validate-format:
+    name: BUG_LEDGER — 형식 검증 (frontmatter / area / status / severity / P0 섹션)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run validate:bug-ledger
+        run: node scripts/check_bug_ledger.js
+
+  validate-pr-body-fixes:
+    name: BUG_LEDGER — PR body Fixes BUG 참조 무결성
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify Fixes BUG references in PR body
+        env:
+          # PR body 안전 전달 — 백틱 / 따옴표 / 줄바꿈 보존
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # PR body 가 빈 경우 (빈 PR) 또는 Fixes BUG 참조 부재 시 자동 통과
+          if [ -z "${PR_BODY}" ]; then
+            echo "ℹ️  PR body 가 비어있음 — Fixes BUG 참조 검증 skip"
+            exit 0
+          fi
+          # --text 인자로 PR body 전달 — `node scripts/check_bug_ledger.js`
+          # 가 BUG-YYYY-MM-DD-NNN 패턴을 추출하고 frontmatter id: 와 매칭
+          node scripts/check_bug_ledger.js --text "${PR_BODY}"
