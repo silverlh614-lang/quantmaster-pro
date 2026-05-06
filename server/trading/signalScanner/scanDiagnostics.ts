@@ -28,6 +28,10 @@ import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
 // ADR-0412: Frozen Quote Detector — 입력 데이터 오염 + Holiday-aware streak skip 진단 표시.
 import type { FrozenQuoteResult } from './frozenQuoteDetector.js';
 import type { StreakSkipReason } from './r3StreakSkipPolicy.js';
+// ADR-0414 — Price Integrity Checker + Correction Overlay (Stage 1 Read-Only Mode).
+// Stage 1: diagnostics only — corrected 값 LIVE 매수 판단 사용 0건 (절대 원칙 #3).
+import type { PriceIntegrityStatus } from './priceIntegrityChecker.js';
+import type { PriceCorrectionType } from './priceCorrectionEngine.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -97,6 +101,33 @@ export interface ScanSummary {
    * Holiday/blocked-day/frozen quote 시 skip — 영속 streak 무영향.
    */
   r3StreakSkipped?: { skipped: boolean; reason?: StreakSkipReason };
+  /**
+   * ADR-0414 §6 — Price Integrity 종목별 분류 진단 (옵셔널, Stage 1 Read-Only).
+   *
+   * **ADR-0412 `frozenQuote?` 와 책임 분리** — frozenQuote 는 *전체 스캔의 frozen 비율*,
+   * priceIntegrity 는 *종목별 stale/frozen/mismatch/reverse_gap 분류*.
+   *
+   * `topAffected` 는 OK 외 status 종목 Top N (진단·UI 입력).
+   * 본 PR (Stage 1) 에서 호출자 0건 dead code — Stage 2/3 후속 PR 에서 wiring.
+   */
+  priceIntegrity?: {
+    totalSamples: number;
+    statusCounts: Record<PriceIntegrityStatus, number>;
+    topAffected: Array<{ symbol: string; status: PriceIntegrityStatus }>;
+  };
+  /**
+   * ADR-0414 §6 — Price Correction Overlay 진단 (옵셔널, Stage 1 Read-Only).
+   *
+   * **Stage 1 Read-Only Mode** — `correctionType` 분포 + averageConfidence 만 영속.
+   * Stage 2/3 진입 시 corrected 사용처 wiring 후속 PR.
+   */
+  priceCorrection?: {
+    totalSamples: number;
+    correctionTypeCounts: Record<PriceCorrectionType, number>;
+    averageConfidence: number;
+    dropGapCalculationCount: number;
+    shadowOnlySuggestedCount: number;
+  };
 }
 
 let _lastBuySignalAt = 0;
@@ -280,6 +311,17 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   if (streakSkipLine) {
     lines.push('');
     lines.push(streakSkipLine);
+  }
+
+  // ADR-0414 — Price Integrity + Correction Overlay (Stage 1 Read-Only).
+  // 진단 only — corrected 값 LIVE 매수 판단 사용 0건 (절대 원칙 #3).
+  const priceIntegritySection = formatPriceIntegritySection(summary.priceIntegrity);
+  if (priceIntegritySection) {
+    lines.push(priceIntegritySection);
+  }
+  const priceCorrectionSection = formatPriceCorrectionOverlaySection(summary.priceCorrection);
+  if (priceCorrectionSection) {
+    lines.push(priceCorrectionSection);
   }
 
   // ADR-0401 — R3 Sanity state machine 결과 노출 (CLEAN 외 분기에서만).
@@ -667,4 +709,141 @@ export function formatR3StreakSkipLine(skip: { skipped: boolean; reason?: string
   const label = skip.reason ? (reasonLabels[skip.reason] ?? skip.reason) : '미상';
 
   return `⏸ <b>[R3 Streak]</b> R3 hard block 누적 제외 — ${label} (ADR-0412)`;
+}
+
+// ─── ADR-0414 — Price Integrity Checker + Correction Overlay (Stage 1 Read-Only) ───
+/**
+ * Price Integrity 섹션 SSOT 빌더 — `/scan_blockers` 메시지 추가용 (Stage 1 Read-Only).
+ *
+ * 모든 status === 'OK' 시 null (간결성 — 정상 시 미노출).
+ *
+ * 사용자 명시 정책:
+ *   - "매수 차단" 표현 **금지** — Stage 1 Read-Only, 진단 only.
+ *   - "결함" / "에러" 표현 **금지** — "데이터 품질 문제" (ADR-0412 정합).
+ *   - Stage 1 표기 — "관측 + 검증" 명시.
+ */
+export function formatPriceIntegritySection(
+  pi:
+    | {
+        totalSamples: number;
+        statusCounts: Record<PriceIntegrityStatus, number>;
+        topAffected: Array<{ symbol: string; status: PriceIntegrityStatus }>;
+      }
+    | undefined
+    | null,
+): string | null {
+  if (!pi) return null;
+  if (pi.totalSamples <= 0) return null;
+  // OK 외 status 카운트 합산 — 모두 0 시 미노출
+  const affectedTotal =
+    (pi.statusCounts.SUSPECT ?? 0) +
+    (pi.statusCounts.STALE ?? 0) +
+    (pi.statusCounts.FROZEN_QUOTE ?? 0) +
+    (pi.statusCounts.PRICE_BASE_MISMATCH ?? 0) +
+    (pi.statusCounts.REVERSE_GAP_SUSPECT ?? 0) +
+    (pi.statusCounts.FAILED ?? 0);
+  if (affectedTotal === 0) return null;
+
+  const lines: string[] = [];
+  lines.push('');
+  lines.push('🔍 <b>[Price Integrity — Stage 1 관측]</b>');
+  lines.push(
+    `  • 표본 ${pi.totalSamples}개 / 영향 ${affectedTotal}개 (OK 외)`,
+  );
+  // 분포 상위 표기 — 0건 status 미노출
+  const orderedStatuses: ReadonlyArray<PriceIntegrityStatus> = [
+    'PRICE_BASE_MISMATCH',
+    'STALE',
+    'REVERSE_GAP_SUSPECT',
+    'SUSPECT',
+    'FROZEN_QUOTE',
+    'FAILED',
+  ];
+  for (const s of orderedStatuses) {
+    const c = pi.statusCounts[s] ?? 0;
+    if (c > 0) {
+      lines.push(`  • ${s}: ${c}개`);
+    }
+  }
+  if (pi.topAffected.length > 0) {
+    const top = pi.topAffected.slice(0, 5);
+    const top5 = top.map((t) => `${t.symbol}(${t.status})`).join(', ');
+    const remain = pi.topAffected.length - top.length;
+    lines.push(
+      `  • 영향 종목 Top: ${top5}${remain > 0 ? ` 외 ${remain}개` : ''}`,
+    );
+  }
+  lines.push('');
+  lines.push('영향 (ADR-0414, Stage 1):');
+  lines.push('  • 데이터 품질 진단 — 매수 차단 아님');
+  lines.push('  • <i>관측 + 검증 단계 — 의사결정 변경 0건</i>');
+
+  return lines.join('\n');
+}
+
+/**
+ * Price Correction Overlay 섹션 SSOT 빌더 — `/scan_blockers` 메시지 추가용 (Stage 1 Read-Only).
+ *
+ * `correctionType` 분포 + averageConfidence + DROP_GAP_CALCULATION 카운트 노출.
+ * `correctionType === 'NONE'` 만 있을 시 null (정상 — 미노출).
+ *
+ * **Stage 1 정책 명시** — corrected 값 LIVE 매수 판단 사용 0건 (절대 원칙 #3).
+ */
+export function formatPriceCorrectionOverlaySection(
+  pc:
+    | {
+        totalSamples: number;
+        correctionTypeCounts: Record<PriceCorrectionType, number>;
+        averageConfidence: number;
+        dropGapCalculationCount: number;
+        shadowOnlySuggestedCount: number;
+      }
+    | undefined
+    | null,
+): string | null {
+  if (!pc) return null;
+  if (pc.totalSamples <= 0) return null;
+  const noneCount = pc.correctionTypeCounts.NONE ?? 0;
+  const totalNonNone = pc.totalSamples - noneCount;
+  if (totalNonNone <= 0) return null;
+
+  const lines: string[] = [];
+  lines.push('');
+  lines.push('🛠 <b>[Price Correction Overlay — Stage 1 Read-Only]</b>');
+  lines.push(
+    `  • 표본 ${pc.totalSamples}개 / 보정 후보 ${totalNonNone}개 (NONE 제외)`,
+  );
+  lines.push(
+    `  • 평균 confidence: ${pc.averageConfidence.toFixed(3)}`,
+  );
+  // 분포 상위 표기 — 0건 type 미노출, NONE 마지막
+  const orderedTypes: ReadonlyArray<PriceCorrectionType> = [
+    'USE_KIS_CURRENT',
+    'USE_KRX_PREV_CLOSE',
+    'USE_RECENT_DAILY_CLOSE',
+    'DROP_GAP_CALCULATION',
+    'SHADOW_ONLY',
+  ];
+  for (const t of orderedTypes) {
+    const c = pc.correctionTypeCounts[t] ?? 0;
+    if (c > 0) {
+      lines.push(`  • ${t}: ${c}개`);
+    }
+  }
+  if (pc.dropGapCalculationCount > 0) {
+    lines.push(
+      `  • <i>DROP_GAP_CALCULATION ${pc.dropGapCalculationCount}건 — 사용자 명시: 틀린 gap 계산보다 gap 미사용 우월</i>`,
+    );
+  }
+  if (pc.shadowOnlySuggestedCount > 0) {
+    lines.push(
+      `  • SHADOW_ONLY ${pc.shadowOnlySuggestedCount}건 — 보정 불가, Shadow learning 만`,
+    );
+  }
+  lines.push('');
+  lines.push('영향 (ADR-0414, Stage 1):');
+  lines.push('  • <b>corrected 값 LIVE 매수 판단 사용 0건</b> (절대 원칙 #3)');
+  lines.push('  • 관측 + 검증만 — 의사결정 변경은 Stage 2/3 후속 PR');
+
+  return lines.join('\n');
 }
