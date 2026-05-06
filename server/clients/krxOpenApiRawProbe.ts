@@ -3,6 +3,7 @@
  *
  * This module intentionally bypasses krxGet() because krxGet() normalizes failures to null.
  * It is diagnostic-only and does not mutate circuit/cache state.
+ * ADR-0361: default probe base uses official openapi.krx.co.kr, with beta retained only as candidate.
  */
 
 interface KrxOpenApiRawJson {
@@ -26,7 +27,7 @@ export interface KrxRawProbeResult {
   error?: string;
 }
 
-const DEFAULT_BASE = 'https://data-dbg.krx.co.kr/svc/apis';
+const DEFAULT_BASE = 'https://openapi.krx.co.kr/svc/apis';
 const RAW_PROBE_TIMEOUT_MS = 10_000;
 
 function normalizeBase(base: string): string {
@@ -51,9 +52,9 @@ function readAuthKey(): string {
 export function getKrxOpenApiBaseProbeCandidates(): string[] {
   return Array.from(new Set([
     readKrxOpenApiRawBase(),
+    'https://openapi.krx.co.kr/svc/apis',
     'https://data-dbg.krx.co.kr/svc/apis',
     'http://data-dbg.krx.co.kr/svc/apis',
-    'https://openapi.krx.co.kr/svc/apis',
   ].map(normalizeBase)));
 }
 
