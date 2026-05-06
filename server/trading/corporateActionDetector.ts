@@ -1,15 +1,23 @@
 // @responsibility drift 패턴으로 액면분할/병합/권리락 의심 분류 SSOT — DART 매칭은 후속
 /**
- * corporateActionDetector.ts (ADR-0113) — 코퍼레이트 액션 detector.
+ * corporateActionDetector.ts (ADR-0113 + ADR-0301) — 코퍼레이트 액션 detector.
  *
  * 1차 로그(2026-04-30) 의 098460 고영 +221% / 336260 두산테스나 +207% 같은 워치리스트
  * drift 패턴이 분할/병합/권리락 의심 사례임을 자동 분류.
  *
+ * ADR-0301 (2026-05-06) 임계 완화:
+ *   - STRONG_DRIFT_PCT 150 → 80 (2:1 분할 +100% 시나리오 포함)
+ *   - RIGHTS_DRIFT_MAX 150 → 80 (STRONG 임계와 정합)
+ *   - ABSOLUTE_DEAD_ZONE_LIMIT 250 신설 — 실제 데이터 오염 영역 (DATA_HOLD 호출자 분리)
+ *   - ENV `CORPORATE_ACTION_LEGACY_THRESHOLDS=true` 시 150/150/Infinity legacy 동작 복원
+ *
  * 본 PR scope:
  *   - drift % + windowDays 입력으로 SPLIT/MERGE/RIGHTS/UNKNOWN 분류만
- *   - DART 공시 매칭 (유상증자결정/주식분할/무상증자결정) 은 후속 PR 분리
+ *   - ABSOLUTE_DEAD_ZONE 판정 헬퍼 export (호출자 측 DATA_HOLD 분기)
+ *   - DART 공시 매칭 (ADR-0302) + KIS 일봉 자동 검증 (ADR-0303) 은 후속 PR 분리
  *
  * ENV `CORPORATE_ACTION_DETECTOR_DISABLED=true` → 항상 detected=false 반환.
+ * ENV `CORPORATE_ACTION_LEGACY_THRESHOLDS=true` → STRONG=150 / RIGHTS_MAX=150 / DEAD_ZONE=∞.
  */
 
 export type CorporateActionType = 'SPLIT' | 'MERGE' | 'RIGHTS' | 'UNKNOWN';
@@ -29,11 +37,16 @@ export interface CorporateActionInput {
 }
 
 export const CORPORATE_ACTION_THRESHOLDS = {
-  /** > 150% drift 면 분할/병합 강제 의심 */
-  STRONG_DRIFT_PCT: 150,
-  /** 50~150% drift + windowDays=1 이면 권리락 의심 */
+  /** ADR-0301 default — > 80% drift 면 분할/병합 강제 의심 (2:1 분할 +100% 포함) */
+  STRONG_DRIFT_PCT: 80,
+  /** 50~80% drift + windowDays=1 이면 권리락 의심 */
   RIGHTS_DRIFT_MIN: 50,
-  RIGHTS_DRIFT_MAX: 150,
+  RIGHTS_DRIFT_MAX: 80,
+  /** ADR-0301 신설 — > 250% drift 면 코퍼레이트 액션 아님 (실제 데이터 오염, DATA_HOLD 분리) */
+  ABSOLUTE_DEAD_ZONE_LIMIT: 250,
+  /** ADR-0301 ENV legacy — `CORPORATE_ACTION_LEGACY_THRESHOLDS=true` 시 활성 */
+  LEGACY_STRONG_DRIFT_PCT: 150,
+  LEGACY_RIGHTS_DRIFT_MAX: 150,
 } as const;
 
 const NOT_DETECTED: CorporateActionResult = {
@@ -47,14 +60,61 @@ export function isCorporateActionDetectorDisabled(): boolean {
   return process.env.CORPORATE_ACTION_DETECTOR_DISABLED === 'true';
 }
 
+/** ADR-0301 ENV legacy gate — true 시 150/150/Infinity 임계 복원. ADR-0157 정확 비교 의무. */
+export function isCorporateActionLegacyThresholds(): boolean {
+  return process.env.CORPORATE_ACTION_LEGACY_THRESHOLDS === 'true';
+}
+
+/** ADR-0301 활성 임계 SSOT — ENV legacy 시 150, default 80. */
+export function activeStrongDriftPct(): number {
+  return isCorporateActionLegacyThresholds()
+    ? CORPORATE_ACTION_THRESHOLDS.LEGACY_STRONG_DRIFT_PCT
+    : CORPORATE_ACTION_THRESHOLDS.STRONG_DRIFT_PCT;
+}
+
+/** ADR-0301 활성 RIGHTS 상한 — ENV legacy 시 150, default 80. STRONG 과 정합. */
+export function activeRightsDriftMaxPct(): number {
+  return isCorporateActionLegacyThresholds()
+    ? CORPORATE_ACTION_THRESHOLDS.LEGACY_RIGHTS_DRIFT_MAX
+    : CORPORATE_ACTION_THRESHOLDS.RIGHTS_DRIFT_MAX;
+}
+
+/** ADR-0301 활성 절대 데드존 — ENV legacy 시 Infinity (감지 0), default 250. */
+export function activeAbsoluteDeadZoneLimit(): number {
+  return isCorporateActionLegacyThresholds()
+    ? Number.POSITIVE_INFINITY
+    : CORPORATE_ACTION_THRESHOLDS.ABSOLUTE_DEAD_ZONE_LIMIT;
+}
+
+/**
+ * ADR-0301 — drift 가 *실제 데이터 오염* 영역(>250%)에 있는지 판정.
+ * 호출자 측에서 DATA_HOLD 분기로 사용 (CORPORATE_ACTION 과 분리).
+ * 음수 drift 도 절댓값 기준 판정. NaN/Infinity → false.
+ */
+export function isAbsoluteDeadZoneDrift(driftPct: number): boolean {
+  if (!Number.isFinite(driftPct)) return false;
+  return Math.abs(driftPct) > activeAbsoluteDeadZoneLimit();
+}
+
+/**
+ * ADR-0301 — drift 가 STRONG 의심 임계 초과인지 판정 (호출자 단순화 헬퍼).
+ * NaN/Infinity → false. ENV legacy 시 150 기준, default 80.
+ */
+export function isStrongDriftSuspected(driftPct: number): boolean {
+  if (!Number.isFinite(driftPct)) return false;
+  return Math.abs(driftPct) > activeStrongDriftPct();
+}
+
 /**
  * drift 패턴으로 코퍼레이트 액션 의심 분류.
  *
- * 분류 규칙:
- *   - |drift| > 150% AND drift > 0 → SPLIT (역분할/감자, 가격 상승)
- *   - |drift| > 150% AND drift < 0 → SPLIT (분할 후 가격 하락)
- *   - 50~150% AND windowDays=1 → RIGHTS (권리락 추정)
+ * 분류 규칙 (ADR-0301 default):
+ *   - |drift| > 80% AND drift > 0 → SPLIT (역분할/감자, 가격 상승)
+ *   - |drift| > 80% AND drift < 0 → SPLIT (분할 후 가격 하락)
+ *   - 50~80% AND windowDays=1 → RIGHTS (권리락 추정)
  *   - 그 외 → UNKNOWN (detected=false)
+ *
+ * ENV `CORPORATE_ACTION_LEGACY_THRESHOLDS=true` 시 150/150 임계 (ADR-0113 동작).
  */
 export function detectCorporateAction(input: CorporateActionInput): CorporateActionResult {
   if (isCorporateActionDetectorDisabled()) return NOT_DETECTED;
@@ -65,9 +125,9 @@ export function detectCorporateAction(input: CorporateActionInput): CorporateAct
   }
 
   const absDrift = Math.abs(driftPct);
-  const STRONG = CORPORATE_ACTION_THRESHOLDS.STRONG_DRIFT_PCT;
+  const STRONG = activeStrongDriftPct();
   const RIGHTS_MIN = CORPORATE_ACTION_THRESHOLDS.RIGHTS_DRIFT_MIN;
-  const RIGHTS_MAX = CORPORATE_ACTION_THRESHOLDS.RIGHTS_DRIFT_MAX;
+  const RIGHTS_MAX = activeRightsDriftMaxPct();
 
   // 강한 drift — 분할/병합/감자 강제 의심
   if (absDrift > STRONG) {
