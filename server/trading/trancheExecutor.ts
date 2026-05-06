@@ -11,6 +11,7 @@ import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.
 import { loadShadowTrades, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
+import { getTradingMode } from '../state.js';
 import { applyExposureBudgetCap } from './sizing/positionSizingEngineWiring.js';
 import { resolveCurrentEquityExposure } from './sizing/currentEquityExposure.js';
 import { requestBuyApproval } from '../telegram/buyApproval.js';
@@ -212,7 +213,8 @@ export class TrancheExecutor {
     if (pending.length === 0) return;
 
     console.log(`[Tranche] 실행 대상 ${pending.length}건 점검`);
-    const isLive = process.env.AUTO_TRADE_MODE === 'LIVE';
+    // ADR-0392 P0-B — env 직접 참조 → getTradingMode() SSOT 통일.
+    const isLive = getTradingMode() === 'LIVE';
     let changed = false;
     const allShadows = loadShadowTrades();
     const shadowsById = new Map(allShadows.map((s) => [s.id, s]));

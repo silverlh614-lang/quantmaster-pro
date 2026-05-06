@@ -12,6 +12,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
 import { trancheExecutor } from '../trading/trancheExecutor.js';
 import { runAutoSignalScan } from '../trading/signalScanner.js';
+import { getTradingMode } from '../state.js';
 import { preScreenStocks, autoPopulateWatchlist, sendWatchlistRejectionReport } from '../screener/stockScreener.js';
 import { generateDailyReport } from '../alerts/reportGenerator.js';
 import { isRealTradeReady } from '../learning/recommendationTracker.js';
@@ -72,7 +73,8 @@ export async function preMarketOrderPrep(): Promise<void> {
     `[PreMarket] 동시호가 예약 주문 준비 — ${watchlist.length}개 종목 ` +
     `(포지션 ${activeCount}/${maxPositions}, regime=${regime})`,
   );
-  const isLive = process.env.AUTO_TRADE_MODE === 'LIVE';
+  // ADR-0392 P0-B — env 직접 참조 → getTradingMode() SSOT 통일.
+  const isLive = getTradingMode() === 'LIVE';
   // PR-5 #11: SHADOW ↔ LIVE 계좌 잔고 분리. preMarket 사이징 capital 은
   // LIVE 면 KIS 실/모의 잔고, SHADOW 면 shadowAccountRepo 독립 원장에서 가져온다.
   let capital: number;

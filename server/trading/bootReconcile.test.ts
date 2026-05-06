@@ -54,7 +54,7 @@ describe('runBootReconcileDryRun — 트리거 조건', () => {
     process.env.AUTO_TRADE_MODE = 'SHADOW';
     const reconcileSpy = vi.spyOn(liveReconciler, 'reconcileLivePositions');
     const r = await runBootReconcileDryRun();
-    expect(r).toEqual({ skipped: true, reason: 'AUTO_TRADE_MODE=SHADOW' });
+    expect(r).toEqual({ skipped: true, reason: 'tradingMode=SHADOW' });
     expect(reconcileSpy).not.toHaveBeenCalled();
   });
 
@@ -69,7 +69,7 @@ describe('runBootReconcileDryRun — 트리거 조건', () => {
   it('AUTO_TRADE_MODE 미설정 → skip with default reason', async () => {
     delete process.env.AUTO_TRADE_MODE;
     const r = await runBootReconcileDryRun();
-    expect(r).toEqual({ skipped: true, reason: 'AUTO_TRADE_MODE=SHADOW' });
+    expect(r).toEqual({ skipped: true, reason: 'tradingMode=SHADOW' });
   });
 });
 

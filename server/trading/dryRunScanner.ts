@@ -11,6 +11,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
+import { getTradingMode } from '../state.js';
 import { assignSection, computeFocusCodes } from '../screener/watchlistManager.js';
 import { fetchCurrentPrice, fetchAccountBalance } from '../clients/kisClient.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKisIntraday } from '../screener/stockScreener.js';
@@ -90,7 +91,8 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
   // 이전엔 shadowMode 여부와 무관하게 fetchAccountBalance() 를 호출해
   //   1) /dryrun 1회당 KIS API 1회 소비 (회로차단기·블랙리스트 부담),
   //   2) SHADOW 시뮬레이션 totalAssets/orderableCash 가 LIVE 잔고로 표기되었다.
-  const shadowMode = process.env.AUTO_TRADE_MODE !== 'LIVE';
+  // ADR-0392 P0-B — env 직접 참조 → getTradingMode() SSOT 통일.
+  const shadowMode = getTradingMode() !== 'LIVE';
   let totalAssets: number;
   let orderableCash: number;
 

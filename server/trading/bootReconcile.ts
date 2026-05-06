@@ -10,6 +10,7 @@
 // KIS 점검시간/조회 불가 시 silent skip (채널 노이즈 방지).
 
 import type { LiveReconcileResult } from './liveReconciler.js';
+import { getTradingMode } from '../state.js';
 
 /**
  * 부팅 reconcile dry-run 트리거. server/index.ts 가 setTimeout 30s 후 1회 호출.
@@ -29,8 +30,10 @@ export type BootReconcileOutcome =
 
 export async function runBootReconcileDryRun(): Promise<BootReconcileOutcome> {
   // ── 트리거 조건 ────────────────────────────────────────────
-  if (process.env.AUTO_TRADE_MODE !== 'LIVE') {
-    return { skipped: true, reason: `AUTO_TRADE_MODE=${process.env.AUTO_TRADE_MODE ?? 'SHADOW'}` };
+  // ADR-0392 P0-B — env 직접 참조 → getTradingMode() SSOT 통일.
+  const tradingMode = getTradingMode();
+  if (tradingMode !== 'LIVE') {
+    return { skipped: true, reason: `tradingMode=${tradingMode}` };
   }
   if (process.env.AUTO_TRADE_ENABLED !== 'true') {
     return { skipped: true, reason: 'AUTO_TRADE_ENABLED=false' };
