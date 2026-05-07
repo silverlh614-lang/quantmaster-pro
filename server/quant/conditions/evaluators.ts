@@ -705,6 +705,18 @@ export const supplyConfluenceEvaluator: ConditionEvaluator = {
       };
     }
     // 데이터는 있는데 양쪽 모두 매도/제로 → 진짜 임계 미달.
+    if (!instBuy && !foreiBuy) {
+      const instSell = flow.institutionalNetBuy < 0;
+      const foreiSell = flow.foreignNetBuy < 0;
+      return {
+        score: 0,
+        conditionKey: 'supply_confluence',
+        detail: instSell && foreiSell
+          ? 'Investor flow negative confirmed: foreign+institution net selling'
+          : 'Investor flow confirmed but no positive confluence',
+        status: 'THRESHOLD_NOT_MET',
+      };
+    }
     return null;
   },
 };

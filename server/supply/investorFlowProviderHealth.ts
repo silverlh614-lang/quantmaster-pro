@@ -1,0 +1,250 @@
+/**
+ * @responsibility ADR-0435 investor-flow provider health SSOT.
+ *
+ * Missing investor-flow data is not a failed supply signal. This module keeps
+ * provider availability, semantic net-buy availability, and confirmed flow
+ * direction separate so callers do not collapse DATA_UNAVAILABLE into FAIL.
+ */
+
+import { isTradingDay } from '../utils/marketDayClassifier.js';
+
+export type InvestorFlowProviderStatus =
+  | 'OK'
+  | 'CACHE_HIT'
+  | 'CACHE_EMPTY'
+  | 'HTTP_400'
+  | 'HTTP_403'
+  | 'HTTP_429'
+  | 'HTTP_5XX'
+  | 'TIMEOUT'
+  | 'NOT_WIRED'
+  | 'MARKET_CLOSED'
+  | 'LUNCH_BREAK'
+  | 'NON_TRADING_DAY'
+  | 'PARAM_INVALID'
+  | 'PARSER_EMPTY_ROWS'
+  | 'PROVIDER_UNAVAILABLE'
+  | 'UNKNOWN_ERROR';
+
+export type InvestorFlowProvider = 'KRX' | 'NAVER' | 'KIS' | 'CACHE' | 'COMPOSITE';
+
+export type InvestorFlowMarketSession =
+  | 'PRE_OPEN'
+  | 'REGULAR'
+  | 'LUNCH_BREAK'
+  | 'POST_CLOSE'
+  | 'CLOSED';
+
+export interface InvestorFlowProviderHealth {
+  provider: InvestorFlowProvider;
+  status: InvestorFlowProviderStatus;
+  dataAvailable: boolean;
+  semanticAvailable: boolean;
+  isNegativeFlowConfirmed: boolean;
+  isPositiveFlowConfirmed: boolean;
+  reason: string;
+  observedAtKst: string;
+  sourceDateKst?: string;
+  endpoint?: string;
+  marketSession?: InvestorFlowMarketSession;
+  retryable?: boolean;
+  cacheFallback?: boolean;
+}
+
+export interface InvestorFlowSemanticNetBuy {
+  foreignNetBuy: number;
+  institutionNetBuy: number;
+  individualNetBuy?: number;
+  programNetBuy?: number;
+}
+
+const KST_OFFSET_MS = 9 * 60 * 60_000;
+const NEGATIVE_CACHE_TTL_MS = 10 * 60_000;
+
+interface NegativeCacheEntry {
+  health: InvestorFlowProviderHealth;
+  expiresAtMs: number;
+  marketSession: InvestorFlowMarketSession;
+}
+
+const negativeCache = new Map<string, NegativeCacheEntry>();
+let lastHealth: InvestorFlowProviderHealth[] = [];
+
+export function toInvestorFlowKstDateTime(now: Date = new Date()): { iso: string; date: string; minutes: number } {
+  const kst = new Date(now.getTime() + KST_OFFSET_MS);
+  const hh = kst.getUTCHours();
+  const mm = kst.getUTCMinutes();
+  return {
+    iso: `${kst.toISOString().slice(0, 19)}+09:00`,
+    date: kst.toISOString().slice(0, 10),
+    minutes: hh * 60 + mm,
+  };
+}
+
+function shiftYmd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+export function previousInvestorFlowTradingDate(dateKst: string): string {
+  let cursor = shiftYmd(dateKst, -1);
+  for (let i = 0; i < 32; i += 1) {
+    if (isTradingDay(cursor)) return cursor;
+    cursor = shiftYmd(cursor, -1);
+  }
+  return dateKst;
+}
+
+export function classifyInvestorFlowMarketSession(now: Date = new Date()): InvestorFlowMarketSession {
+  const kst = toInvestorFlowKstDateTime(now);
+  if (!isTradingDay(kst.date)) return 'CLOSED';
+  if (kst.minutes < 9 * 60) return 'PRE_OPEN';
+  if (kst.minutes >= 11 * 60 + 31 && kst.minutes <= 12 * 60 + 59) return 'LUNCH_BREAK';
+  if (kst.minutes >= 9 * 60 && kst.minutes < 15 * 60 + 30) return 'REGULAR';
+  if (kst.minutes >= 15 * 60 + 30) return 'POST_CLOSE';
+  return 'CLOSED';
+}
+
+export function resolveInvestorFlowSourceDateKst(now: Date = new Date()): string {
+  const kst = toInvestorFlowKstDateTime(now);
+  const session = classifyInvestorFlowMarketSession(now);
+  if (session === 'PRE_OPEN' || session === 'CLOSED') return previousInvestorFlowTradingDate(kst.date);
+  return kst.date;
+}
+
+export function shouldSuppressInvestorFlowFetch(now: Date = new Date()): {
+  suppress: boolean;
+  status?: Extract<InvestorFlowProviderStatus, 'LUNCH_BREAK' | 'NON_TRADING_DAY' | 'MARKET_CLOSED'>;
+  reason?: string;
+  marketSession: InvestorFlowMarketSession;
+  sourceDateKst: string;
+} {
+  const session = classifyInvestorFlowMarketSession(now);
+  const sourceDateKst = resolveInvestorFlowSourceDateKst(now);
+  const today = toInvestorFlowKstDateTime(now).date;
+  if (!isTradingDay(today)) {
+    return { suppress: true, status: 'NON_TRADING_DAY', reason: 'KRX non-trading day', marketSession: session, sourceDateKst };
+  }
+  if (session === 'LUNCH_BREAK') {
+    return { suppress: true, status: 'LUNCH_BREAK', reason: 'KRX lunch-break retry suppressed', marketSession: session, sourceDateKst };
+  }
+  if (session === 'PRE_OPEN' || session === 'POST_CLOSE' || session === 'CLOSED') {
+    return { suppress: true, status: 'MARKET_CLOSED', reason: `KRX ${session} retry suppressed`, marketSession: session, sourceDateKst };
+  }
+  return { suppress: false, marketSession: session, sourceDateKst };
+}
+
+function isPositiveFinite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+export function makeInvestorFlowProviderHealth(input: {
+  provider: InvestorFlowProvider;
+  status: InvestorFlowProviderStatus;
+  reason: string;
+  now?: Date;
+  sourceDateKst?: string;
+  semantic?: InvestorFlowSemanticNetBuy | null;
+  dataAvailable?: boolean;
+  semanticAvailable?: boolean;
+  endpoint?: string;
+  marketSession?: InvestorFlowMarketSession;
+  retryable?: boolean;
+  cacheFallback?: boolean;
+}): InvestorFlowProviderHealth {
+  const semantic = input.semantic;
+  const semanticAvailable = input.semanticAvailable ?? (
+    !!semantic && isFiniteNumber(semantic.foreignNetBuy) && isFiniteNumber(semantic.institutionNetBuy)
+  );
+  return {
+    provider: input.provider,
+    status: input.status,
+    dataAvailable: input.dataAvailable ?? (input.status === 'OK' || input.status === 'CACHE_HIT'),
+    semanticAvailable,
+    isNegativeFlowConfirmed: semanticAvailable
+      ? (semantic!.foreignNetBuy < 0 && semantic!.institutionNetBuy < 0)
+      : false,
+    isPositiveFlowConfirmed: semanticAvailable
+      ? (isPositiveFinite(semantic!.foreignNetBuy) && isPositiveFinite(semantic!.institutionNetBuy))
+      : false,
+    reason: input.reason,
+    observedAtKst: toInvestorFlowKstDateTime(input.now).iso,
+    ...(input.sourceDateKst ? { sourceDateKst: input.sourceDateKst } : {}),
+    ...(input.endpoint ? { endpoint: input.endpoint } : {}),
+    ...(input.marketSession ? { marketSession: input.marketSession } : {}),
+    ...(input.retryable !== undefined ? { retryable: input.retryable } : {}),
+    ...(input.cacheFallback !== undefined ? { cacheFallback: input.cacheFallback } : {}),
+  };
+}
+
+function negativeCacheKey(provider: InvestorFlowProvider, code: string, now: Date): string {
+  const session = classifyInvestorFlowMarketSession(now);
+  const sourceDateKst = resolveInvestorFlowSourceDateKst(now);
+  const safeCode = code.replace(/[^0-9]/g, '').slice(-6).padStart(6, '0');
+  return `${provider}:${safeCode}:${session}:${sourceDateKst}`;
+}
+
+export function getInvestorFlowNegativeCache(provider: InvestorFlowProvider, code: string, now: Date = new Date()): InvestorFlowProviderHealth | null {
+  const key = negativeCacheKey(provider, code, now);
+  const hit = negativeCache.get(key);
+  if (!hit || hit.expiresAtMs <= now.getTime() || hit.marketSession !== classifyInvestorFlowMarketSession(now)) {
+    negativeCache.delete(key);
+    return null;
+  }
+  return {
+    ...hit.health,
+    observedAtKst: toInvestorFlowKstDateTime(now).iso,
+    reason: `negative cache hit: ${hit.health.reason}`,
+    cacheFallback: true,
+  };
+}
+
+export function setInvestorFlowNegativeCache(
+  provider: InvestorFlowProvider,
+  code: string,
+  health: InvestorFlowProviderHealth,
+  now: Date = new Date(),
+  ttlMs = NEGATIVE_CACHE_TTL_MS,
+): void {
+  negativeCache.set(negativeCacheKey(provider, code, now), {
+    health,
+    expiresAtMs: now.getTime() + ttlMs,
+    marketSession: classifyInvestorFlowMarketSession(now),
+  });
+}
+
+export function __resetInvestorFlowProviderHealthForTests(): void {
+  negativeCache.clear();
+  lastHealth = [];
+}
+
+export function rememberInvestorFlowProviderHealth(health: InvestorFlowProviderHealth[]): void {
+  lastHealth = health.map((h) => ({ ...h }));
+}
+
+export function getLastInvestorFlowProviderHealth(): InvestorFlowProviderHealth[] {
+  return lastHealth.map((h) => ({ ...h }));
+}
+
+export function summarizeInvestorFlowProviderHealth(health: InvestorFlowProviderHealth[]): string {
+  if (health.length === 0) return 'Supply Provider Health: no recent investor-flow provider sample';
+  const byProvider = new Map<InvestorFlowProvider, InvestorFlowProviderHealth>();
+  for (const h of health) byProvider.set(h.provider, h);
+  const krx = byProvider.get('KRX');
+  const naver = byProvider.get('NAVER');
+  const composite = byProvider.get('COMPOSITE');
+  const cache = byProvider.get('CACHE');
+  const lines = ['Supply Provider Health:'];
+  if (krx) lines.push(`- KRX: ${krx.dataAvailable ? 'OK' : 'DATA_UNAVAILABLE'} / ${krx.status}`);
+  if (naver) lines.push(`- NAVER: ${naver.status}`);
+  lines.push(`- Semantic NetBuy: ${composite?.semanticAvailable ? 'OK' : 'NOT_WIRED'}`);
+  if (cache) lines.push(`- CACHE: ${cache.status}`);
+  lines.push(`- supply_confluence: ${composite?.semanticAvailable ? (composite.isNegativeFlowConfirmed ? 'FAIL_CONFIRMED' : 'available') : 'DATA_UNAVAILABLE'}, not failed`);
+  lines.push(`- liveStrongBuyAllowed: ${composite?.semanticAvailable && composite.isPositiveFlowConfirmed ? 'true' : 'false'}`);
+  lines.push('- shadowObservableAllowed: true');
+  return lines.join('\n');
+}

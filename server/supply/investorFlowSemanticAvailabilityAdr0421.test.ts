@@ -365,7 +365,7 @@ describe('ADR-0421 supplyConfluenceEvaluator — semantic availability wiring', 
     expect(r?.score).toBeGreaterThan(0);
   });
 
-  it('semantic fields 가용 + 양쪽 0/음수 → null (THRESHOLD_NOT_MET, 진짜 미달)', () => {
+  it('semantic fields 가용 + 양쪽 0/음수 → THRESHOLD_NOT_MET (진짜 미달)', () => {
     const ctx = {
       quote: {} as any,
       kisFlow: {
@@ -377,7 +377,9 @@ describe('ADR-0421 supplyConfluenceEvaluator — semantic availability wiring', 
       weights: {} as any,
     } satisfies Partial<ConditionEvalContext> as unknown as ConditionEvalContext;
     const r = supplyConfluenceEvaluator.evaluate(ctx);
-    expect(r).toBeNull();
+    expect(r?.status).toBe('THRESHOLD_NOT_MET');
+    expect(r?.score).toBe(0);
+    expect(r?.detail).toContain('no positive confluence');
   });
 
   it('kisFlow null → DATA_UNAVAILABLE (ADR-0416 호환 보존)', () => {

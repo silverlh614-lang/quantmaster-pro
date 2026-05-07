@@ -91,12 +91,15 @@ describe('supplyConfluenceEvaluator (ADR-0416 Phase 1)', () => {
     expect(r!.detail).toMatch(/수급단독/);
   });
 
-  it('kisFlow 정상 + 양쪽 모두 매도 → null (THRESHOLD_NOT_MET 의도, 진짜 임계 미달)', () => {
+  it('kisFlow 정상 + 양쪽 모두 매도 → THRESHOLD_NOT_MET (진짜 수급 악화)', () => {
     // 데이터는 가용했지만 매수 신호 없음 — DATA_UNAVAILABLE 가 아니라 임계 미달.
     const r = supplyConfluenceEvaluator.evaluate(ctx({
       kisFlow: { institutionalNetBuy: -1000, foreignNetBuy: -2000 } as ConditionEvalContext['kisFlow'],
     }));
-    expect(r).toBeNull();
+    expect(r).not.toBeNull();
+    expect(r!.status).toBe('THRESHOLD_NOT_MET');
+    expect(r!.score).toBe(0);
+    expect(r!.detail).toMatch(/negative confirmed/);
   });
 });
 

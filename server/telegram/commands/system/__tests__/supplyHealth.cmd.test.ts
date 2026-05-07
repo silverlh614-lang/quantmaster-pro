@@ -87,6 +87,8 @@ describe('/supply_health command', () => {
     const cmd = registry.commandRegistry.resolve('/supply_health');
     expect(cmd).toBeDefined();
     expect(registry.commandRegistry.resolve('/sh')).toBe(cmd);
+    expect(registry.commandRegistry.resolve('/investor_flow')).toBe(cmd);
+    expect(registry.commandRegistry.resolve('/flow_health')).toBe(cmd);
     expect(cmd?.category).toBe('SYS');
     expect(cmd?.visibility).toBe('ADMIN');
     expect(cmd?.riskLevel).toBe(0);
@@ -116,11 +118,8 @@ describe('/supply_health command', () => {
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
     expect(msg).toContain('검증 종목: stage2Score 상위 10개 중 10개');
-    expect(investorMock).toHaveBeenCalledTimes(10);
+    expect(investorMock).toHaveBeenCalledTimes(0);
     expect(stockProgramMock).toHaveBeenCalledTimes(10);
-    const investorCodes = investorMock.mock.calls.map((c) => c[0]);
-    expect(investorCodes).toEqual(['100012', '100011', '100010', '100009', '100008', '100007', '100006', '100005', '100004', '100003']);
-    expect(investorMock.mock.calls.every((c) => c[1] === 'LOW')).toBe(true);
     expect(stockProgramMock.mock.calls.every((c) => c[1] === 'MEDIUM')).toBe(true);
   });
 
@@ -134,7 +133,7 @@ describe('/supply_health command', () => {
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
     expect(msg).toContain('검증 종목: stage2Score 상위 7개');
-    expect(investorMock).toHaveBeenCalledTimes(7);
+    expect(investorMock).toHaveBeenCalledTimes(0);
   });
 
   it('zero-filled 의심 3/10 이상이면 경고 표시', async () => {
@@ -323,7 +322,7 @@ describe('/supply_health command', () => {
 
     expect(first).toContain('캐시: fresh');
     expect(second).toContain('캐시: 12s');
-    expect(investorMock).toHaveBeenCalledTimes(10);
+    expect(investorMock).toHaveBeenCalledTimes(0);
     expect(stockProgramMock).toHaveBeenCalledTimes(10);
   });
 
@@ -337,7 +336,7 @@ describe('/supply_health command', () => {
     await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
     await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:31.000Z'));
 
-    expect(investorMock).toHaveBeenCalledTimes(20);
+    expect(investorMock).toHaveBeenCalledTimes(0);
     expect(stockProgramMock).toHaveBeenCalledTimes(20);
   });
 

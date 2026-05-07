@@ -43,6 +43,10 @@ import {
   formatCounterfactualUniverseLearningSummarySection,
   summarizeCounterfactualUniverseLearningLedger,
 } from '../../../persistence/counterfactualUniverseLearningRepo.js';
+import {
+  getLastInvestorFlowProviderHealth,
+  summarizeInvestorFlowProviderHealth,
+} from '../../../supply/investorFlowProviderHealth.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -154,8 +158,22 @@ const scanBlockers: TelegramCommand = {
       );
     }
 
+    // ADR-0435 — investor-flow provider health read-only summary.
+    // Uses the last observed router health only; /scan_blockers must not trigger
+    // KRX/NAVER/KIS provider fetches.
+    let supplyProviderSection: string | null = null;
+    try {
+      supplyProviderSection = summarizeInvestorFlowProviderHealth(getLastInvestorFlowProviderHealth());
+    } catch (err) {
+      console.warn(
+        '[scan_blockers] investor-flow provider health section failed:',
+        err,
+      );
+    }
+
     const parts: string[] = [baseMessage];
     if (degradedSection) parts.push(degradedSection);
+    if (supplyProviderSection) parts.push(supplyProviderSection);
     if (counterfactualLine) parts.push(counterfactualLine);
     if (promotionLine) parts.push(promotionLine);
     if (universeSection) parts.push(universeSection);

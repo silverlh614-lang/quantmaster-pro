@@ -14,7 +14,12 @@ import { FSS_RECORDS_FILE, MACRO_STATE_FILE } from '../../../persistence/paths.j
 import { loadForeignerRatioSeries } from '../../../persistence/foreignerRatioRepo.js';
 import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
-import { fetchInvestorFlowWithPolicy, summarizeInvestorFlowAttempts, type InvestorFlowSample } from '../../../supply/investorFlowRouter.js';
+import {
+  fetchInvestorFlowWithPolicy,
+  summarizeInvestorFlowAttempts,
+  summarizeInvestorFlowProviderHealth,
+  type InvestorFlowSample,
+} from '../../../supply/investorFlowRouter.js';
 import { getSupplyProviderPolicy, type SupplyProvider, type SupplySignalKey } from '../../../supply/supplyProviderPolicy.js';
 // ADR-0421 — investor-flow marker classification SSOT (NEUTRAL 폐기).
 import { classifyInvestorFlowMarker, describeInvestorFlowMarker } from '../../../supply/investorFlowSemanticAvailability.js';
@@ -138,11 +143,13 @@ function cacheDate(sample: InvestorFlowSample): string {
 async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs: number): Promise<ChannelStatus> {
   let success = 0, zero = 0;
   const attemptSummaries: string[] = [];
+  let providerHealthSummary: string | null = null;
   const sourceCounts = new Map<SupplyProvider, number>();
   const cacheSamples: InvestorFlowSample[] = [];
   for (const stock of targets) {
     const routed = await fetchInvestorFlowWithPolicy(stock.code, now);
     if (attemptSummaries.length < 3) attemptSummaries.push(`${stock.code}:${summarizeInvestorFlowAttempts(routed.attempts)}`);
+    if (!providerHealthSummary) providerHealthSummary = summarizeInvestorFlowProviderHealth(routed.health);
     if (!routed.data) continue;
     success++;
     bumpProviderCount(sourceCounts, routed.source);
@@ -190,6 +197,7 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
       `zero-filled 의심: ${zeroWarn(zero, total)}`,
       `providerTried: ${attemptSummaries[0] ?? 'N/A'}`,
       ...(attemptSummaries.length > 1 ? [`providerTried2: ${attemptSummaries[1]}`] : []),
+      ...(providerHealthSummary ? providerHealthSummary.split('\n').map((line) => `providerHealth: ${line}`) : []),
       renderInvestorFlowDecision(marker),
       '대체: KRX / NAVER / CACHE',
       '상세: /investor_flow 예정',
@@ -434,7 +442,7 @@ export async function buildSupplyHealthMessage(now: Date = new Date()): Promise<
 export function __resetSupplyHealthCacheForTests(): void { cache = null; }
 
 const supplyHealth: TelegramCommand = {
-  name: '/supply_health', aliases: ['/sh'], category: 'SYS', visibility: 'ADMIN', riskLevel: 0,
+  name: '/supply_health', aliases: ['/sh', '/investor_flow', '/flow_health'], category: 'SYS', visibility: 'ADMIN', riskLevel: 0,
   description: '수급 데이터 source/freshness/coverage/zero-filled 의심 read-only 진단', usage: '/supply_health',
   async execute({ reply }) {
     try { await reply(await buildSupplyHealthMessage()); } catch (err) { console.error('[supplyHealth.cmd] failed', err); await reply('🔴 Supply Health 진단 실패 — 서버 로그 확인 필요'); }

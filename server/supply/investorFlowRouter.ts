@@ -11,7 +11,6 @@
  * PR-596: 장외/주말에는 KRX public investor provider 를 호출하지 않고 OFF_HOURS 로 스킵한다.
  */
 
-import { fetchKisInvestorFlow } from '../clients/kisClient/index.js';
 import { fetchInvestorTrading } from '../clients/krxClient.js';
 import {
   loadInvestorFlowCache as loadInvestorFlowCacheFromRepo,
@@ -19,6 +18,16 @@ import {
 } from '../persistence/investorFlowCacheRepo.js';
 import { isTradingDay } from '../utils/marketDayClassifier.js';
 import type { SupplyProvider } from './supplyProviderPolicy.js';
+import {
+  getInvestorFlowNegativeCache,
+  makeInvestorFlowProviderHealth,
+  rememberInvestorFlowProviderHealth,
+  resolveInvestorFlowSourceDateKst,
+  setInvestorFlowNegativeCache,
+  shouldSuppressInvestorFlowFetch,
+  summarizeInvestorFlowProviderHealth,
+  type InvestorFlowProviderHealth,
+} from './investorFlowProviderHealth.js';
 
 export interface InvestorFlowSample {
   stockCode: string;
@@ -37,6 +46,7 @@ export type InvestorFlowAttemptStatus =
   | 'PROVIDER_MISMATCH'
   | 'NO_OUTPUT'
   | 'OFF_HOURS'
+  | 'DATA_UNAVAILABLE'
   | 'ERROR';
 
 export interface InvestorFlowAttempt {
@@ -49,6 +59,7 @@ export interface InvestorFlowRouteResult {
   stockCode: string;
   data: InvestorFlowSample | null;
   attempts: InvestorFlowAttempt[];
+  health: InvestorFlowProviderHealth[];
   status: 'OK' | 'PROVIDER_MISMATCH' | 'PROVIDER_UNAVAILABLE' | 'CACHE_EMPTY';
   source: SupplyProvider | null;
 }
@@ -58,6 +69,7 @@ interface KrxLookupResult {
   diagnostic: string;
   unavailable: boolean;
   offHours: boolean;
+  health: InvestorFlowProviderHealth;
 }
 
 const KRX_INVESTOR_FLOW_DAYS = 5;
@@ -126,15 +138,74 @@ function sampleCodes(codes: string[]): string {
 
 async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<KrxLookupResult> {
   const safeCode = normalizeCode(code);
-  if (!/^\d{6}$/.test(safeCode)) return { data: null, diagnostic: `invalid_code:${code}`, unavailable: false, offHours: false };
+  const sourceDateKst = resolveInvestorFlowSourceDateKst(now);
+  if (!/^\d{6}$/.test(safeCode)) {
+    const health = makeInvestorFlowProviderHealth({
+      provider: 'KRX',
+      status: 'PARAM_INVALID',
+      reason: `invalid investor-flow code: ${code}`,
+      now,
+      sourceDateKst,
+      endpoint: 'MDCSTAT02203',
+      retryable: false,
+      cacheFallback: true,
+    });
+    return { data: null, diagnostic: `invalid_code:${code}`, unavailable: true, offHours: false, health };
+  }
+
+  const negative = getInvestorFlowNegativeCache('KRX', safeCode, now);
+  if (negative) {
+    return {
+      data: null,
+      diagnostic: `code=${safeCode};sourceDate=${negative.sourceDateKst ?? sourceDateKst};status=${negative.status};reason=NEGATIVE_CACHE_HIT`,
+      unavailable: true,
+      offHours: negative.status === 'LUNCH_BREAK' || negative.status === 'MARKET_CLOSED' || negative.status === 'NON_TRADING_DAY',
+      health: negative,
+    };
+  }
+
+  const suppressed = shouldSuppressInvestorFlowFetch(now);
+  if (suppressed.suppress) {
+    const health = makeInvestorFlowProviderHealth({
+      provider: 'KRX',
+      status: suppressed.status ?? 'MARKET_CLOSED',
+      reason: suppressed.reason ?? 'KRX investor-flow fetch suppressed by session gate',
+      now,
+      sourceDateKst: suppressed.sourceDateKst,
+      endpoint: 'MDCSTAT02203',
+      marketSession: suppressed.marketSession,
+      retryable: suppressed.status === 'LUNCH_BREAK',
+      cacheFallback: true,
+    });
+    console.info(`[InvestorFlow] KRX skipped: ${health.status}`);
+    setInvestorFlowNegativeCache('KRX', safeCode, health, now);
+    return {
+      data: null,
+      diagnostic: `code=${safeCode};endpoint=MDCSTAT02203;session=${suppressed.marketSession};sourceDate=${suppressed.sourceDateKst};reason=${health.status};retryable=${String(health.retryable)};cacheFallback=true`,
+      unavailable: true,
+      offHours: true,
+      health,
+    };
+  }
 
   if (!isKrxInvestorCallWindow(now)) {
     const kst = nowKstParts(now);
+    const health = makeInvestorFlowProviderHealth({
+      provider: 'KRX',
+      status: 'MARKET_CLOSED',
+      reason: `KRX investor-flow call outside 09:00-15:30 window: ${kst.label}`,
+      now,
+      sourceDateKst,
+      endpoint: 'MDCSTAT02203',
+      retryable: false,
+      cacheFallback: true,
+    });
     return {
       data: null,
       diagnostic: `code=${safeCode};window=09:00-15:30 KST;now=${kst.label};reason=KRX_PUBLIC_CALL_SKIPPED_OFF_HOURS`,
-      unavailable: false,
+      unavailable: true,
       offHours: true,
+      health,
     };
   }
 
@@ -178,7 +249,20 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
     `upstream=${upstream}`,
   ].join(';');
 
-  if (sampleSize < KRX_INVESTOR_FLOW_MIN_SAMPLE || !latestDate) return { data: null, diagnostic, unavailable: allDatesEmpty, offHours: false };
+  if (sampleSize < KRX_INVESTOR_FLOW_MIN_SAMPLE || !latestDate) {
+    const health = makeInvestorFlowProviderHealth({
+      provider: 'KRX',
+      status: allDatesEmpty ? 'PARSER_EMPTY_ROWS' : 'CACHE_EMPTY',
+      reason: diagnostic,
+      now,
+      sourceDateKst,
+      endpoint: 'MDCSTAT02203',
+      retryable: !allDatesEmpty,
+      cacheFallback: true,
+    });
+    setInvestorFlowNegativeCache('KRX', safeCode, health, now);
+    return { data: null, diagnostic, unavailable: true, offHours: false, health };
+  }
 
   const sample: InvestorFlowSample = {
     stockCode: safeCode,
@@ -200,7 +284,23 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
     fetchedAt: sample.fetchedAt,
   });
 
-  return { data: sample, diagnostic, unavailable: false, offHours: false };
+  const health = makeInvestorFlowProviderHealth({
+    provider: 'KRX',
+    status: 'OK',
+    reason: diagnostic,
+    now,
+    sourceDateKst: latestDate,
+    semantic: {
+      foreignNetBuy,
+      institutionNetBuy: institutionalNetBuy,
+      individualNetBuy,
+    },
+    endpoint: 'MDCSTAT02203',
+    retryable: false,
+    cacheFallback: false,
+  });
+
+  return { data: sample, diagnostic, unavailable: false, offHours: false, health };
 }
 
 async function fetchNaverInvestorTrend(_code: string): Promise<InvestorFlowSample | null> {
@@ -228,17 +328,45 @@ export function summarizeInvestorFlowAttempts(attempts: InvestorFlowAttempt[]): 
     .join(' / ');
 }
 
+export { summarizeInvestorFlowProviderHealth };
+
 export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()): Promise<InvestorFlowRouteResult> {
   const attempts: InvestorFlowAttempt[] = [];
+  const health: InvestorFlowProviderHealth[] = [];
 
   try {
     const krx = await fetchKrxInvestorFlow(code, now);
+    health.push(krx.health);
     if (krx.data && hasRealInvestorFields(krx.data)) {
       pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'OK', krx.diagnostic);
-      return { stockCode: code, data: krx.data, attempts, status: 'OK', source: 'KRX_INVESTOR_FLOW' };
+      const composite = makeInvestorFlowProviderHealth({
+        provider: 'COMPOSITE',
+        status: 'OK',
+        reason: 'KRX investor-flow semantic net-buy available',
+        now,
+        sourceDateKst: krx.data.tradingDate,
+        semantic: {
+          foreignNetBuy: krx.data.foreignNetBuy,
+          institutionNetBuy: krx.data.institutionalNetBuy,
+          individualNetBuy: krx.data.individualNetBuy,
+        },
+      });
+      health.push(composite);
+      rememberInvestorFlowProviderHealth(health);
+      return { stockCode: code, data: krx.data, attempts, health, status: 'OK', source: 'KRX_INVESTOR_FLOW' };
     }
-    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', krx.offHours ? 'OFF_HOURS' : krx.unavailable ? 'ERROR' : 'NO_OUTPUT', krx.diagnostic);
+    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', krx.offHours ? 'OFF_HOURS' : krx.unavailable ? 'DATA_UNAVAILABLE' : 'NO_OUTPUT', krx.diagnostic);
   } catch (err) {
+    health.push(makeInvestorFlowProviderHealth({
+      provider: 'KRX',
+      status: err instanceof Error && err.name === 'AbortError' ? 'TIMEOUT' : 'UNKNOWN_ERROR',
+      reason: err instanceof Error ? err.message : String(err),
+      now,
+      sourceDateKst: resolveInvestorFlowSourceDateKst(now),
+      endpoint: 'MDCSTAT02203',
+      retryable: true,
+      cacheFallback: true,
+    }));
     pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'ERROR', err instanceof Error ? err.message : String(err));
   }
 
@@ -246,10 +374,54 @@ export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()
     const naver = await fetchNaverInvestorTrend(code);
     if (naver && hasRealInvestorFields(naver)) {
       pushAttempt(attempts, 'NAVER_INVESTOR_TREND', 'OK');
-      return { stockCode: code, data: naver, attempts, status: 'OK', source: 'NAVER_INVESTOR_TREND' };
+      const naverHealth = makeInvestorFlowProviderHealth({
+        provider: 'NAVER',
+        status: 'OK',
+        reason: 'NAVER investor trend semantic net-buy available',
+        now,
+        sourceDateKst: naver.tradingDate,
+        semantic: {
+          foreignNetBuy: naver.foreignNetBuy,
+          institutionNetBuy: naver.institutionalNetBuy,
+          individualNetBuy: naver.individualNetBuy,
+        },
+      });
+      const composite = makeInvestorFlowProviderHealth({
+        provider: 'COMPOSITE',
+        status: 'OK',
+        reason: 'NAVER investor-flow semantic net-buy available',
+        now,
+        sourceDateKst: naver.tradingDate,
+        semantic: {
+          foreignNetBuy: naver.foreignNetBuy,
+          institutionNetBuy: naver.institutionalNetBuy,
+          individualNetBuy: naver.individualNetBuy,
+        },
+      });
+      health.push(naverHealth, composite);
+      rememberInvestorFlowProviderHealth(health);
+      return { stockCode: code, data: naver, attempts, health, status: 'OK', source: 'NAVER_INVESTOR_TREND' };
     }
+    health.push(makeInvestorFlowProviderHealth({
+      provider: 'NAVER',
+      status: 'NOT_WIRED',
+      reason: 'semantic net-buy collector not implemented',
+      now,
+      sourceDateKst: resolveInvestorFlowSourceDateKst(now),
+      retryable: false,
+      cacheFallback: true,
+    }));
     pushAttempt(attempts, 'NAVER_INVESTOR_TREND', 'NOT_WIRED', 'semantic net-buy collector not implemented');
   } catch (err) {
+    health.push(makeInvestorFlowProviderHealth({
+      provider: 'NAVER',
+      status: 'UNKNOWN_ERROR',
+      reason: err instanceof Error ? err.message : String(err),
+      now,
+      sourceDateKst: resolveInvestorFlowSourceDateKst(now),
+      retryable: true,
+      cacheFallback: true,
+    }));
     pushAttempt(attempts, 'NAVER_INVESTOR_TREND', 'ERROR', err instanceof Error ? err.message : String(err));
   }
 
@@ -257,29 +429,85 @@ export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()
     const cached = await loadInvestorFlowCache(code, now);
     if (cached && hasRealInvestorFields(cached)) {
       pushAttempt(attempts, 'CACHE', 'OK');
-      return { stockCode: code, data: cached, attempts, status: 'OK', source: 'CACHE' };
+      const cacheHealth = makeInvestorFlowProviderHealth({
+        provider: 'CACHE',
+        status: 'CACHE_HIT',
+        reason: 'usable investor-flow cache hit',
+        now,
+        sourceDateKst: cached.tradingDate,
+        semantic: {
+          foreignNetBuy: cached.foreignNetBuy,
+          institutionNetBuy: cached.institutionalNetBuy,
+          individualNetBuy: cached.individualNetBuy,
+        },
+      });
+      const composite = makeInvestorFlowProviderHealth({
+        provider: 'COMPOSITE',
+        status: 'OK',
+        reason: 'cached investor-flow semantic net-buy available',
+        now,
+        sourceDateKst: cached.tradingDate,
+        semantic: {
+          foreignNetBuy: cached.foreignNetBuy,
+          institutionNetBuy: cached.institutionalNetBuy,
+          individualNetBuy: cached.individualNetBuy,
+        },
+      });
+      health.push(cacheHealth, composite);
+      rememberInvestorFlowProviderHealth(health);
+      return { stockCode: code, data: cached, attempts, health, status: 'OK', source: 'CACHE' };
     }
+    health.push(makeInvestorFlowProviderHealth({
+      provider: 'CACHE',
+      status: 'CACHE_EMPTY',
+      reason: 'no usable investor-flow cache',
+      now,
+      sourceDateKst: resolveInvestorFlowSourceDateKst(now),
+      retryable: true,
+      cacheFallback: false,
+    }));
     pushAttempt(attempts, 'CACHE', 'CACHE_EMPTY', 'no usable investor-flow cache');
   } catch (err) {
+    health.push(makeInvestorFlowProviderHealth({
+      provider: 'CACHE',
+      status: 'UNKNOWN_ERROR',
+      reason: err instanceof Error ? err.message : String(err),
+      now,
+      sourceDateKst: resolveInvestorFlowSourceDateKst(now),
+      retryable: true,
+    }));
     pushAttempt(attempts, 'CACHE', 'ERROR', err instanceof Error ? err.message : String(err));
   }
 
-  try {
-    const kisDiagnostic = await fetchKisInvestorFlow(code, 'LOW');
-    if (kisDiagnostic && hasRealInvestorFields(kisDiagnostic)) {
-      pushAttempt(attempts, 'KIS_API', 'PROVIDER_MISMATCH', 'KIS is diagnostic-only for investor flow policy');
-    } else {
-      pushAttempt(attempts, 'KIS_API', 'PROVIDER_MISMATCH', 'missing investor net-buy semantic fields');
-    }
-  } catch (err) {
-    pushAttempt(attempts, 'KIS_API', 'ERROR', err instanceof Error ? err.message : String(err));
-  }
+  health.push(makeInvestorFlowProviderHealth({
+    provider: 'KIS',
+    status: 'PROVIDER_UNAVAILABLE',
+    reason: 'KIS investor flow is diagnostic-only and not queried in ADR-0435 provider recovery path',
+    now,
+    sourceDateKst: resolveInvestorFlowSourceDateKst(now),
+    retryable: false,
+    cacheFallback: true,
+  }));
+  pushAttempt(attempts, 'KIS_API', 'PROVIDER_MISMATCH', 'KIS diagnostic call suppressed; not a semantic investor-flow provider');
 
   const hasHardProviderError = attempts.some((a) => a.provider !== 'KIS_API' && a.status === 'ERROR');
+  health.push(makeInvestorFlowProviderHealth({
+    provider: 'COMPOSITE',
+    status: hasHardProviderError ? 'UNKNOWN_ERROR' : 'PROVIDER_UNAVAILABLE',
+    reason: 'investor-flow semantic net-buy unavailable; not a confirmed negative flow',
+    now,
+    sourceDateKst: resolveInvestorFlowSourceDateKst(now),
+    semanticAvailable: false,
+    dataAvailable: false,
+    retryable: !hasHardProviderError,
+    cacheFallback: true,
+  }));
+  rememberInvestorFlowProviderHealth(health);
   return {
     stockCode: code,
     data: null,
     attempts,
+    health,
     status: hasHardProviderError ? 'PROVIDER_UNAVAILABLE' : 'PROVIDER_MISMATCH',
     source: null,
   };
