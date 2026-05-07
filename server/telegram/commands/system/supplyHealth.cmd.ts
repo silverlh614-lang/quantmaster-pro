@@ -1,6 +1,10 @@
 /**
  * @responsibility 수급 데이터 채널의 source/freshness/coverage/zero-filled 의심을 read-only로 진단한다.
  * PR-574~584: fake-zero/accepted-empty/provider-mismatch/unwired-collection 상태를 neutral 로 격리하고 investor-flow policy route 를 표시한다.
+ *
+ * ADR-0421 — investor-flow marker NEUTRAL 폐기. success=0 + missing>0 시점은
+ *   DATA_UNAVAILABLE 로 분류 (NEUTRAL 절대 금지). NEUTRAL 은 *real data + weak
+ *   direction* 시점에만 사용 (사용자 명시 핵심 불변식 #2/#3).
  */
 
 import fs from 'fs';
@@ -12,6 +16,8 @@ import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchli
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
 import { fetchInvestorFlowWithPolicy, summarizeInvestorFlowAttempts, type InvestorFlowSample } from '../../../supply/investorFlowRouter.js';
 import { getSupplyProviderPolicy, type SupplyProvider, type SupplySignalKey } from '../../../supply/supplyProviderPolicy.js';
+// ADR-0421 — investor-flow marker classification SSOT (NEUTRAL 폐기).
+import { classifyInvestorFlowMarker, describeInvestorFlowMarker } from '../../../supply/investorFlowSemanticAvailability.js';
 import { fetchKrxShortSelling } from '../../../trading/marketDataRefresh.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -28,7 +34,8 @@ const INVESTOR_FLOW_CACHE_STALE_DAYS = 2;
 const ZERO_FILLED_MIN_COUNT = 3;
 const ZERO_FILLED_RATIO_WARN = 0.8;
 
-type Marker = 'OK' | 'STALE' | 'DEGRADED' | 'MISSING' | 'NEUTRAL' | 'N/A';
+// ADR-0421 — DATA_UNAVAILABLE 추가 (NEUTRAL 은 real-data + weak-direction 영역만 보존).
+type Marker = 'OK' | 'STALE' | 'DEGRADED' | 'MISSING' | 'NEUTRAL' | 'DATA_UNAVAILABLE' | 'N/A';
 interface ChannelStatus { key: SupplySignalKey; title: string; marker: Marker; lines: string[]; riskReason?: string; zeroSuspect?: { count: number; total: number } }
 interface FssRecordRow { date: string; passiveNetBuy: number; activeNetBuy: number }
 
@@ -39,6 +46,8 @@ function markerIcon(marker: Marker): string {
   if (marker === 'STALE') return '🟡';
   if (marker === 'DEGRADED') return '🟠';
   if (marker === 'MISSING') return '🔴';
+  // ADR-0421 — DATA_UNAVAILABLE 은 MISSING 과 시각적으로 동등 (semantic data 부재).
+  if (marker === 'DATA_UNAVAILABLE') return '🔴';
   return '⚪';
 }
 function readJsonFile<T>(file: string): T | null {
@@ -94,9 +103,15 @@ function compactProviderRoute(key: SupplySignalKey): string {
   return `route: ${primary} | fb=${fallback} | diag=${diagnostic} | scoring=${p.scoringMode}`;
 }
 function renderInvestorFlowDecision(marker: Marker): string {
-  if (marker === 'OK') return '판정: OK — policy provider 실데이터 사용 가능';
-  if (marker === 'STALE') return '판정: STALE — CACHE는 있으나 최신성 확인 필요';
-  if (marker === 'DEGRADED') return '판정: DEGRADED — coverage/zero-filled 확인 필요';
+  // ADR-0421 — DATA_UNAVAILABLE / MISSING 시 *명시적* 판정 메시지 (NEUTRAL 폐기).
+  //   NEUTRAL 은 본 함수에서 더 이상 반환되지 않음 — classifyInvestorFlowMarker SSOT
+  //   가 success=0 + missing>0 시점을 DATA_UNAVAILABLE 로 분류 (사용자 §F/G 정합).
+  if (marker === 'OK') return describeInvestorFlowMarker('OK');
+  if (marker === 'STALE') return describeInvestorFlowMarker('STALE');
+  if (marker === 'DEGRADED') return describeInvestorFlowMarker('DEGRADED');
+  if (marker === 'DATA_UNAVAILABLE') return describeInvestorFlowMarker('DATA_UNAVAILABLE');
+  if (marker === 'MISSING') return describeInvestorFlowMarker('MISSING');
+  // 회귀 호환 — 외부 호출자가 NEUTRAL 명시 시 (test fixture 등) 기존 텍스트 보존.
   return '판정: KRX/NAVER/CACHE 미연결 — KIS는 진단용, 점수 제외';
 }
 function isAcceptedEmptyRaw(rawDiagLine: string): boolean { return rawDiagLine.includes('rawDiag=MARKET_PROGRAM') && rawDiagLine.includes('zeroReason=ACCEPTED_EMPTY'); }
@@ -142,14 +157,25 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
   const oldestCacheAge = cacheAges.length > 0 ? Math.max(...cacheAges) : null;
   const cacheDates = [...new Set(cacheSamples.map(cacheDate))].filter((v) => v !== 'N/A');
   const partial = total > 0 && success > 0 && success < total;
-  const marker: Marker = total === 0 ? 'MISSING' : success === 0 ? 'NEUTRAL' : zeroSuspicious || partial ? 'DEGRADED' : staleCache > 0 ? 'STALE' : 'OK';
-  const riskReason = zeroSuspicious
-    ? zeroFilledRiskReason(zero, total)
-    : partial
-      ? `coverage ${success}/${total}`
-      : staleCache > 0
-        ? `CACHE stale ${staleCache}/${cacheSamples.length}, oldest ${formatAgo(oldestCacheAge)}`
-        : undefined;
+  // ADR-0421 — classifyInvestorFlowMarker SSOT 위임. success=0 + missing>0 시점은
+  //   DATA_UNAVAILABLE (NEUTRAL 절대 금지, 사용자 명시 핵심 불변식 #2).
+  const marker: Marker = classifyInvestorFlowMarker({
+    total,
+    success,
+    missing,
+    zeroSuspicious,
+    staleCacheCount: staleCache,
+  });
+  // ADR-0421 — DATA_UNAVAILABLE 시 명시적 reason 추가 (success=0 + missing>0 영역).
+  const riskReason = marker === 'DATA_UNAVAILABLE'
+    ? `scoring-eligible investor flow semantic fields unavailable (success ${success}/${total})`
+    : zeroSuspicious
+      ? zeroFilledRiskReason(zero, total)
+      : partial
+        ? `coverage ${success}/${total}`
+        : staleCache > 0
+          ? `CACHE stale ${staleCache}/${cacheSamples.length}, oldest ${formatAgo(oldestCacheAge)}`
+          : undefined;
   return {
     key: 'investorFlow', title: '기관/외인 수급', marker,
     riskReason,
@@ -303,11 +329,13 @@ function sourceHealthFromChannel(channel: ChannelStatus): SourceHealth {
     .filter((l) => l.startsWith('providerTried'))
     .map((l) => l.split(':').slice(1).join(':').trim())
     .filter(Boolean);
+  // ADR-0421 — 'DATA_UNAVAILABLE' 신규 분기 (NEUTRAL 폐기 정합).
   const status: SourceHealth['status'] =
     channel.marker === 'OK' ? 'OK' :
     channel.marker === 'NEUTRAL' ? 'NEUTRAL' :
     channel.marker === 'DEGRADED' ? 'DEGRADED' :
     channel.marker === 'STALE' ? 'STALE' :
+    channel.marker === 'DATA_UNAVAILABLE' ? 'DATA_UNAVAILABLE' :
     'MISSING';
   return {
     status,

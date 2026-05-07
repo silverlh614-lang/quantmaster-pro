@@ -31,13 +31,15 @@ export type WatchlistReason =
   | 'PENDING_DATA_RECOVERY';
 
 export interface SourceHealth {
+  // ADR-0421 — 'DATA_UNAVAILABLE' 신규 (success=0+missing>0 시점 NEUTRAL 폐기 정합).
   status:
     | 'OK'
     | 'NEUTRAL'
     | 'DEGRADED'
     | 'MISSING'
     | 'STALE'
-    | 'ACCEPTED_EMPTY';
+    | 'ACCEPTED_EMPTY'
+    | 'DATA_UNAVAILABLE';
   source:
     | 'KIS_API'
     | 'KRX'

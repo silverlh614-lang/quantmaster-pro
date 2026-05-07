@@ -7,6 +7,9 @@
 
 import type { ConditionEvaluator } from './types.js';
 import { isPullbackSetup } from '../../screener/pipelineHelpers.js';
+// ADR-0421 — kisFlow semantic availability checker SSOT (객체 truthy 만으로
+//   available 판정 금지 — required semantic field 검증 의무).
+import { evaluateInvestorFlowSemanticAvailability } from '../../supply/investorFlowSemanticAvailability.js';
 
 // ─── 가중치 헬퍼 ─────────────────────────────────────────────────────────────
 //
@@ -661,31 +664,39 @@ export const supplyConfluenceEvaluator: ConditionEvaluator = {
   inputs: ['ctx.kisFlow.institutionalNetBuy', 'ctx.kisFlow.foreignNetBuy'],
   evaluate({ kisFlow, weights }) {
     // ADR-0416 Phase 1 — kisFlow 외부 데이터 부재 시 DATA_UNAVAILABLE 명시.
-    if (!kisFlow) {
+    // ADR-0421 — kisFlow 객체 존재만으로 available 판정 금지. semantic field 검증 의무.
+    //   provider mismatch / cache empty / not wired / field-missing payload 가
+    //   객체 truthy 만으로 available=true 가 되어 supply_confluence 가 잘못된
+    //   THRESHOLD_NOT_MET 으로 분류되던 결함 차단.
+    const semantic = evaluateInvestorFlowSemanticAvailability(kisFlow);
+    if (!semantic.available) {
       return {
         score: 0,
         conditionKey: 'supply_confluence',
-        detail: 'KIS Investor Flow unavailable: supply_confluence skipped',
+        detail: `Investor flow unavailable: ${semantic.status} — ${semantic.reason}`,
         status: 'DATA_UNAVAILABLE',
       };
     }
+    // semantic.available=true → kisFlow 는 non-null + required fields finite.
+    // TypeScript narrowing 을 위해 non-null assertion (semantic check 가 보장).
+    const flow = kisFlow!;
     const w = weightFor(weights, 'supply_confluence');
-    const instBuy  = kisFlow.institutionalNetBuy > 0;
-    const foreiBuy = kisFlow.foreignNetBuy > 0;
+    const instBuy  = flow.institutionalNetBuy > 0;
+    const foreiBuy = flow.foreignNetBuy > 0;
     if (instBuy && foreiBuy) {
       return {
         score: w,
         conditionKey: 'supply_confluence',
         detail:
-          `수급합치 기관+${(kisFlow.institutionalNetBuy / 1000).toFixed(0)}천주 ` +
-          `외인+${(kisFlow.foreignNetBuy / 1000).toFixed(0)}천주`,
+          `수급합치 기관+${(flow.institutionalNetBuy / 1000).toFixed(0)}천주 ` +
+          `외인+${(flow.foreignNetBuy / 1000).toFixed(0)}천주`,
         status: 'FIRED',
       };
     }
     if (instBuy || foreiBuy) {
       const label = instBuy
-        ? `기관+${(kisFlow.institutionalNetBuy / 1000).toFixed(0)}천주`
-        : `외인+${(kisFlow.foreignNetBuy / 1000).toFixed(0)}천주`;
+        ? `기관+${(flow.institutionalNetBuy / 1000).toFixed(0)}천주`
+        : `외인+${(flow.foreignNetBuy / 1000).toFixed(0)}천주`;
       return {
         score: w * 0.6,
         conditionKey: 'supply_confluence',

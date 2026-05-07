@@ -58,7 +58,10 @@ describe('supplyConfluenceEvaluator (ADR-0416 Phase 1)', () => {
     expect(r!.status).toBe('DATA_UNAVAILABLE');
     expect(r!.score).toBe(0);
     expect(r!.conditionKey).toBe('supply_confluence');
-    expect(r!.detail).toMatch(/KIS Investor Flow unavailable/);
+    // ADR-0421 — detail 메시지 SSOT 정합 정정 (semantic availability checker 위임).
+    //   기존 "KIS Investor Flow unavailable" → "Investor flow unavailable: DATA_UNAVAILABLE — ...".
+    expect(r!.detail).toMatch(/Investor flow unavailable/);
+    expect(r!.detail).toMatch(/DATA_UNAVAILABLE/);
   });
 
   it('kisFlow=undefined → DATA_UNAVAILABLE (동일 분기)', () => {
