@@ -59,6 +59,14 @@ import {
   type SectorEnergyQualityDiagnostic,
   formatSectorEnergyQualityDiagnosticSection,
 } from '../../clients/sectorEnergyQualityDiagnostic.js';
+// ADR-0425 — Gate Decision Router (hard block vs soft degrade separation).
+//   Router 결과를 ScanSummary 옵셔널 필드로 영속 + /scan_blockers 표시.
+//   Gate threshold/weights/order policy 무수정 — decision semantics 분리만.
+import {
+  type GateDecisionRouterResult,
+  deriveGateDecisionRouterResult,
+  formatGateDecisionRouterSection,
+} from './gateDecisionRouter.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -157,6 +165,20 @@ export interface ScanSummary {
    * 라벨만 표시 (후방호환).
    */
   sectorEnergyQualityDiagnostic?: SectorEnergyQualityDiagnostic;
+  /**
+   * ADR-0425 — Gate Decision Router 결과 snapshot (옵셔널, 후방호환).
+   *
+   * 7-tier severity (HARD_BLOCK/TRUE_WEAKNESS/SOFT_DEGRADE/WATCH_ONLY/SHADOW_ENTRY_ALLOWED/
+   * REDUCED_ENTRY_CANDIDATE/FULL_ENTRY_CANDIDATE) + lanes (live/paper/shadow/watch) +
+   * 17-value reason union + 8-value label + operatorMessage.
+   *
+   * `freshConditionAttribution` (ADR-0420) + `freshGate2Attribution` (ADR-0422) +
+   * `sectorEnergyQualityDiagnostic` (ADR-0423) + blockReasons (sizing/preBreakout/
+   * gateRecheck/drift) + macroGateState risk flags 입력으로 합성.
+   *
+   * 사용자 §F — /scan_blockers 에 router severity / lanes / reasons / operatorMessage 표시.
+   */
+  gateDecisionRouter?: GateDecisionRouterResult;
   /**
    * ADR-0414 §6 — Price Integrity 종목별 분류 진단 (옵셔널, Stage 1 Read-Only).
    *
@@ -504,6 +526,15 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(sectorEnergySection);
   }
 
+  // ADR-0425 — Gate Decision Router (hard block vs soft degrade separation).
+  // 사용자 §F — Router 결과 (severity / lanes / reasons / operatorMessage) 노출.
+  // Gate threshold 변경 0 — decision semantics 분리만. Shadow/Watch 학습 후보 보존.
+  const routerSection = formatGateDecisionRouterSection(summary.gateDecisionRouter);
+  if (routerSection) {
+    lines.push('');
+    lines.push(routerSection);
+  }
+
   return lines.join('\n');
 }
 
@@ -656,6 +687,50 @@ export async function persistScanResults(
 
   const emptyReason = classifyEmptyScanReason(summaryDraft);
   if (emptyReason) summaryDraft.emptyScanReason = emptyReason;
+
+  // ADR-0425 — Gate Decision Router 자동 합성 (옵셔널, 후방호환).
+  // 위 attribution / sectorEnergy / blockReasons 모두 영속된 *후* 합성 — input 정합 보장.
+  // riskFlags 는 macroGateState 에서 발췌 (emergencyStop / sellOnly / r6Defense / VIX / FOMC).
+  const macroGate = options.macroGateState;
+  const routerInput = {
+    regime: macroGate?.regime,
+    gate1Pass: counters.gate1Pass,
+    gate2Pass: counters.gate2Pass,
+    gate3Pass: counters.gate3Pass,
+    lastTriggerPass: counters.lastTriggerPass,
+    entries: counters.entries,
+    ...(summaryDraft.freshConditionAttribution
+      ? { freshAttribution: summaryDraft.freshConditionAttribution }
+      : {}),
+    ...(summaryDraft.freshGate2Attribution
+      ? { gate2Attribution: summaryDraft.freshGate2Attribution }
+      : {}),
+    ...(options.sectorEnergyQualityDiagnostic
+      ? { sectorEnergyDiagnostic: options.sectorEnergyQualityDiagnostic }
+      : {}),
+    blockReasons: {
+      gateRecheckMiss: counters.waitGateFail,
+      preBreakoutWait: counters.waitPreBreakout,
+      sizingBlocked: counters.waitSizingBlocked,
+      driftRemove: counters.waitDriftRemove + counters.waitDriftCorpAction,
+    },
+    riskFlags: macroGate
+      ? {
+          emergencyStop: macroGate.emergencyStop,
+          sellOnly: macroGate.sellOnlyMode || options.sellOnly,
+          r6Defense: macroGate.bearDefenseMode || macroGate.regime === 'R6_DEFENSE',
+          vixBlock: macroGate.vixGatingActive,
+          fomcBlock: macroGate.fomcPhase === 'DAY',
+        }
+      : { sellOnly: options.sellOnly },
+  };
+  try {
+    summaryDraft.gateDecisionRouter = deriveGateDecisionRouterResult(routerInput);
+  } catch (e) {
+    // Router 실패가 ScanSummary 영속을 차단해서는 안 됨 — try/catch 격리.
+    console.warn('[GateDecisionRouter] derive 실패 (영속 무영향)', e);
+  }
+
   _lastScanSummary = summaryDraft;
 
   if (options.sellOnly) {
