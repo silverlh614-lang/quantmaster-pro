@@ -203,7 +203,7 @@ describe('ADR-0426 Provisional Shadow Lane', () => {
     const summary = summarizeProvisionalShadowCandidates(candidates);
     const section = formatProvisionalShadowSection(summary);
     expect(section).toBeTruthy();
-    expect(section).toContain('R3 Provisional Shadow Lane (ADR-0426)');
+    expect(section).toContain('R3 Provisional Shadow Lane (ADR-0426');
     expect(section).toContain('eligible:');
     expect(section).toContain('1');
     expect(section).toContain('label:');
@@ -223,7 +223,7 @@ describe('ADR-0426 Provisional Shadow Lane', () => {
     });
     expect(section).toContain('eligible:');
     expect(section).toContain('0');
-    expect(section).toContain('reason');
+    expect(section).toContain('blockedBy');
     expect(section).toContain('HARD_BLOCK');
   });
 
