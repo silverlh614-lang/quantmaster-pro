@@ -1,8 +1,14 @@
-// @responsibility provisionalShadowPriceProvider — ADR-0429 cache-first read-only price provider SSOT.
+// @responsibility provisionalShadowPriceProvider — ADR-0429 + ADR-0439 cache-first read-only price provider SSOT.
 //
-// ADR-0429:
+// ADR-0429 (initial):
 // Wires Provisional Shadow performance reporting to read-only price sources.
 // This module observes follow-through for ADR-0426/0427 learning samples only.
+//
+// ADR-0439 (PENDING_WIRING C19, 사용자 명시 ADR-0434 후속):
+// `lookupCachedPrice` 4-tier wiring activation — Yahoo proxy snapshot cache
+// (INTRADAY_CANDLE_CACHE / DAILY_CANDLE_CACHE / MARKET_DATA_CACHE / READ_ONLY_QUOTE).
+// counterfactualShadowPriceProviderAdapter (ADR-0434) 의 헬퍼를 import 하여 drift 차단.
+// cache-only 정책 보존 — maxExternalLookups default 0 그대로, *cache lookup* 만 활성화.
 //
 // It must not open LIVE trading, import KIS order paths, promote candidates,
 // lower gate thresholds, or treat DATA_UNAVAILABLE as a loss.
@@ -15,15 +21,21 @@
 //   4. data 부재 → DATA_UNAVAILABLE / PENDING (failed 아님)
 //   5. entryPrice 부재 → INSUFFICIENT_DATA (NaN 출력 금지)
 //   6. ADR-0426/0427 entries 만 대상 (ADR-0428 entry validation 정합)
+//   7. counterfactualShadowPriceProviderAdapter 본체 0줄 변경 (헬퍼 import 만)
+//   8. yahooProxyCacheRepo (offHoursSnapshotRepo) read-only — write 0건
 //
-// 가격 소스 우선순위 (사용자 §B):
-//   1. ENTRY_SNAPSHOT — entry.entryPrice / entry.metadata 의 lastPrice
-//   2. SCAN_SNAPSHOT — entry.metadata.scanQuote (옵셔널)
-//   3. INTRADAY_CANDLE_CACHE — 후속 PR scope (현재 NONE)
-//   4. DAILY_CANDLE_CACHE — 후속 PR scope (현재 NONE)
-//   5. MARKET_DATA_CACHE — 후속 PR scope (현재 NONE)
-//   6. READ_ONLY_QUOTE — ENV 명시 활성 + maxExternalLookups 제한 (default 0)
+// 가격 소스 우선순위 (사용자 §B + ADR-0439):
+//   1. ENTRY_SNAPSHOT — entry.entryPrice / entry.metadata 의 lastPrice (caller 책임)
+//   2. SCAN_SNAPSHOT — entry.metadata.scanQuote (옵셔널, 본 함수 내 처리)
+//   3. INTRADAY_CANDLE_CACHE — Yahoo 1m/5m/15m/30m/1h × 1d (intraday horizons 우선)
+//   4. DAILY_CANDLE_CACHE — Yahoo 5d/1mo/1y × 1d (daily horizons 우선)
+//   5. MARKET_DATA_CACHE — Yahoo 다중 range/interval matrix (latest mode, 모든 horizon fallback)
+//   6. READ_ONLY_QUOTE — entry.metadata.readOnlyQuote.lastPrice (마지막 fallback)
 //   7. NONE → DATA_UNAVAILABLE / PENDING
+//
+// horizon → reader 라우팅 매트릭스 (ADR-0439 §C):
+//   - T_PLUS_30M / T_PLUS_1H / SAME_DAY_CLOSE → INTRADAY → MARKET_DATA → READ_ONLY_QUOTE
+//   - NEXT_OPEN / T_PLUS_1D_CLOSE / T_PLUS_3D_CLOSE → DAILY → MARKET_DATA → READ_ONLY_QUOTE
 
 import {
   isKrxTradingDay,
@@ -35,6 +47,12 @@ import type {
   ProvisionalShadowPointStatus,
 } from './provisionalShadowPerformanceReport.js';
 import type { ProvisionalShadowLedgerEntry } from '../persistence/provisionalShadowLedger.js';
+// ADR-0439 — counterfactual adapter 의 Yahoo proxy cache reader 헬퍼 reuse (drift 차단).
+// 본 import 는 *헬퍼 함수만* 사용 — counterfactualShadowPriceProviderAdapter 본체 동작 0 변경.
+import {
+  readYahooSnapshotPoint,
+  type ParsedYahooPoint,
+} from './counterfactualShadowPriceProviderAdapter.js';
 
 /** 가격 소스 분류 (사용자 §C 정합, 절대 변경 금지). */
 export type ProvisionalShadowPriceSource =
@@ -192,24 +210,210 @@ export function resolveEntryPrice(entry: ProvisionalShadowLedgerEntry): number |
 }
 
 /**
- * Entry snapshot 가격 lookup — 본 PR 의 *유일 가용 source*.
+ * ENV `PROVISIONAL_CACHE_LOOKUP_DISABLED=true` (ADR-0439, default OFF) — cache lookup 비활성화.
+ * ADR-0157 정확 비교 의무. 회귀 발견 시 1줄 즉시 lookupCachedPrice null 반환 동작 복원.
+ */
+export function isProvisionalCacheLookupDisabled(): boolean {
+  return process.env.PROVISIONAL_CACHE_LOOKUP_DISABLED === 'true';
+}
+
+function isPositiveFinite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+/**
+ * SCAN_SNAPSHOT lookup — entry.metadata.scanQuote 또는 entry.scanSnapshot 옵셔널 활용.
  *
- * 후속 PR 에서 candle/cache 추가 시 본 함수가 source 선택 우선순위 SSOT.
+ * ADR-0439 §B 우선순위 #2 — entry creation 시점 캡처된 quote 가 있으면 horizon 미도달 직전
+ * 가격으로 활용. 실제로는 entry creation 시점 가격이라 horizon 별 가격이 아니므로 본 PR 은
+ * 보수적 — `entry.metadata.scanQuote.lastPrice` 가 있을 때만 SCAN_SNAPSHOT 부착.
  *
- * 현재 동작:
- *   - horizon === SAME_DAY_CLOSE 일 때 entry.metadata.entryPriceHint 또는 entryPrice 가
- *     intraday 가격이라 *근사값* 만 가능 — 본 PR 은 항상 NONE 반환 (후속 PR scope).
- *   - 다른 horizon 도 entry 시점 가격 = horizon 시점 가격 가정 부적절 → NONE.
+ * 부재 시 null — 다음 우선순위 (INTRADAY/DAILY/MARKET_DATA/READ_ONLY_QUOTE) 진행.
+ */
+function lookupScanSnapshot(
+  entry: ProvisionalShadowLedgerEntry,
+): { price: number; observedAtKst: string; source: ProvisionalShadowPriceSource } | null {
+  const meta = (entry as ProvisionalShadowLedgerEntry & {
+    metadata?: { scanQuote?: { lastPrice?: number; observedAtKst?: string } };
+  }).metadata;
+  const quote = meta?.scanQuote;
+  if (!isPositiveFinite(quote?.lastPrice)) return null;
+  return {
+    price: quote.lastPrice,
+    observedAtKst: quote.observedAtKst ?? entry.createdAtKst,
+    source: 'SCAN_SNAPSHOT',
+  };
+}
+
+/**
+ * INTRADAY_CANDLE_CACHE reader — Yahoo proxy snapshot 1d range × 1m/5m/15m/30m/1h interval 순회.
+ * counterfactualShadowPriceProviderAdapter 패턴 차용.
  *
- * 즉 본 PR 은 *시그니처 SSOT + entry validation* 만 활성화하고 실제 가격 lookup 은
- * 후속 PR 의 candle/cache wiring 후 활성화. 운영 환경 영향 — 모든 horizon DATA_UNAVAILABLE
- * 또는 PENDING (외부 호출 0).
+ * targetAtKst 시점 at-or-after closest point 반환. cache 부재 시 null.
+ */
+function provisionalIntradayReader(
+  symbol: string,
+  targetAtKst: string,
+): { price: number; observedAtKst: string; source: ProvisionalShadowPriceSource } | null {
+  for (const interval of ['1m', '5m', '15m', '30m', '1h']) {
+    const point: ParsedYahooPoint | null = readYahooSnapshotPoint(
+      symbol,
+      targetAtKst,
+      '1d',
+      interval,
+      'closest',
+    );
+    if (point && isPositiveFinite(point.price)) {
+      return {
+        price: point.price,
+        observedAtKst: point.observedAtKst,
+        source: 'INTRADAY_CANDLE_CACHE',
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * DAILY_CANDLE_CACHE reader — Yahoo proxy snapshot 5d/1mo/1y range × 1d interval 순회.
+ *
+ * NEXT_OPEN/T_PLUS_1D_CLOSE/T_PLUS_3D_CLOSE 같은 daily horizon 의 우선 source.
+ */
+function provisionalDailyReader(
+  symbol: string,
+  targetAtKst: string,
+): { price: number; observedAtKst: string; source: ProvisionalShadowPriceSource } | null {
+  for (const range of ['5d', '1mo', '1y']) {
+    const point: ParsedYahooPoint | null = readYahooSnapshotPoint(
+      symbol,
+      targetAtKst,
+      range,
+      '1d',
+      'closest',
+    );
+    if (point && isPositiveFinite(point.price)) {
+      return {
+        price: point.price,
+        observedAtKst: point.observedAtKst,
+        source: 'DAILY_CANDLE_CACHE',
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * MARKET_DATA_CACHE reader — Yahoo 다중 range/interval matrix, latest mode.
+ *
+ * INTRADAY/DAILY 모두 miss 한 경우의 마지막 cache fallback. 정확 horizon target 매칭이
+ * 아닌 *최신 cached point* 반환 — 정확도 ↓ 이지만 INSUFFICIENT_DATA 보다는 가용.
+ */
+function provisionalMarketDataReader(
+  symbol: string,
+  targetAtKst: string,
+): { price: number; observedAtKst: string; source: ProvisionalShadowPriceSource } | null {
+  for (const [range, interval] of [
+    ['1d', '1m'],
+    ['1d', '5m'],
+    ['5d', '1d'],
+    ['1mo', '1d'],
+    ['1y', '1d'],
+  ] as const) {
+    const point: ParsedYahooPoint | null = readYahooSnapshotPoint(
+      symbol,
+      targetAtKst,
+      range,
+      interval,
+      'latest',
+    );
+    if (point && isPositiveFinite(point.price)) {
+      return {
+        price: point.price,
+        observedAtKst: point.observedAtKst,
+        source: 'MARKET_DATA_CACHE',
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * READ_ONLY_QUOTE reader — entry.metadata.readOnlyQuote.lastPrice 활용.
+ *
+ * 모든 cache miss 후 마지막 fallback. lastPrice ≤0 또는 NaN 거부.
+ */
+function provisionalReadOnlyQuoteReader(
+  entry: ProvisionalShadowLedgerEntry,
+): { price: number; observedAtKst: string; source: ProvisionalShadowPriceSource } | null {
+  const meta = (entry as ProvisionalShadowLedgerEntry & {
+    metadata?: { readOnlyQuote?: { lastPrice?: number; observedAtKst?: string } };
+  }).metadata;
+  const quote = meta?.readOnlyQuote;
+  if (!isPositiveFinite(quote?.lastPrice)) return null;
+  return {
+    price: quote.lastPrice,
+    observedAtKst: quote.observedAtKst ?? entry.createdAtKst,
+    source: 'READ_ONLY_QUOTE',
+  };
+}
+
+function isIntradayHorizon(horizon: ProvisionalShadowHorizon): boolean {
+  return (
+    horizon === 'T_PLUS_30M' ||
+    horizon === 'T_PLUS_1H' ||
+    horizon === 'SAME_DAY_CLOSE'
+  );
+}
+
+/**
+ * Cache-only price lookup SSOT (ADR-0439).
+ *
+ * 결정 트리 (사용자 §C, 절대 변경 금지):
+ *   0. ENV `PROVISIONAL_CACHE_LOOKUP_DISABLED=true` → null (legacy ADR-0429 동작 복원)
+ *   1. SCAN_SNAPSHOT — entry.metadata.scanQuote.lastPrice 가용 시 우선
+ *   2. horizon target time 산출 실패 → null
+ *   3. INTRADAY (intraday horizons 우선) → DAILY (daily horizons 우선) → MARKET_DATA → READ_ONLY_QUOTE 순회
+ *   4. 모두 miss → null (caller 가 DATA_UNAVAILABLE 처리)
+ *
+ * 외부 의존성 0 — getSnapshot (offHoursSnapshotRepo) read-only, fetch/axios 0건.
+ * KIS 주문 함수 import 0건 (정적 grep 가드).
+ *
+ * ENTRY_SNAPSHOT 처리는 caller (createProvisionalShadowPriceProvider) 측 책임 — 본 함수는
+ * cache lookup 만 담당. SCAN_SNAPSHOT 은 entry.metadata.scanQuote 가 있으면 활용.
  */
 export function lookupCachedPrice(
-  _entry: ProvisionalShadowLedgerEntry,
-  _horizon: ProvisionalShadowHorizon,
+  entry: ProvisionalShadowLedgerEntry,
+  horizon: ProvisionalShadowHorizon,
 ): { price: number; observedAtKst: string; source: ProvisionalShadowPriceSource } | null {
-  // 후속 PR scope — candle/quote cache wiring 후 활성화
+  if (isProvisionalCacheLookupDisabled()) return null;
+
+  // 1. SCAN_SNAPSHOT — entry creation 시점 캡처 quote 우선
+  const scan = lookupScanSnapshot(entry);
+  if (scan) return scan;
+
+  // 2. horizon target time
+  const targetAtKst = resolveHorizonTargetTimeKst(entry.createdAtKst, horizon);
+  if (!targetAtKst) return null;
+
+  const symbol = entry.symbol;
+
+  // 3. horizon 별 reader 순회
+  if (isIntradayHorizon(horizon)) {
+    const intraday = provisionalIntradayReader(symbol, targetAtKst);
+    if (intraday) return intraday;
+  } else {
+    const daily = provisionalDailyReader(symbol, targetAtKst);
+    if (daily) return daily;
+  }
+
+  // 4. MARKET_DATA fallback (모든 horizon)
+  const marketData = provisionalMarketDataReader(symbol, targetAtKst);
+  if (marketData) return marketData;
+
+  // 5. READ_ONLY_QUOTE 마지막 fallback
+  const quote = provisionalReadOnlyQuoteReader(entry);
+  if (quote) return quote;
+
   return null;
 }
 

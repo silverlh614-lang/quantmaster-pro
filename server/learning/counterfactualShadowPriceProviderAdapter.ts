@@ -188,19 +188,29 @@ function isIntradayHorizon(horizon: CounterfactualShadowHorizon): boolean {
   return horizon === 'T_PLUS_30M' || horizon === 'T_PLUS_1H' || horizon === 'SAME_DAY_CLOSE';
 }
 
-function normalizeYahooSymbol(symbol: string): string {
+/**
+ * ADR-0439 — exported for reuse by `provisionalShadowPriceProvider.ts`.
+ * counterfactual adapter 본체 동작 0 변경, export 키워드만 추가 (drift 차단).
+ */
+export function normalizeYahooSymbol(symbol: string): string {
   const s = symbol.trim();
   if (/^\d{6}$/.test(s)) return `${s}.KS`;
   return s;
 }
 
-interface ParsedYahooPoint {
+/**
+ * ADR-0439 — exported for reuse by `provisionalShadowPriceProvider.ts`.
+ */
+export interface ParsedYahooPoint {
   price: number;
   observedAtKst: string;
   timestampMs: number;
 }
 
-function parseYahooChartBody(body: string): ParsedYahooPoint[] {
+/**
+ * ADR-0439 — exported for reuse by `provisionalShadowPriceProvider.ts`.
+ */
+export function parseYahooChartBody(body: string): ParsedYahooPoint[] {
   try {
     const parsed = JSON.parse(body) as {
       chart?: {
@@ -241,18 +251,32 @@ function parseYahooChartBody(body: string): ParsedYahooPoint[] {
   }
 }
 
-function closestPointAtOrAfter(points: ParsedYahooPoint[], targetMs: number): ParsedYahooPoint | null {
+/**
+ * ADR-0439 — exported for reuse by `provisionalShadowPriceProvider.ts`.
+ */
+export function closestPointAtOrAfter(points: ParsedYahooPoint[], targetMs: number): ParsedYahooPoint | null {
   const sorted = points
     .filter((p) => p.timestampMs >= targetMs)
     .sort((a, b) => a.timestampMs - b.timestampMs);
   return sorted[0] ?? null;
 }
 
-function latestPoint(points: ParsedYahooPoint[]): ParsedYahooPoint | null {
+/**
+ * ADR-0439 — exported for reuse by `provisionalShadowPriceProvider.ts`.
+ */
+export function latestPoint(points: ParsedYahooPoint[]): ParsedYahooPoint | null {
   return points.slice().sort((a, b) => b.timestampMs - a.timestampMs)[0] ?? null;
 }
 
-function readYahooSnapshotPoint(
+/**
+ * ADR-0439 — exported for reuse by `provisionalShadowPriceProvider.ts`.
+ *
+ * Reads a Yahoo proxy cache snapshot at `${normalizedSymbol}:${range}:${interval}` and
+ * returns the closest point at-or-after `targetAtKst` (mode='closest') or the most
+ * recent point (mode='latest'). Returns null when the snapshot is missing, parses
+ * to zero points, or `targetAtKst` is invalid.
+ */
+export function readYahooSnapshotPoint(
   symbol: string,
   targetAtKst: string,
   range: string,
