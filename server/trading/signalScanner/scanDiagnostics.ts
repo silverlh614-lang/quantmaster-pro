@@ -76,6 +76,15 @@ import {
   formatProvisionalShadowSection,
   summarizeProvisionalShadowCandidates,
 } from './provisionalShadowLane.js';
+// ADR-0430 — Counterfactual Shadow Learning Lane.
+//   SELL_ONLY/HARD_BLOCK 에서도 학습 표본 보존. ADR-0427 provisional 와 분리.
+//   별도 ledger (counterfactual-shadow-learning-ledger.json), virtual account 무관.
+import {
+  type CounterfactualShadowLearningCandidate,
+  type CounterfactualShadowSectionInput,
+  formatCounterfactualShadowLearningSection,
+  summarizeCounterfactualShadowLearningCandidates,
+} from './counterfactualShadowLearningLane.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -200,6 +209,17 @@ export interface ScanSummary {
    */
   provisionalShadowLane?: ProvisionalShadowSectionInput;
   /**
+   * ADR-0430 — Counterfactual Shadow Learning Lane snapshot (옵셔널, 후방호환).
+   *
+   * SELL_ONLY / HARD_BLOCK 시점 학습 표본. ADR-0427 provisionalShadowLane 과 분리:
+   *   - provisional = SOFT_DEGRADE/WATCH_ONLY (실매수 차단 + Shadow 보존)
+   *   - counterfactual = HARD_BLOCK fallback (실매수+가상체결+일반 shadow 모두 차단,
+   *     별도 학습 ledger 만 영속)
+   *
+   * /scan_blockers 에 Counterfactual Shadow Learning 섹션 자동 노출.
+   */
+  counterfactualShadowLearning?: CounterfactualShadowSectionInput;
+  /**
    * ADR-0414 §6 — Price Integrity 종목별 분류 진단 (옵셔널, Stage 1 Read-Only).
    *
    * **ADR-0412 `frozenQuote?` 와 책임 분리** — frozenQuote 는 *전체 스캔의 frozen 비율*,
@@ -293,6 +313,24 @@ export interface ScanCounters {
   provisionalShadowSkipReasons: Record<string, number>;
   /** Top reasons / dominant label 합성을 위한 후보 누적. */
   provisionalShadowCandidates: ProvisionalShadowCandidate[];
+  /**
+   * ADR-0430 — Counterfactual Shadow Learning Lane 누적기 (옵셔널 후방호환).
+   *
+   * SELL_ONLY / HARD_BLOCK 시점 학습 표본 카운트. ADR-0427 provisional 카운터와 분리 —
+   * provisional = SOFT_DEGRADE/WATCH_ONLY 보존 / counterfactual = HARD_BLOCK fallback.
+   *
+   * 우선순위 (사용자 §J):
+   *   1. FULL/normal shadow path
+   *   2. Provisional shadow path (ADR-0426)
+   *   3. Counterfactual learning-only path (ADR-0430)
+   * 둘 다 동시 생성 금지 — 호출자 (buyListLoop) 가 Provisional null 반환 시점에만 호출.
+   */
+  counterfactualShadowEligible: number;
+  counterfactualShadowCreated: number;
+  counterfactualShadowSkipped: number;
+  counterfactualShadowSkipReasons: Record<string, number>;
+  /** Top blockedBy / dominant label 합성을 위한 후보 누적. */
+  counterfactualShadowCandidates: CounterfactualShadowLearningCandidate[];
 }
 
 export function createScanCounters(): ScanCounters {
@@ -319,6 +357,12 @@ export function createScanCounters(): ScanCounters {
     freshConditionBuckets: new Map(),
     // ADR-0422 — Gate2 attribution 누적기 빈 Map 초기화 (Gate1 생존 후보만 누적).
     gate2ConditionBuckets: new Map(),
+    // ADR-0430 — Counterfactual Shadow Learning Lane 카운터 초기화.
+    counterfactualShadowEligible: 0,
+    counterfactualShadowCreated: 0,
+    counterfactualShadowSkipped: 0,
+    counterfactualShadowSkipReasons: {},
+    counterfactualShadowCandidates: [],
     // ADR-0427 — Provisional Shadow Lane 카운터 초기화.
     provisionalShadowEligible: 0,
     provisionalShadowCreated: 0,
@@ -586,6 +630,17 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(provisionalSection);
   }
 
+  // ADR-0430 — Counterfactual Shadow Learning Lane.
+  // SELL_ONLY/HARD_BLOCK 시점 학습 표본 분리 표시. ADR-0427 provisional 다음 노출.
+  // 매매 정책 변경 0건 — 학습 ledger 진단만.
+  const counterfactualSection = formatCounterfactualShadowLearningSection(
+    summary.counterfactualShadowLearning,
+  );
+  if (counterfactualSection) {
+    lines.push('');
+    lines.push(counterfactualSection);
+  }
+
   return lines.join('\n');
 }
 
@@ -830,6 +885,63 @@ export async function persistScanResults(
     }
   } catch (e) {
     console.warn('[ProvisionalShadowLane] summarize 실패 (영속 무영향)', e);
+  }
+
+  // ADR-0430 — Counterfactual Shadow Learning Lane 카운터 → ScanSummary 합성.
+  // SELL_ONLY/HARD_BLOCK 시점 학습 표본. ADR-0427 provisional 와 분리.
+  // virtual account 무영향, KIS 주문 함수 import 0건.
+  try {
+    const cfCandidates = counters.counterfactualShadowCandidates ?? [];
+    const cfEligible = counters.counterfactualShadowEligible ?? 0;
+    const cfCreated = counters.counterfactualShadowCreated ?? 0;
+    const cfSkipped = counters.counterfactualShadowSkipped ?? 0;
+    if (cfEligible > 0 || cfCreated > 0 || cfSkipped > 0) {
+      const cfSummary = summarizeCounterfactualShadowLearningCandidates(cfCandidates);
+      summaryDraft.counterfactualShadowLearning = {
+        ...cfSummary,
+        eligible: cfEligible,
+        created: cfCreated,
+      };
+      (summaryDraft.counterfactualShadowLearning as CounterfactualShadowSectionInput & {
+        skipped?: number;
+        skipReasons?: Record<string, number>;
+      }).skipped = cfSkipped;
+      (summaryDraft.counterfactualShadowLearning as CounterfactualShadowSectionInput & {
+        skipped?: number;
+        skipReasons?: Record<string, number>;
+      }).skipReasons = counters.counterfactualShadowSkipReasons;
+    } else {
+      // eligible=0 — 학습 lane 도 비어있는 사유 합성.
+      const router = summaryDraft.gateDecisionRouter;
+      let cfReason: string | undefined;
+      if (process.env.COUNTERFACTUAL_SHADOW_LEARNING_DISABLED === 'true') {
+        cfReason = 'disabled (ENV COUNTERFACTUAL_SHADOW_LEARNING_DISABLED=true)';
+      } else if ((counters.gate1Pass ?? 0) === 0) {
+        cfReason = 'no Gate1 survivor';
+      } else if (routerInput.regime !== 'R3_EARLY') {
+        cfReason = `regime=${routerInput.regime ?? 'UNKNOWN'} — R3_EARLY 외 비활성`;
+      } else if (router?.severity === 'TRUE_WEAKNESS') {
+        cfReason = 'TRUE_WEAKNESS — 학습 표본 오염 차단';
+      } else if (
+        router?.severity === 'SOFT_DEGRADE' ||
+        router?.severity === 'WATCH_ONLY' ||
+        router?.severity === 'REDUCED_ENTRY_CANDIDATE' ||
+        router?.severity === 'FULL_ENTRY_CANDIDATE'
+      ) {
+        cfReason = `${router.severity} — Provisional/Normal path 우선 (counterfactual 불필요)`;
+      } else {
+        cfReason = 'no candidate';
+      }
+      if (cfReason !== undefined) {
+        summaryDraft.counterfactualShadowLearning = {
+          eligible: 0,
+          created: 0,
+          noEligibleReason: cfReason,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('[CounterfactualShadowLearning] summarize 실패 (영속 무영향)', e);
   }
 
   _lastScanSummary = summaryDraft;

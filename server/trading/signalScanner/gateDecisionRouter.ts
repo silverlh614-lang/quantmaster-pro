@@ -80,6 +80,23 @@ export interface GateDecisionRouterResult {
   paperAllowed: boolean;
   shadowAllowed: boolean;
   watchAllowed: boolean;
+  /**
+   * ADR-0430 — counterfactual learning lane (after-the-fact shadow record).
+   *
+   * 사용자 §E 정합 — HARD_BLOCK / SELL_ONLY 시점에도 학습 표본 보존 가능.
+   * 옵셔널 후방호환 (ADR-0425 ~ ADR-0429 caller 무수정 안전).
+   *
+   * 정책 (절대 변경 금지):
+   *   - HARD_BLOCK + SELL_ONLY → counterfactualLearningAllowed: true
+   *   - emergencyStop → counterfactualLearningAllowed: true (ENV 로 끌 수 있음)
+   *   - SOFT_DEGRADE → counterfactualLearningAllowed: true (Provisional 우선)
+   *   - WATCH_ONLY → counterfactualLearningAllowed: true
+   *   - SHADOW_ENTRY_ALLOWED → 기존 Provisional path 사용 (counterfactual 불필요)
+   *   - REDUCED/FULL_ENTRY_CANDIDATE → 정상 매수 path (counterfactual 불필요)
+   */
+  counterfactualLearningAllowed?: boolean;
+  /** ADR-0430 — UI 분리 표시용 alias (lane 표 시각화). counterfactualLearningAllowed 와 동의어. */
+  learningShadowAllowed?: boolean;
   label: GateDecisionLabel;
   operatorMessage: string;
 }
@@ -154,6 +171,10 @@ export function deriveGateDecisionRouterResult(
   if (rf.rrrBlock) reasons.push('RRR_BLOCK');
 
   if (reasons.length > 0) {
+    // ADR-0430 — HARD_BLOCK / SELL_ONLY 에서도 counterfactual learning 은 365일 살아있다.
+    // 단, ENV `COUNTERFACTUAL_SHADOW_LEARNING_DISABLED=true` 시 비활성.
+    const learningAllowed =
+      process.env.COUNTERFACTUAL_SHADOW_LEARNING_DISABLED !== 'true';
     return {
       severity: 'HARD_BLOCK',
       reasons,
@@ -161,8 +182,12 @@ export function deriveGateDecisionRouterResult(
       paperAllowed: false,
       shadowAllowed: false,
       watchAllowed: false,
+      counterfactualLearningAllowed: learningAllowed,
+      learningShadowAllowed: learningAllowed,
       label: 'BLOCK_RISK',
-      operatorMessage: '리스크 차단 — Shadow 학습도 제한. 매크로 게이트 또는 운영자 명시 차단.',
+      operatorMessage:
+        '리스크 차단 — 실매수/가상체결/일반 shadow 모두 차단. ' +
+        '단 ADR-0430 counterfactual learning 은 별도 ledger 에 365일 영속 가능.',
     };
   }
 
@@ -172,6 +197,8 @@ export function deriveGateDecisionRouterResult(
   if ((blockReasons.sizingBlocked ?? 0) > 0 && gate1Pass > 0 &&
       (blockReasons.sizingBlocked ?? 0) >= gate1Pass) {
     reasons.push('SIZING_BLOCKED');
+    const learningAllowed =
+      process.env.COUNTERFACTUAL_SHADOW_LEARNING_DISABLED !== 'true';
     return {
       severity: 'HARD_BLOCK',
       reasons,
@@ -179,8 +206,12 @@ export function deriveGateDecisionRouterResult(
       paperAllowed: false,
       shadowAllowed: false,
       watchAllowed: false,
+      counterfactualLearningAllowed: learningAllowed,
+      learningShadowAllowed: learningAllowed,
       label: 'BLOCK_RISK',
-      operatorMessage: 'Sizing 불가 — Kelly/계좌 한도 초과로 주문 자체 차단.',
+      operatorMessage:
+        'Sizing 불가 — Kelly/계좌 한도 초과로 주문 자체 차단. ' +
+        'ADR-0430 counterfactual learning 만 별도 ledger 보존 가능.',
     };
   }
 
@@ -198,6 +229,8 @@ export function deriveGateDecisionRouterResult(
       paperAllowed: false,
       shadowAllowed: true,
       watchAllowed: true,
+      counterfactualLearningAllowed: true,
+      learningShadowAllowed: true,
       label: 'WATCH_PRE_BREAKOUT',
       operatorMessage: '돌파 대기 — early pattern 미확정. Watch/Shadow 학습 후보로 보존.',
     };
@@ -286,6 +319,8 @@ export function deriveGateDecisionRouterResult(
       paperAllowed: false,
       shadowAllowed: true,
       watchAllowed: true,
+      counterfactualLearningAllowed: true,
+      learningShadowAllowed: true,
       label: 'SOFT_DEGRADE_DATA',
       operatorMessage:
         '실매수 차단 유지 — 데이터 품질 저하 (STALE/UNAVAILABLE/ERROR). ' +
@@ -305,6 +340,8 @@ export function deriveGateDecisionRouterResult(
       paperAllowed: false,
       shadowAllowed: true,
       watchAllowed: true,
+      counterfactualLearningAllowed: true,
+      learningShadowAllowed: true,
       label: 'WATCH_PRE_BREAKOUT',
       operatorMessage: 'Gate 재검증 미달 우세 — minGate 임계 또는 sectorBoost 검토. Watch 보존.',
     };
@@ -322,6 +359,8 @@ export function deriveGateDecisionRouterResult(
       paperAllowed: false,
       shadowAllowed: true,
       watchAllowed: true,
+      counterfactualLearningAllowed: true,
+      learningShadowAllowed: true,
       label: 'WATCH_PRE_BREAKOUT',
       operatorMessage: 'Gate2 단계 돌파 대기 — early pattern 미성숙. Watch/Shadow 학습 후보.',
     };
@@ -340,10 +379,14 @@ export function deriveGateDecisionRouterResult(
       paperAllowed: false,
       shadowAllowed: false,
       watchAllowed: true,
+      // ADR-0430 — TRUE_WEAKNESS 도 학습 표본 오염이라 counterfactual 도 차단 (사용자 §C #5 정합).
+      counterfactualLearningAllowed: false,
+      learningShadowAllowed: false,
       label: 'BLOCK_TRUE_WEAKNESS',
       operatorMessage:
         '진짜 기술 약세 — trend/vcp/breakout 등 임계 미달 우세. ' +
-        'Watch 만 보존 (Shadow 도 차단, 학습 오염 방지). R3_EARLY provisional lane 은 ADR-0426.',
+        'Watch 만 보존 (Shadow / Counterfactual 모두 차단, 학습 오염 방지). ' +
+        'R3_EARLY provisional lane 은 ADR-0426.',
     };
   }
 
@@ -365,6 +408,9 @@ export function deriveGateDecisionRouterResult(
       paperAllowed: true,
       shadowAllowed: true,
       watchAllowed: true,
+      // ADR-0430 — Full pass 는 정상 shadow/provisional 경로 사용 (counterfactual 불필요, 사용자 §E).
+      counterfactualLearningAllowed: false,
+      learningShadowAllowed: false,
       label: 'FULL_CANDIDATE',
       operatorMessage:
         'Full pass — Gate 1+2+3+lastTrigger 모두 통과. ' +
@@ -383,6 +429,9 @@ export function deriveGateDecisionRouterResult(
       paperAllowed: false,
       shadowAllowed: true,
       watchAllowed: true,
+      // ADR-0430 — REDUCED 는 정상 shadow path 가용, counterfactual 불필요 (사용자 §E).
+      counterfactualLearningAllowed: false,
+      learningShadowAllowed: false,
       label: 'REDUCED_CANDIDATE',
       operatorMessage:
         '부분 pass — Gate1 통과했으나 Gate2/3/lastTrigger 미완. Shadow/Watch 보존.',
@@ -400,6 +449,9 @@ export function deriveGateDecisionRouterResult(
     paperAllowed: false,
     shadowAllowed: false,
     watchAllowed: true,
+    // ADR-0430 — UNKNOWN 은 분류 데이터 부족 → counterfactual 표본 가치 낮음.
+    counterfactualLearningAllowed: false,
+    learningShadowAllowed: false,
     label: 'UNKNOWN',
     operatorMessage: '분류 데이터 부족 — 다음 스캔 후 재검토.',
   };
@@ -430,11 +482,15 @@ export function formatGateDecisionRouterSection(
   lines.push(`🧭 <b>Gate Decision Router (ADR-0425)</b>`);
   lines.push(`  • severity: ${sevIcon[result.severity]} <b>${result.severity}</b>`);
   lines.push(`  • label: ${result.label}`);
+  // ADR-0430 — learning lane 추가 표시 (옵셔널 후방호환).
+  const learningLane =
+    result.counterfactualLearningAllowed === true || result.learningShadowAllowed === true;
   lines.push(
     `  • lanes: live=${result.liveAllowed ? '✅' : '❌'} ` +
     `paper=${result.paperAllowed ? '✅' : '❌'} ` +
     `shadow=${result.shadowAllowed ? '✅' : '❌'} ` +
-    `watch=${result.watchAllowed ? '✅' : '❌'}`,
+    `watch=${result.watchAllowed ? '✅' : '❌'} ` +
+    `learning=${learningLane ? '✅' : '❌'}`,
   );
 
   if (result.reasons.length > 0) {
