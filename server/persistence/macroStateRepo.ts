@@ -182,6 +182,30 @@ export interface MacroState {
     fallbackReason?: string;
   };
   /**
+   * ADR-0423: SectorEnergy 데이터 진실성 진단 (옵셔널, 후방호환).
+   *
+   * 기존 sectorEnergyDataQuality / sectorEnergyValidSectorCount / sectorEnergyReasons 의
+   * *구조화* 격상 — indexCodeCoverage / missingIndexCodeCount / symmetryValidationPassed /
+   * fallbackUsed / 12-value reasons union / shouldBlockLeadershipConfidence /
+   * operatorMessage 추가. /sector_energy_diag + /scan_blockers 가 read.
+   *
+   * 영속 schema 는 sectorEnergyQualityDiagnostic.ts SSOT 와 정합 — 변경 시 동시 갱신.
+   */
+  sectorEnergyQualityDiagnostic?: {
+    dataQuality: 'OK' | 'PARTIAL' | 'PARTIAL_VOLUME' | 'STALE' | 'DEGRADED' | 'FAILED';
+    reasons: string[];
+    validSectorCount: number;
+    expectedSectorCount: number;
+    indexCodeCoverage: number;
+    missingIndexCodeCount: number;
+    totalSectorRows: number;
+    sourceTier?: string;
+    fallbackUsed: 'NONE' | 'STOCK_DAILY' | 'ETF' | 'CACHE';
+    symmetryValidationPassed: boolean;
+    shouldBlockLeadershipConfidence: boolean;
+    operatorMessage: string;
+  };
+  /**
    * ADR-0343 — sectorEnergy build 입력 (SectorEnergyInput[]) 영속.
    *
    * `buildSectorEnergyInputsWithMeta` 가 OK/PARTIAL 시 inputs 배열 영속 → FAILED 진입 시

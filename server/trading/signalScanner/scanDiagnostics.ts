@@ -51,6 +51,14 @@ import {
   buildSectorEnergyDiagnostic,
   formatGate2AttributionSection,
 } from './gate2LeadershipAttribution.js';
+// ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
+//   `evaluateSectorEnergyQualityDiagnostic` SSOT 결과를 영속 + /scan_blockers 표시.
+//   기존 sectorEnergyQuality / validSectorCount / sectorEnergyReasons 와 *책임 분리*
+//   (이전 = 단일 라벨 + free-text reasons / 본 진단 = 구조화 reason union + leadershipConfidence).
+import {
+  type SectorEnergyQualityDiagnostic,
+  formatSectorEnergyQualityDiagnosticSection,
+} from '../../clients/sectorEnergyQualityDiagnostic.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -138,6 +146,17 @@ export interface ScanSummary {
    * UNKNOWN). gate1Pass>0 + gate2Pass=0 시점에 운영자에게 NO_LEADERSHIP 분해 노출.
    */
   freshGate2Attribution?: Gate2FreshAttribution;
+  /**
+   * ADR-0423 — SectorEnergy 데이터 진실성 진단 snapshot (옵셔널, 후방호환).
+   *
+   * 기존 `sectorEnergyQuality?` / `validSectorCount?` / `sectorEnergyReasons?` 의 *구조화* 격상.
+   * indexCodeCoverage / missingIndexCodeCount / symmetryValidationPassed / fallbackUsed /
+   * shouldBlockLeadershipConfidence / operatorMessage 추가. 12-value reason union 분해.
+   *
+   * /scan_blockers SectorEnergy 진단 섹션에서 자동 노출. 부재 시 기존 sectorEnergyQuality
+   * 라벨만 표시 (후방호환).
+   */
+  sectorEnergyQualityDiagnostic?: SectorEnergyQualityDiagnostic;
   /**
    * ADR-0414 §6 — Price Integrity 종목별 분류 진단 (옵셔널, Stage 1 Read-Only).
    *
@@ -475,6 +494,16 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(gate2Section);
   }
 
+  // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
+  // 기존 sectorEnergyQuality 라벨만으로는 SECTOR_DATA_STALE_DOMINANT 의 *진짜 원인* 인식 불가.
+  // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
+  // ADR-0422 Gate2 섹션의 sectorEnergy 표시(요약) 와 *책임 분리* — 본 섹션은 *원인 분해 상세*.
+  const sectorEnergySection = formatSectorEnergyQualityDiagnosticSection(summary.sectorEnergyQualityDiagnostic);
+  if (sectorEnergySection) {
+    lines.push('');
+    lines.push(sectorEnergySection);
+  }
+
   return lines.join('\n');
 }
 
@@ -505,6 +534,12 @@ export interface PersistScanResultsOptions {
    * 부재 시 ScanSummary.frozenQuote 미영속 + R3 guard `frozenQuoteDataQuality=undefined`.
    */
   frozenQuote?: FrozenQuoteResult;
+  /**
+   * ADR-0423 — SectorEnergy 데이터 진실성 진단 (옵셔널, 후방호환).
+   * 호출자 (signalScanner/index.ts 또는 sectorEnergyProvider build site) 가 합성하여 전달.
+   * 부재 시 ScanSummary.sectorEnergyQualityDiagnostic 미영속 — 기존 sectorEnergyQuality 라벨만 영속.
+   */
+  sectorEnergyQualityDiagnostic?: SectorEnergyQualityDiagnostic;
   /**
    * ADR-0412 — R3 streak +1 skip 결정 (옵셔널).
    * 호출자가 `evaluateStreakIncrementAllowed` 결과 그대로 전달.
@@ -550,6 +585,10 @@ export async function persistScanResults(
     // ADR-0412 — Frozen Quote 진단 + R3 streak skip 영속 (옵셔널, 후방호환).
     ...(options.frozenQuote ? { frozenQuote: options.frozenQuote } : {}),
     ...(options.r3StreakSkipped ? { r3StreakSkipped: options.r3StreakSkipped } : {}),
+    // ADR-0423 — SectorEnergy 데이터 진실성 진단 영속 (옵셔널, 후방호환).
+    ...(options.sectorEnergyQualityDiagnostic
+      ? { sectorEnergyQualityDiagnostic: options.sectorEnergyQualityDiagnostic }
+      : {}),
   };
 
   // ADR-0420 — Fresh Scan Blocker Attribution build + persist (옵셔널, 후방호환).

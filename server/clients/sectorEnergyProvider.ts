@@ -28,6 +28,11 @@ import { fetchInvestorTrading, type KrxInvestorRow } from './krxClient.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import { isKrxTradingDay } from '../calendar/krxTradingCalendar.js';
 import { getSectorByCode } from '../screener/sectorMap.js';
+// ADR-0423: SectorEnergy 데이터 진실성 진단 SSOT — 모든 build result 에 부착.
+import {
+  evaluateSectorEnergyQualityDiagnostic,
+  isSectorEnergyQualityDiagnosticDisabled,
+} from './sectorEnergyQualityDiagnostic.js';
 
 export type StrategicSector =
   | '반도체'
@@ -90,6 +95,14 @@ export interface SymmetryValidationResult {
   todayCodeFillRatio: number;
   pastCodeFillRatio: number;
   reasons: string[];
+  /**
+   * ADR-0423: today rows 절대 카운트 (옵셔널, 후방호환).
+   * `validateIndexResponseSymmetry` 호출자가 quality diagnostic 합성 시 사용.
+   * 부재 시 호출자 측 default = expectedSectorCount (12) 폴백.
+   */
+  todayRowsTotal?: number;
+  /** ADR-0423: today rows 중 indexCode 보유 row 수 (옵셔널, 후방호환). */
+  todayRowsWithIndexCode?: number;
 }
 
 /**
@@ -141,6 +154,54 @@ export interface SectorEnergyBuildResult {
    * `buildSectorEnergyInputsWithMetaWithFallback` 진입점에서만 채워짐.
    */
   diagnostics?: SectorEnergyDiagnosticsMeta;
+  /**
+   * ADR-0423: SectorEnergy 데이터 진실성 진단 (옵셔널, 후방호환).
+   *
+   * indexCodeCoverage / symmetryValidationPassed / fallbackUsed / 12-value reason union 분해.
+   * marketDataRefresh.ts 가 이 필드를 macroState 로 영속 → /sector_energy_diag + /scan_blockers.
+   */
+  qualityDiagnostic?: import('./sectorEnergyQualityDiagnostic.js').SectorEnergyQualityDiagnostic;
+}
+
+/**
+ * ADR-0423: SectorEnergyBuildResult 에 quality diagnostic 부착 SSOT.
+ *
+ * 본 모듈의 모든 return site 끝에서 호출 — 단일 합성 진입점으로 drift 차단.
+ * 외부 부작용 0 (순수 함수). 입력 result 의 다른 필드 무수정.
+ *
+ * fallbackUsed 분류:
+ *   - sourceTier === 'STOCK_DAILY'     → 'STOCK_DAILY'
+ *   - sourceTier === 'YAHOO_ETF'        → 'ETF'
+ *   - sourceTier === 'CACHE'            → 'CACHE'
+ *   - sourceTier === 'KRX_CODE' / 'FAILED' / undefined → 'NONE'
+ *
+ * ENV `SECTOR_ENERGY_QUALITY_DIAGNOSTIC_DISABLED=true` 시 result 그대로 반환 (회귀 1줄 롤백).
+ */
+function withQualityDiagnostic(result: SectorEnergyBuildResult): SectorEnergyBuildResult {
+  if (isSectorEnergyQualityDiagnosticDisabled()) return result;
+
+  const sym = result.symmetryValidation;
+  const totalSectorRows = sym?.todayRowsTotal ?? result.totalSectorCount;
+  // todayRowsWithIndexCode 부재 시 todayCodeFillRatio × totalSectorRows 추정 (SymmetryValidationResult
+  // 옛 callers 호환). symmetry 자체 부재 시 1.0 가정 (정상 KRX_CODE 경로).
+  const rowsWithIndexCode =
+    sym?.todayRowsWithIndexCode ??
+    (sym ? Math.round((sym.todayCodeFillRatio ?? 1) * totalSectorRows) : totalSectorRows);
+  const fallbackUsed: 'NONE' | 'STOCK_DAILY' | 'ETF' | 'CACHE' =
+    result.sourceTier === 'STOCK_DAILY' ? 'STOCK_DAILY'
+    : result.sourceTier === 'YAHOO_ETF' ? 'ETF'
+    : result.sourceTier === 'CACHE' ? 'CACHE'
+    : 'NONE';
+  const qualityDiagnostic = evaluateSectorEnergyQualityDiagnostic({
+    validSectorCount: result.validSectorCount,
+    expectedSectorCount: result.totalSectorCount,
+    totalSectorRows,
+    rowsWithIndexCode,
+    symmetryValidationPassed: sym?.valid ?? true,
+    fallbackUsed,
+    ...(result.sourceTier ? { sourceTier: result.sourceTier } : {}),
+  });
+  return { ...result, qualityDiagnostic };
 }
 
 function classifySector(label: string): StrategicSector | null {
@@ -225,11 +286,21 @@ export function validateIndexResponseSymmetry(
   pastRows: KrxIndexDailyRow[],
 ): SymmetryValidationResult {
   const reasons: string[] = [];
+  // ADR-0423: today rows 절대 카운트 — quality diagnostic 합성 입력.
+  const todayRowsTotal = todayRows.length;
+  const todayRowsWithIndexCode = todayRows.filter((r) => Boolean(r.indexCode)).length;
   if (todayRows.length === 0 || pastRows.length === 0) {
     reasons.push(`empty rows: today=${todayRows.length}, past=${pastRows.length}`);
-    return { valid: false, todayCodeFillRatio: 0, pastCodeFillRatio: 0, reasons };
+    return {
+      valid: false,
+      todayCodeFillRatio: 0,
+      pastCodeFillRatio: 0,
+      reasons,
+      todayRowsTotal,
+      todayRowsWithIndexCode,
+    };
   }
-  const todayCodeFillRatio = todayRows.filter((r) => Boolean(r.indexCode)).length / todayRows.length;
+  const todayCodeFillRatio = todayRowsWithIndexCode / todayRows.length;
   const pastCodeFillRatio = pastRows.filter((r) => Boolean(r.indexCode)).length / pastRows.length;
   if (todayCodeFillRatio < SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD) {
     reasons.push(`today indexCode 충실도 ${(todayCodeFillRatio * 100).toFixed(1)}% < ${(SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD * 100).toFixed(0)}%`);
@@ -237,7 +308,14 @@ export function validateIndexResponseSymmetry(
   if (pastCodeFillRatio < SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD) {
     reasons.push(`past indexCode 충실도 ${(pastCodeFillRatio * 100).toFixed(1)}% < ${(SECTOR_ENERGY_INDEX_CODE_FILL_THRESHOLD * 100).toFixed(0)}%`);
   }
-  return { valid: reasons.length === 0, todayCodeFillRatio, pastCodeFillRatio, reasons };
+  return {
+    valid: reasons.length === 0,
+    todayCodeFillRatio,
+    pastCodeFillRatio,
+    reasons,
+    todayRowsTotal,
+    todayRowsWithIndexCode,
+  };
 }
 
 function pushDelta(
@@ -461,7 +539,10 @@ export async function buildSectorEnergyInputs(): Promise<SectorEnergyInput[]> {
 }
 
 export async function buildSectorEnergyInputsWithMeta(): Promise<SectorEnergyBuildResult> {
-  return buildSectorEnergyInputsWithMetaWithFallback();
+  // ADR-0423: 진입점 wrapper — 최종 결과에 quality diagnostic 부착 SSOT.
+  // 내부 `buildSectorEnergyInputsWithMetaWithFallback` 는 4-tier fallback 채택 후 sourceTier
+  // 부착 + symmetryValidation 보존 → withQualityDiagnostic 가 모든 정보를 합성.
+  return withQualityDiagnostic(await buildSectorEnergyInputsWithMetaWithFallback());
 }
 
 // ADR-0399: buildSectorEnergyInputsWithMetaRaw 의 attemptedTodayDates 를

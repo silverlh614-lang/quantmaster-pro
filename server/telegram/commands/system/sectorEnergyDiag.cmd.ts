@@ -21,6 +21,8 @@ import type {
   SectorEnergySourceTier,
   SectorEnergyFreshness,
 } from '../../../clients/sectorEnergyDataQuality.js';
+// ADR-0423: SectorEnergy 데이터 진실성 진단 SSOT — quality reason 분해 + leadershipConfidence.
+import { formatSectorEnergyQualityDiagnosticSection } from '../../../clients/sectorEnergyQualityDiagnostic.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -107,6 +109,20 @@ export function formatSectorEnergyDiagMessage(): string {
     if (diag.fallbackReason) {
       lines.push(`⚠️ fallbackReason: <i>${diag.fallbackReason}</i>`);
     }
+  }
+
+  // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
+  // quality diagnostic 영속 시 형식화된 세부 정보 노출 — 운영자 *왜 STALE 이 됐는지* 즉시 인지.
+  // 부재 시 ADR-0125 기존 기본 표시만 (후방호환).
+  // macroState schema 의 reasons:string[] 와 SSOT 의 SectorEnergyQualityReason[] 호환 cast
+  // (영속 read-only 경로 — 타입 좁히기 안전).
+  const qualityDiag = macro.sectorEnergyQualityDiagnostic as
+    | Parameters<typeof formatSectorEnergyQualityDiagnosticSection>[0]
+    | undefined;
+  if (qualityDiag) {
+    lines.push('');
+    const section = formatSectorEnergyQualityDiagnosticSection(qualityDiag);
+    if (section) lines.push(section);
   }
 
   // ADR-0398 STRONG_BUY 게이트 결과
