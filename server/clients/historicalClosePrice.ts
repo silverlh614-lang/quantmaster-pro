@@ -2,6 +2,10 @@
 
 import { fetchKisChartData } from '../screener/kisChartDataFetcher.js';
 import { guardedFetch } from '../utils/egressGuard.js';
+// ADR-0440 — `normalizeKrxCode` SSOT (`server/utils/symbolNormalizer`) 직접 import.
+// 기존 로컬 정규식 복붙 (`^(\d{6})(?:\.(?:KS|KQ))?$/i`) 영구 제거 — drift 위험 차단 +
+// SSOT 의 `.KOSPI` / `.KOSDAQ` suffix 추가 지원 자연 확장.
+import { normalizeKrxCode } from '../utils/symbolNormalizer.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -16,12 +20,6 @@ function formatYmdCompact(date: Date): string {
 
 function toYmd(date: Date): string {
   return date.toISOString().slice(0, 10);
-}
-
-function normalizeKrxCode(symbol: string): string | null {
-  const raw = String(symbol ?? '').trim();
-  const match = raw.match(/^(\d{6})(?:\.(?:KS|KQ))?$/i);
-  return match ? match[1] : null;
 }
 
 async function fetchKisHistoricalClosePrice(
@@ -95,7 +93,9 @@ export async function fetchHistoricalClosePrice(
   symbol: string,
   asOf: Date,
 ): Promise<number | null> {
-  const code = normalizeKrxCode(symbol);
+  // ADR-0440 — `.code` 명시 사용. SSOT `normalizeKrxCode(raw): NormalizedKrxSymbol`
+  // 의 `.code` 는 invalid 시 null — 기존 로컬 함수 동작과 byte-equivalent.
+  const code = normalizeKrxCode(symbol).code;
   if (!code || !Number.isFinite(asOf.getTime())) return null;
 
   const kis = await fetchKisHistoricalClosePrice(code, asOf).catch(() => null);
@@ -105,5 +105,6 @@ export async function fetchHistoricalClosePrice(
 }
 
 export const __testOnly = {
-  normalizeKrxCode,
+  // ADR-0440 — SSOT `.code` accessor 노출 (기존 string|null 시그니처 보존).
+  normalizeKrxCode: (symbol: string): string | null => normalizeKrxCode(symbol).code,
 };

@@ -3,12 +3,13 @@ import {
   FatalDataQualityError,
   assertQuoteSanityHealth,
   assertUsableKrxMaster,
-  assertValidKrxCode,
   classifyStage1RejectStrict,
   formatNullablePct,
   makeStaleQuoteResult,
-  normalizeKrxCode,
 } from './emergencyDataQualityGuards';
+// ADR-0440 — KRX code 정규화 / 검증은 SSOT (`server/utils/symbolNormalizer`) 직접 사용.
+// 기존 `assertValidKrxCode` / `normalizeKrxCode` deprecated wrapper 는 등록 해제됨.
+import { assertValidKrxCode, normalizeKrxCode } from '../utils/symbolNormalizer';
 
 describe('emergencyDataQualityGuards', () => {
   describe('assertUsableKrxMaster', () => {
@@ -32,18 +33,21 @@ describe('emergencyDataQualityGuards', () => {
     });
   });
 
-  describe('KRX code normalization', () => {
+  describe('KRX code normalization (ADR-0440 SSOT 직접 import)', () => {
     it.each([
       ['005930', '005930'],
       ['005930.KS', '005930'],
       ['403870.KQ', '403870'],
       [' 403870.kq ', '403870'],
     ])('normalizes %s', (input, expected) => {
-      expect(normalizeKrxCode(input)).toBe(expected);
+      // ADR-0440 — SSOT 의 `.code` accessor 사용 (NormalizedKrxSymbol 격상).
+      expect(normalizeKrxCode(input).code).toBe(expected);
+      expect(normalizeKrxCode(input).valid).toBe(true);
     });
 
     it.each(['0070X0', '', 'ABCDEF', '12345', '1234567'])('rejects invalid code %s', input => {
-      expect(normalizeKrxCode(input)).toBeNull();
+      expect(normalizeKrxCode(input).code).toBeNull();
+      expect(normalizeKrxCode(input).valid).toBe(false);
       expect(() => assertValidKrxCode(input)).toThrowError('INVALID_KRX_CODE');
     });
   });
