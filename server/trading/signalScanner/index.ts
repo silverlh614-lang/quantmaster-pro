@@ -40,8 +40,14 @@ export async function runAutoSignalScan(
   if (preflightResult.shouldAbort) {
     if (!preflightResult.skipPersist) {
       // ADR-0187: preflight abort 경로도 sectorEnergy meta carry-over (정상 경로와 정합).
+      // ADR-0423: sectorEnergyQualityDiagnostic 도 함께 carry-over (옵셔널, 후방호환).
       const abortMacro = preflightResult.context?.macroState as
-        | { sectorEnergyDataQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED'; sectorEnergyValidSectorCount?: number; sectorEnergyReasons?: string[] }
+        | {
+            sectorEnergyDataQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
+            sectorEnergyValidSectorCount?: number;
+            sectorEnergyReasons?: string[];
+            sectorEnergyQualityDiagnostic?: import('../../clients/sectorEnergyQualityDiagnostic.js').SectorEnergyQualityDiagnostic;
+          }
         | undefined;
       await persistScanResults(counters, {
         sellOnly: options?.sellOnly,
@@ -51,6 +57,9 @@ export async function runAutoSignalScan(
           validSectorCount: abortMacro.sectorEnergyValidSectorCount,
           sectorEnergyReasons: abortMacro.sectorEnergyReasons,
         } : {}),
+        ...(abortMacro?.sectorEnergyQualityDiagnostic !== undefined
+          ? { sectorEnergyQualityDiagnostic: abortMacro.sectorEnergyQualityDiagnostic }
+          : {}),
       });
     }
     return { positionFull: preflightResult.positionFull };
@@ -76,8 +85,14 @@ export async function runAutoSignalScan(
   // ADR-0187: macroState.sectorEnergy* 3 필드 carry-over → ScanSummary.sectorEnergyQuality/
   // validSectorCount/sectorEnergyReasons 영속 → /scan_blockers 메시지의 §"섹터 에너지 데이터
   // 품질" 섹션 활성. 이전엔 macroState 영속만 있고 read 호출자 0건 (silent dead-read).
+  // ADR-0423: sectorEnergyQualityDiagnostic 도 함께 carry-over.
   const macro = preflightResult.context?.macroState as
-    | { sectorEnergyDataQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED'; sectorEnergyValidSectorCount?: number; sectorEnergyReasons?: string[] }
+    | {
+        sectorEnergyDataQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'FAILED';
+        sectorEnergyValidSectorCount?: number;
+        sectorEnergyReasons?: string[];
+        sectorEnergyQualityDiagnostic?: import('../../clients/sectorEnergyQualityDiagnostic.js').SectorEnergyQualityDiagnostic;
+      }
     | undefined;
   await persistScanResults(counters, {
     sellOnly: options?.sellOnly,
@@ -88,6 +103,9 @@ export async function runAutoSignalScan(
       validSectorCount: macro.sectorEnergyValidSectorCount,
       sectorEnergyReasons: macro.sectorEnergyReasons,
     } : {}),
+    ...(macro?.sectorEnergyQualityDiagnostic !== undefined
+      ? { sectorEnergyQualityDiagnostic: macro.sectorEnergyQualityDiagnostic }
+      : {}),
   });
 
   return { positionFull: false };

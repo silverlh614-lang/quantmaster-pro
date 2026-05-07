@@ -1,0 +1,410 @@
+/**
+ * @responsibility ADR-0423 SectorEnergy 데이터 진실성 진단 SSOT — indexCode coverage / symmetry / fallback 분해
+ *
+ * ADR-0423:
+ * SectorEnergy leadership confidence depends on semantic sector-index integrity.
+ * Fresh-looking sector data is not sufficient when indexCode coverage is zero,
+ * symmetry validation fails, or stock-daily fallback replaces sector-index mapping.
+ *
+ * STALE / DEGRADED SectorEnergy must not be treated as true leadership absence.
+ * This module must not change gate thresholds, weights, or trading policy.
+ * It only repairs SectorEnergy data-quality diagnostics and classification.
+ *
+ * 사용자 명시 핵심 불변식:
+ *   1. SectorEnergy STALE 은 정상 데이터가 아니다.
+ *   2. indexCode missing 을 숨기고 leadership OK 로 처리하면 안 된다.
+ *   3. stock-daily fallback 은 정상 sector-index 기반 leadership 과 동급이 아니다.
+ *   4. symmetry validation failed 는 단순 warning 이 아니라 dataQuality 를 낮추는 원인이다.
+ *   5. Gate2 완화보다 SectorEnergy 데이터 진실성 복구가 먼저다.
+ *   6. Gate threshold / weight / 매매 정책 절대 변경 금지.
+ *
+ * SSOT 재사용:
+ *   - dataQuality 5-state enum: ADR-0396 `SectorEnergyDataQuality5` 그대로 사용.
+ *   - sourceTier / freshness / coverage / confidence: ADR-0396 4-axis SSOT 그대로.
+ *   - 본 모듈은 *quality reason 분해 + leadershipConfidence 차단 결정* 만 추가.
+ *
+ * 외부 의존성: sectorEnergyDataQuality.ts (ADR-0396 type re-export 만).
+ */
+
+import type { SectorEnergyDataQuality5 } from './sectorEnergyDataQuality.js';
+
+// ─── ENV gate SSOT (호출자 측 inline 검사 0건) ──────────────────────────────
+
+/**
+ * ADR-0423: ENV `SECTOR_ENERGY_QUALITY_DIAGNOSTIC_DISABLED=true` 시 본 모듈
+ * 진단 layer 비활성 (회귀 시 1줄 즉시 롤백). 정확 비교 (`=== 'true'`) — ADR-0157 의무 정합.
+ */
+export function isSectorEnergyQualityDiagnosticDisabled(): boolean {
+  return process.env.SECTOR_ENERGY_QUALITY_DIAGNOSTIC_DISABLED === 'true';
+}
+
+// ─── 타입 SSOT (ADR-0423 §B 사용자 명시 정합) ──────────────────────────────
+
+/**
+ * Quality reason 분해 — 단순 `reasons: string[]` 의 *구조화* 격상.
+ *
+ * 사용자 명시 §B — 12 reason value:
+ *   OK / INDEX_CODE_MISSING / INDEX_CODE_COVERAGE_ZERO / INDEX_CODE_COVERAGE_LOW
+ *   / SYMMETRY_VALIDATION_FAILED / VALID_SECTOR_COUNT_LOW / STOCK_DAILY_FALLBACK_USED
+ *   / ETF_FALLBACK_USED / CACHE_STALE / SOURCE_EMPTY / SCHEMA_MISMATCH / UNKNOWN
+ */
+export type SectorEnergyQualityReason =
+  | 'OK'
+  | 'INDEX_CODE_MISSING'
+  | 'INDEX_CODE_COVERAGE_ZERO'
+  | 'INDEX_CODE_COVERAGE_LOW'
+  | 'SYMMETRY_VALIDATION_FAILED'
+  | 'VALID_SECTOR_COUNT_LOW'
+  | 'STOCK_DAILY_FALLBACK_USED'
+  | 'ETF_FALLBACK_USED'
+  | 'CACHE_STALE'
+  | 'SOURCE_EMPTY'
+  | 'SCHEMA_MISMATCH'
+  | 'UNKNOWN';
+
+/**
+ * fallback 사용 여부 — *어느 fallback layer 가 작동했는지* 명시.
+ *
+ * 사용자 명시 §E — STOCK_DAILY/ETF 는 정상 sector-index leadership 과 동급이 아니다.
+ *   NONE: 정상 KRX_CODE / STOCK_DAILY: synthetic sector / ETF: Yahoo proxy / CACHE: 영속 cache.
+ */
+export type SectorEnergyFallbackUsed = 'NONE' | 'STOCK_DAILY' | 'ETF' | 'CACHE';
+
+/**
+ * ADR-0423 quality 진단 SSOT — 단일 sector-energy build 결과의 *데이터 진실성* 분해.
+ *
+ * 호출자 (sectorEnergyProvider build / scanDiagnostics persistScanResults / gate2LeadershipAttribution
+ * formatGate2AttributionSection / sectorEnergyDiag.cmd.ts) 가 동일 SSOT 를 read.
+ *
+ * 사용자 §B 명시 schema 기반 (필드명 보존). 기존 `SymmetryValidationResult` (sectorEnergyProvider)
+ * + `SectorEnergyDiagnostic` (gate2LeadershipAttribution) 와 *책임 분리* — 본 모듈은 *원인 분해 + 차단 결정* 만.
+ */
+export interface SectorEnergyQualityDiagnostic {
+  /** ADR-0396 5-state union 그대로. */
+  dataQuality: SectorEnergyDataQuality5;
+  /** 원인 분해 — 다중 이유 동시 포함 가능 (예: INDEX_CODE_COVERAGE_ZERO + STOCK_DAILY_FALLBACK_USED). */
+  reasons: SectorEnergyQualityReason[];
+  /** 유효 섹터 수 (returns 채워진 섹터). */
+  validSectorCount: number;
+  /** 전체 섹터 수 (default 12). */
+  expectedSectorCount: number;
+  /** rowsWithIndexCode / totalSectorRows (0~1 clamp). */
+  indexCodeCoverage: number;
+  /** indexCode 부재 row 수. */
+  missingIndexCodeCount: number;
+  /** 전체 row 수 (today rows 기준). */
+  totalSectorRows: number;
+  /** ADR-0396 sourceTier (옵셔널 — caller 측에서 4-axis composite 분리 수행 시 부착). */
+  sourceTier?: string;
+  /** 어느 fallback layer 가 작동했는지 명시. */
+  fallbackUsed: SectorEnergyFallbackUsed;
+  /** symmetry validation 통과 여부. */
+  symmetryValidationPassed: boolean;
+  /**
+   * 사용자 명시 §H — leadership confidence 차단 결정 SSOT.
+   * Gate2/NO_LEADERSHIP 분기에서 *Gate2 완화 권고 차단* 입력.
+   */
+  shouldBlockLeadershipConfidence: boolean;
+  /** 운영자 메시지 (한국어/영문 mixed — 텔레그램 메시지 그대로 사용 가능). */
+  operatorMessage: string;
+}
+
+// ─── SSOT 입력 타입 ──────────────────────────────────────────────────────
+
+/**
+ * `evaluateSectorEnergyQualityDiagnostic` 의 입력. 모든 필드 옵셔널 — caller 측 partial 정보 호환.
+ *
+ * 호출자 (sectorEnergyProvider build site) 가 다음 정보 수집 후 전달:
+ *   - validSectorCount (returns.length>0 인 섹터 수)
+ *   - expectedSectorCount (default 12)
+ *   - totalSectorRows (today index rows length)
+ *   - rowsWithIndexCode (today rows 중 indexCode 있는 row 수)
+ *   - symmetryValidationPassed (validateIndexResponseSymmetry().valid)
+ *   - fallbackUsed (build path 가 fallback 채택했는지)
+ *   - sourceTier (옵셔널, ADR-0396 4-axis 분리 수행 시)
+ *   - cacheAgeMs (옵셔널, CACHE fallback path 만)
+ */
+export interface EvaluateSectorEnergyQualityInput {
+  validSectorCount: number;
+  expectedSectorCount?: number;
+  totalSectorRows: number;
+  rowsWithIndexCode: number;
+  symmetryValidationPassed: boolean;
+  fallbackUsed?: SectorEnergyFallbackUsed;
+  sourceTier?: string;
+  cacheAgeMs?: number;
+}
+
+// ─── 임계 SSOT (ADR-0423 §C 사용자 명시 정합 — 절대 변경 금지) ──────────────
+
+/**
+ * 사용자 §C 권장 분류 임계.
+ *
+ * 절대 변경 금지: 본 임계는 *진단 분류만* 결정 — 매매 결정 무관.
+ *
+ * - INDEX_CODE_COVERAGE_LOW_THRESHOLD: 0.8 미만 → DEGRADED 분류 (사용자 §C 명시).
+ * - VALID_SECTOR_COUNT_LOW_THRESHOLD: 9 미만 → reasons 에 VALID_SECTOR_COUNT_LOW 첨부 (ADR-0396 PARTIAL_MIN 정합).
+ * - CACHE_STALE_THRESHOLD_MS: 4h 초과 → CACHE_STALE 첨부 (ADR-0396 EXPIRED 정합).
+ */
+export const SECTOR_ENERGY_QUALITY_THRESHOLDS = Object.freeze({
+  INDEX_CODE_COVERAGE_LOW_THRESHOLD: 0.8,
+  VALID_SECTOR_COUNT_LOW_THRESHOLD: 9,
+  CACHE_STALE_THRESHOLD_MS: 4 * 60 * 60 * 1000, // 4h — ADR-0396 EXPIRED 정합
+} as const);
+
+// ─── 헬퍼 SSOT ────────────────────────────────────────────────────────────
+
+/**
+ * indexCodeCoverage = rowsWithIndexCode / totalSectorRows, clamp [0, 1].
+ *
+ * 사용자 §C 명시 — totalSectorRows === 0 → 0 (DATA_UNAVAILABLE 분기 caller 측 처리).
+ * NaN/Infinity/음수 → 0 안전 fallback.
+ */
+export function computeIndexCodeCoverage(rowsWithIndexCode: number, totalSectorRows: number): number {
+  if (!Number.isFinite(rowsWithIndexCode) || rowsWithIndexCode < 0) return 0;
+  if (!Number.isFinite(totalSectorRows) || totalSectorRows <= 0) return 0;
+  const ratio = rowsWithIndexCode / totalSectorRows;
+  if (!Number.isFinite(ratio)) return 0;
+  return Math.max(0, Math.min(1, ratio));
+}
+
+/** missingIndexCodeCount = max(0, totalSectorRows - rowsWithIndexCode). */
+export function computeMissingIndexCodeCount(rowsWithIndexCode: number, totalSectorRows: number): number {
+  if (!Number.isFinite(totalSectorRows) || totalSectorRows < 0) return 0;
+  if (!Number.isFinite(rowsWithIndexCode) || rowsWithIndexCode < 0) return Math.floor(totalSectorRows);
+  return Math.max(0, Math.floor(totalSectorRows - rowsWithIndexCode));
+}
+
+/**
+ * 사용자 §H — leadership confidence 차단 결정 SSOT.
+ *
+ * dataQuality 가 OK 또는 PARTIAL 이면 차단 안 함 (보조 신호 가능). 그 외 (PARTIAL_VOLUME / STALE
+ * / DEGRADED / FAILED) 모두 차단.
+ *
+ * NOTE: PARTIAL_VOLUME 은 STRONG_BUY 만 차단 (BUY 까지는 허용, ADR-0415) — 본 차단 결정은
+ *   *leadership confidence layer* 만 영향 (Gate2 완화 권고 차단). 일반 BUY 매수 흐름 영향 없음.
+ */
+export function shouldBlockLeadershipConfidence(dataQuality: SectorEnergyDataQuality5): boolean {
+  return !(dataQuality === 'OK' || dataQuality === 'PARTIAL');
+}
+
+/**
+ * 사용자 §D 권장 — operatorMessage 합성 SSOT.
+ *
+ * dataQuality + reasons 조합으로 운영자 친화 한국어/영문 mixed 메시지 합성.
+ * 텔레그램 메시지 그대로 사용 가능 (HTML escape 불필요 — 일반 텍스트).
+ */
+export function buildOperatorMessage(
+  dataQuality: SectorEnergyDataQuality5,
+  reasons: SectorEnergyQualityReason[],
+  indexCodeCoverage: number,
+  fallbackUsed: SectorEnergyFallbackUsed,
+): string {
+  if (dataQuality === 'OK' && reasons.length === 1 && reasons[0] === 'OK') {
+    return 'sector-index leadership data is healthy.';
+  }
+  const parts: string[] = [];
+  if (reasons.includes('SOURCE_EMPTY')) {
+    parts.push('sector-index source is empty (KRX OpenAPI returned no rows)');
+  }
+  if (reasons.includes('INDEX_CODE_COVERAGE_ZERO')) {
+    parts.push(
+      `sector indexCode coverage is ${(indexCodeCoverage * 100).toFixed(1)}%; stock-daily fallback is not equivalent to sector-index leadership`,
+    );
+  } else if (reasons.includes('INDEX_CODE_COVERAGE_LOW')) {
+    parts.push(`sector indexCode coverage is ${(indexCodeCoverage * 100).toFixed(1)}% (< 80%)`);
+  }
+  if (reasons.includes('SYMMETRY_VALIDATION_FAILED') && !reasons.includes('INDEX_CODE_COVERAGE_ZERO')) {
+    parts.push('sector ↔ stock symmetry validation failed');
+  }
+  if (reasons.includes('VALID_SECTOR_COUNT_LOW')) {
+    parts.push('valid sector count is below the partial threshold');
+  }
+  if (fallbackUsed === 'STOCK_DAILY') {
+    parts.push('stock-daily fallback used only for degraded diagnostics');
+  } else if (fallbackUsed === 'ETF') {
+    parts.push('Yahoo ETF fallback used (foreign concentration / volume change unavailable)');
+  } else if (fallbackUsed === 'CACHE') {
+    parts.push('cached sector data used (not today)');
+  }
+  if (reasons.includes('CACHE_STALE')) {
+    parts.push('cache age exceeds 4h');
+  }
+  if (parts.length === 0) {
+    return `sector-energy data quality degraded to ${dataQuality}; operator review recommended.`;
+  }
+  return parts.join('; ') + '.';
+}
+
+// ─── 결정 트리 SSOT (사용자 §C 정합 — 절대 변경 금지) ────────────────────
+
+/**
+ * ADR-0423: SectorEnergy quality 진단 결정 트리 SSOT.
+ *
+ * 사용자 §C 결정 트리 (위에서 아래 첫 매칭, 절대 변경 금지):
+ *   1. totalSectorRows === 0                      → DATA_UNAVAILABLE 의미 (FAILED + SOURCE_EMPTY)
+ *   2. indexCodeCoverage === 0                    → STALE + INDEX_CODE_COVERAGE_ZERO + INDEX_CODE_MISSING
+ *   3. indexCodeCoverage < 0.8                    → DEGRADED + INDEX_CODE_COVERAGE_LOW
+ *   4. !symmetryValidationPassed                  → STALE 또는 DEGRADED + SYMMETRY_VALIDATION_FAILED
+ *   5. fallbackUsed !== 'NONE'                    → PARTIAL + STOCK_DAILY/ETF/CACHE_FALLBACK_USED
+ *   6. validSectorCount < 9                       → STALE + VALID_SECTOR_COUNT_LOW (ADR-0396 PARTIAL_MIN)
+ *   7. cacheAgeMs > 4h                            → reasons 에 CACHE_STALE 첨부
+ *   8. 그 외                                       → OK
+ *
+ * 핵심 불변식 (사용자 명시):
+ *   - indexCodeCoverage=0 시 OK/PARTIAL 절대 금지 (#2).
+ *   - symmetry failed 시 OK 절대 금지 (#4).
+ *   - fallback 사용 시 OK 절대 금지 (#5).
+ *
+ * 외부 부작용 0 (순수 함수).
+ */
+export function evaluateSectorEnergyQualityDiagnostic(
+  input: EvaluateSectorEnergyQualityInput,
+): SectorEnergyQualityDiagnostic {
+  const expectedSectorCount = input.expectedSectorCount ?? 12;
+  const fallbackUsed: SectorEnergyFallbackUsed = input.fallbackUsed ?? 'NONE';
+  const indexCodeCoverage = computeIndexCodeCoverage(input.rowsWithIndexCode, input.totalSectorRows);
+  const missingIndexCodeCount = computeMissingIndexCodeCount(input.rowsWithIndexCode, input.totalSectorRows);
+
+  const reasons: SectorEnergyQualityReason[] = [];
+  let dataQuality: SectorEnergyDataQuality5;
+
+  // ① totalSectorRows === 0 → SOURCE_EMPTY (FAILED 분류 — DATA_UNAVAILABLE 의미)
+  if (!Number.isFinite(input.totalSectorRows) || input.totalSectorRows <= 0) {
+    reasons.push('SOURCE_EMPTY');
+    dataQuality = 'FAILED';
+  }
+  // ② indexCodeCoverage === 0 → STALE + INDEX_CODE_COVERAGE_ZERO + INDEX_CODE_MISSING
+  else if (indexCodeCoverage === 0) {
+    reasons.push('INDEX_CODE_COVERAGE_ZERO');
+    reasons.push('INDEX_CODE_MISSING');
+    dataQuality = 'STALE';
+    // symmetry failed 도 동시에 발생했으면 첨부 (분리 진단)
+    if (!input.symmetryValidationPassed) {
+      reasons.push('SYMMETRY_VALIDATION_FAILED');
+    }
+    // fallback 사용 시 첨부 (사용자 §E — STALE 우세 + fallback 동시 표시)
+    if (fallbackUsed === 'STOCK_DAILY') reasons.push('STOCK_DAILY_FALLBACK_USED');
+    else if (fallbackUsed === 'ETF') reasons.push('ETF_FALLBACK_USED');
+  }
+  // ③ indexCodeCoverage < 0.8 → DEGRADED + INDEX_CODE_COVERAGE_LOW
+  else if (indexCodeCoverage < SECTOR_ENERGY_QUALITY_THRESHOLDS.INDEX_CODE_COVERAGE_LOW_THRESHOLD) {
+    reasons.push('INDEX_CODE_COVERAGE_LOW');
+    dataQuality = 'DEGRADED';
+    if (!input.symmetryValidationPassed) reasons.push('SYMMETRY_VALIDATION_FAILED');
+    if (fallbackUsed === 'STOCK_DAILY') reasons.push('STOCK_DAILY_FALLBACK_USED');
+    else if (fallbackUsed === 'ETF') reasons.push('ETF_FALLBACK_USED');
+  }
+  // ④ !symmetryValidationPassed → STALE + SYMMETRY_VALIDATION_FAILED
+  else if (!input.symmetryValidationPassed) {
+    reasons.push('SYMMETRY_VALIDATION_FAILED');
+    dataQuality = 'STALE';
+    if (fallbackUsed === 'STOCK_DAILY') reasons.push('STOCK_DAILY_FALLBACK_USED');
+    else if (fallbackUsed === 'ETF') reasons.push('ETF_FALLBACK_USED');
+  }
+  // ⑤ fallbackUsed !== 'NONE' (symmetry OK + coverage 충분) → PARTIAL
+  else if (fallbackUsed !== 'NONE') {
+    if (fallbackUsed === 'STOCK_DAILY') reasons.push('STOCK_DAILY_FALLBACK_USED');
+    else if (fallbackUsed === 'ETF') reasons.push('ETF_FALLBACK_USED');
+    else if (fallbackUsed === 'CACHE') reasons.push('CACHE_STALE');
+    dataQuality = 'PARTIAL';
+  }
+  // ⑥ validSectorCount < 9 (PARTIAL_MIN) → STALE + VALID_SECTOR_COUNT_LOW
+  else if (
+    Number.isFinite(input.validSectorCount) &&
+    input.validSectorCount < SECTOR_ENERGY_QUALITY_THRESHOLDS.VALID_SECTOR_COUNT_LOW_THRESHOLD
+  ) {
+    reasons.push('VALID_SECTOR_COUNT_LOW');
+    dataQuality = 'STALE';
+  }
+  // ⑦ 그 외 — OK
+  else {
+    reasons.push('OK');
+    dataQuality = 'OK';
+  }
+
+  // CACHE_STALE 추가 첨부 (cacheAgeMs > 4h, 다른 reasons 와 동시 가능)
+  if (
+    input.cacheAgeMs !== undefined &&
+    Number.isFinite(input.cacheAgeMs) &&
+    input.cacheAgeMs > SECTOR_ENERGY_QUALITY_THRESHOLDS.CACHE_STALE_THRESHOLD_MS &&
+    !reasons.includes('CACHE_STALE')
+  ) {
+    reasons.push('CACHE_STALE');
+    if (dataQuality === 'OK') dataQuality = 'PARTIAL';
+  }
+
+  const operatorMessage = buildOperatorMessage(dataQuality, reasons, indexCodeCoverage, fallbackUsed);
+
+  return {
+    dataQuality,
+    reasons,
+    validSectorCount: Number.isFinite(input.validSectorCount) ? Math.max(0, Math.floor(input.validSectorCount)) : 0,
+    expectedSectorCount,
+    indexCodeCoverage,
+    missingIndexCodeCount,
+    totalSectorRows: Number.isFinite(input.totalSectorRows) ? Math.max(0, Math.floor(input.totalSectorRows)) : 0,
+    ...(input.sourceTier ? { sourceTier: input.sourceTier } : {}),
+    fallbackUsed,
+    symmetryValidationPassed: Boolean(input.symmetryValidationPassed),
+    shouldBlockLeadershipConfidence: shouldBlockLeadershipConfidence(dataQuality),
+    operatorMessage,
+  };
+}
+
+// ─── /scan_blockers SectorEnergy 섹션 포맷터 (사용자 §F) ─────────────────
+
+/**
+ * ADR-0423: /scan_blockers 메시지 SectorEnergy 진단 섹션 SSOT.
+ *
+ * `diagnostic` undefined 시 null (정상 시 미노출, 호출자 측 fallback 가능).
+ *
+ * 사용자 §F 표시 정책:
+ *   - dataQuality / validSectorCount / indexCodeCoverage / missingIndexCodeCount /
+ *     symmetryValidation / fallbackUsed / reasons (Top 3) / leadershipConfidence / operatorAction
+ *   - 텔레그램 메시지 길이 제한 — Top 3 reasons 만.
+ *
+ * 사용자 명시 정책:
+ *   - "매수 차단" 표현 금지 — 진단 only.
+ *   - operatorAction = "sector indexCode mapping/provider cache 점검 우선".
+ */
+export function formatSectorEnergyQualityDiagnosticSection(
+  diagnostic: SectorEnergyQualityDiagnostic | null | undefined,
+): string | null {
+  if (!diagnostic) return null;
+
+  const lines: string[] = [];
+  lines.push('🌐 <b>SectorEnergy 진단 (ADR-0423):</b>');
+  lines.push(`  • dataQuality: ${diagnostic.dataQuality}`);
+  lines.push(`  • validSectorCount: ${diagnostic.validSectorCount}/${diagnostic.expectedSectorCount}`);
+  lines.push(`  • indexCodeCoverage: ${(diagnostic.indexCodeCoverage * 100).toFixed(1)}%`);
+  lines.push(`  • missingIndexCodeCount: ${diagnostic.missingIndexCodeCount}/${diagnostic.totalSectorRows}`);
+  lines.push(`  • symmetryValidation: ${diagnostic.symmetryValidationPassed ? 'PASSED' : 'FAILED'}`);
+  lines.push(`  • fallbackUsed: ${diagnostic.fallbackUsed}`);
+
+  // Top 3 reasons (텔레그램 메시지 길이 제한)
+  const filteredReasons = diagnostic.reasons.filter((r) => r !== 'OK');
+  if (filteredReasons.length > 0) {
+    lines.push('  • reasons:');
+    const topReasons = filteredReasons.slice(0, 3);
+    topReasons.forEach((r, i) => {
+      lines.push(`    ${i + 1}. ${r}`);
+    });
+    if (filteredReasons.length > 3) {
+      lines.push(`    ... 외 ${filteredReasons.length - 3}건`);
+    }
+  }
+
+  lines.push(`  • leadershipConfidence: ${diagnostic.shouldBlockLeadershipConfidence ? 'BLOCKED' : 'OK'}`);
+
+  if (diagnostic.shouldBlockLeadershipConfidence) {
+    lines.push('  • operatorAction: sector indexCode mapping/provider cache 점검 우선');
+  }
+
+  if (diagnostic.operatorMessage) {
+    lines.push('');
+    lines.push(`  <i>${diagnostic.operatorMessage}</i>`);
+  }
+
+  return lines.join('\n');
+}

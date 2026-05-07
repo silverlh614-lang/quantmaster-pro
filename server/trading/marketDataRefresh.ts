@@ -763,6 +763,8 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   let sectorEnergyCoverage: number | undefined;
   let sectorEnergyConfidence: number | undefined;
   let sectorEnergyDiagnostics: NonNullable<typeof existing.sectorEnergyDiagnostics> | undefined;
+  // ADR-0423: SectorEnergy 데이터 진실성 진단 (옵셔널, sectorEnergyProvider build 결과에서 직접 부착).
+  let sectorEnergyQualityDiagnostic: NonNullable<typeof existing.sectorEnergyQualityDiagnostic> | undefined;
   try {
     // ADR-0125: WithMeta 사용 — symmetry 검증 + dataQuality 동시 산출 (캐시 우회).
     // ADR-0399: WithMetaWithFallback 으로 격상 — L1 KRX_CODE → L2 STOCK_DAILY → L3 CACHE → L4 YAHOO_ETF.
@@ -771,6 +773,10 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     sectorEnergyDataQuality = meta.dataQuality;
     sectorEnergyValidSectorCount = meta.validSectorCount;
     sectorEnergyReasons = meta.reasons;
+    // ADR-0423: quality diagnostic — provider 가 모든 return site 에서 부착. type union 정합.
+    if (meta.qualityDiagnostic) {
+      sectorEnergyQualityDiagnostic = meta.qualityDiagnostic;
+    }
 
     // ADR-0399: meta.diagnostics + meta.sourceTier 가 부착되어 있으면 4-axis 영속.
     if (meta.diagnostics) {
@@ -862,6 +868,8 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
           ...(sectorEnergyCoverage !== undefined ? { sectorEnergyCoverage } : {}),
           ...(sectorEnergyConfidence !== undefined ? { sectorEnergyConfidence } : {}),
           ...(sectorEnergyDiagnostics !== undefined ? { sectorEnergyDiagnostics } : {}),
+          // ADR-0423: SectorEnergy 데이터 진실성 진단 영속 (옵셔널, 후방호환).
+          ...(sectorEnergyQualityDiagnostic !== undefined ? { sectorEnergyQualityDiagnostic } : {}),
         }
       : {}),
     // 사이클 분류가 가능했을 때만 덮어쓰기 — 실패 시 이전 stage / RS 유지.
