@@ -2,10 +2,8 @@
 import fs from 'fs';
 import { WATCHLIST_FILE, ensureDataDir } from './paths.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import {
-  isEmergencyWatchlistCodeGuardEnabled,
-  normalizeKrxCode,
-} from '../dataQuality/emergencyDataQualityGuards.js';
+import { isEmergencyWatchlistCodeGuardEnabled } from '../dataQuality/emergencyDataQualityGuards.js';
+import { normalizeKrxCode } from '../utils/symbolNormalizer.js';
 
 /**
  * 워치리스트 섹션 — 신호 품질에 따라 매매 파라미터를 차등 적용
@@ -421,11 +419,13 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
   // ADR-0184 (PR-B12-A) — invalid KRX code filter (site 2 watchlist sanity).
   // `0070X0` 같은 잘못된 code 가 watchlist 에 영원히 박제되던 결함 영구 차단.
   // default ON. ENV `EMERGENCY_WATCHLIST_CODE_GUARD_DISABLED=true` 시 legacy 동작.
+  // ADR-0440 — `normalizeKrxCode` SSOT (`server/utils/symbolNormalizer`) 직접 import,
+  // deprecated wrapper 경유 폐기. `.valid` 명시로 NormalizedKrxSymbol 격상 반영.
   const filtered: WatchlistEntry[] = [];
   let droppedInvalidCodes = 0;
   if (isEmergencyWatchlistCodeGuardEnabled()) {
     for (const entry of list) {
-      if (normalizeKrxCode(entry.code) !== null) {
+      if (normalizeKrxCode(entry.code).valid) {
         filtered.push(entry);
       } else {
         droppedInvalidCodes++;

@@ -42,10 +42,8 @@ import { fillMonitor } from './fillMonitor.js';
 import { appendShadowLog } from '../persistence/shadowTradeRepo.js';
 import { getLatestIncidentAt } from '../persistence/incidentLogRepo.js';
 import { assertSafeOrder } from './preOrderGuard.js';
-import {
-  isEmergencyBuyPipelineCodeGuardEnabled,
-  normalizeKrxCode,
-} from '../dataQuality/emergencyDataQualityGuards.js';
+import { isEmergencyBuyPipelineCodeGuardEnabled } from '../dataQuality/emergencyDataQualityGuards.js';
+import { normalizeKrxCode } from '../utils/symbolNormalizer.js';
 import { getSmokeTestLiveBlocked, getSmokeTestLastFailedReason } from '../state.js';
 import { lastManualExitAtForCode } from '../persistence/manualExitsRepo.js';
 import {
@@ -330,7 +328,9 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
   // ENV `EMERGENCY_BUY_PIPELINE_CODE_GUARD_DISABLED=true` 시 legacy 동작.
   // 잘못된 code (예: `0070X0`) 가 우회 경로로 진입 시 즉시 SKIP — throw 가 아닌 early SKIP
   // 패턴으로 매수 흐름 차단 위험 격리. site 2 (watchlist) 와 정합.
-  if (isEmergencyBuyPipelineCodeGuardEnabled() && normalizeKrxCode(p.stockCode) === null) {
+  // ADR-0440 — `normalizeKrxCode` SSOT (`server/utils/symbolNormalizer`) 직접 import,
+  // deprecated wrapper 경유 폐기. `!.valid` 명시로 NormalizedKrxSymbol 격상 반영.
+  if (isEmergencyBuyPipelineCodeGuardEnabled() && !normalizeKrxCode(p.stockCode).valid) {
     console.warn(
       `[BuyPipeline/CodeGuard] invalid KRX code 자동 SKIP — code="${p.stockCode}" name="${p.stockName}" (ADR-0185)`,
     );
