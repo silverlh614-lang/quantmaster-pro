@@ -156,6 +156,20 @@ export function isKisWsSubscriptionPriorityDisabled(): boolean {
   return process.env.KIS_WS_SUBSCRIPTION_PRIORITY_DISABLED === 'true';
 }
 
+/**
+ * ADR-0442 — 진단 섹션 노출 ENV gate (default OFF).
+ *
+ * ADR-0157 정확 비교 의무 (`'1'` / `'TRUE'` / `'yes'` 거부).
+ *
+ * 활성 시 `/scan_blockers` 와 `/health` 명령에서 KIS WebSocket Subscription
+ * 진단 섹션 미노출 (운영자 표시 비활성화). ADR-0437 SSOT 본체는 그대로 작동 —
+ * `buildSubscriptionDiagnosis` / `formatKisWsSubscriptionSection` 호출 자체는
+ * 호출자 측 분기로만 차단.
+ */
+export function isKisWsSubscriptionDiagDisabled(): boolean {
+  return process.env.KIS_WS_SUBSCRIPTION_DIAG_DISABLED === 'true';
+}
+
 // ── invalid KRX code guard (ADR-0438 SSOT 위임) ────────────────────────────
 
 /**
@@ -617,7 +631,10 @@ export function buildSubscriptionDiagnosis(
 }
 
 /**
- * /scan_blockers 또는 /health 임베드용 SSOT (호출자 wiring 은 후속 PR).
+ * /scan_blockers 또는 /health 임베드용 SSOT.
+ *
+ * ADR-0442 — `/scan_blockers` (full section) 와 `/health` (compact line) 양 명령
+ * wiring 정착. 운영자 슬롯 분배 가시화 (open/live/shadow/watchlist/observe/rejected/evicted).
  *
  * 사용자 §8 명시 형식:
  *   [KIS-WS] subscription summary total=30 open=2 live=5 shadow=8 watchlist=10 observe=5 rejected=12
