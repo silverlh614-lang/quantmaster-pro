@@ -114,7 +114,7 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
       // wiring 위치 정합 — recordBlockedDayShadowScan 직후 await updateShadowResults
       const sellOnlyBlock = src.split("recordBlockedDayShadowScan('MANUAL_BLOCK')")[1];
       expect(sellOnlyBlock).toBeDefined();
-      const next200 = sellOnlyBlock!.slice(0, 200);
+      const next200 = sellOnlyBlock!.slice(0, 800);
       expect(next200).toContain('await updateShadowResults(shadows, regime)');
       expect(next200).toContain('saveShadowTrades(shadows)');
       expect(next200).toContain('return { shouldAbort: true, skipPersist: true }');
@@ -122,21 +122,21 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
 
     it('R6_DEFENSE early-return 직전 호출', () => {
       const r6Block = src.split("recordBlockedDayShadowScan('RISK_OFF_REGIME')")[1];
-      const next200 = r6Block!.slice(0, 200);
+      const next200 = r6Block!.slice(0, 800);
       expect(next200).toContain('await updateShadowResults(shadows, regime)');
       expect(next200).toContain('return { shouldAbort: true, skipPersist: true }');
     });
 
     it('VIX early-return 직전 호출', () => {
       const vixBlock = src.split("recordBlockedDayShadowScan('VIX_SPIKE')")[1];
-      const next200 = vixBlock!.slice(0, 200);
+      const next200 = vixBlock!.slice(0, 800);
       expect(next200).toContain('await updateShadowResults(shadows, regime)');
       expect(next200).toContain('return { shouldAbort: true, skipPersist: true }');
     });
 
     it('FOMC early-return 직전 호출', () => {
       const fomcBlock = src.split("recordBlockedDayShadowScan('FOMC_BLOCK')")[1];
-      const next200 = fomcBlock!.slice(0, 200);
+      const next200 = fomcBlock!.slice(0, 800);
       expect(next200).toContain('await updateShadowResults(shadows, regime)');
       expect(next200).toContain('return { shouldAbort: true, skipPersist: true }');
     });

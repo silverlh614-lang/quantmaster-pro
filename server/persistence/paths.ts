@@ -347,6 +347,31 @@ export const COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE = path.join(
   'counterfactual-shadow-learning-ledger.json',
 );
 /**
+ * Counterfactual Universe Learning Ledger 영속 (ADR-0433).
+ *
+ * SELL_ONLY / HARD_BLOCK / R6_DEFENSE / VIX / FOMC / emergencyStop / volumeClock-closed
+ * preflight abort 시 후보별 평가까지 도달하지 못한 *universe 컨텍스트* 자체를
+ * learning-only snapshot 으로 보존. 사용자 §"이번 PR의 목표" 직접 정합 —
+ * "이 시각에 어떤 universe/candidate pool 이 있었고, 왜 preflight 에서 차단됐는지"
+ * 를 학습 데이터로 남긴다.
+ *
+ * **절대 분리** (사용자 §"절대 하지 말 것" #9/#10/#11 정합):
+ *   - shadow-trades.json (일반 shadow buy)              ≠ COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE
+ *   - provisional-shadow-ledger.json (ADR-0427)         ≠ COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE
+ *   - counterfactual-shadow-learning-ledger.json (0430) ≠ COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE
+ *
+ * 책임 분리 (사용자 §I): ADR-0430 = 후보별 candidate-level entry / ADR-0433 = preflight 단계
+ * universe-level snapshot. 동일 scanId 에 후보별 record 가 이미 존재하면 universe snapshot
+ * 은 record 하지 않음 (호출자 측 dedup).
+ *
+ * dedup key: `${scanId}:ADR-0433:${preflightStage}` (또는 KST `YYYYMMDDHHmm` fallback).
+ * FIFO 2000 trim. atomic write (tmp→rename). virtual account holdings/cash 무관.
+ */
+export const COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE = path.join(
+  DATA_DIR,
+  'counterfactual-universe-learning-ledger.json',
+);
+/**
  * TradeSignalStatus 상태머신 영속 (ADR-0077).
  * AI 추천 → 데이터 검증 → 리스크 승인 → 사용자 승인 → 자동매매 직전 6단계 상태 전이를
  * 영속해 운영자가 "이 종목이 어느 단계에서 멈췄는지" 즉시 추적 가능하게 한다.

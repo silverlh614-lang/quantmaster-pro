@@ -36,6 +36,12 @@ import {
   buildShadowLearningPromotionRecommendations,
   formatShadowLearningPromotionSummaryLine,
 } from '../../../learning/shadowLearningPromotionRecommendation.js';
+// ADR-0433 — universe-level preflight learning snapshot 요약.
+// read-only — universe ledger 만 read, LIVE 매매 무영향.
+import {
+  formatCounterfactualUniverseLearningSummarySection,
+  summarizeCounterfactualUniverseLearningLedger,
+} from '../../../persistence/counterfactualUniverseLearningRepo.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -119,10 +125,25 @@ const scanBlockers: TelegramCommand = {
       );
     }
 
+    // ADR-0433 — universe-level preflight learning snapshot 요약 섹션.
+    // read-only + 외부 API 호출 0 (universe ledger 만 read).
+    // try/catch 격리 — ledger throw 가 진단 메시지 자체 차단 안 함.
+    let universeSection: string | null = null;
+    try {
+      const universeSummary = summarizeCounterfactualUniverseLearningLedger();
+      universeSection = formatCounterfactualUniverseLearningSummarySection(universeSummary);
+    } catch (err) {
+      console.warn(
+        '[scan_blockers] counterfactual universe learning 섹션 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
+        err,
+      );
+    }
+
     const parts: string[] = [baseMessage];
     if (degradedSection) parts.push(degradedSection);
     if (counterfactualLine) parts.push(counterfactualLine);
     if (promotionLine) parts.push(promotionLine);
+    if (universeSection) parts.push(universeSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);
   },
