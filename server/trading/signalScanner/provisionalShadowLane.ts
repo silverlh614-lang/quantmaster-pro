@@ -230,6 +230,10 @@ export interface ProvisionalShadowSectionInput {
   eligible: number;
   /** created (= 실제 영속 등록 수, 호출자가 별도 합산). 본 PR scope 미연결 시 eligible 와 동일. */
   created?: number;
+  /** ADR-0427 — skipped (= 영속 시도 중 dedup/ENV 등으로 건너뛴 수). */
+  skipped?: number;
+  /** ADR-0427 — skip 사유 분포 (DUPLICATE / ENV_DISABLED / PERSIST_ERROR 등). */
+  skipReasons?: Record<string, number>;
   /** Top reasons 빈도 내림차순 (Top 3~5). */
   topReasons?: ProvisionalShadowReason[];
   /** dominant label (가장 많이 발생한 라벨). */
@@ -243,17 +247,30 @@ export function formatProvisionalShadowSection(
 ): string | null {
   if (!input) return null;
   const lines: string[] = [];
-  lines.push('🌱 <b>R3 Provisional Shadow Lane (ADR-0426)</b>');
+  lines.push('🌱 <b>R3 Provisional Shadow Lane (ADR-0426 / ADR-0427 wiring)</b>');
   lines.push(`  • eligible: <b>${input.eligible}</b>`);
   lines.push(`  • created: <b>${input.created ?? input.eligible}</b>`);
+  if (input.skipped !== undefined && input.skipped > 0) {
+    lines.push(`  • skipped: <b>${input.skipped}</b>`);
+    if (input.skipReasons) {
+      const reasons = Object.entries(input.skipReasons)
+        .filter(([, n]) => n > 0)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3);
+      if (reasons.length > 0) {
+        lines.push(`  • skipReasons: ${reasons.map(([k, n]) => `${k}=${n}`).join(', ')}`);
+      }
+    }
+  }
   lines.push(`  • lanes: live=❌ shadow=✅ watch=✅`);
 
   if (input.eligible === 0) {
     if (input.noEligibleReason) {
-      lines.push(`  • reason: <i>${input.noEligibleReason}</i>`);
+      lines.push(`  • blockedBy: <i>${input.noEligibleReason}</i>`);
     } else {
-      lines.push(`  • reason: <i>R3_EARLY 후보 없음 또는 HARD_BLOCK</i>`);
+      lines.push(`  • blockedBy: <i>R3_EARLY 후보 없음 또는 HARD_BLOCK</i>`);
     }
+    lines.push(`  • <i>note: HARD_BLOCK / SELL_ONLY 에서는 Shadow 학습도 제한.</i>`);
     return lines.join('\n');
   }
 

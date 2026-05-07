@@ -71,8 +71,10 @@ import {
 //   Router SOFT_DEGRADE/WATCH_ONLY 시점 + Gate1 생존자 → provisional shadow 후보 생성.
 //   LIVE 매매 본체 0줄 변경, KIS 주문 import 0건. 학습 샘플 보존.
 import {
+  type ProvisionalShadowCandidate,
   type ProvisionalShadowSectionInput,
   formatProvisionalShadowSection,
+  summarizeProvisionalShadowCandidates,
 } from './provisionalShadowLane.js';
 
 export interface WaitDistribution {
@@ -276,6 +278,21 @@ export interface ScanCounters {
    * `freshConditionBuckets` 와 책임 분리 — fresh = 전체 outputs / gate2 = Gate1 생존 후보.
    */
   gate2ConditionBuckets: Map<string, Gate2BlockerBucket>;
+  /**
+   * ADR-0427 — R3_EARLY Provisional Shadow Lane 누적기 (옵셔널, 후방호환).
+   *
+   * 사용자 §F — eligible / created / skipped / skipReasons 카운트.
+   * buyListLoop 가 후보별 deriveR3ProvisionalShadowCandidate + recordR3ProvisionalShadowCandidate
+   * 호출 후 결과를 본 카운터에 누적. persistScanResults 가 ScanSummary.provisionalShadowLane 으로
+   * 합성 (ADR-0426 summarizeProvisionalShadowCandidates 와 책임 분리 — 본 카운터는
+   * *영속 실행 결과* 집계, summarize 헬퍼는 *후보 metadata* 합성).
+   */
+  provisionalShadowEligible: number;
+  provisionalShadowCreated: number;
+  provisionalShadowSkipped: number;
+  provisionalShadowSkipReasons: Record<string, number>;
+  /** Top reasons / dominant label 합성을 위한 후보 누적. */
+  provisionalShadowCandidates: ProvisionalShadowCandidate[];
 }
 
 export function createScanCounters(): ScanCounters {
@@ -302,6 +319,12 @@ export function createScanCounters(): ScanCounters {
     freshConditionBuckets: new Map(),
     // ADR-0422 — Gate2 attribution 누적기 빈 Map 초기화 (Gate1 생존 후보만 누적).
     gate2ConditionBuckets: new Map(),
+    // ADR-0427 — Provisional Shadow Lane 카운터 초기화.
+    provisionalShadowEligible: 0,
+    provisionalShadowCreated: 0,
+    provisionalShadowSkipped: 0,
+    provisionalShadowSkipReasons: {},
+    provisionalShadowCandidates: [],
   };
 }
 
@@ -757,6 +780,56 @@ export async function persistScanResults(
   } catch (e) {
     // Router 실패가 ScanSummary 영속을 차단해서는 안 됨 — try/catch 격리.
     console.warn('[GateDecisionRouter] derive 실패 (영속 무영향)', e);
+  }
+
+  // ADR-0427 — Provisional Shadow Lane 카운터 → ScanSummary 합성 (옵셔널, 후방호환).
+  // buyListLoop 가 후보별 영속 결과를 ScanCounters 에 누적 → 본 시점에서 합산.
+  // 카운터 0 이어도 noEligibleReason 으로 운영자에게 *왜 0 인가* 표시 가능.
+  try {
+    const candidates = counters.provisionalShadowCandidates ?? [];
+    const eligible = counters.provisionalShadowEligible ?? 0;
+    const created = counters.provisionalShadowCreated ?? 0;
+    const skipped = counters.provisionalShadowSkipped ?? 0;
+    if (eligible > 0 || created > 0 || skipped > 0) {
+      const summary = summarizeProvisionalShadowCandidates(candidates);
+      summaryDraft.provisionalShadowLane = {
+        ...summary,
+        eligible,
+        created,
+      };
+      // skipped 정보는 별도 필드 노출 — formatter 가 표시.
+      (summaryDraft.provisionalShadowLane as ProvisionalShadowSectionInput & {
+        skipped?: number;
+        skipReasons?: Record<string, number>;
+      }).skipped = skipped;
+      (summaryDraft.provisionalShadowLane as ProvisionalShadowSectionInput & {
+        skipped?: number;
+        skipReasons?: Record<string, number>;
+      }).skipReasons = counters.provisionalShadowSkipReasons;
+    } else {
+      // eligible=0 시 noEligibleReason 합성 (HARD_BLOCK / no Gate1 survivor / true weakness)
+      const router = summaryDraft.gateDecisionRouter;
+      let reason: string | undefined;
+      if (router?.severity === 'HARD_BLOCK') {
+        const top = router.reasons?.[0];
+        reason = top ? `HARD_BLOCK / ${top}` : 'HARD_BLOCK';
+      } else if (router?.severity === 'TRUE_WEAKNESS') {
+        reason = 'TRUE_WEAKNESS — Shadow 학습도 차단';
+      } else if ((counters.gate1Pass ?? 0) === 0) {
+        reason = 'no Gate1 survivor';
+      } else if (routerInput.regime !== 'R3_EARLY') {
+        reason = `regime=${routerInput.regime ?? 'UNKNOWN'} — R3_EARLY 외 차단`;
+      }
+      if (reason !== undefined) {
+        summaryDraft.provisionalShadowLane = {
+          eligible: 0,
+          created: 0,
+          noEligibleReason: reason,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('[ProvisionalShadowLane] summarize 실패 (영속 무영향)', e);
   }
 
   _lastScanSummary = summaryDraft;

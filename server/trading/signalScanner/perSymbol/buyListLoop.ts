@@ -110,6 +110,12 @@ import {
   accumulateFreshConditionOutputs,
   accumulateGate2ConditionOutputs,
 } from '../scanDiagnostics.js';
+// ADR-0427 — R3_EARLY Provisional Shadow Lane wiring.
+//   ADR-0426 SSOT (deriveR3ProvisionalShadowCandidate) 호출 + provisionalShadowLedger 영속.
+//   LIVE 매매 본체 0줄 변경, KIS 주문 import 0건. Gate1 survivor 분기 직후 try/catch 격리.
+import { deriveR3ProvisionalShadowCandidate } from '../provisionalShadowLane.js';
+import { recordR3ProvisionalShadowCandidate } from '../../../persistence/provisionalShadowLedger.js';
+import { deriveGateDecisionRouterResult } from '../gateDecisionRouter.js';
 import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
 // ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
@@ -1067,6 +1073,85 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           console.warn('[Adr0422Gate2Attribution] accumulate 실패 — 매수 흐름 무영향:', e);
         }
       }
+
+      // ── ADR-0427 — R3_EARLY Provisional Shadow Lane wiring ──────────────
+      // ADR-0426 SSOT (deriveR3ProvisionalShadowCandidate) 호출 + provisionalShadowLedger
+      // 영속. R3_EARLY + Gate1 생존자 + HARD_BLOCK 없음 + Router SOFT_DEGRADE/WATCH_ONLY
+      // 시점에만 후보 생성. try/catch 격리 — 영속 실패가 매수 흐름 차단 안 함.
+      // KIS 주문 함수 5종 import 0건 (정적 grep 가드). LIVE 매매 본체 0줄 변경.
+      try {
+        if (ctx.regime === 'R3_EARLY' && isGate1Survivor && reCheckGate?.outputs) {
+          // 종목별 Router 결과 — 매크로 게이트 + Gate2 미통과 (gate2Pass=0 가정,
+          // gate2Passed=false literal). Router 호출은 후보 단위 lightweight (외부 호출 0).
+          const macroState = ctx.macroState;
+          // 가장 최근 종목별 Router 평가 — buyListLoop wiring scope 에서는 전체 macro
+          // riskFlags 만 활용 (stock 별 liquidity/RRR 은 후속 PR scope).
+          const routerResult = deriveGateDecisionRouterResult({
+            regime: ctx.regime,
+            gate1Pass: 1,         // 본 후보 자체가 Gate1 생존
+            gate2Pass: 0,         // Gate2 미통과 (provisional 후보 자격)
+            riskFlags: {
+              emergencyStop: undefined,  // signalScanner preflight 에서 이미 차단됨
+              // buyListLoop 진입 자체가 sellOnly 미활성 의미 — preflight 가 사전 차단.
+              sellOnly: false,
+              r6Defense: ctx.regime === ('R6_DEFENSE' as unknown as typeof ctx.regime),
+            },
+            // macroState.sectorEnergyQualityDiagnostic 의 reasons 가 `string[]` 영속 schema —
+            // SectorEnergyQualityReason union 과 byte-equivalent 라 cast 안전.
+            sectorEnergyDiagnostic: macroState?.sectorEnergyQualityDiagnostic as
+              Parameters<typeof deriveR3ProvisionalShadowCandidate>[0]['sectorEnergyDiagnostic'],
+          });
+          const candidate = deriveR3ProvisionalShadowCandidate({
+            symbol: stock.code,
+            name: stock.name,
+            regime: ctx.regime,
+            gate1Passed: true,
+            gate2Passed: false,
+            router: routerResult,
+            // macroState.sectorEnergyQualityDiagnostic 의 reasons 가 `string[]` 영속 schema —
+            // SectorEnergyQualityReason union 과 byte-equivalent 라 cast 안전.
+            sectorEnergyDiagnostic: macroState?.sectorEnergyQualityDiagnostic as
+              Parameters<typeof deriveR3ProvisionalShadowCandidate>[0]['sectorEnergyDiagnostic'],
+            riskFlags: {
+              // buyListLoop 진입 자체가 sellOnly 미활성 의미 — preflight 가 사전 차단.
+              sellOnly: false,
+              r6Defense: false,
+            },
+            nowKst: new Date().toISOString(),
+          });
+          if (candidate !== null) {
+            ctx.scanCounters.provisionalShadowEligible += 1;
+            ctx.scanCounters.provisionalShadowCandidates.push(candidate);
+            const recordResult = recordR3ProvisionalShadowCandidate({
+              candidate,
+              scanId: `${new Date().toISOString().slice(0, 10)}:${stock.code}`,
+              scannedAtKst: new Date().toISOString(),
+              metadata: {
+                ...(macroState?.sectorEnergyDataQuality !== undefined
+                  ? { sectorEnergyDataQuality: String(macroState.sectorEnergyDataQuality) }
+                  : {}),
+                ...(typeof macroState?.sectorEnergyConfidence === 'number'
+                  ? { sectorEnergyConfidence: macroState.sectorEnergyConfidence }
+                  : {}),
+                ...(routerResult.reasons.length > 0
+                  ? { routerReasons: routerResult.reasons.map(String) }
+                  : {}),
+              },
+            });
+            if (recordResult.recorded) {
+              ctx.scanCounters.provisionalShadowCreated += 1;
+            } else {
+              ctx.scanCounters.provisionalShadowSkipped += 1;
+              const reason = recordResult.reason;
+              ctx.scanCounters.provisionalShadowSkipReasons[reason] =
+                (ctx.scanCounters.provisionalShadowSkipReasons[reason] ?? 0) + 1;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[Adr0427ProvisionalShadow] wiring 실패 — 매수 흐름 무영향:', e);
+      }
+
       // ── ADR-0031 PR-59 PoC: entryRevalidationStep RevalidationStep 분기 ───
       // step 자체는 외부 mutation·부수효과 0건 — fail 시 caller 가 stock.entryFailCount,
       // watchlistMutated, scanCounters.gateMisses, stageLog, pushTrace, counterfactual

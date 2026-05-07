@@ -317,6 +317,17 @@ export const STOCK_MASTER_HEALTH_FILE = path.join(DATA_DIR, 'stock-master-health
  * 시 stale fallback 으로 채워 UI flicker 차단. 서버 재배포 후에도 즉시 복구.
  */
 export const MARKET_INDICATORS_SNAPSHOT_FILE = path.join(DATA_DIR, 'market-indicators-snapshot.json');
+
+/**
+ * ADR-0427 — R3_EARLY Provisional Shadow Ledger 영속.
+ *
+ * ADR-0426 provisional shadow eligibility 후보를 *일반 shadow-trades.json 과 분리하여*
+ * 별도 ledger 에 영속. virtual account holdings/cash 무관 — 학습 표본 metadata 만.
+ * 사용자 §D — 일반 shadow buy 와 섞이지 않도록 query/filter 가 쉬운 구조.
+ *
+ * dedup key: `${scanId}:${symbol}:ADR-0426`. FIFO 2000 trim. atomic write.
+ */
+export const PROVISIONAL_SHADOW_LEDGER_FILE = path.join(DATA_DIR, 'provisional-shadow-ledger.json');
 /**
  * TradeSignalStatus 상태머신 영속 (ADR-0077).
  * AI 추천 → 데이터 검증 → 리스크 승인 → 사용자 승인 → 자동매매 직전 6단계 상태 전이를
