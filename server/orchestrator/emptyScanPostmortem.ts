@@ -30,6 +30,9 @@ import {
   type ScanTrace,
 } from '../trading/scanTracer.js';
 import { loadGateAudit } from '../persistence/gateAuditRepo.js';
+// ADR-0436 — Gate Eligibility Split. shadowObservable / providerDegraded 카운터 기반
+// KEEP_COUNTERFACTUAL_LEARNING / PATCH_PROVIDER 신규 액션 분기.
+import { getLastScanSummary, type ScanSummary } from '../trading/signalScanner/scanDiagnostics.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -74,6 +77,9 @@ export type PostmortemAction =
   | 'INSPECT_MARKET_REGIME'
   | 'INSPECT_CANDIDATES'
   | 'NO_ACTION'
+  // ADR-0436 — Gate Eligibility Split 분기 신규 액션 2종.
+  | 'KEEP_COUNTERFACTUAL_LEARNING'  // shadowObservable > 0 우세 — 학습 후보 보존, 매수 차단 유지
+  | 'PATCH_PROVIDER'                 // PROVIDER_DEGRADED 우세 — sector/price provider 점검 우선
   // Legacy aliases — 후방호환만, 신규 출력에서 사용 금지 (정적 grep 가드 대상).
   | 'LOOSEN_GATE'
   | 'NONE';
@@ -377,6 +383,64 @@ export function deriveActionsByRates(input: {
   return actions;
 }
 
+// ── ADR-0436 권고 액션 결정 SSOT (Gate Eligibility Split) ────────────────────
+
+/**
+ * ADR-0436 — Gate Eligibility Split 카운터 기반 신규 액션 결정 SSOT.
+ *
+ * 사용자 §4 핵심 원칙 (절대 변경 금지):
+ *   1. shadowObservableCount > 0 + dataUnavailableBlockedCount 우세 →
+ *      KEEP_COUNTERFACTUAL_LEARNING + CHECK_DATA_SOURCE (보존 + 점검)
+ *   2. providerDegradedObservableCount > 0 + DEGRADED 우세 → PATCH_PROVIDER
+ *   3. 두 분기 모두 LOOSEN_GATE / REVIEW_GATE_THRESHOLD 절대 권고 금지
+ *      (DATA_UNAVAILABLE/PROVIDER_DEGRADED 우세 시 임계 완화는 결함 은폐).
+ */
+export function deriveGateEligibilityActions(input: {
+  shadowObservableCount: number;
+  liveEligibleCount: number;
+  dataUnavailableBlockedCount: number;
+  providerDegradedObservableCount: number;
+  trueGateFailCount: number;
+  hardRiskBlockedCount: number;
+}): PostmortemAction[] {
+  const actions: PostmortemAction[] = [];
+
+  // total — 분류된 모든 종목 (live + shadow + trueGateFail + hardRisk + providerDegraded).
+  // providerDegraded 도 포함 — 분모 계산이 자체 비율 검증할 때 정합 (우세 판단).
+  const total =
+    input.liveEligibleCount +
+    input.shadowObservableCount +
+    input.trueGateFailCount +
+    input.hardRiskBlockedCount +
+    input.providerDegradedObservableCount;
+
+  // shadowObservable 존재 + dataUnavailable 우세 → 학습 보존 + 데이터 점검
+  if (input.shadowObservableCount > 0 && input.dataUnavailableBlockedCount > 0) {
+    actions.push('KEEP_COUNTERFACTUAL_LEARNING');
+    actions.push('CHECK_DATA_SOURCE');
+  }
+
+  // providerDegraded 우세 (>30%) → provider 점검 우선
+  // Total>0 가드로 0/0 분모 차단.
+  if (
+    total > 0 &&
+    input.providerDegradedObservableCount / total > 0.3
+  ) {
+    if (!actions.includes('PATCH_PROVIDER')) {
+      actions.push('PATCH_PROVIDER');
+    }
+    // shadowObservable > 0 일 때만 KEEP_COUNTERFACTUAL_LEARNING 추가 (학습 후보 존재 의미)
+    if (
+      !actions.includes('KEEP_COUNTERFACTUAL_LEARNING') &&
+      input.shadowObservableCount > 0
+    ) {
+      actions.push('KEEP_COUNTERFACTUAL_LEARNING');
+    }
+  }
+
+  return actions;
+}
+
 /**
  * ADR-0417 — 권고 메시지 SSOT.
  *
@@ -406,6 +470,22 @@ function buildActionGuidance(actions: PostmortemAction[]): string {
       '데이터 가용성과 evaluator 안정성이 확보된 상태에서 진짜 threshold failure 가 ' +
       '우세합니다. Gate threshold 또는 regime-specific weights 를 검토하십시오 ' +
       '(즉시 완화 금지 — 운영자 명시 검토 후).',
+    );
+  }
+  // ADR-0436 — KEEP_COUNTERFACTUAL_LEARNING: 학습 후보 보존, 매수 차단 유지.
+  if (actions.includes('KEEP_COUNTERFACTUAL_LEARNING')) {
+    guidance.push(
+      '실매수 후보는 0이지만 학습/관측 후보는 존재합니다. ' +
+      'DATA_UNAVAILABLE/PROVIDER_DEGRADED 우세 — counterfactual ledger 보존 유지하고 ' +
+      '매수 임계 검토는 데이터 안정화 후로 미룹니다.',
+    );
+  }
+  // ADR-0436 — PATCH_PROVIDER: sector/price provider 점검 우선.
+  if (actions.includes('PATCH_PROVIDER')) {
+    guidance.push(
+      'provider 강등 (sector STALE/DEGRADED 또는 price PROVIDER_DEGRADED) 우세입니다. ' +
+      'sector index code coverage / KIS↔Yahoo 가격 정합 / 프로바이더 캐시 안정성 점검 우선 — ' +
+      '임계값 완화는 결함 은폐 위험.',
     );
   }
   return guidance.join(' ');
@@ -492,10 +572,33 @@ export function runPostmortem(): PostmortemReport {
     reason  = `명확한 지배 원인 미탐지 — scan=${summary.scanCandidates}, gateFail=${summary.gateFail}/${summary.gateReached}.`;
   }
 
+  // ADR-0436 — Gate Eligibility Split 기반 액션 도출 (KEEP_COUNTERFACTUAL_LEARNING /
+  // PATCH_PROVIDER). 직전 ScanSummary 의 6 카운터를 입력으로 받음. 부재 시 빈 배열.
+  // try/catch 격리 — getLastScanSummary throw 시 postmortem 자체 차단 안 함.
+  let gateEligibilityActions: PostmortemAction[] = [];
+  let lastSummary: ScanSummary | null = null;
+  try {
+    lastSummary = getLastScanSummary();
+    if (lastSummary && lastSummary.shadowObservableCount !== undefined) {
+      gateEligibilityActions = deriveGateEligibilityActions({
+        shadowObservableCount: lastSummary.shadowObservableCount ?? 0,
+        liveEligibleCount: lastSummary.liveEligibleCount ?? 0,
+        dataUnavailableBlockedCount: lastSummary.dataUnavailableBlockedCount ?? 0,
+        providerDegradedObservableCount: lastSummary.providerDegradedObservableCount ?? 0,
+        trueGateFailCount: lastSummary.trueGateFailCount ?? 0,
+        hardRiskBlockedCount: lastSummary.hardRiskBlockedCount ?? 0,
+      });
+    }
+  } catch (err) {
+    console.warn('[Adr0436Postmortem] gate eligibility actions 도출 실패 (postmortem 무영향):', err);
+  }
+
   // ADR-0417 — recommendedActions 배열 합성: aggregateActions 가 실제 원인을 더 잘
   // 표현하면 우선, primaryAction 은 fallback 으로 첨부. NO_ACTION 만 있는 경우 제거.
   const allActions = new Set<PostmortemAction>();
-  // aggregateActions (CHECK_DATA_SOURCE / PATCH_EVALUATOR / REVIEW_GATE_THRESHOLD) 우선.
+  // ADR-0436 — Gate Eligibility 기반 액션 우선 (shadowObservable 우세 시 학습 보존).
+  for (const a of gateEligibilityActions) allActions.add(a);
+  // aggregateActions (CHECK_DATA_SOURCE / PATCH_EVALUATOR / REVIEW_GATE_THRESHOLD) 추가.
   for (const a of aggregateActions) allActions.add(a);
   // primaryAction 도 추가 (HOLD_AND_WAIT / INSPECT_CANDIDATES 등 시나리오).
   if (primaryAction !== 'NO_ACTION' && primaryAction !== 'NONE') allActions.add(primaryAction);

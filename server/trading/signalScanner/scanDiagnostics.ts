@@ -85,6 +85,9 @@ import {
   formatCounterfactualShadowLearningSection,
   summarizeCounterfactualShadowLearningCandidates,
 } from './counterfactualShadowLearningLane.js';
+// ADR-0436 — Gate Eligibility Split 진단 섹션 (별도 파일, ADR-0133 1500줄 한계).
+import { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
+export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -246,6 +249,29 @@ export interface ScanSummary {
     dropGapCalculationCount: number;
     shadowOnlySuggestedCount: number;
   };
+  /**
+   * ADR-0436 — Gate Eligibility Split (LIVE_ELIGIBLE vs SHADOW_OBSERVABLE).
+   *
+   * 6 옵셔널 카운터 (후방호환). buyListLoop wiring 이 종목별 `classifyGateEligibility`
+   * 호출 후 본 카운터에 누적 → persistScanResults 가 ScanSummary 로 propagate.
+   *
+   * 사용자 핵심 원칙 — *"실매수 후보 0 ≠ 학습/관측 후보 0"*:
+   *   - liveEligibleCount > 0: 실매수 후보 존재
+   *   - shadowObservableCount > 0: 학습/관측 후보 존재 (DATA_UNAVAILABLE/PROVIDER_DEGRADED 우세)
+   *   - dataUnavailableBlockedCount: SUPPLY/INVESTOR_FLOW/EARNINGS DATA_UNAVAILABLE
+   *   - providerDegradedObservableCount: SECTOR_DATA_STALE/DEGRADED + PRICE_DATA_DEGRADED
+   *   - trueGateFailCount: TRUE_GATE_FAIL + INSUFFICIENT_SCORE (진짜 임계 미달)
+   *   - hardRiskBlockedCount: RISK_BLOCK + MACRO_BLOCK (하드 차단)
+   *
+   * R3 Sanity wiring (scanDiagnostics 본체) — `shadowObservableCount > 0` 시
+   * GATE1_PASS_ZERO streak 누적 차단 (학습 후보 존재 = 시스템 결함 아님).
+   */
+  liveEligibleCount?: number;
+  shadowObservableCount?: number;
+  dataUnavailableBlockedCount?: number;
+  providerDegradedObservableCount?: number;
+  trueGateFailCount?: number;
+  hardRiskBlockedCount?: number;
 }
 
 let _lastBuySignalAt = 0;
@@ -331,6 +357,22 @@ export interface ScanCounters {
   counterfactualShadowSkipReasons: Record<string, number>;
   /** Top blockedBy / dominant label 합성을 위한 후보 누적. */
   counterfactualShadowCandidates: CounterfactualShadowLearningCandidate[];
+  /**
+   * ADR-0436 — Gate Eligibility Split 카운터 (옵셔널, 후방호환).
+   *
+   * buyListLoop 가 후보별 `classifyGateEligibility` 호출 후 결과를 본 카운터에 누적.
+   * persistScanResults 가 ScanSummary 로 propagate.
+   *
+   * 사용자 핵심 원칙 — *"실매수 후보 0 ≠ 학습/관측 후보 0"*:
+   *   - shadowObservableCount > 0 시 R3 Sanity GATE1_PASS_ZERO streak 누적 차단
+   *   - DATA_UNAVAILABLE/PROVIDER_DEGRADED 우세 시 EmptyScanPostmortem 액션 분리
+   */
+  liveEligibleCount: number;
+  shadowObservableCount: number;
+  dataUnavailableBlockedCount: number;
+  providerDegradedObservableCount: number;
+  trueGateFailCount: number;
+  hardRiskBlockedCount: number;
 }
 
 export function createScanCounters(): ScanCounters {
@@ -369,6 +411,13 @@ export function createScanCounters(): ScanCounters {
     provisionalShadowSkipped: 0,
     provisionalShadowSkipReasons: {},
     provisionalShadowCandidates: [],
+    // ADR-0436 — Gate Eligibility Split 6 카운터 초기화 (옵셔널이지만 명시 0).
+    liveEligibleCount: 0,
+    shadowObservableCount: 0,
+    dataUnavailableBlockedCount: 0,
+    providerDegradedObservableCount: 0,
+    trueGateFailCount: 0,
+    hardRiskBlockedCount: 0,
   };
 }
 
@@ -404,6 +453,49 @@ export function accumulateGate2ConditionOutputs(
   outputs: Gate2AttributionOutputItem[],
 ): void {
   accumulateGate2Attribution(counters.gate2ConditionBuckets, outputs);
+}
+
+/**
+ * ADR-0436 — Gate Eligibility Split 카운터 누적 헬퍼 SSOT.
+ *
+ * 호출자(buyListLoop)가 종목별 `classifyGateEligibility` 결과를 본 함수로 전달.
+ * 6 카운터 자동 누적: liveEligible / shadowObservable / dataUnavailableBlocked /
+ * providerDegradedObservable / trueGateFail / hardRiskBlocked.
+ *
+ * try/catch 격리 권장 — accumulator 실패가 매수 흐름 차단 안 함.
+ *
+ * 외부 부작용 0 — counters mutate 만, KIS 주문 함수 import 0건.
+ */
+export function accumulateGateEligibility(
+  counters: ScanCounters,
+  result: { liveEligible: boolean; shadowObservable: boolean; liveBlockReasons: string[]; dataUnavailableReasons: string[]; degradedProviderReasons: string[] },
+): void {
+  if (result.liveEligible) {
+    counters.liveEligibleCount += 1;
+  }
+  if (result.shadowObservable) {
+    counters.shadowObservableCount += 1;
+  }
+  if (result.dataUnavailableReasons.length > 0) {
+    counters.dataUnavailableBlockedCount += 1;
+  }
+  if (result.degradedProviderReasons.length > 0) {
+    counters.providerDegradedObservableCount += 1;
+  }
+  // Hard risk = MACRO_BLOCK + RISK_BLOCK (학습 표본 오염 차단 분기)
+  if (
+    result.liveBlockReasons.includes('MACRO_BLOCK') ||
+    result.liveBlockReasons.includes('RISK_BLOCK')
+  ) {
+    counters.hardRiskBlockedCount += 1;
+  }
+  // True gate fail = TRUE_GATE_FAIL + INSUFFICIENT_SCORE (진짜 임계 미달)
+  if (
+    result.liveBlockReasons.includes('TRUE_GATE_FAIL') ||
+    result.liveBlockReasons.includes('INSUFFICIENT_SCORE')
+  ) {
+    counters.trueGateFailCount += 1;
+  }
 }
 
 export function buildGatePassDistribution(counters: ScanCounters): GatePassDistribution {
@@ -620,6 +712,15 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(routerSection);
   }
 
+  // ADR-0436 — Gate Eligibility Split (LIVE_ELIGIBLE vs SHADOW_OBSERVABLE).
+  // 사용자 §5 — 실매수 후보 vs 학습/관측 후보 분리 표시. shadowObservableCount=undefined
+  // 시 미노출 (ENV OFF 또는 ADR-0436 미작동 — 후방호환). 부재 시 진단 메시지 무영향.
+  const gateEligibilitySection = formatGateEligibilitySplitSection(summary);
+  if (gateEligibilitySection) {
+    lines.push('');
+    lines.push(gateEligibilitySection);
+  }
+
   // ADR-0426 — R3_EARLY Provisional Shadow Lane.
   // 사용자 §E — eligible / created / topReasons / dominantLabel 노출.
   // R3_EARLY + Gate1 생존자 + SOFT_DEGRADE 시점에 학습 샘플 보존 lane.
@@ -726,6 +827,14 @@ export async function persistScanResults(
     ...(options.sectorEnergyQualityDiagnostic
       ? { sectorEnergyQualityDiagnostic: options.sectorEnergyQualityDiagnostic }
       : {}),
+    // ADR-0436 — Gate Eligibility Split 6 카운터 propagate (counters → ScanSummary).
+    // 옵셔널 후방호환 — 0 이어도 명시 영속하여 진단 가시화 보장.
+    liveEligibleCount: counters.liveEligibleCount,
+    shadowObservableCount: counters.shadowObservableCount,
+    dataUnavailableBlockedCount: counters.dataUnavailableBlockedCount,
+    providerDegradedObservableCount: counters.providerDegradedObservableCount,
+    trueGateFailCount: counters.trueGateFailCount,
+    hardRiskBlockedCount: counters.hardRiskBlockedCount,
   };
 
   // ADR-0420 — Fresh Scan Blocker Attribution build + persist (옵셔널, 후방호환).
@@ -982,7 +1091,19 @@ export async function persistScanResults(
   try {
     const sanity = evaluateR3Sanity(_lastScanSummary);
     const skipStreak = options.r3StreakSkipped?.skipped === true;
-    if (sanity.violation !== 'NONE' && !skipStreak) {
+    // ADR-0436 — shadowObservable > 0 시 GATE1_PASS_ZERO streak 누적 차단.
+    // 사용자 명시 §7 — *"실매수 후보 0 ≠ 학습/관측 후보 0"*. DATA_UNAVAILABLE/
+    // PROVIDER_DEGRADED 우세 시 학습 후보 존재 = 시스템 결함 아님 → R3 sanity 평가 자체 skip.
+    //
+    // sanity.violation 직접 분기 회피 (state machine 캡슐화 보존, ADR-0401 절대 원칙 #8).
+    // GATE1_PASS_ZERO 조건 — R3 + entries=0 + gate1Pass<1 — 을 ScanSummary 직접 검사로 도출.
+    const isGate1Zero =
+      _lastScanSummary.gatePassDistribution !== undefined &&
+      _lastScanSummary.gatePassDistribution.gate1Pass < 1 &&
+      _lastScanSummary.candidates >= 1;
+    const shadowObservablePresent = (_lastScanSummary.shadowObservableCount ?? 0) > 0;
+    const dataUnavailableDominant = isGate1Zero && shadowObservablePresent;
+    if (sanity.violation !== 'NONE' && !skipStreak && !dataUnavailableDominant) {
       const regime = _lastScanSummary.macroGateState?.regime ?? '';
       const guards = {
         candidates: _lastScanSummary.candidates,
@@ -1357,3 +1478,7 @@ export function formatPriceCorrectionOverlaySection(
 
   return lines.join('\n');
 }
+
+// ADR-0436 — Gate Eligibility Split 진단 섹션은 별도 파일로 분리 (ADR-0133 1500줄 한계).
+//   `formatGateEligibilitySplitSection` SSOT 는 server/trading/signalScanner/gateEligibilitySection.ts
+//   에서 import + re-export 하여 외부 호출자 (scanBlockers.cmd 등) 무수정 호환.
