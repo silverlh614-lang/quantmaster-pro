@@ -16,6 +16,10 @@ import {
   buildProvisionalShadowPerformanceReport,
   formatProvisionalShadowPerformanceMessage,
 } from '../../../learning/provisionalShadowPerformanceReport.js';
+// ADR-0429 — actual cache-first priceProvider wiring.
+//   본 PR 은 entry validation + horizon 도달 검증 + entryPrice 확보 SSOT만 활성화.
+//   실제 candle/cache lookup 은 후속 PR scope (외부 호출 default 0).
+import { createProvisionalShadowPriceProvider } from '../../../learning/provisionalShadowPriceProvider.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -46,12 +50,15 @@ const shadowProvisional: TelegramCommand = {
     _lastReportAt = now;
 
     try {
-      // priceProvider 미전달 — default PENDING 모드 (외부 API 폭주 차단, 사용자 §D).
-      // 실제 priceProvider wiring 은 후속 PR (회귀 위험 격리).
+      // ADR-0429 — cache-first priceProvider 활성화.
+      // 본 PR 은 entry validation + horizon 도달 검증 + entryPrice 확보까지만 활성화.
+      // 실제 candle/cache lookup 은 후속 PR scope — 현재 외부 호출 0건 (default).
       const entries = loadProvisionalShadowLedger();
+      const priceProvider = createProvisionalShadowPriceProvider({ entries });
       const summary = await buildProvisionalShadowPerformanceReport({
         entries,
         nowKst: new Date().toISOString(),
+        priceProvider,
       });
       const message = formatProvisionalShadowPerformanceMessage(summary);
       await reply(message);
