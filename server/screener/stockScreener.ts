@@ -52,33 +52,15 @@ export interface ScreenedStock {
 const PRE_SCREEN_MAX_RESULTS = 40;
 
 /**
- * ADR-0416 Phase 1 (2026-05-07) — temporary inclusion list for screening-time audit.
+ * ADR-0418 Phase 3 (2026-05-07) — registry.run 이 evaluator.inputs 메타로부터
+ * `requiredData` / `availableData` / `hadRequiredData` 를 자동 생성하여 호출자
+ * (stockScreener) 가 evaluator-specific knowledge 를 가질 필요 없음.
  *
- * stockScreener 의 autoPopulateWatchlist 는 KIS quota 절약과 DART OpenAPI rate-limit
- * 부담 완화를 위해 evaluateServerGate 를 *kisFlow=null + dartFin=null* 로 호출한다.
- * 이런 경우 evaluator 가 score 0 + status='DATA_UNAVAILABLE' 을 반환하면 audit 가
- * unavailable++ 로 정확히 분류하지만, status 미명시 legacy null 반환의 경우 audit 의
- * inferStatusFromLegacyResult 가 context.hadRequiredData=undefined 를 기본 true 로
- * 추정해 THRESHOLD_NOT_MET (failed++) 로 잘못 분류한다.
- *
- * ADR-0416 Phase 1 임시 해결:
- *   본 inclusion list 의 evaluator 는 hadRequiredData=false 강제 → audit 가
- *   null result 도 DATA_UNAVAILABLE 로 분류 (사용자 자본 보호 + 진단 정확도).
- *
- * ADR-0418 Phase 3 영구 해결:
- *   registry.run() 이 evaluator.inputs 메타에서 requiredData / availableData /
- *   hadRequiredData 를 자동 생성하여 stockScreener 가 evaluator-specific 지식을
- *   가질 필요가 없도록 격상. 본 Set 은 ADR-0418 머지 시 영구 제거 의무.
- *
- * 절대 변경 금지:
- *   - Set 에 evaluator 추가 시 반드시 그 evaluator 가 stockScreener 에서 *항상*
- *     외부 데이터 부재 상태로 호출됨을 확인할 것 (false positive 차단).
- *   - 본 Set 을 ADR-0416 외 호출자에서 import 금지 (drift 위험, ADR-0418 자동 격상 의도).
+ * 이전 ADR-0416 Phase 1 의 `DATA_DEPENDENT_EVALUATORS_WITH_INTENTIONAL_SCREENING_NULL`
+ * 임시 inclusion list 는 본 ADR-0418 에서 *영구 제거*. evaluator 가 자신의 외부
+ * 데이터 의존성을 `inputs: ['ctx.kisFlow.X', 'ctx.dartFin.Y']` 로 선언하면 registry
+ * 가 자동으로 `hadRequiredData: false` 를 합성하여 audit 가 unavailable++ 분류.
  */
-const DATA_DEPENDENT_EVALUATORS_WITH_INTENTIONAL_SCREENING_NULL = new Set<string>([
-  'supply_confluence',  // ctx.kisFlow.* 의존, stockScreener 가 kisFlow=null 로 호출
-  'earnings_quality',   // ctx.dartFin.ocfRatio 의존, stockScreener 가 dartFin=null 로 호출
-]);
 
 
 export function getScreenerCache(): ScreenedStock[] {
@@ -553,29 +535,22 @@ export async function autoPopulateWatchlist(): Promise<number> {
     // 아이디어 11: Gate 조건 통과/탈락 — 메모리 캐시에만 누적 (루프 후 flushGateAudit으로 파일 저장)
     // ADR-0387/0388: outputs (status 분류 포함) 가 있으면 정밀 audit, 없으면 legacy passedKeys.
     if (gate.outputs && gate.outputs.length > 0) {
-      // ADR-0416 Phase 1 temporary wiring:
-      // stock screening intentionally calls evaluateServerGate without full KIS/DART data
-      // (KIS quota 절약 / DART OpenAPI rate-limit / fundamental enrichment 비동기 분리).
-      // Until ADR-0418 Phase 3 derives requiredData / availableData from evaluator.inputs
-      // in registry.run(), mark known data-dependent evaluators as hadRequiredData=false
-      // so audit records DATA_UNAVAILABLE instead of THRESHOLD_NOT_MET.
+      // ADR-0418 Phase 3 (2026-05-07) — registry.run() 이 자동 생성한 context 를
+      // 그대로 audit 에 전달. stockScreener 는 evaluator 별 inclusion list 를 더
+      // 이상 갖지 않는다 (ADR-0416 Phase 1 임시 wiring 영구 제거).
       //
-      // 사용자 명시 핵심 불변식:
-      //   DATA_UNAVAILABLE 은 score 가 0 이어도 failed++ 로 세지 않는다.
-      //   unavailable++ 로 세야 한다. "조건 미달" 이 아니라 "공정한 평가 불가".
-      //
-      // ADR-0418 Phase 3 will remove this temporary inclusion list by deriving
-      // requiredData / availableData from evaluator metadata in registry.run().
       // ServerGateResult.outputs 의 output.status 는 string (loose) 인 반면
       // recordGateAuditByStatus 는 ConditionEvalStatus union 을 기대 → 안전 cast.
-      // ADR-0418 Phase 3 에서 ServerGateResult 타입 정렬 시 cast 제거 의무.
+      type AuditInputItem = Parameters<typeof recordGateAuditByStatus>[0][number];
       recordGateAuditByStatus(gate.outputs.map(o => ({
         key: o.key,
-        output: o.output as Parameters<typeof recordGateAuditByStatus>[0][number]['output'],
-        context: {
-          evaluatorKey: o.key,
-          hadRequiredData: !DATA_DEPENDENT_EVALUATORS_WITH_INTENTIONAL_SCREENING_NULL.has(o.key),
-        },
+        output: o.output as AuditInputItem['output'],
+        context: o.context
+          ? {
+              evaluatorKey: o.key,
+              hadRequiredData: o.context.hadRequiredData,
+            }
+          : { evaluatorKey: o.key },
       })));
     } else {
       recordGateAudit(gate.conditionKeys);

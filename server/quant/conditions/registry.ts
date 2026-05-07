@@ -49,17 +49,122 @@ export const TIMESERIES_DEPENDENT_EVALUATORS: ReadonlySet<ConditionKey> = new Se
   'trend_acceleration',
 ]);
 
+/**
+ * ADR-0418 (Phase 3, 2026-05-07) — Evaluator data availability metadata SSOT.
+ *
+ * Evaluator data availability must be declared at the evaluator definition layer.
+ * registry.run derives requiredData / availableData / hadRequiredData from evaluator.inputs
+ * and attaches that metadata to every gate output.
+ *
+ * Call sites such as stockScreener must not maintain evaluator-specific inclusion lists.
+ * This prevents screening-time missing KIS/DART data from being misdiagnosed as
+ * THRESHOLD_NOT_MET while keeping data requirements close to the evaluator that owns them.
+ *
+ * `requiredData` = `evaluator.inputs` 에서 추출한 외부 데이터 키 목록 (`quote` 제외).
+ *   - `'quote.X'` → 무시 (quote 는 항상 가용 — evaluator 실행 자체가 quote 의존).
+ *   - `'ctx.kisFlow.X'` → `'kisFlow'` 추가.
+ *   - `'ctx.dartFin.X'` → `'dartFin'` 추가.
+ *   - `'ctx.kospi20dReturn'` → `'kospi20dReturn'` 추가.
+ *
+ * `availableData[key]` = ctx 내 해당 키가 *truthy 또는 number* 인지.
+ *   - kisFlow / dartFin: `Boolean(ctx[key])` (null/undefined → false).
+ *   - kospi20dReturn: `typeof === 'number'` (NaN 도 false).
+ *
+ * `hadRequiredData` = `requiredData` 가 비었거나 모든 `availableData` true.
+ */
+export interface EvaluatorRunContext {
+  /** evaluator 가 필요로 하는 외부 데이터 키 목록 (quote 제외). 비었으면 순수 기술 evaluator. */
+  requiredData: string[];
+  /** 각 requiredData 키에 대해 ctx 내 가용 여부. quote 는 항상 가용 — 이 map 에 미포함. */
+  availableData: Record<string, boolean>;
+  /** 모든 requiredData 가 가용한가. requiredData 가 비었으면 항상 true. */
+  hadRequiredData: boolean;
+}
+
 export interface ConditionRunResult {
   totalScore: number;
   details: string[];
   conditionKeys: string[];
-  /** 각 evaluator 의 raw 결과 — 디버그·테스트·정적 분석용 */
-  outputs: { key: ConditionKey; output: ConditionEvalOutput | null }[];
+  /**
+   * 각 evaluator 의 raw 결과 — 디버그·테스트·정적 분석·audit 입력용.
+   *
+   * ADR-0418 Phase 3 — `context` 옵셔널 필드로 `requiredData` / `availableData` /
+   * `hadRequiredData` 자동 첨부. 호출자(stockScreener 등)는 이 context 를 그대로
+   * `recordGateAuditByStatus` 에 전달하면 되며, evaluator 별 inclusion list 를 가질
+   * 필요가 없다.
+   */
+  outputs: {
+    key: ConditionKey;
+    output: ConditionEvalOutput | null;
+    context?: EvaluatorRunContext;
+  }[];
 }
 
 export interface SharedInputReport {
   input: EvaluatorInput;
   evaluators: ConditionKey[];
+}
+
+/**
+ * ADR-0418 — `EvaluatorInput` 문자열에서 외부 데이터 키 추출 SSOT.
+ *
+ *   - `'quote.X'` → null (quote 는 항상 가용, 외부 데이터로 간주 안 함)
+ *   - `'ctx.<key>'` → `<key>` (예: `'ctx.kospi20dReturn'` → `'kospi20dReturn'`)
+ *   - `'ctx.<key>.<sub>'` → `<key>` (예: `'ctx.kisFlow.institutionalNetBuy'` → `'kisFlow'`)
+ *
+ * 호출자가 inline 계산하지 않도록 SSOT 헬퍼로 분리 (drift 차단).
+ */
+export function extractExternalDataKey(input: EvaluatorInput): string | null {
+  if (input.startsWith('quote.')) return null;
+  if (!input.startsWith('ctx.')) return null;
+  const rest = input.slice('ctx.'.length);
+  const dotIdx = rest.indexOf('.');
+  return dotIdx === -1 ? rest : rest.slice(0, dotIdx);
+}
+
+/**
+ * ADR-0418 — ctx 내 외부 데이터 키의 가용 여부 검사 SSOT.
+ *
+ * 사용자 명시 edge case:
+ *   - `ctx.weeklyBars = []` (빈 배열) — truthy 지만 실제 데이터 없음.
+ *     본 PR 은 `Array.isArray + length>0` 까지 일반화 (비최소 안전).
+ *   - `ctx.kospi20dReturn = NaN` — typeof 는 number 지만 실제 사용 불가.
+ *     `Number.isFinite` 로 검증.
+ *   - 그 외 객체/문자열 — `Boolean(value)` 단순 검사 (null/undefined → false).
+ */
+export function isExternalDataAvailable(ctx: ConditionEvalContext, key: string): boolean {
+  const value = (ctx as unknown as Record<string, unknown>)[key];
+  if (value == null) return false;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.length > 0;
+  // 객체 (kisFlow / dartFin 등) — truthy 면 가용으로 간주.
+  return Boolean(value);
+}
+
+/**
+ * ADR-0418 — evaluator 의 `inputs` 메타로부터 `EvaluatorRunContext` 자동 도출 SSOT.
+ *
+ * 호출자 (stockScreener 등) 는 evaluator 별 knowledge 를 가질 필요 없음 —
+ * evaluator 가 자신의 `inputs` 를 선언하면 본 헬퍼가 context 자동 합성.
+ */
+export function deriveEvaluatorContext(
+  evaluator: ConditionEvaluator,
+  ctx: ConditionEvalContext,
+): EvaluatorRunContext {
+  const requiredSet = new Set<string>();
+  for (const input of evaluator.inputs) {
+    const externalKey = extractExternalDataKey(input);
+    if (externalKey) requiredSet.add(externalKey);
+  }
+  const requiredData = Array.from(requiredSet);
+  const availableData: Record<string, boolean> = {};
+  for (const key of requiredData) {
+    availableData[key] = isExternalDataAvailable(ctx, key);
+  }
+  const hadRequiredData = requiredData.length === 0
+    ? true
+    : requiredData.every(k => availableData[k]);
+  return { requiredData, availableData, hadRequiredData };
 }
 
 export class ConditionRegistry {
@@ -114,6 +219,10 @@ export class ConditionRegistry {
 
     for (const ev of this.evaluators.values()) {
       let out: ConditionEvalOutput | null = null;
+      // ADR-0418 (Phase 3) — evaluator 의 inputs 메타로부터 데이터 가용성 context 자동 도출.
+      // 호출자 (stockScreener 등) 는 inclusion list 를 가질 필요 없음 — context 가 매 output 에 첨부.
+      const evalContext = deriveEvaluatorContext(ev, ctx);
+
       // ADR-0411 — 시계열 의존 evaluator + Yahoo derived 신뢰성 손상 시 evaluator 호출 자체 skip
       // (evaluator 가 stale closes[] 로 잘못된 점수 산출하기 전 차단).
       if (downgradeTimeseriesEvaluators && TIMESERIES_DEPENDENT_EVALUATORS.has(ev.key)) {
@@ -124,7 +233,7 @@ export class ConditionRegistry {
           detail: `Yahoo 시계열 신뢰성 손상 (dataQuality=${dataQualityLabel}) — PROVIDER_DEGRADED`,
           status: 'PROVIDER_DEGRADED',
         };
-        outputs.push({ key: ev.key, output: out });
+        outputs.push({ key: ev.key, output: out, context: evalContext });
         // PROVIDER_DEGRADED 는 score / details / conditionKeys 미합산 (아래 분기와 동일).
         continue;
       }
@@ -144,7 +253,7 @@ export class ConditionRegistry {
           `[ConditionRegistry] evaluator ${ev.key} 예외 — ERROR status 로 변환 (ADR-0388): ${errMsg}`,
         );
       }
-      outputs.push({ key: ev.key, output: out });
+      outputs.push({ key: ev.key, output: out, context: evalContext });
       if (!out) continue;
       // ADR-0388: ERROR status 는 score / details / conditionKeys 모두 제외.
       if (out.status === 'ERROR') continue;

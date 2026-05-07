@@ -219,23 +219,34 @@ describe('recordGateAuditByStatus + DATA_UNAVAILABLE 핵심 불변식 (ADR-0416)
   });
 });
 
-// ─── Test 4: stockScreener 임시 inclusion list 회귀 보호 ──────────────────────
-describe('stockScreener inclusion list (ADR-0416 임시 → ADR-0418 영구 제거 예정)', () => {
-  it('inclusion list 가 supply_confluence + earnings_quality 만 포함 (drift 차단)', () => {
-    // ADR-0416 Phase 1 임시 list 는 stockScreener.ts 안 module-private const.
-    // 본 테스트는 list 가 *범위 외 evaluator 로 확대되는 회귀* 만 정적 grep 으로 차단.
+// ─── Test 4: stockScreener 임시 inclusion list — ADR-0418 영구 제거 회귀 가드 ─
+describe('stockScreener inclusion list (ADR-0416 → ADR-0418 영구 제거 정합)', () => {
+  it('ADR-0418 후 — DATA_DEPENDENT_EVALUATORS_WITH_INTENTIONAL_SCREENING_NULL Set 제거', () => {
     const screenerSrc = fs.readFileSync(
       path.resolve(__dirname, '../../screener/stockScreener.ts'),
       'utf-8',
     );
 
-    // ADR-0418 Phase 3 머지 시 본 Set 자체가 제거되어 본 가드 의미 없어짐 (의도된 변화).
-    expect(screenerSrc).toContain('DATA_DEPENDENT_EVALUATORS_WITH_INTENTIONAL_SCREENING_NULL');
-    expect(screenerSrc).toContain("'supply_confluence'");
-    expect(screenerSrc).toContain("'earnings_quality'");
+    // ADR-0418 Phase 3 — registry.run 자동 메타로 inclusion list 영구 제거.
+    // 이 정적 grep 가드는 inclusion list 재도입 회귀를 영구 차단.
+    expect(screenerSrc).not.toMatch(/new Set<string>\(\[[\s\S]*'supply_confluence'/);
+    expect(screenerSrc).not.toMatch(/new Set<string>\(\[[\s\S]*'earnings_quality'/);
 
-    // ADR-0416 추적성 주석 의무.
-    expect(screenerSrc).toMatch(/ADR-0416 Phase 1 temporary wiring/);
-    expect(screenerSrc).toMatch(/ADR-0418 Phase 3 will remove this temporary inclusion list/);
+    // ADR-0418 추적성 주석 의무 (제거 사유 영속 — 향후 개발자가 inclusion list
+    // 패턴을 다시 도입하지 않도록).
+    expect(screenerSrc).toMatch(/ADR-0418 Phase 3/);
+    expect(screenerSrc).toMatch(/registry\.run/);
+    expect(screenerSrc).toMatch(/영구 제거/);
+  });
+
+  it('ADR-0418 후 — recordGateAuditByStatus 호출 시 o.context 그대로 전달', () => {
+    const screenerSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../screener/stockScreener.ts'),
+      'utf-8',
+    );
+
+    // 호출자가 evaluator 별 knowledge 를 가지지 않음 — `o.context` 를 그대로 전달.
+    expect(screenerSrc).toMatch(/o\.context/);
+    expect(screenerSrc).toMatch(/hadRequiredData: o\.context\.hadRequiredData/);
   });
 });
