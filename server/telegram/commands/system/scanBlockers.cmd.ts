@@ -25,6 +25,7 @@ import {
   buildCounterfactualShadowPerformanceReport,
   formatCounterfactualShadowSummaryLine,
 } from '../../../learning/counterfactualShadowLearningPerformanceReport.js';
+import { createCounterfactualShadowPriceProvider } from '../../../learning/counterfactualShadowPriceProviderAdapter.js';
 // ADR-0432 — provisional + counterfactual learning samples promotion 한 줄 요약.
 // read-only recommendation — LIVE/PAPER/normal shadow 체결 영향 0.
 // priceProvider 미전달 → 모든 horizon PENDING → INSUFFICIENT_DATA / PENDING fallback.
@@ -75,9 +76,15 @@ const scanBlockers: TelegramCommand = {
     try {
       const cfEntries = loadCounterfactualShadowLearningLedger();
       if (cfEntries.length > 0) {
+        const nowKst = new Date().toISOString();
+        const priceProvider = createCounterfactualShadowPriceProvider({
+          entries: cfEntries,
+          nowKst,
+        });
         const cfSummary = await buildCounterfactualShadowPerformanceReport({
           entries: cfEntries,
-          nowKst: new Date().toISOString(),
+          nowKst,
+          priceProvider,
           // priceProvider 미전달 → 모든 horizon PENDING (외부 호출 0)
         });
         counterfactualLine = formatCounterfactualShadowSummaryLine(cfSummary);
@@ -98,9 +105,17 @@ const scanBlockers: TelegramCommand = {
       const counterfactualEntries = loadCounterfactualShadowLearningLedger();
       if (provisionalEntries.length > 0 || counterfactualEntries.length > 0) {
         const nowKst = new Date().toISOString();
+        const counterfactualPriceProvider = createCounterfactualShadowPriceProvider({
+          entries: counterfactualEntries,
+          nowKst,
+        });
         const [provisionalSummary, counterfactualSummary] = await Promise.all([
           buildProvisionalShadowPerformanceReport({ entries: provisionalEntries, nowKst }),
-          buildCounterfactualShadowPerformanceReport({ entries: counterfactualEntries, nowKst }),
+          buildCounterfactualShadowPerformanceReport({
+            entries: counterfactualEntries,
+            nowKst,
+            priceProvider: counterfactualPriceProvider,
+          }),
         ]);
         // Top winners + losers 합집합 (중복 제거 by id)
         const provisionalRecords = [

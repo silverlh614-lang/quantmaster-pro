@@ -41,6 +41,12 @@ vi.mock('../../../learning/provisionalShadowPriceProvider.js', () => ({
 
 vi.mock('../../../learning/counterfactualShadowPriceProviderAdapter.js', () => ({
   wrapProvisionalProviderForCounterfactual: vi.fn((p: unknown) => p),
+  createCounterfactualShadowPriceProvider: vi.fn(() => async () => ({
+    available: false,
+    reason: 'mocked',
+    status: 'DATA_UNAVAILABLE',
+    source: 'NONE',
+  })),
 }));
 
 vi.mock('../../commandRegistry.js', () => {

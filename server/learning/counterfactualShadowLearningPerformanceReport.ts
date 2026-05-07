@@ -114,6 +114,10 @@ export interface CounterfactualShadowPerformanceSummary {
   observedEntries: number;
   pendingEntries: number;
   insufficientDataEntries: number;
+  statusBreakdown?: Partial<Record<CounterfactualShadowPointStatus, number>>;
+  priceSourceBreakdown?: Partial<
+    Record<CounterfactualShadowPointSource | CounterfactualShadowPointStatus, number>
+  >;
   labelBreakdown: Record<string, number>;
   blockedByBreakdown: Record<string, number>;
   avgReturnByHorizon: Partial<Record<CounterfactualShadowHorizon, number>>;
@@ -251,16 +255,24 @@ function safeReturnPct(
 export function resolveCounterfactualEntryPrice(
   entry: CounterfactualShadowLearningLedgerEntry,
 ): number | undefined {
+  return resolveCounterfactualEntryPriceWithSource(entry)?.price;
+}
+
+export function resolveCounterfactualEntryPriceWithSource(
+  entry: CounterfactualShadowLearningLedgerEntry,
+): { price: number; source: Extract<CounterfactualShadowPointSource, 'ENTRY_SNAPSHOT' | 'SCAN_SNAPSHOT'> } | undefined {
   const direct = (entry as CounterfactualShadowLearningLedgerEntry & { entryPrice?: number })
     .entryPrice;
-  if (typeof direct === 'number' && Number.isFinite(direct) && direct > 0) return direct;
+  if (typeof direct === 'number' && Number.isFinite(direct) && direct > 0) {
+    return { price: direct, source: 'ENTRY_SNAPSHOT' };
+  }
 
   if (
     typeof entry.entryPriceHint === 'number' &&
     Number.isFinite(entry.entryPriceHint) &&
     entry.entryPriceHint > 0
   ) {
-    return entry.entryPriceHint;
+    return { price: entry.entryPriceHint, source: 'ENTRY_SNAPSHOT' };
   }
 
   // metadata 확장 — ADR-0430 schema 에 metadata 미정의이지만 향후 확장 호환.
@@ -269,14 +281,7 @@ export function resolveCounterfactualEntryPrice(
   if (meta) {
     const metaHint = meta.entryPriceHint;
     if (typeof metaHint === 'number' && Number.isFinite(metaHint) && metaHint > 0) {
-      return metaHint;
-    }
-    const quote = meta.quoteSnapshot as Record<string, unknown> | undefined;
-    if (quote) {
-      const lastPrice = quote.lastPrice;
-      if (typeof lastPrice === 'number' && Number.isFinite(lastPrice) && lastPrice > 0) {
-        return lastPrice;
-      }
+      return { price: metaHint, source: 'ENTRY_SNAPSHOT' };
     }
   }
 
@@ -284,10 +289,22 @@ export function resolveCounterfactualEntryPrice(
   const snap = entry.conditionSnapshot;
   if (snap) {
     const price = snap.price;
-    if (typeof price === 'number' && Number.isFinite(price) && price > 0) return price;
+    if (typeof price === 'number' && Number.isFinite(price) && price > 0) {
+      return { price, source: 'SCAN_SNAPSHOT' };
+    }
     const lastPrice = snap.lastPrice;
     if (typeof lastPrice === 'number' && Number.isFinite(lastPrice) && lastPrice > 0) {
-      return lastPrice;
+      return { price: lastPrice, source: 'SCAN_SNAPSHOT' };
+    }
+  }
+
+  if (meta) {
+    const quote = meta.quoteSnapshot as Record<string, unknown> | undefined;
+    if (quote) {
+      const lastPrice = quote.lastPrice;
+      if (typeof lastPrice === 'number' && Number.isFinite(lastPrice) && lastPrice > 0) {
+        return { price: lastPrice, source: 'SCAN_SNAPSHOT' };
+      }
     }
   }
 
@@ -325,6 +342,8 @@ export async function buildCounterfactualShadowPerformanceReport(
       observedEntries: 0,
       pendingEntries: 0,
       insufficientDataEntries: 0,
+      statusBreakdown: {},
+      priceSourceBreakdown: {},
       labelBreakdown: {},
       blockedByBreakdown: {},
       avgReturnByHorizon: {},
@@ -539,11 +558,24 @@ export async function buildCounterfactualShadowPerformanceReport(
     (r) => r.summary.status === 'INSUFFICIENT_DATA',
   ).length;
 
+  const statusBreakdown: Partial<Record<CounterfactualShadowPointStatus, number>> = {};
+  const priceSourceBreakdown: Partial<
+    Record<CounterfactualShadowPointSource | CounterfactualShadowPointStatus, number>
+  > = {};
+  for (const point of records.flatMap((r) => r.points)) {
+    statusBreakdown[point.status] = (statusBreakdown[point.status] ?? 0) + 1;
+    const sourceKey =
+      point.status === 'OBSERVED' ? (point.source ?? 'NONE') : point.status;
+    priceSourceBreakdown[sourceKey] = (priceSourceBreakdown[sourceKey] ?? 0) + 1;
+  }
+
   return {
     totalEntries: records.length,
     observedEntries,
     pendingEntries,
     insufficientDataEntries,
+    statusBreakdown,
+    priceSourceBreakdown,
     labelBreakdown,
     blockedByBreakdown,
     avgReturnByHorizon,
@@ -581,6 +613,17 @@ export function formatCounterfactualShadowPerformanceMessage(
   lines.push(`  • pending: <b>${summary.pendingEntries}</b>`);
   lines.push(`  • insufficient: <b>${summary.insufficientDataEntries}</b>`);
   lines.push('  • lanes: live=❌ paper=❌ shadow=❌ <b>learning=✅</b>');
+
+  const sourceEntries = Object.entries(summary.priceSourceBreakdown ?? {}).sort(
+    (a, b) => b[1] - a[1],
+  );
+  if (sourceEntries.length > 0) {
+    lines.push('');
+    lines.push('  <b>Price Sources</b>');
+    for (const [source, count] of sourceEntries) {
+      lines.push(`    - ${source}: ${count}`);
+    }
+  }
 
   // Label breakdown
   const labelEntries = Object.entries(summary.labelBreakdown).sort((a, b) => b[1] - a[1]);
@@ -682,10 +725,16 @@ export function formatCounterfactualShadowSummaryLine(
   summary: CounterfactualShadowPerformanceSummary,
 ): string | null {
   if (summary.totalEntries === 0) return null;
+  const observedPoints = summary.statusBreakdown?.OBSERVED ?? 0;
+  const pendingPoints = summary.statusBreakdown?.PENDING ?? 0;
+  const unavailablePoints = summary.statusBreakdown?.DATA_UNAVAILABLE ?? 0;
+  const coverageLine =
+    `Counterfactual Price Coverage: OBSERVED ${observedPoints} / PENDING ${pendingPoints} / ` +
+    `DATA_UNAVAILABLE ${unavailablePoints}`;
   return (
     `🧠 Counterfactual Shadow — ledger: <b>${summary.totalEntries}</b> / ` +
     `observed: <b>${summary.observedEntries}</b> / pending: <b>${summary.pendingEntries}</b> / ` +
     `insufficient: <b>${summary.insufficientDataEntries}</b> ` +
-    `<i>(report: /shadow_counterfactual)</i>`
+    `<i>(report: /shadow_counterfactual)</i>\n${coverageLine}`
   );
 }

@@ -25,10 +25,9 @@ import {
   buildShadowLearningPromotionRecommendations,
   formatShadowLearningPromotionMessage,
 } from '../../../learning/shadowLearningPromotionRecommendation.js';
-// ADR-0429 — cache-first read-only priceProvider (default cache-only, 외부 호출 0).
-// counterfactual 측은 ADR-0431 thin adapter 로 wrap.
+// ADR-0429/0434 — cache-first read-only priceProvider (default cache-only, 외부 호출 0).
 import { createProvisionalShadowPriceProvider } from '../../../learning/provisionalShadowPriceProvider.js';
-import { wrapProvisionalProviderForCounterfactual } from '../../../learning/counterfactualShadowPriceProviderAdapter.js';
+import { createCounterfactualShadowPriceProvider } from '../../../learning/counterfactualShadowPriceProviderAdapter.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -67,14 +66,13 @@ const shadowPromotion: TelegramCommand = {
       const provisionalProvider = createProvisionalShadowPriceProvider({
         entries: provisionalEntries,
       });
-      const counterfactualProvider = wrapProvisionalProviderForCounterfactual(
-        // counterfactual ledger 와 provisional ledger 형식이 다르므로 *빈 인덱스* 로 생성
-        // → cache miss → DATA_UNAVAILABLE (ADR-0431 정책 정합)
-        createProvisionalShadowPriceProvider({ entries: [] }),
-      );
 
       // 3. 두 PerformanceReport build (read-time)
       const nowKst = new Date().toISOString();
+      const counterfactualProvider = createCounterfactualShadowPriceProvider({
+        entries: counterfactualEntries,
+        nowKst,
+      });
       const [provisionalSummary, counterfactualSummary] = await Promise.all([
         buildProvisionalShadowPerformanceReport({
           entries: provisionalEntries,

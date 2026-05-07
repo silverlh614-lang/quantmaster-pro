@@ -25,8 +25,7 @@ import {
 // entries 만 ledger-aware index 로 priceProvider 에 전달하지 않고, ADR-0429 generic
 // horizon-based interface 를 그대로 사용. cached price lookup 은 후속 PR scope —
 // 현재 default cache-only 라 모든 horizon DATA_UNAVAILABLE 또는 PENDING.
-import { createProvisionalShadowPriceProvider } from '../../../learning/provisionalShadowPriceProvider.js';
-import { wrapProvisionalProviderForCounterfactual } from '../../../learning/counterfactualShadowPriceProviderAdapter.js';
+import { createCounterfactualShadowPriceProvider } from '../../../learning/counterfactualShadowPriceProviderAdapter.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -64,12 +63,12 @@ const shadowCounterfactual: TelegramCommand = {
       // provisional priceProvider 는 entries 인덱싱 인자를 받지만, counterfactual ledger
       // entry 형식과 다르므로 *빈 인덱스* 로 생성 — cache miss → DATA_UNAVAILABLE
       // (default cache-only). 실제 cached price wiring 은 후속 PR scope.
-      const provisionalProvider = createProvisionalShadowPriceProvider({ entries: [] });
-      const priceProvider = wrapProvisionalProviderForCounterfactual(provisionalProvider);
+      const nowKst = new Date().toISOString();
+      const priceProvider = createCounterfactualShadowPriceProvider({ entries, nowKst });
 
       const summary = await buildCounterfactualShadowPerformanceReport({
         entries,
-        nowKst: new Date().toISOString(),
+        nowKst,
         priceProvider,
       });
       const message = formatCounterfactualShadowPerformanceMessage(summary);

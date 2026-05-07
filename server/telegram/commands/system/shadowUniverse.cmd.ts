@@ -71,6 +71,15 @@ export function formatShadowUniverseMessage(
     lines.push('');
   }
 
+  const sourceBreakdown = buildUniversePriceSourceBreakdown(recent);
+  if (Object.keys(sourceBreakdown).length > 0) {
+    lines.push('Price Sources:');
+    Object.entries(sourceBreakdown)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([source, count]) => lines.push(`  - ${source}: ${count}`));
+    lines.push('');
+  }
+
   // recent 5 snapshots
   if (recent.length > 0) {
     lines.push('🕘 <b>최근 snapshot (5건)</b>');
@@ -85,6 +94,32 @@ export function formatShadowUniverseMessage(
   lines.push('<i>preflight abort 로 buyListLoop 까지 가지 못한 universe 를 learning snapshot 으로 보존.</i>');
   lines.push('<i>read-only — LIVE/PAPER/normal shadow/virtual account 영향 0.</i>');
   return lines.join('\n');
+}
+
+export function buildUniversePriceSourceBreakdown(
+  snapshots: CounterfactualUniverseLearningSnapshot[],
+): Record<string, number> {
+  const breakdown: Record<string, number> = {};
+  for (const snapshot of snapshots) {
+    const candidates = snapshot.candidates ?? [];
+    for (const candidate of candidates) {
+      if (
+        typeof candidate.lastPrice === 'number' &&
+        Number.isFinite(candidate.lastPrice) &&
+        candidate.lastPrice > 0
+      ) {
+        breakdown.SCAN_SNAPSHOT = (breakdown.SCAN_SNAPSHOT ?? 0) + 1;
+      } else {
+        breakdown.DATA_UNAVAILABLE = (breakdown.DATA_UNAVAILABLE ?? 0) + 1;
+      }
+    }
+    const missing =
+      (snapshot.candidateSummaryCount ?? candidates.length) - candidates.length;
+    if (missing > 0) {
+      breakdown.DATA_UNAVAILABLE = (breakdown.DATA_UNAVAILABLE ?? 0) + missing;
+    }
+  }
+  return breakdown;
 }
 
 const shadowUniverse: TelegramCommand = {
