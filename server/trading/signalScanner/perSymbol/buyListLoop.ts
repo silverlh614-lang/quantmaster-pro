@@ -115,6 +115,12 @@ import {
 //   LIVE 매매 본체 0줄 변경, KIS 주문 import 0건. Gate1 survivor 분기 직후 try/catch 격리.
 import { deriveR3ProvisionalShadowCandidate } from '../provisionalShadowLane.js';
 import { recordR3ProvisionalShadowCandidate } from '../../../persistence/provisionalShadowLedger.js';
+// ADR-0430 — Counterfactual Shadow Learning Lane (SELL_ONLY/HARD_BLOCK fallback).
+//   ADR-0427 provisional null 반환 시점 (HARD_BLOCK 등) 에 학습 전용 record 영속.
+//   별도 ledger (counterfactual-shadow-learning-ledger.json), virtual account 무관,
+//   KIS 주문 함수 import 0건. learning-only 마커 명시.
+import { deriveCounterfactualShadowLearningCandidate } from '../counterfactualShadowLearningLane.js';
+import { appendCounterfactualShadowLearningEntry } from '../../../persistence/counterfactualShadowLearningRepo.js';
 import { deriveGateDecisionRouterResult } from '../gateDecisionRouter.js';
 import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
@@ -1150,6 +1156,74 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         }
       } catch (e) {
         console.warn('[Adr0427ProvisionalShadow] wiring 실패 — 매수 흐름 무영향:', e);
+      }
+
+      // ── ADR-0430 — Counterfactual Shadow Learning Lane wiring ─────────────
+      // SELL_ONLY/HARD_BLOCK 시점에도 Shadow Learning 은 365일 살아있다. 단,
+      // 실매수/가상계좌 체결/일반 shadow 는 차단 유지. 별도 ledger 영속만.
+      //
+      // 우선순위 (사용자 §J 정합):
+      //   1. FULL/normal shadow path (정상 매수)
+      //   2. Provisional shadow path (ADR-0426 SOFT_DEGRADE 보존)
+      //   3. Counterfactual learning-only path (본 PR — HARD_BLOCK fallback)
+      //
+      // SSOT 자체에서 SOFT_DEGRADE/WATCH_ONLY/REDUCED/FULL 시점에 null 반환하므로
+      // 우선순위 자동 enforcement. buyListLoop 진입은 이미 sellOnly=false 라
+      // *종목별* HARD_BLOCK (SIZING_BLOCKED 등) 시점에만 본 wiring 가 발화.
+      // 진정한 universe-level SELL_ONLY wiring 은 후속 PR scope (preflight pre-abort).
+      //
+      // try/catch 격리 — 영속 throw 가 매수 흐름 차단 안 함. KIS 주문 함수
+      // 5종 import 0건 (정적 grep 가드). LIVE 매매 본체 0줄 변경.
+      try {
+        if (ctx.regime === 'R3_EARLY' && isGate1Survivor && reCheckGate?.outputs) {
+          const macroStateCf = ctx.macroState;
+          const cfRouterResult = deriveGateDecisionRouterResult({
+            regime: ctx.regime,
+            gate1Pass: 1,
+            gate2Pass: 0,
+            riskFlags: {
+              sellOnly: false,
+              r6Defense: false,
+            },
+            sectorEnergyDiagnostic: macroStateCf?.sectorEnergyQualityDiagnostic as
+              Parameters<typeof deriveCounterfactualShadowLearningCandidate>[0]['sectorEnergyDiagnostic'],
+          });
+          const cfCandidate = deriveCounterfactualShadowLearningCandidate({
+            symbol: stock.code,
+            name: stock.name,
+            regime: ctx.regime,
+            gate1Passed: true,
+            gate2Passed: false,
+            router: cfRouterResult,
+            sectorEnergyDiagnostic: macroStateCf?.sectorEnergyQualityDiagnostic as
+              Parameters<typeof deriveCounterfactualShadowLearningCandidate>[0]['sectorEnergyDiagnostic'],
+            riskFlags: {
+              sellOnly: false,
+              r6Defense: false,
+            },
+            scanId: `${new Date().toISOString().slice(0, 10)}:${stock.code}`,
+            nowKst: new Date().toISOString(),
+          });
+          if (cfCandidate !== null) {
+            ctx.scanCounters.counterfactualShadowEligible += 1;
+            ctx.scanCounters.counterfactualShadowCandidates.push(cfCandidate);
+            const cfRecordResult = appendCounterfactualShadowLearningEntry({
+              candidate: cfCandidate,
+              scanId: `${new Date().toISOString().slice(0, 10)}:${stock.code}`,
+              scannedAtKst: new Date().toISOString(),
+            });
+            if (cfRecordResult.recorded) {
+              ctx.scanCounters.counterfactualShadowCreated += 1;
+            } else {
+              ctx.scanCounters.counterfactualShadowSkipped += 1;
+              const reason = cfRecordResult.reason;
+              ctx.scanCounters.counterfactualShadowSkipReasons[reason] =
+                (ctx.scanCounters.counterfactualShadowSkipReasons[reason] ?? 0) + 1;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[Adr0430CounterfactualShadow] wiring 실패 — 매수 흐름 무영향:', e);
       }
 
       // ── ADR-0031 PR-59 PoC: entryRevalidationStep RevalidationStep 분기 ───

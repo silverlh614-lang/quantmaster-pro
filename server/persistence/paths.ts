@@ -329,6 +329,24 @@ export const MARKET_INDICATORS_SNAPSHOT_FILE = path.join(DATA_DIR, 'market-indic
  */
 export const PROVISIONAL_SHADOW_LEDGER_FILE = path.join(DATA_DIR, 'provisional-shadow-ledger.json');
 /**
+ * Counterfactual Shadow Learning Ledger 영속 (ADR-0430).
+ *
+ * SELL_ONLY / HARD_BLOCK 상황에서 실매수·가상계좌 체결·일반 shadow·provisional
+ * shadow 모두 차단되더라도 *학습 전용* counterfactual record 는 365일 별도 영속.
+ * 사용자 §C 핵심 — Shadow Learning 은 SELL_ONLY 와 무관하게 365일 유지된다.
+ *
+ * **절대 분리** (사용자 §"절대 하지 말 것" #8/#9 정합):
+ *   - shadow-trades.json (일반 shadow buy)        ≠ COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE
+ *   - provisional-shadow-ledger.json (ADR-0427)   ≠ COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE
+ *
+ * dedup key: `${scanId}:${symbol}:ADR-0430` (또는 KST `YYYYMMDDHHmm` fallback).
+ * FIFO 2000 trim. atomic write (tmp→rename). virtual account holdings/cash 무관.
+ */
+export const COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE = path.join(
+  DATA_DIR,
+  'counterfactual-shadow-learning-ledger.json',
+);
+/**
  * TradeSignalStatus 상태머신 영속 (ADR-0077).
  * AI 추천 → 데이터 검증 → 리스크 승인 → 사용자 승인 → 자동매매 직전 6단계 상태 전이를
  * 영속해 운영자가 "이 종목이 어느 단계에서 멈췄는지" 즉시 추적 가능하게 한다.
