@@ -51,6 +51,17 @@ export interface ScreenedStock {
 
 const PRE_SCREEN_MAX_RESULTS = 40;
 
+/**
+ * ADR-0418 Phase 3 (2026-05-07) — registry.run 이 evaluator.inputs 메타로부터
+ * `requiredData` / `availableData` / `hadRequiredData` 를 자동 생성하여 호출자
+ * (stockScreener) 가 evaluator-specific knowledge 를 가질 필요 없음.
+ *
+ * 이전 ADR-0416 Phase 1 의 `DATA_DEPENDENT_EVALUATORS_WITH_INTENTIONAL_SCREENING_NULL`
+ * 임시 inclusion list 는 본 ADR-0418 에서 *영구 제거*. evaluator 가 자신의 외부
+ * 데이터 의존성을 `inputs: ['ctx.kisFlow.X', 'ctx.dartFin.Y']` 로 선언하면 registry
+ * 가 자동으로 `hadRequiredData: false` 를 합성하여 audit 가 unavailable++ 분류.
+ */
+
 
 export function getScreenerCache(): ScreenedStock[] {
   ensureDataDir();
@@ -524,8 +535,23 @@ export async function autoPopulateWatchlist(): Promise<number> {
     // 아이디어 11: Gate 조건 통과/탈락 — 메모리 캐시에만 누적 (루프 후 flushGateAudit으로 파일 저장)
     // ADR-0387/0388: outputs (status 분류 포함) 가 있으면 정밀 audit, 없으면 legacy passedKeys.
     if (gate.outputs && gate.outputs.length > 0) {
-      // ADR-0388 — context 옵셔널 (호출자가 hadRequiredData/skippedByPolicy 제공 가능, 점진 확장).
-      recordGateAuditByStatus(gate.outputs.map(o => ({ key: o.key, output: o.output })));
+      // ADR-0418 Phase 3 (2026-05-07) — registry.run() 이 자동 생성한 context 를
+      // 그대로 audit 에 전달. stockScreener 는 evaluator 별 inclusion list 를 더
+      // 이상 갖지 않는다 (ADR-0416 Phase 1 임시 wiring 영구 제거).
+      //
+      // ServerGateResult.outputs 의 output.status 는 string (loose) 인 반면
+      // recordGateAuditByStatus 는 ConditionEvalStatus union 을 기대 → 안전 cast.
+      type AuditInputItem = Parameters<typeof recordGateAuditByStatus>[0][number];
+      recordGateAuditByStatus(gate.outputs.map(o => ({
+        key: o.key,
+        output: o.output as AuditInputItem['output'],
+        context: o.context
+          ? {
+              evaluatorKey: o.key,
+              hadRequiredData: o.context.hadRequiredData,
+            }
+          : { evaluatorKey: o.key },
+      })));
     } else {
       recordGateAudit(gate.conditionKeys);
     }

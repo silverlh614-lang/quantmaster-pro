@@ -42,8 +42,23 @@ export interface ServerGateResult {
   conditionKeys: string[];                    // 통과한 조건 키 (Signal Calibrator용)
   compressionScore: number;                   // CS (0~1) — 변동성 압축도 정량화 지수
   mtas: number;                               // MTAS (0~10) — 멀티타임프레임 정렬도
-  /** ADR-0387 — 평가 outputs 배열 (status 분류 포함). recordGateAuditByStatus 입력. */
-  outputs?: Array<{ key: string; output: { score: number; status?: string } | null }>;
+  /**
+   * ADR-0387 — 평가 outputs 배열 (status 분류 포함). recordGateAuditByStatus 입력.
+   *
+   * ADR-0418 Phase 3 (2026-05-07) — `context` 옵셔널 필드 추가. registry.run 이
+   * `evaluator.inputs` 메타로부터 자동 도출한 `requiredData` / `availableData` /
+   * `hadRequiredData` 가 첨부됨. 호출자(stockScreener 등)는 evaluator 별 knowledge
+   * 없이 본 context 를 그대로 `recordGateAuditByStatus` 에 전달하면 됨.
+   */
+  outputs?: Array<{
+    key: string;
+    output: { score: number; status?: string } | null;
+    context?: {
+      requiredData: string[];
+      availableData: Record<string, boolean>;
+      hadRequiredData: boolean;
+    };
+  }>;
 }
 
 /** 조건 키 상수 — condition-weights.json의 키와 1:1 매핑 */

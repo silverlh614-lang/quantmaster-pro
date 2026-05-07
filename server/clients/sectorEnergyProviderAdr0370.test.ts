@@ -143,7 +143,7 @@ describe('ADR-0370 Sector Energy Hardening Phase 1', () => {
       expect(sem!.returns).toHaveLength(1);
       expect(sem!.returns[0]).toBeCloseTo(10, 5);
       // 진단 로그 검증
-      const dupWarns = warnSpy.mock.calls.filter((c) => String(c[0]).includes('duplicate past key'));
+      const dupWarns = warnSpy.mock.calls.filter((c: unknown[]) => String(c[0]).includes('duplicate past key'));
       expect(dupWarns).toHaveLength(1);
       expect(String(dupWarns[0]![0])).toContain('ADR-0370');
     });
@@ -198,7 +198,7 @@ describe('ADR-0370 Sector Energy Hardening Phase 1', () => {
       expect(sem!.returns).toHaveLength(1);
       expect(sem!.returns[0]).toBeCloseTo(12, 5);
       // sanity 위반 진단 로그 부재
-      const sanityWarns = warnSpy.mock.calls.filter((c) => String(c[0]).includes('sanity-violation'));
+      const sanityWarns = warnSpy.mock.calls.filter((c: unknown[]) => String(c[0]).includes('sanity-violation'));
       expect(sanityWarns).toHaveLength(0);
     });
 
@@ -210,7 +210,7 @@ describe('ADR-0370 Sector Energy Hardening Phase 1', () => {
       const result = aggregateIndexDeltas(today, past);
       // 35% > 30% sanity → skip
       expect(result.get('반도체')).toBeUndefined();
-      const sanityWarns = warnSpy.mock.calls.filter((c) => String(c[0]).includes('sanity-violation'));
+      const sanityWarns = warnSpy.mock.calls.filter((c: unknown[]) => String(c[0]).includes('sanity-violation'));
       expect(sanityWarns).toHaveLength(1);
       expect(String(sanityWarns[0]![0])).toContain('pct=35');
       expect(String(sanityWarns[0]![0])).toContain('sector=반도체');
@@ -247,7 +247,7 @@ describe('ADR-0370 Sector Energy Hardening Phase 1', () => {
       const result = aggregateIndexDeltas(today, past);
       // 모든 변화 5~10% — sanity 30 통과
       expect(result.size).toBeGreaterThanOrEqual(4);
-      const sanityWarns = warnSpy.mock.calls.filter((c) => String(c[0]).includes('sanity-violation'));
+      const sanityWarns = warnSpy.mock.calls.filter((c: unknown[]) => String(c[0]).includes('sanity-violation'));
       expect(sanityWarns).toHaveLength(0);
     });
   });

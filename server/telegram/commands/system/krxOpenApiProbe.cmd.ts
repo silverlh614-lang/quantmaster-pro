@@ -61,8 +61,8 @@ const krxOpenApiProbe: TelegramCommand = {
       const recent = recentBusinessDaysKst(5);
       const basDd = recent[0] ?? '';
       const pastBasDd = recentBusinessDaysKst(25)[20] ?? '';
-      const paramsToday = basDd ? { basDd } : {};
-      const paramsPast = pastBasDd ? { basDd: pastBasDd } : {};
+      const paramsToday: Record<string, string> = basDd ? { basDd } : {};
+      const paramsPast: Record<string, string> = pastBasDd ? { basDd: pastBasDd } : {};
 
       const [
         kospiIdx,

@@ -1,4 +1,4 @@
-// @responsibility ADR-0398 STRONG_BUY 6 조건 OR confidence gate SSOT (ADR-0415 STALE + PARTIAL_VOLUME 추가)
+// @responsibility STRONG_BUY confidence gate 6-조건 차단 SSOT (ADR-0398 + ADR-0415)
 /**
  * sectorEnergyStrongBuyGate.ts (ADR-0398 = 사용자 명시 ADR-0373)
  *

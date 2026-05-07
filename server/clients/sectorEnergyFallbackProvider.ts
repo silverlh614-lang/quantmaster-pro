@@ -24,7 +24,9 @@
 
 import { fetchDailyBars } from '../trading/marketDataRefresh.js';
 import { safePctChange } from '../utils/safePctChange.js';
-import type { SectorEnergyInput } from '../../src/types/sectorEnergy.js';
+// ADR-0418 baseline cleanup — import from same SSOT as consumer (sectorEnergyProvider.ts)
+// to avoid `SectorEnergyInput` type duplication between server/clients vs src/types.
+import type { SectorEnergyInput } from './sectorEnergyProvider.js';
 import type { SectorEnergyBuildResult, StrategicSector } from './sectorEnergyProvider.js';
 
 /**
