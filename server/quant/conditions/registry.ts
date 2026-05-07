@@ -16,6 +16,8 @@ import type {
   EvaluatorInput,
 } from './types.js';
 import type { ConditionKey } from '../../quantFilter.js';
+// ADR-0421 — kisFlow semantic availability 검증 SSOT.
+import { evaluateInvestorFlowSemanticAvailability } from '../../supply/investorFlowSemanticAvailability.js';
 
 /**
  * ADR-0411 — Yahoo 시계열 파생 지표 (closes[]/highs[]/volumes[]/MA/RSI/MACD/ATR/BB/MTAS)
@@ -131,13 +133,24 @@ export function extractExternalDataKey(input: EvaluatorInput): string | null {
  *   - `ctx.kospi20dReturn = NaN` — typeof 는 number 지만 실제 사용 불가.
  *     `Number.isFinite` 로 검증.
  *   - 그 외 객체/문자열 — `Boolean(value)` 단순 검사 (null/undefined → false).
+ *
+ * ADR-0421 — kisFlow 는 *semantic availability* 검증으로 격상.
+ *   객체 truthy 만으로 available=true 판정 시 success=0 + provider mismatch 상태가
+ *   audit 에서 unavailable 로 분류되지 않음 (사용자 명시 핵심 불변식 #1).
+ *   `evaluateInvestorFlowSemanticAvailability` 위임 — required semantic field
+ *   (foreignNetBuy / institutionalNetBuy) 둘 다 number-like 가용 시에만 true.
  */
 export function isExternalDataAvailable(ctx: ConditionEvalContext, key: string): boolean {
   const value = (ctx as unknown as Record<string, unknown>)[key];
   if (value == null) return false;
   if (typeof value === 'number') return Number.isFinite(value);
   if (Array.isArray(value)) return value.length > 0;
-  // 객체 (kisFlow / dartFin 등) — truthy 면 가용으로 간주.
+  // ADR-0421 — kisFlow 객체는 semantic availability checker 위임 (객체 존재만으로
+  //   available 판정 금지 — required semantic field 검증 의무).
+  if (key === 'kisFlow') {
+    return evaluateInvestorFlowSemanticAvailability(value).available;
+  }
+  // 객체 (dartFin 등) — truthy 면 가용으로 간주.
   return Boolean(value);
 }
 
