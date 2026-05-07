@@ -114,10 +114,11 @@ describe('findOptimalThreshold', () => {
   });
 
   it('outcome 외 값 자동 제외 (타입 안전)', () => {
+    // ADR-0418 baseline cleanup — `@ts-expect-error` 가 더 이상 필요하지 않은 정합 상태로
+    // 진화함에 따라 명시적 cast 로 대체. 의도된 잘못된 outcome 시나리오는 보존.
     const samples = [
       ...makeSamples(Array(15).fill(5), Array(15).fill(1)),
-      // @ts-expect-error 의도된 잘못된 outcome 검증
-      { score: 100, outcome: 'PENDING' },
+      { score: 100, outcome: 'PENDING' as unknown as 'WIN' | 'LOSS' },
     ];
     const r = findOptimalThreshold(samples);
     expect(r.winSample).toBe(15);

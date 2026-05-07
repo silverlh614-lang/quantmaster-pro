@@ -677,10 +677,12 @@ export async function buildSectorEnergyInputsWithMetaWithFallback(): Promise<Sec
   if (result.dataQuality !== 'FAILED') return attachDiagnostics(result, candidateDates, sourceTierAttempts);
 
   // L3: macroState cache (48h, ADR-0343) — 우선 시도
+  // ADR-0418 baseline cleanup — MacroState 의 sectorEnergyInputs 는 본 모듈의
+  // SectorEnergyInput 과 다른 SSOT (src/types/sectorEnergy) 일 수 있어 안전 cast.
   let cached: { sectorEnergyInputs?: SectorEnergyInput[]; sectorEnergyInputsUpdatedAt?: string } | null;
   try {
     const { loadMacroState } = await import('../persistence/macroStateRepo.js');
-    cached = loadMacroState();
+    cached = loadMacroState() as unknown as { sectorEnergyInputs?: SectorEnergyInput[]; sectorEnergyInputsUpdatedAt?: string } | null;
   } catch { cached = null; }
 
   if (cached?.sectorEnergyInputs && cached.sectorEnergyInputsUpdatedAt) {

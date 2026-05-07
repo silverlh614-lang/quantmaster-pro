@@ -62,7 +62,8 @@ describe('recordGateAuditByStatus — status 기반 3분기 (ADR-0387)', () => {
       { key: 'per', output: { score: 5, status: 'FIRED' } },
     ]);
     const audit = loadGateAudit();
-    expect(audit.per).toEqual({ passed: 1, failed: 0, unavailable: 0 });
+    // ADR-0388 schema 격상 — `error` 필드 추가 (legacy `??= 0` 자동 채움).
+    expect(audit.per).toEqual({ passed: 1, failed: 0, unavailable: 0, error: 0 });
   });
 
   it('DATA_UNAVAILABLE → unavailable++ (failed 가 아님)', () => {
@@ -136,8 +137,9 @@ describe('recordGateAuditByStatus — status 기반 3분기 (ADR-0387)', () => {
       { key: 'momentum', output: { score: 3, status: 'FIRED' } },
     ]);
     const audit = loadGateAudit();
-    expect(audit.per).toEqual({ passed: 1, failed: 1, unavailable: 1 });
-    expect(audit.momentum).toEqual({ passed: 1, failed: 0, unavailable: 0 });
+    // ADR-0388 schema 격상 — `error` 필드 추가 (legacy `??= 0` 자동 채움).
+    expect(audit.per).toEqual({ passed: 1, failed: 1, unavailable: 1, error: 0 });
+    expect(audit.momentum).toEqual({ passed: 1, failed: 0, unavailable: 0, error: 0 });
   });
 });
 

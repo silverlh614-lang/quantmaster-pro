@@ -62,6 +62,21 @@ export function loadGateAudit(): GateAuditStore {
 export function saveGateAudit(store: GateAuditStore): void {
   ensureDataDir();
   fs.writeFileSync(GATE_AUDIT_FILE, JSON.stringify(store, null, 2));
+  // ADR-0418 baseline cleanup — saveGateAudit 후 in-memory `_auditCache` 도 동기화.
+  // 이전 동작: file 만 갱신 → 다음 loadGateAudit 호출 시 stale `_auditCache` 반환 →
+  // 테스트 간 누적 오염 (`expected 1 to be 2` 패턴). 이제 file + memory 동시 갱신.
+  _auditCache = store;
+}
+
+/**
+ * ADR-0418 baseline cleanup — `_auditCache` 모듈 상태 명시 reset 헬퍼 (테스트 격리용).
+ *
+ * `vi.resetModules()` 가 가능한 곳에서는 그것이 우선이지만, 일부 테스트 파일은
+ * top-level `import` 로 함수를 가져온 뒤 `saveGateAudit({})` 으로만 격리 시도하던
+ * 결함이 있었음. 본 헬퍼는 그 격리 패턴을 보강 (file + cache 동시 reset).
+ */
+export function __resetGateAuditCacheForTests(): void {
+  _auditCache = null;
 }
 
 /**
