@@ -53,6 +53,7 @@ import './scanIndices.cmd.js';
 import './sectorEnergyDiag.cmd.js';   // ADR-0398 (= 사용자 명시 ADR-0373) Sector Energy 4-axis 진단
 import './scheduleClassDiag.cmd.js';
 import './scheduler.cmd.js';
+import './shadowProvisional.cmd.js';   // ADR-0428 Provisional Shadow Performance Report
 import './shadowWalkForward.cmd.js';
 import './shortBackfill.cmd.js';
 import './signalStatus.cmd.js';
