@@ -7,6 +7,12 @@
 
 import { fetchCurrentPrice } from '../../../clients/kisClient.js';
 import { getRealtimePrice, subscribeStock } from '../../../clients/kisStreamClient.js';
+import {
+  requestKisWsSubscription,
+  isKisWsSubscriptionPriorityDisabled,
+  type SubscriptionPriorityReason,
+} from '../../../clients/kisWebSocketSubscriptionManager.js';
+import type { GateEligibility } from '../gateEligibilityClassifier.js';
 import { PROFIT_TARGETS } from '../../../../src/services/quant/sellEngine.js';
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
 
@@ -19,15 +25,86 @@ export const FAILURE_BLOCK_THRESHOLD_PCT = Number(
 );
 
 /**
+ * ADR-0437 (= 사용자 명시 ADR-0439) — KIS WebSocket Priority Queue 컨텍스트.
+ *
+ * 호출자 (buyListLoop / intradayLoop) 가 GateEligibility 결과 + 보유 여부를 자연
+ * 전달하면 priority 매트릭스 자동 도출. 미전달 시 보수 fallback (priority 500
+ * WATCHLIST) — 회귀 위험 격리 + ADR-0436 GateEligibility 결과 자연 활용.
+ */
+export interface GetPriceSubscriptionContext {
+  /** ADR-0436 GateEligibility 결과 — liveEligible / shadowObservable propagate */
+  gateEligibility?: GateEligibility | null;
+  /** 보유 종목 여부 (priority 1000 OPEN_POSITION, 절대 evict 금지) */
+  isOpenPosition?: boolean;
+  /** entry revalidation 직전 후보 여부 (priority 800 ENTRY_CANDIDATE) */
+  isEntryCandidate?: boolean;
+  /** 표시용 종목명 (진단 로그) */
+  stockName?: string;
+}
+
+/**
+ * ADR-0437 priority 매트릭스에서 reasons 도출.
+ *
+ * 우선순위:
+ *   - openPosition → OPEN_POSITION (1000)
+ *   - liveEligible → LIVE_ELIGIBLE (900)
+ *   - entryCandidate → ENTRY_CANDIDATE (800)
+ *   - shadowObservable → SHADOW_OBSERVABLE (700)
+ *   - hasFatalDefect / 그 외 → WATCHLIST (500, 보수 fallback)
+ */
+function deriveSubscriptionReasons(
+  ctx: GetPriceSubscriptionContext | undefined,
+): SubscriptionPriorityReason[] {
+  const reasons: SubscriptionPriorityReason[] = [];
+  if (ctx?.isOpenPosition) reasons.push('OPEN_POSITION');
+  if (ctx?.gateEligibility?.liveEligible) reasons.push('LIVE_ELIGIBLE');
+  if (ctx?.isEntryCandidate) reasons.push('ENTRY_CANDIDATE');
+  if (ctx?.gateEligibility?.shadowObservable) reasons.push('SHADOW_OBSERVABLE');
+  if (reasons.length === 0) reasons.push('WATCHLIST');
+  return reasons;
+}
+
+/**
  * 실시간 가격 맵 우선 조회 → REST fallback.
  * KIS WebSocket H0STCNT0 구독 중이면 인메모리 맵에서 즉시 반환,
  * 미구독/stale 시에만 REST fetchCurrentPrice 호출.
+ *
+ * ADR-0437 — `subscribeStock(stockCode)` 직접 호출을 priority queue manager
+ * (`requestKisWsSubscription`) wrapper 로 교체. ENV `KIS_WS_SUBSCRIPTION_PRIORITY_DISABLED=true`
+ * 활성 시 legacy 직접 호출 동작 100% 복원 (회귀 위험 격리).
+ *
+ * try/catch 격리 — manager throw / subscribe 실패가 매수 흐름 절대 차단 안 함.
  */
-export async function getPrice(stockCode: string): Promise<number | null> {
+export async function getPrice(
+  stockCode: string,
+  ctx?: GetPriceSubscriptionContext,
+): Promise<number | null> {
   const rtPrice = getRealtimePrice(stockCode);
   if (rtPrice !== null) return rtPrice;
-  // 미구독 종목은 즉시 구독 등록 (다음 호출부터 실시간)
-  subscribeStock(stockCode);
+  // ADR-0437 — priority queue 경유 (default ON) / legacy 직접 호출 (ENV 우회)
+  if (isKisWsSubscriptionPriorityDisabled()) {
+    subscribeStock(stockCode);
+  } else {
+    try {
+      const reasons = deriveSubscriptionReasons(ctx);
+      requestKisWsSubscription({
+        code: stockCode,
+        name: ctx?.stockName,
+        reasons,
+        liveEligible: ctx?.gateEligibility?.liveEligible,
+        shadowObservable: ctx?.gateEligibility?.shadowObservable,
+        entryCandidate: ctx?.isEntryCandidate,
+        openPosition: ctx?.isOpenPosition,
+      });
+    } catch {
+      // manager throw 가 매수 흐름 차단 안 함 — legacy fallback
+      try {
+        subscribeStock(stockCode);
+      } catch {
+        // legacy fallback throw 도 격리
+      }
+    }
+  }
   return fetchCurrentPrice(stockCode).catch(() => null);
 }
 
