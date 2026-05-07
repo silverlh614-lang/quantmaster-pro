@@ -6,6 +6,11 @@ import { guardedFetch } from '../utils/egressGuard.js';
 // 기존 로컬 정규식 복붙 (`^(\d{6})(?:\.(?:KS|KQ))?$/i`) 영구 제거 — drift 위험 차단 +
 // SSOT 의 `.KOSPI` / `.KOSDAQ` suffix 추가 지원 자연 확장.
 import { normalizeKrxCode } from '../utils/symbolNormalizer.js';
+// ADR-0443 — yahooSymbolResolver SSOT 위임 — `${code}.KS` / `${code}.KQ` direct
+// template concat 영구 차단. 마스터 매칭 시 정확한 시장 1회 시도 + 부재 시 보수적
+// 양쪽 fallback (historical bars fetcher 시그니처 부적합으로 fetchYahooQuoteByCode
+// 미사용, tryGetYahooSymbol 만 사용 + 그레이스 양쪽 시도 보존).
+import { tryGetYahooSymbol } from '../screener/adapters/yahooSymbolResolver.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -46,7 +51,14 @@ async function fetchYahooHistoricalClosePrice(
   const targetYmd = toYmd(asOf);
   const period1 = Math.floor((asOf.getTime() - 10 * DAY_MS) / 1000);
   const period2 = Math.floor((asOf.getTime() + 2 * DAY_MS) / 1000);
-  const symbols = [`${code}.KS`, `${code}.KQ`];
+  // ADR-0443 — 마스터 매칭 시 정확한 시장 우선 + 부재 시 보수적 양쪽 fallback (그레이스).
+  // historical fetcher 시그니처가 fetchYahooQuoteByCode (YahooQuoteExtended) 와
+  // 부적합 — tryGetYahooSymbol 만 사용 + 양쪽 시도 보존. 마스터 미커버 종목 (KONEX/OTHER)
+  // 도 동작 보존 (운영 안정성).
+  const resolved = tryGetYahooSymbol(code);
+  const symbols = resolved
+    ? [resolved, resolved.endsWith('.KS') ? `${code}.KQ` : `${code}.KS`]
+    : [`${code}.KS`, `${code}.KQ`];
 
   for (const symbol of symbols) {
     const urls = [

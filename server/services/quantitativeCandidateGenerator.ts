@@ -12,6 +12,10 @@ import { classifySymbol } from '../utils/symbolMarketRegistry.js';
 import { getAllStockEntries, type StockMasterEntry } from '../persistence/krxStockMasterRepo.js';
 import { tryConsume } from '../persistence/aiCallBudgetRepo.js';
 import type { AiUniverseMode } from './aiUniverseTypes.js';
+// ADR-0443 — symbolNormalizer SSOT (ADR-0438) 의 toYahooSymbol 사용 — KOSPI/KOSDAQ
+// 인라인 분기 자체 구현 영구 차단. entry.market 을 marketHint 로 전달해 master 부재
+// 시점에도 byte-equivalent 동작 보존 (CORE_SEED 사용 시).
+import { toYahooSymbol as toYahooSymbolSsot } from '../utils/symbolNormalizer.js';
 
 /** Tier 3 후보 객체 — 정량 metric 포함. */
 export interface QuantitativeCandidate {
@@ -81,11 +85,15 @@ const CORE_SEED: ReadonlyArray<{ code: string; name: string; market: 'KOSPI' | '
 /**
  * Yahoo 심볼 조립 — KRX 6자리 코드 → `005930.KS` / `247540.KQ`.
  * 마스터 entry 의 market 필드 기준. KONEX/OTHER 는 Yahoo 미지원으로 제외.
+ *
+ * ADR-0443 — symbolNormalizer SSOT (ADR-0438) toYahooSymbol 위임 (인라인 KOSPI/KOSDAQ
+ * 분기 영구 제거). entry.market 을 marketHint 로 전달 → master 부재 시점 (CORE_SEED
+ * 사용 등) 에도 byte-equivalent 동작 보존. KONEX/OTHER 는 hint 부재로 null 반환.
  */
 function toYahooSymbol(entry: { code: string; market: string }): string | null {
-  if (entry.market === 'KOSPI') return `${entry.code}.KS`;
-  if (entry.market === 'KOSDAQ') return `${entry.code}.KQ`;
-  return null;
+  const hint: 'KS' | 'KQ' | undefined =
+    entry.market === 'KOSPI' ? 'KS' : entry.market === 'KOSDAQ' ? 'KQ' : undefined;
+  return toYahooSymbolSsot(entry.code, hint).yahooSymbol;
 }
 
 /**
