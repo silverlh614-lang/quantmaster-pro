@@ -25,6 +25,17 @@ import {
   buildCounterfactualShadowPerformanceReport,
   formatCounterfactualShadowSummaryLine,
 } from '../../../learning/counterfactualShadowLearningPerformanceReport.js';
+// ADR-0432 — provisional + counterfactual learning samples promotion 한 줄 요약.
+// read-only recommendation — LIVE/PAPER/normal shadow 체결 영향 0.
+// priceProvider 미전달 → 모든 horizon PENDING → INSUFFICIENT_DATA / PENDING fallback.
+import { loadProvisionalShadowLedger } from '../../../persistence/provisionalShadowLedger.js';
+import {
+  buildProvisionalShadowPerformanceReport,
+} from '../../../learning/provisionalShadowPerformanceReport.js';
+import {
+  buildShadowLearningPromotionRecommendations,
+  formatShadowLearningPromotionSummaryLine,
+} from '../../../learning/shadowLearningPromotionRecommendation.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -72,9 +83,46 @@ const scanBlockers: TelegramCommand = {
       );
     }
 
+    // ADR-0432 — provisional + counterfactual promotion 한 줄 요약.
+    // read-only recommendation — LIVE/PAPER/normal shadow 체결 영향 0.
+    // try/catch 격리 — ledger throw 가 진단 메시지 자체 차단 안 함.
+    let promotionLine: string | null = null;
+    try {
+      const provisionalEntries = loadProvisionalShadowLedger();
+      const counterfactualEntries = loadCounterfactualShadowLearningLedger();
+      if (provisionalEntries.length > 0 || counterfactualEntries.length > 0) {
+        const nowKst = new Date().toISOString();
+        const [provisionalSummary, counterfactualSummary] = await Promise.all([
+          buildProvisionalShadowPerformanceReport({ entries: provisionalEntries, nowKst }),
+          buildCounterfactualShadowPerformanceReport({ entries: counterfactualEntries, nowKst }),
+        ]);
+        // Top winners + losers 합집합 (중복 제거 by id)
+        const provisionalRecords = [
+          ...provisionalSummary.topWinners,
+          ...provisionalSummary.topLosers,
+        ].filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
+        const counterfactualRecords = [
+          ...counterfactualSummary.topWinners,
+          ...counterfactualSummary.topLosers,
+        ].filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
+        const promotionSummary = buildShadowLearningPromotionRecommendations({
+          provisionalRecords,
+          counterfactualRecords,
+          nowKst,
+        });
+        promotionLine = formatShadowLearningPromotionSummaryLine(promotionSummary);
+      }
+    } catch (err) {
+      console.warn(
+        '[scan_blockers] shadow learning promotion 요약 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
+        err,
+      );
+    }
+
     const parts: string[] = [baseMessage];
     if (degradedSection) parts.push(degradedSection);
     if (counterfactualLine) parts.push(counterfactualLine);
+    if (promotionLine) parts.push(promotionLine);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);
   },

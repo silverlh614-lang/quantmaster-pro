@@ -55,6 +55,7 @@ import './scheduleClassDiag.cmd.js';
 import './scheduler.cmd.js';
 import './shadowProvisional.cmd.js';   // ADR-0428 Provisional Shadow Performance Report
 import './shadowCounterfactual.cmd.js'; // ADR-0431 Counterfactual Shadow Performance Report
+import './shadowPromotion.cmd.js';      // ADR-0432 Shadow Learning Promotion Recommendations
 import './shadowWalkForward.cmd.js';
 import './shortBackfill.cmd.js';
 import './signalStatus.cmd.js';
