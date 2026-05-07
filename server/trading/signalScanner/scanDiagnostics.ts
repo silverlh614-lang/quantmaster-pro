@@ -41,6 +41,16 @@ import {
   buildFreshScanBlockerAttribution,
   formatFreshAttributionSection,
 } from './freshScanBlockerAttribution.js';
+// ADR-0422 — Gate2 / NO_LEADERSHIP fresh attribution: Gate1 생존 후보 → Gate2 분해 진단.
+import {
+  type Gate2AttributionOutputItem,
+  type Gate2BlockerBucket,
+  type Gate2FreshAttribution,
+  accumulateGate2Attribution,
+  buildGate2FreshAttribution,
+  buildSectorEnergyDiagnostic,
+  formatGate2AttributionSection,
+} from './gate2LeadershipAttribution.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -119,6 +129,16 @@ export interface ScanSummary {
    */
   freshConditionAttribution?: FreshScanBlockerAttribution;
   /**
+   * ADR-0422 — Gate2 / NO_LEADERSHIP fresh attribution snapshot (옵셔널, 후방호환).
+   *
+   * Gate1 생존 후보 (gate1Pass>0) → Gate2 분해 — STALE / WAIT 카운터 분리 +
+   * sectorEnergy 진단 + blockReasons (Gate 재검증/Pre-breakout/Sizing/Drift) +
+   * 9분기 진단 (TRUE_NO_LEADERSHIP / SECTOR_DATA_STALE_DOMINANT / DATA_UNAVAILABLE /
+   * EVALUATOR_ERROR / PRE_BREAKOUT_WAIT / GATE_RECHECK / MIXED / NO_GATE1_SURVIVORS /
+   * UNKNOWN). gate1Pass>0 + gate2Pass=0 시점에 운영자에게 NO_LEADERSHIP 분해 노출.
+   */
+  freshGate2Attribution?: Gate2FreshAttribution;
+  /**
    * ADR-0414 §6 — Price Integrity 종목별 분류 진단 (옵셔널, Stage 1 Read-Only).
    *
    * **ADR-0412 `frozenQuote?` 와 책임 분리** — frozenQuote 는 *전체 스캔의 frozen 비율*,
@@ -187,6 +207,16 @@ export interface ScanCounters {
    * 핵심 불변식 #4).
    */
   freshConditionBuckets: Map<string, ConditionBlockerBucket>;
+  /**
+   * ADR-0422 — Gate2 fresh attribution 누적기 (Gate1 생존 후보 → Gate2 분해).
+   *
+   * `accumulateGate2ConditionOutputs(counters, gate1SurvivorOutputs, blockReasons)`
+   * 를 호출자 (buyListLoop) 가 Gate1 통과 후 Gate2 평가 시점에 사용. STALE / WAIT
+   * 카운터 분리 + sectorEnergy STALE 진단 + blockReasons 매핑.
+   *
+   * `freshConditionBuckets` 와 책임 분리 — fresh = 전체 outputs / gate2 = Gate1 생존 후보.
+   */
+  gate2ConditionBuckets: Map<string, Gate2BlockerBucket>;
 }
 
 export function createScanCounters(): ScanCounters {
@@ -211,6 +241,8 @@ export function createScanCounters(): ScanCounters {
     lastTriggerPass: 0,
     // ADR-0420 — fresh attribution 누적기 빈 Map 초기화. persistScanResults 에서 build.
     freshConditionBuckets: new Map(),
+    // ADR-0422 — Gate2 attribution 누적기 빈 Map 초기화 (Gate1 생존 후보만 누적).
+    gate2ConditionBuckets: new Map(),
   };
 }
 
@@ -229,6 +261,23 @@ export function accumulateFreshConditionOutputs(
   outputs: FreshAttributionOutputItem[],
 ): void {
   accumulateFreshAttribution(counters.freshConditionBuckets, outputs);
+}
+
+/**
+ * ADR-0422 — Gate2 attribution 누적기 호출 헬퍼.
+ *
+ * 호출자 (buyListLoop) 가 *Gate1 생존 후보* 의 평가 outputs 만 본 함수로 전달.
+ * STALE / WAIT 카운터 분리 + 호출자 측 wait marker 신호 가능 (pre-breakout WAIT 등).
+ *
+ * try/catch 격리 권장 — Gate2 attribution 실패 시에도 매수 흐름 차단 안 함.
+ *
+ * 외부 부작용 0 (Map mutate 만).
+ */
+export function accumulateGate2ConditionOutputs(
+  counters: ScanCounters,
+  outputs: Gate2AttributionOutputItem[],
+): void {
+  accumulateGate2Attribution(counters.gate2ConditionBuckets, outputs);
 }
 
 export function buildGatePassDistribution(counters: ScanCounters): GatePassDistribution {
@@ -417,6 +466,15 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(freshSection);
   }
 
+  // ADR-0422 — Gate2 / NO_LEADERSHIP fresh attribution 노출.
+  // gate1Pass>0 + gate2Pass=0 시점에만 노출 (formatGate2AttributionSection 내부 필터).
+  // gate1Pass=0 시점은 ADR-0420 GATE1_PASS_ZERO 분석이 우선 (책임 분리).
+  const gate2Section = formatGate2AttributionSection(summary.freshGate2Attribution);
+  if (gate2Section) {
+    lines.push('');
+    lines.push(gate2Section);
+  }
+
   return lines.join('\n');
 }
 
@@ -508,6 +566,50 @@ export async function persistScanResults(
       gate2Pass: counters.gate2Pass,
       gate3Pass: counters.gate3Pass,
       lastTriggerPass: counters.lastTriggerPass,
+      scanId: scanIdLabel,
+      scannedAtKst: timeLabel,
+    });
+  }
+
+  // ADR-0422 — Gate2 / NO_LEADERSHIP fresh attribution build + persist.
+  // gate1Pass>0 시점에만 build — Gate1 생존자가 있는 스캔만 Gate2 진단 의미. NO_LEADERSHIP
+  // 분류 (gate1Pass>0 && gate2Pass=0) 시 /scan_blockers 에 자동 노출.
+  // sectorEnergy STALE 진단은 macroGateState 또는 ScanSummary 의 sectorEnergyQuality 에서 발췌.
+  if (counters.gate1Pass > 0) {
+    const candidates = options.buyListLength + options.intradayBuyListLength;
+    const scanIdLabel = `${kstNow.toISOString().slice(0, 10)}:${timeLabel}`;
+    const sectorEnergyDiag =
+      options.sectorEnergyQuality !== undefined
+        ? buildSectorEnergyDiagnostic({
+            dataQuality: options.sectorEnergyQuality,
+            validSectorCount: options.validSectorCount,
+            expectedSectorCount: 12,
+            reasons: options.sectorEnergyReasons,
+          })
+        : undefined;
+    const blockReasons = options.macroGateState
+      ? {
+          gateRecheckMiss: counters.waitGateFail,
+          preBreakoutWait: counters.waitPreBreakout,
+          sizingBlocked: counters.waitSizingBlocked,
+          driftRemove: counters.waitDriftRemove + counters.waitDriftCorpAction,
+        }
+      : {
+          gateRecheckMiss: counters.waitGateFail,
+          preBreakoutWait: counters.waitPreBreakout,
+          sizingBlocked: counters.waitSizingBlocked,
+          driftRemove: counters.waitDriftRemove + counters.waitDriftCorpAction,
+        };
+    summaryDraft.freshGate2Attribution = buildGate2FreshAttribution({
+      buckets: Array.from(counters.gate2ConditionBuckets.values()),
+      candidates,
+      gate1Pass: counters.gate1Pass,
+      gate2Pass: counters.gate2Pass,
+      gate3Pass: counters.gate3Pass,
+      entries: counters.entries,
+      lastTriggerPass: counters.lastTriggerPass,
+      blockReasons,
+      ...(sectorEnergyDiag ? { sectorEnergy: sectorEnergyDiag } : {}),
       scanId: scanIdLabel,
       scannedAtKst: timeLabel,
     });

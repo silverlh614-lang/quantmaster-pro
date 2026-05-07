@@ -105,7 +105,11 @@ import {
   createBuyTask,
   type LiveBuyTask,
 } from '../../buyPipeline.js';
-import { setLastBuySignalAt, accumulateFreshConditionOutputs } from '../scanDiagnostics.js';
+import {
+  setLastBuySignalAt,
+  accumulateFreshConditionOutputs,
+  accumulateGate2ConditionOutputs,
+} from '../scanDiagnostics.js';
 import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
 // ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
@@ -1035,6 +1039,32 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           );
         } catch (e) {
           console.warn('[Adr0420FreshAttribution] accumulate 실패 — 매수 흐름 무영향:', e);
+        }
+      }
+      // ADR-0422: Gate2 / NO_LEADERSHIP fresh attribution 누적 — Gate1 생존 후보만.
+      //   denominator=gate1Pass (사용자 §C 정합 — 전체 candidates 가 아닌 Gate1
+      //   통과 후보 중심). PROVIDER_DEGRADED + STALE detail 은 stale 버킷으로
+      //   분리 (사용자 핵심 불변식 — STALE 은 failed 가 아님).
+      // ADR-0211 폴백 패턴 차용: gateEvaluation.gate1Passed === true OR gateScore ≥ 5.0
+      // try/catch 격리 — Gate2 attribution 실패 시 매수 흐름 차단 안 함.
+      const ge2 = (stock as { gateEvaluation?: { gate1Passed?: boolean } }).gateEvaluation;
+      const isGate1Survivor =
+        ge2?.gate1Passed === true ||
+        (typeof stock.gateScore === 'number' && stock.gateScore >= 5.0);
+      if (isGate1Survivor && reCheckGate?.outputs && reCheckGate.outputs.length > 0) {
+        try {
+          accumulateGate2ConditionOutputs(
+            ctx.scanCounters,
+            reCheckGate.outputs.map((o) => ({
+              key: o.key,
+              output: o.output as Parameters<typeof accumulateGate2ConditionOutputs>[1][number]['output'],
+              context: o.context
+                ? { evaluatorKey: o.key, hadRequiredData: o.context.hadRequiredData }
+                : { evaluatorKey: o.key },
+            })),
+          );
+        } catch (e) {
+          console.warn('[Adr0422Gate2Attribution] accumulate 실패 — 매수 흐름 무영향:', e);
         }
       }
       // ── ADR-0031 PR-59 PoC: entryRevalidationStep RevalidationStep 분기 ───
