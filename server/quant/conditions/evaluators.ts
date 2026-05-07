@@ -635,12 +635,40 @@ export const weeklyRsiZoneEvaluator: ConditionEvaluator = {
 
 // ─── 수급 합치 (KIS 기관/외인) ────────────────────────────────────────────────
 
+/**
+ * ADR-0416 (Phase 1, 2026-05-07) — kisFlow 부재 시 DATA_UNAVAILABLE 명시.
+ *
+ * 사용자 명시 핵심 불변식:
+ *   status === 'DATA_UNAVAILABLE' 인 결과는 score 가 0 이어도 절대 failed++ 로
+ *   세지 않는다. unavailable++ 로 분류되어야 한다. DATA_UNAVAILABLE 는
+ *   "조건 미달" 이 아니라 "공정한 평가 불가" 를 의미한다.
+ *
+ * 기존 결함:
+ *   stockScreener 가 KIS quota 절약 차원에서 kisFlow=undefined 로 호출 →
+ *   `if (!kisFlow) return null;` → recordGateAuditByStatus 가 null 을
+ *   THRESHOLD_NOT_MET 으로 추정 → "supply_confluence top blocker, failed
+ *   100%" 같은 잘못된 진단. 이제 DATA_UNAVAILABLE 명시 반환으로 audit 분류기가
+ *   unavailable++ 로 기록.
+ *
+ * Phase 2 (ADR-0417): postmortem action 이 unavailable 우세 시
+ *   CHECK_DATA_SOURCE 권고, REVIEW_GATE_THRESHOLD 권고 금지.
+ * Phase 3 (ADR-0418): registry.run() 에서 evaluator.inputs 자동 메타 추출 →
+ *   stockScreener 임시 inclusion list 제거.
+ */
 export const supplyConfluenceEvaluator: ConditionEvaluator = {
   key: 'supply_confluence',
   description: 'KIS 기관·외인 동반 순매수 (단독 시 0.6 가중)',
   inputs: ['ctx.kisFlow.institutionalNetBuy', 'ctx.kisFlow.foreignNetBuy'],
   evaluate({ kisFlow, weights }) {
-    if (!kisFlow) return null;
+    // ADR-0416 Phase 1 — kisFlow 외부 데이터 부재 시 DATA_UNAVAILABLE 명시.
+    if (!kisFlow) {
+      return {
+        score: 0,
+        conditionKey: 'supply_confluence',
+        detail: 'KIS Investor Flow unavailable: supply_confluence skipped',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
     const w = weightFor(weights, 'supply_confluence');
     const instBuy  = kisFlow.institutionalNetBuy > 0;
     const foreiBuy = kisFlow.foreignNetBuy > 0;
@@ -651,6 +679,7 @@ export const supplyConfluenceEvaluator: ConditionEvaluator = {
         detail:
           `수급합치 기관+${(kisFlow.institutionalNetBuy / 1000).toFixed(0)}천주 ` +
           `외인+${(kisFlow.foreignNetBuy / 1000).toFixed(0)}천주`,
+        status: 'FIRED',
       };
     }
     if (instBuy || foreiBuy) {
@@ -661,27 +690,58 @@ export const supplyConfluenceEvaluator: ConditionEvaluator = {
         score: w * 0.6,
         conditionKey: 'supply_confluence',
         detail: `수급단독 ${label}`,
+        status: 'FIRED',
       };
     }
+    // 데이터는 있는데 양쪽 모두 매도/제로 → 진짜 임계 미달.
     return null;
   },
 };
 
 // ─── OCF 품질 (DART 영업현금흐름 비율) ────────────────────────────────────────
 
+/**
+ * ADR-0416 (Phase 1, 2026-05-07) — DART 재무 데이터 부재 시 DATA_UNAVAILABLE 명시.
+ *
+ * supplyConfluenceEvaluator 와 동일 패턴 — 사용자 명시 핵심 불변식:
+ *   외부 데이터 부재로 평가 불가 시 score 0 + status='DATA_UNAVAILABLE'.
+ *   audit 은 unavailable++ 로 분류 (failed++ 금지).
+ *
+ * dartFin 또는 dartFin.ocfRatio 부재 — DART OpenAPI 미응답 / 사업보고서 미공시 /
+ * stockScreener KIS-only 호출 등 시나리오에서 nullish.
+ */
 export const earningsQualityEvaluator: ConditionEvaluator = {
   key: 'earnings_quality',
   description: 'DART OCF/매출 ≥ 5% 양호 / ≥ 1% 기본',
   inputs: ['ctx.dartFin.ocfRatio'],
   evaluate({ dartFin, weights }) {
-    if (dartFin?.ocfRatio == null) return null;
+    // ADR-0416 Phase 1 — DART 재무 데이터 부재 시 DATA_UNAVAILABLE 명시.
+    if (dartFin?.ocfRatio == null) {
+      return {
+        score: 0,
+        conditionKey: 'earnings_quality',
+        detail: 'DART financial data unavailable: earnings_quality skipped',
+        status: 'DATA_UNAVAILABLE',
+      };
+    }
     const w = weightFor(weights, 'earnings_quality');
     if (dartFin.ocfRatio >= 5.0) {
-      return { score: w,       conditionKey: 'earnings_quality', detail: `OCF품질 ${dartFin.ocfRatio.toFixed(1)}%` };
+      return {
+        score: w,
+        conditionKey: 'earnings_quality',
+        detail: `OCF품질 ${dartFin.ocfRatio.toFixed(1)}%`,
+        status: 'FIRED',
+      };
     }
     if (dartFin.ocfRatio >= 1.0) {
-      return { score: w * 0.5, conditionKey: 'earnings_quality', detail: `OCF기본 ${dartFin.ocfRatio.toFixed(1)}%` };
+      return {
+        score: w * 0.5,
+        conditionKey: 'earnings_quality',
+        detail: `OCF기본 ${dartFin.ocfRatio.toFixed(1)}%`,
+        status: 'FIRED',
+      };
     }
+    // 데이터는 있는데 임계 미달 (ocfRatio < 1.0) — 진짜 THRESHOLD_NOT_MET.
     return null;
   },
 };
