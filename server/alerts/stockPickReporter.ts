@@ -19,6 +19,10 @@ import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { fetchYahooQuote } from '../screener/stockScreener.js';
+// ADR-0443 — yahooSymbolResolver SSOT 위임 — `${entry.code}.KS` direct concat
+// 영구 차단. fetchYahooQuoteByCode 가 마스터 매칭 + 양 시장 fallback +
+// ADR-0241 sanity 회복 자연 적용 (기존 단일 .KS 시도 → 양 시장 fallback 격상).
+import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
 import {
   detectPreBreakoutAccumulation,
   type PreBreakoutInput,
@@ -100,7 +104,8 @@ export async function generateDailyPickReport(): Promise<void> {
 
     for (const entry of trackBEntries) {
       try {
-        const quote = await fetchYahooQuote(`${entry.code}.KS`);
+        // ADR-0443 — SSOT 위임 (마스터 매칭 + 양 시장 fallback + ADR-0241 sanity 자동).
+        const quote = await fetchYahooQuoteByCode(entry.code, fetchYahooQuote);
         if (!quote) continue;
         // 거래정지/관리종목/zero-volume 위험 종목은 픽에서 제외 (사용자 피해 방지)
         if (quote.isHighRisk) {
@@ -170,7 +175,8 @@ export async function generateDailyPickReport(): Promise<void> {
 
   for (const entry of notYetTriggered) {
     try {
-      const quote = await fetchYahooQuote(`${entry.code}.KS`);
+      // ADR-0443 — SSOT 위임 (마스터 매칭 + 양 시장 fallback + ADR-0241 sanity 자동).
+      const quote = await fetchYahooQuoteByCode(entry.code, fetchYahooQuote);
       if (!quote) continue;
       if (quote.isHighRisk) {
         console.log(`[PickReport] ⏭️ 위험 종목 제외(미리 살): ${entry.name}(${entry.code})`);

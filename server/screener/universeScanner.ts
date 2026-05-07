@@ -24,6 +24,11 @@
 
 import fs from 'fs';
 import { fetchYahooQuote, enrichQuoteWithKisMTAS, STOCK_UNIVERSE } from './stockScreener.js';
+// ADR-0443 — yahooSymbolResolver SSOT 위임 — `${code}.KS ?? .KQ` brute-force
+// 패턴 영구 차단. fetchYahooQuoteByCode 가 마스터 매칭 + ADR-0241 sanity 회복
+// 자연 적용 + tryGetYahooSymbol 가 symbol field 격상 (마스터 매칭 시 정확한 시장,
+// 부재 시 .KS fallback).
+import { fetchYahooQuoteByCode, tryGetYahooSymbol } from './adapters/yahooSymbolResolver.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { loadMacroState, type MacroState } from '../persistence/macroStateRepo.js';
@@ -175,15 +180,15 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
           const name = row.hts_kor_isnm  ?? '';
           if (!code || seenCodes.has(code)) return null;
 
-          const quote =
-            (await fetchYahooQuote(`${code}.KS`).catch(() => null)) ??
-            (await fetchYahooQuote(`${code}.KQ`).catch(() => null));
+          // ADR-0443 — SSOT 위임 (양 시장 fallback + ADR-0241 sanity 자동).
+          const quote = await fetchYahooQuoteByCode(code, fetchYahooQuote).catch(() => null);
           if (!quote) return null;
           if (!evaluateStage1FilterTracked(quote).pass) return null;
 
           return {
             code, name,
-            symbol: `${code}.KS`,
+            // ADR-0443 — 마스터 매칭 시 정확한 시장 표기, 부재 시 legacy .KS fallback.
+            symbol: tryGetYahooSymbol(code) ?? `${code}.KS`,
             sector: getSectorByCode(code),
             quote,
             stage1Score: calcStage1Score(quote),

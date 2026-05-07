@@ -31,6 +31,10 @@ import { type RejectionEntry, setLastRejectionLog } from './rejectionLog.js';
 import { fetchYahooQuote, type YahooQuoteExtended } from './adapters/yahooQuoteAdapter.js';
 import { fetchKisQuoteFallback, fetchKisIntraday, enrichQuoteWithKisMTAS } from './adapters/kisQuoteAdapter.js';
 import { fetchKrxScreenerFallback } from './adapters/krxScreenerAdapter.js';
+// ADR-0443 — yahooSymbolResolver SSOT 위임 — `${s.code}.KS` direct concat 영구
+// 차단. screenerSymbols 의 symbol 필드 마스터 매칭 격상 (정확한 시장) + 부재 시
+// legacy .KS fallback 보존 (그레이스 — 코스닥도 Yahoo 에서 .KS 로 조회 가능).
+import { tryGetYahooSymbol } from './adapters/yahooSymbolResolver.js';
 // ADR-0128 §Wiring 1B: 워치리스트 신규 후보 incremental 검증 (WATCHLIST role).
 // 워치리스트 등록 자체는 차단 금지 — alert 보류 + UI 마킹만 영향 (markDataQuarantine).
 import { verifyStockIncremental } from '../data/dataVerificationIncremental.js';
@@ -415,7 +419,9 @@ export async function autoPopulateWatchlist(): Promise<number> {
   // 실계좌: KIS 4개 TR 스크리닝 결과(캐시) 기반으로 후보군 축소
   // VTS/폴백: 기존 동적 확장 유니버스 사용
   const screenerSymbols = getScreenerCache().slice(0, PRE_SCREEN_MAX_RESULTS).map(s => ({
-    symbol: `${s.code}.KS`,  // 코스피 기본, Yahoo에서 코스닥도 .KS로 조회 가능
+    // ADR-0443 — 마스터 매칭 시 정확한 시장 (.KS / .KQ), 부재 시 legacy .KS fallback
+    // (코스닥도 Yahoo 에서 .KS 로 조회 가능 — 그레이스 동작 보존).
+    symbol: tryGetYahooSymbol(s.code) ?? `${s.code}.KS`,
     code: s.code,
     name: s.name,
   }));

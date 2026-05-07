@@ -17,6 +17,11 @@ import { getRecommendations, type RecommendationRecord } from './recommendationT
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { computeNetPnL } from '../trading/executionCosts.js';
 import { guardedFetch } from '../utils/egressGuard.js';
+// ADR-0443 — yahooSymbolResolver SSOT 위임 — `${code}.KS` / `${code}.KQ` direct
+// template concat 영구 차단. historical OHLCV fetcher 시그니처 (raw chart bars 반환)
+// 가 fetchYahooQuoteByCode (YahooQuoteExtended 반환) 와 부적합 — tryGetYahooSymbol
+// 만 사용 + 마스터 부재 시 보수적 양쪽 시도 fallback 보존 (그레이스).
+import { tryGetYahooSymbol } from '../screener/adapters/yahooSymbolResolver.js';
 
 const YF_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -70,7 +75,11 @@ async function fetchOHLCVRange(
 ): Promise<OHLCVDay[]> {
   const p1 = Math.floor(from.getTime() / 1000);
   const p2 = Math.floor(to.getTime()   / 1000);
-  const symbols = [`${code}.KS`, `${code}.KQ`];
+  // ADR-0443 — 마스터 매칭 시 정확한 시장 우선 + 부재 시 보수적 양쪽 fallback (그레이스).
+  const resolved = tryGetYahooSymbol(code);
+  const symbols = resolved
+    ? [resolved, resolved.endsWith('.KS') ? `${code}.KQ` : `${code}.KS`]
+    : [`${code}.KS`, `${code}.KQ`];
 
   for (const sym of symbols) {
     const urls = [

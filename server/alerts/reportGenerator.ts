@@ -24,6 +24,10 @@ import { loadGlobalScanReport } from './globalScanAgent.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { getFomcProximity } from '../trading/fomcCalendar.js';
 import { fetchYahooQuote } from '../screener/stockScreener.js';
+// ADR-0443 — yahooSymbolResolver SSOT 위임 — `${code}.KS ?? .KQ` brute-force
+// 패턴 영구 차단. fetchYahooQuoteByCode 가 마스터 매칭 + ADR-0241 sanity 회복
+// (한쪽 시장 STALE_BASE 응답 시 다른 시장 자동 fallback) 자연 적용.
+import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { analyzeAttribution } from '../learning/attributionAnalyzer.js';
@@ -504,10 +508,8 @@ export async function sendWatchlistBriefing(): Promise<void> {
         msg += `${focusMark}${w.name}  보유중 · 대기목록 제외\n`;
         continue;
       }
-      // Yahoo 시세 조회하여 CS, Gap 판단
-      const quote =
-        (await fetchYahooQuote(`${w.code}.KS`).catch(() => null)) ??
-        (await fetchYahooQuote(`${w.code}.KQ`).catch(() => null));
+      // Yahoo 시세 조회하여 CS, Gap 판단 (ADR-0443: SSOT 위임, ADR-0241 sanity 자동).
+      const quote = await fetchYahooQuoteByCode(w.code, fetchYahooQuote).catch(() => null);
 
       if (quote && quote.price > 0) {
         const gate = evaluateServerGate(quote);

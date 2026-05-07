@@ -19,6 +19,10 @@ import { fetchCurrentPrice, fetchKisInvestorFlow } from '../clients/kisClient.js
 import { fetchYahooQuote, type YahooQuoteExtended } from '../screener/stockScreener.js';
 import { getDartFinancials, type DartFinancials } from '../clients/dartFinancialClient.js';
 import { fetchPerPbr as krxFetchPerPbr } from '../clients/krxClient.js';
+// ADR-0443 — yahooSymbolResolver SSOT 위임 — `${ref.code}.KS` direct concat 영구
+// 차단. ref.symbol 명시 시 그대로 사용 + 부재 시 마스터 매칭 우선 + 마스터 부재 시
+// legacy .KS fallback 보존 (그레이스 — 호출자 의도된 default 동작 보존).
+import { tryGetYahooSymbol } from '../screener/adapters/yahooSymbolResolver.js';
 
 // ── 타입 ─────────────────────────────────────────────────────────────────────
 
@@ -47,7 +51,9 @@ interface CollectedData {
 /** 각 소스를 병렬 수집. 개별 실패는 errors 배열에 축적되고 undefined 로 표기. */
 async function collectAll(ref: StockRef): Promise<CollectedData> {
   const errors: string[] = [];
-  const symbol = ref.symbol ?? `${ref.code}.KS`;
+  // ADR-0443 — ref.symbol 명시 시 그대로 사용 + 부재 시 마스터 매칭 우선 + 마스터
+  // 부재 시 legacy `.KS` fallback (그레이스 — 마스터 미커버 종목도 .KS 시도 보존).
+  const symbol = ref.symbol ?? tryGetYahooSymbol(ref.code) ?? `${ref.code}.KS`;
 
   const [priceRes, flowRes, yahooRes, dartRes, perPbrRes] = await Promise.allSettled([
     fetchCurrentPrice(ref.code),

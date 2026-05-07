@@ -21,6 +21,11 @@ import { RECOMMENDATIONS_FILE, ensureDataDir } from '../persistence/paths.js';
 import type { RecommendationRecord } from './recommendationTracker.js';
 import { guardedFetch } from '../utils/egressGuard.js';
 import { safePctChange } from '../utils/safePctChange.js';
+// ADR-0443 — yahooSymbolResolver SSOT 위임 — `${code}.KS` / `${code}.KQ` direct
+// template concat 영구 차단. historical OHLCV fetcher 시그니처 (raw chart bars 반환)
+// 가 fetchYahooQuoteByCode (YahooQuoteExtended 반환) 와 부적합 — tryGetYahooSymbol
+// 만 사용 + 마스터 부재 시 보수적 양쪽 시도 fallback 보존 (그레이스).
+import { tryGetYahooSymbol } from '../screener/adapters/yahooSymbolResolver.js';
 
 const YF_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -52,7 +57,11 @@ function saveRecommendations(recs: RecommendationRecord[]): void {
 async function fetchOHLCV(code: string, from: Date, to: Date): Promise<OHLCVDay[]> {
   const p1 = Math.floor(from.getTime() / 1000);
   const p2 = Math.floor(to.getTime()   / 1000);
-  const symbols = [`${code}.KS`, `${code}.KQ`];
+  // ADR-0443 — 마스터 매칭 시 정확한 시장 우선 + 부재 시 보수적 양쪽 fallback (그레이스).
+  const resolved = tryGetYahooSymbol(code);
+  const symbols = resolved
+    ? [resolved, resolved.endsWith('.KS') ? `${code}.KQ` : `${code}.KS`]
+    : [`${code}.KS`, `${code}.KQ`];
 
   for (const sym of symbols) {
     const urls = [
