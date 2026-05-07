@@ -47,6 +47,14 @@ import {
   getLastInvestorFlowProviderHealth,
   summarizeInvestorFlowProviderHealth,
 } from '../../../supply/investorFlowProviderHealth.js';
+// ADR-0442 — KIS WebSocket Subscription Queue 진단 섹션 (운영자 슬롯 분배 가시화).
+// read-only — buildSubscriptionDiagnosis 가 _subscribedPriorities 메모리 read 만.
+// LIVE 매매 본체 영향 0 — ADR-0437 SSOT 호출만 추가, 본체 무수정.
+import {
+  buildSubscriptionDiagnosis,
+  formatKisWsSubscriptionSection,
+  isKisWsSubscriptionDiagDisabled,
+} from '../../../clients/kisWebSocketSubscriptionManager.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -171,12 +179,33 @@ const scanBlockers: TelegramCommand = {
       );
     }
 
+    // ADR-0442 — KIS WebSocket Subscription Queue 진단 섹션.
+    // read-only — buildSubscriptionDiagnosis 가 _subscribedPriorities 메모리 read 만.
+    // try/catch 격리 — 진단 throw 가 base 메시지 차단 안 함.
+    // ENV `KIS_WS_SUBSCRIPTION_DIAG_DISABLED=true` 시 섹션 미노출.
+    // total=0 (구독 0건 시점) 시 섹션 미노출 — 운영자 noise 차단.
+    let kisWsSubscriptionSection: string | null = null;
+    try {
+      if (!isKisWsSubscriptionDiagDisabled()) {
+        const diag = buildSubscriptionDiagnosis();
+        if (diag.total > 0) {
+          kisWsSubscriptionSection = formatKisWsSubscriptionSection(diag);
+        }
+      }
+    } catch (err) {
+      console.warn(
+        '[scan_blockers] kis-ws subscription 섹션 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
+        err,
+      );
+    }
+
     const parts: string[] = [baseMessage];
     if (degradedSection) parts.push(degradedSection);
     if (supplyProviderSection) parts.push(supplyProviderSection);
     if (counterfactualLine) parts.push(counterfactualLine);
     if (promotionLine) parts.push(promotionLine);
     if (universeSection) parts.push(universeSection);
+    if (kisWsSubscriptionSection) parts.push(kisWsSubscriptionSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);
   },

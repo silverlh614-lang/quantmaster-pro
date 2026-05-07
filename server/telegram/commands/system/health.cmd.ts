@@ -10,6 +10,7 @@ import {
 import { computeMarketDataHealthScore, formatMarketDataHealthLine } from '../../../health/marketDataHealth.js';
 import { getMasterSize, isMasterStale } from '../../../persistence/krxStockMasterRepo.js';
 import { DEFAULT_KRX_MASTER_GUARD } from '../../../dataQuality/emergencyDataQualityGuards.js';
+import type { SubscriptionDiagnosis } from '../../../clients/kisWebSocketSubscriptionManager.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -49,6 +50,9 @@ export function formatHealthMessage(s: HealthSnapshot, p: HealthProbeResult): st
 
   // ADR-0191 §Wiring 3 — Position Truth Divergence 라인 (정상은 침묵, divergent=true 시 ❌ 노출).
   const ptdLine = formatPositionTruthDivergenceLine(s);
+  // ADR-0442 — KIS WebSocket Subscription Queue 진단 라인 (compact 형식, 운영자 슬롯 분배 가시화).
+  // 비활성 (ENV 우회) 또는 진단 수집 실패 시 빈 문자열 (라인 미노출).
+  const kisWsSubLines = formatKisWsSubscriptionLines(s.kisWsSubscription);
 
   return (
     `🩺 <b>[파이프라인 헬스체크]</b> (uptime ${s.uptimeHours}h / mem ${s.memMB}MB / build ${s.commitSha})\n` +
@@ -74,9 +78,34 @@ export function formatHealthMessage(s: HealthSnapshot, p: HealthProbeResult): st
     `일일손실: ${s.dailyLossPct.toFixed(1)}% / 한도 ${s.dailyLossLimit}%\n` +
     `비상정지: ${s.emergencyStop ? '🛑 활성' : '✅ 해제'}\n` +
     `실시간호가: ${s.stream.connected ? `✅ ${s.stream.subscribedCount}종목` : '❌ 미연결'}\n` +
+    (kisWsSubLines ? `${kisWsSubLines}\n` : '') +
     `─────────────────────\n` +
     `<i>/refresh_token — KIS 토큰 강제 갱신</i>`
   );
+}
+
+/**
+ * KIS WebSocket Subscription Queue 진단을 /health 메시지용 compact 라인으로 포맷 — ADR-0442.
+ *
+ * `formatKisWsSubscriptionSection` 은 헤더("🛰️ KIS WebSocket Subscription Queue (ADR-0437)")
+ * 가 포함된 multi-line section 출력 — `/scan_blockers` 용. `/health` 는 *컴팩트 한 줄 (또는 두 줄)*
+ * 형식이 적합 — 별도 헬퍼로 압축.
+ *
+ * 분기:
+ *   1. diag 부재 (ENV 우회 또는 수집 실패) → 빈 문자열 (라인 미노출)
+ *   2. rejected/evicted 0건 → 한 줄 ("실시간 슬롯: total/limit (...)")
+ *   3. rejected 또는 evicted > 0 → 두 줄 ("실시간 슬롯: ...\n  └ rejected N | evicted M")
+ *
+ * 외부 export — 단위 테스트 + 회귀 가드용.
+ */
+export function formatKisWsSubscriptionLines(diag: SubscriptionDiagnosis | undefined): string {
+  if (!diag) return '';
+  const baseLine = `실시간 슬롯: ${diag.total}/${diag.limit} (open ${diag.openPositionCount} / live ${diag.liveEligibleCount} / shadow ${diag.shadowObservableCount} / watch ${diag.watchlistCount} / observe ${diag.observeOnlyCount})`;
+  const rejected = diag.invalidRejectedCount + diag.lowPriorityRejectedCount;
+  if (rejected === 0 && diag.evictedCount === 0) {
+    return baseLine;
+  }
+  return `${baseLine}\n  └ rejected ${rejected} | evicted ${diag.evictedCount}`;
 }
 
 export function resolveHealthVerdict(originalVerdict: string, krxMasterBlocked: boolean): string {

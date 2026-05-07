@@ -43,6 +43,14 @@ import {
   type MultiProbeResult,
 } from '../utils/yahooProbeRetry.js';
 import type { ScanSummary } from '../trading/signalScanner/scanDiagnostics.js';
+// ADR-0442 — KIS WebSocket Subscription Queue 진단 (운영자 슬롯 분배 가시화).
+// read-only — buildSubscriptionDiagnosis 가 _subscribedPriorities 메모리 read 만.
+// LIVE 매매 본체 영향 0 — ADR-0437 SSOT 호출만 추가, 본체 무수정.
+import {
+  buildSubscriptionDiagnosis,
+  isKisWsSubscriptionDiagDisabled,
+  type SubscriptionDiagnosis,
+} from '../clients/kisWebSocketSubscriptionManager.js';
 
 // ─── 타입 ────────────────────────────────────────────────────────────────
 
@@ -155,6 +163,15 @@ export interface HealthSnapshot {
    */
   positionTruthDivergence?: PositionTruthDivergenceReport;
 
+  // ── ADR-0442: KIS WebSocket Subscription Queue 진단 (운영자 슬롯 분배 가시화) ──
+  /**
+   * 30 슬롯 분배 (open/live/shadow/watchlist/observe/rejected/evicted).
+   * undefined = 진단 비활성 (ENV `KIS_WS_SUBSCRIPTION_DIAG_DISABLED=true`) 또는 수집 실패.
+   * total=0 도 정상 진단 — 부팅 직후 또는 stream 미연결 시점.
+   * read-only — buildSubscriptionDiagnosis 가 _subscribedPriorities 메모리 read 만.
+   */
+  kisWsSubscription?: SubscriptionDiagnosis;
+
   // ── 종합 ──
   verdict: HealthVerdict;
 }
@@ -255,6 +272,12 @@ export function collectHealthSnapshot(): HealthSnapshot {
     'unknown'
   ).slice(0, 7);
 
+  // ADR-0442 — KIS WebSocket Subscription Queue 진단 (운영자 슬롯 분배 가시화).
+  // read-only — buildSubscriptionDiagnosis 가 _subscribedPriorities 메모리 read 만.
+  // try/catch 격리 — 진단 throw 가 health 스냅샷 차단 안 함.
+  // ENV `KIS_WS_SUBSCRIPTION_DIAG_DISABLED=true` 시 undefined (운영자 표시 비활성).
+  const kisWsSubscription = safeBuildKisWsSubscriptionDiagnosis();
+
   return {
     uptimeHours: (process.uptime() / 3600).toFixed(1),
     memMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
@@ -297,8 +320,27 @@ export function collectHealthSnapshot(): HealthSnapshot {
     intradayYield: getCachedIntradayYield(),
     // ADR-0191 §Wiring 3 — try/catch 격리 (영속 SSOT 결함이 health 흐름 차단 안 됨).
     positionTruthDivergence: safeDetectPositionTruthDivergence(),
+    // ADR-0442 — try/catch 격리 (진단 throw 가 health 흐름 차단 안 됨).
+    kisWsSubscription,
     verdict,
   };
+}
+
+/**
+ * KIS WebSocket Subscription Queue 진단 try/catch 격리 wrapper — ADR-0442.
+ *
+ * read-only — `buildSubscriptionDiagnosis` 가 `_subscribedPriorities` 메모리 read 만.
+ * ENV `KIS_WS_SUBSCRIPTION_DIAG_DISABLED=true` 시 undefined 반환 (운영자 표시 비활성).
+ * throw 시 console.warn + undefined fallback (health 스냅샷 흐름 차단 0).
+ */
+function safeBuildKisWsSubscriptionDiagnosis(): SubscriptionDiagnosis | undefined {
+  try {
+    if (isKisWsSubscriptionDiagDisabled()) return undefined;
+    return buildSubscriptionDiagnosis();
+  } catch (e) {
+    console.warn('[Diagnostics] kis-ws subscription 진단 수집 실패 — undefined fallback:', e);
+    return undefined;
+  }
 }
 
 /**
