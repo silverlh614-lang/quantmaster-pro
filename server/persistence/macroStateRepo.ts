@@ -204,6 +204,10 @@ export interface MacroState {
     symmetryValidationPassed: boolean;
     shouldBlockLeadershipConfidence: boolean;
     operatorMessage: string;
+    /** ADR-0424: indexCode 백필로 회복된 row 수 (옵셔널, 후방호환). */
+    indexCodeBackfilledCount?: number;
+    /** ADR-0424: 수리 상태 분류 (옵셔널, 후방호환). */
+    repairStatus?: 'RECOVERED' | 'PARTIAL' | 'STILL_STALE' | 'NOT_NEEDED';
   };
   /**
    * ADR-0343 — sectorEnergy build 입력 (SectorEnergyInput[]) 영속.

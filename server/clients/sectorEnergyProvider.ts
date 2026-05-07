@@ -33,6 +33,11 @@ import {
   evaluateSectorEnergyQualityDiagnostic,
   isSectorEnergyQualityDiagnosticDisabled,
 } from './sectorEnergyQualityDiagnostic.js';
+// ADR-0424: indexName → indexCode SSOT 역변환 — KRX 가 IDX_IND_CD 누락 응답 시 backfill.
+import {
+  isSectorIndexCodeBackfillDisabled,
+  resolveIndexCodeBySectorName,
+} from './sectorEnergyMaster.js';
 
 export type StrategicSector =
   | '반도체'
@@ -103,6 +108,14 @@ export interface SymmetryValidationResult {
   todayRowsTotal?: number;
   /** ADR-0423: today rows 중 indexCode 보유 row 수 (옵셔널, 후방호환). */
   todayRowsWithIndexCode?: number;
+  /**
+   * ADR-0424: indexName → SECTOR_INDEX_MASTER 역변환 backfill 발생 횟수 (옵셔널, 후방호환).
+   *
+   * `backfillIndexCodes` 가 raw KRX 응답에서 indexCode 가 비어있는 row 를 NAME_LOOKUP 으로
+   * 회복했을 때 채워짐. 정상 KRX 경로에서는 0. backfilledCount > 0 이면 KRX 데이터 결손
+   * (data-dbg fallback 등) 운영자 인지 가능.
+   */
+  backfilledCount?: number;
 }
 
 /**
@@ -192,6 +205,8 @@ function withQualityDiagnostic(result: SectorEnergyBuildResult): SectorEnergyBui
     : result.sourceTier === 'YAHOO_ETF' ? 'ETF'
     : result.sourceTier === 'CACHE' ? 'CACHE'
     : 'NONE';
+  // ADR-0424: backfilled rows 수 — symmetryValidation 결과에 첨부됨.
+  const indexCodeBackfilledCount = sym?.backfilledCount ?? 0;
   const qualityDiagnostic = evaluateSectorEnergyQualityDiagnostic({
     validSectorCount: result.validSectorCount,
     expectedSectorCount: result.totalSectorCount,
@@ -200,6 +215,7 @@ function withQualityDiagnostic(result: SectorEnergyBuildResult): SectorEnergyBui
     symmetryValidationPassed: sym?.valid ?? true,
     fallbackUsed,
     ...(result.sourceTier ? { sourceTier: result.sourceTier } : {}),
+    ...(indexCodeBackfilledCount > 0 ? { indexCodeBackfilledCount } : {}),
   });
   return { ...result, qualityDiagnostic };
 }
@@ -279,6 +295,60 @@ export function getSectorEnergyMinValid(): number {
   const env = Number(process.env.SECTOR_ENERGY_MIN_VALID);
   if (Number.isFinite(env) && env > 0 && env <= TOTAL_SECTOR_COUNT) return env;
   return SECTOR_ENERGY_MIN_VALID_DEFAULT;
+}
+
+/**
+ * ADR-0424: KRX 응답 row 의 비어있는 `indexCode` 를 SECTOR_INDEX_MASTER 역변환으로 backfill.
+ *
+ * 운영 시나리오: KRX OpenAPI 가 *data-dbg fallback base* 사용 시 IDX_NM (indexName) 만 채우고
+ * IDX_IND_CD (indexCode) 가 비어있는 row 를 반환하는 사례 (ADR-0365). Symmetry validation 이
+ * 0% coverage 로 fail → STOCK_DAILY fallback → indexCodeCoverage=0% 악순환.
+ *
+ * 본 helper 는 *KRX 공식 표준 이름 → indexCode* 변환만 수행 — fabrication 아님:
+ *   - row.indexCode 이미 채워져 있으면 그대로 (RAW source).
+ *   - 비어있고 row.indexName 매칭되면 backfill (NAME_LOOKUP source, HIGH confidence).
+ *   - 매칭 안 되면 그대로 (caller 측 symmetry 가 자연 fail).
+ *
+ * ENV `SECTOR_INDEX_CODE_BACKFILL_DISABLED=true` 시 입력 그대로 반환 (회귀 1줄 즉시 롤백).
+ *
+ * 외부 부작용 0. 입력 row 의 indexCode 가 변경되지만 새 객체 생성 패턴 (immutable-friendly).
+ *
+ * 반환: { rows, backfilledCount } — backfilled row 수를 운영자 진단 + 회귀 가드용.
+ *
+ * 사용자 §C 정합 (절대 변경 금지):
+ *   - sourceTier 변경 0 (sourceTier 는 fallback 채택 여부로 결정).
+ *   - dataQuality 강제 변경 0 (ADR-0423 결정 트리가 input 기반 자동 분류).
+ *   - 매매 정책 변경 0 (진단 input 정확화만).
+ */
+export function backfillIndexCodes(
+  rows: KrxIndexDailyRow[],
+): { rows: KrxIndexDailyRow[]; backfilledCount: number } {
+  if (!rows || rows.length === 0) return { rows: rows ?? [], backfilledCount: 0 };
+  if (isSectorIndexCodeBackfillDisabled()) return { rows, backfilledCount: 0 };
+
+  let backfilledCount = 0;
+  const out: KrxIndexDailyRow[] = rows.map((r) => {
+    if (r.indexCode && r.indexCode.trim().length > 0) {
+      // raw KRX 가 indexCode 제공 — RAW source 명시 (옵셔널, 후방호환).
+      return r.indexCodeSource ? r : { ...r, indexCodeSource: 'RAW' as const };
+    }
+    // raw KRX 가 indexCode 비어있음 — indexName 으로 SECTOR_INDEX_MASTER 역변환 시도.
+    const recoveredCode = resolveIndexCodeBySectorName(r.indexName);
+    if (recoveredCode) {
+      backfilledCount += 1;
+      return { ...r, indexCode: recoveredCode, indexCodeSource: 'NAME_LOOKUP' as const };
+    }
+    // 매칭 실패 — caller 측 symmetry 가 자연 fail (운영자 후속 PR 분리).
+    return r;
+  });
+
+  if (backfilledCount > 0) {
+    console.warn(
+      `[SectorEnergy] ADR-0424 indexCode backfill (${backfilledCount}/${rows.length} rows recovered ` +
+      `via SECTOR_INDEX_MASTER NAME_LOOKUP — KRX IDX_IND_CD 응답 결손 의심, data-dbg fallback 가능성)`,
+    );
+  }
+  return { rows: out, backfilledCount };
 }
 
 export function validateIndexResponseSymmetry(
@@ -612,7 +682,22 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
     };
   }
 
-  const symmetry = validateIndexResponseSymmetry(todayIdx, pastIdx);
+  // ── ADR-0424: indexCode 백필 SSOT 진입 — KRX 응답에 IDX_IND_CD 누락 row 가 있으면 ─
+  // SECTOR_INDEX_MASTER alias 매칭으로 회복 (HIGH confidence, data-dbg fallback 시나리오 차단).
+  // backfilledCount 가 symmetry 결과에 첨부되어 운영자 진단 + 회귀 가드용. sourceTier 변경 0 —
+  // 정상 KRX 경로에서 indexName 만 있던 row 가 backfill 로 회복되면 STOCK_DAILY fallback 미진입.
+  const todayBackfill = backfillIndexCodes(todayIdx);
+  const pastBackfill = backfillIndexCodes(pastIdx);
+  const todayIdxBackfilled = todayBackfill.rows;
+  const pastIdxBackfilled = pastBackfill.rows;
+  const totalBackfilledCount = todayBackfill.backfilledCount + pastBackfill.backfilledCount;
+
+  const symmetryRaw = validateIndexResponseSymmetry(todayIdxBackfilled, pastIdxBackfilled);
+  // ADR-0424: backfill 통계 첨부 (옵셔널, 후방호환).
+  const symmetry: SymmetryValidationResult =
+    totalBackfilledCount > 0
+      ? { ...symmetryRaw, backfilledCount: totalBackfilledCount }
+      : symmetryRaw;
   if (!symmetry.valid && !isSectorEnergySymmetryDisabled()) {
     const stockFallback = buildStockDailyFallbackResult(
       todayStocks,
@@ -627,7 +712,7 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
     if (isSectorEnergyIndexNameFallbackEnabled()) {
       // ADR-0399: indexName fallback 은 ENV opt-in 전용 — default 영구 차단.
       // 활성 시에도 sourceTier='KRX_CODE' 가 아닌 STOCK_DAILY 분류 (정확 매칭이 아니라 휴리스틱 매칭이라).
-      const nameDeltas = aggregateIndexDeltas(todayIdx, pastIdx);
+      const nameDeltas = aggregateIndexDeltas(todayIdxBackfilled, pastIdxBackfilled);
       const nameBuilt = buildInputsFromDeltas(nameDeltas, foreignMap);
       if (nameBuilt.validSectorCount >= getSectorEnergyMinValid()) {
         return {
@@ -658,7 +743,7 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
     };
   }
 
-  const deltas = aggregateIndexDeltas(todayIdx, pastIdx);
+  const deltas = aggregateIndexDeltas(todayIdxBackfilled, pastIdxBackfilled);
   const { inputs, validSectorCount } = buildInputsFromDeltas(deltas, foreignMap);
   const minValid = getSectorEnergyMinValid();
   if (validSectorCount < minValid) {
