@@ -3,24 +3,23 @@
  *
  * 09:00 이전 연결 거부 → 08:55 연결 시 onerror/onclose 중복 발화 문제 방지.
  * 장중(09:00~15:30 KST) 재배포 시 다음 cron 발화를 기다리지 않고 즉시 연결한다.
+ *
+ * ADR-0441 — 재시작/재연결 30 슬롯 포화 재발 차단:
+ *   - 본 파일의 `kis_stream_start` / `kis_stream_watchdog` / boot auto-connect 3 callsites 가
+ *     `selectKisStreamSubscribableCodes` SSOT 위임 (gateScore desc 단순 정렬 제거).
+ *   - 보유 종목 (active shadow) → OPEN_POSITION priority 1000 절대 우선.
+ *   - 호출자 측 inline `gateScore desc` 정렬 0건 (정적 grep 가드).
  */
 import { scheduledJob } from './scheduleGuard.js';
 import { MAX_SUBSCRIPTIONS, getStreamStatus, startKisStream, stopKisStream } from '../clients/kisStreamClient.js';
-import { loadWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
+import { loadWatchlist } from '../persistence/watchlistRepo.js';
+import {
+  selectKisStreamSubscribableCodes,
+  deriveOpenPositionCodes,
+} from '../clients/kisStreamCandidateBuilder.js';
 
 const INITIAL_START_DELAY_MS = 5000;
 const BOOT_START_DELAY_MS = 3000;
-
-/**
- * 워치리스트를 gate score 내림차순으로 정렬하여 KIS 구독 상한만큼 코드만 반환.
- * KIS 단일 세션은 41 종목이 상한 → 초과 시 code=1006 강제 종료. 상위 신뢰도 종목을 우선 구독한다.
- */
-function selectSubscribableCodes(entries: WatchlistEntry[]): string[] {
-  return [...entries]
-    .sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0))
-    .slice(0, MAX_SUBSCRIPTIONS)
-    .map((w) => w.code);
-}
 
 /** 현재 시각이 KST 장중(월~금 09:00~15:20) 인지 판정. */
 function isKstMarketHours(now: Date = new Date()): boolean {
@@ -42,8 +41,10 @@ export function registerKisStreamJobs(): void {
   scheduledJob('0 0 * * 1-5', 'TRADING_DAY_ONLY', 'kis_stream_start', async () => {
     await new Promise((r) => setTimeout(r, INITIAL_START_DELAY_MS));
     const entries = loadWatchlist();
-    const codes = selectSubscribableCodes(entries);
-    console.log(`[Scheduler] KIS WebSocket 시작 시도 — 워치리스트 ${entries.length}개 → 상위 ${codes.length}개 구독`);
+    // ADR-0441: 보유 종목 우선 + ADR-0437 우선순위 매트릭스 통과
+    const openPositionCodes = await deriveOpenPositionCodes();
+    const codes = selectKisStreamSubscribableCodes(entries, openPositionCodes, MAX_SUBSCRIPTIONS);
+    console.log(`[Scheduler] KIS WebSocket 시작 시도 — 워치리스트 ${entries.length}개 → 상위 ${codes.length}개 구독 (보유 ${openPositionCodes.size}개 우선)`);
     if (codes.length === 0) {
       console.warn('[Scheduler] KIS WebSocket 스트림 시작 건너뜀 — 워치리스트 비어있음 (08:35 Stage2+3 파이프라인 실패 가능성)');
       return;
@@ -58,9 +59,11 @@ export function registerKisStreamJobs(): void {
     const status = getStreamStatus();
     if (status.connected) return;
     const entries = loadWatchlist();
-    const codes = selectSubscribableCodes(entries);
+    // ADR-0441: 보유 종목 우선 + ADR-0437 우선순위 매트릭스 통과
+    const openPositionCodes = await deriveOpenPositionCodes();
+    const codes = selectKisStreamSubscribableCodes(entries, openPositionCodes, MAX_SUBSCRIPTIONS);
     if (codes.length === 0) return;
-    console.warn(`[Scheduler] KIS WebSocket 미연결 감지 — 재시작 시도 (구독됐던 ${status.subscribedCount}개, 워치리스트 ${entries.length}개 → 상위 ${codes.length}개, 재연결 ${status.reconnectCount}회)`);
+    console.warn(`[Scheduler] KIS WebSocket 미연결 감지 — 재시작 시도 (구독됐던 ${status.subscribedCount}개, 워치리스트 ${entries.length}개 → 상위 ${codes.length}개, 보유 ${openPositionCodes.size}개 우선, 재연결 ${status.reconnectCount}회)`);
     await startKisStream(codes);
     console.log(`[Scheduler] KIS WebSocket 워치독 재시작 — connected=${getStreamStatus().connected}`);
   }, { timezone: 'UTC' });
@@ -80,12 +83,14 @@ export function registerKisStreamJobs(): void {
       try {
         if (getStreamStatus().connected) return;
         const entries = loadWatchlist();
-        const codes = selectSubscribableCodes(entries);
+        // ADR-0441: 보유 종목 우선 + ADR-0437 우선순위 매트릭스 통과
+        const openPositionCodes = await deriveOpenPositionCodes();
+        const codes = selectKisStreamSubscribableCodes(entries, openPositionCodes, MAX_SUBSCRIPTIONS);
         if (codes.length === 0) {
           console.warn('[Scheduler] KIS WebSocket 부팅 자동 연결 건너뜀 — 워치리스트 비어있음');
           return;
         }
-        console.log(`[Scheduler] KIS WebSocket 부팅 자동 연결 — 장중 감지, 워치리스트 ${entries.length}개 → 상위 ${codes.length}개 구독`);
+        console.log(`[Scheduler] KIS WebSocket 부팅 자동 연결 — 장중 감지, 워치리스트 ${entries.length}개 → 상위 ${codes.length}개 구독 (보유 ${openPositionCodes.size}개 우선)`);
         await startKisStream(codes);
         console.log(`[Scheduler] KIS WebSocket 부팅 자동 연결 완료 — connected=${getStreamStatus().connected}`);
       } catch (e) {
