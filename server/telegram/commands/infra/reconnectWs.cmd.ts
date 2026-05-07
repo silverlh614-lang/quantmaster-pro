@@ -1,5 +1,9 @@
 // @responsibility reconnectWs.cmd 텔레그램 모듈
 // @responsibility: /reconnect_ws — KIS WebSocket 강제 재연결 (stop → 1s 대기 → start). 워치리스트 비어있으면 가드. EMR 인프라.
+//
+// ADR-0441 — 재시작/재연결 30 슬롯 포화 재발 차단:
+//   `selectKisStreamSubscribableCodes` SSOT 위임으로 ADR-0437 우선순위 매트릭스 통과
+//   (호출자 측 inline `gateScore desc` 정렬 0건).
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import {
   MAX_SUBSCRIPTIONS,
@@ -7,6 +11,10 @@ import {
   startKisStream,
   stopKisStream,
 } from '../../../clients/kisStreamClient.js';
+import {
+  selectKisStreamSubscribableCodes,
+  deriveOpenPositionCodes,
+} from '../../../clients/kisStreamCandidateBuilder.js';
 import { escapeHtml } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -39,11 +47,10 @@ const reconnectWs: TelegramCommand = {
 
     await new Promise(resolve => setTimeout(resolve, 1000));
     const watchlist = loadWatchlist();
-    // KIS 단일 세션 구독 한도(41) — gate score 상위 절삭. 초과 시 1006 강제 종료 방지.
-    const codes = [...watchlist]
-      .sort((a, b) => (b.gateScore ?? 0) - (a.gateScore ?? 0))
-      .slice(0, MAX_SUBSCRIPTIONS)
-      .map(w => w.code);
+    // ADR-0441: KIS 단일 세션 구독 한도(30) — ADR-0437 우선순위 매트릭스 통과
+    // (보유 종목 OPEN_POSITION priority 1000 절대 우선). 초과 시 1006 강제 종료 방지.
+    const openPositionCodes = await deriveOpenPositionCodes();
+    const codes = selectKisStreamSubscribableCodes(watchlist, openPositionCodes, MAX_SUBSCRIPTIONS);
     if (codes.length === 0) {
       await reply(
         '⚠️ 워치리스트가 비어 있어 재연결할 구독 종목이 없습니다. /add 또는 /krx_scan 후 재시도하세요.',
@@ -65,7 +72,7 @@ const reconnectWs: TelegramCommand = {
     await reply(
       `✅ <b>[KIS WebSocket 재연결 완료]</b>\n` +
       `연결: ${after.connected ? '✅ OK' : '🟡 연결 중 (핸드셰이크 진행)'}\n` +
-      `구독: ${after.subscribedCount}개 / 워치리스트 ${codes.length}개\n` +
+      `구독: ${after.subscribedCount}개 / 워치리스트 ${codes.length}개 (보유 ${openPositionCodes.size}개 우선)\n` +
       `재연결 카운트: ${after.reconnectCount}`,
     );
   },
