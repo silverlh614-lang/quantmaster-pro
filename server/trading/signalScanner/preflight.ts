@@ -42,6 +42,8 @@ import { combineRegimeAndFomcKelly, describeRegimeFomcCombination } from '../reg
 import { applyKellyClamp, KELLY_FLOOR } from '../sizing/kellyClamp.js';
 import { computeSlotConsumption } from '../slotAccounting.js';
 import { checkVolumeClockWindow } from '../volumeClock.js';
+import { isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
+import { evaluateR3CountableScan } from './r3StreakSkipPolicy.js';
 import { loadConditionWeights, getConditionWeightsUpdatedAt } from '../../persistence/conditionWeightsRepo.js';
 import { applyFreshnessDecayToNeutralWeightedRecord } from '../../learning/learningFreshnessGuard.js';
 import { isOpenShadowStatus } from '../entryEngine.js';
@@ -189,34 +191,11 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     }
   }
 
-  // ADR-0401: SHADOW_ONLY ephemeral 차단 — streak count >= profile.shadowOnlyAt + decay 안 지남.
-  // 영속 latch (data/r3-sanity-block.json) 와 무관, streak repo 의 24h decay 로 자연 회복.
-  // HARD_BLOCK latch 는 위 분기에서 이미 처리됨 (절대 원칙 #11/12 — 자동 해제 0).
-  const effectiveStreak = getEffectiveR3ViolationStreak();
-  if (effectiveStreak.violation === 'GATE1_PASS_ZERO' && effectiveStreak.consecutiveCount > 0) {
-    const profile = getR3SanityProfile(effectiveStreak.regime);
-    if (effectiveStreak.consecutiveCount >= profile.shadowOnlyAt) {
-      console.warn(
-        `[AutoTrade] R3 SHADOW_ONLY ephemeral block — streak=${effectiveStreak.consecutiveCount}/${profile.shadowOnlyAt} ` +
-        `(${effectiveStreak.violation}, ${effectiveStreak.regime}) — ADR-0401`,
-      );
-      await sendTelegramAlert(
-        `⚫️ <b>[R3 Sanity — SHADOW_ONLY pre-scan]</b>\n` +
-        `직전 스캔 누적 ${effectiveStreak.consecutiveCount}회 (임계 ${profile.shadowOnlyAt}) — ` +
-        `신규 진입 차단 + shadow learning 유지.\n` +
-        `<i>다음 정상 스캔 (위반 NONE 또는 24h decay) 시 자동 회복 — 영속 latch 없음 (ADR-0401).</i>`,
-        {
-          priority: 'HIGH',
-          dedupeKey: `r3_sanity_shadow_only_pre:${effectiveStreak.regime}:${effectiveStreak.consecutiveCount}`,
-          cooldownMs: 6 * 60 * 60_000,
-        },
-      ).catch(console.error);
-      await recordBlockedDayShadowScan('R3_SANITY_BLOCK');
-      await updateShadowResults(shadows, regime);
-      saveShadowTrades(shadows);
-      return { shouldAbort: true, skipPersist: true };
-    }
-  }
+  // ADR-0419: SHADOW_ONLY pre-scan 발화는 *정상 거래일에 GATE1_PASS_ZERO 가 누적될 때만* 의미가 있으므로
+  // SELL_ONLY / VolumeClock closed / R6 / VIX / FOMC / 데이터 빈곤 시점은 아래 매크로 게이트들이 먼저 abort.
+  // 그 결과 본 분기는 모든 매크로 게이트를 통과하고 volumeClock 까지 OK 인 정상 거래 가능 상태에서만 도달한다.
+  // 추가 belt-and-suspenders 가드는 라인 ~360 의 evaluateR3CountableScan 호출.
+  // HARD_BLOCK latch (영속, ADR-0120) 는 위 분기에서 이미 처리됨 (절대 원칙 #11/12 — 자동 해제 0).
 
   const sellOnlyExc = optSellOnly
     ? evaluateSellOnlyException(regimeConfig, macroState)
@@ -358,6 +337,61 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   }
   if (volumeClock.scoreBonus !== 0) {
     console.log(volumeClock.reason);
+  }
+
+  // ADR-0419: SHADOW_ONLY ephemeral 차단 — 이 지점은 모든 매크로 게이트 (SELL_ONLY / R6 / VIX / FOMC /
+  //   데이터 빈곤 / volumeClock closed) 를 통과한 *정상 거래일* 이라야 도달 가능. evaluateR3CountableScan
+  //   호출은 belt-and-suspenders 안전망 (호출 순서 변경 회귀 차단) + 진단 로그 가시화.
+  // ADR-0401: 영속 latch 와 무관, streak repo 의 24h decay 로 자연 회복.
+  // HARD_BLOCK latch (영속, ADR-0120) 는 라인 ~173 에서 이미 처리됨 (절대 원칙 #11/12 — 자동 해제 0).
+  const todayKstDate = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const r3Countability = evaluateR3CountableScan({
+    todayKstDate,
+    isKrxTradingDay: isKrxTradingDay(todayKstDate),
+    volumeClockAllowsEntry: volumeClock.allowEntry,
+    emergencyStop: getEmergencyStop(),
+    manualBlockNewBuy,
+    manualManageOnly,
+    sellOnlyMode: optSellOnly === true,
+    regime: regime ?? 'UNKNOWN',
+    bearDefenseMode: false,
+    vixGatingActive: vixGating.noNewEntry,
+    fomcBlockActive: fomcProximity.noNewEntry,
+    dataStarvedScan: false,
+    frozenQuoteDataQuality: 'OK',
+  });
+  if (r3Countability.countable) {
+    const effectiveStreak = getEffectiveR3ViolationStreak();
+    if (effectiveStreak.violation === 'GATE1_PASS_ZERO' && effectiveStreak.consecutiveCount > 0) {
+      const profile = getR3SanityProfile(effectiveStreak.regime);
+      if (effectiveStreak.consecutiveCount >= profile.shadowOnlyAt) {
+        console.warn(
+          `[AutoTrade] R3 SHADOW_ONLY ephemeral block — streak=${effectiveStreak.consecutiveCount}/${profile.shadowOnlyAt} ` +
+          `(${effectiveStreak.violation}, ${effectiveStreak.regime}) — ADR-0401/0419`,
+        );
+        await sendTelegramAlert(
+          `⚫️ <b>[R3 Sanity — SHADOW_ONLY pre-scan]</b>\n` +
+          `직전 스캔 누적 ${effectiveStreak.consecutiveCount}회 (임계 ${profile.shadowOnlyAt}) — ` +
+          `신규 진입 차단 + shadow learning 유지.\n` +
+          `<i>다음 정상 스캔 (위반 NONE 또는 24h decay) 시 자동 회복 — 영속 latch 없음 (ADR-0401).</i>`,
+          {
+            priority: 'HIGH',
+            dedupeKey: `r3_sanity_shadow_only_pre:${effectiveStreak.regime}:${effectiveStreak.consecutiveCount}`,
+            cooldownMs: 6 * 60 * 60_000,
+          },
+        ).catch(console.error);
+        await recordBlockedDayShadowScan('R3_SANITY_BLOCK');
+        await updateShadowResults(shadows, regime);
+        saveShadowTrades(shadows);
+        return { shouldAbort: true, skipPersist: true };
+      }
+    }
+  } else {
+    // ADR-0419: 비정상 컨텍스트 — SHADOW_ONLY pre-scan 자체 차단 (사용자 명시 절대 원칙).
+    // 이 분기는 매크로 게이트들의 early-return 이 누락된 회귀가 발생했을 때만 도달 가능 — 추가 안전망.
+    console.warn(
+      `[AutoTrade] R3 SHADOW_ONLY pre-scan 자체 skip — ${r3Countability.skipReason ?? 'unknown'} (ADR-0419)`,
+    );
   }
 
   const supplyHealthSnapshot = await captureSupplyHealthSnapshot();

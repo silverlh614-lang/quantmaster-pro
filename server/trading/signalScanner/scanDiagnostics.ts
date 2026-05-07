@@ -702,13 +702,19 @@ export function formatR3StreakSkipLine(skip: { skipped: boolean; reason?: string
   const reasonLabels: Record<string, string> = {
     KRX_NON_TRADING_DAY: 'KRX_NON_TRADING_DAY (휴장일/주말)',
     VOLUME_CLOCK_CLOSED: 'VOLUME_CLOCK_CLOSED (점심·장외 시간대)',
+    EMERGENCY_STOP: 'EMERGENCY_STOP (운영자 비상정지)',
+    MANUAL_BLOCK_NEW_BUY: 'MANUAL_BLOCK_NEW_BUY (운영자 수동 가드)',
     SELL_ONLY_MODE: 'SELL_ONLY_MODE (운영자 정책 차단)',
-    BLOCKED_DAY_SCAN: 'BLOCKED_DAY_SCAN (R6/FOMC/VIX 거시 게이트)',
+    R6_DEFENSE_REGIME: 'R6_DEFENSE_REGIME (블랙스완 방어)',
+    VIX_BLOCK: 'VIX_BLOCK (VIX 게이팅)',
+    FOMC_BLOCK: 'FOMC_BLOCK (FOMC 게이팅)',
+    BLOCKED_DAY_SCAN: 'BLOCKED_DAY_SCAN (거시 게이트)',
+    DATA_STARVED_SCAN: 'DATA_STARVED_SCAN (MTAS/DART 결손)',
     FROZEN_QUOTE_STALE: 'FROZEN_QUOTE_STALE (입력 데이터 오염)',
   };
   const label = skip.reason ? (reasonLabels[skip.reason] ?? skip.reason) : '미상';
 
-  return `⏸ <b>[R3 Streak]</b> R3 hard block 누적 제외 — ${label} (ADR-0412)`;
+  return `⏸ <b>[R3 Streak]</b> R3 hard block 누적 제외 — ${label} (ADR-0412/0419)`;
 }
 
 // ─── ADR-0414 — Price Integrity Checker + Correction Overlay (Stage 1 Read-Only) ───
