@@ -216,6 +216,59 @@ export function getCanonicalDisplayNames(): string[] {
   return SECTOR_INDEX_MASTER.map((e) => e.displayName);
 }
 
+// ─── ADR-0424: indexName → indexCode 역변환 SSOT (이름 기반 backfill 전용) ─────
+
+/**
+ * ADR-0424: SectorEnergy indexCode 백필 출처 분류 SSOT.
+ *
+ * `RAW`             — KRX OpenAPI 가 직접 IDX_IND_CD 제공 (HIGH confidence, default 경로).
+ * `NAME_LOOKUP`     — KRX 가 indexName 만 제공 + SECTOR_INDEX_MASTER alias 매칭으로 backfill
+ *                     (HIGH confidence — KRX 공식 매핑이고 표준 이름과 1:1).
+ * `STOCK_DAILY_DERIVED` — STOCK_DAILY fallback 입력에서 sectorName 매칭으로 backfill
+ *                         (LOW confidence — synthetic 입력이라 leadership confidence 격하 의무).
+ *
+ * 핵심 불변식 (사용자 §C 정합):
+ *   - STATIC_MAP / NAME_LOOKUP backfill 은 *coverage 격상 효과만* — sourceTier 변경 0.
+ *   - sourceTier='STOCK_DAILY' 시 ADR-0423 결정 트리 §C-5 가 dataQuality=PARTIAL 강제 → leadership BLOCKED 유지.
+ *   - 정상 KRX_CODE 경로에서 indexName 만 있는 row 도 NAME_LOOKUP 으로 회복 시 *fallback 미발생*.
+ */
+export type IndexCodeSource = 'RAW' | 'NAME_LOOKUP' | 'STOCK_DAILY_DERIVED';
+
+/**
+ * ADR-0424: indexName 기반 SECTOR_INDEX_MASTER 역변환 SSOT.
+ *
+ * 동작: `getSectorByAlias(indexName)` 위임 (displayName 정확 매칭 우선 → aliases 부분 매칭).
+ * KRX 가 indexName 만 제공하고 IDX_IND_CD 가 비어있는 운영 시나리오 (ADR-0365 data-dbg fallback)
+ * 에서 *KRX 공식 표준 이름 → indexCode 변환* 으로 재구성.
+ *
+ * 빈/공백/null/undefined → null. 대소문자 무관.
+ *
+ * 외부 부작용 0 (순수 함수). 외부 호출 0건.
+ *
+ * 사용자 §C 정합:
+ *   - 본 helper 는 *NAME_LOOKUP HIGH confidence backfill* 에만 사용.
+ *   - STOCK_DAILY 같은 synthetic 입력 backfill 은 별도 source 표시 의무 (`STOCK_DAILY_DERIVED`).
+ */
+export function resolveIndexCodeBySectorName(
+  indexName: string | null | undefined,
+): string | null {
+  if (!indexName || typeof indexName !== 'string') return null;
+  const entry = getSectorByAlias(indexName);
+  return entry ? entry.krxIndexCode : null;
+}
+
+// ─── ENV gate (호출자 측 inline 검사 0건 — SSOT 위임) ─────────────────────────────
+
+/**
+ * ADR-0424: indexCode 백필 비활성 ENV (default OFF).
+ *
+ * 활성 시: provider 가 backfill 을 수행하지 않고 raw KRX 응답 그대로 처리 → 회귀 1줄 즉시 롤백.
+ * 정확 비교 (`=== 'true'`) — ADR-0157 의무 정합.
+ */
+export function isSectorIndexCodeBackfillDisabled(): boolean {
+  return process.env.SECTOR_INDEX_CODE_BACKFILL_DISABLED === 'true';
+}
+
 /** ADR-0399: 호출자 측 inline ENV 검사 0건 — SSOT 위임 패턴 (ADR-0185~0189 정합). */
 export function isSectorEnergySourceRestorationDisabled(): boolean {
   return process.env.SECTOR_ENERGY_SOURCE_RESTORATION_DISABLED === 'true';

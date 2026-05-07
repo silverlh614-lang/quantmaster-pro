@@ -52,6 +52,18 @@ export interface KrxIndexDailyRow {
   volume: number;
   value: number;
   marketCap: number;
+  /**
+   * ADR-0424: indexCode 출처 분류 (옵셔널, 후방호환).
+   *
+   * `'RAW'` (default) — KRX OpenAPI IDX_IND_CD 직접. HIGH confidence.
+   * `'NAME_LOOKUP'`   — KRX 가 indexName 만 제공 + SECTOR_INDEX_MASTER alias 매칭으로 backfill.
+   *                     HIGH confidence (KRX 공식 표준 이름 1:1 매핑).
+   * `'STOCK_DAILY_DERIVED'` — STOCK_DAILY fallback 입력에서 sectorName 매칭으로 합성.
+   *                            LOW confidence — leadership confidence 격하 의무.
+   *
+   * 부재 시 caller 측 default = 'RAW' (raw KRX 응답 그대로).
+   */
+  indexCodeSource?: 'RAW' | 'NAME_LOOKUP' | 'STOCK_DAILY_DERIVED';
 }
 
 const DEFAULT_BASE = 'https://data-dbg.krx.co.kr/svc/apis';

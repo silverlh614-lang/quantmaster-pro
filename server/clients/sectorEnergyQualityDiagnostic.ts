@@ -107,6 +107,23 @@ export interface SectorEnergyQualityDiagnostic {
   shouldBlockLeadershipConfidence: boolean;
   /** 운영자 메시지 (한국어/영문 mixed — 텔레그램 메시지 그대로 사용 가능). */
   operatorMessage: string;
+  /**
+   * ADR-0424: indexCode 백필로 회복된 row 수 (옵셔널, 후방호환).
+   *
+   * `> 0` 이면 KRX 가 IDX_IND_CD 누락 응답을 보냈고 SECTOR_INDEX_MASTER 역변환으로 회복됨.
+   * 운영자 진단 — 운영 중 KRX 데이터 결손 (data-dbg fallback 등) 빈도 추적용.
+   * 부재 시 caller 측 default = 0.
+   */
+  indexCodeBackfilledCount?: number;
+  /**
+   * ADR-0424: 수리 상태 분류 (옵셔널, 후방호환).
+   *
+   * `RECOVERED`     — backfill 로 indexCodeCoverage 회복 + symmetry pass + sourceTier=KRX_CODE.
+   * `PARTIAL`       — backfill 일부 회복 (coverage > 0 이나 symmetry 미통과 또는 fallback 활성).
+   * `STILL_STALE`   — backfill 후에도 coverage = 0 또는 fallback 우세 — provider 본체 복구 필요.
+   * `NOT_NEEDED`    — raw KRX 정상 (backfill 0 + dataQuality OK).
+   */
+  repairStatus?: 'RECOVERED' | 'PARTIAL' | 'STILL_STALE' | 'NOT_NEEDED';
 }
 
 // ─── SSOT 입력 타입 ──────────────────────────────────────────────────────
@@ -133,6 +150,14 @@ export interface EvaluateSectorEnergyQualityInput {
   fallbackUsed?: SectorEnergyFallbackUsed;
   sourceTier?: string;
   cacheAgeMs?: number;
+  /**
+   * ADR-0424: indexCode 백필로 회복된 row 수 (옵셔널).
+   *
+   * Provider 의 `backfillIndexCodes` 가 KRX 응답에서 IDX_IND_CD 누락 row 를 SECTOR_INDEX_MASTER
+   * 역변환으로 회복했을 때 caller 가 전달. evaluator 는 repairStatus 분류 입력으로만 사용 — 분류
+   * 로직 자체는 변경 없음 (backfill 후 indexCodeCoverage 가 자동으로 회복된 값으로 입력됨).
+   */
+  indexCodeBackfilledCount?: number;
 }
 
 // ─── 임계 SSOT (ADR-0423 §C 사용자 명시 정합 — 절대 변경 금지) ──────────────
@@ -173,6 +198,54 @@ export function computeMissingIndexCodeCount(rowsWithIndexCode: number, totalSec
   if (!Number.isFinite(totalSectorRows) || totalSectorRows < 0) return 0;
   if (!Number.isFinite(rowsWithIndexCode) || rowsWithIndexCode < 0) return Math.floor(totalSectorRows);
   return Math.max(0, Math.floor(totalSectorRows - rowsWithIndexCode));
+}
+
+/**
+ * ADR-0424: 수리 상태 분류 SSOT.
+ *
+ * 우선순위 결정 트리 (절대 변경 금지):
+ *   1. fallbackUsed='NONE' + dataQuality='OK' + backfilled=0 → 'NOT_NEEDED'
+ *   2. fallbackUsed='NONE' + symmetryPassed + indexCodeCoverage>=0.8 + backfilled>0 → 'RECOVERED'
+ *   3. indexCodeCoverage>0 + (fallbackUsed≠'NONE' || !symmetryPassed) → 'PARTIAL'
+ *   4. 그 외 (indexCodeCoverage=0 또는 dataQuality=FAILED 또는 stuck STOCK_DAILY) → 'STILL_STALE'
+ *
+ * 사용자 §H 정합:
+ *   - 'RECOVERED' 분류는 *KRX 본체 경로 정상화* 만 허용 — fallback 사용 시 절대 RECOVERED 금지.
+ *   - 'NOT_NEEDED' 는 backfill 0 + raw KRX 정상 — 평상시 default.
+ */
+export function classifyRepairStatus(
+  dataQuality: SectorEnergyDataQuality5,
+  indexCodeCoverage: number,
+  symmetryValidationPassed: boolean,
+  fallbackUsed: SectorEnergyFallbackUsed,
+  indexCodeBackfilledCount: number,
+): 'RECOVERED' | 'PARTIAL' | 'STILL_STALE' | 'NOT_NEEDED' {
+  // ① 평상시 raw KRX 정상 — 수리 불필요.
+  if (
+    fallbackUsed === 'NONE' &&
+    dataQuality === 'OK' &&
+    indexCodeBackfilledCount === 0
+  ) {
+    return 'NOT_NEEDED';
+  }
+  // ② backfill 로 회복 — KRX 본체 경로가 indexCode backfill 로 복구됐다.
+  if (
+    fallbackUsed === 'NONE' &&
+    symmetryValidationPassed &&
+    indexCodeCoverage >= 0.8 &&
+    indexCodeBackfilledCount > 0
+  ) {
+    return 'RECOVERED';
+  }
+  // ③ indexCode 일부 회복 — coverage > 0 이지만 fallback 활성 또는 symmetry 미통과.
+  if (
+    indexCodeCoverage > 0 &&
+    (fallbackUsed !== 'NONE' || !symmetryValidationPassed)
+  ) {
+    return 'PARTIAL';
+  }
+  // ④ 그 외 — provider 본체 복구 필요.
+  return 'STILL_STALE';
 }
 
 /**
@@ -336,6 +409,19 @@ export function evaluateSectorEnergyQualityDiagnostic(
 
   const operatorMessage = buildOperatorMessage(dataQuality, reasons, indexCodeCoverage, fallbackUsed);
 
+  // ADR-0424: backfill stats + repair status 분류 SSOT.
+  const indexCodeBackfilledCount =
+    Number.isFinite(input.indexCodeBackfilledCount) && (input.indexCodeBackfilledCount ?? 0) >= 0
+      ? Math.floor(input.indexCodeBackfilledCount as number)
+      : 0;
+  const repairStatus = classifyRepairStatus(
+    dataQuality,
+    indexCodeCoverage,
+    Boolean(input.symmetryValidationPassed),
+    fallbackUsed,
+    indexCodeBackfilledCount,
+  );
+
   return {
     dataQuality,
     reasons,
@@ -349,6 +435,9 @@ export function evaluateSectorEnergyQualityDiagnostic(
     symmetryValidationPassed: Boolean(input.symmetryValidationPassed),
     shouldBlockLeadershipConfidence: shouldBlockLeadershipConfidence(dataQuality),
     operatorMessage,
+    // ADR-0424 — 옵셔널 필드 (후방호환).
+    indexCodeBackfilledCount,
+    repairStatus,
   };
 }
 
@@ -397,8 +486,24 @@ export function formatSectorEnergyQualityDiagnosticSection(
 
   lines.push(`  • leadershipConfidence: ${diagnostic.shouldBlockLeadershipConfidence ? 'BLOCKED' : 'OK'}`);
 
+  // ADR-0424: backfill stats + repair status (옵셔널, 후방호환).
+  if (diagnostic.indexCodeBackfilledCount !== undefined && diagnostic.indexCodeBackfilledCount > 0) {
+    lines.push(
+      `  • indexCodeBackfilledCount: ${diagnostic.indexCodeBackfilledCount} (NAME_LOOKUP via SECTOR_INDEX_MASTER)`,
+    );
+  }
+  if (diagnostic.repairStatus !== undefined) {
+    lines.push(`  • repairStatus: ${diagnostic.repairStatus}`);
+  }
+
   if (diagnostic.shouldBlockLeadershipConfidence) {
     lines.push('  • operatorAction: sector indexCode mapping/provider cache 점검 우선');
+  } else if (diagnostic.repairStatus === 'RECOVERED') {
+    lines.push(
+      '  • operatorAction: KRX 본체 정상 — backfill 로 복구 (ADR-0424). 데이터 결손 빈도 모니터링.',
+    );
+  } else if (diagnostic.repairStatus === 'NOT_NEEDED') {
+    lines.push('  • operatorAction: none — sector-index leadership 정상.');
   }
 
   if (diagnostic.operatorMessage) {
