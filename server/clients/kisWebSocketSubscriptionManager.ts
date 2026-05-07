@@ -32,6 +32,9 @@ import {
   subscribeStock as kisSubscribeStock,
   unsubscribeStock as kisUnsubscribeStock,
 } from './kisStreamClient.js';
+// ADR-0438 (= 사용자 명시 ADR-0442) — Symbol Resolver SSOT 위임.
+// ADR-0437 의 inline normalizeKrxCodeForWs 가 SSOT 통합 (정규식 인라인 제거).
+import { normalizeKrxCode as normalizeKrxCodeSsot } from '../utils/symbolNormalizer.js';
 
 /**
  * 12-value SubscriptionPriorityReason union.
@@ -153,21 +156,22 @@ export function isKisWsSubscriptionPriorityDisabled(): boolean {
   return process.env.KIS_WS_SUBSCRIPTION_PRIORITY_DISABLED === 'true';
 }
 
-// ── invalid KRX code guard SSOT (ADR-0442 후속 통합 예정) ───────────────────
+// ── invalid KRX code guard (ADR-0438 SSOT 위임) ────────────────────────────
 
 /**
  * 6자리 숫자 KRX code 정규화. invalid 시 null.
+ *
+ * ADR-0438 (= 사용자 명시 ADR-0442) — `server/utils/symbolNormalizer.ts` SSOT 위임.
+ * 본 함수는 호출자 후방호환 wrapper — inline 정규식 영구 제거 (정적 grep 가드).
+ *
+ * 동작 보존:
  *   - 정상 6자리: 그대로 반환 ('005930')
- *   - .KS / .KQ suffix: strip ('005930.KS' → '005930')
- *   - 그 외 (4자리 / 알파벳 / 빈 / null): null
+ *   - .KS / .KQ / .KOSPI / .KOSDAQ suffix: strip ('005930.KS' → '005930')
+ *   - 그 외 (4자리 / 알파벳 / 빈 / null / non-string): null
  */
 export function normalizeKrxCodeForWs(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null;
-  let s = raw.trim().toUpperCase();
-  if (s.length === 0) return null;
-  if (s.endsWith('.KS') || s.endsWith('.KQ')) s = s.slice(0, -3);
-  if (!/^[0-9]{6}$/.test(s)) return null;
-  return s;
+  const result = normalizeKrxCodeSsot(raw);
+  return result.valid ? result.code : null;
 }
 
 // ── 정렬 / dedup SSOT ──────────────────────────────────────────────────────

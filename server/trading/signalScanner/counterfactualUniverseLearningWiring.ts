@@ -29,6 +29,10 @@ import {
   type CounterfactualUniverseLearningSnapshot,
   type CounterfactualUniversePreflightStage,
 } from '../../persistence/counterfactualUniverseLearningRepo.js';
+// ADR-0438 (= 사용자 명시 ADR-0442) — invalid code 가 universe learning ledger 에
+// 박제되지 않도록 buildCandidateSummaries 진입부에서 normalizeKrxCode 통과 필터링.
+// 사용자 핵심 의도: "invalid code 는 degraded 가 아니라 hard reject 다."
+import { normalizeKrxCode as normalizeKrxCodeSsot } from '../../utils/symbolNormalizer.js';
 
 /** ENV gate SSOT (ADR-0157 정확 비교 의무). */
 export function isCounterfactualUniverseLearningDisabled(): boolean {
@@ -99,6 +103,10 @@ export function buildCandidateSummaries(
     const symbolValue = (c['symbol'] ?? c['code'] ?? c['stockCode']) as unknown;
     const symbol = typeof symbolValue === 'string' && symbolValue.trim().length > 0 ? symbolValue : null;
     if (!symbol) continue;
+    // ADR-0438 (= 사용자 명시 ADR-0442) — invalid code 는 universe learning 영속 절대 금지.
+    // suffix strip 후 6자리 숫자만 통과. NON_NUMERIC / INVALID_LENGTH / EMPTY 모두 skip.
+    const normalized = normalizeKrxCodeSsot(symbol);
+    if (!normalized.valid) continue;
     const summary: CounterfactualUniverseCandidateSummary = { symbol };
     const name = c['name'] ?? c['stockName'];
     if (typeof name === 'string') summary.name = name;

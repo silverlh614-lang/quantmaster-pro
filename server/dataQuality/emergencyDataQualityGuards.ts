@@ -4,7 +4,13 @@
  * Production invariant:
  * - missing/stale/fetch-failed market data is never coerced to 0.
  * - static seed master is diagnostic-only and must not drive scan/recommend/autotrade paths.
+ *
+ * ADR-0438 — `normalizeKrxCode` / `assertValidKrxCode` 는 본 모듈 SSOT 였으나
+ * `server/utils/symbolNormalizer.ts` 로 이전 (사용자 명시 ADR-0442 정합).
+ * 본 모듈의 두 함수는 후방호환 wrapper 로 deprecated 표기.
  */
+
+import * as symbolNormalizerSsot from '../utils/symbolNormalizer.js';
 
 export type DataQualityFatalCode =
   | 'KRX_MASTER_MISSING'
@@ -118,30 +124,32 @@ export function assertUsableKrxMaster(
   return true;
 }
 
+/**
+ * @deprecated ADR-0438 — `server/utils/symbolNormalizer` 직접 import 권장 (SSOT 위임).
+ *
+ * 본 함수는 후방호환 wrapper — 기존 4개 호출자 (watchlistRepo / buyPipeline /
+ * historicalClosePrice / kisWebSocketSubscriptionManager) 가 자동 흡수되도록
+ * 시그니처 (`unknown → string | null`) 보존. 신규 호출자는 ADR-0438 SSOT 의
+ * `normalizeKrxCode(raw): NormalizedKrxSymbol` 을 직접 사용 (reason union /
+ * marketSuffix / valid flag 활용 가능).
+ *
+ * 정적 import 안전성 — ESM 순환 import 는 함수 본문 내부 lazy access 시 안전
+ * (`DataQualityError` 클래스도 모듈 평가 후 사용). symbolNormalizer.ts 가
+ * 본 모듈에서 `DataQualityError` 를 import 하지만 양쪽 모두 함수 내부 사용만.
+ */
 export function normalizeKrxCode(input: unknown): string | null {
-  if (input === null || input === undefined) return null;
-
-  const raw = String(input).trim().toUpperCase();
-  if (raw.length === 0) return null;
-
-  const code = raw
-    .replace(/\.KS$/u, '')
-    .replace(/\.KQ$/u, '')
-    .replace(/\.KOSPI$/u, '')
-    .replace(/\.KOSDAQ$/u, '');
-
-  return /^\d{6}$/u.test(code) ? code : null;
+  // ESM 순환 import 안전 — function body lazy access (require 대신 정적 import).
+  const result = symbolNormalizerSsot.normalizeKrxCode(input);
+  return result.valid ? result.code : null;
 }
 
+/**
+ * @deprecated ADR-0438 — `server/utils/symbolNormalizer.assertValidKrxCode` 직접 import 권장.
+ *
+ * 후방호환 wrapper — invalid 시 DataQualityError throw 정책 그대로 유지.
+ */
 export function assertValidKrxCode(input: unknown): string {
-  const code = normalizeKrxCode(input);
-  if (!code) {
-    throw new DataQualityError('INVALID_KRX_CODE', {
-      input,
-      reason: 'KRX code must be exactly 6 numeric digits',
-    });
-  }
-  return code;
+  return symbolNormalizerSsot.assertValidKrxCode(input);
 }
 
 export interface QuoteSanityReport {
