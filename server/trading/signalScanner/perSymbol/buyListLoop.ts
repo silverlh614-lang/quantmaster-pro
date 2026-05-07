@@ -109,7 +109,12 @@ import {
   setLastBuySignalAt,
   accumulateFreshConditionOutputs,
   accumulateGate2ConditionOutputs,
+  accumulateGateEligibility,
 } from '../scanDiagnostics.js';
+// ADR-0436 — Gate Eligibility Split (LIVE_ELIGIBLE vs SHADOW_OBSERVABLE).
+//   분류 layer 만 — KIS 주문 호출 0건. 결과 ScanCounters 누적 only,
+//   실제 매수 흐름 변경 0 (counterfactual ledger wiring 은 후속 PR scope).
+import { classifyGateEligibility } from '../gateEligibilityClassifier.js';
 // ADR-0427 — R3_EARLY Provisional Shadow Lane wiring.
 //   ADR-0426 SSOT (deriveR3ProvisionalShadowCandidate) 호출 + provisionalShadowLedger 영속.
 //   LIVE 매매 본체 0줄 변경, KIS 주문 import 0건. Gate1 survivor 분기 직후 try/catch 격리.
@@ -1078,6 +1083,76 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         } catch (e) {
           console.warn('[Adr0422Gate2Attribution] accumulate 실패 — 매수 흐름 무영향:', e);
         }
+      }
+
+      // ── ADR-0436 — Gate Eligibility Split classify + accumulate ──────────
+      // 사용자 §7 — 분류 layer 만, LIVE 매매 본체 0줄 변경. classifyGateEligibility
+      // 결과를 ScanCounters 6 카운터에 누적 → ScanSummary propagate → /scan_blockers
+      // 진단 + EmptyScanPostmortem KEEP_COUNTERFACTUAL_LEARNING / PATCH_PROVIDER 분기.
+      //
+      // 핵심 원칙 (사용자 명시 절대 변경 금지):
+      //   - 실매수 후보 0 ≠ 학습/관측 후보 0
+      //   - SHADOW_OBSERVABLE_PASS 는 절대 실매수 자동 승격 금지 (분류 only)
+      //   - DATA_UNAVAILABLE 은 failed 가 아니다 + DATA_UNAVAILABLE 은 PASS 도 아니다
+      //
+      // Counterfactual ledger 자동 영속 wiring 은 본 PR scope 외 — ScanCounters
+      // 카운터 증가만, 실제 영속은 ADR-0430 counterfactualShadowLearningRepo 후속 PR.
+      try {
+        // 가격/code 기본 valid 검증 입력 (fatal 분기)
+        const priceValid = typeof currentPrice === 'number' && currentPrice > 0;
+        const codeValid = /^[0-9]{6}$/.test(stock.code);
+        // 신호 등급 — gateScore 기반 폴백 (WatchlistEntry 에는 명시 등급 부재).
+        //   gateScore ≥ 9 → STRONG_BUY (PR-13 정합 임계) / ≥ 5 → BUY / 그 외 undefined.
+        //   shadowObservable 후보성 평가 입력 — 절대 자동 매수 결정 입력 아님.
+        const signalGrade: 'STRONG_BUY' | 'BUY' | 'HOLD' | 'NEUTRAL' | undefined =
+          typeof stock.gateScore === 'number' && stock.gateScore >= 9
+            ? 'STRONG_BUY'
+            : typeof stock.gateScore === 'number' && stock.gateScore >= 5
+              ? 'BUY'
+              : undefined;
+        // sectorEnergyDataQuality 영속 union 그대로 전달
+        const sectorEnergyDataQualityCast = ctx.macroState?.sectorEnergyDataQuality as
+          | 'OK' | 'PARTIAL' | 'STALE' | 'PARTIAL_VOLUME' | 'DEGRADED' | 'FAILED' | undefined;
+        // priceData degraded — Yahoo↔KIS 괴리 (ADR-0411) marker
+        const priceDataDegraded =
+          (stock as { technicalProviderDegraded?: boolean }).technicalProviderDegraded === true;
+        // 후보성 — Gate1 survivor 폴백 (사용자 §C 정합)
+        const hasTechnicalSetup = isGate1Survivor;
+        const eligibility = classifyGateEligibility({
+          currentPrice,
+          stockCode: stock.code,
+          // DATA_UNAVAILABLE 분기 — reCheckGate.outputs 의 status 검사 (ADR-0416 정합)
+          supplyDataUnavailable: reCheckGate?.outputs?.some(
+            (o) =>
+              o.key === 'supply_confluence' &&
+              (o.output as { status?: string } | null)?.status === 'DATA_UNAVAILABLE',
+          ),
+          investorFlowProviderUnavailable: reCheckGate?.outputs?.some(
+            (o) =>
+              (o.key === 'supply_confluence' || o.key === 'investor_flow') &&
+              (o.output as { status?: string } | null)?.status === 'PROVIDER_DEGRADED',
+          ),
+          earningsDataUnavailable: reCheckGate?.outputs?.some(
+            (o) =>
+              o.key === 'earnings_quality' &&
+              (o.output as { status?: string } | null)?.status === 'DATA_UNAVAILABLE',
+          ),
+          sectorEnergyDataQuality: sectorEnergyDataQualityCast,
+          priceDataDegraded,
+          // hard 차단 분기 — buyListLoop 진입은 preflight 통과 후이므로 모두 false (universe-level
+          //   macro/risk block 은 ADR-0183 / preflight 에서 이미 차단)
+          macroBlocked: false,
+          riskBlocked: false,
+          trueGateFail: false,
+          insufficientScore: false,
+          dataStarved: false,
+          hasFatalDefect: !priceValid || !codeValid,
+          signalGrade,
+          hasTechnicalSetup,
+        });
+        accumulateGateEligibility(ctx.scanCounters, eligibility);
+      } catch (e) {
+        console.warn('[Adr0436GateEligibility] classify 실패 — 매수 흐름 무영향:', e);
       }
 
       // ── ADR-0427 — R3_EARLY Provisional Shadow Lane wiring ──────────────
