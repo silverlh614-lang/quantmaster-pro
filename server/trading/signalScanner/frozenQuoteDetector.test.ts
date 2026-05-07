@@ -282,28 +282,28 @@ describe('ADR-0412 §3 Streak Increment Skip — Holiday-Aware', () => {
     expect(result.skipReason).toBe('SELL_ONLY_MODE');
   });
 
-  it('테스트 14: manual block / manage only → streak 증가 0', () => {
+  it('테스트 14: manual block / manage only → streak 증가 0 (ADR-0419 granular reason)', () => {
     const r1 = evaluateStreakIncrementAllowed(makeCtx({ manualBlockNewBuy: true }));
     expect(r1.allowed).toBe(false);
-    expect(r1.skipReason).toBe('SELL_ONLY_MODE');
+    expect(r1.skipReason).toBe('MANUAL_BLOCK_NEW_BUY');
 
     const r2 = evaluateStreakIncrementAllowed(makeCtx({ manualManageOnly: true }));
     expect(r2.allowed).toBe(false);
-    expect(r2.skipReason).toBe('SELL_ONLY_MODE');
+    expect(r2.skipReason).toBe('MANUAL_BLOCK_NEW_BUY');
   });
 
-  it('테스트 15: blocked-day shadow learning scan (R6_DEFENSE / FOMC / VIX) → streak 증가 0', () => {
+  it('테스트 15: blocked-day shadow learning scan (R6_DEFENSE / FOMC / VIX) → streak 증가 0 (ADR-0419 granular)', () => {
     const r1 = evaluateStreakIncrementAllowed(makeCtx({ regime: 'R6_DEFENSE' }));
     expect(r1.allowed).toBe(false);
-    expect(r1.skipReason).toBe('BLOCKED_DAY_SCAN');
+    expect(r1.skipReason).toBe('R6_DEFENSE_REGIME');
 
     const r2 = evaluateStreakIncrementAllowed(makeCtx({ fomcBlockActive: true }));
     expect(r2.allowed).toBe(false);
-    expect(r2.skipReason).toBe('BLOCKED_DAY_SCAN');
+    expect(r2.skipReason).toBe('FOMC_BLOCK');
 
     const r3 = evaluateStreakIncrementAllowed(makeCtx({ vixGatingActive: true }));
     expect(r3.allowed).toBe(false);
-    expect(r3.skipReason).toBe('BLOCKED_DAY_SCAN');
+    expect(r3.skipReason).toBe('VIX_BLOCK');
 
     const r4 = evaluateStreakIncrementAllowed(makeCtx({ bearDefenseMode: true }));
     expect(r4.allowed).toBe(false);
