@@ -18,6 +18,13 @@ import {
   getLastScanSummary,
 } from '../../../trading/signalScanner/scanDiagnostics.js';
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
+// ADR-0431 — counterfactual ledger 누적 성과 한 줄 요약 (전체 리포트는 /shadow_counterfactual).
+// read-only — counterfactual ledger 만 read, LIVE 매매 무영향.
+import { loadCounterfactualShadowLearningLedger } from '../../../persistence/counterfactualShadowLearningRepo.js';
+import {
+  buildCounterfactualShadowPerformanceReport,
+  formatCounterfactualShadowSummaryLine,
+} from '../../../learning/counterfactualShadowLearningPerformanceReport.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -44,7 +51,31 @@ const scanBlockers: TelegramCommand = {
       );
     }
 
-    const finalMessage = degradedSection ? `${baseMessage}\n${degradedSection}` : baseMessage;
+    // ADR-0431 — counterfactual ledger 누적 성과 한 줄 요약.
+    // read-only + 외부 API 호출 0 (priceProvider 미전달 → 모든 horizon PENDING).
+    // try/catch 격리 — ledger throw 가 진단 메시지 자체 차단 안 함.
+    let counterfactualLine: string | null = null;
+    try {
+      const cfEntries = loadCounterfactualShadowLearningLedger();
+      if (cfEntries.length > 0) {
+        const cfSummary = await buildCounterfactualShadowPerformanceReport({
+          entries: cfEntries,
+          nowKst: new Date().toISOString(),
+          // priceProvider 미전달 → 모든 horizon PENDING (외부 호출 0)
+        });
+        counterfactualLine = formatCounterfactualShadowSummaryLine(cfSummary);
+      }
+    } catch (err) {
+      console.warn(
+        '[scan_blockers] counterfactual shadow 요약 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
+        err,
+      );
+    }
+
+    const parts: string[] = [baseMessage];
+    if (degradedSection) parts.push(degradedSection);
+    if (counterfactualLine) parts.push(counterfactualLine);
+    const finalMessage = parts.join('\n');
     await reply(finalMessage);
   },
 };
