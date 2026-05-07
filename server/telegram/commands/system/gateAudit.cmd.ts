@@ -307,6 +307,11 @@ export function formatGateAuditMessage(input: {
   L.push('', '🎯 진단:');
   L.push(`   ${input.diagnosticHint}`);
   L.push(`   case=${input.diagnostic}`);
+
+  // ADR-0420 — fresh vs 7d 누적 구분 안내. 사용자 명시 §G — 패치 전 데이터 섞임
+  // 가능성 경고 + 직전 스캔 원인은 /scan_blockers fresh 우선 확인.
+  L.push('', 'ℹ️ <i>이 화면은 최근 7일 누적입니다. 배포 전 audit 도 포함될 수 있으므로,</i>');
+  L.push('<i>   직전 스캔 원인은 <code>/scan_blockers</code> fresh 를 우선 확인하십시오.</i>');
   return L.join('\n');
 }
 

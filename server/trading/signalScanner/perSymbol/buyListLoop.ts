@@ -105,7 +105,7 @@ import {
   createBuyTask,
   type LiveBuyTask,
 } from '../../buyPipeline.js';
-import { setLastBuySignalAt } from '../scanDiagnostics.js';
+import { setLastBuySignalAt, accumulateFreshConditionOutputs } from '../scanDiagnostics.js';
 import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
 // ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
@@ -1016,6 +1016,27 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       const reCheckGate = reCheckQuote
         ? evaluateServerGate(reCheckQuote, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, dartFin, kisFlow, ctx.regime)
         : null;
+      // ADR-0420: Fresh Scan Blocker Attribution 누적 — 단일 후보 outputs 를 conditionKey
+      //   별 status bucket 에 가산. persistScanResults 가 build → ScanSummary 영속.
+      //   GATE1_PASS_ZERO 발생 시 운영자에게 *조건별 분해* 제공. last 7 days 누적
+      //   audit 와 분리 (사용자 명시 핵심 불변식 #4).
+      // try/catch 격리 — fresh attribution 실패 시 매수 흐름 차단 안 함.
+      if (reCheckGate?.outputs && reCheckGate.outputs.length > 0) {
+        try {
+          accumulateFreshConditionOutputs(
+            ctx.scanCounters,
+            reCheckGate.outputs.map((o) => ({
+              key: o.key,
+              output: o.output as Parameters<typeof accumulateFreshConditionOutputs>[1][number]['output'],
+              context: o.context
+                ? { evaluatorKey: o.key, hadRequiredData: o.context.hadRequiredData }
+                : { evaluatorKey: o.key },
+            })),
+          );
+        } catch (e) {
+          console.warn('[Adr0420FreshAttribution] accumulate 실패 — 매수 흐름 무영향:', e);
+        }
+      }
       // ── ADR-0031 PR-59 PoC: entryRevalidationStep RevalidationStep 분기 ───
       // step 자체는 외부 mutation·부수효과 0건 — fail 시 caller 가 stock.entryFailCount,
       // watchlistMutated, scanCounters.gateMisses, stageLog, pushTrace, counterfactual

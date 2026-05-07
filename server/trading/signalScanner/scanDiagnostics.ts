@@ -32,6 +32,15 @@ import type { StreakSkipReason } from './r3StreakSkipPolicy.js';
 // Stage 1: diagnostics only — corrected 값 LIVE 매수 판단 사용 0건 (절대 원칙 #3).
 import type { PriceIntegrityStatus } from './priceIntegrityChecker.js';
 import type { PriceCorrectionType } from './priceCorrectionEngine.js';
+// ADR-0420 — Fresh Scan Blocker Attribution: GATE1_PASS_ZERO 조건별 분해 진단 SSOT.
+import {
+  type ConditionBlockerBucket,
+  type FreshAttributionOutputItem,
+  type FreshScanBlockerAttribution,
+  accumulateFreshAttribution,
+  buildFreshScanBlockerAttribution,
+  formatFreshAttributionSection,
+} from './freshScanBlockerAttribution.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -102,6 +111,14 @@ export interface ScanSummary {
    */
   r3StreakSkipped?: { skipped: boolean; reason?: StreakSkipReason };
   /**
+   * ADR-0420 — Fresh Scan Blocker Attribution snapshot (옵셔널, 후방호환).
+   *
+   * 직전 단일 스캔 단위의 조건별 status 분해. last 7 days 누적 audit 과 분리.
+   * gate1Pass=0 + candidates>0 시점에서 운영자에게 GATE1_PASS_ZERO 상세 (failed /
+   * unavailable / error 분리 + Top blockers + diagnosis) 즉시 노출.
+   */
+  freshConditionAttribution?: FreshScanBlockerAttribution;
+  /**
    * ADR-0414 §6 — Price Integrity 종목별 분류 진단 (옵셔널, Stage 1 Read-Only).
    *
    * **ADR-0412 `frozenQuote?` 와 책임 분리** — frozenQuote 는 *전체 스캔의 frozen 비율*,
@@ -159,6 +176,17 @@ export interface ScanCounters {
   gate2Pass: number;
   gate3Pass: number;
   lastTriggerPass: number;
+  /**
+   * ADR-0420 — Fresh Scan Blocker Attribution 누적기 (single scan snapshot).
+   *
+   * 조건별 status 카운트 (passed/failed/unavailable/error/skipped) 를 단일 스캔 동안
+   * 누적. persistScanResults 에서 `buildFreshScanBlockerAttribution` 으로 최종 snapshot
+   * 생성 후 ScanSummary.freshConditionAttribution 에 영속.
+   *
+   * last 7 days 누적 audit (gateAuditRepo) 와 분리된 fresh-only 자료 (사용자 명시
+   * 핵심 불변식 #4).
+   */
+  freshConditionBuckets: Map<string, ConditionBlockerBucket>;
 }
 
 export function createScanCounters(): ScanCounters {
@@ -181,7 +209,26 @@ export function createScanCounters(): ScanCounters {
     gate2Pass: 0,
     gate3Pass: 0,
     lastTriggerPass: 0,
+    // ADR-0420 — fresh attribution 누적기 빈 Map 초기화. persistScanResults 에서 build.
+    freshConditionBuckets: new Map(),
   };
+}
+
+/**
+ * ADR-0420 — fresh attribution 누적기 호출 헬퍼.
+ *
+ * 호출자(buyListLoop 의 reCheckGate 평가 site)가 단일 후보 `gate.outputs` 를 본 함수로
+ * 전달 → counters.freshConditionBuckets 에 conditionKey 별 status 카운트 누적.
+ *
+ * try/catch 격리 권장 — fresh attribution 실패 시에도 매수 흐름 차단 안 함.
+ *
+ * 외부 부작용 0 (Map mutate 만).
+ */
+export function accumulateFreshConditionOutputs(
+  counters: ScanCounters,
+  outputs: FreshAttributionOutputItem[],
+): void {
+  accumulateFreshAttribution(counters.freshConditionBuckets, outputs);
 }
 
 export function buildGatePassDistribution(counters: ScanCounters): GatePassDistribution {
@@ -361,6 +408,15 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push('💡 <b>빈스캔 원인:</b> 분류 데이터 부족 (waitDistribution 미수집)');
   }
 
+  // ADR-0420 — Fresh Scan Blocker Attribution (GATE1_PASS_ZERO 상세) 노출.
+  // gate1Pass=0 + candidates>0 시점에만 노출 (formatFreshAttributionSection 내부 필터).
+  // last 7 days /gate_audit 와 *분리* (사용자 명시 핵심 불변식 #4).
+  const freshSection = formatFreshAttributionSection(summary.freshConditionAttribution);
+  if (freshSection) {
+    lines.push('');
+    lines.push(freshSection);
+  }
+
   return lines.join('\n');
 }
 
@@ -437,6 +493,25 @@ export async function persistScanResults(
     ...(options.frozenQuote ? { frozenQuote: options.frozenQuote } : {}),
     ...(options.r3StreakSkipped ? { r3StreakSkipped: options.r3StreakSkipped } : {}),
   };
+
+  // ADR-0420 — Fresh Scan Blocker Attribution build + persist (옵셔널, 후방호환).
+  // candidates>0 시점에만 build (의미 있는 분해). 빈 buckets 도 NO_CANDIDATES/UNKNOWN
+  // diagnosis 자동 분류 — 정상 운영 메시지에 잡음 추가 안 함.
+  if (counters.freshConditionBuckets.size > 0) {
+    const candidates = options.buyListLength + options.intradayBuyListLength;
+    const scanIdLabel = `${kstNow.toISOString().slice(0, 10)}:${timeLabel}`;
+    summaryDraft.freshConditionAttribution = buildFreshScanBlockerAttribution({
+      buckets: Array.from(counters.freshConditionBuckets.values()),
+      candidates,
+      entries: counters.entries,
+      gate1Pass: counters.gate1Pass,
+      gate2Pass: counters.gate2Pass,
+      gate3Pass: counters.gate3Pass,
+      lastTriggerPass: counters.lastTriggerPass,
+      scanId: scanIdLabel,
+      scannedAtKst: timeLabel,
+    });
+  }
 
   const emptyReason = classifyEmptyScanReason(summaryDraft);
   if (emptyReason) summaryDraft.emptyScanReason = emptyReason;
