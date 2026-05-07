@@ -42,6 +42,7 @@ import './execPaths.cmd.js';         // ADR-0391 P0-A §A-3
 import './programMarket.cmd.js';
 import './programMarketProbe.cmd.js';
 import './programToday.cmd.js';
+import './refreshMacro.cmd.js';
 import './refreshSectorMap.cmd.js';
 import './refreshWatchlistSectors.cmd.js';
 import './regime.cmd.js';
