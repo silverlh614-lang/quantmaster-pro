@@ -67,6 +67,13 @@ import {
   deriveGateDecisionRouterResult,
   formatGateDecisionRouterSection,
 } from './gateDecisionRouter.js';
+// ADR-0426 — R3_EARLY Provisional Shadow Lane.
+//   Router SOFT_DEGRADE/WATCH_ONLY 시점 + Gate1 생존자 → provisional shadow 후보 생성.
+//   LIVE 매매 본체 0줄 변경, KIS 주문 import 0건. 학습 샘플 보존.
+import {
+  type ProvisionalShadowSectionInput,
+  formatProvisionalShadowSection,
+} from './provisionalShadowLane.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -179,6 +186,17 @@ export interface ScanSummary {
    * 사용자 §F — /scan_blockers 에 router severity / lanes / reasons / operatorMessage 표시.
    */
   gateDecisionRouter?: GateDecisionRouterResult;
+  /**
+   * ADR-0426 — R3_EARLY Provisional Shadow Lane summary (옵셔널, 후방호환).
+   *
+   * R3_EARLY + Gate1 생존자 + SOFT_DEGRADE 시점에 provisional shadow 후보 생성 결과.
+   * eligible / created / topReasons / dominantLabel 합산. 호출자 (signalScanner) 가
+   * 종목별 후보 평가 결과를 `summarizeProvisionalShadowCandidates` 로 합성하여 전달.
+   *
+   * 사용자 §E — /scan_blockers 에 R3 Provisional Shadow Lane 섹션 자동 노출.
+   * 부재 시 기존 router/sectorEnergy 섹션만 표시 (후방호환).
+   */
+  provisionalShadowLane?: ProvisionalShadowSectionInput;
   /**
    * ADR-0414 §6 — Price Integrity 종목별 분류 진단 (옵셔널, Stage 1 Read-Only).
    *
@@ -533,6 +551,16 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   if (routerSection) {
     lines.push('');
     lines.push(routerSection);
+  }
+
+  // ADR-0426 — R3_EARLY Provisional Shadow Lane.
+  // 사용자 §E — eligible / created / topReasons / dominantLabel 노출.
+  // R3_EARLY + Gate1 생존자 + SOFT_DEGRADE 시점에 학습 샘플 보존 lane.
+  // LIVE 매매 본체 영향 0 — 후보 metadata 만 영속.
+  const provisionalSection = formatProvisionalShadowSection(summary.provisionalShadowLane);
+  if (provisionalSection) {
+    lines.push('');
+    lines.push(provisionalSection);
   }
 
   return lines.join('\n');
