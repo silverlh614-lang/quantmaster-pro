@@ -350,16 +350,22 @@ export function recordScanResult(signalCount: number, opts?: { positionFull?: bo
     // 게이트가 병리적으로 닫힌 것인지를 엔진이 스스로 결론낸다.
     const postmortem = notifyEmptyScan();
     if (postmortem && postmortem.verdict === 'PATHOLOGICAL_BLOCK' && isBuyableKstWindow()) {
+      // ADR-0417 — 다중 권고 액션 표시 (CHECK_DATA_SOURCE / PATCH_EVALUATOR / REVIEW_GATE_THRESHOLD).
+      // 단일 `recommendedAction` 은 후방호환 alias (배열 첫 element).
       sendTelegramAlert(
         `🔬 <b>[빈스캔 포스트모템] PATHOLOGICAL_BLOCK</b>\n` +
         `레짐: ${postmortem.regime} | 원인: ${postmortem.dominantCause}\n` +
         `Gate 실패율: ${(postmortem.metrics.gateFailRatio * 100).toFixed(1)}% ` +
         `(${postmortem.metrics.gateFail}/${postmortem.metrics.gateReached})\n` +
+        // ADR-0417 — 분리 분모 비율 보고 (unavailable + error 제외 trueFailRate).
+        `📊 합산: trueFail=${(postmortem.metrics.trueFailRate * 100).toFixed(1)}% / ` +
+        `unavailable=${(postmortem.metrics.unavailableRate * 100).toFixed(1)}% / ` +
+        `error=${(postmortem.metrics.errorRate * 100).toFixed(1)}%\n` +
         (postmortem.topBlockerCondition
           ? `최대 병목: ${postmortem.topBlockerCondition} ` +
-            `(${(postmortem.topBlockerFailRate * 100).toFixed(1)}%)\n`
+            `(legacy ${(postmortem.topBlockerFailRate * 100).toFixed(1)}%)\n`
           : '') +
-        `권고: ${postmortem.recommendedAction}\n` +
+        `권고: ${postmortem.recommendedActions.join(' + ')}\n` +
         `${postmortem.reason}`,
       ).catch(console.error);
     }
