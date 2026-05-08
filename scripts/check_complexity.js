@@ -63,9 +63,10 @@ const DEFAULT_TARGETS = ['src/App.tsx'];
 const BASELINE_TECHNICAL_DEBT = [
   'server/trading/signalScanner/perSymbol/buyListLoop.ts',
   // ADR-0448 Phase 0 (2026-05-08) — R3 Noise Governor + SectorEnergy 3층 분리 wiring 으로
-  //   1484 → 1510 줄. 본체는 ADR-0401/0412/0420/0422/0423/0426/0430/0436 누적 wiring SSOT.
-  //   분해 작업은 별도 PR (Phase B) — ScanSummary 옵셔널 필드 격상 + persistScanResults
-  //   본체 분기 모듈화. 본 PR scope 외.
+  //   1484 → 1510 줄. ADR-0449 (2026-05-08) Pre-Breakout WAIT 7-state summary wiring 추가
+  //   → 1510 → ~1557 줄. 본체는 ADR-0401/0412/0420/0422/0423/0426/0430/0436/0448/0449
+  //   누적 wiring SSOT. 분해 작업은 별도 PR (Phase B) — ScanSummary 옵셔널 필드 격상 +
+  //   persistScanResults 본체 분기 모듈화. 본 PR scope 외.
   'server/trading/signalScanner/scanDiagnostics.ts',
 ];
 

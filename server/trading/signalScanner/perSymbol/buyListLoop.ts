@@ -96,6 +96,8 @@ import {
 import { type ApprovalAction } from '../../../telegram/buyApproval.js';
 import { checkCooldownRelease } from '../../regretAsymmetryFilter.js';
 import { detectPreBreakoutAccumulation } from '../../preBreakoutAccumulationDetector.js';
+// ADR-0449 — Pre-Breakout WAIT 7-state Liveness Policy.
+import { evaluatePreBreakoutWait } from '../preBreakoutWaitPolicy.js';
 import { getDartFinancials } from '../../../clients/dartFinancialClient.js';
 import {
   computeMtasMultiplier,
@@ -932,6 +934,35 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — WAIT (ADR-0115 — failCount 미증가)`);
         }
         ctx.scanCounters.waitPreBreakout++;  // ADR-0118
+        // ADR-0449 — Pre-Breakout WAIT 7-state 분류 + 영속 누적.
+        try {
+          const decision = evaluatePreBreakoutWait({
+            symbol: stock.code,
+            name: stock.name,
+            currentPrice,
+            entryPrice: stock.entryPrice,
+            priceDistancePct: Math.abs(((currentPrice - stock.entryPrice) / stock.entryPrice) * 100),
+            volumeRatio: undefined,
+            gate1Passed: undefined,
+            recheckPassed: undefined,
+            waitCount: stock.waitCount,
+            recheckFailCount: stock.recheckFailCount,
+            lastWaitAt: stock.lastWaitAt,
+            shadowObservable: undefined,
+            liveEligible: undefined,
+            riskBlocked: false,
+            quoteStale: false,
+          });
+          ctx.scanCounters.preBreakoutWaitDecisions.push(decision);
+          if (decision.increaseWaitCount) {
+            stock.waitCount = (stock.waitCount ?? 0) + 1;
+            stock.lastWaitAt = new Date().toISOString();
+            ctx.mutables.watchlistMutated.value = true;
+          }
+        } catch (e) {
+          // ADR-0449 분류 실패가 매수 흐름 차단 안 함 — try/catch 격리.
+          console.warn(`[ADR-0449] pre-breakout WAIT 분류 실패 ${stock.code}:`, e);
+        }
         continue; // 진입가 미도달 — 일반 진입 로직 건너뜀
       }
 
@@ -948,6 +979,35 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 이탈 — WAIT (ADR-0115 — failCount 미증가)`);
         }
         ctx.scanCounters.waitPreBreakout++;  // ADR-0118 (entry deviation 도 pre-breakout 분류로 통합 카운트)
+        // ADR-0449 — 진입가 이탈 (PRICE_DISTANCE_TOO_FAR 등) 7-state 분류 + 영속 누적.
+        try {
+          const decision = evaluatePreBreakoutWait({
+            symbol: stock.code,
+            name: stock.name,
+            currentPrice,
+            entryPrice: stock.entryPrice,
+            priceDistancePct: Math.abs(((currentPrice - stock.entryPrice) / stock.entryPrice) * 100),
+            volumeRatio: undefined,
+            gate1Passed: undefined,
+            recheckPassed: undefined,
+            waitCount: stock.waitCount,
+            recheckFailCount: stock.recheckFailCount,
+            lastWaitAt: stock.lastWaitAt,
+            shadowObservable: undefined,
+            liveEligible: undefined,
+            riskBlocked: false,
+            quoteStale: false,
+          });
+          ctx.scanCounters.preBreakoutWaitDecisions.push(decision);
+          if (decision.increaseWaitCount) {
+            stock.waitCount = (stock.waitCount ?? 0) + 1;
+            stock.lastWaitAt = new Date().toISOString();
+            ctx.mutables.watchlistMutated.value = true;
+          }
+        } catch (e) {
+          // ADR-0449 분류 실패가 매수 흐름 차단 안 함 — try/catch 격리.
+          console.warn(`[ADR-0449] entry deviation WAIT 분류 실패 ${stock.code}:`, e);
+        }
         continue;
       }
 
