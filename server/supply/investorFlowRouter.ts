@@ -28,6 +28,19 @@ import {
   summarizeInvestorFlowProviderHealth,
   type InvestorFlowProviderHealth,
 } from './investorFlowProviderHealth.js';
+// ADR-0445 — KRX investor-flow parser empty rows 진단 SSOT.
+//   외부 API 호출 0 (영속 ledger read/append + sanitized metadata 합성만).
+//   raw payload / token / cookie / private header 영구 저장 금지.
+import {
+  appendKrxInvestorFlowParserDiagnostic,
+  buildKrxInvestorFlowParserDiagnostic,
+  buildSanitizedSample,
+  classifyCacheStatus,
+  isKrxParserDiagnosticDisabled,
+  KRX_INVESTOR_FLOW_EXPECTED_PATHS,
+  summarizeKrxInvestorFlowParserHistory,
+  toKrxParserKstIso,
+} from './krxInvestorFlowParserDiagnostic.js';
 
 export interface InvestorFlowSample {
   stockCode: string;
@@ -250,15 +263,32 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
   ].join(';');
 
   if (sampleSize < KRX_INVESTOR_FLOW_MIN_SAMPLE || !latestDate) {
+    // ADR-0445 — parser empty rows 시 sanitized metadata + last-good cache 진단 layer.
+    //   외부 API 호출 0 (영속 ledger read 만, 기존 KRX 호출 결과만 분석).
+    //   try/catch 격리 — 진단 빌더 throw 가 router 본체 흐름 차단 0.
+    const parserStatus: 'PARSER_EMPTY_ROWS' | 'CACHE_EMPTY' = allDatesEmpty
+      ? 'PARSER_EMPTY_ROWS'
+      : 'CACHE_EMPTY';
+    const adr0445 = buildKrxParserHealthExtras({
+      now,
+      parserStatus,
+      sampleSize,
+      datesTried,
+      emptyDates,
+      reason: diagnostic,
+      payload: { datesTried, emptyDates, totalRows, upstream },
+      lastGoodCachedAt: null,
+    });
     const health = makeInvestorFlowProviderHealth({
       provider: 'KRX',
-      status: allDatesEmpty ? 'PARSER_EMPTY_ROWS' : 'CACHE_EMPTY',
+      status: parserStatus,
       reason: diagnostic,
       now,
       sourceDateKst,
       endpoint: 'MDCSTAT02203',
       retryable: !allDatesEmpty,
       cacheFallback: true,
+      ...adr0445,
     });
     setInvestorFlowNegativeCache('KRX', safeCode, health, now);
     return { data: null, diagnostic, unavailable: true, offHours: false, health };
@@ -284,6 +314,18 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
     fetchedAt: sample.fetchedAt,
   });
 
+  // ADR-0445 — OK path 도 진단 ledger 에 success entry 영속 (lastSuccess 추적).
+  const adr0445Ok = buildKrxParserHealthExtras({
+    now,
+    parserStatus: 'OK',
+    sampleSize,
+    datesTried,
+    emptyDates,
+    reason: diagnostic,
+    payload: { datesTried, emptyDates, totalRows, upstream, latestDate },
+    lastGoodCachedAt: sample.fetchedAt,
+    firstRowFields: { foreignNetBuy, institutionalNetBuy },
+  });
   const health = makeInvestorFlowProviderHealth({
     provider: 'KRX',
     status: 'OK',
@@ -298,9 +340,92 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
     endpoint: 'MDCSTAT02203',
     retryable: false,
     cacheFallback: false,
+    ...adr0445Ok,
   });
 
   return { data: sample, diagnostic, unavailable: false, offHours: false, health };
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0445 — KRX parser 진단 SSOT 위임 helper.
+//
+// `makeInvestorFlowProviderHealth` 의 옵셔널 propagate 필드를 KRX 한정으로 합성.
+// 외부 API 호출 0 — 영속 ledger read/append 만, 기존 KRX 호출 결과 분석.
+// try/catch 격리 — 진단 빌더 throw 가 router 흐름 차단 0.
+// ---------------------------------------------------------------------------
+
+interface BuildKrxParserHealthExtrasInput {
+  now: Date;
+  parserStatus: 'OK' | 'PARSER_EMPTY_ROWS' | 'CACHE_EMPTY';
+  sampleSize: number;
+  datesTried: string[];
+  emptyDates: string[];
+  reason: string;
+  payload: unknown;
+  lastGoodCachedAt: string | null;
+  firstRowFields?: { foreignNetBuy: number; institutionalNetBuy: number };
+}
+
+/**
+ * makeInvestorFlowProviderHealth 의 ADR-0445 옵셔널 필드 합성 SSOT.
+ *
+ * 진단 ledger 영속 + parser history summary 결합 + cache age 분류. throw 시
+ * 부분 결과 반환으로 router 본체 흐름 보호.
+ */
+function buildKrxParserHealthExtras(input: BuildKrxParserHealthExtrasInput): {
+  lastSuccessAtKst?: string;
+  lastSuccessRowCount?: number;
+  lastFailureAtKst?: string;
+  lastFailureReason?: string;
+  expectedPaths?: string[];
+  detectedCandidatePaths?: string[];
+  cacheStatus?: 'CACHE_EMPTY' | 'CACHE_HIT' | 'LAST_GOOD_STALE';
+} {
+  if (isKrxParserDiagnosticDisabled()) return {};
+  try {
+    const sanitized = buildSanitizedSample({ payload: input.payload, now: input.now });
+    const cacheStatus = classifyCacheStatus(input.lastGoodCachedAt, input.now);
+    const history = summarizeKrxInvestorFlowParserHistory();
+    const diag = buildKrxInvestorFlowParserDiagnostic({
+      status: input.parserStatus,
+      rowCount: input.sampleSize,
+      sanitizedSample: sanitized,
+      expectedPaths: KRX_INVESTOR_FLOW_EXPECTED_PATHS,
+      firstRowFields: input.firstRowFields,
+      lastSuccessAtKst: history.lastSuccessAtKst,
+      lastSuccessRowCount: history.lastSuccessRowCount,
+      lastFailureAtKst: history.lastFailureAtKst,
+      lastFailureReason: history.lastFailureReason,
+      cacheStatus,
+      note: input.reason.slice(0, 200),
+    });
+    // 진단 ledger 영속 — 다음 호출 시 propagate 입력.
+    appendKrxInvestorFlowParserDiagnostic({
+      diagnosedAt: toKrxParserKstIso(input.now),
+      diagnostic: diag,
+      sanitizedSample: sanitized,
+    });
+    // OK 인 경우 본 호출이 lastSuccess 가 되도록 즉시 propagate (history 는 ledger read
+    // 가 본 호출 *이전* 값 — 다음 호출 시점부터 이번 OK 가 history.lastSuccess 로
+    // 자연 노출됨. 본 호출의 health 객체는 이번 OK 가 아닌 *직전* success 를 가리킴).
+    return {
+      ...(diag.lastSuccessAtKst ? { lastSuccessAtKst: diag.lastSuccessAtKst } : {}),
+      ...(diag.lastSuccessRowCount !== undefined ? { lastSuccessRowCount: diag.lastSuccessRowCount } : {}),
+      ...(diag.lastFailureAtKst ? { lastFailureAtKst: diag.lastFailureAtKst } : {}),
+      ...(diag.lastFailureReason ? { lastFailureReason: diag.lastFailureReason } : {}),
+      expectedPaths: diag.expectedPaths,
+      ...(diag.detectedCandidatePaths.length > 0
+        ? { detectedCandidatePaths: diag.detectedCandidatePaths }
+        : {}),
+      ...(diag.cacheStatus ? { cacheStatus: diag.cacheStatus } : {}),
+    };
+  } catch (err) {
+    console.warn(
+      '[InvestorFlow] KRX parser diagnostic builder failed (router 흐름 보호, ADR-0445):',
+      err,
+    );
+    return {};
+  }
 }
 
 async function fetchNaverInvestorTrend(_code: string): Promise<InvestorFlowSample | null> {
