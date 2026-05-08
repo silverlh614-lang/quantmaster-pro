@@ -140,10 +140,11 @@ describe('ADR-0437 — 우선순위 매트릭스 SSOT (절대 변경 금지)', (
     expect(Object.isFrozen(SUBSCRIPTION_PRIORITY_TABLE)).toBe(true);
   });
 
-  it('전체 13 reason 매핑 정합', () => {
+  it('전체 18 reason 매핑 정합 (ADR-0437 13 + ADR-0450 5 신규)', () => {
     const keys = Object.keys(SUBSCRIPTION_PRIORITY_TABLE).sort();
     expect(keys).toEqual(
       [
+        // ADR-0437 기존 13 reason
         'DART_CATALYST',
         'DATA_UNAVAILABLE',
         'ENTRY_CANDIDATE',
@@ -157,6 +158,12 @@ describe('ADR-0437 — 우선순위 매트릭스 SSOT (절대 변경 금지)', (
         'UNKNOWN',
         'WAIT_LONG',
         'WATCHLIST',
+        // ADR-0450 신규 5 reason — pre-breakout retry / wait subset
+        'PRE_BREAKOUT_RETRY_ELIGIBLE',
+        'WAIT_PRICE_TOO_FAR',
+        'WAIT_VOLUME_WEAK',
+        'WAIT_GATE_RECHECK_FAILED',
+        'WAIT_COOLDOWN',
       ].sort(),
     );
   });
