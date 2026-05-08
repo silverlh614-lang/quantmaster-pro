@@ -250,6 +250,8 @@ export const TOMORROW_PRIMING_FILE     = path.join(DATA_DIR, 'tomorrow-priming.j
 export const GHOST_PORTFOLIO_FILE      = path.join(DATA_DIR, 'ghost-portfolio.json');
 /** ADR-0028 (PR-L): Rejection Shadow — Gate Score 14~17 near-miss 거절 종목 5영업일 추적 */
 export const REJECTION_SHADOW_FILE     = path.join(DATA_DIR, 'rejection-shadow.json');
+/** ADR-0454: Near-Miss Outcome Ledger — DATA_BLOCKED_NEAR_MISS/PROBING/SHADOW_ONLY 3/5/10영업일 성과 추적 */
+export const NEAR_MISS_OUTCOME_LEDGER_FILE = path.join(DATA_DIR, 'near-miss-outcomes.json');
 /** ADR-0029 (PR-M): Counterfactual Twin Portfolio — 3 Twin (AGGR/DISC/EQUAL) 평행 포트폴리오 */
 export const TWIN_PORTFOLIO_FILE       = path.join(DATA_DIR, 'twin-portfolio.json');
 /** ADR-0031 (PR-O): Order Type Optimizer — 종목별 슬리피지 이력 학습 */

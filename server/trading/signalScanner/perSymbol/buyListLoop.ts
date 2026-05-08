@@ -126,6 +126,7 @@ import {
   accumulateGateEligibility,
   accumulateGateScoreCandidateBucket,
   accumulateGateScoreHealth,
+  accumulateNearMissOutcomeLedgerWrite,
 } from '../scanDiagnostics.js';
 // ADR-0436 — Gate Eligibility Split (LIVE_ELIGIBLE vs SHADOW_OBSERVABLE).
 //   분류 layer 만 — KIS 주문 호출 0건. 결과 ScanCounters 누적 only,
@@ -159,6 +160,7 @@ import {
   type TradingSignal,
 } from '../../../learning/supplyHealthLearning.js';
 import { appendLearningSample } from '../../../persistence/learningSampleRepo.js';
+import { recordNearMissOutcome } from '../../../persistence/nearMissOutcomeLedger.js';
 
 function kstDecisionDate(): string {
   return new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
@@ -1333,12 +1335,39 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       } catch (e) {
         console.warn('[ADR-452c] accumulateGateScoreHealth failed:', e instanceof Error ? e.message : e);
       }
-      // ADR-452d — Gate near-miss bucket 진단 누적. executionImpact=NONE, live decision 미사용.
+      // ADR-452d/454 — Gate near-miss bucket 진단 누적 + Outcome Ledger 영속.
+      // executionImpact=NONE, live decision/Kelly/KIS 주문 미사용. DATA_BLOCKED_NEAR_MISS /
+      // PROBING / SHADOW_ONLY 만 3/5/10영업일 사후 성과 관측 대상으로 기록한다.
       try {
         const band = getRegimeGateBand(ctx.regime);
-        accumulateGateScoreCandidateBucket(ctx.scanCounters, reCheckGate, band.normal);
+        const bucketDecision = accumulateGateScoreCandidateBucket(ctx.scanCounters, reCheckGate, band.normal);
+        if (
+          bucketDecision &&
+          reCheckGate &&
+          (bucketDecision.bucket === 'DATA_BLOCKED_NEAR_MISS' ||
+            bucketDecision.bucket === 'PROBING' ||
+            bucketDecision.bucket === 'SHADOW_ONLY')
+        ) {
+          const outcome = recordNearMissOutcome({
+            stockCode: stock.code,
+            stockName: stock.name,
+            signalDate: kstDecisionDate(),
+            signalPriceKrw: currentPrice,
+            bucket: bucketDecision.bucket,
+            diagnosticReason: bucketDecision.reason,
+            gateScore: reCheckGate.gateScore,
+            rawScore: reCheckGate.rawScore,
+            availableMaxScore: reCheckGate.availableMaxScore,
+            normalizedGateScore: reCheckGate.normalizedGateScore,
+            normalThreshold: band.normal,
+            unavailableConditions: reCheckGate.unavailableConditions,
+            thresholdNotMetConditions: reCheckGate.thresholdNotMetConditions,
+            providerDegradedConditions: reCheckGate.providerDegradedConditions,
+          });
+          accumulateNearMissOutcomeLedgerWrite(ctx.scanCounters, outcome);
+        }
       } catch (e) {
-        console.warn('[ADR-452d] accumulateGateScoreCandidateBucket failed:', e instanceof Error ? e.message : e);
+        console.warn('[ADR-454] near-miss outcome ledger failed (live flow unaffected):', e instanceof Error ? e.message : e);
       }
       // ADR-0420: Fresh Scan Blocker Attribution 누적 — 단일 후보 outputs 를 conditionKey
       //   별 status bucket 에 가산. persistScanResults 가 build → ScanSummary 영속.
