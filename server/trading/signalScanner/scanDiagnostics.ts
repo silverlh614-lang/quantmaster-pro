@@ -143,6 +143,11 @@ import {
   formatRiskDoubleCountAuditReport,
   type RiskDoubleCountAuditReport,
 } from './gate1RiskDoubleCount.js';
+import {
+  buildFinalGate1CalibrationAuditReport,
+  formatFinalGate1CalibrationReport,
+  type FinalGate1CalibrationAuditReport,
+} from './gate1FinalCalibration.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -391,6 +396,8 @@ export interface ScanSummary {
   penaltyDeduplication?: PenaltyDeduplicationReport;
   /** ADR-0470 risk placement split dry-run; diagnostic-only and executionImpact NONE. */
   riskDoubleCount?: RiskDoubleCountAuditReport;
+  /** ADR-0471 final Gate1 calibration dry-run; diagnostic-only and executionImpact NONE. */
+  finalGate1Calibration?: FinalGate1CalibrationAuditReport;
 }
 
 let _lastBuySignalAt = 0;
@@ -1203,6 +1210,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(riskDoubleCountSection);
   }
 
+  const finalGate1CalibrationSection = formatFinalGate1CalibrationReport(summary.finalGate1Calibration);
+  if (finalGate1CalibrationSection) {
+    lines.push('');
+    lines.push(finalGate1CalibrationSection);
+  }
+
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
   // 기존 sectorEnergyQuality 라벨만으로는 SECTOR_DATA_STALE_DOMINANT 의 *진짜 원인* 인식 불가.
   // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
@@ -1780,6 +1793,33 @@ export async function persistScanResults(
     }
   } catch (e) {
     console.warn('[ADR-0470] RiskDoubleCount build failed (engine unaffected):', e);
+  }
+
+  // ADR-0471: final diagnostic calibration layer. No threshold or live policy is
+  // changed here; it only emits unknown-policy and shadow-observation guidance.
+  try {
+    const macro = options.macroGateState;
+    const finalGate1Calibration = buildFinalGate1CalibrationAuditReport({
+      positiveStarvationReport: summaryDraft.positiveScoreStarvation,
+      scoreCeilingRepairReport: summaryDraft.scoreCeilingRepair,
+      penaltyDeduplicationReport: summaryDraft.penaltyDeduplication,
+      riskDoubleCountReport: summaryDraft.riskDoubleCount,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: macro?.regime ?? 'UNKNOWN',
+      marketSession: macro?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      providerHealth: 'UNKNOWN',
+    });
+    if (finalGate1Calibration) {
+      summaryDraft.finalGate1Calibration = finalGate1Calibration;
+      console.warn(
+        `[ADR-0471] FinalGate1Calibration dry-run emitted ` +
+        `(candidates=${finalGate1Calibration.candidates}, recommendedPolicy=${finalGate1Calibration.thresholdSweep.recommendedUnknownPolicy}, ` +
+        `liveExecutionAllowed=${finalGate1Calibration.liveExecutionAllowed})`,
+      );
+    }
+  } catch (e) {
+    console.warn('[ADR-0471] FinalGate1Calibration build failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;
