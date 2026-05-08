@@ -46,6 +46,12 @@ import {
   alreadyExecutedThisSession, markSessionExecuted,
 } from './thresholdSearchLoop.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
+import {
+  evaluateEmptyScanLiveness,
+  isEmptyScanLivenessPolicyDisabled,
+  type EmptyScanLivenessDecision,
+  type EmptyScanMarketSession,
+} from '../trading/signalScanner/emptyScanLivenessPolicy.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -54,6 +60,42 @@ export interface ScanDecision {
   intervalMinutes: number;
   reason:          string;
   priority:        'SELL_ONLY' | 'FULL' | 'SKIP';
+  /**
+   * ADR-0451 — Empty Scan Liveness Policy 결정 결과 (옵셔널, 후방호환).
+   * REGULAR session + emptyScanStreak 만으로 SELL_ONLY 강제하지 않음을 호출자에 노출.
+   * /scan_blockers 메시지가 본 필드를 읽어 liveness section 자동 노출.
+   */
+  emptyScanLivenessDecision?: EmptyScanLivenessDecision;
+}
+
+/* ───────── ADR-0451 — KST 분 단위 → marketSession 매핑 SSOT ───────── */
+
+/**
+ * adaptiveScanScheduler 의 phase 결정과 정합한 KST 분 → market session 매핑.
+ *   < 930  → OPEN_AUCTION (시초가)
+ *   < 1200 → REGULAR (오전 매매)
+ *   < 1300 → LUNCH_BREAK (점심)
+ *   < 1500 → REGULAR (오후 매매)
+ *   < 1530 → AFTER_HOURS (마감 30분 — exitEngine 전용)
+ *   ≥ 1530 → CLOSED
+ *
+ * legacy `TRADE_WINDOW_LEGACY_HOURS` 도 동일 매핑 (점심 11:30~13:00 → LUNCH_BREAK).
+ */
+function deriveMarketSessionFromKstMinutes(t: number, useLegacy: boolean): EmptyScanMarketSession {
+  if (useLegacy) {
+    if (t < 930) return 'OPEN_AUCTION';
+    if (t < 1130) return 'REGULAR';
+    if (t < 1300) return 'LUNCH_BREAK';
+    if (t < 1430) return 'REGULAR';
+    if (t < 1500) return 'REGULAR';
+    return 'AFTER_HOURS';
+  }
+  if (t < 930) return 'OPEN_AUCTION';
+  if (t < 1200) return 'REGULAR';
+  if (t < 1300) return 'LUNCH_BREAK';
+  if (t < 1500) return 'REGULAR';
+  if (t < 1530) return 'AFTER_HOURS';
+  return 'CLOSED';
 }
 
 // ── 모듈 상태 (서버 재시작 시 초기화 — 의도적) ───────────────────────────────
@@ -251,6 +293,7 @@ export function decideScan(): ScanDecision {
   }
 
   // ── 7. 인터벌 미충족 → skip (단, immediateRescanRequested 면 우회) ───────
+  //   ADR-0451 — 빈스캔 표시는 interval 확대로 격하 (SELL_ONLY 표현 제거).
   const elapsedMin = (now - lastScanAt) / 60_000;
   if (!immediateRescanRequested && elapsedMin < finalInterval) {
     return {
@@ -258,7 +301,7 @@ export function decideScan(): ScanDecision {
       intervalMinutes: finalInterval,
       reason: (
         `${phase} / ${regime}(×${multiplier})` +
-        (emptyBackoff > 1 ? ` / 빈스캔×${emptyBackoff}` : '') +
+        (emptyBackoff > 1 ? ` / 빈스캔×${emptyBackoff} (interval expanded)` : '') +
         ` — ${elapsedMin.toFixed(1)}분 경과 (목표: ${finalInterval}분)`
       ),
       priority: 'SKIP',
@@ -269,18 +312,46 @@ export function decideScan(): ScanDecision {
   const triggeredByImmediate = immediateRescanRequested;
   immediateRescanRequested = false; // 1회 소비
   lastScanAt = now;
+
+  // ── 8-a. ADR-0451 Empty Scan Liveness Policy ─────────────────────────────
+  //   사용자 §"한 줄 정의" — 빈스캔 연속 발생을 SELL_ONLY hard 전환 사유로 쓰지 않고,
+  //   DEGRADED/OBSERVE/RETRY 상태로 처리하여 Trading Engine liveness 유지.
+  //   ADR-0157 정확 비교: `'1'` / `'TRUE'` / `'yes'` 모두 거부 — 정상 운영 default OFF.
+  let livenessDecision: EmptyScanLivenessDecision | undefined;
+  let emptyScanForcesSellOnly = emptyBackoff > 1; // legacy fallback (ENV DISABLED 시)
+  if (!isEmptyScanLivenessPolicyDisabled()) {
+    const marketSession = deriveMarketSessionFromKstMinutes(t, useLegacy);
+    livenessDecision = evaluateEmptyScanLiveness({
+      marketSession,
+      emptyScanStreak: consecutiveEmptyScans,
+      sellOnlyAlreadyActive: forceSellOnly,
+    });
+    // 핵심 — REGULAR session + emptyScanStreak 만으로 SELL_ONLY 강제 금지.
+    // forceSellOnly (phase-based: 시초가/점심/마감 또는 R6_DEFENSE) 는 그대로 유지.
+    emptyScanForcesSellOnly = false;
+  }
+
+  // 진단 로그 분기 — emptyBackoff > 1 시 SELL_ONLY 표시 대신 RETRY/DEGRADED · engine alive.
+  let backoffLabel = '';
+  if (emptyBackoff > 1) {
+    backoffLabel = livenessDecision && !livenessDecision.allowSellOnlyTransition
+      ? ` | 빈스캔×${emptyBackoff}→RETRY/DEGRADED · engine alive`
+      : ` | 빈스캔×${emptyBackoff}→SELL_ONLY`;
+  }
+
   return {
     shouldScan:      true,
     intervalMinutes: finalInterval,
     reason: (
       `${phase} | ${regime}(×${multiplier})` +
-      (emptyBackoff > 1 ? ` | 빈스캔×${emptyBackoff}→SELL_ONLY` : '') +
+      backoffLabel +
       (triggeredByImmediate ? ' | ⚡즉시요청' : '') +
       ` | 포지션 ${activePositions}/${maxPositions}` +
       (positionAdj !== 0 ? ` (${positionAdj > 0 ? '+' : ''}${positionAdj}분 조정)` : '') +
       ` → ${finalInterval}분 간격`
     ),
-    priority: (forceSellOnly || emptyBackoff > 1) ? 'SELL_ONLY' : 'FULL',
+    priority: (forceSellOnly || emptyScanForcesSellOnly) ? 'SELL_ONLY' : 'FULL',
+    emptyScanLivenessDecision: livenessDecision,
   };
 }
 
