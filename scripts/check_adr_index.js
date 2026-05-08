@@ -33,6 +33,34 @@ const INDEX_PATH = join(ADR_DIR, 'INDEX.md');
 const FILE_RE = /^(\d{4})-([a-zA-Z][a-zA-Z0-9-]*)\.md$/;
 const STRICT_NAME_RE = /^\d{4}-[a-zA-Z][a-zA-Z0-9-]*\.md$/;
 
+/**
+ * INVALID_FILENAME_WHITELIST (ADR-0445) — F_INVALID_FILENAME 검증에서 영구 명시 화이트리스트.
+ *
+ * 정책 (ADR-0159 §"파일명 무변경" 정합):
+ *   - 외부 참조 무결성 보존을 위해 머지된 ADR 파일명 변경 금지
+ *   - `.` 같은 비표준 문자가 포함된 historical fast-iteration entries 만 등재
+ *   - 신규 ADR 은 영소문자+숫자+하이픈 정책 그대로 강제 (화이트리스트 추가 의무 아님)
+ *
+ * 향후 마이그레이션 PR 이 아래 파일을 다른 이름으로 옮기면 화이트리스트 entry 도 동시 제거.
+ */
+export const INVALID_FILENAME_WHITELIST = Object.freeze(
+  new Set([
+    '0394-p1.5-execution-terminology-ssot.md', // ADR-0394 P1.5 (`p1.5` 안 `.` 위반, ADR-0159 정합)
+  ])
+);
+
+/**
+ * COMMIT_LABEL_ONLY_MARKER (ADR-0445) — B_STALE_INDEX_ENTRY 검증에서 *역사적 사실* 인정 마커.
+ *
+ * 정책:
+ *   - fast-iteration 시기 ADR 본문 파일 없이 INDEX + commit message 로 발급된 entries
+ *   - INDEX entry 끝에 `(commit-label only, fast-iteration)` 마커 추가 시 stale 분류 제외
+ *   - 신규 ADR 발급 시 본문 파일 작성 의무 보존 (마커 없는 stale entries 는 여전히 위반)
+ *
+ * 마커 포함 패턴: `(commit-label only, ...)` 또는 `(no file)` (대소문자 무관).
+ */
+const COMMIT_LABEL_ONLY_RE = /\(commit-label only|\(no file\)/i;
+
 /* ───────── ADR 파일 시스템 스캔 ───────── */
 
 export function scanAdrFiles(adrDir) {
@@ -46,6 +74,16 @@ export function scanAdrFiles(adrDir) {
     if (name === 'INDEX.md' || name === 'README.md') continue;
 
     if (!STRICT_NAME_RE.test(name)) {
+      // ADR-0445: 화이트리스트 entry 는 invalid 분류 제외하되 byNumber 에 등재 (INDEX 정합 검증 보존)
+      if (INVALID_FILENAME_WHITELIST.has(name)) {
+        const numMatch = name.match(/^(\d{4})-/);
+        if (numMatch) {
+          const num = numMatch[1];
+          if (!byNumber.has(num)) byNumber.set(num, []);
+          byNumber.get(num).push(name);
+        }
+        continue;
+      }
       invalidNames.push(name);
       continue;
     }
@@ -69,9 +107,13 @@ export function scanAdrFiles(adrDir) {
 /**
  * parseIndex(src) — INDEX.md 4 섹션 파싱.
  *
+ * ADR-0445: mainIndex entry 에 `commitLabelOnly: boolean` 필드 추가 — title 끝에
+ * `(commit-label only, ...)` 마커 포함 시 true, B_STALE_INDEX_ENTRY 검증에서 *역사적 사실*
+ * 인정 (파일 부재여도 stale 분류 제외).
+ *
  * @returns {{
  *   nextNumber: string | null,
- *   mainIndex: Map<string, { title: string, domain: string, isGap: boolean }>,
+ *   mainIndex: Map<string, { title: string, domain: string, isGap: boolean, commitLabelOnly: boolean }>,
  *   conflicts: Array<{ number: string, file: string }>,
  *   gaps: string[]
  * }}
@@ -149,18 +191,22 @@ export function parseIndex(src) {
       if (gapM) {
         const num = gapM[1];
         if (!gaps.includes(num)) gaps.push(num);
-        mainIndex.set(num, { title: '(누락)', domain: '—', isGap: true });
+        mainIndex.set(num, { title: '(누락)', domain: '—', isGap: true, commitLabelOnly: false });
         continue;
       }
       // 정상 행: `| NNNN | title | domain |`
       const rowM = line.match(/^\|\s*(\d{4})\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/);
       if (rowM) {
         const num = rowM[1];
+        const title = rowM[2].trim();
+        // ADR-0445: title 끝에 `(commit-label only, ...)` 또는 `(no file)` 마커 시 historical fact 인정
+        const commitLabelOnly = COMMIT_LABEL_ONLY_RE.test(title);
         // 충돌 그룹 marker (`conflict ×N` 도메인) 도 mainIndex 에 등재됨
         mainIndex.set(num, {
-          title: rowM[2].trim(),
+          title,
           domain: rowM[3].trim(),
           isGap: false,
+          commitLabelOnly,
         });
       }
     }
@@ -231,8 +277,12 @@ export function validate(scan, parsed) {
   }
 
   // B) 인덱스 등재 vs 파일 존재 — main index 의 비-누락 항목은 파일 존재해야
+  // ADR-0445: `commitLabelOnly=true` (title 에 `(commit-label only, ...)` 마커) entries 는
+  // 역사적 사실 인정 — fast-iteration 시기 본문 파일 없이 INDEX + commit message 로 발급된 사례.
+  // 신규 ADR 발급 시 본문 파일 작성 의무 보존 (마커 없는 stale entries 는 여전히 위반).
   for (const [num, info] of mainIndex) {
     if (info.isGap) continue;
+    if (info.commitLabelOnly) continue; // ADR-0445 — historical fact recognized
     if (!byNumber.has(num)) {
       violations.push({
         category: 'B_STALE_INDEX_ENTRY',
@@ -286,12 +336,16 @@ export function validate(scan, parsed) {
     });
   }
 
+  // ADR-0445: commit-label only entries 카운트 (진단용)
+  const commitLabelOnlyEntries = Array.from(mainIndex.values()).filter((info) => info.commitLabelOnly).length;
+
   const summary = {
     totalAdrFiles: Array.from(byNumber.values()).reduce((s, a) => s + a.length, 0),
     uniqueNumbers: byNumber.size,
     conflictGroups: Array.from(byNumber.values()).filter((a) => a.length > 1).length,
     indexedEntries: mainIndex.size,
     gapEntries: gaps.length,
+    commitLabelOnlyEntries, // ADR-0445
     nextNumber,
     violationCount: violations.length,
   };
@@ -321,11 +375,15 @@ function main() {
   }
 
   if (violations.length === 0) {
+    const labelOnlyText =
+      summary.commitLabelOnlyEntries > 0
+        ? ` / commit-label only ${summary.commitLabelOnlyEntries}건`
+        : '';
     console.log(
       `[ADR Index] OK — ${summary.totalAdrFiles}개 파일 / ` +
         `${summary.uniqueNumbers}개 unique 번호 / ` +
         `충돌 ${summary.conflictGroups}그룹 / ` +
-        `누락 ${summary.gapEntries}건 / ` +
+        `누락 ${summary.gapEntries}건${labelOnlyText} / ` +
         `다음 발급 ${summary.nextNumber}`
     );
     return;

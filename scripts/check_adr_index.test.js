@@ -53,8 +53,8 @@ describe('check_adr_index — baseline', () => {
     const result = runLint();
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('OK');
-    expect(result.output).toContain('충돌 8그룹');
-    expect(result.output).toContain('누락 6건');
+    expect(result.output).toContain('충돌 11그룹');
+    expect(result.output).toContain('누락 10건');
   });
 
   it('--json 출력 violations 빈 배열', () => {
