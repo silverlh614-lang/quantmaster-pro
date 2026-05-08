@@ -115,6 +115,12 @@ import {
   classifyGateScoreCandidateBucket,
   type GateScoreCandidateBucket,
 } from './gateScoreCandidateBucket.js';
+import {
+  buildEntryFilterDecomposition,
+  formatEntryFilterDecompositionSection,
+  type CandidateSnapshot,
+  type EntryFilterDecomposition,
+} from './entryFilterDecomposition.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -276,6 +282,12 @@ export interface ScanSummary {
    * /scan_blockers 에 Counterfactual Shadow Learning 섹션 자동 노출.
    */
   counterfactualShadowLearning?: CounterfactualShadowSectionInput;
+  /**
+   * ADR-0464 — Entry Filter Conservatism Decomposition snapshot.
+   * Candidate-level blocker traces, counterfactual entry traces, Kelly multiplier
+   * decomposition, watchlist health, and diagnostic-only conservatism report.
+   */
+  entryFilterDecomposition?: EntryFilterDecomposition;
   /**
    * ADR-0414 §6 — Price Integrity 종목별 분류 진단 (옵셔널, Stage 1 Read-Only).
    *
@@ -487,6 +499,8 @@ export interface ScanCounters {
   /** ADR-454 — Near-Miss Outcome Ledger write counters (live decision 미사용). */
   nearMissOutcomeLedgerRecorded: number;
   nearMissOutcomeLedgerSkipped: number;
+  /** ADR-0464 — pre-gate watchlist snapshots for candidate-level blocker ledger. */
+  entryCandidateSnapshots: CandidateSnapshot[];
   /** ADR-458 — Dry-run result accumulator; diagnostic-only. */
   gateReclassificationDryRunResults: GateReclassificationDryRunResult[];
 }
@@ -562,6 +576,8 @@ export function createScanCounters(): ScanCounters {
     // ADR-454 — Near-Miss Outcome Ledger 진단 카운터 (executionImpact NONE).
     nearMissOutcomeLedgerRecorded: 0,
     nearMissOutcomeLedgerSkipped: 0,
+    // ADR-0464 — 후보별 Entry blocker decomposition 입력 (diagnostic-only).
+    entryCandidateSnapshots: [],
     // ADR-458 — Approved Gate Reclassification Dry-Run 결과 누적 (live 영향 없음).
     gateReclassificationDryRunResults: [],
   };
@@ -642,6 +658,15 @@ export function accumulateGateEligibility(
   ) {
     counters.trueGateFailCount += 1;
   }
+}
+
+
+/** ADR-0464 — watchlist 후보를 pre-gate trace 입력으로 등록한다. */
+export function registerEntryCandidateSnapshots(
+  counters: ScanCounters,
+  snapshots: CandidateSnapshot[],
+): void {
+  counters.entryCandidateSnapshots.push(...snapshots);
 }
 
 export function buildGatePassDistribution(counters: ScanCounters): GatePassDistribution {
@@ -1164,6 +1189,13 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(counterfactualSection);
   }
 
+  // ADR-0464 — Entry Filter Conservatism Decomposition.
+  const entryFilterSection = formatEntryFilterDecompositionSection(summary.entryFilterDecomposition);
+  if (entryFilterSection) {
+    lines.push('');
+    lines.push(entryFilterSection);
+  }
+
   // ADR-0448 Phase 0 — R3 Noise Governor compact line.
   //   Gate1 통과 0건 시점의 cause 분류 (TRUE_GATE1_ZERO / SELL_ONLY / LUNCH_BREAK /
   //   DATA_UNAVAILABLE / SECTOR_ENERGY_DIAGNOSTIC_BLOCKED / PROVIDER_DEGRADED /
@@ -1218,6 +1250,9 @@ export interface PersistScanResultsOptions {
   swingListLength: number;
   catalystListLength: number;
   momentumListLength: number;
+  candidateSnapshots?: CandidateSnapshot[];
+  watchlistRefreshedAt?: string;
+  watchlistSource?: string;
   macroGateState?: MacroGateState;
   sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
   validSectorCount?: number;
@@ -1546,6 +1581,32 @@ export async function persistScanResults(
     summaryDraft.shadowNearBreakoutCreated = counters.shadowNearBreakoutCreated ?? 0;
     summaryDraft.shadowNearBreakoutBlocked = counters.shadowNearBreakoutBlocked ?? 0;
     summaryDraft.shadowNearBreakoutBlockReasons = counters.shadowNearBreakoutBlockReasons ?? {};
+  }
+
+  // ADR-0464 — Entry Filter Conservatism Decomposition.
+  // Diagnostic-only: execution gates/thresholds are not modified. Build failures are
+  // isolated so ledger/reporting problems cannot shut down the trading engine.
+  try {
+    const candidateSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
+    summaryDraft.entryFilterDecomposition = buildEntryFilterDecomposition({
+      now: kstNow,
+      universeCandidates: Math.max(
+        options.buyListLength + options.intradayBuyListLength,
+        candidateSnapshots.length,
+      ),
+      watchlistCandidates: options.buyListLength + options.intradayBuyListLength,
+      entries: counters.entries,
+      waitDistribution: summaryDraft.waitDistribution,
+      gatePassDistribution: summaryDraft.gatePassDistribution,
+      macroGateState: summaryDraft.macroGateState,
+      candidateSnapshots,
+      counterfactualRecordedToday: counters.counterfactualRecordedToday,
+      sectorEnergyQuality: options.sectorEnergyQuality,
+      watchlistRefreshedAt: options.watchlistRefreshedAt,
+      watchlistSource: options.watchlistSource,
+    });
+  } catch (e) {
+    console.warn('[ADR-0464] EntryFilterDecomposition build 실패 (영속 무영향)', e);
   }
 
   _lastScanSummary = summaryDraft;

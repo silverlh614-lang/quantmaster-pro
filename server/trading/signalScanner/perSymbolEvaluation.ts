@@ -2,6 +2,7 @@
  * @responsibility 종목 단위 진입 검증 — Gate·RRR·liveGate·failure·corr·sizing·cooldown 평가
  */
 import type { ScanCounters } from './scanDiagnostics.js';
+import { registerEntryCandidateSnapshots } from './scanDiagnostics.js';
 import { getSectorByCode } from '../../screener/sectorMap.js';
 import { isOpenShadowStatus } from '../entryEngine.js';
 import { decideProbingSlotBudget, buildArmKey, type BanditDecision } from '../../learning/probingBandit.js';
@@ -31,6 +32,16 @@ export async function evaluateMainCandidates(
     kellyMultiplier, accountKellyMultiplier, sellOnlyExc, volumeClock,
     conditionWeights, supplyHealthSnapshot
   } = context;
+
+  registerEntryCandidateSnapshots(counters, buyList.map((w: any) => ({
+    symbol: w.code,
+    name: w.name,
+    stageReached: 'WATCHLIST' as const,
+    gateScore: w.gateScore,
+    gate1Passed: w.gateEvaluation?.gate1Passed,
+    gate2Passed: w.gateEvaluation?.gate2Passed,
+    gate3Passed: w.gateEvaluation?.gate3Passed,
+  })));
 
   const _banditCandidateArms: string[] = [];
   for (const w of buyList) {
