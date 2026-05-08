@@ -264,17 +264,21 @@ const scanBlockers: TelegramCommand = {
           qDiag.sanityViolation as Parameters<typeof formatSanityDiagnosticCompactLine>[0],
         );
       }
-      if (qDiag) {
-        sectorEnergyCoverageRecoverySection = formatSectorEnergyCoverageRecoverySection(
-          buildSectorEnergyCoverageRecoveryReport({
-            qualityDiagnostic: qDiag as NonNullable<
-              Parameters<typeof buildSectorEnergyCoverageRecoveryReport>[0]
-            >['qualityDiagnostic'],
-          }),
+      sectorEnergyCoverageRecoverySection = formatSectorEnergyCoverageRecoverySection(
+        qDiag
+          ? buildSectorEnergyCoverageRecoveryReport({
+              qualityDiagnostic: qDiag as NonNullable<
+                Parameters<typeof buildSectorEnergyCoverageRecoveryReport>[0]
+              >['qualityDiagnostic'],
+            })
+          : buildSectorEnergyCoverageRecoveryReport(),
+      );
+      if (sectorEnergyCoverageRecoverySection) {
+        console.log(
+          qDiag
+            ? '[ADR-0474] SectorEnergy coverage recovery diagnostic appended to /scan_blockers'
+            : '[ADR-0474] SectorEnergy coverage recovery fallback mounted to /scan_blockers',
         );
-        if (sectorEnergyCoverageRecoverySection) {
-          console.log('[ADR-0474] SectorEnergy coverage recovery diagnostic appended to /scan_blockers');
-        }
       }
     } catch (err) {
       console.warn(
