@@ -106,6 +106,12 @@ import {
 // ADR-0436 — Gate Eligibility Split 진단 섹션 (별도 파일, ADR-0133 1500줄 한계).
 import { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 import {
+  buildGateReclassificationDryRunSummary,
+  formatGateReclassificationDryRunSection,
+  type GateReclassificationDryRunResult,
+  type GateReclassificationDryRunSummary,
+} from '../../learning/gateReclassificationDryRun.js';
+import {
   classifyGateScoreCandidateBucket,
   type GateScoreCandidateBucket,
 } from './gateScoreCandidateBucket.js';
@@ -341,6 +347,8 @@ export interface ScanSummary {
   gateScoreHealth?: GateScoreHealthSummary;
   /** ADR-452d — diagnostic-only near-miss buckets; executionImpact is always NONE. */
   gateScoreCandidateBuckets?: GateScoreCandidateBucketSummary;
+  /** ADR-458 — APPROVED reclassification shadow/dry-run summary; live executionImpact is NONE. */
+  gateReclassificationDryRun?: GateReclassificationDryRunSummary;
 }
 
 let _lastBuySignalAt = 0;
@@ -479,6 +487,8 @@ export interface ScanCounters {
   /** ADR-454 — Near-Miss Outcome Ledger write counters (live decision 미사용). */
   nearMissOutcomeLedgerRecorded: number;
   nearMissOutcomeLedgerSkipped: number;
+  /** ADR-458 — Dry-run result accumulator; diagnostic-only. */
+  gateReclassificationDryRunResults: GateReclassificationDryRunResult[];
 }
 
 export function createScanCounters(): ScanCounters {
@@ -552,6 +562,8 @@ export function createScanCounters(): ScanCounters {
     // ADR-454 — Near-Miss Outcome Ledger 진단 카운터 (executionImpact NONE).
     nearMissOutcomeLedgerRecorded: 0,
     nearMissOutcomeLedgerSkipped: 0,
+    // ADR-458 — Approved Gate Reclassification Dry-Run 결과 누적 (live 영향 없음).
+    gateReclassificationDryRunResults: [],
   };
 }
 
@@ -770,6 +782,15 @@ export function accumulateNearMissOutcomeLedgerWrite(
 ): void {
   if (outcome?.recorded) counters.nearMissOutcomeLedgerRecorded += 1;
   else counters.nearMissOutcomeLedgerSkipped += 1;
+}
+
+
+export function accumulateGateReclassificationDryRun(
+  counters: ScanCounters,
+  result: GateReclassificationDryRunResult | null | undefined,
+): void {
+  if (!result || result.dryRunDecision === 'NO_CHANGE') return;
+  counters.gateReclassificationDryRunResults.push(result);
 }
 
 function topCounts(record: Record<string, number>, limit = 5): Array<{ condition: string; count: number }> {
@@ -1087,6 +1108,13 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(gateScoreBucketSection);
   }
 
+  // ADR-458 — Approved Gate Reclassification Dry-Run (shadow-only, executionImpact NONE).
+  const gateReclassificationDryRunSection = formatGateReclassificationDryRunSection(summary.gateReclassificationDryRun);
+  if (gateReclassificationDryRunSection) {
+    lines.push('');
+    lines.push(gateReclassificationDryRunSection);
+  }
+
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
   // 기존 sectorEnergyQuality 라벨만으로는 SECTOR_DATA_STALE_DOMINANT 의 *진짜 원인* 인식 불가.
   // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
@@ -1277,6 +1305,8 @@ export async function persistScanResults(
     gateScoreHealth: buildGateScoreHealthSummary(counters),
     // ADR-452d — diagnostic-only near-miss bucket summary (executionImpact NONE).
     gateScoreCandidateBuckets: buildGateScoreCandidateBucketSummary(counters),
+    // ADR-458 — dry-run only approved reclassification impact summary.
+    gateReclassificationDryRun: buildGateReclassificationDryRunSummary(counters.gateReclassificationDryRunResults),
   };
 
   // ADR-0420 — Fresh Scan Blocker Attribution build + persist (옵셔널, 후방호환).
