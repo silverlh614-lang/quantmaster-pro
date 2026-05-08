@@ -13,6 +13,12 @@ import {
   formatGateReclassificationApprovalPlan,
   isGateReclassificationApprovalPlanDisabled,
 } from '../../../learning/gateReclassificationApprovalPlan.js';
+import {
+  formatGateReclassificationRolloutSummary,
+  isGateReclassificationRolloutDisabled,
+  summarizeGateReclassificationRollout,
+} from '../../../learning/gateReclassificationRolloutPolicy.js';
+import { loadGateReclassificationRolloutPlan } from '../../../persistence/gateReclassificationRolloutRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -45,6 +51,18 @@ const learningStatus: TelegramCommand = {
         } catch (e) {
           console.warn('[ADR-456] Gate reclassification proposal failed:', e instanceof Error ? e.message : e);
           console.warn('[ADR-457] Gate reclassification approval plan failed:', e instanceof Error ? e.message : e);
+        }
+      }
+
+      if (!isGateReclassificationRolloutDisabled()) {
+        try {
+          const rolloutPlan = loadGateReclassificationRolloutPlan();
+          const rolloutSection = formatGateReclassificationRolloutSummary(
+            summarizeGateReclassificationRollout(rolloutPlan),
+          );
+          if (rolloutSection) message += `\n\n${rolloutSection}`;
+        } catch (e) {
+          console.warn('[ADR-459] Gate reclassification rollout failed:', e instanceof Error ? e.message : e);
         }
       }
 

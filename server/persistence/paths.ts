@@ -468,6 +468,9 @@ export const USER_DIAGNOSTIC_HINTS_FILE = path.join(DATA_DIR, 'user-diagnostic-h
  */
 export const EXECUTION_MODE_OVERRIDE_FILE = path.join(DATA_DIR, 'execution_mode_override.json');
 
+/** ADR-459 — approved gate reclassification controlled rollout 운영 상태 기록. */
+export const GATE_RECLASSIFICATION_ROLLOUT_FILE = path.join(DATA_DIR, 'gate-reclassification-rollout.json');
+
 export function ensureReflectionsDir(): void {
   ensureDataDir();
   if (!fs.existsSync(REFLECTIONS_DIR)) fs.mkdirSync(REFLECTIONS_DIR, { recursive: true });
