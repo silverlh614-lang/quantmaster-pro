@@ -138,6 +138,11 @@ import {
   formatPenaltyDeduplicationReport,
   type PenaltyDeduplicationReport,
 } from './gate1PenaltyDeduplication.js';
+import {
+  buildRiskDoubleCountAuditReport,
+  formatRiskDoubleCountAuditReport,
+  type RiskDoubleCountAuditReport,
+} from './gate1RiskDoubleCount.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -384,6 +389,8 @@ export interface ScanSummary {
   scoreCeilingRepair?: Gate1ScoreCeilingRepairReport;
   /** ADR-0469 penalty deduplication dry-run; diagnostic-only and executionImpact NONE. */
   penaltyDeduplication?: PenaltyDeduplicationReport;
+  /** ADR-0470 risk placement split dry-run; diagnostic-only and executionImpact NONE. */
+  riskDoubleCount?: RiskDoubleCountAuditReport;
 }
 
 let _lastBuySignalAt = 0;
@@ -1190,6 +1197,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(penaltyDeduplicationSection);
   }
 
+  const riskDoubleCountSection = formatRiskDoubleCountAuditReport(summary.riskDoubleCount);
+  if (riskDoubleCountSection) {
+    lines.push('');
+    lines.push(riskDoubleCountSection);
+  }
+
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
   // 기존 sectorEnergyQuality 라벨만으로는 SECTOR_DATA_STALE_DOMINANT 의 *진짜 원인* 인식 불가.
   // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
@@ -1737,6 +1750,36 @@ export async function persistScanResults(
     }
   } catch (e) {
     console.warn('[ADR-0469] PenaltyDeduplication build failed (engine unaffected):', e);
+  }
+
+  // ADR-0470: risk placement split is dry-run only. It compares Gate1 signal
+  // risk against Kelly sizing risk without changing live policy.
+  try {
+    const macro = options.macroGateState;
+    const riskDoubleCount = buildRiskDoubleCountAuditReport({
+      positiveStarvationReport: summaryDraft.positiveScoreStarvation,
+      scoreCeilingRepairReport: summaryDraft.scoreCeilingRepair,
+      penaltyDeduplicationReport: summaryDraft.penaltyDeduplication,
+      traces: counters.positiveScoreStarvationTraces,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: macro?.regime ?? 'UNKNOWN',
+      marketSession: macro?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      regimeMultiplier: macro?.kellyMultiplierFromRegime ?? 0.7,
+      fomcMultiplier: macro?.fomcKellyMultiplier ?? 1,
+      sectorMultiplier: 1,
+      combinedKellyMultiplier: macro?.finalKellyMultiplier ?? 0.26,
+    });
+    if (riskDoubleCount) {
+      summaryDraft.riskDoubleCount = riskDoubleCount;
+      console.warn(
+        `[ADR-0470] RiskDoubleCount dry-run emitted ` +
+        `(candidates=${riskDoubleCount.totalCandidates}, doubleCountCandidates=${riskDoubleCount.doubleCountCandidates}, ` +
+        `executionImpact=${riskDoubleCount.executionImpact})`,
+      );
+    }
+  } catch (e) {
+    console.warn('[ADR-0470] RiskDoubleCount build failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;

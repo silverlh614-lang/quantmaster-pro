@@ -27,6 +27,10 @@ import {
   buildEntryDecisionLedgerPenaltyDedupSummaryFromScore,
   type EntryDecisionLedgerPenaltyDedupSummary,
 } from './gate1PenaltyDeduplication.js';
+import {
+  buildEntryDecisionLedgerRiskDoubleCountSummaryFromScore,
+  type EntryDecisionLedgerRiskDoubleCountSummary,
+} from './gate1RiskDoubleCount.js';
 
 
 export const GATE1_PROVIDER_ISSUE_SOFT_FAIL_ENABLED = true;
@@ -330,6 +334,7 @@ export interface EntryDecisionLedgerRow {
   };
   scoreCeilingRepairSummary?: EntryDecisionLedgerScoreCeilingRepairSummary;
   penaltyDedupSummary?: EntryDecisionLedgerPenaltyDedupSummary;
+  riskDoubleCountSummary?: EntryDecisionLedgerRiskDoubleCountSummary;
   gate1TraceSummary?: {
     primaryGate1FailCode?: Gate1ConditionCode;
     providerIssue: boolean;
@@ -1141,6 +1146,13 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
         grossPositiveScore: trace.gate1Trace.minSignalScoreTrace.positiveScoreTotal,
         originalPenaltyTotal: Math.abs(trace.gate1Trace.minSignalScoreTrace.penaltyTotal),
         originalNetScore: trace.gate1Trace.minSignalScoreTrace.actualScore,
+        requiredScore: trace.gate1Trace.minSignalScoreTrace.requiredScore,
+      }) : undefined,
+      riskDoubleCountSummary: trace.gate1Trace?.minSignalScoreTrace ? buildEntryDecisionLedgerRiskDoubleCountSummaryFromScore({
+        symbol: trace.symbol,
+        originalSignalScore: trace.gate1Trace.minSignalScoreTrace.actualScore,
+        signalRiskPenalty: trace.gate1Trace.minSignalScoreTrace.riskPenaltyTotal,
+        kellyMultiplier: 0.26,
         requiredScore: trace.gate1Trace.minSignalScoreTrace.requiredScore,
       }) : undefined,
       gate1TraceSummary: trace.gate1Trace ? {
