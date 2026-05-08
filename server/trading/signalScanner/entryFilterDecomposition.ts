@@ -19,6 +19,10 @@ import {
   type SoftFailAccumulationTrace,
   type UnknownDataTreatmentAudit,
 } from './minimumSignalScoreTrace.js';
+import {
+  buildEntryDecisionLedgerScoreCeilingRepairSummaryFromScore,
+  type EntryDecisionLedgerScoreCeilingRepairSummary,
+} from './gate1ScoreCeilingRepair.js';
 
 
 export const GATE1_PROVIDER_ISSUE_SOFT_FAIL_ENABLED = true;
@@ -320,6 +324,7 @@ export interface EntryDecisionLedgerRow {
     tags: string[];
     executionImpact: 'NONE';
   };
+  scoreCeilingRepairSummary?: EntryDecisionLedgerScoreCeilingRepairSummary;
   gate1TraceSummary?: {
     primaryGate1FailCode?: Gate1ConditionCode;
     providerIssue: boolean;
@@ -1118,6 +1123,14 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
         tags: trace.gate1Trace.calibrationTags ?? [],
         executionImpact: 'NONE',
       } : undefined,
+      scoreCeilingRepairSummary: trace.gate1Trace?.minSignalScoreTrace ? buildEntryDecisionLedgerScoreCeilingRepairSummaryFromScore({
+        requiredScore: trace.gate1Trace.minSignalScoreTrace.requiredScore,
+        configuredPositiveMaxScore: trace.gate1Trace.minSignalScoreTrace.positiveScoreTotal,
+        watchlistScoreNotImported: true,
+        relativeStrengthZeroContribution: true,
+        breakoutStructureZeroContribution: true,
+        otherPositiveTooLarge: true,
+      }) : undefined,
       gate1TraceSummary: trace.gate1Trace ? {
         primaryGate1FailCode: trace.gate1Trace.primaryFailCode,
         providerIssue: trace.gate1Trace.conditions.some((c) => !c.passed && c.providerIssue),

@@ -128,6 +128,11 @@ import {
   type Gate1ScoreStarvationTrace,
   type PositiveScoreStarvationReport,
 } from './gate1PositiveScoreStarvation.js';
+import {
+  buildGate1ScoreCeilingRepairReport,
+  formatGate1ScoreCeilingRepairReport,
+  type Gate1ScoreCeilingRepairReport,
+} from './gate1ScoreCeilingRepair.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -370,6 +375,8 @@ export interface ScanSummary {
   gateReclassificationDryRun?: GateReclassificationDryRunSummary;
   /** ADR-0467 positive score starvation audit; diagnostic-only and executionImpact NONE. */
   positiveScoreStarvation?: PositiveScoreStarvationReport;
+  /** ADR-0468 score ceiling repair dry-run; diagnostic-only and executionImpact NONE. */
+  scoreCeilingRepair?: Gate1ScoreCeilingRepairReport;
 }
 
 let _lastBuySignalAt = 0;
@@ -1164,6 +1171,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(positiveStarvationSection);
   }
 
+  const scoreCeilingRepairSection = formatGate1ScoreCeilingRepairReport(summary.scoreCeilingRepair);
+  if (scoreCeilingRepairSection) {
+    lines.push('');
+    lines.push(scoreCeilingRepairSection);
+  }
+
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
   // 기존 sectorEnergyQuality 라벨만으로는 SECTOR_DATA_STALE_DOMINANT 의 *진짜 원인* 인식 불가.
   // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
@@ -1662,6 +1675,30 @@ export async function persistScanResults(
     }
   } catch (e) {
     console.warn('[ADR-0467] PositiveScoreStarvation fallback build failed (engine unaffected):', e);
+  }
+
+  // ADR-0468: score ceiling repair remains dry-run/advisory only. It consumes the
+  // ADR-0467 starvation report, including the ADR-0466 fallback path, so
+  // BEFORE_BUYLIST_LOOP scans still surface the broken score ceiling.
+  try {
+    const repair = buildGate1ScoreCeilingRepairReport({
+      positiveStarvationReport: summaryDraft.positiveScoreStarvation,
+      traces: counters.positiveScoreStarvationTraces,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: options.macroGateState?.regime ?? 'UNKNOWN',
+      marketSession: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+    });
+    if (repair) {
+      summaryDraft.scoreCeilingRepair = repair;
+      console.warn(
+        `[ADR-0468] Gate1ScoreCeilingRepair dry-run emitted ` +
+        `(candidates=${repair.totalCandidates}, requiredReachableBefore=${repair.scoreCeilingRepairAudit.requiredReachableBefore}, ` +
+        `executionImpact=${repair.executionImpact})`,
+      );
+    }
+  } catch (e) {
+    console.warn('[ADR-0468] Gate1ScoreCeilingRepair build failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;
