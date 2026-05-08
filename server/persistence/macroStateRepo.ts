@@ -233,7 +233,42 @@ export interface MacroState {
       fallbackUsed: 'NONE' | 'STOCK_DAILY' | 'ETF' | 'CACHE';
       symmetryValidationPassed: boolean;
       sanityViolationCount: number;
+      /**
+       * ADR-0447: alias 확장으로 backfill 된 row 수 (옵셔널 후방호환).
+       * Provider 가 normalize 후 alias 매칭으로 indexCode 회복 시 카운트.
+       */
+      aliasExpansionRecovered?: number;
+      /**
+       * ADR-0447: aggregate row 자동 분리 카운트 (옵셔널 후방호환).
+       * `missingReasonBreakdown.NON_SECTOR_AGGREGATE_ROW` 와 동일 — 운영자 즉시 확인용.
+       */
+      nonSectorAggregateIgnored?: number;
+      /**
+       * ADR-0447: alias 확장으로 새로 매칭된 alias Top N (옵셔널 후방호환).
+       * raw 값 / token / private metadata 영속 절대 금지 — schema 5 필드만.
+       */
+      topRecoveredAliases?: Array<{
+        indexName: string;
+        normalizedName: string;
+        sectorKey: string;
+        displayName: string;
+        count: number;
+      }>;
     };
+    /**
+     * ADR-0447: top-level 격상 (옵셔널, 후방호환).
+     *
+     * sectorIndexRecovery 안에 동일 필드 영속됨 — top-level 은 빠른 운영자 진단용.
+     */
+    aliasExpansionRecovered?: number;
+    nonSectorAggregateIgnored?: number;
+    topRecoveredAliases?: Array<{
+      indexName: string;
+      normalizedName: string;
+      sectorKey: string;
+      displayName: string;
+      count: number;
+    }>;
     /**
      * ADR-0446: sanity violation 진단 (옵셔널, 후방호환).
      *

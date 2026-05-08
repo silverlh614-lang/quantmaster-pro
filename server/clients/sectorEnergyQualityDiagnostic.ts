@@ -146,6 +146,35 @@ export interface SectorEnergyQualityDiagnostic {
    * 부재 시 caller (Phase 1 호출자) 무영향.
    */
   sanityViolation?: SectorEnergySanityViolationDiagnostic;
+
+  /**
+   * ADR-0447: alias 확장으로 backfill 된 row 수 (옵셔널 후방호환).
+   *
+   * Provider 가 normalize 후 alias 매칭으로 indexCode 회복 시 카운트.
+   * `sectorIndexRecovery.aliasExpansionRecovered` 와 동일 값 — top-level 격상은 잡음 차단.
+   */
+  aliasExpansionRecovered?: number;
+
+  /**
+   * ADR-0447: aggregate row 자동 분리 카운트 (옵셔널 후방호환).
+   *
+   * 시장 종합 row (코스피/코스닥/전체/합계) 가 sector alias 등록 후보로 잘못 분류되지
+   * 않았는지 운영자 즉시 확인용. `sectorIndexRecovery.nonSectorAggregateIgnored` 와 동일.
+   */
+  nonSectorAggregateIgnored?: number;
+
+  /**
+   * ADR-0447: alias 확장으로 새로 매칭된 alias Top N (옵셔널 후방호환).
+   *
+   * raw 값 / token / private metadata 영속 절대 금지 — schema 5 필드만.
+   */
+  topRecoveredAliases?: Array<{
+    indexName: string;
+    normalizedName: string;
+    sectorKey: string;
+    displayName: string;
+    count: number;
+  }>;
 }
 
 // ─── SSOT 입력 타입 ──────────────────────────────────────────────────────
@@ -192,6 +221,22 @@ export interface EvaluateSectorEnergyQualityInput {
    * Provider 가 `finalizeSanityDiagnostic` SSOT 로 합성 후 전달.
    */
   sanityViolation?: SectorEnergySanityViolationDiagnostic;
+
+  /**
+   * ADR-0447: alias 확장 카운트 (옵셔널 후방호환).
+   *
+   * Provider 가 명시 전달 시 top-level 격상. 미전달 시 sectorIndexRecovery.aliasExpansionRecovered
+   * 그대로 사용 (자동 propagate).
+   */
+  aliasExpansionRecovered?: number;
+  nonSectorAggregateIgnored?: number;
+  topRecoveredAliases?: Array<{
+    indexName: string;
+    normalizedName: string;
+    sectorKey: string;
+    displayName: string;
+    count: number;
+  }>;
 }
 
 // ─── 임계 SSOT (ADR-0423 §C 사용자 명시 정합 — 절대 변경 금지) ──────────────
@@ -475,6 +520,23 @@ export function evaluateSectorEnergyQualityDiagnostic(
     // ADR-0446 — Phase 2 진단 + Sanity violation 진단 (옵셔널, 후방호환).
     ...(input.sectorIndexRecovery ? { sectorIndexRecovery: input.sectorIndexRecovery } : {}),
     ...(input.sanityViolation ? { sanityViolation: input.sanityViolation } : {}),
+    // ADR-0447 — alias expansion 카운트 (옵셔널, 후방호환).
+    // Caller 명시 전달 우선, 미전달 시 sectorIndexRecovery 자동 propagate.
+    ...(input.aliasExpansionRecovered !== undefined
+      ? { aliasExpansionRecovered: input.aliasExpansionRecovered }
+      : input.sectorIndexRecovery?.aliasExpansionRecovered !== undefined
+        ? { aliasExpansionRecovered: input.sectorIndexRecovery.aliasExpansionRecovered }
+        : {}),
+    ...(input.nonSectorAggregateIgnored !== undefined
+      ? { nonSectorAggregateIgnored: input.nonSectorAggregateIgnored }
+      : input.sectorIndexRecovery?.nonSectorAggregateIgnored !== undefined
+        ? { nonSectorAggregateIgnored: input.sectorIndexRecovery.nonSectorAggregateIgnored }
+        : {}),
+    ...(input.topRecoveredAliases !== undefined
+      ? { topRecoveredAliases: input.topRecoveredAliases }
+      : input.sectorIndexRecovery?.topRecoveredAliases !== undefined
+        ? { topRecoveredAliases: input.sectorIndexRecovery.topRecoveredAliases }
+        : {}),
   };
 }
 

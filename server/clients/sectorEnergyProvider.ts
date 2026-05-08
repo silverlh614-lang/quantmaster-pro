@@ -39,9 +39,13 @@ import {
   resolveIndexCodeBySectorName,
 } from './sectorEnergyMaster.js';
 // ADR-0446 Phase 2: indexCode recovery 분해 + sanity violation 진단 SSOT 2종.
+// ADR-0447: SECTOR_INDEX_MASTER alias expansion + NON_SECTOR_AGGREGATE_ROW 분리 격상.
 import {
   evaluateIndexCodeRecovery,
+  expandAliasCandidates,
+  isSectorEnergyAliasRegistryExpansionDisabled,
   isSectorEnergyRecoveryPhase2Disabled,
+  normalizeIndexNameForLookup,
   type RecoveryRowInput,
 } from './sectorEnergyIndexCodeRecoveryDiagnostic.js';
 import {
@@ -390,7 +394,7 @@ export function backfillIndexCodes(
       });
       return tagged;
     }
-    // raw KRX 가 indexCode 비어있음 — indexName 으로 SECTOR_INDEX_MASTER 역변환 시도.
+    // raw KRX 가 indexCode 비어있음 — 직접 alias 매칭 (NAME_LOOKUP) 시도.
     const recoveredCode = resolveIndexCodeBySectorName(r.indexName);
     if (recoveredCode) {
       backfilledCount += 1;
@@ -401,6 +405,30 @@ export function backfillIndexCodes(
       });
       return { ...r, indexCode: recoveredCode, indexCodeSource: 'NAME_LOOKUP' as const };
     }
+
+    // ★ ADR-0447 — normalize 후 alias 확장 매칭 시도 (ALIAS_EXPANSION).
+    // 직접 매칭 실패 + ENV 우회 비활성 시에만 활성. expandAliasCandidates 결과:
+    //   - length === 1 → ALIAS_EXPANSION marker 부착 + backfill (HIGH confidence — 정확 1:1)
+    //   - length >= 2 → ambiguous 자동 차단 (사용자 §"절대 불변식" #1 정합) — backfill 안 함
+    //   - length === 0 → 매칭 실패 — caller 측 symmetry 자연 fail
+    if (!isSectorEnergyAliasRegistryExpansionDisabled() && r.indexName) {
+      const { normalized } = normalizeIndexNameForLookup(r.indexName);
+      if (normalized) {
+        const candidates = expandAliasCandidates(normalized);
+        if (candidates.length === 1) {
+          const expansionCode = candidates[0]!.krxIndexCode;
+          backfilledCount += 1;
+          afterRows.push({
+            indexCode: expansionCode,
+            indexName: r.indexName ?? null,
+            indexCodeSource: 'ALIAS_EXPANSION',
+          });
+          return { ...r, indexCode: expansionCode, indexCodeSource: 'ALIAS_EXPANSION' as const };
+        }
+        // ambiguous (length >= 2) 또는 미매칭 (length === 0) — backfill 차단, 자연 흐름 진행.
+      }
+    }
+
     // 매칭 실패 — caller 측 symmetry 가 자연 fail (운영자 후속 PR 분리).
     afterRows.push({
       indexCode: null,
