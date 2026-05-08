@@ -148,6 +148,11 @@ import {
   formatFinalGate1CalibrationReport,
   type FinalGate1CalibrationAuditReport,
 } from './gate1FinalCalibration.js';
+import {
+  buildGate1ScoringAlignmentReport,
+  formatGate1ScoringAlignmentReport,
+  type Gate1ScoringAlignmentReport,
+} from './gate1ScoringAlignmentAdr0472.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -398,6 +403,8 @@ export interface ScanSummary {
   riskDoubleCount?: RiskDoubleCountAuditReport;
   /** ADR-0471 final Gate1 calibration dry-run; diagnostic-only and executionImpact NONE. */
   finalGate1Calibration?: FinalGate1CalibrationAuditReport;
+  /** ADR-0472 component alignment and dry-run policy promotion candidate; executionImpact NONE. */
+  gate1ScoringAlignment?: Gate1ScoringAlignmentReport;
 }
 
 let _lastBuySignalAt = 0;
@@ -1216,6 +1223,16 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(finalGate1CalibrationSection);
   }
 
+  try {
+    const gate1ScoringAlignmentSection = formatGate1ScoringAlignmentReport(summary.gate1ScoringAlignment);
+    if (gate1ScoringAlignmentSection) {
+      lines.push('');
+      lines.push(gate1ScoringAlignmentSection);
+    }
+  } catch (e) {
+    console.warn('[ADR-0472] Gate1ScoringAlignment format failed (base scan summary unaffected):', e);
+  }
+
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
   // 기존 sectorEnergyQuality 라벨만으로는 SECTOR_DATA_STALE_DOMINANT 의 *진짜 원인* 인식 불가.
   // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
@@ -1820,6 +1837,36 @@ export async function persistScanResults(
     }
   } catch (e) {
     console.warn('[ADR-0471] FinalGate1Calibration build failed (engine unaffected):', e);
+  }
+
+  // ADR-0472: component-set alignment and policy promotion candidate. This is
+  // SHADOW_ONLY and never mutates live Gate1 scoring or order routing.
+  try {
+    const macro = options.macroGateState;
+    const gate1ScoringAlignment = buildGate1ScoringAlignmentReport({
+      positiveStarvationReport: summaryDraft.positiveScoreStarvation,
+      scoreCeilingRepairReport: summaryDraft.scoreCeilingRepair,
+      penaltyDeduplicationReport: summaryDraft.penaltyDeduplication,
+      riskDoubleCountReport: summaryDraft.riskDoubleCount,
+      finalGate1CalibrationReport: summaryDraft.finalGate1Calibration,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: macro?.regime ?? 'UNKNOWN',
+      marketSession: macro?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      providerHealthStatus: 'UNKNOWN',
+      unknownPolicyActive: true,
+    });
+    if (gate1ScoringAlignment) {
+      summaryDraft.gate1ScoringAlignment = gate1ScoringAlignment;
+      console.warn(
+        `[ADR-0472] Gate1ScoringAlignment SHADOW_ONLY dry-run emitted ` +
+        `(componentSetAligned=${gate1ScoringAlignment.componentSetAligned}, ` +
+        `missingComponents=${gate1ScoringAlignment.missingComponents.join('|') || 'none'}, ` +
+        `executionImpact=${gate1ScoringAlignment.executionImpact})`,
+      );
+    }
+  } catch (e) {
+    console.warn('[ADR-0472] Gate1ScoringAlignment build failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;

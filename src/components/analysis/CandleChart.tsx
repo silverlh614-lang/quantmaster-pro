@@ -79,7 +79,7 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
   const [offHours, setOffHours] = useState<{ nextOpenAt?: string } | null>(null);
   const [overlays, setOverlays] = useState<Set<Overlay>>(new Set(['BB', 'EMA20']));
   const [subChart, setSubChart] = useState<SubChart>('RSI');
-  const [range, setRange] = useState<'3mo' | '6mo' | '1y' | '2y'>('1y');
+  const [range, setRange] = useState<'3mo' | '6mo' | '1y'>('1y');
 
   const toggleOverlay = (o: Overlay) => {
     setOverlays((prev: Set<Overlay>) => {
@@ -306,7 +306,7 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
       <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-800">
         <span className="text-xs font-black text-white/70 uppercase tracking-widest mr-2">{stockName}</span>
         <div className="flex gap-1">
-          {(['3mo', '6mo', '1y', '2y'] as const).map(r => (
+          {(['3mo', '6mo', '1y'] as const).map(r => (
             <button key={r} onClick={() => setRange(r)}
               className={`text-[9px] px-2 py-0.5 font-bold uppercase ${range === r ? 'bg-white text-black' : 'text-white/30 hover:text-white/60'}`}>{r}</button>
           ))}
