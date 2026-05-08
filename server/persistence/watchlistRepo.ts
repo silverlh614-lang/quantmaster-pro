@@ -312,6 +312,16 @@ export interface WatchlistEntry {
   technicalProviderDegraded?: boolean;
   /** technicalProviderDegraded 마킹 시각 ISO. */
   technicalProviderDegradedAt?: string;
+  /**
+   * ADR-0449 — Pre-Breakout WAIT 누적 카운트 (옵셔널 후방호환).
+   * `entryFailCount` 와 분리 — failCount 는 진짜 실패 (CRITICAL), waitCount 는 진입가 미도달
+   * 정상 대기 (NON_CRITICAL, ADR-0115 보호). 누적 ≥ 3 시 WAIT_COOLDOWN 격상.
+   */
+  waitCount?: number;
+  /** ADR-0449 — Gate 재검증 탈락 누적 카운트. WAIT_GATE_RECHECK_FAILED 분기에서만 증가. */
+  recheckFailCount?: number;
+  /** ADR-0449 — 마지막 WAIT 시각 (ISO) — cooldown 만료 판정 입력. */
+  lastWaitAt?: string;
 }
 
 export function loadWatchlist(): WatchlistEntry[] {

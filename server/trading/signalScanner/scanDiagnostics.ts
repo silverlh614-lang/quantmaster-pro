@@ -34,6 +34,13 @@ import {
   type R3NoiseGovernorDecision,
 } from './r3NoiseGovernor.js';
 import { buildR3NoiseDecision } from './r3NoiseGovernorWiring.js';
+// ADR-0449 — Pre-Breakout WAIT Liveness Policy: 7-state 분류 SSOT.
+import {
+  formatPreBreakoutWaitSummarySection,
+  summarizePreBreakoutWaitDecisions,
+  type PreBreakoutWaitDecision,
+  type PreBreakoutWaitSummary,
+} from './preBreakoutWaitPolicy.js';
 // ADR-0414 — Price Integrity Checker + Correction Overlay (Stage 1 Read-Only Mode).
 // Stage 1: diagnostics only — corrected 값 LIVE 매수 판단 사용 0건 (절대 원칙 #3).
 import type { PriceIntegrityStatus } from './priceIntegrityChecker.js';
@@ -280,6 +287,8 @@ export interface ScanSummary {
   hardRiskBlockedCount?: number;
   /** ADR-0448 Phase 0 — R3 Noise Governor decision snapshot (옵셔널, 후방호환). */
   r3NoiseDecision?: R3NoiseGovernorDecision;
+  /** ADR-0449 — Pre-Breakout WAIT 7-state 분류 summary (옵셔널, 후방호환). */
+  preBreakoutWaitSummary?: PreBreakoutWaitSummary;
 }
 
 let _lastBuySignalAt = 0;
@@ -381,6 +390,16 @@ export interface ScanCounters {
   providerDegradedObservableCount: number;
   trueGateFailCount: number;
   hardRiskBlockedCount: number;
+  /**
+   * ADR-0449 — Pre-Breakout WAIT 후보별 decision 누적기 (옵셔널 후방호환).
+   *
+   * buyListLoop 의 pre-breakout WAIT site 가 `evaluatePreBreakoutWait()` 호출 후 결과를 본
+   * 배열에 push. persistScanResults 가 `summarizePreBreakoutWaitDecisions` 으로 합성하여
+   * ScanSummary.preBreakoutWaitSummary 영속.
+   *
+   * 핵심 불변식: 모든 decision 의 `increaseFailCount: false` (literal type 강제, ADR-0115 보호).
+   */
+  preBreakoutWaitDecisions: PreBreakoutWaitDecision[];
 }
 
 export function createScanCounters(): ScanCounters {
@@ -426,6 +445,8 @@ export function createScanCounters(): ScanCounters {
     providerDegradedObservableCount: 0,
     trueGateFailCount: 0,
     hardRiskBlockedCount: 0,
+    // ADR-0449 — Pre-Breakout WAIT decisions 누적기 빈 배열 초기화.
+    preBreakoutWaitDecisions: [],
   };
 }
 
@@ -760,6 +781,18 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(formatR3NoiseGovernorCompactLine(summary.r3NoiseDecision));
   }
 
+  // ADR-0449 — Pre-Breakout WAIT 7-state compact summary.
+  //   Pre-breakout WAIT 후보 분류 (retryEligible / cooldown / shadowOnly / rejected /
+  //   priceTooFar / volumeWeak / gateRecheckFailed) + topReasons + failCountProtected.
+  //   부재 시 미노출 (decisions 빈 배열 — 후방호환).
+  if (summary.preBreakoutWaitSummary) {
+    const section = formatPreBreakoutWaitSummarySection(summary.preBreakoutWaitSummary);
+    if (section) {
+      lines.push('');
+      lines.push(section);
+    }
+  }
+
   return lines.join('\n');
 }
 
@@ -1069,6 +1102,20 @@ export async function persistScanResults(
     }
   } catch (e) {
     console.warn('[CounterfactualShadowLearning] summarize 실패 (영속 무영향)', e);
+  }
+
+  // ADR-0449 — Pre-Breakout WAIT 7-state summary 합성 (옵셔널 후방호환).
+  //   buyListLoop 가 후보별 evaluatePreBreakoutWait 결과를 counters.preBreakoutWaitDecisions
+  //   에 push → 본 시점에서 합산. decisions 빈 배열 시 summary 미영속 (운영자 noise 차단).
+  //   try/catch 격리 — 합성 실패가 ScanSummary 영속을 차단하지 않음.
+  try {
+    if (counters.preBreakoutWaitDecisions.length > 0) {
+      summaryDraft.preBreakoutWaitSummary = summarizePreBreakoutWaitDecisions({
+        decisions: counters.preBreakoutWaitDecisions,
+      });
+    }
+  } catch (e) {
+    console.warn('[PreBreakoutWaitPolicy] summarize 실패 (영속 무영향)', e);
   }
 
   _lastScanSummary = summaryDraft;
