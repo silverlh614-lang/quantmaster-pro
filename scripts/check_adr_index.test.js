@@ -26,6 +26,8 @@ import {
   CONFLICT_NUMBERS,
   isAdrAliasStrictEnabled,
   validateAliasReferences,
+  // ADR-0453: F_INVALID_FILENAME 화이트리스트 SSOT
+  INVALID_FILENAME_WHITELIST,
 } from './check_adr_index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -53,8 +55,8 @@ describe('check_adr_index — baseline', () => {
     const result = runLint();
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('OK');
-    expect(result.output).toContain('충돌 8그룹');
-    expect(result.output).toContain('누락 6건');
+    expect(result.output).toContain('충돌 11그룹');
+    expect(result.output).toContain('누락 10건');
   });
 
   it('--json 출력 violations 빈 배열', () => {
@@ -65,6 +67,32 @@ describe('check_adr_index — baseline', () => {
     expect(parsed.summary.totalAdrFiles).toBeGreaterThan(140);
     expect(parsed.summary.uniqueNumbers).toBeGreaterThan(130);
     expect(parsed.summary.nextNumber).toMatch(/^\d{4}$/);
+  });
+
+  // ADR-0453: baseline 22 → 0 violations 회복 확인
+  it('ADR-0453 baseline 22 → 0 violations 회복', () => {
+    const result = runLint('--json');
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.output);
+    // F_INVALID_FILENAME / A_MISSING_INDEX_ENTRY / B_STALE_INDEX_ENTRY 모두 0건
+    expect(parsed.violations).toEqual([]);
+    expect(parsed.summary.violationCount).toBe(0);
+  });
+
+  // ADR-0453: commit-label only 카운트 진단 출력
+  it('ADR-0453 commit-label only 카운트 정확', () => {
+    const result = runLint('--json');
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.output);
+    // 20 stale entries + 0394 = 21건 (모두 마커 부착)
+    expect(parsed.summary.commitLabelOnlyEntries).toBe(21);
+  });
+
+  // ADR-0453: OK 출력 포맷 — commit-label only 카운트 표시
+  it('ADR-0453 OK 출력 포맷에 commit-label only 카운트 포함', () => {
+    const result = runLint();
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toMatch(/commit-label only \d+건/);
   });
 });
 
@@ -548,5 +576,146 @@ describe('validateAliasReferences', () => {
     // 정책: 알 수 없는 영문자라도 후행 영문자가 있으면 별칭 의도 인정 (추가 검증은 별도)
     const src = 'ADR-0028e (typo) 인용';
     expect(validateAliasReferences(src).violations).toEqual([]);
+  });
+});
+
+/* ───────── ADR-0453: ADR Index Baseline Retrofit (8 신규 케이스) ───────── */
+
+describe('ADR-0453 INVALID_FILENAME_WHITELIST SSOT', () => {
+  function makeTmpDir(files) {
+    const dir = mkdtempSync(join(tmpdir(), 'adr-0453-'));
+    for (const name of files) {
+      writeFileSync(join(dir, name), '# stub\n');
+    }
+    return dir;
+  }
+
+  it('F_INVALID_FILENAME 화이트리스트 entry 통과 + byNumber 등재', () => {
+    // 화이트리스트 entry: 0394-p1.5-execution-terminology-ssot.md
+    const dir = makeTmpDir(['0394-p1.5-execution-terminology-ssot.md', '0001-foo.md']);
+    try {
+      const { byNumber, invalidNames } = scanAdrFiles(dir);
+      // invalid 분류 제외
+      expect(invalidNames).not.toContain('0394-p1.5-execution-terminology-ssot.md');
+      // byNumber 에 등재 (INDEX 정합 검증 보존)
+      expect(byNumber.has('0394')).toBe(true);
+      expect(byNumber.get('0394')).toContain('0394-p1.5-execution-terminology-ssot.md');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('화이트리스트 외 invalid filename 은 여전히 FAIL', () => {
+    // 화이트리스트 외 비표준 파일명: 0500-test.with.dots.md
+    const dir = makeTmpDir(['0500-test.with.dots.md', '0001-foo.md']);
+    try {
+      const { byNumber, invalidNames } = scanAdrFiles(dir);
+      expect(invalidNames).toContain('0500-test.with.dots.md');
+      // byNumber 에 등재 안 됨 (정상 분류 거부)
+      expect(byNumber.has('0500')).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('INVALID_FILENAME_WHITELIST 는 Object.freeze + Set', () => {
+    expect(INVALID_FILENAME_WHITELIST).toBeInstanceOf(Set);
+    expect(INVALID_FILENAME_WHITELIST.has('0394-p1.5-execution-terminology-ssot.md')).toBe(true);
+    // freeze 검증 — add() 호출 시 throw (strict mode) 또는 silent fail
+    expect(Object.isFrozen(INVALID_FILENAME_WHITELIST)).toBe(true);
+  });
+});
+
+describe('ADR-0453 B_STALE 마커 인식 (commit-label only / no file)', () => {
+  it('(commit-label only, fast-iteration) 마커 entry stale 분류 제외', () => {
+    const indexSrc = `# Index
+## 다음 발급
+**다음 ADR 번호: \`0010\`**
+
+## 알려진 충돌
+
+## 누락
+
+## 전체 인덱스
+| 번호 | 제목 | 도메인 |
+|------|------|--------|
+| 0001 | foo (commit-label only, fast-iteration) | trading |
+| 0009 | bar | trading |
+`;
+    const parsed = parseIndex(indexSrc);
+    const scan = { byNumber: new Map(), invalidNames: [] };
+    // 0001 은 마커 보유 → stale 분류 제외
+    // 0009 는 마커 없음 → stale 분류 (FAIL)
+    const { violations } = validate(scan, parsed);
+    const stale = violations.filter((v) => v.category === 'B_STALE_INDEX_ENTRY');
+    expect(stale.map((v) => v.message)).toEqual(
+      expect.arrayContaining([expect.stringContaining('0009')])
+    );
+    expect(stale.map((v) => v.message)).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('0001')])
+    );
+  });
+
+  it('(no file) 마커도 동등 처리 — stale 분류 제외', () => {
+    const indexSrc = `# Index
+## 다음 발급
+**다음 ADR 번호: \`0010\`**
+
+## 알려진 충돌
+
+## 누락
+
+## 전체 인덱스
+| 번호 | 제목 | 도메인 |
+|------|------|--------|
+| 0002 | baz (no file) | trading |
+`;
+    const parsed = parseIndex(indexSrc);
+    const scan = { byNumber: new Map(), invalidNames: [] };
+    const { violations } = validate(scan, parsed);
+    const stale = violations.filter((v) => v.category === 'B_STALE_INDEX_ENTRY');
+    expect(stale).toEqual([]);
+  });
+
+  it('마커 없는 stale entries 는 여전히 FAIL', () => {
+    const indexSrc = `# Index
+## 다음 발급
+**다음 ADR 번호: \`0010\`**
+
+## 알려진 충돌
+
+## 누락
+
+## 전체 인덱스
+| 번호 | 제목 | 도메인 |
+|------|------|--------|
+| 0003 | no-marker | trading |
+`;
+    const parsed = parseIndex(indexSrc);
+    const scan = { byNumber: new Map(), invalidNames: [] };
+    const { violations } = validate(scan, parsed);
+    expect(violations.some((v) => v.category === 'B_STALE_INDEX_ENTRY' && v.message.includes('0003'))).toBe(true);
+  });
+
+  it('parseIndex 가 commitLabelOnly 필드 정확히 설정', () => {
+    const indexSrc = `# Index
+## 다음 발급
+**다음 ADR 번호: \`0010\`**
+
+## 알려진 충돌
+
+## 누락
+
+## 전체 인덱스
+| 번호 | 제목 | 도메인 |
+|------|------|--------|
+| 0001 | foo (commit-label only, fast-iteration) | trading |
+| 0002 | baz (no file) | trading |
+| 0003 | normal-entry | trading |
+`;
+    const parsed = parseIndex(indexSrc);
+    expect(parsed.mainIndex.get('0001').commitLabelOnly).toBe(true);
+    expect(parsed.mainIndex.get('0002').commitLabelOnly).toBe(true);
+    expect(parsed.mainIndex.get('0003').commitLabelOnly).toBe(false);
   });
 });
