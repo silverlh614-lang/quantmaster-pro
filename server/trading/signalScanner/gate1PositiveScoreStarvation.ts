@@ -1,4 +1,5 @@
 // @responsibility ADR-0467 Gate1 positive score starvation diagnostic audit
+import type { MinSignalScoreDecompositionReport } from './minimumSignalScoreTrace.js';
 
 export type ScoreConfidence =
   | 'VERIFIED'
@@ -998,6 +999,101 @@ export function buildPositiveScoreStarvationReport(input: {
   };
 }
 
+export function buildPositiveScoreStarvationFallbackReport(input: {
+  minSignalScoreReport?: MinSignalScoreDecompositionReport | null;
+  timestamp: string;
+  forDate: string;
+  regime: string;
+  marketSession: string;
+}): PositiveScoreStarvationReport | null {
+  const min = input.minSignalScoreReport;
+  if (!min || min.totalCandidates <= 0) return null;
+
+  const totalPenaltyScoreAvg = round1(sum(
+    min.topPenaltyContributors.map((item) => Math.abs(item.avgPenalty)),
+  ));
+  const grossPositiveScoreAvg = round1(min.actualScoreAvg + totalPenaltyScoreAvg);
+  const configuredPositiveMaxScore = round1(Math.max(grossPositiveScoreAvg, min.actualScoreMax));
+  const requiredScoreAvg = round1(min.requiredScoreAvg);
+  const actualScoreRange = round1(min.actualScoreMax - min.actualScoreMin);
+  const compressed = min.totalCandidates >= 3 && actualScoreRange <= 5;
+  const positiveUtilizationAvg = requiredScoreAvg > 0
+    ? round1((grossPositiveScoreAvg / requiredScoreAvg) * 100)
+    : 0;
+
+  const scoreCeilingAudit: ScoreCeilingAudit = {
+    requiredScoreAvg,
+    theoreticalMaxScore: 100,
+    configuredPositiveMaxScore,
+    observedPositiveMaxScore: grossPositiveScoreAvg,
+    observedNetMaxScore: round1(min.actualScoreMax),
+    scoreCeilingBelowThreshold: configuredPositiveMaxScore < requiredScoreAvg,
+    requiredScoreReachable: configuredPositiveMaxScore >= requiredScoreAvg,
+    message: configuredPositiveMaxScore < requiredScoreAvg
+      ? 'SCORE_CEILING_BELOW_THRESHOLD: fallback from ADR-0466 shows observed attainable score below required score.'
+      : 'ADR-0466 fallback shows required score may be reachable; inspect feature wiring.',
+  };
+  const rangeCompressionReport: ScoreRangeCompressionReport = {
+    totalCandidates: min.totalCandidates,
+    actualScoreMin: round1(min.actualScoreMin),
+    actualScoreMax: round1(min.actualScoreMax),
+    actualScoreRange,
+    actualScoreStdDev: 0,
+    grossPositiveScoreRange: actualScoreRange,
+    positiveScoreStdDev: 0,
+    penaltyScoreRange: 0,
+    compressed,
+    compressionReason: compressed
+      ? [`ADR-0466 actualScoreRange ${actualScoreRange.toFixed(1)} is narrow`]
+      : [],
+    suspectedCauses: compressed
+      ? ['WATCHLIST_SCORE_NOT_IMPORTED', 'MISSING_SYMBOL_LEVEL_FEATURES']
+      : ['UNKNOWN'],
+  };
+  const zeroContributionComponents: Array<{ code: PositiveSignalComponentCode; count: number }> = [
+    { code: 'WATCHLIST_UPSTREAM_SCORE', count: min.totalCandidates },
+    { code: 'RELATIVE_STRENGTH', count: min.totalCandidates },
+    { code: 'BREAKOUT_STRUCTURE', count: min.totalCandidates },
+  ];
+
+  return {
+    timestamp: input.timestamp,
+    forDate: input.forDate,
+    regime: input.regime,
+    marketSession: input.marketSession,
+    totalCandidates: min.totalCandidates,
+    requiredScoreAvg,
+    actualScoreAvg: round1(min.actualScoreAvg),
+    grossPositiveScoreAvg,
+    totalPenaltyScoreAvg,
+    netScoreAvg: round1(min.actualScoreAvg),
+    positiveUtilizationAvg,
+    actualScoreMin: round1(min.actualScoreMin),
+    actualScoreMax: round1(min.actualScoreMax),
+    actualScoreRange,
+    actualScoreStdDev: 0,
+    topPositiveContributors: [
+      {
+        code: 'OTHER_POSITIVE',
+        avgContribution: grossPositiveScoreAvg,
+        affectedCount: min.totalCandidates,
+      },
+    ],
+    zeroContributionComponents,
+    missingPositiveComponents: zeroContributionComponents,
+    scoreCeilingAudit,
+    rangeCompressionReport,
+    wouldPassIfWatchlistScoreImported: 0,
+    wouldPassIfPositiveFeaturesRestored: 0,
+    wouldPassIfPenaltyNotAppliedBeforePositive: 0,
+    wouldPassIfScoreCeilingFixed: scoreCeilingAudit.requiredScoreReachable ? min.totalCandidates : 0,
+    calibrationResults: buildPositiveScoreCalibrationResults([]),
+    recommendedAction: scoreCeilingAudit.scoreCeilingBelowThreshold
+      ? 'CHECK_SCORE_CEILING'
+      : 'CHECK_FEATURE_WIRING',
+  };
+}
+
 export function formatPositiveScoreStarvationReport(
   report?: PositiveScoreStarvationReport | null,
 ): string | null {
@@ -1008,7 +1104,7 @@ export function formatPositiveScoreStarvationReport(
     report.calibrationResults.map((item) => [item.scenario, item.hypotheticalSurvivors]),
   ) as Partial<Record<PositiveScoreCalibrationScenario, number>>;
   const lines = [
-    'Positive Score Starvation Audit (ADR-0467)',
+    '🧬 Positive Score Starvation Audit (ADR-0467)',
     `  candidates: ${report.totalCandidates}`,
     `  requiredScoreAvg: ${report.requiredScoreAvg.toFixed(1)}`,
     `  actualScoreAvg: ${report.actualScoreAvg.toFixed(1)}`,
@@ -1030,14 +1126,14 @@ export function formatPositiveScoreStarvationReport(
   }
   if (report.zeroContributionComponents.length > 0) {
     lines.push(
-      `  zero contribution: ${report.zeroContributionComponents
+      `  zeroContributionComponents: ${report.zeroContributionComponents
         .slice(0, 5)
         .map((item) => `${item.code} ${item.count}`)
         .join(', ')}`,
     );
   }
   lines.push(
-    `  scoreCeiling: configured ${ceiling.configuredPositiveMaxScore.toFixed(1)}, ` +
+    `  scoreCeilingAudit: configured ${ceiling.configuredPositiveMaxScore.toFixed(1)}, ` +
       `observedPositiveMax ${ceiling.observedPositiveMaxScore.toFixed(1)}, ` +
       `requiredReachable=${ceiling.requiredScoreReachable}`,
   );

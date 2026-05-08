@@ -122,6 +122,7 @@ import {
   type EntryFilterDecomposition,
 } from './entryFilterDecomposition.js';
 import {
+  buildPositiveScoreStarvationFallbackReport,
   buildPositiveScoreStarvationReport,
   formatPositiveScoreStarvationReport,
   type Gate1ScoreStarvationTrace,
@@ -1637,6 +1638,30 @@ export async function persistScanResults(
     });
   } catch (e) {
     console.warn('[ADR-0464] EntryFilterDecomposition build 실패 (영속 무영향)', e);
+  }
+
+  // ADR-0467 fallback: when the scan stopped before buyListLoop, Gate1 score
+  // samples are absent, but ADR-0466 still exposes enough min-score telemetry to
+  // show the positive-score starvation section in /scan_blockers.
+  try {
+    if ((summaryDraft.positiveScoreStarvation?.totalCandidates ?? 0) <= 0) {
+      const fallback = buildPositiveScoreStarvationFallbackReport({
+        minSignalScoreReport: summaryDraft.entryFilterDecomposition?.minSignalScoreDecompositionReport,
+        timestamp: kstNow.toISOString(),
+        forDate: kstNow.toISOString().slice(0, 10),
+        regime: options.macroGateState?.regime ?? 'UNKNOWN',
+        marketSession: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      });
+      if (fallback) {
+        summaryDraft.positiveScoreStarvation = fallback;
+        console.warn(
+          `[ADR-0467] fallback PositiveScoreStarvationReport emitted from ADR-0466 min-signal telemetry ` +
+          `(candidates=${fallback.totalCandidates}, gateScoreHealthSamples=${counters.gateScoreHealthSamples})`,
+        );
+      }
+    }
+  } catch (e) {
+    console.warn('[ADR-0467] PositiveScoreStarvation fallback build failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;

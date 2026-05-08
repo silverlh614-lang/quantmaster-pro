@@ -1,6 +1,7 @@
 // @responsibility ADR-0467 positive score starvation audit regression tests
 import { describe, expect, it } from 'vitest';
 import {
+  buildPositiveScoreStarvationFallbackReport,
   buildEntryDecisionLedgerPositiveStarvationSummary,
   buildGate1ScoreStarvationTrace,
   buildPenaltyApplicationOrderAudit,
@@ -15,6 +16,12 @@ import {
   positiveComponent,
   type Gate1ScoreStarvationTrace,
 } from './gate1PositiveScoreStarvation.js';
+import {
+  createScanCounters,
+  formatScanBlockersMessage,
+  getLastScanSummary,
+  persistScanResults,
+} from './scanDiagnostics.js';
 
 function makeTrace(overrides: {
   symbol?: string;
@@ -254,8 +261,106 @@ describe('ADR-0467 Gate1 positive score starvation trace', () => {
     expect(report.calibrationResults.every((result) => result.executionImpact === 'NONE')).toBe(true);
     expect(report.wouldPassIfWatchlistScoreImported).toBe(0);
     const section = formatPositiveScoreStarvationReport(report);
-    expect(section).toContain('Positive Score Starvation Audit (ADR-0467)');
+    expect(section).toContain('🧬 Positive Score Starvation Audit (ADR-0467)');
     expect(section).toContain('executionImpact: NONE');
     expect(section).toContain('importWatchlist=');
+  });
+
+  it('/scan_blockers includes ADR-0467 section when buyListLoopEntered=false', async () => {
+    const counters = createScanCounters();
+    await persistScanResults(counters, {
+      buyListLength: 45,
+      intradayBuyListLength: 0,
+      swingListLength: 45,
+      catalystListLength: 0,
+      momentumListLength: 0,
+      candidateSnapshots: Array.from({ length: 45 }, (_, index) => ({
+        symbol: `${index}`.padStart(6, '0'),
+        name: `candidate-${index}`,
+        stageReached: 'WATCHLIST',
+        gateScore: 21.4,
+        minSignalRequiredScore: 70,
+        gate1Passed: false,
+        supplyConfluenceState: 'UNKNOWN',
+        minSignalScorePassed: false,
+      })),
+      macroGateState: {
+        emergencyStop: false,
+        autoTradeEnabled: true,
+        regime: 'R3_EARLY',
+        kellyMultiplierFromRegime: 0.7,
+        fomcPhase: 'NONE',
+        fomcKellyMultiplier: 1,
+        finalKellyMultiplier: 0.2646,
+        vixGatingActive: false,
+        bearDefenseMode: false,
+        mhsBelow30: false,
+        watchlistEmpty: false,
+        sellOnlyMode: true,
+      },
+    });
+
+    const message = formatScanBlockersMessage(getLastScanSummary());
+    expect(message).toContain('🧬 Positive Score Starvation Audit (ADR-0467)');
+    expect(message).toContain('grossPositiveScoreAvg');
+    expect(message).toContain('totalPenaltyScoreAvg');
+    expect(message).toContain('positiveUtilizationAvg');
+    expect(message).toContain('zeroContributionComponents');
+    expect(message).toContain('scoreCeilingAudit');
+    expect(message).toContain('actualScoreRange');
+    expect(message).toContain('compressed');
+  });
+
+  it('ADR-0467 fallback report is emitted when gateScoreHealthSamples=0', () => {
+    const report = buildPositiveScoreStarvationFallbackReport({
+      timestamp: '2026-05-09T00:00:00.000Z',
+      forDate: '2026-05-09',
+      regime: 'R3_EARLY',
+      marketSession: 'SELL_ONLY',
+      minSignalScoreReport: {
+        timestamp: '2026-05-09T00:00:00.000Z',
+        forDate: '2026-05-09',
+        regime: 'R3_EARLY',
+        marketSession: 'SELL_ONLY',
+        totalCandidates: 45,
+        minSignalFailed: 45,
+        requiredScoreAvg: 70,
+        actualScoreAvg: 21.4,
+        actualScoreMin: 17.7,
+        actualScoreMax: 21.7,
+        avgScoreGap: -48.6,
+        topScoreDeficits: [],
+        topPenaltyContributors: [
+          { code: 'SUPPLY_CONFLUENCE', avgPenalty: -10, affectedCount: 45 },
+          { code: 'INVESTOR_FLOW', avgPenalty: -8, affectedCount: 45 },
+          { code: 'RISK_PENALTY', avgPenalty: -6.3, affectedCount: 45 },
+          { code: 'SOFT_FAIL_PENALTY', avgPenalty: -5, affectedCount: 45 },
+        ],
+        unknownTreatmentWarnings: 0,
+        wouldPassIfUnknownNeutral: 0,
+        wouldPassIfProviderPenaltyRemoved: 0,
+        wouldPassIfSessionPenaltyRemoved: 0,
+        wouldPassIfRiskPenaltyCapped: 0,
+        wouldPassIfSoftFailPenaltyRemoved: 0,
+        recommendedAction: 'REVIEW_MIN_SIGNAL_THRESHOLD',
+      },
+    });
+
+    expect(report?.totalCandidates).toBe(45);
+    expect(report?.requiredScoreAvg).toBe(70);
+    expect(report?.actualScoreAvg).toBe(21.4);
+    expect(report?.rangeCompressionReport.compressed).toBe(true);
+    expect(formatPositiveScoreStarvationReport(report)).toContain('zeroContributionComponents');
+  });
+
+  it('ADR-0467 reporter does not block engine if score data is missing', () => {
+    expect(() => formatPositiveScoreStarvationReport(null)).not.toThrow();
+    expect(() => buildPositiveScoreStarvationFallbackReport({
+      timestamp: '2026-05-09T00:00:00.000Z',
+      forDate: '2026-05-09',
+      regime: 'UNKNOWN',
+      marketSession: 'UNKNOWN',
+      minSignalScoreReport: null,
+    })).not.toThrow();
   });
 });
