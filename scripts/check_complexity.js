@@ -71,7 +71,7 @@ const BASELINE_TECHNICAL_DEBT = [
 ];
 
 function isBaseline(file) {
-  const norm = file.replace(/^\.\//, '');
+  const norm = file.replace(/^\.\//, '').replace(/\\/g, '/');
   return BASELINE_TECHNICAL_DEBT.some((b) => norm === b || norm.endsWith('/' + b));
 }
 
