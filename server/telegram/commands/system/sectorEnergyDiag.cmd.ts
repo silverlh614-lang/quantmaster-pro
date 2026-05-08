@@ -26,6 +26,10 @@ import { formatSectorEnergyQualityDiagnosticSection } from '../../../clients/sec
 // ADR-0446: Phase 2 indexCode recovery + sanity violation 진단 섹션 SSOT.
 import { formatPhase2RecoverySection } from '../../../clients/sectorEnergyIndexCodeRecoveryDiagnostic.js';
 import { formatSanityDiagnosticSection } from '../../../clients/sectorEnergySanityViolationDiagnostic.js';
+import {
+  buildSectorEnergyCoverageRecoveryReport,
+  formatSectorEnergyCoverageRecoverySection,
+} from '../../../clients/sectorEnergyCoverageRecoveryAdr0474.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -137,6 +141,15 @@ export function formatSectorEnergyDiagMessage(): string {
     }
 
     // ADR-0446: sanity violation 진단 (sector vs stock 분리 + topViolating + confidenceImpact).
+    const adr0474 = formatSectorEnergyCoverageRecoverySection(
+      buildSectorEnergyCoverageRecoveryReport({ qualityDiagnostic: qualityDiag }),
+    );
+    if (adr0474) {
+      lines.push('');
+      lines.push(adr0474);
+      console.log('[ADR-0474] SectorEnergy coverage recovery diagnostic appended to /sector_energy_diag');
+    }
+
     if (qualityDiag.sanityViolation) {
       const sanity = formatSanityDiagnosticSection(qualityDiag.sanityViolation);
       if (sanity) {
