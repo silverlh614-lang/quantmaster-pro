@@ -39,15 +39,24 @@ import { normalizeKrxCode as normalizeKrxCodeSsot } from '../utils/symbolNormali
 /**
  * 12-value SubscriptionPriorityReason union.
  * 1000 OPEN_POSITION → 0 INVALID_CODE / HARD_RISK_BLOCK 까지 절대 변경 금지.
+ *
+ * ADR-0450 — pre-breakout retry candidates 5종 reason 추가 (PRE_BREAKOUT_RETRY_ELIGIBLE
+ * 850 / WAIT_PRICE_TOO_FAR / WAIT_VOLUME_WEAK / WAIT_GATE_RECHECK_FAILED 300 /
+ * WAIT_COOLDOWN 250). 기존 12-value (OPEN_POSITION ~ UNKNOWN) priority 0 변경.
  */
 export type SubscriptionPriorityReason =
   | 'OPEN_POSITION'
   | 'LIVE_ELIGIBLE'
+  | 'PRE_BREAKOUT_RETRY_ELIGIBLE'
   | 'ENTRY_CANDIDATE'
   | 'SHADOW_OBSERVABLE'
   | 'DART_CATALYST'
   | 'WATCHLIST'
   | 'OBSERVE_ONLY'
+  | 'WAIT_PRICE_TOO_FAR'
+  | 'WAIT_VOLUME_WEAK'
+  | 'WAIT_GATE_RECHECK_FAILED'
+  | 'WAIT_COOLDOWN'
   | 'WAIT_LONG'
   | 'PROVIDER_DEGRADED'
   | 'DATA_UNAVAILABLE'
@@ -56,7 +65,7 @@ export type SubscriptionPriorityReason =
   | 'UNKNOWN';
 
 /**
- * 우선순위 매트릭스 SSOT (사용자 §2 절대 변경 금지).
+ * 우선순위 매트릭스 SSOT (사용자 §2 절대 변경 금지 — ADR-0437 12-value 0 변경 + ADR-0450 5 신규).
  * Priority Queue eviction 정책의 단일 입력.
  */
 export const SUBSCRIPTION_PRIORITY_TABLE: Readonly<
@@ -64,11 +73,16 @@ export const SUBSCRIPTION_PRIORITY_TABLE: Readonly<
 > = Object.freeze({
   OPEN_POSITION: 1000,
   LIVE_ELIGIBLE: 900,
+  PRE_BREAKOUT_RETRY_ELIGIBLE: 850, // ADR-0450 — WAIT_RETRY_ELIGIBLE 후보 (WATCHLIST 500 < 850 < ENTRY_CANDIDATE+50)
   ENTRY_CANDIDATE: 800,
   SHADOW_OBSERVABLE: 700,
   DART_CATALYST: 600,
   WATCHLIST: 500,
   OBSERVE_ONLY: 300,
+  WAIT_PRICE_TOO_FAR: 300, // ADR-0450 — 진입가 3% 초과 (WATCHLIST 500 보다 낮춰 evict 1순위)
+  WAIT_VOLUME_WEAK: 300, // ADR-0450 — 거래량 0.4 미만
+  WAIT_GATE_RECHECK_FAILED: 300, // ADR-0450 — 직전 진입 재검증 탈락
+  WAIT_COOLDOWN: 250, // ADR-0450 — waitCount≥3 cooldown
   WAIT_LONG: 100,
   PROVIDER_DEGRADED: 300,
   DATA_UNAVAILABLE: 300,

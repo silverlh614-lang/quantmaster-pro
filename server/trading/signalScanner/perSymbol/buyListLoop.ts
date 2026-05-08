@@ -98,6 +98,10 @@ import { checkCooldownRelease } from '../../regretAsymmetryFilter.js';
 import { detectPreBreakoutAccumulation } from '../../preBreakoutAccumulationDetector.js';
 // ADR-0449 — Pre-Breakout WAIT 7-state Liveness Policy.
 import { evaluatePreBreakoutWait } from '../preBreakoutWaitPolicy.js';
+// ADR-0450 — Pre-Breakout WAIT decision → KIS-WS priority routing SSOT.
+import { routePreBreakoutWaitToKisWs } from '../preBreakoutKisWsPriorityRouting.js';
+// ADR-0450 — KIS-WS subscription priority queue 단일 진입점 (ADR-0437).
+import { requestKisWsSubscription } from '../../../clients/kisWebSocketSubscriptionManager.js';
 import { getDartFinancials } from '../../../clients/dartFinancialClient.js';
 import {
   computeMtasMultiplier,
@@ -959,6 +963,29 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             stock.lastWaitAt = new Date().toISOString();
             ctx.mutables.watchlistMutated.value = true;
           }
+          // ADR-0450 — KIS-WS priority routing: WAIT_RETRY_ELIGIBLE → 850 격상 / 먼·약한·탈락 →
+          //   300/250 격하. WATCHLIST priority=500 만 반복되던 후보가 진입 직전 후보면 850 으로
+          //   재구독되어 30 슬롯에서 우선순위 확보.
+          try {
+            const routing = routePreBreakoutWaitToKisWs(decision);
+            if (routing.shouldRequestSubscription) {
+              requestKisWsSubscription(
+                {
+                  code: stock.code,
+                  name: stock.name,
+                  priority: routing.priorityHint,
+                  reasons: [routing.reason],
+                  entryCandidate: decision.state === 'WAIT_RETRY_ELIGIBLE',
+                  shadowObservable: decision.shadowLearningAllowed,
+                
+                },
+                {},
+              );
+            }
+          } catch (e) {
+            // ADR-0450 routing/요청 실패가 매수 흐름 차단 안 함 — try/catch 격리.
+            console.warn(`[ADR-0450] pre-breakout KIS-WS routing 실패 ${stock.code}:`, e);
+          }
         } catch (e) {
           // ADR-0449 분류 실패가 매수 흐름 차단 안 함 — try/catch 격리.
           console.warn(`[ADR-0449] pre-breakout WAIT 분류 실패 ${stock.code}:`, e);
@@ -1003,6 +1030,27 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             stock.waitCount = (stock.waitCount ?? 0) + 1;
             stock.lastWaitAt = new Date().toISOString();
             ctx.mutables.watchlistMutated.value = true;
+          }
+          // ADR-0450 — KIS-WS priority routing: ENTRY_PRICE_DEVIATION 분기도 동일 매핑.
+          try {
+            const routing = routePreBreakoutWaitToKisWs(decision);
+            if (routing.shouldRequestSubscription) {
+              requestKisWsSubscription(
+                {
+                  code: stock.code,
+                  name: stock.name,
+                  priority: routing.priorityHint,
+                  reasons: [routing.reason],
+                  entryCandidate: decision.state === 'WAIT_RETRY_ELIGIBLE',
+                  shadowObservable: decision.shadowLearningAllowed,
+                
+                },
+                {},
+              );
+            }
+          } catch (e) {
+            // ADR-0450 routing/요청 실패가 매수 흐름 차단 안 함 — try/catch 격리.
+            console.warn(`[ADR-0450] entry deviation KIS-WS routing 실패 ${stock.code}:`, e);
           }
         } catch (e) {
           // ADR-0449 분류 실패가 매수 흐름 차단 안 함 — try/catch 격리.
