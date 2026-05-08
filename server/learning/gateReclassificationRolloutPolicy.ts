@@ -6,7 +6,29 @@
  * live gate configuration or execution paths.
  */
 import type { GateReclassificationApprovalItem } from './gateReclassificationApprovalPlan.js';
-import type { GateReclassificationDryRunRecord } from './gateReclassificationDryRun.js';
+
+export interface GateReclassificationDryRunRecord {
+  id?: string;
+  approvalItemId: string;
+  condition: string;
+  source:
+    | 'unavailableConditions'
+    | 'thresholdNotMetConditions'
+    | 'providerDegradedConditions';
+  proposedClass:
+    | 'HARD_BLOCK'
+    | 'SOFT_PENALTY'
+    | 'WAIT_TRIGGER'
+    | 'SCORE_ONLY';
+  samples: number;
+  avgReturnPct: number;
+  winRate: number;
+  lossRate: number;
+  rescuedCount: number;
+  horizonDays: 3 | 5 | 10;
+  recordedAt?: string;
+  executionImpact: 'NONE';
+}
 
 export type GateReclassificationRolloutStage =
   | 'OBSERVE'

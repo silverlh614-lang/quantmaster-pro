@@ -2,7 +2,6 @@ import fs from 'fs';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { GateReclassificationApprovalItem } from './gateReclassificationApprovalPlan.js';
-import type { GateReclassificationDryRunRecord } from './gateReclassificationDryRun.js';
 import {
   buildGateReclassificationRolloutPlan,
   clampMaxStage,
@@ -10,6 +9,7 @@ import {
   isGateReclassificationRolloutDisabled,
   summarizeGateReclassificationRollout,
 } from './gateReclassificationRolloutPolicy.js';
+import type { GateReclassificationDryRunRecord } from './gateReclassificationRolloutPolicy.js';
 
 function approval(overrides: Partial<GateReclassificationApprovalItem> = {}): GateReclassificationApprovalItem {
   return {
