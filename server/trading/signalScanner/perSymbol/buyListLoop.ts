@@ -100,6 +100,14 @@ import { detectPreBreakoutAccumulation } from '../../preBreakoutAccumulationDete
 import { evaluatePreBreakoutWait } from '../preBreakoutWaitPolicy.js';
 // ADR-0450 — Pre-Breakout WAIT decision → KIS-WS priority routing SSOT.
 import { routePreBreakoutWaitToKisWs } from '../preBreakoutKisWsPriorityRouting.js';
+// ADR-0452 — Shadow Entry Liveness for Near-Breakout Candidates SSOT.
+//   Live 매수 조건 무변경 + Shadow virtual buy 만 near-breakout 후보에 허용.
+//   executionImpact: 'NONE' literal type 강제.
+import {
+  evaluateShadowNearBreakoutEntry,
+  type ShadowNearBreakoutBlockReason,
+} from '../shadowNearBreakoutEntryPolicy.js';
+import { saveShadowTrades } from '../../../persistence/shadowTradeRepo.js';
 // ADR-0450 — KIS-WS subscription priority queue 단일 진입점 (ADR-0437).
 import { requestKisWsSubscription } from '../../../clients/kisWebSocketSubscriptionManager.js';
 import { getDartFinancials } from '../../../clients/dartFinancialClient.js';
@@ -986,6 +994,93 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             // ADR-0450 routing/요청 실패가 매수 흐름 차단 안 함 — try/catch 격리.
             console.warn(`[ADR-0450] pre-breakout KIS-WS routing 실패 ${stock.code}:`, e);
           }
+          // ADR-0452 — Shadow Near-Breakout Entry: Live WAIT 후보 중 near-breakout 학습
+          //   가치가 큰 후보를 Shadow virtual buy 로 기록. Live 주문 / Paper 주문 / approval
+          //   queue 모두 연결 금지. executionImpact: NONE literal type 강제.
+          //   try/catch 격리 — 분류 실패가 매수 흐름 차단 안 함.
+          try {
+            const todayKst = new Date().toISOString().split('T')[0];
+            const distancePct = Math.abs(((currentPrice - stock.entryPrice) / stock.entryPrice) * 100);
+            const alreadyHasOpenShadow = ctx.shadows.some(
+              (s) => s.stockCode === stock.code && isOpenShadowStatus(s.status),
+            );
+            const alreadyEnteredToday = ctx.shadows.some(
+              (s) =>
+                s.stockCode === stock.code &&
+                s.watchlistSource === 'SHADOW_NEAR_BREAKOUT' &&
+                s.signalTime.startsWith(todayKst),
+            );
+            const dailyCreatedCount = ctx.shadows.filter(
+              (s) =>
+                s.watchlistSource === 'SHADOW_NEAR_BREAKOUT' &&
+                s.signalTime.startsWith(todayKst),
+            ).length;
+            const shadowDecision = evaluateShadowNearBreakoutEntry({
+              symbol: stock.code,
+              name: stock.name,
+              currentPrice,
+              entryPrice: stock.entryPrice,
+              stopLoss: stock.stopLoss,
+              targetPrice: stock.targetPrice,
+              priceDistancePct: distancePct,
+              gate1Passed: undefined,
+              liveGateScore: stock.gateScore,
+              conditionsPassed: undefined,
+              recheckPassed: undefined,
+              volumeRatio: undefined,
+              preBreakoutState: decision.state,
+              shadowMode: stockShadowMode,
+              riskBlocked: false,
+              quoteStale: false,
+              alreadyHasOpenShadow,
+              alreadyEnteredToday,
+              dailyCreatedCount,
+            });
+            if (shadowDecision.allowed && shadowDecision.createShadowTrade) {
+              // executionImpact NONE 보장 — buildBuyTrade 는 ServerShadowTrade 객체만 생성,
+              // KIS / approval queue / orderExecutor / trancheExecutor 호출 0건 (정적 grep 가드).
+              const stopLossPlanShadow = {
+                hardStopLoss: stock.stopLoss,
+                initialStopLoss: stock.stopLoss,
+                regimeStopLoss: stock.stopLoss,
+                stopLossPct: ((currentPrice - stock.stopLoss) / currentPrice) * 100,
+                stopLossKrw: currentPrice - stock.stopLoss,
+                breakdown: { initial: stock.stopLoss, regime: stock.stopLoss, atr: null, hard: stock.stopLoss },
+              };
+              const shadowTrade = buildBuyTrade({
+                idPrefix: 'shadow-near-breakout',
+                stockCode: stock.code,
+                stockName: stock.name,
+                currentPrice,
+                shadowEntryPrice: currentPrice,
+                quantity: 1,
+                originalQuantity: 1,
+                stopLossPlan: stopLossPlanShadow,
+                targetPrice: stock.targetPrice,
+                shadowMode: true,
+                regime: ctx.regime,
+                profileType: 'B',
+                watchlistSource: 'SHADOW_NEAR_BREAKOUT',
+                profitTranches: [],
+                trailPct: 5,
+              });
+              ctx.shadows.push(shadowTrade);
+              saveShadowTrades(ctx.shadows);
+              ctx.scanCounters.shadowNearBreakoutCreated = (ctx.scanCounters.shadowNearBreakoutCreated ?? 0) + 1;
+              console.log(
+                `[ShadowNearBreakout] created ${stock.code} current=${currentPrice} entry=${stock.entryPrice} ` +
+                `distance=${distancePct.toFixed(1)}% cause=${shadowDecision.cause} executionImpact=NONE`,
+              );
+            } else if (!shadowDecision.allowed && shadowDecision.blockReason) {
+              ctx.scanCounters.shadowNearBreakoutBlocked = (ctx.scanCounters.shadowNearBreakoutBlocked ?? 0) + 1;
+              const reasons = ctx.scanCounters.shadowNearBreakoutBlockReasons ?? {};
+              const key: ShadowNearBreakoutBlockReason = shadowDecision.blockReason;
+              reasons[key] = (reasons[key] ?? 0) + 1;
+              ctx.scanCounters.shadowNearBreakoutBlockReasons = reasons;
+            }
+          } catch (e) {
+            console.warn(`[ADR-0452] pre-breakout shadow near-breakout 분류 실패 ${stock.code}:`, e);
+          }
         } catch (e) {
           // ADR-0449 분류 실패가 매수 흐름 차단 안 함 — try/catch 격리.
           console.warn(`[ADR-0449] pre-breakout WAIT 분류 실패 ${stock.code}:`, e);
@@ -1051,6 +1146,90 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           } catch (e) {
             // ADR-0450 routing/요청 실패가 매수 흐름 차단 안 함 — try/catch 격리.
             console.warn(`[ADR-0450] entry deviation KIS-WS routing 실패 ${stock.code}:`, e);
+          }
+          // ADR-0452 — Shadow Near-Breakout Entry: ENTRY_PRICE_DEVIATION 분기 동일 wiring.
+          //   Live WAIT 후보 중 학습 가치 큰 후보를 Shadow virtual buy 로 기록.
+          //   try/catch 격리 — 분류 실패가 매수 흐름 차단 안 함.
+          try {
+            const todayKst = new Date().toISOString().split('T')[0];
+            const distancePct = Math.abs(((currentPrice - stock.entryPrice) / stock.entryPrice) * 100);
+            const alreadyHasOpenShadow = ctx.shadows.some(
+              (s) => s.stockCode === stock.code && isOpenShadowStatus(s.status),
+            );
+            const alreadyEnteredToday = ctx.shadows.some(
+              (s) =>
+                s.stockCode === stock.code &&
+                s.watchlistSource === 'SHADOW_NEAR_BREAKOUT' &&
+                s.signalTime.startsWith(todayKst),
+            );
+            const dailyCreatedCount = ctx.shadows.filter(
+              (s) =>
+                s.watchlistSource === 'SHADOW_NEAR_BREAKOUT' &&
+                s.signalTime.startsWith(todayKst),
+            ).length;
+            const shadowDecision = evaluateShadowNearBreakoutEntry({
+              symbol: stock.code,
+              name: stock.name,
+              currentPrice,
+              entryPrice: stock.entryPrice,
+              stopLoss: stock.stopLoss,
+              targetPrice: stock.targetPrice,
+              priceDistancePct: distancePct,
+              gate1Passed: undefined,
+              liveGateScore: stock.gateScore,
+              conditionsPassed: undefined,
+              recheckPassed: undefined,
+              volumeRatio: undefined,
+              preBreakoutState: decision.state,
+              shadowMode: stockShadowMode,
+              riskBlocked: false,
+              quoteStale: false,
+              alreadyHasOpenShadow,
+              alreadyEnteredToday,
+              dailyCreatedCount,
+            });
+            if (shadowDecision.allowed && shadowDecision.createShadowTrade) {
+              const stopLossPlanShadow = {
+                hardStopLoss: stock.stopLoss,
+                initialStopLoss: stock.stopLoss,
+                regimeStopLoss: stock.stopLoss,
+                stopLossPct: ((currentPrice - stock.stopLoss) / currentPrice) * 100,
+                stopLossKrw: currentPrice - stock.stopLoss,
+                breakdown: { initial: stock.stopLoss, regime: stock.stopLoss, atr: null, hard: stock.stopLoss },
+              };
+              const shadowTrade = buildBuyTrade({
+                idPrefix: 'shadow-near-breakout',
+                stockCode: stock.code,
+                stockName: stock.name,
+                currentPrice,
+                shadowEntryPrice: currentPrice,
+                quantity: 1,
+                originalQuantity: 1,
+                stopLossPlan: stopLossPlanShadow,
+                targetPrice: stock.targetPrice,
+                shadowMode: true,
+                regime: ctx.regime,
+                profileType: 'B',
+                watchlistSource: 'SHADOW_NEAR_BREAKOUT',
+                profitTranches: [],
+                trailPct: 5,
+              });
+              ctx.shadows.push(shadowTrade);
+              saveShadowTrades(ctx.shadows);
+              ctx.scanCounters.shadowNearBreakoutCreated = (ctx.scanCounters.shadowNearBreakoutCreated ?? 0) + 1;
+              console.log(
+                `[ShadowNearBreakout] created ${stock.code} current=${currentPrice} entry=${stock.entryPrice} ` +
+                `distance=${distancePct.toFixed(1)}% cause=${shadowDecision.cause} executionImpact=NONE`,
+              );
+            } else if (!shadowDecision.allowed && shadowDecision.blockReason) {
+              ctx.scanCounters.shadowNearBreakoutBlocked = (ctx.scanCounters.shadowNearBreakoutBlocked ?? 0) + 1;
+              const reasons = ctx.scanCounters.shadowNearBreakoutBlockReasons ?? {};
+              const key: ShadowNearBreakoutBlockReason = shadowDecision.blockReason;
+              reasons[key] = (reasons[key] ?? 0) + 1;
+              ctx.scanCounters.shadowNearBreakoutBlockReasons = reasons;
+            }
+          } catch (e) {
+            console.warn(`[ADR-0452] entry deviation shadow near-breakout 분류 실패 ${stock.code}:`, e);
           }
         } catch (e) {
           // ADR-0449 분류 실패가 매수 흐름 차단 안 함 — try/catch 격리.

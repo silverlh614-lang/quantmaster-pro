@@ -54,9 +54,10 @@ describe('perSymbolEvaluation 4 매수 site entryConditionScores 정적 wiring (
     expect(baselineMarkers.length).toBeGreaterThanOrEqual(4);
   });
 
-  it('회귀 차단 — buildBuyTrade 호출이 5건 (1 import + 4 site 호출 — 후속 PR 추가 시 이 단언 갱신)', () => {
+  it('회귀 차단 — buildBuyTrade 호출이 6건 (4 entry site + 2 ADR-0452 Shadow Near-Breakout WAIT site)', () => {
     const callsiteMatches = SOURCE.match(/buildBuyTrade\(/g) ?? [];
-    // 라인 109 (import) 는 매치 안됨 (괄호 부재). 4 site 호출만 매치.
-    expect(callsiteMatches.length).toBe(4);
+    // 라인 109 (import) 는 매치 안됨 (괄호 부재). 4 entry site + 2 shadow near-breakout site = 6.
+    // ADR-0452 wiring 으로 PRE_BREAKOUT_MISS / ENTRY_PRICE_DEVIATION 두 WAIT site 가 추가됨.
+    expect(callsiteMatches.length).toBe(6);
   });
 });

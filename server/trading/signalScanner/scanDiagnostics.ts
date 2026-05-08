@@ -41,6 +41,11 @@ import {
   type PreBreakoutWaitDecision,
   type PreBreakoutWaitSummary,
 } from './preBreakoutWaitPolicy.js';
+// ADR-0452 — Shadow Near-Breakout Entry compact section SSOT.
+import {
+  formatShadowNearBreakoutSection,
+  type ShadowNearBreakoutBlockReason,
+} from './shadowNearBreakoutEntryPolicy.js';
 // ADR-0414 — Price Integrity Checker + Correction Overlay (Stage 1 Read-Only Mode).
 // Stage 1: diagnostics only — corrected 값 LIVE 매수 판단 사용 0건 (절대 원칙 #3).
 import type { PriceIntegrityStatus } from './priceIntegrityChecker.js';
@@ -289,6 +294,14 @@ export interface ScanSummary {
   r3NoiseDecision?: R3NoiseGovernorDecision;
   /** ADR-0449 — Pre-Breakout WAIT 7-state 분류 summary (옵셔널, 후방호환). */
   preBreakoutWaitSummary?: PreBreakoutWaitSummary;
+
+  /**
+   * ADR-0452 — Shadow Near-Breakout Entry compact counters (옵셔널, 후방호환).
+   * /scan_blockers 가 본 필드를 read 해 `🌘 Shadow Near-Breakout (ADR-0452)` 섹션 노출.
+   */
+  shadowNearBreakoutCreated?: number;
+  shadowNearBreakoutBlocked?: number;
+  shadowNearBreakoutBlockReasons?: Partial<Record<string, number>>;
 }
 
 let _lastBuySignalAt = 0;
@@ -400,6 +413,17 @@ export interface ScanCounters {
    * 핵심 불변식: 모든 decision 의 `increaseFailCount: false` (literal type 강제, ADR-0115 보호).
    */
   preBreakoutWaitDecisions: PreBreakoutWaitDecision[];
+
+  /**
+   * ADR-0452 — Shadow Near-Breakout Entry 카운터.
+   *
+   * buyListLoop 의 두 WAIT site (PRE_BREAKOUT_MISS / ENTRY_PRICE_DEVIATION) 에서
+   * `evaluateShadowNearBreakoutEntry()` 결과 누적. created/blocked/blockReasons 분리로
+   * /scan_blockers 의 ADR-0452 compact section 입력. 옵셔널 — 후방호환.
+   */
+  shadowNearBreakoutCreated?: number;
+  shadowNearBreakoutBlocked?: number;
+  shadowNearBreakoutBlockReasons?: Partial<Record<string, number>>;
 }
 
 export function createScanCounters(): ScanCounters {
@@ -447,6 +471,10 @@ export function createScanCounters(): ScanCounters {
     hardRiskBlockedCount: 0,
     // ADR-0449 — Pre-Breakout WAIT decisions 누적기 빈 배열 초기화.
     preBreakoutWaitDecisions: [],
+    // ADR-0452 — Shadow Near-Breakout Entry 카운터 초기화.
+    shadowNearBreakoutCreated: 0,
+    shadowNearBreakoutBlocked: 0,
+    shadowNearBreakoutBlockReasons: {},
   };
 }
 
@@ -793,6 +821,28 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     }
   }
 
+  // ADR-0452 — Shadow Near-Breakout Entry compact section.
+  //   Live WAIT 후보 중 near-breakout 학습 가치가 큰 후보를 Shadow 가상 진입으로 기록한 결과.
+  //   created/blocked + topBlock + executionImpact: NONE 라인.
+  //   부재 또는 created+blocked=0 시 미노출 (잡음 차단 — 후방호환).
+  if (
+    (summary.shadowNearBreakoutCreated ?? 0) > 0 ||
+    (summary.shadowNearBreakoutBlocked ?? 0) > 0
+  ) {
+    const section = formatShadowNearBreakoutSection({
+      created: summary.shadowNearBreakoutCreated ?? 0,
+      blocked: summary.shadowNearBreakoutBlocked ?? 0,
+      blockReasons:
+        (summary.shadowNearBreakoutBlockReasons as Partial<
+          Record<ShadowNearBreakoutBlockReason, number>
+        >) ?? {},
+    });
+    if (section) {
+      lines.push('');
+      lines.push(section);
+    }
+  }
+
   return lines.join('\n');
 }
 
@@ -1116,6 +1166,15 @@ export async function persistScanResults(
     }
   } catch (e) {
     console.warn('[PreBreakoutWaitPolicy] summarize 실패 (영속 무영향)', e);
+  }
+
+  // ADR-0452 — Shadow Near-Breakout Entry counters propagate (옵셔널 후방호환).
+  //   buyListLoop 두 WAIT site 가 evaluateShadowNearBreakoutEntry 결과를 carry-over.
+  //   created+blocked=0 시 미영속 (운영자 noise 차단). HTML 안전 — counter 만 영속.
+  if ((counters.shadowNearBreakoutCreated ?? 0) > 0 || (counters.shadowNearBreakoutBlocked ?? 0) > 0) {
+    summaryDraft.shadowNearBreakoutCreated = counters.shadowNearBreakoutCreated ?? 0;
+    summaryDraft.shadowNearBreakoutBlocked = counters.shadowNearBreakoutBlocked ?? 0;
+    summaryDraft.shadowNearBreakoutBlockReasons = counters.shadowNearBreakoutBlockReasons ?? {};
   }
 
   _lastScanSummary = summaryDraft;
