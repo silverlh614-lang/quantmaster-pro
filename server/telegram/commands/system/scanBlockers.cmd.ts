@@ -44,6 +44,8 @@ import {
   summarizeCounterfactualUniverseLearningLedger,
 } from '../../../persistence/counterfactualUniverseLearningRepo.js';
 import {
+  buildSupplyProviderWarmupReport,
+  formatSupplyProviderWarmupCompactLine,
   getLastInvestorFlowProviderHealth,
   summarizeInvestorFlowProviderHealth,
 } from '../../../supply/investorFlowProviderHealth.js';
@@ -204,8 +206,13 @@ const scanBlockers: TelegramCommand = {
     // Uses the last observed router health only; /scan_blockers must not trigger
     // KRX/NAVER/KIS provider fetches.
     let supplyProviderSection: string | null = null;
+    let supplyProviderWarmupSection: string | null = null;
     try {
-      supplyProviderSection = summarizeInvestorFlowProviderHealth(getLastInvestorFlowProviderHealth());
+      const investorFlowHealth = getLastInvestorFlowProviderHealth();
+      supplyProviderSection = summarizeInvestorFlowProviderHealth(investorFlowHealth);
+      supplyProviderWarmupSection = formatSupplyProviderWarmupCompactLine(
+        buildSupplyProviderWarmupReport({ health: investorFlowHealth }),
+      );
     } catch (err) {
       console.warn(
         '[scan_blockers] investor-flow provider health section failed:',
@@ -349,6 +356,7 @@ const scanBlockers: TelegramCommand = {
     const parts: string[] = [baseMessage];
     if (degradedSection) parts.push(degradedSection);
     if (supplyProviderSection) parts.push(supplyProviderSection);
+    if (supplyProviderWarmupSection) parts.push(supplyProviderWarmupSection);
     if (counterfactualLine) parts.push(counterfactualLine);
     if (promotionLine) parts.push(promotionLine);
     if (universeSection) parts.push(universeSection);
