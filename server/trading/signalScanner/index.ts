@@ -106,6 +106,11 @@ export async function runAutoSignalScan(
     ...(macro?.sectorEnergyQualityDiagnostic !== undefined
       ? { sectorEnergyQualityDiagnostic: macro.sectorEnergyQualityDiagnostic }
       : {}),
+    candidateSnapshots: [
+      ...candidates.buyList.map((w: any) => ({ symbol: w.code, name: w.name, stageReached: 'WATCHLIST' as const, gateScore: w.gateScore })),
+      ...candidates.intradayList.map((w: any) => ({ symbol: w.code, name: w.name, stageReached: 'WATCHLIST' as const, gateScore: w.gateScore })),
+    ],
+    watchlistSource: 'signalScanner.selectCandidates',
   });
 
   return { positionFull: false };
