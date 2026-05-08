@@ -12,6 +12,9 @@ import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { callGemini } from '../clients/geminiClient.js';
 import { sendTelegramAlert as _sendTelegramAlertRaw, escapeHtml, type AlertPriority } from './telegramClient.js';
 import { safePctChange } from '../utils/safePctChange.js';
+// ADR-0456: DART corp_name → stockCode 역매핑 SSOT — DART stock_code 부재 시 ADR-0455 enrichment
+// (`isin` + `nameEng`) 기반 fallback 으로 disclosure 영구 손실 차단.
+import { resolveStockCodeFromDart } from '../persistence/dartCorpNameLookup.js';
 
 // ── 인메모리 중복 방지 캐시 (서버 재시작 시 초기화 — 의도적) ─────────────────
 // 파일 기반 seen Set(DART_FAST_SEEN_FILE)에 더해 메모리 캐시로 중복 Gemini 호출을 차단.
@@ -564,7 +567,9 @@ export async function pollDartDisclosures(): Promise<void> {
     const corpName   = d.corp_name ?? '';
     const sentiment  = classifyDisclosure(reportNm);
     const insiderBuy = detectInsiderBuy(reportNm);
-    const stockCode  = (d.stock_code ?? '').padStart(6, '0');
+    // ADR-0456: DART stock_code 부재 시 corpName 기반 fallback. legacy `'000000'` pad 결함 차단.
+    const resolved = resolveStockCodeFromDart({ dartStockCode: d.stock_code, corpName });
+    const stockCode = resolved.stockCode ?? (d.stock_code ?? '').padStart(6, '0');
     const isWatchlist = watchCodes.has(stockCode);
 
     // ── 지분 공시 → LLM 대신 룰 기반 수급 분석 ──────────────────────────────
@@ -792,7 +797,10 @@ export async function fastDartCheck(): Promise<void> {
     const rceptNo   = d.rcept_no  ?? '';
     const corpName  = d.corp_name ?? '';
     const reportNm  = d.report_nm ?? '';
-    const stockCode = (d.stock_code ?? '').padStart(6, '0');
+    // ADR-0456: DART stock_code 부재 시 corpName 기반 fallback (resolveStockCodeFromDart SSOT).
+    // 정상 stock_code 시 `DART_RAW` source 로 동작 변경 0 — disclosure 손실 영구 차단.
+    const resolved = resolveStockCodeFromDart({ dartStockCode: d.stock_code, corpName });
+    const stockCode = resolved.stockCode ?? (d.stock_code ?? '').padStart(6, '0');
     const filingDate = d.rcept_dt ?? today;
     const reporter   = d.flr_nm  ?? '';
 
