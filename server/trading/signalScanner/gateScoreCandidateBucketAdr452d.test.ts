@@ -159,6 +159,7 @@ describe('ADR-452d scan diagnostics accumulation and formatting', () => {
 
     expect(section).toContain('🟡 Gate Near-Miss Buckets (ADR-452d)');
     expect(section).toContain('executionImpact: NONE');
+    expect(section).toContain('outcomeLedger: recorded 0, skipped 0 (ADR-454, 3/5/10d)');
     expect(section).toContain('DATA_BLOCKED_NEAR_MISS: 1');
     expect(section).toContain('PROBING: 1');
     expect(section).toContain('supply_confluence×1');

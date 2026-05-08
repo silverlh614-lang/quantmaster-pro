@@ -150,6 +150,9 @@ export interface GateScoreCandidateBucketSummary {
   dataBlockedNearMissTopUnavailable: Array<{ condition: string; count: number }>;
   probingTopConditions: Array<{ condition: string; count: number }>;
   totalNearMissLike: number;
+  /** ADR-454 — diagnostic-only Near-Miss Outcome Ledger write stats. */
+  outcomeLedgerRecorded?: number;
+  outcomeLedgerSkipped?: number;
 }
 
 export interface MacroGateState {
@@ -473,6 +476,9 @@ export interface ScanCounters {
   gateScoreBucketReasonCounts: Record<string, number>;
   dataBlockedNearMissUnavailableCounts: Record<string, number>;
   probingConditionCounts: Record<string, number>;
+  /** ADR-454 — Near-Miss Outcome Ledger write counters (live decision 미사용). */
+  nearMissOutcomeLedgerRecorded: number;
+  nearMissOutcomeLedgerSkipped: number;
 }
 
 export function createScanCounters(): ScanCounters {
@@ -543,6 +549,9 @@ export function createScanCounters(): ScanCounters {
     gateScoreBucketReasonCounts: {},
     dataBlockedNearMissUnavailableCounts: {},
     probingConditionCounts: {},
+    // ADR-454 — Near-Miss Outcome Ledger 진단 카운터 (executionImpact NONE).
+    nearMissOutcomeLedgerRecorded: 0,
+    nearMissOutcomeLedgerSkipped: 0,
   };
 }
 
@@ -719,8 +728,8 @@ export function accumulateGateScoreCandidateBucket(
     providerDegradedConditions?: readonly string[];
   } | null | undefined,
   normalThreshold: number,
-): void {
-  if (!result || !isFiniteNumber(result.gateScore) || !isFiniteNumber(normalThreshold)) return;
+): ReturnType<typeof classifyGateScoreCandidateBucket> | null {
+  if (!result || !isFiniteNumber(result.gateScore) || !isFiniteNumber(normalThreshold)) return null;
 
   const decision = classifyGateScoreCandidateBucket({
     gateScore: result.gateScore,
@@ -751,6 +760,16 @@ export function accumulateGateScoreCandidateBucket(
       incrementCount(counters.probingConditionCounts, condition);
     }
   }
+
+  return decision;
+}
+
+export function accumulateNearMissOutcomeLedgerWrite(
+  counters: ScanCounters,
+  outcome: { recorded: boolean } | null | undefined,
+): void {
+  if (outcome?.recorded) counters.nearMissOutcomeLedgerRecorded += 1;
+  else counters.nearMissOutcomeLedgerSkipped += 1;
 }
 
 function topCounts(record: Record<string, number>, limit = 5): Array<{ condition: string; count: number }> {
@@ -834,6 +853,8 @@ export function buildGateScoreCandidateBucketSummary(counters: ScanCounters): Ga
     dataBlockedNearMissTopUnavailable: topCounts(counters.dataBlockedNearMissUnavailableCounts),
     probingTopConditions: topCounts(counters.probingConditionCounts),
     totalNearMissLike: (counts.DATA_BLOCKED_NEAR_MISS ?? 0) + (counts.PROBING ?? 0) + (counts.SHADOW_ONLY ?? 0),
+    outcomeLedgerRecorded: counters.nearMissOutcomeLedgerRecorded,
+    outcomeLedgerSkipped: counters.nearMissOutcomeLedgerSkipped,
   };
 }
 
@@ -854,6 +875,7 @@ export function formatGateScoreCandidateBucketSection(
     `  • PROBING: ${probing}`,
     `  • SHADOW_ONLY: ${shadowOnly}`,
     '  • executionImpact: NONE',
+    `  • outcomeLedger: recorded ${summary.outcomeLedgerRecorded ?? 0}, skipped ${summary.outcomeLedgerSkipped ?? 0} (ADR-454, 3/5/10d)`,
   ];
 
   if (summary.dataBlockedNearMissTopUnavailable.length > 0) {
