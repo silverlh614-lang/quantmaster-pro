@@ -6,6 +6,138 @@
  */
 import type { MacroGateState, WaitDistribution, GatePassDistribution } from './scanDiagnostics.js';
 
+
+export const GATE1_PROVIDER_ISSUE_SOFT_FAIL_ENABLED = true;
+export const GATE1_SOFT_FAIL_ACCUMULATION_THRESHOLD = 3;
+
+export type Gate1ConditionCode =
+  | 'MARKET_REGIME_PASS'
+  | 'TRADING_SESSION_PASS'
+  | 'AUTO_TRADE_ENABLED_PASS'
+  | 'WATCHLIST_VALID_PASS'
+  | 'PRICE_DATA_FRESH_PASS'
+  | 'VOLUME_LIQUIDITY_PASS'
+  | 'SUPPLY_PROVIDER_HEALTH_PASS'
+  | 'INVESTOR_FLOW_SAMPLE_PASS'
+  | 'SUPPLY_CONFLUENCE_PASS'
+  | 'SECTOR_LEADERSHIP_PASS'
+  | 'SECTOR_ENERGY_CONFIDENCE_PASS'
+  | 'RISK_BLOCK_PASS'
+  | 'MIN_SIGNAL_SCORE_PASS'
+  | 'DUPLICATE_POSITION_PASS'
+  | 'SIZING_PRECHECK_PASS'
+  | 'UNKNOWN_GATE1_CONDITION';
+
+export type Gate1ConditionSeverity =
+  | 'INFO'
+  | 'SOFT_FAIL'
+  | 'HARD_FAIL'
+  | 'DIAGNOSTIC_ONLY'
+  | 'NOT_APPLICABLE';
+
+export interface Gate1ConditionTrace {
+  code: Gate1ConditionCode;
+  passed: boolean;
+  severity: Gate1ConditionSeverity;
+  message: string;
+  providerIssue: boolean;
+  marketSignal: boolean;
+  executionBlocking: boolean;
+  learningBlocking: boolean;
+  value?: unknown;
+  expected?: unknown;
+  source?: string;
+}
+
+export type Gate1EvaluationMode = 'SIGNAL_ELIGIBILITY' | 'EXECUTION_ELIGIBILITY';
+
+export type SupplyProviderHealthStatus =
+  | 'VERIFIED'
+  | 'DEGRADED'
+  | 'STALE'
+  | 'NO_RECENT_SAMPLE'
+  | 'EMPTY'
+  | 'ERROR'
+  | 'UNKNOWN';
+
+export interface SupplyProviderHealthTrace {
+  status: SupplyProviderHealthStatus;
+  providerName?: string;
+  lastSampleAt?: string;
+  ageMinutes?: number;
+  expectedMaxAgeMinutes?: number;
+  sampleCountToday?: number;
+  sampleCountRecent?: number;
+  hasInstitutionFlow?: boolean;
+  hasForeignFlow?: boolean;
+  hasProgramFlow?: boolean;
+  providerIssue: boolean;
+  marketSignal: boolean;
+  gate1Severity: 'NONE' | 'SOFT_FAIL' | 'HARD_FAIL' | 'DIAGNOSTIC_ONLY';
+  reason: string[];
+}
+
+export type SupplyConfluenceState = 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'UNKNOWN' | 'UNAVAILABLE';
+
+export interface Gate1CandidateTrace {
+  symbol: string;
+  name?: string;
+  regime: string;
+  marketSession: string;
+  gate1Passed: boolean;
+  hardFailCount: number;
+  softFailCount: number;
+  diagnosticOnlyCount: number;
+  primaryFailCode?: Gate1ConditionCode;
+  conditions: Gate1ConditionTrace[];
+  wouldPassIfProviderIssueSoftened: boolean;
+  wouldPassIfSupplySampleIgnored: boolean;
+  wouldPassIfSectorEnergyIgnored: boolean;
+  wouldPassIfTimeWindowIgnored: boolean;
+  executionImpact: 'NONE' | 'PAPER_ONLY' | 'LIVE_READY';
+}
+
+export interface Gate1CounterfactualSurvivorReport {
+  totalCandidates: number;
+  actualGate1Survivors: number;
+  ifProviderIssueSoftened: number;
+  ifSupplySampleIgnored: number;
+  ifSectorEnergyIgnored: number;
+  ifTimeWindowIgnored: number;
+  ifSoftFailsIgnoredOnly: number;
+  candidateExamples: {
+    symbol: string;
+    name?: string;
+    actualPrimaryFail: string;
+    counterfactualPassReason: string[];
+  }[];
+}
+
+export interface Gate1DecompositionReport {
+  timestamp: string;
+  forDate: string;
+  regime: string;
+  marketSession: string;
+  totalCandidates: number;
+  gate1Passed: number;
+  gate1Failed: number;
+  hardFailDistribution: Record<string, number>;
+  softFailDistribution: Record<string, number>;
+  providerIssueDistribution: Record<string, number>;
+  marketSignalDistribution: Record<string, number>;
+  wouldPassIfProviderIssueSoftened: number;
+  wouldPassIfSupplySampleIgnored: number;
+  wouldPassIfSectorEnergyIgnored: number;
+  topPrimaryFailCodes: { code: string; count: number; examples: string[] }[];
+  recommendedAction:
+    | 'NO_ACTION'
+    | 'DIAGNOSTIC_ONLY'
+    | 'REPAIR_PROVIDER_HEALTH'
+    | 'RECLASSIFY_PROVIDER_ISSUE_AS_SOFT_FAIL'
+    | 'REVIEW_GATE1_THRESHOLDS'
+    | 'REVIEW_SUPPLY_CONFLUENCE';
+}
+
 export type ExecutionBlockScope = 'NONE' | 'STRONG_BUY_ONLY' | 'NEW_BUY_ONLY' | 'ALL_EXECUTION';
 
 export type EntryBlockerCategory =
@@ -63,11 +195,17 @@ export interface CandidateEntryTrace {
   finalSize?: number;
   sectorBoost?: number;
   sectorEnergyState?: string;
+  supplyProviderHealth?: Partial<SupplyProviderHealthTrace>;
+  supplyConfluenceState?: SupplyConfluenceState;
+  minSignalScorePassed?: boolean;
+  priceDataFresh?: boolean;
+  volumeLiquidityPassed?: boolean;
   blockers: EntryBlocker[];
   wouldEnterIfNoTimeBlock?: boolean;
   wouldEnterIfNoOrderBlock?: boolean;
   wouldEnterIfSectorEnergyIgnored?: boolean;
   wouldEnterIfKellyMinApplied?: boolean;
+  gate1Trace?: Gate1CandidateTrace;
   executionImpact: 'NONE' | 'PAPER_ONLY' | 'LIVE_READY';
 }
 
@@ -149,6 +287,16 @@ export interface EntryDecisionLedgerRow {
   wouldEnterIfNoTimeBlock: boolean;
   wouldEnterIfNoOrderBlock: boolean;
   counterfactualRecorded: boolean;
+  gate1TraceSummary?: {
+    primaryGate1FailCode?: Gate1ConditionCode;
+    providerIssue: boolean;
+    marketSignal: boolean;
+    hardFailCount: number;
+    softFailCount: number;
+    tags: string[];
+  };
+  primaryGate1FailCode?: Gate1ConditionCode;
+  providerIssue?: boolean;
   executionImpact: 'NONE' | 'PAPER_ONLY' | 'LIVE_READY';
 }
 
@@ -181,6 +329,10 @@ export interface EntryFilterDecomposition {
   kellySizingTraces: KellySizingTrace[];
   watchlistHealth: WatchlistHealthReport;
   filterConservatismReport?: FilterConservatismReport;
+  gate1CandidateTraces: Gate1CandidateTrace[];
+  gate1DecompositionReport: Gate1DecompositionReport;
+  gate1CounterfactualSurvivorReport: Gate1CounterfactualSurvivorReport;
+  supplyProviderHealth: SupplyProviderHealthTrace;
 }
 
 export interface CandidateSnapshot {
@@ -193,6 +345,11 @@ export interface CandidateSnapshot {
   gate3Passed?: boolean;
   sectorBoost?: number;
   sectorEnergyState?: string;
+  supplyProviderHealth?: Partial<SupplyProviderHealthTrace>;
+  supplyConfluenceState?: SupplyConfluenceState;
+  minSignalScorePassed?: boolean;
+  priceDataFresh?: boolean;
+  volumeLiquidityPassed?: boolean;
 }
 
 interface BuildDecompositionInput {
@@ -208,6 +365,7 @@ interface BuildDecompositionInput {
   sectorEnergyQuality?: string;
   ghostOpenCount?: number;
   filterTooConservativeScore?: number;
+  supplyProviderHealth?: Partial<SupplyProviderHealthTrace>;
   watchlistRefreshedAt?: string;
   watchlistSource?: string;
 }
@@ -256,6 +414,362 @@ function isGreenish(regime: string): boolean {
   return ['GREEN', 'R1_TURBO', 'R2_BULL', 'R3_EARLY', 'FOMC_NORMAL'].includes(regime);
 }
 
+
+function makeCondition(input: Gate1ConditionTrace): Gate1ConditionTrace {
+  return { ...input, learningBlocking: input.learningBlocking ?? false };
+}
+
+function classifySupplyProviderHealth(input?: Partial<SupplyProviderHealthTrace>): SupplyProviderHealthTrace {
+  const status = input?.status ?? 'UNKNOWN';
+  const providerIssue = input?.providerIssue ?? status !== 'VERIFIED';
+  const marketSignal = input?.marketSignal ?? false;
+  const gate1Severity = input?.gate1Severity ?? (status === 'VERIFIED' ? 'NONE' : status === 'UNKNOWN' ? 'DIAGNOSTIC_ONLY' : 'SOFT_FAIL');
+  const reason = input?.reason ?? (status === 'NO_RECENT_SAMPLE'
+    ? ['no recent investor-flow provider sample']
+    : status === 'VERIFIED'
+      ? ['provider verified']
+      : [`supply provider status=${status}`]);
+  return {
+    status,
+    providerName: input?.providerName ?? 'investor-flow',
+    lastSampleAt: input?.lastSampleAt,
+    ageMinutes: input?.ageMinutes,
+    expectedMaxAgeMinutes: input?.expectedMaxAgeMinutes ?? 30,
+    sampleCountToday: input?.sampleCountToday,
+    sampleCountRecent: input?.sampleCountRecent,
+    hasInstitutionFlow: input?.hasInstitutionFlow,
+    hasForeignFlow: input?.hasForeignFlow,
+    hasProgramFlow: input?.hasProgramFlow,
+    providerIssue,
+    marketSignal,
+    gate1Severity,
+    reason,
+  };
+}
+
+function conditionBlocksGate1(c: Gate1ConditionTrace): boolean {
+  return !c.passed && (c.severity === 'HARD_FAIL' || c.severity === 'SOFT_FAIL');
+}
+
+function countByCondition(
+  traces: Gate1CandidateTrace[],
+  predicate: (condition: Gate1ConditionTrace) => boolean,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const trace of traces) {
+    for (const condition of trace.conditions) {
+      if (!predicate(condition)) continue;
+      out[condition.code] = (out[condition.code] ?? 0) + 1;
+    }
+  }
+  return out;
+}
+
+function canPassIgnoring(
+  trace: Gate1CandidateTrace,
+  ignore: (condition: Gate1ConditionTrace) => boolean,
+): boolean {
+  return !trace.conditions.some((condition) => conditionBlocksGate1(condition) && !ignore(condition));
+}
+
+function buildGate1CandidateTrace(input: {
+  trace: CandidateEntryTrace;
+  regime: string;
+  marketSession: string;
+  macroGateState?: MacroGateState;
+  supplyProviderHealth: SupplyProviderHealthTrace;
+  supplyConfluenceState: SupplyConfluenceState;
+  gate1SoftFailThreshold: number;
+}): Gate1CandidateTrace {
+  const { trace, regime, marketSession, macroGateState, supplyProviderHealth, supplyConfluenceState } = input;
+  const conditions: Gate1ConditionTrace[] = [];
+  const hasGate1Blocker = trace.blockers.some((b) => b.category === 'GATE1');
+  const hasSectorEnergyDiagnostic = trace.blockers.some((b) => b.category === 'SECTOR_ENERGY');
+  conditions.push(makeCondition({
+    code: 'MARKET_REGIME_PASS',
+    passed: !macroGateState?.emergencyStop,
+    severity: macroGateState?.emergencyStop ? 'HARD_FAIL' : 'INFO',
+    message: macroGateState?.emergencyStop ? 'Emergency stop blocks Gate1 execution eligibility.' : 'Market regime did not hard-block Gate1 signal eligibility.',
+    providerIssue: false,
+    marketSignal: Boolean(macroGateState?.emergencyStop),
+    executionBlocking: Boolean(macroGateState?.emergencyStop),
+    learningBlocking: false,
+    value: regime,
+    source: 'macroGateState',
+  }));
+  conditions.push(makeCondition({
+    code: 'TRADING_SESSION_PASS',
+    passed: marketSession !== 'SELL_ONLY',
+    severity: marketSession === 'SELL_ONLY' ? 'SOFT_FAIL' : 'INFO',
+    message: marketSession === 'SELL_ONLY'
+      ? 'SELL_ONLY is recorded as execution time-window blocker; signal eligibility remains separately decomposed.'
+      : 'Trading session allows new buy execution.',
+    providerIssue: false,
+    marketSignal: false,
+    executionBlocking: marketSession === 'SELL_ONLY',
+    learningBlocking: false,
+    value: marketSession,
+    expected: 'NORMAL',
+    source: 'macroGateState.sellOnlyMode',
+  }));
+  conditions.push(makeCondition({
+    code: 'AUTO_TRADE_ENABLED_PASS',
+    passed: macroGateState?.autoTradeEnabled !== false,
+    severity: macroGateState?.autoTradeEnabled === false ? 'HARD_FAIL' : 'INFO',
+    message: macroGateState?.autoTradeEnabled === false ? 'Auto-trade disabled by operator.' : 'Auto-trade control is enabled or unavailable.',
+    providerIssue: false,
+    marketSignal: false,
+    executionBlocking: macroGateState?.autoTradeEnabled === false,
+    learningBlocking: false,
+    value: macroGateState?.autoTradeEnabled,
+    expected: true,
+    source: 'macroGateState.autoTradeEnabled',
+  }));
+  conditions.push(makeCondition({
+    code: 'WATCHLIST_VALID_PASS',
+    passed: trace.symbol !== 'UNIVERSE_SUMMARY',
+    severity: trace.symbol === 'UNIVERSE_SUMMARY' ? 'SOFT_FAIL' : 'INFO',
+    message: trace.symbol === 'UNIVERSE_SUMMARY' ? 'No watchlist row was available for this universe summary.' : 'Watchlist candidate row exists.',
+    providerIssue: false,
+    marketSignal: false,
+    executionBlocking: trace.symbol === 'UNIVERSE_SUMMARY',
+    learningBlocking: false,
+    source: 'entryFilterDecomposition',
+  }));
+  conditions.push(makeCondition({
+    code: 'PRICE_DATA_FRESH_PASS',
+    passed: trace.blockers.every((b) => b.code !== 'PRICE_DATA_STALE'),
+    severity: trace.blockers.some((b) => b.code === 'PRICE_DATA_STALE') ? 'HARD_FAIL' : 'INFO',
+    message: trace.blockers.some((b) => b.code === 'PRICE_DATA_STALE') ? 'Price data stale/missing.' : 'No price freshness blocker was recorded.',
+    providerIssue: false,
+    marketSignal: false,
+    executionBlocking: trace.blockers.some((b) => b.code === 'PRICE_DATA_STALE'),
+    learningBlocking: false,
+    source: 'entryBlockers',
+  }));
+  conditions.push(makeCondition({
+    code: 'VOLUME_LIQUIDITY_PASS',
+    passed: trace.blockers.every((b) => b.code !== 'LIQUIDITY_LOW'),
+    severity: trace.blockers.some((b) => b.code === 'LIQUIDITY_LOW') ? 'HARD_FAIL' : 'INFO',
+    message: trace.blockers.some((b) => b.code === 'LIQUIDITY_LOW') ? 'Absolute liquidity minimum failed.' : 'No absolute liquidity blocker was recorded.',
+    providerIssue: false,
+    marketSignal: trace.blockers.some((b) => b.code === 'LIQUIDITY_LOW'),
+    executionBlocking: trace.blockers.some((b) => b.code === 'LIQUIDITY_LOW'),
+    learningBlocking: false,
+    source: 'entryBlockers',
+  }));
+  const supplyProviderPassed = supplyProviderHealth.status === 'VERIFIED';
+  const supplySeverity = supplyProviderHealth.gate1Severity === 'NONE' ? 'INFO' : supplyProviderHealth.gate1Severity;
+  conditions.push(makeCondition({
+    code: 'SUPPLY_PROVIDER_HEALTH_PASS',
+    passed: supplyProviderPassed,
+    severity: supplySeverity,
+    message: supplyProviderHealth.reason.join('; '),
+    providerIssue: supplyProviderHealth.providerIssue,
+    marketSignal: supplyProviderHealth.marketSignal,
+    executionBlocking: supplyProviderHealth.gate1Severity === 'HARD_FAIL',
+    learningBlocking: false,
+    value: supplyProviderHealth.status,
+    expected: 'VERIFIED',
+    source: supplyProviderHealth.providerName,
+  }));
+  conditions.push(makeCondition({
+    code: 'INVESTOR_FLOW_SAMPLE_PASS',
+    passed: supplyProviderHealth.status === 'VERIFIED' || (supplyProviderHealth.sampleCountRecent ?? 0) > 0,
+    severity: supplyProviderHealth.status === 'NO_RECENT_SAMPLE' || supplyProviderHealth.status === 'EMPTY' ? 'SOFT_FAIL' : supplySeverity,
+    message: supplyProviderHealth.status === 'NO_RECENT_SAMPLE'
+      ? 'Investor-flow sample is missing/too old; classify as provider issue, not bearish supply.'
+      : 'Investor-flow sample status recorded.',
+    providerIssue: supplyProviderHealth.providerIssue,
+    marketSignal: false,
+    executionBlocking: false,
+    learningBlocking: false,
+    value: { lastSampleAt: supplyProviderHealth.lastSampleAt ?? 'unknown', ageMinutes: supplyProviderHealth.ageMinutes, expectedMaxAgeMinutes: supplyProviderHealth.expectedMaxAgeMinutes },
+    expected: { sampleCountRecent: '>0' },
+    source: supplyProviderHealth.providerName,
+  }));
+  conditions.push(makeCondition({
+    code: 'SUPPLY_CONFLUENCE_PASS',
+    passed: supplyConfluenceState !== 'BEARISH' && supplyConfluenceState !== 'UNAVAILABLE' && supplyConfluenceState !== 'UNKNOWN',
+    severity: supplyConfluenceState === 'BEARISH' ? 'HARD_FAIL' : supplyConfluenceState === 'UNKNOWN' || supplyConfluenceState === 'UNAVAILABLE' ? 'SOFT_FAIL' : 'INFO',
+    message: supplyConfluenceState === 'BEARISH'
+      ? 'Supply confluence is bearish from actual flow data.'
+      : supplyConfluenceState === 'UNKNOWN' || supplyConfluenceState === 'UNAVAILABLE'
+        ? 'Supply confluence is unknown/unavailable, not bearish; confidence downgrade only.'
+        : 'Supply confluence is not bearish.',
+    providerIssue: supplyConfluenceState === 'UNKNOWN' || supplyConfluenceState === 'UNAVAILABLE',
+    marketSignal: supplyConfluenceState === 'BEARISH',
+    executionBlocking: supplyConfluenceState === 'BEARISH',
+    learningBlocking: false,
+    value: supplyConfluenceState,
+    expected: 'BULLISH_OR_NEUTRAL',
+    source: 'supplyConfluenceState',
+  }));
+  conditions.push(makeCondition({
+    code: 'SECTOR_ENERGY_CONFIDENCE_PASS',
+    passed: !hasSectorEnergyDiagnostic,
+    severity: hasSectorEnergyDiagnostic ? 'DIAGNOSTIC_ONLY' : 'INFO',
+    message: hasSectorEnergyDiagnostic ? 'SectorEnergy degraded is diagnostic/STRONG_BUY_ONLY per ADR-0462.' : 'No SectorEnergy confidence diagnostic blocker recorded.',
+    providerIssue: hasSectorEnergyDiagnostic,
+    marketSignal: false,
+    executionBlocking: false,
+    learningBlocking: false,
+    value: trace.sectorEnergyState,
+    source: 'sectorEnergyQuality',
+  }));
+  conditions.push(makeCondition({
+    code: 'RISK_BLOCK_PASS',
+    passed: !macroGateState?.emergencyStop,
+    severity: macroGateState?.emergencyStop ? 'HARD_FAIL' : 'INFO',
+    message: macroGateState?.emergencyStop ? 'Severe risk block active.' : 'No severe risk block active.',
+    providerIssue: false,
+    marketSignal: Boolean(macroGateState?.emergencyStop),
+    executionBlocking: Boolean(macroGateState?.emergencyStop),
+    learningBlocking: false,
+    source: 'macroGateState',
+  }));
+  conditions.push(makeCondition({
+    code: 'MIN_SIGNAL_SCORE_PASS',
+    passed: !hasGate1Blocker,
+    severity: hasGate1Blocker ? 'SOFT_FAIL' : 'INFO',
+    message: hasGate1Blocker ? 'Candidate failed legacy Gate1 aggregate/min signal path; decomposed with provider and supply conditions.' : 'No legacy Gate1 aggregate blocker recorded.',
+    providerIssue: false,
+    marketSignal: hasGate1Blocker,
+    executionBlocking: hasGate1Blocker,
+    learningBlocking: false,
+    source: 'legacyGate1Aggregate',
+  }));
+  conditions.push(makeCondition({
+    code: 'DUPLICATE_POSITION_PASS',
+    passed: true,
+    severity: 'NOT_APPLICABLE',
+    message: 'No duplicate-position blocker was provided to ADR-0465 decomposition.',
+    providerIssue: false,
+    marketSignal: false,
+    executionBlocking: false,
+    learningBlocking: false,
+    source: 'entryFilterDecomposition',
+  }));
+  conditions.push(makeCondition({
+    code: 'SIZING_PRECHECK_PASS',
+    passed: !trace.blockers.some((b) => b.category === 'KELLY_SIZING'),
+    severity: trace.blockers.some((b) => b.category === 'KELLY_SIZING') ? 'SOFT_FAIL' : 'INFO',
+    message: trace.blockers.some((b) => b.category === 'KELLY_SIZING') ? 'Sizing precheck below minimum.' : 'Sizing precheck did not block before Gate1 decomposition.',
+    providerIssue: false,
+    marketSignal: false,
+    executionBlocking: trace.blockers.some((b) => b.category === 'KELLY_SIZING'),
+    learningBlocking: false,
+    source: 'kellySizingTrace',
+  }));
+  const hardFailCount = conditions.filter((c) => !c.passed && c.severity === 'HARD_FAIL').length;
+  const softFailCount = conditions.filter((c) => !c.passed && c.severity === 'SOFT_FAIL').length;
+  const diagnosticOnlyCount = conditions.filter((c) => !c.passed && c.severity === 'DIAGNOSTIC_ONLY').length;
+  const primaryFail = conditions.find((c) => !c.passed && c.severity === 'HARD_FAIL')
+    ?? conditions.find((c) => !c.passed && c.providerIssue)
+    ?? conditions.find((c) => !c.passed && c.severity === 'SOFT_FAIL')
+    ?? conditions.find((c) => !c.passed);
+  const wouldPassIfProviderIssueSoftened = canPassIgnoring(
+    { conditions } as Gate1CandidateTrace,
+    (c) => c.providerIssue || c.code === 'TRADING_SESSION_PASS',
+  );
+  const wouldPassIfSupplySampleIgnored = canPassIgnoring(
+    { conditions } as Gate1CandidateTrace,
+    (c) => c.code === 'SUPPLY_PROVIDER_HEALTH_PASS' || c.code === 'INVESTOR_FLOW_SAMPLE_PASS' || c.code === 'SUPPLY_CONFLUENCE_PASS' || c.code === 'TRADING_SESSION_PASS',
+  );
+  const wouldPassIfSectorEnergyIgnored = canPassIgnoring(
+    { conditions } as Gate1CandidateTrace,
+    (c) => c.code === 'SECTOR_ENERGY_CONFIDENCE_PASS' || c.code === 'TRADING_SESSION_PASS',
+  );
+  const wouldPassIfTimeWindowIgnored = canPassIgnoring(
+    { conditions } as Gate1CandidateTrace,
+    (c) => c.code === 'TRADING_SESSION_PASS',
+  );
+  return {
+    symbol: trace.symbol,
+    name: trace.name,
+    regime,
+    marketSession,
+    gate1Passed: trace.gate1Passed === true || (!hasGate1Blocker && hardFailCount === 0 && softFailCount < input.gate1SoftFailThreshold),
+    hardFailCount,
+    softFailCount,
+    diagnosticOnlyCount,
+    primaryFailCode: primaryFail?.code,
+    conditions,
+    wouldPassIfProviderIssueSoftened,
+    wouldPassIfSupplySampleIgnored,
+    wouldPassIfSectorEnergyIgnored,
+    wouldPassIfTimeWindowIgnored,
+    executionImpact: 'NONE',
+  };
+}
+
+function buildGate1Reports(input: {
+  nowIso: string;
+  forDate: string;
+  regime: string;
+  marketSession: string;
+  traces: Gate1CandidateTrace[];
+}): { report: Gate1DecompositionReport; counterfactual: Gate1CounterfactualSurvivorReport } {
+  const { traces } = input;
+  const primaryMap = new Map<string, { count: number; examples: string[] }>();
+  for (const trace of traces) {
+    if (!trace.primaryFailCode) continue;
+    const current = primaryMap.get(trace.primaryFailCode) ?? { count: 0, examples: [] };
+    current.count += 1;
+    if (current.examples.length < 3) current.examples.push(trace.symbol);
+    primaryMap.set(trace.primaryFailCode, current);
+  }
+  const actualGate1Survivors = traces.filter((t) => t.gate1Passed).length;
+  const counterfactual: Gate1CounterfactualSurvivorReport = {
+    totalCandidates: traces.length,
+    actualGate1Survivors,
+    ifProviderIssueSoftened: traces.filter((t) => t.wouldPassIfProviderIssueSoftened).length,
+    ifSupplySampleIgnored: traces.filter((t) => t.wouldPassIfSupplySampleIgnored).length,
+    ifSectorEnergyIgnored: traces.filter((t) => t.wouldPassIfSectorEnergyIgnored).length,
+    ifTimeWindowIgnored: traces.filter((t) => t.wouldPassIfTimeWindowIgnored).length,
+    ifSoftFailsIgnoredOnly: traces.filter((t) => t.hardFailCount === 0).length,
+    candidateExamples: traces
+      .filter((t) => t.wouldPassIfProviderIssueSoftened || t.wouldPassIfSupplySampleIgnored)
+      .slice(0, 5)
+      .map((t) => ({
+        symbol: t.symbol,
+        name: t.name,
+        actualPrimaryFail: t.primaryFailCode ?? 'UNKNOWN_GATE1_CONDITION',
+        counterfactualPassReason: [
+          ...(t.wouldPassIfProviderIssueSoftened ? ['CASE_GATE1_PROVIDER_SOFTENED_SURVIVOR'] : []),
+          ...(t.wouldPassIfSupplySampleIgnored ? ['CASE_SUPPLY_SAMPLE_UNKNOWN'] : []),
+        ],
+      })),
+  };
+  const providerIssueCount = Object.values(countByCondition(traces, (c) => !c.passed && c.providerIssue)).reduce((a, b) => a + b, 0);
+  const marketSignalCount = Object.values(countByCondition(traces, (c) => !c.passed && c.marketSignal)).reduce((a, b) => a + b, 0);
+  const report: Gate1DecompositionReport = {
+    timestamp: input.nowIso,
+    forDate: input.forDate,
+    regime: input.regime,
+    marketSession: input.marketSession,
+    totalCandidates: traces.length,
+    gate1Passed: actualGate1Survivors,
+    gate1Failed: traces.length - actualGate1Survivors,
+    hardFailDistribution: countByCondition(traces, (c) => !c.passed && c.severity === 'HARD_FAIL'),
+    softFailDistribution: countByCondition(traces, (c) => !c.passed && c.severity === 'SOFT_FAIL'),
+    providerIssueDistribution: countByCondition(traces, (c) => !c.passed && c.providerIssue),
+    marketSignalDistribution: countByCondition(traces, (c) => !c.passed && c.marketSignal),
+    wouldPassIfProviderIssueSoftened: counterfactual.ifProviderIssueSoftened,
+    wouldPassIfSupplySampleIgnored: counterfactual.ifSupplySampleIgnored,
+    wouldPassIfSectorEnergyIgnored: counterfactual.ifSectorEnergyIgnored,
+    topPrimaryFailCodes: Array.from(primaryMap.entries())
+      .map(([code, value]) => ({ code, count: value.count, examples: value.examples }))
+      .sort((a, b) => b.count - a.count || a.code.localeCompare(b.code)),
+    recommendedAction: providerIssueCount > 0 && providerIssueCount >= marketSignalCount
+      ? (GATE1_PROVIDER_ISSUE_SOFT_FAIL_ENABLED ? 'REPAIR_PROVIDER_HEALTH' : 'RECLASSIFY_PROVIDER_ISSUE_AS_SOFT_FAIL')
+      : marketSignalCount > 0
+        ? 'REVIEW_GATE1_THRESHOLDS'
+        : 'DIAGNOSTIC_ONLY',
+  };
+  return { report, counterfactual };
+}
+
 export function createKellySizingTrace(input: {
   symbol: string;
   kellyRaw: number;
@@ -296,6 +810,7 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
   const gp = input.gatePassDistribution;
   const candidateSnapshots = input.candidateSnapshots ?? [];
   const fallbackCount = input.watchlistCandidates;
+  const defaultSupplyProviderHealth = classifySupplyProviderHealth(input.supplyProviderHealth);
   const traces: CandidateEntryTrace[] = (candidateSnapshots.length > 0
     ? candidateSnapshots
     : Array.from({ length: fallbackCount }, (_, i): CandidateSnapshot => ({ symbol: `WATCHLIST_${i + 1}` })))
@@ -310,6 +825,11 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
       gate3Passed: c.gate3Passed,
       sectorBoost: c.sectorBoost,
       sectorEnergyState: c.sectorEnergyState ?? input.sectorEnergyQuality,
+      supplyProviderHealth: c.supplyProviderHealth,
+      supplyConfluenceState: c.supplyConfluenceState,
+      minSignalScorePassed: c.minSignalScorePassed,
+      priceDataFresh: c.priceDataFresh,
+      volumeLiquidityPassed: c.volumeLiquidityPassed,
       blockers: [],
       executionImpact: 'NONE',
     }));
@@ -428,10 +948,40 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
     finalPositionSize: input.macroGateState?.finalKellyMultiplier ?? 1,
   });
 
+  const gate1CandidateTraces = traces.map((trace) => {
+    const supplyProviderHealth = classifySupplyProviderHealth(trace.supplyProviderHealth ?? defaultSupplyProviderHealth);
+    const supplyConfluenceState = trace.supplyConfluenceState
+      ?? (supplyProviderHealth.status === 'VERIFIED' ? 'NEUTRAL' : 'UNKNOWN');
+    const gate1Trace = buildGate1CandidateTrace({
+      trace,
+      regime,
+      marketSession,
+      macroGateState: input.macroGateState,
+      supplyProviderHealth,
+      supplyConfluenceState,
+      gate1SoftFailThreshold: GATE1_SOFT_FAIL_ACCUMULATION_THRESHOLD,
+    });
+    trace.gate1Trace = gate1Trace;
+    return gate1Trace;
+  });
+  const { report: gate1DecompositionReport, counterfactual: gate1CounterfactualSurvivorReport } = buildGate1Reports({
+    nowIso,
+    forDate,
+    regime,
+    marketSession,
+    traces: gate1CandidateTraces,
+  });
+
   for (const trace of traces) {
     const onlyTimeBlocked = hasExecutionBlocker(trace, 'TIME_WINDOW') && !nonTimeHardBlocked(trace);
     trace.wouldEnterIfNoTimeBlock = onlyTimeBlocked || (!hasExecutionBlocker(trace, 'TIME_WINDOW') && !nonTimeHardBlocked(trace));
-    trace.wouldEnterIfNoOrderBlock = !trace.blockers.some((b) => b.category === 'ORDER_ROUTE' || b.category === 'OPERATOR_CONTROL');
+    const hasOrderRouteBlocker = trace.blockers.some((b) => b.category === 'ORDER_ROUTE' || b.category === 'OPERATOR_CONTROL');
+    const nonOrderExecutionBlocked = trace.blockers.some((b) => {
+      if (b.category === 'ORDER_ROUTE' || b.category === 'OPERATOR_CONTROL') return false;
+      const scope = b.executionBlocking;
+      return scope === true || scope === 'NEW_BUY_ONLY' || scope === 'ALL_EXECUTION';
+    });
+    trace.wouldEnterIfNoOrderBlock = hasOrderRouteBlocker && !nonOrderExecutionBlocked;
     trace.wouldEnterIfSectorEnergyIgnored = !trace.blockers.some((b) => b.category !== 'SECTOR_ENERGY' && b.category !== 'TIME_WINDOW' && (b.executionBlocking === true || b.executionBlocking === 'NEW_BUY_ONLY' || b.executionBlocking === 'ALL_EXECUTION'));
     trace.wouldEnterIfKellyMinApplied = !trace.blockers.some((b) => b.category !== 'KELLY_SIZING' && b.category !== 'TIME_WINDOW' && (b.executionBlocking === true || b.executionBlocking === 'NEW_BUY_ONLY' || b.executionBlocking === 'ALL_EXECUTION'));
     if (trace.wouldEnterIfNoTimeBlock && hasExecutionBlocker(trace, 'TIME_WINDOW')) trace.stageReached = 'ORDER_BLOCKED';
@@ -475,6 +1025,20 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
       wouldEnterIfNoTimeBlock: trace.wouldEnterIfNoTimeBlock ?? false,
       wouldEnterIfNoOrderBlock: trace.wouldEnterIfNoOrderBlock ?? false,
       counterfactualRecorded: counterfactualTraces.some((cf) => cf.symbol === trace.symbol),
+      gate1TraceSummary: trace.gate1Trace ? {
+        primaryGate1FailCode: trace.gate1Trace.primaryFailCode,
+        providerIssue: trace.gate1Trace.conditions.some((c) => !c.passed && c.providerIssue),
+        marketSignal: trace.gate1Trace.conditions.some((c) => !c.passed && c.marketSignal),
+        hardFailCount: trace.gate1Trace.hardFailCount,
+        softFailCount: trace.gate1Trace.softFailCount,
+        tags: [
+          ...(trace.gate1Trace.wouldPassIfProviderIssueSoftened ? ['CASE_GATE1_PROVIDER_SOFTENED_SURVIVOR'] : []),
+          ...(trace.gate1Trace.conditions.some((c) => !c.passed && (c.code === 'INVESTOR_FLOW_SAMPLE_PASS' || c.code === 'SUPPLY_CONFLUENCE_PASS')) ? ['CASE_SUPPLY_SAMPLE_UNKNOWN'] : []),
+          ...(gate1DecompositionReport.gate1Passed === 0 ? ['CASE_GATE1_ZERO_SURVIVOR'] : []),
+        ],
+      } : undefined,
+      primaryGate1FailCode: trace.gate1Trace?.primaryFailCode,
+      providerIssue: trace.gate1Trace?.conditions.some((c) => !c.passed && c.providerIssue),
       executionImpact: trace.executionImpact,
     };
   });
@@ -545,6 +1109,10 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
     ledgerRows,
     kellySizingTraces: [kellyTrace],
     watchlistHealth,
+    gate1CandidateTraces,
+    gate1DecompositionReport,
+    gate1CounterfactualSurvivorReport,
+    supplyProviderHealth: defaultSupplyProviderHealth,
     ...(filterConservatismReport ? { filterConservatismReport } : {}),
   };
 }
@@ -592,6 +1160,54 @@ export function formatEntryFilterDecompositionSection(d?: EntryFilterDecompositi
     lines.push('TOP blockers:');
     d.topBlockers.slice(0, 5).forEach((b, idx) => lines.push(`${idx + 1}. ${b.code}: ${b.count}`));
   }
+  const g1 = d.gate1DecompositionReport;
+  const cf = d.gate1CounterfactualSurvivorReport;
+  lines.push('');
+  lines.push('🧩 <b>Gate1 Survivor Decomposition (ADR-0465)</b>');
+  lines.push(`• candidates: ${g1.totalCandidates}`);
+  lines.push(`• gate1Passed: ${g1.gate1Passed}`);
+  lines.push(`• gate1Failed: ${g1.gate1Failed}`);
+  lines.push(`• hardFailCandidates: ${d.gate1CandidateTraces.filter((t) => t.hardFailCount > 0).length}`);
+  lines.push(`• softFailOnlyCandidates: ${d.gate1CandidateTraces.filter((t) => t.hardFailCount === 0 && t.softFailCount > 0).length}`);
+  lines.push(`• providerIssueCandidates: ${d.gate1CandidateTraces.filter((t) => t.conditions.some((c) => !c.passed && c.providerIssue)).length}`);
+  const gate1Reasons = [
+    ...Object.entries(g1.hardFailDistribution),
+    ...Object.entries(g1.softFailDistribution),
+    ...Object.entries(g1.providerIssueDistribution).filter(([code]) => !(code in g1.softFailDistribution) && !(code in g1.hardFailDistribution)),
+  ].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (gate1Reasons.length > 0) {
+    lines.push('');
+    lines.push('Gate1 실패 원인:');
+    gate1Reasons.slice(0, 7).forEach(([code, count], idx) => lines.push(`${idx + 1}. ${code}: ${count}`));
+  }
+  lines.push('');
+  lines.push('Provider Health:');
+  lines.push(`• status: ${d.supplyProviderHealth.status}`);
+  lines.push(`• providerIssue: ${d.supplyProviderHealth.providerIssue}`);
+  lines.push(`• marketSignal: ${d.supplyProviderHealth.marketSignal}`);
+  lines.push(`• lastSampleAt: ${d.supplyProviderHealth.lastSampleAt ?? 'unknown'}`);
+  lines.push(`• ageMinutes: ${d.supplyProviderHealth.ageMinutes ?? 'unknown'} / expectedMaxAgeMinutes: ${d.supplyProviderHealth.expectedMaxAgeMinutes ?? 'unknown'}`);
+  lines.push(`• gate1Severity: ${d.supplyProviderHealth.gate1Severity}`);
+  lines.push(`• supplyConfluence: ${d.gate1CandidateTraces[0]?.conditions.find((c) => c.code === 'SUPPLY_CONFLUENCE_PASS')?.value ?? 'UNKNOWN'}`);
+  lines.push('');
+  lines.push('Counterfactual Survivor:');
+  lines.push(`• actualGate1Survivors: ${cf.actualGate1Survivors}`);
+  lines.push(`• ifProviderIssueSoftened: ${cf.ifProviderIssueSoftened}`);
+  lines.push(`• ifSupplySampleIgnored: ${cf.ifSupplySampleIgnored}`);
+  lines.push(`• ifSectorEnergyIgnored: ${cf.ifSectorEnergyIgnored}`);
+  lines.push('');
+  lines.push('판정:');
+  lines.push(g1.recommendedAction === 'REPAIR_PROVIDER_HEALTH'
+    ? '• Gate1 zero survivor는 시장 약세보다 provider freshness 문제의 영향이 큽니다.'
+    : '• Gate1 zero survivor 원인을 provider/market/supply 축으로 분리해 추적합니다.');
+  lines.push('• 수급 sample 없음은 bearish가 아니라 unknown/provider issue입니다.');
+  lines.push(`• live execution은 보류하고, provider-softened survivor ${cf.ifProviderIssueSoftened}개를 counterfactual로 추적합니다.`);
+  lines.push('');
+  lines.push('operatorAction:');
+  lines.push('• investor-flow provider warmup 상태 점검');
+  lines.push('• provider sample age / cache key 확인');
+  lines.push(`• provider issue soft-fail 적용 시 예상 survivor ${cf.ifProviderIssueSoftened}개 (executionImpact=NONE)`);
+  lines.push('• threshold 변경 전 3영업일 counterfactual 성과 확인');
   lines.push('');
   lines.push('마스킹 해제 분석:');
   lines.push(`• wouldEnterIfNoTimeBlock: ${d.wouldEnterIfNoTimeBlock}`);
