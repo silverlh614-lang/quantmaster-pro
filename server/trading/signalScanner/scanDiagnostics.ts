@@ -105,6 +105,10 @@ import {
 } from './counterfactualShadowLearningLane.js';
 // ADR-0436 — Gate Eligibility Split 진단 섹션 (별도 파일, ADR-0133 1500줄 한계).
 import { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
+import {
+  classifyGateScoreCandidateBucket,
+  type GateScoreCandidateBucket,
+} from './gateScoreCandidateBucket.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -139,6 +143,13 @@ export interface GateScoreHealthSummary {
     | 'PROVIDER_DEGRADED_DOMINANT'
     | 'MIXED'
     | 'NO_SAMPLES';
+}
+
+export interface GateScoreCandidateBucketSummary {
+  counts: Record<GateScoreCandidateBucket, number>;
+  dataBlockedNearMissTopUnavailable: Array<{ condition: string; count: number }>;
+  probingTopConditions: Array<{ condition: string; count: number }>;
+  totalNearMissLike: number;
 }
 
 export interface MacroGateState {
@@ -325,6 +336,8 @@ export interface ScanSummary {
    * normalizedGateScore 는 표시 전용이며 live decision/Kelly/KIS 주문 판단에 사용하지 않는다.
    */
   gateScoreHealth?: GateScoreHealthSummary;
+  /** ADR-452d — diagnostic-only near-miss buckets; executionImpact is always NONE. */
+  gateScoreCandidateBuckets?: GateScoreCandidateBucketSummary;
 }
 
 let _lastBuySignalAt = 0;
@@ -455,6 +468,11 @@ export interface ScanCounters {
   gateScoreUnavailableCounts: Record<string, number>;
   gateScoreThresholdNotMetCounts: Record<string, number>;
   gateScoreProviderDegradedCounts: Record<string, number>;
+  /** ADR-452d — diagnostic-only bucket counters (live decision 미사용). */
+  gateScoreBucketCounts: Record<GateScoreCandidateBucket, number>;
+  gateScoreBucketReasonCounts: Record<string, number>;
+  dataBlockedNearMissUnavailableCounts: Record<string, number>;
+  probingConditionCounts: Record<string, number>;
 }
 
 export function createScanCounters(): ScanCounters {
@@ -514,6 +532,17 @@ export function createScanCounters(): ScanCounters {
     gateScoreUnavailableCounts: {},
     gateScoreThresholdNotMetCounts: {},
     gateScoreProviderDegradedCounts: {},
+    // ADR-452d — Gate near-miss bucket 진단 누적기 초기화 (executionImpact NONE).
+    gateScoreBucketCounts: {
+      EXECUTABLE: 0,
+      DATA_BLOCKED_NEAR_MISS: 0,
+      PROBING: 0,
+      SHADOW_ONLY: 0,
+      REJECTED: 0,
+    },
+    gateScoreBucketReasonCounts: {},
+    dataBlockedNearMissUnavailableCounts: {},
+    probingConditionCounts: {},
   };
 }
 
@@ -672,6 +701,58 @@ export function accumulateGateScoreHealth(
   }
 }
 
+/**
+ * ADR-452d — Gate score candidate bucket 누적 helper.
+ *
+ * Diagnostic-only bucket 분류를 ScanCounters 에 누적한다. executionImpact 는 classifier 에서
+ * literal 'NONE' 으로 고정되며, 결과는 live threshold/Kelly/KIS 주문 판단에 사용하지 않는다.
+ */
+export function accumulateGateScoreCandidateBucket(
+  counters: ScanCounters,
+  result: {
+    gateScore?: number;
+    rawScore?: number;
+    availableMaxScore?: number;
+    normalizedGateScore?: number;
+    unavailableConditions?: readonly string[];
+    thresholdNotMetConditions?: readonly string[];
+    providerDegradedConditions?: readonly string[];
+  } | null | undefined,
+  normalThreshold: number,
+): void {
+  if (!result || !isFiniteNumber(result.gateScore) || !isFiniteNumber(normalThreshold)) return;
+
+  const decision = classifyGateScoreCandidateBucket({
+    gateScore: result.gateScore,
+    rawScore: result.rawScore,
+    availableMaxScore: result.availableMaxScore,
+    normalizedGateScore: result.normalizedGateScore,
+    unavailableConditions: result.unavailableConditions,
+    thresholdNotMetConditions: result.thresholdNotMetConditions,
+    providerDegradedConditions: result.providerDegradedConditions,
+    normalThreshold,
+  });
+
+  counters.gateScoreBucketCounts[decision.bucket] += 1;
+  incrementCount(counters.gateScoreBucketReasonCounts, decision.bucket);
+
+  if (decision.bucket === 'DATA_BLOCKED_NEAR_MISS') {
+    for (const condition of result.unavailableConditions ?? []) {
+      incrementCount(counters.dataBlockedNearMissUnavailableCounts, condition);
+    }
+  }
+
+  if (decision.bucket === 'PROBING') {
+    for (const condition of [
+      ...(result.unavailableConditions ?? []),
+      ...(result.thresholdNotMetConditions ?? []),
+      ...(result.providerDegradedConditions ?? []),
+    ]) {
+      incrementCount(counters.probingConditionCounts, condition);
+    }
+  }
+}
+
 function topCounts(record: Record<string, number>, limit = 5): Array<{ condition: string; count: number }> {
   return Object.entries(record)
     .sort((a, b) => b[1] - a[1])
@@ -741,6 +822,54 @@ export function formatGateScoreHealthSection(summary?: GateScoreHealthSummary | 
   }
   if (summary.providerDegradedTop.length > 0) {
     lines.push(`  • providerDegraded top: ${summary.providerDegradedTop.map((x) => `${x.condition}×${x.count}`).join(', ')}`);
+  }
+
+  return lines.join('\n');
+}
+
+export function buildGateScoreCandidateBucketSummary(counters: ScanCounters): GateScoreCandidateBucketSummary {
+  const counts = { ...counters.gateScoreBucketCounts };
+  return {
+    counts,
+    dataBlockedNearMissTopUnavailable: topCounts(counters.dataBlockedNearMissUnavailableCounts),
+    probingTopConditions: topCounts(counters.probingConditionCounts),
+    totalNearMissLike: (counts.DATA_BLOCKED_NEAR_MISS ?? 0) + (counts.PROBING ?? 0) + (counts.SHADOW_ONLY ?? 0),
+  };
+}
+
+export function formatGateScoreCandidateBucketSection(
+  summary?: GateScoreCandidateBucketSummary | null,
+): string | null {
+  if (!summary) return null;
+
+  const nearMiss = summary.counts.DATA_BLOCKED_NEAR_MISS ?? 0;
+  const probing = summary.counts.PROBING ?? 0;
+  const shadowOnly = summary.counts.SHADOW_ONLY ?? 0;
+
+  if (nearMiss + probing + shadowOnly === 0) return null;
+
+  const lines = [
+    '🟡 Gate Near-Miss Buckets (ADR-452d)',
+    `  • DATA_BLOCKED_NEAR_MISS: ${nearMiss}`,
+    `  • PROBING: ${probing}`,
+    `  • SHADOW_ONLY: ${shadowOnly}`,
+    '  • executionImpact: NONE',
+  ];
+
+  if (summary.dataBlockedNearMissTopUnavailable.length > 0) {
+    lines.push(
+      `  • nearMiss unavailable: ${summary.dataBlockedNearMissTopUnavailable
+        .map((x) => `${x.condition}×${x.count}`)
+        .join(', ')}`,
+    );
+  }
+
+  if (summary.probingTopConditions.length > 0) {
+    lines.push(
+      `  • probing blockers: ${summary.probingTopConditions
+        .map((x) => `${x.condition}×${x.count}`)
+        .join(', ')}`,
+    );
   }
 
   return lines.join('\n');
@@ -926,6 +1055,14 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   if (gateScoreHealthSection) {
     lines.push('');
     lines.push(gateScoreHealthSection);
+  }
+
+  // ADR-452d — Gate near-miss buckets (diagnostic-only, executionImpact NONE).
+  // DATA_BLOCKED_NEAR_MISS / PROBING / SHADOW_ONLY 는 실매수 승격 없이 운영 진단에만 노출한다.
+  const gateScoreBucketSection = formatGateScoreCandidateBucketSection(summary.gateScoreCandidateBuckets);
+  if (gateScoreBucketSection) {
+    lines.push('');
+    lines.push(gateScoreBucketSection);
   }
 
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
@@ -1116,6 +1253,8 @@ export async function persistScanResults(
     hardRiskBlockedCount: counters.hardRiskBlockedCount,
     // ADR-452c — diagnostic-only score health summary.
     gateScoreHealth: buildGateScoreHealthSummary(counters),
+    // ADR-452d — diagnostic-only near-miss bucket summary (executionImpact NONE).
+    gateScoreCandidateBuckets: buildGateScoreCandidateBucketSummary(counters),
   };
 
   // ADR-0420 — Fresh Scan Blocker Attribution build + persist (옵셔널, 후방호환).

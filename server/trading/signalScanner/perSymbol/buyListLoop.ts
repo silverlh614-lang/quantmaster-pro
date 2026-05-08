@@ -124,6 +124,7 @@ import {
   accumulateFreshConditionOutputs,
   accumulateGate2ConditionOutputs,
   accumulateGateEligibility,
+  accumulateGateScoreCandidateBucket,
   accumulateGateScoreHealth,
 } from '../scanDiagnostics.js';
 // ADR-0436 — Gate Eligibility Split (LIVE_ELIGIBLE vs SHADOW_OBSERVABLE).
@@ -142,6 +143,7 @@ import { recordR3ProvisionalShadowCandidate } from '../../../persistence/provisi
 import { deriveCounterfactualShadowLearningCandidate } from '../counterfactualShadowLearningLane.js';
 import { appendCounterfactualShadowLearningEntry } from '../../../persistence/counterfactualShadowLearningRepo.js';
 import { deriveGateDecisionRouterResult } from '../gateDecisionRouter.js';
+import { getRegimeGateBand } from '../../gateConfig.js';
 import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
 // ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
@@ -1330,6 +1332,13 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         accumulateGateScoreHealth(ctx.scanCounters, reCheckGate);
       } catch (e) {
         console.warn('[ADR-452c] accumulateGateScoreHealth failed:', e instanceof Error ? e.message : e);
+      }
+      // ADR-452d — Gate near-miss bucket 진단 누적. executionImpact=NONE, live decision 미사용.
+      try {
+        const band = getRegimeGateBand(ctx.regime);
+        accumulateGateScoreCandidateBucket(ctx.scanCounters, reCheckGate, band.normal);
+      } catch (e) {
+        console.warn('[ADR-452d] accumulateGateScoreCandidateBucket failed:', e instanceof Error ? e.message : e);
       }
       // ADR-0420: Fresh Scan Blocker Attribution 누적 — 단일 후보 outputs 를 conditionKey
       //   별 status bucket 에 가산. persistScanResults 가 build → ScanSummary 영속.
