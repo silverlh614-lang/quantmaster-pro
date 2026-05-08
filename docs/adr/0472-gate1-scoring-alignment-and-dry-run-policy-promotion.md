@@ -51,3 +51,26 @@ The new component candidates are:
 - Do not treat provider issues as market bearish signals.
 - Keep `SELL_ONLY`, emergency stop, R6 defense, VIX, and FOMC hard risk blocks intact.
 - Keep shadow and counterfactual learning paths intact.
+
+## ADR-0471 Final Calibration Alignment
+
+`gate1FinalCalibration.ts` remains the ADR-0471 final Gate1 calibration dry-run file. ADR-0472 also aligns with its policy direction and must verify:
+
+- `UnknownPenaltyPolicyMode` definitions and call sites remain explicit.
+- `UNKNOWN_DIAGNOSTIC_ONLY` scenario math moves supply unknown pressure out of point score only in dry-run.
+- active-component based required score calculation remains diagnostic.
+- threshold sweep output never mutates the live Gate threshold.
+- `enableMode` degrades to `SHADOW_ONLY` when the calibration context is `SELL_ONLY`.
+- `liveExecutionAllowed` remains `false`.
+- provider `VERIFIED` automatically disables unknown-policy relaxation.
+- `providerVerifiedOverrideWarning` exists when a verified provider still requests unknown relaxation.
+
+Policy decisions:
+
+- `UNKNOWN_DIAGNOSTIC_ONLY` survivors are not live candidates.
+- `UNKNOWN_DIAGNOSTIC_ONLY` survivors are `SHADOW_ONLY` observation/counterfactual targets.
+- live `requiredScore=70` is retained.
+- threshold sweep is diagnostic-only and does not change the actual Gate threshold.
+- unknown penalty relaxation is allowed only in `SHADOW_ONLY` dry-run when `providerIssue=true` and `marketSignal=false`.
+- when provider health becomes `VERIFIED`, unknown relaxation is automatically disabled.
+- live policy promotion is forbidden without 3 trading days of observation data and operator approval.

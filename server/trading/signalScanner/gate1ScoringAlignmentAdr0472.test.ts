@@ -8,6 +8,11 @@ import { buildPenaltyDeduplicationReport } from './gate1PenaltyDeduplication.js'
 import { buildRiskDoubleCountAuditReport } from './gate1RiskDoubleCount.js';
 import { buildFinalGate1CalibrationAuditReport } from './gate1FinalCalibration.js';
 import {
+  buildActiveComponentCoverage,
+  buildActiveComponentRequiredScorePolicy,
+  buildProviderRecoveryPolicyGuard,
+} from './gate1FinalCalibration.js';
+import {
   buildGate1AlignmentProviderGuard,
   buildGate1ScoringAlignmentReport,
   detectGate1ScoringAlignmentMissingComponents,
@@ -333,5 +338,44 @@ describe('ADR-0472 Gate1 scoring alignment', () => {
     expect(section).toContain('WATCHLIST_UPSTREAM_SCORE');
     expect(section).toContain('BREAKOUT_STRUCTURE');
     expect(section).toContain('nextAction: OBSERVE_3D_THEN_OPERATOR_APPROVAL');
+  });
+
+  it('ADR-0471 UNKNOWN_DIAGNOSTIC_ONLY survivors remain shadow-only observation targets', () => {
+    const final = makeReports().final;
+    const unknownDiagnostic = final?.unknownPolicyScenarios.find((item) =>
+      item.scenario === 'UNKNOWN_DIAGNOSTIC_ONLY');
+
+    expect(unknownDiagnostic?.executionImpact).toBe('NONE');
+    expect(final?.liveExecutionAllowed).toBe(false);
+    expect(final?.thresholdSweep.liveExecutionAllowed).toBe(false);
+    expect(final?.observationPlan.liveExecutionAllowed).toBe(false);
+    expect(final?.observationPlan.operatorApprovalRequired).toBe(true);
+    expect(final?.observationPlan.observationDays).toBe(3);
+    expect(final?.currentRequiredScore).toBe(70);
+  });
+
+  it('ADR-0471 SELL_ONLY calibration degrades enableMode to SHADOW_ONLY', () => {
+    const policy = buildActiveComponentRequiredScorePolicy({
+      regime: 'SELL_ONLY',
+      baseRequiredScore: 70,
+      coverage: buildActiveComponentCoverage(makeReports().repair),
+      recommendedThreshold: 70,
+    });
+
+    expect(policy.enableMode).toBe('SHADOW_ONLY');
+    expect(policy.executionImpact).toBe('NONE');
+    expect(policy.baseRequiredScore).toBe(70);
+  });
+
+  it('ADR-0471 provider VERIFIED auto-disables unknown relaxation and warns on override', () => {
+    const guard = buildProviderRecoveryPolicyGuard({
+      providerHealth: 'VERIFIED',
+      unknownPolicyActive: true,
+      actualSupplySignalState: 'NEUTRAL',
+    });
+
+    expect(guard.unknownPolicyActive).toBe(false);
+    expect(guard.shouldAutoDisableUnknownPolicy).toBe(true);
+    expect(guard.warningIfOverridePersists).toBe(true);
   });
 });
