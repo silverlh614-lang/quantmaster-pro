@@ -520,7 +520,7 @@ export interface ServerShadowTrade {
   /** MA60_DEATH_FORCE_EXIT가 이미 실행되었는지 여부 (중복 청산 방지) */
   ma60DeathForced?: boolean;
   /** 워치리스트 출처 — Pre-Market(기본), Intraday(장중 발굴), Pre-Breakout(돌파 전 선취매) */
-  watchlistSource?: 'PRE_MARKET' | 'INTRADAY' | 'PRE_BREAKOUT' | 'PRE_BREAKOUT_FOLLOWTHROUGH';
+  watchlistSource?: 'PRE_MARKET' | 'INTRADAY' | 'PRE_BREAKOUT' | 'PRE_BREAKOUT_FOLLOWTHROUGH' | 'SHADOW_NEAR_BREAKOUT';
   /** supply_health 기반 자기검증 학습 메타. 기존 shadow trade 호환을 위해 optional. */
   rawSignal?: TradingSignal;
   finalSignal?: TradingSignal;
