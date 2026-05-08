@@ -84,7 +84,16 @@ export const SECTOR_INDEX_MASTER: ReadonlyArray<SectorIndexMasterEntry> = Object
     displayName: '바이오/헬스케어',
     krxIndexCode: '1KSI3020', // KRX KOSPI 200 헬스케어
     market: 'KOSPI',
-    aliases: ['바이오', '헬스케어', '의약', '제약', '의료'],
+    aliases: [
+      '바이오',
+      '헬스케어',
+      '의약',
+      '제약',
+      '의료',
+      // ★ ADR-0447 신규
+      '의약품',
+      '제약업종',
+    ],
     yahooProxySymbol: 'XBI',
   },
   {
@@ -92,7 +101,17 @@ export const SECTOR_INDEX_MASTER: ReadonlyArray<SectorIndexMasterEntry> = Object
     displayName: '금융',
     krxIndexCode: '1KSI3010', // KRX KOSPI 200 금융
     market: 'KOSPI',
-    aliases: ['금융', '은행', '증권', '보험'],
+    aliases: [
+      '금융',
+      '은행',
+      '증권',
+      '보험',
+      // ★ ADR-0447 신규
+      '은행업종',
+      '증권업종',
+      '보험업종',
+      '금융업종',
+    ],
     yahooProxySymbol: 'XLF',
   },
   {
@@ -100,7 +119,14 @@ export const SECTOR_INDEX_MASTER: ReadonlyArray<SectorIndexMasterEntry> = Object
     displayName: '조선',
     krxIndexCode: '1KSI3040', // KRX KOSPI 운수장비 (조선 포함)
     market: 'KOSPI',
-    aliases: ['조선', '기계', '운수장비'],
+    aliases: [
+      '조선',
+      '기계',
+      '운수장비',
+      // ★ ADR-0447 신규
+      '운수장비업종',
+      '기계업종',
+    ],
     yahooProxySymbol: undefined, // Yahoo ETF L4 가용 미지정 (정성 분류 부재)
   },
   {
@@ -108,7 +134,15 @@ export const SECTOR_INDEX_MASTER: ReadonlyArray<SectorIndexMasterEntry> = Object
     displayName: '철강',
     krxIndexCode: '1KSI3050', // KRX KOSPI 철강금속
     market: 'KOSPI',
-    aliases: ['철강', '비금속', '철강금속'],
+    aliases: [
+      '철강',
+      '비금속',
+      '철강금속',
+      // ★ ADR-0447 신규
+      '금속',
+      '비금속광물',
+      '철강금속업종',
+    ],
     yahooProxySymbol: 'SLX',
   },
   {
@@ -116,7 +150,18 @@ export const SECTOR_INDEX_MASTER: ReadonlyArray<SectorIndexMasterEntry> = Object
     displayName: '에너지/화학',
     krxIndexCode: '1KSI3060', // KRX KOSPI 화학
     market: 'KOSPI',
-    aliases: ['화학', '에너지', '석유', '종이', '목재'],
+    aliases: [
+      '화학',
+      '에너지',
+      '석유',
+      '종이',
+      '목재',
+      // ★ ADR-0447 신규
+      '종이·목재',
+      '종이목재',
+      '에너지화학',
+      '석유화학',
+    ],
     yahooProxySymbol: 'XLE',
   },
   {
@@ -124,7 +169,14 @@ export const SECTOR_INDEX_MASTER: ReadonlyArray<SectorIndexMasterEntry> = Object
     displayName: '건설/부동산',
     krxIndexCode: '1KSI3070', // KRX KOSPI 건설업
     market: 'KOSPI',
-    aliases: ['건설', '부동산', '리츠', '건설업'],
+    aliases: [
+      '건설',
+      '부동산',
+      '리츠',
+      '건설업',
+      // ★ ADR-0447 신규
+      '건설업종',
+    ],
     yahooProxySymbol: 'XHB',
   },
   {
@@ -132,7 +184,19 @@ export const SECTOR_INDEX_MASTER: ReadonlyArray<SectorIndexMasterEntry> = Object
     displayName: '유통/소비재',
     krxIndexCode: '1KSI3080', // KRX KOSPI 유통업
     market: 'KOSPI',
-    aliases: ['유통', '소비재', '음식료', '섬유', '유통업'],
+    aliases: [
+      '유통',
+      '소비재',
+      '음식료',
+      '섬유',
+      '유통업',
+      // ★ ADR-0447 신규
+      '음식료·담배',
+      '음식료품',
+      '섬유·의류',
+      '섬유의복',
+      '유통업종',
+    ],
     yahooProxySymbol: 'XLY',
   },
   {
@@ -140,7 +204,19 @@ export const SECTOR_INDEX_MASTER: ReadonlyArray<SectorIndexMasterEntry> = Object
     displayName: '인터넷/플랫폼',
     krxIndexCode: '1KSI3035', // KRX KOSPI 서비스업 (인터넷/플랫폼 포함)
     market: 'KOSPI',
-    aliases: ['인터넷', '플랫폼', '서비스업', '소프트웨어', 'S/W', '게임', '미디어'],
+    aliases: [
+      '인터넷',
+      '플랫폼',
+      '서비스업',
+      '소프트웨어',
+      'S/W',
+      '게임',
+      '미디어',
+      // ★ ADR-0447 신규
+      '통신업',
+      '정보기술',
+      'IT업종',
+    ],
     yahooProxySymbol: 'XLK',
   },
   {
@@ -148,7 +224,11 @@ export const SECTOR_INDEX_MASTER: ReadonlyArray<SectorIndexMasterEntry> = Object
     displayName: '자동차',
     krxIndexCode: '1KSI3045', // KRX KOSPI 자동차 (운수장비 sub)
     market: 'KOSPI',
-    aliases: ['자동차'],
+    aliases: [
+      '자동차',
+      // ★ ADR-0447 신규
+      '자동차부품',
+    ],
     yahooProxySymbol: 'CARZ',
   },
   {

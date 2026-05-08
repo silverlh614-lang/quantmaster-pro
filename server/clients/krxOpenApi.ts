@@ -58,12 +58,15 @@ export interface KrxIndexDailyRow {
    * `'RAW'` (default) — KRX OpenAPI IDX_IND_CD 직접. HIGH confidence.
    * `'NAME_LOOKUP'`   — KRX 가 indexName 만 제공 + SECTOR_INDEX_MASTER alias 매칭으로 backfill.
    *                     HIGH confidence (KRX 공식 표준 이름 1:1 매핑).
+   * `'ALIAS_EXPANSION'` — ADR-0447: normalize 후 SECTOR_INDEX_MASTER alias 확장 매칭으로
+   *                       backfill (예: `"음식료·담배"` → CONSUMER_RETAIL). HIGH confidence —
+   *                       정확 1:1 매핑만 인정 (ambiguous 자동 차단).
    * `'STOCK_DAILY_DERIVED'` — STOCK_DAILY fallback 입력에서 sectorName 매칭으로 합성.
    *                            LOW confidence — leadership confidence 격하 의무.
    *
    * 부재 시 caller 측 default = 'RAW' (raw KRX 응답 그대로).
    */
-  indexCodeSource?: 'RAW' | 'NAME_LOOKUP' | 'STOCK_DAILY_DERIVED';
+  indexCodeSource?: 'RAW' | 'NAME_LOOKUP' | 'ALIAS_EXPANSION' | 'STOCK_DAILY_DERIVED';
 }
 
 const DEFAULT_BASE = 'https://data-dbg.krx.co.kr/svc/apis';
