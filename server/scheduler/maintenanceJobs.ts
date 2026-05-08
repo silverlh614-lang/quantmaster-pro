@@ -21,6 +21,8 @@ import { runKrxHolidayAudit } from '../trading/krxHolidayAudit.js';
 import { runDataVerificationBatch } from '../data/dataVerificationBatch.js';
 import { autoEnrichAndVerifyStockMaster } from '../data/stockMasterAutoEnrichment.js';
 import { runWatchlistDiversityMonitor } from '../learning/watchlistDiversityMonitor.js';
+import { runNearMissOutcomeEvaluationJob } from '../learning/nearMissOutcomeEvaluator.js';
+import { formatNearMissOutcomeEvaluationReport } from '../learning/nearMissOutcomeFormatter.js';
 
 const BACKUP_RETENTION_DAYS = 7;
 
@@ -157,6 +159,30 @@ export function registerMaintenanceJobs(): void {
   // PR-B-2: ALWAYS_ON — 12/1 이 KRX 공휴일이어도 발송 (감사 자체는 휴장과 무관).
   scheduledJob('0 0 1 12 *', 'ALWAYS_ON', 'krx_holiday_audit',
     () => runKrxHolidayAudit(), { timezone: 'UTC' });
+
+  // ADR-454b — Near-Miss Outcome Evaluation (장마감 후 KST 16:10 = UTC 07:10).
+  // DATA_BLOCKED_NEAR_MISS / PROBING / SHADOW_ONLY ledger 의 due 3/5/10영업일 horizon 만
+  // 관측한다. executionImpact=NONE 학습/진단 전용이며 live decision/Kelly/Gate/KIS/entryEngine
+  // 변경·승격은 절대 수행하지 않는다. 활동이 있는 날만 Telegram T2_REPORT 로 노출한다.
+  scheduledJob('10 7 * * 1-5', 'TRADING_DAY_ONLY', 'near_miss_outcome_evaluation', async () => {
+    try {
+      const result = await runNearMissOutcomeEvaluationJob();
+      console.log(
+        `[NearMissOutcomeEvaluation] updated=${result.updated} skipped=${result.skipped} `
+        + `closed=${result.closed} total=${result.summary.totalCount} active=${result.summary.activeCount}`,
+      );
+      if (result.updated + result.skipped + result.closed > 0) {
+        await sendTelegramAlert(formatNearMissOutcomeEvaluationReport(result), {
+          tier: 'T2_REPORT',
+          category: 'near_miss_outcome',
+          dedupeKey: `near-miss-outcome-${new Date().toISOString().slice(0, 10)}`,
+          cooldownMs: 12 * 60 * 60 * 1000,
+        }).catch(console.error);
+      }
+    } catch (e) {
+      console.error('[NearMissOutcomeEvaluation] 실행 오류:', e);
+    }
+  }, { timezone: 'UTC' });
 
   // ADR-0128 정책 #2 — 데이터 검증 배치 (장 마감 1시간 후, KST 평일 16:30 = UTC 07:30).
   // 모든 워치리스트 종목을 KIS daily quote 로 sanity 검증 → 위반 시 verificationQueue 에
