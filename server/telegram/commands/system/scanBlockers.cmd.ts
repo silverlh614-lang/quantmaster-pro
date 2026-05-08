@@ -61,6 +61,13 @@ import {
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { formatPhase2RecoveryCompactLine } from '../../../clients/sectorEnergyIndexCodeRecoveryDiagnostic.js';
 import { formatSanityDiagnosticCompactLine } from '../../../clients/sectorEnergySanityViolationDiagnostic.js';
+// ADR-0448 Phase 0 — SectorEnergy 3층 분리 (diagnostic / scoring / execution) +
+//   R3 Noise Governor compact line. read-only — macroState 만 read, LIVE 매매 영향 0.
+import {
+  deriveSectorEnergyExecutionImpact,
+  formatSectorEnergyExecutionImpactCompactLine,
+  isSectorEnergyExecutionDecouplingDisabled,
+} from '../../../clients/sectorEnergyExecutionImpact.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -231,6 +238,45 @@ const scanBlockers: TelegramCommand = {
       );
     }
 
+    // ADR-0448 Phase 0 — SectorEnergy 3층 분리 compact line.
+    // read-only — macroState.sectorEnergyQualityDiagnostic 만 read.
+    // try/catch 격리 — 진단 throw 가 base 메시지 차단 안 함.
+    // ENV `SECTOR_ENERGY_EXECUTION_DECOUPLING_DISABLED=true` 시 미노출 (default OFF).
+    let executionImpactLine: string | null = null;
+    try {
+      if (!isSectorEnergyExecutionDecouplingDisabled()) {
+        const macroForExec = loadMacroState();
+        const qDiagForExec = macroForExec?.sectorEnergyQualityDiagnostic as
+          | {
+              dataQuality?: string;
+              sourceTier?: string;
+              shouldBlockLeadershipConfidence?: boolean;
+              sanityViolation?: { confidenceImpact?: 'NONE' | 'DEGRADED' | 'BLOCKED' };
+              fallbackUsed?: 'NONE' | 'STOCK_DAILY' | 'ETF' | 'CACHE';
+              indexCodeCoverage?: number;
+            }
+          | undefined;
+        const decision = deriveSectorEnergyExecutionImpact({
+          ...(qDiagForExec?.dataQuality !== undefined ? { dataQuality: qDiagForExec.dataQuality } : {}),
+          ...(qDiagForExec?.sourceTier !== undefined ? { sourceTier: qDiagForExec.sourceTier } : {}),
+          ...(qDiagForExec?.shouldBlockLeadershipConfidence !== undefined
+            ? { leadershipConfidence: qDiagForExec.shouldBlockLeadershipConfidence ? 'BLOCKED' : 'OK' }
+            : {}),
+          ...(qDiagForExec?.sanityViolation?.confidenceImpact !== undefined
+            ? { sanityConfidenceImpact: qDiagForExec.sanityViolation.confidenceImpact }
+            : {}),
+          ...(qDiagForExec?.fallbackUsed !== undefined ? { fallbackUsed: qDiagForExec.fallbackUsed } : {}),
+          ...(qDiagForExec?.indexCodeCoverage !== undefined ? { indexCodeCoverage: qDiagForExec.indexCodeCoverage } : {}),
+        });
+        executionImpactLine = formatSectorEnergyExecutionImpactCompactLine(decision);
+      }
+    } catch (err) {
+      console.warn(
+        '[scan_blockers] ADR-0448 SectorEnergy execution impact line 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
+        err,
+      );
+    }
+
     const parts: string[] = [baseMessage];
     if (degradedSection) parts.push(degradedSection);
     if (supplyProviderSection) parts.push(supplyProviderSection);
@@ -240,6 +286,7 @@ const scanBlockers: TelegramCommand = {
     if (kisWsSubscriptionSection) parts.push(kisWsSubscriptionSection);
     if (phase2Line) parts.push(`🧩 SectorEnergy indexCode Recovery Phase 2: ${phase2Line}`);
     if (sanityLine) parts.push(`🧪 ${sanityLine}`);
+    if (executionImpactLine) parts.push(executionImpactLine);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);
   },

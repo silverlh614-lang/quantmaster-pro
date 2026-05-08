@@ -28,6 +28,12 @@ import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
 // ADR-0412: Frozen Quote Detector — 입력 데이터 오염 + Holiday-aware streak skip 진단 표시.
 import type { FrozenQuoteResult } from './frozenQuoteDetector.js';
 import type { StreakSkipReason } from './r3StreakSkipPolicy.js';
+// ADR-0448 Phase 0 — R3 Noise Governor compact line + wiring helper + decision type.
+import {
+  formatR3NoiseGovernorCompactLine,
+  type R3NoiseGovernorDecision,
+} from './r3NoiseGovernor.js';
+import { buildR3NoiseDecision } from './r3NoiseGovernorWiring.js';
 // ADR-0414 — Price Integrity Checker + Correction Overlay (Stage 1 Read-Only Mode).
 // Stage 1: diagnostics only — corrected 값 LIVE 매수 판단 사용 0건 (절대 원칙 #3).
 import type { PriceIntegrityStatus } from './priceIntegrityChecker.js';
@@ -272,6 +278,8 @@ export interface ScanSummary {
   providerDegradedObservableCount?: number;
   trueGateFailCount?: number;
   hardRiskBlockedCount?: number;
+  /** ADR-0448 Phase 0 — R3 Noise Governor decision snapshot (옵셔널, 후방호환). */
+  r3NoiseDecision?: R3NoiseGovernorDecision;
 }
 
 let _lastBuySignalAt = 0;
@@ -742,6 +750,16 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(counterfactualSection);
   }
 
+  // ADR-0448 Phase 0 — R3 Noise Governor compact line.
+  //   Gate1 통과 0건 시점의 cause 분류 (TRUE_GATE1_ZERO / SELL_ONLY / LUNCH_BREAK /
+  //   DATA_UNAVAILABLE / SECTOR_ENERGY_DIAGNOSTIC_BLOCKED / PROVIDER_DEGRADED /
+  //   SHADOW_OBSERVABLE_EXISTS / UNKNOWN) + streakImpact (0/1) + liveBlockPreserved=true.
+  //   부재 시 미노출 (gate1Pass>0 또는 ENV DISABLED — 후방호환).
+  if (summary.r3NoiseDecision) {
+    lines.push('');
+    lines.push(formatR3NoiseGovernorCompactLine(summary.r3NoiseDecision));
+  }
+
   return lines.join('\n');
 }
 
@@ -1103,7 +1121,15 @@ export async function persistScanResults(
       _lastScanSummary.candidates >= 1;
     const shadowObservablePresent = (_lastScanSummary.shadowObservableCount ?? 0) > 0;
     const dataUnavailableDominant = isGate1Zero && shadowObservablePresent;
-    if (sanity.violation !== 'NONE' && !skipStreak && !dataUnavailableDominant) {
+
+    // ADR-0448 Phase 0 — R3 Noise Governor wiring (helper 위임).
+    const r3NoiseDecision = isGate1Zero
+      ? buildR3NoiseDecision({ summary: _lastScanSummary, options, kstNow })
+      : undefined;
+    if (r3NoiseDecision) _lastScanSummary.r3NoiseDecision = r3NoiseDecision;
+    const noiseGovernorSkip = r3NoiseDecision?.streakImpact === 0;
+
+    if (sanity.violation !== 'NONE' && !skipStreak && !dataUnavailableDominant && !noiseGovernorSkip) {
       const regime = _lastScanSummary.macroGateState?.regime ?? '';
       const guards = {
         candidates: _lastScanSummary.candidates,
