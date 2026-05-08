@@ -14,7 +14,7 @@ import {
   getAllNearMissOutcomes,
 } from '../persistence/nearMissOutcomeLedger.js';
 
-export type NearMissOutcomeConditionKind = 'unavailableConditions' | 'thresholdNotMetConditions';
+export type NearMissOutcomeConditionKind = 'unavailableConditions' | 'thresholdNotMetConditions' | 'providerDegradedConditions';
 export type NearMissOutcomeStrictnessVerdict =
   | 'OVER_STRICT_CANDIDATE'
   | 'GOOD_DEFENSE'
@@ -155,7 +155,7 @@ export function buildNearMissOutcomeAnalyticsReport(
     };
   });
 
-  const conditionAnalytics = Object.fromEntries((['unavailableConditions', 'thresholdNotMetConditions'] as const).map((kind) => {
+  const conditionAnalytics = Object.fromEntries((['unavailableConditions', 'thresholdNotMetConditions', 'providerDegradedConditions'] as const).map((kind) => {
     const byCondition = new Map<string, NearMissOutcomeEntry[]>();
     for (const entry of entries) {
       for (const condition of uniqueConditions(entry, kind)) {
