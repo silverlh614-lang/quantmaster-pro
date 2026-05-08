@@ -2,6 +2,12 @@
 // @responsibility: /learning_status 명령 — 직전 nightly reflection 1건 + 편향 + 실험 + suggest 7일 요약.
 import { getLearningStatus } from '../../../learning/learningHistorySummary.js';
 import { formatLearningStatusMessage } from '../../../learning/learningHistoryFormatter.js';
+import { buildNearMissOutcomeAnalyticsReport } from '../../../learning/nearMissOutcomeAnalytics.js';
+import {
+  buildGateReclassificationProposalReport,
+  formatGateReclassificationProposalReport,
+  isGateReclassificationProposalDisabled,
+} from '../../../learning/gateReclassificationProposal.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -14,7 +20,20 @@ const learningStatus: TelegramCommand = {
   async execute({ reply }) {
     try {
       const snapshot = getLearningStatus();
-      await reply(formatLearningStatusMessage(snapshot));
+      let message = formatLearningStatusMessage(snapshot);
+
+      if (!isGateReclassificationProposalDisabled()) {
+        try {
+          const analytics = buildNearMissOutcomeAnalyticsReport();
+          const proposalReport = buildGateReclassificationProposalReport(analytics);
+          const section = formatGateReclassificationProposalReport(proposalReport);
+          if (section) message += `\n\n${section}`;
+        } catch (e) {
+          console.warn('[ADR-456] Gate reclassification proposal failed:', e instanceof Error ? e.message : e);
+        }
+      }
+
+      await reply(message);
     } catch (e) {
       console.error('[TelegramBot] /learning_status 실패:', e);
       await reply('❌ 학습 상태 조회 실패 — 서버 로그를 확인하세요.');
