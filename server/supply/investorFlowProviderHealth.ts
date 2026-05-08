@@ -49,6 +49,19 @@ export interface InvestorFlowProviderHealth {
   marketSession?: InvestorFlowMarketSession;
   retryable?: boolean;
   cacheFallback?: boolean;
+  /**
+   * ADR-0445 — KRX investor-flow parser empty rows hardening.
+   *
+   * 직전 성공/실패 시각 + parser 진단 propagate. 옵셔널 후방호환 — KRX provider
+   * 만 본격 사용 (NAVER / KIS / CACHE / COMPOSITE 은 미사용).
+   */
+  lastSuccessAtKst?: string;
+  lastSuccessRowCount?: number;
+  lastFailureAtKst?: string;
+  lastFailureReason?: string;
+  expectedPaths?: string[];
+  detectedCandidatePaths?: string[];
+  cacheStatus?: 'CACHE_EMPTY' | 'CACHE_HIT' | 'LAST_GOOD_STALE';
 }
 
 export interface InvestorFlowSemanticNetBuy {
@@ -155,6 +168,14 @@ export function makeInvestorFlowProviderHealth(input: {
   marketSession?: InvestorFlowMarketSession;
   retryable?: boolean;
   cacheFallback?: boolean;
+  // ADR-0445 — parser 진단 propagate (옵셔널, 후방호환).
+  lastSuccessAtKst?: string;
+  lastSuccessRowCount?: number;
+  lastFailureAtKst?: string;
+  lastFailureReason?: string;
+  expectedPaths?: string[];
+  detectedCandidatePaths?: string[];
+  cacheStatus?: 'CACHE_EMPTY' | 'CACHE_HIT' | 'LAST_GOOD_STALE';
 }): InvestorFlowProviderHealth {
   const semantic = input.semantic;
   const semanticAvailable = input.semanticAvailable ?? (
@@ -178,6 +199,14 @@ export function makeInvestorFlowProviderHealth(input: {
     ...(input.marketSession ? { marketSession: input.marketSession } : {}),
     ...(input.retryable !== undefined ? { retryable: input.retryable } : {}),
     ...(input.cacheFallback !== undefined ? { cacheFallback: input.cacheFallback } : {}),
+    // ADR-0445 — parser 진단 propagate (옵셔널, 후방호환).
+    ...(input.lastSuccessAtKst ? { lastSuccessAtKst: input.lastSuccessAtKst } : {}),
+    ...(input.lastSuccessRowCount !== undefined ? { lastSuccessRowCount: input.lastSuccessRowCount } : {}),
+    ...(input.lastFailureAtKst ? { lastFailureAtKst: input.lastFailureAtKst } : {}),
+    ...(input.lastFailureReason ? { lastFailureReason: input.lastFailureReason } : {}),
+    ...(input.expectedPaths && input.expectedPaths.length > 0 ? { expectedPaths: [...input.expectedPaths] } : {}),
+    ...(input.detectedCandidatePaths && input.detectedCandidatePaths.length > 0 ? { detectedCandidatePaths: [...input.detectedCandidatePaths] } : {}),
+    ...(input.cacheStatus ? { cacheStatus: input.cacheStatus } : {}),
   };
 }
 
@@ -230,6 +259,37 @@ export function getLastInvestorFlowProviderHealth(): InvestorFlowProviderHealth[
   return lastHealth.map((h) => ({ ...h }));
 }
 
+function extractKstHhmm(iso: string | undefined): string | null {
+  if (typeof iso !== 'string') return null;
+  const match = /T(\d{2}):(\d{2})/.exec(iso);
+  if (!match) return null;
+  return `${match[1]}:${match[2]} KST`;
+}
+
+/**
+ * ADR-0445 — KRX provider 진단 sub-lines (운영자 lastOK/lastFail/expected/detected/
+ * cache 즉시 인지). 옵셔널 propagate 필드가 부재하면 sub-line 자체를 노출하지 않아
+ * 기존 ADR-0435 출력과 후방호환.
+ */
+function formatKrxAdr0445SubLines(krx: InvestorFlowProviderHealth): string[] {
+  const sub: string[] = [];
+  const lastOkHhmm = extractKstHhmm(krx.lastSuccessAtKst);
+  if (lastOkHhmm) {
+    const rowsLabel = krx.lastSuccessRowCount !== undefined ? ` rows=${krx.lastSuccessRowCount}` : '';
+    sub.push(`  lastOK: ${lastOkHhmm}${rowsLabel}`);
+  }
+  const lastFailHhmm = extractKstHhmm(krx.lastFailureAtKst);
+  if (lastFailHhmm) sub.push(`  lastFail: ${lastFailHhmm}`);
+  if (krx.expectedPaths && krx.expectedPaths.length > 0) {
+    sub.push(`  expected: ${krx.expectedPaths.slice(0, 4).join(',')}`);
+  }
+  if (krx.detectedCandidatePaths && krx.detectedCandidatePaths.length > 0) {
+    sub.push(`  detected: ${krx.detectedCandidatePaths.slice(0, 3).join(',')}`);
+  }
+  if (krx.cacheStatus) sub.push(`  cache: ${krx.cacheStatus}`);
+  return sub;
+}
+
 export function summarizeInvestorFlowProviderHealth(health: InvestorFlowProviderHealth[]): string {
   if (health.length === 0) return 'Supply Provider Health: no recent investor-flow provider sample';
   const byProvider = new Map<InvestorFlowProvider, InvestorFlowProviderHealth>();
@@ -239,7 +299,11 @@ export function summarizeInvestorFlowProviderHealth(health: InvestorFlowProvider
   const composite = byProvider.get('COMPOSITE');
   const cache = byProvider.get('CACHE');
   const lines = ['Supply Provider Health:'];
-  if (krx) lines.push(`- KRX: ${krx.dataAvailable ? 'OK' : 'DATA_UNAVAILABLE'} / ${krx.status}`);
+  if (krx) {
+    lines.push(`- KRX: ${krx.dataAvailable ? 'OK' : 'DATA_UNAVAILABLE'} / ${krx.status}`);
+    // ADR-0445 — parser 진단 sub-lines (옵셔널, 후방호환).
+    lines.push(...formatKrxAdr0445SubLines(krx));
+  }
   if (naver) lines.push(`- NAVER: ${naver.status}`);
   lines.push(`- Semantic NetBuy: ${composite?.semanticAvailable ? 'OK' : 'NOT_WIRED'}`);
   if (cache) lines.push(`- CACHE: ${cache.status}`);

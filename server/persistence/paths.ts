@@ -98,6 +98,19 @@ export const RECONCILE_LAST_FILE     = path.join(DATA_DIR, 'reconcile-last.json'
 export const FAILURE_PATTERN_FILE    = path.join(DATA_DIR, 'failure-patterns.json');
 /** DART LLM 임팩트 상태 — 악재 소화 완료 종목 캐시 */
 export const DART_LLM_STATE_FILE     = path.join(DATA_DIR, 'dart-llm-state.json');
+/**
+ * ADR-0445 — KRX investor-flow parser empty rows 진단 ledger.
+ *
+ * sanitized metadata 만 영속 (raw payload / token / cookie / private header
+ * 영구 금지). parser 가 시도한 expectedPaths + 실제 발견된 detectedCandidatePaths
+ * + 첫 row sanitizedSampleKeys + lastSuccess/lastFailure timestamps 만 저장.
+ * 별도 ledger — `data/investor-flow-cache.json` 와 *물리 분리* (cache 는 successful
+ * sample, ledger 는 parser 실패 원인 분해). 두 ledger 합치지 않음.
+ */
+export const KRX_INVESTOR_FLOW_PARSER_DIAGNOSTICS_FILE = path.join(
+  DATA_DIR,
+  'krx-investor-flow-parser-diagnostics.json',
+);
 /** Gate 조건 통과율 히트맵 — 조건별 passed/failed 누적 */
 export const GATE_AUDIT_FILE         = path.join(DATA_DIR, 'gate-audit.json');
 /** 파이프라인 트레이서 — 일별 스캔 의사결정 추적 파일 */
