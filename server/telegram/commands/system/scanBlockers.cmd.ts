@@ -55,6 +55,12 @@ import {
   formatKisWsSubscriptionSection,
   isKisWsSubscriptionDiagDisabled,
 } from '../../../clients/kisWebSocketSubscriptionManager.js';
+// ADR-0446 — Phase 2 indexCode recovery + sanity violation compact line.
+// read-only — macroState 영속 sectorEnergyQualityDiagnostic 만 read.
+// LIVE 매매 본체 영향 0.
+import { loadMacroState } from '../../../persistence/macroStateRepo.js';
+import { formatPhase2RecoveryCompactLine } from '../../../clients/sectorEnergyIndexCodeRecoveryDiagnostic.js';
+import { formatSanityDiagnosticCompactLine } from '../../../clients/sectorEnergySanityViolationDiagnostic.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -199,6 +205,32 @@ const scanBlockers: TelegramCommand = {
       );
     }
 
+    // ADR-0446 — Phase 2 recovery + sanity violation compact lines.
+    // read-only — macroState.sectorEnergyQualityDiagnostic 만 read.
+    // try/catch 격리 — 진단 throw 가 base 메시지 차단 안 함.
+    let phase2Line: string | null = null;
+    let sanityLine: string | null = null;
+    try {
+      const macro = loadMacroState();
+      const qDiag = macro?.sectorEnergyQualityDiagnostic;
+      if (qDiag?.sectorIndexRecovery) {
+        // sectorIndexRecovery 영속 데이터 (cast 안전 — schema 옵셔널 후방호환)
+        phase2Line = formatPhase2RecoveryCompactLine(
+          qDiag.sectorIndexRecovery as Parameters<typeof formatPhase2RecoveryCompactLine>[0],
+        );
+      }
+      if (qDiag?.sanityViolation) {
+        sanityLine = formatSanityDiagnosticCompactLine(
+          qDiag.sanityViolation as Parameters<typeof formatSanityDiagnosticCompactLine>[0],
+        );
+      }
+    } catch (err) {
+      console.warn(
+        '[scan_blockers] ADR-0446 Phase 2/Sanity compact line 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
+        err,
+      );
+    }
+
     const parts: string[] = [baseMessage];
     if (degradedSection) parts.push(degradedSection);
     if (supplyProviderSection) parts.push(supplyProviderSection);
@@ -206,6 +238,8 @@ const scanBlockers: TelegramCommand = {
     if (promotionLine) parts.push(promotionLine);
     if (universeSection) parts.push(universeSection);
     if (kisWsSubscriptionSection) parts.push(kisWsSubscriptionSection);
+    if (phase2Line) parts.push(`🧩 SectorEnergy indexCode Recovery Phase 2: ${phase2Line}`);
+    if (sanityLine) parts.push(`🧪 ${sanityLine}`);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);
   },

@@ -27,6 +27,8 @@
  */
 
 import type { SectorEnergyDataQuality5 } from './sectorEnergyDataQuality.js';
+import type { SectorIndexCodeRecoveryDiagnostic } from './sectorEnergyIndexCodeRecoveryDiagnostic.js';
+import type { SectorEnergySanityViolationDiagnostic } from './sectorEnergySanityViolationDiagnostic.js';
 
 // ─── ENV gate SSOT (호출자 측 inline 검사 0건) ──────────────────────────────
 
@@ -124,6 +126,26 @@ export interface SectorEnergyQualityDiagnostic {
    * `NOT_NEEDED`    — raw KRX 정상 (backfill 0 + dataQuality OK).
    */
   repairStatus?: 'RECOVERED' | 'PARTIAL' | 'STILL_STALE' | 'NOT_NEEDED';
+  /**
+   * ADR-0446 Phase 2: indexCode recovery 분해 (옵셔널, 후방호환).
+   *
+   * `backfillIndexCodes` (ADR-0424) 위에서 *missing row 의 진짜 원인* 을 row 단위로 분해.
+   * 11-value `SectorIndexCodeMissingReason` union + sourceTier breakdown + recoveryStatus
+   * 결정 + leadershipConfidence 차단 결정.
+   *
+   * 부재 시 caller (Phase 1 호출자) 무영향 — Phase 2 진단 layer 만 미노출.
+   */
+  sectorIndexRecovery?: SectorIndexCodeRecoveryDiagnostic;
+  /**
+   * ADR-0446 sanity violation 진단 (옵셔널, 후방호환).
+   *
+   * 단순 console.warn 로그였던 sanity violation 을 *구조화된 진단* 으로 집계.
+   * 7-value `SectorEnergySanityViolationKind` union + sector vs stock-level 분리 +
+   * topViolatingSectors/Stocks + confidenceImpact 결정.
+   *
+   * 부재 시 caller (Phase 1 호출자) 무영향.
+   */
+  sanityViolation?: SectorEnergySanityViolationDiagnostic;
 }
 
 // ─── SSOT 입력 타입 ──────────────────────────────────────────────────────
@@ -158,6 +180,18 @@ export interface EvaluateSectorEnergyQualityInput {
    * 로직 자체는 변경 없음 (backfill 후 indexCodeCoverage 가 자동으로 회복된 값으로 입력됨).
    */
   indexCodeBackfilledCount?: number;
+  /**
+   * ADR-0446 Phase 2: indexCode recovery 진단 (옵셔널, 후방호환).
+   *
+   * Provider 가 `evaluateIndexCodeRecovery` SSOT 로 합성 후 전달.
+   */
+  sectorIndexRecovery?: SectorIndexCodeRecoveryDiagnostic;
+  /**
+   * ADR-0446 sanity violation 진단 (옵셔널, 후방호환).
+   *
+   * Provider 가 `finalizeSanityDiagnostic` SSOT 로 합성 후 전달.
+   */
+  sanityViolation?: SectorEnergySanityViolationDiagnostic;
 }
 
 // ─── 임계 SSOT (ADR-0423 §C 사용자 명시 정합 — 절대 변경 금지) ──────────────
@@ -438,6 +472,9 @@ export function evaluateSectorEnergyQualityDiagnostic(
     // ADR-0424 — 옵셔널 필드 (후방호환).
     indexCodeBackfilledCount,
     repairStatus,
+    // ADR-0446 — Phase 2 진단 + Sanity violation 진단 (옵셔널, 후방호환).
+    ...(input.sectorIndexRecovery ? { sectorIndexRecovery: input.sectorIndexRecovery } : {}),
+    ...(input.sanityViolation ? { sanityViolation: input.sanityViolation } : {}),
   };
 }
 

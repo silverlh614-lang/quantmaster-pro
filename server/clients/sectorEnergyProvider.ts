@@ -38,6 +38,20 @@ import {
   isSectorIndexCodeBackfillDisabled,
   resolveIndexCodeBySectorName,
 } from './sectorEnergyMaster.js';
+// ADR-0446 Phase 2: indexCode recovery 분해 + sanity violation 진단 SSOT 2종.
+import {
+  evaluateIndexCodeRecovery,
+  isSectorEnergyRecoveryPhase2Disabled,
+  type RecoveryRowInput,
+} from './sectorEnergyIndexCodeRecoveryDiagnostic.js';
+import {
+  createSanityViolationState,
+  finalizeSanityDiagnostic,
+  isSectorEnergySanityDiagnosticDisabled,
+  recordSanityViolation,
+  type SectorEnergySanityViolation,
+  type SectorEnergySanityViolationState,
+} from './sectorEnergySanityViolationDiagnostic.js';
 
 export type StrategicSector =
   | '반도체'
@@ -207,6 +221,34 @@ function withQualityDiagnostic(result: SectorEnergyBuildResult): SectorEnergyBui
     : 'NONE';
   // ADR-0424: backfilled rows 수 — symmetryValidation 결과에 첨부됨.
   const indexCodeBackfilledCount = sym?.backfilledCount ?? 0;
+
+  // ADR-0446: per-build sanity state → Sanity violation diagnostic finalize.
+  let sanityViolation: ReturnType<typeof finalizeSanityDiagnostic> | undefined;
+  if (!isSectorEnergySanityDiagnosticDisabled() && _currentBuildSanityState) {
+    try {
+      sanityViolation = finalizeSanityDiagnostic(_currentBuildSanityState);
+    } catch (err) {
+      console.warn(`[SectorEnergy] ADR-0446 sanity diag finalize 실패: ${(err as Error)?.message ?? err}`);
+    }
+  }
+
+  // ADR-0446 Phase 2: per-build state → Phase 2 recovery diagnostic 합성.
+  let sectorIndexRecovery: ReturnType<typeof evaluateIndexCodeRecovery> | undefined;
+  if (!isSectorEnergyRecoveryPhase2Disabled() && _currentBuildRecoveryAfter.length > 0) {
+    try {
+      sectorIndexRecovery = evaluateIndexCodeRecovery({
+        rowsBeforeBackfill: _currentBuildRecoveryBefore,
+        rowsAfterBackfill: _currentBuildRecoveryAfter,
+        fallbackUsed,
+        symmetryValidationPassed: sym?.valid ?? true,
+        sanityViolationCount: sanityViolation?.totalViolations ?? 0,
+      });
+    } catch (err) {
+      // Phase 2 진단 실패가 build 흐름 차단 안 함 (try/catch 격리).
+      console.warn(`[SectorEnergy] ADR-0446 Phase 2 recovery diag synth 실패: ${(err as Error)?.message ?? err}`);
+    }
+  }
+
   const qualityDiagnostic = evaluateSectorEnergyQualityDiagnostic({
     validSectorCount: result.validSectorCount,
     expectedSectorCount: result.totalSectorCount,
@@ -216,6 +258,8 @@ function withQualityDiagnostic(result: SectorEnergyBuildResult): SectorEnergyBui
     fallbackUsed,
     ...(result.sourceTier ? { sourceTier: result.sourceTier } : {}),
     ...(indexCodeBackfilledCount > 0 ? { indexCodeBackfilledCount } : {}),
+    ...(sectorIndexRecovery ? { sectorIndexRecovery } : {}),
+    ...(sanityViolation ? { sanityViolation } : {}),
   });
   return { ...result, qualityDiagnostic };
 }
@@ -327,20 +371,49 @@ export function backfillIndexCodes(
   if (isSectorIndexCodeBackfillDisabled()) return { rows, backfilledCount: 0 };
 
   let backfilledCount = 0;
+  const beforeRows: RecoveryRowInput[] = [];
+  const afterRows: RecoveryRowInput[] = [];
   const out: KrxIndexDailyRow[] = rows.map((r) => {
+    // ADR-0446: backfill 이전 row 진단 입력 (Phase 2 beforeIndexCodeCoverage 산출).
+    beforeRows.push({
+      indexCode: r.indexCode || null,
+      indexName: r.indexName ?? null,
+      indexCodeSource: r.indexCodeSource ?? null,
+    });
     if (r.indexCode && r.indexCode.trim().length > 0) {
       // raw KRX 가 indexCode 제공 — RAW source 명시 (옵셔널, 후방호환).
-      return r.indexCodeSource ? r : { ...r, indexCodeSource: 'RAW' as const };
+      const tagged: KrxIndexDailyRow = r.indexCodeSource ? r : { ...r, indexCodeSource: 'RAW' as const };
+      afterRows.push({
+        indexCode: tagged.indexCode,
+        indexName: tagged.indexName ?? null,
+        indexCodeSource: tagged.indexCodeSource ?? 'RAW',
+      });
+      return tagged;
     }
     // raw KRX 가 indexCode 비어있음 — indexName 으로 SECTOR_INDEX_MASTER 역변환 시도.
     const recoveredCode = resolveIndexCodeBySectorName(r.indexName);
     if (recoveredCode) {
       backfilledCount += 1;
+      afterRows.push({
+        indexCode: recoveredCode,
+        indexName: r.indexName ?? null,
+        indexCodeSource: 'NAME_LOOKUP',
+      });
       return { ...r, indexCode: recoveredCode, indexCodeSource: 'NAME_LOOKUP' as const };
     }
     // 매칭 실패 — caller 측 symmetry 가 자연 fail (운영자 후속 PR 분리).
+    afterRows.push({
+      indexCode: null,
+      indexName: r.indexName ?? null,
+      indexCodeSource: null,
+    });
     return r;
   });
+  // ADR-0446: per-build recovery 진단 inputs 누적 (today + past 양쪽).
+  if (!isSectorEnergyRecoveryPhase2Disabled()) {
+    _currentBuildRecoveryBefore.push(...beforeRows);
+    _currentBuildRecoveryAfter.push(...afterRows);
+  }
 
   if (backfilledCount > 0) {
     console.warn(
@@ -388,22 +461,87 @@ export function validateIndexResponseSymmetry(
   };
 }
 
+/**
+ * ADR-0446: pushDelta 가 sanity violation 발생 시 진단 state 에 기록.
+ *
+ * `sanityState` 옵셔널 — undefined 시 ADR-0370 기존 console.warn skip 동작 100% 보존.
+ * `scope` 인자 (SECTOR/STOCK_VOLUME/STOCK_RETURN) 로 sector vs stock 분리 (사용자 §6).
+ * `code` 옵셔널 — stock-level violation 시 6자리 stock code (사용자 §"테스트 요구사항").
+ */
 function pushDelta(
   bySector: Map<StrategicSector, { returns: number[]; volumes: number[] }>,
   sector: StrategicSector,
   returnPct: number,
   volumePct: number,
+  sanityState?: SectorEnergySanityViolationState,
+  options?: {
+    /** stock-level violation 인 경우 stock code (옵셔널). */
+    code?: string;
+    /** today close (참고용). */
+    currentClose?: number;
+    /** past close (참고용). */
+    pastClose?: number;
+  },
 ): void {
   // ADR-0370: sanity bound default 90 → 30. 초과 시 진단 로그 + skip.
-  if (!Number.isFinite(returnPct)) return;
+  if (!Number.isFinite(returnPct)) {
+    if (sanityState) {
+      recordSanityViolation(sanityState, {
+        kind: 'CURRENT_OUTLIER',
+        scope: options?.code ? 'STOCK_RETURN' : 'SECTOR',
+        pct: Number.isFinite(returnPct) ? returnPct : 0,
+        bound: RETURN_SANITY_BOUND_PCT,
+        sector,
+        ...(options?.code ? { code: options.code } : {}),
+        ...(options?.currentClose !== undefined ? { current: options.currentClose } : {}),
+        ...(options?.pastClose !== undefined ? { base: options.pastClose } : {}),
+      });
+    }
+    return;
+  }
   if (Math.abs(returnPct) > RETURN_SANITY_BOUND_PCT) {
     console.warn(
       `[SectorEnergy] sanity-violation pct=${returnPct.toFixed(2)}% sector=${sector} ` +
         `bound=${RETURN_SANITY_BOUND_PCT}% (ADR-0370)`,
     );
+    if (sanityState) {
+      const violation: SectorEnergySanityViolation = options?.code
+        ? {
+            kind: 'STOCK_RETURN_PCT_CHANGE_EXCEEDED',
+            scope: 'STOCK_RETURN',
+            pct: returnPct,
+            bound: RETURN_SANITY_BOUND_PCT,
+            sector,
+            code: options.code,
+            ...(options.currentClose !== undefined ? { current: options.currentClose } : {}),
+            ...(options.pastClose !== undefined ? { base: options.pastClose } : {}),
+          }
+        : {
+            kind: 'SECTOR_PCT_BOUND_EXCEEDED',
+            scope: 'SECTOR',
+            pct: returnPct,
+            bound: RETURN_SANITY_BOUND_PCT,
+            sector,
+            ...(options?.currentClose !== undefined ? { current: options.currentClose } : {}),
+            ...(options?.pastClose !== undefined ? { base: options.pastClose } : {}),
+          };
+      recordSanityViolation(sanityState, violation);
+    }
     return;
   }
-  if (!Number.isFinite(volumePct) || Math.abs(volumePct) > VOLUME_SANITY_BOUND_PCT) return;
+  if (!Number.isFinite(volumePct) || Math.abs(volumePct) > VOLUME_SANITY_BOUND_PCT) {
+    if (sanityState && Number.isFinite(volumePct)) {
+      recordSanityViolation(sanityState, {
+        kind: options?.code ? 'STOCK_VOLUME_PCT_CHANGE_EXCEEDED' : 'SECTOR_PCT_BOUND_EXCEEDED',
+        scope: options?.code ? 'STOCK_VOLUME' : 'SECTOR',
+        pct: volumePct,
+        bound: VOLUME_SANITY_BOUND_PCT,
+        sector,
+        ...(options?.code ? { code: options.code } : {}),
+      });
+    }
+    return;
+  }
   const acc = bySector.get(sector) ?? { returns: [], volumes: [] };
   acc.returns.push(returnPct);
   acc.volumes.push(volumePct);
@@ -437,6 +575,7 @@ export function indexRowKey(row: KrxIndexDailyRow, useNameFallback: boolean): st
 export function aggregateIndexDeltas(
   todayRows: KrxIndexDailyRow[],
   pastRows: KrxIndexDailyRow[],
+  sanityState?: SectorEnergySanityViolationState,
 ): Map<StrategicSector, { returns: number[]; volumes: number[] }> {
   const useNameFallback = isSectorEnergyIndexNameFallbackEnabled();
 
@@ -493,7 +632,10 @@ export function aggregateIndexDeltas(
     const volumePct = past.volume > 0
       ? (safePctChange(t.volume, past.volume, { label: `sectorEnergy.volume:${labelKey}`, sanityBoundPct: VOLUME_SANITY_BOUND_PCT }) ?? 0)
       : 0;
-    pushDelta(bySector, sector, returnPct, volumePct);
+    pushDelta(bySector, sector, returnPct, volumePct, sanityState, {
+      currentClose: t.close,
+      pastClose: past.close,
+    });
   }
   return bySector;
 }
@@ -501,6 +643,7 @@ export function aggregateIndexDeltas(
 function aggregateStockDeltas(
   todayStocks: KrxStockDailyRow[],
   pastStocks: KrxStockDailyRow[],
+  sanityState?: SectorEnergySanityViolationState,
 ): Map<StrategicSector, { returns: number[]; volumes: number[] }> {
   const pastByCode = new Map<string, KrxStockDailyRow>();
   for (const row of pastStocks) {
@@ -520,7 +663,11 @@ function aggregateStockDeltas(
     const volumePct = past.volume > 0
       ? (safePctChange(today.volume, past.volume, { label: `sectorEnergy.stockVolume:${today.code}`, sanityBoundPct: VOLUME_SANITY_BOUND_PCT }) ?? 0)
       : 0;
-    pushDelta(bySector, sector, returnPct, volumePct);
+    pushDelta(bySector, sector, returnPct, volumePct, sanityState, {
+      code: today.code,
+      currentClose: today.close,
+      pastClose: past.close,
+    });
   }
   return bySector;
 }
@@ -587,7 +734,8 @@ function buildStockDailyFallbackResult(
   prefixReasons: string[],
   qualityIfComplete: SectorEnergyDataQuality = 'STALE',
 ): SectorEnergyBuildResult | null {
-  const deltas = aggregateStockDeltas(todayStocks, pastStocks);
+  // ADR-0446: STOCK_DAILY fallback 경로 sanity state 정합 — _currentBuildSanityState 사용.
+  const deltas = aggregateStockDeltas(todayStocks, pastStocks, _currentBuildSanityState ?? undefined);
   const { inputs, validSectorCount } = buildInputsFromDeltas(deltas, foreignMap);
   const minValid = getSectorEnergyMinValid();
   if (validSectorCount < minValid) return null;
@@ -625,7 +773,34 @@ export function __setLastAttemptedTodayDatesForTests(v: string[]): void {
   _lastAttemptedTodayDates = [...v];
 }
 
+// ADR-0446 Phase 2: per-build sanity state + recovery row inputs (module-local).
+// withQualityDiagnostic 가 finalize 후 attach. buildSectorEnergyInputsWithMetaRaw 진입
+// 시점마다 reset (이전 build 잔여 state 누수 차단).
+let _currentBuildSanityState: SectorEnergySanityViolationState | null = null;
+/** ADR-0446: backfill 이전 row 누적 (rowsBeforeBackfill). */
+let _currentBuildRecoveryBefore: RecoveryRowInput[] = [];
+/** ADR-0446: backfill 이후 row 누적 (rowsAfterBackfill, indexCodeSource 포함). */
+let _currentBuildRecoveryAfter: RecoveryRowInput[] = [];
+
+function resetCurrentBuildPhase2State(): void {
+  _currentBuildSanityState = isSectorEnergySanityDiagnosticDisabled() ? null : createSanityViolationState();
+  _currentBuildRecoveryBefore = [];
+  _currentBuildRecoveryAfter = [];
+}
+
+export function __getCurrentBuildSanityStateForTests(): SectorEnergySanityViolationState | null {
+  return _currentBuildSanityState;
+}
+export function __getCurrentBuildRecoveryInputsForTests(): {
+  before: RecoveryRowInput[];
+  after: RecoveryRowInput[];
+} {
+  return { before: [..._currentBuildRecoveryBefore], after: [..._currentBuildRecoveryAfter] };
+}
+
 async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildResult> {
+  // ADR-0446: per-build sanity state + recovery row inputs reset (이전 build 누수 차단).
+  resetCurrentBuildPhase2State();
   const todayCandidates: Array<string | undefined> = [undefined, ...recentBusinessDaysKst(5)];
   const past = businessDaysAgo(20);
   let selectedToday: string | undefined;
@@ -712,7 +887,11 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
     if (isSectorEnergyIndexNameFallbackEnabled()) {
       // ADR-0399: indexName fallback 은 ENV opt-in 전용 — default 영구 차단.
       // 활성 시에도 sourceTier='KRX_CODE' 가 아닌 STOCK_DAILY 분류 (정확 매칭이 아니라 휴리스틱 매칭이라).
-      const nameDeltas = aggregateIndexDeltas(todayIdxBackfilled, pastIdxBackfilled);
+      const nameDeltas = aggregateIndexDeltas(
+        todayIdxBackfilled,
+        pastIdxBackfilled,
+        _currentBuildSanityState ?? undefined,
+      );
       const nameBuilt = buildInputsFromDeltas(nameDeltas, foreignMap);
       if (nameBuilt.validSectorCount >= getSectorEnergyMinValid()) {
         return {
@@ -743,7 +922,11 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
     };
   }
 
-  const deltas = aggregateIndexDeltas(todayIdxBackfilled, pastIdxBackfilled);
+  const deltas = aggregateIndexDeltas(
+    todayIdxBackfilled,
+    pastIdxBackfilled,
+    _currentBuildSanityState ?? undefined,
+  );
   const { inputs, validSectorCount } = buildInputsFromDeltas(deltas, foreignMap);
   const minValid = getSectorEnergyMinValid();
   if (validSectorCount < minValid) {

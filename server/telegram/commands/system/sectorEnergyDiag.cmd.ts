@@ -23,6 +23,9 @@ import type {
 } from '../../../clients/sectorEnergyDataQuality.js';
 // ADR-0423: SectorEnergy 데이터 진실성 진단 SSOT — quality reason 분해 + leadershipConfidence.
 import { formatSectorEnergyQualityDiagnosticSection } from '../../../clients/sectorEnergyQualityDiagnostic.js';
+// ADR-0446: Phase 2 indexCode recovery + sanity violation 진단 섹션 SSOT.
+import { formatPhase2RecoverySection } from '../../../clients/sectorEnergyIndexCodeRecoveryDiagnostic.js';
+import { formatSanityDiagnosticSection } from '../../../clients/sectorEnergySanityViolationDiagnostic.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -123,6 +126,24 @@ export function formatSectorEnergyDiagMessage(): string {
     lines.push('');
     const section = formatSectorEnergyQualityDiagnosticSection(qualityDiag);
     if (section) lines.push(section);
+
+    // ADR-0446 Phase 2: indexCode recovery 분해 (ADR-0424 위에서 row 단위 분해 + sourceTier breakdown).
+    if (qualityDiag.sectorIndexRecovery) {
+      const phase2 = formatPhase2RecoverySection(qualityDiag.sectorIndexRecovery);
+      if (phase2) {
+        lines.push('');
+        lines.push(phase2);
+      }
+    }
+
+    // ADR-0446: sanity violation 진단 (sector vs stock 분리 + topViolating + confidenceImpact).
+    if (qualityDiag.sanityViolation) {
+      const sanity = formatSanityDiagnosticSection(qualityDiag.sanityViolation);
+      if (sanity) {
+        lines.push('');
+        lines.push(sanity);
+      }
+    }
   }
 
   // ADR-0398 STRONG_BUY 게이트 결과
