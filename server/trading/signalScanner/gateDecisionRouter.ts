@@ -34,6 +34,7 @@ import type { SectorEnergyQualityDiagnostic } from '../../clients/sectorEnergyQu
  */
 export type GateDecisionSeverity =
   | 'HARD_BLOCK'
+  | 'SELL_ONLY'
   | 'TRUE_WEAKNESS'
   | 'SOFT_DEGRADE'
   | 'WATCH_ONLY'
@@ -73,6 +74,15 @@ export type GateDecisionLabel =
   | 'FULL_CANDIDATE'
   | 'UNKNOWN';
 
+export interface GateDecisionLanes {
+  live: boolean;
+  paper: boolean;
+  shadow: boolean;
+  watch: boolean;
+  learning: boolean;
+  counterfactual: boolean;
+}
+
 export interface GateDecisionRouterResult {
   severity: GateDecisionSeverity;
   reasons: GateDecisionReason[];
@@ -98,6 +108,8 @@ export interface GateDecisionRouterResult {
   /** ADR-0430 — UI 분리 표시용 alias (lane 표 시각화). counterfactualLearningAllowed 와 동의어. */
   learningShadowAllowed?: boolean;
   label: GateDecisionLabel;
+  lanes?: GateDecisionLanes;
+  executionImpact?: 'NONE' | 'PAPER_ONLY' | 'LIVE_ALLOWED';
   operatorMessage: string;
 }
 
@@ -171,23 +183,26 @@ export function deriveGateDecisionRouterResult(
   if (rf.rrrBlock) reasons.push('RRR_BLOCK');
 
   if (reasons.length > 0) {
+    const sellOnlyOnly = reasons.length === 1 && reasons[0] === 'SELL_ONLY';
     // ADR-0430 — HARD_BLOCK / SELL_ONLY 에서도 counterfactual learning 은 365일 살아있다.
     // 단, ENV `COUNTERFACTUAL_SHADOW_LEARNING_DISABLED=true` 시 비활성.
     const learningAllowed =
       process.env.COUNTERFACTUAL_SHADOW_LEARNING_DISABLED !== 'true';
     return {
-      severity: 'HARD_BLOCK',
+      severity: sellOnlyOnly ? 'SELL_ONLY' : 'HARD_BLOCK',
       reasons,
       liveAllowed: false,
       paperAllowed: false,
-      shadowAllowed: false,
-      watchAllowed: false,
+      shadowAllowed: !sellOnlyOnly ? false : true,
+      watchAllowed: sellOnlyOnly,
       counterfactualLearningAllowed: learningAllowed,
       learningShadowAllowed: learningAllowed,
       label: 'BLOCK_RISK',
-      operatorMessage:
-        '리스크 차단 — 실매수/가상체결/일반 shadow 모두 차단. ' +
-        '단 ADR-0430 counterfactual learning 은 별도 ledger 에 365일 영속 가능.',
+      lanes: { live: false, paper: false, shadow: sellOnlyOnly, watch: sellOnlyOnly, learning: learningAllowed, counterfactual: learningAllowed },
+      executionImpact: 'NONE',
+      operatorMessage: sellOnlyOnly
+        ? 'SELL_ONLY — 신규 매수만 차단. 보유 관리/매도 허용, engine alive, counterfactual universe learning 유지.'
+        : '리스크 차단 — 실매수/가상체결/일반 shadow 모두 차단. 단 ADR-0430 counterfactual learning 은 별도 ledger 에 365일 영속 가능.',
     };
   }
 
@@ -209,6 +224,8 @@ export function deriveGateDecisionRouterResult(
       counterfactualLearningAllowed: learningAllowed,
       learningShadowAllowed: learningAllowed,
       label: 'BLOCK_RISK',
+      lanes: { live: false, paper: false, shadow: false, watch: false, learning: learningAllowed, counterfactual: learningAllowed },
+      executionImpact: 'NONE',
       operatorMessage:
         'Sizing 불가 — Kelly/계좌 한도 초과로 주문 자체 차단. ' +
         'ADR-0430 counterfactual learning 만 별도 ledger 보존 가능.',
@@ -322,6 +339,8 @@ export function deriveGateDecisionRouterResult(
       counterfactualLearningAllowed: true,
       learningShadowAllowed: true,
       label: 'SOFT_DEGRADE_DATA',
+      lanes: { live: false, paper: false, shadow: true, watch: true, learning: true, counterfactual: true },
+      executionImpact: 'NONE',
       operatorMessage:
         '실매수 차단 유지 — 데이터 품질 저하 (STALE/UNAVAILABLE/ERROR). ' +
         'Shadow/Watch 학습 후보로 보존 가능. 데이터 소스 점검 우선 (Gate 임계 변경 금지).',
@@ -471,6 +490,7 @@ export function formatGateDecisionRouterSection(
   const lines: string[] = [];
   const sevIcon: Record<GateDecisionSeverity, string> = {
     HARD_BLOCK: '🚨',
+    SELL_ONLY: '🟠',
     TRUE_WEAKNESS: '🔴',
     SOFT_DEGRADE: '🟡',
     WATCH_ONLY: '👀',
@@ -490,7 +510,11 @@ export function formatGateDecisionRouterSection(
     `paper=${result.paperAllowed ? '✅' : '❌'} ` +
     `shadow=${result.shadowAllowed ? '✅' : '❌'} ` +
     `watch=${result.watchAllowed ? '✅' : '❌'} ` +
-    `learning=${learningLane ? '✅' : '❌'}`,
+    `learning=${learningLane ? '✅' : '❌'} ` +
+    `counterfactual=${result.counterfactualLearningAllowed === true ? '✅' : '❌'}`,
+  );
+  lines.push(
+    `  • executionImpact: ${result.executionImpact ?? (result.liveAllowed ? 'LIVE_ALLOWED' : result.paperAllowed ? 'PAPER_ONLY' : 'NONE')}`,
   );
 
   if (result.reasons.length > 0) {
