@@ -35,6 +35,10 @@ import {
   buildEntryDecisionLedgerFinalCalibrationSummaryFromScore,
   type EntryDecisionLedgerFinalCalibrationSummary,
 } from './gate1FinalCalibration.js';
+import {
+  buildEntryDecisionLedgerPositiveSourceWiringSummaryFromScore,
+  type EntryDecisionLedgerPositiveSourceWiringSummary,
+} from './gate1PositiveSourceWiringAdr0475.js';
 
 
 export const GATE1_PROVIDER_ISSUE_SOFT_FAIL_ENABLED = true;
@@ -340,6 +344,7 @@ export interface EntryDecisionLedgerRow {
   penaltyDedupSummary?: EntryDecisionLedgerPenaltyDedupSummary;
   riskDoubleCountSummary?: EntryDecisionLedgerRiskDoubleCountSummary;
   finalCalibrationSummary?: EntryDecisionLedgerFinalCalibrationSummary;
+  positiveSourceWiringSummary?: EntryDecisionLedgerPositiveSourceWiringSummary;
   gate1TraceSummary?: {
     primaryGate1FailCode?: Gate1ConditionCode;
     providerIssue: boolean;
@@ -1164,6 +1169,15 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
         symbol: trace.symbol,
         requiredScore: trace.gate1Trace.minSignalScoreTrace.requiredScore,
         netScore: trace.gate1Trace.minSignalScoreTrace.actualScore,
+      }) : undefined,
+      positiveSourceWiringSummary: trace.gate1Trace?.minSignalScoreTrace ? buildEntryDecisionLedgerPositiveSourceWiringSummaryFromScore({
+        watchlistUpstreamScore: 0,
+        relativeStrengthScore: 0,
+        breakoutStructureScore: 0,
+        beforeScoreRange: 4,
+        afterScoreRange: 8,
+        otherPositiveRaw: trace.gate1Trace.minSignalScoreTrace.positiveScoreTotal,
+        remainingOtherPositive: trace.gate1Trace.minSignalScoreTrace.positiveScoreTotal * 0.1,
       }) : undefined,
       gate1TraceSummary: trace.gate1Trace ? {
         primaryGate1FailCode: trace.gate1Trace.primaryFailCode,
