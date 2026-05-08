@@ -124,6 +124,7 @@ import {
   accumulateFreshConditionOutputs,
   accumulateGate2ConditionOutputs,
   accumulateGateEligibility,
+  accumulateGateScoreHealth,
 } from '../scanDiagnostics.js';
 // ADR-0436 — Gate Eligibility Split (LIVE_ELIGIBLE vs SHADOW_OBSERVABLE).
 //   분류 layer 만 — KIS 주문 호출 0건. 결과 ScanCounters 누적 only,
@@ -1324,6 +1325,12 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       const reCheckGate = reCheckQuote
         ? evaluateServerGate(reCheckQuote, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, dartFin, kisFlow, ctx.regime)
         : null;
+      // ADR-452c — Gate Score Health 진단 누적. 표시 전용이며 live decision/Kelly/KIS 주문에는 미사용.
+      try {
+        accumulateGateScoreHealth(ctx.scanCounters, reCheckGate);
+      } catch (e) {
+        console.warn('[ADR-452c] accumulateGateScoreHealth failed:', e instanceof Error ? e.message : e);
+      }
       // ADR-0420: Fresh Scan Blocker Attribution 누적 — 단일 후보 outputs 를 conditionKey
       //   별 status bucket 에 가산. persistScanResults 가 build → ScanSummary 영속.
       //   GATE1_PASS_ZERO 발생 시 운영자에게 *조건별 분해* 제공. last 7 days 누적
