@@ -68,6 +68,17 @@ import {
   formatSectorEnergyExecutionImpactCompactLine,
   isSectorEnergyExecutionDecouplingDisabled,
 } from '../../../clients/sectorEnergyExecutionImpact.js';
+// ADR-0451 — Empty Scan Liveness Policy compact section.
+//   사용자 §"한 줄 정의" — 빈스캔 연속 발생을 SELL_ONLY hard 전환 사유로 쓰지 않고,
+//   DEGRADED/OBSERVE/RETRY 상태로 처리하여 Trading Engine liveness 유지.
+//   read-only — adaptiveScanScheduler.getScanFeedbackState() 메모리 read 만.
+//   LIVE 매매 본체 영향 0.
+import {
+  evaluateEmptyScanLiveness,
+  formatEmptyScanLivenessSection,
+  isEmptyScanLivenessPolicyDisabled,
+} from '../../../trading/signalScanner/emptyScanLivenessPolicy.js';
+import { getScanFeedbackState } from '../../../orchestrator/adaptiveScanScheduler.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -277,6 +288,30 @@ const scanBlockers: TelegramCommand = {
       );
     }
 
+    // ADR-0451 — Empty Scan Liveness Policy compact section.
+    //   사용자 §7 정합 — REGULAR session + emptyScanStreak 만으로 SELL_ONLY 강제 안 됨 명시.
+    //   read-only — adaptiveScanScheduler.getScanFeedbackState() 메모리 read 만, 신규 외부 API 호출 0.
+    //   ENV `EMPTY_SCAN_LIVENESS_POLICY_DISABLED=true` 시 미노출 (default OFF).
+    //   try/catch 격리 — 정책 throw 가 base 메시지 차단 안 함.
+    let livenessSection: string | null = null;
+    try {
+      if (!isEmptyScanLivenessPolicyDisabled()) {
+        const feedback = getScanFeedbackState();
+        const decision = evaluateEmptyScanLiveness({
+          // /scan_blockers 호출 시점 session 미상 — REGULAR fallback 으로 정책 적용.
+          //   adaptiveScanScheduler 가 실제 매핑된 session 으로 재평가 (decideScan 시점).
+          marketSession: 'REGULAR',
+          emptyScanStreak: feedback.consecutiveEmptyScans,
+        });
+        livenessSection = formatEmptyScanLivenessSection(decision, feedback.consecutiveEmptyScans);
+      }
+    } catch (err) {
+      console.warn(
+        '[scan_blockers] ADR-0451 emptyScan liveness section 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
+        err,
+      );
+    }
+
     const parts: string[] = [baseMessage];
     if (degradedSection) parts.push(degradedSection);
     if (supplyProviderSection) parts.push(supplyProviderSection);
@@ -287,6 +322,7 @@ const scanBlockers: TelegramCommand = {
     if (phase2Line) parts.push(`🧩 SectorEnergy indexCode Recovery Phase 2: ${phase2Line}`);
     if (sanityLine) parts.push(`🧪 ${sanityLine}`);
     if (executionImpactLine) parts.push(executionImpactLine);
+    if (livenessSection) parts.push(livenessSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);
   },
