@@ -125,6 +125,22 @@ export interface GatePassDistribution {
   lastTriggerPass: number;
 }
 
+export interface GateScoreHealthSummary {
+  samples: number;
+  rawScoreAvg: number;
+  availableMaxScoreAvg: number;
+  normalizedGateScoreAvg: number;
+  unavailableTop: Array<{ condition: string; count: number }>;
+  thresholdNotMetTop: Array<{ condition: string; count: number }>;
+  providerDegradedTop: Array<{ condition: string; count: number }>;
+  diagnosis:
+    | 'DATA_UNAVAILABLE_DOMINANT'
+    | 'THRESHOLD_NOT_MET_DOMINANT'
+    | 'PROVIDER_DEGRADED_DOMINANT'
+    | 'MIXED'
+    | 'NO_SAMPLES';
+}
+
 export interface MacroGateState {
   emergencyStop: boolean;
   autoTradeEnabled: boolean;
@@ -302,6 +318,13 @@ export interface ScanSummary {
   shadowNearBreakoutCreated?: number;
   shadowNearBreakoutBlocked?: number;
   shadowNearBreakoutBlockReasons?: Partial<Record<string, number>>;
+  /**
+   * ADR-452c — Gate Score Health visibility (diagnostic-only).
+   *
+   * evaluateServerGate() 의 raw/available/normalized score health 를 운영자에게 노출한다.
+   * normalizedGateScore 는 표시 전용이며 live decision/Kelly/KIS 주문 판단에 사용하지 않는다.
+   */
+  gateScoreHealth?: GateScoreHealthSummary;
 }
 
 let _lastBuySignalAt = 0;
@@ -424,6 +447,14 @@ export interface ScanCounters {
   shadowNearBreakoutCreated?: number;
   shadowNearBreakoutBlocked?: number;
   shadowNearBreakoutBlockReasons?: Partial<Record<string, number>>;
+  /** ADR-452c — Gate Score Health 진단 누적기 (live decision 미사용). */
+  gateScoreHealthSamples: number;
+  gateScoreRawSum: number;
+  gateScoreAvailableMaxSum: number;
+  gateScoreNormalizedSum: number;
+  gateScoreUnavailableCounts: Record<string, number>;
+  gateScoreThresholdNotMetCounts: Record<string, number>;
+  gateScoreProviderDegradedCounts: Record<string, number>;
 }
 
 export function createScanCounters(): ScanCounters {
@@ -475,6 +506,14 @@ export function createScanCounters(): ScanCounters {
     shadowNearBreakoutCreated: 0,
     shadowNearBreakoutBlocked: 0,
     shadowNearBreakoutBlockReasons: {},
+    // ADR-452c — Gate Score Health 진단 누적기 초기화.
+    gateScoreHealthSamples: 0,
+    gateScoreRawSum: 0,
+    gateScoreAvailableMaxSum: 0,
+    gateScoreNormalizedSum: 0,
+    gateScoreUnavailableCounts: {},
+    gateScoreThresholdNotMetCounts: {},
+    gateScoreProviderDegradedCounts: {},
   };
 }
 
@@ -575,6 +614,136 @@ export function buildWaitDistribution(counters: ScanCounters): WaitDistribution 
     volumeDrop: counters.waitVolumeDrop,
     other: counters.waitOther,
   };
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function incrementCount(record: Record<string, number>, condition: string): void {
+  record[condition] = (record[condition] ?? 0) + 1;
+}
+
+/**
+ * ADR-452c — Gate Score Health 누적 helper.
+ *
+ * evaluateServerGate() 결과의 score availability 정보를 scan diagnostics 에만 누적한다.
+ * live threshold / Kelly / KIS 주문 / normalizedGateScore decision 경로는 변경하지 않는다.
+ */
+export function accumulateGateScoreHealth(
+  counters: ScanCounters,
+  result: {
+    rawScore?: number;
+    gateScore?: number;
+    availableMaxScore?: number;
+    normalizedGateScore?: number;
+    unavailableConditions?: readonly string[];
+    thresholdNotMetConditions?: readonly string[];
+    providerDegradedConditions?: readonly string[];
+  } | null | undefined,
+): void {
+  if (!result) return;
+
+  const raw = isFiniteNumber(result.rawScore)
+    ? result.rawScore
+    : isFiniteNumber(result.gateScore)
+      ? result.gateScore
+      : NaN;
+  const availableMax = result.availableMaxScore;
+  const normalized = result.normalizedGateScore;
+
+  if (!isFiniteNumber(raw) || !isFiniteNumber(availableMax) || !isFiniteNumber(normalized)) {
+    return;
+  }
+
+  counters.gateScoreHealthSamples += 1;
+  counters.gateScoreRawSum += raw;
+  counters.gateScoreAvailableMaxSum += availableMax;
+  counters.gateScoreNormalizedSum += normalized;
+
+  for (const condition of result.unavailableConditions ?? []) {
+    incrementCount(counters.gateScoreUnavailableCounts, condition);
+  }
+  for (const condition of result.thresholdNotMetConditions ?? []) {
+    incrementCount(counters.gateScoreThresholdNotMetCounts, condition);
+  }
+  for (const condition of result.providerDegradedConditions ?? []) {
+    incrementCount(counters.gateScoreProviderDegradedCounts, condition);
+  }
+}
+
+function topCounts(record: Record<string, number>, limit = 5): Array<{ condition: string; count: number }> {
+  return Object.entries(record)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([condition, count]) => ({ condition, count }));
+}
+
+export function buildGateScoreHealthSummary(counters: ScanCounters): GateScoreHealthSummary {
+  const samples = counters.gateScoreHealthSamples;
+  if (samples <= 0) {
+    return {
+      samples: 0,
+      rawScoreAvg: 0,
+      availableMaxScoreAvg: 0,
+      normalizedGateScoreAvg: 0,
+      unavailableTop: [],
+      thresholdNotMetTop: [],
+      providerDegradedTop: [],
+      diagnosis: 'NO_SAMPLES',
+    };
+  }
+
+  const unavailableTotal = Object.values(counters.gateScoreUnavailableCounts).reduce((a, b) => a + b, 0);
+  const thresholdTotal = Object.values(counters.gateScoreThresholdNotMetCounts).reduce((a, b) => a + b, 0);
+  const degradedTotal = Object.values(counters.gateScoreProviderDegradedCounts).reduce((a, b) => a + b, 0);
+
+  let diagnosis: GateScoreHealthSummary['diagnosis'] = 'MIXED';
+  if (unavailableTotal > thresholdTotal && unavailableTotal > degradedTotal) {
+    diagnosis = 'DATA_UNAVAILABLE_DOMINANT';
+  } else if (thresholdTotal > unavailableTotal && thresholdTotal > degradedTotal) {
+    diagnosis = 'THRESHOLD_NOT_MET_DOMINANT';
+  } else if (degradedTotal > unavailableTotal && degradedTotal > thresholdTotal) {
+    diagnosis = 'PROVIDER_DEGRADED_DOMINANT';
+  }
+
+  return {
+    samples,
+    rawScoreAvg: counters.gateScoreRawSum / samples,
+    availableMaxScoreAvg: counters.gateScoreAvailableMaxSum / samples,
+    normalizedGateScoreAvg: counters.gateScoreNormalizedSum / samples,
+    unavailableTop: topCounts(counters.gateScoreUnavailableCounts),
+    thresholdNotMetTop: topCounts(counters.gateScoreThresholdNotMetCounts),
+    providerDegradedTop: topCounts(counters.gateScoreProviderDegradedCounts),
+    diagnosis,
+  };
+}
+
+export function formatGateScoreHealthSection(summary?: GateScoreHealthSummary | null): string | null {
+  if (!summary || summary.diagnosis === 'NO_SAMPLES') return null;
+
+  const pct = (summary.normalizedGateScoreAvg * 100).toFixed(1);
+  const raw = summary.rawScoreAvg.toFixed(2);
+  const max = summary.availableMaxScoreAvg.toFixed(2);
+  const lines = [
+    '📊 Gate Score Health (ADR-452)',
+    `  • raw avg: ${raw}`,
+    `  • availableMax avg: ${max}`,
+    `  • normalized avg: ${pct}%`,
+    `  • diagnosis: ${summary.diagnosis}`,
+  ];
+
+  if (summary.unavailableTop.length > 0) {
+    lines.push(`  • unavailable top: ${summary.unavailableTop.map((x) => `${x.condition}×${x.count}`).join(', ')}`);
+  }
+  if (summary.thresholdNotMetTop.length > 0) {
+    lines.push(`  • thresholdNotMet top: ${summary.thresholdNotMetTop.map((x) => `${x.condition}×${x.count}`).join(', ')}`);
+  }
+  if (summary.providerDegradedTop.length > 0) {
+    lines.push(`  • providerDegraded top: ${summary.providerDegradedTop.map((x) => `${x.condition}×${x.count}`).join(', ')}`);
+  }
+
+  return lines.join('\n');
 }
 
 export function buildMacroGateState(input: {
@@ -748,6 +917,15 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   if (gate2Section) {
     lines.push('');
     lines.push(gate2Section);
+  }
+
+  // ADR-452c — Gate Score Health visibility (diagnostic-only).
+  // Gate attribution 근처에 raw/available/normalized score health 를 노출한다.
+  // normalizedGateScore 는 표시만 하며 live decision 에 사용하지 않는다.
+  const gateScoreHealthSection = formatGateScoreHealthSection(summary.gateScoreHealth);
+  if (gateScoreHealthSection) {
+    lines.push('');
+    lines.push(gateScoreHealthSection);
   }
 
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
@@ -936,6 +1114,8 @@ export async function persistScanResults(
     providerDegradedObservableCount: counters.providerDegradedObservableCount,
     trueGateFailCount: counters.trueGateFailCount,
     hardRiskBlockedCount: counters.hardRiskBlockedCount,
+    // ADR-452c — diagnostic-only score health summary.
+    gateScoreHealth: buildGateScoreHealthSummary(counters),
   };
 
   // ADR-0420 — Fresh Scan Blocker Attribution build + persist (옵셔널, 후방호환).
