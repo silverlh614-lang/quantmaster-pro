@@ -163,6 +163,9 @@ function logOpenApiMasterParseFailure(reason: KrxOpenApiFetchReason, d: KrxOpenA
 /**
  * `KrxIsuBaseInfoRow[]` → `StockMasterEntry[]` 매핑 (테스트 가능하도록 분리).
  * 6자리 코드 검증 + dedup. market 은 호출자(KOSPI/KOSDAQ endpoint) 가 결정.
+ *
+ * ADR-0455: 옵셔널 enrichment 필드 (isin/listDate/listedShares/nameEng) 를 그대로 propagate.
+ * 모든 필드 옵셔널 — 부재 시 entry 에 미설정 (후방호환 보존).
  */
 export function mapBaseInfoToMaster(
   rows: KrxIsuBaseInfoRow[],
@@ -176,7 +179,19 @@ export function mapBaseInfoToMaster(
     if (!/^\d{6}$/.test(r.code)) continue;
     if (seen.has(r.code)) continue;
     seen.add(r.code);
-    out.push({ code: r.code, name: r.name, market });
+    const entry: StockMasterEntry = { code: r.code, name: r.name, market };
+    // ADR-0455: enrichment 필드 propagate — 빈 문자열 / NaN / 0 거부.
+    if (r.isin && /^[A-Z0-9]{12}$/i.test(r.isin)) entry.isin = r.isin.toUpperCase();
+    if (r.listDate && /^\d{4}[-/]?\d{2}[-/]?\d{2}$/.test(r.listDate)) {
+      entry.listDate = r.listDate.replace(/[/]/g, '-');
+    }
+    if (typeof r.listedShares === 'number' && Number.isFinite(r.listedShares) && r.listedShares > 0) {
+      entry.listedShares = r.listedShares;
+    }
+    if (r.nameEng && typeof r.nameEng === 'string' && r.nameEng.trim().length > 0) {
+      entry.nameEng = r.nameEng.trim();
+    }
+    out.push(entry);
   }
   return out;
 }

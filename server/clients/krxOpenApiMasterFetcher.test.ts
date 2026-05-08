@@ -84,12 +84,25 @@ afterEach(() => {
 });
 
 describe('mapBaseInfoToMaster', () => {
-  it('정상 KrxIsuBaseInfoRow → StockMasterEntry 매핑 + market 라벨 부착', () => {
+  it('정상 KrxIsuBaseInfoRow → StockMasterEntry 매핑 + market 라벨 부착 + ADR-0455 enrichment', () => {
     const rows = [row('005930', '삼성전자'), row('000660', 'SK하이닉스')];
     const out = mapBaseInfoToMaster(rows, 'KOSPI');
     expect(out).toHaveLength(2);
-    expect(out[0]).toEqual({ code: '005930', name: '삼성전자', market: 'KOSPI' });
-    expect(out[1]).toEqual({ code: '000660', name: 'SK하이닉스', market: 'KOSPI' });
+    // ADR-0455: enrichment 필드 (listDate / listedShares) propagate. row helper isin (13자) 은 12자 미달로 skip.
+    expect(out[0]).toEqual({
+      code: '005930',
+      name: '삼성전자',
+      market: 'KOSPI',
+      listDate: '20100101',
+      listedShares: 100_000_000,
+    });
+    expect(out[1]).toEqual({
+      code: '000660',
+      name: 'SK하이닉스',
+      market: 'KOSPI',
+      listDate: '20100101',
+      listedShares: 100_000_000,
+    });
   });
 
   it('6자리 코드 검증 — 5자리/7자리/문자 코드는 자동 제외', () => {
