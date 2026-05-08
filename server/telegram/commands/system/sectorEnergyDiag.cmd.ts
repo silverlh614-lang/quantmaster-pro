@@ -147,6 +147,15 @@ export function formatSectorEnergyDiagMessage(): string {
     }
 
     // ADR-0446: sanity violation 진단 (sector vs stock 분리 + topViolating + confidenceImpact).
+    const adr0474 = formatSectorEnergyCoverageRecoverySection(
+      buildSectorEnergyCoverageRecoveryReport({ qualityDiagnostic: qualityDiag }),
+    );
+    if (adr0474) {
+      lines.push('');
+      lines.push(adr0474);
+      console.log('[ADR-0474] SectorEnergy coverage recovery diagnostic appended to /sector_energy_diag');
+    }
+
     if (qualityDiag.sanityViolation) {
       const sanity = formatSanityDiagnosticSection(qualityDiag.sanityViolation);
       if (sanity) {
