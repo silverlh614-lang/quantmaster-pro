@@ -153,6 +153,11 @@ import {
   formatGate1ScoringAlignmentReport,
   type Gate1ScoringAlignmentReport,
 } from './gate1ScoringAlignmentAdr0472.js';
+import {
+  buildGate1PositiveSourceWiringReport,
+  formatGate1PositiveSourceWiringReport,
+  type Gate1PositiveSourceWiringReport,
+} from './gate1PositiveSourceWiringAdr0475.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -405,6 +410,8 @@ export interface ScanSummary {
   finalGate1Calibration?: FinalGate1CalibrationAuditReport;
   /** ADR-0472 component alignment and dry-run policy promotion candidate; executionImpact NONE. */
   gate1ScoringAlignment?: Gate1ScoringAlignmentReport;
+  /** ADR-0475 positive source wiring dry-run; executionImpact NONE and liveExecutionAllowed false. */
+  gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport;
 }
 
 let _lastBuySignalAt = 0;
@@ -1233,6 +1240,16 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     console.warn('[ADR-0472] Gate1ScoringAlignment format failed (base scan summary unaffected):', e);
   }
 
+  try {
+    const positiveSourceWiringSection = formatGate1PositiveSourceWiringReport(summary.gate1PositiveSourceWiring);
+    if (positiveSourceWiringSection) {
+      lines.push('');
+      lines.push(positiveSourceWiringSection);
+    }
+  } catch (e) {
+    console.warn('[ADR-0475] Gate1PositiveSourceWiring format failed (base scan summary unaffected):', e);
+  }
+
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
   // 기존 sectorEnergyQuality 라벨만으로는 SECTOR_DATA_STALE_DOMINANT 의 *진짜 원인* 인식 불가.
   // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
@@ -1867,6 +1884,37 @@ export async function persistScanResults(
     }
   } catch (e) {
     console.warn('[ADR-0472] Gate1ScoringAlignment build failed (engine unaffected):', e);
+  }
+
+  // ADR-0475: positive source resolver dry-run for watchlist upstream score,
+  // relative strength, breakout structure, and OTHER_POSITIVE decomposition.
+  // This never mutates live Gate1 scoring, thresholds, or order routing.
+  try {
+    const macro = options.macroGateState;
+    const gate1PositiveSourceWiring = buildGate1PositiveSourceWiringReport({
+      positiveStarvationReport: summaryDraft.positiveScoreStarvation,
+      scoreCeilingRepairReport: summaryDraft.scoreCeilingRepair,
+      penaltyDeduplicationReport: summaryDraft.penaltyDeduplication,
+      riskDoubleCountReport: summaryDraft.riskDoubleCount,
+      gate1ScoringAlignmentReport: summaryDraft.gate1ScoringAlignment,
+      traces: counters.positiveScoreStarvationTraces,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: macro?.regime ?? 'UNKNOWN',
+      marketSession: macro?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+    });
+    if (gate1PositiveSourceWiring) {
+      summaryDraft.gate1PositiveSourceWiring = gate1PositiveSourceWiring;
+      console.warn(
+        `[ADR-0475] Gate1PositiveSourceWiring SHADOW_ONLY dry-run emitted ` +
+        `(candidates=${gate1PositiveSourceWiring.totalCandidates}, ` +
+        `afterRange=${gate1PositiveSourceWiring.afterDryRunScoreRange}, ` +
+        `executionImpact=${gate1PositiveSourceWiring.executionImpact}, ` +
+        `liveExecutionAllowed=${gate1PositiveSourceWiring.liveExecutionAllowed})`,
+      );
+    }
+  } catch (e) {
+    console.warn('[ADR-0475] Gate1PositiveSourceWiring build failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;
