@@ -84,6 +84,11 @@ import {
   formatNearMissOutcomeAnalyticsDiagnosticLine,
   formatNearMissOutcomeDiagnosticLine,
 } from '../../../learning/nearMissOutcomeFormatter.js';
+import {
+  buildRuntimePipelineAuditSnapshot,
+  formatRuntimePipelineAuditSection,
+  isRuntimePipelineAuditDisabled,
+} from '../../../diagnostics/runtimePipelineAudit.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -332,6 +337,15 @@ const scanBlockers: TelegramCommand = {
       );
     }
 
+    let runtimeAuditSection: string | null = null;
+    try {
+      if (!isRuntimePipelineAuditDisabled()) {
+        runtimeAuditSection = formatRuntimePipelineAuditSection(buildRuntimePipelineAuditSnapshot());
+      }
+    } catch (err) {
+      console.warn('[scan_blockers] ADR-461 runtime audit section failed:', err);
+    }
+
     const parts: string[] = [baseMessage];
     if (degradedSection) parts.push(degradedSection);
     if (supplyProviderSection) parts.push(supplyProviderSection);
@@ -345,6 +359,7 @@ const scanBlockers: TelegramCommand = {
     if (nearMissOutcomeLine) parts.push(nearMissOutcomeLine);
     if (nearMissAnalyticsLine) parts.push(nearMissAnalyticsLine);
     if (livenessSection) parts.push(livenessSection);
+    if (runtimeAuditSection) parts.push(runtimeAuditSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);
   },

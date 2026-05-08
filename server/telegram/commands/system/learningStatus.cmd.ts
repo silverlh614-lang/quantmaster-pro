@@ -19,6 +19,11 @@ import {
   summarizeGateReclassificationRollout,
 } from '../../../learning/gateReclassificationRolloutPolicy.js';
 import { loadGateReclassificationRolloutPlan } from '../../../persistence/gateReclassificationRolloutRepo.js';
+import {
+  buildRuntimePipelineAuditSnapshot,
+  formatRuntimePipelineAuditCompactLine,
+  isRuntimePipelineAuditDisabled,
+} from '../../../diagnostics/runtimePipelineAudit.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -64,6 +69,14 @@ const learningStatus: TelegramCommand = {
         } catch (e) {
           console.warn('[ADR-459] Gate reclassification rollout failed:', e instanceof Error ? e.message : e);
         }
+      }
+
+      try {
+        if (!isRuntimePipelineAuditDisabled()) {
+          message += `\n\n${formatRuntimePipelineAuditCompactLine(buildRuntimePipelineAuditSnapshot())}`;
+        }
+      } catch (e) {
+        console.warn('[ADR-461] Runtime audit compact line failed:', e instanceof Error ? e.message : e);
       }
 
       await reply(message);
