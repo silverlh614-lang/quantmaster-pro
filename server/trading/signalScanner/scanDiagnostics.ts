@@ -133,6 +133,11 @@ import {
   formatGate1ScoreCeilingRepairReport,
   type Gate1ScoreCeilingRepairReport,
 } from './gate1ScoreCeilingRepair.js';
+import {
+  buildPenaltyDeduplicationReport,
+  formatPenaltyDeduplicationReport,
+  type PenaltyDeduplicationReport,
+} from './gate1PenaltyDeduplication.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -377,6 +382,8 @@ export interface ScanSummary {
   positiveScoreStarvation?: PositiveScoreStarvationReport;
   /** ADR-0468 score ceiling repair dry-run; diagnostic-only and executionImpact NONE. */
   scoreCeilingRepair?: Gate1ScoreCeilingRepairReport;
+  /** ADR-0469 penalty deduplication dry-run; diagnostic-only and executionImpact NONE. */
+  penaltyDeduplication?: PenaltyDeduplicationReport;
 }
 
 let _lastBuySignalAt = 0;
@@ -1177,6 +1184,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(scoreCeilingRepairSection);
   }
 
+  const penaltyDeduplicationSection = formatPenaltyDeduplicationReport(summary.penaltyDeduplication);
+  if (penaltyDeduplicationSection) {
+    lines.push('');
+    lines.push(penaltyDeduplicationSection);
+  }
+
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
   // 기존 sectorEnergyQuality 라벨만으로는 SECTOR_DATA_STALE_DOMINANT 의 *진짜 원인* 인식 불가.
   // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
@@ -1699,6 +1712,31 @@ export async function persistScanResults(
     }
   } catch (e) {
     console.warn('[ADR-0468] Gate1ScoreCeilingRepair build failed (engine unaffected):', e);
+  }
+
+  // ADR-0469: root-cause penalty deduplication is advisory only. It checks
+  // whether supply provider UNKNOWN is charged through multiple penalty lanes.
+  try {
+    const dedup = buildPenaltyDeduplicationReport({
+      positiveStarvationReport: summaryDraft.positiveScoreStarvation,
+      scoreCeilingRepairReport: summaryDraft.scoreCeilingRepair,
+      traces: counters.positiveScoreStarvationTraces,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: options.macroGateState?.regime ?? 'UNKNOWN',
+      marketSession: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      riskMultiplier: options.macroGateState?.finalKellyMultiplier ?? 0.38,
+    });
+    if (dedup) {
+      summaryDraft.penaltyDeduplication = dedup;
+      console.warn(
+        `[ADR-0469] PenaltyDeduplication dry-run emitted ` +
+        `(candidates=${dedup.totalCandidates}, duplicateGroups=${dedup.duplicateGroups.length}, ` +
+        `executionImpact=${dedup.executionImpact})`,
+      );
+    }
+  } catch (e) {
+    console.warn('[ADR-0469] PenaltyDeduplication build failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;
