@@ -26,6 +26,10 @@ import { formatSectorEnergyQualityDiagnosticSection } from '../../../clients/sec
 // ADR-0446: Phase 2 indexCode recovery + sanity violation 진단 섹션 SSOT.
 import { formatPhase2RecoverySection } from '../../../clients/sectorEnergyIndexCodeRecoveryDiagnostic.js';
 import { formatSanityDiagnosticSection } from '../../../clients/sectorEnergySanityViolationDiagnostic.js';
+import {
+  buildSectorEnergyCoverageRecoveryReport,
+  formatSectorEnergyCoverageRecoverySection,
+} from '../../../clients/sectorEnergyCoverageRecoveryAdr0474.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -42,6 +46,12 @@ export function formatSectorEnergyDiagMessage(): string {
 
   if (!macro) {
     lines.push('⚠️ <i>macroState 부재 — sectorEnergy 미수집</i>');
+    const adr0474 = formatSectorEnergyCoverageRecoverySection(buildSectorEnergyCoverageRecoveryReport());
+    if (adr0474) {
+      lines.push('');
+      lines.push(adr0474);
+      console.log('[ADR-0474] SectorEnergy coverage recovery fallback mounted to /sector_energy_diag');
+    }
     return lines.join('\n');
   }
 
@@ -137,6 +147,15 @@ export function formatSectorEnergyDiagMessage(): string {
     }
 
     // ADR-0446: sanity violation 진단 (sector vs stock 분리 + topViolating + confidenceImpact).
+    const adr0474 = formatSectorEnergyCoverageRecoverySection(
+      buildSectorEnergyCoverageRecoveryReport({ qualityDiagnostic: qualityDiag }),
+    );
+    if (adr0474) {
+      lines.push('');
+      lines.push(adr0474);
+      console.log('[ADR-0474] SectorEnergy coverage recovery diagnostic appended to /sector_energy_diag');
+    }
+
     if (qualityDiag.sanityViolation) {
       const sanity = formatSanityDiagnosticSection(qualityDiag.sanityViolation);
       if (sanity) {
@@ -148,6 +167,21 @@ export function formatSectorEnergyDiagMessage(): string {
 
   // ADR-0398 STRONG_BUY 게이트 결과
   lines.push('');
+  const adr0474 = formatSectorEnergyCoverageRecoverySection(
+    qualityDiag
+      ? buildSectorEnergyCoverageRecoveryReport({ qualityDiagnostic: qualityDiag })
+      : buildSectorEnergyCoverageRecoveryReport(),
+  );
+  if (adr0474) {
+    lines.push('');
+    lines.push(adr0474);
+    console.log(
+      qualityDiag
+        ? '[ADR-0474] SectorEnergy coverage recovery diagnostic appended to /sector_energy_diag'
+        : '[ADR-0474] SectorEnergy coverage recovery fallback mounted to /sector_energy_diag',
+    );
+  }
+
   if (isSectorEnergyStrongBuyGateDisabled()) {
     lines.push('🔓 <b>[STRONG_BUY 게이트 비활성]</b> (ENV `SECTOR_ENERGY_STRONG_BUY_GATE_DISABLED=true`)');
   } else if (

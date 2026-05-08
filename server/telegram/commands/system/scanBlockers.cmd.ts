@@ -63,6 +63,10 @@ import {
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { formatPhase2RecoveryCompactLine } from '../../../clients/sectorEnergyIndexCodeRecoveryDiagnostic.js';
 import { formatSanityDiagnosticCompactLine } from '../../../clients/sectorEnergySanityViolationDiagnostic.js';
+import {
+  buildSectorEnergyCoverageRecoveryReport,
+  formatSectorEnergyCoverageRecoverySection,
+} from '../../../clients/sectorEnergyCoverageRecoveryAdr0474.js';
 // ADR-0448 Phase 0 — SectorEnergy 3층 분리 (diagnostic / scoring / execution) +
 //   R3 Noise Governor compact line. read-only — macroState 만 read, LIVE 매매 영향 0.
 import {
@@ -245,6 +249,7 @@ const scanBlockers: TelegramCommand = {
     // try/catch 격리 — 진단 throw 가 base 메시지 차단 안 함.
     let phase2Line: string | null = null;
     let sanityLine: string | null = null;
+    let sectorEnergyCoverageRecoverySection: string | null = null;
     try {
       const macro = loadMacroState();
       const qDiag = macro?.sectorEnergyQualityDiagnostic;
@@ -257,6 +262,22 @@ const scanBlockers: TelegramCommand = {
       if (qDiag?.sanityViolation) {
         sanityLine = formatSanityDiagnosticCompactLine(
           qDiag.sanityViolation as Parameters<typeof formatSanityDiagnosticCompactLine>[0],
+        );
+      }
+      sectorEnergyCoverageRecoverySection = formatSectorEnergyCoverageRecoverySection(
+        qDiag
+          ? buildSectorEnergyCoverageRecoveryReport({
+              qualityDiagnostic: qDiag as NonNullable<
+                Parameters<typeof buildSectorEnergyCoverageRecoveryReport>[0]
+              >['qualityDiagnostic'],
+            })
+          : buildSectorEnergyCoverageRecoveryReport(),
+      );
+      if (sectorEnergyCoverageRecoverySection) {
+        console.log(
+          qDiag
+            ? '[ADR-0474] SectorEnergy coverage recovery diagnostic appended to /scan_blockers'
+            : '[ADR-0474] SectorEnergy coverage recovery fallback mounted to /scan_blockers',
         );
       }
     } catch (err) {
@@ -363,6 +384,7 @@ const scanBlockers: TelegramCommand = {
     if (kisWsSubscriptionSection) parts.push(kisWsSubscriptionSection);
     if (phase2Line) parts.push(`🧩 SectorEnergy indexCode Recovery Phase 2: ${phase2Line}`);
     if (sanityLine) parts.push(`🧪 ${sanityLine}`);
+    if (sectorEnergyCoverageRecoverySection) parts.push(sectorEnergyCoverageRecoverySection);
     if (executionImpactLine) parts.push(executionImpactLine);
     if (nearMissOutcomeLine) parts.push(nearMissOutcomeLine);
     if (nearMissAnalyticsLine) parts.push(nearMissAnalyticsLine);
