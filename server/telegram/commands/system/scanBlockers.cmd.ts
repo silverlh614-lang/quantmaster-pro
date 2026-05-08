@@ -80,7 +80,10 @@ import {
 } from '../../../trading/signalScanner/emptyScanLivenessPolicy.js';
 import { getScanFeedbackState } from '../../../orchestrator/adaptiveScanScheduler.js';
 import { summarizeNearMissOutcomeLedger } from '../../../persistence/nearMissOutcomeLedger.js';
-import { formatNearMissOutcomeDiagnosticLine } from '../../../learning/nearMissOutcomeFormatter.js';
+import {
+  formatNearMissOutcomeAnalyticsDiagnosticLine,
+  formatNearMissOutcomeDiagnosticLine,
+} from '../../../learning/nearMissOutcomeFormatter.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -290,15 +293,17 @@ const scanBlockers: TelegramCommand = {
       );
     }
 
-    // ADR-454b — Near-Miss Outcome 누적 성과 compact line.
-    // read-only ledger summary 만 사용한다. /scan_blockers 호출은 가격조회/API/order 를 트리거하지 않는다.
+    // ADR-454b/455 — Near-Miss Outcome 누적 성과 + 과잉 차단 analytics compact lines.
+    // read-only ledger summary/entries 만 사용한다. /scan_blockers 호출은 가격조회/API/order 를 트리거하지 않는다.
     // executionImpact=NONE: DATA_BLOCKED_NEAR_MISS / PROBING / SHADOW_ONLY 학습/진단 노출 전용.
     let nearMissOutcomeLine: string | null = null;
+    let nearMissAnalyticsLine: string | null = null;
     try {
       nearMissOutcomeLine = formatNearMissOutcomeDiagnosticLine(summarizeNearMissOutcomeLedger());
+      nearMissAnalyticsLine = formatNearMissOutcomeAnalyticsDiagnosticLine();
     } catch (err) {
       console.warn(
-        '[scan_blockers] ADR-454b near-miss outcome line 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
+        '[scan_blockers] ADR-454b/455 near-miss outcome line 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
         err,
       );
     }
@@ -338,6 +343,7 @@ const scanBlockers: TelegramCommand = {
     if (sanityLine) parts.push(`🧪 ${sanityLine}`);
     if (executionImpactLine) parts.push(executionImpactLine);
     if (nearMissOutcomeLine) parts.push(nearMissOutcomeLine);
+    if (nearMissAnalyticsLine) parts.push(nearMissAnalyticsLine);
     if (livenessSection) parts.push(livenessSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);
