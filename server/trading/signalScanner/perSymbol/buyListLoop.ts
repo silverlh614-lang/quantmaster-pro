@@ -128,6 +128,7 @@ import {
   accumulateGateScoreHealth,
   accumulateNearMissOutcomeLedgerWrite,
   accumulateGateReclassificationDryRun,
+  accumulatePositiveScoreStarvation,
 } from '../scanDiagnostics.js';
 // ADR-0436 — Gate Eligibility Split (LIVE_ELIGIBLE vs SHADOW_OBSERVABLE).
 //   분류 layer 만 — KIS 주문 호출 0건. 결과 ScanCounters 누적 only,
@@ -171,6 +172,7 @@ import {
   buildGateReclassificationDryRunId,
   upsertGateReclassificationDryRunRecord,
 } from '../../../persistence/gateReclassificationDryRunRepo.js';
+import { buildGate1ScoreStarvationTraceFromGateResult } from '../gate1PositiveScoreStarvation.js';
 
 function kstDecisionDate(): string {
   return new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
@@ -1344,6 +1346,24 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         accumulateGateScoreHealth(ctx.scanCounters, reCheckGate);
       } catch (e) {
         console.warn('[ADR-452c] accumulateGateScoreHealth failed:', e instanceof Error ? e.message : e);
+      }
+      try {
+        if (reCheckGate) {
+          const band = getRegimeGateBand(ctx.regime);
+          accumulatePositiveScoreStarvation(
+            ctx.scanCounters,
+            buildGate1ScoreStarvationTraceFromGateResult({
+              symbol: stock.code,
+              name: stock.name,
+              requiredScore: band.strong,
+              gateResult: reCheckGate,
+              watchlistScore: stock.gateScore,
+              upstreamScore: stock.gateScore,
+            }),
+          );
+        }
+      } catch (e) {
+        console.warn('[ADR-0467] positive score starvation audit failed:', e instanceof Error ? e.message : e);
       }
       // ADR-452d/454 — Gate near-miss bucket 진단 누적 + Outcome Ledger 영속.
       // executionImpact=NONE, live decision/Kelly/KIS 주문 미사용. DATA_BLOCKED_NEAR_MISS /

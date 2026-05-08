@@ -121,6 +121,12 @@ import {
   type CandidateSnapshot,
   type EntryFilterDecomposition,
 } from './entryFilterDecomposition.js';
+import {
+  buildPositiveScoreStarvationReport,
+  formatPositiveScoreStarvationReport,
+  type Gate1ScoreStarvationTrace,
+  type PositiveScoreStarvationReport,
+} from './gate1PositiveScoreStarvation.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -361,6 +367,8 @@ export interface ScanSummary {
   gateScoreCandidateBuckets?: GateScoreCandidateBucketSummary;
   /** ADR-458 — APPROVED reclassification shadow/dry-run summary; live executionImpact is NONE. */
   gateReclassificationDryRun?: GateReclassificationDryRunSummary;
+  /** ADR-0467 positive score starvation audit; diagnostic-only and executionImpact NONE. */
+  positiveScoreStarvation?: PositiveScoreStarvationReport;
 }
 
 let _lastBuySignalAt = 0;
@@ -503,6 +511,7 @@ export interface ScanCounters {
   entryCandidateSnapshots: CandidateSnapshot[];
   /** ADR-458 — Dry-run result accumulator; diagnostic-only. */
   gateReclassificationDryRunResults: GateReclassificationDryRunResult[];
+  positiveScoreStarvationTraces: Gate1ScoreStarvationTrace[];
 }
 
 export function createScanCounters(): ScanCounters {
@@ -580,6 +589,7 @@ export function createScanCounters(): ScanCounters {
     entryCandidateSnapshots: [],
     // ADR-458 — Approved Gate Reclassification Dry-Run 결과 누적 (live 영향 없음).
     gateReclassificationDryRunResults: [],
+    positiveScoreStarvationTraces: [],
   };
 }
 
@@ -816,6 +826,13 @@ export function accumulateGateReclassificationDryRun(
 ): void {
   if (!result || result.dryRunDecision === 'NO_CHANGE') return;
   counters.gateReclassificationDryRunResults.push(result);
+}
+
+export function accumulatePositiveScoreStarvation(
+  counters: ScanCounters,
+  trace: Gate1ScoreStarvationTrace | null | undefined,
+): void {
+  if (trace) counters.positiveScoreStarvationTraces.push(trace);
 }
 
 function topCounts(record: Record<string, number>, limit = 5): Array<{ condition: string; count: number }> {
@@ -1140,6 +1157,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(gateReclassificationDryRunSection);
   }
 
+  const positiveStarvationSection = formatPositiveScoreStarvationReport(summary.positiveScoreStarvation);
+  if (positiveStarvationSection) {
+    lines.push('');
+    lines.push(positiveStarvationSection);
+  }
+
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
   // 기존 sectorEnergyQuality 라벨만으로는 SECTOR_DATA_STALE_DOMINANT 의 *진짜 원인* 인식 불가.
   // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
@@ -1342,6 +1365,13 @@ export async function persistScanResults(
     gateScoreCandidateBuckets: buildGateScoreCandidateBucketSummary(counters),
     // ADR-458 — dry-run only approved reclassification impact summary.
     gateReclassificationDryRun: buildGateReclassificationDryRunSummary(counters.gateReclassificationDryRunResults),
+    positiveScoreStarvation: buildPositiveScoreStarvationReport({
+      traces: counters.positiveScoreStarvationTraces,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: options.macroGateState?.regime ?? 'UNKNOWN',
+      marketSession: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+    }),
   };
 
   // ADR-0420 — Fresh Scan Blocker Attribution build + persist (옵셔널, 후방호환).
