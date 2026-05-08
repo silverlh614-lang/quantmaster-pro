@@ -473,6 +473,9 @@ export const GATE_RECLASSIFICATION_DRY_RUN_FILE = path.join(DATA_DIR, 'gate-recl
 export const GATE_RECLASSIFICATION_APPROVAL_PLAN_FILE = path.join(DATA_DIR, 'gate-reclassification-approval-plan.json');
 
 
+/** ADR-459 — approved gate reclassification controlled rollout 운영 상태 기록. */
+export const GATE_RECLASSIFICATION_ROLLOUT_FILE = path.join(DATA_DIR, 'gate-reclassification-rollout.json');
+
 export function ensureReflectionsDir(): void {
   ensureDataDir();
   if (!fs.existsSync(REFLECTIONS_DIR)) fs.mkdirSync(REFLECTIONS_DIR, { recursive: true });
