@@ -191,9 +191,14 @@ function isIntradayHorizon(horizon: CounterfactualShadowHorizon): boolean {
 /**
  * ADR-0439 — exported for reuse by `provisionalShadowPriceProvider.ts`.
  * counterfactual adapter 본체 동작 0 변경, export 키워드만 추가 (drift 차단).
+ *
+ * ADR-0444 — `${s}.KS` direct concat 은 6자리 정규식 정상 통과 시 KOSPI default
+ * fallback. yahooSymbolResolver SSOT 위임 별도 ADR scope (counterfactual 가격
+ * 조회는 KRX 마스터 lookup 부재 시점에서도 동작해야 하는 그레이스 경로).
  */
 export function normalizeYahooSymbol(symbol: string): string {
   const s = symbol.trim();
+  // ADR-0444: 마스터 부재 시 KOSPI default fallback (그레이스).
   if (/^\d{6}$/.test(s)) return `${s}.KS`;
   return s;
 }
