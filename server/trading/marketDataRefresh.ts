@@ -753,6 +753,9 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   // applySectorScoreBoost 가 read 후 dataQuality 분기로 boost 강도 분기.
   let sectorEnergyResult: ReturnType<typeof evaluateSectorEnergy> | undefined;
   let sectorEnergyUpdatedAt: string | undefined;
+  // ADR-0454: meta.inputs 를 saveMacroState merge scope 까지 노출. ADR-0343 L3 CACHE
+  // fallback 의 writer wiring (SilentDegradation 1건 해소). meta.inputs.length>0 분기에만 채움.
+  let sectorEnergyInputsResolved: Awaited<ReturnType<typeof buildSectorEnergyInputsWithMeta>>['inputs'] | undefined;
   // ADR-0396: 5단계 union (DEGRADED 신규).
   let sectorEnergyDataQuality: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED' | undefined;
   let sectorEnergyValidSectorCount: number | undefined;
@@ -818,6 +821,8 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     if (meta.inputs.length > 0) {
       sectorEnergyResult = evaluateSectorEnergy(meta.inputs);
       sectorEnergyUpdatedAt = new Date().toISOString();
+      // ADR-0454: meta.inputs SSOT 영속 — saveMacroState merge 분기에서 sectorEnergyInputs 영속.
+      sectorEnergyInputsResolved = meta.inputs;
       console.log(
         `[MarketRefresh] sectorEnergy 갱신 — ${meta.inputs.length}개 섹터 ` +
         `(dataQuality=${meta.dataQuality}, valid=${meta.validSectorCount}/12, ` +
@@ -855,6 +860,16 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     updatedAt: new Date().toISOString(),
     // sectorEnergyResult 가 갱신됐을 때만 덮어쓰기 — 실패 시 이전 값 보존.
     ...(sectorEnergyResult ? { sectorEnergyResult, sectorEnergyUpdatedAt } : {}),
+    // ADR-0454: sectorEnergyInputs writer wiring — ADR-0343 L3 CACHE fallback 의 입력 데이터.
+    // 본 PR 이전엔 reader (sectorEnergyProvider:1065) 만 있고 writer 0건이라 영구 dead code
+    // 였음 (SilentDegradation 1건). sectorEnergyInputsResolved 가 채워진 사이클에만 영속 —
+    // meta.inputs.length===0 또는 throw 시 이전 cache 보존.
+    ...(sectorEnergyInputsResolved && sectorEnergyUpdatedAt
+      ? {
+          sectorEnergyInputs: sectorEnergyInputsResolved,
+          sectorEnergyInputsUpdatedAt: sectorEnergyUpdatedAt,
+        }
+      : {}),
     // ADR-0125: dataQuality 메타는 항상 영속 (이전 캐시 reference 활용 시 STALE 판정 입력).
     // ADR-0399 (= 사용자 명시 ADR-0374): 4-axis (sourceTier/freshness/coverage/confidence)
     // + diagnostics 동시 영속 — `/sector_energy_diag` 명령 처음 실제 데이터 표시.
