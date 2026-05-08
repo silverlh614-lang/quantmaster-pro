@@ -356,7 +356,8 @@ describe('ADR-0424 wiring 정적 가드', () => {
     // 모든 aggregateIndexDeltas 호출이 backfilled rows 사용
     const matches = src.match(/aggregateIndexDeltas\(todayIdx[^B]/g);
     expect(matches).toBeNull(); // 비-backfilled 사용 0건
-    expect(src).toMatch(/aggregateIndexDeltas\(todayIdxBackfilled,\s*pastIdxBackfilled\)/);
+    // ADR-0446: aggregateIndexDeltas 가 옵셔널 sanityState 인자 추가됨 — multiline 호출 패턴 호환.
+    expect(src).toMatch(/aggregateIndexDeltas\(\s*todayIdxBackfilled,\s*pastIdxBackfilled[\s,)]/);
   });
 
   it('SymmetryValidationResult.backfilledCount 옵셔널 필드 존재', () => {

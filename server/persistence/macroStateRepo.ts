@@ -208,6 +208,52 @@ export interface MacroState {
     indexCodeBackfilledCount?: number;
     /** ADR-0424: 수리 상태 분류 (옵셔널, 후방호환). */
     repairStatus?: 'RECOVERED' | 'PARTIAL' | 'STILL_STALE' | 'NOT_NEEDED';
+    /**
+     * ADR-0446 Phase 2: indexCode recovery 분해 (옵셔널, 후방호환).
+     *
+     * SECTOR_INDEX_MASTER alias 매칭 위에서 *missing row 의 진짜 원인* 을 row 단위로
+     * 분해. 11-value missingReasonBreakdown + topMissingIndexNames + ambiguousAliases
+     * + sourceTierBreakdown + recoveryStatus + leadershipConfidence.
+     */
+    sectorIndexRecovery?: {
+      totalRows: number;
+      rowsWithIndexCode: number;
+      rowsMissingIndexCode: number;
+      beforeIndexCodeCoverage: number;
+      afterIndexCodeCoverage: number;
+      backfilledByNameLookup: number;
+      backfilledByAliasExpansion: number;
+      stillMissing: number;
+      missingReasonBreakdown: Record<string, number>;
+      topMissingIndexNames: Array<{ rawName: string; normalizedName: string; count: number; reason: string }>;
+      ambiguousAliases: Array<{ normalizedName: string; candidates: string[] }>;
+      sourceTierBreakdown: Record<string, number>;
+      recoveryStatus: 'RECOVERED' | 'PARTIAL' | 'STILL_STALE' | 'NOT_NEEDED';
+      leadershipConfidence: 'OK' | 'DEGRADED' | 'BLOCKED';
+      fallbackUsed: 'NONE' | 'STOCK_DAILY' | 'ETF' | 'CACHE';
+      symmetryValidationPassed: boolean;
+      sanityViolationCount: number;
+    };
+    /**
+     * ADR-0446: sanity violation 진단 (옵셔널, 후방호환).
+     *
+     * 단순 console.warn 로그였던 sanity violation (sector pct > 30% / stockVolume >
+     * 1000% / stockReturn > 90% / base 0/tiny) 을 *구조화된 진단* 으로 집계.
+     * 7-value union + sector vs stock 분리 + topViolating + confidenceImpact.
+     */
+    sanityViolation?: {
+      totalViolations: number;
+      sectorPctViolations: number;
+      stockVolumeViolations: number;
+      stockReturnViolations: number;
+      topViolatingSectors: Array<{ sector: string; pct: number; bound: number; count: number }>;
+      topViolatingStocks: Array<{ code: string; metric: 'stockVolume' | 'stockReturn'; pct: number; current?: number; base?: number; reason: string }>;
+      baseZeroOrTinyCount: number;
+      staleBaselineCount: number;
+      sourceTierBreakdown: Record<string, number>;
+      confidenceImpact: 'NONE' | 'DEGRADED' | 'BLOCKED';
+      stockDailyTaintedMarker: boolean;
+    };
   };
   /**
    * ADR-0343 — sectorEnergy build 입력 (SectorEnergyInput[]) 영속.
