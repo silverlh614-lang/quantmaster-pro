@@ -79,6 +79,8 @@ import {
   isEmptyScanLivenessPolicyDisabled,
 } from '../../../trading/signalScanner/emptyScanLivenessPolicy.js';
 import { getScanFeedbackState } from '../../../orchestrator/adaptiveScanScheduler.js';
+import { summarizeNearMissOutcomeLedger } from '../../../persistence/nearMissOutcomeLedger.js';
+import { formatNearMissOutcomeDiagnosticLine } from '../../../learning/nearMissOutcomeFormatter.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -288,6 +290,19 @@ const scanBlockers: TelegramCommand = {
       );
     }
 
+    // ADR-454b — Near-Miss Outcome 누적 성과 compact line.
+    // read-only ledger summary 만 사용한다. /scan_blockers 호출은 가격조회/API/order 를 트리거하지 않는다.
+    // executionImpact=NONE: DATA_BLOCKED_NEAR_MISS / PROBING / SHADOW_ONLY 학습/진단 노출 전용.
+    let nearMissOutcomeLine: string | null = null;
+    try {
+      nearMissOutcomeLine = formatNearMissOutcomeDiagnosticLine(summarizeNearMissOutcomeLedger());
+    } catch (err) {
+      console.warn(
+        '[scan_blockers] ADR-454b near-miss outcome line 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
+        err,
+      );
+    }
+
     // ADR-0451 — Empty Scan Liveness Policy compact section.
     //   사용자 §7 정합 — REGULAR session + emptyScanStreak 만으로 SELL_ONLY 강제 안 됨 명시.
     //   read-only — adaptiveScanScheduler.getScanFeedbackState() 메모리 read 만, 신규 외부 API 호출 0.
@@ -322,6 +337,7 @@ const scanBlockers: TelegramCommand = {
     if (phase2Line) parts.push(`🧩 SectorEnergy indexCode Recovery Phase 2: ${phase2Line}`);
     if (sanityLine) parts.push(`🧪 ${sanityLine}`);
     if (executionImpactLine) parts.push(executionImpactLine);
+    if (nearMissOutcomeLine) parts.push(nearMissOutcomeLine);
     if (livenessSection) parts.push(livenessSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);
