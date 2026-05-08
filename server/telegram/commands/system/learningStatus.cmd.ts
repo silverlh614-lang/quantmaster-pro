@@ -8,6 +8,11 @@ import {
   formatGateReclassificationProposalReport,
   isGateReclassificationProposalDisabled,
 } from '../../../learning/gateReclassificationProposal.js';
+import {
+  buildGateReclassificationApprovalPlan,
+  formatGateReclassificationApprovalPlan,
+  isGateReclassificationApprovalPlanDisabled,
+} from '../../../learning/gateReclassificationApprovalPlan.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -22,14 +27,24 @@ const learningStatus: TelegramCommand = {
       const snapshot = getLearningStatus();
       let message = formatLearningStatusMessage(snapshot);
 
-      if (!isGateReclassificationProposalDisabled()) {
+      if (!isGateReclassificationProposalDisabled() || !isGateReclassificationApprovalPlanDisabled()) {
         try {
           const analytics = buildNearMissOutcomeAnalyticsReport();
           const proposalReport = buildGateReclassificationProposalReport(analytics);
-          const section = formatGateReclassificationProposalReport(proposalReport);
-          if (section) message += `\n\n${section}`;
+
+          if (!isGateReclassificationProposalDisabled()) {
+            const section = formatGateReclassificationProposalReport(proposalReport);
+            if (section) message += `\n\n${section}`;
+          }
+
+          if (!isGateReclassificationApprovalPlanDisabled()) {
+            const plan = buildGateReclassificationApprovalPlan(proposalReport);
+            const section = formatGateReclassificationApprovalPlan(plan);
+            if (section) message += `\n\n${section}`;
+          }
         } catch (e) {
           console.warn('[ADR-456] Gate reclassification proposal failed:', e instanceof Error ? e.message : e);
+          console.warn('[ADR-457] Gate reclassification approval plan failed:', e instanceof Error ? e.message : e);
         }
       }
 
