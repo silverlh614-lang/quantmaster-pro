@@ -127,6 +127,7 @@ import {
   accumulateGateScoreCandidateBucket,
   accumulateGateScoreHealth,
   accumulateNearMissOutcomeLedgerWrite,
+  accumulateGateReclassificationDryRun,
 } from '../scanDiagnostics.js';
 // ADR-0436 — Gate Eligibility Split (LIVE_ELIGIBLE vs SHADOW_OBSERVABLE).
 //   분류 layer 만 — KIS 주문 호출 0건. 결과 ScanCounters 누적 only,
@@ -161,6 +162,15 @@ import {
 } from '../../../learning/supplyHealthLearning.js';
 import { appendLearningSample } from '../../../persistence/learningSampleRepo.js';
 import { recordNearMissOutcome } from '../../../persistence/nearMissOutcomeLedger.js';
+import {
+  evaluateGateReclassificationDryRun,
+  isGateReclassificationDryRunDisabled,
+} from '../../../learning/gateReclassificationDryRun.js';
+import { loadGateReclassificationApprovalPlan } from '../../../learning/gateReclassificationApprovalPlan.js';
+import {
+  buildGateReclassificationDryRunId,
+  upsertGateReclassificationDryRunRecord,
+} from '../../../persistence/gateReclassificationDryRunRepo.js';
 
 function kstDecisionDate(): string {
   return new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
@@ -1366,8 +1376,40 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           });
           accumulateNearMissOutcomeLedgerWrite(ctx.scanCounters, outcome);
         }
+
+        // ADR-458 — APPROVED Gate 재분류 Dry-Run. Shadow/diagnostic ledger only.
+        // live Gate threshold/Kelly/KIS 주문/signalType/position sizing 은 변경하지 않는다.
+        if (!isGateReclassificationDryRunDisabled() && bucketDecision && reCheckGate) {
+          const approvedItems = loadGateReclassificationApprovalPlan().items
+            .filter((item) => item.status === 'APPROVED');
+          const observedDateKst = kstDecisionDate();
+          const dryRun = evaluateGateReclassificationDryRun({
+            code: stock.code,
+            name: stock.name,
+            gateScore: reCheckGate.gateScore,
+            rawScore: reCheckGate.rawScore,
+            availableMaxScore: reCheckGate.availableMaxScore,
+            normalizedGateScore: reCheckGate.normalizedGateScore,
+            unavailableConditions: reCheckGate.unavailableConditions ?? [],
+            thresholdNotMetConditions: reCheckGate.thresholdNotMetConditions ?? [],
+            providerDegradedConditions: reCheckGate.providerDegradedConditions ?? [],
+            originalBucket: bucketDecision.bucket,
+            approvedItems,
+          });
+
+          if (dryRun.dryRunDecision !== 'NO_CHANGE') {
+            upsertGateReclassificationDryRunRecord({
+              ...dryRun,
+              id: buildGateReclassificationDryRunId(stock.code, observedDateKst, dryRun.dryRunDecision),
+              observedAt: new Date().toISOString(),
+              observedDateKst,
+              status: 'OUTCOME_PENDING',
+            });
+            accumulateGateReclassificationDryRun(ctx.scanCounters, dryRun);
+          }
+        }
       } catch (e) {
-        console.warn('[ADR-454] near-miss outcome ledger failed (live flow unaffected):', e instanceof Error ? e.message : e);
+        console.warn('[ADR-454/458] near-miss outcome or gate reclassification dry-run failed (live flow unaffected):', e instanceof Error ? e.message : e);
       }
       // ADR-0420: Fresh Scan Blocker Attribution 누적 — 단일 후보 outputs 를 conditionKey
       //   별 status bucket 에 가산. persistScanResults 가 build → ScanSummary 영속.

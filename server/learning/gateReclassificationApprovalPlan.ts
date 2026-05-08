@@ -4,6 +4,8 @@
  * ADR-456 제안을 실제 정책 적용 전 운영자 승인/보류/거부 단위로 변환한다.
  * 본 모듈은 실행 설정을 쓰거나 주문/진입 판단 경로를 변경하지 않는다.
  */
+import fs from 'fs';
+import { ensureDataDir, GATE_RECLASSIFICATION_APPROVAL_PLAN_FILE } from '../persistence/paths.js';
 import type {
   GateConditionProposedClass,
   GateReclassificationProposalReport,
@@ -75,6 +77,46 @@ export interface GateReclassificationApprovalPlan {
 
 export function isGateReclassificationApprovalPlanDisabled(): boolean {
   return process.env.GATE_RECLASSIFICATION_APPROVAL_PLAN_DISABLED === 'true';
+}
+
+
+export function loadGateReclassificationApprovalPlan(): GateReclassificationApprovalPlan {
+  ensureDataDir();
+  if (!fs.existsSync(GATE_RECLASSIFICATION_APPROVAL_PLAN_FILE)) {
+    return {
+      generatedAt: new Date().toISOString(),
+      items: [],
+      pendingCount: 0,
+      highRiskCount: 0,
+      operatorMessage: 'No persisted approval plan found; ADR-458 dry-run has no APPROVED items to consume.',
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(GATE_RECLASSIFICATION_APPROVAL_PLAN_FILE, 'utf-8'));
+    const items = Array.isArray(parsed?.items) ? parsed.items as GateReclassificationApprovalItem[] : [];
+    return {
+      generatedAt: typeof parsed?.generatedAt === 'string' ? parsed.generatedAt : new Date().toISOString(),
+      items,
+      pendingCount: typeof parsed?.pendingCount === 'number'
+        ? parsed.pendingCount
+        : items.filter((item) => item.status === 'PENDING_APPROVAL').length,
+      highRiskCount: typeof parsed?.highRiskCount === 'number'
+        ? parsed.highRiskCount
+        : items.filter((item) => item.riskLevel === 'HIGH').length,
+      operatorMessage: typeof parsed?.operatorMessage === 'string'
+        ? parsed.operatorMessage
+        : 'Persisted approval plan loaded for ADR-458 dry-run only.',
+    };
+  } catch {
+    return {
+      generatedAt: new Date().toISOString(),
+      items: [],
+      pendingCount: 0,
+      highRiskCount: 0,
+      operatorMessage: 'Approval plan JSON was unreadable; ADR-458 dry-run skipped APPROVED item consumption.',
+    };
+  }
 }
 
 function safeIdPart(value: string): string {
