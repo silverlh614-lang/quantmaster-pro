@@ -225,6 +225,10 @@ describe('ADR-0474 SectorEnergy Coverage Recovery', () => {
     expect(sectorDiagSource()).toContain('formatSectorEnergyCoverageRecoverySection');
     expect(scanBlockersSource()).toContain('[ADR-0474]');
     expect(sectorDiagSource()).toContain('[ADR-0474]');
+    expect(scanBlockersSource()).toContain('fallback mounted to /scan_blockers');
+    expect(sectorDiagSource()).toContain('fallback mounted to /sector_energy_diag');
+    expect(scanBlockersSource()).toContain('buildSectorEnergyCoverageRecoveryReport()');
+    expect(sectorDiagSource()).toContain('buildSectorEnergyCoverageRecoveryReport()');
   });
 
   it('static guard: KIS order imports are absent', () => {
