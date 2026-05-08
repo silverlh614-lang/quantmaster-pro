@@ -42,6 +42,11 @@ import { canApplyToday } from '../persistence/overrideLedger.js';
 import { notifyEmptyScan, resetEmptyScanCounter } from './emptyScanPostmortem.js';
 import { checkVolumeClockWindow } from '../trading/volumeClock.js';
 import {
+  classifyEmptyScan,
+  shouldCountEmptyScan,
+  type EngineModeForEmptyScan,
+} from '../trading/signalScanner/emptyScanTaxonomy.js';
+import {
   buildThresholdProposal, formatGateHistogram,
   alreadyExecutedThisSession, markSessionExecuted,
 } from './thresholdSearchLoop.js';
@@ -390,7 +395,21 @@ function isBuyableKstWindow(now = Date.now()): boolean {
  *   - 매수 가능 구간의 5회 연속 빈 스캔은 warn + Telegram 알림
  *     → 게이트 임계치가 현재 시장에 비해 너무 높다는 신호
  */
-export function recordScanResult(signalCount: number, opts?: { positionFull?: boolean }): void {
+export interface RecordScanResultOptions {
+  positionFull?: boolean;
+  engineMode?: EngineModeForEmptyScan;
+  now?: Date | number;
+  candidateCount?: number;
+  waitTriggerCount?: number;
+  dataBlockedCount?: number;
+}
+
+function coerceRecordScanNow(now: Date | number | undefined): Date | undefined {
+  if (now === undefined) return undefined;
+  return typeof now === 'number' ? new Date(now) : now;
+}
+
+export function recordScanResult(signalCount: number, opts?: RecordScanResultOptions): void {
   // 포지션 만석으로 인한 진입 스킵은 "빈 스캔"이 아님 — 카운터에서 제외
   // 이를 빈 스캔으로 카운트하면 SELL_ONLY 무한 루프에 빠짐
   if (opts?.positionFull) {
@@ -399,6 +418,27 @@ export function recordScanResult(signalCount: number, opts?: { positionFull?: bo
   }
 
   if (signalCount === 0) {
+    const engineMode = opts?.engineMode ?? 'NORMAL';
+    const emptyScan = classifyEmptyScan({
+      now: opts?.now ?? Date.now(),
+      engineMode,
+      candidateCount: opts?.candidateCount ?? 0,
+      waitTriggerCount: opts?.waitTriggerCount ?? 0,
+      dataBlockedCount: opts?.dataBlockedCount ?? 0,
+    });
+
+    // ADR-452b: SELL_ONLY/session-blocked/structural waits are not true empty scans.
+    // shouldCountEmptyScan mirrors the coarse session+mode gate; classifyEmptyScan carries
+    // the finer WAIT_TRIGGER/DATA_BLOCKED reason used in logs.
+    const coarseCountAllowed = shouldCountEmptyScan(opts?.now ?? Date.now(), engineMode);
+    if (!emptyScan.incrementEmptyScan || !coarseCountAllowed) {
+      console.log(
+        `[ADR-452] emptyScan type=${emptyScan.type} session=${emptyScan.session} ` +
+        `engineMode=${engineMode} increment=false reason=${emptyScan.reason}`,
+      );
+      return;
+    }
+
     // ADR-0237: volumeClock 매수 차단 구간 (점심 11:31~12:59 / 시초가 09:00~09:29 /
     // 마감 동시호가 15:21~15:30) 의 빈 스캔은 preflight 가 의도적으로 abort 한
     // 것이므로 정상 동작. consecutiveEmptyScans 증가 + 경고 모두 차단.
@@ -410,7 +450,7 @@ export function recordScanResult(signalCount: number, opts?: { positionFull?: bo
     //
     // checkVolumeClockWindow.allowEntry=false 시 즉시 return — 카운터 보존 (BLOCKED
     // 종료 후 매수창 재개 시 이전 누적 그대로 평가).
-    const volumeClock = checkVolumeClockWindow();
+    const volumeClock = checkVolumeClockWindow(coerceRecordScanNow(opts?.now));
     if (!volumeClock.allowEntry) {
       return;
     }

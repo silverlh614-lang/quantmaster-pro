@@ -458,7 +458,10 @@ export class TradingDayOrchestrator {
           const scanResult = await runAutoSignalScan().catch(() => ({})) ?? {};
           const shadowsAfter = loadShadowTrades().length;
           const newSignals = Math.max(0, shadowsAfter - shadowsBefore);
-          recordScanResult(newSignals, { positionFull: (scanResult as { positionFull?: boolean }).positionFull });
+          recordScanResult(newSignals, {
+            positionFull: (scanResult as { positionFull?: boolean }).positionFull,
+            engineMode: 'NORMAL',
+          });
           await fillMonitor.pollFills().catch(console.error);
           this.markRan('marketOpen');
         }
@@ -509,7 +512,10 @@ export class TradingDayOrchestrator {
 
         const shadowsAfter = loadShadowTrades().length;
         const newSignals = Math.max(0, shadowsAfter - shadowsBefore);
-        recordScanResult(newSignals, { positionFull: scanResult.positionFull });
+        recordScanResult(newSignals, {
+          positionFull: scanResult.positionFull,
+          engineMode: decision.priority === 'SELL_ONLY' ? 'SELL_ONLY' : 'NORMAL',
+        });
 
         await fillMonitor.pollFills().catch(console.error);
         break;
