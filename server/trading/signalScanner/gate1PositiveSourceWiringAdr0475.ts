@@ -7,8 +7,10 @@ import type { Gate1ScoreCeilingRepairReport } from './gate1ScoreCeilingRepair.js
 import type { PenaltyDeduplicationReport } from './gate1PenaltyDeduplication.js';
 import type { RiskDoubleCountAuditReport } from './gate1RiskDoubleCount.js';
 import type { Gate1ScoringAlignmentReport } from './gate1ScoringAlignmentAdr0472.js';
+import type { NaverInvestorTrendCollectorResult } from './naverInvestorTrendCollectorAdr0481.js';
 
 export type Gate1PositiveSourceCode =
+  | 'NAVER_INVESTOR_TREND_ADR0481'
   | 'WATCHLIST_UPSTREAM_SCORE'
   | 'RELATIVE_STRENGTH'
   | 'BREAKOUT_STRUCTURE'
@@ -145,6 +147,22 @@ export interface Gate1PositiveSourceWiringScenarioResult {
   policyPromotionMode: Gate1PositiveSourcePolicyMode;
 }
 
+export interface NaverInvestorTrendPositiveSourceTraceAdr0481 {
+  sourceCode: 'NAVER_INVESTOR_TREND_ADR0481';
+  code: string;
+  status: 'VERIFIED' | 'MISSING' | 'DIAGNOSTIC_ONLY';
+  signal: 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'UNKNOWN';
+  sourceDate: string | null;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+  foreignNetBuy: number | null;
+  institutionNetBuy: number | null;
+  programNetBuy: number | null;
+  executionImpact: 'NONE';
+  liveExecutionAllowed: false;
+  policyPromotionMode: 'SHADOW_ONLY';
+  operatorApprovalRequired: true;
+}
+
 export interface Gate1PositiveSourceWiringReport {
   timestamp: string;
   forDate: string;
@@ -169,6 +187,7 @@ export interface Gate1PositiveSourceWiringReport {
   relativeStrengthTraces: RelativeStrengthSourceTrace[];
   breakoutTraces: BreakoutStructureSourceTrace[];
   otherPositiveDecompositions: OtherPositiveDecompositionTrace[];
+  naverInvestorTrendCandidatesAdr0481?: NaverInvestorTrendPositiveSourceTraceAdr0481[];
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
   policyPromotionMode: Gate1PositiveSourcePolicyMode;
@@ -233,6 +252,7 @@ export interface Gate1PositiveSourceWiringBuildInput {
   penaltyDeduplicationReport?: PenaltyDeduplicationReport | null;
   riskDoubleCountReport?: RiskDoubleCountAuditReport | null;
   gate1ScoringAlignmentReport?: Gate1ScoringAlignmentReport | null;
+  naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult | null;
   traces?: readonly Gate1ScoreStarvationTrace[];
   candidateSources?: readonly Gate1PositiveSourceCandidateInput[];
   timestamp: string;
@@ -626,6 +646,30 @@ function scenarioResult(input: {
   };
 }
 
+
+function buildNaverInvestorTrendPositiveSourceTraceAdr0481(
+  result?: NaverInvestorTrendCollectorResult | null,
+): NaverInvestorTrendPositiveSourceTraceAdr0481[] {
+  if (!result) return [];
+  const candidate = result.semanticNetBuyCandidate;
+  const verifiedBullish = candidate?.signal === 'BULLISH' && (candidate.confidence === 'HIGH' || candidate.confidence === 'MEDIUM');
+  return [{
+    sourceCode: 'NAVER_INVESTOR_TREND_ADR0481',
+    code: result.code,
+    status: verifiedBullish ? 'VERIFIED' : candidate ? 'DIAGNOSTIC_ONLY' : 'MISSING',
+    signal: candidate?.signal ?? result.signal,
+    sourceDate: candidate?.sourceDate ?? null,
+    confidence: candidate?.confidence ?? 'NONE',
+    foreignNetBuy: candidate?.foreignNetBuy ?? null,
+    institutionNetBuy: candidate?.institutionNetBuy ?? null,
+    programNetBuy: candidate?.programNetBuy ?? null,
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    policyPromotionMode: 'SHADOW_ONLY',
+    operatorApprovalRequired: true,
+  }];
+}
+
 export function buildGate1PositiveSourceWiringReport(
   input: Gate1PositiveSourceWiringBuildInput,
 ): Gate1PositiveSourceWiringReport | null {
@@ -643,6 +687,7 @@ export function buildGate1PositiveSourceWiringReport(
       name: candidate.name,
       otherPositiveRaw: candidate.otherPositiveRaw ?? otherPositiveRaw,
     }));
+  const naverInvestorTrendCandidatesAdr0481 = buildNaverInvestorTrendPositiveSourceTraceAdr0481(input.naverInvestorTrendAdr0481);
 
   const watchlistUpstreamAvgScore = round1(avg(watchlistTraces.map((trace) => trace.importedScore)));
   const relativeStrengthAvgScore = round1(avg(relativeStrengthTraces.map((trace) => trace.normalizedRSScore)));
@@ -716,6 +761,7 @@ export function buildGate1PositiveSourceWiringReport(
     relativeStrengthTraces,
     breakoutTraces,
     otherPositiveDecompositions,
+    naverInvestorTrendCandidatesAdr0481,
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
     policyPromotionMode: ADR_0475_POLICY_PROMOTION_MODE,
@@ -775,6 +821,7 @@ export function formatGate1PositiveSourceWiringReport(
     `  RELATIVE_STRENGTH: zero ${report.relativeStrengthZeroCount} -> dryRunAvg +${report.relativeStrengthAvgScore.toFixed(1)}`,
     `  BREAKOUT_STRUCTURE: zero ${report.breakoutStructureZeroCount} -> dryRunAvg +${report.breakoutStructureAvgScore.toFixed(1)}`,
     `  OTHER_POSITIVE share: ${report.otherPositiveSharePct.toFixed(1)}% -> afterDecomposition ${afterOtherShare.toFixed(1)}%`,
+    `  ADR-0481 NAVER investor trend: ${report.naverInvestorTrendCandidatesAdr0481?.[0]?.status ?? 'MISSING'} / signal=${report.naverInvestorTrendCandidatesAdr0481?.[0]?.signal ?? 'UNKNOWN'} / impact=NONE`,
     `  scoreRange: ${report.beforeScoreRange.toFixed(1)} -> ${report.afterDryRunScoreRange.toFixed(1)}`,
     `  bestDryRun: ${best?.scenario ?? 'CURRENT'}`,
     `  survivors: ${best?.hypotheticalSurvivors ?? 0}`,

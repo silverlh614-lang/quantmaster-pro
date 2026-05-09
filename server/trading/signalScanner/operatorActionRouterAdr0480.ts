@@ -23,6 +23,7 @@ export type OperatorActionCategory =
 
 export type OperatorActionRootCause =
   | 'INVESTOR_FLOW_PROVIDER_UNWIRED'
+  | 'NAVER_INVESTOR_TREND_EMPTY_OR_UNAVAILABLE'
   | 'SEMANTIC_NETBUY_MISSING'
   | 'SUPPLY_CACHE_EMPTY'
   | 'KIS_PROVIDER_MISMATCH'
@@ -112,6 +113,17 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     basePriority: 'P1',
     expectedImpact: { scanBlockerReduction: 'HIGH', gate1SurvivorPotential: 'MEDIUM', liveExecutionImpact: 'NONE' },
     detailHint: '/adr_trace 0480 investor-flow-provider-unwired',
+  },
+  NAVER_INVESTOR_TREND_EMPTY_OR_UNAVAILABLE: {
+    rootCause: 'NAVER_INVESTOR_TREND_EMPTY_OR_UNAVAILABLE',
+    category: 'INVESTOR_FLOW',
+    title: 'NAVER investor trend empty/unavailable',
+    summary: 'ADR-0481 collector is wired but NAVER investor trend data is empty, unavailable, stale, or diagnostic-only.',
+    recommendedAction: 'Verify NAVER data source availability or fallback semantic sample retention; keep UNKNOWN out of bullish/bearish scoring.',
+    relatedAdrs: ['0473', '0476', '0477', '0481'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0481',
   },
   SEMANTIC_NETBUY_MISSING: {
     rootCause: 'SEMANTIC_NETBUY_MISSING',
@@ -252,6 +264,9 @@ function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCau
   if (includesAny(text, ['NOT_WIRED', 'SELECTEDPROVIDER=NONE', 'SELECTED_PROVIDER=NONE', 'PROVIDER=NONE', 'COVERAGE=0/5', 'INVESTOR_FLOW DATA_UNAVAILABLE', 'SEMANTIC PROVIDER NOT AVAILABLE'])) {
     return 'INVESTOR_FLOW_PROVIDER_UNWIRED';
   }
+  if (includesAny(text, ['ADR-0481', 'NAVER_INVESTOR_TREND']) && includesAny(text, ['DATA_UNAVAILABLE', 'EMPTY', 'STALE', 'PARSE_ERROR', 'PROVIDER_ERROR', 'WIRED'])) {
+    return 'NAVER_INVESTOR_TREND_EMPTY_OR_UNAVAILABLE';
+  }
   if (includesAny(text, ['SEMANTIC NET-BUY', 'SEMANTIC_NETBUY', 'SEMANTICNETBUY=NULL', 'NORMALIZED NET-BUY', 'NETBUY NORMALIZER', 'MISSING NORMALIZED NET'])) {
     return 'SEMANTIC_NETBUY_MISSING';
   }
@@ -339,7 +354,9 @@ function formatRelated(adrs: string[], max = 3): string {
 function compactActionLine(item: OperatorActionItem): string {
   const shortAction = item.rootCause === 'INVESTOR_FLOW_PROVIDER_UNWIRED'
     ? 'NAVER collector wiring'
-    : item.rootCause === 'SEMANTIC_NETBUY_MISSING'
+    : item.rootCause === 'NAVER_INVESTOR_TREND_EMPTY_OR_UNAVAILABLE'
+      ? 'verify data/fallback retention'
+      : item.rootCause === 'SEMANTIC_NETBUY_MISSING'
       ? 'implement normalizer'
       : item.rootCause === 'FSS_SOURCE_STALE'
         ? 'refresh stale source / split freshness'
