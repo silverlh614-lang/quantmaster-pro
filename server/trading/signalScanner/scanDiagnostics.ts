@@ -203,6 +203,10 @@ import {
   buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488,
   type SectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
+import {
+  recordSupplySnapshotAdr0491,
+  type SupplySnapshotReplayResultAdr0491,
+} from './supplySnapshotStoreReplayAdr0491.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -477,6 +481,8 @@ export interface ScanSummary {
   freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487;
   /** ADR-0488 SectorEnergy master supply line + Supply UNKNOWN policy; SHADOW_ONLY and executionImpact NONE. */
   sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488;
+  /** ADR-0491 sanitized supply snapshot store/replay evidence; diagnostic-only and executionImpact NONE. */
+  supplySnapshotStoreAdr0491?: SupplySnapshotReplayResultAdr0491;
 }
 
 let _lastBuySignalAt = 0;
@@ -2182,15 +2188,24 @@ export async function persistScanResults(
       providerStatus: summaryDraft.investorFlowProviderRouter?.status ?? summaryDraft.naverInvestorTrendAdr0481?.status ?? 'UNKNOWN',
       currentSupplySignal: summaryDraft.investorFlowProviderRouter?.signal ?? 'UNKNOWN',
     });
+    summaryDraft.supplySnapshotStoreAdr0491 = recordSupplySnapshotAdr0491({
+      scanId: `scan-${kstNow.toISOString()}`,
+      recordedAt: kstNow.toISOString(),
+      tradingDate: kstNow.toISOString().slice(0, 10),
+      freshDataSupplyAdr0487: summaryDraft.freshDataSupplyAdr0487,
+      sectorEnergySupplyUnknownAdr0488: summaryDraft.sectorEnergySupplyUnknownAdr0488,
+      diagnostics: ['Recorded from ScanSummary diagnostics only; replay is not used by live Gate decisions.'],
+    });
     await saveGate1DryRunObservationRows(buildGate1DryRunObservationRows({
       now: kstNow,
       forDate: kstNow.toISOString().slice(0, 10),
       supplyRecoveryRuntimeMountAdr0486: summaryDraft.supplyRecoveryRuntimeMountAdr0486,
       freshDataSupplyAdr0487: summaryDraft.freshDataSupplyAdr0487,
       sectorEnergySupplyUnknownAdr0488: summaryDraft.sectorEnergySupplyUnknownAdr0488,
+      supplySnapshotStoreAdr0491: summaryDraft.supplySnapshotStoreAdr0491,
     }));
   } catch (e) {
-    console.warn('[ADR-0486/0487/0488] Supply recovery/runtime/fresh data/SectorEnergy UNKNOWN build failed (engine unaffected):', e);
+    console.warn('[ADR-0486/0487/0488/0491] Supply recovery/runtime/fresh data/SectorEnergy UNKNOWN build failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;

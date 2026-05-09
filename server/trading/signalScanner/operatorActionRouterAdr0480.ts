@@ -15,6 +15,10 @@ import {
   type SectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 import type { SupplyRecoveryRuntimeMountReportAdr0486 } from './supplyRecoveryRuntimeMountAdr0486.js';
+import {
+  collectOperatorActionSourcesFromSupplySnapshotAdr0491,
+  type SupplySnapshotReplayResultAdr0491,
+} from './supplySnapshotStoreReplayAdr0491.js';
 
 export type OperatorActionPriority = 'P0' | 'P1' | 'P2' | 'P3';
 export type OperatorActionStatus = 'OPEN' | 'IN_PROGRESS' | 'OBSERVING' | 'RESOLVED' | 'BLOCKED';
@@ -118,6 +122,7 @@ export interface BuildOperatorActionQueueInput {
   supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486 | null;
   freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487 | null;
   sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488 | null;
+  supplySnapshotStoreAdr0491?: SupplySnapshotReplayResultAdr0491 | null;
 }
 
 interface OperatorActionDefinition {
@@ -643,6 +648,7 @@ export function buildOperatorActionQueueAdr0480(input: BuildOperatorActionQueueI
     ...(input.sources ?? []),
     ...collectOperatorActionSourcesFromFreshDataSupplyAdr0487(input.freshDataSupplyAdr0487),
     ...collectOperatorActionSourcesFromAdr0488(input.sectorEnergySupplyUnknownAdr0488),
+    ...collectOperatorActionSourcesFromSupplySnapshotAdr0491(input.supplySnapshotStoreAdr0491),
   ];
   for (const source of inputSources) {
     const rootCause = rootCauseForSource(source);
@@ -743,6 +749,7 @@ export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: Scan
   }
   sources.push(...collectOperatorActionSourcesFromFreshDataSupplyAdr0487(summary.freshDataSupplyAdr0487));
   sources.push(...collectOperatorActionSourcesFromAdr0488(summary.sectorEnergySupplyUnknownAdr0488));
+  sources.push(...collectOperatorActionSourcesFromSupplySnapshotAdr0491(summary.supplySnapshotStoreAdr0491));
   return sources;
 }
 
