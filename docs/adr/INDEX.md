@@ -14,10 +14,12 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0482`**
+**다음 ADR 번호: `0483`**
 
 
-(2026-05-09 기준, 마지막 발급 0481 — naver-investor-trend-collector-wiring. ADR-0481 wires NAVER investor trend as a SHADOW_ONLY semantic investor-flow candidate with executionImpact=NONE and liveExecutionAllowed=false.
+(2026-05-09 기준, 마지막 발급 0482 — semantic-net-buy-normalizer-implementation. ADR-0482 implements a provider-agnostic SHADOW_ONLY semantic net-buy normalizer with executionImpact=NONE and liveExecutionAllowed=false.
+
+이전: 마지막 발급 0481 — naver-investor-trend-collector-wiring. ADR-0481 wires NAVER investor trend as a SHADOW_ONLY semantic investor-flow candidate with executionImpact=NONE and liveExecutionAllowed=false.
 
 이전: 마지막 발급 0480 — operator-action-router-remediation-queue. ADR-0480은 scan diagnostics를 executionImpact=NONE / liveExecutionAllowed=false / SHADOW_ONLY operator action queue로 dedup·priority routing한다.
 
@@ -141,6 +143,7 @@
 
 | 번호 | 제목 | 도메인 |
 |------|------|--------|
+| 0482 | semantic-net-buy-normalizer-implementation. Provider-specific investor-flow fields and units normalize into one SHADOW_ONLY semantic net-buy contract for NAVER/CACHE/MANUAL/KIS/KRX/FSS/UNKNOWN. UNKNOWN and provider issues remain separated from bearish market signal; Gate/Kelly/requiredScore/KIS order/live execution behavior is unchanged. | diagnostics / investor-flow / semantic-normalizer |
 | 0481 | naver-investor-trend-collector-wiring. NAVER investor trend collector를 ADR-0477 InvestorFlowProviderRouter의 SHADOW_ONLY semantic candidate로 wiring한다. NOT_WIRED noise를 WIRED/DATA_AVAILABLE/DATA_UNAVAILABLE/PARTIAL/EMPTY/STALE 상태로 전환하며 UNKNOWN/provider issue를 bullish 또는 bearish supply로 변환하지 않는다. Gate/Kelly/requiredScore/KIS order/live execution 변경은 없다. | diagnostics / investor-flow / shadow-only |
 | 0480 | operator-action-router-remediation-queue. Scan diagnostics를 root-cause grouped operator actions로 변환하고, 중복 ADR evidence를 remediation queue로 dedup·priority sorting한다. /scan_blockers Top Operator Actions compact 섹션과 /operator_actions detail trace를 제공하며 executionImpact=NONE, liveExecutionAllowed=false, policyPromotionMode=SHADOW_ONLY, operatorApprovalRequired=true를 고정한다. Gate/Kelly/requiredScore/provider promotion/live execution 변경은 없다. | diagnostics / operator-action / scan-blockers |
 | 0479 | scan-blockers-detail-trace-registry. ADR-0478 의 짝 ADR — `/scan_blockers_detail [scanId?] [sectionId?]` 명령 신설 + sanitized detail trace 영속 layer (`data/scan_blockers_detail_trace.json` FIFO 200 + 7일 TTL) + sanitized inputDigest schema (inputCount / inputHash / decisionTrace 라벨만, raw payload 영속 0). `/scan_blockers` (요약) ↔ `/scan_blockers_detail` (전체 + trace) 책임 분리. 본 ADR 은 *문서 SSOT 정착* 단계 — wiring 4 후속 PR 분리. ADR-0445 sanitized 정합 + ADR-0146 §"단일 책임" + 다른 ledger 와 물리 분리. | scan-blockers / detail-trace / read-only |

@@ -25,6 +25,8 @@ export type OperatorActionRootCause =
   | 'INVESTOR_FLOW_PROVIDER_UNWIRED'
   | 'NAVER_INVESTOR_TREND_EMPTY_OR_UNAVAILABLE'
   | 'SEMANTIC_NETBUY_MISSING'
+  | 'SEMANTIC_NETBUY_SAMPLE_UNAVAILABLE'
+  | 'SEMANTIC_NETBUY_PARSE_OR_UNIT_ISSUE'
   | 'SUPPLY_CACHE_EMPTY'
   | 'KIS_PROVIDER_MISMATCH'
   | 'FSS_SOURCE_STALE'
@@ -135,6 +137,28 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     basePriority: 'P1',
     expectedImpact: { scanBlockerReduction: 'HIGH', gate1SurvivorPotential: 'MEDIUM', liveExecutionImpact: 'NONE' },
     detailHint: '/adr_trace 0480 semantic-netbuy-missing',
+  },
+  SEMANTIC_NETBUY_SAMPLE_UNAVAILABLE: {
+    rootCause: 'SEMANTIC_NETBUY_SAMPLE_UNAVAILABLE',
+    category: 'INVESTOR_FLOW',
+    title: 'Semantic net-buy sample unavailable',
+    summary: 'ADR-0482 normalizer is installed but no usable semantic net-buy sample is selectable.',
+    recommendedAction: 'Verify provider data coverage or fallback cache semantic sample retention.',
+    relatedAdrs: ['0477', '0481', '0482'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0482 semantic-netbuy-sample-unavailable',
+  },
+  SEMANTIC_NETBUY_PARSE_OR_UNIT_ISSUE: {
+    rootCause: 'SEMANTIC_NETBUY_PARSE_OR_UNIT_ISSUE',
+    category: 'INVESTOR_FLOW',
+    title: 'Semantic net-buy parse/unit issue',
+    summary: 'ADR-0482 normalizer detected parse errors or unit normalization issues.',
+    recommendedAction: 'Fix provider field parsing or unit metadata before using semantic net-buy as a dry-run positive source.',
+    relatedAdrs: ['0477', '0482'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0482 semantic-netbuy-parse-or-unit-issue',
   },
   SUPPLY_CACHE_EMPTY: {
     rootCause: 'SUPPLY_CACHE_EMPTY',
@@ -267,6 +291,10 @@ function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCau
   if (includesAny(text, ['ADR-0481', 'NAVER_INVESTOR_TREND']) && includesAny(text, ['DATA_UNAVAILABLE', 'EMPTY', 'STALE', 'PARSE_ERROR', 'PROVIDER_ERROR', 'WIRED'])) {
     return 'NAVER_INVESTOR_TREND_EMPTY_OR_UNAVAILABLE';
   }
+  if (includesAny(text, ['ADR-0482', 'SEMANTIC_NETBUY_NORMALIZER', 'SEMANTICNETBUY NORMALIZER'])) {
+    if (includesAny(text, ['PARSE_ERROR', 'UNIT', 'UNITNORMALIZED=FALSE', 'UNIT_MISMATCH'])) return 'SEMANTIC_NETBUY_PARSE_OR_UNIT_ISSUE';
+    if (includesAny(text, ['SELECTED=NONE', 'SELECTEDSAMPLE=NULL', 'DATA_UNAVAILABLE', 'EMPTY', 'PROVIDER_ERROR'])) return 'SEMANTIC_NETBUY_SAMPLE_UNAVAILABLE';
+  }
   if (includesAny(text, ['SEMANTIC NET-BUY', 'SEMANTIC_NETBUY', 'SEMANTICNETBUY=NULL', 'NORMALIZED NET-BUY', 'NETBUY NORMALIZER', 'MISSING NORMALIZED NET'])) {
     return 'SEMANTIC_NETBUY_MISSING';
   }
@@ -357,10 +385,14 @@ function compactActionLine(item: OperatorActionItem): string {
     : item.rootCause === 'NAVER_INVESTOR_TREND_EMPTY_OR_UNAVAILABLE'
       ? 'verify data/fallback retention'
       : item.rootCause === 'SEMANTIC_NETBUY_MISSING'
-      ? 'implement normalizer'
-      : item.rootCause === 'FSS_SOURCE_STALE'
-        ? 'refresh stale source / split freshness'
-        : item.recommendedAction.split(';')[0];
+        ? 'implement normalizer'
+        : item.rootCause === 'SEMANTIC_NETBUY_SAMPLE_UNAVAILABLE'
+          ? 'verify coverage/fallback sample'
+          : item.rootCause === 'SEMANTIC_NETBUY_PARSE_OR_UNIT_ISSUE'
+            ? 'fix parser/unit metadata'
+            : item.rootCause === 'FSS_SOURCE_STALE'
+              ? 'refresh stale source / split freshness'
+              : item.recommendedAction.split(';')[0];
   return `${item.priority} ${item.title} → ${shortAction} | related=${formatRelated(item.relatedAdrs)} | impact=${item.executionImpact}`;
 }
 

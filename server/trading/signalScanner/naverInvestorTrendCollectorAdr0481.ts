@@ -1,4 +1,6 @@
 // @responsibility ADR-0481 NAVER Investor Trend Collector Wiring; SHADOW_ONLY semantic investor-flow candidate.
+import { normalizeSemanticNetBuySampleAdr0482 } from './semanticNetBuyNormalizerAdr0482.js';
+
 
 export type NaverInvestorTrendCollectorStatus =
   | 'WIRED'
@@ -121,20 +123,6 @@ function coverage(points: readonly NaverInvestorTrendNormalizedPoint[], requeste
   };
 }
 
-function deriveVerifiedSignal(input: {
-  foreignNetBuy: number | null;
-  institutionNetBuy: number | null;
-  confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
-  status: NonNullable<NaverInvestorTrendCollectorResult['semanticNetBuyCandidate']>['status'];
-}): NaverInvestorTrendSignal {
-  if (input.status !== 'VERIFIED' && input.status !== 'PARTIAL') return 'UNKNOWN';
-  if (input.confidence !== 'HIGH' && input.confidence !== 'MEDIUM') return 'UNKNOWN';
-  if (!finiteNumber(input.foreignNetBuy) || !finiteNumber(input.institutionNetBuy)) return 'UNKNOWN';
-  if (input.foreignNetBuy > 0 && input.institutionNetBuy > 0) return 'BULLISH';
-  if (input.foreignNetBuy < 0 && input.institutionNetBuy < 0) return 'BEARISH';
-  return 'NEUTRAL';
-}
-
 function emptyResult(input: NaverInvestorTrendCollectorInput, status: NaverInvestorTrendCollectorStatus, diagnostic: string): NaverInvestorTrendCollectorResult {
   return {
     code: input.code,
@@ -168,39 +156,53 @@ export function buildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvest
 
   const latestPoint = points[points.length - 1] ?? null;
   const cov = coverage(points, requestedDays);
-  const hasCore = !!latestPoint && (finiteNumber(latestPoint.foreignNetBuy) || finiteNumber(latestPoint.institutionNetBuy));
-  const hasBothCore = !!latestPoint && finiteNumber(latestPoint.foreignNetBuy) && finiteNumber(latestPoint.institutionNetBuy);
-  const sourceAgeTradingDays = input.sourceAgeTradingDays ?? 0;
-  const stale = sourceAgeTradingDays >= 4;
-  const status: NaverInvestorTrendCollectorStatus = stale
-    ? 'STALE'
-    : !hasCore
-      ? 'EMPTY'
-      : hasBothCore
-        ? 'DATA_AVAILABLE'
-        : 'PARTIAL';
-  const candidateStatus: NonNullable<NaverInvestorTrendCollectorResult['semanticNetBuyCandidate']>['status'] = stale
-    ? 'STALE'
-    : !hasCore
-      ? 'EMPTY'
-      : hasBothCore
-        ? 'VERIFIED'
-        : 'PARTIAL';
-  const candidateConfidence = stale ? 'LOW' : (latestPoint?.confidence ?? 'NONE');
-  const signal = deriveVerifiedSignal({
-    foreignNetBuy: latestPoint?.foreignNetBuy ?? null,
-    institutionNetBuy: latestPoint?.institutionNetBuy ?? null,
-    confidence: candidateConfidence,
-    status: candidateStatus,
-  });
-  const semanticNetBuyCandidate = hasCore || stale ? {
-    foreignNetBuy: latestPoint?.foreignNetBuy ?? null,
-    institutionNetBuy: latestPoint?.institutionNetBuy ?? null,
-    programNetBuy: latestPoint?.programNetBuy ?? null,
+  const normalized = normalizeSemanticNetBuySampleAdr0482({
+    code: input.code,
+    provider: 'NAVER',
     sourceDate: latestPoint?.date ?? null,
-    confidence: candidateConfidence,
+    rawForeignNetBuy: latestPoint?.foreignNetBuy ?? null,
+    rawInstitutionNetBuy: latestPoint?.institutionNetBuy ?? null,
+    rawProgramNetBuy: latestPoint?.programNetBuy ?? null,
+    rawIndividualNetBuy: latestPoint?.individualNetBuy ?? null,
+    unit: 'KRW',
+    sourceAgeTradingDays: input.sourceAgeTradingDays ?? 0,
+    diagnostics: ['normalized via ADR-0482 semantic net-buy normalizer'],
+  });
+  const status: NaverInvestorTrendCollectorStatus = normalized.status === 'VERIFIED'
+    ? 'DATA_AVAILABLE'
+    : normalized.status === 'PARTIAL'
+      ? 'PARTIAL'
+      : normalized.status === 'STALE'
+        ? 'STALE'
+        : normalized.status === 'EMPTY'
+          ? 'EMPTY'
+          : normalized.status === 'PARSE_ERROR'
+            ? 'PARSE_ERROR'
+            : normalized.status === 'PROVIDER_ERROR'
+              ? 'PROVIDER_ERROR'
+              : normalized.status === 'NON_TRADING_DAY'
+                ? 'NON_TRADING_DAY'
+                : normalized.status === 'DISABLED'
+                  ? 'DISABLED'
+                  : 'DATA_UNAVAILABLE';
+  const signal = normalized.signal;
+  const candidateStatus: NonNullable<NaverInvestorTrendCollectorResult['semanticNetBuyCandidate']>['status'] = normalized.status === 'VERIFIED'
+    ? 'VERIFIED'
+    : normalized.status === 'PARTIAL'
+      ? 'PARTIAL'
+      : normalized.status === 'STALE'
+        ? 'STALE'
+        : normalized.status === 'EMPTY'
+          ? 'EMPTY'
+          : 'DATA_UNAVAILABLE';
+  const semanticNetBuyCandidate: NaverInvestorTrendCollectorResult['semanticNetBuyCandidate'] = normalized.coverage.foreignAvailable || normalized.coverage.institutionAvailable || normalized.coverage.programAvailable ? {
+    foreignNetBuy: normalized.foreignNetBuy,
+    institutionNetBuy: normalized.institutionNetBuy,
+    programNetBuy: normalized.programNetBuy,
+    sourceDate: normalized.sourceDate,
+    confidence: normalized.confidence,
     status: candidateStatus,
-    signal,
+    signal: normalized.signal,
   } : null;
 
   return {
@@ -212,9 +214,9 @@ export function buildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvest
     latestPoint,
     coverage: cov,
     freshness: {
-      sourceState: stale ? 'STALE' : latestPoint ? 'FRESH' : 'MISSING',
-      lastSourceDate: latestPoint?.date ?? null,
-      sourceAgeTradingDays,
+      sourceState: normalized.freshness.sourceState,
+      lastSourceDate: normalized.freshness.lastSourceDate,
+      sourceAgeTradingDays: normalized.freshness.sourceAgeTradingDays,
     },
     semanticNetBuyCandidate,
     ...ADR_0481_POLICY,
