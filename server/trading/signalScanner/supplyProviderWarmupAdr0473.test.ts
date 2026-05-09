@@ -164,7 +164,7 @@ describe('ADR-0473 Supply Provider Warmup', () => {
     expect(text).toContain('KRX: NON_TRADING_DAY');
     expect(text).toContain('previousTradingDateCandidate=2026-05-08');
     expect(text).toContain('NAVER: NOT_WIRED');
-    expect(text).toContain('Semantic NetBuy: schema ready / collector not wired');
+    expect(text).toContain('Semantic NetBuy: DATA_UNAVAILABLE');
     expect(text).toContain('CACHE: CACHE_EMPTY');
     expect(text).toContain('KIS: PROVIDER_MISMATCH');
     expect(text).toContain('providerIssue=true');

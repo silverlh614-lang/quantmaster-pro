@@ -8,6 +8,10 @@ import type { Gate1PositiveSourceWiringReport } from './gate1PositiveSourceWirin
 import type { InvestorFlowProviderRouteResult } from './investorFlowProviderRouterAdr0477.js';
 import type { NaverInvestorTrendCollectorResult } from './naverInvestorTrendCollectorAdr0481.js';
 import type { SemanticNetBuyNormalizationReportAdr0482 } from './semanticNetBuyNormalizerAdr0482.js';
+import {
+  buildSupplyRecoveryRuntimeMountObservationRowAdr0486,
+  type SupplyRecoveryRuntimeMountReportAdr0486,
+} from './supplyRecoveryRuntimeMountAdr0486.js';
 
 export type Gate1DryRunObservationSource =
   | 'ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'
@@ -18,6 +22,7 @@ export type Gate1DryRunObservationSource =
   | 'ADR_0482_SEMANTIC_NETBUY_NORMALIZER'
   | 'ADR_0484_SUPPLY_COVERAGE_RECOVERY'
   | 'ADR_0485_SUPPLY_ADVISORY_READINESS'
+  | 'ADR_0486_SUPPLY_RECOVERY_RUNTIME_MOUNT'
   | 'GATE1_NEAR_MISS'
   | 'COUNTERFACTUAL_UNIVERSE';
 
@@ -73,7 +78,7 @@ export interface Gate1DryRunObservationRow {
   maxAdverseExcursion5D?: number;
   stopLossTouched?: boolean;
   targetTouched?: boolean;
-  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481' | 'SEMANTIC_NETBUY_NORMALIZER_ADR0482' | 'SUPPLY_COVERAGE_RECOVERY_ADR0484' | 'SUPPLY_ADVISORY_READINESS_ADR0485';
+  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481' | 'SEMANTIC_NETBUY_NORMALIZER_ADR0482' | 'SUPPLY_COVERAGE_RECOVERY_ADR0484' | 'SUPPLY_ADVISORY_READINESS_ADR0485' | 'SUPPLY_RECOVERY_RUNTIME_MOUNT_ADR0486';
   beforeCoverage?: number;
   afterCoverage?: number;
   selectedProvider?: string;
@@ -127,6 +132,7 @@ export interface Gate1DryRunObservationBuildInput {
   investorFlowProviderRouter?: InvestorFlowProviderRouteResult | null;
   naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult | null;
   semanticNetBuyNormalizationAdr0482?: SemanticNetBuyNormalizationReportAdr0482 | null;
+  supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486 | null;
   sellOnly?: boolean;
   sectorEnergyDiagnosticOnly?: boolean;
   providerIssue?: boolean;
@@ -478,6 +484,12 @@ function buildSemanticNetBuyNormalizerRowsAdr0482(input: Gate1DryRunObservationB
   })];
 }
 
+function buildSupplyRecoveryRuntimeMountRowsAdr0486(input: Gate1DryRunObservationBuildInput): Gate1DryRunObservationRow[] {
+  const report = input.supplyRecoveryRuntimeMountAdr0486;
+  if (!report) return [];
+  return [withOptionalScoreFields(buildSupplyRecoveryRuntimeMountObservationRowAdr0486(report) as Omit<Gate1DryRunObservationRow, 'id'> & { id?: string })];
+}
+
 export function buildGate1DryRunObservationRows(input: Gate1DryRunObservationBuildInput): Gate1DryRunObservationRow[] {
   const nowIso = (input.now ?? new Date()).toISOString();
   const rows = [
@@ -486,6 +498,7 @@ export function buildGate1DryRunObservationRows(input: Gate1DryRunObservationBui
     ...buildInvestorFlowRouterRows(input, nowIso),
     ...buildNaverInvestorTrendRowsAdr0481(input, nowIso),
     ...buildSemanticNetBuyNormalizerRowsAdr0482(input, nowIso),
+    ...buildSupplyRecoveryRuntimeMountRowsAdr0486(input),
     ...buildGateNearMissRows(input, nowIso),
     ...buildCounterfactualUniverseRows(input, nowIso),
   ];

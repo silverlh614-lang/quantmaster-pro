@@ -170,8 +170,30 @@ import {
   formatInvestorFlowProviderRouterAdr0477,
   type InvestorFlowProviderRouteResult,
 } from './investorFlowProviderRouterAdr0477.js';
-import type { SupplyCoverageRecoveryObservationReportAdr0484 } from './supplyCoverageRecoveryObservationAdr0484.js';
-import type { SupplyAdvisoryReadinessReportAdr0485 } from './supplyAdvisoryReadinessAdr0485.js';
+import {
+  buildNaverInvestorTrendCollectorResultAdr0481,
+  type NaverInvestorTrendCollectorResult,
+} from './naverInvestorTrendCollectorAdr0481.js';
+import {
+  buildSemanticNetBuyNormalizationReportAdr0482,
+  type SemanticNetBuyNormalizationReportAdr0482,
+} from './semanticNetBuyNormalizerAdr0482.js';
+import {
+  buildSupplySourceFreshnessReportAdr0483,
+  type SupplySourceFreshnessReportAdr0483,
+} from './supplySourceFreshnessAdr0483.js';
+import {
+  buildSupplyCoverageRecoveryObservationReportAdr0484,
+  type SupplyCoverageRecoveryObservationReportAdr0484,
+} from './supplyCoverageRecoveryObservationAdr0484.js';
+import {
+  buildSupplyAdvisoryReadinessReportAdr0485,
+  type SupplyAdvisoryReadinessReportAdr0485,
+} from './supplyAdvisoryReadinessAdr0485.js';
+import {
+  buildSupplyRecoveryRuntimeMountReportAdr0486,
+  type SupplyRecoveryRuntimeMountReportAdr0486,
+} from './supplyRecoveryRuntimeMountAdr0486.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -430,10 +452,18 @@ export interface ScanSummary {
   gate1DryRunObservationLedger?: Gate1DryRunObservationSummary;
   /** ADR-0477 investor-flow provider router result; SHADOW_ONLY and executionImpact NONE. */
   investorFlowProviderRouter?: InvestorFlowProviderRouteResult;
+  /** ADR-0481 NAVER investor trend collector runtime diagnostic; SHADOW_ONLY and executionImpact NONE. */
+  naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult;
+  /** ADR-0482 semantic net-buy normalizer runtime diagnostic; SHADOW_ONLY and executionImpact NONE. */
+  semanticNetBuyNormalizationAdr0482?: SemanticNetBuyNormalizationReportAdr0482;
+  /** ADR-0483 dual-clock supply source freshness runtime diagnostic; SHADOW_ONLY and executionImpact NONE. */
+  supplySourceFreshnessAdr0483?: SupplySourceFreshnessReportAdr0483;
   /** ADR-0484 supply coverage recovery observation; SHADOW_ONLY and executionImpact NONE. */
   supplyCoverageRecoveryAdr0484?: SupplyCoverageRecoveryObservationReportAdr0484;
   /** ADR-0485 supply advisory readiness audit; SHADOW_ONLY recommendation only and executionImpact NONE. */
   supplyAdvisoryReadinessAdr0485?: SupplyAdvisoryReadinessReportAdr0485;
+  /** ADR-0486 runtime mount verification; formatter/evidence audit only and executionImpact NONE. */
+  supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486;
 }
 
 let _lastBuySignalAt = 0;
@@ -1966,10 +1996,40 @@ export async function persistScanResults(
   try {
     const observationSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
     const firstSnapshot = observationSnapshots[0];
+    const naverInvestorTrendAdr0481 = buildNaverInvestorTrendCollectorResultAdr0481({
+      code: firstSnapshot?.symbol ?? 'UNIVERSE',
+      requestedDays: 5,
+      rawPoints: [],
+      nonTradingDay: options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false,
+      sourceAgeTradingDays: null,
+    });
+    summaryDraft.naverInvestorTrendAdr0481 = naverInvestorTrendAdr0481;
+    const semanticInputs = naverInvestorTrendAdr0481.semanticNetBuyCandidate
+      ? [{
+          code: naverInvestorTrendAdr0481.code,
+          provider: 'NAVER' as const,
+          sourceDate: naverInvestorTrendAdr0481.semanticNetBuyCandidate.sourceDate,
+          rawForeignNetBuy: naverInvestorTrendAdr0481.semanticNetBuyCandidate.foreignNetBuy,
+          rawInstitutionNetBuy: naverInvestorTrendAdr0481.semanticNetBuyCandidate.institutionNetBuy,
+          rawProgramNetBuy: naverInvestorTrendAdr0481.semanticNetBuyCandidate.programNetBuy,
+          unit: 'KRW' as const,
+          status: naverInvestorTrendAdr0481.semanticNetBuyCandidate.status,
+          sourceAgeTradingDays: naverInvestorTrendAdr0481.freshness.sourceAgeTradingDays,
+          diagnostics: ['ADR-0481 NAVER collector candidate consumed by ADR-0482.'],
+        }]
+      : [];
+    const semanticNetBuyNormalizationAdr0482 = buildSemanticNetBuyNormalizationReportAdr0482({
+      code: firstSnapshot?.symbol ?? 'UNIVERSE',
+      generatedAt: kstNow.toISOString(),
+      inputs: semanticInputs,
+    });
+    summaryDraft.semanticNetBuyNormalizationAdr0482 = semanticNetBuyNormalizationAdr0482;
     const investorFlowProviderRouter = buildInvestorFlowProviderRouteResultAdr0477({
       code: firstSnapshot?.symbol ?? 'UNIVERSE',
       collectedAt: kstNow.toISOString(),
-      naverCollectorWired: false,
+      naverCollectorWired: true,
+      naverCollectorResultAdr0481: naverInvestorTrendAdr0481,
+      semanticNetBuyNormalizationAdr0482,
       cacheRaw: null,
       previousTradingDayCacheRaw: null,
       kisTriedForInvestorFlow: true,
@@ -1980,6 +2040,29 @@ export async function persistScanResults(
       fssSourceAgeTradingDays: 5,
     });
     summaryDraft.investorFlowProviderRouter = investorFlowProviderRouter;
+    summaryDraft.supplySourceFreshnessAdr0483 = buildSupplySourceFreshnessReportAdr0483({
+      now: kstNow,
+      sources: [
+        {
+          source: 'NAVER',
+          cacheUpdatedAt: null,
+          sourceDate: naverInvestorTrendAdr0481.freshness.lastSourceDate,
+          providerStatus: naverInvestorTrendAdr0481.status === 'DATA_AVAILABLE' ? 'OK' : naverInvestorTrendAdr0481.status === 'STALE' ? 'STALE' : 'EMPTY',
+        },
+        {
+          source: 'SEMANTIC_NETBUY',
+          cacheUpdatedAt: null,
+          sourceDate: semanticNetBuyNormalizationAdr0482.selectedSample?.sourceDate ?? null,
+          providerStatus: semanticNetBuyNormalizationAdr0482.selectedSample ? 'OK' : 'EMPTY',
+        },
+        {
+          source: 'FSS',
+          cacheUpdatedAt: null,
+          sourceDate: null,
+          providerStatus: investorFlowProviderRouter.providerStatuses.FSS === 'STALE' ? 'STALE' : 'UNKNOWN',
+        },
+      ],
+    });
     console.warn(
       `[ADR-0477] InvestorFlowProviderRouter SHADOW_ONLY emitted ` +
       `(status=${investorFlowProviderRouter.status}, signal=${investorFlowProviderRouter.signal}, ` +
@@ -2002,6 +2085,8 @@ export async function persistScanResults(
       finalGate1Calibration: summaryDraft.finalGate1Calibration,
       gate1PositiveSourceWiring: summaryDraft.gate1PositiveSourceWiring,
       investorFlowProviderRouter: summaryDraft.investorFlowProviderRouter,
+      naverInvestorTrendAdr0481: summaryDraft.naverInvestorTrendAdr0481,
+      semanticNetBuyNormalizationAdr0482: summaryDraft.semanticNetBuyNormalizationAdr0482,
       sellOnly: options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false,
       sectorEnergyDiagnosticOnly: options.sectorEnergyQuality !== undefined && options.sectorEnergyQuality !== 'OK',
       providerIssue: observationSnapshots.some((item) => item.supplyProviderHealth?.providerIssue === true),
@@ -2016,6 +2101,58 @@ export async function persistScanResults(
     );
   } catch (e) {
     console.warn('[ADR-0476] Gate1DryRunObservation build/save failed (engine unaffected):', e);
+  }
+
+  // ADR-0484/0485/0486: persist supply recovery/readiness/mount evidence into
+  // ScanSummary before Runtime Pipeline Audit reads it. Diagnostic-only.
+  try {
+    const supplyCoverageRecoveryAdr0484 = buildSupplyCoverageRecoveryObservationReportAdr0484({
+      scanSummary: summaryDraft,
+      investorFlowProviderRouterAdr0477: summaryDraft.investorFlowProviderRouter,
+      naverInvestorTrendAdr0481: summaryDraft.naverInvestorTrendAdr0481,
+      semanticNetBuyNormalizationAdr0482: summaryDraft.semanticNetBuyNormalizationAdr0482,
+      supplySourceFreshnessAdr0483: summaryDraft.supplySourceFreshnessAdr0483,
+      gate1DryRunObservationLedgerAdr0476: summaryDraft.gate1DryRunObservationLedger,
+      timestamp: kstNow.toISOString(),
+      persist: false,
+    });
+    summaryDraft.supplyCoverageRecoveryAdr0484 = supplyCoverageRecoveryAdr0484;
+    const supplyAdvisoryReadinessAdr0485 = buildSupplyAdvisoryReadinessReportAdr0485({
+      generatedAt: kstNow.toISOString(),
+      supplyCoverageRecoveryAdr0484,
+      gate1DryRunObservationRowsAdr0476: [],
+    });
+    summaryDraft.supplyAdvisoryReadinessAdr0485 = supplyAdvisoryReadinessAdr0485;
+    summaryDraft.supplyRecoveryRuntimeMountAdr0486 = buildSupplyRecoveryRuntimeMountReportAdr0486({
+      generatedAt: kstNow.toISOString(),
+      naverInvestorTrendAdr0481: summaryDraft.naverInvestorTrendAdr0481,
+      semanticNetBuyNormalizationAdr0482: summaryDraft.semanticNetBuyNormalizationAdr0482,
+      supplySourceFreshnessAdr0483: summaryDraft.supplySourceFreshnessAdr0483,
+      supplyCoverageRecoveryAdr0484,
+      supplyAdvisoryReadinessAdr0485,
+      investorFlowProviderRouterAdr0477: summaryDraft.investorFlowProviderRouter,
+      compactOutput: [
+        'ADR-0484 SupplyRecovery mounted in ScanSummary',
+        'ADR-0485 SupplyReadiness mounted in ScanSummary',
+        'ADR-0486 RuntimeMount mounted in ScanSummary',
+      ],
+      detailRegistryEntries: [
+        { adr: '0481', adrTraceHint: '/adr_trace 0481', commandHint: '/supply_health_detail' },
+        { adr: '0482', adrTraceHint: '/adr_trace 0482', commandHint: '/supply_health_detail' },
+        { adr: '0483', adrTraceHint: '/adr_trace 0483', commandHint: '/supply_health_detail' },
+        { adr: '0484', adrTraceHint: '/adr_trace 0484', commandHint: '/supply_health_detail' },
+        { adr: '0485', adrTraceHint: '/adr_trace 0485', commandHint: '/supply_health_detail' },
+        { adr: '0486', adrTraceHint: '/adr_trace 0486', commandHint: '/supply_health_detail' },
+      ],
+      runtimePipelineAuditEvidence: `ADR-0485 readinessAuditEvidence=${supplyAdvisoryReadinessAdr0485.status} ADR-0486 supplyRecoveryMount=mounted`,
+    });
+    await saveGate1DryRunObservationRows(buildGate1DryRunObservationRows({
+      now: kstNow,
+      forDate: kstNow.toISOString().slice(0, 10),
+      supplyRecoveryRuntimeMountAdr0486: summaryDraft.supplyRecoveryRuntimeMountAdr0486,
+    }));
+  } catch (e) {
+    console.warn('[ADR-0486] Supply recovery runtime mount build failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;
