@@ -12,6 +12,7 @@ import {
   safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from '../../../trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 import { buildInvestorFlowSampleAcquisitionReportAdr0489 } from '../../../trading/signalScanner/investorFlowSampleAcquisitionAdr0489.js';
+import { formatSupplyCoverageSummaryAdr0496 } from '../../../trading/signalScanner/investorFlowSemanticNetBuyAdr0496.js';
 import { buildProgramTradingDataLineReportAdr0490 } from '../../../trading/signalScanner/programTradingDataLineAdr0490.js';
 import { summarizeSupplySnapshotStoreAdr0491 } from '../../../trading/signalScanner/supplySnapshotStoreReplayAdr0491.js';
 import {
@@ -30,6 +31,17 @@ const freshDataStatus: TelegramCommand = {
   usage: '/fresh_data_status',
   async execute({ reply }) {
     const summary = getLastScanSummary();
+    const investorFlow = buildInvestorFlowSampleAcquisitionReportAdr0489({
+      generatedAt: summary?.time ?? new Date().toISOString(),
+      providerIssue: summary?.investorFlowProviderRouter?.status === 'PROVIDER_ERROR',
+      samples: summary?.naverInvestorTrendAdr0481 ? [{
+        symbol: 'NAVER_INVESTOR_TREND',
+        provider: 'NAVER',
+        sourceDate: summary.naverInvestorTrendAdr0481.semanticNetBuyCandidate?.sourceDate ?? summary.naverInvestorTrendAdr0481.freshness.lastSourceDate,
+        status: summary.naverInvestorTrendAdr0481.status === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' : 'DATA_UNAVAILABLE',
+      }] : [],
+      diagnostics: ['ADR-0496 /fresh_data_status diagnostic normalization only; no provider fetch.'],
+    });
     const report = summary?.freshDataSupplyAdr0487 ?? safeBuildFreshDataSupplyReportAdr0487({
       sectorEnergyDiagnosticAdr0474: summary?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
       naverInvestorTrendAdr0481: summary?.naverInvestorTrendAdr0481 as unknown as Record<string, unknown>,
@@ -38,6 +50,7 @@ const freshDataStatus: TelegramCommand = {
       supplyCoverageRecoveryAdr0484: summary?.supplyCoverageRecoveryAdr0484 as unknown as Record<string, unknown>,
       supplyAdvisoryReadinessAdr0485: summary?.supplyAdvisoryReadinessAdr0485 as unknown as Record<string, unknown>,
       investorFlowProviderRouterAdr0477: summary?.investorFlowProviderRouter ?? null,
+      supplyCoverageReportAdr0496: investorFlow.adr0496SupplyCoverage,
     });
     const adr0488 = summary?.sectorEnergySupplyUnknownAdr0488 ?? safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
       sectorEnergyDiagnosticAdr0474: summary?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
@@ -48,11 +61,6 @@ const freshDataStatus: TelegramCommand = {
       currentSupplySignal: summary?.investorFlowProviderRouter?.signal ?? 'UNKNOWN',
       providerIssue: summary?.investorFlowProviderRouter?.signal !== 'BEARISH',
       marketSignal: false,
-    });
-    const investorFlow = buildInvestorFlowSampleAcquisitionReportAdr0489({
-      generatedAt: report.generatedAt,
-      providerIssue: summary?.investorFlowProviderRouter?.status === 'PROVIDER_ERROR',
-      diagnostics: ['ADR-0494 /fresh_data_status diagnostic audit input only; no provider fetch.'],
     });
     const programTrading = buildProgramTradingDataLineReportAdr0490({
       generatedAt: report.generatedAt,
@@ -68,7 +76,7 @@ const freshDataStatus: TelegramCommand = {
     const promotionAudits = evaluateFreshDataPromotionAuditsAdr0494(promotionAuditInputs, { store: null });
     const promotionSummary = summarizeFreshDataPromotionAuditsAdr0494(promotionAudits);
     const promotionLines = promotionAudits.map(formatPromotionAuditCompactAdr0494).join('\n');
-    await reply(`${formatFreshDataSupplyDetailAdr0487(report)}\n\n${formatSectorEnergySupplyUnknownDetailAdr0488(adr0488)}\n\n${promotionSummary.promotionAuditSummary}\n${promotionLines}`);
+    await reply(`${formatFreshDataSupplyDetailAdr0487(report)}\n\n${formatSupplyCoverageSummaryAdr0496(investorFlow.adr0496SupplyCoverage)}\n\n${formatSectorEnergySupplyUnknownDetailAdr0488(adr0488)}\n\n${promotionSummary.promotionAuditSummary}\n${promotionLines}`);
   },
 };
 

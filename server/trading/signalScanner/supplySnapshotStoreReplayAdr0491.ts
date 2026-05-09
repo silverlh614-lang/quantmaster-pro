@@ -6,6 +6,7 @@ import type { FreshDataSupplyReportAdr0487 } from './freshDataSupplyLayerAdr0487
 import type { SectorEnergyAndSupplyUnknownPolicyReportAdr0488 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 import type { InvestorFlowSampleAcquisitionReportAdr0489 } from './investorFlowSampleAcquisitionAdr0489.js';
 import type { ProgramTradingDataLineReportAdr0490 } from './programTradingDataLineAdr0490.js';
+import type { SupplyCoverageReportAdr0496 } from './investorFlowSemanticNetBuyAdr0496.js';
 
 export type SupplySnapshotReplayModeAdr0491 = 'LATEST' | 'PREVIOUS_TRADING_DAY' | 'BY_SCAN_ID' | 'BY_DATE' | 'WINDOW';
 export type SupplySnapshotStatusAdr0491 = 'RECORDED' | 'EMPTY' | 'REPLAY_READY' | 'REPLAY_UNAVAILABLE' | 'CORRUPT_RECOVERED';
@@ -22,6 +23,7 @@ export interface SanitizedSupplySnapshotAdr0491 {
   providerIssue: boolean;
   marketSignal: boolean;
   sampleCounts: { supply: number; sector: number; program: number };
+  adr0496SupplyCoverage: Pick<SupplyCoverageReportAdr0496, 'coverageBefore' | 'coverageAfter' | 'sampleCount' | 'normalizedSampleCount' | 'semanticNetBuyCount' | 'nullCount' | 'zeroCount' | 'missingCount' | 'providerIssueCount' | 'marketSignalCount'> | null;
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
   policyPromotionMode: 'OBSERVE' | 'SHADOW_ONLY';
@@ -43,6 +45,7 @@ export interface BuildSupplySnapshotInputAdr0491 {
   sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488 | null;
   investorFlowSampleAdr0489?: InvestorFlowSampleAcquisitionReportAdr0489 | null;
   programTradingAdr0490?: ProgramTradingDataLineReportAdr0490 | null;
+  supplyCoverageReportAdr0496?: SupplyCoverageReportAdr0496 | null;
   diagnostics?: readonly string[];
 }
 
@@ -129,9 +132,11 @@ export function buildSanitizedSupplySnapshotAdr0491(
     input.sectorEnergySupplyUnknownAdr0488 ? 'SECTOR' : 'SECTOR',
     input.programTradingAdr0490 ? 'PROGRAM' : 'PROGRAM',
   ]);
+  const adr0496Coverage = input.supplyCoverageReportAdr0496 ?? input.investorFlowSampleAdr0489?.adr0496SupplyCoverage ?? null;
   const providerIssue = Boolean(
     input.sectorEnergySupplyUnknownAdr0488?.supplyUnknownPolicy.providerIssue === true ||
     input.investorFlowSampleAdr0489?.status === 'PROVIDER_ERROR' ||
+    (adr0496Coverage?.providerIssueCount ?? 0) > 0 ||
     input.programTradingAdr0490?.status === 'PROVIDER_ERROR',
   );
   return {
@@ -145,10 +150,22 @@ export function buildSanitizedSupplySnapshotAdr0491(
     providerIssue,
     marketSignal: false,
     sampleCounts: {
-      supply: input.investorFlowSampleAdr0489?.samples.length ?? input.freshDataSupplyAdr0487?.snapshots.length ?? 0,
+      supply: adr0496Coverage?.sampleCount ?? input.investorFlowSampleAdr0489?.samples.length ?? input.freshDataSupplyAdr0487?.snapshots.length ?? 0,
       sector: input.sectorEnergySupplyUnknownAdr0488 ? 1 : 0,
       program: input.programTradingAdr0490?.rows.length ?? 0,
     },
+    adr0496SupplyCoverage: adr0496Coverage ? {
+      coverageBefore: adr0496Coverage.coverageBefore,
+      coverageAfter: adr0496Coverage.coverageAfter,
+      sampleCount: adr0496Coverage.sampleCount,
+      normalizedSampleCount: adr0496Coverage.normalizedSampleCount,
+      semanticNetBuyCount: adr0496Coverage.semanticNetBuyCount,
+      nullCount: adr0496Coverage.nullCount,
+      zeroCount: adr0496Coverage.zeroCount,
+      missingCount: adr0496Coverage.missingCount,
+      providerIssueCount: adr0496Coverage.providerIssueCount,
+      marketSignalCount: adr0496Coverage.marketSignalCount,
+    } : null,
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
     policyPromotionMode: 'SHADOW_ONLY',

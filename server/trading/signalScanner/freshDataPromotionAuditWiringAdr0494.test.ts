@@ -102,8 +102,9 @@ describe('ADR-0494 Fresh Data Promotion Audit Wiring', () => {
       requestedNextStage: 'SHADOW_RAW',
     });
     const [audit] = evaluateFreshDataPromotionAuditsAdr0494([input], { store: null });
-    expect(audit.result.canPromote).toBe(true);
-    expect(audit.result.recommendedStage).toBe('SHADOW_RAW');
+    expect(audit.result.canPromote).toBe(false);
+    expect(audit.result.decision).toBe('KEEP_CURRENT_STAGE');
+    expect(audit.result.recommendedStage).toBe('OBSERVE');
     expect(dataLine.stage).toBe('OBSERVE');
   });
 
