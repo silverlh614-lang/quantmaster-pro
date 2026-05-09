@@ -92,16 +92,22 @@ jobs:
             exit 1
           fi
 
-      - name: Validate ADR-0491 file and index
+      - name: Validate ADR index
+        run: |
+          set -euo pipefail
+          node scripts/check_adr_index.js
+
+      - name: Validate ADR-0491 target state
+        if: github.event_name == 'workflow_dispatch'
         run: |
           set -euo pipefail
           test -f docs/adr/0491-adr-merge-conflict-resolution-continuation.md
           grep -q 'ADR-0491' docs/adr/0491-adr-merge-conflict-resolution-continuation.md
           grep -q '| 0491 | adr-merge-conflict-resolution-continuation' docs/adr/INDEX.md
           grep -q '다음 ADR 번호: `0492`' docs/adr/INDEX.md
-          node scripts/check_adr_index.js
 
-      - name: Confirm PR is ADR-0491 scoped
+      - name: Confirm target PR is ADR-0491 scoped
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
