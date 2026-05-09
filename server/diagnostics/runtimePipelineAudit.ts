@@ -12,6 +12,11 @@ import { getAllNearMissOutcomes } from '../persistence/nearMissOutcomeLedger.js'
 import { loadGateReclassificationDryRunRecords } from '../persistence/gateReclassificationDryRunRepo.js';
 import { loadGateReclassificationRolloutPlan } from '../persistence/gateReclassificationRolloutRepo.js';
 import { runLivePathSafetyAudit } from './livePathSafetyAudit.js';
+import {
+  collectOperatorActionSourcesFromScanSummaryAdr0480,
+  safeBuildOperatorActionQueueAdr0480,
+  formatRuntimePipelineDiagnosticEvidenceLineAdr0480,
+} from '../trading/signalScanner/operatorActionRouterAdr0480.js';
 
 export type RuntimePipelineStage =
   | 'NOT_RUN'
@@ -66,6 +71,8 @@ export interface RuntimePipelineAuditSnapshot {
   nearMissOutcomeLedgerCount: number;
   dryRunRecordCount: number;
   rolloutItemCount: number;
+  operatorActionEvidenceCount: number;
+  operatorActionDiagnosticLine: string;
   adr460Installed: false;
   supplyProviderHealth: { hasRecentSample: boolean; message: string };
   sectorEnergyHealth: {
@@ -253,6 +260,10 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   if (sectorEnergyHealth.leadershipConfidence === 'BLOCKED') addReason(blockedBy, 'SECTOR_ENERGY_LEADERSHIP_BLOCKED');
 
   const livePath = runLivePathSafetyAudit();
+  const operatorActionQueue = safeBuildOperatorActionQueueAdr0480({
+    sources: collectOperatorActionSourcesFromScanSummaryAdr0480(summary),
+  });
+  const operatorActionEvidenceCount = operatorActionQueue.allActions.reduce((sum, action) => sum + action.evidenceCount, 0);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -273,6 +284,8 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     nearMissOutcomeLedgerCount,
     dryRunRecordCount,
     rolloutItemCount,
+    operatorActionEvidenceCount,
+    operatorActionDiagnosticLine: formatRuntimePipelineDiagnosticEvidenceLineAdr0480(operatorActionQueue),
     adr460Installed: false,
     supplyProviderHealth,
     sectorEnergyHealth,
@@ -311,6 +324,7 @@ export function formatRuntimePipelineAuditSection(snapshot: RuntimePipelineAudit
     `  • nearMissOutcomeLedger: <code>${snapshot.nearMissOutcomeLedgerCount}</code>`,
     `  • dryRunRecords: <code>${snapshot.dryRunRecordCount}</code>`,
     `  • rolloutItems: <code>${snapshot.rolloutItemCount}</code>`,
+    `  • operatorActionEvidence: <code>${snapshot.operatorActionEvidenceCount}</code>`,
     '  • ADR-460: <code>not installed</code>',
     `  • reason: ${snapshot.operatorMessage}`,
     `  • livePathSafety: <code>${snapshot.livePathSafety.passed ? 'PASS' : 'FAIL'}</code>`,
@@ -356,6 +370,8 @@ export function formatRuntimePipelineAuditDetails(snapshot: RuntimePipelineAudit
     `  • nearMissOutcomeLedgerCount: <code>${snapshot.nearMissOutcomeLedgerCount}</code>`,
     `  • dryRunRecordCount: <code>${snapshot.dryRunRecordCount}</code>`,
     `  • rolloutItemCount: <code>${snapshot.rolloutItemCount}</code>`,
+    `  • operatorActionEvidenceCount: <code>${snapshot.operatorActionEvidenceCount}</code>`,
+    `  • operatorActionDiagnostic: ${snapshot.operatorActionDiagnosticLine}`,
     '  • ADR-460: <code>not installed</code>',
     `  • supplyProvider: ${snapshot.supplyProviderHealth.message}`,
     `  • sectorEnergy: ${snapshot.sectorEnergyHealth.message}`,

@@ -5,6 +5,20 @@
  * entries. It does not relax any gate, route orders, or mutate trading state.
  */
 import type { MacroGateState, WaitDistribution, GatePassDistribution } from './scanDiagnostics.js';
+import {
+  buildMinimumSignalScoreTrace,
+  buildMinSignalScoreDecompositionReport,
+  buildRiskPenaltyTrace,
+  buildSignalScoreCalibrationResults,
+  buildSoftFailAccumulationTrace,
+  buildUnknownDataTreatmentAudit,
+  type MinimumSignalScoreTrace,
+  type MinSignalScoreDecompositionReport,
+  type RiskPenaltyTrace,
+  type SignalScoreCalibrationResult,
+  type SoftFailAccumulationTrace,
+  type UnknownDataTreatmentAudit,
+} from './minimumSignalScoreTrace.js';
 
 
 export const GATE1_PROVIDER_ISSUE_SOFT_FAIL_ENABLED = true;
@@ -94,6 +108,11 @@ export interface Gate1CandidateTrace {
   wouldPassIfSupplySampleIgnored: boolean;
   wouldPassIfSectorEnergyIgnored: boolean;
   wouldPassIfTimeWindowIgnored: boolean;
+  minSignalScoreTrace?: MinimumSignalScoreTrace;
+  unknownDataTreatmentAudit?: UnknownDataTreatmentAudit;
+  softFailAccumulationTrace?: SoftFailAccumulationTrace;
+  riskPenaltyTrace?: RiskPenaltyTrace;
+  calibrationTags?: string[];
   executionImpact: 'NONE' | 'PAPER_ONLY' | 'LIVE_READY';
 }
 
@@ -137,6 +156,7 @@ export interface Gate1DecompositionReport {
     | 'REVIEW_GATE1_THRESHOLDS'
     | 'REVIEW_SUPPLY_CONFLUENCE';
 }
+
 
 export type ExecutionBlockScope = 'NONE' | 'STRONG_BUY_ONLY' | 'NEW_BUY_ONLY' | 'ALL_EXECUTION';
 
@@ -198,6 +218,8 @@ export interface CandidateEntryTrace {
   supplyProviderHealth?: Partial<SupplyProviderHealthTrace>;
   supplyConfluenceState?: SupplyConfluenceState;
   minSignalScorePassed?: boolean;
+  minSignalRequiredScore?: number;
+  gateScore?: number;
   priceDataFresh?: boolean;
   volumeLiquidityPassed?: boolean;
   blockers: EntryBlocker[];
@@ -287,6 +309,17 @@ export interface EntryDecisionLedgerRow {
   wouldEnterIfNoTimeBlock: boolean;
   wouldEnterIfNoOrderBlock: boolean;
   counterfactualRecorded: boolean;
+  minSignalScoreSummary?: {
+    requiredScore: number;
+    actualScore: number;
+    scoreGap: number;
+    unknownPenaltyTotal: number;
+    providerIssuePenaltyTotal: number;
+    riskPenaltyTotal: number;
+    softFailPenaltyTotal: number;
+    tags: string[];
+    executionImpact: 'NONE';
+  };
   gate1TraceSummary?: {
     primaryGate1FailCode?: Gate1ConditionCode;
     providerIssue: boolean;
@@ -332,6 +365,12 @@ export interface EntryFilterDecomposition {
   gate1CandidateTraces: Gate1CandidateTrace[];
   gate1DecompositionReport: Gate1DecompositionReport;
   gate1CounterfactualSurvivorReport: Gate1CounterfactualSurvivorReport;
+  minSignalScoreTraces: MinimumSignalScoreTrace[];
+  unknownDataTreatmentAudits: UnknownDataTreatmentAudit[];
+  softFailAccumulationTraces: SoftFailAccumulationTrace[];
+  riskPenaltyTraces: RiskPenaltyTrace[];
+  minSignalScoreDecompositionReport: MinSignalScoreDecompositionReport;
+  signalScoreCalibrationResults: SignalScoreCalibrationResult[];
   supplyProviderHealth: SupplyProviderHealthTrace;
 }
 
@@ -340,6 +379,7 @@ export interface CandidateSnapshot {
   name?: string;
   stageReached?: CandidateEntryStage;
   gateScore?: number;
+  minSignalRequiredScore?: number;
   gate1Passed?: boolean;
   gate2Passed?: boolean;
   gate3Passed?: boolean;
@@ -471,6 +511,7 @@ function canPassIgnoring(
 ): boolean {
   return !trace.conditions.some((condition) => conditionBlocksGate1(condition) && !ignore(condition));
 }
+
 
 function buildGate1CandidateTrace(input: {
   trace: CandidateEntryTrace;
@@ -628,16 +669,30 @@ function buildGate1CandidateTrace(input: {
     learningBlocking: false,
     source: 'macroGateState',
   }));
+  const minSignalScoreTrace = buildMinimumSignalScoreTrace({
+    trace,
+    hasGate1Blocker,
+    regime,
+    marketSession,
+    macroGateState,
+    supplyProviderHealth,
+    supplyConfluenceState,
+    hasSectorEnergyDiagnostic,
+  });
   conditions.push(makeCondition({
     code: 'MIN_SIGNAL_SCORE_PASS',
-    passed: !hasGate1Blocker,
-    severity: hasGate1Blocker ? 'SOFT_FAIL' : 'INFO',
-    message: hasGate1Blocker ? 'Candidate failed legacy Gate1 aggregate/min signal path; decomposed with provider and supply conditions.' : 'No legacy Gate1 aggregate blocker recorded.',
+    passed: minSignalScoreTrace.passed,
+    severity: minSignalScoreTrace.passed ? 'INFO' : 'SOFT_FAIL',
+    message: minSignalScoreTrace.passed
+      ? `Minimum signal score passed: actual ${minSignalScoreTrace.actualScore} / required ${minSignalScoreTrace.requiredScore}.`
+      : `Minimum signal score failed: actual ${minSignalScoreTrace.actualScore} / required ${minSignalScoreTrace.requiredScore}, gap ${minSignalScoreTrace.scoreGap}.`,
     providerIssue: false,
-    marketSignal: hasGate1Blocker,
-    executionBlocking: hasGate1Blocker,
+    marketSignal: false,
+    executionBlocking: false,
     learningBlocking: false,
-    source: 'legacyGate1Aggregate',
+    value: { actualScore: minSignalScoreTrace.actualScore, requiredScore: minSignalScoreTrace.requiredScore, scoreGap: minSignalScoreTrace.scoreGap },
+    expected: { requiredScore: minSignalScoreTrace.requiredScore },
+    source: 'ADR-0466_minimumSignalScoreTrace',
   }));
   conditions.push(makeCondition({
     code: 'DUPLICATE_POSITION_PASS',
@@ -699,6 +754,22 @@ function buildGate1CandidateTrace(input: {
     wouldPassIfSupplySampleIgnored,
     wouldPassIfSectorEnergyIgnored,
     wouldPassIfTimeWindowIgnored,
+    minSignalScoreTrace,
+    unknownDataTreatmentAudit: buildUnknownDataTreatmentAudit(minSignalScoreTrace),
+    softFailAccumulationTrace: buildSoftFailAccumulationTrace({
+      symbol: trace.symbol,
+      conditions,
+      minSignalScoreTrace,
+      threshold: input.gate1SoftFailThreshold,
+    }),
+    riskPenaltyTrace: buildRiskPenaltyTrace({ symbol: trace.symbol, macroGateState, minSignalScoreTrace }),
+    calibrationTags: [
+      ...(minSignalScoreTrace.scoreGap < 0 ? ['CASE_MIN_SIGNAL_SCORE_GAP'] : []),
+      ...(minSignalScoreTrace.unknownPenaltyTotal < 0 ? ['CASE_UNKNOWN_DATA_PENALTY'] : []),
+      ...(minSignalScoreTrace.softFailPenaltyTotal < 0 ? ['CASE_SOFT_FAIL_ACCUMULATION'] : []),
+      ...(buildRiskPenaltyTrace({ symbol: trace.symbol, macroGateState, minSignalScoreTrace }).doubleCountWarning ? ['CASE_RISK_PENALTY_DOUBLE_COUNT_WARNING'] : []),
+      ...(regime === 'R3_EARLY' && minSignalScoreTrace.scoreGap < 0 && minSignalScoreTrace.scoreGap >= -10 ? ['CASE_R3_EARLY_ADAPTIVE_THRESHOLD_CANDIDATE'] : []),
+    ],
     executionImpact: 'NONE',
   };
 }
@@ -770,6 +841,7 @@ function buildGate1Reports(input: {
   return { report, counterfactual };
 }
 
+
 export function createKellySizingTrace(input: {
   symbol: string;
   kellyRaw: number;
@@ -828,6 +900,8 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
       supplyProviderHealth: c.supplyProviderHealth,
       supplyConfluenceState: c.supplyConfluenceState,
       minSignalScorePassed: c.minSignalScorePassed,
+      minSignalRequiredScore: c.minSignalRequiredScore,
+      gateScore: c.gateScore,
       priceDataFresh: c.priceDataFresh,
       volumeLiquidityPassed: c.volumeLiquidityPassed,
       blockers: [],
@@ -971,6 +1045,14 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
     marketSession,
     traces: gate1CandidateTraces,
   });
+  const minSignalScoreDecompositionReport = buildMinSignalScoreDecompositionReport({
+    nowIso,
+    forDate,
+    regime,
+    marketSession,
+    traces: gate1CandidateTraces,
+  });
+  const signalScoreCalibrationResults = buildSignalScoreCalibrationResults({ regime, traces: gate1CandidateTraces });
 
   for (const trace of traces) {
     const onlyTimeBlocked = hasExecutionBlocker(trace, 'TIME_WINDOW') && !nonTimeHardBlocked(trace);
@@ -1025,6 +1107,17 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
       wouldEnterIfNoTimeBlock: trace.wouldEnterIfNoTimeBlock ?? false,
       wouldEnterIfNoOrderBlock: trace.wouldEnterIfNoOrderBlock ?? false,
       counterfactualRecorded: counterfactualTraces.some((cf) => cf.symbol === trace.symbol),
+      minSignalScoreSummary: trace.gate1Trace?.minSignalScoreTrace ? {
+        requiredScore: trace.gate1Trace.minSignalScoreTrace.requiredScore,
+        actualScore: trace.gate1Trace.minSignalScoreTrace.actualScore,
+        scoreGap: trace.gate1Trace.minSignalScoreTrace.scoreGap,
+        unknownPenaltyTotal: trace.gate1Trace.minSignalScoreTrace.unknownPenaltyTotal,
+        providerIssuePenaltyTotal: trace.gate1Trace.minSignalScoreTrace.providerIssuePenaltyTotal,
+        riskPenaltyTotal: trace.gate1Trace.minSignalScoreTrace.riskPenaltyTotal,
+        softFailPenaltyTotal: trace.gate1Trace.minSignalScoreTrace.softFailPenaltyTotal,
+        tags: trace.gate1Trace.calibrationTags ?? [],
+        executionImpact: 'NONE',
+      } : undefined,
       gate1TraceSummary: trace.gate1Trace ? {
         primaryGate1FailCode: trace.gate1Trace.primaryFailCode,
         providerIssue: trace.gate1Trace.conditions.some((c) => !c.passed && c.providerIssue),
@@ -1035,6 +1128,7 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
           ...(trace.gate1Trace.wouldPassIfProviderIssueSoftened ? ['CASE_GATE1_PROVIDER_SOFTENED_SURVIVOR'] : []),
           ...(trace.gate1Trace.conditions.some((c) => !c.passed && (c.code === 'INVESTOR_FLOW_SAMPLE_PASS' || c.code === 'SUPPLY_CONFLUENCE_PASS')) ? ['CASE_SUPPLY_SAMPLE_UNKNOWN'] : []),
           ...(gate1DecompositionReport.gate1Passed === 0 ? ['CASE_GATE1_ZERO_SURVIVOR'] : []),
+          ...(trace.gate1Trace.calibrationTags ?? []),
         ],
       } : undefined,
       primaryGate1FailCode: trace.gate1Trace?.primaryFailCode,
@@ -1112,6 +1206,12 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
     gate1CandidateTraces,
     gate1DecompositionReport,
     gate1CounterfactualSurvivorReport,
+    minSignalScoreTraces: gate1CandidateTraces.map((t) => t.minSignalScoreTrace).filter((t): t is MinimumSignalScoreTrace => Boolean(t)),
+    unknownDataTreatmentAudits: gate1CandidateTraces.map((t) => t.unknownDataTreatmentAudit).filter((t): t is UnknownDataTreatmentAudit => Boolean(t)),
+    softFailAccumulationTraces: gate1CandidateTraces.map((t) => t.softFailAccumulationTrace).filter((t): t is SoftFailAccumulationTrace => Boolean(t)),
+    riskPenaltyTraces: gate1CandidateTraces.map((t) => t.riskPenaltyTrace).filter((t): t is RiskPenaltyTrace => Boolean(t)),
+    minSignalScoreDecompositionReport,
+    signalScoreCalibrationResults,
     supplyProviderHealth: defaultSupplyProviderHealth,
     ...(filterConservatismReport ? { filterConservatismReport } : {}),
   };
@@ -1195,6 +1295,34 @@ export function formatEntryFilterDecompositionSection(d?: EntryFilterDecompositi
   lines.push(`• ifProviderIssueSoftened: ${cf.ifProviderIssueSoftened}`);
   lines.push(`• ifSupplySampleIgnored: ${cf.ifSupplySampleIgnored}`);
   lines.push(`• ifSectorEnergyIgnored: ${cf.ifSectorEnergyIgnored}`);
+  const min = d.minSignalScoreDecompositionReport;
+  const thresholdMinus5 = d.signalScoreCalibrationResults.find((r) => r.scenario === 'MIN_SIGNAL_THRESHOLD_MINUS_5')?.hypotheticalSurvivors ?? 0;
+  const thresholdMinus10 = d.signalScoreCalibrationResults.find((r) => r.scenario === 'MIN_SIGNAL_THRESHOLD_MINUS_10')?.hypotheticalSurvivors ?? 0;
+  const r3Adaptive = d.signalScoreCalibrationResults.find((r) => r.scenario === 'R3_EARLY_ADAPTIVE_THRESHOLD')?.hypotheticalSurvivors ?? 0;
+  lines.push('');
+  lines.push('📐 <b>Min Signal Score Decomposition (ADR-0466)</b>');
+  lines.push(`• candidates: ${min.totalCandidates}`);
+  lines.push(`• minSignalFailed: ${min.minSignalFailed}`);
+  lines.push(`• requiredScoreAvg: ${min.requiredScoreAvg.toFixed(1)}`);
+  lines.push(`• actualScoreAvg: ${min.actualScoreAvg.toFixed(1)}`);
+  lines.push(`• actualScoreMin/Max: ${min.actualScoreMin.toFixed(1)} / ${min.actualScoreMax.toFixed(1)}`);
+  lines.push(`• avgScoreGap: ${min.avgScoreGap.toFixed(1)}`);
+  if (min.topScoreDeficits.length > 0) {
+    lines.push('');
+    lines.push('점수 부족 TOP:');
+    min.topScoreDeficits.forEach((item, idx) => lines.push(`${idx + 1}. ${item.code}: avg ${item.avgImpact.toFixed(1)} / ${item.affectedCount}`));
+  }
+  lines.push('');
+  lines.push('마스킹/보정 시나리오:');
+  lines.push(`• wouldPassIfUnknownNeutral: ${min.wouldPassIfUnknownNeutral}`);
+  lines.push(`• wouldPassIfProviderPenaltyRemoved: ${min.wouldPassIfProviderPenaltyRemoved}`);
+  lines.push(`• wouldPassIfSessionPenaltyRemoved: ${min.wouldPassIfSessionPenaltyRemoved}`);
+  lines.push(`• wouldPassIfRiskPenaltyCapped: ${min.wouldPassIfRiskPenaltyCapped}`);
+  lines.push(`• wouldPassIfSoftFailPenaltyRemoved: ${min.wouldPassIfSoftFailPenaltyRemoved}`);
+  lines.push(`• thresholdMinus5Survivors: ${thresholdMinus5}`);
+  lines.push(`• thresholdMinus10Survivors: ${thresholdMinus10}`);
+  lines.push(`• r3EarlyAdaptiveThresholdSurvivors: ${r3Adaptive}`);
+  lines.push(`• unknownAsBearishWarnings: ${min.unknownTreatmentWarnings}`);
   lines.push('');
   lines.push('판정:');
   lines.push(g1.recommendedAction === 'REPAIR_PROVIDER_HEALTH'
