@@ -158,6 +158,13 @@ import {
   formatGate1PositiveSourceWiringReport,
   type Gate1PositiveSourceWiringReport,
 } from './gate1PositiveSourceWiringAdr0475.js';
+import {
+  buildGate1DryRunObservationRows,
+  formatGate1DryRunObservationSummary,
+  saveGate1DryRunObservationRows,
+  summarizeGate1DryRunObservationRows,
+  type Gate1DryRunObservationSummary,
+} from './gate1DryRunObservationLedgerAdr0476.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -412,6 +419,8 @@ export interface ScanSummary {
   gate1ScoringAlignment?: Gate1ScoringAlignmentReport;
   /** ADR-0475 positive source wiring dry-run; executionImpact NONE and liveExecutionAllowed false. */
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport;
+  /** ADR-0476 dry-run observation ledger summary; SHADOW_ONLY and executionImpact NONE. */
+  gate1DryRunObservationLedger?: Gate1DryRunObservationSummary;
 }
 
 let _lastBuySignalAt = 0;
@@ -1254,6 +1263,16 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   // 기존 sectorEnergyQuality 라벨만으로는 SECTOR_DATA_STALE_DOMINANT 의 *진짜 원인* 인식 불가.
   // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
   // ADR-0422 Gate2 섹션의 sectorEnergy 표시(요약) 와 *책임 분리* — 본 섹션은 *원인 분해 상세*.
+  try {
+    const dryRunObservationSection = formatGate1DryRunObservationSummary(summary.gate1DryRunObservationLedger);
+    if (dryRunObservationSection) {
+      lines.push('');
+      lines.push(dryRunObservationSection);
+    }
+  } catch (e) {
+    console.warn('[ADR-0476] Gate1DryRunObservation format failed (base scan summary unaffected):', e);
+  }
+
   const sectorEnergySection = formatSectorEnergyQualityDiagnosticSection(summary.sectorEnergyQualityDiagnostic);
   if (sectorEnergySection) {
     lines.push('');
@@ -1915,6 +1934,32 @@ export async function persistScanResults(
     }
   } catch (e) {
     console.warn('[ADR-0475] Gate1PositiveSourceWiring build failed (engine unaffected):', e);
+  }
+
+  // ADR-0476: dry-run and near-miss observation ledger. This stores only compact
+  // observation rows for 1D/3D/5D tracking and never changes live execution.
+  try {
+    const observationSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
+    const rows = buildGate1DryRunObservationRows({
+      now: kstNow,
+      forDate: kstNow.toISOString().slice(0, 10),
+      candidateSnapshots: observationSnapshots,
+      finalGate1Calibration: summaryDraft.finalGate1Calibration,
+      gate1PositiveSourceWiring: summaryDraft.gate1PositiveSourceWiring,
+      sellOnly: options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false,
+      sectorEnergyDiagnosticOnly: options.sectorEnergyQuality !== undefined && options.sectorEnergyQuality !== 'OK',
+      providerIssue: observationSnapshots.some((item) => item.supplyProviderHealth?.providerIssue === true),
+      marketSignal: observationSnapshots.some((item) => item.supplyProviderHealth?.marketSignal === true),
+    });
+    await saveGate1DryRunObservationRows(rows);
+    summaryDraft.gate1DryRunObservationLedger = summarizeGate1DryRunObservationRows(rows, rows.length);
+    console.warn(
+      `[ADR-0476] Gate1DryRunObservation rows emitted ` +
+      `(rows=${rows.length}, executionImpact=${summaryDraft.gate1DryRunObservationLedger.executionImpact}, ` +
+      `liveExecutionAllowed=${summaryDraft.gate1DryRunObservationLedger.liveExecutionAllowed})`,
+    );
+  } catch (e) {
+    console.warn('[ADR-0476] Gate1DryRunObservation build/save failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;

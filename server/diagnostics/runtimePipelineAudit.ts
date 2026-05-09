@@ -12,6 +12,7 @@ import { getAllNearMissOutcomes } from '../persistence/nearMissOutcomeLedger.js'
 import { loadGateReclassificationDryRunRecords } from '../persistence/gateReclassificationDryRunRepo.js';
 import { loadGateReclassificationRolloutPlan } from '../persistence/gateReclassificationRolloutRepo.js';
 import { runLivePathSafetyAudit } from './livePathSafetyAudit.js';
+import { getGate1DryRunObservationLedgerCount } from '../trading/signalScanner/gate1DryRunObservationLedgerAdr0476.js';
 
 export type RuntimePipelineStage =
   | 'NOT_RUN'
@@ -205,7 +206,9 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   const summary = getLastScanSummary();
   const blockedBy: RuntimePipelineBlockReason[] = [];
   const gateSamples = summary?.gateScoreHealth?.samples ?? 0;
-  const nearMissSamples = countNearMissBuckets(summary);
+  const scanNearMissSamples = countNearMissBuckets(summary);
+  const observationNearMissSamples = summary?.gate1DryRunObservationLedger?.sources?.GATE1_NEAR_MISS ?? 0;
+  const nearMissSamples = scanNearMissSamples + observationNearMissSamples;
   const candidateSummaryCount = summary ? summary.candidates : 0;
   const buyListLoopEntered = Boolean(summary && (gateSamples > 0 || nearMissSamples > 0 || (summary.gatePassDistribution?.gate1Pass ?? 0) > 0));
   const scanSummaryPersisted = Boolean(summary);
@@ -219,6 +222,15 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   try { nearMissOutcomeLedgerCount = getAllNearMissOutcomes().length; } catch { nearMissOutcomeLedgerCount = 0; }
   let dryRunRecordCount = 0;
   try { dryRunRecordCount = loadGateReclassificationDryRunRecords().length; } catch { dryRunRecordCount = 0; }
+  let gate1ObservationLedgerCount = 0;
+  try {
+    gate1ObservationLedgerCount = summary?.gate1DryRunObservationLedger?.totalRows
+      ?? summary?.gate1DryRunObservationLedger?.rowsCreated
+      ?? getGate1DryRunObservationLedgerCount();
+  } catch {
+    gate1ObservationLedgerCount = 0;
+  }
+  dryRunRecordCount += gate1ObservationLedgerCount;
   let rolloutItemCount = 0;
   try { rolloutItemCount = loadGateReclassificationRolloutPlan()?.items.length ?? 0; } catch { rolloutItemCount = 0; }
 
@@ -240,7 +252,7 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   if (summary?.macroGateState?.bearDefenseMode || summary?.macroGateState?.vixGatingActive || summary?.macroGateState?.mhsBelow30) addReason(blockedBy, 'MACRO_RISK_BLOCK');
   if (!buyListLoopEntered) addReason(blockedBy, 'BUYLIST_NOT_REACHED');
   if (gateSamples <= 0) addReason(blockedBy, 'NO_GATE_SAMPLES');
-  if (nearMissSamples <= 0) addReason(blockedBy, 'NO_NEAR_MISS_SAMPLES');
+  if (nearMissSamples <= 0 && gate1ObservationLedgerCount <= 0) addReason(blockedBy, 'NO_NEAR_MISS_SAMPLES');
   if (nearMissOutcomeLedgerCount <= 0) addReason(blockedBy, 'NO_APPROVED_RECLASSIFICATION_ITEMS');
   if (dryRunRecordCount <= 0) addReason(blockedBy, 'NO_DRY_RUN_RECORDS');
   if (rolloutItemCount <= 0) addReason(blockedBy, 'NO_ROLLOUT_ITEMS');
