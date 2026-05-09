@@ -6,6 +6,7 @@
  * provider promotion, or live execution state.
  */
 import type { ScanSummary } from './scanDiagnostics.js';
+import type { SupplyRecoveryRuntimeMountReportAdr0486 } from './supplyRecoveryRuntimeMountAdr0486.js';
 
 export type OperatorActionPriority = 'P0' | 'P1' | 'P2' | 'P3';
 export type OperatorActionStatus = 'OPEN' | 'IN_PROGRESS' | 'OBSERVING' | 'RESOLVED' | 'BLOCKED';
@@ -19,6 +20,7 @@ export type OperatorActionCategory =
   | 'PENALTY_DEDUP'
   | 'LEDGER'
   | 'UI_OUTPUT'
+  | 'RUNTIME_MOUNT'
   | 'UNKNOWN';
 
 export type OperatorActionRootCause =
@@ -38,6 +40,8 @@ export type OperatorActionRootCause =
   | 'GATE1_NEAR_MISS_DATA_BLOCKED'
   | 'SCAN_BLOCKERS_TOO_VERBOSE'
   | 'DETAIL_TRACE_MISSING'
+  | 'SUPPLY_RECOVERY_RUNTIME_MOUNT_GAP'
+  | 'SUPPLY_READINESS_EVIDENCE_MISSING'
   | 'UNKNOWN_ROOT_CAUSE';
 
 export interface OperatorActionSource {
@@ -92,6 +96,7 @@ export interface BuildOperatorActionQueueInput {
   sources?: OperatorActionSource[];
   supplyCoverageRecoveryAdr0484?: { status?: string; topImprovedMetrics?: string[]; topRemainingBlockers?: string[] } | null;
   supplyAdvisoryReadinessAdr0485?: { status?: string; readinessScore?: number; failedReasons?: string[]; recommendedNextStep?: string } | null;
+  supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486 | null;
 }
 
 interface OperatorActionDefinition {
@@ -286,6 +291,28 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     expectedImpact: { scanBlockerReduction: 'LOW', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
     detailHint: '/adr_trace 0480 detail-trace-missing',
   },
+  SUPPLY_RECOVERY_RUNTIME_MOUNT_GAP: {
+    rootCause: 'SUPPLY_RECOVERY_RUNTIME_MOUNT_GAP',
+    category: 'RUNTIME_MOUNT',
+    title: 'Supply recovery runtime mount gap',
+    summary: 'ADR-0481~0485 code exists, but live runtime output or formatter evidence is stale or partially mounted.',
+    recommendedAction: 'Align ADR-0473 warmup formatter and runtime ScanSummary plumbing with ADR-0481~0485.',
+    relatedAdrs: ['0473', '0478', '0479', '0480', '0481', '0482', '0483', '0484', '0485', '0486'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'HIGH', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0486',
+  },
+  SUPPLY_READINESS_EVIDENCE_MISSING: {
+    rootCause: 'SUPPLY_READINESS_EVIDENCE_MISSING',
+    category: 'RUNTIME_MOUNT',
+    title: 'Supply readiness evidence missing',
+    summary: 'Runtime Pipeline Audit cannot read ADR-0485 readiness evidence even when readiness report exists.',
+    recommendedAction: 'Pass ADR-0485 readiness report into Runtime Pipeline Audit input.',
+    relatedAdrs: ['0485', '0486'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0486 readiness-evidence',
+  },
   UNKNOWN_ROOT_CAUSE: {
     rootCause: 'UNKNOWN_ROOT_CAUSE',
     category: 'UNKNOWN',
@@ -357,6 +384,12 @@ function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCau
   }
   if (includesAny(text, ['DETAIL TRACE MISSING', 'DETAIL_TRACE_MISSING', 'NO DETAIL REGISTRY', 'ADR_TRACE MISSING'])) {
     return 'DETAIL_TRACE_MISSING';
+  }
+  if (includesAny(text, ['SUPPLY_RECOVERY_RUNTIME_MOUNT_GAP', 'RUNTIMEMOUNT', 'LEGACY_OUTPUT_DETECTED', 'NAVER_NOT_WIRED_LEGACY', 'SEMANTIC_NETBUY_COLLECTOR_NOT_WIRED_LEGACY'])) {
+    return 'SUPPLY_RECOVERY_RUNTIME_MOUNT_GAP';
+  }
+  if (includesAny(text, ['SUPPLY_READINESS_EVIDENCE_MISSING', 'READINESS_AUDIT_EVIDENCE_MISSING', 'READINESSAUDITEVIDENCE=MISSING'])) {
+    return 'SUPPLY_READINESS_EVIDENCE_MISSING';
   }
   return null;
 }
@@ -463,6 +496,28 @@ export function buildOperatorActionQueueAdr0480(input: BuildOperatorActionQueueI
       severity: 'INFO',
     }]);
   }
+  const mount = input.supplyRecoveryRuntimeMountAdr0486;
+  if (mount?.legacyOutputCount && !grouped.has('SUPPLY_RECOVERY_RUNTIME_MOUNT_GAP')) {
+    grouped.set('SUPPLY_RECOVERY_RUNTIME_MOUNT_GAP', [{
+      adr: '0486',
+      sectionId: 'supply_recovery_runtime_mount',
+      code: 'SUPPLY_RECOVERY_RUNTIME_MOUNT_GAP',
+      diagnosticKey: 'RuntimeMount',
+      diagnosticValue: `status=${mount.overallStatus} legacy=${mount.legacyOutputCount} gaps=${mount.topMountGaps.join(',')}`,
+      severity: 'ERROR',
+    }]);
+  }
+  const readinessMissing = mount?.checks.some((check) => check.legacyOutputCode === 'READINESS_AUDIT_EVIDENCE_MISSING') === true;
+  if (readinessMissing && !grouped.has('SUPPLY_READINESS_EVIDENCE_MISSING')) {
+    grouped.set('SUPPLY_READINESS_EVIDENCE_MISSING', [{
+      adr: '0486',
+      sectionId: 'runtime_pipeline_audit',
+      code: 'SUPPLY_READINESS_EVIDENCE_MISSING',
+      diagnosticKey: 'readinessAuditEvidence',
+      diagnosticValue: 'missing',
+      severity: 'ERROR',
+    }]);
+  }
   const allActions = Array.from(grouped.entries())
     .map(([rootCause, sources]) => buildItem(rootCause, sources, adr0484ObservedStatus(input, rootCause)))
     .sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || b.evidenceCount - a.evidenceCount || a.rootCause.localeCompare(b.rootCause));
@@ -503,6 +558,12 @@ export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: Scan
   }
   if ((summary.gateScoreHealth?.unavailableTop ?? []).some((item) => item.condition.toUpperCase().includes('POSITIVE'))) {
     sources.push({ adr: '0475', sectionId: 'positive_source', code: 'POSITIVE_SOURCE_MISSING', diagnosticKey: 'positiveSource', diagnosticValue: 'unavailableTop', severity: 'DATA_UNAVAILABLE' });
+  }
+  if ((summary.supplyRecoveryRuntimeMountAdr0486?.legacyOutputCount ?? 0) > 0) {
+    sources.push({ adr: '0486', sectionId: 'supply_recovery_runtime_mount', code: 'SUPPLY_RECOVERY_RUNTIME_MOUNT_GAP', diagnosticKey: 'RuntimeMount', diagnosticValue: summary.supplyRecoveryRuntimeMountAdr0486?.topMountGaps.join(',') ?? 'legacy output detected', severity: 'ERROR' });
+  }
+  if (summary.supplyRecoveryRuntimeMountAdr0486?.checks.some((check) => check.legacyOutputCode === 'READINESS_AUDIT_EVIDENCE_MISSING')) {
+    sources.push({ adr: '0486', sectionId: 'runtime_pipeline_audit', code: 'SUPPLY_READINESS_EVIDENCE_MISSING', diagnosticKey: 'readinessAuditEvidence', diagnosticValue: 'missing', severity: 'ERROR' });
   }
   return sources;
 }

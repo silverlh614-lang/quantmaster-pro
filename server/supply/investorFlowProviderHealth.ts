@@ -8,6 +8,7 @@
 
 import { isTradingDay } from '../utils/marketDayClassifier.js';
 import type { NaverInvestorTrendCollectorResult } from '../trading/signalScanner/naverInvestorTrendCollectorAdr0481.js';
+import type { SemanticNetBuyNormalizationReportAdr0482 } from '../trading/signalScanner/semanticNetBuyNormalizerAdr0482.js';
 import { formatSupplySourceFreshnessCompactAdr0483, type SupplySourceFreshnessReportAdr0483 } from '../trading/signalScanner/supplySourceFreshnessAdr0483.js';
 
 export type InvestorFlowProviderStatus =
@@ -149,6 +150,15 @@ export interface SupplyProviderWarmupReport {
     status: NaverInvestorTrendCollectorResult['status'];
     signal: NaverInvestorTrendCollectorResult['signal'];
     coverage: NaverInvestorTrendCollectorResult['coverage'];
+    executionImpact: 'NONE';
+    liveExecutionAllowed: false;
+    policyPromotionMode: 'SHADOW_ONLY';
+  };
+  semanticNetBuyNormalizationAdr0482?: {
+    status: SemanticNetBuyNormalizationReportAdr0482['status'];
+    selectedProvider: string;
+    signal: SemanticNetBuyNormalizationReportAdr0482['signal'];
+    confidence: SemanticNetBuyNormalizationReportAdr0482['confidence'];
     executionImpact: 'NONE';
     liveExecutionAllowed: false;
     policyPromotionMode: 'SHADOW_ONLY';
@@ -487,6 +497,7 @@ export function buildSupplyProviderWarmupReport(input: {
   cacheHit?: boolean;
   investorFlowRouter?: SupplyProviderWarmupReport['investorFlowRouter'];
   naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult | null;
+  semanticNetBuyNormalizationAdr0482?: SemanticNetBuyNormalizationReportAdr0482 | null;
   supplySourceFreshnessAdr0483?: SupplySourceFreshnessReportAdr0483 | null;
 } = {}): SupplyProviderWarmupReport {
   const health = input.health ?? [];
@@ -548,6 +559,15 @@ export function buildSupplyProviderWarmupReport(input: {
       liveExecutionAllowed: input.naverInvestorTrendAdr0481.liveExecutionAllowed,
       policyPromotionMode: input.naverInvestorTrendAdr0481.policyPromotionMode,
     } } : {}),
+    ...(input.semanticNetBuyNormalizationAdr0482 ? { semanticNetBuyNormalizationAdr0482: {
+      status: input.semanticNetBuyNormalizationAdr0482.status,
+      selectedProvider: input.semanticNetBuyNormalizationAdr0482.selectedSample?.provider ?? 'NONE',
+      signal: input.semanticNetBuyNormalizationAdr0482.signal,
+      confidence: input.semanticNetBuyNormalizationAdr0482.confidence,
+      executionImpact: input.semanticNetBuyNormalizationAdr0482.executionImpact,
+      liveExecutionAllowed: input.semanticNetBuyNormalizationAdr0482.liveExecutionAllowed,
+      policyPromotionMode: input.semanticNetBuyNormalizationAdr0482.policyPromotionMode,
+    } } : {}),
     ...(input.investorFlowRouter ? { investorFlowRouter: input.investorFlowRouter } : {}),
     ...(input.supplySourceFreshnessAdr0483 ? { supplySourceFreshnessAdr0483: input.supplySourceFreshnessAdr0483 } : {}),
     nextAction: providerIssue ? 'WIRE_NAVER_OR_REPAIR_CACHE_KEY' : 'NONE',
@@ -556,6 +576,11 @@ export function buildSupplyProviderWarmupReport(input: {
 
 export function formatSupplyProviderWarmupCompactLine(report: SupplyProviderWarmupReport): string {
   const d = report.previousTradingDateDiagnostic;
+  const semanticState = report.semanticNetBuyNormalizationAdr0482
+    ? `NORMALIZER_READY / ${report.semanticNetBuyNormalizationAdr0482.status}`
+    : report.semanticNetBuyCollectorStatus === 'WIRED'
+      ? 'NORMALIZER_READY / DATA_UNAVAILABLE'
+      : 'DATA_UNAVAILABLE';
   return [
     '📊 Supply Provider Warmup (ADR-0473)',
     `  KRX: ${report.krxStatus} / previousTradingDateCandidate=${d.previousTradingDateCandidate} / cacheHit=${String(d.cacheHit)}`,
@@ -563,7 +588,10 @@ export function formatSupplyProviderWarmupCompactLine(report: SupplyProviderWarm
     ...(report.naverInvestorTrendAdr0481 ? [
       `  ADR-0481 NAVER InvestorTrend: ${report.naverInvestorTrendAdr0481.status} | signal=${report.naverInvestorTrendAdr0481.signal} | days=${report.naverInvestorTrendAdr0481.coverage.availableDays}/${report.naverInvestorTrendAdr0481.coverage.requestedDays} | impact=${report.naverInvestorTrendAdr0481.executionImpact}`,
     ] : []),
-    `  Semantic NetBuy: schema ready / collector ${report.semanticNetBuyCollectorStatus === 'WIRED' ? 'wired' : 'not wired'}`,
+    `  Semantic NetBuy: ${semanticState}`,
+    ...(report.semanticNetBuyNormalizationAdr0482 ? [
+      `  ADR-0482 SemanticNetBuy: ${report.semanticNetBuyNormalizationAdr0482.status} | selected=${report.semanticNetBuyNormalizationAdr0482.selectedProvider} | signal=${report.semanticNetBuyNormalizationAdr0482.signal} | confidence=${report.semanticNetBuyNormalizationAdr0482.confidence} | impact=${report.semanticNetBuyNormalizationAdr0482.executionImpact}`,
+    ] : []),
     ...(report.supplySourceFreshnessAdr0483 ? [`  ${formatSupplySourceFreshnessCompactAdr0483(report.supplySourceFreshnessAdr0483)}`] : []),
     `  CACHE: ${report.cacheStatus}`,
     `  KIS: ${report.kisStatus}`,

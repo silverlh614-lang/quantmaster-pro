@@ -108,6 +108,10 @@ import {
   formatSupplyAdvisoryReadinessCompactAdr0485,
   safeBuildSupplyAdvisoryReadinessReportAdr0485,
 } from '../../../trading/signalScanner/supplyAdvisoryReadinessAdr0485.js';
+import {
+  formatSupplyRecoveryRuntimeMountCompactAdr0486,
+  safeBuildSupplyRecoveryRuntimeMountReportAdr0486,
+} from '../../../trading/signalScanner/supplyRecoveryRuntimeMountAdr0486.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -228,7 +232,21 @@ const scanBlockers: TelegramCommand = {
       const investorFlowHealth = getLastInvestorFlowProviderHealth();
       supplyProviderSection = summarizeInvestorFlowProviderHealth(investorFlowHealth);
       supplyProviderWarmupSection = formatSupplyProviderWarmupCompactLine(
-        buildSupplyProviderWarmupReport({ health: investorFlowHealth }),
+        buildSupplyProviderWarmupReport({
+          health: investorFlowHealth,
+          investorFlowRouter: summary?.investorFlowProviderRouter ? {
+            status: summary.investorFlowProviderRouter.status,
+            selectedProvider: summary.investorFlowProviderRouter.selectedProvider,
+            providerTried: [...summary.investorFlowProviderRouter.providerTried],
+            signal: summary.investorFlowProviderRouter.signal,
+            coverage: summary.investorFlowProviderRouter.coverage,
+            executionImpact: summary.investorFlowProviderRouter.executionImpact,
+            liveExecutionAllowed: summary.investorFlowProviderRouter.liveExecutionAllowed,
+          } : undefined,
+          naverInvestorTrendAdr0481: summary?.naverInvestorTrendAdr0481 ?? null,
+          semanticNetBuyNormalizationAdr0482: summary?.semanticNetBuyNormalizationAdr0482 ?? null,
+          supplySourceFreshnessAdr0483: summary?.supplySourceFreshnessAdr0483 ?? null,
+        }),
       );
     } catch (err) {
       console.warn(
@@ -396,6 +414,7 @@ const scanBlockers: TelegramCommand = {
         sources: collectOperatorActionSourcesFromScanSummaryAdr0480(summary),
         supplyCoverageRecoveryAdr0484: summary?.supplyCoverageRecoveryAdr0484 ?? null,
         supplyAdvisoryReadinessAdr0485: summary?.supplyAdvisoryReadinessAdr0485 ?? null,
+        supplyRecoveryRuntimeMountAdr0486: summary?.supplyRecoveryRuntimeMountAdr0486 ?? null,
       });
       operatorActionSection = safeFormatOperatorActionCompactSectionAdr0480(operatorActionQueue);
     } catch (err) {
@@ -404,13 +423,40 @@ const scanBlockers: TelegramCommand = {
 
     let supplyCoverageRecoveryLine: string | null = null;
     let supplyAdvisoryReadinessLine: string | null = null;
+    let supplyRecoveryRuntimeMountLine: string | null = null;
     try {
       const recoveryReport = summary?.supplyCoverageRecoveryAdr0484 ?? buildSupplyCoverageRecoveryObservationReportAdr0484({ scanSummary: summary, persist: false });
       supplyCoverageRecoveryLine = formatSupplyCoverageRecoveryCompactAdr0484(recoveryReport);
       const readinessReport = summary?.supplyAdvisoryReadinessAdr0485 ?? safeBuildSupplyAdvisoryReadinessReportAdr0485({ supplyCoverageRecoveryAdr0484: recoveryReport });
       supplyAdvisoryReadinessLine = formatSupplyAdvisoryReadinessCompactAdr0485(readinessReport);
+      const mountReport = summary?.supplyRecoveryRuntimeMountAdr0486 ?? safeBuildSupplyRecoveryRuntimeMountReportAdr0486({
+        warmupOutput: supplyProviderWarmupSection,
+        warmupReport: supplyProviderWarmupSection ? undefined : null,
+        investorFlowProviderRouterAdr0477: summary?.investorFlowProviderRouter ?? null,
+        naverInvestorTrendAdr0481: summary?.naverInvestorTrendAdr0481 ?? null,
+        semanticNetBuyNormalizationAdr0482: summary?.semanticNetBuyNormalizationAdr0482 ?? null,
+        supplySourceFreshnessAdr0483: summary?.supplySourceFreshnessAdr0483 ?? null,
+        supplyCoverageRecoveryAdr0484: recoveryReport,
+        supplyAdvisoryReadinessAdr0485: readinessReport,
+        compactOutput: [
+          supplyProviderWarmupSection,
+          supplyCoverageRecoveryLine,
+          supplyAdvisoryReadinessLine,
+          runtimeAuditSection,
+        ].filter((line): line is string => typeof line === 'string' && line.length > 0),
+        detailRegistryEntries: [
+          { adr: '0481', adrTraceHint: '/adr_trace 0481', commandHint: '/supply_health_detail' },
+          { adr: '0482', adrTraceHint: '/adr_trace 0482', commandHint: '/supply_health_detail' },
+          { adr: '0483', adrTraceHint: '/adr_trace 0483', commandHint: '/supply_health_detail' },
+          { adr: '0484', adrTraceHint: '/adr_trace 0484', commandHint: '/supply_health_detail' },
+          { adr: '0485', adrTraceHint: '/adr_trace 0485', commandHint: '/supply_health_detail' },
+          { adr: '0486', adrTraceHint: '/adr_trace 0486', commandHint: '/supply_health_detail' },
+        ],
+        runtimePipelineAuditEvidence: runtimeAuditSection,
+      });
+      supplyRecoveryRuntimeMountLine = formatSupplyRecoveryRuntimeMountCompactAdr0486(mountReport);
     } catch (err) {
-      console.warn('[scan_blockers] ADR-0484/0485 supply recovery/readiness line failed:', err);
+      console.warn('[scan_blockers] ADR-0484/0485/0486 supply recovery/readiness/mount line failed:', err);
     }
 
     const parts: string[] = [baseMessage];
@@ -431,6 +477,7 @@ const scanBlockers: TelegramCommand = {
     if (operatorActionSection) parts.push(operatorActionSection);
     if (supplyCoverageRecoveryLine) parts.push(supplyCoverageRecoveryLine);
     if (supplyAdvisoryReadinessLine) parts.push(supplyAdvisoryReadinessLine);
+    if (supplyRecoveryRuntimeMountLine) parts.push(supplyRecoveryRuntimeMountLine);
     if (runtimeAuditSection) parts.push(runtimeAuditSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);

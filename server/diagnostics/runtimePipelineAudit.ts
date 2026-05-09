@@ -18,6 +18,7 @@ import {
   formatRuntimePipelineDiagnosticEvidenceLineAdr0480,
 } from '../trading/signalScanner/operatorActionRouterAdr0480.js';
 import { formatRuntimePipelineReadinessEvidenceLineAdr0485 } from '../trading/signalScanner/supplyAdvisoryReadinessAdr0485.js';
+import { formatRuntimePipelineMountEvidenceLineAdr0486 } from '../trading/signalScanner/supplyRecoveryRuntimeMountAdr0486.js';
 import { getGate1DryRunObservationLedgerCount } from '../trading/signalScanner/gate1DryRunObservationLedgerAdr0476.js';
 
 export type RuntimePipelineStage =
@@ -76,6 +77,7 @@ export interface RuntimePipelineAuditSnapshot {
   operatorActionEvidenceCount: number;
   operatorActionDiagnosticLine: string;
   supplyAdvisoryReadinessDiagnosticLine: string;
+  supplyRecoveryMountDiagnosticLine: string;
   adr460Installed: false;
   supplyProviderHealth: { hasRecentSample: boolean; message: string };
   sectorEnergyHealth: {
@@ -276,6 +278,7 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   const livePath = runLivePathSafetyAudit();
   const operatorActionQueue = safeBuildOperatorActionQueueAdr0480({
     sources: collectOperatorActionSourcesFromScanSummaryAdr0480(summary),
+    supplyRecoveryRuntimeMountAdr0486: summary?.supplyRecoveryRuntimeMountAdr0486 ?? null,
   });
   const operatorActionEvidenceCount = operatorActionQueue.allActions.reduce((sum, action) => sum + action.evidenceCount, 0);
 
@@ -300,7 +303,8 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     rolloutItemCount,
     operatorActionEvidenceCount,
     operatorActionDiagnosticLine: formatRuntimePipelineDiagnosticEvidenceLineAdr0480(operatorActionQueue),
-    supplyAdvisoryReadinessDiagnosticLine: formatRuntimePipelineReadinessEvidenceLineAdr0485(summary?.supplyAdvisoryReadinessAdr0485),
+    supplyAdvisoryReadinessDiagnosticLine: `${formatRuntimePipelineReadinessEvidenceLineAdr0485(summary?.supplyAdvisoryReadinessAdr0485)} | supplyRecoveryMount: ${formatRuntimePipelineMountEvidenceLineAdr0486(summary?.supplyRecoveryRuntimeMountAdr0486)}`,
+    supplyRecoveryMountDiagnosticLine: formatRuntimePipelineMountEvidenceLineAdr0486(summary?.supplyRecoveryRuntimeMountAdr0486),
     adr460Installed: false,
     supplyProviderHealth,
     sectorEnergyHealth,
