@@ -110,6 +110,13 @@ Formatting/action-router failure is isolated and must not stop scans, Shadow Lea
 Pipeline Audit, or Telegram commands. Existing raw diagnostics remain available through detail/raw
 paths. Engine liveness and Shadow Learning visibility are preserved.
 
+## Merge-conflict resolution check
+
+ADR-0480 touched shared diagnostic surfaces such as `docs/adr/INDEX.md`, `/scan_blockers`, and
+Runtime Pipeline Audit. The implementation includes a regression guard that scans these touched
+files for unresolved merge conflict markers so future branch merges do not silently ship conflict
+fragments in operator diagnostics.
+
 ## Consequences
 
 Operators receive a prioritized remediation queue instead of manually interpreting repeated raw
