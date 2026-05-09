@@ -123,6 +123,11 @@ import {
   safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488,
   type SectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from '../../../trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
+import {
+  buildSupplySanitizedSnapshotsAdr0491,
+  formatSupplySnapshotStoreCompactAdr0491,
+  recordSupplySnapshotsAdr0491,
+} from '../../../trading/signalScanner/supplySnapshotStoreReplayAdr0491.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -470,6 +475,7 @@ const scanBlockers: TelegramCommand = {
     let supplyRecoveryRuntimeMountLine: string | null = null;
     let freshDataSupplyLine: string | null = null;
     let sectorEnergySupplyUnknownLine: string | null = null;
+    let supplySnapshotStoreLine: string | null = null;
     try {
       const recoveryReport = summary?.supplyCoverageRecoveryAdr0484 ?? buildSupplyCoverageRecoveryObservationReportAdr0484({ scanSummary: summary, persist: false });
       supplyCoverageRecoveryLine = formatSupplyCoverageRecoveryCompactAdr0484(recoveryReport);
@@ -522,6 +528,17 @@ const scanBlockers: TelegramCommand = {
         marketSignal: false,
       });
       sectorEnergySupplyUnknownLine = formatSectorEnergySupplyUnknownCompactAdr0488(sectorEnergySupplyUnknownReportForOperator);
+      const snapshotStoreReport = summary?.supplySnapshotStoreAdr0491 ?? recordSupplySnapshotsAdr0491(buildSupplySanitizedSnapshotsAdr0491({
+        scanId: summary?.time ?? null,
+        generatedAt: new Date().toISOString(),
+        tradingDate: summary?.time?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+        freshDataSupplyAdr0487: freshDataSupplyReportForOperator as unknown as Record<string, unknown>,
+        sectorEnergySupplyUnknownAdr0488: sectorEnergySupplyUnknownReportForOperator as unknown as Record<string, unknown>,
+        supplySourceFreshnessAdr0483: summary?.supplySourceFreshnessAdr0483 as unknown as Record<string, unknown>,
+        semanticNetBuyNormalizationAdr0482: summary?.semanticNetBuyNormalizationAdr0482 as unknown as Record<string, unknown>,
+        investorFlowProviderRouterAdr0477: summary?.investorFlowProviderRouter as unknown as Record<string, unknown>,
+      }));
+      supplySnapshotStoreLine = formatSupplySnapshotStoreCompactAdr0491(snapshotStoreReport);
     } catch (err) {
       console.warn('[scan_blockers] ADR-0484/0485/0486/0487/0488 supply recovery/readiness/mount/fresh-data/unknown line failed:', err);
     }
@@ -547,6 +564,7 @@ const scanBlockers: TelegramCommand = {
     if (supplyRecoveryRuntimeMountLine) parts.push(supplyRecoveryRuntimeMountLine);
     if (freshDataSupplyLine) parts.push(freshDataSupplyLine);
     if (sectorEnergySupplyUnknownLine) parts.push(sectorEnergySupplyUnknownLine);
+    if (supplySnapshotStoreLine) parts.push(supplySnapshotStoreLine);
     if (runtimeAuditSection) parts.push(runtimeAuditSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);

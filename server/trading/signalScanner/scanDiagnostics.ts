@@ -183,6 +183,11 @@ import {
   type SupplySourceFreshnessReportAdr0483,
 } from './supplySourceFreshnessAdr0483.js';
 import {
+  buildSupplySanitizedSnapshotsAdr0491,
+  recordSupplySnapshotsAdr0491,
+  type SupplySnapshotStoreReportAdr0491,
+} from './supplySnapshotStoreReplayAdr0491.js';
+import {
   buildSupplyCoverageRecoveryObservationReportAdr0484,
   type SupplyCoverageRecoveryObservationReportAdr0484,
 } from './supplyCoverageRecoveryObservationAdr0484.js';
@@ -477,6 +482,7 @@ export interface ScanSummary {
   freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487;
   /** ADR-0488 SectorEnergy master supply line + Supply UNKNOWN policy; SHADOW_ONLY and executionImpact NONE. */
   sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488;
+  supplySnapshotStoreAdr0491?: SupplySnapshotStoreReportAdr0491;
 }
 
 let _lastBuySignalAt = 0;
@@ -2182,12 +2188,24 @@ export async function persistScanResults(
       providerStatus: summaryDraft.investorFlowProviderRouter?.status ?? summaryDraft.naverInvestorTrendAdr0481?.status ?? 'UNKNOWN',
       currentSupplySignal: summaryDraft.investorFlowProviderRouter?.signal ?? 'UNKNOWN',
     });
+    summaryDraft.supplySnapshotStoreAdr0491 = recordSupplySnapshotsAdr0491(buildSupplySanitizedSnapshotsAdr0491({
+      scanId: summaryDraft.time,
+      generatedAt: kstNow.toISOString(),
+      tradingDate: kstNow.toISOString().slice(0, 10),
+      marketSession: summaryDraft.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'UNKNOWN',
+      freshDataSupplyAdr0487: summaryDraft.freshDataSupplyAdr0487 as unknown as Record<string, unknown>,
+      sectorEnergySupplyUnknownAdr0488: summaryDraft.sectorEnergySupplyUnknownAdr0488 as unknown as Record<string, unknown>,
+      supplySourceFreshnessAdr0483: summaryDraft.supplySourceFreshnessAdr0483 as unknown as Record<string, unknown>,
+      semanticNetBuyNormalizationAdr0482: summaryDraft.semanticNetBuyNormalizationAdr0482 as unknown as Record<string, unknown>,
+      investorFlowProviderRouterAdr0477: summaryDraft.investorFlowProviderRouter as unknown as Record<string, unknown>,
+    }));
     await saveGate1DryRunObservationRows(buildGate1DryRunObservationRows({
       now: kstNow,
       forDate: kstNow.toISOString().slice(0, 10),
       supplyRecoveryRuntimeMountAdr0486: summaryDraft.supplyRecoveryRuntimeMountAdr0486,
       freshDataSupplyAdr0487: summaryDraft.freshDataSupplyAdr0487,
       sectorEnergySupplyUnknownAdr0488: summaryDraft.sectorEnergySupplyUnknownAdr0488,
+      supplySnapshotStoreReplayAdr0491: summaryDraft.supplySnapshotStoreAdr0491,
     }));
   } catch (e) {
     console.warn('[ADR-0486/0487/0488] Supply recovery/runtime/fresh data/SectorEnergy UNKNOWN build failed (engine unaffected):', e);

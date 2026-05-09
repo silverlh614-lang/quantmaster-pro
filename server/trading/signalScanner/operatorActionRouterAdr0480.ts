@@ -15,6 +15,11 @@ import {
   type SectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 import type { SupplyRecoveryRuntimeMountReportAdr0486 } from './supplyRecoveryRuntimeMountAdr0486.js';
+import {
+  collectOperatorActionSourcesFromSupplySnapshotAdr0491,
+  type SupplySnapshotReplayReportAdr0491,
+  type SupplySnapshotStoreReportAdr0491,
+} from './supplySnapshotStoreReplayAdr0491.js';
 
 export type OperatorActionPriority = 'P0' | 'P1' | 'P2' | 'P3';
 export type OperatorActionStatus = 'OPEN' | 'IN_PROGRESS' | 'OBSERVING' | 'RESOLVED' | 'BLOCKED';
@@ -30,6 +35,7 @@ export type OperatorActionCategory =
   | 'UI_OUTPUT'
   | 'RUNTIME_MOUNT'
   | 'FRESH_DATA_SUPPLY'
+  | 'SUPPLY_SNAPSHOT'
   | 'UNKNOWN';
 
 export type OperatorActionRootCause =
@@ -61,6 +67,10 @@ export type OperatorActionRootCause =
   | 'IMPROVE_INDEX_CODE_COVERAGE'
   | 'SUPPLY_UNKNOWN_POLICY_OBSERVE'
   | 'COLLECT_SUPPLY_SAMPLE_BEFORE_PROMOTION'
+  | 'SUPPLY_SNAPSHOT_STORE_WRITE_FAILED'
+  | 'SUPPLY_SNAPSHOT_REPLAY_UNAVAILABLE'
+  | 'SUPPLY_SNAPSHOT_STALE'
+  | 'SUPPLY_SNAPSHOT_STORE_HEALTHY'
   | 'UNKNOWN_ROOT_CAUSE';
 
 export interface OperatorActionSource {
@@ -118,6 +128,8 @@ export interface BuildOperatorActionQueueInput {
   supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486 | null;
   freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487 | null;
   sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488 | null;
+  supplySnapshotStoreAdr0491?: SupplySnapshotStoreReportAdr0491 | null;
+  supplySnapshotReplayAdr0491?: SupplySnapshotReplayReportAdr0491 | null;
 }
 
 interface OperatorActionDefinition {
@@ -444,6 +456,51 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     expectedImpact: { scanBlockerReduction: 'HIGH', gate1SurvivorPotential: 'MEDIUM', liveExecutionImpact: 'NONE' },
     detailHint: '/adr_trace 0488 supply-sample',
   },
+
+  SUPPLY_SNAPSHOT_STORE_WRITE_FAILED: {
+    rootCause: 'SUPPLY_SNAPSHOT_STORE_WRITE_FAILED',
+    category: 'SUPPLY_SNAPSHOT',
+    title: 'Supply snapshot store write failed',
+    summary: 'ADR-0491 sanitized diagnostic snapshot persistence failed without affecting engine liveness.',
+    recommendedAction: 'Inspect data/supply-snapshots persistence path and permissions; replay remains diagnostic-only.',
+    relatedAdrs: ['0476', '0480', '0484', '0485', '0487', '0491'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0491 store-write-failed',
+  },
+  SUPPLY_SNAPSHOT_REPLAY_UNAVAILABLE: {
+    rootCause: 'SUPPLY_SNAPSHOT_REPLAY_UNAVAILABLE',
+    category: 'SUPPLY_SNAPSHOT',
+    title: 'Supply snapshot replay unavailable',
+    summary: 'ADR-0491 has no retained sanitized snapshots to replay for diagnostics.',
+    recommendedAction: 'Collect sanitized FreshData supply snapshots for at least 3 scans before using replay as diagnostic baseline.',
+    relatedAdrs: ['0484', '0485', '0487', '0491'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'LOW', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0491 replay-unavailable',
+  },
+  SUPPLY_SNAPSHOT_STALE: {
+    rootCause: 'SUPPLY_SNAPSHOT_STALE',
+    category: 'SUPPLY_SNAPSHOT',
+    title: 'Supply snapshot stale',
+    summary: 'ADR-0491 replay baseline exists but is stale or outside the current diagnostic window.',
+    recommendedAction: 'Refresh sanitized supply observations; stale replay data must remain non-bearish and diagnostic-only.',
+    relatedAdrs: ['0483', '0484', '0485', '0491'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'LOW', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0491 stale',
+  },
+  SUPPLY_SNAPSHOT_STORE_HEALTHY: {
+    rootCause: 'SUPPLY_SNAPSHOT_STORE_HEALTHY',
+    category: 'SUPPLY_SNAPSHOT',
+    title: 'Supply snapshot store healthy',
+    summary: 'ADR-0491 sanitized snapshot store is recording diagnostic evidence.',
+    recommendedAction: 'Continue observation; do not promote replayed data without a future ADR and operator approval.',
+    relatedAdrs: ['0476', '0484', '0485', '0487', '0491'],
+    basePriority: 'P3',
+    expectedImpact: { scanBlockerReduction: 'LOW', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0491 healthy',
+  },
   UNKNOWN_ROOT_CAUSE: {
     rootCause: 'UNKNOWN_ROOT_CAUSE',
     category: 'UNKNOWN',
@@ -553,6 +610,10 @@ function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCau
   if (includesAny(text, ['SUPPLY_DATA_SUPPLY_LINE_MISSING', 'REFRESH_SHORT_CREDIT_SOURCES', 'VERIFY_KIS_PROGRAM_TRADING_SESSION'])) {
     return 'SUPPLY_DATA_SUPPLY_LINE_MISSING';
   }
+  if (includesAny(text, ['SUPPLY_SNAPSHOT_STORE_WRITE_FAILED'])) return 'SUPPLY_SNAPSHOT_STORE_WRITE_FAILED';
+  if (includesAny(text, ['SUPPLY_SNAPSHOT_REPLAY_UNAVAILABLE'])) return 'SUPPLY_SNAPSHOT_REPLAY_UNAVAILABLE';
+  if (includesAny(text, ['SUPPLY_SNAPSHOT_STALE'])) return 'SUPPLY_SNAPSHOT_STALE';
+  if (includesAny(text, ['SUPPLY_SNAPSHOT_STORE_HEALTHY'])) return 'SUPPLY_SNAPSHOT_STORE_HEALTHY';
   return null;
 }
 
@@ -643,6 +704,7 @@ export function buildOperatorActionQueueAdr0480(input: BuildOperatorActionQueueI
     ...(input.sources ?? []),
     ...collectOperatorActionSourcesFromFreshDataSupplyAdr0487(input.freshDataSupplyAdr0487),
     ...collectOperatorActionSourcesFromAdr0488(input.sectorEnergySupplyUnknownAdr0488),
+    ...collectOperatorActionSourcesFromSupplySnapshotAdr0491(input.supplySnapshotStoreAdr0491, input.supplySnapshotReplayAdr0491),
   ];
   for (const source of inputSources) {
     const rootCause = rootCauseForSource(source);
@@ -743,6 +805,7 @@ export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: Scan
   }
   sources.push(...collectOperatorActionSourcesFromFreshDataSupplyAdr0487(summary.freshDataSupplyAdr0487));
   sources.push(...collectOperatorActionSourcesFromAdr0488(summary.sectorEnergySupplyUnknownAdr0488));
+  sources.push(...collectOperatorActionSourcesFromSupplySnapshotAdr0491(summary.supplySnapshotStoreAdr0491));
   return sources;
 }
 

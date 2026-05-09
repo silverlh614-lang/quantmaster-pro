@@ -120,6 +120,7 @@ export interface FreshDataSupplyReportAdr0487 {
   policyPromotionMode: 'OBSERVE' | 'SHADOW_ONLY';
   operatorApprovalRequired: true;
   diagnostics: string[];
+  supplySnapshotStoreAdr0491?: { status?: string; retainedSnapshots?: number; domainsRecorded?: string[]; executionImpact?: 'NONE' } | null;
 }
 
 export interface BuildFreshDataSnapshotInputAdr0487 {
@@ -522,7 +523,8 @@ export function formatFreshDataSupplyCompactAdr0487(report: FreshDataSupplyRepor
   const sector = report.domainSummaries.find((summary) => summary.domain === 'SECTOR_ENERGY');
   const supply = report.domainSummaries.find((summary) => summary.domain === 'SUPPLY');
   const staleSources = report.snapshots.filter((snapshot) => snapshot.status === 'STALE').map((snapshot) => snapshot.sourceId).slice(0, 3).join('/');
-  const line = `ADR-0487 FreshData: ${report.overallStatus} | sector=${sector ? `${sector.status} ${percent(sector.averageCoverageRatio)}` : 'missing'} | supply=${supply ? `${supply.sourcesFresh}/${supply.sourcesTotal}` : '0/0'}${staleSources ? ` | stale=${staleSources}` : ''} | impact=${report.executionImpact}`;
+  const snapshotStore = report.supplySnapshotStoreAdr0491 ? ` | SnapshotStore=${report.supplySnapshotStoreAdr0491.status ?? 'UNKNOWN'} retained=${report.supplySnapshotStoreAdr0491.retainedSnapshots ?? 0}` : '';
+  const line = `ADR-0487 FreshData: ${report.overallStatus} | sector=${sector ? `${sector.status} ${percent(sector.averageCoverageRatio)}` : 'missing'} | supply=${supply ? `${supply.sourcesFresh}/${supply.sourcesTotal}` : '0/0'}${staleSources ? ` | stale=${staleSources}` : ''}${snapshotStore} | impact=${report.executionImpact}`;
   const action = report.recommendedNextActions[0] ?? null;
   return action ? `${line}\n   action: ${action}` : line;
 }
@@ -539,6 +541,7 @@ export function formatFreshDataSupplyDetailAdr0487(report: FreshDataSupplyReport
     ...report.snapshots.map((snapshot) => `- ${snapshot.sourceId}: status=${snapshot.status} cacheState=${snapshot.cacheState} sourceState=${snapshot.sourceState} coverage=${percent(snapshot.coverageRatio)} normalized=${snapshot.normalized} isProviderIssue=${snapshot.isProviderIssue} isMarketSignal=${snapshot.isMarketSignal}`),
     `topGaps=${report.topGaps.join(',') || 'none'}`,
     `recommendedNextActions=${report.recommendedNextActions.join(' | ') || 'continue observation'}`,
+    report.supplySnapshotStoreAdr0491 ? `snapshotStoreAdr0491: status=${report.supplySnapshotStoreAdr0491.status ?? 'UNKNOWN'} retained=${report.supplySnapshotStoreAdr0491.retainedSnapshots ?? 0} domains=${report.supplySnapshotStoreAdr0491.domainsRecorded?.join('/') ?? 'none'} impact=${report.supplySnapshotStoreAdr0491.executionImpact ?? 'NONE'}` : 'snapshotStoreAdr0491: not recorded',
     `guardrails: executionImpact=${report.executionImpact}; liveExecutionAllowed=${report.liveExecutionAllowed}; policyPromotionMode=${report.policyPromotionMode}; operatorApprovalRequired=${report.operatorApprovalRequired}; requiredScore unchanged at 70; no Gate/Kelly/KIS order changes; UNKNOWN remains UNKNOWN; provider issue is not bearish.`,
   ];
   return lines.join('\n');
