@@ -112,6 +112,12 @@ import {
   formatSupplyRecoveryRuntimeMountCompactAdr0486,
   safeBuildSupplyRecoveryRuntimeMountReportAdr0486,
 } from '../../../trading/signalScanner/supplyRecoveryRuntimeMountAdr0486.js';
+import {
+  formatFreshDataSupplyCompactAdr0487,
+  safeBuildFreshDataSupplyReportAdr0487,
+  type FreshDataSupplyReportAdr0487,
+  type FreshDataSupplyReportInputAdr0487,
+} from '../../../trading/signalScanner/freshDataSupplyLayerAdr0487.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -408,6 +414,23 @@ const scanBlockers: TelegramCommand = {
     // ADR-0480 — Operator Action Router compact Top 3.
     // Diagnostic-only: no provider fetch, no order import, no live policy mutation.
     // try/catch isolation is inside safeBuild/safeFormat and this outer guard.
+    let freshDataSupplyReportForOperator: FreshDataSupplyReportAdr0487 | null = summary?.freshDataSupplyAdr0487 ?? null;
+    try {
+      if (!freshDataSupplyReportForOperator) {
+        freshDataSupplyReportForOperator = safeBuildFreshDataSupplyReportAdr0487({
+          sectorEnergyDiagnosticAdr0474: loadMacroState()?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
+          naverInvestorTrendAdr0481: summary?.naverInvestorTrendAdr0481 as unknown as Record<string, unknown>,
+          semanticNetBuyNormalizationAdr0482: summary?.semanticNetBuyNormalizationAdr0482 as unknown as Record<string, unknown>,
+          supplySourceFreshnessAdr0483: summary?.supplySourceFreshnessAdr0483 as unknown as FreshDataSupplyReportInputAdr0487['supplySourceFreshnessAdr0483'],
+          supplyCoverageRecoveryAdr0484: summary?.supplyCoverageRecoveryAdr0484 as unknown as Record<string, unknown>,
+          supplyAdvisoryReadinessAdr0485: summary?.supplyAdvisoryReadinessAdr0485 as unknown as Record<string, unknown>,
+          investorFlowProviderRouterAdr0477: summary?.investorFlowProviderRouter ?? null,
+        });
+      }
+    } catch (err) {
+      console.warn('[scan_blockers] ADR-0487 fresh data supply report failed:', err);
+    }
+
     let operatorActionSection: string | null = null;
     try {
       const operatorActionQueue = safeBuildOperatorActionQueueAdr0480({
@@ -415,6 +438,7 @@ const scanBlockers: TelegramCommand = {
         supplyCoverageRecoveryAdr0484: summary?.supplyCoverageRecoveryAdr0484 ?? null,
         supplyAdvisoryReadinessAdr0485: summary?.supplyAdvisoryReadinessAdr0485 ?? null,
         supplyRecoveryRuntimeMountAdr0486: summary?.supplyRecoveryRuntimeMountAdr0486 ?? null,
+        freshDataSupplyAdr0487: freshDataSupplyReportForOperator,
       });
       operatorActionSection = safeFormatOperatorActionCompactSectionAdr0480(operatorActionQueue);
     } catch (err) {
@@ -424,6 +448,7 @@ const scanBlockers: TelegramCommand = {
     let supplyCoverageRecoveryLine: string | null = null;
     let supplyAdvisoryReadinessLine: string | null = null;
     let supplyRecoveryRuntimeMountLine: string | null = null;
+    let freshDataSupplyLine: string | null = null;
     try {
       const recoveryReport = summary?.supplyCoverageRecoveryAdr0484 ?? buildSupplyCoverageRecoveryObservationReportAdr0484({ scanSummary: summary, persist: false });
       supplyCoverageRecoveryLine = formatSupplyCoverageRecoveryCompactAdr0484(recoveryReport);
@@ -455,8 +480,18 @@ const scanBlockers: TelegramCommand = {
         runtimePipelineAuditEvidence: runtimeAuditSection,
       });
       supplyRecoveryRuntimeMountLine = formatSupplyRecoveryRuntimeMountCompactAdr0486(mountReport);
+      freshDataSupplyReportForOperator = freshDataSupplyReportForOperator ?? safeBuildFreshDataSupplyReportAdr0487({
+        sectorEnergyDiagnosticAdr0474: loadMacroState()?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
+        naverInvestorTrendAdr0481: summary?.naverInvestorTrendAdr0481 as unknown as Record<string, unknown>,
+        semanticNetBuyNormalizationAdr0482: summary?.semanticNetBuyNormalizationAdr0482 as unknown as Record<string, unknown>,
+        supplySourceFreshnessAdr0483: summary?.supplySourceFreshnessAdr0483 as unknown as FreshDataSupplyReportInputAdr0487['supplySourceFreshnessAdr0483'],
+        supplyCoverageRecoveryAdr0484: recoveryReport as unknown as Record<string, unknown>,
+        supplyAdvisoryReadinessAdr0485: readinessReport as unknown as Record<string, unknown>,
+        investorFlowProviderRouterAdr0477: summary?.investorFlowProviderRouter ?? null,
+      });
+      freshDataSupplyLine = formatFreshDataSupplyCompactAdr0487(freshDataSupplyReportForOperator);
     } catch (err) {
-      console.warn('[scan_blockers] ADR-0484/0485/0486 supply recovery/readiness/mount line failed:', err);
+      console.warn('[scan_blockers] ADR-0484/0485/0486/0487 supply recovery/readiness/mount/fresh-data line failed:', err);
     }
 
     const parts: string[] = [baseMessage];
@@ -478,6 +513,7 @@ const scanBlockers: TelegramCommand = {
     if (supplyCoverageRecoveryLine) parts.push(supplyCoverageRecoveryLine);
     if (supplyAdvisoryReadinessLine) parts.push(supplyAdvisoryReadinessLine);
     if (supplyRecoveryRuntimeMountLine) parts.push(supplyRecoveryRuntimeMountLine);
+    if (freshDataSupplyLine) parts.push(freshDataSupplyLine);
     if (runtimeAuditSection) parts.push(runtimeAuditSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);

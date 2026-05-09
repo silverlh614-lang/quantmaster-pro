@@ -16,6 +16,7 @@ import './cronIntrospect.cmd.js';
 import './dataVerificationReview.cmd.js';
 import './foreignerRatioBackfill.cmd.js';
 import './foreignerTrend.cmd.js';
+import './freshDataStatus.cmd.js';
 import './fssBackfill.cmd.js';
 import './fssDetail.cmd.js';
 import './fssMapping.cmd.js';

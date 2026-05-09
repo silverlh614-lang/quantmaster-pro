@@ -19,6 +19,7 @@ import {
 } from '../trading/signalScanner/operatorActionRouterAdr0480.js';
 import { formatRuntimePipelineReadinessEvidenceLineAdr0485 } from '../trading/signalScanner/supplyAdvisoryReadinessAdr0485.js';
 import { formatRuntimePipelineMountEvidenceLineAdr0486 } from '../trading/signalScanner/supplyRecoveryRuntimeMountAdr0486.js';
+import { formatRuntimePipelineFreshDataEvidenceLineAdr0487 } from '../trading/signalScanner/freshDataSupplyLayerAdr0487.js';
 import { getGate1DryRunObservationLedgerCount } from '../trading/signalScanner/gate1DryRunObservationLedgerAdr0476.js';
 
 export type RuntimePipelineStage =
@@ -78,6 +79,7 @@ export interface RuntimePipelineAuditSnapshot {
   operatorActionDiagnosticLine: string;
   supplyAdvisoryReadinessDiagnosticLine: string;
   supplyRecoveryMountDiagnosticLine: string;
+  freshDataSupplyDiagnosticLine: string;
   adr460Installed: false;
   supplyProviderHealth: { hasRecentSample: boolean; message: string };
   sectorEnergyHealth: {
@@ -279,6 +281,7 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   const operatorActionQueue = safeBuildOperatorActionQueueAdr0480({
     sources: collectOperatorActionSourcesFromScanSummaryAdr0480(summary),
     supplyRecoveryRuntimeMountAdr0486: summary?.supplyRecoveryRuntimeMountAdr0486 ?? null,
+    freshDataSupplyAdr0487: summary?.freshDataSupplyAdr0487 ?? null,
   });
   const operatorActionEvidenceCount = operatorActionQueue.allActions.reduce((sum, action) => sum + action.evidenceCount, 0);
 
@@ -303,8 +306,9 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     rolloutItemCount,
     operatorActionEvidenceCount,
     operatorActionDiagnosticLine: formatRuntimePipelineDiagnosticEvidenceLineAdr0480(operatorActionQueue),
-    supplyAdvisoryReadinessDiagnosticLine: `${formatRuntimePipelineReadinessEvidenceLineAdr0485(summary?.supplyAdvisoryReadinessAdr0485)} | supplyRecoveryMount: ${formatRuntimePipelineMountEvidenceLineAdr0486(summary?.supplyRecoveryRuntimeMountAdr0486)}`,
+    supplyAdvisoryReadinessDiagnosticLine: `${formatRuntimePipelineReadinessEvidenceLineAdr0485(summary?.supplyAdvisoryReadinessAdr0485)} | supplyRecoveryMount: ${formatRuntimePipelineMountEvidenceLineAdr0486(summary?.supplyRecoveryRuntimeMountAdr0486)} | freshDataSupply: ${formatRuntimePipelineFreshDataEvidenceLineAdr0487(summary?.freshDataSupplyAdr0487)}`,
     supplyRecoveryMountDiagnosticLine: formatRuntimePipelineMountEvidenceLineAdr0486(summary?.supplyRecoveryRuntimeMountAdr0486),
+    freshDataSupplyDiagnosticLine: formatRuntimePipelineFreshDataEvidenceLineAdr0487(summary?.freshDataSupplyAdr0487),
     adr460Installed: false,
     supplyProviderHealth,
     sectorEnergyHealth,
@@ -345,6 +349,7 @@ export function formatRuntimePipelineAuditSection(snapshot: RuntimePipelineAudit
     `  • rolloutItems: <code>${snapshot.rolloutItemCount}</code>`,
     `  • operatorActionEvidence: <code>${snapshot.operatorActionEvidenceCount}</code>`,
     `  • supplyReadiness: <code>${snapshot.supplyAdvisoryReadinessDiagnosticLine}</code>`,
+    `  • freshDataSupply: <code>${snapshot.freshDataSupplyDiagnosticLine}</code>`,
     '  • ADR-460: <code>not installed</code>',
     `  • reason: ${snapshot.operatorMessage}`,
     `  • livePathSafety: <code>${snapshot.livePathSafety.passed ? 'PASS' : 'FAIL'}</code>`,
@@ -393,6 +398,7 @@ export function formatRuntimePipelineAuditDetails(snapshot: RuntimePipelineAudit
     `  • operatorActionEvidenceCount: <code>${snapshot.operatorActionEvidenceCount}</code>`,
     `  • operatorActionDiagnostic: ${snapshot.operatorActionDiagnosticLine}`,
     `  • supplyReadinessDiagnostic: ${snapshot.supplyAdvisoryReadinessDiagnosticLine}`,
+    `  • freshDataSupplyDiagnostic: ${snapshot.freshDataSupplyDiagnosticLine}`,
     '  • ADR-460: <code>not installed</code>',
     `  • supplyProvider: ${snapshot.supplyProviderHealth.message}`,
     `  • sectorEnergy: ${snapshot.sectorEnergyHealth.message}`,

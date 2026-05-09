@@ -194,6 +194,11 @@ import {
   buildSupplyRecoveryRuntimeMountReportAdr0486,
   type SupplyRecoveryRuntimeMountReportAdr0486,
 } from './supplyRecoveryRuntimeMountAdr0486.js';
+import {
+  buildFreshDataSupplyReportAdr0487,
+  type FreshDataSupplyReportAdr0487,
+  type FreshDataSupplyReportInputAdr0487,
+} from './freshDataSupplyLayerAdr0487.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -464,6 +469,8 @@ export interface ScanSummary {
   supplyAdvisoryReadinessAdr0485?: SupplyAdvisoryReadinessReportAdr0485;
   /** ADR-0486 runtime mount verification; formatter/evidence audit only and executionImpact NONE. */
   supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486;
+  /** ADR-0487 fresh data supply foundation; OBSERVE/SHADOW_ONLY and executionImpact NONE. */
+  freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487;
 }
 
 let _lastBuySignalAt = 0;
@@ -2103,7 +2110,8 @@ export async function persistScanResults(
     console.warn('[ADR-0476] Gate1DryRunObservation build/save failed (engine unaffected):', e);
   }
 
-  // ADR-0484/0485/0486: persist supply recovery/readiness/mount evidence into
+  // ADR-0484/0485/0486/0487: persist supply recovery/readiness/mount/fresh-data
+  // evidence into ScanSummary before Runtime Pipeline Audit reads it.
   // ScanSummary before Runtime Pipeline Audit reads it. Diagnostic-only.
   try {
     const supplyCoverageRecoveryAdr0484 = buildSupplyCoverageRecoveryObservationReportAdr0484({
@@ -2146,13 +2154,24 @@ export async function persistScanResults(
       ],
       runtimePipelineAuditEvidence: `ADR-0485 readinessAuditEvidence=${supplyAdvisoryReadinessAdr0485.status} ADR-0486 supplyRecoveryMount=mounted`,
     });
+    summaryDraft.freshDataSupplyAdr0487 = buildFreshDataSupplyReportAdr0487({
+      generatedAt: kstNow.toISOString(),
+      sectorEnergyDiagnosticAdr0474: summaryDraft.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
+      naverInvestorTrendAdr0481: summaryDraft.naverInvestorTrendAdr0481 as unknown as Record<string, unknown>,
+      semanticNetBuyNormalizationAdr0482: summaryDraft.semanticNetBuyNormalizationAdr0482 as unknown as Record<string, unknown>,
+      supplySourceFreshnessAdr0483: summaryDraft.supplySourceFreshnessAdr0483 as unknown as FreshDataSupplyReportInputAdr0487['supplySourceFreshnessAdr0483'],
+      supplyCoverageRecoveryAdr0484: supplyCoverageRecoveryAdr0484 as unknown as Record<string, unknown>,
+      supplyAdvisoryReadinessAdr0485: supplyAdvisoryReadinessAdr0485 as unknown as Record<string, unknown>,
+      investorFlowProviderRouterAdr0477: summaryDraft.investorFlowProviderRouter,
+    });
     await saveGate1DryRunObservationRows(buildGate1DryRunObservationRows({
       now: kstNow,
       forDate: kstNow.toISOString().slice(0, 10),
       supplyRecoveryRuntimeMountAdr0486: summaryDraft.supplyRecoveryRuntimeMountAdr0486,
+      freshDataSupplyAdr0487: summaryDraft.freshDataSupplyAdr0487,
     }));
   } catch (e) {
-    console.warn('[ADR-0486] Supply recovery runtime mount build failed (engine unaffected):', e);
+    console.warn('[ADR-0486/0487] Supply recovery/runtime/fresh data build failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;
