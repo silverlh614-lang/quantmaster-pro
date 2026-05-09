@@ -14,8 +14,10 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0495`**
+**다음 ADR 번호: `0496`**
 
+
+(2026-05-09 기준, 마지막 발급 0495 — sector-index-master-seed-mapping-repair. ADR-0495 restores diagnostic SectorEnergy master/mapping/fallback seed coverage with INTERNAL_PROXY partial buckets, safe/unsafe alias split, unresolved aggregate preservation, ADR-0488/0494 observation wiring, executionImpact=NONE, liveExecutionAllowed=false, and no sectorBoost/STRONG_BUY/live/stage unlock.)
 
 (2026-05-09 기준, 마지막 발급 0494 — fresh-data-promotion-audit-wiring. ADR-0494 wires ADR-0488/0489/0490/0491/0492 Fresh Data diagnostics into ADR-0493 promotion readiness audits, exposes diagnostic/runtime/operator summaries only, preserves executionImpact=NONE, blocks CORE automatic promotion, and makes no live Gate/Kelly/KIS/order/stage mutation changes.)
 
@@ -492,8 +494,9 @@
 | 0492 | adr-merge-conflict-resolution-branch (new-branch ADR merge-conflict resolution record — reserve ADR-0492, advance next issue number to 0493, require ADR body + INDEX.md + CLAUDE.md together, preserve historical collision groups, governance-only with executionImpact=NONE / liveExecutionAllowed=false / operatorApprovalRequired=true, runtime trading/provider/Gate/Kelly/KIS/order behavior 0 changes) | governance |
 | 0493 | data-promotion-readiness-audit (pure ADR-0493 readiness evaluator for adjacent data-line stage promotion recommendations; executionImpact=NONE, no collection/scheduler/order/live-gate/stage mutation, CORE automatic promotion denied) | trading |
 | 0494 | fresh-data-promotion-audit-wiring (diagnostic-only wiring from ADR-0488/0489/0490/0491/0492 Fresh Data reports into ADR-0493 evaluatePromotionReadiness; runtime and /fresh_data_status summaries; canPromote is recommendation only; executionImpact=NONE and no live/order/gate/stage changes) | trading |
+| 0495 | sector-index-master-seed-mapping-repair (diagnostic-only SectorEnergy master/mapping/fallback seed repair; INTERNAL_PROXY partial coverage buckets, safe/unsafe alias split, unresolved aggregates preserved, ADR-0488/0494 observation wiring, executionImpact=NONE and no sectorBoost/STRONG_BUY/live/stage unlock) | trading |
 
-**총 발급 285 unique 번호** (마지막 발급 0494) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0495**.
+**총 발급 286 unique 번호** (마지막 발급 0495) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0496**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

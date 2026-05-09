@@ -135,19 +135,19 @@ function sectorEnergyInput(report: SectorEnergyAndSupplyUnknownPolicyReportAdr04
     dataLineName: options.dataLineName ?? 'Sector Energy Master Supply Line',
     currentStage: options.currentStage ?? stages.currentStage,
     requestedNextStage: options.requestedNextStage ?? stages.requestedNextStage,
-    tradingDaysObserved: countTradingDays(master.records.length > 0 ? 1 : 0, options.tradingDaysObserved),
+    tradingDaysObserved: countTradingDays((master.adr0495Coverage?.normalized ?? false) || master.records.length > 0 ? 1 : 0, options.tradingDaysObserved),
     totalSnapshots: master.records.length,
-    missingSnapshotCount: finiteCount(master.missing),
+    missingSnapshotCount: Math.max(finiteCount(master.missing), finiteCount(master.adr0495Coverage?.missingIndexCodeCount)),
     staleSnapshotCount: finiteCount(master.stale),
     staleMisclassificationCount: 0,
     providerFailureCount: finiteCount(master.providerError),
     providerMarketSignalMixedCount: providerMarketSignalMixed,
-    shadowContributionScore: options.shadowContributionScore ?? (master.leadershipConfidence === 'OBSERVE_READY' ? master.coveragePct : null),
+    shadowContributionScore: options.shadowContributionScore ?? (master.adr0495Coverage?.coverageAfter && master.adr0495Coverage.coverageAfter > 0 ? master.adr0495Coverage.coverageAfter : (master.leadershipConfidence === 'OBSERVE_READY' ? master.coveragePct : null)),
     liveRegressionPassed: options.liveRegressionPassed,
     nullZeroSeparationPassed: options.nullZeroSeparationPassed,
     holidayFreshnessPassed: options.holidayFreshnessPassed,
     testCoveragePassed: options.testCoveragePassed,
-    snapshotRecordable: master.records.length > 0,
+    snapshotRecordable: master.records.length > 0 || (master.adr0495Coverage?.normalized ?? false),
   });
 }
 
