@@ -5,11 +5,13 @@ import { DATA_DIR, ensureDataDir } from '../../persistence/paths.js';
 import type { CandidateSnapshot } from './entryFilterDecomposition.js';
 import type { FinalGate1CalibrationAuditReport } from './gate1FinalCalibration.js';
 import type { Gate1PositiveSourceWiringReport } from './gate1PositiveSourceWiringAdr0475.js';
+import type { InvestorFlowProviderRouteResult } from './investorFlowProviderRouterAdr0477.js';
 
 export type Gate1DryRunObservationSource =
   | 'ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'
   | 'ADR_0472_SCORING_ALIGNMENT'
   | 'ADR_0475_POSITIVE_SOURCE_WIRING'
+  | 'ADR_0477_INVESTOR_FLOW_PROVIDER_ROUTER'
   | 'GATE1_NEAR_MISS'
   | 'COUNTERFACTUAL_UNIVERSE';
 
@@ -65,6 +67,19 @@ export interface Gate1DryRunObservationRow {
   maxAdverseExcursion5D?: number;
   stopLossTouched?: boolean;
   targetTouched?: boolean;
+  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477';
+  beforeCoverage?: number;
+  afterCoverage?: number;
+  selectedProvider?: string;
+  providerTried?: string[];
+  routeStatus?: string;
+  routeSignal?: string;
+  semanticNetBuyStatus?: string;
+  sourceAgeTradingDays?: number | null;
+  oldestSourceAgeTradingDays?: number | null;
+  providerMismatchCount?: number;
+  notWiredCount?: number;
+  cacheEmptyCount?: number;
   status: Gate1DryRunObservationStatus;
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
@@ -94,6 +109,7 @@ export interface Gate1DryRunObservationBuildInput {
   candidateSnapshots?: readonly CandidateSnapshot[];
   finalGate1Calibration?: FinalGate1CalibrationAuditReport | null;
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport | null;
+  investorFlowProviderRouter?: InvestorFlowProviderRouteResult | null;
   sellOnly?: boolean;
   sectorEnergyDiagnosticOnly?: boolean;
   providerIssue?: boolean;
@@ -329,11 +345,49 @@ function buildCounterfactualUniverseRows(input: Gate1DryRunObservationBuildInput
   }));
 }
 
+function buildInvestorFlowRouterRows(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
+  const route = input.investorFlowProviderRouter;
+  if (!route) return [];
+  return [withOptionalScoreFields({
+    createdAt: nowIso,
+    forDate: input.forDate,
+    source: 'ADR_0477_INVESTOR_FLOW_PROVIDER_ROUTER',
+    symbol: route.code,
+    actualGate1Passed: false,
+    actualLiveEligible: false,
+    dryRunDecision: route.signal === 'BULLISH' ? 'PROVIDER_SOFTENED' : 'WOULD_STILL_FAIL',
+    dryRunScenario: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477',
+    requiredScore: 70,
+    providerIssue: route.signal === 'UNKNOWN',
+    marketSignal: route.signal === 'BEARISH',
+    sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
+    sellOnly: input.sellOnly === true,
+    observationType: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477',
+    beforeCoverage: 0,
+    afterCoverage: route.coverage.available,
+    selectedProvider: route.selectedProvider,
+    providerTried: [...route.providerTried],
+    routeStatus: route.status,
+    routeSignal: route.signal,
+    semanticNetBuyStatus: route.semanticNetBuy?.status ?? 'DATA_UNAVAILABLE',
+    sourceAgeTradingDays: route.freshness.sourceAgeTradingDays,
+    oldestSourceAgeTradingDays: route.freshness.oldestSourceAgeTradingDays,
+    providerMismatchCount: route.coverage.providerMismatch,
+    notWiredCount: route.coverage.notWired,
+    cacheEmptyCount: route.coverage.missing + (route.freshness.cacheState === 'EMPTY' ? 1 : 0),
+    status: 'PENDING',
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    policyPromotionMode: 'SHADOW_ONLY',
+  })];
+}
+
 export function buildGate1DryRunObservationRows(input: Gate1DryRunObservationBuildInput): Gate1DryRunObservationRow[] {
   const nowIso = (input.now ?? new Date()).toISOString();
   const rows = [
     ...buildUnknownDiagnosticRows(input, nowIso),
     ...buildPositiveWiringRows(input, nowIso),
+    ...buildInvestorFlowRouterRows(input, nowIso),
     ...buildGateNearMissRows(input, nowIso),
     ...buildCounterfactualUniverseRows(input, nowIso),
   ];
@@ -460,6 +514,7 @@ export function formatGate1DryRunObservationSummary(
     '  sources:',
     sourceLine('ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'),
     sourceLine('ADR_0475_POSITIVE_SOURCE_WIRING'),
+    sourceLine('ADR_0477_INVESTOR_FLOW_PROVIDER_ROUTER'),
     sourceLine('GATE1_NEAR_MISS'),
     `  liveExecutionAllowed: ${summary.liveExecutionAllowed}`,
     `  executionImpact: ${summary.executionImpact}`,
