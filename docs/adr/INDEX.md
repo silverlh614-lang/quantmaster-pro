@@ -14,7 +14,7 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0484`**
+**다음 ADR 번호: `0485`**
 
 
 (2026-05-09 기준, 마지막 발급 0483 — supply-source-freshness-dual-clock-refresh-job. ADR-0483 separates cache freshness from source data freshness and keeps stale-source refresh evidence SHADOW_ONLY.
@@ -145,6 +145,7 @@
 
 | 번호 | 제목 | 도메인 |
 |------|------|--------|
+| 0484 | supply-coverage-recovery-observation. Observes post ADR-0481/0482/0483 supply recovery as SHADOW_ONLY diagnostics only. Tracks coverage ratio, NAVER NOT_WIRED, DATA_UNAVAILABLE, selectedProvider=NONE, semantic sample availability, source freshness, operator action deltas, and Gate1 near-miss deltas; feeds ADR-0476/0480/0478/0479 without changing Gate/Kelly/requiredScore/KIS order/live execution behavior or promoting supply data. | diagnostics / supply / recovery-observation |
 | 0483 | supply-source-freshness-dual-clock-refresh-job. Separates cache freshness from source data freshness for supply diagnostics, calculates trading-day source age, affected stale sources, and diagnostic refresh recommendations. Stale source data is data-health evidence, not bearish market signal; Gate/Kelly/requiredScore/KIS order/live execution behavior is unchanged. | diagnostics / freshness / shadow-refresh |
 | 0482 | semantic-net-buy-normalizer-implementation. Provider-specific investor-flow fields and units normalize into one SHADOW_ONLY semantic net-buy contract for NAVER/CACHE/MANUAL/KIS/KRX/FSS/UNKNOWN. UNKNOWN and provider issues remain separated from bearish market signal; Gate/Kelly/requiredScore/KIS order/live execution behavior is unchanged. | diagnostics / investor-flow / semantic-normalizer |
 | 0481 | naver-investor-trend-collector-wiring. NAVER investor trend collector를 ADR-0477 InvestorFlowProviderRouter의 SHADOW_ONLY semantic candidate로 wiring한다. NOT_WIRED noise를 WIRED/DATA_AVAILABLE/DATA_UNAVAILABLE/PARTIAL/EMPTY/STALE 상태로 전환하며 UNKNOWN/provider issue를 bullish 또는 bearish supply로 변환하지 않는다. Gate/Kelly/requiredScore/KIS order/live execution 변경은 없다. | diagnostics / investor-flow / shadow-only |
