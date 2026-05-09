@@ -46,6 +46,8 @@ export type DataPromotionSourceType =
   | 'SECTOR_ENERGY'
   | 'INVESTOR_FLOW'
   | 'PROGRAM_TRADING'
+  | 'SUPPLY_SNAPSHOT'
+  | 'FRESH_DATA_SCHEDULER'
   | 'MACRO'
   | 'NEWS'
   | 'UNKNOWN';

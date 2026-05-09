@@ -11,6 +11,15 @@ import {
   formatSectorEnergySupplyUnknownDetailAdr0488,
   safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from '../../../trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
+import { buildInvestorFlowSampleAcquisitionReportAdr0489 } from '../../../trading/signalScanner/investorFlowSampleAcquisitionAdr0489.js';
+import { buildProgramTradingDataLineReportAdr0490 } from '../../../trading/signalScanner/programTradingDataLineAdr0490.js';
+import { summarizeSupplySnapshotStoreAdr0491 } from '../../../trading/signalScanner/supplySnapshotStoreReplayAdr0491.js';
+import {
+  buildPromotionAuditInputForDataLineAdr0494,
+  evaluateFreshDataPromotionAuditsAdr0494,
+  formatPromotionAuditCompactAdr0494,
+  summarizeFreshDataPromotionAuditsAdr0494,
+} from '../../../trading/signalScanner/freshDataPromotionAuditWiringAdr0494.js';
 
 const freshDataStatus: TelegramCommand = {
   name: '/fresh_data_status',
@@ -40,7 +49,26 @@ const freshDataStatus: TelegramCommand = {
       providerIssue: summary?.investorFlowProviderRouter?.signal !== 'BEARISH',
       marketSignal: false,
     });
-    await reply(`${formatFreshDataSupplyDetailAdr0487(report)}\n\n${formatSectorEnergySupplyUnknownDetailAdr0488(adr0488)}`);
+    const investorFlow = buildInvestorFlowSampleAcquisitionReportAdr0489({
+      generatedAt: report.generatedAt,
+      providerIssue: summary?.investorFlowProviderRouter?.status === 'PROVIDER_ERROR',
+      diagnostics: ['ADR-0494 /fresh_data_status diagnostic audit input only; no provider fetch.'],
+    });
+    const programTrading = buildProgramTradingDataLineReportAdr0490({
+      generatedAt: report.generatedAt,
+      diagnostics: ['ADR-0494 /fresh_data_status diagnostic audit input only; no provider fetch.'],
+    });
+    const snapshotStore = summary?.supplySnapshotStoreAdr0491 ?? summarizeSupplySnapshotStoreAdr0491();
+    const promotionAuditInputs = [
+      buildPromotionAuditInputForDataLineAdr0494({ sourceType: 'SECTOR_ENERGY', report: adr0488 }),
+      buildPromotionAuditInputForDataLineAdr0494({ sourceType: 'INVESTOR_FLOW', report: investorFlow }),
+      buildPromotionAuditInputForDataLineAdr0494({ sourceType: 'PROGRAM_TRADING', report: programTrading }),
+      buildPromotionAuditInputForDataLineAdr0494({ sourceType: 'SUPPLY_SNAPSHOT', report: snapshotStore }),
+    ];
+    const promotionAudits = evaluateFreshDataPromotionAuditsAdr0494(promotionAuditInputs, { store: null });
+    const promotionSummary = summarizeFreshDataPromotionAuditsAdr0494(promotionAudits);
+    const promotionLines = promotionAudits.map(formatPromotionAuditCompactAdr0494).join('\n');
+    await reply(`${formatFreshDataSupplyDetailAdr0487(report)}\n\n${formatSectorEnergySupplyUnknownDetailAdr0488(adr0488)}\n\n${promotionSummary.promotionAuditSummary}\n${promotionLines}`);
   },
 };
 
