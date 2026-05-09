@@ -23,6 +23,11 @@ import { formatRuntimePipelineFreshDataEvidenceLineAdr0487 } from '../trading/si
 import { formatRuntimePipelineAdr0488EvidenceLine } from '../trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 import { getGate1DryRunObservationLedgerCount } from '../trading/signalScanner/gate1DryRunObservationLedgerAdr0476.js';
 import { formatSupplySnapshotDetailAdr0491 } from '../trading/signalScanner/supplySnapshotStoreReplayAdr0491.js';
+import {
+  buildPromotionAuditInputForDataLineAdr0494,
+  evaluateFreshDataPromotionAuditsAdr0494,
+  summarizeFreshDataPromotionAuditsAdr0494,
+} from '../trading/signalScanner/freshDataPromotionAuditWiringAdr0494.js';
 
 export type RuntimePipelineStage =
   | 'NOT_RUN'
@@ -84,6 +89,10 @@ export interface RuntimePipelineAuditSnapshot {
   freshDataSupplyDiagnosticLine: string;
   sectorEnergySupplyUnknownDiagnosticLine: string;
   supplySnapshotStoreDiagnosticLine: string;
+  promotionAuditSummary: string;
+  promotionAuditBlockers: string[];
+  promotionAuditReadyLines: string[];
+  promotionAuditBlockedLines: string[];
   adr460Installed: false;
   supplyProviderHealth: { hasRecentSample: boolean; message: string };
   sectorEnergyHealth: {
@@ -281,6 +290,19 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   if (sectorEnergyHealth.dataQuality && sectorEnergyHealth.dataQuality !== 'OK') addReason(blockedBy, 'SECTOR_ENERGY_DEGRADED');
   if (sectorEnergyHealth.leadershipConfidence === 'BLOCKED') addReason(blockedBy, 'SECTOR_ENERGY_LEADERSHIP_BLOCKED');
 
+  const promotionAuditInputs = [
+    ...(summary?.sectorEnergySupplyUnknownAdr0488 ? [buildPromotionAuditInputForDataLineAdr0494({
+      sourceType: 'SECTOR_ENERGY',
+      report: summary.sectorEnergySupplyUnknownAdr0488,
+    })] : []),
+    ...(summary?.supplySnapshotStoreAdr0491 ? [buildPromotionAuditInputForDataLineAdr0494({
+      sourceType: 'SUPPLY_SNAPSHOT',
+      report: summary.supplySnapshotStoreAdr0491,
+    })] : []),
+  ];
+  const promotionAudits = evaluateFreshDataPromotionAuditsAdr0494(promotionAuditInputs, { store: null });
+  const promotionAuditSummary = summarizeFreshDataPromotionAuditsAdr0494(promotionAudits);
+
   const livePath = runLivePathSafetyAudit();
   const operatorActionQueue = safeBuildOperatorActionQueueAdr0480({
     sources: collectOperatorActionSourcesFromScanSummaryAdr0480(summary),
@@ -316,6 +338,10 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     freshDataSupplyDiagnosticLine: formatRuntimePipelineFreshDataEvidenceLineAdr0487(summary?.freshDataSupplyAdr0487),
     sectorEnergySupplyUnknownDiagnosticLine: formatRuntimePipelineAdr0488EvidenceLine(summary?.sectorEnergySupplyUnknownAdr0488),
     supplySnapshotStoreDiagnosticLine: formatSupplySnapshotDetailAdr0491(summary?.supplySnapshotStoreAdr0491 ?? { status: 'EMPTY', mode: 'LATEST', snapshots: [], retained: 0, replayAvailable: false, diagnosticOnly: true, executionImpact: 'NONE', liveExecutionAllowed: false, policyPromotionMode: 'SHADOW_ONLY', operatorApprovalRequired: true, diagnostics: [] }),
+    promotionAuditSummary: promotionAuditSummary.promotionAuditSummary,
+    promotionAuditBlockers: promotionAuditSummary.promotionAuditBlockers,
+    promotionAuditReadyLines: promotionAuditSummary.promotionAuditReadyLines,
+    promotionAuditBlockedLines: promotionAuditSummary.promotionAuditBlockedLines,
     adr460Installed: false,
     supplyProviderHealth,
     sectorEnergyHealth,
@@ -359,6 +385,8 @@ export function formatRuntimePipelineAuditSection(snapshot: RuntimePipelineAudit
     `  • freshDataSupply: <code>${snapshot.freshDataSupplyDiagnosticLine}</code>`,
     `  • adr0488: <code>${snapshot.sectorEnergySupplyUnknownDiagnosticLine}</code>`,
     `  • supplySnapshotStore: <code>${snapshot.supplySnapshotStoreDiagnosticLine}</code>`,
+    `  • promotionAudit: <code>${snapshot.promotionAuditSummary}</code>`,
+    `  • promotionAuditBlockers: <code>${snapshot.promotionAuditBlockers.join(', ') || 'none'}</code>`,
     '  • ADR-460: <code>not installed</code>',
     `  • reason: ${snapshot.operatorMessage}`,
     `  • livePathSafety: <code>${snapshot.livePathSafety.passed ? 'PASS' : 'FAIL'}</code>`,
@@ -376,6 +404,7 @@ export function formatRuntimePipelineAuditCompactLine(snapshot: RuntimePipelineA
     `  • DryRun: <code>${snapshot.dryRunRecordCount}</code>`,
     `  • Rollout: <code>${snapshot.rolloutItemCount}</code>`,
     '  • ADR-460: <code>not installed</code>',
+    `  • PromotionAudit: <code>${snapshot.promotionAuditSummary}</code>`,
     `  • Safety: <code>${snapshot.livePathSafety.passed ? 'PASS' : 'FAIL'}</code>`,
   ].join('\n');
 }
@@ -410,6 +439,10 @@ export function formatRuntimePipelineAuditDetails(snapshot: RuntimePipelineAudit
     `  • freshDataSupplyDiagnostic: ${snapshot.freshDataSupplyDiagnosticLine}`,
     `  • adr0488Diagnostic: ${snapshot.sectorEnergySupplyUnknownDiagnosticLine}`,
     `  • supplySnapshotStoreDiagnostic: ${snapshot.supplySnapshotStoreDiagnosticLine}`,
+    `  • promotionAuditSummary: ${snapshot.promotionAuditSummary}`,
+    `  • promotionAuditReadyLines: <code>${snapshot.promotionAuditReadyLines.join(', ') || 'none'}</code>`,
+    `  • promotionAuditBlockedLines: <code>${snapshot.promotionAuditBlockedLines.join(', ') || 'none'}</code>`,
+    `  • promotionAuditBlockers: <code>${snapshot.promotionAuditBlockers.join(', ') || 'none'}</code>`,
     '  • ADR-460: <code>not installed</code>',
     `  • supplyProvider: ${snapshot.supplyProviderHealth.message}`,
     `  • sectorEnergy: ${snapshot.sectorEnergyHealth.message}`,
