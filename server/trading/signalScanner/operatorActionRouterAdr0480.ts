@@ -6,6 +6,10 @@
  * provider promotion, or live execution state.
  */
 import type { ScanSummary } from './scanDiagnostics.js';
+import {
+  collectOperatorActionSourcesFromFreshDataSupplyAdr0487,
+  type FreshDataSupplyReportAdr0487,
+} from './freshDataSupplyLayerAdr0487.js';
 import type { SupplyRecoveryRuntimeMountReportAdr0486 } from './supplyRecoveryRuntimeMountAdr0486.js';
 
 export type OperatorActionPriority = 'P0' | 'P1' | 'P2' | 'P3';
@@ -21,6 +25,7 @@ export type OperatorActionCategory =
   | 'LEDGER'
   | 'UI_OUTPUT'
   | 'RUNTIME_MOUNT'
+  | 'FRESH_DATA_SUPPLY'
   | 'UNKNOWN';
 
 export type OperatorActionRootCause =
@@ -42,6 +47,12 @@ export type OperatorActionRootCause =
   | 'DETAIL_TRACE_MISSING'
   | 'SUPPLY_RECOVERY_RUNTIME_MOUNT_GAP'
   | 'SUPPLY_READINESS_EVIDENCE_MISSING'
+  | 'SECTOR_DATA_SUPPLY_LINE_MISSING'
+  | 'SUPPLY_DATA_SUPPLY_LINE_MISSING'
+  | 'NAVER_SAMPLE_ACQUISITION_NEEDED'
+  | 'SEMANTIC_NETBUY_SAMPLE_NEEDED'
+  | 'FSS_REFRESH_NEEDED'
+  | 'SECTOR_INDEX_MASTER_REPAIR_NEEDED'
   | 'UNKNOWN_ROOT_CAUSE';
 
 export interface OperatorActionSource {
@@ -97,6 +108,7 @@ export interface BuildOperatorActionQueueInput {
   supplyCoverageRecoveryAdr0484?: { status?: string; topImprovedMetrics?: string[]; topRemainingBlockers?: string[] } | null;
   supplyAdvisoryReadinessAdr0485?: { status?: string; readinessScore?: number; failedReasons?: string[]; recommendedNextStep?: string } | null;
   supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486 | null;
+  freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487 | null;
 }
 
 interface OperatorActionDefinition {
@@ -313,6 +325,72 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
     detailHint: '/adr_trace 0486 readiness-evidence',
   },
+  SECTOR_DATA_SUPPLY_LINE_MISSING: {
+    rootCause: 'SECTOR_DATA_SUPPLY_LINE_MISSING',
+    category: 'FRESH_DATA_SUPPLY',
+    title: 'Sector data supply line missing',
+    summary: 'ADR-0487 found SectorEnergy fresh data supply lines missing, stale, or fallback-only.',
+    recommendedAction: 'Build or repair SectorEnergy OBSERVE data lines before any future advisory promotion.',
+    relatedAdrs: ['0474', '0476', '0478', '0479', '0480', '0487'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0487 sector-data-supply',
+  },
+  SUPPLY_DATA_SUPPLY_LINE_MISSING: {
+    rootCause: 'SUPPLY_DATA_SUPPLY_LINE_MISSING',
+    category: 'FRESH_DATA_SUPPLY',
+    title: 'Supply data line missing',
+    summary: 'ADR-0487 found Supply or program-trading data supply lines missing, stale, or unavailable.',
+    recommendedAction: 'Collect sanitized supply samples in OBSERVE/SHADOW_ONLY mode; do not promote to advisory without a future ADR.',
+    relatedAdrs: ['0477', '0478', '0479', '0480', '0481', '0482', '0483', '0487'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'HIGH', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0487 supply-data-line',
+  },
+  NAVER_SAMPLE_ACQUISITION_NEEDED: {
+    rootCause: 'NAVER_SAMPLE_ACQUISITION_NEEDED',
+    category: 'FRESH_DATA_SUPPLY',
+    title: 'NAVER sample acquisition needed',
+    summary: 'ADR-0487 has no fresh sanitized NAVER investor trend sample for the supply data lane.',
+    recommendedAction: 'Collect NAVER investor trend samples through ADR-0481 and keep them SHADOW_ONLY.',
+    relatedAdrs: ['0481', '0487'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'HIGH', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0487 naver-sample',
+  },
+  SEMANTIC_NETBUY_SAMPLE_NEEDED: {
+    rootCause: 'SEMANTIC_NETBUY_SAMPLE_NEEDED',
+    category: 'FRESH_DATA_SUPPLY',
+    title: 'Semantic net-buy sample needed',
+    summary: 'ADR-0487 has no normalized semantic net-buy sample in the fresh data lane.',
+    recommendedAction: 'Build a sanitized semantic net-buy sample through ADR-0482; keep UNKNOWN and provider issues out of bullish/bearish classification.',
+    relatedAdrs: ['0482', '0487'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'HIGH', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0487 semantic-netbuy-sample',
+  },
+  FSS_REFRESH_NEEDED: {
+    rootCause: 'FSS_REFRESH_NEEDED',
+    category: 'FRESH_DATA_SUPPLY',
+    title: 'FSS refresh needed',
+    summary: 'ADR-0487 found FSS passive/active supply freshness missing or stale.',
+    recommendedAction: 'Refresh FSS passive/active diagnostics through the freshness lane; keep results OBSERVE only.',
+    relatedAdrs: ['0483', '0487'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0487 fss-refresh',
+  },
+  SECTOR_INDEX_MASTER_REPAIR_NEEDED: {
+    rootCause: 'SECTOR_INDEX_MASTER_REPAIR_NEEDED',
+    category: 'FRESH_DATA_SUPPLY',
+    title: 'Sector index master repair needed',
+    summary: 'ADR-0487 found the KRX sector index master data line missing or insufficient.',
+    recommendedAction: 'Repair the sector index master supply line before using SectorEnergy leadership confidence.',
+    relatedAdrs: ['0474', '0487'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0487 sector-index-master',
+  },
   UNKNOWN_ROOT_CAUSE: {
     rootCause: 'UNKNOWN_ROOT_CAUSE',
     category: 'UNKNOWN',
@@ -390,6 +468,24 @@ function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCau
   }
   if (includesAny(text, ['SUPPLY_READINESS_EVIDENCE_MISSING', 'READINESS_AUDIT_EVIDENCE_MISSING', 'READINESSAUDITEVIDENCE=MISSING'])) {
     return 'SUPPLY_READINESS_EVIDENCE_MISSING';
+  }
+  if (includesAny(text, ['SECTOR_INDEX_MASTER_REPAIR_NEEDED', 'REPAIR_SECTOR_INDEX_MASTER'])) {
+    return 'SECTOR_INDEX_MASTER_REPAIR_NEEDED';
+  }
+  if (includesAny(text, ['SECTOR_DATA_SUPPLY_LINE_MISSING', 'IMPROVE_INDEX_CODE_COVERAGE', 'REDUCE_ALIAS_MISSING', 'DO_NOT_USE_STOCK_DAILY_FOR_LEADERSHIP_CONFIDENCE'])) {
+    return 'SECTOR_DATA_SUPPLY_LINE_MISSING';
+  }
+  if (includesAny(text, ['NAVER_SAMPLE_ACQUISITION_NEEDED', 'COLLECT_NAVER_INVESTOR_SAMPLE'])) {
+    return 'NAVER_SAMPLE_ACQUISITION_NEEDED';
+  }
+  if (includesAny(text, ['SEMANTIC_NETBUY_SAMPLE_NEEDED', 'BUILD_SEMANTIC_NETBUY_SAMPLE'])) {
+    return 'SEMANTIC_NETBUY_SAMPLE_NEEDED';
+  }
+  if (includesAny(text, ['FSS_REFRESH_NEEDED', 'REFRESH_FSS_PASSIVE_ACTIVE'])) {
+    return 'FSS_REFRESH_NEEDED';
+  }
+  if (includesAny(text, ['SUPPLY_DATA_SUPPLY_LINE_MISSING', 'REFRESH_SHORT_CREDIT_SOURCES', 'VERIFY_KIS_PROGRAM_TRADING_SESSION'])) {
+    return 'SUPPLY_DATA_SUPPLY_LINE_MISSING';
   }
   return null;
 }
@@ -477,7 +573,11 @@ function adr0484ObservedStatus(input: BuildOperatorActionQueueInput, rootCause: 
 export function buildOperatorActionQueueAdr0480(input: BuildOperatorActionQueueInput = {}): OperatorActionQueueReport {
   const grouped = new Map<OperatorActionRootCause, OperatorActionSource[]>();
   let matchedEvidenceCount = 0;
-  for (const source of input.sources ?? []) {
+  const inputSources = [
+    ...(input.sources ?? []),
+    ...collectOperatorActionSourcesFromFreshDataSupplyAdr0487(input.freshDataSupplyAdr0487),
+  ];
+  for (const source of inputSources) {
     const rootCause = rootCauseForSource(source);
     if (!rootCause) continue;
     matchedEvidenceCount += 1;
@@ -517,6 +617,15 @@ export function buildOperatorActionQueueAdr0480(input: BuildOperatorActionQueueI
       diagnosticValue: 'missing',
       severity: 'ERROR',
     }]);
+  }
+  const freshData = input.freshDataSupplyAdr0487;
+  if (freshData?.overallStatus === 'READY_FOR_SHADOW') {
+    for (const rootCause of ['SECTOR_DATA_SUPPLY_LINE_MISSING', 'SUPPLY_DATA_SUPPLY_LINE_MISSING', 'NAVER_SAMPLE_ACQUISITION_NEEDED', 'SEMANTIC_NETBUY_SAMPLE_NEEDED', 'FSS_REFRESH_NEEDED', 'SECTOR_INDEX_MASTER_REPAIR_NEEDED'] as const) {
+      const sources = grouped.get(rootCause);
+      if (sources?.length) {
+        grouped.set(rootCause, sources.map((source) => ({ ...source, severity: 'INFO' as const, diagnosticValue: `${source.diagnosticValue ?? ''} observing-ready`.trim() })));
+      }
+    }
   }
   const allActions = Array.from(grouped.entries())
     .map(([rootCause, sources]) => buildItem(rootCause, sources, adr0484ObservedStatus(input, rootCause)))
@@ -565,6 +674,7 @@ export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: Scan
   if (summary.supplyRecoveryRuntimeMountAdr0486?.checks.some((check) => check.legacyOutputCode === 'READINESS_AUDIT_EVIDENCE_MISSING')) {
     sources.push({ adr: '0486', sectionId: 'runtime_pipeline_audit', code: 'SUPPLY_READINESS_EVIDENCE_MISSING', diagnosticKey: 'readinessAuditEvidence', diagnosticValue: 'missing', severity: 'ERROR' });
   }
+  sources.push(...collectOperatorActionSourcesFromFreshDataSupplyAdr0487(summary.freshDataSupplyAdr0487));
   return sources;
 }
 

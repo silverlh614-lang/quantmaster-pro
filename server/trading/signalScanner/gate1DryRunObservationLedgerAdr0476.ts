@@ -9,6 +9,10 @@ import type { InvestorFlowProviderRouteResult } from './investorFlowProviderRout
 import type { NaverInvestorTrendCollectorResult } from './naverInvestorTrendCollectorAdr0481.js';
 import type { SemanticNetBuyNormalizationReportAdr0482 } from './semanticNetBuyNormalizerAdr0482.js';
 import {
+  buildFreshDataSupplyObservationRowAdr0487,
+  type FreshDataSupplyReportAdr0487,
+} from './freshDataSupplyLayerAdr0487.js';
+import {
   buildSupplyRecoveryRuntimeMountObservationRowAdr0486,
   type SupplyRecoveryRuntimeMountReportAdr0486,
 } from './supplyRecoveryRuntimeMountAdr0486.js';
@@ -23,6 +27,7 @@ export type Gate1DryRunObservationSource =
   | 'ADR_0484_SUPPLY_COVERAGE_RECOVERY'
   | 'ADR_0485_SUPPLY_ADVISORY_READINESS'
   | 'ADR_0486_SUPPLY_RECOVERY_RUNTIME_MOUNT'
+  | 'ADR_0487_FRESH_DATA_SUPPLY_LAYER'
   | 'GATE1_NEAR_MISS'
   | 'COUNTERFACTUAL_UNIVERSE';
 
@@ -78,7 +83,7 @@ export interface Gate1DryRunObservationRow {
   maxAdverseExcursion5D?: number;
   stopLossTouched?: boolean;
   targetTouched?: boolean;
-  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481' | 'SEMANTIC_NETBUY_NORMALIZER_ADR0482' | 'SUPPLY_COVERAGE_RECOVERY_ADR0484' | 'SUPPLY_ADVISORY_READINESS_ADR0485' | 'SUPPLY_RECOVERY_RUNTIME_MOUNT_ADR0486';
+  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481' | 'SEMANTIC_NETBUY_NORMALIZER_ADR0482' | 'SUPPLY_COVERAGE_RECOVERY_ADR0484' | 'SUPPLY_ADVISORY_READINESS_ADR0485' | 'SUPPLY_RECOVERY_RUNTIME_MOUNT_ADR0486' | 'FRESH_DATA_SUPPLY_LAYER_ADR0487';
   beforeCoverage?: number;
   afterCoverage?: number;
   selectedProvider?: string;
@@ -103,7 +108,7 @@ export interface Gate1DryRunObservationRow {
   status: Gate1DryRunObservationStatus;
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
-  policyPromotionMode: 'SHADOW_ONLY';
+  policyPromotionMode: 'OBSERVE' | 'SHADOW_ONLY';
 }
 
 export interface Gate1DryRunObservationSummary {
@@ -119,7 +124,7 @@ export interface Gate1DryRunObservationSummary {
   outcomeUpdateReason: 'MARKET_CLOSED' | 'PRICE_CACHE_MISSING' | 'NOT_MATURED' | 'UPDATED';
   liveExecutionAllowed: false;
   executionImpact: 'NONE';
-  policyPromotionMode: 'SHADOW_ONLY';
+  policyPromotionMode: 'OBSERVE' | 'SHADOW_ONLY';
   nextAction: 'TRACK_1D_3D_5D_FORWARD_RETURNS';
 }
 
@@ -133,6 +138,7 @@ export interface Gate1DryRunObservationBuildInput {
   naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult | null;
   semanticNetBuyNormalizationAdr0482?: SemanticNetBuyNormalizationReportAdr0482 | null;
   supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486 | null;
+  freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487 | null;
   sellOnly?: boolean;
   sectorEnergyDiagnosticOnly?: boolean;
   providerIssue?: boolean;
@@ -490,6 +496,12 @@ function buildSupplyRecoveryRuntimeMountRowsAdr0486(input: Gate1DryRunObservatio
   return [withOptionalScoreFields(buildSupplyRecoveryRuntimeMountObservationRowAdr0486(report) as Omit<Gate1DryRunObservationRow, 'id'> & { id?: string })];
 }
 
+function buildFreshDataSupplyRowsAdr0487(input: Gate1DryRunObservationBuildInput): Gate1DryRunObservationRow[] {
+  const report = input.freshDataSupplyAdr0487;
+  if (!report) return [];
+  return [withOptionalScoreFields(buildFreshDataSupplyObservationRowAdr0487(report) as Omit<Gate1DryRunObservationRow, 'id'> & { id?: string })];
+}
+
 export function buildGate1DryRunObservationRows(input: Gate1DryRunObservationBuildInput): Gate1DryRunObservationRow[] {
   const nowIso = (input.now ?? new Date()).toISOString();
   const rows = [
@@ -499,6 +511,7 @@ export function buildGate1DryRunObservationRows(input: Gate1DryRunObservationBui
     ...buildNaverInvestorTrendRowsAdr0481(input, nowIso),
     ...buildSemanticNetBuyNormalizerRowsAdr0482(input, nowIso),
     ...buildSupplyRecoveryRuntimeMountRowsAdr0486(input),
+    ...buildFreshDataSupplyRowsAdr0487(input),
     ...buildGateNearMissRows(input, nowIso),
     ...buildCounterfactualUniverseRows(input, nowIso),
   ];

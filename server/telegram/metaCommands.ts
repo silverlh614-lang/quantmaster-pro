@@ -437,6 +437,7 @@ const MENU_ALWAYS_INCLUDE = new Set([
   'ghost_inspect',
   'health',
   'health_loop',
+  'fresh_data_status',
   'learning_pulse',
   'learning_status',
   'market',
