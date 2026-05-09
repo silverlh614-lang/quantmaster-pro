@@ -435,7 +435,6 @@ function buildNaverInvestorTrendRowsAdr0481(input: Gate1DryRunObservationBuildIn
   })];
 }
 
-
 function buildSemanticNetBuyNormalizerRowsAdr0482(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
   const report = input.semanticNetBuyNormalizationAdr0482;
   if (!report) return [];

@@ -390,9 +390,9 @@ function compactActionLine(item: OperatorActionItem): string {
           ? 'verify coverage/fallback sample'
           : item.rootCause === 'SEMANTIC_NETBUY_PARSE_OR_UNIT_ISSUE'
             ? 'fix parser/unit metadata'
-      : item.rootCause === 'FSS_SOURCE_STALE'
-        ? 'refresh stale source / split freshness'
-        : item.recommendedAction.split(';')[0];
+            : item.rootCause === 'FSS_SOURCE_STALE'
+              ? 'refresh stale source / split freshness'
+              : item.recommendedAction.split(';')[0];
   return `${item.priority} ${item.title} → ${shortAction} | related=${formatRelated(item.relatedAdrs)} | impact=${item.executionImpact}`;
 }
 

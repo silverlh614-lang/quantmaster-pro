@@ -669,7 +669,6 @@ function scenarioResult(input: {
 }
 
 
-
 function buildSemanticNetBuyPositiveSourceTraceAdr0482(
   report?: SemanticNetBuyNormalizationReportAdr0482 | null,
 ): SemanticNetBuyPositiveSourceTraceAdr0482[] {

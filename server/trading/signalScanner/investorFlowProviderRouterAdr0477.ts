@@ -305,7 +305,6 @@ export function normalizeSemanticNetBuySampleAdr0477(
 }
 
 
-
 function mapSemanticNetBuyStatusAdr0482ToAdr0477(status: SemanticNetBuyStatus): InvestorFlowProviderStatus {
   switch (status) {
     case 'VERIFIED':
