@@ -20,6 +20,14 @@ import {
   buildSupplyRecoveryRuntimeMountObservationRowAdr0486,
   type SupplyRecoveryRuntimeMountReportAdr0486,
 } from './supplyRecoveryRuntimeMountAdr0486.js';
+import {
+  buildSupplySnapshotObservationRowAdr0491,
+  type SupplySnapshotReplayResultAdr0491,
+} from './supplySnapshotStoreReplayAdr0491.js';
+import {
+  buildFreshDataSchedulerObservationRowAdr0492,
+  type FreshDataSchedulerReportAdr0492,
+} from './freshDataSchedulerAdr0492.js';
 
 export type Gate1DryRunObservationSource =
   | 'ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'
@@ -34,6 +42,8 @@ export type Gate1DryRunObservationSource =
   | 'ADR_0487_FRESH_DATA_SUPPLY_LAYER'
   | 'ADR_0488_SECTOR_ENERGY_MASTER_SUPPLY_LINE'
   | 'ADR_0488_SUPPLY_UNKNOWN_POLICY_STABILIZATION'
+  | 'ADR_0491_SUPPLY_SNAPSHOT_STORE_REPLAY'
+  | 'ADR_0492_FRESH_DATA_SCHEDULER'
   | 'GATE1_NEAR_MISS'
   | 'COUNTERFACTUAL_UNIVERSE';
 
@@ -89,7 +99,7 @@ export interface Gate1DryRunObservationRow {
   maxAdverseExcursion5D?: number;
   stopLossTouched?: boolean;
   targetTouched?: boolean;
-  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481' | 'SEMANTIC_NETBUY_NORMALIZER_ADR0482' | 'SUPPLY_COVERAGE_RECOVERY_ADR0484' | 'SUPPLY_ADVISORY_READINESS_ADR0485' | 'SUPPLY_RECOVERY_RUNTIME_MOUNT_ADR0486' | 'FRESH_DATA_SUPPLY_LAYER_ADR0487' | 'SECTOR_ENERGY_MASTER_SUPPLY_LINE_ADR0488' | 'SUPPLY_UNKNOWN_POLICY_STABILIZATION_ADR0488';
+  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481' | 'SEMANTIC_NETBUY_NORMALIZER_ADR0482' | 'SUPPLY_COVERAGE_RECOVERY_ADR0484' | 'SUPPLY_ADVISORY_READINESS_ADR0485' | 'SUPPLY_RECOVERY_RUNTIME_MOUNT_ADR0486' | 'FRESH_DATA_SUPPLY_LAYER_ADR0487' | 'SECTOR_ENERGY_MASTER_SUPPLY_LINE_ADR0488' | 'SUPPLY_UNKNOWN_POLICY_STABILIZATION_ADR0488' | 'SUPPLY_SNAPSHOT_STORE_REPLAY_ADR0491' | 'FRESH_DATA_SCHEDULER_ADR0492';
   beforeCoverage?: number;
   afterCoverage?: number;
   selectedProvider?: string;
@@ -146,6 +156,8 @@ export interface Gate1DryRunObservationBuildInput {
   supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486 | null;
   freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487 | null;
   sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488 | null;
+  supplySnapshotStoreAdr0491?: SupplySnapshotReplayResultAdr0491 | null;
+  freshDataSchedulerAdr0492?: FreshDataSchedulerReportAdr0492 | null;
   sellOnly?: boolean;
   sectorEnergyDiagnosticOnly?: boolean;
   providerIssue?: boolean;
@@ -509,6 +521,26 @@ function buildFreshDataSupplyRowsAdr0487(input: Gate1DryRunObservationBuildInput
   return [withOptionalScoreFields(buildFreshDataSupplyObservationRowAdr0487(report) as Omit<Gate1DryRunObservationRow, 'id'> & { id?: string })];
 }
 
+
+function buildSupplySnapshotRowsAdr0491(input: Gate1DryRunObservationBuildInput): Gate1DryRunObservationRow[] {
+  const report = input.supplySnapshotStoreAdr0491;
+  if (!report) return [];
+  return [withOptionalScoreFields({
+    ...buildSupplySnapshotObservationRowAdr0491(report),
+    observationType: 'SUPPLY_SNAPSHOT_STORE_REPLAY_ADR0491' as const,
+  } as Omit<Gate1DryRunObservationRow, 'id'> & { id?: string })];
+}
+
+
+function buildFreshDataSchedulerRowsAdr0492(input: Gate1DryRunObservationBuildInput): Gate1DryRunObservationRow[] {
+  const report = input.freshDataSchedulerAdr0492;
+  if (!report) return [];
+  return [withOptionalScoreFields({
+    ...buildFreshDataSchedulerObservationRowAdr0492(report),
+    observationType: 'FRESH_DATA_SCHEDULER_ADR0492' as const,
+  } as Omit<Gate1DryRunObservationRow, 'id'> & { id?: string })];
+}
+
 function buildSectorEnergySupplyUnknownRowsAdr0488(input: Gate1DryRunObservationBuildInput): Gate1DryRunObservationRow[] {
   const report = input.sectorEnergySupplyUnknownAdr0488;
   if (!report) return [];
@@ -528,6 +560,8 @@ export function buildGate1DryRunObservationRows(input: Gate1DryRunObservationBui
     ...buildSupplyRecoveryRuntimeMountRowsAdr0486(input),
     ...buildFreshDataSupplyRowsAdr0487(input),
     ...buildSectorEnergySupplyUnknownRowsAdr0488(input),
+    ...buildSupplySnapshotRowsAdr0491(input),
+    ...buildFreshDataSchedulerRowsAdr0492(input),
     ...buildGateNearMissRows(input, nowIso),
     ...buildCounterfactualUniverseRows(input, nowIso),
   ];
@@ -659,6 +693,8 @@ export function formatGate1DryRunObservationSummary(
     sourceLine('ADR_0482_SEMANTIC_NETBUY_NORMALIZER'),
     sourceLine('ADR_0484_SUPPLY_COVERAGE_RECOVERY'),
     sourceLine('ADR_0485_SUPPLY_ADVISORY_READINESS'),
+    sourceLine('ADR_0491_SUPPLY_SNAPSHOT_STORE_REPLAY'),
+    sourceLine('ADR_0492_FRESH_DATA_SCHEDULER'),
     sourceLine('GATE1_NEAR_MISS'),
     `  liveExecutionAllowed: ${summary.liveExecutionAllowed}`,
     `  executionImpact: ${summary.executionImpact}`,

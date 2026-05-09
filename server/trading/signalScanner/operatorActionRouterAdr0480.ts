@@ -15,6 +15,14 @@ import {
   type SectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 import type { SupplyRecoveryRuntimeMountReportAdr0486 } from './supplyRecoveryRuntimeMountAdr0486.js';
+import {
+  collectOperatorActionSourcesFromSupplySnapshotAdr0491,
+  type SupplySnapshotReplayResultAdr0491,
+} from './supplySnapshotStoreReplayAdr0491.js';
+import {
+  collectOperatorActionSourcesFromFreshDataSchedulerAdr0492,
+  type FreshDataSchedulerReportAdr0492,
+} from './freshDataSchedulerAdr0492.js';
 
 export type OperatorActionPriority = 'P0' | 'P1' | 'P2' | 'P3';
 export type OperatorActionStatus = 'OPEN' | 'IN_PROGRESS' | 'OBSERVING' | 'RESOLVED' | 'BLOCKED';
@@ -61,6 +69,12 @@ export type OperatorActionRootCause =
   | 'IMPROVE_INDEX_CODE_COVERAGE'
   | 'SUPPLY_UNKNOWN_POLICY_OBSERVE'
   | 'COLLECT_SUPPLY_SAMPLE_BEFORE_PROMOTION'
+  | 'ENABLE_FRESH_DATA_SCHEDULER_OBSERVE'
+  | 'CHECK_FRESH_DATA_SCHEDULER_HEALTH'
+  | 'COLLECT_AFTER_MARKET_FRESH_DATA_SAMPLES'
+  | 'REPAIR_SNAPSHOT_STORE_WRITE'
+  | 'PROVIDER_JOB_FAILED_OBSERVE_ONLY'
+  | 'WAIT_FOR_NEXT_TRADING_SESSION'
   | 'UNKNOWN_ROOT_CAUSE';
 
 export interface OperatorActionSource {
@@ -118,6 +132,8 @@ export interface BuildOperatorActionQueueInput {
   supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486 | null;
   freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487 | null;
   sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488 | null;
+  supplySnapshotStoreAdr0491?: SupplySnapshotReplayResultAdr0491 | null;
+  freshDataSchedulerAdr0492?: FreshDataSchedulerReportAdr0492 | null;
 }
 
 interface OperatorActionDefinition {
@@ -300,6 +316,72 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     basePriority: 'P3',
     expectedImpact: { scanBlockerReduction: 'LOW', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
     detailHint: '/scan_blockers_detail operator-actions',
+  },
+  ENABLE_FRESH_DATA_SCHEDULER_OBSERVE: {
+    rootCause: 'ENABLE_FRESH_DATA_SCHEDULER_OBSERVE',
+    category: 'FRESH_DATA_SUPPLY',
+    title: 'Enable fresh data scheduler observe mode',
+    summary: 'ADR-0492 scheduler is disabled; diagnostic collection remains manual or scan-bound.',
+    recommendedAction: 'Enable FRESH_DATA_SCHEDULER_ENABLED only for OBSERVE_ONLY diagnostic collection when operationally safe.',
+    relatedAdrs: ['0487', '0491', '0492'],
+    basePriority: 'P3',
+    expectedImpact: { scanBlockerReduction: 'LOW', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
+    detailHint: '/fresh_data_status',
+  },
+  CHECK_FRESH_DATA_SCHEDULER_HEALTH: {
+    rootCause: 'CHECK_FRESH_DATA_SCHEDULER_HEALTH',
+    category: 'FRESH_DATA_SUPPLY',
+    title: 'Check fresh data scheduler health',
+    summary: 'ADR-0492 scheduler reported partial or failed diagnostic jobs.',
+    recommendedAction: 'Inspect scheduler diagnostics; keep failures observe-only and do not promote data before ADR-0493.',
+    relatedAdrs: ['0487', '0491', '0492'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'LOW', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
+    detailHint: '/fresh_data_status',
+  },
+  COLLECT_AFTER_MARKET_FRESH_DATA_SAMPLES: {
+    rootCause: 'COLLECT_AFTER_MARKET_FRESH_DATA_SAMPLES',
+    category: 'FRESH_DATA_SUPPLY',
+    title: 'Collect after-market fresh data samples',
+    summary: 'ADR-0492 recommends after-market diagnostic sample collection.',
+    recommendedAction: 'Collect sanitized after-market samples and wait for ADR-0493 readiness audit before any promotion.',
+    relatedAdrs: ['0487', '0491', '0492'],
+    basePriority: 'P3',
+    expectedImpact: { scanBlockerReduction: 'LOW', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
+    detailHint: '/fresh_data_status',
+  },
+  REPAIR_SNAPSHOT_STORE_WRITE: {
+    rootCause: 'REPAIR_SNAPSHOT_STORE_WRITE',
+    category: 'FRESH_DATA_SUPPLY',
+    title: 'Repair snapshot store write',
+    summary: 'ADR-0492 could not write a sanitized ADR-0491 scheduler snapshot.',
+    recommendedAction: 'Check ADR-0491 snapshot store permissions/corrupt JSON recovery; do not use replay in live Gate decisions.',
+    relatedAdrs: ['0491', '0492'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'LOW', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
+    detailHint: '/fresh_data_status',
+  },
+  PROVIDER_JOB_FAILED_OBSERVE_ONLY: {
+    rootCause: 'PROVIDER_JOB_FAILED_OBSERVE_ONLY',
+    category: 'FRESH_DATA_SUPPLY',
+    title: 'Provider job failed observe-only',
+    summary: 'ADR-0492 provider/sample job failed or returned data unavailable.',
+    recommendedAction: 'Keep provider issue distinct from market signal and retry in a safe diagnostic session.',
+    relatedAdrs: ['0488', '0489', '0490', '0492'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'LOW', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
+    detailHint: '/fresh_data_status',
+  },
+  WAIT_FOR_NEXT_TRADING_SESSION: {
+    rootCause: 'WAIT_FOR_NEXT_TRADING_SESSION',
+    category: 'FRESH_DATA_SUPPLY',
+    title: 'Wait for next trading session',
+    summary: 'ADR-0492 skipped provider pressure outside a safe scheduler session.',
+    recommendedAction: 'Wait for after-market or an operator-approved diagnostic session.',
+    relatedAdrs: ['0492'],
+    basePriority: 'P3',
+    expectedImpact: { scanBlockerReduction: 'LOW', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
+    detailHint: '/fresh_data_status',
   },
   DETAIL_TRACE_MISSING: {
     rootCause: 'DETAIL_TRACE_MISSING',
@@ -553,6 +635,12 @@ function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCau
   if (includesAny(text, ['SUPPLY_DATA_SUPPLY_LINE_MISSING', 'REFRESH_SHORT_CREDIT_SOURCES', 'VERIFY_KIS_PROGRAM_TRADING_SESSION'])) {
     return 'SUPPLY_DATA_SUPPLY_LINE_MISSING';
   }
+  if (includesAny(text, ['ENABLE_FRESH_DATA_SCHEDULER_OBSERVE'])) return 'ENABLE_FRESH_DATA_SCHEDULER_OBSERVE';
+  if (includesAny(text, ['CHECK_FRESH_DATA_SCHEDULER_HEALTH'])) return 'CHECK_FRESH_DATA_SCHEDULER_HEALTH';
+  if (includesAny(text, ['COLLECT_AFTER_MARKET_FRESH_DATA_SAMPLES'])) return 'COLLECT_AFTER_MARKET_FRESH_DATA_SAMPLES';
+  if (includesAny(text, ['REPAIR_SNAPSHOT_STORE_WRITE'])) return 'REPAIR_SNAPSHOT_STORE_WRITE';
+  if (includesAny(text, ['PROVIDER_JOB_FAILED_OBSERVE_ONLY'])) return 'PROVIDER_JOB_FAILED_OBSERVE_ONLY';
+  if (includesAny(text, ['WAIT_FOR_NEXT_TRADING_SESSION'])) return 'WAIT_FOR_NEXT_TRADING_SESSION';
   return null;
 }
 
@@ -643,6 +731,8 @@ export function buildOperatorActionQueueAdr0480(input: BuildOperatorActionQueueI
     ...(input.sources ?? []),
     ...collectOperatorActionSourcesFromFreshDataSupplyAdr0487(input.freshDataSupplyAdr0487),
     ...collectOperatorActionSourcesFromAdr0488(input.sectorEnergySupplyUnknownAdr0488),
+    ...collectOperatorActionSourcesFromSupplySnapshotAdr0491(input.supplySnapshotStoreAdr0491),
+    ...collectOperatorActionSourcesFromFreshDataSchedulerAdr0492(input.freshDataSchedulerAdr0492),
   ];
   for (const source of inputSources) {
     const rootCause = rootCauseForSource(source);
@@ -743,6 +833,8 @@ export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: Scan
   }
   sources.push(...collectOperatorActionSourcesFromFreshDataSupplyAdr0487(summary.freshDataSupplyAdr0487));
   sources.push(...collectOperatorActionSourcesFromAdr0488(summary.sectorEnergySupplyUnknownAdr0488));
+  sources.push(...collectOperatorActionSourcesFromSupplySnapshotAdr0491(summary.supplySnapshotStoreAdr0491));
+  sources.push(...collectOperatorActionSourcesFromFreshDataSchedulerAdr0492(summary.freshDataSchedulerAdr0492));
   return sources;
 }
 
