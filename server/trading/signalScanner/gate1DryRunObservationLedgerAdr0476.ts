@@ -6,12 +6,14 @@ import type { CandidateSnapshot } from './entryFilterDecomposition.js';
 import type { FinalGate1CalibrationAuditReport } from './gate1FinalCalibration.js';
 import type { Gate1PositiveSourceWiringReport } from './gate1PositiveSourceWiringAdr0475.js';
 import type { InvestorFlowProviderRouteResult } from './investorFlowProviderRouterAdr0477.js';
+import type { NaverInvestorTrendCollectorResult } from './naverInvestorTrendCollectorAdr0481.js';
 
 export type Gate1DryRunObservationSource =
   | 'ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'
   | 'ADR_0472_SCORING_ALIGNMENT'
   | 'ADR_0475_POSITIVE_SOURCE_WIRING'
   | 'ADR_0477_INVESTOR_FLOW_PROVIDER_ROUTER'
+  | 'ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR'
   | 'GATE1_NEAR_MISS'
   | 'COUNTERFACTUAL_UNIVERSE';
 
@@ -67,7 +69,7 @@ export interface Gate1DryRunObservationRow {
   maxAdverseExcursion5D?: number;
   stopLossTouched?: boolean;
   targetTouched?: boolean;
-  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477';
+  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481';
   beforeCoverage?: number;
   afterCoverage?: number;
   selectedProvider?: string;
@@ -80,6 +82,12 @@ export interface Gate1DryRunObservationRow {
   providerMismatchCount?: number;
   notWiredCount?: number;
   cacheEmptyCount?: number;
+  sourceDate?: string | null;
+  availableDays?: number;
+  requestedDays?: number;
+  foreignAvailable?: number;
+  institutionAvailable?: number;
+  selectedByAdr0477?: boolean;
   status: Gate1DryRunObservationStatus;
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
@@ -110,6 +118,7 @@ export interface Gate1DryRunObservationBuildInput {
   finalGate1Calibration?: FinalGate1CalibrationAuditReport | null;
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport | null;
   investorFlowProviderRouter?: InvestorFlowProviderRouteResult | null;
+  naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult | null;
   sellOnly?: boolean;
   sectorEnergyDiagnosticOnly?: boolean;
   providerIssue?: boolean;
@@ -382,12 +391,51 @@ function buildInvestorFlowRouterRows(input: Gate1DryRunObservationBuildInput, no
   })];
 }
 
+
+function buildNaverInvestorTrendRowsAdr0481(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
+  const result = input.naverInvestorTrendAdr0481;
+  if (!result) return [];
+  return [withOptionalScoreFields({
+    createdAt: nowIso,
+    forDate: input.forDate,
+    source: 'ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR',
+    symbol: result.code,
+    actualGate1Passed: false,
+    actualLiveEligible: false,
+    dryRunDecision: result.signal === 'BULLISH' ? 'PROVIDER_SOFTENED' : 'WOULD_STILL_FAIL',
+    dryRunScenario: 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481',
+    requiredScore: 70,
+    providerIssue: result.signal === 'UNKNOWN',
+    marketSignal: result.signal === 'BEARISH',
+    sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
+    sellOnly: input.sellOnly === true,
+    observationType: 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481',
+    selectedProvider: 'NAVER',
+    providerTried: ['NAVER'],
+    routeStatus: result.status,
+    routeSignal: result.signal,
+    semanticNetBuyStatus: result.semanticNetBuyCandidate?.status ?? 'DATA_UNAVAILABLE',
+    sourceDate: result.semanticNetBuyCandidate?.sourceDate ?? result.freshness.lastSourceDate,
+    sourceAgeTradingDays: result.freshness.sourceAgeTradingDays,
+    availableDays: result.coverage.availableDays,
+    requestedDays: result.coverage.requestedDays,
+    foreignAvailable: result.coverage.foreignAvailable,
+    institutionAvailable: result.coverage.institutionAvailable,
+    selectedByAdr0477: input.investorFlowProviderRouter?.selectedProvider === 'NAVER',
+    status: 'PENDING',
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    policyPromotionMode: 'SHADOW_ONLY',
+  })];
+}
+
 export function buildGate1DryRunObservationRows(input: Gate1DryRunObservationBuildInput): Gate1DryRunObservationRow[] {
   const nowIso = (input.now ?? new Date()).toISOString();
   const rows = [
     ...buildUnknownDiagnosticRows(input, nowIso),
     ...buildPositiveWiringRows(input, nowIso),
     ...buildInvestorFlowRouterRows(input, nowIso),
+    ...buildNaverInvestorTrendRowsAdr0481(input, nowIso),
     ...buildGateNearMissRows(input, nowIso),
     ...buildCounterfactualUniverseRows(input, nowIso),
   ];
@@ -515,6 +563,7 @@ export function formatGate1DryRunObservationSummary(
     sourceLine('ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'),
     sourceLine('ADR_0475_POSITIVE_SOURCE_WIRING'),
     sourceLine('ADR_0477_INVESTOR_FLOW_PROVIDER_ROUTER'),
+    sourceLine('ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR'),
     sourceLine('GATE1_NEAR_MISS'),
     `  liveExecutionAllowed: ${summary.liveExecutionAllowed}`,
     `  executionImpact: ${summary.executionImpact}`,
