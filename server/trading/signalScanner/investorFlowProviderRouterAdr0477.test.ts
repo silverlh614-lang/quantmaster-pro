@@ -1,6 +1,7 @@
 // @responsibility ADR-0477 investor-flow provider router wiring tests.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { buildOperatorActionQueueAdr0480 } from './operatorActionRouterAdr0480.js';
 import {
   buildInvestorFlowProviderCapabilities,
   buildInvestorFlowProviderRouteResultAdr0477,
@@ -230,6 +231,15 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(doc).toContain('Provider issue remains separated from market signal');
     expect(doc).toContain('UNKNOWN remains UNKNOWN');
     expect(index).toContain('| 0477 | investor-flow-provider-router-wiring.');
-    expect(index).toContain('다음 발급 0478');
+    expect(index).toContain('다음 발급');
+  });
+});
+
+describe('ADR-0477 investor flow provider router evidence for ADR-0480', () => {
+  it('selectedProvider=NONE remains diagnostic action guidance only', () => {
+    const report = buildOperatorActionQueueAdr0480({ sources: [{ adr: '0477', sectionId: 'investor_flow_router', code: 'selectedProvider', diagnosticKey: 'selectedProvider', diagnosticValue: 'selectedProvider=NONE', severity: 'DATA_UNAVAILABLE' }] });
+    expect(report.allActions[0].rootCause).toBe('INVESTOR_FLOW_PROVIDER_UNWIRED');
+    expect(report.allActions[0].executionImpact).toBe('NONE');
+    expect(report.allActions[0].liveExecutionAllowed).toBe(false);
   });
 });

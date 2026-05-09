@@ -37,6 +37,7 @@ import './marginBalance.cmd.js';
 import './marginBalanceBackfill.cmd.js';
 import './market.cmd.js';
 import './modeConsistency.cmd.js';   // ADR-0391 P0-A §A-1
+import './operatorActions.cmd.js';    // ADR-0480 Operator Action Queue
 import './execMatrix.cmd.js';        // ADR-0391 P0-A §A-2
 import './execPaths.cmd.js';         // ADR-0391 P0-A §A-3
 import './programMarket.cmd.js';

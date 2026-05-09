@@ -95,6 +95,11 @@ import {
   formatRuntimePipelineAuditSection,
   isRuntimePipelineAuditDisabled,
 } from '../../../diagnostics/runtimePipelineAudit.js';
+import {
+  collectOperatorActionSourcesFromScanSummaryAdr0480,
+  safeBuildOperatorActionQueueAdr0480,
+  safeFormatOperatorActionCompactSectionAdr0480,
+} from '../../../trading/signalScanner/operatorActionRouterAdr0480.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -374,6 +379,19 @@ const scanBlockers: TelegramCommand = {
       console.warn('[scan_blockers] ADR-461 runtime audit section failed:', err);
     }
 
+    // ADR-0480 — Operator Action Router compact Top 3.
+    // Diagnostic-only: no provider fetch, no order import, no live policy mutation.
+    // try/catch isolation is inside safeBuild/safeFormat and this outer guard.
+    let operatorActionSection: string | null = null;
+    try {
+      const operatorActionQueue = safeBuildOperatorActionQueueAdr0480({
+        sources: collectOperatorActionSourcesFromScanSummaryAdr0480(summary),
+      });
+      operatorActionSection = safeFormatOperatorActionCompactSectionAdr0480(operatorActionQueue);
+    } catch (err) {
+      console.warn('[scan_blockers] ADR-0480 operator action section failed:', err);
+    }
+
     const parts: string[] = [baseMessage];
     if (degradedSection) parts.push(degradedSection);
     if (supplyProviderSection) parts.push(supplyProviderSection);
@@ -389,6 +407,7 @@ const scanBlockers: TelegramCommand = {
     if (nearMissOutcomeLine) parts.push(nearMissOutcomeLine);
     if (nearMissAnalyticsLine) parts.push(nearMissAnalyticsLine);
     if (livenessSection) parts.push(livenessSection);
+    if (operatorActionSection) parts.push(operatorActionSection);
     if (runtimeAuditSection) parts.push(runtimeAuditSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);

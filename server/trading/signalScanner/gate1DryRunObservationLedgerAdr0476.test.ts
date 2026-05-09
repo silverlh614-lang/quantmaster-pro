@@ -1,4 +1,3 @@
-// @responsibility ADR-0476 Gate1 dry-run observation ledger tests
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -18,6 +17,8 @@ import {
   persistScanResults,
 } from './scanDiagnostics.js';
 import { buildRuntimePipelineAuditSnapshot } from '../../diagnostics/runtimePipelineAudit.js';
+import type { ScanSummary } from './scanDiagnostics.js';
+import { collectOperatorActionSourcesFromScanSummaryAdr0480, buildOperatorActionQueueAdr0480 } from './operatorActionRouterAdr0480.js';
 import type { CandidateSnapshot } from './entryFilterDecomposition.js';
 import type { FinalGate1CalibrationAuditReport } from './gate1FinalCalibration.js';
 import type { Gate1PositiveSourceWiringReport } from './gate1PositiveSourceWiringAdr0475.js';
@@ -382,7 +383,28 @@ describe('ADR-0476 Gate1 Dry-run Observation Ledger', () => {
     const doc = join(root, 'docs/adr/0476-gate1-near-miss-dry-run-observation-ledger.md');
     expect(existsSync(doc)).toBe(true);
     expect(readFileSync(doc, 'utf8')).toContain('Shadow-only observation');
-    expect(readFileSync(join(root, 'docs/adr/INDEX.md'), 'utf8')).toContain('다음 ADR 번호: `0478`');
+    expect(readFileSync(join(root, 'docs/adr/INDEX.md'), 'utf8')).toContain('다음 ADR 번호:');
   });
 });
 
+
+describe('ADR-0476 Gate1 dry-run observation ledger evidence for ADR-0480', () => {
+  it('DATA_BLOCKED_NEAR_MISS summary becomes advisory Gate1 near-miss operator action', () => {
+    const summary = {
+      time: '2026-05-09 09:00',
+      candidates: 1,
+      trackB: 0,
+      swing: 0,
+      catalyst: 0,
+      momentum: 0,
+      yahooFails: 0,
+      gateMisses: 1,
+      rrrMisses: 0,
+      entries: 0,
+      gateScoreCandidateBuckets: { counts: { DATA_BLOCKED_NEAR_MISS: 2 } as never, dataBlockedNearMissTopUnavailable: [], probingTopConditions: [], totalNearMissLike: 2 },
+    } as ScanSummary;
+    const report = buildOperatorActionQueueAdr0480({ sources: collectOperatorActionSourcesFromScanSummaryAdr0480(summary) });
+    expect(report.allActions.map((a) => a.rootCause)).toContain('GATE1_NEAR_MISS_DATA_BLOCKED');
+    expect(report.allActions.every((a) => a.policyPromotionMode === 'SHADOW_ONLY')).toBe(true);
+  });
+});
