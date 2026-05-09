@@ -123,14 +123,6 @@ import {
   safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488,
   type SectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from '../../../trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
-import {
-  formatSupplySnapshotCompactAdr0491,
-  summarizeSupplySnapshotStoreAdr0491,
-} from '../../../trading/signalScanner/supplySnapshotStoreReplayAdr0491.js';
-import {
-  formatFreshDataSchedulerCompactAdr0492,
-  runFreshDataSchedulerAdr0492,
-} from '../../../trading/signalScanner/freshDataSchedulerAdr0492.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -473,22 +465,6 @@ const scanBlockers: TelegramCommand = {
       console.warn('[scan_blockers] ADR-0480 operator action section failed:', err);
     }
 
-    let freshDataSchedulerLine: string | null = null;
-    try {
-      freshDataSchedulerLine = formatFreshDataSchedulerCompactAdr0492(
-        summary?.freshDataSchedulerAdr0492 ?? await runFreshDataSchedulerAdr0492({ session: 'UNKNOWN' }),
-      );
-    } catch (err) {
-      console.warn('[scan_blockers] ADR-0492 fresh data scheduler line failed:', err);
-    }
-
-    let supplySnapshotLine: string | null = null;
-    try {
-      supplySnapshotLine = formatSupplySnapshotCompactAdr0491(summary?.supplySnapshotStoreAdr0491 ?? summarizeSupplySnapshotStoreAdr0491());
-    } catch (err) {
-      console.warn('[scan_blockers] ADR-0491 supply snapshot line failed:', err);
-    }
-
     let supplyCoverageRecoveryLine: string | null = null;
     let supplyAdvisoryReadinessLine: string | null = null;
     let supplyRecoveryRuntimeMountLine: string | null = null;
@@ -571,8 +547,6 @@ const scanBlockers: TelegramCommand = {
     if (supplyRecoveryRuntimeMountLine) parts.push(supplyRecoveryRuntimeMountLine);
     if (freshDataSupplyLine) parts.push(freshDataSupplyLine);
     if (sectorEnergySupplyUnknownLine) parts.push(sectorEnergySupplyUnknownLine);
-    if (supplySnapshotLine) parts.push(supplySnapshotLine);
-    if (freshDataSchedulerLine) parts.push(freshDataSchedulerLine);
     if (runtimeAuditSection) parts.push(runtimeAuditSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);

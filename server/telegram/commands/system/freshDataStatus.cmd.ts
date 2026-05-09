@@ -11,10 +11,6 @@ import {
   formatSectorEnergySupplyUnknownDetailAdr0488,
   safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from '../../../trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
-import {
-  formatFreshDataSchedulerDetailAdr0492,
-  runFreshDataSchedulerAdr0492,
-} from '../../../trading/signalScanner/freshDataSchedulerAdr0492.js';
 
 const freshDataStatus: TelegramCommand = {
   name: '/fresh_data_status',
@@ -44,8 +40,7 @@ const freshDataStatus: TelegramCommand = {
       providerIssue: summary?.investorFlowProviderRouter?.signal !== 'BEARISH',
       marketSignal: false,
     });
-    const scheduler = summary?.freshDataSchedulerAdr0492 ?? await runFreshDataSchedulerAdr0492({ session: 'UNKNOWN', freshDataSupplyAdr0487: report, sectorEnergySupplyUnknownAdr0488: adr0488 });
-    await reply(`${formatFreshDataSupplyDetailAdr0487(report)}\n\n${formatSectorEnergySupplyUnknownDetailAdr0488(adr0488)}\n\n${formatFreshDataSchedulerDetailAdr0492(scheduler)}`);
+    await reply(`${formatFreshDataSupplyDetailAdr0487(report)}\n\n${formatSectorEnergySupplyUnknownDetailAdr0488(adr0488)}`);
   },
 };
 
