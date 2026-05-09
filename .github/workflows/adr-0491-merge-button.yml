@@ -1,0 +1,146 @@
+name: ADR-0491 merge button
+
+# Manual merge button for ADR-0491 follow-up PRs.
+# It validates the ADR index, confirms the target PR contains ADR-0491, and then
+# requests GitHub auto-merge so main receives the change after required checks pass.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'ADR-0491 pull request number to merge'
+        required: true
+        default: '769'
+      merge_method:
+        description: 'GitHub merge method'
+        required: true
+        type: choice
+        default: squash
+        options:
+          - squash
+          - merge
+          - rebase
+      delete_branch:
+        description: 'Delete source branch after merge'
+        required: true
+        type: boolean
+        default: false
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'docs/adr/0491-adr-merge-conflict-resolution-continuation.md'
+      - 'docs/adr/INDEX.md'
+      - 'CLAUDE.md'
+      - '.github/workflows/adr-0491-merge-button.yml'
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  actions: read
+
+jobs:
+  validate-adr-0491:
+    name: Validate ADR-0491 merge readiness
+    runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+    steps:
+      - name: Resolve PR number
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_PR_NUMBER: ${{ inputs.pr_number }}
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            pr_number="${DISPATCH_PR_NUMBER}"
+          else
+            pr_number="${EVENT_PR_NUMBER}"
+          fi
+
+          if ! printf '%s' "${pr_number}" | grep -Eq '^[0-9]+$'; then
+            echo "::error::pr_number must be numeric"
+            exit 1
+          fi
+
+          echo "pr_number=${pr_number}" >> "${GITHUB_OUTPUT}"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate no unmerged index entries
+        run: |
+          set -euo pipefail
+          if [ -n "$(git ls-files -u)" ]; then
+            git ls-files -u
+            echo "::error::Unmerged index entries detected"
+            exit 1
+          fi
+
+      - name: Validate no checked-in conflict markers
+        run: |
+          set -euo pipefail
+          if git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- . ':!node_modules' ':!package-lock.json'; then
+            echo "::error::Conflict markers detected"
+            exit 1
+          fi
+
+      - name: Validate ADR-0491 file and index
+        run: |
+          set -euo pipefail
+          test -f docs/adr/0491-adr-merge-conflict-resolution-continuation.md
+          grep -q 'ADR-0491' docs/adr/0491-adr-merge-conflict-resolution-continuation.md
+          grep -q '| 0491 | adr-merge-conflict-resolution-continuation' docs/adr/INDEX.md
+          grep -q '다음 ADR 번호: `0492`' docs/adr/INDEX.md
+          node scripts/check_adr_index.js
+
+      - name: Confirm PR is ADR-0491 scoped
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          gh pr view "${PR_NUMBER}" --json number,state,isDraft,baseRefName,files \
+            --jq '
+              if .state != "OPEN" then error("PR is not open") else . end |
+              if .isDraft then error("PR is draft") else . end |
+              if .baseRefName != "main" then error("PR base must be main") else . end |
+              if ([.files[].path] | any(. == "docs/adr/0491-adr-merge-conflict-resolution-continuation.md")) then . else error("PR does not include ADR-0491 file") end |
+              "PR #\(.number) is open, targets main, and includes ADR-0491."
+            '
+
+  request-merge:
+    name: Request merge into main
+    needs: validate-adr-0491
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Merge PR or enable auto-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.validate-adr-0491.outputs.pr_number }}
+          MERGE_METHOD: ${{ inputs.merge_method }}
+          DELETE_BRANCH: ${{ inputs.delete_branch }}
+        run: |
+          set -euo pipefail
+
+          delete_flag=""
+          if [ "${DELETE_BRANCH}" = "true" ]; then
+            delete_flag="--delete-branch"
+          fi
+
+          case "${MERGE_METHOD}" in
+            squash) method_flag="--squash" ;;
+            merge) method_flag="--merge" ;;
+            rebase) method_flag="--rebase" ;;
+            *) echo "::error::Unsupported merge method: ${MERGE_METHOD}"; exit 1 ;;
+          esac
+
+          gh pr merge "${PR_NUMBER}" ${method_flag} --auto ${delete_flag}

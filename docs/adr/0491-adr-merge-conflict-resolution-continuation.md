@@ -74,6 +74,12 @@ Required validation for this PR:
 - conflict-marker scan excluding `node_modules` returns zero rows;
 - `node scripts/check_adr_index.js` exits successfully.
 
+## Merge button follow-up
+
+ADR-0491 follow-up PRs can use the manual GitHub Actions workflow `.github/workflows/adr-0491-merge-button.yml` as the merge button. The workflow validates the ADR-0491 file, `docs/adr/INDEX.md`, unmerged-index state, conflict markers, and `node scripts/check_adr_index.js`; when manually dispatched with the PR number, it requests GitHub auto-merge into `main` after required checks pass.
+
+Railway runtime completion still requires the deployment target to pick up the merged `main` commit. If Railway tracks `main`, treat runtime completion as confirmed only after Railway creates a post-merge deployment and its logs show the expected commit SHA.
+
 ## Consequences
 
 ADR-0491 becomes the explicit continuation record for the ADR-numbering merge-conflict path. Subsequent ADR work must use `0492` from `docs/adr/INDEX.md` and must not reopen ADR-0491 numbering.
