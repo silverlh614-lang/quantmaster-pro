@@ -1,0 +1,808 @@
+// @responsibility ADR-0488 SectorEnergy master supply line + supply UNKNOWN policy stabilization; SHADOW_ONLY, no live execution.
+import type { OperatorActionSource } from './operatorActionRouterAdr0480.js';
+import type { FreshDataSupplyReportAdr0487 } from './freshDataSupplyLayerAdr0487.js';
+import type { FinalGate1CalibrationAuditReport, UnknownPenaltyPolicyScenario } from './gate1FinalCalibration.js';
+import type { PenaltyDeduplicationReport } from './gate1PenaltyDeduplication.js';
+import type { CandidateSnapshot } from './entryFilterDecomposition.js';
+
+export type SectorEnergyMasterStatusAdr0488 =
+  | 'FETCH_OK'
+  | 'PARTIAL'
+  | 'DEGRADED'
+  | 'DATA_UNAVAILABLE'
+  | 'UNKNOWN';
+
+export type SupplyUnknownPolicyStatusAdr0488 =
+  | 'OBSERVING'
+  | 'VERIFIED_DISABLED'
+  | 'DATA_UNAVAILABLE'
+  | 'UNKNOWN';
+
+export type SupplyUnknownRootCauseAdr0488 =
+  | 'SUPPLY_PROVIDER_UNKNOWN'
+  | 'SUPPLY_DATA_UNAVAILABLE'
+  | 'PROVIDER_MISMATCH'
+  | 'CACHE_EMPTY'
+  | 'NON_TRADING_DAY'
+  | 'MARKET_BEARISH_SUPPLY_SIGNAL';
+
+export type SupplyUnknownDryRunVariantAdr0488 =
+  | 'UNKNOWN_DIAGNOSTIC_ONLY'
+  | 'UNKNOWN_TO_CONFIDENCE_DOWNGRADE'
+  | 'UNKNOWN_TO_SIZING_ONLY'
+  | 'BEARISH_ONLY_SUPPLY_PENALTY';
+
+export interface SectorEnergyMasterRecordAdr0488 {
+  sectorName: string;
+  indexCode: string | null;
+  market: string;
+  source: 'KRX' | 'CACHE' | 'INTERNAL' | 'UNKNOWN';
+  normalized: boolean;
+  coverageMetadata: {
+    hasIndexCode: boolean;
+    aggregateIgnored: boolean;
+    aliasCandidate: boolean;
+  };
+  fetchedAt: string | null;
+  observedAt: string;
+}
+
+export interface SectorEnergyMasterMappingDiagnosticsAdr0488 {
+  sectorToIndexCode: Record<string, string>;
+  indexCodeToSectorName: Record<string, string>;
+  missingIndexCodeCount: number;
+  unresolvedSectorNames: string[];
+  aggregateIgnoredCount: number;
+  aliasMissingCount: number;
+  safeAliasCandidatesCount: number;
+  unsafeAliasCandidatesCount: number;
+  symmetryPassed: boolean;
+  topGaps: string[];
+}
+
+export interface SectorEnergyMasterSupplyLineReportAdr0488 {
+  generatedAt: string;
+  status: SectorEnergyMasterStatusAdr0488;
+  records: SectorEnergyMasterRecordAdr0488[];
+  mappingDiagnostics: SectorEnergyMasterMappingDiagnosticsAdr0488;
+  indexCodeCoverageBefore: number;
+  indexCodeCoverageAfter: number;
+  coveragePct: number;
+  fresh: number;
+  stale: number;
+  missing: number;
+  providerError: number;
+  fallbackUsed: 'STOCK_DAILY' | 'NONE' | 'UNKNOWN';
+  leadershipConfidence: 'BLOCKED' | 'OBSERVE_READY' | 'UNKNOWN';
+  sectorBoostAllowed: false;
+  strongBuyAllowed: false;
+  liveExecutionAllowed: false;
+  executionImpact: 'NONE';
+  operatorApprovalRequired: true;
+  topGaps: string[];
+  recommendedNextActions: string[];
+  diagnostics: string[];
+}
+
+export interface SupplyUnknownRootCauseClassificationAdr0488 {
+  providerIssue: boolean;
+  marketSignal: boolean;
+  rootCause: SupplyUnknownRootCauseAdr0488;
+  providerVerified: boolean;
+  duplicatePenaltyGroupCollapsed: boolean;
+  diagnosticOnly: true;
+  executionImpact: 'NONE';
+}
+
+export interface SupplyUnknownDryRunVariantResultAdr0488 {
+  variant: SupplyUnknownDryRunVariantAdr0488;
+  active: boolean;
+  pointPenaltyAvg: number;
+  netScoreAvg: number;
+  survivors: number;
+  shadowOnly: true;
+  liveExecutionAllowed: false;
+  executionImpact: 'NONE';
+  operatorApprovalRequired: true;
+  reason: 'SUPPLY_UNKNOWN_DIAGNOSTIC_ONLY';
+}
+
+export interface SupplyUnknownPolicyStabilizationReportAdr0488 {
+  generatedAt: string;
+  status: SupplyUnknownPolicyStatusAdr0488;
+  classification: SupplyUnknownRootCauseClassificationAdr0488;
+  providerIssue: boolean;
+  marketSignal: boolean;
+  unknownPolicyActive: boolean;
+  originalPenaltyAvg: number;
+  dedupedPenaltyAvg: number;
+  removedPenaltyAvg: number;
+  originalNetScoreAvg: number;
+  diagnosticPolicyNetAvg: number;
+  survivorsCurrent: number;
+  survivorsUnknownDiagnosticOnly: number;
+  providerVerifiedOverrideWarning: boolean;
+  autoDisableWhenProviderVerified: true;
+  requiredScore: 70;
+  dryRunVariants: SupplyUnknownDryRunVariantResultAdr0488[];
+  topGaps: string[];
+  recommendedNextActions: string[];
+  liveExecutionAllowed: false;
+  executionImpact: 'NONE';
+  policyPromotionMode: 'SHADOW_ONLY';
+  operatorApprovalRequired: true;
+  diagnostics: string[];
+}
+
+export interface SectorEnergyAndSupplyUnknownPolicyReportAdr0488 {
+  generatedAt: string;
+  overallStatus: 'OBSERVING' | 'PARTIAL' | 'DEGRADED' | 'DATA_UNAVAILABLE' | 'UNKNOWN';
+  sectorEnergyMaster: SectorEnergyMasterSupplyLineReportAdr0488;
+  supplyUnknownPolicy: SupplyUnknownPolicyStabilizationReportAdr0488;
+  topGaps: string[];
+  recommendedNextActions: string[];
+  executionImpact: 'NONE';
+  liveExecutionAllowed: false;
+  policyPromotionMode: 'SHADOW_ONLY';
+  operatorApprovalRequired: true;
+  diagnostics: string[];
+}
+
+export interface SectorEnergyMasterInputRecordAdr0488 {
+  sectorName?: string | null;
+  indexCode?: string | null;
+  market?: string | null;
+  source?: string | null;
+  normalized?: boolean | null;
+  fetchedAt?: string | null;
+  observedAt?: string | null;
+  aggregate?: boolean | null;
+  aggregateIgnored?: boolean | null;
+  aliasCandidate?: boolean | null;
+  rawPayload?: unknown;
+  payload?: unknown;
+}
+
+export interface BuildSectorEnergyMasterReportInputAdr0488 {
+  generatedAt?: string;
+  sectorMasterRecords?: readonly SectorEnergyMasterInputRecordAdr0488[] | null;
+  sectorEnergyDiagnosticAdr0474?: Record<string, unknown> | null;
+  freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487 | null;
+}
+
+export interface BuildSupplyUnknownPolicyReportInputAdr0488 {
+  generatedAt?: string;
+  providerIssue?: boolean | null;
+  marketSignal?: boolean | null;
+  providerStatus?: string | null;
+  currentSupplySignal?: string | null;
+  finalGate1CalibrationAdr0471?: FinalGate1CalibrationAuditReport | null;
+  penaltyDeduplicationAdr0469?: PenaltyDeduplicationReport | null;
+  candidateSnapshots?: readonly CandidateSnapshot[] | null;
+  originalPenaltyAvg?: number | null;
+  dedupedPenaltyAvg?: number | null;
+  originalNetScoreAvg?: number | null;
+  diagnosticPolicyNetAvg?: number | null;
+  survivorsCurrent?: number | null;
+  survivorsUnknownDiagnosticOnly?: number | null;
+}
+
+export interface BuildSectorEnergyAndSupplyUnknownPolicyReportInputAdr0488
+  extends BuildSectorEnergyMasterReportInputAdr0488, BuildSupplyUnknownPolicyReportInputAdr0488 {
+  throwForTest?: boolean;
+}
+
+const REQUIRED_SCORE_ADR0488 = 70;
+const AGGREGATE_SECTOR_NAMES = new Set([
+  'KOSPI',
+  'KOSDAQ',
+  'KONEX',
+  'TOTAL',
+  'ALL',
+  'MARKET',
+  'INDEX',
+  '코스피',
+  '코스닥',
+  '코넥스',
+  '제조',
+  '전체',
+  '합계',
+  '시장전체',
+]);
+
+function nowIso(input?: string): string {
+  return input ?? new Date().toISOString();
+}
+
+function finite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function numberOr(value: unknown, fallback: number): number {
+  return finite(value) ? value : fallback;
+}
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function roundPct(value: number): number {
+  return Math.round(value * 1_000) / 10;
+}
+
+function clampRatio(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value > 1) return Math.max(0, Math.min(1, value / 100));
+  return Math.max(0, Math.min(1, value));
+}
+
+function safeString(value: unknown, fallback = ''): string {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+function normalizedProvider(value: unknown): SectorEnergyMasterRecordAdr0488['source'] {
+  const provider = safeString(value, 'UNKNOWN').toUpperCase();
+  if (provider === 'KRX') return 'KRX';
+  if (provider === 'CACHE') return 'CACHE';
+  if (provider === 'INTERNAL') return 'INTERNAL';
+  return 'UNKNOWN';
+}
+
+function isAggregateSectorName(name: string): boolean {
+  const normalized = name.trim().replace(/\s+/g, '').toUpperCase();
+  return AGGREGATE_SECTOR_NAMES.has(normalized) || AGGREGATE_SECTOR_NAMES.has(name.trim());
+}
+
+function sanitizeMasterRecord(record: SectorEnergyMasterInputRecordAdr0488, observedAt: string): SectorEnergyMasterRecordAdr0488 | null {
+  const sectorName = safeString(record.sectorName);
+  if (!sectorName) return null;
+  const aggregateIgnored = record.aggregate === true || record.aggregateIgnored === true || isAggregateSectorName(sectorName);
+  const indexCode = safeString(record.indexCode) || null;
+  return {
+    sectorName,
+    indexCode: aggregateIgnored ? null : indexCode,
+    market: safeString(record.market, 'KR'),
+    source: normalizedProvider(record.source),
+    normalized: record.normalized === true || Boolean(indexCode && !aggregateIgnored),
+    coverageMetadata: {
+      hasIndexCode: Boolean(indexCode && !aggregateIgnored),
+      aggregateIgnored,
+      aliasCandidate: record.aliasCandidate === true,
+    },
+    fetchedAt: safeString(record.fetchedAt) || null,
+    observedAt: safeString(record.observedAt, observedAt),
+  };
+}
+
+function diagnosticNumber(diag: Record<string, unknown> | null | undefined, keys: string[], fallback: number): number {
+  for (const key of keys) {
+    const value = diag?.[key];
+    if (finite(value)) return value;
+  }
+  return fallback;
+}
+
+function diagnosticString(diag: Record<string, unknown> | null | undefined, keys: string[], fallback: string): string {
+  for (const key of keys) {
+    const value = diag?.[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return fallback;
+}
+
+function diagnosticsEvidencePresent(input: BuildSectorEnergyMasterReportInputAdr0488): boolean {
+  return Boolean(input.sectorEnergyDiagnosticAdr0474) || Boolean(input.freshDataSupplyAdr0487) || Boolean(input.sectorMasterRecords?.length);
+}
+
+function buildMappingDiagnostics(
+  records: readonly SectorEnergyMasterRecordAdr0488[],
+  diag: Record<string, unknown> | null | undefined,
+): SectorEnergyMasterMappingDiagnosticsAdr0488 {
+  const sectorToIndexCode: Record<string, string> = {};
+  const indexCodeToSectorName: Record<string, string> = {};
+  const unresolved = new Set<string>();
+  let aggregateIgnoredCount = 0;
+  let missingIndexCodeCount = 0;
+
+  for (const record of records) {
+    if (record.coverageMetadata.aggregateIgnored) {
+      aggregateIgnoredCount += 1;
+      continue;
+    }
+    if (!record.indexCode) {
+      missingIndexCodeCount += 1;
+      unresolved.add(record.sectorName);
+      continue;
+    }
+    sectorToIndexCode[record.sectorName] = record.indexCode;
+    indexCodeToSectorName[record.indexCode] = record.sectorName;
+  }
+
+  if (records.length === 0) {
+    missingIndexCodeCount = diagnosticNumber(diag, ['missingIndexCodeCount'], 0);
+    aggregateIgnoredCount = diagnosticNumber(diag, ['aggregateIgnoredCount', 'aggregateIgnored'], 0);
+    const unresolvedFromDiag = diag?.unresolvedSectorNames;
+    if (Array.isArray(unresolvedFromDiag)) {
+      for (const item of unresolvedFromDiag) {
+        const value = safeString(item);
+        if (value) unresolved.add(value);
+      }
+    }
+  }
+
+  const aliasMissingCount = diagnosticNumber(diag, ['aliasMissingCount', 'aliasMissing'], 0);
+  const safeAliasCandidatesCount = diagnosticNumber(diag, ['safeAliasCandidatesCount', 'aliasCandidateCount', 'safeAliasCandidates'], 0);
+  const unsafeAliasCandidatesCount = diagnosticNumber(diag, ['unsafeAliasCandidateCount', 'unsafeAliasCandidatesCount', 'unsafeAliasCandidates'], 0);
+  const duplicateIndexCodes = Object.keys(indexCodeToSectorName).length !== new Set(Object.values(sectorToIndexCode)).size;
+  const symmetryPassed = !duplicateIndexCodes && missingIndexCodeCount === 0 && unsafeAliasCandidatesCount === 0;
+  const topGaps: string[] = [];
+  if (aggregateIgnoredCount > 0) topGaps.push('REPAIR_SECTOR_INDEX_MASTER');
+  if (missingIndexCodeCount > 0) topGaps.push('IMPROVE_INDEX_CODE_COVERAGE');
+  if (aliasMissingCount > 0) topGaps.push('REDUCE_ALIAS_MISSING');
+  if (unsafeAliasCandidatesCount > 0) topGaps.push('BLOCK_UNSAFE_ALIAS_CANDIDATES');
+
+  return {
+    sectorToIndexCode,
+    indexCodeToSectorName,
+    missingIndexCodeCount,
+    unresolvedSectorNames: Array.from(unresolved).slice(0, 12),
+    aggregateIgnoredCount,
+    aliasMissingCount,
+    safeAliasCandidatesCount,
+    unsafeAliasCandidatesCount,
+    symmetryPassed,
+    topGaps,
+  };
+}
+
+function sectorTopGaps(input: {
+  status: SectorEnergyMasterStatusAdr0488;
+  coveragePct: number;
+  mapping: SectorEnergyMasterMappingDiagnosticsAdr0488;
+  fallbackUsed: string;
+}): string[] {
+  const gaps = new Set<string>();
+  if (input.status === 'DATA_UNAVAILABLE') gaps.add('REPAIR_SECTOR_INDEX_MASTER');
+  if (input.coveragePct < 80) gaps.add('IMPROVE_INDEX_CODE_COVERAGE');
+  for (const gap of input.mapping.topGaps) gaps.add(gap);
+  if (input.fallbackUsed === 'STOCK_DAILY') gaps.add('DO_NOT_USE_STOCK_DAILY_FOR_LEADERSHIP_CONFIDENCE');
+  return Array.from(gaps);
+}
+
+function sectorActions(gaps: readonly string[]): string[] {
+  if (gaps.length === 0) return ['OBSERVE_SECTOR_MASTER_SUPPLY_LINE'];
+  return gaps.map((gap) => {
+    if (gap === 'REPAIR_SECTOR_INDEX_MASTER') return 'Repair KRX sector index master before any leadership-confidence use.';
+    if (gap === 'IMPROVE_INDEX_CODE_COVERAGE') return 'Improve sectorName/indexCode coverage in OBSERVE mode.';
+    if (gap === 'REDUCE_ALIAS_MISSING') return 'Review safe aliases without mapping broad aggregates into sector leadership.';
+    if (gap === 'BLOCK_UNSAFE_ALIAS_CANDIDATES') return 'Keep unsafe alias candidates blocked until operator review.';
+    if (gap === 'DO_NOT_USE_STOCK_DAILY_FOR_LEADERSHIP_CONFIDENCE') return 'Keep STOCK_DAILY fallback diagnostic-only; do not unlock SectorEnergy boost.';
+    return `Observe ${gap} before promotion.`;
+  });
+}
+
+export function buildSectorEnergyMasterReportAdr0488(
+  input: BuildSectorEnergyMasterReportInputAdr0488 = {},
+): SectorEnergyMasterSupplyLineReportAdr0488 {
+  const generatedAt = nowIso(input.generatedAt);
+  const diag = input.sectorEnergyDiagnosticAdr0474 ?? null;
+  const records = (input.sectorMasterRecords ?? [])
+    .map((record) => sanitizeMasterRecord(record, generatedAt))
+    .filter((record): record is SectorEnergyMasterRecordAdr0488 => Boolean(record));
+  const mapping = buildMappingDiagnostics(records, diag);
+  const nonAggregateRecords = records.filter((record) => !record.coverageMetadata.aggregateIgnored);
+  const coveredRecords = nonAggregateRecords.filter((record) => record.coverageMetadata.hasIndexCode);
+  const computedCoverage = nonAggregateRecords.length > 0 ? coveredRecords.length / nonAggregateRecords.length : 0;
+  const before = clampRatio(diagnosticNumber(diag, ['indexCodeCoverageBefore', 'indexCodeCoverage'], computedCoverage));
+  const afterFromDiag = diagnosticNumber(
+    diag,
+    ['indexCodeCoverageAfter', 'indexCodeCoverageAfterAliasCandidate', 'indexCodeCoverageAfterNameLookup'],
+    Number.NaN,
+  );
+  const after = clampRatio(Number.isFinite(afterFromDiag) ? afterFromDiag : (computedCoverage > 0 ? computedCoverage : before));
+  const fallbackUsedRaw = diagnosticString(diag, ['fallbackUsed'], 'UNKNOWN');
+  const fallbackUsed: SectorEnergyMasterSupplyLineReportAdr0488['fallbackUsed'] =
+    fallbackUsedRaw === 'STOCK_DAILY' ? 'STOCK_DAILY' : fallbackUsedRaw === 'NONE' ? 'NONE' : 'UNKNOWN';
+  const evidencePresent = diagnosticsEvidencePresent(input);
+  const status: SectorEnergyMasterStatusAdr0488 =
+    !evidencePresent ? 'DATA_UNAVAILABLE'
+      : after <= 0 ? 'DATA_UNAVAILABLE'
+        : after < 0.4 || !mapping.symmetryPassed ? 'DEGRADED'
+          : after < 0.8 ? 'PARTIAL'
+            : 'FETCH_OK';
+  const topGaps = sectorTopGaps({ status, coveragePct: roundPct(after), mapping, fallbackUsed });
+  const leadershipSafe = status === 'FETCH_OK' && fallbackUsed !== 'STOCK_DAILY' && mapping.unsafeAliasCandidatesCount === 0 && mapping.symmetryPassed;
+  const diagnostics: string[] = [];
+  if (!evidencePresent) diagnostics.push('SectorEnergy master source evidence missing.');
+  if (fallbackUsed === 'STOCK_DAILY') diagnostics.push('STOCK_DAILY fallback remains diagnostic-only.');
+  if (mapping.unsafeAliasCandidatesCount > 0) diagnostics.push('Unsafe alias candidates do not unlock leadership confidence.');
+  if (!mapping.symmetryPassed) diagnostics.push('sectorName/indexCode symmetry is incomplete.');
+
+  return {
+    generatedAt,
+    status,
+    records,
+    mappingDiagnostics: mapping,
+    indexCodeCoverageBefore: roundPct(before),
+    indexCodeCoverageAfter: roundPct(after),
+    coveragePct: roundPct(after),
+    fresh: status === 'FETCH_OK' || status === 'PARTIAL' ? coveredRecords.length : 0,
+    stale: diagnosticString(diag, ['dataQuality'], '') === 'STALE' ? 1 : 0,
+    missing: status === 'DATA_UNAVAILABLE' ? 1 : mapping.missingIndexCodeCount,
+    providerError: diagnosticString(diag, ['dataQuality'], '') === 'ERROR' ? 1 : 0,
+    fallbackUsed,
+    leadershipConfidence: leadershipSafe ? 'OBSERVE_READY' : 'BLOCKED',
+    sectorBoostAllowed: false,
+    strongBuyAllowed: false,
+    liveExecutionAllowed: false,
+    executionImpact: 'NONE',
+    operatorApprovalRequired: true,
+    topGaps,
+    recommendedNextActions: sectorActions(topGaps),
+    diagnostics,
+  };
+}
+
+function candidateProviderIssue(input: BuildSupplyUnknownPolicyReportInputAdr0488): boolean {
+  if (typeof input.providerIssue === 'boolean') return input.providerIssue;
+  return (input.candidateSnapshots ?? []).some((snapshot) => snapshot.supplyProviderHealth?.providerIssue === true);
+}
+
+function candidateMarketSignal(input: BuildSupplyUnknownPolicyReportInputAdr0488): boolean {
+  if (typeof input.marketSignal === 'boolean') return input.marketSignal;
+  return (input.candidateSnapshots ?? []).some((snapshot) => snapshot.supplyProviderHealth?.marketSignal === true);
+}
+
+export function classifySupplyUnknownRootCauseAdr0488(
+  input: BuildSupplyUnknownPolicyReportInputAdr0488 = {},
+): SupplyUnknownRootCauseClassificationAdr0488 {
+  const statusText = [
+    input.providerStatus,
+    input.currentSupplySignal,
+    input.finalGate1CalibrationAdr0471?.providerRecoveryGuard.providerHealth,
+  ].filter(Boolean).join(' ').toUpperCase();
+  const providerVerified = statusText.includes('VERIFIED');
+  const marketSignal = candidateMarketSignal(input);
+  const providerIssue = !providerVerified && (candidateProviderIssue(input) || statusText.includes('UNKNOWN') || statusText.includes('UNAVAILABLE') || statusText.includes('EMPTY') || statusText.includes('MISMATCH'));
+  let rootCause: SupplyUnknownRootCauseAdr0488 = 'SUPPLY_PROVIDER_UNKNOWN';
+  if (marketSignal && !providerIssue) rootCause = 'MARKET_BEARISH_SUPPLY_SIGNAL';
+  else if (statusText.includes('MISMATCH')) rootCause = 'PROVIDER_MISMATCH';
+  else if (statusText.includes('CACHE_EMPTY') || statusText.includes('EMPTY')) rootCause = 'CACHE_EMPTY';
+  else if (statusText.includes('NON_TRADING')) rootCause = 'NON_TRADING_DAY';
+  else if (statusText.includes('UNAVAILABLE') || statusText.includes('DATA_UNAVAILABLE')) rootCause = 'SUPPLY_DATA_UNAVAILABLE';
+  return {
+    providerIssue,
+    marketSignal,
+    rootCause,
+    providerVerified,
+    duplicatePenaltyGroupCollapsed: providerIssue && !marketSignal,
+    diagnosticOnly: true,
+    executionImpact: 'NONE',
+  };
+}
+
+function scenarioFor(
+  report: FinalGate1CalibrationAuditReport | null | undefined,
+  scenario: UnknownPenaltyPolicyScenario,
+) {
+  return report?.unknownPolicyScenarios.find((item) => item.scenario === scenario) ?? null;
+}
+
+function currentSurvivors(input: BuildSupplyUnknownPolicyReportInputAdr0488): number {
+  if (finite(input.survivorsCurrent)) return input.survivorsCurrent;
+  const current = scenarioFor(input.finalGate1CalibrationAdr0471, 'CURRENT_RETAIN_10');
+  if (current) return current.gate1Survivors;
+  return input.penaltyDeduplicationAdr0469?.survivorsAfterDedup ?? 0;
+}
+
+function variantResult(
+  input: BuildSupplyUnknownPolicyReportInputAdr0488,
+  variant: SupplyUnknownDryRunVariantAdr0488,
+  active: boolean,
+): SupplyUnknownDryRunVariantResultAdr0488 {
+  const scenario = scenarioFor(input.finalGate1CalibrationAdr0471, variant);
+  return {
+    variant,
+    active,
+    pointPenaltyAvg: round1(scenario?.pointPenaltyAvg ?? (variant === 'UNKNOWN_DIAGNOSTIC_ONLY' ? 0 : input.penaltyDeduplicationAdr0469?.unknownPenaltyAvg ?? 0)),
+    netScoreAvg: round1(scenario?.netScoreAvg ?? input.diagnosticPolicyNetAvg ?? input.finalGate1CalibrationAdr0471?.unknownDiagnosticNetAvg ?? input.penaltyDeduplicationAdr0469?.dedupedNetScoreAvg ?? 0),
+    survivors: scenario?.gate1Survivors ?? (variant === 'UNKNOWN_DIAGNOSTIC_ONLY' ? input.survivorsUnknownDiagnosticOnly ?? 0 : 0),
+    shadowOnly: true,
+    liveExecutionAllowed: false,
+    executionImpact: 'NONE',
+    operatorApprovalRequired: true,
+    reason: 'SUPPLY_UNKNOWN_DIAGNOSTIC_ONLY',
+  };
+}
+
+export function buildSupplyUnknownPolicyReportAdr0488(
+  input: BuildSupplyUnknownPolicyReportInputAdr0488 = {},
+): SupplyUnknownPolicyStabilizationReportAdr0488 {
+  const generatedAt = nowIso(input.generatedAt);
+  const classification = classifySupplyUnknownRootCauseAdr0488(input);
+  const active = classification.providerIssue && !classification.marketSignal && !classification.providerVerified;
+  const unknownScenario = scenarioFor(input.finalGate1CalibrationAdr0471, 'UNKNOWN_DIAGNOSTIC_ONLY');
+  const originalPenaltyAvg = round1(numberOr(input.originalPenaltyAvg, input.penaltyDeduplicationAdr0469?.originalPenaltyAvg ?? 0));
+  const dedupedPenaltyAvg = round1(numberOr(input.dedupedPenaltyAvg, input.penaltyDeduplicationAdr0469?.dedupedPenaltyAvg ?? originalPenaltyAvg));
+  const originalNetScoreAvg = round1(numberOr(input.originalNetScoreAvg, input.penaltyDeduplicationAdr0469?.originalNetScoreAvg ?? input.finalGate1CalibrationAdr0471?.bestRepairedNetAvg ?? 0));
+  const diagnosticPolicyNetAvg = round1(numberOr(input.diagnosticPolicyNetAvg, unknownScenario?.netScoreAvg ?? input.finalGate1CalibrationAdr0471?.unknownDiagnosticNetAvg ?? originalNetScoreAvg));
+  const survivorsUnknownDiagnosticOnly = numberOr(input.survivorsUnknownDiagnosticOnly, unknownScenario?.gate1Survivors ?? 0);
+  const dryRunVariants = ([
+    'UNKNOWN_DIAGNOSTIC_ONLY',
+    'UNKNOWN_TO_CONFIDENCE_DOWNGRADE',
+    'UNKNOWN_TO_SIZING_ONLY',
+    'BEARISH_ONLY_SUPPLY_PENALTY',
+  ] as const).map((variant) => variantResult(input, variant, active && variant !== 'BEARISH_ONLY_SUPPLY_PENALTY'));
+  const status: SupplyUnknownPolicyStatusAdr0488 =
+    classification.providerVerified ? 'VERIFIED_DISABLED'
+      : active ? 'OBSERVING'
+        : !classification.providerIssue && !classification.marketSignal ? 'DATA_UNAVAILABLE'
+          : 'OBSERVING';
+  const topGaps = new Set<string>();
+  if (active) {
+    topGaps.add('SUPPLY_UNKNOWN_POLICY_OBSERVE');
+    topGaps.add('COLLECT_SUPPLY_SAMPLE_BEFORE_PROMOTION');
+  }
+  if (classification.rootCause === 'SUPPLY_DATA_UNAVAILABLE' || classification.rootCause === 'CACHE_EMPTY') {
+    topGaps.add('COLLECT_SUPPLY_SAMPLE_BEFORE_PROMOTION');
+  }
+  const diagnostics: string[] = [];
+  if (classification.providerVerified) diagnostics.push('Provider VERIFIED disables supply UNKNOWN diagnostic relaxation.');
+  if (classification.providerIssue && !classification.marketSignal) diagnostics.push('Provider issue remains diagnostic-only and is not classified as market signal.');
+  if (classification.marketSignal) diagnostics.push('Market supply signal remains separate from provider issue.');
+
+  return {
+    generatedAt,
+    status,
+    classification,
+    providerIssue: classification.providerIssue,
+    marketSignal: classification.marketSignal,
+    unknownPolicyActive: active,
+    originalPenaltyAvg,
+    dedupedPenaltyAvg,
+    removedPenaltyAvg: round1(numberOr(input.penaltyDeduplicationAdr0469?.removedPenaltyAvg, originalPenaltyAvg - dedupedPenaltyAvg)),
+    originalNetScoreAvg,
+    diagnosticPolicyNetAvg,
+    survivorsCurrent: currentSurvivors(input),
+    survivorsUnknownDiagnosticOnly,
+    providerVerifiedOverrideWarning: classification.providerVerified,
+    autoDisableWhenProviderVerified: true,
+    requiredScore: REQUIRED_SCORE_ADR0488,
+    dryRunVariants,
+    topGaps: Array.from(topGaps),
+    recommendedNextActions: active
+      ? ['OBSERVE_3D_THEN_OPERATOR_APPROVAL', 'COLLECT_SUPPLY_SAMPLE_BEFORE_PROMOTION']
+      : ['WAIT_FOR_PROVIDER_VERIFICATION_OR_SAMPLE_EVIDENCE'],
+    liveExecutionAllowed: false,
+    executionImpact: 'NONE',
+    policyPromotionMode: 'SHADOW_ONLY',
+    operatorApprovalRequired: true,
+    diagnostics,
+  };
+}
+
+function overallStatus(
+  sector: SectorEnergyMasterSupplyLineReportAdr0488,
+  supply: SupplyUnknownPolicyStabilizationReportAdr0488,
+): SectorEnergyAndSupplyUnknownPolicyReportAdr0488['overallStatus'] {
+  if (sector.status === 'DATA_UNAVAILABLE' && supply.status === 'DATA_UNAVAILABLE') return 'DATA_UNAVAILABLE';
+  if (sector.status === 'DEGRADED') return 'DEGRADED';
+  if (sector.status === 'PARTIAL' || supply.status === 'OBSERVING') return 'PARTIAL';
+  if (sector.status === 'FETCH_OK') return 'OBSERVING';
+  return 'UNKNOWN';
+}
+
+export function buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488(
+  input: BuildSectorEnergyAndSupplyUnknownPolicyReportInputAdr0488 = {},
+): SectorEnergyAndSupplyUnknownPolicyReportAdr0488 {
+  if (input.throwForTest) throw new Error('ADR-0488 test failure');
+  const generatedAt = nowIso(input.generatedAt);
+  const sectorEnergyMaster = buildSectorEnergyMasterReportAdr0488({ ...input, generatedAt });
+  const supplyUnknownPolicy = buildSupplyUnknownPolicyReportAdr0488({ ...input, generatedAt });
+  const topGaps = Array.from(new Set([...sectorEnergyMaster.topGaps, ...supplyUnknownPolicy.topGaps]));
+  const recommendedNextActions = [
+    ...sectorEnergyMaster.recommendedNextActions,
+    ...supplyUnknownPolicy.recommendedNextActions,
+  ].slice(0, 8);
+  return {
+    generatedAt,
+    overallStatus: overallStatus(sectorEnergyMaster, supplyUnknownPolicy),
+    sectorEnergyMaster,
+    supplyUnknownPolicy,
+    topGaps,
+    recommendedNextActions,
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    policyPromotionMode: 'SHADOW_ONLY',
+    operatorApprovalRequired: true,
+    diagnostics: [...sectorEnergyMaster.diagnostics, ...supplyUnknownPolicy.diagnostics],
+  };
+}
+
+export function safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488(
+  input: BuildSectorEnergyAndSupplyUnknownPolicyReportInputAdr0488 = {},
+): SectorEnergyAndSupplyUnknownPolicyReportAdr0488 {
+  try {
+    return buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488(input);
+  } catch (error) {
+    console.warn('[ADR-0488] build failed; returning isolated diagnostic-only fallback:', error);
+    const generatedAt = nowIso(input.generatedAt);
+    return {
+      generatedAt,
+      overallStatus: 'UNKNOWN',
+      sectorEnergyMaster: buildSectorEnergyMasterReportAdr0488({ generatedAt }),
+      supplyUnknownPolicy: buildSupplyUnknownPolicyReportAdr0488({ generatedAt }),
+      topGaps: ['REPAIR_SECTOR_INDEX_MASTER', 'SUPPLY_UNKNOWN_POLICY_OBSERVE'],
+      recommendedNextActions: ['Retry ADR-0488 diagnostic build; do not change live execution.'],
+      executionImpact: 'NONE',
+      liveExecutionAllowed: false,
+      policyPromotionMode: 'SHADOW_ONLY',
+      operatorApprovalRequired: true,
+      diagnostics: ['ADR-0488 build failure was try/catch isolated.'],
+    };
+  }
+}
+
+function pct(value: number): string {
+  return `${round1(value)}%`;
+}
+
+export function formatSectorEnergySupplyUnknownCompactAdr0488(report: SectorEnergyAndSupplyUnknownPolicyReportAdr0488): string {
+  const sector = report.sectorEnergyMaster;
+  const supply = report.supplyUnknownPolicy;
+  return [
+    `ADR-0488 SectorEnergyMaster: ${sector.status} | coverageBefore=${pct(sector.indexCodeCoverageBefore)} | coverageAfter=${pct(sector.indexCodeCoverageAfter)} | missing=${sector.mappingDiagnostics.missingIndexCodeCount} | leadershipConfidence=${sector.leadershipConfidence} | sectorBoostAllowed=${sector.sectorBoostAllowed} | strongBuyAllowed=${sector.strongBuyAllowed} | impact=${sector.executionImpact}`,
+    `ADR-0488 SupplyUnknownPolicy: ${supply.status} | providerIssue=${supply.providerIssue} | marketSignal=${supply.marketSignal} | unknownPolicyActive=${supply.unknownPolicyActive} | diagnosticNet=${round1(supply.diagnosticPolicyNetAvg)} | survivors=${supply.survivorsCurrent}->${supply.survivorsUnknownDiagnosticOnly} | requiredScore=${supply.requiredScore} | impact=${supply.executionImpact}`,
+    `   action: ${report.recommendedNextActions[0] ?? 'continue SHADOW_ONLY observation'}`,
+  ].join('\n');
+}
+
+export function formatSectorEnergySupplyUnknownDetailAdr0488(report: SectorEnergyAndSupplyUnknownPolicyReportAdr0488): string {
+  const sector = report.sectorEnergyMaster;
+  const supply = report.supplyUnknownPolicy;
+  const records = sector.records.length > 0
+    ? sector.records.map((record) => `- ${record.sectorName}: indexCode=${record.indexCode ?? 'missing'} market=${record.market} source=${record.source} normalized=${record.normalized} aggregateIgnored=${record.coverageMetadata.aggregateIgnored}`)
+    : ['- none'];
+  return [
+    'ADR-0488 SectorEnergy Master Data Supply Line + Supply UNKNOWN Policy Stabilization',
+    `overallStatus=${report.overallStatus} policyPromotionMode=${report.policyPromotionMode}`,
+    'SectorEnergyMaster:',
+    `- status=${sector.status} coverageBefore=${pct(sector.indexCodeCoverageBefore)} coverageAfter=${pct(sector.indexCodeCoverageAfter)} missingIndexCodeCount=${sector.mappingDiagnostics.missingIndexCodeCount}`,
+    `- aggregateIgnored=${sector.mappingDiagnostics.aggregateIgnoredCount} aliasMissing=${sector.mappingDiagnostics.aliasMissingCount} safeAliasCandidates=${sector.mappingDiagnostics.safeAliasCandidatesCount} unsafeAliasCandidates=${sector.mappingDiagnostics.unsafeAliasCandidatesCount}`,
+    `- fallbackUsed=${sector.fallbackUsed} leadershipConfidence=${sector.leadershipConfidence} sectorBoostAllowed=${sector.sectorBoostAllowed} strongBuyAllowed=${sector.strongBuyAllowed}`,
+    `- unresolvedSectorNames=${sector.mappingDiagnostics.unresolvedSectorNames.join(',') || 'none'}`,
+    'sanitizedRecords:',
+    ...records,
+    'SupplyUnknownPolicy:',
+    `- status=${supply.status} providerIssue=${supply.providerIssue} marketSignal=${supply.marketSignal} rootCause=${supply.classification.rootCause} unknownPolicyActive=${supply.unknownPolicyActive}`,
+    `- originalPenaltyAvg=${supply.originalPenaltyAvg} dedupedPenaltyAvg=${supply.dedupedPenaltyAvg} removedPenaltyAvg=${supply.removedPenaltyAvg}`,
+    `- originalNetScoreAvg=${supply.originalNetScoreAvg} diagnosticPolicyNetAvg=${supply.diagnosticPolicyNetAvg} survivorsCurrent=${supply.survivorsCurrent} survivorsUnknownDiagnosticOnly=${supply.survivorsUnknownDiagnosticOnly}`,
+    `- providerVerifiedOverrideWarning=${supply.providerVerifiedOverrideWarning} autoDisableWhenProviderVerified=${supply.autoDisableWhenProviderVerified}`,
+    'dryRunVariants:',
+    ...supply.dryRunVariants.map((variant) => `- ${variant.variant}: active=${variant.active} netScoreAvg=${variant.netScoreAvg} survivors=${variant.survivors} shadowOnly=${variant.shadowOnly} liveExecutionAllowed=${variant.liveExecutionAllowed}`),
+    `topGaps=${report.topGaps.join(',') || 'none'}`,
+    `recommendedNextActions=${report.recommendedNextActions.join(' | ') || 'continue observation'}`,
+    `guardrails: executionImpact=${report.executionImpact}; liveExecutionAllowed=${report.liveExecutionAllowed}; policyPromotionMode=${report.policyPromotionMode}; operatorApprovalRequired=${report.operatorApprovalRequired}; requiredScore=70; no Gate/Kelly/KIS order changes; no SectorEnergy boost; no STRONG_BUY unlock; no raw provider payloads; UNKNOWN remains UNKNOWN; provider issue is not bearish.`,
+  ].join('\n');
+}
+
+export interface SectorEnergySupplyUnknownDetailRegistryEntryAdr0488 {
+  adr: '0488';
+  sectionId: 'sector_energy_supply_unknown';
+  commandHint: '/fresh_data_status';
+  scanBlockersDetailHint: '/scan_blockers_detail sector_energy_supply_unknown';
+  adrTraceHint: '/adr_trace 0488';
+  executionImpact: 'NONE';
+  liveExecutionAllowed: false;
+  render: () => string;
+}
+
+export function getSectorEnergySupplyUnknownDetailRegistryEntryAdr0488(
+  report: SectorEnergyAndSupplyUnknownPolicyReportAdr0488,
+): SectorEnergySupplyUnknownDetailRegistryEntryAdr0488 {
+  return {
+    adr: '0488',
+    sectionId: 'sector_energy_supply_unknown',
+    commandHint: '/fresh_data_status',
+    scanBlockersDetailHint: '/scan_blockers_detail sector_energy_supply_unknown',
+    adrTraceHint: '/adr_trace 0488',
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    render: () => formatSectorEnergySupplyUnknownDetailAdr0488(report),
+  };
+}
+
+function operatorSourceForGap(gap: string): OperatorActionSource {
+  const severity = gap.includes('COLLECT') || gap.includes('REPAIR') ? 'DATA_UNAVAILABLE' : 'DEGRADED';
+  return {
+    adr: '0488',
+    sectionId: 'sector_energy_supply_unknown',
+    code: gap,
+    diagnosticKey: gap,
+    diagnosticValue: 'ADR-0488 SHADOW_ONLY observation gap',
+    severity,
+  };
+}
+
+export function collectOperatorActionSourcesFromAdr0488(
+  report: SectorEnergyAndSupplyUnknownPolicyReportAdr0488 | null | undefined,
+): OperatorActionSource[] {
+  if (!report) return [];
+  const gaps = new Set(report.topGaps);
+  if (report.sectorEnergyMaster.status !== 'FETCH_OK') gaps.add('REPAIR_SECTOR_INDEX_MASTER');
+  if (report.sectorEnergyMaster.coveragePct < 80) gaps.add('IMPROVE_INDEX_CODE_COVERAGE');
+  if (report.supplyUnknownPolicy.unknownPolicyActive) gaps.add('SUPPLY_UNKNOWN_POLICY_OBSERVE');
+  if (report.supplyUnknownPolicy.providerIssue) gaps.add('COLLECT_SUPPLY_SAMPLE_BEFORE_PROMOTION');
+  return Array.from(gaps).map(operatorSourceForGap);
+}
+
+export function buildAdr0488ObservationRows(report: SectorEnergyAndSupplyUnknownPolicyReportAdr0488): Record<string, unknown>[] {
+  const base = {
+    createdAt: report.generatedAt,
+    forDate: report.generatedAt.slice(0, 10),
+    actualGate1Passed: false,
+    actualLiveEligible: false,
+    dryRunDecision: 'UNKNOWN_DIAGNOSTIC_ONLY',
+    requiredScore: REQUIRED_SCORE_ADR0488,
+    marketSignal: false,
+    sellOnly: false,
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    policyPromotionMode: report.policyPromotionMode,
+    status: 'OBSERVING',
+  };
+  return [
+    {
+      ...base,
+      id: `adr0488-sector-${report.generatedAt}`.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 180),
+      source: 'ADR_0488_SECTOR_ENERGY_MASTER_SUPPLY_LINE',
+      symbol: 'SECTOR_ENERGY_MASTER',
+      dryRunScenario: 'SECTOR_ENERGY_MASTER_SUPPLY_LINE_ADR0488',
+      providerIssue: report.sectorEnergyMaster.status !== 'FETCH_OK',
+      sectorEnergyDiagnosticOnly: true,
+      observationType: 'SECTOR_ENERGY_MASTER_SUPPLY_LINE_ADR0488',
+      overallStatus: report.overallStatus,
+      sectorEnergyStatus: report.sectorEnergyMaster.status,
+      indexCodeCoverageBefore: report.sectorEnergyMaster.indexCodeCoverageBefore,
+      indexCodeCoverageAfter: report.sectorEnergyMaster.indexCodeCoverageAfter,
+      missingIndexCodeCount: report.sectorEnergyMaster.mappingDiagnostics.missingIndexCodeCount,
+      aggregateIgnored: report.sectorEnergyMaster.mappingDiagnostics.aggregateIgnoredCount,
+      aliasMissing: report.sectorEnergyMaster.mappingDiagnostics.aliasMissingCount,
+      safeAliasCandidates: report.sectorEnergyMaster.mappingDiagnostics.safeAliasCandidatesCount,
+      unsafeAliasCandidates: report.sectorEnergyMaster.mappingDiagnostics.unsafeAliasCandidatesCount,
+      fallbackUsed: report.sectorEnergyMaster.fallbackUsed,
+      leadershipConfidence: report.sectorEnergyMaster.leadershipConfidence,
+      sectorBoostAllowed: false,
+      strongBuyAllowed: false,
+      topGaps: report.sectorEnergyMaster.topGaps,
+    },
+    {
+      ...base,
+      id: `adr0488-supply-${report.generatedAt}`.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 180),
+      source: 'ADR_0488_SUPPLY_UNKNOWN_POLICY_STABILIZATION',
+      symbol: 'SUPPLY_UNKNOWN_POLICY',
+      dryRunScenario: 'SUPPLY_UNKNOWN_POLICY_STABILIZATION_ADR0488',
+      providerIssue: report.supplyUnknownPolicy.providerIssue,
+      sectorEnergyDiagnosticOnly: false,
+      observationType: 'SUPPLY_UNKNOWN_POLICY_STABILIZATION_ADR0488',
+      supplyUnknownStatus: report.supplyUnknownPolicy.status,
+      rootCause: report.supplyUnknownPolicy.classification.rootCause,
+      unknownPolicyActive: report.supplyUnknownPolicy.unknownPolicyActive,
+      originalPenaltyAvg: report.supplyUnknownPolicy.originalPenaltyAvg,
+      dedupedPenaltyAvg: report.supplyUnknownPolicy.dedupedPenaltyAvg,
+      diagnosticPolicyNetAvg: report.supplyUnknownPolicy.diagnosticPolicyNetAvg,
+      survivorsCurrent: report.supplyUnknownPolicy.survivorsCurrent,
+      survivorsUnknownDiagnosticOnly: report.supplyUnknownPolicy.survivorsUnknownDiagnosticOnly,
+      providerVerifiedOverrideWarning: report.supplyUnknownPolicy.providerVerifiedOverrideWarning,
+      autoDisableWhenProviderVerified: true,
+      topGaps: report.supplyUnknownPolicy.topGaps,
+    },
+  ];
+}
+
+export function formatRuntimePipelineAdr0488EvidenceLine(
+  report: SectorEnergyAndSupplyUnknownPolicyReportAdr0488 | null | undefined,
+): string {
+  if (!report) return 'ADR-0488 status=missing diagnosticOnly=true executionImpact=NONE';
+  return `ADR-0488 status=${report.overallStatus} sectorEnergyMaster=${report.sectorEnergyMaster.status} supplyUnknownPolicy=${report.supplyUnknownPolicy.status} diagnosticOnly=true executionImpact=${report.executionImpact}`;
+}

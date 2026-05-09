@@ -10,6 +10,10 @@ import {
   collectOperatorActionSourcesFromFreshDataSupplyAdr0487,
   type FreshDataSupplyReportAdr0487,
 } from './freshDataSupplyLayerAdr0487.js';
+import {
+  collectOperatorActionSourcesFromAdr0488,
+  type SectorEnergyAndSupplyUnknownPolicyReportAdr0488,
+} from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 import type { SupplyRecoveryRuntimeMountReportAdr0486 } from './supplyRecoveryRuntimeMountAdr0486.js';
 
 export type OperatorActionPriority = 'P0' | 'P1' | 'P2' | 'P3';
@@ -53,6 +57,10 @@ export type OperatorActionRootCause =
   | 'SEMANTIC_NETBUY_SAMPLE_NEEDED'
   | 'FSS_REFRESH_NEEDED'
   | 'SECTOR_INDEX_MASTER_REPAIR_NEEDED'
+  | 'REPAIR_SECTOR_INDEX_MASTER'
+  | 'IMPROVE_INDEX_CODE_COVERAGE'
+  | 'SUPPLY_UNKNOWN_POLICY_OBSERVE'
+  | 'COLLECT_SUPPLY_SAMPLE_BEFORE_PROMOTION'
   | 'UNKNOWN_ROOT_CAUSE';
 
 export interface OperatorActionSource {
@@ -109,6 +117,7 @@ export interface BuildOperatorActionQueueInput {
   supplyAdvisoryReadinessAdr0485?: { status?: string; readinessScore?: number; failedReasons?: string[]; recommendedNextStep?: string } | null;
   supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486 | null;
   freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487 | null;
+  sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488 | null;
 }
 
 interface OperatorActionDefinition {
@@ -391,6 +400,50 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
     detailHint: '/adr_trace 0487 sector-index-master',
   },
+  REPAIR_SECTOR_INDEX_MASTER: {
+    rootCause: 'REPAIR_SECTOR_INDEX_MASTER',
+    category: 'SECTOR_ENERGY',
+    title: 'Repair SectorEnergy index master',
+    summary: 'ADR-0488 found the SectorEnergy sector/indexCode master line missing, aggregate-only, or unsafe for leadership confidence.',
+    recommendedAction: 'Repair the KRX sector index master supply line in OBSERVE mode; keep SectorEnergy boost and STRONG_BUY locked.',
+    relatedAdrs: ['0474', '0476', '0480', '0487', '0488'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0488 sector-energy-master',
+  },
+  IMPROVE_INDEX_CODE_COVERAGE: {
+    rootCause: 'IMPROVE_INDEX_CODE_COVERAGE',
+    category: 'SECTOR_ENERGY',
+    title: 'Improve SectorEnergy indexCode coverage',
+    summary: 'ADR-0488 observed insufficient sectorName/indexCode coverage or failed mapping symmetry.',
+    recommendedAction: 'Improve sectorName/indexCode coverage and alias symmetry before any future promotion.',
+    relatedAdrs: ['0474', '0476', '0480', '0487', '0488'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0488 index-code-coverage',
+  },
+  SUPPLY_UNKNOWN_POLICY_OBSERVE: {
+    rootCause: 'SUPPLY_UNKNOWN_POLICY_OBSERVE',
+    category: 'GATE1',
+    title: 'Observe supply UNKNOWN policy',
+    summary: 'ADR-0488 collapsed provider-side SUPPLY_UNKNOWN penalties into one SHADOW_ONLY diagnostic root cause.',
+    recommendedAction: 'Observe UNKNOWN_DIAGNOSTIC_ONLY survivor rows for 1D/3D/5D and require operator approval before any policy promotion.',
+    relatedAdrs: ['0469', '0471', '0476', '0480', '0488'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'UNKNOWN', gate1SurvivorPotential: 'MEDIUM', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0488 supply-unknown-policy',
+  },
+  COLLECT_SUPPLY_SAMPLE_BEFORE_PROMOTION: {
+    rootCause: 'COLLECT_SUPPLY_SAMPLE_BEFORE_PROMOTION',
+    category: 'SUPPLY_PROVIDER',
+    title: 'Collect supply sample before promotion',
+    summary: 'ADR-0488 found provider-side UNKNOWN/DATA_UNAVAILABLE evidence and requires fresh sanitized samples before promotion.',
+    recommendedAction: 'Collect NAVER/KRX/FSS supply samples through OBSERVE or SHADOW_ONLY lanes before any future ADVISORY ADR.',
+    relatedAdrs: ['0477', '0481', '0482', '0483', '0487', '0488'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'HIGH', gate1SurvivorPotential: 'MEDIUM', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0488 supply-sample',
+  },
   UNKNOWN_ROOT_CAUSE: {
     rootCause: 'UNKNOWN_ROOT_CAUSE',
     category: 'UNKNOWN',
@@ -417,6 +470,7 @@ function includesAny(text: string, tokens: string[]): boolean {
 
 function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCause | null {
   const text = diagnosticText(source);
+  const isAdr0488 = source.adr.replace(/^ADR-?/i, '').padStart(4, '0') === '0488';
   if (includesAny(text, ['NOT_WIRED', 'SELECTEDPROVIDER=NONE', 'SELECTED_PROVIDER=NONE', 'PROVIDER=NONE', 'COVERAGE=0/5', 'INVESTOR_FLOW DATA_UNAVAILABLE', 'SEMANTIC PROVIDER NOT AVAILABLE'])) {
     return 'INVESTOR_FLOW_PROVIDER_UNWIRED';
   }
@@ -468,6 +522,18 @@ function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCau
   }
   if (includesAny(text, ['SUPPLY_READINESS_EVIDENCE_MISSING', 'READINESS_AUDIT_EVIDENCE_MISSING', 'READINESSAUDITEVIDENCE=MISSING'])) {
     return 'SUPPLY_READINESS_EVIDENCE_MISSING';
+  }
+  if (isAdr0488 && includesAny(text, ['REPAIR_SECTOR_INDEX_MASTER'])) {
+    return 'REPAIR_SECTOR_INDEX_MASTER';
+  }
+  if (isAdr0488 && includesAny(text, ['IMPROVE_INDEX_CODE_COVERAGE', 'BLOCK_UNSAFE_ALIAS_CANDIDATES'])) {
+    return 'IMPROVE_INDEX_CODE_COVERAGE';
+  }
+  if (isAdr0488 && includesAny(text, ['SUPPLY_UNKNOWN_POLICY_OBSERVE'])) {
+    return 'SUPPLY_UNKNOWN_POLICY_OBSERVE';
+  }
+  if (isAdr0488 && includesAny(text, ['COLLECT_SUPPLY_SAMPLE_BEFORE_PROMOTION'])) {
+    return 'COLLECT_SUPPLY_SAMPLE_BEFORE_PROMOTION';
   }
   if (includesAny(text, ['SECTOR_INDEX_MASTER_REPAIR_NEEDED', 'REPAIR_SECTOR_INDEX_MASTER'])) {
     return 'SECTOR_INDEX_MASTER_REPAIR_NEEDED';
@@ -576,6 +642,7 @@ export function buildOperatorActionQueueAdr0480(input: BuildOperatorActionQueueI
   const inputSources = [
     ...(input.sources ?? []),
     ...collectOperatorActionSourcesFromFreshDataSupplyAdr0487(input.freshDataSupplyAdr0487),
+    ...collectOperatorActionSourcesFromAdr0488(input.sectorEnergySupplyUnknownAdr0488),
   ];
   for (const source of inputSources) {
     const rootCause = rootCauseForSource(source);
@@ -675,6 +742,7 @@ export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: Scan
     sources.push({ adr: '0486', sectionId: 'runtime_pipeline_audit', code: 'SUPPLY_READINESS_EVIDENCE_MISSING', diagnosticKey: 'readinessAuditEvidence', diagnosticValue: 'missing', severity: 'ERROR' });
   }
   sources.push(...collectOperatorActionSourcesFromFreshDataSupplyAdr0487(summary.freshDataSupplyAdr0487));
+  sources.push(...collectOperatorActionSourcesFromAdr0488(summary.sectorEnergySupplyUnknownAdr0488));
   return sources;
 }
 
