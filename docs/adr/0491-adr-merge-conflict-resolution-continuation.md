@@ -74,6 +74,10 @@ Required validation for this PR:
 - conflict-marker scan excluding `node_modules` returns zero rows;
 - `node scripts/check_adr_index.js` exits successfully.
 
+## Completion follow-up
+
+After this governance-only ADR is pushed again, completion still requires the hosting branch to be merged into `main` and the Railway deployment target to pick up that merged commit. If Railway tracks `main`, the runtime should be considered updated only after a post-merge Railway deployment is created and its logs confirm the expected commit SHA.
+
 ## Consequences
 
 ADR-0491 becomes the explicit continuation record for the ADR-numbering merge-conflict path. Subsequent ADR work must use `0492` from `docs/adr/INDEX.md` and must not reopen ADR-0491 numbering.
