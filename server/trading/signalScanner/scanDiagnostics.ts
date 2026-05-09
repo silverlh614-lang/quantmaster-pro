@@ -165,6 +165,11 @@ import {
   summarizeGate1DryRunObservationRows,
   type Gate1DryRunObservationSummary,
 } from './gate1DryRunObservationLedgerAdr0476.js';
+import {
+  buildInvestorFlowProviderRouteResultAdr0477,
+  formatInvestorFlowProviderRouterAdr0477,
+  type InvestorFlowProviderRouteResult,
+} from './investorFlowProviderRouterAdr0477.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -421,6 +426,8 @@ export interface ScanSummary {
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport;
   /** ADR-0476 dry-run observation ledger summary; SHADOW_ONLY and executionImpact NONE. */
   gate1DryRunObservationLedger?: Gate1DryRunObservationSummary;
+  /** ADR-0477 investor-flow provider router result; SHADOW_ONLY and executionImpact NONE. */
+  investorFlowProviderRouter?: InvestorFlowProviderRouteResult;
 }
 
 let _lastBuySignalAt = 0;
@@ -1264,6 +1271,16 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
   // ADR-0422 Gate2 섹션의 sectorEnergy 표시(요약) 와 *책임 분리* — 본 섹션은 *원인 분해 상세*.
   try {
+    const investorFlowRouterSection = formatInvestorFlowProviderRouterAdr0477(summary.investorFlowProviderRouter);
+    if (investorFlowRouterSection) {
+      lines.push('');
+      lines.push(investorFlowRouterSection);
+    }
+  } catch (e) {
+    console.warn('[ADR-0477] InvestorFlowProviderRouter format failed (base scan summary unaffected):', e);
+  }
+
+  try {
     const dryRunObservationSection = formatGate1DryRunObservationSummary(summary.gate1DryRunObservationLedger);
     if (dryRunObservationSection) {
       lines.push('');
@@ -1936,6 +1953,38 @@ export async function persistScanResults(
     console.warn('[ADR-0475] Gate1PositiveSourceWiring build failed (engine unaffected):', e);
   }
 
+  // ADR-0477: investor-flow provider router wiring. This sits before the
+  // ADR-0473/0465 supply diagnostics conceptually, but is built from already
+  // available scan context only. It never fetches, routes orders, or mutates
+  // live Gate/Kelly policy.
+  try {
+    const observationSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
+    const firstSnapshot = observationSnapshots[0];
+    const investorFlowProviderRouter = buildInvestorFlowProviderRouteResultAdr0477({
+      code: firstSnapshot?.symbol ?? 'UNIVERSE',
+      collectedAt: kstNow.toISOString(),
+      naverCollectorWired: false,
+      cacheRaw: null,
+      previousTradingDayCacheRaw: null,
+      kisTriedForInvestorFlow: true,
+      nonTradingDay: options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false,
+      sourceAgeTradingDays: null,
+      cacheAgeTradingDays: null,
+      marketProgramStatus: 'ACCEPTED_EMPTY',
+      fssSourceAgeTradingDays: 5,
+    });
+    summaryDraft.investorFlowProviderRouter = investorFlowProviderRouter;
+    console.warn(
+      `[ADR-0477] InvestorFlowProviderRouter SHADOW_ONLY emitted ` +
+      `(status=${investorFlowProviderRouter.status}, signal=${investorFlowProviderRouter.signal}, ` +
+      `selectedProvider=${investorFlowProviderRouter.selectedProvider}, ` +
+      `executionImpact=${investorFlowProviderRouter.executionImpact}, ` +
+      `liveExecutionAllowed=${investorFlowProviderRouter.liveExecutionAllowed})`,
+    );
+  } catch (e) {
+    console.warn('[ADR-0477] InvestorFlowProviderRouter build failed (engine unaffected):', e);
+  }
+
   // ADR-0476: dry-run and near-miss observation ledger. This stores only compact
   // observation rows for 1D/3D/5D tracking and never changes live execution.
   try {
@@ -1946,6 +1995,7 @@ export async function persistScanResults(
       candidateSnapshots: observationSnapshots,
       finalGate1Calibration: summaryDraft.finalGate1Calibration,
       gate1PositiveSourceWiring: summaryDraft.gate1PositiveSourceWiring,
+      investorFlowProviderRouter: summaryDraft.investorFlowProviderRouter,
       sellOnly: options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false,
       sectorEnergyDiagnosticOnly: options.sectorEnergyQuality !== undefined && options.sectorEnergyQuality !== 'OK',
       providerIssue: observationSnapshots.some((item) => item.supplyProviderHealth?.providerIssue === true),

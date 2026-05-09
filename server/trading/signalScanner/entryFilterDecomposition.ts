@@ -108,6 +108,28 @@ export interface SupplyProviderHealthTrace {
   providerIssue: boolean;
   marketSignal: boolean;
   gate1Severity: 'NONE' | 'SOFT_FAIL' | 'HARD_FAIL' | 'DIAGNOSTIC_ONLY';
+  investorFlowRouterStatus?: string;
+  selectedInvestorFlowProvider?: string;
+  providerTried?: string[];
+  semanticNetBuyStatus?: string;
+  semanticNetBuySignal?: string;
+  routeCoverage?: {
+    available: number;
+    total: number;
+    missing: number;
+    stale: number;
+    acceptedEmpty: number;
+    providerMismatch: number;
+    notWired: number;
+  };
+  freshness?: {
+    cacheState: string;
+    sourceState: string;
+    sourceAgeTradingDays: number | null;
+    oldestSourceAgeTradingDays: number | null;
+    lastSourceDate: string | null;
+  };
+  diagnostics?: string[];
   reason: string[];
 }
 

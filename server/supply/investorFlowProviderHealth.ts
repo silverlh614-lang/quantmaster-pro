@@ -137,6 +137,18 @@ export interface SupplyProviderWarmupReport {
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
   shadowObservableAllowed: true;
+  investorFlowRouter?: {
+    status: string;
+    selectedProvider: string;
+    providerTried: string[];
+    signal: string;
+    coverage: {
+      available: number;
+      total: number;
+    };
+    executionImpact: 'NONE';
+    liveExecutionAllowed: false;
+  };
   nextAction: 'WIRE_NAVER_OR_REPAIR_CACHE_KEY' | 'OBSERVE_PROVIDER_WARMUP' | 'NONE';
 }
 
@@ -450,6 +462,7 @@ export function buildSupplyProviderWarmupReport(input: {
   now?: Date;
   code?: string;
   cacheHit?: boolean;
+  investorFlowRouter?: SupplyProviderWarmupReport['investorFlowRouter'];
 } = {}): SupplyProviderWarmupReport {
   const health = input.health ?? [];
   const now = input.now ?? new Date();
@@ -481,6 +494,7 @@ export function buildSupplyProviderWarmupReport(input: {
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
     shadowObservableAllowed: true,
+    ...(input.investorFlowRouter ? { investorFlowRouter: input.investorFlowRouter } : {}),
     nextAction: providerIssue ? 'WIRE_NAVER_OR_REPAIR_CACHE_KEY' : 'NONE',
   };
 }
@@ -496,6 +510,9 @@ export function formatSupplyProviderWarmupCompactLine(report: SupplyProviderWarm
     `  KIS: ${report.kisStatus}`,
     `  providerIssue=${String(report.providerIssue)}`,
     `  marketSignal=${String(report.marketSignal)}`,
+    ...(report.investorFlowRouter ? [
+      `  ADR-0477 Router: ${report.investorFlowRouter.status} / selected=${report.investorFlowRouter.selectedProvider} / signal=${report.investorFlowRouter.signal} / coverage=${report.investorFlowRouter.coverage.available}/${report.investorFlowRouter.coverage.total}`,
+    ] : []),
     `  executionImpact=${report.executionImpact}`,
     `  nextAction: ${report.nextAction}`,
   ].join('\n');
