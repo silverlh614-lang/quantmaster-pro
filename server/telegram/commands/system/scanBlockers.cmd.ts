@@ -100,6 +100,10 @@ import {
   safeBuildOperatorActionQueueAdr0480,
   safeFormatOperatorActionCompactSectionAdr0480,
 } from '../../../trading/signalScanner/operatorActionRouterAdr0480.js';
+import {
+  buildSupplyCoverageRecoveryObservationReportAdr0484,
+  formatSupplyCoverageRecoveryCompactAdr0484,
+} from '../../../trading/signalScanner/supplyCoverageRecoveryObservationAdr0484.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -386,10 +390,19 @@ const scanBlockers: TelegramCommand = {
     try {
       const operatorActionQueue = safeBuildOperatorActionQueueAdr0480({
         sources: collectOperatorActionSourcesFromScanSummaryAdr0480(summary),
+        supplyCoverageRecoveryAdr0484: summary?.supplyCoverageRecoveryAdr0484 ?? null,
       });
       operatorActionSection = safeFormatOperatorActionCompactSectionAdr0480(operatorActionQueue);
     } catch (err) {
       console.warn('[scan_blockers] ADR-0480 operator action section failed:', err);
+    }
+
+    let supplyCoverageRecoveryLine: string | null = null;
+    try {
+      const recoveryReport = summary?.supplyCoverageRecoveryAdr0484 ?? buildSupplyCoverageRecoveryObservationReportAdr0484({ scanSummary: summary, persist: false });
+      supplyCoverageRecoveryLine = formatSupplyCoverageRecoveryCompactAdr0484(recoveryReport);
+    } catch (err) {
+      console.warn('[scan_blockers] ADR-0484 supply recovery line failed:', err);
     }
 
     const parts: string[] = [baseMessage];
@@ -408,6 +421,7 @@ const scanBlockers: TelegramCommand = {
     if (nearMissAnalyticsLine) parts.push(nearMissAnalyticsLine);
     if (livenessSection) parts.push(livenessSection);
     if (operatorActionSection) parts.push(operatorActionSection);
+    if (supplyCoverageRecoveryLine) parts.push(supplyCoverageRecoveryLine);
     if (runtimeAuditSection) parts.push(runtimeAuditSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);

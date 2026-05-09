@@ -89,6 +89,7 @@ export interface OperatorActionQueueReport {
 export interface BuildOperatorActionQueueInput {
   generatedAt?: string;
   sources?: OperatorActionSource[];
+  supplyCoverageRecoveryAdr0484?: { status?: string; topImprovedMetrics?: string[]; topRemainingBlockers?: string[] } | null;
 }
 
 interface OperatorActionDefinition {
@@ -365,7 +366,7 @@ function uniqueSortedAdrs(defaultAdrs: string[], sources: OperatorActionSource[]
   return Array.from(out).sort();
 }
 
-function buildItem(rootCause: OperatorActionRootCause, sources: OperatorActionSource[]): OperatorActionItem {
+function buildItem(rootCause: OperatorActionRootCause, sources: OperatorActionSource[], status: OperatorActionStatus = 'OPEN'): OperatorActionItem {
   const definition = ACTION_DEFINITIONS[rootCause];
   const priority = priorityFor(rootCause, sources);
   return {
@@ -373,7 +374,7 @@ function buildItem(rootCause: OperatorActionRootCause, sources: OperatorActionSo
     rootCause,
     category: definition.category,
     priority,
-    status: 'OPEN',
+    status,
     title: definition.title,
     summary: definition.summary,
     recommendedAction: definition.recommendedAction,
@@ -411,6 +412,16 @@ function compactActionLine(item: OperatorActionItem): string {
   return `${item.priority} ${item.title} → ${shortAction} | related=${formatRelated(item.relatedAdrs)} | impact=${item.executionImpact}`;
 }
 
+function adr0484ObservedStatus(input: BuildOperatorActionQueueInput, rootCause: OperatorActionRootCause): OperatorActionStatus {
+  const recovery = input.supplyCoverageRecoveryAdr0484;
+  if (!recovery || recovery.status !== 'IMPROVING') return 'OPEN';
+  const remaining = recovery.topRemainingBlockers ?? [];
+  if (rootCause === 'INVESTOR_FLOW_PROVIDER_UNWIRED' && !remaining.includes('selectedProvider=NONE') && !remaining.includes('NAVER_NOT_WIRED')) return 'OBSERVING';
+  if (rootCause === 'SEMANTIC_NETBUY_MISSING' && !remaining.includes('SEMANTIC_NETBUY_MISSING')) return 'OBSERVING';
+  if (rootCause === 'SUPPLY_SOURCE_REFRESH_RECOMMENDED' && !remaining.includes('STALE_SOURCE')) return 'OBSERVING';
+  return 'OPEN';
+}
+
 export function buildOperatorActionQueueAdr0480(input: BuildOperatorActionQueueInput = {}): OperatorActionQueueReport {
   const grouped = new Map<OperatorActionRootCause, OperatorActionSource[]>();
   let matchedEvidenceCount = 0;
@@ -423,7 +434,7 @@ export function buildOperatorActionQueueAdr0480(input: BuildOperatorActionQueueI
     grouped.set(rootCause, current);
   }
   const allActions = Array.from(grouped.entries())
-    .map(([rootCause, sources]) => buildItem(rootCause, sources))
+    .map(([rootCause, sources]) => buildItem(rootCause, sources, adr0484ObservedStatus(input, rootCause)))
     .sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || b.evidenceCount - a.evidenceCount || a.rootCause.localeCompare(b.rootCause));
   const topActions = allActions.slice(0, 3);
   const summaryLines = topActions.length > 0
