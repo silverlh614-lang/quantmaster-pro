@@ -4,6 +4,13 @@ import type { FreshDataSupplyReportAdr0487 } from './freshDataSupplyLayerAdr0487
 import type { FinalGate1CalibrationAuditReport, UnknownPenaltyPolicyScenario } from './gate1FinalCalibration.js';
 import type { PenaltyDeduplicationReport } from './gate1PenaltyDeduplication.js';
 import type { CandidateSnapshot } from './entryFilterDecomposition.js';
+import {
+  buildSectorEnergyFallbackSeedAdr0495,
+  buildSectorIndexCodeMappingsAdr0495,
+  buildSectorIndexMasterSeedAdr0495,
+  evaluateSectorIndexMasterCoverageAdr0495,
+  type SectorIndexMasterCoverageAdr0495,
+} from './sectorIndexMasterSeedAdr0495.js';
 
 export type SectorEnergyMasterStatusAdr0488 =
   | 'FETCH_OK'
@@ -72,8 +79,8 @@ export interface SectorEnergyMasterSupplyLineReportAdr0488 {
   stale: number;
   missing: number;
   providerError: number;
-  fallbackUsed: 'STOCK_DAILY' | 'NONE' | 'UNKNOWN';
-  leadershipConfidence: 'BLOCKED' | 'OBSERVE_READY' | 'UNKNOWN';
+  fallbackUsed: 'STOCK_DAILY' | 'STOCK_DAILY_PROXY' | 'DIAGNOSTIC_PROXY' | 'NONE' | 'UNKNOWN';
+  leadershipConfidence: 'BLOCKED' | 'OBSERVE_READY' | 'OBSERVE_ONLY' | 'UNKNOWN';
   sectorBoostAllowed: false;
   strongBuyAllowed: false;
   liveExecutionAllowed: false;
@@ -81,6 +88,7 @@ export interface SectorEnergyMasterSupplyLineReportAdr0488 {
   operatorApprovalRequired: true;
   topGaps: string[];
   recommendedNextActions: string[];
+  adr0495Coverage?: SectorIndexMasterCoverageAdr0495;
   diagnostics: string[];
 }
 
@@ -168,6 +176,7 @@ export interface BuildSectorEnergyMasterReportInputAdr0488 {
   sectorMasterRecords?: readonly SectorEnergyMasterInputRecordAdr0488[] | null;
   sectorEnergyDiagnosticAdr0474?: Record<string, unknown> | null;
   freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487 | null;
+  useAdr0495Seed?: boolean;
 }
 
 export interface BuildSupplyUnknownPolicyReportInputAdr0488 {
@@ -294,6 +303,20 @@ function diagnosticsEvidencePresent(input: BuildSectorEnergyMasterReportInputAdr
   return Boolean(input.sectorEnergyDiagnosticAdr0474) || Boolean(input.freshDataSupplyAdr0487) || Boolean(input.sectorMasterRecords?.length);
 }
 
+function adr0495SeedRecords(observedAt: string): SectorEnergyMasterInputRecordAdr0488[] {
+  return buildSectorIndexMasterSeedAdr0495().map((record) => ({
+    sectorName: record.indexNameKo,
+    indexCode: record.indexCode,
+    market: record.market,
+    source: record.provider,
+    normalized: true,
+    observedAt,
+    aggregate: record.isAggregate,
+    aggregateIgnored: record.isAggregate,
+    aliasCandidate: record.aliases.length > 1,
+  }));
+}
+
 function buildMappingDiagnostics(
   records: readonly SectorEnergyMasterRecordAdr0488[],
   diag: Record<string, unknown> | null | undefined,
@@ -386,14 +409,34 @@ export function buildSectorEnergyMasterReportAdr0488(
 ): SectorEnergyMasterSupplyLineReportAdr0488 {
   const generatedAt = nowIso(input.generatedAt);
   const diag = input.sectorEnergyDiagnosticAdr0474 ?? null;
-  const records = (input.sectorMasterRecords ?? [])
+  const useAdr0495Seed = input.useAdr0495Seed === true && !input.sectorMasterRecords?.length;
+  const rawRecords = input.sectorMasterRecords?.length ? input.sectorMasterRecords : (useAdr0495Seed ? adr0495SeedRecords(generatedAt) : []);
+  const records = rawRecords
     .map((record) => sanitizeMasterRecord(record, generatedAt))
     .filter((record): record is SectorEnergyMasterRecordAdr0488 => Boolean(record));
+  const adr0495Master = buildSectorIndexMasterSeedAdr0495();
+  const adr0495Mappings = buildSectorIndexCodeMappingsAdr0495(adr0495Master);
+  const adr0495Fallback = buildSectorEnergyFallbackSeedAdr0495(adr0495Master);
+  const adr0495Coverage = evaluateSectorIndexMasterCoverageAdr0495({
+    masterRecords: adr0495Master,
+    mappings: adr0495Mappings,
+    fallbackRecords: adr0495Fallback,
+    coverageBefore: diagnosticNumber(diag, ['indexCodeCoverageBefore', 'indexCodeCoverage'], 0),
+  });
   const mapping = buildMappingDiagnostics(records, diag);
+  if (useAdr0495Seed) {
+    mapping.missingIndexCodeCount = Math.max(mapping.missingIndexCodeCount, adr0495Coverage.missingIndexCodeCount);
+    mapping.aliasMissingCount = Math.max(mapping.aliasMissingCount, adr0495Coverage.aliasMissing.length);
+    mapping.safeAliasCandidatesCount = Math.max(mapping.safeAliasCandidatesCount, adr0495Coverage.safeAliasCandidates.length);
+    mapping.unsafeAliasCandidatesCount = Math.max(mapping.unsafeAliasCandidatesCount, adr0495Coverage.unsafeAliasCandidates.length);
+    mapping.unresolvedSectorNames = Array.from(new Set([...mapping.unresolvedSectorNames, ...adr0495Coverage.unresolvedSectorNames])).slice(0, 12);
+    mapping.symmetryPassed = false;
+    mapping.topGaps = Array.from(new Set([...mapping.topGaps, ...(adr0495Coverage.missingIndexCodeCount > 0 ? ['IMPROVE_INDEX_CODE_COVERAGE'] : []), ...(adr0495Coverage.unsafeAliasCandidates.length > 0 ? ['BLOCK_UNSAFE_ALIAS_CANDIDATES'] : [])]));
+  }
   const nonAggregateRecords = records.filter((record) => !record.coverageMetadata.aggregateIgnored);
   const coveredRecords = nonAggregateRecords.filter((record) => record.coverageMetadata.hasIndexCode);
   const computedCoverage = nonAggregateRecords.length > 0 ? coveredRecords.length / nonAggregateRecords.length : 0;
-  const before = clampRatio(diagnosticNumber(diag, ['indexCodeCoverageBefore', 'indexCodeCoverage'], computedCoverage));
+  const before = useAdr0495Seed ? 0 : clampRatio(diagnosticNumber(diag, ['indexCodeCoverageBefore', 'indexCodeCoverage'], computedCoverage));
   const afterFromDiag = diagnosticNumber(
     diag,
     ['indexCodeCoverageAfter', 'indexCodeCoverageAfterAliasCandidate', 'indexCodeCoverageAfterNameLookup'],
@@ -402,19 +445,25 @@ export function buildSectorEnergyMasterReportAdr0488(
   const after = clampRatio(Number.isFinite(afterFromDiag) ? afterFromDiag : (computedCoverage > 0 ? computedCoverage : before));
   const fallbackUsedRaw = diagnosticString(diag, ['fallbackUsed'], 'UNKNOWN');
   const fallbackUsed: SectorEnergyMasterSupplyLineReportAdr0488['fallbackUsed'] =
-    fallbackUsedRaw === 'STOCK_DAILY' ? 'STOCK_DAILY' : fallbackUsedRaw === 'NONE' ? 'NONE' : 'UNKNOWN';
-  const evidencePresent = diagnosticsEvidencePresent(input);
-  const status: SectorEnergyMasterStatusAdr0488 =
+    fallbackUsedRaw === 'STOCK_DAILY' ? 'STOCK_DAILY'
+      : fallbackUsedRaw === 'STOCK_DAILY_PROXY' ? 'STOCK_DAILY_PROXY'
+        : fallbackUsedRaw === 'DIAGNOSTIC_PROXY' ? 'DIAGNOSTIC_PROXY'
+          : fallbackUsedRaw === 'NONE' ? 'NONE'
+            : adr0495Coverage.fallbackMode === 'STOCK_DAILY_PROXY' ? 'STOCK_DAILY_PROXY' : 'UNKNOWN';
+  const evidencePresent = diagnosticsEvidencePresent(input) || useAdr0495Seed;
+  const rawStatus: SectorEnergyMasterStatusAdr0488 =
     !evidencePresent ? 'DATA_UNAVAILABLE'
       : after <= 0 ? 'DATA_UNAVAILABLE'
         : after < 0.4 || !mapping.symmetryPassed ? 'DEGRADED'
           : after < 0.8 ? 'PARTIAL'
             : 'FETCH_OK';
+  const status: SectorEnergyMasterStatusAdr0488 = useAdr0495Seed && adr0495Coverage.coveragePartial > 0 ? 'PARTIAL' : (adr0495Coverage.normalized && adr0495Coverage.coverageVerified < 80 && rawStatus === 'FETCH_OK' ? 'PARTIAL' : rawStatus);
   const topGaps = sectorTopGaps({ status, coveragePct: roundPct(after), mapping, fallbackUsed });
   const leadershipSafe = status === 'FETCH_OK' && fallbackUsed !== 'STOCK_DAILY' && mapping.unsafeAliasCandidatesCount === 0 && mapping.symmetryPassed;
   const diagnostics: string[] = [];
   if (!evidencePresent) diagnostics.push('SectorEnergy master source evidence missing.');
-  if (fallbackUsed === 'STOCK_DAILY') diagnostics.push('STOCK_DAILY fallback remains diagnostic-only.');
+  if (fallbackUsed === 'STOCK_DAILY' || fallbackUsed === 'STOCK_DAILY_PROXY') diagnostics.push('STOCK_DAILY fallback remains diagnostic-only.');
+  diagnostics.push(`ADR-0495 seed coverage verified=${adr0495Coverage.coverageVerified}% partial=${adr0495Coverage.coveragePartial}% unknown=${adr0495Coverage.coverageUnknown}%; guardrails executionImpact=NONE liveExecutionAllowed=false sectorBoostAllowed=false strongBuyAllowed=false rawPayloadPersistenceAllowed=false.`);
   if (mapping.unsafeAliasCandidatesCount > 0) diagnostics.push('Unsafe alias candidates do not unlock leadership confidence.');
   if (!mapping.symmetryPassed) diagnostics.push('sectorName/indexCode symmetry is incomplete.');
 
@@ -439,6 +488,7 @@ export function buildSectorEnergyMasterReportAdr0488(
     operatorApprovalRequired: true,
     topGaps,
     recommendedNextActions: sectorActions(topGaps),
+    adr0495Coverage,
     diagnostics,
   };
 }
@@ -597,7 +647,7 @@ export function buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488(
 ): SectorEnergyAndSupplyUnknownPolicyReportAdr0488 {
   if (input.throwForTest) throw new Error('ADR-0488 test failure');
   const generatedAt = nowIso(input.generatedAt);
-  const sectorEnergyMaster = buildSectorEnergyMasterReportAdr0488({ ...input, generatedAt });
+  const sectorEnergyMaster = buildSectorEnergyMasterReportAdr0488({ ...input, generatedAt, useAdr0495Seed: input.useAdr0495Seed ?? true });
   const supplyUnknownPolicy = buildSupplyUnknownPolicyReportAdr0488({ ...input, generatedAt });
   const topGaps = Array.from(new Set([...sectorEnergyMaster.topGaps, ...supplyUnknownPolicy.topGaps]));
   const recommendedNextActions = [
@@ -668,7 +718,10 @@ export function formatSectorEnergySupplyUnknownDetailAdr0488(report: SectorEnerg
     `overallStatus=${report.overallStatus} policyPromotionMode=${report.policyPromotionMode}`,
     'SectorEnergyMaster:',
     `- status=${sector.status} coverageBefore=${pct(sector.indexCodeCoverageBefore)} coverageAfter=${pct(sector.indexCodeCoverageAfter)} missingIndexCodeCount=${sector.mappingDiagnostics.missingIndexCodeCount}`,
+    `- ADR-0495 coverageVerified=${pct(sector.adr0495Coverage?.coverageVerified ?? 0)} coveragePartial=${pct(sector.adr0495Coverage?.coveragePartial ?? 0)} coverageUnknown=${pct(sector.adr0495Coverage?.coverageUnknown ?? 0)} normalized=${sector.adr0495Coverage?.normalized ?? false}`,
     `- aggregateIgnored=${sector.mappingDiagnostics.aggregateIgnoredCount} aliasMissing=${sector.mappingDiagnostics.aliasMissingCount} safeAliasCandidates=${sector.mappingDiagnostics.safeAliasCandidatesCount} unsafeAliasCandidates=${sector.mappingDiagnostics.unsafeAliasCandidatesCount}`,
+    `- ADR-0495 safeAliasCandidates=${sector.adr0495Coverage?.safeAliasCandidates.slice(0, 12).join(',') || 'none'} unsafeAliasCandidates=${sector.adr0495Coverage?.unsafeAliasCandidates.join(',') || 'none'}`,
+    `- ADR-0495 fallbackMode=${sector.adr0495Coverage?.fallbackMode ?? 'NONE'} rawPayloadPersistenceAllowed=${sector.adr0495Coverage?.guardrails.rawPayloadPersistenceAllowed ?? false} automaticStagePromotionAllowed=${sector.adr0495Coverage?.guardrails.automaticStagePromotionAllowed ?? false}`,
     `- fallbackUsed=${sector.fallbackUsed} leadershipConfidence=${sector.leadershipConfidence} sectorBoostAllowed=${sector.sectorBoostAllowed} strongBuyAllowed=${sector.strongBuyAllowed}`,
     `- unresolvedSectorNames=${sector.mappingDiagnostics.unresolvedSectorNames.join(',') || 'none'}`,
     'sanitizedRecords:',
