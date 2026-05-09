@@ -19,6 +19,26 @@ import {
   type SoftFailAccumulationTrace,
   type UnknownDataTreatmentAudit,
 } from './minimumSignalScoreTrace.js';
+import {
+  buildEntryDecisionLedgerScoreCeilingRepairSummaryFromScore,
+  type EntryDecisionLedgerScoreCeilingRepairSummary,
+} from './gate1ScoreCeilingRepair.js';
+import {
+  buildEntryDecisionLedgerPenaltyDedupSummaryFromScore,
+  type EntryDecisionLedgerPenaltyDedupSummary,
+} from './gate1PenaltyDeduplication.js';
+import {
+  buildEntryDecisionLedgerRiskDoubleCountSummaryFromScore,
+  type EntryDecisionLedgerRiskDoubleCountSummary,
+} from './gate1RiskDoubleCount.js';
+import {
+  buildEntryDecisionLedgerFinalCalibrationSummaryFromScore,
+  type EntryDecisionLedgerFinalCalibrationSummary,
+} from './gate1FinalCalibration.js';
+import {
+  buildEntryDecisionLedgerPositiveSourceWiringSummaryFromScore,
+  type EntryDecisionLedgerPositiveSourceWiringSummary,
+} from './gate1PositiveSourceWiringAdr0475.js';
 
 
 export const GATE1_PROVIDER_ISSUE_SOFT_FAIL_ENABLED = true;
@@ -88,6 +108,28 @@ export interface SupplyProviderHealthTrace {
   providerIssue: boolean;
   marketSignal: boolean;
   gate1Severity: 'NONE' | 'SOFT_FAIL' | 'HARD_FAIL' | 'DIAGNOSTIC_ONLY';
+  investorFlowRouterStatus?: string;
+  selectedInvestorFlowProvider?: string;
+  providerTried?: string[];
+  semanticNetBuyStatus?: string;
+  semanticNetBuySignal?: string;
+  routeCoverage?: {
+    available: number;
+    total: number;
+    missing: number;
+    stale: number;
+    acceptedEmpty: number;
+    providerMismatch: number;
+    notWired: number;
+  };
+  freshness?: {
+    cacheState: string;
+    sourceState: string;
+    sourceAgeTradingDays: number | null;
+    oldestSourceAgeTradingDays: number | null;
+    lastSourceDate: string | null;
+  };
+  diagnostics?: string[];
   reason: string[];
 }
 
@@ -320,6 +362,11 @@ export interface EntryDecisionLedgerRow {
     tags: string[];
     executionImpact: 'NONE';
   };
+  scoreCeilingRepairSummary?: EntryDecisionLedgerScoreCeilingRepairSummary;
+  penaltyDedupSummary?: EntryDecisionLedgerPenaltyDedupSummary;
+  riskDoubleCountSummary?: EntryDecisionLedgerRiskDoubleCountSummary;
+  finalCalibrationSummary?: EntryDecisionLedgerFinalCalibrationSummary;
+  positiveSourceWiringSummary?: EntryDecisionLedgerPositiveSourceWiringSummary;
   gate1TraceSummary?: {
     primaryGate1FailCode?: Gate1ConditionCode;
     providerIssue: boolean;
@@ -1118,6 +1165,42 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
         tags: trace.gate1Trace.calibrationTags ?? [],
         executionImpact: 'NONE',
       } : undefined,
+      scoreCeilingRepairSummary: trace.gate1Trace?.minSignalScoreTrace ? buildEntryDecisionLedgerScoreCeilingRepairSummaryFromScore({
+        requiredScore: trace.gate1Trace.minSignalScoreTrace.requiredScore,
+        configuredPositiveMaxScore: trace.gate1Trace.minSignalScoreTrace.positiveScoreTotal,
+        watchlistScoreNotImported: true,
+        relativeStrengthZeroContribution: true,
+        breakoutStructureZeroContribution: true,
+        otherPositiveTooLarge: true,
+      }) : undefined,
+      penaltyDedupSummary: trace.gate1Trace?.minSignalScoreTrace ? buildEntryDecisionLedgerPenaltyDedupSummaryFromScore({
+        symbol: trace.symbol,
+        grossPositiveScore: trace.gate1Trace.minSignalScoreTrace.positiveScoreTotal,
+        originalPenaltyTotal: Math.abs(trace.gate1Trace.minSignalScoreTrace.penaltyTotal),
+        originalNetScore: trace.gate1Trace.minSignalScoreTrace.actualScore,
+        requiredScore: trace.gate1Trace.minSignalScoreTrace.requiredScore,
+      }) : undefined,
+      riskDoubleCountSummary: trace.gate1Trace?.minSignalScoreTrace ? buildEntryDecisionLedgerRiskDoubleCountSummaryFromScore({
+        symbol: trace.symbol,
+        originalSignalScore: trace.gate1Trace.minSignalScoreTrace.actualScore,
+        signalRiskPenalty: trace.gate1Trace.minSignalScoreTrace.riskPenaltyTotal,
+        kellyMultiplier: 0.26,
+        requiredScore: trace.gate1Trace.minSignalScoreTrace.requiredScore,
+      }) : undefined,
+      finalCalibrationSummary: trace.gate1Trace?.minSignalScoreTrace ? buildEntryDecisionLedgerFinalCalibrationSummaryFromScore({
+        symbol: trace.symbol,
+        requiredScore: trace.gate1Trace.minSignalScoreTrace.requiredScore,
+        netScore: trace.gate1Trace.minSignalScoreTrace.actualScore,
+      }) : undefined,
+      positiveSourceWiringSummary: trace.gate1Trace?.minSignalScoreTrace ? buildEntryDecisionLedgerPositiveSourceWiringSummaryFromScore({
+        watchlistUpstreamScore: 0,
+        relativeStrengthScore: 0,
+        breakoutStructureScore: 0,
+        beforeScoreRange: 4,
+        afterScoreRange: 8,
+        otherPositiveRaw: trace.gate1Trace.minSignalScoreTrace.positiveScoreTotal,
+        remainingOtherPositive: trace.gate1Trace.minSignalScoreTrace.positiveScoreTotal * 0.1,
+      }) : undefined,
       gate1TraceSummary: trace.gate1Trace ? {
         primaryGate1FailCode: trace.gate1Trace.primaryFailCode,
         providerIssue: trace.gate1Trace.conditions.some((c) => !c.passed && c.providerIssue),

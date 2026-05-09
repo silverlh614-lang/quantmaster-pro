@@ -121,6 +121,55 @@ import {
   type CandidateSnapshot,
   type EntryFilterDecomposition,
 } from './entryFilterDecomposition.js';
+import {
+  buildPositiveScoreStarvationFallbackReport,
+  buildPositiveScoreStarvationReport,
+  formatPositiveScoreStarvationReport,
+  type Gate1ScoreStarvationTrace,
+  type PositiveScoreStarvationReport,
+} from './gate1PositiveScoreStarvation.js';
+import {
+  buildGate1ScoreCeilingRepairReport,
+  formatGate1ScoreCeilingRepairReport,
+  type Gate1ScoreCeilingRepairReport,
+} from './gate1ScoreCeilingRepair.js';
+import {
+  buildPenaltyDeduplicationReport,
+  formatPenaltyDeduplicationReport,
+  type PenaltyDeduplicationReport,
+} from './gate1PenaltyDeduplication.js';
+import {
+  buildRiskDoubleCountAuditReport,
+  formatRiskDoubleCountAuditReport,
+  type RiskDoubleCountAuditReport,
+} from './gate1RiskDoubleCount.js';
+import {
+  buildFinalGate1CalibrationAuditReport,
+  formatFinalGate1CalibrationReport,
+  type FinalGate1CalibrationAuditReport,
+} from './gate1FinalCalibration.js';
+import {
+  buildGate1ScoringAlignmentReport,
+  formatGate1ScoringAlignmentReport,
+  type Gate1ScoringAlignmentReport,
+} from './gate1ScoringAlignmentAdr0472.js';
+import {
+  buildGate1PositiveSourceWiringReport,
+  formatGate1PositiveSourceWiringReport,
+  type Gate1PositiveSourceWiringReport,
+} from './gate1PositiveSourceWiringAdr0475.js';
+import {
+  buildGate1DryRunObservationRows,
+  formatGate1DryRunObservationSummary,
+  saveGate1DryRunObservationRows,
+  summarizeGate1DryRunObservationRows,
+  type Gate1DryRunObservationSummary,
+} from './gate1DryRunObservationLedgerAdr0476.js';
+import {
+  buildInvestorFlowProviderRouteResultAdr0477,
+  formatInvestorFlowProviderRouterAdr0477,
+  type InvestorFlowProviderRouteResult,
+} from './investorFlowProviderRouterAdr0477.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -361,6 +410,24 @@ export interface ScanSummary {
   gateScoreCandidateBuckets?: GateScoreCandidateBucketSummary;
   /** ADR-458 — APPROVED reclassification shadow/dry-run summary; live executionImpact is NONE. */
   gateReclassificationDryRun?: GateReclassificationDryRunSummary;
+  /** ADR-0467 positive score starvation audit; diagnostic-only and executionImpact NONE. */
+  positiveScoreStarvation?: PositiveScoreStarvationReport;
+  /** ADR-0468 score ceiling repair dry-run; diagnostic-only and executionImpact NONE. */
+  scoreCeilingRepair?: Gate1ScoreCeilingRepairReport;
+  /** ADR-0469 penalty deduplication dry-run; diagnostic-only and executionImpact NONE. */
+  penaltyDeduplication?: PenaltyDeduplicationReport;
+  /** ADR-0470 risk placement split dry-run; diagnostic-only and executionImpact NONE. */
+  riskDoubleCount?: RiskDoubleCountAuditReport;
+  /** ADR-0471 final Gate1 calibration dry-run; diagnostic-only and executionImpact NONE. */
+  finalGate1Calibration?: FinalGate1CalibrationAuditReport;
+  /** ADR-0472 component alignment and dry-run policy promotion candidate; executionImpact NONE. */
+  gate1ScoringAlignment?: Gate1ScoringAlignmentReport;
+  /** ADR-0475 positive source wiring dry-run; executionImpact NONE and liveExecutionAllowed false. */
+  gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport;
+  /** ADR-0476 dry-run observation ledger summary; SHADOW_ONLY and executionImpact NONE. */
+  gate1DryRunObservationLedger?: Gate1DryRunObservationSummary;
+  /** ADR-0477 investor-flow provider router result; SHADOW_ONLY and executionImpact NONE. */
+  investorFlowProviderRouter?: InvestorFlowProviderRouteResult;
 }
 
 let _lastBuySignalAt = 0;
@@ -503,6 +570,7 @@ export interface ScanCounters {
   entryCandidateSnapshots: CandidateSnapshot[];
   /** ADR-458 — Dry-run result accumulator; diagnostic-only. */
   gateReclassificationDryRunResults: GateReclassificationDryRunResult[];
+  positiveScoreStarvationTraces: Gate1ScoreStarvationTrace[];
 }
 
 export function createScanCounters(): ScanCounters {
@@ -580,6 +648,7 @@ export function createScanCounters(): ScanCounters {
     entryCandidateSnapshots: [],
     // ADR-458 — Approved Gate Reclassification Dry-Run 결과 누적 (live 영향 없음).
     gateReclassificationDryRunResults: [],
+    positiveScoreStarvationTraces: [],
   };
 }
 
@@ -816,6 +885,13 @@ export function accumulateGateReclassificationDryRun(
 ): void {
   if (!result || result.dryRunDecision === 'NO_CHANGE') return;
   counters.gateReclassificationDryRunResults.push(result);
+}
+
+export function accumulatePositiveScoreStarvation(
+  counters: ScanCounters,
+  trace: Gate1ScoreStarvationTrace | null | undefined,
+): void {
+  if (trace) counters.positiveScoreStarvationTraces.push(trace);
 }
 
 function topCounts(record: Record<string, number>, limit = 5): Array<{ condition: string; count: number }> {
@@ -1140,10 +1216,80 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(gateReclassificationDryRunSection);
   }
 
+  const positiveStarvationSection = formatPositiveScoreStarvationReport(summary.positiveScoreStarvation);
+  if (positiveStarvationSection) {
+    lines.push('');
+    lines.push(positiveStarvationSection);
+  }
+
+  const scoreCeilingRepairSection = formatGate1ScoreCeilingRepairReport(summary.scoreCeilingRepair);
+  if (scoreCeilingRepairSection) {
+    lines.push('');
+    lines.push(scoreCeilingRepairSection);
+  }
+
+  const penaltyDeduplicationSection = formatPenaltyDeduplicationReport(summary.penaltyDeduplication);
+  if (penaltyDeduplicationSection) {
+    lines.push('');
+    lines.push(penaltyDeduplicationSection);
+  }
+
+  const riskDoubleCountSection = formatRiskDoubleCountAuditReport(summary.riskDoubleCount);
+  if (riskDoubleCountSection) {
+    lines.push('');
+    lines.push(riskDoubleCountSection);
+  }
+
+  const finalGate1CalibrationSection = formatFinalGate1CalibrationReport(summary.finalGate1Calibration);
+  if (finalGate1CalibrationSection) {
+    lines.push('');
+    lines.push(finalGate1CalibrationSection);
+  }
+
+  try {
+    const gate1ScoringAlignmentSection = formatGate1ScoringAlignmentReport(summary.gate1ScoringAlignment);
+    if (gate1ScoringAlignmentSection) {
+      lines.push('');
+      lines.push(gate1ScoringAlignmentSection);
+    }
+  } catch (e) {
+    console.warn('[ADR-0472] Gate1ScoringAlignment format failed (base scan summary unaffected):', e);
+  }
+
+  try {
+    const positiveSourceWiringSection = formatGate1PositiveSourceWiringReport(summary.gate1PositiveSourceWiring);
+    if (positiveSourceWiringSection) {
+      lines.push('');
+      lines.push(positiveSourceWiringSection);
+    }
+  } catch (e) {
+    console.warn('[ADR-0475] Gate1PositiveSourceWiring format failed (base scan summary unaffected):', e);
+  }
+
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
   // 기존 sectorEnergyQuality 라벨만으로는 SECTOR_DATA_STALE_DOMINANT 의 *진짜 원인* 인식 불가.
   // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
   // ADR-0422 Gate2 섹션의 sectorEnergy 표시(요약) 와 *책임 분리* — 본 섹션은 *원인 분해 상세*.
+  try {
+    const investorFlowRouterSection = formatInvestorFlowProviderRouterAdr0477(summary.investorFlowProviderRouter);
+    if (investorFlowRouterSection) {
+      lines.push('');
+      lines.push(investorFlowRouterSection);
+    }
+  } catch (e) {
+    console.warn('[ADR-0477] InvestorFlowProviderRouter format failed (base scan summary unaffected):', e);
+  }
+
+  try {
+    const dryRunObservationSection = formatGate1DryRunObservationSummary(summary.gate1DryRunObservationLedger);
+    if (dryRunObservationSection) {
+      lines.push('');
+      lines.push(dryRunObservationSection);
+    }
+  } catch (e) {
+    console.warn('[ADR-0476] Gate1DryRunObservation format failed (base scan summary unaffected):', e);
+  }
+
   const sectorEnergySection = formatSectorEnergyQualityDiagnosticSection(summary.sectorEnergyQualityDiagnostic);
   if (sectorEnergySection) {
     lines.push('');
@@ -1342,6 +1488,13 @@ export async function persistScanResults(
     gateScoreCandidateBuckets: buildGateScoreCandidateBucketSummary(counters),
     // ADR-458 — dry-run only approved reclassification impact summary.
     gateReclassificationDryRun: buildGateReclassificationDryRunSummary(counters.gateReclassificationDryRunResults),
+    positiveScoreStarvation: buildPositiveScoreStarvationReport({
+      traces: counters.positiveScoreStarvationTraces,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: options.macroGateState?.regime ?? 'UNKNOWN',
+      marketSession: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+    }),
   };
 
   // ADR-0420 — Fresh Scan Blocker Attribution build + persist (옵셔널, 후방호환).
@@ -1607,6 +1760,256 @@ export async function persistScanResults(
     });
   } catch (e) {
     console.warn('[ADR-0464] EntryFilterDecomposition build 실패 (영속 무영향)', e);
+  }
+
+  // ADR-0467 fallback: when the scan stopped before buyListLoop, Gate1 score
+  // samples are absent, but ADR-0466 still exposes enough min-score telemetry to
+  // show the positive-score starvation section in /scan_blockers.
+  try {
+    if ((summaryDraft.positiveScoreStarvation?.totalCandidates ?? 0) <= 0) {
+      const fallback = buildPositiveScoreStarvationFallbackReport({
+        minSignalScoreReport: summaryDraft.entryFilterDecomposition?.minSignalScoreDecompositionReport,
+        timestamp: kstNow.toISOString(),
+        forDate: kstNow.toISOString().slice(0, 10),
+        regime: options.macroGateState?.regime ?? 'UNKNOWN',
+        marketSession: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      });
+      if (fallback) {
+        summaryDraft.positiveScoreStarvation = fallback;
+        console.warn(
+          `[ADR-0467] fallback PositiveScoreStarvationReport emitted from ADR-0466 min-signal telemetry ` +
+          `(candidates=${fallback.totalCandidates}, gateScoreHealthSamples=${counters.gateScoreHealthSamples})`,
+        );
+      }
+    }
+  } catch (e) {
+    console.warn('[ADR-0467] PositiveScoreStarvation fallback build failed (engine unaffected):', e);
+  }
+
+  // ADR-0468: score ceiling repair remains dry-run/advisory only. It consumes the
+  // ADR-0467 starvation report, including the ADR-0466 fallback path, so
+  // BEFORE_BUYLIST_LOOP scans still surface the broken score ceiling.
+  try {
+    const repair = buildGate1ScoreCeilingRepairReport({
+      positiveStarvationReport: summaryDraft.positiveScoreStarvation,
+      traces: counters.positiveScoreStarvationTraces,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: options.macroGateState?.regime ?? 'UNKNOWN',
+      marketSession: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+    });
+    if (repair) {
+      summaryDraft.scoreCeilingRepair = repair;
+      console.warn(
+        `[ADR-0468] Gate1ScoreCeilingRepair dry-run emitted ` +
+        `(candidates=${repair.totalCandidates}, requiredReachableBefore=${repair.scoreCeilingRepairAudit.requiredReachableBefore}, ` +
+        `executionImpact=${repair.executionImpact})`,
+      );
+    }
+  } catch (e) {
+    console.warn('[ADR-0468] Gate1ScoreCeilingRepair build failed (engine unaffected):', e);
+  }
+
+  // ADR-0469: root-cause penalty deduplication is advisory only. It checks
+  // whether supply provider UNKNOWN is charged through multiple penalty lanes.
+  try {
+    const dedup = buildPenaltyDeduplicationReport({
+      positiveStarvationReport: summaryDraft.positiveScoreStarvation,
+      scoreCeilingRepairReport: summaryDraft.scoreCeilingRepair,
+      traces: counters.positiveScoreStarvationTraces,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: options.macroGateState?.regime ?? 'UNKNOWN',
+      marketSession: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      riskMultiplier: options.macroGateState?.finalKellyMultiplier ?? 0.38,
+    });
+    if (dedup) {
+      summaryDraft.penaltyDeduplication = dedup;
+      console.warn(
+        `[ADR-0469] PenaltyDeduplication dry-run emitted ` +
+        `(candidates=${dedup.totalCandidates}, duplicateGroups=${dedup.duplicateGroups.length}, ` +
+        `executionImpact=${dedup.executionImpact})`,
+      );
+    }
+  } catch (e) {
+    console.warn('[ADR-0469] PenaltyDeduplication build failed (engine unaffected):', e);
+  }
+
+  // ADR-0470: risk placement split is dry-run only. It compares Gate1 signal
+  // risk against Kelly sizing risk without changing live policy.
+  try {
+    const macro = options.macroGateState;
+    const riskDoubleCount = buildRiskDoubleCountAuditReport({
+      positiveStarvationReport: summaryDraft.positiveScoreStarvation,
+      scoreCeilingRepairReport: summaryDraft.scoreCeilingRepair,
+      penaltyDeduplicationReport: summaryDraft.penaltyDeduplication,
+      traces: counters.positiveScoreStarvationTraces,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: macro?.regime ?? 'UNKNOWN',
+      marketSession: macro?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      regimeMultiplier: macro?.kellyMultiplierFromRegime ?? 0.7,
+      fomcMultiplier: macro?.fomcKellyMultiplier ?? 1,
+      sectorMultiplier: 1,
+      combinedKellyMultiplier: macro?.finalKellyMultiplier ?? 0.26,
+    });
+    if (riskDoubleCount) {
+      summaryDraft.riskDoubleCount = riskDoubleCount;
+      console.warn(
+        `[ADR-0470] RiskDoubleCount dry-run emitted ` +
+        `(candidates=${riskDoubleCount.totalCandidates}, doubleCountCandidates=${riskDoubleCount.doubleCountCandidates}, ` +
+        `executionImpact=${riskDoubleCount.executionImpact})`,
+      );
+    }
+  } catch (e) {
+    console.warn('[ADR-0470] RiskDoubleCount build failed (engine unaffected):', e);
+  }
+
+  // ADR-0471: final diagnostic calibration layer. No threshold or live policy is
+  // changed here; it only emits unknown-policy and shadow-observation guidance.
+  try {
+    const macro = options.macroGateState;
+    const finalGate1Calibration = buildFinalGate1CalibrationAuditReport({
+      positiveStarvationReport: summaryDraft.positiveScoreStarvation,
+      scoreCeilingRepairReport: summaryDraft.scoreCeilingRepair,
+      penaltyDeduplicationReport: summaryDraft.penaltyDeduplication,
+      riskDoubleCountReport: summaryDraft.riskDoubleCount,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: macro?.regime ?? 'UNKNOWN',
+      marketSession: macro?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      providerHealth: 'UNKNOWN',
+    });
+    if (finalGate1Calibration) {
+      summaryDraft.finalGate1Calibration = finalGate1Calibration;
+      console.warn(
+        `[ADR-0471] FinalGate1Calibration dry-run emitted ` +
+        `(candidates=${finalGate1Calibration.candidates}, recommendedPolicy=${finalGate1Calibration.thresholdSweep.recommendedUnknownPolicy}, ` +
+        `liveExecutionAllowed=${finalGate1Calibration.liveExecutionAllowed})`,
+      );
+    }
+  } catch (e) {
+    console.warn('[ADR-0471] FinalGate1Calibration build failed (engine unaffected):', e);
+  }
+
+  // ADR-0472: component-set alignment and policy promotion candidate. This is
+  // SHADOW_ONLY and never mutates live Gate1 scoring or order routing.
+  try {
+    const macro = options.macroGateState;
+    const gate1ScoringAlignment = buildGate1ScoringAlignmentReport({
+      positiveStarvationReport: summaryDraft.positiveScoreStarvation,
+      scoreCeilingRepairReport: summaryDraft.scoreCeilingRepair,
+      penaltyDeduplicationReport: summaryDraft.penaltyDeduplication,
+      riskDoubleCountReport: summaryDraft.riskDoubleCount,
+      finalGate1CalibrationReport: summaryDraft.finalGate1Calibration,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: macro?.regime ?? 'UNKNOWN',
+      marketSession: macro?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      providerHealthStatus: 'UNKNOWN',
+      unknownPolicyActive: true,
+    });
+    if (gate1ScoringAlignment) {
+      summaryDraft.gate1ScoringAlignment = gate1ScoringAlignment;
+      console.warn(
+        `[ADR-0472] Gate1ScoringAlignment SHADOW_ONLY dry-run emitted ` +
+        `(componentSetAligned=${gate1ScoringAlignment.componentSetAligned}, ` +
+        `missingComponents=${gate1ScoringAlignment.missingComponents.join('|') || 'none'}, ` +
+        `executionImpact=${gate1ScoringAlignment.executionImpact})`,
+      );
+    }
+  } catch (e) {
+    console.warn('[ADR-0472] Gate1ScoringAlignment build failed (engine unaffected):', e);
+  }
+
+  // ADR-0475: positive source resolver dry-run for watchlist upstream score,
+  // relative strength, breakout structure, and OTHER_POSITIVE decomposition.
+  // This never mutates live Gate1 scoring, thresholds, or order routing.
+  try {
+    const macro = options.macroGateState;
+    const gate1PositiveSourceWiring = buildGate1PositiveSourceWiringReport({
+      positiveStarvationReport: summaryDraft.positiveScoreStarvation,
+      scoreCeilingRepairReport: summaryDraft.scoreCeilingRepair,
+      penaltyDeduplicationReport: summaryDraft.penaltyDeduplication,
+      riskDoubleCountReport: summaryDraft.riskDoubleCount,
+      gate1ScoringAlignmentReport: summaryDraft.gate1ScoringAlignment,
+      traces: counters.positiveScoreStarvationTraces,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: macro?.regime ?? 'UNKNOWN',
+      marketSession: macro?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+    });
+    if (gate1PositiveSourceWiring) {
+      summaryDraft.gate1PositiveSourceWiring = gate1PositiveSourceWiring;
+      console.warn(
+        `[ADR-0475] Gate1PositiveSourceWiring SHADOW_ONLY dry-run emitted ` +
+        `(candidates=${gate1PositiveSourceWiring.totalCandidates}, ` +
+        `afterRange=${gate1PositiveSourceWiring.afterDryRunScoreRange}, ` +
+        `executionImpact=${gate1PositiveSourceWiring.executionImpact}, ` +
+        `liveExecutionAllowed=${gate1PositiveSourceWiring.liveExecutionAllowed})`,
+      );
+    }
+  } catch (e) {
+    console.warn('[ADR-0475] Gate1PositiveSourceWiring build failed (engine unaffected):', e);
+  }
+
+  // ADR-0477: investor-flow provider router wiring. This sits before the
+  // ADR-0473/0465 supply diagnostics conceptually, but is built from already
+  // available scan context only. It never fetches, routes orders, or mutates
+  // live Gate/Kelly policy.
+  try {
+    const observationSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
+    const firstSnapshot = observationSnapshots[0];
+    const investorFlowProviderRouter = buildInvestorFlowProviderRouteResultAdr0477({
+      code: firstSnapshot?.symbol ?? 'UNIVERSE',
+      collectedAt: kstNow.toISOString(),
+      naverCollectorWired: false,
+      cacheRaw: null,
+      previousTradingDayCacheRaw: null,
+      kisTriedForInvestorFlow: true,
+      nonTradingDay: options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false,
+      sourceAgeTradingDays: null,
+      cacheAgeTradingDays: null,
+      marketProgramStatus: 'ACCEPTED_EMPTY',
+      fssSourceAgeTradingDays: 5,
+    });
+    summaryDraft.investorFlowProviderRouter = investorFlowProviderRouter;
+    console.warn(
+      `[ADR-0477] InvestorFlowProviderRouter SHADOW_ONLY emitted ` +
+      `(status=${investorFlowProviderRouter.status}, signal=${investorFlowProviderRouter.signal}, ` +
+      `selectedProvider=${investorFlowProviderRouter.selectedProvider}, ` +
+      `executionImpact=${investorFlowProviderRouter.executionImpact}, ` +
+      `liveExecutionAllowed=${investorFlowProviderRouter.liveExecutionAllowed})`,
+    );
+  } catch (e) {
+    console.warn('[ADR-0477] InvestorFlowProviderRouter build failed (engine unaffected):', e);
+  }
+
+  // ADR-0476: dry-run and near-miss observation ledger. This stores only compact
+  // observation rows for 1D/3D/5D tracking and never changes live execution.
+  try {
+    const observationSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
+    const rows = buildGate1DryRunObservationRows({
+      now: kstNow,
+      forDate: kstNow.toISOString().slice(0, 10),
+      candidateSnapshots: observationSnapshots,
+      finalGate1Calibration: summaryDraft.finalGate1Calibration,
+      gate1PositiveSourceWiring: summaryDraft.gate1PositiveSourceWiring,
+      investorFlowProviderRouter: summaryDraft.investorFlowProviderRouter,
+      sellOnly: options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false,
+      sectorEnergyDiagnosticOnly: options.sectorEnergyQuality !== undefined && options.sectorEnergyQuality !== 'OK',
+      providerIssue: observationSnapshots.some((item) => item.supplyProviderHealth?.providerIssue === true),
+      marketSignal: observationSnapshots.some((item) => item.supplyProviderHealth?.marketSignal === true),
+    });
+    await saveGate1DryRunObservationRows(rows);
+    summaryDraft.gate1DryRunObservationLedger = summarizeGate1DryRunObservationRows(rows, rows.length);
+    console.warn(
+      `[ADR-0476] Gate1DryRunObservation rows emitted ` +
+      `(rows=${rows.length}, executionImpact=${summaryDraft.gate1DryRunObservationLedger.executionImpact}, ` +
+      `liveExecutionAllowed=${summaryDraft.gate1DryRunObservationLedger.liveExecutionAllowed})`,
+    );
+  } catch (e) {
+    console.warn('[ADR-0476] Gate1DryRunObservation build/save failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;

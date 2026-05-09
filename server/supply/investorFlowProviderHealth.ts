@@ -71,6 +71,87 @@ export interface InvestorFlowSemanticNetBuy {
   programNetBuy?: number;
 }
 
+export type SupplyProviderStatus =
+  | 'VERIFIED'
+  | 'DEGRADED'
+  | 'STALE'
+  | 'DATA_UNAVAILABLE'
+  | 'NON_TRADING_DAY'
+  | 'CACHE_EMPTY'
+  | 'NOT_WIRED'
+  | 'PROVIDER_MISMATCH'
+  | 'ERROR'
+  | 'UNKNOWN';
+
+export type SupplyMarketSignal =
+  | 'BULLISH'
+  | 'NEUTRAL'
+  | 'BEARISH'
+  | 'UNAVAILABLE';
+
+export interface SemanticNetBuySample {
+  code: string;
+  source: 'KRX' | 'NAVER' | 'CACHE';
+  sourceDate: string;
+  investorForeignNetBuy?: number;
+  investorInstitutionNetBuy?: number;
+  netBuyScore?: number;
+  confidence: 'VERIFIED' | 'DEGRADED' | 'STALE' | 'UNKNOWN';
+  providerIssue: boolean;
+  marketSignal: boolean;
+}
+
+export interface SupplyProviderHealthDerivation {
+  providerIssue: boolean;
+  marketSignal: boolean;
+  status: SupplyProviderStatus;
+  supplyMarketSignal: SupplyMarketSignal;
+  liveStrongBuyAllowed: boolean;
+  shadowObservableAllowed: boolean;
+  liveExecutionAllowed: false;
+  failed: false;
+  executionImpact: 'NONE';
+}
+
+export interface PreviousTradingDayCacheFallbackDiagnostic {
+  requestedSourceDate: string;
+  previousTradingDateCandidate: string;
+  cacheKeyTried: string;
+  cacheHit: boolean;
+  cacheAgeBusinessDays: number;
+  usableForShadow: boolean;
+  usableForLiveStrongBuy: false;
+  executionImpact: 'NONE';
+}
+
+export interface SupplyProviderWarmupReport {
+  krxStatus: SupplyProviderStatus;
+  naverStatus: SupplyProviderStatus;
+  semanticNetBuySchemaReady: boolean;
+  semanticNetBuyCollectorStatus: 'WIRED' | 'NOT_WIRED';
+  cacheStatus: SupplyProviderStatus;
+  kisStatus: SupplyProviderStatus;
+  providerIssue: boolean;
+  marketSignal: boolean;
+  previousTradingDateDiagnostic: PreviousTradingDayCacheFallbackDiagnostic;
+  executionImpact: 'NONE';
+  liveExecutionAllowed: false;
+  shadowObservableAllowed: true;
+  investorFlowRouter?: {
+    status: string;
+    selectedProvider: string;
+    providerTried: string[];
+    signal: string;
+    coverage: {
+      available: number;
+      total: number;
+    };
+    executionImpact: 'NONE';
+    liveExecutionAllowed: false;
+  };
+  nextAction: 'WIRE_NAVER_OR_REPAIR_CACHE_KEY' | 'OBSERVE_PROVIDER_WARMUP' | 'NONE';
+}
+
 const KST_OFFSET_MS = 9 * 60 * 60_000;
 const NEGATIVE_CACHE_TTL_MS = 10 * 60_000;
 
@@ -257,6 +338,184 @@ export function rememberInvestorFlowProviderHealth(health: InvestorFlowProviderH
 
 export function getLastInvestorFlowProviderHealth(): InvestorFlowProviderHealth[] {
   return lastHealth.map((h) => ({ ...h }));
+}
+
+function classifySemanticNetBuySample(sample: SemanticNetBuySample | null | undefined): SupplyMarketSignal {
+  if (!sample) return 'UNAVAILABLE';
+  const foreign = sample.investorForeignNetBuy;
+  const institution = sample.investorInstitutionNetBuy;
+  if (!isFiniteNumber(foreign) || !isFiniteNumber(institution)) return 'UNAVAILABLE';
+  if (foreign < 0 && institution < 0) return 'BEARISH';
+  if (foreign > 0 && institution > 0) return 'BULLISH';
+  return 'NEUTRAL';
+}
+
+function normalizeSupplyProviderStatus(status: InvestorFlowProviderStatus | SupplyProviderStatus | undefined): SupplyProviderStatus {
+  switch (status) {
+    case 'OK':
+    case 'CACHE_HIT':
+    case 'VERIFIED':
+      return 'VERIFIED';
+    case 'CACHE_EMPTY':
+      return 'CACHE_EMPTY';
+    case 'NOT_WIRED':
+      return 'NOT_WIRED';
+    case 'NON_TRADING_DAY':
+      return 'NON_TRADING_DAY';
+    case 'MARKET_CLOSED':
+    case 'LUNCH_BREAK':
+    case 'PARSER_EMPTY_ROWS':
+    case 'PROVIDER_UNAVAILABLE':
+    case 'DATA_UNAVAILABLE':
+      return 'DATA_UNAVAILABLE';
+    case 'HTTP_400':
+    case 'HTTP_403':
+    case 'HTTP_429':
+    case 'HTTP_5XX':
+    case 'TIMEOUT':
+    case 'PARAM_INVALID':
+    case 'UNKNOWN_ERROR':
+    case 'ERROR':
+      return 'ERROR';
+    case 'DEGRADED':
+    case 'STALE':
+    case 'PROVIDER_MISMATCH':
+    case 'UNKNOWN':
+      return status;
+    default:
+      return 'UNKNOWN';
+  }
+}
+
+export function deriveSupplyProviderHealth(input: {
+  status?: InvestorFlowProviderStatus | SupplyProviderStatus;
+  sample?: SemanticNetBuySample | null;
+}): SupplyProviderHealthDerivation {
+  const status = normalizeSupplyProviderStatus(input.status);
+  const supplyMarketSignal = status === 'VERIFIED'
+    ? classifySemanticNetBuySample(input.sample)
+    : 'UNAVAILABLE';
+  const providerIssue = status !== 'VERIFIED';
+  const marketSignal = status === 'VERIFIED' && supplyMarketSignal !== 'UNAVAILABLE';
+  return {
+    providerIssue,
+    marketSignal,
+    status,
+    supplyMarketSignal,
+    liveStrongBuyAllowed: status === 'VERIFIED' && supplyMarketSignal === 'BULLISH',
+    shadowObservableAllowed: true,
+    liveExecutionAllowed: false,
+    failed: false,
+    executionImpact: 'NONE',
+  };
+}
+
+export function isSemanticNetBuyProvider(provider: string): provider is SemanticNetBuySample['source'] {
+  return provider === 'KRX' || provider === 'NAVER' || provider === 'CACHE';
+}
+
+function businessDayDistance(fromYmd: string, toYmd: string): number {
+  let cursor = fromYmd;
+  let count = 0;
+  for (let i = 0; i < 32 && cursor < toYmd; i += 1) {
+    cursor = shiftYmd(cursor, 1);
+    if (cursor <= toYmd && isTradingDay(cursor)) count += 1;
+  }
+  return count;
+}
+
+export function buildPreviousTradingDayCacheFallbackDiagnostic(input: {
+  code?: string;
+  requestedSourceDate: string;
+  cacheHit?: boolean;
+}): PreviousTradingDayCacheFallbackDiagnostic {
+  const previousTradingDateCandidate = previousInvestorFlowTradingDate(input.requestedSourceDate);
+  const safeCode = (input.code ?? '000000').replace(/[^0-9]/g, '').slice(-6).padStart(6, '0');
+  const cacheHit = input.cacheHit === true;
+  return {
+    requestedSourceDate: input.requestedSourceDate,
+    previousTradingDateCandidate,
+    cacheKeyTried: `semantic-netbuy:${safeCode}:${previousTradingDateCandidate}`,
+    cacheHit,
+    cacheAgeBusinessDays: businessDayDistance(previousTradingDateCandidate, input.requestedSourceDate),
+    usableForShadow: true,
+    usableForLiveStrongBuy: false,
+    executionImpact: 'NONE',
+  };
+}
+
+function findProviderHealth(
+  health: InvestorFlowProviderHealth[],
+  provider: InvestorFlowProvider,
+): InvestorFlowProviderHealth | undefined {
+  return health.find((item) => item.provider === provider);
+}
+
+function statusFromHealth(health: InvestorFlowProviderHealth | undefined, fallback: SupplyProviderStatus): SupplyProviderStatus {
+  if (!health) return fallback;
+  if (health.provider === 'KIS') return 'PROVIDER_MISMATCH';
+  return normalizeSupplyProviderStatus(health.status);
+}
+
+export function buildSupplyProviderWarmupReport(input: {
+  health?: InvestorFlowProviderHealth[];
+  now?: Date;
+  code?: string;
+  cacheHit?: boolean;
+  investorFlowRouter?: SupplyProviderWarmupReport['investorFlowRouter'];
+} = {}): SupplyProviderWarmupReport {
+  const health = input.health ?? [];
+  const now = input.now ?? new Date();
+  const requestedSourceDate = toInvestorFlowKstDateTime(now).date;
+  const krxFallback: SupplyProviderStatus = isTradingDay(requestedSourceDate) ? 'DATA_UNAVAILABLE' : 'NON_TRADING_DAY';
+  const krxStatus = statusFromHealth(findProviderHealth(health, 'KRX'), krxFallback);
+  const naverStatus = statusFromHealth(findProviderHealth(health, 'NAVER'), 'NOT_WIRED');
+  const cacheStatus = statusFromHealth(findProviderHealth(health, 'CACHE'), 'CACHE_EMPTY');
+  const kisStatus = statusFromHealth(findProviderHealth(health, 'KIS'), 'PROVIDER_MISMATCH');
+  const composite = findProviderHealth(health, 'COMPOSITE');
+  const marketSignal = composite?.semanticAvailable === true && composite.isNegativeFlowConfirmed === true;
+  const providerIssue = !composite?.semanticAvailable
+    || [krxStatus, naverStatus, cacheStatus, kisStatus].some((status) => status !== 'VERIFIED');
+  const previousTradingDateDiagnostic = buildPreviousTradingDayCacheFallbackDiagnostic({
+    ...(input.code !== undefined ? { code: input.code } : {}),
+    requestedSourceDate,
+    ...(input.cacheHit !== undefined ? { cacheHit: input.cacheHit } : {}),
+  });
+  return {
+    krxStatus,
+    naverStatus,
+    semanticNetBuySchemaReady: true,
+    semanticNetBuyCollectorStatus: naverStatus === 'NOT_WIRED' ? 'NOT_WIRED' : 'WIRED',
+    cacheStatus,
+    kisStatus,
+    providerIssue,
+    marketSignal,
+    previousTradingDateDiagnostic,
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    shadowObservableAllowed: true,
+    ...(input.investorFlowRouter ? { investorFlowRouter: input.investorFlowRouter } : {}),
+    nextAction: providerIssue ? 'WIRE_NAVER_OR_REPAIR_CACHE_KEY' : 'NONE',
+  };
+}
+
+export function formatSupplyProviderWarmupCompactLine(report: SupplyProviderWarmupReport): string {
+  const d = report.previousTradingDateDiagnostic;
+  return [
+    '📊 Supply Provider Warmup (ADR-0473)',
+    `  KRX: ${report.krxStatus} / previousTradingDateCandidate=${d.previousTradingDateCandidate} / cacheHit=${String(d.cacheHit)}`,
+    `  NAVER: ${report.naverStatus}`,
+    `  Semantic NetBuy: schema ready / collector ${report.semanticNetBuyCollectorStatus === 'WIRED' ? 'wired' : 'not wired'}`,
+    `  CACHE: ${report.cacheStatus}`,
+    `  KIS: ${report.kisStatus}`,
+    `  providerIssue=${String(report.providerIssue)}`,
+    `  marketSignal=${String(report.marketSignal)}`,
+    ...(report.investorFlowRouter ? [
+      `  ADR-0477 Router: ${report.investorFlowRouter.status} / selected=${report.investorFlowRouter.selectedProvider} / signal=${report.investorFlowRouter.signal} / coverage=${report.investorFlowRouter.coverage.available}/${report.investorFlowRouter.coverage.total}`,
+    ] : []),
+    `  executionImpact=${report.executionImpact}`,
+    `  nextAction: ${report.nextAction}`,
+  ].join('\n');
 }
 
 function extractKstHhmm(iso: string | undefined): string | null {
