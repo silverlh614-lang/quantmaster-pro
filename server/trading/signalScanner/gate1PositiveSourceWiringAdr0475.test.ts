@@ -328,12 +328,12 @@ describe('ADR-0475 Gate1 Positive Source Wiring', () => {
     expect(source).not.toContain('setGateThreshold');
   });
 
-  it('ADR-0475 document exists and ADR index advances to 0476', () => {
+  it('ADR-0475 document exists and ADR index has advanced beyond 0475', () => {
     const root = process.cwd();
     const doc = join(root, 'docs/adr/0475-gate1-positive-source-wiring.md');
     const index = readFileSync(join(root, 'docs/adr/INDEX.md'), 'utf8');
     expect(existsSync(doc)).toBe(true);
     expect(readFileSync(doc, 'utf8')).toContain('Dry-run');
-    expect(index).toContain('다음 ADR 번호: `0476`');
+    expect(index).toContain('다음 ADR 번호: `0478`');
   });
 });
