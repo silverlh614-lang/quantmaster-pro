@@ -14,8 +14,10 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0492`**
+**다음 ADR 번호: `0493`**
 
+
+(2026-05-09 기준, 마지막 발급 0492 — adr-merge-conflict-resolution-branch. ADR-0492 reserves the new-branch ADR merge-conflict resolution record, advances the next issue number to 0493, requires ADR body + INDEX.md + CLAUDE.md to move together, preserves historical collision groups, and keeps runtime behavior unchanged. executionImpact=NONE, liveExecutionAllowed=false, operatorApprovalRequired=true, no Gate/Kelly/KIS/order/provider/Telegram/runtime logic changes.)
 
 (2026-05-09 기준, 마지막 발급 0491 — supply-snapshot-store-replay. ADR-0491 adds a diagnostic-only sanitized Supply Snapshot Store & Replay layer with bounded JSON retention, replay modes, comparison helper, corrupt JSON recovery, /scan_blockers and Runtime Pipeline Audit evidence, ADR-0476 observation row, and ADR-0480 operator-action mapping. executionImpact=NONE, liveExecutionAllowed=false, policyPromotionMode=OBSERVE/SHADOW_ONLY, operatorApprovalRequired=true, requiredScore=70 unchanged, no Gate/Kelly/KIS/order/live policy changes, raw provider payload persistence forbidden.)
 
@@ -485,8 +487,9 @@
 | 0489 | adr-merge-conflict-resolution-guard (ADR-numbering merge-conflict resolution guard — reserve ADR-0489, advance next issue number to 0490, document no active merge state/conflict marker validation, preserve historical collision groups, require future conflict resolution to update ADR body + INDEX.md + CLAUDE.md together, governance-only with executionImpact=NONE / liveExecutionAllowed=false / operatorApprovalRequired=true, runtime trading/provider/Gate/Kelly/KIS/order behavior 0 changes) | governance |
 | 0490 | program-trading-data-line (diagnostic-only ProgramTrading data line — sanitized program net-buy rows, OBSERVE mode, raw provider payload persistence forbidden, UNKNOWN not converted bullish/bearish, no KIS order import/order path/Gate/Kelly/requiredScore/live policy change) | trading |
 | 0491 | supply-snapshot-store-replay (diagnostic-only sanitized Supply Snapshot Store & Replay — bounded JSON store, LATEST/PREVIOUS_TRADING_DAY/BY_SCAN_ID/BY_DATE/WINDOW replay, comparison helper, corrupt JSON recovery, compact/detail formatters, runtime audit evidence, ADR-0476 observation row, ADR-0480 operator-action mapping, /scan_blockers compact line; executionImpact=NONE/liveExecutionAllowed=false/operatorApprovalRequired=true; replay never feeds live Gate decisions) | trading |
+| 0492 | adr-merge-conflict-resolution-branch (new-branch ADR merge-conflict resolution record — reserve ADR-0492, advance next issue number to 0493, require ADR body + INDEX.md + CLAUDE.md together, preserve historical collision groups, governance-only with executionImpact=NONE / liveExecutionAllowed=false / operatorApprovalRequired=true, runtime trading/provider/Gate/Kelly/KIS/order behavior 0 changes) | governance |
 
-**총 발급 282 unique 번호** (마지막 발급 0491) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0492**.
+**총 발급 283 unique 번호** (마지막 발급 0492) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0493**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
