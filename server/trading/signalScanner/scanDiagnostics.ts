@@ -199,6 +199,10 @@ import {
   type FreshDataSupplyReportAdr0487,
   type FreshDataSupplyReportInputAdr0487,
 } from './freshDataSupplyLayerAdr0487.js';
+import {
+  buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488,
+  type SectorEnergyAndSupplyUnknownPolicyReportAdr0488,
+} from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -471,6 +475,8 @@ export interface ScanSummary {
   supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486;
   /** ADR-0487 fresh data supply foundation; OBSERVE/SHADOW_ONLY and executionImpact NONE. */
   freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487;
+  /** ADR-0488 SectorEnergy master supply line + Supply UNKNOWN policy; SHADOW_ONLY and executionImpact NONE. */
+  sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488;
 }
 
 let _lastBuySignalAt = 0;
@@ -2110,7 +2116,7 @@ export async function persistScanResults(
     console.warn('[ADR-0476] Gate1DryRunObservation build/save failed (engine unaffected):', e);
   }
 
-  // ADR-0484/0485/0486/0487: persist supply recovery/readiness/mount/fresh-data
+  // ADR-0484/0485/0486/0487/0488: persist supply recovery/readiness/mount/fresh-data/UNKNOWN
   // evidence into ScanSummary before Runtime Pipeline Audit reads it.
   // ScanSummary before Runtime Pipeline Audit reads it. Diagnostic-only.
   try {
@@ -2164,14 +2170,27 @@ export async function persistScanResults(
       supplyAdvisoryReadinessAdr0485: supplyAdvisoryReadinessAdr0485 as unknown as Record<string, unknown>,
       investorFlowProviderRouterAdr0477: summaryDraft.investorFlowProviderRouter,
     });
+    summaryDraft.sectorEnergySupplyUnknownAdr0488 = buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
+      generatedAt: kstNow.toISOString(),
+      sectorEnergyDiagnosticAdr0474: summaryDraft.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
+      freshDataSupplyAdr0487: summaryDraft.freshDataSupplyAdr0487,
+      finalGate1CalibrationAdr0471: summaryDraft.finalGate1Calibration,
+      penaltyDeduplicationAdr0469: summaryDraft.penaltyDeduplication,
+      candidateSnapshots: options.candidateSnapshots ?? counters.entryCandidateSnapshots,
+      providerIssue: (options.candidateSnapshots ?? counters.entryCandidateSnapshots).some((item) => item.supplyProviderHealth?.providerIssue === true),
+      marketSignal: (options.candidateSnapshots ?? counters.entryCandidateSnapshots).some((item) => item.supplyProviderHealth?.marketSignal === true),
+      providerStatus: summaryDraft.investorFlowProviderRouter?.status ?? summaryDraft.naverInvestorTrendAdr0481?.status ?? 'UNKNOWN',
+      currentSupplySignal: summaryDraft.investorFlowProviderRouter?.signal ?? 'UNKNOWN',
+    });
     await saveGate1DryRunObservationRows(buildGate1DryRunObservationRows({
       now: kstNow,
       forDate: kstNow.toISOString().slice(0, 10),
       supplyRecoveryRuntimeMountAdr0486: summaryDraft.supplyRecoveryRuntimeMountAdr0486,
       freshDataSupplyAdr0487: summaryDraft.freshDataSupplyAdr0487,
+      sectorEnergySupplyUnknownAdr0488: summaryDraft.sectorEnergySupplyUnknownAdr0488,
     }));
   } catch (e) {
-    console.warn('[ADR-0486/0487] Supply recovery/runtime/fresh data build failed (engine unaffected):', e);
+    console.warn('[ADR-0486/0487/0488] Supply recovery/runtime/fresh data/SectorEnergy UNKNOWN build failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;

@@ -1,4 +1,4 @@
-// @responsibility ADR-0487 /fresh_data_status diagnostic command; no provider fetch or live execution.
+// @responsibility ADR-0487/0488 /fresh_data_status diagnostic command; provider fetch blocked, live execution blocked.
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import { getLastScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
@@ -7,6 +7,10 @@ import {
   safeBuildFreshDataSupplyReportAdr0487,
   type FreshDataSupplyReportInputAdr0487,
 } from '../../../trading/signalScanner/freshDataSupplyLayerAdr0487.js';
+import {
+  formatSectorEnergySupplyUnknownDetailAdr0488,
+  safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488,
+} from '../../../trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 
 const freshDataStatus: TelegramCommand = {
   name: '/fresh_data_status',
@@ -26,7 +30,17 @@ const freshDataStatus: TelegramCommand = {
       supplyAdvisoryReadinessAdr0485: summary?.supplyAdvisoryReadinessAdr0485 as unknown as Record<string, unknown>,
       investorFlowProviderRouterAdr0477: summary?.investorFlowProviderRouter ?? null,
     });
-    await reply(formatFreshDataSupplyDetailAdr0487(report));
+    const adr0488 = summary?.sectorEnergySupplyUnknownAdr0488 ?? safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
+      sectorEnergyDiagnosticAdr0474: summary?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
+      freshDataSupplyAdr0487: report,
+      finalGate1CalibrationAdr0471: summary?.finalGate1Calibration ?? null,
+      penaltyDeduplicationAdr0469: summary?.penaltyDeduplication ?? null,
+      providerStatus: summary?.investorFlowProviderRouter?.status ?? summary?.naverInvestorTrendAdr0481?.status ?? 'UNKNOWN',
+      currentSupplySignal: summary?.investorFlowProviderRouter?.signal ?? 'UNKNOWN',
+      providerIssue: summary?.investorFlowProviderRouter?.signal !== 'BEARISH',
+      marketSignal: false,
+    });
+    await reply(`${formatFreshDataSupplyDetailAdr0487(report)}\n\n${formatSectorEnergySupplyUnknownDetailAdr0488(adr0488)}`);
   },
 };
 
