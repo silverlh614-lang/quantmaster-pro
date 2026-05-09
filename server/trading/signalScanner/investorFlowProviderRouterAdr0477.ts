@@ -1,4 +1,8 @@
 // @responsibility ADR-0477 Investor Flow Provider Router; semantic net-buy routing dry-run only.
+import type { NaverInvestorTrendCollectorResult } from './naverInvestorTrendCollectorAdr0481.js';
+import type { SemanticNetBuyNormalizationReportAdr0482, SemanticNetBuyProvider, SemanticNetBuySampleAdr0482, SemanticNetBuyStatus } from './semanticNetBuyNormalizerAdr0482.js';
+import type { SupplySourceFreshnessReportAdr0483 } from './supplySourceFreshnessAdr0483.js';
+
 
 export type InvestorFlowProviderId =
   | 'KIS'
@@ -6,6 +10,8 @@ export type InvestorFlowProviderId =
   | 'NAVER'
   | 'FSS'
   | 'CACHE'
+  | 'MANUAL'
+  | 'UNKNOWN'
   | 'NONE';
 
 export type InvestorFlowProviderRoute =
@@ -27,7 +33,11 @@ export type InvestorFlowProviderStatus =
   | 'PROVIDER_MISMATCH'
   | 'DATA_UNAVAILABLE'
   | 'NON_TRADING_DAY'
-  | 'ERROR';
+  | 'ERROR'
+  | 'EMPTY'
+  | 'PARSE_ERROR'
+  | 'PROVIDER_ERROR'
+  | 'DISABLED';
 
 export type SemanticSupplySignal =
   | 'BULLISH'
@@ -98,6 +108,9 @@ export interface InvestorFlowProviderRouterInput {
   collectedAt?: string;
   naverCollectorWired?: boolean;
   naverRaw?: Record<string, unknown> | null;
+  naverCollectorResultAdr0481?: NaverInvestorTrendCollectorResult | null;
+  semanticNetBuyNormalizationAdr0482?: SemanticNetBuyNormalizationReportAdr0482 | null;
+  supplySourceFreshnessAdr0483?: SupplySourceFreshnessReportAdr0483 | null;
   cacheRaw?: Record<string, unknown> | null;
   previousTradingDayCacheRaw?: Record<string, unknown> | null;
   kisTriedForInvestorFlow?: boolean;
@@ -150,6 +163,10 @@ function normalizeStatus(input: {
     'DATA_UNAVAILABLE',
     'NON_TRADING_DAY',
     'ERROR',
+    'EMPTY',
+    'PARSE_ERROR',
+    'PROVIDER_ERROR',
+    'DISABLED',
   ];
   if (typeof explicit === 'string' && allowed.includes(explicit as InvestorFlowProviderStatus)) {
     return explicit as InvestorFlowProviderStatus;
@@ -186,6 +203,7 @@ function deriveSignal(input: {
 
 export function buildInvestorFlowProviderCapabilities(input: {
   naverCollectorWired?: boolean;
+  naverSemanticSampleAvailable?: boolean;
   cacheHasSemanticSample?: boolean;
 } = {}): SupplyProviderCapability[] {
   return [
@@ -213,15 +231,15 @@ export function buildInvestorFlowProviderCapabilities(input: {
     },
     {
       provider: 'NAVER',
-      supportsInvestorFlow: input.naverCollectorWired === true,
+      supportsInvestorFlow: input.naverCollectorWired !== false,
       supportsProgramTrading: false,
       supportsMarketProgram: false,
       supportsForeignTrend: true,
       supportsShortBalance: true,
       supportsCreditBalance: false,
-      isSemanticNetBuyProvider: input.naverCollectorWired === true,
-      notes: input.naverCollectorWired === true
-        ? ['NAVER investor trend collector is wired.']
+      isSemanticNetBuyProvider: input.naverCollectorWired !== false && input.naverSemanticSampleAvailable === true,
+      notes: input.naverCollectorWired !== false
+        ? ['NAVER investor trend collector is wired as ADR-0481 SHADOW_ONLY candidate.', 'policyPromotionMode=SHADOW_ONLY']
         : ['NAVER investor trend collector is NOT_WIRED; this is not bearish.'],
     },
     {
@@ -288,12 +306,88 @@ export function normalizeSemanticNetBuySampleAdr0477(
   };
 }
 
+
+
+function mapSemanticNetBuyStatusAdr0482ToAdr0477(status: SemanticNetBuyStatus): InvestorFlowProviderStatus {
+  switch (status) {
+    case 'VERIFIED':
+      return 'VERIFIED';
+    case 'PARTIAL':
+      return 'PARTIAL';
+    case 'STALE':
+      return 'STALE';
+    case 'EMPTY':
+      return 'EMPTY';
+    case 'DATA_UNAVAILABLE':
+      return 'DATA_UNAVAILABLE';
+    case 'PROVIDER_MISMATCH':
+      return 'PROVIDER_MISMATCH';
+    case 'PARSE_ERROR':
+      return 'PARSE_ERROR';
+    case 'PROVIDER_ERROR':
+      return 'PROVIDER_ERROR';
+    case 'NON_TRADING_DAY':
+      return 'NON_TRADING_DAY';
+    case 'DISABLED':
+      return 'DISABLED';
+    default:
+      return 'DATA_UNAVAILABLE';
+  }
+}
+
+function providerFromSemanticAdr0482(provider: SemanticNetBuyProvider): InvestorFlowProviderId {
+  if (provider === 'NAVER' || provider === 'KIS' || provider === 'KRX' || provider === 'FSS' || provider === 'CACHE' || provider === 'MANUAL' || provider === 'UNKNOWN') return provider;
+  return 'UNKNOWN';
+}
+
+function sampleFromSemanticAdr0482(sample: SemanticNetBuySampleAdr0482): SemanticNetBuySample {
+  return {
+    code: sample.code,
+    source: providerFromSemanticAdr0482(sample.provider),
+    sourceDate: sample.sourceDate,
+    collectedAt: sample.collectedAt,
+    foreignNetBuy: sample.foreignNetBuy,
+    institutionNetBuy: sample.institutionNetBuy,
+    programNetBuy: sample.programNetBuy,
+    confidence: sample.confidence,
+    status: mapSemanticNetBuyStatusAdr0482ToAdr0477(sample.status),
+    signal: sample.signal,
+    diagnostics: sample.diagnostics,
+  };
+}
+
+function mapNaverAdr0481StatusToAdr0477(status: NaverInvestorTrendCollectorResult['status']): InvestorFlowProviderStatus {
+  switch (status) {
+    case 'DATA_AVAILABLE':
+      return 'VERIFIED';
+    case 'WIRED':
+      return 'DATA_UNAVAILABLE';
+    case 'PARTIAL':
+      return 'PARTIAL';
+    case 'STALE':
+      return 'STALE';
+    case 'EMPTY':
+      return 'EMPTY';
+    case 'PARSE_ERROR':
+      return 'PARSE_ERROR';
+    case 'PROVIDER_ERROR':
+      return 'PROVIDER_ERROR';
+    case 'NON_TRADING_DAY':
+      return 'NON_TRADING_DAY';
+    case 'DISABLED':
+    case 'DATA_UNAVAILABLE':
+      return 'DATA_UNAVAILABLE';
+    default:
+      return 'DATA_UNAVAILABLE';
+  }
+}
+
 function coverageFromStatuses(statuses: Record<string, InvestorFlowProviderStatus>): InvestorFlowProviderRouteResult['coverage'] {
   const values = Object.values(statuses);
   return {
     available: values.filter((status) => status === 'VERIFIED' || status === 'PARTIAL' || status === 'DEGRADED').length,
     total: values.length,
-    missing: values.filter((status) => status === 'DATA_UNAVAILABLE' || status === 'NON_TRADING_DAY').length,
+    missing: values.filter((status) => status === 'DATA_UNAVAILABLE' || status === 'NON_TRADING_DAY' || status === 'EMPTY' || status === 'PARSE_ERROR' || status === 'PROVIDER_ERROR' || status === 'DISABLED').length,
     stale: values.filter((status) => status === 'STALE' || status === 'DEGRADED').length,
     acceptedEmpty: values.filter((status) => status === 'ACCEPTED_EMPTY').length,
     providerMismatch: values.filter((status) => status === 'PROVIDER_MISMATCH').length,
@@ -313,6 +407,22 @@ function sourceState(age: number | null): InvestorFlowProviderRouteResult['fresh
   return age >= 4 ? 'STALE' : 'FRESH';
 }
 
+
+function freshnessItemForProviderAdr0483(
+  report: SupplySourceFreshnessReportAdr0483 | null | undefined,
+  provider: InvestorFlowProviderId,
+) {
+  if (!report) return null;
+  const expected = provider === 'NAVER'
+    ? 'NAVER_INVESTOR_TREND'
+    : provider === 'CACHE'
+      ? 'CACHE'
+      : provider === 'KIS'
+        ? 'KIS_PROGRAM_TRADING'
+        : 'SEMANTIC_NETBUY';
+  return report.items.find((item) => item.sourceId === expected || item.provider.toUpperCase() === provider) ?? null;
+}
+
 export function buildInvestorFlowProviderRouteResultAdr0477(
   input: InvestorFlowProviderRouterInput,
 ): InvestorFlowProviderRouteResult {
@@ -329,14 +439,45 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     diagnostics.push('NON_TRADING_DAY is data unavailable, not bearish.');
   }
 
-  if (input.naverCollectorWired === true) {
-    const naverSample = normalizeSemanticNetBuySampleAdr0477(input.naverRaw, 'NAVER', {
+  if (input.semanticNetBuyNormalizationAdr0482) {
+    for (const sample of input.semanticNetBuyNormalizationAdr0482.samples) {
+      providerStatuses[providerFromSemanticAdr0482(sample.provider)] = mapSemanticNetBuyStatusAdr0482ToAdr0477(sample.status);
+    }
+    if (input.semanticNetBuyNormalizationAdr0482.selectedSample) {
+      const selected = input.semanticNetBuyNormalizationAdr0482.selectedSample;
+      selectedProvider = providerFromSemanticAdr0482(selected.provider);
+      semanticNetBuy = sampleFromSemanticAdr0482(selected);
+      routeStatus = mapSemanticNetBuyStatusAdr0482ToAdr0477(selected.status);
+      const freshness = freshnessItemForProviderAdr0483(input.supplySourceFreshnessAdr0483, selectedProvider);
+      if (freshness?.sourceState === 'STALE') {
+        semanticNetBuy = { ...semanticNetBuy, confidence: 'LOW', signal: 'UNKNOWN', status: 'STALE', diagnostics: [...semanticNetBuy.diagnostics, 'ADR-0483 cache/source freshness degraded confidence; stale is not bearish.'] };
+        routeStatus = 'STALE';
+        diagnostics.push('ADR-0483 cache fresh/source stale detected; semantic signal kept UNKNOWN.');
+      }
+      diagnostics.push('ADR-0482 semantic net-buy selected sample consumed by ADR-0477.');
+    } else {
+      routeStatus = mapSemanticNetBuyStatusAdr0482ToAdr0477(input.semanticNetBuyNormalizationAdr0482.status);
+      diagnostics.push('ADR-0482 semantic net-buy report has no selectable sample; UNKNOWN is not bearish.');
+    }
+  }
+
+  if (!semanticNetBuy && (input.naverCollectorWired === true || input.naverCollectorResultAdr0481)) {
+    const adr0481 = input.naverCollectorResultAdr0481;
+    const naverRaw = adr0481?.semanticNetBuyCandidate ? {
+      code: input.code,
+      sourceDate: adr0481.semanticNetBuyCandidate.sourceDate,
+      foreignNetBuy: adr0481.semanticNetBuyCandidate.foreignNetBuy,
+      institutionNetBuy: adr0481.semanticNetBuyCandidate.institutionNetBuy,
+      programNetBuy: adr0481.semanticNetBuyCandidate.programNetBuy,
+      status: adr0481.semanticNetBuyCandidate.status === 'VERIFIED' ? 'VERIFIED' : adr0481.semanticNetBuyCandidate.status,
+    } : input.naverRaw;
+    const naverSample = normalizeSemanticNetBuySampleAdr0477(naverRaw, 'NAVER', {
       code: input.code,
       collectedAt,
-      sourceAgeTradingDays: input.sourceAgeTradingDays,
-      fallbackStatus: input.naverRaw ? undefined : 'DATA_UNAVAILABLE',
+      sourceAgeTradingDays: adr0481?.freshness.sourceAgeTradingDays ?? input.sourceAgeTradingDays,
+      fallbackStatus: naverRaw ? undefined : adr0481 ? mapNaverAdr0481StatusToAdr0477(adr0481.status) : 'DATA_UNAVAILABLE',
     });
-    providerStatuses.NAVER = naverSample.status;
+    providerStatuses.NAVER = adr0481 ? mapNaverAdr0481StatusToAdr0477(adr0481.status) : naverSample.status;
     if (naverSample.status === 'VERIFIED' || naverSample.status === 'PARTIAL') {
       selectedProvider = 'NAVER';
       semanticNetBuy = naverSample;

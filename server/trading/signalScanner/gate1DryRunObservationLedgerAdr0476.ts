@@ -1,4 +1,4 @@
-// @responsibility ADR-0476 Gate1 dry-run and near-miss observation ledger; SHADOW_ONLY, no live execution.
+// @responsibility ADR-0476 Gate1 dry-run observation ledger; near-miss rows; SHADOW_ONLY, no live execution.
 import fs from 'fs';
 import path from 'path';
 import { DATA_DIR, ensureDataDir } from '../../persistence/paths.js';
@@ -6,12 +6,18 @@ import type { CandidateSnapshot } from './entryFilterDecomposition.js';
 import type { FinalGate1CalibrationAuditReport } from './gate1FinalCalibration.js';
 import type { Gate1PositiveSourceWiringReport } from './gate1PositiveSourceWiringAdr0475.js';
 import type { InvestorFlowProviderRouteResult } from './investorFlowProviderRouterAdr0477.js';
+import type { NaverInvestorTrendCollectorResult } from './naverInvestorTrendCollectorAdr0481.js';
+import type { SemanticNetBuyNormalizationReportAdr0482 } from './semanticNetBuyNormalizerAdr0482.js';
+import type { SupplySourceFreshnessReportAdr0483 } from './supplySourceFreshnessAdr0483.js';
 
 export type Gate1DryRunObservationSource =
   | 'ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'
   | 'ADR_0472_SCORING_ALIGNMENT'
   | 'ADR_0475_POSITIVE_SOURCE_WIRING'
   | 'ADR_0477_INVESTOR_FLOW_PROVIDER_ROUTER'
+  | 'ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR'
+  | 'ADR_0482_SEMANTIC_NETBUY_NORMALIZER'
+  | 'ADR_0483_SUPPLY_SOURCE_FRESHNESS'
   | 'GATE1_NEAR_MISS'
   | 'COUNTERFACTUAL_UNIVERSE';
 
@@ -67,7 +73,7 @@ export interface Gate1DryRunObservationRow {
   maxAdverseExcursion5D?: number;
   stopLossTouched?: boolean;
   targetTouched?: boolean;
-  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477';
+  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481' | 'SEMANTIC_NETBUY_NORMALIZER_ADR0482' | 'SUPPLY_SOURCE_FRESHNESS_ADR0483';
   beforeCoverage?: number;
   afterCoverage?: number;
   selectedProvider?: string;
@@ -80,6 +86,19 @@ export interface Gate1DryRunObservationRow {
   providerMismatchCount?: number;
   notWiredCount?: number;
   cacheEmptyCount?: number;
+  sourceDate?: string | null;
+  availableDays?: number;
+  requestedDays?: number;
+  foreignAvailable?: number;
+  institutionAvailable?: number;
+  selectedByAdr0477?: boolean;
+  provider?: string;
+  confidence?: string;
+  unit?: string;
+  affectedSources?: string[];
+  refreshRecommendedSources?: string[];
+  cacheStateSummary?: Record<string, number>;
+  sourceStateSummary?: Record<string, number>;
   status: Gate1DryRunObservationStatus;
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
@@ -110,6 +129,9 @@ export interface Gate1DryRunObservationBuildInput {
   finalGate1Calibration?: FinalGate1CalibrationAuditReport | null;
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport | null;
   investorFlowProviderRouter?: InvestorFlowProviderRouteResult | null;
+  naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult | null;
+  semanticNetBuyNormalizationAdr0482?: SemanticNetBuyNormalizationReportAdr0482 | null;
+  supplySourceFreshnessAdr0483?: SupplySourceFreshnessReportAdr0483 | null;
   sellOnly?: boolean;
   sectorEnergyDiagnosticOnly?: boolean;
   providerIssue?: boolean;
@@ -382,12 +404,129 @@ function buildInvestorFlowRouterRows(input: Gate1DryRunObservationBuildInput, no
   })];
 }
 
+
+function buildNaverInvestorTrendRowsAdr0481(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
+  const result = input.naverInvestorTrendAdr0481;
+  if (!result) return [];
+  return [withOptionalScoreFields({
+    createdAt: nowIso,
+    forDate: input.forDate,
+    source: 'ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR',
+    symbol: result.code,
+    actualGate1Passed: false,
+    actualLiveEligible: false,
+    dryRunDecision: result.signal === 'BULLISH' ? 'PROVIDER_SOFTENED' : 'WOULD_STILL_FAIL',
+    dryRunScenario: 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481',
+    requiredScore: 70,
+    providerIssue: result.signal === 'UNKNOWN',
+    marketSignal: result.signal === 'BEARISH',
+    sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
+    sellOnly: input.sellOnly === true,
+    observationType: 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481',
+    selectedProvider: 'NAVER',
+    providerTried: ['NAVER'],
+    routeStatus: result.status,
+    routeSignal: result.signal,
+    semanticNetBuyStatus: result.semanticNetBuyCandidate?.status ?? 'DATA_UNAVAILABLE',
+    sourceDate: result.semanticNetBuyCandidate?.sourceDate ?? result.freshness.lastSourceDate,
+    sourceAgeTradingDays: result.freshness.sourceAgeTradingDays,
+    availableDays: result.coverage.availableDays,
+    requestedDays: result.coverage.requestedDays,
+    foreignAvailable: result.coverage.foreignAvailable,
+    institutionAvailable: result.coverage.institutionAvailable,
+    selectedByAdr0477: input.investorFlowProviderRouter?.selectedProvider === 'NAVER',
+    status: 'PENDING',
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    policyPromotionMode: 'SHADOW_ONLY',
+  })];
+}
+
+
+function buildSemanticNetBuyNormalizerRowsAdr0482(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
+  const report = input.semanticNetBuyNormalizationAdr0482;
+  if (!report) return [];
+  const selected = report.selectedSample;
+  return [withOptionalScoreFields({
+    createdAt: nowIso,
+    forDate: input.forDate,
+    source: 'ADR_0482_SEMANTIC_NETBUY_NORMALIZER',
+    symbol: report.code,
+    actualGate1Passed: false,
+    actualLiveEligible: false,
+    dryRunDecision: report.signal === 'BULLISH' ? 'PROVIDER_SOFTENED' : 'WOULD_STILL_FAIL',
+    dryRunScenario: 'SEMANTIC_NETBUY_NORMALIZER_ADR0482',
+    requiredScore: 70,
+    providerIssue: selected === null || selected.quality.isProviderIssue,
+    marketSignal: report.signal === 'BEARISH',
+    sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
+    sellOnly: input.sellOnly === true,
+    observationType: 'SEMANTIC_NETBUY_NORMALIZER_ADR0482',
+    provider: selected?.provider ?? 'NONE',
+    selectedProvider: selected?.provider ?? 'NONE',
+    providerTried: report.samples.map((sample) => sample.provider),
+    routeStatus: report.status,
+    routeSignal: report.signal,
+    confidence: report.confidence,
+    unit: selected?.unit ?? 'UNKNOWN',
+    semanticNetBuyStatus: selected?.status ?? report.status,
+    sourceDate: selected?.sourceDate ?? null,
+    sourceAgeTradingDays: selected?.freshness.sourceAgeTradingDays ?? null,
+    availableDays: selected ? 1 : 0,
+    requestedDays: 1,
+    foreignAvailable: selected?.coverage.foreignAvailable === true ? 1 : 0,
+    institutionAvailable: selected?.coverage.institutionAvailable === true ? 1 : 0,
+    selectedByAdr0477: input.investorFlowProviderRouter?.selectedProvider === selected?.provider,
+    status: 'PENDING',
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    policyPromotionMode: 'SHADOW_ONLY',
+  })];
+}
+
+
+function buildSupplySourceFreshnessRowsAdr0483(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
+  const report = input.supplySourceFreshnessAdr0483;
+  if (!report) return [];
+  return [withOptionalScoreFields({
+    createdAt: nowIso,
+    forDate: input.forDate,
+    source: 'ADR_0483_SUPPLY_SOURCE_FRESHNESS',
+    symbol: 'SUPPLY',
+    actualGate1Passed: false,
+    actualLiveEligible: false,
+    dryRunDecision: report.overallSeverity === 'OK' ? 'UNKNOWN_DIAGNOSTIC_ONLY' : 'WOULD_STILL_FAIL',
+    dryRunScenario: 'SUPPLY_SOURCE_FRESHNESS_ADR0483',
+    requiredScore: 70,
+    providerIssue: report.overallSeverity !== 'OK',
+    marketSignal: false,
+    sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
+    sellOnly: input.sellOnly === true,
+    observationType: 'SUPPLY_SOURCE_FRESHNESS_ADR0483',
+    routeStatus: report.overallSeverity,
+    routeSignal: 'UNKNOWN',
+    sourceAgeTradingDays: report.oldestSourceAgeTradingDays,
+    oldestSourceAgeTradingDays: report.oldestSourceAgeTradingDays,
+    affectedSources: [...report.affectedSources],
+    refreshRecommendedSources: [...report.refreshRecommendedSources],
+    cacheStateSummary: { ...report.cacheStateSummary },
+    sourceStateSummary: { ...report.sourceStateSummary },
+    status: 'PENDING',
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    policyPromotionMode: 'SHADOW_ONLY',
+  })];
+}
+
 export function buildGate1DryRunObservationRows(input: Gate1DryRunObservationBuildInput): Gate1DryRunObservationRow[] {
   const nowIso = (input.now ?? new Date()).toISOString();
   const rows = [
     ...buildUnknownDiagnosticRows(input, nowIso),
     ...buildPositiveWiringRows(input, nowIso),
     ...buildInvestorFlowRouterRows(input, nowIso),
+    ...buildNaverInvestorTrendRowsAdr0481(input, nowIso),
+    ...buildSemanticNetBuyNormalizerRowsAdr0482(input, nowIso),
+    ...buildSupplySourceFreshnessRowsAdr0483(input, nowIso),
     ...buildGateNearMissRows(input, nowIso),
     ...buildCounterfactualUniverseRows(input, nowIso),
   ];
@@ -515,6 +654,9 @@ export function formatGate1DryRunObservationSummary(
     sourceLine('ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'),
     sourceLine('ADR_0475_POSITIVE_SOURCE_WIRING'),
     sourceLine('ADR_0477_INVESTOR_FLOW_PROVIDER_ROUTER'),
+    sourceLine('ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR'),
+    sourceLine('ADR_0482_SEMANTIC_NETBUY_NORMALIZER'),
+    sourceLine('ADR_0483_SUPPLY_SOURCE_FRESHNESS'),
     sourceLine('GATE1_NEAR_MISS'),
     `  liveExecutionAllowed: ${summary.liveExecutionAllowed}`,
     `  executionImpact: ${summary.executionImpact}`,
