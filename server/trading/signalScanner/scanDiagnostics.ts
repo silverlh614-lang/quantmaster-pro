@@ -171,6 +171,7 @@ import {
   type InvestorFlowProviderRouteResult,
 } from './investorFlowProviderRouterAdr0477.js';
 import type { SupplyCoverageRecoveryObservationReportAdr0484 } from './supplyCoverageRecoveryObservationAdr0484.js';
+import type { SupplyAdvisoryReadinessReportAdr0485 } from './supplyAdvisoryReadinessAdr0485.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -431,6 +432,8 @@ export interface ScanSummary {
   investorFlowProviderRouter?: InvestorFlowProviderRouteResult;
   /** ADR-0484 supply coverage recovery observation; SHADOW_ONLY and executionImpact NONE. */
   supplyCoverageRecoveryAdr0484?: SupplyCoverageRecoveryObservationReportAdr0484;
+  /** ADR-0485 supply advisory readiness audit; SHADOW_ONLY recommendation only and executionImpact NONE. */
+  supplyAdvisoryReadinessAdr0485?: SupplyAdvisoryReadinessReportAdr0485;
 }
 
 let _lastBuySignalAt = 0;

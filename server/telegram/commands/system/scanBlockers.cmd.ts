@@ -104,6 +104,10 @@ import {
   buildSupplyCoverageRecoveryObservationReportAdr0484,
   formatSupplyCoverageRecoveryCompactAdr0484,
 } from '../../../trading/signalScanner/supplyCoverageRecoveryObservationAdr0484.js';
+import {
+  formatSupplyAdvisoryReadinessCompactAdr0485,
+  safeBuildSupplyAdvisoryReadinessReportAdr0485,
+} from '../../../trading/signalScanner/supplyAdvisoryReadinessAdr0485.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -391,6 +395,7 @@ const scanBlockers: TelegramCommand = {
       const operatorActionQueue = safeBuildOperatorActionQueueAdr0480({
         sources: collectOperatorActionSourcesFromScanSummaryAdr0480(summary),
         supplyCoverageRecoveryAdr0484: summary?.supplyCoverageRecoveryAdr0484 ?? null,
+        supplyAdvisoryReadinessAdr0485: summary?.supplyAdvisoryReadinessAdr0485 ?? null,
       });
       operatorActionSection = safeFormatOperatorActionCompactSectionAdr0480(operatorActionQueue);
     } catch (err) {
@@ -398,11 +403,14 @@ const scanBlockers: TelegramCommand = {
     }
 
     let supplyCoverageRecoveryLine: string | null = null;
+    let supplyAdvisoryReadinessLine: string | null = null;
     try {
       const recoveryReport = summary?.supplyCoverageRecoveryAdr0484 ?? buildSupplyCoverageRecoveryObservationReportAdr0484({ scanSummary: summary, persist: false });
       supplyCoverageRecoveryLine = formatSupplyCoverageRecoveryCompactAdr0484(recoveryReport);
+      const readinessReport = summary?.supplyAdvisoryReadinessAdr0485 ?? safeBuildSupplyAdvisoryReadinessReportAdr0485({ supplyCoverageRecoveryAdr0484: recoveryReport });
+      supplyAdvisoryReadinessLine = formatSupplyAdvisoryReadinessCompactAdr0485(readinessReport);
     } catch (err) {
-      console.warn('[scan_blockers] ADR-0484 supply recovery line failed:', err);
+      console.warn('[scan_blockers] ADR-0484/0485 supply recovery/readiness line failed:', err);
     }
 
     const parts: string[] = [baseMessage];
@@ -422,6 +430,7 @@ const scanBlockers: TelegramCommand = {
     if (livenessSection) parts.push(livenessSection);
     if (operatorActionSection) parts.push(operatorActionSection);
     if (supplyCoverageRecoveryLine) parts.push(supplyCoverageRecoveryLine);
+    if (supplyAdvisoryReadinessLine) parts.push(supplyAdvisoryReadinessLine);
     if (runtimeAuditSection) parts.push(runtimeAuditSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);

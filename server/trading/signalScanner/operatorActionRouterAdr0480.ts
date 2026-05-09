@@ -31,6 +31,7 @@ export type OperatorActionRootCause =
   | 'KIS_PROVIDER_MISMATCH'
   | 'FSS_SOURCE_STALE'
   | 'SUPPLY_SOURCE_REFRESH_RECOMMENDED'
+  | 'PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR'
   | 'SECTOR_ENERGY_FALLBACK_ONLY'
   | 'SUPPLY_UNKNOWN_DUPLICATE_PENALTY'
   | 'POSITIVE_SOURCE_MISSING'
@@ -90,6 +91,7 @@ export interface BuildOperatorActionQueueInput {
   generatedAt?: string;
   sources?: OperatorActionSource[];
   supplyCoverageRecoveryAdr0484?: { status?: string; topImprovedMetrics?: string[]; topRemainingBlockers?: string[] } | null;
+  supplyAdvisoryReadinessAdr0485?: { status?: string; readinessScore?: number; failedReasons?: string[]; recommendedNextStep?: string } | null;
 }
 
 interface OperatorActionDefinition {
@@ -205,6 +207,18 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     basePriority: 'P2',
     expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
     detailHint: '/adr_trace 0483',
+  },
+
+  PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR: {
+    rootCause: 'PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR',
+    category: 'SUPPLY_PROVIDER',
+    title: 'Prepare supply ADVISORY dry-run ADR',
+    summary: 'ADR-0485 readiness audit is READY, but supply remains SHADOW_ONLY until a future ADR/operator approval.',
+    recommendedAction: 'Create future ADR for ADVISORY dry-run only; do not perform live promotion in ADR-0485.',
+    relatedAdrs: ['0476', '0480', '0481', '0482', '0483', '0484', '0485'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'MEDIUM', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0485',
   },
   SECTOR_ENERGY_FALLBACK_ONLY: {
     rootCause: 'SECTOR_ENERGY_FALLBACK_ONLY',
@@ -323,6 +337,9 @@ function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCau
   if (includesAny(text, ['FSS PASSIVE', 'FSS ACTIVE', 'FSS_SOURCE_STALE', 'SHORT/CREDIT SOURCE', 'SOURCE STALE', 'CACHE FRESH BUT SOURCE STALE'])) {
     return 'FSS_SOURCE_STALE';
   }
+  if (includesAny(text, ['PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR', 'ADVISORY_READY', 'ADR-0485 READY'])) {
+    return 'PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR';
+  }
   if (includesAny(text, ['SECTORENERGY FALLBACK', 'FALLBACK MOUNTED', 'SECTORENERGY QUALITY DIAGNOSTIC ABSENT', 'COVERAGE DEGRADED', 'SECTOR_ENERGY_DEGRADED'])) {
     return 'SECTOR_ENERGY_FALLBACK_ONLY';
   }
@@ -408,7 +425,9 @@ function compactActionLine(item: OperatorActionItem): string {
             ? 'fix parser/unit metadata'
             : item.rootCause === 'FSS_SOURCE_STALE'
               ? 'refresh stale source / split freshness'
-              : item.recommendedAction.split(';')[0];
+              : item.rootCause === 'PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR'
+                ? 'create future ADVISORY dry-run ADR'
+                : item.recommendedAction.split(';')[0];
   return `${item.priority} ${item.title} → ${shortAction} | related=${formatRelated(item.relatedAdrs)} | impact=${item.executionImpact}`;
 }
 
@@ -432,6 +451,17 @@ export function buildOperatorActionQueueAdr0480(input: BuildOperatorActionQueueI
     const current = grouped.get(rootCause) ?? [];
     current.push(source);
     grouped.set(rootCause, current);
+  }
+  const readiness = input.supplyAdvisoryReadinessAdr0485;
+  if (readiness?.status === 'READY' && !grouped.has('PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR')) {
+    grouped.set('PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR', [{
+      adr: '0485',
+      sectionId: 'supply_advisory_readiness',
+      code: 'PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR',
+      diagnosticKey: 'SupplyReadiness',
+      diagnosticValue: `READY score=${readiness.readinessScore ?? 'UNKNOWN'} next=${readiness.recommendedNextStep ?? 'PREPARE_ADVISORY_DRY_RUN_ADR'}`,
+      severity: 'INFO',
+    }]);
   }
   const allActions = Array.from(grouped.entries())
     .map(([rootCause, sources]) => buildItem(rootCause, sources, adr0484ObservedStatus(input, rootCause)))

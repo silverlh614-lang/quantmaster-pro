@@ -17,6 +17,7 @@ export type Gate1DryRunObservationSource =
   | 'ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR'
   | 'ADR_0482_SEMANTIC_NETBUY_NORMALIZER'
   | 'ADR_0484_SUPPLY_COVERAGE_RECOVERY'
+  | 'ADR_0485_SUPPLY_ADVISORY_READINESS'
   | 'GATE1_NEAR_MISS'
   | 'COUNTERFACTUAL_UNIVERSE';
 
@@ -72,7 +73,7 @@ export interface Gate1DryRunObservationRow {
   maxAdverseExcursion5D?: number;
   stopLossTouched?: boolean;
   targetTouched?: boolean;
-  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481' | 'SEMANTIC_NETBUY_NORMALIZER_ADR0482' | 'SUPPLY_COVERAGE_RECOVERY_ADR0484';
+  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481' | 'SEMANTIC_NETBUY_NORMALIZER_ADR0482' | 'SUPPLY_COVERAGE_RECOVERY_ADR0484' | 'SUPPLY_ADVISORY_READINESS_ADR0485';
   beforeCoverage?: number;
   afterCoverage?: number;
   selectedProvider?: string;
@@ -615,6 +616,7 @@ export function formatGate1DryRunObservationSummary(
     sourceLine('ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR'),
     sourceLine('ADR_0482_SEMANTIC_NETBUY_NORMALIZER'),
     sourceLine('ADR_0484_SUPPLY_COVERAGE_RECOVERY'),
+    sourceLine('ADR_0485_SUPPLY_ADVISORY_READINESS'),
     sourceLine('GATE1_NEAR_MISS'),
     `  liveExecutionAllowed: ${summary.liveExecutionAllowed}`,
     `  executionImpact: ${summary.executionImpact}`,
