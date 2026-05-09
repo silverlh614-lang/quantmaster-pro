@@ -1,4 +1,12 @@
 // @responsibility ADR-0489 InvestorFlow sample acquisition probe; diagnostic-only semantic sample extraction, no live execution.
+import {
+  buildInvestorFlowSanitizedSampleAdr0496,
+  buildSupplyCoverageReportAdr0496,
+  normalizeSemanticNetBuyAdr0496,
+  type InvestorFlowSanitizedSampleAdr0496,
+  type SemanticNetBuyAdr0496,
+  type SupplyCoverageReportAdr0496,
+} from './investorFlowSemanticNetBuyAdr0496.js';
 
 export type InvestorFlowSampleAcquisitionStatusAdr0489 =
   | 'SAMPLE_READY'
@@ -27,6 +35,9 @@ export interface InvestorFlowSampleAcquisitionReportAdr0489 {
   status: InvestorFlowSampleAcquisitionStatusAdr0489;
   samples: InvestorFlowSemanticSampleAdr0489[];
   selectedSample: InvestorFlowSemanticSampleAdr0489 | null;
+  adr0496SanitizedSamples: InvestorFlowSanitizedSampleAdr0496[];
+  adr0496SemanticNetBuySamples: SemanticNetBuyAdr0496[];
+  adr0496SupplyCoverage: SupplyCoverageReportAdr0496;
   requestedProviders: string[];
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
@@ -80,6 +91,25 @@ export function buildInvestorFlowSampleAcquisitionReportAdr0489(
     };
   });
   const selectedSample = samples.find((sample) => sample.status === 'SAMPLE_READY') ?? null;
+  const adr0496SanitizedSamples = samples.map((sample, index) => buildInvestorFlowSanitizedSampleAdr0496({
+    sampleId: `adr0489-adr0496-${index + 1}`,
+    symbol: sample.symbol,
+    provider: sample.provider,
+    market: 'UNKNOWN',
+    capturedAt: input.generatedAt,
+    dataDate: sample.sourceDate,
+    foreignNetBuy: sample.foreignNetBuy,
+    institutionNetBuy: sample.institutionNetBuy,
+    retailNetBuy: null,
+    status: sample.status === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' : sample.status === 'SAMPLE_READY' ? 'PARTIAL' : 'DATA_UNAVAILABLE',
+    providerError: sample.status === 'PROVIDER_ERROR',
+    warnings: sample.diagnostics,
+  }));
+  const adr0496SemanticNetBuySamples = adr0496SanitizedSamples.map(normalizeSemanticNetBuyAdr0496);
+  const adr0496SupplyCoverage = buildSupplyCoverageReportAdr0496({
+    samples: adr0496SanitizedSamples,
+    semanticSamples: adr0496SemanticNetBuySamples,
+  });
   const status: InvestorFlowSampleAcquisitionStatusAdr0489 = selectedSample
     ? 'SAMPLE_READY'
     : input.providerIssue
@@ -93,18 +123,24 @@ export function buildInvestorFlowSampleAcquisitionReportAdr0489(
     status,
     samples,
     selectedSample,
+    adr0496SanitizedSamples,
+    adr0496SemanticNetBuySamples,
+    adr0496SupplyCoverage,
     requestedProviders: [...(input.requestedProviders ?? ['NAVER', 'CACHE'])],
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
     policyPromotionMode: 'OBSERVE',
     operatorApprovalRequired: true,
     rawPayloadPersistenceAllowed: false,
-    diagnostics,
+    diagnostics: [
+      ...diagnostics,
+      `ADR-0496 coverageAfter=${adr0496SupplyCoverage.coverageAfter} normalizedSampleCount=${adr0496SupplyCoverage.normalizedSampleCount} semanticNetBuyCount=${adr0496SupplyCoverage.semanticNetBuyCount}`,
+    ],
   };
 }
 
 export function formatInvestorFlowSampleAcquisitionLineAdr0489(
   report: InvestorFlowSampleAcquisitionReportAdr0489,
 ): string {
-  return `ADR-0489 InvestorFlowSample: ${report.status} | samples=${report.samples.length} | selected=${report.selectedSample?.provider ?? 'NONE'} | impact=${report.executionImpact}`;
+  return `ADR-0489 InvestorFlowSample: ${report.status} | samples=${report.samples.length} | selected=${report.selectedSample?.provider ?? 'NONE'} | adr0496CoverageAfter=${report.adr0496SupplyCoverage.coverageAfter} | semanticNetBuy=${report.adr0496SupplyCoverage.semanticNetBuyCount} | impact=${report.executionImpact}`;
 }

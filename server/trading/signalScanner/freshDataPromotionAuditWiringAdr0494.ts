@@ -153,23 +153,26 @@ function sectorEnergyInput(report: SectorEnergyAndSupplyUnknownPolicyReportAdr04
 
 function investorFlowInput(report: InvestorFlowSampleAcquisitionReportAdr0489, options: BuildPromotionAuditInputForDataLineOptionsAdr0494): DataPromotionAuditInput {
   const stages = defaultStages(options.sourceType);
+  const adr0496 = report.adr0496SupplyCoverage;
+  const nullZeroSeparationPassed = report.adr0496SemanticNetBuySamples.every((sample) => sample.nullZeroSeparationPassed);
   return withCommonFields({
     sourceType: 'INVESTOR_FLOW',
     dataLineId: options.dataLineId ?? 'investorFlow',
     dataLineName: options.dataLineName ?? 'Investor Flow Sample Probe',
     currentStage: options.currentStage ?? stages.currentStage,
     requestedNextStage: options.requestedNextStage ?? stages.requestedNextStage,
-    tradingDaysObserved: countTradingDays(report.samples.length > 0 ? 1 : 0, options.tradingDaysObserved),
-    totalSnapshots: report.samples.length,
-    missingSnapshotCount: report.samples.filter((sample) => sample.status === 'DATA_UNAVAILABLE' || sample.status === 'EMPTY').length,
-    staleSnapshotCount: 0,
-    providerFailureCount: report.status === 'PROVIDER_ERROR' ? 1 : 0,
-    shadowContributionScore: options.shadowContributionScore ?? null,
+    tradingDaysObserved: countTradingDays((adr0496?.normalizedSampleCount ?? report.samples.length) > 0 ? 1 : 0, options.tradingDaysObserved),
+    totalSnapshots: adr0496?.sampleCount ?? report.samples.length,
+    missingSnapshotCount: adr0496 ? adr0496.missingCount : report.samples.filter((sample) => sample.status === 'DATA_UNAVAILABLE' || sample.status === 'EMPTY').length,
+    staleSnapshotCount: adr0496?.staleCount ?? 0,
+    providerFailureCount: adr0496?.providerErrorCount ?? (report.status === 'PROVIDER_ERROR' ? 1 : 0),
+    providerMarketSignalMixedCount: 0,
+    shadowContributionScore: options.shadowContributionScore ?? (adr0496 && adr0496.coverageAfter > 0 ? adr0496.coverageAfter : null),
     liveRegressionPassed: options.liveRegressionPassed,
-    nullZeroSeparationPassed: options.nullZeroSeparationPassed,
+    nullZeroSeparationPassed: options.nullZeroSeparationPassed ?? nullZeroSeparationPassed,
     holidayFreshnessPassed: options.holidayFreshnessPassed,
     testCoveragePassed: options.testCoveragePassed,
-    snapshotRecordable: report.samples.length > 0,
+    snapshotRecordable: report.samples.length > 0 || Boolean(adr0496 && adr0496.normalizedSampleCount > 0),
   });
 }
 
@@ -261,9 +264,21 @@ export function evaluateFreshDataPromotionAuditsAdr0494(
   const { evaluator = evaluatePromotionReadiness, ...auditOptions } = options;
   return inputs.map((input) => {
     const result = evaluator({ ...input, executionImpactNonePassed: true, latestExecutionImpact: 'NONE' }, auditOptions);
+    const investorFlowShadowOnly = input.sourceType === 'INVESTOR_FLOW';
+    const canPromote = investorFlowShadowOnly ? false : result.canPromote;
     return {
       input,
-      result: { ...result, executionImpact: 'NONE', recommendedStage: result.canPromote ? input.requestedNextStage : input.currentStage },
+      result: {
+        ...result,
+        canPromote,
+        status: investorFlowShadowOnly && result.canPromote ? 'INSUFFICIENT_DATA' : result.status,
+        decision: investorFlowShadowOnly && result.canPromote ? 'KEEP_CURRENT_STAGE' : result.decision,
+        warnings: investorFlowShadowOnly && result.canPromote
+          ? [...result.warnings, 'ADR-0496 investor-flow evidence is diagnostic-only; no automatic stage promotion.']
+          : result.warnings,
+        executionImpact: 'NONE',
+        recommendedStage: canPromote ? input.requestedNextStage : input.currentStage,
+      },
       executionImpact: 'NONE',
     };
   });

@@ -1,5 +1,6 @@
 // @responsibility ADR-0487 Fresh Data Supply Layer foundation; OBSERVE/SHADOW_ONLY diagnostics only.
 import type { OperatorActionSource } from './operatorActionRouterAdr0480.js';
+import type { SupplyCoverageReportAdr0496 } from './investorFlowSemanticNetBuyAdr0496.js';
 
 export type FreshDataDomain =
   | 'SECTOR_ENERGY'
@@ -154,6 +155,7 @@ export interface FreshDataSupplyReportInputAdr0487 {
   } | null;
   supplyCoverageRecoveryAdr0484?: Record<string, unknown> | null;
   supplyAdvisoryReadinessAdr0485?: Record<string, unknown> | null;
+  supplyCoverageReportAdr0496?: SupplyCoverageReportAdr0496 | null;
   investorFlowProviderRouterAdr0477?: {
     selectedProvider?: string;
     providerStatuses?: Record<string, string>;
@@ -345,28 +347,32 @@ function buildSectorSnapshots(input: FreshDataSupplyReportInputAdr0487, registra
 }
 
 function naverSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {
+  const adr0496 = input.supplyCoverageReportAdr0496;
   const status = upper(input.naverInvestorTrendAdr0481?.status ?? input.investorFlowProviderRouterAdr0477?.providerStatuses?.NAVER);
-  const available = asNumber(input.naverInvestorTrendAdr0481?.availableDays) ?? 0;
-  const requested = asNumber(input.naverInvestorTrendAdr0481?.requestedDays) ?? 1;
-  const coverage = requested > 0 ? available / requested : 0;
-  const sourceState: FreshDataSourceState =
-    status.includes('DATA_AVAILABLE') || status.includes('WIRED') ? 'FRESH'
+  const available = asNumber(input.naverInvestorTrendAdr0481?.availableDays) ?? adr0496?.sampleCount ?? 0;
+  const requested = asNumber(input.naverInvestorTrendAdr0481?.requestedDays) ?? Math.max(1, adr0496?.sampleCount ?? 1);
+  const coverage = adr0496 && adr0496.sampleCount > 0 ? adr0496.coverageAfter : requested > 0 ? available / requested : 0;
+  const sourceState: FreshDataSourceState = adr0496 && adr0496.sampleCount > 0
+    ? (adr0496.providerErrorCount > 0 ? 'PROVIDER_ERROR' : adr0496.staleCount > 0 ? 'STALE' : 'FRESH')
+    : status.includes('DATA_AVAILABLE') || status.includes('WIRED') ? 'FRESH'
       : status.includes('STALE') ? 'STALE'
         : status.includes('PROVIDER_ERROR') ? 'PROVIDER_ERROR'
           : status.includes('EMPTY') ? 'EMPTY'
             : 'DATA_UNAVAILABLE';
-  return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, cacheState: sourceState === 'FRESH' ? 'FRESH' : 'UNKNOWN', sourceState, coverageRatio: coverage || (sourceState === 'FRESH' ? 1 : 0), normalized: sourceState === 'FRESH', diagnostics: [`ADR-0481 status=${status || 'missing'}`] });
+  return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, cacheState: sourceState === 'FRESH' ? 'FRESH' : 'UNKNOWN', sourceState, coverageRatio: coverage || (sourceState === 'FRESH' ? 1 : 0), normalized: Boolean(adr0496?.normalizedSampleCount && adr0496.normalizedSampleCount > 0) || sourceState === 'FRESH', diagnostics: [`ADR-0481 status=${status || 'missing'}`, `ADR-0496 sampleCount=${adr0496?.sampleCount ?? 0}`] });
 }
 
 function semanticSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {
+  const adr0496 = input.supplyCoverageReportAdr0496;
   const status = upper(input.semanticNetBuyNormalizationAdr0482?.status);
-  const hasSample = Boolean(input.semanticNetBuyNormalizationAdr0482?.selectedSample) || status.includes('DATA_AVAILABLE') || status.includes('NORMALIZED');
+  const hasAdr0496Sample = Boolean(adr0496 && adr0496.semanticNetBuyCount > 0);
+  const hasSample = hasAdr0496Sample || Boolean(input.semanticNetBuyNormalizationAdr0482?.selectedSample) || status.includes('DATA_AVAILABLE') || status.includes('NORMALIZED');
   const sourceState: FreshDataSourceState =
     hasSample || status.includes('NORMALIZER_READY') ? 'FRESH'
       : status.includes('STALE') ? 'STALE'
         : status.includes('PARSE_ERROR') || status.includes('PROVIDER_ERROR') ? 'PROVIDER_ERROR'
           : 'DATA_UNAVAILABLE';
-  return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, cacheState: hasSample ? 'FRESH' : 'UNKNOWN', sourceState, coverageRatio: hasSample ? 1 : 0, normalized: hasSample, diagnostics: [`ADR-0482 status=${status || 'missing'}`] });
+  return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, cacheState: hasSample ? 'FRESH' : 'UNKNOWN', sourceState, coverageRatio: hasAdr0496Sample ? (adr0496?.coverageAfter ?? 0) : hasSample ? 1 : 0, normalized: hasSample, diagnostics: [`ADR-0482 status=${status || 'missing'}`, `ADR-0496 semanticNetBuyCount=${adr0496?.semanticNetBuyCount ?? 0}`] });
 }
 
 function programSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {
@@ -376,13 +382,28 @@ function programSnapshot(input: FreshDataSupplyReportInputAdr0487, registration:
   return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, cacheState: fresh ? 'FRESH' : 'UNKNOWN', sourceState, coverageRatio: fresh ? 1 : 0, normalized: fresh, diagnostics: [`programStatus=${status || 'missing'}`] });
 }
 
+function fssPassiveActiveSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {
+  const base = snapshotFromFreshness(input, registration, generatedAt);
+  const adr0496 = input.supplyCoverageReportAdr0496;
+  if (!adr0496 || adr0496.sampleCount === 0 || base.coverageRatio > 0) return base;
+  return buildFreshDataSnapshotAdr0487({
+    registration,
+    collectedAt: generatedAt,
+    cacheState: 'UNKNOWN',
+    sourceState: adr0496.staleCount > 0 ? 'STALE' : 'DATA_UNAVAILABLE',
+    coverageRatio: 0,
+    normalized: false,
+    diagnostics: [`ADR-0496 FSS placeholder: staleCount=${adr0496.staleCount}`, 'FSS passive/active remains placeholder-only until refreshed.'],
+  });
+}
+
 function buildSupplySnapshots(input: FreshDataSupplyReportInputAdr0487, registrations: FreshDataSourceRegistrationAdr0487[], generatedAt: string): FreshDataSnapshotAdr0487[] {
   return [
     naverSnapshot(input, registrationById(registrations, 'NAVER_INVESTOR_TREND'), generatedAt),
     semanticSnapshot(input, registrationById(registrations, 'SEMANTIC_NETBUY'), generatedAt),
     programSnapshot(input, registrationById(registrations, 'KIS_PROGRAM_TRADING'), generatedAt),
     programSnapshot(input, registrationById(registrations, 'MARKET_PROGRAM_TRADING'), generatedAt),
-    snapshotFromFreshness(input, registrationById(registrations, 'FSS_PASSIVE_ACTIVE'), generatedAt),
+    fssPassiveActiveSnapshot(input, registrationById(registrations, 'FSS_PASSIVE_ACTIVE'), generatedAt),
     snapshotFromFreshness(input, registrationById(registrations, 'SHORT_BALANCE'), generatedAt),
     snapshotFromFreshness(input, registrationById(registrations, 'CREDIT_BALANCE'), generatedAt),
   ];
@@ -487,6 +508,7 @@ export function buildFreshDataSupplyReportAdr0487(input: FreshDataSupplyReportIn
       'ADR-0487 creates OBSERVE/SHADOW_ONLY data supply foundation only.',
       'UNKNOWN remains UNKNOWN; provider issue is not bearish; fresh data is not a live Gate input.',
       'No raw provider payloads are persisted by ADR-0487.',
+      ...(input.supplyCoverageReportAdr0496 ? [`ADR-0496 SupplyCoverage before=${input.supplyCoverageReportAdr0496.coverageBefore} after=${input.supplyCoverageReportAdr0496.coverageAfter} sampleCount=${input.supplyCoverageReportAdr0496.sampleCount} normalizedSampleCount=${input.supplyCoverageReportAdr0496.normalizedSampleCount} semanticNetBuyCount=${input.supplyCoverageReportAdr0496.semanticNetBuyCount} nullCount=${input.supplyCoverageReportAdr0496.nullCount} zeroCount=${input.supplyCoverageReportAdr0496.zeroCount} missingCount=${input.supplyCoverageReportAdr0496.missingCount} providerIssueCount=${input.supplyCoverageReportAdr0496.providerIssueCount} marketSignalCount=${input.supplyCoverageReportAdr0496.marketSignalCount}`] : []),
     ],
   };
 }
@@ -537,6 +559,7 @@ export function formatFreshDataSupplyDetailAdr0487(report: FreshDataSupplyReport
     ...report.domainSummaries.map((summary) => `- ${summary.domain}: status=${summary.status} fresh=${summary.sourcesFresh}/${summary.sourcesTotal} stale=${summary.sourcesStale} missing=${summary.sourcesMissing} providerError=${summary.sourcesProviderError} coverage=${percent(summary.averageCoverageRatio)} gaps=${summary.topGaps.join(',') || 'none'}`),
     'snapshots:',
     ...report.snapshots.map((snapshot) => `- ${snapshot.sourceId}: status=${snapshot.status} cacheState=${snapshot.cacheState} sourceState=${snapshot.sourceState} coverage=${percent(snapshot.coverageRatio)} normalized=${snapshot.normalized} isProviderIssue=${snapshot.isProviderIssue} isMarketSignal=${snapshot.isMarketSignal}`),
+    ...(report.diagnostics.filter((line) => line.startsWith('ADR-0496 SupplyCoverage')).map((line) => `supplyCoverageSummary: ${line}`)),
     `topGaps=${report.topGaps.join(',') || 'none'}`,
     `recommendedNextActions=${report.recommendedNextActions.join(' | ') || 'continue observation'}`,
     `guardrails: executionImpact=${report.executionImpact}; liveExecutionAllowed=${report.liveExecutionAllowed}; policyPromotionMode=${report.policyPromotionMode}; operatorApprovalRequired=${report.operatorApprovalRequired}; requiredScore unchanged at 70; no Gate/Kelly/KIS order changes; UNKNOWN remains UNKNOWN; provider issue is not bearish.`,

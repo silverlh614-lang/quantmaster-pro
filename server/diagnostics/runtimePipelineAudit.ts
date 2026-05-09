@@ -291,6 +291,10 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   if (sectorEnergyHealth.leadershipConfidence === 'BLOCKED') addReason(blockedBy, 'SECTOR_ENERGY_LEADERSHIP_BLOCKED');
 
   const promotionAuditInputs = [
+    ...(summary?.investorFlowSampleAdr0489 ? [buildPromotionAuditInputForDataLineAdr0494({
+      sourceType: 'INVESTOR_FLOW',
+      report: summary.investorFlowSampleAdr0489,
+    })] : []),
     ...(summary?.sectorEnergySupplyUnknownAdr0488 ? [buildPromotionAuditInputForDataLineAdr0494({
       sourceType: 'SECTOR_ENERGY',
       report: summary.sectorEnergySupplyUnknownAdr0488,
@@ -333,7 +337,7 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     rolloutItemCount,
     operatorActionEvidenceCount,
     operatorActionDiagnosticLine: formatRuntimePipelineDiagnosticEvidenceLineAdr0480(operatorActionQueue),
-    supplyAdvisoryReadinessDiagnosticLine: `${formatRuntimePipelineReadinessEvidenceLineAdr0485(summary?.supplyAdvisoryReadinessAdr0485)} | supplyRecoveryMount: ${formatRuntimePipelineMountEvidenceLineAdr0486(summary?.supplyRecoveryRuntimeMountAdr0486)} | freshDataSupply: ${formatRuntimePipelineFreshDataEvidenceLineAdr0487(summary?.freshDataSupplyAdr0487)} | adr0488: ${formatRuntimePipelineAdr0488EvidenceLine(summary?.sectorEnergySupplyUnknownAdr0488)}`,
+    supplyAdvisoryReadinessDiagnosticLine: `${formatRuntimePipelineReadinessEvidenceLineAdr0485(summary?.supplyAdvisoryReadinessAdr0485)} | supplyRecoveryMount: ${formatRuntimePipelineMountEvidenceLineAdr0486(summary?.supplyRecoveryRuntimeMountAdr0486)} | freshDataSupply: ${formatRuntimePipelineFreshDataEvidenceLineAdr0487(summary?.freshDataSupplyAdr0487)} | adr0496Coverage=${summary?.investorFlowSampleAdr0489?.adr0496SupplyCoverage.coverageAfter ?? 0} | adr0488: ${formatRuntimePipelineAdr0488EvidenceLine(summary?.sectorEnergySupplyUnknownAdr0488)}`,
     supplyRecoveryMountDiagnosticLine: formatRuntimePipelineMountEvidenceLineAdr0486(summary?.supplyRecoveryRuntimeMountAdr0486),
     freshDataSupplyDiagnosticLine: formatRuntimePipelineFreshDataEvidenceLineAdr0487(summary?.freshDataSupplyAdr0487),
     sectorEnergySupplyUnknownDiagnosticLine: formatRuntimePipelineAdr0488EvidenceLine(summary?.sectorEnergySupplyUnknownAdr0488),

@@ -204,6 +204,10 @@ import {
   type SectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 import {
+  buildInvestorFlowSampleAcquisitionReportAdr0489,
+  type InvestorFlowSampleAcquisitionReportAdr0489,
+} from './investorFlowSampleAcquisitionAdr0489.js';
+import {
   recordSupplySnapshotAdr0491,
   type SupplySnapshotReplayResultAdr0491,
 } from './supplySnapshotStoreReplayAdr0491.js';
@@ -481,6 +485,8 @@ export interface ScanSummary {
   freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487;
   /** ADR-0488 SectorEnergy master supply line + Supply UNKNOWN policy; SHADOW_ONLY and executionImpact NONE. */
   sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488;
+  /** ADR-0489/0496 investor-flow sample seed and semantic net-buy coverage; diagnostic-only and executionImpact NONE. */
+  investorFlowSampleAdr0489?: InvestorFlowSampleAcquisitionReportAdr0489;
   /** ADR-0491 sanitized supply snapshot store/replay evidence; diagnostic-only and executionImpact NONE. */
   supplySnapshotStoreAdr0491?: SupplySnapshotReplayResultAdr0491;
 }
@@ -2126,6 +2132,17 @@ export async function persistScanResults(
   // evidence into ScanSummary before Runtime Pipeline Audit reads it.
   // ScanSummary before Runtime Pipeline Audit reads it. Diagnostic-only.
   try {
+    summaryDraft.investorFlowSampleAdr0489 = buildInvestorFlowSampleAcquisitionReportAdr0489({
+      generatedAt: kstNow.toISOString(),
+      providerIssue: summaryDraft.investorFlowProviderRouter?.status === 'PROVIDER_ERROR',
+      samples: summaryDraft.naverInvestorTrendAdr0481 ? [{
+        symbol: 'NAVER_INVESTOR_TREND',
+        provider: 'NAVER',
+        sourceDate: summaryDraft.naverInvestorTrendAdr0481.semanticNetBuyCandidate?.sourceDate ?? summaryDraft.naverInvestorTrendAdr0481.freshness.lastSourceDate,
+        status: summaryDraft.naverInvestorTrendAdr0481.status === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' : 'DATA_UNAVAILABLE',
+      }] : [],
+      diagnostics: ['ADR-0496 ScanSummary diagnostic sample seed; no raw provider payload persisted.'],
+    });
     const supplyCoverageRecoveryAdr0484 = buildSupplyCoverageRecoveryObservationReportAdr0484({
       scanSummary: summaryDraft,
       investorFlowProviderRouterAdr0477: summaryDraft.investorFlowProviderRouter,
@@ -2175,6 +2192,7 @@ export async function persistScanResults(
       supplyCoverageRecoveryAdr0484: supplyCoverageRecoveryAdr0484 as unknown as Record<string, unknown>,
       supplyAdvisoryReadinessAdr0485: supplyAdvisoryReadinessAdr0485 as unknown as Record<string, unknown>,
       investorFlowProviderRouterAdr0477: summaryDraft.investorFlowProviderRouter,
+      supplyCoverageReportAdr0496: summaryDraft.investorFlowSampleAdr0489.adr0496SupplyCoverage,
     });
     summaryDraft.sectorEnergySupplyUnknownAdr0488 = buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
       generatedAt: kstNow.toISOString(),
@@ -2194,6 +2212,8 @@ export async function persistScanResults(
       tradingDate: kstNow.toISOString().slice(0, 10),
       freshDataSupplyAdr0487: summaryDraft.freshDataSupplyAdr0487,
       sectorEnergySupplyUnknownAdr0488: summaryDraft.sectorEnergySupplyUnknownAdr0488,
+      investorFlowSampleAdr0489: summaryDraft.investorFlowSampleAdr0489,
+      supplyCoverageReportAdr0496: summaryDraft.investorFlowSampleAdr0489.adr0496SupplyCoverage,
       diagnostics: ['Recorded from ScanSummary diagnostics only; replay is not used by live Gate decisions.'],
     });
     await saveGate1DryRunObservationRows(buildGate1DryRunObservationRows({
