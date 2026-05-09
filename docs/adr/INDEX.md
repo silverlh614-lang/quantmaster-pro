@@ -14,8 +14,10 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0491`**
+**다음 ADR 번호: `0492`**
 
+
+(2026-05-09 기준, 마지막 발급 0491 — adr-merge-conflict-resolution-continuation. ADR-0491 resolves the continuation ADR-numbering merge-conflict path as a governance-only PR: it reserves ADR-0491, advances the next issue number to 0492, records no active MERGE_HEAD/unmerged-index/conflict-marker validation, and preserves all runtime behavior unchanged. executionImpact=NONE, liveExecutionAllowed=false, operatorApprovalRequired=true, no Gate/Kelly/KIS/order/provider/Telegram/runtime logic changes.)
 
 (2026-05-09 기준, 마지막 발급 0490 — adr-merge-conflict-resolution-follow-up. ADR-0490 resolves the follow-up ADR-numbering merge-conflict path as a governance-only PR: it reserves ADR-0490, advances the next issue number to 0491, records no active MERGE_HEAD/unmerged-index/conflict-marker validation, and preserves all runtime behavior unchanged. executionImpact=NONE, liveExecutionAllowed=false, operatorApprovalRequired=true, no Gate/Kelly/KIS/order/provider/Telegram/runtime logic changes.)
 
@@ -482,8 +484,9 @@
 
 | 0489 | adr-merge-conflict-resolution-guard (ADR-numbering merge-conflict resolution guard — reserve ADR-0489, advance next issue number to 0490, document no active merge state/conflict marker validation, preserve historical collision groups, require future conflict resolution to update ADR body + INDEX.md + CLAUDE.md together, governance-only with executionImpact=NONE / liveExecutionAllowed=false / operatorApprovalRequired=true, runtime trading/provider/Gate/Kelly/KIS/order behavior 0 changes) | governance |
 | 0490 | adr-merge-conflict-resolution-follow-up (ADR-numbering merge-conflict follow-up — reserve ADR-0490, advance next issue number to 0491, document no active MERGE_HEAD / unmerged-index / conflict-marker validation, preserve historical collision groups, require future conflict resolution to update ADR body + INDEX.md + CLAUDE.md together, governance-only with executionImpact=NONE / liveExecutionAllowed=false / operatorApprovalRequired=true, runtime trading/provider/Gate/Kelly/KIS/order behavior 0 changes) | governance |
+| 0491 | adr-merge-conflict-resolution-continuation (ADR-numbering merge-conflict continuation — reserve ADR-0491, advance next issue number to 0492, document no active MERGE_HEAD / unmerged-index / conflict-marker validation, preserve historical collision groups, require future conflict resolution to update ADR body + INDEX.md + CLAUDE.md together, governance-only with executionImpact=NONE / liveExecutionAllowed=false / operatorApprovalRequired=true, runtime trading/provider/Gate/Kelly/KIS/order behavior 0 changes) | governance |
 
-**총 발급 281 unique 번호** (마지막 발급 0490) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0491**.
+**총 발급 282 unique 번호** (마지막 발급 0491) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0492**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
