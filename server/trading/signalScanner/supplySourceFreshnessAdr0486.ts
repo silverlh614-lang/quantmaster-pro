@@ -1,4 +1,4 @@
-// @responsibility ADR-0483 supply source freshness dual-clock diagnostics; SHADOW_ONLY refresh evidence.
+// @responsibility ADR-0486 supply source freshness dual-clock diagnostics; SHADOW_ONLY refresh evidence.
 import { isTradingDay } from '../../utils/marketDayClassifier.js';
 
 export type SupplySourceId =
@@ -82,7 +82,7 @@ export interface SupplySourceFreshnessItem {
   diagnostics: string[];
 }
 
-export interface SupplySourceFreshnessReportAdr0483 {
+export interface SupplySourceFreshnessReportAdr0486 {
   generatedAt: string;
   items: SupplySourceFreshnessItem[];
   overallSeverity: SupplyFreshnessSeverity;
@@ -113,12 +113,12 @@ export interface SupplySourceFreshnessReportAdr0483 {
   diagnostics: string[];
 }
 
-export interface BuildSupplySourceFreshnessReportInputAdr0483 {
+export interface BuildSupplySourceFreshnessReportInputAdr0486 {
   inputs?: readonly SupplySourceFreshnessInput[];
   generatedAt?: string | Date | null;
 }
 
-const ADR_0483_POLICY = {
+const ADR_0486_POLICY = {
   executionImpact: 'NONE',
   liveExecutionAllowed: false,
   policyPromotionMode: 'SHADOW_ONLY',
@@ -203,7 +203,7 @@ function severityFromState(sourceState: SupplySourceState, sourceAgeTradingDays:
   return 'OK';
 }
 
-export function deriveSupplyRefreshJobStatusAdr0483(item: Pick<SupplySourceFreshnessItem, 'sourceState' | 'severity'> & { dryRunRefresh?: boolean }): SupplyRefreshJobStatus {
+export function deriveSupplyRefreshJobStatusAdr0486(item: Pick<SupplySourceFreshnessItem, 'sourceState' | 'severity'> & { dryRunRefresh?: boolean }): SupplyRefreshJobStatus {
   if (item.sourceState === 'FRESH') return 'NOT_REQUIRED';
   if (item.sourceState === 'NON_TRADING_DAY') return 'SKIPPED_NON_TRADING_DAY';
   if (item.sourceState === 'PROVIDER_ERROR') return 'FAILED';
@@ -212,7 +212,7 @@ export function deriveSupplyRefreshJobStatusAdr0483(item: Pick<SupplySourceFresh
   return item.severity === 'DEGRADED' ? 'RECOMMENDED' : 'NOT_REQUIRED';
 }
 
-export function buildSupplySourceFreshnessItemAdr0483(input: SupplySourceFreshnessInput): SupplySourceFreshnessItem {
+export function buildSupplySourceFreshnessItemAdr0486(input: SupplySourceFreshnessInput): SupplySourceFreshnessItem {
   const now = asDate(input.now) ?? new Date();
   const sourceDate = input.sourceDate;
   const sourceAge = sourceDate ? tradingDayDistance(sourceDate, ymd(now)) : { days: null as number | null, usedFallback: false };
@@ -221,7 +221,7 @@ export function buildSupplySourceFreshnessItemAdr0483(input: SupplySourceFreshne
   const sourceAgeTradingDays = sourceAge.days;
   const sourceState = sourceStateFromInput(input, sourceAgeTradingDays);
   const severity = severityFromState(sourceState, sourceAgeTradingDays);
-  const refreshStatus = deriveSupplyRefreshJobStatusAdr0483({ sourceState, severity, dryRunRefresh: input.dryRunRefresh });
+  const refreshStatus = deriveSupplyRefreshJobStatusAdr0486({ sourceState, severity, dryRunRefresh: input.dryRunRefresh });
   const refreshRecommended = refreshStatus === 'RECOMMENDED' || refreshStatus === 'DRY_RUN';
   return {
     sourceId: input.sourceId,
@@ -238,9 +238,9 @@ export function buildSupplySourceFreshnessItemAdr0483(input: SupplySourceFreshne
     refreshRecommended,
     isProviderIssue: sourceState !== 'FRESH',
     isMarketSignal: false,
-    ...ADR_0483_POLICY,
+    ...ADR_0486_POLICY,
     diagnostics: [
-      'ADR-0483 dual clock separates cache freshness from source freshness.',
+      'ADR-0486 dual clock separates cache freshness from source freshness.',
       `cacheState=${cacheState}`,
       `sourceState=${sourceState}`,
       cacheState === 'FRESH' && sourceState === 'STALE' ? 'cache fresh, source stale' : null,
@@ -250,15 +250,15 @@ export function buildSupplySourceFreshnessItemAdr0483(input: SupplySourceFreshne
   };
 }
 
-function emptyCacheSummary(): SupplySourceFreshnessReportAdr0483['cacheStateSummary'] {
+function emptyCacheSummary(): SupplySourceFreshnessReportAdr0486['cacheStateSummary'] {
   return { fresh: 0, stale: 0, empty: 0, missing: 0, unknown: 0 };
 }
 
-function emptySourceSummary(): SupplySourceFreshnessReportAdr0483['sourceStateSummary'] {
+function emptySourceSummary(): SupplySourceFreshnessReportAdr0486['sourceStateSummary'] {
   return { fresh: 0, stale: 0, empty: 0, missing: 0, dataUnavailable: 0, providerError: 0, nonTradingDay: 0, unknown: 0 };
 }
 
-function incrementCache(summary: SupplySourceFreshnessReportAdr0483['cacheStateSummary'], state: SupplyCacheState): void {
+function incrementCache(summary: SupplySourceFreshnessReportAdr0486['cacheStateSummary'], state: SupplyCacheState): void {
   if (state === 'FRESH') summary.fresh += 1;
   else if (state === 'STALE') summary.stale += 1;
   else if (state === 'EMPTY') summary.empty += 1;
@@ -266,7 +266,7 @@ function incrementCache(summary: SupplySourceFreshnessReportAdr0483['cacheStateS
   else summary.unknown += 1;
 }
 
-function incrementSource(summary: SupplySourceFreshnessReportAdr0483['sourceStateSummary'], state: SupplySourceState): void {
+function incrementSource(summary: SupplySourceFreshnessReportAdr0486['sourceStateSummary'], state: SupplySourceState): void {
   if (state === 'FRESH') summary.fresh += 1;
   else if (state === 'STALE') summary.stale += 1;
   else if (state === 'EMPTY') summary.empty += 1;
@@ -286,9 +286,9 @@ function overallSeverity(items: readonly SupplySourceFreshnessItem[]): SupplyFre
   return 'OK';
 }
 
-export function buildSupplySourceFreshnessReportAdr0483(input: BuildSupplySourceFreshnessReportInputAdr0483 = {}): SupplySourceFreshnessReportAdr0483 {
+export function buildSupplySourceFreshnessReportAdr0486(input: BuildSupplySourceFreshnessReportInputAdr0486 = {}): SupplySourceFreshnessReportAdr0486 {
   const generatedAt = (asDate(input.generatedAt) ?? new Date()).toISOString();
-  const items = (input.inputs ?? []).map((item) => buildSupplySourceFreshnessItemAdr0483({ ...item, now: generatedAt }));
+  const items = (input.inputs ?? []).map((item) => buildSupplySourceFreshnessItemAdr0486({ ...item, now: generatedAt }));
   const cacheStateSummary = emptyCacheSummary();
   const sourceStateSummary = emptySourceSummary();
   for (const item of items) {
@@ -313,9 +313,9 @@ export function buildSupplySourceFreshnessReportAdr0483(input: BuildSupplySource
     affectedSources,
     oldestSourceAgeTradingDays,
     refreshRecommendedSources,
-    ...ADR_0483_POLICY,
+    ...ADR_0486_POLICY,
     diagnostics: [
-      `ADR-0483 overallSeverity=${severity}`,
+      `ADR-0486 overallSeverity=${severity}`,
       `oldestSourceAgeTradingDays=${oldestSourceAgeTradingDays ?? 'unknown'}`,
       affectedSources.length > 0 ? `affected=${affectedSources.join('/')}` : 'affected=none',
       'stale/provider issue is not bearish',
@@ -323,9 +323,9 @@ export function buildSupplySourceFreshnessReportAdr0483(input: BuildSupplySource
   };
 }
 
-export function safeBuildSupplySourceFreshnessReportAdr0483(input: BuildSupplySourceFreshnessReportInputAdr0483 = {}): SupplySourceFreshnessReportAdr0483 {
+export function safeBuildSupplySourceFreshnessReportAdr0486(input: BuildSupplySourceFreshnessReportInputAdr0486 = {}): SupplySourceFreshnessReportAdr0486 {
   try {
-    return buildSupplySourceFreshnessReportAdr0483(input);
+    return buildSupplySourceFreshnessReportAdr0486(input);
   } catch (error) {
     return {
       generatedAt: (asDate(input.generatedAt) ?? new Date()).toISOString(),
@@ -336,8 +336,8 @@ export function safeBuildSupplySourceFreshnessReportAdr0483(input: BuildSupplySo
       affectedSources: [],
       oldestSourceAgeTradingDays: null,
       refreshRecommendedSources: [],
-      ...ADR_0483_POLICY,
-      diagnostics: ['ADR-0483 freshness failure isolated; scan and Shadow Learning continue.', error instanceof Error ? error.message : String(error)],
+      ...ADR_0486_POLICY,
+      diagnostics: ['ADR-0486 freshness failure isolated; scan and Shadow Learning continue.', error instanceof Error ? error.message : String(error)],
     };
   }
 }
@@ -351,17 +351,17 @@ function compactSource(source: SupplySourceId): string {
   return source.toLowerCase();
 }
 
-export function formatSupplySourceFreshnessCompactAdr0483(report?: SupplySourceFreshnessReportAdr0483 | null): string | null {
+export function formatSupplySourceFreshnessCompactAdr0486(report?: SupplySourceFreshnessReportAdr0486 | null): string | null {
   if (!report) return null;
   const affected = report.affectedSources.length > 0 ? report.affectedSources.map(compactSource).join('/') : 'none';
   const action = report.refreshRecommendedSources.length > 0 ? 'refresh stale source / split cache-source freshness' : 'observe freshness clocks';
-  return `🕒 ADR-0483 SupplyFreshness: ${report.overallSeverity} | oldest=${report.oldestSourceAgeTradingDays ?? 'unknown'}d | affected=${affected} | impact=${report.executionImpact}\n   action: ${action}`;
+  return `🕒 ADR-0486 SupplyFreshness: ${report.overallSeverity} | oldest=${report.oldestSourceAgeTradingDays ?? 'unknown'}d | affected=${affected} | impact=${report.executionImpact}\n   action: ${action}`;
 }
 
-export function formatSupplySourceFreshnessDetailAdr0483(report?: SupplySourceFreshnessReportAdr0483 | null): string | null {
+export function formatSupplySourceFreshnessDetailAdr0486(report?: SupplySourceFreshnessReportAdr0486 | null): string | null {
   if (!report) return null;
   const lines = [
-    '🕒 ADR-0483 Supply Source Freshness',
+    '🕒 ADR-0486 Supply Source Freshness',
     `- overallSeverity: ${report.overallSeverity}`,
     `- oldestSourceAgeTradingDays: ${report.oldestSourceAgeTradingDays ?? 'unknown'}`,
     `- affectedSources: ${report.affectedSources.join('/') || 'none'}`,
@@ -376,26 +376,26 @@ export function formatSupplySourceFreshnessDetailAdr0483(report?: SupplySourceFr
   return lines.join('\n');
 }
 
-export interface SupplySourceFreshnessDetailRegistryEntryAdr0483 {
-  adr: '0483';
+export interface SupplySourceFreshnessDetailRegistryEntryAdr0486 {
+  adr: '0486';
   sectionId: 'supply_source_freshness';
   commandHint: '/supply_health_detail';
   scanBlockersDetailHint: '/scan_blockers_detail supply_source_freshness';
-  adrTraceHint: '/adr_trace 0483';
+  adrTraceHint: '/adr_trace 0486';
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
   render: () => string;
 }
 
-export function getSupplySourceFreshnessDetailRegistryEntryAdr0483(report: SupplySourceFreshnessReportAdr0483): SupplySourceFreshnessDetailRegistryEntryAdr0483 {
+export function getSupplySourceFreshnessDetailRegistryEntryAdr0486(report: SupplySourceFreshnessReportAdr0486): SupplySourceFreshnessDetailRegistryEntryAdr0486 {
   return {
-    adr: '0483',
+    adr: '0486',
     sectionId: 'supply_source_freshness',
     commandHint: '/supply_health_detail',
     scanBlockersDetailHint: '/scan_blockers_detail supply_source_freshness',
-    adrTraceHint: '/adr_trace 0483',
+    adrTraceHint: '/adr_trace 0486',
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
-    render: () => formatSupplySourceFreshnessDetailAdr0483(report) ?? '',
+    render: () => formatSupplySourceFreshnessDetailAdr0486(report) ?? '',
   };
 }

@@ -122,12 +122,12 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     rootCause: 'NAVER_INVESTOR_TREND_EMPTY_OR_UNAVAILABLE',
     category: 'INVESTOR_FLOW',
     title: 'NAVER investor trend empty/unavailable',
-    summary: 'ADR-0481 collector is wired but NAVER investor trend data is empty, unavailable, stale, or diagnostic-only.',
+    summary: 'ADR-0484 collector is wired but NAVER investor trend data is empty, unavailable, stale, or diagnostic-only.',
     recommendedAction: 'Verify NAVER data source availability or fallback semantic sample retention; keep UNKNOWN out of bullish/bearish scoring.',
-    relatedAdrs: ['0473', '0476', '0477', '0481'],
+    relatedAdrs: ['0473', '0476', '0477', '0484'],
     basePriority: 'P2',
     expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
-    detailHint: '/adr_trace 0481',
+    detailHint: '/adr_trace 0484',
   },
   SEMANTIC_NETBUY_MISSING: {
     rootCause: 'SEMANTIC_NETBUY_MISSING',
@@ -144,23 +144,23 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     rootCause: 'SEMANTIC_NETBUY_SAMPLE_UNAVAILABLE',
     category: 'INVESTOR_FLOW',
     title: 'Semantic net-buy sample unavailable',
-    summary: 'ADR-0482 normalizer is installed but no usable semantic net-buy sample is selectable.',
+    summary: 'ADR-0485 normalizer is installed but no usable semantic net-buy sample is selectable.',
     recommendedAction: 'Verify provider data coverage or fallback cache semantic sample retention.',
-    relatedAdrs: ['0477', '0481', '0482'],
+    relatedAdrs: ['0477', '0484', '0485'],
     basePriority: 'P2',
     expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
-    detailHint: '/adr_trace 0482 semantic-netbuy-sample-unavailable',
+    detailHint: '/adr_trace 0485 semantic-netbuy-sample-unavailable',
   },
   SEMANTIC_NETBUY_PARSE_OR_UNIT_ISSUE: {
     rootCause: 'SEMANTIC_NETBUY_PARSE_OR_UNIT_ISSUE',
     category: 'INVESTOR_FLOW',
     title: 'Semantic net-buy parse/unit issue',
-    summary: 'ADR-0482 normalizer detected parse errors or unit normalization issues.',
+    summary: 'ADR-0485 normalizer detected parse errors or unit normalization issues.',
     recommendedAction: 'Fix provider field parsing or unit metadata before using semantic net-buy as a dry-run positive source.',
-    relatedAdrs: ['0477', '0482'],
+    relatedAdrs: ['0477', '0485'],
     basePriority: 'P2',
     expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
-    detailHint: '/adr_trace 0482 semantic-netbuy-parse-or-unit-issue',
+    detailHint: '/adr_trace 0485 semantic-netbuy-parse-or-unit-issue',
   },
   SUPPLY_CACHE_EMPTY: {
     rootCause: 'SUPPLY_CACHE_EMPTY',
@@ -188,12 +188,12 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     rootCause: 'SUPPLY_SOURCE_REFRESH_RECOMMENDED',
     category: 'FRESHNESS',
     title: 'Supply source refresh recommended',
-    summary: 'ADR-0483 identified stale, missing, or unavailable supply source data that should be refreshed in diagnostic/dry-run mode.',
+    summary: 'ADR-0486 identified stale, missing, or unavailable supply source data that should be refreshed in diagnostic/dry-run mode.',
     recommendedAction: 'Run/verify diagnostic refresh for stale supply sources; keep stale data out of bearish scoring.',
-    relatedAdrs: ['0473', '0476', '0477', '0482', '0483'],
+    relatedAdrs: ['0473', '0476', '0477', '0485', '0486'],
     basePriority: 'P2',
     expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
-    detailHint: '/adr_trace 0483 supply-source-refresh-recommended',
+    detailHint: '/adr_trace 0486 supply-source-refresh-recommended',
   },
   CACHE_SOURCE_FRESHNESS_MISMATCH: {
     rootCause: 'CACHE_SOURCE_FRESHNESS_MISMATCH',
@@ -201,10 +201,10 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     title: 'Cache/source freshness mismatch',
     summary: 'Cache is fresh but the underlying supply source date is stale.',
     recommendedAction: 'Split cache and source clocks; refresh stale source.',
-    relatedAdrs: ['0473', '0477', '0483'],
+    relatedAdrs: ['0473', '0477', '0486'],
     basePriority: 'P2',
     expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
-    detailHint: '/adr_trace 0483 cache-source-freshness-mismatch',
+    detailHint: '/adr_trace 0486 cache-source-freshness-mismatch',
   },
   FSS_SOURCE_STALE: {
     rootCause: 'FSS_SOURCE_STALE',
@@ -312,10 +312,10 @@ function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCau
   if (includesAny(text, ['NOT_WIRED', 'SELECTEDPROVIDER=NONE', 'SELECTED_PROVIDER=NONE', 'PROVIDER=NONE', 'COVERAGE=0/5', 'INVESTOR_FLOW DATA_UNAVAILABLE', 'SEMANTIC PROVIDER NOT AVAILABLE'])) {
     return 'INVESTOR_FLOW_PROVIDER_UNWIRED';
   }
-  if (includesAny(text, ['ADR-0481', 'NAVER_INVESTOR_TREND']) && includesAny(text, ['DATA_UNAVAILABLE', 'EMPTY', 'STALE', 'PARSE_ERROR', 'PROVIDER_ERROR', 'WIRED'])) {
+  if (includesAny(text, ['ADR-0484', 'NAVER_INVESTOR_TREND']) && includesAny(text, ['DATA_UNAVAILABLE', 'EMPTY', 'STALE', 'PARSE_ERROR', 'PROVIDER_ERROR', 'WIRED'])) {
     return 'NAVER_INVESTOR_TREND_EMPTY_OR_UNAVAILABLE';
   }
-  if (includesAny(text, ['ADR-0482', 'SEMANTIC_NETBUY_NORMALIZER', 'SEMANTICNETBUY NORMALIZER'])) {
+  if (includesAny(text, ['ADR-0485', 'SEMANTIC_NETBUY_NORMALIZER', 'SEMANTICNETBUY NORMALIZER'])) {
     if (includesAny(text, ['PARSE_ERROR', 'UNIT', 'UNITNORMALIZED=FALSE', 'UNIT_MISMATCH'])) return 'SEMANTIC_NETBUY_PARSE_OR_UNIT_ISSUE';
     if (includesAny(text, ['SELECTED=NONE', 'SELECTEDSAMPLE=NULL', 'DATA_UNAVAILABLE', 'EMPTY', 'PROVIDER_ERROR'])) return 'SEMANTIC_NETBUY_SAMPLE_UNAVAILABLE';
   }
@@ -328,7 +328,7 @@ function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCau
   if (includesAny(text, ['PROVIDER_MISMATCH', 'KIS IS TRIED FOR INVESTOR_FLOW', 'KIS_API PROVIDER_MISMATCH'])) {
     return 'KIS_PROVIDER_MISMATCH';
   }
-  if (includesAny(text, ['ADR-0483', 'SUPPLYFRESHNESS', 'SUPPLY_SOURCE_FRESHNESS'])) {
+  if (includesAny(text, ['ADR-0486', 'SUPPLYFRESHNESS', 'SUPPLY_SOURCE_FRESHNESS'])) {
     if (includesAny(text, ['CACHE FRESH, SOURCE STALE', 'CACHE=FRESH SOURCE=STALE', 'CACHESTATE=FRESH SOURCESTATE=STALE'])) return 'CACHE_SOURCE_FRESHNESS_MISMATCH';
     if (includesAny(text, ['REFRESH', 'STALE', 'DATA_UNAVAILABLE', 'MISSING'])) return 'SUPPLY_SOURCE_REFRESH_RECOMMENDED';
   }

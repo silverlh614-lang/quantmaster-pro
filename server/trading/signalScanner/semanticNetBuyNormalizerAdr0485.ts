@@ -1,5 +1,5 @@
-// @responsibility ADR-0482 provider-agnostic semantic net-buy normalizer; SHADOW_ONLY diagnostics only.
-import type { SupplySourceFreshnessReportAdr0483 } from './supplySourceFreshnessAdr0483.js';
+// @responsibility ADR-0485 provider-agnostic semantic net-buy normalizer; SHADOW_ONLY diagnostics only.
+import type { SupplySourceFreshnessReportAdr0486 } from './supplySourceFreshnessAdr0486.js';
 
 
 export type SemanticNetBuyProvider =
@@ -51,7 +51,7 @@ export interface SemanticNetBuyInputPoint {
   providerSemanticCapable?: boolean;
 }
 
-export interface SemanticNetBuySampleAdr0482 {
+export interface SemanticNetBuySampleAdr0485 {
   code: string;
   provider: SemanticNetBuyProvider;
   sourceDate: string | null;
@@ -92,11 +92,11 @@ export interface SemanticNetBuySampleAdr0482 {
   diagnostics: string[];
 }
 
-export interface SemanticNetBuyNormalizationReportAdr0482 {
+export interface SemanticNetBuyNormalizationReportAdr0485 {
   generatedAt: string;
   code: string;
-  samples: SemanticNetBuySampleAdr0482[];
-  selectedSample: SemanticNetBuySampleAdr0482 | null;
+  samples: SemanticNetBuySampleAdr0485[];
+  selectedSample: SemanticNetBuySampleAdr0485 | null;
   providerRanking: SemanticNetBuyProvider[];
   status: SemanticNetBuyStatus;
   signal: SemanticNetBuySignal;
@@ -108,14 +108,14 @@ export interface SemanticNetBuyNormalizationReportAdr0482 {
   diagnostics: string[];
 }
 
-export interface BuildSemanticNetBuyNormalizationReportInputAdr0482 {
+export interface BuildSemanticNetBuyNormalizationReportInputAdr0485 {
   code: string;
   generatedAt?: string;
   inputs?: readonly SemanticNetBuyInputPoint[];
-  supplySourceFreshnessAdr0483?: SupplySourceFreshnessReportAdr0483 | null;
+  supplySourceFreshnessAdr0486?: SupplySourceFreshnessReportAdr0486 | null;
 }
 
-const ADR_0482_POLICY = {
+const ADR_0485_POLICY = {
   executionImpact: 'NONE',
   liveExecutionAllowed: false,
   policyPromotionMode: 'SHADOW_ONLY',
@@ -151,7 +151,7 @@ function normalizeUnitValue(value: number | null, unit: SemanticNetBuyInputPoint
   return value;
 }
 
-function outputUnit(unit: SemanticNetBuyInputPoint['unit']): SemanticNetBuySampleAdr0482['unit'] {
+function outputUnit(unit: SemanticNetBuyInputPoint['unit']): SemanticNetBuySampleAdr0485['unit'] {
   if (unit === 'SHARES') return 'SHARES';
   if (unit === 'KRW' || unit === 'THOUSAND_KRW' || unit === 'MILLION_KRW') return 'KRW';
   return 'UNKNOWN';
@@ -176,7 +176,7 @@ function isProviderMismatch(input: SemanticNetBuyInputPoint, explicit: SemanticN
   return false;
 }
 
-function deriveFreshness(input: SemanticNetBuyInputPoint, explicitStatus: SemanticNetBuyStatus | null): SemanticNetBuySampleAdr0482['freshness'] {
+function deriveFreshness(input: SemanticNetBuyInputPoint, explicitStatus: SemanticNetBuyStatus | null): SemanticNetBuySampleAdr0485['freshness'] {
   const age = finiteNumber(input.sourceAgeTradingDays) ? input.sourceAgeTradingDays : null;
   if (!input.sourceDate) return { sourceState: explicitStatus === 'DISABLED' ? 'UNKNOWN' : 'MISSING', sourceAgeTradingDays: age, lastSourceDate: null };
   if (explicitStatus === 'STALE' || (age !== null && age >= STALE_TRADING_DAYS)) return { sourceState: 'STALE', sourceAgeTradingDays: age, lastSourceDate: input.sourceDate };
@@ -238,7 +238,7 @@ function deriveSignal(input: {
   return 'NEUTRAL';
 }
 
-export function normalizeSemanticNetBuySampleAdr0482(input: SemanticNetBuyInputPoint): SemanticNetBuySampleAdr0482 {
+export function normalizeSemanticNetBuySampleAdr0485(input: SemanticNetBuyInputPoint): SemanticNetBuySampleAdr0485 {
   const unit = input.unit ?? 'UNKNOWN';
   const explicit = normalizedExplicitStatus(input);
   const parsed = {
@@ -304,9 +304,9 @@ export function normalizeSemanticNetBuySampleAdr0482(input: SemanticNetBuyInputP
       isProviderIssue,
       isMarketSignal,
     },
-    ...ADR_0482_POLICY,
+    ...ADR_0485_POLICY,
     diagnostics: [
-      'ADR-0482 semantic net-buy normalized as SHADOW_ONLY diagnostic sample.',
+      'ADR-0485 semantic net-buy normalized as SHADOW_ONLY diagnostic sample.',
       `provider=${input.provider}`,
       `status=${status}`,
       `signal=${signal}`,
@@ -323,25 +323,25 @@ function sourceIdForProvider(provider: SemanticNetBuyProvider): string {
   return 'SEMANTIC_NETBUY';
 }
 
-function applyFreshnessAdr0483(input: SemanticNetBuyInputPoint, report?: SupplySourceFreshnessReportAdr0483 | null): SemanticNetBuyInputPoint {
+function applyFreshnessAdr0486(input: SemanticNetBuyInputPoint, report?: SupplySourceFreshnessReportAdr0486 | null): SemanticNetBuyInputPoint {
   if (!report) return input;
   const item = report.items.find((candidate) => candidate.sourceId === sourceIdForProvider(input.provider) || candidate.provider.toUpperCase() === input.provider);
   if (!item) return input;
   return {
     ...input,
     sourceAgeTradingDays: item.sourceAgeTradingDays,
-    diagnostics: [...(input.diagnostics ?? []), 'ADR-0483 source freshness applied to ADR-0482 confidence'],
+    diagnostics: [...(input.diagnostics ?? []), 'ADR-0486 source freshness applied to ADR-0485 confidence'],
   };
 }
 
-function selectable(sample: SemanticNetBuySampleAdr0482): boolean {
+function selectable(sample: SemanticNetBuySampleAdr0485): boolean {
   if (sample.status !== 'VERIFIED' && sample.status !== 'PARTIAL') return false;
   if (sample.status === 'PARTIAL' && sample.confidence !== 'HIGH' && sample.confidence !== 'MEDIUM') return false;
   if (sample.quality.isProviderIssue) return false;
   return sample.confidence === 'HIGH' || sample.confidence === 'MEDIUM';
 }
 
-function scoreSample(sample: SemanticNetBuySampleAdr0482): number {
+function scoreSample(sample: SemanticNetBuySampleAdr0485): number {
   const providerRank = PROVIDER_ORDER.indexOf(sample.provider);
   const providerScore = providerRank >= 0 ? (PROVIDER_ORDER.length - providerRank) * 10 : 0;
   const statusScore = sample.status === 'VERIFIED' ? 100 : sample.status === 'PARTIAL' ? 60 : 0;
@@ -349,10 +349,10 @@ function scoreSample(sample: SemanticNetBuySampleAdr0482): number {
   return statusScore + confidenceScore + providerScore + sample.coverage.availableFields;
 }
 
-export function buildSemanticNetBuyNormalizationReportAdr0482(
-  input: BuildSemanticNetBuyNormalizationReportInputAdr0482,
-): SemanticNetBuyNormalizationReportAdr0482 {
-  const samples = (input.inputs ?? []).map((sample) => normalizeSemanticNetBuySampleAdr0482(applyFreshnessAdr0483(sample, input.supplySourceFreshnessAdr0483)));
+export function buildSemanticNetBuyNormalizationReportAdr0485(
+  input: BuildSemanticNetBuyNormalizationReportInputAdr0485,
+): SemanticNetBuyNormalizationReportAdr0485 {
+  const samples = (input.inputs ?? []).map((sample) => normalizeSemanticNetBuySampleAdr0485(applyFreshnessAdr0486(sample, input.supplySourceFreshnessAdr0486)));
   const selectedSample = samples
     .filter(selectable)
     .sort((a, b) => scoreSample(b) - scoreSample(a))[0] ?? null;
@@ -365,18 +365,18 @@ export function buildSemanticNetBuyNormalizationReportAdr0482(
     status: selectedSample?.status ?? (samples[0]?.status ?? 'DATA_UNAVAILABLE'),
     signal: selectedSample?.signal ?? 'UNKNOWN',
     confidence: selectedSample?.confidence ?? 'NONE',
-    ...ADR_0482_POLICY,
+    ...ADR_0485_POLICY,
     diagnostics: selectedSample
-      ? [`ADR-0482 selected ${selectedSample.provider} semantic sample.`, `status=${selectedSample.status}`, `signal=${selectedSample.signal}`]
-      : ['ADR-0482 normalizer found no usable semantic sample.', 'UNKNOWN/provider issue is not bearish.'],
+      ? [`ADR-0485 selected ${selectedSample.provider} semantic sample.`, `status=${selectedSample.status}`, `signal=${selectedSample.signal}`]
+      : ['ADR-0485 normalizer found no usable semantic sample.', 'UNKNOWN/provider issue is not bearish.'],
   };
 }
 
-export function safeBuildSemanticNetBuyNormalizationReportAdr0482(
-  input: BuildSemanticNetBuyNormalizationReportInputAdr0482,
-): SemanticNetBuyNormalizationReportAdr0482 {
+export function safeBuildSemanticNetBuyNormalizationReportAdr0485(
+  input: BuildSemanticNetBuyNormalizationReportInputAdr0485,
+): SemanticNetBuyNormalizationReportAdr0485 {
   try {
-    return buildSemanticNetBuyNormalizationReportAdr0482(input);
+    return buildSemanticNetBuyNormalizationReportAdr0485(input);
   } catch (error) {
     return {
       generatedAt: input.generatedAt ?? new Date().toISOString(),
@@ -387,22 +387,22 @@ export function safeBuildSemanticNetBuyNormalizationReportAdr0482(
       status: 'PROVIDER_ERROR',
       signal: 'UNKNOWN',
       confidence: 'NONE',
-      ...ADR_0482_POLICY,
-      diagnostics: ['ADR-0482 normalizer failure isolated; scan and Shadow Learning continue.', error instanceof Error ? error.message : String(error)],
+      ...ADR_0485_POLICY,
+      diagnostics: ['ADR-0485 normalizer failure isolated; scan and Shadow Learning continue.', error instanceof Error ? error.message : String(error)],
     };
   }
 }
 
-export function formatSemanticNetBuyCompactAdr0482(report?: SemanticNetBuyNormalizationReportAdr0482 | null): string | null {
+export function formatSemanticNetBuyCompactAdr0485(report?: SemanticNetBuyNormalizationReportAdr0485 | null): string | null {
   if (!report) return null;
-  return `ADR-0482 SemanticNetBuy: ${report.status} | selected=${report.selectedSample?.provider ?? 'NONE'} | signal=${report.signal} | confidence=${report.confidence} | impact=${report.executionImpact}`;
+  return `ADR-0485 SemanticNetBuy: ${report.status} | selected=${report.selectedSample?.provider ?? 'NONE'} | signal=${report.signal} | confidence=${report.confidence} | impact=${report.executionImpact}`;
 }
 
-export function formatSemanticNetBuyDetailAdr0482(report?: SemanticNetBuyNormalizationReportAdr0482 | null): string | null {
+export function formatSemanticNetBuyDetailAdr0485(report?: SemanticNetBuyNormalizationReportAdr0485 | null): string | null {
   if (!report) return null;
   const selected = report.selectedSample;
   return [
-    '🧮 ADR-0482 Semantic Net-Buy Normalizer',
+    '🧮 ADR-0485 Semantic Net-Buy Normalizer',
     `- code: ${report.code}`,
     `- status: ${report.status}`,
     `- selected: ${selected?.provider ?? 'NONE'}`,
@@ -418,26 +418,26 @@ export function formatSemanticNetBuyDetailAdr0482(report?: SemanticNetBuyNormali
   ].join('\n');
 }
 
-export interface SemanticNetBuyDetailRegistryEntryAdr0482 {
-  adr: '0482';
+export interface SemanticNetBuyDetailRegistryEntryAdr0485 {
+  adr: '0485';
   sectionId: 'semantic_net_buy_normalizer';
   commandHint: '/supply_health_detail';
   scanBlockersDetailHint: '/scan_blockers_detail semantic_net_buy_normalizer';
-  adrTraceHint: '/adr_trace 0482';
+  adrTraceHint: '/adr_trace 0485';
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
   render: () => string;
 }
 
-export function getSemanticNetBuyDetailRegistryEntryAdr0482(report: SemanticNetBuyNormalizationReportAdr0482): SemanticNetBuyDetailRegistryEntryAdr0482 {
+export function getSemanticNetBuyDetailRegistryEntryAdr0485(report: SemanticNetBuyNormalizationReportAdr0485): SemanticNetBuyDetailRegistryEntryAdr0485 {
   return {
-    adr: '0482',
+    adr: '0485',
     sectionId: 'semantic_net_buy_normalizer',
     commandHint: '/supply_health_detail',
     scanBlockersDetailHint: '/scan_blockers_detail semantic_net_buy_normalizer',
-    adrTraceHint: '/adr_trace 0482',
+    adrTraceHint: '/adr_trace 0485',
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
-    render: () => formatSemanticNetBuyDetailAdr0482(report) ?? '',
+    render: () => formatSemanticNetBuyDetailAdr0485(report) ?? '',
   };
 }

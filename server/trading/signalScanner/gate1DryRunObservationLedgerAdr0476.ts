@@ -6,18 +6,18 @@ import type { CandidateSnapshot } from './entryFilterDecomposition.js';
 import type { FinalGate1CalibrationAuditReport } from './gate1FinalCalibration.js';
 import type { Gate1PositiveSourceWiringReport } from './gate1PositiveSourceWiringAdr0475.js';
 import type { InvestorFlowProviderRouteResult } from './investorFlowProviderRouterAdr0477.js';
-import type { NaverInvestorTrendCollectorResult } from './naverInvestorTrendCollectorAdr0481.js';
-import type { SemanticNetBuyNormalizationReportAdr0482 } from './semanticNetBuyNormalizerAdr0482.js';
-import type { SupplySourceFreshnessReportAdr0483 } from './supplySourceFreshnessAdr0483.js';
+import type { NaverInvestorTrendCollectorResult } from './naverInvestorTrendCollectorAdr0484.js';
+import type { SemanticNetBuyNormalizationReportAdr0485 } from './semanticNetBuyNormalizerAdr0485.js';
+import type { SupplySourceFreshnessReportAdr0486 } from './supplySourceFreshnessAdr0486.js';
 
 export type Gate1DryRunObservationSource =
   | 'ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'
   | 'ADR_0472_SCORING_ALIGNMENT'
   | 'ADR_0475_POSITIVE_SOURCE_WIRING'
   | 'ADR_0477_INVESTOR_FLOW_PROVIDER_ROUTER'
-  | 'ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR'
-  | 'ADR_0482_SEMANTIC_NETBUY_NORMALIZER'
-  | 'ADR_0483_SUPPLY_SOURCE_FRESHNESS'
+  | 'ADR_0484_NAVER_INVESTOR_TREND_COLLECTOR'
+  | 'ADR_0485_SEMANTIC_NETBUY_NORMALIZER'
+  | 'ADR_0486_SUPPLY_SOURCE_FRESHNESS'
   | 'GATE1_NEAR_MISS'
   | 'COUNTERFACTUAL_UNIVERSE';
 
@@ -73,7 +73,7 @@ export interface Gate1DryRunObservationRow {
   maxAdverseExcursion5D?: number;
   stopLossTouched?: boolean;
   targetTouched?: boolean;
-  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481' | 'SEMANTIC_NETBUY_NORMALIZER_ADR0482' | 'SUPPLY_SOURCE_FRESHNESS_ADR0483';
+  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0484' | 'SEMANTIC_NETBUY_NORMALIZER_ADR0485' | 'SUPPLY_SOURCE_FRESHNESS_ADR0486';
   beforeCoverage?: number;
   afterCoverage?: number;
   selectedProvider?: string;
@@ -129,9 +129,9 @@ export interface Gate1DryRunObservationBuildInput {
   finalGate1Calibration?: FinalGate1CalibrationAuditReport | null;
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport | null;
   investorFlowProviderRouter?: InvestorFlowProviderRouteResult | null;
-  naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult | null;
-  semanticNetBuyNormalizationAdr0482?: SemanticNetBuyNormalizationReportAdr0482 | null;
-  supplySourceFreshnessAdr0483?: SupplySourceFreshnessReportAdr0483 | null;
+  naverInvestorTrendAdr0484?: NaverInvestorTrendCollectorResult | null;
+  semanticNetBuyNormalizationAdr0485?: SemanticNetBuyNormalizationReportAdr0485 | null;
+  supplySourceFreshnessAdr0486?: SupplySourceFreshnessReportAdr0486 | null;
   sellOnly?: boolean;
   sectorEnergyDiagnosticOnly?: boolean;
   providerIssue?: boolean;
@@ -405,24 +405,24 @@ function buildInvestorFlowRouterRows(input: Gate1DryRunObservationBuildInput, no
 }
 
 
-function buildNaverInvestorTrendRowsAdr0481(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
-  const result = input.naverInvestorTrendAdr0481;
+function buildNaverInvestorTrendRowsAdr0484(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
+  const result = input.naverInvestorTrendAdr0484;
   if (!result) return [];
   return [withOptionalScoreFields({
     createdAt: nowIso,
     forDate: input.forDate,
-    source: 'ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR',
+    source: 'ADR_0484_NAVER_INVESTOR_TREND_COLLECTOR',
     symbol: result.code,
     actualGate1Passed: false,
     actualLiveEligible: false,
     dryRunDecision: result.signal === 'BULLISH' ? 'PROVIDER_SOFTENED' : 'WOULD_STILL_FAIL',
-    dryRunScenario: 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481',
+    dryRunScenario: 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0484',
     requiredScore: 70,
     providerIssue: result.signal === 'UNKNOWN',
     marketSignal: result.signal === 'BEARISH',
     sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
     sellOnly: input.sellOnly === true,
-    observationType: 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481',
+    observationType: 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0484',
     selectedProvider: 'NAVER',
     providerTried: ['NAVER'],
     routeStatus: result.status,
@@ -443,25 +443,25 @@ function buildNaverInvestorTrendRowsAdr0481(input: Gate1DryRunObservationBuildIn
 }
 
 
-function buildSemanticNetBuyNormalizerRowsAdr0482(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
-  const report = input.semanticNetBuyNormalizationAdr0482;
+function buildSemanticNetBuyNormalizerRowsAdr0485(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
+  const report = input.semanticNetBuyNormalizationAdr0485;
   if (!report) return [];
   const selected = report.selectedSample;
   return [withOptionalScoreFields({
     createdAt: nowIso,
     forDate: input.forDate,
-    source: 'ADR_0482_SEMANTIC_NETBUY_NORMALIZER',
+    source: 'ADR_0485_SEMANTIC_NETBUY_NORMALIZER',
     symbol: report.code,
     actualGate1Passed: false,
     actualLiveEligible: false,
     dryRunDecision: report.signal === 'BULLISH' ? 'PROVIDER_SOFTENED' : 'WOULD_STILL_FAIL',
-    dryRunScenario: 'SEMANTIC_NETBUY_NORMALIZER_ADR0482',
+    dryRunScenario: 'SEMANTIC_NETBUY_NORMALIZER_ADR0485',
     requiredScore: 70,
     providerIssue: selected === null || selected.quality.isProviderIssue,
     marketSignal: report.signal === 'BEARISH',
     sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
     sellOnly: input.sellOnly === true,
-    observationType: 'SEMANTIC_NETBUY_NORMALIZER_ADR0482',
+    observationType: 'SEMANTIC_NETBUY_NORMALIZER_ADR0485',
     provider: selected?.provider ?? 'NONE',
     selectedProvider: selected?.provider ?? 'NONE',
     providerTried: report.samples.map((sample) => sample.provider),
@@ -485,24 +485,24 @@ function buildSemanticNetBuyNormalizerRowsAdr0482(input: Gate1DryRunObservationB
 }
 
 
-function buildSupplySourceFreshnessRowsAdr0483(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
-  const report = input.supplySourceFreshnessAdr0483;
+function buildSupplySourceFreshnessRowsAdr0486(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
+  const report = input.supplySourceFreshnessAdr0486;
   if (!report) return [];
   return [withOptionalScoreFields({
     createdAt: nowIso,
     forDate: input.forDate,
-    source: 'ADR_0483_SUPPLY_SOURCE_FRESHNESS',
+    source: 'ADR_0486_SUPPLY_SOURCE_FRESHNESS',
     symbol: 'SUPPLY',
     actualGate1Passed: false,
     actualLiveEligible: false,
     dryRunDecision: report.overallSeverity === 'OK' ? 'UNKNOWN_DIAGNOSTIC_ONLY' : 'WOULD_STILL_FAIL',
-    dryRunScenario: 'SUPPLY_SOURCE_FRESHNESS_ADR0483',
+    dryRunScenario: 'SUPPLY_SOURCE_FRESHNESS_ADR0486',
     requiredScore: 70,
     providerIssue: report.overallSeverity !== 'OK',
     marketSignal: false,
     sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
     sellOnly: input.sellOnly === true,
-    observationType: 'SUPPLY_SOURCE_FRESHNESS_ADR0483',
+    observationType: 'SUPPLY_SOURCE_FRESHNESS_ADR0486',
     routeStatus: report.overallSeverity,
     routeSignal: 'UNKNOWN',
     sourceAgeTradingDays: report.oldestSourceAgeTradingDays,
@@ -524,9 +524,9 @@ export function buildGate1DryRunObservationRows(input: Gate1DryRunObservationBui
     ...buildUnknownDiagnosticRows(input, nowIso),
     ...buildPositiveWiringRows(input, nowIso),
     ...buildInvestorFlowRouterRows(input, nowIso),
-    ...buildNaverInvestorTrendRowsAdr0481(input, nowIso),
-    ...buildSemanticNetBuyNormalizerRowsAdr0482(input, nowIso),
-    ...buildSupplySourceFreshnessRowsAdr0483(input, nowIso),
+    ...buildNaverInvestorTrendRowsAdr0484(input, nowIso),
+    ...buildSemanticNetBuyNormalizerRowsAdr0485(input, nowIso),
+    ...buildSupplySourceFreshnessRowsAdr0486(input, nowIso),
     ...buildGateNearMissRows(input, nowIso),
     ...buildCounterfactualUniverseRows(input, nowIso),
   ];
@@ -654,9 +654,9 @@ export function formatGate1DryRunObservationSummary(
     sourceLine('ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'),
     sourceLine('ADR_0475_POSITIVE_SOURCE_WIRING'),
     sourceLine('ADR_0477_INVESTOR_FLOW_PROVIDER_ROUTER'),
-    sourceLine('ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR'),
-    sourceLine('ADR_0482_SEMANTIC_NETBUY_NORMALIZER'),
-    sourceLine('ADR_0483_SUPPLY_SOURCE_FRESHNESS'),
+    sourceLine('ADR_0484_NAVER_INVESTOR_TREND_COLLECTOR'),
+    sourceLine('ADR_0485_SEMANTIC_NETBUY_NORMALIZER'),
+    sourceLine('ADR_0486_SUPPLY_SOURCE_FRESHNESS'),
     sourceLine('GATE1_NEAR_MISS'),
     `  liveExecutionAllowed: ${summary.liveExecutionAllowed}`,
     `  executionImpact: ${summary.executionImpact}`,

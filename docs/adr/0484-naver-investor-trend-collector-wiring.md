@@ -1,4 +1,4 @@
-# ADR-0481 — NAVER Investor Trend Collector Wiring
+# ADR-0484 — NAVER Investor Trend Collector Wiring
 
 ## Status
 Accepted — SHADOW_ONLY diagnostic wiring.
@@ -9,7 +9,7 @@ ADR-0480 surfaces operator actions from scan diagnostics. One recurring P1 actio
 This is provider routing incompleteness, not confirmed bearish supply. Missing or unavailable NAVER data must remain `UNKNOWN` and must not become bullish or bearish evidence.
 
 ## Decision
-ADR-0481 wires a NAVER investor trend collector layer as a candidate semantic investor-flow provider for ADR-0477. The collector normalizes sanitized semantic fields only:
+ADR-0484 wires a NAVER investor trend collector layer as a candidate semantic investor-flow provider for ADR-0477. The collector normalizes sanitized semantic fields only:
 
 - `foreignNetBuy`
 - `institutionNetBuy`
@@ -20,14 +20,14 @@ ADR-0481 wires a NAVER investor trend collector layer as a candidate semantic in
 The implementation is `SHADOW_ONLY` and diagnostic-only. It does not persist raw NAVER payloads and does not fetch inside `/scan_blockers` formatters.
 
 ## Guardrails
-ADR-0481 keeps these invariants:
+ADR-0484 keeps these invariants:
 
 - `executionImpact = 'NONE'`
 - `liveExecutionAllowed = false`
 - `policyPromotionMode = 'SHADOW_ONLY'`
 - `operatorApprovalRequired = true`
 
-ADR-0481 does **not**:
+ADR-0484 does **not**:
 
 - promote NAVER data to live execution or CORE
 - change Gate thresholds, Gate weights, Kelly sizing, requiredScore, or live buy policy
@@ -40,9 +40,9 @@ ADR-0481 does **not**:
 Promotion beyond `SHADOW_ONLY` requires a future ADR and explicit operator approval.
 
 ## Routing Chain
-ADR-0481 feeds the existing diagnostic chain:
+ADR-0484 feeds the existing diagnostic chain:
 
-1. NAVER Investor Trend Collector ADR-0481
+1. NAVER Investor Trend Collector ADR-0484
 2. InvestorFlow Provider Router ADR-0477
 3. Supply Provider Warmup ADR-0473
 4. Positive Source Wiring Dry Run ADR-0475
@@ -52,7 +52,7 @@ ADR-0481 feeds the existing diagnostic chain:
 8. Detail Registry ADR-0479
 
 ## Outcomes
-Before ADR-0481, NAVER trend absence was represented as `NOT_WIRED`. After ADR-0481, the collector module replaces that wiring diagnostic with states such as:
+Before ADR-0484, NAVER trend absence was represented as `NOT_WIRED`. After ADR-0484, the collector module replaces that wiring diagnostic with states such as:
 
 - `WIRED`
 - `DATA_AVAILABLE`

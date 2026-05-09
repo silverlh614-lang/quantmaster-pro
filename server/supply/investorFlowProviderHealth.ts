@@ -7,8 +7,8 @@
  */
 
 import { isTradingDay } from '../utils/marketDayClassifier.js';
-import type { NaverInvestorTrendCollectorResult } from '../trading/signalScanner/naverInvestorTrendCollectorAdr0481.js';
-import type { SupplySourceFreshnessReportAdr0483 } from '../trading/signalScanner/supplySourceFreshnessAdr0483.js';
+import type { NaverInvestorTrendCollectorResult } from '../trading/signalScanner/naverInvestorTrendCollectorAdr0484.js';
+import type { SupplySourceFreshnessReportAdr0486 } from '../trading/signalScanner/supplySourceFreshnessAdr0486.js';
 
 export type InvestorFlowProviderStatus =
   | 'OK'
@@ -145,7 +145,7 @@ export interface SupplyProviderWarmupReport {
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
   shadowObservableAllowed: true;
-  naverInvestorTrendAdr0481?: {
+  naverInvestorTrendAdr0484?: {
     status: NaverInvestorTrendCollectorResult['status'];
     signal: NaverInvestorTrendCollectorResult['signal'];
     coverage: NaverInvestorTrendCollectorResult['coverage'];
@@ -153,11 +153,11 @@ export interface SupplyProviderWarmupReport {
     liveExecutionAllowed: false;
     policyPromotionMode: 'SHADOW_ONLY';
   };
-  supplySourceFreshnessAdr0483?: {
-    overallSeverity: SupplySourceFreshnessReportAdr0483['overallSeverity'];
+  supplySourceFreshnessAdr0486?: {
+    overallSeverity: SupplySourceFreshnessReportAdr0486['overallSeverity'];
     oldestSourceAgeTradingDays: number | null;
-    affectedSources: SupplySourceFreshnessReportAdr0483['affectedSources'];
-    refreshRecommendedSources: SupplySourceFreshnessReportAdr0483['refreshRecommendedSources'];
+    affectedSources: SupplySourceFreshnessReportAdr0486['affectedSources'];
+    refreshRecommendedSources: SupplySourceFreshnessReportAdr0486['refreshRecommendedSources'];
     executionImpact: 'NONE';
     liveExecutionAllowed: false;
     policyPromotionMode: 'SHADOW_ONLY';
@@ -494,34 +494,34 @@ export function buildSupplyProviderWarmupReport(input: {
   code?: string;
   cacheHit?: boolean;
   investorFlowRouter?: SupplyProviderWarmupReport['investorFlowRouter'];
-  naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult | null;
-  supplySourceFreshnessAdr0483?: SupplySourceFreshnessReportAdr0483 | null;
+  naverInvestorTrendAdr0484?: NaverInvestorTrendCollectorResult | null;
+  supplySourceFreshnessAdr0486?: SupplySourceFreshnessReportAdr0486 | null;
 } = {}): SupplyProviderWarmupReport {
   const health = input.health ?? [];
   const now = input.now ?? new Date();
   const requestedSourceDate = toInvestorFlowKstDateTime(now).date;
   const krxFallback: SupplyProviderStatus = isTradingDay(requestedSourceDate) ? 'DATA_UNAVAILABLE' : 'NON_TRADING_DAY';
   const krxStatus = statusFromHealth(findProviderHealth(health, 'KRX'), krxFallback);
-  const naverAdr0481Status = input.naverInvestorTrendAdr0481?.status;
-  const naverStatus = naverAdr0481Status === 'DATA_AVAILABLE'
+  const naverAdr0484Status = input.naverInvestorTrendAdr0484?.status;
+  const naverStatus = naverAdr0484Status === 'DATA_AVAILABLE'
     ? 'VERIFIED'
-    : naverAdr0481Status === 'WIRED'
+    : naverAdr0484Status === 'WIRED'
       ? 'WIRED'
-      : naverAdr0481Status === 'PARTIAL'
+      : naverAdr0484Status === 'PARTIAL'
         ? 'PARTIAL'
-        : naverAdr0481Status === 'STALE'
+        : naverAdr0484Status === 'STALE'
           ? 'STALE'
-          : naverAdr0481Status === 'EMPTY'
+          : naverAdr0484Status === 'EMPTY'
             ? 'EMPTY'
-            : naverAdr0481Status === 'PARSE_ERROR'
+            : naverAdr0484Status === 'PARSE_ERROR'
               ? 'PARSE_ERROR'
-              : naverAdr0481Status === 'PROVIDER_ERROR'
+              : naverAdr0484Status === 'PROVIDER_ERROR'
                 ? 'PROVIDER_ERROR'
-                : naverAdr0481Status === 'NON_TRADING_DAY'
+                : naverAdr0484Status === 'NON_TRADING_DAY'
                   ? 'NON_TRADING_DAY'
-                  : naverAdr0481Status === 'DISABLED'
+                  : naverAdr0484Status === 'DISABLED'
                     ? 'DISABLED'
-                    : naverAdr0481Status === 'DATA_UNAVAILABLE'
+                    : naverAdr0484Status === 'DATA_UNAVAILABLE'
                       ? 'DATA_UNAVAILABLE'
                       : statusFromHealth(findProviderHealth(health, 'NAVER'), 'NOT_WIRED');
   const cacheStatus = statusFromHealth(findProviderHealth(health, 'CACHE'), 'CACHE_EMPTY');
@@ -548,22 +548,22 @@ export function buildSupplyProviderWarmupReport(input: {
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
     shadowObservableAllowed: true,
-    ...(input.naverInvestorTrendAdr0481 ? { naverInvestorTrendAdr0481: {
-      status: input.naverInvestorTrendAdr0481.status,
-      signal: input.naverInvestorTrendAdr0481.signal,
-      coverage: input.naverInvestorTrendAdr0481.coverage,
-      executionImpact: input.naverInvestorTrendAdr0481.executionImpact,
-      liveExecutionAllowed: input.naverInvestorTrendAdr0481.liveExecutionAllowed,
-      policyPromotionMode: input.naverInvestorTrendAdr0481.policyPromotionMode,
+    ...(input.naverInvestorTrendAdr0484 ? { naverInvestorTrendAdr0484: {
+      status: input.naverInvestorTrendAdr0484.status,
+      signal: input.naverInvestorTrendAdr0484.signal,
+      coverage: input.naverInvestorTrendAdr0484.coverage,
+      executionImpact: input.naverInvestorTrendAdr0484.executionImpact,
+      liveExecutionAllowed: input.naverInvestorTrendAdr0484.liveExecutionAllowed,
+      policyPromotionMode: input.naverInvestorTrendAdr0484.policyPromotionMode,
     } } : {}),
-    ...(input.supplySourceFreshnessAdr0483 ? { supplySourceFreshnessAdr0483: {
-      overallSeverity: input.supplySourceFreshnessAdr0483.overallSeverity,
-      oldestSourceAgeTradingDays: input.supplySourceFreshnessAdr0483.oldestSourceAgeTradingDays,
-      affectedSources: input.supplySourceFreshnessAdr0483.affectedSources,
-      refreshRecommendedSources: input.supplySourceFreshnessAdr0483.refreshRecommendedSources,
-      executionImpact: input.supplySourceFreshnessAdr0483.executionImpact,
-      liveExecutionAllowed: input.supplySourceFreshnessAdr0483.liveExecutionAllowed,
-      policyPromotionMode: input.supplySourceFreshnessAdr0483.policyPromotionMode,
+    ...(input.supplySourceFreshnessAdr0486 ? { supplySourceFreshnessAdr0486: {
+      overallSeverity: input.supplySourceFreshnessAdr0486.overallSeverity,
+      oldestSourceAgeTradingDays: input.supplySourceFreshnessAdr0486.oldestSourceAgeTradingDays,
+      affectedSources: input.supplySourceFreshnessAdr0486.affectedSources,
+      refreshRecommendedSources: input.supplySourceFreshnessAdr0486.refreshRecommendedSources,
+      executionImpact: input.supplySourceFreshnessAdr0486.executionImpact,
+      liveExecutionAllowed: input.supplySourceFreshnessAdr0486.liveExecutionAllowed,
+      policyPromotionMode: input.supplySourceFreshnessAdr0486.policyPromotionMode,
     } } : {}),
     ...(input.investorFlowRouter ? { investorFlowRouter: input.investorFlowRouter } : {}),
     nextAction: providerIssue ? 'WIRE_NAVER_OR_REPAIR_CACHE_KEY' : 'NONE',
@@ -576,12 +576,12 @@ export function formatSupplyProviderWarmupCompactLine(report: SupplyProviderWarm
     '📊 Supply Provider Warmup (ADR-0473)',
     `  KRX: ${report.krxStatus} / previousTradingDateCandidate=${d.previousTradingDateCandidate} / cacheHit=${String(d.cacheHit)}`,
     `  NAVER: ${report.naverStatus}`,
-    ...(report.naverInvestorTrendAdr0481 ? [
-      `  ADR-0481 NAVER InvestorTrend: ${report.naverInvestorTrendAdr0481.status} | signal=${report.naverInvestorTrendAdr0481.signal} | days=${report.naverInvestorTrendAdr0481.coverage.availableDays}/${report.naverInvestorTrendAdr0481.coverage.requestedDays} | impact=${report.naverInvestorTrendAdr0481.executionImpact}`,
+    ...(report.naverInvestorTrendAdr0484 ? [
+      `  ADR-0484 NAVER InvestorTrend: ${report.naverInvestorTrendAdr0484.status} | signal=${report.naverInvestorTrendAdr0484.signal} | days=${report.naverInvestorTrendAdr0484.coverage.availableDays}/${report.naverInvestorTrendAdr0484.coverage.requestedDays} | impact=${report.naverInvestorTrendAdr0484.executionImpact}`,
     ] : []),
     `  Semantic NetBuy: schema ready / collector ${report.semanticNetBuyCollectorStatus === 'WIRED' ? 'wired' : 'not wired'}`,
-    ...(report.supplySourceFreshnessAdr0483 ? [
-      `  ADR-0483 SupplyFreshness: ${report.supplySourceFreshnessAdr0483.overallSeverity} | oldest=${report.supplySourceFreshnessAdr0483.oldestSourceAgeTradingDays ?? 'unknown'}d | affected=${report.supplySourceFreshnessAdr0483.affectedSources.join('/') || 'none'} | impact=${report.supplySourceFreshnessAdr0483.executionImpact}`,
+    ...(report.supplySourceFreshnessAdr0486 ? [
+      `  ADR-0486 SupplyFreshness: ${report.supplySourceFreshnessAdr0486.overallSeverity} | oldest=${report.supplySourceFreshnessAdr0486.oldestSourceAgeTradingDays ?? 'unknown'}d | affected=${report.supplySourceFreshnessAdr0486.affectedSources.join('/') || 'none'} | impact=${report.supplySourceFreshnessAdr0486.executionImpact}`,
     ] : []),
     `  CACHE: ${report.cacheStatus}`,
     `  KIS: ${report.kisStatus}`,

@@ -1,5 +1,5 @@
-// @responsibility ADR-0481 NAVER Investor Trend Collector Wiring; SHADOW_ONLY semantic investor-flow candidate.
-import { normalizeSemanticNetBuySampleAdr0482 } from './semanticNetBuyNormalizerAdr0482.js';
+// @responsibility ADR-0484 NAVER Investor Trend Collector Wiring; SHADOW_ONLY semantic investor-flow candidate.
+import { normalizeSemanticNetBuySampleAdr0485 } from './semanticNetBuyNormalizerAdr0485.js';
 
 
 export type NaverInvestorTrendCollectorStatus =
@@ -84,7 +84,7 @@ export interface NaverInvestorTrendCollectorInput {
   sourceAgeTradingDays?: number | null;
 }
 
-const ADR_0481_POLICY = {
+const ADR_0484_POLICY = {
   executionImpact: 'NONE',
   liveExecutionAllowed: false,
   policyPromotionMode: 'SHADOW_ONLY',
@@ -134,17 +134,17 @@ function emptyResult(input: NaverInvestorTrendCollectorInput, status: NaverInves
     coverage: coverage([], input.requestedDays ?? 5),
     freshness: { sourceState: status === 'DISABLED' ? 'UNKNOWN' : 'MISSING', lastSourceDate: null, sourceAgeTradingDays: null },
     semanticNetBuyCandidate: null,
-    ...ADR_0481_POLICY,
-    diagnostics: ['ADR-0481 NAVER collector wired as SHADOW_ONLY candidate.', diagnostic, 'UNKNOWN/provider issue is not bearish.'],
+    ...ADR_0484_POLICY,
+    diagnostics: ['ADR-0484 NAVER collector wired as SHADOW_ONLY candidate.', diagnostic, 'UNKNOWN/provider issue is not bearish.'],
   };
 }
 
-export function buildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvestorTrendCollectorInput): NaverInvestorTrendCollectorResult {
+export function buildNaverInvestorTrendCollectorResultAdr0484(input: NaverInvestorTrendCollectorInput): NaverInvestorTrendCollectorResult {
   const requestedDays = input.requestedDays ?? 5;
   if (input.disabled === true) return emptyResult(input, 'DISABLED', 'collector disabled by input; no live execution impact.');
   if (input.nonTradingDay === true) return emptyResult(input, 'NON_TRADING_DAY', 'non-trading day; missing NAVER data is not bearish.');
-  if (input.parseError === true) return emptyResult(input, 'PARSE_ERROR', 'parse error isolated by ADR-0481 collector.');
-  if (input.providerError === true) return emptyResult(input, 'PROVIDER_ERROR', 'provider error isolated by ADR-0481 collector.');
+  if (input.parseError === true) return emptyResult(input, 'PARSE_ERROR', 'parse error isolated by ADR-0484 collector.');
+  if (input.providerError === true) return emptyResult(input, 'PROVIDER_ERROR', 'provider error isolated by ADR-0484 collector.');
 
   const points = (input.rawPoints ?? [])
     .filter((point) => typeof point.date === 'string' && point.date.length > 0)
@@ -156,7 +156,7 @@ export function buildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvest
 
   const latestPoint = points[points.length - 1] ?? null;
   const cov = coverage(points, requestedDays);
-  const normalized = normalizeSemanticNetBuySampleAdr0482({
+  const normalized = normalizeSemanticNetBuySampleAdr0485({
     code: input.code,
     provider: 'NAVER',
     sourceDate: latestPoint?.date ?? null,
@@ -166,7 +166,7 @@ export function buildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvest
     rawIndividualNetBuy: latestPoint?.individualNetBuy ?? null,
     unit: 'KRW',
     sourceAgeTradingDays: input.sourceAgeTradingDays ?? 0,
-    diagnostics: ['normalized via ADR-0482 semantic net-buy normalizer'],
+    diagnostics: ['normalized via ADR-0485 semantic net-buy normalizer'],
   });
   const status: NaverInvestorTrendCollectorStatus = normalized.status === 'VERIFIED'
     ? 'DATA_AVAILABLE'
@@ -219,9 +219,9 @@ export function buildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvest
       sourceAgeTradingDays: normalized.freshness.sourceAgeTradingDays,
     },
     semanticNetBuyCandidate,
-    ...ADR_0481_POLICY,
+    ...ADR_0484_POLICY,
     diagnostics: [
-      'ADR-0481 NAVER collector wired as SHADOW_ONLY candidate.',
+      'ADR-0484 NAVER collector wired as SHADOW_ONLY candidate.',
       `status=${status}`,
       `signal=${signal}`,
       'executionImpact=NONE liveExecutionAllowed=false policyPromotionMode=SHADOW_ONLY',
@@ -229,30 +229,30 @@ export function buildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvest
   };
 }
 
-export function safeBuildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvestorTrendCollectorInput): NaverInvestorTrendCollectorResult {
+export function safeBuildNaverInvestorTrendCollectorResultAdr0484(input: NaverInvestorTrendCollectorInput): NaverInvestorTrendCollectorResult {
   try {
-    return buildNaverInvestorTrendCollectorResultAdr0481(input);
+    return buildNaverInvestorTrendCollectorResultAdr0484(input);
   } catch (error) {
     return {
       ...emptyResult(input, 'PROVIDER_ERROR', 'collector failure isolated; scan and Shadow Learning continue.'),
-      diagnostics: ['ADR-0481 collector failure isolated.', error instanceof Error ? error.message : String(error), 'UNKNOWN/provider issue is not bearish.'],
+      diagnostics: ['ADR-0484 collector failure isolated.', error instanceof Error ? error.message : String(error), 'UNKNOWN/provider issue is not bearish.'],
     };
   }
 }
 
-export function formatNaverInvestorTrendCompactAdr0481(result?: NaverInvestorTrendCollectorResult | null): string | null {
+export function formatNaverInvestorTrendCompactAdr0484(result?: NaverInvestorTrendCollectorResult | null): string | null {
   if (!result) return null;
   const days = result.status === 'DATA_AVAILABLE'
     ? ` | days=${result.coverage.availableDays}/${result.coverage.requestedDays}`
     : '';
-  return `ADR-0481 NAVER InvestorTrend: ${result.status} | signal=${result.signal}${days} | impact=${result.executionImpact}`;
+  return `ADR-0484 NAVER InvestorTrend: ${result.status} | signal=${result.signal}${days} | impact=${result.executionImpact}`;
 }
 
-export function formatNaverInvestorTrendDetailAdr0481(result?: NaverInvestorTrendCollectorResult | null): string | null {
+export function formatNaverInvestorTrendDetailAdr0484(result?: NaverInvestorTrendCollectorResult | null): string | null {
   if (!result) return null;
   const candidate = result.semanticNetBuyCandidate;
   return [
-    '🧭 ADR-0481 NAVER Investor Trend Collector',
+    '🧭 ADR-0484 NAVER Investor Trend Collector',
     `- code: ${result.code}`,
     `- status: ${result.status}`,
     `- signal: ${result.signal}`,
@@ -267,26 +267,26 @@ export function formatNaverInvestorTrendDetailAdr0481(result?: NaverInvestorTren
   ].join('\n');
 }
 
-export interface NaverInvestorTrendDetailRegistryEntryAdr0481 {
-  adr: '0481';
+export interface NaverInvestorTrendDetailRegistryEntryAdr0484 {
+  adr: '0484';
   sectionId: 'naver_investor_trend';
   commandHint: '/supply_health_detail';
   scanBlockersDetailHint: '/scan_blockers_detail naver_investor_trend';
-  adrTraceHint: '/adr_trace 0481';
+  adrTraceHint: '/adr_trace 0484';
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
   render: () => string;
 }
 
-export function getNaverInvestorTrendDetailRegistryEntryAdr0481(result: NaverInvestorTrendCollectorResult): NaverInvestorTrendDetailRegistryEntryAdr0481 {
+export function getNaverInvestorTrendDetailRegistryEntryAdr0484(result: NaverInvestorTrendCollectorResult): NaverInvestorTrendDetailRegistryEntryAdr0484 {
   return {
-    adr: '0481',
+    adr: '0484',
     sectionId: 'naver_investor_trend',
     commandHint: '/supply_health_detail',
     scanBlockersDetailHint: '/scan_blockers_detail naver_investor_trend',
-    adrTraceHint: '/adr_trace 0481',
+    adrTraceHint: '/adr_trace 0484',
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
-    render: () => formatNaverInvestorTrendDetailAdr0481(result) ?? '',
+    render: () => formatNaverInvestorTrendDetailAdr0484(result) ?? '',
   };
 }
