@@ -382,7 +382,7 @@ describe('ADR-0476 Gate1 Dry-run Observation Ledger', () => {
     const doc = join(root, 'docs/adr/0476-gate1-near-miss-dry-run-observation-ledger.md');
     expect(existsSync(doc)).toBe(true);
     expect(readFileSync(doc, 'utf8')).toContain('Shadow-only observation');
-    expect(readFileSync(join(root, 'docs/adr/INDEX.md'), 'utf8')).toContain('다음 ADR 번호: `0477`');
+    expect(readFileSync(join(root, 'docs/adr/INDEX.md'), 'utf8')).toContain('다음 ADR 번호: `0478`');
   });
 });
 
