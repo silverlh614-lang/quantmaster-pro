@@ -17,6 +17,8 @@ import {
   safeBuildOperatorActionQueueAdr0480,
   formatRuntimePipelineDiagnosticEvidenceLineAdr0480,
 } from '../trading/signalScanner/operatorActionRouterAdr0480.js';
+import { formatRuntimePipelineReadinessEvidenceLineAdr0485 } from '../trading/signalScanner/supplyAdvisoryReadinessAdr0485.js';
+import { formatRuntimePipelineInvestorFlowProbeEvidenceLineAdr0489 } from '../trading/signalScanner/investorFlowSampleAcquisitionAdr0489.js';
 import { getGate1DryRunObservationLedgerCount } from '../trading/signalScanner/gate1DryRunObservationLedgerAdr0476.js';
 
 export type RuntimePipelineStage =
@@ -74,6 +76,8 @@ export interface RuntimePipelineAuditSnapshot {
   rolloutItemCount: number;
   operatorActionEvidenceCount: number;
   operatorActionDiagnosticLine: string;
+  supplyAdvisoryReadinessDiagnosticLine: string;
+  investorFlowSampleProbeDiagnosticLine: string;
   adr460Installed: false;
   supplyProviderHealth: { hasRecentSample: boolean; message: string };
   sectorEnergyHealth: {
@@ -298,6 +302,8 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     rolloutItemCount,
     operatorActionEvidenceCount,
     operatorActionDiagnosticLine: formatRuntimePipelineDiagnosticEvidenceLineAdr0480(operatorActionQueue),
+    supplyAdvisoryReadinessDiagnosticLine: formatRuntimePipelineReadinessEvidenceLineAdr0485(summary?.supplyAdvisoryReadinessAdr0485),
+    investorFlowSampleProbeDiagnosticLine: formatRuntimePipelineInvestorFlowProbeEvidenceLineAdr0489(summary?.investorFlowSampleAcquisitionAdr0489),
     adr460Installed: false,
     supplyProviderHealth,
     sectorEnergyHealth,
@@ -337,6 +343,8 @@ export function formatRuntimePipelineAuditSection(snapshot: RuntimePipelineAudit
     `  • dryRunRecords: <code>${snapshot.dryRunRecordCount}</code>`,
     `  • rolloutItems: <code>${snapshot.rolloutItemCount}</code>`,
     `  • operatorActionEvidence: <code>${snapshot.operatorActionEvidenceCount}</code>`,
+    `  • supplyReadiness: <code>${snapshot.supplyAdvisoryReadinessDiagnosticLine}</code>`,
+    `  • investorFlowSampleProbe: <code>${snapshot.investorFlowSampleProbeDiagnosticLine}</code>`,
     '  • ADR-460: <code>not installed</code>',
     `  • reason: ${snapshot.operatorMessage}`,
     `  • livePathSafety: <code>${snapshot.livePathSafety.passed ? 'PASS' : 'FAIL'}</code>`,
@@ -384,6 +392,8 @@ export function formatRuntimePipelineAuditDetails(snapshot: RuntimePipelineAudit
     `  • rolloutItemCount: <code>${snapshot.rolloutItemCount}</code>`,
     `  • operatorActionEvidenceCount: <code>${snapshot.operatorActionEvidenceCount}</code>`,
     `  • operatorActionDiagnostic: ${snapshot.operatorActionDiagnosticLine}`,
+    `  • supplyReadinessDiagnostic: ${snapshot.supplyAdvisoryReadinessDiagnosticLine}`,
+    `  • investorFlowSampleProbeDiagnostic: ${snapshot.investorFlowSampleProbeDiagnosticLine}`,
     '  • ADR-460: <code>not installed</code>',
     `  • supplyProvider: ${snapshot.supplyProviderHealth.message}`,
     `  • sectorEnergy: ${snapshot.sectorEnergyHealth.message}`,

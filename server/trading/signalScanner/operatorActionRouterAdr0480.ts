@@ -31,6 +31,10 @@ export type OperatorActionRootCause =
   | 'KIS_PROVIDER_MISMATCH'
   | 'FSS_SOURCE_STALE'
   | 'SUPPLY_SOURCE_REFRESH_RECOMMENDED'
+  | 'PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR'
+  | 'INVESTOR_FLOW_SAMPLE_ACQUISITION_NEEDED'
+  | 'INVESTOR_FLOW_PROVIDER_CAPABILITY_MISMATCH'
+  | 'INVESTOR_FLOW_PROBE_RATE_LIMITED'
   | 'SECTOR_ENERGY_FALLBACK_ONLY'
   | 'SUPPLY_UNKNOWN_DUPLICATE_PENALTY'
   | 'POSITIVE_SOURCE_MISSING'
@@ -90,6 +94,8 @@ export interface BuildOperatorActionQueueInput {
   generatedAt?: string;
   sources?: OperatorActionSource[];
   supplyCoverageRecoveryAdr0484?: { status?: string; topImprovedMetrics?: string[]; topRemainingBlockers?: string[] } | null;
+  supplyAdvisoryReadinessAdr0485?: { status?: string; readinessScore?: number; failedReasons?: string[]; recommendedNextStep?: string } | null;
+  investorFlowSampleAcquisitionAdr0489?: { sampleAcquired?: boolean; overallStatus?: string; selectedProvider?: string; topGaps?: string[] } | null;
 }
 
 interface OperatorActionDefinition {
@@ -205,6 +211,51 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     basePriority: 'P2',
     expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
     detailHint: '/adr_trace 0483',
+  },
+
+  PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR: {
+    rootCause: 'PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR',
+    category: 'SUPPLY_PROVIDER',
+    title: 'Prepare supply ADVISORY dry-run ADR',
+    summary: 'ADR-0485 readiness audit is READY, but supply remains SHADOW_ONLY until a future ADR/operator approval.',
+    recommendedAction: 'Create future ADR for ADVISORY dry-run only; do not perform live promotion in ADR-0485.',
+    relatedAdrs: ['0476', '0480', '0481', '0482', '0483', '0484', '0485'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'MEDIUM', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0485',
+  },
+  INVESTOR_FLOW_SAMPLE_ACQUISITION_NEEDED: {
+    rootCause: 'INVESTOR_FLOW_SAMPLE_ACQUISITION_NEEDED',
+    category: 'INVESTOR_FLOW',
+    title: 'Investor-flow sample acquisition needed',
+    summary: 'ADR-0489 did not acquire a usable non-live investor-flow sample.',
+    recommendedAction: 'Verify provider path, cache key, and non-live probe source; do not convert missing sample to bearish.',
+    relatedAdrs: ['0477', '0481', '0482', '0487', '0489'],
+    basePriority: 'P1',
+    expectedImpact: { scanBlockerReduction: 'HIGH', gate1SurvivorPotential: 'MEDIUM', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0489',
+  },
+  INVESTOR_FLOW_PROVIDER_CAPABILITY_MISMATCH: {
+    rootCause: 'INVESTOR_FLOW_PROVIDER_CAPABILITY_MISMATCH',
+    category: 'INVESTOR_FLOW',
+    title: 'Investor-flow provider capability mismatch',
+    summary: 'ADR-0489 found a provider path that is not semantically valid for investor-flow net-buy.',
+    recommendedAction: 'Check ADR-0477 capability semantics before trying this provider as investor-flow evidence.',
+    relatedAdrs: ['0477', '0489'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0489 provider-capability',
+  },
+  INVESTOR_FLOW_PROBE_RATE_LIMITED: {
+    rootCause: 'INVESTOR_FLOW_PROBE_RATE_LIMITED',
+    category: 'INVESTOR_FLOW',
+    title: 'Investor-flow probe rate limited',
+    summary: 'ADR-0489 diagnostic-only provider probe hit a non-live rate limit.',
+    recommendedAction: 'Keep the probe rate-limited and retry during an allowed diagnostic window; do not mark bearish.',
+    relatedAdrs: ['0489'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'LOW', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0489 rate-limited',
   },
   SECTOR_ENERGY_FALLBACK_ONLY: {
     rootCause: 'SECTOR_ENERGY_FALLBACK_ONLY',
@@ -323,6 +374,12 @@ function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCau
   if (includesAny(text, ['FSS PASSIVE', 'FSS ACTIVE', 'FSS_SOURCE_STALE', 'SHORT/CREDIT SOURCE', 'SOURCE STALE', 'CACHE FRESH BUT SOURCE STALE'])) {
     return 'FSS_SOURCE_STALE';
   }
+  if (includesAny(text, ['PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR', 'ADVISORY_READY', 'ADR-0485 READY'])) {
+    return 'PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR';
+  }
+  if (includesAny(text, ['INVESTOR_FLOW_PROBE_RATE_LIMITED', 'RATE_LIMITED'])) return 'INVESTOR_FLOW_PROBE_RATE_LIMITED';
+  if (includesAny(text, ['INVESTOR_FLOW_PROVIDER_CAPABILITY_MISMATCH', 'PROVIDER_MISMATCH'])) return 'INVESTOR_FLOW_PROVIDER_CAPABILITY_MISMATCH';
+  if (includesAny(text, ['INVESTOR_FLOW_SAMPLE_ACQUISITION_NEEDED', 'ADR-0489', 'SAMPLE_EMPTY', 'SAMPLE ACQUISITION'])) return 'INVESTOR_FLOW_SAMPLE_ACQUISITION_NEEDED';
   if (includesAny(text, ['SECTORENERGY FALLBACK', 'FALLBACK MOUNTED', 'SECTORENERGY QUALITY DIAGNOSTIC ABSENT', 'COVERAGE DEGRADED', 'SECTOR_ENERGY_DEGRADED'])) {
     return 'SECTOR_ENERGY_FALLBACK_ONLY';
   }
@@ -408,7 +465,15 @@ function compactActionLine(item: OperatorActionItem): string {
             ? 'fix parser/unit metadata'
             : item.rootCause === 'FSS_SOURCE_STALE'
               ? 'refresh stale source / split freshness'
-              : item.recommendedAction.split(';')[0];
+              : item.rootCause === 'PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR'
+                ? 'create future ADVISORY dry-run ADR'
+                : item.rootCause === 'INVESTOR_FLOW_SAMPLE_ACQUISITION_NEEDED'
+                  ? 'verify provider path/cache key'
+                  : item.rootCause === 'INVESTOR_FLOW_PROVIDER_CAPABILITY_MISMATCH'
+                    ? 'check provider capability'
+                    : item.rootCause === 'INVESTOR_FLOW_PROBE_RATE_LIMITED'
+                      ? 'retry diagnostic window'
+                      : item.recommendedAction.split(';')[0];
   return `${item.priority} ${item.title} → ${shortAction} | related=${formatRelated(item.relatedAdrs)} | impact=${item.executionImpact}`;
 }
 
@@ -432,6 +497,22 @@ export function buildOperatorActionQueueAdr0480(input: BuildOperatorActionQueueI
     const current = grouped.get(rootCause) ?? [];
     current.push(source);
     grouped.set(rootCause, current);
+  }
+  const readiness = input.supplyAdvisoryReadinessAdr0485;
+  if (readiness?.status === 'READY' && !grouped.has('PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR')) {
+    grouped.set('PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR', [{
+      adr: '0485',
+      sectionId: 'supply_advisory_readiness',
+      code: 'PREPARE_SUPPLY_ADVISORY_DRY_RUN_ADR',
+      diagnosticKey: 'SupplyReadiness',
+      diagnosticValue: `READY score=${readiness.readinessScore ?? 'UNKNOWN'} next=${readiness.recommendedNextStep ?? 'PREPARE_ADVISORY_DRY_RUN_ADR'}`,
+      severity: 'INFO',
+    }]);
+  }
+  const probe = input.investorFlowSampleAcquisitionAdr0489;
+  if (probe && probe.sampleAcquired !== true && !grouped.has('INVESTOR_FLOW_SAMPLE_ACQUISITION_NEEDED') && probe.overallStatus !== 'NON_TRADING_DAY') {
+    const rootCause = probe.overallStatus === 'RATE_LIMITED' ? 'INVESTOR_FLOW_PROBE_RATE_LIMITED' : probe.overallStatus === 'PROVIDER_MISMATCH' ? 'INVESTOR_FLOW_PROVIDER_CAPABILITY_MISMATCH' : 'INVESTOR_FLOW_SAMPLE_ACQUISITION_NEEDED';
+    grouped.set(rootCause, [{ adr: '0489', sectionId: 'investor_flow_sample_probe', code: rootCause, diagnosticKey: 'InvestorFlowProbe', diagnosticValue: `${probe.overallStatus ?? 'UNKNOWN'} provider=${probe.selectedProvider ?? 'NONE'}`, severity: probe.overallStatus === 'PROVIDER_ERROR' ? 'ERROR' : 'DATA_UNAVAILABLE' }]);
   }
   const allActions = Array.from(grouped.entries())
     .map(([rootCause, sources]) => buildItem(rootCause, sources, adr0484ObservedStatus(input, rootCause)))

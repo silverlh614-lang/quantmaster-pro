@@ -163,6 +163,7 @@ import {
   formatGate1DryRunObservationSummary,
   saveGate1DryRunObservationRows,
   summarizeGate1DryRunObservationRows,
+  type Gate1DryRunObservationRow,
   type Gate1DryRunObservationSummary,
 } from './gate1DryRunObservationLedgerAdr0476.js';
 import {
@@ -171,6 +172,8 @@ import {
   type InvestorFlowProviderRouteResult,
 } from './investorFlowProviderRouterAdr0477.js';
 import type { SupplyCoverageRecoveryObservationReportAdr0484 } from './supplyCoverageRecoveryObservationAdr0484.js';
+import type { SupplyAdvisoryReadinessReportAdr0485 } from './supplyAdvisoryReadinessAdr0485.js';
+import { buildInvestorFlowProviderRouteFromProbeAdr0489, buildInvestorFlowProbeObservationRowAdr0489, buildInvestorFlowSampleAcquisitionReportAdr0489, type InvestorFlowSampleAcquisitionReportAdr0489 } from './investorFlowSampleAcquisitionAdr0489.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -431,6 +434,10 @@ export interface ScanSummary {
   investorFlowProviderRouter?: InvestorFlowProviderRouteResult;
   /** ADR-0484 supply coverage recovery observation; SHADOW_ONLY and executionImpact NONE. */
   supplyCoverageRecoveryAdr0484?: SupplyCoverageRecoveryObservationReportAdr0484;
+  /** ADR-0485 supply advisory readiness audit; SHADOW_ONLY recommendation only and executionImpact NONE. */
+  supplyAdvisoryReadinessAdr0485?: SupplyAdvisoryReadinessReportAdr0485;
+  /** ADR-0489 investor-flow sample acquisition probe; OBSERVE/SHADOW_ONLY and executionImpact NONE. */
+  investorFlowSampleAcquisitionAdr0489?: InvestorFlowSampleAcquisitionReportAdr0489;
 }
 
 let _lastBuySignalAt = 0;
@@ -1988,6 +1995,30 @@ export async function persistScanResults(
     console.warn('[ADR-0477] InvestorFlowProviderRouter build failed (engine unaffected):', e);
   }
 
+  // ADR-0489: investor-flow sample acquisition probe. Diagnostic-only; it probes
+  // sanitized in-memory/cache-compatible sample availability and never fetches orders,
+  // mutates Gate/Kelly/requiredScore, or promotes data beyond SHADOW_ONLY.
+  try {
+    const code = summaryDraft.investorFlowProviderRouter?.code ?? (options.candidateSnapshots ?? counters.entryCandidateSnapshots)[0]?.symbol ?? 'UNIVERSE';
+    const probe = buildInvestorFlowSampleAcquisitionReportAdr0489({
+      code,
+      generatedAt: kstNow.toISOString(),
+      stage: 'SHADOW_ONLY',
+      kisSample: { provider: 'KIS', status: 'PROVIDER_MISMATCH', providerSemanticCapable: false, diagnostics: ['KIS order path is not imported; probe compatibility only.'] },
+      nonTradingDay: options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false,
+    });
+    summaryDraft.investorFlowSampleAcquisitionAdr0489 = probe;
+    summaryDraft.investorFlowProviderRouter = buildInvestorFlowProviderRouteFromProbeAdr0489(probe);
+    console.warn(
+      `[ADR-0489] InvestorFlowSampleProbe emitted ` +
+      `(status=${probe.overallStatus}, selectedProvider=${probe.selectedProvider}, ` +
+      `sampleAcquired=${probe.sampleAcquired}, executionImpact=${probe.executionImpact}, ` +
+      `liveExecutionAllowed=${probe.liveExecutionAllowed})`,
+    );
+  } catch (e) {
+    console.warn('[ADR-0489] InvestorFlowSampleProbe build failed (engine unaffected):', e);
+  }
+
   // ADR-0476: dry-run and near-miss observation ledger. This stores only compact
   // observation rows for 1D/3D/5D tracking and never changes live execution.
   try {
@@ -2004,6 +2035,9 @@ export async function persistScanResults(
       providerIssue: observationSnapshots.some((item) => item.supplyProviderHealth?.providerIssue === true),
       marketSignal: observationSnapshots.some((item) => item.supplyProviderHealth?.marketSignal === true),
     });
+    if (summaryDraft.investorFlowSampleAcquisitionAdr0489) {
+      rows.push(buildInvestorFlowProbeObservationRowAdr0489(summaryDraft.investorFlowSampleAcquisitionAdr0489) as Gate1DryRunObservationRow);
+    }
     await saveGate1DryRunObservationRows(rows);
     summaryDraft.gate1DryRunObservationLedger = summarizeGate1DryRunObservationRows(rows, rows.length);
     console.warn(

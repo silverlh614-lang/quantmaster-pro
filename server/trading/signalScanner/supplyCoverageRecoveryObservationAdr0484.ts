@@ -9,6 +9,7 @@ import type { OperatorActionQueueReport, OperatorActionRootCause } from './opera
 import type { ScanSummary } from './scanDiagnostics.js';
 import type { SemanticNetBuyNormalizationReportAdr0482 } from './semanticNetBuyNormalizerAdr0482.js';
 import type { SupplySourceFreshnessReportAdr0483 } from './supplySourceFreshnessAdr0483.js';
+import type { InvestorFlowSampleAcquisitionReportAdr0489 } from './investorFlowSampleAcquisitionAdr0489.js';
 
 export type SupplyCoverageRecoveryStatus = 'IMPROVING' | 'STABLE' | 'DEGRADED' | 'INSUFFICIENT_DATA' | 'OBSERVING' | 'UNKNOWN';
 export type SupplyCoverageMetricTrend = 'UP' | 'DOWN' | 'FLAT' | 'UNKNOWN';
@@ -116,6 +117,7 @@ export interface BuildSupplyCoverageSnapshotInputAdr0484 {
   operatorActionQueueAdr0480?: OperatorActionQueueReport | null;
   gate1DryRunObservationLedgerAdr0476?: Gate1DryRunObservationSummary | null;
   gate1DryRunObservationRowsAdr0476?: readonly Gate1DryRunObservationRow[] | null;
+  investorFlowSampleAcquisitionAdr0489?: InvestorFlowSampleAcquisitionReportAdr0489 | null;
   positiveSourceCandidateCount?: number | null;
 }
 
@@ -165,6 +167,7 @@ export function buildSupplyCoverageSnapshotAdr0484(input: BuildSupplyCoverageSna
   const naver = input.naverInvestorTrendAdr0481 ?? null;
   const semantic = input.semanticNetBuyNormalizationAdr0482 ?? null;
   const freshness = input.supplySourceFreshnessAdr0483 ?? null;
+  const probe = input.investorFlowSampleAcquisitionAdr0489 ?? input.scanSummary?.investorFlowSampleAcquisitionAdr0489 ?? null;
   const actions = input.operatorActionQueueAdr0480 ?? null;
   const ledger = input.gate1DryRunObservationLedgerAdr0476 ?? input.scanSummary?.gate1DryRunObservationLedger ?? null;
   const ledgerRows = input.gate1DryRunObservationRowsAdr0476 ?? [];
@@ -172,14 +175,14 @@ export function buildSupplyCoverageSnapshotAdr0484(input: BuildSupplyCoverageSna
   if (!semantic) diagnostics.push('ADR-0482 semantic net-buy input missing; semantic availability defaults to missing.');
   if (!freshness) diagnostics.push('ADR-0483 source freshness input missing; freshness counts defaulted safely.');
 
-  const selectedProvider = router?.selectedProvider ?? null;
-  const coverageAvailable = num(router?.coverage.available);
-  const coverageTotal = num(router?.coverage.total);
+  const selectedProvider = probe?.selectedProvider && probe.selectedProvider !== 'NONE' ? probe.selectedProvider : (router?.selectedProvider ?? null);
+  const coverageAvailable = Math.max(num(router?.coverage.available), probe ? Math.round(probe.coverageRatio * 4) : 0);
+  const coverageTotal = Math.max(num(router?.coverage.total), probe ? 4 : 0);
   const signals = signalCounts(router?.signal ?? semantic?.signal ?? naver?.signal ?? 'UNKNOWN');
   const naverStatus = naver?.status ?? router?.providerStatuses?.NAVER;
   const naverAvailable = naverStatus === 'VERIFIED' || naverStatus === 'PARTIAL' || naverStatus === 'STALE';
   const semanticSamples = semantic?.samples ?? [];
-  const semanticAvailable = semanticSamples.filter((sample) => sample.status === 'VERIFIED' || sample.status === 'PARTIAL').length;
+  const semanticAvailable = semanticSamples.filter((sample) => sample.status === 'VERIFIED' || sample.status === 'PARTIAL').length + (probe?.sampleAcquired ? 1 : 0);
   const rows = freshness?.rows ?? [];
   const gateNearMiss = num(input.scanSummary?.gateScoreCandidateBuckets?.totalNearMissLike) + ledgerRows.filter((row) => row.dryRunDecision === 'NEAR_MISS').length;
 
@@ -191,7 +194,7 @@ export function buildSupplyCoverageSnapshotAdr0484(input: BuildSupplyCoverageSna
     investorFlow: {
       selectedProvider,
       selectedProviderNoneCount: selectedProvider === 'NONE' || selectedProvider === null ? 1 : 0,
-      dataUnavailableCount: router?.status === 'DATA_UNAVAILABLE' || semantic?.status === 'DATA_UNAVAILABLE' || naver?.status === 'DATA_UNAVAILABLE' ? 1 : 0,
+      dataUnavailableCount: router?.status === 'DATA_UNAVAILABLE' || semantic?.status === 'DATA_UNAVAILABLE' || naver?.status === 'DATA_UNAVAILABLE' || probe?.overallStatus === 'DATA_UNAVAILABLE' ? 1 : 0,
       ...signals,
       coverageAvailable,
       coverageTotal,

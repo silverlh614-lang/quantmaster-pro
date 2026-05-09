@@ -17,6 +17,8 @@ export type Gate1DryRunObservationSource =
   | 'ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR'
   | 'ADR_0482_SEMANTIC_NETBUY_NORMALIZER'
   | 'ADR_0484_SUPPLY_COVERAGE_RECOVERY'
+  | 'ADR_0485_SUPPLY_ADVISORY_READINESS'
+  | 'ADR_0489_INVESTOR_FLOW_SAMPLE_ACQUISITION'
   | 'GATE1_NEAR_MISS'
   | 'COUNTERFACTUAL_UNIVERSE';
 
@@ -72,7 +74,7 @@ export interface Gate1DryRunObservationRow {
   maxAdverseExcursion5D?: number;
   stopLossTouched?: boolean;
   targetTouched?: boolean;
-  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481' | 'SEMANTIC_NETBUY_NORMALIZER_ADR0482' | 'SUPPLY_COVERAGE_RECOVERY_ADR0484';
+  observationType?: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477' | 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481' | 'SEMANTIC_NETBUY_NORMALIZER_ADR0482' | 'SUPPLY_COVERAGE_RECOVERY_ADR0484' | 'SUPPLY_ADVISORY_READINESS_ADR0485' | 'INVESTOR_FLOW_SAMPLE_ACQUISITION_ADR0489';
   beforeCoverage?: number;
   afterCoverage?: number;
   selectedProvider?: string;
@@ -97,7 +99,7 @@ export interface Gate1DryRunObservationRow {
   status: Gate1DryRunObservationStatus;
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
-  policyPromotionMode: 'SHADOW_ONLY';
+  policyPromotionMode: 'SHADOW_ONLY' | 'OBSERVE';
 }
 
 export interface Gate1DryRunObservationSummary {
@@ -113,7 +115,7 @@ export interface Gate1DryRunObservationSummary {
   outcomeUpdateReason: 'MARKET_CLOSED' | 'PRICE_CACHE_MISSING' | 'NOT_MATURED' | 'UPDATED';
   liveExecutionAllowed: false;
   executionImpact: 'NONE';
-  policyPromotionMode: 'SHADOW_ONLY';
+  policyPromotionMode: 'SHADOW_ONLY' | 'OBSERVE';
   nextAction: 'TRACK_1D_3D_5D_FORWARD_RETURNS';
 }
 
@@ -615,6 +617,7 @@ export function formatGate1DryRunObservationSummary(
     sourceLine('ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR'),
     sourceLine('ADR_0482_SEMANTIC_NETBUY_NORMALIZER'),
     sourceLine('ADR_0484_SUPPLY_COVERAGE_RECOVERY'),
+    sourceLine('ADR_0485_SUPPLY_ADVISORY_READINESS'),
     sourceLine('GATE1_NEAR_MISS'),
     `  liveExecutionAllowed: ${summary.liveExecutionAllowed}`,
     `  executionImpact: ${summary.executionImpact}`,
