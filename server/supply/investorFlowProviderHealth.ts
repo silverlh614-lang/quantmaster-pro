@@ -8,6 +8,7 @@
 
 import { isTradingDay } from '../utils/marketDayClassifier.js';
 import type { NaverInvestorTrendCollectorResult } from '../trading/signalScanner/naverInvestorTrendCollectorAdr0481.js';
+import { formatSupplySourceFreshnessCompactAdr0483, type SupplySourceFreshnessReportAdr0483 } from '../trading/signalScanner/supplySourceFreshnessAdr0483.js';
 
 export type InvestorFlowProviderStatus =
   | 'OK'
@@ -152,6 +153,7 @@ export interface SupplyProviderWarmupReport {
     liveExecutionAllowed: false;
     policyPromotionMode: 'SHADOW_ONLY';
   };
+  supplySourceFreshnessAdr0483?: SupplySourceFreshnessReportAdr0483;
   investorFlowRouter?: {
     status: string;
     selectedProvider: string;
@@ -485,6 +487,7 @@ export function buildSupplyProviderWarmupReport(input: {
   cacheHit?: boolean;
   investorFlowRouter?: SupplyProviderWarmupReport['investorFlowRouter'];
   naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult | null;
+  supplySourceFreshnessAdr0483?: SupplySourceFreshnessReportAdr0483 | null;
 } = {}): SupplyProviderWarmupReport {
   const health = input.health ?? [];
   const now = input.now ?? new Date();
@@ -546,6 +549,7 @@ export function buildSupplyProviderWarmupReport(input: {
       policyPromotionMode: input.naverInvestorTrendAdr0481.policyPromotionMode,
     } } : {}),
     ...(input.investorFlowRouter ? { investorFlowRouter: input.investorFlowRouter } : {}),
+    ...(input.supplySourceFreshnessAdr0483 ? { supplySourceFreshnessAdr0483: input.supplySourceFreshnessAdr0483 } : {}),
     nextAction: providerIssue ? 'WIRE_NAVER_OR_REPAIR_CACHE_KEY' : 'NONE',
   };
 }
@@ -560,6 +564,7 @@ export function formatSupplyProviderWarmupCompactLine(report: SupplyProviderWarm
       `  ADR-0481 NAVER InvestorTrend: ${report.naverInvestorTrendAdr0481.status} | signal=${report.naverInvestorTrendAdr0481.signal} | days=${report.naverInvestorTrendAdr0481.coverage.availableDays}/${report.naverInvestorTrendAdr0481.coverage.requestedDays} | impact=${report.naverInvestorTrendAdr0481.executionImpact}`,
     ] : []),
     `  Semantic NetBuy: schema ready / collector ${report.semanticNetBuyCollectorStatus === 'WIRED' ? 'wired' : 'not wired'}`,
+    ...(report.supplySourceFreshnessAdr0483 ? [`  ${formatSupplySourceFreshnessCompactAdr0483(report.supplySourceFreshnessAdr0483)}`] : []),
     `  CACHE: ${report.cacheStatus}`,
     `  KIS: ${report.kisStatus}`,
     `  providerIssue=${String(report.providerIssue)}`,

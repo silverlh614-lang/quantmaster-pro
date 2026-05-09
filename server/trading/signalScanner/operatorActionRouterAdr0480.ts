@@ -30,6 +30,7 @@ export type OperatorActionRootCause =
   | 'SUPPLY_CACHE_EMPTY'
   | 'KIS_PROVIDER_MISMATCH'
   | 'FSS_SOURCE_STALE'
+  | 'SUPPLY_SOURCE_REFRESH_RECOMMENDED'
   | 'SECTOR_ENERGY_FALLBACK_ONLY'
   | 'SUPPLY_UNKNOWN_DUPLICATE_PENALTY'
   | 'POSITIVE_SOURCE_MISSING'
@@ -188,10 +189,21 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     title: 'FSS source stale',
     summary: 'FSS Passive/Active or short/credit source freshness is stale even when cache may be fresh.',
     recommendedAction: 'Split cache freshness and source freshness; add/verify stale refresh job for FSS/short/credit sources.',
-    relatedAdrs: ['0477'],
+    relatedAdrs: ['0477', '0483'],
     basePriority: 'P2',
     expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
     detailHint: '/adr_trace 0480 fss-source-stale',
+  },
+  SUPPLY_SOURCE_REFRESH_RECOMMENDED: {
+    rootCause: 'SUPPLY_SOURCE_REFRESH_RECOMMENDED',
+    category: 'FRESHNESS',
+    title: 'Supply source refresh recommended',
+    summary: 'ADR-0483 detected stale or missing source clocks even when cache clocks may be fresh.',
+    recommendedAction: 'Run or verify the dry-run refresh job for affected sources; keep stale source data out of bullish/bearish scoring.',
+    relatedAdrs: ['0473', '0477', '0483'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'LOW', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0483',
   },
   SECTOR_ENERGY_FALLBACK_ONLY: {
     rootCause: 'SECTOR_ENERGY_FALLBACK_ONLY',
@@ -303,6 +315,9 @@ function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCau
   }
   if (includesAny(text, ['PROVIDER_MISMATCH', 'KIS IS TRIED FOR INVESTOR_FLOW', 'KIS_API PROVIDER_MISMATCH'])) {
     return 'KIS_PROVIDER_MISMATCH';
+  }
+  if (includesAny(text, ['ADR-0483', 'SUPPLYFRESHNESS', 'SUPPLY_SOURCE_REFRESH_RECOMMENDED', 'REFRESH_RECOMMENDED'])) {
+    return 'SUPPLY_SOURCE_REFRESH_RECOMMENDED';
   }
   if (includesAny(text, ['FSS PASSIVE', 'FSS ACTIVE', 'FSS_SOURCE_STALE', 'SHORT/CREDIT SOURCE', 'SOURCE STALE', 'CACHE FRESH BUT SOURCE STALE'])) {
     return 'FSS_SOURCE_STALE';
