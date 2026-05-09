@@ -1,5 +1,6 @@
 // @responsibility ADR-0487 Fresh Data Supply Layer foundation; OBSERVE/SHADOW_ONLY diagnostics only.
 import type { OperatorActionSource } from './operatorActionRouterAdr0480.js';
+import type { ProgramTradingDataLineReportAdr0490, ProgramTradingSampleAdr0490 } from './programTradingDataLineAdr0490.js';
 
 export type FreshDataDomain =
   | 'SECTOR_ENERGY'
@@ -159,6 +160,7 @@ export interface FreshDataSupplyReportInputAdr0487 {
     providerStatuses?: Record<string, string>;
     status?: string;
   } | null;
+  programTradingDataLineAdr0490?: ProgramTradingDataLineReportAdr0490 | null;
   diagnostics?: readonly string[];
   throwForTest?: boolean;
 }
@@ -177,6 +179,7 @@ const SOURCE_IDS = [
   'SEMANTIC_NETBUY',
   'KIS_PROGRAM_TRADING',
   'MARKET_PROGRAM_TRADING',
+  'PROGRAM_TRADING_SAMPLE',
   'FSS_PASSIVE_ACTIVE',
   'SHORT_BALANCE',
   'CREDIT_BALANCE',
@@ -191,7 +194,8 @@ export function buildFreshDataSourceRegistryAdr0487(): FreshDataSourceRegistrati
     { id: 'NAVER_INVESTOR_TREND', domain: 'SUPPLY', provider: 'NAVER', priority: 1, stage: 'SHADOW_ONLY', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'NAVER investor trend sample line.', relatedAdrs: ['0481', '0487'] },
     { id: 'SEMANTIC_NETBUY', domain: 'SUPPLY', provider: 'INTERNAL', priority: 2, stage: 'SHADOW_ONLY', fetchAllowed: false, normalizeRequired: true, freshnessRequired: true, description: 'Semantic net-buy normalized sample line.', relatedAdrs: ['0482', '0487'] },
     { id: 'KIS_PROGRAM_TRADING', domain: 'PROGRAM_TRADING', provider: 'KIS', priority: 3, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS program trading sample line.', relatedAdrs: ['0477', '0487'] },
-    { id: 'MARKET_PROGRAM_TRADING', domain: 'PROGRAM_TRADING', provider: 'KRX', priority: 4, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'Market program trading sample line.', relatedAdrs: ['0477', '0487'] },
+    { id: 'MARKET_PROGRAM_TRADING', domain: 'PROGRAM_TRADING', provider: 'KRX', priority: 4, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'Market program trading sample line.', relatedAdrs: ['0477', '0487', '0490'] },
+    { id: 'PROGRAM_TRADING_SAMPLE', domain: 'PROGRAM_TRADING', provider: 'INTERNAL', priority: 5, stage: 'SHADOW_ONLY', fetchAllowed: false, normalizeRequired: true, freshnessRequired: true, description: 'Normalized program net-buy sample from ADR-0490.', relatedAdrs: ['0487', '0490'] },
     { id: 'FSS_PASSIVE_ACTIVE', domain: 'SUPPLY', provider: 'FSS', priority: 5, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'FSS passive/active supply freshness line.', relatedAdrs: ['0483', '0487'] },
     { id: 'SHORT_BALANCE', domain: 'SHORT_CREDIT', provider: 'FSS', priority: 6, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'Short balance freshness line.', relatedAdrs: ['0483', '0487'] },
     { id: 'CREDIT_BALANCE', domain: 'SHORT_CREDIT', provider: 'FSS', priority: 7, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'Credit balance freshness line.', relatedAdrs: ['0483', '0487'] },
@@ -369,7 +373,35 @@ function semanticSnapshot(input: FreshDataSupplyReportInputAdr0487, registration
   return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, cacheState: hasSample ? 'FRESH' : 'UNKNOWN', sourceState, coverageRatio: hasSample ? 1 : 0, normalized: hasSample, diagnostics: [`ADR-0482 status=${status || 'missing'}`] });
 }
 
-function programSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {
+function programStatusToFreshState(status: string): FreshDataSourceState {
+  if (status.includes('NORMALIZED') || status.includes('FETCH_OK') || status.includes('PARTIAL')) return 'FRESH';
+  if (status.includes('STALE')) return 'STALE';
+  if (status.includes('PROVIDER_ERROR') || status.includes('PARSE_ERROR')) return 'PROVIDER_ERROR';
+  if (status.includes('NON_TRADING_DAY') || status.includes('ACCEPTED_EMPTY') || status.includes('EMPTY') || status.includes('DATA_UNAVAILABLE') || status.includes('RATE_LIMITED')) return 'DATA_UNAVAILABLE';
+  return 'UNKNOWN';
+}
+
+function programSnapshotFromAdr0490(
+  sample: ProgramTradingSampleAdr0490 | null | undefined,
+  input: FreshDataSupplyReportInputAdr0487,
+  registration: FreshDataSourceRegistrationAdr0487,
+  generatedAt: string,
+): FreshDataSnapshotAdr0487 {
+  if (sample) {
+    const sourceState = programStatusToFreshState(sample.status);
+    return buildFreshDataSnapshotAdr0487({
+      registration,
+      collectedAt: generatedAt,
+      sourceDate: sample.sourceDate,
+      cacheState: sample.provider === 'CACHE' ? (sourceState === 'FRESH' ? 'FRESH' : sourceState === 'STALE' ? 'STALE' : 'UNKNOWN') : 'UNKNOWN',
+      sourceState,
+      sourceAgeTradingDays: sample.freshness.sourceAgeTradingDays,
+      coverageRatio: sample.coverage.fieldsAvailable / Math.max(sample.coverage.fieldsTotal, 1),
+      normalized: sample.status === 'NORMALIZED',
+      confidence: sample.confidence,
+      diagnostics: [`ADR-0490 status=${sample.status}`, `signal=${sample.signal}`, 'ProgramTrading sample remains OBSERVE/SHADOW_ONLY only.'],
+    });
+  }
   const status = upper(input.investorFlowProviderRouterAdr0477?.providerStatuses?.[registration.id] ?? input.investorFlowProviderRouterAdr0477?.status);
   const fresh = status.includes('DATA_AVAILABLE') || status.includes('WIRED') || status.includes('OK');
   const sourceState: FreshDataSourceState = fresh ? 'FRESH' : status.includes('PROVIDER') ? 'PROVIDER_ERROR' : 'DATA_UNAVAILABLE';
@@ -380,8 +412,9 @@ function buildSupplySnapshots(input: FreshDataSupplyReportInputAdr0487, registra
   return [
     naverSnapshot(input, registrationById(registrations, 'NAVER_INVESTOR_TREND'), generatedAt),
     semanticSnapshot(input, registrationById(registrations, 'SEMANTIC_NETBUY'), generatedAt),
-    programSnapshot(input, registrationById(registrations, 'KIS_PROGRAM_TRADING'), generatedAt),
-    programSnapshot(input, registrationById(registrations, 'MARKET_PROGRAM_TRADING'), generatedAt),
+    programSnapshotFromAdr0490(input.programTradingDataLineAdr0490?.selectedStockSample, input, registrationById(registrations, 'KIS_PROGRAM_TRADING'), generatedAt),
+    programSnapshotFromAdr0490(input.programTradingDataLineAdr0490?.selectedMarketSample, input, registrationById(registrations, 'MARKET_PROGRAM_TRADING'), generatedAt),
+    programSnapshotFromAdr0490(input.programTradingDataLineAdr0490?.selectedStockSample ?? input.programTradingDataLineAdr0490?.selectedMarketSample, input, registrationById(registrations, 'PROGRAM_TRADING_SAMPLE'), generatedAt),
     snapshotFromFreshness(input, registrationById(registrations, 'FSS_PASSIVE_ACTIVE'), generatedAt),
     snapshotFromFreshness(input, registrationById(registrations, 'SHORT_BALANCE'), generatedAt),
     snapshotFromFreshness(input, registrationById(registrations, 'CREDIT_BALANCE'), generatedAt),
@@ -395,9 +428,9 @@ function gapForSnapshot(snapshot: FreshDataSnapshotAdr0487): string | null {
   if (snapshot.sourceId === 'SECTOR_ENERGY_STOCK_DAILY_FALLBACK' && snapshot.coverageRatio > 0) return 'DO_NOT_USE_STOCK_DAILY_FOR_LEADERSHIP_CONFIDENCE';
   if (snapshot.sourceId === 'NAVER_INVESTOR_TREND') return 'COLLECT_NAVER_INVESTOR_SAMPLE';
   if (snapshot.sourceId === 'SEMANTIC_NETBUY') return 'BUILD_SEMANTIC_NETBUY_SAMPLE';
+  if (snapshot.sourceId === 'PROGRAM_TRADING_SAMPLE' || snapshot.domain === 'PROGRAM_TRADING') return 'VERIFY_KIS_PROGRAM_TRADING_SESSION';
   if (snapshot.sourceId === 'FSS_PASSIVE_ACTIVE') return 'REFRESH_FSS_PASSIVE_ACTIVE';
   if (snapshot.sourceId === 'SHORT_BALANCE' || snapshot.sourceId === 'CREDIT_BALANCE') return 'REFRESH_SHORT_CREDIT_SOURCES';
-  if (snapshot.domain === 'PROGRAM_TRADING') return 'VERIFY_KIS_PROGRAM_TRADING_SESSION';
   return null;
 }
 

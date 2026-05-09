@@ -1,4 +1,4 @@
-// @responsibility ADR-0487/0488 /fresh_data_status diagnostic command; provider fetch blocked, live execution blocked.
+// @responsibility ADR-0487/0488/0490 /fresh_data_status diagnostic command; provider fetch blocked, live execution blocked.
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import { getLastScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
@@ -11,6 +11,7 @@ import {
   formatSectorEnergySupplyUnknownDetailAdr0488,
   safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from '../../../trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
+import { formatProgramTradingDetailAdr0490 } from '../../../trading/signalScanner/programTradingDataLineAdr0490.js';
 
 const freshDataStatus: TelegramCommand = {
   name: '/fresh_data_status',
@@ -29,6 +30,7 @@ const freshDataStatus: TelegramCommand = {
       supplyCoverageRecoveryAdr0484: summary?.supplyCoverageRecoveryAdr0484 as unknown as Record<string, unknown>,
       supplyAdvisoryReadinessAdr0485: summary?.supplyAdvisoryReadinessAdr0485 as unknown as Record<string, unknown>,
       investorFlowProviderRouterAdr0477: summary?.investorFlowProviderRouter ?? null,
+      programTradingDataLineAdr0490: summary?.programTradingDataLineAdr0490 ?? null,
     });
     const adr0488 = summary?.sectorEnergySupplyUnknownAdr0488 ?? safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
       sectorEnergyDiagnosticAdr0474: summary?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
@@ -40,7 +42,8 @@ const freshDataStatus: TelegramCommand = {
       providerIssue: summary?.investorFlowProviderRouter?.signal !== 'BEARISH',
       marketSignal: false,
     });
-    await reply(`${formatFreshDataSupplyDetailAdr0487(report)}\n\n${formatSectorEnergySupplyUnknownDetailAdr0488(adr0488)}`);
+    const adr0490 = summary?.programTradingDataLineAdr0490;
+    await reply(`${formatFreshDataSupplyDetailAdr0487(report)}\n\n${formatSectorEnergySupplyUnknownDetailAdr0488(adr0488)}${adr0490 ? `\n\n${formatProgramTradingDetailAdr0490(adr0490)}` : ''}`);
   },
 };
 

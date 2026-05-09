@@ -15,6 +15,10 @@ import {
   type SectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 import type { SupplyRecoveryRuntimeMountReportAdr0486 } from './supplyRecoveryRuntimeMountAdr0486.js';
+import {
+  collectOperatorActionSourcesFromProgramTradingAdr0490,
+  type ProgramTradingDataLineReportAdr0490,
+} from './programTradingDataLineAdr0490.js';
 
 export type OperatorActionPriority = 'P0' | 'P1' | 'P2' | 'P3';
 export type OperatorActionStatus = 'OPEN' | 'IN_PROGRESS' | 'OBSERVING' | 'RESOLVED' | 'BLOCKED';
@@ -30,6 +34,7 @@ export type OperatorActionCategory =
   | 'UI_OUTPUT'
   | 'RUNTIME_MOUNT'
   | 'FRESH_DATA_SUPPLY'
+  | 'PROGRAM_TRADING'
   | 'UNKNOWN';
 
 export type OperatorActionRootCause =
@@ -61,6 +66,9 @@ export type OperatorActionRootCause =
   | 'IMPROVE_INDEX_CODE_COVERAGE'
   | 'SUPPLY_UNKNOWN_POLICY_OBSERVE'
   | 'COLLECT_SUPPLY_SAMPLE_BEFORE_PROMOTION'
+  | 'PROGRAM_TRADING_SAMPLE_ACQUISITION_NEEDED'
+  | 'PROGRAM_TRADING_ACCEPTED_EMPTY_OBSERVATION'
+  | 'PROGRAM_TRADING_PROVIDER_CAPABILITY_MISMATCH'
   | 'UNKNOWN_ROOT_CAUSE';
 
 export interface OperatorActionSource {
@@ -118,6 +126,7 @@ export interface BuildOperatorActionQueueInput {
   supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486 | null;
   freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487 | null;
   sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488 | null;
+  programTradingDataLineAdr0490?: ProgramTradingDataLineReportAdr0490 | null;
 }
 
 interface OperatorActionDefinition {
@@ -444,6 +453,39 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     expectedImpact: { scanBlockerReduction: 'HIGH', gate1SurvivorPotential: 'MEDIUM', liveExecutionImpact: 'NONE' },
     detailHint: '/adr_trace 0488 supply-sample',
   },
+  PROGRAM_TRADING_SAMPLE_ACQUISITION_NEEDED: {
+    rootCause: 'PROGRAM_TRADING_SAMPLE_ACQUISITION_NEEDED',
+    category: 'PROGRAM_TRADING',
+    title: 'Program trading sample acquisition needed',
+    summary: 'ADR-0490 has no usable KRX/KIS/CACHE program trading sample in the diagnostic data line.',
+    recommendedAction: 'Verify KIS/KRX program trading source or previous-day cache key; keep data OBSERVE/SHADOW_ONLY only.',
+    relatedAdrs: ['0476', '0478', '0479', '0480', '0487', '0490'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0490 program-trading-sample',
+  },
+  PROGRAM_TRADING_ACCEPTED_EMPTY_OBSERVATION: {
+    rootCause: 'PROGRAM_TRADING_ACCEPTED_EMPTY_OBSERVATION',
+    category: 'PROGRAM_TRADING',
+    title: 'Program trading accepted-empty observation',
+    summary: 'ADR-0490 provider contact succeeded but no program trading output was present for the session/date.',
+    recommendedAction: 'Confirm session/date behavior and previous trading day fallback; accepted empty is not bearish.',
+    relatedAdrs: ['0478', '0479', '0480', '0487', '0490'],
+    basePriority: 'P3',
+    expectedImpact: { scanBlockerReduction: 'LOW', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0490 accepted-empty',
+  },
+  PROGRAM_TRADING_PROVIDER_CAPABILITY_MISMATCH: {
+    rootCause: 'PROGRAM_TRADING_PROVIDER_CAPABILITY_MISMATCH',
+    category: 'PROGRAM_TRADING',
+    title: 'Program trading provider capability mismatch',
+    summary: 'ADR-0490 provider cannot semantically support the requested program trading scope.',
+    recommendedAction: 'Verify provider scope capability before probing again; do not map mismatch to bearish supply.',
+    relatedAdrs: ['0477', '0480', '0490'],
+    basePriority: 'P2',
+    expectedImpact: { scanBlockerReduction: 'MEDIUM', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },
+    detailHint: '/adr_trace 0490 provider-capability',
+  },
   UNKNOWN_ROOT_CAUSE: {
     rootCause: 'UNKNOWN_ROOT_CAUSE',
     category: 'UNKNOWN',
@@ -550,6 +592,9 @@ function rootCauseForSource(source: OperatorActionSource): OperatorActionRootCau
   if (includesAny(text, ['FSS_REFRESH_NEEDED', 'REFRESH_FSS_PASSIVE_ACTIVE'])) {
     return 'FSS_REFRESH_NEEDED';
   }
+  if (includesAny(text, ['PROGRAM_TRADING_SAMPLE_ACQUISITION_NEEDED'])) return 'PROGRAM_TRADING_SAMPLE_ACQUISITION_NEEDED';
+  if (includesAny(text, ['PROGRAM_TRADING_ACCEPTED_EMPTY_OBSERVATION'])) return 'PROGRAM_TRADING_ACCEPTED_EMPTY_OBSERVATION';
+  if (includesAny(text, ['PROGRAM_TRADING_PROVIDER_CAPABILITY_MISMATCH'])) return 'PROGRAM_TRADING_PROVIDER_CAPABILITY_MISMATCH';
   if (includesAny(text, ['SUPPLY_DATA_SUPPLY_LINE_MISSING', 'REFRESH_SHORT_CREDIT_SOURCES', 'VERIFY_KIS_PROGRAM_TRADING_SESSION'])) {
     return 'SUPPLY_DATA_SUPPLY_LINE_MISSING';
   }
@@ -643,6 +688,7 @@ export function buildOperatorActionQueueAdr0480(input: BuildOperatorActionQueueI
     ...(input.sources ?? []),
     ...collectOperatorActionSourcesFromFreshDataSupplyAdr0487(input.freshDataSupplyAdr0487),
     ...collectOperatorActionSourcesFromAdr0488(input.sectorEnergySupplyUnknownAdr0488),
+    ...collectOperatorActionSourcesFromProgramTradingAdr0490(input.programTradingDataLineAdr0490),
   ];
   for (const source of inputSources) {
     const rootCause = rootCauseForSource(source);
@@ -743,6 +789,7 @@ export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: Scan
   }
   sources.push(...collectOperatorActionSourcesFromFreshDataSupplyAdr0487(summary.freshDataSupplyAdr0487));
   sources.push(...collectOperatorActionSourcesFromAdr0488(summary.sectorEnergySupplyUnknownAdr0488));
+  sources.push(...collectOperatorActionSourcesFromProgramTradingAdr0490(summary.programTradingDataLineAdr0490));
   return sources;
 }
 

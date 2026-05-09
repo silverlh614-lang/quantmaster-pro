@@ -21,6 +21,7 @@ import { formatRuntimePipelineReadinessEvidenceLineAdr0485 } from '../trading/si
 import { formatRuntimePipelineMountEvidenceLineAdr0486 } from '../trading/signalScanner/supplyRecoveryRuntimeMountAdr0486.js';
 import { formatRuntimePipelineFreshDataEvidenceLineAdr0487 } from '../trading/signalScanner/freshDataSupplyLayerAdr0487.js';
 import { formatRuntimePipelineAdr0488EvidenceLine } from '../trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
+import { formatRuntimePipelineProgramTradingEvidenceLineAdr0490 } from '../trading/signalScanner/programTradingDataLineAdr0490.js';
 import { getGate1DryRunObservationLedgerCount } from '../trading/signalScanner/gate1DryRunObservationLedgerAdr0476.js';
 
 export type RuntimePipelineStage =
@@ -82,6 +83,7 @@ export interface RuntimePipelineAuditSnapshot {
   supplyRecoveryMountDiagnosticLine: string;
   freshDataSupplyDiagnosticLine: string;
   sectorEnergySupplyUnknownDiagnosticLine: string;
+  programTradingDataLineDiagnosticLine: string;
   adr460Installed: false;
   supplyProviderHealth: { hasRecentSample: boolean; message: string };
   sectorEnergyHealth: {
@@ -285,6 +287,7 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     supplyRecoveryRuntimeMountAdr0486: summary?.supplyRecoveryRuntimeMountAdr0486 ?? null,
     freshDataSupplyAdr0487: summary?.freshDataSupplyAdr0487 ?? null,
     sectorEnergySupplyUnknownAdr0488: summary?.sectorEnergySupplyUnknownAdr0488 ?? null,
+    programTradingDataLineAdr0490: summary?.programTradingDataLineAdr0490 ?? null,
   });
   const operatorActionEvidenceCount = operatorActionQueue.allActions.reduce((sum, action) => sum + action.evidenceCount, 0);
 
@@ -309,10 +312,11 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     rolloutItemCount,
     operatorActionEvidenceCount,
     operatorActionDiagnosticLine: formatRuntimePipelineDiagnosticEvidenceLineAdr0480(operatorActionQueue),
-    supplyAdvisoryReadinessDiagnosticLine: `${formatRuntimePipelineReadinessEvidenceLineAdr0485(summary?.supplyAdvisoryReadinessAdr0485)} | supplyRecoveryMount: ${formatRuntimePipelineMountEvidenceLineAdr0486(summary?.supplyRecoveryRuntimeMountAdr0486)} | freshDataSupply: ${formatRuntimePipelineFreshDataEvidenceLineAdr0487(summary?.freshDataSupplyAdr0487)} | adr0488: ${formatRuntimePipelineAdr0488EvidenceLine(summary?.sectorEnergySupplyUnknownAdr0488)}`,
+    supplyAdvisoryReadinessDiagnosticLine: `${formatRuntimePipelineReadinessEvidenceLineAdr0485(summary?.supplyAdvisoryReadinessAdr0485)} | supplyRecoveryMount: ${formatRuntimePipelineMountEvidenceLineAdr0486(summary?.supplyRecoveryRuntimeMountAdr0486)} | freshDataSupply: ${formatRuntimePipelineFreshDataEvidenceLineAdr0487(summary?.freshDataSupplyAdr0487)} | adr0488: ${formatRuntimePipelineAdr0488EvidenceLine(summary?.sectorEnergySupplyUnknownAdr0488)} | programTradingDataLine: ${formatRuntimePipelineProgramTradingEvidenceLineAdr0490(summary?.programTradingDataLineAdr0490)}`,
     supplyRecoveryMountDiagnosticLine: formatRuntimePipelineMountEvidenceLineAdr0486(summary?.supplyRecoveryRuntimeMountAdr0486),
     freshDataSupplyDiagnosticLine: formatRuntimePipelineFreshDataEvidenceLineAdr0487(summary?.freshDataSupplyAdr0487),
     sectorEnergySupplyUnknownDiagnosticLine: formatRuntimePipelineAdr0488EvidenceLine(summary?.sectorEnergySupplyUnknownAdr0488),
+    programTradingDataLineDiagnosticLine: formatRuntimePipelineProgramTradingEvidenceLineAdr0490(summary?.programTradingDataLineAdr0490),
     adr460Installed: false,
     supplyProviderHealth,
     sectorEnergyHealth,
@@ -355,6 +359,7 @@ export function formatRuntimePipelineAuditSection(snapshot: RuntimePipelineAudit
     `  • supplyReadiness: <code>${snapshot.supplyAdvisoryReadinessDiagnosticLine}</code>`,
     `  • freshDataSupply: <code>${snapshot.freshDataSupplyDiagnosticLine}</code>`,
     `  • adr0488: <code>${snapshot.sectorEnergySupplyUnknownDiagnosticLine}</code>`,
+    `  • programTradingDataLine: <code>${snapshot.programTradingDataLineDiagnosticLine}</code>`,
     '  • ADR-460: <code>not installed</code>',
     `  • reason: ${snapshot.operatorMessage}`,
     `  • livePathSafety: <code>${snapshot.livePathSafety.passed ? 'PASS' : 'FAIL'}</code>`,
@@ -405,6 +410,7 @@ export function formatRuntimePipelineAuditDetails(snapshot: RuntimePipelineAudit
     `  • supplyReadinessDiagnostic: ${snapshot.supplyAdvisoryReadinessDiagnosticLine}`,
     `  • freshDataSupplyDiagnostic: ${snapshot.freshDataSupplyDiagnosticLine}`,
     `  • adr0488Diagnostic: ${snapshot.sectorEnergySupplyUnknownDiagnosticLine}`,
+    `  • programTradingDataLine: ${snapshot.programTradingDataLineDiagnosticLine}`,
     '  • ADR-460: <code>not installed</code>',
     `  • supplyProvider: ${snapshot.supplyProviderHealth.message}`,
     `  • sectorEnergy: ${snapshot.sectorEnergyHealth.message}`,

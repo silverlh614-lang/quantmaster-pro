@@ -9,6 +9,7 @@ import type { OperatorActionQueueReport, OperatorActionRootCause } from './opera
 import type { ScanSummary } from './scanDiagnostics.js';
 import type { SemanticNetBuyNormalizationReportAdr0482 } from './semanticNetBuyNormalizerAdr0482.js';
 import type { SupplySourceFreshnessReportAdr0483 } from './supplySourceFreshnessAdr0483.js';
+import type { ProgramTradingDataLineReportAdr0490 } from './programTradingDataLineAdr0490.js';
 
 export type SupplyCoverageRecoveryStatus = 'IMPROVING' | 'STABLE' | 'DEGRADED' | 'INSUFFICIENT_DATA' | 'OBSERVING' | 'UNKNOWN';
 export type SupplyCoverageMetricTrend = 'UP' | 'DOWN' | 'FLAT' | 'UNKNOWN';
@@ -45,6 +46,12 @@ export interface SupplyCoverageSnapshotAdr0484 {
     missingSampleCount: number;
     parseErrorCount: number;
     unitIssueCount: number;
+  };
+  programTrading?: {
+    sampleAvailableCount: number;
+    dataUnavailableCount: number;
+    acceptedEmptyCount: number;
+    staleCount: number;
   };
   freshness: {
     staleSourceCount: number;
@@ -117,6 +124,7 @@ export interface BuildSupplyCoverageSnapshotInputAdr0484 {
   gate1DryRunObservationLedgerAdr0476?: Gate1DryRunObservationSummary | null;
   gate1DryRunObservationRowsAdr0476?: readonly Gate1DryRunObservationRow[] | null;
   positiveSourceCandidateCount?: number | null;
+  programTradingDataLineAdr0490?: ProgramTradingDataLineReportAdr0490 | null;
 }
 
 export interface BuildSupplyCoverageRecoveryObservationReportInputAdr0484 extends BuildSupplyCoverageSnapshotInputAdr0484 {
@@ -166,6 +174,7 @@ export function buildSupplyCoverageSnapshotAdr0484(input: BuildSupplyCoverageSna
   const semantic = input.semanticNetBuyNormalizationAdr0482 ?? null;
   const freshness = input.supplySourceFreshnessAdr0483 ?? null;
   const actions = input.operatorActionQueueAdr0480 ?? null;
+  const programTrading = input.programTradingDataLineAdr0490 ?? null;
   const ledger = input.gate1DryRunObservationLedgerAdr0476 ?? input.scanSummary?.gate1DryRunObservationLedger ?? null;
   const ledgerRows = input.gate1DryRunObservationRowsAdr0476 ?? [];
   if (!router) diagnostics.push('ADR-0477 investor-flow provider router input missing; counts defaulted safely.');
@@ -211,6 +220,12 @@ export function buildSupplyCoverageSnapshotAdr0484(input: BuildSupplyCoverageSna
       missingSampleCount: semantic ? (semantic.selectedSample ? 0 : 1) : 1,
       parseErrorCount: semanticSamples.filter((sample) => sample.status === 'PARSE_ERROR' || !sample.quality.parseOk).length,
       unitIssueCount: semanticSamples.filter((sample) => !sample.quality.unitNormalized).length,
+    },
+    programTrading: {
+      sampleAvailableCount: programTrading?.sampleAcquired ? 1 : 0,
+      dataUnavailableCount: programTrading && ['DATA_UNAVAILABLE', 'PROVIDER_ERROR', 'PROVIDER_MISMATCH'].includes(programTrading.overallStatus) ? 1 : 0,
+      acceptedEmptyCount: programTrading?.samples.filter((sample) => sample.status === 'ACCEPTED_EMPTY').length ?? 0,
+      staleCount: programTrading?.samples.filter((sample) => sample.status === 'STALE').length ?? 0,
     },
     freshness: {
       staleSourceCount: rows.filter((row) => row.sourceState === 'STALE' || row.sourceState === 'MISSING' || row.providerIssue).length,
@@ -292,6 +307,9 @@ function remainingBlockers(current: SupplyCoverageSnapshotAdr0484 | null): strin
   if (current.investorFlow.dataUnavailableCount > 0) out.push('DATA_UNAVAILABLE');
   if (current.providerHealth.naverNotWiredCount > 0) out.push('NAVER_NOT_WIRED');
   if (current.semanticNetBuy.missingSampleCount > 0) out.push('SEMANTIC_NETBUY_MISSING');
+  if ((current.programTrading?.dataUnavailableCount ?? 0) > 0) out.push('PROGRAM_TRADING_DATA_UNAVAILABLE');
+  if ((current.programTrading?.acceptedEmptyCount ?? 0) > 0) out.push('PROGRAM_TRADING_ACCEPTED_EMPTY');
+  if ((current.programTrading?.staleCount ?? 0) > 0) out.push('PROGRAM_TRADING_STALE');
   if (current.freshness.staleSourceCount > 0) out.push('STALE_SOURCE');
   if (current.operatorActions.p1Count + current.operatorActions.p2Count > 0) out.push('P1_P2_OPERATOR_ACTIONS_OPEN');
   return out;
@@ -346,7 +364,7 @@ export function formatSupplyCoverageRecoveryDetailAdr0484(report: SupplyCoverage
   return [
     '📈 ADR-0484 Supply Coverage Recovery Observation',
     `status=${report.status} window=${report.window} executionImpact=${report.executionImpact} liveExecutionAllowed=${report.liveExecutionAllowed} policyPromotionMode=${report.policyPromotionMode}`,
-    cur ? `current: coverage=${cur.investorFlow.coverageAvailable}/${cur.investorFlow.coverageTotal} ratio=${cur.investorFlow.coverageRatio} selectedProvider=${cur.investorFlow.selectedProvider ?? 'UNKNOWN'} dataUnavailable=${cur.investorFlow.dataUnavailableCount} naverNotWired=${cur.providerHealth.naverNotWiredCount} semanticAvailable=${cur.semanticNetBuy.sampleAvailableCount} staleSource=${cur.freshness.staleSourceCount} p1=${cur.operatorActions.p1Count}` : 'current: none',
+    cur ? `current: coverage=${cur.investorFlow.coverageAvailable}/${cur.investorFlow.coverageTotal} ratio=${cur.investorFlow.coverageRatio} selectedProvider=${cur.investorFlow.selectedProvider ?? 'UNKNOWN'} dataUnavailable=${cur.investorFlow.dataUnavailableCount} naverNotWired=${cur.providerHealth.naverNotWiredCount} semanticAvailable=${cur.semanticNetBuy.sampleAvailableCount} programTrading=${cur.programTrading?.sampleAvailableCount ?? 0} programUnavailable=${cur.programTrading?.dataUnavailableCount ?? 0} programAcceptedEmpty=${cur.programTrading?.acceptedEmptyCount ?? 0} programStale=${cur.programTrading?.staleCount ?? 0} staleSource=${cur.freshness.staleSourceCount} p1=${cur.operatorActions.p1Count}` : 'current: none',
     report.baseline ? `baseline: coverage=${report.baseline.investorFlow.coverageAvailable}/${report.baseline.investorFlow.coverageTotal} ratio=${report.baseline.investorFlow.coverageRatio}` : 'baseline: pending',
     report.delta ? `delta: coverage=${report.delta.coverageRatioDelta ?? 'NA'} selectedProviderNone=${report.delta.selectedProviderNoneDelta ?? 'NA'} dataUnavailable=${report.delta.dataUnavailableDelta ?? 'NA'} naverNotWired=${report.delta.naverNotWiredDelta ?? 'NA'} semanticSample=${report.delta.semanticSampleAvailableDelta ?? 'NA'} staleSource=${report.delta.staleSourceDelta ?? 'NA'} p1=${report.delta.p1ActionDelta ?? 'NA'} gate1NearMiss=${report.delta.gate1NearMissDelta ?? 'NA'}` : 'delta: none',
     `topImprovedMetrics: ${report.topImprovedMetrics.join(', ') || 'none'}`,

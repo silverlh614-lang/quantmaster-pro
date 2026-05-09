@@ -203,6 +203,10 @@ import {
   buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488,
   type SectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
+import {
+  buildProgramTradingDataLineReportAdr0490,
+  type ProgramTradingDataLineReportAdr0490,
+} from './programTradingDataLineAdr0490.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -477,6 +481,8 @@ export interface ScanSummary {
   freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487;
   /** ADR-0488 SectorEnergy master supply line + Supply UNKNOWN policy; SHADOW_ONLY and executionImpact NONE. */
   sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488;
+  /** ADR-0490 KRX/KIS program trading data line; OBSERVE/SHADOW_ONLY and executionImpact NONE. */
+  programTradingDataLineAdr0490?: ProgramTradingDataLineReportAdr0490;
 }
 
 let _lastBuySignalAt = 0;
@@ -2116,10 +2122,20 @@ export async function persistScanResults(
     console.warn('[ADR-0476] Gate1DryRunObservation build/save failed (engine unaffected):', e);
   }
 
-  // ADR-0484/0485/0486/0487/0488: persist supply recovery/readiness/mount/fresh-data/UNKNOWN
+  // ADR-0484/0485/0486/0487/0488/0490: persist supply recovery/readiness/mount/fresh-data/UNKNOWN/program trading
   // evidence into ScanSummary before Runtime Pipeline Audit reads it.
   // ScanSummary before Runtime Pipeline Audit reads it. Diagnostic-only.
   try {
+    summaryDraft.programTradingDataLineAdr0490 = buildProgramTradingDataLineReportAdr0490({
+      generatedAt: kstNow.toISOString(),
+      code: null,
+      stage: 'OBSERVE',
+      rawInputs: [],
+      providerAttempts: [
+        { provider: 'KIS', scope: 'STOCK', attempted: false, status: 'PROBE_SKIPPED', diagnostics: ['scan summary path does not perform provider fetch; diagnostic-only'] },
+        { provider: 'KRX', scope: 'MARKET', attempted: false, status: 'PROBE_SKIPPED', diagnostics: ['scan summary path does not perform provider fetch; diagnostic-only'] },
+      ],
+    });
     const supplyCoverageRecoveryAdr0484 = buildSupplyCoverageRecoveryObservationReportAdr0484({
       scanSummary: summaryDraft,
       investorFlowProviderRouterAdr0477: summaryDraft.investorFlowProviderRouter,
@@ -2127,6 +2143,7 @@ export async function persistScanResults(
       semanticNetBuyNormalizationAdr0482: summaryDraft.semanticNetBuyNormalizationAdr0482,
       supplySourceFreshnessAdr0483: summaryDraft.supplySourceFreshnessAdr0483,
       gate1DryRunObservationLedgerAdr0476: summaryDraft.gate1DryRunObservationLedger,
+      programTradingDataLineAdr0490: summaryDraft.programTradingDataLineAdr0490,
       timestamp: kstNow.toISOString(),
       persist: false,
     });
@@ -2169,6 +2186,7 @@ export async function persistScanResults(
       supplyCoverageRecoveryAdr0484: supplyCoverageRecoveryAdr0484 as unknown as Record<string, unknown>,
       supplyAdvisoryReadinessAdr0485: supplyAdvisoryReadinessAdr0485 as unknown as Record<string, unknown>,
       investorFlowProviderRouterAdr0477: summaryDraft.investorFlowProviderRouter,
+      programTradingDataLineAdr0490: summaryDraft.programTradingDataLineAdr0490,
     });
     summaryDraft.sectorEnergySupplyUnknownAdr0488 = buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
       generatedAt: kstNow.toISOString(),
@@ -2188,9 +2206,10 @@ export async function persistScanResults(
       supplyRecoveryRuntimeMountAdr0486: summaryDraft.supplyRecoveryRuntimeMountAdr0486,
       freshDataSupplyAdr0487: summaryDraft.freshDataSupplyAdr0487,
       sectorEnergySupplyUnknownAdr0488: summaryDraft.sectorEnergySupplyUnknownAdr0488,
+      programTradingDataLineAdr0490: summaryDraft.programTradingDataLineAdr0490,
     }));
   } catch (e) {
-    console.warn('[ADR-0486/0487/0488] Supply recovery/runtime/fresh data/SectorEnergy UNKNOWN build failed (engine unaffected):', e);
+    console.warn('[ADR-0486/0487/0488/0490] Supply recovery/runtime/fresh data/SectorEnergy UNKNOWN build failed (engine unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;

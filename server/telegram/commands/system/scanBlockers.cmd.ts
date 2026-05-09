@@ -123,6 +123,7 @@ import {
   safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488,
   type SectorEnergyAndSupplyUnknownPolicyReportAdr0488,
 } from '../../../trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
+import { formatProgramTradingCompactAdr0490 } from '../../../trading/signalScanner/programTradingDataLineAdr0490.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -432,6 +433,7 @@ const scanBlockers: TelegramCommand = {
           supplyCoverageRecoveryAdr0484: summary?.supplyCoverageRecoveryAdr0484 as unknown as Record<string, unknown>,
           supplyAdvisoryReadinessAdr0485: summary?.supplyAdvisoryReadinessAdr0485 as unknown as Record<string, unknown>,
           investorFlowProviderRouterAdr0477: summary?.investorFlowProviderRouter ?? null,
+          programTradingDataLineAdr0490: summary?.programTradingDataLineAdr0490 ?? null,
         });
       }
       if (!sectorEnergySupplyUnknownReportForOperator) {
@@ -459,6 +461,7 @@ const scanBlockers: TelegramCommand = {
         supplyRecoveryRuntimeMountAdr0486: summary?.supplyRecoveryRuntimeMountAdr0486 ?? null,
         freshDataSupplyAdr0487: freshDataSupplyReportForOperator,
         sectorEnergySupplyUnknownAdr0488: sectorEnergySupplyUnknownReportForOperator,
+        programTradingDataLineAdr0490: summary?.programTradingDataLineAdr0490 ?? null,
       });
       operatorActionSection = safeFormatOperatorActionCompactSectionAdr0480(operatorActionQueue);
     } catch (err) {
@@ -470,8 +473,10 @@ const scanBlockers: TelegramCommand = {
     let supplyRecoveryRuntimeMountLine: string | null = null;
     let freshDataSupplyLine: string | null = null;
     let sectorEnergySupplyUnknownLine: string | null = null;
+    let programTradingLine: string | null = null;
     try {
-      const recoveryReport = summary?.supplyCoverageRecoveryAdr0484 ?? buildSupplyCoverageRecoveryObservationReportAdr0484({ scanSummary: summary, persist: false });
+      programTradingLine = formatProgramTradingCompactAdr0490(summary?.programTradingDataLineAdr0490 ?? null);
+      const recoveryReport = summary?.supplyCoverageRecoveryAdr0484 ?? buildSupplyCoverageRecoveryObservationReportAdr0484({ scanSummary: summary, programTradingDataLineAdr0490: summary?.programTradingDataLineAdr0490 ?? null, persist: false });
       supplyCoverageRecoveryLine = formatSupplyCoverageRecoveryCompactAdr0484(recoveryReport);
       const readinessReport = summary?.supplyAdvisoryReadinessAdr0485 ?? safeBuildSupplyAdvisoryReadinessReportAdr0485({ supplyCoverageRecoveryAdr0484: recoveryReport });
       supplyAdvisoryReadinessLine = formatSupplyAdvisoryReadinessCompactAdr0485(readinessReport);
@@ -509,6 +514,7 @@ const scanBlockers: TelegramCommand = {
         supplyCoverageRecoveryAdr0484: recoveryReport as unknown as Record<string, unknown>,
         supplyAdvisoryReadinessAdr0485: readinessReport as unknown as Record<string, unknown>,
         investorFlowProviderRouterAdr0477: summary?.investorFlowProviderRouter ?? null,
+        programTradingDataLineAdr0490: summary?.programTradingDataLineAdr0490 ?? null,
       });
       freshDataSupplyLine = formatFreshDataSupplyCompactAdr0487(freshDataSupplyReportForOperator);
       sectorEnergySupplyUnknownReportForOperator = sectorEnergySupplyUnknownReportForOperator ?? safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
@@ -547,6 +553,7 @@ const scanBlockers: TelegramCommand = {
     if (supplyRecoveryRuntimeMountLine) parts.push(supplyRecoveryRuntimeMountLine);
     if (freshDataSupplyLine) parts.push(freshDataSupplyLine);
     if (sectorEnergySupplyUnknownLine) parts.push(sectorEnergySupplyUnknownLine);
+    if (programTradingLine) parts.push(programTradingLine);
     if (runtimeAuditSection) parts.push(runtimeAuditSection);
     const finalMessage = parts.join('\n');
     await reply(finalMessage);
