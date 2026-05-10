@@ -61,11 +61,11 @@ describe('resolveShadowFutureReturns', () => {
       skippedAlreadyResolved: 0,
       providerMisses: 0,
     });
+    expect(signals[0]!.futureReturn1d).toBeCloseTo(0.01);
+    expect(signals[0]!.futureReturn3d).toBeCloseTo(0.02);
+    expect(signals[0]!.futureReturn5d).toBeCloseTo(-0.03);
+    expect(signals[0]!.futureReturn20d).toBeCloseTo(0.1);
     expect(signals[0]).toEqual(expect.objectContaining({
-      futureReturn1d: 0.01,
-      futureReturn3d: 0.02,
-      futureReturn5d: -0.03,
-      futureReturn20d: 0.1,
       outcome: 'LOSS',
       learningOnly: true,
       executionImpact: 'NONE',
@@ -122,11 +122,12 @@ describe('resolveShadowFutureReturns', () => {
 
     expect(stats.updatedSignals).toBe(1);
     expect(mockedSave).toHaveBeenCalledTimes(1);
-    expect(mockedSave.mock.calls[0]![0][0]).toEqual(expect.objectContaining({
-      futureReturn1d: 0.1,
-      futureReturn3d: 0.1,
-      futureReturn5d: 0.1,
-      futureReturn20d: 0.1,
+    const saved = mockedSave.mock.calls[0]![0][0]!;
+    expect(saved.futureReturn1d).toBeCloseTo(0.1);
+    expect(saved.futureReturn3d).toBeCloseTo(0.1);
+    expect(saved.futureReturn5d).toBeCloseTo(0.1);
+    expect(saved.futureReturn20d).toBeCloseTo(0.1);
+    expect(saved).toEqual(expect.objectContaining({
       outcome: 'WIN',
       learningOnly: true,
       executionImpact: 'NONE',
