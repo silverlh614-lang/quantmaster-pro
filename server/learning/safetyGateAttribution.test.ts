@@ -58,6 +58,8 @@ function makeSignal(
     dataQualityStatus: 'OK',
     futureReturn5d: 0.02,
     ...overrides,
+    learningOnly: true,
+    executionImpact: 'NONE',
   };
 }
 

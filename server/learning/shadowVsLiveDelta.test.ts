@@ -60,6 +60,8 @@ function makeSignal(
     dataQualityStatus: 'OK',
     futureReturn5d: 0.02,
     ...overrides,
+    learningOnly: true,
+    executionImpact: 'NONE',
   };
 }
 
@@ -585,8 +587,8 @@ describe('정적 grep 가드 — 안전 invariant 검증', () => {
   });
 });
 
-describe('호출자 0건 정적 grep 가드 — Phase 2a dead code', () => {
-  it('server/ 전체 grep — computeShadowVsLiveDelta 호출 = 모듈 자체 + 테스트만', () => {
+describe('호출자 정적 grep 가드 — 허용된 learning/reporting 경로만', () => {
+  it('server/ 전체 grep — computeShadowVsLiveDelta 호출 = 허용된 learning/reporting 경로만', () => {
     const serverDir = path.join(__dirname, '..');
     const matches: string[] = [];
     const stack: string[] = [serverDir];
@@ -613,7 +615,10 @@ describe('호출자 0건 정적 grep 가드 — Phase 2a dead code', () => {
     const allowedFiles = matches.filter(
       (m) =>
         m.endsWith('shadowVsLiveDelta.ts') ||
-        m.endsWith('shadowVsLiveDelta.test.ts'),
+        m.endsWith('shadowVsLiveDelta.test.ts') ||
+        m.endsWith('missedLearningReplayDispatcher.ts') ||
+        m.endsWith('learningRouter.ts') ||
+        m.endsWith('learningSanityDashboardRouter.test.ts'),
     );
     expect(matches.length).toBe(allowedFiles.length);
     expect(matches.length).toBeGreaterThanOrEqual(2);

@@ -174,7 +174,23 @@ async function recordPreflightUniverseLearningSnapshot(input: {
 export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<any> {
   if (!process.env.KIS_APP_KEY) {
     console.warn('[AutoTrade] KIS_APP_KEY 미설정 — 스캔 건너뜀');
-    return { shouldAbort: true, skipPersist: true };
+    await recordBlockedDayShadowScan('KIS_CONFIG_MISSING');
+    let watchlistForLearning: WatchlistEntry[] = [];
+    try {
+      watchlistForLearning = loadWatchlist();
+    } catch (e) {
+      console.warn('[CounterfactualUniverseLearning] KIS 설정 누락 snapshot용 watchlist 로드 실패 — 빈 universe로 기록', e);
+    }
+    await recordPreflightUniverseLearningSnapshot({
+      stage: 'BEFORE_UNIVERSE_BUILD',
+      primaryReason: 'KIS_CONFIG_MISSING',
+      watchlist: watchlistForLearning,
+      marketSnapshot: {
+        emergencyStop: getEmergencyStop(),
+      },
+      notes: ['KIS_APP_KEY missing — real order preflight remains aborted; learning-only case recorded'],
+    });
+    return { shouldAbort: true, skipPersist: false };
   }
 
   let optSellOnly = options?.sellOnly;
@@ -188,7 +204,17 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
 
   const watchlist = loadWatchlist();
   if (watchlist.length === 0) {
-    return { shouldAbort: true, skipPersist: true };
+    await recordPreflightUniverseLearningSnapshot({
+      stage: 'BEFORE_UNIVERSE_BUILD',
+      primaryReason: 'WATCHLIST_EMPTY',
+      watchlist,
+      marketSnapshot: {
+        emergencyStop: getEmergencyStop(),
+      },
+      notes: ['watchlist empty — pre-universe learning snapshot retained with zero candidates'],
+    });
+    await recordBlockedDayShadowScan('WATCHLIST_EMPTY');
+    return { shouldAbort: true, skipPersist: false };
   }
 
   // ADR-0392 P0-B — env 직접 참조 → getTradingMode() SSOT 통일.
@@ -388,6 +414,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     const snap = getCompletenessSnapshot();
     console.warn(`[AutoTrade] 데이터 빈곤 스캔 차단 — MTAS실패 ${(snap.mtasFailRate * 100).toFixed(1)}% / DART null ${(snap.dartNullRate * 100).toFixed(1)}%`);
     await sendTelegramAlert(`🧪 <b>[데이터 빈곤 스캔] 신규 진입 보류</b>\nMTAS 실패 ${(snap.mtasFailRate * 100).toFixed(1)}% | DART null ${(snap.dartNullRate * 100).toFixed(1)}%\n표본: M${snap.mtasAttempts} · D${snap.dartAttempts}\n빈 스캔과 구분되는 "데이터 부재" 상태 — 원천 데이터 점검 후 복귀`, { priority: 'HIGH', dedupeKey: 'data-starved-scan', cooldownMs: 30 * 60_000 }).catch(console.error);
+    await recordBlockedDayShadowScan('DATA_STARVED');
     // ADR-0433: data-starved preflight abort universe snapshot.
     await recordPreflightUniverseLearningSnapshot({
       stage: 'AFTER_UNIVERSE_BUILD',
@@ -440,6 +467,19 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const slotResult = computeSlotConsumption(shadows, effectiveMaxPositions);
   if (slotResult.isFull) {
     console.log(`[AutoTrade] 최대 동시 포지션 도달 (${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}${sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${regime}, raw=${slotResult.rawCount}) — 신규 진입 스킵`);
+    await recordBlockedDayShadowScan('POSITION_FULL');
+    await recordPreflightUniverseLearningSnapshot({
+      stage: 'BEFORE_BUYLIST_LOOP',
+      primaryReason: 'POSITION_FULL',
+      watchlist,
+      regime,
+      marketSnapshot: {
+        emergencyStop: getEmergencyStop(),
+        regime: regime ?? macroState?.regime,
+        vkospiLevel: macroState?.vkospi,
+      },
+      notes: [`position slots full — consumed=${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}, raw=${slotResult.rawCount}`],
+    });
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return { shouldAbort: true, skipPersist: true, positionFull: true };
@@ -464,6 +504,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   if (!volumeClock.allowEntry) {
     console.log(volumeClock.reason);
     console.log(`[AutoTrade] 매수 대기 종목 대기 중 (허용 구간: 09:30~11:30, 13:00~15:20 KST)`);
+    await recordBlockedDayShadowScan('VOLUME_CLOCK_BLOCK');
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return {

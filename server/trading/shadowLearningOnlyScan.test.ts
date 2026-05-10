@@ -1,5 +1,5 @@
 /**
- * @responsibility ADR-0173 §2 ShadowLearningOnlyScan 회귀 — invariant + ENV + 8 reason + blocked-day wiring guard
+ * @responsibility ADR-0173 §2 ShadowLearningOnlyScan 회귀 — invariant + ENV + 16 reason + blocked-day wiring guard
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -203,9 +203,9 @@ describe('bypassMacroEntryBlock 검증', () => {
   });
 });
 
-// ─── 9 reason union 분기 ─────────────────────────────────────────────────────
+// ─── 16 reason union 분기 ─────────────────────────────────────────────────────
 
-describe('9 ShadowLearningOnlyScanReason union', () => {
+describe('16 ShadowLearningOnlyScanReason union', () => {
   const reasons = [
     'FOMC_BLOCK',
     'VIX_SPIKE',
@@ -216,6 +216,13 @@ describe('9 ShadowLearningOnlyScanReason union', () => {
     'LIQUIDITY_BLOCK',
     'MANUAL_BLOCK',
     'R3_SANITY_BLOCK',
+    'KIS_CONFIG_MISSING',
+    'WATCHLIST_EMPTY',
+    'DATA_STARVED',
+    'VOLUME_CLOCK_BLOCK',
+    'POSITION_FULL',
+    'SECTOR_ENERGY_STALE',
+    'SUPPLY_DATA_UNSTABLE',
   ] as const;
   for (const reason of reasons) {
     it(`reason='${reason}' → 정상 진행 + result.reason 정합`, async () => {
@@ -292,6 +299,8 @@ describe('blocked-day shadow scan persistence', () => {
     expect(signals[0]!.symbol).toBe('005930');
     expect(signals[0]!.hypotheticalEntryPrice).toBe(75000);
     expect(signals[0]!.outcome).toBe('PENDING');
+    expect(signals[0]!.learningOnly).toBe(true);
+    expect(signals[0]!.executionImpact).toBe('NONE');
   });
 
   it('supply_health snapshot이 있으면 Shadow 신호에 raw/final/confidence를 함께 저장한다', async () => {
@@ -376,6 +385,8 @@ describe('shadowLearningOnlySignalRepo — round-trip', () => {
       symbol: '005930',
       signalDate: '2026-05-04',
       blockedReason: 'FOMC_BLOCK' as const,
+      learningOnly: true as const,
+      executionImpact: 'NONE' as const,
       wouldHaveBought: true,
       hypotheticalEntryPrice: 75000,
       hypotheticalStopLoss: 71000,
@@ -391,6 +402,8 @@ describe('shadowLearningOnlySignalRepo — round-trip', () => {
     expect(all).toHaveLength(1);
     expect(all[0]!.symbol).toBe('005930');
     expect(all[0]!.blockedReason).toBe('FOMC_BLOCK');
+    expect(all[0]!.learningOnly).toBe(true);
+    expect(all[0]!.executionImpact).toBe('NONE');
   });
 });
 
@@ -413,6 +426,7 @@ describe('KIS 주문 함수 import 정적 grep 가드', () => {
     );
     const code = stripComments(src);
     expect(code).not.toMatch(/placeKisMarketOrder/);
+    expect(code).not.toMatch(/placeKisMarketBuyOrder/);
     expect(code).not.toMatch(/placeKisSellOrder/);
     expect(code).not.toMatch(/cancelKisOrder/);
     expect(code).not.toMatch(/placeKisStopLossOrder/);
@@ -429,6 +443,7 @@ describe('KIS 주문 함수 import 정적 grep 가드', () => {
     );
     const code = stripComments(src);
     expect(code).not.toMatch(/placeKisMarketOrder/);
+    expect(code).not.toMatch(/placeKisMarketBuyOrder/);
     expect(code).not.toMatch(/placeKisSellOrder/);
     expect(code).not.toMatch(/from ['"][^'"]*kisClient/);
   });
@@ -485,7 +500,7 @@ describe('호출자 제한 (signalScanner helper만 허용)', () => {
       expect(helperCalls!.length).toBe(1);  // helper 안 단일 호출
       const wiringCalls = src.match(/recordBlockedDayShadowScan\(['"]/g);
       expect(wiringCalls).not.toBeNull();
-      expect(wiringCalls!.length).toBe(6);  // 4 macro + R3 latch + R3 SHADOW_ONLY pre-scan
+      expect(wiringCalls!.length).toBe(11);  // KIS + watchlist + 4 macro + data + position + volume + R3 latch + R3 SHADOW_ONLY pre-scan
     }
   });
 

@@ -12,9 +12,9 @@
  *
  * 안전 invariant 5종 (ADR-0173 §3, ARCHITECTURE.md):
  *   1. LIVE 매매 본체 0줄 변경
- *   2. KIS 주문 함수 import 0건 — `placeKisMarketOrder` / `placeKisSellOrder` 등 모두 정적 grep 가드
+ *   2. KIS 주문 함수 import 0건 — `placeKisMarketBuyOrder` / `placeKisSellOrder` 등 모두 정적 grep 가드
  *   3. `allowRealOrder=true` runtime throw + literal type 2중 강제
- *   4. ENV `SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED` default OFF (`=== 'true'` 정확 비교)
+ *   4. ENV `SHADOW_LEARNING_ON_BLOCKED_DAYS_ENABLED` default ON (`!== 'false'` 정확 비교)
  *   5. blocked-day caller wiring only; no LIVE order dispatch.
  *
  * Candidate scoring is conservative MVP logic; richer scoring can replace it later.
@@ -37,7 +37,7 @@ import { applySupplyHealthToSignal } from '../learning/supplyHealthLearning.js';
 // ─── 타입 SSOT ────────────────────────────────────────────────────────────────
 
 /**
- * 매매 차단 사유 — 사용자 §2 명세 직접 정합 (8 union).
+ * 매매 차단 사유 — Shadow Learning Always-On 차단 사유 union.
  *
  * Phase 2 wiring 시 5 early-return → 본 enum 매핑:
  *   - `R6_DEFENSE` (signalScanner.ts:313) → `R0_CRISIS`
@@ -59,7 +59,14 @@ export type ShadowLearningOnlyScanReason =
   | 'KRX_HOLIDAY_REPLAY'
   | 'LIQUIDITY_BLOCK'
   | 'MANUAL_BLOCK'
-  | 'R3_SANITY_BLOCK';
+  | 'R3_SANITY_BLOCK'
+  | 'KIS_CONFIG_MISSING'
+  | 'WATCHLIST_EMPTY'
+  | 'DATA_STARVED'
+  | 'VOLUME_CLOCK_BLOCK'
+  | 'POSITION_FULL'
+  | 'SECTOR_ENERGY_STALE'
+  | 'SUPPLY_DATA_UNSTABLE';
 
 export interface ShadowLearningOnlyScanInput {
   /**
@@ -89,6 +96,8 @@ export interface ShadowLearningOnlySignal {
   symbol: string;
   signalDate: string;
   blockedReason: ShadowLearningOnlyScanReason;
+  learningOnly: true;
+  executionImpact: 'NONE';
   wouldHaveBought: boolean;
   hypotheticalEntryPrice: number;
   hypotheticalStopLoss: number;
@@ -275,7 +284,7 @@ export async function runShadowLearningOnlyScan(
     );
   }
 
-  // ENV gate — default OFF
+  // ENV gate — default ON (only explicit false disables)
   if (!isShadowLearningOnBlockedDaysEnabled()) {
     return { skipped: true, reason: 'ENV_DISABLED' };
   }
@@ -317,6 +326,8 @@ export async function runShadowLearningOnlyScan(
       symbol: candidate.symbol,
       signalDate: input.scanDate,
       blockedReason: input.reason,
+      learningOnly: true,
+      executionImpact: 'NONE',
       wouldHaveBought: candidate.wouldHaveBought,
       hypotheticalEntryPrice: candidate.entryPrice,
       hypotheticalStopLoss: candidate.stopLoss,
