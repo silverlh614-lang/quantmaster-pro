@@ -271,10 +271,11 @@ export function summarizeCounterfactualUniverseLearningLedger(
 }
 
 /**
- * /scan_blockers 한 줄 요약 — 사용자 §G 명세.
+ * /scan_blockers learning status 요약 — 사용자 PATCH-C 명세.
  *
  * 직전 1건 snapshot 만 표시 (텔레그램 길이 제한). 영속 ledger 가 비어 있으면 null.
- * "🧠 Counterfactual Universe Learning (ADR-0433)" 헤더 + key fields.
+ * 기존 `Counterfactual Universe Learning` 섹션을 운영자가 먼저 보는 `Learning Status`로
+ * 승격하되, live/paper/order path 와는 무관한 read-only formatter 이다.
  */
 export function formatCounterfactualUniverseLearningSummarySection(
   summary: CounterfactualUniverseLearningSummary,
@@ -283,9 +284,19 @@ export function formatCounterfactualUniverseLearningSummarySection(
   const latest = summary.latestSnapshot;
   if (!latest) return null;
   const lines: string[] = [];
+  const topBlockedReason = latest.blockedBy[0] ?? latest.reasons[0] ?? 'UNKNOWN';
+  const universeSnapshotStatus = latest.preflightStage === 'UNKNOWN' ? 'RECORDED_PARTIAL' : 'RECORDED';
+
+  lines.push('🧠 <b>Learning Status</b>');
+  lines.push(`• Real execution: ${latest.liveAllowed ? 'ALLOWED' : 'BLOCKED'}`);
+  lines.push(`• Shadow learning: RECORDED`);
+  lines.push(`• Universe snapshot: ${universeSnapshotStatus}`);
+  lines.push(`• executionImpact: NONE`);
+  lines.push(`• topBlockedReason: ${topBlockedReason}`);
+  lines.push(`• today: ${summary.todaySnapshots}건 / total: ${summary.totalSnapshots}건`);
+  lines.push('');
   lines.push('🧠 <b>Counterfactual Universe Learning (ADR-0433)</b>');
   lines.push(`• learningOnly: ✅`);
-  lines.push(`• today: ${summary.todaySnapshots}건 / total: ${summary.totalSnapshots}건`);
   lines.push(`• latest stage: ${latest.preflightStage}`);
   if (latest.blockedBy.length > 0) {
     lines.push(`• blockedBy: ${latest.blockedBy.join(', ')}`);
@@ -293,7 +304,6 @@ export function formatCounterfactualUniverseLearningSummarySection(
   if (latest.candidateSummaryCount && latest.candidateSummaryCount > 0) {
     lines.push(`• candidateSummaryCount: ${latest.candidateSummaryCount}`);
   }
-  lines.push(`• executionImpact: NONE`);
   lines.push(
     `<i>preflight 차단으로 buyListLoop 까지 가지 못한 universe 를 학습 snapshot 으로 보존.</i>`,
   );
