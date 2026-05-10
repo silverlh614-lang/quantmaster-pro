@@ -69,6 +69,10 @@ function formatKstHm(iso: string | undefined): string {
   });
 }
 
+function currentKstDateKey(now = new Date()): string {
+  return now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+}
+
 function kstDateKey(iso: string | undefined): string | null {
   if (!iso) return null;
   const ts = Date.parse(iso);
@@ -76,11 +80,11 @@ function kstDateKey(iso: string | undefined): string | null {
   return new Date(ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 }
 
-function formatHandlerFlag(iso: string | undefined, tradingDate: string): string {
+function formatHandlerFlag(iso: string | undefined, currentDate: string): string {
   if (!iso) return 'notRan';
   const dateKey = kstDateKey(iso);
   if (!dateKey) return 'ran(invalidDate)';
-  return dateKey === tradingDate ? `ran(today ${formatKstHm(iso)})` : `ran(old ${dateKey})`;
+  return dateKey === currentDate ? `ran(current ${formatKstHm(iso)})` : `ran(stale ${dateKey})`;
 }
 
 function formatSchedulerLastLabel(lastFinishedAt: string | undefined, everRanCount: number): string {
@@ -126,22 +130,26 @@ function buildSchedulerCheck(): ScanReadinessCheck {
   return { name: 'Scheduler', status, detail };
 }
 
-function buildOrchestratorCheck(): ScanReadinessCheck {
+function buildOrchestratorCheck(now = new Date()): ScanReadinessCheck {
   const status = tradingOrchestrator.getStatus();
+  const currentDate = currentKstDateKey(now);
   const computed = status.computedState;
   const scanEligible = isScanEligibleState(computed);
-  const marketOpen = formatHandlerFlag(status.handlerRanAt.marketOpen, status.tradingDate);
-  const midday = formatHandlerFlag(status.handlerRanAt.middayRescan, status.tradingDate);
-  const openAuction = formatHandlerFlag(status.handlerRanAt.openAuction, status.tradingDate);
-  const label: ScanReadinessCheck['label'] = scanEligible ? undefined : 'WAIT';
+  const dateFresh = status.tradingDate === currentDate;
+  const marketOpen = formatHandlerFlag(status.handlerRanAt.marketOpen, currentDate);
+  const midday = formatHandlerFlag(status.handlerRanAt.middayRescan, currentDate);
+  const openAuction = formatHandlerFlag(status.handlerRanAt.openAuction, currentDate);
+  const label: ScanReadinessCheck['label'] = scanEligible && dateFresh ? undefined : 'WAIT';
   return {
     name: 'Orchestrator',
-    status: scanEligible ? 'OK' : 'WAIT',
+    status: scanEligible && dateFresh ? 'OK' : 'WAIT',
     label,
     detail: [
       `computed=${computed}`,
       `stored=${status.currentState}`,
-      `date=${status.tradingDate || 'unknown'}`,
+      `tradingDate=${status.tradingDate || 'unknown'}`,
+      `currentKstDate=${currentDate}`,
+      `dateFresh=${dateFresh ? 'true' : 'false'}`,
       `scanEligible=${scanEligible ? 'true' : 'false'}`,
       `openAuction=${openAuction}`,
       `marketOpen=${marketOpen}`,
@@ -177,7 +185,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
   const macroAge = ageHours(macro?.updatedAt, now.getTime());
   const hasScanHistory = health.lastScanTs > 0 || Boolean(lastScan);
   const schedulerCheck = buildSchedulerCheck();
-  const orchestratorCheck = buildOrchestratorCheck();
+  const orchestratorCheck = buildOrchestratorCheck(now);
   const invocationCheck = buildScanInvocationCheck(schedulerCheck, hasScanHistory);
 
   const checks: ScanReadinessCheck[] = [
@@ -245,6 +253,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
   if (macroAge !== null && macroAge > 8) nextActions.push(`Macro stale (${macroAge.toFixed(1)}h) → /refresh_macro`);
   if (!hasScanHistory) nextActions.push('No scan yet → wait next scanner cycle or /scan_blockers');
   if (schedulerCheck.status !== 'OK') nextActions.push('Scheduler not observed yet → /cron_status or /scheduler');
+  if (orchestratorCheck.detail.includes('dateFresh=false')) nextActions.push('Orchestrator date stale → wait next tick or check /cron_status');
   if (orchestratorCheck.status !== 'OK') nextActions.push('Orchestrator not in scan state → wait MARKET_OPEN/INTRADAY');
   if (invocationCheck.status !== 'OK') nextActions.push('Invocation path pending → /cron_status then /scan_blockers');
   if (watchlist.length === 0) nextActions.push('Watchlist empty → rebuild/watchlist refresh needed');
