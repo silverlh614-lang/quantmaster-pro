@@ -68,6 +68,13 @@ export async function captureSupplyHealthSnapshot(): Promise<SupplyHealthSnapsho
 export async function recordBlockedDayShadowScan(
   reason: ShadowLearningOnlyScanReason,
 ): Promise<void> {
+  if (reason === 'VOLUME_CLOCK_BLOCK') {
+    await recordPreflightUniverseLearningSnapshot({
+      stage: 'BEFORE_BUYLIST_LOOP',
+      primaryReason: 'VOLUME_CLOCK_BLOCK',
+      notes: ['VOLUME_CLOCK_BLOCK — entry window closed; minimal universe snapshot recorded by preflight learning recorder'],
+    });
+  }
   if (!isShadowLearningOnBlockedDaysEnabled()) return;
   try {
     const kstScanDate = new Date(Date.now() + 9 * 60 * 60 * 1000)

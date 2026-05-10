@@ -60,13 +60,23 @@ describe('preflightLearningRecorder', () => {
     expect(mockedRunShadowLearningOnlyScan).not.toHaveBeenCalled();
   });
 
-  it('records blocked-day shadow learning with real-order disabled invariant', async () => {
+  it('records blocked-day shadow learning with real-order disabled invariant and VolumeClock universe snapshot', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-10T00:30:00.000Z'));
     mockedIsShadowLearningOnBlockedDaysEnabled.mockReturnValue(true);
 
     await recordBlockedDayShadowScan('VOLUME_CLOCK_BLOCK');
 
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      preflightStage: 'BEFORE_BUYLIST_LOOP',
+      blockedBy: ['VOLUME_CLOCK_BLOCK'],
+      reasons: ['CANDIDATE_EVALUATION_SKIPPED'],
+      universeSize: 0,
+      candidateCount: 0,
+      notes: expect.arrayContaining([
+        expect.stringContaining('VOLUME_CLOCK_BLOCK'),
+      ]),
+    }));
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledTimes(1);
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
       allowRealOrder: false,
