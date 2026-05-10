@@ -9,6 +9,7 @@
 import {
   loadResolveAndSaveShadowFutureReturns,
   type ShadowFuturePriceProvider,
+  type ShadowFuturePriceProviderInput,
   type ShadowFutureReturnHorizon,
 } from './shadowFutureReturnResolver.js';
 import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnlySignalRepo.js';
@@ -71,6 +72,16 @@ export function resolveShadowFutureReturnTargetCloseKst(
   const targetDateKey = findNthKrxTradingDayAfter(signalDateKey, offset);
   if (!targetDateKey) return null;
   return `${targetDateKey}T15:30:00+09:00`;
+}
+
+export function isShadowFutureReturnTargetMature(
+  input: ShadowFuturePriceProviderInput,
+  now: Date = new Date(),
+): boolean {
+  const targetAtKst = resolveShadowFutureReturnTargetCloseKst(input.signalDate, input.horizon);
+  if (!targetAtKst) return false;
+  const targetMs = Date.parse(targetAtKst);
+  return Number.isFinite(targetMs) && targetMs <= now.getTime();
 }
 
 function rangeCandidatesForHorizon(horizon: ShadowFutureReturnHorizon): string[] {
@@ -161,5 +172,7 @@ export function loadAndBuildShadowFutureReturnCacheCoverageSummary(): ShadowFutu
 }
 
 export async function loadResolveAndSaveShadowFutureReturnsFromCache() {
-  return loadResolveAndSaveShadowFutureReturns(createShadowFutureReturnCachePriceProvider());
+  return loadResolveAndSaveShadowFutureReturns(createShadowFutureReturnCachePriceProvider(), {
+    maturityGate: isShadowFutureReturnTargetMature,
+  });
 }
