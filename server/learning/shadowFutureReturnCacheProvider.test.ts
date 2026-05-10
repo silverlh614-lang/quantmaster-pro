@@ -206,7 +206,7 @@ describe('shadowFutureReturnCacheProvider', () => {
     expect(result).toBeNull();
   });
 
-  it('builds cache coverage summary with misses, suffix candidates, and snapshot samples', () => {
+  it('builds maturity-aware cache coverage summary with misses, due counts, and samples', () => {
     mockedGetSnapshotSize.mockReturnValue(12);
     mockedGetSnapshotKeySamples.mockReturnValue(['061970.KQ:1mo:1d', '336370.KS:5d:1d']);
     mockedReadYahooSnapshotPoint
@@ -216,19 +216,35 @@ describe('shadowFutureReturnCacheProvider', () => {
     const summary = buildShadowFutureReturnCacheCoverageSummary([
       signal({ symbol: '005930' }),
       signal({ symbol: '000660', futureReturn1d: 0.01 }),
-    ], 2);
+    ], 2, new Date('2026-05-11T06:31:00.000Z'));
 
     expect(summary.snapshotEntries).toBe(12);
     expect(summary.checkedSignals).toBe(2);
-    expect(summary.checkedLookups).toBe(7);
+    expect(summary.checkedLookups).toBe(1);
     expect(summary.cacheHits).toBe(1);
-    expect(summary.cacheMisses).toBe(6);
-    expect(summary.unresolvedSignals).toBe(2);
-    expect(summary.sampleMissingTargets).toHaveLength(2);
-    expect(summary.sampleMissingTargets[0]).toContain('005930:3d:');
-    expect(summary.sampleMissingTargets[0]).toContain('005930.KS|005930.KQ|005930');
+    expect(summary.cacheMisses).toBe(0);
+    expect(summary.unresolvedSignals).toBe(0);
+    expect(summary.notYetDueLookups).toBe(6);
+    expect(summary.sampleMissingTargets).toHaveLength(0);
     expect(summary.sampleSnapshotKeys).toEqual(['061970.KQ:1mo:1d', '336370.KS:5d:1d']);
     expect(mockedGetSnapshotKeySamples).toHaveBeenCalledWith(2);
+  });
+
+  it('shows mature cache misses only when target close has passed', () => {
+    mockedGetSnapshotSize.mockReturnValue(3);
+    mockedGetSnapshotKeySamples.mockReturnValue(['005930.KS:5d:1d']);
+    mockedReadYahooSnapshotPoint.mockReturnValue(null);
+
+    const summary = buildShadowFutureReturnCacheCoverageSummary([
+      signal({ symbol: '005930' }),
+    ], 2, new Date('2026-05-11T06:31:00.000Z'));
+
+    expect(summary.checkedSignals).toBe(1);
+    expect(summary.checkedLookups).toBe(1);
+    expect(summary.cacheMisses).toBe(1);
+    expect(summary.notYetDueLookups).toBe(3);
+    expect(summary.sampleMissingTargets).toHaveLength(1);
+    expect(summary.sampleMissingTargets[0]).toContain('005930:1d:2026-05-11:');
   });
 
   it('loads signals for cache coverage summary convenience function', () => {
@@ -241,8 +257,6 @@ describe('shadowFutureReturnCacheProvider', () => {
 
     expect(summary.snapshotEntries).toBe(3);
     expect(summary.checkedSignals).toBe(1);
-    expect(summary.checkedLookups).toBe(4);
-    expect(summary.cacheMisses).toBe(4);
     expect(summary.sampleSnapshotKeys).toEqual(['005930.KS:5d:1d']);
   });
 
