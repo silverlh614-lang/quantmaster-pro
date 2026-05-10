@@ -30,6 +30,8 @@ export interface DataCompletenessSummary {
   nextCommands: string[];
 }
 
+const MACRO_FRESH_MAX_HOURS = 8;
+
 function ageHours(iso: string | undefined, nowMs: number): number | null {
   if (!iso) return null;
   const ts = Date.parse(iso);
@@ -37,9 +39,22 @@ function ageHours(iso: string | undefined, nowMs: number): number | null {
   return Math.max(0, (nowMs - ts) / 3_600_000);
 }
 
+function formatKstShort(iso: string | undefined): string {
+  if (!iso) return 'none';
+  const ts = Date.parse(iso);
+  if (!Number.isFinite(ts)) return 'invalid';
+  return new Date(ts).toLocaleString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function classifyMacroByAge(age: number | null, hasMacroPayload: boolean): DataCompletenessStatus {
   if (age === null) return hasMacroPayload ? 'STALE' : 'MISSING';
-  if (age <= 8) return 'OK';
+  if (age <= MACRO_FRESH_MAX_HOURS) return 'OK';
   return hasMacroPayload ? 'STALE' : 'MISSING';
 }
 
@@ -56,6 +71,11 @@ function scanSummaryHas(summary: unknown, key: string): boolean {
 function fmtUsdKrw(value: unknown): string {
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) ? n.toFixed(2) : 'n/a';
+}
+
+function fmtMhs(value: unknown): string {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n.toFixed(0) : 'n/a';
 }
 
 function deriveSectorItem(summary: ReturnType<typeof getLastScanSummary>): DataCompletenessItem {
@@ -115,13 +135,22 @@ function buildItems(nowMs: number): DataCompletenessItem[] {
   const scanStatus: DataCompletenessStatus = health.lastScanTs > 0 ? 'OK' : 'WAIT';
   const watchlistStatus: DataCompletenessStatus = watchlist.length > 0 ? 'OK' : 'MISSING';
 
+  const macroDetail = [
+    `updated=${formatKstShort(macro?.updatedAt)}`,
+    `age=${typeof macroAge === 'number' ? `${macroAge.toFixed(1)}h` : 'n/a'}`,
+    `regime=${macro?.regime ?? 'UNKNOWN'}`,
+    `MHS=${fmtMhs(macro?.mhs)}`,
+    `usdKrw=${fmtUsdKrw(macro?.usdKrw)}`,
+    `fresh<=${MACRO_FRESH_MAX_HOURS}h`,
+  ].join(', ');
+
   return [
     {
       name: 'Macro',
       status: macroStatus,
       updatedAt: macro?.updatedAt,
       ageHours: macroAge,
-      detail: `usdKrw=${fmtUsdKrw(macro?.usdKrw)}, regime=${macro?.regime ?? 'UNKNOWN'}`,
+      detail: macroDetail,
       impact: impactFromStatus(macroStatus),
     },
     {
@@ -192,7 +221,7 @@ function buildActionHints(items: DataCompletenessItem[]): string[] {
   const yahoo = byName.get('Yahoo');
   const kis = byName.get('KIS');
 
-  if (macro?.status === 'STALE') hints.push('Macro stale → /refresh_macro');
+  if (macro?.status === 'STALE') hints.push(`Macro stale (${typeof macro.ageHours === 'number' ? `${macro.ageHours.toFixed(1)}h` : 'age n/a'}) → /refresh_macro`);
   if (macro?.status === 'MISSING') hints.push('Macro missing → /refresh_macro 후 /ops_status full 확인');
   if (yahoo?.status === 'WAIT') hints.push('Yahoo wait → 스캔 전 상태, 장애 아님');
   if (scan?.status === 'WAIT') hints.push('No scan yet → 다음 스캐너 주기 대기 또는 /scan_blockers');
@@ -218,11 +247,11 @@ export function buildDataCompletenessSummary(now: Date = new Date()): DataComple
 }
 
 function formatItemLine(item: DataCompletenessItem, full: boolean): string {
-  const age = typeof item.ageHours === 'number' ? ` · age ${item.ageHours.toFixed(1)}h` : '';
+  const age = full && typeof item.ageHours === 'number' ? ` · age ${item.ageHours.toFixed(1)}h` : '';
   const detail = item.detail ? ` · ${item.detail}` : '';
   return full
     ? `${item.name}: <b>${item.status}</b> · ${item.impact}${age}${detail}`
-    : `${item.name}: <b>${item.status}</b>${age}${detail}`;
+    : `${item.name}: <b>${item.status}</b>${detail}`;
 }
 
 export function formatDataCompletenessSummary(summary: DataCompletenessSummary, options: { full?: boolean } = {}): string {
