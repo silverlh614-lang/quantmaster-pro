@@ -44,15 +44,15 @@ const CORE_LIVE_PATH_ALLOWLIST = new Set([
   'server/orchestrator/overrideExecutor.ts',
 ]);
 
-const PATTERNS: Array<{ key: FlagKey; label: string; regex: RegExp }> = [
-  { key: 'kisOrderImportDetected', label: 'KIS order API usage', regex: /\b(?:placeKisMarketOrder|placeKisSellOrder|cancelKisOrder|placeKisStopLossOrder|placeKisTakeProfitOrder|kisPost\s*\()/ },
-  { key: 'normalizedGateScoreLiveDecisionDetected', label: 'normalizedGateScore live decision coupling', regex: /normalizedGateScore[\s\S]{0,120}signalType|signalType[\s\S]{0,120}normalizedGateScore/ },
-  { key: 'createLiveOrderTrueDetected', label: 'createLiveOrder=true', regex: /createLiveOrder\s*:\s*true/ },
-  { key: 'executionImpactFullOrPartialDetected', label: 'executionImpact FULL/PARTIAL', regex: /executionImpact\s*:\s*['"](?:FULL|PARTIAL)['"]/ },
-  { key: 'gateThresholdMutationDetected', label: 'gate threshold mutation', regex: /setRuntimeThresholdDelta\b|GATE_SCORE_THRESHOLD_BY_REGIME\s*=/ },
-  { key: 'kellyMutationDetected', label: 'Kelly mutation', regex: /positionPct[\s\S]{0,120}overlay|Kelly mutation|kelly mutation/i },
-  { key: 'coreRolloutDetected', label: 'CORE rollout mutation', regex: /modifiesCoreGate\s*:\s*true|rolloutStage\s*:\s*['"]CORE['"]/ },
-  { key: 'unexpectedAdr460ArtifactDetected', label: 'unexpected ADR-460 artifact', regex: /gateReclassificationLiveOverlay|gateLiveOverlayRepo|GATE_LIVE_OVERLAY_DISABLED|manualLiveOverlayApproved|GateLiveOverlay/ },
+const PATTERNS: Array<{ flag: FlagKey; label: string; regex: RegExp }> = [
+  { flag: 'kisOrderImportDetected', label: 'KIS order API usage', regex: /\b(?:placeKisMarketOrder|placeKisSellOrder|cancelKisOrder|placeKisStopLossOrder|placeKisTakeProfitOrder|kisPost\s*\()/ },
+  { flag: 'normalizedGateScoreLiveDecisionDetected', label: 'normalizedGateScore live decision coupling', regex: /normalizedGateScore[\s\S]{0,120}signalType|signalType[\s\S]{0,120}normalizedGateScore/ },
+  { flag: 'createLiveOrderTrueDetected', label: 'createLiveOrder=true', regex: /createLiveOrder\s*:\s*true/ },
+  { flag: 'executionImpactFullOrPartialDetected', label: 'executionImpact FULL/PARTIAL', regex: /executionImpact\s*:\s*['"](?:FULL|PARTIAL)['"]/ },
+  { flag: 'gateThresholdMutationDetected', label: 'gate threshold mutation', regex: /setRuntimeThresholdDelta\b|GATE_SCORE_THRESHOLD_BY_REGIME\s*=/ },
+  { flag: 'kellyMutationDetected', label: 'Kelly mutation', regex: /positionPct[\s\S]{0,120}overlay|Kelly mutation|kelly mutation/i },
+  { flag: 'coreRolloutDetected', label: 'CORE rollout mutation', regex: /modifiesCoreGate\s*:\s*true|rolloutStage\s*:\s*['"]CORE['"]/ },
+  { flag: 'unexpectedAdr460ArtifactDetected', label: 'unexpected ADR-460 artifact', regex: /gateReclassificationLiveOverlay|gateLiveOverlayRepo|GATE_LIVE_OVERLAY_DISABLED|manualLiveOverlayApproved|GateLiveOverlay/ },
 ];
 
 function toPosix(p: string): string {
@@ -122,8 +122,8 @@ export function runLivePathSafetyAudit(options: LivePathSafetyAuditOptions = {})
     const source = stripComments(fs.readFileSync(file, 'utf-8'));
     for (const pattern of PATTERNS) {
       if (!pattern.regex.test(source)) continue;
-      if (isAllowlistedFinding(rel, pattern.key)) continue;
-      result[pattern.key] = true;
+      if (isAllowlistedFinding(rel, pattern.flag)) continue;
+      result[pattern.flag] = true;
       result.findings.push(`${pattern.label}: ${rel}`);
     }
   }
