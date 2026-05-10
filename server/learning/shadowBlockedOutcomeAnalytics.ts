@@ -46,6 +46,8 @@ export interface ShadowBlockedOutcomeSummary {
   byMacroBlockReason: ShadowOutcomeAttributionSummary[];
   byDataQualityStatus: ShadowOutcomeAttributionSummary[];
   bySignalGrade: ShadowOutcomeAttributionSummary[];
+  byBlockedReasonSignalGrade: ShadowOutcomeAttributionSummary[];
+  byBlockedReasonMacroBlockReason: ShadowOutcomeAttributionSummary[];
   topOverBlockedReasons: ShadowBlockedOutcomeReasonSummary[];
   topFastOverBlocked: ShadowOutcomeAttributionSummary[];
 }
@@ -148,8 +150,19 @@ function groupByKey(
     .sort(sortAttributionRows);
 }
 
+function groupByCompositeKey(
+  signals: ShadowLearningOnlySignal[],
+  leftFn: (signal: ShadowLearningOnlySignal) => string | undefined | null,
+  rightFn: (signal: ShadowLearningOnlySignal) => string | undefined | null,
+): ShadowOutcomeAttributionSummary[] {
+  return groupByKey(signals, (signal) => `${leftFn(signal)?.trim() || 'UNKNOWN'} / ${rightFn(signal)?.trim() || 'UNKNOWN'}`);
+}
+
 function sortAttributionRows(a: ShadowOutcomeAttributionSummary, b: ShadowOutcomeAttributionSummary): number {
   if (b.resolvedAnyCount !== a.resolvedAnyCount) return b.resolvedAnyCount - a.resolvedAnyCount;
+  if ((b.avgReturn1d ?? -Infinity) !== (a.avgReturn1d ?? -Infinity)) {
+    return (b.avgReturn1d ?? -Infinity) - (a.avgReturn1d ?? -Infinity);
+  }
   if (b.total !== a.total) return b.total - a.total;
   return a.key.localeCompare(b.key);
 }
@@ -187,8 +200,18 @@ export function summarizeShadowBlockedOutcomes(
   const byMacroBlockReason = groupByKey(signals, (s) => s.macroBlockReason);
   const byDataQualityStatus = groupByKey(signals, (s) => s.dataQualityStatus);
   const bySignalGrade = groupByKey(signals, (s) => s.signalGrade);
+  const byBlockedReasonSignalGrade = groupByCompositeKey(
+    signals,
+    (s) => s.blockedReason,
+    (s) => s.signalGrade,
+  );
+  const byBlockedReasonMacroBlockReason = groupByCompositeKey(
+    signals,
+    (s) => s.blockedReason,
+    (s) => s.macroBlockReason,
+  );
 
-  const topFastOverBlocked = [...byBlockedReason]
+  const topFastOverBlocked = [...byBlockedReasonSignalGrade]
     .filter((row) => row.resolved1dCount >= 3 && (row.avgReturn1d ?? 0) > 0)
     .sort((a, b) => {
       if ((b.avgReturn1d ?? -Infinity) !== (a.avgReturn1d ?? -Infinity)) {
@@ -206,6 +229,8 @@ export function summarizeShadowBlockedOutcomes(
     byMacroBlockReason,
     byDataQualityStatus,
     bySignalGrade,
+    byBlockedReasonSignalGrade,
+    byBlockedReasonMacroBlockReason,
     topOverBlockedReasons,
     topFastOverBlocked,
   };
