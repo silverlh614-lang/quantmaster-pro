@@ -3,11 +3,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ShadowLearningOnlySignal } from '../trading/shadowLearningOnlyScan.js';
 
-vi.mock('./counterfactualShadowPriceProviderAdapter.js', () => ({
-  readYahooSnapshotPoint: vi.fn(),
-}));
+vi.mock('./counterfactualShadowPriceProviderAdapter.js', async () => {
+  const actual = await vi.importActual<typeof import('./counterfactualShadowPriceProviderAdapter.js')>(
+    './counterfactualShadowPriceProviderAdapter.js',
+  );
+  return {
+    ...actual,
+    normalizeYahooSymbol: vi.fn((symbol: string) => symbol),
+    parseYahooChartBody: vi.fn(),
+  };
+});
 
 vi.mock('../persistence/offHoursSnapshotRepo.js', () => ({
+  getSnapshot: vi.fn(),
   getSnapshotKeySamples: vi.fn(() => []),
   getSnapshotSize: vi.fn(() => 0),
 }));
@@ -26,8 +34,8 @@ vi.mock('./shadowFutureReturnResolver.js', async () => {
   };
 });
 
-import { readYahooSnapshotPoint } from './counterfactualShadowPriceProviderAdapter.js';
-import { getSnapshotKeySamples, getSnapshotSize } from '../persistence/offHoursSnapshotRepo.js';
+import { normalizeYahooSymbol, parseYahooChartBody } from './counterfactualShadowPriceProviderAdapter.js';
+import { getSnapshot, getSnapshotKeySamples, getSnapshotSize } from '../persistence/offHoursSnapshotRepo.js';
 import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnlySignalRepo.js';
 import { loadResolveAndSaveShadowFutureReturns } from './shadowFutureReturnResolver.js';
 import {
@@ -41,11 +49,22 @@ import {
   symbolCandidatesForShadowFutureReturnCache,
 } from './shadowFutureReturnCacheProvider.js';
 
-const mockedReadYahooSnapshotPoint = vi.mocked(readYahooSnapshotPoint);
+const mockedGetSnapshot = vi.mocked(getSnapshot);
 const mockedGetSnapshotKeySamples = vi.mocked(getSnapshotKeySamples);
 const mockedGetSnapshotSize = vi.mocked(getSnapshotSize);
 const mockedLoadSignals = vi.mocked(loadShadowLearningOnlySignals);
 const mockedLoadResolveAndSave = vi.mocked(loadResolveAndSaveShadowFutureReturns);
+const mockedNormalizeYahooSymbol = vi.mocked(normalizeYahooSymbol);
+const mockedParseYahooChartBody = vi.mocked(parseYahooChartBody);
+
+function yahooSnapshot() {
+  return { body: '{}', contentType: 'application/json', fetchedAt: 1 };
+}
+
+function point(date: string, price: number) {
+  const timestampMs = Date.parse(`${date}T00:00:00.000Z`);
+  return { price, observedAtKst: new Date(timestampMs).toISOString(), timestampMs };
+}
 
 function signal(overrides: Partial<ShadowLearningOnlySignal> = {}): ShadowLearningOnlySignal {
   return {
@@ -88,9 +107,12 @@ function emptyStats() {
 describe('shadowFutureReturnCacheProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedGetSnapshot.mockReturnValue(null);
     mockedGetSnapshotKeySamples.mockReturnValue([]);
     mockedGetSnapshotSize.mockReturnValue(0);
     mockedLoadSignals.mockReturnValue([]);
+    mockedNormalizeYahooSymbol.mockImplementation((symbol: string) => symbol);
+    mockedParseYahooChartBody.mockReturnValue([]);
   });
 
   it('finds the next KRX trading day while skipping weekend', () => {
@@ -98,7 +120,6 @@ describe('shadowFutureReturnCacheProvider', () => {
   });
 
   it('skips known KRX holidays when resolving future trading day', () => {
-    // 2026-05-25 is in the local static holiday table.
     expect(findNthKrxTradingDayAfter('2026-05-22', 1)).toBe('2026-05-26');
   });
 
@@ -135,13 +156,18 @@ describe('shadowFutureReturnCacheProvider', () => {
     ]);
   });
 
-  it('reads first available Yahoo snapshot point for short horizon through suffix fallback', async () => {
-    mockedReadYahooSnapshotPoint
+  it('uses same-date daily candle even when candle timestamp is before target close time', async () => {
+    mockedGetSnapshot
       .mockReturnValueOnce(null)
       .mockReturnValueOnce(null)
       .mockReturnValueOnce(null)
       .mockReturnValueOnce(null)
-      .mockReturnValueOnce({ price: 10100, observedAtKst: '2026-05-11T15:30:00+09:00', timestampMs: 1 });
+      .mockReturnValueOnce(yahooSnapshot());
+    mockedParseYahooChartBody.mockReturnValue([
+      point('2026-05-10', 9900),
+      point('2026-05-11', 10100),
+      point('2026-05-12', 10200),
+    ]);
     const provider = createShadowFutureReturnCachePriceProvider();
 
     const result = await provider({
@@ -153,32 +179,34 @@ describe('shadowFutureReturnCacheProvider', () => {
 
     expect(result).toEqual({
       price: 10100,
-      observedAt: '2026-05-11T15:30:00+09:00',
+      observedAt: new Date(Date.parse('2026-05-11T00:00:00.000Z')).toISOString(),
     });
-    expect(mockedReadYahooSnapshotPoint).toHaveBeenNthCalledWith(
-      1,
-      '061970.KS',
-      '2026-05-11T15:30:00+09:00',
-      '5d',
-      '1d',
-      'closest',
-    );
-    expect(mockedReadYahooSnapshotPoint).toHaveBeenNthCalledWith(
-      5,
-      '061970.KQ',
-      '2026-05-11T15:30:00+09:00',
-      '5d',
-      '1d',
-      'closest',
-    );
+    expect(mockedGetSnapshot).toHaveBeenNthCalledWith(1, '061970.KS:5d:1d');
+    expect(mockedGetSnapshot).toHaveBeenNthCalledWith(5, '061970.KQ:5d:1d');
   });
 
-  it('uses longer range candidates for 20d horizon', async () => {
-    mockedReadYahooSnapshotPoint.mockReturnValueOnce({
-      price: 12000,
-      observedAtKst: '2026-06-09T15:30:00+09:00',
-      timestampMs: 1,
+  it('does not use a next-date candle for daily target-date matching', async () => {
+    mockedGetSnapshot.mockReturnValue(yahooSnapshot());
+    mockedParseYahooChartBody.mockReturnValue([
+      point('2026-05-12', 10200),
+    ]);
+    const provider = createShadowFutureReturnCachePriceProvider();
+
+    const result = await provider({
+      symbol: '005930',
+      signalDate: '2026-05-08',
+      horizon: '1d',
+      signal: {} as never,
     });
+
+    expect(result).toBeNull();
+  });
+
+  it('uses longer range candidates for 20d horizon with target-date matching', async () => {
+    mockedGetSnapshot.mockReturnValue(yahooSnapshot());
+    mockedParseYahooChartBody.mockReturnValue([
+      point('2026-06-09', 12000),
+    ]);
     const provider = createShadowFutureReturnCachePriceProvider();
 
     const result = await provider({
@@ -189,11 +217,12 @@ describe('shadowFutureReturnCacheProvider', () => {
     });
 
     expect(result?.price).toBe(12000);
-    expect(mockedReadYahooSnapshotPoint.mock.calls[0]?.[2]).toBe('3mo');
+    expect(mockedGetSnapshot.mock.calls[0]?.[0]).toBe('005930.KS:3mo:1d');
   });
 
-  it('returns null when cache has no usable price', async () => {
-    mockedReadYahooSnapshotPoint.mockReturnValue(null);
+  it('returns null when cache has no usable target-date candle', async () => {
+    mockedGetSnapshot.mockReturnValue(yahooSnapshot());
+    mockedParseYahooChartBody.mockReturnValue([]);
     const provider = createShadowFutureReturnCachePriceProvider();
 
     const result = await provider({
@@ -209,9 +238,10 @@ describe('shadowFutureReturnCacheProvider', () => {
   it('builds maturity-aware cache coverage summary with misses, due counts, and samples', () => {
     mockedGetSnapshotSize.mockReturnValue(12);
     mockedGetSnapshotKeySamples.mockReturnValue(['061970.KQ:1mo:1d', '336370.KS:5d:1d']);
-    mockedReadYahooSnapshotPoint
-      .mockReturnValueOnce({ price: 10100, observedAtKst: '2026-05-11T15:30:00+09:00', timestampMs: 1 })
-      .mockReturnValue(null);
+    mockedGetSnapshot.mockReturnValue(yahooSnapshot());
+    mockedParseYahooChartBody
+      .mockReturnValueOnce([point('2026-05-11', 10100)])
+      .mockReturnValue([]);
 
     const summary = buildShadowFutureReturnCacheCoverageSummary([
       signal({ symbol: '005930' }),
@@ -233,7 +263,7 @@ describe('shadowFutureReturnCacheProvider', () => {
   it('shows mature cache misses only when target close has passed', () => {
     mockedGetSnapshotSize.mockReturnValue(3);
     mockedGetSnapshotKeySamples.mockReturnValue(['005930.KS:5d:1d']);
-    mockedReadYahooSnapshotPoint.mockReturnValue(null);
+    mockedGetSnapshot.mockReturnValue(null);
 
     const summary = buildShadowFutureReturnCacheCoverageSummary([
       signal({ symbol: '005930' }),
@@ -251,7 +281,7 @@ describe('shadowFutureReturnCacheProvider', () => {
     mockedGetSnapshotSize.mockReturnValue(3);
     mockedGetSnapshotKeySamples.mockReturnValue(['005930.KS:5d:1d']);
     mockedLoadSignals.mockReturnValue([signal({ symbol: '005930' })]);
-    mockedReadYahooSnapshotPoint.mockReturnValue(null);
+    mockedGetSnapshot.mockReturnValue(null);
 
     const summary = loadAndBuildShadowFutureReturnCacheCoverageSummary();
 
