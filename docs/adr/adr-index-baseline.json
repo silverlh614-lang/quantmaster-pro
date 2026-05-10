@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "createdAt": "2026-05-10",
+  "purpose": "Known historical ADR index deviations are isolated here so validate:adrIndex fails only on new drift.",
+  "allowedViolations": [
+    {
+      "category": "F_INVALID_FILENAME",
+      "message": "파일명 패턴 위반: numbering-operations.md (기대: NNNN-name.md, 영소문자+숫자+하이픈)",
+      "reason": "Operational note under docs/adr; does not issue an ADR number and must not advance INDEX.md next-number state. See docs/adr/numbering-operations.md."
+    }
+  ]
+}
