@@ -95,10 +95,6 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function uniqueDomains(domains: SupplySnapshotDomainAdr0491[]): SupplySnapshotDomainAdr0491[] {
-  return [...new Set(domains)];
-}
-
 function readStore(filePath = SUPPLY_SNAPSHOT_STORE_FILE_ADR0491): { store: SupplySnapshotStoreAdr0491; recovered: boolean } {
   ensureDataDir();
   if (!fs.existsSync(filePath)) return { store: { version: 1, snapshots: [] }, recovered: false };
@@ -127,11 +123,9 @@ export function buildSanitizedSupplySnapshotAdr0491(
   const supplyStatus = input.investorFlowSampleAdr0489?.status ?? input.freshDataSupplyAdr0487?.overallStatus ?? 'UNKNOWN';
   const sectorStatus = input.sectorEnergySupplyUnknownAdr0488?.overallStatus ?? 'UNKNOWN';
   const programStatus = input.programTradingAdr0490?.status ?? 'UNKNOWN';
-  const domains = uniqueDomains([
-    'SUPPLY',
-    input.sectorEnergySupplyUnknownAdr0488 ? 'SECTOR' : 'SECTOR',
-    input.programTradingAdr0490 ? 'PROGRAM' : 'PROGRAM',
-  ]);
+  const domains: SupplySnapshotDomainAdr0491[] = ['SUPPLY'];
+  if (input.sectorEnergySupplyUnknownAdr0488) domains.push('SECTOR');
+  if (input.programTradingAdr0490) domains.push('PROGRAM');
   const adr0496Coverage = input.supplyCoverageReportAdr0496 ?? input.investorFlowSampleAdr0489?.adr0496SupplyCoverage ?? null;
   const providerIssue = Boolean(
     input.sectorEnergySupplyUnknownAdr0488?.supplyUnknownPolicy.providerIssue === true ||

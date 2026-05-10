@@ -10,6 +10,8 @@ import {
   recordSupplySnapshotAdr0491,
   replaySupplySnapshotsAdr0491,
 } from './supplySnapshotStoreReplayAdr0491.js';
+import { buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
+import { buildProgramTradingDataLineReportAdr0490 } from './programTradingDataLineAdr0490.js';
 
 const tempFiles: string[] = [];
 function tempFile(): string {
@@ -36,13 +38,86 @@ describe('ADR-0491 supply snapshot store and replay', () => {
       recordedAt: '2026-05-09T00:00:00.000Z',
       tradingDate: '2026-05-09',
     });
-    expect(snapshot.domains).toEqual(['SUPPLY', 'SECTOR', 'PROGRAM']);
+    expect(snapshot.domains).toEqual(['SUPPLY']);
     expect(snapshot.executionImpact).toBe('NONE');
     expect(snapshot.liveExecutionAllowed).toBe(false);
     expect(snapshot.policyPromotionMode).toBe('SHADOW_ONLY');
     expect(snapshot.operatorApprovalRequired).toBe(true);
     expect(snapshot.rawProviderPayloadPersisted).toBe(false);
     expect(snapshot.marketSignal).toBe(false);
+  });
+
+  it('does not advertise absent SECTOR/PROGRAM domains', () => {
+    const snapshot = buildSanitizedSupplySnapshotAdr0491({
+      scanId: 'scan-supply-only',
+      recordedAt: '2026-05-09T00:00:00.000Z',
+      tradingDate: '2026-05-09',
+    });
+
+    expect(snapshot.domains).toEqual(['SUPPLY']);
+    expect(snapshot.domains).not.toContain('SECTOR');
+    expect(snapshot.domains).not.toContain('PROGRAM');
+    expect(snapshot.executionImpact).toBe('NONE');
+    expect(snapshot.liveExecutionAllowed).toBe(false);
+    expect(snapshot.rawProviderPayloadPersisted).toBe(false);
+    expect(snapshot.marketSignal).toBe(false);
+  });
+
+  it('includes SECTOR only when sectorEnergySupplyUnknownAdr0488 exists', () => {
+    const sectorReport = buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
+      generatedAt: '2026-05-09T00:00:00.000Z',
+      sectorMasterRecords: [],
+    });
+
+    const snapshot = buildSanitizedSupplySnapshotAdr0491({
+      scanId: 'scan-sector',
+      recordedAt: '2026-05-09T00:00:00.000Z',
+      tradingDate: '2026-05-09',
+      sectorEnergySupplyUnknownAdr0488: sectorReport,
+    });
+
+    expect(snapshot.domains).toEqual(['SUPPLY', 'SECTOR']);
+    expect(snapshot.domains).toContain('SECTOR');
+    expect(snapshot.domains).not.toContain('PROGRAM');
+  });
+
+  it('includes PROGRAM only when programTradingAdr0490 exists', () => {
+    const programReport = buildProgramTradingDataLineReportAdr0490({
+      generatedAt: '2026-05-09T00:00:00.000Z',
+      rows: [],
+    });
+
+    const snapshot = buildSanitizedSupplySnapshotAdr0491({
+      scanId: 'scan-program',
+      recordedAt: '2026-05-09T00:00:00.000Z',
+      tradingDate: '2026-05-09',
+      programTradingAdr0490: programReport,
+    });
+
+    expect(snapshot.domains).toEqual(['SUPPLY', 'PROGRAM']);
+    expect(snapshot.domains).not.toContain('SECTOR');
+    expect(snapshot.domains).toContain('PROGRAM');
+  });
+
+  it('includes SECTOR and PROGRAM when both input reports exist', () => {
+    const sectorReport = buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
+      generatedAt: '2026-05-09T00:00:00.000Z',
+      sectorMasterRecords: [],
+    });
+    const programReport = buildProgramTradingDataLineReportAdr0490({
+      generatedAt: '2026-05-09T00:00:00.000Z',
+      rows: [],
+    });
+
+    const snapshot = buildSanitizedSupplySnapshotAdr0491({
+      scanId: 'scan-both',
+      recordedAt: '2026-05-09T00:00:00.000Z',
+      tradingDate: '2026-05-09',
+      sectorEnergySupplyUnknownAdr0488: sectorReport,
+      programTradingAdr0490: programReport,
+    });
+
+    expect(snapshot.domains).toEqual(['SUPPLY', 'SECTOR', 'PROGRAM']);
   });
 
   it('records bounded JSON snapshots and supports all replay modes', () => {
