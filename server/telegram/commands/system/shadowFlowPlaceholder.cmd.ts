@@ -29,11 +29,11 @@ const shadowFlow: TelegramCommand = {
   usage: '/shadow_return_flow [limit=20]',
   async execute({ args, reply }) {
     const limit = parseShadowFlowLimit(args);
-    const before = loadAndBuildShadowFutureReturnCacheCoverageSummary();
+    const before = loadAndBuildShadowFutureReturnCacheCoverageSummary(limit);
     const prioritySymbols = symbolsFromMissingTargets(before.sampleMissingTargets);
     const warmup = await runShadowFutureReturnWarmup(limit, prioritySymbols);
     const resolve = await loadResolveAndSaveShadowFutureReturnsFromCache();
-    const after = loadAndBuildShadowFutureReturnCacheCoverageSummary();
+    const after = loadAndBuildShadowFutureReturnCacheCoverageSummary(limit);
     await reply([
       '🛠️ <b>Shadow Return Flow</b>',
       '',
