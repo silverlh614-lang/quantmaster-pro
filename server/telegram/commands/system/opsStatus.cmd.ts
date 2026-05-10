@@ -55,10 +55,7 @@ function formatOpsStatusMessage(): string {
   const coverage = loadAndBuildShadowFutureReturnCacheCoverageSummary();
   const liveExecutionAllowed = deriveLiveExecutionAllowed(snapshot);
 
-  const emptyCause = snapshot.lastScanSummary?.emptyReason
-    ?? snapshot.lastScanSummary?.blockReason
-    ?? snapshot.lastScanSummary?.skipReason
-    ?? 'UNKNOWN';
+  const emptyCause = snapshot.lastScanSummary?.emptyScanReason ?? 'UNKNOWN';
 
   const topOverBlocked = blocked.topOverBlockedReasons[0]
     ? `${blocked.topOverBlockedReasons[0].blockedReason} (${blocked.topOverBlockedReasons[0].overBlockedCount})`
