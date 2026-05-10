@@ -36,6 +36,7 @@ import {
   loadAndBuildShadowFutureReturnCacheCoverageSummary,
   loadResolveAndSaveShadowFutureReturnsFromCache,
   resolveShadowFutureReturnTargetCloseKst,
+  symbolCandidatesForShadowFutureReturnCache,
 } from './shadowFutureReturnCacheProvider.js';
 
 const mockedReadYahooSnapshotPoint = vi.mocked(readYahooSnapshotPoint);
@@ -89,14 +90,25 @@ describe('shadowFutureReturnCacheProvider', () => {
     expect(resolveShadowFutureReturnTargetCloseKst('bad-date', '1d')).toBeNull();
   });
 
-  it('reads first available Yahoo snapshot point for short horizon', () => {
+  it('builds symbol candidates for six digit KRX code', () => {
+    expect(symbolCandidatesForShadowFutureReturnCache('061970')).toEqual([
+      '061970.KS',
+      '061970.KQ',
+      '061970',
+    ]);
+  });
+
+  it('reads first available Yahoo snapshot point for short horizon through suffix fallback', () => {
     mockedReadYahooSnapshotPoint
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce(null)
       .mockReturnValueOnce(null)
       .mockReturnValueOnce({ price: 10100, observedAtKst: '2026-05-11T15:30:00+09:00', timestampMs: 1 });
     const provider = createShadowFutureReturnCachePriceProvider();
 
     const result = provider({
-      symbol: '005930',
+      symbol: '061970',
       signalDate: '2026-05-08',
       horizon: '1d',
       signal: {} as never,
@@ -108,17 +120,17 @@ describe('shadowFutureReturnCacheProvider', () => {
     });
     expect(mockedReadYahooSnapshotPoint).toHaveBeenNthCalledWith(
       1,
-      '005930',
+      '061970.KS',
       '2026-05-11T15:30:00+09:00',
       '5d',
       '1d',
       'closest',
     );
     expect(mockedReadYahooSnapshotPoint).toHaveBeenNthCalledWith(
-      2,
-      '005930',
+      5,
+      '061970.KQ',
       '2026-05-11T15:30:00+09:00',
-      '1mo',
+      '5d',
       '1d',
       'closest',
     );
@@ -155,7 +167,7 @@ describe('shadowFutureReturnCacheProvider', () => {
     })).toBeNull();
   });
 
-  it('builds cache coverage summary with misses and samples', () => {
+  it('builds cache coverage summary with misses and suffix candidates in samples', () => {
     mockedGetSnapshotSize.mockReturnValue(12);
     mockedReadYahooSnapshotPoint
       .mockReturnValueOnce({ price: 10100, observedAtKst: '2026-05-11T15:30:00+09:00', timestampMs: 1 })
@@ -174,6 +186,7 @@ describe('shadowFutureReturnCacheProvider', () => {
     expect(summary.unresolvedSignals).toBe(2);
     expect(summary.sampleMissingTargets).toHaveLength(2);
     expect(summary.sampleMissingTargets[0]).toContain('005930:3d:');
+    expect(summary.sampleMissingTargets[0]).toContain('005930.KS|005930.KQ|005930');
   });
 
   it('loads signals for cache coverage summary convenience function', () => {
