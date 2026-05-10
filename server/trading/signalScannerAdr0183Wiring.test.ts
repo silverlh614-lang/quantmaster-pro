@@ -1,5 +1,5 @@
 /**
- * @responsibility ADR-0183 Phase 3 Stage A — signalScanner 4 early-return Shadow learning wiring 회귀 테스트
+ * @responsibility ADR-0183 Phase 3 Stage A — signalScanner Always-On early-return Shadow learning wiring 회귀 테스트
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
@@ -69,7 +69,7 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
     });
   });
 
-  describe('4 early-return site wiring 정합', () => {
+  describe('Always-On early-return site wiring 정합', () => {
     it('SELL_ONLY → MANUAL_BLOCK', () => {
       expect(src).toContain("recordBlockedDayShadowScan('MANUAL_BLOCK')");
     });
@@ -86,23 +86,29 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
       expect(src).toContain("recordBlockedDayShadowScan('FOMC_BLOCK')");
     });
 
-    it('정확 5 호출 site (호출 수 정확) — ADR-0401 SHADOW_ONLY pre-scan 추가', () => {
-      // ADR-0183 4 site (MANUAL/RISK_OFF/VIX/FOMC) + ADR-0120 R3 latch active 1 site +
-      // ADR-0401 SHADOW_ONLY ephemeral pre-scan 1 site = 총 6회
-      // 모두 reason='R3_SANITY_BLOCK' 또는 ADR-0183 reason 5종 union 안.
+    it('정확 11 호출 site (호출 수 정확) — Always-On 차단 사유 포함', () => {
       const matches = src.match(/recordBlockedDayShadowScan\(['"]/g);
       expect(matches).toBeDefined();
-      expect(matches!.length).toBe(6);
+      expect(matches!.length).toBe(11);
     });
 
-    it('데이터 빈곤 site 제외 (DATA_*, LIQUIDITY_BLOCK 미사용)', () => {
-      // ADR-0183 §2.1 — 데이터 빈곤 site 는 신뢰성 부재 라 제외
-      // signalScanner 파일 안의 recordBlockedDayShadowScan 호출에 DATA/LIQUIDITY 사용 차단
+    it('Always-On 차단 사유 wiring 포함', () => {
       const callMatches = src.match(/recordBlockedDayShadowScan\(['"]([^'"]+)['"]\)/g);
       expect(callMatches).toBeDefined();
       const reasons = callMatches!.map((m) => m.match(/['"]([^'"]+)['"]/)![1]);
       expect(reasons).toEqual(
-        expect.arrayContaining(['MANUAL_BLOCK', 'RISK_OFF_REGIME', 'VIX_SPIKE', 'FOMC_BLOCK', 'R3_SANITY_BLOCK']),
+        expect.arrayContaining([
+          'KIS_CONFIG_MISSING',
+          'WATCHLIST_EMPTY',
+          'MANUAL_BLOCK',
+          'RISK_OFF_REGIME',
+          'VIX_SPIKE',
+          'FOMC_BLOCK',
+          'DATA_STARVED',
+          'POSITION_FULL',
+          'VOLUME_CLOCK_BLOCK',
+          'R3_SANITY_BLOCK',
+        ]),
       );
       expect(reasons).not.toContain('LIQUIDITY_BLOCK');
       expect(reasons).not.toContain('KRX_HOLIDAY_REPLAY');
@@ -181,6 +187,7 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
       const importBlock = importLines.join('\n');
       const KIS_ORDER_FNS = [
         'placeKisMarketOrder',
+        'placeKisMarketBuyOrder',
         'placeKisSellOrder',
         'cancelKisOrder',
         'placeKisStopLossOrder',

@@ -83,7 +83,11 @@ export function appendShadowLearningOnlySignal(
   signal: ShadowLearningOnlySignal,
 ): void {
   const all = loadShadowLearningOnlySignals();
-  all.push(signal);
+  all.push({
+    ...signal,
+    learningOnly: true,
+    executionImpact: 'NONE',
+  });
   saveShadowLearningOnlySignals(all);
 }
 

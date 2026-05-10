@@ -82,6 +82,11 @@ vi.mock('../entryEngine.js', () => ({
   isOpenShadowStatus: vi.fn().mockReturnValue(true),
 }));
 
+vi.mock('./counterfactualUniverseLearningWiring.js', () => ({
+  deriveUniverseLearningReason: vi.fn((reason: string) => reason),
+  recordCounterfactualUniverseLearningSnapshot: vi.fn(),
+}));
+
 vi.mock('../../../src/services/quant/regimeEngine.js', () => ({
   REGIME_CONFIGS: {
     R2_BULL: { kellyMultiplier: 0.8, maxPositions: 6, sellOnlyException: { enabled: false } },
@@ -99,6 +104,8 @@ import { getFomcProximity } from '../fomcCalendar.js';
 import { isDataStarvedScan } from '../../screener/dataCompletenessTracker.js';
 import { computeSlotConsumption } from '../slotAccounting.js';
 import { checkVolumeClockWindow } from '../volumeClock.js';
+import { runShadowLearningOnlyScan } from '../shadowLearningOnlyScan.js';
+import { recordCounterfactualUniverseLearningSnapshot } from './counterfactualUniverseLearningWiring.js';
 
 const mockedFetchAccountBalance = vi.mocked(fetchAccountBalance);
 const mockedGetManualBlockNewBuy = vi.mocked(getManualBlockNewBuy);
@@ -111,12 +118,15 @@ const mockedGetFomcProximity = vi.mocked(getFomcProximity);
 const mockedIsDataStarvedScan = vi.mocked(isDataStarvedScan);
 const mockedComputeSlotConsumption = vi.mocked(computeSlotConsumption);
 const mockedCheckVolumeClockWindow = vi.mocked(checkVolumeClockWindow);
+const mockedRunShadowLearningOnlyScan = vi.mocked(runShadowLearningOnlyScan);
+const mockedRecordCounterfactualUniverseLearningSnapshot = vi.mocked(recordCounterfactualUniverseLearningSnapshot);
 
 describe('preflight.ts byte-equivalent tests', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedRunShadowLearningOnlyScan.mockResolvedValue(undefined as any);
     process.env.KIS_APP_KEY = 'test-key';
     process.env.AUTO_TRADE_MODE = 'SHADOW';
 
@@ -136,16 +146,35 @@ describe('preflight.ts byte-equivalent tests', () => {
     process.env = { ...originalEnv };
   });
 
-  it('should abort if KIS_APP_KEY is not set', async () => {
+  it('should abort if KIS_APP_KEY is not set while recording learning-only cases', async () => {
     delete process.env.KIS_APP_KEY;
     const result = await runPreflight();
-    expect(result).toEqual({ shouldAbort: true, skipPersist: true });
+    expect(result).toEqual({ shouldAbort: true, skipPersist: false });
+    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
+      allowRealOrder: false,
+      bypassMacroEntryBlock: true,
+      reason: 'KIS_CONFIG_MISSING',
+    }));
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      preflightStage: 'BEFORE_UNIVERSE_BUILD',
+      blockedBy: ['KIS_CONFIG_MISSING'],
+    }));
   });
 
-  it('should abort if watchlist is empty', async () => {
+  it('should abort if watchlist is empty while recording WATCHLIST_EMPTY learning case', async () => {
     mockedLoadWatchlist.mockReturnValue([]);
     const result = await runPreflight();
-    expect(result).toEqual({ shouldAbort: true, skipPersist: true });
+    expect(result).toEqual({ shouldAbort: true, skipPersist: false });
+    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
+      allowRealOrder: false,
+      reason: 'WATCHLIST_EMPTY',
+    }));
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      preflightStage: 'BEFORE_UNIVERSE_BUILD',
+      blockedBy: ['WATCHLIST_EMPTY'],
+      universeSize: 0,
+      candidateCount: 0,
+    }));
   });
 
   it('should abort if R3 sanity block is active and not acknowledged', async () => {
@@ -167,10 +196,41 @@ describe('preflight.ts byte-equivalent tests', () => {
     expect(result).toEqual({ shouldAbort: true, skipPersist: true });
   });
 
+
+
+  it('should record DATA_STARVED shadow learning before aborting data-starved scans', async () => {
+    mockedIsDataStarvedScan.mockReturnValue(true);
+    const result = await runPreflight();
+    expect(result).toEqual({ shouldAbort: true, skipPersist: true });
+    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
+      allowRealOrder: false,
+      reason: 'DATA_STARVED',
+    }));
+  });
+
+  it('should record VOLUME_CLOCK_BLOCK shadow learning when volume clock blocks entries', async () => {
+    mockedCheckVolumeClockWindow.mockReturnValue({ allowEntry: false, scoreBonus: 0, reason: 'closed' } as ReturnType<typeof checkVolumeClockWindow>);
+    const result = await runPreflight();
+    expect(result.shouldAbort).toBe(true);
+    expect(result.skipPersist).toBe(false);
+    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
+      allowRealOrder: false,
+      reason: 'VOLUME_CLOCK_BLOCK',
+    }));
+  });
+
   it('should abort if position slots are full', async () => {
     mockedComputeSlotConsumption.mockReturnValue({ isFull: true, consumed: 8, rawCount: 8 } as ReturnType<typeof computeSlotConsumption>);
     const result = await runPreflight();
     expect(result).toEqual({ shouldAbort: true, skipPersist: true, positionFull: true });
+    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
+      allowRealOrder: false,
+      reason: 'POSITION_FULL',
+    }));
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      preflightStage: 'BEFORE_BUYLIST_LOOP',
+      blockedBy: ['POSITION_FULL'],
+    }));
   });
 
   it('should successfully pass preflight with correct context on a normal day', async () => {

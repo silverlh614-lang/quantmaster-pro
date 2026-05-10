@@ -99,6 +99,8 @@ function makeSignal(overrides: Partial<ShadowLearningOnlySignal> = {}): ShadowLe
     dataQualityStatus: 'OK',
     outcome: 'PENDING',
     ...overrides,
+    learningOnly: true,
+    executionImpact: 'NONE',
   };
 }
 
