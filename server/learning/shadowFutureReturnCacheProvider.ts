@@ -34,6 +34,7 @@ export interface ShadowFutureReturnCacheCoverageSummary {
   cacheHits: number;
   cacheMisses: number;
   unresolvedSignals: number;
+  notYetDueLookups: number;
   sampleMissingTargets: string[];
   sampleSnapshotKeys: string[];
 }
@@ -129,10 +130,12 @@ export function createShadowFutureReturnCachePriceProvider(): ShadowFuturePriceP
 export function buildShadowFutureReturnCacheCoverageSummary(
   signals: ShadowLearningOnlySignal[],
   sampleLimit = 5,
+  now: Date = new Date(),
 ): ShadowFutureReturnCacheCoverageSummary {
   let checkedLookups = 0;
   let cacheHits = 0;
   let cacheMisses = 0;
+  let notYetDueLookups = 0;
   const unresolved = new Set<string>();
   const sampleMissingTargets: string[] = [];
 
@@ -141,6 +144,15 @@ export function buildShadowFutureReturnCacheCoverageSummary(
       if (hasResolvedHorizon(signal, horizon)) continue;
       const targetAtKst = resolveShadowFutureReturnTargetCloseKst(signal.signalDate, horizon);
       if (!targetAtKst) continue;
+      if (!isShadowFutureReturnTargetMature({
+        symbol: signal.symbol,
+        signalDate: signal.signalDate,
+        horizon,
+        signal,
+      }, now)) {
+        notYetDueLookups += 1;
+        continue;
+      }
       checkedLookups += 1;
       const hit = lookupCachePoint(signal.symbol, targetAtKst, horizon);
       if (hit) {
@@ -162,6 +174,7 @@ export function buildShadowFutureReturnCacheCoverageSummary(
     cacheHits,
     cacheMisses,
     unresolvedSignals: unresolved.size,
+    notYetDueLookups,
     sampleMissingTargets,
     sampleSnapshotKeys: getSnapshotKeySamples(sampleLimit),
   };
