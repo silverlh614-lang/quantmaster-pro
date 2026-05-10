@@ -11,6 +11,7 @@ import type { InvestorFlowSampleAcquisitionReportAdr0489 } from './investorFlowS
 import type { ProgramTradingDataLineReportAdr0490 } from './programTradingDataLineAdr0490.js';
 import type { SupplySnapshotReplayResultAdr0491 } from './supplySnapshotStoreReplayAdr0491.js';
 import type { FreshDataSchedulerResultAdr0492 } from './freshDataSchedulerAdr0492.js';
+import type { FreshDataStatusViewModelInputAdr0498 } from '../../diagnostics/freshDataStatusViewModelWiringAdr0498.js';
 
 export type FreshDataPromotionAuditSourceTypeAdr0494 =
   | 'SECTOR_ENERGY'
@@ -323,5 +324,30 @@ export function summarizeFreshDataPromotionAuditsAdr0494(
     promotionAuditReadyLines: ready,
     promotionAuditBlockedLines: blocked,
     executionImpact: 'NONE',
+  };
+}
+
+
+export function mapPromotionAuditToFreshDataStatusInputAdr0498(
+  audit: FreshDataPromotionAuditEvaluationAdr0494,
+): FreshDataStatusViewModelInputAdr0498 {
+  const status = audit.result.status;
+  return {
+    sourceAdr: 'ADR_0494_PROMOTION_AUDIT',
+    dataLineId: audit.input.dataLineId,
+    domain: audit.input.sourceType === 'SECTOR_ENERGY'
+      ? 'SECTOR_ENERGY'
+      : audit.input.sourceType === 'PROGRAM_TRADING'
+        ? 'PROGRAM_TRADING'
+        : audit.input.sourceType === 'SUPPLY_SNAPSHOT'
+          ? 'SNAPSHOT'
+          : 'PROMOTION_AUDIT',
+    providerHealth: audit.input.providerFailureCount > 0 ? 'DOWN' : 'UNKNOWN',
+    dataConfidence: status === 'PASS' || status === 'WARN' ? 'VERIFIED' : status === 'BLOCKED' || status === 'FAIL' || status === 'INSUFFICIENT_DATA' ? 'MISSING' : 'UNKNOWN',
+    marketSignal: 'UNKNOWN',
+    dataLineStatus: status === 'PASS' || status === 'WARN' ? 'READY_FOR_SHADOW' : status === 'BLOCKED' || status === 'FAIL' || status === 'INSUFFICIENT_DATA' ? 'BLOCKED' : 'OBSERVING',
+    promotionReadiness: status === 'PASS' || status === 'WARN' ? 'READY' : status === 'BLOCKED' || status === 'FAIL' || status === 'INSUFFICIENT_DATA' ? 'BLOCKED' : 'NOT_EVALUATED',
+    blockers: [...audit.result.blockReasons],
+    warnings: [...audit.result.warnings],
   };
 }

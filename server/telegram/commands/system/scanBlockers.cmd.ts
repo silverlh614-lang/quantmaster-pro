@@ -127,6 +127,10 @@ import {
   formatSupplySnapshotCompactAdr0491,
   summarizeSupplySnapshotStoreAdr0491,
 } from '../../../trading/signalScanner/supplySnapshotStoreReplayAdr0491.js';
+import {
+  mapRuntimeFreshDataSummaryToStatusInputsAdr0498,
+  safeBuildFreshDataStatusSectionAdr0498,
+} from '../../../diagnostics/freshDataStatusViewModelWiringAdr0498.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -476,6 +480,17 @@ const scanBlockers: TelegramCommand = {
       console.warn('[scan_blockers] ADR-0491 supply snapshot line failed:', err);
     }
 
+    let adr0498FreshDataStatusSection: string | null = null;
+    try {
+      const adr0498 = safeBuildFreshDataStatusSectionAdr0498(
+        mapRuntimeFreshDataSummaryToStatusInputsAdr0498(summary as unknown as Record<string, unknown> | null | undefined),
+        { maxLines: 3 },
+      );
+      adr0498FreshDataStatusSection = ['ADR-0498 FreshDataStatus normalized', ...adr0498.lines].join('\n');
+    } catch (err) {
+      console.warn('[scan_blockers] ADR-0498 fresh data status section failed:', err);
+    }
+
     let supplyCoverageRecoveryLine: string | null = null;
     let supplyAdvisoryReadinessLine: string | null = null;
     let supplyRecoveryRuntimeMountLine: string | null = null;
@@ -553,6 +568,7 @@ const scanBlockers: TelegramCommand = {
     if (nearMissAnalyticsLine) parts.push(nearMissAnalyticsLine);
     if (livenessSection) parts.push(livenessSection);
     if (operatorActionSection) parts.push(operatorActionSection);
+    if (adr0498FreshDataStatusSection) parts.push(adr0498FreshDataStatusSection);
     if (supplyCoverageRecoveryLine) parts.push(supplyCoverageRecoveryLine);
     if (supplyAdvisoryReadinessLine) parts.push(supplyAdvisoryReadinessLine);
     if (supplyRecoveryRuntimeMountLine) parts.push(supplyRecoveryRuntimeMountLine);
