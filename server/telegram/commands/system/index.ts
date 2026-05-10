@@ -61,6 +61,7 @@ import './shadowCounterfactual.cmd.js'; // ADR-0431 Counterfactual Shadow Perfor
 import './shadowPromotion.cmd.js';      // ADR-0432 Shadow Learning Promotion Recommendations
 import './shadowUniverse.cmd.js';       // ADR-0433 Counterfactual Universe Learning
 import './shadowBlockedOutcomes.cmd.js'; // PATCH-D Shadow blocked outcome analytics
+import './shadowResolveReturns.cmd.js';  // PATCH-D Shadow futureReturn resolver manual runner
 import './shadowWalkForward.cmd.js';
 import './shortBackfill.cmd.js';
 import './signalStatus.cmd.js';
