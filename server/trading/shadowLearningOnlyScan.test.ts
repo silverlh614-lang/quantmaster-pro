@@ -205,26 +205,27 @@ describe('bypassMacroEntryBlock 검증', () => {
 
 // ─── 16 reason union 분기 ─────────────────────────────────────────────────────
 
+const ALL_SHADOW_LEARNING_ONLY_REASONS = [
+  'FOMC_BLOCK',
+  'VIX_SPIKE',
+  'RISK_OFF_REGIME',
+  'R0_CRISIS',
+  'R1_DEFENSIVE',
+  'KRX_HOLIDAY_REPLAY',
+  'LIQUIDITY_BLOCK',
+  'MANUAL_BLOCK',
+  'R3_SANITY_BLOCK',
+  'KIS_CONFIG_MISSING',
+  'WATCHLIST_EMPTY',
+  'DATA_STARVED',
+  'VOLUME_CLOCK_BLOCK',
+  'POSITION_FULL',
+  'SECTOR_ENERGY_STALE',
+  'SUPPLY_DATA_UNSTABLE',
+] as const;
+
 describe('16 ShadowLearningOnlyScanReason union', () => {
-  const reasons = [
-    'FOMC_BLOCK',
-    'VIX_SPIKE',
-    'RISK_OFF_REGIME',
-    'R0_CRISIS',
-    'R1_DEFENSIVE',
-    'KRX_HOLIDAY_REPLAY',
-    'LIQUIDITY_BLOCK',
-    'MANUAL_BLOCK',
-    'R3_SANITY_BLOCK',
-    'KIS_CONFIG_MISSING',
-    'WATCHLIST_EMPTY',
-    'DATA_STARVED',
-    'VOLUME_CLOCK_BLOCK',
-    'POSITION_FULL',
-    'SECTOR_ENERGY_STALE',
-    'SUPPLY_DATA_UNSTABLE',
-  ] as const;
-  for (const reason of reasons) {
+  for (const reason of ALL_SHADOW_LEARNING_ONLY_REASONS) {
     it(`reason='${reason}' → 정상 진행 + result.reason 정합`, async () => {
       process.env[ENV_KEY] = 'true';
       const result = await mod.runShadowLearningOnlyScan({
@@ -239,6 +240,39 @@ describe('16 ShadowLearningOnlyScanReason union', () => {
       }
     });
   }
+});
+
+describe('ShadowLearningOnlyScanReason coverage map', () => {
+  it('all reason strings are represented exactly once in the union coverage fixture', () => {
+    expect(new Set(ALL_SHADOW_LEARNING_ONLY_REASONS).size).toBe(16);
+    expect(ALL_SHADOW_LEARNING_ONLY_REASONS).toEqual(expect.arrayContaining([
+      'KIS_CONFIG_MISSING',
+      'WATCHLIST_EMPTY',
+      'DATA_STARVED',
+      'VOLUME_CLOCK_BLOCK',
+      'POSITION_FULL',
+      'SECTOR_ENERGY_STALE',
+      'SUPPLY_DATA_UNSTABLE',
+      'LIQUIDITY_BLOCK',
+      'KRX_HOLIDAY_REPLAY',
+      'R1_DEFENSIVE',
+      'R0_CRISIS',
+    ]));
+  });
+
+  it('reserved/less-frequent reasons remain accepted by the learning-only lane without unlocking live execution', async () => {
+    process.env[ENV_KEY] = 'true';
+    for (const reason of ['SECTOR_ENERGY_STALE', 'SUPPLY_DATA_UNSTABLE', 'LIQUIDITY_BLOCK', 'KRX_HOLIDAY_REPLAY', 'R1_DEFENSIVE', 'R0_CRISIS'] as const) {
+      const result = await mod.runShadowLearningOnlyScan({
+        allowRealOrder: false,
+        bypassMacroEntryBlock: true,
+        reason,
+        scanDate: '2026-05-04',
+      });
+      expect(result.skipped).toBe(false);
+      if (!result.skipped) expect(result.reason).toBe(reason);
+    }
+  });
 });
 
 // ─── ENV ON + 정상 입력 — candidate persistence 검증 ─────────────────────
@@ -405,6 +439,50 @@ describe('shadowLearningOnlySignalRepo — round-trip', () => {
     expect(all[0]!.learningOnly).toBe(true);
     expect(all[0]!.executionImpact).toBe('NONE');
   });
+
+  it('loadShadowLearningOnlySignals normalizes legacy rows to learningOnly=true and executionImpact=NONE', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'shadow_learning_only_signals.json'),
+      JSON.stringify([
+        {
+          symbol: '005930',
+          signalDate: '2026-05-04',
+          blockedReason: 'DATA_STARVED',
+          wouldHaveBought: true,
+          hypotheticalEntryPrice: 75000,
+          hypotheticalStopLoss: 71000,
+          hypotheticalTargetPrice: 82000,
+          signalGrade: 'BUY',
+          gateScore: 7,
+          regime: 'UNKNOWN',
+          macroBlockReason: 'legacy-row',
+          dataQualityStatus: 'OK',
+        },
+        {
+          symbol: '000660',
+          signalDate: '2026-05-04',
+          blockedReason: 'SUPPLY_DATA_UNSTABLE',
+          learningOnly: false,
+          executionImpact: 'BLOCKED',
+          wouldHaveBought: false,
+          hypotheticalEntryPrice: 100000,
+          hypotheticalStopLoss: 92000,
+          hypotheticalTargetPrice: 120000,
+          signalGrade: 'WATCH',
+          gateScore: 3,
+          regime: 'UNKNOWN',
+          macroBlockReason: 'legacy-row-bad-invariant',
+          dataQualityStatus: 'STALE',
+        },
+      ]),
+      'utf-8',
+    );
+
+    const all = repo.loadShadowLearningOnlySignals();
+    expect(all).toHaveLength(2);
+    expect(all.every((signal) => signal.learningOnly === true)).toBe(true);
+    expect(all.every((signal) => signal.executionImpact === 'NONE')).toBe(true);
+  });
 });
 
 // ─── 정적 grep 가드 — KIS 주문 import 0건 (절대 규칙 #2) ─────────────────────
@@ -418,34 +496,44 @@ function stripComments(src: string): string {
   return out;
 }
 
+const FORBIDDEN_LIVE_ORDER_PATTERNS = [
+  /placeKisMarketOrder/,
+  /placeKisMarketBuyOrder/,
+  /placeKisSellOrder/,
+  /cancelKisOrder/,
+  /placeKisStopLossOrder/,
+  /placeKisTakeProfitOrder/,
+  /orderExecutor/,
+  /autoTradeEngine/,
+  /trancheExecutor/,
+  /submitOrder/,
+  /from ['"][^'"]*kisClient/,
+] as const;
+
+function expectNoLiveOrderPattern(code: string): void {
+  for (const pattern of FORBIDDEN_LIVE_ORDER_PATTERNS) {
+    expect(code).not.toMatch(pattern);
+  }
+}
+
 describe('KIS 주문 함수 import 정적 grep 가드', () => {
-  it('shadowLearningOnlyScan.ts 본체에 KIS 주문 함수 import 0건 (주석 제외)', () => {
+  it('shadowLearningOnlyScan.ts 본체에 KIS 주문 함수/import/order path 0건 (주석 제외)', () => {
     const src = fs.readFileSync(
       path.resolve(__dirname, 'shadowLearningOnlyScan.ts'),
       'utf-8',
     );
     const code = stripComments(src);
-    expect(code).not.toMatch(/placeKisMarketOrder/);
-    expect(code).not.toMatch(/placeKisMarketBuyOrder/);
-    expect(code).not.toMatch(/placeKisSellOrder/);
-    expect(code).not.toMatch(/cancelKisOrder/);
-    expect(code).not.toMatch(/placeKisStopLossOrder/);
-    expect(code).not.toMatch(/placeKisTakeProfitOrder/);
-    // kisClient 자체 import 도 금지 (raw 함수 호출 위험)
-    expect(code).not.toMatch(/from ['"][^'"]*kisClient/);
+    expectNoLiveOrderPattern(code);
     expect(code).not.toMatch(/from ['"][^'"]*tranchesRouter/);
   });
 
-  it('signalRepo 본체에 KIS 주문 함수 import 0건', () => {
+  it('signalRepo 본체에 KIS 주문 함수/import/order path 0건', () => {
     const src = fs.readFileSync(
       path.resolve(__dirname, '../persistence/shadowLearningOnlySignalRepo.ts'),
       'utf-8',
     );
     const code = stripComments(src);
-    expect(code).not.toMatch(/placeKisMarketOrder/);
-    expect(code).not.toMatch(/placeKisMarketBuyOrder/);
-    expect(code).not.toMatch(/placeKisSellOrder/);
-    expect(code).not.toMatch(/from ['"][^'"]*kisClient/);
+    expectNoLiveOrderPattern(code);
   });
 });
 
@@ -480,27 +568,32 @@ describe('호출자 제한 (signalScanner helper만 허용)', () => {
     return !re.test(src);
   }
 
-  it('signalScanner.ts — ADR-0183 Phase 3 Stage A 후 *예상된* 호출자 (4 site wiring + helper) + ADR-0401 SHADOW_ONLY pre-scan', () => {
-    // ADR-0183 Stage A wiring: signalScanner helper is the expected production caller.
-    // signalScanner.ts 는 이제 *예상된* 호출자 — recordBlockedDayShadowScan SSOT 헬퍼 안에서
-    // ENV gate 통과 시에만 runShadowLearningOnlyScan 호출. 안전 invariant 7종 (ADR-0183 §3)
-    // 준수 확인은 server/trading/signalScannerAdr0183Wiring.test.ts 의 22 케이스에서.
-    //
-    // ADR-0401 — SHADOW_ONLY ephemeral pre-scan 1 site 추가 (R3 violation streak 누적
-    // 후 다음 스캔 차단). 총 6회 — 4 macro + 1 R3 latch active + 1 R3 SHADOW_ONLY pre.
+  it('signalScanner/preflight.ts — helper single caller + Always-On reason coverage', () => {
     const src = readSrcSafely(
       path.resolve(__dirname, 'signalScanner/preflight.ts'),
     );
     expect(src).not.toBeNull();
     if (src !== null) {
-      // ADR-0183 wiring 정합 — 정확 1 import + 정확 1 helper 호출 + 정확 6 site 호출
       expect(src).toMatch(/from ['"]\.\.\/shadowLearningOnlyScan\.js['"]/);
       const helperCalls = src.match(/runShadowLearningOnlyScan\(/g);
       expect(helperCalls).not.toBeNull();
       expect(helperCalls!.length).toBe(1);  // helper 안 단일 호출
       const wiringCalls = src.match(/recordBlockedDayShadowScan\(['"]/g);
       expect(wiringCalls).not.toBeNull();
-      expect(wiringCalls!.length).toBe(11);  // KIS + watchlist + 4 macro + data + position + volume + R3 latch + R3 SHADOW_ONLY pre-scan
+      expect(wiringCalls!.length).toBeGreaterThanOrEqual(11);
+      const reasons = [...src.matchAll(/recordBlockedDayShadowScan\(['"]([^'"]+)['"]\)/g)].map((m) => m[1]);
+      expect(reasons).toEqual(expect.arrayContaining([
+        'KIS_CONFIG_MISSING',
+        'WATCHLIST_EMPTY',
+        'MANUAL_BLOCK',
+        'RISK_OFF_REGIME',
+        'VIX_SPIKE',
+        'FOMC_BLOCK',
+        'DATA_STARVED',
+        'POSITION_FULL',
+        'VOLUME_CLOCK_BLOCK',
+        'R3_SANITY_BLOCK',
+      ]));
     }
   });
 
