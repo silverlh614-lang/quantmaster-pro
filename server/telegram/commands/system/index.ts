@@ -64,6 +64,7 @@ import './shadowBlockedOutcomes.cmd.js'; // PATCH-D Shadow blocked outcome analy
 import './shadowResolveReturns.cmd.js';  // PATCH-D Shadow futureReturn resolver manual runner
 import './shadowWarmupReturns.cmd.js';   // PATCH-D Shadow futureReturn snapshot warmup
 import './shadowFlowPlaceholder.cmd.js'; // PATCH-E Shadow return combined flow
+import './shadowReturnMisses.cmd.js';    // PATCH-E Shadow return mature miss diagnostics
 import './shadowWalkForward.cmd.js';
 import './shortBackfill.cmd.js';
 import './signalStatus.cmd.js';
