@@ -13,9 +13,13 @@ import {
   type ShadowFutureReturnHorizon,
 } from './shadowFutureReturnResolver.js';
 import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnlySignalRepo.js';
-import { getSnapshotKeySamples, getSnapshotSize } from '../persistence/offHoursSnapshotRepo.js';
+import { getSnapshot, getSnapshotKeySamples, getSnapshotSize } from '../persistence/offHoursSnapshotRepo.js';
 import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
-import { readYahooSnapshotPoint } from './counterfactualShadowPriceProviderAdapter.js';
+import {
+  normalizeYahooSymbol,
+  parseYahooChartBody,
+  type ParsedYahooPoint,
+} from './counterfactualShadowPriceProviderAdapter.js';
 import type { ShadowLearningOnlySignal } from '../trading/shadowLearningOnlyScan.js';
 
 const HORIZON_TRADING_DAY_OFFSET: Record<ShadowFutureReturnHorizon, number> = {
@@ -104,10 +108,30 @@ function hasResolvedHorizon(signal: ShadowLearningOnlySignal, horizon: ShadowFut
   return typeof signal.futureReturn20d === 'number';
 }
 
+function dailyPointForTargetDate(points: ParsedYahooPoint[], targetAtKst: string): ParsedYahooPoint | null {
+  const targetDateKey = targetAtKst.slice(0, 10);
+  const sameDate = points.filter((point) => toKstDateKey(new Date(point.timestampMs)) === targetDateKey);
+  if (sameDate.length === 0) return null;
+  return sameDate.sort((a, b) => b.timestampMs - a.timestampMs)[0] ?? null;
+}
+
+function readDailySnapshotPointByTargetDate(
+  symbol: string,
+  targetAtKst: string,
+  range: string,
+): ParsedYahooPoint | null {
+  const key = `${normalizeYahooSymbol(symbol)}:${range}:1d`;
+  const snapshot = getSnapshot(key);
+  if (!snapshot) return null;
+  const points = parseYahooChartBody(snapshot.body);
+  if (points.length === 0) return null;
+  return dailyPointForTargetDate(points, targetAtKst);
+}
+
 function lookupCachePoint(symbol: string, targetAtKst: string, horizon: ShadowFutureReturnHorizon) {
   for (const candidate of symbolCandidatesForShadowFutureReturnCache(symbol)) {
     for (const range of rangeCandidatesForHorizon(horizon)) {
-      const point = readYahooSnapshotPoint(candidate, targetAtKst, range, '1d', 'closest');
+      const point = readDailySnapshotPointByTargetDate(candidate, targetAtKst, range);
       if (point && Number.isFinite(point.price) && point.price > 0) return point;
     }
   }
