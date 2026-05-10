@@ -27,6 +27,7 @@ export const SHADOW_LEARNING_ONLY_SIGNAL_TRIM_LIMIT = 5000;
  * - 손상 JSON → 빈 배열 (운영 무중단)
  * - non-array → 빈 배열
  * - 잘못된 entry (symbol/signalDate/blockedReason 부재) 자동 제외
+ * - 구버전 row 호환: learningOnly=true / executionImpact='NONE' 강제 normalize
  */
 export function loadShadowLearningOnlySignals(): ShadowLearningOnlySignal[] {
   ensureDataDir();
@@ -36,18 +37,24 @@ export function loadShadowLearningOnlySignals(): ShadowLearningOnlySignal[] {
     if (!raw.trim()) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return (parsed as unknown[]).filter((sig): sig is ShadowLearningOnlySignal => {
-      if (!sig || typeof sig !== 'object') return false;
-      const s = sig as Partial<ShadowLearningOnlySignal>;
-      return (
-        typeof s.symbol === 'string' &&
-        s.symbol.length > 0 &&
-        typeof s.signalDate === 'string' &&
-        s.signalDate.length > 0 &&
-        typeof s.blockedReason === 'string' &&
-        s.blockedReason.length > 0
-      );
-    });
+    return (parsed as unknown[])
+      .filter((sig): sig is ShadowLearningOnlySignal => {
+        if (!sig || typeof sig !== 'object') return false;
+        const s = sig as Partial<ShadowLearningOnlySignal>;
+        return (
+          typeof s.symbol === 'string' &&
+          s.symbol.length > 0 &&
+          typeof s.signalDate === 'string' &&
+          s.signalDate.length > 0 &&
+          typeof s.blockedReason === 'string' &&
+          s.blockedReason.length > 0
+        );
+      })
+      .map((signal) => ({
+        ...signal,
+        learningOnly: true,
+        executionImpact: 'NONE',
+      }));
   } catch {
     return [];
   }

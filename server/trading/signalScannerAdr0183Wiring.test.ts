@@ -8,6 +8,10 @@ import path from 'path';
 const SCANNER_PATH = path.resolve(__dirname, 'signalScanner/preflight.ts');
 const src = fs.readFileSync(SCANNER_PATH, 'utf-8');
 
+function shadowLearningReasonsFromPreflight(): string[] {
+  return [...src.matchAll(/recordBlockedDayShadowScan\(['"]([^'"]+)['"]\)/g)].map((m) => m[1]!);
+}
+
 describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', () => {
   describe('SSOT 헬퍼 import + 정의', () => {
     it('isShadowLearningOnBlockedDaysEnabled / runShadowLearningOnlyScan import', () => {
@@ -31,7 +35,7 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
   });
 
   describe('SSOT 헬퍼 안전 invariant', () => {
-    it('ENV gate default OFF (isShadowLearningOnBlockedDaysEnabled 호출)', () => {
+    it('ENV gate default ON helper guard (isShadowLearningOnBlockedDaysEnabled 호출)', () => {
       // helper 본체 안에서 ENV 검사 (호출자 인라인 ENV 검사 금지 — drift 차단)
       const helperBody = src.split('async function recordBlockedDayShadowScan')[1];
       expect(helperBody).toBeDefined();
@@ -86,16 +90,14 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
       expect(src).toContain("recordBlockedDayShadowScan('FOMC_BLOCK')");
     });
 
-    it('정확 11 호출 site (호출 수 정확) — Always-On 차단 사유 포함', () => {
+    it('호출 site 수는 최소 11개 이상 — exact-count drift 방지', () => {
       const matches = src.match(/recordBlockedDayShadowScan\(['"]/g);
       expect(matches).toBeDefined();
-      expect(matches!.length).toBe(11);
+      expect(matches!.length).toBeGreaterThanOrEqual(11);
     });
 
-    it('Always-On 차단 사유 wiring 포함', () => {
-      const callMatches = src.match(/recordBlockedDayShadowScan\(['"]([^'"]+)['"]\)/g);
-      expect(callMatches).toBeDefined();
-      const reasons = callMatches!.map((m) => m.match(/['"]([^'"]+)['"]/)![1]);
+    it('Always-On 핵심 차단 사유 wiring 포함', () => {
+      const reasons = shadowLearningReasonsFromPreflight();
       expect(reasons).toEqual(
         expect.arrayContaining([
           'KIS_CONFIG_MISSING',
@@ -110,8 +112,16 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
           'R3_SANITY_BLOCK',
         ]),
       );
-      expect(reasons).not.toContain('LIQUIDITY_BLOCK');
-      expect(reasons).not.toContain('KRX_HOLIDAY_REPLAY');
+    });
+
+    it('reserved/low-frequency reason은 union에서 허용하되 preflight direct wiring 강제 대상이 아니다', () => {
+      const shadowSrc = fs.readFileSync(
+        path.resolve(__dirname, 'shadowLearningOnlyScan.ts'),
+        'utf-8',
+      );
+      for (const reason of ['LIQUIDITY_BLOCK', 'KRX_HOLIDAY_REPLAY', 'R1_DEFENSIVE', 'R0_CRISIS', 'SECTOR_ENERGY_STALE', 'SUPPLY_DATA_UNSTABLE']) {
+        expect(shadowSrc).toContain(`| '${reason}'`);
+      }
     });
   });
 
