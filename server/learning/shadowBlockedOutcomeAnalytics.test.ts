@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ShadowLearningOnlySignal } from '../trading/shadowLearningOnlyScan.js';
 import {
+  formatShadowBlockedOutcomeCompactLine,
   loadAndSummarizeShadowBlockedOutcomes,
   summarizeShadowBlockedOutcomes,
 } from './shadowBlockedOutcomeAnalytics.js';
@@ -155,5 +156,25 @@ describe('summarizeShadowBlockedOutcomes', () => {
       blockedReason: 'DATA_STARVED',
       overBlockedCount: 1,
     }));
+  });
+
+  it('formats compact operator line', () => {
+    const summary = summarizeShadowBlockedOutcomes([
+      signal({ symbol: 'A', blockedReason: 'DATA_STARVED', futureReturn5d: 0.04 }),
+      signal({ symbol: 'B', blockedReason: 'DATA_STARVED' }),
+    ]);
+
+    const line = formatShadowBlockedOutcomeCompactLine(summary);
+
+    expect(line).toContain('Shadow Blocked Outcomes');
+    expect(line).toContain('total=2');
+    expect(line).toContain('resolved=1');
+    expect(line).toContain('pending=1');
+    expect(line).toContain('DATA_STARVED 1건');
+    expect(line).toContain('5d +4.0%');
+  });
+
+  it('formats null for empty compact line', () => {
+    expect(formatShadowBlockedOutcomeCompactLine(summarizeShadowBlockedOutcomes([]))).toBeNull();
   });
 });
