@@ -1,5 +1,5 @@
 // @responsibility opsStatus.cmd — read-only operator control-tower snapshot.
-// @responsibility: /ops_status — health/status/shadow/Telegram digest 요약을 한 화면에 압축.
+// @responsibility: /ops_status — health/status/shadow/Telegram digest 요약을 모바일 한 화면에 압축.
 //
 // Read-only command. It does not mutate live trading, preflight, Gate, Kelly,
 // STRONG_BUY, order paths, provider fetch behavior, or data promotion state.
@@ -32,6 +32,24 @@ function formatKst(ts: number | undefined): string {
   });
 }
 
+function formatKstShortIso(iso: string | undefined): string {
+  if (!iso) return 'none';
+  const ts = Date.parse(iso);
+  if (!Number.isFinite(ts)) return 'invalid';
+  return new Date(ts).toLocaleString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function fmtNumber(value: number | undefined, digits = 0): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'n/a';
+  return value.toFixed(digits);
+}
+
 function safeLine(label: string, value: unknown): string {
   return `• ${label}: <b>${String(value)}</b>`;
 }
@@ -46,7 +64,18 @@ function deriveLiveExecutionAllowed(snapshot: ReturnType<typeof collectHealthSna
     && snapshot.volume.ok;
 }
 
-function formatOpsStatusMessage(): string {
+function normalizeYahooStatus(snapshot: ReturnType<typeof collectHealthSnapshot>): string {
+  if (snapshot.yahoo.detail === 'NO_SCAN_HISTORY') return 'IDLE(no scan)';
+  if (snapshot.yahoo.detail === 'NO_CANDIDATES') return `${snapshot.yahoo.status}(no candidates)`;
+  return `${snapshot.yahoo.status}/${snapshot.yahoo.detail}`;
+}
+
+function deriveEmptyCause(snapshot: ReturnType<typeof collectHealthSnapshot>): string {
+  if (!snapshot.lastScanTs || snapshot.lastScanTs <= 0) return 'n/a(no scan)';
+  return snapshot.lastScanSummary?.emptyScanReason ?? 'UNKNOWN';
+}
+
+function collectOpsStatusData() {
   const snapshot = collectHealthSnapshot();
   const macro = loadMacroState();
   const trades = loadShadowTrades();
@@ -54,15 +83,52 @@ function formatOpsStatusMessage(): string {
   const blocked = loadAndSummarizeShadowBlockedOutcomes();
   const coverage = loadAndBuildShadowFutureReturnCacheCoverageSummary();
   const liveExecutionAllowed = deriveLiveExecutionAllowed(snapshot);
-
-  const emptyCause = snapshot.lastScanSummary?.emptyScanReason ?? 'UNKNOWN';
-
   const topOverBlocked = blocked.topOverBlockedReasons[0]
-    ? `${blocked.topOverBlockedReasons[0].blockedReason} (${blocked.topOverBlockedReasons[0].overBlockedCount})`
+    ? `${blocked.topOverBlockedReasons[0].blockedReason}(${blocked.topOverBlockedReasons[0].overBlockedCount})`
     : 'none';
 
+  return { snapshot, macro, activeTrades, blocked, coverage, liveExecutionAllowed, topOverBlocked };
+}
+
+function formatOpsStatusCompact(): string {
+  const { snapshot, macro, activeTrades, blocked, coverage, liveExecutionAllowed } = collectOpsStatusData();
+  const tradingMode = String(snapshot.autoTradeMode).toUpperCase();
+  const auto = snapshot.autoTradeEnabled ? 'auto ON' : 'auto OFF';
+  const live = liveExecutionAllowed ? 'live ON' : 'live OFF';
+  const market = `${macro?.regime ?? 'UNKNOWN'} / MHS ${fmtNumber(macro?.mhs, 0)}`;
+  const kis = snapshot.kisConfigured ? `KIS OK ${snapshot.kisTokenHours}h` : 'KIS n/a';
+  const krx = snapshot.krxTokenValid ? 'KRX OK' : 'KRX warn';
+  const yahoo = `Yahoo ${normalizeYahooStatus(snapshot)}`;
+  const scan = `${formatKst(snapshot.lastScanTs)} / WL ${snapshot.watchlistCount}`;
+  const shadow = `open ${activeTrades.length} · blocked ${blocked.totalSignals} · pending ${blocked.pendingSignals}`;
+  const returns = `miss ${coverage.cacheMisses} · due ${coverage.notYetDueLookups}`;
+  const digest = isDigestEnabled() ? 'digest ON' : 'digest OFF';
+  const action = liveExecutionAllowed
+    ? '조치: LIVE 가능 상태. 실주문 전 order guard 확인.'
+    : '조치: 관찰/차단 상태. 필요시 /scan_blockers 확인.';
+
+  return [
+    '🧭 <b>OPS STATUS</b>',
+    `상태: <b>${snapshot.verdict}</b>`,
+    `모드: <b>${tradingMode}</b> / ${auto} / ${live}`,
+    `시장: <b>${market}</b>`,
+    `데이터: ${kis} · ${krx} · ${yahoo}`,
+    `스캔: ${scan}`,
+    `Shadow: ${shadow}`,
+    `Return: ${returns}`,
+    `Telegram: ${digest}`,
+    '',
+    action,
+    '<i>상세: /ops_status full</i>',
+  ].join('\n');
+}
+
+function formatOpsStatusFull(): string {
+  const { snapshot, macro, activeTrades, blocked, coverage, liveExecutionAllowed, topOverBlocked } = collectOpsStatusData();
+  const emptyCause = deriveEmptyCause(snapshot);
+
   const lines = [
-    '🧭 <b>[OPS STATUS]</b>',
+    '🧭 <b>[OPS STATUS FULL]</b>',
     '<i>read-only control tower — executionImpact=NONE</i>',
     '',
     '<b>Mode</b>',
@@ -71,14 +137,14 @@ function formatOpsStatusMessage(): string {
     safeLine('autoTradeEnabled', snapshot.autoTradeEnabled ? 'true' : 'false'),
     safeLine('liveExecutionAllowed', liveExecutionAllowed ? 'true' : 'false'),
     safeLine('emergencyStop', snapshot.emergencyStop ? 'ON' : 'OFF'),
-    safeLine('market/regime', `${macro?.regime ?? 'UNKNOWN'} / MHS ${typeof macro?.mhs === 'number' ? macro.mhs.toFixed(0) : 'N/A'}`),
+    safeLine('market/regime', `${macro?.regime ?? 'UNKNOWN'} / MHS ${fmtNumber(macro?.mhs, 0)}`),
     '',
     '<b>Data</b>',
-    safeLine('Yahoo', `${snapshot.yahoo.status}/${snapshot.yahoo.detail}`),
+    safeLine('Yahoo', normalizeYahooStatus(snapshot)),
     safeLine('KIS', snapshot.kisConfigured ? `configured, token ${snapshot.kisTokenHours}h` : 'not configured'),
     safeLine('KRX', `${snapshot.krxTokenConfigured ? 'configured' : 'not configured'} / ${snapshot.krxTokenValid ? 'healthy' : 'unhealthy'}`),
-    safeLine('macroUpdatedAt', snapshot.macroStateUpdatedAt ?? 'none'),
-    safeLine('usdKrw', snapshot.macroStateUsdKrw ?? 'n/a'),
+    safeLine('macroUpdatedAt', formatKstShortIso(snapshot.macroStateUpdatedAt)),
+    safeLine('usdKrw', fmtNumber(snapshot.macroStateUsdKrw, 2)),
     '',
     '<b>Scan</b>',
     safeLine('lastScan', formatKst(snapshot.lastScanTs)),
@@ -105,17 +171,22 @@ function formatOpsStatusMessage(): string {
   return lines.join('\n');
 }
 
+function formatOpsStatusMessage(args: string[] = []): string {
+  const full = args.some((arg) => arg.toLowerCase() === 'full' || arg.toLowerCase() === '--full');
+  return full ? formatOpsStatusFull() : formatOpsStatusCompact();
+}
+
 const opsStatus: TelegramCommand = {
   name: '/ops_status',
   aliases: ['/ops', '/control_tower'],
   category: 'SYS',
   visibility: 'MENU',
   riskLevel: 0,
-  description: '운영자 통합 관제 요약 — health/data/scan/shadow/telegram 상태를 한 화면에 표시',
-  usage: '/ops_status',
-  async execute({ reply }) {
+  description: '운영자 통합 관제 요약 — 기본 compact, full 상세 지원',
+  usage: '/ops_status [full]',
+  async execute({ args, reply }) {
     try {
-      await reply(formatOpsStatusMessage());
+      await reply(formatOpsStatusMessage(args));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       await reply(`❌ OPS STATUS 생성 실패: ${msg}`);
@@ -126,4 +197,4 @@ const opsStatus: TelegramCommand = {
 commandRegistry.register(opsStatus);
 
 export default opsStatus;
-export { formatOpsStatusMessage, deriveLiveExecutionAllowed };
+export { formatOpsStatusMessage, deriveLiveExecutionAllowed, formatOpsStatusCompact, formatOpsStatusFull };
