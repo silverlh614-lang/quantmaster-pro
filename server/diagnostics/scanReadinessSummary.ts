@@ -11,6 +11,7 @@ import { getLastScanSummary } from '../trading/signalScanner/scanDiagnostics.js'
 export interface ScanReadinessCheck {
   name: string;
   status: 'OK' | 'WARN' | 'BLOCK' | 'WAIT';
+  label?: string;
   detail: string;
 }
 
@@ -37,6 +38,20 @@ function statusIcon(status: ScanReadinessCheck['status']): string {
   if (status === 'WARN') return '🟡';
   if (status === 'WAIT') return '⚪';
   return '🔴';
+}
+
+function volumeClockDetail(ok: boolean, detail: unknown): string {
+  if (typeof detail === 'string' && detail.trim()) return detail.trim();
+  return ok ? 'entry window available' : 'outside entry window';
+}
+
+function macroLabel(age: number | null): string | undefined {
+  if (age === null) return 'UNKNOWN';
+  return age <= 8 ? undefined : 'STALE';
+}
+
+function displayStatus(check: ScanReadinessCheck): string {
+  return check.label ?? check.status;
 }
 
 export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummary {
@@ -71,6 +86,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
     {
       name: 'Macro',
       status: macroAge === null ? 'WARN' : macroAge <= 8 ? 'OK' : 'WARN',
+      label: macroLabel(macroAge),
       detail: `age=${formatAge(macroAge)}, regime=${macro?.regime ?? 'UNKNOWN'}, MHS=${macro?.mhs ?? 'n/a'}`,
     },
     {
@@ -81,7 +97,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
     {
       name: 'VolumeClock',
       status: health.volume.ok ? 'OK' : 'WAIT',
-      detail: health.volume.detail,
+      detail: volumeClockDetail(health.volume.ok, health.volume.detail),
     },
   ];
 
@@ -105,7 +121,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
         : 'some preconditions are waiting or degraded';
 
   const nextActions: string[] = [];
-  if (macroAge !== null && macroAge > 8) nextActions.push('Macro stale → /refresh_macro');
+  if (macroAge !== null && macroAge > 8) nextActions.push(`Macro stale (${macroAge.toFixed(1)}h) → /refresh_macro`);
   if (!hasScanHistory) nextActions.push('No scan yet → wait next scanner cycle or /scan_blockers');
   if (watchlist.length === 0) nextActions.push('Watchlist empty → rebuild/watchlist refresh needed');
   if (!health.kisConfigured || !health.kisTokenValid) nextActions.push('KIS not ready → /ops_status full');
@@ -121,7 +137,7 @@ export function formatScanReadinessSummary(summary: ScanReadinessSummary): strin
     `Verdict: <b>${summary.verdict}</b>`,
     `Reason: ${summary.reason}`,
     '',
-    ...summary.checks.map((check) => `${statusIcon(check.status)} ${check.name}: <b>${check.status}</b> · ${check.detail}`),
+    ...summary.checks.map((check) => `${statusIcon(check.status)} ${check.name}: <b>${displayStatus(check)}</b> · ${check.detail}`),
     '',
     '<b>Next actions</b>',
     ...summary.nextActions.map((action) => `• ${action}`),
