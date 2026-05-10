@@ -8,7 +8,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { getLastScanSummary } from '../trading/signalScanner/scanDiagnostics.js';
 
-export type DataCompletenessStatus = 'OK' | 'PARTIAL' | 'STALE' | 'MISSING' | 'UNKNOWN';
+export type DataCompletenessStatus = 'OK' | 'PARTIAL' | 'STALE' | 'MISSING' | 'WAIT' | 'UNKNOWN';
 export type DataCompletenessImpact = 'NONE' | 'SHADOW_OK' | 'LIVE_NOT_READY' | 'OBSERVE_ONLY';
 
 export interface DataCompletenessItem {
@@ -36,16 +36,15 @@ function ageHours(iso: string | undefined, nowMs: number): number | null {
   return Math.max(0, (nowMs - ts) / 3_600_000);
 }
 
-function classifyByAge(age: number | null, freshMaxHours: number, staleMaxHours: number): DataCompletenessStatus {
-  if (age === null) return 'MISSING';
-  if (age <= freshMaxHours) return 'OK';
-  if (age <= staleMaxHours) return 'STALE';
-  return 'MISSING';
+function classifyMacroByAge(age: number | null, hasMacroPayload: boolean): DataCompletenessStatus {
+  if (age === null) return hasMacroPayload ? 'STALE' : 'MISSING';
+  if (age <= 8) return 'OK';
+  return hasMacroPayload ? 'STALE' : 'MISSING';
 }
 
 function impactFromStatus(status: DataCompletenessStatus): DataCompletenessImpact {
   if (status === 'OK') return 'NONE';
-  if (status === 'PARTIAL' || status === 'STALE' || status === 'UNKNOWN') return 'SHADOW_OK';
+  if (status === 'PARTIAL' || status === 'STALE' || status === 'UNKNOWN' || status === 'WAIT') return 'SHADOW_OK';
   return 'OBSERVE_ONLY';
 }
 
@@ -53,9 +52,14 @@ function scanSummaryHas(summary: unknown, key: string): boolean {
   return Boolean(summary && typeof summary === 'object' && key in summary);
 }
 
+function fmtUsdKrw(value: unknown): string {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : 'n/a';
+}
+
 function deriveSectorItem(summary: ReturnType<typeof getLastScanSummary>): DataCompletenessItem {
   if (!summary) {
-    return { name: 'Sector', status: 'UNKNOWN', detail: 'no scan summary yet', impact: 'SHADOW_OK' };
+    return { name: 'Sector', status: 'WAIT', detail: 'no scan summary yet', impact: 'SHADOW_OK' };
   }
   const quality = summary.sectorEnergyQuality;
   if (summary.sectorEnergyQualityDiagnostic) {
@@ -72,12 +76,12 @@ function deriveSectorItem(summary: ReturnType<typeof getLastScanSummary>): DataC
   if (quality === 'OK') return { name: 'Sector', status: 'OK', detail: `quality=${quality}`, impact: 'NONE' };
   if (quality === 'PARTIAL' || quality === 'DEGRADED') return { name: 'Sector', status: 'PARTIAL', detail: `quality=${quality}`, impact: 'SHADOW_OK' };
   if (quality === 'STALE' || quality === 'FAILED') return { name: 'Sector', status: 'STALE', detail: `quality=${quality}`, impact: 'SHADOW_OK' };
-  return { name: 'Sector', status: 'UNKNOWN', detail: 'sector energy not observed', impact: 'SHADOW_OK' };
+  return { name: 'Sector', status: 'WAIT', detail: 'sector energy not observed', impact: 'SHADOW_OK' };
 }
 
 function deriveSupplyItem(summary: ReturnType<typeof getLastScanSummary>): DataCompletenessItem {
   if (!summary) {
-    return { name: 'Supply', status: 'UNKNOWN', detail: 'no scan summary yet', impact: 'SHADOW_OK' };
+    return { name: 'Supply', status: 'WAIT', detail: 'no scan summary yet', impact: 'SHADOW_OK' };
   }
   const providerStatus = summary.investorFlowProviderRouter?.status ?? summary.naverInvestorTrendAdr0481?.status;
   const hasFreshDataSupply = scanSummaryHas(summary, 'freshDataSupplyAdr0487');
@@ -86,7 +90,7 @@ function deriveSupplyItem(summary: ReturnType<typeof getLastScanSummary>): DataC
   if (providerStatus === 'OK') return { name: 'Supply', status: 'OK', detail: 'investor flow provider OK', impact: 'NONE' };
   if (providerStatus === 'PROVIDER_ERROR') return { name: 'Supply', status: 'PARTIAL', detail: 'provider error isolated from market signal', impact: 'SHADOW_OK' };
   if (hasFreshDataSupply || hasSupplyFreshness) return { name: 'Supply', status: 'PARTIAL', detail: 'fresh data supply diagnostics available', impact: 'SHADOW_OK' };
-  return { name: 'Supply', status: 'UNKNOWN', detail: 'supply diagnostics not observed in last scan', impact: 'SHADOW_OK' };
+  return { name: 'Supply', status: 'WAIT', detail: 'supply diagnostics not observed in last scan', impact: 'SHADOW_OK' };
 }
 
 function buildItems(nowMs: number): DataCompletenessItem[] {
@@ -95,18 +99,19 @@ function buildItems(nowMs: number): DataCompletenessItem[] {
   const scanSummary = getLastScanSummary();
   const watchlist = loadWatchlist();
 
+  const hasMacroPayload = Boolean(macro && (macro.usdKrw !== undefined || macro.regime || macro.mhs !== undefined));
   const macroAge = ageHours(macro?.updatedAt, nowMs);
-  const macroStatus = classifyByAge(macroAge, 8, 48);
+  const macroStatus = classifyMacroByAge(macroAge, hasMacroPayload);
   const yahooStatus: DataCompletenessStatus =
     health.yahoo.status === 'OK' ? 'OK' :
     health.yahoo.status === 'STALE' ? 'STALE' :
     health.yahoo.status === 'DOWN' ? 'MISSING' :
-    health.yahoo.detail === 'NO_SCAN_HISTORY' ? 'UNKNOWN' :
+    health.yahoo.detail === 'NO_SCAN_HISTORY' ? 'WAIT' :
     'PARTIAL';
 
   const kisStatus: DataCompletenessStatus = health.kisConfigured && health.kisTokenValid ? 'OK' : 'MISSING';
   const krxStatus: DataCompletenessStatus = health.krxTokenConfigured && health.krxTokenValid ? 'OK' : 'MISSING';
-  const scanStatus: DataCompletenessStatus = health.lastScanTs > 0 ? 'OK' : 'UNKNOWN';
+  const scanStatus: DataCompletenessStatus = health.lastScanTs > 0 ? 'OK' : 'WAIT';
   const watchlistStatus: DataCompletenessStatus = watchlist.length > 0 ? 'OK' : 'MISSING';
 
   return [
@@ -115,13 +120,13 @@ function buildItems(nowMs: number): DataCompletenessItem[] {
       status: macroStatus,
       updatedAt: macro?.updatedAt,
       ageHours: macroAge,
-      detail: `usdKrw=${macro?.usdKrw ?? 'n/a'}, regime=${macro?.regime ?? 'UNKNOWN'}`,
+      detail: `usdKrw=${fmtUsdKrw(macro?.usdKrw)}, regime=${macro?.regime ?? 'UNKNOWN'}`,
       impact: impactFromStatus(macroStatus),
     },
     {
       name: 'Yahoo',
       status: yahooStatus,
-      detail: `${health.yahoo.status}/${health.yahoo.detail}`,
+      detail: health.yahoo.detail === 'NO_SCAN_HISTORY' ? 'IDLE(no scan)' : `${health.yahoo.status}/${health.yahoo.detail}`,
       impact: impactFromStatus(yahooStatus),
     },
     {
@@ -145,7 +150,7 @@ function buildItems(nowMs: number): DataCompletenessItem[] {
     {
       name: 'Scan',
       status: scanStatus,
-      detail: health.lastScanTs > 0 ? `lastScan=${new Date(health.lastScanTs).toISOString()}` : 'no scan history',
+      detail: health.lastScanTs > 0 ? `lastScan=${new Date(health.lastScanTs).toISOString()}` : 'WAIT(no scan)',
       impact: scanStatus === 'OK' ? 'NONE' : 'SHADOW_OK',
     },
     deriveSectorItem(scanSummary),
@@ -171,7 +176,7 @@ function deriveExecutionRecommendation(verdict: DataCompletenessSummary['verdict
 
 function buildTopIssues(items: DataCompletenessItem[]): string[] {
   return items
-    .filter((item) => item.status !== 'OK')
+    .filter((item) => item.status !== 'OK' && item.status !== 'WAIT')
     .slice(0, 5)
     .map((item) => `${item.name}: ${item.status}${item.detail ? ` — ${item.detail}` : ''}`);
 }
@@ -189,22 +194,27 @@ export function buildDataCompletenessSummary(now: Date = new Date()): DataComple
   };
 }
 
-export function formatDataCompletenessSummary(summary: DataCompletenessSummary): string {
+function formatItemLine(item: DataCompletenessItem, full: boolean): string {
+  const age = typeof item.ageHours === 'number' ? ` · age ${item.ageHours.toFixed(1)}h` : '';
+  const detail = item.detail ? ` · ${item.detail}` : '';
+  return full
+    ? `${item.name}: <b>${item.status}</b> · ${item.impact}${age}${detail}`
+    : `${item.name}: <b>${item.status}</b>${age}${detail}`;
+}
+
+export function formatDataCompletenessSummary(summary: DataCompletenessSummary, options: { full?: boolean } = {}): string {
+  const full = options.full === true;
   const lines = [
     '📊 <b>DATA COMPLETENESS</b>',
     `Verdict: <b>${summary.verdict}</b>`,
     `Execution: <b>${summary.executionRecommendation}</b>`,
     '',
-    ...summary.items.map((item) => {
-      const age = typeof item.ageHours === 'number' ? ` · age ${item.ageHours.toFixed(1)}h` : '';
-      const detail = item.detail ? ` · ${item.detail}` : '';
-      return `${item.name}: <b>${item.status}</b> · ${item.impact}${age}${detail}`;
-    }),
+    ...summary.items.map((item) => formatItemLine(item, full)),
     '',
     '<b>Top issues</b>',
     ...(summary.topIssues.length > 0 ? summary.topIssues.map((issue) => `• ${issue}`) : ['• none']),
     '',
-    `Next: ${summary.nextCommands.join(', ')}`,
+    full ? `Next: ${summary.nextCommands.join(', ')}` : '상세: /data_completeness full',
     '<i>read-only; no provider fetch, no data promotion.</i>',
   ];
   return lines.join('\n');
