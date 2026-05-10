@@ -30,6 +30,7 @@
     "validate:adrIndex": "node scripts/check_adr_index_baseline.js",
     "validate:adrIndex:full": "node scripts/check_adr_index.js",
     "audit:adrIndex": "node scripts/check_adr_index_baseline.js --audit --json",
+    "adr:new": "node scripts/create_adr.js",
     "validate:pendingWiring": "node scripts/check_pending_wiring.js",
     "validate:prPaceAudit": "node scripts/check_pr_pace_audit.js",
     "validate:bug-ledger": "node scripts/check_bug_ledger.js",
