@@ -10,6 +10,15 @@ export function parseShadowFlowLimit(args: string[]): number {
   return Number.isFinite(n) ? clampShadowReturnWarmupLimit(n) : SHADOW_RETURN_WARMUP_DEFAULT_LIMIT;
 }
 
+export function symbolsFromMissingTargets(rows: string[]): string[] {
+  const out: string[] = [];
+  for (const row of rows) {
+    const symbol = row.split(':')[0]?.trim();
+    if (symbol && !out.includes(symbol)) out.push(symbol);
+  }
+  return out;
+}
+
 const shadowFlow: TelegramCommand = {
   name: '/shadow_return_flow',
   aliases: ['/shadow_flow_returns'],
@@ -21,14 +30,15 @@ const shadowFlow: TelegramCommand = {
   async execute({ args, reply }) {
     const limit = parseShadowFlowLimit(args);
     const before = loadAndBuildShadowFutureReturnCacheCoverageSummary();
-    const warmup = await runShadowFutureReturnWarmup(limit);
+    const prioritySymbols = symbolsFromMissingTargets(before.sampleMissingTargets);
+    const warmup = await runShadowFutureReturnWarmup(limit, prioritySymbols);
     const resolve = await loadResolveAndSaveShadowFutureReturnsFromCache();
     const after = loadAndBuildShadowFutureReturnCacheCoverageSummary();
     await reply([
       '🛠️ <b>Shadow Return Flow</b>',
       '',
       `Before: lookups=${before.checkedLookups}, hits=${before.cacheHits}, misses=${before.cacheMisses}, pending=${before.notYetDueLookups}, snapshots=${before.snapshotEntries}`,
-      `Warmup: symbols=${warmup.attemptedSymbols}/${warmup.targetSymbols}, requests=${warmup.attemptedRequests}, stored=${warmup.storedSnapshots}, notFound=${warmup.notFound}, errors=${warmup.failed}`,
+      `Warmup: symbols=${warmup.attemptedSymbols}/${warmup.targetSymbols}, priority=${prioritySymbols.length}, requests=${warmup.attemptedRequests}, stored=${warmup.storedSnapshots}, notFound=${warmup.notFound}, errors=${warmup.failed}`,
       `Resolver: updated=${resolve.updatedSignals}, miss=${resolve.providerMisses}, pending=${resolve.notYetDue}`,
       `After: lookups=${after.checkedLookups}, hits=${after.cacheHits}, misses=${after.cacheMisses}, pending=${after.notYetDueLookups}, snapshots=${after.snapshotEntries}`,
     ].join('\n'));
