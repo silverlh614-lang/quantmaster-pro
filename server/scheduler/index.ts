@@ -27,6 +27,7 @@ import { registerHealthLoop } from './healthLoop.js';
 import { registerPostHolidayKickstart } from './postHolidayKickstart.js';
 import { registerInvestorFlowWarmupJobs } from './investorFlowWarmupJob.js';
 import { registerCredentialExpiryWatchdog } from '../health/credentialExpiryWatchdog.js';
+import { sendStartupExecutionContextAlert } from '../alerts/startupExecutionContext.js';
 import { getRegisteredJobNames } from './scheduleGuard.js';
 import { SCHEDULE_CATALOG, getAllJobMetrics } from './scheduleCatalog.js';
 
@@ -58,6 +59,13 @@ export function startScheduler(): void {
   registerCommandUsageJobs();
   registerBugLedgerSummaryJob();  // PR #669/#670/#671/#672/#673 후속 P2-B — 매월 1일 10:00 KST
   registerBugCandidateJob();       // PR #669~#674 후속 P3 — 매일 09:30 KST CRITICAL 패턴 검출
+
+  // PATCH-OPS: startup execution context clarification.
+  // 기존 부팅 메시지의 "KIS: 실거래" 문구가 실주문 허용으로 오해되지 않도록
+  // 실행 모드 / 주문 실행 / KIS 환경을 분리해 추가 보고한다. read-only, best-effort.
+  sendStartupExecutionContextAlert().catch((e) => {
+    console.warn('[Scheduler] startup execution context alert failed:', e instanceof Error ? e.message : e);
+  });
 
   // ── 부팅 검증 (cron 미실행 결함 식별 도구) ─────────────────────────────────
   // scheduledJob() 통과 jobName + JobMetrics 영속 복원 entry + SCHEDULE_CATALOG.
