@@ -56,6 +56,7 @@ import './shadowCounterfactual.cmd.js';
 import './shadowPromotion.cmd.js';
 import './shadowUniverse.cmd.js';
 import './shadowBlockedOutcomes.cmd.js';
+import './shadowCases.cmd.js';
 import './shadowResolveReturns.cmd.js';
 import './shadowWarmupReturns.cmd.js';
 import './shadowFlowPlaceholder.cmd.js';
