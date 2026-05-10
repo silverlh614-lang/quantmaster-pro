@@ -14,8 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0498`**
+**다음 ADR 번호: `0499`**
 
+(2026-05-10 기준, 마지막 발급 0498 — fresh-data-status-view-model-wiring. ADR-0498 — fresh-data-status-view-model-wiring. Wires ADR-0497 FreshDataStatusViewModel into /fresh_data_status, /scan_blockers, Runtime Pipeline Audit, and promotion/operator diagnostic surfaces to reduce output drift while preserving executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes.)
 
 (2026-05-09 기준, 마지막 발급 0497 — diagnostic-taxonomy-gate-failure-attribution-ssot. ADR-0497 — diagnostic-taxonomy-gate-failure-attribution-ssot. Consolidates diagnostic-only policy, data confidence, provider health, market signal separation, null/zero/missing semantics, promotion readiness, Fresh Data status view model, and Gate failure attribution without live execution changes.)
 
@@ -501,8 +502,9 @@
 | 0495 | sector-index-master-seed-mapping-repair (diagnostic-only SectorEnergy master/mapping/fallback seed repair; INTERNAL_PROXY partial coverage buckets, safe/unsafe alias split, unresolved aggregates preserved, ADR-0488/0494 observation wiring, executionImpact=NONE and no sectorBoost/STRONG_BUY/live/stage unlock) | trading |
 | 0496 | investor-flow-sample-seed-semantic-netbuy-normalization (diagnostic-only sanitized investor-flow sample seed, semantic net-buy direction/confluence normalization, null/zero/missing/stale/provider-error supply coverage counters, ADR-0487/0489/0491/0494 and /fresh_data_status wiring, executionImpact=NONE and no live/Gate/Kelly/KIS/STRONG_BUY/stage promotion changes) | trading |
 | 0497 | diagnostic-taxonomy-gate-failure-attribution-ssot (diagnostic-only taxonomy SSOT for policy, data confidence, provider health, market signal separation, null/zero/missing/stale semantics, promotion readiness, Fresh Data status view models, and Gate failure attribution causes; classification-only with no live execution/Gate/Kelly/KIS/order/STRONG_BUY/stage behavior changes) | trading |
+| 0498 | fresh-data-status-view-model-wiring (display/view-model wiring of ADR-0497 FreshDataStatusViewModel into /fresh_data_status, /scan_blockers, Runtime Pipeline Audit, and promotion/operator diagnostics; compact normalized labels; executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes) | trading |
 
-**총 발급 288 unique 번호** (마지막 발급 0497) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0498**.
+**총 발급 289 unique 번호** (마지막 발급 0498) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0499**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

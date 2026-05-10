@@ -21,6 +21,11 @@ import {
   formatPromotionAuditCompactAdr0494,
   summarizeFreshDataPromotionAuditsAdr0494,
 } from '../../../trading/signalScanner/freshDataPromotionAuditWiringAdr0494.js';
+import {
+  mapFreshDataSupplyReportToStatusInputsAdr0498,
+  mapPromotionAuditEvaluationToStatusInputAdr0498,
+  safeBuildFreshDataStatusSectionAdr0498,
+} from '../../../diagnostics/freshDataStatusViewModelWiringAdr0498.js';
 
 const freshDataStatus: TelegramCommand = {
   name: '/fresh_data_status',
@@ -76,7 +81,12 @@ const freshDataStatus: TelegramCommand = {
     const promotionAudits = evaluateFreshDataPromotionAuditsAdr0494(promotionAuditInputs, { store: null });
     const promotionSummary = summarizeFreshDataPromotionAuditsAdr0494(promotionAudits);
     const promotionLines = promotionAudits.map(formatPromotionAuditCompactAdr0494).join('\n');
-    await reply(`${formatFreshDataSupplyDetailAdr0487(report)}\n\n${formatSupplyCoverageSummaryAdr0496(investorFlow.adr0496SupplyCoverage)}\n\n${formatSectorEnergySupplyUnknownDetailAdr0488(adr0488)}\n\n${promotionSummary.promotionAuditSummary}\n${promotionLines}`);
+    const adr0498Section = safeBuildFreshDataStatusSectionAdr0498([
+      ...mapFreshDataSupplyReportToStatusInputsAdr0498(report),
+      ...promotionAudits.map(mapPromotionAuditEvaluationToStatusInputAdr0498),
+    ], { maxLines: 6 });
+    const adr0498Summary = ['ADR-0498 Normalized FreshDataStatus', ...adr0498Section.lines].join('\n');
+    await reply(`${adr0498Summary}\n\n${formatFreshDataSupplyDetailAdr0487(report)}\n\n${formatSupplyCoverageSummaryAdr0496(investorFlow.adr0496SupplyCoverage)}\n\n${formatSectorEnergySupplyUnknownDetailAdr0488(adr0488)}\n\n${promotionSummary.promotionAuditSummary}\n${promotionLines}`);
   },
 };
 

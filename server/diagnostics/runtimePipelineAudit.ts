@@ -28,6 +28,12 @@ import {
   evaluateFreshDataPromotionAuditsAdr0494,
   summarizeFreshDataPromotionAuditsAdr0494,
 } from '../trading/signalScanner/freshDataPromotionAuditWiringAdr0494.js';
+import {
+  mapRuntimeFreshDataSummaryToStatusInputsAdr0498,
+  safeBuildFreshDataStatusSectionAdr0498,
+  type FreshDataStatusViewModelInputAdr0498,
+} from './freshDataStatusViewModelWiringAdr0498.js';
+import type { FreshDataStatusViewModelAdr0497 } from './diagnosticTaxonomyAdr0497.js';
 
 export type RuntimePipelineStage =
   | 'NOT_RUN'
@@ -93,6 +99,9 @@ export interface RuntimePipelineAuditSnapshot {
   promotionAuditBlockers: string[];
   promotionAuditReadyLines: string[];
   promotionAuditBlockedLines: string[];
+  freshDataStatusViewModels?: FreshDataStatusViewModelAdr0497[];
+  freshDataStatusCompactLines?: string[];
+  freshDataStatusNormalizedCount?: number;
   adr460Installed: false;
   supplyProviderHealth: { hasRecentSample: boolean; message: string };
   sectorEnergyHealth: {
@@ -307,6 +316,16 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   const promotionAudits = evaluateFreshDataPromotionAuditsAdr0494(promotionAuditInputs, { store: null });
   const promotionAuditSummary = summarizeFreshDataPromotionAuditsAdr0494(promotionAudits);
 
+  let freshDataStatusInputsAdr0498: FreshDataStatusViewModelInputAdr0498[] = [];
+  let freshDataStatusSectionAdr0498 = safeBuildFreshDataStatusSectionAdr0498([], { maxLines: 4 });
+  try {
+    freshDataStatusInputsAdr0498 = mapRuntimeFreshDataSummaryToStatusInputsAdr0498(summary as unknown as Record<string, unknown> | null | undefined);
+    freshDataStatusSectionAdr0498 = safeBuildFreshDataStatusSectionAdr0498(freshDataStatusInputsAdr0498, { maxLines: 4 });
+  } catch {
+    freshDataStatusInputsAdr0498 = [];
+    freshDataStatusSectionAdr0498 = safeBuildFreshDataStatusSectionAdr0498([], { maxLines: 4 });
+  }
+
   const livePath = runLivePathSafetyAudit();
   const operatorActionQueue = safeBuildOperatorActionQueueAdr0480({
     sources: collectOperatorActionSourcesFromScanSummaryAdr0480(summary),
@@ -346,6 +365,9 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     promotionAuditBlockers: promotionAuditSummary.promotionAuditBlockers,
     promotionAuditReadyLines: promotionAuditSummary.promotionAuditReadyLines,
     promotionAuditBlockedLines: promotionAuditSummary.promotionAuditBlockedLines,
+    freshDataStatusViewModels: freshDataStatusSectionAdr0498.viewModels,
+    freshDataStatusCompactLines: freshDataStatusSectionAdr0498.lines,
+    freshDataStatusNormalizedCount: freshDataStatusSectionAdr0498.viewModels.length,
     adr460Installed: false,
     supplyProviderHealth,
     sectorEnergyHealth,
@@ -390,6 +412,7 @@ export function formatRuntimePipelineAuditSection(snapshot: RuntimePipelineAudit
     `  • adr0488: <code>${snapshot.sectorEnergySupplyUnknownDiagnosticLine}</code>`,
     `  • supplySnapshotStore: <code>${snapshot.supplySnapshotStoreDiagnosticLine}</code>`,
     `  • promotionAudit: <code>${snapshot.promotionAuditSummary}</code>`,
+    `  • adr0498FreshDataStatus: <code>${snapshot.freshDataStatusCompactLines?.join(' | ') ?? 'none'}</code>`,
     `  • promotionAuditBlockers: <code>${snapshot.promotionAuditBlockers.join(', ') || 'none'}</code>`,
     '  • ADR-460: <code>not installed</code>',
     `  • reason: ${snapshot.operatorMessage}`,
@@ -409,6 +432,7 @@ export function formatRuntimePipelineAuditCompactLine(snapshot: RuntimePipelineA
     `  • Rollout: <code>${snapshot.rolloutItemCount}</code>`,
     '  • ADR-460: <code>not installed</code>',
     `  • PromotionAudit: <code>${snapshot.promotionAuditSummary}</code>`,
+    `  • ADR-0498 FreshDataStatus: <code>${snapshot.freshDataStatusNormalizedCount ?? 0}</code>`,
     `  • Safety: <code>${snapshot.livePathSafety.passed ? 'PASS' : 'FAIL'}</code>`,
   ].join('\n');
 }
@@ -446,6 +470,7 @@ export function formatRuntimePipelineAuditDetails(snapshot: RuntimePipelineAudit
     `  • promotionAuditSummary: ${snapshot.promotionAuditSummary}`,
     `  • promotionAuditReadyLines: <code>${snapshot.promotionAuditReadyLines.join(', ') || 'none'}</code>`,
     `  • promotionAuditBlockedLines: <code>${snapshot.promotionAuditBlockedLines.join(', ') || 'none'}</code>`,
+    `  • adr0498FreshDataStatusLines: <code>${snapshot.freshDataStatusCompactLines?.join(' | ') ?? 'none'}</code>`,
     `  • promotionAuditBlockers: <code>${snapshot.promotionAuditBlockers.join(', ') || 'none'}</code>`,
     '  • ADR-460: <code>not installed</code>',
     `  • supplyProvider: ${snapshot.supplyProviderHealth.message}`,
