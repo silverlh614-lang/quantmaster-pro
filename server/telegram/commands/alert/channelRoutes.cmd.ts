@@ -1,0 +1,124 @@
+// @responsibility channelRoutes.cmd — read-only Telegram channel routing summary.
+// @responsibility: /channel_routes — AlertCategory/ChannelSemantic/env route 상태를 한 화면에 표시.
+
+import { AlertCategory, ChannelSemantic, isCategoryEnabled } from '../../../alerts/alertCategories.js';
+import { getResolvedChannelMap, VIBRATION_POLICY } from '../../../alerts/alertRouter.js';
+import { isDigestEnabled } from '../../../alerts/telegramClient.js';
+import { commandRegistry } from '../../commandRegistry.js';
+import type { TelegramCommand } from '../_types.js';
+
+type SemanticRow = {
+  semantic: keyof typeof ChannelSemantic;
+  category: AlertCategory;
+  role: string;
+  examples: string;
+};
+
+const SEMANTIC_ROWS: SemanticRow[] = [
+  {
+    semantic: 'EXECUTION',
+    category: AlertCategory.TRADE,
+    role: '체결/손절/비상/주문 계열',
+    examples: 'fills, stop_loss, emergency, order_fail',
+  },
+  {
+    semantic: 'SIGNAL',
+    category: AlertCategory.ANALYSIS,
+    role: '픽/스캔/후보/분석 계열',
+    examples: 'scan_summary, watchlist, blocked_outcome',
+  },
+  {
+    semantic: 'REGIME',
+    category: AlertCategory.INFO,
+    role: '레짐/매크로/정보 다이제스트',
+    examples: 'macro, regime, info_digest',
+  },
+  {
+    semantic: 'JOURNAL',
+    category: AlertCategory.SYSTEM,
+    role: '시스템/학습/복기/운영 로그',
+    examples: 'health, ops_status, weekly_summary',
+  },
+];
+
+function maskChannelId(channelId: string | undefined): string {
+  if (!channelId) return 'missing';
+  if (channelId.startsWith('@')) return channelId;
+  if (channelId.length <= 8) return channelId;
+  return `${channelId.slice(0, 4)}…${channelId.slice(-4)}`;
+}
+
+function enabledLabel(category: AlertCategory): string {
+  return isCategoryEnabled(category) ? 'ON' : 'OFF';
+}
+
+function channelSourceHint(category: AlertCategory): string {
+  switch (category) {
+    case AlertCategory.TRADE:
+      return process.env.TELEGRAM_TRADE_CHANNEL_ID ? 'TELEGRAM_TRADE_CHANNEL_ID' : 'fallback TELEGRAM_CHAT_ID';
+    case AlertCategory.ANALYSIS:
+      return process.env.TELEGRAM_ANALYSIS_CHANNEL_ID
+        ? 'TELEGRAM_ANALYSIS_CHANNEL_ID'
+        : process.env.TELEGRAM_PICK_CHANNEL_ID
+          ? 'legacy TELEGRAM_PICK_CHANNEL_ID'
+          : 'missing';
+    case AlertCategory.INFO:
+      return process.env.TELEGRAM_INFO_CHANNEL_ID ? 'TELEGRAM_INFO_CHANNEL_ID' : 'fallback TRADE';
+    case AlertCategory.SYSTEM:
+      return process.env.TELEGRAM_SYSTEM_CHANNEL_ID ? 'TELEGRAM_SYSTEM_CHANNEL_ID' : 'fallback TRADE';
+    default:
+      return 'unknown';
+  }
+}
+
+function vibrationSummary(category: AlertCategory): string {
+  const policy = VIBRATION_POLICY[category];
+  return `C:${policy.CRITICAL ? 'vib' : 'silent'} H:${policy.HIGH ? 'vib' : 'silent'} N:${policy.NORMAL ? 'vib' : 'silent'} L:${policy.LOW ? 'vib' : 'silent'}`;
+}
+
+function formatChannelRoutes(): string {
+  const channelMap = getResolvedChannelMap();
+  const lines = [
+    '📡 <b>CHANNEL ROUTES</b>',
+    '<i>read-only routing summary — no test send</i>',
+    '',
+  ];
+
+  for (const row of SEMANTIC_ROWS) {
+    const channelId = channelMap[row.category];
+    const configured = channelId ? 'configured' : 'missing';
+    lines.push(`<b>${row.semantic}</b> → ${row.category}`);
+    lines.push(`• role: ${row.role}`);
+    lines.push(`• enabled: <b>${enabledLabel(row.category)}</b> / ${configured}`);
+    lines.push(`• target: <code>${maskChannelId(channelId)}</code>`);
+    lines.push(`• source: ${channelSourceHint(row.category)}`);
+    lines.push(`• vibration: ${vibrationSummary(row.category)}`);
+    lines.push(`• examples: ${row.examples}`);
+    lines.push('');
+  }
+
+  lines.push('<b>Digest</b>');
+  lines.push(`• telegramClient T3 digest: <b>${isDigestEnabled() ? 'ON' : 'OFF'}</b>`);
+  lines.push(`• CHANNEL_ENABLED: <b>${process.env.CHANNEL_ENABLED === 'true' ? 'true' : 'false'}</b>`);
+  lines.push('');
+  lines.push('<i>채널 전송 테스트는 /channel_health 또는 /channel_test 사용. 이 명령은 발송하지 않음.</i>');
+  return lines.join('\n');
+}
+
+const channelRoutes: TelegramCommand = {
+  name: '/channel_routes',
+  aliases: ['/alert_routes', '/channel_status'],
+  category: 'ALR',
+  visibility: 'ADMIN',
+  riskLevel: 0,
+  description: '텔레그램 4채널 라우팅 요약 — read-only, 발송 없음',
+  usage: '/channel_routes',
+  async execute({ reply }) {
+    await reply(formatChannelRoutes());
+  },
+};
+
+commandRegistry.register(channelRoutes);
+
+export default channelRoutes;
+export { formatChannelRoutes };
