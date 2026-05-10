@@ -9,6 +9,11 @@ import {
   type PromotionReadinessStatusAdr0497,
   type ProviderHealthStatusAdr0497,
 } from './diagnosticTaxonomyAdr0497.js';
+import {
+  classifyProviderMarketSignalAdr0499,
+  normalizeMarketSignalDirectionAdr0499,
+  normalizeProviderHealthStatusAdr0499,
+} from './providerMarketSignalMigrationAdr0499.js';
 
 export type FreshDataStatusSourceAdr0498 =
   | 'ADR_0487_FRESH_DATA'
@@ -53,19 +58,17 @@ function providerIsSevere(providerHealth: ProviderHealthStatusAdr0497): boolean 
 }
 
 function coerceProviderHealth(value: unknown): ProviderHealthStatusAdr0497 {
-  if (value === 'UP' || value === 'OK' || value === 'READY' || value === 'DATA_AVAILABLE' || value === 'FRESH' || value === 'VERIFIED' || value === 'RECORDED' || value === 'REPLAY_READY') return 'UP';
-  if (value === 'DOWN' || value === 'PROVIDER_ERROR' || value === 'FETCH_ERROR') return 'DOWN';
-  if (value === 'EMPTY' || value === 'CACHE_EMPTY' || value === 'DATA_UNAVAILABLE' || value === 'REPLAY_UNAVAILABLE') return 'EMPTY';
-  if (value === 'STALE') return 'STALE';
-  if (value === 'DELAYED') return 'DELAYED';
-  if (value === 'PARSE_ERROR' || value === 'CORRUPT_RECOVERED') return 'PARSE_ERROR';
-  if (value === 'RATE_LIMITED') return 'RATE_LIMITED';
+  const normalized = normalizeProviderHealthStatusAdr0499(typeof value === 'string' ? value : undefined);
+  if (normalized !== 'UNKNOWN') return normalized;
+  if (value === 'DATA_AVAILABLE' || value === 'FRESH' || value === 'RECORDED' || value === 'REPLAY_READY') return 'UP';
+  if (value === 'FETCH_ERROR') return 'DOWN';
+  if (value === 'CACHE_EMPTY' || value === 'REPLAY_UNAVAILABLE') return 'EMPTY';
+  if (value === 'CORRUPT_RECOVERED') return 'PARSE_ERROR';
   return 'UNKNOWN';
 }
 
 function coerceMarketSignal(value: unknown): MarketSignalDirectionAdr0497 {
-  if (value === 'BULLISH' || value === 'BEARISH' || value === 'NEUTRAL' || value === 'MIXED') return value;
-  return 'UNKNOWN';
+  return normalizeMarketSignalDirectionAdr0499(typeof value === 'string' || typeof value === 'number' ? value : undefined);
 }
 
 function compactLine(line: string): string {
@@ -76,9 +79,13 @@ export function buildFreshDataStatusViewModelFromInputAdr0498(
   input: FreshDataStatusViewModelInputAdr0498,
 ): FreshDataStatusViewModelAdr0497 {
   try {
-    const providerHealth = input.providerHealth ?? 'UNKNOWN';
+    const separation = classifyProviderMarketSignalAdr0499({
+      fallbackProviderHealth: input.providerHealth ?? 'UNKNOWN',
+      fallbackMarketSignal: input.marketSignal ?? 'UNKNOWN',
+    });
+    const providerHealth = separation.providerHealth;
     const warnings = [...(input.warnings ?? [])];
-    if (providerHealth !== 'UP' && !warnings.includes(PROVIDER_DIAGNOSTIC_WARNING)) {
+    if (separation.providerIssue && !warnings.includes(PROVIDER_DIAGNOSTIC_WARNING)) {
       warnings.push(PROVIDER_DIAGNOSTIC_WARNING);
     }
     return buildFreshDataStatusViewModelAdr0497({
@@ -86,7 +93,7 @@ export function buildFreshDataStatusViewModelFromInputAdr0498(
       domain: input.domain ?? 'UNKNOWN',
       providerHealth,
       dataConfidence: input.dataConfidence ?? 'UNKNOWN',
-      marketSignal: providerHealth === 'UP' ? (input.marketSignal ?? 'UNKNOWN') : 'UNKNOWN',
+      marketSignal: separation.marketSignal,
       dataLineStatus: input.dataLineStatus ?? 'OBSERVING',
       promotionReadiness: input.promotionReadiness ?? 'NOT_EVALUATED',
       executionImpact: 'NONE',
