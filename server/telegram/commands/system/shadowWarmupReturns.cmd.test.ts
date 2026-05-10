@@ -100,18 +100,21 @@ describe('shadowWarmupReturns.cmd', () => {
       range: '5d',
       interval: '1d',
       cacheKey: '336370.KS:5d:1d',
+      realtimeTag: 'HISTORICAL',
     });
     expect(mockedFetch).toHaveBeenCalledWith({
       symbol: '336370.KQ',
       range: '1mo',
       interval: '1d',
       cacheKey: '336370.KQ:1mo:1d',
+      realtimeTag: 'HISTORICAL',
     });
     expect(mockedFetch).toHaveBeenCalledWith({
       symbol: '061970',
       range: '1y',
       interval: '1d',
       cacheKey: '061970:1y:1d',
+      realtimeTag: 'HISTORICAL',
     });
     expect(mockedFetch).not.toHaveBeenCalledWith(expect.objectContaining({ symbol: '123456.KS' }));
 
@@ -125,7 +128,7 @@ describe('shadowWarmupReturns.cmd', () => {
     expect(msg).toContain('336370.KS:5d:1d');
   });
 
-  it('counts status 200, 404, 502 and reports sample failures', async () => {
+  it('counts status 200, 404, 502 and reports sample failures with compact details', async () => {
     mockedLoadSignals.mockReturnValue([signal({ symbol: '061970' })]);
     let callIndex = 0;
     mockedFetch.mockImplementation(async () => {
@@ -134,9 +137,17 @@ describe('shadowWarmupReturns.cmd', () => {
         return { body: '{}', contentType: 'application/json; charset=utf-8', status: 200 };
       }
       if (callIndex === 2) {
-        return { body: '{}', contentType: 'application/json; charset=utf-8', status: 404 };
+        return {
+          body: JSON.stringify({ error: 'Symbol not found', details: 'not found detail' }),
+          contentType: 'application/json; charset=utf-8',
+          status: 404,
+        };
       }
-      return { body: '{}', contentType: 'application/json; charset=utf-8', status: 502 };
+      return {
+        body: JSON.stringify({ error: 'Failed to fetch data from Yahoo after multiple attempts', details: 'EGRESS_GUARD_BLOCKED sample detail' }),
+        contentType: 'application/json; charset=utf-8',
+        status: 502,
+      };
     });
     const reply = makeReply();
 
@@ -149,8 +160,8 @@ describe('shadowWarmupReturns.cmd', () => {
     expect(msg).toContain('failed: 10');
     expect(msg).toContain('sampleTargets:');
     expect(msg).toContain('sampleFailures:');
-    expect(msg).toContain('061970.KS:404');
-    expect(msg).toContain('061970.KS:502');
+    expect(msg).toContain('061970.KS:5d:1d:404:not found detail');
+    expect(msg).toContain('061970.KS:1mo:1d:502:EGRESS_GUARD_BLOCKED sample detail');
   });
 
   it('keeps suffixed or non-six-digit symbols as-is', async () => {
@@ -168,12 +179,14 @@ describe('shadowWarmupReturns.cmd', () => {
       range: '5d',
       interval: '1d',
       cacheKey: '005930.KS:5d:1d',
+      realtimeTag: 'HISTORICAL',
     });
     expect(mockedFetch).toHaveBeenCalledWith({
       symbol: 'ABC',
       range: '1y',
       interval: '1d',
       cacheKey: 'ABC:1y:1d',
+      realtimeTag: 'HISTORICAL',
     });
   });
 

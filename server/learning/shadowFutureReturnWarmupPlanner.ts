@@ -58,6 +58,31 @@ export function collectUnresolvedShadowReturnSymbols(signals: ShadowLearningOnly
   };
 }
 
+function compactFailureDetail(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown; details?: unknown; symbol?: unknown };
+    const detail = typeof parsed.details === 'string'
+      ? parsed.details
+      : typeof parsed.error === 'string'
+        ? parsed.error
+        : '';
+    return detail.replace(/\s+/g, ' ').slice(0, 120);
+  } catch {
+    return body.replace(/\s+/g, ' ').slice(0, 120);
+  }
+}
+
+function pushSampleFailure(
+  stats: ShadowFutureReturnWarmupStats,
+  target: string,
+  status: number | 'ERROR',
+  detail?: string,
+): void {
+  if (stats.sampleFailures.length >= 10) return;
+  const suffix = detail && detail.length > 0 ? `:${detail}` : '';
+  stats.sampleFailures.push(`${target}:${status}${suffix}`);
+}
+
 export async function runShadowFutureReturnWarmup(limit: number): Promise<ShadowFutureReturnWarmupStats> {
   const signals = loadShadowLearningOnlySignals();
   const { symbols, skippedAlreadyResolved } = collectUnresolvedShadowReturnSymbols(signals);
@@ -88,20 +113,22 @@ export async function runShadowFutureReturnWarmup(limit: number): Promise<Shadow
             range,
             interval: '1d',
             cacheKey: target,
+            realtimeTag: 'HISTORICAL',
           });
 
           if (result.status === 200) {
             stats.storedSnapshots += 1;
           } else if (result.status === 404) {
             stats.notFound += 1;
-            if (stats.sampleFailures.length < 10) stats.sampleFailures.push(`${yahooSymbol}:404`);
+            pushSampleFailure(stats, target, 404, compactFailureDetail(result.body));
           } else {
             stats.failed += 1;
-            if (stats.sampleFailures.length < 10) stats.sampleFailures.push(`${yahooSymbol}:${result.status}`);
+            pushSampleFailure(stats, target, result.status, compactFailureDetail(result.body));
           }
-        } catch {
+        } catch (e) {
           stats.failed += 1;
-          if (stats.sampleFailures.length < 10) stats.sampleFailures.push(`${yahooSymbol}:ERROR`);
+          const msg = e instanceof Error ? e.message : String(e);
+          pushSampleFailure(stats, target, 'ERROR', msg.slice(0, 120));
         }
       }
     }
