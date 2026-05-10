@@ -17,7 +17,11 @@ import { isMarketOpen } from '../utils/marketClock.js';
 import { isMarketOpenFor, nextOpenAtFor } from '../utils/symbolMarketRegistry.js';
 import { guardedFetch } from '../utils/egressGuard.js';
 import { capYahooRange } from '../utils/yahooRangePolicy.js';
-import { getSnapshot, setSnapshot } from '../persistence/offHoursSnapshotRepo.js';
+import { getSnapshot } from '../persistence/offHoursSnapshotRepo.js';
+import {
+  fetchAndStoreYahooHistoricalSnapshot,
+  type YahooHistoricalSnapshotFetchResult,
+} from '../market/yahooHistoricalSnapshotWarmup.js';
 import {
   fillMissingFromSnapshot,
   loadMarketIndicatorsSnapshot,
@@ -80,8 +84,7 @@ export function proxyCacheSize(): number { return _yahooProxyCache.size; }
 // ── ADR-0010: In-flight Request Coalescing ───────────────────────────────────
 // 동일 (symbol,range,interval) 호출이 캐시 set 이전 윈도우에서 N 번 들어와도
 // outbound 는 1 번. 진행 중인 Promise 에 편승 → finally 시점에 Map 에서 제거.
-interface CoalescedResult { body: string; contentType: string; status: number; }
-const _yahooInflight = new Map<string, Promise<CoalescedResult>>();
+const _yahooInflight = new Map<string, Promise<YahooHistoricalSnapshotFetchResult>>();
 export function inflightSize(): number { return _yahooInflight.size; }
 export function inflightReset(): void { _yahooInflight.clear(); }
 
@@ -167,86 +170,6 @@ router.get('/krx/valuation', async (req: Request, res: Response) => {
 });
 
 // ─── Yahoo Finance Historical Data Proxy ────────────────────────────────────
-async function fetchYahooHistorical(
-  symbolStr: string, rangeStr: string, intervalStr: string, cacheKey: string,
-): Promise<CoalescedResult> {
-  const urls = [
-    `https://query2.finance.yahoo.com/v8/finance/chart/${symbolStr}?range=${rangeStr}&interval=${intervalStr}`,
-    `https://query1.finance.yahoo.com/v8/finance/chart/${symbolStr}?range=${rangeStr}&interval=${intervalStr}`,
-  ];
-
-  let lastError: any = null;
-
-  for (let i = 0; i < urls.length; i++) {
-    const url = urls[i];
-    console.log(`Proxying request to Yahoo (${url.includes('query2') ? 'query2' : 'query1'}): ${url}`);
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-      const response = await guardedFetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
-        },
-        signal: controller.signal,
-      }, 'REALTIME');
-
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.chart?.result?.[0]) {
-          const body = JSON.stringify(data);
-          const contentType = 'application/json; charset=utf-8';
-          proxyCacheSet(cacheKey, {
-            body,
-            contentType,
-            expiresAt: Date.now() + yahooProxyTtlMs(intervalStr),
-          });
-          // PR-32: 디스크 영속 스냅샷도 갱신 — 장외·재배포 시 fallback 소스.
-          setSnapshot(cacheKey, { body, contentType, fetchedAt: Date.now() });
-          return { body, contentType, status: 200 };
-        } else if (data.chart?.error) {
-          console.warn(`Yahoo API returned error for ${symbolStr}:`, data.chart.error);
-          lastError = data.chart.error;
-          if (i < urls.length - 1) await new Promise((r) => setTimeout(r, 500));
-          continue;
-        }
-      } else if (response.status === 404) {
-        console.warn(`Yahoo API symbol not found (404) for ${symbolStr}`);
-        return {
-          body: JSON.stringify({ error: 'Symbol not found', symbol: symbolStr }),
-          contentType: 'application/json; charset=utf-8',
-          status: 404,
-        };
-      }
-
-      const errorText = await response.text();
-      console.error(`Yahoo API error (${response.status}) for ${symbolStr}:`, errorText);
-      lastError = { status: response.status, details: errorText };
-      if (i < urls.length - 1) await new Promise((r) => setTimeout(r, 500));
-    } catch (error: any) {
-      console.error(`Proxy error for ${symbolStr} using ${url.includes('query2') ? 'query2' : 'query1'}:`, error.message);
-      lastError = error;
-      if (i < urls.length - 1) await new Promise((r) => setTimeout(r, 500));
-    }
-  }
-
-  return {
-    body: JSON.stringify({
-      error: 'Failed to fetch data from Yahoo after multiple attempts',
-      details: lastError?.message || lastError?.details || 'Unknown error',
-      symbol: symbolStr,
-    }),
-    contentType: 'application/json; charset=utf-8',
-    status: 502,
-  };
-}
-
 router.get('/historical-data', async (req: Request, res: Response) => {
   const { symbol, range, interval } = req.query;
   if (!symbol) return res.status(400).json({ error: "Symbol is required" });
@@ -277,7 +200,22 @@ router.get('/historical-data', async (req: Request, res: Response) => {
   if (inflight) {
     coalesced = true;
   } else {
-    inflight = fetchYahooHistorical(symbolStr, rangeStr, intervalStr, cacheKey)
+    inflight = fetchAndStoreYahooHistoricalSnapshot({
+      symbol: symbolStr,
+      range: rangeStr,
+      interval: intervalStr,
+      cacheKey,
+    })
+      .then((result) => {
+        if (result.status === 200) {
+          proxyCacheSet(cacheKey, {
+            body: result.body,
+            contentType: result.contentType,
+            expiresAt: Date.now() + yahooProxyTtlMs(intervalStr),
+          });
+        }
+        return result;
+      })
       .finally(() => { _yahooInflight.delete(cacheKey); });
     _yahooInflight.set(cacheKey, inflight);
   }
