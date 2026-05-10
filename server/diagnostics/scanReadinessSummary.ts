@@ -68,6 +68,12 @@ function formatKstHm(iso: string | undefined): string {
   });
 }
 
+function formatSchedulerLastLabel(lastFinishedAt: string | undefined, everRanCount: number): string {
+  if (lastFinishedAt) return formatKstHm(lastFinishedAt);
+  if (everRanCount > 0) return 'not in memory';
+  return 'never';
+}
+
 function buildSchedulerCheck(): ScanReadinessCheck {
   const screenerJobs = SCHEDULE_CATALOG.filter((entry) => entry.group === 'screener' && entry.jobName);
   const tradingTick = SCHEDULE_CATALOG.find((entry) => entry.jobName === 'orchestrator_tick');
@@ -96,7 +102,7 @@ function buildSchedulerCheck(): ScanReadinessCheck {
     `catalog=${observedJobs.length}`,
     `metrics=${registered.length}`,
     `everRan=${everRan.length}`,
-    `last=${formatKstHm(last?.finishedAt)}`,
+    `last=${formatSchedulerLastLabel(last?.finishedAt, everRan.length)}`,
   ].join(', ');
   return { name: 'Scheduler', status, detail };
 }
