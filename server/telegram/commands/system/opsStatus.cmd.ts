@@ -10,6 +10,10 @@ import { loadShadowTrades, getRemainingQty } from '../../../persistence/shadowTr
 import { isDigestEnabled } from '../../../alerts/telegramClient.js';
 import { loadAndSummarizeShadowBlockedOutcomes } from '../../../learning/shadowBlockedOutcomeAnalytics.js';
 import { loadAndBuildShadowFutureReturnCacheCoverageSummary } from '../../../learning/shadowFutureReturnCacheProvider.js';
+import {
+  evaluateLivePreflightRegression,
+  type LivePreflightRegressionResult,
+} from '../../../trading/preflightRegressionMatrix.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -75,6 +79,45 @@ function deriveEmptyCause(snapshot: ReturnType<typeof collectHealthSnapshot>): s
   return snapshot.lastScanSummary?.emptyScanReason ?? 'UNKNOWN';
 }
 
+function deriveProviderHealthForMatrix(snapshot: ReturnType<typeof collectHealthSnapshot>) {
+  if (snapshot.yahoo.status === 'DOWN') return 'DOWN' as const;
+  if (snapshot.yahoo.status === 'STALE') return 'STALE' as const;
+  if (snapshot.yahoo.status === 'DEGRADED') return 'DEGRADED' as const;
+  if (snapshot.yahoo.status === 'OK') return 'OK' as const;
+  return 'UNKNOWN' as const;
+}
+
+function deriveDataFreshnessForMatrix(snapshot: ReturnType<typeof collectHealthSnapshot>) {
+  if (snapshot.yahoo.status === 'STALE') return 'STALE' as const;
+  if (snapshot.yahoo.detail === 'NO_SCAN_HISTORY') return 'UNKNOWN' as const;
+  if (snapshot.yahoo.status === 'DOWN') return 'UNKNOWN' as const;
+  return 'FRESH' as const;
+}
+
+function deriveMarketSessionAllowsEntry(snapshot: ReturnType<typeof collectHealthSnapshot>): boolean {
+  const reason = snapshot.lastScanSummary?.emptyScanReason;
+  return reason !== 'MARKET_SESSION_BLOCK' && reason !== 'SELL_ONLY_BLOCK';
+}
+
+function buildOpsPreflightMatrix(snapshot: ReturnType<typeof collectHealthSnapshot>, liveExecutionAllowed: boolean): LivePreflightRegressionResult {
+  return evaluateLivePreflightRegression({
+    autoTradeMode: snapshot.autoTradeMode,
+    autoTradeEnabled: snapshot.autoTradeEnabled,
+    liveExecutionAllowed,
+    emergencyStop: snapshot.emergencyStop,
+    dailyLossLimitReached: snapshot.dailyLossLimitReached,
+    kisConfigured: snapshot.kisConfigured,
+    kisTokenValid: snapshot.kisTokenValid,
+    sellOnlyMode: false,
+    positionFull: false,
+    duplicateOrderRisk: false,
+    providerHealth: deriveProviderHealthForMatrix(snapshot),
+    dataFreshness: deriveDataFreshnessForMatrix(snapshot),
+    volumeClockAllowsEntry: snapshot.volume.ok,
+    marketSessionAllowsEntry: deriveMarketSessionAllowsEntry(snapshot),
+  });
+}
+
 function collectOpsStatusData() {
   const snapshot = collectHealthSnapshot();
   const macro = loadMacroState();
@@ -83,11 +126,12 @@ function collectOpsStatusData() {
   const blocked = loadAndSummarizeShadowBlockedOutcomes();
   const coverage = loadAndBuildShadowFutureReturnCacheCoverageSummary();
   const liveExecutionAllowed = deriveLiveExecutionAllowed(snapshot);
+  const preflightMatrix = buildOpsPreflightMatrix(snapshot, liveExecutionAllowed);
   const topOverBlocked = blocked.topOverBlockedReasons[0]
     ? `${blocked.topOverBlockedReasons[0].blockedReason}(${blocked.topOverBlockedReasons[0].overBlockedCount})`
     : 'none';
 
-  return { snapshot, macro, activeTrades, blocked, coverage, liveExecutionAllowed, topOverBlocked };
+  return { snapshot, macro, activeTrades, blocked, coverage, liveExecutionAllowed, preflightMatrix, topOverBlocked };
 }
 
 function formatOpsStatusCompact(): string {
@@ -123,8 +167,20 @@ function formatOpsStatusCompact(): string {
   ].join('\n');
 }
 
+function formatPreflightMatrixSection(result: LivePreflightRegressionResult): string[] {
+  const reasons = result.blockReasons.length > 0 ? result.blockReasons.join(', ') : 'none';
+  return [
+    '<b>Live Preflight Matrix</b>',
+    safeLine('allowNewBuy', result.allowNewBuy ? 'true' : 'false'),
+    safeLine('liveOrderAllowed', result.liveOrderAllowed ? 'true' : 'false'),
+    safeLine('action', result.confidenceAction),
+    safeLine('reasons', reasons),
+    '<i>diagnostic only — no order dispatch.</i>',
+  ];
+}
+
 function formatOpsStatusFull(): string {
-  const { snapshot, macro, activeTrades, blocked, coverage, liveExecutionAllowed, topOverBlocked } = collectOpsStatusData();
+  const { snapshot, macro, activeTrades, blocked, coverage, liveExecutionAllowed, preflightMatrix, topOverBlocked } = collectOpsStatusData();
   const emptyCause = deriveEmptyCause(snapshot);
 
   const lines = [
@@ -151,6 +207,8 @@ function formatOpsStatusFull(): string {
     safeLine('lastSignal', formatKst(snapshot.lastBuyTs)),
     safeLine('empty/topCause', emptyCause),
     safeLine('watchlist', `${snapshot.watchlistCount}`),
+    '',
+    ...formatPreflightMatrixSection(preflightMatrix),
     '',
     '<b>Shadow</b>',
     safeLine('openShadowTrades', activeTrades.length),
