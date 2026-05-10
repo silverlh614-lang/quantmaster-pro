@@ -69,6 +69,20 @@ function formatKstHm(iso: string | undefined): string {
   });
 }
 
+function kstDateKey(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const ts = Date.parse(iso);
+  if (!Number.isFinite(ts)) return null;
+  return new Date(ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+}
+
+function formatHandlerFlag(iso: string | undefined, tradingDate: string): string {
+  if (!iso) return 'notRan';
+  const dateKey = kstDateKey(iso);
+  if (!dateKey) return 'ran(invalidDate)';
+  return dateKey === tradingDate ? `ran(today ${formatKstHm(iso)})` : `ran(old ${dateKey})`;
+}
+
 function formatSchedulerLastLabel(lastFinishedAt: string | undefined, everRanCount: number): string {
   if (lastFinishedAt) return formatKstHm(lastFinishedAt);
   if (everRanCount > 0) return 'not in memory';
@@ -116,8 +130,9 @@ function buildOrchestratorCheck(): ScanReadinessCheck {
   const status = tradingOrchestrator.getStatus();
   const computed = status.computedState;
   const scanEligible = isScanEligibleState(computed);
-  const marketOpenRan = Boolean(status.handlerRanAt.marketOpen);
-  const middayRan = Boolean(status.handlerRanAt.middayRescan);
+  const marketOpen = formatHandlerFlag(status.handlerRanAt.marketOpen, status.tradingDate);
+  const midday = formatHandlerFlag(status.handlerRanAt.middayRescan, status.tradingDate);
+  const openAuction = formatHandlerFlag(status.handlerRanAt.openAuction, status.tradingDate);
   const label: ScanReadinessCheck['label'] = scanEligible ? undefined : 'WAIT';
   return {
     name: 'Orchestrator',
@@ -126,9 +141,11 @@ function buildOrchestratorCheck(): ScanReadinessCheck {
     detail: [
       `computed=${computed}`,
       `stored=${status.currentState}`,
+      `date=${status.tradingDate || 'unknown'}`,
       `scanEligible=${scanEligible ? 'true' : 'false'}`,
-      `marketOpen=${marketOpenRan ? 'ran' : 'notRan'}`,
-      `midday=${middayRan ? 'ran' : 'notRan'}`,
+      `openAuction=${openAuction}`,
+      `marketOpen=${marketOpen}`,
+      `midday=${midday}`,
     ].join(', '),
   };
 }
