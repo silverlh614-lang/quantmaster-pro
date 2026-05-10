@@ -1,9 +1,18 @@
 // @responsibility PATCH-D shadowFutureReturnCacheProvider tests — cache-only read path
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ShadowLearningOnlySignal } from '../trading/shadowLearningOnlyScan.js';
 
 vi.mock('./counterfactualShadowPriceProviderAdapter.js', () => ({
   readYahooSnapshotPoint: vi.fn(),
+}));
+
+vi.mock('../persistence/offHoursSnapshotRepo.js', () => ({
+  getSnapshotSize: vi.fn(() => 0),
+}));
+
+vi.mock('../persistence/shadowLearningOnlySignalRepo.js', () => ({
+  loadShadowLearningOnlySignals: vi.fn(() => []),
 }));
 
 vi.mock('./shadowFutureReturnResolver.js', async () => {
@@ -17,20 +26,48 @@ vi.mock('./shadowFutureReturnResolver.js', async () => {
 });
 
 import { readYahooSnapshotPoint } from './counterfactualShadowPriceProviderAdapter.js';
+import { getSnapshotSize } from '../persistence/offHoursSnapshotRepo.js';
+import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnlySignalRepo.js';
 import { loadResolveAndSaveShadowFutureReturns } from './shadowFutureReturnResolver.js';
 import {
+  buildShadowFutureReturnCacheCoverageSummary,
   createShadowFutureReturnCachePriceProvider,
   findNthKrxTradingDayAfter,
+  loadAndBuildShadowFutureReturnCacheCoverageSummary,
   loadResolveAndSaveShadowFutureReturnsFromCache,
   resolveShadowFutureReturnTargetCloseKst,
 } from './shadowFutureReturnCacheProvider.js';
 
 const mockedReadYahooSnapshotPoint = vi.mocked(readYahooSnapshotPoint);
+const mockedGetSnapshotSize = vi.mocked(getSnapshotSize);
+const mockedLoadSignals = vi.mocked(loadShadowLearningOnlySignals);
 const mockedLoadResolveAndSave = vi.mocked(loadResolveAndSaveShadowFutureReturns);
+
+function signal(overrides: Partial<ShadowLearningOnlySignal> = {}): ShadowLearningOnlySignal {
+  return {
+    symbol: overrides.symbol ?? '005930',
+    signalDate: overrides.signalDate ?? '2026-05-08',
+    blockedReason: overrides.blockedReason ?? 'DATA_STARVED',
+    learningOnly: true,
+    executionImpact: 'NONE',
+    wouldHaveBought: overrides.wouldHaveBought ?? true,
+    hypotheticalEntryPrice: overrides.hypotheticalEntryPrice ?? 10000,
+    hypotheticalStopLoss: overrides.hypotheticalStopLoss ?? 9200,
+    hypotheticalTargetPrice: overrides.hypotheticalTargetPrice ?? 12000,
+    signalGrade: overrides.signalGrade ?? 'BUY',
+    gateScore: overrides.gateScore ?? 7,
+    regime: overrides.regime ?? 'R2_BULL',
+    macroBlockReason: overrides.macroBlockReason ?? 'test',
+    dataQualityStatus: overrides.dataQualityStatus ?? 'OK',
+    ...overrides,
+  };
+}
 
 describe('shadowFutureReturnCacheProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedGetSnapshotSize.mockReturnValue(0);
+    mockedLoadSignals.mockReturnValue([]);
   });
 
   it('finds the next KRX trading day while skipping weekend', () => {
@@ -116,6 +153,40 @@ describe('shadowFutureReturnCacheProvider', () => {
       horizon: '5d',
       signal: {} as never,
     })).toBeNull();
+  });
+
+  it('builds cache coverage summary with misses and samples', () => {
+    mockedGetSnapshotSize.mockReturnValue(12);
+    mockedReadYahooSnapshotPoint
+      .mockReturnValueOnce({ price: 10100, observedAtKst: '2026-05-11T15:30:00+09:00', timestampMs: 1 })
+      .mockReturnValue(null);
+
+    const summary = buildShadowFutureReturnCacheCoverageSummary([
+      signal({ symbol: '005930' }),
+      signal({ symbol: '000660', futureReturn1d: 0.01 }),
+    ], 2);
+
+    expect(summary.snapshotEntries).toBe(12);
+    expect(summary.checkedSignals).toBe(2);
+    expect(summary.checkedLookups).toBe(7);
+    expect(summary.cacheHits).toBe(1);
+    expect(summary.cacheMisses).toBe(6);
+    expect(summary.unresolvedSignals).toBe(2);
+    expect(summary.sampleMissingTargets).toHaveLength(2);
+    expect(summary.sampleMissingTargets[0]).toContain('005930:3d:');
+  });
+
+  it('loads signals for cache coverage summary convenience function', () => {
+    mockedGetSnapshotSize.mockReturnValue(3);
+    mockedLoadSignals.mockReturnValue([signal({ symbol: '005930' })]);
+    mockedReadYahooSnapshotPoint.mockReturnValue(null);
+
+    const summary = loadAndBuildShadowFutureReturnCacheCoverageSummary();
+
+    expect(summary.snapshotEntries).toBe(3);
+    expect(summary.checkedSignals).toBe(1);
+    expect(summary.checkedLookups).toBe(4);
+    expect(summary.cacheMisses).toBe(4);
   });
 
   it('wires cache provider into loadResolveAndSaveShadowFutureReturns', async () => {
