@@ -1,13 +1,14 @@
 // @responsibility scanReadinessSummary — read-only first-scan readiness summary.
 //
 // This module does not run scanners, fetch providers, call KIS/KRX, or mutate state.
-// It only summarizes already-available health, macro, watchlist, scheduler, and last scan evidence.
+// It only summarizes already-available health, macro, watchlist, scheduler, orchestrator, and last scan evidence.
 
 import { collectHealthSnapshot } from '../health/diagnostics.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { getLastScanSummary } from '../trading/signalScanner/scanDiagnostics.js';
 import { SCHEDULE_CATALOG, getJobMetrics, getLastRunByJob } from '../scheduler/scheduleCatalog.js';
+import { tradingOrchestrator, type TradingState } from '../orchestrator/tradingOrchestrator.js';
 
 export interface ScanReadinessCheck {
   name: string;
@@ -74,6 +75,10 @@ function formatSchedulerLastLabel(lastFinishedAt: string | undefined, everRanCou
   return 'never';
 }
 
+function isScanEligibleState(state: TradingState): boolean {
+  return state === 'MARKET_OPEN' || state === 'INTRADAY';
+}
+
 function buildSchedulerCheck(): ScanReadinessCheck {
   const screenerJobs = SCHEDULE_CATALOG.filter((entry) => entry.group === 'screener' && entry.jobName);
   const tradingTick = SCHEDULE_CATALOG.find((entry) => entry.jobName === 'orchestrator_tick');
@@ -107,6 +112,27 @@ function buildSchedulerCheck(): ScanReadinessCheck {
   return { name: 'Scheduler', status, detail };
 }
 
+function buildOrchestratorCheck(): ScanReadinessCheck {
+  const status = tradingOrchestrator.getStatus();
+  const computed = status.computedState;
+  const scanEligible = isScanEligibleState(computed);
+  const marketOpenRan = Boolean(status.handlerRanAt.marketOpen);
+  const middayRan = Boolean(status.handlerRanAt.middayRescan);
+  const label: ScanReadinessCheck['label'] = scanEligible ? undefined : 'WAIT';
+  return {
+    name: 'Orchestrator',
+    status: scanEligible ? 'OK' : 'WAIT',
+    label,
+    detail: [
+      `computed=${computed}`,
+      `stored=${status.currentState}`,
+      `scanEligible=${scanEligible ? 'true' : 'false'}`,
+      `marketOpen=${marketOpenRan ? 'ran' : 'notRan'}`,
+      `midday=${middayRan ? 'ran' : 'notRan'}`,
+    ].join(', '),
+  };
+}
+
 function buildScanInvocationCheck(schedulerCheck: ScanReadinessCheck, hasScanHistory: boolean): ScanReadinessCheck {
   const orchestrator = SCHEDULE_CATALOG.find((entry) => entry.jobName === 'orchestrator_tick');
   const orchMetrics = getJobMetrics('orchestrator_tick');
@@ -134,6 +160,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
   const macroAge = ageHours(macro?.updatedAt, now.getTime());
   const hasScanHistory = health.lastScanTs > 0 || Boolean(lastScan);
   const schedulerCheck = buildSchedulerCheck();
+  const orchestratorCheck = buildOrchestratorCheck();
   const invocationCheck = buildScanInvocationCheck(schedulerCheck, hasScanHistory);
 
   const checks: ScanReadinessCheck[] = [
@@ -143,6 +170,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
       detail: hasScanHistory ? `last=${new Date(health.lastScanTs).toISOString()}` : 'no scan history yet',
     },
     schedulerCheck,
+    orchestratorCheck,
     invocationCheck,
     {
       name: 'Watchlist',
@@ -200,6 +228,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
   if (macroAge !== null && macroAge > 8) nextActions.push(`Macro stale (${macroAge.toFixed(1)}h) → /refresh_macro`);
   if (!hasScanHistory) nextActions.push('No scan yet → wait next scanner cycle or /scan_blockers');
   if (schedulerCheck.status !== 'OK') nextActions.push('Scheduler not observed yet → /cron_status or /scheduler');
+  if (orchestratorCheck.status !== 'OK') nextActions.push('Orchestrator not in scan state → wait MARKET_OPEN/INTRADAY');
   if (invocationCheck.status !== 'OK') nextActions.push('Invocation path pending → /cron_status then /scan_blockers');
   if (watchlist.length === 0) nextActions.push('Watchlist empty → rebuild/watchlist refresh needed');
   if (!health.kisConfigured || !health.kisTokenValid) nextActions.push('KIS not ready → /ops_status full');
