@@ -58,6 +58,22 @@ export function collectUnresolvedShadowReturnSymbols(signals: ShadowLearningOnly
   };
 }
 
+export function prioritizeShadowWarmupSymbols(
+  symbols: string[],
+  prioritySymbols: string[] = [],
+): string[] {
+  const available = new Set(symbols);
+  const out: string[] = [];
+  for (const symbol of prioritySymbols) {
+    const s = symbol.trim();
+    if (available.has(s) && !out.includes(s)) out.push(s);
+  }
+  for (const symbol of symbols) {
+    if (!out.includes(symbol)) out.push(symbol);
+  }
+  return out;
+}
+
 export function symbolCandidatesForShadowReturnWarmup(symbol: string): string[] {
   const s = symbol.trim();
   const candidates = symbolCandidatesForShadowFutureReturnCache(s);
@@ -92,10 +108,14 @@ function pushSampleFailure(
   stats.sampleFailures.push(`${target}:${status}${suffix}`);
 }
 
-export async function runShadowFutureReturnWarmup(limit: number): Promise<ShadowFutureReturnWarmupStats> {
+export async function runShadowFutureReturnWarmup(
+  limit: number,
+  prioritySymbols: string[] = [],
+): Promise<ShadowFutureReturnWarmupStats> {
   const signals = loadShadowLearningOnlySignals();
   const { symbols, skippedAlreadyResolved } = collectUnresolvedShadowReturnSymbols(signals);
-  const selectedSymbols = symbols.slice(0, clampShadowReturnWarmupLimit(limit));
+  const orderedSymbols = prioritizeShadowWarmupSymbols(symbols, prioritySymbols);
+  const selectedSymbols = orderedSymbols.slice(0, clampShadowReturnWarmupLimit(limit));
   const stats: ShadowFutureReturnWarmupStats = {
     candidateSignals: signals.length,
     targetSymbols: symbols.length,
