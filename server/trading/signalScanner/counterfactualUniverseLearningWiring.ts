@@ -69,6 +69,7 @@ export function deriveUniverseLearningReason(
     case 'MANUAL_BUY_BLOCK':
       return 'MANUAL_BUY_BLOCK_PREFLIGHT';
     case 'CANDIDATE_SCAN_SKIPPED':
+    case 'VOLUME_CLOCK_BLOCK':
       return 'CANDIDATE_EVALUATION_SKIPPED';
     case 'SCAN_ABORTED':
       return 'SCAN_ABORTED_BEFORE_GATE';
