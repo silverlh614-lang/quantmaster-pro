@@ -52,12 +52,14 @@ const shadowBlockedOutcomes: TelegramCommand = {
       const lines: string[] = [compact];
 
       appendSection(lines, 'By blockedReason', summary.byBlockedReason);
+      appendSection(lines, 'By blockedReason × signalGrade', summary.byBlockedReasonSignalGrade, 6);
+      appendSection(lines, 'By blockedReason × macroBlockReason', summary.byBlockedReasonMacroBlockReason, 6);
       appendSection(lines, 'By macroBlockReason', summary.byMacroBlockReason, 3);
       appendSection(lines, 'By dataQualityStatus', summary.byDataQualityStatus, 3);
       appendSection(lines, 'By signalGrade', summary.bySignalGrade, 3);
 
       if (summary.topFastOverBlocked.length > 0) {
-        appendSection(lines, 'Fast over-block watchlist', summary.topFastOverBlocked, 3);
+        appendSection(lines, 'Fast over-block watchlist', summary.topFastOverBlocked, 5);
       }
 
       if (summary.topOverBlockedReasons.length > 0) {
