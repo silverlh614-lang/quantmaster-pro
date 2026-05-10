@@ -131,6 +131,11 @@ import {
   mapRuntimeFreshDataSummaryToStatusInputsAdr0498,
   safeBuildFreshDataStatusSectionAdr0498,
 } from '../../../diagnostics/freshDataStatusViewModelWiringAdr0498.js';
+import {
+  buildEmptyScanRootCauseEventsFromStringsAdr0500,
+  formatEmptyScanRootCauseCompactAdr0500,
+  safeBuildEmptyScanRootCauseDashboardAdr0500,
+} from '../../../diagnostics/emptyScanRootCauseDashboardAdr0500.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -480,6 +485,27 @@ const scanBlockers: TelegramCommand = {
       console.warn('[scan_blockers] ADR-0491 supply snapshot line failed:', err);
     }
 
+    let emptyScanRootCauseSectionAdr0500: string | null = null;
+    try {
+      if ((summary?.entries ?? 0) === 0 || (summary?.gateMisses ?? 0) > 0 || (summary?.yahooFails ?? 0) > 0) {
+        const dashboard = summary?.emptyScanRootCause ?? safeBuildEmptyScanRootCauseDashboardAdr0500({
+          scanId: summary?.time ? `scan-blockers-${summary.time}` : undefined,
+          events: buildEmptyScanRootCauseEventsFromStringsAdr0500([
+            ...(summary?.macroGateState?.sellOnlyMode ? [{ source: 'SCAN_BLOCKER' as const, reason: 'SELL_ONLY', count: 1 }] : []),
+            ...((summary?.macroGateState?.bearDefenseMode || summary?.macroGateState?.vixGatingActive || summary?.macroGateState?.mhsBelow30) ? [{ source: 'SCAN_BLOCKER' as const, reason: 'MACRO_RISK_OFF', count: 1 }] : []),
+            ...((summary?.yahooFails ?? 0) > 0 ? [{ source: 'SCAN_BLOCKER' as const, reason: 'PROVIDER_ERROR', count: summary?.yahooFails }] : []),
+            ...((summary?.waitDistribution?.sizingBlocked ?? 0) > 0 ? [{ source: 'SCAN_BLOCKER' as const, reason: 'SIZING', count: summary?.waitDistribution?.sizingBlocked }] : []),
+            ...((summary?.waitDistribution?.gateFail ?? 0) > 0 ? [{ source: 'SCAN_BLOCKER' as const, reason: 'THRESHOLD', count: summary?.waitDistribution?.gateFail }] : []),
+            ...(summary?.emptyScanReason ? [{ source: 'SCAN_BLOCKER' as const, reason: summary.emptyScanReason, message: 'ADR-0119 empty scan reason' }] : []),
+          ]),
+          totalEmptyScans: (summary?.entries ?? 0) === 0 ? 1 : 0,
+        });
+        emptyScanRootCauseSectionAdr0500 = formatEmptyScanRootCauseCompactAdr0500(dashboard, { maxBuckets: 5 });
+      }
+    } catch (err) {
+      console.warn('[scan_blockers] ADR-0500 empty scan root cause section failed:', err);
+    }
+
     let adr0498FreshDataStatusSection: string | null = null;
     try {
       const adr0498 = safeBuildFreshDataStatusSectionAdr0498(
@@ -568,6 +594,7 @@ const scanBlockers: TelegramCommand = {
     if (nearMissAnalyticsLine) parts.push(nearMissAnalyticsLine);
     if (livenessSection) parts.push(livenessSection);
     if (operatorActionSection) parts.push(operatorActionSection);
+    if (emptyScanRootCauseSectionAdr0500) parts.push(emptyScanRootCauseSectionAdr0500);
     if (adr0498FreshDataStatusSection) parts.push(adr0498FreshDataStatusSection);
     if (supplyCoverageRecoveryLine) parts.push(supplyCoverageRecoveryLine);
     if (supplyAdvisoryReadinessLine) parts.push(supplyAdvisoryReadinessLine);
