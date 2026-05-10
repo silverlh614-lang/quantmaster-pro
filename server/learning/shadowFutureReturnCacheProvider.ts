@@ -78,6 +78,12 @@ function rangeCandidatesForHorizon(horizon: ShadowFutureReturnHorizon): string[]
   return ['5d', '1mo', '3mo', '1y'];
 }
 
+export function symbolCandidatesForShadowFutureReturnCache(symbol: string): string[] {
+  const s = symbol.trim();
+  if (!/^\d{6}$/.test(s)) return [s];
+  return [`${s}.KS`, `${s}.KQ`, s];
+}
+
 function hasResolvedHorizon(signal: ShadowLearningOnlySignal, horizon: ShadowFutureReturnHorizon): boolean {
   if (horizon === '1d') return typeof signal.futureReturn1d === 'number';
   if (horizon === '3d') return typeof signal.futureReturn3d === 'number';
@@ -86,9 +92,11 @@ function hasResolvedHorizon(signal: ShadowLearningOnlySignal, horizon: ShadowFut
 }
 
 function lookupCachePoint(symbol: string, targetAtKst: string, horizon: ShadowFutureReturnHorizon) {
-  for (const range of rangeCandidatesForHorizon(horizon)) {
-    const point = readYahooSnapshotPoint(symbol, targetAtKst, range, '1d', 'closest');
-    if (point && Number.isFinite(point.price) && point.price > 0) return point;
+  for (const candidate of symbolCandidatesForShadowFutureReturnCache(symbol)) {
+    for (const range of rangeCandidatesForHorizon(horizon)) {
+      const point = readYahooSnapshotPoint(candidate, targetAtKst, range, '1d', 'closest');
+      if (point && Number.isFinite(point.price) && point.price > 0) return point;
+    }
   }
   return null;
 }
@@ -129,7 +137,7 @@ export function buildShadowFutureReturnCacheCoverageSummary(
         cacheMisses += 1;
         unresolved.add(signal.symbol);
         if (sampleMissingTargets.length < sampleLimit) {
-          sampleMissingTargets.push(`${signal.symbol}:${horizon}:${targetAtKst.slice(0, 10)}:${rangeCandidatesForHorizon(horizon).join('|')}`);
+          sampleMissingTargets.push(`${signal.symbol}:${horizon}:${targetAtKst.slice(0, 10)}:${symbolCandidatesForShadowFutureReturnCache(signal.symbol).join('|')}:${rangeCandidatesForHorizon(horizon).join('|')}`);
         }
       }
     }
