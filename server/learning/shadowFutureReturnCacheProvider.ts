@@ -180,8 +180,11 @@ export function buildShadowFutureReturnCacheCoverageSummary(
   };
 }
 
-export function loadAndBuildShadowFutureReturnCacheCoverageSummary(): ShadowFutureReturnCacheCoverageSummary {
-  return buildShadowFutureReturnCacheCoverageSummary(loadShadowLearningOnlySignals());
+export function loadAndBuildShadowFutureReturnCacheCoverageSummary(
+  sampleLimit = 5,
+  now: Date = new Date(),
+): ShadowFutureReturnCacheCoverageSummary {
+  return buildShadowFutureReturnCacheCoverageSummary(loadShadowLearningOnlySignals(), sampleLimit, now);
 }
 
 export async function loadResolveAndSaveShadowFutureReturnsFromCache() {
