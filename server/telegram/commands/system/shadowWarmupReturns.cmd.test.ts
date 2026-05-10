@@ -82,7 +82,7 @@ describe('shadowWarmupReturns.cmd', () => {
     expect(msg).toContain('attemptedRequests: 0');
   });
 
-  it('excludes fully resolved signals, dedupes symbols, applies limit, and expands KRX candidates', async () => {
+  it('excludes fully resolved signals, dedupes symbols, applies limit, and expands KRX suffix candidates only', async () => {
     mockedLoadSignals.mockReturnValue([
       fullyResolved(),
       signal({ symbol: '336370' }),
@@ -94,7 +94,7 @@ describe('shadowWarmupReturns.cmd', () => {
 
     await shadowWarmupReturns.execute({ args: ['2'], reply });
 
-    expect(mockedFetch).toHaveBeenCalledTimes(24);
+    expect(mockedFetch).toHaveBeenCalledTimes(16);
     expect(mockedFetch).toHaveBeenNthCalledWith(1, {
       symbol: '336370.KS',
       range: '5d',
@@ -110,20 +110,22 @@ describe('shadowWarmupReturns.cmd', () => {
       realtimeTag: 'HISTORICAL',
     });
     expect(mockedFetch).toHaveBeenCalledWith({
-      symbol: '061970',
+      symbol: '061970.KQ',
       range: '1y',
       interval: '1d',
-      cacheKey: '061970:1y:1d',
+      cacheKey: '061970.KQ:1y:1d',
       realtimeTag: 'HISTORICAL',
     });
+    expect(mockedFetch).not.toHaveBeenCalledWith(expect.objectContaining({ symbol: '336370' }));
+    expect(mockedFetch).not.toHaveBeenCalledWith(expect.objectContaining({ symbol: '061970' }));
     expect(mockedFetch).not.toHaveBeenCalledWith(expect.objectContaining({ symbol: '123456.KS' }));
 
     const msg = reply.mock.calls[0][0] as string;
     expect(msg).toContain('candidateSignals: 5');
     expect(msg).toContain('targetSymbols: 3');
     expect(msg).toContain('attemptedSymbols: 2');
-    expect(msg).toContain('attemptedRequests: 24');
-    expect(msg).toContain('storedSnapshots: 24');
+    expect(msg).toContain('attemptedRequests: 16');
+    expect(msg).toContain('storedSnapshots: 16');
     expect(msg).toContain('skippedAlreadyResolved: 1');
     expect(msg).toContain('336370.KS:5d:1d');
   });
@@ -154,14 +156,14 @@ describe('shadowWarmupReturns.cmd', () => {
     await shadowWarmupReturns.execute({ args: ['1'], reply });
 
     const msg = reply.mock.calls[0][0] as string;
-    expect(msg).toContain('attemptedRequests: 12');
+    expect(msg).toContain('attemptedRequests: 8');
     expect(msg).toContain('storedSnapshots: 1');
     expect(msg).toContain('notFound: 1');
-    expect(msg).toContain('failed: 10');
+    expect(msg).toContain('failed: 6');
     expect(msg).toContain('sampleTargets:');
     expect(msg).toContain('sampleFailures:');
-    expect(msg).toContain('061970.KS:5d:1d:404:not found detail');
-    expect(msg).toContain('061970.KS:1mo:1d:502:EGRESS_GUARD_BLOCKED sample detail');
+    expect(msg).toContain('061970.KS:1mo:1d:404:not found detail');
+    expect(msg).toContain('061970.KS:3mo:1d:502:EGRESS_GUARD_BLOCKED sample detail');
   });
 
   it('keeps suffixed or non-six-digit symbols as-is', async () => {
