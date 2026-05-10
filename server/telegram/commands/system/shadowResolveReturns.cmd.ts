@@ -5,12 +5,18 @@
 // its SSOT resolver. It does not touch live trading, preflight, Gate, Kelly,
 // STRONG_BUY, or order paths.
 
-import { loadResolveAndSaveShadowFutureReturnsFromCache } from '../../../learning/shadowFutureReturnCacheProvider.js';
+import {
+  loadAndBuildShadowFutureReturnCacheCoverageSummary,
+  loadResolveAndSaveShadowFutureReturnsFromCache,
+} from '../../../learning/shadowFutureReturnCacheProvider.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
-function formatShadowResolveReturnsStats(stats: Awaited<ReturnType<typeof loadResolveAndSaveShadowFutureReturnsFromCache>>): string {
-  return [
+function formatShadowResolveReturnsStats(
+  stats: Awaited<ReturnType<typeof loadResolveAndSaveShadowFutureReturnsFromCache>>,
+  coverage: ReturnType<typeof loadAndBuildShadowFutureReturnCacheCoverageSummary>,
+): string {
+  const lines = [
     '🧪 <b>Shadow Future Returns Resolver</b>',
     '',
     `• scanned: ${stats.scanned}`,
@@ -19,8 +25,20 @@ function formatShadowResolveReturnsStats(stats: Awaited<ReturnType<typeof loadRe
     `• skippedAlreadyResolved: ${stats.skippedAlreadyResolved}`,
     `• providerMisses: ${stats.providerMisses}`,
     '',
-    '<i>cache-backed read-only price source; updates learning ledger only.</i>',
-  ].join('\n');
+    '🗃️ <b>Cache Coverage</b>',
+    `• snapshotEntries: ${coverage.snapshotEntries}`,
+    `• checked: signals=${coverage.checkedSignals}, lookups=${coverage.checkedLookups}`,
+    `• cacheHits=${coverage.cacheHits}, cacheMisses=${coverage.cacheMisses}, unresolvedSignals=${coverage.unresolvedSignals}`,
+  ];
+  if (coverage.sampleMissingTargets.length > 0) {
+    lines.push('• sampleMissingTargets:');
+    for (const target of coverage.sampleMissingTargets.slice(0, 5)) {
+      lines.push(`  - <code>${target}</code>`);
+    }
+  }
+  lines.push('');
+  lines.push('<i>cache-backed read-only price source; updates learning ledger only.</i>');
+  return lines.join('\n');
 }
 
 const shadowResolveReturns: TelegramCommand = {
@@ -34,7 +52,8 @@ const shadowResolveReturns: TelegramCommand = {
   async execute({ reply }) {
     try {
       const stats = await loadResolveAndSaveShadowFutureReturnsFromCache();
-      await reply(formatShadowResolveReturnsStats(stats));
+      const coverage = loadAndBuildShadowFutureReturnCacheCoverageSummary();
+      await reply(formatShadowResolveReturnsStats(stats, coverage));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       await reply(`❌ Shadow futureReturn resolver 실행 실패: ${msg}`);
