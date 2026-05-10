@@ -22,6 +22,26 @@ function deriveVerdict(summary: ShadowBlockedOutcomeSummary): string {
   return '🟢 learning ledger healthy';
 }
 
+function formatManualBlockWatch(summary: ShadowBlockedOutcomeSummary): string[] {
+  const manual = summary.byBlockedReason.find((row) => row.blockedReason === 'MANUAL_BLOCK');
+  if (!manual) return [];
+  const positive1d = (manual.avgReturn1d ?? 0) > 0;
+  const enoughMediumTerm = manual.resolved5dCount >= 10 || manual.resolved20dCount >= 10;
+  const verdict = positive1d
+    ? enoughMediumTerm
+      ? 'watch medium-term outcomes before policy change'
+      : 'positive 1d; wait for 5d/20d evidence'
+    : 'no positive 1d opportunity-loss signal';
+  return [
+    '',
+    '<b>Manual block watch</b>',
+    compactReason(manual),
+    `5d=${formatPct(manual.avgReturn5d)} (${manual.resolved5dCount}) · 20d=${formatPct(manual.avgReturn20d)} (${manual.resolved20dCount})`,
+    `판정: ${verdict}`,
+    '<i>read-only watch; no policy relaxation.</i>',
+  ];
+}
+
 function formatShadowCases(): string {
   const summary = loadAndSummarizeShadowBlockedOutcomes();
   const coverage = loadAndBuildShadowFutureReturnCacheCoverageSummary();
@@ -45,6 +65,7 @@ function formatShadowCases(): string {
     '',
     '<b>Top reasons</b>',
     ...topReasons.map((row, idx) => `${idx + 1}. ${compactReason(row)}`),
+    ...formatManualBlockWatch(summary),
     '',
     `<b>Over-block top</b>: ${overTop ? compactReason(overTop) : 'none'}`,
     '상세: /shadow_blocked_outcomes',
@@ -69,4 +90,4 @@ const shadowCases: TelegramCommand = {
 commandRegistry.register(shadowCases);
 
 export default shadowCases;
-export { formatShadowCases };
+export { formatShadowCases, formatManualBlockWatch };
