@@ -1,12 +1,13 @@
 // @responsibility scanReadinessSummary — read-only first-scan readiness summary.
 //
 // This module does not run scanners, fetch providers, call KIS/KRX, or mutate state.
-// It only summarizes already-available health, macro, watchlist, and last scan evidence.
+// It only summarizes already-available health, macro, watchlist, scheduler, and last scan evidence.
 
 import { collectHealthSnapshot } from '../health/diagnostics.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { getLastScanSummary } from '../trading/signalScanner/scanDiagnostics.js';
+import { SCHEDULE_CATALOG, getJobMetrics, getLastRunByJob } from '../scheduler/scheduleCatalog.js';
 
 export interface ScanReadinessCheck {
   name: string;
@@ -54,6 +55,52 @@ function displayStatus(check: ScanReadinessCheck): string {
   return check.label ?? check.status;
 }
 
+function formatKstHm(iso: string | undefined): string {
+  if (!iso) return 'never';
+  const ts = Date.parse(iso);
+  if (!Number.isFinite(ts)) return 'invalid';
+  return new Date(ts).toLocaleString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function buildSchedulerCheck(): ScanReadinessCheck {
+  const screenerJobs = SCHEDULE_CATALOG.filter((entry) => entry.group === 'screener' && entry.jobName);
+  const tradingTick = SCHEDULE_CATALOG.find((entry) => entry.jobName === 'orchestrator_tick');
+  const observedJobs = [...screenerJobs, ...(tradingTick ? [tradingTick] : [])];
+  if (observedJobs.length === 0) {
+    return { name: 'Scheduler', status: 'WARN', detail: 'no screener/orchestrator catalog entries' };
+  }
+
+  const registered = observedJobs.filter((entry) => entry.jobName && getJobMetrics(entry.jobName));
+  const everRan = observedJobs.filter((entry) => {
+    if (!entry.jobName) return false;
+    const metrics = getJobMetrics(entry.jobName);
+    return Boolean(metrics && metrics.runCount > 0);
+  });
+  const lastRuns = observedJobs
+    .map((entry) => entry.jobName ? getLastRunByJob(entry.jobName) : undefined)
+    .filter(Boolean)
+    .sort((a, b) => String(b!.finishedAt).localeCompare(String(a!.finishedAt)));
+  const last = lastRuns[0];
+  const status: ScanReadinessCheck['status'] = registered.length === 0
+    ? 'WAIT'
+    : everRan.length === 0
+      ? 'WAIT'
+      : 'OK';
+  const detail = [
+    `catalog=${observedJobs.length}`,
+    `metrics=${registered.length}`,
+    `everRan=${everRan.length}`,
+    `last=${formatKstHm(last?.finishedAt)}`,
+  ].join(', ');
+  return { name: 'Scheduler', status, detail };
+}
+
 export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummary {
   const health = collectHealthSnapshot();
   const macro = loadMacroState();
@@ -61,6 +108,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
   const lastScan = getLastScanSummary();
   const macroAge = ageHours(macro?.updatedAt, now.getTime());
   const hasScanHistory = health.lastScanTs > 0 || Boolean(lastScan);
+  const schedulerCheck = buildSchedulerCheck();
 
   const checks: ScanReadinessCheck[] = [
     {
@@ -68,6 +116,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
       status: hasScanHistory ? 'OK' : 'WAIT',
       detail: hasScanHistory ? `last=${new Date(health.lastScanTs).toISOString()}` : 'no scan history yet',
     },
+    schedulerCheck,
     {
       name: 'Watchlist',
       status: watchlist.length > 0 ? 'OK' : 'BLOCK',
@@ -123,6 +172,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
   const nextActions: string[] = [];
   if (macroAge !== null && macroAge > 8) nextActions.push(`Macro stale (${macroAge.toFixed(1)}h) → /refresh_macro`);
   if (!hasScanHistory) nextActions.push('No scan yet → wait next scanner cycle or /scan_blockers');
+  if (schedulerCheck.status !== 'OK') nextActions.push('Scheduler not observed yet → /cron_status or /scheduler');
   if (watchlist.length === 0) nextActions.push('Watchlist empty → rebuild/watchlist refresh needed');
   if (!health.kisConfigured || !health.kisTokenValid) nextActions.push('KIS not ready → /ops_status full');
   if (!health.volume.ok) nextActions.push('Volume clock closed → wait allowed scan window');
