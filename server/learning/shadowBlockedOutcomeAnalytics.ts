@@ -139,3 +139,24 @@ export function summarizeShadowBlockedOutcomes(
 export function loadAndSummarizeShadowBlockedOutcomes(): ShadowBlockedOutcomeSummary {
   return summarizeShadowBlockedOutcomes(loadShadowLearningOnlySignals());
 }
+
+function formatPct(value: number | null): string {
+  if (value === null) return 'n/a';
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${(value * 100).toFixed(1)}%`;
+}
+
+export function formatShadowBlockedOutcomeCompactLine(
+  summary: ShadowBlockedOutcomeSummary,
+): string | null {
+  if (summary.totalSignals === 0) return null;
+  const top = summary.topOverBlockedReasons[0];
+  const topLabel = top
+    ? `${top.blockedReason} ${top.overBlockedCount}건 / 5d ${formatPct(top.avgReturn5d)} / win ${formatPct(top.winRate5d)}`
+    : 'none';
+  return [
+    '🧪 <b>Shadow Blocked Outcomes</b>',
+    `• total=${summary.totalSignals} / resolved=${summary.resolvedSignals} / pending=${summary.pendingSignals}`,
+    `• overBlockedTop: ${topLabel}`,
+  ].join('\n');
+}
