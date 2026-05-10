@@ -1,18 +1,12 @@
-// @responsibility index 텔레그램 모듈
-// @responsibility: commands/system/* .cmd.ts 파일을 로드해 commandRegistry 자동 등록 트리거.
-//
-// ADR-0017 §Stage 2 Phase A — 본 파일을 import 하기만 해도 read-only 명령들이
-// commandRegistry 에 등록된다. 새 read-only 명령 추가 시 파일을 떨구고 본 barrel 에
-// 한 줄을 추가하면 webhookHandler 가 자동으로 인식한다.
-
 import './aiStatus.cmd.js';
-import './bugs.cmd.js';            // PR #669/#670 후속 P2-A — /bugs BUG_LEDGER 영속 조회
-import './bugCandidates.cmd.js';   // PR #669~#674 후속 P3 — /bug_candidates 후보 review/dismiss/promote
+import './bugs.cmd.js';
+import './bugCandidates.cmd.js';
 import './coherenceAudit.cmd.js';
 import './conditionAttributionShadow.cmd.js';
 import './conditionLifecycle.cmd.js';
 import './cronStatus.cmd.js';
 import './cronIntrospect.cmd.js';
+import './dataCompleteness.cmd.js';
 import './dataVerificationReview.cmd.js';
 import './foreignerRatioBackfill.cmd.js';
 import './foreignerTrend.cmd.js';
@@ -37,11 +31,11 @@ import './learningStatus.cmd.js';
 import './marginBalance.cmd.js';
 import './marginBalanceBackfill.cmd.js';
 import './market.cmd.js';
-import './modeConsistency.cmd.js';   // ADR-0391 P0-A §A-1
-import './operatorActions.cmd.js';    // ADR-0480 Operator Action Queue
-import './opsStatus.cmd.js';          // PATCH-OPS control tower snapshot
-import './execMatrix.cmd.js';        // ADR-0391 P0-A §A-2
-import './execPaths.cmd.js';         // ADR-0391 P0-A §A-3
+import './modeConsistency.cmd.js';
+import './operatorActions.cmd.js';
+import './opsStatus.cmd.js';
+import './execMatrix.cmd.js';
+import './execPaths.cmd.js';
 import './programMarket.cmd.js';
 import './programMarketProbe.cmd.js';
 import './programToday.cmd.js';
@@ -54,18 +48,18 @@ import './recentTradesAudit.cmd.js';
 import './runtimeAudit.cmd.js';
 import './scanBlockers.cmd.js';
 import './scanIndices.cmd.js';
-import './sectorEnergyDiag.cmd.js';   // ADR-0398 (= 사용자 명시 ADR-0373) Sector Energy 4-axis 진단
+import './sectorEnergyDiag.cmd.js';
 import './scheduleClassDiag.cmd.js';
 import './scheduler.cmd.js';
-import './shadowProvisional.cmd.js';   // ADR-0428 Provisional Shadow Performance Report
-import './shadowCounterfactual.cmd.js'; // ADR-0431 Counterfactual Shadow Performance Report
-import './shadowPromotion.cmd.js';      // ADR-0432 Shadow Learning Promotion Recommendations
-import './shadowUniverse.cmd.js';       // ADR-0433 Counterfactual Universe Learning
-import './shadowBlockedOutcomes.cmd.js'; // PATCH-D Shadow blocked outcome analytics
-import './shadowResolveReturns.cmd.js';  // PATCH-D Shadow futureReturn resolver manual runner
-import './shadowWarmupReturns.cmd.js';   // PATCH-D Shadow futureReturn snapshot warmup
-import './shadowFlowPlaceholder.cmd.js'; // PATCH-E Shadow return combined flow
-import './shadowReturnMisses.cmd.js';    // PATCH-E Shadow return mature miss diagnostics
+import './shadowProvisional.cmd.js';
+import './shadowCounterfactual.cmd.js';
+import './shadowPromotion.cmd.js';
+import './shadowUniverse.cmd.js';
+import './shadowBlockedOutcomes.cmd.js';
+import './shadowResolveReturns.cmd.js';
+import './shadowWarmupReturns.cmd.js';
+import './shadowFlowPlaceholder.cmd.js';
+import './shadowReturnMisses.cmd.js';
 import './shadowWalkForward.cmd.js';
 import './shortBackfill.cmd.js';
 import './signalStatus.cmd.js';
@@ -77,4 +71,4 @@ import './twins.cmd.js';
 import './walkForward.cmd.js';
 import './yahooHealthCheck.cmd.js';
 
-export {}; // 본 파일은 side-effect import 전용. 명시적 export 없음.
+export {};
