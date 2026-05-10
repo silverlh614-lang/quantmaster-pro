@@ -63,6 +63,7 @@ import './shadowUniverse.cmd.js';       // ADR-0433 Counterfactual Universe Lear
 import './shadowBlockedOutcomes.cmd.js'; // PATCH-D Shadow blocked outcome analytics
 import './shadowResolveReturns.cmd.js';  // PATCH-D Shadow futureReturn resolver manual runner
 import './shadowWarmupReturns.cmd.js';   // PATCH-D Shadow futureReturn snapshot warmup
+import './shadowFlowPlaceholder.cmd.js'; // PATCH-E Shadow return combined flow
 import './shadowWalkForward.cmd.js';
 import './shortBackfill.cmd.js';
 import './signalStatus.cmd.js';
