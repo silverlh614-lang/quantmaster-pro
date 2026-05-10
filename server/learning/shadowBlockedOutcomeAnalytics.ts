@@ -38,6 +38,12 @@ export interface ShadowBlockedOutcomeReasonSummary extends ShadowOutcomeAttribut
   blockedReason: string;
 }
 
+export interface ShadowPolicyWatchSummary {
+  relaxCandidates: ShadowOutcomeAttributionSummary[];
+  keepStrictCandidates: ShadowOutcomeAttributionSummary[];
+  needMoreData: string[];
+}
+
 export interface ShadowBlockedOutcomeSummary {
   totalSignals: number;
   pendingSignals: number;
@@ -50,6 +56,7 @@ export interface ShadowBlockedOutcomeSummary {
   byBlockedReasonMacroBlockReason: ShadowOutcomeAttributionSummary[];
   topOverBlockedReasons: ShadowBlockedOutcomeReasonSummary[];
   topFastOverBlocked: ShadowOutcomeAttributionSummary[];
+  policyWatch: ShadowPolicyWatchSummary;
 }
 
 const OVER_BLOCKED_REASONS = new Set<ShadowLearningOnlySignal['blockedReason']>([
@@ -167,6 +174,34 @@ function sortAttributionRows(a: ShadowOutcomeAttributionSummary, b: ShadowOutcom
   return a.key.localeCompare(b.key);
 }
 
+function buildPolicyWatch(
+  crossRows: ShadowOutcomeAttributionSummary[],
+): ShadowPolicyWatchSummary {
+  const relaxCandidates = crossRows
+    .filter((row) => row.resolved1dCount >= 10)
+    .filter((row) => (row.avgReturn1d ?? 0) >= 0.01)
+    .filter((row) => (row.winRate1d ?? 0) >= 0.52)
+    .sort((a, b) => (b.avgReturn1d ?? 0) - (a.avgReturn1d ?? 0))
+    .slice(0, 5);
+
+  const keepStrictCandidates = crossRows
+    .filter((row) => row.resolved1dCount >= 10)
+    .filter((row) => (row.avgReturn1d ?? 0) <= -0.01)
+    .filter((row) => (row.winRate1d ?? 1) <= 0.45)
+    .sort((a, b) => (a.avgReturn1d ?? 0) - (b.avgReturn1d ?? 0))
+    .slice(0, 5);
+
+  const needMoreData: string[] = [];
+  if (crossRows.every((row) => row.resolved5dCount === 0)) {
+    needMoreData.push('5d outcomes are not available yet; treat 1d recommendations as watchlist only.');
+  }
+  if (crossRows.every((row) => row.resolved20dCount === 0)) {
+    needMoreData.push('20d outcomes are not available yet; no medium-term policy change recommended.');
+  }
+
+  return { relaxCandidates, keepStrictCandidates, needMoreData };
+}
+
 export function summarizeShadowBlockedOutcomes(
   signals: ShadowLearningOnlySignal[],
 ): ShadowBlockedOutcomeSummary {
@@ -233,6 +268,7 @@ export function summarizeShadowBlockedOutcomes(
     byBlockedReasonMacroBlockReason,
     topOverBlockedReasons,
     topFastOverBlocked,
+    policyWatch: buildPolicyWatch(byBlockedReasonSignalGrade),
   };
 }
 
