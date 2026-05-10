@@ -46,3 +46,12 @@ regexes = [
   # 매크로 엔진의 도메인 필드 참조로, 실제 비밀이 아님.
   '''^env\.[A-Za-z][A-Za-z0-9]*$''',
 ]
+
+# ADR-461 livePathSafetyAudit.ts 의 과거 false positive.
+# 원본은 static audit descriptor object의 field name + label 조합이며 실제 secret이 아니다.
+# 현재 main에서는 descriptor field를 `key` -> `flag` 로 변경했지만, CI가 fetch-depth=0으로
+# 전체 git history를 스캔하므로 과거 fingerprint를 좁게 allowlist한다.
+commits = [
+  "95075716044aa416ddb4cabd3e86fb72a1884885",
+  "f952e3b1b149d493d43767d0f4518f766b2da52e",
+]
