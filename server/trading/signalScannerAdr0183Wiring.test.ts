@@ -6,46 +6,61 @@ import fs from 'fs';
 import path from 'path';
 
 const SCANNER_PATH = path.resolve(__dirname, 'signalScanner/preflight.ts');
+const RECORDER_PATH = path.resolve(__dirname, 'signalScanner/preflightLearningRecorder.ts');
 const src = fs.readFileSync(SCANNER_PATH, 'utf-8');
+const recorderSrc = fs.readFileSync(RECORDER_PATH, 'utf-8');
 
 function shadowLearningReasonsFromPreflight(): string[] {
   return [...src.matchAll(/recordBlockedDayShadowScan\(['"]([^'"]+)['"]\)/g)].map((m) => m[1]!);
 }
 
+function importBlockFrom(fileSrc: string): string {
+  return fileSrc
+    .split('\n')
+    .filter((line) => /^\s*import\b/.test(line) || /\bfrom\s+['"]/.test(line))
+    .join('\n');
+}
+
 describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', () => {
   describe('SSOT 헬퍼 import + 정의', () => {
-    it('isShadowLearningOnBlockedDaysEnabled / runShadowLearningOnlyScan import', () => {
-      expect(src).toContain("from '../shadowLearningOnlyScan.js'");
-      expect(src).toMatch(/isShadowLearningOnBlockedDaysEnabled[\s,]/);
-      expect(src).toMatch(/runShadowLearningOnlyScan[\s,]/);
+    it('preflight.ts delegates learning recording to preflightLearningRecorder.ts', () => {
+      expect(src).toContain("from './preflightLearningRecorder.js'");
+      expect(src).toMatch(/recordBlockedDayShadowScan[\s,]/);
+      expect(src).toMatch(/recordPreflightUniverseLearningSnapshot[\s,]/);
     });
 
-    it('ShadowLearningOnlyScanReason type-only import', () => {
-      expect(src).toContain('type ShadowLearningOnlyScanReason');
+    it('preflight.ts does not directly import/call shadow learning internals', () => {
+      expect(src).not.toContain("from '../shadowLearningOnlyScan.js'");
+      expect(src).not.toMatch(/\bisShadowLearningOnBlockedDaysEnabled\b/);
+      expect(src).not.toMatch(/\brunShadowLearningOnlyScan\s*\(/);
+      expect(src).not.toContain('type ShadowLearningOnlyScanReason');
     });
 
-    it('recordBlockedDayShadowScan SSOT 헬퍼 정의', () => {
-      expect(src).toContain('async function recordBlockedDayShadowScan(');
-      expect(src).toContain('reason: ShadowLearningOnlyScanReason');
+    it('preflight.ts no longer defines inline learning helper bodies', () => {
+      expect(src).not.toContain('async function captureSupplyHealthSnapshot(');
+      expect(src).not.toContain('async function recordBlockedDayShadowScan(');
+      expect(src).not.toContain('async function recordPreflightUniverseLearningSnapshot(');
     });
 
-    it('ADR-0183 주석 명시 (helper 헤더)', () => {
-      expect(src).toContain('ADR-0183');
+    it('preflightLearningRecorder.ts owns Shadow/Universe recorder helpers', () => {
+      expect(recorderSrc).toContain('export async function captureSupplyHealthSnapshot(');
+      expect(recorderSrc).toContain('export async function recordBlockedDayShadowScan(');
+      expect(recorderSrc).toContain('export async function recordPreflightUniverseLearningSnapshot(');
+      expect(recorderSrc).toContain('ADR-0183');
     });
   });
 
   describe('SSOT 헬퍼 안전 invariant', () => {
     it('ENV gate default ON helper guard (isShadowLearningOnBlockedDaysEnabled 호출)', () => {
-      // helper 본체 안에서 ENV 검사 (호출자 인라인 ENV 검사 금지 — drift 차단)
-      const helperBody = src.split('async function recordBlockedDayShadowScan')[1];
+      const helperBody = recorderSrc.split('export async function recordBlockedDayShadowScan')[1];
       expect(helperBody).toBeDefined();
       const headBody = helperBody!.slice(0, 600);
       expect(headBody).toContain('isShadowLearningOnBlockedDaysEnabled()');
-      expect(headBody).toContain('return;');  // ENV OFF 시 즉시 return
+      expect(headBody).toContain('return;');
     });
 
     it('try/catch 격리 (scan throw → 매매 흐름 차단 차단)', () => {
-      const helperBody = src.split('async function recordBlockedDayShadowScan')[1];
+      const helperBody = recorderSrc.split('export async function recordBlockedDayShadowScan')[1];
       const headBody = helperBody!.slice(0, 1000);
       expect(headBody).toContain('try {');
       expect(headBody).toContain('catch (e)');
@@ -53,23 +68,24 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
     });
 
     it('runShadowLearningOnlyScan 호출 — allowRealOrder=false literal', () => {
-      const helperBody = src.split('async function recordBlockedDayShadowScan')[1];
+      const helperBody = recorderSrc.split('export async function recordBlockedDayShadowScan')[1];
       const headBody = helperBody!.slice(0, 1000);
       expect(headBody).toContain('runShadowLearningOnlyScan({');
       expect(headBody).toContain('allowRealOrder: false');
     });
 
     it('bypassMacroEntryBlock=true 명시 (의도 명문화)', () => {
-      const helperBody = src.split('async function recordBlockedDayShadowScan')[1];
+      const helperBody = recorderSrc.split('export async function recordBlockedDayShadowScan')[1];
       const headBody = helperBody!.slice(0, 1000);
       expect(headBody).toContain('bypassMacroEntryBlock: true');
     });
 
     it('KST scanDate 산출 (UTC+9 offset)', () => {
-      const helperBody = src.split('async function recordBlockedDayShadowScan')[1];
+      const helperBody = recorderSrc.split('export async function recordBlockedDayShadowScan')[1];
       const headBody = helperBody!.slice(0, 1000);
       expect(headBody).toContain('9 * 60 * 60 * 1000');
-      expect(headBody).toContain('.toISOString().slice(0, 10)');
+      expect(headBody).toContain('.toISOString()');
+      expect(headBody).toContain('.slice(0, 10)');
     });
   });
 
@@ -160,20 +176,16 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
 
   describe('회귀 가드 — 호출자 측 ENV 검사 부재 (SSOT 단일 위치 보장)', () => {
     it('호출자 (early-return 위치) 에 isShadowLearningOnBlockedDaysEnabled 직접 호출 0건', () => {
-      // helper 본체에만 ENV 검사 — 호출자 인라인 검사 차단 (drift 차단)
       const callMatches = src.match(/recordBlockedDayShadowScan\(['"][^'"]+['"]\)/g);
       expect(callMatches).toBeDefined();
-      // 각 호출 위치 직전 200 char 안에 isShadowLearningOnBlockedDaysEnabled 호출 부재
       for (const call of callMatches!) {
         const idx = src.indexOf(call);
         const before = src.slice(Math.max(0, idx - 200), idx);
-        // ADR 주석에는 "isShadowLearningOnBlockedDaysEnabled" 단어가 *없어야* 함
         expect(before).not.toContain('isShadowLearningOnBlockedDaysEnabled()');
       }
     });
 
     it('호출자 측 try/catch 부재 (SSOT 헬퍼 안 격리)', () => {
-      // wiring 패턴은 단순 `await recordBlockedDayShadowScan(...)` — 호출자 try/catch 부재
       const callMatches = src.match(/recordBlockedDayShadowScan\(['"][^'"]+['"]\)/g);
       for (const call of callMatches!) {
         const idx = src.indexOf(call);
@@ -184,17 +196,8 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
   });
 
   describe('KIS 주문 함수 import 0건 (절대 규칙 #2 준수)', () => {
-    it('runShadowLearningOnlyScan 본체가 KIS 주문 함수 import 0건 (Phase 1 SSOT 안전 invariant 자동 상속)', () => {
-      const shadowSrc = fs.readFileSync(
-        path.resolve(__dirname, 'shadowLearningOnlyScan.ts'),
-        'utf-8',
-      );
-      // 주석/문자열 안 occurrence 는 허용 (ADR 설명용) — 실제 *import statement* 만 차단
-      // import 줄 패턴: `import {...} from '...'` 또는 `from '../clients/kisClient*'`
-      const importLines = shadowSrc
-        .split('\n')
-        .filter((line) => /^\s*import\b/.test(line) || /\bfrom\s+['"]/.test(line));
-      const importBlock = importLines.join('\n');
+    it('preflight.ts와 preflightLearningRecorder.ts가 KIS 주문 함수 import 0건', () => {
+      const importBlock = [importBlockFrom(src), importBlockFrom(recorderSrc)].join('\n');
       const KIS_ORDER_FNS = [
         'placeKisMarketOrder',
         'placeKisMarketBuyOrder',

@@ -27,11 +27,6 @@ import { loadShadowTrades, saveShadowTrades } from '../../persistence/shadowTrad
 import { computeShadowAccount } from '../../persistence/shadowAccountRepo.js';
 import { loadTradingSettings } from '../../persistence/tradingSettingsRepo.js';
 import { updateShadowResults } from '../exitEngine.js';
-import {
-  isShadowLearningOnBlockedDaysEnabled,
-  runShadowLearningOnlyScan,
-  type ShadowLearningOnlyScanReason,
-} from '../shadowLearningOnlyScan.js';
 import { getVixGating } from '../vixGating.js';
 import { getFomcProximity } from '../fomcCalendar.js';
 import { isDataStarvedScan, getCompletenessSnapshot } from '../../screener/dataCompletenessTracker.js';
@@ -49,14 +44,12 @@ import { applyFreshnessDecayToNeutralWeightedRecord } from '../../learning/learn
 import { isOpenShadowStatus } from '../entryEngine.js';
 import type { RunAutoSignalScanOptions } from './index.js';
 import { buildMacroGateState } from './scanDiagnostics.js';
-import type { SupplyHealthSnapshot } from '../../learning/supplyHealthLearning.js';
-// ADR-0433: universe-level preflight learning snapshot wiring (learning-only).
-import {
-  deriveUniverseLearningReason,
-  recordCounterfactualUniverseLearningSnapshot,
-} from './counterfactualUniverseLearningWiring.js';
-import type { CounterfactualUniverseLearningReason } from '../../persistence/counterfactualUniverseLearningRepo.js';
 import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
+import {
+  captureSupplyHealthSnapshot,
+  recordBlockedDayShadowScan,
+  recordPreflightUniverseLearningSnapshot,
+} from './preflightLearningRecorder.js';
 
 export function getAccountScaleKellyMultiplier(totalAssets: number): number {
   if (totalAssets >= 300_000_000) return 1.15;
@@ -81,94 +74,6 @@ export function evaluateSellOnlyException(regimeConfig: any, macroState: any): a
     minMtas: cfg.minMtas, 
     reason: 'sectorAligned 통과' 
   };
-}
-
-async function captureSupplyHealthSnapshot(): Promise<SupplyHealthSnapshot | undefined> {
-  if (process.env.NODE_ENV === 'test' && process.env.SUPPLY_HEALTH_LEARNING_ENABLED !== 'true') {
-    return undefined;
-  }
-  try {
-    const mod = await import('../../telegram/commands/system/supplyHealth.cmd.js');
-    return await mod.buildSupplyHealthSnapshot();
-  } catch (e) {
-    console.warn('[SupplyHealth] snapshot capture failed:', e);
-    return undefined;
-  }
-}
-
-// ADR-0183: blocked-day shadow learning is isolated here so entry blocks do not call order paths.
-async function recordBlockedDayShadowScan(reason: ShadowLearningOnlyScanReason): Promise<void> {
-  if (!isShadowLearningOnBlockedDaysEnabled()) return;
-  try {
-    const kstScanDate = new Date(Date.now() + 9 * 60 * 60 * 1000)
-      .toISOString().slice(0, 10);
-    const supplyHealthSnapshot = await captureSupplyHealthSnapshot();
-    await runShadowLearningOnlyScan({
-      allowRealOrder: false,
-      bypassMacroEntryBlock: true,
-      reason,
-      scanDate: kstScanDate,
-      ...(supplyHealthSnapshot ? { supplyHealthSnapshot } : {}),
-    });
-  } catch (e) {
-    console.warn(`[ShadowLearningOnly] scan 실패 (${reason}):`, e);
-  }
-}
-
-/**
- * ADR-0433 — preflight abort 시 universe-level learning snapshot 영속.
- *
- * - shadow learning lane (recordBlockedDayShadowScan) 와 동시 호출 가능 — 책임 분리:
- *   shadow learning = 종목별 가상 매수 판단 / universe snapshot = preflight 컨텍스트.
- * - 후보별 buyListLoop 까지 도달하지 못한 시점의 universe / candidate pool 보존.
- * - record 실패는 try/catch 격리 — preflight abort 흐름 절대 차단 안 함 (사용자 §J #15).
- * - 동일 stage 의 universe snapshot 중복 차단 (recorder 내부 dedup 위임).
- *
- * 안전 invariant — KIS 주문 / autoTradeEngine / virtual account 무관.
- */
-async function recordPreflightUniverseLearningSnapshot(input: {
-  stage: 'BEFORE_UNIVERSE_BUILD' | 'AFTER_UNIVERSE_BUILD' | 'AFTER_CANDIDATE_SCAN' | 'BEFORE_BUYLIST_LOOP';
-  primaryReason: string;
-  watchlist?: WatchlistEntry[];
-  regime?: string;
-  marketSnapshot?: {
-    riskMode?: string;
-    sellOnly?: boolean;
-    r6Defense?: boolean;
-    emergencyStop?: boolean;
-    regime?: string;
-    vkospiLevel?: number;
-    marketHealth?: string;
-  };
-  notes?: string[];
-}): Promise<void> {
-  try {
-    const reasons: CounterfactualUniverseLearningReason[] = [
-      deriveUniverseLearningReason(input.primaryReason),
-    ];
-    const watchlist = input.watchlist ?? [];
-    const universeSize = watchlist.length;
-    const candidates = watchlist.map((w, i) => ({
-      symbol: w.code,
-      name: w.name,
-      sector: w.sector,
-      source: 'watchlist',
-      rank: i + 1,
-    }));
-    recordCounterfactualUniverseLearningSnapshot({
-      preflightStage: input.stage,
-      blockedBy: [input.primaryReason],
-      reasons,
-      regime: input.regime,
-      universeSize,
-      candidateCount: universeSize,
-      candidates,
-      marketSnapshot: input.marketSnapshot,
-      notes: input.notes,
-    });
-  } catch (e) {
-    console.warn('[CounterfactualUniverseLearning] preflight snapshot 영속 실패 — 격리 (abort 흐름 보호)', e);
-  }
 }
 
 export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<any> {
