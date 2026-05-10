@@ -182,29 +182,57 @@ describe('preflight.ts byte-equivalent tests', () => {
     mockedIsR3SanityAckTokenValid.mockReturnValue(false);
     const result = await runPreflight();
     expect(result).toEqual({ shouldAbort: true, skipPersist: true });
+    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'R3_SANITY_BLOCK' }));
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      preflightStage: 'AFTER_UNIVERSE_BUILD',
+      blockedBy: ['HARD_BLOCK'],
+    }));
   });
 
   it('should abort in R6_DEFENSE regime', async () => {
     mockedGetLiveRegime.mockReturnValue('R6_DEFENSE');
     const result = await runPreflight();
     expect(result).toEqual({ shouldAbort: true, skipPersist: true });
+    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'RISK_OFF_REGIME' }));
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      preflightStage: 'AFTER_UNIVERSE_BUILD',
+      blockedBy: ['R6_DEFENSE'],
+    }));
   });
 
   it('should abort if VIX gating is active', async () => {
     mockedGetVixGating.mockReturnValue({ noNewEntry: true, kellyMultiplier: 0.5, reason: 'VIX spike' } as ReturnType<typeof getVixGating>);
     const result = await runPreflight();
     expect(result).toEqual({ shouldAbort: true, skipPersist: true });
+    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'VIX_SPIKE' }));
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      preflightStage: 'AFTER_UNIVERSE_BUILD',
+      blockedBy: ['VIX_BLOCK'],
+    }));
   });
 
+  it('should record FOMC shadow and universe learning even when scan persist is skipped', async () => {
+    mockedGetFomcProximity.mockReturnValue({ noNewEntry: true, kellyMultiplier: 0.5, phase: 'BLACKOUT', description: 'FOMC blackout' } as ReturnType<typeof getFomcProximity>);
+    const result = await runPreflight();
+    expect(result).toEqual({ shouldAbort: true, skipPersist: true });
+    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'FOMC_BLOCK' }));
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      preflightStage: 'AFTER_UNIVERSE_BUILD',
+      blockedBy: ['FOMC_BLOCK'],
+    }));
+  });
 
-
-  it('should record DATA_STARVED shadow learning before aborting data-starved scans', async () => {
+  it('skipPersist=true means normal scan persistence may be skipped, not Shadow/Universe learning', async () => {
     mockedIsDataStarvedScan.mockReturnValue(true);
     const result = await runPreflight();
     expect(result).toEqual({ shouldAbort: true, skipPersist: true });
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
       allowRealOrder: false,
       reason: 'DATA_STARVED',
+    }));
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      preflightStage: 'AFTER_UNIVERSE_BUILD',
+      blockedBy: ['SCAN_ABORTED'],
     }));
   });
 
@@ -216,6 +244,9 @@ describe('preflight.ts byte-equivalent tests', () => {
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
       allowRealOrder: false,
       reason: 'VOLUME_CLOCK_BLOCK',
+    }));
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({
+      blockedBy: ['VOLUME_CLOCK_BLOCK'],
     }));
   });
 
