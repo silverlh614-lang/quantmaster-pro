@@ -1,5 +1,5 @@
 // @responsibility shadowCases.cmd — compact read-only Shadow blocked case runtime summary.
-// @responsibility: /shadow_cases — 차단 사유별 Shadow 학습 케이스 누적 상태를 한 화면에 요약.
+// @responsibility: /shadow_cases — 차단 사유별 Shadow 학습 케이스 누적 상태를 모바일 한 화면에 요약.
 
 import { loadShadowLearningOnlySignals } from '../../../persistence/shadowLearningOnlySignalRepo.js';
 import type { ShadowLearningOnlySignal } from '../../../trading/shadowLearningOnlyScan.js';
@@ -30,6 +30,11 @@ const MATURITY_HORIZONS: ShadowFutureReturnHorizon[] = ['1d', '5d', '20d'];
 
 function compactReason(row: ShadowOutcomeAttributionSummary): string {
   return `${row.key}: n=${row.total}, pend=${row.pendingCount}, res=${row.resolvedAnyCount}, 1d=${formatPct(row.avgReturn1d)}, over=${row.overBlockedCount}`;
+}
+
+function compactTopReason(row: ShadowOutcomeAttributionSummary | undefined): string {
+  if (!row) return 'none';
+  return `${row.key} ${formatPct(row.avgReturn1d)} n=${row.total}`;
 }
 
 function hasResolvedHorizon(signal: ShadowLearningOnlySignal, horizon: ShadowFutureReturnHorizon): boolean {
@@ -63,6 +68,10 @@ function buildOutcomeMaturityRows(now = new Date()): HorizonMaturityRow[] {
   });
 }
 
+function maturityCompact(rows: HorizonMaturityRow[]): string {
+  return rows.map((row) => `${row.horizon} ${row.resolved}/${row.total}`).join(' · ');
+}
+
 function formatMaturityRows(rows: HorizonMaturityRow[]): string[] {
   return [
     '',
@@ -78,7 +87,7 @@ function deriveVerdict(summary: ShadowBlockedOutcomeSummary): string {
   return '🟢 learning ledger healthy';
 }
 
-function formatManualBlockWatch(summary: ShadowBlockedOutcomeSummary, maturityRows: HorizonMaturityRow[]): string[] {
+function formatManualBlockWatch(summary: ShadowBlockedOutcomeSummary, maturityRows: HorizonMaturityRow[], compact = false): string[] {
   const manual = summary.byBlockedReason.find((row) => row.blockedReason === 'MANUAL_BLOCK');
   if (!manual) return [];
   const positive1d = (manual.avgReturn1d ?? 0) > 0;
@@ -93,6 +102,9 @@ function formatManualBlockWatch(summary: ShadowBlockedOutcomeSummary, maturityRo
       ? 'watch medium-term outcomes before policy change'
       : 'positive 1d; wait for 5d/20d evidence'
     : 'no positive 1d opportunity-loss signal';
+  if (compact) {
+    return [`Manual: ${formatPct(manual.avgReturn1d)} 1d · ${verdict}`];
+  }
   return [
     '',
     '<b>Manual block watch</b>',
@@ -108,7 +120,34 @@ function formatReturnCacheLine(coverage: ShadowFutureReturnCacheCoverageSummary)
   return `returnCache: miss=${coverage.cacheMisses} · unresolved=${coverage.unresolvedSignals} · due=${coverage.notYetDueLookups}`;
 }
 
-function formatShadowCases(): string {
+function formatShadowCasesCompact(): string {
+  const summary = loadAndSummarizeShadowBlockedOutcomes();
+  const coverage = loadAndBuildShadowFutureReturnCacheCoverageSummary();
+  const maturityRows = buildOutcomeMaturityRows();
+  if (summary.totalSignals === 0) {
+    return [
+      '🧪 <b>SHADOW CASES</b>',
+      '⚪ no blocked learning cases yet',
+      '상세: /shadow_cases full',
+    ].join('\n');
+  }
+  const top1 = summary.byBlockedReason[0];
+  const top2 = summary.byBlockedReason[1];
+  const lines = [
+    '🧪 <b>SHADOW CASES</b>',
+    `상태: ${deriveVerdict(summary)}`,
+    `total ${summary.totalSignals} / resolved ${summary.resolvedSignals} / pending ${summary.pendingSignals}`,
+    `Maturity: ${maturityCompact(maturityRows)}`,
+    `Top: ${compactTopReason(top1)}${top2 ? ` · ${compactTopReason(top2)}` : ''}`,
+    ...formatManualBlockWatch(summary, maturityRows, true),
+    `ReturnCache: miss ${coverage.cacheMisses} / unresolved ${coverage.unresolvedSignals}`,
+    '',
+    '상세: /shadow_cases full',
+  ];
+  return lines.join('\n');
+}
+
+function formatShadowCasesFull(): string {
   const summary = loadAndSummarizeShadowBlockedOutcomes();
   const coverage = loadAndBuildShadowFutureReturnCacheCoverageSummary();
   const maturityRows = buildOutcomeMaturityRows();
@@ -125,7 +164,7 @@ function formatShadowCases(): string {
   const topReasons = summary.byBlockedReason.slice(0, 5);
   const overTop = summary.topOverBlockedReasons[0];
   const lines = [
-    '🧪 <b>SHADOW CASES</b>',
+    '🧪 <b>SHADOW CASES FULL</b>',
     deriveVerdict(summary),
     `total=${summary.totalSignals} · resolved=${summary.resolvedSignals} · pending=${summary.pendingSignals}`,
     formatReturnCacheLine(coverage),
@@ -142,6 +181,11 @@ function formatShadowCases(): string {
   return lines.join('\n');
 }
 
+function formatShadowCases(args: string[] = []): string {
+  const full = args.some((arg) => arg.toLowerCase() === 'full' || arg.toLowerCase() === '--full');
+  return full ? formatShadowCasesFull() : formatShadowCasesCompact();
+}
+
 const shadowCases: TelegramCommand = {
   name: '/shadow_cases',
   aliases: ['/shadow_blocked_summary', '/blocked_cases'],
@@ -149,13 +193,13 @@ const shadowCases: TelegramCommand = {
   visibility: 'ADMIN',
   riskLevel: 0,
   description: 'Shadow blocked learning cases compact summary — read-only',
-  usage: '/shadow_cases',
-  async execute({ reply }) {
-    await reply(formatShadowCases());
+  usage: '/shadow_cases [full]',
+  async execute({ args, reply }) {
+    await reply(formatShadowCases(args));
   },
 };
 
 commandRegistry.register(shadowCases);
 
 export default shadowCases;
-export { formatShadowCases, formatManualBlockWatch, buildOutcomeMaturityRows };
+export { formatShadowCases, formatManualBlockWatch, buildOutcomeMaturityRows, formatShadowCasesCompact, formatShadowCasesFull };
