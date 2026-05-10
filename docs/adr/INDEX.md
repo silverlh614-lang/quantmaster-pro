@@ -14,9 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0501`**
+**다음 ADR 번호: `0502`**
 
-(2026-05-10 기준, 마지막 발급 0500 — empty-scan-root-cause-dashboard. ADR-0500 — empty-scan-root-cause-dashboard. Aggregates standardized ADR-0497 GateFailureCause evidence into an Empty Scan Root Cause Dashboard for /scan_blockers and Runtime Pipeline Audit, distinguishing provider/data issues, execution/session blocks, threshold/scoring causes, and true risk signals while preserving executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes.)
+(2026-05-10 기준, 마지막 발급 0501 — weekend-replay-gate-failure-cause. ADR-0501 — weekend-replay-gate-failure-cause. Adds a diagnostic-only Weekend Replay layer that replays recent scan/blocker/snapshot evidence using ADR-0497 GateFailureCause and ADR-0500 Empty Scan Root Cause Dashboard to classify likely over-blocked, likely correct block, and needs-more-data outcomes while preserving executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes.)
 
 (2026-05-10 기준, 마지막 발급 0499 — provider-health-market-signal-classifier-migration. ADR-0499 — provider-health-market-signal-classifier-migration. Migrates provider/data-health interpretation paths to the ADR-0497 classifier so provider errors, empty/stale/missing data, and parse failures remain diagnostic provider issues rather than bearish market signals, preserving executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes.)
 
@@ -47,6 +47,10 @@
 (2026-05-09 기준, 마지막 발급 0485 — supply-advisory-promotion-readiness-audit. ADR-0485 audits SHADOW_ONLY → ADVISORY_READY readiness only; actual ADVISORY use requires a future ADR and operator approval.
 
 이전: 마지막 발급 0484 — supply-coverage-recovery-observation. ADR-0484 observes supply recovery after ADR-0481/0482/0483 without live execution or promotion changes.
+
+이전: 마지막 발급 0501 — weekend-replay-gate-failure-cause. ADR-0501 — weekend-replay-gate-failure-cause. Adds a diagnostic-only Weekend Replay layer that replays recent scan/blocker/snapshot evidence using ADR-0497 GateFailureCause and ADR-0500 Empty Scan Root Cause Dashboard to classify likely over-blocked, likely correct block, and needs-more-data outcomes while preserving executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes.
+
+이전: 마지막 발급 0500 — empty-scan-root-cause-dashboard. ADR-0500 aggregates empty scan root causes with ADR-0497 GateFailureCause buckets and diagnostic-only /scan_blockers plus Runtime Pipeline Audit wiring.
 
 이전: 마지막 발급 0483 — supply-source-freshness-dual-clock-refresh-job. ADR-0483 separates cache freshness from source data freshness and keeps stale-source refresh evidence SHADOW_ONLY.
 
@@ -509,8 +513,9 @@
 | 0498 | fresh-data-status-view-model-wiring (display/view-model wiring of ADR-0497 FreshDataStatusViewModel into /fresh_data_status, /scan_blockers, Runtime Pipeline Audit, and promotion/operator diagnostics; compact normalized labels; executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes) | trading |
 | 0499 | provider-health-market-signal-classifier-migration (diagnostic-only migration helpers using ADR-0497 classifier; provider errors, empty/stale/missing data, and parse failures invalidate requested market signals rather than becoming bearish evidence; executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes) | trading |
 | 0500 | empty-scan-root-cause-dashboard (diagnostic-only Empty Scan Root Cause Dashboard using ADR-0497 GateFailureCause buckets for /scan_blockers and Runtime Pipeline Audit; separates provider/data issues, execution/session blocks, threshold/scoring causes, and true risk signals; executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes) | diagnostics |
+| 0501 | weekend-replay-gate-failure-cause (diagnostic-only Weekend Replay layer using ADR-0497 GateFailureCause and ADR-0500 Empty Scan Root Cause Dashboard to classify likely over-blocked, likely correct block, and needs-more-data outcomes; executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes) | diagnostics |
 
-**총 발급 291 unique 번호** (마지막 발급 0500) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0501**.
+**총 발급 292 unique 번호** (마지막 발급 0501) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0502**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
