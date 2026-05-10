@@ -47,6 +47,7 @@ import './rejected.cmd.js';
 import './recentTradesAudit.cmd.js';
 import './runtimeAudit.cmd.js';
 import './scanBlockers.cmd.js';
+import './scanReadiness.cmd.js';
 import './scanIndices.cmd.js';
 import './sectorEnergyDiag.cmd.js';
 import './scheduleClassDiag.cmd.js';
