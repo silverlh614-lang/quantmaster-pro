@@ -8,6 +8,7 @@ vi.mock('./counterfactualShadowPriceProviderAdapter.js', () => ({
 }));
 
 vi.mock('../persistence/offHoursSnapshotRepo.js', () => ({
+  getSnapshotKeySamples: vi.fn(() => []),
   getSnapshotSize: vi.fn(() => 0),
 }));
 
@@ -26,7 +27,7 @@ vi.mock('./shadowFutureReturnResolver.js', async () => {
 });
 
 import { readYahooSnapshotPoint } from './counterfactualShadowPriceProviderAdapter.js';
-import { getSnapshotSize } from '../persistence/offHoursSnapshotRepo.js';
+import { getSnapshotKeySamples, getSnapshotSize } from '../persistence/offHoursSnapshotRepo.js';
 import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnlySignalRepo.js';
 import { loadResolveAndSaveShadowFutureReturns } from './shadowFutureReturnResolver.js';
 import {
@@ -40,6 +41,7 @@ import {
 } from './shadowFutureReturnCacheProvider.js';
 
 const mockedReadYahooSnapshotPoint = vi.mocked(readYahooSnapshotPoint);
+const mockedGetSnapshotKeySamples = vi.mocked(getSnapshotKeySamples);
 const mockedGetSnapshotSize = vi.mocked(getSnapshotSize);
 const mockedLoadSignals = vi.mocked(loadShadowLearningOnlySignals);
 const mockedLoadResolveAndSave = vi.mocked(loadResolveAndSaveShadowFutureReturns);
@@ -67,6 +69,7 @@ function signal(overrides: Partial<ShadowLearningOnlySignal> = {}): ShadowLearni
 describe('shadowFutureReturnCacheProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedGetSnapshotKeySamples.mockReturnValue([]);
     mockedGetSnapshotSize.mockReturnValue(0);
     mockedLoadSignals.mockReturnValue([]);
   });
@@ -167,8 +170,9 @@ describe('shadowFutureReturnCacheProvider', () => {
     })).toBeNull();
   });
 
-  it('builds cache coverage summary with misses and suffix candidates in samples', () => {
+  it('builds cache coverage summary with misses, suffix candidates, and snapshot samples', () => {
     mockedGetSnapshotSize.mockReturnValue(12);
+    mockedGetSnapshotKeySamples.mockReturnValue(['061970.KQ:1mo:1d', '336370.KS:5d:1d']);
     mockedReadYahooSnapshotPoint
       .mockReturnValueOnce({ price: 10100, observedAtKst: '2026-05-11T15:30:00+09:00', timestampMs: 1 })
       .mockReturnValue(null);
@@ -187,10 +191,13 @@ describe('shadowFutureReturnCacheProvider', () => {
     expect(summary.sampleMissingTargets).toHaveLength(2);
     expect(summary.sampleMissingTargets[0]).toContain('005930:3d:');
     expect(summary.sampleMissingTargets[0]).toContain('005930.KS|005930.KQ|005930');
+    expect(summary.sampleSnapshotKeys).toEqual(['061970.KQ:1mo:1d', '336370.KS:5d:1d']);
+    expect(mockedGetSnapshotKeySamples).toHaveBeenCalledWith(2);
   });
 
   it('loads signals for cache coverage summary convenience function', () => {
     mockedGetSnapshotSize.mockReturnValue(3);
+    mockedGetSnapshotKeySamples.mockReturnValue(['005930.KS:5d:1d']);
     mockedLoadSignals.mockReturnValue([signal({ symbol: '005930' })]);
     mockedReadYahooSnapshotPoint.mockReturnValue(null);
 
@@ -200,6 +207,7 @@ describe('shadowFutureReturnCacheProvider', () => {
     expect(summary.checkedSignals).toBe(1);
     expect(summary.checkedLookups).toBe(4);
     expect(summary.cacheMisses).toBe(4);
+    expect(summary.sampleSnapshotKeys).toEqual(['005930.KS:5d:1d']);
   });
 
   it('wires cache provider into loadResolveAndSaveShadowFutureReturns', async () => {
