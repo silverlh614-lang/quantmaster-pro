@@ -130,7 +130,12 @@ function buildSchedulerCheck(): ScanReadinessCheck {
   return { name: 'Scheduler', status, detail };
 }
 
-function buildOrchestratorCheck(now = new Date()): ScanReadinessCheck {
+interface OrchestratorView {
+  check: ScanReadinessCheck;
+  rollover: ScanReadinessCheck;
+}
+
+function buildOrchestratorChecks(now = new Date()): OrchestratorView {
   const status = tradingOrchestrator.getStatus();
   const currentDate = currentKstDateKey(now);
   const computed = status.computedState;
@@ -140,7 +145,7 @@ function buildOrchestratorCheck(now = new Date()): ScanReadinessCheck {
   const midday = formatHandlerFlag(status.handlerRanAt.middayRescan, currentDate);
   const openAuction = formatHandlerFlag(status.handlerRanAt.openAuction, currentDate);
   const label: ScanReadinessCheck['label'] = scanEligible && dateFresh ? undefined : 'WAIT';
-  return {
+  const check: ScanReadinessCheck = {
     name: 'Orchestrator',
     status: scanEligible && dateFresh ? 'OK' : 'WAIT',
     label,
@@ -156,6 +161,18 @@ function buildOrchestratorCheck(now = new Date()): ScanReadinessCheck {
       `midday=${midday}`,
     ].join(', '),
   };
+  const rollover: ScanReadinessCheck = {
+    name: 'Rollover',
+    status: dateFresh ? 'OK' : 'WAIT',
+    label: dateFresh ? undefined : 'STALE',
+    detail: [
+      `tradingDate=${status.tradingDate || 'unknown'}`,
+      `currentKstDate=${currentDate}`,
+      `source=tradingOrchestrator.tick`,
+      dateFresh ? 'action=none' : 'action=wait next tick or inspect cron',
+    ].join(', '),
+  };
+  return { check, rollover };
 }
 
 function buildScanInvocationCheck(schedulerCheck: ScanReadinessCheck, hasScanHistory: boolean): ScanReadinessCheck {
@@ -185,7 +202,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
   const macroAge = ageHours(macro?.updatedAt, now.getTime());
   const hasScanHistory = health.lastScanTs > 0 || Boolean(lastScan);
   const schedulerCheck = buildSchedulerCheck();
-  const orchestratorCheck = buildOrchestratorCheck(now);
+  const orchestrator = buildOrchestratorChecks(now);
   const invocationCheck = buildScanInvocationCheck(schedulerCheck, hasScanHistory);
 
   const checks: ScanReadinessCheck[] = [
@@ -195,7 +212,8 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
       detail: hasScanHistory ? `last=${new Date(health.lastScanTs).toISOString()}` : 'no scan history yet',
     },
     schedulerCheck,
-    orchestratorCheck,
+    orchestrator.check,
+    orchestrator.rollover,
     invocationCheck,
     {
       name: 'Watchlist',
@@ -253,8 +271,8 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
   if (macroAge !== null && macroAge > 8) nextActions.push(`Macro stale (${macroAge.toFixed(1)}h) → /refresh_macro`);
   if (!hasScanHistory) nextActions.push('No scan yet → wait next scanner cycle or /scan_blockers');
   if (schedulerCheck.status !== 'OK') nextActions.push('Scheduler not observed yet → /cron_status or /scheduler');
-  if (orchestratorCheck.detail.includes('dateFresh=false')) nextActions.push('Orchestrator date stale → wait next tick or check /cron_status');
-  if (orchestratorCheck.status !== 'OK') nextActions.push('Orchestrator not in scan state → wait MARKET_OPEN/INTRADAY');
+  if (orchestrator.rollover.status !== 'OK') nextActions.push('Orchestrator date stale → wait next tick or check /cron_status');
+  if (orchestrator.check.status !== 'OK') nextActions.push('Orchestrator not in scan state → wait MARKET_OPEN/INTRADAY');
   if (invocationCheck.status !== 'OK') nextActions.push('Invocation path pending → /cron_status then /scan_blockers');
   if (watchlist.length === 0) nextActions.push('Watchlist empty → rebuild/watchlist refresh needed');
   if (!health.kisConfigured || !health.kisTokenValid) nextActions.push('KIS not ready → /ops_status full');
