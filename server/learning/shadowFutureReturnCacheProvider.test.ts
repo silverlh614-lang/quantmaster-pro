@@ -34,6 +34,7 @@ import {
   buildShadowFutureReturnCacheCoverageSummary,
   createShadowFutureReturnCachePriceProvider,
   findNthKrxTradingDayAfter,
+  isShadowFutureReturnTargetMature,
   loadAndBuildShadowFutureReturnCacheCoverageSummary,
   loadResolveAndSaveShadowFutureReturnsFromCache,
   resolveShadowFutureReturnTargetCloseKst,
@@ -66,6 +67,24 @@ function signal(overrides: Partial<ShadowLearningOnlySignal> = {}): ShadowLearni
   };
 }
 
+function emptyStats() {
+  return {
+    scanned: 0,
+    updatedSignals: 0,
+    resolved1d: 0,
+    resolved3d: 0,
+    resolved5d: 0,
+    resolved20d: 0,
+    skippedAlreadyResolved: 0,
+    providerMisses: 0,
+    notYetDue: 0,
+    notYetDue1d: 0,
+    notYetDue3d: 0,
+    notYetDue5d: 0,
+    notYetDue20d: 0,
+  };
+}
+
 describe('shadowFutureReturnCacheProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -91,6 +110,21 @@ describe('shadowFutureReturnCacheProvider', () => {
 
   it('returns null for invalid signal date', () => {
     expect(resolveShadowFutureReturnTargetCloseKst('bad-date', '1d')).toBeNull();
+  });
+
+  it('detects whether a target close is mature', () => {
+    expect(isShadowFutureReturnTargetMature({
+      symbol: '005930',
+      signalDate: '2026-05-08',
+      horizon: '1d',
+      signal: signal(),
+    }, new Date('2026-05-11T06:31:00.000Z'))).toBe(true);
+    expect(isShadowFutureReturnTargetMature({
+      symbol: '005930',
+      signalDate: '2026-05-08',
+      horizon: '3d',
+      signal: signal(),
+    }, new Date('2026-05-11T06:31:00.000Z'))).toBe(false);
   });
 
   it('builds symbol candidates for six digit KRX code', () => {
@@ -212,22 +246,14 @@ describe('shadowFutureReturnCacheProvider', () => {
     expect(summary.sampleSnapshotKeys).toEqual(['005930.KS:5d:1d']);
   });
 
-  it('wires cache provider into loadResolveAndSaveShadowFutureReturns', async () => {
-    mockedLoadResolveAndSave.mockResolvedValue({
-      scanned: 0,
-      updatedSignals: 0,
-      resolved1d: 0,
-      resolved3d: 0,
-      resolved5d: 0,
-      resolved20d: 0,
-      skippedAlreadyResolved: 0,
-      providerMisses: 0,
-    });
+  it('wires cache provider and maturity gate into loadResolveAndSaveShadowFutureReturns', async () => {
+    mockedLoadResolveAndSave.mockResolvedValue(emptyStats());
 
     const stats = await loadResolveAndSaveShadowFutureReturnsFromCache();
 
     expect(stats.scanned).toBe(0);
     expect(mockedLoadResolveAndSave).toHaveBeenCalledTimes(1);
     expect(typeof mockedLoadResolveAndSave.mock.calls[0]?.[0]).toBe('function');
+    expect(typeof mockedLoadResolveAndSave.mock.calls[0]?.[1]?.maturityGate).toBe('function');
   });
 });

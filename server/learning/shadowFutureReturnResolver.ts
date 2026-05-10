@@ -31,6 +31,14 @@ export type ShadowFuturePriceProvider = (
   input: ShadowFuturePriceProviderInput,
 ) => Promise<ShadowFuturePricePoint | null> | ShadowFuturePricePoint | null;
 
+export type ShadowFutureReturnMaturityGate = (
+  input: ShadowFuturePriceProviderInput,
+) => boolean;
+
+export interface ShadowFutureReturnResolveOptions {
+  maturityGate?: ShadowFutureReturnMaturityGate;
+}
+
 export interface ShadowFutureReturnResolveStats {
   scanned: number;
   updatedSignals: number;
@@ -40,6 +48,11 @@ export interface ShadowFutureReturnResolveStats {
   resolved20d: number;
   skippedAlreadyResolved: number;
   providerMisses: number;
+  notYetDue: number;
+  notYetDue1d: number;
+  notYetDue3d: number;
+  notYetDue5d: number;
+  notYetDue20d: number;
 }
 
 const HORIZONS: ShadowFutureReturnHorizon[] = ['1d', '3d', '5d', '20d'];
@@ -69,6 +82,17 @@ function setResolvedReturn(
   else signal.futureReturn20d = value;
 }
 
+function incrementNotYetDue(
+  stats: ShadowFutureReturnResolveStats,
+  horizon: ShadowFutureReturnHorizon,
+): void {
+  stats.notYetDue += 1;
+  if (horizon === '1d') stats.notYetDue1d += 1;
+  else if (horizon === '3d') stats.notYetDue3d += 1;
+  else if (horizon === '5d') stats.notYetDue5d += 1;
+  else stats.notYetDue20d += 1;
+}
+
 function updateOutcomeFromResolvedReturns(signal: ShadowLearningOnlySignal): void {
   const preferred = signal.futureReturn5d
     ?? signal.futureReturn20d
@@ -86,6 +110,7 @@ function updateOutcomeFromResolvedReturns(signal: ShadowLearningOnlySignal): voi
 export async function resolveShadowFutureReturns(
   signals: ShadowLearningOnlySignal[],
   priceProvider: ShadowFuturePriceProvider,
+  options: ShadowFutureReturnResolveOptions = {},
 ): Promise<{ signals: ShadowLearningOnlySignal[]; stats: ShadowFutureReturnResolveStats }> {
   const next = signals.map((signal) => ({
     ...signal,
@@ -102,6 +127,11 @@ export async function resolveShadowFutureReturns(
     resolved20d: 0,
     skippedAlreadyResolved: 0,
     providerMisses: 0,
+    notYetDue: 0,
+    notYetDue1d: 0,
+    notYetDue3d: 0,
+    notYetDue5d: 0,
+    notYetDue20d: 0,
   };
 
   for (const signal of next) {
@@ -111,12 +141,17 @@ export async function resolveShadowFutureReturns(
         stats.skippedAlreadyResolved += 1;
         continue;
       }
-      const point = await priceProvider({
+      const providerInput: ShadowFuturePriceProviderInput = {
         symbol: signal.symbol,
         signalDate: signal.signalDate,
         horizon,
         signal,
-      });
+      };
+      if (options.maturityGate && !options.maturityGate(providerInput)) {
+        incrementNotYetDue(stats, horizon);
+        continue;
+      }
+      const point = await priceProvider(providerInput);
       if (!point || !isPositiveFinite(point.price) || !isPositiveFinite(signal.hypotheticalEntryPrice)) {
         stats.providerMisses += 1;
         continue;
@@ -142,9 +177,10 @@ export async function resolveShadowFutureReturns(
 
 export async function loadResolveAndSaveShadowFutureReturns(
   priceProvider: ShadowFuturePriceProvider,
+  options: ShadowFutureReturnResolveOptions = {},
 ): Promise<ShadowFutureReturnResolveStats> {
   const loaded = loadShadowLearningOnlySignals();
-  const { signals, stats } = await resolveShadowFutureReturns(loaded, priceProvider);
+  const { signals, stats } = await resolveShadowFutureReturns(loaded, priceProvider, options);
   if (stats.updatedSignals > 0) {
     saveShadowLearningOnlySignals(signals);
   }
