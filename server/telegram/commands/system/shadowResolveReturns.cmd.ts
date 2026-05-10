@@ -28,7 +28,7 @@ function formatShadowResolveReturnsStats(
     '',
     '🗃️ <b>Cache Coverage</b>',
     `• snapshotEntries: ${coverage.snapshotEntries}`,
-    `• checked: signals=${coverage.checkedSignals}, lookups=${coverage.checkedLookups}`,
+    `• checked: signals=${coverage.checkedSignals}, lookups=${coverage.checkedLookups}, notYetDueLookups=${coverage.notYetDueLookups}`,
     `• cacheHits=${coverage.cacheHits}, cacheMisses=${coverage.cacheMisses}, unresolvedSignals=${coverage.unresolvedSignals}`,
   ];
   if (coverage.sampleSnapshotKeys.length > 0) {
