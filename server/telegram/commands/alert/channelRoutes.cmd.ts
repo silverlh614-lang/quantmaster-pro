@@ -1,5 +1,5 @@
 // @responsibility channelRoutes.cmd — read-only Telegram channel routing summary.
-// @responsibility: /channel_routes — AlertCategory/ChannelSemantic/env route 상태를 한 화면에 표시.
+// @responsibility: /channel_routes — AlertCategory/ChannelSemantic/env route 상태를 모바일 한 화면에 표시.
 
 import { AlertCategory, ChannelSemantic, isCategoryEnabled } from '../../../alerts/alertCategories.js';
 import { getResolvedChannelMap, VIBRATION_POLICY } from '../../../alerts/alertRouter.js';
@@ -52,6 +52,10 @@ function enabledLabel(category: AlertCategory): string {
   return isCategoryEnabled(category) ? 'ON' : 'OFF';
 }
 
+function configuredLabel(channelId: string | undefined): string {
+  return channelId ? 'configured' : 'missing';
+}
+
 function channelSourceHint(category: AlertCategory): string {
   switch (category) {
     case AlertCategory.TRADE:
@@ -76,17 +80,54 @@ function vibrationSummary(category: AlertCategory): string {
   return `C:${policy.CRITICAL ? 'vib' : 'silent'} H:${policy.HIGH ? 'vib' : 'silent'} N:${policy.NORMAL ? 'vib' : 'silent'} L:${policy.LOW ? 'vib' : 'silent'}`;
 }
 
-function formatChannelRoutes(): string {
+function compactVibration(category: AlertCategory): string {
+  const policy = VIBRATION_POLICY[category];
+  if (policy.CRITICAL && policy.HIGH && policy.NORMAL && policy.LOW) return 'vib all';
+  if (!policy.CRITICAL && !policy.HIGH && !policy.NORMAL && !policy.LOW) return 'silent all';
+  const on = [
+    policy.CRITICAL ? 'C' : '',
+    policy.HIGH ? 'H' : '',
+    policy.NORMAL ? 'N' : '',
+    policy.LOW ? 'L' : '',
+  ].filter(Boolean).join(',');
+  return on ? `vib ${on}` : 'silent all';
+}
+
+function formatChannelRoutesCompact(): string {
   const channelMap = getResolvedChannelMap();
   const lines = [
     '📡 <b>CHANNEL ROUTES</b>',
+    '<i>read-only / no send</i>',
+    '',
+  ];
+
+  for (const row of SEMANTIC_ROWS) {
+    const channelId = channelMap[row.category];
+    lines.push(
+      `${row.category}: <b>${enabledLabel(row.category)}</b> / ${configuredLabel(channelId)} / ${compactVibration(row.category)}`,
+    );
+  }
+
+  lines.push('');
+  lines.push(`Digest: <b>${isDigestEnabled() ? 'ON' : 'OFF'}</b>`);
+  lines.push(`CHANNEL_ENABLED: <b>${process.env.CHANNEL_ENABLED === 'true' ? 'true' : 'false'}</b>`);
+  lines.push('');
+  lines.push('상세: /channel_routes full');
+  lines.push('테스트: /channel_health');
+  return lines.join('\n');
+}
+
+function formatChannelRoutesFull(): string {
+  const channelMap = getResolvedChannelMap();
+  const lines = [
+    '📡 <b>CHANNEL ROUTES FULL</b>',
     '<i>read-only routing summary — no test send</i>',
     '',
   ];
 
   for (const row of SEMANTIC_ROWS) {
     const channelId = channelMap[row.category];
-    const configured = channelId ? 'configured' : 'missing';
+    const configured = configuredLabel(channelId);
     lines.push(`<b>${row.semantic}</b> → ${row.category}`);
     lines.push(`• role: ${row.role}`);
     lines.push(`• enabled: <b>${enabledLabel(row.category)}</b> / ${configured}`);
@@ -105,20 +146,25 @@ function formatChannelRoutes(): string {
   return lines.join('\n');
 }
 
+function formatChannelRoutes(args: string[] = []): string {
+  const full = args.some((arg) => arg.toLowerCase() === 'full' || arg.toLowerCase() === '--full');
+  return full ? formatChannelRoutesFull() : formatChannelRoutesCompact();
+}
+
 const channelRoutes: TelegramCommand = {
   name: '/channel_routes',
   aliases: ['/alert_routes', '/channel_status'],
   category: 'ALR',
   visibility: 'ADMIN',
   riskLevel: 0,
-  description: '텔레그램 4채널 라우팅 요약 — read-only, 발송 없음',
-  usage: '/channel_routes',
-  async execute({ reply }) {
-    await reply(formatChannelRoutes());
+  description: '텔레그램 4채널 라우팅 요약 — 기본 compact, full 상세 지원',
+  usage: '/channel_routes [full]',
+  async execute({ args, reply }) {
+    await reply(formatChannelRoutes(args));
   },
 };
 
 commandRegistry.register(channelRoutes);
 
 export default channelRoutes;
-export { formatChannelRoutes };
+export { formatChannelRoutes, formatChannelRoutesCompact, formatChannelRoutesFull };
