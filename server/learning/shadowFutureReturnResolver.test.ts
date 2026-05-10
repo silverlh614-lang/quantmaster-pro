@@ -20,6 +20,16 @@ vi.mock('../persistence/shadowLearningOnlySignalRepo.js', () => ({
 const mockedLoad = vi.mocked(loadShadowLearningOnlySignals);
 const mockedSave = vi.mocked(saveShadowLearningOnlySignals);
 
+function zeroDueStats() {
+  return {
+    notYetDue: 0,
+    notYetDue1d: 0,
+    notYetDue3d: 0,
+    notYetDue5d: 0,
+    notYetDue20d: 0,
+  };
+}
+
 function signal(overrides: Partial<ShadowLearningOnlySignal> = {}): ShadowLearningOnlySignal {
   return {
     symbol: overrides.symbol ?? '005930',
@@ -60,6 +70,7 @@ describe('resolveShadowFutureReturns', () => {
       resolved20d: 1,
       skippedAlreadyResolved: 0,
       providerMisses: 0,
+      ...zeroDueStats(),
     });
     expect(signals[0]!.futureReturn1d).toBeCloseTo(0.01);
     expect(signals[0]!.futureReturn3d).toBeCloseTo(0.02);
@@ -85,6 +96,7 @@ describe('resolveShadowFutureReturns', () => {
     expect(stats.resolved3d).toBe(1);
     expect(stats.resolved5d).toBe(0);
     expect(stats.resolved20d).toBe(1);
+    expect(stats.notYetDue).toBe(0);
   });
 
   it('counts provider misses and leaves missing horizons unresolved', async () => {
@@ -98,10 +110,39 @@ describe('resolveShadowFutureReturns', () => {
     ], provider);
 
     expect(stats.providerMisses).toBe(3);
+    expect(stats.notYetDue).toBe(0);
     expect(stats.resolved5d).toBe(1);
     expect(signals[0]!.futureReturn1d).toBeUndefined();
     expect(signals[0]!.futureReturn5d).toBeCloseTo(0.03);
     expect(signals[0]!.outcome).toBe('WIN');
+  });
+
+  it('counts not-yet-due horizons without calling provider or providerMisses', async () => {
+    const provider = vi.fn<ShadowFuturePriceProvider>(({ horizon }) => {
+      const prices = { '1d': 10100, '3d': 10200, '5d': 10300, '20d': 10400 } as const;
+      return { price: prices[horizon] };
+    });
+
+    const { signals, stats } = await resolveShadowFutureReturns([
+      signal(),
+    ], provider, {
+      maturityGate: ({ horizon }) => horizon === '1d',
+    });
+
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(provider).toHaveBeenCalledWith(expect.objectContaining({ horizon: '1d' }));
+    expect(stats.resolved1d).toBe(1);
+    expect(stats.resolved3d).toBe(0);
+    expect(stats.resolved5d).toBe(0);
+    expect(stats.resolved20d).toBe(0);
+    expect(stats.providerMisses).toBe(0);
+    expect(stats.notYetDue).toBe(3);
+    expect(stats.notYetDue1d).toBe(0);
+    expect(stats.notYetDue3d).toBe(1);
+    expect(stats.notYetDue5d).toBe(1);
+    expect(stats.notYetDue20d).toBe(1);
+    expect(signals[0]!.futureReturn1d).toBeCloseTo(0.01);
+    expect(signals[0]!.futureReturn3d).toBeUndefined();
   });
 
   it('sets pending outcome when nothing resolves and outcome is absent', async () => {
@@ -111,6 +152,7 @@ describe('resolveShadowFutureReturns', () => {
 
     expect(stats.updatedSignals).toBe(0);
     expect(stats.providerMisses).toBe(4);
+    expect(stats.notYetDue).toBe(0);
     expect(signals[0]!.outcome).toBe('PENDING');
   });
 
@@ -121,6 +163,7 @@ describe('resolveShadowFutureReturns', () => {
     const stats = await loadResolveAndSaveShadowFutureReturns(() => ({ price: 11000 }));
 
     expect(stats.updatedSignals).toBe(1);
+    expect(stats.notYetDue).toBe(0);
     expect(mockedSave).toHaveBeenCalledTimes(1);
     const saved = mockedSave.mock.calls[0]![0][0]!;
     expect(saved.futureReturn1d).toBeCloseTo(0.1);
@@ -141,6 +184,8 @@ describe('resolveShadowFutureReturns', () => {
     const stats = await loadResolveAndSaveShadowFutureReturns(() => null);
 
     expect(stats.updatedSignals).toBe(0);
+    expect(stats.providerMisses).toBe(4);
+    expect(stats.notYetDue).toBe(0);
     expect(mockedSave).not.toHaveBeenCalled();
   });
 });
