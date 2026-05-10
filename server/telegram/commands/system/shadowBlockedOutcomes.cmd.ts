@@ -6,11 +6,27 @@
 // or Telegram state.
 
 import {
+  formatOutcomeRow,
   formatShadowBlockedOutcomeCompactLine,
   loadAndSummarizeShadowBlockedOutcomes,
+  type ShadowOutcomeAttributionSummary,
 } from '../../../learning/shadowBlockedOutcomeAnalytics.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
+
+function appendSection(
+  lines: string[],
+  title: string,
+  rows: ShadowOutcomeAttributionSummary[],
+  limit = 5,
+): void {
+  if (rows.length === 0) return;
+  lines.push('');
+  lines.push(`<b>${title}</b>`);
+  rows.slice(0, limit).forEach((row, idx) => {
+    lines.push(`${idx + 1}. ${formatOutcomeRow(row)}`);
+  });
+}
 
 const shadowBlockedOutcomes: TelegramCommand = {
   name: '/shadow_blocked_outcomes',
@@ -34,15 +50,20 @@ const shadowBlockedOutcomes: TelegramCommand = {
         return;
       }
       const lines: string[] = [compact];
-      if (summary.topOverBlockedReasons.length > 0) {
-        lines.push('');
-        lines.push('Top over-blocked reasons:');
-        summary.topOverBlockedReasons.slice(0, 5).forEach((row, idx) => {
-          const avg5d = row.avgReturn5d === null ? 'n/a' : `${row.avgReturn5d > 0 ? '+' : ''}${(row.avgReturn5d * 100).toFixed(1)}%`;
-          const win5d = row.winRate5d === null ? 'n/a' : `${(row.winRate5d * 100).toFixed(1)}%`;
-          lines.push(`${idx + 1}. ${row.blockedReason}: over=${row.overBlockedCount}, total=${row.total}, 5d=${avg5d}, win=${win5d}`);
-        });
+
+      appendSection(lines, 'By blockedReason', summary.byBlockedReason);
+      appendSection(lines, 'By macroBlockReason', summary.byMacroBlockReason, 3);
+      appendSection(lines, 'By dataQualityStatus', summary.byDataQualityStatus, 3);
+      appendSection(lines, 'By signalGrade', summary.bySignalGrade, 3);
+
+      if (summary.topFastOverBlocked.length > 0) {
+        appendSection(lines, 'Fast over-block watchlist', summary.topFastOverBlocked, 3);
       }
+
+      if (summary.topOverBlockedReasons.length > 0) {
+        appendSection(lines, 'Top over-blocked reasons', summary.topOverBlockedReasons, 5);
+      }
+
       lines.push('');
       lines.push('<i>read-only analytics — executionImpact remains NONE.</i>');
       await reply(lines.join('\n'));
