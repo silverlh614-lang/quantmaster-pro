@@ -13,11 +13,12 @@
 import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnlySignalRepo.js';
 import type { ShadowLearningOnlySignal } from '../trading/shadowLearningOnlyScan.js';
 
-export interface ShadowBlockedOutcomeReasonSummary {
-  blockedReason: string;
+export interface ShadowOutcomeAttributionSummary {
+  key: string;
   total: number;
   wouldBuyCount: number;
   pendingCount: number;
+  resolvedAnyCount: number;
   resolved1dCount: number;
   resolved3dCount: number;
   resolved5dCount: number;
@@ -26,8 +27,15 @@ export interface ShadowBlockedOutcomeReasonSummary {
   avgReturn3d: number | null;
   avgReturn5d: number | null;
   avgReturn20d: number | null;
+  winRate1d: number | null;
+  winRate3d: number | null;
   winRate5d: number | null;
+  winRate20d: number | null;
   overBlockedCount: number;
+}
+
+export interface ShadowBlockedOutcomeReasonSummary extends ShadowOutcomeAttributionSummary {
+  blockedReason: string;
 }
 
 export interface ShadowBlockedOutcomeSummary {
@@ -35,7 +43,11 @@ export interface ShadowBlockedOutcomeSummary {
   pendingSignals: number;
   resolvedSignals: number;
   byBlockedReason: ShadowBlockedOutcomeReasonSummary[];
+  byMacroBlockReason: ShadowOutcomeAttributionSummary[];
+  byDataQualityStatus: ShadowOutcomeAttributionSummary[];
+  bySignalGrade: ShadowOutcomeAttributionSummary[];
   topOverBlockedReasons: ShadowBlockedOutcomeReasonSummary[];
+  topFastOverBlocked: ShadowOutcomeAttributionSummary[];
 }
 
 const OVER_BLOCKED_REASONS = new Set<ShadowLearningOnlySignal['blockedReason']>([
@@ -55,6 +67,11 @@ function avg(values: number[]): number | null {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function winRate(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return values.filter((value) => value > 0).length / values.length;
+}
+
 function hasAnyResolvedReturn(signal: ShadowLearningOnlySignal): boolean {
   return (
     isNumber(signal.futureReturn1d)
@@ -65,29 +82,30 @@ function hasAnyResolvedReturn(signal: ShadowLearningOnlySignal): boolean {
 }
 
 function isOverBlockedCandidate(signal: ShadowLearningOnlySignal): boolean {
+  const strong1d = isNumber(signal.futureReturn1d) && signal.futureReturn1d >= 0.015;
+  const strong5d = isNumber(signal.futureReturn5d) && signal.futureReturn5d >= 0.03;
   return (
     signal.wouldHaveBought === true
-    && isNumber(signal.futureReturn5d)
-    && signal.futureReturn5d >= 0.03
+    && (strong1d || strong5d)
     && OVER_BLOCKED_REASONS.has(signal.blockedReason)
   );
 }
 
-function summarizeReason(
-  blockedReason: string,
+function summarizeAttribution(
+  key: string,
   signals: ShadowLearningOnlySignal[],
-): ShadowBlockedOutcomeReasonSummary {
+): ShadowOutcomeAttributionSummary {
   const returns1d = signals.map((s) => s.futureReturn1d).filter(isNumber);
   const returns3d = signals.map((s) => s.futureReturn3d).filter(isNumber);
   const returns5d = signals.map((s) => s.futureReturn5d).filter(isNumber);
   const returns20d = signals.map((s) => s.futureReturn20d).filter(isNumber);
-  const win5d = returns5d.filter((value) => value > 0).length;
 
   return {
-    blockedReason,
+    key,
     total: signals.length,
     wouldBuyCount: signals.filter((s) => s.wouldHaveBought).length,
     pendingCount: signals.filter((s) => !hasAnyResolvedReturn(s)).length,
+    resolvedAnyCount: signals.filter(hasAnyResolvedReturn).length,
     resolved1dCount: returns1d.length,
     resolved3dCount: returns3d.length,
     resolved5dCount: returns5d.length,
@@ -96,9 +114,44 @@ function summarizeReason(
     avgReturn3d: avg(returns3d),
     avgReturn5d: avg(returns5d),
     avgReturn20d: avg(returns20d),
-    winRate5d: returns5d.length > 0 ? win5d / returns5d.length : null,
+    winRate1d: winRate(returns1d),
+    winRate3d: winRate(returns3d),
+    winRate5d: winRate(returns5d),
+    winRate20d: winRate(returns20d),
     overBlockedCount: signals.filter(isOverBlockedCandidate).length,
   };
+}
+
+function summarizeReason(
+  blockedReason: string,
+  signals: ShadowLearningOnlySignal[],
+): ShadowBlockedOutcomeReasonSummary {
+  return {
+    ...summarizeAttribution(blockedReason, signals),
+    blockedReason,
+  };
+}
+
+function groupByKey(
+  signals: ShadowLearningOnlySignal[],
+  keyFn: (signal: ShadowLearningOnlySignal) => string | undefined | null,
+): ShadowOutcomeAttributionSummary[] {
+  const grouped = new Map<string, ShadowLearningOnlySignal[]>();
+  for (const signal of signals) {
+    const key = keyFn(signal)?.trim() || 'UNKNOWN';
+    const bucket = grouped.get(key) ?? [];
+    bucket.push(signal);
+    grouped.set(key, bucket);
+  }
+  return Array.from(grouped.entries())
+    .map(([key, rows]) => summarizeAttribution(key, rows))
+    .sort(sortAttributionRows);
+}
+
+function sortAttributionRows(a: ShadowOutcomeAttributionSummary, b: ShadowOutcomeAttributionSummary): number {
+  if (b.resolvedAnyCount !== a.resolvedAnyCount) return b.resolvedAnyCount - a.resolvedAnyCount;
+  if (b.total !== a.total) return b.total - a.total;
+  return a.key.localeCompare(b.key);
 }
 
 export function summarizeShadowBlockedOutcomes(
@@ -114,6 +167,7 @@ export function summarizeShadowBlockedOutcomes(
   const byBlockedReason = Array.from(grouped.entries())
     .map(([blockedReason, rows]) => summarizeReason(blockedReason, rows))
     .sort((a, b) => {
+      if (b.resolvedAnyCount !== a.resolvedAnyCount) return b.resolvedAnyCount - a.resolvedAnyCount;
       if (b.total !== a.total) return b.total - a.total;
       return a.blockedReason.localeCompare(b.blockedReason);
     });
@@ -122,8 +176,25 @@ export function summarizeShadowBlockedOutcomes(
     .filter((summary) => summary.overBlockedCount > 0)
     .sort((a, b) => {
       if (b.overBlockedCount !== a.overBlockedCount) return b.overBlockedCount - a.overBlockedCount;
+      if ((b.avgReturn1d ?? -Infinity) !== (a.avgReturn1d ?? -Infinity)) {
+        return (b.avgReturn1d ?? -Infinity) - (a.avgReturn1d ?? -Infinity);
+      }
       if (b.total !== a.total) return b.total - a.total;
       return a.blockedReason.localeCompare(b.blockedReason);
+    })
+    .slice(0, 5);
+
+  const byMacroBlockReason = groupByKey(signals, (s) => s.macroBlockReason);
+  const byDataQualityStatus = groupByKey(signals, (s) => s.dataQualityStatus);
+  const bySignalGrade = groupByKey(signals, (s) => s.signalGrade);
+
+  const topFastOverBlocked = [...byBlockedReason]
+    .filter((row) => row.resolved1dCount >= 3 && (row.avgReturn1d ?? 0) > 0)
+    .sort((a, b) => {
+      if ((b.avgReturn1d ?? -Infinity) !== (a.avgReturn1d ?? -Infinity)) {
+        return (b.avgReturn1d ?? -Infinity) - (a.avgReturn1d ?? -Infinity);
+      }
+      return b.resolved1dCount - a.resolved1dCount;
     })
     .slice(0, 5);
 
@@ -132,7 +203,11 @@ export function summarizeShadowBlockedOutcomes(
     pendingSignals: signals.filter((s) => !hasAnyResolvedReturn(s)).length,
     resolvedSignals: signals.filter(hasAnyResolvedReturn).length,
     byBlockedReason,
+    byMacroBlockReason,
+    byDataQualityStatus,
+    bySignalGrade,
     topOverBlockedReasons,
+    topFastOverBlocked,
   };
 }
 
@@ -140,10 +215,14 @@ export function loadAndSummarizeShadowBlockedOutcomes(): ShadowBlockedOutcomeSum
   return summarizeShadowBlockedOutcomes(loadShadowLearningOnlySignals());
 }
 
-function formatPct(value: number | null): string {
+export function formatPct(value: number | null): string {
   if (value === null) return 'n/a';
   const sign = value > 0 ? '+' : '';
   return `${sign}${(value * 100).toFixed(1)}%`;
+}
+
+export function formatOutcomeRow(row: ShadowOutcomeAttributionSummary): string {
+  return `${row.key}: n=${row.total}, resolved=${row.resolvedAnyCount}, 1d=${formatPct(row.avgReturn1d)} / win=${formatPct(row.winRate1d)}, 5d=${formatPct(row.avgReturn5d)} / win=${formatPct(row.winRate5d)}, over=${row.overBlockedCount}`;
 }
 
 export function formatShadowBlockedOutcomeCompactLine(
@@ -152,7 +231,7 @@ export function formatShadowBlockedOutcomeCompactLine(
   if (summary.totalSignals === 0) return null;
   const top = summary.topOverBlockedReasons[0];
   const topLabel = top
-    ? `${top.blockedReason} ${top.overBlockedCount}건 / 5d ${formatPct(top.avgReturn5d)} / win ${formatPct(top.winRate5d)}`
+    ? `${top.blockedReason} ${top.overBlockedCount}건 / 1d ${formatPct(top.avgReturn1d)} / 5d ${formatPct(top.avgReturn5d)}`
     : 'none';
   return [
     '🧪 <b>Shadow Blocked Outcomes</b>',
