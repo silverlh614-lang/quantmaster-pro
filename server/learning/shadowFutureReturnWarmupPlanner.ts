@@ -58,6 +58,15 @@ export function collectUnresolvedShadowReturnSymbols(signals: ShadowLearningOnly
   };
 }
 
+export function symbolCandidatesForShadowReturnWarmup(symbol: string): string[] {
+  const s = symbol.trim();
+  const candidates = symbolCandidatesForShadowFutureReturnCache(s);
+  if (/^\d{6}$/.test(s)) {
+    return candidates.filter((candidate) => candidate !== s);
+  }
+  return candidates;
+}
+
 function compactFailureDetail(body: string): string {
   try {
     const parsed = JSON.parse(body) as { error?: unknown; details?: unknown; symbol?: unknown };
@@ -101,7 +110,7 @@ export async function runShadowFutureReturnWarmup(limit: number): Promise<Shadow
   };
 
   for (const symbol of selectedSymbols) {
-    for (const yahooSymbol of symbolCandidatesForShadowFutureReturnCache(symbol)) {
+    for (const yahooSymbol of symbolCandidatesForShadowReturnWarmup(symbol)) {
       for (const range of SHADOW_RETURN_WARMUP_RANGES) {
         const target = `${yahooSymbol}:${range}:1d`;
         if (stats.sampleTargets.length < 10) stats.sampleTargets.push(target);
