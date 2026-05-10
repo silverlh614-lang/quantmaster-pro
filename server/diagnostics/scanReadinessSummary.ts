@@ -107,6 +107,25 @@ function buildSchedulerCheck(): ScanReadinessCheck {
   return { name: 'Scheduler', status, detail };
 }
 
+function buildScanInvocationCheck(schedulerCheck: ScanReadinessCheck, hasScanHistory: boolean): ScanReadinessCheck {
+  const orchestrator = SCHEDULE_CATALOG.find((entry) => entry.jobName === 'orchestrator_tick');
+  const orchMetrics = getJobMetrics('orchestrator_tick');
+  const orchLast = getLastRunByJob('orchestrator_tick');
+  const hasOrchestratorPath = Boolean(orchestrator);
+  const status: ScanReadinessCheck['status'] = hasScanHistory
+    ? 'OK'
+    : hasOrchestratorPath && schedulerCheck.status === 'OK'
+      ? 'WAIT'
+      : 'WARN';
+  const detail = [
+    'path=orchestrator_tick>tradingOrchestrator.tick>runAutoSignalScan',
+    `orchRuns=${orchMetrics?.runCount ?? 0}`,
+    `orchLast=${formatSchedulerLastLabel(orchLast?.finishedAt, orchMetrics?.runCount ?? 0)}`,
+    hasScanHistory ? 'scan=recorded' : 'scan=not recorded',
+  ].join(', ');
+  return { name: 'ScanInvocation', status, detail };
+}
+
 export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummary {
   const health = collectHealthSnapshot();
   const macro = loadMacroState();
@@ -115,6 +134,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
   const macroAge = ageHours(macro?.updatedAt, now.getTime());
   const hasScanHistory = health.lastScanTs > 0 || Boolean(lastScan);
   const schedulerCheck = buildSchedulerCheck();
+  const invocationCheck = buildScanInvocationCheck(schedulerCheck, hasScanHistory);
 
   const checks: ScanReadinessCheck[] = [
     {
@@ -123,6 +143,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
       detail: hasScanHistory ? `last=${new Date(health.lastScanTs).toISOString()}` : 'no scan history yet',
     },
     schedulerCheck,
+    invocationCheck,
     {
       name: 'Watchlist',
       status: watchlist.length > 0 ? 'OK' : 'BLOCK',
@@ -179,6 +200,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
   if (macroAge !== null && macroAge > 8) nextActions.push(`Macro stale (${macroAge.toFixed(1)}h) → /refresh_macro`);
   if (!hasScanHistory) nextActions.push('No scan yet → wait next scanner cycle or /scan_blockers');
   if (schedulerCheck.status !== 'OK') nextActions.push('Scheduler not observed yet → /cron_status or /scheduler');
+  if (invocationCheck.status !== 'OK') nextActions.push('Invocation path pending → /cron_status then /scan_blockers');
   if (watchlist.length === 0) nextActions.push('Watchlist empty → rebuild/watchlist refresh needed');
   if (!health.kisConfigured || !health.kisTokenValid) nextActions.push('KIS not ready → /ops_status full');
   if (!health.volume.ok) nextActions.push('Volume clock closed → wait allowed scan window');
