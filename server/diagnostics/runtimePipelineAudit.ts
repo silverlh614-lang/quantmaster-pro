@@ -40,6 +40,12 @@ import {
   safeBuildEmptyScanRootCauseDashboardAdr0500,
   type EmptyScanRootCauseDashboardAdr0500,
 } from './emptyScanRootCauseDashboardAdr0500.js';
+import {
+  buildWeekendReplayRecordsFromStringsAdr0501,
+  formatWeekendReplayCompactAdr0501,
+  safeBuildWeekendReplaySummaryAdr0501,
+  type WeekendReplaySummaryAdr0501,
+} from './weekendReplayAdr0501.js';
 
 export type RuntimePipelineStage =
   | 'NOT_RUN'
@@ -110,6 +116,8 @@ export interface RuntimePipelineAuditSnapshot {
   freshDataStatusNormalizedCount?: number;
   emptyScanRootCause?: EmptyScanRootCauseDashboardAdr0500;
   emptyScanRootCauseCompact?: string;
+  weekendReplaySummary?: WeekendReplaySummaryAdr0501;
+  weekendReplayCompact?: string;
   adr460Installed: false;
   supplyProviderHealth: { hasRecentSample: boolean; message: string };
   sectorEnergyHealth: {
@@ -345,6 +353,8 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
 
   let emptyScanRootCause: EmptyScanRootCauseDashboardAdr0500 | undefined;
   let emptyScanRootCauseCompact: string | undefined;
+  let weekendReplaySummary: WeekendReplaySummaryAdr0501 | undefined;
+  let weekendReplayCompact: string | undefined;
   try {
     emptyScanRootCause = summary?.emptyScanRootCause ?? safeBuildEmptyScanRootCauseDashboardAdr0500({
       scanId: summary?.time ? `runtime-${summary.time}` : undefined,
@@ -356,9 +366,22 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
       totalEmptyScans: (summary?.entries ?? 0) === 0 ? 1 : 0,
     });
     emptyScanRootCauseCompact = formatEmptyScanRootCauseCompactAdr0500(emptyScanRootCause, { maxBuckets: 3 });
+    weekendReplaySummary = summary?.weekendReplaySummaryAdr0501 ?? safeBuildWeekendReplaySummaryAdr0501({
+      records: buildWeekendReplayRecordsFromStringsAdr0501(blockedBy.map((reason) => ({
+        source: 'RUNTIME_PIPELINE_AUDIT' as const,
+        reason,
+        replayMode: 'LATEST' as const,
+      }))),
+      replayMode: 'LATEST',
+      totalScans: summary ? 1 : 0,
+      totalSymbols: candidateSummaryCount,
+    });
+    weekendReplayCompact = formatWeekendReplayCompactAdr0501(weekendReplaySummary, { maxCauses: 3 });
   } catch {
     emptyScanRootCause = undefined;
     emptyScanRootCauseCompact = undefined;
+    weekendReplaySummary = undefined;
+    weekendReplayCompact = undefined;
   }
 
   return {
@@ -396,6 +419,8 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     freshDataStatusNormalizedCount: freshDataStatusSectionAdr0498.viewModels.length,
     ...(emptyScanRootCause ? { emptyScanRootCause } : {}),
     ...(emptyScanRootCauseCompact ? { emptyScanRootCauseCompact } : {}),
+    ...(weekendReplaySummary ? { weekendReplaySummary } : {}),
+    ...(weekendReplayCompact ? { weekendReplayCompact } : {}),
     adr460Installed: false,
     supplyProviderHealth,
     sectorEnergyHealth,
@@ -442,6 +467,7 @@ export function formatRuntimePipelineAuditSection(snapshot: RuntimePipelineAudit
     `  • promotionAudit: <code>${snapshot.promotionAuditSummary}</code>`,
     `  • adr0498FreshDataStatus: <code>${snapshot.freshDataStatusCompactLines?.join(' | ') ?? 'none'}</code>`,
     `  • adr0500EmptyScanRootCause: <code>${snapshot.emptyScanRootCauseCompact ?? 'none'}</code>`,
+    `  • adr0501WeekendReplay: <code>${snapshot.weekendReplayCompact ?? 'none'}</code>`,
     `  • promotionAuditBlockers: <code>${snapshot.promotionAuditBlockers.join(', ') || 'none'}</code>`,
     '  • ADR-460: <code>not installed</code>',
     `  • reason: ${snapshot.operatorMessage}`,
@@ -463,6 +489,7 @@ export function formatRuntimePipelineAuditCompactLine(snapshot: RuntimePipelineA
     `  • PromotionAudit: <code>${snapshot.promotionAuditSummary}</code>`,
     `  • ADR-0498 FreshDataStatus: <code>${snapshot.freshDataStatusNormalizedCount ?? 0}</code>`,
     `  • ADR-0500 EmptyScan: <code>${snapshot.emptyScanRootCause?.topCause ?? 'NONE'}</code>`,
+    `  • ADR-0501 WeekendReplay: <code>${snapshot.weekendReplaySummary?.operatorSummary ?? 'none'}</code>`,
     `  • Safety: <code>${snapshot.livePathSafety.passed ? 'PASS' : 'FAIL'}</code>`,
   ].join('\n');
 }
@@ -502,6 +529,7 @@ export function formatRuntimePipelineAuditDetails(snapshot: RuntimePipelineAudit
     `  • promotionAuditBlockedLines: <code>${snapshot.promotionAuditBlockedLines.join(', ') || 'none'}</code>`,
     `  • adr0498FreshDataStatusLines: <code>${snapshot.freshDataStatusCompactLines?.join(' | ') ?? 'none'}</code>`,
     `  • adr0500EmptyScanRootCause: <code>${snapshot.emptyScanRootCauseCompact ?? 'none'}</code>`,
+    `  • adr0501WeekendReplay: <code>${snapshot.weekendReplayCompact ?? 'none'}</code>`,
     `  • promotionAuditBlockers: <code>${snapshot.promotionAuditBlockers.join(', ') || 'none'}</code>`,
     '  • ADR-460: <code>not installed</code>',
     `  • supplyProvider: ${snapshot.supplyProviderHealth.message}`,

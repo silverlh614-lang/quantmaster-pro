@@ -16,6 +16,11 @@ import {
   safeBuildEmptyScanRootCauseDashboardAdr0500,
   type EmptyScanRootCauseDashboardAdr0500,
 } from '../../diagnostics/emptyScanRootCauseDashboardAdr0500.js';
+import {
+  buildWeekendReplayRecordsFromStringsAdr0501,
+  safeBuildWeekendReplaySummaryAdr0501,
+  type WeekendReplaySummaryAdr0501,
+} from '../../diagnostics/weekendReplayAdr0501.js';
 import { appendScanTraces, type ScanTrace } from '../scanTracer.js';
 import {
   classifyEmptyScanReason,
@@ -293,6 +298,8 @@ export interface ScanSummary {
   emptyScanReason?: EmptyScanReason;
   /** ADR-0500 — diagnostic-only Empty Scan Root Cause Dashboard snapshot. */
   emptyScanRootCause?: EmptyScanRootCauseDashboardAdr0500;
+  /** ADR-0501 — diagnostic-only Weekend Replay snapshot from current sanitized blockers. */
+  weekendReplaySummaryAdr0501?: WeekendReplaySummaryAdr0501;
   gatePassDistribution?: GatePassDistribution;
   sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
   validSectorCount?: number;
@@ -2262,9 +2269,22 @@ export async function persistScanResults(
         events: buildEmptyScanRootCauseEventsFromStringsAdr0500(rootCauseInputs),
         totalEmptyScans: summaryDraft.entries === 0 ? 1 : 0,
       });
+      summaryDraft.weekendReplaySummaryAdr0501 = safeBuildWeekendReplaySummaryAdr0501({
+        records: buildWeekendReplayRecordsFromStringsAdr0501(rootCauseInputs.map((input) => ({
+          source: 'SCAN_SUMMARY',
+          reason: input.reason,
+          message: input.message,
+          scanId: `scan-${kstNow.toISOString()}`,
+          replayMode: 'LATEST',
+        }))),
+        replayMode: 'LATEST',
+        generatedAt: kstNow.toISOString(),
+        totalScans: 1,
+        totalSymbols: summaryDraft.candidates,
+      });
     }
   } catch (e) {
-    console.warn('[ADR-0500] Empty Scan Root Cause dashboard build failed (scan decisions unaffected):', e);
+    console.warn('[ADR-0500/0501] Empty Scan Root Cause / Weekend Replay dashboard build failed (scan decisions unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;

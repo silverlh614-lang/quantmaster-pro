@@ -136,6 +136,11 @@ import {
   formatEmptyScanRootCauseCompactAdr0500,
   safeBuildEmptyScanRootCauseDashboardAdr0500,
 } from '../../../diagnostics/emptyScanRootCauseDashboardAdr0500.js';
+import {
+  buildWeekendReplayRecordsFromStringsAdr0501,
+  formatWeekendReplayCompactAdr0501,
+  safeBuildWeekendReplaySummaryAdr0501,
+} from '../../../diagnostics/weekendReplayAdr0501.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -506,6 +511,31 @@ const scanBlockers: TelegramCommand = {
       console.warn('[scan_blockers] ADR-0500 empty scan root cause section failed:', err);
     }
 
+    let weekendReplaySectionAdr0501: string | null = null;
+    try {
+      if ((summary?.entries ?? 0) === 0 || (summary?.gateMisses ?? 0) > 0 || (summary?.yahooFails ?? 0) > 0) {
+        const records = buildWeekendReplayRecordsFromStringsAdr0501([
+          ...(summary?.macroGateState?.sellOnlyMode ? [{ source: 'SCAN_SUMMARY' as const, reason: 'SELL_ONLY', replayMode: 'LATEST' as const }] : []),
+          ...((summary?.macroGateState?.bearDefenseMode || summary?.macroGateState?.vixGatingActive || summary?.macroGateState?.mhsBelow30) ? [{ source: 'SCAN_SUMMARY' as const, reason: 'MACRO_RISK_OFF', replayMode: 'LATEST' as const }] : []),
+          ...((summary?.yahooFails ?? 0) > 0 ? [{ source: 'SCAN_SUMMARY' as const, reason: 'PROVIDER_ERROR', replayMode: 'LATEST' as const }] : []),
+          ...((summary?.waitDistribution?.sizingBlocked ?? 0) > 0 ? [{ source: 'SCAN_SUMMARY' as const, reason: 'SIZING', replayMode: 'LATEST' as const }] : []),
+          ...((summary?.waitDistribution?.gateFail ?? 0) > 0 ? [{ source: 'SCAN_SUMMARY' as const, reason: 'THRESHOLD', replayMode: 'LATEST' as const }] : []),
+          ...(summary?.emptyScanReason ? [{ source: 'SCAN_SUMMARY' as const, reason: summary.emptyScanReason, message: 'ADR-0119 empty scan reason', replayMode: 'LATEST' as const }] : []),
+        ]);
+        const replaySummary = summary?.weekendReplaySummaryAdr0501 ?? safeBuildWeekendReplaySummaryAdr0501({
+          records,
+          replayMode: 'LATEST',
+          totalScans: summary ? 1 : 0,
+          totalSymbols: summary?.candidates ?? 0,
+        });
+        if (replaySummary.totalRecords > 0) {
+          weekendReplaySectionAdr0501 = formatWeekendReplayCompactAdr0501(replaySummary, { maxCauses: 3 });
+        }
+      }
+    } catch (err) {
+      console.warn('[scan_blockers] ADR-0501 weekend replay section failed:', err);
+    }
+
     let adr0498FreshDataStatusSection: string | null = null;
     try {
       const adr0498 = safeBuildFreshDataStatusSectionAdr0498(
@@ -595,6 +625,7 @@ const scanBlockers: TelegramCommand = {
     if (livenessSection) parts.push(livenessSection);
     if (operatorActionSection) parts.push(operatorActionSection);
     if (emptyScanRootCauseSectionAdr0500) parts.push(emptyScanRootCauseSectionAdr0500);
+    if (weekendReplaySectionAdr0501) parts.push(weekendReplaySectionAdr0501);
     if (adr0498FreshDataStatusSection) parts.push(adr0498FreshDataStatusSection);
     if (supplyCoverageRecoveryLine) parts.push(supplyCoverageRecoveryLine);
     if (supplyAdvisoryReadinessLine) parts.push(supplyAdvisoryReadinessLine);
