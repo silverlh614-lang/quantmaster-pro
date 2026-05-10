@@ -26,6 +26,7 @@ export interface DataCompletenessSummary {
   generatedAt: string;
   items: DataCompletenessItem[];
   topIssues: string[];
+  actionHints: string[];
   nextCommands: string[];
 }
 
@@ -181,6 +182,27 @@ function buildTopIssues(items: DataCompletenessItem[]): string[] {
     .map((item) => `${item.name}: ${item.status}${item.detail ? ` — ${item.detail}` : ''}`);
 }
 
+function buildActionHints(items: DataCompletenessItem[]): string[] {
+  const hints: string[] = [];
+  const byName = new Map(items.map((item) => [item.name, item]));
+  const macro = byName.get('Macro');
+  const scan = byName.get('Scan');
+  const sector = byName.get('Sector');
+  const supply = byName.get('Supply');
+  const yahoo = byName.get('Yahoo');
+  const kis = byName.get('KIS');
+
+  if (macro?.status === 'STALE') hints.push('Macro stale → /refresh_macro');
+  if (macro?.status === 'MISSING') hints.push('Macro missing → /refresh_macro 후 /ops_status full 확인');
+  if (yahoo?.status === 'WAIT') hints.push('Yahoo wait → 스캔 전 상태, 장애 아님');
+  if (scan?.status === 'WAIT') hints.push('No scan yet → 다음 스캐너 주기 대기 또는 /scan_blockers');
+  if (sector?.status === 'WAIT') hints.push('Sector wait → 첫 스캔 후 /sector_energy_diag 확인');
+  if (supply?.status === 'WAIT') hints.push('Supply wait → 첫 스캔 후 /fresh_data_status 또는 /supply_health 확인');
+  if (kis?.status === 'MISSING') hints.push('KIS missing → 토큰/환경변수 확인 후 /ops_status full');
+
+  return hints.length > 0 ? hints.slice(0, 5) : ['No immediate action — observe next cycle'];
+}
+
 export function buildDataCompletenessSummary(now: Date = new Date()): DataCompletenessSummary {
   const items = buildItems(now.getTime());
   const verdict = deriveVerdict(items);
@@ -190,6 +212,7 @@ export function buildDataCompletenessSummary(now: Date = new Date()): DataComple
     generatedAt: now.toISOString(),
     items,
     topIssues: buildTopIssues(items),
+    actionHints: buildActionHints(items),
     nextCommands: ['/fresh_data_status', '/supply_health', '/sector_energy_diag', '/scan_blockers'],
   };
 }
@@ -214,7 +237,10 @@ export function formatDataCompletenessSummary(summary: DataCompletenessSummary, 
     '<b>Top issues</b>',
     ...(summary.topIssues.length > 0 ? summary.topIssues.map((issue) => `• ${issue}`) : ['• none']),
     '',
-    full ? `Next: ${summary.nextCommands.join(', ')}` : '상세: /data_completeness full',
+    '<b>Next actions</b>',
+    ...summary.actionHints.map((hint) => `• ${hint}`),
+    '',
+    full ? `More: ${summary.nextCommands.join(', ')}` : '상세: /data_completeness full',
     '<i>read-only; no provider fetch, no data promotion.</i>',
   ];
   return lines.join('\n');
