@@ -11,6 +11,11 @@
  */
 
 import { sendTelegramAlert } from '../../alerts/telegramClient.js';
+import {
+  buildEmptyScanRootCauseEventsFromStringsAdr0500,
+  safeBuildEmptyScanRootCauseDashboardAdr0500,
+  type EmptyScanRootCauseDashboardAdr0500,
+} from '../../diagnostics/emptyScanRootCauseDashboardAdr0500.js';
 import { appendScanTraces, type ScanTrace } from '../scanTracer.js';
 import {
   classifyEmptyScanReason,
@@ -286,6 +291,8 @@ export interface ScanSummary {
   waitDistribution?: WaitDistribution;
   macroGateState?: MacroGateState;
   emptyScanReason?: EmptyScanReason;
+  /** ADR-0500 — diagnostic-only Empty Scan Root Cause Dashboard snapshot. */
+  emptyScanRootCause?: EmptyScanRootCauseDashboardAdr0500;
   gatePassDistribution?: GatePassDistribution;
   sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
   validSectorCount?: number;
@@ -2226,6 +2233,38 @@ export async function persistScanResults(
     }));
   } catch (e) {
     console.warn('[ADR-0486/0487/0488/0491] Supply recovery/runtime/fresh data/SectorEnergy UNKNOWN build failed (engine unaffected):', e);
+  }
+
+  // ADR-0500 — Empty Scan Root Cause Dashboard snapshot. Diagnostic-only aggregation;
+  // no scan decision, stage, order path, or persisted provider data mutation.
+  try {
+    const rootCauseInputs: Array<{ source: 'SCAN_BLOCKER'; reason: string | null; message?: string; count?: number }> = [];
+    if (summaryDraft.emptyScanReason) {
+      rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: summaryDraft.emptyScanReason, message: describeEmptyScanReason(summaryDraft.emptyScanReason).label });
+    }
+    if (summaryDraft.macroGateState?.sellOnlyMode) rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: 'SELL_ONLY', count: 1 });
+    if (summaryDraft.macroGateState?.bearDefenseMode || summaryDraft.macroGateState?.vixGatingActive || summaryDraft.macroGateState?.mhsBelow30) {
+      rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: 'MACRO_RISK_OFF', count: 1 });
+    }
+    if (summaryDraft.waitDistribution?.sizingBlocked) rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: 'SIZING', count: summaryDraft.waitDistribution.sizingBlocked });
+    if (summaryDraft.waitDistribution?.gateFail) rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: 'THRESHOLD', count: summaryDraft.waitDistribution.gateFail });
+    if (summaryDraft.yahooFails > 0) rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: 'PROVIDER_ERROR', count: summaryDraft.yahooFails });
+    if (summaryDraft.sectorEnergyQuality && summaryDraft.sectorEnergyQuality !== 'OK') {
+      rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: 'SECTOR_ENERGY', count: 1, message: summaryDraft.sectorEnergyQuality });
+    }
+    if ((summaryDraft.positiveScoreStarvation?.totalCandidates ?? 0) > 0) {
+      rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: 'SCORE_STARVATION', count: summaryDraft.positiveScoreStarvation?.totalCandidates });
+    }
+    if (summaryDraft.entries === 0 || rootCauseInputs.length > 0) {
+      summaryDraft.emptyScanRootCause = safeBuildEmptyScanRootCauseDashboardAdr0500({
+        scanId: `scan-${kstNow.toISOString()}`,
+        at: kstNow.toISOString(),
+        events: buildEmptyScanRootCauseEventsFromStringsAdr0500(rootCauseInputs),
+        totalEmptyScans: summaryDraft.entries === 0 ? 1 : 0,
+      });
+    }
+  } catch (e) {
+    console.warn('[ADR-0500] Empty Scan Root Cause dashboard build failed (scan decisions unaffected):', e);
   }
 
   _lastScanSummary = summaryDraft;

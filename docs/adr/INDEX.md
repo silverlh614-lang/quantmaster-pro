@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0500`**
+**다음 ADR 번호: `0501`**
+
+(2026-05-10 기준, 마지막 발급 0500 — empty-scan-root-cause-dashboard. ADR-0500 — empty-scan-root-cause-dashboard. Aggregates standardized ADR-0497 GateFailureCause evidence into an Empty Scan Root Cause Dashboard for /scan_blockers and Runtime Pipeline Audit, distinguishing provider/data issues, execution/session blocks, threshold/scoring causes, and true risk signals while preserving executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes.)
 
 (2026-05-10 기준, 마지막 발급 0499 — provider-health-market-signal-classifier-migration. ADR-0499 — provider-health-market-signal-classifier-migration. Migrates provider/data-health interpretation paths to the ADR-0497 classifier so provider errors, empty/stale/missing data, and parse failures remain diagnostic provider issues rather than bearish market signals, preserving executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes.)
 
@@ -506,8 +508,9 @@
 | 0497 | diagnostic-taxonomy-gate-failure-attribution-ssot (diagnostic-only taxonomy SSOT for policy, data confidence, provider health, market signal separation, null/zero/missing/stale semantics, promotion readiness, Fresh Data status view models, and Gate failure attribution causes; classification-only with no live execution/Gate/Kelly/KIS/order/STRONG_BUY/stage behavior changes) | trading |
 | 0498 | fresh-data-status-view-model-wiring (display/view-model wiring of ADR-0497 FreshDataStatusViewModel into /fresh_data_status, /scan_blockers, Runtime Pipeline Audit, and promotion/operator diagnostics; compact normalized labels; executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes) | trading |
 | 0499 | provider-health-market-signal-classifier-migration (diagnostic-only migration helpers using ADR-0497 classifier; provider errors, empty/stale/missing data, and parse failures invalidate requested market signals rather than becoming bearish evidence; executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes) | trading |
+| 0500 | empty-scan-root-cause-dashboard (diagnostic-only Empty Scan Root Cause Dashboard using ADR-0497 GateFailureCause buckets for /scan_blockers and Runtime Pipeline Audit; separates provider/data issues, execution/session blocks, threshold/scoring causes, and true risk signals; executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes) | diagnostics |
 
-**총 발급 290 unique 번호** (마지막 발급 0499) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0500**.
+**총 발급 291 unique 번호** (마지막 발급 0500) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0501**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

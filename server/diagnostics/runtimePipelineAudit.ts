@@ -34,6 +34,12 @@ import {
   type FreshDataStatusViewModelInputAdr0498,
 } from './freshDataStatusViewModelWiringAdr0498.js';
 import type { FreshDataStatusViewModelAdr0497 } from './diagnosticTaxonomyAdr0497.js';
+import {
+  buildEmptyScanRootCauseEventsFromStringsAdr0500,
+  formatEmptyScanRootCauseCompactAdr0500,
+  safeBuildEmptyScanRootCauseDashboardAdr0500,
+  type EmptyScanRootCauseDashboardAdr0500,
+} from './emptyScanRootCauseDashboardAdr0500.js';
 
 export type RuntimePipelineStage =
   | 'NOT_RUN'
@@ -102,6 +108,8 @@ export interface RuntimePipelineAuditSnapshot {
   freshDataStatusViewModels?: FreshDataStatusViewModelAdr0497[];
   freshDataStatusCompactLines?: string[];
   freshDataStatusNormalizedCount?: number;
+  emptyScanRootCause?: EmptyScanRootCauseDashboardAdr0500;
+  emptyScanRootCauseCompact?: string;
   adr460Installed: false;
   supplyProviderHealth: { hasRecentSample: boolean; message: string };
   sectorEnergyHealth: {
@@ -335,6 +343,24 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   });
   const operatorActionEvidenceCount = operatorActionQueue.allActions.reduce((sum, action) => sum + action.evidenceCount, 0);
 
+  let emptyScanRootCause: EmptyScanRootCauseDashboardAdr0500 | undefined;
+  let emptyScanRootCauseCompact: string | undefined;
+  try {
+    emptyScanRootCause = summary?.emptyScanRootCause ?? safeBuildEmptyScanRootCauseDashboardAdr0500({
+      scanId: summary?.time ? `runtime-${summary.time}` : undefined,
+      events: buildEmptyScanRootCauseEventsFromStringsAdr0500(blockedBy.map((reason) => ({
+        source: 'RUNTIME_PIPELINE_AUDIT' as const,
+        reason,
+        count: 1,
+      }))),
+      totalEmptyScans: (summary?.entries ?? 0) === 0 ? 1 : 0,
+    });
+    emptyScanRootCauseCompact = formatEmptyScanRootCauseCompactAdr0500(emptyScanRootCause, { maxBuckets: 3 });
+  } catch {
+    emptyScanRootCause = undefined;
+    emptyScanRootCauseCompact = undefined;
+  }
+
   return {
     generatedAt: new Date().toISOString(),
     lastScanAt: summary?.time ?? null,
@@ -368,6 +394,8 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     freshDataStatusViewModels: freshDataStatusSectionAdr0498.viewModels,
     freshDataStatusCompactLines: freshDataStatusSectionAdr0498.lines,
     freshDataStatusNormalizedCount: freshDataStatusSectionAdr0498.viewModels.length,
+    ...(emptyScanRootCause ? { emptyScanRootCause } : {}),
+    ...(emptyScanRootCauseCompact ? { emptyScanRootCauseCompact } : {}),
     adr460Installed: false,
     supplyProviderHealth,
     sectorEnergyHealth,
@@ -413,6 +441,7 @@ export function formatRuntimePipelineAuditSection(snapshot: RuntimePipelineAudit
     `  • supplySnapshotStore: <code>${snapshot.supplySnapshotStoreDiagnosticLine}</code>`,
     `  • promotionAudit: <code>${snapshot.promotionAuditSummary}</code>`,
     `  • adr0498FreshDataStatus: <code>${snapshot.freshDataStatusCompactLines?.join(' | ') ?? 'none'}</code>`,
+    `  • adr0500EmptyScanRootCause: <code>${snapshot.emptyScanRootCauseCompact ?? 'none'}</code>`,
     `  • promotionAuditBlockers: <code>${snapshot.promotionAuditBlockers.join(', ') || 'none'}</code>`,
     '  • ADR-460: <code>not installed</code>',
     `  • reason: ${snapshot.operatorMessage}`,
@@ -433,6 +462,7 @@ export function formatRuntimePipelineAuditCompactLine(snapshot: RuntimePipelineA
     '  • ADR-460: <code>not installed</code>',
     `  • PromotionAudit: <code>${snapshot.promotionAuditSummary}</code>`,
     `  • ADR-0498 FreshDataStatus: <code>${snapshot.freshDataStatusNormalizedCount ?? 0}</code>`,
+    `  • ADR-0500 EmptyScan: <code>${snapshot.emptyScanRootCause?.topCause ?? 'NONE'}</code>`,
     `  • Safety: <code>${snapshot.livePathSafety.passed ? 'PASS' : 'FAIL'}</code>`,
   ].join('\n');
 }
@@ -471,6 +501,7 @@ export function formatRuntimePipelineAuditDetails(snapshot: RuntimePipelineAudit
     `  • promotionAuditReadyLines: <code>${snapshot.promotionAuditReadyLines.join(', ') || 'none'}</code>`,
     `  • promotionAuditBlockedLines: <code>${snapshot.promotionAuditBlockedLines.join(', ') || 'none'}</code>`,
     `  • adr0498FreshDataStatusLines: <code>${snapshot.freshDataStatusCompactLines?.join(' | ') ?? 'none'}</code>`,
+    `  • adr0500EmptyScanRootCause: <code>${snapshot.emptyScanRootCauseCompact ?? 'none'}</code>`,
     `  • promotionAuditBlockers: <code>${snapshot.promotionAuditBlockers.join(', ') || 'none'}</code>`,
     '  • ADR-460: <code>not installed</code>',
     `  • supplyProvider: ${snapshot.supplyProviderHealth.message}`,
