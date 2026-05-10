@@ -34,6 +34,7 @@ import './market.cmd.js';
 import './modeConsistency.cmd.js';
 import './operatorActions.cmd.js';
 import './opsStatus.cmd.js';
+import './orchWindow.cmd.js';
 import './execMatrix.cmd.js';
 import './execPaths.cmd.js';
 import './programMarket.cmd.js';
