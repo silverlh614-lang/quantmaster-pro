@@ -30,6 +30,12 @@ function formatShadowResolveReturnsStats(
     `• checked: signals=${coverage.checkedSignals}, lookups=${coverage.checkedLookups}`,
     `• cacheHits=${coverage.cacheHits}, cacheMisses=${coverage.cacheMisses}, unresolvedSignals=${coverage.unresolvedSignals}`,
   ];
+  if (coverage.sampleSnapshotKeys.length > 0) {
+    lines.push('• sampleSnapshotKeys:');
+    for (const key of coverage.sampleSnapshotKeys.slice(0, 5)) {
+      lines.push(`  - <code>${key}</code>`);
+    }
+  }
   if (coverage.sampleMissingTargets.length > 0) {
     lines.push('• sampleMissingTargets:');
     for (const target of coverage.sampleMissingTargets.slice(0, 5)) {

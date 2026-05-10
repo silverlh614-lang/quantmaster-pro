@@ -12,7 +12,7 @@ import {
   type ShadowFutureReturnHorizon,
 } from './shadowFutureReturnResolver.js';
 import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnlySignalRepo.js';
-import { getSnapshotSize } from '../persistence/offHoursSnapshotRepo.js';
+import { getSnapshotKeySamples, getSnapshotSize } from '../persistence/offHoursSnapshotRepo.js';
 import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import { readYahooSnapshotPoint } from './counterfactualShadowPriceProviderAdapter.js';
 import type { ShadowLearningOnlySignal } from '../trading/shadowLearningOnlyScan.js';
@@ -34,6 +34,7 @@ export interface ShadowFutureReturnCacheCoverageSummary {
   cacheMisses: number;
   unresolvedSignals: number;
   sampleMissingTargets: string[];
+  sampleSnapshotKeys: string[];
 }
 
 function dateKeyToUtcNoon(dateKey: string): Date {
@@ -151,6 +152,7 @@ export function buildShadowFutureReturnCacheCoverageSummary(
     cacheMisses,
     unresolvedSignals: unresolved.size,
     sampleMissingTargets,
+    sampleSnapshotKeys: getSnapshotKeySamples(sampleLimit),
   };
 }
 

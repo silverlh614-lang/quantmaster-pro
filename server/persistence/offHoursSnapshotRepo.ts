@@ -95,6 +95,14 @@ export function getSnapshotSize(): number {
   return _store.size;
 }
 
+/** 현재 snapshot key sample — read-only diagnostics. */
+export function getSnapshotKeySamples(limit = 20): string[] {
+  load();
+  const safeLimit = Math.max(0, Math.min(limit, 100));
+  if (safeLimit === 0) return [];
+  return Array.from(_store.keys()).slice(0, safeLimit);
+}
+
 /** 테스트 전용 — 메모리 + flush 타이머 리셋. */
 export function __resetForTests(): void {
   _store = new Map();
