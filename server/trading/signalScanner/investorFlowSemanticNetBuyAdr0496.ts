@@ -1,4 +1,4 @@
-// @responsibility ADR-0496 Investor Flow sample seed and semantic net-buy normalization; diagnostic-only, no live execution.
+// @responsibility ADR-0496 Investor Flow semantic net-buy normalization diagnostics.
 
 export type InvestorFlowProviderAdr0496 =
   | 'NAVER'

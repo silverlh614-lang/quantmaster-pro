@@ -1,4 +1,4 @@
-// @responsibility ADR-0498 FreshDataStatusViewModel wiring adapter; display-only, no live execution or persistence.
+// @responsibility ADR-0498 FreshDataStatusViewModel display adapter for read-only diagnostics.
 import {
   buildFreshDataStatusViewModelAdr0497,
   formatFreshDataStatusCompactAdr0497,

@@ -1,4 +1,4 @@
-// @responsibility ADR-0499 ProviderHealth vs MarketSignal classifier migration; diagnostic-only adapter with no live execution or persistence.
+// @responsibility ADR-0499 ProviderHealth MarketSignal classifier migration adapter.
 import {
   classifyProviderMarketSeparationAdr0497,
   type MarketSignalDirectionAdr0497,

@@ -1,4 +1,4 @@
-// @responsibility Reusable Yahoo historical fetch and off-hours snapshot write helper.
+// @responsibility Yahoo historical snapshot warmup helper.
 
 import { setSnapshot } from '../persistence/offHoursSnapshotRepo.js';
 import { guardedFetch } from '../utils/egressGuard.js';
