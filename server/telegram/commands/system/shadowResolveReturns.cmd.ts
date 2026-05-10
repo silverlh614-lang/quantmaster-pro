@@ -24,6 +24,7 @@ function formatShadowResolveReturnsStats(
     `• resolved: 1d=${stats.resolved1d}, 3d=${stats.resolved3d}, 5d=${stats.resolved5d}, 20d=${stats.resolved20d}`,
     `• skippedAlreadyResolved: ${stats.skippedAlreadyResolved}`,
     `• providerMisses: ${stats.providerMisses}`,
+    `• notYetDue: total=${stats.notYetDue}, 1d=${stats.notYetDue1d}, 3d=${stats.notYetDue3d}, 5d=${stats.notYetDue5d}, 20d=${stats.notYetDue20d}`,
     '',
     '🗃️ <b>Cache Coverage</b>',
     `• snapshotEntries: ${coverage.snapshotEntries}`,
