@@ -101,7 +101,7 @@ describe('shadowFutureReturnCacheProvider', () => {
     ]);
   });
 
-  it('reads first available Yahoo snapshot point for short horizon through suffix fallback', () => {
+  it('reads first available Yahoo snapshot point for short horizon through suffix fallback', async () => {
     mockedReadYahooSnapshotPoint
       .mockReturnValueOnce(null)
       .mockReturnValueOnce(null)
@@ -110,7 +110,7 @@ describe('shadowFutureReturnCacheProvider', () => {
       .mockReturnValueOnce({ price: 10100, observedAtKst: '2026-05-11T15:30:00+09:00', timestampMs: 1 });
     const provider = createShadowFutureReturnCachePriceProvider();
 
-    const result = provider({
+    const result = await provider({
       symbol: '061970',
       signalDate: '2026-05-08',
       horizon: '1d',
@@ -139,7 +139,7 @@ describe('shadowFutureReturnCacheProvider', () => {
     );
   });
 
-  it('uses longer range candidates for 20d horizon', () => {
+  it('uses longer range candidates for 20d horizon', async () => {
     mockedReadYahooSnapshotPoint.mockReturnValueOnce({
       price: 12000,
       observedAtKst: '2026-06-09T15:30:00+09:00',
@@ -147,7 +147,7 @@ describe('shadowFutureReturnCacheProvider', () => {
     });
     const provider = createShadowFutureReturnCachePriceProvider();
 
-    const result = provider({
+    const result = await provider({
       symbol: '005930',
       signalDate: '2026-05-08',
       horizon: '20d',
@@ -158,16 +158,18 @@ describe('shadowFutureReturnCacheProvider', () => {
     expect(mockedReadYahooSnapshotPoint.mock.calls[0]?.[2]).toBe('3mo');
   });
 
-  it('returns null when cache has no usable price', () => {
+  it('returns null when cache has no usable price', async () => {
     mockedReadYahooSnapshotPoint.mockReturnValue(null);
     const provider = createShadowFutureReturnCachePriceProvider();
 
-    expect(provider({
+    const result = await provider({
       symbol: '005930',
       signalDate: '2026-05-08',
       horizon: '5d',
       signal: {} as never,
-    })).toBeNull();
+    });
+
+    expect(result).toBeNull();
   });
 
   it('builds cache coverage summary with misses, suffix candidates, and snapshot samples', () => {
