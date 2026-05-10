@@ -28,6 +28,34 @@ function appendSection(
   });
 }
 
+function appendPolicyWatch(lines: string[], summary: ReturnType<typeof loadAndSummarizeShadowBlockedOutcomes>): void {
+  const { policyWatch } = summary;
+  if (
+    policyWatch.relaxCandidates.length === 0
+    && policyWatch.keepStrictCandidates.length === 0
+    && policyWatch.needMoreData.length === 0
+  ) return;
+
+  lines.push('');
+  lines.push('<b>Policy Watch</b>');
+  if (policyWatch.relaxCandidates.length > 0) {
+    lines.push('Relax candidate:');
+    policyWatch.relaxCandidates.slice(0, 3).forEach((row, idx) => {
+      lines.push(`${idx + 1}. ${formatOutcomeRow(row)}`);
+    });
+  }
+  if (policyWatch.keepStrictCandidates.length > 0) {
+    lines.push('Keep strict:');
+    policyWatch.keepStrictCandidates.slice(0, 3).forEach((row, idx) => {
+      lines.push(`${idx + 1}. ${formatOutcomeRow(row)}`);
+    });
+  }
+  if (policyWatch.needMoreData.length > 0) {
+    lines.push('Need more data:');
+    policyWatch.needMoreData.slice(0, 3).forEach((row) => lines.push(`- ${row}`));
+  }
+}
+
 const shadowBlockedOutcomes: TelegramCommand = {
   name: '/shadow_blocked_outcomes',
   aliases: ['/blocked_outcomes', '/shadow_blocks'],
@@ -51,6 +79,7 @@ const shadowBlockedOutcomes: TelegramCommand = {
       }
       const lines: string[] = [compact];
 
+      appendPolicyWatch(lines, summary);
       appendSection(lines, 'By blockedReason', summary.byBlockedReason);
       appendSection(lines, 'By blockedReason × signalGrade', summary.byBlockedReasonSignalGrade, 6);
       appendSection(lines, 'By blockedReason × macroBlockReason', summary.byBlockedReasonMacroBlockReason, 6);
