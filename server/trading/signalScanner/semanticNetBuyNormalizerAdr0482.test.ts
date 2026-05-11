@@ -111,6 +111,31 @@ describe('ADR-0482 Semantic Net-Buy Normalizer', () => {
     expect(normalizeSemanticNetBuySampleAdr0482(verifiedInput({ rawForeignNetBuy: 10, rawInstitutionNetBuy: -10 })).signal).toBe('NEUTRAL');
   });
 
+
+
+  it('accepts sanitized CACHE_STALE_HIT snapshot input as SHADOW_ONLY stale diagnostic sample', () => {
+    const report = buildSemanticNetBuyNormalizationReportAdr0482({
+      code: '012200',
+      inputs: [{
+        code: '012200',
+        provider: 'CACHE',
+        sourceDate: '2026-05-04',
+        rawForeignNetBuy: 100,
+        rawInstitutionNetBuy: 50,
+        rawProgramNetBuy: null,
+        unit: 'KRW',
+        status: 'STALE',
+        sourceAgeTradingDays: 4,
+        diagnostics: ['ADR-0491 sanitized CACHE snapshot consumed by ADR-0482 as SHADOW_ONLY input; raw payload not persisted.'],
+      }],
+    });
+
+    expect(report.samples[0]).toMatchObject({ provider: 'CACHE', status: 'STALE', signal: 'UNKNOWN', confidence: 'LOW', liveExecutionAllowed: false, executionImpact: 'NONE' });
+    expect(report.status).toBe('STALE');
+    expect(report.selectedSample).toBeNull();
+    expect(JSON.stringify(report)).not.toMatch(/rawPayload|SECRET|providerPayload/i);
+  });
+
   it('stale and missing/provider issue data never become bullish or bearish incorrectly', () => {
     const stale = normalizeSemanticNetBuySampleAdr0482(verifiedInput({ sourceAgeTradingDays: 4 }));
     const missing = normalizeSemanticNetBuySampleAdr0482(verifiedInput({ rawForeignNetBuy: null, rawInstitutionNetBuy: null }));
@@ -149,8 +174,8 @@ describe('ADR-0482 Semantic Net-Buy Normalizer', () => {
 
   it('ADR-0477 consumes ADR-0482 selected sample', () => {
     const route = buildInvestorFlowProviderRouteResultAdr0477({ code: '005930', semanticNetBuyNormalizationAdr0482: positiveReport() });
-    expect(route.selectedProvider).toBe('NAVER');
-    expect(route.semanticNetBuy?.source).toBe('NAVER');
+    expect(route.selectedProvider).toBe('SEMANTIC_NETBUY');
+    expect(route.semanticNetBuy?.source).toBe('NAVER_INVESTOR_TREND');
     expect(route.signal).toBe('BULLISH');
     expect(route.policyPromotionMode).toBe('SHADOW_ONLY');
   });

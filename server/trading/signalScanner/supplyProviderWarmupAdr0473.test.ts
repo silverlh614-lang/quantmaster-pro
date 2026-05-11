@@ -8,6 +8,7 @@ import {
   formatSupplyProviderWarmupCompactLine,
   isSemanticNetBuyProvider,
   makeInvestorFlowProviderHealth,
+  summarizeInvestorFlowProviderHealth,
 } from '../../supply/investorFlowProviderHealth.js';
 
 const source = () => readFileSync(
@@ -171,6 +172,74 @@ describe('ADR-0473 Supply Provider Warmup', () => {
     expect(text).toContain('marketSignal=false');
     expect(text).toContain('executionImpact=NONE');
     expect(report.shadowObservableAllowed).toBe(true);
+  });
+
+
+
+
+
+  it('aligns top provider health summary with router-aware CACHE_STALE_HIT and avoids legacy contradictions', () => {
+    const health = [
+      makeInvestorFlowProviderHealth({ provider: 'KRX', status: 'MARKET_CLOSED', reason: 'closed', now: new Date('2026-05-11T00:00:00.000Z') }),
+      makeInvestorFlowProviderHealth({ provider: 'NAVER', status: 'NOT_WIRED', reason: 'legacy no sample', now: new Date('2026-05-11T00:00:00.000Z') }),
+      makeInvestorFlowProviderHealth({ provider: 'CACHE', status: 'CACHE_EMPTY', reason: 'legacy empty cache', now: new Date('2026-05-11T00:00:00.000Z') }),
+      makeInvestorFlowProviderHealth({ provider: 'COMPOSITE', status: 'PROVIDER_UNAVAILABLE', reason: 'legacy unavailable', now: new Date('2026-05-11T00:00:00.000Z'), semanticAvailable: false, dataAvailable: false }),
+    ];
+    const text = summarizeInvestorFlowProviderHealth(health, {
+      status: 'STALE',
+      selectedProvider: 'CACHE',
+      selectedReason: 'ADR-0491 sanitized snapshot cache selected: CACHE_STALE_HIT',
+      providerTried: ['NAVER', 'SEMANTIC_NETBUY', 'CACHE'],
+      providerStatuses: { NAVER: 'NON_TRADING_DAY', SEMANTIC_NETBUY: 'DATA_UNAVAILABLE', CACHE: 'CACHE_STALE_HIT' },
+      signal: 'UNKNOWN',
+      coverage: { available: 1, total: 7 },
+      executionImpact: 'NONE',
+      liveExecutionAllowed: false,
+    });
+
+    expect(text).toContain('- NAVER: NON_TRADING_DAY');
+    expect(text).toContain('- Semantic NetBuy: DATA_UNAVAILABLE / NO_INPUT_SAMPLE');
+    expect(text).toContain('- CACHE: CACHE_STALE_HIT');
+    expect(text).toContain('- selectedProvider: CACHE');
+    expect(text).toContain('- supply_confluence: UNKNOWN / STALE_DIAGNOSTIC, not failed');
+    expect(text).toContain('- liveStrongBuyAllowed: false');
+    expect(text).toContain('- shadowObservableAllowed: true');
+    expect(text).not.toContain('- NAVER: NOT_WIRED');
+    expect(text).not.toContain('- Semantic NetBuy: NOT_WIRED');
+    expect(text).not.toContain('- CACHE: CACHE_EMPTY');
+    expect(text).not.toContain('BEARISH');
+  });
+
+  it('aligns SupplyHealth warmup display with router CACHE_STALE_HIT selection', () => {
+    const report = buildSupplyProviderWarmupReport({
+      investorFlowRouter: {
+        status: 'STALE',
+        selectedProvider: 'CACHE',
+        selectedReason: 'ADR-0491 sanitized snapshot cache selected: CACHE_STALE_HIT',
+        providerTried: ['NAVER', 'SEMANTIC_NETBUY', 'CACHE', 'KIS', 'KRX', 'FSS'],
+        providerStatuses: { NAVER: 'NOT_WIRED', SEMANTIC_NETBUY: 'DATA_UNAVAILABLE', CACHE: 'CACHE_STALE_HIT', KIS: 'PROVIDER_MISMATCH' },
+        signal: 'UNKNOWN',
+        coverage: { available: 1, total: 7 },
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+      },
+    });
+    const text = formatSupplyProviderWarmupCompactLine(report);
+
+    expect(report.cacheStatus).toBe('CACHE_STALE_HIT');
+    expect(report.naverStatus).toBe('DATA_UNAVAILABLE');
+    expect(report.semanticNetBuyCollectorStatus).toBe('WIRED');
+    expect(text).toContain('CACHE: CACHE_STALE_HIT');
+    expect(text).toContain('selectedProvider: CACHE');
+    expect(text).toContain('selectedReason: ADR-0491 sanitized snapshot cache selected: CACHE_STALE_HIT');
+    expect(text).toContain('Semantic NetBuy: DATA_UNAVAILABLE / NO_INPUT_SAMPLE');
+    expect(text).toContain('NAVER: DATA_UNAVAILABLE');
+    expect(text).toContain('supply_confluence: UNKNOWN / STALE_DIAGNOSTIC, not bearish');
+    expect(text).toContain('liveStrongBuyAllowed=false');
+    expect(text).not.toContain('CACHE: CACHE_EMPTY');
+    expect(text).not.toContain('NAVER: NOT_WIRED');
+    expect(report.liveExecutionAllowed).toBe(false);
+    expect(report.executionImpact).toBe('NONE');
   });
 
   it('/scan_blockers appends the ADR-0473 warmup section without raw Telegram HTML', () => {
