@@ -55,6 +55,10 @@ export type InvestorFlowProviderStatus =
   | 'EMPTY'
   | 'PARSE_ERROR'
   | 'PROVIDER_ERROR'
+  | 'PROVIDER_EMPTY_RESPONSE'
+  | 'PARSER_KEY_MISMATCH'
+  | 'PARSER_FIELD_MISMATCH'
+  | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE'
   | 'DISABLED'
   | 'REGISTRY_READY_NOT_MATERIALIZED'
   | 'NO_INPUT_SAMPLE'
@@ -146,6 +150,17 @@ export interface InvestorFlowProviderRouteResult {
   selectedDiagnosticReason?: string | null;
   selectedForLive?: false;
   selectedForShadow?: boolean;
+  krxSourceRepairDiagnostic?: {
+    parserStatus?: string;
+    endpointIssueHint?: string;
+    tradeDate?: string;
+    previousTradingDateCandidate?: string;
+    contentType?: string;
+    responseKind?: string;
+    selectedRowCount?: number;
+    normalizedRows?: number;
+    summary?: string;
+  } | null;
   materializationDiagnostics?: Partial<Record<InvestorSampleProviderNameAdr0502, InvestorSampleDiagnosticsAdr0502>>;
   rejectedProviders?: InvestorFlowProviderId[];
   rejectedReasonByProvider?: Record<string, string>;
@@ -171,6 +186,25 @@ export interface InvestorFlowProviderRouterInput {
   kisInvestorRaw?: Record<string, unknown> | null;
   krxInvestorRaw?: Record<string, unknown> | null;
   previousTradingDayKrxRaw?: Record<string, unknown> | null;
+  krxInvestorDiagnosticAdr0505?: {
+    parserStatus?: string;
+    endpointIssueHint?: string;
+    endpoint?: string;
+    bld?: string;
+    tradeDate?: string;
+    previousTradingDateCandidate?: string;
+    contentType?: string;
+    httpStatus?: number | null;
+    responseKind?: string;
+    rawTopLevelKeys?: readonly string[];
+    detectedCandidatePaths?: readonly string[];
+    selectedRowPath?: string | null;
+    selectedRowCount?: number;
+    firstRowKeys?: readonly string[];
+    normalizedRows?: number;
+    fieldMappings?: Record<string, string | null>;
+    summary?: string;
+  } | null;
   fssPassiveActiveRaw?: Record<string, unknown> | null;
   kisTriedForInvestorFlow?: boolean;
   nonTradingDay?: boolean;
@@ -517,7 +551,7 @@ function coverageFromStatuses(statuses: Record<string, InvestorFlowProviderStatu
   return {
     available: values.filter((status) => status === 'VERIFIED' || status === 'PARTIAL' || status === 'DEGRADED' || status === 'READY_FOR_SHADOW' || status === 'OBSERVING' || status === 'CACHE_HIT' || status === 'CACHE_STALE_HIT').length,
     total: values.length,
-    missing: values.filter((status) => status === 'DATA_UNAVAILABLE' || status === 'NON_TRADING_DAY' || status === 'EMPTY' || status === 'PARSE_ERROR' || status === 'PROVIDER_ERROR' || status === 'DISABLED').length,
+    missing: values.filter((status) => status === 'DATA_UNAVAILABLE' || status === 'NON_TRADING_DAY' || status === 'EMPTY' || status === 'PARSE_ERROR' || status === 'PROVIDER_ERROR' || status === 'PROVIDER_EMPTY_RESPONSE' || status === 'PARSER_KEY_MISMATCH' || status === 'PARSER_FIELD_MISMATCH' || status === 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE' || status === 'DISABLED').length,
     stale: values.filter((status) => status === 'STALE' || status === 'DEGRADED').length,
     acceptedEmpty: values.filter((status) => status === 'ACCEPTED_EMPTY').length,
     providerMismatch: values.filter((status) => status === 'PROVIDER_MISMATCH').length,
@@ -649,6 +683,43 @@ function cacheLookupStatusAdr0477(status: SupplySnapshotCacheLookupAdr0491['stat
   if (status === 'CACHE_KEY_MISMATCH') return 'CACHE_KEY_MISMATCH';
   if (status === 'CACHE_EMPTY') return 'CACHE_EMPTY';
   return 'ERROR';
+}
+
+function krxDiagnosticStatusAdr0477(status: string | undefined): InvestorFlowProviderStatus {
+  if (status === 'OK') return 'VERIFIED';
+  if (status === 'PROVIDER_EMPTY_RESPONSE') return 'PROVIDER_EMPTY_RESPONSE';
+  if (status === 'PARSER_KEY_MISMATCH') return 'PARSER_KEY_MISMATCH';
+  if (status === 'PARSER_FIELD_MISMATCH') return 'PARSER_FIELD_MISMATCH';
+  if (status === 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE') return 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE';
+  return 'DATA_UNAVAILABLE';
+}
+
+function formatKrxRepairDiagnosticAdr0477(input: NonNullable<InvestorFlowProviderRouterInput['krxInvestorDiagnosticAdr0505']>): string {
+  const fieldMappings = input.fieldMappings
+    ? Object.entries(input.fieldMappings).map(([key, value]) => `${key}:${value ?? 'NONE'}`).join(',')
+    : 'NONE';
+  return [
+    `KRX_INVESTOR_FLOW ${input.parserStatus ?? 'DATA_UNAVAILABLE'}`,
+    `endpoint=${input.endpoint ?? 'MDCSTAT02203'}`,
+    `bld=${input.bld ?? 'UNKNOWN'}`,
+    `tradeDate=${input.tradeDate ?? 'UNKNOWN'}`,
+    `previousTradingDateCandidate=${input.previousTradingDateCandidate ?? 'UNKNOWN'}`,
+    'marketCode=ALL',
+    'symbolCodeFormat=6_DIGIT',
+    `contentType=${input.contentType ?? 'unknown'}`,
+    `responseKind=${input.responseKind ?? 'UNKNOWN'}`,
+    `httpStatus=${input.httpStatus ?? 'NONE'}`,
+    `endpointIssueHint=${input.endpointIssueHint ?? 'UNKNOWN'}`,
+    `rawTopLevelKeys=${input.rawTopLevelKeys?.join(',') || 'NONE'}`,
+    `responseKeySummary=${input.detectedCandidatePaths?.join(',') || 'NONE'}`,
+    `selectedRowPath=${input.selectedRowPath ?? 'NONE'}`,
+    `selectedRowCount=${input.selectedRowCount ?? 0}`,
+    `normalizedRows=${input.normalizedRows ?? 0}`,
+    `firstRowKeys=${input.firstRowKeys?.join(',') || 'NONE'}`,
+    `fieldMappings=${fieldMappings}`,
+    'providerIssue=true',
+    'marketSignal=false',
+  ].join('; ');
 }
 
 function sampleFromCacheLookupAdr0491(
@@ -1060,6 +1131,14 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     providerReasons.KRX_INVESTOR_FLOW = input.previousTradingDayKrxRaw
       ? 'KRX previousTradingDate materialized investor-flow row selected as SHADOW_ONLY diagnostic candidate.'
       : 'KRX materialized investor-flow row selected as SHADOW_ONLY diagnostic candidate.';
+  } else if (input.krxInvestorDiagnosticAdr0505) {
+    const krxStatus = krxDiagnosticStatusAdr0477(input.krxInvestorDiagnosticAdr0505.parserStatus);
+    const krxReason = formatKrxRepairDiagnosticAdr0477(input.krxInvestorDiagnosticAdr0505);
+    providerStatuses.KRX_INVESTOR_FLOW = krxStatus;
+    providerStatuses.KRX = krxStatus;
+    providerReasons.KRX_INVESTOR_FLOW = krxReason;
+    providerReasons.KRX = krxReason;
+    diagnostics.push(krxReason);
   }
 
   if (input.kisInvestorRaw) {
@@ -1265,7 +1344,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     ...ROUTER_POLICY,
     selectedReason,
     inputSources,
-    cacheFallbackUsed: selectedSemanticNetBuy?.source === 'CACHE',
+    cacheFallbackUsed: selectedProvider === 'CACHE' || selectedSemanticNetBuy?.source === 'CACHE',
     semanticInputStatus: providerStatuses.SEMANTIC_NETBUY ?? 'DATA_UNAVAILABLE',
     naverSampleStatus: providerStatuses.NAVER_INVESTOR_TREND ?? providerStatuses.NAVER ?? 'DATA_UNAVAILABLE',
     naverReadinessKind: naverFreshDataSnapshot?.readinessKind,
@@ -1284,6 +1363,19 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     selectedDiagnosticReason,
     selectedForLive: false,
     selectedForShadow: selectedProvider !== 'NONE',
+    krxSourceRepairDiagnostic: input.krxInvestorDiagnosticAdr0505
+      ? {
+          parserStatus: input.krxInvestorDiagnosticAdr0505.parserStatus,
+          endpointIssueHint: input.krxInvestorDiagnosticAdr0505.endpointIssueHint,
+          tradeDate: input.krxInvestorDiagnosticAdr0505.tradeDate,
+          previousTradingDateCandidate: input.krxInvestorDiagnosticAdr0505.previousTradingDateCandidate,
+          contentType: input.krxInvestorDiagnosticAdr0505.contentType,
+          responseKind: input.krxInvestorDiagnosticAdr0505.responseKind,
+          selectedRowCount: input.krxInvestorDiagnosticAdr0505.selectedRowCount,
+          normalizedRows: input.krxInvestorDiagnosticAdr0505.normalizedRows,
+          summary: input.krxInvestorDiagnosticAdr0505.summary,
+        }
+      : null,
     materializationDiagnostics,
     rejectedProviders,
     rejectedReasonByProvider,
@@ -1332,6 +1424,7 @@ export function formatInvestorFlowProviderRouterAdr0477(
     `- selectedDiagnosticReason: ${result.selectedDiagnosticReason ?? 'NONE'}`,
     `- selectedForLive: ${result.selectedForLive ?? false}`,
     `- selectedForShadow: ${result.selectedForShadow ?? result.selectedProvider !== 'NONE'}`,
+    `- krxSourceRepair: ${result.krxSourceRepairDiagnostic?.summary ?? result.krxSourceRepairDiagnostic?.parserStatus ?? 'NONE'}`,
     `- semanticInputStatus: ${result.semanticInputStatus ?? result.providerStatuses.SEMANTIC_NETBUY ?? 'DATA_UNAVAILABLE'}`,
     `- naverSampleStatus: ${result.naverSampleStatus ?? result.providerStatuses.NAVER_INVESTOR_TREND ?? result.providerStatuses.NAVER ?? 'DATA_UNAVAILABLE'}`,
     `- naverReadinessKind: ${result.naverReadinessKind ?? 'UNKNOWN'}`,

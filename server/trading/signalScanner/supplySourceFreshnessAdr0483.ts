@@ -1,7 +1,7 @@
 // @responsibility ADR-0483 supply source freshness dual-clock diagnostics; SHADOW_ONLY refresh recommendations only.
 import { isTradingDay } from '../../utils/marketDayClassifier.js';
 
-export type SupplyFreshnessSourceAdr0483 = 'FSS' | 'SHORT_CREDIT' | 'NAVER' | 'KIS_PROGRAM' | 'SEMANTIC_NETBUY' | 'CACHE' | 'UNKNOWN';
+export type SupplyFreshnessSourceAdr0483 = 'FSS' | 'SHORT_CREDIT' | 'NAVER' | 'KRX' | 'KIS_PROGRAM' | 'SEMANTIC_NETBUY' | 'CACHE' | 'UNKNOWN';
 export type SupplyFreshnessClockStateAdr0483 = 'FRESH' | 'STALE' | 'MISSING' | 'UNKNOWN';
 export type SupplyFreshnessStatusAdr0483 = 'FRESH' | 'CACHE_ONLY_FRESH' | 'SOURCE_STALE' | 'SOURCE_MISSING' | 'NON_TRADING_DAY' | 'REFRESH_RECOMMENDED' | 'PROVIDER_ERROR' | 'UNKNOWN';
 export type SupplyFreshnessRefreshStatusAdr0483 = 'NOT_NEEDED' | 'RECOMMENDED' | 'DRY_RUN_RECORDED' | 'SKIPPED_NON_TRADING_DAY' | 'PROVIDER_FAILED';
