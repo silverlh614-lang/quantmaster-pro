@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { DataPromotionAuditInput } from '../../../src/types/dataPromotion.types.js';
 import { buildInvestorFlowSampleAcquisitionReportAdr0489 } from './investorFlowSampleAcquisitionAdr0489.js';
 import { buildProgramTradingDataLineReportAdr0490 } from './programTradingDataLineAdr0490.js';
@@ -118,10 +121,11 @@ describe('ADR-0494 Fresh Data Promotion Audit Wiring', () => {
   });
 
   it('promotion_wiring_execution_impact_none', () => {
-    const snapshot = recordSupplySnapshotAdr0491({ filePath: `/tmp/qmp-adr0494-${Date.now()}.json`, scanId: 'scan-1', maxSnapshots: 3 });
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qmp-adr0494-'));
+    const snapshot = recordSupplySnapshotAdr0491({ filePath: path.join(tmpDir, `snapshot-${Date.now()}.json`), scanId: 'scan-1', maxSnapshots: 3 });
     const scheduler = runFreshDataSchedulerAdr0492({
       now: '2026-05-09T00:00:00.000Z',
-      filePath: `/tmp/qmp-adr0494-scheduler-${Date.now()}.json`,
+      filePath: path.join(tmpDir, `scheduler-${Date.now()}.json`),
       providerInputs: [{ providerId: 'NAVER', health: 'UP', sampleCount: 1 }],
     });
     const inputs = [

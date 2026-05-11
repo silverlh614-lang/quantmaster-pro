@@ -105,6 +105,21 @@ describe('ADR-0500 Empty Scan Root Cause Dashboard', () => {
     expect(text).not.toContain('SECRET');
   });
 
+  it('does not present dominant SELL_ONLY as gate tightness', () => {
+    const dashboard = buildEmptyScanRootCauseDashboardAdr0500({
+      events: [
+        { source: 'SCAN_BLOCKER', cause: 'SELL_ONLY_BLOCK', count: 8 },
+        { source: 'ENTRY_FILTER_DECOMPOSITION', cause: 'THRESHOLD_TOO_STRICT', count: 2 },
+      ],
+    });
+    const text = formatEmptyScanRootCauseCompactAdr0500(dashboard, { maxBuckets: 2 });
+
+    expect(dashboard.topCause).toBe('SELL_ONLY_BLOCK');
+    expect(text).toContain('note=SELL_ONLY dominant; order-blocked diagnostic, not GATE_TIGHT');
+    expect(dashboard.executionImpact).toBe('NONE');
+    expect(dashboard.liveExecutionAllowed).toBe(false);
+  });
+
   it('formats detail with sources and truncated sanitized samples', () => {
     const dashboard = buildEmptyScanRootCauseDashboardAdr0500({
       events: [{ source: 'SCAN_BLOCKER', cause: 'PROVIDER_ERROR', message: `payload: SECRET ${'x'.repeat(120)}` }],
@@ -142,6 +157,6 @@ describe('ADR-0500 Empty Scan Root Cause Dashboard', () => {
     expect(runtimeAuditSource).toContain('emptyScanRootCause?: EmptyScanRootCauseDashboardAdr0500');
     expect(runtimeAuditSource).toContain('emptyScanRootCauseCompact?: string');
     expect(scanDiagnosticsSource).toContain('emptyScanRootCause?: EmptyScanRootCauseDashboardAdr0500');
-    expect(scanDiagnosticsSource).toContain('try {\n    const rootCauseInputs');
+    expect(scanDiagnosticsSource.replace(/\r\n/g, '\n')).toContain('try {\n    const rootCauseInputs');
   });
 });
