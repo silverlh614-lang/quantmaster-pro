@@ -9,8 +9,10 @@ import {
   formatSupplySnapshotDetailAdr0491,
   recordSupplySnapshotAdr0491,
   replaySupplySnapshotsAdr0491,
+  readLatestSupplySnapshotBySymbolSourceDomainAdr0491,
 } from './supplySnapshotStoreReplayAdr0491.js';
 import { buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
+import { buildInvestorFlowSampleAcquisitionReportAdr0489 } from './investorFlowSampleAcquisitionAdr0489.js';
 import { buildProgramTradingDataLineReportAdr0490 } from './programTradingDataLineAdr0490.js';
 
 const tempFiles: string[] = [];
@@ -131,6 +133,45 @@ describe('ADR-0491 supply snapshot store and replay', () => {
     expect(replaySupplySnapshotsAdr0491({ filePath, mode: 'BY_SCAN_ID', scanId: 'scan-2' }).snapshots).toHaveLength(1);
     expect(replaySupplySnapshotsAdr0491({ filePath, mode: 'BY_DATE', tradingDate: '2026-05-09' }).snapshots[0]?.scanId).toBe('scan-3');
     expect(replaySupplySnapshotsAdr0491({ filePath, mode: 'WINDOW', fromDate: '2026-05-08', toDate: '2026-05-09' }).snapshots).toHaveLength(2);
+  });
+
+
+
+  it('looks up retained sanitized supply snapshots by symbol/source/domain and distinguishes stale hits from cache empty', () => {
+    const filePath = tempFile();
+    const report = buildInvestorFlowSampleAcquisitionReportAdr0489({
+      generatedAt: '2026-05-08T00:00:00.000Z',
+      samples: [{ symbol: '005930', provider: 'NAVER', sourceDate: '2026-05-08', foreignNetBuy: 100, institutionNetBuy: 50, status: 'SAMPLE_READY' }],
+    });
+    recordSupplySnapshotAdr0491({
+      filePath,
+      scanId: 'scan-supply-sample',
+      recordedAt: '2026-05-08T00:00:00.000Z',
+      tradingDate: '2026-05-08',
+      investorFlowSampleAdr0489: report,
+    });
+
+    const staleHit = readLatestSupplySnapshotBySymbolSourceDomainAdr0491({
+      filePath,
+      symbol: '005930',
+      source: 'NAVER',
+      domain: 'SUPPLY',
+      tradingDate: '2026-05-11',
+    });
+    expect(staleHit.status).toBe('STALE_HIT');
+    expect(staleHit.cacheRaw?.foreignNetBuy).toBe(100);
+    expect(staleHit.liveExecutionAllowed).toBe(false);
+    expect(staleHit.rawPayloadPersistenceAllowed).toBe(false);
+
+    const miss = readLatestSupplySnapshotBySymbolSourceDomainAdr0491({
+      filePath,
+      symbol: '000660',
+      source: 'NAVER',
+      domain: 'SUPPLY',
+      tradingDate: '2026-05-11',
+    });
+    expect(miss.status).toBe('CACHE_EMPTY');
+    expect(miss.reason).toBe('KEY_MISMATCH_OR_SYMBOL_SOURCE_NOT_FOUND');
   });
 
   it('recovers corrupt JSON without throwing and exposes compact/detail formatters', () => {

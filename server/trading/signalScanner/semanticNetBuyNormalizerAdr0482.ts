@@ -346,7 +346,7 @@ export function buildSemanticNetBuyNormalizationReportAdr0482(
     ...ADR_0482_POLICY,
     diagnostics: selectedSample
       ? [`ADR-0482 selected ${selectedSample.provider} semantic sample.`, `status=${selectedSample.status}`, `signal=${selectedSample.signal}`]
-      : ['ADR-0482 normalizer found no usable semantic sample.', 'UNKNOWN/provider issue is not bearish.'],
+      : [input.inputs?.length ? 'ADR-0482 normalizer found no usable semantic sample.' : 'INPUT_SAMPLE_UNAVAILABLE', 'UNKNOWN/provider issue is not bearish.'],
   };
 }
 
